@@ -4,7 +4,6 @@
 ' Header file for brushes functions.
 '
 ' @todo
-' @depends ../CFG/CONFIG.BI
 ' @author Rick Christy <grymmjack@gmail.com>
 '
 
@@ -18,6 +17,7 @@ TYPE DRAW_BRUSH
     W   AS INTEGER
     H   AS INTEGER
 END TYPE
+
 
 TYPE DRAW_BRUSHES
     IDX   AS INTEGER
