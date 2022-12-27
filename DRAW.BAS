@@ -8,9 +8,9 @@
 ' @author Rick Christy <grymmjack@gmail.com>
 '
 
-' $IF ALL_BI = UNDEFINED THEN 
-' '$INCLUDE:'./_ALL.BI'
-' $END IF
+$IF ALL_BI = UNDEFINED THEN 
+'$INCLUDE:'./_ALL.BI'
+$END IF
 
 
 
