@@ -3,8 +3,6 @@
 ' =============================================================================
 ' Default theme for DRAW.
 '
-' @depends ../../../CFG/CONFIG-THEME.BI
-' @see ../../../CFG/CONFIG-THEME.BI for documentation
 ' @author Rick Christy <grymmjack@gmail.com>
 '
 
