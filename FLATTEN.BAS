@@ -15,9 +15,9 @@ If target$ = "" Then
 End If
 
 Open outfile$ For Output As #1
-OpenFile target$
+MergeFile target$
 
-Sub OpenFile (whatfile$)
+Sub MergeFile (whatfile$)
     f = FreeFile
     CurrentDir$ = _CWD$
     i = _InStrRev(whatfile$, Slash$)
@@ -26,18 +26,23 @@ Sub OpenFile (whatfile$)
         ChDir newdir$
         whatfile$ = Mid$(whatfile$, i + 1)
     End If
+    Print whatfile$
     Open whatfile$ For Binary As #f
-    Do
-        Line Input #f, temp$
-        If Left$(UCase$(_Trim$(temp$)), 11) = "'$INCLUDE:'" Then
-            temp$ = _Trim$(temp$)
-            file$ = Mid$(temp$, 12)
-            file$ = Left$(file$, Len(file$) - 1)
-            OpenFile file$
-        Else
-            Print #1, temp$
-        End If
-    Loop Until EOF(f)
+    If LOF(f) Then
+        Do
+            Line Input #f, temp$
+            If Left$(UCase$(_Trim$(temp$)), 11) = "'$INCLUDE:'" Then
+                temp$ = _Trim$(temp$)
+                file$ = Mid$(temp$, 12)
+                file$ = Left$(file$, Len(file$) - 1)
+                MergeFile file$
+            Else
+                Print #1, temp$
+            End If
+        Loop Until EOF(f)
+    End If
     ChDir CurrentDir$
+    IF LOF(f) = 0 THEN killempty = 1 ELSE killempty = 0
     Close #f
+    if killempty = 1 THEN KILL whatfile$
 End Sub
