@@ -16,9 +16,9 @@ $END IF
 
 ' Main Loop
 DO:   
-    __LOOP_start
+    LOOP_start
 
-    CALL MOUSE_input_handler
+    MOUSE_input_handler
     KEYBOARD_input_handler
     STICK_input_handler
 
@@ -30,7 +30,7 @@ DO:
     KEYBOARD_input_handler_loop
     STICK_input_handler_loop
 
-    __LOOP_end
+    LOOP_end
 LOOP UNTIL k&=27
 MAIN_shutdown
 
@@ -39,7 +39,7 @@ MAIN_shutdown
 ''
 ' Runs at the start of the loop before any other code
 ' 
-SUB __LOOP_start ()
+SUB LOOP_start ()
     DELAY .001
 END SUB
 
@@ -47,7 +47,7 @@ END SUB
 ''
 ' Runs at the end of the loop just before next iteration
 ' 
-SUB __LOOP_end ()
+SUB LOOP_end ()
     IF PAINT_COLOR% > 15 THEN PAINT_COLOR% = 15
     IF PAINT_COLOR% < 0  THEN PAINT_COLOR% = 0
 END SUB
