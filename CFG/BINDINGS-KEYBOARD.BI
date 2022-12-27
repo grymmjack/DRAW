@@ -14,8 +14,6 @@ $IF CONFIG_KEYBOARD_BI = UNDEFINED THEN
 '$INCLUDE:'./CONFIG-KEYBOARD.BI'
 $END IF
 
-DIM SHARED KB AS DRAW_KEYBOARD_BINDINGS
-
 ' +=SHIFT @=ALT ^=CTRL #=NUMPAD %=FKEY [stuff]=Special key
 ' TOOLS -----------------------------------------------------------------------
 KB.BRUSH$                 = "b"

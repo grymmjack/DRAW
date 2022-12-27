@@ -14,8 +14,6 @@ $IF CONFIG_MOUSE_BI = UNDEFINED THEN
 '$INCLUDE:'./CONFIG-MOUSE.BI'
 $END IF
 
-DIM SHARED MB AS DRAW_MOUSE_BINDINGS
-
 ' +=SHIFT @=ALT ^=CTRL #=NUMPAD %=FKEY [stuff]=Special key  *=MOUSE L|M|R|WU|WD
 ' MODIFIERS -------------------------------------------------------------------
 MB.PAN$                   = "*M"    'Middle click and hold

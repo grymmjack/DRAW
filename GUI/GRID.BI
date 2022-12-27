@@ -23,3 +23,7 @@ TYPE DRAW_GRID
     vStyle     AS INTEGER   ' Vertical style &B0000111100001111 (16 bits)
     imgHandle  AS LONG      ' Grid image handle
 END TYPE
+
+DIM SHARED GRID AS DRAW_GRID
+
+GRID_init

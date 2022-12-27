@@ -6,10 +6,6 @@
 ' @author Rick Christy <grymmjack@gmail.com>
 '
 
-$IF ALL_BI = UNDEFINED THEN
-    $LET ALL_BI = 1
-$END IF
-
 ' COMMON ----------------------------------------------------------------------
 '$INCLUDE:'./_COMMON.BI'
 
@@ -19,6 +15,9 @@ $END IF
 '$INCLUDE:'./CFG/CONFIG-KEYBOARD.BI'
 '$INCLUDE:'./CFG/CONFIG-MOUSE.BI'
 '$INCLUDE:'./CFG/CONFIG-STICK.BI'
+'$INCLUDE:'./CFG/BINDINGS-KEYBOARD.BI'
+'$INCLUDE:'./CFG/BINDINGS-MOUSE.BI'
+'$INCLUDE:'./CFG/BINDINGS-STICK.BI'
 
 ' GUI -------------------------------------------------------------------------
 '$INCLUDE:'./GUI/BRUSHES.BI'

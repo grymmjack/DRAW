@@ -14,8 +14,6 @@ $IF CONFIG_STICK_BI = UNDEFINED THEN
 '$INCLUDE:'./CONFIG-STICK.BI'
 $END IF
 
-DIM SHARED SB AS DRAW_STICK_BINDINGS
-
 ' &=STICK DPU|DPD|DPL|DPR|TSLY|TSLX|TSLC|TSRY|TSRX|TSRC|B1|B2|B3|B4|B5|B6|B7|B8
 ' DP=DPad TSL=Thumbstick L TSR=Thumbstick R UDRL=Directions C=Click B#=Button
 ' MOUSE EMULATION -------------------------------------------------------------
