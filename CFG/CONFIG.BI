@@ -6,8 +6,6 @@
 ' @author Rick Christy <grymmjack@gmail.com>
 '
 
-'$DYNAMIC
-
 $IF CONFIG_BI = UNDEFINED THEN
     $LET CONFIG_BI = 1
 $END IF

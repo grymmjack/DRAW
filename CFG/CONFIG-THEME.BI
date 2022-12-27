@@ -24,6 +24,6 @@ TYPE DRAW_THEME
     STATUS_fg         AS INTEGER    ' Status bar foreground color (0-256)
     CROSSHAIR_fg      AS INTEGER    ' Crosshair foreground color (0-256)
     CROSSHAIR_pattern AS INTEGER    ' Crosshair line pattern (16 bit &B>inary)
-    TOOLBAR_x         AS STRING*1   ' Toolbar X position "L | R | n" (n=any #)
-    TOOLBAR_y         AS STRING*1   ' Toolbar Y position "T | B | n" (n=any #)
+    TOOLBAR_x         AS STRING     ' Toolbar X position "L | R | n" (n=any #)
+    TOOLBAR_y         AS STRING     ' Toolbar Y position "T | B | n" (n=any #)
 END TYPE
