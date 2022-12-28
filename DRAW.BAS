@@ -19,19 +19,14 @@ DIM k AS LONG
 DO:   
     k& = _KEYHIT
     LOOP_start
-
     MOUSE_input_handler
     KEYBOARD_input_handler
     STICK_input_handler
-
     _LIMIT CFG.FPS_LIMIT%
-
     SCREEN_render
-
     MOUSE_input_handler_loop
     KEYBOARD_input_handler_loop
     STICK_input_handler_loop
-
     LOOP_end
 LOOP UNTIL k&=27
 MAIN_shutdown
@@ -59,6 +54,11 @@ END SUB
 ' 
 SUB MAIN_shutdown ()
     _MOUSESHOW
+    SCREEN 0
+    CLS
+    _FREEIMAGE SCRN.CANVAS&
+    _FREEIMAGE SCRN.PAINTING&
+    _FREEIMAGE SCRN.GUI&
     SYSTEM
 END SUB
 
