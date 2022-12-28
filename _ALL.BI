@@ -73,3 +73,6 @@
 '$INCLUDE:'./TOOLS/SAVE.BI'
 '$INCLUDE:'./TOOLS/SELECTION.BI'
 '$INCLUDE:'./TOOLS/ZOOM.BI'
+
+' PALETTES --------------------------------------------------------------------
+'$INCLUDE:'./ASSETS/PALETTES/EGA.BI'

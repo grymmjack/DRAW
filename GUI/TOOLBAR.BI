@@ -3,7 +3,6 @@
 ' =============================================================================
 ' UDT for toolbar.
 '
-' @todo
 ' @author Rick Christy <grymmjack@gmail.com>
 '
 

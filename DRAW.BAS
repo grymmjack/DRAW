@@ -44,8 +44,7 @@ END SUB
 ' Runs at the end of the loop just before next iteration
 ' 
 SUB LOOP_end ()
-    IF PAINT_COLOR% > 15 THEN PAINT_COLOR% = 15
-    IF PAINT_COLOR% < 0  THEN PAINT_COLOR% = 0
+    PAINT_COLOR& = PALETTE_clamp_RGB32(PAINT_COLOR&)
 END SUB
 
 

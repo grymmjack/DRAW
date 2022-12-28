@@ -16,12 +16,12 @@
 '
 
 TYPE DRAW_THEME
-    STATUS_bg         AS INTEGER    ' Status bar background color (0-256)
-    STATUS_fg         AS INTEGER    ' Status bar foreground color (0-256)
-    CROSSHAIR_fg      AS INTEGER    ' Crosshair foreground color (0-256)
-    CROSSHAIR_pattern AS INTEGER    ' Crosshair line pattern (16 bit &B>inary)
-    TOOLBAR_x         AS STRING     ' Toolbar X position "L | R | n" (n=any #)
-    TOOLBAR_y         AS STRING     ' Toolbar Y position "T | B | n" (n=any #)
+    STATUS_bg         AS LONG    ' Status bar background color (0-256)
+    STATUS_fg         AS LONG    ' Status bar foreground color (0-256)
+    CROSSHAIR_fg      AS LONG    ' Crosshair foreground color (0-256)
+    CROSSHAIR_pattern AS LONG    ' Crosshair line pattern (16 bit &B>inary)
+    TOOLBAR_x         AS STRING  ' Toolbar X position "L | R | n" (n=any #)
+    TOOLBAR_y         AS STRING  ' Toolbar Y position "T | B | n" (n=any #)
 END TYPE
 
 DIM SHARED THEME AS DRAW_THEME
