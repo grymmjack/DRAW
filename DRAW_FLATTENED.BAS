@@ -41,11 +41,11 @@ $IF ALL_BI = UNDEFINED THEN
                 CONST KEY_LSHIFT&   = 100304
                 
                 DIM SHARED AS INTEGER WHEEL_COLOR, KEY_COLOR
-                DIM SHARED AS LONG PAINT_COLOR
+                DIM SHARED AS _UNSIGNED LONG PAINT_COLOR
                 DIM SHARED AS INTEGER CONSTRAIN_X, CONSTRAIN_Y
                 CONSTRAIN_X% = FALSE : CONSTRAIN_Y% = FALSE
                 WHEEL_COLOR% = FALSE : KEY_COLOR% = FALSE
-                PAINT_COLOR& = _RGB32(255, 0, 0)
+                PAINT_COLOR~& = PAL_color(4)
         
         ' CONFIG ----------------------------------------------------------------------
                 ''
@@ -67,7 +67,7 @@ $IF ALL_BI = UNDEFINED THEN
                 
                 DIM SHARED CFG   AS DRAW_CONFIG
                 
-                CFG.FULLSCREEN%         = TRUE
+                CFG.FULLSCREEN%         = FALSE
                 CFG.THEME$              = "DEFAULT"
                 CFG.NUDGE_N%            = 10
                 CFG.NUM_LAYERS%         = 1
@@ -91,10 +91,11 @@ $IF ALL_BI = UNDEFINED THEN
                 '
                 
                 TYPE DRAW_THEME
-                    STATUS_bg         AS LONG    ' Status bar background color (0-256)
-                    STATUS_fg         AS LONG    ' Status bar foreground color (0-256)
-                    CROSSHAIR_fg      AS LONG    ' Crosshair foreground color (0-256)
-                    CROSSHAIR_pattern AS LONG    ' Crosshair line pattern (16 bit &B>inary)
+                    STATUS_bg         AS INTEGER ' Status bar bg palette color index (0-255)
+                    STATUS_fg         AS INTEGER ' Status bar fg palette color index (0-255)
+                    CROSSHAIR_fg      AS INTEGER ' Crosshair fg palette color index (0-255)
+                    CROSSHAIR_pattern AS INTEGER ' Crosshair line pattern (16 bit &B>inary)
+                    GRID_fg           AS INTEGER ' Grid fg palette color index (0-255)
                     TOOLBAR_x         AS STRING  ' Toolbar X position "L | R | n" (n=any #)
                     TOOLBAR_y         AS STRING  ' Toolbar Y position "T | B | n" (n=any #)
                 END TYPE
@@ -599,16 +600,16 @@ $IF ALL_BI = UNDEFINED THEN
                 '
                 
                 TYPE DRAW_GRID
-                    imgWidth   AS INTEGER   ' Width of the full grid image
-                    imgHeight  AS INTEGER   ' Height of the full grid image
-                    fgColor    AS LONG      ' Foreground color of the grid lines
-                    xPos       AS INTEGER   ' X position of the grid in the image
-                    yPos       AS INTEGER   ' Y position of the grid in the image
-                    gridWidth  AS INTEGER   ' Width of a grid square
-                    gridHeight AS INTEGER   ' Height of a grid square
-                    hStyle     AS INTEGER   ' Horizontal style &B0000111100001111 (16 bits)
-                    vStyle     AS INTEGER   ' Vertical style &B0000111100001111 (16 bits)
-                    imgHandle  AS LONG      ' Grid image handle
+                    imgWidth   AS INTEGER        ' Width of the full grid image
+                    imgHeight  AS INTEGER        ' Height of the full grid image
+                    fgColor    AS _UNSIGNED LONG ' Foreground color of the grid lines
+                    xPos       AS INTEGER        ' X position of the grid in the image
+                    yPos       AS INTEGER        ' Y position of the grid in the image
+                    gridWidth  AS INTEGER        ' Width of a grid square
+                    gridHeight AS INTEGER        ' Height of a grid square
+                    hStyle     AS INTEGER        ' Horizontal style &B0000111100001111 (16 bits)
+                    vStyle     AS INTEGER        ' Vertical style &B0000111100001111 (16 bits)
+                    imgHandle  AS LONG           ' Grid image handle
                 END TYPE
                 
                 DIM SHARED GRID AS DRAW_GRID
@@ -654,19 +655,23 @@ $IF ALL_BI = UNDEFINED THEN
                 '
                 
                 TYPE COLOR_OBJ
-                    name AS STRING
-                    value AS LONG
+                    name  AS STRING
+                    value AS _UNSIGNED LONG
                 END TYPE
                 
-                TYPE PALETTE_OBJ
+                TYPE PAL_OBJ
                     name     AS STRING
                     filename AS STRING
                     author   AS STRING
                     url      AS STRING 
                 END TYPE
                 
-                DIM COLORS(0 TO 255) AS COLOR_OBJ
-                REDIM PALETTES(0 TO 1) AS PALETTE_OBJ
+                REDIM SHARED PAL(0 TO 255) AS COLOR_OBJ
+                REDIM SHARED PALS(0 TO 1) AS PAL_OBJ
+                
+                DIM SHARED AS INTEGER PAL_FG_IDX, PAL_BG_IDX
+                PAL_FG_IDX% = 4
+                PAL_BG_IDX% = 0
                 ''
                 ' DRAW - GUI/PICKER.BI
                 ' =============================================================================
@@ -687,12 +692,12 @@ $IF ALL_BI = UNDEFINED THEN
                     W  AS INTEGER   ' Width of pointer
                     H  AS INTEGER   ' Height of pointer
                     S  AS STRING    ' DRAW string used to render pointer
-                    C  AS LONG      ' Pointer color chip
-                    O  AS LONG      ' Pointer outline
-                    OC AS LONG      ' Old pointer color chip
-                    LC AS LONG      ' Left click pointer color
-                    RC AS LONG      ' Right click pointer color
-                    MC AS LONG      ' Middle click pointer color
+                    C  AS INTEGER   ' Pointer color chip
+                    O  AS INTEGER   ' Pointer outline
+                    OC AS INTEGER   ' Old pointer color chip
+                    LC AS INTEGER   ' Left click pointer color
+                    RC AS INTEGER   ' Right click pointer color
+                    MC AS INTEGER   ' Middle click pointer color
                 END TYPE
                 
                 DIM SHARED POINTER AS POINTER_OBJ
@@ -1119,6 +1124,23 @@ $IF ALL_BI = UNDEFINED THEN
                 ' @author Rick Christy <grymmjack@gmail.com>
                 '
         
+        ' THEME -----------------------------------------------------------------------
+                ''
+                ' DRAW - THEME.BI
+                ' =============================================================================
+                ' Default theme for DRAW.
+                '
+                ' @author Rick Christy <grymmjack@gmail.com>
+                '
+                
+                THEME.STATUS_bg%         = 8                    ' Dark gray
+                THEME.STATUS_fg%         = 0                    ' Opaque black
+                THEME.CROSSHAIR_fg%      = 8                    ' Dark gray / bright black
+                THEME.CROSSHAIR_pattern% = &B1010101010101010   ' - - - - - - - - 
+                THEME.GRID_fg%           = 8                    ' Dark gray
+                THEME.TOOLBAR_x$         = "R"                  ' Screen right side (any res)
+                THEME.TOOLBAR_y$         = "T"                  ' Screen top side (any res)
+        
         ' PALETTES --------------------------------------------------------------------
                 ''
                 ' DRAW - ASSETS/PALLETES/EGA.BI
@@ -1128,30 +1150,31 @@ $IF ALL_BI = UNDEFINED THEN
                 ' @author Rick Christy <grymmjack@gmail.com>
                 '
                 
-                DIM AS INTEGER i, r, g, b, num_palettes
+                DIM AS INTEGER i, num_palettes
+                DIM AS LONG r, g, b
                 DIM s AS STRING
                 
-                DIM PAL_EGA AS PALETTE_OBJ
+                DIM PAL_EGA AS PAL_OBJ
                 PAL_EGA.name$     = "EGA"
                 PAL_EGA.filename$ = "EGA.BI"
                 PAL_EGA.author$   = "IBM"
                 PAL_EGA.url$      = "n/a"
                 
-                num_palettes% = UBOUND(PALETTES)
-                REDIM SHARED PALETTES(0 TO num_palettes%+1) AS PALETTE_OBJ
-                PALETTES(UBOUND(PALETTES)) = PAL_EGA
+                num_palettes% = UBOUND(PALS)
+                REDIM SHARED PALS(0 TO num_palettes%+1) AS PAL_OBJ
+                PALS(UBOUND(PALS)) = PAL_EGA
                 
-                REDIM SHARED PAL_EGA_COL(0 TO 255) AS COLOR_OBJ
                 i% = 0
+                READ s$
                 DO UNTIL s$ = "":
-                    READ s$, r%, g%, b%
-                    PAL_EGA_COL(i%).name$  = s$
-                    PAL_EGA_COL(i%).value& = _RGB32(r%, g%, b%)
+                    READ r&, g&, b&
+                    PAL(i%).name$   = s$
+                    PAL(i%).value~& = _RGB32(r&, g&, b&)
+                    READ s$
+                    _ECHO s$
                     i% = i% + 1
                 LOOP
-                REDIM _PRESERVE SHARED PAL_EGA_COL(i%) AS COLOR_OBJ
                 
-                EGA_PALETTE:
                 DATA "Black",           0,   0,   0
                 DATA "Blue",            0,   0,   170
                 DATA "Green",           0,   170, 0
@@ -1203,7 +1226,8 @@ END SUB
 ' Runs at the end of the loop just before next iteration
 ' 
 SUB LOOP_end ()
-    PAINT_COLOR& = PALETTE_clamp_RGB32(PAINT_COLOR&)
+    PAL_FG_IDX% = PAL_clamp_color_index(PAL_FG_IDX%)
+    PAL_BG_IDX% = PAL_clamp_color_index(PAL_BG_IDX%)
 END SUB
 
 
@@ -1335,15 +1359,15 @@ $IF ALL_BM = UNDEFINED THEN
                 ' 
                 SUB GRID_init ()
                     ' Setup the grid object
-                    GRID.imgWidth%   = _WIDTH             ' Width of the screen
-                    GRID.imgHeight%  = _HEIGHT            ' Height of the screen
-                    GRID.fgColor&    = 8                  ' Bright black
-                    GRID.xPos%       = 0                  ' Left-most pixel of screen
-                    GRID.yPos%       = 0                  ' Top-most pixel of screen
-                    GRID.gridWidth%  = 10                 ' Grid width of 10 divides evenly
-                    GRID.gridHeight% = 10                 ' Grid height of 10 divides evenly
-                    GRID.hStyle%     = &B1111111111111111 ' Solid
-                    GRID.vStyle%     = &B1111111111111111 ' Solid
+                    GRID.imgWidth%   = _WIDTH                       ' Width of the screen
+                    GRID.imgHeight%  = _HEIGHT                      ' Height of the screen
+                    GRID.fgColor~&   = PAL_color(THEME.GRID_fg%)    ' Bright black
+                    GRID.xPos%       = 0                            ' Left-most pixel of screen
+                    GRID.yPos%       = 0                            ' Top-most pixel of screen
+                    GRID.gridWidth%  = 10                           ' Grid width of 10 divides evenly
+                    GRID.gridHeight% = 10                           ' Grid height of 10 divides evenly
+                    GRID.hStyle%     = &B1111111111111111           ' Solid
+                    GRID.vStyle%     = &B1111111111111111           ' Solid
                     GRID.imgHandle&  = _NEWIMAGE(GRID.imgWidth%, GRID.imgHeight%, 13)
                 END SUB
                 
@@ -1356,14 +1380,14 @@ $IF ALL_BM = UNDEFINED THEN
                     DIM oldDest AS LONG
                     oldDest& = _DEST
                     _DEST GRID.imgHandle&
-                    COLOR GRID.fgColor&
+                    COLOR GRID.fgColor~&
                     FOR x% = GRID.xPos% to GRID.imgWidth% STEP GRID.gridWidth%
                         LINE (x%, GRID.yPos%)-(x%, GRID.yPos% + GRID.gridHeight%), _
-                            GRID.fgColor&, , GRID.hStyle%
+                            GRID.fgColor~&, , GRID.hStyle%
                     NEXT x%
                     FOR y% = GRID.yPos% to GRID.imgHeight% STEP GRID.gridHeight%
                         LINE (GRID.xPos%, y%)-(GRID.xPos% + GRID.gridWidth, y%), _
-                            GRID.fgColor&, , GRID.vStyle%
+                            GRID.fgColor~&, , GRID.vStyle%
                     NEXT y%
                     _DEST oldDest&
                 END SUB
@@ -1420,21 +1444,50 @@ $IF ALL_BM = UNDEFINED THEN
                 
                 ''
                 ' Clamp _RGB32 color value in legal ranges
-                ' @param LONG c color to clamp
-                ' @return LONG _RGB32 clamped
+                ' @param _UNSIGNED LONG c color to clamp
+                ' @return _UNSIGNED LONG _RGB32 clamped
                 ' 
-                FUNCTION PALETTE_clamp_rgb32& (c&)
+                FUNCTION PAL_clamp_rgb32~& (c~&)
                     DIM AS LONG r, g, b
-                    r& = _RED32(c&)
-                    g& = _GREEN32(c&)
-                    b& = _BLUE32(c&)
+                    r& = _RED32(c~&)
+                    g& = _GREEN32(c~&)
+                    b& = _BLUE32(c~&)
                     IF r& < 0 THEN r& = 0
                     IF g& < 0 THEN g& = 0
                     IF b& < 0 THEN b& = 0
                     IF r& > 255 THEN r& = 255
                     IF g& > 255 THEN g& = 255
                     IF b& > 255 THEN b& = 255
-                    PALETTE_clamp_rgb32 = _RGB32(r&, g&, b&)
+                    PAL_clamp_rgb32 = _RGB32(r&, g&, b&)
+                END FUNCTION
+                
+                
+                ''
+                ' Returns the _RGB32 color from palette by in index
+                ' @param INTEGER index% to get color for
+                ' @return _UNSIGNED LONG _RGB32 color if found
+                ' 
+                FUNCTION PAL_color~& (index%)
+                    DIM AS LONG r, g, b
+                    IF index% >= LBOUND(PAL) AND index% <= UBOUND(PAL) THEN
+                        r& = _RED32(PAL(index%).value~&)
+                        g& = _GREEN32(PAL(index%).value~&)
+                        b& = _BLUE32(PAL(index%).value~&)
+                        PAL_color = _RGB32(r&, g&, b&)
+                    ELSE
+                        r& = _RED32(PAL(PAL_FG_IDX%).value~&)
+                        g& = _GREEN32(PAL(PAL_FG_IDX%).value~&)
+                        b& = _BLUE32(PAL(PAL_FG_IDX%).value~&)
+                        PAL_color = _RGB32(r&, g&, b&)
+                    END IF
+                END FUNCTION
+                
+                
+                FUNCTION PAL_clamp_color_index% (index%)
+                    DIM new_index AS INTEGER
+                    IF index% > UBOUND(PAL) THEN new_index% = UBOUND(PAL)
+                    IF index% < LBOUND(PAL) THEN new_index% = LBOUND(PAL)
+                    PAL_clamp_color_index = new_index%
                 END FUNCTION
                 ''
                 ' DRAW - GUI/PICKER.BM
@@ -1459,12 +1512,12 @@ $IF ALL_BM = UNDEFINED THEN
                     _MOUSEHIDE
                     POINTER.W%  = 4
                     POINTER.H%  = 4
-                    POINTER.C&  = _RGB32(255, 255, 255)
-                    POINTER.O&  = _RGB32(170, 170, 170)
-                    POINTER.LC& = _RGB32(255, 0, 0)
-                    POINTER.RC& = _RGB32(0, 255, 0)
-                    POINTER.MC& = _RGB32(0, 0, 255)
-                    POINTER.OC& = POINTER.C&
+                    POINTER.C%  = 4
+                    POINTER.O%  = 7
+                    POINTER.LC% = 12
+                    POINTER.RC% = 10
+                    POINTER.MC% = 14
+                    POINTER.OC% = POINTER.C%
                     IF SCRN.w& > 640 THEN 
                         POINTER.W% = POINTER.W% * 2
                         POINTER.H% = POINTER.H% * 2
@@ -1485,7 +1538,7 @@ $IF ALL_BM = UNDEFINED THEN
                 ' Builds the pointer
                 ' 
                 SUB POINTER_build ()
-                    POINTER.S$ = "C"  + _TRIM$(STR$(POINTER.O&)) _
+                    POINTER.S$ = "C"  + _TRIM$(STR$(PAL_color(POINTER.O%))) _
                               + "D"  + _TRIM$(STR$(POINTER.H%)) _ 
                               + "R"  + _TRIM$(STR$(POINTER.W%)) _ 
                               + "H"  + _TRIM$(STR$(POINTER.H%)) _ 
@@ -1493,13 +1546,13 @@ $IF ALL_BM = UNDEFINED THEN
                               + "M+" + _TRIM$(STR$(POINTER.W%\2)) _
                               + ",+" + _TRIM$(STR$(POINTER.H%)) _
                               + "F"  + _TRIM$(STR$(POINTER.W%\2))
-                    IF POINTER.C& <> _RGB32(0, 0, 0) THEN 'fill POINTER 0 else color is black keep outline
+                    IF POINTER.C% <> 0 THEN 'fill POINTER if not 0 else color is black do not.
                         POINTER.S$ = POINTER.S$ _
                                   + "B" _
                                   + "M-" + _TRIM$(STR$(POINTER.W%\2)) _
                                   + ",-" + _TRIM$(STR$(POINTER.H% - 1)) _
-                                  + "P"  + _TRIM$(STR$(POINTER.C&)) _
-                                  + ","  + _TRIM$(STR$(POINTER.O&))
+                                  + "P"  + _TRIM$(STR$(PAL_color(POINTER.C%))) _
+                                  + ","  + _TRIM$(STR$(PAL_color(POINTER.O%)))
                     END IF
                 END SUB
                 
@@ -1510,13 +1563,13 @@ $IF ALL_BM = UNDEFINED THEN
                 SUB POINTER_draw ()
                     DIM s AS STRING
                     IF MOUSE.B1% THEN 
-                        POINTER.C& = POINTER.LC&
+                        POINTER.C% = POINTER.LC%
                     ELSEIF MOUSE.B2% THEN 
-                        POINTER.C& = POINTER.RC&
+                        POINTER.C% = POINTER.RC%
                     ELSEIF MOUSE.B3% THEN 
-                        POINTER.C& = POINTER.MC&
+                        POINTER.C% = POINTER.MC%
                     ELSE 
-                        POINTER.C& = POINTER.OC&
+                        POINTER.C% = POINTER.OC%
                     END IF
                 
                     s$ = "B" _
@@ -1533,7 +1586,7 @@ $IF ALL_BM = UNDEFINED THEN
                 ' Updates the pointer
                 ' 
                 SUB POINTER_update ()
-                    POINTER.C& = PAINT_COLOR&
+                    POINTER.C% = PAL_FG_IDX%
                 END SUB
                 ''
                 ' DRAW - GUI/STATUS.BM
@@ -1564,12 +1617,12 @@ $IF ALL_BM = UNDEFINED THEN
                     IF CONSTRAIN_X% THEN s$ = s$ + " CX"
                     IF CONSTRAIN_Y% THEN s$ = s$ + " CY"
                     _DEST SCRN.GUI&
-                    _CLEARCOLOR _RGB32(1, 1, 1)
-                    LINE (0, SCRN.h& - ph%)-(SCRN.w&, SCRN.h&), 8, BF
-                    COLOR _RGB32(0, 0, 0), 8
+                    _CLEARCOLOR PAL_color(0)
+                    LINE (0, SCRN.h& - ph%)-(SCRN.w&, SCRN.h&), PAL_color(THEME.STATUS_bg%), BF
+                    COLOR PAL_color(THEME.STATUS_fg%), PAL_color(THEME.STATUS_bg%)
                     _PRINTSTRING(px%, py%), s$
                     LINE (px% + pw%, py%)-(px% + pw% + 4, py% + 6), 17, B
-                    LINE (px% + pw% + 1, py% + 1)-(px% + pw% + 3, py% + 5), PAINT_COLOR&, BF
+                    LINE (px% + pw% + 1, py% + 1)-(px% + pw% + 3, py% + 5), PAL_color(PAL_FG_IDX%), BF
                 END SUB
                 ''
                 ' DRAW - GUI/TOOLBAR.BM
@@ -1625,22 +1678,24 @@ $IF ALL_BM = UNDEFINED THEN
                     DIM keypress AS STRING
                     keypress$ = INKEY$
                     SELECT CASE keypress$
-                        CASE "0": PAINT_COLOR& =  _RGB32(0, 0, 0)         'EGA Black
-                        CASE "1": PAINT_COLOR& =  _RGB32(0, 0, 170)       'EGA Blue
-                        CASE "2": PAINT_COLOR& =  _RGB32(0, 170, 0)       'EGA Green
-                        CASE "3": PAINT_COLOR& =  _RGB32(0, 170, 170)     'EGA Cyan
-                        CASE "4": PAINT_COLOR& =  _RGB32(170, 0, 0)       'EGA Red
-                        CASE "5": PAINT_COLOR& =  _RGB32(170, 0, 170)     'EGA Magenta
-                        CASE "6": PAINT_COLOR& =  _RGB32(170, 85, 0)      'EGA Brown
-                        CASE "7": PAINT_COLOR& =  _RGB32(170, 170, 170)   'EGA White
-                        CASE "8": PAINT_COLOR& =  _RGB32(85, 85, 85)      'EGA Bright Black
-                        CASE "9": PAINT_COLOR& =  _RGB32(85, 85, 250)     'EGA Bright Blue
-                        CASE "@": PAINT_COLOR& =  _RGB32(85, 250, 85)     'EGA Bright Green
-                        CASE "!": PAINT_COLOR& =  _RGB32(85, 250, 250)    'EGA Bright Cyan
-                        CASE "$": PAINT_COLOR& =  _RGB32(250, 85, 85)     'EGA Bright Red
-                        CASE "%": PAINT_COLOR& =  _RGB32(250, 85, 250)    'EGA Bright Magenta
-                        CASE "^": PAINT_COLOR& =  _RGB32(250, 250, 85)    'EGA Bright Yellow
-                        CASE "&": PAINT_COLOR& =  _RGB32(250, 250, 250)   'EGA Bright White
+                        CASE "0": PAINT_COLOR~& = PAL_color(0)
+                        CASE "1": PAINT_COLOR~& = PAL_color(1)
+                        CASE "2": PAINT_COLOR~& = PAL_color(2)
+                        CASE "3": PAINT_COLOR~& = PAL_color(3)
+                        CASE "4": PAINT_COLOR~& = PAL_color(4)
+                        CASE "5": PAINT_COLOR~& = PAL_color(5)
+                        CASE "6": PAINT_COLOR~& = PAL_color(6)
+                        CASE "7": PAINT_COLOR~& = PAL_color(7)
+                        CASE ")": PAINT_COLOR~& = PAL_color(8)
+                        CASE "8": PAINT_COLOR~& = PAL_color(8)
+                        CASE "!": PAINT_COLOR~& = PAL_color(9)
+                        CASE "9": PAINT_COLOR~& = PAL_color(9)
+                        CASE "@": PAINT_COLOR~& = PAL_color(10)
+                        CASE "#": PAINT_COLOR~& = PAL_color(11)
+                        CASE "$": PAINT_COLOR~& = PAL_color(12)
+                        CASE "%": PAINT_COLOR~& = PAL_color(13)
+                        CASE "^": PAINT_COLOR~& = PAL_color(14)
+                        CASE "&": PAINT_COLOR~& = PAL_color(15)
                         EVERYCASE:
                             KEY_COLOR%   = TRUE 
                             WHEEL_COLOR% = FALSE
@@ -1714,13 +1769,7 @@ $IF ALL_BM = UNDEFINED THEN
                         IF MOUSE.B2% THEN PAINT_clear
                         IF MOUSE.SW% <> MOUSE.OSW% THEN
                             IF NOT KEY_COLOR% THEN
-                                PAINT_COLOR& = PALETTE_clamp_rgb32( _
-                                    _RGB32( _
-                                        _RED32(PAINT_COLOR&), _
-                                        _GREEN32(PAINT_COLOR&), _
-                                        _BLUE32(PAINT_COLOR&) _
-                                    ) _
-                                ) + -MOUSE.SW%
+                                PAINT_COLOR~& = PAL_color(PAL_clamp_color_index(PAL_FG_IDX% + -MOUSE.SW%))
                                 WHEEL_COLOR% = TRUE
                                 KEY_COLOR%   = FALSE
                                 MOUSE.OSW% = MOUSE.SW%
@@ -1903,11 +1952,11 @@ $IF ALL_BM = UNDEFINED THEN
                 SUB PAINT_on ()
                     _DEST SCRN.PAINTING&
                     IF CONSTRAIN_X% THEN
-                        LINE (MOUSE.CON_X%, MOUSE.OLD_Y%)-(MOUSE.CON_X%, MOUSE.Y%), PAINT_COLOR&
+                        LINE (MOUSE.CON_X%, MOUSE.OLD_Y%)-(MOUSE.CON_X%, MOUSE.Y%), PAINT_COLOR~&
                     ELSEIF CONSTRAIN_Y% THEN
-                        LINE (MOUSE.OLD_X%, MOUSE.CON_Y%)-(MOUSE.X%, MOUSE.CON_Y%), PAINT_COLOR&
+                        LINE (MOUSE.OLD_X%, MOUSE.CON_Y%)-(MOUSE.X%, MOUSE.CON_Y%), PAINT_COLOR~&
                     ELSE
-                        LINE (MOUSE.OLD_X%, MOUSE.OLD_Y%)-(MOUSE.X%, MOUSE.Y%), PAINT_COLOR&
+                        LINE (MOUSE.OLD_X%, MOUSE.OLD_Y%)-(MOUSE.X%, MOUSE.Y%), PAINT_COLOR~&
                     END IF
                     _DEST SCRN.CANVAS&
                 END SUB

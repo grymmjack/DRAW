@@ -20,13 +20,13 @@
 '$INCLUDE:'./CFG/BINDINGS-STICK.BI'
 
 ' GUI -------------------------------------------------------------------------
+'$INCLUDE:'./GUI/PALETTE.BI'
 '$INCLUDE:'./GUI/GUI.BI'
 '$INCLUDE:'./GUI/BRUSHES.BI'
 '$INCLUDE:'./GUI/CROSSHAIR.BI'
 '$INCLUDE:'./GUI/GRID.BI'
 '$INCLUDE:'./GUI/HELP.BI'
 '$INCLUDE:'./GUI/LAYERS.BI'
-'$INCLUDE:'./GUI/PALETTE.BI'
 '$INCLUDE:'./GUI/PICKER.BI'
 '$INCLUDE:'./GUI/POINTER.BI'
 '$INCLUDE:'./GUI/STATUS.BI'
@@ -73,6 +73,9 @@
 '$INCLUDE:'./TOOLS/SAVE.BI'
 '$INCLUDE:'./TOOLS/SELECTION.BI'
 '$INCLUDE:'./TOOLS/ZOOM.BI'
+
+' THEME -----------------------------------------------------------------------
+'$INCLUDE:'./ASSETS/THEMES/DEFAULT/THEME.BI'
 
 ' PALETTES --------------------------------------------------------------------
 '$INCLUDE:'./ASSETS/PALETTES/EGA.BI'

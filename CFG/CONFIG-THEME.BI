@@ -16,10 +16,11 @@
 '
 
 TYPE DRAW_THEME
-    STATUS_bg         AS LONG    ' Status bar background color (0-256)
-    STATUS_fg         AS LONG    ' Status bar foreground color (0-256)
-    CROSSHAIR_fg      AS LONG    ' Crosshair foreground color (0-256)
-    CROSSHAIR_pattern AS LONG    ' Crosshair line pattern (16 bit &B>inary)
+    STATUS_bg         AS INTEGER ' Status bar bg palette color index (0-255)
+    STATUS_fg         AS INTEGER ' Status bar fg palette color index (0-255)
+    CROSSHAIR_fg      AS INTEGER ' Crosshair fg palette color index (0-255)
+    CROSSHAIR_pattern AS INTEGER ' Crosshair line pattern (16 bit &B>inary)
+    GRID_fg           AS INTEGER ' Grid fg palette color index (0-255)
     TOOLBAR_x         AS STRING  ' Toolbar X position "L | R | n" (n=any #)
     TOOLBAR_y         AS STRING  ' Toolbar Y position "T | B | n" (n=any #)
 END TYPE

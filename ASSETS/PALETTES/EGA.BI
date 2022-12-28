@@ -6,30 +6,31 @@
 ' @author Rick Christy <grymmjack@gmail.com>
 '
 
-DIM AS INTEGER i, r, g, b, num_palettes
+DIM AS INTEGER i, num_palettes
+DIM AS LONG r, g, b
 DIM s AS STRING
 
-DIM PAL_EGA AS PALETTE_OBJ
+DIM PAL_EGA AS PAL_OBJ
 PAL_EGA.name$     = "EGA"
 PAL_EGA.filename$ = "EGA.BI"
 PAL_EGA.author$   = "IBM"
 PAL_EGA.url$      = "n/a"
 
-num_palettes% = UBOUND(PALETTES)
-REDIM SHARED PALETTES(0 TO num_palettes%+1) AS PALETTE_OBJ
-PALETTES(UBOUND(PALETTES)) = PAL_EGA
+num_palettes% = UBOUND(PALS)
+REDIM _PRESERVE SHARED PALS(0 TO num_palettes%+1) AS PAL_OBJ
+PALS(UBOUND(PALS)) = PAL_EGA
 
-REDIM SHARED PAL_EGA_COL(0 TO 255) AS COLOR_OBJ
 i% = 0
+READ s$
 DO UNTIL s$ = "":
-    READ s$, r%, g%, b%
-    PAL_EGA_COL(i%).name$  = s$
-    PAL_EGA_COL(i%).value& = _RGB32(r%, g%, b%)
+    READ r&, g&, b&
+    PAL(i%).name$   = s$
+    PAL(i%).value~& = _RGB32(r&, g&, b&)
+    READ s$
+    _ECHO s$
     i% = i% + 1
 LOOP
-REDIM _PRESERVE SHARED PAL_EGA_COL(i%) AS COLOR_OBJ
 
-EGA_PALETTE:
 DATA "Black",           0,   0,   0
 DATA "Blue",            0,   0,   170
 DATA "Green",           0,   170, 0

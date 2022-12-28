@@ -44,7 +44,8 @@ END SUB
 ' Runs at the end of the loop just before next iteration
 ' 
 SUB LOOP_end ()
-    PAINT_COLOR& = PALETTE_clamp_RGB32(PAINT_COLOR&)
+    PAL_FG_IDX% = PAL_clamp_color_index(PAL_FG_IDX%)
+    PAL_BG_IDX% = PAL_clamp_color_index(PAL_BG_IDX%)
 END SUB
 
 
