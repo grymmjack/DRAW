@@ -6,10 +6,6 @@
 ' @author Rick Christy <grymmjack@gmail.com>
 '
 
-$IF CONFIG_KEYBOARD_BI = UNDEFINED THEN
-    $LET CONFIG_KEYBOARD_BI = 1
-$END IF
-
 TYPE DRAW_KEYBOARD_BINDINGS
     ' TOOLS -------------------------------------------------------------------
     BRUSH                 AS STRING

@@ -3,16 +3,8 @@
 ' =============================================================================
 ' Configure custom keyboard bindings here.
 '
-' @depends ./CONFIG-KEYBOARD.BI
 ' @author Rick Christy <grymmjack@gmail.com>
 '
-
-$IF BINDINGS_KEYBOARD_BM = UNDEFINED THEN
-    $LET BINDINGS_KEYBOARD_BM = 1
-$END IF
-$IF CONFIG_KEYBOARD_BI = UNDEFINED THEN
-'$INCLUDE:'./CONFIG-KEYBOARD.BI'
-$END IF
 
 ' +=SHIFT @=ALT ^=CTRL #=NUMPAD %=FKEY [stuff]=Special key
 ' TOOLS -----------------------------------------------------------------------

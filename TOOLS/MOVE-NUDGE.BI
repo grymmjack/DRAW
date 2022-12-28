@@ -6,7 +6,3 @@
 ' @todo
 ' @author Rick Christy <grymmjack@gmail.com>
 '
-
-$IF MOVE_NUDGE_BI = UNDEFINED THEN
-    $LET MOVE_NUDGE_BI = 1
-$END IF

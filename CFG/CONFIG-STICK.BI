@@ -6,10 +6,6 @@
 ' @author Rick Christy <grymmjack@gmail.com>
 '
 
-$IF CONFIG_STICK_BI = UNDEFINED THEN
-    $LET CONFIG_STICK_BI = 1
-$END IF
-
 TYPE DRAW_STICK_BINDINGS
     ' MOUSE EMULATION ---------------------------------------------------------
     MOUSE_L               AS STRING

@@ -7,10 +7,6 @@
 ' @author Rick Christy <grymmjack@gmail.com>
 '
 
-$IF BRUSHES_BI = UNDEFINED THEN
-    $LET BRUSHES_BI = 1
-$END IF
-
 TYPE DRAW_BRUSH
     IMG AS LONG
     W   AS INTEGER

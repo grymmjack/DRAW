@@ -6,7 +6,3 @@
 ' @todo
 ' @author Rick Christy <grymmjack@gmail.com>
 '
-
-$IF COLOR_INVERT_BI = UNDEFINED THEN
-    $LET COLOR_INVERT_BI = 1
-$END IF

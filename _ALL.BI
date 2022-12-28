@@ -20,6 +20,7 @@
 '$INCLUDE:'./CFG/BINDINGS-STICK.BI'
 
 ' GUI -------------------------------------------------------------------------
+'$INCLUDE:'./GUI/GUI.BI'
 '$INCLUDE:'./GUI/BRUSHES.BI'
 '$INCLUDE:'./GUI/CROSSHAIR.BI'
 '$INCLUDE:'./GUI/GRID.BI'

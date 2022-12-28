@@ -7,11 +7,6 @@
 ' @author Rick Christy <grymmjack@gmail.com>
 '
 
-$IF LAYERS_BI = UNDEFINED THEN
-    $LET LAYERS_BI = 1
-$END IF
-
-
 TYPE DRAW_LAYER
     zIndex       AS INTEGER
     imgWidth     AS INTEGER

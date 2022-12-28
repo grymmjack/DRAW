@@ -7,10 +7,6 @@
 ' @author Rick Christy <grymmjack@gmail.com>
 '
 
-$IF MOUSE_BI = UNDEFINED THEN
-    $LET MOUSE_BI = 1
-$END IF
-
 TYPE MOUSE_OBJ
     X     AS INTEGER
     Y     AS INTEGER

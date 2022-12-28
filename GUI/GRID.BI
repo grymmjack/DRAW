@@ -7,10 +7,6 @@
 ' @author Rick Christy <grymmjack@gmail.com>
 '
 
-$IF GRID_BI = UNDEFINED THEN
-    $LET GRID_BI = 1
-$END IF
-
 TYPE DRAW_GRID
     imgWidth   AS INTEGER   ' Width of the full grid image
     imgHeight  AS INTEGER   ' Height of the full grid image

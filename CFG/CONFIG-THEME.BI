@@ -15,10 +15,6 @@
 ' @author Rick Christy <grymmjack@gmail.com>
 '
 
-$IF CONFIG_THEME_BI = UNDEFINED THEN
-    $LET CONFIG_THEME_BI = 1
-$END IF
-
 TYPE DRAW_THEME
     STATUS_bg         AS INTEGER    ' Status bar background color (0-256)
     STATUS_fg         AS INTEGER    ' Status bar foreground color (0-256)

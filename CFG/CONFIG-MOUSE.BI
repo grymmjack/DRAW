@@ -6,10 +6,6 @@
 ' @author Rick Christy <grymmjack@gmail.com>
 '
 
-$IF CONFIG_MOUSE_BI = UNDEFINED THEN
-    $LET CONFIG_MOUSE_BI = 1
-$END IF
-
 TYPE DRAW_MOUSE_BINDINGS
     PAN            AS STRING
     PAL_PICK_COLOR AS STRING

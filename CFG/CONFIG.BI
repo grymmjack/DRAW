@@ -6,10 +6,6 @@
 ' @author Rick Christy <grymmjack@gmail.com>
 '
 
-$IF CONFIG_BI = UNDEFINED THEN
-    $LET CONFIG_BI = 1
-$END IF
-
 TYPE DRAW_CONFIG
     THEME              AS STRING
     FULLSCREEN         AS INTEGER

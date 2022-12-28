@@ -6,10 +6,6 @@
 ' @author Rick Christy <grymmjack@gmail.com>
 '
 
-$IF THEME_BI = UNDEFINED THEN
-    $LET THEME_BI = 1
-$END IF
-
 THEME.STATUS_bg%         = 8                    ' Dark gray / bright black
 THEME.STATUS_fg%         = 17                   ' Opaque black (not transparent)
 THEME.CROSSHAIR_fg%      = 8                    ' Dark gray / bright black

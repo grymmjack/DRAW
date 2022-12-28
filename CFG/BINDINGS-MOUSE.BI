@@ -7,13 +7,6 @@
 ' @author Rick Christy <grymmjack@gmail.com>
 '
 
-$IF BINDINGS_MOUSE_BM = UNDEFINED THEN
-    $LET BINDINGS_MOUSE_BM = 1
-$END IF
-$IF CONFIG_MOUSE_BI = UNDEFINED THEN 
-'$INCLUDE:'./CONFIG-MOUSE.BI'
-$END IF
-
 ' +=SHIFT @=ALT ^=CTRL #=NUMPAD %=FKEY [stuff]=Special key  *=MOUSE L|M|R|WU|WD
 ' MODIFIERS -------------------------------------------------------------------
 MB.PAN$                   = "*M"    'Middle click and hold
