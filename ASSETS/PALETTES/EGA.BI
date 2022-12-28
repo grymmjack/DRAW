@@ -27,9 +27,9 @@ DO UNTIL s$ = "":
     PAL(i%).name$   = s$
     PAL(i%).value~& = _RGB32(r&, g&, b&)
     READ s$
-    _ECHO s$
     i% = i% + 1
 LOOP
+REDIM _PRESERVE SHARED PAL(0 TO i%-1) AS COLOR_OBJ
 
 DATA "Black",           0,   0,   0
 DATA "Blue",            0,   0,   170

@@ -44,13 +44,11 @@ END SUB
 ' Runs at the end of the loop just before next iteration
 ' 
 SUB LOOP_end ()
-    PAL_FG_IDX% = PAL_clamp_color_index(PAL_FG_IDX%)
-    PAL_BG_IDX% = PAL_clamp_color_index(PAL_BG_IDX%)
 END SUB
 
 
 ''
-' Runs at shutdown of main prorgam
+' Runs at shutdown of main program
 ' 
 SUB MAIN_shutdown ()
     _MOUSESHOW
