@@ -21,7 +21,7 @@ CONST BTN_Q0~& = _RGB32(0, 0, 170)      ' qb64 blue field
 CONST BTN_Q1~& = _RGB32(85, 255, 255)   ' qb64 cyan square
 CONST BTN_Q2~& = _RGB32(85, 85, 255)    ' qb64 bright blue square
 CONST BTN_Q3~& = _RGB32(255, 170, 0)    ' qb64 orange square
-CONST BTN_Q4~& = _RGB32(255, 255, 147)  ' qb64 y ellow square
+CONST BTN_Q4~& = _RGB32(255, 255, 147)  ' qb64 yellow square
 
 DIM b_blank AS LONG    : btn_blank b_blank&
 DIM b_select AS LONG   : b_select   = _COPYIMAGE(b_blank&) : btn_select b_select
