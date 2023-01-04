@@ -1,6 +1,9 @@
-DIM CANVAS AS LONG : CANVAS& = _NEWIMAGE (320, 200, 32) : SCREEN CANVAS&
-_SCREENMOVE 1147, 353
-'ON KEY(1) get_screen_pos : KEY(1) ON
+$CONSOLE
+OPTION _EXPLICIT
+DIM SHARED CANVAS AS LONG : CANVAS& = _NEWIMAGE (320, 200, 32) : SCREEN CANVAS&
+' _SCREENMOVE 1147, 353
+_SCREENMOVE 1159, 353
+ON KEY(1) get_screen_pos : KEY(1) ON
 
 CONST SCALE%   = 1                      ' pixel scale
 CONST BTN_H%   = 10                     ' height
@@ -14,26 +17,83 @@ CONST BTN_BL~& = _RGB32(255, 255, 255)  ' bright light
 CONST BTN_ML~& = _RGB32(200, 200, 200)  ' mid light
 CONST BTN_DS~& = _RGB32(48, 48, 48)     ' dark shade
 CONST BTN_MS~& = _RGB32(64, 64, 64)     ' mid shade
+CONST BTN_Q0~& = _RGB32(0, 0, 170)      ' qb64 blue field
+CONST BTN_Q1~& = _RGB32(85, 255, 255)   ' qb64 cyan square
+CONST BTN_Q2~& = _RGB32(85, 85, 255)    ' qb64 bright blue square
+CONST BTN_Q3~& = _RGB32(255, 170, 0)    ' qb64 orange square
+CONST BTN_Q4~& = _RGB32(255, 255, 147)  ' qb64 y ellow square
 
+DIM b_blank AS LONG    : btn_blank b_blank&
+DIM b_select AS LONG   : b_select   = _COPYIMAGE(b_blank&) : btn_select b_select
+DIM b_move AS LONG     : b_move     = _COPYIMAGE(b_blank&) : btn_move b_move
+DIM b_polyline AS LONG : b_polyline = _COPYIMAGE(b_blank&) : btn_polyline b_polyline
+DIM b_text AS LONG     : b_text     = _COPYIMAGE(b_blank&) : btn_text b_text
+DIM b_save AS LONG     : b_save     = _COPYIMAGE(b_blank&) : btn_save b_save
+DIM b_open AS LONG     : b_open     = _COPYIMAGE(b_blank&) : btn_open b_open
+DIM b_code AS LONG     : b_code     = _COPYIMAGE(b_blank&) : btn_code b_code
 
-DIM b_blank AS LONG     : btn_blank b_blank&
-DIM b_select AS LONG    : b_select = _COPYIMAGE(blank&) : btn_select b_select
-DIM b_move AS LONG      : b_move = _COPYIMAGE(blank&) : btn_move b_move
-DIM b_polyline AS LONG  : b_polyline = _COPYIMAGE(blank&) : btn_polyline b_polyline
-DIM b_text AS LONG      : b_text = _COPYIMAGE(blank&) : btn_text b_text
-DIM b_save AS LONG      : b_save = _COPYIMAGE(blank&) : btn_save b_save
-DIM b_open AS LONG      : b_open = _COPYIMAGE(blank&) : btn_open b_open
+DIM b_dot AS LONG      : b_dot      = _COPYIMAGE(b_blank&) : btn_dot b_dot
+DIM b_fill AS LONG     : b_fill     = _COPYIMAGE(b_blank&) : btn_fill b_fill
 
-btn_render b_select, 0, 0, SCALE%
-btn_render b_move, 0, (BTN_W% + BTN_P%) * SCALE%, SCALE%
-btn_render b_polyline, 0, (BTN_W% + BTN_P%) * SCALE% * 2, SCALE%
-btn_render b_text, 0, (BTN_W% + BTN_P%) * SCALE% * 3, SCALE%
-btn_render b_save, 0, (BTN_W% + BTN_P%) * SCALE% * 4, SCALE%
-btn_render b_open, 0, (BTN_W% + BTN_P%) * SCALE% * 5, SCALE%
+btn_render b_select,    0, 0                                , SCALE%
+btn_render b_move,      0, (BTN_W% + BTN_P%) * SCALE%       , SCALE%
+btn_render b_polyline,  0, (BTN_W% + BTN_P%) * SCALE% * 2   , SCALE%
+btn_render b_text,      0, (BTN_W% + BTN_P%) * SCALE% * 3   , SCALE%
+btn_render b_save,      0, (BTN_W% + BTN_P%) * SCALE% * 4   , SCALE%
+btn_render b_open,      0, (BTN_W% + BTN_P%) * SCALE% * 5   , SCALE%
+btn_render b_code,      0, (BTN_W% + BTN_P%) * SCALE% * 6   , SCALE%
+
+btn_render b_dot,       (BTN_W% + BTN_P%) * SCALE%, (BTN_W% + BTN_P%) * SCALE% * 0, SCALE%
+btn_render b_fill,      (BTN_W% + BTN_P%) * SCALE%, (BTN_W% + BTN_P%) * SCALE% * 1, SCALE%
 
 DO:
 LOOP UNTIL _KEYHIT=27
 SYSTEM
+
+
+
+SUB btn_fill (img&)
+    DIM old_dest AS LONG : old_dest& = _DEST
+    DIM AS INTEGER sx, ex, sy, ey, mx, my
+    sx% = 2 : ex% = BTN_W% - 2
+    sy% = 2 : ey% = BTN_H% - 4
+    mx% = BTN_W% \ 2 : my% = BTN_H% \ 2
+    _DEST img&
+    LINE (mx%-1, my%)-(mx%, my%+3), BTN_DS~&, BF        ' fill paint spill
+    LINE (mx%, sy%)-(sx+1%, my%-1), BTN_DS~&            ' /
+    LINE (mx%+1, sy%+1)-(ex%-1, my%+1), BTN_LL~&, BF    ' fill mid shade
+    PSET (mx%+1, sy%+1), BTN_BG~&                       ' dot part shade erase
+    PSET (mx%, my%), BTN_LL~&                           ' dot part fill
+    LINE (mx%+1, sy%)-(ex%, my%-1), BTN_DS~&            '  \ 
+    LINE (ex%, my%)-(mx%+1, ey%+1), BTN_FG~&            '  / 
+    LINE (sx%+2, my%)-(mx%+1, ey%+1), BTN_FG~&          ' \ 
+    PSET (sx%+1, my%), BTN_FG~&                         ' dot part
+    PSET (mx%-2, my%+1), BTN_LL~&                       ' spill bit
+    PSET (mx%, my%+4), BTN_LL~&                         ' spill bit
+    _DEST old_dest&
+END SUB
+
+
+SUB btn_dot (img&)
+    DIM old_dest AS LONG : old_dest& = _DEST
+    DIM AS INTEGER mx, my
+    mx% = BTN_W% \ 2 : my% = BTN_H% \ 2
+    _DEST img&
+    PSET (mx%, my%), BTN_FG~&
+    _DEST old_dest&
+END SUB
+
+
+SUB btn_code (img&)
+    DIM old_dest AS LONG : old_dest& = _DEST
+    _DEST img&
+    LINE (2, 2)-(BTN_W% - 2, BTN_H% - 2), BTN_Q0~&, BF
+    LINE (3, 3)-(4, 4), BTN_Q1~&, BF
+    LINE (6, 3)-(7, 4), BTN_Q2~&, BF
+    LINE (3, 6)-(4, 7), BTN_Q3~&, BF
+    LINE (6, 6)-(7, 7), BTN_Q4~&, BF
+    _DEST old_dest&
+END SUB
 
 
 SUB btn_open (img&)
@@ -149,4 +209,9 @@ SUB btn_blank (img AS LONG)
     LINE (0, BTN_H%)-(BTN_W%, BTN_H%), BTN_LL~&     ' bottom lowlight line
     LINE (0, 0)-(0, BTN_H%), BTN_LL~&               ' left lowlight line
     _DEST old_dest&
+END SUB
+
+
+SUB get_screen_pos
+    _ECHO _TRIM$(STR$(_SCREENX)) + ", " + _TRIM$(STR$(_SCREENY))
 END SUB
