@@ -34,6 +34,11 @@ DIM b_code AS LONG     : b_code     = _COPYIMAGE(b_blank&) : btn_code b_code
 
 DIM b_dot AS LONG      : b_dot      = _COPYIMAGE(b_blank&) : btn_dot b_dot
 DIM b_fill AS LONG     : b_fill     = _COPYIMAGE(b_blank&) : btn_fill b_fill
+DIM b_line AS LONG     : b_line     = _COPYIMAGE(b_blank&) : btn_line b_line
+DIM b_rect AS LONG     : b_rect     = _COPYIMAGE(b_blank&) : btn_rect b_rect
+DIM b_ellipse AS LONG  : b_ellipse  = _COPYIMAGE(b_blank&) : btn_ellipse b_ellipse
+DIM b_rectf AS LONG    : b_rectf    = _COPYIMAGE(b_blank&) : btn_rectf b_rectf
+DIM b_ellipsef AS LONG : b_ellipsef = _COPYIMAGE(b_blank&) : btn_ellipsef b_ellipsef
 
 btn_render b_select,    0, 0                                , SCALE%
 btn_render b_move,      0, (BTN_W% + BTN_P%) * SCALE%       , SCALE%
@@ -45,11 +50,67 @@ btn_render b_code,      0, (BTN_W% + BTN_P%) * SCALE% * 6   , SCALE%
 
 btn_render b_dot,       (BTN_W% + BTN_P%) * SCALE%, (BTN_W% + BTN_P%) * SCALE% * 0, SCALE%
 btn_render b_fill,      (BTN_W% + BTN_P%) * SCALE%, (BTN_W% + BTN_P%) * SCALE% * 1, SCALE%
+btn_render b_line,      (BTN_W% + BTN_P%) * SCALE%, (BTN_W% + BTN_P%) * SCALE% * 2, SCALE%
+btn_render b_rect,      (BTN_W% + BTN_P%) * SCALE%, (BTN_W% + BTN_P%) * SCALE% * 3, SCALE%
+btn_render b_ellipse,   (BTN_W% + BTN_P%) * SCALE%, (BTN_W% + BTN_P%) * SCALE% * 4, SCALE%
+btn_render b_rectf,     (BTN_W% + BTN_P%) * SCALE%, (BTN_W% + BTN_P%) * SCALE% * 5, SCALE%
+btn_render b_ellipsef,  (BTN_W% + BTN_P%) * SCALE%, (BTN_W% + BTN_P%) * SCALE% * 6, SCALE%
 
 DO:
 LOOP UNTIL _KEYHIT=27
 SYSTEM
 
+
+
+SUB btn_ellipsef (img&)
+    DIM old_dest AS LONG : old_dest& = _DEST
+    _DEST img&
+    CIRCLE (5, 5), 3, BTN_FG~&                          ' outline
+    PAINT (5, 5), BTN_DS~&, BTN_FG~&                    ' dark fill
+    LINE (3, BTN_H%-3)-(BTN_W% - 3, 3), BTN_BG~&        ' erase /1
+    LINE (5, BTN_H%-3)-(BTN_W% - 3, 5), BTN_BG~&        ' erase /2
+    LINE (7, BTN_H%-3)-(BTN_W% - 3, 7), BTN_BG~&        ' erase /3
+    PSET (7, 3), BTN_FG~&                               ' top right pixel
+    PSET (7, 7), BTN_FG~&                               ' bot right pixel
+    PSET (3, 7), BTN_FG~&                               ' bot left pixel
+    _DEST old_dest&
+END SUB
+
+
+SUB btn_rectf (img&)
+    DIM old_dest AS LONG : old_dest& = _DEST
+    _DEST img&
+    LINE (2, 2)-(BTN_W% - 2, BTN_H% - 2), BTN_FG~&, BF  ' outline
+    LINE (3, 3)-(BTN_W% - 3, BTN_H% - 3), BTN_DS~&, BF  ' dark fill
+    LINE (3, BTN_H%-3)-(BTN_W% - 3, 3), BTN_BG~&        ' erase /1
+    LINE (5, BTN_H%-3)-(BTN_W% - 3, 5), BTN_BG~&        ' erase /2
+    LINE (7, BTN_H%-3)-(BTN_W% - 3, 7), BTN_BG~&        ' erase /3
+    _DEST old_dest&
+END SUB
+
+
+SUB btn_ellipse (img&)
+    DIM old_dest AS LONG : old_dest& = _DEST
+    _DEST img&
+    CIRCLE (5, 5), 3, BTN_FG~&
+    _DEST old_dest&
+END SUB
+
+
+SUB btn_rect (img&)
+    DIM old_dest AS LONG : old_dest& = _DEST
+    _DEST img&
+    LINE (2, 2)-(BTN_W% - 2, BTN_H% - 2), BTN_FG~&, B
+    _DEST old_dest&
+END SUB
+
+
+SUB btn_line (img&)
+    DIM old_dest AS LONG : old_dest& = _DEST
+    _DEST img&
+    LINE (3, BTN_H%-3)-(BTN_W% - 3, 3), BTN_FG~&
+    _DEST old_dest&
+END SUB
 
 
 SUB btn_fill (img&)
