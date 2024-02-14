@@ -5,6 +5,7 @@
 '
 ' @author Rick Christy <grymmjack@gmail.com>
 '
+$INCLUDEONCE
 
 CONST UI_IMAGES_DIR = "./ASSETS/THEMES/DEFAULT/"
  

@@ -5,6 +5,7 @@
 '
 ' @author Rick Christy <grymmjack@gmail.com>
 '
+$INCLUDEONCE
 
 ' &=STICK DPU|DPD|DPL|DPR|TSLY|TSLX|TSLC|TSRY|TSRX|TSRC|B1|B2|B3|B4|B5|B6|B7|B8
 ' DP=DPad TSL=Thumbstick L TSR=Thumbstick R UDRL=Directions C=Click B#=Button

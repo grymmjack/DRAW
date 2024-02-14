@@ -6,6 +6,7 @@
 ' @todo
 ' @author Rick Christy <grymmjack@gmail.com>
 '
+$INCLUDEONCE
 
 TYPE MOUSE_OBJ
     X     AS INTEGER

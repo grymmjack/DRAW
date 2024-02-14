@@ -7,10 +7,7 @@
 ' @depends ./_ALL.BM
 ' @author Rick Christy <grymmjack@gmail.com>
 '
-
-$IF ALL_BI = UNDEFINED THEN 
 '$INCLUDE:'./_ALL.BI'
-$END IF
 
 
 
@@ -61,8 +58,4 @@ SUB MAIN_shutdown ()
     SYSTEM
 END SUB
 
-
-
-$IF ALL_BM = UNDEFINED THEN 
 '$INCLUDE:'./_ALL.BM'
-$END IF

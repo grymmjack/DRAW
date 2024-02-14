@@ -5,6 +5,7 @@
 '
 ' @author Rick Christy <grymmjack@gmail.com>
 '
+$INCLUDEONCE
 
 TYPE DRAW_STICK_BINDINGS
     ' MOUSE EMULATION ---------------------------------------------------------

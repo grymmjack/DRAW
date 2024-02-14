@@ -5,6 +5,7 @@
 '
 ' @author Rick Christy <grymmjack@gmail.com>
 '
+$INCLUDEONCE
 
 TYPE DRAW_KEYBOARD_BINDINGS
     ' TOOLS -------------------------------------------------------------------

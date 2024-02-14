@@ -5,6 +5,7 @@
 '
 ' @author Rick Christy <grymmjack@gmail.com>
 '
+$INCLUDEONCE
 
 TYPE POINTER_OBJ
     W  AS INTEGER   ' Width of pointer

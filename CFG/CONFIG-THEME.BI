@@ -14,6 +14,7 @@
 '
 ' @author Rick Christy <grymmjack@gmail.com>
 '
+$INCLUDEONCE
 
 TYPE DRAW_THEME
     STATUS_bg         AS INTEGER ' Status bar bg palette color index (0-255)

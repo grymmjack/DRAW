@@ -5,6 +5,7 @@
 '
 ' @author Rick Christy <grymmjack@gmail.com>
 '
+$INCLUDEONCE
 
 ' +=SHIFT @=ALT ^=CTRL #=NUMPAD %=FKEY [stuff]=Special key
 ' TOOLS -----------------------------------------------------------------------

@@ -5,6 +5,7 @@
 '
 ' @author Rick Christy <grymmjack@gmail.com>
 '
+$INCLUDEONCE
 
 DIM AS INTEGER i, num_palettes
 DIM AS LONG r, g, b

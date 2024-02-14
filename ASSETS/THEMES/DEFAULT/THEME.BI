@@ -5,6 +5,7 @@
 '
 ' @author Rick Christy <grymmjack@gmail.com>
 '
+$INCLUDEONCE
 
 THEME.STATUS_bg%         = 8                    ' Dark gray
 THEME.STATUS_fg%         = 0                    ' Opaque black

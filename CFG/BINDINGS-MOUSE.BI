@@ -6,6 +6,7 @@
 ' @depends ./CONFIG-MOUSE.BI
 ' @author Rick Christy <grymmjack@gmail.com>
 '
+$INCLUDEONCE
 
 ' +=SHIFT @=ALT ^=CTRL #=NUMPAD %=FKEY [stuff]=Special key  *=MOUSE L|M|R|WU|WD
 ' MODIFIERS -------------------------------------------------------------------

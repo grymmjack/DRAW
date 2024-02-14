@@ -6,6 +6,7 @@
 ' @todo
 ' @author Rick Christy <grymmjack@gmail.com>
 '
+$INCLUDEONCE
 
 TYPE DRAW_GRID
     imgWidth   AS INTEGER        ' Width of the full grid image

@@ -1,6 +1,8 @@
 DRAW by Rick Christy <grymmjack@gmail.com>
 ==========================================
 
+# REQUIRES QB64PE-v3.12+
+
 ```
 DATA "XXXXXX  ", "XXXXXXXX", "XXXXXXXX", "XX  XX  XX", "  XX  XX  "
 DATA "XX::::XX", "XX::::XX", "XX::::XX", "XX  XX  XX", "XX::  ::XX"
