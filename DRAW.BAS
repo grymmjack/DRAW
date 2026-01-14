@@ -6,6 +6,7 @@
 ' @depends ./_ALL.BI
 ' @depends ./_ALL.BM
 ' @author Rick Christy <grymmjack@gmail.com>
+' bump-ci
 '
 '$INCLUDE:'./_ALL.BI'
 
