@@ -82,4 +82,4 @@ $INCLUDEONCE
 '$INCLUDE:'./ASSETS/PALETTES/EGA.BI'
 
 ' QB64_GJ_LIB -----------------------------------------------------------------
-'$INCLUDE:'../QB64_GJ_LIB/_GJ_LIB.BI'
+'$INCLUDE:'includes/QB64_GJ_LIB/_GJ_LIB.BI'
