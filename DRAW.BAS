@@ -8,6 +8,10 @@
 ' @author Rick Christy <grymmjack@gmail.com>
 ' bump-ci
 '
+$CONSOLE
+_DEST _CONSOLE
+_ECHO "DRAW Debug Mode"
+
 '$INCLUDE:'./_ALL.BI'
 
 

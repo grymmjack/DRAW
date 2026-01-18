@@ -49,3 +49,6 @@ DATA "Bright Magenta",  250, 85,  250
 DATA "Bright Yellow",   250, 250, 85
 DATA "Bright White",    250, 250, 250
 DATA "" :' END OF DATA
+
+' Set initial paint color from palette after loading
+PAINT_COLOR~& = PAL(PAL_FG_IDX%).value~&
