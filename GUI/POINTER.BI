@@ -14,6 +14,8 @@ TYPE POINTER_OBJ
     C  AS INTEGER   ' Pointer color chip
     O  AS INTEGER   ' Pointer outline
     OC AS INTEGER   ' Old pointer color chip
+    IMG AS LONG     ' Image handle for custom cursor (PNG/bitmap)
+    USE_IMG AS INTEGER ' Flag: use IMG instead of DRAW string
 END TYPE
 
 DIM SHARED POINTER AS POINTER_OBJ
