@@ -3,7 +3,145 @@
 ' =============================================================================
 ' Fill (PAINT) tool subs and functions.
 '
-' @todo
 ' @author Rick Christy <grymmjack@gmail.com>
 '
 $INCLUDEONCE
+
+''
+' Initialize fill tool
+'
+SUB FILL_init ()
+    FILL.ACTIVE% = FALSE
+    FILL.COLOR~& = _RGB32(255, 0, 0)
+    FILL.BOUNDARY~& = 0  ' 0 means fill until any different color
+END SUB
+
+
+''
+' Activate fill tool
+'
+SUB FILL_activate ()
+    FILL.ACTIVE% = TRUE
+    FILL.COLOR~& = PAINT_COLOR~&
+END SUB
+
+
+''
+' Deactivate fill tool
+'
+SUB FILL_deactivate ()
+    FILL.ACTIVE% = FALSE
+END SUB
+
+
+''
+' Flood fill at given coordinates - scanline algorithm for scalability
+'
+' @param INTEGER x - X coordinate to start fill
+' @param INTEGER y - Y coordinate to start fill
+'
+SUB FILL_flood (x AS INTEGER, y AS INTEGER)
+    DIM old_dest AS LONG
+    DIM old_source AS LONG
+    DIM target_color AS _UNSIGNED LONG
+    DIM fill_color AS _UNSIGNED LONG
+    DIM w AS INTEGER, h AS INTEGER
+    
+    old_dest& = _DEST
+    old_source& = _SOURCE
+    
+    _DEST SCRN.PAINTING&
+    _SOURCE SCRN.PAINTING&
+    _DONTBLEND SCRN.PAINTING&
+    
+    w% = _WIDTH(SCRN.PAINTING&)
+    h% = _HEIGHT(SCRN.PAINTING&)
+    fill_color~& = FILL.COLOR~&
+    target_color~& = POINT(x%, y%)
+    
+    ' Don't fill if already the right color
+    IF target_color~& = fill_color~& THEN
+        _SOURCE old_source&
+        _DEST old_dest&
+        EXIT SUB
+    END IF
+    
+    ' Stack for scanline seeds - starts minimal, grows dynamically as needed
+    DIM stack_capacity AS LONG
+    stack_capacity& = 128  ' Start with 256 bytes, doubles when full
+    REDIM stack_x(1 TO 128) AS INTEGER
+    REDIM stack_y(1 TO 128) AS INTEGER
+    DIM stack_ptr AS LONG
+    
+    DIM py AS INTEGER, x1 AS INTEGER, x2 AS INTEGER
+    DIM sx AS INTEGER, dy AS INTEGER, ny AS INTEGER
+    DIM in_span AS INTEGER
+    
+    ' Initialize with starting point
+    stack_ptr& = 1
+    stack_x(stack_ptr&) = x%
+    stack_y(stack_ptr&) = y%
+    
+    WHILE stack_ptr& > 0
+        ' Pop seed point from stack
+        x% = stack_x(stack_ptr&)
+        py% = stack_y(stack_ptr&)
+        stack_ptr& = stack_ptr& - 1
+        
+        ' Skip if out of bounds or already filled
+        IF py% < 0 OR py% >= h% OR x% < 0 OR x% >= w% THEN GOTO next_seed
+        IF POINT(x%, py%) <> target_color~& THEN GOTO next_seed
+        
+        ' Find left edge of scanline
+        x1% = x%
+        WHILE x1% > 0 AND POINT(x1% - 1, py%) = target_color~&
+            x1% = x1% - 1
+        WEND
+        
+        ' Find right edge of scanline
+        x2% = x%
+        WHILE x2% < w% - 1 AND POINT(x2% + 1, py%) = target_color~&
+            x2% = x2% + 1
+        WEND
+        
+        ' Fill the entire horizontal scanline
+        LINE (x1%, py%)-(x2%, py%), fill_color~&
+        
+        ' Check scanlines above and below for new spans to fill
+        FOR dy% = -1 TO 1 STEP 2
+            ny% = py% + dy%
+            IF ny% >= 0 AND ny% < h% THEN
+                in_span% = FALSE
+                ' Scan the filled span for matching pixels
+                FOR sx% = x1% TO x2%
+                    IF POINT(sx%, ny%) = target_color~& THEN
+                        IF NOT in_span% THEN
+                            ' Found start of new span - add seed point
+                            ' Grow stack if needed
+                            IF stack_ptr& >= stack_capacity& THEN
+                                stack_capacity& = stack_capacity& * 2
+                                REDIM _PRESERVE stack_x(1 TO stack_capacity&) AS INTEGER
+                                REDIM _PRESERVE stack_y(1 TO stack_capacity&) AS INTEGER
+                            END IF
+                            stack_ptr& = stack_ptr& + 1
+                            stack_x(stack_ptr&) = sx%
+                            stack_y(stack_ptr&) = ny%
+                            in_span% = TRUE
+                        END IF
+                    ELSE
+                        ' No longer in matching span
+                        in_span% = FALSE
+                    END IF
+                NEXT sx%
+            END IF
+        NEXT dy%
+        
+        next_seed:
+    WEND
+    
+    ' Explicitly free stack memory
+    ERASE stack_x, stack_y
+    
+    _SOURCE old_source&
+    _DEST old_dest&
+END SUB

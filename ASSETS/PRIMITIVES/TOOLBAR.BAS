@@ -42,6 +42,10 @@ DIM b_ellipse AS LONG  : b_ellipse  = _COPYIMAGE(b_blank&) : btn_ellipse b_ellip
 DIM b_rectf AS LONG    : b_rectf    = _COPYIMAGE(b_blank&) : btn_rectf b_rectf
 DIM b_ellipsef AS LONG : b_ellipsef = _COPYIMAGE(b_blank&) : btn_ellipsef b_ellipsef
 
+' Create cursor for fill tool
+DIM cursor_fill AS LONG : cursor_fill& = _NEWIMAGE(BTN_W%, BTN_H%, 32)
+cursor_create_fill cursor_fill&
+
 btn_render b_select,    0, 0                                , SCALE%
 btn_render b_move,      0, (BTN_W% + BTN_P%) * SCALE%       , SCALE%
 btn_render b_polyline,  0, (BTN_W% + BTN_P%) * SCALE% * 2   , SCALE%
@@ -58,7 +62,17 @@ btn_render b_ellipse,   (BTN_W% + BTN_P%) * SCALE%, (BTN_W% + BTN_P%) * SCALE% *
 btn_render b_rectf,     (BTN_W% + BTN_P%) * SCALE%, (BTN_W% + BTN_P%) * SCALE% * 5, SCALE%
 btn_render b_ellipsef,  (BTN_W% + BTN_P%) * SCALE%, (BTN_W% + BTN_P%) * SCALE% * 6, SCALE%
 
+' Demo cursor usage - hide system cursor and show custom fill cursor
+_MOUSEHIDE
+DIM AS INTEGER mx, my, mb
 DO:
+    WHILE _MOUSEINPUT
+        mx% = _MOUSEX : my% = _MOUSEY : mb% = _MOUSEBUTTON(1)
+    WEND
+    ' Draw the custom cursor at mouse position
+    cursor_render cursor_fill&, mx%, my%
+    _DISPLAY
+    _LIMIT 60
 LOOP UNTIL _KEYHIT=27
 SYSTEM
 
@@ -277,4 +291,38 @@ END SUB
 
 SUB get_screen_pos
     _ECHO _TRIM$(STR$(_SCREENX)) + ", " + _TRIM$(STR$(_SCREENY))
+END SUB
+
+
+SUB cursor_create_fill (img&)
+    ' Create fill cursor graphic (paint bucket with transparent background)
+    DIM old_dest AS LONG : old_dest& = _DEST
+    DIM AS INTEGER sx, ex, sy, ey, mx, my
+    sx% = 2 : ex% = BTN_W% - 2
+    sy% = 2 : ey% = BTN_H% - 4
+    mx% = BTN_W% \ 2 : my% = BTN_H% \ 2
+    _DEST img&
+    CLS , _RGBA32(0, 0, 0, 0)                           ' transparent background
+    LINE (mx%-1, my%)-(mx%, my%+3), BTN_DS~&, BF        ' fill paint spill
+    LINE (mx%, sy%)-(sx+1%, my%-1), BTN_DS~&            ' /
+    LINE (mx%+1, sy%+1)-(ex%-1, my%+1), BTN_LL~&, BF    ' fill mid shade
+    PSET (mx%+1, sy%+1), _RGBA32(0, 0, 0, 0)            ' transparent dot
+    PSET (mx%, my%), BTN_LL~&                           ' dot part fill
+    LINE (mx%+1, sy%)-(ex%, my%-1), BTN_DS~&            '  \ 
+    LINE (ex%, my%)-(mx%+1, ey%+1), BTN_FG~&            '  / 
+    LINE (sx%+2, my%)-(mx%+1, ey%+1), BTN_FG~&          ' \ 
+    PSET (sx%+1, my%), BTN_FG~&                         ' dot part
+    PSET (mx%-2, my%+1), BTN_LL~&                       ' spill bit
+    PSET (mx%, my%+4), BTN_LL~&                         ' spill bit
+    _DEST old_dest&
+END SUB
+
+
+SUB cursor_render (img&, x%, y%)
+    ' Render custom cursor at mouse position
+    DIM old_dest AS LONG : old_dest& = _DEST
+    _DEST CANVAS&
+    _SOURCE img&
+    _PUTIMAGE (x%, y%), img&
+    _DEST old_dest&
 END SUB
