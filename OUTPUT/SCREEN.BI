@@ -16,6 +16,11 @@ TYPE SCREEN_OBJ
     PAINTING AS LONG
     CURSOR   AS LONG
     GUI      AS LONG
+    zoom     AS SINGLE   ' Current zoom level
+    zoomMin  AS SINGLE   ' Minimum zoom
+    zoomMax  AS SINGLE   ' Maximum zoom
+    offsetX  AS INTEGER  ' Pan offset X
+    offsetY  AS INTEGER  ' Pan offset Y
 END TYPE
 
 DIM SHARED SCRN AS SCREEN_OBJ
