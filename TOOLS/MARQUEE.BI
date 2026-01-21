@@ -31,6 +31,11 @@ TYPE MARQUEE_OBJ
     RESIZE_ORIG_Y AS INTEGER ' Original box Y when resize began  
     RESIZE_ORIG_W AS INTEGER ' Original box W when resize began
     RESIZE_ORIG_H AS INTEGER ' Original box H when resize began
+    MOVING      AS INTEGER  ' Whether currently moving/dragging the box
+    MOVE_START_X AS INTEGER ' Starting X when move began
+    MOVE_START_Y AS INTEGER ' Starting Y when move began
+    MOVE_ORIG_X AS INTEGER  ' Original box X when move began
+    MOVE_ORIG_Y AS INTEGER  ' Original box Y when move began
 END TYPE
 
 DIM SHARED MARQUEE AS MARQUEE_OBJ
@@ -40,4 +45,7 @@ DECLARE FUNCTION MARQUEE_get_handle_at% (x AS INTEGER, y AS INTEGER)
 DECLARE SUB MARQUEE_start_resize (handle AS INTEGER, x AS INTEGER, y AS INTEGER)
 DECLARE SUB MARQUEE_update_resize (x AS INTEGER, y AS INTEGER)
 DECLARE SUB MARQUEE_finish_resize
+DECLARE SUB MARQUEE_start_move (x AS INTEGER, y AS INTEGER)
+DECLARE SUB MARQUEE_update_move (x AS INTEGER, y AS INTEGER)
+DECLARE SUB MARQUEE_finish_move
 
