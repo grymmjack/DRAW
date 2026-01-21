@@ -36,6 +36,8 @@ MAIN_shutdown
 ' Runs at the start of the loop before any other code
 ' 
 SUB LOOP_start ()
+    ' Update MARQUEE tool if active
+    IF CURRENT_TOOL% = TOOL_MARQUEE THEN MARQUEE_update
 END SUB
 
 
