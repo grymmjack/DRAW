@@ -26,6 +26,8 @@ TYPE SCREEN_OBJ
     panStartY AS INTEGER ' Pan drag start Y
     panOrigOffsetX AS INTEGER ' Original offset when pan started
     panOrigOffsetY AS INTEGER ' Original offset when pan started
+    showToolbar AS INTEGER ' Show/hide toolbar
+    showStatus AS INTEGER  ' Show/hide status bar
 END TYPE
 
 DIM SHARED SCRN AS SCREEN_OBJ
