@@ -22,8 +22,12 @@ DO
     k& = _KEYHIT
     
     ' Check for ESC key with confirmation if canvas is dirty
+    ' BUT: If poly line tool is active, let keyboard handler reset it instead
     IF k& = 27 THEN
-        IF CANVAS_DIRTY% THEN
+        IF CURRENT_TOOL% = TOOL_POLYGON AND POLY_LINE.HAS_LAST THEN
+            ' Poly line is active, let keyboard handler reset it (don't exit)
+            ' The keyboard handler will process this ESC
+        ELSEIF CANVAS_DIRTY% THEN
             IF SHOW_exit_confirm% THEN
                 EXIT DO  ' Exit immediately if OK clicked
             END IF
