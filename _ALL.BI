@@ -79,6 +79,7 @@ $INCLUDEONCE
 '$INCLUDE:'./TOOLS/RECT.BI'
 '$INCLUDE:'./TOOLS/SAVE.BI'
 '$INCLUDE:'./TOOLS/SELECTION.BI'
+'$INCLUDE:'./TOOLS/TEXT.BI'
 '$INCLUDE:'./TOOLS/ZOOM.BI'
 
 ' THEME -----------------------------------------------------------------------

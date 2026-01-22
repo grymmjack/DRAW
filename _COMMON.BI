@@ -47,6 +47,7 @@ DIM SHARED AS INTEGER CONSTRAIN_X, CONSTRAIN_Y
 DIM SHARED AS INTEGER CURRENT_TOOL
 DIM SHARED AS INTEGER PREVIOUS_TOOL  ' Tool to return to after temporary picker
 DIM SHARED AS INTEGER CANVAS_DIRTY  ' Track if canvas has unsaved changes
+DIM SHARED TEXT_BUFFER(0 TO 99) AS STRING  ' Text tool buffer for 100 lines
 CONSTRAIN_X% = FALSE : CONSTRAIN_Y% = FALSE
 WHEEL_COLOR% = FALSE : KEY_COLOR% = FALSE
 PAINT_COLOR~& = 0  ' Will be set from palette after init
