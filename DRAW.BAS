@@ -6,7 +6,6 @@
 ' @depends ./_ALL.BI
 ' @depends ./_ALL.BM
 ' @author Rick Christy <grymmjack@gmail.com>
-' bump-ci
 '
 
 '$INCLUDE:'./_ALL.BI'
@@ -36,8 +35,7 @@ MAIN_shutdown
 ' Runs at the start of the loop before any other code
 ' 
 SUB LOOP_start ()
-    ' Update MARQUEE tool if active
-    IF CURRENT_TOOL% = TOOL_MARQUEE THEN MARQUEE_update
+    ' Don't update MARQUEE here - let mouse handler control it
 END SUB
 
 

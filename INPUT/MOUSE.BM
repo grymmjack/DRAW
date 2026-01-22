@@ -23,7 +23,9 @@ SUB MOUSE_init ()
     MOUSE.B2%    = FALSE
     MOUSE.B3%    = FALSE
     MOUSE.OLD_B1% = FALSE
+    MOUSE.OLD_B3% = FALSE
     MOUSE.DRAG$  = ""
+    MOUSE.B3_CLICK_TIME# = 0
 END SUB
 
 
@@ -35,18 +37,104 @@ SUB MOUSE_input_handler ()
     saved_state_this_frame% = FALSE
     
     WHILE _MOUSEINPUT:
-        MOUSE.X%  = _MOUSEX
-        MOUSE.Y%  = _MOUSEY
+        ' Get raw screen coordinates and convert to canvas coordinates
+        DIM rawX AS INTEGER, rawY AS INTEGER
+        DIM zw AS LONG, zh AS LONG, dx AS INTEGER, dy AS INTEGER
+        rawX% = _MOUSEX
+        rawY% = _MOUSEY
+        
+        ' Calculate zoomed canvas position on screen
+        zw& = SCRN.w& * SCRN.zoom!
+        zh& = SCRN.h& * SCRN.zoom!
+        dx% = (_WIDTH - zw&) \ 2 + SCRN.offsetX%
+        dy% = (_HEIGHT - zh&) \ 2 + SCRN.offsetY%
+        
+        ' Convert screen coords to canvas coords
+        MOUSE.X% = (rawX% - dx%) / SCRN.zoom!
+        MOUSE.Y% = (rawY% - dy%) / SCRN.zoom!
+        
+        ' Clamp to canvas bounds
+        IF MOUSE.X% < 0 THEN MOUSE.X% = 0
+        IF MOUSE.Y% < 0 THEN MOUSE.Y% = 0
+        IF MOUSE.X% >= SCRN.w& THEN MOUSE.X% = SCRN.w& - 1
+        IF MOUSE.Y% >= SCRN.h& THEN MOUSE.Y% = SCRN.h& - 1
+        
         MOUSE.B1% = _MOUSEBUTTON(1)
         MOUSE.B2% = _MOUSEBUTTON(2)
         MOUSE.B3% = _MOUSEBUTTON(3)
-        IF MOUSE.B1% THEN
+        
+        ' Check for double middle-click to reset zoom and position
+        IF MOUSE.B3% AND NOT MOUSE.OLD_B3% THEN
+            DIM clickTime AS DOUBLE
+            clickTime# = TIMER
+            IF clickTime# - MOUSE.B3_CLICK_TIME# < 0.3 THEN ' 300ms double-click threshold
+                ' Double-click detected - reset zoom and position
+                SCRN.zoom! = 1.0
+                SCRN.offsetX% = 0
+                SCRN.offsetY% = 0
+                MOUSE.B3_CLICK_TIME# = 0 ' Reset to prevent triple-click triggering
+            ELSE
+                MOUSE.B3_CLICK_TIME# = clickTime#
+            END IF
+        END IF
+        
+        ' Check for pan mode (spacebar + left button OR middle mouse button)
+        IF (_KEYDOWN(32) AND MOUSE.B1%) OR MOUSE.B3% THEN ' Spacebar+LMB or MMB
+            IF NOT SCRN.panning% THEN
+                ' Start panning
+                SCRN.panning% = TRUE
+                SCRN.panStartX% = rawX%
+                SCRN.panStartY% = rawY%
+                SCRN.panOrigOffsetX% = SCRN.offsetX%
+                SCRN.panOrigOffsetY% = SCRN.offsetY%
+            ELSE
+                ' Continue dragging
+                SCRN.offsetX% = SCRN.panOrigOffsetX% + (rawX% - SCRN.panStartX%)
+                SCRN.offsetY% = SCRN.panOrigOffsetY% + (rawY% - SCRN.panStartY%)
+                
+                ' If spacebar mode: reset on new button press
+                IF _KEYDOWN(32) AND MOUSE.B1% AND NOT MOUSE.OLD_B1% THEN
+                    SCRN.panStartX% = rawX%
+                    SCRN.panStartY% = rawY%
+                    SCRN.panOrigOffsetX% = SCRN.offsetX%
+                    SCRN.panOrigOffsetY% = SCRN.offsetY%
+                END IF
+            END IF
+        ELSE
+            ' Exit pan mode when both methods released
+            IF SCRN.panning% THEN SCRN.panning% = FALSE
+        END IF
+        
+        ' Skip normal tool behavior if panning
+        IF SCRN.panning% THEN
+            ' Don't process tools while panning
+        ELSEIF MOUSE.B1% THEN
             ' Handle different tools based on CURRENT_TOOL
             SELECT CASE CURRENT_TOOL%
                 CASE TOOL_MARQUEE
-                    ' Start marquee selection on first click
+                    ' Start marquee selection, resize, or move on first click
                     IF NOT MOUSE.OLD_B1% THEN
-                        MARQUEE_start MOUSE.X%, MOUSE.Y%
+                        ' Check if clicking on a handle
+                        DIM handle AS INTEGER
+                        handle% = MARQUEE_get_handle_at%(MOUSE.X%, MOUSE.Y%)
+                        IF handle% > 0 THEN
+                            ' Start resizing from this handle
+                            MARQUEE_start_resize handle%, MOUSE.X%, MOUSE.Y%
+                        ELSEIF MARQUEE_is_point_inside%(MOUSE.X%, MOUSE.Y%) THEN
+                            ' Start moving the box
+                            MARQUEE_start_move MOUSE.X%, MOUSE.Y%
+                        ELSE
+                            ' Start new marquee selection (clicking outside)
+                            MARQUEE_start MOUSE.X%, MOUSE.Y%
+                        END IF
+                    END IF
+                    ' Update resize, move, or drag position while button is held
+                    IF MARQUEE.RESIZING% THEN
+                        MARQUEE_update_resize MOUSE.X%, MOUSE.Y%
+                    ELSEIF MARQUEE.MOVING% THEN
+                        MARQUEE_update_move MOUSE.X%, MOUSE.Y%
+                    ELSE
+                        MARQUEE_update MOUSE.X%, MOUSE.Y%
                     END IF
                 CASE TOOL_FILL
                     ' Flood fill on click (only on button press, not while held)
@@ -64,10 +152,19 @@ SUB MOUSE_input_handler ()
                     IF MOUSE.Y% > MOUSE.OLD_Y% THEN MOUSE.DRAG$ = "D"
                     PAINT_on
             END SELECT
-        ELSE
+        ELSEIF NOT MOUSE.B1% THEN
             ' Button released - save undo state if we were drawing
             IF MOUSE.OLD_B1% AND NOT saved_state_this_frame% THEN
                 SELECT CASE CURRENT_TOOL%
+                    CASE TOOL_MARQUEE
+                        ' Finish the marquee drag, resize, or move
+                        IF MARQUEE.DRAGGING% THEN
+                            MARQUEE_finish_drag
+                        ELSEIF MARQUEE.RESIZING% THEN
+                            MARQUEE_finish_resize
+                        ELSEIF MARQUEE.MOVING% THEN
+                            MARQUEE_finish_move
+                        END IF
                     CASE TOOL_BRUSH, TOOL_DOT, TOOL_LINE
                         UNDO_save_state
                         saved_state_this_frame% = TRUE
@@ -87,12 +184,31 @@ SUB MOUSE_input_handler ()
                     BRUSH_SIZE_decrease
                 END IF
             ELSE
-                ' No CTRL, adjust color as normal
-                PAL_FG_IDX% = PAL_clamp_color_index(PAL_FG_IDX% + -MOUSE.SW%)
-                PAINT_COLOR~& = PAL_color(PAL_FG_IDX%)
-                IF NOT KEY_COLOR% THEN
-                    WHEEL_COLOR% = TRUE
-                    KEY_COLOR%   = FALSE
+                ' Mouse wheel without CTRL: zoom in/out (locked to 0.25 increments)
+                ' Zoom centered on mouse cursor position
+                DIM zoomStep AS SINGLE, oldZoom AS SINGLE
+                DIM mouseCanvasX AS SINGLE, mouseCanvasY AS SINGLE
+                zoomStep! = 0.25
+                oldZoom! = SCRN.zoom!
+                
+                ' Get mouse position in canvas space before zoom
+                mouseCanvasX! = MOUSE.X%
+                mouseCanvasY! = MOUSE.Y%
+                
+                IF MOUSE.SW% < 0 THEN
+                    ' Wheel down = zoom in
+                    SCRN.zoom! = SCRN.zoom! + zoomStep!
+                    IF SCRN.zoom! > SCRN.zoomMax! THEN SCRN.zoom! = SCRN.zoomMax!
+                ELSEIF MOUSE.SW% > 0 THEN
+                    ' Wheel up = zoom out
+                    SCRN.zoom! = SCRN.zoom! - zoomStep!
+                    IF SCRN.zoom! < SCRN.zoomMin! THEN SCRN.zoom! = SCRN.zoomMin!
+                END IF
+                
+                ' Adjust offset to keep mouse over same canvas point
+                IF SCRN.zoom! <> oldZoom! THEN
+                    SCRN.offsetX% = SCRN.offsetX% + (mouseCanvasX! * (oldZoom! - SCRN.zoom!))
+                    SCRN.offsetY% = SCRN.offsetY% + (mouseCanvasY! * (oldZoom! - SCRN.zoom!))
                 END IF
             END IF
             MOUSE.OSW% = MOUSE.SW%
@@ -113,6 +229,11 @@ SUB MOUSE_input_handler ()
             END IF
         END IF
     WEND
+    
+    ' Update marquee every frame for keyboard controls and handle hover detection
+    IF CURRENT_TOOL% = TOOL_MARQUEE AND MARQUEE.ACTIVE% THEN
+        MARQUEE_update MOUSE.X%, MOUSE.Y%
+    END IF
 END SUB
 
 
@@ -122,4 +243,5 @@ END SUB
 SUB MOUSE_input_handler_loop ()
     MOUSE.OLD_X% = MOUSE.X% : MOUSE.OLD_Y% = MOUSE.Y%
     MOUSE.OLD_B1% = MOUSE.B1%
+    MOUSE.OLD_B3% = MOUSE.B3%
 END SUB

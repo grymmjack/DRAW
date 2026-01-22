@@ -12,27 +12,27 @@ $INCLUDEONCE
 ' 
 SUB MARQUEE_init ()
     ' Configure the bounding box for marquee selection
-    MARQUEE.CFG.HandleHalfSize       = 3
+    MARQUEE.CFG.HandleHalfSize       = 1  ' 2px handles (was 3)
     MARQUEE.CFG.HandleFullSize       = MARQUEE.CFG.HandleHalfSize * 2
-    MARQUEE.CFG.EdgeHalfSize         = 3
+    MARQUEE.CFG.EdgeHalfSize         = 1
     MARQUEE.CFG.EdgeFullSize         = MARQUEE.CFG.EdgeHalfSize * 2
     MARQUEE.CFG.HandleCornerSize     = MARQUEE.CFG.HandleFullSize
     MARQUEE.CFG.HandleEdgeSize       = MARQUEE.CFG.EdgeFullSize
     MARQUEE.CFG.DragEdgePadding      = 8
-    MARQUEE.CFG.MinBoxWidth          = 8
-    MARQUEE.CFG.MinBoxHeight         = 8
+    MARQUEE.CFG.MinBoxWidth          = 1  ' 1px minimum (was 8)
+    MARQUEE.CFG.MinBoxHeight         = 1  ' 1px minimum (was 8)
 
     ' Set colors for marquee box - use dotted/dashed appearance
     MARQUEE.CFG.colorIdle            = _RGB32(255, 255, 255)
     MARQUEE.CFG.colorHoverOnly       = _RGB32(255, 255, 0)
     MARQUEE.CFG.colorSelectedOnly    = _RGB32(255, 255, 255)
-    MARQUEE.CFG.colorSelectedHover   = _RGB32(255, 255, 255)
+    MARQUEE.CFG.colorSelectedHover   = _RGB32(255, 255, 0)
     MARQUEE.CFG.colorDragging        = _RGB32(255, 255, 255)
-    MARQUEE.CFG.colorResizing        = _RGB32(255, 255, 255)
+    MARQUEE.CFG.colorResizing        = _RGB32(255, 255, 0)
 
-    MARQUEE.CFG.HandleFillColor      = _RGBA32(255, 255, 255, 0)
-    MARQUEE.CFG.HandleHoverFillColor = _RGB32(255, 255, 255)
-    MARQUEE.CFG.HandleBorderColor    = _RGB32(0, 0, 0)
+    MARQUEE.CFG.HandleFillColor      = _RGB32(255, 0, 255)  ' Bright magenta
+    MARQUEE.CFG.HandleHoverFillColor = _RGB32(0, 255, 255)  ' Bright cyan
+    MARQUEE.CFG.HandleBorderColor    = _RGB32(255, 255, 255)  ' White border
 
     MARQUEE.CFG.KeyRepeatDelay       = 0.1
     MARQUEE.CFG.KeyRepeatRate        = 0.05
@@ -54,16 +54,14 @@ END SUB
 ' @param y INTEGER Starting y coordinate
 '
 SUB MARQUEE_start (x AS INTEGER, y AS INTEGER)
-    MARQUEE.CFG.initX = x
-    MARQUEE.CFG.initY = y
-    MARQUEE.CFG.initW = 8
-    MARQUEE.CFG.initH = 8
+    ' Clear any existing marquee
+    MARQUEE.ACTIVE% = FALSE
     
-    ' Initialize the bounding box with our config
-    GJ_BBX_InitWithConfig MARQUEE.CFG
-    
-    MARQUEE.BOX = GJ_BBX_box
-    MARQUEE.ACTIVE% = TRUE
+    MARQUEE.DRAG_START_X% = x
+    MARQUEE.DRAG_START_Y% = y
+    MARQUEE.DRAG_END_X% = x
+    MARQUEE.DRAG_END_Y% = y
+    MARQUEE.DRAGGING% = TRUE
     MARQUEE.INITIALIZED% = TRUE
 END SUB
 
@@ -71,15 +69,18 @@ END SUB
 ''
 ' Update the marquee tool state
 ' Call this from the main loop when TOOL_MARQUEE is active
+' @param mouseX INTEGER Current mouse X position
+' @param mouseY INTEGER Current mouse Y position
 '
-SUB MARQUEE_update ()
+SUB MARQUEE_update (mouseX AS INTEGER, mouseY AS INTEGER)
     IF NOT MARQUEE.INITIALIZED% THEN MARQUEE_init
     
-    IF MARQUEE.ACTIVE% THEN
-        ' Update the bounding box
-        GJ_BBX_Update
-        MARQUEE.BOX = GJ_BBX_box
+    IF MARQUEE.DRAGGING% THEN
+        ' Update the drag end position
+        MARQUEE.DRAG_END_X% = mouseX
+        MARQUEE.DRAG_END_Y% = mouseY
     END IF
+    ' Note: We no longer sync with GJ_BBX_Update since we handle resize manually
 END SUB
 
 
@@ -88,16 +89,87 @@ END SUB
 ' @param showHUD INTEGER Whether to show handles and HUD elements
 '
 SUB MARQUEE_draw (showHUD AS INTEGER)
-    IF MARQUEE.ACTIVE% THEN
-        ' Synchronize our box with the GJ_BBX system
-        GJ_BBX_box = MARQUEE.BOX
+    DIM tempBox AS GJ_BBX_BBOX
+    
+    ' Explicitly set destination to canvas
+    _DEST SCRN.CANVAS&
+    
+    IF MARQUEE.DRAGGING% THEN
+        ' Draw temporary drag preview box
+        IF MARQUEE.DRAG_START_X% < MARQUEE.DRAG_END_X% THEN
+            tempBox.x = MARQUEE.DRAG_START_X%
+        ELSE
+            tempBox.x = MARQUEE.DRAG_END_X%
+        END IF
+        IF MARQUEE.DRAG_START_Y% < MARQUEE.DRAG_END_Y% THEN
+            tempBox.y = MARQUEE.DRAG_START_Y%
+        ELSE
+            tempBox.y = MARQUEE.DRAG_END_Y%
+        END IF
+        tempBox.w = ABS(MARQUEE.DRAG_END_X% - MARQUEE.DRAG_START_X%)
+        tempBox.h = ABS(MARQUEE.DRAG_END_Y% - MARQUEE.DRAG_START_Y%)
+        tempBox.state = GJ_BBX_STATE_IDLE
         
+        ' Ensure we have at least 1 pixel width/height for visibility
+        IF tempBox.w < 1 THEN tempBox.w = 1
+        IF tempBox.h < 1 THEN tempBox.h = 1
+        
+        ' Draw the drag preview with dotted lines
+        MARQUEE_draw_dotted_box tempBox, FALSE
+    ELSEIF MARQUEE.ACTIVE% THEN
         ' Draw the bounding box with dotted line effect
         MARQUEE_draw_dotted_box MARQUEE.BOX, showHUD%
         
-        ' Draw handles if showHUD is enabled
+        ' Draw handles directly (not using library due to GOSUB issues)
         IF showHUD% THEN
-            GJ_BBX_DrawHandles MARQUEE.BOX, MARQUEE.BOX.hoverHandle
+            DIM hh AS INTEGER, cx AS INTEGER, cy AS INTEGER
+            DIM handleColor AS _UNSIGNED LONG
+            hh% = 1  ' Handle half size (2px total)
+            cx% = MARQUEE.BOX.x + MARQUEE.BOX.w \ 2
+            cy% = MARQUEE.BOX.y + MARQUEE.BOX.h \ 2
+            
+            ' Draw 8 handles - filled with border, 33% opaque (alpha 85)
+            ' Use cyan for active resize handle, gray for others
+            
+            ' 1: TL corner
+            IF MARQUEE.RESIZE_HANDLE% = 1 THEN handleColor~& = _RGBA32(0, 255, 255, 85) ELSE handleColor~& = _RGBA32(160, 160, 160, 85)
+            LINE (MARQUEE.BOX.x - hh%, MARQUEE.BOX.y - hh%)-(MARQUEE.BOX.x + hh%, MARQUEE.BOX.y + hh%), handleColor~&, BF
+            LINE (MARQUEE.BOX.x - hh%, MARQUEE.BOX.y - hh%)-(MARQUEE.BOX.x + hh%, MARQUEE.BOX.y + hh%), _RGBA32(255, 255, 255, 85), B
+            
+            ' 2: T edge
+            IF MARQUEE.RESIZE_HANDLE% = 2 THEN handleColor~& = _RGBA32(0, 255, 255, 85) ELSE handleColor~& = _RGBA32(160, 160, 160, 85)
+            LINE (cx% - hh%, MARQUEE.BOX.y - hh%)-(cx% + hh%, MARQUEE.BOX.y + hh%), handleColor~&, BF
+            LINE (cx% - hh%, MARQUEE.BOX.y - hh%)-(cx% + hh%, MARQUEE.BOX.y + hh%), _RGBA32(255, 255, 255, 85), B
+            
+            ' 3: TR corner
+            IF MARQUEE.RESIZE_HANDLE% = 3 THEN handleColor~& = _RGBA32(0, 255, 255, 85) ELSE handleColor~& = _RGBA32(160, 160, 160, 85)
+            LINE (MARQUEE.BOX.x + MARQUEE.BOX.w - hh%, MARQUEE.BOX.y - hh%)-(MARQUEE.BOX.x + MARQUEE.BOX.w + hh%, MARQUEE.BOX.y + hh%), handleColor~&, BF
+            LINE (MARQUEE.BOX.x + MARQUEE.BOX.w - hh%, MARQUEE.BOX.y - hh%)-(MARQUEE.BOX.x + MARQUEE.BOX.w + hh%, MARQUEE.BOX.y + hh%), _RGBA32(255, 255, 255, 85), B
+            
+            ' 4: L edge
+            IF MARQUEE.RESIZE_HANDLE% = 4 THEN handleColor~& = _RGBA32(0, 255, 255, 85) ELSE handleColor~& = _RGBA32(160, 160, 160, 85)
+            LINE (MARQUEE.BOX.x - hh%, cy% - hh%)-(MARQUEE.BOX.x + hh%, cy% + hh%), handleColor~&, BF
+            LINE (MARQUEE.BOX.x - hh%, cy% - hh%)-(MARQUEE.BOX.x + hh%, cy% + hh%), _RGBA32(255, 255, 255, 85), B
+            
+            ' 5: R edge
+            IF MARQUEE.RESIZE_HANDLE% = 5 THEN handleColor~& = _RGBA32(0, 255, 255, 85) ELSE handleColor~& = _RGBA32(160, 160, 160, 85)
+            LINE (MARQUEE.BOX.x + MARQUEE.BOX.w - hh%, cy% - hh%)-(MARQUEE.BOX.x + MARQUEE.BOX.w + hh%, cy% + hh%), handleColor~&, BF
+            LINE (MARQUEE.BOX.x + MARQUEE.BOX.w - hh%, cy% - hh%)-(MARQUEE.BOX.x + MARQUEE.BOX.w + hh%, cy% + hh%), _RGBA32(255, 255, 255, 85), B
+            
+            ' 6: BL corner
+            IF MARQUEE.RESIZE_HANDLE% = 6 THEN handleColor~& = _RGBA32(0, 255, 255, 85) ELSE handleColor~& = _RGBA32(160, 160, 160, 85)
+            LINE (MARQUEE.BOX.x - hh%, MARQUEE.BOX.y + MARQUEE.BOX.h - hh%)-(MARQUEE.BOX.x + hh%, MARQUEE.BOX.y + MARQUEE.BOX.h + hh%), handleColor~&, BF
+            LINE (MARQUEE.BOX.x - hh%, MARQUEE.BOX.y + MARQUEE.BOX.h - hh%)-(MARQUEE.BOX.x + hh%, MARQUEE.BOX.y + MARQUEE.BOX.h + hh%), _RGBA32(255, 255, 255, 85), B
+            
+            ' 7: B edge
+            IF MARQUEE.RESIZE_HANDLE% = 7 THEN handleColor~& = _RGBA32(0, 255, 255, 85) ELSE handleColor~& = _RGBA32(160, 160, 160, 85)
+            LINE (cx% - hh%, MARQUEE.BOX.y + MARQUEE.BOX.h - hh%)-(cx% + hh%, MARQUEE.BOX.y + MARQUEE.BOX.h + hh%), handleColor~&, BF
+            LINE (cx% - hh%, MARQUEE.BOX.y + MARQUEE.BOX.h - hh%)-(cx% + hh%, MARQUEE.BOX.y + MARQUEE.BOX.h + hh%), _RGBA32(255, 255, 255, 85), B
+            
+            ' 8: BR corner
+            IF MARQUEE.RESIZE_HANDLE% = 8 THEN handleColor~& = _RGBA32(0, 255, 255, 85) ELSE handleColor~& = _RGBA32(160, 160, 160, 85)
+            LINE (MARQUEE.BOX.x + MARQUEE.BOX.w - hh%, MARQUEE.BOX.y + MARQUEE.BOX.h - hh%)-(MARQUEE.BOX.x + MARQUEE.BOX.w + hh%, MARQUEE.BOX.y + MARQUEE.BOX.h + hh%), handleColor~&, BF
+            LINE (MARQUEE.BOX.x + MARQUEE.BOX.w - hh%, MARQUEE.BOX.y + MARQUEE.BOX.h - hh%)-(MARQUEE.BOX.x + MARQUEE.BOX.w + hh%, MARQUEE.BOX.y + MARQUEE.BOX.h + hh%), _RGBA32(255, 255, 255, 85), B
         END IF
     END IF
 END SUB
@@ -115,29 +187,37 @@ SUB MARQUEE_draw_dotted_box (b AS GJ_BBX_BBOX, showHUD AS INTEGER)
     DIM x AS INTEGER, y AS INTEGER
     DIM lineColor AS _UNSIGNED LONG
     DIM outlineColor AS _UNSIGNED LONG
+    DIM prevBlend AS LONG
+    
+    ' Save and set blend mode
+    prevBlend& = _BLEND
+    _DONTBLEND
     
     dotSize% = 2
     gapSize% = 2
     
-    ' Determine color based on state
+    ' Determine color based on state (33% opaque = alpha 85)
     SELECT CASE b.state
         CASE GJ_BBX_STATE_IDLE
-            lineColor~& = MARQUEE.CFG.colorIdle
+            lineColor~& = _RGBA32(_RED32(MARQUEE.CFG.colorIdle), _GREEN32(MARQUEE.CFG.colorIdle), _BLUE32(MARQUEE.CFG.colorIdle), 85)
         CASE GJ_BBX_STATE_HOVER
-            lineColor~& = MARQUEE.CFG.colorHoverOnly
+            lineColor~& = _RGBA32(_RED32(MARQUEE.CFG.colorHoverOnly), _GREEN32(MARQUEE.CFG.colorHoverOnly), _BLUE32(MARQUEE.CFG.colorHoverOnly), 85)
         CASE GJ_BBX_STATE_DRAG
-            lineColor~& = MARQUEE.CFG.colorDragging
+            lineColor~& = _RGBA32(_RED32(MARQUEE.CFG.colorDragging), _GREEN32(MARQUEE.CFG.colorDragging), _BLUE32(MARQUEE.CFG.colorDragging), 85)
         CASE GJ_BBX_STATE_SELECTED
-            lineColor~& = MARQUEE.CFG.colorSelectedOnly
+            lineColor~& = _RGBA32(_RED32(MARQUEE.CFG.colorSelectedOnly), _GREEN32(MARQUEE.CFG.colorSelectedOnly), _BLUE32(MARQUEE.CFG.colorSelectedOnly), 85)
         CASE GJ_BBX_STATE_SELECTED_HOVER
-            lineColor~& = MARQUEE.CFG.colorSelectedHover
+            lineColor~& = _RGBA32(_RED32(MARQUEE.CFG.colorSelectedHover), _GREEN32(MARQUEE.CFG.colorSelectedHover), _BLUE32(MARQUEE.CFG.colorSelectedHover), 85)
         CASE ELSE
             IF b.state >= GJ_BBX_STATE_RESIZE_BASE THEN
-                lineColor~& = MARQUEE.CFG.colorResizing
+                lineColor~& = _RGBA32(_RED32(MARQUEE.CFG.colorResizing), _GREEN32(MARQUEE.CFG.colorResizing), _BLUE32(MARQUEE.CFG.colorResizing), 85)
             ELSE
-                lineColor~& = MARQUEE.CFG.colorIdle
+                lineColor~& = _RGBA32(_RED32(MARQUEE.CFG.colorIdle), _GREEN32(MARQUEE.CFG.colorIdle), _BLUE32(MARQUEE.CFG.colorIdle), 85)
             END IF
     END SELECT
+    
+    ' Force bright color for visibility - will fix color config later
+    lineColor~& = _RGB32(255, 255, 255)
     
     outlineColor~& = _RGB32(0, 0, 0)
     
@@ -145,16 +225,10 @@ SUB MARQUEE_draw_dotted_box (b AS GJ_BBX_BBOX, showHUD AS INTEGER)
     FOR i% = 0 TO b.w STEP (dotSize% + gapSize%)
         x% = b.x + i%
         IF x% <= b.x + b.w THEN
-            ' Top edge - black outline
-            LINE (x%, b.y - 1)-(x% + dotSize% - 1, b.y - 1), outlineColor~&
-            LINE (x%, b.y + 1)-(x% + dotSize% - 1, b.y + 1), outlineColor~&
-            ' Top edge - white/colored line
+            ' Top edge - bright cyan only
             LINE (x%, b.y)-(x% + dotSize% - 1, b.y), lineColor~&
             
-            ' Bottom edge - black outline
-            LINE (x%, b.y + b.h - 1)-(x% + dotSize% - 1, b.y + b.h - 1), outlineColor~&
-            LINE (x%, b.y + b.h + 1)-(x% + dotSize% - 1, b.y + b.h + 1), outlineColor~&
-            ' Bottom edge - white/colored line
+            ' Bottom edge - bright cyan only
             LINE (x%, b.y + b.h)-(x% + dotSize% - 1, b.y + b.h), lineColor~&
         END IF
     NEXT i%
@@ -163,26 +237,344 @@ SUB MARQUEE_draw_dotted_box (b AS GJ_BBX_BBOX, showHUD AS INTEGER)
     FOR i% = 0 TO b.h STEP (dotSize% + gapSize%)
         y% = b.y + i%
         IF y% <= b.y + b.h THEN
-            ' Left edge - black outline
-            LINE (b.x - 1, y%)-(b.x - 1, y% + dotSize% - 1), outlineColor~&
-            LINE (b.x + 1, y%)-(b.x + 1, y% + dotSize% - 1), outlineColor~&
-            ' Left edge - white/colored line
+            ' Left edge - bright cyan only
             LINE (b.x, y%)-(b.x, y% + dotSize% - 1), lineColor~&
             
-            ' Right edge - black outline
-            LINE (b.x + b.w - 1, y%)-(b.x + b.w - 1, y% + dotSize% - 1), outlineColor~&
-            LINE (b.x + b.w + 1, y%)-(b.x + b.w + 1, y% + dotSize% - 1), outlineColor~&
-            ' Right edge - white/colored line
+            ' Right edge - bright cyan only
             LINE (b.x + b.w, y%)-(b.x + b.w, y% + dotSize% - 1), lineColor~&
         END IF
     NEXT i%
+    
+    ' Restore blend mode
+    IF prevBlend& THEN _BLEND
 END SUB
 
 
 ''
-' Clear/deactivate the marquee selection
+' Finish the drag operation and create the final BBOX
+'
+SUB MARQUEE_finish_drag ()
+    IF NOT MARQUEE.DRAGGING% THEN EXIT SUB
+    
+    ' Calculate final box dimensions
+    DIM finalX AS INTEGER, finalY AS INTEGER
+    DIM finalW AS INTEGER, finalH AS INTEGER
+    
+    IF MARQUEE.DRAG_START_X% < MARQUEE.DRAG_END_X% THEN
+        finalX% = MARQUEE.DRAG_START_X%
+    ELSE
+        finalX% = MARQUEE.DRAG_END_X%
+    END IF
+    IF MARQUEE.DRAG_START_Y% < MARQUEE.DRAG_END_Y% THEN
+        finalY% = MARQUEE.DRAG_START_Y%
+    ELSE
+        finalY% = MARQUEE.DRAG_END_Y%
+    END IF
+    finalW% = ABS(MARQUEE.DRAG_END_X% - MARQUEE.DRAG_START_X%)
+    finalH% = ABS(MARQUEE.DRAG_END_Y% - MARQUEE.DRAG_START_Y%)
+    
+    ' Check if this was just a click (no significant drag movement)
+    IF finalW% < 4 AND finalH% < 4 THEN
+        ' Just a click - clear any existing marquee
+        MARQUEE.ACTIVE% = FALSE
+        MARQUEE.DRAGGING% = FALSE
+        EXIT SUB
+    END IF
+    
+    ' Only create box if drag has some size
+    IF finalW% >= MARQUEE.CFG.MinBoxWidth AND finalH% >= MARQUEE.CFG.MinBoxHeight THEN
+        MARQUEE.CFG.initX = finalX%
+        MARQUEE.CFG.initY = finalY%
+        MARQUEE.CFG.initW = finalW%
+        MARQUEE.CFG.initH = finalH%
+        
+        ' Initialize the bounding box with our config
+        GJ_BBX_InitWithConfig MARQUEE.CFG
+        
+        MARQUEE.BOX = GJ_BBX_box
+        MARQUEE.ACTIVE% = TRUE
+    END IF
+    
+    MARQUEE.DRAGGING% = FALSE
+END SUB
+
+
+''
+' Check if a point is inside the active marquee box
+' @param x INTEGER X coordinate to check
+' @param y INTEGER Y coordinate to check
+' @return INTEGER TRUE if point is inside, FALSE otherwise
+'
+FUNCTION MARQUEE_is_point_inside% (x AS INTEGER, y AS INTEGER)
+    IF NOT MARQUEE.ACTIVE% THEN
+        MARQUEE_is_point_inside% = FALSE
+        EXIT FUNCTION
+    END IF
+    
+    IF x >= MARQUEE.BOX.x AND x <= (MARQUEE.BOX.x + MARQUEE.BOX.w) THEN
+        IF y >= MARQUEE.BOX.y AND y <= (MARQUEE.BOX.y + MARQUEE.BOX.h) THEN
+            MARQUEE_is_point_inside% = TRUE
+            EXIT FUNCTION
+        END IF
+    END IF
+    
+    MARQUEE_is_point_inside% = FALSE
+END FUNCTION
+
+
+''  
 '
 SUB MARQUEE_clear ()
     MARQUEE.ACTIVE% = FALSE
+    MARQUEE.DRAGGING% = FALSE
+    MARQUEE.RESIZING% = FALSE
+    MARQUEE.RESIZE_HANDLE% = 0
+    MARQUEE.MOVING% = FALSE
+END SUB
+
+
+''
+' Get which handle (if any) is at the given coordinates
+' @param x INTEGER X coordinate to check
+' @param y INTEGER Y coordinate to check  
+' @return INTEGER Handle number (0=none, 1=TL, 2=T, 3=TR, 4=L, 5=R, 6=BL, 7=B, 8=BR)
+'
+FUNCTION MARQUEE_get_handle_at% (x AS INTEGER, y AS INTEGER)
+    IF NOT MARQUEE.ACTIVE% THEN
+        MARQUEE_get_handle_at% = 0
+        EXIT FUNCTION
+    END IF
+    
+    DIM hh AS INTEGER, cx AS INTEGER, cy AS INTEGER
+    hh% = 1  ' Handle half size (2px total)
+    cx% = MARQUEE.BOX.x + MARQUEE.BOX.w \ 2
+    cy% = MARQUEE.BOX.y + MARQUEE.BOX.h \ 2
+    
+    ' Check each handle (TL, T, TR, L, R, BL, B, BR)
+    ' 1: TL corner
+    IF x >= MARQUEE.BOX.x - hh% AND x <= MARQUEE.BOX.x + hh% THEN
+        IF y >= MARQUEE.BOX.y - hh% AND y <= MARQUEE.BOX.y + hh% THEN
+            MARQUEE_get_handle_at% = 1
+            EXIT FUNCTION
+        END IF
+    END IF
+    
+    ' 2: T edge
+    IF x >= cx% - hh% AND x <= cx% + hh% THEN
+        IF y >= MARQUEE.BOX.y - hh% AND y <= MARQUEE.BOX.y + hh% THEN
+            MARQUEE_get_handle_at% = 2
+            EXIT FUNCTION
+        END IF
+    END IF
+    
+    ' 3: TR corner
+    IF x >= MARQUEE.BOX.x + MARQUEE.BOX.w - hh% AND x <= MARQUEE.BOX.x + MARQUEE.BOX.w + hh% THEN
+        IF y >= MARQUEE.BOX.y - hh% AND y <= MARQUEE.BOX.y + hh% THEN
+            MARQUEE_get_handle_at% = 3
+            EXIT FUNCTION
+        END IF
+    END IF
+    
+    ' 4: L edge
+    IF x >= MARQUEE.BOX.x - hh% AND x <= MARQUEE.BOX.x + hh% THEN
+        IF y >= cy% - hh% AND y <= cy% + hh% THEN
+            MARQUEE_get_handle_at% = 4
+            EXIT FUNCTION
+        END IF
+    END IF
+    
+    ' 5: R edge
+    IF x >= MARQUEE.BOX.x + MARQUEE.BOX.w - hh% AND x <= MARQUEE.BOX.x + MARQUEE.BOX.w + hh% THEN
+        IF y >= cy% - hh% AND y <= cy% + hh% THEN
+            MARQUEE_get_handle_at% = 5
+            EXIT FUNCTION
+        END IF
+    END IF
+    
+    ' 6: BL corner
+    IF x >= MARQUEE.BOX.x - hh% AND x <= MARQUEE.BOX.x + hh% THEN
+        IF y >= MARQUEE.BOX.y + MARQUEE.BOX.h - hh% AND y <= MARQUEE.BOX.y + MARQUEE.BOX.h + hh% THEN
+            MARQUEE_get_handle_at% = 6
+            EXIT FUNCTION
+        END IF
+    END IF
+    
+    ' 7: B edge
+    IF x >= cx% - hh% AND x <= cx% + hh% THEN
+        IF y >= MARQUEE.BOX.y + MARQUEE.BOX.h - hh% AND y <= MARQUEE.BOX.y + MARQUEE.BOX.h + hh% THEN
+            MARQUEE_get_handle_at% = 7
+            EXIT FUNCTION
+        END IF
+    END IF
+    
+    ' 8: BR corner
+    IF x >= MARQUEE.BOX.x + MARQUEE.BOX.w - hh% AND x <= MARQUEE.BOX.x + MARQUEE.BOX.w + hh% THEN
+        IF y >= MARQUEE.BOX.y + MARQUEE.BOX.h - hh% AND y <= MARQUEE.BOX.y + MARQUEE.BOX.h + hh% THEN
+            MARQUEE_get_handle_at% = 8
+            EXIT FUNCTION
+        END IF
+    END IF
+    
+    MARQUEE_get_handle_at% = 0
+END FUNCTION
+
+
+''
+' Start resizing from a handle
+' @param handle INTEGER Which handle is being resized
+' @param x INTEGER Starting X coordinate
+' @param y INTEGER Starting Y coordinate
+'
+SUB MARQUEE_start_resize (handle AS INTEGER, x AS INTEGER, y AS INTEGER)
+    MARQUEE.RESIZING% = TRUE
+    MARQUEE.RESIZE_HANDLE% = handle
+    MARQUEE.RESIZE_START_X% = x
+    MARQUEE.RESIZE_START_Y% = y
+    MARQUEE.RESIZE_ORIG_X% = MARQUEE.BOX.x
+    MARQUEE.RESIZE_ORIG_Y% = MARQUEE.BOX.y
+    MARQUEE.RESIZE_ORIG_W% = MARQUEE.BOX.w
+    MARQUEE.RESIZE_ORIG_H% = MARQUEE.BOX.h
+END SUB
+
+
+''
+' Update resize based on current mouse position
+' @param x INTEGER Current X coordinate
+' @param y INTEGER Current Y coordinate
+'
+SUB MARQUEE_update_resize (x AS INTEGER, y AS INTEGER)
+    IF NOT MARQUEE.RESIZING% THEN EXIT SUB
+    
+    DIM dx AS INTEGER, dy AS INTEGER
+    dx% = x - MARQUEE.RESIZE_START_X%
+    dy% = y - MARQUEE.RESIZE_START_Y%
+    
+    SELECT CASE MARQUEE.RESIZE_HANDLE%
+        CASE 1  ' TL corner - move top-left, adjust width/height
+            MARQUEE.BOX.w = MARQUEE.RESIZE_ORIG_W% - dx%
+            MARQUEE.BOX.h = MARQUEE.RESIZE_ORIG_H% - dy%
+            ' Enforce minimum size
+            IF MARQUEE.BOX.w < MARQUEE.CFG.MinBoxWidth THEN MARQUEE.BOX.w = MARQUEE.CFG.MinBoxWidth
+            IF MARQUEE.BOX.h < MARQUEE.CFG.MinBoxHeight THEN MARQUEE.BOX.h = MARQUEE.CFG.MinBoxHeight
+            ' Adjust position to keep BR corner anchored
+            MARQUEE.BOX.x = MARQUEE.RESIZE_ORIG_X% + MARQUEE.RESIZE_ORIG_W% - MARQUEE.BOX.w
+            MARQUEE.BOX.y = MARQUEE.RESIZE_ORIG_Y% + MARQUEE.RESIZE_ORIG_H% - MARQUEE.BOX.h
+            
+        CASE 2  ' T edge - move top, adjust height
+            MARQUEE.BOX.h = MARQUEE.RESIZE_ORIG_H% - dy%
+            ' Enforce minimum size
+            IF MARQUEE.BOX.h < MARQUEE.CFG.MinBoxHeight THEN MARQUEE.BOX.h = MARQUEE.CFG.MinBoxHeight
+            ' Adjust position to keep bottom edge anchored
+            MARQUEE.BOX.y = MARQUEE.RESIZE_ORIG_Y% + MARQUEE.RESIZE_ORIG_H% - MARQUEE.BOX.h
+            
+        CASE 3  ' TR corner - adjust width, move top, adjust height
+            MARQUEE.BOX.w = MARQUEE.RESIZE_ORIG_W% + dx%
+            MARQUEE.BOX.h = MARQUEE.RESIZE_ORIG_H% - dy%
+            ' Enforce minimum size
+            IF MARQUEE.BOX.w < MARQUEE.CFG.MinBoxWidth THEN MARQUEE.BOX.w = MARQUEE.CFG.MinBoxWidth
+            IF MARQUEE.BOX.h < MARQUEE.CFG.MinBoxHeight THEN MARQUEE.BOX.h = MARQUEE.CFG.MinBoxHeight
+            ' Adjust Y position to keep bottom edge anchored
+            MARQUEE.BOX.y = MARQUEE.RESIZE_ORIG_Y% + MARQUEE.RESIZE_ORIG_H% - MARQUEE.BOX.h
+            
+        CASE 4  ' L edge - move left, adjust width
+            MARQUEE.BOX.w = MARQUEE.RESIZE_ORIG_W% - dx%
+            ' Enforce minimum size
+            IF MARQUEE.BOX.w < MARQUEE.CFG.MinBoxWidth THEN MARQUEE.BOX.w = MARQUEE.CFG.MinBoxWidth
+            ' Adjust position to keep right edge anchored
+            MARQUEE.BOX.x = MARQUEE.RESIZE_ORIG_X% + MARQUEE.RESIZE_ORIG_W% - MARQUEE.BOX.w
+            
+        CASE 5  ' R edge - adjust width only
+            MARQUEE.BOX.w = MARQUEE.RESIZE_ORIG_W% + dx%
+            IF MARQUEE.BOX.w < MARQUEE.CFG.MinBoxWidth THEN MARQUEE.BOX.w = MARQUEE.CFG.MinBoxWidth
+            
+        CASE 6  ' BL corner - move left, adjust width and height
+            MARQUEE.BOX.w = MARQUEE.RESIZE_ORIG_W% - dx%
+            MARQUEE.BOX.h = MARQUEE.RESIZE_ORIG_H% + dy%
+            ' Enforce minimum size
+            IF MARQUEE.BOX.w < MARQUEE.CFG.MinBoxWidth THEN MARQUEE.BOX.w = MARQUEE.CFG.MinBoxWidth
+            IF MARQUEE.BOX.h < MARQUEE.CFG.MinBoxHeight THEN MARQUEE.BOX.h = MARQUEE.CFG.MinBoxHeight
+            ' Adjust X position to keep right edge anchored
+            MARQUEE.BOX.x = MARQUEE.RESIZE_ORIG_X% + MARQUEE.RESIZE_ORIG_W% - MARQUEE.BOX.w
+            
+        CASE 7  ' B edge - adjust height only
+            MARQUEE.BOX.h = MARQUEE.RESIZE_ORIG_H% + dy%
+            IF MARQUEE.BOX.h < MARQUEE.CFG.MinBoxHeight THEN MARQUEE.BOX.h = MARQUEE.CFG.MinBoxHeight
+            
+        CASE 8  ' BR corner - adjust width and height
+            MARQUEE.BOX.w = MARQUEE.RESIZE_ORIG_W% + dx%
+            MARQUEE.BOX.h = MARQUEE.RESIZE_ORIG_H% + dy%
+            IF MARQUEE.BOX.w < MARQUEE.CFG.MinBoxWidth THEN MARQUEE.BOX.w = MARQUEE.CFG.MinBoxWidth
+            IF MARQUEE.BOX.h < MARQUEE.CFG.MinBoxHeight THEN MARQUEE.BOX.h = MARQUEE.CFG.MinBoxHeight
+    END SELECT
+    
+    ' Apply screen bounds (keep at least 1 pixel visible)
+    IF MARQUEE.BOX.x > SCRN.w - 1 THEN MARQUEE.BOX.x = SCRN.w - 1
+    IF MARQUEE.BOX.x < 1 - MARQUEE.BOX.w THEN MARQUEE.BOX.x = 1 - MARQUEE.BOX.w
+    IF MARQUEE.BOX.y > SCRN.h - 1 THEN MARQUEE.BOX.y = SCRN.h - 1
+    IF MARQUEE.BOX.y < 1 - MARQUEE.BOX.h THEN MARQUEE.BOX.y = 1 - MARQUEE.BOX.h
+    ' Also ensure the box doesn't extend too far
+    IF MARQUEE.BOX.x + MARQUEE.BOX.w > SCRN.w THEN MARQUEE.BOX.w = SCRN.w - MARQUEE.BOX.x
+    IF MARQUEE.BOX.y + MARQUEE.BOX.h > SCRN.h THEN MARQUEE.BOX.h = SCRN.h - MARQUEE.BOX.y
+    ' And enforce minimum again after bounds checking
+    IF MARQUEE.BOX.w < 1 THEN MARQUEE.BOX.w = 1
+    IF MARQUEE.BOX.h < 1 THEN MARQUEE.BOX.h = 1
+END SUB
+
+
+''
+' Finish resizing operation
+'
+SUB MARQUEE_finish_resize ()
+    MARQUEE.RESIZING% = FALSE
+    MARQUEE.RESIZE_HANDLE% = 0
+END SUB
+
+
+''
+' Start moving the box from inside
+' @param x INTEGER Starting X coordinate
+' @param y INTEGER Starting Y coordinate
+'
+SUB MARQUEE_start_move (x AS INTEGER, y AS INTEGER)
+    MARQUEE.MOVING% = TRUE
+    MARQUEE.MOVE_START_X% = x
+    MARQUEE.MOVE_START_Y% = y
+    MARQUEE.MOVE_ORIG_X% = MARQUEE.BOX.x
+    MARQUEE.MOVE_ORIG_Y% = MARQUEE.BOX.y
+END SUB
+
+
+''
+' Update move based on current mouse position
+' @param x INTEGER Current X coordinate
+' @param y INTEGER Current Y coordinate
+'
+SUB MARQUEE_update_move (x AS INTEGER, y AS INTEGER)
+    IF NOT MARQUEE.MOVING% THEN EXIT SUB
+    
+    DIM dx AS INTEGER, dy AS INTEGER
+    dx% = x - MARQUEE.MOVE_START_X%
+    dy% = y - MARQUEE.MOVE_START_Y%
+    
+    MARQUEE.BOX.x = MARQUEE.MOVE_ORIG_X% + dx%
+    MARQUEE.BOX.y = MARQUEE.MOVE_ORIG_Y% + dy%
+    
+    ' Keep box within screen bounds (at least 1 pixel visible)
+    ' Left edge can go as far right as SCRN.w - 1
+    IF MARQUEE.BOX.x > SCRN.w - 1 THEN MARQUEE.BOX.x = SCRN.w - 1
+    ' Right edge must be at least at x=0, so x >= -(w-1) or x >= 1-w
+    IF MARQUEE.BOX.x < 1 - MARQUEE.BOX.w THEN MARQUEE.BOX.x = 1 - MARQUEE.BOX.w
+    ' Top edge can go as far down as SCRN.h - 1
+    IF MARQUEE.BOX.y > SCRN.h - 1 THEN MARQUEE.BOX.y = SCRN.h - 1
+    ' Bottom edge must be at least at y=0
+    IF MARQUEE.BOX.y < 1 - MARQUEE.BOX.h THEN MARQUEE.BOX.y = 1 - MARQUEE.BOX.h
+END SUB
+
+
+''
+' Finish moving operation
+'
+SUB MARQUEE_finish_move ()
+    MARQUEE.MOVING% = FALSE
 END SUB
 
