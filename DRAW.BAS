@@ -14,8 +14,24 @@
 
 ' Main Loop
 DIM k AS LONG
-DO:   
+DIM exitConfirmed AS INTEGER
+exitConfirmed% = FALSE
+
+DO
     k& = _KEYHIT
+    
+    ' Check for ESC key with confirmation if canvas is dirty
+    IF k& = 27 THEN
+        IF CANVAS_DIRTY% THEN
+            IF SHOW_exit_confirm% THEN
+                EXIT DO  ' Exit immediately if OK clicked
+            END IF
+            ' If cancelled, continue loop
+        ELSE
+            EXIT DO  ' Clean canvas, exit immediately
+        END IF
+    END IF
+    
     LOOP_start
     MOUSE_input_handler
     KEYBOARD_input_handler
@@ -26,7 +42,7 @@ DO:
     KEYBOARD_input_handler_loop
     STICK_input_handler_loop
     LOOP_end
-LOOP UNTIL k&=27
+LOOP
 MAIN_shutdown
 
 
@@ -44,6 +60,21 @@ END SUB
 ' 
 SUB LOOP_end ()
 END SUB
+
+
+''
+' Simple message box using native QB64PE dialog
+' Returns TRUE if Yes clicked, FALSE if No
+'
+FUNCTION SHOW_exit_confirm% ()
+    DIM result AS LONG
+    result& = _MESSAGEBOX("Exit Confirmation", "Are you sure you want to exit?", "yesno", "question", 0)
+    IF result& = 1 THEN
+        SHOW_exit_confirm% = TRUE
+    ELSE
+        SHOW_exit_confirm% = FALSE
+    END IF
+END FUNCTION
 
 
 ''
