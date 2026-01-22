@@ -1,9 +1,297 @@
 ''
 ' DRAW - TOOLS/MOVE.BM
 ' =============================================================================
-' Move tool subs and functions.
+' Move and transform tool implementation.
 '
-' @todo
 ' @author Rick Christy <grymmjack@gmail.com>
 '
 $INCLUDEONCE
+
+' Initialize the move tool
+SUB MOVE_init ()
+    MOVE.ACTIVE = FALSE
+    MOVE.TRANSFORMING = FALSE
+    MOVE.TRANSFORM_TYPE = 0
+    MOVE.SELECTION_IMAGE = 0
+    MOVE.SELECTION_X = 0
+    MOVE.SELECTION_Y = 0
+    MOVE.SELECTION_W = 0
+    MOVE.SELECTION_H = 0
+    MOVE.HANDLE = 0
+    MOVE.CLONING = FALSE
+    MOVE.CONSTRAIN = FALSE
+END SUB
+
+' Reset the move tool
+SUB MOVE_reset ()
+    IF MOVE.SELECTION_IMAGE <> 0 THEN _FREEIMAGE MOVE.SELECTION_IMAGE
+    MOVE_init
+END SUB
+
+' Capture the selected pixels from the marquee
+SUB MOVE_capture_selection ()
+    ' Only capture if marquee is active and initialized
+    IF NOT MARQUEE.ACTIVE OR NOT MARQUEE.INITIALIZED THEN EXIT SUB
+    
+    ' Free old image if exists
+    IF MOVE.SELECTION_IMAGE <> 0 THEN _FREEIMAGE MOVE.SELECTION_IMAGE
+    
+    ' Get marquee dimensions
+    MOVE.SELECTION_X = MARQUEE.BOX.x
+    MOVE.SELECTION_Y = MARQUEE.BOX.y
+    MOVE.SELECTION_W = MARQUEE.BOX.w
+    MOVE.SELECTION_H = MARQUEE.BOX.h
+    
+    ' Store original position for ESC cancel
+    MOVE.ORIGINAL_X = MOVE.SELECTION_X
+    MOVE.ORIGINAL_Y = MOVE.SELECTION_Y
+    MOVE.ORIGINAL_W = MOVE.SELECTION_W
+    MOVE.ORIGINAL_H = MOVE.SELECTION_H
+    
+    ' Create image buffer and copy selected region
+    MOVE.SELECTION_IMAGE = _NEWIMAGE(MOVE.SELECTION_W, MOVE.SELECTION_H, 32)
+    _DEST MOVE.SELECTION_IMAGE
+    _PUTIMAGE (0, 0), SCRN.PAINTING&, MOVE.SELECTION_IMAGE, (MOVE.SELECTION_X, MOVE.SELECTION_Y)-(MOVE.SELECTION_X + MOVE.SELECTION_W - 1, MOVE.SELECTION_Y + MOVE.SELECTION_H - 1)
+    
+    ' Initialize current transform to original selection
+    MOVE.CURRENT_X = MOVE.SELECTION_X
+    MOVE.CURRENT_Y = MOVE.SELECTION_Y
+    MOVE.CURRENT_W = MOVE.SELECTION_W
+    MOVE.CURRENT_H = MOVE.SELECTION_H
+    
+    ' Make sure marquee box is synced with the selection
+    MARQUEE.BOX.x = MOVE.SELECTION_X
+    MARQUEE.BOX.y = MOVE.SELECTION_Y
+    MARQUEE.BOX.w = MOVE.SELECTION_W
+    MARQUEE.BOX.h = MOVE.SELECTION_H
+    
+    MOVE.ACTIVE = TRUE
+END SUB
+
+' Start a transform operation
+SUB MOVE_start_transform (handle AS INTEGER, x AS INTEGER, y AS INTEGER)
+    IF NOT MOVE.ACTIVE THEN EXIT SUB
+    
+    MOVE.TRANSFORMING = TRUE
+    MOVE.HANDLE = handle
+    MOVE.START_X = x
+    MOVE.START_Y = y
+    
+    ' Determine transform type based on handle
+    IF handle = 0 THEN
+        MOVE.TRANSFORM_TYPE = 0 ' Move
+    ELSEIF handle = 1 OR handle = 2 OR handle = 3 OR handle = 4 THEN
+        MOVE.TRANSFORM_TYPE = 1 ' Scale (corner handles)
+    ELSE
+        MOVE.TRANSFORM_TYPE = 2 ' Stretch (side handles)
+    END IF
+END SUB
+
+' Update transform based on current mouse position
+SUB MOVE_update_transform (x AS INTEGER, y AS INTEGER)
+    IF NOT MOVE.TRANSFORMING THEN EXIT SUB
+    
+    DIM dx AS INTEGER, dy AS INTEGER, new_w AS INTEGER, new_h AS INTEGER
+    DIM aspect_ratio AS SINGLE
+    
+    dx = x - MOVE.START_X
+    dy = y - MOVE.START_Y
+    
+    ' Check for ALT (clone) and SHIFT (constrain) modifiers
+    MOVE.CLONING = (_KEYDOWN(KEY_LALT&) OR _KEYDOWN(KEY_RALT&))
+    MOVE.CONSTRAIN = (_KEYDOWN(KEY_LSHIFT&) OR _KEYDOWN(KEY_RSHIFT&))
+    
+    ' Store old values to detect changes
+    DIM old_x AS INTEGER, old_y AS INTEGER, old_w AS INTEGER, old_h AS INTEGER
+    old_x = MOVE.CURRENT_X
+    old_y = MOVE.CURRENT_Y
+    old_w = MOVE.CURRENT_W
+    old_h = MOVE.CURRENT_H
+    
+    SELECT CASE MOVE.TRANSFORM_TYPE
+        CASE 0 ' Move
+            MOVE.CURRENT_X = MOVE.SELECTION_X + dx
+            MOVE.CURRENT_Y = MOVE.SELECTION_Y + dy
+            
+        CASE 1 ' Scale (corner handles)
+            aspect_ratio = MOVE.SELECTION_W / MOVE.SELECTION_H
+            
+            SELECT CASE MOVE.HANDLE
+                CASE 1 ' Top-left
+                    new_w = MOVE.SELECTION_W - dx
+                    new_h = MOVE.SELECTION_H - dy
+                    IF MOVE.CONSTRAIN THEN
+                        IF ABS(dx) > ABS(dy) THEN
+                            new_h = INT(new_w / aspect_ratio)
+                        ELSE
+                            new_w = INT(new_h * aspect_ratio)
+                        END IF
+                    END IF
+                    IF new_w > 1 AND new_h > 1 THEN
+                        MOVE.CURRENT_X = MOVE.SELECTION_X + MOVE.SELECTION_W - new_w
+                        MOVE.CURRENT_Y = MOVE.SELECTION_Y + MOVE.SELECTION_H - new_h
+                        MOVE.CURRENT_W = new_w
+                        MOVE.CURRENT_H = new_h
+                    END IF
+                    
+                CASE 2 ' Top-right
+                    new_w = MOVE.SELECTION_W + dx
+                    new_h = MOVE.SELECTION_H - dy
+                    IF MOVE.CONSTRAIN THEN
+                        IF ABS(dx) > ABS(dy) THEN
+                            new_h = INT(new_w / aspect_ratio)
+                        ELSE
+                            new_w = INT(new_h * aspect_ratio)
+                        END IF
+                    END IF
+                    IF new_w > 1 AND new_h > 1 THEN
+                        MOVE.CURRENT_Y = MOVE.SELECTION_Y + MOVE.SELECTION_H - new_h
+                        MOVE.CURRENT_W = new_w
+                        MOVE.CURRENT_H = new_h
+                    END IF
+                    
+                CASE 3 ' Bottom-right
+                    new_w = MOVE.SELECTION_W + dx
+                    new_h = MOVE.SELECTION_H + dy
+                    IF MOVE.CONSTRAIN THEN
+                        IF ABS(dx) > ABS(dy) THEN
+                            new_h = INT(new_w / aspect_ratio)
+                        ELSE
+                            new_w = INT(new_h * aspect_ratio)
+                        END IF
+                    END IF
+                    IF new_w > 1 AND new_h > 1 THEN
+                        MOVE.CURRENT_W = new_w
+                        MOVE.CURRENT_H = new_h
+                    END IF
+                    
+                CASE 4 ' Bottom-left
+                    new_w = MOVE.SELECTION_W - dx
+                    new_h = MOVE.SELECTION_H + dy
+                    IF MOVE.CONSTRAIN THEN
+                        IF ABS(dx) > ABS(dy) THEN
+                            new_h = INT(new_w / aspect_ratio)
+                        ELSE
+                            new_w = INT(new_h * aspect_ratio)
+                        END IF
+                    END IF
+                    IF new_w > 1 AND new_h > 1 THEN
+                        MOVE.CURRENT_X = MOVE.SELECTION_X + MOVE.SELECTION_W - new_w
+                        MOVE.CURRENT_W = new_w
+                        MOVE.CURRENT_H = new_h
+                    END IF
+            END SELECT
+            
+        CASE 2 ' Stretch (side handles)
+            SELECT CASE MOVE.HANDLE
+                CASE 5 ' Top
+                    new_h = MOVE.SELECTION_H - dy
+                    IF new_h > 1 THEN
+                        MOVE.CURRENT_Y = MOVE.SELECTION_Y + MOVE.SELECTION_H - new_h
+                        MOVE.CURRENT_H = new_h
+                    END IF
+                    
+                CASE 6 ' Right
+                    new_w = MOVE.SELECTION_W + dx
+                    IF new_w > 1 THEN
+                        MOVE.CURRENT_W = new_w
+                    END IF
+                    
+                CASE 7 ' Bottom
+                    new_h = MOVE.SELECTION_H + dy
+                    IF new_h > 1 THEN
+                        MOVE.CURRENT_H = new_h
+                    END IF
+                    
+                CASE 8 ' Left
+                    new_w = MOVE.SELECTION_W - dx
+                    IF new_w > 1 THEN
+                        MOVE.CURRENT_X = MOVE.SELECTION_X + MOVE.SELECTION_W - new_w
+                        MOVE.CURRENT_W = new_w
+                    END IF
+            END SELECT
+    END SELECT
+    
+    ' Update marquee box to follow the transform in real-time
+    IF MOVE.CURRENT_X <> old_x OR MOVE.CURRENT_Y <> old_y OR MOVE.CURRENT_W <> old_w OR MOVE.CURRENT_H <> old_h THEN
+        MARQUEE.BOX.x = MOVE.CURRENT_X
+        MARQUEE.BOX.y = MOVE.CURRENT_Y
+        MARQUEE.BOX.w = MOVE.CURRENT_W
+        MARQUEE.BOX.h = MOVE.CURRENT_H
+    END IF
+END SUB
+
+' Apply the transform to the canvas
+SUB MOVE_apply_transform ()
+    IF NOT MOVE.ACTIVE THEN EXIT SUB
+    IF MOVE.SELECTION_IMAGE = 0 THEN EXIT SUB
+    
+    _DEST SCRN.PAINTING&
+    
+    ' If not cloning, clear the ORIGINAL area with current paint color (where pixels started)
+    IF NOT MOVE.CLONING THEN
+        LINE (MOVE.ORIGINAL_X, MOVE.ORIGINAL_Y)-(MOVE.ORIGINAL_X + MOVE.ORIGINAL_W - 1, MOVE.ORIGINAL_Y + MOVE.ORIGINAL_H - 1), PAINT_COLOR~&, BF
+    END IF
+    
+    ' Draw the transformed selection
+    IF MOVE.SELECTION_IMAGE <> 0 THEN
+        _PUTIMAGE (MOVE.CURRENT_X, MOVE.CURRENT_Y)-(MOVE.CURRENT_X + MOVE.CURRENT_W - 1, MOVE.CURRENT_Y + MOVE.CURRENT_H - 1), MOVE.SELECTION_IMAGE, SCRN.PAINTING&
+    END IF
+    
+    _DEST SCRN.CANVAS&
+    
+    ' Update marquee to new position/size
+    MARQUEE.BOX.x = MOVE.CURRENT_X
+    MARQUEE.BOX.y = MOVE.CURRENT_Y
+    MARQUEE.BOX.w = MOVE.CURRENT_W
+    MARQUEE.BOX.h = MOVE.CURRENT_H
+    
+    ' Save undo state
+    UNDO_save_state
+    CANVAS_DIRTY% = TRUE
+    
+    ' Reset transforming flag
+    MOVE.TRANSFORMING = FALSE
+END SUB
+
+' Cancel the current transform
+SUB MOVE_cancel_transform ()
+    IF NOT MOVE.ACTIVE THEN EXIT SUB
+    
+    ' Reset to original position/size from when tool was activated
+    MOVE.CURRENT_X = MOVE.ORIGINAL_X
+    MOVE.CURRENT_Y = MOVE.ORIGINAL_Y
+    MOVE.CURRENT_W = MOVE.ORIGINAL_W
+    MOVE.CURRENT_H = MOVE.ORIGINAL_H
+    
+    ' Also reset selection base
+    MOVE.SELECTION_X = MOVE.ORIGINAL_X
+    MOVE.SELECTION_Y = MOVE.ORIGINAL_Y
+    MOVE.SELECTION_W = MOVE.ORIGINAL_W
+    MOVE.SELECTION_H = MOVE.ORIGINAL_H
+    
+    ' Update marquee to original position
+    MARQUEE.BOX.x = MOVE.ORIGINAL_X
+    MARQUEE.BOX.y = MOVE.ORIGINAL_Y
+    MARQUEE.BOX.w = MOVE.ORIGINAL_W
+    MARQUEE.BOX.h = MOVE.ORIGINAL_H
+    
+    MOVE.TRANSFORMING = FALSE
+END SUB
+
+' Render preview of the transform
+SUB MOVE_render_preview (dest AS LONG)
+    IF NOT MOVE.ACTIVE THEN EXIT SUB
+    IF MOVE.SELECTION_IMAGE = 0 THEN EXIT SUB
+    
+    _DEST dest
+    
+    ' Draw the transformed selection
+    _PUTIMAGE (MOVE.CURRENT_X, MOVE.CURRENT_Y)-(MOVE.CURRENT_X + MOVE.CURRENT_W - 1, MOVE.CURRENT_Y + MOVE.CURRENT_H - 1), MOVE.SELECTION_IMAGE, dest
+    
+    ' Draw bounding box if transforming
+    IF MOVE.TRANSFORMING THEN
+        DIM c~& : c~& = _RGB32(255, 255, 255)
+        LINE (MOVE.CURRENT_X, MOVE.CURRENT_Y)-(MOVE.CURRENT_X + MOVE.CURRENT_W - 1, MOVE.CURRENT_Y + MOVE.CURRENT_H - 1), c~&, B
+    END IF
+END SUB
