@@ -75,7 +75,10 @@ END SUB
 '
 FUNCTION SHOW_exit_confirm% ()
     DIM result AS LONG
+    _MOUSESHOW
     result& = _MESSAGEBOX("Exit Confirmation", "Are you sure you want to exit?", "yesno", "question", 0)
+    DO WHILE _MOUSEINPUT : LOOP
+    _MOUSEHIDE
     IF result& = 1 THEN
         SHOW_exit_confirm% = TRUE
     ELSE
