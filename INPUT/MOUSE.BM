@@ -63,14 +63,17 @@ SUB MOUSE_input_handler ()
         MOUSE.B2% = _MOUSEBUTTON(2)
         MOUSE.B3% = _MOUSEBUTTON(3)
         
-        ' Reset toolbar clicked flag at start of each input cycle
-        MOUSE.TOOLBAR_CLICKED% = FALSE
+        ' Reset toolbar clicked flag only when mouse button is released
+        IF NOT MOUSE.B1% THEN
+            MOUSE.TOOLBAR_CLICKED% = FALSE
+        END IF
         
         ' Check for toolbar clicks (only when not panning)
         IF NOT SCRN.panning% AND MOUSE.B1% AND NOT MOUSE.OLD_B1% THEN
             ' Check if clicking on toolbar area (raw screen coordinates)
-            IF SCRN.showToolbar% AND (rawX% >= TB_LEFT OR rawX% <= TB_RIGHT + TB_BTN_W) THEN
+            IF SCRN.showToolbar% AND (rawX% >= TB_LEFT AND rawX% <= TB_RIGHT + TB_BTN_W) THEN
                 TOOLBAR_handle_click rawX%, rawY%
+                MOUSE.TOOLBAR_CLICKED% = TRUE  ' Flag to prevent canvas action
             END IF
             ' Check if clicking on status bar area (bottom of screen)
             IF SCRN.showStatus% AND rawY% >= (SCRN.h& - 10) THEN
@@ -120,25 +123,31 @@ SUB MOUSE_input_handler ()
             END IF
         END IF
         
-        ' Auto-hide UI when drawing over it (mouse button is down and not panning)
-        IF MOUSE.B1% AND NOT SCRN.panning% THEN
+        ' Auto-hide UI when actively dragging with a tool (not when clicking toolbar)
+        ' Only hide when button was already down (OLD_B1%) and we're not clicking on UI
+        IF MOUSE.B1% AND MOUSE.OLD_B1% AND NOT SCRN.panning% AND NOT MOUSE.TOOLBAR_CLICKED% THEN
             ' Check if mouse is over toolbar area while drawing
             IF SCRN.showToolbar% AND (rawX% >= TB_LEFT AND rawX% <= TB_RIGHT + TB_BTN_W) THEN
                 SCRN.showToolbar% = FALSE
+                SCRN.toolbarManuallyHidden% = FALSE ' This is auto-hide, not manual
             END IF
             ' Check if mouse is over status bar while drawing
             IF SCRN.showStatus% AND rawY% >= (SCRN.h& - 10) THEN
                 SCRN.showStatus% = FALSE
+                SCRN.statusManuallyHidden% = FALSE ' This is auto-hide, not manual
             END IF
         END IF
         
-        ' Restore UI when mouse is released
-        IF NOT MOUSE.B1% AND (NOT SCRN.showToolbar% OR NOT SCRN.showStatus%) THEN
-            ' Restore hidden UI elements (unless user toggled them off with hotkeys)
-            ' We'll need to track if user manually hid them vs auto-hide
-            ' For now, just restore them
-            SCRN.showToolbar% = TRUE
-            SCRN.showStatus% = TRUE
+        ' Restore UI when mouse is released (only if auto-hidden, not manually hidden)
+        IF NOT MOUSE.B1% THEN
+            ' Restore toolbar if it was auto-hidden (not manually hidden by user)
+            IF NOT SCRN.showToolbar% AND NOT SCRN.toolbarManuallyHidden% THEN
+                SCRN.showToolbar% = TRUE
+            END IF
+            ' Restore status bar if it was auto-hidden (not manually hidden by user)
+            IF NOT SCRN.showStatus% AND NOT SCRN.statusManuallyHidden% THEN
+                SCRN.showStatus% = TRUE
+            END IF
         END IF
         
         ' Check for pan mode (spacebar + left button OR middle mouse button)
@@ -166,6 +175,16 @@ SUB MOUSE_input_handler ()
         ELSE
             ' Exit pan mode when both methods released
             IF SCRN.panning% THEN SCRN.panning% = FALSE
+        END IF
+        
+        ' Skip tool actions if we just clicked on the toolbar
+        IF MOUSE.TOOLBAR_CLICKED% THEN
+            MOUSE.OLD_B1% = MOUSE.B1%
+            MOUSE.OLD_B2% = MOUSE.B2%
+            MOUSE.OLD_B3% = MOUSE.B3%
+            MOUSE.OLD_X% = MOUSE.X%
+            MOUSE.OLD_Y% = MOUSE.Y%
+            EXIT SUB
         END IF
         
         ' Skip normal tool behavior if panning
@@ -246,6 +265,20 @@ SUB MOUSE_input_handler ()
                     ' Pick color on click (only on button press, not while held)
                     IF PICKER.ACTIVE% AND NOT MOUSE.OLD_B1% THEN
                         PICKER_pick_color MOUSE.X%, MOUSE.Y%, 1  ' 1 = left button/foreground
+                    END IF
+                CASE TOOL_SAVE
+                    ' SAVE tool: Show save dialog on click
+                    IF NOT MOUSE.OLD_B1% THEN
+                        SAVE_image
+                        ' Return to previous tool after save
+                        CURRENT_TOOL% = PREVIOUS_TOOL%
+                    END IF
+                CASE TOOL_OPEN
+                    ' LOAD tool: Show open dialog on click
+                    IF NOT MOUSE.OLD_B1% THEN
+                        LOAD_image
+                        ' Return to previous tool after load
+                        CURRENT_TOOL% = PREVIOUS_TOOL%
                     END IF
                 CASE TOOL_TEXT
                     ' TEXT tool: Click to start or reposition text entry
@@ -528,31 +561,64 @@ SUB MOUSE_input_handler ()
                     BRUSH_SIZE_decrease
                 END IF
             ELSE
-                ' Mouse wheel without CTRL: zoom in/out (locked to 0.25 increments)
+                ' Mouse wheel without CTRL: zoom in/out
+                ' Above 100%: Always use 100% increments (both in and out)
+                ' At/below 100%: Zoom IN snaps to 100%, Zoom OUT uses 25%
                 ' Zoom centered on mouse cursor position
-                DIM zoomStep AS SINGLE, oldZoom AS SINGLE
-                DIM mouseCanvasX AS SINGLE, mouseCanvasY AS SINGLE
-                zoomStep! = 0.25
+                DIM oldZoom AS SINGLE
+                DIM mouseScreenX AS INTEGER, mouseScreenY AS INTEGER
                 oldZoom! = SCRN.zoom!
                 
-                ' Get mouse position in canvas space before zoom
-                mouseCanvasX! = MOUSE.X%
-                mouseCanvasY! = MOUSE.Y%
+                ' Get mouse screen position BEFORE zoom changes
+                mouseScreenX% = _MOUSEX
+                mouseScreenY% = _MOUSEY
                 
                 IF MOUSE.SW% < 0 THEN
                     ' Wheel down = zoom in
-                    SCRN.zoom! = SCRN.zoom! + zoomStep!
+                    IF SCRN.zoom! < 1.0 THEN
+                        SCRN.zoom! = 1.0  ' Snap to 100% from any fractional zoom
+                    ELSE
+                        SCRN.zoom! = INT(SCRN.zoom!) + 1.0  ' Next whole 100% (200%, 300%, etc.)
+                    END IF
                     IF SCRN.zoom! > SCRN.zoomMax! THEN SCRN.zoom! = SCRN.zoomMax!
                 ELSEIF MOUSE.SW% > 0 THEN
                     ' Wheel up = zoom out
-                    SCRN.zoom! = SCRN.zoom! - zoomStep!
+                    IF SCRN.zoom! > 1.0 THEN
+                        ' Above 100%: zoom out by whole 100% (200% → 100%, 300% → 200%)
+                        SCRN.zoom! = INT(SCRN.zoom!) - 1.0
+                    ELSE
+                        ' At/below 100%: zoom out by 25% (100% → 75% → 50% → 25%)
+                        SCRN.zoom! = SCRN.zoom! - 0.25
+                    END IF
                     IF SCRN.zoom! < SCRN.zoomMin! THEN SCRN.zoom! = SCRN.zoomMin!
                 END IF
                 
                 ' Adjust offset to keep mouse over same canvas point
                 IF SCRN.zoom! <> oldZoom! THEN
-                    SCRN.offsetX% = SCRN.offsetX% + (mouseCanvasX! * (oldZoom! - SCRN.zoom!))
-                    SCRN.offsetY% = SCRN.offsetY% + (mouseCanvasY! * (oldZoom! - SCRN.zoom!))
+                    ' Calculate canvas center offset at old zoom
+                    DIM old_zw AS LONG, old_zh AS LONG
+                    old_zw& = SCRN.w& * oldZoom!
+                    old_zh& = SCRN.h& * oldZoom!
+                    DIM old_center_x AS INTEGER, old_center_y AS INTEGER
+                    old_center_x% = (_WIDTH - old_zw&) \ 2
+                    old_center_y% = (_HEIGHT - old_zh&) \ 2
+                    
+                    ' Canvas position under mouse at old zoom
+                    DIM canvasX AS SINGLE, canvasY AS SINGLE
+                    canvasX! = (mouseScreenX% - old_center_x% - SCRN.offsetX%) / oldZoom!
+                    canvasY! = (mouseScreenY% - old_center_y% - SCRN.offsetY%) / oldZoom!
+                    
+                    ' Calculate new canvas center offset at new zoom
+                    DIM new_zw AS LONG, new_zh AS LONG
+                    new_zw& = SCRN.w& * SCRN.zoom!
+                    new_zh& = SCRN.h& * SCRN.zoom!
+                    DIM new_center_x AS INTEGER, new_center_y AS INTEGER
+                    new_center_x% = (_WIDTH - new_zw&) \ 2
+                    new_center_y% = (_HEIGHT - new_zh&) \ 2
+                    
+                    ' Calculate new offset to keep canvas point at mouse screen position
+                    SCRN.offsetX% = mouseScreenX% - new_center_x% - (canvasX! * SCRN.zoom!)
+                    SCRN.offsetY% = mouseScreenY% - new_center_y% - (canvasY! * SCRN.zoom!)
                 END IF
             END IF
             MOUSE.OSW% = MOUSE.SW%
@@ -573,14 +639,6 @@ SUB MOUSE_input_handler ()
             END IF
         END IF
     WEND
-    
-    ' Skip tool actions if we just clicked on the toolbar
-    IF MOUSE.TOOLBAR_CLICKED% THEN
-        MOUSE.OLD_B1% = MOUSE.B1%
-        MOUSE.OLD_B2% = MOUSE.B2%
-        MOUSE.OLD_B3% = MOUSE.B3%
-        EXIT SUB
-    END IF
     
     ' Update marquee every frame for keyboard controls and handle hover detection
     IF CURRENT_TOOL% = TOOL_MARQUEE AND MARQUEE.ACTIVE% THEN

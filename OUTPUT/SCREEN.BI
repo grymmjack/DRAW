@@ -28,6 +28,8 @@ TYPE SCREEN_OBJ
     panOrigOffsetY AS INTEGER ' Original offset when pan started
     showToolbar AS INTEGER ' Show/hide toolbar
     showStatus AS INTEGER  ' Show/hide status bar
+    toolbarManuallyHidden AS INTEGER ' Toolbar manually hidden by user
+    statusManuallyHidden AS INTEGER  ' Status manually hidden by user
 END TYPE
 
 DIM SHARED SCRN AS SCREEN_OBJ

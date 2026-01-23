@@ -25,6 +25,10 @@ CONST KEY_RCTRL&    = 100306
 CONST KEY_RALT&     = 100307
 CONST KEY_LALT&     = 100308
 
+' Last directory for file dialogs (save/load)
+DIM SHARED LAST_DIRECTORY$
+LAST_DIRECTORY$ = ""
+
 ' Tool modes - basic drawing tools (1-20)
 CONST TOOL_BRUSH   = 1
 CONST TOOL_FILL    = 2
