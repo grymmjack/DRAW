@@ -7,12 +7,11 @@
 ' @depends ./_ALL.BM
 ' @author Rick Christy <grymmjack@gmail.com>
 '
-$CONSOLE
 
 '$INCLUDE:'./_ALL.BI'
+$RESIZE:STRETCH
 
-
-
+  
 ' Main Loop
 DIM k AS LONG
 DIM exitConfirmed AS INTEGER

@@ -18,7 +18,7 @@ END TYPE
 
 DIM SHARED CFG   AS DRAW_CONFIG
 
-CFG.FULLSCREEN%         = TRUE
+CFG.FULLSCREEN%         = FALSE
 CFG.THEME$              = "DEFAULT"
 CFG.NUDGE_N%            = 10
 CFG.NUM_LAYERS%         = 1
