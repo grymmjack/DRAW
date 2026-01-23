@@ -9,7 +9,9 @@ $INCLUDEONCE
 
 TYPE GUI_CONTROL
     iHnd AS LONG
+    iHndAlt AS LONG   ' Alternate icon handle (for buttons with multiple states)
     iSrc AS STRING
+    iSrcAlt AS STRING ' Alternate icon source (for buttons with multiple states)
     tip  AS STRING
     w    AS INTEGER
     h    AS INTEGER

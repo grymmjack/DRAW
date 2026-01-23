@@ -108,6 +108,7 @@ GUI_TB(TB_MOVE).tip$           = "Move what is selected"
 GUI_TB(TB_MOVE).evt$           = "MOVE"
 
 GUI_TB(TB_POLYGON).iSrc$       = "polygon.png"
+GUI_TB(TB_POLYGON).iSrcAlt$    = "polygon-fill.png"
 GUI_TB(TB_POLYGON).tip$        = "Draw connected lines (LINE)"
 GUI_TB(TB_POLYGON).evt$        = "POLYGON"
 

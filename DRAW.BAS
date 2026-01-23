@@ -10,7 +10,7 @@
 
 '$INCLUDE:'./_ALL.BI'
 $RESIZE:STRETCH
-
+$CONSOLE
   
 ' Main Loop
 DIM k AS LONG
@@ -88,6 +88,7 @@ END FUNCTION
 ' Runs at shutdown of main program
 ' 
 SUB MAIN_shutdown ()
+    DIM i AS INTEGER
     _MOUSESHOW
     SCREEN 0
     CLS
@@ -95,6 +96,11 @@ SUB MAIN_shutdown ()
     _FREEIMAGE SCRN.PAINTING&
     _FREEIMAGE SCRN.GUI&
     _FREEIMAGE SCRN.CURSOR&
+    ' Free all toolbar button images
+    FOR i% = 0 TO 13
+        IF GUI_TB(i%).iHnd& < -1 THEN _FREEIMAGE GUI_TB(i%).iHnd&
+        IF GUI_TB(i%).iHndAlt& < -1 THEN _FREEIMAGE GUI_TB(i%).iHndAlt&
+    NEXT i%
     SYSTEM
 END SUB
 
