@@ -93,7 +93,7 @@ FUNCTION SHOW_exit_confirm% ()
     
     ' Set event suppression to ignore phantom events
     IF INSTR(_OS$, "WIN") > 0 THEN
-        DIALOG_SUPPRESS_EVENTS% = 20
+        DIALOG_SUPPRESS_EVENTS% = 50
     ELSE
         DIALOG_SUPPRESS_EVENTS% = 5
     END IF
