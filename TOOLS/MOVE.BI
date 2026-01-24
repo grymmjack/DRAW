@@ -12,6 +12,7 @@ TYPE MOVE_OBJ
     TRANSFORMING AS INTEGER  ' Whether actively transforming
     TRANSFORM_TYPE AS INTEGER ' 0=move, 1=scale, 2=stretch
     SELECTION_IMAGE AS LONG  ' Image buffer holding selected pixels
+    PREVIEW_BUFFER AS LONG   ' Buffer for realtime preview of painting layer with move applied
     ORIGINAL_X   AS INTEGER  ' Original selection X (for ESC cancel)
     ORIGINAL_Y   AS INTEGER  ' Original selection Y (for ESC cancel)
     ORIGINAL_W   AS INTEGER  ' Original selection width (for ESC cancel)
@@ -41,3 +42,9 @@ DECLARE SUB MOVE_update_transform (x AS INTEGER, y AS INTEGER)
 DECLARE SUB MOVE_apply_transform ()
 DECLARE SUB MOVE_cancel_transform ()
 DECLARE SUB MOVE_render_preview (dest AS LONG)
+DECLARE SUB MOVE_update_preview_buffer ()
+DECLARE FUNCTION MOVE_get_preview_buffer& ()
+DECLARE SUB MOVE_flip_horizontal ()
+DECLARE SUB MOVE_flip_vertical ()
+DECLARE SUB MOVE_nudge (dx AS INTEGER, dy AS INTEGER)
+DECLARE SUB MOVE_resize (dw AS INTEGER, dh AS INTEGER)

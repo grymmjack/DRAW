@@ -147,8 +147,15 @@
 
 | Key | Function |
 |-----|----------|
-| **Enter** | Apply transformation |
-| **Escape** | Cancel transformation |
+| **Arrow Keys** | Move selection (1px) |
+| **Shift + Arrows** | Move selection (10px) |
+| **Ctrl + Arrows** | Resize/scale selection (1px) |
+| **Ctrl+Shift + Arrows** | Resize/scale selection (10px) |
+| **H** | Flip selection horizontally |
+| **V** | Flip selection vertically |
+| **Alt (hold)** | Clone mode (keeps original pixels) |
+| **Enter** | Apply transformation and return to Marquee |
+| **Escape** | Cancel current drag operation |
 
 ## Undo/Redo
 

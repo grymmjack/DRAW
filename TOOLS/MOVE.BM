@@ -13,6 +13,7 @@ SUB MOVE_init ()
     MOVE.TRANSFORMING = FALSE
     MOVE.TRANSFORM_TYPE = 0
     MOVE.SELECTION_IMAGE = 0
+    MOVE.PREVIEW_BUFFER = 0
     MOVE.SELECTION_X = 0
     MOVE.SELECTION_Y = 0
     MOVE.SELECTION_W = 0
@@ -22,9 +23,14 @@ SUB MOVE_init ()
     MOVE.CONSTRAIN = FALSE
 END SUB
 
-' Reset the move tool
+' Reset the move tool (automatically applies any pending transformation)
 SUB MOVE_reset ()
+    ' Apply any active transformation before resetting
+    IF MOVE.ACTIVE AND MOVE.SELECTION_IMAGE <> 0 THEN
+        MOVE_apply_transform
+    END IF
     IF MOVE.SELECTION_IMAGE <> 0 THEN _FREEIMAGE MOVE.SELECTION_IMAGE
+    IF MOVE.PREVIEW_BUFFER <> 0 THEN _FREEIMAGE MOVE.PREVIEW_BUFFER
     MOVE_init
 END SUB
 
@@ -35,6 +41,7 @@ SUB MOVE_capture_selection ()
     
     ' Free old image if exists
     IF MOVE.SELECTION_IMAGE <> 0 THEN _FREEIMAGE MOVE.SELECTION_IMAGE
+    IF MOVE.PREVIEW_BUFFER <> 0 THEN _FREEIMAGE MOVE.PREVIEW_BUFFER
     
     ' Get marquee dimensions
     MOVE.SELECTION_X = MARQUEE.BOX.x
@@ -53,6 +60,9 @@ SUB MOVE_capture_selection ()
     _DEST MOVE.SELECTION_IMAGE
     _PUTIMAGE (0, 0), SCRN.PAINTING&, MOVE.SELECTION_IMAGE, (MOVE.SELECTION_X, MOVE.SELECTION_Y)-(MOVE.SELECTION_X + MOVE.SELECTION_W - 1, MOVE.SELECTION_Y + MOVE.SELECTION_H - 1)
     
+    ' Create preview buffer (same size as painting layer)
+    MOVE.PREVIEW_BUFFER = _NEWIMAGE(_WIDTH(SCRN.PAINTING&), _HEIGHT(SCRN.PAINTING&), 32)
+    
     ' Initialize current transform to original selection
     MOVE.CURRENT_X = MOVE.SELECTION_X
     MOVE.CURRENT_Y = MOVE.SELECTION_Y
@@ -64,6 +74,9 @@ SUB MOVE_capture_selection ()
     MARQUEE.BOX.y = MOVE.SELECTION_Y
     MARQUEE.BOX.w = MOVE.SELECTION_W
     MARQUEE.BOX.h = MOVE.SELECTION_H
+    
+    ' Update the preview buffer initially
+    MOVE_update_preview_buffer
     
     MOVE.ACTIVE = TRUE
 END SUB
@@ -218,6 +231,8 @@ SUB MOVE_update_transform (x AS INTEGER, y AS INTEGER)
         MARQUEE.BOX.y = MOVE.CURRENT_Y
         MARQUEE.BOX.w = MOVE.CURRENT_W
         MARQUEE.BOX.h = MOVE.CURRENT_H
+        ' Update preview buffer when transform changes
+        MOVE_update_preview_buffer
     END IF
 END SUB
 
@@ -225,6 +240,9 @@ END SUB
 SUB MOVE_apply_transform ()
     IF NOT MOVE.ACTIVE THEN EXIT SUB
     IF MOVE.SELECTION_IMAGE = 0 THEN EXIT SUB
+    
+    ' Save undo state BEFORE making changes
+    UNDO_save_state
     
     _DEST SCRN.PAINTING&
     
@@ -246,8 +264,6 @@ SUB MOVE_apply_transform ()
     MARQUEE.BOX.w = MOVE.CURRENT_W
     MARQUEE.BOX.h = MOVE.CURRENT_H
     
-    ' Save undo state
-    UNDO_save_state
     CANVAS_DIRTY% = TRUE
     
     ' Reset transforming flag
@@ -279,19 +295,164 @@ SUB MOVE_cancel_transform ()
     MOVE.TRANSFORMING = FALSE
 END SUB
 
-' Render preview of the transform
+' Render preview of the transform with realtime visualization
+' Note: dest should be the canvas, but we need zoom info from SCRN for coordinate conversion
 SUB MOVE_render_preview (dest AS LONG)
     IF NOT MOVE.ACTIVE THEN EXIT SUB
     IF MOVE.SELECTION_IMAGE = 0 THEN EXIT SUB
     
+    ' The preview buffer already contains the painting layer with move applied
+    ' This is just for drawing additional visual feedback (border, handles, etc.)
+    ' The actual preview rendering happens in SCREEN_render using MOVE_get_preview_buffer
+    
+    ' Calculate zoomed coordinates for canvas overlay
+    DIM zw AS LONG, zh AS LONG, dx AS INTEGER, dy AS INTEGER
+    DIM zx AS INTEGER, zy AS INTEGER, zx2 AS INTEGER, zy2 AS INTEGER
+    zw& = SCRN.w& * SCRN.zoom!
+    zh& = SCRN.h& * SCRN.zoom!
+    dx% = (_WIDTH(dest) - zw&) \ 2 + SCRN.offsetX%
+    dy% = (_HEIGHT(dest) - zh&) \ 2 + SCRN.offsetY%
+    
+    ' Convert painting coordinates to canvas (screen) coordinates
+    zx% = dx% + INT(MOVE.CURRENT_X * SCRN.zoom!)
+    zy% = dy% + INT(MOVE.CURRENT_Y * SCRN.zoom!)
+    zx2% = dx% + INT((MOVE.CURRENT_X + MOVE.CURRENT_W) * SCRN.zoom!) - 1
+    zy2% = dy% + INT((MOVE.CURRENT_Y + MOVE.CURRENT_H) * SCRN.zoom!) - 1
+    
     _DEST dest
     
-    ' Draw the transformed selection
-    _PUTIMAGE (MOVE.CURRENT_X, MOVE.CURRENT_Y)-(MOVE.CURRENT_X + MOVE.CURRENT_W - 1, MOVE.CURRENT_Y + MOVE.CURRENT_H - 1), MOVE.SELECTION_IMAGE, dest
-    
-    ' Draw bounding box if transforming
+    ' Draw visual feedback during active transform (white outline)
     IF MOVE.TRANSFORMING THEN
         DIM c~& : c~& = _RGB32(255, 255, 255)
-        LINE (MOVE.CURRENT_X, MOVE.CURRENT_Y)-(MOVE.CURRENT_X + MOVE.CURRENT_W - 1, MOVE.CURRENT_Y + MOVE.CURRENT_H - 1), c~&, B
+        ' White outline for active transform feedback in canvas coordinates
+        LINE (zx%, zy%)-(zx2%, zy2%), c~&, B
     END IF
+END SUB
+
+' Update the preview buffer with current transform state
+' This creates a "virtual" view of the painting layer with the move/transform applied
+SUB MOVE_update_preview_buffer ()
+    IF MOVE.PREVIEW_BUFFER = 0 THEN EXIT SUB
+    IF MOVE.SELECTION_IMAGE = 0 THEN EXIT SUB
+    
+    ' Copy entire painting layer to preview buffer
+    _DEST MOVE.PREVIEW_BUFFER
+    _PUTIMAGE , SCRN.PAINTING&, MOVE.PREVIEW_BUFFER
+    
+    ' If NOT cloning, clear the ORIGINAL area with background color
+    IF NOT MOVE.CLONING THEN
+        LINE (MOVE.ORIGINAL_X, MOVE.ORIGINAL_Y)-(MOVE.ORIGINAL_X + MOVE.ORIGINAL_W - 1, MOVE.ORIGINAL_Y + MOVE.ORIGINAL_H - 1), PAINT_BG_COLOR~&, BF
+    END IF
+    
+    ' Draw the transformed selection at its current position/size
+    _PUTIMAGE (MOVE.CURRENT_X, MOVE.CURRENT_Y)-(MOVE.CURRENT_X + MOVE.CURRENT_W - 1, MOVE.CURRENT_Y + MOVE.CURRENT_H - 1), MOVE.SELECTION_IMAGE, MOVE.PREVIEW_BUFFER
+END SUB
+
+' Get the preview buffer for rendering
+' Returns the preview buffer if move is active, 0 otherwise
+FUNCTION MOVE_get_preview_buffer& ()
+    IF MOVE.ACTIVE AND MOVE.PREVIEW_BUFFER <> 0 THEN
+        MOVE_get_preview_buffer& = MOVE.PREVIEW_BUFFER
+    ELSE
+        MOVE_get_preview_buffer& = 0
+    END IF
+END FUNCTION
+
+' Flip the selection image horizontally
+SUB MOVE_flip_horizontal ()
+    IF NOT MOVE.ACTIVE THEN EXIT SUB
+    IF MOVE.SELECTION_IMAGE = 0 THEN EXIT SUB
+    
+    DIM w AS INTEGER, h AS INTEGER
+    DIM flipped AS LONG
+    
+    w% = _WIDTH(MOVE.SELECTION_IMAGE)
+    h% = _HEIGHT(MOVE.SELECTION_IMAGE)
+    
+    ' Create a new image for the flipped version
+    flipped& = _NEWIMAGE(w%, h%, 32)
+    
+    ' Copy pixels flipped horizontally using _PUTIMAGE with negative width
+    _PUTIMAGE (w% - 1, 0)-(0, h% - 1), MOVE.SELECTION_IMAGE, flipped&
+    
+    ' Free the old image and replace with flipped
+    _FREEIMAGE MOVE.SELECTION_IMAGE
+    MOVE.SELECTION_IMAGE = flipped&
+    
+    ' Update preview buffer
+    MOVE_update_preview_buffer
+END SUB
+
+' Flip the selection image vertically
+SUB MOVE_flip_vertical ()
+    IF NOT MOVE.ACTIVE THEN EXIT SUB
+    IF MOVE.SELECTION_IMAGE = 0 THEN EXIT SUB
+    
+    DIM w AS INTEGER, h AS INTEGER
+    DIM flipped AS LONG
+    
+    w% = _WIDTH(MOVE.SELECTION_IMAGE)
+    h% = _HEIGHT(MOVE.SELECTION_IMAGE)
+    
+    ' Create a new image for the flipped version
+    flipped& = _NEWIMAGE(w%, h%, 32)
+    
+    ' Copy pixels flipped vertically using _PUTIMAGE with negative height
+    _PUTIMAGE (0, h% - 1)-(w% - 1, 0), MOVE.SELECTION_IMAGE, flipped&
+    
+    ' Free the old image and replace with flipped
+    _FREEIMAGE MOVE.SELECTION_IMAGE
+    MOVE.SELECTION_IMAGE = flipped&
+    
+    ' Update preview buffer
+    MOVE_update_preview_buffer
+END SUB
+
+' Nudge the selection by dx, dy pixels
+SUB MOVE_nudge (dx AS INTEGER, dy AS INTEGER)
+    IF NOT MOVE.ACTIVE THEN EXIT SUB
+    
+    ' Update current position
+    MOVE.CURRENT_X = MOVE.CURRENT_X + dx%
+    MOVE.CURRENT_Y = MOVE.CURRENT_Y + dy%
+    
+    ' Also update base selection position for subsequent transforms
+    MOVE.SELECTION_X = MOVE.CURRENT_X
+    MOVE.SELECTION_Y = MOVE.CURRENT_Y
+    
+    ' Update marquee box to follow
+    MARQUEE.BOX.x = MOVE.CURRENT_X
+    MARQUEE.BOX.y = MOVE.CURRENT_Y
+    
+    ' Update preview buffer
+    MOVE_update_preview_buffer
+END SUB
+
+' Resize the selection by dw, dh pixels (scaling the image)
+SUB MOVE_resize (dw AS INTEGER, dh AS INTEGER)
+    IF NOT MOVE.ACTIVE THEN EXIT SUB
+    
+    ' Calculate new dimensions
+    DIM new_w AS INTEGER, new_h AS INTEGER
+    new_w% = MOVE.CURRENT_W + dw%
+    new_h% = MOVE.CURRENT_H + dh%
+    
+    ' Enforce minimum size
+    IF new_w% < 1 THEN new_w% = 1
+    IF new_h% < 1 THEN new_h% = 1
+    
+    ' Update current dimensions
+    MOVE.CURRENT_W = new_w%
+    MOVE.CURRENT_H = new_h%
+    
+    ' Also update base selection size for subsequent transforms
+    MOVE.SELECTION_W = new_w%
+    MOVE.SELECTION_H = new_h%
+    
+    ' Update marquee box to follow
+    MARQUEE.BOX.w = MOVE.CURRENT_W
+    MARQUEE.BOX.h = MOVE.CURRENT_H
+    
+    ' Update preview buffer
+    MOVE_update_preview_buffer
 END SUB
