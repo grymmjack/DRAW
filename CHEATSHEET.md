@@ -32,6 +32,22 @@
 | `%` | Color 13 |
 | `^` | Color 14 |
 | `&` | Color 15 |
+| **Click FG swatch** | Open color picker for foreground |
+| **Click BG swatch** | Open color picker for background |
+
+## Grid Controls
+
+| Key | Function |
+|-----|----------|
+| `'` (apostrophe) | Toggle grid visibility |
+| `;` (semicolon) | Toggle snap-to-grid |
+| `.` (period) | Increase grid size (+1px, max 50px) |
+| `,` (comma) | Decrease grid size (-1px, min 2px) |
+
+**Notes:**
+- Grid automatically hides when zoomed out below 100%
+- Status bar shows grid state: `G:n` (visible) or `G:n S` (snap enabled)
+- Snap-to-grid rounds all drawing coordinates to nearest grid boundary
 
 ## Mouse Controls
 
