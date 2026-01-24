@@ -89,7 +89,7 @@ FUNCTION SHOW_exit_confirm% ()
     ' Clear input buffers
     DO WHILE _MOUSEINPUT : LOOP
     _MOUSEMOVE _WIDTH \ 2, _HEIGHT \ 2
-    MOUSE_reset_buttons
+    MOUSE_force_buttons_up
     
     IF result& = 1 THEN
         SHOW_exit_confirm% = TRUE
