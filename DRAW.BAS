@@ -96,6 +96,7 @@ FUNCTION SHOW_exit_confirm% ()
     _MOUSEMOVE _WIDTH \ 2, _HEIGHT \ 2
     DO WHILE _MOUSEINPUT : LOOP
     _DELAY 0.1
+    MOUSE_reset_buttons
     
     IF result& = 1 THEN
         SHOW_exit_confirm% = TRUE
