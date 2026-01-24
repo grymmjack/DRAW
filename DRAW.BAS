@@ -86,8 +86,6 @@ FUNCTION SHOW_exit_confirm% ()
     result& = _MESSAGEBOX("Exit Confirmation", "Are you sure you want to exit?", "yesno", "question", 0)
     _MOUSEHIDE
     
-    ' Wait for window to regain focus after dialog
-    DO WHILE NOT _WINDOWHASFOCUS : _LIMIT 30 : LOOP
     ' Clear input buffers
     DO WHILE _MOUSEINPUT : LOOP
     _MOUSEMOVE _WIDTH \ 2, _HEIGHT \ 2
