@@ -87,16 +87,28 @@ FUNCTION SHOW_exit_confirm% ()
     
     ' Clear mouse buffer after message box (Windows fix)
     DIM cleanup_pass AS INTEGER
-    FOR cleanup_pass% = 1 TO 3
+    DIM cleanup_passes AS INTEGER : cleanup_passes% = 3
+    DIM cleanup_delay AS SINGLE : cleanup_delay! = 0.05
+    
+    IF INSTR(_OS$, "WIN") > 0 THEN
+        cleanup_passes% = 6      ' Windows needs more passes
+        cleanup_delay! = 0.1     ' Windows needs longer delays
+    END IF
+    
+    FOR cleanup_pass% = 1 TO cleanup_passes%
         DO WHILE _MOUSEINPUT : LOOP
-        _DELAY 0.05
+        _DELAY cleanup_delay!
     NEXT cleanup_pass%
     
     _MOUSEHIDE
     _MOUSEMOVE _WIDTH \ 2, _HEIGHT \ 2
     DO WHILE _MOUSEINPUT : LOOP
-    _DELAY 0.1
+    _DELAY cleanup_delay! * 2
     MOUSE_reset_buttons
+    
+    IF INSTR(_OS$, "WIN") > 0 THEN
+        _DELAY 0.1               ' Windows-specific final settling delay
+    END IF
     
     IF result& = 1 THEN
         SHOW_exit_confirm% = TRUE
