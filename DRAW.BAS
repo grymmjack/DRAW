@@ -43,7 +43,14 @@ DO
     MOUSE_input_handler
     KEYBOARD_input_handler
     STICK_input_handler
-    _LIMIT CFG.FPS_LIMIT%
+    
+    ' Validate FPS limit before applying (Windows fix for invalid _LIMIT causing input issues)
+    IF CFG.FPS_LIMIT% > 0 AND CFG.FPS_LIMIT% <= 1000 THEN
+        _LIMIT CFG.FPS_LIMIT%
+    ELSE
+        _LIMIT 60  ' Safe fallback
+    END IF
+    
     SCREEN_render
     MOUSE_input_handler_loop
     KEYBOARD_input_handler_loop
@@ -106,15 +113,31 @@ SUB MAIN_shutdown ()
     _MOUSESHOW
     SCREEN 0
     CLS
+    
+    ' Free main screen buffers
     _FREEIMAGE SCRN.CANVAS&
     _FREEIMAGE SCRN.PAINTING&
     _FREEIMAGE SCRN.GUI&
     _FREEIMAGE SCRN.CURSOR&
+    
     ' Free all toolbar button images
     FOR i% = 0 TO 13
         IF GUI_TB(i%).iHnd& < -1 THEN _FREEIMAGE GUI_TB(i%).iHnd&
         IF GUI_TB(i%).iHndAlt& < -1 THEN _FREEIMAGE GUI_TB(i%).iHndAlt&
     NEXT i%
+    
+    ' Free undo history images
+    UNDO_clear
+    
+    ' Free move selection image if active
+    IF MOVE.SELECTION_IMAGE <> 0 THEN _FREEIMAGE MOVE.SELECTION_IMAGE
+    
+    ' Free custom cursor if loaded (ensure default cursor is shown first)
+    IF POINTER.IMG& <> 0 AND POINTER.IMG& < -1 THEN
+        _MOUSESHOW  ' Ensure using default system cursor before freeing custom
+        _FREEIMAGE POINTER.IMG&
+    END IF
+    
     SYSTEM
 END SUB
 
