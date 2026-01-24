@@ -22,6 +22,24 @@ SUB PAINT_on ()
     DIM start_x AS INTEGER, start_y AS INTEGER
     DIM end_x AS INTEGER, end_y AS INTEGER
     
+    ' Pixel perfect variables
+    DIM temp_pixels(0 TO 10000) AS PIXEL_PERFECT_STROKE_TYPE
+    DIM temp_count AS INTEGER
+    DIM is_dup AS INTEGER
+    DIM j AS INTEGER
+    DIM should_draw AS INTEGER
+    DIM prev_x2 AS INTEGER, prev_y2 AS INTEGER
+    DIM curr_x2 AS INTEGER, curr_y2 AS INTEGER  
+    DIM next_x2 AS INTEGER, next_y2 AS INTEGER
+    DIM prev_aligned2 AS INTEGER, next_aligned2 AS INTEGER, ends_not_aligned2 AS INTEGER
+    DIM sx AS INTEGER, sy AS INTEGER
+    DIM berr AS INTEGER, e2 AS INTEGER
+    DIM chk_prev_x AS INTEGER, chk_prev_y AS INTEGER
+    DIM chk_curr_x AS INTEGER, chk_curr_y AS INTEGER
+    DIM chk_next_x AS INTEGER, chk_next_y AS INTEGER
+    DIM chk_prev_aligned AS INTEGER, chk_next_aligned AS INTEGER, chk_ends_not_aligned AS INTEGER
+    DIM c AS INTEGER
+    
     _DEST SCRN.PAINTING&
     
     ' Determine start and end points based on constraint mode
@@ -52,9 +70,64 @@ SUB PAINT_on ()
     DIM pixel_size AS INTEGER
     pixel_size% = BRUSH_SIZE_pixels%
     
+    ' Pixel perfect mode only applies to single pixel (size 1) DOT/BRUSH tools
+    DIM use_pixel_perfect AS INTEGER
+    use_pixel_perfect% = FALSE
+    IF pixel_size% = 1 AND BRUSH_SIZE.PIXEL_PERFECT AND (CURRENT_TOOL% = TOOL_DOT OR CURRENT_TOOL% = TOOL_BRUSH) THEN
+        use_pixel_perfect% = TRUE
+    END IF
+    
     IF pixel_size% = 1 THEN
-        ' Single pixel - use LINE for efficiency
-        LINE (start_x%, start_y%)-(end_x%, end_y%), DRAW_COLOR~&
+        ' Single pixel - draw with pixel perfect mode if enabled
+        IF use_pixel_perfect% THEN
+            ' Pixel-perfect mode: just draw and collect, post-processing on mouse up
+            dx% = ABS(end_x% - start_x%)
+            dy% = ABS(end_y% - start_y%)
+            
+            IF start_x% < end_x% THEN sx% = 1 ELSE sx% = -1
+            IF start_y% < end_y% THEN sy% = 1 ELSE sy% = -1
+            
+            berr% = dx% - dy%
+            
+            cx% = start_x%
+            cy% = start_y%
+            
+            ' Collect AND draw unfiltered (so user can see)
+            DO
+                ' Check if pixel was already drawn (not just last pixel)
+                _SOURCE SCRN.PAINTING&
+                DIM existing_color AS _UNSIGNED LONG
+                existing_color~& = POINT(cx%, cy%)
+                
+                ' Only add if this pixel hasn't been drawn yet this stroke
+                IF existing_color~& <> DRAW_COLOR~& AND PP_STROKE_COUNT% < 10000 THEN
+                    PP_STROKE(PP_STROKE_COUNT%).ORIGINAL_COLOR = existing_color~&
+                    PP_STROKE(PP_STROKE_COUNT%).X = cx%
+                    PP_STROKE(PP_STROKE_COUNT%).Y = cy%
+                    PP_STROKE_COUNT% = PP_STROKE_COUNT% + 1
+                    ' Now draw so user can see
+                    _DEST SCRN.PAINTING&
+                    PSET (cx%, cy%), DRAW_COLOR~&
+                END IF
+                
+                IF cx% = end_x% AND cy% = end_y% THEN EXIT DO
+                
+                ' Bresenham step
+                e2% = 2 * berr%
+                IF e2% > -dy% THEN
+                    berr% = berr% - dy%
+                    cx% = cx% + sx%
+                END IF
+                IF e2% < dx% THEN
+                    berr% = berr% + dx%
+                    cy% = cy% + sy%
+                END IF
+            LOOP
+            ' On mouse UP, erase and redraw filtered in PAINT_draw_pixel_perfect
+        ELSE
+            ' Standard line drawing without pixel perfect
+            LINE (start_x%, start_y%)-(end_x%, end_y%), DRAW_COLOR~&
+        END IF
     ELSEIF pixel_size% = 3 AND BRUSH_SIZE.SHAPE = 0 THEN
         ' Plus sign for size 3 circle only
         dx% = end_x% - start_x%
@@ -146,3 +219,77 @@ SUB PAINT_clear ()
     CLS
     _DEST SCRN.CANVAS&
 END SUB
+
+''
+' Draws collected pixel-perfect stroke, skipping L-corners
+' Called on mouse UP after complete path is collected
+'
+SUB PAINT_draw_pixel_perfect ()
+    IF PP_STROKE_COUNT% < 1 THEN EXIT SUB
+    
+    _DEST SCRN.PAINTING&
+    
+    ' STEP 1: Restore ALL original pixels (erase the unfiltered stroke)
+    ' MUST disable blending or transparent pixels won't overwrite!
+    DIM i AS INTEGER
+    _DONTBLEND SCRN.PAINTING&
+    FOR i% = 0 TO PP_STROKE_COUNT% - 1
+        PSET (PP_STROKE(i%).X, PP_STROKE(i%).Y), PP_STROKE(i%).ORIGINAL_COLOR
+    NEXT i%
+    _BLEND SCRN.PAINTING&
+    
+    ' STEP 2: Draw path with L-corner filtering (reference algorithm)
+    DIM c AS INTEGER
+    DIM skipped AS INTEGER
+    DIM chk_prev_x AS INTEGER, chk_prev_y AS INTEGER
+    DIM chk_curr_x AS INTEGER, chk_curr_y AS INTEGER
+    DIM chk_next_x AS INTEGER, chk_next_y AS INTEGER
+    DIM chk_prev_aligned AS INTEGER, chk_next_aligned AS INTEGER, chk_ends_not_aligned AS INTEGER
+    DIM is_corner AS INTEGER
+    
+    skipped% = 0
+    c% = 0
+    WHILE c% < PP_STROKE_COUNT%
+        is_corner% = FALSE
+        
+        ' Check if current pixel is an L-corner
+        IF c% > 0 AND c% + 1 < PP_STROKE_COUNT% THEN
+            chk_prev_x% = PP_STROKE(c% - 1).X
+            chk_prev_y% = PP_STROKE(c% - 1).Y
+            chk_curr_x% = PP_STROKE(c%).X
+            chk_curr_y% = PP_STROKE(c%).Y
+            chk_next_x% = PP_STROKE(c% + 1).X
+            chk_next_y% = PP_STROKE(c% + 1).Y
+            
+            chk_prev_aligned% = (chk_prev_x% = chk_curr_x%) OR (chk_prev_y% = chk_curr_y%)
+            chk_next_aligned% = (chk_next_x% = chk_curr_x%) OR (chk_next_y% = chk_curr_y%)
+            chk_ends_not_aligned% = (chk_prev_x% <> chk_next_x%) AND (chk_prev_y% <> chk_next_y%)
+            
+            ' Only remove corner if prev and next are EXACTLY diagonal (distance = 1 on both axes)
+            DIM prev_next_diagonal AS INTEGER
+            prev_next_diagonal% = (ABS(chk_prev_x% - chk_next_x%) = 1) AND (ABS(chk_prev_y% - chk_next_y%) = 1)
+            
+            IF chk_prev_aligned% AND chk_next_aligned% AND chk_ends_not_aligned% AND prev_next_diagonal% THEN
+                ' SKIP this corner - increment to move past it
+                skipped% = skipped% + 1
+                c% = c% + 1
+                ' Now draw the NEXT pixel without checking if it's a corner
+                IF c% < PP_STROKE_COUNT% THEN
+                    PSET (PP_STROKE(c%).X, PP_STROKE(c%).Y), DRAW_COLOR~&
+                END IF
+                c% = c% + 1
+                ' Continue to next iteration (skip the normal draw below)
+                GOTO pp_continue
+            END IF
+        END IF
+        
+        ' Draw non-corner pixels
+        PSET (PP_STROKE(c%).X, PP_STROKE(c%).Y), DRAW_COLOR~&
+        c% = c% + 1
+        pp_continue:
+    WEND
+    
+    _DEST SCRN.CANVAS&
+END SUB
+
+

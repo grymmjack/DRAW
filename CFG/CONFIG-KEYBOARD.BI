@@ -73,6 +73,7 @@ TYPE DRAW_KEYBOARD_BINDINGS
     BRUSH_2_RECALL        AS STRING
     BRUSH_3_RECALL        AS STRING
     BRUSH_4_RECALL        AS STRING
+    PIXEL_PERFECT_TOGGLE  AS STRING
     ' GUI TOGGLES -------------------------------------------------------------
     GUI_TOOLBAR_TOGGLE    AS STRING
     GUI_PALETTE_TOGGLE    AS STRING

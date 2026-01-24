@@ -17,6 +17,7 @@ TYPE BRUSH_SIZE_TYPE
     PRESET4 AS INTEGER    ' F4 preset index
     PREVIEW AS INTEGER    ' Show brush preview (0=off, -1=on)
     SHAPE   AS INTEGER    ' Brush shape (0=circle, -1=square)
+    PIXEL_PERFECT AS INTEGER ' Pixel perfect mode (0=off, -1=on) - removes corner pixels
 END TYPE
 
 DIM SHARED BRUSH_SIZE AS BRUSH_SIZE_TYPE
