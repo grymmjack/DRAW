@@ -29,11 +29,12 @@ DRAW is a pixel art editor written in QB64PE that can export images as sourcecod
 - **Text** - Text entry tool
 
 ### Grid System
-- Adjustable pixel grid (2-50px)
-- Toggle visibility with `'` (apostrophe)
+- Adjustable grid overlay (2-50px spacing)
+- Toggle grid visibility with `'` (apostrophe)
+- Pixel grid for precise work at 400%+ zoom (`Shift+'`)
 - Snap-to-grid mode with `;` (semicolon)
 - Dynamic grid sizing with `.` (increase) and `,` (decrease)
-- Auto-hide when zoomed out below 100%
+- Both grids can be shown simultaneously at high zoom
 - Status bar indicator shows grid size and snap state
 
 ### Color System
@@ -73,7 +74,7 @@ DRAW is a pixel art editor written in QB64PE that can export images as sourcecod
 
 **Tools:** B (Brush), D (Dot), F (Fill), I (Picker), L (Line), R (Rectangle), E (Ellipse)  
 **Colors:** 0-9 for quick palette access, or click status bar color swatches  
-**Grid:** `'` (toggle), `;` (snap), `.` (bigger), `,` (smaller)  
+**Grid:** `'` (toggle), `Shift+'` (pixel grid), `;` (snap), `.` (bigger), `,` (smaller)  
 **Brush Size:** `[` (smaller), `]` (bigger), F6 (pixel perfect)  
 **Canvas:** Delete (clear with prompt), Backspace (clear instant)  
 **View:** Mouse wheel (zoom), Middle click (pan), Ctrl+0 (reset)  
