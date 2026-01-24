@@ -132,6 +132,11 @@ SUB MAIN_shutdown ()
         _FREEIMAGE POINTER.IMG&
     END IF
     
+    ' Free Tiny5 font if loaded
+    IF TEXT.FONT_HANDLE < 0 THEN
+        _FREEFONT TEXT.FONT_HANDLE
+    END IF
+
     SYSTEM
 END SUB
 
