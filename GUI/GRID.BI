@@ -23,6 +23,17 @@ TYPE DRAW_GRID
     SNAP       AS INTEGER        ' Whether snap-to-grid is enabled (TRUE/FALSE)
 END TYPE
 
+' Pixel grid (checkerboard) for high zoom levels
+TYPE DRAW_PIXEL_GRID
+    imgHandle  AS LONG           ' Pixel grid image handle
+    SHOW       AS INTEGER        ' Whether pixel grid is enabled (TRUE/FALSE)
+    color1     AS _UNSIGNED LONG ' First checker color (with alpha)
+    color2     AS _UNSIGNED LONG ' Second checker color (with alpha)
+END TYPE
+
 DIM SHARED GRID AS DRAW_GRID
+DIM SHARED PIXEL_GRID AS DRAW_PIXEL_GRID
 
 DECLARE FUNCTION GRID_snap% (value AS INTEGER)
+DECLARE SUB PIXEL_GRID_init ()
+DECLARE SUB PIXEL_GRID_draw ()
