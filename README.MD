@@ -45,6 +45,7 @@ DRAW is a pixel art editor written in QB64PE that can export images as sourcecod
 
 ### Canvas & View
 - 320x200 default canvas size
+- Clear canvas: `Delete` (with prompt) or `Backspace` (instant)
 - Infinite zoom levels (mouse wheel or Ctrl +/-)
 - Pan with middle mouse button or spacebar + drag
 - Keyboard panning with arrow keys
@@ -55,6 +56,7 @@ DRAW is a pixel art editor written in QB64PE that can export images as sourcecod
 - Size adjustment: `[` decrease, `]` increase (1-50px)
 - Shape toggle: `\` or `|` (circle/square)
 - Preview mode: `` ` `` or `~` (shows outline + color preview)
+- Pixel perfect mode: `F6` (removes L-corners for cleaner strokes)
 - 4 brush presets (F1-F4)
 - Visual cursor feedback with current color
 
@@ -72,7 +74,8 @@ DRAW is a pixel art editor written in QB64PE that can export images as sourcecod
 **Tools:** B (Brush), D (Dot), F (Fill), I (Picker), L (Line), R (Rectangle), E (Ellipse)  
 **Colors:** 0-9 for quick palette access, or click status bar color swatches  
 **Grid:** `'` (toggle), `;` (snap), `.` (bigger), `,` (smaller)  
-**Brush Size:** `[` (smaller), `]` (bigger)  
+**Brush Size:** `[` (smaller), `]` (bigger), F6 (pixel perfect)  
+**Canvas:** Delete (clear with prompt), Backspace (clear instant)  
 **View:** Mouse wheel (zoom), Middle click (pan), Ctrl+0 (reset)  
 **Undo/Redo:** Ctrl+Z / Ctrl+Y
 

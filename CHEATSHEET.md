@@ -83,6 +83,14 @@
 | `F4` | Brush preset 4 |
 | `` ` `` or `~` | Toggle brush preview |
 | `\` or `|` | Toggle brush shape |
+| `F6` | Toggle pixel perfect mode |
+
+## Canvas Controls
+
+| Key | Function |
+|-----|----------|
+| `Delete` | Clear canvas (with confirmation prompt) |
+| `Backspace` | Clear canvas (no prompt) |
 
 ## View Controls
 
