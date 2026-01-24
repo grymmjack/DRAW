@@ -20,6 +20,9 @@ TYPE DRAW_GRID
     vStyle     AS INTEGER        ' Vertical style &B0000111100001111 (16 bits)
     imgHandle  AS LONG           ' Grid image handle
     SHOW       AS INTEGER        ' Whether grid is visible (TRUE/FALSE)
+    SNAP       AS INTEGER        ' Whether snap-to-grid is enabled (TRUE/FALSE)
 END TYPE
 
 DIM SHARED GRID AS DRAW_GRID
+
+DECLARE FUNCTION GRID_snap% (value AS INTEGER)
