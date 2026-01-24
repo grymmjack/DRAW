@@ -84,19 +84,7 @@ FUNCTION SHOW_exit_confirm% ()
     DIM result AS LONG
     _MOUSESHOW
     result& = _MESSAGEBOX("Exit Confirmation", "Are you sure you want to exit?", "yesno", "question", 0)
-    
-    ' Clear input after message box
-    DO WHILE _MOUSEINPUT : LOOP
     _MOUSEHIDE
-    _MOUSEMOVE _WIDTH \ 2, _HEIGHT \ 2
-    MOUSE_reset_buttons
-    
-    ' Set event suppression to ignore phantom events
-    IF INSTR(_OS$, "WIN") > 0 THEN
-        DIALOG_SUPPRESS_EVENTS% = 50
-    ELSE
-        DIALOG_SUPPRESS_EVENTS% = 5
-    END IF
     
     IF result& = 1 THEN
         SHOW_exit_confirm% = TRUE
