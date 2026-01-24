@@ -77,8 +77,19 @@ FUNCTION SHOW_exit_confirm% ()
     DIM result AS LONG
     _MOUSESHOW
     result& = _MESSAGEBOX("Exit Confirmation", "Are you sure you want to exit?", "yesno", "question", 0)
-    DO WHILE _MOUSEINPUT : LOOP
+    
+    ' Clear mouse buffer after message box (Windows fix)
+    DIM cleanup_pass AS INTEGER
+    FOR cleanup_pass% = 1 TO 3
+        DO WHILE _MOUSEINPUT : LOOP
+        _DELAY 0.05
+    NEXT cleanup_pass%
+    
     _MOUSEHIDE
+    _MOUSEMOVE _WIDTH \ 2, _HEIGHT \ 2
+    DO WHILE _MOUSEINPUT : LOOP
+    _DELAY 0.1
+    
     IF result& = 1 THEN
         SHOW_exit_confirm% = TRUE
     ELSE
