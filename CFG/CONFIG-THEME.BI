@@ -19,6 +19,7 @@ $INCLUDEONCE
 TYPE DRAW_THEME
     STATUS_bg         AS INTEGER ' Status bar bg palette color index (0-255)
     STATUS_fg         AS INTEGER ' Status bar fg palette color index (0-255)
+    STATUS_height     AS INTEGER ' Status bar height in pixels
     CROSSHAIR_fg      AS INTEGER ' Crosshair fg palette color index (0-255)
     CROSSHAIR_pattern AS INTEGER ' Crosshair line pattern (16 bit &B>inary)
     GRID_fg           AS INTEGER ' Grid fg palette color index (0-255)

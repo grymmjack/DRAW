@@ -18,6 +18,10 @@ TYPE TEXT_OBJ
     LINE_COUNT   AS INTEGER  ' Current number of lines
     CURSOR_BLINK AS INTEGER  ' Cursor blink state (0 or 1)
     BLINK_TIMER  AS SINGLE   ' Timer for cursor blinking
+    USE_TINY5    AS INTEGER  ' Whether to use Tiny5 font (vs VGA default)
+    FONT_HANDLE  AS LONG     ' Handle to loaded Tiny5 font
+    CHAR_WIDTH   AS INTEGER  ' Character width (5 for Tiny5, 8 for VGA)
+    LINE_HEIGHT  AS INTEGER  ' Line height (8 for Tiny5, 13 for VGA)
 END TYPE
 
 ' Text buffer declared in _COMMON.BI
