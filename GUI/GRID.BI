@@ -19,8 +19,7 @@ TYPE DRAW_GRID
     hStyle     AS INTEGER        ' Horizontal style &B0000111100001111 (16 bits)
     vStyle     AS INTEGER        ' Vertical style &B0000111100001111 (16 bits)
     imgHandle  AS LONG           ' Grid image handle
+    SHOW       AS INTEGER        ' Whether grid is visible (TRUE/FALSE)
 END TYPE
 
 DIM SHARED GRID AS DRAW_GRID
-
-GRID_init
