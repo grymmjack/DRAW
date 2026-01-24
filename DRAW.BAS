@@ -85,29 +85,17 @@ FUNCTION SHOW_exit_confirm% ()
     _MOUSESHOW
     result& = _MESSAGEBOX("Exit Confirmation", "Are you sure you want to exit?", "yesno", "question", 0)
     
-    ' Clear mouse buffer after message box (Windows fix)
-    DIM cleanup_pass AS INTEGER
-    DIM cleanup_passes AS INTEGER : cleanup_passes% = 3
-    DIM cleanup_delay AS SINGLE : cleanup_delay! = 0.05
-    
-    IF INSTR(_OS$, "WIN") > 0 THEN
-        cleanup_passes% = 6      ' Windows needs more passes
-        cleanup_delay! = 0.1     ' Windows needs longer delays
-    END IF
-    
-    FOR cleanup_pass% = 1 TO cleanup_passes%
-        DO WHILE _MOUSEINPUT : LOOP
-        _DELAY cleanup_delay!
-    NEXT cleanup_pass%
-    
+    ' Clear input after message box
+    DO WHILE _MOUSEINPUT : LOOP
     _MOUSEHIDE
     _MOUSEMOVE _WIDTH \ 2, _HEIGHT \ 2
-    DO WHILE _MOUSEINPUT : LOOP
-    _DELAY cleanup_delay! * 2
     MOUSE_reset_buttons
     
+    ' Set event suppression to ignore phantom events
     IF INSTR(_OS$, "WIN") > 0 THEN
-        _DELAY 0.1               ' Windows-specific final settling delay
+        DIALOG_SUPPRESS_EVENTS% = 20
+    ELSE
+        DIALOG_SUPPRESS_EVENTS% = 5
     END IF
     
     IF result& = 1 THEN

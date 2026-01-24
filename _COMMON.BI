@@ -51,6 +51,7 @@ DIM SHARED AS INTEGER CONSTRAIN_X, CONSTRAIN_Y
 DIM SHARED AS INTEGER CURRENT_TOOL
 DIM SHARED AS INTEGER PREVIOUS_TOOL  ' Tool to return to after temporary picker
 DIM SHARED AS INTEGER CANVAS_DIRTY  ' Track if canvas has unsaved changes
+DIM SHARED AS INTEGER DIALOG_SUPPRESS_EVENTS  ' Suppress N mouse events after dialog (Windows fix)
 DIM SHARED TEXT_BUFFER(0 TO 99) AS STRING  ' Text tool buffer for 100 lines
 CONSTRAIN_X% = FALSE : CONSTRAIN_Y% = FALSE
 WHEEL_COLOR% = FALSE : KEY_COLOR% = FALSE
@@ -59,3 +60,4 @@ PAINT_BG_COLOR~& = _RGB32(0, 0, 0)  ' Background color defaults to black
 CURRENT_TOOL% = TOOL_DOT  ' Default to dot/pset tool
 PREVIOUS_TOOL% = TOOL_DOT  ' Initialize to same as current
 CANVAS_DIRTY% = FALSE  ' Start with clean canvas
+DIALOG_SUPPRESS_EVENTS% = 0  ' No suppression initially
