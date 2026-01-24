@@ -118,6 +118,22 @@
 | **Ellipse** | Ctrl (drag) | Draw perfect circle |
 | **Ellipse** | Shift (drag center) | Draw from center |
 
+## Clipboard Operations
+
+| Key | Function |
+|-----|----------|
+| `Ctrl+C` | Copy selection to clipboard |
+| `Ctrl+X` | Cut selection (copy + clear original with BG color) |
+| `Ctrl+V` | Paste clipboard at mouse cursor (centered, engages Move tool) |
+| `Ctrl+E` | Clear/erase selection (fill with background color) |
+
+**Workflow:**
+1. Use Marquee (`M`) to select an area
+2. Copy (`Ctrl+C`) or Cut (`Ctrl+X`) the selection
+3. Move mouse to desired location
+4. Paste (`Ctrl+V`) - creates selection centered on cursor, auto-engages Move tool
+5. Position content, press `Enter` to apply or `Escape` to cancel
+
 ## Marquee/Selection Controls
 
 ### Keyboard (when marquee active)

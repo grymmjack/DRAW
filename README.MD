@@ -26,6 +26,7 @@ DRAW is a pixel art editor written in QB64PE that can export images as sourcecod
 - **Picker** - Color sampling/eyedropper
 - **Marquee** - Rectangular selection with move and resize
 - **Move** - Transform and position selected content
+- **Clipboard** - Copy/Cut/Paste selections (Ctrl+C/X/V), Clear selection (Ctrl+E)
 - **Text** - Text entry tool
 
 ### Grid System
@@ -78,6 +79,7 @@ DRAW is a pixel art editor written in QB64PE that can export images as sourcecod
 **Brush Size:** `[` (smaller), `]` (bigger), F6 (pixel perfect)  
 **Canvas:** Delete (clear with prompt), Backspace (clear instant)  
 **View:** Mouse wheel (zoom), Middle click (pan), Ctrl+0 (reset)  
+**Clipboard:** Ctrl+C (copy), Ctrl+X (cut), Ctrl+V (paste at cursor), Ctrl+E (clear)  
 **Undo/Redo:** Ctrl+Z / Ctrl+Y
 
 See [CHEATSHEET.md](CHEATSHEET.md) for complete controls reference.
