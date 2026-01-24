@@ -2,8 +2,223 @@
 ' DRAW - TOOLS/SELECTION.BM
 ' =============================================================================
 ' Selection tool subs and functions.
+' Clipboard operations for marquee selections.
 '
-' @todo
 ' @author Rick Christy <grymmjack@gmail.com>
 '
 $INCLUDEONCE
+
+''
+' Initialize the clipboard
+'
+SUB CLIPBOARD_init ()
+    CLIPBOARD.IMAGE = 0
+    CLIPBOARD.WIDTH = 0
+    CLIPBOARD.HEIGHT = 0
+    CLIPBOARD.VALID = FALSE
+    CLIPBOARD.SOURCE_X = 0
+    CLIPBOARD.SOURCE_Y = 0
+END SUB
+
+''
+' Free clipboard resources
+'
+SUB CLIPBOARD_free ()
+    IF CLIPBOARD.IMAGE <> 0 THEN
+        _FREEIMAGE CLIPBOARD.IMAGE
+        CLIPBOARD.IMAGE = 0
+    END IF
+    CLIPBOARD.VALID = FALSE
+END SUB
+
+''
+' Copy the current marquee selection to clipboard
+' Requires an active marquee selection
+'
+SUB CLIPBOARD_copy ()
+    ' Require active marquee
+    IF NOT MARQUEE.ACTIVE OR NOT MARQUEE.INITIALIZED THEN EXIT SUB
+    
+    ' If move tool is active with a selection, copy from the move buffer instead
+    IF CURRENT_TOOL% = TOOL_MOVE AND MOVE.ACTIVE AND MOVE.SELECTION_IMAGE <> 0 THEN
+        ' Free existing clipboard
+        CLIPBOARD_free
+        
+        ' Create new clipboard image from move selection
+        CLIPBOARD.WIDTH = _WIDTH(MOVE.SELECTION_IMAGE)
+        CLIPBOARD.HEIGHT = _HEIGHT(MOVE.SELECTION_IMAGE)
+        CLIPBOARD.IMAGE = _NEWIMAGE(CLIPBOARD.WIDTH, CLIPBOARD.HEIGHT, 32)
+        _PUTIMAGE , MOVE.SELECTION_IMAGE, CLIPBOARD.IMAGE
+        CLIPBOARD.SOURCE_X = MOVE.CURRENT_X
+        CLIPBOARD.SOURCE_Y = MOVE.CURRENT_Y
+        CLIPBOARD.VALID = TRUE
+        EXIT SUB
+    END IF
+    
+    ' Free existing clipboard
+    CLIPBOARD_free
+    
+    ' Copy from painting layer
+    CLIPBOARD.WIDTH = MARQUEE.BOX.w
+    CLIPBOARD.HEIGHT = MARQUEE.BOX.h
+    CLIPBOARD.SOURCE_X = MARQUEE.BOX.x
+    CLIPBOARD.SOURCE_Y = MARQUEE.BOX.y
+    
+    ' Create clipboard image and copy selected region
+    CLIPBOARD.IMAGE = _NEWIMAGE(CLIPBOARD.WIDTH, CLIPBOARD.HEIGHT, 32)
+    _PUTIMAGE (0, 0), SCRN.PAINTING&, CLIPBOARD.IMAGE, (MARQUEE.BOX.x, MARQUEE.BOX.y)-(MARQUEE.BOX.x + MARQUEE.BOX.w - 1, MARQUEE.BOX.y + MARQUEE.BOX.h - 1)
+    
+    CLIPBOARD.VALID = TRUE
+END SUB
+
+''
+' Cut the current marquee selection (copy to clipboard, then clear original)
+' Requires an active marquee selection
+'
+SUB CLIPBOARD_cut ()
+    ' Require active marquee
+    IF NOT MARQUEE.ACTIVE OR NOT MARQUEE.INITIALIZED THEN EXIT SUB
+    
+    ' If move tool is active, handle differently - cut means copy and clear original source
+    IF CURRENT_TOOL% = TOOL_MOVE AND MOVE.ACTIVE AND MOVE.SELECTION_IMAGE <> 0 THEN
+        ' Copy from move selection
+        CLIPBOARD_copy
+        
+        ' The move tool already handles clearing the original area when not cloning
+        ' Just make sure we're not in clone mode
+        MOVE.CLONING = FALSE
+        MOVE_update_preview_buffer
+        EXIT SUB
+    END IF
+    
+    ' Save undo state
+    UNDO_save_state
+    
+    ' Copy first
+    CLIPBOARD_copy
+    
+    ' Clear the original region with background color
+    _DEST SCRN.PAINTING&
+    LINE (MARQUEE.BOX.x, MARQUEE.BOX.y)-(MARQUEE.BOX.x + MARQUEE.BOX.w - 1, MARQUEE.BOX.y + MARQUEE.BOX.h - 1), PAINT_BG_COLOR~&, BF
+    _DEST SCRN.CANVAS&
+    
+    CANVAS_DIRTY% = TRUE
+END SUB
+
+''
+' Paste clipboard content at mouse position and engage move tool
+' Creates a marquee selection centered at mouseX, mouseY
+' @param mouseX INTEGER Mouse X position in painting coordinates
+' @param mouseY INTEGER Mouse Y position in painting coordinates
+'
+SUB CLIPBOARD_paste (mouseX AS INTEGER, mouseY AS INTEGER)
+    ' Require valid clipboard content
+    IF NOT CLIPBOARD.VALID OR CLIPBOARD.IMAGE = 0 THEN EXIT SUB
+    
+    ' If move tool is currently active, apply any pending transform first
+    IF CURRENT_TOOL% = TOOL_MOVE AND MOVE.ACTIVE THEN
+        MOVE_apply_transform
+        MOVE_reset
+    END IF
+    
+    ' Calculate position centered on mouse
+    DIM pasteX AS INTEGER, pasteY AS INTEGER
+    pasteX% = mouseX% - (CLIPBOARD.WIDTH \ 2)
+    pasteY% = mouseY% - (CLIPBOARD.HEIGHT \ 2)
+    
+    ' Clamp to canvas bounds (allow partial visibility)
+    IF pasteX% > SCRN.w& - 1 THEN pasteX% = SCRN.w& - 1
+    IF pasteX% < 1 - CLIPBOARD.WIDTH THEN pasteX% = 1 - CLIPBOARD.WIDTH
+    IF pasteY% > SCRN.h& - 1 THEN pasteY% = SCRN.h& - 1
+    IF pasteY% < 1 - CLIPBOARD.HEIGHT THEN pasteY% = 1 - CLIPBOARD.HEIGHT
+    
+    ' Set up marquee at paste location
+    MARQUEE.CFG.initX = pasteX%
+    MARQUEE.CFG.initY = pasteY%
+    MARQUEE.CFG.initW = CLIPBOARD.WIDTH
+    MARQUEE.CFG.initH = CLIPBOARD.HEIGHT
+    
+    ' Initialize marquee box
+    MARQUEE.BOX.x = pasteX%
+    MARQUEE.BOX.y = pasteY%
+    MARQUEE.BOX.w = CLIPBOARD.WIDTH
+    MARQUEE.BOX.h = CLIPBOARD.HEIGHT
+    MARQUEE.BOX.state = GJ_BBX_STATE_SELECTED
+    MARQUEE.ACTIVE = TRUE
+    MARQUEE.INITIALIZED = TRUE
+    MARQUEE.DRAGGING = FALSE
+    MARQUEE.RESIZING = FALSE
+    MARQUEE.MOVING = FALSE
+    
+    ' Switch to move tool
+    PREVIOUS_TOOL% = CURRENT_TOOL%
+    CURRENT_TOOL% = TOOL_MOVE
+    
+    ' Reset other tools
+    FILL_deactivate
+    PICKER_deactivate
+    POLY_LINE_reset
+    LINE_reset
+    RECT_reset
+    ELLIPSE_reset
+    
+    ' Set up move tool with clipboard content
+    IF MOVE.SELECTION_IMAGE <> 0 THEN _FREEIMAGE MOVE.SELECTION_IMAGE
+    IF MOVE.PREVIEW_BUFFER <> 0 THEN _FREEIMAGE MOVE.PREVIEW_BUFFER
+    
+    ' Copy clipboard to move selection
+    MOVE.SELECTION_IMAGE = _NEWIMAGE(CLIPBOARD.WIDTH, CLIPBOARD.HEIGHT, 32)
+    _PUTIMAGE , CLIPBOARD.IMAGE, MOVE.SELECTION_IMAGE
+    
+    ' Create preview buffer
+    MOVE.PREVIEW_BUFFER = _NEWIMAGE(_WIDTH(SCRN.PAINTING&), _HEIGHT(SCRN.PAINTING&), 32)
+    
+    ' Initialize move state
+    MOVE.SELECTION_X = pasteX%
+    MOVE.SELECTION_Y = pasteY%
+    MOVE.SELECTION_W = CLIPBOARD.WIDTH
+    MOVE.SELECTION_H = CLIPBOARD.HEIGHT
+    MOVE.ORIGINAL_X = pasteX%
+    MOVE.ORIGINAL_Y = pasteY%
+    MOVE.ORIGINAL_W = CLIPBOARD.WIDTH
+    MOVE.ORIGINAL_H = CLIPBOARD.HEIGHT
+    MOVE.CURRENT_X = pasteX%
+    MOVE.CURRENT_Y = pasteY%
+    MOVE.CURRENT_W = CLIPBOARD.WIDTH
+    MOVE.CURRENT_H = CLIPBOARD.HEIGHT
+    MOVE.ACTIVE = TRUE
+    MOVE.TRANSFORMING = FALSE
+    MOVE.CLONING = TRUE  ' Paste is always clone mode (doesn't clear source)
+    
+    ' Update preview buffer
+    MOVE_update_preview_buffer
+END SUB
+
+''
+' Clear the current marquee selection (fill with background color)
+' Requires an active marquee selection
+'
+SUB CLIPBOARD_clear_selection ()
+    ' Require active marquee
+    IF NOT MARQUEE.ACTIVE OR NOT MARQUEE.INITIALIZED THEN EXIT SUB
+    
+    ' If move tool is active, just clear the move selection
+    IF CURRENT_TOOL% = TOOL_MOVE AND MOVE.ACTIVE AND MOVE.SELECTION_IMAGE <> 0 THEN
+        ' Fill the selection image with background color
+        _DEST MOVE.SELECTION_IMAGE
+        CLS , PAINT_BG_COLOR~&
+        _DEST SCRN.CANVAS&
+        MOVE_update_preview_buffer
+        EXIT SUB
+    END IF
+    
+    ' Save undo state
+    UNDO_save_state
+    
+    ' Clear the selected region with background color
+    _DEST SCRN.PAINTING&
+    LINE (MARQUEE.BOX.x, MARQUEE.BOX.y)-(MARQUEE.BOX.x + MARQUEE.BOX.w - 1, MARQUEE.BOX.y + MARQUEE.BOX.h - 1), PAINT_BG_COLOR~&, BF
+    _DEST SCRN.CANVAS&
+    
+    CANVAS_DIRTY% = TRUE
+END SUB

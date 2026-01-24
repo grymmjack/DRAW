@@ -17,3 +17,9 @@ DIM SHARED MOVE_KEY_RIGHT_LAST AS INTEGER
 ' File hotkey state tracking (for single-press detection)
 DIM SHARED FILE_KEY_O_LAST AS INTEGER   ' Open
 DIM SHARED FILE_KEY_S_LAST AS INTEGER   ' Save
+
+' Clipboard hotkey state tracking (for single-press detection)
+DIM SHARED CLIPBOARD_KEY_C_LAST AS INTEGER   ' Copy
+DIM SHARED CLIPBOARD_KEY_X_LAST AS INTEGER   ' Cut
+DIM SHARED CLIPBOARD_KEY_V_LAST AS INTEGER   ' Paste
+DIM SHARED CLIPBOARD_KEY_E_LAST AS INTEGER   ' Clear selection
