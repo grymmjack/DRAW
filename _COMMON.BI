@@ -30,6 +30,7 @@ DIM SHARED LAST_DIRECTORY$
 LAST_DIRECTORY$ = ""
 
 ' Tool modes - basic drawing tools (1-20)
+CONST TOOL_NULL    = 0  ' Internal null tool - does nothing, no toolbar button
 CONST TOOL_BRUSH   = 1
 CONST TOOL_FILL    = 2
 CONST TOOL_DOT     = 3
