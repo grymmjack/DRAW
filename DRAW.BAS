@@ -86,6 +86,9 @@ FUNCTION SHOW_exit_confirm% ()
     result& = _MESSAGEBOX("Exit Confirmation", "Are you sure you want to exit?", "yesno", "question", 0)
     _MOUSEHIDE
     
+    ' Clear mouse input buffer
+    DO WHILE _MOUSEINPUT : LOOP
+    
     IF result& = 1 THEN
         SHOW_exit_confirm% = TRUE
     ELSE
