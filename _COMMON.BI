@@ -31,6 +31,10 @@ CONST KEY_BACKSPACE& = 8     ' BACKSPACE key
 DIM SHARED LAST_DIRECTORY$
 LAST_DIRECTORY$ = ""
 
+' Current file name (for quick save without prompt)
+DIM SHARED CURRENT_FILENAME$
+CURRENT_FILENAME$ = ""
+
 ' Tool modes - basic drawing tools (1-20)
 CONST TOOL_NULL    = 0  ' Internal null tool - does nothing, no toolbar button
 CONST TOOL_BRUSH   = 1
