@@ -10,7 +10,6 @@
 
 '$INCLUDE:'./_ALL.BI'
 $RESIZE:STRETCH
-$CONSOLE
   
 ' Main Loop
 DIM k AS LONG
