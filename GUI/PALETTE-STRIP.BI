@@ -10,9 +10,9 @@
 $INCLUDEONCE
 
 ' Palette strip constants
-CONST PALETTE_STRIP_SWATCH_SIZE = 5       ' Tiny chips to fit 64+ colors
-CONST PALETTE_STRIP_ARROW_WIDTH = 10
-CONST PALETTE_STRIP_ROW_HEIGHT = 7        ' Height per row (swatch + 2px gap)
+CONST PALETTE_STRIP_SWATCH_SIZE = 10      ' Sized to fit 16 colors across with selection indicators
+CONST PALETTE_STRIP_ARROW_WIDTH = 12
+CONST PALETTE_STRIP_ROW_HEIGHT = 12       ' Height per row (swatch + 2px gap)
 ' PALETTE_STRIP_HEIGHT is now calculated dynamically based on palette size
 CONST PALETTE_MENU_MIN_WIDTH = 180        ' Minimum menu width for full names
 

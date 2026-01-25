@@ -21,9 +21,12 @@ DO
     k& = _KEYHIT
     
     ' Check for ESC key with confirmation if canvas is dirty
-    ' BUT: If poly line, text tool, or image import is active, let keyboard handler process it instead
+    ' BUT: If poly line, text tool, image import is active, or palette menu is open, let keyboard handler process it instead
     IF k& = 27 THEN
-        IF IMG_IMPORT.STATE > IMPORT_STATE_IDLE THEN
+        IF PALETTE_MENU_VISIBLE% THEN
+            ' Palette menu is open, let keyboard handler close it (don't exit)
+            ' The keyboard handler will process this ESC
+        ELSEIF IMG_IMPORT.STATE > IMPORT_STATE_IDLE THEN
             ' Image import is active, let keyboard handler cancel it (don't exit)
             ' The keyboard handler will process this ESC
         ELSEIF CURRENT_TOOL% = TOOL_POLYGON AND POLY_LINE.HAS_LAST THEN
