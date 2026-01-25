@@ -199,6 +199,45 @@
 | `Ctrl+Z` | Undo |
 | `Ctrl+Y` | Redo |
 
+## Image Import (Oversized Images)
+
+When loading an image larger than the canvas, DRAW enters **Image Import Mode** allowing you to interactively position, zoom, pan, and crop the image before placing it.
+
+### How It Works
+1. Load an image via `Ctrl+O` that is larger than your canvas
+2. DRAW enters import mode with a semi-transparent overlay
+3. Draw a marquee to define where the image will be placed (or press Enter for full canvas)
+4. Adjust zoom, pan, and position as needed
+5. Press **Enter** to apply or **Escape** to cancel
+
+### Image Import Controls
+
+| Key | Function |
+|-----|----------|
+| **Mouse Drag** | Draw placement marquee |
+| **Mouse Wheel** | Zoom into/out of image |
+| **Arrow Keys** | Move destination box (1px) |
+| **Shift + Arrows** | Move destination box (10px) |
+| **Ctrl + Arrows** | Resize destination box (1px) |
+| **Ctrl+Shift + Arrows** | Resize destination box (10px) |
+| **Alt + Arrows** | Pan within image crop (1px) |
+| **Alt+Shift + Arrows** | Pan within image crop (10px) |
+| **Right-click drag** | Pan image within crop area |
+| **Enter** | Apply import to canvas |
+| **Escape** | Cancel import |
+
+### Visual Indicators
+- **Dimmed overlay** shows the canvas area outside your placement box
+- **Preview** shows the cropped/scaled image in real-time
+- **Marching ants** border indicates the destination box
+- **Resize handles** at corners and edges for mouse resizing
+
+### Workflow Tips
+- Use **wheel zoom** to magnify a specific area of the source image
+- Use **Alt+Arrows** or **right-drag** to pan to different parts of the zoomed image
+- Combine zoom and pan to precisely select which portion of an oversized image to use
+- The image is scaled to fit your destination box while maintaining the current crop
+
 ## UI Behavior
 
 - **Auto-hide**: UI elements automatically hide when actively dragging tools over them

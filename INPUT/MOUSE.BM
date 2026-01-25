@@ -82,6 +82,107 @@ SUB MOUSE_input_handler ()
     DIM saved_state_this_frame AS INTEGER
     saved_state_this_frame% = FALSE
     
+    ' ==== IMAGE IMPORT MODE - PROCESS OUTSIDE LOOP FOR PERFORMANCE ====
+    ' When in image import mode, skip the normal buffered mouse processing
+    ' and use direct polling for responsive interaction
+    IF IMG_IMPORT.STATE > IMPORT_STATE_IDLE THEN
+        ' Accumulate wheel delta while clearing buffered input
+        DIM wheel_delta AS INTEGER
+        wheel_delta% = 0
+        DO WHILE _MOUSEINPUT
+            wheel_delta% = wheel_delta% + _MOUSEWHEEL
+        LOOP
+        
+        ' Get current mouse state directly (not buffered)
+        DIM imp_rawX AS INTEGER, imp_rawY AS INTEGER
+        DIM imp_zw AS LONG, imp_zh AS LONG, imp_dx AS INTEGER, imp_dy AS INTEGER
+        imp_rawX% = _MOUSEX
+        imp_rawY% = _MOUSEY
+        
+        ' Store raw screen coordinates
+        MOUSE.RAW_X% = imp_rawX%
+        MOUSE.RAW_Y% = imp_rawY%
+        
+        ' Calculate zoomed canvas position on screen
+        imp_zw& = SCRN.w& * SCRN.zoom!
+        imp_zh& = SCRN.h& * SCRN.zoom!
+        imp_dx% = (_WIDTH - imp_zw&) \ 2 + SCRN.offsetX%
+        imp_dy% = (_HEIGHT - imp_zh&) \ 2 + SCRN.offsetY%
+        
+        ' Convert screen coords to canvas coords
+        MOUSE.X% = INT((imp_rawX% - imp_dx%) / SCRN.zoom!)
+        MOUSE.Y% = INT((imp_rawY% - imp_dy%) / SCRN.zoom!)
+        
+        ' Clamp to canvas bounds
+        IF MOUSE.X% < 0 THEN MOUSE.X% = 0
+        IF MOUSE.Y% < 0 THEN MOUSE.Y% = 0
+        IF MOUSE.X% >= SCRN.w& THEN MOUSE.X% = SCRN.w& - 1
+        IF MOUSE.Y% >= SCRN.h& THEN MOUSE.Y% = SCRN.h& - 1
+        
+        ' Get button states
+        MOUSE.B1% = _MOUSEBUTTON(1)
+        MOUSE.B2% = _MOUSEBUTTON(2)
+        MOUSE.B3% = _MOUSEBUTTON(3)
+        
+        ' Handle mouse wheel for zoom (accumulated from buffer)
+        IF wheel_delta% <> 0 THEN
+            IMAGE_IMPORT_zoom -wheel_delta%  ' Negative: wheel up = zoom in
+        END IF
+        
+        ' Handle mouse button interactions
+        IF MOUSE.B1% THEN
+            IF NOT MOUSE.OLD_B1% THEN
+                ' Button just pressed - determine action based on state
+                IF IMG_IMPORT.STATE = IMPORT_STATE_LOADED THEN
+                    ' No marquee yet - start drawing one
+                    IMAGE_IMPORT_start_placement MOUSE.X%, MOUSE.Y%
+                ELSEIF IMG_IMPORT.STATE >= IMPORT_STATE_PLACING THEN
+                    ' Have a placement - check for handle/pan/new marquee
+                    DIM import_handle AS INTEGER
+                    import_handle% = IMAGE_IMPORT_get_handle_at%(MOUSE.X%, MOUSE.Y%)
+                    IF import_handle% > 0 THEN
+                        IMAGE_IMPORT_start_resize import_handle%, MOUSE.X%, MOUSE.Y%
+                    ELSEIF IMAGE_IMPORT_is_point_inside%(MOUSE.X%, MOUSE.Y%) THEN
+                        IMAGE_IMPORT_start_pan MOUSE.X%, MOUSE.Y%
+                    ELSE
+                        ' Click outside - start new marquee
+                        IMG_IMPORT.STATE = IMPORT_STATE_LOADED
+                        IMAGE_IMPORT_start_placement MOUSE.X%, MOUSE.Y%
+                    END IF
+                END IF
+            ELSE
+                ' Button held - update current operation
+                IF IMG_IMPORT.DRAGGING THEN
+                    IMAGE_IMPORT_update_placement MOUSE.X%, MOUSE.Y%
+                ELSEIF IMG_IMPORT.RESIZING THEN
+                    IMAGE_IMPORT_update_resize MOUSE.X%, MOUSE.Y%
+                ELSEIF IMG_IMPORT.PANNING THEN
+                    IMAGE_IMPORT_update_pan MOUSE.X%, MOUSE.Y%
+                END IF
+            END IF
+        ELSE
+            ' Button released - finish current operation
+            IF IMG_IMPORT.DRAGGING THEN
+                IMAGE_IMPORT_finish_placement
+            ELSEIF IMG_IMPORT.RESIZING THEN
+                IMAGE_IMPORT_finish_resize
+            ELSEIF IMG_IMPORT.PANNING THEN
+                IMAGE_IMPORT_finish_pan
+            END IF
+        END IF
+        
+        ' Update old mouse state
+        MOUSE.OLD_B1% = MOUSE.B1%
+        MOUSE.OLD_B2% = MOUSE.B2%
+        MOUSE.OLD_B3% = MOUSE.B3%
+        MOUSE.OLD_X% = MOUSE.X%
+        MOUSE.OLD_Y% = MOUSE.Y%
+        
+        ' Exit early - don't process normal mouse handling during import
+        EXIT SUB
+    END IF
+    ' ==== END IMAGE IMPORT MODE ====
+    
     WHILE _MOUSEINPUT:
         ' Get raw screen coordinates and convert to canvas coordinates
         DIM rawX AS INTEGER, rawY AS INTEGER

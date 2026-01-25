@@ -1,0 +1,879 @@
+''
+' DRAW - TOOLS/IMAGE-IMPORT.BM
+' =============================================================================
+' Image Import tool implementation - interactive image placement with
+' zoom, pan, and cropping for oversized images.
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+
+''
+' Initialize the image import tool
+'
+SUB IMAGE_IMPORT_init ()
+    IMG_IMPORT.STATE = IMPORT_STATE_IDLE
+    IMG_IMPORT.IMAGE = 0
+    IMG_IMPORT.IMAGE_W = 0
+    IMG_IMPORT.IMAGE_H = 0
+    IMG_IMPORT.FILENAME = ""
+    IMG_IMPORT.DEST_X = 0
+    IMG_IMPORT.DEST_Y = 0
+    IMG_IMPORT.DEST_W = 0
+    IMG_IMPORT.DEST_H = 0
+    IMG_IMPORT.CROP_X = 0
+    IMG_IMPORT.CROP_Y = 0
+    IMG_IMPORT.CROP_W = 0
+    IMG_IMPORT.CROP_H = 0
+    IMG_IMPORT.ZOOM = 1.0
+    IMG_IMPORT.ZOOM_MIN = 0.1
+    IMG_IMPORT.ZOOM_MAX = 10.0
+    IMG_IMPORT.PAN_X = 0
+    IMG_IMPORT.PAN_Y = 0
+    IMG_IMPORT.DRAGGING = FALSE
+    IMG_IMPORT.PANNING = FALSE
+    IMG_IMPORT.RESIZING = FALSE
+    IMG_IMPORT.LOCK_ASPECT = FALSE
+    IMG_IMPORT.ASPECT_RATIO = 1.0
+    IMG_IMPORT.PREV_TOOL = TOOL_NULL
+END SUB
+
+
+''
+' Reset the image import tool and free resources
+'
+SUB IMAGE_IMPORT_reset ()
+    IF IMG_IMPORT.IMAGE <> 0 AND IMG_IMPORT.IMAGE < -1 THEN
+        _FREEIMAGE IMG_IMPORT.IMAGE
+    END IF
+    IMAGE_IMPORT_init
+END SUB
+
+
+''
+' Load an image file for import placement
+' @param filename STRING Path to image file
+' @return INTEGER TRUE if loaded successfully and needs placement, FALSE if loaded directly or failed
+'
+FUNCTION IMAGE_IMPORT_load_file% (filename AS STRING)
+    DIM loaded_img AS LONG
+    
+    ' Try to load the image
+    loaded_img& = _LOADIMAGE(filename$, 32)
+    
+    IF loaded_img& >= -1 THEN
+        ' Failed to load
+        IMAGE_IMPORT_load_file% = FALSE
+        EXIT FUNCTION
+    END IF
+    
+    ' Get image dimensions
+    DIM img_w AS INTEGER, img_h AS INTEGER
+    img_w% = _WIDTH(loaded_img&)
+    img_h% = _HEIGHT(loaded_img&)
+    
+    ' Check if image fits in canvas
+    IF img_w% <= SCRN.w& AND img_h% <= SCRN.h& THEN
+        ' Image fits - load directly to canvas (legacy behavior)
+        _DEST SCRN.PAINTING&
+        CLS , _RGB32(0, 0, 0)
+        _PUTIMAGE (0, 0), loaded_img&
+        _FREEIMAGE loaded_img&
+        
+        CANVAS_DIRTY% = FALSE
+        CURRENT_FILENAME$ = filename$
+        UNDO_save_state
+        
+        IMAGE_IMPORT_load_file% = FALSE
+        EXIT FUNCTION
+    END IF
+    
+    ' Image is larger than canvas - enter placement mode
+    ' Free any existing import image
+    IF IMG_IMPORT.IMAGE <> 0 AND IMG_IMPORT.IMAGE < -1 THEN
+        _FREEIMAGE IMG_IMPORT.IMAGE
+    END IF
+    
+    ' Store the loaded image
+    IMG_IMPORT.IMAGE = loaded_img&
+    IMG_IMPORT.IMAGE_W = img_w%
+    IMG_IMPORT.IMAGE_H = img_h%
+    IMG_IMPORT.FILENAME = filename$
+    IMG_IMPORT.ASPECT_RATIO = img_w% / img_h%
+    
+    ' Default destination to full canvas
+    IMG_IMPORT.DEST_X = 0
+    IMG_IMPORT.DEST_Y = 0
+    IMG_IMPORT.DEST_W = SCRN.w&
+    IMG_IMPORT.DEST_H = SCRN.h&
+    
+    ' Calculate initial crop to fit/fill the canvas
+    ' Default: fit the image (show all, possibly with bars)
+    DIM fit_scale AS SINGLE
+    DIM canvas_aspect AS SINGLE
+    canvas_aspect! = SCRN.w& / SCRN.h&
+    
+    IF IMG_IMPORT.ASPECT_RATIO > canvas_aspect! THEN
+        ' Image is wider than canvas - fit by width
+        fit_scale! = SCRN.w& / img_w%
+    ELSE
+        ' Image is taller than canvas - fit by height
+        fit_scale! = SCRN.h& / img_h%
+    END IF
+    
+    ' Set crop to entire image initially
+    IMG_IMPORT.CROP_X = 0
+    IMG_IMPORT.CROP_Y = 0
+    IMG_IMPORT.CROP_W = img_w%
+    IMG_IMPORT.CROP_H = img_h%
+    
+    ' Set zoom to 1.0 (no zoom relative to fit)
+    IMG_IMPORT.ZOOM = 1.0
+    IMG_IMPORT.ZOOM_MIN = 0.1
+    IMG_IMPORT.ZOOM_MAX = 10.0
+    IMG_IMPORT.PAN_X = 0
+    IMG_IMPORT.PAN_Y = 0
+    
+    ' Store previous tool and set state
+    IMG_IMPORT.PREV_TOOL = CURRENT_TOOL%
+    IMG_IMPORT.STATE = IMPORT_STATE_LOADED
+    
+    ' Don't change current tool - let user draw marquee or use full canvas
+    ' The main loop will detect IMG_IMPORT.STATE and handle accordingly
+    
+    IMAGE_IMPORT_load_file% = TRUE
+END FUNCTION
+
+
+''
+' Start drawing the placement marquee
+' @param x INTEGER Starting X coordinate (canvas coords)
+' @param y INTEGER Starting Y coordinate (canvas coords)
+'
+SUB IMAGE_IMPORT_start_placement (x AS INTEGER, y AS INTEGER)
+    IF IMG_IMPORT.STATE <> IMPORT_STATE_LOADED THEN EXIT SUB
+    
+    IMG_IMPORT.DRAGGING = TRUE
+    IMG_IMPORT.DRAG_START_X = x
+    IMG_IMPORT.DRAG_START_Y = y
+    IMG_IMPORT.DRAG_END_X = x
+    IMG_IMPORT.DRAG_END_Y = y
+END SUB
+
+
+''
+' Update the placement marquee while dragging
+' @param x INTEGER Current X coordinate (canvas coords)
+' @param y INTEGER Current Y coordinate (canvas coords)
+'
+SUB IMAGE_IMPORT_update_placement (x AS INTEGER, y AS INTEGER)
+    IF NOT IMG_IMPORT.DRAGGING THEN EXIT SUB
+    
+    IMG_IMPORT.DRAG_END_X = x
+    IMG_IMPORT.DRAG_END_Y = y
+    
+    ' Calculate temp destination rect
+    IF IMG_IMPORT.DRAG_START_X < IMG_IMPORT.DRAG_END_X THEN
+        IMG_IMPORT.DEST_X = IMG_IMPORT.DRAG_START_X
+    ELSE
+        IMG_IMPORT.DEST_X = IMG_IMPORT.DRAG_END_X
+    END IF
+    IF IMG_IMPORT.DRAG_START_Y < IMG_IMPORT.DRAG_END_Y THEN
+        IMG_IMPORT.DEST_Y = IMG_IMPORT.DRAG_START_Y
+    ELSE
+        IMG_IMPORT.DEST_Y = IMG_IMPORT.DRAG_END_Y
+    END IF
+    IMG_IMPORT.DEST_W = ABS(IMG_IMPORT.DRAG_END_X - IMG_IMPORT.DRAG_START_X)
+    IMG_IMPORT.DEST_H = ABS(IMG_IMPORT.DRAG_END_Y - IMG_IMPORT.DRAG_START_Y)
+    
+    ' Enforce minimum size
+    IF IMG_IMPORT.DEST_W < 4 THEN IMG_IMPORT.DEST_W = 4
+    IF IMG_IMPORT.DEST_H < 4 THEN IMG_IMPORT.DEST_H = 4
+    
+    ' Update crop to maintain aspect ratio and fit
+    IMAGE_IMPORT_update_crop_from_zoom
+END SUB
+
+
+''
+' Finish drawing the placement marquee
+'
+SUB IMAGE_IMPORT_finish_placement ()
+    IF NOT IMG_IMPORT.DRAGGING THEN EXIT SUB
+    
+    IMG_IMPORT.DRAGGING = FALSE
+    
+    ' Check if this was just a click (no significant movement)
+    IF IMG_IMPORT.DEST_W < 8 AND IMG_IMPORT.DEST_H < 8 THEN
+        ' Just a click - use full canvas
+        IMG_IMPORT.DEST_X = 0
+        IMG_IMPORT.DEST_Y = 0
+        IMG_IMPORT.DEST_W = SCRN.w&
+        IMG_IMPORT.DEST_H = SCRN.h&
+    END IF
+    
+    ' Update crop for final destination
+    IMAGE_IMPORT_update_crop_from_zoom
+    
+    ' Move to placing state
+    IMG_IMPORT.STATE = IMPORT_STATE_PLACING
+END SUB
+
+
+''
+' Update the crop region based on zoom and destination size
+' This calculates what portion of the source image to show
+'
+SUB IMAGE_IMPORT_update_crop_from_zoom ()
+    IF IMG_IMPORT.IMAGE = 0 THEN EXIT SUB
+    IF IMG_IMPORT.DEST_W < 1 OR IMG_IMPORT.DEST_H < 1 THEN EXIT SUB
+    
+    ' Calculate the destination aspect ratio
+    DIM dest_aspect AS SINGLE
+    dest_aspect! = IMG_IMPORT.DEST_W / IMG_IMPORT.DEST_H
+    
+    ' Calculate base crop size to fill the destination
+    ' At zoom 1.0, we want to show as much of the image as fills the dest
+    DIM base_crop_w AS SINGLE, base_crop_h AS SINGLE
+    
+    IF IMG_IMPORT.ASPECT_RATIO > dest_aspect! THEN
+        ' Image is wider than dest - crop width, use full height
+        base_crop_h! = IMG_IMPORT.IMAGE_H
+        base_crop_w! = base_crop_h! * dest_aspect!
+    ELSE
+        ' Image is taller than dest - crop height, use full width
+        base_crop_w! = IMG_IMPORT.IMAGE_W
+        base_crop_h! = base_crop_w! / dest_aspect!
+    END IF
+    
+    ' Apply zoom - higher zoom = smaller crop = more magnification
+    IMG_IMPORT.CROP_W = base_crop_w! / IMG_IMPORT.ZOOM
+    IMG_IMPORT.CROP_H = base_crop_h! / IMG_IMPORT.ZOOM
+    
+    ' Clamp crop size to image bounds
+    IF IMG_IMPORT.CROP_W > IMG_IMPORT.IMAGE_W THEN IMG_IMPORT.CROP_W = IMG_IMPORT.IMAGE_W
+    IF IMG_IMPORT.CROP_H > IMG_IMPORT.IMAGE_H THEN IMG_IMPORT.CROP_H = IMG_IMPORT.IMAGE_H
+    IF IMG_IMPORT.CROP_W < 1 THEN IMG_IMPORT.CROP_W = 1
+    IF IMG_IMPORT.CROP_H < 1 THEN IMG_IMPORT.CROP_H = 1
+    
+    ' Center the crop by default (pan can adjust)
+    IMG_IMPORT.CROP_X = (IMG_IMPORT.IMAGE_W - IMG_IMPORT.CROP_W) / 2 + IMG_IMPORT.PAN_X
+    IMG_IMPORT.CROP_Y = (IMG_IMPORT.IMAGE_H - IMG_IMPORT.CROP_H) / 2 + IMG_IMPORT.PAN_Y
+    
+    ' Clamp pan to valid range
+    IMAGE_IMPORT_clamp_pan
+END SUB
+
+
+''
+' Clamp pan offset to keep crop within image bounds
+'
+SUB IMAGE_IMPORT_clamp_pan ()
+    ' Calculate center position
+    DIM center_x AS SINGLE, center_y AS SINGLE
+    center_x! = (IMG_IMPORT.IMAGE_W - IMG_IMPORT.CROP_W) / 2
+    center_y! = (IMG_IMPORT.IMAGE_H - IMG_IMPORT.CROP_H) / 2
+    
+    ' Calculate max pan (distance from center to edge)
+    DIM max_pan_x AS SINGLE, max_pan_y AS SINGLE
+    max_pan_x! = center_x!
+    max_pan_y! = center_y!
+    
+    ' Clamp pan
+    IF IMG_IMPORT.PAN_X < -max_pan_x! THEN IMG_IMPORT.PAN_X = -max_pan_x!
+    IF IMG_IMPORT.PAN_X > max_pan_x! THEN IMG_IMPORT.PAN_X = max_pan_x!
+    IF IMG_IMPORT.PAN_Y < -max_pan_y! THEN IMG_IMPORT.PAN_Y = -max_pan_y!
+    IF IMG_IMPORT.PAN_Y > max_pan_y! THEN IMG_IMPORT.PAN_Y = max_pan_y!
+    
+    ' Recalculate crop position with clamped pan
+    IMG_IMPORT.CROP_X = center_x! + IMG_IMPORT.PAN_X
+    IMG_IMPORT.CROP_Y = center_y! + IMG_IMPORT.PAN_Y
+    
+    ' Final bounds check
+    IF IMG_IMPORT.CROP_X < 0 THEN IMG_IMPORT.CROP_X = 0
+    IF IMG_IMPORT.CROP_Y < 0 THEN IMG_IMPORT.CROP_Y = 0
+    IF IMG_IMPORT.CROP_X + IMG_IMPORT.CROP_W > IMG_IMPORT.IMAGE_W THEN
+        IMG_IMPORT.CROP_X = IMG_IMPORT.IMAGE_W - IMG_IMPORT.CROP_W
+    END IF
+    IF IMG_IMPORT.CROP_Y + IMG_IMPORT.CROP_H > IMG_IMPORT.IMAGE_H THEN
+        IMG_IMPORT.CROP_Y = IMG_IMPORT.IMAGE_H - IMG_IMPORT.CROP_H
+    END IF
+END SUB
+
+
+''
+' Zoom the image (mouse wheel)
+' @param delta SINGLE Zoom delta (+1 = zoom in, -1 = zoom out)
+'
+SUB IMAGE_IMPORT_zoom (delta AS SINGLE)
+    IF IMG_IMPORT.STATE < IMPORT_STATE_LOADED THEN EXIT SUB
+    
+    ' Adjust zoom with acceleration
+    DIM zoom_factor AS SINGLE
+    zoom_factor! = 1.1  ' 10% per step
+    
+    IF delta! > 0 THEN
+        IMG_IMPORT.ZOOM = IMG_IMPORT.ZOOM * zoom_factor!
+    ELSE
+        IMG_IMPORT.ZOOM = IMG_IMPORT.ZOOM / zoom_factor!
+    END IF
+    
+    ' Clamp zoom
+    IF IMG_IMPORT.ZOOM < IMG_IMPORT.ZOOM_MIN THEN IMG_IMPORT.ZOOM = IMG_IMPORT.ZOOM_MIN
+    IF IMG_IMPORT.ZOOM > IMG_IMPORT.ZOOM_MAX THEN IMG_IMPORT.ZOOM = IMG_IMPORT.ZOOM_MAX
+    
+    ' Update crop region
+    IMAGE_IMPORT_update_crop_from_zoom
+END SUB
+
+
+''
+' Start panning the image within the crop area
+' @param x INTEGER Start X (screen coords)
+' @param y INTEGER Start Y (screen coords)
+'
+SUB IMAGE_IMPORT_start_pan (x AS INTEGER, y AS INTEGER)
+    IF IMG_IMPORT.STATE < IMPORT_STATE_LOADED THEN EXIT SUB
+    
+    IMG_IMPORT.PANNING = TRUE
+    IMG_IMPORT.PAN_START_X = x
+    IMG_IMPORT.PAN_START_Y = y
+    IMG_IMPORT.PAN_ORIG_X = IMG_IMPORT.PAN_X
+    IMG_IMPORT.PAN_ORIG_Y = IMG_IMPORT.PAN_Y
+    IMG_IMPORT.STATE = IMPORT_STATE_PANNING
+END SUB
+
+
+''
+' Update pan while dragging
+' @param x INTEGER Current X (screen coords)
+' @param y INTEGER Current Y (screen coords)
+'
+SUB IMAGE_IMPORT_update_pan (x AS INTEGER, y AS INTEGER)
+    IF NOT IMG_IMPORT.PANNING THEN EXIT SUB
+    
+    DIM dx AS INTEGER, dy AS INTEGER
+    dx% = x - IMG_IMPORT.PAN_START_X
+    dy% = y - IMG_IMPORT.PAN_START_Y
+    
+    ' Convert screen delta to image delta
+    ' Pan moves opposite to drag direction (like dragging a paper)
+    DIM scale_x AS SINGLE, scale_y AS SINGLE
+    IF IMG_IMPORT.DEST_W > 0 THEN scale_x! = IMG_IMPORT.CROP_W / IMG_IMPORT.DEST_W ELSE scale_x! = 1
+    IF IMG_IMPORT.DEST_H > 0 THEN scale_y! = IMG_IMPORT.CROP_H / IMG_IMPORT.DEST_H ELSE scale_y! = 1
+    
+    IMG_IMPORT.PAN_X = IMG_IMPORT.PAN_ORIG_X - (dx% * scale_x!)
+    IMG_IMPORT.PAN_Y = IMG_IMPORT.PAN_ORIG_Y - (dy% * scale_y!)
+    
+    ' Update crop with new pan
+    IMAGE_IMPORT_update_crop_from_zoom
+END SUB
+
+
+''
+' Finish panning
+'
+SUB IMAGE_IMPORT_finish_pan ()
+    IF NOT IMG_IMPORT.PANNING THEN EXIT SUB
+    
+    IMG_IMPORT.PANNING = FALSE
+    IMG_IMPORT.STATE = IMPORT_STATE_PLACING
+END SUB
+
+
+''
+' Start resizing the destination box
+' @param handle INTEGER Handle number (1-8)
+' @param x INTEGER Start X
+' @param y INTEGER Start Y
+'
+SUB IMAGE_IMPORT_start_resize (handle AS INTEGER, x AS INTEGER, y AS INTEGER)
+    IF IMG_IMPORT.STATE < IMPORT_STATE_PLACING THEN EXIT SUB
+    
+    IMG_IMPORT.RESIZING = TRUE
+    IMG_IMPORT.RESIZE_HANDLE = handle
+    IMG_IMPORT.RESIZE_START_X = x
+    IMG_IMPORT.RESIZE_START_Y = y
+    IMG_IMPORT.RESIZE_ORIG_X = IMG_IMPORT.DEST_X
+    IMG_IMPORT.RESIZE_ORIG_Y = IMG_IMPORT.DEST_Y
+    IMG_IMPORT.RESIZE_ORIG_W = IMG_IMPORT.DEST_W
+    IMG_IMPORT.RESIZE_ORIG_H = IMG_IMPORT.DEST_H
+END SUB
+
+
+''
+' Update resize based on current mouse position
+' @param x INTEGER Current X
+' @param y INTEGER Current Y
+'
+SUB IMAGE_IMPORT_update_resize (x AS INTEGER, y AS INTEGER)
+    IF NOT IMG_IMPORT.RESIZING THEN EXIT SUB
+    
+    DIM dx AS INTEGER, dy AS INTEGER
+    dx% = x - IMG_IMPORT.RESIZE_START_X
+    dy% = y - IMG_IMPORT.RESIZE_START_Y
+    
+    ' Handle resize based on which handle is being dragged
+    SELECT CASE IMG_IMPORT.RESIZE_HANDLE
+        CASE 1  ' TL corner
+            IMG_IMPORT.DEST_W = IMG_IMPORT.RESIZE_ORIG_W - dx%
+            IMG_IMPORT.DEST_H = IMG_IMPORT.RESIZE_ORIG_H - dy%
+            IF IMG_IMPORT.DEST_W >= 4 THEN IMG_IMPORT.DEST_X = IMG_IMPORT.RESIZE_ORIG_X + dx%
+            IF IMG_IMPORT.DEST_H >= 4 THEN IMG_IMPORT.DEST_Y = IMG_IMPORT.RESIZE_ORIG_Y + dy%
+            
+        CASE 2  ' T edge
+            IMG_IMPORT.DEST_H = IMG_IMPORT.RESIZE_ORIG_H - dy%
+            IF IMG_IMPORT.DEST_H >= 4 THEN IMG_IMPORT.DEST_Y = IMG_IMPORT.RESIZE_ORIG_Y + dy%
+            
+        CASE 3  ' TR corner
+            IMG_IMPORT.DEST_W = IMG_IMPORT.RESIZE_ORIG_W + dx%
+            IMG_IMPORT.DEST_H = IMG_IMPORT.RESIZE_ORIG_H - dy%
+            IF IMG_IMPORT.DEST_H >= 4 THEN IMG_IMPORT.DEST_Y = IMG_IMPORT.RESIZE_ORIG_Y + dy%
+            
+        CASE 4  ' L edge
+            IMG_IMPORT.DEST_W = IMG_IMPORT.RESIZE_ORIG_W - dx%
+            IF IMG_IMPORT.DEST_W >= 4 THEN IMG_IMPORT.DEST_X = IMG_IMPORT.RESIZE_ORIG_X + dx%
+            
+        CASE 5  ' R edge
+            IMG_IMPORT.DEST_W = IMG_IMPORT.RESIZE_ORIG_W + dx%
+            
+        CASE 6  ' BL corner
+            IMG_IMPORT.DEST_W = IMG_IMPORT.RESIZE_ORIG_W - dx%
+            IMG_IMPORT.DEST_H = IMG_IMPORT.RESIZE_ORIG_H + dy%
+            IF IMG_IMPORT.DEST_W >= 4 THEN IMG_IMPORT.DEST_X = IMG_IMPORT.RESIZE_ORIG_X + dx%
+            
+        CASE 7  ' B edge
+            IMG_IMPORT.DEST_H = IMG_IMPORT.RESIZE_ORIG_H + dy%
+            
+        CASE 8  ' BR corner
+            IMG_IMPORT.DEST_W = IMG_IMPORT.RESIZE_ORIG_W + dx%
+            IMG_IMPORT.DEST_H = IMG_IMPORT.RESIZE_ORIG_H + dy%
+    END SELECT
+    
+    ' Enforce minimum size
+    IF IMG_IMPORT.DEST_W < 4 THEN IMG_IMPORT.DEST_W = 4
+    IF IMG_IMPORT.DEST_H < 4 THEN IMG_IMPORT.DEST_H = 4
+    
+    ' Update crop to match new destination
+    IMAGE_IMPORT_update_crop_from_zoom
+END SUB
+
+
+''
+' Finish resize operation
+'
+SUB IMAGE_IMPORT_finish_resize ()
+    IMG_IMPORT.RESIZING = FALSE
+    IMG_IMPORT.RESIZE_HANDLE = 0
+END SUB
+
+
+''
+' Nudge the destination box by a delta amount (for arrow key control)
+' @param dx INTEGER Delta X (positive = right, negative = left)
+' @param dy INTEGER Delta Y (positive = down, negative = up)
+'
+SUB IMAGE_IMPORT_nudge (dx AS INTEGER, dy AS INTEGER)
+    IF IMG_IMPORT.STATE < IMPORT_STATE_PLACING THEN EXIT SUB
+    
+    IMG_IMPORT.DEST_X = IMG_IMPORT.DEST_X + dx%
+    IMG_IMPORT.DEST_Y = IMG_IMPORT.DEST_Y + dy%
+    
+    ' Keep at least partially on canvas
+    IF IMG_IMPORT.DEST_X < -(IMG_IMPORT.DEST_W - 1) THEN IMG_IMPORT.DEST_X = -(IMG_IMPORT.DEST_W - 1)
+    IF IMG_IMPORT.DEST_Y < -(IMG_IMPORT.DEST_H - 1) THEN IMG_IMPORT.DEST_Y = -(IMG_IMPORT.DEST_H - 1)
+    IF IMG_IMPORT.DEST_X > SCRN.w& - 1 THEN IMG_IMPORT.DEST_X = SCRN.w& - 1
+    IF IMG_IMPORT.DEST_Y > SCRN.h& - 1 THEN IMG_IMPORT.DEST_Y = SCRN.h& - 1
+END SUB
+
+
+''
+' Resize the destination box by a delta amount (for Ctrl+arrow key control)
+' @param dw INTEGER Delta width (positive = wider, negative = narrower)
+' @param dh INTEGER Delta height (positive = taller, negative = shorter)
+'
+SUB IMAGE_IMPORT_resize_by (dw AS INTEGER, dh AS INTEGER)
+    IF IMG_IMPORT.STATE < IMPORT_STATE_PLACING THEN EXIT SUB
+    
+    IMG_IMPORT.DEST_W = IMG_IMPORT.DEST_W + dw%
+    IMG_IMPORT.DEST_H = IMG_IMPORT.DEST_H + dh%
+    
+    ' Enforce minimum size
+    IF IMG_IMPORT.DEST_W < 4 THEN IMG_IMPORT.DEST_W = 4
+    IF IMG_IMPORT.DEST_H < 4 THEN IMG_IMPORT.DEST_H = 4
+    
+    ' Update crop to match new destination
+    IMAGE_IMPORT_update_crop_from_zoom
+END SUB
+
+
+''
+' Pan the image within the crop area by a delta amount (for arrow key control)
+' @param dx INTEGER Delta X in image coordinates
+' @param dy INTEGER Delta Y in image coordinates
+'
+SUB IMAGE_IMPORT_pan_by (dx AS INTEGER, dy AS INTEGER)
+    IF IMG_IMPORT.STATE < IMPORT_STATE_LOADED THEN EXIT SUB
+    
+    ' Convert pixel delta to image-space delta based on zoom
+    DIM scale_x AS SINGLE, scale_y AS SINGLE
+    IF IMG_IMPORT.DEST_W > 0 THEN scale_x! = IMG_IMPORT.CROP_W / IMG_IMPORT.DEST_W ELSE scale_x! = 1
+    IF IMG_IMPORT.DEST_H > 0 THEN scale_y! = IMG_IMPORT.CROP_H / IMG_IMPORT.DEST_H ELSE scale_y! = 1
+    
+    IMG_IMPORT.PAN_X = IMG_IMPORT.PAN_X + (dx% * scale_x!)
+    IMG_IMPORT.PAN_Y = IMG_IMPORT.PAN_Y + (dy% * scale_y!)
+    
+    ' Update crop with new pan (includes clamping)
+    IMAGE_IMPORT_update_crop_from_zoom
+END SUB
+
+
+''
+' Apply the imported image to the canvas
+'
+SUB IMAGE_IMPORT_apply ()
+    IF IMG_IMPORT.STATE < IMPORT_STATE_LOADED THEN EXIT SUB
+    IF IMG_IMPORT.IMAGE = 0 THEN EXIT SUB
+    
+    ' Save state for undo
+    UNDO_save_state
+    
+    ' Draw the cropped/scaled image to the painting layer
+    _DEST SCRN.PAINTING&
+    
+    ' Use _PUTIMAGE with source and destination rectangles
+    _PUTIMAGE (IMG_IMPORT.DEST_X, IMG_IMPORT.DEST_Y)-(IMG_IMPORT.DEST_X + IMG_IMPORT.DEST_W - 1, IMG_IMPORT.DEST_Y + IMG_IMPORT.DEST_H - 1), _
+              IMG_IMPORT.IMAGE, _
+              SCRN.PAINTING&, _
+              (INT(IMG_IMPORT.CROP_X), INT(IMG_IMPORT.CROP_Y))-(INT(IMG_IMPORT.CROP_X + IMG_IMPORT.CROP_W - 1), INT(IMG_IMPORT.CROP_Y + IMG_IMPORT.CROP_H - 1))
+    
+    ' Mark canvas as dirty
+    CANVAS_DIRTY% = TRUE
+    
+    ' Store filename
+    CURRENT_FILENAME$ = IMG_IMPORT.FILENAME
+    
+    ' Reset import state
+    IMAGE_IMPORT_reset
+END SUB
+
+
+''
+' Cancel the import and restore previous state
+'
+SUB IMAGE_IMPORT_cancel ()
+    IF IMG_IMPORT.STATE = IMPORT_STATE_IDLE THEN EXIT SUB
+    
+    ' Restore previous tool
+    IF IMG_IMPORT.PREV_TOOL <> TOOL_NULL THEN
+        CURRENT_TOOL% = IMG_IMPORT.PREV_TOOL
+    END IF
+    
+    ' Reset import state
+    IMAGE_IMPORT_reset
+END SUB
+
+
+''
+' Draw the import preview overlay
+' @param dest LONG Destination image handle
+'
+SUB IMAGE_IMPORT_draw (dest AS LONG)
+    IF IMG_IMPORT.STATE = IMPORT_STATE_IDLE THEN EXIT SUB
+    IF IMG_IMPORT.IMAGE = 0 THEN EXIT SUB
+    
+    DIM prevDest AS LONG
+    prevDest& = _DEST
+    _DEST dest&
+    
+    ' Calculate zoom transformation for canvas coordinates
+    DIM zw AS LONG, zh AS LONG, dx AS INTEGER, dy AS INTEGER
+    zw& = SCRN.w& * SCRN.zoom!
+    zh& = SCRN.h& * SCRN.zoom!
+    dx% = (_WIDTH(dest&) - zw&) \ 2 + SCRN.offsetX%
+    dy% = (_HEIGHT(dest&) - zh&) \ 2 + SCRN.offsetY%
+    
+    ' Calculate screen coordinates for destination rect
+    DIM screen_x AS INTEGER, screen_y AS INTEGER
+    DIM screen_w AS INTEGER, screen_h AS INTEGER
+    screen_x% = dx% + INT(IMG_IMPORT.DEST_X * SCRN.zoom!)
+    screen_y% = dy% + INT(IMG_IMPORT.DEST_Y * SCRN.zoom!)
+    screen_w% = INT(IMG_IMPORT.DEST_W * SCRN.zoom!)
+    screen_h% = INT(IMG_IMPORT.DEST_H * SCRN.zoom!)
+    
+    IF screen_w% < 1 THEN screen_w% = 1
+    IF screen_h% < 1 THEN screen_h% = 1
+    
+    ' Draw semi-transparent overlay over the entire canvas area
+    ' This dims the background to show the import preview more clearly
+    LINE (dx%, dy%)-(dx% + zw& - 1, dy% + zh& - 1), _RGBA32(0, 0, 0, 100), BF
+    
+    ' Draw the preview image in the destination rect
+    _PUTIMAGE (screen_x%, screen_y%)-(screen_x% + screen_w% - 1, screen_y% + screen_h% - 1), _
+              IMG_IMPORT.IMAGE, _
+              dest&, _
+              (INT(IMG_IMPORT.CROP_X), INT(IMG_IMPORT.CROP_Y))-(INT(IMG_IMPORT.CROP_X + IMG_IMPORT.CROP_W - 1), INT(IMG_IMPORT.CROP_Y + IMG_IMPORT.CROP_H - 1))
+    
+    ' Draw the bounding box
+    IMAGE_IMPORT_draw_box dest&
+    
+    ' Draw status text
+    DIM status_text AS STRING
+    IF IMG_IMPORT.STATE = IMPORT_STATE_LOADED THEN
+        status_text$ = "Draw marquee to place image, or press ENTER for full canvas"
+    ELSEIF IMG_IMPORT.STATE = IMPORT_STATE_PLACING OR IMG_IMPORT.STATE = IMPORT_STATE_PANNING THEN
+        status_text$ = "WHEEL: Zoom | DRAG: Pan | HANDLES: Resize | ENTER: Apply | ESC: Cancel"
+    END IF
+    
+    ' Draw status at bottom
+    DIM text_y AS INTEGER
+    text_y% = dy% + zh& + 4
+    IF text_y% > _HEIGHT(dest&) - 10 THEN text_y% = _HEIGHT(dest&) - 10
+    
+    ' Background for text
+    LINE (dx%, text_y% - 2)-(dx% + zw& - 1, text_y% + 10), _RGBA32(0, 0, 0, 200), BF
+    COLOR _RGB32(255, 255, 255)
+    _PRINTSTRING (dx% + 4, text_y%), status_text$
+    
+    ' Draw zoom level indicator
+    DIM zoom_text AS STRING
+    zoom_text$ = "Zoom: " + STR$(INT(IMG_IMPORT.ZOOM * 100)) + "%"
+    _PRINTSTRING (dx% + zw& - LEN(zoom_text$) * 8 - 4, text_y%), zoom_text$
+    
+    _DEST prevDest&
+END SUB
+
+
+''
+' Draw the bounding box with handles for the import area
+' @param dest LONG Destination image handle
+'
+SUB IMAGE_IMPORT_draw_box (dest AS LONG)
+    DIM prevDest AS LONG
+    prevDest& = _DEST
+    _DEST dest&
+    
+    ' Calculate zoom transformation
+    DIM zw AS LONG, zh AS LONG, dx AS INTEGER, dy AS INTEGER
+    zw& = SCRN.w& * SCRN.zoom!
+    zh& = SCRN.h& * SCRN.zoom!
+    dx% = (_WIDTH(dest&) - zw&) \ 2 + SCRN.offsetX%
+    dy% = (_HEIGHT(dest&) - zh&) \ 2 + SCRN.offsetY%
+    
+    ' Calculate screen coordinates
+    DIM x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER
+    
+    IF IMG_IMPORT.DRAGGING THEN
+        ' During drag, use drag coordinates
+        IF IMG_IMPORT.DRAG_START_X < IMG_IMPORT.DRAG_END_X THEN
+            x% = IMG_IMPORT.DRAG_START_X
+        ELSE
+            x% = IMG_IMPORT.DRAG_END_X
+        END IF
+        IF IMG_IMPORT.DRAG_START_Y < IMG_IMPORT.DRAG_END_Y THEN
+            y% = IMG_IMPORT.DRAG_START_Y
+        ELSE
+            y% = IMG_IMPORT.DRAG_END_Y
+        END IF
+        w% = ABS(IMG_IMPORT.DRAG_END_X - IMG_IMPORT.DRAG_START_X)
+        h% = ABS(IMG_IMPORT.DRAG_END_Y - IMG_IMPORT.DRAG_START_Y)
+    ELSE
+        ' Use destination coordinates
+        x% = IMG_IMPORT.DEST_X
+        y% = IMG_IMPORT.DEST_Y
+        w% = IMG_IMPORT.DEST_W
+        h% = IMG_IMPORT.DEST_H
+    END IF
+    
+    ' Transform to screen coordinates
+    x% = dx% + INT(x% * SCRN.zoom!)
+    y% = dy% + INT(y% * SCRN.zoom!)
+    w% = INT(w% * SCRN.zoom!)
+    h% = INT(h% * SCRN.zoom!)
+    IF w% < 1 THEN w% = 1
+    IF h% < 1 THEN h% = 1
+    
+    ' Draw dotted outline (white/black alternating)
+    DIM i AS INTEGER
+    DIM dotSize AS INTEGER, gapSize AS INTEGER
+    dotSize% = INT(2 * SCRN.zoom!)
+    IF dotSize% < 1 THEN dotSize% = 1
+    gapSize% = INT(2 * SCRN.zoom!)
+    IF gapSize% < 1 THEN gapSize% = 1
+    
+    ' Top and bottom edges
+    FOR i% = 0 TO w% - 1 STEP (dotSize% + gapSize%)
+        LINE (x% + i%, y%)-(x% + i% + dotSize% - 1, y%), _RGB32(255, 255, 255)
+        LINE (x% + i%, y% + h% - 1)-(x% + i% + dotSize% - 1, y% + h% - 1), _RGB32(255, 255, 255)
+    NEXT i%
+    
+    ' Left and right edges
+    FOR i% = 0 TO h% - 1 STEP (dotSize% + gapSize%)
+        LINE (x%, y% + i%)-(x%, y% + i% + dotSize% - 1), _RGB32(255, 255, 255)
+        LINE (x% + w% - 1, y% + i%)-(x% + w% - 1, y% + i% + dotSize% - 1), _RGB32(255, 255, 255)
+    NEXT i%
+    
+    ' Draw handles if in placing state
+    IF IMG_IMPORT.STATE >= IMPORT_STATE_PLACING THEN
+        DIM hh AS INTEGER, cx AS INTEGER, cy AS INTEGER
+        hh% = INT(2 * SCRN.zoom!)
+        IF hh% < 2 THEN hh% = 2
+        cx% = x% + w% \ 2
+        cy% = y% + h% \ 2
+        
+        DIM handleColor AS _UNSIGNED LONG
+        DIM handleBorder AS _UNSIGNED LONG
+        handleBorder~& = _RGB32(255, 255, 255)
+        
+        ' 1: TL corner
+        IF IMG_IMPORT.RESIZE_HANDLE = 1 THEN handleColor~& = _RGB32(0, 255, 255) ELSE handleColor~& = _RGB32(128, 128, 128)
+        LINE (x% - hh%, y% - hh%)-(x% + hh%, y% + hh%), handleColor~&, BF
+        LINE (x% - hh%, y% - hh%)-(x% + hh%, y% + hh%), handleBorder~&, B
+        
+        ' 2: T edge
+        IF IMG_IMPORT.RESIZE_HANDLE = 2 THEN handleColor~& = _RGB32(0, 255, 255) ELSE handleColor~& = _RGB32(128, 128, 128)
+        LINE (cx% - hh%, y% - hh%)-(cx% + hh%, y% + hh%), handleColor~&, BF
+        LINE (cx% - hh%, y% - hh%)-(cx% + hh%, y% + hh%), handleBorder~&, B
+        
+        ' 3: TR corner
+        IF IMG_IMPORT.RESIZE_HANDLE = 3 THEN handleColor~& = _RGB32(0, 255, 255) ELSE handleColor~& = _RGB32(128, 128, 128)
+        LINE (x% + w% - hh%, y% - hh%)-(x% + w% + hh%, y% + hh%), handleColor~&, BF
+        LINE (x% + w% - hh%, y% - hh%)-(x% + w% + hh%, y% + hh%), handleBorder~&, B
+        
+        ' 4: L edge
+        IF IMG_IMPORT.RESIZE_HANDLE = 4 THEN handleColor~& = _RGB32(0, 255, 255) ELSE handleColor~& = _RGB32(128, 128, 128)
+        LINE (x% - hh%, cy% - hh%)-(x% + hh%, cy% + hh%), handleColor~&, BF
+        LINE (x% - hh%, cy% - hh%)-(x% + hh%, cy% + hh%), handleBorder~&, B
+        
+        ' 5: R edge
+        IF IMG_IMPORT.RESIZE_HANDLE = 5 THEN handleColor~& = _RGB32(0, 255, 255) ELSE handleColor~& = _RGB32(128, 128, 128)
+        LINE (x% + w% - hh%, cy% - hh%)-(x% + w% + hh%, cy% + hh%), handleColor~&, BF
+        LINE (x% + w% - hh%, cy% - hh%)-(x% + w% + hh%, cy% + hh%), handleBorder~&, B
+        
+        ' 6: BL corner
+        IF IMG_IMPORT.RESIZE_HANDLE = 6 THEN handleColor~& = _RGB32(0, 255, 255) ELSE handleColor~& = _RGB32(128, 128, 128)
+        LINE (x% - hh%, y% + h% - hh%)-(x% + hh%, y% + h% + hh%), handleColor~&, BF
+        LINE (x% - hh%, y% + h% - hh%)-(x% + hh%, y% + h% + hh%), handleBorder~&, B
+        
+        ' 7: B edge
+        IF IMG_IMPORT.RESIZE_HANDLE = 7 THEN handleColor~& = _RGB32(0, 255, 255) ELSE handleColor~& = _RGB32(128, 128, 128)
+        LINE (cx% - hh%, y% + h% - hh%)-(cx% + hh%, y% + h% + hh%), handleColor~&, BF
+        LINE (cx% - hh%, y% + h% - hh%)-(cx% + hh%, y% + h% + hh%), handleBorder~&, B
+        
+        ' 8: BR corner
+        IF IMG_IMPORT.RESIZE_HANDLE = 8 THEN handleColor~& = _RGB32(0, 255, 255) ELSE handleColor~& = _RGB32(128, 128, 128)
+        LINE (x% + w% - hh%, y% + h% - hh%)-(x% + w% + hh%, y% + h% + hh%), handleColor~&, BF
+        LINE (x% + w% - hh%, y% + h% - hh%)-(x% + w% + hh%, y% + h% + hh%), handleBorder~&, B
+    END IF
+    
+    _DEST prevDest&
+END SUB
+
+
+''
+' Check if a point is inside the import destination box
+' @param x INTEGER X coordinate (canvas coords)
+' @param y INTEGER Y coordinate (canvas coords)
+' @return INTEGER TRUE if inside
+'
+FUNCTION IMAGE_IMPORT_is_point_inside% (x AS INTEGER, y AS INTEGER)
+    IF IMG_IMPORT.STATE < IMPORT_STATE_PLACING THEN
+        IMAGE_IMPORT_is_point_inside% = FALSE
+        EXIT FUNCTION
+    END IF
+    
+    IF x >= IMG_IMPORT.DEST_X AND x <= IMG_IMPORT.DEST_X + IMG_IMPORT.DEST_W THEN
+        IF y >= IMG_IMPORT.DEST_Y AND y <= IMG_IMPORT.DEST_Y + IMG_IMPORT.DEST_H THEN
+            IMAGE_IMPORT_is_point_inside% = TRUE
+            EXIT FUNCTION
+        END IF
+    END IF
+    
+    IMAGE_IMPORT_is_point_inside% = FALSE
+END FUNCTION
+
+
+''
+' Get which handle (if any) is at the given coordinates
+' @param x INTEGER X coordinate (canvas coords)
+' @param y INTEGER Y coordinate (canvas coords)
+' @return INTEGER Handle number (0=none, 1-8=handles)
+'
+FUNCTION IMAGE_IMPORT_get_handle_at% (x AS INTEGER, y AS INTEGER)
+    IF IMG_IMPORT.STATE < IMPORT_STATE_PLACING THEN
+        IMAGE_IMPORT_get_handle_at% = 0
+        EXIT FUNCTION
+    END IF
+    
+    DIM hh AS INTEGER, cx AS INTEGER, cy AS INTEGER
+    hh% = 3  ' Handle half size (increased for easier grabbing)
+    cx% = IMG_IMPORT.DEST_X + IMG_IMPORT.DEST_W \ 2
+    cy% = IMG_IMPORT.DEST_Y + IMG_IMPORT.DEST_H \ 2
+    
+    ' 1: TL corner
+    IF x >= IMG_IMPORT.DEST_X - hh% AND x <= IMG_IMPORT.DEST_X + hh% THEN
+        IF y >= IMG_IMPORT.DEST_Y - hh% AND y <= IMG_IMPORT.DEST_Y + hh% THEN
+            IMAGE_IMPORT_get_handle_at% = 1
+            EXIT FUNCTION
+        END IF
+    END IF
+    
+    ' 2: T edge
+    IF x >= cx% - hh% AND x <= cx% + hh% THEN
+        IF y >= IMG_IMPORT.DEST_Y - hh% AND y <= IMG_IMPORT.DEST_Y + hh% THEN
+            IMAGE_IMPORT_get_handle_at% = 2
+            EXIT FUNCTION
+        END IF
+    END IF
+    
+    ' 3: TR corner
+    IF x >= IMG_IMPORT.DEST_X + IMG_IMPORT.DEST_W - hh% AND x <= IMG_IMPORT.DEST_X + IMG_IMPORT.DEST_W + hh% THEN
+        IF y >= IMG_IMPORT.DEST_Y - hh% AND y <= IMG_IMPORT.DEST_Y + hh% THEN
+            IMAGE_IMPORT_get_handle_at% = 3
+            EXIT FUNCTION
+        END IF
+    END IF
+    
+    ' 4: L edge
+    IF x >= IMG_IMPORT.DEST_X - hh% AND x <= IMG_IMPORT.DEST_X + hh% THEN
+        IF y >= cy% - hh% AND y <= cy% + hh% THEN
+            IMAGE_IMPORT_get_handle_at% = 4
+            EXIT FUNCTION
+        END IF
+    END IF
+    
+    ' 5: R edge
+    IF x >= IMG_IMPORT.DEST_X + IMG_IMPORT.DEST_W - hh% AND x <= IMG_IMPORT.DEST_X + IMG_IMPORT.DEST_W + hh% THEN
+        IF y >= cy% - hh% AND y <= cy% + hh% THEN
+            IMAGE_IMPORT_get_handle_at% = 5
+            EXIT FUNCTION
+        END IF
+    END IF
+    
+    ' 6: BL corner
+    IF x >= IMG_IMPORT.DEST_X - hh% AND x <= IMG_IMPORT.DEST_X + hh% THEN
+        IF y >= IMG_IMPORT.DEST_Y + IMG_IMPORT.DEST_H - hh% AND y <= IMG_IMPORT.DEST_Y + IMG_IMPORT.DEST_H + hh% THEN
+            IMAGE_IMPORT_get_handle_at% = 6
+            EXIT FUNCTION
+        END IF
+    END IF
+    
+    ' 7: B edge
+    IF x >= cx% - hh% AND x <= cx% + hh% THEN
+        IF y >= IMG_IMPORT.DEST_Y + IMG_IMPORT.DEST_H - hh% AND y <= IMG_IMPORT.DEST_Y + IMG_IMPORT.DEST_H + hh% THEN
+            IMAGE_IMPORT_get_handle_at% = 7
+            EXIT FUNCTION
+        END IF
+    END IF
+    
+    ' 8: BR corner
+    IF x >= IMG_IMPORT.DEST_X + IMG_IMPORT.DEST_W - hh% AND x <= IMG_IMPORT.DEST_X + IMG_IMPORT.DEST_W + hh% THEN
+        IF y >= IMG_IMPORT.DEST_Y + IMG_IMPORT.DEST_H - hh% AND y <= IMG_IMPORT.DEST_Y + IMG_IMPORT.DEST_H + hh% THEN
+            IMAGE_IMPORT_get_handle_at% = 8
+            EXIT FUNCTION
+        END IF
+    END IF
+    
+    IMAGE_IMPORT_get_handle_at% = 0
+END FUNCTION
