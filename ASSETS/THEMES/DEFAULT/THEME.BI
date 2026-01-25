@@ -15,5 +15,5 @@ THEME.CROSSHAIR_pattern% = &B1010101010101010   ' - - - - - - - -
 THEME.GRID_fg%           = 15                   ' Bright white
 THEME.TOOLBAR_x$         = "R"                  ' Screen right side (any res)
 THEME.TOOLBAR_y$         = "T"                  ' Screen top side (any res)
-THEME.PIXEL_GRID_color1~& = _RGB32(80, 80, 80)        ' Dark gray grid lines
-THEME.PIXEL_GRID_color2~& = _RGB32(60, 60, 60)        ' Unused (for future checkerboard)
+THEME.PIXEL_GRID_color1~& = _RGBA32(80, 80, 80, 64)   ' Dark gray grid lines at 25% opacity
+THEME.PIXEL_GRID_color2~& = _RGBA32(60, 60, 60, 64)   ' Unused (for future checkerboard) at 25% opacity
