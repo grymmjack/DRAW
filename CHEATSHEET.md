@@ -215,6 +215,7 @@ When loading an image larger than the canvas, DRAW enters **Image Import Mode** 
 | Key | Function |
 |-----|----------|
 | **Mouse Drag** | Draw placement marquee |
+| **Shift + Corner Drag** | Resize with constrained proportions |
 | **Mouse Wheel** | Zoom into/out of image |
 | **Arrow Keys** | Move destination box (1px) |
 | **Shift + Arrows** | Move destination box (10px) |

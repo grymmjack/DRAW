@@ -73,6 +73,8 @@ TYPE IMAGE_IMPORT_OBJ
     RESIZE_ORIG_W AS INTEGER
     RESIZE_ORIG_H AS INTEGER
     
+    CONSTRAIN   AS INTEGER  ' Whether SHIFT is held (constrain proportions)
+    
     ' Aspect ratio lock
     LOCK_ASPECT AS INTEGER  ' Lock source aspect ratio
     ASPECT_RATIO AS SINGLE  ' Source aspect ratio (w/h)
