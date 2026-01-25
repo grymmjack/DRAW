@@ -22,6 +22,8 @@ $INCLUDEONCE
 
 ' GUI -------------------------------------------------------------------------
 '$INCLUDE:'./GUI/PALETTE.BI'
+'$INCLUDE:'./GUI/PALETTE-LOADER.BI'
+'$INCLUDE:'./GUI/PALETTE-STRIP.BI'
 '$INCLUDE:'./GUI/GUI.BI'
 '$INCLUDE:'./GUI/BRUSHES.BI'
 '$INCLUDE:'./GUI/CROSSHAIR.BI'
@@ -88,5 +90,5 @@ $INCLUDEONCE
 '$INCLUDE:'./ASSETS/THEMES/DEFAULT/THEME.BI'
 
 ' PALETTES --------------------------------------------------------------------
-'$INCLUDE:'./ASSETS/PALETTES/EGA.BI'
+' Palettes are loaded dynamically from .GPL files via PALETTE-LOADER.BM
 

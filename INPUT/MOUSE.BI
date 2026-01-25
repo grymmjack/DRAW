@@ -13,6 +13,8 @@ TYPE MOUSE_OBJ
     Y     AS INTEGER
     OLD_X AS INTEGER
     OLD_Y AS INTEGER
+    RAW_X AS INTEGER         ' Raw screen X coordinate (for GUI hover)
+    RAW_Y AS INTEGER         ' Raw screen Y coordinate (for GUI hover)
     CON_X AS INTEGER
     CON_Y AS INTEGER
     B1    AS INTEGER

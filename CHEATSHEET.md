@@ -21,6 +21,7 @@
 
 ## Color Selection
 
+### Keyboard Shortcuts
 | Key | Color |
 |-----|-------|
 | `0-7` | Colors 0-7 |
@@ -32,6 +33,21 @@
 | `%` | Color 13 |
 | `^` | Color 14 |
 | `&` | Color 15 |
+
+### Palette Strip (Bottom Bar)
+| Action | Function |
+|--------|----------|
+| **Left-click swatch** | Select as foreground color |
+| **Right-click swatch** | Select as background color |
+| **Click `◄` arrow** | Scroll palette left |
+| **Click `►` arrow** | Scroll palette right |
+| **Mouse wheel on strip** | Scroll through palette colors |
+| **SHIFT + wheel** | Fast scroll (32 colors at a time) |
+| **Click palette name** | Open dropdown to switch palettes |
+
+### Status Bar Color Swatches
+| Action | Function |
+|--------|----------|
 | **Click FG swatch** | Open color picker for foreground |
 | **Click BG swatch** | Open color picker for background |
 

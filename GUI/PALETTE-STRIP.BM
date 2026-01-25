@@ -1,0 +1,628 @@
+''
+' DRAW - GUI/PALETTE-STRIP.BM
+' =============================================================================
+' Palette strip GUI component implementation.
+'
+' Layout: [<] [color swatches...] [>] [palette name v]
+' - Arrows scroll colors within current palette
+' - Clicking palette name opens dropdown menu to select palette
+' - Mouse wheel over strip scrolls colors
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+
+''
+' Calculate the dynamic height of the palette strip based on palette size
+' @return INTEGER - Height in pixels
+'
+FUNCTION PALETTE_STRIP_get_height% ()
+    DIM pal_count AS INTEGER
+    DIM num_rows AS INTEGER
+    
+    pal_count% = PALETTE_LOADER_get_color_count%
+    IF pal_count% < 1 THEN pal_count% = 1
+    
+    ' Determine number of rows based on palette size
+    IF pal_count% <= 32 THEN
+        num_rows% = 1
+    ELSEIF pal_count% <= 64 THEN
+        num_rows% = 2
+    ELSE
+        num_rows% = 3  ' For palettes > 64 colors, show 3 rows
+    END IF
+    
+    PALETTE_STRIP_get_height% = (num_rows% * PALETTE_STRIP_ROW_HEIGHT) + 3
+END FUNCTION
+
+''
+' Initialize palette strip
+'
+SUB PALETTE_STRIP_init ()
+    PALETTE_STRIP_VISIBLE% = -1 ' True
+    PALETTE_STRIP_HOVER_IDX% = -1
+    PALETTE_STRIP_SCROLL_OFFSET% = 0
+    
+    ' Position above status bar (will be recalculated in render)
+    PALETTE_STRIP_Y% = SCRN.h& - THEME.STATUS_height% - PALETTE_STRIP_get_height%
+    
+    ' Load Tiny5 font for palette strip
+    PALETTE_STRIP_FONT& = _LOADFONT("ASSETS/FONTS/Tiny5-Regular.ttf", 8)
+    IF PALETTE_STRIP_FONT& <= 0 THEN PALETTE_STRIP_FONT& = 16 ' Fallback
+    
+    ' Initialize menu state
+    PALETTE_MENU_VISIBLE% = 0
+    PALETTE_MENU_SCROLL% = 0
+    PALETTE_MENU_HOVER% = -1
+END SUB
+
+
+''
+' Render the palette strip
+'
+SUB PALETTE_STRIP_render ()
+    IF NOT PALETTE_STRIP_VISIBLE% THEN EXIT SUB
+    
+    DIM AS INTEGER x, y, i, sw, max_swatches, visible_colors
+    DIM AS INTEGER arrow_left_x, arrow_right_x, swatches_start_x, swatches_end_x
+    DIM AS INTEGER pal_name_x, pal_count
+    DIM AS _UNSIGNED LONG bg_color, fg_color, arrow_color, hover_color
+    DIM pal_name AS STRING
+    DIM old_font AS LONG
+    
+    ' Recalculate Y position in case screen size or palette changed
+    PALETTE_STRIP_Y% = SCRN.h& - THEME.STATUS_height% - PALETTE_STRIP_get_height%
+    
+    ' Use fixed gray colors for UI (not affected by palette changes)
+    bg_color~& = _RGB32(68, 68, 68)     ' Dark gray background
+    fg_color~& = _RGB32(200, 200, 200)  ' Light gray text
+    arrow_color~& = _RGB32(180, 180, 180)
+    hover_color~& = _RGB32(255, 255, 255)
+    
+    ' Calculate layout
+    sw% = PALETTE_STRIP_SWATCH_SIZE
+    pal_count% = PALETTE_LOADER_get_color_count%
+    IF pal_count% < 1 THEN pal_count% = 1  ' Minimum 1 to avoid division issues
+    
+    ' Determine number of rows based on palette size
+    DIM num_rows AS INTEGER
+    IF pal_count% <= 32 THEN
+        num_rows% = 1
+    ELSEIF pal_count% <= 64 THEN
+        num_rows% = 2
+    ELSE
+        num_rows% = 3  ' For palettes > 64 colors, show 3 rows (up to 192)
+    END IF
+    
+    ' Calculate strip height dynamically (must match PALETTE_STRIP_get_height%)
+    DIM strip_height AS INTEGER
+    strip_height% = (num_rows% * PALETTE_STRIP_ROW_HEIGHT) + 3
+    
+    ' Calculate how many swatches can fit (per row)
+    ' Layout: [<] [swatches N rows] [>] ... [name v] (name flush right)
+    DIM available_width AS INTEGER
+    DIM name_width AS INTEGER
+    DIM swatches_per_row AS INTEGER
+    pal_name$ = PALETTE_LOADER_get_name$
+    name_width% = 100  ' Fixed width for name area at right edge
+    
+    ' Swatches fill space from left arrow to where name dropdown starts
+    available_width% = SCRN.w& - (PALETTE_STRIP_ARROW_WIDTH * 2) - name_width% - 12
+    swatches_per_row% = available_width% \ (sw% + 1)
+    IF swatches_per_row% > 64 THEN swatches_per_row% = 64  ' Cap at 64 per row
+    max_swatches% = swatches_per_row% * num_rows%  ' Total across all rows
+    IF max_swatches% > pal_count% THEN max_swatches% = pal_count%
+    visible_colors% = max_swatches%
+    
+    ' X positions - name dropdown is flush right, arrows/swatches from left
+    arrow_left_x% = 2
+    swatches_start_x% = arrow_left_x% + PALETTE_STRIP_ARROW_WIDTH + 2
+    swatches_end_x% = swatches_start_x% + (swatches_per_row% * (sw% + 1))
+    arrow_right_x% = swatches_end_x% + 2
+    ' Name dropdown anchored to right edge
+    pal_name_x% = SCRN.w& - name_width%
+    
+    y% = PALETTE_STRIP_Y%
+    
+    ' Use raw mouse coordinates for hover detection (GUI uses screen coords, not canvas coords)
+    ' These are stored by MOUSE_input_handler from the event loop
+    DIM rawMX AS INTEGER, rawMY AS INTEGER
+    DIM mouseInStrip AS INTEGER
+    rawMX% = MOUSE.RAW_X%
+    rawMY% = MOUSE.RAW_Y%
+    ' Only show hover effects if mouse is actually within the palette strip area
+    mouseInStrip% = (rawMY% >= y% AND rawMY% < y% + strip_height%)
+    
+    _DEST SCRN.GUI&
+    old_font& = _FONT
+    _FONT PALETTE_STRIP_FONT&
+    
+    ' Draw background
+    LINE (0, y%)-(SCRN.w& - 1, y% + strip_height% - 1), bg_color~&, BF
+    
+    ' Draw top border line
+    LINE (0, y%)-(SCRN.w& - 1, y%), _RGB32(80, 80, 80)
+    
+    ' Draw left arrow button [<] - scrolls colors left
+    DIM arrow_hover AS INTEGER
+    arrow_hover% = mouseInStrip% AND (rawMX% >= arrow_left_x% AND rawMX% < arrow_left_x% + PALETTE_STRIP_ARROW_WIDTH)
+    IF arrow_hover% THEN
+        LINE (arrow_left_x%, y% + 1)-(arrow_left_x% + PALETTE_STRIP_ARROW_WIDTH - 1, y% + strip_height% - 1), _RGB32(60, 60, 60), BF
+        COLOR hover_color~&, _RGB32(60, 60, 60)
+    ELSE
+        COLOR arrow_color~&, bg_color~&
+    END IF
+    _PRINTSTRING (arrow_left_x% + 3, y% + 2), CHR$(17)  ' Left arrow
+    
+    ' Draw color swatches (dynamic rows based on palette size)
+    DIM row AS INTEGER
+    DIM col AS INTEGER
+    DIM swatch_y AS INTEGER
+    FOR i% = 0 TO visible_colors% - 1
+        DIM pal_idx AS INTEGER
+        pal_idx% = (PALETTE_STRIP_SCROLL_OFFSET% + i%) MOD pal_count%
+        
+        row% = i% \ swatches_per_row%
+        col% = i% MOD swatches_per_row%
+        x% = swatches_start_x% + (col% * (sw% + 1))
+        swatch_y% = y% + 2 + (row% * (sw% + 1))
+        
+        ' Draw swatch
+        LINE (x%, swatch_y%)-(x% + sw% - 1, swatch_y% + sw% - 1), PAL(pal_idx%).value~&, BF
+        
+        ' Draw selection indicator for FG/BG colors
+        IF pal_idx% = PAL_FG_IDX% THEN
+            ' Foreground color - white corner marker
+            LINE (x%, swatch_y%)-(x% + 1, swatch_y% + 1), _RGB32(255, 255, 255), BF
+        END IF
+        IF pal_idx% = PAL_BG_IDX% THEN
+            ' Background color - black corner marker (bottom right)
+            LINE (x% + sw% - 2, swatch_y% + sw% - 2)-(x% + sw% - 1, swatch_y% + sw% - 1), _RGB32(0, 0, 0), BF
+        END IF
+        
+        ' Hover highlight (use raw screen coords, only if mouse is in strip)
+        IF mouseInStrip% AND rawMX% >= x% AND rawMX% < x% + sw% AND _
+           rawMY% >= swatch_y% AND rawMY% < swatch_y% + sw% THEN
+            PALETTE_STRIP_HOVER_IDX% = pal_idx%
+            LINE (x%, swatch_y%)-(x% + sw% - 1, swatch_y% + sw% - 1), _RGB32(255, 255, 255), B
+        END IF
+    NEXT i%
+    
+    ' Draw right arrow button [>] - scrolls colors right
+    arrow_hover% = mouseInStrip% AND (rawMX% >= arrow_right_x% AND rawMX% < arrow_right_x% + PALETTE_STRIP_ARROW_WIDTH)
+    IF arrow_hover% THEN
+        LINE (arrow_right_x%, y% + 1)-(arrow_right_x% + PALETTE_STRIP_ARROW_WIDTH - 1, y% + strip_height% - 1), _RGB32(60, 60, 60), BF
+        COLOR hover_color~&, _RGB32(60, 60, 60)
+    ELSE
+        COLOR arrow_color~&, bg_color~&
+    END IF
+    _PRINTSTRING (arrow_right_x% + 3, y% + 2), CHR$(16)  ' Right arrow
+    
+    ' Draw palette name with dropdown indicator - clickable to open menu
+    DIM name_hover AS INTEGER
+    DIM name_end_x AS INTEGER
+    name_end_x% = SCRN.w& - 4
+    name_hover% = mouseInStrip% AND (rawMX% >= pal_name_x% AND rawMX% < name_end_x%)
+    
+    IF name_hover% THEN
+        LINE (pal_name_x% - 2, y% + 1)-(name_end_x%, y% + strip_height% - 1), _RGB32(60, 60, 60), BF
+        COLOR hover_color~&, _RGB32(60, 60, 60)
+    ELSE
+        COLOR fg_color~&, bg_color~&
+    END IF
+    
+    DIM info_str AS STRING
+    DIM display_name AS STRING
+    DIM max_name_chars AS INTEGER
+    ' Calculate available chars based on actual space (pal_name_x to screen edge minus padding)
+    ' Each char is ~5px wide with Tiny5 font, reserve space for " v" (down arrow indicator)
+    max_name_chars% = ((name_end_x% - pal_name_x%) \ 5) - 3
+    IF max_name_chars% < 8 THEN max_name_chars% = 8
+    IF max_name_chars% > 30 THEN max_name_chars% = 30
+    
+    IF LEN(pal_name$) > max_name_chars% THEN
+        display_name$ = LEFT$(pal_name$, max_name_chars% - 3) + "..."
+    ELSE
+        display_name$ = pal_name$
+    END IF
+    info_str$ = display_name$ + " " + CHR$(31)  ' Name + Down arrow
+    _PRINTSTRING (pal_name_x%, y% + (strip_height% \ 2) - 3), info_str$
+    
+    ' Store menu position for dropdown (fixed width, extends left from right edge)
+    PALETTE_MENU_W% = PALETTE_MENU_MIN_WIDTH
+    PALETTE_MENU_X% = SCRN.w& - PALETTE_MENU_W% - 4
+    
+    _FONT old_font&
+    
+    ' Render palette menu if visible
+    IF PALETTE_MENU_VISIBLE% THEN PALETTE_MENU_render
+END SUB
+
+
+''
+' Handle mouse click on palette strip
+' @param INTEGER x - Mouse X position
+' @param INTEGER y - Mouse Y position
+'
+SUB PALETTE_STRIP_handle_click (x AS INTEGER, y AS INTEGER)
+    ' First check if menu is visible and clicked
+    IF PALETTE_MENU_VISIBLE% THEN
+        IF PALETTE_MENU_in_bounds%(x%, y%) THEN
+            PALETTE_MENU_handle_click x%, y%
+            EXIT SUB
+        ELSE
+            ' Clicked outside menu, close it
+            PALETTE_MENU_hide
+        END IF
+    END IF
+    
+    IF NOT PALETTE_STRIP_VISIBLE% THEN EXIT SUB
+    IF NOT PALETTE_STRIP_in_bounds%(x%, y%) THEN EXIT SUB
+    
+    DIM AS INTEGER sw, pal_count, arrow_left_x, arrow_right_x, swatches_start_x, swatches_end_x
+    DIM AS INTEGER max_swatches, visible_colors, available_width
+    DIM AS INTEGER pal_name_x, swatches_per_row
+    
+    sw% = PALETTE_STRIP_SWATCH_SIZE
+    pal_count% = PALETTE_LOADER_get_color_count%
+    IF pal_count% < 1 THEN pal_count% = 1
+    
+    ' Determine number of rows based on palette size (same as render)
+    DIM num_rows AS INTEGER
+    IF pal_count% <= 32 THEN
+        num_rows% = 1
+    ELSEIF pal_count% <= 64 THEN
+        num_rows% = 2
+    ELSE
+        num_rows% = 3  ' For palettes > 64 colors, show 3 rows (up to 192)
+    END IF
+    
+    ' Calculate layout - MUST MATCH RENDER EXACTLY
+    DIM name_width AS INTEGER
+    name_width% = 100  ' Fixed width for name area at right edge (SAME AS RENDER)
+    
+    ' Name dropdown anchored to right edge (SAME AS RENDER)
+    pal_name_x% = SCRN.w& - name_width%
+    
+    ' Swatches fill space from left arrow to where name dropdown starts (SAME AS RENDER)
+    available_width% = SCRN.w& - (PALETTE_STRIP_ARROW_WIDTH * 2) - name_width% - 12
+    swatches_per_row% = available_width% \ (sw% + 1)
+    IF swatches_per_row% > 64 THEN swatches_per_row% = 64
+    max_swatches% = swatches_per_row% * num_rows%
+    IF max_swatches% > pal_count% THEN max_swatches% = pal_count%
+    visible_colors% = max_swatches%
+    
+    ' X positions (SAME AS RENDER)
+    arrow_left_x% = 2
+    swatches_start_x% = arrow_left_x% + PALETTE_STRIP_ARROW_WIDTH + 2
+    swatches_end_x% = swatches_start_x% + (swatches_per_row% * (sw% + 1))
+    arrow_right_x% = swatches_end_x% + 2
+    
+    ' Check left arrow - scroll colors left
+    IF x% >= arrow_left_x% AND x% < arrow_left_x% + PALETTE_STRIP_ARROW_WIDTH THEN
+        PALETTE_STRIP_SCROLL_OFFSET% = PALETTE_STRIP_SCROLL_OFFSET% - 1
+        IF PALETTE_STRIP_SCROLL_OFFSET% < 0 THEN PALETTE_STRIP_SCROLL_OFFSET% = pal_count% - 1
+        EXIT SUB
+    END IF
+    
+    ' Check right arrow - scroll colors right (between swatches and name dropdown)
+    IF x% >= arrow_right_x% AND x% < arrow_right_x% + PALETTE_STRIP_ARROW_WIDTH THEN
+        PALETTE_STRIP_SCROLL_OFFSET% = PALETTE_STRIP_SCROLL_OFFSET% + 1
+        IF PALETTE_STRIP_SCROLL_OFFSET% >= pal_count% THEN PALETTE_STRIP_SCROLL_OFFSET% = 0
+        EXIT SUB
+    END IF
+    
+    ' Check palette name area - open dropdown menu (right-anchored area)
+    IF x% >= pal_name_x% AND x% < SCRN.w& - 4 THEN
+        IF PALETTE_MENU_VISIBLE% THEN
+            PALETTE_MENU_hide
+        ELSE
+            PALETTE_MENU_show
+        END IF
+        EXIT SUB
+    END IF
+    
+    ' Check color swatches (dynamic rows)
+    DIM swatch_area_width AS INTEGER
+    swatch_area_width% = swatches_per_row% * (sw% + 1)
+    IF x% >= swatches_start_x% AND x% < swatches_start_x% + swatch_area_width% THEN
+        DIM click_row AS INTEGER
+        DIM click_col AS INTEGER
+        DIM clicked_idx AS INTEGER
+        DIM rel_y AS INTEGER
+        
+        rel_y% = y% - PALETTE_STRIP_Y% - 2  ' Y relative to swatch area
+        click_row% = rel_y% \ (sw% + 1)
+        IF click_row% < 0 THEN click_row% = 0
+        IF click_row% >= num_rows% THEN click_row% = num_rows% - 1
+        
+        click_col% = (x% - swatches_start_x%) \ (sw% + 1)
+        clicked_idx% = (click_row% * swatches_per_row%) + click_col%
+        
+        DIM pal_idx AS INTEGER
+        pal_idx% = (PALETTE_STRIP_SCROLL_OFFSET% + clicked_idx%) MOD pal_count%
+        
+        IF pal_idx% >= 0 AND pal_idx% < pal_count% AND clicked_idx% < visible_colors% THEN
+            ' Left click = set foreground, Right click = set background
+            ' Use explicit check to prevent both from triggering
+            IF MOUSE.B1% AND NOT MOUSE.B2% THEN
+                PAL_FG_IDX% = pal_idx%
+                PAINT_COLOR~& = PAL(pal_idx%).value~&
+            ELSEIF MOUSE.B2% AND NOT MOUSE.B1% THEN
+                PAL_BG_IDX% = pal_idx%
+                PAINT_BG_COLOR~& = PAL(pal_idx%).value~&
+            END IF
+        END IF
+    END IF
+END SUB
+
+
+''
+' Handle mouse wheel on palette strip - scroll colors
+' @param INTEGER direction - Wheel direction (positive = up/left, negative = down/right)
+'
+SUB PALETTE_STRIP_handle_wheel (direction AS INTEGER)
+    IF NOT PALETTE_STRIP_VISIBLE% THEN EXIT SUB
+    
+    ' Check if menu is visible first
+    IF PALETTE_MENU_VISIBLE% THEN
+        IF PALETTE_MENU_in_bounds%(MOUSE.X%, MOUSE.Y%) THEN
+            PALETTE_MENU_handle_wheel direction%
+            EXIT SUB
+        END IF
+    END IF
+    
+    ' Only handle if mouse is over palette strip
+    IF NOT PALETTE_STRIP_in_bounds%(MOUSE.X%, MOUSE.Y%) THEN EXIT SUB
+    
+    DIM pal_count AS INTEGER
+    pal_count% = PALETTE_LOADER_get_color_count%
+    IF pal_count% < 1 THEN pal_count% = 1
+    
+    ' Determine scroll amount: SHIFT = 32 at a time (if palette > 32), otherwise 1
+    DIM scroll_amount AS INTEGER
+    scroll_amount% = 1
+    IF (_KEYDOWN(KEY_LSHIFT&) OR _KEYDOWN(KEY_RSHIFT&)) AND pal_count% > 32 THEN
+        scroll_amount% = 32
+    END IF
+    
+    IF direction% > 0 THEN
+        ' Scroll left (wheel up)
+        PALETTE_STRIP_SCROLL_OFFSET% = PALETTE_STRIP_SCROLL_OFFSET% - scroll_amount%
+        IF PALETTE_STRIP_SCROLL_OFFSET% < 0 THEN 
+            PALETTE_STRIP_SCROLL_OFFSET% = PALETTE_STRIP_SCROLL_OFFSET% + pal_count%
+        END IF
+    ELSE
+        ' Scroll right (wheel down)
+        PALETTE_STRIP_SCROLL_OFFSET% = PALETTE_STRIP_SCROLL_OFFSET% + scroll_amount%
+        IF PALETTE_STRIP_SCROLL_OFFSET% >= pal_count% THEN 
+            PALETTE_STRIP_SCROLL_OFFSET% = PALETTE_STRIP_SCROLL_OFFSET% - pal_count%
+        END IF
+    END IF
+END SUB
+
+
+''
+' Check if coordinates are within palette strip bounds
+' @param INTEGER x - X position
+' @param INTEGER y - Y position
+' @return INTEGER - True if in bounds
+'
+FUNCTION PALETTE_STRIP_in_bounds% (x AS INTEGER, y AS INTEGER)
+    PALETTE_STRIP_in_bounds% = (y% >= PALETTE_STRIP_Y% AND y% < PALETTE_STRIP_Y% + PALETTE_STRIP_get_height%)
+END FUNCTION
+
+
+''
+' Show palette selection menu
+'
+SUB PALETTE_MENU_show ()
+    PALETTE_MENU_VISIBLE% = -1
+    PALETTE_MENU_HOVER% = -1
+    
+    ' Position menu above the palette strip
+    DIM menu_item_h AS INTEGER
+    DIM max_visible AS INTEGER
+    DIM available_height AS INTEGER
+    
+    menu_item_h% = 12
+    
+    ' Calculate available height (from top of screen to palette strip)
+    available_height% = PALETTE_STRIP_Y% - 4  ' Leave 4px margin at top
+    max_visible% = available_height% \ menu_item_h%
+    IF max_visible% > PALETTE_LOADER_COUNT% THEN max_visible% = PALETTE_LOADER_COUNT%
+    IF max_visible% < 5 THEN max_visible% = 5  ' Minimum 5 items
+    
+    PALETTE_MENU_H% = max_visible% * menu_item_h% + 4
+    PALETTE_MENU_Y% = PALETTE_STRIP_Y% - PALETTE_MENU_H%
+    
+    ' Ensure menu stays on screen
+    IF PALETTE_MENU_Y% < 2 THEN PALETTE_MENU_Y% = 2
+    
+    ' Scroll to show currently selected palette (center it if possible)
+    DIM half_visible AS INTEGER
+    half_visible% = max_visible% \ 2
+    PALETTE_MENU_SCROLL% = PALETTE_LOADER_CURRENT_IDX% - half_visible%
+    
+    ' Clamp scroll to valid range
+    IF PALETTE_MENU_SCROLL% < 0 THEN PALETTE_MENU_SCROLL% = 0
+    IF PALETTE_MENU_SCROLL% > PALETTE_LOADER_COUNT% - max_visible% THEN
+        PALETTE_MENU_SCROLL% = PALETTE_LOADER_COUNT% - max_visible%
+    END IF
+    IF PALETTE_MENU_SCROLL% < 0 THEN PALETTE_MENU_SCROLL% = 0
+END SUB
+
+
+''
+' Hide palette selection menu
+'
+SUB PALETTE_MENU_hide ()
+    PALETTE_MENU_VISIBLE% = 0
+END SUB
+
+
+''
+' Render palette selection dropdown menu
+'
+SUB PALETTE_MENU_render ()
+    IF NOT PALETTE_MENU_VISIBLE% THEN EXIT SUB
+    
+    DIM AS INTEGER i, y, menu_item_h, max_visible, visible_count, start_idx
+    DIM AS _UNSIGNED LONG bg_color, fg_color, hover_bg, sel_bg
+    DIM old_font AS LONG
+    DIM pal_name AS STRING
+    
+    menu_item_h% = 12
+    ' Calculate max visible from current menu height
+    max_visible% = (PALETTE_MENU_H% - 4) \ menu_item_h%
+    
+    bg_color~& = _RGB32(40, 40, 40)
+    fg_color~& = _RGB32(200, 200, 200)
+    hover_bg~& = _RGB32(70, 70, 70)
+    sel_bg~& = _RGB32(80, 100, 120)
+    
+    visible_count% = PALETTE_LOADER_COUNT%
+    IF visible_count% > max_visible% THEN visible_count% = max_visible%
+    start_idx% = PALETTE_MENU_SCROLL%
+    
+    _DEST SCRN.GUI&
+    old_font& = _FONT
+    _FONT PALETTE_STRIP_FONT&
+    
+    ' Draw menu background with border
+    LINE (PALETTE_MENU_X% - 1, PALETTE_MENU_Y% - 1)-(PALETTE_MENU_X% + PALETTE_MENU_W%, PALETTE_MENU_Y% + PALETTE_MENU_H%), _RGB32(100, 100, 100), BF
+    LINE (PALETTE_MENU_X%, PALETTE_MENU_Y%)-(PALETTE_MENU_X% + PALETTE_MENU_W% - 1, PALETTE_MENU_Y% + PALETTE_MENU_H% - 1), bg_color~&, BF
+    
+    ' Draw menu items
+    FOR i% = 0 TO visible_count% - 1
+        DIM item_idx AS INTEGER
+        item_idx% = start_idx% + i%
+        IF item_idx% >= PALETTE_LOADER_COUNT% THEN EXIT FOR
+        
+        y% = PALETTE_MENU_Y% + 2 + (i% * menu_item_h%)
+        
+        ' Get palette name from list
+        pal_name$ = PALETTE_LIST(item_idx%).pname
+        
+        ' Check if this is current palette
+        DIM is_current AS INTEGER
+        is_current% = (item_idx% = PALETTE_LOADER_CURRENT_IDX%)
+        
+        ' Check hover
+        DIM item_hover AS INTEGER
+        item_hover% = (MOUSE.X% >= PALETTE_MENU_X% AND MOUSE.X% < PALETTE_MENU_X% + PALETTE_MENU_W% AND _
+                       MOUSE.Y% >= y% AND MOUSE.Y% < y% + menu_item_h%)
+        
+        IF item_hover% THEN
+            PALETTE_MENU_HOVER% = item_idx%
+            LINE (PALETTE_MENU_X% + 1, y%)-(PALETTE_MENU_X% + PALETTE_MENU_W% - 2, y% + menu_item_h% - 1), hover_bg~&, BF
+        ELSEIF is_current% THEN
+            LINE (PALETTE_MENU_X% + 1, y%)-(PALETTE_MENU_X% + PALETTE_MENU_W% - 2, y% + menu_item_h% - 1), sel_bg~&, BF
+        END IF
+        
+        ' Draw palette name with color count - truncate if too long
+        IF is_current% THEN
+            COLOR _RGB32(255, 255, 255), _RGBA32(0, 0, 0, 0)
+        ELSE
+            COLOR fg_color~&, _RGBA32(0, 0, 0, 0)
+        END IF
+        
+        ' Truncate name if needed to fit menu width (allow ~34 chars for 180px width)
+        DIM display_name AS STRING
+        display_name$ = RTRIM$(pal_name$)
+        IF LEN(display_name$) > 34 THEN
+            display_name$ = LEFT$(display_name$, 31) + "..."
+        END IF
+        _PRINTSTRING (PALETTE_MENU_X% + 4, y% + 2), display_name$
+    NEXT i%
+    
+    ' Draw scroll indicators if needed
+    IF PALETTE_LOADER_COUNT% > max_visible% THEN
+        COLOR _RGB32(150, 150, 150), _RGBA32(0, 0, 0, 0)
+        IF start_idx% > 0 THEN
+            _PRINTSTRING (PALETTE_MENU_X% + PALETTE_MENU_W% - 12, PALETTE_MENU_Y% + 2), CHR$(30) ' Up arrow
+        END IF
+        IF start_idx% + visible_count% < PALETTE_LOADER_COUNT% THEN
+            _PRINTSTRING (PALETTE_MENU_X% + PALETTE_MENU_W% - 12, PALETTE_MENU_Y% + PALETTE_MENU_H% - 12), CHR$(31) ' Down arrow
+        END IF
+    END IF
+    
+    _FONT old_font&
+END SUB
+
+
+''
+' Handle click on palette menu
+' @param INTEGER x - Mouse X
+' @param INTEGER y - Mouse Y
+'
+SUB PALETTE_MENU_handle_click (x AS INTEGER, y AS INTEGER)
+    IF NOT PALETTE_MENU_VISIBLE% THEN EXIT SUB
+    
+    DIM menu_item_h AS INTEGER
+    DIM max_visible AS INTEGER
+    DIM clicked_idx AS INTEGER
+    DIM dummy AS INTEGER
+    
+    menu_item_h% = 12
+    max_visible% = (PALETTE_MENU_H% - 4) \ menu_item_h%
+    
+    ' Calculate which item was clicked
+    DIM rel_y AS INTEGER
+    rel_y% = y% - PALETTE_MENU_Y% - 2
+    IF rel_y% < 0 THEN EXIT SUB  ' Click above menu content
+    clicked_idx% = PALETTE_MENU_SCROLL% + (rel_y% \ menu_item_h%)
+    
+    IF clicked_idx% >= 0 AND clicked_idx% < PALETTE_LOADER_COUNT% THEN
+        ' Load selected palette
+        dummy% = PALETTE_LOADER_load_by_index%(clicked_idx%)
+        PALETTE_STRIP_SCROLL_OFFSET% = 0
+        PAINT_COLOR~& = PAL(PAL_FG_IDX%).value~&
+        PALETTE_MENU_hide
+    END IF
+END SUB
+
+
+''
+' Handle mouse wheel on palette menu
+' @param INTEGER direction - Wheel direction
+'
+SUB PALETTE_MENU_handle_wheel (direction AS INTEGER)
+    IF NOT PALETTE_MENU_VISIBLE% THEN EXIT SUB
+    
+    DIM max_visible AS INTEGER
+    DIM menu_item_h AS INTEGER
+    DIM max_scroll AS INTEGER
+    
+    menu_item_h% = 12
+    max_visible% = (PALETTE_MENU_H% - 4) \ menu_item_h%
+    max_scroll% = PALETTE_LOADER_COUNT% - max_visible%
+    IF max_scroll% < 0 THEN max_scroll% = 0
+    
+    IF direction% < 0 THEN
+        ' Wheel down = scroll up (decrease offset, show items higher in list)
+        PALETTE_MENU_SCROLL% = PALETTE_MENU_SCROLL% - 1
+        IF PALETTE_MENU_SCROLL% < 0 THEN PALETTE_MENU_SCROLL% = 0
+    ELSE
+        ' Wheel up = scroll down (increase offset, show items lower in list)
+        PALETTE_MENU_SCROLL% = PALETTE_MENU_SCROLL% + 1
+        IF PALETTE_MENU_SCROLL% > max_scroll% THEN PALETTE_MENU_SCROLL% = max_scroll%
+    END IF
+END SUB
+
+
+''
+' Check if coordinates are within palette menu bounds
+' @param INTEGER x - X position
+' @param INTEGER y - Y position
+' @return INTEGER - True if in bounds
+'
+FUNCTION PALETTE_MENU_in_bounds% (x AS INTEGER, y AS INTEGER)
+    IF NOT PALETTE_MENU_VISIBLE% THEN
+        PALETTE_MENU_in_bounds% = 0
+        EXIT FUNCTION
+    END IF
+    PALETTE_MENU_in_bounds% = (x% >= PALETTE_MENU_X% AND x% < PALETTE_MENU_X% + PALETTE_MENU_W% AND _
+                               y% >= PALETTE_MENU_Y% AND y% < PALETTE_MENU_Y% + PALETTE_MENU_H%)
+END FUNCTION

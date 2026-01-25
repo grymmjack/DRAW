@@ -39,11 +39,16 @@ DRAW is a pixel art editor written in QB64PE that can export images as sourcecod
 - Status bar indicator shows grid size and snap state
 
 ### Color System
-- 16-color EGA palette (keyboard shortcuts 0-9, !, @, #, $, %, ^, &)
+- **Dynamic Palette System** - Load palettes from .GPL files (GIMP Palette format)
+- **Palette Strip** - Shows current palette colors with scroll arrows for large palettes
+- **Palette Dropdown** - Click palette name to switch between available palettes
+- **Left-click swatch** - Select foreground color
+- **Right-click swatch** - Select background color
+- **Mouse wheel on strip** - Scroll through palette colors
+- **SHIFT + wheel** - Fast scroll (32 colors at a time)
 - Custom color picker with true RGB support
-- Click status bar swatches to open color picker
-- Foreground and background color support
-- Color indication in all cursor types
+- Click status bar FG/BG swatches to open color picker
+- Keyboard shortcuts 0-9, !, @, #, $, %, ^, & for quick color access
 
 ### Canvas & View
 - 320x200 default canvas size
@@ -74,7 +79,8 @@ DRAW is a pixel art editor written in QB64PE that can export images as sourcecod
 ### Essential Controls
 
 **Tools:** B (Brush), D (Dot), F (Fill), I (Picker), L (Line), R (Rectangle), E (Ellipse)  
-**Colors:** 0-9 for quick palette access, or click status bar color swatches  
+**Colors:** Left-click palette swatch for FG, Right-click for BG, or use 0-9 keys  
+**Palette:** Click palette name dropdown to switch palettes, SHIFT+wheel for fast scroll  
 **Grid:** `'` (toggle), `Shift+'` (pixel grid), `;` (snap), `.` (bigger), `,` (smaller)  
 **Brush Size:** `[` (smaller), `]` (bigger), F6 (pixel perfect)  
 **Canvas:** Delete (clear with prompt), Backspace (clear instant)  
