@@ -27,8 +27,8 @@ CONST TB_BTN_W         = 11
 CONST TB_BTN_H         = 11
 CONST TB_BTN_PADDING   = 1
 CONST TB_TOP           = 0
-CONST TB_RIGHT         = 308
-CONST TB_LEFT          = 296
+' TB_RIGHT and TB_LEFT are now calculated dynamically in TOOLBAR_render()
+' to align toolbar to the right edge of the screen
 
 ' Map toolbar button positions to actual button constants (from screenshot order)
 ' Position 0 (L): marquee/select | Position 1 (R): dot/pset
