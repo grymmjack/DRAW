@@ -190,7 +190,11 @@ DRAW includes 10 dither patterns (0-9) that can be applied to brush, dot, and fi
 
 | Key | Function |
 |-----|----------|
-| `Ctrl+B` | Capture custom brush (drag to select area) |
+| `Ctrl+B` | Capture custom brush from marquee selection |
+| `Ctrl+B` (with brush active) | Clear/deactivate custom brush |
+| `F9` | Toggle recolor mode (paint brush in FG color) |
+| `Shift+O` | Apply 1px outline using BG color (turns off recolor mode) |
+| `` ` `` (backtick) | Toggle custom brush outline visibility |
 | `F12` | Export active custom brush as PNG file |
 | `Home` | Flip custom brush horizontally |
 | `End` | Flip custom brush vertically |
@@ -200,14 +204,26 @@ DRAW includes 10 dither patterns (0-9) that can be applied to brush, dot, and fi
 
 **Custom Brush Features:**
 - Capture any rectangular area as a reusable brush pattern
-- Automatic scaling to fit within 32x32 pixel limit (preserves aspect ratio)
+- Automatic transparency: background color becomes transparent
+- **Recolor Mode (F9)**: Paint all non-transparent pixels in current FG color
+- **Outline (Shift+O)**: Add 1px outline around non-transparent pixels using BG color
+  - Automatically turns off recolor mode to preserve outline color
+  - Press multiple times for thicker outlines
 - Works with LINE, RECTANGLE, ELLIPSE, and POLYGON tools
 - Creates "beaded" or stamped effects along shape perimeters
 - Flip horizontally or vertically for variations
 - Scale up/down or reset to adjust brush size
 - Exported PNG files use timestamp-based filenames for unique names
 - Visual feedback with marching ants during capture
-- Status bar shows brush preview when active
+- Status bar shows `CB` when active, `CB+RECOLOR` when recolor mode is on
+
+**Outlined Text Workflow:**
+1. Draw text on canvas, marquee select it, `Ctrl+B` to capture
+2. Press `b` for brush tool
+3. `F9` to enable recolor mode
+4. Pick FG color for text fill, pick BG color for outline
+5. `Shift+O` to apply outline (auto-disables recolor)
+6. Click to stamp your outlined text!
 
 ## Canvas Controls
 
