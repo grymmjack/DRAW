@@ -1,0 +1,223 @@
+''
+' DRAW - TOOLS/SYMMETRY.BM
+' =============================================================================
+' Symmetry tool subs and functions - mirrors drawing operations.
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+''
+' Initialize the symmetry system
+' 
+SUB SYMMETRY_init ()
+    SYMMETRY.MODE% = 0                              ' Off by default
+    SYMMETRY.CENTER_X% = SCRN.w& \ 2                ' Default to canvas center
+    SYMMETRY.CENTER_Y% = SCRN.h& \ 2
+    SYMMETRY.imgWidth% = SCRN.w&
+    SYMMETRY.imgHeight% = SCRN.h&
+    SYMMETRY.guideColor~& = THEME.SYMMETRY_guide_fg~&
+    SYMMETRY.centerColor~& = THEME.SYMMETRY_center_fg~&
+    SYMMETRY.guidePattern% = THEME.SYMMETRY_guide_pattern%
+    SYMMETRY.DIRTY% = TRUE
+    SYMMETRY.imgHandle& = 0  ' Will be created on first render with correct zoom
+    
+    _LOGINFO "SYMMETRY: Initialized - center at (" + ns$(SYMMETRY.CENTER_X%) + ", " + ns$(SYMMETRY.CENTER_Y%) + ")"
+END SUB
+
+
+''
+' Cycle through symmetry modes (0 -> 1 -> 2 -> 3 -> 0)
+' 
+SUB SYMMETRY_cycle_mode ()
+    SYMMETRY.MODE% = (SYMMETRY.MODE% + 1) MOD 4
+    SYMMETRY.DIRTY% = TRUE
+    
+    SELECT CASE SYMMETRY.MODE%
+        CASE 0
+            _LOGINFO "SYMMETRY: Mode OFF"
+        CASE 1
+            _LOGINFO "SYMMETRY: Mode VERTICAL (|) - 2-way mirror"
+        CASE 2
+            _LOGINFO "SYMMETRY: Mode CROSS (+) - 4-way mirror"
+        CASE 3
+            _LOGINFO "SYMMETRY: Mode ASTERISK (*) - 8-way mirror"
+    END SELECT
+END SUB
+
+
+''
+' Clear symmetry mode (set to 0)
+' 
+SUB SYMMETRY_clear ()
+    IF SYMMETRY.MODE% <> 0 THEN
+        SYMMETRY.MODE% = 0
+        SYMMETRY.DIRTY% = TRUE
+        _LOGINFO "SYMMETRY: Cleared"
+    END IF
+END SUB
+
+
+''
+' Set the symmetry center point
+' @param INTEGER x - New center X coordinate
+' @param INTEGER y - New center Y coordinate
+' 
+SUB SYMMETRY_set_center (x AS INTEGER, y AS INTEGER)
+    IF x% <> SYMMETRY.CENTER_X% OR y% <> SYMMETRY.CENTER_Y% THEN
+        SYMMETRY.CENTER_X% = x%
+        SYMMETRY.CENTER_Y% = y%
+        SYMMETRY.DIRTY% = TRUE
+        _LOGINFO "SYMMETRY: Center moved to (" + ns$(x%) + ", " + ns$(y%) + ")"
+    END IF
+END SUB
+
+
+''
+' Get mirrored points for a given coordinate based on current symmetry mode
+' @param INTEGER x - Original X coordinate
+' @param INTEGER y - Original Y coordinate
+' @param INTEGER mx() - Array to receive mirrored X coordinates (caller must DIM mx(0 TO 7))
+' @param INTEGER my() - Array to receive mirrored Y coordinates (caller must DIM my(0 TO 7))
+' @param INTEGER count - Number of mirrored points returned
+' 
+SUB SYMMETRY_get_mirrored_points (x AS INTEGER, y AS INTEGER, mx%(), my%(), count%)
+    DIM dx AS INTEGER, dy AS INTEGER
+    
+    count% = 0
+    
+    IF SYMMETRY.MODE% = 0 THEN EXIT SUB
+    
+    ' Calculate offset from center
+    dx% = x% - SYMMETRY.CENTER_X%
+    dy% = y% - SYMMETRY.CENTER_Y%
+    
+    SELECT CASE SYMMETRY.MODE%
+        CASE 1  ' VERTICAL (|) - mirror left/right
+            mx%(0) = SYMMETRY.CENTER_X% - dx%
+            my%(0) = y%
+            count% = 1
+            
+        CASE 2  ' CROSS (+) - mirror left/right, top/bottom
+            ' Right mirror
+            mx%(0) = SYMMETRY.CENTER_X% - dx%
+            my%(0) = y%
+            ' Bottom mirror
+            mx%(1) = x%
+            my%(1) = SYMMETRY.CENTER_Y% - dy%
+            ' Bottom-right mirror
+            mx%(2) = SYMMETRY.CENTER_X% - dx%
+            my%(2) = SYMMETRY.CENTER_Y% - dy%
+            count% = 3
+            
+        CASE 3  ' ASTERISK (*) - mirror all 8 ways
+            ' Right mirror
+            mx%(0) = SYMMETRY.CENTER_X% - dx%
+            my%(0) = y%
+            ' Bottom mirror
+            mx%(1) = x%
+            my%(1) = SYMMETRY.CENTER_Y% - dy%
+            ' Bottom-right mirror
+            mx%(2) = SYMMETRY.CENTER_X% - dx%
+            my%(2) = SYMMETRY.CENTER_Y% - dy%
+            ' Diagonal 45° (swap dx/dy)
+            mx%(3) = SYMMETRY.CENTER_X% + dy%
+            my%(3) = SYMMETRY.CENTER_Y% + dx%
+            ' Diagonal 45° reflected right
+            mx%(4) = SYMMETRY.CENTER_X% - dy%
+            my%(4) = SYMMETRY.CENTER_Y% + dx%
+            ' Diagonal 45° reflected bottom
+            mx%(5) = SYMMETRY.CENTER_X% + dy%
+            my%(5) = SYMMETRY.CENTER_Y% - dx%
+            ' Diagonal 45° reflected bottom-right
+            mx%(6) = SYMMETRY.CENTER_X% - dy%
+            my%(6) = SYMMETRY.CENTER_Y% - dx%
+            count% = 7
+    END SELECT
+END SUB
+
+
+''
+' Render symmetry guide overlay (regenerate only when dirty)
+' 
+SUB SYMMETRY_render_guides (zw&, zh&, zoom!)
+    DIM oldDest AS LONG
+    DIM AS INTEGER x1, y1, x2, y2
+    DIM AS INTEGER centerX, centerY
+    
+    ' Calculate center in zoomed display coordinates
+    centerX% = SYMMETRY.CENTER_X% * zoom!
+    centerY% = SYMMETRY.CENTER_Y% * zoom!
+    
+    _LOGINFO "SYMMETRY: Rendering guides - mode=" + ns$(SYMMETRY.MODE%) + " center=(" + ns$(centerX%) + "," + ns$(centerY%) + ") zoom=" + ns$(zoom!)
+    oldDest& = _DEST
+    _DEST SYMMETRY.imgHandle&
+    CLS , _RGBA32(0, 0, 0, 0)  ' Clear with transparency
+    
+    IF SYMMETRY.MODE% > 0 THEN
+            ' Use theme colors directly (already _RGBA32 values)
+            DIM guideRGBA AS _UNSIGNED LONG
+            guideRGBA~& = THEME.SYMMETRY_guide_fg~&
+            
+            ' Draw guide lines based on mode
+            SELECT CASE SYMMETRY.MODE%
+                CASE 1  ' VERTICAL (|)
+                    ' Vertical line through center
+                    LINE (centerX%, 0)-(centerX%, zh& - 1), guideRGBA~&
+                    
+                CASE 2  ' CROSS (+)
+                    ' Vertical line
+                    LINE (centerX%, 0)-(centerX%, zh& - 1), guideRGBA~&
+                    ' Horizontal line
+                    LINE (0, centerY%)-(zw& - 1, centerY%), guideRGBA~&
+                    
+                CASE 3  ' ASTERISK (*)
+                    ' Vertical line
+                    LINE (centerX%, 0)-(centerX%, zh& - 1), guideRGBA~&
+                    ' Horizontal line
+                    LINE (0, centerY%)-(zw& - 1, centerY%), guideRGBA~&
+                    ' Diagonal lines (45°)
+                    ' Top-left to bottom-right
+                    x1% = centerX% - centerY%
+                    y1% = 0
+                    x2% = centerX% + (zh& - 1 - centerY%)
+                    y2% = zh& - 1
+                    IF x1% < 0 THEN
+                        y1% = -x1%
+                        x1% = 0
+                    END IF
+                    IF x2% >= zw& THEN
+                        y2% = y2% - (x2% - zw& + 1)
+                        x2% = zw& - 1
+                    END IF
+                    LINE (x1%, y1%)-(x2%, y2%), guideRGBA~&
+                    
+                    ' Top-right to bottom-left
+                    x1% = centerX% + centerY%
+                    y1% = 0
+                    x2% = centerX% - (zh& - 1 - centerY%)
+                    y2% = zh& - 1
+                    IF x1% >= zw& THEN
+                        y1% = x1% - zw& + 1
+                        x1% = zw& - 1
+                    END IF
+                    IF x2% < 0 THEN
+                        y2% = y2% + x2%
+                        x2% = 0
+                    END IF
+                    LINE (x1%, y1%)-(x2%, y2%), guideRGBA~&
+            END SELECT
+            
+            ' Draw center crosshair dot (5x5 pixels scaled with zoom)
+            DIM centerRGBA AS _UNSIGNED LONG
+            DIM crosshairSize AS INTEGER
+            centerRGBA~& = THEME.SYMMETRY_center_fg~&
+            crosshairSize% = 2 * zoom!
+            IF crosshairSize% < 2 THEN crosshairSize% = 2
+            LINE (centerX% - crosshairSize%, centerY% - crosshairSize%)-(centerX% + crosshairSize%, centerY% + crosshairSize%), _
+                centerRGBA~&, BF
+        END IF
+        
+        _DEST oldDest&
+        _LOGINFO "SYMMETRY: Guides rendered to imgHandle=" + ns$(SYMMETRY.imgHandle&)
+END SUB
