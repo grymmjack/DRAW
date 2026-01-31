@@ -44,6 +44,7 @@
 | **Mouse wheel on strip** | Scroll through palette colors |
 | **SHIFT + wheel** | Fast scroll (32 colors at a time) |
 | **Click palette name** | Open dropdown to switch palettes |
+| **Letter keys (in picker)** | Jump to first palette starting with that letter |
 
 ### Status Bar Color Swatches
 | Action | Function |
@@ -103,6 +104,29 @@
 | `` ` `` or `~` | Toggle brush preview |
 | `\` or `|` | Toggle brush shape |
 | `F6` | Toggle pixel perfect mode |
+
+## Custom Brush
+
+| Key | Function |
+|-----|----------|
+| `Ctrl+B` | Capture custom brush (drag to select area) |
+| `F12` | Export active custom brush as PNG file |
+| `Home` | Flip custom brush horizontally |
+| `End` | Flip custom brush vertically |
+| `Page Up` | Scale custom brush up |
+| `Page Down` | Scale custom brush down |
+| `/` | Reset custom brush scale to original size |
+
+**Custom Brush Features:**
+- Capture any rectangular area as a reusable brush pattern
+- Automatic scaling to fit within 32x32 pixel limit (preserves aspect ratio)
+- Works with LINE, RECTANGLE, ELLIPSE, and POLYGON tools
+- Creates "beaded" or stamped effects along shape perimeters
+- Flip horizontally or vertically for variations
+- Scale up/down or reset to adjust brush size
+- Exported PNG files use timestamp-based filenames for unique names
+- Visual feedback with marching ants during capture
+- Status bar shows brush preview when active
 
 ## Canvas Controls
 
