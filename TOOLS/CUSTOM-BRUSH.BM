@@ -22,6 +22,8 @@ SUB CUSTOM_BRUSH_init ()
     CUSTOM_BRUSH.HAS_TRANSPARENCY% = FALSE
     CUSTOM_BRUSH.BG_COLOR~& = 0
     CUSTOM_BRUSH.SCALE! = 1.0
+    CUSTOM_BRUSH.RECOLOR_MODE% = FALSE
+    CUSTOM_BRUSH.SHOW_OUTLINE% = TRUE
 END SUB
 
 
@@ -46,6 +48,8 @@ SUB CUSTOM_BRUSH_reset ()
     CUSTOM_BRUSH.HAS_TRANSPARENCY% = FALSE
     CUSTOM_BRUSH.BG_COLOR~& = 0
     CUSTOM_BRUSH.SCALE! = 1.0
+    CUSTOM_BRUSH.RECOLOR_MODE% = FALSE
+    CUSTOM_BRUSH.SHOW_OUTLINE% = TRUE
 END SUB
 
 
@@ -89,54 +93,51 @@ SUB CUSTOM_BRUSH_capture_from_marquee ()
     
     ' Copy the selected area from the painting surface
     DIM old_dest AS LONG
+    DIM old_source AS LONG
     old_dest& = _DEST
+    old_source& = _SOURCE
     
     _SOURCE SCRN.PAINTING&
     _DEST CUSTOM_BRUSH.IMAGE&
     
-    ' Copy pixels and apply smart transparency
+    ' Clear brush image with full transparency first
+    CLS , _RGBA32(0, 0, 0, 0)
+    
+    ' Store background color for transparency (strip alpha for comparison)
+    DIM bg_r AS INTEGER, bg_g AS INTEGER, bg_b AS INTEGER
+    bg_r% = _RED32(PAINT_BG_COLOR~&)
+    bg_g% = _GREEN32(PAINT_BG_COLOR~&)
+    bg_b% = _BLUE32(PAINT_BG_COLOR~&)
+    
+    ' Copy pixels - make BG color pixels transparent, others opaque
     DIM px AS INTEGER, py AS INTEGER
     DIM pixel_color AS _UNSIGNED LONG
-    DIM bg_match_count AS INTEGER
-    DIM total_pixels AS INTEGER
+    DIM pixel_r AS INTEGER, pixel_g AS INTEGER, pixel_b AS INTEGER
     
-    bg_match_count% = 0
-    total_pixels% = sel_w% * sel_h%
-    
-    ' First pass: copy pixels and count background color matches
     FOR py% = 0 TO sel_h% - 1
         FOR px% = 0 TO sel_w% - 1
             pixel_color~& = POINT(sel_x% + px%, sel_y% + py%)
             
-            ' Check if this pixel matches the current background color
-            IF pixel_color~& = PAINT_BG_COLOR~& THEN
-                bg_match_count% = bg_match_count% + 1
-            END IF
+            ' Extract RGB components (ignore alpha from source)
+            pixel_r% = _RED32(pixel_color~&)
+            pixel_g% = _GREEN32(pixel_color~&)
+            pixel_b% = _BLUE32(pixel_color~&)
             
-            PSET (px%, py%), pixel_color~&
+            ' Check if this pixel matches the current background color
+            IF pixel_r% = bg_r% AND pixel_g% = bg_g% AND pixel_b% = bg_b% THEN
+                ' Leave transparent (already cleared to transparent)
+            ELSE
+                ' Copy as opaque pixel
+                PSET (px%, py%), _RGB32(pixel_r%, pixel_g%, pixel_b%)
+            END IF
         NEXT px%
     NEXT py%
     
-    ' Decide if we should use transparency
-    ' If more than 10% of pixels match background color, enable transparency
-    IF bg_match_count% > (total_pixels% * 0.1) THEN
-        CUSTOM_BRUSH.HAS_TRANSPARENCY% = TRUE
-        CUSTOM_BRUSH.BG_COLOR~& = PAINT_BG_COLOR~&
-        
-        ' Second pass: make matching pixels transparent
-        FOR py% = 0 TO sel_h% - 1
-            FOR px% = 0 TO sel_w% - 1
-                pixel_color~& = POINT(px%, py%)
-                IF pixel_color~& = CUSTOM_BRUSH.BG_COLOR~& THEN
-                    ' Make this pixel transparent
-                    PSET (px%, py%), _RGBA32(0, 0, 0, 0)
-                END IF
-            NEXT px%
-        NEXT py%
-    ELSE
-        CUSTOM_BRUSH.HAS_TRANSPARENCY% = FALSE
-    END IF
+    ' Always enable transparency since we're using BG color matching
+    CUSTOM_BRUSH.HAS_TRANSPARENCY% = TRUE
+    CUSTOM_BRUSH.BG_COLOR~& = PAINT_BG_COLOR~&
     
+    _SOURCE old_source&
     _DEST old_dest&
     
     ' Activate the brush
@@ -161,7 +162,12 @@ SUB CUSTOM_BRUSH_render (x AS INTEGER, y AS INTEGER, dest AS LONG)
     IF CUSTOM_BRUSH.IMAGE& = 0 THEN EXIT SUB
     
     DIM old_dest AS LONG
+    DIM old_source AS LONG
     old_dest& = _DEST
+    old_source& = _SOURCE
+    
+    ' Enable blending on destination for proper alpha transparency
+    _BLEND dest&
     _DEST dest&
     
     ' Calculate source coordinates based on flip flags
@@ -189,9 +195,47 @@ SUB CUSTOM_BRUSH_render (x AS INTEGER, y AS INTEGER, dest AS LONG)
     dest_w% = CUSTOM_BRUSH.WIDTH%
     dest_h% = CUSTOM_BRUSH.HEIGHT%
     
-    ' Use _PUTIMAGE to render with transparency support and scaling
-    _PUTIMAGE (x%, y%)-(x% + dest_w% - 1, y% + dest_h% - 1), CUSTOM_BRUSH.IMAGE&, dest&, (src_x1%, src_y1%)-(src_x2%, src_y2%)
+    ' If recolor mode is active, render pixel by pixel with color replacement
+    IF CUSTOM_BRUSH.RECOLOR_MODE% THEN
+        _LOGINFO "Rendering with RECOLOR mode - FG color: " + STR$(_RED32(PAINT_COLOR~&)) + "," + STR$(_GREEN32(PAINT_COLOR~&)) + "," + STR$(_BLUE32(PAINT_COLOR~&))
+        DIM px AS INTEGER, py AS INTEGER
+        DIM src_px AS INTEGER, src_py AS INTEGER
+        DIM pixel_color AS _UNSIGNED LONG
+        DIM alpha_value AS INTEGER
+        
+        _SOURCE CUSTOM_BRUSH.IMAGE&
+        FOR py% = 0 TO dest_h% - 1
+            FOR px% = 0 TO dest_w% - 1
+                ' Map destination coordinates to source coordinates
+                IF CUSTOM_BRUSH.FLIP_H% THEN
+                    src_px% = CUSTOM_BRUSH.ORIG_WIDTH% - 1 - px%
+                ELSE
+                    src_px% = px%
+                END IF
+                
+                IF CUSTOM_BRUSH.FLIP_V% THEN
+                    src_py% = CUSTOM_BRUSH.ORIG_HEIGHT% - 1 - py%
+                ELSE
+                    src_py% = py%
+                END IF
+                
+                ' Get pixel from source
+                pixel_color~& = POINT(src_px%, src_py%)
+                alpha_value% = _ALPHA32(pixel_color~&)
+                
+                ' Only draw non-transparent pixels, using FG color
+                IF alpha_value% > 0 THEN
+                    ' Use FG color with full opacity (255) for solid recolor
+                    PSET (x% + px%, y% + py%), _RGB32(_RED32(PAINT_COLOR~&), _GREEN32(PAINT_COLOR~&), _BLUE32(PAINT_COLOR~&))
+                END IF
+            NEXT px%
+        NEXT py%
+    ELSE
+        ' Use _PUTIMAGE to render with transparency support and scaling
+        _PUTIMAGE (x%, y%)-(x% + dest_w% - 1, y% + dest_h% - 1), CUSTOM_BRUSH.IMAGE&, dest&, (src_x1%, src_y1%)-(src_x2%, src_y2%)
+    END IF
     
+    _SOURCE old_source&
     _DEST old_dest&
 END SUB
 
@@ -237,7 +281,12 @@ SUB CUSTOM_BRUSH_render_scaled (x AS INTEGER, y AS INTEGER, dest AS LONG, zoom A
     IF CUSTOM_BRUSH.IMAGE& = 0 THEN EXIT SUB
     
     DIM old_dest AS LONG
+    DIM old_source AS LONG
     old_dest& = _DEST
+    old_source& = _SOURCE
+    
+    ' Enable blending on destination for proper alpha transparency
+    _BLEND dest&
     _DEST dest&
     
     ' Calculate scaled dimensions
@@ -265,9 +314,46 @@ SUB CUSTOM_BRUSH_render_scaled (x AS INTEGER, y AS INTEGER, dest AS LONG, zoom A
         src_y2% = CUSTOM_BRUSH.ORIG_HEIGHT% - 1
     END IF
     
-    ' Use _PUTIMAGE to render with transparency support and scaling
-    _PUTIMAGE (x%, y%)-(x% + scaled_w% - 1, y% + scaled_h% - 1), CUSTOM_BRUSH.IMAGE&, dest&, (src_x1%, src_y1%)-(src_x2%, src_y2%)
+    ' If recolor mode is active, create temporary recolored brush
+    IF CUSTOM_BRUSH.RECOLOR_MODE% THEN
+        DIM temp_brush AS LONG
+        temp_brush& = _NEWIMAGE(CUSTOM_BRUSH.ORIG_WIDTH%, CUSTOM_BRUSH.ORIG_HEIGHT%, 32)
+        
+        DIM old_dest2 AS LONG
+        old_dest2& = _DEST
+        _DEST temp_brush&
+        CLS , _RGBA32(0, 0, 0, 0) ' Clear with full transparency
+        
+        ' Render recolored brush to temp image
+        DIM px AS INTEGER, py AS INTEGER
+        DIM pixel_color AS _UNSIGNED LONG
+        DIM alpha_value AS INTEGER
+        
+        _SOURCE CUSTOM_BRUSH.IMAGE&
+        FOR py% = 0 TO CUSTOM_BRUSH.ORIG_HEIGHT% - 1
+            FOR px% = 0 TO CUSTOM_BRUSH.ORIG_WIDTH% - 1
+                pixel_color~& = POINT(px%, py%)
+                alpha_value% = _ALPHA32(pixel_color~&)
+                
+                ' Only draw non-transparent pixels, using FG color with full opacity
+                IF alpha_value% > 0 THEN
+                    PSET (px%, py%), _RGB32(_RED32(PAINT_COLOR~&), _GREEN32(PAINT_COLOR~&), _BLUE32(PAINT_COLOR~&))
+                END IF
+            NEXT px%
+        NEXT py%
+        
+        _DEST old_dest2&
+        
+        ' Now use _PUTIMAGE with the recolored temp brush
+        _PUTIMAGE (x%, y%)-(x% + scaled_w% - 1, y% + scaled_h% - 1), temp_brush&, dest&, (src_x1%, src_y1%)-(src_x2%, src_y2%)
+        
+        _FREEIMAGE temp_brush&
+    ELSE
+        ' Use _PUTIMAGE to render with transparency support and scaling
+        _PUTIMAGE (x%, y%)-(x% + scaled_w% - 1, y% + scaled_h% - 1), CUSTOM_BRUSH.IMAGE&, dest&, (src_x1%, src_y1%)-(src_x2%, src_y2%)
+    END IF
     
+    _SOURCE old_source&
     _DEST old_dest&
 END SUB
 
@@ -303,6 +389,30 @@ SUB CUSTOM_BRUSH_scale_reset ()
     CUSTOM_BRUSH.SCALE! = 1.0
     CUSTOM_BRUSH.WIDTH% = CUSTOM_BRUSH.ORIG_WIDTH%
     CUSTOM_BRUSH.HEIGHT% = CUSTOM_BRUSH.ORIG_HEIGHT%
+END SUB
+
+
+''
+' Toggle recolor mode for custom brush
+' When active, replaces all non-transparent pixels with the current FG color
+'
+SUB CUSTOM_BRUSH_toggle_recolor ()
+    IF NOT CUSTOM_BRUSH.ACTIVE% THEN EXIT SUB
+    CUSTOM_BRUSH.RECOLOR_MODE% = NOT CUSTOM_BRUSH.RECOLOR_MODE%
+    IF CUSTOM_BRUSH.RECOLOR_MODE% THEN
+        _LOGINFO "RECOLOR MODE: ON"
+    ELSE
+        _LOGINFO "RECOLOR MODE: OFF"
+    END IF
+END SUB
+
+
+''
+' Toggle outline visibility for custom brush cursor preview
+'
+SUB CUSTOM_BRUSH_toggle_outline ()
+    IF NOT CUSTOM_BRUSH.ACTIVE% THEN EXIT SUB
+    CUSTOM_BRUSH.SHOW_OUTLINE% = NOT CUSTOM_BRUSH.SHOW_OUTLINE%
 END SUB
 
 

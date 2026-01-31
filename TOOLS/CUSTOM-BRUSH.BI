@@ -27,6 +27,8 @@ TYPE CUSTOM_BRUSH_OBJ
     HAS_TRANSPARENCY AS INTEGER     ' Whether brush uses transparency
     BG_COLOR    AS _UNSIGNED LONG   ' Background color used for transparency
     SCALE       AS SINGLE           ' Current scale factor (1.0 = 100%)
+    RECOLOR_MODE AS INTEGER         ' Whether to recolor non-transparent pixels to FG color
+    SHOW_OUTLINE AS INTEGER         ' Whether to show outline in cursor preview
 END TYPE
 
 DIM SHARED CUSTOM_BRUSH AS CUSTOM_BRUSH_OBJ
@@ -43,5 +45,7 @@ DECLARE SUB CUSTOM_BRUSH_toggle_flip_v ()
 DECLARE SUB CUSTOM_BRUSH_scale_up ()
 DECLARE SUB CUSTOM_BRUSH_scale_down ()
 DECLARE SUB CUSTOM_BRUSH_scale_reset ()
+DECLARE SUB CUSTOM_BRUSH_toggle_recolor ()
+DECLARE SUB CUSTOM_BRUSH_toggle_outline ()
 DECLARE SUB CUSTOM_BRUSH_export_png (filepath AS STRING)
 DECLARE FUNCTION CUSTOM_BRUSH_is_active% ()

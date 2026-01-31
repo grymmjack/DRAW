@@ -74,6 +74,7 @@ KB.BRUSH_2_RECALL$        = "#2"         'NUMPAD2
 KB.BRUSH_3_RECALL$        = "#3"         'NUMPAD3
 KB.BRUSH_4_RECALL$        = "#4"         'NUMPAD4
 KB.PIXEL_PERFECT_TOGGLE$  = "%6"         'F6
+KB.BRUSH_RECOLOR_TOGGLE$  = "%9"         'F9
 ' GUI TOGGLES -----------------------------------------------------------------
 KB.GUI_TOOLBAR_TOGGLE$    = "[TAB]"      'TAB
 KB.GUI_PALETTE_TOGGLE$    = "+[TAB]"     'SHIFT-TAB
