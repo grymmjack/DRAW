@@ -25,6 +25,8 @@ TYPE DRAW_THEME
     GRID_fg           AS INTEGER ' Grid fg palette color index (0-255)
     TOOLBAR_x         AS STRING  ' Toolbar X position "L | R | n" (n=any #)
     TOOLBAR_y         AS STRING  ' Toolbar Y position "T | B | n" (n=any #)
+    TOOLBAR_bg        AS INTEGER ' Toolbar background palette color (0-255)
+    TOOLBAR_border_fg AS INTEGER ' Toolbar border palette color (0-255)
     PIXEL_GRID_color1 AS _UNSIGNED LONG ' Pixel grid checker color 1 (RGBA)
     PIXEL_GRID_color2 AS _UNSIGNED LONG ' Pixel grid checker color 2 (RGBA)
 END TYPE
