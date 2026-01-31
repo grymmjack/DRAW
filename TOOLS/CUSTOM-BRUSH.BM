@@ -1,0 +1,371 @@
+''
+' DRAW - TOOLS/CUSTOM-BRUSH.BM
+' =============================================================================
+' Custom brush tool implementation.
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+''
+' Initialize the custom brush system
+'
+SUB CUSTOM_BRUSH_init ()
+    CUSTOM_BRUSH.ACTIVE% = FALSE
+    CUSTOM_BRUSH.WIDTH% = 0
+    CUSTOM_BRUSH.HEIGHT% = 0
+    CUSTOM_BRUSH.ORIG_WIDTH% = 0
+    CUSTOM_BRUSH.ORIG_HEIGHT% = 0
+    CUSTOM_BRUSH.IMAGE& = 0
+    CUSTOM_BRUSH.FLIP_H% = FALSE
+    CUSTOM_BRUSH.FLIP_V% = FALSE
+    CUSTOM_BRUSH.HAS_TRANSPARENCY% = FALSE
+    CUSTOM_BRUSH.BG_COLOR~& = 0
+    CUSTOM_BRUSH.SCALE! = 1.0
+END SUB
+
+
+''
+' Reset/clear the custom brush
+' Frees the image handle and resets all state
+'
+SUB CUSTOM_BRUSH_reset ()
+    ' Free the image if it exists
+    IF CUSTOM_BRUSH.IMAGE& <> 0 THEN
+        _FREEIMAGE CUSTOM_BRUSH.IMAGE&
+        CUSTOM_BRUSH.IMAGE& = 0
+    END IF
+    
+    CUSTOM_BRUSH.ACTIVE% = FALSE
+    CUSTOM_BRUSH.WIDTH% = 0
+    CUSTOM_BRUSH.HEIGHT% = 0
+    CUSTOM_BRUSH.ORIG_WIDTH% = 0
+    CUSTOM_BRUSH.ORIG_HEIGHT% = 0
+    CUSTOM_BRUSH.FLIP_H% = FALSE
+    CUSTOM_BRUSH.FLIP_V% = FALSE
+    CUSTOM_BRUSH.HAS_TRANSPARENCY% = FALSE
+    CUSTOM_BRUSH.BG_COLOR~& = 0
+    CUSTOM_BRUSH.SCALE! = 1.0
+END SUB
+
+
+''
+' Check if a custom brush is currently active
+' @return INTEGER -1 if active, 0 if not
+'
+FUNCTION CUSTOM_BRUSH_is_active% ()
+    CUSTOM_BRUSH_is_active% = CUSTOM_BRUSH.ACTIVE%
+END FUNCTION
+
+
+''
+' Capture the current marquee selection as a custom brush
+' Uses smart transparency: if background color matches pixels, make transparent
+'
+SUB CUSTOM_BRUSH_capture_from_marquee ()
+    ' Check if marquee is active and has a valid selection
+    IF NOT MARQUEE.ACTIVE% THEN EXIT SUB
+    IF MARQUEE.BOX.w <= 0 OR MARQUEE.BOX.h <= 0 THEN EXIT SUB
+    
+    ' Clear any existing brush
+    CUSTOM_BRUSH_reset
+    
+    ' Get the marquee bounds
+    DIM sel_x AS INTEGER, sel_y AS INTEGER
+    DIM sel_w AS INTEGER, sel_h AS INTEGER
+    sel_x% = MARQUEE.BOX.x
+    sel_y% = MARQUEE.BOX.y
+    sel_w% = MARQUEE.BOX.w
+    sel_h% = MARQUEE.BOX.h
+    
+    ' Store brush dimensions
+    CUSTOM_BRUSH.WIDTH% = sel_w%
+    CUSTOM_BRUSH.HEIGHT% = sel_h%
+    CUSTOM_BRUSH.ORIG_WIDTH% = sel_w%
+    CUSTOM_BRUSH.ORIG_HEIGHT% = sel_h%
+    
+    ' Create a new image for the brush
+    CUSTOM_BRUSH.IMAGE& = _NEWIMAGE(sel_w%, sel_h%, 32)
+    
+    ' Copy the selected area from the painting surface
+    DIM old_dest AS LONG
+    old_dest& = _DEST
+    
+    _SOURCE SCRN.PAINTING&
+    _DEST CUSTOM_BRUSH.IMAGE&
+    
+    ' Copy pixels and apply smart transparency
+    DIM px AS INTEGER, py AS INTEGER
+    DIM pixel_color AS _UNSIGNED LONG
+    DIM bg_match_count AS INTEGER
+    DIM total_pixels AS INTEGER
+    
+    bg_match_count% = 0
+    total_pixels% = sel_w% * sel_h%
+    
+    ' First pass: copy pixels and count background color matches
+    FOR py% = 0 TO sel_h% - 1
+        FOR px% = 0 TO sel_w% - 1
+            pixel_color~& = POINT(sel_x% + px%, sel_y% + py%)
+            
+            ' Check if this pixel matches the current background color
+            IF pixel_color~& = PAINT_BG_COLOR~& THEN
+                bg_match_count% = bg_match_count% + 1
+            END IF
+            
+            PSET (px%, py%), pixel_color~&
+        NEXT px%
+    NEXT py%
+    
+    ' Decide if we should use transparency
+    ' If more than 10% of pixels match background color, enable transparency
+    IF bg_match_count% > (total_pixels% * 0.1) THEN
+        CUSTOM_BRUSH.HAS_TRANSPARENCY% = TRUE
+        CUSTOM_BRUSH.BG_COLOR~& = PAINT_BG_COLOR~&
+        
+        ' Second pass: make matching pixels transparent
+        FOR py% = 0 TO sel_h% - 1
+            FOR px% = 0 TO sel_w% - 1
+                pixel_color~& = POINT(px%, py%)
+                IF pixel_color~& = CUSTOM_BRUSH.BG_COLOR~& THEN
+                    ' Make this pixel transparent
+                    PSET (px%, py%), _RGBA32(0, 0, 0, 0)
+                END IF
+            NEXT px%
+        NEXT py%
+    ELSE
+        CUSTOM_BRUSH.HAS_TRANSPARENCY% = FALSE
+    END IF
+    
+    _DEST old_dest&
+    
+    ' Activate the brush
+    CUSTOM_BRUSH.ACTIVE% = TRUE
+    CUSTOM_BRUSH.FLIP_H% = FALSE
+    CUSTOM_BRUSH.FLIP_V% = FALSE
+    CUSTOM_BRUSH.SCALE! = 1.0
+    
+    ' Clear the marquee selection
+    MARQUEE_reset
+END SUB
+
+
+''
+' Render the custom brush at the given position
+' @param x INTEGER X position (top-left corner)
+' @param y INTEGER Y position (top-left corner)
+' @param dest LONG Destination image handle
+'
+SUB CUSTOM_BRUSH_render (x AS INTEGER, y AS INTEGER, dest AS LONG)
+    IF NOT CUSTOM_BRUSH.ACTIVE% THEN EXIT SUB
+    IF CUSTOM_BRUSH.IMAGE& = 0 THEN EXIT SUB
+    
+    DIM old_dest AS LONG
+    old_dest& = _DEST
+    _DEST dest&
+    
+    ' Calculate source coordinates based on flip flags
+    DIM src_x1 AS INTEGER, src_y1 AS INTEGER
+    DIM src_x2 AS INTEGER, src_y2 AS INTEGER
+    
+    IF CUSTOM_BRUSH.FLIP_H% THEN
+        src_x1% = CUSTOM_BRUSH.ORIG_WIDTH% - 1
+        src_x2% = 0
+    ELSE
+        src_x1% = 0
+        src_x2% = CUSTOM_BRUSH.ORIG_WIDTH% - 1
+    END IF
+    
+    IF CUSTOM_BRUSH.FLIP_V% THEN
+        src_y1% = CUSTOM_BRUSH.ORIG_HEIGHT% - 1
+        src_y2% = 0
+    ELSE
+        src_y1% = 0
+        src_y2% = CUSTOM_BRUSH.ORIG_HEIGHT% - 1
+    END IF
+    
+    ' Calculate scaled destination size
+    DIM dest_w AS INTEGER, dest_h AS INTEGER
+    dest_w% = CUSTOM_BRUSH.WIDTH%
+    dest_h% = CUSTOM_BRUSH.HEIGHT%
+    
+    ' Use _PUTIMAGE to render with transparency support and scaling
+    _PUTIMAGE (x%, y%)-(x% + dest_w% - 1, y% + dest_h% - 1), CUSTOM_BRUSH.IMAGE&, dest&, (src_x1%, src_y1%)-(src_x2%, src_y2%)
+    
+    _DEST old_dest&
+END SUB
+
+
+''
+' Stamp the custom brush onto the painting surface at the given position
+' @param x INTEGER X position (top-left corner)
+' @param y INTEGER Y position (top-left corner)
+'
+SUB CUSTOM_BRUSH_stamp (x AS INTEGER, y AS INTEGER)
+    IF NOT CUSTOM_BRUSH.ACTIVE% THEN EXIT SUB
+    CUSTOM_BRUSH_render x%, y%, SCRN.PAINTING&
+END SUB
+
+
+''
+' Toggle horizontal flip
+'
+SUB CUSTOM_BRUSH_toggle_flip_h ()
+    IF NOT CUSTOM_BRUSH.ACTIVE% THEN EXIT SUB
+    CUSTOM_BRUSH.FLIP_H% = NOT CUSTOM_BRUSH.FLIP_H%
+END SUB
+
+
+''
+' Toggle vertical flip
+'
+SUB CUSTOM_BRUSH_toggle_flip_v ()
+    IF NOT CUSTOM_BRUSH.ACTIVE% THEN EXIT SUB
+    CUSTOM_BRUSH.FLIP_V% = NOT CUSTOM_BRUSH.FLIP_V%
+END SUB
+
+
+''
+' Render the custom brush with zoom scaling for cursor display
+' @param x INTEGER X position (top-left corner)
+' @param y INTEGER Y position (top-left corner)
+' @param dest LONG Destination image handle
+' @param zoom SINGLE Zoom ratio for scaling
+'
+SUB CUSTOM_BRUSH_render_scaled (x AS INTEGER, y AS INTEGER, dest AS LONG, zoom AS SINGLE)
+    IF NOT CUSTOM_BRUSH.ACTIVE% THEN EXIT SUB
+    IF CUSTOM_BRUSH.IMAGE& = 0 THEN EXIT SUB
+    
+    DIM old_dest AS LONG
+    old_dest& = _DEST
+    _DEST dest&
+    
+    ' Calculate scaled dimensions
+    DIM scaled_w AS INTEGER, scaled_h AS INTEGER
+    scaled_w% = CUSTOM_BRUSH.WIDTH% * CUSTOM_BRUSH.SCALE! * zoom!
+    scaled_h% = CUSTOM_BRUSH.HEIGHT% * CUSTOM_BRUSH.SCALE! * zoom!
+    
+    ' Calculate source coordinates based on flip flags
+    DIM src_x1 AS INTEGER, src_y1 AS INTEGER
+    DIM src_x2 AS INTEGER, src_y2 AS INTEGER
+    
+    IF CUSTOM_BRUSH.FLIP_H% THEN
+        src_x1% = CUSTOM_BRUSH.ORIG_WIDTH% - 1
+        src_x2% = 0
+    ELSE
+        src_x1% = 0
+        src_x2% = CUSTOM_BRUSH.ORIG_WIDTH% - 1
+    END IF
+    
+    IF CUSTOM_BRUSH.FLIP_V% THEN
+        src_y1% = CUSTOM_BRUSH.ORIG_HEIGHT% - 1
+        src_y2% = 0
+    ELSE
+        src_y1% = 0
+        src_y2% = CUSTOM_BRUSH.ORIG_HEIGHT% - 1
+    END IF
+    
+    ' Use _PUTIMAGE to render with transparency support and scaling
+    _PUTIMAGE (x%, y%)-(x% + scaled_w% - 1, y% + scaled_h% - 1), CUSTOM_BRUSH.IMAGE&, dest&, (src_x1%, src_y1%)-(src_x2%, src_y2%)
+    
+    _DEST old_dest&
+END SUB
+
+
+''
+' Scale custom brush up by 100% (double size)
+'
+SUB CUSTOM_BRUSH_scale_up ()
+    IF NOT CUSTOM_BRUSH.ACTIVE% THEN EXIT SUB
+    CUSTOM_BRUSH.SCALE! = CUSTOM_BRUSH.SCALE! * 2.0
+    CUSTOM_BRUSH.WIDTH% = CUSTOM_BRUSH.ORIG_WIDTH% * CUSTOM_BRUSH.SCALE!
+    CUSTOM_BRUSH.HEIGHT% = CUSTOM_BRUSH.ORIG_HEIGHT% * CUSTOM_BRUSH.SCALE!
+END SUB
+
+
+''
+' Scale custom brush down by 100% (half size)
+'
+SUB CUSTOM_BRUSH_scale_down ()
+    IF NOT CUSTOM_BRUSH.ACTIVE% THEN EXIT SUB
+    IF CUSTOM_BRUSH.SCALE! <= 0.125 THEN EXIT SUB ' Minimum scale of 12.5%
+    CUSTOM_BRUSH.SCALE! = CUSTOM_BRUSH.SCALE! / 2.0
+    CUSTOM_BRUSH.WIDTH% = CUSTOM_BRUSH.ORIG_WIDTH% * CUSTOM_BRUSH.SCALE!
+    CUSTOM_BRUSH.HEIGHT% = CUSTOM_BRUSH.ORIG_HEIGHT% * CUSTOM_BRUSH.SCALE!
+END SUB
+
+
+''
+' Reset custom brush scale to original size
+'
+SUB CUSTOM_BRUSH_scale_reset ()
+    IF NOT CUSTOM_BRUSH.ACTIVE% THEN EXIT SUB
+    CUSTOM_BRUSH.SCALE! = 1.0
+    CUSTOM_BRUSH.WIDTH% = CUSTOM_BRUSH.ORIG_WIDTH%
+    CUSTOM_BRUSH.HEIGHT% = CUSTOM_BRUSH.ORIG_HEIGHT%
+END SUB
+
+
+''
+' Export custom brush as PNG file
+' @param filepath STRING Full path for the PNG file
+'
+SUB CUSTOM_BRUSH_export_png (filepath AS STRING)
+    IF NOT CUSTOM_BRUSH.ACTIVE% THEN
+        _LOGERROR "Export failed: No custom brush active"
+        EXIT SUB
+    END IF
+    IF CUSTOM_BRUSH.IMAGE& = 0 THEN
+        _LOGERROR "Export failed: No brush image"
+        EXIT SUB
+    END IF
+    
+    _LOGINFO "Exporting custom brush to: " + filepath$
+    _LOGINFO "Brush dimensions: " + _TRIM$(STR$(CUSTOM_BRUSH.ORIG_WIDTH%)) + "x" + _TRIM$(STR$(CUSTOM_BRUSH.ORIG_HEIGHT%))
+    
+    ' Create a temporary image at the original brush size
+    DIM temp_img AS LONG
+    temp_img& = _NEWIMAGE(CUSTOM_BRUSH.ORIG_WIDTH%, CUSTOM_BRUSH.ORIG_HEIGHT%, 32)
+    
+    IF temp_img& = 0 THEN
+        _LOGERROR "Export failed: Could not create temporary image"
+        EXIT SUB
+    END IF
+    
+    DIM old_dest AS LONG
+    old_dest& = _DEST
+    
+    _DEST temp_img&
+    CLS , _RGBA32(0, 0, 0, 0) ' Clear with transparency
+    
+    ' Copy brush to temp image (respecting flips)
+    DIM src_x1 AS INTEGER, src_y1 AS INTEGER
+    DIM src_x2 AS INTEGER, src_y2 AS INTEGER
+    
+    IF CUSTOM_BRUSH.FLIP_H% THEN
+        src_x1% = CUSTOM_BRUSH.ORIG_WIDTH% - 1
+        src_x2% = 0
+    ELSE
+        src_x1% = 0
+        src_x2% = CUSTOM_BRUSH.ORIG_WIDTH% - 1
+    END IF
+    
+    IF CUSTOM_BRUSH.FLIP_V% THEN
+        src_y1% = CUSTOM_BRUSH.ORIG_HEIGHT% - 1
+        src_y2% = 0
+    ELSE
+        src_y1% = 0
+        src_y2% = CUSTOM_BRUSH.ORIG_HEIGHT% - 1
+    END IF
+    
+    _PUTIMAGE (0, 0)-(CUSTOM_BRUSH.ORIG_WIDTH% - 1, CUSTOM_BRUSH.ORIG_HEIGHT% - 1), CUSTOM_BRUSH.IMAGE&, temp_img&, (src_x1%, src_y1%)-(src_x2%, src_y2%)
+    
+    ' Save as PNG
+    _DEST old_dest&
+    _SAVEIMAGE filepath$, temp_img&
+    
+    _LOGINFO "Brush successfully exported to: " + filepath$
+    
+    ' Clean up
+    _FREEIMAGE temp_img&
+END SUB

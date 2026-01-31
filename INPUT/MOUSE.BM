@@ -183,7 +183,15 @@ SUB MOUSE_input_handler ()
     END IF
     ' ==== END IMAGE IMPORT MODE ====
     
-    WHILE _MOUSEINPUT:
+    ' ==== DRAIN-THEN-PROCESS PATTERN FOR PERFORMANCE ====
+    ' Drain all buffered mouse events and accumulate wheel delta
+    wheel_delta% = 0
+    DO WHILE _MOUSEINPUT
+        wheel_delta% = wheel_delta% + _MOUSEWHEEL
+    LOOP
+    
+    ' Now process ONCE with final mouse state (not per-event)
+    IF TRUE THEN ' Block for consistent indentation
         ' Get raw screen coordinates and convert to canvas coordinates
         DIM rawX AS INTEGER, rawY AS INTEGER
         DIM zw AS LONG, zh AS LONG, dx AS INTEGER, dy AS INTEGER
@@ -246,8 +254,10 @@ SUB MOUSE_input_handler ()
         IF NOT SCRN.panning% AND MOUSE.B1% AND NOT MOUSE.OLD_B1% THEN
             ' Check if clicking on toolbar area (raw screen coordinates)
             IF SCRN.showToolbar% AND (rawX% >= TB_LEFT AND rawX% <= TB_RIGHT + TB_BTN_W) THEN
-                TOOLBAR_handle_click rawX%, rawY%
-                MOUSE.TOOLBAR_CLICKED% = TRUE  ' Flag to prevent canvas action
+                ' Only set TOOLBAR_CLICKED if an actual button was hit
+                IF TOOLBAR_handle_click%(rawX%, rawY%) THEN
+                    MOUSE.TOOLBAR_CLICKED% = TRUE  ' Flag to prevent canvas action
+                END IF
             END IF
             ' Check if clicking on status bar area (bottom of screen)
             IF SCRN.showStatus% AND rawY% >= (SCRN.h& - 10) THEN
@@ -322,8 +332,8 @@ SUB MOUSE_input_handler ()
         ' Only hide when button was already down (OLD_B1%) and we're not clicking on UI
         ' Skip auto-hide for NULL tool - let user freely access toolbar/status
         IF CURRENT_TOOL% <> TOOL_NULL AND MOUSE.B1% AND MOUSE.OLD_B1% AND NOT SCRN.panning% AND NOT MOUSE.TOOLBAR_CLICKED% THEN
-            ' Check if mouse is over toolbar area while drawing
-            IF SCRN.showToolbar% AND (rawX% >= TB_LEFT AND rawX% <= TB_RIGHT + TB_BTN_W) THEN
+            ' Check if mouse is over an actual toolbar button (not empty toolbar area)
+            IF SCRN.showToolbar% AND TOOLBAR_is_over_button%(rawX%, rawY%) THEN
                 SCRN.showToolbar% = FALSE
                 SCRN.toolbarManuallyHidden% = FALSE ' This is auto-hide, not manual
             END IF
@@ -758,86 +768,6 @@ SUB MOUSE_input_handler ()
                 PICKER_pick_color MOUSE.X%, MOUSE.Y%, 2  ' 2 = right button/background
             END IF
         END IF
-        
-        IF MOUSE.SW% <> 0 THEN
-            ' Check if over palette strip or menu first
-            IF PALETTE_STRIP_in_bounds%(MOUSE.X%, MOUSE.Y%) OR PALETTE_MENU_in_bounds%(MOUSE.X%, MOUSE.Y%) THEN
-                PALETTE_STRIP_handle_wheel MOUSE.SW%
-            ' Check if CTRL is held for brush size adjustment
-            ELSEIF (_KEYDOWN(100305) OR _KEYDOWN(100306)) THEN ' Right or Left CTRL
-                ' CTRL+Wheel adjusts brush size
-                ' Wheel up (negative) should increase, wheel down (positive) should decrease
-                IF MOUSE.SW% < 0 THEN
-                    BRUSH_SIZE_increase
-                ELSEIF MOUSE.SW% > 0 THEN
-                    BRUSH_SIZE_decrease
-                END IF
-            ELSE
-                ' Mouse wheel without CTRL: zoom in/out
-                ' Above 100%: Always use 100% increments (both in and out)
-                ' At/below 100%: Zoom IN snaps to 100%, Zoom OUT uses 25%
-                ' Zoom centered on mouse cursor position
-                DIM oldZoom AS SINGLE
-                DIM mouseScreenX AS INTEGER, mouseScreenY AS INTEGER
-                oldZoom! = SCRN.zoom!
-                
-                ' Get mouse screen position BEFORE zoom changes
-                mouseScreenX% = _MOUSEX
-                mouseScreenY% = _MOUSEY
-                
-                IF MOUSE.SW% < 0 THEN
-                    ' Wheel down = zoom in
-                    IF SCRN.zoom! < 1.0 THEN
-                        SCRN.zoom! = 1.0  ' Snap to 100% from any fractional zoom
-                    ELSE
-                        SCRN.zoom! = INT(SCRN.zoom!) + 1.0  ' Next whole 100% (200%, 300%, etc.)
-                    END IF
-                    IF SCRN.zoom! > SCRN.zoomMax! THEN SCRN.zoom! = SCRN.zoomMax!
-                ELSEIF MOUSE.SW% > 0 THEN
-                    ' Wheel up = zoom out
-                    IF SCRN.zoom! > 1.0 THEN
-                        ' Above 100%: zoom out by whole 100% (200% → 100%, 300% → 200%)
-                        SCRN.zoom! = INT(SCRN.zoom!) - 1.0
-                    ELSE
-                        ' At/below 100%: zoom out by 25% (100% → 75% → 50% → 25%)
-                        SCRN.zoom! = SCRN.zoom! - 0.25
-                    END IF
-                    IF SCRN.zoom! < SCRN.zoomMin! THEN SCRN.zoom! = SCRN.zoomMin!
-                END IF
-                
-                ' Adjust offset to keep mouse over same canvas point
-                IF SCRN.zoom! <> oldZoom! THEN
-                    ' Calculate canvas center offset at old zoom
-                    DIM old_zw AS LONG, old_zh AS LONG
-                    old_zw& = SCRN.w& * oldZoom!
-                    old_zh& = SCRN.h& * oldZoom!
-                    DIM old_center_x AS INTEGER, old_center_y AS INTEGER
-                    old_center_x% = (_WIDTH - old_zw&) \ 2
-                    old_center_y% = (_HEIGHT - old_zh&) \ 2
-                    
-                    ' Canvas position under mouse at old zoom
-                    DIM canvasX AS SINGLE, canvasY AS SINGLE
-                    canvasX! = (mouseScreenX% - old_center_x% - SCRN.offsetX%) / oldZoom!
-                    canvasY! = (mouseScreenY% - old_center_y% - SCRN.offsetY%) / oldZoom!
-                    
-                    ' Calculate new canvas center offset at new zoom
-                    DIM new_zw AS LONG, new_zh AS LONG
-                    new_zw& = SCRN.w& * SCRN.zoom!
-                    new_zh& = SCRN.h& * SCRN.zoom!
-                    DIM new_center_x AS INTEGER, new_center_y AS INTEGER
-                    new_center_x% = (_WIDTH - new_zw&) \ 2
-                    new_center_y% = (_HEIGHT - new_zh&) \ 2
-                    
-                    ' Calculate new offset to keep canvas point at mouse screen position
-                    SCRN.offsetX% = mouseScreenX% - new_center_x% - (canvasX! * SCRN.zoom!)
-                    SCRN.offsetY% = mouseScreenY% - new_center_y% - (canvasY! * SCRN.zoom!)
-                END IF
-            END IF
-            MOUSE.OSW% = MOUSE.SW%
-        END IF
-        MOUSE.SW% = _MOUSEWHEEL
-
-        ' DO: LOOP UNTIL _MOUSEINPUT = 0
 
         IF (_KEYDOWN(KEY_LSHIFT&) OR _KEYDOWN(KEY_RSHIFT&)) AND NOT CONSTRAIN_X% AND NOT CONSTRAIN_Y% THEN
             IF MOUSE.DRAG$ = "L" OR MOUSE.DRAG$ = "R" THEN
@@ -850,7 +780,87 @@ SUB MOUSE_input_handler ()
                 CONSTRAIN_Y% = FALSE
             END IF
         END IF
-    WEND
+    END IF ' End drain-then-process block
+    
+    ' Process accumulated wheel delta for zoom/brush size (outside event loop)
+    IF wheel_delta% <> 0 THEN
+        MOUSE.SW% = wheel_delta%
+        
+        ' Check if over palette strip or menu first
+        IF PALETTE_STRIP_in_bounds%(MOUSE.X%, MOUSE.Y%) OR PALETTE_MENU_in_bounds%(MOUSE.X%, MOUSE.Y%) THEN
+            PALETTE_STRIP_handle_wheel MOUSE.SW%
+        ' Check if CTRL is held for brush size adjustment
+        ELSEIF (_KEYDOWN(100305) OR _KEYDOWN(100306)) THEN ' Right or Left CTRL
+            ' CTRL+Wheel adjusts brush size
+            ' Wheel up (negative) should increase, wheel down (positive) should decrease
+            IF MOUSE.SW% < 0 THEN
+                BRUSH_SIZE_increase
+            ELSEIF MOUSE.SW% > 0 THEN
+                BRUSH_SIZE_decrease
+            END IF
+        ELSE
+            ' Mouse wheel without CTRL: zoom in/out
+            ' Above 100%: Always use 100% increments (both in and out)
+            ' At/below 100%: Zoom IN snaps to 100%, Zoom OUT uses 25%
+            ' Zoom centered on mouse cursor position
+            DIM oldZoom AS SINGLE
+            DIM mouseScreenX AS INTEGER, mouseScreenY AS INTEGER
+            oldZoom! = SCRN.zoom!
+            
+            ' Get mouse screen position BEFORE zoom changes
+            mouseScreenX% = _MOUSEX
+            mouseScreenY% = _MOUSEY
+            
+            IF MOUSE.SW% < 0 THEN
+                ' Wheel down = zoom in
+                IF SCRN.zoom! < 1.0 THEN
+                    SCRN.zoom! = 1.0  ' Snap to 100% from any fractional zoom
+                ELSE
+                    SCRN.zoom! = INT(SCRN.zoom!) + 1.0  ' Next whole 100% (200%, 300%, etc.)
+                END IF
+                IF SCRN.zoom! > SCRN.zoomMax! THEN SCRN.zoom! = SCRN.zoomMax!
+            ELSEIF MOUSE.SW% > 0 THEN
+                ' Wheel up = zoom out
+                IF SCRN.zoom! > 1.0 THEN
+                    ' Above 100%: zoom out by whole 100% (200% → 100%, 300% → 200%)
+                    SCRN.zoom! = INT(SCRN.zoom!) - 1.0
+                ELSE
+                    ' At/below 100%: zoom out by 25% (100% → 75% → 50% → 25%)
+                    SCRN.zoom! = SCRN.zoom! - 0.25
+                END IF
+                IF SCRN.zoom! < SCRN.zoomMin! THEN SCRN.zoom! = SCRN.zoomMin!
+            END IF
+            
+            ' Adjust offset to keep mouse over same canvas point
+            IF SCRN.zoom! <> oldZoom! THEN
+                ' Calculate canvas center offset at old zoom
+                DIM old_zw AS LONG, old_zh AS LONG
+                old_zw& = SCRN.w& * oldZoom!
+                old_zh& = SCRN.h& * oldZoom!
+                DIM old_center_x AS INTEGER, old_center_y AS INTEGER
+                old_center_x% = (_WIDTH - old_zw&) \ 2
+                old_center_y% = (_HEIGHT - old_zh&) \ 2
+                
+                ' Canvas position under mouse at old zoom
+                DIM canvasX AS SINGLE, canvasY AS SINGLE
+                canvasX! = (mouseScreenX% - old_center_x% - SCRN.offsetX%) / oldZoom!
+                canvasY! = (mouseScreenY% - old_center_y% - SCRN.offsetY%) / oldZoom!
+                
+                ' Calculate new canvas center offset at new zoom
+                DIM new_zw AS LONG, new_zh AS LONG
+                new_zw& = SCRN.w& * SCRN.zoom!
+                new_zh& = SCRN.h& * SCRN.zoom!
+                DIM new_center_x AS INTEGER, new_center_y AS INTEGER
+                new_center_x% = (_WIDTH - new_zw&) \ 2
+                new_center_y% = (_HEIGHT - new_zh&) \ 2
+                
+                ' Calculate new offset to keep canvas point at mouse screen position
+                SCRN.offsetX% = mouseScreenX% - new_center_x% - (canvasX! * SCRN.zoom!)
+                SCRN.offsetY% = mouseScreenY% - new_center_y% - (canvasY! * SCRN.zoom!)
+            END IF
+        END IF
+        MOUSE.OSW% = MOUSE.SW%
+    END IF
     
     ' Update marquee every frame for keyboard controls and handle hover detection
     IF CURRENT_TOOL% = TOOL_MARQUEE AND MARQUEE.ACTIVE% THEN
