@@ -20,6 +20,8 @@ TYPE TEXT_OBJ
     BLINK_TIMER  AS SINGLE   ' Timer for cursor blinking
     USE_TINY5    AS INTEGER  ' Whether to use Tiny5 font (vs VGA default)
     FONT_HANDLE  AS LONG     ' Handle to loaded Tiny5 font
+    USE_CUSTOM   AS INTEGER  ' Whether to use custom font loaded from disk
+    CUSTOM_FONT_HANDLE AS LONG  ' Handle to custom font loaded via middle-click
     CHAR_WIDTH   AS INTEGER  ' Character width (5 for Tiny5, 8 for VGA)
     LINE_HEIGHT  AS INTEGER  ' Line height (8 for Tiny5, 13 for VGA)
 END TYPE

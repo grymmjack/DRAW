@@ -145,8 +145,12 @@ SUB MAIN_shutdown ()
     END IF
     
     ' Free Tiny5 font if loaded
-    IF TEXT.FONT_HANDLE < 0 THEN
+    IF TEXT.FONT_HANDLE > 0 THEN
         _FREEFONT TEXT.FONT_HANDLE
+    END IF
+    ' Free custom font if loaded
+    IF TEXT.CUSTOM_FONT_HANDLE > 0 THEN
+        _FREEFONT TEXT.CUSTOM_FONT_HANDLE
     END IF
 
     SYSTEM
