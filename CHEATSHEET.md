@@ -231,10 +231,29 @@ DRAW includes 10 dither patterns (0-9) that can be applied to brush, dot, and fi
 
 | Key | Function |
 |-----|----------|
+| **T** | Text tool with VGA font (default) |
+| **Shift+T** | Text tool with Tiny5 font |
+| **Ctrl+T** | Text tool with custom loaded font |
 | **Type** | Enter text |
 | **Enter** | New line |
 | **Backspace** | Delete character |
 | **Escape** | Apply/finish text |
+
+### Custom Font Loading
+
+| Action | Function |
+|--------|----------|
+| **Middle-click text icon** | Open font dialog to load custom TTF/OTF font |
+
+**Custom Font Features:**
+- Middle-click the Text tool icon (toolbar) to load any `.ttf` or `.otf` font file
+- Font loads with natural kerning pairs and built-in hinting (proportional spacing)
+- No anti-aliasing for crisp pixel-perfect rendering (DONTBLEND)
+- Automatically tries multiple sizes: 16px → 12px → 8px → 20px (uses first success)
+- Once loaded, use `Ctrl+T` to activate text tool with custom font
+- Custom font persists across tool resets until manually replaced
+- Regular `T` key continues to use standard VGA font
+- `Shift+T` continues to use Tiny5 small font
 
 ## Move/Transform Tool
 
