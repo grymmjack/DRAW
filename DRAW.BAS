@@ -9,6 +9,9 @@
 '
 
 '$INCLUDE:'./_ALL.BI'
+OPTION _EXPLICIT
+OPTION _EXPLICITARRAY
+'$DYNAMIC
 $RESIZE:STRETCH
 $CONSOLE
   
@@ -16,7 +19,7 @@ $CONSOLE
 DIM k AS LONG
 DIM exitConfirmed AS INTEGER
 exitConfirmed% = FALSE
-
+    
 DO
     k& = _KEYHIT
     
