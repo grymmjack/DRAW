@@ -234,10 +234,47 @@ DRAW includes 10 dither patterns (0-9) that can be applied to brush, dot, and fi
 | Tool | Modifier | Effect |
 |------|----------|--------|
 | **Line/Rect/Ellipse** | Shift (drag) | Constrain to horizontal/vertical |
+| **Line/Polygon** | Ctrl+Shift (drag/click) | Snap to angle increments (see Angle Snapping below) |
 | **Rectangle** | Ctrl (drag) | Draw perfect square |
 | **Rectangle** | Shift (drag center) | Draw from center |
 | **Ellipse** | Ctrl (drag) | Draw perfect circle |
 | **Ellipse** | Shift (drag center) | Draw from center |
+
+## Angle Snapping
+
+Precise angle control for line and polygon drawing. Hold **Ctrl+Shift** to snap endpoints to configured angle increments.
+
+### Controls
+
+| Key | Function |
+|-----|----------|
+| `Ctrl+Shift` (hold while dragging) | Snap line/polygon angles to increments |
+
+### Snap Increments
+
+The default snap angle is **45°** (8 directions), configurable in `DRAW.cfg`:
+
+| Angle | Directions | Positions |
+|-------|------------|-----------|
+| **45°** (default) | 8 | 0°, 45°, 90°, 135°, 180°, 225°, 270°, 315° |
+| **30°** | 12 | Every 30° around circle |
+| **15°** | 24 | Fine-grained precision (every 15°) |
+| **90°** | 4 | Horizontal/vertical only (0°, 90°, 180°, 270°) |
+
+**Configuration**: Edit `ANGLE_SNAP_DEGREES=` in `DRAW.cfg` (valid range: 1-90)
+
+### Supported Tools
+
+- **Line Tool**: Snap endpoint angle while dragging
+- **Polygon Tool**: Snap each segment angle as you click points
+- **Polygon Filled Tool**: Snap each filled polygon segment
+
+### Features
+
+- Preserves line distance while snapping angle
+- Visual feedback shows snapped position in real-time
+- Works with symmetry drawing for complex symmetrical patterns
+- Combines with grid snap for precise positioned + angled lines
 
 ## Clipboard Operations
 
