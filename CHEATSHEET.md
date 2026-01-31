@@ -105,6 +105,40 @@
 | `\` or `|` | Toggle brush shape |
 | `F6` | Toggle pixel perfect mode |
 
+## Dither Pattern Mode
+
+DRAW includes 10 dither patterns (0-9) that can be applied to brush, dot, and fill tools. Patterns are tiled seamlessly across the entire canvas.
+
+### Pattern Selection (NumLock ON or OFF)
+
+| NumPad Key | Pattern | Description |
+|------------|---------|-------------|
+| `0` | Solid | No dithering (default) |
+| `1` | Light Dots | Very sparse dots (6% fill) |
+| `2` | Dots | Sparse dot pattern (12% fill) |
+| `3` | Checkerboard | Fine alternating pixels (50% fill) |
+| `4` | Medium Dots | Offset dot pattern (25% fill) |
+| `5` | Grid | 2x2 box grid pattern |
+| `6` | Horizontal | Alternating horizontal lines |
+| `7` | Vertical | Alternating vertical lines |
+| `8` | Diagonal \ | Diagonal backslash line |
+| `9` | Checker 2x2 | Checkerboard with 2x2 blocks |
+
+**Notes:**
+- NumPad keys work with NumLock **ON** or **OFF**
+- Active pattern shown in status bar: `[PATTERN NAME]`
+- Pattern `0` disables dithering (solid fill)
+- Brush preview shows active pattern at current brush size
+- Patterns tile seamlessly across entire canvas using global coordinates
+- Works with: Brush, Dot, filled shapes (Rectangle, Ellipse, Polygon), and Fill tool
+
+### NumLock Indicator
+
+| Status Bar | Meaning |
+|------------|---------|
+| `NUM` | NumLock is ON |
+| (no indicator) | NumLock is OFF |
+
 ## Custom Brush
 
 | Key | Function |
