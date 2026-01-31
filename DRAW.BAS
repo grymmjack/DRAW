@@ -77,6 +77,8 @@ MAIN_shutdown
 ' Runs at the start of the loop before any other code
 ' 
 SUB LOOP_start ()
+    ' Reset undo save flag once per frame
+    UNDO_saved_this_frame% = FALSE
     ' Don't update MARQUEE here - let mouse handler control it
 END SUB
 

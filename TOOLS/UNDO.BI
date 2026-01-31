@@ -20,5 +20,6 @@ END TYPE
 
 DIM SHARED UNDO AS UNDO_SYSTEM
 DIM SHARED UNDO_STATES(100) AS UNDO_STATE  ' Support up to 100 undo levels
+DIM SHARED UNDO_saved_this_frame AS INTEGER ' Prevent double-saves in same frame
 
 UNDO_init
