@@ -23,20 +23,17 @@ TYPE SYMMETRY_TYPE
     DIRTY       AS INTEGER        ' TRUE when guides need regeneration
     guideColor  AS _UNSIGNED LONG ' Color for guide lines
     centerColor AS _UNSIGNED LONG ' Color for center crosshair dot
-    guidePattern AS INTEGER       ' Line pattern for guides
 END TYPE
 
 DIM SHARED SYMMETRY AS SYMMETRY_TYPE
 SYMMETRY.MODE = 0
-SYMMETRY.CENTER_X = 0
-SYMMETRY.CENTER_Y = 0
+' CENTER_X and CENTER_Y are set by SYMMETRY_init() to canvas center
 SYMMETRY.imgHandle& = 0
 SYMMETRY.imgWidth% = 0
 SYMMETRY.imgHeight% = 0
 SYMMETRY.DIRTY% = FALSE
 SYMMETRY.guideColor~& = 0
 SYMMETRY.centerColor~& = 0
-SYMMETRY.guidePattern% = 0
 
 DECLARE SUB SYMMETRY_init ()
 DECLARE SUB SYMMETRY_cycle_mode ()

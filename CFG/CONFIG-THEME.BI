@@ -29,9 +29,8 @@ TYPE DRAW_THEME
     TOOLBAR_border_fg      AS INTEGER ' Toolbar border palette color (0-255)
     PIXEL_GRID_color1      AS _UNSIGNED LONG ' Pixel grid checker color 1 (RGBA)
     PIXEL_GRID_color2      AS _UNSIGNED LONG ' Pixel grid checker color 2 (RGBA)
-    SYMMETRY_guide_fg      AS _UNSIGNED LONG ' Symmetry guide line palette color (0-255)
-    SYMMETRY_guide_pattern AS INTEGER ' Symmetry guide line pattern (16 bit &B>inary)
-    SYMMETRY_center_fg     AS _UNSIGNED LONG ' Symmetry center crosshair palette color (0-255)
+    SYMMETRY_guide_fg      AS _UNSIGNED LONG ' Symmetry guide line color (RGBA)
+    SYMMETRY_center_fg     AS _UNSIGNED LONG ' Symmetry center crosshair color (RGBA)
 END TYPE
 
 DIM SHARED THEME AS DRAW_THEME
