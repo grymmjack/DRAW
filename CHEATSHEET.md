@@ -69,6 +69,53 @@
 - Status bar shows grid state: `G:n` (visible) or `G:n S` (snap enabled)
 - Snap-to-grid rounds all drawing coordinates to nearest grid boundary
 
+## Symmetry Drawing
+
+DRAW supports real-time symmetrical drawing with three modes: Vertical (|), Cross (+), and Asterisk (*). All drawing operations are automatically mirrored across the symmetry axes.
+
+### Symmetry Controls
+
+| Key | Function |
+|-----|----------|
+| `F7` | Cycle symmetry mode (Off → Vertical → Cross → Asterisk → Off) |
+| `F8` | Turn off symmetry (instant disable) |
+| `Ctrl + Left Click` | Reposition symmetry center to mouse location |
+
+### Symmetry Modes
+
+| Mode | Symbol | Description |
+|------|--------|-------------|
+| **Off** | - | Normal drawing (no symmetry) |
+| **Vertical** | \| | Mirror left/right across vertical axis (2 copies) |
+| **Cross** | + | Mirror horizontally and vertically (4 copies) |
+| **Asterisk** | * | Mirror across vertical, horizontal, and both diagonals (8 copies) |
+
+### Visual Feedback
+
+- **Guide Lines**: Semi-transparent cyan lines show active symmetry axes
+- **Center Crosshair**: Yellow crosshair marks the center point of symmetry
+- **Status Bar**: Shows current mode as `SYM:n` where:
+  - `SYM:0` = Off
+  - `SYM:1` = Vertical (|)
+  - `SYM:2` = Cross (+)
+  - `SYM:3` = Asterisk (*)
+
+### Features
+
+- **Works with all drawing tools**: Brush, Dot, Line, Rectangle, Ellipse, Polygon, Fill, Custom Brush
+- **Interactive center**: Ctrl+click anywhere to reposition the symmetry center
+- **Preview support**: Live preview shows symmetry during drag operations (Line, Rectangle, Ellipse)
+- **Initial center**: Defaults to canvas center (160, 100 for 320x200 canvas)
+- **Persistent guides**: Symmetry guides remain visible while drawing
+
+### Workflow Tips
+
+- Press `F7` repeatedly to cycle through modes and find the right symmetry type
+- Use `Ctrl + Left Click` to quickly reposition center without changing modes
+- Press `F8` for instant disable when you need to draw without symmetry
+- Combine with grid snap for precise symmetrical patterns
+- Works great with dither patterns for complex symmetrical textures
+
 ## Mouse Controls
 
 ### General
