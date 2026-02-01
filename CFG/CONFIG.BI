@@ -12,6 +12,10 @@ CONST CONFIG_FILE$ = "DRAW.cfg"
 TYPE DRAW_CONFIG
     THEME                          AS STRING
     FULLSCREEN                     AS INTEGER
+    DISPLAY_SCALE                  AS INTEGER  ' 0=auto-detect, 1-8=explicit scale
+    DISPLAY_SCALE_MAX              AS INTEGER  ' Maximum allowed scale (default 8)
+    DISPLAY_SCALE_CHANGED          AS INTEGER  ' Runtime flag: scale changed during session
+    TOOLBAR_SCALE                  AS INTEGER  ' Toolbar icon scale multiplier (1-4, default 1)
     NUDGE_N                        AS INTEGER
     NUM_CUSTOM_BRUSHES             AS INTEGER
     NUM_LAYERS                     AS INTEGER

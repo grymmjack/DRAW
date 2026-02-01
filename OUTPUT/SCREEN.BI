@@ -16,6 +16,8 @@ TYPE SCREEN_OBJ
     PAINTING AS LONG
     CURSOR   AS LONG
     GUI      AS LONG
+    WINDOW_IMG AS LONG       ' Display window buffer (scaled)
+    displayScale AS INTEGER  ' Current display scale multiplier (1-8)
     zoom     AS SINGLE   ' Current zoom level
     zoomMin  AS SINGLE   ' Minimum zoom
     zoomMax  AS SINGLE   ' Maximum zoom

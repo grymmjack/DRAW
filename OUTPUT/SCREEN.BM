@@ -30,9 +30,109 @@ END SUB
 
 
 ''
+' Detects optimal display scale based on desktop resolution
+' Returns scale clamped to CFG.DISPLAY_SCALE_MAX%
+' 
+FUNCTION SCREEN_detect_display_scale% ()
+    DIM desktopH AS INTEGER
+    DIM scale AS INTEGER
+    DIM maxFitW AS INTEGER, maxFitH AS INTEGER
+    
+    ' Wait for screen to exist and get valid desktop dimensions
+    DO: _LIMIT CFG.FPS_LIMIT% : LOOP UNTIL _SCREENEXISTS
+    DO
+        desktopH% = _DESKTOPHEIGHT
+        IF desktopH% <= 0 THEN _DELAY 0.01
+    LOOP UNTIL desktopH% > 0
+    
+    ' Calculate scale based on desktop height
+    ' 4K (2160+) = 4x, 1440p (1440+) = 3x, 1080p (1080+) = 2x, else 1x
+    IF desktopH% >= 2160 THEN
+        scale% = 4
+    ELSEIF desktopH% >= 1440 THEN
+        scale% = 3
+    ELSEIF desktopH% >= 1080 THEN
+        scale% = 2
+    ELSE
+        scale% = 1
+    END IF
+    
+    ' Clamp to configured maximum
+    IF scale% > CFG.DISPLAY_SCALE_MAX% THEN scale% = CFG.DISPLAY_SCALE_MAX%
+    
+    ' Also ensure window fits on desktop (leave some margin for taskbar/dock)
+    ' Calculate max scale that fits
+    IF SCRN.w& > 0 AND SCRN.h& > 0 THEN
+        maxFitW% = (_DESKTOPWIDTH - 100) \ SCRN.w&
+        maxFitH% = (_DESKTOPHEIGHT - 100) \ SCRN.h&
+        IF maxFitW% < scale% THEN scale% = maxFitW%
+        IF maxFitH% < scale% THEN scale% = maxFitH%
+    END IF
+    
+    ' Minimum scale is 1
+    IF scale% < 1 THEN scale% = 1
+    
+    SCREEN_detect_display_scale% = scale%
+END FUNCTION
+
+
+''
+' Set display scale at runtime (for hotkey scaling)
+' newScale: desired new scale (will be clamped to valid range)
+' 
+SUB SCREEN_set_display_scale (newScale AS INTEGER)
+    DIM winW AS LONG, winH AS LONG
+    DIM maxFitW AS INTEGER, maxFitH AS INTEGER
+    DIM clampedScale AS INTEGER
+    
+    ' Don't allow scale changes in fullscreen mode
+    IF CFG.FULLSCREEN% THEN EXIT SUB
+    
+    clampedScale% = newScale%
+    
+    ' Clamp to minimum of 1
+    IF clampedScale% < 1 THEN clampedScale% = 1
+    
+    ' Clamp to configured maximum
+    IF clampedScale% > CFG.DISPLAY_SCALE_MAX% THEN
+        clampedScale% = CFG.DISPLAY_SCALE_MAX%
+    END IF
+    
+    ' Clamp to fit on desktop (leave margin for taskbar/dock)
+    maxFitW% = (_DESKTOPWIDTH - 100) \ SCRN.w&
+    maxFitH% = (_DESKTOPHEIGHT - 100) \ SCRN.h&
+    IF clampedScale% > maxFitW% THEN clampedScale% = maxFitW%
+    IF clampedScale% > maxFitH% THEN clampedScale% = maxFitH%
+    
+    ' No change needed
+    IF clampedScale% = SCRN.displayScale% THEN EXIT SUB
+    
+    ' Update display scale
+    SCRN.displayScale% = clampedScale%
+    
+    ' Free old window image
+    IF SCRN.WINDOW_IMG& < -1 THEN _FREEIMAGE SCRN.WINDOW_IMG&
+    
+    ' Create new window image at scaled size
+    winW& = SCRN.w& * SCRN.displayScale%
+    winH& = SCRN.h& * SCRN.displayScale%
+    SCRN.WINDOW_IMG& = _NEWIMAGE(winW&, winH&, 32)
+    
+    ' Switch to new window
+    SCREEN SCRN.WINDOW_IMG&
+    _DEST SCRN.CANVAS&
+    
+    ' Mark config as changed
+    CFG.DISPLAY_SCALE_CHANGED% = TRUE
+END SUB
+
+
+''
 ' Initialize the screen and various images we will use
 ' 
 SUB SCREEN_init ()
+    DIM winW AS LONG, winH AS LONG
+    
     ' Load configuration from disk
     CONFIG_load
     
@@ -50,6 +150,22 @@ SUB SCREEN_init ()
         SCREEN_detect_desktop_resolution
     END IF
     
+    ' Determine display scale
+    IF CFG.DISPLAY_SCALE% > 0 THEN
+        ' Use explicit scale from config
+        SCRN.displayScale% = CFG.DISPLAY_SCALE%
+        ' Clamp to max
+        IF SCRN.displayScale% > CFG.DISPLAY_SCALE_MAX% THEN
+            SCRN.displayScale% = CFG.DISPLAY_SCALE_MAX%
+        END IF
+    ELSE
+        ' Auto-detect optimal scale
+        SCRN.displayScale% = SCREEN_detect_display_scale%
+    END IF
+    
+    ' Ensure minimum scale of 1
+    IF SCRN.displayScale% < 1 THEN SCRN.displayScale% = 1
+    
     SCRN.zoom! = 1.0      ' Start at 1x zoom
     SCRN.zoomMin! = 0.25  ' 25% minimum zoom
     SCRN.zoomMax! = 8.0   ' 8x maximum zoom
@@ -64,15 +180,26 @@ SUB SCREEN_init ()
     SCRN.showStatus% = TRUE
     SCRN.toolbarManuallyHidden% = FALSE
     SCRN.statusManuallyHidden% = FALSE
+    
+    ' Create image buffers at logical canvas size
     SCRN.CANVAS&   = _NEWIMAGE(SCRN.w&, SCRN.h&, 32)
     SCRN.PAINTING& = _NEWIMAGE(SCRN.w&, SCRN.h&, 32)
     SCRN.GUI&      = _NEWIMAGE(SCRN.w&, SCRN.h&, 32)
     SCRN.CURSOR&   = _NEWIMAGE(SCRN.w&, SCRN.h&, 32)
+    
+    ' Create window display buffer at scaled size
+    winW& = SCRN.w& * SCRN.displayScale%
+    winH& = SCRN.h& * SCRN.displayScale%
+    SCRN.WINDOW_IMG& = _NEWIMAGE(winW&, winH&, 32)
+    
     _DEST SCRN.PAINTING&
     CLS , _RGBA32(0, 0, 0, 0)
     _DEST SCRN.GUI&
-    SCREEN SCRN.CANVAS&
+    
+    ' Use WINDOW_IMG as the screen (window size)
+    SCREEN SCRN.WINDOW_IMG&
     _DEST SCRN.CANVAS&
+    
     IF CFG.FULLSCREEN% THEN _FULLSCREEN _SQUAREPIXELS
     SCRN.bpp% = _PIXELSIZE
     ' Initialize tools
@@ -110,12 +237,12 @@ SUB SCREEN_render ()
     ' Switch back to canvas for main rendering
     _DEST SCRN.CANVAS&
     
-    ' Calculate zoomed dimensions and position
+    ' Calculate zoomed dimensions and position (using logical canvas dimensions)
     DIM zw AS LONG, zh AS LONG, dx AS INTEGER, dy AS INTEGER
     zw& = SCRN.w& * SCRN.zoom!
     zh& = SCRN.h& * SCRN.zoom!
-    dx% = (_WIDTH - zw&) \ 2 + SCRN.offsetX%
-    dy% = (_HEIGHT - zh&) \ 2 + SCRN.offsetY%
+    dx% = (SCRN.w& - zw&) \ 2 + SCRN.offsetX%
+    dy% = (SCRN.h& - zh&) \ 2 + SCRN.offsetY%
     
     ' Render painting layer with zoom
     ' Use MOVE preview buffer if move tool is active for realtime preview
@@ -198,6 +325,14 @@ SUB SCREEN_render ()
     ' ==== END IMAGE IMPORT PREVIEW ====
     
     _DEST SCRN.CANVAS& : _SOURCE SCRN.GUI& : _PUTIMAGE
+    
+    ' ==== IMAGE IMPORT STATUS BAR (after GUI so it's visible) ====
+    IF IMG_IMPORT.STATE > IMPORT_STATE_IDLE THEN
+        _DEST SCRN.CANVAS&
+        IMAGE_IMPORT_draw_status SCRN.CANVAS&
+    END IF
+    ' ==== END IMAGE IMPORT STATUS BAR ====
+    
     ' Draw MARQUEE selection if active or dragging (after all layers so it's on top)
     IF CURRENT_TOOL% = TOOL_MARQUEE AND (MARQUEE.ACTIVE% OR MARQUEE.DRAGGING%) THEN
         _DEST SCRN.CANVAS&
@@ -368,5 +503,11 @@ SUB SCREEN_render ()
     _SETALPHA 0, _RGB32(0,0,0), SCRN.CURSOR&
     _BLEND SCRN.CURSOR&
     _PUTIMAGE
+    
+    ' Scale CANVAS to WINDOW_IMG for display (integer scaling, nearest neighbor)
+    _DEST SCRN.WINDOW_IMG&
+    _DONTBLEND SCRN.WINDOW_IMG&
+    _PUTIMAGE (0, 0)-(_WIDTH(SCRN.WINDOW_IMG&) - 1, _HEIGHT(SCRN.WINDOW_IMG&) - 1), SCRN.CANVAS&, SCRN.WINDOW_IMG&
+    
     _DISPLAY
 END SUB
