@@ -241,6 +241,9 @@ SUB MOVE_apply_transform ()
     IF NOT MOVE.ACTIVE THEN EXIT SUB
     IF MOVE.SELECTION_IMAGE = 0 THEN EXIT SUB
     
+    ' Check ALT key at apply time to determine clone mode
+    MOVE.CLONING = (_KEYDOWN(KEY_LALT&) OR _KEYDOWN(KEY_RALT&))
+    
     ' Save undo state BEFORE making changes
     UNDO_save_state
     
@@ -269,6 +272,45 @@ SUB MOVE_apply_transform ()
     ' Reset transforming flag
     MOVE.TRANSFORMING = FALSE
 END SUB
+
+
+''
+' Stamp a copy of the selection at the current position (for clone mode)
+' Unlike apply_transform, this keeps the move tool active for more stamps
+SUB MOVE_stamp ()
+    IF NOT MOVE.ACTIVE THEN EXIT SUB
+    IF MOVE.SELECTION_IMAGE = 0 THEN EXIT SUB
+    
+    ' Save undo state BEFORE making changes
+    IF NOT UNDO_saved_this_frame% THEN
+        UNDO_save_state
+        UNDO_saved_this_frame% = TRUE
+    END IF
+    
+    _DEST SCRN.PAINTING&
+    
+    ' Draw a copy of the selection at current position (DON'T clear original - that's the point of stamp)
+    IF MOVE.SELECTION_IMAGE <> 0 THEN
+        _PUTIMAGE (MOVE.CURRENT_X, MOVE.CURRENT_Y)-(MOVE.CURRENT_X + MOVE.CURRENT_W - 1, MOVE.CURRENT_Y + MOVE.CURRENT_H - 1), MOVE.SELECTION_IMAGE, SCRN.PAINTING&
+    END IF
+    
+    _DEST SCRN.CANVAS&
+    
+    ' Update the selection base to current position for next drag
+    MOVE.SELECTION_X = MOVE.CURRENT_X
+    MOVE.SELECTION_Y = MOVE.CURRENT_Y
+    
+    ' Update marquee to stamped position
+    MARQUEE.BOX.x = MOVE.CURRENT_X
+    MARQUEE.BOX.y = MOVE.CURRENT_Y
+    MARQUEE.BOX.w = MOVE.CURRENT_W
+    MARQUEE.BOX.h = MOVE.CURRENT_H
+    
+    CANVAS_DIRTY% = TRUE
+    
+    ' Keep move tool active for more stamps - don't reset MOVE.TRANSFORMING
+END SUB
+
 
 ' Cancel the current transform
 SUB MOVE_cancel_transform ()
@@ -327,6 +369,78 @@ SUB MOVE_render_preview (dest AS LONG)
         ' White outline for active transform feedback in canvas coordinates
         LINE (zx%, zy%)-(zx2%, zy2%), c~&, B
     END IF
+END SUB
+
+
+''
+' Render the status tip bar for the move tool (called AFTER GUI layer)
+' @param dest LONG Destination image handle
+SUB MOVE_render_status (dest AS LONG)
+    IF NOT MOVE.ACTIVE THEN EXIT SUB
+    IF MOVE.SELECTION_IMAGE = 0 THEN EXIT SUB
+    
+    DIM prevDest AS LONG
+    prevDest& = _DEST
+    
+    ' Check current ALT state for status display
+    MOVE.CLONING = (_KEYDOWN(KEY_LALT&) OR _KEYDOWN(KEY_RALT&))
+    
+    ' Calculate zoomed coordinates for canvas overlay
+    DIM zw AS LONG, zh AS LONG, dx AS INTEGER, dy AS INTEGER
+    zw& = SCRN.w& * SCRN.zoom!
+    zh& = SCRN.h& * SCRN.zoom!
+    dx% = (_WIDTH(dest) - zw&) \ 2 + SCRN.offsetX%
+    dy% = (_HEIGHT(dest) - zh&) \ 2 + SCRN.offsetY%
+    
+    ' Draw status tip bar at bottom of canvas
+    DIM status_text AS STRING
+    
+    ' Build status text based on current state
+    IF MOVE.CLONING THEN
+        ' Clone mode active - show stamp instructions
+        status_text$ = "[CLONE] DRAG+Release: Stamp copy | Keep ALT held for more stamps | Release ALT: Done"
+    ELSE
+        ' Normal move mode
+        status_text$ = "DRAG: Move | ARROWS: Nudge | H/V: Flip | Hold ALT+DRAG: Stamp copies | ENTER: Apply | ESC: Cancel"
+    END IF
+    
+    ' Load Tiny5 font
+    DIM tiny_font AS LONG
+    DIM old_font AS LONG
+    DIM text_h AS INTEGER
+    DIM bar_y AS INTEGER
+    
+    tiny_font& = _LOADFONT("ASSETS/FONTS/Tiny5-Regular.ttf", 8)
+    IF tiny_font& > 0 THEN
+        old_font& = _FONT(dest)
+        _FONT tiny_font&, dest
+        text_h% = _FONTHEIGHT(tiny_font&)
+    ELSE
+        old_font& = 0
+        text_h% = 8
+    END IF
+    
+    ' Position status bar at bottom of canvas area (inside, not below)
+    bar_y% = dy% + zh& - text_h% - 4
+    
+    _DEST dest
+    
+    ' Draw solid background bar across canvas width
+    LINE (dx%, bar_y%)-(dx% + zw& - 1, dy% + zh& - 1), _RGB32(32, 32, 32), BF
+    ' Top border line
+    LINE (dx%, bar_y%)-(dx% + zw& - 1, bar_y%), _RGB32(80, 80, 80)
+    
+    ' Draw status text (left aligned)
+    COLOR _RGB32(255, 255, 255), _RGB32(32, 32, 32)
+    _PRINTSTRING (dx% + 4, bar_y% + 2), status_text$
+    
+    ' Restore original font and free loaded font
+    IF tiny_font& > 0 THEN
+        _FONT old_font&, dest
+        _FREEFONT tiny_font&
+    END IF
+    
+    _DEST prevDest&
 END SUB
 
 ' Update the preview buffer with current transform state
