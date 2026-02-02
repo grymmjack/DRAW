@@ -35,6 +35,12 @@ TYPE DRAW_CONFIG
     PALETTE_PICKER_CHIP_PADDING    AS INTEGER
     PALETTE_PICKER_COLUMNS         AS INTEGER
     ANGLE_SNAP_DEGREES             AS INTEGER
+    ' Layer panel settings
+    LAYER_PANEL_WIDTH              AS INTEGER  ' Width of layer panel in pixels (min 100)
+    ' Transparency checkerboard settings
+    TRANSPARENCY_CHECK_COLOR1      AS _UNSIGNED LONG  ' Light checkerboard color
+    TRANSPARENCY_CHECK_COLOR2      AS _UNSIGNED LONG  ' Dark checkerboard color
+    TRANSPARENCY_CHECK_SIZE        AS INTEGER  ' Checkerboard square size in pixels
 END TYPE
 
 DIM SHARED CFG   AS DRAW_CONFIG

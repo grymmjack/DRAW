@@ -1,26 +1,1123 @@
 ''
 ' DRAW - GUI/LAYERS.BM
 ' =============================================================================
-' Layers subs and functions.
+' Layers management subs and functions.
 '
-' @todo
 ' @author Rick Christy <grymmjack@gmail.com>
 '
 $INCLUDEONCE
 
 ''
-' Initialize the layers
+' Initialize the layer system
+' Creates first layer and loads font
 ' 
 SUB LAYERS_init ()
-    DIM AS INTEGER l, u, i
-    l% = LBOUND(LAYERS) : u% = UBOUND(LAYERS)
-    FOR i% = l% TO u%
-        LAYERS(i%).zIndex%       = i%
+    DIM i AS INTEGER
+    DIM firstLayer AS INTEGER
+    
+    ' Initialize all layer slots to empty
+    FOR i% = 1 TO 64
+        LAYERS(i%).zIndex%       = 0
         LAYERS(i%).imgWidth%     = 0
         LAYERS(i%).imgHeight%    = 0
         LAYERS(i%).imgHandle&    = 0
-        LAYERS(i%).visible%      = TRUE
+        LAYERS(i%).visible%      = FALSE
         LAYERS(i%).isSelected%   = FALSE
         LAYERS(i%).lastSelected% = FALSE
+        LAYERS(i%).name          = ""
+        LAYERS(i%).opacity%      = 255
+        LAYERS(i%).opacityLock%  = FALSE
     NEXT i%
+    
+    ' Initialize panel state
+    LAYER_PANEL.visible%      = TRUE   ' Visible by default
+    LAYER_PANEL.scrollOffset% = 0
+    LAYER_PANEL.hoverRow%     = -1
+    LAYER_PANEL.draggingRow%  = -1
+    LAYER_PANEL.dragStartY%   = 0
+    LAYER_PANEL.opacityDrag%  = FALSE
+    LAYER_PANEL.opacityDragLayer% = 0
+    
+    ' Load Tiny5 font for panel text
+    LAYER_PANEL.fontHandle& = _LOADFONT("ASSETS/FONTS/Tiny5-Regular.ttf", 8, "DONTBLEND")
+    IF LAYER_PANEL.fontHandle& <= 0 THEN
+        LAYER_PANEL.fontHandle& = 16  ' Fallback to default font
+    END IF
+    
+    ' Initialize layer count and current layer
+    LAYER_COUNT% = 0
+    CURRENT_LAYER% = 0
+    
+    ' Create default initial layer (Background)
+    DIM defaultLayer AS INTEGER
+    defaultLayer% = LAYERS_new%
+    IF defaultLayer% > 0 THEN
+        LAYERS(defaultLayer%).name = "Background"
+        ' Copy any existing content from SCRN.PAINTING to the layer
+        DIM oldDest2 AS LONG
+        oldDest2& = _DEST
+        _DEST LAYERS(defaultLayer%).imgHandle&
+        _PUTIMAGE , SCRN.PAINTING&
+        _DEST oldDest2&
+    END IF
+END SUB
+
+
+''
+' Create a new layer
+' Returns the index of the new layer, or 0 if max layers reached
+' 
+FUNCTION LAYERS_new% ()
+    DIM newIndex AS INTEGER
+    DIM i AS INTEGER
+    
+    ' Check if we've hit the max
+    IF LAYER_COUNT% >= CFG.NUM_LAYERS% THEN
+        LAYERS_new% = 0
+        EXIT FUNCTION
+    END IF
+    
+    ' Find first empty slot
+    newIndex% = 0
+    FOR i% = 1 TO 64
+        IF LAYERS(i%).imgHandle& = 0 THEN
+            newIndex% = i%
+            EXIT FOR
+        END IF
+    NEXT i%
+    
+    IF newIndex% = 0 THEN
+        LAYERS_new% = 0
+        EXIT FUNCTION
+    END IF
+    
+    ' Create the layer image buffer
+    LAYERS(newIndex%).imgWidth%  = SCRN.w&
+    LAYERS(newIndex%).imgHeight% = SCRN.h&
+    LAYERS(newIndex%).imgHandle& = _NEWIMAGE(SCRN.w&, SCRN.h&, 32)
+    
+    ' Clear to transparent
+    DIM oldDest AS LONG
+    oldDest& = _DEST
+    _DEST LAYERS(newIndex%).imgHandle&
+    CLS , _RGBA32(0, 0, 0, 0)
+    _DEST oldDest&
+    
+    ' Set default properties
+    LAYER_COUNT% = LAYER_COUNT% + 1
+    LAYERS(newIndex%).zIndex%      = LAYER_COUNT%  ' New layer goes on top
+    LAYERS(newIndex%).visible%     = TRUE
+    LAYERS(newIndex%).isSelected%  = FALSE
+    LAYERS(newIndex%).lastSelected% = FALSE
+    LAYERS(newIndex%).name         = "Layer " + _TRIM$(STR$(LAYER_COUNT%))
+    LAYERS(newIndex%).opacity%     = 255
+    LAYERS(newIndex%).opacityLock% = FALSE
+    
+    ' Select the new layer
+    LAYERS_select newIndex%
+    
+    GUI_NEEDS_REDRAW% = TRUE
+    LAYERS_new% = newIndex%
+END FUNCTION
+
+
+''
+' Delete a layer
+' 
+SUB LAYERS_delete (layerIndex AS INTEGER)
+    DIM i AS INTEGER
+    DIM deletedZ AS INTEGER
+    
+    ' Can't delete if only one layer
+    IF LAYER_COUNT% <= 1 THEN EXIT SUB
+    
+    ' Validate index
+    IF layerIndex% < 1 OR layerIndex% > 64 THEN EXIT SUB
+    IF LAYERS(layerIndex%).imgHandle& = 0 THEN EXIT SUB
+    
+    ' Store zIndex before deleting
+    deletedZ% = LAYERS(layerIndex%).zIndex%
+    
+    ' Free the image
+    IF LAYERS(layerIndex%).imgHandle& < -1 THEN
+        _FREEIMAGE LAYERS(layerIndex%).imgHandle&
+    END IF
+    
+    ' Clear the slot
+    LAYERS(layerIndex%).imgHandle& = 0
+    LAYERS(layerIndex%).imgWidth%  = 0
+    LAYERS(layerIndex%).imgHeight% = 0
+    LAYERS(layerIndex%).zIndex%    = 0
+    LAYERS(layerIndex%).visible%   = FALSE
+    LAYERS(layerIndex%).isSelected% = FALSE
+    LAYERS(layerIndex%).name       = ""
+    LAYERS(layerIndex%).opacity%   = 255
+    LAYERS(layerIndex%).opacityLock% = FALSE
+    
+    LAYER_COUNT% = LAYER_COUNT% - 1
+    
+    ' Adjust zIndex of layers above the deleted one
+    FOR i% = 1 TO 64
+        IF LAYERS(i%).imgHandle& <> 0 AND LAYERS(i%).zIndex% > deletedZ% THEN
+            LAYERS(i%).zIndex% = LAYERS(i%).zIndex% - 1
+        END IF
+    NEXT i%
+    
+    ' Select another layer if the deleted one was selected
+    IF CURRENT_LAYER% = layerIndex% THEN
+        ' Find closest layer
+        FOR i% = 1 TO 64
+            IF LAYERS(i%).imgHandle& <> 0 THEN
+                LAYERS_select i%
+                EXIT FOR
+            END IF
+        NEXT i%
+    END IF
+    
+    GUI_NEEDS_REDRAW% = TRUE
+END SUB
+
+
+''
+' Duplicate a layer
+' 
+SUB LAYERS_duplicate (layerIndex AS INTEGER)
+    DIM newIndex AS INTEGER
+    DIM oldDest AS LONG
+    
+    ' Validate
+    IF layerIndex% < 1 OR layerIndex% > 64 THEN EXIT SUB
+    IF LAYERS(layerIndex%).imgHandle& = 0 THEN EXIT SUB
+    
+    ' Create new layer
+    newIndex% = LAYERS_new%
+    IF newIndex% = 0 THEN EXIT SUB
+    
+    ' Copy image content
+    oldDest& = _DEST
+    _DEST LAYERS(newIndex%).imgHandle&
+    _PUTIMAGE , LAYERS(layerIndex%).imgHandle&
+    _DEST oldDest&
+    
+    ' Copy properties (except zIndex which is already set)
+    LAYERS(newIndex%).name        = _TRIM$(LAYERS(layerIndex%).name) + " copy"
+    LAYERS(newIndex%).opacity%    = LAYERS(layerIndex%).opacity%
+    LAYERS(newIndex%).opacityLock% = LAYERS(layerIndex%).opacityLock%
+    LAYERS(newIndex%).visible%    = LAYERS(layerIndex%).visible%
+    
+    GUI_NEEDS_REDRAW% = TRUE
+END SUB
+
+
+''
+' Clear a layer (fill with transparency)
+' 
+SUB LAYERS_clear (layerIndex AS INTEGER)
+    DIM oldDest AS LONG
+    
+    ' Validate
+    IF layerIndex% < 1 OR layerIndex% > 64 THEN EXIT SUB
+    IF LAYERS(layerIndex%).imgHandle& = 0 THEN EXIT SUB
+    
+    oldDest& = _DEST
+    _DEST LAYERS(layerIndex%).imgHandle&
+    CLS , _RGBA32(0, 0, 0, 0)
+    _DEST oldDest&
+    
+    GUI_NEEDS_REDRAW% = TRUE
+END SUB
+
+
+''
+' Rename a layer using input dialog
+' 
+SUB LAYERS_rename (layerIndex AS INTEGER)
+    DIM newName AS STRING
+    
+    ' Validate
+    IF layerIndex% < 1 OR layerIndex% > 64 THEN EXIT SUB
+    IF LAYERS(layerIndex%).imgHandle& = 0 THEN EXIT SUB
+    
+    newName$ = _INPUTBOX$("Rename Layer", "Enter new name:", _TRIM$(LAYERS(layerIndex%).name))
+    
+    ' Drain mouse buffer after dialog
+    DO WHILE _MOUSEINPUT: LOOP
+    MOUSE_force_buttons_up
+    
+    IF LEN(newName$) > 0 THEN
+        ' Truncate to max length
+        IF LEN(newName$) > LAYER_NAME_MAX_LEN THEN
+            newName$ = LEFT$(newName$, LAYER_NAME_MAX_LEN)
+        END IF
+        LAYERS(layerIndex%).name = newName$
+        GUI_NEEDS_REDRAW% = TRUE
+    END IF
+END SUB
+
+
+''
+' Select a layer as the current working layer
+' 
+SUB LAYERS_select (layerIndex AS INTEGER)
+    DIM i AS INTEGER
+    
+    ' Validate
+    IF layerIndex% < 1 OR layerIndex% > 64 THEN EXIT SUB
+    IF LAYERS(layerIndex%).imgHandle& = 0 THEN EXIT SUB
+    
+    ' Deselect all layers
+    FOR i% = 1 TO 64
+        LAYERS(i%).lastSelected% = LAYERS(i%).isSelected%
+        LAYERS(i%).isSelected% = FALSE
+    NEXT i%
+    
+    ' Select the target layer
+    LAYERS(layerIndex%).isSelected% = TRUE
+    CURRENT_LAYER% = layerIndex%
+    
+    GUI_NEEDS_REDRAW% = TRUE
+END SUB
+
+
+''
+' Move a layer up in the stack (increase zIndex)
+' 
+SUB LAYERS_move_up (layerIndex AS INTEGER)
+    DIM i AS INTEGER
+    DIM currentZ AS INTEGER
+    DIM targetIndex AS INTEGER
+    
+    ' Validate
+    IF layerIndex% < 1 OR layerIndex% > 64 THEN EXIT SUB
+    IF LAYERS(layerIndex%).imgHandle& = 0 THEN EXIT SUB
+    
+    currentZ% = LAYERS(layerIndex%).zIndex%
+    IF currentZ% >= LAYER_COUNT% THEN EXIT SUB  ' Already at top
+    
+    ' Find layer with zIndex = currentZ + 1
+    targetIndex% = 0
+    FOR i% = 1 TO 64
+        IF LAYERS(i%).imgHandle& <> 0 AND LAYERS(i%).zIndex% = currentZ% + 1 THEN
+            targetIndex% = i%
+            EXIT FOR
+        END IF
+    NEXT i%
+    
+    IF targetIndex% > 0 THEN
+        ' Swap zIndex values
+        LAYERS(layerIndex%).zIndex% = currentZ% + 1
+        LAYERS(targetIndex%).zIndex% = currentZ%
+    END IF
+    
+    GUI_NEEDS_REDRAW% = TRUE
+END SUB
+
+
+''
+' Move a layer down in the stack (decrease zIndex)
+' 
+SUB LAYERS_move_down (layerIndex AS INTEGER)
+    DIM i AS INTEGER
+    DIM currentZ AS INTEGER
+    DIM targetIndex AS INTEGER
+    
+    ' Validate
+    IF layerIndex% < 1 OR layerIndex% > 64 THEN EXIT SUB
+    IF LAYERS(layerIndex%).imgHandle& = 0 THEN EXIT SUB
+    
+    currentZ% = LAYERS(layerIndex%).zIndex%
+    IF currentZ% <= 1 THEN EXIT SUB  ' Already at bottom
+    
+    ' Find layer with zIndex = currentZ - 1
+    targetIndex% = 0
+    FOR i% = 1 TO 64
+        IF LAYERS(i%).imgHandle& <> 0 AND LAYERS(i%).zIndex% = currentZ% - 1 THEN
+            targetIndex% = i%
+            EXIT FOR
+        END IF
+    NEXT i%
+    
+    IF targetIndex% > 0 THEN
+        ' Swap zIndex values
+        LAYERS(layerIndex%).zIndex% = currentZ% - 1
+        LAYERS(targetIndex%).zIndex% = currentZ%
+    END IF
+    
+    GUI_NEEDS_REDRAW% = TRUE
+END SUB
+
+
+''
+' Move a layer to the top of the stack
+' 
+SUB LAYERS_to_top (layerIndex AS INTEGER)
+    DIM i AS INTEGER
+    DIM currentZ AS INTEGER
+    
+    ' Validate
+    IF layerIndex% < 1 OR layerIndex% > 64 THEN EXIT SUB
+    IF LAYERS(layerIndex%).imgHandle& = 0 THEN EXIT SUB
+    
+    currentZ% = LAYERS(layerIndex%).zIndex%
+    IF currentZ% = LAYER_COUNT% THEN EXIT SUB  ' Already at top
+    
+    ' Decrease zIndex of all layers above this one
+    FOR i% = 1 TO 64
+        IF LAYERS(i%).imgHandle& <> 0 AND LAYERS(i%).zIndex% > currentZ% THEN
+            LAYERS(i%).zIndex% = LAYERS(i%).zIndex% - 1
+        END IF
+    NEXT i%
+    
+    ' Set this layer to top
+    LAYERS(layerIndex%).zIndex% = LAYER_COUNT%
+    
+    GUI_NEEDS_REDRAW% = TRUE
+END SUB
+
+
+''
+' Move a layer to the bottom of the stack
+' 
+SUB LAYERS_to_bottom (layerIndex AS INTEGER)
+    DIM i AS INTEGER
+    DIM currentZ AS INTEGER
+    
+    ' Validate
+    IF layerIndex% < 1 OR layerIndex% > 64 THEN EXIT SUB
+    IF LAYERS(layerIndex%).imgHandle& = 0 THEN EXIT SUB
+    
+    currentZ% = LAYERS(layerIndex%).zIndex%
+    IF currentZ% = 1 THEN EXIT SUB  ' Already at bottom
+    
+    ' Increase zIndex of all layers below this one
+    FOR i% = 1 TO 64
+        IF LAYERS(i%).imgHandle& <> 0 AND LAYERS(i%).zIndex% < currentZ% THEN
+            LAYERS(i%).zIndex% = LAYERS(i%).zIndex% + 1
+        END IF
+    NEXT i%
+    
+    ' Set this layer to bottom
+    LAYERS(layerIndex%).zIndex% = 1
+    
+    GUI_NEEDS_REDRAW% = TRUE
+END SUB
+
+
+''
+' Toggle layer visibility
+' 
+SUB LAYERS_toggle_visibility (layerIndex AS INTEGER)
+    ' Validate
+    IF layerIndex% < 1 OR layerIndex% > 64 THEN EXIT SUB
+    IF LAYERS(layerIndex%).imgHandle& = 0 THEN EXIT SUB
+    
+    LAYERS(layerIndex%).visible% = NOT LAYERS(layerIndex%).visible%
+    GUI_NEEDS_REDRAW% = TRUE
+END SUB
+
+
+''
+' Set layer opacity
+' 
+SUB LAYERS_set_opacity (layerIndex AS INTEGER, opacity AS INTEGER)
+    DIM clampedOpacity AS INTEGER
+    
+    ' Validate
+    IF layerIndex% < 1 OR layerIndex% > 64 THEN EXIT SUB
+    IF LAYERS(layerIndex%).imgHandle& = 0 THEN EXIT SUB
+    
+    ' Clamp opacity to valid range
+    clampedOpacity% = opacity%
+    IF clampedOpacity% < 0 THEN clampedOpacity% = 0
+    IF clampedOpacity% > 255 THEN clampedOpacity% = 255
+    
+    LAYERS(layerIndex%).opacity% = clampedOpacity%
+    GUI_NEEDS_REDRAW% = TRUE
+END SUB
+
+
+''
+' Toggle opacity lock (draw only on non-transparent pixels)
+' 
+SUB LAYERS_toggle_opacity_lock (layerIndex AS INTEGER)
+    ' Validate
+    IF layerIndex% < 1 OR layerIndex% > 64 THEN EXIT SUB
+    IF LAYERS(layerIndex%).imgHandle& = 0 THEN EXIT SUB
+    
+    LAYERS(layerIndex%).opacityLock% = NOT LAYERS(layerIndex%).opacityLock%
+    GUI_NEEDS_REDRAW% = TRUE
+END SUB
+
+
+''
+' Merge current layer down into the layer below it
+' 
+SUB LAYERS_merge_down (layerIndex AS INTEGER)
+    DIM i AS INTEGER
+    DIM currentZ AS INTEGER
+    DIM targetIndex AS INTEGER
+    DIM oldDest AS LONG
+    DIM tempImg AS LONG
+    
+    ' Validate
+    IF layerIndex% < 1 OR layerIndex% > 64 THEN EXIT SUB
+    IF LAYERS(layerIndex%).imgHandle& = 0 THEN EXIT SUB
+    
+    currentZ% = LAYERS(layerIndex%).zIndex%
+    IF currentZ% <= 1 THEN EXIT SUB  ' No layer below to merge into
+    
+    ' Find layer below (zIndex = currentZ - 1)
+    targetIndex% = 0
+    FOR i% = 1 TO 64
+        IF LAYERS(i%).imgHandle& <> 0 AND LAYERS(i%).zIndex% = currentZ% - 1 THEN
+            targetIndex% = i%
+            EXIT FOR
+        END IF
+    NEXT i%
+    
+    IF targetIndex% = 0 THEN EXIT SUB
+    
+    ' Merge: composite current layer onto target with opacity
+    oldDest& = _DEST
+    
+    IF LAYERS(layerIndex%).opacity% < 255 THEN
+        ' Create temp image with opacity applied
+        tempImg& = _COPYIMAGE(LAYERS(layerIndex%).imgHandle&, 32)
+        _SETALPHA LAYERS(layerIndex%).opacity%, , tempImg&
+        _DEST LAYERS(targetIndex%).imgHandle&
+        _BLEND LAYERS(targetIndex%).imgHandle&
+        _PUTIMAGE , tempImg&
+        IF tempImg& < -1 THEN _FREEIMAGE tempImg&
+    ELSE
+        _DEST LAYERS(targetIndex%).imgHandle&
+        _BLEND LAYERS(targetIndex%).imgHandle&
+        _PUTIMAGE , LAYERS(layerIndex%).imgHandle&
+    END IF
+    
+    _DEST oldDest&
+    
+    ' Delete the merged layer
+    LAYERS_delete layerIndex%
+    
+    ' Select the target layer
+    LAYERS_select targetIndex%
+    
+    GUI_NEEDS_REDRAW% = TRUE
+END SUB
+
+
+''
+' Merge all visible layers into a new layer
+' 
+SUB LAYERS_merge_visible ()
+    DIM newIndex AS INTEGER
+    DIM i AS INTEGER, z AS INTEGER
+    DIM oldDest AS LONG
+    DIM tempImg AS LONG
+    DIM sortedLayers(1 TO 64) AS INTEGER
+    DIM sortCount AS INTEGER
+    
+    ' Build sorted list of visible layers by zIndex
+    sortCount% = 0
+    FOR z% = 1 TO LAYER_COUNT%
+        FOR i% = 1 TO 64
+            IF LAYERS(i%).imgHandle& <> 0 AND LAYERS(i%).visible% AND LAYERS(i%).zIndex% = z% THEN
+                sortCount% = sortCount% + 1
+                sortedLayers%(sortCount%) = i%
+                EXIT FOR
+            END IF
+        NEXT i%
+    NEXT z%
+    
+    IF sortCount% < 2 THEN EXIT SUB  ' Need at least 2 visible layers to merge
+    
+    ' Create new layer for merged result
+    newIndex% = LAYERS_new%
+    IF newIndex% = 0 THEN EXIT SUB
+    
+    LAYERS(newIndex%).name = "Merged"
+    
+    ' Composite all visible layers bottom-to-top
+    oldDest& = _DEST
+    _DEST LAYERS(newIndex%).imgHandle&
+    CLS , _RGBA32(0, 0, 0, 0)
+    _BLEND LAYERS(newIndex%).imgHandle&
+    
+    FOR i% = 1 TO sortCount%
+        DIM srcIdx AS INTEGER
+        srcIdx% = sortedLayers%(i%)
+        
+        IF LAYERS(srcIdx%).opacity% < 255 THEN
+            tempImg& = _COPYIMAGE(LAYERS(srcIdx%).imgHandle&, 32)
+            _SETALPHA LAYERS(srcIdx%).opacity%, , tempImg&
+            _PUTIMAGE , tempImg&
+            IF tempImg& < -1 THEN _FREEIMAGE tempImg&
+        ELSE
+            _PUTIMAGE , LAYERS(srcIdx%).imgHandle&
+        END IF
+    NEXT i%
+    
+    _DEST oldDest&
+    
+    ' Delete the source visible layers (except the new one)
+    FOR i% = 1 TO sortCount%
+        IF sortedLayers%(i%) <> newIndex% THEN
+            LAYERS_delete sortedLayers%(i%)
+        END IF
+    NEXT i%
+    
+    ' Select the merged layer
+    LAYERS_select newIndex%
+    
+    GUI_NEEDS_REDRAW% = TRUE
+END SUB
+
+
+''
+' Flatten all visible layers and return a new image handle
+' Caller is responsible for freeing the returned image
+' 
+FUNCTION LAYERS_flatten& ()
+    DIM result AS LONG
+    DIM i AS INTEGER, z AS INTEGER
+    DIM oldDest AS LONG
+    DIM tempImg AS LONG
+    
+    result& = _NEWIMAGE(SCRN.w&, SCRN.h&, 32)
+    
+    oldDest& = _DEST
+    _DEST result&
+    CLS , _RGBA32(0, 0, 0, 0)
+    _BLEND result&
+    
+    ' Composite visible layers bottom-to-top by zIndex
+    FOR z% = 1 TO LAYER_COUNT%
+        FOR i% = 1 TO 64
+            IF LAYERS(i%).imgHandle& <> 0 AND LAYERS(i%).visible% AND LAYERS(i%).zIndex% = z% THEN
+                IF LAYERS(i%).opacity% < 255 THEN
+                    tempImg& = _COPYIMAGE(LAYERS(i%).imgHandle&, 32)
+                    _SETALPHA LAYERS(i%).opacity%, , tempImg&
+                    _PUTIMAGE , tempImg&
+                    IF tempImg& < -1 THEN _FREEIMAGE tempImg&
+                ELSE
+                    _PUTIMAGE , LAYERS(i%).imgHandle&
+                END IF
+                EXIT FOR
+            END IF
+        NEXT i%
+    NEXT z%
+    
+    _DEST oldDest&
+    
+    LAYERS_flatten& = result&
+END FUNCTION
+
+
+''
+' Get the current layer's image handle for drawing
+' 
+FUNCTION LAYER_current_image& ()
+    IF CURRENT_LAYER% >= 1 AND CURRENT_LAYER% <= 64 THEN
+        IF LAYERS(CURRENT_LAYER%).imgHandle& <> 0 THEN
+            LAYER_current_image& = LAYERS(CURRENT_LAYER%).imgHandle&
+            EXIT FUNCTION
+        END IF
+    END IF
+    
+    ' Fallback to SCRN.PAINTING if no valid layer
+    LAYER_current_image& = SCRN.PAINTING&
+END FUNCTION
+
+
+''
+' Render the layer panel
+' 
+SUB LAYER_PANEL_render (canvasHeight AS INTEGER)
+    DIM panelX AS INTEGER, panelY AS INTEGER
+    DIM panelW AS INTEGER, panelH AS INTEGER
+    DIM rowY AS INTEGER
+    DIM i AS INTEGER, z AS INTEGER
+    DIM layerIdx AS INTEGER
+    DIM oldDest AS LONG
+    DIM oldFont AS LONG
+    DIM bgColor AS _UNSIGNED LONG
+    DIM fgColor AS _UNSIGNED LONG
+    DIM rowBg AS _UNSIGNED LONG
+    DIM visibleIcon AS STRING
+    DIM lockIcon AS STRING
+    DIM opacityBarW AS INTEGER
+    DIM opacityFill AS INTEGER
+    DIM bottomBarsHeight AS INTEGER
+    DIM listTop AS INTEGER, listBottom AS INTEGER, listHeight AS INTEGER
+    DIM totalContentHeight AS INTEGER
+    DIM scrollbarX AS INTEGER, scrollbarY AS INTEGER, scrollbarH AS INTEGER
+    DIM thumbH AS INTEGER, thumbY AS INTEGER
+    DIM maxScroll AS INTEGER
+    
+    IF NOT LAYER_PANEL.visible% THEN EXIT SUB
+    
+    ' Calculate height of bottom bars (status bar + palette strip)
+    bottomBarsHeight% = THEME.STATUS_height% + PALETTE_STRIP_get_height%
+    
+    panelX% = 0
+    panelY% = 0
+    panelW% = CFG.LAYER_PANEL_WIDTH%
+    panelH% = canvasHeight% - bottomBarsHeight%  ' Stop above bottom bars
+    
+    ' Define areas: header (16px), list area (variable), button area (24px)
+    CONST HEADER_HEIGHT = 16
+    CONST BUTTON_AREA_HEIGHT = 24
+    listTop% = panelY% + HEADER_HEIGHT
+    listBottom% = panelH% - BUTTON_AREA_HEIGHT
+    listHeight% = listBottom% - listTop%
+    
+    ' Calculate total content height
+    totalContentHeight% = LAYER_COUNT% * LAYER_ROW_HEIGHT
+    
+    ' Calculate max scroll offset
+    maxScroll% = totalContentHeight% - listHeight%
+    IF maxScroll% < 0 THEN maxScroll% = 0
+    
+    ' Clamp scroll offset
+    IF LAYER_PANEL.scrollOffset% > maxScroll% THEN LAYER_PANEL.scrollOffset% = maxScroll%
+    IF LAYER_PANEL.scrollOffset% < 0 THEN LAYER_PANEL.scrollOffset% = 0
+    
+    oldDest& = _DEST
+    _DEST SCRN.GUI&
+    
+    ' Draw panel background
+    bgColor~& = _RGB32(40, 40, 40)
+    LINE (panelX%, panelY%)-(panelX% + panelW% - 1, panelY% + panelH% - 1), bgColor~&, BF
+    
+    ' Draw right border
+    LINE (panelX% + panelW% - 1, panelY%)-(panelX% + panelW% - 1, panelY% + panelH% - 1), _RGB32(60, 60, 60)
+    
+    ' Draw header
+    LINE (panelX%, panelY%)-(panelX% + panelW% - 1, panelY% + HEADER_HEIGHT - 1), _RGB32(50, 50, 50), BF
+    
+    oldFont& = _FONT
+    IF LAYER_PANEL.fontHandle& > 0 THEN _FONT LAYER_PANEL.fontHandle&
+    
+    COLOR _RGB32(200, 200, 200), _RGBA32(0, 0, 0, 0)
+    _PRINTSTRING (panelX% + 4, panelY% + 3), "LAYERS"
+    
+    ' Draw layer count in header
+    COLOR _RGB32(150, 150, 150), _RGBA32(0, 0, 0, 0)
+    _PRINTSTRING (panelX% + panelW% - 20, panelY% + 3), _TRIM$(STR$(LAYER_COUNT%))
+    
+    ' Draw layer rows (top to bottom = highest zIndex to lowest)
+    ' Only draw rows that are visible in the list area
+    rowY% = listTop%
+    
+    FOR z% = LAYER_COUNT% TO 1 STEP -1
+        ' Find layer with this zIndex
+        layerIdx% = 0
+        FOR i% = 1 TO 64
+            IF LAYERS(i%).imgHandle& <> 0 AND LAYERS(i%).zIndex% = z% THEN
+                layerIdx% = i%
+                EXIT FOR
+            END IF
+        NEXT i%
+        
+        IF layerIdx% > 0 THEN
+            DIM drawY AS INTEGER
+            drawY% = rowY% - LAYER_PANEL.scrollOffset%
+            
+            ' Only draw if row is visible in list area
+            IF drawY% + LAYER_ROW_HEIGHT > listTop% AND drawY% < listBottom% THEN
+                ' Clip to list area
+                DIM clipTop AS INTEGER, clipBottom AS INTEGER
+                clipTop% = drawY%
+                IF clipTop% < listTop% THEN clipTop% = listTop%
+                clipBottom% = drawY% + LAYER_ROW_HEIGHT - 1
+                IF clipBottom% >= listBottom% THEN clipBottom% = listBottom% - 1
+                
+                ' Row background (selected = highlight)
+                IF LAYERS(layerIdx%).isSelected% THEN
+                    rowBg~& = _RGB32(70, 100, 140)
+                ELSEIF LAYER_PANEL.hoverRow% = layerIdx% THEN
+                    rowBg~& = _RGB32(55, 55, 55)
+                ELSE
+                    rowBg~& = _RGB32(45, 45, 45)
+                END IF
+                LINE (panelX% + 2, clipTop%)-(panelX% + panelW% - 12, clipBottom%), rowBg~&, BF
+                
+                ' Only draw text if fully visible
+                IF drawY% >= listTop% AND drawY% + LAYER_ROW_HEIGHT <= listBottom% THEN
+                    ' Visibility toggle (eye icon)
+                    IF LAYERS(layerIdx%).visible% THEN
+                        visibleIcon$ = "O"  ' Eye open
+                        fgColor~& = _RGB32(200, 200, 200)
+                    ELSE
+                        visibleIcon$ = "-"  ' Eye closed
+                        fgColor~& = _RGB32(100, 100, 100)
+                    END IF
+                    COLOR fgColor~&, _RGBA32(0, 0, 0, 0)
+                    _PRINTSTRING (panelX% + 4, drawY% + 4), visibleIcon$
+                    
+                    ' Opacity lock icon
+                    IF LAYERS(layerIdx%).opacityLock% THEN
+                        lockIcon$ = "L"
+                        COLOR _RGB32(255, 180, 0), _RGBA32(0, 0, 0, 0)
+                        _PRINTSTRING (panelX% + 14, drawY% + 4), lockIcon$
+                    END IF
+                    
+                    ' Layer name
+                    COLOR _RGB32(220, 220, 220), _RGBA32(0, 0, 0, 0)
+                    _PRINTSTRING (panelX% + 24, drawY% + 4), LEFT$(_TRIM$(LAYERS(layerIdx%).name), 10)
+                    
+                    ' Opacity bar (small bar showing opacity level)
+                    opacityBarW% = 30
+                    opacityFill% = INT((LAYERS(layerIdx%).opacity% / 255.0) * opacityBarW%)
+                    LINE (panelX% + panelW% - opacityBarW% - 14, drawY% + 14)-(panelX% + panelW% - 14, drawY% + 17), _RGB32(30, 30, 30), BF
+                    IF opacityFill% > 0 THEN
+                        LINE (panelX% + panelW% - opacityBarW% - 14, drawY% + 14)-(panelX% + panelW% - opacityBarW% - 14 + opacityFill%, drawY% + 17), _RGB32(100, 150, 200), BF
+                    END IF
+                END IF
+            END IF
+            
+            rowY% = rowY% + LAYER_ROW_HEIGHT
+        END IF
+    NEXT z%
+    
+    ' Draw scrollbar if content exceeds list height
+    IF totalContentHeight% > listHeight% THEN
+        scrollbarX% = panelX% + panelW% - 10
+        scrollbarY% = listTop%
+        scrollbarH% = listHeight%
+        
+        ' Scrollbar track
+        LINE (scrollbarX%, scrollbarY%)-(scrollbarX% + 7, scrollbarY% + scrollbarH% - 1), _RGB32(30, 30, 30), BF
+        
+        ' Scrollbar thumb
+        thumbH% = INT((listHeight% / totalContentHeight%) * scrollbarH%)
+        IF thumbH% < 20 THEN thumbH% = 20  ' Minimum thumb size
+        IF thumbH% > scrollbarH% THEN thumbH% = scrollbarH%
+        
+        IF maxScroll% > 0 THEN
+            thumbY% = scrollbarY% + INT((LAYER_PANEL.scrollOffset% / maxScroll%) * (scrollbarH% - thumbH%))
+        ELSE
+            thumbY% = scrollbarY%
+        END IF
+        
+        LINE (scrollbarX% + 1, thumbY%)-(scrollbarX% + 6, thumbY% + thumbH% - 1), _RGB32(80, 80, 80), BF
+    END IF
+    
+    ' Draw separator line above button area
+    LINE (panelX%, listBottom%)-(panelX% + panelW% - 1, listBottom%), _RGB32(60, 60, 60)
+    
+    ' Draw button bar at bottom (5 buttons: ^ v # x +)
+    DIM btnY AS INTEGER
+    DIM btnW AS INTEGER
+    DIM btnX AS INTEGER
+    DIM btnSpacing AS INTEGER
+    
+    btnY% = listBottom% + 3
+    btnSpacing% = 2
+    btnW% = (panelW% - 8 - (4 * btnSpacing%)) \ 5  ' 5 buttons with spacing
+    
+    ' Button 1: Move Up (^)
+    btnX% = panelX% + 4
+    IF CURRENT_LAYER% > 0 AND LAYERS(CURRENT_LAYER%).zIndex% < LAYER_COUNT% THEN
+        LINE (btnX%, btnY%)-(btnX% + btnW% - 1, btnY% + 16), _RGB32(60, 70, 80), BF
+        COLOR _RGB32(180, 200, 220), _RGBA32(0, 0, 0, 0)
+    ELSE
+        LINE (btnX%, btnY%)-(btnX% + btnW% - 1, btnY% + 16), _RGB32(45, 45, 45), BF
+        COLOR _RGB32(80, 80, 80), _RGBA32(0, 0, 0, 0)
+    END IF
+    _PRINTSTRING (btnX% + (btnW% - 4) \ 2, btnY% + 4), "^"
+    
+    ' Button 2: Move Down (v)
+    btnX% = btnX% + btnW% + btnSpacing%
+    IF CURRENT_LAYER% > 0 AND LAYERS(CURRENT_LAYER%).zIndex% > 1 THEN
+        LINE (btnX%, btnY%)-(btnX% + btnW% - 1, btnY% + 16), _RGB32(60, 70, 80), BF
+        COLOR _RGB32(180, 200, 220), _RGBA32(0, 0, 0, 0)
+    ELSE
+        LINE (btnX%, btnY%)-(btnX% + btnW% - 1, btnY% + 16), _RGB32(45, 45, 45), BF
+        COLOR _RGB32(80, 80, 80), _RGBA32(0, 0, 0, 0)
+    END IF
+    _PRINTSTRING (btnX% + (btnW% - 4) \ 2, btnY% + 4), "v"
+    
+    ' Button 3: Merge Down (#)
+    btnX% = btnX% + btnW% + btnSpacing%
+    IF CURRENT_LAYER% > 0 AND LAYERS(CURRENT_LAYER%).zIndex% > 1 THEN
+        LINE (btnX%, btnY%)-(btnX% + btnW% - 1, btnY% + 16), _RGB32(70, 70, 60), BF
+        COLOR _RGB32(220, 200, 150), _RGBA32(0, 0, 0, 0)
+    ELSE
+        LINE (btnX%, btnY%)-(btnX% + btnW% - 1, btnY% + 16), _RGB32(45, 45, 45), BF
+        COLOR _RGB32(80, 80, 80), _RGBA32(0, 0, 0, 0)
+    END IF
+    _PRINTSTRING (btnX% + (btnW% - 4) \ 2, btnY% + 4), "#"
+    
+    ' Button 4: Delete Layer (x)
+    btnX% = btnX% + btnW% + btnSpacing%
+    IF LAYER_COUNT% > 1 THEN
+        LINE (btnX%, btnY%)-(btnX% + btnW% - 1, btnY% + 16), _RGB32(80, 50, 50), BF
+        COLOR _RGB32(220, 150, 150), _RGBA32(0, 0, 0, 0)
+    ELSE
+        LINE (btnX%, btnY%)-(btnX% + btnW% - 1, btnY% + 16), _RGB32(45, 45, 45), BF
+        COLOR _RGB32(80, 80, 80), _RGBA32(0, 0, 0, 0)
+    END IF
+    _PRINTSTRING (btnX% + (btnW% - 4) \ 2, btnY% + 4), "x"
+    
+    ' Button 5: New Layer (+)
+    btnX% = btnX% + btnW% + btnSpacing%
+    LINE (btnX%, btnY%)-(btnX% + btnW% - 1, btnY% + 16), _RGB32(50, 70, 50), BF
+    COLOR _RGB32(150, 220, 150), _RGBA32(0, 0, 0, 0)
+    _PRINTSTRING (btnX% + (btnW% - 4) \ 2, btnY% + 4), "+"
+    
+    _FONT oldFont&
+    _DEST oldDest&
+END SUB
+
+
+''
+' Check if mouse coordinates are within the layer panel
+' 
+FUNCTION LAYER_PANEL_in_bounds% (rawX AS INTEGER, rawY AS INTEGER)
+    DIM bottomBarsHeight AS INTEGER
+    DIM panelH AS INTEGER
+    
+    IF NOT LAYER_PANEL.visible% THEN
+        LAYER_PANEL_in_bounds% = FALSE
+        EXIT FUNCTION
+    END IF
+    
+    ' Calculate panel height (stops above bottom bars)
+    bottomBarsHeight% = THEME.STATUS_height% + PALETTE_STRIP_get_height%
+    panelH% = SCRN.h& - bottomBarsHeight%
+    
+    LAYER_PANEL_in_bounds% = (rawX% >= 0 AND rawX% < CFG.LAYER_PANEL_WIDTH% AND rawY% >= 0 AND rawY% < panelH%)
+END FUNCTION
+
+
+''
+' Handle click events in the layer panel
+' Returns TRUE if click was handled, FALSE otherwise
+' 
+FUNCTION LAYER_PANEL_handle_click% (rawX AS INTEGER, rawY AS INTEGER, button AS INTEGER)
+    DIM panelW AS INTEGER, panelH AS INTEGER
+    DIM rowY AS INTEGER
+    DIM i AS INTEGER, z AS INTEGER
+    DIM layerIdx AS INTEGER
+    DIM clickY AS INTEGER
+    DIM bottomBarsHeight AS INTEGER
+    
+    IF NOT LAYER_PANEL.visible% THEN
+        LAYER_PANEL_handle_click% = FALSE
+        EXIT FUNCTION
+    END IF
+    
+    ' Calculate panel height (stops above bottom bars)
+    bottomBarsHeight% = THEME.STATUS_height% + PALETTE_STRIP_get_height%
+    panelW% = CFG.LAYER_PANEL_WIDTH%
+    panelH% = SCRN.h& - bottomBarsHeight%
+    
+    ' Check if click is within panel
+    IF rawX% < 0 OR rawX% >= panelW% THEN
+        LAYER_PANEL_handle_click% = FALSE
+        EXIT FUNCTION
+    END IF
+    
+    ' Check for button bar clicks
+    DIM btnY AS INTEGER
+    DIM btnW AS INTEGER
+    DIM btnX AS INTEGER
+    DIM btnSpacing AS INTEGER
+    
+    btnY% = panelH% - 21  ' Button area starts here
+    btnSpacing% = 2
+    btnW% = (panelW% - 8 - (4 * btnSpacing%)) \ 5
+    
+    IF rawY% >= btnY% AND rawY% < btnY% + 16 AND button% = 1 THEN
+        ' Determine which button was clicked
+        DIM clickBtn AS INTEGER
+        clickBtn% = -1
+        btnX% = 4
+        
+        ' Button 1: Move Up (^)
+        IF rawX% >= btnX% AND rawX% < btnX% + btnW% THEN
+            clickBtn% = 1
+        END IF
+        btnX% = btnX% + btnW% + btnSpacing%
+        
+        ' Button 2: Move Down (v)
+        IF rawX% >= btnX% AND rawX% < btnX% + btnW% THEN
+            clickBtn% = 2
+        END IF
+        btnX% = btnX% + btnW% + btnSpacing%
+        
+        ' Button 3: Merge Down (#)
+        IF rawX% >= btnX% AND rawX% < btnX% + btnW% THEN
+            clickBtn% = 3
+        END IF
+        btnX% = btnX% + btnW% + btnSpacing%
+        
+        ' Button 4: Delete (x)
+        IF rawX% >= btnX% AND rawX% < btnX% + btnW% THEN
+            clickBtn% = 4
+        END IF
+        btnX% = btnX% + btnW% + btnSpacing%
+        
+        ' Button 5: New (+)
+        IF rawX% >= btnX% AND rawX% < btnX% + btnW% THEN
+            clickBtn% = 5
+        END IF
+        
+        ' Execute button action
+        SELECT CASE clickBtn%
+            CASE 1  ' Move Up
+                IF CURRENT_LAYER% > 0 THEN LAYERS_move_up CURRENT_LAYER%
+            CASE 2  ' Move Down
+                IF CURRENT_LAYER% > 0 THEN LAYERS_move_down CURRENT_LAYER%
+            CASE 3  ' Merge Down
+                IF CURRENT_LAYER% > 0 THEN LAYERS_merge_down CURRENT_LAYER%
+            CASE 4  ' Delete
+                IF LAYER_COUNT% > 1 AND CURRENT_LAYER% > 0 THEN LAYERS_delete CURRENT_LAYER%
+            CASE 5  ' New
+                DIM dummy AS INTEGER
+                dummy% = LAYERS_new%
+        END SELECT
+        
+        LAYER_PANEL_handle_click% = TRUE
+        EXIT FUNCTION
+    END IF
+    
+    ' Check for layer row clicks
+    clickY% = rawY% + LAYER_PANEL.scrollOffset%
+    rowY% = 16  ' Start after header
+    
+    FOR z% = LAYER_COUNT% TO 1 STEP -1
+        ' Find layer with this zIndex
+        layerIdx% = 0
+        FOR i% = 1 TO 64
+            IF LAYERS(i%).imgHandle& <> 0 AND LAYERS(i%).zIndex% = z% THEN
+                layerIdx% = i%
+                EXIT FOR
+            END IF
+        NEXT i%
+        
+        IF layerIdx% > 0 THEN
+            IF clickY% >= rowY% AND clickY% < rowY% + LAYER_ROW_HEIGHT THEN
+                ' Clicked on this layer row
+                DIM localX AS INTEGER
+                localX% = rawX%
+                
+                IF button% = 1 THEN
+                    ' Check if clicking visibility toggle (first 12 pixels)
+                    IF localX% < 14 THEN
+                        LAYERS_toggle_visibility layerIdx%
+                    ' Check if clicking lock toggle (next area)
+                    ELSEIF localX% < 24 THEN
+                        LAYERS_toggle_opacity_lock layerIdx%
+                    ' Check if clicking opacity bar (last 36 pixels)
+                    ELSEIF localX% >= panelW% - 40 THEN
+                        ' Start opacity drag
+                        LAYER_PANEL.opacityDrag% = TRUE
+                        LAYER_PANEL.opacityDragLayer% = layerIdx%
+                        DIM barX AS INTEGER
+                        barX% = localX% - (panelW% - 36)
+                        IF barX% < 0 THEN barX% = 0
+                        IF barX% > 30 THEN barX% = 30
+                        LAYERS_set_opacity layerIdx%, INT((barX% / 30.0) * 255)
+                    ELSE
+                        ' Select the layer
+                        LAYERS_select layerIdx%
+                    END IF
+                ELSEIF button% = 2 THEN
+                    ' Right click - context menu (rename)
+                    LAYERS_select layerIdx%
+                    LAYERS_rename layerIdx%
+                END IF
+                
+                LAYER_PANEL_handle_click% = TRUE
+                EXIT FUNCTION
+            END IF
+            
+            rowY% = rowY% + LAYER_ROW_HEIGHT
+        END IF
+    NEXT z%
+    
+    LAYER_PANEL_handle_click% = TRUE  ' Click was in panel, just not on anything specific
+END FUNCTION
+
+
+''
+' Handle mouse wheel scrolling in layer panel
+' Also handles opacity adjustment when wheel is over opacity bar
+' 
+SUB LAYER_PANEL_handle_wheel (rawX AS INTEGER, rawY AS INTEGER, delta AS INTEGER)
+    DIM panelW AS INTEGER, panelH AS INTEGER
+    DIM bottomBarsHeight AS INTEGER
+    DIM listTop AS INTEGER, listBottom AS INTEGER
+    DIM opacityBarX AS INTEGER, opacityBarW AS INTEGER
+    DIM rowY AS INTEGER, i AS INTEGER, z AS INTEGER
+    DIM layerIdx AS INTEGER
+    CONST HEADER_HEIGHT = 16
+    CONST BUTTON_AREA_HEIGHT = 20
+    
+    IF NOT LAYER_PANEL.visible% THEN EXIT SUB
+    
+    ' Calculate panel dimensions
+    bottomBarsHeight% = THEME.STATUS_height% + PALETTE_STRIP_get_height%
+    panelW% = CFG.LAYER_PANEL_WIDTH%
+    panelH% = SCRN.h& - bottomBarsHeight%
+    listTop% = HEADER_HEIGHT
+    listBottom% = panelH% - BUTTON_AREA_HEIGHT
+    
+    ' Opacity bar is on the right side of each row
+    opacityBarW% = 30
+    opacityBarX% = panelW% - opacityBarW% - 14
+    
+    ' Check if mouse is over an opacity bar area
+    IF rawX% >= opacityBarX% AND rawX% <= panelW% - 10 THEN
+        ' Find which layer row the mouse is over
+        rowY% = listTop%
+        FOR z% = LAYER_COUNT% TO 1 STEP -1
+            layerIdx% = 0
+            FOR i% = 1 TO 64
+                IF LAYERS(i%).imgHandle& <> 0 AND LAYERS(i%).zIndex% = z% THEN
+                    layerIdx% = i%
+                    EXIT FOR
+                END IF
+            NEXT i%
+            
+            IF layerIdx% > 0 THEN
+                DIM drawY AS INTEGER
+                drawY% = rowY% - LAYER_PANEL.scrollOffset%
+                
+                ' Check if mouse Y is within this row's opacity bar area (Y+14 to Y+17)
+                IF rawY% >= drawY% + 12 AND rawY% <= drawY% + 19 THEN
+                    IF drawY% >= listTop% AND drawY% + LAYER_ROW_HEIGHT <= listBottom% THEN
+                        ' Adjust opacity - wheel up (negative delta) = more opaque
+                        DIM newOpacity AS INTEGER
+                        newOpacity% = LAYERS(layerIdx%).opacity% - (delta% * 15)  ' 15 per tick
+                        IF newOpacity% < 0 THEN newOpacity% = 0
+                        IF newOpacity% > 255 THEN newOpacity% = 255
+                        LAYERS(layerIdx%).opacity% = newOpacity%
+                        GUI_NEEDS_REDRAW% = TRUE
+                        EXIT SUB  ' Handled opacity, don't scroll
+                    END IF
+                END IF
+                
+                rowY% = rowY% + LAYER_ROW_HEIGHT
+            END IF
+        NEXT z%
+    END IF
+    
+    ' Not over opacity bar - scroll the layer list
+    ' Reverse direction: wheel up (negative) = scroll up (see higher layers)
+    LAYER_PANEL.scrollOffset% = LAYER_PANEL.scrollOffset% + (delta% * LAYER_ROW_HEIGHT)
+    
+    ' Clamp scroll offset
+    IF LAYER_PANEL.scrollOffset% < 0 THEN LAYER_PANEL.scrollOffset% = 0
+    
+    DIM maxScroll AS INTEGER
+    DIM listHeight AS INTEGER
+    listHeight% = listBottom% - listTop%
+    maxScroll% = (LAYER_COUNT% * LAYER_ROW_HEIGHT) - listHeight%
+    IF maxScroll% < 0 THEN maxScroll% = 0
+    IF LAYER_PANEL.scrollOffset% > maxScroll% THEN LAYER_PANEL.scrollOffset% = maxScroll%
+    
+    GUI_NEEDS_REDRAW% = TRUE
 END SUB

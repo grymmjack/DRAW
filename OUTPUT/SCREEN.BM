@@ -223,6 +223,7 @@ SUB SCREEN_init ()
     IF CFG.FULLSCREEN% THEN _FULLSCREEN _SQUAREPIXELS
     SCRN.bpp% = _PIXELSIZE
     ' Initialize tools
+    LAYERS_init  ' Initialize layers system (must be after CONFIG_load)
     MOVE_init
     TEXT_init
     GRID_init
@@ -255,6 +256,11 @@ SUB SCREEN_render ()
             PALETTE_STRIP_render
             STATUS_render
         END IF
+        
+        ' Render layer panel if visible
+        IF LAYER_PANEL.visible% THEN
+            LAYER_PANEL_render SCRN.h&
+        END IF
     END IF
     
     ' Switch back to canvas for main rendering
@@ -267,19 +273,94 @@ SUB SCREEN_render ()
     dx% = (SCRN.w& - zw&) \ 2 + SCRN.offsetX%
     dy% = (SCRN.h& - zh&) \ 2 + SCRN.offsetY%
     
-    ' Render painting layer with zoom
-    ' Use MOVE preview buffer if move tool is active for realtime preview
+    ' Offset canvas X when layer panel is visible
+    IF LAYER_PANEL.visible% THEN
+        dx% = dx% + CFG.LAYER_PANEL_WIDTH%
+    END IF
+    
+    ' Render transparency checkerboard first (behind all layers)
+    TRANSPARENCY_render SCRN.CANVAS&, dx%, dy%, zw&, zh&
+    
+    ' Render all visible layers with zoom, compositing bottom-to-top
     _DEST SCRN.CANVAS&
-    DIM paint_source AS LONG
-    paint_source& = MOVE_get_preview_buffer&
-    IF paint_source& <> 0 THEN
-        ' Use preview buffer showing move transform in realtime
-        _SOURCE paint_source&
-        _PUTIMAGE (dx%, dy%)-(dx% + zw& - 1, dy% + zh& - 1), paint_source&
+    _BLEND SCRN.CANVAS&
+    
+    IF LAYER_COUNT% > 0 THEN
+        ' Composite layers by zIndex (bottom to top)
+        DIM layerZ AS INTEGER, layerI AS INTEGER
+        DIM layerFound AS INTEGER
+        DIM tempLayerImg AS LONG
+        
+        FOR layerZ% = 1 TO LAYER_COUNT%
+            layerFound% = 0
+            FOR layerI% = 1 TO 64
+                IF LAYERS(layerI%).imgHandle& <> 0 AND LAYERS(layerI%).zIndex% = layerZ% THEN
+                    layerFound% = layerI%
+                    EXIT FOR
+                END IF
+            NEXT layerI%
+            
+            IF layerFound% > 0 AND LAYERS(layerFound%).visible% THEN
+                ' Apply opacity if not fully opaque
+                IF LAYERS(layerFound%).opacity% < 255 THEN
+                    tempLayerImg& = _COPYIMAGE(LAYERS(layerFound%).imgHandle&, 32)
+                    ' Apply opacity only to non-transparent pixels (preserve transparency)
+                    DIM lx AS INTEGER, ly AS INTEGER
+                    DIM lw AS INTEGER, lh AS INTEGER
+                    DIM pixelColor AS _UNSIGNED LONG
+                    DIM pixelAlpha AS INTEGER
+                    DIM newAlpha AS INTEGER
+                    DIM layerOpacity AS SINGLE
+                    
+                    lw% = _WIDTH(tempLayerImg&)
+                    lh% = _HEIGHT(tempLayerImg&)
+                    layerOpacity! = LAYERS(layerFound%).opacity% / 255.0
+                    
+                    DIM oldDest AS LONG, oldSource AS LONG
+                    oldDest& = _DEST
+                    oldSource& = _SOURCE
+                    _SOURCE tempLayerImg&
+                    _DEST tempLayerImg&
+                    _DONTBLEND tempLayerImg&
+                    
+                    FOR ly% = 0 TO lh% - 1
+                        FOR lx% = 0 TO lw% - 1
+                            pixelColor~& = POINT(lx%, ly%)
+                            pixelAlpha% = _ALPHA32(pixelColor~&)
+                            IF pixelAlpha% > 0 THEN
+                                ' Scale existing alpha by layer opacity
+                                newAlpha% = INT(pixelAlpha% * layerOpacity!)
+                                IF newAlpha% > 255 THEN newAlpha% = 255
+                                IF newAlpha% < 0 THEN newAlpha% = 0
+                                PSET (lx%, ly%), _RGBA32(_RED32(pixelColor~&), _GREEN32(pixelColor~&), _BLUE32(pixelColor~&), newAlpha%)
+                            END IF
+                        NEXT lx%
+                    NEXT ly%
+                    
+                    _BLEND tempLayerImg&
+                    _SOURCE oldSource&
+                    _DEST oldDest&
+                    
+                    _PUTIMAGE (dx%, dy%)-(dx% + zw& - 1, dy% + zh& - 1), tempLayerImg&
+                    IF tempLayerImg& < -1 THEN _FREEIMAGE tempLayerImg&
+                ELSE
+                    _PUTIMAGE (dx%, dy%)-(dx% + zw& - 1, dy% + zh& - 1), LAYERS(layerFound%).imgHandle&
+                END IF
+            END IF
+        NEXT layerZ%
     ELSE
-        ' Normal painting layer render
-        _SOURCE SCRN.PAINTING&
-        _PUTIMAGE (dx%, dy%)-(dx% + zw& - 1, dy% + zh& - 1), SCRN.PAINTING&
+        ' Fallback: Use SCRN.PAINTING if no layers exist yet (legacy support)
+        DIM paint_source AS LONG
+        paint_source& = MOVE_get_preview_buffer&
+        IF paint_source& <> 0 THEN
+            ' Use preview buffer showing move transform in realtime
+            _SOURCE paint_source&
+            _PUTIMAGE (dx%, dy%)-(dx% + zw& - 1, dy% + zh& - 1), paint_source&
+        ELSE
+            ' Normal painting layer render
+            _SOURCE SCRN.PAINTING&
+            _PUTIMAGE (dx%, dy%)-(dx% + zw& - 1, dy% + zh& - 1), SCRN.PAINTING&
+        END IF
     END IF
     
     ' Draw grid overlays (after painting, before border/GUI)

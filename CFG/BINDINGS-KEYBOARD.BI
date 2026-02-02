@@ -172,3 +172,5 @@ KB.LAYER_ZINDEX_INC$      = "^]"         'CTRL-]
 KB.LAYER_ZINDEX_DEC$      = "^["         'CTRL-[
 KB.LAYER_ZINDEX_TOP$      = "^+]"        'CTRL-SHIFT-]
 KB.LAYER_ZINDEX_BOT$      = "^+["        'CTRL-SHIFT-[
+KB.LAYER_MERGE_DOWN$      = "^@e"        'CTRL-ALT-e (merge current into layer below)
+KB.LAYER_MERGE_VISIBLE$   = "^@+e"       'CTRL-ALT-SHIFT-e (flatten all visible to new layer)

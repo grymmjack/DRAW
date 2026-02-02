@@ -33,6 +33,7 @@
 | `%` | Color 13 |
 | `^` | Color 14 |
 | `&` | Color 15 |
+| `X` | Swap foreground and background colors |
 
 ### Palette Strip (Bottom Bar)
 | Action | Function |
@@ -394,6 +395,75 @@ The default snap angle is **45°** (8 directions), configurable in `DRAW.cfg`:
 |-----|----------|
 | `Ctrl+Z` | Undo |
 | `Ctrl+Y` | Redo |
+
+## Layers
+
+DRAW supports a Photoshop-style layer system with up to 32 layers. Each layer has independent opacity, visibility, and stacking order.
+
+### Layer Panel
+
+The layer panel is displayed on the left side of the screen and can be toggled with **Ctrl+Tab**.
+
+| Key | Function |
+|-----|----------|
+| `Ctrl+Tab` | Toggle layer panel visibility |
+| `Ctrl+Shift+N` | Create new layer |
+| `Ctrl+Shift+Delete` | Delete current layer |
+| `Ctrl+]` | Move layer up in stack |
+| `Ctrl+[` | Move layer down in stack |
+| `Ctrl+Alt+E` | Merge current layer down |
+| `Ctrl+Alt+Shift+E` | Merge all visible layers |
+
+### Layer Panel UI
+
+| Element | Function |
+|---------|----------|
+| **Eye icon (O/-)** | Toggle layer visibility (click to toggle) |
+| **Lock icon (L)** | Opacity lock indicator |
+| **Layer name** | Click to select layer, right-click to rename |
+| **Opacity bar** | Shows opacity level, click/drag to adjust |
+
+### Layer Panel Buttons
+
+| Button | Symbol | Function |
+|--------|--------|----------|
+| Move Up | `^` | Move selected layer up in stack |
+| Move Down | `v` | Move selected layer down in stack |
+| Merge Down | `#` | Merge selected layer into layer below |
+| Delete | `x` | Delete selected layer |
+| New | `+` | Create new layer |
+
+### Mouse Controls (Layer Panel)
+
+| Action | Function |
+|--------|----------|
+| **Left-click layer row** | Select layer |
+| **Right-click layer row** | Select and rename layer |
+| **Click visibility icon** | Toggle layer visibility |
+| **Click lock area** | Toggle opacity lock |
+| **Click/drag opacity bar** | Adjust layer opacity |
+| **Mouse wheel on panel** | Scroll layer list |
+| **Mouse wheel on opacity bar** | Adjust opacity (up = more opaque) |
+
+### Layer Features
+
+- **32 layers maximum** (configurable in DRAW.cfg)
+- **Per-layer opacity** (0-255, displayed as percentage)
+- **Per-layer visibility** toggle
+- **Opacity lock** prevents drawing on transparent pixels
+- **Background layer** created automatically on startup
+- **Transparency** shown as checkerboard pattern behind layers
+- **Drawing tools** automatically target the currently selected layer
+- **Merge operations** combine layers while preserving opacity
+
+### Layer Workflow Tips
+
+- New layers are created above the current layer
+- Deleting a layer automatically selects the next available layer
+- Lower the opacity slider to see layers underneath
+- Use merge down to flatten specific layers together
+- The canvas offset adjusts when layer panel is visible
+- Export/save operations flatten all visible layers
 
 ## Image Import (Oversized Images)
 

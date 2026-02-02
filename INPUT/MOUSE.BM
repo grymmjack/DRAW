@@ -214,6 +214,9 @@ SUB MOUSE_input_handler ()
         dx% = (SCRN.w& - zw&) \ 2 + SCRN.offsetX%
         dy% = (SCRN.h& - zh&) \ 2 + SCRN.offsetY%
         
+        ' Offset canvas X when layer panel is visible
+        IF LAYER_PANEL.visible% THEN dx% = dx% + CFG.LAYER_PANEL_WIDTH%
+        
         ' Convert screen coords to canvas coords
         MOUSE.X% = INT((rawX% - dx%) / SCRN.zoom!)
         MOUSE.Y% = INT((rawY% - dy%) / SCRN.zoom!)
@@ -256,6 +259,29 @@ SUB MOUSE_input_handler ()
         ' Reset toolbar clicked flag only when mouse button is released
         IF NOT MOUSE.B1% AND NOT MOUSE.B2% THEN
             MOUSE.TOOLBAR_CLICKED% = FALSE
+        END IF
+        
+        ' Check for layer panel clicks (only when not panning)
+        IF NOT SCRN.panning% AND LAYER_PANEL.visible% THEN
+            IF LAYER_PANEL_in_bounds%(rawX%, rawY%) THEN
+                ' Handle left-click on layer panel
+                IF MOUSE.B1% AND NOT MOUSE.OLD_B1% THEN
+                    IF LAYER_PANEL_handle_click%(rawX%, rawY%, 1) THEN
+                        MOUSE.TOOLBAR_CLICKED% = TRUE  ' Block canvas action
+                    END IF
+                END IF
+                ' Handle right-click on layer panel
+                IF MOUSE.B2% AND NOT MOUSE.OLD_B2% THEN
+                    IF LAYER_PANEL_handle_click%(rawX%, rawY%, 2) THEN
+                        MOUSE.TOOLBAR_CLICKED% = TRUE  ' Block canvas action
+                    END IF
+                END IF
+                ' Handle mouse wheel for scrolling layer list or adjusting opacity
+                IF wheel_delta% <> 0 THEN
+                    LAYER_PANEL_handle_wheel rawX%, rawY%, wheel_delta%
+                    wheel_delta% = 0  ' Consume wheel event - don't zoom canvas
+                END IF
+            END IF
         END IF
         
         ' Check for toolbar clicks (only when not panning)
@@ -572,7 +598,7 @@ SUB MOUSE_input_handler ()
                         IF POLY_LINE.HAS_LAST THEN
                             ' Draw line from last position to current (snapped) position
                             ' Note: Undo is saved only when starting the polygon, not for each segment
-                            _DEST SCRN.PAINTING&
+                            _DEST LAYER_current_image&
                             IF CUSTOM_BRUSH_is_active% THEN
                                 ' Use custom brush stamps along polygon edges
                                 CUSTOM_BRUSH_stamp_line POLY_LINE.LAST_X, POLY_LINE.LAST_Y, poly_x%, poly_y%
@@ -745,7 +771,7 @@ SUB MOUSE_input_handler ()
                             DIM line_count AS INTEGER
                             DIM line_i AS INTEGER
                             
-                            _DEST SCRN.PAINTING&
+                            _DEST LAYER_current_image&
                             IF CUSTOM_BRUSH_is_active% THEN
                                 ' Use custom brush stamps along the line
                                 CUSTOM_BRUSH_stamp_line LINE_TOOL.START_X, LINE_TOOL.START_Y, LINE_TOOL.END_X, LINE_TOOL.END_Y
@@ -777,7 +803,7 @@ SUB MOUSE_input_handler ()
                             DIM rect_fex(0 TO 7) AS INTEGER, rect_fey(0 TO 7) AS INTEGER
                             DIM rect_fcount AS INTEGER, rect_fi AS INTEGER
                             
-                            _DEST SCRN.PAINTING&
+                            _DEST LAYER_current_image&
                             IF CUSTOM_BRUSH_is_active% AND NOT RECT_TOOL.FILLED THEN
                                 ' Use custom brush stamps for outline only
                                 CUSTOM_BRUSH_stamp_line RECT_TOOL.START_X, RECT_TOOL.START_Y, RECT_TOOL.END_X, RECT_TOOL.START_Y ' Top
@@ -852,7 +878,7 @@ SUB MOUSE_input_handler ()
                             DIM ell_fcsx(0 TO 7) AS INTEGER, ell_fcsy(0 TO 7) AS INTEGER
                             DIM ell_fcount AS INTEGER, ell_fi AS INTEGER
                             
-                            _DEST SCRN.PAINTING&
+                            _DEST LAYER_current_image&
                             IF erx! > 0 THEN
                                 IF CUSTOM_BRUSH_is_active% AND NOT ELLIPSE_TOOL.FILLED THEN
                                     ' Use custom brush stamps for outline only
@@ -863,7 +889,7 @@ SUB MOUSE_input_handler ()
                                     IF ELLIPSE_TOOL.FILLED THEN
                                         ' Draw filled ellipse using scanline algorithm
                                         CIRCLE (ecx%, ecy%), erx!, PAINT_COLOR~&, , , easp!
-                                        ELLIPSE_fill_scanline ecx%, ecy%, erx!, ery!, PAINT_COLOR~&, SCRN.PAINTING&
+                                        ELLIPSE_fill_scanline ecx%, ecy%, erx!, ery!, PAINT_COLOR~&, LAYER_current_image&
                                         
                                         ' Draw symmetry ellipses at full opacity
                                         IF SYMMETRY.MODE > 0 THEN
@@ -871,7 +897,7 @@ SUB MOUSE_input_handler ()
                                             
                                             FOR ell_fi% = 0 TO ell_fcount% - 1
                                                 CIRCLE (ell_fcsx%(ell_fi%), ell_fcsy%(ell_fi%)), erx!, PAINT_COLOR~&, , , easp!
-                                                ELLIPSE_fill_scanline ell_fcsx%(ell_fi%), ell_fcsy%(ell_fi%), erx!, ery!, PAINT_COLOR~&, SCRN.PAINTING&
+                                                ELLIPSE_fill_scanline ell_fcsx%(ell_fi%), ell_fcsy%(ell_fi%), erx!, ery!, PAINT_COLOR~&, LAYER_current_image&
                                             NEXT ell_fi%
                                         END IF
                                     ELSE
@@ -942,7 +968,7 @@ SUB MOUSE_input_handler ()
                     _LOGINFO "Using PAINT_COLOR=" + STR$(PAINT_COLOR~&) + " (not PAINT_BG_COLOR=" + STR$(PAINT_BG_COLOR~&) + ")"
                     ' Draw line from last position to current position using FOREGROUND color
                     ' Note: Don't undo the origin point - keep it and draw line from it
-                    _DEST SCRN.PAINTING&
+                    _DEST LAYER_current_image&
                     IF CUSTOM_BRUSH_is_active% THEN
                         ' Use custom brush stamps along the line
                         CUSTOM_BRUSH_stamp_line DOT.LAST_X, DOT.LAST_Y, MOUSE.X%, MOUSE.Y%
@@ -966,7 +992,7 @@ SUB MOUSE_input_handler ()
                 ' Close the shape if filled polygon
                 IF CURRENT_TOOL% = TOOL_POLYGON_FILLED AND POLY_LINE.HAS_LAST AND POLY_LINE.POINT_COUNT >= 3 THEN
                     ' Draw closing line
-                    _DEST SCRN.PAINTING&
+                    _DEST LAYER_current_image&
                     IF CUSTOM_BRUSH_is_active% THEN
                         ' Use custom brush stamps for closing line
                         CUSTOM_BRUSH_stamp_line POLY_LINE.LAST_X, POLY_LINE.LAST_Y, POLY_LINE.FIRST_X, POLY_LINE.FIRST_Y
@@ -976,7 +1002,7 @@ SUB MOUSE_input_handler ()
                     END IF
                     ' Use scanline fill algorithm for proper polygon filling (only if not using custom brush)
                     IF NOT CUSTOM_BRUSH_is_active% THEN
-                        POLY_FILL_scanline POLY_POINTS_X(), POLY_POINTS_Y(), POLY_LINE.POINT_COUNT, PAINT_COLOR~&, SCRN.PAINTING&
+                        POLY_FILL_scanline POLY_POINTS_X(), POLY_POINTS_Y(), POLY_LINE.POINT_COUNT, PAINT_COLOR~&, LAYER_current_image&
                     END IF
                     _DEST SCRN.CANVAS&
                     CANVAS_DIRTY% = TRUE
