@@ -389,6 +389,25 @@ The default snap angle is **45°** (8 directions), configurable in `DRAW.cfg`:
 | **Enter** | Apply transformation and return to Marquee |
 | **Escape** | Cancel current drag operation |
 
+## File Operations
+
+### Standard Image Save/Load (CTRL)
+| Key | Function |
+|-----|----------|
+| `Ctrl+O` | Open image file (BMP) |
+| `Ctrl+S` | Save image with dialog |
+| `Ctrl+Shift+S` | Quick save (no dialog if previously saved) |
+| `Ctrl+Alt+S` | Save As (always prompts for filename) |
+| `Ctrl+Alt+Shift+S` | Export selection as cropped image |
+
+### DRAW Project Files (ALT)
+| Key | Function |
+|-----|----------|
+| `Alt+O` | Open DRAW project (.drw) |
+| `Alt+S` | Save DRAW project (.drw) |
+
+**Note:** .drw files preserve all layers, palette colors, tool states, and other project data. Standard image saves flatten all visible layers to a single image.
+
 ## Undo/Redo
 
 | Key | Function |
@@ -510,3 +529,22 @@ When loading an image larger than the canvas, DRAW enters **Image Import Mode** 
 - **Auto-hide**: UI elements automatically hide when actively dragging tools over them
 - **Manual hide**: Use Tab/F10/F11 to manually toggle UI (stays hidden until manually shown)
 - **Toolbar clicks**: Clicking toolbar buttons only changes tools, doesn't activate them on canvas
+
+## Command Line
+
+DRAW can be launched with a file argument to automatically load an image or project:
+
+```bash
+# Load a DRAW project file
+./DRAW.run myproject.drw
+
+# Load an image file (PNG, BMP, JPG, GIF)
+./DRAW.run image.png
+```
+
+| Extension | Behavior |
+|-----------|----------|
+| `.drw` | Loads as DRAW project (layers, palette, tool states) |
+| `.png, .bmp, .jpg, .gif` | Loads image into current layer |
+
+If the image is larger than the canvas, import placement mode is activated automatically.

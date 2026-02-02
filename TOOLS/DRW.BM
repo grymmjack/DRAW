@@ -1,0 +1,402 @@
+''
+' DRAW - TOOLS/DRW.BM
+' =============================================================================
+' DRAW native file format (.drw) - saves layers, palette, tool states
+'
+' File format:
+'   HEADER:
+'     Magic: "DRW1" (4 bytes)
+'     Version: INTEGER (2 bytes)
+'     Canvas Width: LONG (4 bytes)
+'     Canvas Height: LONG (4 bytes)
+'
+'   PALETTE:
+'     Palette Count: INTEGER (2 bytes)
+'     Colors: UNSIGNED LONG array (4 bytes each)
+'     FG Index: INTEGER (2 bytes)
+'     BG Index: INTEGER (2 bytes)
+'
+'   LAYERS:
+'     Layer Count: INTEGER (2 bytes)
+'     Current Layer: INTEGER (2 bytes)
+'     For each layer:
+'       Name: STRING * 16 (16 bytes, fixed)
+'       Visible: INTEGER (2 bytes)
+'       Opacity: INTEGER (2 bytes)
+'       zIndex: INTEGER (2 bytes)
+'       Pixel Data: Width * Height * 4 bytes (raw RGBA)
+'
+'   TOOL STATE:
+'     Current Tool: INTEGER (2 bytes)
+'     Brush Size: INTEGER (2 bytes)
+'     Pixel Perfect: INTEGER (2 bytes)
+'     Grid Visible: INTEGER (2 bytes)
+'     Grid Size: INTEGER (2 bytes)
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+''
+' Save current project to .drw file
+'
+SUB DRW_save (filename AS STRING)
+    DIM fh AS INTEGER
+    DIM i AS INTEGER, x AS INTEGER, y AS INTEGER
+    DIM layerCount AS INTEGER
+    DIM c AS _UNSIGNED LONG
+    DIM oldSrc AS LONG
+    DIM nameFixed AS STRING * 16
+    DIM magic AS STRING * 4
+    DIM version AS INTEGER
+    
+    fh% = FREEFILE
+    OPEN filename$ FOR BINARY AS #fh%
+    
+    ' === HEADER ===
+    magic$ = DRW_MAGIC$
+    version% = DRW_VERSION%
+    PUT #fh%, , magic$
+    PUT #fh%, , version%
+    PUT #fh%, , SCRN.w&
+    PUT #fh%, , SCRN.h&
+    
+    ' === PALETTE ===
+    DIM palCount AS INTEGER
+    palCount% = PALETTE_LOADER_get_color_count%
+    PUT #fh%, , palCount%
+    FOR i% = 0 TO palCount% - 1
+        c~& = PAL(i%).value~&
+        PUT #fh%, , c~&
+    NEXT i%
+    PUT #fh%, , PAL_FG_IDX%
+    PUT #fh%, , PAL_BG_IDX%
+    
+    ' === LAYERS ===
+    ' Count active layers
+    layerCount% = 0
+    FOR i% = 1 TO 64
+        IF LAYERS(i%).imgHandle& < -1 THEN
+            layerCount% = layerCount% + 1
+        END IF
+    NEXT i%
+    
+    PUT #fh%, , layerCount%
+    PUT #fh%, , CURRENT_LAYER%
+    
+    ' Save each layer
+    FOR i% = 1 TO 64
+        IF LAYERS(i%).imgHandle& < -1 THEN
+            ' Layer properties
+            nameFixed$ = LAYERS(i%).name
+            PUT #fh%, , nameFixed$
+            PUT #fh%, , LAYERS(i%).visible%
+            PUT #fh%, , LAYERS(i%).opacity%
+            PUT #fh%, , LAYERS(i%).zIndex%
+            
+            ' Pixel data
+            oldSrc& = _SOURCE
+            _SOURCE LAYERS(i%).imgHandle&
+            FOR y% = 0 TO SCRN.h& - 1
+                FOR x% = 0 TO SCRN.w& - 1
+                    c~& = POINT(x%, y%)
+                    PUT #fh%, , c~&
+                NEXT x%
+            NEXT y%
+            _SOURCE oldSrc&
+        END IF
+    NEXT i%
+    
+    ' === TOOL STATE ===
+    PUT #fh%, , CURRENT_TOOL%
+    PUT #fh%, , BRUSH_SIZE.current%
+    PUT #fh%, , BRUSH_SIZE.PIXEL_PERFECT%
+    PUT #fh%, , GRID.SHOW%
+    PUT #fh%, , GRID.gridWidth%
+    
+    CLOSE #fh%
+    
+    _LOGINFO "DRW_save: Saved " + STR$(layerCount%) + " layers to " + filename$
+END SUB
+
+
+''
+' Load project from .drw file
+'
+SUB DRW_load (filename AS STRING)
+    DIM fh AS INTEGER
+    DIM i AS INTEGER, x AS INTEGER, y AS INTEGER
+    DIM magic AS STRING * 4
+    DIM version AS INTEGER
+    DIM canvasW AS LONG, canvasH AS LONG
+    DIM palCount AS INTEGER
+    DIM c AS _UNSIGNED LONG
+    DIM layerCount AS INTEGER
+    DIM savedCurrentLayer AS INTEGER
+    DIM oldDest AS LONG
+    DIM nameFixed AS STRING * 16
+    DIM layerVisible AS INTEGER
+    DIM layerOpacity AS INTEGER
+    DIM layerZIndex AS INTEGER
+    DIM layerIdx AS INTEGER
+    DIM savedTool AS INTEGER
+    DIM savedBrushSize AS INTEGER
+    DIM savedPixelPerfect AS INTEGER
+    DIM savedGridVisible AS INTEGER
+    DIM savedGridSize AS INTEGER
+    
+    IF NOT _FILEEXISTS(filename$) THEN
+        _LOGWARN "DRW_load: File not found: " + filename$
+        EXIT SUB
+    END IF
+    
+    fh% = FREEFILE
+    OPEN filename$ FOR BINARY AS #fh%
+    
+    ' === HEADER ===
+    GET #fh%, , magic$
+    IF magic$ <> DRW_MAGIC$ THEN
+        CLOSE #fh%
+        _LOGWARN "DRW_load: Invalid file format (magic mismatch)"
+        _MESSAGEBOX "Load Error", "Not a valid .drw file", "error"
+        EXIT SUB
+    END IF
+    
+    GET #fh%, , version%
+    IF version% > DRW_VERSION% THEN
+        CLOSE #fh%
+        _LOGWARN "DRW_load: File version too new: " + STR$(version%)
+        _MESSAGEBOX "Load Error", "File was created with a newer version of DRAW", "error"
+        EXIT SUB
+    END IF
+    
+    GET #fh%, , canvasW&
+    GET #fh%, , canvasH&
+    
+    ' Check if canvas size matches (for now, require exact match)
+    IF canvasW& <> SCRN.w& OR canvasH& <> SCRN.h& THEN
+        CLOSE #fh%
+        _LOGWARN "DRW_load: Canvas size mismatch"
+        _MESSAGEBOX "Load Error", "Canvas size mismatch. Expected " + STR$(SCRN.w&) + "x" + STR$(SCRN.h&) + " but file has " + STR$(canvasW&) + "x" + STR$(canvasH&), "error"
+        EXIT SUB
+    END IF
+    
+    ' === PALETTE ===
+    DIM savedFgIdx AS INTEGER, savedBgIdx AS INTEGER
+    GET #fh%, , palCount%
+    ' Note: We can't really change PALETTE_LIST here, so we just load the colors into PAL()
+    FOR i% = 0 TO palCount% - 1
+        GET #fh%, , c~&
+        PAL(i%).value~& = c~&
+    NEXT i%
+    GET #fh%, , savedFgIdx%
+    GET #fh%, , savedBgIdx%
+    PAL_FG_IDX% = savedFgIdx%
+    PAL_BG_IDX% = savedBgIdx%
+    
+    ' Update paint color
+    PAINT_COLOR~& = PAL(PAL_FG_IDX%).value~&
+    PAINT_BG_COLOR~& = PAL(PAL_BG_IDX%).value~&
+    
+    ' === LAYERS ===
+    ' Clear existing layers first
+    FOR i% = 1 TO 64
+        IF LAYERS(i%).imgHandle& < -1 THEN
+            _FREEIMAGE LAYERS(i%).imgHandle&
+            LAYERS(i%).imgHandle& = 0
+        END IF
+        LAYERS(i%).name = ""
+        LAYERS(i%).visible% = FALSE
+        LAYERS(i%).opacity% = 255
+        LAYERS(i%).zIndex% = 0
+        LAYERS(i%).isSelected% = FALSE
+    NEXT i%
+    LAYER_COUNT% = 0
+    
+    GET #fh%, , layerCount%
+    GET #fh%, , savedCurrentLayer%
+    
+    ' Load each layer
+    FOR i% = 1 TO layerCount%
+        layerIdx% = i%  ' Use sequential indices
+        
+        ' Layer properties
+        GET #fh%, , nameFixed$
+        LAYERS(layerIdx%).name = _TRIM$(nameFixed$)
+        GET #fh%, , layerVisible%
+        LAYERS(layerIdx%).visible% = layerVisible%
+        GET #fh%, , layerOpacity%
+        LAYERS(layerIdx%).opacity% = layerOpacity%
+        GET #fh%, , layerZIndex%
+        LAYERS(layerIdx%).zIndex% = layerZIndex%
+        
+        ' Create layer image
+        LAYERS(layerIdx%).imgHandle& = _NEWIMAGE(SCRN.w&, SCRN.h&, 32)
+        LAYERS(layerIdx%).imgWidth% = SCRN.w&
+        LAYERS(layerIdx%).imgHeight% = SCRN.h&
+        
+        ' Load pixel data
+        oldDest& = _DEST
+        _DEST LAYERS(layerIdx%).imgHandle&
+        FOR y% = 0 TO SCRN.h& - 1
+            FOR x% = 0 TO SCRN.w& - 1
+                GET #fh%, , c~&
+                PSET (x%, y%), c~&
+            NEXT x%
+        NEXT y%
+        _DEST oldDest&
+        
+        LAYER_COUNT% = LAYER_COUNT% + 1
+    NEXT i%
+    
+    ' Select the saved current layer
+    IF savedCurrentLayer% >= 1 AND savedCurrentLayer% <= LAYER_COUNT% THEN
+        LAYERS_select savedCurrentLayer%
+    ELSE
+        LAYERS_select 1
+    END IF
+    
+    ' === TOOL STATE ===
+    GET #fh%, , savedTool%
+    CURRENT_TOOL% = savedTool%
+    GET #fh%, , savedBrushSize%
+    BRUSH_SIZE.current% = savedBrushSize%
+    GET #fh%, , savedPixelPerfect%
+    BRUSH_SIZE.PIXEL_PERFECT% = savedPixelPerfect%
+    GET #fh%, , savedGridVisible%
+    GRID.SHOW% = savedGridVisible%
+    GET #fh%, , savedGridSize%
+    GRID.gridWidth% = savedGridSize%
+    GRID.gridHeight% = savedGridSize%
+    
+    CLOSE #fh%
+    
+    ' Reset undo history for loaded file
+    UNDO_init
+    
+    ' Mark canvas as clean
+    CANVAS_DIRTY% = FALSE
+    
+    ' Force GUI redraw
+    GUI_NEEDS_REDRAW% = TRUE
+    
+    _LOGINFO "DRW_load: Loaded " + STR$(layerCount%) + " layers from " + filename$
+END SUB
+
+
+''
+' Show save dialog for .drw file
+'
+SUB DRW_save_dialog ()
+    DIM filename AS STRING
+    DIM default_path AS STRING
+    
+    ' Use last directory if available
+    IF LAST_DIRECTORY$ <> "" THEN
+        default_path$ = LAST_DIRECTORY$ + "/"
+    ELSE
+        default_path$ = ""
+    END IF
+    
+    ' If we have a current DRW filename, use it as default
+    IF CURRENT_DRW_FILENAME$ <> "" THEN
+        default_path$ = CURRENT_DRW_FILENAME$
+    END IF
+    
+    ' Show save file dialog
+    _MOUSESHOW
+    filename$ = _SAVEFILEDIALOG$("Save DRAW Project", default_path$, "*.drw", "DRAW Project (*.drw)")
+    _MOUSEHIDE
+    
+    ' Clear input buffers after dialog
+    DO WHILE _MOUSEINPUT : LOOP
+    _KEYCLEAR
+    _MOUSEMOVE _WIDTH \ 2, _HEIGHT \ 2
+    MOUSE_force_buttons_up
+    
+    ' If user didn't cancel
+    IF filename$ <> "" THEN
+        ' Update last directory
+        DIM i AS INTEGER
+        FOR i% = LEN(filename$) TO 1 STEP -1
+            IF MID$(filename$, i%, 1) = "/" OR MID$(filename$, i%, 1) = "\" THEN
+                LAST_DIRECTORY$ = LEFT$(filename$, i% - 1)
+                EXIT FOR
+            END IF
+        NEXT i%
+        
+        ' Ensure file has .drw extension
+        IF LCASE$(RIGHT$(filename$, 4)) <> ".drw" THEN
+            filename$ = filename$ + ".drw"
+        END IF
+        
+        ' Save the project
+        DRW_save filename$
+        
+        ' Store current filename
+        CURRENT_DRW_FILENAME$ = filename$
+        
+        ' Mark canvas as clean
+        CANVAS_DIRTY% = FALSE
+        
+        _MOUSESHOW
+        _MESSAGEBOX "Save Complete", "Project saved to: " + filename$, "info"
+        _MOUSEHIDE
+        
+        ' Clear input buffers
+        DO WHILE _MOUSEINPUT : LOOP
+        _MOUSEMOVE _WIDTH \ 2, _HEIGHT \ 2
+        MOUSE_force_buttons_up
+    END IF
+END SUB
+
+
+''
+' Show open dialog for .drw file
+'
+SUB DRW_open_dialog ()
+    DIM filename AS STRING
+    DIM default_path AS STRING
+    
+    ' Use last directory if available
+    IF LAST_DIRECTORY$ <> "" THEN
+        default_path$ = LAST_DIRECTORY$ + "/"
+    ELSE
+        default_path$ = ""
+    END IF
+    
+    ' Show open file dialog
+    _MOUSESHOW
+    filename$ = _OPENFILEDIALOG$("Open DRAW Project", default_path$, "*.drw", "DRAW Project (*.drw)")
+    _MOUSEHIDE
+    
+    ' Clear input buffers after dialog
+    DO WHILE _MOUSEINPUT : LOOP
+    _KEYCLEAR
+    _MOUSEMOVE _WIDTH \ 2, _HEIGHT \ 2
+    MOUSE_force_buttons_up
+    
+    ' If user didn't cancel
+    IF filename$ <> "" THEN
+        ' Update last directory
+        DIM i AS INTEGER
+        FOR i% = LEN(filename$) TO 1 STEP -1
+            IF MID$(filename$, i%, 1) = "/" OR MID$(filename$, i%, 1) = "\" THEN
+                LAST_DIRECTORY$ = LEFT$(filename$, i% - 1)
+                EXIT FOR
+            END IF
+        NEXT i%
+        
+        ' Load the project
+        DRW_load filename$
+        
+        ' Store current filename
+        CURRENT_DRW_FILENAME$ = filename$
+        
+        ' Clear input buffers
+        DO WHILE _MOUSEINPUT : LOOP
+        _MOUSEMOVE _WIDTH \ 2, _HEIGHT \ 2
+        MOUSE_force_buttons_up
+    END IF
+END SUB
+

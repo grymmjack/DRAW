@@ -92,6 +92,25 @@ DRAW is a pixel art editor written in QB64PE that can export images as sourcecod
 
 See [CHEATSHEET.md](CHEATSHEET.md) for complete controls reference.
 
+## Command Line
+
+DRAW can be launched with a file argument to automatically load an image or project:
+
+```bash
+# Load a DRAW project file
+./DRAW.run myproject.drw
+
+# Load an image file (PNG, BMP, JPG, GIF)
+./DRAW.run image.png
+
+# File paths with spaces need quotes
+./DRAW.run "path/to/my image.png"
+```
+
+Supported formats:
+- **.drw** - DRAW project files (preserves layers, palette, tool states)
+- **.png, .bmp, .jpg, .jpeg, .gif** - Image files (loads into current layer)
+
 ## Building
 
 ```bash

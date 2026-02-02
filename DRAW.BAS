@@ -12,12 +12,42 @@
 $RESIZE:STRETCH
 $CONSOLE
   
+' Parse command line arguments (just store filename, load after first frame)
+DIM cmdArg$
+cmdArg$ = _TRIM$(COMMAND$)
+IF cmdArg$ <> "" THEN
+    ' Remove surrounding quotes if present
+    IF LEFT$(cmdArg$, 1) = CHR$(34) AND RIGHT$(cmdArg$, 1) = CHR$(34) THEN
+        cmdArg$ = MID$(cmdArg$, 2, LEN(cmdArg$) - 2)
+    END IF
+    ' Store for deferred loading
+    IF _FILEEXISTS(cmdArg$) THEN
+        CMDLINE_PENDING_FILE$ = cmdArg$
+    END IF
+END IF
+
 ' Main Loop
 DIM k AS LONG
 DIM exitConfirmed AS INTEGER
 exitConfirmed% = FALSE
     
 DO
+    ' Deferred command line file loading (after first frame when everything is initialized)
+    IF CMDLINE_FIRST_FRAME% AND CMDLINE_PENDING_FILE$ <> "" THEN
+        CMDLINE_FIRST_FRAME% = FALSE
+        DIM pendingExt$
+        pendingExt$ = LCASE$(RIGHT$(CMDLINE_PENDING_FILE$, 4))
+        IF pendingExt$ = ".drw" THEN
+            DRW_load CMDLINE_PENDING_FILE$
+        ELSE
+            ' Image file - use image import
+            DIM loadResult%
+            loadResult% = IMAGE_IMPORT_load_file%(CMDLINE_PENDING_FILE$)
+        END IF
+        CMDLINE_PENDING_FILE$ = ""  ' Clear after loading
+    ELSEIF CMDLINE_FIRST_FRAME% THEN
+        CMDLINE_FIRST_FRAME% = FALSE
+    END IF
     k& = _KEYHIT
     
     ' Handle display scale hotkeys using _KEYHIT (more reliable than _KEYDOWN for complex combos)

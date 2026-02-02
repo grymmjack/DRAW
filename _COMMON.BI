@@ -35,6 +35,16 @@ LAST_DIRECTORY$ = ""
 DIM SHARED CURRENT_FILENAME$
 CURRENT_FILENAME$ = ""
 
+' Current DRW project file name (for project save without prompt)
+DIM SHARED CURRENT_DRW_FILENAME$
+CURRENT_DRW_FILENAME$ = ""
+
+' Pending command line file to load (deferred until main loop)
+DIM SHARED CMDLINE_PENDING_FILE$
+CMDLINE_PENDING_FILE$ = ""
+DIM SHARED CMDLINE_FIRST_FRAME%
+CMDLINE_FIRST_FRAME% = TRUE
+
 ' Tool modes - basic drawing tools (1-20)
 CONST TOOL_NULL    = 0  ' Internal null tool - does nothing, no toolbar button
 CONST TOOL_BRUSH   = 1
