@@ -20,28 +20,33 @@ exitConfirmed% = FALSE
 DO
     k& = _KEYHIT
     
-    ' Check for ESC key with confirmation if canvas is dirty
-    ' BUT: If poly line, text tool, image import is active, move tool is active, or palette menu is open, let keyboard handler process it instead
-    IF k& = 27 THEN
-        IF PALETTE_MENU_VISIBLE% THEN
-            ' Palette menu is open, let keyboard handler close it (don't exit)
-            ' The keyboard handler will process this ESC
-        ELSEIF IMG_IMPORT.STATE > IMPORT_STATE_IDLE THEN
-            ' Image import is active, let keyboard handler cancel it (don't exit)
-            ' The keyboard handler will process this ESC
-        ELSEIF CURRENT_TOOL% = TOOL_MOVE AND MOVE.ACTIVE THEN
-            ' Move tool is active, let keyboard handler cancel the transform (don't exit)
-            ' The keyboard handler will process this ESC
-        ELSEIF CURRENT_TOOL% = TOOL_POLYGON AND POLY_LINE.HAS_LAST THEN
-            ' Poly line is active, let keyboard handler reset it (don't exit)
-            ' The keyboard handler will process this ESC
-        ELSEIF CURRENT_TOOL% = TOOL_TEXT AND TEXT.ACTIVE THEN
-            ' Text tool is active, let keyboard handler apply text (don't exit)
-            ' The keyboard handler will process this ESC
-        ELSEIF CANVAS_DIRTY% THEN
-            IF SHOW_exit_confirm% THEN
-                EXIT DO  ' Exit immediately if OK clicked
+    ' Handle display scale hotkeys using _KEYHIT (more reliable than _KEYDOWN for complex combos)
+    ' CTRL+ALT+SHIFT+= to scale up, CTRL+ALT+SHIFT+- to scale down
+    IF NOT CFG.FULLSCREEN% THEN
+        DIM scale_ctrl AS INTEGER, scale_shift AS INTEGER, scale_alt AS INTEGER
+        scale_ctrl% = (_KEYDOWN(100305) OR _KEYDOWN(100306))   ' Left or Right Ctrl
+        scale_shift% = (_KEYDOWN(100304) OR _KEYDOWN(100303)) ' Left or Right Shift
+        scale_alt% = (_KEYDOWN(KEY_LALT&) OR _KEYDOWN(KEY_RALT&))
+        
+        IF scale_ctrl% AND scale_shift% AND scale_alt% THEN
+            ' Check _KEYHIT for the actual key (works better on Linux with modifier combos)
+            ' Numpad + : 43 (NumLock ON), 19968 (NumLock OFF)
+            ' Numpad - : 45 (NumLock ON), 18944 (NumLock OFF)
+            IF k& = 43 OR k& = 19968 THEN
+                SCREEN_set_display_scale SCRN.displayScale% + 1
+            ELSEIF k& = 45 OR k& = 18944 THEN
+                SCREEN_set_display_scale SCRN.displayScale% - 1
             END IF
+        END IF
+    END IF
+    
+    ' Check for ESC key with confirmation if canvas is dirty
+    ' If a tool/modal is active, let keyboard handler process ESC instead of exiting
+    IF k& = 27 THEN
+        IF SHOULD_block_exit% THEN
+            ' Tool/modal active - let keyboard handler process ESC
+        ELSEIF CANVAS_DIRTY% THEN
+            IF SHOW_exit_confirm% THEN EXIT DO
             ' If cancelled, continue loop
         ELSE
             EXIT DO  ' Clean canvas, exit immediately
@@ -82,6 +87,18 @@ END IF
 
 MAIN_shutdown
 
+
+''
+' Check if ESC should be blocked from exiting (tool/modal is active)
+' Returns TRUE if a tool or modal state should handle ESC instead of exiting
+'
+FUNCTION SHOULD_block_exit% ()
+    SHOULD_block_exit% = PALETTE_MENU_VISIBLE% _
+        OR (IMG_IMPORT.STATE > IMPORT_STATE_IDLE) _
+        OR (CURRENT_TOOL% = TOOL_MOVE AND MOVE.ACTIVE) _
+        OR (CURRENT_TOOL% = TOOL_POLYGON AND POLY_LINE.HAS_LAST) _
+        OR (CURRENT_TOOL% = TOOL_TEXT AND TEXT.ACTIVE)
+END FUNCTION
 
 
 ''
@@ -150,10 +167,10 @@ SUB MAIN_shutdown ()
     UNDO_clear
     
     ' Free move selection image if active
-    IF MOVE.SELECTION_IMAGE <> 0 THEN _FREEIMAGE MOVE.SELECTION_IMAGE
+    IF MOVE.SELECTION_IMAGE < -1 THEN _FREEIMAGE MOVE.SELECTION_IMAGE
     
     ' Free custom cursor if loaded (ensure default cursor is shown first)
-    IF POINTER.IMG& <> 0 AND POINTER.IMG& < -1 THEN
+    IF POINTER.IMG& < -1 THEN
         _MOUSESHOW  ' Ensure using default system cursor before freeing custom
         _FREEIMAGE POINTER.IMG&
     END IF

@@ -36,4 +36,9 @@ END TYPE
 
 DIM SHARED SCRN AS SCREEN_OBJ
 
+' GUI dirty flag - when FALSE, skip toolbar/status redraw for performance
+' Set to TRUE when: tool switch, palette change, window resize, toolbar/status toggle
+DIM SHARED GUI_NEEDS_REDRAW AS INTEGER
+GUI_NEEDS_REDRAW% = TRUE ' Start with redraw needed
+
 SCREEN_init

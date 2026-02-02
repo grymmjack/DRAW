@@ -21,6 +21,14 @@ SUB ECHO_LOG (msg AS STRING)
 END SUB
 
 ''
+' Mark GUI as needing redraw
+' Call this when: tool switches, palette changes, window resizes, toolbar/status toggles
+'
+SUB GUI_mark_dirty ()
+    GUI_NEEDS_REDRAW% = TRUE
+END SUB
+
+''
 ' Detects the resolution of the desktop and sets the width and height to It
 ' 
 SUB SCREEN_detect_desktop_resolution()
@@ -110,17 +118,29 @@ SUB SCREEN_set_display_scale (newScale AS INTEGER)
     ' Update display scale
     SCRN.displayScale% = clampedScale%
     
-    ' Free old window image
-    IF SCRN.WINDOW_IMG& < -1 THEN _FREEIMAGE SCRN.WINDOW_IMG&
-    
-    ' Create new window image at scaled size
+    ' Calculate new window size
     winW& = SCRN.w& * SCRN.displayScale%
     winH& = SCRN.h& * SCRN.displayScale%
+    
+    ' Create new window image FIRST (before freeing old one)
+    DIM oldWindow AS LONG
+    oldWindow& = SCRN.WINDOW_IMG&
     SCRN.WINDOW_IMG& = _NEWIMAGE(winW&, winH&, 32)
     
     ' Switch to new window
     SCREEN SCRN.WINDOW_IMG&
     _DEST SCRN.CANVAS&
+    
+    ' NOW free the old window image (after we're no longer using it as SCREEN)
+    IF oldWindow& < -1 THEN _FREEIMAGE oldWindow&
+    
+    ' Reset input state after screen change
+    DO WHILE _MOUSEINPUT: LOOP  ' Drain mouse buffer
+    MOUSE_force_buttons_up       ' Reset button state
+    _MOUSEHIDE                   ' Ensure system cursor stays hidden
+    
+    ' Mark GUI as needing redraw
+    GUI_NEEDS_REDRAW% = TRUE
     
     ' Mark config as changed
     CFG.DISPLAY_SCALE_CHANGED% = TRUE
@@ -223,15 +243,18 @@ SUB SCREEN_render ()
     CLS
     
     ' Clear GUI layer and render toolbar/status conditionally
-    _DEST SCRN.GUI&
-    CLS , _RGBA32(0, 0, 0, 0) ' Clear with transparency
-    
-    IF SCRN.showToolbar% THEN
-        TOOLBAR_render 0, 0, 13  ' xPos parameter not used anymore
-    END IF
-    IF SCRN.showStatus% THEN 
-        PALETTE_STRIP_render
-        STATUS_render
+    ' Only redraw GUI elements when GUI_NEEDS_REDRAW is TRUE (optimization)
+    IF GUI_NEEDS_REDRAW% THEN
+        _DEST SCRN.GUI&
+        CLS , _RGBA32(0, 0, 0, 0) ' Clear with transparency
+        
+        IF SCRN.showToolbar% THEN
+            TOOLBAR_render 0, 0, 13  ' xPos parameter not used anymore
+        END IF
+        IF SCRN.showStatus% THEN 
+            PALETTE_STRIP_render
+            STATUS_render
+        END IF
     END IF
     
     ' Switch back to canvas for main rendering
@@ -294,14 +317,14 @@ SUB SCREEN_render ()
         _DEST SCRN.CANVAS&
         _BLEND SCRN.CANVAS&
         _PUTIMAGE (dx%, dy%), pgImg&
-        _FREEIMAGE pgImg&
+        IF pgImg& < -1 THEN _FREEIMAGE pgImg&
     END IF
     
     ' Draw symmetry guide overlay (after grids, before border/GUI)
     IF SYMMETRY.MODE > 0 THEN
         ' Recreate guide image if size changed
         IF SYMMETRY.imgHandle& = 0 OR _WIDTH(SYMMETRY.imgHandle&) <> zw& OR _HEIGHT(SYMMETRY.imgHandle&) <> zh& THEN
-            IF SYMMETRY.imgHandle& <> 0 THEN _FREEIMAGE SYMMETRY.imgHandle&
+            IF SYMMETRY.imgHandle& < -1 THEN _FREEIMAGE SYMMETRY.imgHandle&
             SYMMETRY.imgHandle& = _NEWIMAGE(zw&, zh&, 32)
             SYMMETRY.DIRTY% = TRUE
         END IF
@@ -439,7 +462,7 @@ SUB SCREEN_render ()
                 _DEST SCRN.CANVAS&
                 _BLEND SCRN.CANVAS&
                 _PUTIMAGE (pcx% - temp_cx%, pcy% - temp_cy%), preview_temp&, SCRN.CANVAS&
-                _FREEIMAGE preview_temp&
+                IF preview_temp& < -1 THEN _FREEIMAGE preview_temp&
             ELSE
                 ' Draw ellipse outline
                 CIRCLE (pcx%, pcy%), prx!, PAINT_COLOR~&, , , pasp!
@@ -469,7 +492,7 @@ SUB SCREEN_render ()
                         _DEST SCRN.CANVAS&
                         _BLEND SCRN.CANVAS&
                         _PUTIMAGE (ell_scx% - temp_cx%, ell_scy% - temp_cy%), preview_temp&, SCRN.CANVAS&
-                        _FREEIMAGE preview_temp&
+                        IF preview_temp& < -1 THEN _FREEIMAGE preview_temp&
                     ELSE
                         ' Outline symmetry ellipse
                         _DEST SCRN.CANVAS&
@@ -502,9 +525,15 @@ SUB SCREEN_render ()
     END IF
     ' ==== END MOVE TOOL STATUS BAR ====
     
-    ' Render crosshair AFTER GUI layer so it's visible (using SHIFT key)
+    ' Render crosshair AFTER GUI layer so it's visible (using SHIFT key alone)
     ' Skip when Text tool is active (SHIFT is used for uppercase letters)
-    IF (_KEYDOWN(KEY_LSHIFT&) OR _KEYDOWN(KEY_RSHIFT&)) AND CURRENT_TOOL% <> TOOL_TEXT THEN 
+    ' Skip when CTRL or ALT are also held (those are modifier combos for other functions)
+    DIM shiftHeld AS INTEGER, ctrlHeld AS INTEGER, altHeld AS INTEGER
+    shiftHeld% = (_KEYDOWN(KEY_LSHIFT&) OR _KEYDOWN(KEY_RSHIFT&))
+    ctrlHeld% = (_KEYDOWN(100305) OR _KEYDOWN(100306))  ' LCTRL or RCTRL
+    altHeld% = (_KEYDOWN(KEY_LALT&) OR _KEYDOWN(KEY_RALT&))
+    
+    IF shiftHeld% AND NOT ctrlHeld% AND NOT altHeld% AND CURRENT_TOOL% <> TOOL_TEXT THEN 
         CROSSHAIR_render PAL_color(THEME.CROSSHAIR_fg%)
     END IF
     POINTER_update
@@ -521,4 +550,7 @@ SUB SCREEN_render ()
     _PUTIMAGE (0, 0)-(_WIDTH(SCRN.WINDOW_IMG&) - 1, _HEIGHT(SCRN.WINDOW_IMG&) - 1), SCRN.CANVAS&, SCRN.WINDOW_IMG&
     
     _DISPLAY
+    
+    ' Reset GUI dirty flag at end of render
+    GUI_NEEDS_REDRAW% = FALSE
 END SUB
