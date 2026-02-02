@@ -332,39 +332,71 @@ SUB MOUSE_input_handler ()
         ' Also skip if CTRL or SHIFT are held (likely a hotkey combo like CTRL+ALT+SHIFT)
         DIM isDrawingTool%
         DIM isCtrlOrShiftHeld%
-        isCtrlOrShiftHeld% = (_KEYDOWN(100305) OR _KEYDOWN(100306) OR _KEYDOWN(100304) OR _KEYDOWN(100303))
-        isDrawingTool% = (CURRENT_TOOL% = TOOL_DOT OR CURRENT_TOOL% = TOOL_BRUSH OR _
-                         CURRENT_TOOL% = TOOL_LINE OR CURRENT_TOOL% = TOOL_RECT OR _
-                         CURRENT_TOOL% = TOOL_RECT_FILLED OR CURRENT_TOOL% = TOOL_ELLIPSE OR _
-                         CURRENT_TOOL% = TOOL_ELLIPSE_FILLED OR CURRENT_TOOL% = TOOL_FILL OR _
-                         CURRENT_TOOL% = TOOL_POLYGON OR CURRENT_TOOL% = TOOL_POLYGON_FILLED OR _
-                         CURRENT_TOOL% = TOOL_TEXT)
+        DIM altHeld%
+        STATIC altWasHeld%  ' Track ALT state from previous frame
+        STATIC pickerFromAlt%  ' Track if we entered picker via ALT key
         
-        IF (_KEYDOWN(KEY_LALT&) OR _KEYDOWN(KEY_RALT&)) AND isDrawingTool% AND NOT isCtrlOrShiftHeld% THEN
-            ' Store current tool if not already in picker mode
+        isCtrlOrShiftHeld% = (_KEYDOWN(100305) OR _KEYDOWN(100306) OR _KEYDOWN(100304) OR _KEYDOWN(100303))
+        altHeld% = (_KEYDOWN(KEY_LALT&) OR _KEYDOWN(KEY_RALT&))
+        
+        ' Check if current tool (or previous tool if in picker mode) is a drawing tool
+        IF CURRENT_TOOL% = TOOL_PICKER AND pickerFromAlt% THEN
+            ' When in ALT-triggered picker mode, check PREVIOUS_TOOL to know if we came from a drawing tool
+            isDrawingTool% = (PREVIOUS_TOOL% = TOOL_DOT OR PREVIOUS_TOOL% = TOOL_BRUSH OR _
+                             PREVIOUS_TOOL% = TOOL_LINE OR PREVIOUS_TOOL% = TOOL_RECT OR _
+                             PREVIOUS_TOOL% = TOOL_RECT_FILLED OR PREVIOUS_TOOL% = TOOL_ELLIPSE OR _
+                             PREVIOUS_TOOL% = TOOL_ELLIPSE_FILLED OR PREVIOUS_TOOL% = TOOL_FILL OR _
+                             PREVIOUS_TOOL% = TOOL_POLYGON OR PREVIOUS_TOOL% = TOOL_POLYGON_FILLED OR _
+                             PREVIOUS_TOOL% = TOOL_TEXT)
+        ELSE
+            isDrawingTool% = (CURRENT_TOOL% = TOOL_DOT OR CURRENT_TOOL% = TOOL_BRUSH OR _
+                             CURRENT_TOOL% = TOOL_LINE OR CURRENT_TOOL% = TOOL_RECT OR _
+                             CURRENT_TOOL% = TOOL_RECT_FILLED OR CURRENT_TOOL% = TOOL_ELLIPSE OR _
+                             CURRENT_TOOL% = TOOL_ELLIPSE_FILLED OR CURRENT_TOOL% = TOOL_FILL OR _
+                             CURRENT_TOOL% = TOOL_POLYGON OR CURRENT_TOOL% = TOOL_POLYGON_FILLED OR _
+                             CURRENT_TOOL% = TOOL_TEXT)
+        END IF
+        
+        ' Only ENTER picker mode when ALT is FIRST pressed (transition), not just held
+        ' This prevents re-entering picker when releasing other modifiers while ALT is still held
+        DIM altJustPressed%
+        altJustPressed% = (altHeld% AND NOT altWasHeld%)
+        
+        IF altJustPressed% AND isDrawingTool% AND NOT isCtrlOrShiftHeld% THEN
+            ' ALT just pressed alone with a drawing tool - enter picker mode
             IF CURRENT_TOOL% <> TOOL_PICKER THEN
                 PREVIOUS_TOOL% = CURRENT_TOOL%
                 CURRENT_TOOL% = TOOL_PICKER
+                GUI_NEEDS_REDRAW% = TRUE
                 PICKER_activate
-                ' Deactivate other tools
                 FILL_deactivate
+                pickerFromAlt% = TRUE
             END IF
-            ' Pick color on left click while ALT is held
+        ELSEIF pickerFromAlt% THEN
+            ' We're in ALT-triggered picker mode - check if we should exit
+            IF NOT altHeld% OR isCtrlOrShiftHeld% THEN
+                ' Exit picker mode: ALT released OR other modifiers added
+                IF CURRENT_TOOL% = TOOL_PICKER AND PREVIOUS_TOOL% <> TOOL_PICKER THEN
+                    CURRENT_TOOL% = PREVIOUS_TOOL%
+                    GUI_NEEDS_REDRAW% = TRUE
+                    PICKER_deactivate
+                    IF CURRENT_TOOL% = TOOL_FILL THEN
+                        FILL_activate
+                    END IF
+                END IF
+                pickerFromAlt% = FALSE
+            END IF
+        END IF
+        
+        ' Pick color on left click while in ALT-picker mode
+        IF pickerFromAlt% AND CURRENT_TOOL% = TOOL_PICKER THEN
             IF MOUSE.B1% AND NOT MOUSE.OLD_B1% THEN
                 PICKER_pick_color MOUSE.X%, MOUSE.Y%, 1
             END IF
-        ELSE
-            ' Check for ALT key release to return to previous tool
-            IF CURRENT_TOOL% = TOOL_PICKER AND PREVIOUS_TOOL% <> TOOL_PICKER THEN
-                ' Return to previous tool when ALT is released
-                CURRENT_TOOL% = PREVIOUS_TOOL%
-                PICKER_deactivate
-                ' Reactivate previous tool if needed
-                IF CURRENT_TOOL% = TOOL_FILL THEN
-                    FILL_activate
-                END IF
-            END IF
         END IF
+        
+        ' Update ALT state for next frame
+        altWasHeld% = altHeld%
         
         ' Check for double middle-click to reset zoom and position
         IF MOUSE.B3% AND NOT MOUSE.OLD_B3% THEN
@@ -551,6 +583,7 @@ SUB MOUSE_input_handler ()
                         MOUSE.DEFERRED_ACTION% = 1  ' 1 = save
                         ' Return to previous tool after save is triggered
                         CURRENT_TOOL% = PREVIOUS_TOOL%
+                        GUI_NEEDS_REDRAW% = TRUE
                     END IF
                 CASE TOOL_OPEN
                     ' LOAD tool: Defer load dialog to avoid calling from within mouse loop
@@ -558,6 +591,7 @@ SUB MOUSE_input_handler ()
                         MOUSE.DEFERRED_ACTION% = 2  ' 2 = load
                         ' Return to previous tool after load is triggered
                         CURRENT_TOOL% = PREVIOUS_TOOL%
+                        GUI_NEEDS_REDRAW% = TRUE
                     END IF
                 CASE TOOL_TEXT
                     ' TEXT tool: Click to start or reposition text entry
@@ -722,12 +756,15 @@ SUB MOUSE_input_handler ()
                     IF NOT MOUSE.OLD_B1% THEN
                         PP_STROKE_COUNT% = 0
                     END IF
-                    ' Always draw while button is held
-                    IF MOUSE.X% < MOUSE.OLD_X% THEN MOUSE.DRAG$ = "L"
-                    IF MOUSE.X% > MOUSE.OLD_X% THEN MOUSE.DRAG$ = "R"
-                    IF MOUSE.Y% < MOUSE.OLD_Y% THEN MOUSE.DRAG$ = "U"
-                    IF MOUSE.Y% > MOUSE.OLD_Y% THEN MOUSE.DRAG$ = "D"
-                    PAINT_on
+                    ' Only draw while LEFT button is held (not right-click)
+                    ' Right-click with SHIFT is for connecting lines, handled separately
+                    IF MOUSE.B1% THEN
+                        IF MOUSE.X% < MOUSE.OLD_X% THEN MOUSE.DRAG$ = "L"
+                        IF MOUSE.X% > MOUSE.OLD_X% THEN MOUSE.DRAG$ = "R"
+                        IF MOUSE.Y% < MOUSE.OLD_Y% THEN MOUSE.DRAG$ = "U"
+                        IF MOUSE.Y% > MOUSE.OLD_Y% THEN MOUSE.DRAG$ = "D"
+                        PAINT_on
+                    END IF
             END SELECT
         ELSEIF NOT MOUSE.B1% THEN
             ' Button released - save undo state if we were drawing
@@ -1013,6 +1050,7 @@ SUB MOUSE_input_handler ()
                 POLY_LINE_reset
                 ' Switch to NULL tool to prevent accidental clicks from starting new polygons
                 CURRENT_TOOL% = TOOL_NULL
+                GUI_NEEDS_REDRAW% = TRUE
             END IF
         END IF
         
@@ -1037,13 +1075,30 @@ SUB MOUSE_input_handler ()
         END IF
     END IF ' End drain-then-process block
     
+    ' Trigger redraw when palette menu is visible (for continuous hover highlighting)
+    IF PALETTE_MENU_VISIBLE% THEN
+        GUI_NEEDS_REDRAW% = TRUE
+    END IF
+    
     ' Process accumulated wheel delta for zoom/brush size (outside event loop)
     IF wheel_delta% <> 0 THEN
         MOUSE.SW% = wheel_delta%
         
-        ' Check if over palette strip or menu first
-        IF PALETTE_STRIP_in_bounds%(MOUSE.X%, MOUSE.Y%) OR PALETTE_MENU_in_bounds%(MOUSE.X%, MOUSE.Y%) THEN
+        ' Check if palette menu is visible - always handle wheel for menu scrolling, never zoom
+        IF PALETTE_MENU_VISIBLE% THEN
             PALETTE_STRIP_handle_wheel MOUSE.SW%
+        ' Check if over layer panel first (already handled by LAYER_PANEL_handle_wheel)
+        ELSEIF LAYER_PANEL_in_bounds%(MOUSE.X%, MOUSE.Y%) THEN
+            LAYER_PANEL_handle_wheel MOUSE.X%, MOUSE.Y%, MOUSE.SW%
+        ' Check if over palette strip
+        ELSEIF PALETTE_STRIP_in_bounds%(MOUSE.X%, MOUSE.Y%) THEN
+            PALETTE_STRIP_handle_wheel MOUSE.SW%
+        ' Check if over toolbar (don't zoom when over toolbar)
+        ELSEIF SCRN.showToolbar% AND TOOLBAR_is_over_area%(MOUSE.X%, MOUSE.Y%) THEN
+            ' Ignore wheel over toolbar
+        ' Check if over status bar area (don't zoom when over status bar)
+        ELSEIF SCRN.showStatus% AND MOUSE.Y% >= SCRN.h& - THEME.STATUS_height% - PALETTE_STRIP_get_height% THEN
+            ' Ignore wheel over status bar / palette strip area (palette strip already handled above)
         ' Check if CTRL is held for brush size adjustment
         ELSEIF (_KEYDOWN(100305) OR _KEYDOWN(100306)) THEN ' Right or Left CTRL
             ' CTRL+Wheel adjusts brush size
@@ -1054,7 +1109,7 @@ SUB MOUSE_input_handler ()
                 BRUSH_SIZE_decrease
             END IF
         ELSE
-            ' Mouse wheel without CTRL: zoom in/out
+            ' Mouse wheel without CTRL: zoom in/out (only when over canvas)
             ' Above 100%: Always use 100% increments (both in and out)
             ' At/below 100%: Zoom IN snaps to 100%, Zoom OUT uses 25%
             ' Zoom centered on mouse cursor position
@@ -1096,9 +1151,14 @@ SUB MOUSE_input_handler ()
                 old_center_x% = (SCRN.w& - old_zw&) \ 2
                 old_center_y% = (SCRN.h& - old_zh&) \ 2
                 
+                ' Account for layer panel offset when visible
+                DIM layerPanelOffset AS INTEGER
+                layerPanelOffset% = 0
+                IF LAYER_PANEL.visible% THEN layerPanelOffset% = CFG.LAYER_PANEL_WIDTH%
+                
                 ' Canvas position under mouse at old zoom
                 DIM canvasX AS SINGLE, canvasY AS SINGLE
-                canvasX! = (mouseScreenX% - old_center_x% - SCRN.offsetX%) / oldZoom!
+                canvasX! = (mouseScreenX% - old_center_x% - SCRN.offsetX% - layerPanelOffset%) / oldZoom!
                 canvasY! = (mouseScreenY% - old_center_y% - SCRN.offsetY%) / oldZoom!
                 
                 ' Calculate new canvas center offset at new zoom
@@ -1110,7 +1170,7 @@ SUB MOUSE_input_handler ()
                 new_center_y% = (SCRN.h& - new_zh&) \ 2
                 
                 ' Calculate new offset to keep canvas point at mouse screen position
-                SCRN.offsetX% = mouseScreenX% - new_center_x% - (canvasX! * SCRN.zoom!)
+                SCRN.offsetX% = mouseScreenX% - new_center_x% - (canvasX! * SCRN.zoom!) - layerPanelOffset%
                 SCRN.offsetY% = mouseScreenY% - new_center_y% - (canvasY! * SCRN.zoom!)
             END IF
         END IF

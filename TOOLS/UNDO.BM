@@ -22,10 +22,12 @@ SUB UNDO_init ()
             _FREEIMAGE UNDO_STATES(i%).img&
             UNDO_STATES(i%).img& = 0
         END IF
+        UNDO_STATES(i%).layer_index% = 0
     NEXT i%
     
-    ' Save initial blank canvas as state 0
-    UNDO_STATES(0).img& = _COPYIMAGE(SCRN.PAINTING&, 32)
+    ' Save initial blank canvas as state 0 (use current layer image)
+    UNDO_STATES(0).img& = _COPYIMAGE(LAYER_current_image&, 32)
+    UNDO_STATES(0).layer_index% = CURRENT_LAYER%
     UNDO.count% = 1
     UNDO.current% = 0
 END SUB
@@ -40,6 +42,8 @@ END SUB
 SUB UNDO_save_state ()
     DIM i AS INTEGER
     
+    _LOGINFO "UNDO_save_state called: saving layer " + STR$(CURRENT_LAYER%) + " count was " + STR$(UNDO.count%)
+    
     ' If we're not at the end of the undo stack, clear everything after current position
     ' (because we're creating a new branch)
     IF UNDO.current% < UNDO.count% - 1 THEN
@@ -48,6 +52,7 @@ SUB UNDO_save_state ()
                 _FREEIMAGE UNDO_STATES(i%).img&
                 UNDO_STATES(i%).img& = 0
             END IF
+            UNDO_STATES(i%).layer_index% = 0
         NEXT i%
         UNDO.count% = UNDO.current% + 1
     END IF
@@ -61,14 +66,17 @@ SUB UNDO_save_state ()
         ' Shift all states down
         FOR i% = 0 TO UNDO.count% - 2
             UNDO_STATES(i%).img& = UNDO_STATES(i% + 1).img&
+            UNDO_STATES(i%).layer_index% = UNDO_STATES(i% + 1).layer_index%
         NEXT i%
         UNDO_STATES(UNDO.count% - 1).img& = 0
+        UNDO_STATES(UNDO.count% - 1).layer_index% = 0
         UNDO.count% = UNDO.count% - 1
         UNDO.current% = UNDO.current% - 1
     END IF
     
-    ' Save current painting layer as new undo state
-    UNDO_STATES(UNDO.count%).img& = _COPYIMAGE(SCRN.PAINTING&, 32)
+    ' Save current layer image as new undo state, tracking which layer
+    UNDO_STATES(UNDO.count%).img& = _COPYIMAGE(LAYER_current_image&, 32)
+    UNDO_STATES(UNDO.count%).layer_index% = CURRENT_LAYER%
     UNDO.count% = UNDO.count% + 1
     UNDO.current% = UNDO.count% - 1
     
@@ -78,18 +86,126 @@ END SUB
 
 
 ''
+' Check if a layer image is empty (all transparent)
+'
+FUNCTION LAYER_is_empty% (layerImg AS LONG)
+    DIM x AS INTEGER, y AS INTEGER
+    DIM w AS INTEGER, h AS INTEGER
+    DIM c AS _UNSIGNED LONG
+    DIM oldSrc AS LONG
+    
+    IF layerImg& >= -1 THEN
+        LAYER_is_empty% = TRUE
+        EXIT FUNCTION
+    END IF
+    
+    w% = _WIDTH(layerImg&)
+    h% = _HEIGHT(layerImg&)
+    
+    oldSrc& = _SOURCE
+    _SOURCE layerImg&
+    
+    ' Sample a few points instead of checking every pixel (for performance)
+    FOR y% = 0 TO h% - 1 STEP 8
+        FOR x% = 0 TO w% - 1 STEP 8
+            c~& = POINT(x%, y%)
+            IF _ALPHA32(c~&) > 0 THEN
+                _SOURCE oldSrc&
+                LAYER_is_empty% = FALSE
+                EXIT FUNCTION
+            END IF
+        NEXT x%
+    NEXT y%
+    
+    _SOURCE oldSrc&
+    LAYER_is_empty% = TRUE
+END FUNCTION
+
+
+''
 ' Undo - restore previous state
+' Works by finding the previous state for the layer that was modified in the current state
 '
 SUB UNDO_undo ()
+    DIM targetImg AS LONG
+    DIM oldDest AS LONG
+    DIM currentLayer AS INTEGER
+    DIM restoreIdx AS INTEGER
+    DIM i AS INTEGER
+    DIM skipState AS INTEGER
+    
+    _LOGINFO "UNDO_undo called: current=" + STR$(UNDO.current%) + " count=" + STR$(UNDO.count%)
     IF UNDO.current% > 0 THEN
-        ' Restore the previous state (current - 1)
-        IF UNDO_STATES(UNDO.current% - 1).img& < -1 THEN
-            IF SCRN.PAINTING& < -1 THEN _FREEIMAGE SCRN.PAINTING&
-            SCRN.PAINTING& = _COPYIMAGE(UNDO_STATES(UNDO.current% - 1).img&, 32)
+        ' Get the layer that the current state modified
+        currentLayer% = UNDO_STATES(UNDO.current%).layer_index%
+        
+        ' Find the previous state for this SAME layer (or go to beginning)
+        restoreIdx% = -1
+        FOR i% = UNDO.current% - 1 TO 0 STEP -1
+            IF UNDO_STATES(i%).layer_index% = currentLayer% THEN
+                restoreIdx% = i%
+                EXIT FOR
+            END IF
+        NEXT i%
+        
+        skipState% = FALSE
+        
+        ' If no previous state found for this layer, clear to transparent
+        IF restoreIdx% < 0 THEN
+            ' Check if layer is already empty - if so, skip this state
+            IF currentLayer% >= 1 AND currentLayer% <= LAYER_COUNT% THEN
+                IF LAYERS(currentLayer%).imgHandle& < -1 THEN
+                    targetImg& = LAYERS(currentLayer%).imgHandle&
+                    IF LAYER_is_empty%(targetImg&) THEN
+                        ' Layer is already empty, skip this undo step
+                        _LOGINFO "UNDO: Layer " + STR$(currentLayer%) + " already empty, skipping"
+                        skipState% = TRUE
+                    ELSE
+                        ' Clear the layer to transparent (initial state)
+                        oldDest& = _DEST
+                        _DEST targetImg&
+                        CLS , _RGBA32(0, 0, 0, 0)
+                        _DEST oldDest&
+                        _LOGINFO "UNDO: Cleared layer " + STR$(currentLayer%) + " to transparent (no previous state)"
+                    END IF
+                END IF
+            END IF
+        ELSE
+            ' Restore from the found state
+            IF UNDO_STATES(restoreIdx%).img& < -1 THEN
+                ' Get the target layer's image handle
+                IF currentLayer% >= 1 AND currentLayer% <= LAYER_COUNT% THEN
+                    IF LAYERS(currentLayer%).imgHandle& < -1 THEN
+                        targetImg& = LAYERS(currentLayer%).imgHandle&
+                    ELSE
+                        targetImg& = SCRN.PAINTING&
+                    END IF
+                ELSE
+                    targetImg& = SCRN.PAINTING&
+                END IF
+                
+                ' Copy the undo state into the target layer image
+                oldDest& = _DEST
+                _DEST targetImg&
+                CLS , _RGBA32(0, 0, 0, 0) ' Clear with transparent
+                _PUTIMAGE (0, 0), UNDO_STATES(restoreIdx%).img&, targetImg&
+                _DEST oldDest&
+                
+                _LOGINFO "UNDO: Restored state " + STR$(restoreIdx%) + " to layer " + STR$(currentLayer%) + " image " + STR$(targetImg&)
+            ELSE
+                _LOGWARN "UNDO: State " + STR$(restoreIdx%) + " has invalid image handle"
+            END IF
         END IF
         
-        ' Move back one state
+        ' Move back one state in the history
         UNDO.current% = UNDO.current% - 1
+        
+        ' If we skipped this state, automatically continue to the next undo
+        IF skipState% AND UNDO.current% > 0 THEN
+            UNDO_undo
+        END IF
+    ELSE
+        _LOGINFO "UNDO: Nothing to undo (current=0)"
     END IF
 END SUB
 
@@ -98,15 +214,44 @@ END SUB
 ' Redo - restore next state
 '
 SUB UNDO_redo ()
+    DIM targetImg AS LONG
+    DIM oldDest AS LONG
+    DIM targetLayer AS INTEGER
+    
+    _LOGINFO "UNDO_redo called: current=" + STR$(UNDO.current%) + " count=" + STR$(UNDO.count%)
     IF UNDO.current% < UNDO.count% - 1 THEN
         ' Move forward one state
         UNDO.current% = UNDO.current% + 1
         
         ' Restore the state
         IF UNDO_STATES(UNDO.current%).img& < -1 THEN
-            IF SCRN.PAINTING& < -1 THEN _FREEIMAGE SCRN.PAINTING&
-            SCRN.PAINTING& = _COPYIMAGE(UNDO_STATES(UNDO.current%).img&, 32)
+            ' Get the layer index this state belongs to
+            targetLayer% = UNDO_STATES(UNDO.current%).layer_index%
+            
+            ' Get the target layer's image handle
+            IF targetLayer% >= 1 AND targetLayer% <= LAYER_COUNT% THEN
+                IF LAYERS(targetLayer%).imgHandle& < -1 THEN
+                    targetImg& = LAYERS(targetLayer%).imgHandle&
+                ELSE
+                    targetImg& = SCRN.PAINTING&
+                END IF
+            ELSE
+                targetImg& = SCRN.PAINTING&
+            END IF
+            
+            ' Copy the undo state into the target layer image
+            oldDest& = _DEST
+            _DEST targetImg&
+            CLS , _RGBA32(0, 0, 0, 0) ' Clear with transparent
+            _PUTIMAGE (0, 0), UNDO_STATES(UNDO.current%).img&, targetImg&
+            _DEST oldDest&
+            
+            _LOGINFO "REDO: Restored state " + STR$(UNDO.current%) + " to layer " + STR$(targetLayer%) + " image " + STR$(targetImg&)
+        ELSE
+            _LOGWARN "REDO: State " + STR$(UNDO.current%) + " has invalid image handle: " + STR$(UNDO_STATES(UNDO.current%).img&)
         END IF
+    ELSE
+        _LOGINFO "REDO: Nothing to redo (current=" + STR$(UNDO.current%) + " count=" + STR$(UNDO.count%) + ")"
     END IF
 END SUB
 
