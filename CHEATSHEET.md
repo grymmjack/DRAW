@@ -240,10 +240,29 @@ DRAW includes 10 dither patterns (0-9) that can be applied to brush, dot, and fi
 | `F10` | Toggle status bar visibility |
 | `F11` | Toggle both toolbar and status bar |
 | `Shift` | Show crosshair (when held) |
+
+### Canvas Zoom
+
+| Key | Function |
+|-----|----------|
 | `Ctrl+0` | Reset zoom to 100% and center |
-| `Ctrl+=` | Zoom in 100% |
-| `Ctrl+-` | Zoom out 100% |
-| `Ctrl+2` | Set zoom to 200% |
+| `Ctrl+=` | Zoom in (25%→50%→100%→200%→300%...800%) |
+| `Ctrl+-` | Zoom out (800%...300%→200%→100%→50%→25%) |
+| `Ctrl+Mouse Wheel` | Zoom in/out (same levels) |
+
+**Zoom Levels:** 25%, 50%, 100%, 200%, 300%, 400%, 500%, 600%, 700%, 800%
+
+### Display Scale (Window Size)
+
+| Key | Function |
+|-----|----------|
+| `Ctrl+Alt+Shift+NumPad+` | Increase display scale (1x→2x→3x→4x) |
+| `Ctrl+Alt+Shift+NumPad-` | Decrease display scale (4x→3x→2x→1x) |
+
+**Notes:**
+- NumPad +/- work with NumLock ON or OFF
+- Display scale changes window size, not canvas zoom
+- Changed scale is remembered if you save config on exit
 
 ## Drawing Modifiers
 
