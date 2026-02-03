@@ -40,6 +40,7 @@ $INCLUDEONCE
 '$INCLUDE:'./GUI/STATUS.BI'
 '$INCLUDE:'./GUI/TOOLBAR.BI'
 '$INCLUDE:'./GUI/TRANSPARENCY.BI'
+'$INCLUDE:'./GUI/COMMAND.BI'
 
 ' INPUT -----------------------------------------------------------------------
 '$INCLUDE:'./INPUT/KEYBOARD.BI'
