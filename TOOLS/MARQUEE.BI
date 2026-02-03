@@ -36,6 +36,11 @@ TYPE MARQUEE_OBJ
     MOVE_START_Y AS INTEGER ' Starting Y when move began
     MOVE_ORIG_X AS INTEGER  ' Original box X when move began
     MOVE_ORIG_Y AS INTEGER  ' Original box Y when move began
+    ' Single-press key state tracking for nudge keys
+    KEY_UP_LAST AS INTEGER     ' Previous frame's Up arrow state
+    KEY_DOWN_LAST AS INTEGER   ' Previous frame's Down arrow state
+    KEY_LEFT_LAST AS INTEGER   ' Previous frame's Left arrow state
+    KEY_RIGHT_LAST AS INTEGER  ' Previous frame's Right arrow state
 END TYPE
 
 DIM SHARED MARQUEE AS MARQUEE_OBJ
