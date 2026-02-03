@@ -26,6 +26,10 @@ IF cmdArg$ <> "" THEN
     END IF
 END IF
 
+' Apply config startup defaults (tool, brush size, directories)
+' Must be called after all modules are initialized via includes
+CONFIG_apply_startup_defaults
+
 ' Main Loop
 DIM k AS LONG
 DIM exitConfirmed AS INTEGER

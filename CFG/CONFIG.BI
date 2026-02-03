@@ -43,6 +43,12 @@ TYPE DRAW_CONFIG
     TRANSPARENCY_CHECK_SIZE        AS INTEGER  ' Checkerboard square size in pixels
     ' Workspace undo settings
     WORKSPACE_UNDO_MAX_STATES      AS INTEGER  ' Max workspace undo states (5-50, default 20)
+    ' Default startup settings
+    DEFAULT_TOOL                   AS INTEGER  ' Default tool on startup (1=brush, 2=fill, 3=dot, etc.)
+    DEFAULT_BRUSH_SIZE             AS INTEGER  ' Default brush size index (1-25)
+    DEFAULT_LAYER_BG_COLOR         AS _UNSIGNED LONG  ' Default layer background color
+    DEFAULT_SAVE_DIR               AS STRING   ' Default directory for save dialogs
+    DEFAULT_OPEN_DIR               AS STRING   ' Default directory for open dialogs
 END TYPE
 
 DIM SHARED CFG   AS DRAW_CONFIG
@@ -50,4 +56,5 @@ DIM SHARED CFG   AS DRAW_CONFIG
 DECLARE SUB CONFIG_load ()
 DECLARE SUB CONFIG_save ()
 DECLARE SUB CONFIG_set_defaults ()
+DECLARE SUB CONFIG_apply_startup_defaults ()
 DECLARE SUB CONFIG_validate_palette_strip ()
