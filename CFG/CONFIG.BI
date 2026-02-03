@@ -41,6 +41,8 @@ TYPE DRAW_CONFIG
     TRANSPARENCY_CHECK_COLOR1      AS _UNSIGNED LONG  ' Light checkerboard color
     TRANSPARENCY_CHECK_COLOR2      AS _UNSIGNED LONG  ' Dark checkerboard color
     TRANSPARENCY_CHECK_SIZE        AS INTEGER  ' Checkerboard square size in pixels
+    ' Workspace undo settings
+    WORKSPACE_UNDO_MAX_STATES      AS INTEGER  ' Max workspace undo states (5-50, default 20)
 END TYPE
 
 DIM SHARED CFG   AS DRAW_CONFIG

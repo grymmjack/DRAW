@@ -1,0 +1,402 @@
+''
+' DRAW - TOOLS/WORKSPACE-UNDO.BM
+' =============================================================================
+' Workspace undo system implementation
+' Handles undo/redo for layer operations with timestamp support
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+' ============================================================================
+' WORKSPACE_UNDO_init - Initialize workspace undo system
+' ============================================================================
+SUB WORKSPACE_UNDO_init
+    WORKSPACE_UNDO.current% = 0
+    WORKSPACE_UNDO.count% = 0
+    WORKSPACE_UNDO.max_states% = CFG.WORKSPACE_UNDO_MAX_STATES%
+    IF WORKSPACE_UNDO.max_states% < 1 THEN WORKSPACE_UNDO.max_states% = 20
+    IF WORKSPACE_UNDO.max_states% > 100 THEN WORKSPACE_UNDO.max_states% = 100
+    REDIM WORKSPACE_UNDO_STATES(1 TO WORKSPACE_UNDO.max_states%) AS WORKSPACE_UNDO_STATE
+    PIXEL_UNDO_LAST_TIMESTAMP# = 0
+    WORKSPACE_UNDO_READY% = TRUE  ' Mark system as ready for use
+END SUB
+
+' ============================================================================
+' WORKSPACE_UNDO_clear - Clear all workspace undo states and free images
+' ============================================================================
+SUB WORKSPACE_UNDO_clear
+    DIM i AS INTEGER
+    FOR i% = 1 TO WORKSPACE_UNDO.count%
+        ' Free any stored images
+        IF WORKSPACE_UNDO_STATES(i%).img& < -1 THEN
+            _FREEIMAGE WORKSPACE_UNDO_STATES(i%).img&
+        END IF
+        IF WORKSPACE_UNDO_STATES(i%).img2& < -1 THEN
+            _FREEIMAGE WORKSPACE_UNDO_STATES(i%).img2&
+        END IF
+        WORKSPACE_UNDO_STATES(i%).img& = 0
+        WORKSPACE_UNDO_STATES(i%).img2& = 0
+    NEXT i%
+    WORKSPACE_UNDO.current% = 0
+    WORKSPACE_UNDO.count% = 0
+END SUB
+
+' ============================================================================
+' WUNDO_shift_states_down - Internal: shift states to make room at the end
+' ============================================================================
+SUB WUNDO_shift_states_down
+    DIM i AS INTEGER
+    ' Free the oldest state's images
+    IF WORKSPACE_UNDO_STATES(1).img& < -1 THEN
+        _FREEIMAGE WORKSPACE_UNDO_STATES(1).img&
+    END IF
+    IF WORKSPACE_UNDO_STATES(1).img2& < -1 THEN
+        _FREEIMAGE WORKSPACE_UNDO_STATES(1).img2&
+    END IF
+    ' Shift all states down
+    FOR i% = 1 TO WORKSPACE_UNDO.max_states% - 1
+        WORKSPACE_UNDO_STATES(i%) = WORKSPACE_UNDO_STATES(i% + 1)
+    NEXT i%
+    ' Clear the last slot
+    WORKSPACE_UNDO_STATES(WORKSPACE_UNDO.max_states%).img& = 0
+    WORKSPACE_UNDO_STATES(WORKSPACE_UNDO.max_states%).img2& = 0
+END SUB
+
+' ============================================================================
+' WUNDO_prepare_new_state - Internal: prepare for adding a new state
+' Returns the index where the new state should be stored
+' ============================================================================
+FUNCTION WUNDO_prepare_new_state%
+    DIM i AS INTEGER
+    DIM newIndex AS INTEGER
+    
+    ' If we're not at the end, truncate future redo states
+    IF WORKSPACE_UNDO.current% < WORKSPACE_UNDO.count% THEN
+        FOR i% = WORKSPACE_UNDO.current% + 1 TO WORKSPACE_UNDO.count%
+            IF WORKSPACE_UNDO_STATES(i%).img& < -1 THEN
+                _FREEIMAGE WORKSPACE_UNDO_STATES(i%).img&
+            END IF
+            IF WORKSPACE_UNDO_STATES(i%).img2& < -1 THEN
+                _FREEIMAGE WORKSPACE_UNDO_STATES(i%).img2&
+            END IF
+            WORKSPACE_UNDO_STATES(i%).img& = 0
+            WORKSPACE_UNDO_STATES(i%).img2& = 0
+        NEXT i%
+        WORKSPACE_UNDO.count% = WORKSPACE_UNDO.current%
+    END IF
+    
+    ' Check if we need to shift states
+    IF WORKSPACE_UNDO.count% >= WORKSPACE_UNDO.max_states% THEN
+        WUNDO_shift_states_down
+        newIndex% = WORKSPACE_UNDO.max_states%
+        WORKSPACE_UNDO.count% = WORKSPACE_UNDO.max_states%
+        WORKSPACE_UNDO.current% = WORKSPACE_UNDO.max_states%
+    ELSE
+        WORKSPACE_UNDO.count% = WORKSPACE_UNDO.count% + 1
+        WORKSPACE_UNDO.current% = WORKSPACE_UNDO.count%
+        newIndex% = WORKSPACE_UNDO.count%
+    END IF
+    
+    WUNDO_prepare_new_state% = newIndex%
+END FUNCTION
+
+' ============================================================================
+' WORKSPACE_UNDO_save_layer_add - Save state before adding a new layer
+' Called BEFORE the layer is actually added
+' ============================================================================
+SUB WORKSPACE_UNDO_save_layer_add (layerIndex AS INTEGER)
+    ' Skip if workspace undo not ready (during initialization)
+    IF NOT WORKSPACE_UNDO_READY% THEN EXIT SUB
+    
+    DIM idx AS INTEGER
+    idx% = WUNDO_prepare_new_state%
+    
+    WORKSPACE_UNDO_STATES(idx%).action_type% = WUNDO_TYPE_LAYER_ADD
+    WORKSPACE_UNDO_STATES(idx%).timestamp# = TIMER
+    WORKSPACE_UNDO_STATES(idx%).layer_index% = layerIndex%
+    WORKSPACE_UNDO_STATES(idx%).old_layer_count% = LAYER_COUNT%
+    WORKSPACE_UNDO_STATES(idx%).img& = 0  ' No image needed for add
+    WORKSPACE_UNDO_STATES(idx%).img2& = 0
+END SUB
+
+' ============================================================================
+' WORKSPACE_UNDO_save_layer_delete - Save state before deleting a layer
+' Called BEFORE the layer is actually deleted
+' ============================================================================
+SUB WORKSPACE_UNDO_save_layer_delete (layerIndex AS INTEGER)
+    ' Skip if workspace undo not ready (during initialization)
+    IF NOT WORKSPACE_UNDO_READY% THEN EXIT SUB
+    
+    DIM idx AS INTEGER
+    idx% = WUNDO_prepare_new_state%
+    
+    WORKSPACE_UNDO_STATES(idx%).action_type% = WUNDO_TYPE_LAYER_DELETE
+    WORKSPACE_UNDO_STATES(idx%).timestamp# = TIMER
+    WORKSPACE_UNDO_STATES(idx%).layer_index% = layerIndex%
+    WORKSPACE_UNDO_STATES(idx%).old_layer_count% = LAYER_COUNT%
+    
+    ' Save copy of layer content before it's deleted
+    IF LAYERS(layerIndex%).imgHandle& < -1 THEN
+        WORKSPACE_UNDO_STATES(idx%).img& = _COPYIMAGE(LAYERS(layerIndex%).imgHandle&)
+    ELSE
+        WORKSPACE_UNDO_STATES(idx%).img& = 0
+    END IF
+    WORKSPACE_UNDO_STATES(idx%).img2& = 0
+    
+    ' Save layer properties
+    WORKSPACE_UNDO_STATES(idx%).old_name$ = LAYERS(layerIndex%).name$
+    WORKSPACE_UNDO_STATES(idx%).old_zIndex% = LAYERS(layerIndex%).zIndex%
+    WORKSPACE_UNDO_STATES(idx%).old_opacity% = LAYERS(layerIndex%).opacity%
+    WORKSPACE_UNDO_STATES(idx%).old_visible% = LAYERS(layerIndex%).visible%
+    WORKSPACE_UNDO_STATES(idx%).old_opacityLock% = LAYERS(layerIndex%).opacityLock%
+END SUB
+
+' ============================================================================
+' WORKSPACE_UNDO_save_layer_rename - Save state before renaming a layer
+' ============================================================================
+SUB WORKSPACE_UNDO_save_layer_rename (layerIndex AS INTEGER, oldName AS STRING, newName AS STRING)
+    ' Skip if workspace undo not ready (during initialization)
+    IF NOT WORKSPACE_UNDO_READY% THEN EXIT SUB
+    
+    DIM idx AS INTEGER
+    idx% = WUNDO_prepare_new_state%
+    
+    WORKSPACE_UNDO_STATES(idx%).action_type% = WUNDO_TYPE_LAYER_RENAME
+    WORKSPACE_UNDO_STATES(idx%).timestamp# = TIMER
+    WORKSPACE_UNDO_STATES(idx%).layer_index% = layerIndex%
+    WORKSPACE_UNDO_STATES(idx%).old_name$ = oldName$
+    WORKSPACE_UNDO_STATES(idx%).new_name$ = newName$
+    WORKSPACE_UNDO_STATES(idx%).img& = 0
+    WORKSPACE_UNDO_STATES(idx%).img2& = 0
+END SUB
+
+' ============================================================================
+' WORKSPACE_UNDO_save_layer_reorder - Save state before reordering a layer
+' ============================================================================
+SUB WORKSPACE_UNDO_save_layer_reorder (layerIndex AS INTEGER, oldZIndex AS INTEGER, newZIndex AS INTEGER)
+    ' Skip if workspace undo not ready (during initialization)
+    IF NOT WORKSPACE_UNDO_READY% THEN EXIT SUB
+    
+    DIM idx AS INTEGER
+    idx% = WUNDO_prepare_new_state%
+    
+    WORKSPACE_UNDO_STATES(idx%).action_type% = WUNDO_TYPE_LAYER_REORDER
+    WORKSPACE_UNDO_STATES(idx%).timestamp# = TIMER
+    WORKSPACE_UNDO_STATES(idx%).layer_index% = layerIndex%
+    WORKSPACE_UNDO_STATES(idx%).old_zIndex% = oldZIndex%
+    WORKSPACE_UNDO_STATES(idx%).new_zIndex% = newZIndex%
+    WORKSPACE_UNDO_STATES(idx%).img& = 0
+    WORKSPACE_UNDO_STATES(idx%).img2& = 0
+END SUB
+
+' ============================================================================
+' WORKSPACE_UNDO_save_layer_merge - Save state before merging layers
+' ============================================================================
+SUB WORKSPACE_UNDO_save_layer_merge (topIndex AS INTEGER, bottomIndex AS INTEGER)
+    ' Skip if workspace undo not ready (during initialization)
+    IF NOT WORKSPACE_UNDO_READY% THEN EXIT SUB
+    
+    DIM idx AS INTEGER
+    idx% = WUNDO_prepare_new_state%
+    
+    WORKSPACE_UNDO_STATES(idx%).action_type% = WUNDO_TYPE_LAYER_MERGE
+    WORKSPACE_UNDO_STATES(idx%).timestamp# = TIMER
+    WORKSPACE_UNDO_STATES(idx%).layer_index% = topIndex%
+    WORKSPACE_UNDO_STATES(idx%).merge_top_index% = topIndex%
+    WORKSPACE_UNDO_STATES(idx%).merge_bottom_index% = bottomIndex%
+    WORKSPACE_UNDO_STATES(idx%).old_layer_count% = LAYER_COUNT%
+    
+    ' Save copies of both layer contents before merge
+    IF LAYERS(topIndex%).imgHandle& < -1 THEN
+        WORKSPACE_UNDO_STATES(idx%).img& = _COPYIMAGE(LAYERS(topIndex%).imgHandle&)
+    ELSE
+        WORKSPACE_UNDO_STATES(idx%).img& = 0
+    END IF
+    
+    IF LAYERS(bottomIndex%).imgHandle& < -1 THEN
+        WORKSPACE_UNDO_STATES(idx%).img2& = _COPYIMAGE(LAYERS(bottomIndex%).imgHandle&)
+    ELSE
+        WORKSPACE_UNDO_STATES(idx%).img2& = 0
+    END IF
+    
+    ' Save top layer properties (the one that will be deleted)
+    WORKSPACE_UNDO_STATES(idx%).old_name$ = LAYERS(topIndex%).name$
+    WORKSPACE_UNDO_STATES(idx%).old_zIndex% = LAYERS(topIndex%).zIndex%
+    WORKSPACE_UNDO_STATES(idx%).old_opacity% = LAYERS(topIndex%).opacity%
+    WORKSPACE_UNDO_STATES(idx%).old_visible% = LAYERS(topIndex%).visible%
+    WORKSPACE_UNDO_STATES(idx%).old_opacityLock% = LAYERS(topIndex%).opacityLock%
+END SUB
+
+' ============================================================================
+' WORKSPACE_UNDO_undo - Undo the last workspace operation
+' ============================================================================
+SUB WORKSPACE_UNDO_undo
+    IF NOT WORKSPACE_UNDO_can_undo% THEN EXIT SUB
+    
+    DIM state AS WORKSPACE_UNDO_STATE
+    state = WORKSPACE_UNDO_STATES(WORKSPACE_UNDO.current%)
+    
+    SELECT CASE state.action_type%
+        CASE WUNDO_TYPE_LAYER_ADD
+            ' Undo layer add = delete the layer
+            IF state.layer_index% <= LAYER_COUNT% THEN
+                LAYERS_delete state.layer_index%
+            END IF
+            
+        CASE WUNDO_TYPE_LAYER_DELETE
+            ' Undo layer delete = recreate the layer
+            DIM newIdx AS INTEGER
+            newIdx% = LAYERS_new%
+            IF newIdx% = 0 THEN EXIT SUB ' Failed to create layer
+            
+            ' Restore layer properties
+            LAYERS(newIdx%).name$ = state.old_name$
+            LAYERS(newIdx%).zIndex% = state.old_zIndex%
+            LAYERS(newIdx%).opacity% = state.old_opacity%
+            LAYERS(newIdx%).visible% = state.old_visible%
+            LAYERS(newIdx%).opacityLock% = state.old_opacityLock%
+            
+            ' Restore layer content
+            IF state.img& < -1 THEN
+                IF LAYERS(newIdx%).imgHandle& < -1 THEN
+                    _FREEIMAGE LAYERS(newIdx%).imgHandle&
+                END IF
+                LAYERS(newIdx%).imgHandle& = _COPYIMAGE(state.img&)
+            END IF
+            
+            ' Move to correct position if needed
+            WHILE LAYERS(newIdx%).zIndex% < state.old_zIndex% AND newIdx% < LAYER_COUNT%
+                LAYERS_move_down newIdx%
+                newIdx% = newIdx% + 1
+            WEND
+            WHILE LAYERS(newIdx%).zIndex% > state.old_zIndex% AND newIdx% > 1
+                LAYERS_move_up newIdx%
+                newIdx% = newIdx% - 1
+            WEND
+            
+        CASE WUNDO_TYPE_LAYER_RENAME
+            ' Undo rename = restore old name
+            IF state.layer_index% <= LAYER_COUNT% THEN
+                LAYERS(state.layer_index%).name$ = state.old_name$
+            END IF
+            
+        CASE WUNDO_TYPE_LAYER_REORDER
+            ' Undo reorder = move back to old position
+            IF state.layer_index% <= LAYER_COUNT% THEN
+                IF state.new_zIndex% > state.old_zIndex% THEN
+                    ' Layer was moved up, move it back down
+                    LAYERS_move_down state.layer_index%
+                ELSE
+                    ' Layer was moved down, move it back up
+                    LAYERS_move_up state.layer_index%
+                END IF
+            END IF
+            
+        CASE WUNDO_TYPE_LAYER_MERGE
+            ' Undo merge = recreate top layer and restore both contents
+            ' First, restore the bottom layer's original content
+            IF state.img2& < -1 AND state.merge_bottom_index% <= LAYER_COUNT% THEN
+                IF LAYERS(state.merge_bottom_index%).imgHandle& < -1 THEN
+                    _FREEIMAGE LAYERS(state.merge_bottom_index%).imgHandle&
+                END IF
+                LAYERS(state.merge_bottom_index%).imgHandle& = _COPYIMAGE(state.img2&)
+            END IF
+            
+            ' Recreate the top layer
+            DIM topIdx AS INTEGER
+            topIdx% = LAYERS_new%
+            IF topIdx% = 0 THEN EXIT SUB ' Failed to create layer
+            
+            ' Restore top layer properties
+            LAYERS(topIdx%).name$ = state.old_name$
+            LAYERS(topIdx%).zIndex% = state.old_zIndex%
+            LAYERS(topIdx%).opacity% = state.old_opacity%
+            LAYERS(topIdx%).visible% = state.old_visible%
+            LAYERS(topIdx%).opacityLock% = state.old_opacityLock%
+            
+            ' Restore top layer content
+            IF state.img& < -1 THEN
+                IF LAYERS(topIdx%).imgHandle& < -1 THEN
+                    _FREEIMAGE LAYERS(topIdx%).imgHandle&
+                END IF
+                LAYERS(topIdx%).imgHandle& = _COPYIMAGE(state.img&)
+            END IF
+    END SELECT
+    
+    WORKSPACE_UNDO.current% = WORKSPACE_UNDO.current% - 1
+    GUI_NEEDS_REDRAW% = TRUE
+END SUB
+
+' ============================================================================
+' WORKSPACE_UNDO_redo - Redo the last undone workspace operation
+' ============================================================================
+SUB WORKSPACE_UNDO_redo
+    IF NOT WORKSPACE_UNDO_can_redo% THEN EXIT SUB
+    
+    WORKSPACE_UNDO.current% = WORKSPACE_UNDO.current% + 1
+    
+    DIM state AS WORKSPACE_UNDO_STATE
+    state = WORKSPACE_UNDO_STATES(WORKSPACE_UNDO.current%)
+    
+    SELECT CASE state.action_type%
+        CASE WUNDO_TYPE_LAYER_ADD
+            ' Redo layer add = add the layer again
+            DIM redoNewIdx AS INTEGER
+            redoNewIdx% = LAYERS_new%
+            
+        CASE WUNDO_TYPE_LAYER_DELETE
+            ' Redo layer delete = delete the layer again
+            IF state.layer_index% <= LAYER_COUNT% THEN
+                LAYERS_delete state.layer_index%
+            END IF
+            
+        CASE WUNDO_TYPE_LAYER_RENAME
+            ' Redo rename = apply new name
+            IF state.layer_index% <= LAYER_COUNT% THEN
+                LAYERS(state.layer_index%).name$ = state.new_name$
+            END IF
+            
+        CASE WUNDO_TYPE_LAYER_REORDER
+            ' Redo reorder = move to new position
+            IF state.layer_index% <= LAYER_COUNT% THEN
+                IF state.new_zIndex% > state.old_zIndex% THEN
+                    LAYERS_move_up state.layer_index%
+                ELSE
+                    LAYERS_move_down state.layer_index%
+                END IF
+            END IF
+            
+        CASE WUNDO_TYPE_LAYER_MERGE
+            ' Redo merge = merge the layers again
+            LAYERS_merge_down state.merge_top_index%
+    END SELECT
+    
+    GUI_NEEDS_REDRAW% = TRUE
+END SUB
+
+' ============================================================================
+' WORKSPACE_UNDO_can_undo - Check if undo is available
+' ============================================================================
+FUNCTION WORKSPACE_UNDO_can_undo%
+    WORKSPACE_UNDO_can_undo% = (WORKSPACE_UNDO.current% > 0)
+END FUNCTION
+
+' ============================================================================
+' WORKSPACE_UNDO_can_redo - Check if redo is available
+' ============================================================================
+FUNCTION WORKSPACE_UNDO_can_redo%
+    WORKSPACE_UNDO_can_redo% = (WORKSPACE_UNDO.current% < WORKSPACE_UNDO.count%)
+END FUNCTION
+
+' ============================================================================
+' WORKSPACE_UNDO_get_last_timestamp - Get timestamp of most recent undo state
+' Returns 0 if no states exist
+' ============================================================================
+FUNCTION WORKSPACE_UNDO_get_last_timestamp#
+    IF WORKSPACE_UNDO.current% > 0 THEN
+        WORKSPACE_UNDO_get_last_timestamp# = WORKSPACE_UNDO_STATES(WORKSPACE_UNDO.current%).timestamp#
+    ELSE
+        WORKSPACE_UNDO_get_last_timestamp# = 0
+    END IF
+END FUNCTION

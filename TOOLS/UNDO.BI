@@ -10,6 +10,7 @@ $INCLUDEONCE
 TYPE UNDO_STATE
     img AS LONG          ' Image handle for this state
     layer_index AS INTEGER ' Which layer this state belongs to
+    timestamp AS DOUBLE  ' TIMER value when state was saved (for intelligent undo)
 END TYPE
 
 TYPE UNDO_SYSTEM
