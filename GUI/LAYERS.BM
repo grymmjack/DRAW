@@ -53,10 +53,12 @@ SUB LAYERS_init ()
     defaultLayer% = LAYERS_new%
     IF defaultLayer% > 0 THEN
         LAYERS(defaultLayer%).name = "Background"
-        ' Copy any existing content from SCRN.PAINTING to the layer
+        ' Fill background layer with configured default color
         DIM oldDest2 AS LONG
         oldDest2& = _DEST
         _DEST LAYERS(defaultLayer%).imgHandle&
+        CLS , CFG.DEFAULT_LAYER_BG_COLOR~&
+        ' Copy any existing content from SCRN.PAINTING to the layer
         _PUTIMAGE , SCRN.PAINTING&
         _DEST oldDest2&
     END IF
@@ -96,11 +98,11 @@ FUNCTION LAYERS_new% ()
     LAYERS(newIndex%).imgHeight% = SCRN.h&
     LAYERS(newIndex%).imgHandle& = _NEWIMAGE(SCRN.w&, SCRN.h&, 32)
     
-    ' Clear to configured default layer background color (transparent by default)
+    ' Clear to transparent (new layers are always transparent)
     DIM oldDest AS LONG
     oldDest& = _DEST
     _DEST LAYERS(newIndex%).imgHandle&
-    CLS , CFG.DEFAULT_LAYER_BG_COLOR~&
+    CLS , _RGBA32(0, 0, 0, 0)
     _DEST oldDest&
     
     ' Set default properties
@@ -171,13 +173,44 @@ SUB LAYERS_delete (layerIndex AS INTEGER)
     
     ' Select another layer if the deleted one was selected
     IF CURRENT_LAYER% = layerIndex% THEN
-        ' Find closest layer
-        FOR i% = 1 TO 64
-            IF LAYERS(i%).imgHandle& <> 0 THEN
-                LAYERS_select i%
-                EXIT FOR
-            END IF
-        NEXT i%
+        ' Find the layer that is now at the position below where deleted layer was
+        ' (which now has zIndex = deletedZ% - 1 after the adjustment above)
+        DIM targetZ AS INTEGER
+        DIM foundLayer AS INTEGER
+        foundLayer% = 0
+        
+        ' First try to select the layer that was below (zIndex = deletedZ% - 1)
+        targetZ% = deletedZ% - 1
+        IF targetZ% >= 1 THEN
+            FOR i% = 1 TO 64
+                IF LAYERS(i%).imgHandle& <> 0 AND LAYERS(i%).zIndex% = targetZ% THEN
+                    foundLayer% = i%
+                    EXIT FOR
+                END IF
+            NEXT i%
+        END IF
+        
+        ' If no layer below, try the layer that was above (now at deletedZ% after adjustment)
+        IF foundLayer% = 0 THEN
+            FOR i% = 1 TO 64
+                IF LAYERS(i%).imgHandle& <> 0 AND LAYERS(i%).zIndex% = deletedZ% THEN
+                    foundLayer% = i%
+                    EXIT FOR
+                END IF
+            NEXT i%
+        END IF
+        
+        ' Fallback: select any valid layer
+        IF foundLayer% = 0 THEN
+            FOR i% = 1 TO 64
+                IF LAYERS(i%).imgHandle& <> 0 THEN
+                    foundLayer% = i%
+                    EXIT FOR
+                END IF
+            NEXT i%
+        END IF
+        
+        IF foundLayer% > 0 THEN LAYERS_select foundLayer%
     END IF
     
     GUI_NEEDS_REDRAW% = TRUE
@@ -189,27 +222,48 @@ END SUB
 ' 
 SUB LAYERS_duplicate (layerIndex AS INTEGER)
     DIM newIndex AS INTEGER
+    DIM srcImg AS LONG
     DIM oldDest AS LONG
     
     ' Validate
     IF layerIndex% < 1 OR layerIndex% > 64 THEN EXIT SUB
     IF LAYERS(layerIndex%).imgHandle& = 0 THEN EXIT SUB
     
-    ' Create new layer
-    newIndex% = LAYERS_new%
+    ' Check if we've hit the max layers
+    IF LAYER_COUNT% >= CFG.NUM_LAYERS% THEN EXIT SUB
+    
+    ' Find first empty slot
+    newIndex% = 0
+    DIM i AS INTEGER
+    FOR i% = 1 TO 64
+        IF LAYERS(i%).imgHandle& = 0 THEN
+            newIndex% = i%
+            EXIT FOR
+        END IF
+    NEXT i%
     IF newIndex% = 0 THEN EXIT SUB
     
-    ' Copy image content
-    oldDest& = _DEST
-    _DEST LAYERS(newIndex%).imgHandle&
-    _PUTIMAGE , LAYERS(layerIndex%).imgHandle&
-    _DEST oldDest&
+    ' DIRECTLY copy the source layer image (creates a new image with same content)
+    srcImg& = LAYERS(layerIndex%).imgHandle&
+    LAYERS(newIndex%).imgHandle& = _COPYIMAGE(srcImg&, 32)
     
-    ' Copy properties (except zIndex which is already set)
-    LAYERS(newIndex%).name        = _TRIM$(LAYERS(layerIndex%).name) + " copy"
-    LAYERS(newIndex%).opacity%    = LAYERS(layerIndex%).opacity%
+    ' Set layer properties
+    LAYER_COUNT% = LAYER_COUNT% + 1
+    LAYERS(newIndex%).imgWidth%    = _WIDTH(LAYERS(newIndex%).imgHandle&)
+    LAYERS(newIndex%).imgHeight%   = _HEIGHT(LAYERS(newIndex%).imgHandle&)
+    LAYERS(newIndex%).zIndex%      = LAYER_COUNT%
+    LAYERS(newIndex%).visible%     = LAYERS(layerIndex%).visible%
+    LAYERS(newIndex%).isSelected%  = FALSE
+    LAYERS(newIndex%).lastSelected% = FALSE
+    LAYERS(newIndex%).name         = _TRIM$(LAYERS(layerIndex%).name) + " copy"
+    LAYERS(newIndex%).opacity%     = LAYERS(layerIndex%).opacity%
     LAYERS(newIndex%).opacityLock% = LAYERS(layerIndex%).opacityLock%
-    LAYERS(newIndex%).visible%    = LAYERS(layerIndex%).visible%
+    
+    ' Select the new layer
+    LAYERS_select newIndex%
+    
+    ' Save workspace undo state
+    WORKSPACE_UNDO_save_layer_add newIndex%
     
     GUI_NEEDS_REDRAW% = TRUE
 END SUB

@@ -422,15 +422,16 @@ DRAW supports a Photoshop-style layer system with up to 32 layers. Each layer ha
 
 ### Layer Panel
 
-The layer panel is displayed on the left side of the screen and can be toggled with **Ctrl+Tab**.
+The layer panel is displayed on the left side of the screen and can be toggled with **Ctrl+L**.
 
 | Key | Function |
 |-----|----------|
-| `Ctrl+Tab` | Toggle layer panel visibility |
+| `Ctrl+L` | Toggle layer panel visibility |
 | `Ctrl+Shift+N` | Create new layer |
+| `Ctrl+Shift+D` | Duplicate current layer |
 | `Ctrl+Shift+Delete` | Delete current layer |
-| `Ctrl+]` | Move layer up in stack |
-| `Ctrl+[` | Move layer down in stack |
+| `Ctrl+PgUp` | Move layer up in stack |
+| `Ctrl+PgDn` | Move layer down in stack |
 | `Ctrl+Alt+E` | Merge current layer down |
 | `Ctrl+Alt+Shift+E` | Merge all visible layers |
 
