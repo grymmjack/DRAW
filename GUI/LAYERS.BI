@@ -38,6 +38,13 @@ TYPE LAYER_PANEL_OBJ
     dragStartY   AS INTEGER     ' Y position when drag started
     opacityDrag  AS INTEGER     ' TRUE if dragging opacity slider
     opacityDragLayer AS INTEGER ' Layer index being opacity-adjusted
+    ' Layer drag-and-drop reordering state
+    isDragging        AS INTEGER   ' TRUE while dragging layer for reorder
+    dragLayerIdx      AS INTEGER   ' Layer index being dragged
+    dropTargetZIndex  AS INTEGER   ' Target zIndex position for drop (-1 = no target)
+    dragOffsetY       AS INTEGER   ' Offset from row top where drag started
+    autoScrollTimer   AS SINGLE    ' Timer for auto-scroll delay at edges
+    dragPreviewY      AS INTEGER   ' Y position for drag preview cursor
 END TYPE
 
 ' Global layer state
@@ -71,5 +78,9 @@ DECLARE SUB LAYER_PANEL_render (canvasHeight AS INTEGER)
 DECLARE FUNCTION LAYER_PANEL_in_bounds% (rawX AS INTEGER, rawY AS INTEGER)
 DECLARE FUNCTION LAYER_PANEL_handle_click% (rawX AS INTEGER, rawY AS INTEGER, button AS INTEGER)
 DECLARE SUB LAYER_PANEL_handle_wheel (rawX AS INTEGER, rawY AS INTEGER, delta AS INTEGER)
+DECLARE SUB LAYER_PANEL_handle_drag (rawX AS INTEGER, rawY AS INTEGER)
+DECLARE SUB LAYER_PANEL_handle_drop ()
+DECLARE SUB LAYER_PANEL_drag_cancel ()
+DECLARE FUNCTION LAYER_PANEL_is_dragging% ()
 
 ' Note: LAYERS_init is called from SCREEN_init after CONFIG_load

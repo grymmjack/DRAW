@@ -18,6 +18,7 @@
 | `M` | Marquee | Selection tool |
 | `V` | Move | Transform selected region |
 | `T` | Text | Text entry tool |
+| `?` | Command Palette | Search commands and hotkeys |
 
 ## Color Selection
 
@@ -461,8 +462,22 @@ The layer panel is displayed on the left side of the screen and can be toggled w
 | **Click visibility icon** | Toggle layer visibility |
 | **Click lock area** | Toggle opacity lock |
 | **Click/drag opacity bar** | Adjust layer opacity |
+| **Drag layer row** | Reorder layers (drag and drop) |
 | **Mouse wheel on panel** | Scroll layer list |
 | **Mouse wheel on opacity bar** | Adjust opacity (up = more opaque) |
+| **Escape (while dragging)** | Cancel layer drag operation |
+
+### Drag and Drop Reordering
+
+Layers can be reordered by dragging them to a new position:
+
+- **Click and hold** on a layer row (not on visibility/lock/opacity controls)
+- **Drag up or down** to move the layer
+- A **blue indicator line** shows where the layer will be dropped
+- A **preview box** follows the cursor showing the layer being dragged
+- **Release** to drop the layer at the new position
+- **Auto-scroll** activates when dragging near the top/bottom edges of the panel
+- Press **Escape** to cancel the drag operation
 
 ### Layer Features
 
@@ -529,6 +544,77 @@ When loading an image larger than the canvas, DRAW enters **Image Import Mode** 
 - **Auto-hide**: UI elements automatically hide when actively dragging tools over them
 - **Manual hide**: Use Tab/F10/F11 to manually toggle UI (stays hidden until manually shown)
 - **Toolbar clicks**: Clicking toolbar buttons only changes tools, doesn't activate them on canvas
+
+## Command Palette
+
+Press `?` to open the Command Palette - a searchable list of all commands and their hotkeys.
+
+### Controls
+
+| Key | Function |
+|-----|----------|
+| `?` | Open/close command palette |
+| **Type** | Filter commands by name |
+| `Up/Down Arrow` | Navigate results |
+| `Enter` | Execute selected command |
+| `Escape` | Close command palette |
+| `Backspace` | Delete search character |
+
+### Features
+
+- **Fuzzy search**: Partial matches work (e.g., "br" finds "Brush", "Brush Size")
+- **Category display**: Commands grouped by category (Tools, View, File, etc.)
+- **Hotkey hints**: Shows keyboard shortcuts for each command
+- **Real-time filtering**: Results update as you type
+- **Visual feedback**: Selected command is highlighted
+- **Scrollable list**: Use arrow keys to navigate through all matches
+
+## Configuration File (DRAW.cfg)
+
+DRAW stores settings in `DRAW.cfg` in the application directory. Settings are loaded at startup and can be saved on exit.
+
+### Startup Defaults
+
+| Setting | Description | Default |
+|---------|-------------|---------|
+| `DEFAULT_TOOL` | Tool selected at startup (1-18) | 3 (Brush) |
+| `DEFAULT_BRUSH_SIZE` | Initial brush size (1-50) | 1 |
+| `DEFAULT_LAYER_BG_COLOR` | Background color for new layers (hex AARRGGBB) | 00000000 (transparent) |
+| `DEFAULT_SAVE_DIR` | Default directory for save dialogs | (empty = current dir) |
+| `DEFAULT_OPEN_DIR` | Default directory for open dialogs | (empty = current dir) |
+| `PALETTE_DEFAULT_FG_COLOR_INDEX` | Initial foreground color index | 15 |
+| `PALETTE_DEFAULT_BG_COLOR_INDEX` | Initial background color index | 0 |
+
+### Tool Numbers
+
+| Value | Tool |
+|-------|------|
+| 1 | Dot |
+| 2 | Picker |
+| 3 | Brush |
+| 4 | Fill |
+| 5 | Line |
+| 6 | Rectangle |
+| 7 | Rectangle Filled |
+| 8 | Ellipse |
+| 9 | Ellipse Filled |
+| 10 | Polygon |
+| 11 | Polygon Filled |
+| 12 | Marquee |
+| 13 | Move |
+| 14 | Text |
+
+### Other Notable Settings
+
+| Setting | Description |
+|---------|-------------|
+| `CANVAS_W`, `CANVAS_H` | Canvas dimensions |
+| `DISPLAY_SCALE` | Window scale multiplier (1-4) |
+| `FPS_LIMIT` | Frame rate limit |
+| `ANGLE_SNAP_DEGREES` | Angle snap increment for lines/polygons |
+| `GRID_SIZE` | Grid cell size in pixels |
+| `MAX_LAYERS` | Maximum number of layers (1-64) |
+| `LAYER_PANEL_WIDTH` | Width of layer panel in pixels |
 
 ## Command Line
 

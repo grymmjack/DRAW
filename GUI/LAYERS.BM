@@ -808,6 +808,68 @@ SUB LAYER_PANEL_render (canvasHeight AS INTEGER)
         END IF
     NEXT z%
     
+    ' --- Draw drop target indicator when dragging ---
+    IF LAYER_PANEL.isDragging% AND LAYER_PANEL.dropTargetZIndex% >= 1 THEN
+        DIM dropY AS INTEGER
+        DIM dropRowFromTop AS INTEGER
+        DIM draggedZ AS INTEGER
+        
+        draggedZ% = LAYERS(LAYER_PANEL.dragLayerIdx%).zIndex%
+        
+        ' Draw indicator (dropTargetZIndex is already validated, -1 means no valid target)
+        ' Calculate Y position for drop indicator
+        ' dropTargetZIndex is the final zIndex position the layer will have
+        ' For visual, we draw the line ABOVE that position
+        ' If moving up (target > current), line goes above the target position
+        ' If moving down (target < current), line goes below the position above target
+        IF LAYER_PANEL.dropTargetZIndex% > draggedZ% THEN
+            ' Moving up - draw line above the layer currently at target zIndex
+            dropRowFromTop% = LAYER_COUNT% - LAYER_PANEL.dropTargetZIndex%
+        ELSE
+            ' Moving down - draw line below the layer currently above target zIndex
+            dropRowFromTop% = LAYER_COUNT% - LAYER_PANEL.dropTargetZIndex% + 1
+        END IF
+        dropY% = listTop% + (dropRowFromTop% * LAYER_ROW_HEIGHT) - LAYER_PANEL.scrollOffset%
+        
+        ' Draw indicator line if visible
+        IF dropY% >= listTop% - 2 AND dropY% <= listBottom% + 2 THEN
+            LINE (panelX% + 4, dropY%)-(panelX% + panelW% - 14, dropY%), _RGB32(100, 200, 255)
+            LINE (panelX% + 4, dropY% - 1)-(panelX% + panelW% - 14, dropY% - 1), _RGB32(50, 150, 200)
+            ' Draw small triangles at ends
+            LINE (panelX% + 2, dropY% - 3)-(panelX% + 6, dropY%), _RGB32(100, 200, 255)
+            LINE (panelX% + 2, dropY% + 3)-(panelX% + 6, dropY%), _RGB32(100, 200, 255)
+            LINE (panelX% + panelW% - 12, dropY% - 3)-(panelX% + panelW% - 16, dropY%), _RGB32(100, 200, 255)
+            LINE (panelX% + panelW% - 12, dropY% + 3)-(panelX% + panelW% - 16, dropY%), _RGB32(100, 200, 255)
+        END IF
+    END IF
+    
+    ' --- Draw drag cursor preview (mini layer row following mouse) ---
+    IF LAYER_PANEL.isDragging% AND LAYER_PANEL.dragLayerIdx% > 0 THEN
+        DIM previewY AS INTEGER
+        DIM previewH AS INTEGER
+        DIM dragLayerName AS STRING
+        DIM dragLayerZ AS INTEGER
+        
+        previewY% = LAYER_PANEL.dragPreviewY% - (LAYER_ROW_HEIGHT \ 2)
+        previewH% = LAYER_ROW_HEIGHT
+        
+        ' Clamp preview to panel bounds
+        IF previewY% < listTop% THEN previewY% = listTop%
+        IF previewY% + previewH% > listBottom% THEN previewY% = listBottom% - previewH%
+        
+        dragLayerName$ = RTRIM$(LAYERS(LAYER_PANEL.dragLayerIdx%).name)
+        dragLayerZ% = LAYERS(LAYER_PANEL.dragLayerIdx%).zIndex%
+        
+        ' Draw semi-transparent preview row
+        LINE (panelX% + 2, previewY%)-(panelX% + panelW% - 4, previewY% + previewH% - 2), _RGBA32(60, 120, 180, 180), BF
+        LINE (panelX% + 2, previewY%)-(panelX% + panelW% - 4, previewY% + previewH% - 2), _RGB32(100, 200, 255), B
+        
+        ' Draw layer name in preview
+        COLOR _RGB32(255, 255, 255), _RGBA32(0, 0, 0, 0)
+        IF LEN(dragLayerName$) > 12 THEN dragLayerName$ = LEFT$(dragLayerName$, 11) + "~"
+        _PRINTSTRING (panelX% + 26, previewY% + 4), dragLayerName$
+    END IF
+    
     ' Draw scrollbar if content exceeds list height
     IF totalContentHeight% > listHeight% THEN
         scrollbarX% = panelX% + panelW% - 10
@@ -1057,8 +1119,16 @@ FUNCTION LAYER_PANEL_handle_click% (rawX AS INTEGER, rawY AS INTEGER, button AS 
                         IF barX% > 30 THEN barX% = 30
                         LAYERS_set_opacity layerIdx%, INT((barX% / 30.0) * 255)
                     ELSE
-                        ' Select the layer
+                        ' Select the layer and start drag tracking
                         LAYERS_select layerIdx%
+                        ' Start layer drag for reordering
+                        LAYER_PANEL.isDragging% = TRUE
+                        LAYER_PANEL.dragLayerIdx% = layerIdx%
+                        LAYER_PANEL.dropTargetZIndex% = LAYERS(layerIdx%).zIndex%
+                        LAYER_PANEL.dragStartY% = rawY%
+                        LAYER_PANEL.dragOffsetY% = clickY% - rowY%  ' Offset within row
+                        LAYER_PANEL.dragPreviewY% = rawY%
+                        LAYER_PANEL.autoScrollTimer! = TIMER
                     END IF
                 ELSEIF button% = 2 THEN
                     ' Right click - context menu (rename)
@@ -1160,4 +1230,184 @@ SUB LAYER_PANEL_handle_wheel (rawX AS INTEGER, rawY AS INTEGER, delta AS INTEGER
     IF LAYER_PANEL.scrollOffset% > maxScroll% THEN LAYER_PANEL.scrollOffset% = maxScroll%
     
     GUI_NEEDS_REDRAW% = TRUE
+END SUB
+
+''
+' Check if layer panel is currently in a drag operation
+' 
+FUNCTION LAYER_PANEL_is_dragging% ()
+    LAYER_PANEL_is_dragging% = LAYER_PANEL.isDragging%
+END FUNCTION
+
+
+''
+' Cancel any ongoing layer drag operation
+' 
+SUB LAYER_PANEL_drag_cancel ()
+    LAYER_PANEL.isDragging% = FALSE
+    LAYER_PANEL.dragLayerIdx% = 0
+    LAYER_PANEL.dropTargetZIndex% = -1
+    LAYER_PANEL.dragOffsetY% = 0
+    LAYER_PANEL.autoScrollTimer! = 0
+    LAYER_PANEL.dragPreviewY% = 0
+    GUI_NEEDS_REDRAW% = TRUE
+END SUB
+
+
+''
+' Handle mouse movement during layer drag operation
+' Calculates drop target position, handles auto-scroll, and updates preview
+' 
+SUB LAYER_PANEL_handle_drag (rawX AS INTEGER, rawY AS INTEGER)
+    DIM panelW AS INTEGER, panelH AS INTEGER
+    DIM bottomBarsHeight AS INTEGER
+    DIM listTop AS INTEGER, listBottom AS INTEGER, listHeight AS INTEGER
+    DIM targetZIndex AS INTEGER
+    DIM maxScroll AS INTEGER
+    CONST HEADER_HEIGHT = 16
+    CONST BUTTON_AREA_HEIGHT = 24
+    CONST AUTO_SCROLL_ZONE = 30      ' Pixels from edge to trigger auto-scroll
+    CONST AUTO_SCROLL_DELAY = 0.15   ' Seconds before auto-scroll starts
+    
+    ' Suppress unused parameter warning (rawX is used for future expansion)
+    DIM dummy AS INTEGER: dummy% = rawX%: dummy% = dummy%
+    
+    IF NOT LAYER_PANEL.isDragging% THEN EXIT SUB
+    IF NOT LAYER_PANEL.visible% THEN
+        LAYER_PANEL_drag_cancel
+        EXIT SUB
+    END IF
+    
+    ' Calculate panel dimensions
+    IF SCRN.showStatus% THEN
+        bottomBarsHeight% = THEME.STATUS_height% + PALETTE_STRIP_get_height%
+    ELSE
+        bottomBarsHeight% = 0
+    END IF
+    panelW% = CFG.LAYER_PANEL_WIDTH%
+    panelH% = SCRN.h& - bottomBarsHeight%
+    listTop% = HEADER_HEIGHT
+    listBottom% = panelH% - BUTTON_AREA_HEIGHT
+    listHeight% = listBottom% - listTop%
+    
+    ' Update preview Y position (following mouse)
+    LAYER_PANEL.dragPreviewY% = rawY%
+    
+    ' --- Auto-scroll logic ---
+    maxScroll% = (LAYER_COUNT% * LAYER_ROW_HEIGHT) - listHeight%
+    IF maxScroll% < 0 THEN maxScroll% = 0
+    
+    IF rawY% < listTop% + AUTO_SCROLL_ZONE AND rawY% >= 0 THEN
+        ' Near top edge - scroll up
+        IF TIMER - LAYER_PANEL.autoScrollTimer! > AUTO_SCROLL_DELAY THEN
+            IF LAYER_PANEL.scrollOffset% > 0 THEN
+                LAYER_PANEL.scrollOffset% = LAYER_PANEL.scrollOffset% - LAYER_ROW_HEIGHT
+                IF LAYER_PANEL.scrollOffset% < 0 THEN LAYER_PANEL.scrollOffset% = 0
+                LAYER_PANEL.autoScrollTimer! = TIMER - (AUTO_SCROLL_DELAY * 0.7)  ' Faster repeat
+            END IF
+        END IF
+    ELSEIF rawY% > listBottom% - AUTO_SCROLL_ZONE AND rawY% < listBottom% THEN
+        ' Near bottom edge - scroll down
+        IF TIMER - LAYER_PANEL.autoScrollTimer! > AUTO_SCROLL_DELAY THEN
+            IF LAYER_PANEL.scrollOffset% < maxScroll% THEN
+                LAYER_PANEL.scrollOffset% = LAYER_PANEL.scrollOffset% + LAYER_ROW_HEIGHT
+                IF LAYER_PANEL.scrollOffset% > maxScroll% THEN LAYER_PANEL.scrollOffset% = maxScroll%
+                LAYER_PANEL.autoScrollTimer! = TIMER - (AUTO_SCROLL_DELAY * 0.7)
+            END IF
+        END IF
+    ELSE
+        ' Not in auto-scroll zone, reset timer
+        LAYER_PANEL.autoScrollTimer! = TIMER
+    END IF
+    
+    ' --- Calculate drop target zIndex based on mouse position ---
+    ' Transform raw Y to content Y (accounting for scroll)
+    DIM contentY AS INTEGER
+    contentY% = rawY% + LAYER_PANEL.scrollOffset% - listTop%
+    
+    ' Find which row gap the mouse is closest to
+    ' Layers are rendered from highest zIndex to lowest (top to bottom)
+    ' So row 0 = layer with zIndex=LAYER_COUNT, row 1 = zIndex=LAYER_COUNT-1, etc.
+    ' We want to find the GAP between rows, not the row itself
+    ' Gap 0 = above topmost layer (insert at zIndex = LAYER_COUNT + 1, becomes top)
+    ' Gap 1 = between layer at zIndex=LAYER_COUNT and zIndex=LAYER_COUNT-1
+    ' Gap N = below bottommost layer (insert at zIndex = 1, becomes bottom)
+    DIM closestGap AS INTEGER
+    closestGap% = INT((contentY% + (LAYER_ROW_HEIGHT \ 2)) / LAYER_ROW_HEIGHT)
+    
+    ' Clamp gap to valid range (0 to LAYER_COUNT)
+    IF closestGap% < 0 THEN closestGap% = 0
+    IF closestGap% > LAYER_COUNT% THEN closestGap% = LAYER_COUNT%
+    
+    ' Convert gap to target zIndex position
+    ' Gap 0 = will become zIndex LAYER_COUNT (top position)
+    ' Gap LAYER_COUNT = will become zIndex 1 (bottom position)
+    ' The targetZIndex represents WHERE the layer will END UP after the move
+    targetZIndex% = LAYER_COUNT% - closestGap%
+    
+    ' Clamp to valid final position range (1 to LAYER_COUNT)
+    IF targetZIndex% < 1 THEN targetZIndex% = 1
+    IF targetZIndex% > LAYER_COUNT% THEN targetZIndex% = LAYER_COUNT%
+    
+    ' Check if this is actually a no-op (same position)
+    DIM draggedZ AS INTEGER
+    draggedZ% = LAYERS(LAYER_PANEL.dragLayerIdx%).zIndex%
+    
+    ' Only show as "no change" if layer would stay in same position
+    IF targetZIndex% = draggedZ% THEN
+        ' Already at target position - no visual indicator needed
+        LAYER_PANEL.dropTargetZIndex% = -1
+    ELSE
+        LAYER_PANEL.dropTargetZIndex% = targetZIndex%
+    END IF
+    GUI_NEEDS_REDRAW% = TRUE
+END SUB
+
+
+''
+' Handle drop when mouse is released during layer drag
+' Moves the layer to the new position
+' 
+SUB LAYER_PANEL_handle_drop ()
+    DIM draggedIdx AS INTEGER
+    DIM draggedZ AS INTEGER
+    DIM targetZ AS INTEGER
+    DIM i AS INTEGER
+    
+    IF NOT LAYER_PANEL.isDragging% THEN EXIT SUB
+    
+    draggedIdx% = LAYER_PANEL.dragLayerIdx%
+    draggedZ% = LAYERS(draggedIdx%).zIndex%
+    targetZ% = LAYER_PANEL.dropTargetZIndex%
+    
+    ' Only move if we have a valid target and it's different from current position
+    IF targetZ% >= 1 AND targetZ% <= LAYER_COUNT% AND targetZ% <> draggedZ% THEN
+        ' Shift other layers to make room
+        IF targetZ% > draggedZ% THEN
+            ' Moving up (towards higher zIndex / top of list)
+            ' Shift layers between old and new position DOWN by 1
+            FOR i% = 1 TO 64
+                IF LAYERS(i%).imgHandle& <> 0 AND i% <> draggedIdx% THEN
+                    IF LAYERS(i%).zIndex% > draggedZ% AND LAYERS(i%).zIndex% <= targetZ% THEN
+                        LAYERS(i%).zIndex% = LAYERS(i%).zIndex% - 1
+                    END IF
+                END IF
+            NEXT i%
+            LAYERS(draggedIdx%).zIndex% = targetZ%
+        ELSE
+            ' Moving down (towards lower zIndex / bottom of list)
+            ' Shift layers between new and old position UP by 1
+            FOR i% = 1 TO 64
+                IF LAYERS(i%).imgHandle& <> 0 AND i% <> draggedIdx% THEN
+                    IF LAYERS(i%).zIndex% >= targetZ% AND LAYERS(i%).zIndex% < draggedZ% THEN
+                        LAYERS(i%).zIndex% = LAYERS(i%).zIndex% + 1
+                    END IF
+                END IF
+            NEXT i%
+            LAYERS(draggedIdx%).zIndex% = targetZ%
+        END IF
+    END IF
+    
+    ' End drag operation
+    LAYER_PANEL_drag_cancel
 END SUB
