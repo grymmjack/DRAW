@@ -65,7 +65,8 @@ TYPE IMAGE_IMPORT_OBJ
     PAN_ORIG_Y  AS SINGLE   ' Original crop Y when pan started
     
     RESIZING    AS INTEGER  ' Whether resizing dest box
-    RESIZE_HANDLE AS INTEGER ' Which handle (1-8)
+    RESIZE_HANDLE AS INTEGER ' Which handle (1-8) being resized
+    HOVER_HANDLE AS INTEGER  ' Which handle (1-8) is hovered
     RESIZE_START_X AS INTEGER
     RESIZE_START_Y AS INTEGER
     RESIZE_ORIG_X AS INTEGER
