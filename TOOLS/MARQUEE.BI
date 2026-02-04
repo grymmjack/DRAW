@@ -68,6 +68,8 @@ DECLARE SUB MARQUEE_finish_resize
 DECLARE SUB MARQUEE_start_move (x AS INTEGER, y AS INTEGER)
 DECLARE SUB MARQUEE_update_move (x AS INTEGER, y AS INTEGER)
 DECLARE SUB MARQUEE_finish_move
+DECLARE SUB MARQUEE_draw_drag_preview ()
+DECLARE SUB MARQUEE_draw_existing_box (showHUD AS INTEGER)
 
 ' Magic Wand functions
 DECLARE SUB MAGIC_WAND_select (x AS INTEGER, y AS INTEGER)
