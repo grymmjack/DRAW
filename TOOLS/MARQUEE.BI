@@ -50,7 +50,13 @@ TYPE MARQUEE_OBJ
     WAND_MAX_Y AS INTEGER      ' Bounding box of wand selection (max Y)
     WAND_HAS_SELECTION AS INTEGER ' Whether magic wand has an active selection
     USER_CREATED AS INTEGER        ' TRUE if user manually created selection (vs auto for move)
+    SELECTION_MODE AS INTEGER      ' Selection mode: 0=replace, 1=add (Shift), 2=subtract (Alt)
 END TYPE
+
+' Selection mode constants
+CONST SEL_MODE_REPLACE = 0  ' Default: replace existing selection
+CONST SEL_MODE_ADD = 1      ' Shift: add to existing selection
+CONST SEL_MODE_SUBTRACT = 2 ' Alt: subtract from existing selection
 
 DIM SHARED MARQUEE AS MARQUEE_OBJ
 
@@ -65,10 +71,15 @@ DECLARE SUB MARQUEE_finish_move
 
 ' Magic Wand functions
 DECLARE SUB MAGIC_WAND_select (x AS INTEGER, y AS INTEGER)
+DECLARE SUB MAGIC_WAND_select_with_mode (x AS INTEGER, y AS INTEGER, mode AS INTEGER)
 DECLARE SUB MAGIC_WAND_draw_outline ()
 DECLARE SUB MAGIC_WAND_reset ()
 DECLARE FUNCTION MAGIC_WAND_has_selection% ()
 DECLARE SUB MAGIC_WAND_clear_selected_transparent ()
+
+' Selection operations
+DECLARE SUB SELECTION_select_all ()
+DECLARE SUB SELECTION_invert ()
 
 ' Selection clipping (shared between marquee and wand)
 DECLARE FUNCTION SELECTION_is_point_inside% (x AS INTEGER, y AS INTEGER)

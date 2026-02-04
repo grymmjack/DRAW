@@ -70,8 +70,11 @@ END SUB
 ' @param y INTEGER Starting y coordinate
 '
 SUB MARQUEE_start (x AS INTEGER, y AS INTEGER)
-    ' Clear any existing marquee
-    MARQUEE.ACTIVE% = FALSE
+    ' Only clear existing marquee in replace mode
+    ' For add/subtract modes, we need to preserve the existing selection
+    IF MARQUEE.SELECTION_MODE = SEL_MODE_REPLACE THEN
+        MARQUEE.ACTIVE% = FALSE
+    END IF
     
     MARQUEE.DRAG_START_X% = x
     MARQUEE.DRAG_START_Y% = y
@@ -339,28 +342,119 @@ SUB MARQUEE_finish_drag ()
     
     ' Check if this was just a click (no significant drag movement)
     IF finalW% < 4 AND finalH% < 4 THEN
-        ' Just a click - clear any existing marquee
-        MARQUEE.ACTIVE% = FALSE
+        ' Just a click - clear selection only in replace mode
+        IF MARQUEE.SELECTION_MODE = SEL_MODE_REPLACE THEN
+            MARQUEE.ACTIVE% = FALSE
+        END IF
         MARQUEE.DRAGGING% = FALSE
         EXIT SUB
     END IF
     
     ' Only create box if drag has some size
     IF finalW% >= MARQUEE.CFG.MinBoxWidth AND finalH% >= MARQUEE.CFG.MinBoxHeight THEN
-        MARQUEE.CFG.initX = finalX%
-        MARQUEE.CFG.initY = finalY%
-        MARQUEE.CFG.initW = finalW%
-        MARQUEE.CFG.initH = finalH%
+        ' Handle add/subtract modes by converting to/from mask
+        ' For add mode without existing selection, treat as replace (creates new selection)
+        DIM useAddSubtractMode AS INTEGER
+        useAddSubtractMode% = (MARQUEE.SELECTION_MODE <> SEL_MODE_REPLACE) AND (MARQUEE.ACTIVE% OR MARQUEE.WAND_HAS_SELECTION)
         
-        ' Initialize the bounding box with our config
-        GJ_BBX_InitWithConfig MARQUEE.CFG
-        
-        MARQUEE.BOX = GJ_BBX_box
-        MARQUEE.ACTIVE% = TRUE
-        MARQUEE.USER_CREATED = TRUE  ' User manually created this selection
+        IF useAddSubtractMode% THEN
+            DIM w AS INTEGER, h AS INTEGER
+            DIM px AS INTEGER, py AS INTEGER
+            DIM mask_color AS _UNSIGNED LONG
+            mask_color~& = _RGB32(255, 255, 255)
+            w% = SCRN.w&
+            h% = SCRN.h&
+            
+            ' Create mask from existing box selection if we don't have one
+            IF MARQUEE.SELECTION_MASK >= -1 OR NOT MARQUEE.WAND_HAS_SELECTION THEN
+                ' Convert existing box to mask
+                IF MARQUEE.SELECTION_MASK < -1 THEN _FREEIMAGE MARQUEE.SELECTION_MASK
+                MARQUEE.SELECTION_MASK = _NEWIMAGE(w%, h%, 32)
+                IF MARQUEE.SELECTION_MASK < -1 THEN
+                    _DEST MARQUEE.SELECTION_MASK
+                    CLS , _RGBA32(0, 0, 0, 0)
+                    _DONTBLEND MARQUEE.SELECTION_MASK
+                    ' Fill existing box area
+                    IF MARQUEE.ACTIVE% THEN
+                        LINE (MARQUEE.BOX.x, MARQUEE.BOX.y)-(MARQUEE.BOX.x + MARQUEE.BOX.w - 1, MARQUEE.BOX.y + MARQUEE.BOX.h - 1), mask_color~&, BF
+                    END IF
+                    _BLEND MARQUEE.SELECTION_MASK
+                END IF
+            END IF
+            
+            ' Apply the new rectangle to the mask
+            IF MARQUEE.SELECTION_MASK < -1 THEN
+                _DEST MARQUEE.SELECTION_MASK
+                _DONTBLEND MARQUEE.SELECTION_MASK
+                IF MARQUEE.SELECTION_MODE = SEL_MODE_ADD THEN
+                    ' Add: fill the new rectangle
+                    LINE (finalX%, finalY%)-(finalX% + finalW% - 1, finalY% + finalH% - 1), mask_color~&, BF
+                ELSEIF MARQUEE.SELECTION_MODE = SEL_MODE_SUBTRACT THEN
+                    ' Subtract: clear the new rectangle (transparent)
+                    LINE (finalX%, finalY%)-(finalX% + finalW% - 1, finalY% + finalH% - 1), _RGBA32(0, 0, 0, 0), BF
+                END IF
+                _BLEND MARQUEE.SELECTION_MASK
+                
+                ' Recalculate bounding box from mask
+                DIM minX AS INTEGER, minY AS INTEGER, maxX AS INTEGER, maxY AS INTEGER
+                minX% = w%: minY% = h%: maxX% = 0: maxY% = 0
+                _SOURCE MARQUEE.SELECTION_MASK
+                FOR py% = 0 TO h% - 1
+                    FOR px% = 0 TO w% - 1
+                        IF _ALPHA32(POINT(px%, py%)) > 0 THEN
+                            IF px% < minX% THEN minX% = px%
+                            IF px% > maxX% THEN maxX% = px%
+                            IF py% < minY% THEN minY% = py%
+                            IF py% > maxY% THEN maxY% = py%
+                        END IF
+                    NEXT px%
+                NEXT py%
+                
+                ' Check if selection is empty
+                IF minX% > maxX% THEN
+                    ' Empty selection after subtract
+                    MARQUEE_clear
+                    MAGIC_WAND_reset
+                ELSE
+                    ' Update bounding box and wand bounds
+                    MARQUEE.WAND_MIN_X = minX%
+                    MARQUEE.WAND_MIN_Y = minY%
+                    MARQUEE.WAND_MAX_X = maxX%
+                    MARQUEE.WAND_MAX_Y = maxY%
+                    MARQUEE.BOX.x = minX%
+                    MARQUEE.BOX.y = minY%
+                    MARQUEE.BOX.w = maxX% - minX% + 1
+                    MARQUEE.BOX.h = maxY% - minY% + 1
+                    MARQUEE.ACTIVE% = TRUE
+                    MARQUEE.WAND_HAS_SELECTION = TRUE
+                    MARQUEE.USER_CREATED = TRUE
+                END IF
+            END IF
+        ELSE
+            ' Replace mode - simple box creation
+            MARQUEE.CFG.initX = finalX%
+            MARQUEE.CFG.initY = finalY%
+            MARQUEE.CFG.initW = finalW%
+            MARQUEE.CFG.initH = finalH%
+            
+            ' Initialize the bounding box with our config
+            GJ_BBX_InitWithConfig MARQUEE.CFG
+            
+            MARQUEE.BOX = GJ_BBX_box
+            MARQUEE.ACTIVE% = TRUE
+            MARQUEE.USER_CREATED = TRUE  ' User manually created this selection
+            
+            ' Clear any wand selection mask for clean replace
+            IF MARQUEE.SELECTION_MASK < -1 THEN
+                _FREEIMAGE MARQUEE.SELECTION_MASK
+                MARQUEE.SELECTION_MASK = 0
+            END IF
+            MARQUEE.WAND_HAS_SELECTION = FALSE
+        END IF
     END IF
     
     MARQUEE.DRAGGING% = FALSE
+    MARQUEE.SELECTION_MODE = SEL_MODE_REPLACE  ' Reset mode
 END SUB
 
 
@@ -677,16 +771,29 @@ END FUNCTION
 
 
 ''
-' Select contiguous pixels of the same color using scanline flood fill algorithm
+' Select contiguous pixels of the same color (wrapper for backward compatibility)
 ' @param x INTEGER X coordinate to start selection
 ' @param y INTEGER Y coordinate to start selection
 '
 SUB MAGIC_WAND_select (x AS INTEGER, y AS INTEGER)
+    MAGIC_WAND_select_with_mode x%, y%, SEL_MODE_REPLACE
+END SUB
+
+
+''
+' Select contiguous pixels of the same color using scanline flood fill algorithm
+' @param x INTEGER X coordinate to start selection  
+' @param y INTEGER Y coordinate to start selection
+' @param mode INTEGER Selection mode: SEL_MODE_REPLACE, SEL_MODE_ADD, or SEL_MODE_SUBTRACT
+'
+SUB MAGIC_WAND_select_with_mode (x AS INTEGER, y AS INTEGER, mode AS INTEGER)
     DIM old_dest AS LONG
     DIM old_source AS LONG
     DIM target_color AS _UNSIGNED LONG
     DIM w AS INTEGER, h AS INTEGER
     DIM targetImg AS LONG
+    DIM existing_mask AS LONG
+    DIM has_existing AS INTEGER
     
     ' Get the current layer image
     targetImg& = LAYER_current_image&
@@ -707,8 +814,17 @@ SUB MAGIC_WAND_select (x AS INTEGER, y AS INTEGER)
     ' Get target color at click position
     target_color~& = POINT(x%, y%)
     
-    ' Reset any existing selection
-    MAGIC_WAND_reset
+    ' For add/subtract modes, preserve existing mask
+    existing_mask& = 0
+    has_existing% = FALSE
+    IF mode% <> SEL_MODE_REPLACE AND MARQUEE.WAND_HAS_SELECTION AND MARQUEE.SELECTION_MASK < -1 THEN
+        existing_mask& = MARQUEE.SELECTION_MASK
+        has_existing% = TRUE
+        MARQUEE.SELECTION_MASK = 0  ' Don't free it yet
+    ELSE
+        ' Reset any existing selection for replace mode
+        MAGIC_WAND_reset
+    END IF
     
     ' Create selection mask (white = selected, transparent = not selected)
     MARQUEE.SELECTION_MASK = _NEWIMAGE(w%, h%, 32)
@@ -838,6 +954,71 @@ SUB MAGIC_WAND_select (x AS INTEGER, y AS INTEGER)
     
     ' Explicitly free stack memory
     ERASE stack_x, stack_y
+    
+    ' Merge with existing selection if in add/subtract mode
+    IF has_existing% AND existing_mask& < -1 THEN
+        DIM px AS INTEGER, py2 AS INTEGER
+        DIM new_pixel AS _UNSIGNED LONG, old_pixel AS _UNSIGNED LONG
+        DIM final_mask AS LONG
+        
+        ' Create final merged mask
+        final_mask& = _NEWIMAGE(w%, h%, 32)
+        IF final_mask& < -1 THEN
+            _DEST final_mask&
+            CLS , _RGBA32(0, 0, 0, 0)
+            _DONTBLEND final_mask&
+            
+            ' Merge based on mode
+            FOR py2% = 0 TO h% - 1
+                FOR px% = 0 TO w% - 1
+                    _SOURCE existing_mask&
+                    old_pixel~& = POINT(px%, py2%)
+                    _SOURCE MARQUEE.SELECTION_MASK
+                    new_pixel~& = POINT(px%, py2%)
+                    
+                    _DEST final_mask&
+                    IF mode% = SEL_MODE_ADD THEN
+                        ' Add: OR operation - selected if either mask has it
+                        IF _ALPHA32(old_pixel~&) > 0 OR _ALPHA32(new_pixel~&) > 0 THEN
+                            PSET (px%, py2%), mask_color~&
+                            ' Update bounding box
+                            IF px% < MARQUEE.WAND_MIN_X THEN MARQUEE.WAND_MIN_X = px%
+                            IF px% > MARQUEE.WAND_MAX_X THEN MARQUEE.WAND_MAX_X = px%
+                            IF py2% < MARQUEE.WAND_MIN_Y THEN MARQUEE.WAND_MIN_Y = py2%
+                            IF py2% > MARQUEE.WAND_MAX_Y THEN MARQUEE.WAND_MAX_Y = py2%
+                        END IF
+                    ELSEIF mode% = SEL_MODE_SUBTRACT THEN
+                        ' Subtract: AND NOT - selected if old has it but new doesn't
+                        IF _ALPHA32(old_pixel~&) > 0 AND _ALPHA32(new_pixel~&) = 0 THEN
+                            PSET (px%, py2%), mask_color~&
+                            ' Update bounding box
+                            IF px% < MARQUEE.WAND_MIN_X THEN MARQUEE.WAND_MIN_X = px%
+                            IF px% > MARQUEE.WAND_MAX_X THEN MARQUEE.WAND_MAX_X = px%
+                            IF py2% < MARQUEE.WAND_MIN_Y THEN MARQUEE.WAND_MIN_Y = py2%
+                            IF py2% > MARQUEE.WAND_MAX_Y THEN MARQUEE.WAND_MAX_Y = py2%
+                        END IF
+                    END IF
+                NEXT px%
+            NEXT py2%
+            
+            _BLEND final_mask&
+            
+            ' Replace the new mask with merged result
+            _FREEIMAGE MARQUEE.SELECTION_MASK
+            MARQUEE.SELECTION_MASK = final_mask&
+        END IF
+        
+        ' Free the old existing mask
+        _FREEIMAGE existing_mask&
+        
+        ' Check if selection is empty after subtract
+        IF mode% = SEL_MODE_SUBTRACT AND MARQUEE.WAND_MIN_X > MARQUEE.WAND_MAX_X THEN
+            MAGIC_WAND_reset
+            _SOURCE old_source&
+            _DEST old_dest&
+            EXIT SUB
+        END IF
+    END IF
     
     ' Mark selection as valid
     MARQUEE.WAND_HAS_SELECTION = TRUE
@@ -1084,3 +1265,170 @@ FUNCTION SELECTION_is_point_inside% (x AS INTEGER, y AS INTEGER)
     ' No selection, allow all
     SELECTION_is_point_inside% = TRUE
 END FUNCTION
+
+
+''
+' Select all - creates a full-canvas selection
+'
+SUB SELECTION_select_all ()
+    DIM w AS INTEGER, h AS INTEGER
+    w% = SCRN.w&
+    h% = SCRN.h&
+    
+    ' Clear any existing wand selection
+    IF MARQUEE.SELECTION_MASK < -1 THEN
+        _FREEIMAGE MARQUEE.SELECTION_MASK
+    END IF
+    MARQUEE.SELECTION_MASK = 0
+    MARQUEE.WAND_HAS_SELECTION = FALSE
+    
+    ' Set marquee box to full canvas
+    MARQUEE.BOX.x = 0
+    MARQUEE.BOX.y = 0
+    MARQUEE.BOX.w = w%
+    MARQUEE.BOX.h = h%
+    MARQUEE.ACTIVE% = TRUE
+    MARQUEE.INITIALIZED% = TRUE
+    MARQUEE.USER_CREATED = TRUE
+    
+    ' Update config
+    MARQUEE.CFG.initX = 0
+    MARQUEE.CFG.initY = 0
+    MARQUEE.CFG.initW = w%
+    MARQUEE.CFG.initH = h%
+    GJ_BBX_InitWithConfig MARQUEE.CFG
+    MARQUEE.BOX = GJ_BBX_box
+    
+    GUI_NEEDS_REDRAW% = TRUE
+END SUB
+
+
+''
+' Invert selection - selects everything that's not currently selected
+'
+SUB SELECTION_invert ()
+    DIM w AS INTEGER, h AS INTEGER
+    DIM px AS INTEGER, py AS INTEGER
+    DIM old_dest AS LONG, old_source AS LONG
+    DIM mask_color AS _UNSIGNED LONG
+    DIM has_selection AS INTEGER
+    
+    w% = SCRN.w&
+    h% = SCRN.h&
+    mask_color~& = _RGB32(255, 255, 255)
+    
+    has_selection% = SELECTION_has_active%
+    
+    ' If no selection, invert means select all (everything was "not selected")
+    IF NOT has_selection% THEN
+        SELECTION_select_all
+        EXIT SUB
+    END IF
+    
+    old_dest& = _DEST
+    old_source& = _SOURCE
+    
+    ' Check if we have a mask-based selection (magic wand or combined marquee)
+    IF MARQUEE.WAND_HAS_SELECTION AND MARQUEE.SELECTION_MASK < -1 THEN
+        ' Invert the existing mask
+        _DEST MARQUEE.SELECTION_MASK
+        _DONTBLEND MARQUEE.SELECTION_MASK
+        
+        ' XOR-like inversion: toggle each pixel
+        FOR py% = 0 TO h% - 1
+            FOR px% = 0 TO w% - 1
+                _SOURCE MARQUEE.SELECTION_MASK
+                IF _ALPHA32(POINT(px%, py%)) > 0 THEN
+                    ' Was selected, make unselected (transparent)
+                    PSET (px%, py%), _RGBA32(0, 0, 0, 0)
+                ELSE
+                    ' Was not selected, make selected (white)
+                    PSET (px%, py%), mask_color~&
+                END IF
+            NEXT px%
+        NEXT py%
+        
+        _BLEND MARQUEE.SELECTION_MASK
+        
+        ' Recalculate bounding box
+        DIM minX AS INTEGER, minY AS INTEGER, maxX AS INTEGER, maxY AS INTEGER
+        minX% = w%: minY% = h%: maxX% = 0: maxY% = 0
+        _SOURCE MARQUEE.SELECTION_MASK
+        FOR py% = 0 TO h% - 1
+            FOR px% = 0 TO w% - 1
+                IF _ALPHA32(POINT(px%, py%)) > 0 THEN
+                    IF px% < minX% THEN minX% = px%
+                    IF px% > maxX% THEN maxX% = px%
+                    IF py% < minY% THEN minY% = py%
+                    IF py% > maxY% THEN maxY% = py%
+                END IF
+            NEXT px%
+        NEXT py%
+        
+        IF minX% > maxX% THEN
+            ' Empty selection after invert (shouldn't happen normally)
+            MARQUEE_clear
+            MAGIC_WAND_reset
+        ELSE
+            MARQUEE.WAND_MIN_X = minX%
+            MARQUEE.WAND_MIN_Y = minY%
+            MARQUEE.WAND_MAX_X = maxX%
+            MARQUEE.WAND_MAX_Y = maxY%
+            MARQUEE.BOX.x = minX%
+            MARQUEE.BOX.y = minY%
+            MARQUEE.BOX.w = maxX% - minX% + 1
+            MARQUEE.BOX.h = maxY% - minY% + 1
+        END IF
+    ELSEIF MARQUEE.ACTIVE% AND MARQUEE.USER_CREATED THEN
+        ' Convert rectangular marquee to mask and invert
+        DIM new_mask AS LONG
+        new_mask& = _NEWIMAGE(w%, h%, 32)
+        IF new_mask& < -1 THEN
+            _DEST new_mask&
+            CLS , _RGBA32(0, 0, 0, 0)
+            _DONTBLEND new_mask&
+            
+            ' Fill everything EXCEPT the current box
+            ' Top region (above the box)
+            IF MARQUEE.BOX.y > 0 THEN
+                LINE (0, 0)-(w% - 1, MARQUEE.BOX.y - 1), mask_color~&, BF
+            END IF
+            ' Bottom region (below the box)
+            IF MARQUEE.BOX.y + MARQUEE.BOX.h < h% THEN
+                LINE (0, MARQUEE.BOX.y + MARQUEE.BOX.h)-(w% - 1, h% - 1), mask_color~&, BF
+            END IF
+            ' Left region (left of the box, between top and bottom)
+            IF MARQUEE.BOX.x > 0 THEN
+                LINE (0, MARQUEE.BOX.y)-(MARQUEE.BOX.x - 1, MARQUEE.BOX.y + MARQUEE.BOX.h - 1), mask_color~&, BF
+            END IF
+            ' Right region (right of the box, between top and bottom)
+            IF MARQUEE.BOX.x + MARQUEE.BOX.w < w% THEN
+                LINE (MARQUEE.BOX.x + MARQUEE.BOX.w, MARQUEE.BOX.y)-(w% - 1, MARQUEE.BOX.y + MARQUEE.BOX.h - 1), mask_color~&, BF
+            END IF
+            
+            _BLEND new_mask&
+            
+            ' Replace selection with inverted mask
+            IF MARQUEE.SELECTION_MASK < -1 THEN _FREEIMAGE MARQUEE.SELECTION_MASK
+            MARQUEE.SELECTION_MASK = new_mask&
+            MARQUEE.WAND_HAS_SELECTION = TRUE
+            
+            ' Update bounding box to full canvas (inverted selection spans entire canvas minus original box)
+            MARQUEE.WAND_MIN_X = 0
+            MARQUEE.WAND_MIN_Y = 0
+            MARQUEE.WAND_MAX_X = w% - 1
+            MARQUEE.WAND_MAX_Y = h% - 1
+            MARQUEE.BOX.x = 0
+            MARQUEE.BOX.y = 0
+            MARQUEE.BOX.w = w%
+            MARQUEE.BOX.h = h%
+            MARQUEE.ACTIVE% = TRUE
+            MARQUEE.INITIALIZED% = TRUE
+            MARQUEE.USER_CREATED = TRUE
+        END IF
+    END IF
+    
+    _SOURCE old_source&
+    _DEST old_dest&
+    GUI_NEEDS_REDRAW% = TRUE
+END SUB

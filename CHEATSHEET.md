@@ -361,6 +361,16 @@ DRAW supports Photoshop-style selections that act as clipping masks. When a sele
 | `M` | Rectangle Marquee | Draw rectangular selection by dragging |
 | `W` | Magic Wand | Click to select contiguous pixels of same color |
 
+### Marquee Tool
+
+The Marquee (`M`) creates rectangular selections:
+
+| Action | Function |
+|--------|----------|
+| **Left Drag** | Create rectangular selection |
+| **Shift + Drag** | Add to existing selection (union) |
+| **Alt + Drag** | Subtract from existing selection |
+
 ### Magic Wand Tool
 
 The Magic Wand (`W`) selects all contiguous pixels of the same color as the clicked pixel:
@@ -368,8 +378,7 @@ The Magic Wand (`W`) selects all contiguous pixels of the same color as the clic
 | Action | Function |
 |--------|----------|
 | **Left Click** | Select contiguous pixels matching clicked color |
-| **Shift + Click** | Add to existing selection (union) |
-
+| **Shift + Click** | Add to existing selection (union) || **Alt + Click** | Subtract from existing selection |
 **Magic Wand Features:**
 - Selects all connected pixels of the same color (flood-fill style)
 - Visual marching ants outline shows the selection boundary
@@ -393,6 +402,8 @@ When a selection is active (marquee or magic wand), it acts as a **clipping mask
 
 | Key | Function |
 |-----|----------|
+| `Ctrl+A` | Select all (entire canvas) |
+| `Ctrl+Shift+I` | Invert selection |
 | `Ctrl+D` | Deselect/clear selection (works from **any tool**) |
 | `Escape` | Deselect/clear selection (works from **any tool**) |
 | Arrow Keys | Move selection (1px) |
