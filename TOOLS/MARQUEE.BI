@@ -49,6 +49,7 @@ TYPE MARQUEE_OBJ
     WAND_MAX_X AS INTEGER      ' Bounding box of wand selection (max X)
     WAND_MAX_Y AS INTEGER      ' Bounding box of wand selection (max Y)
     WAND_HAS_SELECTION AS INTEGER ' Whether magic wand has an active selection
+    USER_CREATED AS INTEGER        ' TRUE if user manually created selection (vs auto for move)
 END TYPE
 
 DIM SHARED MARQUEE AS MARQUEE_OBJ
@@ -68,4 +69,8 @@ DECLARE SUB MAGIC_WAND_draw_outline ()
 DECLARE SUB MAGIC_WAND_reset ()
 DECLARE FUNCTION MAGIC_WAND_has_selection% ()
 DECLARE SUB MAGIC_WAND_clear_selected_transparent ()
+
+' Selection clipping (shared between marquee and wand)
+DECLARE FUNCTION SELECTION_is_point_inside% (x AS INTEGER, y AS INTEGER)
+DECLARE FUNCTION SELECTION_has_active% ()
 

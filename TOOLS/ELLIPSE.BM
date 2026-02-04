@@ -21,6 +21,72 @@ SUB ELLIPSE_reset ()
 END SUB
 
 ''
+' Draws an ellipse outline with selection clipping using midpoint algorithm
+'
+SUB ELLIPSE_draw_clipped_outline (cx AS INTEGER, cy AS INTEGER, rx AS SINGLE, ry AS SINGLE, col AS _UNSIGNED LONG)
+    IF rx! <= 0 OR ry! <= 0 THEN EXIT SUB
+    
+    DIM AS INTEGER x, y
+    DIM AS SINGLE rxSq, rySq, twoRxSq, twoRySq
+    DIM AS SINGLE p
+    
+    rxSq! = rx! * rx!
+    rySq! = ry! * ry!
+    twoRxSq! = 2 * rxSq!
+    twoRySq! = 2 * rySq!
+    
+    ' Region 1
+    x% = 0
+    y% = INT(ry! + 0.5)
+    
+    DIM AS SINGLE px, py
+    px! = 0
+    py! = twoRxSq! * y%
+    
+    ' Draw initial points in 4 quadrants
+    IF SELECTION_is_point_inside%(cx% + x%, cy% + y%) THEN PSET (cx% + x%, cy% + y%), col~&
+    IF SELECTION_is_point_inside%(cx% - x%, cy% + y%) THEN PSET (cx% - x%, cy% + y%), col~&
+    IF SELECTION_is_point_inside%(cx% + x%, cy% - y%) THEN PSET (cx% + x%, cy% - y%), col~&
+    IF SELECTION_is_point_inside%(cx% - x%, cy% - y%) THEN PSET (cx% - x%, cy% - y%), col~&
+    
+    p! = rySq! - (rxSq! * ry!) + (0.25 * rxSq!)
+    
+    WHILE px! < py!
+        x% = x% + 1
+        px! = px! + twoRySq!
+        IF p! < 0 THEN
+            p! = p! + rySq! + px!
+        ELSE
+            y% = y% - 1
+            py! = py! - twoRxSq!
+            p! = p! + rySq! + px! - py!
+        END IF
+        IF SELECTION_is_point_inside%(cx% + x%, cy% + y%) THEN PSET (cx% + x%, cy% + y%), col~&
+        IF SELECTION_is_point_inside%(cx% - x%, cy% + y%) THEN PSET (cx% - x%, cy% + y%), col~&
+        IF SELECTION_is_point_inside%(cx% + x%, cy% - y%) THEN PSET (cx% + x%, cy% - y%), col~&
+        IF SELECTION_is_point_inside%(cx% - x%, cy% - y%) THEN PSET (cx% - x%, cy% - y%), col~&
+    WEND
+    
+    ' Region 2
+    p! = rySq! * (x% + 0.5) * (x% + 0.5) + rxSq! * (y% - 1) * (y% - 1) - rxSq! * rySq!
+    WHILE y% >= 0
+        y% = y% - 1
+        py! = py! - twoRxSq!
+        IF p! > 0 THEN
+            p! = p! + rxSq! - py!
+        ELSE
+            x% = x% + 1
+            px! = px! + twoRySq!
+            p! = p! + rxSq! - py! + px!
+        END IF
+        IF SELECTION_is_point_inside%(cx% + x%, cy% + y%) THEN PSET (cx% + x%, cy% + y%), col~&
+        IF SELECTION_is_point_inside%(cx% - x%, cy% + y%) THEN PSET (cx% - x%, cy% + y%), col~&
+        IF SELECTION_is_point_inside%(cx% + x%, cy% - y%) THEN PSET (cx% + x%, cy% - y%), col~&
+        IF SELECTION_is_point_inside%(cx% - x%, cy% - y%) THEN PSET (cx% - x%, cy% - y%), col~&
+    WEND
+END SUB
+
+''
 ' Fills an ellipse using scanline algorithm (more reliable than PAINT)
 ' cx, cy = center, rx, ry = radii
 '
@@ -31,9 +97,13 @@ SUB ELLIPSE_fill_scanline (cx AS INTEGER, cy AS INTEGER, rx AS SINGLE, ry AS SIN
     DIM AS SINGLE dx
     DIM AS INTEGER y_start, y_end
     DIM oldDest AS LONG
+    DIM has_selection AS INTEGER
     
     oldDest& = _DEST
     _DEST dest_image&
+    
+    ' Check if there's an active selection for clipping
+    has_selection% = SELECTION_has_active%
     
     ' Calculate y range with proper rounding to avoid missing scanlines
     y_start% = cy% - INT(ry! + 0.5)
@@ -62,17 +132,24 @@ SUB ELLIPSE_fill_scanline (cx AS INTEGER, cy AS INTEGER, rx AS SINGLE, ry AS SIN
             IF x_left% <= x_right% THEN
                 ' Check if NumLock is OFF and dither pattern is active
                 IF NOT _NUMLOCK AND BRUSH_DITHER_ACTIVE > 0 THEN
-                    ' Use dither pattern fill
+                    ' Use dither pattern fill (with selection check)
                     FOR scan_x% = x_left% TO x_right%
                         IF BRUSH_DITHERS_should_draw%(scan_x%, y%) THEN
+                            IF NOT has_selection% OR SELECTION_is_point_inside%(scan_x%, y%) THEN
+                                PSET (scan_x%, y%), fill_color~&
+                            END IF
+                        END IF
+                    NEXT scan_x%
+                ELSEIF has_selection% THEN
+                    ' Clipped solid fill
+                    FOR scan_x% = x_left% TO x_right%
+                        IF SELECTION_is_point_inside%(scan_x%, y%) THEN
                             PSET (scan_x%, y%), fill_color~&
                         END IF
                     NEXT scan_x%
                 ELSE
-                    ' Solid fill
-                    FOR scan_x% = x_left% TO x_right%
-                        PSET (scan_x%, y%), fill_color~&
-                    NEXT scan_x%
+                    ' Solid fill (fast path - no selection)
+                    LINE (x_left%, y%)-(x_right%, y%), fill_color~&
                 END IF
             END IF
         END IF
