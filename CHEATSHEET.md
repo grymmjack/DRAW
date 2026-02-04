@@ -15,9 +15,11 @@
 | `Shift+R` | Rectangle (Filled) | Draw filled rectangles |
 | `E` | Ellipse | Draw ellipse outlines |
 | `Shift+E` | Ellipse (Filled) | Draw filled ellipses |
-| `M` | Marquee | Selection tool |
+| `M` | Marquee | Rectangular selection tool |
+| `W` | Magic Wand | Select contiguous same-color pixels |
 | `V` | Move | Transform selected region |
 | `T` | Text | Text entry tool |
+| `*` | Transparent Color | Set foreground to transparent (eraser mode) |
 | `?` | Command Palette | Search commands and hotkeys |
 
 ## Color Selection
@@ -34,7 +36,26 @@
 | `%` | Color 13 |
 | `^` | Color 14 |
 | `&` | Color 15 |
+| `*` | **Transparent** (eraser mode) |
 | `X` | Swap foreground and background colors |
+
+### Transparent Color Mode
+
+Press `*` (asterisk/star) to set the foreground color to **transparent**. This enables eraser-like functionality:
+
+| Tool | Transparent Effect |
+|------|--------------------|
+| **Brush/Dot** | Erases pixels (makes transparent) |
+| **Fill** | Flood-fills area with transparency |
+| **Line** | Draws transparent line (erases) |
+| **Rectangle** | Draws transparent rect (erases) |
+| **Ellipse** | Draws transparent ellipse (erases) |
+| **Polygon** | Draws transparent polygon (erases) |
+
+**Visual Indicators:**
+- Status bar shows `FG:TRN` when transparent is selected
+- FG swatch displays checkerboard pattern (transparency indicator)
+- Tool previews show white outline for visibility (since color is invisible)
 
 ### Palette Strip (Bottom Bar)
 | Action | Function |
@@ -320,10 +341,10 @@ The default snap angle is **45°** (8 directions), configurable in `DRAW.cfg`:
 | `Ctrl+C` | Copy selection to clipboard |
 | `Ctrl+X` | Cut selection (copy + clear original with BG color) |
 | `Ctrl+V` | Paste clipboard at mouse cursor (centered, engages Move tool) |
-| `Ctrl+E` | Clear/erase selection (fill with background color) |
+| `Ctrl+E` | Clear/erase selection (fill with BG color, or transparent for magic wand) |
 
 **Workflow:**
-1. Use Marquee (`M`) to select an area
+1. Use Marquee (`M`) or Magic Wand (`W`) to select an area
 2. Copy (`Ctrl+C`) or Cut (`Ctrl+X`) the selection
 3. Move mouse to desired location
 4. Paste (`Ctrl+V`) - creates selection centered on cursor, auto-engages Move tool
@@ -331,14 +352,62 @@ The default snap angle is **45°** (8 directions), configurable in `DRAW.cfg`:
 
 ## Marquee/Selection Controls
 
-### Keyboard (when marquee active)
+DRAW supports Photoshop-style selections that act as clipping masks. When a selection is active, **all drawing tools** (brush, fill, line, rect, ellipse, polygon) only affect pixels inside the selection area.
+
+### Selection Modes
+
+| Key | Mode | Description |
+|-----|------|-------------|
+| `M` | Rectangle Marquee | Draw rectangular selection by dragging |
+| `W` | Magic Wand | Click to select contiguous pixels of same color |
+
+### Magic Wand Tool
+
+The Magic Wand (`W`) selects all contiguous pixels of the same color as the clicked pixel:
+
+| Action | Function |
+|--------|----------|
+| **Left Click** | Select contiguous pixels matching clicked color |
+| **Shift + Click** | Add to existing selection (union) |
+
+**Magic Wand Features:**
+- Selects all connected pixels of the same color (flood-fill style)
+- Visual marching ants outline shows the selection boundary
+- Works with `Ctrl+E` to clear selected pixels to transparent
+- Selection persists when switching tools (acts as clipping mask)
+
+### Selection as Clipping Mask
+
+When a selection is active (marquee or magic wand), it acts as a **clipping mask**:
+
+- **Brush/Dot**: Only paints inside selection boundary
+- **Fill**: Only fills pixels inside selection
+- **Line**: Only draws line segments inside selection
+- **Rectangle**: Only draws rect portions inside selection
+- **Ellipse**: Only draws ellipse portions inside selection
+- **Polygon**: Only draws polygon portions inside selection
+
+**Visual Feedback:** Marching ants display around the selection from any tool.
+
+### Keyboard Controls
+
 | Key | Function |
 |-----|----------|
+| `Ctrl+D` | Deselect/clear selection (works from **any tool**) |
+| `Escape` | Deselect/clear selection (works from **any tool**) |
 | Arrow Keys | Move selection (1px) |
 | Shift + Arrows | Move selection (10px) |
 | Ctrl + Arrows | Resize selection (1px) |
 | Ctrl+Shift + Arrows | Resize selection (10px) |
-| Ctrl+D | Deselect/clear marquee |
+
+### Clipboard with Selections
+
+| Key | Function |
+|-----|----------|
+| `Ctrl+C` | Copy selection to clipboard |
+| `Ctrl+X` | Cut selection (copy + clear with BG color) |
+| `Ctrl+V` | Paste at mouse cursor |
+| `Ctrl+E` | Clear selection (fill with BG color, or transparent for magic wand) |
 
 ## Polygon Tool
 
