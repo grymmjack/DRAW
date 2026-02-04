@@ -41,6 +41,14 @@ TYPE MARQUEE_OBJ
     KEY_DOWN_LAST AS INTEGER   ' Previous frame's Down arrow state
     KEY_LEFT_LAST AS INTEGER   ' Previous frame's Left arrow state
     KEY_RIGHT_LAST AS INTEGER  ' Previous frame's Right arrow state
+    ' Magic Wand mode fields
+    MAGIC_WAND_MODE AS INTEGER ' Whether magic wand mode is active (right-click on marquee tool)
+    SELECTION_MASK AS LONG     ' Image handle for per-pixel selection mask (same size as canvas)
+    WAND_MIN_X AS INTEGER      ' Bounding box of wand selection (min X)
+    WAND_MIN_Y AS INTEGER      ' Bounding box of wand selection (min Y)
+    WAND_MAX_X AS INTEGER      ' Bounding box of wand selection (max X)
+    WAND_MAX_Y AS INTEGER      ' Bounding box of wand selection (max Y)
+    WAND_HAS_SELECTION AS INTEGER ' Whether magic wand has an active selection
 END TYPE
 
 DIM SHARED MARQUEE AS MARQUEE_OBJ
@@ -53,4 +61,11 @@ DECLARE SUB MARQUEE_finish_resize
 DECLARE SUB MARQUEE_start_move (x AS INTEGER, y AS INTEGER)
 DECLARE SUB MARQUEE_update_move (x AS INTEGER, y AS INTEGER)
 DECLARE SUB MARQUEE_finish_move
+
+' Magic Wand functions
+DECLARE SUB MAGIC_WAND_select (x AS INTEGER, y AS INTEGER)
+DECLARE SUB MAGIC_WAND_draw_outline ()
+DECLARE SUB MAGIC_WAND_reset ()
+DECLARE FUNCTION MAGIC_WAND_has_selection% ()
+DECLARE SUB MAGIC_WAND_clear_selected_transparent ()
 

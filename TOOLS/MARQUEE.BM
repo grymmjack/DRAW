@@ -17,6 +17,8 @@ SUB MARQUEE_reset ()
     MARQUEE.RESIZING% = FALSE
     MARQUEE.MOVING% = FALSE
     MARQUEE.INITIALIZED% = FALSE
+    ' Reset magic wand state (but keep the mode)
+    MAGIC_WAND_reset
 END SUB
 
 
@@ -252,52 +254,57 @@ SUB MARQUEE_draw_dotted_box (b AS GJ_BBX_BBOX, showHUD AS INTEGER)
     gapSize% = INT(2 * SCRN.zoom!)
     IF gapSize% < 1 THEN gapSize% = 1
     
-    ' Determine color based on state (33% opaque = alpha 85)
-    SELECT CASE b.state
-        CASE GJ_BBX_STATE_IDLE
-            lineColor~& = _RGBA32(_RED32(MARQUEE.CFG.colorIdle), _GREEN32(MARQUEE.CFG.colorIdle), _BLUE32(MARQUEE.CFG.colorIdle), 85)
-        CASE GJ_BBX_STATE_HOVER
-            lineColor~& = _RGBA32(_RED32(MARQUEE.CFG.colorHoverOnly), _GREEN32(MARQUEE.CFG.colorHoverOnly), _BLUE32(MARQUEE.CFG.colorHoverOnly), 85)
-        CASE GJ_BBX_STATE_DRAG
-            lineColor~& = _RGBA32(_RED32(MARQUEE.CFG.colorDragging), _GREEN32(MARQUEE.CFG.colorDragging), _BLUE32(MARQUEE.CFG.colorDragging), 85)
-        CASE GJ_BBX_STATE_SELECTED
-            lineColor~& = _RGBA32(_RED32(MARQUEE.CFG.colorSelectedOnly), _GREEN32(MARQUEE.CFG.colorSelectedOnly), _BLUE32(MARQUEE.CFG.colorSelectedOnly), 85)
-        CASE GJ_BBX_STATE_SELECTED_HOVER
-            lineColor~& = _RGBA32(_RED32(MARQUEE.CFG.colorSelectedHover), _GREEN32(MARQUEE.CFG.colorSelectedHover), _BLUE32(MARQUEE.CFG.colorSelectedHover), 85)
-        CASE ELSE
-            IF b.state >= GJ_BBX_STATE_RESIZE_BASE THEN
-                lineColor~& = _RGBA32(_RED32(MARQUEE.CFG.colorResizing), _GREEN32(MARQUEE.CFG.colorResizing), _BLUE32(MARQUEE.CFG.colorResizing), 85)
-            ELSE
-                lineColor~& = _RGBA32(_RED32(MARQUEE.CFG.colorIdle), _GREEN32(MARQUEE.CFG.colorIdle), _BLUE32(MARQUEE.CFG.colorIdle), 85)
-            END IF
-    END SELECT
+    ' Animate marching ants with time-based offset
+    DIM antOffset AS INTEGER
+    antOffset% = INT(TIMER * 8) MOD (dotSize% + gapSize%)
     
-    ' Force bright color for visibility - will fix color config later
-    lineColor~& = _RGB32(255, 255, 255)
+    ' Use white and black for marching ants contrast
+    DIM whiteColor AS _UNSIGNED LONG
+    DIM blackColor AS _UNSIGNED LONG
+    whiteColor~& = _RGB32(255, 255, 255)
+    blackColor~& = _RGB32(0, 0, 0)
     
-    outlineColor~& = _RGB32(0, 0, 0)
-    
-    ' Draw dotted lines for top and bottom edges
-    FOR i% = 0 TO b.w - 1 STEP (dotSize% + gapSize%)
+    ' Draw marching ants for top and bottom edges
+    FOR i% = 0 TO b.w - 1
         x% = b.x + i%
         IF x% <= b.x + b.w - 1 THEN
-            ' Top edge - bright cyan only
-            LINE (x%, b.y)-(x% + dotSize% - 1, b.y), lineColor~&
+            ' Calculate pattern position with animation offset
+            DIM pattern AS INTEGER
+            pattern% = (i% + antOffset%) MOD (dotSize% + gapSize%)
             
-            ' Bottom edge - bright cyan only
-            LINE (x%, b.y + b.h - 1)-(x% + dotSize% - 1, b.y + b.h - 1), lineColor~&
+            IF pattern% < dotSize% THEN
+                lineColor~& = whiteColor~&
+            ELSE
+                lineColor~& = blackColor~&
+            END IF
+            
+            ' Top edge
+            PSET (x%, b.y), lineColor~&
+            
+            ' Bottom edge
+            PSET (x%, b.y + b.h - 1), lineColor~&
         END IF
     NEXT i%
     
-    ' Draw dotted lines for left and right edges
-    FOR i% = 0 TO b.h - 1 STEP (dotSize% + gapSize%)
+    ' Draw marching ants for left and right edges
+    FOR i% = 0 TO b.h - 1
         y% = b.y + i%
         IF y% <= b.y + b.h - 1 THEN
-            ' Left edge - bright cyan only
-            LINE (b.x, y%)-(b.x, y% + dotSize% - 1), lineColor~&
+            ' Calculate pattern position with animation offset
+            DIM patternV AS INTEGER
+            patternV% = (i% + antOffset%) MOD (dotSize% + gapSize%)
             
-            ' Right edge - bright cyan only
-            LINE (b.x + b.w - 1, y%)-(b.x + b.w - 1, y% + dotSize% - 1), lineColor~&
+            IF patternV% < dotSize% THEN
+                lineColor~& = whiteColor~&
+            ELSE
+                lineColor~& = blackColor~&
+            END IF
+            
+            ' Left edge
+            PSET (b.x, y%), lineColor~&
+            
+            ' Right edge
+            PSET (b.x + b.w - 1, y%), lineColor~&
         END IF
     NEXT i%
     
@@ -634,3 +641,361 @@ SUB MARQUEE_finish_move ()
     MARQUEE.MOVING% = FALSE
 END SUB
 
+
+' ============================================================================
+' MAGIC WAND SELECTION FUNCTIONS
+' ============================================================================
+
+''
+' Reset magic wand selection state (but keep mode)
+'
+SUB MAGIC_WAND_reset ()
+    ' Free existing mask if valid
+    IF MARQUEE.SELECTION_MASK < -1 THEN
+        _FREEIMAGE MARQUEE.SELECTION_MASK
+    END IF
+    MARQUEE.SELECTION_MASK = 0
+    MARQUEE.WAND_HAS_SELECTION = FALSE
+    MARQUEE.WAND_MIN_X = 0
+    MARQUEE.WAND_MIN_Y = 0
+    MARQUEE.WAND_MAX_X = 0
+    MARQUEE.WAND_MAX_Y = 0
+END SUB
+
+
+''
+' Check if magic wand has an active selection
+' @return INTEGER TRUE if wand has selection, FALSE otherwise
+'
+FUNCTION MAGIC_WAND_has_selection% ()
+    MAGIC_WAND_has_selection% = MARQUEE.WAND_HAS_SELECTION
+END FUNCTION
+
+
+''
+' Select contiguous pixels of the same color using scanline flood fill algorithm
+' @param x INTEGER X coordinate to start selection
+' @param y INTEGER Y coordinate to start selection
+'
+SUB MAGIC_WAND_select (x AS INTEGER, y AS INTEGER)
+    DIM old_dest AS LONG
+    DIM old_source AS LONG
+    DIM target_color AS _UNSIGNED LONG
+    DIM w AS INTEGER, h AS INTEGER
+    DIM targetImg AS LONG
+    
+    ' Get the current layer image
+    targetImg& = LAYER_current_image&
+    old_dest& = _DEST
+    old_source& = _SOURCE
+    
+    _SOURCE targetImg&
+    
+    w% = _WIDTH(targetImg&)
+    h% = _HEIGHT(targetImg&)
+    
+    ' Bounds check
+    IF x% < 0 OR x% >= w% OR y% < 0 OR y% >= h% THEN
+        _SOURCE old_source&
+        EXIT SUB
+    END IF
+    
+    ' Get target color at click position
+    target_color~& = POINT(x%, y%)
+    
+    ' Reset any existing selection
+    MAGIC_WAND_reset
+    
+    ' Create selection mask (white = selected, transparent = not selected)
+    MARQUEE.SELECTION_MASK = _NEWIMAGE(w%, h%, 32)
+    IF MARQUEE.SELECTION_MASK >= -1 THEN
+        _SOURCE old_source&
+        EXIT SUB ' Failed to create mask
+    END IF
+    
+    ' Clear mask to transparent
+    _DEST MARQUEE.SELECTION_MASK
+    CLS , _RGBA32(0, 0, 0, 0)
+    _DONTBLEND MARQUEE.SELECTION_MASK
+    
+    ' Initialize bounding box tracking
+    MARQUEE.WAND_MIN_X = w%
+    MARQUEE.WAND_MIN_Y = h%
+    MARQUEE.WAND_MAX_X = 0
+    MARQUEE.WAND_MAX_Y = 0
+    
+    ' Stack for scanline seeds - starts minimal, grows dynamically as needed
+    DIM stack_capacity AS LONG
+    stack_capacity& = 128
+    REDIM stack_x(1 TO 128) AS INTEGER
+    REDIM stack_y(1 TO 128) AS INTEGER
+    DIM stack_ptr AS LONG
+    
+    DIM py AS INTEGER, x1 AS INTEGER, x2 AS INTEGER
+    DIM sx AS INTEGER, dy AS INTEGER, ny AS INTEGER
+    DIM in_span AS INTEGER
+    DIM mask_color AS _UNSIGNED LONG
+    
+    ' Mask color is white (fully opaque) for selected pixels
+    mask_color~& = _RGB32(255, 255, 255)
+    
+    ' Initialize with starting point
+    stack_ptr& = 1
+    stack_x(stack_ptr&) = x%
+    stack_y(stack_ptr&) = y%
+    
+    WHILE stack_ptr& > 0
+        ' Pop seed point from stack
+        x% = stack_x(stack_ptr&)
+        py% = stack_y(stack_ptr&)
+        stack_ptr& = stack_ptr& - 1
+        
+        ' Skip if out of bounds
+        IF py% < 0 OR py% >= h% OR x% < 0 OR x% >= w% THEN GOTO wand_next_seed
+        
+        ' Skip if already selected (check mask)
+        _SOURCE MARQUEE.SELECTION_MASK
+        IF POINT(x%, py%) = mask_color~& THEN GOTO wand_next_seed
+        
+        ' Skip if color doesn't match target
+        _SOURCE targetImg&
+        IF POINT(x%, py%) <> target_color~& THEN GOTO wand_next_seed
+        
+        ' Find left edge of scanline
+        x1% = x%
+        WHILE x1% > 0
+            _SOURCE targetImg&
+            IF POINT(x1% - 1, py%) <> target_color~& THEN EXIT WHILE
+            _SOURCE MARQUEE.SELECTION_MASK
+            IF POINT(x1% - 1, py%) = mask_color~& THEN EXIT WHILE
+            x1% = x1% - 1
+        WEND
+        
+        ' Find right edge of scanline
+        x2% = x%
+        WHILE x2% < w% - 1
+            _SOURCE targetImg&
+            IF POINT(x2% + 1, py%) <> target_color~& THEN EXIT WHILE
+            _SOURCE MARQUEE.SELECTION_MASK
+            IF POINT(x2% + 1, py%) = mask_color~& THEN EXIT WHILE
+            x2% = x2% + 1
+        WEND
+        
+        ' Mark the entire horizontal scanline as selected in mask
+        _DEST MARQUEE.SELECTION_MASK
+        LINE (x1%, py%)-(x2%, py%), mask_color~&
+        
+        ' Update bounding box
+        IF x1% < MARQUEE.WAND_MIN_X THEN MARQUEE.WAND_MIN_X = x1%
+        IF x2% > MARQUEE.WAND_MAX_X THEN MARQUEE.WAND_MAX_X = x2%
+        IF py% < MARQUEE.WAND_MIN_Y THEN MARQUEE.WAND_MIN_Y = py%
+        IF py% > MARQUEE.WAND_MAX_Y THEN MARQUEE.WAND_MAX_Y = py%
+        
+        ' Check scanlines above and below for new spans to fill
+        FOR dy% = -1 TO 1 STEP 2
+            ny% = py% + dy%
+            IF ny% >= 0 AND ny% < h% THEN
+                in_span% = FALSE
+                ' Scan the filled span for matching pixels
+                FOR sx% = x1% TO x2%
+                    _SOURCE targetImg&
+                    DIM pxColor AS _UNSIGNED LONG
+                    pxColor~& = POINT(sx%, ny%)
+                    IF pxColor~& = target_color~& THEN
+                        ' Check if not already selected
+                        _SOURCE MARQUEE.SELECTION_MASK
+                        IF POINT(sx%, ny%) <> mask_color~& THEN
+                            IF NOT in_span% THEN
+                                ' Found start of new span - add seed point
+                                ' Grow stack if needed
+                                IF stack_ptr& >= stack_capacity& THEN
+                                    stack_capacity& = stack_capacity& * 2
+                                    REDIM _PRESERVE stack_x(1 TO stack_capacity&) AS INTEGER
+                                    REDIM _PRESERVE stack_y(1 TO stack_capacity&) AS INTEGER
+                                END IF
+                                stack_ptr& = stack_ptr& + 1
+                                stack_x(stack_ptr&) = sx%
+                                stack_y(stack_ptr&) = ny%
+                                in_span% = TRUE
+                            END IF
+                        ELSE
+                            in_span% = FALSE
+                        END IF
+                    ELSE
+                        ' No longer in matching span
+                        in_span% = FALSE
+                    END IF
+                NEXT sx%
+            END IF
+        NEXT dy%
+        
+        wand_next_seed:
+    WEND
+    
+    ' Explicitly free stack memory
+    ERASE stack_x, stack_y
+    
+    ' Mark selection as valid
+    MARQUEE.WAND_HAS_SELECTION = TRUE
+    
+    ' Also set regular marquee box to bounding box of selection
+    ' This allows resize handles to work if desired in future
+    MARQUEE.BOX.x = MARQUEE.WAND_MIN_X
+    MARQUEE.BOX.y = MARQUEE.WAND_MIN_Y
+    MARQUEE.BOX.w = MARQUEE.WAND_MAX_X - MARQUEE.WAND_MIN_X + 1
+    MARQUEE.BOX.h = MARQUEE.WAND_MAX_Y - MARQUEE.WAND_MIN_Y + 1
+    MARQUEE.ACTIVE% = TRUE
+    MARQUEE.INITIALIZED% = TRUE
+    
+    _BLEND MARQUEE.SELECTION_MASK
+    _SOURCE old_source&
+    _DEST old_dest&
+END SUB
+
+
+''
+' Draw marching ants outline around selected pixels in magic wand mask
+'
+SUB MAGIC_WAND_draw_outline ()
+    IF NOT MARQUEE.WAND_HAS_SELECTION THEN EXIT SUB
+    IF MARQUEE.SELECTION_MASK >= -1 THEN EXIT SUB
+    
+    DIM old_dest AS LONG
+    DIM old_source AS LONG
+    DIM x AS INTEGER, y AS INTEGER
+    DIM w AS INTEGER, h AS INTEGER
+    DIM mask_color AS _UNSIGNED LONG
+    DIM lineColor AS _UNSIGNED LONG
+    
+    old_dest& = _DEST
+    old_source& = _SOURCE
+    
+    _SOURCE MARQUEE.SELECTION_MASK
+    _DEST SCRN.CANVAS&
+    
+    w% = _WIDTH(MARQUEE.SELECTION_MASK)
+    h% = _HEIGHT(MARQUEE.SELECTION_MASK)
+    
+    mask_color~& = _RGB32(255, 255, 255)
+    lineColor~& = _RGB32(255, 255, 255)  ' White outline
+    
+    ' Calculate zoom transformation values
+    DIM zw AS LONG, zh AS LONG, dx AS INTEGER, dy AS INTEGER
+    zw& = SCRN.w& * SCRN.zoom!
+    zh& = SCRN.h& * SCRN.zoom!
+    dx% = (_WIDTH(SCRN.CANVAS&) - zw&) \ 2 + SCRN.offsetX%
+    dy% = (_HEIGHT(SCRN.CANVAS&) - zh&) \ 2 + SCRN.offsetY%
+    
+    ' Offset for layer panel when visible
+    IF LAYER_PANEL.visible% THEN dx% = dx% + CFG.LAYER_PANEL_WIDTH%
+    
+    ' Animate the marching ants with time-based offset
+    DIM antOffset AS INTEGER
+    DIM dotSize AS INTEGER, gapSize AS INTEGER
+    
+    ' Scale dot and gap size with zoom (minimum 1px each)
+    dotSize% = INT(2 * SCRN.zoom!)
+    IF dotSize% < 1 THEN dotSize% = 1
+    gapSize% = INT(2 * SCRN.zoom!)
+    IF gapSize% < 1 THEN gapSize% = 1
+    
+    ' Use TIMER for animation (shift pattern over time)
+    antOffset% = INT(TIMER * 8) MOD (dotSize% + gapSize%)
+    
+    ' Only scan within bounding box for performance
+    FOR y% = MARQUEE.WAND_MIN_Y TO MARQUEE.WAND_MAX_Y
+        FOR x% = MARQUEE.WAND_MIN_X TO MARQUEE.WAND_MAX_X
+            _SOURCE MARQUEE.SELECTION_MASK
+            IF POINT(x%, y%) = mask_color~& THEN
+                ' This pixel is selected - check if it's on an edge
+                DIM isEdge AS INTEGER
+                isEdge% = FALSE
+                
+                ' Check 4-connected neighbors
+                IF x% = 0 OR POINT(x% - 1, y%) <> mask_color~& THEN isEdge% = TRUE  ' Left edge
+                IF NOT isEdge% AND (x% = w% - 1 OR POINT(x% + 1, y%) <> mask_color~&) THEN isEdge% = TRUE  ' Right edge
+                IF NOT isEdge% AND (y% = 0 OR POINT(x%, y% - 1) <> mask_color~&) THEN isEdge% = TRUE  ' Top edge
+                IF NOT isEdge% AND (y% = h% - 1 OR POINT(x%, y% + 1) <> mask_color~&) THEN isEdge% = TRUE  ' Bottom edge
+                
+                IF isEdge% THEN
+                    ' Draw edge pixel with marching ants effect
+                    DIM screenX AS INTEGER, screenY AS INTEGER
+                    screenX% = dx% + INT(x% * SCRN.zoom!)
+                    screenY% = dy% + INT(y% * SCRN.zoom!)
+                    
+                    ' Marching ants pattern: alternate based on position + time offset
+                    DIM pattern AS INTEGER
+                    pattern% = ((x% + y% + antOffset%) MOD (dotSize% + gapSize%))
+                    
+                    _DEST SCRN.CANVAS&
+                    IF pattern% < dotSize% THEN
+                        ' Draw white pixel
+                        IF SCRN.zoom! >= 1 THEN
+                            LINE (screenX%, screenY%)-(screenX% + INT(SCRN.zoom!) - 1, screenY% + INT(SCRN.zoom!) - 1), _RGB32(255, 255, 255), BF
+                        ELSE
+                            PSET (screenX%, screenY%), _RGB32(255, 255, 255)
+                        END IF
+                    ELSE
+                        ' Draw black pixel for contrast
+                        IF SCRN.zoom! >= 1 THEN
+                            LINE (screenX%, screenY%)-(screenX% + INT(SCRN.zoom!) - 1, screenY% + INT(SCRN.zoom!) - 1), _RGB32(0, 0, 0), BF
+                        ELSE
+                            PSET (screenX%, screenY%), _RGB32(0, 0, 0)
+                        END IF
+                    END IF
+                END IF
+            END IF
+        NEXT x%
+    NEXT y%
+    
+    _SOURCE old_source&
+    _DEST old_dest&
+END SUB
+
+
+''
+' Clear selected pixels by making them transparent
+' Used when DEL or CTRL+E is pressed with magic wand selection active
+'
+SUB MAGIC_WAND_clear_selected_transparent ()
+    IF NOT MARQUEE.WAND_HAS_SELECTION THEN EXIT SUB
+    IF MARQUEE.SELECTION_MASK >= -1 THEN EXIT SUB
+    
+    DIM old_dest AS LONG
+    DIM old_source AS LONG
+    DIM x AS INTEGER, y AS INTEGER
+    DIM mask_color AS _UNSIGNED LONG
+    DIM targetImg AS LONG
+    
+    old_dest& = _DEST
+    old_source& = _SOURCE
+    
+    targetImg& = LAYER_current_image&
+    
+    ' Save undo state before modifying
+    UNDO_save_state
+    
+    _SOURCE MARQUEE.SELECTION_MASK
+    _DEST targetImg&
+    _DONTBLEND targetImg&
+    
+    mask_color~& = _RGB32(255, 255, 255)
+    
+    ' Iterate through bounding box and clear selected pixels
+    FOR y% = MARQUEE.WAND_MIN_Y TO MARQUEE.WAND_MAX_Y
+        FOR x% = MARQUEE.WAND_MIN_X TO MARQUEE.WAND_MAX_X
+            _SOURCE MARQUEE.SELECTION_MASK
+            IF POINT(x%, y%) = mask_color~& THEN
+                ' Set pixel to fully transparent
+                _DEST targetImg&
+                PSET (x%, y%), _RGBA32(0, 0, 0, 0)
+            END IF
+        NEXT x%
+    NEXT y%
+    
+    _BLEND targetImg&
+    _SOURCE old_source&
+    _DEST old_dest&
+    
+    CANVAS_DIRTY% = TRUE
+END SUB
