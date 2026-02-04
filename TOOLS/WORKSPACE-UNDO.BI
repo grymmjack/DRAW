@@ -45,6 +45,9 @@ REDIM SHARED WORKSPACE_UNDO_STATES(1 TO 50) AS WORKSPACE_UNDO_STATE
 ' Flag to track if workspace undo system is ready (prevents saves during init)
 DIM SHARED WORKSPACE_UNDO_READY AS INTEGER
 
+' Flag to prevent undo/redo operations from creating new undo states
+DIM SHARED WORKSPACE_UNDO_IN_PROGRESS AS INTEGER
+
 ' Timestamp of last pixel undo save (for comparing with workspace undo)
 DIM SHARED PIXEL_UNDO_LAST_TIMESTAMP AS DOUBLE
 

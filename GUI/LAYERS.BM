@@ -66,12 +66,14 @@ END SUB
 
 
 ''
-' Create a new layer
+' Create a new layer above the currently selected layer
 ' Returns the index of the new layer, or 0 if max layers reached
 ' 
 FUNCTION LAYERS_new% ()
     DIM newIndex AS INTEGER
     DIM i AS INTEGER
+    DIM currentZ AS INTEGER
+    DIM newZ AS INTEGER
     
     ' Check if we've hit the max
     IF LAYER_COUNT% >= CFG.NUM_LAYERS% THEN
@@ -93,6 +95,31 @@ FUNCTION LAYERS_new% ()
         EXIT FUNCTION
     END IF
     
+    ' Get the zIndex of the currently selected layer
+    ' New layer will be inserted directly above it
+    DIM hasCurrentLayer AS INTEGER
+    hasCurrentLayer% = FALSE
+    IF CURRENT_LAYER% > 0 AND CURRENT_LAYER% <= 64 THEN
+        IF LAYERS(CURRENT_LAYER%).imgHandle& <> 0 THEN
+            hasCurrentLayer% = TRUE
+        END IF
+    END IF
+    
+    IF hasCurrentLayer% THEN
+        currentZ% = LAYERS(CURRENT_LAYER%).zIndex%
+        newZ% = currentZ% + 1
+        
+        ' Shift all layers with zIndex > currentZ up by 1 to make room
+        FOR i% = 1 TO 64
+            IF LAYERS(i%).imgHandle& <> 0 AND LAYERS(i%).zIndex% > currentZ% THEN
+                LAYERS(i%).zIndex% = LAYERS(i%).zIndex% + 1
+            END IF
+        NEXT i%
+    ELSE
+        ' No valid current layer, put new layer on top
+        newZ% = LAYER_COUNT% + 1
+    END IF
+    
     ' Create the layer image buffer
     LAYERS(newIndex%).imgWidth%  = SCRN.w&
     LAYERS(newIndex%).imgHeight% = SCRN.h&
@@ -107,7 +134,7 @@ FUNCTION LAYERS_new% ()
     
     ' Set default properties
     LAYER_COUNT% = LAYER_COUNT% + 1
-    LAYERS(newIndex%).zIndex%      = LAYER_COUNT%  ' New layer goes on top
+    LAYERS(newIndex%).zIndex%      = newZ%  ' Insert above current layer
     LAYERS(newIndex%).visible%     = TRUE
     LAYERS(newIndex%).isSelected%  = FALSE
     LAYERS(newIndex%).lastSelected% = FALSE
@@ -574,8 +601,10 @@ SUB LAYERS_merge_down (layerIndex AS INTEGER)
     
     _DEST oldDest&
     
-    ' Delete the merged layer
+    ' Delete the merged layer (suppress undo save since we already saved merge state)
+    WORKSPACE_UNDO_IN_PROGRESS% = TRUE
     LAYERS_delete layerIndex%
+    WORKSPACE_UNDO_IN_PROGRESS% = FALSE
     
     ' Select the target layer
     LAYERS_select targetIndex%
@@ -1050,6 +1079,18 @@ FUNCTION LAYER_PANEL_handle_click% (rawX AS INTEGER, rawY AS INTEGER, button AS 
     DIM layerIdx AS INTEGER
     DIM clickY AS INTEGER
     DIM bottomBarsHeight AS INTEGER
+    STATIC btnClickedThisPress AS INTEGER  ' Debounce for button clicks
+    
+    ' CRITICAL: Only process if this is a fresh click (button just pressed)
+    ' This prevents multiple firings if function is called multiple times per frame
+    IF MOUSE.OLD_B1% THEN
+        ' Button was already down last frame - this is not a new click
+        LAYER_PANEL_handle_click% = TRUE  ' Consume event but don't act
+        EXIT FUNCTION
+    END IF
+    
+    ' Reset debounce when mouse is not pressed
+    IF NOT MOUSE.B1% THEN btnClickedThisPress% = FALSE
     
     IF NOT LAYER_PANEL.visible% THEN
         LAYER_PANEL_handle_click% = FALSE
@@ -1081,7 +1122,7 @@ FUNCTION LAYER_PANEL_handle_click% (rawX AS INTEGER, rawY AS INTEGER, button AS 
     btnSpacing% = 2
     btnW% = (panelW% - 8 - (4 * btnSpacing%)) \ 5
     
-    IF rawY% >= btnY% AND rawY% < btnY% + 16 AND button% = 1 THEN
+    IF rawY% >= btnY% AND rawY% < btnY% + 16 AND button% = 1 AND NOT btnClickedThisPress% THEN
         ' Determine which button was clicked
         DIM clickBtn AS INTEGER
         clickBtn% = -1
@@ -1116,20 +1157,23 @@ FUNCTION LAYER_PANEL_handle_click% (rawX AS INTEGER, rawY AS INTEGER, button AS 
             clickBtn% = 5
         END IF
         
-        ' Execute button action
-        SELECT CASE clickBtn%
-            CASE 1  ' Move Up
-                IF CURRENT_LAYER% > 0 THEN LAYERS_move_up CURRENT_LAYER%
-            CASE 2  ' Move Down
-                IF CURRENT_LAYER% > 0 THEN LAYERS_move_down CURRENT_LAYER%
-            CASE 3  ' Merge Down
-                IF CURRENT_LAYER% > 0 THEN LAYERS_merge_down CURRENT_LAYER%
-            CASE 4  ' Delete
-                IF LAYER_COUNT% > 1 AND CURRENT_LAYER% > 0 THEN LAYERS_delete CURRENT_LAYER%
-            CASE 5  ' New
-                DIM dummy AS INTEGER
-                dummy% = LAYERS_new%
-        END SELECT
+        ' Execute button action (only if a button was actually clicked)
+        IF clickBtn% > 0 THEN
+            btnClickedThisPress% = TRUE  ' Prevent repeat firing
+            SELECT CASE clickBtn%
+                CASE 1  ' Move Up
+                    IF CURRENT_LAYER% > 0 THEN LAYERS_move_up CURRENT_LAYER%
+                CASE 2  ' Move Down
+                    IF CURRENT_LAYER% > 0 THEN LAYERS_move_down CURRENT_LAYER%
+                CASE 3  ' Merge Down
+                    IF CURRENT_LAYER% > 0 THEN LAYERS_merge_down CURRENT_LAYER%
+                CASE 4  ' Delete
+                    IF LAYER_COUNT% > 1 AND CURRENT_LAYER% > 0 THEN LAYERS_delete CURRENT_LAYER%
+                CASE 5  ' New
+                    DIM dummy AS INTEGER
+                    dummy% = LAYERS_new%
+            END SELECT
+        END IF
         
         LAYER_PANEL_handle_click% = TRUE
         EXIT FUNCTION

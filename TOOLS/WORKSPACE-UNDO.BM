@@ -106,8 +106,9 @@ END FUNCTION
 ' Called BEFORE the layer is actually added
 ' ============================================================================
 SUB WORKSPACE_UNDO_save_layer_add (layerIndex AS INTEGER)
-    ' Skip if workspace undo not ready (during initialization)
+    ' Skip if workspace undo not ready (during initialization) or in progress (during undo/redo)
     IF NOT WORKSPACE_UNDO_READY% THEN EXIT SUB
+    IF WORKSPACE_UNDO_IN_PROGRESS% THEN EXIT SUB
     
     DIM idx AS INTEGER
     idx% = WUNDO_prepare_new_state%
@@ -125,8 +126,9 @@ END SUB
 ' Called BEFORE the layer is actually deleted
 ' ============================================================================
 SUB WORKSPACE_UNDO_save_layer_delete (layerIndex AS INTEGER)
-    ' Skip if workspace undo not ready (during initialization)
+    ' Skip if workspace undo not ready (during initialization) or in progress (during undo/redo)
     IF NOT WORKSPACE_UNDO_READY% THEN EXIT SUB
+    IF WORKSPACE_UNDO_IN_PROGRESS% THEN EXIT SUB
     
     DIM idx AS INTEGER
     idx% = WUNDO_prepare_new_state%
@@ -156,8 +158,9 @@ END SUB
 ' WORKSPACE_UNDO_save_layer_rename - Save state before renaming a layer
 ' ============================================================================
 SUB WORKSPACE_UNDO_save_layer_rename (layerIndex AS INTEGER, oldName AS STRING, newName AS STRING)
-    ' Skip if workspace undo not ready (during initialization)
+    ' Skip if workspace undo not ready (during initialization) or in progress (during undo/redo)
     IF NOT WORKSPACE_UNDO_READY% THEN EXIT SUB
+    IF WORKSPACE_UNDO_IN_PROGRESS% THEN EXIT SUB
     
     DIM idx AS INTEGER
     idx% = WUNDO_prepare_new_state%
@@ -175,8 +178,9 @@ END SUB
 ' WORKSPACE_UNDO_save_layer_reorder - Save state before reordering a layer
 ' ============================================================================
 SUB WORKSPACE_UNDO_save_layer_reorder (layerIndex AS INTEGER, oldZIndex AS INTEGER, newZIndex AS INTEGER)
-    ' Skip if workspace undo not ready (during initialization)
+    ' Skip if workspace undo not ready (during initialization) or in progress (during undo/redo)
     IF NOT WORKSPACE_UNDO_READY% THEN EXIT SUB
+    IF WORKSPACE_UNDO_IN_PROGRESS% THEN EXIT SUB
     
     DIM idx AS INTEGER
     idx% = WUNDO_prepare_new_state%
@@ -194,8 +198,9 @@ END SUB
 ' WORKSPACE_UNDO_save_layer_merge - Save state before merging layers
 ' ============================================================================
 SUB WORKSPACE_UNDO_save_layer_merge (topIndex AS INTEGER, bottomIndex AS INTEGER)
-    ' Skip if workspace undo not ready (during initialization)
+    ' Skip if workspace undo not ready (during initialization) or in progress (during undo/redo)
     IF NOT WORKSPACE_UNDO_READY% THEN EXIT SUB
+    IF WORKSPACE_UNDO_IN_PROGRESS% THEN EXIT SUB
     
     DIM idx AS INTEGER
     idx% = WUNDO_prepare_new_state%
@@ -234,6 +239,9 @@ END SUB
 SUB WORKSPACE_UNDO_undo
     IF NOT WORKSPACE_UNDO_can_undo% THEN EXIT SUB
     
+    ' Prevent nested undo states from being created
+    WORKSPACE_UNDO_IN_PROGRESS% = TRUE
+    
     DIM state AS WORKSPACE_UNDO_STATE
     state = WORKSPACE_UNDO_STATES(WORKSPACE_UNDO.current%)
     
@@ -248,7 +256,10 @@ SUB WORKSPACE_UNDO_undo
             ' Undo layer delete = recreate the layer
             DIM newIdx AS INTEGER
             newIdx% = LAYERS_new%
-            IF newIdx% = 0 THEN EXIT SUB ' Failed to create layer
+            IF newIdx% = 0 THEN
+                WORKSPACE_UNDO_IN_PROGRESS% = FALSE
+                EXIT SUB ' Failed to create layer
+            END IF
             
             ' Restore layer properties
             LAYERS(newIdx%).name$ = state.old_name$
@@ -303,17 +314,36 @@ SUB WORKSPACE_UNDO_undo
                 LAYERS(state.merge_bottom_index%).imgHandle& = _COPYIMAGE(state.img2&)
             END IF
             
-            ' Recreate the top layer
+            ' Recreate the top layer manually (don't use LAYERS_new% - it has side effects)
+            ' Find first empty slot to recreate the layer
             DIM topIdx AS INTEGER
-            topIdx% = LAYERS_new%
-            IF topIdx% = 0 THEN EXIT SUB ' Failed to create layer
+            DIM slotIdx AS INTEGER
+            topIdx% = 0
+            FOR slotIdx% = 1 TO 64
+                IF LAYERS(slotIdx%).imgHandle& = 0 THEN
+                    topIdx% = slotIdx%
+                    EXIT FOR
+                END IF
+            NEXT slotIdx%
             
-            ' Restore top layer properties
+            IF topIdx% = 0 THEN
+                WORKSPACE_UNDO_IN_PROGRESS% = FALSE
+                EXIT SUB ' No empty slot available
+            END IF
+            
+            ' Create the layer image buffer manually
+            LAYERS(topIdx%).imgWidth% = SCRN.w&
+            LAYERS(topIdx%).imgHeight% = SCRN.h&
+            LAYERS(topIdx%).imgHandle& = _NEWIMAGE(SCRN.w&, SCRN.h&, 32)
+            
+            ' Restore top layer properties - use saved values, not LAYERS_new% defaults
             LAYERS(topIdx%).name$ = state.old_name$
             LAYERS(topIdx%).zIndex% = state.old_zIndex%
             LAYERS(topIdx%).opacity% = state.old_opacity%
             LAYERS(topIdx%).visible% = state.old_visible%
             LAYERS(topIdx%).opacityLock% = state.old_opacityLock%
+            LAYERS(topIdx%).isSelected% = FALSE
+            LAYERS(topIdx%).lastSelected% = FALSE
             
             ' Restore top layer content
             IF state.img& < -1 THEN
@@ -322,9 +352,16 @@ SUB WORKSPACE_UNDO_undo
                 END IF
                 LAYERS(topIdx%).imgHandle& = _COPYIMAGE(state.img&)
             END IF
+            
+            ' Restore layer count
+            LAYER_COUNT% = state.old_layer_count%
+            
+            ' Select the restored top layer
+            LAYERS_select topIdx%
     END SELECT
     
     WORKSPACE_UNDO.current% = WORKSPACE_UNDO.current% - 1
+    WORKSPACE_UNDO_IN_PROGRESS% = FALSE  ' Allow undo saves again
     GUI_NEEDS_REDRAW% = TRUE
 END SUB
 
@@ -333,6 +370,9 @@ END SUB
 ' ============================================================================
 SUB WORKSPACE_UNDO_redo
     IF NOT WORKSPACE_UNDO_can_redo% THEN EXIT SUB
+    
+    ' Prevent nested undo states from being created
+    WORKSPACE_UNDO_IN_PROGRESS% = TRUE
     
     WORKSPACE_UNDO.current% = WORKSPACE_UNDO.current% + 1
     
@@ -372,6 +412,7 @@ SUB WORKSPACE_UNDO_redo
             LAYERS_merge_down state.merge_top_index%
     END SELECT
     
+    WORKSPACE_UNDO_IN_PROGRESS% = FALSE  ' Allow undo saves again
     GUI_NEEDS_REDRAW% = TRUE
 END SUB
 
