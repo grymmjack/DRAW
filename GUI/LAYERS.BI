@@ -36,10 +36,12 @@ TYPE LAYER_PANEL_OBJ
     hoverRow     AS INTEGER     ' Currently hovered layer row (-1 = none)
     draggingRow  AS INTEGER     ' Row being dragged for reorder (-1 = none)
     dragStartY   AS INTEGER     ' Y position when drag started
+    dragStartX   AS INTEGER     ' X position when drag started (for threshold)
     opacityDrag  AS INTEGER     ' TRUE if dragging opacity slider
     opacityDragLayer AS INTEGER ' Layer index being opacity-adjusted
     ' Layer drag-and-drop reordering state
-    isDragging        AS INTEGER   ' TRUE while dragging layer for reorder
+    dragPending       AS INTEGER   ' TRUE when mouse down but not yet moved threshold
+    isDragging        AS INTEGER   ' TRUE while actively dragging layer for reorder
     dragLayerIdx      AS INTEGER   ' Layer index being dragged
     dropTargetZIndex  AS INTEGER   ' Target zIndex position for drop (-1 = no target)
     dragOffsetY       AS INTEGER   ' Offset from row top where drag started
