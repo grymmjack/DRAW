@@ -6,8 +6,6 @@
 ' @author Rick Christy <grymmjack@gmail.com>
 '
 $INCLUDEONCE
-
-CONST UI_IMAGES_DIR = "./ASSETS/THEMES/DEFAULT/"
  
 CONST TB_PSET          = 0
 CONST TB_PAINT         = 1

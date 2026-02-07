@@ -98,6 +98,9 @@ $INCLUDEONCE
 '$INCLUDE:'./TOOLS/ZOOM.BI'
 
 ' THEME -----------------------------------------------------------------------
+' NOTE: $INCLUDE is a compile-time directive and must reference a fixed path.
+' This includes DEFAULT theme as the compile-time base values.
+' Runtime theme selection via CFG.THEME$ in DRAW.cfg overrides icon/cursor paths.
 '$INCLUDE:'./ASSETS/THEMES/DEFAULT/THEME.BI'
 
 ' PALETTES --------------------------------------------------------------------
