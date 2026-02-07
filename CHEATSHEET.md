@@ -8,6 +8,7 @@
 | `D` | Dot | Single pixel dot tool |
 | `F` | Fill | Flood fill tool |
 | `I` | Picker | Color picker/eyedropper |
+| `K` | Spray | Spray paint tool |
 | `L` | Line | Draw straight lines |
 | `P` | Polygon | Draw polygon outlines |
 | `Shift+P` | Polygon (Filled) | Draw filled polygons |
@@ -150,6 +151,26 @@ DRAW supports real-time symmetrical drawing with three modes: Vertical (|), Cros
 | **Double Middle Click** | Reset zoom and pan to default |
 | **Mouse Wheel** | Zoom in/out |
 | **Spacebar + Left Drag** | Pan canvas |
+
+### Pan Tool
+
+The Pan (Hand) tool provides a dedicated panning mode. When selected, left-click and drag to pan the canvas without needing to hold spacebar.
+
+Select from toolbar or note that spacebar+drag and middle-click drag also pan from any tool.
+
+### Spray Tool
+
+The Spray (`K`) tool sprays random dots within a circular area:
+
+| Feature | Details |
+|---------|--------|
+| **Radius** | Uses current brush size (`[`/`]` to adjust) |
+| **Density** | Proportional to radius (larger = more dots per frame) |
+| **Left Click** | Spray with foreground color |
+| **Right Click** | Spray with background color |
+| **Symmetry** | Fully supported (all symmetry modes) |
+| **Selection Clipping** | Respects active marquee/wand selections |
+| **Dither Patterns** | Works with active dither patterns |
 
 ### Tool-Specific
 | Tool | Action | Function |
@@ -626,6 +647,38 @@ When loading an image larger than the canvas, DRAW enters **Image Import Mode** 
 - **Manual hide**: Use Tab/F10/F11 to manually toggle UI (stays hidden until manually shown)
 - **Toolbar clicks**: Clicking toolbar buttons only changes tools, doesn't activate them on canvas
 
+## Toolbar Layout
+
+The toolbar is displayed on the right edge of the screen as a 2-column, 10-row grid of icon buttons:
+
+| Row | Left Column | Right Column |
+|-----|-------------|--------------|
+| 1 | Marquee (M) | Dot (D) |
+| 2 | Move (V) | Fill (F) |
+| 3 | Hand/Pan | Picker (I) |
+| 4 | Spray (K) | Line (L) |
+| 5 | Text (T) | Polygon (P) |
+| 6 | Rectangle (R) | Ellipse (E) |
+| 7 | Rect Filled (Shift+R) | Ellipse Filled (Shift+E) |
+| 8 | Save | Open |
+| 9 | Crop | QB64 Code |
+| 10 | *(empty)* | Help (?) |
+
+### Toolbar Button Actions
+
+| Button | Left-click | Right-click | Middle-click |
+|--------|-----------|-------------|--------------|
+| **Marquee** | Rectangle selection | Magic Wand mode | - |
+| **Text** | VGA font | Tiny5 font | Load custom font |
+| **Open** | Open DRW project | Import image | - |
+| **Polygon** | Outline mode | - (use Shift+P for filled) | - |
+| **Help** | Open command palette | - | - |
+| **Crop** | *(coming soon)* | - | - |
+
+### Toolbar Scale
+
+The toolbar can be scaled 1-4x via `TOOLBAR_SCALE` in `DRAW.cfg`.
+
 ## Command Palette
 
 Press `?` to open the Command Palette - a searchable list of all commands and their hotkeys.
@@ -684,6 +737,9 @@ DRAW stores settings in `DRAW.cfg` in the application directory. Settings are lo
 | 12 | Marquee |
 | 13 | Move |
 | 14 | Text |
+| 15 | Pan |
+| 16 | Spray |
+| 17 | Crop |
 
 ### Other Notable Settings
 

@@ -418,14 +418,14 @@ SUB MOUSE_input_handler ()
                              PREVIOUS_TOOL% = TOOL_RECT_FILLED OR PREVIOUS_TOOL% = TOOL_ELLIPSE OR _
                              PREVIOUS_TOOL% = TOOL_ELLIPSE_FILLED OR PREVIOUS_TOOL% = TOOL_FILL OR _
                              PREVIOUS_TOOL% = TOOL_POLYGON OR PREVIOUS_TOOL% = TOOL_POLYGON_FILLED OR _
-                             PREVIOUS_TOOL% = TOOL_TEXT)
+                             PREVIOUS_TOOL% = TOOL_TEXT OR PREVIOUS_TOOL% = TOOL_SPRAY)
         ELSE
             isDrawingTool% = (CURRENT_TOOL% = TOOL_DOT OR CURRENT_TOOL% = TOOL_BRUSH OR _
                              CURRENT_TOOL% = TOOL_LINE OR CURRENT_TOOL% = TOOL_RECT OR _
                              CURRENT_TOOL% = TOOL_RECT_FILLED OR CURRENT_TOOL% = TOOL_ELLIPSE OR _
                              CURRENT_TOOL% = TOOL_ELLIPSE_FILLED OR CURRENT_TOOL% = TOOL_FILL OR _
                              CURRENT_TOOL% = TOOL_POLYGON OR CURRENT_TOOL% = TOOL_POLYGON_FILLED OR _
-                             CURRENT_TOOL% = TOOL_TEXT)
+                             CURRENT_TOOL% = TOOL_TEXT OR CURRENT_TOOL% = TOOL_SPRAY)
         END IF
         
         ' Only ENTER picker mode when ALT is FIRST pressed (transition), not just held
@@ -523,12 +523,15 @@ SUB MOUSE_input_handler ()
             END IF
         END IF
         
-        ' Check for pan mode (spacebar + left button OR middle mouse button)
+        ' Check for pan mode (spacebar + left button OR middle mouse button OR PAN tool + LMB)
         ' Block spacebar pan when text tool is active (SPACE needed for typing)
         DIM allowSpacePan AS INTEGER
         allowSpacePan% = NOT (CURRENT_TOOL% = TOOL_TEXT AND TEXT.ACTIVE)
         
-        IF ((_KEYDOWN(32) AND allowSpacePan%) AND MOUSE.B1%) OR MOUSE.B3% THEN ' Spacebar+LMB or MMB (blocked during text input)
+        DIM panToolActive AS INTEGER
+        panToolActive% = (CURRENT_TOOL% = TOOL_PAN AND MOUSE.B1%)
+        
+        IF ((_KEYDOWN(32) AND allowSpacePan%) AND MOUSE.B1%) OR MOUSE.B3% OR panToolActive% THEN ' Spacebar+LMB or MMB or PAN tool+LMB
             IF NOT SCRN.panning% THEN
                 ' Start panning
                 SCRN.panning% = TRUE
@@ -886,7 +889,7 @@ SUB MOUSE_input_handler ()
                             ELLIPSE_TOOL.END_Y = temp_ey%
                         END IF
                     END IF
-                CASE TOOL_BRUSH, TOOL_DOT
+                CASE TOOL_BRUSH
                     ' Reset pixel-perfect stroke on first mouse down
                     IF NOT MOUSE.OLD_B1% THEN
                         PP_STROKE_COUNT% = 0
@@ -899,6 +902,31 @@ SUB MOUSE_input_handler ()
                         IF MOUSE.Y% < MOUSE.OLD_Y% THEN MOUSE.DRAG$ = "U"
                         IF MOUSE.Y% > MOUSE.OLD_Y% THEN MOUSE.DRAG$ = "D"
                         PAINT_on
+                    END IF
+                CASE TOOL_DOT
+                    ' DOT stamps a single point on initial click only (no drag)
+                    IF MOUSE.B1% AND NOT MOUSE.OLD_B1% THEN
+                        PP_STROKE_COUNT% = 0
+                        PAINT_on
+                    END IF
+                CASE TOOL_SPRAY
+                    ' Spray paint on left mouse button hold
+                    IF MOUSE.B1% THEN
+                        ' Save undo state on first press
+                        IF NOT MOUSE.OLD_B1% AND NOT UNDO_saved_this_frame% THEN
+                            UNDO_save_state
+                            UNDO_saved_this_frame% = TRUE
+                        END IF
+                        SPRAY.ACTIVE = TRUE
+                        SPRAY_on MOUSE.X%, MOUSE.Y%, DRAW_COLOR~&
+                    ELSEIF MOUSE.B2% THEN
+                        ' Right button sprays with BG color
+                        IF NOT MOUSE.OLD_B2% AND NOT UNDO_saved_this_frame% THEN
+                            UNDO_save_state
+                            UNDO_saved_this_frame% = TRUE
+                        END IF
+                        SPRAY.ACTIVE = TRUE
+                        SPRAY_on MOUSE.X%, MOUSE.Y%, PAINT_BG_COLOR~&
                     END IF
             END SELECT
         ELSEIF NOT MOUSE.B1% THEN
@@ -1186,7 +1214,7 @@ SUB MOUSE_input_handler ()
                             UNDO_save_state ' Save state after drawing ellipse
                             UNDO_saved_this_frame% = TRUE
                         END IF
-                    CASE TOOL_BRUSH, TOOL_DOT
+                    CASE TOOL_BRUSH
                         ' Draw collected pixel perfect stroke if enabled
                         IF BRUSH_SIZE.PIXEL_PERFECT AND PP_STROKE_COUNT% > 0 THEN
                             PAINT_draw_pixel_perfect
@@ -1200,6 +1228,14 @@ SUB MOUSE_input_handler ()
                         DOT.LAST_X = MOUSE.X%
                         DOT.LAST_Y = MOUSE.Y%
                         DOT.HAS_LAST = TRUE
+                    CASE TOOL_DOT
+                        ' DOT stamps single pixel - just finalize
+                        CANVAS_DIRTY% = TRUE
+                        UNDO_save_state
+                        UNDO_saved_this_frame% = TRUE
+                        DOT.LAST_X = MOUSE.X%
+                        DOT.LAST_Y = MOUSE.Y%
+                        DOT.HAS_LAST = TRUE
                     CASE TOOL_TEXT
                         ' TEXT tool applies via ESC key or clicking elsewhere
                         ' TEXT_apply() saves undo, so just set flag to prevent double-save
@@ -1208,6 +1244,10 @@ SUB MOUSE_input_handler ()
                         IF TEXT.ACTIVE THEN
                             UNDO_saved_this_frame% = TRUE
                         END IF
+                    CASE TOOL_SPRAY
+                        ' Spray tool - reset active flag on release
+                        SPRAY.ACTIVE = FALSE
+                        CANVAS_DIRTY% = TRUE
                 END SELECT
             END IF
             MOUSE.DRAG$ = ""

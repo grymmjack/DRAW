@@ -97,6 +97,7 @@ DECLARE FUNCTION LAYER_PANEL_is_dragging% ()
 
 DECLARE SUB LAYER_PANEL_load_icons ()
 DECLARE SUB LAYER_PANEL_cleanup_icons ()
+DECLARE SUB LAYER_select_non_transparent (layerIdx AS INTEGER)
 
 ' Note: LAYERS_init is called from SCREEN_init after CONFIG_load
 ' LAYER_PANEL_load_icons is called from DRAW.BAS after CONFIG_apply_startup_defaults
