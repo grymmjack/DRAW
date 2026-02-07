@@ -4,8 +4,8 @@
 
 | Key | Tool | Notes |
 |-----|------|-------|
-| `B` | Brush | Paintbrush tool |
-| `D` | Dot | Single pixel dot tool |
+| `B` | Brush | Continuous freehand painting (drag to paint) |
+| `D` | Dot | Single-pixel stamp (click to place, no drag painting) |
 | `F` | Fill | Flood fill tool |
 | `I` | Picker | Color picker/eyedropper |
 | `K` | Spray | Spray paint tool |
@@ -171,6 +171,7 @@ The Spray (`K`) tool sprays random dots within a circular area:
 | **Symmetry** | Fully supported (all symmetry modes) |
 | **Selection Clipping** | Respects active marquee/wand selections |
 | **Dither Patterns** | Works with active dither patterns |
+| **Preview** | Circle + dot pattern preview shown when not actively spraying |
 
 ### Tool-Specific
 | Tool | Action | Function |
@@ -560,6 +561,7 @@ The layer panel is displayed on the left side of the screen and can be toggled w
 | Action | Function |
 |--------|----------|
 | **Left-click layer row** | Select layer |
+| **Ctrl+Left-click layer row** | Select non-transparent pixels (creates marquee selection mask) |
 | **Right-click layer row** | Select and rename layer |
 | **Click visibility icon** | Toggle layer visibility |
 | **Click lock area** | Toggle opacity lock |
@@ -654,15 +656,15 @@ The toolbar is displayed on the right edge of the screen as a 2-column, 10-row g
 | Row | Left Column | Right Column |
 |-----|-------------|--------------|
 | 1 | Marquee (M) | Dot (D) |
-| 2 | Move (V) | Fill (F) |
-| 3 | Hand/Pan | Picker (I) |
+| 2 | Move (V) | Brush (B) |
+| 3 | Fill (F) | Picker (I) |
 | 4 | Spray (K) | Line (L) |
 | 5 | Text (T) | Polygon (P) |
 | 6 | Rectangle (R) | Ellipse (E) |
 | 7 | Rect Filled (Shift+R) | Ellipse Filled (Shift+E) |
 | 8 | Save | Open |
 | 9 | Crop | QB64 Code |
-| 10 | *(empty)* | Help (?) |
+| 10 | Hand/Pan | Help (?) |
 
 ### Toolbar Button Actions
 

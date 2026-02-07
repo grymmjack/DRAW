@@ -19,13 +19,14 @@ DRAW is a pixel art editor written in QB64PE that can export images as sourcecod
 ## Features
 
 ### Drawing Tools
-- **Brush/Dot** - Freehand drawing with adjustable size (1-50px) and shape (circle/square)
+- **Brush** - Continuous freehand painting with adjustable size (1-50px) and shape (circle/square)
+- **Dot** - Single-pixel stamp tool (click to place, no drag painting)
 - **Line** - Draw straight lines
 - **Rectangle** - Draw outlined or filled rectangles
 - **Ellipse** - Draw outlined or filled ellipses/circles
 - **Polygon** - Draw outlined or filled multi-point polygons
 - **Fill** - Flood fill tool
-- **Spray** - Spray paint with adjustable radius and density
+- **Spray** - Spray paint with adjustable radius and density, circle preview
 - **Picker** - Color sampling/eyedropper
 - **Marquee** - Rectangular selection with move and resize
 - **Move** - Transform and position selected content
@@ -76,6 +77,7 @@ DRAW is a pixel art editor written in QB64PE that can export images as sourcecod
 - Themeable PNG icon toolbar (20 buttons in 2x10 grid)
 - PNG cursors with theme-configurable hotspots and alpha transparency
 - Layer panel with PNG icons (visibility, lock, action buttons)
+- CTRL+Click layer to create selection from non-transparent pixels
 - Auto-hiding toolbar and status bar during active drawing
 - Manual UI toggle with Tab, F10, F11
 - Status bar shows: tool, coordinates, zoom, grid state, colors
@@ -86,7 +88,7 @@ DRAW is a pixel art editor written in QB64PE that can export images as sourcecod
 
 ### Essential Controls
 
-**Tools:** B (Brush), D (Dot), F (Fill), I (Picker), K (Spray), L (Line), R (Rectangle), E (Ellipse)  
+**Tools:** B (Brush), D (Dot/Stamp), F (Fill), I (Picker), K (Spray), L (Line), R (Rectangle), E (Ellipse)  
 **Colors:** Left-click palette swatch for FG, Right-click for BG, or use 0-9 keys  
 **Palette:** Click palette name dropdown to switch palettes, SHIFT+wheel for fast scroll  
 **Grid:** `'` (toggle), `Shift+'` (pixel grid), `;` (snap), `.` (bigger), `,` (smaller)  
