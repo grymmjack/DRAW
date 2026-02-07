@@ -34,6 +34,9 @@ CONFIG_apply_startup_defaults
 ' SCREEN_init calls CONFIG_load so CFG.THEME$ is available)
 CURSOR_load_all
 
+' Pre-load layer panel icons from theme directory
+LAYER_PANEL_load_icons
+
 ' Main Loop
 DIM k AS LONG
 DIM exitConfirmed AS INTEGER
@@ -214,6 +217,7 @@ SUB MAIN_shutdown ()
     ' Free custom cursor if loaded (ensure default cursor is shown first)
     _MOUSESHOW  ' Ensure using default system cursor before freeing cursors
     CURSOR_cleanup
+    LAYER_PANEL_cleanup_icons
     
     ' Free Tiny5 font if loaded
     IF TEXT.FONT_HANDLE > 0 THEN

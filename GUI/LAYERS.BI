@@ -47,6 +47,16 @@ TYPE LAYER_PANEL_OBJ
     dragOffsetY       AS INTEGER   ' Offset from row top where drag started
     autoScrollTimer   AS SINGLE    ' Timer for auto-scroll delay at edges
     dragPreviewY      AS INTEGER   ' Y position for drag preview cursor
+    ' Layer icon handles (loaded from theme PNGs, fallback to text if < -1 check fails)
+    iconVisOn         AS LONG      ' Visibility on (eye open) image handle
+    iconVisOff        AS LONG      ' Visibility off (eye closed) image handle
+    iconLockOn        AS LONG      ' Lock on (locked) image handle
+    iconLockOff       AS LONG      ' Lock off (unlocked) image handle
+    iconBtnUp         AS LONG      ' Move up button icon
+    iconBtnDown       AS LONG      ' Move down button icon
+    iconBtnMerge      AS LONG      ' Merge down button icon
+    iconBtnDelete     AS LONG      ' Delete layer button icon
+    iconBtnAdd        AS LONG      ' New layer button icon
 END TYPE
 
 ' Global layer state
@@ -85,4 +95,8 @@ DECLARE SUB LAYER_PANEL_handle_drop ()
 DECLARE SUB LAYER_PANEL_drag_cancel ()
 DECLARE FUNCTION LAYER_PANEL_is_dragging% ()
 
+DECLARE SUB LAYER_PANEL_load_icons ()
+DECLARE SUB LAYER_PANEL_cleanup_icons ()
+
 ' Note: LAYERS_init is called from SCREEN_init after CONFIG_load
+' LAYER_PANEL_load_icons is called from DRAW.BAS after CONFIG_apply_startup_defaults
