@@ -30,6 +30,10 @@ END IF
 ' Must be called after all modules are initialized via includes
 CONFIG_apply_startup_defaults
 
+' Pre-load all cursor PNGs (must be after THEME.BI sets filenames and
+' SCREEN_init calls CONFIG_load so CFG.THEME$ is available)
+CURSOR_load_all
+
 ' Main Loop
 DIM k AS LONG
 DIM exitConfirmed AS INTEGER
@@ -208,10 +212,8 @@ SUB MAIN_shutdown ()
     IF MOVE.SELECTION_IMAGE < -1 THEN _FREEIMAGE MOVE.SELECTION_IMAGE
     
     ' Free custom cursor if loaded (ensure default cursor is shown first)
-    IF POINTER.IMG& < -1 THEN
-        _MOUSESHOW  ' Ensure using default system cursor before freeing custom
-        _FREEIMAGE POINTER.IMG&
-    END IF
+    _MOUSESHOW  ' Ensure using default system cursor before freeing cursors
+    CURSOR_cleanup
     
     ' Free Tiny5 font if loaded
     IF TEXT.FONT_HANDLE > 0 THEN
