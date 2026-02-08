@@ -1,7 +1,7 @@
 ''
 ' DRAW - TOOLS/DRW.BI
 ' =============================================================================
-' DRAW native file format (.drw) - saves layers, palette, tool states
+' DRAW native file format (.draw) - saves layers, palette, tool states
 '
 ' @author Rick Christy <grymmjack@gmail.com>
 '

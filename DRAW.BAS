@@ -47,8 +47,8 @@ DO
     IF CMDLINE_FIRST_FRAME% AND CMDLINE_PENDING_FILE$ <> "" THEN
         CMDLINE_FIRST_FRAME% = FALSE
         DIM pendingExt$
-        pendingExt$ = LCASE$(RIGHT$(CMDLINE_PENDING_FILE$, 4))
-        IF pendingExt$ = ".drw" THEN
+        pendingExt$ = LCASE$(RIGHT$(CMDLINE_PENDING_FILE$, 5))
+        IF pendingExt$ = ".draw" THEN
             DRW_load CMDLINE_PENDING_FILE$
         ELSE
             ' Image file - use image import

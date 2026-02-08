@@ -115,7 +115,7 @@ DRAW can be launched with a file argument to automatically load an image or proj
 
 ```bash
 # Load a DRAW project file
-./DRAW.run myproject.drw
+./DRAW.run myproject.draw
 
 # Load an image file (PNG, BMP, JPG, GIF)
 ./DRAW.run image.png
@@ -125,7 +125,7 @@ DRAW can be launched with a file argument to automatically load an image or proj
 ```
 
 Supported formats:
-- **.drw** - DRAW project files (preserves layers, blend modes, palette, tool states)
+- **.draw** - DRAW project files (preserves layers, blend modes, palette, tool states)
 - **.png, .bmp, .jpg, .jpeg, .gif** - Image files (loads into current layer)
 
 ## Building

@@ -46,7 +46,7 @@ math for maximum performance.
 - Color and Luminosity modes use **Rec. 601 luminance** weights: `(R×77 + G×150 + B×29) / 256`
 - All blend math uses LONG variables to prevent integer overflow
 - Blend mode abbreviation is displayed on each layer row in the panel
-- Blend mode is saved and loaded with `.drw` project files (format v2, backward compatible)
+- Blend mode is saved and loaded with `.draw` project files (format v2, backward compatible)
 
 ### Alt-Click Solo Layer
 
@@ -147,7 +147,7 @@ math for maximum performance.
 
 - **Format version 2** — adds `blendMode` and `opacityLock` fields per layer
 - **Backward compatible** — v1 files load correctly (default to Normal blend, no opacity lock)
-- Blend mode, opacity, visibility, and lock state are all preserved in `.drw` project files
+- Blend mode, opacity, visibility, and lock state are all preserved in `.draw` project files
 
 ---
 

@@ -528,10 +528,10 @@ When a selection is active (marquee or magic wand), it acts as a **clipping mask
 ### DRAW Project Files (ALT)
 | Key | Function |
 |-----|----------|
-| `Alt+O` | Open DRAW project (.drw) |
-| `Alt+S` | Save DRAW project (.drw) |
+| `Alt+O` | Open DRAW project (.draw) |
+| `Alt+S` | Save DRAW project (.draw) |
 
-**Note:** .drw files preserve all layers, blend modes, palette colors, tool states, and other project data. Standard image saves flatten all visible layers to a single image.
+**Note:** .draw files preserve all layers, blend modes, palette colors, tool states, and other project data. Standard image saves flatten all visible layers to a single image.
 
 ## Undo/Redo
 
@@ -813,7 +813,7 @@ DRAW can be launched with a file argument to automatically load an image or proj
 
 ```bash
 # Load a DRAW project file
-./DRAW.run myproject.drw
+./DRAW.run myproject.draw
 
 # Load an image file (PNG, BMP, JPG, GIF)
 ./DRAW.run image.png
@@ -821,7 +821,7 @@ DRAW can be launched with a file argument to automatically load an image or proj
 
 | Extension | Behavior |
 |-----------|----------|
-| `.drw` | Loads as DRAW project (layers, palette, tool states) |
+| `.draw` | Loads as DRAW project (layers, palette, tool states) |
 | `.png, .bmp, .jpg, .gif` | Loads image into current layer |
 
 If the image is larger than the canvas, import placement mode is activated automatically.
