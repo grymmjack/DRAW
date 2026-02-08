@@ -3,7 +3,211 @@
 ' =============================================================================
 ' Zoom tool subs and functions.
 '
-' @todo
 ' @author Rick Christy <grymmjack@gmail.com>
 '
 $INCLUDEONCE
+
+''
+' Zoom in one snap level: 25%->50%->100%->200%->300%->...->800%
+'
+SUB ZOOM_in ()
+    IF SCRN.zoom! < 0.5 THEN
+        SCRN.zoom! = 0.5   ' 25% -> 50%
+    ELSEIF SCRN.zoom! < 1.0 THEN
+        SCRN.zoom! = 1.0   ' 50% -> 100%
+    ELSE
+        SCRN.zoom! = INT(SCRN.zoom!) + 1.0  ' 100% -> 200%, etc.
+    END IF
+    IF SCRN.zoom! > SCRN.zoomMax! THEN SCRN.zoom! = SCRN.zoomMax!
+    GUI_NEEDS_REDRAW% = TRUE
+END SUB
+
+''
+' Zoom out one snap level: ...300%->200%->100%->50%->25%
+'
+SUB ZOOM_out ()
+    IF SCRN.zoom! > 1.0 THEN
+        SCRN.zoom! = INT(SCRN.zoom!) - 1.0  ' 200% -> 100%, etc.
+    ELSEIF SCRN.zoom! > 0.5 THEN
+        SCRN.zoom! = 0.5   ' 100% -> 50%
+    ELSEIF SCRN.zoom! > 0.25 THEN
+        SCRN.zoom! = 0.25  ' 50% -> 25%
+    END IF
+    IF SCRN.zoom! < SCRN.zoomMin! THEN SCRN.zoom! = SCRN.zoomMin!
+    GUI_NEEDS_REDRAW% = TRUE
+END SUB
+
+''
+' Reset zoom to 100% and center canvas
+'
+SUB ZOOM_reset ()
+    SCRN.zoom! = 1.0
+    SCRN.offsetX% = 0
+    SCRN.offsetY% = 0
+    GUI_NEEDS_REDRAW% = TRUE
+END SUB
+
+''
+' Zoom in centered on a screen position (logical coords)
+'
+SUB ZOOM_in_at (screenX%, screenY%)
+    DIM oldZoom AS SINGLE
+    oldZoom! = SCRN.zoom!
+    ZOOM_in
+    IF SCRN.zoom! <> oldZoom! THEN
+        ZOOM_adjust_offset oldZoom!, SCRN.zoom!, screenX%, screenY%
+    END IF
+END SUB
+
+''
+' Zoom out centered on a screen position (logical coords)
+'
+SUB ZOOM_out_at (screenX%, screenY%)
+    DIM oldZoom AS SINGLE
+    oldZoom! = SCRN.zoom!
+    ZOOM_out
+    IF SCRN.zoom! <> oldZoom! THEN
+        ZOOM_adjust_offset oldZoom!, SCRN.zoom!, screenX%, screenY%
+    END IF
+END SUB
+
+''
+' Adjust offset to keep a screen point over the same canvas point after zoom change
+'
+SUB ZOOM_adjust_offset (oldZoom!, newZoom!, screenX%, screenY%)
+    ' Calculate canvas center offset at old zoom
+    DIM old_zw AS LONG, old_zh AS LONG
+    old_zw& = SCRN.w& * oldZoom!
+    old_zh& = SCRN.h& * oldZoom!
+    DIM old_cx AS INTEGER, old_cy AS INTEGER
+    old_cx% = (SCRN.w& - old_zw&) \ 2
+    old_cy% = (SCRN.h& - old_zh&) \ 2
+
+    ' Account for layer panel offset
+    DIM lpOff AS INTEGER
+    lpOff% = 0
+    IF LAYER_PANEL.visible% THEN lpOff% = CFG.LAYER_PANEL_WIDTH%
+
+    ' Canvas position under mouse at old zoom
+    DIM cvX AS SINGLE, cvY AS SINGLE
+    cvX! = (screenX% - old_cx% - SCRN.offsetX% - lpOff%) / oldZoom!
+    cvY! = (screenY% - old_cy% - SCRN.offsetY%) / oldZoom!
+
+    ' Calculate new canvas center offset at new zoom
+    DIM new_zw AS LONG, new_zh AS LONG
+    new_zw& = SCRN.w& * newZoom!
+    new_zh& = SCRN.h& * newZoom!
+    DIM new_cx AS INTEGER, new_cy AS INTEGER
+    new_cx% = (SCRN.w& - new_zw&) \ 2
+    new_cy% = (SCRN.h& - new_zh&) \ 2
+
+    ' Adjust offset to keep canvas point under screen position
+    SCRN.offsetX% = screenX% - new_cx% - (cvX! * newZoom!) - lpOff%
+    SCRN.offsetY% = screenY% - new_cy% - (cvY! * newZoom!)
+END SUB
+
+''
+' Zoom to fit a screen region (drag-to-zoom)
+' Takes screen coordinates of the drag rectangle
+'
+SUB ZOOM_to_region (x1%, y1%, x2%, y2%)
+    ' Ensure proper ordering
+    DIM rx1 AS INTEGER, ry1 AS INTEGER, rx2 AS INTEGER, ry2 AS INTEGER
+    IF x1% < x2% THEN rx1% = x1%: rx2% = x2% ELSE rx1% = x2%: rx2% = x1%
+    IF y1% < y2% THEN ry1% = y1%: ry2% = y2% ELSE ry1% = y2%: ry2% = y1%
+
+    DIM regionW AS INTEGER, regionH AS INTEGER
+    regionW% = rx2% - rx1%
+    regionH% = ry2% - ry1%
+
+    ' Need a minimum drag size (at least 8px)
+    IF regionW% < 8 OR regionH% < 8 THEN EXIT SUB
+
+    ' Find the center of the drag region in canvas coords
+    DIM oldZoom AS SINGLE
+    oldZoom! = SCRN.zoom!
+
+    DIM old_zw AS LONG, old_zh AS LONG
+    old_zw& = SCRN.w& * oldZoom!
+    old_zh& = SCRN.h& * oldZoom!
+    DIM old_cx AS INTEGER, old_cy AS INTEGER
+    old_cx% = (SCRN.w& - old_zw&) \ 2
+    old_cy% = (SCRN.h& - old_zh&) \ 2
+
+    DIM lpOff AS INTEGER
+    lpOff% = 0
+    IF LAYER_PANEL.visible% THEN lpOff% = CFG.LAYER_PANEL_WIDTH%
+
+    ' Center of drag region in canvas coords
+    DIM centerScreenX AS INTEGER, centerScreenY AS INTEGER
+    centerScreenX% = (rx1% + rx2%) \ 2
+    centerScreenY% = (ry1% + ry2%) \ 2
+
+    DIM canvasCX AS SINGLE, canvasCY AS SINGLE
+    canvasCX! = (centerScreenX% - old_cx% - SCRN.offsetX% - lpOff%) / oldZoom!
+    canvasCY! = (centerScreenY% - old_cy% - SCRN.offsetY%) / oldZoom!
+
+    ' Calculate zoom to fit the drag region
+    ' The area of canvas visible in drag rect at current zoom
+    DIM canvasRegionW AS SINGLE, canvasRegionH AS SINGLE
+    canvasRegionW! = regionW% / oldZoom!
+    canvasRegionH! = regionH% / oldZoom!
+
+    ' Available screen space (minus toolbar area - approximate)
+    DIM availW AS INTEGER, availH AS INTEGER
+    availW% = SCRN.w&
+    availH% = SCRN.h&
+
+    ' Zoom needed to fit the canvas region into the screen
+    DIM zoomW AS SINGLE, zoomH AS SINGLE
+    zoomW! = availW% / canvasRegionW!
+    zoomH! = availH% / canvasRegionH!
+
+    ' Use the smaller zoom to fit both dimensions
+    DIM newZoom AS SINGLE
+    newZoom! = zoomW!
+    IF zoomH! < newZoom! THEN newZoom! = zoomH!
+
+    ' Snap to nearest valid zoom level
+    IF newZoom! < 0.25 THEN newZoom! = 0.25
+    IF newZoom! < 0.5 THEN
+        newZoom! = 0.25
+    ELSEIF newZoom! < 1.0 THEN
+        newZoom! = 0.5
+    ELSE
+        newZoom! = INT(newZoom!)
+        IF newZoom! < 1.0 THEN newZoom! = 1.0
+    END IF
+    IF newZoom! > SCRN.zoomMax! THEN newZoom! = SCRN.zoomMax!
+
+    SCRN.zoom! = newZoom!
+
+    ' Center the canvas on the drag region center
+    DIM new_zw AS LONG, new_zh AS LONG
+    new_zw& = SCRN.w& * SCRN.zoom!
+    new_zh& = SCRN.h& * SCRN.zoom!
+    DIM new_cx AS INTEGER, new_cy AS INTEGER
+    new_cx% = (SCRN.w& - new_zw&) \ 2
+    new_cy% = (SCRN.h& - new_zh&) \ 2
+
+    ' Center of screen
+    DIM scrCX AS INTEGER, scrCY AS INTEGER
+    scrCX% = SCRN.w& \ 2
+    scrCY% = SCRN.h& \ 2
+
+    SCRN.offsetX% = scrCX% - new_cx% - (canvasCX! * SCRN.zoom!) - lpOff%
+    SCRN.offsetY% = scrCY% - new_cy% - (canvasCY! * SCRN.zoom!)
+
+    GUI_NEEDS_REDRAW% = TRUE
+END SUB
+
+''
+' Reset zoom tool drag state
+'
+SUB ZOOM_drag_reset ()
+    ZOOM.DRAGGING = FALSE
+    ZOOM.START_X = 0
+    ZOOM.START_Y = 0
+    ZOOM.END_X = 0
+    ZOOM.END_Y = 0
+END SUB

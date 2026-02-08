@@ -43,28 +43,27 @@ drawing tools and an expanded toolbar. The entire icon system is now themeable.
 - Switches to the Marquee tool with the new selection active
 - Replaces any existing marquee/wand selection
 
-### Expanded Toolbar (14 → 20 buttons)
-- Toolbar expanded from 7 rows to 10 rows (2 columns × 10 rows)
-- **6 new toolbar buttons**: Brush, Hand (Pan), Picker, Spray, Crop, Help
-- Brush tool has its own dedicated toolbar button (row 2, right column)
+### Expanded Toolbar (14 → 21 buttons, 3×7 layout)
+- Toolbar expanded from 2×10 to **3 columns × 7 rows** layout
+- **7 new toolbar buttons**: Brush, Hand (Pan), Picker, Spray, Zoom, Polygon Filled, Help
+- Polygon outline and filled polygon now have **separate toolbar buttons**
+- Zoom tool: click to zoom in, Alt+click to zoom out (uses snap levels)
+- Brush tool has its own dedicated toolbar button
 - Picker tool now has its own toolbar button (previously keyboard-only via `I`)
 - Help button opens the command palette (same as `?` key)
-- Crop button added as placeholder for future canvas crop/resize feature
+- Crop tool reserved for future release
 
 ### New Toolbar Layout
 
-| Row | Left | Right |
-|-----|------|-------|
-| 1 | Marquee | Dot |
-| 2 | Move | **Brush** |
-| 3 | Fill | **Picker** |
-| 4 | **Spray** | Line |
-| 5 | Text | Polygon |
-| 6 | Rect | Ellipse |
-| 7 | Rect Filled | Ellipse Filled |
-| 8 | Save | Open |
-| 9 | **Crop** | QB64 Code |
-| 10 | **Hand/Pan** | **Help** |
+| Row | Left | Center | Right |
+|-----|------|--------|-------|
+| 1 | Save | Open | QB64 Code |
+| 2 | Move | **Hand/Pan** | **Zoom** |
+| 3 | Marquee | **Picker** | Text |
+| 4 | Dot | **Brush** | **Spray** |
+| 5 | Line | Polyline | **Poly Fill** |
+| 6 | Fill | Rect | Rect Filled |
+| 7 | **Help** | Ellipse | Ellipse Filled |
 
 ---
 
@@ -117,7 +116,7 @@ drawing tools and an expanded toolbar. The entire icon system is now themeable.
 ## New Assets
 
 ### Theme Icons (ASSETS/THEMES/DEFAULT/)
-- 5 new toolbar button PNGs: `hand.png`, `picker.png`, `spray.png`, `crop.png`, `help.png`
+- 5 new toolbar button PNGs: `hand.png`, `picker.png`, `spray.png`, `zoom.png`, `help.png`
 - 4 layer panel icon PNGs: visibility on/off, lock on/off
 - 13 cursor PNGs in `CURSORS/` subdirectory
 - Various additional icons for future features: assistant icons, pattern icons, brush size, zoom, palette navigation
@@ -143,17 +142,17 @@ drawing tools and an expanded toolbar. The entire icon system is now themeable.
 
 | File | Changes |
 |------|---------|
-| `_COMMON.BI` | Added `TOOL_PAN`, `TOOL_SPRAY`, `TOOL_CROP` constants |
-| `GUI/GUI.BI` | Added `TOOL_HELP` constant, expanded `GUI_TB` array to 20 (0-19) |
-| `GUI/TOOLBAR.BI` | 6 new button constants (including `TB_BRUSH`), 20-position layout arrays, new button properties |
-| `GUI/TOOLBAR.BM` | Updated all loops for 20 buttons, blank slot skip logic, special click handlers for Help/Crop/Pan, Picker activate/deactivate fix |
+| `_COMMON.BI` | Added `TOOL_PAN`, `TOOL_SPRAY`, `TOOL_CROP`, `TOOL_ZOOM` constants |
+| `GUI/GUI.BI` | Added `TOOL_HELP` constant, expanded `GUI_TB` array to 22 (0-21) |
+| `GUI/TOOLBAR.BI` | 8 new button constants (including `TB_BRUSH`, `TB_ZOOM`, `TB_POLYGON_FILLED`), 21-position 3×7 layout arrays, new button properties |
+| `GUI/TOOLBAR.BM` | Updated all loops for 21 buttons (3×7), blank slot skip logic, special click handlers for Help/Zoom/Pan, Picker activate/deactivate fix, polygon fill now separate button |
 | `GUI/POINTER.BM` | PNG cursor system integration, tool-specific cursor mappings for Pan/Spray/Crop, spray brush preview (circle + dot pattern) |
 | `GUI/STATUS.BM` | Added status bar labels for Pan, Spray, Crop, Help tools |
 | `GUI/LAYERS.BI` | Added 9 icon handle fields to `LAYER_PANEL_OBJ`, `LAYER_select_non_transparent` declaration |
 | `GUI/LAYERS.BM` | PNG icon loading/cleanup, rendering with text fallback, CTRL+Click non-transparent pixel selection |
 | `INPUT/KEYBOARD.BM` | Added `K` = Spray shortcut, `SPRAY_reset` in all tool switch blocks |
 | `INPUT/MOUSE.BM` | Spray tool mouse handling, pan tool LMB panning, `TOOL_SPRAY` in `isDrawingTool%`, Brush/Dot behavior split (DOT stamp-only) |
-| `OUTPUT/SCREEN.BM` | Toolbar render range 0-19, cursor layer alpha compositing |
+| `OUTPUT/SCREEN.BM` | Toolbar render range 0-20 (3×7), cursor layer alpha compositing |
 | `TOOLS/PAN.BI` | Added `PAN_OBJ` type |
 | `TOOLS/PAN.BM` | Added `PAN_reset` implementation |
 | `_ALL.BI` / `_ALL.BM` | Added includes for Spray, Crop, and Cursor modules |
@@ -166,6 +165,7 @@ drawing tools and an expanded toolbar. The entire icon system is now themeable.
 | Key | Action | Status |
 |-----|--------|--------|
 | `K` | Spray paint tool | **New** |
+| `Z` | Zoom tool | **New** |
 
 All existing keyboard shortcuts remain unchanged.
 
