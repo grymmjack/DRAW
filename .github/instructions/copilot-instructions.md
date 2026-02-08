@@ -125,17 +125,54 @@ MOUSE_force_buttons_up
 
 ```
 DO
+    ' Deferred command line file loading (first frame only)
     k& = _KEYHIT
-    LOOP_start              ' Reset per-frame flags
-    MOUSE_input_handler     ' Process mouse input
+    ' Handle display scale / ESC hotkeys
+    LOOP_start              ' Reset per-frame flags, TITLE_check
+    MOUSE_input_handler     ' Process mouse input (drain-then-process)
     KEYBOARD_input_handler  ' Process keyboard input  
     STICK_input_handler     ' Process joystick input
-    _LIMIT CFG.FPS_LIMIT%
-    SCREEN_render           ' Render all layers
+    ' Idle detection (set FRAME_IDLE%, SCENE_DIRTY%)
+    IF NOT FRAME_IDLE% THEN SCREEN_render  ' Render + _DISPLAY
+    _LIMIT FPS                             ' Throttle AFTER render
     *_input_handler_loop    ' Post-render processing
     LOOP_end
 LOOP
 ```
+
+### CRITICAL: `_LIMIT` Placement
+
+**`_LIMIT` MUST come AFTER `SCREEN_render` / `_DISPLAY`, never before.** Placing `_LIMIT`
+before render introduces a full frame of latency between reading mouse input and displaying
+the cursor — the pointer visibly lags behind the mouse. The correct order is:
+
+```
+Input → Render → _DISPLAY → _LIMIT (wait) → next frame
+```
+
+This ensures the mouse position captured at the top of the frame is painted to screen with
+minimal delay. The frame-rate wait happens after the display flip, not before it.
+
+### Idle Detection & Scene Cache
+
+The main loop implements a two-tier optimization to save CPU:
+
+1. **Frame idle detection** (`FRAME_IDLE%`): Checked after input handlers. A frame is
+   "idle" when no keys, buttons, mouse movement, wheel, tools, or GUI changes occurred.
+   Idle frames skip `SCREEN_render` entirely (previous frame stays on display) and throttle
+   to `IDLE_FPS_LIMIT` (15 FPS). Active frames run at `CFG.FPS_LIMIT%` (default 60).
+
+2. **Scene cache** (`SCENE_CACHE&`, `SCENE_DIRTY%`): Within `SCREEN_render`, when only the
+   cursor moved (mouse moved but no scene-changing event like button press, key, or GUI
+   update), `SCENE_DIRTY%` stays FALSE. The renderer takes a fast path: copies the cached
+   scene image then jumps to `SkipToPointer:` to only redraw the pointer. This avoids
+   full layer compositing, grid rendering, and tool preview drawing for cursor-only updates.
+
+**What sets `SCENE_DIRTY%`**: Key press, mouse button held, GUI redraw needed, panning,
+scroll wheel, active tool states (move, text, import, command palette, selection).
+
+**What sets `FRAME_IDLE% = FALSE` but NOT `SCENE_DIRTY%`**: Mouse movement alone. This
+triggers a render (for pointer update) but uses the scene cache fast path.
 
 ### Tool Lifecycle Pattern
 
@@ -150,13 +187,99 @@ LOOP
 
 ## Rendering Layers (SCREEN_render)
 
-Composited back-to-front:
-1. `SCRN.PAINTING&` — User's artwork
-2. Grid overlay (if visible)
-3. Symmetry guides (if enabled)
-4. Tool previews (line/rect/ellipse during drag)
-5. `SCRN.GUI&` — Toolbar, status bar
-6. Marquee selection, move preview, text preview
+Composited back-to-front onto `SCRN.CANVAS&`, then scaled to `SCRN.WINDOW_IMG&` via `_PUTIMAGE`:
+
+1. Transparency checkerboard
+2. Layer compositing (by zIndex, bottom-to-top)
+   - Normal blend: direct `_PUTIMAGE` (fast path when all layers are Normal)
+   - Non-Normal blend: per-pixel composite via `COMPOSITE_BUFFER&` using `_MEM` access
+   - Partial composite cache: layers below current layer are cached in `COMPOSITE_BELOW_CACHE&`
+   - Opacity adjustment: cached per-layer in `opacityCacheImg&` (invalidated by `contentDirty%`)
+3. Grid overlay (regular grid at 100%+ zoom, pixel grid at 400%+ zoom with cached image)
+4. Symmetry guides
+5. Canvas border
+6. Image import preview
+7. **Tool previews** (marquee, line, rect, ellipse, polygon, move, text, zoom)
+8. GUI layer (`SCRN.GUI&` — toolbar, status bar, palette strip, layer panel)
+9. Image import / move status bars
+10. Crosshair (SHIFT held)
+11. Command palette
+12. **Scene cache save** → `SCENE_CACHE&` (everything above, before pointer)
+13. `SkipToPointer:` label — fast path target
+14. Pointer cursor (POINTER_update + POINTER_render)
+15. Scale `SCRN.CANVAS&` → `SCRN.WINDOW_IMG&` (integer scaling, nearest neighbor)
+16. `_DISPLAY`
+
+### Performance Patterns in SCREEN_render
+
+- **Persistent buffers**: `COMPOSITE_BUFFER&`, `SCENE_CACHE&`, `PG_CACHE_IMG&` are allocated
+  once and reused. Never `_NEWIMAGE`/`_FREEIMAGE` every frame.
+- **Conditional GUI redraw**: `GUI_NEEDS_REDRAW%` gates toolbar/status/palette/layer panel
+  re-rendering. Set it TRUE when GUI state changes.
+- **Layer render order**: `RENDER_ORDER%()` lookup table, rebuilt when `RENDER_ORDER_DIRTY%`.
+- **Opacity cache**: Per-layer `opacityCacheImg&` with `opacityCacheVal%` and `contentDirty%`.
+  Cache hit = skip `_MEM` pixel loop. Mark `contentDirty% = TRUE` when drawing on a layer.
+- **Blend composite cache**: `COMPOSITE_BELOW_CACHE&` stores composited layers below
+  `CURRENT_LAYER%`. When only the current layer changes, layers below are restored from
+  cache instead of re-composited.
+
+---
+
+## Window Title Bar
+
+The title bar shows version, filename, and dirty state: `DRAW v0.7.4 - myart.draw *`
+
+- **`TITLE_update`** (`_COMMON.BM`): Builds the title string. Prefers `CURRENT_DRW_FILENAME$`
+  over `CURRENT_FILENAME$`. Extracts basename (strips path). Appends ` *` if `CANVAS_DIRTY%`.
+- **`TITLE_check`** (`_COMMON.BM`): Called every frame in `LOOP_start`. Compares current
+  dirty/filename state against `TITLE_PREV_DIRTY%` / `TITLE_PREV_FILENAME$`. Only calls
+  `_TITLE` when something changed (avoids per-frame string allocation + syscall).
+- **`APP_VERSION$`**: Constant in `_COMMON.BI`. Update when releasing.
+
+When setting `CURRENT_DRW_FILENAME$` programmatically (e.g., command-line loading), title
+automatically updates on the next frame via `TITLE_check`.
+
+---
+
+## Native File Format (.draw)
+
+| Section | Fields |
+|---------|--------|
+| **Header** | Magic `"DRW1"`, version (`INTEGER`, currently 3), canvas W×H (`LONG`) |
+| **Palette** | Color count, `_UNSIGNED LONG` per color, FG/BG indices |
+| **Layers** | Count, current layer index. Per layer: name (`STRING*16`), visible, opacity, zIndex, blendMode (v2+), opacityLock (v2+), pixel data (W×H `_UNSIGNED LONG`) |
+| **Tool State** | Current tool, brush size, pixel perfect, grid visible, grid size |
+| **Palette Name** | v3+: palette name (`STRING*64`) — matched against GPL files on load |
+
+- Extension: `.draw` (changed from `.drw` in v0.7.4 to avoid CorelDRAW conflict)
+- Constants: `DRW_MAGIC$ = "DRW1"`, `DRW_VERSION% = 3` (in `TOOLS/DRW.BI`)
+- Load function: `DRW_load filename$` — does NOT set `CURRENT_DRW_FILENAME$` (caller must)
+- Save/Open dialogs: `DRW_save_dialog` / `DRW_open_dialog` — set `CURRENT_DRW_FILENAME$`
+
+---
+
+## OS Integration & Icons
+
+### Application Icon
+
+- **`$EXEICON:'./ASSETS/ICONS/icon.ico'`** in `DRAW.BAS` — Windows only, embeds icon in .exe
+- **`_ICON` + `_LOADIMAGE`** in `SCREEN_init` — runtime window icon via SDL2 (all platforms)
+- **macOS `.app` bundle**: Created by CI workflow and `install-mac.command`, uses `icon.icns`
+- **Source**: `ASSETS/ICONS/icon.svg` → generated by `ASSETS/ICONS/generate-icons.sh`
+
+### Platform Installers
+
+| Script | What It Does | Uninstall |
+|--------|--------------|-----------|
+| `install-linux.sh` | Desktop launcher, MIME type `application/x-draw-project`, hicolor icons (16–256px for apps + mimetypes) | `--uninstall` |
+| `install-windows.cmd` | Per-user registry: `.draw` → `DRAW.Project` file association + icon, Start Menu shortcut | `/uninstall` |
+| `install-mac.command` | `~/Applications/DRAW.app` bundle with `Info.plist` (UTI + document type), LaunchServices registration | `--uninstall` |
+
+### File Association Files
+
+- `draw-project.xml`: Linux MIME type definition (`application/x-draw-project`, glob `*.draw`)
+- `DRAW.desktop`: Linux desktop launcher template (uses `DRAW_INSTALL_PATH` placeholder)
+- `ASSETS/ICONS/Info.plist`: macOS app bundle manifest (also generated by `install-mac.command`)
 
 ---
 

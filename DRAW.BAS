@@ -131,7 +131,16 @@ DO
     IDLE_PREV_MOUSE_X% = MOUSE.RAW_X%
     IDLE_PREV_MOUSE_Y% = MOUSE.RAW_Y%
     
-    ' Apply frame rate limit (reduced when idle)
+    ' Render FIRST, then limit — this minimizes latency between
+    ' reading mouse input and displaying the result on screen.
+    ' (_LIMIT before render would add a full frame delay to the pointer)
+    
+    ' Skip full render when idle — previous frame remains on display
+    IF NOT FRAME_IDLE% THEN
+        SCREEN_render
+    END IF
+    
+    ' Apply frame rate limit AFTER render+display (reduced when idle)
     IF FRAME_IDLE% THEN
         _LIMIT IDLE_FPS_LIMIT
     ELSEIF CFG.FPS_LIMIT% > 0 AND CFG.FPS_LIMIT% <= 1000 THEN
@@ -140,10 +149,6 @@ DO
         _LIMIT 60  ' Safe fallback
     END IF
     
-    ' Skip full render when idle — previous frame remains on display
-    IF NOT FRAME_IDLE% THEN
-        SCREEN_render
-    END IF
     MOUSE_input_handler_loop
     KEYBOARD_input_handler_loop
     STICK_input_handler_loop
