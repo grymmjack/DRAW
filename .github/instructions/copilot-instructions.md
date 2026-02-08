@@ -263,7 +263,7 @@ Composited back-to-front onto `SCRN.CANVAS&`, then scaled to `SCRN.WINDOW_IMG&` 
 
 ## Window Title Bar
 
-The title bar shows version, filename, and dirty state: `DRAW v0.7.4 - myart.draw *`
+The title bar shows version, filename, and dirty state: `DRAW v0.7.5 - myart.draw *`
 
 - **`TITLE_update`** (`_COMMON.BM`): Builds the title string. Prefers `CURRENT_DRW_FILENAME$`
   over `CURRENT_FILENAME$`. Extracts basename (strips path). Appends ` *` if `CANVAS_DIRTY%`.
