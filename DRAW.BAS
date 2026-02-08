@@ -117,6 +117,10 @@ DO
     IF CMD_PALETTE.visible THEN FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE
     IF SELECTION_has_active% THEN FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE
     IF SCENE_CHANGED% THEN SCENE_DIRTY% = TRUE
+    ' Mark current layer content dirty when user is actively drawing
+    IF (MOUSE.B1% OR MOUSE.B2%) AND CURRENT_LAYER% > 0 THEN
+        LAYERS(CURRENT_LAYER%).contentDirty% = TRUE
+    END IF
     IDLE_PREV_MOUSE_X% = MOUSE.RAW_X%
     IDLE_PREV_MOUSE_Y% = MOUSE.RAW_Y%
     
@@ -228,6 +232,11 @@ SUB MAIN_shutdown ()
     ' SCRN.CURSOR& no longer allocated — cursors draw directly onto SCRN.CANVAS&
     IF SCRN.WINDOW_IMG& < -1 THEN _FREEIMAGE SCRN.WINDOW_IMG&
     
+    ' Free cached render buffers
+    IF SCENE_CACHE& < -1 THEN _FREEIMAGE SCENE_CACHE&
+    IF PG_CACHE_IMG& < -1 THEN _FREEIMAGE PG_CACHE_IMG&
+    IF COMPOSITE_BUFFER& < -1 THEN _FREEIMAGE COMPOSITE_BUFFER&
+    
     ' Free all toolbar button images
     FOR i% = 0 TO 13
         IF GUI_TB(i%).iHnd& < -1 THEN _FREEIMAGE GUI_TB(i%).iHnd&
@@ -236,6 +245,12 @@ SUB MAIN_shutdown ()
     
     ' Free undo history images
     UNDO_clear
+    
+    ' Free layer opacity cache images
+    DIM li AS INTEGER
+    FOR li% = 1 TO 64
+        IF LAYERS(li%).opacityCacheImg& < -1 THEN _FREEIMAGE LAYERS(li%).opacityCacheImg&
+    NEXT li%
     
     ' Free move selection image if active
     IF MOVE.SELECTION_IMAGE < -1 THEN _FREEIMAGE MOVE.SELECTION_IMAGE

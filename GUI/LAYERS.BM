@@ -27,6 +27,9 @@ SUB LAYERS_init ()
         LAYERS(i%).name          = ""
         LAYERS(i%).opacity%      = 255
         LAYERS(i%).opacityLock%  = FALSE
+        LAYERS(i%).opacityCacheImg& = 0
+        LAYERS(i%).opacityCacheVal% = 0
+        LAYERS(i%).contentDirty%    = FALSE
     NEXT i%
     
     ' Initialize panel state
@@ -184,6 +187,10 @@ SUB LAYERS_delete (layerIndex AS INTEGER)
     IF LAYERS(layerIndex%).imgHandle& < -1 THEN
         _FREEIMAGE LAYERS(layerIndex%).imgHandle&
     END IF
+    ' Free opacity cache image
+    IF LAYERS(layerIndex%).opacityCacheImg& < -1 THEN
+        _FREEIMAGE LAYERS(layerIndex%).opacityCacheImg&
+    END IF
     
     ' Clear the slot
     LAYERS(layerIndex%).imgHandle& = 0
@@ -195,6 +202,9 @@ SUB LAYERS_delete (layerIndex AS INTEGER)
     LAYERS(layerIndex%).name       = ""
     LAYERS(layerIndex%).opacity%   = 255
     LAYERS(layerIndex%).opacityLock% = FALSE
+    LAYERS(layerIndex%).opacityCacheImg& = 0
+    LAYERS(layerIndex%).opacityCacheVal% = 0
+    LAYERS(layerIndex%).contentDirty% = FALSE
     
     LAYER_COUNT% = LAYER_COUNT% - 1
     
@@ -417,6 +427,7 @@ SUB LAYERS_move_up (layerIndex AS INTEGER)
         LAYERS(targetIndex%).zIndex% = currentZ%
     END IF
     
+    RENDER_ORDER_DIRTY% = TRUE
     GUI_NEEDS_REDRAW% = TRUE
 END SUB
 
@@ -454,6 +465,7 @@ SUB LAYERS_move_down (layerIndex AS INTEGER)
         LAYERS(targetIndex%).zIndex% = currentZ%
     END IF
     
+    RENDER_ORDER_DIRTY% = TRUE
     GUI_NEEDS_REDRAW% = TRUE
 END SUB
 
@@ -482,6 +494,7 @@ SUB LAYERS_to_top (layerIndex AS INTEGER)
     ' Set this layer to top
     LAYERS(layerIndex%).zIndex% = LAYER_COUNT%
     
+    RENDER_ORDER_DIRTY% = TRUE
     GUI_NEEDS_REDRAW% = TRUE
 END SUB
 
@@ -510,6 +523,7 @@ SUB LAYERS_to_bottom (layerIndex AS INTEGER)
     ' Set this layer to bottom
     LAYERS(layerIndex%).zIndex% = 1
     
+    RENDER_ORDER_DIRTY% = TRUE
     GUI_NEEDS_REDRAW% = TRUE
 END SUB
 
@@ -1740,6 +1754,7 @@ SUB LAYER_PANEL_handle_drop ()
     END IF
     
     ' End drag operation
+    RENDER_ORDER_DIRTY% = TRUE
     LAYER_PANEL_drag_cancel
 END SUB
 
@@ -1985,7 +2000,34 @@ END FUNCTION
 ' Call whenever blend modes, visibility, or layer structure changes.
 '
 SUB BLEND_invalidate_cache ()
+    DIM bic_i AS INTEGER
     BLEND_COMPOSITE_DIRTY% = TRUE
+    RENDER_ORDER_DIRTY% = TRUE
+    ' Also invalidate per-layer opacity caches (structure/content changed)
+    FOR bic_i% = 1 TO 64
+        LAYERS(bic_i%).contentDirty% = TRUE
+    NEXT bic_i%
+END SUB
+
+
+''
+' Rebuild the pre-sorted render order lookup table.
+' Called once per dirty frame instead of O(n×64) scan per frame.
+'
+SUB RENDER_ORDER_rebuild ()
+    DIM rz AS INTEGER, ri AS INTEGER, rc AS INTEGER
+    rc% = 0
+    FOR rz% = 1 TO LAYER_COUNT%
+        FOR ri% = 1 TO 64
+            IF LAYERS(ri%).imgHandle& <> 0 AND LAYERS(ri%).zIndex% = rz% THEN
+                rc% = rc% + 1
+                RENDER_ORDER%(rc%) = ri%
+                EXIT FOR
+            END IF
+        NEXT ri%
+    NEXT rz%
+    RENDER_ORDER_COUNT% = rc%
+    RENDER_ORDER_DIRTY% = FALSE
 END SUB
 
 
@@ -2003,12 +2045,10 @@ SUB LAYER_blend_composite (dst AS LONG, src AS LONG, blendMode AS INTEGER, opaci
     DIM bR AS LONG, bG AS LONG, bB AS LONG
     DIM rR AS LONG, rG AS LONG, rB AS LONG, rA AS LONG
     DIM effAlpha AS LONG
-    DIM opacityF AS SINGLE
-
+    
     IF dst& = 0 OR src& = 0 THEN EXIT SUB
     IF _WIDTH(dst&) <> _WIDTH(src&) OR _HEIGHT(dst&) <> _HEIGHT(src&) THEN EXIT SUB
 
-    opacityF! = opacity% / 255.0
     dstMem = _MEMIMAGE(dst&)
     srcMem = _MEMIMAGE(src&)
 
@@ -2017,8 +2057,8 @@ SUB LAYER_blend_composite (dst AS LONG, src AS LONG, blendMode AS INTEGER, opaci
         sA& = _ALPHA32(srcPix~&)
         IF sA& = 0 THEN _CONTINUE ' Fully transparent - skip
 
-        ' Apply layer opacity to source alpha
-        effAlpha& = INT(sA& * opacityF!)
+        ' Apply layer opacity to source alpha (integer math)
+        effAlpha& = (sA& * opacity%) \ 255
         IF effAlpha& <= 0 THEN _CONTINUE
 
         sR& = _RED32(srcPix~&)

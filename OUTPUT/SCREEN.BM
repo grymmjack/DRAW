@@ -299,14 +299,16 @@ SUB SCREEN_render ()
     
     IF LAYER_COUNT% > 0 THEN
         ' Composite layers by zIndex (bottom to top)
-        DIM layerZ AS INTEGER, layerI AS INTEGER
+        DIM layerI AS INTEGER
         DIM layerFound AS INTEGER
-        DIM tempLayerImg AS LONG
         DIM useComposite AS INTEGER
         DIM compositeImg AS LONG
 
         ' Check if we need per-pixel blending (any non-Normal blend mode)
         useComposite% = BLEND_needs_composite%
+
+        ' Rebuild render order lookup table if dirty
+        IF RENDER_ORDER_DIRTY% THEN RENDER_ORDER_rebuild
 
         IF useComposite% THEN
             ' Reuse persistent composite buffer (avoid _NEWIMAGE/_FREEIMAGE every frame)
@@ -327,92 +329,115 @@ SUB SCREEN_render ()
             _BLEND compositeImg&
         END IF
         
-        FOR layerZ% = 1 TO LAYER_COUNT%
-            layerFound% = 0
-            FOR layerI% = 1 TO 64
-                IF LAYERS(layerI%).imgHandle& <> 0 AND LAYERS(layerI%).zIndex% = layerZ% THEN
-                    layerFound% = layerI%
-                    EXIT FOR
-                END IF
-            NEXT layerI%
+        FOR layerI% = 1 TO RENDER_ORDER_COUNT%
+            layerFound% = RENDER_ORDER%(layerI%)
             
             IF layerFound% > 0 THEN
                 IF LAYERS(layerFound%).visible% THEN
                 ' Determine which image to render for this layer
                 ' If MOVE tool is active on this layer, use the preview buffer instead
                 DIM layerRenderSource AS LONG
+                DIM useMoveBuf AS INTEGER
+                useMoveBuf% = FALSE
                 IF CURRENT_TOOL% = TOOL_MOVE AND MOVE.ACTIVE AND layerFound% = CURRENT_LAYER% THEN
                     layerRenderSource& = MOVE_get_preview_buffer&
-                    IF layerRenderSource& = 0 THEN layerRenderSource& = LAYERS(layerFound%).imgHandle&
+                    IF layerRenderSource& = 0 THEN
+                        layerRenderSource& = LAYERS(layerFound%).imgHandle&
+                    ELSE
+                        useMoveBuf% = TRUE
+                    END IF
                 ELSE
                     layerRenderSource& = LAYERS(layerFound%).imgHandle&
+                END IF
+                
+                ' Get opacity-adjusted image (cached when possible)
+                DIM opacityImg AS LONG
+                DIM layerOpacityI AS INTEGER
+                layerOpacityI% = LAYERS(layerFound%).opacity%
+                IF layerOpacityI% < 255 AND NOT useMoveBuf% THEN
+                    ' Check if opacity cache is valid
+                    IF LAYERS(layerFound%).opacityCacheImg& <> 0 AND _
+                       LAYERS(layerFound%).opacityCacheVal% = layerOpacityI% AND _
+                       NOT LAYERS(layerFound%).contentDirty% THEN
+                        ' Cache hit — use cached opacity image
+                        opacityImg& = LAYERS(layerFound%).opacityCacheImg&
+                    ELSE
+                        ' Cache miss — rebuild opacity image
+                        IF LAYERS(layerFound%).opacityCacheImg& = 0 THEN
+                            LAYERS(layerFound%).opacityCacheImg& = _NEWIMAGE(SCRN.w&, SCRN.h&, 32)
+                        END IF
+                        ' Copy source to cache and apply opacity
+                        _DEST LAYERS(layerFound%).opacityCacheImg&
+                        _DONTBLEND LAYERS(layerFound%).opacityCacheImg&
+                        _PUTIMAGE , layerRenderSource&, LAYERS(layerFound%).opacityCacheImg&
+                        _BLEND LAYERS(layerFound%).opacityCacheImg&
+                        DIM layerMem AS _MEM
+                        layerMem = _MEMIMAGE(LAYERS(layerFound%).opacityCacheImg&)
+                        DIM pixOffset AS _OFFSET
+                        DIM pixVal AS _UNSIGNED LONG
+                        DIM pixAlpha AS _UNSIGNED _BYTE
+                        DIM newAlpha AS INTEGER
+                        FOR pixOffset = layerMem.OFFSET TO layerMem.OFFSET + layerMem.SIZE - 4 STEP 4
+                            _MEMGET layerMem, pixOffset, pixVal~&
+                            pixAlpha~%% = _ALPHA32(pixVal~&)
+                            IF pixAlpha~%% > 0 THEN
+                                newAlpha% = (pixAlpha~%% * layerOpacityI%) \ 255
+                                _MEMPUT layerMem, pixOffset + 3, newAlpha% AS _UNSIGNED _BYTE
+                            END IF
+                        NEXT pixOffset
+                        _MEMFREE layerMem
+                        _DEST SCRN.CANVAS&
+                        LAYERS(layerFound%).opacityCacheVal% = layerOpacityI%
+                        LAYERS(layerFound%).contentDirty% = FALSE
+                        opacityImg& = LAYERS(layerFound%).opacityCacheImg&
+                    END IF
+                ELSEIF layerOpacityI% < 255 AND useMoveBuf% THEN
+                    ' Move preview — can't cache, build temp copy
+                    opacityImg& = _COPYIMAGE(layerRenderSource&, 32)
+                    layerMem = _MEMIMAGE(opacityImg&)
+                    FOR pixOffset = layerMem.OFFSET TO layerMem.OFFSET + layerMem.SIZE - 4 STEP 4
+                        _MEMGET layerMem, pixOffset, pixVal~&
+                        pixAlpha~%% = _ALPHA32(pixVal~&)
+                        IF pixAlpha~%% > 0 THEN
+                            newAlpha% = (pixAlpha~%% * layerOpacityI%) \ 255
+                            _MEMPUT layerMem, pixOffset + 3, newAlpha% AS _UNSIGNED _BYTE
+                        END IF
+                    NEXT pixOffset
+                    _MEMFREE layerMem
+                ELSE
+                    opacityImg& = 0 ' No opacity adjustment needed
+                END IF
+                
+                ' Render the layer (using opacityImg if available, else layerRenderSource)
+                DIM renderImg AS LONG
+                IF opacityImg& <> 0 THEN
+                    renderImg& = opacityImg&
+                ELSE
+                    renderImg& = layerRenderSource&
                 END IF
                 
                 IF useComposite% THEN
                     ' --- Composite buffer path (blend modes) ---
                     IF LAYERS(layerFound%).blendMode% = BLEND_NORMAL THEN
-                        ' Normal blend: apply opacity then _PUTIMAGE to composite
-                        IF LAYERS(layerFound%).opacity% < 255 THEN
-                            tempLayerImg& = _COPYIMAGE(layerRenderSource&, 32)
-                            DIM layerOpacity AS SINGLE
-                            layerOpacity! = LAYERS(layerFound%).opacity% / 255.0
-                            DIM layerMem AS _MEM
-                            layerMem = _MEMIMAGE(tempLayerImg&)
-                            DIM pixOffset AS _OFFSET
-                            DIM pixVal AS _UNSIGNED LONG
-                            DIM pixAlpha AS _UNSIGNED _BYTE
-                            DIM newAlpha AS INTEGER
-                            FOR pixOffset = layerMem.OFFSET TO layerMem.OFFSET + layerMem.SIZE - 4 STEP 4
-                                _MEMGET layerMem, pixOffset, pixVal~&
-                                pixAlpha~%% = _ALPHA32(pixVal~&)
-                                IF pixAlpha~%% > 0 THEN
-                                    newAlpha% = INT(pixAlpha~%% * layerOpacity!)
-                                    IF newAlpha% > 255 THEN newAlpha% = 255
-                                    IF newAlpha% < 0 THEN newAlpha% = 0
-                                    _MEMPUT layerMem, pixOffset + 3, newAlpha% AS _UNSIGNED _BYTE
-                                END IF
-                            NEXT pixOffset
-                            _MEMFREE layerMem
-                            _DEST compositeImg&
-                            _PUTIMAGE , tempLayerImg&
-                            IF tempLayerImg& < -1 THEN _FREEIMAGE tempLayerImg&
-                            _DEST SCRN.CANVAS&
-                        ELSE
-                            _DEST compositeImg&
-                            _PUTIMAGE , layerRenderSource&
-                            _DEST SCRN.CANVAS&
-                        END IF
+                        _DEST compositeImg&
+                        _PUTIMAGE , renderImg&
+                        _DEST SCRN.CANVAS&
                     ELSE
-                        ' Non-Normal blend: per-pixel blend onto composite
+                        ' Non-Normal blend: pass ORIGINAL image — blend function handles opacity
                         LAYER_blend_composite compositeImg&, layerRenderSource&, LAYERS(layerFound%).blendMode%, LAYERS(layerFound%).opacity%
                     END IF
                 ELSE
                     ' --- Fast path (all Normal blend) ---
-                    ' Apply opacity if not fully opaque
-                    IF LAYERS(layerFound%).opacity% < 255 THEN
-                        tempLayerImg& = _COPYIMAGE(layerRenderSource&, 32)
-                        layerOpacity! = LAYERS(layerFound%).opacity% / 255.0
-                        layerMem = _MEMIMAGE(tempLayerImg&)
-                        FOR pixOffset = layerMem.OFFSET TO layerMem.OFFSET + layerMem.SIZE - 4 STEP 4
-                            _MEMGET layerMem, pixOffset, pixVal~&
-                            pixAlpha~%% = _ALPHA32(pixVal~&)
-                            IF pixAlpha~%% > 0 THEN
-                                newAlpha% = INT(pixAlpha~%% * layerOpacity!)
-                                IF newAlpha% > 255 THEN newAlpha% = 255
-                                IF newAlpha% < 0 THEN newAlpha% = 0
-                                _MEMPUT layerMem, pixOffset + 3, newAlpha% AS _UNSIGNED _BYTE
-                            END IF
-                        NEXT pixOffset
-                        _MEMFREE layerMem
-                        _PUTIMAGE (dx%, dy%)-(dx% + zw& - 1, dy% + zh& - 1), tempLayerImg&
-                        IF tempLayerImg& < -1 THEN _FREEIMAGE tempLayerImg&
-                    ELSE
-                        _PUTIMAGE (dx%, dy%)-(dx% + zw& - 1, dy% + zh& - 1), layerRenderSource&
-                    END IF
+                    _PUTIMAGE (dx%, dy%)-(dx% + zw& - 1, dy% + zh& - 1), renderImg&
+                END IF
+                
+                ' Free temp image if we made one for move preview
+                IF useMoveBuf% AND opacityImg& <> 0 THEN
+                    IF opacityImg& < -1 THEN _FREEIMAGE opacityImg&
                 END IF
                 END IF  ' visible%
             END IF  ' layerFound% > 0
-        NEXT layerZ%
+        NEXT layerI%
 
         ' If using composite, render the final composite to canvas with zoom
         IF useComposite% THEN

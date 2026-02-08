@@ -40,6 +40,10 @@ TYPE DRAW_LAYER
     opacity      AS INTEGER     ' Layer opacity (0-255, 255=opaque)
     opacityLock  AS INTEGER     ' Opacity lock (draw only on non-transparent pixels)
     blendMode    AS INTEGER     ' Blend mode (see BLEND_* constants, default BLEND_NORMAL)
+    ' Opacity cache — avoid _COPYIMAGE + per-pixel loop every frame
+    opacityCacheImg AS LONG     ' Cached opacity-adjusted image (0 = not cached)
+    opacityCacheVal AS INTEGER  ' Opacity value when cache was built
+    contentDirty    AS INTEGER  ' TRUE = layer content changed, invalidate opacity cache
 END TYPE
 
 TYPE LAYER_PANEL_OBJ
@@ -127,6 +131,14 @@ DECLARE FUNCTION BLEND_mode_short$ (mode AS INTEGER)
 DECLARE SUB LAYER_blend_composite (dst AS LONG, src AS LONG, blendMode AS INTEGER, opacity AS INTEGER)
 DECLARE FUNCTION BLEND_needs_composite% ()
 DECLARE SUB BLEND_invalidate_cache ()
+DECLARE SUB RENDER_ORDER_rebuild ()
+
+' Layer render order — pre-sorted array avoids O(n×64) lookup per frame
+' RENDER_ORDER%(i) = layer index for z-level i, rebuilt when layer order changes
+DIM SHARED RENDER_ORDER(1 TO 64) AS INTEGER
+DIM SHARED RENDER_ORDER_COUNT AS INTEGER
+DIM SHARED RENDER_ORDER_DIRTY AS INTEGER       ' TRUE = must rebuild
+RENDER_ORDER_DIRTY% = TRUE                     ' Start dirty
 
 ' Blend composite cache — avoid re-scanning 64 slots every frame
 DIM SHARED BLEND_COMPOSITE_CACHED AS INTEGER   ' Cached result of BLEND_needs_composite%
