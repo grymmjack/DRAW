@@ -249,9 +249,93 @@ END SUB
 ' Draws screen
 ' 
 SUB SCREEN_render ()
-    ' Scene cache: skip full repaint when only cursor position changed
+    ' ========================================================================
+    ' DIRTY-RECT FAST PATH: When only the cursor moved and no selection is
+    ' active, restore+redraw just the pointer's bounding box instead of
+    ' copying the entire scene cache and scaling the full canvas.
+    ' ========================================================================
+    IF NOT SCENE_DIRTY% AND SCENE_CACHE& <> 0 AND NOT SELECTION_has_active% THEN
+        DIM new_mx AS INTEGER, new_my AS INTEGER
+        new_mx% = _MOUSEX \ SCRN.displayScale%
+        new_my% = _MOUSEY \ SCRN.displayScale%
+
+        ' Dynamic padding: covers cursor PNG + brush preview + overlays
+        DIM ptr_pad AS INTEGER
+        ptr_pad% = POINTER_get_dirty_pad%
+
+        ' Build union bounding box of old + new pointer areas (canvas coords)
+        DIM dr_x1 AS INTEGER, dr_y1 AS INTEGER
+        DIM dr_x2 AS INTEGER, dr_y2 AS INTEGER
+
+        IF POINTER.PREV_DRAW_X% <= -9999 THEN
+            ' First frame after full render — use new position only
+            dr_x1% = new_mx% - ptr_pad%
+            dr_y1% = new_my% - ptr_pad%
+            dr_x2% = new_mx% + ptr_pad%
+            dr_y2% = new_my% + ptr_pad%
+        ELSE
+            ' Union of old rect + new rect
+            DIM ox1 AS INTEGER, oy1 AS INTEGER, ox2 AS INTEGER, oy2 AS INTEGER
+            ox1% = POINTER.PREV_DRAW_X% - ptr_pad%
+            oy1% = POINTER.PREV_DRAW_Y% - ptr_pad%
+            ox2% = POINTER.PREV_DRAW_X% + ptr_pad%
+            oy2% = POINTER.PREV_DRAW_Y% + ptr_pad%
+
+            dr_x1% = new_mx% - ptr_pad%
+            dr_y1% = new_my% - ptr_pad%
+            dr_x2% = new_mx% + ptr_pad%
+            dr_y2% = new_my% + ptr_pad%
+
+            IF ox1% < dr_x1% THEN dr_x1% = ox1%
+            IF oy1% < dr_y1% THEN dr_y1% = oy1%
+            IF ox2% > dr_x2% THEN dr_x2% = ox2%
+            IF oy2% > dr_y2% THEN dr_y2% = oy2%
+        END IF
+
+        ' Clamp to canvas bounds
+        IF dr_x1% < 0 THEN dr_x1% = 0
+        IF dr_y1% < 0 THEN dr_y1% = 0
+        IF dr_x2% >= SCRN.w& THEN dr_x2% = SCRN.w& - 1
+        IF dr_y2% >= SCRN.h& THEN dr_y2% = SCRN.h& - 1
+
+        ' Area check: if dirty rect > half the canvas, fall back to full copy
+        DIM dr_area AS LONG, canvas_area AS LONG
+        dr_area& = CLNG(dr_x2% - dr_x1% + 1) * CLNG(dr_y2% - dr_y1% + 1)
+        canvas_area& = SCRN.w& * SCRN.h&
+
+        IF dr_area& < (canvas_area& \ 2) AND dr_x2% > dr_x1% AND dr_y2% > dr_y1% THEN
+            ' --- Partial restore from scene cache (erase old pointer) ---
+            _DEST SCRN.CANVAS&
+            _DONTBLEND SCRN.CANVAS&
+            _PUTIMAGE (dr_x1%, dr_y1%)-(dr_x2%, dr_y2%), SCENE_CACHE&, SCRN.CANVAS&, (dr_x1%, dr_y1%)-(dr_x2%, dr_y2%)
+            _BLEND SCRN.CANVAS&
+
+            ' --- Draw pointer at new position ---
+            POINTER_update
+            POINTER_render
+
+            ' --- Save pointer position for next frame ---
+            POINTER.PREV_DRAW_X% = new_mx%
+            POINTER.PREV_DRAW_Y% = new_my%
+
+            ' --- Partial scale to WINDOW_IMG (only dirty rect) ---
+            DIM sc AS INTEGER: sc% = SCRN.displayScale%
+            _DEST SCRN.WINDOW_IMG&
+            _DONTBLEND SCRN.WINDOW_IMG&
+            _PUTIMAGE (dr_x1% * sc%, dr_y1% * sc%)-((dr_x2% + 1) * sc% - 1, (dr_y2% + 1) * sc% - 1), SCRN.CANVAS&, SCRN.WINDOW_IMG&, (dr_x1%, dr_y1%)-(dr_x2%, dr_y2%)
+
+            _DISPLAY
+            GUI_NEEDS_REDRAW% = FALSE
+            EXIT SUB
+        END IF
+        ' --- Dirty rect too large: fall through to full-copy fast path ---
+    END IF
+
+    ' ========================================================================
+    ' FULL-COPY FAST PATH: Copy entire scene cache, draw pointer + selection.
+    ' Used when selection overlay is active or dirty rect is too large.
+    ' ========================================================================
     IF NOT SCENE_DIRTY% AND SCENE_CACHE& <> 0 THEN
-        ' Fast path: copy cached scene, then just draw cursor on top
         _DEST SCRN.CANVAS&
         _DONTBLEND SCRN.CANVAS&
         _PUTIMAGE , SCENE_CACHE&, SCRN.CANVAS&
@@ -888,6 +972,10 @@ SUB SCREEN_render ()
     ' ==== END SELECTION OVERLAY ====
     POINTER_update
     POINTER_render
+
+    ' Save pointer position for next frame's dirty-rect optimization
+    POINTER.PREV_DRAW_X% = _MOUSEX \ SCRN.displayScale%
+    POINTER.PREV_DRAW_Y% = _MOUSEY \ SCRN.displayScale%
     
     ' Scale CANVAS to WINDOW_IMG for display (integer scaling, nearest neighbor)
     _DEST SCRN.WINDOW_IMG&
