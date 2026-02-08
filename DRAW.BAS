@@ -66,13 +66,27 @@ DO
     END IF
     k& = _KEYHIT
     
+    $IF MAC THEN
+        ' macOS: Track ALT/Option key state using _KEYHIT (more reliable than _KEYDOWN)
+        ' On macOS, _KEYDOWN() doesn't work reliably for Option key due to special char handling
+        IF k& = KEY_LALT& OR k& = KEY_RALT& THEN
+            MAC_ALT_HELD% = TRUE   ' ALT key pressed
+        ELSEIF k& = -KEY_LALT& OR k& = -KEY_RALT& THEN
+            MAC_ALT_HELD% = FALSE  ' ALT key released
+        END IF
+    $END IF
+    
     ' Handle display scale hotkeys using _KEYHIT (more reliable than _KEYDOWN for complex combos)
     ' CTRL+ALT+SHIFT+= to scale up, CTRL+ALT+SHIFT+- to scale down
     IF NOT CFG.FULLSCREEN% THEN
         DIM scale_ctrl AS INTEGER, scale_shift AS INTEGER, scale_alt AS INTEGER
         scale_ctrl% = (_KEYDOWN(100305) OR _KEYDOWN(100306))   ' Left or Right Ctrl
         scale_shift% = (_KEYDOWN(100304) OR _KEYDOWN(100303)) ' Left or Right Shift
-        scale_alt% = (_KEYDOWN(KEY_LALT&) OR _KEYDOWN(KEY_RALT&))
+        $IF MAC THEN
+            scale_alt% = MAC_ALT_HELD%
+        $ELSE
+            scale_alt% = (_KEYDOWN(KEY_LALT&) OR _KEYDOWN(KEY_RALT&))
+        $END IF
         
         IF scale_ctrl% AND scale_shift% AND scale_alt% THEN
             ' Check _KEYHIT for the actual key (works better on Linux with modifier combos)

@@ -86,6 +86,11 @@ DIM SHARED TEXT_BUFFER(0 TO 99) AS STRING  ' Text tool buffer for 100 lines
 DIM SHARED AS INTEGER FRAME_IDLE  ' TRUE when nothing needs updating (idle throttling)
 DIM SHARED AS INTEGER IDLE_PREV_MOUSE_X, IDLE_PREV_MOUSE_Y  ' Previous frame mouse position
 CONST IDLE_FPS_LIMIT = 15  ' Reduced FPS when idle (saves CPU)
+$IF MAC THEN
+    ' macOS: Track ALT key state via _KEYHIT (more reliable than _KEYDOWN for Option key)
+    DIM SHARED AS INTEGER MAC_ALT_HELD  ' TRUE when ALT/Option key is held
+    MAC_ALT_HELD% = FALSE
+$END IF
 CONSTRAIN_X% = FALSE : CONSTRAIN_Y% = FALSE
 WHEEL_COLOR% = FALSE : KEY_COLOR% = FALSE
 PAINT_COLOR~& = 0  ' Will be set from palette after init
