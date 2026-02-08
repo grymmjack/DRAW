@@ -31,6 +31,7 @@ DRAW is a pixel art editor written in QB64PE that can export images as sourcecod
 - **Marquee** - Rectangular selection with move and resize
 - **Move** - Transform and position selected content
 - **Pan** - Dedicated canvas panning tool (hand)
+- **Zoom** - Click to zoom in, Alt+click to zoom out, drag to zoom region
 - **Clipboard** - Copy/Cut/Paste selections (Ctrl+C/X/V), Clear selection (Ctrl+E)
 - **Text** - Text entry tool
 - **Crop** - Canvas crop/resize *(coming soon)*
@@ -74,7 +75,7 @@ DRAW is a pixel art editor written in QB64PE that can export images as sourcecod
 - Visual cursor feedback with current color
 
 ### User Interface
-- Themeable PNG icon toolbar (20 buttons in 2x10 grid)
+- Themeable PNG icon toolbar (21 buttons in 3×7 grid)
 - PNG cursors with theme-configurable hotspots and alpha transparency
 - Layer panel with PNG icons (visibility, lock, action buttons)
 - CTRL+Click layer to create selection from non-transparent pixels
@@ -88,7 +89,7 @@ DRAW is a pixel art editor written in QB64PE that can export images as sourcecod
 
 ### Essential Controls
 
-**Tools:** B (Brush), D (Dot/Stamp), F (Fill), I (Picker), K (Spray), L (Line), R (Rectangle), E (Ellipse)  
+**Tools:** B (Brush), D (Dot/Stamp), F (Fill), I (Picker), K (Spray), L (Line), R (Rectangle), E (Ellipse), Z (Zoom)  
 **Colors:** Left-click palette swatch for FG, Right-click for BG, or use 0-9 keys  
 **Palette:** Click palette name dropdown to switch palettes, SHIFT+wheel for fast scroll  
 **Grid:** `'` (toggle), `Shift+'` (pixel grid), `;` (snap), `.` (bigger), `,` (smaller)  

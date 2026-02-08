@@ -19,6 +19,7 @@
 | `M` | Marquee | Rectangular selection tool |
 | `W` | Magic Wand | Select contiguous same-color pixels |
 | `V` | Move | Transform selected region |
+| `Z` | Zoom | Zoom tool (click to zoom in, Alt+click to zoom out) |
 | `T` | Text | Text entry tool |
 | `*` | Transparent Color | Set foreground to transparent (eraser mode) |
 | `?` | Command Palette | Search commands and hotkeys |
@@ -157,6 +158,25 @@ DRAW supports real-time symmetrical drawing with three modes: Vertical (|), Cros
 The Pan (Hand) tool provides a dedicated panning mode. When selected, left-click and drag to pan the canvas without needing to hold spacebar.
 
 Select from toolbar or note that spacebar+drag and middle-click drag also pan from any tool.
+
+**Double-click** the Hand toolbar button to reset both pan position and zoom to 100%.
+
+### Zoom Tool
+
+The Zoom (`Z`) tool provides interactive zoom control:
+
+| Action | Function |
+|--------|----------|
+| **Left Click** | Zoom in at cursor position |
+| **Alt + Left Click** | Zoom out at cursor position |
+| **Left Drag** | Draw rectangle, zoom to fit that region |
+| **Double-click Hand button** | Reset zoom to 100% and center canvas |
+
+**Zoom Snap Levels:** 25%, 50%, 100%, 200%, 300%, 400%, 500%, 600%, 700%, 800%
+
+- Click-to-zoom centers the view on the clicked position
+- Drag-to-zoom fits the dragged rectangle to fill the view
+- Drag preview shown as white rectangle while dragging (minimum 8px drag distance)
 
 ### Spray Tool
 
@@ -651,20 +671,17 @@ When loading an image larger than the canvas, DRAW enters **Image Import Mode** 
 
 ## Toolbar Layout
 
-The toolbar is displayed on the right edge of the screen as a 2-column, 10-row grid of icon buttons:
+The toolbar is displayed on the right edge of the screen as a 3-column, 7-row grid of icon buttons:
 
-| Row | Left Column | Right Column |
-|-----|-------------|--------------|
-| 1 | Marquee (M) | Dot (D) |
-| 2 | Move (V) | Brush (B) |
-| 3 | Fill (F) | Picker (I) |
-| 4 | Spray (K) | Line (L) |
-| 5 | Text (T) | Polygon (P) |
-| 6 | Rectangle (R) | Ellipse (E) |
-| 7 | Rect Filled (Shift+R) | Ellipse Filled (Shift+E) |
-| 8 | Save | Open |
-| 9 | Crop | QB64 Code |
-| 10 | Hand/Pan | Help (?) |
+| Row | Left | Center | Right |
+|-----|------|--------|-------|
+| 1 | Save | Open | QB64 Code |
+| 2 | Move (V) | Hand/Pan | Zoom (Z) |
+| 3 | Marquee (M) | Picker (I) | Text (T) |
+| 4 | Dot (D) | Brush (B) | Spray (K) |
+| 5 | Line (L) | Polyline (P) | Poly Fill (Shift+P) |
+| 6 | Fill (F) | Rect (R) | Rect Filled (Shift+R) |
+| 7 | Help (?) | Ellipse (E) | Ellipse Filled (Shift+E) |
 
 ### Toolbar Button Actions
 
@@ -673,9 +690,9 @@ The toolbar is displayed on the right edge of the screen as a 2-column, 10-row g
 | **Marquee** | Rectangle selection | Magic Wand mode | - |
 | **Text** | VGA font | Tiny5 font | Load custom font |
 | **Open** | Open DRW project | Import image | - |
-| **Polygon** | Outline mode | - (use Shift+P for filled) | - |
+| **Hand/Pan** | Pan mode | - | Double-click resets zoom+pan |
+| **Zoom** | Zoom tool mode | - | - |
 | **Help** | Open command palette | - | - |
-| **Crop** | *(coming soon)* | - | - |
 
 ### Toolbar Scale
 
@@ -742,6 +759,7 @@ DRAW stores settings in `DRAW.cfg` in the application directory. Settings are lo
 | 15 | Pan |
 | 16 | Spray |
 | 17 | Crop |
+| 18 | Zoom |
 
 ### Other Notable Settings
 
