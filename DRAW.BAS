@@ -114,7 +114,7 @@ DO
     IF MOUSE.RAW_X% <> IDLE_PREV_MOUSE_X% OR MOUSE.RAW_Y% <> IDLE_PREV_MOUSE_Y% THEN
         FRAME_IDLE% = FALSE                                       ' Mouse moved (cursor only)
     END IF
-    IF GUI_NEEDS_REDRAW% THEN FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE  ' GUI needs update
+    IF GUI_NEEDS_REDRAW% THEN FRAME_IDLE% = FALSE                            ' GUI needs update (handled separately in SCREEN_render)
     IF SCRN.panning% THEN FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE      ' Panning active
     IF (_KEYDOWN(100304) OR _KEYDOWN(100303)) THEN FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE ' SHIFT held (crosshair/constraint)
     IF MOUSE.SW% <> 0 THEN FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE     ' Mouse wheel scrolled
