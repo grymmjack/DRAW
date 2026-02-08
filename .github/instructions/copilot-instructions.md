@@ -119,6 +119,28 @@ DO WHILE _MOUSEINPUT: LOOP
 MOUSE_force_buttons_up
 ```
 
+### 9. `contentDirty%` vs `BLEND_invalidate_cache`
+`BLEND_invalidate_cache` invalidates composite/render ordering but does NOT mark layers
+`contentDirty%`. Only set `contentDirty% = TRUE` on layers whose pixel content was
+actually modified. Blanket-marking all 64 layers causes O(n) per-pixel `_MEM` opacity
+recalculation (~5-6% CPU per semi-transparent layer) on every invalidation.
+
+### 10. Scene Cache Boundary for Animations
+Per-frame animations (marching ants, blinking cursors) must render AFTER `SkipToPointer:`
+(step 13 in render pipeline), not before the scene cache save (step 12). Placing them
+before the cache save forces `SCENE_DIRTY% = TRUE` every frame, bypassing the cache and
+triggering full layer compositing at 60fps.
+
+### 11. `SCENE_CHANGED%` vs `FRAME_IDLE%` for Animations
+To keep animations running without forcing full scene re-render:
+- Set `FRAME_IDLE% = FALSE` — keeps the render loop active
+- Do NOT set `SCENE_CHANGED% = TRUE` — that forces `SCENE_DIRTY%` and full compositing
+
+### 12. File Load Must Reset All State
+`DRW_load` must reset all tool and panel state (selection, move, layer panel scroll/drag).
+Stale state from the previous document causes subtle bugs like layer eye icons not
+responding to clicks (stale `scrollOffset%` or `visSwiping%`).
+
 ---
 
 ## Main Loop Structure (DRAW.BAS)
@@ -169,10 +191,17 @@ The main loop implements a two-tier optimization to save CPU:
    full layer compositing, grid rendering, and tool preview drawing for cursor-only updates.
 
 **What sets `SCENE_DIRTY%`**: Key press, mouse button held, GUI redraw needed, panning,
-scroll wheel, active tool states (move, text, import, command palette, selection).
+scroll wheel, active tool states (move, text, import, command palette).
 
-**What sets `FRAME_IDLE% = FALSE` but NOT `SCENE_DIRTY%`**: Mouse movement alone. This
-triggers a render (for pointer update) but uses the scene cache fast path.
+**What sets `FRAME_IDLE% = FALSE` but NOT `SCENE_DIRTY%`**: Mouse movement alone, and
+active selections (marching ants animation). Mouse movement triggers a render for pointer
+update via the scene cache fast path. Active selections keep the frame active (so marching
+ants animate) but do NOT set `SCENE_CHANGED%` — ants are drawn after the scene cache
+restore so they don't force full layer compositing.
+
+**CRITICAL**: Never set `SCENE_CHANGED% = TRUE` for per-frame animations. Use
+`FRAME_IDLE% = FALSE` to keep rendering active, and draw the animation after
+`SkipToPointer:` so it works in both the full-render and cache-hit paths.
 
 ### Tool Lifecycle Pattern
 
@@ -204,11 +233,12 @@ Composited back-to-front onto `SCRN.CANVAS&`, then scaled to `SCRN.WINDOW_IMG&` 
 9. Image import / move status bars
 10. Crosshair (SHIFT held)
 11. Command palette
-12. **Scene cache save** → `SCENE_CACHE&` (everything above, before pointer)
+12. **Scene cache save** → `SCENE_CACHE&` (everything above, before pointer/overlays)
 13. `SkipToPointer:` label — fast path target
-14. Pointer cursor (POINTER_update + POINTER_render)
-15. Scale `SCRN.CANVAS&` → `SCRN.WINDOW_IMG&` (integer scaling, nearest neighbor)
-16. `_DISPLAY`
+14. **Selection overlay** (marching ants) — drawn AFTER cache so animation doesn't invalidate it
+15. Pointer cursor (POINTER_update + POINTER_render)
+16. Scale `SCRN.CANVAS&` → `SCRN.WINDOW_IMG&` (integer scaling, nearest neighbor)
+17. `_DISPLAY`
 
 ### Performance Patterns in SCREEN_render
 
@@ -218,7 +248,13 @@ Composited back-to-front onto `SCRN.CANVAS&`, then scaled to `SCRN.WINDOW_IMG&` 
   re-rendering. Set it TRUE when GUI state changes.
 - **Layer render order**: `RENDER_ORDER%()` lookup table, rebuilt when `RENDER_ORDER_DIRTY%`.
 - **Opacity cache**: Per-layer `opacityCacheImg&` with `opacityCacheVal%` and `contentDirty%`.
-  Cache hit = skip `_MEM` pixel loop. Mark `contentDirty% = TRUE` when drawing on a layer.
+  Cache hit = skip expensive per-pixel `_MEM` opacity loop. Mark `contentDirty% = TRUE`
+  **only** when actual pixel content changes on a layer (drawing, clear, merge, undo/redo).
+- **`contentDirty%` discipline**: `BLEND_invalidate_cache` does NOT mark layers
+  `contentDirty%`. It only sets `BLEND_COMPOSITE_DIRTY%`, `RENDER_ORDER_DIRTY%`,
+  `SCENE_DIRTY%`, and `COMPOSITE_BELOW_VALID% = FALSE`. Code that modifies layer pixel
+  content must explicitly set `LAYERS(idx%).contentDirty% = TRUE`. This prevents O(n)
+  per-pixel opacity recalculation on every cache invalidation.
 - **Blend composite cache**: `COMPOSITE_BELOW_CACHE&` stores composited layers below
   `CURRENT_LAYER%`. When only the current layer changes, layers below are restored from
   cache instead of re-composited.
@@ -303,6 +339,65 @@ automatically updates on the next frame via `TITLE_check`.
 - **Dialogs**: `_MESSAGEBOX()`, `_OPENFILEDIALOG$()`, `_SAVEFILEDIALOG$()`
 - **Logging**: `_LOGINFO`, `_LOGWARN`, `_LOGERROR` (use `$CONSOLE` directive)
 - **System**: `_TITLE`, `_LIMIT`, `_FULLSCREEN`, `_DESKTOPWIDTH/HEIGHT`
+
+---
+
+## Cache Invalidation Rules
+
+### When to mark `contentDirty%`
+
+Set `LAYERS(idx%).contentDirty% = TRUE` when layer pixel content actually changes:
+- Drawing/painting on a layer (brush stroke committed)
+- `LAYERS_clear` (already sets it)
+- `LAYERS_merge_down` (target layer gets merged pixels)
+- `LAYERS_duplicate` (new layer gets copied pixels)
+- `WORKSPACE_UNDO_undo` / `WORKSPACE_UNDO_redo` (may restore layer pixel data)
+- Any operation using `_COPYIMAGE` or `_PUTIMAGE` to modify layer `imgHandle&`
+
+Do NOT blanket-set `contentDirty%` on all layers in `BLEND_invalidate_cache`. That
+function handles composite/render ordering — not pixel content changes.
+
+### When to call `BLEND_invalidate_cache`
+
+Call when layer structure or visibility changes (not pixel content):
+- Layer added, deleted, reordered
+- Layer visibility toggled, opacity changed, blend mode changed
+- Current layer selection changed
+- File loaded (`DRW_load`)
+
+### Scene cache boundary
+
+Anything rendered **before** step 12 (`SCENE_CACHE&` save) is cached and only redrawn
+when `SCENE_DIRTY%` is TRUE. Anything rendered **after** step 13 (`SkipToPointer:`) is
+redrawn every active frame regardless of `SCENE_DIRTY%`.
+
+**Rule**: Per-frame animations (marching ants, blinking cursors) MUST be rendered after
+`SkipToPointer:`. If placed before the scene cache save, they force `SCENE_DIRTY% = TRUE`
+every frame, defeating the cache and causing full layer compositing at 60fps.
+
+---
+
+## File Load State Reset
+
+`DRW_load` must reset **all** tool and panel state after loading a file. Stale state from
+the previous document causes subtle bugs (e.g., layer panel clicks not registering due to
+old scroll offset, or selection tools interfering with the new canvas).
+
+Required resets in `DRW_load` (after clearing undo history):
+```qb64
+MARQUEE_reset
+MOVE_init
+MAGIC_WAND_reset
+LAYER_PANEL.scrollOffset% = 0
+LAYER_PANEL.soloLayer% = 0
+LAYER_PANEL.visSwiping% = FALSE
+LAYER_PANEL.dragPending% = FALSE
+LAYER_PANEL.isDragging% = FALSE
+LAYER_PANEL.dragLayerIdx% = 0
+LAYER_PANEL.opacityDrag% = FALSE
+```
+
+When adding new tool or panel state, ensure `DRW_load` resets it too.
 
 ---
 
