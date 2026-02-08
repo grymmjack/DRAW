@@ -16,6 +16,18 @@ CONST LAYER_ROW_HEIGHT = 20
 ' Layer panel button sizes
 CONST LAYER_BTN_SIZE = 12
 
+' Layer blend mode constants
+CONST BLEND_NORMAL     = 0
+CONST BLEND_MULTIPLY   = 1
+CONST BLEND_SCREEN     = 2
+CONST BLEND_OVERLAY    = 3
+CONST BLEND_ADD        = 4
+CONST BLEND_SUBTRACT   = 5
+CONST BLEND_DIFFERENCE = 6
+CONST BLEND_DARKEN     = 7
+CONST BLEND_LIGHTEN    = 8
+CONST BLEND_MODE_COUNT = 9  ' Total number of blend modes
+
 TYPE DRAW_LAYER
     zIndex       AS INTEGER     ' Layer stacking order (1 = bottom)
     imgWidth     AS INTEGER     ' Layer dimensions
@@ -27,6 +39,7 @@ TYPE DRAW_LAYER
     name         AS STRING * 64 ' Layer name (max controlled by CFG.LAYER_NAME_MAX_LEN%)
     opacity      AS INTEGER     ' Layer opacity (0-255, 255=opaque)
     opacityLock  AS INTEGER     ' Opacity lock (draw only on non-transparent pixels)
+    blendMode    AS INTEGER     ' Blend mode (see BLEND_* constants, default BLEND_NORMAL)
 END TYPE
 
 TYPE LAYER_PANEL_OBJ
@@ -57,6 +70,13 @@ TYPE LAYER_PANEL_OBJ
     iconBtnMerge      AS LONG      ' Merge down button icon
     iconBtnDelete     AS LONG      ' Delete layer button icon
     iconBtnAdd        AS LONG      ' New layer button icon
+    ' Solo mode state (alt+click on eye icon)
+    soloLayer         AS INTEGER    ' Layer index currently soloed (0 = none)
+    savedVisibility   AS STRING * 64 ' Saved visibility states before solo
+    ' Visibility swipe state (click+drag on eye icons)
+    visSwiping        AS INTEGER    ' TRUE while swiping visibility
+    visSwipeAction    AS INTEGER    ' 1 = show, 0 = hide (action applied during swipe)
+    visSwipedLayers   AS STRING * 64 ' Track which layers were already swiped (CHR$(1) = swiped)
 END TYPE
 
 ' Global layer state
@@ -94,10 +114,29 @@ DECLARE SUB LAYER_PANEL_handle_drag (rawX AS INTEGER, rawY AS INTEGER)
 DECLARE SUB LAYER_PANEL_handle_drop ()
 DECLARE SUB LAYER_PANEL_drag_cancel ()
 DECLARE FUNCTION LAYER_PANEL_is_dragging% ()
+DECLARE SUB LAYER_PANEL_handle_vis_swipe (rawX AS INTEGER, rawY AS INTEGER)
+DECLARE SUB LAYER_PANEL_end_vis_swipe ()
 
 DECLARE SUB LAYER_PANEL_load_icons ()
 DECLARE SUB LAYER_PANEL_cleanup_icons ()
 DECLARE SUB LAYER_select_non_transparent (layerIdx AS INTEGER)
+
+' Blend mode functions
+DECLARE FUNCTION BLEND_mode_name$ (mode AS INTEGER)
+DECLARE FUNCTION BLEND_mode_short$ (mode AS INTEGER)
+DECLARE SUB LAYER_blend_composite (dst AS LONG, src AS LONG, blendMode AS INTEGER, opacity AS INTEGER)
+DECLARE FUNCTION BLEND_needs_composite% ()
+DECLARE SUB BLEND_invalidate_cache ()
+
+' Blend composite cache — avoid re-scanning 64 slots every frame
+DIM SHARED BLEND_COMPOSITE_CACHED AS INTEGER   ' Cached result of BLEND_needs_composite%
+DIM SHARED BLEND_COMPOSITE_DIRTY AS INTEGER    ' TRUE = must rescan
+BLEND_COMPOSITE_DIRTY% = TRUE                  ' Start dirty
+
+' Persistent composite buffer — avoid _NEWIMAGE/_FREEIMAGE every frame
+DIM SHARED COMPOSITE_BUFFER AS LONG
+DIM SHARED COMPOSITE_BUFFER_W AS LONG
+DIM SHARED COMPOSITE_BUFFER_H AS LONG
 
 ' Note: LAYERS_init is called from SCREEN_init after CONFIG_load
 ' LAYER_PANEL_load_icons is called from DRAW.BAS after CONFIG_apply_startup_defaults

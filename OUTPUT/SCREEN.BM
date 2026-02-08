@@ -292,6 +292,30 @@ SUB SCREEN_render ()
         DIM layerZ AS INTEGER, layerI AS INTEGER
         DIM layerFound AS INTEGER
         DIM tempLayerImg AS LONG
+        DIM useComposite AS INTEGER
+        DIM compositeImg AS LONG
+
+        ' Check if we need per-pixel blending (any non-Normal blend mode)
+        useComposite% = BLEND_needs_composite%
+
+        IF useComposite% THEN
+            ' Reuse persistent composite buffer (avoid _NEWIMAGE/_FREEIMAGE every frame)
+            IF COMPOSITE_BUFFER& = 0 OR _
+               COMPOSITE_BUFFER_W& <> SCRN.w& OR _
+               COMPOSITE_BUFFER_H& <> SCRN.h& THEN
+                IF COMPOSITE_BUFFER& < -1 THEN _FREEIMAGE COMPOSITE_BUFFER&
+                COMPOSITE_BUFFER& = _NEWIMAGE(SCRN.w&, SCRN.h&, 32)
+                COMPOSITE_BUFFER_W& = SCRN.w&
+                COMPOSITE_BUFFER_H& = SCRN.h&
+            END IF
+            compositeImg& = COMPOSITE_BUFFER&
+            DIM compOldDest AS LONG
+            compOldDest& = _DEST
+            _DEST compositeImg&
+            CLS , _RGBA32(0, 0, 0, 0)
+            _DEST compOldDest&
+            _BLEND compositeImg&
+        END IF
         
         FOR layerZ% = 1 TO LAYER_COUNT%
             layerFound% = 0
@@ -314,41 +338,77 @@ SUB SCREEN_render ()
                     layerRenderSource& = LAYERS(layerFound%).imgHandle&
                 END IF
                 
-                ' Apply opacity if not fully opaque
-                IF LAYERS(layerFound%).opacity% < 255 THEN
-                    tempLayerImg& = _COPYIMAGE(layerRenderSource&, 32)
-                    ' Apply opacity using direct memory access (much faster than POINT/PSET)
-                    DIM layerOpacity AS SINGLE
-                    layerOpacity! = LAYERS(layerFound%).opacity% / 255.0
-                    
-                    DIM layerMem AS _MEM
-                    layerMem = _MEMIMAGE(tempLayerImg&)
-                    DIM pixOffset AS _OFFSET
-                    DIM pixVal AS _UNSIGNED LONG
-                    DIM pixAlpha AS _UNSIGNED _BYTE
-                    DIM newAlpha AS INTEGER
-                    
-                    FOR pixOffset = layerMem.OFFSET TO layerMem.OFFSET + layerMem.SIZE - 4 STEP 4
-                        _MEMGET layerMem, pixOffset, pixVal~&
-                        pixAlpha~%% = _ALPHA32(pixVal~&)
-                        IF pixAlpha~%% > 0 THEN
-                            newAlpha% = INT(pixAlpha~%% * layerOpacity!)
-                            IF newAlpha% > 255 THEN newAlpha% = 255
-                            IF newAlpha% < 0 THEN newAlpha% = 0
-                            ' Write alpha byte directly (byte offset +3 in BGRA memory layout)
-                            _MEMPUT layerMem, pixOffset + 3, newAlpha% AS _UNSIGNED _BYTE
+                IF useComposite% THEN
+                    ' --- Composite buffer path (blend modes) ---
+                    IF LAYERS(layerFound%).blendMode% = BLEND_NORMAL THEN
+                        ' Normal blend: apply opacity then _PUTIMAGE to composite
+                        IF LAYERS(layerFound%).opacity% < 255 THEN
+                            tempLayerImg& = _COPYIMAGE(layerRenderSource&, 32)
+                            DIM layerOpacity AS SINGLE
+                            layerOpacity! = LAYERS(layerFound%).opacity% / 255.0
+                            DIM layerMem AS _MEM
+                            layerMem = _MEMIMAGE(tempLayerImg&)
+                            DIM pixOffset AS _OFFSET
+                            DIM pixVal AS _UNSIGNED LONG
+                            DIM pixAlpha AS _UNSIGNED _BYTE
+                            DIM newAlpha AS INTEGER
+                            FOR pixOffset = layerMem.OFFSET TO layerMem.OFFSET + layerMem.SIZE - 4 STEP 4
+                                _MEMGET layerMem, pixOffset, pixVal~&
+                                pixAlpha~%% = _ALPHA32(pixVal~&)
+                                IF pixAlpha~%% > 0 THEN
+                                    newAlpha% = INT(pixAlpha~%% * layerOpacity!)
+                                    IF newAlpha% > 255 THEN newAlpha% = 255
+                                    IF newAlpha% < 0 THEN newAlpha% = 0
+                                    _MEMPUT layerMem, pixOffset + 3, newAlpha% AS _UNSIGNED _BYTE
+                                END IF
+                            NEXT pixOffset
+                            _MEMFREE layerMem
+                            _DEST compositeImg&
+                            _PUTIMAGE , tempLayerImg&
+                            IF tempLayerImg& < -1 THEN _FREEIMAGE tempLayerImg&
+                            _DEST SCRN.CANVAS&
+                        ELSE
+                            _DEST compositeImg&
+                            _PUTIMAGE , layerRenderSource&
+                            _DEST SCRN.CANVAS&
                         END IF
-                    NEXT pixOffset
-                    _MEMFREE layerMem
-                    
-                    _PUTIMAGE (dx%, dy%)-(dx% + zw& - 1, dy% + zh& - 1), tempLayerImg&
-                    IF tempLayerImg& < -1 THEN _FREEIMAGE tempLayerImg&
+                    ELSE
+                        ' Non-Normal blend: per-pixel blend onto composite
+                        LAYER_blend_composite compositeImg&, layerRenderSource&, LAYERS(layerFound%).blendMode%, LAYERS(layerFound%).opacity%
+                    END IF
                 ELSE
-                    _PUTIMAGE (dx%, dy%)-(dx% + zw& - 1, dy% + zh& - 1), layerRenderSource&
+                    ' --- Fast path (all Normal blend) ---
+                    ' Apply opacity if not fully opaque
+                    IF LAYERS(layerFound%).opacity% < 255 THEN
+                        tempLayerImg& = _COPYIMAGE(layerRenderSource&, 32)
+                        layerOpacity! = LAYERS(layerFound%).opacity% / 255.0
+                        layerMem = _MEMIMAGE(tempLayerImg&)
+                        FOR pixOffset = layerMem.OFFSET TO layerMem.OFFSET + layerMem.SIZE - 4 STEP 4
+                            _MEMGET layerMem, pixOffset, pixVal~&
+                            pixAlpha~%% = _ALPHA32(pixVal~&)
+                            IF pixAlpha~%% > 0 THEN
+                                newAlpha% = INT(pixAlpha~%% * layerOpacity!)
+                                IF newAlpha% > 255 THEN newAlpha% = 255
+                                IF newAlpha% < 0 THEN newAlpha% = 0
+                                _MEMPUT layerMem, pixOffset + 3, newAlpha% AS _UNSIGNED _BYTE
+                            END IF
+                        NEXT pixOffset
+                        _MEMFREE layerMem
+                        _PUTIMAGE (dx%, dy%)-(dx% + zw& - 1, dy% + zh& - 1), tempLayerImg&
+                        IF tempLayerImg& < -1 THEN _FREEIMAGE tempLayerImg&
+                    ELSE
+                        _PUTIMAGE (dx%, dy%)-(dx% + zw& - 1, dy% + zh& - 1), layerRenderSource&
+                    END IF
                 END IF
                 END IF  ' visible%
             END IF  ' layerFound% > 0
         NEXT layerZ%
+
+        ' If using composite, render the final composite to canvas with zoom
+        IF useComposite% THEN
+            _PUTIMAGE (dx%, dy%)-(dx% + zw& - 1, dy% + zh& - 1), compositeImg&, SCRN.CANVAS&
+            ' compositeImg& is persistent (COMPOSITE_BUFFER&), do NOT free it
+        END IF
     ELSE
         ' Fallback: Use SCRN.PAINTING if no layers exist yet (legacy support)
         DIM paint_source AS LONG
@@ -376,30 +436,40 @@ SUB SCREEN_render ()
     IF PIXEL_GRID.SHOW% AND SCRN.zoom! >= 4.0 THEN
         DIM pgx AS INTEGER, pgy AS INTEGER
         DIM pzoom AS INTEGER
-        DIM pgImg AS LONG
         DIM pgColor AS _UNSIGNED LONG
         pzoom% = INT(SCRN.zoom!)
-        ' Create temporary image for pixel grid with alpha
-        pgImg& = _NEWIMAGE(zw& + 1, zh& + 1, 32)
-        _DEST pgImg&
-        CLS , _RGBA32(0, 0, 0, 0)  ' Clear with full transparency
-        ' Use opaque color for drawing to avoid intersection artifacts
         pgColor~& = _RGB32(_RED32(THEME.PIXEL_GRID_color1~&), _GREEN32(THEME.PIXEL_GRID_color1~&), _BLUE32(THEME.PIXEL_GRID_color1~&))
-        ' Draw vertical lines between each pixel column
-        FOR pgx% = 0 TO SCRN.w&
-            LINE (pgx% * pzoom%, 0)-(pgx% * pzoom%, zh&), pgColor~&
-        NEXT pgx%
-        ' Draw horizontal lines between each pixel row
-        FOR pgy% = 0 TO SCRN.h&
-            LINE (0, pgy% * pzoom%)-(zw&, pgy% * pzoom%), pgColor~&
-        NEXT pgy%
-        ' Apply 25% opacity globally to all drawn pixels (alpha 64)
-        _SETALPHA 64, pgColor~& TO pgColor~&, pgImg&
-        ' Composite with alpha blending onto canvas
+        
+        ' Reuse cached pixel grid image if zoom/size/color unchanged
+        IF PG_CACHE_IMG& = 0 OR _
+           PG_CACHE_ZW& <> zw& OR _
+           PG_CACHE_ZH& <> zh& OR _
+           PG_CACHE_ZOOM% <> pzoom% OR _
+           PG_CACHE_COLOR~& <> pgColor~& THEN
+            ' Cache miss — rebuild pixel grid image
+            IF PG_CACHE_IMG& < -1 THEN _FREEIMAGE PG_CACHE_IMG&
+            PG_CACHE_IMG& = _NEWIMAGE(zw& + 1, zh& + 1, 32)
+            PG_CACHE_ZW& = zw&
+            PG_CACHE_ZH& = zh&
+            PG_CACHE_ZOOM% = pzoom%
+            PG_CACHE_COLOR~& = pgColor~&
+            _DEST PG_CACHE_IMG&
+            CLS , _RGBA32(0, 0, 0, 0)
+            ' Draw vertical lines between each pixel column
+            FOR pgx% = 0 TO SCRN.w&
+                LINE (pgx% * pzoom%, 0)-(pgx% * pzoom%, zh&), pgColor~&
+            NEXT pgx%
+            ' Draw horizontal lines between each pixel row
+            FOR pgy% = 0 TO SCRN.h&
+                LINE (0, pgy% * pzoom%)-(zw&, pgy% * pzoom%), pgColor~&
+            NEXT pgy%
+            ' Apply 25% opacity globally to all drawn pixels (alpha 64)
+            _SETALPHA 64, pgColor~& TO pgColor~&, PG_CACHE_IMG&
+        END IF
+        ' Composite cached pixel grid onto canvas
         _DEST SCRN.CANVAS&
         _BLEND SCRN.CANVAS&
-        _PUTIMAGE (dx%, dy%), pgImg&
-        IF pgImg& < -1 THEN _FREEIMAGE pgImg&
+        _PUTIMAGE (dx%, dy%), PG_CACHE_IMG&
     END IF
     
     ' Draw symmetry guide overlay (after grids, before border/GUI)

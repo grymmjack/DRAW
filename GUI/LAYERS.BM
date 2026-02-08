@@ -141,6 +141,7 @@ FUNCTION LAYERS_new% ()
     LAYERS(newIndex%).name         = "Layer " + _TRIM$(STR$(LAYER_COUNT%))
     LAYERS(newIndex%).opacity%     = 255
     LAYERS(newIndex%).opacityLock% = FALSE
+    LAYERS(newIndex%).blendMode%   = BLEND_NORMAL
     
     ' Select the new layer
     LAYERS_select newIndex%
@@ -148,6 +149,7 @@ FUNCTION LAYERS_new% ()
     ' Save workspace undo state for layer addition
     WORKSPACE_UNDO_save_layer_add newIndex%
     
+    BLEND_invalidate_cache
     GUI_NEEDS_REDRAW% = TRUE
     LAYERS_new% = newIndex%
 END FUNCTION
@@ -245,6 +247,7 @@ SUB LAYERS_delete (layerIndex AS INTEGER)
         IF foundLayer% > 0 THEN LAYERS_select foundLayer%
     END IF
     
+    BLEND_invalidate_cache
     GUI_NEEDS_REDRAW% = TRUE
 END SUB
 
@@ -297,6 +300,7 @@ SUB LAYERS_duplicate (layerIndex AS INTEGER)
     ' Save workspace undo state
     WORKSPACE_UNDO_save_layer_add newIndex%
     
+    BLEND_invalidate_cache
     GUI_NEEDS_REDRAW% = TRUE
 END SUB
 
@@ -519,6 +523,7 @@ SUB LAYERS_toggle_visibility (layerIndex AS INTEGER)
     IF LAYERS(layerIndex%).imgHandle& = 0 THEN EXIT SUB
     
     LAYERS(layerIndex%).visible% = NOT LAYERS(layerIndex%).visible%
+    BLEND_invalidate_cache
     GUI_NEEDS_REDRAW% = TRUE
 END SUB
 
@@ -917,6 +922,14 @@ SUB LAYER_PANEL_render (canvasHeight AS INTEGER)
                     COLOR _RGB32(220, 220, 220), _RGBA32(0, 0, 0, 0)
                     _PRINTSTRING (panelX% + 24, drawY% + 4), layerName$
                     
+                    ' Blend mode indicator (show short name if not Normal)
+                    IF LAYERS(layerIdx%).blendMode% <> BLEND_NORMAL THEN
+                        DIM blendShort AS STRING
+                        blendShort$ = BLEND_mode_short$(LAYERS(layerIdx%).blendMode%)
+                        COLOR _RGB32(180, 140, 255), _RGBA32(0, 0, 0, 0)
+                        _PRINTSTRING (panelX% + 24, drawY% + 12), blendShort$
+                    END IF
+                    
                     ' Opacity bar (small bar showing opacity level)
                     opacityBarW% = 30
                     opacityFill% = INT((LAYERS(layerIdx%).opacity% / 255.0) * opacityBarW%)
@@ -1254,7 +1267,52 @@ FUNCTION LAYER_PANEL_handle_click% (rawX AS INTEGER, rawY AS INTEGER, button AS 
                 IF button% = 1 THEN
                     ' Check if clicking visibility toggle (first 12 pixels)
                     IF localX% < 14 THEN
-                        LAYERS_toggle_visibility layerIdx%
+                        DIM altHeld AS INTEGER
+                        altHeld% = (_KEYDOWN(KEY_LALT&) OR _KEYDOWN(KEY_RALT&))
+                        IF altHeld% THEN
+                            ' Alt+click: solo/unsolo layer
+                            IF LAYER_PANEL.soloLayer% = layerIdx% THEN
+                                ' Unsolo: restore all saved visibility states
+                                DIM ri AS INTEGER
+                                FOR ri% = 1 TO 64
+                                    IF LAYERS(ri%).imgHandle& <> 0 THEN
+                                        LAYERS(ri%).visible% = ASC(MID$(LAYER_PANEL.savedVisibility, ri%, 1))
+                                    END IF
+                                NEXT ri%
+                                LAYER_PANEL.soloLayer% = 0
+                                BLEND_invalidate_cache
+                            ELSE
+                                ' Solo: save all states, hide all except clicked
+                                DIM si AS INTEGER
+                                FOR si% = 1 TO 64
+                                    IF LAYERS(si%).imgHandle& <> 0 THEN
+                                        IF LAYERS(si%).visible% THEN
+                                            MID$(LAYER_PANEL.savedVisibility, si%, 1) = CHR$(1)
+                                        ELSE
+                                            MID$(LAYER_PANEL.savedVisibility, si%, 1) = CHR$(0)
+                                        END IF
+                                        IF si% = layerIdx% THEN
+                                            LAYERS(si%).visible% = TRUE
+                                        ELSE
+                                            LAYERS(si%).visible% = FALSE
+                                        END IF
+                                    END IF
+                                NEXT si%
+                                LAYER_PANEL.soloLayer% = layerIdx%
+                                BLEND_invalidate_cache
+                            END IF
+                            GUI_NEEDS_REDRAW% = TRUE
+                        ELSE
+                            ' Normal click: toggle visibility and start swipe
+                            LAYERS_toggle_visibility layerIdx%
+                            ' Clear solo mode if user manually toggles
+                            LAYER_PANEL.soloLayer% = 0
+                            ' Start visibility swipe — action matches what we just did
+                            LAYER_PANEL.visSwiping% = TRUE
+                            LAYER_PANEL.visSwipeAction% = LAYERS(layerIdx%).visible%
+                            LAYER_PANEL.visSwipedLayers = STRING$(64, CHR$(0))
+                            MID$(LAYER_PANEL.visSwipedLayers, layerIdx%, 1) = CHR$(1)
+                        END IF
                     ' Check if clicking lock toggle (next area)
                     ELSEIF localX% < 24 THEN
                         LAYERS_toggle_opacity_lock layerIdx%
@@ -1291,9 +1349,19 @@ FUNCTION LAYER_PANEL_handle_click% (rawX AS INTEGER, rawY AS INTEGER, button AS 
                         END IF
                     END IF
                 ELSEIF button% = 2 THEN
-                    ' Right click - context menu (rename)
+                    ' Right click context actions
                     LAYERS_select layerIdx%
-                    LAYERS_rename layerIdx%
+                    ' Shift+right-click: cycle blend mode
+                    DIM shiftHeld AS INTEGER
+                    shiftHeld% = (_KEYDOWN(KEY_LSHIFT&) OR _KEYDOWN(KEY_RSHIFT&))
+                    IF shiftHeld% THEN
+                        LAYERS(layerIdx%).blendMode% = (LAYERS(layerIdx%).blendMode% + 1) MOD BLEND_MODE_COUNT
+                        BLEND_invalidate_cache
+                        GUI_NEEDS_REDRAW% = TRUE
+                    ELSE
+                        ' Plain right-click: rename
+                        LAYERS_rename layerIdx%
+                    END IF
                 END IF
                 
                 LAYER_PANEL_handle_click% = TRUE
@@ -1398,6 +1466,88 @@ END SUB
 FUNCTION LAYER_PANEL_is_dragging% ()
     LAYER_PANEL_is_dragging% = LAYER_PANEL.isDragging% OR LAYER_PANEL.dragPending%
 END FUNCTION
+
+
+''
+' Handle visibility swipe - apply show/hide to layers as mouse drags over eye icons
+'
+SUB LAYER_PANEL_handle_vis_swipe (rawX AS INTEGER, rawY AS INTEGER)
+    DIM panelW AS INTEGER, panelH AS INTEGER
+    DIM bottomBarsHeight AS INTEGER
+    DIM listTop AS INTEGER, listBottom AS INTEGER
+    DIM rowY AS INTEGER
+    DIM i AS INTEGER, z AS INTEGER
+    DIM layerIdx AS INTEGER
+    CONST HEADER_HEIGHT = 16
+    CONST BUTTON_AREA_HEIGHT = 24
+
+    IF NOT LAYER_PANEL.visSwiping% THEN EXIT SUB
+    IF NOT LAYER_PANEL.visible% THEN
+        LAYER_PANEL.visSwiping% = FALSE
+        EXIT SUB
+    END IF
+
+    ' Calculate panel layout
+    IF SCRN.showStatus% THEN
+        bottomBarsHeight% = THEME.STATUS_height% + PALETTE_STRIP_get_height%
+    ELSE
+        bottomBarsHeight% = 0
+    END IF
+    panelW% = CFG.LAYER_PANEL_WIDTH%
+    panelH% = SCRN.h& - bottomBarsHeight%
+    listTop% = HEADER_HEIGHT
+    listBottom% = panelH% - BUTTON_AREA_HEIGHT
+
+    ' Only swipe if mouse is in the eye icon column (first 14 pixels)
+    IF rawX% >= 14 THEN EXIT SUB
+
+    ' Find which layer row the mouse is over
+    DIM clickY AS INTEGER
+    clickY% = rawY%
+    rowY% = listTop%
+
+    FOR z% = LAYER_COUNT% TO 1 STEP -1
+        layerIdx% = 0
+        FOR i% = 1 TO 64
+            IF LAYERS(i%).imgHandle& <> 0 AND LAYERS(i%).zIndex% = z% THEN
+                layerIdx% = i%
+                EXIT FOR
+            END IF
+        NEXT i%
+
+        IF layerIdx% > 0 THEN
+            DIM drawY AS INTEGER
+            drawY% = rowY% - LAYER_PANEL.scrollOffset%
+
+            IF clickY% >= drawY% AND clickY% < drawY% + LAYER_ROW_HEIGHT THEN
+                ' Mouse is over this layer row
+                ' Only apply if not already swiped this layer
+                IF ASC(MID$(LAYER_PANEL.visSwipedLayers, layerIdx%, 1)) = 0 THEN
+                    ' Apply swipe action
+                    IF LAYER_PANEL.visSwipeAction% THEN
+                        LAYERS(layerIdx%).visible% = TRUE
+                    ELSE
+                        LAYERS(layerIdx%).visible% = FALSE
+                    END IF
+                    MID$(LAYER_PANEL.visSwipedLayers, layerIdx%, 1) = CHR$(1)
+                    BLEND_invalidate_cache
+                    GUI_NEEDS_REDRAW% = TRUE
+                END IF
+                EXIT SUB
+            END IF
+
+            rowY% = rowY% + LAYER_ROW_HEIGHT
+        END IF
+    NEXT z%
+END SUB
+
+
+''
+' End visibility swipe on mouse release
+'
+SUB LAYER_PANEL_end_vis_swipe ()
+    LAYER_PANEL.visSwiping% = FALSE
+END SUB
 
 
 ''
@@ -1759,4 +1909,193 @@ SUB LAYER_select_non_transparent (layerIdx AS INTEGER)
     GUI_NEEDS_REDRAW% = TRUE
     _DEST old_dest&
     _SOURCE old_source&
+END SUB
+
+
+''
+' Return full name of a blend mode
+'
+FUNCTION BLEND_mode_name$ (mode AS INTEGER)
+    SELECT CASE mode%
+        CASE BLEND_NORMAL:     BLEND_mode_name$ = "Normal"
+        CASE BLEND_MULTIPLY:   BLEND_mode_name$ = "Multiply"
+        CASE BLEND_SCREEN:     BLEND_mode_name$ = "Screen"
+        CASE BLEND_OVERLAY:    BLEND_mode_name$ = "Overlay"
+        CASE BLEND_ADD:        BLEND_mode_name$ = "Add"
+        CASE BLEND_SUBTRACT:   BLEND_mode_name$ = "Subtract"
+        CASE BLEND_DIFFERENCE: BLEND_mode_name$ = "Difference"
+        CASE BLEND_DARKEN:     BLEND_mode_name$ = "Darken"
+        CASE BLEND_LIGHTEN:    BLEND_mode_name$ = "Lighten"
+        CASE ELSE:             BLEND_mode_name$ = "Normal"
+    END SELECT
+END FUNCTION
+
+
+''
+' Return short 3-char abbreviation of a blend mode
+'
+FUNCTION BLEND_mode_short$ (mode AS INTEGER)
+    SELECT CASE mode%
+        CASE BLEND_NORMAL:     BLEND_mode_short$ = "Nrm"
+        CASE BLEND_MULTIPLY:   BLEND_mode_short$ = "Mul"
+        CASE BLEND_SCREEN:     BLEND_mode_short$ = "Scr"
+        CASE BLEND_OVERLAY:    BLEND_mode_short$ = "Ovr"
+        CASE BLEND_ADD:        BLEND_mode_short$ = "Add"
+        CASE BLEND_SUBTRACT:   BLEND_mode_short$ = "Sub"
+        CASE BLEND_DIFFERENCE: BLEND_mode_short$ = "Dif"
+        CASE BLEND_DARKEN:     BLEND_mode_short$ = "Drk"
+        CASE BLEND_LIGHTEN:    BLEND_mode_short$ = "Ltn"
+        CASE ELSE:             BLEND_mode_short$ = "Nrm"
+    END SELECT
+END FUNCTION
+
+
+''
+' Check if any visible layer uses non-Normal blend mode
+' Returns TRUE if composite buffer approach is needed
+'
+FUNCTION BLEND_needs_composite% ()
+    ' Return cached result if not dirty
+    IF NOT BLEND_COMPOSITE_DIRTY% THEN
+        BLEND_needs_composite% = BLEND_COMPOSITE_CACHED%
+        EXIT FUNCTION
+    END IF
+
+    DIM i AS INTEGER
+    FOR i% = 1 TO 64
+        IF LAYERS(i%).imgHandle& <> 0 THEN
+            IF LAYERS(i%).visible% THEN
+                IF LAYERS(i%).blendMode% <> BLEND_NORMAL THEN
+                    BLEND_COMPOSITE_CACHED% = TRUE
+                    BLEND_COMPOSITE_DIRTY% = FALSE
+                    BLEND_needs_composite% = TRUE
+                    EXIT FUNCTION
+                END IF
+            END IF
+        END IF
+    NEXT i%
+    BLEND_COMPOSITE_CACHED% = FALSE
+    BLEND_COMPOSITE_DIRTY% = FALSE
+    BLEND_needs_composite% = FALSE
+END FUNCTION
+
+
+''
+' Invalidate the blend composite cache.
+' Call whenever blend modes, visibility, or layer structure changes.
+'
+SUB BLEND_invalidate_cache ()
+    BLEND_COMPOSITE_DIRTY% = TRUE
+END SUB
+
+
+''
+' Composite src image onto dst image using specified blend mode and opacity.
+' Both images must be the same dimensions (32-bit color).
+' Uses _MEM for fast per-pixel operations.
+'
+SUB LAYER_blend_composite (dst AS LONG, src AS LONG, blendMode AS INTEGER, opacity AS INTEGER)
+    DIM dstMem AS _MEM, srcMem AS _MEM
+    DIM pixOff AS _OFFSET
+    DIM dstPix AS _UNSIGNED LONG, srcPix AS _UNSIGNED LONG
+    DIM sA AS LONG, sR AS LONG, sG AS LONG, sB AS LONG
+    DIM dA AS LONG, dR AS LONG, dG AS LONG, dB AS LONG
+    DIM bR AS LONG, bG AS LONG, bB AS LONG
+    DIM rR AS LONG, rG AS LONG, rB AS LONG, rA AS LONG
+    DIM effAlpha AS LONG
+    DIM opacityF AS SINGLE
+
+    IF dst& = 0 OR src& = 0 THEN EXIT SUB
+    IF _WIDTH(dst&) <> _WIDTH(src&) OR _HEIGHT(dst&) <> _HEIGHT(src&) THEN EXIT SUB
+
+    opacityF! = opacity% / 255.0
+    dstMem = _MEMIMAGE(dst&)
+    srcMem = _MEMIMAGE(src&)
+
+    FOR pixOff = 0 TO srcMem.SIZE - 4 STEP 4
+        _MEMGET srcMem, srcMem.OFFSET + pixOff, srcPix~&
+        sA& = _ALPHA32(srcPix~&)
+        IF sA& = 0 THEN _CONTINUE ' Fully transparent - skip
+
+        ' Apply layer opacity to source alpha
+        effAlpha& = INT(sA& * opacityF!)
+        IF effAlpha& <= 0 THEN _CONTINUE
+
+        sR& = _RED32(srcPix~&)
+        sG& = _GREEN32(srcPix~&)
+        sB& = _BLUE32(srcPix~&)
+
+        _MEMGET dstMem, dstMem.OFFSET + pixOff, dstPix~&
+        dA& = _ALPHA32(dstPix~&)
+        dR& = _RED32(dstPix~&)
+        dG& = _GREEN32(dstPix~&)
+        dB& = _BLUE32(dstPix~&)
+
+        ' Apply blend formula to get blended RGB
+        SELECT CASE blendMode%
+            CASE BLEND_MULTIPLY
+                bR& = (dR& * sR&) \ 255
+                bG& = (dG& * sG&) \ 255
+                bB& = (dB& * sB&) \ 255
+
+            CASE BLEND_SCREEN
+                bR& = 255 - ((255 - dR&) * (255 - sR&)) \ 255
+                bG& = 255 - ((255 - dG&) * (255 - sG&)) \ 255
+                bB& = 255 - ((255 - dB&) * (255 - sB&)) \ 255
+
+            CASE BLEND_OVERLAY
+                IF dR& < 128 THEN bR& = (2 * dR& * sR&) \ 255 ELSE bR& = 255 - (2 * (255 - dR&) * (255 - sR&)) \ 255
+                IF dG& < 128 THEN bG& = (2 * dG& * sG&) \ 255 ELSE bG& = 255 - (2 * (255 - dG&) * (255 - sG&)) \ 255
+                IF dB& < 128 THEN bB& = (2 * dB& * sB&) \ 255 ELSE bB& = 255 - (2 * (255 - dB&) * (255 - sB&)) \ 255
+
+            CASE BLEND_ADD
+                bR& = dR& + sR&: IF bR& > 255 THEN bR& = 255
+                bG& = dG& + sG&: IF bG& > 255 THEN bG& = 255
+                bB& = dB& + sB&: IF bB& > 255 THEN bB& = 255
+
+            CASE BLEND_SUBTRACT
+                bR& = dR& - sR&: IF bR& < 0 THEN bR& = 0
+                bG& = dG& - sG&: IF bG& < 0 THEN bG& = 0
+                bB& = dB& - sB&: IF bB& < 0 THEN bB& = 0
+
+            CASE BLEND_DIFFERENCE
+                bR& = ABS(dR& - sR&)
+                bG& = ABS(dG& - sG&)
+                bB& = ABS(dB& - sB&)
+
+            CASE BLEND_DARKEN
+                IF dR& < sR& THEN bR& = dR& ELSE bR& = sR&
+                IF dG& < sG& THEN bG& = dG& ELSE bG& = sG&
+                IF dB& < sB& THEN bB& = dB& ELSE bB& = sB&
+
+            CASE BLEND_LIGHTEN
+                IF dR& > sR& THEN bR& = dR& ELSE bR& = sR&
+                IF dG& > sG& THEN bG& = dG& ELSE bG& = sG&
+                IF dB& > sB& THEN bB& = dB& ELSE bB& = sB&
+
+            CASE ELSE
+                ' Normal fallback (shouldn't reach here)
+                bR& = sR&: bG& = sG&: bB& = sB&
+        END SELECT
+
+        ' Mix blended result with base using effective alpha (Porter-Duff "over")
+        IF dA& = 0 THEN
+            ' No base - use blended color directly with blend alpha
+            rR& = bR&: rG& = bG&: rB& = bB&
+            rA& = effAlpha&
+        ELSE
+            ' Composite: result = blended * effAlpha + base * (1 - effAlpha/255)
+            rR& = dR& + ((bR& - dR&) * effAlpha&) \ 255
+            rG& = dG& + ((bG& - dG&) * effAlpha&) \ 255
+            rB& = dB& + ((bB& - dB&) * effAlpha&) \ 255
+            rA& = dA& + effAlpha& - (dA& * effAlpha&) \ 255
+            IF rA& > 255 THEN rA& = 255
+        END IF
+
+        ' Write result pixel
+        _MEMPUT dstMem, dstMem.OFFSET + pixOff, _RGBA32(rR&, rG&, rB&, rA&) AS _UNSIGNED LONG
+    NEXT pixOff
+
+    _MEMFREE srcMem
+    _MEMFREE dstMem
 END SUB

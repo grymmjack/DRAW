@@ -126,7 +126,10 @@ DO
         _LIMIT 60  ' Safe fallback
     END IF
     
-    SCREEN_render
+    ' Skip full render when idle — previous frame remains on display
+    IF NOT FRAME_IDLE% THEN
+        SCREEN_render
+    END IF
     MOUSE_input_handler_loop
     KEYBOARD_input_handler_loop
     STICK_input_handler_loop
