@@ -99,8 +99,28 @@ DO
     KEYBOARD_input_handler
     STICK_input_handler
     
-    ' Validate FPS limit before applying (Windows fix for invalid _LIMIT causing input issues)
-    IF CFG.FPS_LIMIT% > 0 AND CFG.FPS_LIMIT% <= 1000 THEN
+    ' Idle detection: reduce FPS when nothing is happening to save CPU
+    ' Check if anything needs updating this frame
+    FRAME_IDLE% = TRUE
+    IF k& <> 0 THEN FRAME_IDLE% = FALSE                         ' Key was pressed
+    IF MOUSE.B1% OR MOUSE.B2% OR MOUSE.B3% THEN FRAME_IDLE% = FALSE  ' Mouse button held
+    IF MOUSE.RAW_X% <> IDLE_PREV_MOUSE_X% OR MOUSE.RAW_Y% <> IDLE_PREV_MOUSE_Y% THEN
+        FRAME_IDLE% = FALSE                                       ' Mouse moved
+    END IF
+    IF GUI_NEEDS_REDRAW% THEN FRAME_IDLE% = FALSE                 ' GUI needs update
+    IF SCRN.panning% THEN FRAME_IDLE% = FALSE                     ' Panning active
+    IF CURRENT_TOOL% = TOOL_MOVE AND MOVE.ACTIVE THEN FRAME_IDLE% = FALSE  ' Move tool active
+    IF CURRENT_TOOL% = TOOL_TEXT AND TEXT.ACTIVE THEN FRAME_IDLE% = FALSE   ' Text editing
+    IF IMG_IMPORT.STATE > IMPORT_STATE_IDLE THEN FRAME_IDLE% = FALSE        ' Import mode
+    IF CMD_PALETTE.visible THEN FRAME_IDLE% = FALSE               ' Command palette open
+    IF SELECTION_has_active% THEN FRAME_IDLE% = FALSE             ' Marching ants animating
+    IDLE_PREV_MOUSE_X% = MOUSE.RAW_X%
+    IDLE_PREV_MOUSE_Y% = MOUSE.RAW_Y%
+    
+    ' Apply frame rate limit (reduced when idle)
+    IF FRAME_IDLE% THEN
+        _LIMIT IDLE_FPS_LIMIT
+    ELSEIF CFG.FPS_LIMIT% > 0 AND CFG.FPS_LIMIT% <= 1000 THEN
         _LIMIT CFG.FPS_LIMIT%
     ELSE
         _LIMIT 60  ' Safe fallback
