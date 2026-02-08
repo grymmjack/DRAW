@@ -48,4 +48,10 @@ DIM SHARED PG_CACHE_ZH AS LONG
 DIM SHARED PG_CACHE_ZOOM AS INTEGER
 DIM SHARED PG_CACHE_COLOR AS _UNSIGNED LONG
 
+' Scene cache — fully rendered canvas (layers+grid+GUI) before cursor
+' When only cursor position changes, copy from cache instead of full repaint
+DIM SHARED SCENE_CACHE AS LONG       ' Cached pre-cursor canvas image
+DIM SHARED SCENE_DIRTY AS INTEGER    ' TRUE = must do full repaint
+SCENE_DIRTY% = TRUE                  ' Start dirty
+
 SCREEN_init

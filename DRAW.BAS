@@ -102,18 +102,21 @@ DO
     ' Idle detection: reduce FPS when nothing is happening to save CPU
     ' Check if anything needs updating this frame
     FRAME_IDLE% = TRUE
-    IF k& <> 0 THEN FRAME_IDLE% = FALSE                         ' Key was pressed
-    IF MOUSE.B1% OR MOUSE.B2% OR MOUSE.B3% THEN FRAME_IDLE% = FALSE  ' Mouse button held
+    DIM SCENE_CHANGED AS INTEGER
+    SCENE_CHANGED% = FALSE
+    IF k& <> 0 THEN FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE   ' Key was pressed
+    IF MOUSE.B1% OR MOUSE.B2% OR MOUSE.B3% THEN FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE  ' Mouse button held
     IF MOUSE.RAW_X% <> IDLE_PREV_MOUSE_X% OR MOUSE.RAW_Y% <> IDLE_PREV_MOUSE_Y% THEN
-        FRAME_IDLE% = FALSE                                       ' Mouse moved
+        FRAME_IDLE% = FALSE                                       ' Mouse moved (cursor only)
     END IF
-    IF GUI_NEEDS_REDRAW% THEN FRAME_IDLE% = FALSE                 ' GUI needs update
-    IF SCRN.panning% THEN FRAME_IDLE% = FALSE                     ' Panning active
-    IF CURRENT_TOOL% = TOOL_MOVE AND MOVE.ACTIVE THEN FRAME_IDLE% = FALSE  ' Move tool active
-    IF CURRENT_TOOL% = TOOL_TEXT AND TEXT.ACTIVE THEN FRAME_IDLE% = FALSE   ' Text editing
-    IF IMG_IMPORT.STATE > IMPORT_STATE_IDLE THEN FRAME_IDLE% = FALSE        ' Import mode
-    IF CMD_PALETTE.visible THEN FRAME_IDLE% = FALSE               ' Command palette open
-    IF SELECTION_has_active% THEN FRAME_IDLE% = FALSE             ' Marching ants animating
+    IF GUI_NEEDS_REDRAW% THEN FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE  ' GUI needs update
+    IF SCRN.panning% THEN FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE      ' Panning active
+    IF CURRENT_TOOL% = TOOL_MOVE AND MOVE.ACTIVE THEN FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE
+    IF CURRENT_TOOL% = TOOL_TEXT AND TEXT.ACTIVE THEN FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE
+    IF IMG_IMPORT.STATE > IMPORT_STATE_IDLE THEN FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE
+    IF CMD_PALETTE.visible THEN FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE
+    IF SELECTION_has_active% THEN FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE
+    IF SCENE_CHANGED% THEN SCENE_DIRTY% = TRUE
     IDLE_PREV_MOUSE_X% = MOUSE.RAW_X%
     IDLE_PREV_MOUSE_Y% = MOUSE.RAW_Y%
     
@@ -222,7 +225,7 @@ SUB MAIN_shutdown ()
     IF SCRN.CANVAS& < -1 THEN _FREEIMAGE SCRN.CANVAS&
     IF SCRN.PAINTING& < -1 THEN _FREEIMAGE SCRN.PAINTING&
     IF SCRN.GUI& < -1 THEN _FREEIMAGE SCRN.GUI&
-    IF SCRN.CURSOR& < -1 THEN _FREEIMAGE SCRN.CURSOR&
+    ' SCRN.CURSOR& no longer allocated — cursors draw directly onto SCRN.CANVAS&
     IF SCRN.WINDOW_IMG& < -1 THEN _FREEIMAGE SCRN.WINDOW_IMG&
     
     ' Free all toolbar button images
