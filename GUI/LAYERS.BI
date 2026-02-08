@@ -160,5 +160,11 @@ DIM SHARED COMPOSITE_BUFFER AS LONG
 DIM SHARED COMPOSITE_BUFFER_W AS LONG
 DIM SHARED COMPOSITE_BUFFER_H AS LONG
 
+' Partial composite cache — skip re-compositing layers below current during painting
+DIM SHARED COMPOSITE_BELOW_CACHE AS LONG      ' Cached composite of layers below CURRENT_LAYER%
+DIM SHARED COMPOSITE_BELOW_LAYER AS INTEGER    ' Which CURRENT_LAYER% this cache was built for
+DIM SHARED COMPOSITE_BELOW_VALID AS INTEGER    ' Is the cache still valid?
+COMPOSITE_BELOW_VALID% = FALSE
+
 ' Note: LAYERS_init is called from SCREEN_init after CONFIG_load
 ' LAYER_PANEL_load_icons is called from DRAW.BAS after CONFIG_apply_startup_defaults

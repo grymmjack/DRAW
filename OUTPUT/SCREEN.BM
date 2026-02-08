@@ -310,6 +310,12 @@ SUB SCREEN_render ()
         ' Rebuild render order lookup table if dirty
         IF RENDER_ORDER_DIRTY% THEN RENDER_ORDER_rebuild
 
+        ' Start index for layer loop (1 = full composite, >1 = partial cache hit)
+        DIM compositeStartIdx AS INTEGER
+        DIM savePartialCache AS INTEGER
+        compositeStartIdx% = 1
+        savePartialCache% = FALSE
+
         IF useComposite% THEN
             ' Reuse persistent composite buffer (avoid _NEWIMAGE/_FREEIMAGE every frame)
             IF COMPOSITE_BUFFER& = 0 OR _
@@ -321,16 +327,44 @@ SUB SCREEN_render ()
                 COMPOSITE_BUFFER_H& = SCRN.h&
             END IF
             compositeImg& = COMPOSITE_BUFFER&
+
+            ' --- Partial composite cache: skip layers below current when only current changes ---
+            DIM currentRenderIdx AS INTEGER
+            DIM cri AS INTEGER
+            currentRenderIdx% = 0
+            FOR cri% = 1 TO RENDER_ORDER_COUNT%
+                IF RENDER_ORDER%(cri%) = CURRENT_LAYER% THEN
+                    currentRenderIdx% = cri%
+                    EXIT FOR
+                END IF
+            NEXT cri%
+
             DIM compOldDest AS LONG
             compOldDest& = _DEST
-            _DEST compositeImg&
-            _DONTBLEND compositeImg&
-            CLS , _RGBA32(0, 0, 0, 0)
-            _BLEND compositeImg&
-            _DEST compOldDest&
+
+            IF currentRenderIdx% > 1 AND COMPOSITE_BELOW_VALID% AND _
+               COMPOSITE_BELOW_LAYER% = CURRENT_LAYER% AND _
+               COMPOSITE_BELOW_CACHE& <> 0 THEN
+                ' Partial cache hit — restore composite of layers below current
+                _DEST compositeImg&
+                _DONTBLEND compositeImg&
+                _PUTIMAGE , COMPOSITE_BELOW_CACHE&, compositeImg&
+                _BLEND compositeImg&
+                _DEST compOldDest&
+                compositeStartIdx% = currentRenderIdx%
+            ELSE
+                ' Full composite — clear buffer
+                _DEST compositeImg&
+                _DONTBLEND compositeImg&
+                CLS , _RGBA32(0, 0, 0, 0)
+                _BLEND compositeImg&
+                _DEST compOldDest&
+                ' Schedule partial cache save if current layer isn't the bottommost
+                IF currentRenderIdx% > 1 THEN savePartialCache% = TRUE
+            END IF
         END IF
         
-        FOR layerI% = 1 TO RENDER_ORDER_COUNT%
+        FOR layerI% = compositeStartIdx% TO RENDER_ORDER_COUNT%
             layerFound% = RENDER_ORDER%(layerI%)
             
             IF layerFound% > 0 THEN
@@ -438,6 +472,26 @@ SUB SCREEN_render ()
                 END IF
                 END IF  ' visible%
             END IF  ' layerFound% > 0
+
+            ' Save partial composite cache at boundary just below current layer
+            IF savePartialCache% AND layerI% = currentRenderIdx% - 1 THEN
+                IF COMPOSITE_BELOW_CACHE& = 0 OR _
+                   _WIDTH(COMPOSITE_BELOW_CACHE&) <> SCRN.w& OR _
+                   _HEIGHT(COMPOSITE_BELOW_CACHE&) <> SCRN.h& THEN
+                    IF COMPOSITE_BELOW_CACHE& < -1 THEN _FREEIMAGE COMPOSITE_BELOW_CACHE&
+                    COMPOSITE_BELOW_CACHE& = _NEWIMAGE(SCRN.w&, SCRN.h&, 32)
+                END IF
+                DIM pcOldDest AS LONG
+                pcOldDest& = _DEST
+                _DEST COMPOSITE_BELOW_CACHE&
+                _DONTBLEND COMPOSITE_BELOW_CACHE&
+                _PUTIMAGE , compositeImg&, COMPOSITE_BELOW_CACHE&
+                _BLEND COMPOSITE_BELOW_CACHE&
+                _DEST pcOldDest&
+                COMPOSITE_BELOW_LAYER% = CURRENT_LAYER%
+                COMPOSITE_BELOW_VALID% = TRUE
+                savePartialCache% = FALSE
+            END IF
         NEXT layerI%
 
         ' If using composite, render the final composite to canvas with zoom
