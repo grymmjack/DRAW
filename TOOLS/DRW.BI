@@ -8,7 +8,7 @@
 $INCLUDEONCE
 
 CONST DRW_MAGIC$ = "DRW1"
-CONST DRW_VERSION% = 2
+CONST DRW_VERSION% = 3
 
 ' Declare subs/functions
 DECLARE SUB DRW_save (filename AS STRING)
