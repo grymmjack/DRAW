@@ -86,4 +86,5 @@ DECLARE SUB SELECTION_invert ()
 ' Selection clipping (shared between marquee and wand)
 DECLARE FUNCTION SELECTION_is_point_inside% (x AS INTEGER, y AS INTEGER)
 DECLARE FUNCTION SELECTION_has_active% ()
+DECLARE SUB SELECTION_get_screen_bbox (sx1 AS INTEGER, sy1 AS INTEGER, sx2 AS INTEGER, sy2 AS INTEGER)
 

@@ -250,11 +250,11 @@ END SUB
 ' 
 SUB SCREEN_render ()
     ' ========================================================================
-    ' DIRTY-RECT FAST PATH: When only the cursor moved and no selection is
-    ' active, restore+redraw just the pointer's bounding box instead of
-    ' copying the entire scene cache and scaling the full canvas.
+    ' DIRTY-RECT FAST PATH: When the scene hasn't changed, restore+redraw
+    ' only the regions that need updating (pointer area + selection overlay)
+    ' instead of copying and scaling the full canvas every frame.
     ' ========================================================================
-    IF NOT SCENE_DIRTY% AND SCENE_CACHE& <> 0 AND NOT SELECTION_has_active% THEN
+    IF NOT SCENE_DIRTY% AND SCENE_CACHE& <> 0 THEN
         DIM new_mx AS INTEGER, new_my AS INTEGER
         new_mx% = _MOUSEX \ SCRN.displayScale%
         new_my% = _MOUSEY \ SCRN.displayScale%
@@ -292,6 +292,19 @@ SUB SCREEN_render ()
             IF oy2% > dr_y2% THEN dr_y2% = oy2%
         END IF
 
+        ' Expand dirty rect to include selection overlay (marching ants + handles)
+        DIM has_sel AS INTEGER
+        has_sel% = SELECTION_has_active%
+        IF has_sel% THEN
+            DIM sel_x1 AS INTEGER, sel_y1 AS INTEGER
+            DIM sel_x2 AS INTEGER, sel_y2 AS INTEGER
+            SELECTION_get_screen_bbox sel_x1%, sel_y1%, sel_x2%, sel_y2%
+            IF sel_x1% < dr_x1% THEN dr_x1% = sel_x1%
+            IF sel_y1% < dr_y1% THEN dr_y1% = sel_y1%
+            IF sel_x2% > dr_x2% THEN dr_x2% = sel_x2%
+            IF sel_y2% > dr_y2% THEN dr_y2% = sel_y2%
+        END IF
+
         ' Clamp to canvas bounds
         IF dr_x1% < 0 THEN dr_x1% = 0
         IF dr_y1% < 0 THEN dr_y1% = 0
@@ -304,11 +317,27 @@ SUB SCREEN_render ()
         canvas_area& = SCRN.w& * SCRN.h&
 
         IF dr_area& < (canvas_area& \ 2) AND dr_x2% > dr_x1% AND dr_y2% > dr_y1% THEN
-            ' --- Partial restore from scene cache (erase old pointer) ---
+            ' --- Partial restore from scene cache (erase old pointer + ants) ---
             _DEST SCRN.CANVAS&
             _DONTBLEND SCRN.CANVAS&
             _PUTIMAGE (dr_x1%, dr_y1%)-(dr_x2%, dr_y2%), SCENE_CACHE&, SCRN.CANVAS&, (dr_x1%, dr_y1%)-(dr_x2%, dr_y2%)
             _BLEND SCRN.CANVAS&
+
+            ' --- Redraw selection overlay (marching ants animate each frame) ---
+            IF has_sel% THEN
+                IF MARQUEE.WAND_HAS_SELECTION AND MARQUEE.SELECTION_MASK < -1 THEN
+                    _DEST SCRN.CANVAS&
+                    MAGIC_WAND_draw_outline
+                ELSEIF MARQUEE.ACTIVE% AND MARQUEE.USER_CREATED THEN
+                    IF MARQUEE.DRAGGING% AND MARQUEE.SELECTION_MODE <> SEL_MODE_REPLACE THEN
+                        _DEST SCRN.CANVAS&
+                        MARQUEE_draw_existing_box TRUE
+                    ELSE
+                        _DEST SCRN.CANVAS&
+                        MARQUEE_draw TRUE
+                    END IF
+                END IF
+            END IF
 
             ' --- Draw pointer at new position ---
             POINTER_update
@@ -329,13 +358,8 @@ SUB SCREEN_render ()
             EXIT SUB
         END IF
         ' --- Dirty rect too large: fall through to full-copy fast path ---
-    END IF
 
-    ' ========================================================================
-    ' FULL-COPY FAST PATH: Copy entire scene cache, draw pointer + selection.
-    ' Used when selection overlay is active or dirty rect is too large.
-    ' ========================================================================
-    IF NOT SCENE_DIRTY% AND SCENE_CACHE& <> 0 THEN
+        ' Full-copy fast path (selection covers too much area)
         _DEST SCRN.CANVAS&
         _DONTBLEND SCRN.CANVAS&
         _PUTIMAGE , SCENE_CACHE&, SCRN.CANVAS&
