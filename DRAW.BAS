@@ -158,9 +158,9 @@ LOOP
 ' Check if display scale changed during session and prompt to save
 IF CFG.DISPLAY_SCALE_CHANGED% THEN
     DIM save_result AS LONG
-    _MOUSESHOW
+    POINTER_hide_for_dialog
     save_result& = _MESSAGEBOX("Save Configuration?", "Display scale changed to " + _TRIM$(STR$(SCRN.displayScale%)) + "x. Save configuration for next time?", "yesno", "question", 0)
-    _MOUSEHIDE
+    POINTER_show_after_dialog
     IF save_result& = 1 THEN
         ' Update the display scale in config before saving
         CFG.DISPLAY_SCALE% = SCRN.displayScale%
@@ -214,9 +214,9 @@ END SUB
 '
 FUNCTION SHOW_exit_confirm% ()
     DIM result AS LONG
-    _MOUSESHOW
+    POINTER_hide_for_dialog
     result& = _MESSAGEBOX("Exit Confirmation", "Are you sure you want to exit?", "yesno", "question", 0)
-    _MOUSEHIDE
+    POINTER_show_after_dialog
     
     ' Clear input buffers
     DO WHILE _MOUSEINPUT : LOOP

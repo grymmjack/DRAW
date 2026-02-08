@@ -29,6 +29,7 @@ TYPE MOUSE_OBJ
     B3_CLICK_TIME AS DOUBLE
     TOOLBAR_CLICKED AS INTEGER
     DEFERRED_ACTION AS INTEGER  ' Action to perform after mouse processing (0=none, 1=save, 2=load)
+    SUPPRESS_FRAMES AS INTEGER  ' Frames to suppress button input after native dialogs (prevents phantom clicks)
 END TYPE
 
 DIM SHARED MOUSE AS MOUSE_OBJ
