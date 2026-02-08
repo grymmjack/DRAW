@@ -188,6 +188,7 @@ The Spray (`K`) tool sprays random dots within a circular area:
 | **Density** | Proportional to radius (larger = more dots per frame) |
 | **Left Click** | Spray with foreground color |
 | **Right Click** | Spray with background color |
+| **Shift (hold)** | Constrain spray to horizontal or vertical axis |
 | **Symmetry** | Fully supported (all symmetry modes) |
 | **Selection Clipping** | Respects active marquee/wand selections |
 | **Dither Patterns** | Works with active dither patterns |
@@ -334,6 +335,7 @@ DRAW includes 10 dither patterns (0-9) that can be applied to brush, dot, and fi
 | Tool | Modifier | Effect |
 |------|----------|--------|
 | **Line/Rect/Ellipse** | Shift (drag) | Constrain to horizontal/vertical |
+| **Brush/Spray** | Shift (drag) | Constrain to horizontal or vertical axis |
 | **Line/Polygon** | Ctrl+Shift (drag/click) | Snap to angle increments (see Angle Snapping below) |
 | **Rectangle** | Ctrl (drag) | Draw perfect square |
 | **Rectangle** | Shift (drag center) | Draw from center |
@@ -529,7 +531,7 @@ When a selection is active (marquee or magic wand), it acts as a **clipping mask
 | `Alt+O` | Open DRAW project (.drw) |
 | `Alt+S` | Save DRAW project (.drw) |
 
-**Note:** .drw files preserve all layers, palette colors, tool states, and other project data. Standard image saves flatten all visible layers to a single image.
+**Note:** .drw files preserve all layers, blend modes, palette colors, tool states, and other project data. Standard image saves flatten all visible layers to a single image.
 
 ## Undo/Redo
 
@@ -540,7 +542,7 @@ When a selection is active (marquee or magic wand), it acts as a **clipping mask
 
 ## Layers
 
-DRAW supports a Photoshop-style layer system with up to 32 layers. Each layer has independent opacity, visibility, and stacking order.
+DRAW supports a Photoshop-style layer system with up to 32 layers. Each layer has independent opacity, visibility, blend mode, and stacking order.
 
 ### Layer Panel
 
@@ -583,7 +585,10 @@ The layer panel is displayed on the left side of the screen and can be toggled w
 | **Left-click layer row** | Select layer |
 | **Ctrl+Left-click layer row** | Select non-transparent pixels (creates marquee selection mask) |
 | **Right-click layer row** | Select and rename layer |
+| **Shift+Right-click layer row** | Cycle blend mode (Normal → Multiply → Screen → ... → Luminosity) |
+| **Alt+Left-click visibility icon** | Solo/unsolo layer (hide all others) |
 | **Click visibility icon** | Toggle layer visibility |
+| **Click+drag across visibility icons** | Swipe to show/hide multiple layers at once |
 | **Click lock area** | Toggle opacity lock |
 | **Click/drag opacity bar** | Adjust layer opacity |
 | **Drag layer row** | Reorder layers (drag and drop) |
@@ -608,11 +613,40 @@ Layers can be reordered by dragging them to a new position:
 - **32 layers maximum** (configurable in DRAW.cfg)
 - **Per-layer opacity** (0-255, displayed as percentage)
 - **Per-layer visibility** toggle
+- **Per-layer blend mode** (19 Photoshop-style blend modes)
+- **Solo layer** (Alt+click eye icon to isolate a single layer)
+- **Visibility swipe** (click+drag across eye icons to rapidly show/hide layers)
 - **Opacity lock** prevents drawing on transparent pixels
 - **Background layer** created automatically on startup
 - **Transparency** shown as checkerboard pattern behind layers
 - **Drawing tools** automatically target the currently selected layer
 - **Merge operations** combine layers while preserving opacity
+
+### Blend Modes
+
+Each layer can use one of 19 blend modes. **Shift+Right-click** a layer row to cycle through modes. The current blend mode abbreviation is shown on the layer row.
+
+| Mode | Abbr | Description |
+|------|------|-------------|
+| Normal | Nrm | Standard alpha compositing (default) |
+| Multiply | Mul | Darkens by multiplying colors — great for shadows |
+| Screen | Scr | Lightens by inverting, multiplying, inverting — great for glows |
+| Overlay | Ovr | Combines Multiply and Screen based on base brightness |
+| Add (Linear Dodge) | Add | Adds channel values, brightening the result |
+| Subtract | Sub | Subtracts source from destination, darkening |
+| Difference | Dif | Absolute difference between layers |
+| Darken | Drk | Keeps the darker pixel from each layer |
+| Lighten | Lgt | Keeps the lighter pixel from each layer |
+| Color Dodge | CDg | Brightens base by dividing by inverted source |
+| Color Burn | CBn | Darkens base by dividing inverted base by source |
+| Hard Light | HdL | Like Overlay but based on source brightness |
+| Soft Light | SfL | Gentle contrast adjustment (Pegtop formula) |
+| Exclusion | Exc | Similar to Difference but lower contrast |
+| Vivid Light | VvL | Combines Color Dodge and Color Burn at midpoint |
+| Linear Light | LnL | Linear Dodge + Linear Burn combination |
+| Pin Light | PnL | Replaces pixels based on brightness comparison |
+| Color | Clr | Applies source hue/saturation with destination luminance |
+| Luminosity | Lum | Applies source luminance with destination hue/saturation |
 
 ### Layer Workflow Tips
 

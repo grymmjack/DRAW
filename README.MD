@@ -26,7 +26,7 @@ DRAW is a pixel art editor written in QB64PE that can export images as sourcecod
 - **Ellipse** - Draw outlined or filled ellipses/circles
 - **Polygon** - Draw outlined or filled multi-point polygons
 - **Fill** - Flood fill tool
-- **Spray** - Spray paint with adjustable radius and density, circle preview
+- **Spray** - Spray paint with adjustable radius and density, SHIFT axis constraint, circle preview
 - **Picker** - Color sampling/eyedropper
 - **Marquee** - Rectangular selection with move and resize
 - **Move** - Transform and position selected content
@@ -74,11 +74,19 @@ DRAW is a pixel art editor written in QB64PE that can export images as sourcecod
 - 4 brush presets (F1-F4)
 - Visual cursor feedback with current color
 
+### Layer System
+- Up to 32 layers with per-layer opacity, visibility, and blend mode
+- **19 blend modes**: Normal, Multiply, Screen, Overlay, Add, Subtract, Difference, Darken, Lighten, Color Dodge, Color Burn, Hard Light, Soft Light, Exclusion, Vivid Light, Linear Light, Pin Light, Color, Luminosity
+- Solo layer (Alt+click eye icon) and visibility swipe (drag across eye icons)
+- Drag-and-drop layer reordering with visual feedback
+- Opacity lock, merge down, merge visible, duplicate
+- CTRL+Click layer to create selection from non-transparent pixels
+- DRW project format preserves layers, blend modes, opacity, and all tool states
+
 ### User Interface
 - Themeable PNG icon toolbar (21 buttons in 3×7 grid)
 - PNG cursors with theme-configurable hotspots and alpha transparency
 - Layer panel with PNG icons (visibility, lock, action buttons)
-- CTRL+Click layer to create selection from non-transparent pixels
 - Auto-hiding toolbar and status bar during active drawing
 - Manual UI toggle with Tab, F10, F11
 - Status bar shows: tool, coordinates, zoom, grid state, colors
@@ -117,7 +125,7 @@ DRAW can be launched with a file argument to automatically load an image or proj
 ```
 
 Supported formats:
-- **.drw** - DRAW project files (preserves layers, palette, tool states)
+- **.drw** - DRAW project files (preserves layers, blend modes, palette, tool states)
 - **.png, .bmp, .jpg, .jpeg, .gif** - Image files (loads into current layer)
 
 ## Building
