@@ -7,8 +7,8 @@
 '
 $INCLUDEONCE
 
-' Maximum layer name length
-CONST LAYER_NAME_MAX_LEN = 16
+' Maximum layer name length (hard compile-time max)
+CONST LAYER_NAME_HARD_MAX = 64
 
 ' Layer row height in panel (pixels)
 CONST LAYER_ROW_HEIGHT = 20
@@ -24,7 +24,7 @@ TYPE DRAW_LAYER
     visible      AS INTEGER     ' Visibility toggle
     isSelected   AS INTEGER     ' Currently selected layer
     lastSelected AS INTEGER     ' Previous selection state
-    name         AS STRING * 16 ' Layer name (max 16 chars)
+    name         AS STRING * 64 ' Layer name (max controlled by CFG.LAYER_NAME_MAX_LEN%)
     opacity      AS INTEGER     ' Layer opacity (0-255, 255=opaque)
     opacityLock  AS INTEGER     ' Opacity lock (draw only on non-transparent pixels)
 END TYPE

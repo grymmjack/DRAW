@@ -37,6 +37,7 @@ TYPE DRAW_CONFIG
     ANGLE_SNAP_DEGREES             AS INTEGER
     ' Layer panel settings
     LAYER_PANEL_WIDTH              AS INTEGER  ' Width of layer panel in pixels (min 100)
+    LAYER_NAME_MAX_LEN             AS INTEGER  ' Max layer name length (1-64, default 16)
     ' Transparency checkerboard settings
     TRANSPARENCY_CHECK_COLOR1      AS _UNSIGNED LONG  ' Light checkerboard color
     TRANSPARENCY_CHECK_COLOR2      AS _UNSIGNED LONG  ' Dark checkerboard color
