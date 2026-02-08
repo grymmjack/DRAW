@@ -10,7 +10,8 @@
 
 '$INCLUDE:'./_ALL.BI'
 $RESIZE:STRETCH
-$CONSOLE
+'$CONSOLE
+$EXEICON:'./ASSETS/ICONS/icon.ico'
   
 ' Parse command line arguments (just store filename, load after first frame)
 DIM cmdArg$
@@ -37,6 +38,9 @@ CURSOR_load_all
 ' Pre-load layer panel icons from theme directory
 LAYER_PANEL_load_icons
 
+' Set initial window title
+TITLE_update
+
 ' Main Loop
 DIM k AS LONG
 DIM exitConfirmed AS INTEGER
@@ -50,6 +54,7 @@ DO
         pendingExt$ = LCASE$(RIGHT$(CMDLINE_PENDING_FILE$, 5))
         IF pendingExt$ = ".draw" THEN
             DRW_load CMDLINE_PENDING_FILE$
+            CURRENT_DRW_FILENAME$ = CMDLINE_PENDING_FILE$
         ELSE
             ' Image file - use image import
             DIM loadResult%
@@ -185,6 +190,9 @@ SUB LOOP_start ()
     ' Reset undo save flag once per frame
     UNDO_saved_this_frame% = FALSE
     ' Don't update MARQUEE here - let mouse handler control it
+    
+    ' Update title bar when dirty/filename state changes
+    TITLE_check
 END SUB
 
 

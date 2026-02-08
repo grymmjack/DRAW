@@ -1,7 +1,7 @@
 DRAW by Rick Christy <grymmjack@gmail.com>
 ==========================================
 
-# REQUIRES QB64PE-v3.12+
+# REQUIRES QB64PE-v4.x+
 
 ```
 DATA "XXXXXX  ", "XXXXXXXX", "XXXXXXXX", "XX  XX  XX", "  XX  XX  "
@@ -14,7 +14,7 @@ DATA "::::::::", "::    ::", "::    ::", "::::  ::::", "  ::  ::  "
 
 DRAW is a pixel art editor written in QB64PE that can export images as sourcecode
 
-![DRAW GUI from v0.6.2](./GUI.png)
+![DRAW GUI from v0.7.3](./GUI.png)
 
 ## Features
 
@@ -132,6 +132,44 @@ Supported formats:
 
 ```bash
 qb64pe -w -x -o DRAW.run DRAW.BAS
+```
+
+## Installation
+
+Each platform has an installer that registers `.draw` file associations, installs app icons, and creates launcher entries.
+
+### Linux
+
+```bash
+chmod +x install-linux.sh
+./install-linux.sh
+```
+
+Installs a `.desktop` launcher, registers the `application/x-draw-project` MIME type for `.draw` files, and installs icons into the hicolor theme. To uninstall:
+
+```bash
+./install-linux.sh --uninstall
+```
+
+### Windows
+
+Right-click `install-windows.cmd` and select **Run as administrator** (or run from an elevated command prompt). Registers the `.draw` file association in the registry with the DRAW icon and adds a Start Menu shortcut. To uninstall:
+
+```cmd
+install-windows.cmd /uninstall
+```
+
+### macOS
+
+```bash
+chmod +x install-mac.command
+./install-mac.command
+```
+
+Or double-click `install-mac.command` in Finder. Creates a `DRAW.app` bundle in `~/Applications`, registers `.draw` file associations via LaunchServices, and sets the app icon. To uninstall:
+
+```bash
+./install-mac.command --uninstall
 ```
 
 ## License

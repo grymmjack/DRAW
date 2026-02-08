@@ -18,6 +18,15 @@ $IF FALSE = UNDEFINED AND TRUE = UNDEFINED THEN
 $END IF
 
 CONST KEY_CAPSLOCK& = 100301 ' Not supported on Linux/macOS
+
+' Application version
+CONST APP_VERSION$ = "0.7.3"
+
+' Title bar tracking (only update _TITLE when state changes)
+DIM SHARED AS INTEGER TITLE_PREV_DIRTY  ' Previous frame's dirty state
+DIM SHARED TITLE_PREV_FILENAME$          ' Previous frame's filename
+TITLE_PREV_DIRTY% = -99  ' Force initial update
+TITLE_PREV_FILENAME$ = CHR$(0)  ' Sentinel to force initial update
 CONST KEY_LSHIFT&   = 100304
 CONST KEY_RSHIFT&   = 100303 
 CONST KEY_LCTRL&    = 100305
