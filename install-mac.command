@@ -87,6 +87,11 @@ if [ -d "$SCRIPT_DIR/ASSETS" ]; then
     cp -R "$SCRIPT_DIR/ASSETS" "$APP_BUNDLE/Contents/Resources/ASSETS"
 fi
 
+# Copy default configuration
+if [ -f "$SCRIPT_DIR/DRAW.cfg" ]; then
+    cp "$SCRIPT_DIR/DRAW.cfg" "$APP_BUNDLE/Contents/Resources/DRAW.cfg"
+fi
+
 # Copy sample files
 for f in "$SCRIPT_DIR"/*.draw; do
     [ -f "$f" ] && cp "$f" "$APP_BUNDLE/Contents/Resources/" 2>/dev/null || true
