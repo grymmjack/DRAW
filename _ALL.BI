@@ -11,6 +11,7 @@ $INCLUDEONCE
 '$INCLUDE:'./_COMMON.BI'
 
 ' CORE ------------------------------------------------------------------------
+'$INCLUDE:'./CORE/PERF.BI'
 '$INCLUDE:'./CORE/ERROR.BI'
 '$INCLUDE:'./CORE/IMAGE.BI'
 
@@ -42,6 +43,7 @@ $INCLUDEONCE
 '$INCLUDE:'./GUI/TOOLBAR.BI'
 '$INCLUDE:'./GUI/TRANSPARENCY.BI'
 '$INCLUDE:'./GUI/COMMAND.BI'
+'$INCLUDE:'./GUI/MENUBAR.BI'
 
 ' INPUT -----------------------------------------------------------------------
 '$INCLUDE:'./INPUT/KEYBOARD.BI'

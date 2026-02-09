@@ -140,7 +140,10 @@ DO
     ' Check for ESC key with confirmation if canvas is dirty
     ' If a tool/modal is active, let keyboard handler process ESC instead of exiting
     IF k& = 27 THEN
-        IF SHOULD_block_exit% THEN
+        IF MENUBAR_is_open% THEN
+            MENUBAR_close_all
+            k& = 0  ' Consume the key
+        ELSEIF SHOULD_block_exit% THEN
             ' Tool/modal active - let keyboard handler process ESC
         ELSEIF CANVAS_DIRTY% THEN
             IF SHOW_exit_confirm% THEN EXIT DO
@@ -151,12 +154,20 @@ DO
     END IF
     
     LOOP_start
+    PERF_start PERF_MAIN_LOOP_TOTAL
+    PERF_start PERF_MOUSE_INPUT
     MOUSE_input_handler
+    PERF_stop PERF_MOUSE_INPUT
+    PERF_start PERF_KEYBOARD_INPUT
     KEYBOARD_input_handler
+    PERF_stop PERF_KEYBOARD_INPUT
+    PERF_start PERF_STICK_INPUT
     STICK_input_handler
+    PERF_stop PERF_STICK_INPUT
     
     ' Idle detection: reduce FPS when nothing is happening to save CPU
     ' Check if anything needs updating this frame
+    PERF_start PERF_IDLE_DETECT
     FRAME_IDLE% = TRUE
     DIM SCENE_CHANGED AS INTEGER
     SCENE_CHANGED% = FALSE
@@ -173,6 +184,7 @@ DO
     IF CURRENT_TOOL% = TOOL_TEXT AND TEXT.ACTIVE THEN FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE
     IF IMG_IMPORT.STATE > IMPORT_STATE_IDLE THEN FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE
     IF CMD_PALETTE.visible THEN FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE
+    IF MENUBAR_is_open% THEN FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE
     IF SELECTION_has_active% THEN FRAME_IDLE% = FALSE  ' Animation only (marching ants) — no scene change
     IF SCENE_CHANGED% THEN SCENE_DIRTY% = TRUE
     ' Mark current layer content dirty when user is actively drawing
@@ -181,6 +193,7 @@ DO
     END IF
     IDLE_PREV_MOUSE_X% = MOUSE.RAW_X%
     IDLE_PREV_MOUSE_Y% = MOUSE.RAW_Y%
+    PERF_stop PERF_IDLE_DETECT
     
     ' Render FIRST, then limit — this minimizes latency between
     ' reading mouse input and displaying the result on screen.
@@ -192,6 +205,7 @@ DO
     END IF
     
     ' Apply frame rate limit AFTER render+display (reduced when idle)
+    PERF_start PERF_LIMIT_WAIT
     IF FRAME_IDLE% THEN
         _LIMIT IDLE_FPS_LIMIT
     ELSEIF CFG.FPS_LIMIT% > 0 AND CFG.FPS_LIMIT% <= 1000 THEN
@@ -199,10 +213,15 @@ DO
     ELSE
         _LIMIT 60  ' Safe fallback
     END IF
+    PERF_stop PERF_LIMIT_WAIT
     
+    PERF_start PERF_POST_INPUT
     MOUSE_input_handler_loop
     KEYBOARD_input_handler_loop
     STICK_input_handler_loop
+    PERF_stop PERF_POST_INPUT
+    PERF_stop PERF_MAIN_LOOP_TOTAL
+    PERF_frame_end
     LOOP_end
 LOOP
 
@@ -229,6 +248,7 @@ MAIN_shutdown
 FUNCTION SHOULD_block_exit% ()
     SHOULD_block_exit% = PALETTE_MENU_VISIBLE% _
         OR CMD_PALETTE.visible _
+        OR MENUBAR_is_open% _
         OR (IMG_IMPORT.STATE > IMPORT_STATE_IDLE) _
         OR (CURRENT_TOOL% = TOOL_MOVE AND MOVE.ACTIVE) _
         OR (CURRENT_TOOL% = TOOL_POLYGON AND POLY_LINE.HAS_LAST) _
@@ -296,7 +316,6 @@ SUB MAIN_shutdown ()
     IF SCRN.PAINTING& < -1 THEN _FREEIMAGE SCRN.PAINTING&
     IF SCRN.GUI& < -1 THEN _FREEIMAGE SCRN.GUI&
     ' SCRN.CURSOR& no longer allocated — cursors draw directly onto SCRN.CANVAS&
-    IF SCRN.WINDOW_IMG& < -1 THEN _FREEIMAGE SCRN.WINDOW_IMG&
     
     ' Free cached render buffers
     IF SCENE_CACHE& < -1 THEN _FREEIMAGE SCENE_CACHE&

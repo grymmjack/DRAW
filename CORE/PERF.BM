@@ -1,0 +1,147 @@
+''
+' DRAW - CORE/PERF.BM
+' =============================================================================
+' Performance profiling implementation.
+'
+' Usage:
+'   PERF_start PERF_SOME_SECTION
+'   ' ... code to measure ...
+'   PERF_stop PERF_SOME_SECTION
+'
+' At end of each frame call PERF_frame_end which logs averages every
+' PERF_LOG_INTERVAL frames via _LOGINFO.
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+
+''
+' Begin timing a section
+'
+SUB PERF_start (section AS INTEGER)
+    IF NOT PERF_ENABLED% THEN EXIT SUB
+    IF section% < 0 OR section% >= PERF_SECTION_COUNT THEN EXIT SUB
+    PERF_t0(section%) = TIMER(0.001)
+END SUB
+
+
+''
+' End timing a section and accumulate
+'
+SUB PERF_stop (section AS INTEGER)
+    IF NOT PERF_ENABLED% THEN EXIT SUB
+    IF section% < 0 OR section% >= PERF_SECTION_COUNT THEN EXIT SUB
+    DIM elapsed AS DOUBLE
+    elapsed# = TIMER(0.001) - PERF_t0(section%)
+    ' Handle midnight rollover
+    IF elapsed# < 0 THEN elapsed# = elapsed# + 86400
+    PERF_sum(section%) = PERF_sum(section%) + elapsed#
+    PERF_hits(section%) = PERF_hits(section%) + 1
+END SUB
+
+
+''
+' Call at the end of every frame. Logs averages every PERF_LOG_INTERVAL frames.
+'
+SUB PERF_frame_end ()
+    IF NOT PERF_ENABLED% THEN EXIT SUB
+    PERF_frame_count = PERF_frame_count + 1
+
+    ' Track max render time
+    DIM render_ms AS DOUBLE
+    IF PERF_hits(PERF_RENDER_TOTAL) > 0 THEN
+        render_ms# = (PERF_sum(PERF_RENDER_TOTAL) / PERF_hits(PERF_RENDER_TOTAL)) * 1000
+    END IF
+
+    IF PERF_frame_count >= PERF_LOG_INTERVAL THEN
+        DIM i AS INTEGER
+        DIM avg_ms AS DOUBLE
+        DIM total_ms AS DOUBLE
+        DIM pct AS DOUBLE
+        DIM line_out AS STRING
+        DIM render_avg AS DOUBLE
+
+        ' Get the render total for percentage calculation
+        IF PERF_hits(PERF_RENDER_TOTAL) > 0 THEN
+            render_avg# = (PERF_sum(PERF_RENDER_TOTAL) / PERF_hits(PERF_RENDER_TOTAL)) * 1000
+        ELSE
+            render_avg# = 0
+        END IF
+
+        _LOGINFO "==== PERF REPORT (" + _TRIM$(STR$(PERF_frame_count)) + " frames) ===="
+
+        ' Path distribution
+        DIM gui_hits AS LONG, dr_hits AS LONG, full_hits AS LONG, total_renders AS LONG
+        gui_hits& = PERF_hits(PERF_GUI_ONLY_PATH)
+        dr_hits& = PERF_hits(PERF_DIRTY_RECT_PATH)
+        full_hits& = PERF_hits(PERF_FULL_CLS_GUI)  ' Full path always hits CLS+GUI
+        total_renders& = PERF_hits(PERF_RENDER_TOTAL)
+        IF total_renders& > 0 THEN
+            _LOGINFO "  Path distribution: GUI-only=" + _TRIM$(STR$(gui_hits&)) + _
+                     " DirtyRect=" + _TRIM$(STR$(dr_hits&)) + _
+                     " Full=" + _TRIM$(STR$(full_hits&)) + _
+                     " Idle(skipped)=" + _TRIM$(STR$(PERF_frame_count - total_renders&))
+        END IF
+
+        FOR i% = 0 TO PERF_SECTION_COUNT - 1
+            IF PERF_hits(i%) > 0 THEN
+                avg_ms# = (PERF_sum(i%) / PERF_hits(i%)) * 1000
+                total_ms# = PERF_sum(i%) * 1000
+
+                ' Calculate percentage of render total (for render sub-sections)
+                IF i% >= PERF_GUI_ONLY_PATH AND i% <= PERF_DISPLAY_CALL AND render_avg# > 0 THEN
+                    pct# = (avg_ms# / render_avg#) * 100
+                    line_out$ = PERF_names(i%) + ": avg=" + PERF_format_ms$(avg_ms#) + _
+                                " total=" + PERF_format_ms$(total_ms#) + _
+                                " hits=" + _TRIM$(STR$(PERF_hits(i%))) + _
+                                " (" + _TRIM$(STR$(INT(pct#))) + "% of render)"
+                ELSE
+                    line_out$ = PERF_names(i%) + ": avg=" + PERF_format_ms$(avg_ms#) + _
+                                " total=" + PERF_format_ms$(total_ms#) + _
+                                " hits=" + _TRIM$(STR$(PERF_hits(i%)))
+                END IF
+
+                _LOGINFO line_out$
+            END IF
+        NEXT i%
+
+        ' Frame budget analysis
+        DIM fps AS INTEGER
+        fps% = CFG.FPS_LIMIT%
+        IF fps% <= 0 THEN fps% = 60
+        DIM budget_ms AS DOUBLE
+        budget_ms# = 1000.0 / fps%
+        IF render_avg# > 0 THEN
+            _LOGINFO "  Frame budget: " + PERF_format_ms$(budget_ms#) + _
+                     " @ " + _TRIM$(STR$(fps%)) + "fps" + _
+                     " | Render uses " + _TRIM$(STR$(INT(render_avg# / budget_ms# * 100))) + "%"
+        END IF
+
+        _LOGINFO "==== END PERF ===="
+
+        ' Reset accumulators
+        FOR i% = 0 TO PERF_SECTION_COUNT - 1
+            PERF_sum(i%) = 0
+            PERF_hits(i%) = 0
+        NEXT i%
+        PERF_frame_count = 0
+        PERF_max_render_ms = 0
+    END IF
+END SUB
+
+
+''
+' Format milliseconds nicely
+'
+FUNCTION PERF_format_ms$ (ms AS DOUBLE)
+    IF ms# < 0.01 THEN
+        PERF_format_ms$ = "<0.01ms"
+    ELSEIF ms# < 1 THEN
+        PERF_format_ms$ = LEFT$(_TRIM$(STR$(INT(ms# * 100) / 100)), 5) + "ms"
+    ELSEIF ms# < 10 THEN
+        PERF_format_ms$ = LEFT$(_TRIM$(STR$(INT(ms# * 10) / 10)), 5) + "ms"
+    ELSE
+        PERF_format_ms$ = _TRIM$(STR$(INT(ms#))) + "ms"
+    END IF
+END FUNCTION

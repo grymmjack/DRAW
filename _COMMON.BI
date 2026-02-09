@@ -12,6 +12,12 @@ $CONSOLE
 OPTION _EXPLICIT
 OPTION _EXPLICITARRAY
 
+' GPU-accelerated window scaling via FreeGLUT (statically linked in QB64-PE)
+' Used with $RESIZE:STRETCH to eliminate software _PUTIMAGE scaling
+DECLARE LIBRARY "./CORE/glut_reshape"
+    SUB glutReshapeWindow (BYVAL width AS LONG, BYVAL height AS LONG)
+END DECLARE
+
 $IF FALSE = UNDEFINED AND TRUE = UNDEFINED THEN
     $LET TRUE = TRUE
     CONST FALSE = 0 : CONST TRUE = NOT FALSE

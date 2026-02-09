@@ -118,23 +118,12 @@ SUB SCREEN_set_display_scale (newScale AS INTEGER)
     ' Update display scale
     SCRN.displayScale% = clampedScale%
     
-    ' Calculate new window size
+    ' Resize window — GPU scaling via $RESIZE:STRETCH handles the rest
     winW& = SCRN.w& * SCRN.displayScale%
     winH& = SCRN.h& * SCRN.displayScale%
+    glutReshapeWindow winW&, winH&
     
-    ' Create new window image FIRST (before freeing old one)
-    DIM oldWindow AS LONG
-    oldWindow& = SCRN.WINDOW_IMG&
-    SCRN.WINDOW_IMG& = _NEWIMAGE(winW&, winH&, 32)
-    
-    ' Switch to new window
-    SCREEN SCRN.WINDOW_IMG&
-    _DEST SCRN.CANVAS&
-    
-    ' NOW free the old window image (after we're no longer using it as SCREEN)
-    IF oldWindow& < -1 THEN _FREEIMAGE oldWindow&
-    
-    ' Reset input state after screen change
+    ' Reset input state after window resize
     DO WHILE _MOUSEINPUT: LOOP  ' Drain mouse buffer
     MOUSE_force_buttons_up       ' Reset button state
     _MOUSEHIDE                   ' Ensure system cursor stays hidden
@@ -207,18 +196,18 @@ SUB SCREEN_init ()
     SCRN.GUI&      = _NEWIMAGE(SCRN.w&, SCRN.h&, 32)
     ' SCRN.CURSOR& removed — cursors now draw directly onto SCRN.CANVAS&
     
-    ' Create window display buffer at scaled size
-    winW& = SCRN.w& * SCRN.displayScale%
-    winH& = SCRN.h& * SCRN.displayScale%
-    SCRN.WINDOW_IMG& = _NEWIMAGE(winW&, winH&, 32)
-    
     _DEST SCRN.PAINTING&
     CLS , _RGBA32(0, 0, 0, 0)
     _DEST SCRN.GUI&
     
-    ' Use WINDOW_IMG as the screen (window size)
-    SCREEN SCRN.WINDOW_IMG&
+    ' Use CANVAS as the SCREEN — GPU scaling via $RESIZE:STRETCH
+    SCREEN SCRN.CANVAS&
     _DEST SCRN.CANVAS&
+    
+    ' Set window to scaled size (GPU texture scaling, no software _PUTIMAGE)
+    winW& = SCRN.w& * SCRN.displayScale%
+    winH& = SCRN.h& * SCRN.displayScale%
+    glutReshapeWindow winW&, winH&
     
     ' Set window icon (cross-platform via SDL2)
     DIM iconHandle AS LONG
@@ -242,6 +231,8 @@ SUB SCREEN_init ()
     PALETTE_LOADER_init
     PALETTE_STRIP_init
     CMD_init  ' Initialize command palette
+    MENUBAR_init  ' Initialize menu bar (must be after CONFIG_load for theme)
+    SCRN.showMenubar% = TRUE
 END SUB
 
 
@@ -249,6 +240,7 @@ END SUB
 ' Draws screen
 ' 
 SUB SCREEN_render ()
+    PERF_start PERF_RENDER_TOTAL
     ' ========================================================================
     ' GUI-ONLY REFRESH: When only GUI elements changed (e.g. brush size in
     ' status bar) but the scene (layers, grid) hasn't, re-composite just the
@@ -256,6 +248,7 @@ SUB SCREEN_render ()
     ' grid rendering, and transparency checkerboard.
     ' ========================================================================
     IF NOT SCENE_DIRTY% AND GUI_NEEDS_REDRAW% AND SCENE_CACHE& <> 0 THEN
+        PERF_start PERF_GUI_ONLY_PATH
         ' Re-render GUI elements with updated content
         _DEST SCRN.GUI&
         CLS , _RGBA32(0, 0, 0, 0)
@@ -268,6 +261,11 @@ SUB SCREEN_render ()
         END IF
         IF LAYER_PANEL.visible% THEN
             LAYER_PANEL_render SCRN.h&
+        END IF
+
+        ' Menu bar renders LAST so submenus overlay other widgets
+        IF SCRN.showMenubar% AND MENU_BAR.visible% THEN
+            MENUBAR_render
         END IF
 
         ' Restore cached scene, overlay updated GUI, update cache
@@ -287,6 +285,7 @@ SUB SCREEN_render ()
         ' Jump to pointer+selection+upscale — must NOT fall through to
         ' dirty-rect, which only upscales the pointer region and would
         ' leave the updated GUI invisible in the window image.
+        PERF_stop PERF_GUI_ONLY_PATH
         GOTO SkipToPointer
     END IF
 
@@ -296,9 +295,10 @@ SUB SCREEN_render ()
     ' instead of copying and scaling the full canvas every frame.
     ' ========================================================================
     IF NOT SCENE_DIRTY% AND SCENE_CACHE& <> 0 THEN
+        PERF_start PERF_DIRTY_RECT_PATH
         DIM new_mx AS INTEGER, new_my AS INTEGER
-        new_mx% = _MOUSEX \ SCRN.displayScale%
-        new_my% = _MOUSEY \ SCRN.displayScale%
+        new_mx% = _MOUSEX
+        new_my% = _MOUSEY
 
         ' Dynamic padding: covers cursor PNG + brush preview + overlays
         DIM ptr_pad AS INTEGER
@@ -388,19 +388,20 @@ SUB SCREEN_render ()
             POINTER.PREV_DRAW_X% = new_mx%
             POINTER.PREV_DRAW_Y% = new_my%
 
-            ' --- Partial scale to WINDOW_IMG (only dirty rect) ---
-            DIM sc AS INTEGER: sc% = SCRN.displayScale%
-            _DEST SCRN.WINDOW_IMG&
-            _DONTBLEND SCRN.WINDOW_IMG&
-            _PUTIMAGE (dr_x1% * sc%, dr_y1% * sc%)-((dr_x2% + 1) * sc% - 1, (dr_y2% + 1) * sc% - 1), SCRN.CANVAS&, SCRN.WINDOW_IMG&, (dr_x1%, dr_y1%)-(dr_x2%, dr_y2%)
+            ' --- GPU scaling via $RESIZE:STRETCH handles display ---
 
+            PERF_stop PERF_DIRTY_RECT_PATH
+            PERF_start PERF_DISPLAY_CALL
             _DISPLAY
+            PERF_stop PERF_DISPLAY_CALL
             GUI_NEEDS_REDRAW% = FALSE
+            PERF_stop PERF_RENDER_TOTAL
             EXIT SUB
         END IF
         ' --- Dirty rect too large: fall through to full-copy fast path ---
 
         ' Full-copy fast path (selection covers too much area)
+        PERF_stop PERF_DIRTY_RECT_PATH
         _DEST SCRN.CANVAS&
         _DONTBLEND SCRN.CANVAS&
         _PUTIMAGE , SCENE_CACHE&, SCRN.CANVAS&
@@ -409,6 +410,7 @@ SUB SCREEN_render ()
     END IF
 
     ' todo get status to hide when painting 
+    PERF_start PERF_FULL_CLS_GUI
     _DEST SCRN.CANVAS&
     CLS
     
@@ -430,10 +432,16 @@ SUB SCREEN_render ()
         IF LAYER_PANEL.visible% THEN
             LAYER_PANEL_render SCRN.h&
         END IF
+
+        ' Menu bar renders LAST so submenus overlay other widgets
+        IF SCRN.showMenubar% AND MENU_BAR.visible% THEN
+            MENUBAR_render
+        END IF
     END IF
     
     ' Switch back to canvas for main rendering
     _DEST SCRN.CANVAS&
+    PERF_stop PERF_FULL_CLS_GUI
     
     ' Calculate zoomed dimensions and position (using logical canvas dimensions)
     DIM zw AS LONG, zh AS LONG, dx AS INTEGER, dy AS INTEGER
@@ -446,11 +454,19 @@ SUB SCREEN_render ()
     IF LAYER_PANEL.visible% THEN
         dx% = dx% + CFG.LAYER_PANEL_WIDTH%
     END IF
+
+    ' Offset canvas Y when menu bar is visible
+    IF SCRN.showMenubar% AND MENU_BAR.visible% THEN
+        dy% = dy% + MENU_BAR_HEIGHT
+    END IF
     
     ' Render transparency checkerboard first (behind all layers)
+    PERF_start PERF_FULL_CHECKERBOARD
     TRANSPARENCY_render SCRN.CANVAS&, dx%, dy%, zw&, zh&
+    PERF_stop PERF_FULL_CHECKERBOARD
     
     ' Render all visible layers with zoom, compositing bottom-to-top
+    PERF_start PERF_FULL_LAYERS
     _DEST SCRN.CANVAS&
     _BLEND SCRN.CANVAS&
     
@@ -670,9 +686,10 @@ SUB SCREEN_render ()
             _PUTIMAGE (dx%, dy%)-(dx% + zw& - 1, dy% + zh& - 1), SCRN.PAINTING&
         END IF
     END IF
+    PERF_stop PERF_FULL_LAYERS
     
     ' Draw grid overlays (after painting, before border/GUI)
-    ' Regular grid shows at 100%+ zoom if enabled
+    PERF_start PERF_FULL_GRIDS
     IF GRID.SHOW% AND SCRN.zoom! >= 1.0 THEN
         _DEST SCRN.CANVAS&
         _SOURCE GRID.imgHandle&
@@ -718,8 +735,10 @@ SUB SCREEN_render ()
         _BLEND SCRN.CANVAS&
         _PUTIMAGE (dx%, dy%), PG_CACHE_IMG&
     END IF
+    PERF_stop PERF_FULL_GRIDS
     
     ' Draw symmetry guide overlay (after grids, before border/GUI)
+    PERF_start PERF_FULL_SYMMETRY
     IF SYMMETRY.MODE > 0 THEN
         ' Recreate guide image if size changed
         IF SYMMETRY.imgHandle& = 0 OR _WIDTH(SYMMETRY.imgHandle&) <> zw& OR _HEIGHT(SYMMETRY.imgHandle&) <> zh& THEN
@@ -734,6 +753,7 @@ SUB SCREEN_render ()
         _BLEND SCRN.CANVAS&  ' Use alpha blending for transparency
         _PUTIMAGE (dx%, dy%), SYMMETRY.imgHandle&, SCRN.CANVAS&
     END IF
+    PERF_stop PERF_FULL_SYMMETRY
     
     ' Draw border around canvas (after painting layer)
     LINE (dx% - 1, dy% - 1)-(dx% + zw&, dy% + zh&), _RGB32(51, 51, 51), B
@@ -747,6 +767,7 @@ SUB SCREEN_render ()
     ' ==== END IMAGE IMPORT PREVIEW ====
     
     ' ==== TOOL PREVIEWS (BEFORE GUI LAYER) ====
+    PERF_start PERF_FULL_TOOL_PREVIEW
     ' NOTE: Selection marching ants rendering moved AFTER scene cache save
     ' (SkipToPointer section) so animated ants don't force full scene re-render.
     ' Draw MARQUEE dragging preview (only when using marquee tool)
@@ -969,8 +990,10 @@ SUB SCREEN_render ()
         IF prev_blend& = 0 THEN _DONTBLEND SCRN.CANVAS&
     END IF
     ' ==== END TOOL PREVIEWS ====
+    PERF_stop PERF_FULL_TOOL_PREVIEW
     
     ' ==== GUI LAYER (AFTER TOOL PREVIEWS) ====
+    PERF_start PERF_FULL_GUI_OVERLAY
     _DEST SCRN.CANVAS& : _SOURCE SCRN.GUI& : _PUTIMAGE
     
     ' ==== IMAGE IMPORT STATUS BAR (after GUI so it's visible) ====
@@ -986,10 +1009,12 @@ SUB SCREEN_render ()
         MOVE_render_status SCRN.CANVAS&
     END IF
     ' ==== END MOVE TOOL STATUS BAR ====
+    PERF_stop PERF_FULL_GUI_OVERLAY
     
     ' Render crosshair AFTER GUI layer so it's visible (using SHIFT key alone)
     ' Skip when Text tool is active (SHIFT is used for uppercase letters)
     ' Skip when CTRL or ALT are also held (those are modifier combos for other functions)
+    PERF_start PERF_FULL_CROSSHAIR_CMD
     DIM shiftHeld AS INTEGER, ctrlHeld AS INTEGER, altHeld AS INTEGER
     shiftHeld% = (_KEYDOWN(KEY_LSHIFT&) OR _KEYDOWN(KEY_RSHIFT&))
     ctrlHeld% = (_KEYDOWN(100305) OR _KEYDOWN(100306))  ' LCTRL or RCTRL
@@ -1008,8 +1033,10 @@ SUB SCREEN_render ()
         CMD_render SCRN.CANVAS&
     END IF
     ' ==== END COMMAND PALETTE ====
+    PERF_stop PERF_FULL_CROSSHAIR_CMD
     
     ' Save scene to cache (everything rendered, before cursor)
+    PERF_start PERF_SCENE_CACHE_SAVE
     IF SCENE_CACHE& = 0 OR _WIDTH(SCENE_CACHE&) <> SCRN.w& OR _HEIGHT(SCENE_CACHE&) <> SCRN.h& THEN
         IF SCENE_CACHE& < -1 THEN _FREEIMAGE SCENE_CACHE&
         SCENE_CACHE& = _NEWIMAGE(SCRN.w&, SCRN.h&, 32)
@@ -1020,9 +1047,11 @@ SUB SCREEN_render ()
     _BLEND SCENE_CACHE&
     _DEST SCRN.CANVAS&
     SCENE_DIRTY% = FALSE
+    PERF_stop PERF_SCENE_CACHE_SAVE
 
     SkipToPointer:
     ' ==== SELECTION OVERLAY (after scene cache, animates without full re-render) ====
+    PERF_start PERF_SELECTION_OVERLAY
     ' Draw MARQUEE selection marching ants if active (from any tool)
     IF SELECTION_has_active% THEN
         IF MARQUEE.WAND_HAS_SELECTION AND MARQUEE.SELECTION_MASK < -1 THEN
@@ -1039,20 +1068,26 @@ SUB SCREEN_render ()
         END IF
     END IF
     ' ==== END SELECTION OVERLAY ====
+    PERF_stop PERF_SELECTION_OVERLAY
+    PERF_start PERF_POINTER_RENDER
     POINTER_update
     POINTER_render
+    PERF_stop PERF_POINTER_RENDER
 
     ' Save pointer position for next frame's dirty-rect optimization
-    POINTER.PREV_DRAW_X% = _MOUSEX \ SCRN.displayScale%
-    POINTER.PREV_DRAW_Y% = _MOUSEY \ SCRN.displayScale%
+    POINTER.PREV_DRAW_X% = _MOUSEX
+    POINTER.PREV_DRAW_Y% = _MOUSEY
     
-    ' Scale CANVAS to WINDOW_IMG for display (integer scaling, nearest neighbor)
-    _DEST SCRN.WINDOW_IMG&
-    _DONTBLEND SCRN.WINDOW_IMG&
-    _PUTIMAGE (0, 0)-(_WIDTH(SCRN.WINDOW_IMG&) - 1, _HEIGHT(SCRN.WINDOW_IMG&) - 1), SCRN.CANVAS&, SCRN.WINDOW_IMG&
+    ' GPU scaling via $RESIZE:STRETCH — no software scale needed
+    PERF_start PERF_FINAL_SCALE
+    ' (eliminated: glutReshapeWindow + $RESIZE:STRETCH handles scaling in _DISPLAY)
+    PERF_stop PERF_FINAL_SCALE
     
+    PERF_start PERF_DISPLAY_CALL
     _DISPLAY
+    PERF_stop PERF_DISPLAY_CALL
     
     ' Reset GUI dirty flag at end of render
     GUI_NEEDS_REDRAW% = FALSE
+    PERF_stop PERF_RENDER_TOTAL
 END SUB

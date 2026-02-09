@@ -22,6 +22,20 @@ THEME.PIXEL_GRID_color2~&     = _RGBA32(60, 60, 60, 64) ' Unused (for future che
 THEME.SYMMETRY_guide_fg~&     = _RGBA32(0, 255, 255, 128) ' Cyan guide lines at 50% opacity
 THEME.SYMMETRY_center_fg~&    = _RGBA32(255, 255, 0, 128)  ' Yellow center crosshair at 50% opacity
 
+' Menu bar colors
+THEME.MENU_BAR_bg~&            = _RGB32(121, 121, 121)     ' #797979 - medium gray bar
+THEME.MENU_BAR_fg~&            = _RGB32(0, 0, 0)           ' Black text
+THEME.MENU_BAR_border~&        = _RGB32(0, 0, 0)           ' Black border
+THEME.MENU_BAR_divider~&       = _RGB32(121, 121, 121)     ' Same as bar bg
+THEME.MENU_BAR_sel_bg~&        = _RGB32(85, 85, 85)        ' #555555 - darker highlight
+THEME.MENU_BAR_sel_fg~&        = _RGB32(255, 255, 255)     ' White text on highlight
+THEME.MENU_SUB_bg~&            = _RGB32(121, 121, 121)     ' #797979 - medium gray submenu
+THEME.MENU_SUB_fg~&            = _RGB32(0, 0, 0)           ' Black text
+THEME.MENU_SUB_border~&        = _RGB32(0, 0, 0)           ' Black border
+THEME.MENU_SUB_divider~&       = _RGB32(85, 85, 85)        ' #555555 - subtle divider
+THEME.MENU_SUB_sel_bg~&        = _RGB32(85, 85, 85)        ' #555555 - darker highlight
+THEME.MENU_SUB_sel_fg~&        = _RGB32(255, 255, 255)     ' White text on highlight
+
 ' =============================================================================
 ' CURSORS - PNG cursor configuration
 ' =============================================================================

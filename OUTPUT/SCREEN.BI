@@ -16,7 +16,6 @@ TYPE SCREEN_OBJ
     PAINTING AS LONG
     CURSOR   AS LONG
     GUI      AS LONG
-    WINDOW_IMG AS LONG       ' Display window buffer (scaled)
     displayScale AS INTEGER  ' Current display scale multiplier (1-8)
     zoom     AS SINGLE   ' Current zoom level
     zoomMin  AS SINGLE   ' Minimum zoom
@@ -30,8 +29,10 @@ TYPE SCREEN_OBJ
     panOrigOffsetY AS INTEGER ' Original offset when pan started
     showToolbar AS INTEGER ' Show/hide toolbar
     showStatus AS INTEGER  ' Show/hide status bar
+    showMenubar AS INTEGER ' Show/hide menu bar
     toolbarManuallyHidden AS INTEGER ' Toolbar manually hidden by user
     statusManuallyHidden AS INTEGER  ' Status manually hidden by user
+    menubarManuallyHidden AS INTEGER ' Menu bar manually hidden by user
 END TYPE
 
 DIM SHARED SCRN AS SCREEN_OBJ

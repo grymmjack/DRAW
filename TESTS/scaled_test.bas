@@ -1,0 +1,42 @@
+$RESIZE:STRETCH
+$CONSOLE
+_DEST _CONSOLE
+
+' Test what _SCALEDWIDTH and _SCALEDHEIGHT return
+' vs _WIDTH, _HEIGHT, _RESIZEWIDTH, _RESIZEHEIGHT
+
+SCREEN _NEWIMAGE(640, 400, 32)
+
+_DELAY 0.5 ' Let window settle
+
+PRINT "=== QB64-PE Window/Scale Query Test ==="
+PRINT
+PRINT "_WIDTH        ="; _WIDTH
+PRINT "_HEIGHT       ="; _HEIGHT
+PRINT "_SCALEDWIDTH  ="; _SCALEDWIDTH
+PRINT "_SCALEDHEIGHT ="; _SCALEDHEIGHT
+PRINT "_DESKTOPWIDTH ="; _DESKTOPWIDTH
+PRINT "_DESKTOPHEIGHT="; _DESKTOPHEIGHT
+PRINT
+PRINT "Now resize the window manually and press SPACE..."
+
+DO
+    k$ = INKEY$
+    IF k$ = " " THEN
+        PRINT
+        PRINT "After resize:"
+        PRINT "_WIDTH        ="; _WIDTH
+        PRINT "_HEIGHT       ="; _HEIGHT
+        PRINT "_SCALEDWIDTH  ="; _SCALEDWIDTH
+        PRINT "_SCALEDHEIGHT ="; _SCALEDHEIGHT
+        IF _RESIZE THEN
+            PRINT "_RESIZEWIDTH  ="; _RESIZEWIDTH
+            PRINT "_RESIZEHEIGHT ="; _RESIZEHEIGHT
+        END IF
+        PRINT "Press SPACE again or ESC to quit..."
+    END IF
+    IF k$ = CHR$(27) THEN EXIT DO
+    _LIMIT 30
+LOOP
+
+SYSTEM

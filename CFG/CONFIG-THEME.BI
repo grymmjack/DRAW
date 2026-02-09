@@ -31,6 +31,19 @@ TYPE DRAW_THEME
     PIXEL_GRID_color2      AS _UNSIGNED LONG ' Pixel grid checker color 2 (RGBA)
     SYMMETRY_guide_fg      AS _UNSIGNED LONG ' Symmetry guide line color (RGBA)
     SYMMETRY_center_fg     AS _UNSIGNED LONG ' Symmetry center crosshair color (RGBA)
+    ' Menu bar theme colors
+    MENU_BAR_bg            AS _UNSIGNED LONG ' Menu bar background color
+    MENU_BAR_fg            AS _UNSIGNED LONG ' Menu bar foreground (text) color
+    MENU_BAR_border        AS _UNSIGNED LONG ' Menu bar border color
+    MENU_BAR_divider       AS _UNSIGNED LONG ' Menu bar divider color
+    MENU_BAR_sel_bg        AS _UNSIGNED LONG ' Menu bar selected item bg
+    MENU_BAR_sel_fg        AS _UNSIGNED LONG ' Menu bar selected item fg
+    MENU_SUB_bg            AS _UNSIGNED LONG ' Submenu background color
+    MENU_SUB_fg            AS _UNSIGNED LONG ' Submenu foreground (text) color
+    MENU_SUB_border        AS _UNSIGNED LONG ' Submenu border color
+    MENU_SUB_divider       AS _UNSIGNED LONG ' Submenu divider color
+    MENU_SUB_sel_bg        AS _UNSIGNED LONG ' Submenu selected item bg
+    MENU_SUB_sel_fg        AS _UNSIGNED LONG ' Submenu selected item fg
 END TYPE
 
 DIM SHARED THEME AS DRAW_THEME
