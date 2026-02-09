@@ -15,7 +15,20 @@ $EXEICON:'./ASSETS/ICONS/icon.ico'
   
 ' Parse command line arguments (just store filename, load after first frame)
 DIM cmdArg$
-cmdArg$ = _TRIM$(COMMAND$)
+
+$IF MAC THEN
+    ' macOS .app bundle: Finder passes file path via DRAW_OPEN_FILE env var
+    ' (set by the launcher script in the .app bundle, since macOS uses Apple
+    ' Events for file association opens, not command-line arguments)
+    cmdArg$ = _TRIM$(ENVIRON$("DRAW_OPEN_FILE"))
+    IF cmdArg$ = "" THEN
+        ' Fallback: check COMMAND$ for direct terminal launch
+        cmdArg$ = _TRIM$(COMMAND$)
+    END IF
+$ELSE
+    cmdArg$ = _TRIM$(COMMAND$)
+$END IF
+
 IF cmdArg$ <> "" THEN
     ' Remove surrounding quotes if present
     IF LEFT$(cmdArg$, 1) = CHR$(34) AND RIGHT$(cmdArg$, 1) = CHR$(34) THEN
@@ -41,6 +54,11 @@ LAYER_PANEL_load_icons
 ' Set initial window title
 TITLE_update
 
+$IF WIN THEN
+    ' Windows: enable drag-and-drop file support
+    _ACCEPTFILEDROP
+$END IF
+
 ' Main Loop
 DIM k AS LONG
 DIM exitConfirmed AS INTEGER
@@ -64,6 +82,25 @@ DO
     ELSEIF CMDLINE_FIRST_FRAME% THEN
         CMDLINE_FIRST_FRAME% = FALSE
     END IF
+
+    $IF WIN THEN
+        ' Windows: handle drag-and-drop files onto window
+        IF _TOTALDROPPEDFILES THEN
+            DIM dropFile$, dropExt$
+            dropFile$ = _DROPPEDFILE$(1)
+            _FINISHDROP
+            IF dropFile$ <> "" AND _FILEEXISTS(dropFile$) THEN
+                dropExt$ = LCASE$(RIGHT$(dropFile$, 5))
+                IF dropExt$ = ".draw" THEN
+                    DRW_load dropFile$
+                    CURRENT_DRW_FILENAME$ = dropFile$
+                ELSE
+                    DIM dropLoadResult%
+                    dropLoadResult% = IMAGE_IMPORT_load_file%(dropFile$)
+                END IF
+            END IF
+        END IF
+    $END IF
     k& = _KEYHIT
     
     $IF MAC THEN
