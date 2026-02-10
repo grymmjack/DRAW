@@ -28,6 +28,9 @@ SUB MENUBAR_init ()
 
     ' Register all menu items from spec
     MENUBAR_register_all
+
+    ' Calculate initial geometry so bounds checks work before first render
+    MENUBAR_update_bar_geometry
 END SUB
 
 
@@ -114,7 +117,7 @@ SUB MENUBAR_register_all ()
     MENUBAR_register_item "SCALE +50%", "PgUp", 1, 318, FALSE, FALSE
 
     ' ========== VIEW MENU (parentIdx = 2) ==========
-    MENUBAR_register_item "MENU BAR", "", 2, 411, TRUE, FALSE
+    MENUBAR_register_item "MENU BAR", "Ctrl+F11", 2, 411, TRUE, FALSE
     MENUBAR_register_item "LAYER PANEL", "Ctrl+L", 2, 404, TRUE, FALSE
     MENUBAR_register_item "TOOLBOX", "Tab", 2, 401, TRUE, FALSE
     MENUBAR_register_item "COLOR STRIP/STATUS", "F10", 2, 402, TRUE, FALSE
@@ -124,7 +127,7 @@ SUB MENUBAR_register_all ()
     MENUBAR_register_item "GRID", "'", 2, 901, TRUE, FALSE
     MENUBAR_register_item "SNAP TO GRID", ";", 2, 903, TRUE, FALSE
     MENUBAR_register_item "PIXEL GRID", "Shift+'", 2, 902, TRUE, FALSE
-    MENUBAR_register_item "CURSORS", "", 2, 412, TRUE, FALSE
+    MENUBAR_register_item "CURSORS", "`", 2, 412, TRUE, FALSE
     MENUBAR_register_item "---", "", 2, 0, FALSE, TRUE
     MENUBAR_register_item "ZOOM 100%", "Ctrl+0", 2, 405, FALSE, FALSE
     MENUBAR_register_item "ZOOM IN", "Ctrl+=", 2, 406, FALSE, FALSE
@@ -210,7 +213,7 @@ SUB MENUBAR_register_all ()
     MENUBAR_register_item "---", "", 7, 0, FALSE, TRUE
     MENUBAR_register_item "RANDOM", "", 7, 1503, FALSE, FALSE
     MENUBAR_register_item "---", "", 7, 0, FALSE, TRUE
-    MENUBAR_register_item "COLOR PICKER", "I", 7, 104, FALSE, FALSE
+    MENUBAR_register_item "COLOR PICKER", "", 7, 1504, FALSE, FALSE
 
     ' ========== HELP MENU (parentIdx = 8) ==========
     MENUBAR_register_item "ABOUT DRAW", "", 8, 1601, FALSE, FALSE
@@ -311,7 +314,7 @@ SUB MENUBAR_update_checkboxes ()
                 CASE 902 ' Pixel Grid
                     MENU_ITEMS(i%).checked% = PIXEL_GRID.SHOW%
                 CASE 412 ' Cursors
-                    MENU_ITEMS(i%).checked% = TRUE ' Always on for now
+                    MENU_ITEMS(i%).checked% = NOT POINTER.HIDDEN
                 CASE 1103 ' Recolor Mode
                     MENU_ITEMS(i%).checked% = CUSTOM_BRUSH_is_active% AND CUSTOM_BRUSH.RECOLOR_MODE
             END SELECT
@@ -525,10 +528,9 @@ SUB MENUBAR_handle_click (rawX AS INTEGER, rawY AS INTEGER)
     ' Check if click is on the menu bar itself
     IF rawY% >= MENU_BAR.barY% AND rawY% < MENU_BAR.barY% + MENU_BAR.barH% _
         AND rawX% >= MENU_BAR.barX% AND rawX% < MENU_BAR.barX% + MENU_BAR.barW% THEN
-        ' Find which root item was clicked
+        ' Find which root item was clicked (use full MENU_ROOT_W for continuous hitboxes)
         FOR i% = 0 TO MENU_ROOT_COUNT% - 1
-            lbl$ = RTRIM$(MENU_ROOT_LABEL(i%))
-            IF rawX% >= MENU_ROOT_X(i%) - 2 AND rawX% < MENU_ROOT_X(i%) + _PRINTWIDTH(lbl$) + 2 THEN
+            IF rawX% >= MENU_ROOT_X(i%) - 2 AND rawX% < MENU_ROOT_X(i%) + MENU_ROOT_W(i%) THEN
                 IF MENU_BAR.openMenu% = i% THEN
                     ' Clicked on same menu - close it
                     MENUBAR_close_all
@@ -606,8 +608,7 @@ SUB MENUBAR_handle_mouse_move (rawX AS INTEGER, rawY AS INTEGER)
         AND rawX% >= MENU_BAR.barX% AND rawX% < MENU_BAR.barX% + MENU_BAR.barW% THEN
         MENU_BAR.hoverRoot% = -1
         FOR i% = 0 TO MENU_ROOT_COUNT% - 1
-            lbl$ = RTRIM$(MENU_ROOT_LABEL(i%))
-            IF rawX% >= MENU_ROOT_X(i%) - 2 AND rawX% < MENU_ROOT_X(i%) + _PRINTWIDTH(lbl$) + 2 THEN
+            IF rawX% >= MENU_ROOT_X(i%) - 2 AND rawX% < MENU_ROOT_X(i%) + MENU_ROOT_W(i%) THEN
                 MENU_BAR.hoverRoot% = i%
                 ' If a menu is open and we hover a different root, switch to it
                 IF MENU_BAR.openMenu% >= 0 AND MENU_BAR.openMenu% <> i% THEN
@@ -624,11 +625,14 @@ SUB MENUBAR_handle_mouse_move (rawX AS INTEGER, rawY AS INTEGER)
         MENU_BAR.hoverSub% = MENUBAR_get_submenu_item_at%(rawY%)
         MENU_BAR.hoverRoot% = MENU_BAR.openMenu%
     ELSE
-        ' Mouse is outside both
+        ' Mouse is outside both bar and submenu
         IF MENU_BAR.openMenu% < 0 THEN
             MENU_BAR.hoverRoot% = -1
+            MENU_BAR.hoverSub% = -1
         END IF
-        MENU_BAR.hoverSub% = -1
+        ' When a menu IS open, don't reset hoverSub — keyboard
+        ' navigation sets it and mouse shouldn't clobber it
+        ' unless the mouse actually enters the submenu (handled above)
     END IF
 
     ' Request redraw if hover state changed
@@ -740,20 +744,18 @@ FUNCTION MENUBAR_handle_key% (k AS LONG)
                 childIdx2% = 0
                 FOR itemIdx2% = 0 TO MENU_ITEM_COUNT% - 1
                     IF MENU_ITEMS(itemIdx2%).parentIdx% = MENU_BAR.openMenu% THEN
-                        IF NOT MENU_ITEMS(itemIdx2%).isDivider% THEN
-                            IF childIdx2% = MENU_BAR.hoverSub% THEN
-                                IF MENU_ITEMS(itemIdx2%).enabled% THEN
-                                    IF MENU_ITEMS(itemIdx2%).hasCheckbox% THEN
-                                        MENU_ITEMS(itemIdx2%).checked% = NOT MENU_ITEMS(itemIdx2%).checked%
-                                    END IF
-                                    DIM actId2 AS INTEGER
-                                    actId2% = MENU_ITEMS(itemIdx2%).actionId%
-                                    MENUBAR_close_all
-                                    IF actId2% > 0 THEN CMD_execute_action actId2%
+                        IF childIdx2% = MENU_BAR.hoverSub% THEN
+                            IF NOT MENU_ITEMS(itemIdx2%).isDivider% AND MENU_ITEMS(itemIdx2%).enabled% THEN
+                                IF MENU_ITEMS(itemIdx2%).hasCheckbox% THEN
+                                    MENU_ITEMS(itemIdx2%).checked% = NOT MENU_ITEMS(itemIdx2%).checked%
                                 END IF
-                                MENUBAR_handle_key% = TRUE
-                                EXIT FUNCTION
+                                DIM actId2 AS INTEGER
+                                actId2% = MENU_ITEMS(itemIdx2%).actionId%
+                                MENUBAR_close_all
+                                IF actId2% > 0 THEN CMD_execute_action actId2%
                             END IF
+                            MENUBAR_handle_key% = TRUE
+                            EXIT FUNCTION
                         END IF
                         childIdx2% = childIdx2% + 1
                     END IF
@@ -775,32 +777,60 @@ END FUNCTION
 SUB MENUBAR_navigate_submenu (direction AS INTEGER)
     DIM childCount AS INTEGER, childIdx AS INTEGER
     DIM i AS INTEGER
-    DIM nonDividerCount AS INTEGER
+    DIM totalChildren AS INTEGER
 
-    ' Count non-divider children
-    nonDividerCount% = 0
+    ' Count ALL children (including dividers) and build a divider map
+    totalChildren% = 0
     FOR i% = 0 TO MENU_ITEM_COUNT% - 1
-        IF MENU_ITEMS(i%).parentIdx% = MENU_BAR.openMenu% AND NOT MENU_ITEMS(i%).isDivider% THEN
-            nonDividerCount% = nonDividerCount% + 1
+        IF MENU_ITEMS(i%).parentIdx% = MENU_BAR.openMenu% THEN
+            totalChildren% = totalChildren% + 1
         END IF
     NEXT i%
 
-    IF nonDividerCount% = 0 THEN EXIT SUB
+    IF totalChildren% = 0 THEN EXIT SUB
 
-    ' Move hover
+    ' Start from current position or edge
+    DIM newPos AS INTEGER
     IF MENU_BAR.hoverSub% < 0 THEN
         IF direction% > 0 THEN
-            MENU_BAR.hoverSub% = 0
+            newPos% = -1  ' Will be incremented to 0
         ELSE
-            MENU_BAR.hoverSub% = nonDividerCount% - 1
+            newPos% = totalChildren%  ' Will be decremented to last
         END IF
     ELSE
-        MENU_BAR.hoverSub% = MENU_BAR.hoverSub% + direction%
-        ' Wrap around
-        IF MENU_BAR.hoverSub% < 0 THEN MENU_BAR.hoverSub% = nonDividerCount% - 1
-        IF MENU_BAR.hoverSub% >= nonDividerCount% THEN MENU_BAR.hoverSub% = 0
+        newPos% = MENU_BAR.hoverSub%
     END IF
 
+    ' Move in direction, skipping dividers, with wrapping
+    DIM attempts AS INTEGER
+    attempts% = 0
+    DO
+        newPos% = newPos% + direction%
+        ' Wrap around
+        IF newPos% < 0 THEN newPos% = totalChildren% - 1
+        IF newPos% >= totalChildren% THEN newPos% = 0
+
+        ' Check if this position is a divider
+        childIdx% = 0
+        DIM isDivider AS INTEGER
+        isDivider% = FALSE
+        FOR i% = 0 TO MENU_ITEM_COUNT% - 1
+            IF MENU_ITEMS(i%).parentIdx% = MENU_BAR.openMenu% THEN
+                IF childIdx% = newPos% THEN
+                    isDivider% = MENU_ITEMS(i%).isDivider%
+                    EXIT FOR
+                END IF
+                childIdx% = childIdx% + 1
+            END IF
+        NEXT i%
+
+        IF NOT isDivider% THEN EXIT DO
+
+        attempts% = attempts% + 1
+        IF attempts% >= totalChildren% THEN EXIT DO  ' Safety: all dividers
+    LOOP
+
+    MENU_BAR.hoverSub% = newPos%
     GUI_NEEDS_REDRAW% = TRUE
 END SUB
 
