@@ -29,11 +29,13 @@ THEME.MENU_BAR_border~&        = _RGB32(0, 0, 0)           ' Black border
 THEME.MENU_BAR_divider~&       = _RGB32(121, 121, 121)     ' Same as bar bg
 THEME.MENU_BAR_sel_bg~&        = _RGB32(85, 85, 85)        ' #555555 - darker highlight
 THEME.MENU_BAR_sel_fg~&        = _RGB32(255, 255, 255)     ' White text on highlight
+THEME.MENU_BAR_disabled_fg~&   = _RGB32(80, 80, 80)        ' #505050 - dimmed disabled text
 THEME.MENU_SUB_bg~&            = _RGB32(121, 121, 121)     ' #797979 - medium gray submenu
 THEME.MENU_SUB_fg~&            = _RGB32(0, 0, 0)           ' Black text
 THEME.MENU_SUB_border~&        = _RGB32(0, 0, 0)           ' Black border
 THEME.MENU_SUB_divider~&       = _RGB32(85, 85, 85)        ' #555555 - subtle divider
 THEME.MENU_SUB_sel_bg~&        = _RGB32(85, 85, 85)        ' #555555 - darker highlight
+THEME.MENU_SUB_disabled_fg~&   = _RGB32(80, 80, 80)        ' #505050 - dimmed disabled text
 THEME.MENU_SUB_sel_fg~&        = _RGB32(255, 255, 255)     ' White text on highlight
 
 ' =============================================================================

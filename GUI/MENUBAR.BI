@@ -74,6 +74,7 @@ DIM SHARED MENU_ROOT_W(MENU_MAX_ROOT) AS INTEGER       ' Width of each root labe
 DIM SHARED MENU_ROOT_LABEL(MENU_MAX_ROOT) AS STRING * 16 ' Cached trimmed root labels
 DIM SHARED MENU_ROOT_COUNT AS INTEGER                   ' Number of root items
 DIM SHARED MENU_ROOT_IDX(MENU_MAX_ROOT) AS INTEGER      ' Index into MENU_ITEMS for each root
+DIM SHARED MENU_ROOT_ENABLED(MENU_MAX_ROOT) AS INTEGER  ' Whether each root menu is enabled
 
 ' Sub declarations
 DECLARE SUB MENUBAR_init ()

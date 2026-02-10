@@ -304,7 +304,8 @@ DRAW includes 10 dither patterns (0-9) that can be applied to brush, dot, and fi
 |-----|----------|
 | `Tab` | Toggle toolbar visibility |
 | `F10` | Toggle status bar visibility |
-| `F11` | Toggle both toolbar and status bar |
+| `F11` | Toggle all UI (toolbar, status bar, layer panel, menu bar) |
+| `Ctrl+F11` | Toggle menu bar visibility |
 | `Shift` | Show crosshair (when held) |
 
 ### Canvas Zoom
@@ -696,6 +697,41 @@ When loading an image larger than the canvas, DRAW enters **Image Import Mode** 
 - Use **Alt+Arrows** or **right-drag** to pan to different parts of the zoomed image
 - Combine zoom and pan to precisely select which portion of an oversized image to use
 - The image is scaled to fit your destination box while maintaining the current crop
+
+## Menu Bar
+
+DRAW has an optional menu bar at the top of the screen providing access to all commands organized by category.
+
+### Menu Bar Controls
+
+| Key | Function |
+|-----|----------|
+| `Alt` (tap and release) | Open/close menu bar |
+| `Ctrl+F11` | Toggle menu bar visibility |
+| `Left/Right Arrow` | Navigate between menus (when open) |
+| `Up/Down Arrow` | Navigate menu items (when open) |
+| `Enter` | Execute selected menu item |
+| `Escape` | Close menu |
+
+### Menu Bar Features
+
+- **Keyboard navigation**: Tap `Alt` to activate, then use arrow keys to browse
+- **Mouse navigation**: Click menu labels to open, hover to switch menus
+- **Hotkey hints**: Each menu item shows its keyboard shortcut on the right
+- **Checkmarks**: Toggle items (grid, toolbar, etc.) show current state
+- **Dividers**: Visual separators group related commands
+
+### Menu Categories
+
+| Menu | Contents |
+|------|----------|
+| **File** | New, Open, Save, Save As, Export, Quit |
+| **Edit** | Undo, Redo, Cut, Copy, Paste, Select All, Deselect, Invert Selection |
+| **View** | Toolbar, Status Bar, Layer Panel, Menu Bar, Cursors, Grid, Pixel Grid, Snap, Crosshair |
+| **Canvas** | Clear Canvas, Zoom In/Out, Reset Zoom |
+| **Tools** | All drawing tools (Dot, Brush, Line, etc.) |
+| **Palette** | Color Picker, Load Palette, Swap Colors |
+| **Help** | Command Palette, Cheatsheet |
 
 ## UI Behavior
 

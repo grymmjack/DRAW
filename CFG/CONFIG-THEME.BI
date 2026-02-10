@@ -38,11 +38,13 @@ TYPE DRAW_THEME
     MENU_BAR_divider       AS _UNSIGNED LONG ' Menu bar divider color
     MENU_BAR_sel_bg        AS _UNSIGNED LONG ' Menu bar selected item bg
     MENU_BAR_sel_fg        AS _UNSIGNED LONG ' Menu bar selected item fg
+    MENU_BAR_disabled_fg   AS _UNSIGNED LONG ' Menu bar disabled item text
     MENU_SUB_bg            AS _UNSIGNED LONG ' Submenu background color
     MENU_SUB_fg            AS _UNSIGNED LONG ' Submenu foreground (text) color
     MENU_SUB_border        AS _UNSIGNED LONG ' Submenu border color
     MENU_SUB_divider       AS _UNSIGNED LONG ' Submenu divider color
     MENU_SUB_sel_bg        AS _UNSIGNED LONG ' Submenu selected item bg
+    MENU_SUB_disabled_fg   AS _UNSIGNED LONG ' Submenu disabled item text
     MENU_SUB_sel_fg        AS _UNSIGNED LONG ' Submenu selected item fg
 END TYPE
 
