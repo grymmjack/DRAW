@@ -62,6 +62,9 @@ TYPE MENU_BAR_OBJ
     stayOpen    AS INTEGER         ' Keep menu open after click (click-to-open mode)
     altWasDown  AS INTEGER         ' Track ALT key for tap detection
     altTapped   AS INTEGER         ' ALT was tapped (no other key pressed while held)
+    kbActive    AS INTEGER         ' Keyboard navigation active (ignore mouse until it moves)
+    lastMouseX  AS INTEGER         ' Last mouse X for detecting actual movement
+    lastMouseY  AS INTEGER         ' Last mouse Y for detecting actual movement
 END TYPE
 
 DIM SHARED MENU_BAR AS MENU_BAR_OBJ
