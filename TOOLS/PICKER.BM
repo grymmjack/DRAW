@@ -44,19 +44,70 @@ SUB PICKER_pick_color (x AS INTEGER, y AS INTEGER, button AS INTEGER)
     DIM picked_color AS _UNSIGNED LONG
     DIM targetImg AS LONG
     
-    targetImg& = LAYER_current_image&
     old_dest& = _DEST
     old_source& = _SOURCE
-    
-    _DEST targetImg&
+
+    ' Build a merged image of all visible layers for sampling
+    DIM mergedPick AS LONG
+    DIM pw AS INTEGER, ph AS INTEGER
+    pw% = SCRN.w&
+    ph% = SCRN.h&
+    mergedPick& = _NEWIMAGE(pw%, ph%, 32)
+    _DEST mergedPick&
+    _DONTBLEND mergedPick&
+    CLS , _RGBA32(0, 0, 0, 0)
+    _BLEND mergedPick&
+
+    ' Composite all visible layers bottom-to-top
+    IF RENDER_ORDER_DIRTY% THEN RENDER_ORDER_rebuild
+    DIM pli AS INTEGER, plf AS INTEGER
+    FOR pli% = 1 TO RENDER_ORDER_COUNT%
+        plf% = RENDER_ORDER%(pli%)
+        IF plf% > 0 AND LAYERS(plf%).visible% THEN
+            DIM pSrcImg AS LONG
+            pSrcImg& = LAYERS(plf%).imgHandle&
+            IF pSrcImg& < -1 THEN
+                IF LAYERS(plf%).opacity% < 255 THEN
+                    DIM pTmp AS LONG
+                    pTmp& = _COPYIMAGE(pSrcImg&, 32)
+                    DIM pMem AS _MEM
+                    pMem = _MEMIMAGE(pTmp&)
+                    DIM pOff AS _OFFSET, pVal AS _UNSIGNED LONG, pAlpha AS _UNSIGNED _BYTE
+                    FOR pOff = pMem.OFFSET TO pMem.OFFSET + pMem.SIZE - 4 STEP 4
+                        _MEMGET pMem, pOff, pVal~&
+                        pAlpha~%% = _ALPHA32(pVal~&)
+                        IF pAlpha~%% > 0 THEN
+                            DIM pNewA AS INTEGER
+                            pNewA% = (pAlpha~%% * LAYERS(plf%).opacity%) \ 255
+                            _MEMPUT pMem, pOff + 3, pNewA% AS _UNSIGNED _BYTE
+                        END IF
+                    NEXT pOff
+                    _MEMFREE pMem
+                    _PUTIMAGE , pTmp&, mergedPick&
+                    IF pTmp& < -1 THEN _FREEIMAGE pTmp&
+                ELSE
+                    _PUTIMAGE , pSrcImg&, mergedPick&
+                END IF
+            END IF
+        END IF
+    NEXT pli%
+
+    targetImg& = mergedPick&
     _SOURCE targetImg&
     
     ' Ensure coordinates are within bounds
-    IF x% < 0 OR x% >= _WIDTH(targetImg&) THEN GOTO cleanup
-    IF y% < 0 OR y% >= _HEIGHT(targetImg&) THEN GOTO cleanup
+    IF x% < 0 OR x% >= _WIDTH(targetImg&) OR y% < 0 OR y% >= _HEIGHT(targetImg&) THEN
+        IF mergedPick& < -1 THEN _FREEIMAGE mergedPick&
+        _SOURCE old_source&
+        _DEST old_dest&
+        EXIT SUB
+    END IF
     
-    ' Pick the color at the mouse position
+    ' Pick the color at the mouse position from merged result
     picked_color~& = POINT(x%, y%)
+    
+    ' Free merged image
+    IF mergedPick& < -1 THEN _FREEIMAGE mergedPick&
     
     ' Set the paint color based on which button was used
     IF button% = 1 THEN
@@ -77,7 +128,6 @@ SUB PICKER_pick_color (x AS INTEGER, y AS INTEGER, button AS INTEGER)
         GUI_NEEDS_REDRAW% = TRUE
     END IF
     
-    cleanup:
     _SOURCE old_source&
     _DEST old_dest&
 END SUB
