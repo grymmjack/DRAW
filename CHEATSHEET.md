@@ -106,6 +106,10 @@ DRAW supports real-time symmetrical drawing with three modes: Vertical (|), Cros
 | `F8` | Turn off symmetry (instant disable) |
 | `Ctrl + Left Click` | Reposition symmetry center to mouse location |
 
+> **macOS Note:** On macOS, Ctrl+Click is intercepted by the OS and converted to a right-click.
+> DRAW handles this automatically — Ctrl+Click will still set the symmetry center on macOS.
+> The Command (⌘) key is **not** supported by QB64PE on macOS. See [MAC-USERS-README.md](MAC-USERS-README.md) for details.
+
 ### Symmetry Modes
 
 | Mode | Symbol | Description |
@@ -861,3 +865,10 @@ DRAW can be launched with a file argument to automatically load an image or proj
 | `.png, .bmp, .jpg, .gif` | Loads image into current layer |
 
 If the image is larger than the canvas, import placement mode is activated automatically.
+
+## macOS Platform Notes
+
+See [MAC-USERS-README.md](MAC-USERS-README.md) for macOS-specific behavior including:
+- Ctrl+Click is converted to right-click by macOS (DRAW handles this for symmetry center)
+- Command (⌘) key is not detected by QB64PE
+- Running DRAW on Windows via Parallels may have OpenGL compatibility issues

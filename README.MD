@@ -172,6 +172,8 @@ Or double-click `install-mac.command` in Finder. Creates a `DRAW.app` bundle in 
 ./install-mac.command --uninstall
 ```
 
+> **macOS users:** There are platform-specific input differences on macOS. See [MAC-USERS-README.md](MAC-USERS-README.md) for details on Ctrl+Click behavior, Command key limitations, and Parallels compatibility.
+
 ## License
 
 See LICENSE file for details.
