@@ -103,37 +103,20 @@ DO
     $END IF
     k& = _KEYHIT
     
-    $IF MAC THEN
-        ' macOS: Track ALT/Option key state using _KEYHIT (more reliable than _KEYDOWN)
-        ' On macOS, _KEYDOWN() doesn't work reliably for Option key due to special char handling
-        IF k& = KEY_LALT& OR k& = KEY_RALT& THEN
-            MAC_ALT_HELD% = TRUE   ' ALT key pressed
-        ELSEIF k& = -KEY_LALT& OR k& = -KEY_RALT& THEN
-            MAC_ALT_HELD% = FALSE  ' ALT key released
-        END IF
-    $END IF
+    ' Track macOS ALT key via _KEYHIT (must be before MODIFIERS_update)
+    MODIFIERS_track_alt_keyhit k&
     
-    ' Handle display scale hotkeys using _KEYHIT (more reliable than _KEYDOWN for complex combos)
-    ' CTRL+ALT+SHIFT+= to scale up, CTRL+ALT+SHIFT+- to scale down
-    IF NOT CFG.FULLSCREEN% THEN
-        DIM scale_ctrl AS INTEGER, scale_shift AS INTEGER, scale_alt AS INTEGER
-        scale_ctrl% = (_KEYDOWN(100305) OR _KEYDOWN(100306))   ' Left or Right Ctrl
-        scale_shift% = (_KEYDOWN(100304) OR _KEYDOWN(100303)) ' Left or Right Shift
-        $IF MAC THEN
-            scale_alt% = MAC_ALT_HELD%
-        $ELSE
-            scale_alt% = (_KEYDOWN(KEY_LALT&) OR _KEYDOWN(KEY_RALT&))
-        $END IF
-        
-        IF scale_ctrl% AND scale_shift% AND scale_alt% THEN
-            ' Check _KEYHIT for the actual key (works better on Linux with modifier combos)
-            ' Numpad + : 43 (NumLock ON), 19968 (NumLock OFF)
-            ' Numpad - : 45 (NumLock ON), 18944 (NumLock OFF)
-            IF k& = 43 OR k& = 19968 THEN
-                SCREEN_set_display_scale SCRN.displayScale% + 1
-            ELSEIF k& = 45 OR k& = 18944 THEN
-                SCREEN_set_display_scale SCRN.displayScale% - 1
-            END IF
+    ' Update modifier key state (CTRL, SHIFT, ALT) once per frame
+    MODIFIERS_update
+    
+    ' Handle display scale hotkeys: CTRL+ALT+SHIFT+= to scale up, CTRL+ALT+SHIFT+- to scale down
+    IF NOT CFG.FULLSCREEN% AND MODIFIERS.ctrlShiftAlt% THEN
+        ' Numpad + : 43 (NumLock ON), 19968 (NumLock OFF)
+        ' Numpad - : 45 (NumLock ON), 18944 (NumLock OFF)
+        IF k& = 43 OR k& = 19968 THEN
+            SCREEN_set_display_scale SCRN.displayScale% + 1
+        ELSEIF k& = 45 OR k& = 18944 THEN
+            SCREEN_set_display_scale SCRN.displayScale% - 1
         END IF
     END IF
     
@@ -179,7 +162,7 @@ DO
     END IF
     IF GUI_NEEDS_REDRAW% THEN FRAME_IDLE% = FALSE                            ' GUI needs update (handled separately in SCREEN_render)
     IF SCRN.panning% THEN FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE      ' Panning active
-    IF (_KEYDOWN(100304) OR _KEYDOWN(100303)) THEN FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE ' SHIFT held (crosshair/constraint)
+    IF MODIFIERS.shift% THEN FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE   ' SHIFT held (crosshair/constraint)
     IF MOUSE.SW% <> 0 THEN FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE     ' Mouse wheel scrolled
     IF CURRENT_TOOL% = TOOL_MOVE AND MOVE.ACTIVE THEN FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE
     IF CURRENT_TOOL% = TOOL_TEXT AND TEXT.ACTIVE THEN FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE
