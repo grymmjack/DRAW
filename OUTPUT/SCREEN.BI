@@ -33,6 +33,7 @@ TYPE SCREEN_OBJ
     toolbarManuallyHidden AS INTEGER ' Toolbar manually hidden by user
     statusManuallyHidden AS INTEGER  ' Status manually hidden by user
     menubarManuallyHidden AS INTEGER ' Menu bar manually hidden by user
+    layerPanelManuallyHidden AS INTEGER ' Layer panel manually hidden by user
 END TYPE
 
 DIM SHARED SCRN AS SCREEN_OBJ

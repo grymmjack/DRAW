@@ -175,6 +175,7 @@ DO
     IF MOUSE.B1% OR MOUSE.B2% OR MOUSE.B3% THEN FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE  ' Mouse button held
     IF MOUSE.RAW_X% <> IDLE_PREV_MOUSE_X% OR MOUSE.RAW_Y% <> IDLE_PREV_MOUSE_Y% THEN
         FRAME_IDLE% = FALSE                                       ' Mouse moved (cursor only)
+        GUI_NEEDS_REDRAW% = TRUE                                  ' Update status bar coords
     END IF
     IF GUI_NEEDS_REDRAW% THEN FRAME_IDLE% = FALSE                            ' GUI needs update (handled separately in SCREEN_render)
     IF SCRN.panning% THEN FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE      ' Panning active
