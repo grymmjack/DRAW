@@ -21,6 +21,8 @@ DECLARE SUB MOUSE_handle_ui_autohide_restore (rawX AS INTEGER, rawY AS INTEGER)
 DECLARE SUB MOUSE_handle_panning (rawX AS INTEGER, rawY AS INTEGER)
 DECLARE SUB MOUSE_tool_marquee ()
 DECLARE SUB MOUSE_tool_move ()
+DECLARE SUB MOUSE_tool_line ()
+DECLARE SUB MOUSE_tool_poly ()
 
 ''
 ' Drain all buffered mouse events and update MOUSE state ONCE with final values.
@@ -820,6 +822,92 @@ END SUB
 
 
 ''
+' Tool handler: Line.
+'
+SUB MOUSE_tool_line ()
+    ' LINE tool: Click and drag with preview
+    IF NOT MOUSE.OLD_B1% THEN
+        ' Start dragging on first click
+        LINE_TOOL.DRAGGING = TRUE
+        LINE_TOOL.START_X = MOUSE.X%
+        LINE_TOOL.START_Y = MOUSE.Y%
+        LINE_TOOL.END_X = MOUSE.X%
+        LINE_TOOL.END_Y = MOUSE.Y%
+    ELSE
+        ' Update end position while dragging
+        LINE_TOOL.END_X = MOUSE.X%
+        LINE_TOOL.END_Y = MOUSE.Y%
+
+        ' Apply angle snapping if Ctrl+Shift are both held
+        IF MODIFIERS.ctrlShift% THEN
+            SNAP_to_angle LINE_TOOL.START_X, LINE_TOOL.START_Y, LINE_TOOL.END_X, LINE_TOOL.END_Y, CFG.ANGLE_SNAP_DEGREES%
+        END IF
+    END IF
+END SUB
+
+
+''
+' Tool handler: Polygon/Polygon filled.
+'
+SUB MOUSE_tool_poly ()
+    ' POLY_LINE tool: Click to click connected lines
+    IF NOT MOUSE.OLD_B1% THEN
+        DIM poly_x AS INTEGER, poly_y AS INTEGER
+        poly_x% = MOUSE.X%
+        poly_y% = MOUSE.Y%
+
+        ' Apply angle snapping if Ctrl+Shift are both held and we have a previous point
+        IF POLY_LINE.HAS_LAST AND MODIFIERS.ctrlShift% THEN
+            SNAP_to_angle POLY_LINE.LAST_X, POLY_LINE.LAST_Y, poly_x%, poly_y%, CFG.ANGLE_SNAP_DEGREES%
+        END IF
+
+        IF POLY_LINE.HAS_LAST THEN
+            ' Draw line from last position to current (snapped) position
+            ' Note: Undo is saved only when starting the polygon, not for each segment
+            DIM poly_target AS LONG
+            DIM poly_is_transparent AS INTEGER
+            poly_target& = LAYER_current_image&
+            _DEST poly_target&
+
+            ' Check if drawing with transparent color
+            poly_is_transparent% = (_ALPHA32(PAINT_COLOR~&) = 0)
+            IF poly_is_transparent% THEN _DONTBLEND poly_target&
+
+            IF CUSTOM_BRUSH_is_active% THEN
+                ' Use custom brush stamps along polygon edges
+                CUSTOM_BRUSH_stamp_line POLY_LINE.LAST_X, POLY_LINE.LAST_Y, poly_x%, poly_y%
+            ELSEIF SELECTION_has_active% THEN
+                ' Use clipped line drawing when selection is active
+                LINE_draw_clipped POLY_LINE.LAST_X, POLY_LINE.LAST_Y, poly_x%, poly_y%, PAINT_COLOR~&
+            ELSE
+                ' Normal line drawing
+                LINE (POLY_LINE.LAST_X, POLY_LINE.LAST_Y)-(poly_x%, poly_y%), PAINT_COLOR~&
+            END IF
+
+            IF poly_is_transparent% THEN _BLEND poly_target&
+            _DEST SCRN.CANVAS&
+            CANVAS_DIRTY% = TRUE
+        ELSE
+            ' First point - just initialize, don't save undo yet
+            POLY_LINE.FIRST_X = poly_x%
+            POLY_LINE.FIRST_Y = poly_y%
+            POLY_LINE.POINT_COUNT = 0
+        END IF
+        ' Store this point in the array
+        IF POLY_LINE.POINT_COUNT < 1000 THEN
+            POLY_POINTS_X(POLY_LINE.POINT_COUNT) = poly_x%
+            POLY_POINTS_Y(POLY_LINE.POINT_COUNT) = poly_y%
+            POLY_LINE.POINT_COUNT = POLY_LINE.POINT_COUNT + 1
+        END IF
+        ' Update last position to current (snapped) click
+        POLY_LINE.LAST_X = poly_x%
+        POLY_LINE.LAST_Y = poly_y%
+        POLY_LINE.HAS_LAST = TRUE
+    END IF
+END SUB
+
+
+''
 ' Handles mouse input
 ' 
 SUB MOUSE_input_handler ()
@@ -1062,79 +1150,9 @@ SUB MOUSE_input_handler ()
                         TEXT_start MOUSE.X%, MOUSE.Y%
                     END IF
                 CASE TOOL_LINE
-                    ' LINE tool: Click and drag with preview
-                    IF NOT MOUSE.OLD_B1% THEN
-                        ' Start dragging on first click
-                        LINE_TOOL.DRAGGING = TRUE
-                        LINE_TOOL.START_X = MOUSE.X%
-                        LINE_TOOL.START_Y = MOUSE.Y%
-                        LINE_TOOL.END_X = MOUSE.X%
-                        LINE_TOOL.END_Y = MOUSE.Y%
-                    ELSE
-                        ' Update end position while dragging
-                        LINE_TOOL.END_X = MOUSE.X%
-                        LINE_TOOL.END_Y = MOUSE.Y%
-                        
-                        ' Apply angle snapping if Ctrl+Shift are both held
-                        IF MODIFIERS.ctrlShift% THEN
-                            SNAP_to_angle LINE_TOOL.START_X, LINE_TOOL.START_Y, LINE_TOOL.END_X, LINE_TOOL.END_Y, CFG.ANGLE_SNAP_DEGREES%
-                        END IF
-                    END IF
+                    MOUSE_tool_line
                 CASE TOOL_POLYGON, TOOL_POLYGON_FILLED
-                    ' POLY_LINE tool: Click to click connected lines
-                    IF NOT MOUSE.OLD_B1% THEN
-                        DIM poly_x AS INTEGER, poly_y AS INTEGER
-                        poly_x% = MOUSE.X%
-                        poly_y% = MOUSE.Y%
-                        
-                        ' Apply angle snapping if Ctrl+Shift are both held and we have a previous point
-                        IF POLY_LINE.HAS_LAST AND MODIFIERS.ctrlShift% THEN
-                            SNAP_to_angle POLY_LINE.LAST_X, POLY_LINE.LAST_Y, poly_x%, poly_y%, CFG.ANGLE_SNAP_DEGREES%
-                        END IF
-                        
-                        IF POLY_LINE.HAS_LAST THEN
-                            ' Draw line from last position to current (snapped) position
-                            ' Note: Undo is saved only when starting the polygon, not for each segment
-                            DIM poly_target AS LONG
-                            DIM poly_is_transparent AS INTEGER
-                            poly_target& = LAYER_current_image&
-                            _DEST poly_target&
-                            
-                            ' Check if drawing with transparent color
-                            poly_is_transparent% = (_ALPHA32(PAINT_COLOR~&) = 0)
-                            IF poly_is_transparent% THEN _DONTBLEND poly_target&
-                            
-                            IF CUSTOM_BRUSH_is_active% THEN
-                                ' Use custom brush stamps along polygon edges
-                                CUSTOM_BRUSH_stamp_line POLY_LINE.LAST_X, POLY_LINE.LAST_Y, poly_x%, poly_y%
-                            ELSEIF SELECTION_has_active% THEN
-                                ' Use clipped line drawing when selection is active
-                                LINE_draw_clipped POLY_LINE.LAST_X, POLY_LINE.LAST_Y, poly_x%, poly_y%, PAINT_COLOR~&
-                            ELSE
-                                ' Normal line drawing
-                                LINE (POLY_LINE.LAST_X, POLY_LINE.LAST_Y)-(poly_x%, poly_y%), PAINT_COLOR~&
-                            END IF
-                            
-                            IF poly_is_transparent% THEN _BLEND poly_target&
-                            _DEST SCRN.CANVAS&
-                            CANVAS_DIRTY% = TRUE
-                        ELSE
-                            ' First point - just initialize, don't save undo yet
-                            POLY_LINE.FIRST_X = poly_x%
-                            POLY_LINE.FIRST_Y = poly_y%
-                            POLY_LINE.POINT_COUNT = 0
-                        END IF
-                        ' Store this point in the array
-                        IF POLY_LINE.POINT_COUNT < 1000 THEN
-                            POLY_POINTS_X(POLY_LINE.POINT_COUNT) = poly_x%
-                            POLY_POINTS_Y(POLY_LINE.POINT_COUNT) = poly_y%
-                            POLY_LINE.POINT_COUNT = POLY_LINE.POINT_COUNT + 1
-                        END IF
-                        ' Update last position to current (snapped) click
-                        POLY_LINE.LAST_X = poly_x%
-                        POLY_LINE.LAST_Y = poly_y%
-                        POLY_LINE.HAS_LAST = TRUE
-                    END IF
+                    MOUSE_tool_poly
                 CASE TOOL_RECT, TOOL_RECT_FILLED
                     ' RECT tool: Click and drag with preview
                     IF NOT MOUSE.OLD_B1% THEN
