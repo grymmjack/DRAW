@@ -11,8 +11,11 @@ $INCLUDEONCE
 DECLARE FUNCTION MOUSE_handle_image_import% ()
 DECLARE FUNCTION MOUSE_handle_command_palette_click% (rawX AS INTEGER, rawY AS INTEGER)
 DECLARE FUNCTION MOUSE_handle_menubar_click% (rawX AS INTEGER, rawY AS INTEGER)
+DECLARE SUB MOUSE_handle_menubar_mouse_move (rawX AS INTEGER, rawY AS INTEGER)
 DECLARE SUB MOUSE_autocommit_move_if_click_on_gui (rawX AS INTEGER, rawY AS INTEGER)
 DECLARE FUNCTION MOUSE_handle_palette_menu_close% (rawX AS INTEGER, rawY AS INTEGER)
+DECLARE SUB MOUSE_handle_layer_panel (rawX AS INTEGER, rawY AS INTEGER, wheel_delta AS INTEGER)
+DECLARE SUB MOUSE_handle_toolbar_status_palette (rawX AS INTEGER, rawY AS INTEGER)
 
 ''
 ' Drain all buffered mouse events and update MOUSE state ONCE with final values.
@@ -366,6 +369,16 @@ END FUNCTION
 
 
 ''
+' Menu bar hover tracking (menu switching on mouse move).
+'
+SUB MOUSE_handle_menubar_mouse_move (rawX AS INTEGER, rawY AS INTEGER)
+    IF SCRN.showMenubar% AND MENU_BAR.visible% THEN
+        MENUBAR_handle_mouse_move rawX%, rawY%
+    END IF
+END SUB
+
+
+''
 ' Auto-apply move transform when clicking GUI controls (without marquee selection).
 '
 SUB MOUSE_autocommit_move_if_click_on_gui (rawX AS INTEGER, rawY AS INTEGER)
@@ -408,6 +421,121 @@ FUNCTION MOUSE_handle_palette_menu_close% (rawX AS INTEGER, rawY AS INTEGER)
         END IF
     END IF
 END FUNCTION
+
+
+''
+' Layer panel input handling.
+' May consume wheel_delta% (sets to 0) so it doesn't propagate to canvas zoom.
+'
+SUB MOUSE_handle_layer_panel (rawX AS INTEGER, rawY AS INTEGER, wheel_delta AS INTEGER)
+    ' Check for layer panel clicks (only when not panning)
+    IF NOT SCRN.panning% AND LAYER_PANEL.visible% THEN
+        IF LAYER_PANEL_in_bounds%(rawX%, rawY%) THEN
+            ' Handle left-click on layer panel
+            IF MOUSE.B1% AND NOT MOUSE.OLD_B1% THEN
+                IF LAYER_PANEL_handle_click%(rawX%, rawY%, 1) THEN
+                    MOUSE.TOOLBAR_CLICKED% = TRUE  ' Block canvas action
+                END IF
+            END IF
+            ' Handle right-click on layer panel
+            IF MOUSE.B2% AND NOT MOUSE.OLD_B2% THEN
+                IF LAYER_PANEL_handle_click%(rawX%, rawY%, 2) THEN
+                    MOUSE.TOOLBAR_CLICKED% = TRUE  ' Block canvas action
+                END IF
+            END IF
+            ' Handle mouse wheel for scrolling layer list or adjusting opacity
+            IF wheel_delta% <> 0 THEN
+                LAYER_PANEL_handle_wheel rawX%, rawY%, wheel_delta%
+                wheel_delta% = 0  ' Consume wheel event - don't zoom canvas
+            END IF
+        END IF
+
+        ' Handle visibility swipe (takes priority over drag-reorder)
+        IF LAYER_PANEL.visSwiping% THEN
+            IF MOUSE.B1% THEN
+                LAYER_PANEL_handle_vis_swipe rawX%, rawY%
+                MOUSE.TOOLBAR_CLICKED% = TRUE
+            ELSE
+                LAYER_PANEL_end_vis_swipe
+            END IF
+        ' Handle layer drag movement (even if outside panel bounds)
+        ELSEIF LAYER_PANEL_is_dragging% THEN
+            IF MOUSE.B1% THEN
+                ' Continue dragging - update drop target
+                LAYER_PANEL_handle_drag rawX%, rawY%
+                MOUSE.TOOLBAR_CLICKED% = TRUE  ' Block canvas action
+            ELSE
+                ' Mouse button released - complete the drop
+                LAYER_PANEL_handle_drop
+            END IF
+        END IF
+    ELSEIF LAYER_PANEL.visSwiping% THEN
+        ' Swipe may have moved outside panel
+        IF MOUSE.B1% THEN
+            LAYER_PANEL_handle_vis_swipe rawX%, rawY%
+            MOUSE.TOOLBAR_CLICKED% = TRUE
+        ELSE
+            LAYER_PANEL_end_vis_swipe
+        END IF
+    ELSEIF LAYER_PANEL_is_dragging% THEN
+        ' Layer drag may have moved outside panel - still need to handle
+        IF MOUSE.B1% THEN
+            LAYER_PANEL_handle_drag rawX%, rawY%
+            MOUSE.TOOLBAR_CLICKED% = TRUE
+        ELSE
+            LAYER_PANEL_handle_drop
+        END IF
+    END IF
+END SUB
+
+
+''
+' Toolbar/status/palette click handling.
+'
+SUB MOUSE_handle_toolbar_status_palette (rawX AS INTEGER, rawY AS INTEGER)
+    ' Check for toolbar clicks (only when not panning)
+    IF NOT SCRN.panning% AND MOUSE.B1% AND NOT MOUSE.OLD_B1% THEN
+        ' Check if clicking on toolbar area (raw screen coordinates)
+        IF SCRN.showToolbar% AND TOOLBAR_is_over_area%(rawX%, rawY%) THEN
+            ' Only set TOOLBAR_CLICKED if an actual button was hit
+            IF TOOLBAR_handle_click%(rawX%, rawY%) THEN
+                MOUSE.TOOLBAR_CLICKED% = TRUE  ' Flag to prevent canvas action
+            END IF
+        END IF
+        ' Check if clicking on status bar area (bottom of screen)
+        IF SCRN.showStatus% AND rawY% >= (SCRN.h& - 10) THEN
+            STATUS_handle_click rawX%, rawY%
+            MOUSE.TOOLBAR_CLICKED% = TRUE  ' Flag to prevent canvas action
+        END IF
+        ' Check if clicking on palette strip area (above status bar) or menu
+        IF SCRN.showStatus% AND (PALETTE_STRIP_in_bounds%(rawX%, rawY%) OR PALETTE_MENU_in_bounds%(rawX%, rawY%)) THEN
+            PALETTE_STRIP_handle_click rawX%, rawY%
+            MOUSE.TOOLBAR_CLICKED% = TRUE  ' Flag to prevent canvas action
+        END IF
+    END IF
+
+    ' Check for right-click on palette strip (for background color)
+    IF NOT SCRN.panning% AND MOUSE.B2% AND NOT MOUSE.OLD_B2% THEN
+        IF SCRN.showStatus% AND PALETTE_STRIP_in_bounds%(rawX%, rawY%) THEN
+            PALETTE_STRIP_handle_click rawX%, rawY%
+            MOUSE.TOOLBAR_CLICKED% = TRUE
+        END IF
+    END IF
+
+    ' Check for right-click on toolbar (for alternate tool modes)
+    IF NOT SCRN.panning% AND MOUSE.B2% AND NOT MOUSE.OLD_B2% THEN
+        IF SCRN.showToolbar% AND TOOLBAR_is_over_area%(rawX%, rawY%) THEN
+            TOOLBAR_handle_right_click rawX%, rawY%
+        END IF
+    END IF
+
+    ' Check for middle-click on toolbar (for custom font loading on text tool)
+    IF NOT SCRN.panning% AND MOUSE.B3% AND NOT MOUSE.OLD_B3% THEN
+        IF SCRN.showToolbar% AND TOOLBAR_is_over_area%(rawX%, rawY%) THEN
+            TOOLBAR_handle_middle_click rawX%, rawY%
+        END IF
+    END IF
+END SUB
 
 
 ''
@@ -461,9 +589,7 @@ SUB MOUSE_input_handler ()
         IF MOUSE_handle_command_palette_click%(rawX%, rawY%) THEN EXIT SUB
         
         ' Handle menu bar mouse move (hover tracking with menu switching)
-        IF SCRN.showMenubar% AND MENU_BAR.visible% THEN
-            MENUBAR_handle_mouse_move rawX%, rawY%
-        END IF
+        MOUSE_handle_menubar_mouse_move rawX%, rawY%
 
         ' Handle menu bar clicks (after command palette, before other GUI)
         IF MOUSE_handle_menubar_click%(rawX%, rawY%) THEN EXIT SUB
@@ -506,107 +632,11 @@ SUB MOUSE_input_handler ()
             MOUSE.TOOLBAR_CLICKED% = FALSE
         END IF
         
-        ' Check for layer panel clicks (only when not panning)
-        IF NOT SCRN.panning% AND LAYER_PANEL.visible% THEN
-            IF LAYER_PANEL_in_bounds%(rawX%, rawY%) THEN
-                ' Handle left-click on layer panel
-                IF MOUSE.B1% AND NOT MOUSE.OLD_B1% THEN
-                    IF LAYER_PANEL_handle_click%(rawX%, rawY%, 1) THEN
-                        MOUSE.TOOLBAR_CLICKED% = TRUE  ' Block canvas action
-                    END IF
-                END IF
-                ' Handle right-click on layer panel
-                IF MOUSE.B2% AND NOT MOUSE.OLD_B2% THEN
-                    IF LAYER_PANEL_handle_click%(rawX%, rawY%, 2) THEN
-                        MOUSE.TOOLBAR_CLICKED% = TRUE  ' Block canvas action
-                    END IF
-                END IF
-                ' Handle mouse wheel for scrolling layer list or adjusting opacity
-                IF wheel_delta% <> 0 THEN
-                    LAYER_PANEL_handle_wheel rawX%, rawY%, wheel_delta%
-                    wheel_delta% = 0  ' Consume wheel event - don't zoom canvas
-                END IF
-            END IF
-            
-            ' Handle visibility swipe (takes priority over drag-reorder)
-            IF LAYER_PANEL.visSwiping% THEN
-                IF MOUSE.B1% THEN
-                    LAYER_PANEL_handle_vis_swipe rawX%, rawY%
-                    MOUSE.TOOLBAR_CLICKED% = TRUE
-                ELSE
-                    LAYER_PANEL_end_vis_swipe
-                END IF
-            ' Handle layer drag movement (even if outside panel bounds)
-            ELSEIF LAYER_PANEL_is_dragging% THEN
-                IF MOUSE.B1% THEN
-                    ' Continue dragging - update drop target
-                    LAYER_PANEL_handle_drag rawX%, rawY%
-                    MOUSE.TOOLBAR_CLICKED% = TRUE  ' Block canvas action
-                ELSE
-                    ' Mouse button released - complete the drop
-                    LAYER_PANEL_handle_drop
-                END IF
-            END IF
-        ELSEIF LAYER_PANEL.visSwiping% THEN
-            ' Swipe may have moved outside panel
-            IF MOUSE.B1% THEN
-                LAYER_PANEL_handle_vis_swipe rawX%, rawY%
-                MOUSE.TOOLBAR_CLICKED% = TRUE
-            ELSE
-                LAYER_PANEL_end_vis_swipe
-            END IF
-        ELSEIF LAYER_PANEL_is_dragging% THEN
-            ' Layer drag may have moved outside panel - still need to handle
-            IF MOUSE.B1% THEN
-                LAYER_PANEL_handle_drag rawX%, rawY%
-                MOUSE.TOOLBAR_CLICKED% = TRUE
-            ELSE
-                LAYER_PANEL_handle_drop
-            END IF
-        END IF
+        ' Layer panel
+        MOUSE_handle_layer_panel rawX%, rawY%, wheel_delta%
         
-        ' Check for toolbar clicks (only when not panning)
-        IF NOT SCRN.panning% AND MOUSE.B1% AND NOT MOUSE.OLD_B1% THEN
-            ' Check if clicking on toolbar area (raw screen coordinates)
-            IF SCRN.showToolbar% AND TOOLBAR_is_over_area%(rawX%, rawY%) THEN
-                ' Only set TOOLBAR_CLICKED if an actual button was hit
-                IF TOOLBAR_handle_click%(rawX%, rawY%) THEN
-                    MOUSE.TOOLBAR_CLICKED% = TRUE  ' Flag to prevent canvas action
-                END IF
-            END IF
-            ' Check if clicking on status bar area (bottom of screen)
-            IF SCRN.showStatus% AND rawY% >= (SCRN.h& - 10) THEN
-                STATUS_handle_click rawX%, rawY%
-                MOUSE.TOOLBAR_CLICKED% = TRUE  ' Flag to prevent canvas action
-            END IF
-            ' Check if clicking on palette strip area (above status bar) or menu
-            IF SCRN.showStatus% AND (PALETTE_STRIP_in_bounds%(rawX%, rawY%) OR PALETTE_MENU_in_bounds%(rawX%, rawY%)) THEN
-                PALETTE_STRIP_handle_click rawX%, rawY%
-                MOUSE.TOOLBAR_CLICKED% = TRUE  ' Flag to prevent canvas action
-            END IF
-        END IF
-        
-        ' Check for right-click on palette strip (for background color)
-        IF NOT SCRN.panning% AND MOUSE.B2% AND NOT MOUSE.OLD_B2% THEN
-            IF SCRN.showStatus% AND PALETTE_STRIP_in_bounds%(rawX%, rawY%) THEN
-                PALETTE_STRIP_handle_click rawX%, rawY%
-                MOUSE.TOOLBAR_CLICKED% = TRUE
-            END IF
-        END IF
-        
-        ' Check for right-click on toolbar (for alternate tool modes)
-        IF NOT SCRN.panning% AND MOUSE.B2% AND NOT MOUSE.OLD_B2% THEN
-            IF SCRN.showToolbar% AND TOOLBAR_is_over_area%(rawX%, rawY%) THEN
-                TOOLBAR_handle_right_click rawX%, rawY%
-            END IF
-        END IF
-        
-        ' Check for middle-click on toolbar (for custom font loading on text tool)
-        IF NOT SCRN.panning% AND MOUSE.B3% AND NOT MOUSE.OLD_B3% THEN
-            IF SCRN.showToolbar% AND TOOLBAR_is_over_area%(rawX%, rawY%) THEN
-                TOOLBAR_handle_middle_click rawX%, rawY%
-            END IF
-        END IF
+        ' Toolbar/status/palette
+        MOUSE_handle_toolbar_status_palette rawX%, rawY%
         
         ' Check for ALT key press to activate temporary color picker
         ' Only for drawing tools - NOT for MOVE (ALT=clone), MARQUEE, IMAGE_IMPORT, NULL, etc.
@@ -617,13 +647,8 @@ SUB MOUSE_input_handler ()
         STATIC altWasHeld%  ' Track ALT state from previous frame
         STATIC pickerFromAlt%  ' Track if we entered picker via ALT key
         
-        isCtrlOrShiftHeld% = (_KEYDOWN(100305) OR _KEYDOWN(100306) OR _KEYDOWN(100304) OR _KEYDOWN(100303))
-        $IF MAC THEN
-            ' macOS: Use tracked ALT state (more reliable than _KEYDOWN for Option key)
-            altHeld% = MAC_ALT_HELD%
-        $ELSE
-            altHeld% = (_KEYDOWN(KEY_LALT&) OR _KEYDOWN(KEY_RALT&))
-        $END IF
+        isCtrlOrShiftHeld% = (MODIFIERS.ctrl% OR MODIFIERS.shift%)
+        altHeld% = MODIFIERS.alt%
         
         ' Check if current tool (or previous tool if in picker mode) is a drawing tool
         IF CURRENT_TOOL% = TOOL_PICKER AND pickerFromAlt% THEN
