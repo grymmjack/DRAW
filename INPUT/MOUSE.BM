@@ -19,6 +19,8 @@ DECLARE SUB MOUSE_handle_toolbar_status_palette (rawX AS INTEGER, rawY AS INTEGE
 DECLARE SUB MOUSE_handle_b3_dblclick_reset_zoom ()
 DECLARE SUB MOUSE_handle_ui_autohide_restore (rawX AS INTEGER, rawY AS INTEGER)
 DECLARE SUB MOUSE_handle_panning (rawX AS INTEGER, rawY AS INTEGER)
+DECLARE SUB MOUSE_tool_marquee ()
+DECLARE SUB MOUSE_tool_move ()
 
 ''
 ' Drain all buffered mouse events and update MOUSE state ONCE with final values.
@@ -693,6 +695,131 @@ END SUB
 
 
 ''
+' Tool handler: Marquee (includes Magic Wand mode).
+'
+SUB MOUSE_tool_marquee ()
+    ' Magic Wand mode: select contiguous pixels of same color
+    IF MARQUEE.MAGIC_WAND_MODE THEN
+        IF NOT MOUSE.OLD_B1% THEN
+            ' Determine selection mode based on modifiers
+            DIM wandSelMode AS INTEGER
+            DIM wandIsShift AS INTEGER, wandIsAlt AS INTEGER
+            wandIsShift% = MODIFIERS.shift%
+            wandIsAlt% = MODIFIERS.alt%
+            IF wandIsShift% THEN
+                wandSelMode% = SEL_MODE_ADD
+            ELSEIF wandIsAlt% THEN
+                wandSelMode% = SEL_MODE_SUBTRACT
+            ELSE
+                wandSelMode% = SEL_MODE_REPLACE
+            END IF
+            ' Fresh click - select contiguous color at this position
+            MAGIC_WAND_select_with_mode MOUSE.X%, MOUSE.Y%, wandSelMode%
+            GUI_NEEDS_REDRAW% = TRUE
+        END IF
+    ELSE
+        ' Normal marquee mode: Start marquee selection, resize, or move on first click
+        IF NOT MOUSE.OLD_B1% THEN
+            ' Store selection mode for marquee based on modifiers
+            DIM marqIsShift AS INTEGER, marqIsAlt AS INTEGER
+            marqIsShift% = MODIFIERS.shift%
+            marqIsAlt% = MODIFIERS.alt%
+            IF marqIsShift% THEN
+                MARQUEE.SELECTION_MODE = SEL_MODE_ADD
+            ELSEIF marqIsAlt% THEN
+                MARQUEE.SELECTION_MODE = SEL_MODE_SUBTRACT
+            ELSE
+                MARQUEE.SELECTION_MODE = SEL_MODE_REPLACE
+            END IF
+
+            ' In add/subtract mode, always start a new marquee drag
+            ' (don't allow move/resize - those only work in replace mode)
+            IF MARQUEE.SELECTION_MODE <> SEL_MODE_REPLACE THEN
+                MARQUEE_start MOUSE.X%, MOUSE.Y%
+            ELSE
+                ' Replace mode: Check if clicking on a handle or inside selection
+                DIM handle AS INTEGER
+                handle% = MARQUEE_get_handle_at%(MOUSE.X%, MOUSE.Y%)
+                IF handle% > 0 THEN
+                    ' Start resizing from this handle
+                    MARQUEE_start_resize handle%, MOUSE.X%, MOUSE.Y%
+                ELSEIF MARQUEE_is_point_inside%(MOUSE.X%, MOUSE.Y%) THEN
+                    ' Start moving the box
+                    MARQUEE_start_move MOUSE.X%, MOUSE.Y%
+                ELSE
+                    ' Start new marquee selection (clicking outside)
+                    MARQUEE_start MOUSE.X%, MOUSE.Y%
+                END IF
+            END IF
+        END IF
+        ' Update resize, move, or drag position while button is held
+        IF MARQUEE.RESIZING% THEN
+            MARQUEE_update_resize MOUSE.X%, MOUSE.Y%
+        ELSEIF MARQUEE.MOVING% THEN
+            MARQUEE_update_move MOUSE.X%, MOUSE.Y%
+        ELSE
+            MARQUEE_update MOUSE.X%, MOUSE.Y%
+        END IF
+    END IF
+END SUB
+
+
+''
+' Tool handler: Move.
+'
+SUB MOUSE_tool_move ()
+    ' MOVE tool: Transform the selected pixels
+    IF MOVE.ACTIVE THEN
+        ' Check ALT state for clone mode
+        DIM moveIsAlt AS INTEGER
+        moveIsAlt% = MODIFIERS.alt%
+        MOVE.CLONING = moveIsAlt%
+
+        IF NOT MOUSE.OLD_B1% THEN
+            ' Fresh click - start a drag/transform
+            ' Check if clicking on a handle or inside selection
+            DIM move_handle AS INTEGER
+            DIM marquee_handle AS INTEGER
+            marquee_handle% = MARQUEE_get_handle_at%(MOUSE.X%, MOUSE.Y%)
+            IF marquee_handle% > 0 THEN
+                ' Remap MARQUEE handle to MOVE handle numbering:
+                ' MARQUEE: 1=TL, 2=T, 3=TR, 4=L, 5=R, 6=BL, 7=B, 8=BR
+                ' MOVE:    1=TL, 2=TR, 3=BR, 4=BL, 5=T, 6=R, 7=B, 8=L
+                SELECT CASE marquee_handle%
+                    CASE 1: move_handle% = 1 ' TL corner
+                    CASE 3: move_handle% = 2 ' TR corner
+                    CASE 8: move_handle% = 3 ' BR corner
+                    CASE 6: move_handle% = 4 ' BL corner
+                    CASE 2: move_handle% = 5 ' T edge
+                    CASE 5: move_handle% = 6 ' R edge
+                    CASE 7: move_handle% = 7 ' B edge
+                    CASE 4: move_handle% = 8 ' L edge
+                END SELECT
+                ' Start resizing/scaling from this handle
+                MOVE_start_transform move_handle%, MOUSE.X%, MOUSE.Y%
+            ELSEIF MARQUEE_is_point_inside%(MOUSE.X%, MOUSE.Y%) THEN
+                ' Start moving from center (handle 0)
+                MOVE_start_transform 0, MOUSE.X%, MOUSE.Y%
+            END IF
+        ELSE
+            ' Update transform while dragging
+            IF MOVE.TRANSFORMING THEN
+                MOVE_update_transform MOUSE.X%, MOUSE.Y%
+            END IF
+        END IF
+    ELSE
+        ' MOVE tool is selected but not active - capture selection on click
+        IF NOT MOUSE.OLD_B1% THEN
+            ' Fresh click - capture the layer (or marquee if active) and start move
+            MOVE_capture_selection
+            ' Immediately start a move transform from this click position
+            MOVE_start_transform 0, MOUSE.X%, MOUSE.Y%
+        END IF
+    END IF
+END SUB
+
+
+''
 ' Handles mouse input
 ' 
 SUB MOUSE_input_handler ()
@@ -897,118 +1024,9 @@ SUB MOUSE_input_handler ()
                     ' Null tool - does nothing (used during dialogs to prevent phantom events)
                     ' Intentionally empty
                 CASE TOOL_MARQUEE
-                    ' Magic Wand mode: select contiguous pixels of same color
-                    IF MARQUEE.MAGIC_WAND_MODE THEN
-                        IF NOT MOUSE.OLD_B1% THEN
-                            ' Determine selection mode based on modifiers
-                            DIM wandSelMode AS INTEGER
-                            DIM wandIsShift AS INTEGER, wandIsAlt AS INTEGER
-                            wandIsShift% = MODIFIERS.shift%
-                            wandIsAlt% = MODIFIERS.alt%
-                            IF wandIsShift% THEN
-                                wandSelMode% = SEL_MODE_ADD
-                            ELSEIF wandIsAlt% THEN
-                                wandSelMode% = SEL_MODE_SUBTRACT
-                            ELSE
-                                wandSelMode% = SEL_MODE_REPLACE
-                            END IF
-                            ' Fresh click - select contiguous color at this position
-                            MAGIC_WAND_select_with_mode MOUSE.X%, MOUSE.Y%, wandSelMode%
-                            GUI_NEEDS_REDRAW% = TRUE
-                        END IF
-                    ELSE
-                        ' Normal marquee mode: Start marquee selection, resize, or move on first click
-                        IF NOT MOUSE.OLD_B1% THEN
-                            ' Store selection mode for marquee based on modifiers
-                            DIM marqIsShift AS INTEGER, marqIsAlt AS INTEGER
-                            marqIsShift% = MODIFIERS.shift%
-                            marqIsAlt% = MODIFIERS.alt%
-                            IF marqIsShift% THEN
-                                MARQUEE.SELECTION_MODE = SEL_MODE_ADD
-                            ELSEIF marqIsAlt% THEN
-                                MARQUEE.SELECTION_MODE = SEL_MODE_SUBTRACT
-                            ELSE
-                                MARQUEE.SELECTION_MODE = SEL_MODE_REPLACE
-                            END IF
-                            
-                            ' In add/subtract mode, always start a new marquee drag
-                            ' (don't allow move/resize - those only work in replace mode)
-                            IF MARQUEE.SELECTION_MODE <> SEL_MODE_REPLACE THEN
-                                MARQUEE_start MOUSE.X%, MOUSE.Y%
-                            ELSE
-                                ' Replace mode: Check if clicking on a handle or inside selection
-                                DIM handle AS INTEGER
-                                handle% = MARQUEE_get_handle_at%(MOUSE.X%, MOUSE.Y%)
-                                IF handle% > 0 THEN
-                                    ' Start resizing from this handle
-                                    MARQUEE_start_resize handle%, MOUSE.X%, MOUSE.Y%
-                                ELSEIF MARQUEE_is_point_inside%(MOUSE.X%, MOUSE.Y%) THEN
-                                    ' Start moving the box
-                                    MARQUEE_start_move MOUSE.X%, MOUSE.Y%
-                                ELSE
-                                    ' Start new marquee selection (clicking outside)
-                                    MARQUEE_start MOUSE.X%, MOUSE.Y%
-                                END IF
-                            END IF
-                        END IF
-                        ' Update resize, move, or drag position while button is held
-                        IF MARQUEE.RESIZING% THEN
-                            MARQUEE_update_resize MOUSE.X%, MOUSE.Y%
-                        ELSEIF MARQUEE.MOVING% THEN
-                            MARQUEE_update_move MOUSE.X%, MOUSE.Y%
-                        ELSE
-                            MARQUEE_update MOUSE.X%, MOUSE.Y%
-                        END IF
-                    END IF
+                    MOUSE_tool_marquee
                 CASE TOOL_MOVE
-                    ' MOVE tool: Transform the selected pixels
-                    IF MOVE.ACTIVE THEN
-                        ' Check ALT state for clone mode
-                        DIM moveIsAlt%
-                        moveIsAlt% = MODIFIERS.alt%
-                        MOVE.CLONING = moveIsAlt%
-                        
-                        IF NOT MOUSE.OLD_B1% THEN
-                            ' Fresh click - start a drag/transform
-                            ' Check if clicking on a handle or inside selection
-                            DIM move_handle AS INTEGER
-                            DIM marquee_handle AS INTEGER
-                            marquee_handle% = MARQUEE_get_handle_at%(MOUSE.X%, MOUSE.Y%)
-                            IF marquee_handle% > 0 THEN
-                                ' Remap MARQUEE handle to MOVE handle numbering:
-                                ' MARQUEE: 1=TL, 2=T, 3=TR, 4=L, 5=R, 6=BL, 7=B, 8=BR
-                                ' MOVE:    1=TL, 2=TR, 3=BR, 4=BL, 5=T, 6=R, 7=B, 8=L
-                                SELECT CASE marquee_handle%
-                                    CASE 1: move_handle% = 1 ' TL corner
-                                    CASE 3: move_handle% = 2 ' TR corner
-                                    CASE 8: move_handle% = 3 ' BR corner
-                                    CASE 6: move_handle% = 4 ' BL corner
-                                    CASE 2: move_handle% = 5 ' T edge
-                                    CASE 5: move_handle% = 6 ' R edge
-                                    CASE 7: move_handle% = 7 ' B edge
-                                    CASE 4: move_handle% = 8 ' L edge
-                                END SELECT
-                                ' Start resizing/scaling from this handle
-                                MOVE_start_transform move_handle%, MOUSE.X%, MOUSE.Y%
-                            ELSEIF MARQUEE_is_point_inside%(MOUSE.X%, MOUSE.Y%) THEN
-                                ' Start moving from center (handle 0)
-                                MOVE_start_transform 0, MOUSE.X%, MOUSE.Y%
-                            END IF
-                        ELSE
-                            ' Update transform while dragging
-                            IF MOVE.TRANSFORMING THEN
-                                MOVE_update_transform MOUSE.X%, MOUSE.Y%
-                            END IF
-                        END IF
-                    ELSE
-                        ' MOVE tool is selected but not active - capture selection on click
-                        IF NOT MOUSE.OLD_B1% THEN
-                            ' Fresh click - capture the layer (or marquee if active) and start move
-                            MOVE_capture_selection
-                            ' Immediately start a move transform from this click position
-                            MOVE_start_transform 0, MOUSE.X%, MOUSE.Y%
-                        END IF
-                    END IF
+                    MOUSE_tool_move
                 CASE TOOL_FILL
                     ' Flood fill on click (only on button press, not while held)
                     IF FILL.ACTIVE% AND NOT MOUSE.OLD_B1% AND NOT UNDO_saved_this_frame% THEN
