@@ -19,6 +19,11 @@ DECLARE SUB MOUSE_handle_toolbar_status_palette (rawX AS INTEGER, rawY AS INTEGE
 DECLARE SUB MOUSE_handle_b3_dblclick_reset_zoom ()
 DECLARE SUB MOUSE_handle_ui_autohide_restore (rawX AS INTEGER, rawY AS INTEGER)
 DECLARE SUB MOUSE_handle_panning (rawX AS INTEGER, rawY AS INTEGER)
+DECLARE SUB MOUSE_tool_fill ()
+DECLARE SUB MOUSE_tool_picker ()
+DECLARE SUB MOUSE_tool_save ()
+DECLARE SUB MOUSE_tool_open ()
+DECLARE SUB MOUSE_tool_text ()
 DECLARE SUB MOUSE_tool_marquee ()
 DECLARE SUB MOUSE_tool_move ()
 DECLARE SUB MOUSE_tool_line ()
@@ -35,6 +40,10 @@ DECLARE SUB MOUSE_release_move ()
 DECLARE SUB MOUSE_release_line ()
 DECLARE SUB MOUSE_release_rect ()
 DECLARE SUB MOUSE_release_ellip ()
+DECLARE SUB MOUSE_release_brush ()
+DECLARE SUB MOUSE_release_dot ()
+DECLARE SUB MOUSE_release_text ()
+DECLARE SUB MOUSE_release_spray ()
 
 ''
 ' Drain all buffered mouse events and update MOUSE state ONCE with final values.
@@ -704,6 +713,70 @@ SUB MOUSE_handle_panning (rawX AS INTEGER, rawY AS INTEGER)
     ELSE
         ' Exit pan mode when both methods released
         IF SCRN.panning% THEN SCRN.panning% = FALSE
+    END IF
+END SUB
+
+
+''
+' Tool handler: Fill.
+'
+SUB MOUSE_tool_fill ()
+    ' Flood fill on click (only on button press, not while held)
+    IF FILL.ACTIVE% AND NOT MOUSE.OLD_B1% AND NOT UNDO_saved_this_frame% THEN
+        UNDO_saved_this_frame% = TRUE
+        FILL.COLOR~& = PAINT_COLOR~&
+        FILL_flood MOUSE.X%, MOUSE.Y%
+        UNDO_save_state ' Save state after fill
+    END IF
+END SUB
+
+
+''
+' Tool handler: Picker.
+'
+SUB MOUSE_tool_picker ()
+    ' Pick color on click (only on button press, not while held)
+    IF PICKER.ACTIVE% AND NOT MOUSE.OLD_B1% THEN
+        PICKER_pick_color MOUSE.X%, MOUSE.Y%, 1 ' 1 = left button/foreground
+    END IF
+END SUB
+
+
+''
+' Tool handler: Save.
+'
+SUB MOUSE_tool_save ()
+    ' SAVE tool: Defer save dialog to avoid calling from within mouse loop
+    IF NOT MOUSE.OLD_B1% THEN
+        MOUSE.DEFERRED_ACTION% = 1 ' 1 = save
+        ' Return to previous tool after save is triggered
+        CURRENT_TOOL% = PREVIOUS_TOOL%
+        GUI_NEEDS_REDRAW% = TRUE
+    END IF
+END SUB
+
+
+''
+' Tool handler: Open.
+'
+SUB MOUSE_tool_open ()
+    ' LOAD tool: Defer load dialog to avoid calling from within mouse loop
+    IF NOT MOUSE.OLD_B1% THEN
+        MOUSE.DEFERRED_ACTION% = 2 ' 2 = load
+        ' Return to previous tool after load is triggered
+        CURRENT_TOOL% = PREVIOUS_TOOL%
+        GUI_NEEDS_REDRAW% = TRUE
+    END IF
+END SUB
+
+
+''
+' Tool handler: Text.
+'
+SUB MOUSE_tool_text ()
+    ' TEXT tool: Click to start or reposition text entry
+    IF NOT MOUSE.OLD_B1% THEN
+        TEXT_start MOUSE.X%, MOUSE.Y%
     END IF
 END SUB
 
@@ -1470,6 +1543,64 @@ END SUB
 
 
 ''
+' Mouse release handler: Brush.
+'
+SUB MOUSE_release_brush ()
+    ' Draw collected pixel perfect stroke if enabled
+    IF BRUSH_SIZE.PIXEL_PERFECT AND PP_STROKE_COUNT% > 0 THEN
+        PAINT_draw_pixel_perfect
+    END IF
+    CANVAS_DIRTY% = TRUE
+    PP_STROKE_COUNT% = 0
+    UNDO_save_state
+    UNDO_saved_this_frame% = TRUE
+    ' Update DOT.LAST position for SHIFT+RightClick dynamic lines
+    ' This captures the final position after any mouse movement
+    DOT.LAST_X = MOUSE.X%
+    DOT.LAST_Y = MOUSE.Y%
+    DOT.HAS_LAST = TRUE
+END SUB
+
+
+''
+' Mouse release handler: Dot.
+'
+SUB MOUSE_release_dot ()
+    ' DOT stamps single pixel - just finalize
+    CANVAS_DIRTY% = TRUE
+    UNDO_save_state
+    UNDO_saved_this_frame% = TRUE
+    DOT.LAST_X = MOUSE.X%
+    DOT.LAST_Y = MOUSE.Y%
+    DOT.HAS_LAST = TRUE
+END SUB
+
+
+''
+' Mouse release handler: Text.
+'
+SUB MOUSE_release_text ()
+    ' TEXT tool applies via ESC key or clicking elsewhere
+    ' TEXT_apply() saves undo, so just set flag to prevent double-save
+    ' Note: This case only triggers if mouse was released after TEXT.ACTIVE
+    _LOGINFO "MOUSE release TOOL_TEXT: TEXT.ACTIVE=" + STR$(TEXT.ACTIVE) + " flag=" + STR$(UNDO_saved_this_frame%)
+    IF TEXT.ACTIVE THEN
+        UNDO_saved_this_frame% = TRUE
+    END IF
+END SUB
+
+
+''
+' Mouse release handler: Spray.
+'
+SUB MOUSE_release_spray ()
+    ' Spray tool - reset active flag on release
+    SPRAY.ACTIVE = FALSE
+    CANVAS_DIRTY% = TRUE
+END SUB
+
+
+''
 ' Handles mouse input
 ' 
 SUB MOUSE_input_handler ()
@@ -1678,39 +1809,15 @@ SUB MOUSE_input_handler ()
                 CASE TOOL_MOVE
                     MOUSE_tool_move
                 CASE TOOL_FILL
-                    ' Flood fill on click (only on button press, not while held)
-                    IF FILL.ACTIVE% AND NOT MOUSE.OLD_B1% AND NOT UNDO_saved_this_frame% THEN
-                        UNDO_saved_this_frame% = TRUE
-                        FILL.COLOR~& = PAINT_COLOR~&
-                        FILL_flood MOUSE.X%, MOUSE.Y%
-                        UNDO_save_state ' Save state after fill
-                    END IF
+                    MOUSE_tool_fill
                 CASE TOOL_PICKER
-                    ' Pick color on click (only on button press, not while held)
-                    IF PICKER.ACTIVE% AND NOT MOUSE.OLD_B1% THEN
-                        PICKER_pick_color MOUSE.X%, MOUSE.Y%, 1  ' 1 = left button/foreground
-                    END IF
+                    MOUSE_tool_picker
                 CASE TOOL_SAVE
-                    ' SAVE tool: Defer save dialog to avoid calling from within mouse loop
-                    IF NOT MOUSE.OLD_B1% THEN
-                        MOUSE.DEFERRED_ACTION% = 1  ' 1 = save
-                        ' Return to previous tool after save is triggered
-                        CURRENT_TOOL% = PREVIOUS_TOOL%
-                        GUI_NEEDS_REDRAW% = TRUE
-                    END IF
+                    MOUSE_tool_save
                 CASE TOOL_OPEN
-                    ' LOAD tool: Defer load dialog to avoid calling from within mouse loop
-                    IF NOT MOUSE.OLD_B1% THEN
-                        MOUSE.DEFERRED_ACTION% = 2  ' 2 = load
-                        ' Return to previous tool after load is triggered
-                        CURRENT_TOOL% = PREVIOUS_TOOL%
-                        GUI_NEEDS_REDRAW% = TRUE
-                    END IF
+                    MOUSE_tool_open
                 CASE TOOL_TEXT
-                    ' TEXT tool: Click to start or reposition text entry
-                    IF NOT MOUSE.OLD_B1% THEN
-                        TEXT_start MOUSE.X%, MOUSE.Y%
-                    END IF
+                    MOUSE_tool_text
                 CASE TOOL_LINE
                     MOUSE_tool_line
                 CASE TOOL_POLYGON, TOOL_POLYGON_FILLED
@@ -1745,39 +1852,13 @@ SUB MOUSE_input_handler ()
                     CASE TOOL_ELLIPSE, TOOL_ELLIPSE_FILLED
                         MOUSE_release_ellip
                     CASE TOOL_BRUSH
-                        ' Draw collected pixel perfect stroke if enabled
-                        IF BRUSH_SIZE.PIXEL_PERFECT AND PP_STROKE_COUNT% > 0 THEN
-                            PAINT_draw_pixel_perfect
-                        END IF
-                        CANVAS_DIRTY% = TRUE
-                        PP_STROKE_COUNT% = 0
-                        UNDO_save_state
-                        UNDO_saved_this_frame% = TRUE
-                        ' Update DOT.LAST position for SHIFT+RightClick dynamic lines
-                        ' This captures the final position after any mouse movement
-                        DOT.LAST_X = MOUSE.X%
-                        DOT.LAST_Y = MOUSE.Y%
-                        DOT.HAS_LAST = TRUE
+                        MOUSE_release_brush
                     CASE TOOL_DOT
-                        ' DOT stamps single pixel - just finalize
-                        CANVAS_DIRTY% = TRUE
-                        UNDO_save_state
-                        UNDO_saved_this_frame% = TRUE
-                        DOT.LAST_X = MOUSE.X%
-                        DOT.LAST_Y = MOUSE.Y%
-                        DOT.HAS_LAST = TRUE
+                        MOUSE_release_dot
                     CASE TOOL_TEXT
-                        ' TEXT tool applies via ESC key or clicking elsewhere
-                        ' TEXT_apply() saves undo, so just set flag to prevent double-save
-                        ' Note: This case only triggers if mouse was released after TEXT.ACTIVE
-                        _LOGINFO "MOUSE release TOOL_TEXT: TEXT.ACTIVE=" + STR$(TEXT.ACTIVE) + " flag=" + STR$(UNDO_saved_this_frame%)
-                        IF TEXT.ACTIVE THEN
-                            UNDO_saved_this_frame% = TRUE
-                        END IF
+                        MOUSE_release_text
                     CASE TOOL_SPRAY
-                        ' Spray tool - reset active flag on release
-                        SPRAY.ACTIVE = FALSE
-                        CANVAS_DIRTY% = TRUE
+                        MOUSE_release_spray
                 END SELECT
             END IF
             MOUSE.DRAG$ = ""
@@ -1917,7 +1998,7 @@ SUB MOUSE_input_handler ()
         ELSEIF SCRN.showStatus% AND rawY% >= SCRN.h& - THEME.STATUS_height% - PALETTE_STRIP_get_height% THEN
             MOUSE.SW% = 0 ' Consume — ignored
         ' Check if CTRL is held for brush size adjustment
-        ELSEIF (_KEYDOWN(100305) OR _KEYDOWN(100306)) THEN ' Right or Left CTRL
+        ELSEIF MODIFIERS.ctrl% THEN
             ' CTRL+Wheel adjusts brush size
             ' Wheel up (negative) should increase, wheel down (positive) should decrease
             IF MOUSE.SW% < 0 THEN
