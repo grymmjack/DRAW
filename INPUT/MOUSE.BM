@@ -16,6 +16,8 @@ DECLARE SUB MOUSE_autocommit_move_if_click_on_gui (rawX AS INTEGER, rawY AS INTE
 DECLARE FUNCTION MOUSE_handle_palette_menu_close% (rawX AS INTEGER, rawY AS INTEGER)
 DECLARE SUB MOUSE_handle_layer_panel (rawX AS INTEGER, rawY AS INTEGER, wheel_delta AS INTEGER)
 DECLARE SUB MOUSE_handle_toolbar_status_palette (rawX AS INTEGER, rawY AS INTEGER)
+DECLARE SUB MOUSE_handle_b3_dblclick_reset_zoom ()
+DECLARE SUB MOUSE_handle_ui_autohide_restore (rawX AS INTEGER, rawY AS INTEGER)
 
 ''
 ' Drain all buffered mouse events and update MOUSE state ONCE with final values.
@@ -539,6 +541,118 @@ END SUB
 
 
 ''
+' Double middle-click (B3) to reset zoom and position.
+'
+SUB MOUSE_handle_b3_dblclick_reset_zoom ()
+    IF MOUSE.B3% AND NOT MOUSE.OLD_B3% THEN
+        DIM clickTime AS DOUBLE
+        clickTime# = TIMER
+        IF clickTime# - MOUSE.B3_CLICK_TIME# < 0.3 THEN ' 300ms double-click threshold
+            ' Double-click detected - reset zoom and position
+            SCRN.zoom! = 1.0
+            SCRN.offsetX% = 0
+            SCRN.offsetY% = 0
+            MOUSE.B3_CLICK_TIME# = 0 ' Reset to prevent triple-click triggering
+        ELSE
+            MOUSE.B3_CLICK_TIME# = clickTime#
+        END IF
+    END IF
+END SUB
+
+
+''
+' Auto-hide UI while actively drawing; restore after release.
+'
+SUB MOUSE_handle_ui_autohide_restore (rawX AS INTEGER, rawY AS INTEGER)
+    ' Auto-hide UI when actively dragging with a tool (not when clicking toolbar)
+    ' Only hide when button was already down (OLD_B1%) and we're not clicking on UI
+    ' Skip auto-hide for NULL tool - let user freely access toolbar/status
+    ' Also check shape tools that are in "drawing" state (LINE, RECT, ELLIPSE, POLY_LINE)
+    DIM shapeToolDrawing AS INTEGER
+    shapeToolDrawing% = LINE_TOOL.DRAGGING OR RECT_TOOL.DRAGGING OR ELLIPSE_TOOL.DRAGGING OR POLY_LINE.HAS_LAST
+
+    DIM activelyDrawing AS INTEGER
+    activelyDrawing% = (MOUSE.B1% AND MOUSE.OLD_B1%) OR shapeToolDrawing%
+
+    IF CURRENT_TOOL% <> TOOL_NULL AND activelyDrawing% AND NOT SCRN.panning% AND NOT MOUSE.TOOLBAR_CLICKED% THEN
+        ' Check if mouse is over an actual toolbar button (not empty toolbar area)
+        IF SCRN.showToolbar% AND TOOLBAR_is_over_button%(rawX%, rawY%) THEN
+            SCRN.showToolbar% = FALSE
+            SCRN.toolbarManuallyHidden% = FALSE ' This is auto-hide, not manual
+            GUI_NEEDS_REDRAW% = TRUE
+            SCENE_DIRTY% = TRUE
+        END IF
+        ' Check if mouse is over status bar/palette strip while drawing
+        IF SCRN.showStatus% THEN
+            DIM autoHideStripTop AS INTEGER
+            autoHideStripTop% = SCRN.h& - THEME.STATUS_height% - PALETTE_STRIP_get_height%
+            IF rawY% >= autoHideStripTop% THEN
+                SCRN.showStatus% = FALSE
+                SCRN.statusManuallyHidden% = FALSE ' This is auto-hide, not manual
+                GUI_NEEDS_REDRAW% = TRUE
+                SCENE_DIRTY% = TRUE
+            END IF
+        END IF
+        ' Check if mouse is over menu bar while drawing
+        IF SCRN.showMenubar% AND MENU_BAR.visible% THEN
+            IF rawY% < MENU_BAR_HEIGHT AND rawX% >= MENU_BAR.barX% THEN
+                SCRN.showMenubar% = FALSE
+                MENU_BAR.visible% = FALSE
+                SCRN.menubarManuallyHidden% = FALSE
+                MENUBAR_close_all
+                GUI_NEEDS_REDRAW% = TRUE
+                SCENE_DIRTY% = TRUE
+            END IF
+        END IF
+        ' Check if mouse is over layer panel while drawing
+        IF LAYER_PANEL.visible% THEN
+            IF rawX% < CFG.LAYER_PANEL_WIDTH% THEN
+                LAYER_PANEL.visible% = FALSE
+                SCRN.layerPanelManuallyHidden% = FALSE ' This is auto-hide, not manual
+                GUI_NEEDS_REDRAW% = TRUE
+                SCENE_DIRTY% = TRUE
+            END IF
+        END IF
+    END IF
+
+    ' Restore UI when mouse is released (only if auto-hidden, not manually hidden)
+    ' For shape tools, also check that they're no longer in drawing state
+    DIM canRestoreUI AS INTEGER
+    canRestoreUI% = NOT MOUSE.B1% AND NOT shapeToolDrawing%
+
+    IF canRestoreUI% THEN
+        DIM uiRestored AS INTEGER
+        uiRestored% = FALSE
+        ' Restore toolbar if it was auto-hidden (not manually hidden by user)
+        IF NOT SCRN.showToolbar% AND NOT SCRN.toolbarManuallyHidden% THEN
+            SCRN.showToolbar% = TRUE
+            uiRestored% = TRUE
+        END IF
+        ' Restore status bar if it was auto-hidden (not manually hidden by user)
+        IF NOT SCRN.showStatus% AND NOT SCRN.statusManuallyHidden% THEN
+            SCRN.showStatus% = TRUE
+            uiRestored% = TRUE
+        END IF
+        ' Restore menu bar if it was auto-hidden (not manually hidden by user)
+        IF NOT SCRN.showMenubar% AND NOT SCRN.menubarManuallyHidden% THEN
+            SCRN.showMenubar% = TRUE
+            MENU_BAR.visible% = TRUE
+            uiRestored% = TRUE
+        END IF
+        ' Restore layer panel if it was auto-hidden (not manually hidden by user)
+        IF NOT LAYER_PANEL.visible% AND NOT SCRN.layerPanelManuallyHidden% THEN
+            LAYER_PANEL.visible% = TRUE
+            uiRestored% = TRUE
+        END IF
+        IF uiRestored% THEN
+            GUI_NEEDS_REDRAW% = TRUE
+            SCENE_DIRTY% = TRUE
+        END IF
+    END IF
+END SUB
+
+
+''
 ' Handles mouse input
 ' 
 SUB MOUSE_input_handler ()
@@ -716,106 +830,9 @@ SUB MOUSE_input_handler ()
         ' Update ALT state for next frame
         altWasHeld% = altHeld%
         
-        ' Check for double middle-click to reset zoom and position
-        IF MOUSE.B3% AND NOT MOUSE.OLD_B3% THEN
-            DIM clickTime AS DOUBLE
-            clickTime# = TIMER
-            IF clickTime# - MOUSE.B3_CLICK_TIME# < 0.3 THEN ' 300ms double-click threshold
-                ' Double-click detected - reset zoom and position
-                SCRN.zoom! = 1.0
-                SCRN.offsetX% = 0
-                SCRN.offsetY% = 0
-                MOUSE.B3_CLICK_TIME# = 0 ' Reset to prevent triple-click triggering
-            ELSE
-                MOUSE.B3_CLICK_TIME# = clickTime#
-            END IF
-        END IF
-        
-        ' Auto-hide UI when actively dragging with a tool (not when clicking toolbar)
-        ' Only hide when button was already down (OLD_B1%) and we're not clicking on UI
-        ' Skip auto-hide for NULL tool - let user freely access toolbar/status
-        ' Also check shape tools that are in "drawing" state (LINE, RECT, ELLIPSE, POLY_LINE)
-        DIM shapeToolDrawing%
-        shapeToolDrawing% = LINE_TOOL.DRAGGING OR RECT_TOOL.DRAGGING OR ELLIPSE_TOOL.DRAGGING OR POLY_LINE.HAS_LAST
-        
-        DIM activelyDrawing%
-        activelyDrawing% = (MOUSE.B1% AND MOUSE.OLD_B1%) OR shapeToolDrawing%
-        
-        IF CURRENT_TOOL% <> TOOL_NULL AND activelyDrawing% AND NOT SCRN.panning% AND NOT MOUSE.TOOLBAR_CLICKED% THEN
-            ' Check if mouse is over an actual toolbar button (not empty toolbar area)
-            IF SCRN.showToolbar% AND TOOLBAR_is_over_button%(rawX%, rawY%) THEN
-                SCRN.showToolbar% = FALSE
-                SCRN.toolbarManuallyHidden% = FALSE ' This is auto-hide, not manual
-                GUI_NEEDS_REDRAW% = TRUE
-                SCENE_DIRTY% = TRUE
-            END IF
-            ' Check if mouse is over status bar/palette strip while drawing
-            IF SCRN.showStatus% THEN
-                DIM autoHideStripTop AS INTEGER
-                autoHideStripTop% = SCRN.h& - THEME.STATUS_height% - PALETTE_STRIP_get_height%
-                IF rawY% >= autoHideStripTop% THEN
-                    SCRN.showStatus% = FALSE
-                    SCRN.statusManuallyHidden% = FALSE ' This is auto-hide, not manual
-                    GUI_NEEDS_REDRAW% = TRUE
-                    SCENE_DIRTY% = TRUE
-                END IF
-            END IF
-            ' Check if mouse is over menu bar while drawing
-            IF SCRN.showMenubar% AND MENU_BAR.visible% THEN
-                IF rawY% < MENU_BAR_HEIGHT AND rawX% >= MENU_BAR.barX% THEN
-                    SCRN.showMenubar% = FALSE
-                    MENU_BAR.visible% = FALSE
-                    SCRN.menubarManuallyHidden% = FALSE
-                    MENUBAR_close_all
-                    GUI_NEEDS_REDRAW% = TRUE
-                    SCENE_DIRTY% = TRUE
-                END IF
-            END IF
-            ' Check if mouse is over layer panel while drawing
-            IF LAYER_PANEL.visible% THEN
-                IF rawX% < CFG.LAYER_PANEL_WIDTH% THEN
-                    LAYER_PANEL.visible% = FALSE
-                    SCRN.layerPanelManuallyHidden% = FALSE ' This is auto-hide, not manual
-                    GUI_NEEDS_REDRAW% = TRUE
-                    SCENE_DIRTY% = TRUE
-                END IF
-            END IF
-        END IF
-        
-        ' Restore UI when mouse is released (only if auto-hidden, not manually hidden)
-        ' For shape tools, also check that they're no longer in drawing state
-        DIM canRestoreUI%
-        canRestoreUI% = NOT MOUSE.B1% AND NOT shapeToolDrawing%
-        
-        IF canRestoreUI% THEN
-            DIM uiRestored AS INTEGER
-            uiRestored% = FALSE
-            ' Restore toolbar if it was auto-hidden (not manually hidden by user)
-            IF NOT SCRN.showToolbar% AND NOT SCRN.toolbarManuallyHidden% THEN
-                SCRN.showToolbar% = TRUE
-                uiRestored% = TRUE
-            END IF
-            ' Restore status bar if it was auto-hidden (not manually hidden by user)
-            IF NOT SCRN.showStatus% AND NOT SCRN.statusManuallyHidden% THEN
-                SCRN.showStatus% = TRUE
-                uiRestored% = TRUE
-            END IF
-            ' Restore menu bar if it was auto-hidden (not manually hidden by user)
-            IF NOT SCRN.showMenubar% AND NOT SCRN.menubarManuallyHidden% THEN
-                SCRN.showMenubar% = TRUE
-                MENU_BAR.visible% = TRUE
-                uiRestored% = TRUE
-            END IF
-            ' Restore layer panel if it was auto-hidden (not manually hidden by user)
-            IF NOT LAYER_PANEL.visible% AND NOT SCRN.layerPanelManuallyHidden% THEN
-                LAYER_PANEL.visible% = TRUE
-                uiRestored% = TRUE
-            END IF
-            IF uiRestored% THEN
-                GUI_NEEDS_REDRAW% = TRUE
-                SCENE_DIRTY% = TRUE
-            END IF
-        END IF
+        ' Double middle-click reset + UI auto-hide/restore
+        MOUSE_handle_b3_dblclick_reset_zoom
+        MOUSE_handle_ui_autohide_restore rawX%, rawY%
         
         ' Check for pan mode (spacebar + left button OR middle mouse button OR PAN tool + LMB)
         ' Block spacebar pan when text tool is active (SPACE needed for typing)
