@@ -18,6 +18,7 @@ DECLARE SUB MOUSE_handle_layer_panel (rawX AS INTEGER, rawY AS INTEGER, wheel_de
 DECLARE SUB MOUSE_handle_toolbar_status_palette (rawX AS INTEGER, rawY AS INTEGER)
 DECLARE SUB MOUSE_handle_b3_dblclick_reset_zoom ()
 DECLARE SUB MOUSE_handle_ui_autohide_restore (rawX AS INTEGER, rawY AS INTEGER)
+DECLARE SUB MOUSE_handle_panning (rawX AS INTEGER, rawY AS INTEGER)
 
 ''
 ' Drain all buffered mouse events and update MOUSE state ONCE with final values.
@@ -653,6 +654,45 @@ END SUB
 
 
 ''
+' Pan mode (spacebar + LMB OR MMB OR PAN tool + LMB).
+'
+SUB MOUSE_handle_panning (rawX AS INTEGER, rawY AS INTEGER)
+    ' Block spacebar pan when text tool is active (SPACE needed for typing)
+    DIM allowSpacePan AS INTEGER
+    allowSpacePan% = NOT (CURRENT_TOOL% = TOOL_TEXT AND TEXT.ACTIVE)
+
+    DIM panToolActive AS INTEGER
+    panToolActive% = (CURRENT_TOOL% = TOOL_PAN AND MOUSE.B1%)
+
+    IF ((_KEYDOWN(32) AND allowSpacePan%) AND MOUSE.B1%) OR MOUSE.B3% OR panToolActive% THEN ' Spacebar+LMB or MMB or PAN tool+LMB
+        IF NOT SCRN.panning% THEN
+            ' Start panning
+            SCRN.panning% = TRUE
+            SCRN.panStartX% = rawX%
+            SCRN.panStartY% = rawY%
+            SCRN.panOrigOffsetX% = SCRN.offsetX%
+            SCRN.panOrigOffsetY% = SCRN.offsetY%
+        ELSE
+            ' Continue dragging
+            SCRN.offsetX% = SCRN.panOrigOffsetX% + (rawX% - SCRN.panStartX%)
+            SCRN.offsetY% = SCRN.panOrigOffsetY% + (rawY% - SCRN.panStartY%)
+
+            ' If spacebar mode: reset on new button press
+            IF _KEYDOWN(32) AND MOUSE.B1% AND NOT MOUSE.OLD_B1% THEN
+                SCRN.panStartX% = rawX%
+                SCRN.panStartY% = rawY%
+                SCRN.panOrigOffsetX% = SCRN.offsetX%
+                SCRN.panOrigOffsetY% = SCRN.offsetY%
+            END IF
+        END IF
+    ELSE
+        ' Exit pan mode when both methods released
+        IF SCRN.panning% THEN SCRN.panning% = FALSE
+    END IF
+END SUB
+
+
+''
 ' Handles mouse input
 ' 
 SUB MOUSE_input_handler ()
@@ -834,39 +874,8 @@ SUB MOUSE_input_handler ()
         MOUSE_handle_b3_dblclick_reset_zoom
         MOUSE_handle_ui_autohide_restore rawX%, rawY%
         
-        ' Check for pan mode (spacebar + left button OR middle mouse button OR PAN tool + LMB)
-        ' Block spacebar pan when text tool is active (SPACE needed for typing)
-        DIM allowSpacePan AS INTEGER
-        allowSpacePan% = NOT (CURRENT_TOOL% = TOOL_TEXT AND TEXT.ACTIVE)
-        
-        DIM panToolActive AS INTEGER
-        panToolActive% = (CURRENT_TOOL% = TOOL_PAN AND MOUSE.B1%)
-        
-        IF ((_KEYDOWN(32) AND allowSpacePan%) AND MOUSE.B1%) OR MOUSE.B3% OR panToolActive% THEN ' Spacebar+LMB or MMB or PAN tool+LMB
-            IF NOT SCRN.panning% THEN
-                ' Start panning
-                SCRN.panning% = TRUE
-                SCRN.panStartX% = rawX%
-                SCRN.panStartY% = rawY%
-                SCRN.panOrigOffsetX% = SCRN.offsetX%
-                SCRN.panOrigOffsetY% = SCRN.offsetY%
-            ELSE
-                ' Continue dragging
-                SCRN.offsetX% = SCRN.panOrigOffsetX% + (rawX% - SCRN.panStartX%)
-                SCRN.offsetY% = SCRN.panOrigOffsetY% + (rawY% - SCRN.panStartY%)
-                
-                ' If spacebar mode: reset on new button press
-                IF _KEYDOWN(32) AND MOUSE.B1% AND NOT MOUSE.OLD_B1% THEN
-                    SCRN.panStartX% = rawX%
-                    SCRN.panStartY% = rawY%
-                    SCRN.panOrigOffsetX% = SCRN.offsetX%
-                    SCRN.panOrigOffsetY% = SCRN.offsetY%
-                END IF
-            END IF
-        ELSE
-            ' Exit pan mode when both methods released
-            IF SCRN.panning% THEN SCRN.panning% = FALSE
-        END IF
+        ' Pan mode (spacebar + LMB OR MMB OR PAN tool + LMB)
+        MOUSE_handle_panning rawX%, rawY%
         
         ' Skip tool actions if we just clicked on the toolbar
         IF MOUSE.TOOLBAR_CLICKED% THEN
@@ -894,12 +903,8 @@ SUB MOUSE_input_handler ()
                             ' Determine selection mode based on modifiers
                             DIM wandSelMode AS INTEGER
                             DIM wandIsShift AS INTEGER, wandIsAlt AS INTEGER
-                            wandIsShift% = (_KEYDOWN(KEY_LSHIFT&) OR _KEYDOWN(KEY_RSHIFT&))
-                            $IF MAC THEN
-                                wandIsAlt% = MAC_ALT_HELD%
-                            $ELSE
-                                wandIsAlt% = (_KEYDOWN(KEY_LALT&) OR _KEYDOWN(KEY_RALT&))
-                            $END IF
+                            wandIsShift% = MODIFIERS.shift%
+                            wandIsAlt% = MODIFIERS.alt%
                             IF wandIsShift% THEN
                                 wandSelMode% = SEL_MODE_ADD
                             ELSEIF wandIsAlt% THEN
@@ -916,12 +921,8 @@ SUB MOUSE_input_handler ()
                         IF NOT MOUSE.OLD_B1% THEN
                             ' Store selection mode for marquee based on modifiers
                             DIM marqIsShift AS INTEGER, marqIsAlt AS INTEGER
-                            marqIsShift% = (_KEYDOWN(KEY_LSHIFT&) OR _KEYDOWN(KEY_RSHIFT&))
-                            $IF MAC THEN
-                                marqIsAlt% = MAC_ALT_HELD%
-                            $ELSE
-                                marqIsAlt% = (_KEYDOWN(KEY_LALT&) OR _KEYDOWN(KEY_RALT&))
-                            $END IF
+                            marqIsShift% = MODIFIERS.shift%
+                            marqIsAlt% = MODIFIERS.alt%
                             IF marqIsShift% THEN
                                 MARQUEE.SELECTION_MODE = SEL_MODE_ADD
                             ELSEIF marqIsAlt% THEN
@@ -964,11 +965,7 @@ SUB MOUSE_input_handler ()
                     IF MOVE.ACTIVE THEN
                         ' Check ALT state for clone mode
                         DIM moveIsAlt%
-                        $IF MAC THEN
-                            moveIsAlt% = MAC_ALT_HELD%
-                        $ELSE
-                            moveIsAlt% = (_KEYDOWN(KEY_LALT&) OR _KEYDOWN(KEY_RALT&))
-                        $END IF
+                        moveIsAlt% = MODIFIERS.alt%
                         MOVE.CLONING = moveIsAlt%
                         
                         IF NOT MOUSE.OLD_B1% THEN
@@ -1061,7 +1058,7 @@ SUB MOUSE_input_handler ()
                         LINE_TOOL.END_Y = MOUSE.Y%
                         
                         ' Apply angle snapping if Ctrl+Shift are both held
-                        IF (_KEYDOWN(KEY_LCTRL&) OR _KEYDOWN(KEY_RCTRL&)) AND (_KEYDOWN(KEY_LSHIFT&) OR _KEYDOWN(KEY_RSHIFT&)) THEN
+                        IF MODIFIERS.ctrlShift% THEN
                             SNAP_to_angle LINE_TOOL.START_X, LINE_TOOL.START_Y, LINE_TOOL.END_X, LINE_TOOL.END_Y, CFG.ANGLE_SNAP_DEGREES%
                         END IF
                     END IF
@@ -1073,7 +1070,7 @@ SUB MOUSE_input_handler ()
                         poly_y% = MOUSE.Y%
                         
                         ' Apply angle snapping if Ctrl+Shift are both held and we have a previous point
-                        IF POLY_LINE.HAS_LAST AND (_KEYDOWN(KEY_LCTRL&) OR _KEYDOWN(KEY_RCTRL&)) AND (_KEYDOWN(KEY_LSHIFT&) OR _KEYDOWN(KEY_RSHIFT&)) THEN
+                        IF POLY_LINE.HAS_LAST AND MODIFIERS.ctrlShift% THEN
                             SNAP_to_angle POLY_LINE.LAST_X, POLY_LINE.LAST_Y, poly_x%, poly_y%, CFG.ANGLE_SNAP_DEGREES%
                         END IF
                         
@@ -1314,19 +1311,11 @@ SUB MOUSE_input_handler ()
                                 DIM zScreenX AS INTEGER, zScreenY AS INTEGER
                                 zScreenX% = rawX%
                                 zScreenY% = rawY%
-                                $IF MAC THEN
-                                    IF MAC_ALT_HELD% THEN
-                                        ZOOM_out_at zScreenX%, zScreenY%
-                                    ELSE
-                                        ZOOM_in_at zScreenX%, zScreenY%
-                                    END IF
-                                $ELSE
-                                    IF _KEYDOWN(KEY_LALT&) OR _KEYDOWN(KEY_RALT&) THEN
-                                        ZOOM_out_at zScreenX%, zScreenY%
-                                    ELSE
-                                        ZOOM_in_at zScreenX%, zScreenY%
-                                    END IF
-                                $END IF
+                                IF MODIFIERS.alt% THEN
+                                    ZOOM_out_at zScreenX%, zScreenY%
+                                ELSE
+                                    ZOOM_in_at zScreenX%, zScreenY%
+                                END IF
                             END IF
                             ZOOM_drag_reset
                         END IF
@@ -1343,11 +1332,7 @@ SUB MOUSE_input_handler ()
                         ' Mouse released - check for clone/stamp mode
                         IF MOVE.ACTIVE AND MOVE.TRANSFORMING THEN
                             DIM moveReleaseAlt%
-                            $IF MAC THEN
-                                moveReleaseAlt% = MAC_ALT_HELD%
-                            $ELSE
-                                moveReleaseAlt% = (_KEYDOWN(KEY_LALT&) OR _KEYDOWN(KEY_RALT&))
-                            $END IF
+                            moveReleaseAlt% = MODIFIERS.alt%
                             
                             IF moveReleaseAlt% THEN
                                 ' ALT held on release = stamp a copy and stay in clone mode
@@ -1660,12 +1645,12 @@ SUB MOUSE_input_handler ()
         IF MOUSE.B2% AND NOT MOUSE.OLD_B2% THEN
             _LOGINFO "Right-click detected: B2=" + STR$(MOUSE.B2%) + " OLD_B2=" + STR$(MOUSE.OLD_B2%)
             _LOGINFO "Current tool=" + STR$(CURRENT_TOOL%) + " (DOT=3, BRUSH=1)"
-            _LOGINFO "SHIFT held: LSHIFT=" + STR$(_KEYDOWN(KEY_LSHIFT&)) + " RSHIFT=" + STR$(_KEYDOWN(KEY_RSHIFT&))
+            _LOGINFO "SHIFT held: " + STR$(MODIFIERS.shift%)
             _LOGINFO "MOUSE position at right-click: X=" + STR$(MOUSE.X%) + " Y=" + STR$(MOUSE.Y%)
             _LOGINFO "RAW mouse position: _MOUSEX=" + STR$(_MOUSEX) + " _MOUSEY=" + STR$(_MOUSEY)
             
             ' SHIFT + Right Click: Draw line from last dot/brush to current position
-            IF (CURRENT_TOOL% = TOOL_DOT OR CURRENT_TOOL% = TOOL_BRUSH) AND (_KEYDOWN(KEY_LSHIFT&) OR _KEYDOWN(KEY_RSHIFT&)) THEN
+            IF (CURRENT_TOOL% = TOOL_DOT OR CURRENT_TOOL% = TOOL_BRUSH) AND MODIFIERS.shift% THEN
                 _LOGINFO "SHIFT+Right-click on BRUSH/DOT tool - checking DOT.HAS_LAST=" + STR$(DOT.HAS_LAST)
                 _LOGINFO "BEFORE drawing: DOT.LAST_X=" + STR$(DOT.LAST_X) + " DOT.LAST_Y=" + STR$(DOT.LAST_Y)
                 _LOGINFO "BEFORE drawing: MOUSE.X%=" + STR$(MOUSE.X%) + " MOUSE.Y%=" + STR$(MOUSE.Y%)
@@ -1744,7 +1729,7 @@ SUB MOUSE_input_handler ()
             END IF
         END IF
 
-        IF (_KEYDOWN(KEY_LSHIFT&) OR _KEYDOWN(KEY_RSHIFT&)) AND NOT CONSTRAIN_X% AND NOT CONSTRAIN_Y% THEN
+        IF MODIFIERS.shift% AND NOT CONSTRAIN_X% AND NOT CONSTRAIN_Y% THEN
             IF MOUSE.DRAG$ = "L" OR MOUSE.DRAG$ = "R" THEN
                 MOUSE.CON_Y% = MOUSE.Y%
                 CONSTRAIN_X% = FALSE
