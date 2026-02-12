@@ -32,6 +32,9 @@ DECLARE SUB MOUSE_tool_zoom (rawX AS INTEGER, rawY AS INTEGER)
 DECLARE SUB MOUSE_release_zoom (rawX AS INTEGER, rawY AS INTEGER)
 DECLARE SUB MOUSE_release_marquee ()
 DECLARE SUB MOUSE_release_move ()
+DECLARE SUB MOUSE_release_line ()
+DECLARE SUB MOUSE_release_rect ()
+DECLARE SUB MOUSE_release_ellip ()
 
 ''
 ' Drain all buffered mouse events and update MOUSE state ONCE with final values.
@@ -1196,6 +1199,277 @@ END SUB
 
 
 ''
+' Mouse release handler: Line.
+'
+SUB MOUSE_release_line ()
+    ' Draw the final line on mouse release
+    IF LINE_TOOL.DRAGGING THEN
+        DIM line_mx(0 TO 7) AS INTEGER
+        DIM line_my(0 TO 7) AS INTEGER
+        DIM line_sx(0 TO 7) AS INTEGER
+        DIM line_sy(0 TO 7) AS INTEGER
+        DIM line_count AS INTEGER
+        DIM line_i AS INTEGER
+        DIM line_target AS LONG
+        DIM line_is_transparent AS INTEGER
+
+        line_target& = LAYER_current_image&
+        _DEST line_target&
+
+        ' Check if drawing with transparent color
+        line_is_transparent% = (_ALPHA32(PAINT_COLOR~&) = 0)
+        IF line_is_transparent% THEN _DONTBLEND line_target&
+
+        IF CUSTOM_BRUSH_is_active% THEN
+            ' Use custom brush stamps along the line
+            CUSTOM_BRUSH_stamp_line LINE_TOOL.START_X, LINE_TOOL.START_Y, LINE_TOOL.END_X, LINE_TOOL.END_Y
+            ' TODO: Add symmetry support for custom brush lines
+        ELSEIF SELECTION_has_active% THEN
+            ' Use clipped line drawing when selection is active
+            LINE_draw_clipped LINE_TOOL.START_X, LINE_TOOL.START_Y, LINE_TOOL.END_X, LINE_TOOL.END_Y, PAINT_COLOR~&
+
+            ' Draw clipped symmetry lines
+            IF SYMMETRY.MODE > 0 THEN
+                SYMMETRY_get_mirrored_points LINE_TOOL.START_X, LINE_TOOL.START_Y, line_sx%(), line_sy%(), line_count%
+                SYMMETRY_get_mirrored_points LINE_TOOL.END_X, LINE_TOOL.END_Y, line_mx%(), line_my%(), line_count%
+
+                FOR line_i% = 0 TO line_count% - 1
+                    LINE_draw_clipped line_sx%(line_i%), line_sy%(line_i%), line_mx%(line_i%), line_my%(line_i%), PAINT_COLOR~&
+                NEXT line_i%
+            END IF
+        ELSE
+            ' Draw master line at full opacity
+            LINE (LINE_TOOL.START_X, LINE_TOOL.START_Y)-(LINE_TOOL.END_X, LINE_TOOL.END_Y), PAINT_COLOR~&
+
+            ' Draw symmetry lines at full opacity
+            IF SYMMETRY.MODE > 0 THEN
+                SYMMETRY_get_mirrored_points LINE_TOOL.START_X, LINE_TOOL.START_Y, line_sx%(), line_sy%(), line_count%
+                SYMMETRY_get_mirrored_points LINE_TOOL.END_X, LINE_TOOL.END_Y, line_mx%(), line_my%(), line_count%
+
+                FOR line_i% = 0 TO line_count% - 1
+                    LINE (line_sx%(line_i%), line_sy%(line_i%))-(line_mx%(line_i%), line_my%(line_i%)), PAINT_COLOR~&
+                NEXT line_i%
+            END IF
+        END IF
+
+        IF line_is_transparent% THEN _BLEND line_target&
+        _DEST SCRN.CANVAS&
+        LINE_TOOL.DRAGGING = FALSE
+        CANVAS_DIRTY% = TRUE
+        UNDO_save_state ' Save state after drawing line
+        UNDO_saved_this_frame% = TRUE
+    END IF
+END SUB
+
+
+''
+' Mouse release handler: Rect.
+'
+SUB MOUSE_release_rect ()
+    ' Draw the final rectangle on mouse release
+    IF RECT_TOOL.DRAGGING THEN
+        DIM rect_fsx(0 TO 7) AS INTEGER, rect_fsy(0 TO 7) AS INTEGER
+        DIM rect_fex(0 TO 7) AS INTEGER, rect_fey(0 TO 7) AS INTEGER
+        DIM rect_fcount AS INTEGER, rect_fi AS INTEGER
+        DIM rect_target AS LONG
+        DIM rect_is_transparent AS INTEGER
+        DIM rect_has_selection AS INTEGER
+
+        rect_target& = LAYER_current_image&
+        _DEST rect_target&
+
+        ' Check if there's an active selection for clipping
+        rect_has_selection% = SELECTION_has_active%
+
+        ' Check if drawing with transparent color
+        rect_is_transparent% = (_ALPHA32(PAINT_COLOR~&) = 0)
+        IF rect_is_transparent% THEN _DONTBLEND rect_target&
+
+        IF CUSTOM_BRUSH_is_active% AND NOT RECT_TOOL.FILLED THEN
+            ' Use custom brush stamps for outline only
+            CUSTOM_BRUSH_stamp_line RECT_TOOL.START_X, RECT_TOOL.START_Y, RECT_TOOL.END_X, RECT_TOOL.START_Y ' Top
+            CUSTOM_BRUSH_stamp_line RECT_TOOL.END_X, RECT_TOOL.START_Y, RECT_TOOL.END_X, RECT_TOOL.END_Y     ' Right
+            CUSTOM_BRUSH_stamp_line RECT_TOOL.END_X, RECT_TOOL.END_Y, RECT_TOOL.START_X, RECT_TOOL.END_Y     ' Bottom
+            CUSTOM_BRUSH_stamp_line RECT_TOOL.START_X, RECT_TOOL.END_Y, RECT_TOOL.START_X, RECT_TOOL.START_Y ' Left
+            ' TODO: Add symmetry support for custom brush rectangles
+        ELSE
+            ' Normal rectangle drawing
+            IF RECT_TOOL.FILLED THEN
+                ' Check if NumLock is OFF and dither pattern is active
+                IF NOT _NUMLOCK AND BRUSH_DITHER_ACTIVE > 0 THEN
+                    ' Use dither pattern fill (PAINT_pset_with_symmetry already handles symmetry and selection)
+                    DIM rx AS INTEGER, ry AS INTEGER
+                    DIM min_x AS INTEGER, max_x AS INTEGER, min_y AS INTEGER, max_y AS INTEGER
+                    min_x% = RECT_TOOL.START_X: max_x% = RECT_TOOL.END_X
+                    IF min_x% > max_x% THEN SWAP min_x%, max_x%
+                    min_y% = RECT_TOOL.START_Y: max_y% = RECT_TOOL.END_Y
+                    IF min_y% > max_y% THEN SWAP min_y%, max_y%
+                    FOR ry% = min_y% TO max_y%
+                        FOR rx% = min_x% TO max_x%
+                            IF BRUSH_DITHERS_should_draw%(rx%, ry%) THEN
+                                PAINT_pset_with_symmetry rx%, ry%, PAINT_COLOR~&, TRUE
+                            END IF
+                        NEXT rx%
+                    NEXT ry%
+                ELSEIF rect_has_selection% THEN
+                    ' Use clipped filled rect when selection is active
+                    RECT_draw_clipped_filled RECT_TOOL.START_X, RECT_TOOL.START_Y, RECT_TOOL.END_X, RECT_TOOL.END_Y, PAINT_COLOR~&
+
+                    ' Draw clipped symmetry rectangles
+                    IF SYMMETRY.MODE > 0 THEN
+                        SYMMETRY_get_mirrored_points RECT_TOOL.START_X, RECT_TOOL.START_Y, rect_fsx%(), rect_fsy%(), rect_fcount%
+                        SYMMETRY_get_mirrored_points RECT_TOOL.END_X, RECT_TOOL.END_Y, rect_fex%(), rect_fey%(), rect_fcount%
+
+                        FOR rect_fi% = 0 TO rect_fcount% - 1
+                            RECT_draw_clipped_filled rect_fsx%(rect_fi%), rect_fsy%(rect_fi%), rect_fex%(rect_fi%), rect_fey%(rect_fi%), PAINT_COLOR~&
+                        NEXT rect_fi%
+                    END IF
+                ELSE
+                    ' Solid fill - draw master rectangle
+                    LINE (RECT_TOOL.START_X, RECT_TOOL.START_Y)-(RECT_TOOL.END_X, RECT_TOOL.END_Y), PAINT_COLOR~&, BF
+
+                    ' Draw symmetry rectangles at full opacity
+                    IF SYMMETRY.MODE > 0 THEN
+                        SYMMETRY_get_mirrored_points RECT_TOOL.START_X, RECT_TOOL.START_Y, rect_fsx%(), rect_fsy%(), rect_fcount%
+                        SYMMETRY_get_mirrored_points RECT_TOOL.END_X, RECT_TOOL.END_Y, rect_fex%(), rect_fey%(), rect_fcount%
+
+                        FOR rect_fi% = 0 TO rect_fcount% - 1
+                            LINE (rect_fsx%(rect_fi%), rect_fsy%(rect_fi%))-(rect_fex%(rect_fi%), rect_fey%(rect_fi%)), PAINT_COLOR~&, BF
+                        NEXT rect_fi%
+                    END IF
+                END IF
+            ELSEIF rect_has_selection% THEN
+                ' Use clipped outline when selection is active
+                RECT_draw_clipped_outline RECT_TOOL.START_X, RECT_TOOL.START_Y, RECT_TOOL.END_X, RECT_TOOL.END_Y, PAINT_COLOR~&
+
+                ' Draw clipped symmetry rectangles
+                IF SYMMETRY.MODE > 0 THEN
+                    SYMMETRY_get_mirrored_points RECT_TOOL.START_X, RECT_TOOL.START_Y, rect_fsx%(), rect_fsy%(), rect_fcount%
+                    SYMMETRY_get_mirrored_points RECT_TOOL.END_X, RECT_TOOL.END_Y, rect_fex%(), rect_fey%(), rect_fcount%
+
+                    FOR rect_fi% = 0 TO rect_fcount% - 1
+                        RECT_draw_clipped_outline rect_fsx%(rect_fi%), rect_fsy%(rect_fi%), rect_fex%(rect_fi%), rect_fey%(rect_fi%), PAINT_COLOR~&
+                    NEXT rect_fi%
+                END IF
+            ELSE
+                ' Outline - draw master rectangle
+                LINE (RECT_TOOL.START_X, RECT_TOOL.START_Y)-(RECT_TOOL.END_X, RECT_TOOL.END_Y), PAINT_COLOR~&, B
+
+                ' Draw symmetry rectangles at full opacity
+                IF SYMMETRY.MODE > 0 THEN
+                    SYMMETRY_get_mirrored_points RECT_TOOL.START_X, RECT_TOOL.START_Y, rect_fsx%(), rect_fsy%(), rect_fcount%
+                    SYMMETRY_get_mirrored_points RECT_TOOL.END_X, RECT_TOOL.END_Y, rect_fex%(), rect_fey%(), rect_fcount%
+
+                    FOR rect_fi% = 0 TO rect_fcount% - 1
+                        LINE (rect_fsx%(rect_fi%), rect_fsy%(rect_fi%))-(rect_fex%(rect_fi%), rect_fey%(rect_fi%)), PAINT_COLOR~&, B
+                    NEXT rect_fi%
+                END IF
+            END IF
+        END IF
+
+        IF rect_is_transparent% THEN _BLEND rect_target&
+        _DEST SCRN.CANVAS&
+        RECT_TOOL.DRAGGING = FALSE
+        CANVAS_DIRTY% = TRUE
+        UNDO_save_state ' Save state after drawing rectangle
+        UNDO_saved_this_frame% = TRUE
+    END IF
+END SUB
+
+
+''
+' Mouse release handler: Ellipse.
+'
+SUB MOUSE_release_ellip ()
+    ' Draw the final ellipse on mouse release
+    IF ELLIPSE_TOOL.DRAGGING THEN
+        DIM ecx AS INTEGER, ecy AS INTEGER, erx AS SINGLE, ery AS SINGLE, easp AS SINGLE
+        ecx% = (ELLIPSE_TOOL.START_X + ELLIPSE_TOOL.END_X) \ 2
+        ecy% = (ELLIPSE_TOOL.START_Y + ELLIPSE_TOOL.END_Y) \ 2
+        erx! = ABS(ELLIPSE_TOOL.END_X - ELLIPSE_TOOL.START_X) / 2
+        ery! = ABS(ELLIPSE_TOOL.END_Y - ELLIPSE_TOOL.START_Y) / 2
+        IF erx! > 0 THEN easp! = ery! / erx! ELSE easp! = 1
+
+        DIM ell_fcsx(0 TO 7) AS INTEGER, ell_fcsy(0 TO 7) AS INTEGER
+        DIM ell_fcount AS INTEGER, ell_fi AS INTEGER
+        DIM ell_target AS LONG
+        DIM ell_is_transparent AS INTEGER
+        DIM ell_has_selection AS INTEGER
+
+        ell_target& = LAYER_current_image&
+        _DEST ell_target&
+
+        ' Check if there's an active selection for clipping
+        ell_has_selection% = SELECTION_has_active%
+
+        ' Check if drawing with transparent color
+        ell_is_transparent% = (_ALPHA32(PAINT_COLOR~&) = 0)
+        IF ell_is_transparent% THEN _DONTBLEND ell_target&
+
+        IF erx! > 0 THEN
+            IF CUSTOM_BRUSH_is_active% AND NOT ELLIPSE_TOOL.FILLED THEN
+                ' Use custom brush stamps for outline only
+                CUSTOM_BRUSH_stamp_ellipse ecx%, ecy%, erx!, ery!
+                ' TODO: Add symmetry support for custom brush ellipses
+            ELSE
+                ' Normal ellipse drawing
+                IF ELLIPSE_TOOL.FILLED THEN
+                    ' Draw filled ellipse using scanline algorithm (already handles selection)
+                    IF NOT ell_has_selection% THEN
+                        CIRCLE (ecx%, ecy%), erx!, PAINT_COLOR~&, , , easp!
+                    END IF
+                    ELLIPSE_fill_scanline ecx%, ecy%, erx!, ery!, PAINT_COLOR~&, LAYER_current_image&
+
+                    ' Draw symmetry ellipses
+                    IF SYMMETRY.MODE > 0 THEN
+                        SYMMETRY_get_mirrored_points ecx%, ecy%, ell_fcsx%(), ell_fcsy%(), ell_fcount%
+
+                        FOR ell_fi% = 0 TO ell_fcount% - 1
+                            IF NOT ell_has_selection% THEN
+                                CIRCLE (ell_fcsx%(ell_fi%), ell_fcsy%(ell_fi%)), erx!, PAINT_COLOR~&, , , easp!
+                            END IF
+                            ELLIPSE_fill_scanline ell_fcsx%(ell_fi%), ell_fcsy%(ell_fi%), erx!, ery!, PAINT_COLOR~&, LAYER_current_image&
+                        NEXT ell_fi%
+                    END IF
+                ELSEIF ell_has_selection% THEN
+                    ' Use clipped ellipse outline when selection is active
+                    ELLIPSE_draw_clipped_outline ecx%, ecy%, erx!, ery!, PAINT_COLOR~&
+
+                    ' Draw clipped symmetry ellipses
+                    IF SYMMETRY.MODE > 0 THEN
+                        SYMMETRY_get_mirrored_points ecx%, ecy%, ell_fcsx%(), ell_fcsy%(), ell_fcount%
+
+                        FOR ell_fi% = 0 TO ell_fcount% - 1
+                            ELLIPSE_draw_clipped_outline ell_fcsx%(ell_fi%), ell_fcsy%(ell_fi%), erx!, ery!, PAINT_COLOR~&
+                        NEXT ell_fi%
+                    END IF
+                ELSE
+                    ' Draw ellipse outline
+                    CIRCLE (ecx%, ecy%), erx!, PAINT_COLOR~&, , , easp!
+
+                    ' Draw symmetry ellipses at full opacity
+                    IF SYMMETRY.MODE > 0 THEN
+                        SYMMETRY_get_mirrored_points ecx%, ecy%, ell_fcsx%(), ell_fcsy%(), ell_fcount%
+
+                        FOR ell_fi% = 0 TO ell_fcount% - 1
+                            CIRCLE (ell_fcsx%(ell_fi%), ell_fcsy%(ell_fi%)), erx!, PAINT_COLOR~&, , , easp!
+                        NEXT ell_fi%
+                    END IF
+                END IF
+            END IF
+        END IF
+
+        IF ell_is_transparent% THEN _BLEND ell_target&
+        _DEST SCRN.CANVAS&
+        ELLIPSE_TOOL.DRAGGING = FALSE
+        CANVAS_DIRTY% = TRUE
+        UNDO_save_state ' Save state after drawing ellipse
+        UNDO_saved_this_frame% = TRUE
+    END IF
+END SUB
+
+
+''
 ' Handles mouse input
 ' 
 SUB MOUSE_input_handler ()
@@ -1465,258 +1739,11 @@ SUB MOUSE_input_handler ()
                     CASE TOOL_MOVE
                         MOUSE_release_move
                     CASE TOOL_LINE
-                        ' Draw the final line on mouse release
-                        IF LINE_TOOL.DRAGGING THEN
-                            DIM line_mx(0 TO 7) AS INTEGER
-                            DIM line_my(0 TO 7) AS INTEGER
-                            DIM line_sx(0 TO 7) AS INTEGER
-                            DIM line_sy(0 TO 7) AS INTEGER
-                            DIM line_count AS INTEGER
-                            DIM line_i AS INTEGER
-                            DIM line_target AS LONG
-                            DIM line_is_transparent AS INTEGER
-                            
-                            line_target& = LAYER_current_image&
-                            _DEST line_target&
-                            
-                            ' Check if drawing with transparent color
-                            line_is_transparent% = (_ALPHA32(PAINT_COLOR~&) = 0)
-                            IF line_is_transparent% THEN _DONTBLEND line_target&
-                            
-                            IF CUSTOM_BRUSH_is_active% THEN
-                                ' Use custom brush stamps along the line
-                                CUSTOM_BRUSH_stamp_line LINE_TOOL.START_X, LINE_TOOL.START_Y, LINE_TOOL.END_X, LINE_TOOL.END_Y
-                                ' TODO: Add symmetry support for custom brush lines
-                            ELSEIF SELECTION_has_active% THEN
-                                ' Use clipped line drawing when selection is active
-                                LINE_draw_clipped LINE_TOOL.START_X, LINE_TOOL.START_Y, LINE_TOOL.END_X, LINE_TOOL.END_Y, PAINT_COLOR~&
-                                
-                                ' Draw clipped symmetry lines
-                                IF SYMMETRY.MODE > 0 THEN
-                                    SYMMETRY_get_mirrored_points LINE_TOOL.START_X, LINE_TOOL.START_Y, line_sx%(), line_sy%(), line_count%
-                                    SYMMETRY_get_mirrored_points LINE_TOOL.END_X, LINE_TOOL.END_Y, line_mx%(), line_my%(), line_count%
-                                    
-                                    FOR line_i% = 0 TO line_count% - 1
-                                        LINE_draw_clipped line_sx%(line_i%), line_sy%(line_i%), line_mx%(line_i%), line_my%(line_i%), PAINT_COLOR~&
-                                    NEXT line_i%
-                                END IF
-                            ELSE
-                                ' Draw master line at full opacity
-                                LINE (LINE_TOOL.START_X, LINE_TOOL.START_Y)-(LINE_TOOL.END_X, LINE_TOOL.END_Y), PAINT_COLOR~&
-                                
-                                ' Draw symmetry lines at full opacity
-                                IF SYMMETRY.MODE > 0 THEN
-                                    SYMMETRY_get_mirrored_points LINE_TOOL.START_X, LINE_TOOL.START_Y, line_sx%(), line_sy%(), line_count%
-                                    SYMMETRY_get_mirrored_points LINE_TOOL.END_X, LINE_TOOL.END_Y, line_mx%(), line_my%(), line_count%
-                                    
-                                    FOR line_i% = 0 TO line_count% - 1
-                                        LINE (line_sx%(line_i%), line_sy%(line_i%))-(line_mx%(line_i%), line_my%(line_i%)), PAINT_COLOR~&
-                                    NEXT line_i%
-                                END IF
-                            END IF
-                            
-                            IF line_is_transparent% THEN _BLEND line_target&
-                            _DEST SCRN.CANVAS&
-                            LINE_TOOL.DRAGGING = FALSE
-                            CANVAS_DIRTY% = TRUE
-                            UNDO_save_state ' Save state after drawing line
-                            UNDO_saved_this_frame% = TRUE
-                        END IF
+                        MOUSE_release_line
                     CASE TOOL_RECT, TOOL_RECT_FILLED
-                        ' Draw the final rectangle on mouse release
-                        IF RECT_TOOL.DRAGGING THEN
-                            DIM rect_fsx(0 TO 7) AS INTEGER, rect_fsy(0 TO 7) AS INTEGER
-                            DIM rect_fex(0 TO 7) AS INTEGER, rect_fey(0 TO 7) AS INTEGER
-                            DIM rect_fcount AS INTEGER, rect_fi AS INTEGER
-                            DIM rect_target AS LONG
-                            DIM rect_is_transparent AS INTEGER
-                            DIM rect_has_selection AS INTEGER
-                            
-                            rect_target& = LAYER_current_image&
-                            _DEST rect_target&
-                            
-                            ' Check if there's an active selection for clipping
-                            rect_has_selection% = SELECTION_has_active%
-                            
-                            ' Check if drawing with transparent color
-                            rect_is_transparent% = (_ALPHA32(PAINT_COLOR~&) = 0)
-                            IF rect_is_transparent% THEN _DONTBLEND rect_target&
-                            
-                            IF CUSTOM_BRUSH_is_active% AND NOT RECT_TOOL.FILLED THEN
-                                ' Use custom brush stamps for outline only
-                                CUSTOM_BRUSH_stamp_line RECT_TOOL.START_X, RECT_TOOL.START_Y, RECT_TOOL.END_X, RECT_TOOL.START_Y ' Top
-                                CUSTOM_BRUSH_stamp_line RECT_TOOL.END_X, RECT_TOOL.START_Y, RECT_TOOL.END_X, RECT_TOOL.END_Y     ' Right
-                                CUSTOM_BRUSH_stamp_line RECT_TOOL.END_X, RECT_TOOL.END_Y, RECT_TOOL.START_X, RECT_TOOL.END_Y     ' Bottom
-                                CUSTOM_BRUSH_stamp_line RECT_TOOL.START_X, RECT_TOOL.END_Y, RECT_TOOL.START_X, RECT_TOOL.START_Y ' Left
-                                ' TODO: Add symmetry support for custom brush rectangles
-                            ELSE
-                                ' Normal rectangle drawing
-                                IF RECT_TOOL.FILLED THEN
-                                    ' Check if NumLock is OFF and dither pattern is active
-                                    IF NOT _NUMLOCK AND BRUSH_DITHER_ACTIVE > 0 THEN
-                                        ' Use dither pattern fill (PAINT_pset_with_symmetry already handles symmetry and selection)
-                                        DIM rx AS INTEGER, ry AS INTEGER
-                                        DIM min_x AS INTEGER, max_x AS INTEGER, min_y AS INTEGER, max_y AS INTEGER
-                                        min_x% = RECT_TOOL.START_X: max_x% = RECT_TOOL.END_X
-                                        IF min_x% > max_x% THEN SWAP min_x%, max_x%
-                                        min_y% = RECT_TOOL.START_Y: max_y% = RECT_TOOL.END_Y
-                                        IF min_y% > max_y% THEN SWAP min_y%, max_y%
-                                        FOR ry% = min_y% TO max_y%
-                                            FOR rx% = min_x% TO max_x%
-                                                IF BRUSH_DITHERS_should_draw%(rx%, ry%) THEN
-                                                    PAINT_pset_with_symmetry rx%, ry%, PAINT_COLOR~&, TRUE
-                                                END IF
-                                            NEXT rx%
-                                        NEXT ry%
-                                    ELSEIF rect_has_selection% THEN
-                                        ' Use clipped filled rect when selection is active
-                                        RECT_draw_clipped_filled RECT_TOOL.START_X, RECT_TOOL.START_Y, RECT_TOOL.END_X, RECT_TOOL.END_Y, PAINT_COLOR~&
-                                        
-                                        ' Draw clipped symmetry rectangles
-                                        IF SYMMETRY.MODE > 0 THEN
-                                            SYMMETRY_get_mirrored_points RECT_TOOL.START_X, RECT_TOOL.START_Y, rect_fsx%(), rect_fsy%(), rect_fcount%
-                                            SYMMETRY_get_mirrored_points RECT_TOOL.END_X, RECT_TOOL.END_Y, rect_fex%(), rect_fey%(), rect_fcount%
-                                            
-                                            FOR rect_fi% = 0 TO rect_fcount% - 1
-                                                RECT_draw_clipped_filled rect_fsx%(rect_fi%), rect_fsy%(rect_fi%), rect_fex%(rect_fi%), rect_fey%(rect_fi%), PAINT_COLOR~&
-                                            NEXT rect_fi%
-                                        END IF
-                                    ELSE
-                                        ' Solid fill - draw master rectangle
-                                        LINE (RECT_TOOL.START_X, RECT_TOOL.START_Y)-(RECT_TOOL.END_X, RECT_TOOL.END_Y), PAINT_COLOR~&, BF
-                                        
-                                        ' Draw symmetry rectangles at full opacity
-                                        IF SYMMETRY.MODE > 0 THEN
-                                            SYMMETRY_get_mirrored_points RECT_TOOL.START_X, RECT_TOOL.START_Y, rect_fsx%(), rect_fsy%(), rect_fcount%
-                                            SYMMETRY_get_mirrored_points RECT_TOOL.END_X, RECT_TOOL.END_Y, rect_fex%(), rect_fey%(), rect_fcount%
-                                            
-                                            FOR rect_fi% = 0 TO rect_fcount% - 1
-                                                LINE (rect_fsx%(rect_fi%), rect_fsy%(rect_fi%))-(rect_fex%(rect_fi%), rect_fey%(rect_fi%)), PAINT_COLOR~&, BF
-                                            NEXT rect_fi%
-                                        END IF
-                                    END IF
-                                ELSEIF rect_has_selection% THEN
-                                    ' Use clipped outline when selection is active
-                                    RECT_draw_clipped_outline RECT_TOOL.START_X, RECT_TOOL.START_Y, RECT_TOOL.END_X, RECT_TOOL.END_Y, PAINT_COLOR~&
-                                    
-                                    ' Draw clipped symmetry rectangles
-                                    IF SYMMETRY.MODE > 0 THEN
-                                        SYMMETRY_get_mirrored_points RECT_TOOL.START_X, RECT_TOOL.START_Y, rect_fsx%(), rect_fsy%(), rect_fcount%
-                                        SYMMETRY_get_mirrored_points RECT_TOOL.END_X, RECT_TOOL.END_Y, rect_fex%(), rect_fey%(), rect_fcount%
-                                        
-                                        FOR rect_fi% = 0 TO rect_fcount% - 1
-                                            RECT_draw_clipped_outline rect_fsx%(rect_fi%), rect_fsy%(rect_fi%), rect_fex%(rect_fi%), rect_fey%(rect_fi%), PAINT_COLOR~&
-                                        NEXT rect_fi%
-                                    END IF
-                                ELSE
-                                    ' Outline - draw master rectangle
-                                    LINE (RECT_TOOL.START_X, RECT_TOOL.START_Y)-(RECT_TOOL.END_X, RECT_TOOL.END_Y), PAINT_COLOR~&, B
-                                    
-                                    ' Draw symmetry rectangles at full opacity
-                                    IF SYMMETRY.MODE > 0 THEN
-                                        SYMMETRY_get_mirrored_points RECT_TOOL.START_X, RECT_TOOL.START_Y, rect_fsx%(), rect_fsy%(), rect_fcount%
-                                        SYMMETRY_get_mirrored_points RECT_TOOL.END_X, RECT_TOOL.END_Y, rect_fex%(), rect_fey%(), rect_fcount%
-                                        
-                                        FOR rect_fi% = 0 TO rect_fcount% - 1
-                                            LINE (rect_fsx%(rect_fi%), rect_fsy%(rect_fi%))-(rect_fex%(rect_fi%), rect_fey%(rect_fi%)), PAINT_COLOR~&, B
-                                        NEXT rect_fi%
-                                    END IF
-                                END IF
-                            END IF
-                            
-                            IF rect_is_transparent% THEN _BLEND rect_target&
-                            _DEST SCRN.CANVAS&
-                            RECT_TOOL.DRAGGING = FALSE
-                            CANVAS_DIRTY% = TRUE
-                            UNDO_save_state ' Save state after drawing rectangle
-                            UNDO_saved_this_frame% = TRUE
-                        END IF
+                        MOUSE_release_rect
                     CASE TOOL_ELLIPSE, TOOL_ELLIPSE_FILLED
-                        ' Draw the final ellipse on mouse release
-                        IF ELLIPSE_TOOL.DRAGGING THEN
-                            DIM ecx AS INTEGER, ecy AS INTEGER, erx AS SINGLE, ery AS SINGLE, easp AS SINGLE
-                            ecx% = (ELLIPSE_TOOL.START_X + ELLIPSE_TOOL.END_X) \ 2
-                            ecy% = (ELLIPSE_TOOL.START_Y + ELLIPSE_TOOL.END_Y) \ 2
-                            erx! = ABS(ELLIPSE_TOOL.END_X - ELLIPSE_TOOL.START_X) / 2
-                            ery! = ABS(ELLIPSE_TOOL.END_Y - ELLIPSE_TOOL.START_Y) / 2
-                            IF erx! > 0 THEN easp! = ery! / erx! ELSE easp! = 1
-                            
-                            DIM ell_fcsx(0 TO 7) AS INTEGER, ell_fcsy(0 TO 7) AS INTEGER
-                            DIM ell_fcount AS INTEGER, ell_fi AS INTEGER
-                            DIM ell_target AS LONG
-                            DIM ell_is_transparent AS INTEGER
-                            DIM ell_has_selection AS INTEGER
-                            
-                            ell_target& = LAYER_current_image&
-                            _DEST ell_target&
-                            
-                            ' Check if there's an active selection for clipping
-                            ell_has_selection% = SELECTION_has_active%
-                            
-                            ' Check if drawing with transparent color
-                            ell_is_transparent% = (_ALPHA32(PAINT_COLOR~&) = 0)
-                            IF ell_is_transparent% THEN _DONTBLEND ell_target&
-                            
-                            IF erx! > 0 THEN
-                                IF CUSTOM_BRUSH_is_active% AND NOT ELLIPSE_TOOL.FILLED THEN
-                                    ' Use custom brush stamps for outline only
-                                    CUSTOM_BRUSH_stamp_ellipse ecx%, ecy%, erx!, ery!
-                                    ' TODO: Add symmetry support for custom brush ellipses
-                                ELSE
-                                    ' Normal ellipse drawing
-                                    IF ELLIPSE_TOOL.FILLED THEN
-                                        ' Draw filled ellipse using scanline algorithm (already handles selection)
-                                        IF NOT ell_has_selection% THEN
-                                            CIRCLE (ecx%, ecy%), erx!, PAINT_COLOR~&, , , easp!
-                                        END IF
-                                        ELLIPSE_fill_scanline ecx%, ecy%, erx!, ery!, PAINT_COLOR~&, LAYER_current_image&
-                                        
-                                        ' Draw symmetry ellipses
-                                        IF SYMMETRY.MODE > 0 THEN
-                                            SYMMETRY_get_mirrored_points ecx%, ecy%, ell_fcsx%(), ell_fcsy%(), ell_fcount%
-                                            
-                                            FOR ell_fi% = 0 TO ell_fcount% - 1
-                                                IF NOT ell_has_selection% THEN
-                                                    CIRCLE (ell_fcsx%(ell_fi%), ell_fcsy%(ell_fi%)), erx!, PAINT_COLOR~&, , , easp!
-                                                END IF
-                                                ELLIPSE_fill_scanline ell_fcsx%(ell_fi%), ell_fcsy%(ell_fi%), erx!, ery!, PAINT_COLOR~&, LAYER_current_image&
-                                            NEXT ell_fi%
-                                        END IF
-                                    ELSEIF ell_has_selection% THEN
-                                        ' Use clipped ellipse outline when selection is active
-                                        ELLIPSE_draw_clipped_outline ecx%, ecy%, erx!, ery!, PAINT_COLOR~&
-                                        
-                                        ' Draw clipped symmetry ellipses
-                                        IF SYMMETRY.MODE > 0 THEN
-                                            SYMMETRY_get_mirrored_points ecx%, ecy%, ell_fcsx%(), ell_fcsy%(), ell_fcount%
-                                            
-                                            FOR ell_fi% = 0 TO ell_fcount% - 1
-                                                ELLIPSE_draw_clipped_outline ell_fcsx%(ell_fi%), ell_fcsy%(ell_fi%), erx!, ery!, PAINT_COLOR~&
-                                            NEXT ell_fi%
-                                        END IF
-                                    ELSE
-                                        ' Draw ellipse outline
-                                        CIRCLE (ecx%, ecy%), erx!, PAINT_COLOR~&, , , easp!
-                                        
-                                        ' Draw symmetry ellipses at full opacity
-                                        IF SYMMETRY.MODE > 0 THEN
-                                            SYMMETRY_get_mirrored_points ecx%, ecy%, ell_fcsx%(), ell_fcsy%(), ell_fcount%
-                                            
-                                            FOR ell_fi% = 0 TO ell_fcount% - 1
-                                                CIRCLE (ell_fcsx%(ell_fi%), ell_fcsy%(ell_fi%)), erx!, PAINT_COLOR~&, , , easp!
-                                            NEXT ell_fi%
-                                        END IF
-                                    END IF
-                                END IF
-                            END IF
-                            
-                            IF ell_is_transparent% THEN _BLEND ell_target&
-                            _DEST SCRN.CANVAS&
-                            ELLIPSE_TOOL.DRAGGING = FALSE
-                            CANVAS_DIRTY% = TRUE
-                            UNDO_save_state ' Save state after drawing ellipse
-                            UNDO_saved_this_frame% = TRUE
-                        END IF
+                        MOUSE_release_ellip
                     CASE TOOL_BRUSH
                         ' Draw collected pixel perfect stroke if enabled
                         IF BRUSH_SIZE.PIXEL_PERFECT AND PP_STROKE_COUNT% > 0 THEN
