@@ -11,6 +11,8 @@ $INCLUDEONCE
 DECLARE FUNCTION MOUSE_handle_image_import% ()
 DECLARE FUNCTION MOUSE_handle_command_palette_click% (rawX AS INTEGER, rawY AS INTEGER)
 DECLARE FUNCTION MOUSE_handle_menubar_click% (rawX AS INTEGER, rawY AS INTEGER)
+DECLARE SUB MOUSE_autocommit_move_if_click_on_gui (rawX AS INTEGER, rawY AS INTEGER)
+DECLARE FUNCTION MOUSE_handle_palette_menu_close% (rawX AS INTEGER, rawY AS INTEGER)
 
 ''
 ' Drain all buffered mouse events and update MOUSE state ONCE with final values.
@@ -364,6 +366,51 @@ END FUNCTION
 
 
 ''
+' Auto-apply move transform when clicking GUI controls (without marquee selection).
+'
+SUB MOUSE_autocommit_move_if_click_on_gui (rawX AS INTEGER, rawY AS INTEGER)
+    IF NOT (MOUSE.B1% AND NOT MOUSE.OLD_B1%) THEN EXIT SUB
+    IF NOT MOVE.ACTIVE THEN EXIT SUB
+    IF MOVE.SELECTION_IMAGE >= -1 THEN EXIT SUB
+    IF MARQUEE.ACTIVE% AND MARQUEE.INITIALIZED% THEN EXIT SUB
+
+    ' Check if click is on any GUI element (not canvas)
+    DIM clickOnGUI AS INTEGER
+    clickOnGUI% = FALSE
+    IF LAYER_PANEL.visible% AND LAYER_PANEL_in_bounds%(rawX%, rawY%) THEN clickOnGUI% = TRUE
+    IF SCRN.showToolbar% AND TOOLBAR_is_over_area%(rawX%, rawY%) THEN clickOnGUI% = TRUE
+    IF SCRN.showStatus% AND rawY% >= (SCRN.h& - 10) THEN clickOnGUI% = TRUE
+    IF SCRN.showStatus% AND PALETTE_STRIP_in_bounds%(rawX%, rawY%) THEN clickOnGUI% = TRUE
+    IF SCRN.showMenubar% AND MENU_BAR.visible% AND MENUBAR_in_bounds%(rawX%, rawY%) THEN clickOnGUI% = TRUE
+
+    IF clickOnGUI% THEN
+        MOVE_apply_transform
+        MOVE_reset
+    END IF
+END SUB
+
+
+''
+' Close palette menu when clicking outside its bounds.
+' Returns TRUE if palette menu was closed.
+'
+FUNCTION MOUSE_handle_palette_menu_close% (rawX AS INTEGER, rawY AS INTEGER)
+    MOUSE_handle_palette_menu_close% = FALSE
+    IF NOT PALETTE_MENU_VISIBLE% THEN EXIT FUNCTION
+    IF NOT (MOUSE.B1% AND NOT MOUSE.OLD_B1%) THEN EXIT FUNCTION
+
+    IF NOT PALETTE_MENU_in_bounds%(rawX%, rawY%) THEN
+        ' Check if click is NOT on the palette name trigger area (to prevent reopening)
+        IF NOT PALETTE_STRIP_in_bounds%(rawX%, rawY%) THEN
+            PALETTE_MENU_hide
+            GUI_NEEDS_REDRAW% = TRUE
+            MOUSE_handle_palette_menu_close% = TRUE
+        END IF
+    END IF
+END FUNCTION
+
+
+''
 ' Handles mouse input
 ' 
 SUB MOUSE_input_handler ()
@@ -408,22 +455,7 @@ SUB MOUSE_input_handler ()
         
         ' Auto-apply move transform when clicking GUI controls (without marquee selection)
         ' This ensures moving an entire layer is committed when user clicks elsewhere
-        IF MOUSE.B1% AND NOT MOUSE.OLD_B1% THEN
-            IF MOVE.ACTIVE AND MOVE.SELECTION_IMAGE < -1 AND (NOT MARQUEE.ACTIVE% OR NOT MARQUEE.INITIALIZED%) THEN
-                ' Check if click is on any GUI element (not canvas)
-                DIM clickOnGUI AS INTEGER
-                clickOnGUI% = FALSE
-                IF LAYER_PANEL.visible% AND LAYER_PANEL_in_bounds%(rawX%, rawY%) THEN clickOnGUI% = TRUE
-                IF SCRN.showToolbar% AND TOOLBAR_is_over_area%(rawX%, rawY%) THEN clickOnGUI% = TRUE
-                IF SCRN.showStatus% AND rawY% >= (SCRN.h& - 10) THEN clickOnGUI% = TRUE
-                IF SCRN.showStatus% AND PALETTE_STRIP_in_bounds%(rawX%, rawY%) THEN clickOnGUI% = TRUE
-                IF SCRN.showMenubar% AND MENU_BAR.visible% AND MENUBAR_in_bounds%(rawX%, rawY%) THEN clickOnGUI% = TRUE
-                IF clickOnGUI% THEN
-                    MOVE_apply_transform
-                    MOVE_reset
-                END IF
-            END IF
-        END IF
+        MOUSE_autocommit_move_if_click_on_gui rawX%, rawY%
         
         ' Handle command palette clicks first (takes priority)
         IF MOUSE_handle_command_palette_click%(rawX%, rawY%) THEN EXIT SUB
@@ -437,15 +469,8 @@ SUB MOUSE_input_handler ()
         IF MOUSE_handle_menubar_click%(rawX%, rawY%) THEN EXIT SUB
 
         ' Close palette menu when clicking outside its bounds
-        IF PALETTE_MENU_VISIBLE% AND MOUSE.B1% AND NOT MOUSE.OLD_B1% THEN
-            IF NOT PALETTE_MENU_in_bounds%(rawX%, rawY%) THEN
-                ' Check if click is NOT on the palette name trigger area (to prevent reopening)
-                IF NOT PALETTE_STRIP_in_bounds%(rawX%, rawY%) THEN
-                    PALETTE_MENU_hide
-                    GUI_NEEDS_REDRAW% = TRUE
-                END IF
-            END IF
-        END IF
+        DIM paletteClosed AS INTEGER
+        paletteClosed% = MOUSE_handle_palette_menu_close%(rawX%, rawY%)
         
         ' Check for CTRL+click to set symmetry center (before other button processing)
         ' On macOS, CTRL+left-click is converted to right-click (B2) by the OS,
