@@ -9,6 +9,83 @@
 $INCLUDEONCE
 
 ''
+' Drain all buffered mouse events and update MOUSE state ONCE with final values.
+' - Accumulates wheel delta (returned via wheel_delta%)
+' - Updates MOUSE.RAW_X/Y, MOUSE.X/Y (with grid snap + clamp)
+' - Updates MOUSE.B1/B2/B3 (with macOS trackpad tap-to-click workaround)
+'
+SUB MOUSE_drain_update_state (rawX AS INTEGER, rawY AS INTEGER, wheel_delta AS INTEGER)
+    wheel_delta% = 0
+
+    $IF MAC THEN
+        ' macOS: Capture button states during drain to fix trackpad tap-to-click
+        ' SDL2 on macOS doesn't always preserve button state after _MOUSEINPUT drain
+        DIM mac_b1 AS INTEGER, mac_b2 AS INTEGER, mac_b3 AS INTEGER
+        mac_b1% = FALSE: mac_b2% = FALSE: mac_b3% = FALSE
+        DO WHILE _MOUSEINPUT
+            wheel_delta% = wheel_delta% + _MOUSEWHEEL
+            ' Capture any button presses during the drain
+            IF _MOUSEBUTTON(1) THEN mac_b1% = TRUE
+            IF _MOUSEBUTTON(2) THEN mac_b2% = TRUE
+            IF _MOUSEBUTTON(3) THEN mac_b3% = TRUE
+        LOOP
+    $ELSE
+        DO WHILE _MOUSEINPUT
+            wheel_delta% = wheel_delta% + _MOUSEWHEEL
+        LOOP
+    $END IF
+
+    ' Get window coordinates and scale down by display scale
+    rawX% = _MOUSEX
+    rawY% = _MOUSEY
+
+    ' Store raw screen coordinates for GUI hover detection
+    MOUSE.RAW_X% = rawX%
+    MOUSE.RAW_Y% = rawY%
+
+    ' Calculate zoomed canvas position on screen (using logical canvas dimensions)
+    DIM zw AS LONG, zh AS LONG, dx AS INTEGER, dy AS INTEGER
+    zw& = SCRN.w& * SCRN.zoom!
+    zh& = SCRN.h& * SCRN.zoom!
+    dx% = (SCRN.w& - zw&) \ 2 + SCRN.offsetX%
+    dy% = (SCRN.h& - zh&) \ 2 + SCRN.offsetY%
+
+    ' Offset canvas X when layer panel is visible
+    IF LAYER_PANEL.visible% THEN dx% = dx% + CFG.LAYER_PANEL_WIDTH%
+
+    ' Offset canvas Y when menu bar is visible
+    IF SCRN.showMenubar% AND MENU_BAR.visible% THEN dy% = dy% + MENU_BAR_HEIGHT
+
+    ' Convert screen coords to canvas coords
+    MOUSE.X% = INT((rawX% - dx%) / SCRN.zoom!)
+    MOUSE.Y% = INT((rawY% - dy%) / SCRN.zoom!)
+
+    ' Apply snap-to-grid if enabled
+    IF GRID.SNAP% THEN
+        MOUSE.X% = GRID_snap%(MOUSE.X%)
+        MOUSE.Y% = GRID_snap%(MOUSE.Y%)
+    END IF
+
+    ' Clamp to canvas bounds
+    IF MOUSE.X% < 0 THEN MOUSE.X% = 0
+    IF MOUSE.Y% < 0 THEN MOUSE.Y% = 0
+    IF MOUSE.X% >= SCRN.w& THEN MOUSE.X% = SCRN.w& - 1
+    IF MOUSE.Y% >= SCRN.h& THEN MOUSE.Y% = SCRN.h& - 1
+
+    ' Update button states from hardware
+    $IF MAC THEN
+        ' macOS: Use captured states OR current hardware state (whichever shows pressed)
+        MOUSE.B1% = mac_b1% OR _MOUSEBUTTON(1)
+        MOUSE.B2% = mac_b2% OR _MOUSEBUTTON(2)
+        MOUSE.B3% = mac_b3% OR _MOUSEBUTTON(3)
+    $ELSE
+        MOUSE.B1% = _MOUSEBUTTON(1)
+        MOUSE.B2% = _MOUSEBUTTON(2)
+        MOUSE.B3% = _MOUSEBUTTON(3)
+    $END IF
+END SUB
+
+''
 ' Initializes the mouse
 ' 
 SUB MOUSE_init ()
@@ -236,83 +313,16 @@ SUB MOUSE_input_handler ()
     ' ==== END IMAGE IMPORT MODE ====
     
     ' ==== DRAIN-THEN-PROCESS PATTERN FOR PERFORMANCE ====
-    ' Drain all buffered mouse events and accumulate wheel delta
-    wheel_delta% = 0
-    $IF MAC THEN
-        ' macOS: Capture button states during drain to fix trackpad tap-to-click
-        ' SDL2 on macOS doesn't always preserve button state after _MOUSEINPUT drain
-        mac_b1% = FALSE: mac_b2% = FALSE: mac_b3% = FALSE
-        DO WHILE _MOUSEINPUT
-            wheel_delta% = wheel_delta% + _MOUSEWHEEL
-            ' Capture any button presses during the drain
-            IF _MOUSEBUTTON(1) THEN mac_b1% = TRUE
-            IF _MOUSEBUTTON(2) THEN mac_b2% = TRUE
-            IF _MOUSEBUTTON(3) THEN mac_b3% = TRUE
-        LOOP
-    $ELSE
-        DO WHILE _MOUSEINPUT
-            wheel_delta% = wheel_delta% + _MOUSEWHEEL
-        LOOP
-    $END IF
-    
     ' Now process ONCE with final mouse state (not per-event)
     IF TRUE THEN ' Block for consistent indentation
-        ' Get raw screen coordinates and convert to canvas coordinates
         DIM rawX AS INTEGER, rawY AS INTEGER
-        DIM zw AS LONG, zh AS LONG, dx AS INTEGER, dy AS INTEGER
         DIM AS INTEGER TB_RIGHT, TB_LEFT
-        
+
+        MOUSE_drain_update_state rawX%, rawY%, wheel_delta%
+
         ' Calculate toolbar position dynamically to align to right edge of screen
         TB_RIGHT = SCRN.w& - TB_BTN_W - 1  ' Right column: 1px from right edge
         TB_LEFT = TB_RIGHT - TB_BTN_W - TB_BTN_PADDING  ' Left column: to the left of right column
-        
-        ' Get window coordinates and scale down by display scale
-        rawX% = _MOUSEX
-        rawY% = _MOUSEY
-        
-        ' Store raw screen coordinates for GUI hover detection
-        MOUSE.RAW_X% = rawX%
-        MOUSE.RAW_Y% = rawY%
-        
-        ' Calculate zoomed canvas position on screen (using logical canvas dimensions)
-        zw& = SCRN.w& * SCRN.zoom!
-        zh& = SCRN.h& * SCRN.zoom!
-        dx% = (SCRN.w& - zw&) \ 2 + SCRN.offsetX%
-        dy% = (SCRN.h& - zh&) \ 2 + SCRN.offsetY%
-        
-        ' Offset canvas X when layer panel is visible
-        IF LAYER_PANEL.visible% THEN dx% = dx% + CFG.LAYER_PANEL_WIDTH%
-        
-        ' Offset canvas Y when menu bar is visible
-        IF SCRN.showMenubar% AND MENU_BAR.visible% THEN dy% = dy% + MENU_BAR_HEIGHT
-        
-        ' Convert screen coords to canvas coords
-        MOUSE.X% = INT((rawX% - dx%) / SCRN.zoom!)
-        MOUSE.Y% = INT((rawY% - dy%) / SCRN.zoom!)
-        
-        ' Apply snap-to-grid if enabled
-        IF GRID.SNAP% THEN
-            MOUSE.X% = GRID_snap%(MOUSE.X%)
-            MOUSE.Y% = GRID_snap%(MOUSE.Y%)
-        END IF
-        
-        ' Clamp to canvas bounds
-        IF MOUSE.X% < 0 THEN MOUSE.X% = 0
-        IF MOUSE.Y% < 0 THEN MOUSE.Y% = 0
-        IF MOUSE.X% >= SCRN.w& THEN MOUSE.X% = SCRN.w& - 1
-        IF MOUSE.Y% >= SCRN.h& THEN MOUSE.Y% = SCRN.h& - 1
-        
-        ' Update button states from hardware
-        $IF MAC THEN
-            ' macOS: Use captured states OR current hardware state (whichever shows pressed)
-            MOUSE.B1% = mac_b1% OR _MOUSEBUTTON(1)
-            MOUSE.B2% = mac_b2% OR _MOUSEBUTTON(2)
-            MOUSE.B3% = mac_b3% OR _MOUSEBUTTON(3)
-        $ELSE
-            MOUSE.B1% = _MOUSEBUTTON(1)
-            MOUSE.B2% = _MOUSEBUTTON(2)
-            MOUSE.B3% = _MOUSEBUTTON(3)
-        $END IF
         
         ' Suppress button input after native dialogs to prevent phantom clicks
         ' SDL can produce spurious button events when the window regains focus
@@ -400,7 +410,7 @@ SUB MOUSE_input_handler ()
         ' On macOS, CTRL+left-click is converted to right-click (B2) by the OS,
         ' so we also check CTRL+B2 to handle that platform quirk.
         DIM ctrlHeld AS INTEGER
-        ctrlHeld% = _KEYDOWN(KEY_LCTRL&) OR _KEYDOWN(KEY_RCTRL&)
+        ctrlHeld% = MODIFIERS.ctrl%
         DIM ctrlClicked AS INTEGER
         ctrlClicked% = FALSE
         IF ctrlHeld% THEN
