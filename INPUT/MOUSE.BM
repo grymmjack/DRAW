@@ -27,6 +27,11 @@ DECLARE SUB MOUSE_tool_rect ()
 DECLARE SUB MOUSE_tool_ellip ()
 DECLARE SUB MOUSE_tool_brush ()
 DECLARE SUB MOUSE_tool_dot ()
+DECLARE SUB MOUSE_tool_spray ()
+DECLARE SUB MOUSE_tool_zoom (rawX AS INTEGER, rawY AS INTEGER)
+DECLARE SUB MOUSE_release_zoom (rawX AS INTEGER, rawY AS INTEGER)
+DECLARE SUB MOUSE_release_marquee ()
+DECLARE SUB MOUSE_release_move ()
 
 ''
 ' Drain all buffered mouse events and update MOUSE state ONCE with final values.
@@ -1051,6 +1056,146 @@ END SUB
 
 
 ''
+' Tool handler: Spray.
+'
+SUB MOUSE_tool_spray ()
+    ' Spray paint on left mouse button hold
+    IF MOUSE.B1% THEN
+        ' Save undo state on first press
+        IF NOT MOUSE.OLD_B1% AND NOT UNDO_saved_this_frame% THEN
+            UNDO_save_state
+            UNDO_saved_this_frame% = TRUE
+        END IF
+        ' Track drag direction for SHIFT axis constraint
+        IF MOUSE.X% < MOUSE.OLD_X% THEN MOUSE.DRAG$ = "L"
+        IF MOUSE.X% > MOUSE.OLD_X% THEN MOUSE.DRAG$ = "R"
+        IF MOUSE.Y% < MOUSE.OLD_Y% THEN MOUSE.DRAG$ = "U"
+        IF MOUSE.Y% > MOUSE.OLD_Y% THEN MOUSE.DRAG$ = "D"
+        SPRAY.ACTIVE = TRUE
+        ' Apply axis constraint if active
+        DIM sprayX AS INTEGER, sprayY AS INTEGER
+        IF CONSTRAIN_X% THEN
+            sprayX% = MOUSE.CON_X%: sprayY% = MOUSE.Y%
+        ELSEIF CONSTRAIN_Y% THEN
+            sprayX% = MOUSE.X%: sprayY% = MOUSE.CON_Y%
+        ELSE
+            sprayX% = MOUSE.X%: sprayY% = MOUSE.Y%
+        END IF
+        SPRAY_on sprayX%, sprayY%, DRAW_COLOR~&
+    ELSEIF MOUSE.B2% THEN
+        ' Right button sprays with BG color
+        IF NOT MOUSE.OLD_B2% AND NOT UNDO_saved_this_frame% THEN
+            UNDO_save_state
+            UNDO_saved_this_frame% = TRUE
+        END IF
+        ' Track drag direction for SHIFT axis constraint
+        IF MOUSE.X% < MOUSE.OLD_X% THEN MOUSE.DRAG$ = "L"
+        IF MOUSE.X% > MOUSE.OLD_X% THEN MOUSE.DRAG$ = "R"
+        IF MOUSE.Y% < MOUSE.OLD_Y% THEN MOUSE.DRAG$ = "U"
+        IF MOUSE.Y% > MOUSE.OLD_Y% THEN MOUSE.DRAG$ = "D"
+        SPRAY.ACTIVE = TRUE
+        IF CONSTRAIN_X% THEN
+            sprayX% = MOUSE.CON_X%: sprayY% = MOUSE.Y%
+        ELSEIF CONSTRAIN_Y% THEN
+            sprayX% = MOUSE.X%: sprayY% = MOUSE.CON_Y%
+        ELSE
+            sprayX% = MOUSE.X%: sprayY% = MOUSE.Y%
+        END IF
+        SPRAY_on sprayX%, sprayY%, PAINT_BG_COLOR~&
+    END IF
+END SUB
+
+
+''
+' Tool handler: Zoom.
+'
+SUB MOUSE_tool_zoom (rawX AS INTEGER, rawY AS INTEGER)
+    ' Zoom tool: click to zoom in at cursor, alt+click to zoom out
+    ' Drag to zoom into a region
+    IF MOUSE.B1% AND NOT MOUSE.OLD_B1% THEN
+        ' Mouse just pressed - start drag tracking
+        ZOOM.DRAGGING = TRUE
+        ZOOM.START_X = rawX%
+        ZOOM.START_Y = rawY%
+        ZOOM.END_X = rawX%
+        ZOOM.END_Y = rawY%
+    ELSEIF MOUSE.B1% AND ZOOM.DRAGGING THEN
+        ' Continue dragging - update end position
+        ZOOM.END_X = rawX%
+        ZOOM.END_Y = rawY%
+    END IF
+END SUB
+
+
+''
+' Mouse release handler: Zoom.
+'
+SUB MOUSE_release_zoom (rawX AS INTEGER, rawY AS INTEGER)
+    ' Zoom tool release - check if it was a click or a drag
+    IF ZOOM.DRAGGING THEN
+        DIM zDragW AS INTEGER, zDragH AS INTEGER
+        zDragW% = ABS(ZOOM.END_X - ZOOM.START_X)
+        zDragH% = ABS(ZOOM.END_Y - ZOOM.START_Y)
+        IF zDragW% >= 8 AND zDragH% >= 8 THEN
+            ' Drag was large enough - zoom to region
+            ZOOM_to_region ZOOM.START_X, ZOOM.START_Y, ZOOM.END_X, ZOOM.END_Y
+        ELSE
+            ' Small drag or click - zoom in/out at cursor
+            DIM zScreenX AS INTEGER, zScreenY AS INTEGER
+            zScreenX% = rawX%
+            zScreenY% = rawY%
+            IF MODIFIERS.alt% THEN
+                ZOOM_out_at zScreenX%, zScreenY%
+            ELSE
+                ZOOM_in_at zScreenX%, zScreenY%
+            END IF
+        END IF
+        ZOOM_drag_reset
+    END IF
+END SUB
+
+
+''
+' Mouse release handler: Marquee.
+'
+SUB MOUSE_release_marquee ()
+    ' Finish the marquee drag, resize, or move
+    IF MARQUEE.DRAGGING% THEN
+        MARQUEE_finish_drag
+    ELSEIF MARQUEE.RESIZING% THEN
+        MARQUEE_finish_resize
+    ELSEIF MARQUEE.MOVING% THEN
+        MARQUEE_finish_move
+    END IF
+END SUB
+
+
+''
+' Mouse release handler: Move.
+'
+SUB MOUSE_release_move ()
+    ' Mouse released - check for clone/stamp mode
+    IF MOVE.ACTIVE AND MOVE.TRANSFORMING THEN
+        DIM moveReleaseAlt AS INTEGER
+        moveReleaseAlt% = MODIFIERS.alt%
+
+        IF moveReleaseAlt% THEN
+            ' ALT held on release = stamp a copy and stay in clone mode
+            MOVE_stamp
+            ' Keep MOVE.TRANSFORMING = FALSE so next click starts fresh drag
+        END IF
+
+        ' Update base selection to current position for next transform
+        MOVE.SELECTION_X = MOVE.CURRENT_X
+        MOVE.SELECTION_Y = MOVE.CURRENT_Y
+        MOVE.SELECTION_W = MOVE.CURRENT_W
+        MOVE.SELECTION_H = MOVE.CURRENT_H
+        MOVE.TRANSFORMING = FALSE
+    END IF
+END SUB
+
+
+''
 ' Handles mouse input
 ' 
 SUB MOUSE_input_handler ()
@@ -1305,120 +1450,20 @@ SUB MOUSE_input_handler ()
                 CASE TOOL_DOT
                     MOUSE_tool_dot
                 CASE TOOL_SPRAY
-                    ' Spray paint on left mouse button hold
-                    IF MOUSE.B1% THEN
-                        ' Save undo state on first press
-                        IF NOT MOUSE.OLD_B1% AND NOT UNDO_saved_this_frame% THEN
-                            UNDO_save_state
-                            UNDO_saved_this_frame% = TRUE
-                        END IF
-                        ' Track drag direction for SHIFT axis constraint
-                        IF MOUSE.X% < MOUSE.OLD_X% THEN MOUSE.DRAG$ = "L"
-                        IF MOUSE.X% > MOUSE.OLD_X% THEN MOUSE.DRAG$ = "R"
-                        IF MOUSE.Y% < MOUSE.OLD_Y% THEN MOUSE.DRAG$ = "U"
-                        IF MOUSE.Y% > MOUSE.OLD_Y% THEN MOUSE.DRAG$ = "D"
-                        SPRAY.ACTIVE = TRUE
-                        ' Apply axis constraint if active
-                        DIM sprayX AS INTEGER, sprayY AS INTEGER
-                        IF CONSTRAIN_X% THEN
-                            sprayX% = MOUSE.CON_X%: sprayY% = MOUSE.Y%
-                        ELSEIF CONSTRAIN_Y% THEN
-                            sprayX% = MOUSE.X%: sprayY% = MOUSE.CON_Y%
-                        ELSE
-                            sprayX% = MOUSE.X%: sprayY% = MOUSE.Y%
-                        END IF
-                        SPRAY_on sprayX%, sprayY%, DRAW_COLOR~&
-                    ELSEIF MOUSE.B2% THEN
-                        ' Right button sprays with BG color
-                        IF NOT MOUSE.OLD_B2% AND NOT UNDO_saved_this_frame% THEN
-                            UNDO_save_state
-                            UNDO_saved_this_frame% = TRUE
-                        END IF
-                        ' Track drag direction for SHIFT axis constraint
-                        IF MOUSE.X% < MOUSE.OLD_X% THEN MOUSE.DRAG$ = "L"
-                        IF MOUSE.X% > MOUSE.OLD_X% THEN MOUSE.DRAG$ = "R"
-                        IF MOUSE.Y% < MOUSE.OLD_Y% THEN MOUSE.DRAG$ = "U"
-                        IF MOUSE.Y% > MOUSE.OLD_Y% THEN MOUSE.DRAG$ = "D"
-                        SPRAY.ACTIVE = TRUE
-                        IF CONSTRAIN_X% THEN
-                            sprayX% = MOUSE.CON_X%: sprayY% = MOUSE.Y%
-                        ELSEIF CONSTRAIN_Y% THEN
-                            sprayX% = MOUSE.X%: sprayY% = MOUSE.CON_Y%
-                        ELSE
-                            sprayX% = MOUSE.X%: sprayY% = MOUSE.Y%
-                        END IF
-                        SPRAY_on sprayX%, sprayY%, PAINT_BG_COLOR~&
-                    END IF
+                    MOUSE_tool_spray
                 CASE TOOL_ZOOM
-                    ' Zoom tool: click to zoom in at cursor, alt+click to zoom out
-                    ' Drag to zoom into a region
-                    IF MOUSE.B1% AND NOT MOUSE.OLD_B1% THEN
-                        ' Mouse just pressed - start drag tracking
-                        ZOOM.DRAGGING = TRUE
-                        ZOOM.START_X = rawX%
-                        ZOOM.START_Y = rawY%
-                        ZOOM.END_X = rawX%
-                        ZOOM.END_Y = rawY%
-                    ELSEIF MOUSE.B1% AND ZOOM.DRAGGING THEN
-                        ' Continue dragging - update end position
-                        ZOOM.END_X = rawX%
-                        ZOOM.END_Y = rawY%
-                    END IF
+                    MOUSE_tool_zoom rawX%, rawY%
             END SELECT
         ELSEIF NOT MOUSE.B1% THEN
             ' Button released - save undo state if we were drawing
             IF MOUSE.OLD_B1% AND NOT UNDO_saved_this_frame% THEN
                 SELECT CASE CURRENT_TOOL%
                     CASE TOOL_ZOOM
-                        ' Zoom tool release - check if it was a click or a drag
-                        IF ZOOM.DRAGGING THEN
-                            DIM zDragW AS INTEGER, zDragH AS INTEGER
-                            zDragW% = ABS(ZOOM.END_X - ZOOM.START_X)
-                            zDragH% = ABS(ZOOM.END_Y - ZOOM.START_Y)
-                            IF zDragW% >= 8 AND zDragH% >= 8 THEN
-                                ' Drag was large enough - zoom to region
-                                ZOOM_to_region ZOOM.START_X, ZOOM.START_Y, ZOOM.END_X, ZOOM.END_Y
-                            ELSE
-                                ' Small drag or click - zoom in/out at cursor
-                                DIM zScreenX AS INTEGER, zScreenY AS INTEGER
-                                zScreenX% = rawX%
-                                zScreenY% = rawY%
-                                IF MODIFIERS.alt% THEN
-                                    ZOOM_out_at zScreenX%, zScreenY%
-                                ELSE
-                                    ZOOM_in_at zScreenX%, zScreenY%
-                                END IF
-                            END IF
-                            ZOOM_drag_reset
-                        END IF
+                        MOUSE_release_zoom rawX%, rawY%
                     CASE TOOL_MARQUEE
-                        ' Finish the marquee drag, resize, or move
-                        IF MARQUEE.DRAGGING% THEN
-                            MARQUEE_finish_drag
-                        ELSEIF MARQUEE.RESIZING% THEN
-                            MARQUEE_finish_resize
-                        ELSEIF MARQUEE.MOVING% THEN
-                            MARQUEE_finish_move
-                        END IF
+                        MOUSE_release_marquee
                     CASE TOOL_MOVE
-                        ' Mouse released - check for clone/stamp mode
-                        IF MOVE.ACTIVE AND MOVE.TRANSFORMING THEN
-                            DIM moveReleaseAlt%
-                            moveReleaseAlt% = MODIFIERS.alt%
-                            
-                            IF moveReleaseAlt% THEN
-                                ' ALT held on release = stamp a copy and stay in clone mode
-                                MOVE_stamp
-                                ' Keep MOVE.TRANSFORMING = FALSE so next click starts fresh drag
-                            END IF
-                            
-                            ' Update base selection to current position for next transform
-                            MOVE.SELECTION_X = MOVE.CURRENT_X
-                            MOVE.SELECTION_Y = MOVE.CURRENT_Y
-                            MOVE.SELECTION_W = MOVE.CURRENT_W
-                            MOVE.SELECTION_H = MOVE.CURRENT_H
-                            MOVE.TRANSFORMING = FALSE
-                        END IF
+                        MOUSE_release_move
                     CASE TOOL_LINE
                         ' Draw the final line on mouse release
                         IF LINE_TOOL.DRAGGING THEN
