@@ -19,6 +19,11 @@ DECLARE SUB MOUSE_handle_toolbar_status_palette (rawX AS INTEGER, rawY AS INTEGE
 DECLARE SUB MOUSE_handle_b3_dblclick_reset_zoom ()
 DECLARE SUB MOUSE_handle_ui_autohide_restore (rawX AS INTEGER, rawY AS INTEGER)
 DECLARE SUB MOUSE_handle_panning (rawX AS INTEGER, rawY AS INTEGER)
+DECLARE SUB MOUSE_handle_right_click ()
+DECLARE SUB MOUSE_handle_shift_constrain ()
+DECLARE SUB MOUSE_handle_wheel (rawX AS INTEGER, rawY AS INTEGER, wheel_delta AS INTEGER)
+DECLARE SUB MOUSE_dispatch_tool_hold (rawX AS INTEGER, rawY AS INTEGER)
+DECLARE SUB MOUSE_dispatch_tool_release (rawX AS INTEGER, rawY AS INTEGER)
 DECLARE SUB MOUSE_tool_fill ()
 DECLARE SUB MOUSE_tool_picker ()
 DECLARE SUB MOUSE_tool_save ()
@@ -1601,6 +1606,303 @@ END SUB
 
 
 ''
+' Right-click handling for tools.
+'
+SUB MOUSE_handle_right_click ()
+    _LOGINFO "Right-click detected: B2=" + STR$(MOUSE.B2%) + " OLD_B2=" + STR$(MOUSE.OLD_B2%)
+    _LOGINFO "Current tool=" + STR$(CURRENT_TOOL%) + " (DOT=3, BRUSH=1)"
+    _LOGINFO "SHIFT held: " + STR$(MODIFIERS.shift%)
+    _LOGINFO "MOUSE position at right-click: X=" + STR$(MOUSE.X%) + " Y=" + STR$(MOUSE.Y%)
+    _LOGINFO "RAW mouse position: _MOUSEX=" + STR$(_MOUSEX) + " _MOUSEY=" + STR$(_MOUSEY)
+
+    ' Right-click with picker: pick background color
+    IF CURRENT_TOOL% = TOOL_PICKER AND PICKER.ACTIVE% THEN
+        PICKER_pick_color MOUSE.X%, MOUSE.Y%, 2 ' 2 = right button/background
+        EXIT SUB
+    END IF
+
+    ' SHIFT + Right Click: Draw line from last dot/brush to current position
+    IF (CURRENT_TOOL% = TOOL_DOT OR CURRENT_TOOL% = TOOL_BRUSH) AND MODIFIERS.shift% THEN
+        _LOGINFO "SHIFT+Right-click on BRUSH/DOT tool - checking DOT.HAS_LAST=" + STR$(DOT.HAS_LAST)
+        _LOGINFO "BEFORE drawing: DOT.LAST_X=" + STR$(DOT.LAST_X) + " DOT.LAST_Y=" + STR$(DOT.LAST_Y)
+        _LOGINFO "BEFORE drawing: MOUSE.X%=" + STR$(MOUSE.X%) + " MOUSE.Y%=" + STR$(MOUSE.Y%)
+        IF DOT.HAS_LAST THEN
+            _LOGINFO "Drawing dynamic line from (" + STR$(DOT.LAST_X) + "," + STR$(DOT.LAST_Y) + ") to (" + STR$(MOUSE.X%) + "," + STR$(MOUSE.Y%) + ")"
+            _LOGINFO "Using PAINT_COLOR=" + STR$(PAINT_COLOR~&) + " (not PAINT_BG_COLOR=" + STR$(PAINT_BG_COLOR~&) + ")"
+            ' Draw line from last position to current position using FOREGROUND color
+            ' Note: Don't undo the origin point - keep it and draw line from it
+            _DEST LAYER_current_image&
+            IF CUSTOM_BRUSH_is_active% THEN
+                ' Use custom brush stamps along the line
+                CUSTOM_BRUSH_stamp_line DOT.LAST_X, DOT.LAST_Y, MOUSE.X%, MOUSE.Y%
+            ELSE
+                ' Normal line drawing with foreground color (not background)
+                LINE (DOT.LAST_X, DOT.LAST_Y)-(MOUSE.X%, MOUSE.Y%), PAINT_COLOR~&
+            END IF
+            _DEST SCRN.CANVAS&
+            ' Update last position to current position
+            DOT.LAST_X = MOUSE.X%
+            DOT.LAST_Y = MOUSE.Y%
+            ' Save undo state
+            UNDO_save_state
+            UNDO_saved_this_frame% = TRUE
+            CANVAS_DIRTY% = TRUE
+        ELSE
+            _LOGINFO "DOT.HAS_LAST is FALSE - no previous point to draw from"
+        END IF
+        EXIT SUB
+    END IF
+
+    ' Right Click on POLY_LINE tool: finish poly line (stop drawing)
+    IF CURRENT_TOOL% = TOOL_POLYGON OR CURRENT_TOOL% = TOOL_POLYGON_FILLED THEN
+        ' Close the shape if filled polygon
+        IF CURRENT_TOOL% = TOOL_POLYGON_FILLED AND POLY_LINE.HAS_LAST AND POLY_LINE.POINT_COUNT >= 3 THEN
+            ' Draw closing line
+            DIM polyfill_target AS LONG
+            DIM polyfill_is_transparent AS INTEGER
+            polyfill_target& = LAYER_current_image&
+            _DEST polyfill_target&
+
+            ' Check if drawing with transparent color
+            polyfill_is_transparent% = (_ALPHA32(PAINT_COLOR~&) = 0)
+            IF polyfill_is_transparent% THEN _DONTBLEND polyfill_target&
+
+            IF CUSTOM_BRUSH_is_active% THEN
+                ' Use custom brush stamps for closing line
+                CUSTOM_BRUSH_stamp_line POLY_LINE.LAST_X, POLY_LINE.LAST_Y, POLY_LINE.FIRST_X, POLY_LINE.FIRST_Y
+            ELSEIF SELECTION_has_active% THEN
+                ' Use clipped line drawing for closing line when selection is active
+                LINE_draw_clipped POLY_LINE.LAST_X, POLY_LINE.LAST_Y, POLY_LINE.FIRST_X, POLY_LINE.FIRST_Y, PAINT_COLOR~&
+            ELSE
+                ' Normal line drawing
+                LINE (POLY_LINE.LAST_X, POLY_LINE.LAST_Y)-(POLY_LINE.FIRST_X, POLY_LINE.FIRST_Y), PAINT_COLOR~&
+            END IF
+            ' Use scanline fill algorithm for proper polygon filling (only if not using custom brush)
+            IF NOT CUSTOM_BRUSH_is_active% THEN
+                POLY_FILL_scanline POLY_POINTS_X(), POLY_POINTS_Y(), POLY_LINE.POINT_COUNT, PAINT_COLOR~&, polyfill_target&
+            END IF
+
+            IF polyfill_is_transparent% THEN _BLEND polyfill_target&
+            _DEST SCRN.CANVAS&
+            CANVAS_DIRTY% = TRUE
+        END IF
+        ' Save undo AFTER polygon is complete (like LINE tool)
+        UNDO_save_state
+        UNDO_saved_this_frame% = TRUE
+        POLY_LINE_reset
+        ' Switch to NULL tool to prevent accidental clicks from starting new polygons
+        CURRENT_TOOL% = TOOL_NULL
+        GUI_NEEDS_REDRAW% = TRUE
+        EXIT SUB
+    END IF
+END SUB
+
+
+''
+' Shift-constrain handling for directional drags.
+'
+SUB MOUSE_handle_shift_constrain ()
+    IF MODIFIERS.shift% AND NOT CONSTRAIN_X% AND NOT CONSTRAIN_Y% THEN
+        IF MOUSE.DRAG$ = "L" OR MOUSE.DRAG$ = "R" THEN
+            MOUSE.CON_Y% = MOUSE.Y%
+            CONSTRAIN_X% = FALSE
+            CONSTRAIN_Y% = TRUE
+        ELSEIF MOUSE.DRAG$ = "U" OR MOUSE.DRAG$ = "D" THEN
+            MOUSE.CON_X% = MOUSE.X%
+            CONSTRAIN_X% = TRUE
+            CONSTRAIN_Y% = FALSE
+        END IF
+    END IF
+END SUB
+
+
+''
+' Mouse wheel handler (GUI scroll, brush size, zoom).
+'
+SUB MOUSE_handle_wheel (rawX AS INTEGER, rawY AS INTEGER, wheel_delta AS INTEGER)
+    ' Process accumulated wheel delta for zoom/brush size (outside event loop)
+    IF wheel_delta% <> 0 THEN
+        MOUSE.SW% = wheel_delta%
+
+        ' Check if palette menu is visible - always handle wheel for menu scrolling, never zoom
+        IF PALETTE_MENU_VISIBLE% THEN
+            PALETTE_STRIP_handle_wheel MOUSE.SW%
+            MOUSE.SW% = 0 ' Consume — menu scroll doesn't change the scene
+        ' Check if over layer panel first - use RAW screen coords for GUI bounds checks!
+        ELSEIF LAYER_PANEL.visible% AND LAYER_PANEL_in_bounds%(rawX%, rawY%) THEN
+            LAYER_PANEL_handle_wheel rawX%, rawY%, MOUSE.SW%
+            MOUSE.SW% = 0 ' Consume — panel scroll doesn't change the scene
+        ' Check if over palette dropdown button (closed menu) - ignore wheel
+        ELSEIF PALETTE_STRIP_dropdown_in_bounds%(rawX%, rawY%) THEN
+            MOUSE.SW% = 0 ' Consume — ignored
+        ' Check if over palette strip (excluding dropdown) - use RAW screen coords
+        ELSEIF PALETTE_STRIP_in_bounds%(rawX%, rawY%) THEN
+            PALETTE_STRIP_handle_wheel MOUSE.SW%
+            MOUSE.SW% = 0 ' Consume — palette scroll doesn't change the scene
+        ' Check if over toolbar (don't zoom when over toolbar) - use RAW screen coords
+        ELSEIF SCRN.showToolbar% AND TOOLBAR_is_over_area%(rawX%, rawY%) THEN
+            MOUSE.SW% = 0 ' Consume — ignored
+        ' Check if over status bar area (don't zoom when over status bar) - use RAW screen coords
+        ELSEIF SCRN.showStatus% AND rawY% >= SCRN.h& - THEME.STATUS_height% - PALETTE_STRIP_get_height% THEN
+            MOUSE.SW% = 0 ' Consume — ignored
+        ' Check if CTRL is held for brush size adjustment
+        ELSEIF MODIFIERS.ctrl% THEN
+            ' CTRL+Wheel adjusts brush size
+            ' Wheel up (negative) should increase, wheel down (positive) should decrease
+            IF MOUSE.SW% < 0 THEN
+                BRUSH_SIZE_increase
+            ELSEIF MOUSE.SW% > 0 THEN
+                BRUSH_SIZE_decrease
+            END IF
+            MOUSE.SW% = 0 ' Consume wheel — brush resize doesn't change the scene
+        ELSE
+            ' Mouse wheel without CTRL: zoom in/out (only when over canvas)
+            ' Above 100%: Always use 100% increments (both in and out)
+            ' At/below 100%: Zoom IN snaps to 100%, Zoom OUT uses 25%
+            ' Zoom centered on mouse cursor position
+            DIM oldZoom AS SINGLE
+            DIM mouseScreenX AS INTEGER, mouseScreenY AS INTEGER
+            oldZoom! = SCRN.zoom!
+
+            ' Get mouse screen position BEFORE zoom changes (scaled to logical coords)
+            mouseScreenX% = _MOUSEX
+            mouseScreenY% = _MOUSEY
+
+            IF MOUSE.SW% < 0 THEN
+                ' Wheel down = zoom in
+                IF SCRN.zoom! < 1.0 THEN
+                    SCRN.zoom! = 1.0  ' Snap to 100% from any fractional zoom
+                ELSE
+                    SCRN.zoom! = INT(SCRN.zoom!) + 1.0  ' Next whole 100% (200%, 300%, etc.)
+                END IF
+                IF SCRN.zoom! > SCRN.zoomMax! THEN SCRN.zoom! = SCRN.zoomMax!
+            ELSEIF MOUSE.SW% > 0 THEN
+                ' Wheel up = zoom out
+                IF SCRN.zoom! > 1.0 THEN
+                    ' Above 100%: zoom out by whole 100% (200% → 100%, 300% → 200%)
+                    SCRN.zoom! = INT(SCRN.zoom!) - 1.0
+                ELSE
+                    ' At/below 100%: zoom out by 25% (100% → 75% → 50% → 25%)
+                    SCRN.zoom! = SCRN.zoom! - 0.25
+                END IF
+                IF SCRN.zoom! < SCRN.zoomMin! THEN SCRN.zoom! = SCRN.zoomMin!
+            END IF
+
+            ' Adjust offset to keep mouse over same canvas point
+            IF SCRN.zoom! <> oldZoom! THEN
+                GUI_NEEDS_REDRAW% = TRUE
+                ' Calculate canvas center offset at old zoom (using logical canvas dimensions)
+                DIM old_zw AS LONG, old_zh AS LONG
+                old_zw& = SCRN.w& * oldZoom!
+                old_zh& = SCRN.h& * oldZoom!
+                DIM old_center_x AS INTEGER, old_center_y AS INTEGER
+                old_center_x% = (SCRN.w& - old_zw&) \ 2
+                old_center_y% = (SCRN.h& - old_zh&) \ 2
+
+                ' Account for layer panel offset when visible
+                DIM layerPanelOffset AS INTEGER
+                layerPanelOffset% = 0
+                IF LAYER_PANEL.visible% THEN layerPanelOffset% = CFG.LAYER_PANEL_WIDTH%
+
+                ' Canvas position under mouse at old zoom
+                DIM canvasX AS SINGLE, canvasY AS SINGLE
+                canvasX! = (mouseScreenX% - old_center_x% - SCRN.offsetX% - layerPanelOffset%) / oldZoom!
+                canvasY! = (mouseScreenY% - old_center_y% - SCRN.offsetY%) / oldZoom!
+
+                ' Calculate new canvas center offset at new zoom
+                DIM new_zw AS LONG, new_zh AS LONG
+                new_zw& = SCRN.w& * SCRN.zoom!
+                new_zh& = SCRN.h& * SCRN.zoom!
+                DIM new_center_x AS INTEGER, new_center_y AS INTEGER
+                new_center_x% = (SCRN.w& - new_zw&) \ 2
+                new_center_y% = (SCRN.h& - new_zh&) \ 2
+
+                ' Calculate new offset to keep canvas point at mouse screen position
+                SCRN.offsetX% = mouseScreenX% - new_center_x% - (canvasX! * SCRN.zoom!) - layerPanelOffset%
+                SCRN.offsetY% = mouseScreenY% - new_center_y% - (canvasY! * SCRN.zoom!)
+            END IF
+        END IF
+        MOUSE.OSW% = MOUSE.SW%
+    END IF
+END SUB
+
+
+''
+' Tool dispatcher: button held.
+'
+SUB MOUSE_dispatch_tool_hold (rawX AS INTEGER, rawY AS INTEGER)
+    ' Handle different tools based on CURRENT_TOOL (B1=left=FG, B2=right=BG)
+    SELECT CASE CURRENT_TOOL%
+        CASE TOOL_NULL
+            ' Null tool - does nothing (used during dialogs to prevent phantom events)
+            ' Intentionally empty
+        CASE TOOL_MARQUEE
+            MOUSE_tool_marquee
+        CASE TOOL_MOVE
+            MOUSE_tool_move
+        CASE TOOL_FILL
+            MOUSE_tool_fill
+        CASE TOOL_PICKER
+            MOUSE_tool_picker
+        CASE TOOL_SAVE
+            MOUSE_tool_save
+        CASE TOOL_OPEN
+            MOUSE_tool_open
+        CASE TOOL_TEXT
+            MOUSE_tool_text
+        CASE TOOL_LINE
+            MOUSE_tool_line
+        CASE TOOL_POLYGON, TOOL_POLYGON_FILLED
+            MOUSE_tool_poly
+        CASE TOOL_RECT, TOOL_RECT_FILLED
+            MOUSE_tool_rect
+        CASE TOOL_ELLIPSE, TOOL_ELLIPSE_FILLED
+            MOUSE_tool_ellip
+        CASE TOOL_BRUSH
+            MOUSE_tool_brush
+        CASE TOOL_DOT
+            MOUSE_tool_dot
+        CASE TOOL_SPRAY
+            MOUSE_tool_spray
+        CASE TOOL_ZOOM
+            MOUSE_tool_zoom rawX%, rawY%
+    END SELECT
+END SUB
+
+
+''
+' Tool dispatcher: button released.
+'
+SUB MOUSE_dispatch_tool_release (rawX AS INTEGER, rawY AS INTEGER)
+    ' Button released - save undo state if we were drawing
+    IF MOUSE.OLD_B1% AND NOT UNDO_saved_this_frame% THEN
+        SELECT CASE CURRENT_TOOL%
+            CASE TOOL_ZOOM
+                MOUSE_release_zoom rawX%, rawY%
+            CASE TOOL_MARQUEE
+                MOUSE_release_marquee
+            CASE TOOL_MOVE
+                MOUSE_release_move
+            CASE TOOL_LINE
+                MOUSE_release_line
+            CASE TOOL_RECT, TOOL_RECT_FILLED
+                MOUSE_release_rect
+            CASE TOOL_ELLIPSE, TOOL_ELLIPSE_FILLED
+                MOUSE_release_ellip
+            CASE TOOL_BRUSH
+                MOUSE_release_brush
+            CASE TOOL_DOT
+                MOUSE_release_dot
+            CASE TOOL_TEXT
+                MOUSE_release_text
+            CASE TOOL_SPRAY
+                MOUSE_release_spray
+        END SELECT
+    END IF
+END SUB
+
+
+''
 ' Handles mouse input
 ' 
 SUB MOUSE_input_handler ()
@@ -1799,68 +2101,9 @@ SUB MOUSE_input_handler ()
         IF SCRN.panning% THEN
             ' Don't process tools while panning
         ELSEIF MOUSE.B1% OR MOUSE.B2% THEN
-            ' Handle different tools based on CURRENT_TOOL (B1=left=FG, B2=right=BG)
-            SELECT CASE CURRENT_TOOL%
-                CASE TOOL_NULL
-                    ' Null tool - does nothing (used during dialogs to prevent phantom events)
-                    ' Intentionally empty
-                CASE TOOL_MARQUEE
-                    MOUSE_tool_marquee
-                CASE TOOL_MOVE
-                    MOUSE_tool_move
-                CASE TOOL_FILL
-                    MOUSE_tool_fill
-                CASE TOOL_PICKER
-                    MOUSE_tool_picker
-                CASE TOOL_SAVE
-                    MOUSE_tool_save
-                CASE TOOL_OPEN
-                    MOUSE_tool_open
-                CASE TOOL_TEXT
-                    MOUSE_tool_text
-                CASE TOOL_LINE
-                    MOUSE_tool_line
-                CASE TOOL_POLYGON, TOOL_POLYGON_FILLED
-                    MOUSE_tool_poly
-                CASE TOOL_RECT, TOOL_RECT_FILLED
-                    MOUSE_tool_rect
-                CASE TOOL_ELLIPSE, TOOL_ELLIPSE_FILLED
-                    MOUSE_tool_ellip
-                CASE TOOL_BRUSH
-                    MOUSE_tool_brush
-                CASE TOOL_DOT
-                    MOUSE_tool_dot
-                CASE TOOL_SPRAY
-                    MOUSE_tool_spray
-                CASE TOOL_ZOOM
-                    MOUSE_tool_zoom rawX%, rawY%
-            END SELECT
+            MOUSE_dispatch_tool_hold rawX%, rawY%
         ELSEIF NOT MOUSE.B1% THEN
-            ' Button released - save undo state if we were drawing
-            IF MOUSE.OLD_B1% AND NOT UNDO_saved_this_frame% THEN
-                SELECT CASE CURRENT_TOOL%
-                    CASE TOOL_ZOOM
-                        MOUSE_release_zoom rawX%, rawY%
-                    CASE TOOL_MARQUEE
-                        MOUSE_release_marquee
-                    CASE TOOL_MOVE
-                        MOUSE_release_move
-                    CASE TOOL_LINE
-                        MOUSE_release_line
-                    CASE TOOL_RECT, TOOL_RECT_FILLED
-                        MOUSE_release_rect
-                    CASE TOOL_ELLIPSE, TOOL_ELLIPSE_FILLED
-                        MOUSE_release_ellip
-                    CASE TOOL_BRUSH
-                        MOUSE_release_brush
-                    CASE TOOL_DOT
-                        MOUSE_release_dot
-                    CASE TOOL_TEXT
-                        MOUSE_release_text
-                    CASE TOOL_SPRAY
-                        MOUSE_release_spray
-                END SELECT
-            END IF
+            MOUSE_dispatch_tool_release rawX%, rawY%
             MOUSE.DRAG$ = ""
             MOUSE.CON_X% = 0 : MOUSE.CON_Y% = 0
             CONSTRAIN_X% = FALSE : CONSTRAIN_Y% = FALSE
@@ -1868,103 +2111,10 @@ SUB MOUSE_input_handler ()
         
         ' Right Click handling for different tools
         IF MOUSE.B2% AND NOT MOUSE.OLD_B2% THEN
-            _LOGINFO "Right-click detected: B2=" + STR$(MOUSE.B2%) + " OLD_B2=" + STR$(MOUSE.OLD_B2%)
-            _LOGINFO "Current tool=" + STR$(CURRENT_TOOL%) + " (DOT=3, BRUSH=1)"
-            _LOGINFO "SHIFT held: " + STR$(MODIFIERS.shift%)
-            _LOGINFO "MOUSE position at right-click: X=" + STR$(MOUSE.X%) + " Y=" + STR$(MOUSE.Y%)
-            _LOGINFO "RAW mouse position: _MOUSEX=" + STR$(_MOUSEX) + " _MOUSEY=" + STR$(_MOUSEY)
-            
-            ' SHIFT + Right Click: Draw line from last dot/brush to current position
-            IF (CURRENT_TOOL% = TOOL_DOT OR CURRENT_TOOL% = TOOL_BRUSH) AND MODIFIERS.shift% THEN
-                _LOGINFO "SHIFT+Right-click on BRUSH/DOT tool - checking DOT.HAS_LAST=" + STR$(DOT.HAS_LAST)
-                _LOGINFO "BEFORE drawing: DOT.LAST_X=" + STR$(DOT.LAST_X) + " DOT.LAST_Y=" + STR$(DOT.LAST_Y)
-                _LOGINFO "BEFORE drawing: MOUSE.X%=" + STR$(MOUSE.X%) + " MOUSE.Y%=" + STR$(MOUSE.Y%)
-                IF DOT.HAS_LAST THEN
-                    _LOGINFO "Drawing dynamic line from (" + STR$(DOT.LAST_X) + "," + STR$(DOT.LAST_Y) + ") to (" + STR$(MOUSE.X%) + "," + STR$(MOUSE.Y%) + ")"
-                    _LOGINFO "Using PAINT_COLOR=" + STR$(PAINT_COLOR~&) + " (not PAINT_BG_COLOR=" + STR$(PAINT_BG_COLOR~&) + ")"
-                    ' Draw line from last position to current position using FOREGROUND color
-                    ' Note: Don't undo the origin point - keep it and draw line from it
-                    _DEST LAYER_current_image&
-                    IF CUSTOM_BRUSH_is_active% THEN
-                        ' Use custom brush stamps along the line
-                        CUSTOM_BRUSH_stamp_line DOT.LAST_X, DOT.LAST_Y, MOUSE.X%, MOUSE.Y%
-                    ELSE
-                        ' Normal line drawing with foreground color (not background)
-                        LINE (DOT.LAST_X, DOT.LAST_Y)-(MOUSE.X%, MOUSE.Y%), PAINT_COLOR~&
-                    END IF
-                    _DEST SCRN.CANVAS&
-                    ' Update last position to current position
-                    DOT.LAST_X = MOUSE.X%
-                    DOT.LAST_Y = MOUSE.Y%
-                    ' Save undo state
-                    UNDO_save_state
-                    UNDO_saved_this_frame% = TRUE
-                    CANVAS_DIRTY% = TRUE
-                ELSE
-                    _LOGINFO "DOT.HAS_LAST is FALSE - no previous point to draw from"
-                END IF
-            ' Right Click on POLY_LINE tool: finish poly line (stop drawing)
-            ELSEIF CURRENT_TOOL% = TOOL_POLYGON OR CURRENT_TOOL% = TOOL_POLYGON_FILLED THEN
-                ' Close the shape if filled polygon
-                IF CURRENT_TOOL% = TOOL_POLYGON_FILLED AND POLY_LINE.HAS_LAST AND POLY_LINE.POINT_COUNT >= 3 THEN
-                    ' Draw closing line
-                    DIM polyfill_target AS LONG
-                    DIM polyfill_is_transparent AS INTEGER
-                    polyfill_target& = LAYER_current_image&
-                    _DEST polyfill_target&
-                    
-                    ' Check if drawing with transparent color
-                    polyfill_is_transparent% = (_ALPHA32(PAINT_COLOR~&) = 0)
-                    IF polyfill_is_transparent% THEN _DONTBLEND polyfill_target&
-                    
-                    IF CUSTOM_BRUSH_is_active% THEN
-                        ' Use custom brush stamps for closing line
-                        CUSTOM_BRUSH_stamp_line POLY_LINE.LAST_X, POLY_LINE.LAST_Y, POLY_LINE.FIRST_X, POLY_LINE.FIRST_Y
-                    ELSEIF SELECTION_has_active% THEN
-                        ' Use clipped line drawing for closing line when selection is active
-                        LINE_draw_clipped POLY_LINE.LAST_X, POLY_LINE.LAST_Y, POLY_LINE.FIRST_X, POLY_LINE.FIRST_Y, PAINT_COLOR~&
-                    ELSE
-                        ' Normal line drawing
-                        LINE (POLY_LINE.LAST_X, POLY_LINE.LAST_Y)-(POLY_LINE.FIRST_X, POLY_LINE.FIRST_Y), PAINT_COLOR~&
-                    END IF
-                    ' Use scanline fill algorithm for proper polygon filling (only if not using custom brush)
-                    IF NOT CUSTOM_BRUSH_is_active% THEN
-                        POLY_FILL_scanline POLY_POINTS_X(), POLY_POINTS_Y(), POLY_LINE.POINT_COUNT, PAINT_COLOR~&, polyfill_target&
-                    END IF
-                    
-                    IF polyfill_is_transparent% THEN _BLEND polyfill_target&
-                    _DEST SCRN.CANVAS&
-                    CANVAS_DIRTY% = TRUE
-                END IF
-                ' Save undo AFTER polygon is complete (like LINE tool)
-                UNDO_save_state
-                UNDO_saved_this_frame% = TRUE
-                POLY_LINE_reset
-                ' Switch to NULL tool to prevent accidental clicks from starting new polygons
-                CURRENT_TOOL% = TOOL_NULL
-                GUI_NEEDS_REDRAW% = TRUE
-            END IF
-        END IF
-        
-        ' Right button handlers (B2)
-        IF MOUSE.B2% THEN
-            ' Right click with picker: pick background color
-            IF CURRENT_TOOL% = TOOL_PICKER AND PICKER.ACTIVE% AND NOT MOUSE.OLD_B2% THEN
-                PICKER_pick_color MOUSE.X%, MOUSE.Y%, 2  ' 2 = right button/background
-            END IF
+            MOUSE_handle_right_click
         END IF
 
-        IF MODIFIERS.shift% AND NOT CONSTRAIN_X% AND NOT CONSTRAIN_Y% THEN
-            IF MOUSE.DRAG$ = "L" OR MOUSE.DRAG$ = "R" THEN
-                MOUSE.CON_Y% = MOUSE.Y%
-                CONSTRAIN_X% = FALSE
-                CONSTRAIN_Y% = TRUE
-            ELSEIF MOUSE.DRAG$ = "U" OR MOUSE.DRAG$ = "D" THEN
-                MOUSE.CON_X% = MOUSE.X%
-                CONSTRAIN_X% = TRUE
-                CONSTRAIN_Y% = FALSE
-            END IF
-        END IF
+        MOUSE_handle_shift_constrain
     END IF ' End drain-then-process block
     
     ' Trigger redraw when palette menu is visible (for continuous hover highlighting)
@@ -1972,110 +2122,7 @@ SUB MOUSE_input_handler ()
         GUI_NEEDS_REDRAW% = TRUE
     END IF
     
-    ' Process accumulated wheel delta for zoom/brush size (outside event loop)
-    IF wheel_delta% <> 0 THEN
-        MOUSE.SW% = wheel_delta%
-        
-        ' Check if palette menu is visible - always handle wheel for menu scrolling, never zoom
-        IF PALETTE_MENU_VISIBLE% THEN
-            PALETTE_STRIP_handle_wheel MOUSE.SW%
-            MOUSE.SW% = 0 ' Consume — menu scroll doesn't change the scene
-        ' Check if over layer panel first - use RAW screen coords for GUI bounds checks!
-        ELSEIF LAYER_PANEL.visible% AND LAYER_PANEL_in_bounds%(rawX%, rawY%) THEN
-            LAYER_PANEL_handle_wheel rawX%, rawY%, MOUSE.SW%
-            MOUSE.SW% = 0 ' Consume — panel scroll doesn't change the scene
-        ' Check if over palette dropdown button (closed menu) - ignore wheel
-        ELSEIF PALETTE_STRIP_dropdown_in_bounds%(rawX%, rawY%) THEN
-            MOUSE.SW% = 0 ' Consume — ignored
-        ' Check if over palette strip (excluding dropdown) - use RAW screen coords
-        ELSEIF PALETTE_STRIP_in_bounds%(rawX%, rawY%) THEN
-            PALETTE_STRIP_handle_wheel MOUSE.SW%
-            MOUSE.SW% = 0 ' Consume — palette scroll doesn't change the scene
-        ' Check if over toolbar (don't zoom when over toolbar) - use RAW screen coords
-        ELSEIF SCRN.showToolbar% AND TOOLBAR_is_over_area%(rawX%, rawY%) THEN
-            MOUSE.SW% = 0 ' Consume — ignored
-        ' Check if over status bar area (don't zoom when over status bar) - use RAW screen coords
-        ELSEIF SCRN.showStatus% AND rawY% >= SCRN.h& - THEME.STATUS_height% - PALETTE_STRIP_get_height% THEN
-            MOUSE.SW% = 0 ' Consume — ignored
-        ' Check if CTRL is held for brush size adjustment
-        ELSEIF MODIFIERS.ctrl% THEN
-            ' CTRL+Wheel adjusts brush size
-            ' Wheel up (negative) should increase, wheel down (positive) should decrease
-            IF MOUSE.SW% < 0 THEN
-                BRUSH_SIZE_increase
-            ELSEIF MOUSE.SW% > 0 THEN
-                BRUSH_SIZE_decrease
-            END IF
-            MOUSE.SW% = 0 ' Consume wheel — brush resize doesn't change the scene
-        ELSE
-            ' Mouse wheel without CTRL: zoom in/out (only when over canvas)
-            ' Above 100%: Always use 100% increments (both in and out)
-            ' At/below 100%: Zoom IN snaps to 100%, Zoom OUT uses 25%
-            ' Zoom centered on mouse cursor position
-            DIM oldZoom AS SINGLE
-            DIM mouseScreenX AS INTEGER, mouseScreenY AS INTEGER
-            oldZoom! = SCRN.zoom!
-            
-            ' Get mouse screen position BEFORE zoom changes (scaled to logical coords)
-            mouseScreenX% = _MOUSEX
-            mouseScreenY% = _MOUSEY
-            
-            IF MOUSE.SW% < 0 THEN
-                ' Wheel down = zoom in
-                IF SCRN.zoom! < 1.0 THEN
-                    SCRN.zoom! = 1.0  ' Snap to 100% from any fractional zoom
-                ELSE
-                    SCRN.zoom! = INT(SCRN.zoom!) + 1.0  ' Next whole 100% (200%, 300%, etc.)
-                END IF
-                IF SCRN.zoom! > SCRN.zoomMax! THEN SCRN.zoom! = SCRN.zoomMax!
-            ELSEIF MOUSE.SW% > 0 THEN
-                ' Wheel up = zoom out
-                IF SCRN.zoom! > 1.0 THEN
-                    ' Above 100%: zoom out by whole 100% (200% → 100%, 300% → 200%)
-                    SCRN.zoom! = INT(SCRN.zoom!) - 1.0
-                ELSE
-                    ' At/below 100%: zoom out by 25% (100% → 75% → 50% → 25%)
-                    SCRN.zoom! = SCRN.zoom! - 0.25
-                END IF
-                IF SCRN.zoom! < SCRN.zoomMin! THEN SCRN.zoom! = SCRN.zoomMin!
-            END IF
-            
-            ' Adjust offset to keep mouse over same canvas point
-            IF SCRN.zoom! <> oldZoom! THEN
-                GUI_NEEDS_REDRAW% = TRUE
-                ' Calculate canvas center offset at old zoom (using logical canvas dimensions)
-                DIM old_zw AS LONG, old_zh AS LONG
-                old_zw& = SCRN.w& * oldZoom!
-                old_zh& = SCRN.h& * oldZoom!
-                DIM old_center_x AS INTEGER, old_center_y AS INTEGER
-                old_center_x% = (SCRN.w& - old_zw&) \ 2
-                old_center_y% = (SCRN.h& - old_zh&) \ 2
-                
-                ' Account for layer panel offset when visible
-                DIM layerPanelOffset AS INTEGER
-                layerPanelOffset% = 0
-                IF LAYER_PANEL.visible% THEN layerPanelOffset% = CFG.LAYER_PANEL_WIDTH%
-                
-                ' Canvas position under mouse at old zoom
-                DIM canvasX AS SINGLE, canvasY AS SINGLE
-                canvasX! = (mouseScreenX% - old_center_x% - SCRN.offsetX% - layerPanelOffset%) / oldZoom!
-                canvasY! = (mouseScreenY% - old_center_y% - SCRN.offsetY%) / oldZoom!
-                
-                ' Calculate new canvas center offset at new zoom
-                DIM new_zw AS LONG, new_zh AS LONG
-                new_zw& = SCRN.w& * SCRN.zoom!
-                new_zh& = SCRN.h& * SCRN.zoom!
-                DIM new_center_x AS INTEGER, new_center_y AS INTEGER
-                new_center_x% = (SCRN.w& - new_zw&) \ 2
-                new_center_y% = (SCRN.h& - new_zh&) \ 2
-                
-                ' Calculate new offset to keep canvas point at mouse screen position
-                SCRN.offsetX% = mouseScreenX% - new_center_x% - (canvasX! * SCRN.zoom!) - layerPanelOffset%
-                SCRN.offsetY% = mouseScreenY% - new_center_y% - (canvasY! * SCRN.zoom!)
-            END IF
-        END IF
-        MOUSE.OSW% = MOUSE.SW%
-    END IF
+    MOUSE_handle_wheel rawX%, rawY%, wheel_delta%
     
     ' Update marquee every frame for keyboard controls and handle hover detection
     IF CURRENT_TOOL% = TOOL_MARQUEE AND MARQUEE.ACTIVE% THEN
