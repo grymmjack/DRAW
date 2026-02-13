@@ -26,6 +26,7 @@ DECLARE SUB MOUSE_dispatch_tool_hold (rawX AS INTEGER, rawY AS INTEGER)
 DECLARE SUB MOUSE_dispatch_tool_release (rawX AS INTEGER, rawY AS INTEGER)
 DECLARE SUB MOUSE_handle_symmetry_ctrl_click ()
 DECLARE SUB MOUSE_update_draw_color ()
+DECLARE SUB MOUSE_handle_alt_picker (rawX AS INTEGER, rawY AS INTEGER)
 DECLARE SUB MOUSE_tool_fill ()
 DECLARE SUB MOUSE_tool_picker ()
 DECLARE SUB MOUSE_tool_save ()
@@ -1938,6 +1939,90 @@ END SUB
 
 
 ''
+' ALT temporary picker mode state machine.
+'
+SUB MOUSE_handle_alt_picker (rawX AS INTEGER, rawY AS INTEGER)
+    ' Check for ALT key press to activate temporary color picker
+    ' Only for drawing tools - NOT for MOVE (ALT=clone), MARQUEE, IMAGE_IMPORT, NULL, etc.
+    ' Also skip if CTRL or SHIFT are held (likely a hotkey combo like CTRL+ALT+SHIFT)
+    DIM isDrawingTool%
+    DIM isCtrlOrShiftHeld%
+    DIM altHeld%
+    STATIC altWasHeld% ' Track ALT state from previous frame
+    STATIC pickerFromAlt% ' Track if we entered picker via ALT key
+
+    isCtrlOrShiftHeld% = (MODIFIERS.ctrl% OR MODIFIERS.shift%)
+    altHeld% = MODIFIERS.alt%
+
+    ' Check if current tool (or previous tool if in picker mode) is a drawing tool
+    IF CURRENT_TOOL% = TOOL_PICKER AND pickerFromAlt% THEN
+        ' When in ALT-triggered picker mode, check PREVIOUS_TOOL to know if we came from a drawing tool
+        isDrawingTool% = (PREVIOUS_TOOL% = TOOL_DOT OR PREVIOUS_TOOL% = TOOL_BRUSH OR _
+                         PREVIOUS_TOOL% = TOOL_LINE OR PREVIOUS_TOOL% = TOOL_RECT OR _
+                         PREVIOUS_TOOL% = TOOL_RECT_FILLED OR PREVIOUS_TOOL% = TOOL_ELLIPSE OR _
+                         PREVIOUS_TOOL% = TOOL_ELLIPSE_FILLED OR PREVIOUS_TOOL% = TOOL_FILL OR _
+                         PREVIOUS_TOOL% = TOOL_POLYGON OR PREVIOUS_TOOL% = TOOL_POLYGON_FILLED OR _
+                         PREVIOUS_TOOL% = TOOL_TEXT OR PREVIOUS_TOOL% = TOOL_SPRAY)
+    ELSE
+        isDrawingTool% = (CURRENT_TOOL% = TOOL_DOT OR CURRENT_TOOL% = TOOL_BRUSH OR _
+                         CURRENT_TOOL% = TOOL_LINE OR CURRENT_TOOL% = TOOL_RECT OR _
+                         CURRENT_TOOL% = TOOL_RECT_FILLED OR CURRENT_TOOL% = TOOL_ELLIPSE OR _
+                         CURRENT_TOOL% = TOOL_ELLIPSE_FILLED OR CURRENT_TOOL% = TOOL_FILL OR _
+                         CURRENT_TOOL% = TOOL_POLYGON OR CURRENT_TOOL% = TOOL_POLYGON_FILLED OR _
+                         CURRENT_TOOL% = TOOL_TEXT OR CURRENT_TOOL% = TOOL_SPRAY)
+    END IF
+
+    ' Only ENTER picker mode when ALT is FIRST pressed (transition), not just held
+    ' This prevents re-entering picker when releasing other modifiers while ALT is still held
+    DIM altJustPressed%
+    altJustPressed% = (altHeld% AND NOT altWasHeld%)
+
+    ' Skip ALT picker when mouse is over menu bar
+    DIM overMenuBar%
+    overMenuBar% = FALSE
+    IF SCRN.showMenubar% AND MENU_BAR.visible% THEN
+        overMenuBar% = MENUBAR_in_bounds%(rawX%, rawY%) OR MENUBAR_submenu_in_bounds%(rawX%, rawY%) OR MENUBAR_is_open%
+    END IF
+
+    IF altJustPressed% AND isDrawingTool% AND NOT isCtrlOrShiftHeld% AND NOT overMenuBar% THEN
+        ' ALT just pressed alone with a drawing tool - enter picker mode
+        IF CURRENT_TOOL% <> TOOL_PICKER THEN
+            PREVIOUS_TOOL% = CURRENT_TOOL%
+            CURRENT_TOOL% = TOOL_PICKER
+            GUI_NEEDS_REDRAW% = TRUE
+            PICKER_activate
+            FILL_deactivate
+            pickerFromAlt% = TRUE
+        END IF
+    ELSEIF pickerFromAlt% THEN
+        ' We're in ALT-triggered picker mode - check if we should exit
+        IF NOT altHeld% OR isCtrlOrShiftHeld% THEN
+            ' Exit picker mode: ALT released OR other modifiers added
+            IF CURRENT_TOOL% = TOOL_PICKER AND PREVIOUS_TOOL% <> TOOL_PICKER THEN
+                CURRENT_TOOL% = PREVIOUS_TOOL%
+                GUI_NEEDS_REDRAW% = TRUE
+                PICKER_deactivate
+                IF CURRENT_TOOL% = TOOL_FILL THEN
+                    FILL_activate
+                END IF
+            END IF
+            pickerFromAlt% = FALSE
+        END IF
+    END IF
+
+    ' Pick color on left click while in ALT-picker mode
+    IF pickerFromAlt% AND CURRENT_TOOL% = TOOL_PICKER THEN
+        IF MOUSE.B1% AND NOT MOUSE.OLD_B1% THEN
+            PICKER_pick_color MOUSE.X%, MOUSE.Y%, 1
+        END IF
+    END IF
+
+    ' Update ALT state for next frame
+    altWasHeld% = altHeld%
+END SUB
+
+
+''
 ' Handles mouse input
 ' 
 SUB MOUSE_input_handler ()
@@ -2017,83 +2102,7 @@ SUB MOUSE_input_handler ()
         ' Toolbar/status/palette
         MOUSE_handle_toolbar_status_palette rawX%, rawY%
         
-        ' Check for ALT key press to activate temporary color picker
-        ' Only for drawing tools - NOT for MOVE (ALT=clone), MARQUEE, IMAGE_IMPORT, NULL, etc.
-        ' Also skip if CTRL or SHIFT are held (likely a hotkey combo like CTRL+ALT+SHIFT)
-        DIM isDrawingTool%
-        DIM isCtrlOrShiftHeld%
-        DIM altHeld%
-        STATIC altWasHeld%  ' Track ALT state from previous frame
-        STATIC pickerFromAlt%  ' Track if we entered picker via ALT key
-        
-        isCtrlOrShiftHeld% = (MODIFIERS.ctrl% OR MODIFIERS.shift%)
-        altHeld% = MODIFIERS.alt%
-        
-        ' Check if current tool (or previous tool if in picker mode) is a drawing tool
-        IF CURRENT_TOOL% = TOOL_PICKER AND pickerFromAlt% THEN
-            ' When in ALT-triggered picker mode, check PREVIOUS_TOOL to know if we came from a drawing tool
-            isDrawingTool% = (PREVIOUS_TOOL% = TOOL_DOT OR PREVIOUS_TOOL% = TOOL_BRUSH OR _
-                             PREVIOUS_TOOL% = TOOL_LINE OR PREVIOUS_TOOL% = TOOL_RECT OR _
-                             PREVIOUS_TOOL% = TOOL_RECT_FILLED OR PREVIOUS_TOOL% = TOOL_ELLIPSE OR _
-                             PREVIOUS_TOOL% = TOOL_ELLIPSE_FILLED OR PREVIOUS_TOOL% = TOOL_FILL OR _
-                             PREVIOUS_TOOL% = TOOL_POLYGON OR PREVIOUS_TOOL% = TOOL_POLYGON_FILLED OR _
-                             PREVIOUS_TOOL% = TOOL_TEXT OR PREVIOUS_TOOL% = TOOL_SPRAY)
-        ELSE
-            isDrawingTool% = (CURRENT_TOOL% = TOOL_DOT OR CURRENT_TOOL% = TOOL_BRUSH OR _
-                             CURRENT_TOOL% = TOOL_LINE OR CURRENT_TOOL% = TOOL_RECT OR _
-                             CURRENT_TOOL% = TOOL_RECT_FILLED OR CURRENT_TOOL% = TOOL_ELLIPSE OR _
-                             CURRENT_TOOL% = TOOL_ELLIPSE_FILLED OR CURRENT_TOOL% = TOOL_FILL OR _
-                             CURRENT_TOOL% = TOOL_POLYGON OR CURRENT_TOOL% = TOOL_POLYGON_FILLED OR _
-                             CURRENT_TOOL% = TOOL_TEXT OR CURRENT_TOOL% = TOOL_SPRAY)
-        END IF
-        
-        ' Only ENTER picker mode when ALT is FIRST pressed (transition), not just held
-        ' This prevents re-entering picker when releasing other modifiers while ALT is still held
-        DIM altJustPressed%
-        altJustPressed% = (altHeld% AND NOT altWasHeld%)
-        
-        ' Skip ALT picker when mouse is over menu bar
-        DIM overMenuBar%
-        overMenuBar% = FALSE
-        IF SCRN.showMenubar% AND MENU_BAR.visible% THEN
-            overMenuBar% = MENUBAR_in_bounds%(rawX%, rawY%) OR MENUBAR_submenu_in_bounds%(rawX%, rawY%) OR MENUBAR_is_open%
-        END IF
-
-        IF altJustPressed% AND isDrawingTool% AND NOT isCtrlOrShiftHeld% AND NOT overMenuBar% THEN
-            ' ALT just pressed alone with a drawing tool - enter picker mode
-            IF CURRENT_TOOL% <> TOOL_PICKER THEN
-                PREVIOUS_TOOL% = CURRENT_TOOL%
-                CURRENT_TOOL% = TOOL_PICKER
-                GUI_NEEDS_REDRAW% = TRUE
-                PICKER_activate
-                FILL_deactivate
-                pickerFromAlt% = TRUE
-            END IF
-        ELSEIF pickerFromAlt% THEN
-            ' We're in ALT-triggered picker mode - check if we should exit
-            IF NOT altHeld% OR isCtrlOrShiftHeld% THEN
-                ' Exit picker mode: ALT released OR other modifiers added
-                IF CURRENT_TOOL% = TOOL_PICKER AND PREVIOUS_TOOL% <> TOOL_PICKER THEN
-                    CURRENT_TOOL% = PREVIOUS_TOOL%
-                    GUI_NEEDS_REDRAW% = TRUE
-                    PICKER_deactivate
-                    IF CURRENT_TOOL% = TOOL_FILL THEN
-                        FILL_activate
-                    END IF
-                END IF
-                pickerFromAlt% = FALSE
-            END IF
-        END IF
-        
-        ' Pick color on left click while in ALT-picker mode
-        IF pickerFromAlt% AND CURRENT_TOOL% = TOOL_PICKER THEN
-            IF MOUSE.B1% AND NOT MOUSE.OLD_B1% THEN
-                PICKER_pick_color MOUSE.X%, MOUSE.Y%, 1
-            END IF
-        END IF
-        
-        ' Update ALT state for next frame
-        altWasHeld% = altHeld%
+        MOUSE_handle_alt_picker rawX%, rawY%
         
         ' Double middle-click reset + UI auto-hide/restore
         MOUSE_handle_b3_dblclick_reset_zoom
