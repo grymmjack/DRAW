@@ -8,6 +8,20 @@
 '
 $INCLUDEONCE
 
+' Forward declarations for extracted helper functions
+DECLARE FUNCTION KEYBOARD_handle_command_palette% ()
+DECLARE FUNCTION KEYBOARD_handle_image_import% ()
+DECLARE FUNCTION KEYBOARD_handle_menubar% ()
+DECLARE FUNCTION KEYBOARD_handle_palette_menu% ()
+DECLARE FUNCTION KEYBOARD_handle_text_tool% (keypress AS STRING)
+DECLARE SUB KEYBOARD_handle_custom_brush ()
+DECLARE SUB KEYBOARD_handle_ui_toggles ()
+DECLARE SUB KEYBOARD_handle_grid_controls ()
+DECLARE SUB KEYBOARD_handle_delete_backspace ()
+DECLARE SUB KEYBOARD_handle_marquee_keys ()
+DECLARE SUB KEYBOARD_handle_move_keys ()
+DECLARE SUB KEYBOARD_handle_numpad_dithers ()
+
 ''
 ' Handles changing colors with keyboard
 ' @todo
@@ -392,319 +406,355 @@ END SUB
 
 
 ''
-' Handle keyboard input
-' 
-SUB KEYBOARD_input_handler ()
-    DIM keypress AS STRING
-    
-    ' Layer keyboard handling - MUST run first before any EXIT SUB statements
-    ' Uses _KEYDOWN() so runs every frame regardless of INKEY$ state
-    KEYBOARD_layers
-    
-    ' Handle menu bar keyboard navigation (ALT tap, arrow keys, Enter, Escape)
-    ' This runs every frame to detect ALT tap via _KEYDOWN
-    IF SCRN.showMenubar% AND MENU_BAR.visible% THEN
-        DIM menuKey AS LONG
-        menuKey& = 0
-        ' When a menu is open, read INKEY$ and convert to key codes for arrow/Enter/Esc
-        IF MENU_BAR.openMenu% >= 0 THEN
-            DIM menuKeyPress AS STRING
-            menuKeyPress$ = INKEY$
-            IF LEN(menuKeyPress$) = 1 THEN
-                menuKey& = ASC(menuKeyPress$)
-            ELSEIF LEN(menuKeyPress$) = 2 THEN
-                SELECT CASE ASC(menuKeyPress$, 2)
-                    CASE 75: menuKey& = 19200   ' Left arrow
-                    CASE 77: menuKey& = 19712   ' Right arrow
-                    CASE 72: menuKey& = 18432   ' Up arrow
-                    CASE 80: menuKey& = 20480   ' Down arrow
-                END SELECT
-            END IF
-        END IF
-        IF MENUBAR_handle_key%(menuKey&) THEN
-            ' Menu consumed the key event — drain any remaining INKEY$ and skip
-            DIM drain$ : drain$ = INKEY$
-            EXIT SUB
-        END IF
-        ' When a menu dropdown is open, block ALL other keyboard processing
-        ' (arrow keys via _KEYDOWN would otherwise leak to marquee/move nudge)
-        IF MENU_BAR.openMenu% >= 0 THEN EXIT SUB
+' Handle command palette keyboard input with arrow key repeat.
+' Returns TRUE if command palette consumed the input (caller should EXIT SUB).
+'
+FUNCTION KEYBOARD_handle_command_palette% ()
+    IF NOT CMD_PALETTE.visible THEN
+        KEYBOARD_handle_command_palette% = FALSE
+        EXIT FUNCTION
     END IF
     
-    ' Handle IMAGE IMPORT mode - intercept Enter/Escape and arrow keys
-    IF IMG_IMPORT.STATE > IMPORT_STATE_IDLE THEN
-        keypress$ = INKEY$
-        IF keypress$ <> "" THEN
-            DIM import_key_code AS INTEGER
-            import_key_code% = ASC(keypress$)
-            
-            SELECT CASE import_key_code%
-                CASE 27  ' ESC - cancel import
-                    IMAGE_IMPORT_cancel
-                CASE 13  ' ENTER - apply import
-                    IF IMG_IMPORT.STATE = IMPORT_STATE_LOADED THEN
-                        ' If no marquee drawn yet, use full canvas
-                        IMG_IMPORT.DEST_X = 0
-                        IMG_IMPORT.DEST_Y = 0
-                        IMG_IMPORT.DEST_W = SCRN.w&
-                        IMG_IMPORT.DEST_H = SCRN.h&
-                        IMAGE_IMPORT_update_crop_from_zoom
-                        IMG_IMPORT.STATE = IMPORT_STATE_PLACING
-                    END IF
-                    IMAGE_IMPORT_apply
+    DIM cmd_keypress AS STRING
+    cmd_keypress$ = INKEY$
+    IF cmd_keypress$ <> "" THEN
+        CMD_handle_key cmd_keypress$
+    END IF
+    
+    ' Handle arrow key and page navigation for command palette with key repeat
+    STATIC cmdArrowUp AS INTEGER, cmdArrowDown AS INTEGER
+    STATIC cmdPageUp AS INTEGER, cmdPageDown AS INTEGER
+    STATIC cmdRepeatTimer AS DOUBLE
+    STATIC cmdRepeatDelay AS DOUBLE
+    DIM cmdArrowUpNow AS INTEGER, cmdArrowDownNow AS INTEGER
+    DIM cmdPageUpNow AS INTEGER, cmdPageDownNow AS INTEGER
+    DIM cmdCurrentTime AS DOUBLE
+    
+    ' Key repeat settings (in seconds)
+    CONST CMD_REPEAT_INITIAL = 0.3   ' Initial delay before repeat starts
+    CONST CMD_REPEAT_RATE = 0.08     ' Delay between repeats (~12 per second)
+    
+    cmdArrowUpNow% = _KEYDOWN(18432)    ' Up arrow
+    cmdArrowDownNow% = _KEYDOWN(20480)  ' Down arrow
+    cmdPageUpNow% = _KEYDOWN(18688)     ' Page Up
+    cmdPageDownNow% = _KEYDOWN(20736)   ' Page Down
+    cmdCurrentTime# = TIMER(.001)
+    
+    ' Arrow Up with repeat
+    IF cmdArrowUpNow% THEN
+        IF NOT cmdArrowUp% THEN
+            CMD_navigate_up
+            cmdRepeatTimer# = cmdCurrentTime#
+            cmdRepeatDelay# = CMD_REPEAT_INITIAL
+        ELSEIF cmdCurrentTime# - cmdRepeatTimer# >= cmdRepeatDelay# THEN
+            CMD_navigate_up
+            cmdRepeatTimer# = cmdCurrentTime#
+            cmdRepeatDelay# = CMD_REPEAT_RATE
+        END IF
+    END IF
+    
+    ' Arrow Down with repeat
+    IF cmdArrowDownNow% THEN
+        IF NOT cmdArrowDown% THEN
+            CMD_navigate_down
+            cmdRepeatTimer# = cmdCurrentTime#
+            cmdRepeatDelay# = CMD_REPEAT_INITIAL
+        ELSEIF cmdCurrentTime# - cmdRepeatTimer# >= cmdRepeatDelay# THEN
+            CMD_navigate_down
+            cmdRepeatTimer# = cmdCurrentTime#
+            cmdRepeatDelay# = CMD_REPEAT_RATE
+        END IF
+    END IF
+    
+    ' Page Up with repeat
+    IF cmdPageUpNow% THEN
+        IF NOT cmdPageUp% THEN
+            CMD_navigate_page_up
+            cmdRepeatTimer# = cmdCurrentTime#
+            cmdRepeatDelay# = CMD_REPEAT_INITIAL
+        ELSEIF cmdCurrentTime# - cmdRepeatTimer# >= cmdRepeatDelay# THEN
+            CMD_navigate_page_up
+            cmdRepeatTimer# = cmdCurrentTime#
+            cmdRepeatDelay# = CMD_REPEAT_RATE
+        END IF
+    END IF
+    
+    ' Page Down with repeat
+    IF cmdPageDownNow% THEN
+        IF NOT cmdPageDown% THEN
+            CMD_navigate_page_down
+            cmdRepeatTimer# = cmdCurrentTime#
+            cmdRepeatDelay# = CMD_REPEAT_INITIAL
+        ELSEIF cmdCurrentTime# - cmdRepeatTimer# >= cmdRepeatDelay# THEN
+            CMD_navigate_page_down
+            cmdRepeatTimer# = cmdCurrentTime#
+            cmdRepeatDelay# = CMD_REPEAT_RATE
+        END IF
+    END IF
+    
+    cmdArrowUp% = cmdArrowUpNow%
+    cmdArrowDown% = cmdArrowDownNow%
+    cmdPageUp% = cmdPageUpNow%
+    cmdPageDown% = cmdPageDownNow%
+    
+    KEYBOARD_handle_command_palette% = TRUE  ' Consumed
+END FUNCTION
+
+
+''
+' Handle image import mode keyboard input (Enter, ESC, arrow keys).
+' Returns TRUE if import mode consumed the input (caller should EXIT SUB).
+'
+FUNCTION KEYBOARD_handle_image_import% ()
+    IF IMG_IMPORT.STATE <= IMPORT_STATE_IDLE THEN
+        KEYBOARD_handle_image_import% = FALSE
+        EXIT FUNCTION
+    END IF
+    
+    DIM keypress AS STRING
+    keypress$ = INKEY$
+    IF keypress$ <> "" THEN
+        DIM import_key_code AS INTEGER
+        import_key_code% = ASC(keypress$)
+        
+        SELECT CASE import_key_code%
+            CASE 27  ' ESC - cancel import
+                IMAGE_IMPORT_cancel
+            CASE 13  ' ENTER - apply import
+                IF IMG_IMPORT.STATE = IMPORT_STATE_LOADED THEN
+                    ' If no marquee drawn yet, use full canvas
+                    IMG_IMPORT.DEST_X = 0
+                    IMG_IMPORT.DEST_Y = 0
+                    IMG_IMPORT.DEST_W = SCRN.w&
+                    IMG_IMPORT.DEST_H = SCRN.h&
+                    IMAGE_IMPORT_update_crop_from_zoom
+                    IMG_IMPORT.STATE = IMPORT_STATE_PLACING
+                END IF
+                IMAGE_IMPORT_apply
+        END SELECT
+    END IF
+    
+    ' Arrow key handling for import mode (works in PLACING state)
+    IF IMG_IMPORT.STATE >= IMPORT_STATE_PLACING THEN
+        DIM impIsCtrl AS INTEGER, impIsShift AS INTEGER, impIsAlt AS INTEGER
+        DIM impMoveStep AS INTEGER
+        
+        impIsCtrl% = MODIFIERS.ctrl%
+        impIsShift% = MODIFIERS.shift%
+        impIsAlt% = MODIFIERS.alt%
+        impMoveStep% = 1
+        IF impIsShift% THEN impMoveStep% = CFG.NUDGE_N%
+        
+        ' Single-press detection for arrow keys
+        STATIC impKeyUpLast AS INTEGER, impKeyDownLast AS INTEGER
+        STATIC impKeyLeftLast AS INTEGER, impKeyRightLast AS INTEGER
+        DIM impKeyUpNow AS INTEGER, impKeyDownNow AS INTEGER
+        DIM impKeyLeftNow AS INTEGER, impKeyRightNow AS INTEGER
+        
+        impKeyUpNow% = _KEYDOWN(18432)    ' Up arrow
+        impKeyDownNow% = _KEYDOWN(20480)  ' Down arrow
+        impKeyLeftNow% = _KEYDOWN(19200)  ' Left arrow
+        impKeyRightNow% = _KEYDOWN(19712) ' Right arrow
+        
+        ' Arrow keys: Ctrl=resize, Alt=pan within image, plain=move box
+        IF impKeyUpNow% AND NOT impKeyUpLast% THEN
+            IF impIsCtrl% THEN
+                IMAGE_IMPORT_resize_by 0, -impMoveStep%
+            ELSEIF impIsAlt% THEN
+                IMAGE_IMPORT_pan_by 0, -impMoveStep%
+            ELSE
+                IMAGE_IMPORT_nudge 0, -impMoveStep%
+            END IF
+        END IF
+        IF impKeyDownNow% AND NOT impKeyDownLast% THEN
+            IF impIsCtrl% THEN
+                IMAGE_IMPORT_resize_by 0, impMoveStep%
+            ELSEIF impIsAlt% THEN
+                IMAGE_IMPORT_pan_by 0, impMoveStep%
+            ELSE
+                IMAGE_IMPORT_nudge 0, impMoveStep%
+            END IF
+        END IF
+        IF impKeyLeftNow% AND NOT impKeyLeftLast% THEN
+            IF impIsCtrl% THEN
+                IMAGE_IMPORT_resize_by -impMoveStep%, 0
+            ELSEIF impIsAlt% THEN
+                IMAGE_IMPORT_pan_by -impMoveStep%, 0
+            ELSE
+                IMAGE_IMPORT_nudge -impMoveStep%, 0
+            END IF
+        END IF
+        IF impKeyRightNow% AND NOT impKeyRightLast% THEN
+            IF impIsCtrl% THEN
+                IMAGE_IMPORT_resize_by impMoveStep%, 0
+            ELSEIF impIsAlt% THEN
+                IMAGE_IMPORT_pan_by impMoveStep%, 0
+            ELSE
+                IMAGE_IMPORT_nudge impMoveStep%, 0
+            END IF
+        END IF
+        
+        ' Update last key states
+        impKeyUpLast% = impKeyUpNow%
+        impKeyDownLast% = impKeyDownNow%
+        impKeyLeftLast% = impKeyLeftNow%
+        impKeyRightLast% = impKeyRightNow%
+    END IF
+    
+    KEYBOARD_handle_image_import% = TRUE  ' Consumed
+END FUNCTION
+
+
+''
+' Handle menu bar keyboard navigation (ALT tap, arrow keys, Enter, Escape).
+' Returns TRUE if menu consumed the input (caller should EXIT SUB).
+'
+FUNCTION KEYBOARD_handle_menubar% ()
+    IF NOT (SCRN.showMenubar% AND MENU_BAR.visible%) THEN
+        KEYBOARD_handle_menubar% = FALSE
+        EXIT FUNCTION
+    END IF
+    
+    DIM menuKey AS LONG
+    menuKey& = 0
+    ' When a menu is open, read INKEY$ and convert to key codes for arrow/Enter/Esc
+    IF MENU_BAR.openMenu% >= 0 THEN
+        DIM menuKeyPress AS STRING
+        menuKeyPress$ = INKEY$
+        IF LEN(menuKeyPress$) = 1 THEN
+            menuKey& = ASC(menuKeyPress$)
+        ELSEIF LEN(menuKeyPress$) = 2 THEN
+            SELECT CASE ASC(menuKeyPress$, 2)
+                CASE 75: menuKey& = 19200   ' Left arrow
+                CASE 77: menuKey& = 19712   ' Right arrow
+                CASE 72: menuKey& = 18432   ' Up arrow
+                CASE 80: menuKey& = 20480   ' Down arrow
             END SELECT
         END IF
-        
-        ' Arrow key handling for import mode (works in PLACING state)
-        IF IMG_IMPORT.STATE >= IMPORT_STATE_PLACING THEN
-            DIM impIsCtrl AS INTEGER, impIsShift AS INTEGER, impIsAlt AS INTEGER
-            DIM impMoveStep AS INTEGER
-            
-            impIsCtrl% = (_KEYDOWN(100305) OR _KEYDOWN(100306)) ' Left or Right Ctrl
-            impIsShift% = (_KEYDOWN(100304) OR _KEYDOWN(100303)) ' Left or Right Shift
-            $IF MAC THEN
-                impIsAlt% = MAC_ALT_HELD%
-            $ELSE
-                impIsAlt% = (_KEYDOWN(KEY_LALT&) OR _KEYDOWN(KEY_RALT&))
-            $END IF
-            impMoveStep% = 1
-            IF impIsShift% THEN impMoveStep% = CFG.NUDGE_N%
-            
-            ' Single-press detection for arrow keys
-            STATIC impKeyUpLast AS INTEGER, impKeyDownLast AS INTEGER
-            STATIC impKeyLeftLast AS INTEGER, impKeyRightLast AS INTEGER
-            DIM impKeyUpNow AS INTEGER, impKeyDownNow AS INTEGER
-            DIM impKeyLeftNow AS INTEGER, impKeyRightNow AS INTEGER
-            
-            impKeyUpNow% = _KEYDOWN(18432)    ' Up arrow
-            impKeyDownNow% = _KEYDOWN(20480)  ' Down arrow
-            impKeyLeftNow% = _KEYDOWN(19200)  ' Left arrow
-            impKeyRightNow% = _KEYDOWN(19712) ' Right arrow
-            
-            ' Arrow keys: Ctrl=resize, Alt=pan within image, plain=move box
-            IF impKeyUpNow% AND NOT impKeyUpLast% THEN
-                IF impIsCtrl% THEN
-                    IMAGE_IMPORT_resize_by 0, -impMoveStep%
-                ELSEIF impIsAlt% THEN
-                    IMAGE_IMPORT_pan_by 0, -impMoveStep%
-                ELSE
-                    IMAGE_IMPORT_nudge 0, -impMoveStep%
-                END IF
-            END IF
-            IF impKeyDownNow% AND NOT impKeyDownLast% THEN
-                IF impIsCtrl% THEN
-                    IMAGE_IMPORT_resize_by 0, impMoveStep%
-                ELSEIF impIsAlt% THEN
-                    IMAGE_IMPORT_pan_by 0, impMoveStep%
-                ELSE
-                    IMAGE_IMPORT_nudge 0, impMoveStep%
-                END IF
-            END IF
-            IF impKeyLeftNow% AND NOT impKeyLeftLast% THEN
-                IF impIsCtrl% THEN
-                    IMAGE_IMPORT_resize_by -impMoveStep%, 0
-                ELSEIF impIsAlt% THEN
-                    IMAGE_IMPORT_pan_by -impMoveStep%, 0
-                ELSE
-                    IMAGE_IMPORT_nudge -impMoveStep%, 0
-                END IF
-            END IF
-            IF impKeyRightNow% AND NOT impKeyRightLast% THEN
-                IF impIsCtrl% THEN
-                    IMAGE_IMPORT_resize_by impMoveStep%, 0
-                ELSEIF impIsAlt% THEN
-                    IMAGE_IMPORT_pan_by impMoveStep%, 0
-                ELSE
-                    IMAGE_IMPORT_nudge impMoveStep%, 0
-                END IF
-            END IF
-            
-            ' Update last key states
-            impKeyUpLast% = impKeyUpNow%
-            impKeyDownLast% = impKeyDownNow%
-            impKeyLeftLast% = impKeyLeftNow%
-            impKeyRightLast% = impKeyRightNow%
-        END IF
-        
-        EXIT SUB  ' Don't process other keyboard handlers during import
     END IF
-    
-    ' Handle command palette if visible
-    IF CMD_PALETTE.visible THEN
-        DIM cmd_keypress AS STRING
-        cmd_keypress$ = INKEY$
-        IF cmd_keypress$ <> "" THEN
-            CMD_handle_key cmd_keypress$
-        END IF
-        
-        ' Handle arrow key and page navigation for command palette with key repeat
-        STATIC cmdArrowUp AS INTEGER, cmdArrowDown AS INTEGER
-        STATIC cmdPageUp AS INTEGER, cmdPageDown AS INTEGER
-        STATIC cmdRepeatTimer AS DOUBLE
-        STATIC cmdRepeatDelay AS DOUBLE
-        DIM cmdArrowUpNow AS INTEGER, cmdArrowDownNow AS INTEGER
-        DIM cmdPageUpNow AS INTEGER, cmdPageDownNow AS INTEGER
-        DIM cmdCurrentTime AS DOUBLE
-        
-        ' Key repeat settings (in seconds)
-        CONST CMD_REPEAT_INITIAL = 0.3   ' Initial delay before repeat starts
-        CONST CMD_REPEAT_RATE = 0.08     ' Delay between repeats (~12 per second)
-        
-        cmdArrowUpNow% = _KEYDOWN(18432)    ' Up arrow
-        cmdArrowDownNow% = _KEYDOWN(20480)  ' Down arrow
-        cmdPageUpNow% = _KEYDOWN(18688)     ' Page Up
-        cmdPageDownNow% = _KEYDOWN(20736)   ' Page Down
-        cmdCurrentTime# = TIMER(.001)
-        
-        ' Arrow Up with repeat
-        IF cmdArrowUpNow% THEN
-            IF NOT cmdArrowUp% THEN
-                CMD_navigate_up
-                cmdRepeatTimer# = cmdCurrentTime#
-                cmdRepeatDelay# = CMD_REPEAT_INITIAL
-            ELSEIF cmdCurrentTime# - cmdRepeatTimer# >= cmdRepeatDelay# THEN
-                CMD_navigate_up
-                cmdRepeatTimer# = cmdCurrentTime#
-                cmdRepeatDelay# = CMD_REPEAT_RATE
-            END IF
-        END IF
-        
-        ' Arrow Down with repeat
-        IF cmdArrowDownNow% THEN
-            IF NOT cmdArrowDown% THEN
-                CMD_navigate_down
-                cmdRepeatTimer# = cmdCurrentTime#
-                cmdRepeatDelay# = CMD_REPEAT_INITIAL
-            ELSEIF cmdCurrentTime# - cmdRepeatTimer# >= cmdRepeatDelay# THEN
-                CMD_navigate_down
-                cmdRepeatTimer# = cmdCurrentTime#
-                cmdRepeatDelay# = CMD_REPEAT_RATE
-            END IF
-        END IF
-        
-        ' Page Up with repeat
-        IF cmdPageUpNow% THEN
-            IF NOT cmdPageUp% THEN
-                CMD_navigate_page_up
-                cmdRepeatTimer# = cmdCurrentTime#
-                cmdRepeatDelay# = CMD_REPEAT_INITIAL
-            ELSEIF cmdCurrentTime# - cmdRepeatTimer# >= cmdRepeatDelay# THEN
-                CMD_navigate_page_up
-                cmdRepeatTimer# = cmdCurrentTime#
-                cmdRepeatDelay# = CMD_REPEAT_RATE
-            END IF
-        END IF
-        
-        ' Page Down with repeat
-        IF cmdPageDownNow% THEN
-            IF NOT cmdPageDown% THEN
-                CMD_navigate_page_down
-                cmdRepeatTimer# = cmdCurrentTime#
-                cmdRepeatDelay# = CMD_REPEAT_INITIAL
-            ELSEIF cmdCurrentTime# - cmdRepeatTimer# >= cmdRepeatDelay# THEN
-                CMD_navigate_page_down
-                cmdRepeatTimer# = cmdCurrentTime#
-                cmdRepeatDelay# = CMD_REPEAT_RATE
-            END IF
-        END IF
-        
-        cmdArrowUp% = cmdArrowUpNow%
-        cmdArrowDown% = cmdArrowDownNow%
-        cmdPageUp% = cmdPageUpNow%
-        cmdPageDown% = cmdPageDownNow%
-        
-        EXIT SUB  ' Don't process other keyboard handlers when palette is open
+   IF MENUBAR_handle_key%(menuKey&) THEN
+        ' Menu consumed the key event — drain any remaining INKEY$ and skip
+        DIM drain$ : drain$ = INKEY$
+        KEYBOARD_handle_menubar% = TRUE
+        EXIT FUNCTION
     END IF
-    
-    ' Handle ? for quick reference and Ctrl+Shift+P for command palette
-    ' Check for Ctrl+Shift+P using _KEYHIT (more reliable for complex modifier combos)
-    STATIC ctrlShiftPPressed AS INTEGER
-    DIM isShiftHeld AS INTEGER, isCtrlHeld AS INTEGER
-    isShiftHeld% = (_KEYDOWN(100304) OR _KEYDOWN(100303))
-    isCtrlHeld% = (_KEYDOWN(100305) OR _KEYDOWN(100306))
-    
-    ' Ctrl+Shift+P - command palette with search
-    ' Use ASCII 16 which is Ctrl+P, check for Shift held
-    IF isCtrlHeld% AND isShiftHeld% AND _KEYDOWN(ASC("p")) THEN
-        IF NOT ctrlShiftPPressed% THEN
-            CMD_show_palette
-            ctrlShiftPPressed% = TRUE
-        END IF
+    ' When a menu dropdown is open, block ALL other keyboard processing
+    ' (arrow keys via _KEYDOWN would otherwise leak to marquee/move nudge)
+    IF MENU_BAR.openMenu% >= 0 THEN
+        KEYBOARD_handle_menubar% = TRUE
     ELSE
-        ctrlShiftPPressed% = FALSE
+        KEYBOARD_handle_menubar% = FALSE
+    END IF
+END FUNCTION
+
+
+''
+' Handle palette menu keyboard input (ESC, arrows, Enter, a-z navigation).
+' Returns TRUE if palette menu consumed the input (caller should EXIT SUB).
+'
+FUNCTION KEYBOARD_handle_palette_menu% ()
+    IF NOT PALETTE_MENU_VISIBLE% THEN
+        KEYBOARD_handle_palette_menu% = FALSE
+        EXIT FUNCTION
     END IF
     
-    ' Handle ESC to close palette menu if visible
-    IF PALETTE_MENU_VISIBLE% THEN
-        IF _KEYDOWN(27) THEN  ' ESC key
+    IF _KEYDOWN(27) THEN  ' ESC key
+        PALETTE_MENU_hide
+        KEYBOARD_handle_palette_menu% = TRUE
+        EXIT FUNCTION
+    END IF
+    
+    ' Handle arrow key navigation
+    STATIC menuArrowUp AS INTEGER, menuArrowDown AS INTEGER
+    DIM menuArrowUpNow AS INTEGER, menuArrowDownNow AS INTEGER
+    menuArrowUpNow% = _KEYDOWN(18432)  ' Up arrow
+    menuArrowDownNow% = _KEYDOWN(20480)  ' Down arrow
+    
+    IF menuArrowUpNow% AND NOT menuArrowUp% THEN
+        PALETTE_MENU_navigate_up
+    END IF
+    IF menuArrowDownNow% AND NOT menuArrowDown% THEN
+        PALETTE_MENU_navigate_down
+    END IF
+    menuArrowUp% = menuArrowUpNow%
+    menuArrowDown% = menuArrowDownNow%
+    
+    ' Handle Enter to select current hover
+    STATIC menuEnterPressed AS INTEGER
+    DIM menuEnterNow AS INTEGER
+    menuEnterNow% = _KEYDOWN(13)
+    IF menuEnterNow% AND NOT menuEnterPressed% THEN
+        IF PALETTE_MENU_HOVER% >= 0 AND PALETTE_MENU_HOVER% < PALETTE_LOADER_COUNT% THEN
+            DIM dummy AS INTEGER
+            dummy% = PALETTE_LOADER_load_by_index%(PALETTE_MENU_HOVER%)
+            PAL_set_defaults_by_size
+            PALETTE_STRIP_SCROLL_OFFSET% = 0
             PALETTE_MENU_hide
-            EXIT SUB  ' Don't process other ESC handlers
+            menuEnterPressed% = menuEnterNow%
+            KEYBOARD_handle_palette_menu% = TRUE
+            EXIT FUNCTION
         END IF
-        
-        ' Handle arrow key navigation
-        STATIC menuArrowUp AS INTEGER, menuArrowDown AS INTEGER
-        DIM menuArrowUpNow AS INTEGER, menuArrowDownNow AS INTEGER
-        menuArrowUpNow% = _KEYDOWN(18432)  ' Up arrow
-        menuArrowDownNow% = _KEYDOWN(20480)  ' Down arrow
-        
-        IF menuArrowUpNow% AND NOT menuArrowUp% THEN
-            PALETTE_MENU_navigate_up
+    END IF
+    menuEnterPressed% = menuEnterNow%
+    
+    ' Handle alphabetical navigation (a-z)
+    DIM menu_key AS STRING
+    menu_key$ = INKEY$
+    IF LEN(menu_key$) = 1 THEN
+        DIM menu_key_code AS INTEGER
+        menu_key_code% = ASC(menu_key$)
+        ' Check if it's a letter (a-z or A-Z)
+        IF (menu_key_code% >= 65 AND menu_key_code% <= 90) OR (menu_key_code% >= 97 AND menu_key_code% <= 122) THEN
+            PALETTE_MENU_jump_to_char menu_key$
         END IF
-        IF menuArrowDownNow% AND NOT menuArrowDown% THEN
-            PALETTE_MENU_navigate_down
-        END IF
-        menuArrowUp% = menuArrowUpNow%
-        menuArrowDown% = menuArrowDownNow%
-        
-        ' Handle Enter to select current hover
-        STATIC menuEnterPressed AS INTEGER
-        DIM menuEnterNow AS INTEGER
-        menuEnterNow% = _KEYDOWN(13)
-        IF menuEnterNow% AND NOT menuEnterPressed% THEN
-            IF PALETTE_MENU_HOVER% >= 0 AND PALETTE_MENU_HOVER% < PALETTE_LOADER_COUNT% THEN
-                DIM dummy AS INTEGER
-                dummy% = PALETTE_LOADER_load_by_index%(PALETTE_MENU_HOVER%)
-                PAL_set_defaults_by_size
-                PALETTE_STRIP_SCROLL_OFFSET% = 0
-                PALETTE_MENU_hide
-                menuEnterPressed% = menuEnterNow%
-                EXIT SUB
-            END IF
-        END IF
-        menuEnterPressed% = menuEnterNow%
-        
-        ' Handle alphabetical navigation (a-z)
-        DIM menu_key AS STRING
-        menu_key$ = INKEY$
-        IF LEN(menu_key$) = 1 THEN
-            DIM menu_key_code AS INTEGER
-            menu_key_code% = ASC(menu_key$)
-            ' Check if it's a letter (a-z or A-Z)
-            IF (menu_key_code% >= 65 AND menu_key_code% <= 90) OR (menu_key_code% >= 97 AND menu_key_code% <= 122) THEN
-                PALETTE_MENU_jump_to_char menu_key$
-                EXIT SUB
-            END IF
-        END IF
-        EXIT SUB  ' Don't process other keyboard handlers when palette menu is open
     END IF
     
-    ' NOTE: Display scale hotkeys (CTRL+ALT+SHIFT+=/-) are handled in DRAW.BAS main loop
-    ' using _KEYHIT which is more reliable on Linux for complex modifier combinations
+    KEYBOARD_handle_palette_menu% = TRUE  ' Consumed
+END FUNCTION
+
+
+''
+' Handle text tool keyboard input when text editing is active.
+' Returns TRUE if text tool consumed the input (caller should EXIT SUB).
+'
+FUNCTION KEYBOARD_handle_text_tool% (keypress AS STRING)
+    IF NOT (CURRENT_TOOL% = TOOL_TEXT AND TEXT.ACTIVE) THEN
+        KEYBOARD_handle_text_tool% = FALSE
+        EXIT FUNCTION
+    END IF
     
-    ' Handle custom brush controls (Ctrl+B, H, V)
-    ' Check for Ctrl+B to capture/clear custom brush
-    DIM is_ctrl_pressed AS INTEGER
-    is_ctrl_pressed% = (_KEYDOWN(100305) OR _KEYDOWN(100306)) ' Left or Right Ctrl
-    
+    IF keypress$ <> "" THEN
+        DIM char_code AS INTEGER
+        char_code = ASC(keypress$)
+        
+        SELECT CASE char_code
+            CASE 27  ' ESC - apply text
+                TEXT_apply
+            CASE 13  ' ENTER - newline
+                TEXT_newline
+            CASE 8   ' BACKSPACE
+                TEXT_backspace
+            CASE 32 TO 126  ' Printable ASCII characters
+                TEXT_add_char keypress$
+            ' Ignore other special keys while text editing
+        END SELECT
+    END IF
+    KEYBOARD_handle_text_tool% = TRUE  ' Consumed - don't process other keyboard handlers
+END FUNCTION
+
+
+''
+' Handle custom brush controls (Ctrl+B to capture, HOME/END/PgUp/PgDn/etc for transformations).
+'
+SUB KEYBOARD_handle_custom_brush ()
+    ' Ctrl+B to capture/clear custom brush
     STATIC ctrlBPressed AS INTEGER
-    IF is_ctrl_pressed% AND _KEYDOWN(98) THEN ' Ctrl+B (98 = 'b' key)
+    IF MODIFIERS.ctrl% AND _KEYDOWN(98) THEN ' Ctrl+B (98 = 'b' key)
         IF NOT ctrlBPressed% THEN
             IF CUSTOM_BRUSH_is_active% THEN
-                ' Clear existing custom brush
                 CUSTOM_BRUSH_reset
                 GUI_NEEDS_REDRAW% = TRUE
             ELSEIF MARQUEE.ACTIVE% THEN
-                ' Capture marquee as custom brush
                 CUSTOM_BRUSH_capture_from_marquee
                 GUI_NEEDS_REDRAW% = TRUE
             END IF
@@ -714,9 +764,9 @@ SUB KEYBOARD_input_handler ()
         ctrlBPressed% = FALSE
     END IF
     
-    ' Handle HOME key for horizontal flip (when custom brush is active)
+    ' HOME key for horizontal flip
     STATIC homePressed AS INTEGER
-    IF CUSTOM_BRUSH_is_active% AND _KEYDOWN(18176) THEN ' HOME key
+    IF CUSTOM_BRUSH_is_active% AND _KEYDOWN(18176) THEN
         IF NOT homePressed% THEN
             CUSTOM_BRUSH_toggle_flip_h
             homePressed% = TRUE
@@ -725,9 +775,9 @@ SUB KEYBOARD_input_handler ()
         homePressed% = FALSE
     END IF
     
-    ' Handle END key for vertical flip (when custom brush is active)
+    ' END key for vertical flip
     STATIC endPressed AS INTEGER
-    IF CUSTOM_BRUSH_is_active% AND _KEYDOWN(20224) THEN ' END key
+    IF CUSTOM_BRUSH_is_active% AND _KEYDOWN(20224) THEN
         IF NOT endPressed% THEN
             CUSTOM_BRUSH_toggle_flip_v
             endPressed% = TRUE
@@ -736,9 +786,9 @@ SUB KEYBOARD_input_handler ()
         endPressed% = FALSE
     END IF
     
-    ' Handle Page Up key for scaling brush up (when custom brush is active)
+    ' Page Up for scaling brush up
     STATIC pgUpPressed AS INTEGER
-    IF CUSTOM_BRUSH_is_active% AND _KEYDOWN(18688) THEN ' Page Up key
+    IF CUSTOM_BRUSH_is_active% AND _KEYDOWN(18688) THEN
         IF NOT pgUpPressed% THEN
             CUSTOM_BRUSH_scale_up
             pgUpPressed% = TRUE
@@ -747,9 +797,9 @@ SUB KEYBOARD_input_handler ()
         pgUpPressed% = FALSE
     END IF
     
-    ' Handle Page Down key for scaling brush down (when custom brush is active)
+    ' Page Down for scaling brush down
     STATIC pgDnPressed AS INTEGER
-    IF CUSTOM_BRUSH_is_active% AND _KEYDOWN(20736) THEN ' Page Down key
+    IF CUSTOM_BRUSH_is_active% AND _KEYDOWN(20736) THEN
         IF NOT pgDnPressed% THEN
             CUSTOM_BRUSH_scale_down
             pgDnPressed% = TRUE
@@ -758,9 +808,9 @@ SUB KEYBOARD_input_handler ()
         pgDnPressed% = FALSE
     END IF
     
-    ' Handle / key for resetting brush scale (when custom brush is active)
+    ' / key for resetting brush scale
     STATIC slashPressed AS INTEGER
-    IF CUSTOM_BRUSH_is_active% AND _KEYDOWN(47) THEN ' / key
+    IF CUSTOM_BRUSH_is_active% AND _KEYDOWN(47) THEN
         IF NOT slashPressed% THEN
             CUSTOM_BRUSH_scale_reset
             slashPressed% = TRUE
@@ -769,9 +819,9 @@ SUB KEYBOARD_input_handler ()
         slashPressed% = FALSE
     END IF
     
-    ' Handle F9 for toggling recolor mode (when custom brush is active)
+    ' F9 for toggling recolor mode
     STATIC f9Pressed AS INTEGER
-    IF _KEYDOWN(17152) THEN ' F9 = 256 * 67
+    IF _KEYDOWN(17152) THEN ' F9
         IF NOT f9Pressed% THEN
             _LOGINFO "F9 pressed - CUSTOM_BRUSH_is_active% = " + STR$(CUSTOM_BRUSH_is_active%)
             IF CUSTOM_BRUSH_is_active% THEN
@@ -785,9 +835,9 @@ SUB KEYBOARD_input_handler ()
         f9Pressed% = FALSE
     END IF
     
-    ' Handle ` (backtick) for toggling custom brush outline visibility
+    ' ` (backtick) for toggling outline visibility
     STATIC backtickPressed AS INTEGER
-    IF CUSTOM_BRUSH_is_active% AND _KEYDOWN(96) THEN ' ` key (backtick)
+    IF CUSTOM_BRUSH_is_active% AND _KEYDOWN(96) THEN
         IF NOT backtickPressed% THEN
             CUSTOM_BRUSH_toggle_outline
             backtickPressed% = TRUE
@@ -796,11 +846,9 @@ SUB KEYBOARD_input_handler ()
         backtickPressed% = FALSE
     END IF
     
-    ' Handle Shift+O for applying outline to custom brush with BG color
+    ' Shift+O for applying outline with BG color
     STATIC shiftOPressed AS INTEGER
-    DIM isShiftPressed AS INTEGER
-    isShiftPressed% = (_KEYDOWN(100304) OR _KEYDOWN(100303)) ' Left or Right Shift
-    IF CUSTOM_BRUSH_is_active% AND isShiftPressed% AND _KEYDOWN(79) THEN ' Shift + O (79 = 'o')
+    IF CUSTOM_BRUSH_is_active% AND MODIFIERS.shift% AND _KEYDOWN(79) THEN
         IF NOT shiftOPressed% THEN
             CUSTOM_BRUSH_apply_outline
             shiftOPressed% = TRUE
@@ -809,14 +857,13 @@ SUB KEYBOARD_input_handler ()
         shiftOPressed% = FALSE
     END IF
     
-    ' Handle F12 for exporting custom brush (when custom brush is active)
+    ' F12 for exporting custom brush
     STATIC f12Pressed AS INTEGER
     IF _KEYDOWN(34304) THEN ' F12
         IF NOT f12Pressed% THEN
             _LOGINFO "F12 key detected"
             IF CUSTOM_BRUSH_is_active% THEN
                 _LOGINFO "Custom brush is active, proceeding with export"
-                ' Generate filename with timestamp
                 DIM export_filename AS STRING
                 export_filename$ = "brush_" + _TRIM$(STR$(TIMER)) + ".png"
                 CUSTOM_BRUSH_export_png export_filename$
@@ -828,57 +875,199 @@ SUB KEYBOARD_input_handler ()
     ELSE
         f12Pressed% = FALSE
     END IF
+END SUB
+
+
+''
+' Handle UI toggle keys (TAB, F10, F11, Ctrl+F11).
+'
+SUB KEYBOARD_handle_ui_toggles ()
+    ' Static variables to prevent key repeat
+    STATIC tabPressed AS INTEGER, f10Pressed AS INTEGER, f11Pressed AS INTEGER
     
-    ' If text tool is active and editing, block ALL keyboard processing except text input
-    IF CURRENT_TOOL% = TOOL_TEXT AND TEXT.ACTIVE THEN
-        keypress$ = INKEY$
-        IF keypress$ <> "" THEN
-            DIM char_code AS INTEGER
-            char_code = ASC(keypress$)
-            
-            SELECT CASE char_code
-                CASE 27  ' ESC - apply text
-                    TEXT_apply
-                CASE 13  ' ENTER - newline
-                    TEXT_newline
-                CASE 8   ' BACKSPACE
-                    TEXT_backspace
-                CASE 32 TO 126  ' Printable ASCII characters
-                    TEXT_add_char keypress$
-                ' Ignore other special keys while text editing
-            END SELECT
+    ' Handle TAB for toolbar toggle (but not when CTRL is held - that's for layer panel)
+    IF _KEYDOWN(9) AND NOT MODIFIERS.ctrl% THEN
+        IF NOT tabPressed% THEN
+            SCRN.showToolbar% = NOT SCRN.showToolbar%
+            SCRN.toolbarManuallyHidden% = NOT SCRN.showToolbar%
+            GUI_NEEDS_REDRAW% = TRUE
+            tabPressed% = TRUE
         END IF
-        EXIT SUB  ' Don't process ANY other keyboard handlers
+    ELSE
+        tabPressed% = FALSE
     END IF
     
-    ' Normal keyboard processing when not in text mode
-    keypress$ = INKEY$
-    IF keypress$ <> "" THEN
-        ' Handle ? for command palette with search (before other processing)
-        IF keypress$ = "?" THEN
-            CMD_show_palette
+    ' Handle F10 for status bar toggle
+    IF _KEYDOWN(17408) THEN ' F10
+        IF NOT f10Pressed% THEN
+            SCRN.showStatus% = NOT SCRN.showStatus%
+            SCRN.statusManuallyHidden% = NOT SCRN.showStatus%
+            GUI_NEEDS_REDRAW% = TRUE
+            f10Pressed% = TRUE
+        END IF
+    ELSE
+        f10Pressed% = FALSE
+    END IF
+    
+    ' Handle F11 for toggle all UI panels
+    IF _KEYDOWN(34048) AND NOT MODIFIERS.ctrl% THEN ' F11 (not Ctrl+F11)
+        IF NOT f11Pressed% THEN
+            IF SCRN.showToolbar% OR SCRN.showStatus% OR LAYER_PANEL.visible% OR (SCRN.showMenubar% AND MENU_BAR.visible%) THEN
+                SCRN.showToolbar% = FALSE
+                SCRN.showStatus% = FALSE
+                LAYER_PANEL.visible% = FALSE
+                MENU_BAR.visible% = FALSE
+                MENUBAR_close_all
+                SCRN.toolbarManuallyHidden% = TRUE
+                SCRN.statusManuallyHidden% = TRUE
+                SCRN.menubarManuallyHidden% = TRUE
+                SCRN.layerPanelManuallyHidden% = TRUE
+            ELSE
+                SCRN.showToolbar% = TRUE
+                SCRN.showStatus% = TRUE
+                LAYER_PANEL.visible% = TRUE
+                MENU_BAR.visible% = TRUE
+                SCRN.toolbarManuallyHidden% = FALSE
+                SCRN.statusManuallyHidden% = FALSE
+                SCRN.menubarManuallyHidden% = FALSE
+                SCRN.layerPanelManuallyHidden% = FALSE
+            END IF
+            GUI_NEEDS_REDRAW% = TRUE
+            SCENE_DIRTY% = TRUE
+            f11Pressed% = TRUE
+        END IF
+    ELSEIF NOT _KEYDOWN(34048) THEN
+        f11Pressed% = FALSE
+    END IF
+    
+    ' Handle Ctrl+F11 for menu bar toggle only
+    STATIC ctrlF11Pressed AS INTEGER
+    IF _KEYDOWN(34048) AND MODIFIERS.ctrl% THEN ' Ctrl+F11
+        IF NOT ctrlF11Pressed% THEN
+            MENU_BAR.visible% = NOT MENU_BAR.visible%
+            SCRN.showMenubar% = MENU_BAR.visible%
+            SCRN.menubarManuallyHidden% = NOT MENU_BAR.visible%
+            IF NOT MENU_BAR.visible% THEN MENUBAR_close_all
+            GUI_NEEDS_REDRAW% = TRUE
+            SCENE_DIRTY% = TRUE
+            ctrlF11Pressed% = TRUE
+        END IF
+    ELSE
+        ctrlF11Pressed% = FALSE
+    END IF
+END SUB
+
+
+''
+' Handle DELETE and BACKSPACE keys for canvas clearing.
+'
+SUB KEYBOARD_handle_delete_backspace ()
+    ' DELETE for clear with prompt (skip if CTRL or SHIFT held)
+    STATIC deletePressed AS INTEGER
+    IF _KEYDOWN(KEY_DELETE&) AND NOT MODIFIERS.ctrl% AND NOT MODIFIERS.shift% THEN
+        IF NOT deletePressed% THEN
+            IF NOT (CURRENT_TOOL% = TOOL_TEXT AND TEXT.ACTIVE) THEN
+                IF CURRENT_TOOL% = TOOL_MARQUEE AND MARQUEE.MAGIC_WAND_MODE AND MARQUEE.WAND_HAS_SELECTION THEN
+                    MAGIC_WAND_clear_selected_transparent
+                    MAGIC_WAND_reset
+                    GUI_NEEDS_REDRAW% = TRUE
+                ELSE
+                    PAINT_clear_with_prompt
+                END IF
+            END IF
+            deletePressed% = TRUE
+        END IF
+    ELSEIF NOT _KEYDOWN(KEY_DELETE&) THEN
+        deletePressed% = FALSE
+    END IF
+    
+    ' BACKSPACE for clear without prompt
+    STATIC backspacePressed AS INTEGER
+    IF _KEYDOWN(KEY_BACKSPACE&) THEN
+        IF NOT backspacePressed% THEN
+            IF NOT (CURRENT_TOOL% = TOOL_TEXT AND TEXT.ACTIVE) THEN
+                PAINT_clear_no_prompt
+            END IF
+            backspacePressed% = TRUE
+        END IF
+    ELSE
+        backspacePressed% = FALSE
+    END IF
+END SUB
+
+
+''
+' Handle grid control keys (apostrophe, semicolon, period, comma).
+'
+SUB KEYBOARD_handle_grid_controls ()
+    ' Apostrophe (') for grid toggle, SHIFT+' for pixel grid toggle
+    STATIC gridTogglePressed AS INTEGER
+    STATIC pixelGridTogglePressed AS INTEGER
+    IF _KEYDOWN(39) THEN ' apostrophe
+        IF MODIFIERS.shift% THEN
+            IF NOT pixelGridTogglePressed% THEN
+                PIXEL_GRID.SHOW% = NOT PIXEL_GRID.SHOW%
+                pixelGridTogglePressed% = TRUE
+            END IF
         ELSE
-            KEYBOARD_colors keypress$
-            KEYBOARD_tools keypress$
-            KEYBOARD_brush_size keypress$
-            KEYBOARD_assistants keypress$
+            IF NOT gridTogglePressed% THEN
+                GRID.SHOW% = NOT GRID.SHOW%
+                gridTogglePressed% = TRUE
+            END IF
         END IF
+    ELSE
+        gridTogglePressed% = FALSE
+        pixelGridTogglePressed% = FALSE
     END IF
     
-    ' Note: KEYBOARD_layers is called at the TOP of this sub before any EXIT SUB statements
-    
-    ' Handle NumPad dither pattern selection (NumLock ON: INKEY$ returns "1"-"9")
-    ' Regular number keys 1-9 already handled by KEYBOARD_colors above
-    ' NumPad with NumLock ON returns same "1"-"9" as regular keys, so this works automatically!
-    ' Pattern 0 = Solid (already active), 1-9 = dither patterns
-    IF keypress$ >= "1" AND keypress$ <= "9" THEN
-        ' Check if this is for dither pattern (not just color selection)
-        ' We'll make NumPad+Shift = select dither pattern (since Shift+NumPad returns ASCII 0)
-        ' But regular 1-9 already handled by color - need alternative approach
+    ' Semicolon (;) for snap-to-grid toggle
+    STATIC snapTogglePressed AS INTEGER
+    IF _KEYDOWN(59) THEN
+        IF NOT snapTogglePressed% THEN
+            GRID.SNAP% = NOT GRID.SNAP%
+            GUI_NEEDS_REDRAW% = TRUE
+            snapTogglePressed% = TRUE
+        END IF
+    ELSE
+        snapTogglePressed% = FALSE
     END IF
     
-    ' Handle NumPad dither patterns with _KEYDOWN (NumLock OFF mode)
-    ' These use extended codes and won't interfere with color selection
+    ' Period (.) to increase grid size
+    STATIC periodPressed AS INTEGER
+    IF _KEYDOWN(46) THEN
+        IF NOT periodPressed% THEN
+            IF GRID.gridWidth% < 50 THEN
+                GRID.gridWidth% = GRID.gridWidth% + 1
+                GRID.gridHeight% = GRID.gridHeight% + 1
+                GRID_draw
+            END IF
+            periodPressed% = TRUE
+        END IF
+    ELSE
+        periodPressed% = FALSE
+    END IF
+    
+    ' Comma (,) to decrease grid size
+    STATIC commaPressed AS INTEGER
+    IF _KEYDOWN(44) THEN
+        IF NOT commaPressed% THEN
+            IF GRID.gridWidth% > 2 THEN
+                GRID.gridWidth% = GRID.gridWidth% - 1
+                GRID.gridHeight% = GRID.gridHeight% - 1
+                GRID_draw
+            END IF
+            commaPressed% = TRUE
+        END IF
+    ELSE
+        commaPressed% = FALSE
+    END IF
+END SUB
+
+
+''
+' Handle NumPad dither pattern selection (NumLock OFF mode).
+'
+SUB KEYBOARD_handle_numpad_dithers ()
     IF _KEYDOWN(KP_1) AND NOT NUMPAD_KEY_1_LAST THEN
         BRUSH_DITHERS_set 1
         NUMPAD_KEY_1_LAST = TRUE
@@ -943,773 +1132,413 @@ SUB KEYBOARD_input_handler ()
     END IF
     
     IF _KEYDOWN(KP_0) AND NOT NUMPAD_KEY_0_LAST THEN
-        BRUSH_DITHERS_set 0  ' Reset to solid
+        BRUSH_DITHERS_set 0
         NUMPAD_KEY_0_LAST = TRUE
     ELSEIF NOT _KEYDOWN(KP_0) THEN
         NUMPAD_KEY_0_LAST = FALSE
     END IF
-    
-    ' Static variables to prevent key repeat
-    STATIC tabPressed AS INTEGER, f10Pressed AS INTEGER, f11Pressed AS INTEGER
-    DIM tabCtrlHeld AS INTEGER
-    tabCtrlHeld% = (_KEYDOWN(100305) OR _KEYDOWN(100306))  ' Left or Right Ctrl
-    
-    ' Handle TAB for toolbar toggle (but not when CTRL is held - that's for layer panel)
-    IF _KEYDOWN(9) AND NOT tabCtrlHeld% THEN ' TAB key code is 9
-        IF NOT tabPressed% THEN
-            SCRN.showToolbar% = NOT SCRN.showToolbar%
-            ' Mark as manually hidden/shown
-            SCRN.toolbarManuallyHidden% = NOT SCRN.showToolbar%
-            GUI_NEEDS_REDRAW% = TRUE
-            tabPressed% = TRUE
-        END IF
-    ELSE
-        tabPressed% = FALSE
-    END IF
-    
-    ' Handle F10 for status bar toggle (using _KEYDOWN with correct code)
-    IF _KEYDOWN(17408) THEN ' F10 = 17408
-        IF NOT f10Pressed% THEN
-            SCRN.showStatus% = NOT SCRN.showStatus%
-            ' Mark as manually hidden/shown
-            SCRN.statusManuallyHidden% = NOT SCRN.showStatus%
-            GUI_NEEDS_REDRAW% = TRUE
-            f10Pressed% = TRUE
-        END IF
-    ELSE
-        f10Pressed% = FALSE
-    END IF
-    
-    ' Handle F11 for both toolbar and status toggle (and layer panel and menu bar)
-    ' Skip when CTRL is held (Ctrl+F11 = menu bar toggle, handled below)
-    DIM f11Ctrl AS INTEGER
-    f11Ctrl% = (_KEYDOWN(100305) OR _KEYDOWN(100306))
-    IF _KEYDOWN(34048) AND NOT f11Ctrl% THEN ' F11
-        IF NOT f11Pressed% THEN
-            ' If any is visible, hide all. If all are hidden, show all.
-            IF SCRN.showToolbar% OR SCRN.showStatus% OR LAYER_PANEL.visible% OR (SCRN.showMenubar% AND MENU_BAR.visible%) THEN
-                SCRN.showToolbar% = FALSE
-                SCRN.showStatus% = FALSE
-                LAYER_PANEL.visible% = FALSE
-                MENU_BAR.visible% = FALSE
-                MENUBAR_close_all
-                ' Mark as manually hidden
-                SCRN.toolbarManuallyHidden% = TRUE
-                SCRN.statusManuallyHidden% = TRUE
-                SCRN.menubarManuallyHidden% = TRUE
-                SCRN.layerPanelManuallyHidden% = TRUE
-            ELSE
-                SCRN.showToolbar% = TRUE
-                SCRN.showStatus% = TRUE
-                LAYER_PANEL.visible% = TRUE
-                MENU_BAR.visible% = TRUE
-                ' Mark as manually shown
-                SCRN.toolbarManuallyHidden% = FALSE
-                SCRN.statusManuallyHidden% = FALSE
-                SCRN.menubarManuallyHidden% = FALSE
-                SCRN.layerPanelManuallyHidden% = FALSE
-            END IF
-            GUI_NEEDS_REDRAW% = TRUE
-            SCENE_DIRTY% = TRUE
-            f11Pressed% = TRUE
-        END IF
-    ELSEIF NOT _KEYDOWN(34048) THEN
-        f11Pressed% = FALSE
-    END IF
-    
-    ' Handle Ctrl+F11 for menu bar toggle only
-    STATIC ctrlF11Pressed AS INTEGER
-    IF _KEYDOWN(34048) AND f11Ctrl% THEN ' Ctrl+F11
-        IF NOT ctrlF11Pressed% THEN
-            MENU_BAR.visible% = NOT MENU_BAR.visible%
-            SCRN.showMenubar% = MENU_BAR.visible%
-            SCRN.menubarManuallyHidden% = NOT MENU_BAR.visible%
-            IF NOT MENU_BAR.visible% THEN MENUBAR_close_all
-            GUI_NEEDS_REDRAW% = TRUE
-            SCENE_DIRTY% = TRUE
-            ctrlF11Pressed% = TRUE
-        END IF
-    ELSE
-        ctrlF11Pressed% = FALSE
-    END IF
-    
-    ' Handle DELETE key for canvas clear with prompt (skip if CTRL or SHIFT held)
-    STATIC deletePressed AS INTEGER
-    DIM delCtrl AS INTEGER, delShift AS INTEGER
-    delCtrl% = (_KEYDOWN(100305) OR _KEYDOWN(100306))
-    delShift% = (_KEYDOWN(100304) OR _KEYDOWN(100303))
-    IF _KEYDOWN(KEY_DELETE&) AND NOT delCtrl% AND NOT delShift% THEN
-        IF NOT deletePressed% THEN
-            ' Don't clear canvas if text tool is active
-            IF NOT (CURRENT_TOOL% = TOOL_TEXT AND TEXT.ACTIVE) THEN
-                ' Magic wand selection: clear selected pixels to transparent
-                IF CURRENT_TOOL% = TOOL_MARQUEE AND MARQUEE.MAGIC_WAND_MODE AND MARQUEE.WAND_HAS_SELECTION THEN
-                    MAGIC_WAND_clear_selected_transparent
-                    MAGIC_WAND_reset
-                    GUI_NEEDS_REDRAW% = TRUE
-                ELSE
-                    PAINT_clear_with_prompt
-                END IF
-            END IF
-            deletePressed% = TRUE
-        END IF
-    ELSEIF NOT _KEYDOWN(KEY_DELETE&) THEN
-        deletePressed% = FALSE
-    END IF
-    
-    ' Handle BACKSPACE key for canvas clear without prompt
-    STATIC backspacePressed AS INTEGER
-    IF _KEYDOWN(KEY_BACKSPACE&) THEN
-        IF NOT backspacePressed% THEN
-            ' Don't clear canvas if text tool is active (BACKSPACE is for text editing)
-            IF NOT (CURRENT_TOOL% = TOOL_TEXT AND TEXT.ACTIVE) THEN
-                PAINT_clear_no_prompt
-            END IF
-            backspacePressed% = TRUE
-        END IF
-    ELSE
-        backspacePressed% = FALSE
-    END IF
-    
-    ' Handle apostrophe (') key for grid toggle, SHIFT+' (") for pixel grid toggle
-    STATIC gridTogglePressed AS INTEGER
-    STATIC pixelGridTogglePressed AS INTEGER
-    DIM gridShiftHeld AS INTEGER
-    gridShiftHeld% = (_KEYDOWN(KEY_LSHIFT&) OR _KEYDOWN(KEY_RSHIFT&))
-    IF _KEYDOWN(39) THEN ' 39 = apostrophe key
-        IF gridShiftHeld% THEN
-            ' SHIFT+' = pixel grid toggle
-            IF NOT pixelGridTogglePressed% THEN
-                PIXEL_GRID.SHOW% = NOT PIXEL_GRID.SHOW%
-                pixelGridTogglePressed% = TRUE
-            END IF
-        ELSE
-            ' Just ' = regular grid toggle
-            IF NOT gridTogglePressed% THEN
-                GRID.SHOW% = NOT GRID.SHOW%
-                gridTogglePressed% = TRUE
-            END IF
-        END IF
-    ELSE
-        gridTogglePressed% = FALSE
-        pixelGridTogglePressed% = FALSE
-    END IF
-    
-    ' Handle semicolon (;) key for snap-to-grid toggle
-    STATIC snapTogglePressed AS INTEGER
-    IF _KEYDOWN(59) THEN ' 59 = semicolon key
-        IF NOT snapTogglePressed% THEN
-            GRID.SNAP% = NOT GRID.SNAP%
-            GUI_NEEDS_REDRAW% = TRUE
-            snapTogglePressed% = TRUE
-        END IF
-    ELSE
-        snapTogglePressed% = FALSE
-    END IF
-    
-    ' Handle period (.) key to increase grid size
-    STATIC periodPressed AS INTEGER
-    IF _KEYDOWN(46) THEN ' 46 = period key
-        IF NOT periodPressed% THEN
-            IF GRID.gridWidth% < 50 THEN
-                GRID.gridWidth% = GRID.gridWidth% + 1
-                GRID.gridHeight% = GRID.gridHeight% + 1
-                GRID_draw
-            END IF
-            periodPressed% = TRUE
-        END IF
-    ELSE
-        periodPressed% = FALSE
-    END IF
-    
-    ' Handle comma (,) key to decrease grid size
-    STATIC commaPressed AS INTEGER
-    IF _KEYDOWN(44) THEN ' 44 = comma key
-        IF NOT commaPressed% THEN
-            IF GRID.gridWidth% > 2 THEN
-                GRID.gridWidth% = GRID.gridWidth% - 1
-                GRID.gridHeight% = GRID.gridHeight% - 1
-                GRID_draw
-            END IF
-            commaPressed% = TRUE
-        END IF
-    ELSE
-        commaPressed% = FALSE
-    END IF
-    
-    ' Marquee tool keyboard controls (single-press for arrow keys to prevent flying)
-    IF CURRENT_TOOL% = TOOL_MARQUEE AND MARQUEE.ACTIVE% THEN
-        DIM isCtrl AS INTEGER, isShift AS INTEGER, moveStep AS INTEGER
-        DIM marqKeyUpNow AS INTEGER, marqKeyDownNow AS INTEGER
-        DIM marqKeyLeftNow AS INTEGER, marqKeyRightNow AS INTEGER
-        
-        isCtrl% = (_KEYDOWN(100305) OR _KEYDOWN(100306)) ' Left or Right Ctrl
-        isShift% = (_KEYDOWN(100304) OR _KEYDOWN(100303)) ' Left or Right Shift
-        moveStep% = 1
-        IF isShift% THEN moveStep% = 10
-        
-        ' Get current key states
-        marqKeyUpNow% = _KEYDOWN(18432)
-        marqKeyDownNow% = _KEYDOWN(20480)
-        marqKeyLeftNow% = _KEYDOWN(19200)
-        marqKeyRightNow% = _KEYDOWN(19712)
-        
-        ' Arrow keys move or resize the marquee (single-press only to prevent flying)
-        IF marqKeyUpNow% AND NOT MARQUEE.KEY_UP_LAST THEN ' Up arrow - just pressed
-            IF isCtrl% THEN
-                MARQUEE.BOX.h = MARQUEE.BOX.h - moveStep%
-                IF MARQUEE.BOX.h < 8 THEN MARQUEE.BOX.h = 8
-            ELSE
-                MARQUEE.BOX.y = MARQUEE.BOX.y - moveStep%
-            END IF
-        END IF
-        IF marqKeyDownNow% AND NOT MARQUEE.KEY_DOWN_LAST THEN ' Down arrow - just pressed
-            IF isCtrl% THEN
-                MARQUEE.BOX.h = MARQUEE.BOX.h + moveStep%
-            ELSE
-                MARQUEE.BOX.y = MARQUEE.BOX.y + moveStep%
-            END IF
-        END IF
-        IF marqKeyLeftNow% AND NOT MARQUEE.KEY_LEFT_LAST THEN ' Left arrow - just pressed
-            IF isCtrl% THEN
-                MARQUEE.BOX.w = MARQUEE.BOX.w - moveStep%
-                IF MARQUEE.BOX.w < 8 THEN MARQUEE.BOX.w = 8
-            ELSE
-                MARQUEE.BOX.x = MARQUEE.BOX.x - moveStep%
-            END IF
-        END IF
-        IF marqKeyRightNow% AND NOT MARQUEE.KEY_RIGHT_LAST THEN ' Right arrow - just pressed
-            IF isCtrl% THEN
-                MARQUEE.BOX.w = MARQUEE.BOX.w + moveStep%
-            ELSE
-                MARQUEE.BOX.x = MARQUEE.BOX.x + moveStep%
-            END IF
-        END IF
-        
-        ' Update key state tracking for next frame
-        MARQUEE.KEY_UP_LAST = marqKeyUpNow%
-        MARQUEE.KEY_DOWN_LAST = marqKeyDownNow%
-        MARQUEE.KEY_LEFT_LAST = marqKeyLeftNow%
-        MARQUEE.KEY_RIGHT_LAST = marqKeyRightNow%
-    END IF
-    
-    ' MOVE tool keyboard controls (same arrow key logic as marquee + flip keys)
-    IF CURRENT_TOOL% = TOOL_MOVE AND MOVE.ACTIVE THEN
-        DIM isMoveCtrl AS INTEGER, isMoveShift AS INTEGER, moveMoveStep AS INTEGER
-        DIM keyUpNow AS INTEGER, keyDownNow AS INTEGER, keyLeftNow AS INTEGER, keyRightNow AS INTEGER
-        
-        isMoveCtrl% = (_KEYDOWN(100305) OR _KEYDOWN(100306)) ' Left or Right Ctrl
-        isMoveShift% = (_KEYDOWN(100304) OR _KEYDOWN(100303)) ' Left or Right Shift
-        moveMoveStep% = 1
-        IF isMoveShift% THEN moveMoveStep% = CFG.NUDGE_N%
-        
-        ' Get current key states
-        keyUpNow% = _KEYDOWN(18432)
-        keyDownNow% = _KEYDOWN(20480)
-        keyLeftNow% = _KEYDOWN(19200)
-        keyRightNow% = _KEYDOWN(19712)
-        
-        ' Arrow keys move or resize the selection (single-press only)
-        IF keyUpNow% AND NOT MOVE_KEY_UP_LAST% THEN ' Up arrow - just pressed
-            IF isMoveCtrl% THEN
-                MOVE_resize 0, -moveMoveStep%
-            ELSE
-                MOVE_nudge 0, -moveMoveStep%
-            END IF
-        END IF
-        IF keyDownNow% AND NOT MOVE_KEY_DOWN_LAST% THEN ' Down arrow - just pressed
-            IF isMoveCtrl% THEN
-                MOVE_resize 0, moveMoveStep%
-            ELSE
-                MOVE_nudge 0, moveMoveStep%
-            END IF
-        END IF
-        IF keyLeftNow% AND NOT MOVE_KEY_LEFT_LAST% THEN ' Left arrow - just pressed
-            IF isMoveCtrl% THEN
-                MOVE_resize -moveMoveStep%, 0
-            ELSE
-                MOVE_nudge -moveMoveStep%, 0
-            END IF
-        END IF
-        IF keyRightNow% AND NOT MOVE_KEY_RIGHT_LAST% THEN ' Right arrow - just pressed
-            IF isMoveCtrl% THEN
-                MOVE_resize moveMoveStep%, 0
-            ELSE
-                MOVE_nudge moveMoveStep%, 0
-            END IF
-        END IF
-        
-        ' Update last key states
-        MOVE_KEY_UP_LAST% = keyUpNow%
-        MOVE_KEY_DOWN_LAST% = keyDownNow%
-        MOVE_KEY_LEFT_LAST% = keyLeftNow%
-        MOVE_KEY_RIGHT_LAST% = keyRightNow%
-        
-        ' Update clone mode based on ALT key
-        $IF MAC THEN
-            MOVE.CLONING = MAC_ALT_HELD%
-        $ELSE
-            MOVE.CLONING = (_KEYDOWN(KEY_LALT&) OR _KEYDOWN(KEY_RALT&))
-        $END IF
-        MOVE_update_preview_buffer
-    END IF
-    
-    ' Check for Ctrl-D to deselect marquee/wand selection (with single-press detection)
-    ' Works from any tool since selection now acts as a clipping mask
-    STATIC CLIPBOARD_KEY_D_LAST AS INTEGER
-    STATIC CLIPBOARD_KEY_A_LAST AS INTEGER
-    STATIC CLIPBOARD_KEY_I_LAST AS INTEGER
-    DIM keyDNow AS INTEGER, keyANow AS INTEGER, keyINow AS INTEGER
-    IF _KEYDOWN(100305) OR _KEYDOWN(100306) THEN ' Left or Right Ctrl
-        DIM selIsShift AS INTEGER
-        selIsShift% = (_KEYDOWN(100304) OR _KEYDOWN(100303)) ' Left or Right Shift
-        
-        keyDNow% = _KEYDOWN(100)  ' 'd' key
-        IF keyDNow% AND NOT CLIPBOARD_KEY_D_LAST% THEN
-            ' Clear any active selection (marquee, magic wand, or combined mask)
-            IF MARQUEE.WAND_HAS_SELECTION AND MARQUEE.SELECTION_MASK < -1 THEN
-                ' Clear mask-based selection (magic wand or combined marquee)
-                MAGIC_WAND_reset
-                MARQUEE.ACTIVE% = FALSE
-                GUI_NEEDS_REDRAW% = TRUE
-            ELSEIF MARQUEE.ACTIVE% THEN
-                ' Clear simple rectangular marquee
-                MARQUEE_clear
-                GUI_NEEDS_REDRAW% = TRUE
-            END IF
-        END IF
-        CLIPBOARD_KEY_D_LAST% = keyDNow%
-        
-        ' CTRL+A: Select All
-        keyANow% = _KEYDOWN(97)  ' 'a' key
-        IF keyANow% AND NOT CLIPBOARD_KEY_A_LAST% AND NOT selIsShift% THEN
-            SELECTION_select_all
-        END IF
-        CLIPBOARD_KEY_A_LAST% = keyANow%
-        
-        ' CTRL+SHIFT+I: Invert Selection
-        ' Check both lowercase 'i' (105) and uppercase 'I' (73) since Shift may produce either
-        keyINow% = _KEYDOWN(105) OR _KEYDOWN(73)
-        IF keyINow% AND NOT CLIPBOARD_KEY_I_LAST% AND selIsShift% THEN
-            SELECTION_invert
-        END IF
-        CLIPBOARD_KEY_I_LAST% = keyINow%
-        
-        ' Clipboard operations (with single-press detection)
-        DIM clipIsShift AS INTEGER, clipIsAlt AS INTEGER
-        DIM keyCNow AS INTEGER, keyXNow AS INTEGER, keyVNow AS INTEGER, keyENow AS INTEGER
-        
-        clipIsShift% = selIsShift%
-        $IF MAC THEN
-            clipIsAlt% = MAC_ALT_HELD%
-        $ELSE
-            clipIsAlt% = (_KEYDOWN(KEY_LALT&) OR _KEYDOWN(KEY_RALT&))
-        $END IF
-        
-        keyCNow% = _KEYDOWN(99) OR _KEYDOWN(67)   ' 'c' or 'C' key
-        keyXNow% = _KEYDOWN(120) OR _KEYDOWN(88)  ' 'x' or 'X' key
-        keyVNow% = _KEYDOWN(118) OR _KEYDOWN(86)  ' 'v' or 'V' key
-        keyENow% = _KEYDOWN(101) OR _KEYDOWN(69)  ' 'e' or 'E' key
-        
-        ' CTRL-C: Copy selection to clipboard
-        IF keyCNow% AND NOT CLIPBOARD_KEY_C_LAST% AND NOT clipIsShift% AND NOT clipIsAlt% THEN
-            CLIPBOARD_copy
-        END IF
-        
-        ' CTRL-SHIFT-C: Copy merged (visible layers) to clipboard
-        IF keyCNow% AND NOT CLIPBOARD_KEY_C_LAST% AND clipIsShift% AND NOT clipIsAlt% THEN
-            CLIPBOARD_copy_merged
-        END IF
-        
-        ' CTRL-X: Cut selection to clipboard
-        IF keyXNow% AND NOT CLIPBOARD_KEY_X_LAST% AND NOT clipIsShift% AND NOT clipIsAlt% THEN
-            CLIPBOARD_cut
-        END IF
-        
-        ' CTRL-V: Paste clipboard at mouse position
-        ' MOUSE.X% and MOUSE.Y% are already canvas coordinates (converted in mouse handler)
-        IF keyVNow% AND NOT CLIPBOARD_KEY_V_LAST% AND NOT clipIsShift% AND NOT clipIsAlt% THEN
-            CLIPBOARD_paste MOUSE.X%, MOUSE.Y%
-        END IF
-        
-        ' CTRL-E: Clear selection (fill with background color, or transparent for magic wand)
-        IF keyENow% AND NOT CLIPBOARD_KEY_E_LAST% AND NOT clipIsShift% AND NOT clipIsAlt% THEN
-            ' Magic wand selection: clear selected pixels to transparent
-            IF CURRENT_TOOL% = TOOL_MARQUEE AND MARQUEE.MAGIC_WAND_MODE AND MARQUEE.WAND_HAS_SELECTION THEN
-                MAGIC_WAND_clear_selected_transparent
-                MAGIC_WAND_reset
-                GUI_NEEDS_REDRAW% = TRUE
-            ELSE
-                CLIPBOARD_clear_selection
-            END IF
-        END IF
-        
-        ' CTRL-T: Activate text tool with custom font (if loaded)
-        DIM keyTNow AS INTEGER
-        keyTNow% = _KEYDOWN(116)  ' 't' key
-        IF keyTNow% AND NOT CLIPBOARD_KEY_T_LAST% AND NOT clipIsShift% AND NOT clipIsAlt% THEN
-            _LOGINFO "CTRL-T pressed!"
-            _LOGINFO "Custom font handle: " + STR$(TEXT.CUSTOM_FONT_HANDLE)
-            PREVIOUS_TOOL% = CURRENT_TOOL%
-            CURRENT_TOOL% = TOOL_TEXT
-            FILL_deactivate
-            PICKER_deactivate
-            ' Keep marquee selection active as clipping mask
-            POLY_LINE_reset
-            LINE_reset
-            RECT_reset
-            ELLIPSE_reset
-            MOVE_reset
-            
-            ' Use custom font if one was loaded via middle-click
-            IF TEXT.CUSTOM_FONT_HANDLE > 0 THEN
-                _LOGINFO "Using custom font!"
-                TEXT.USE_CUSTOM = TRUE
-                TEXT.USE_TINY5 = FALSE
-                ' Get dimensions from the custom font
-                DIM old_font_ctrl AS LONG
-                old_font_ctrl& = _FONT
-                _FONT TEXT.CUSTOM_FONT_HANDLE
-                TEXT.CHAR_WIDTH = _PRINTWIDTH("A")
-                TEXT.LINE_HEIGHT = _FONTHEIGHT + 2
-                _FONT old_font_ctrl&
-                _LOGINFO "Custom font activated - width: " + STR$(TEXT.CHAR_WIDTH) + " height: " + STR$(TEXT.LINE_HEIGHT)
-            ELSE
-                _LOGINFO "No custom font loaded - using VGA"
-                ' No custom font loaded - fall back to VGA
-                TEXT.USE_CUSTOM = FALSE
-                TEXT.USE_TINY5 = FALSE
-                TEXT.CHAR_WIDTH = 8
-                TEXT.LINE_HEIGHT = 13
-            END IF
-            TEXT_reset
-        END IF
-        
-        ' Update clipboard key states
-        CLIPBOARD_KEY_C_LAST% = keyCNow%
-        CLIPBOARD_KEY_X_LAST% = keyXNow%
-        CLIPBOARD_KEY_V_LAST% = keyVNow%
-        CLIPBOARD_KEY_E_LAST% = keyENow%
-        CLIPBOARD_KEY_T_LAST% = keyTNow%
-        
-        ' Undo/Redo operations (with single-press detection)
-        DIM keyZNow AS INTEGER, keyYNow AS INTEGER
-        DIM pixelUndoTs AS DOUBLE, workspaceUndoTs AS DOUBLE
-        
-        keyZNow% = _KEYDOWN(122) OR _KEYDOWN(90)  ' 'z' or 'Z' key
-        keyYNow% = _KEYDOWN(121) OR _KEYDOWN(89)  ' 'y' or 'Y' key
-        
-        ' CTRL-Z: Intelligent Undo - compare timestamps to undo most recent operation
-        IF keyZNow% AND NOT UNDO_KEY_Z_LAST% AND NOT clipIsShift% AND NOT clipIsAlt% THEN
-            pixelUndoTs# = UNDO_get_last_timestamp#
-            workspaceUndoTs# = WORKSPACE_UNDO_get_last_timestamp#
-            
-            ' Undo whichever is more recent (higher timestamp)
-            IF workspaceUndoTs# > pixelUndoTs# AND WORKSPACE_UNDO_can_undo% THEN
-                _LOGINFO "CTRL-Z: Workspace undo (ts=" + STR$(workspaceUndoTs#) + " > pixel ts=" + STR$(pixelUndoTs#) + ")"
-                WORKSPACE_UNDO_undo
-            ELSEIF pixelUndoTs# > 0 THEN
-                _LOGINFO "CTRL-Z: Pixel undo (ts=" + STR$(pixelUndoTs#) + " >= workspace ts=" + STR$(workspaceUndoTs#) + ")"
-                UNDO_undo
-            END IF
-            GUI_NEEDS_REDRAW% = TRUE
-        END IF
-        
-        ' CTRL-Y: Intelligent Redo - compare timestamps to redo in correct order
-        IF keyYNow% AND NOT UNDO_KEY_Y_LAST% AND NOT clipIsShift% AND NOT clipIsAlt% THEN
-            ' For redo, we need to peek at what would be redone and compare
-            ' If workspace has something to redo that's older than pixel redo, do workspace first
-            ' For simplicity, default to pixel redo unless workspace has pending redo and pixel doesn't
-            IF WORKSPACE_UNDO_can_redo% AND UNDO.current% >= UNDO.count% - 1 THEN
-                _LOGINFO "CTRL-Y: Workspace redo (pixel redo not available)"
-                WORKSPACE_UNDO_redo
-            ELSE
-                _LOGINFO "CTRL-Y: Pixel redo"
-                UNDO_redo
-            END IF
-            GUI_NEEDS_REDRAW% = TRUE
-        END IF
-        
-        ' Update undo/redo key states
-        UNDO_KEY_Z_LAST% = keyZNow%
-        UNDO_KEY_Y_LAST% = keyYNow%
-        
-        ' File operations (with single-press detection)
-        DIM fileIsShift AS INTEGER, fileIsAlt AS INTEGER
-        DIM keyONow AS INTEGER, keySNow AS INTEGER
-        
-        fileIsShift% = (_KEYDOWN(100304) OR _KEYDOWN(100303)) ' Left or Right Shift
-        $IF MAC THEN
-            fileIsAlt% = MAC_ALT_HELD%
-        $ELSE
-            fileIsAlt% = (_KEYDOWN(KEY_LALT&) OR _KEYDOWN(KEY_RALT&))
-        $END IF
-        
-        keyONow% = _KEYDOWN(111)  ' 'o' key
-        keySNow% = (_KEYDOWN(115) OR _KEYDOWN(83))  ' 's' or 'S' key (SHIFT changes case)
-        
-        ' CTRL-O: Open file
-        IF keyONow% AND NOT FILE_KEY_O_LAST% AND NOT fileIsShift% AND NOT fileIsAlt% THEN
-            LOAD_image
-        END IF
-        
-        ' CTRL-S: Save (with dialog)
-        ' CTRL-SHIFT-S: Quick save (no dialog if previously saved)
-        ' CTRL-ALT-S: Save As (always new filename)
-        ' CTRL-ALT-SHIFT-S: Export selection as cropped image
-        IF keySNow% AND NOT FILE_KEY_S_LAST% THEN
-            IF fileIsAlt% AND fileIsShift% THEN
-                ' CTRL-ALT-SHIFT-S: Export Selection
-                SAVE_selection
-            ELSEIF fileIsAlt% AND NOT fileIsShift% THEN
-                ' CTRL-ALT-S: Save As
-                SAVE_as
-            ELSEIF fileIsShift% AND NOT fileIsAlt% THEN
-                ' CTRL-SHIFT-S: Quick save
-                SAVE_quick
-            ELSEIF NOT fileIsShift% AND NOT fileIsAlt% THEN
-                ' CTRL-S: Save with dialog
-                SAVE_image
-            END IF
-        END IF
-        
-        ' Update file key states
-        FILE_KEY_O_LAST% = keyONow%
-        FILE_KEY_S_LAST% = keySNow%
-        
-        ' Zoom shortcuts (CTRL only, NOT CTRL+ALT+SHIFT which is display scale)
-        ' Need edge detection to prevent continuous firing while key is held
-        DIM zoomIsShift AS INTEGER, zoomIsAlt AS INTEGER
-        zoomIsShift% = (_KEYDOWN(100304) OR _KEYDOWN(100303))
-        $IF MAC THEN
-            zoomIsAlt% = MAC_ALT_HELD%
-        $ELSE
-            zoomIsAlt% = (_KEYDOWN(KEY_LALT&) OR _KEYDOWN(KEY_RALT&))
-        $END IF
-        
-        STATIC zoom0Pressed AS INTEGER, zoomPlusPressed AS INTEGER, zoomMinusPressed AS INTEGER
-        
-        ' Only process zoom if NOT using display scale combo (CTRL+ALT+SHIFT)
-        IF NOT (zoomIsShift% AND zoomIsAlt%) THEN
-            ' CTRL+0 - reset zoom to 100% and center
-            IF _KEYDOWN(48) THEN
-                IF NOT zoom0Pressed% THEN
-                    SCRN.zoom! = 1.0
-                    SCRN.offsetX% = 0
-                    SCRN.offsetY% = 0
-                    GUI_NEEDS_REDRAW% = TRUE
-                    zoom0Pressed% = TRUE
-                END IF
-            ELSE
-                zoom0Pressed% = FALSE
-            END IF
-            
-            ' CTRL+= - zoom in (snap to valid levels: 25%, 50%, 100%, 200%, 300%...)
-            IF _KEYDOWN(61) THEN
-                IF NOT zoomPlusPressed% THEN
-                    IF SCRN.zoom! < 0.5 THEN
-                        SCRN.zoom! = 0.5   ' 25% -> 50%
-                    ELSEIF SCRN.zoom! < 1.0 THEN
-                        SCRN.zoom! = 1.0   ' 50% -> 100%
-                    ELSE
-                        SCRN.zoom! = INT(SCRN.zoom!) + 1.0  ' 100% -> 200%, etc.
-                    END IF
-                    IF SCRN.zoom! > SCRN.zoomMax! THEN SCRN.zoom! = SCRN.zoomMax!
-                    GUI_NEEDS_REDRAW% = TRUE
-                    zoomPlusPressed% = TRUE
-                END IF
-            ELSE
-                zoomPlusPressed% = FALSE
-            END IF
-            
-            ' CTRL+- - zoom out (snap to valid levels: ...300%, 200%, 100%, 50%, 25%)
-            IF _KEYDOWN(45) THEN
-                IF NOT zoomMinusPressed% THEN
-                    IF SCRN.zoom! > 1.0 THEN
-                        SCRN.zoom! = INT(SCRN.zoom!) - 1.0  ' 200% -> 100%, etc.
-                    ELSEIF SCRN.zoom! > 0.5 THEN
-                        SCRN.zoom! = 0.5   ' 100% -> 50%
-                    ELSEIF SCRN.zoom! > 0.25 THEN
-                        SCRN.zoom! = 0.25  ' 50% -> 25%
-                    END IF
-                    IF SCRN.zoom! < SCRN.zoomMin! THEN SCRN.zoom! = SCRN.zoomMin!
-                    GUI_NEEDS_REDRAW% = TRUE
-                    zoomMinusPressed% = TRUE
-                END IF
-            ELSE
-                zoomMinusPressed% = FALSE
-            END IF
-            
-            ' NOTE: CTRL+2/3/4 are NOT available for zoom presets
-            ' They are used for palette BG color shortcuts (KB.PAL_BG_02/03/04)
-        END IF
-    ELSE
-        ' Reset key states when Ctrl is not pressed
-        FILE_KEY_O_LAST% = FALSE
-        FILE_KEY_S_LAST% = FALSE
-        CLIPBOARD_KEY_C_LAST% = FALSE
-        CLIPBOARD_KEY_X_LAST% = FALSE
-        CLIPBOARD_KEY_V_LAST% = FALSE
-        CLIPBOARD_KEY_E_LAST% = FALSE
-    END IF
-    
-    ' === ALT+S / ALT+O: Save/Open .DRAW project file (ALT-only, no CTRL) ===
-    STATIC DRW_KEY_O_LAST AS INTEGER, DRW_KEY_S_LAST AS INTEGER
-    DIM drwIsAlt AS INTEGER, drwIsCtrl AS INTEGER
-    DIM drwKeyONow AS INTEGER, drwKeySNow AS INTEGER
-    
-    $IF MAC THEN
-        drwIsAlt% = MAC_ALT_HELD%
-    $ELSE
-        drwIsAlt% = (_KEYDOWN(KEY_LALT&) OR _KEYDOWN(KEY_RALT&))
-    $END IF
-    drwIsCtrl% = (_KEYDOWN(100305) OR _KEYDOWN(100306))
-    drwKeyONow% = _KEYDOWN(111)  ' 'o' key
-    drwKeySNow% = _KEYDOWN(115)  ' 's' key
-    
-    ' ALT+O (no CTRL): Open .draw project
-    IF drwIsAlt% AND NOT drwIsCtrl% AND drwKeyONow% AND NOT DRW_KEY_O_LAST% THEN
-        DRW_open_dialog
-    END IF
-    
-    ' ALT+S (no CTRL): Save .draw project
-    IF drwIsAlt% AND NOT drwIsCtrl% AND drwKeySNow% AND NOT DRW_KEY_S_LAST% THEN
-        DRW_save_dialog
-    END IF
-    
-    ' Update DRW key states
-    DRW_KEY_O_LAST% = drwKeyONow%
-    DRW_KEY_S_LAST% = drwKeySNow%
-    
-    ' Note: KEYBOARD_layers is now called from KEYBOARD_input_handler directly
-    ' because it uses _KEYDOWN() which needs to run every frame, not just when INKEY$ returns
 END SUB
 
 
 ''
-' Handle layer-related keyboard shortcuts
-' 
-SUB KEYBOARD_layers ()
-    DIM isCtrl AS INTEGER, isShift AS INTEGER, isAlt AS INTEGER
-    STATIC layerCtrlTabPressed AS INTEGER
-    STATIC layerCtrlShiftNPressed AS INTEGER
-    STATIC layerCtrlDPressed AS INTEGER
-    STATIC layerCtrlShiftRPressed AS INTEGER
-    STATIC layerCtrlBracketLPressed AS INTEGER
-    STATIC layerCtrlBracketRPressed AS INTEGER
-    STATIC layerCtrlShiftBracketLPressed AS INTEGER
-    STATIC layerCtrlShiftBracketRPressed AS INTEGER
-    STATIC layerShiftBracketLPressed AS INTEGER
-    STATIC layerShiftBracketRPressed AS INTEGER
-    STATIC layerCtrlEPressed AS INTEGER
-    STATIC layerCtrlShiftEPressed AS INTEGER
-    STATIC layerCtrlShiftDelPressed AS INTEGER
+' Handle marquee tool arrow key controls (move/resize with single-press detection).
+'
+SUB KEYBOARD_handle_marquee_keys ()
+    IF NOT (CURRENT_TOOL% = TOOL_MARQUEE AND MARQUEE.ACTIVE%) THEN EXIT SUB
     
-    isCtrl% = (_KEYDOWN(100305) OR _KEYDOWN(100306))  ' Left or Right Ctrl
-    isShift% = (_KEYDOWN(100304) OR _KEYDOWN(100303)) ' Left or Right Shift
-    $IF MAC THEN
-        isAlt% = MAC_ALT_HELD%
-    $ELSE
-        isAlt% = (_KEYDOWN(KEY_LALT&) OR _KEYDOWN(KEY_RALT&))
-    $END IF
+    DIM moveStep AS INTEGER
+    DIM marqKeyUpNow AS INTEGER, marqKeyDownNow AS INTEGER
+    DIM marqKeyLeftNow AS INTEGER, marqKeyRightNow AS INTEGER
     
-    ' CTRL+L: Toggle layer panel visibility (CTRL+TAB intercepted by window manager on Linux)
-    IF isCtrl% AND (_KEYDOWN(ASC("l")) OR _KEYDOWN(ASC("L"))) AND NOT isShift% AND NOT isAlt% THEN
-        IF NOT layerCtrlTabPressed% THEN
-            LAYER_PANEL.visible% = NOT LAYER_PANEL.visible%
-            SCRN.layerPanelManuallyHidden% = NOT LAYER_PANEL.visible%
+    moveStep% = 1
+    IF MODIFIERS.shift% THEN moveStep% = 10
+    
+    marqKeyUpNow% = _KEYDOWN(18432)
+    marqKeyDownNow% = _KEYDOWN(20480)
+    marqKeyLeftNow% = _KEYDOWN(19200)
+    marqKeyRightNow% = _KEYDOWN(19712)
+    
+    IF marqKeyUpNow% AND NOT MARQUEE.KEY_UP_LAST THEN
+        IF MODIFIERS.ctrl% THEN
+            MARQUEE.BOX.h = MARQUEE.BOX.h - moveStep%
+            IF MARQUEE.BOX.h < 8 THEN MARQUEE.BOX.h = 8
+        ELSE
+            MARQUEE.BOX.y = MARQUEE.BOX.y - moveStep%
+        END IF
+    END IF
+    IF marqKeyDownNow% AND NOT MARQUEE.KEY_DOWN_LAST THEN
+        IF MODIFIERS.ctrl% THEN
+            MARQUEE.BOX.h = MARQUEE.BOX.h + moveStep%
+        ELSE
+            MARQUEE.BOX.y = MARQUEE.BOX.y + moveStep%
+        END IF
+    END IF
+    IF marqKeyLeftNow% AND NOT MARQUEE.KEY_LEFT_LAST THEN
+        IF MODIFIERS.ctrl% THEN
+            MARQUEE.BOX.w = MARQUEE.BOX.w - moveStep%
+            IF MARQUEE.BOX.w < 8 THEN MARQUEE.BOX.w = 8
+        ELSE
+            MARQUEE.BOX.x = MARQUEE.BOX.x - moveStep%
+        END IF
+    END IF
+    IF marqKeyRightNow% AND NOT MARQUEE.KEY_RIGHT_LAST THEN
+        IF MODIFIERS.ctrl% THEN
+            MARQUEE.BOX.w = MARQUEE.BOX.w + moveStep%
+        ELSE
+            MARQUEE.BOX.x = MARQUEE.BOX.x + moveStep%
+        END IF
+    END IF
+    
+    MARQUEE.KEY_UP_LAST = marqKeyUpNow%
+    MARQUEE.KEY_DOWN_LAST = marqKeyDownNow%
+    MARQUEE.KEY_LEFT_LAST = marqKeyLeftNow%
+    MARQUEE.KEY_RIGHT_LAST = marqKeyRightNow%
+END SUB
+
+
+''
+' Handle MOVE tool arrow key controls (move/resize with single-press detection, ALT for clone mode).
+'
+SUB KEYBOARD_handle_move_keys ()
+    IF NOT (CURRENT_TOOL% = TOOL_MOVE AND MOVE.ACTIVE) THEN EXIT SUB
+    
+    DIM moveMoveStep AS INTEGER
+    DIM keyUpNow AS INTEGER, keyDownNow AS INTEGER, keyLeftNow AS INTEGER, keyRightNow AS INTEGER
+    
+    moveMoveStep% = 1
+    IF MODIFIERS.shift% THEN moveMoveStep% = CFG.NUDGE_N%
+    
+    keyUpNow% = _KEYDOWN(18432)
+    keyDownNow% = _KEYDOWN(20480)
+    keyLeftNow% = _KEYDOWN(19200)
+    keyRightNow% = _KEYDOWN(19712)
+    
+    IF keyUpNow% AND NOT MOVE_KEY_UP_LAST% THEN
+        IF MODIFIERS.ctrl% THEN
+            MOVE_resize 0, -moveMoveStep%
+        ELSE
+            MOVE_nudge 0, -moveMoveStep%
+        END IF
+    END IF
+    IF keyDownNow% AND NOT MOVE_KEY_DOWN_LAST% THEN
+        IF MODIFIERS.ctrl% THEN
+            MOVE_resize 0, moveMoveStep%
+        ELSE
+            MOVE_nudge 0, moveMoveStep%
+        END IF
+    END IF
+    IF keyLeftNow% AND NOT MOVE_KEY_LEFT_LAST% THEN
+        IF MODIFIERS.ctrl% THEN
+            MOVE_resize -moveMoveStep%, 0
+        ELSE
+            MOVE_nudge -moveMoveStep%, 0
+        END IF
+    END IF
+    IF keyRightNow% AND NOT MOVE_KEY_RIGHT_LAST% THEN
+        IF MODIFIERS.ctrl% THEN
+            MOVE_resize moveMoveStep%, 0
+        ELSE
+            MOVE_nudge moveMoveStep%, 0
+        END IF
+    END IF
+    
+    MOVE_KEY_UP_LAST% = keyUpNow%
+    MOVE_KEY_DOWN_LAST% = keyDownNow%
+    MOVE_KEY_LEFT_LAST% = keyLeftNow%
+    MOVE_KEY_RIGHT_LAST% = keyRightNow%
+    
+    ' Update clone mode based on ALT key
+    MOVE.CLONING = MODIFIERS.alt%
+    MOVE_update_preview_buffer
+END SUB
+
+
+''
+' Handle clipboard, selection, and undo operations (Ctrl+C/X/V/E/T/D/A/I/Z/Y).
+'
+SUB KEYBOARD_handle_clipboard_operations ()
+    ' Static variables for single-press detection
+    STATIC CLIPBOARD_KEY_D_LAST AS INTEGER
+    STATIC CLIPBOARD_KEY_A_LAST AS INTEGER
+    STATIC CLIPBOARD_KEY_I_LAST AS INTEGER
+    
+    DIM keyDNow AS INTEGER, keyANow AS INTEGER, keyINow AS INTEGER
+    IF NOT MODIFIERS.ctrl% THEN EXIT SUB
+    
+    DIM selIsShift AS INTEGER
+    selIsShift% = MODIFIERS.shift%
+    
+    ' Ctrl+D: Deselect
+    keyDNow% = _KEYDOWN(100)
+    IF keyDNow% AND NOT CLIPBOARD_KEY_D_LAST% THEN
+        IF MARQUEE.WAND_HAS_SELECTION AND MARQUEE.SELECTION_MASK < -1 THEN
+            MAGIC_WAND_reset
+            MARQUEE.ACTIVE% = FALSE
             GUI_NEEDS_REDRAW% = TRUE
-            layerCtrlTabPressed% = TRUE
+        ELSEIF MARQUEE.ACTIVE% THEN
+            MARQUEE_clear
+            GUI_NEEDS_REDRAW% = TRUE
         END IF
-    ELSEIF NOT _KEYDOWN(ASC("l")) AND NOT _KEYDOWN(ASC("L")) THEN
-        layerCtrlTabPressed% = FALSE
+    END IF
+    CLIPBOARD_KEY_D_LAST% = keyDNow%
+    
+    ' Ctrl+A: Select All
+    keyANow% = _KEYDOWN(97)
+    IF keyANow% AND NOT CLIPBOARD_KEY_A_LAST% AND NOT selIsShift% THEN
+        SELECTION_select_all
+    END IF
+    CLIPBOARD_KEY_A_LAST% = keyANow%
+    
+    ' Ctrl+Shift+I: Invert Selection
+    keyINow% = _KEYDOWN(105) OR _KEYDOWN(73)
+    IF keyINow% AND NOT CLIPBOARD_KEY_I_LAST% AND selIsShift% THEN
+        SELECTION_invert
+    END IF
+    CLIPBOARD_KEY_I_LAST% = keyINow%
+    
+    ' Clipboard operations
+    DIM clipIsShift AS INTEGER, clipIsAlt AS INTEGER
+    DIM keyCNow AS INTEGER, keyXNow AS INTEGER, keyVNow AS INTEGER, keyENow AS INTEGER
+    
+    clipIsShift% = selIsShift%
+    clipIsAlt% = MODIFIERS.alt%
+    
+    keyCNow% = _KEYDOWN(99) OR _KEYDOWN(67)
+    keyXNow% = _KEYDOWN(120) OR _KEYDOWN(88)
+    keyVNow% = _KEYDOWN(118) OR _KEYDOWN(86)
+    keyENow% = _KEYDOWN(101) OR _KEYDOWN(69)
+    
+    ' Ctrl+C: Copy
+    IF keyCNow% AND NOT CLIPBOARD_KEY_C_LAST% AND NOT clipIsShift% AND NOT clipIsAlt% THEN
+        CLIPBOARD_copy
     END IF
     
-    ' CTRL+SHIFT+N: New layer
-    IF isCtrl% AND isShift% AND (_KEYDOWN(110) OR _KEYDOWN(78)) THEN ' 110 = 'n', 78 = 'N'
-        IF NOT layerCtrlShiftNPressed% THEN
-            DIM newLayerIdx AS INTEGER
-            newLayerIdx% = LAYERS_new%
-            layerCtrlShiftNPressed% = TRUE
-        END IF
-    ELSEIF NOT _KEYDOWN(110) AND NOT _KEYDOWN(78) THEN
-        layerCtrlShiftNPressed% = FALSE
+    ' Ctrl+Shift+C: Copy merged
+    IF keyCNow% AND NOT CLIPBOARD_KEY_C_LAST% AND clipIsShift% AND NOT clipIsAlt% THEN
+        CLIPBOARD_copy_merged
     END IF
     
-    ' CTRL+SHIFT+Delete: Delete current layer
-    IF isCtrl% AND isShift% AND _KEYDOWN(21248) THEN ' 21248 = Delete key
-        IF NOT layerCtrlShiftDelPressed% THEN
-            LAYERS_delete CURRENT_LAYER%
-            layerCtrlShiftDelPressed% = TRUE
-        END IF
-    ELSEIF NOT _KEYDOWN(21248) THEN
-        layerCtrlShiftDelPressed% = FALSE
+    ' Ctrl+X: Cut
+    IF keyXNow% AND NOT CLIPBOARD_KEY_X_LAST% AND NOT clipIsShift% AND NOT clipIsAlt% THEN
+        CLIPBOARD_cut
     END IF
     
-    ' CTRL+SHIFT+D: Duplicate layer
-    IF isCtrl% AND isShift% AND (_KEYDOWN(100) OR _KEYDOWN(68)) THEN ' 100 = 'd', 68 = 'D'
-        IF NOT layerCtrlDPressed% THEN
-            LAYERS_duplicate CURRENT_LAYER%
-            layerCtrlDPressed% = TRUE
-        END IF
-    ELSEIF NOT _KEYDOWN(100) AND NOT _KEYDOWN(68) THEN
-        layerCtrlDPressed% = FALSE
+    ' Ctrl+V: Paste
+    IF keyVNow% AND NOT CLIPBOARD_KEY_V_LAST% AND NOT clipIsShift% AND NOT clipIsAlt% THEN
+        CLIPBOARD_paste MOUSE.X%, MOUSE.Y%
     END IF
     
-    ' CTRL+SHIFT+R: Rename layer
-    IF isCtrl% AND isShift% AND (_KEYDOWN(114) OR _KEYDOWN(82)) THEN ' 114 = 'r', 82 = 'R'
-        IF NOT layerCtrlShiftRPressed% THEN
-            LAYERS_rename CURRENT_LAYER%
-            layerCtrlShiftRPressed% = TRUE
+    ' Ctrl+E: Clear selection
+    IF keyENow% AND NOT CLIPBOARD_KEY_E_LAST% AND NOT clipIsShift% AND NOT clipIsAlt% THEN
+        IF CURRENT_TOOL% = TOOL_MARQUEE AND MARQUEE.MAGIC_WAND_MODE AND MARQUEE.WAND_HAS_SELECTION THEN
+            MAGIC_WAND_clear_selected_transparent
+            MAGIC_WAND_reset
+            GUI_NEEDS_REDRAW% = TRUE
+        ELSE
+            CLIPBOARD_clear_selection
         END IF
-    ELSEIF NOT _KEYDOWN(114) AND NOT _KEYDOWN(82) THEN
-        layerCtrlShiftRPressed% = FALSE
     END IF
     
-    ' CTRL+PgUp: Move layer up in stack (toward top of panel)
-    IF isCtrl% AND NOT isShift% AND _KEYDOWN(18688) THEN ' 18688 = Page Up
-        IF NOT layerCtrlBracketLPressed% THEN
-            LAYERS_move_up CURRENT_LAYER%
-            layerCtrlBracketLPressed% = TRUE
+    ' Ctrl+T: Activate text tool with custom font
+    DIM keyTNow AS INTEGER
+    keyTNow% = _KEYDOWN(116)
+    IF keyTNow% AND NOT CLIPBOARD_KEY_T_LAST% AND NOT clipIsShift% AND NOT clipIsAlt% THEN
+        _LOGINFO "CTRL-T pressed!"
+        _LOGINFO "Custom font handle: " + STR$(TEXT.CUSTOM_FONT_HANDLE)
+        PREVIOUS_TOOL% = CURRENT_TOOL%
+        CURRENT_TOOL% = TOOL_TEXT
+        FILL_deactivate
+        PICKER_deactivate
+        POLY_LINE_reset
+        LINE_reset
+        RECT_reset
+        ELLIPSE_reset
+        MOVE_reset
+        
+        IF TEXT.CUSTOM_FONT_HANDLE > 0 THEN
+            _LOGINFO "Using custom font!"
+            TEXT.USE_CUSTOM = TRUE
+            TEXT.USE_TINY5 = FALSE
+            DIM old_font_ctrl AS LONG
+            old_font_ctrl& = _FONT
+            _FONT TEXT.CUSTOM_FONT_HANDLE
+            TEXT.CHAR_WIDTH = _PRINTWIDTH("A")
+            TEXT.LINE_HEIGHT = _FONTHEIGHT + 2
+            _FONT old_font_ctrl&
+            _LOGINFO "Custom font activated - width: " + STR$(TEXT.CHAR_WIDTH) + " height: " + STR$(TEXT.LINE_HEIGHT)
+        ELSE
+            _LOGINFO "No custom font loaded - using VGA"
+            TEXT.USE_CUSTOM = FALSE
+            TEXT.USE_TINY5 = FALSE
+            TEXT.CHAR_WIDTH = 8
+            TEXT.LINE_HEIGHT = 13
         END IF
-    ELSEIF NOT _KEYDOWN(18688) THEN
-        layerCtrlBracketLPressed% = FALSE
+        TEXT_reset
     END IF
     
-    ' CTRL+PgDn: Move layer down in stack (toward bottom of panel)
-    IF isCtrl% AND NOT isShift% AND _KEYDOWN(20736) THEN ' 20736 = Page Down
-        IF NOT layerCtrlBracketRPressed% THEN
-            LAYERS_move_down CURRENT_LAYER%
-            layerCtrlBracketRPressed% = TRUE
+    ' Update key states
+    CLIPBOARD_KEY_C_LAST% = keyCNow%
+    CLIPBOARD_KEY_X_LAST% = keyXNow%
+    CLIPBOARD_KEY_V_LAST% = keyVNow%
+    CLIPBOARD_KEY_E_LAST% = keyENow%
+    CLIPBOARD_KEY_T_LAST% = keyTNow%
+    
+    ' Undo/Redo operations
+    DIM keyZNow AS INTEGER, keyYNow AS INTEGER
+    DIM pixelUndoTs AS DOUBLE, workspaceUndoTs AS DOUBLE
+    
+    keyZNow% = _KEYDOWN(122) OR _KEYDOWN(90)
+    keyYNow% = _KEYDOWN(121) OR _KEYDOWN(89)
+    
+    ' Ctrl+Z: Intelligent Undo
+    IF keyZNow% AND NOT UNDO_KEY_Z_LAST% AND NOT clipIsShift% AND NOT clipIsAlt% THEN
+        pixelUndoTs# = UNDO_get_last_timestamp#
+        workspaceUndoTs# = WORKSPACE_UNDO_get_last_timestamp#
+        
+        IF workspaceUndoTs# > pixelUndoTs# AND WORKSPACE_UNDO_can_undo% THEN
+            _LOGINFO "CTRL-Z: Workspace undo (ts=" + STR$(workspaceUndoTs#) + " > pixel ts=" + STR$(pixelUndoTs#) + ")"
+            WORKSPACE_UNDO_undo
+        ELSEIF pixelUndoTs# > 0 THEN
+            _LOGINFO "CTRL-Z: Pixel undo (ts=" + STR$(pixelUndoTs#) + " >= workspace ts=" + STR$(workspaceUndoTs#) + ")"
+            UNDO_undo
         END IF
-    ELSEIF NOT _KEYDOWN(20736) THEN
-        layerCtrlBracketRPressed% = FALSE
+        GUI_NEEDS_REDRAW% = TRUE
+    END IF
+    UNDO_KEY_Z_LAST% = keyZNow%
+    
+    ' Ctrl+Y OR Ctrl+Shift+Z: Intelligent Redo
+    IF (keyYNow% AND NOT UNDO_KEY_Y_LAST%) OR (keyZNow% AND NOT UNDO_KEY_Z_LAST% AND clipIsShift%) THEN
+        ' If workspace has something to redo that's available and pixel doesn't, do workspace first
+        IF WORKSPACE_UNDO_can_redo% AND UNDO.current% >= UNDO.count% - 1 THEN
+            _LOGINFO "CTRL-Y: Workspace redo (pixel redo not available)"
+            WORKSPACE_UNDO_redo
+        ELSE
+            _LOGINFO "CTRL-Y: Pixel redo"
+            UNDO_redo
+        END IF
+        GUI_NEEDS_REDRAW% = TRUE
+    END IF
+    UNDO_KEY_Y_LAST% = keyYNow%
+END SUB
+
+
+''
+' Handle file operations (Ctrl+O/S/Shift+S/Alt+S).
+'
+SUB KEYBOARD_handle_file_operations ()
+    IF NOT MODIFIERS.ctrl% THEN EXIT SUB
+    
+    DIM fileIsShift AS INTEGER, fileIsAlt AS INTEGER
+    DIM keyONow AS INTEGER, keySNow AS INTEGER
+    
+    fileIsShift% = MODIFIERS.shift%
+    fileIsAlt% = MODIFIERS.alt%
+    
+    keyONow% = _KEYDOWN(111) OR _KEYDOWN(79)
+    keySNow% = _KEYDOWN(115) OR _KEYDOWN(83)
+    
+    ' Ctrl+O: Open file
+    IF keyONow% AND NOT FILE_KEY_O_LAST% THEN
+        LOAD_image
     END IF
     
-    ' CTRL+SHIFT+[: Move layer to bottom
-    IF isCtrl% AND isShift% AND _KEYDOWN(123) THEN ' 123 = '{' (shift+[)
-        IF NOT layerCtrlShiftBracketLPressed% THEN
-            LAYERS_to_bottom CURRENT_LAYER%
-            layerCtrlShiftBracketLPressed% = TRUE
+    ' Ctrl+S variants: Save operations
+    IF keySNow% AND NOT FILE_KEY_S_LAST% THEN
+        IF fileIsAlt% AND NOT fileIsShift% THEN
+            SAVE_as
+        ELSEIF fileIsShift% AND NOT fileIsAlt% THEN
+            SAVE_quick
+        ELSEIF NOT fileIsShift% AND NOT fileIsAlt% THEN
+            SAVE_image
+        END IF
+    END IF
+    
+    FILE_KEY_O_LAST% = keyONow%
+    FILE_KEY_S_LAST% = keySNow%
+END SUB
+
+
+''
+' Handle zoom shortcuts (Ctrl+0/+/-).
+'
+SUB KEYBOARD_handle_zoom_shortcuts ()
+    IF NOT MODIFIERS.ctrl% THEN EXIT SUB
+    
+    DIM zoomIsShift AS INTEGER, zoomIsAlt AS INTEGER
+    zoomIsShift% = MODIFIERS.shift%
+    zoomIsAlt% = MODIFIERS.alt%
+    
+    ' Skip if using display scale combo (Ctrl+Alt+Shift)
+    IF zoomIsShift% AND zoomIsAlt% THEN EXIT SUB
+    
+    STATIC zoom0Pressed AS INTEGER, zoomPlusPressed AS INTEGER, zoomMinusPressed AS INTEGER
+    
+    ' Ctrl+0: Reset zoom to 100% and center
+    IF _KEYDOWN(48) THEN
+        IF NOT zoom0Pressed% THEN
+            SCRN.zoom! = 1.0
+            SCRN.offsetX% = 0
+            SCRN.offsetY% = 0
+            GUI_NEEDS_REDRAW% = TRUE
+            zoom0Pressed% = TRUE
         END IF
     ELSE
-        layerCtrlShiftBracketLPressed% = FALSE
+        zoom0Pressed% = FALSE
     END IF
     
-    ' CTRL+SHIFT+]: Move layer to top
-    IF isCtrl% AND isShift% AND _KEYDOWN(125) THEN ' 125 = '}' (shift+])
-        IF NOT layerCtrlShiftBracketRPressed% THEN
-            LAYERS_to_top CURRENT_LAYER%
-            layerCtrlShiftBracketRPressed% = TRUE
+    ' Ctrl+=: Zoom in
+    IF _KEYDOWN(61) THEN
+        IF NOT zoomPlusPressed% THEN
+            IF SCRN.zoom! < 0.5 THEN
+                SCRN.zoom! = 0.5
+            ELSEIF SCRN.zoom! < 1.0 THEN
+                SCRN.zoom! = 1.0
+            ELSE
+                SCRN.zoom! = INT(SCRN.zoom!) + 1.0
+                IF SCRN.zoom! > SCRN.zoomMax! THEN SCRN.zoom! = SCRN.zoomMax!
+            END IF
+            GUI_NEEDS_REDRAW% = TRUE
+            zoomPlusPressed% = TRUE
         END IF
     ELSE
-        layerCtrlShiftBracketRPressed% = FALSE
+        zoomPlusPressed% = FALSE
     END IF
     
-    ' SHIFT+[: Focus previous layer (select layer below)
-    IF isShift% AND NOT isCtrl% AND _KEYDOWN(123) THEN ' 123 = '{'
+    ' Ctrl+-: Zoom out
+    IF _KEYDOWN(45) THEN
+        IF NOT zoomMinusPressed% THEN
+            IF SCRN.zoom! > 1.0 THEN
+                SCRN.zoom! = INT(SCRN.zoom!) - 1.0
+                IF SCRN.zoom! < 1.0 THEN SCRN.zoom! = 1.0
+            ELSEIF SCRN.zoom! > 0.5 THEN
+                SCRN.zoom! = 0.5
+            ELSE
+                SCRN.zoom! = 0.25
+            END IF
+            GUI_NEEDS_REDRAW% = TRUE
+            zoomMinusPressed% = TRUE
+        END IF
+    ELSE
+        zoomMinusPressed% = FALSE
+    END IF
+END SUB
+
+
+''
+' Handle layer navigation shortcuts (Shift+[/], Ctrl+Alt+E/Shift+E).
+'
+SUB KEYBOARD_handle_layer_shortcuts ()
+    DIM isCtrl AS INTEGER, isShift AS INTEGER, isAlt AS INTEGER
+    isCtrl% = MODIFIERS.ctrl%
+    isShift% = MODIFIERS.shift%
+    isAlt% = MODIFIERS.alt%
+    
+    STATIC layerShiftBracketLPressed AS INTEGER, layerShiftBracketRPressed AS INTEGER
+    STATIC layerCtrlEPressed AS INTEGER, layerCtrlShiftEPressed AS INTEGER
+    
+    ' Shift+[: Focus previous layer
+    IF isShift% AND NOT isCtrl% AND _KEYDOWN(123) THEN
         IF NOT layerShiftBracketLPressed% THEN
-            ' Find layer with zIndex one less than current
             DIM prevZ AS INTEGER, prevIdx AS INTEGER, pi AS INTEGER
             prevZ% = 0
             prevIdx% = 0
@@ -1733,10 +1562,9 @@ SUB KEYBOARD_layers ()
         layerShiftBracketLPressed% = FALSE
     END IF
     
-    ' SHIFT+]: Focus next layer (select layer above)
-    IF isShift% AND NOT isCtrl% AND _KEYDOWN(125) THEN ' 125 = '}'
+    ' Shift+]: Focus next layer
+    IF isShift% AND NOT isCtrl% AND _KEYDOWN(125) THEN
         IF NOT layerShiftBracketRPressed% THEN
-            ' Find layer with zIndex one more than current
             DIM nextZ AS INTEGER, nextIdx AS INTEGER, ni AS INTEGER
             nextZ% = 0
             nextIdx% = 0
@@ -1760,8 +1588,8 @@ SUB KEYBOARD_layers ()
         layerShiftBracketRPressed% = FALSE
     END IF
     
-    ' CTRL+ALT+E: Merge layer down
-    IF isCtrl% AND isAlt% AND NOT isShift% AND _KEYDOWN(101) THEN ' 101 = 'e'
+    ' Ctrl+Alt+E: Merge layer down
+    IF isCtrl% AND isAlt% AND NOT isShift% AND _KEYDOWN(101) THEN
         IF NOT layerCtrlEPressed% THEN
             LAYERS_merge_down CURRENT_LAYER%
             layerCtrlEPressed% = TRUE
@@ -1770,8 +1598,8 @@ SUB KEYBOARD_layers ()
         layerCtrlEPressed% = FALSE
     END IF
     
-    ' CTRL+ALT+SHIFT+E: Merge all visible layers
-    IF isCtrl% AND isShift% AND isAlt% AND _KEYDOWN(69) THEN ' 69 = 'E' (shifted)
+    ' Ctrl+Alt+Shift+E: Merge all visible layers
+    IF isCtrl% AND isShift% AND isAlt% AND _KEYDOWN(69) THEN
         IF NOT layerCtrlShiftEPressed% THEN
             LAYERS_merge_visible
             layerCtrlShiftEPressed% = TRUE
@@ -1783,7 +1611,249 @@ END SUB
 
 
 ''
-' Finishing stuff in the keyboard input loop
+' Handle keyboard input
 ' 
+SUB KEYBOARD_input_handler ()
+    DIM keypress AS STRING
+    
+    ' Layer keyboard handling - MUST run first before any EXIT SUB statements
+    ' Uses _KEYDOWN() so runs every frame regardless of INKEY$ state
+    KEYBOARD_layers
+    
+    ' Handle menu bar keyboard navigation (ALT tap, arrow keys, Enter, Escape)
+    IF KEYBOARD_handle_menubar% THEN EXIT SUB
+    
+    ' Handle IMAGE IMPORT mode - intercept Enter/Escape and arrow keys
+    IF KEYBOARD_handle_image_import% THEN EXIT SUB
+    
+    ' Handle command palette if visible
+    IF KEYBOARD_handle_command_palette% THEN EXIT SUB
+    
+    ' Handle palette menu if visible
+    IF KEYBOARD_handle_palette_menu% THEN EXIT SUB
+    
+    ' Handle ? for quick reference and Ctrl+Shift+P for command palette
+    STATIC ctrlShiftPPressed AS INTEGER
+    
+    ' Ctrl+Shift+P - command palette with search
+    IF MODIFIERS.ctrlShift% AND _KEYDOWN(ASC("p")) THEN
+        IF NOT ctrlShiftPPressed% THEN
+            CMD_show_palette
+            ctrlShiftPPressed% = TRUE
+        END IF
+    ELSE
+        ctrlShiftPPressed% = FALSE
+    END IF
+    
+    ' NOTE: Display scale hotkeys (CTRL+ALT+SHIFT+=/-) are handled in DRAW.BAS main loop
+    ' using _KEYHIT which is more reliable on Linux for complex modifier combinations
+    
+    ' Handle custom brush controls (Ctrl+B to capture, HOME/END/PgUp/PgDn for transformations)
+    KEYBOARD_handle_custom_brush
+    
+    ' If text tool is active and editing, block ALL other keyboard processing except text input
+    keypress$ = INKEY$
+    IF KEYBOARD_handle_text_tool%(keypress$) THEN EXIT SUB
+    IF keypress$ <> "" THEN
+        ' Handle ? for command palette with search (before other processing)
+        IF keypress$ = "?" THEN
+            CMD_show_palette
+        ELSE
+            KEYBOARD_colors keypress$
+            KEYBOARD_tools keypress$
+            KEYBOARD_brush_size keypress$
+            KEYBOARD_assistants keypress$
+        END IF
+    END IF
+    
+    ' Note: KEYBOARD_layers is called at the TOP of this sub before any EXIT SUB statements
+    
+    ' Handle NumPad dither pattern selection (NumLock ON: INKEY$ returns "1"-"9")
+    ' Regular number keys 1-9 already handled by KEYBOARD_colors above
+    ' NumPad with NumLock ON returns same "1"-"9" as regular keys, so this works automatically!
+    ' Pattern 0 = Solid (already active), 1-9 = dither patterns
+    IF keypress$ >= "1" AND keypress$ <= "9" THEN
+        ' Check if this is for dither pattern (not just color selection)
+        ' We'll make NumPad+Shift = select dither pattern (since Shift+NumPad returns ASCII 0)
+        ' But regular 1-9 already handled by color - need alternative approach
+    END IF
+    
+    ' Handle NumPad dither patterns (extracted for clarity)
+    KEYBOARD_handle_numpad_dithers
+    
+    ' Handle UI toggle keys (extracted for clarity)
+    KEYBOARD_handle_ui_toggles
+    
+    ' Handle DELETE and BACKSPACE keys (extracted for clarity)
+    KEYBOARD_handle_delete_backspace
+    
+    ' Handle grid control keys (extracted for clarity)
+    KEYBOARD_handle_grid_controls
+    
+    ' Handle marquee tool arrow keys (extracted for clarity)
+    KEYBOARD_handle_marquee_keys
+    
+    ' Handle MOVE tool arrow keys (extracted for clarity)
+    KEYBOARD_handle_move_keys
+    
+    ' Handle clipboard, selection, and undo operations (extracted for clarity)
+    KEYBOARD_handle_clipboard_operations
+    
+    ' Handle file operations (extracted for clarity)
+    KEYBOARD_handle_file_operations
+    
+    ' Handle zoom shortcuts (extracted for clarity)
+    KEYBOARD_handle_zoom_shortcuts
+    
+    ' Handle layer navigation and merge shortcuts (extracted for clarity)
+    KEYBOARD_handle_layer_shortcuts
+END SUB
+
+
+''
+' Post-render keyboard input processing loop
+'
 SUB KEYBOARD_input_handler_loop ()
+    DIM k AS LONG
+    k& = _KEYHIT
+    DO WHILE k& <> 0
+        k& = _KEYHIT
+    LOOP
+    
+    ' === ALT+S / ALT+O: Save/Open .DRAW project file (ALT-only, no CTRL) ===
+    STATIC DRW_KEY_O_LAST AS INTEGER, DRW_KEY_S_LAST AS INTEGER
+    DIM drwIsAlt AS INTEGER, drwIsCtrl AS INTEGER
+    DIM drwKeyONow AS INTEGER, drwKeySNow AS INTEGER
+    
+    drwIsAlt% = MODIFIERS.alt%
+    drwIsCtrl% = MODIFIERS.ctrl%
+    drwKeyONow% = _KEYDOWN(111)
+    drwKeySNow% = _KEYDOWN(115)
+    
+    ' ALT+O (no CTRL): Open .draw project
+    IF drwIsAlt% AND NOT drwIsCtrl% AND drwKeyONow% AND NOT DRW_KEY_O_LAST% THEN
+        DRW_open_dialog
+    END IF
+    
+    ' ALT+S (no CTRL): Save .draw project
+    IF drwIsAlt% AND NOT drwIsCtrl% AND drwKeySNow% AND NOT DRW_KEY_S_LAST% THEN
+        DRW_save_dialog
+    END IF
+    
+    DRW_KEY_O_LAST% = drwKeyONow%
+    DRW_KEY_S_LAST% = drwKeySNow%
+END SUB
+
+
+''
+' Handle layer-related keyboard shortcuts
+' 
+SUB KEYBOARD_layers ()
+    DIM isCtrl AS INTEGER, isShift AS INTEGER, isAlt AS INTEGER
+    STATIC layerCtrlTabPressed AS INTEGER
+    STATIC layerCtrlShiftNPressed AS INTEGER
+    STATIC layerCtrlDPressed AS INTEGER
+    STATIC layerCtrlShiftRPressed AS INTEGER
+    STATIC layerCtrlBracketLPressed AS INTEGER
+    STATIC layerCtrlBracketRPressed AS INTEGER
+    STATIC layerCtrlShiftBracketLPressed AS INTEGER
+    STATIC layerCtrlShiftBracketRPressed AS INTEGER
+    STATIC layerCtrlShiftDelPressed AS INTEGER
+    
+    isCtrl% = MODIFIERS.ctrl%
+    isShift% = MODIFIERS.shift%
+    isAlt% = MODIFIERS.alt%
+    
+    ' CTRL+L: Toggle layer panel visibility
+    IF isCtrl% AND (_KEYDOWN(ASC("l")) OR _KEYDOWN(ASC("L"))) AND NOT isShift% AND NOT isAlt% THEN
+        IF NOT layerCtrlTabPressed% THEN
+            LAYER_PANEL.visible% = NOT LAYER_PANEL.visible%
+            SCRN.layerPanelManuallyHidden% = NOT LAYER_PANEL.visible%
+            GUI_NEEDS_REDRAW% = TRUE
+            layerCtrlTabPressed% = TRUE
+        END IF
+    ELSEIF NOT _KEYDOWN(ASC("l")) AND NOT _KEYDOWN(ASC("L")) THEN
+        layerCtrlTabPressed% = FALSE
+    END IF
+    
+    ' CTRL+SHIFT+N: New layer
+    IF isCtrl% AND isShift% AND (_KEYDOWN(110) OR _KEYDOWN(78)) THEN
+        IF NOT layerCtrlShiftNPressed% THEN
+            DIM newLayerIdx AS INTEGER
+            newLayerIdx% = LAYERS_new%
+            layerCtrlShiftNPressed% = TRUE
+        END IF
+    ELSEIF NOT _KEYDOWN(110) AND NOT _KEYDOWN(78) THEN
+        layerCtrlShiftNPressed% = FALSE
+    END IF
+    
+    ' CTRL+SHIFT+Delete: Delete current layer
+    IF isCtrl% AND isShift% AND _KEYDOWN(21248) THEN
+        IF NOT layerCtrlShiftDelPressed% THEN
+            LAYERS_delete CURRENT_LAYER%
+            layerCtrlShiftDelPressed% = TRUE
+        END IF
+    ELSEIF NOT _KEYDOWN(21248) THEN
+        layerCtrlShiftDelPressed% = FALSE
+    END IF
+    
+    ' CTRL+SHIFT+D: Duplicate layer
+    IF isCtrl% AND isShift% AND (_KEYDOWN(100) OR _KEYDOWN(68)) THEN
+        IF NOT layerCtrlDPressed% THEN
+            LAYERS_duplicate CURRENT_LAYER%
+            layerCtrlDPressed% = TRUE
+        END IF
+    ELSEIF NOT _KEYDOWN(100) AND NOT _KEYDOWN(68) THEN
+        layerCtrlDPressed% = FALSE
+    END IF
+    
+    ' CTRL+SHIFT+R: Rename layer
+    IF isCtrl% AND isShift% AND (_KEYDOWN(114) OR _KEYDOWN(82)) THEN
+        IF NOT layerCtrlShiftRPressed% THEN
+            LAYERS_rename CURRENT_LAYER%
+            layerCtrlShiftRPressed% = TRUE
+        END IF
+    ELSEIF NOT _KEYDOWN(114) AND NOT _KEYDOWN(82) THEN
+        layerCtrlShiftRPressed% = FALSE
+    END IF
+    
+    ' CTRL+PgUp: Move layer up in stack
+    IF isCtrl% AND NOT isShift% AND _KEYDOWN(18688) THEN
+        IF NOT layerCtrlBracketLPressed% THEN
+            LAYERS_move_up CURRENT_LAYER%
+            layerCtrlBracketLPressed% = TRUE
+        END IF
+    ELSEIF NOT _KEYDOWN(18688) THEN
+        layerCtrlBracketLPressed% = FALSE
+    END IF
+    
+    ' CTRL+PgDn: Move layer down in stack
+    IF isCtrl% AND NOT isShift% AND _KEYDOWN(20736) THEN
+        IF NOT layerCtrlBracketRPressed% THEN
+            LAYERS_move_down CURRENT_LAYER%
+            layerCtrlBracketRPressed% = TRUE
+        END IF
+    ELSEIF NOT _KEYDOWN(20736) THEN
+        layerCtrlBracketRPressed% = FALSE
+    END IF
+    
+    ' CTRL+SHIFT+[: Move layer to bottom
+    IF isCtrl% AND isShift% AND _KEYDOWN(123) THEN
+        IF NOT layerCtrlShiftBracketLPressed% THEN
+            LAYERS_to_bottom CURRENT_LAYER%
+            layerCtrlShiftBracketLPressed% = TRUE
+        END IF
+    ELSE
+        layerCtrlShiftBracketLPressed% = FALSE
+    END IF
+    
+    ' CTRL+SHIFT+]: Move layer to top
+    IF isCtrl% AND isShift% AND _KEYDOWN(125) THEN
+        IF NOT layerCtrlShiftBracketRPressed% THEN
+            LAYERS_to_top CURRENT_LAYER%
+            layerCtrlShiftBracketRPressed% = TRUE
+        END IF
+    ELSE
+        layerCtrlShiftBracketRPressed% = FALSE
+    END IF
 END SUB

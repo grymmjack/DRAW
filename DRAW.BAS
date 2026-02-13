@@ -29,6 +29,10 @@ $ELSE
     cmdArg$ = _TRIM$(COMMAND$)
 $END IF
 
+' ESC key state tracking for exit detection
+DIM ESC_KEY_LAST AS INTEGER
+ESC_KEY_LAST% = FALSE
+
 IF cmdArg$ <> "" THEN
     ' Remove surrounding quotes if present
     IF LEFT$(cmdArg$, 1) = CHR$(34) AND RIGHT$(cmdArg$, 1) = CHR$(34) THEN
@@ -120,22 +124,6 @@ DO
         END IF
     END IF
     
-    ' Check for ESC key with confirmation if canvas is dirty
-    ' If a tool/modal is active, let keyboard handler process ESC instead of exiting
-    IF k& = 27 THEN
-        IF MENUBAR_is_open% THEN
-            MENUBAR_close_all
-            k& = 0  ' Consume the key
-        ELSEIF SHOULD_block_exit% THEN
-            ' Tool/modal active - let keyboard handler process ESC
-        ELSEIF CANVAS_DIRTY% THEN
-            IF SHOW_exit_confirm% THEN EXIT DO
-            ' If cancelled, continue loop
-        ELSE
-            EXIT DO  ' Clean canvas, exit immediately
-        END IF
-    END IF
-    
     LOOP_start
     PERF_start PERF_MAIN_LOOP_TOTAL
     PERF_start PERF_MOUSE_INPUT
@@ -144,6 +132,27 @@ DO
     PERF_start PERF_KEYBOARD_INPUT
     KEYBOARD_input_handler
     PERF_stop PERF_KEYBOARD_INPUT
+    
+    ' Check for ESC key to exit program (after handlers have processed input)
+    ' Use _KEYDOWN instead of k& to avoid consuming ESC from keyboard buffer
+    DIM esc_now AS INTEGER
+    esc_now% = _KEYDOWN(27)
+    IF esc_now% AND NOT ESC_KEY_LAST% THEN
+        ' ESC just pressed - check if we should exit
+        IF MENUBAR_is_open% THEN
+            MENUBAR_close_all
+        ELSEIF NOT SHOULD_block_exit% THEN
+            ' No tool/modal blocking exit
+            IF CANVAS_DIRTY% THEN
+                IF SHOW_exit_confirm% THEN EXIT DO
+                ' If cancelled, continue loop
+            ELSE
+                EXIT DO  ' Clean canvas, exit immediately
+            END IF
+        END IF
+        ' If SHOULD_block_exit% = TRUE, let keyboard handler process ESC for tool cancellation
+    END IF
+    ESC_KEY_LAST% = esc_now%
     PERF_start PERF_STICK_INPUT
     STICK_input_handler
     PERF_stop PERF_STICK_INPUT
