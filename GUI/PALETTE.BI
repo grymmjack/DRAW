@@ -22,6 +22,7 @@ END TYPE
 
 DIM SHARED PAL(0 TO 255) AS COLOR_OBJ
 DIM SHARED PALS(0 TO 255) AS PAL_OBJ
+DIM SHARED PAL_COLOR_COUNT AS INTEGER ' Actual number of colors in PAL() array
 
 ' Special index for transparent "eraser" color
 CONST PAL_TRANSPARENT_IDX = -1
