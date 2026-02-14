@@ -8,6 +8,10 @@
 '
 $INCLUDEONCE
 
+' Grid alignment modes (affects snap behavior, NOT grid line positions)
+CONST GRID_ALIGN_CORNER = 0      ' Snap to grid line intersections (0, 8, 16...)
+CONST GRID_ALIGN_CENTER = 1      ' Snap to cell centers (4, 12, 20... for 8px grid)
+
 TYPE DRAW_GRID
     imgWidth   AS INTEGER        ' Width of the full grid image
     imgHeight  AS INTEGER        ' Height of the full grid image
@@ -21,6 +25,7 @@ TYPE DRAW_GRID
     imgHandle  AS LONG           ' Grid image handle
     SHOW       AS INTEGER        ' Whether grid is visible (TRUE/FALSE)
     SNAP       AS INTEGER        ' Whether snap-to-grid is enabled (TRUE/FALSE)
+    ALIGN_MODE AS INTEGER        ' Alignment mode: GRID_ALIGN_CORNER or GRID_ALIGN_CENTER
 END TYPE
 
 ' Pixel grid (checkerboard) for high zoom levels
