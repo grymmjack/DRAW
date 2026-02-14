@@ -524,7 +524,7 @@ When a selection is active (marquee or magic wand), it acts as a **clipping mask
 ### Standard Image Save/Load (CTRL)
 | Key | Function |
 |-----|----------|
-| `Ctrl+O` | Open image file (BMP) |
+| `Ctrl+O` | Open/import image file (PNG, BMP, JPG, GIF) |
 | `Ctrl+S` | Save image with dialog |
 | `Ctrl+Shift+S` | Quick save (no dialog if previously saved) |
 | `Ctrl+Alt+S` | Save As (always prompts for filename) |
@@ -536,7 +536,19 @@ When a selection is active (marquee or magic wand), it acts as a **clipping mask
 | `Alt+O` | Open DRAW project (.draw) |
 | `Alt+S` | Save DRAW project (.draw) |
 
-**Note:** .draw files preserve all layers, blend modes, palette colors, tool states, and other project data. Standard image saves flatten all visible layers to a single image.
+### File Menu Commands
+| Command | Function |
+|---------|----------|
+| File → New | Create a new empty canvas (prompts to save unsaved changes) |
+| File → Open | Open a .draw project file |
+| File → Import Image | Open/import image file |
+| File → Save | Save image |
+| File → Save as DRAW | Save as .draw project |
+| File → Save as PNG | Quick save as PNG |
+| File → Export Brush | Export active custom brush as PNG |
+| File → Quit | Exit DRAW |
+
+**Note:** .draw files are PNG images with an embedded `drAw` chunk that preserves all layers, blend modes, palette colors, tool states, and other project data. They can be previewed in any image viewer. Standard image saves flatten all visible layers to a single image.
 
 ## Undo/Redo
 
@@ -729,8 +741,8 @@ DRAW has an optional menu bar at the top of the screen providing access to all c
 
 | Menu | Contents |
 |------|----------|
-| **File** | New, Open, Save, Save As, Export, Quit |
-| **Edit** | Undo, Redo, Cut, Copy, Paste, Select All, Deselect, Invert Selection |
+| **File** | New, Open, Import Image, Save, Save as DRAW, Save as PNG, Export Layer, Export Brush, Quit |
+| **Edit** | Undo, Redo, Cut, Copy, Paste, Select All, Deselect, Invert Selection, Flip H/V, Scale |
 | **View** | Toolbar, Status Bar, Layer Panel, Menu Bar, Cursors, Grid, Pixel Grid, Snap, Crosshair |
 | **Canvas** | Clear Canvas, Zoom In/Out, Reset Zoom |
 | **Tools** | All drawing tools (Dot, Brush, Line, etc.) |
