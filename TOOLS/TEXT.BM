@@ -50,8 +50,9 @@ SUB TEXT_init ()
     NEXT i
 END SUB
 
-' Reset the text tool
+' Reset the text tool (applies any active text before resetting)
 SUB TEXT_reset ()
+    IF TEXT.ACTIVE THEN TEXT_apply
     TEXT_init
 END SUB
 
@@ -177,6 +178,9 @@ END SUB
 SUB TEXT_apply ()
     IF NOT TEXT.ACTIVE THEN EXIT SUB
     
+    ' Mark inactive FIRST to prevent recursion with TEXT_reset
+    TEXT.ACTIVE = FALSE
+    
     ' Draw each line of text to the current layer
     _DEST LAYER_current_image&
     DIM i AS INTEGER
@@ -233,42 +237,86 @@ SUB TEXT_render_preview (dest AS LONG, dx AS INTEGER, dy AS INTEGER, zoom AS SIN
         _FONT TEXT.FONT_HANDLE
     END IF
     
-    ' Calculate screen positions with offset and zoom
-    DIM screen_x AS INTEGER, screen_y AS INTEGER
-    DIM cursor_screen_x AS INTEGER, cursor_screen_y AS INTEGER
-    
-    screen_x% = dx% + INT(TEXT.START_X * zoom!)
-    screen_y% = dy% + INT(TEXT.START_Y * zoom!)
-    cursor_screen_x% = dx% + INT(TEXT.CURSOR_X * zoom!)
-    cursor_screen_y% = dy% + INT(TEXT.CURSOR_Y * zoom!)
-    
-    ' Draw each line of text
+    ' Calculate the bounding box of all text lines at native (canvas) resolution
+    DIM max_text_w AS INTEGER, total_text_h AS INTEGER
     DIM i AS INTEGER
-    DIM y_pos AS INTEGER
+    DIM line_w AS INTEGER
+    max_text_w% = TEXT.CHAR_WIDTH ' Minimum 1 char wide for cursor
+    total_text_h% = TEXT.LINE_COUNT * TEXT.LINE_HEIGHT
+    IF total_text_h% < TEXT.LINE_HEIGHT THEN total_text_h% = TEXT.LINE_HEIGHT
     
     FOR i = 0 TO TEXT.LINE_COUNT - 1
         IF LEN(TEXT_BUFFER(i)) > 0 THEN
-            y_pos% = screen_y% + INT(i * TEXT.LINE_HEIGHT * zoom!)
-            COLOR PAINT_COLOR~&, _RGBA32(0, 0, 0, 0)
-            _PRINTSTRING (screen_x%, y_pos%), TEXT_BUFFER(i)
+            line_w% = _PRINTWIDTH(TEXT_BUFFER(i))
+            IF line_w% > max_text_w% THEN max_text_w% = line_w%
         END IF
     NEXT i
     
-    ' Restore previous font
+    ' Add margin for cursor at end of line
+    max_text_w% = max_text_w% + TEXT.CHAR_WIDTH
+    
+    ' Create a temporary image at canvas resolution to render text into
+    DIM tmpImg AS LONG
+    tmpImg& = _NEWIMAGE(max_text_w%, total_text_h%, 32)
+    IF tmpImg& >= -1 THEN
+        ' Fallback if image creation fails - shouldn't happen
+        IF (TEXT.USE_CUSTOM AND TEXT.CUSTOM_FONT_HANDLE > 0) OR (TEXT.USE_TINY5 AND TEXT.FONT_HANDLE > 0) THEN
+            _FONT old_font
+        END IF
+        EXIT SUB
+    END IF
+    
+    ' Render text at native resolution into the temp image
+    _DEST tmpImg&
+    ' Re-apply font to new dest
+    IF TEXT.USE_CUSTOM AND TEXT.CUSTOM_FONT_HANDLE > 0 THEN
+        _FONT TEXT.CUSTOM_FONT_HANDLE
+    ELSEIF TEXT.USE_TINY5 AND TEXT.FONT_HANDLE > 0 THEN
+        _FONT TEXT.FONT_HANDLE
+    END IF
+    
+    CLS , _RGBA32(0, 0, 0, 0)   ' Transparent background
+    
+    DIM y_pos AS INTEGER
+    FOR i = 0 TO TEXT.LINE_COUNT - 1
+        IF LEN(TEXT_BUFFER(i)) > 0 THEN
+            y_pos% = i * TEXT.LINE_HEIGHT
+            COLOR PAINT_COLOR~&, _RGBA32(0, 0, 0, 0)
+            _PRINTSTRING (0, y_pos%), TEXT_BUFFER(i)
+        END IF
+    NEXT i
+    
+    ' Draw cursor into the temp image at canvas resolution
+    TEXT_update_cursor
+    DIM cursor_local_x AS INTEGER, cursor_local_y AS INTEGER
+    cursor_local_x% = TEXT.CURSOR_X - TEXT.START_X
+    cursor_local_y% = TEXT.CURSOR_Y - TEXT.START_Y
+    IF TEXT.CURSOR_BLINK THEN
+        LINE (cursor_local_x%, cursor_local_y%)-(cursor_local_x%, cursor_local_y% + TEXT.LINE_HEIGHT - 1), PAINT_COLOR~&
+    END IF
+    
+    ' Draw I-beam origin marker (vertical line) at canvas resolution
+    LINE (0, 0)-(0, TEXT.LINE_HEIGHT - 1), _RGB32(128, 128, 128)
+    
+    ' Restore font before switching dest
     IF (TEXT.USE_CUSTOM AND TEXT.CUSTOM_FONT_HANDLE > 0) OR (TEXT.USE_TINY5 AND TEXT.FONT_HANDLE > 0) THEN
         _FONT old_font
     END IF
     
-    ' Draw I-beam origin marker (vertical line)
-    DIM marker_height AS INTEGER
-    marker_height% = INT(TEXT.LINE_HEIGHT * zoom!)
-    LINE (screen_x%, screen_y%)-(screen_x%, screen_y% + marker_height%), _RGB32(128, 128, 128)
+    ' Now scale the temp image to the screen with zoom using _PUTIMAGE
+    _DEST dest
+    DIM screen_x AS INTEGER, screen_y AS INTEGER
+    DIM scaled_w AS INTEGER, scaled_h AS INTEGER
+    screen_x% = dx% + INT(TEXT.START_X * zoom!)
+    screen_y% = dy% + INT(TEXT.START_Y * zoom!)
+    scaled_w% = INT(max_text_w% * zoom!)
+    scaled_h% = INT(total_text_h% * zoom!)
     
-    ' Draw blinking cursor at current position
-    TEXT_update_cursor
-    IF TEXT.CURSOR_BLINK THEN
-        LINE (cursor_screen_x%, cursor_screen_y%)-(cursor_screen_x%, cursor_screen_y% + marker_height%), PAINT_COLOR~&
+    IF scaled_w% > 0 AND scaled_h% > 0 THEN
+        _PUTIMAGE (screen_x%, screen_y%)-(screen_x% + scaled_w% - 1, screen_y% + scaled_h% - 1), tmpImg&, dest
     END IF
+    
+    _FREEIMAGE tmpImg&
 END SUB
 
 ' Update cursor blink state

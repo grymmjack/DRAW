@@ -32,6 +32,8 @@ $END IF
 ' ESC key state tracking for exit detection
 DIM ESC_KEY_LAST AS INTEGER
 ESC_KEY_LAST% = FALSE
+DIM SHARED ESC_CONSUMED_BY_TOOL AS INTEGER
+ESC_CONSUMED_BY_TOOL% = FALSE
 
 IF cmdArg$ <> "" THEN
     ' Remove surrounding quotes if present
@@ -137,7 +139,7 @@ DO
     ' Use _KEYDOWN instead of k& to avoid consuming ESC from keyboard buffer
     DIM esc_now AS INTEGER
     esc_now% = _KEYDOWN(27)
-    IF esc_now% AND NOT ESC_KEY_LAST% THEN
+    IF esc_now% AND NOT ESC_KEY_LAST% AND NOT ESC_CONSUMED_BY_TOOL% THEN
         ' ESC just pressed - check if we should exit
         IF MENUBAR_is_open% THEN
             MENUBAR_close_all
@@ -153,6 +155,7 @@ DO
         ' If SHOULD_block_exit% = TRUE, let keyboard handler process ESC for tool cancellation
     END IF
     ESC_KEY_LAST% = esc_now%
+    ESC_CONSUMED_BY_TOOL% = FALSE  ' Reset for next frame
     PERF_start PERF_STICK_INPUT
     STICK_input_handler
     PERF_stop PERF_STICK_INPUT
