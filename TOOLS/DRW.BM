@@ -1,48 +1,86 @@
 ''
 ' DRAW - TOOLS/DRW.BM
 ' =============================================================================
-' DRAW native file format (.draw) - saves layers, palette, tool states
+' DRAW native file format (.draw) - PNG with embedded drAw chunk
 '
-' File format:
-'   HEADER:
-'     Magic: "DRW1" (4 bytes)
-'     Version: INTEGER (2 bytes)
-'     Canvas Width: LONG (4 bytes)
-'     Canvas Height: LONG (4 bytes)
+' New format (v2):
+'   Standard PNG image containing a flattened preview of all visible layers,
+'   with a custom ancillary "drAw" chunk that stores the full project data
+'   (layers, palette, tool states) in compressed binary form.
 '
-'   PALETTE:
-'     Palette Count: INTEGER (2 bytes)
-'     Colors: UNSIGNED LONG array (4 bytes each)
-'     FG Index: INTEGER (2 bytes)
-'     BG Index: INTEGER (2 bytes)
+'   Benefits:
+'     - .draw files are valid PNG images (preview in file managers/browsers)
+'     - Full layer/palette/tool state round-tripping via drAw chunk
+'     - Backward compatible: loads both PNG-based and legacy binary formats
+'     - Compressed: typically 50-90% smaller than raw binary format
 '
-'   LAYERS:
-'     Layer Count: INTEGER (2 bytes)
-'     Current Layer: INTEGER (2 bytes)
-'     For each layer:
-'       Name: STRING * 16 (16 bytes, fixed)
-'       Visible: INTEGER (2 bytes)
-'       Opacity: INTEGER (2 bytes)
-'       zIndex: INTEGER (2 bytes)
-'       BlendMode: INTEGER (2 bytes)  [v2+]
-'       OpacityLock: INTEGER (2 bytes) [v2+]
-'       Pixel Data: Width * Height * 4 bytes (raw RGBA)
+'   drAw chunk payload:
+'     [2 bytes] Chunk format version (little-endian INTEGER)
+'     [4 bytes] Uncompressed data size (little-endian LONG)
+'     [N bytes] DEFLATE-compressed binary project data
 '
-'   TOOL STATE:
-'     Current Tool: INTEGER (2 bytes)
-'     Brush Size: INTEGER (2 bytes)
-'     Pixel Perfect: INTEGER (2 bytes)
-'     Grid Visible: INTEGER (2 bytes)
-'     Grid Size: INTEGER (2 bytes)
+'   Binary project data format (inside chunk, same as legacy DRW1):
+'     HEADER: "DRW1" + version(2) + width(4) + height(4)
+'     PALETTE: count(2) + colors(4 each) + fg_idx(2) + bg_idx(2)
+'     LAYERS: count(2) + current(2) + per-layer data
+'     TOOL STATE: tool(2) + brush(2) + pixelperfect(2) + grid(2) + gridsize(2)
+'     PALETTE NAME: name(64) [v3+]
 '
 ' @author Rick Christy <grymmjack@gmail.com>
 '
 $INCLUDEONCE
 
+
+' =============================================================================
+' PNG HELPER FUNCTIONS
+' =============================================================================
+
 ''
-' Save current project to .draw file
+' Convert _UNSIGNED LONG to 4-byte big-endian string (PNG network byte order)
 '
-SUB DRW_save (filename AS STRING)
+FUNCTION PNG_uint32_be$ (v AS _UNSIGNED LONG)
+    PNG_uint32_be$ = CHR$(_SHR(v~&, 24) AND 255) + CHR$(_SHR(v~&, 16) AND 255) + CHR$(_SHR(v~&, 8) AND 255) + CHR$(v~& AND 255)
+END FUNCTION
+
+
+''
+' Read 4-byte big-endian string as _UNSIGNED LONG
+'
+FUNCTION PNG_read_uint32_be~& (s AS STRING)
+    DIM b0 AS _UNSIGNED LONG, b1 AS _UNSIGNED LONG
+    DIM b2 AS _UNSIGNED LONG, b3 AS _UNSIGNED LONG
+    b0~& = ASC(MID$(s$, 1, 1))
+    b1~& = ASC(MID$(s$, 2, 1))
+    b2~& = ASC(MID$(s$, 3, 1))
+    b3~& = ASC(MID$(s$, 4, 1))
+    PNG_read_uint32_be~& = _SHL(b0~&, 24) OR _SHL(b1~&, 16) OR _SHL(b2~&, 8) OR b3~&
+END FUNCTION
+
+
+''
+' Build a complete PNG chunk: length(4) + type(4) + data(N) + CRC32(4)
+' CRC is computed over chunk type + chunk data per PNG specification
+'
+FUNCTION PNG_make_chunk$ (chunkType AS STRING, chunkData AS STRING)
+    DIM chunkLen AS _UNSIGNED LONG
+    DIM crc AS _UNSIGNED LONG
+
+    chunkLen~& = LEN(chunkData$)
+    crc~& = _CRC32(chunkType$ + chunkData$)
+
+    PNG_make_chunk$ = PNG_uint32_be$(chunkLen~&) + chunkType$ + chunkData$ + PNG_uint32_be$(crc~&)
+END FUNCTION
+
+
+' =============================================================================
+' BINARY FORMAT SERIALIZATION (internal helpers)
+' =============================================================================
+
+''
+' Save current project to binary format (internal helper for PNG pipeline)
+' This is the legacy DRW1 binary format used as the drAw chunk payload.
+'
+SUB DRW_save_binary (filename AS STRING)
     DIM fh AS INTEGER
     DIM i AS INTEGER, x AS INTEGER, y AS INTEGER
     DIM layerCount AS INTEGER
@@ -53,10 +91,10 @@ SUB DRW_save (filename AS STRING)
     DIM nameFixed AS STRING * 16
     DIM magic AS STRING * 4
     DIM version AS INTEGER
-    
+
     fh% = FREEFILE
     OPEN filename$ FOR BINARY AS #fh%
-    
+
     ' === HEADER ===
     magic$ = DRW_MAGIC$
     version% = DRW_VERSION%
@@ -66,7 +104,7 @@ SUB DRW_save (filename AS STRING)
     PUT #fh%, , tmpLong&
     tmpLong& = SCRN.h&
     PUT #fh%, , tmpLong&
-    
+
     ' === PALETTE ===
     DIM palCount AS INTEGER
     palCount% = PALETTE_LOADER_get_color_count%
@@ -77,7 +115,7 @@ SUB DRW_save (filename AS STRING)
     NEXT i%
     PUT #fh%, , PAL_FG_IDX%
     PUT #fh%, , PAL_BG_IDX%
-    
+
     ' === LAYERS ===
     ' Count active layers
     layerCount% = 0
@@ -86,10 +124,10 @@ SUB DRW_save (filename AS STRING)
             layerCount% = layerCount% + 1
         END IF
     NEXT i%
-    
+
     PUT #fh%, , layerCount%
     PUT #fh%, , CURRENT_LAYER%
-    
+
     ' Save each layer
     FOR i% = 1 TO 64
         IF LAYERS(i%).imgHandle& < -1 THEN
@@ -106,7 +144,7 @@ SUB DRW_save (filename AS STRING)
             PUT #fh%, , tmpInt%
             tmpInt% = LAYERS(i%).opacityLock%
             PUT #fh%, , tmpInt%
-            
+
             ' Pixel data
             oldSrc& = _SOURCE
             _SOURCE LAYERS(i%).imgHandle&
@@ -119,7 +157,7 @@ SUB DRW_save (filename AS STRING)
             _SOURCE oldSrc&
         END IF
     NEXT i%
-    
+
     ' === TOOL STATE ===
     PUT #fh%, , CURRENT_TOOL%
     tmpInt% = BRUSH_SIZE.current%
@@ -130,22 +168,23 @@ SUB DRW_save (filename AS STRING)
     PUT #fh%, , tmpInt%
     tmpInt% = GRID.gridWidth%
     PUT #fh%, , tmpInt%
-    
+
     ' === PALETTE NAME (v3+) ===
     DIM palName AS STRING * 64
     palName$ = RTRIM$(PALETTE_LIST(PALETTE_LOADER_CURRENT_IDX%).pname)
     PUT #fh%, , palName$
-    
+
     CLOSE #fh%
-    
-    _LOGINFO "DRW_save: Saved " + STR$(layerCount%) + " layers to " + filename$
+
+    _LOGINFO "DRW_save_binary: Wrote binary project data to " + filename$
 END SUB
 
 
 ''
-' Load project from .draw file
+' Load project from binary .draw format (internal helper)
+' Handles the legacy DRW1 binary format (also used for drAw chunk data).
 '
-SUB DRW_load (filename AS STRING)
+SUB DRW_load_binary (filename AS STRING)
     DIM fh AS INTEGER
     DIM i AS INTEGER, x AS INTEGER, y AS INTEGER
     DIM magic AS STRING * 4
@@ -166,72 +205,72 @@ SUB DRW_load (filename AS STRING)
     DIM savedPixelPerfect AS INTEGER
     DIM savedGridVisible AS INTEGER
     DIM savedGridSize AS INTEGER
-    
+
     IF NOT _FILEEXISTS(filename$) THEN
-        _LOGWARN "DRW_load: File not found: " + filename$
+        _LOGWARN "DRW_load_binary: File not found: " + filename$
         EXIT SUB
     END IF
-    
+
     fh% = FREEFILE
     OPEN filename$ FOR BINARY AS #fh%
-    
+
     ' === HEADER ===
     GET #fh%, , magic$
     IF magic$ <> DRW_MAGIC$ THEN
         CLOSE #fh%
-        _LOGWARN "DRW_load: Invalid file format (magic mismatch)"
+        _LOGWARN "DRW_load_binary: Invalid binary data (magic mismatch)"
         POINTER_hide_for_dialog
-        _MESSAGEBOX "Load Error", "Not a valid .draw file", "error"
+        _MESSAGEBOX "Load Error", "Not a valid .draw file (corrupted project data)", "error"
         POINTER_show_after_dialog
-        MOUSE_cleanup_after_dialog FALSE  ' Clear buffers but don't move mouse
+        MOUSE_cleanup_after_dialog FALSE
         EXIT SUB
     END IF
-    
+
     GET #fh%, , version%
     IF version% > DRW_VERSION% THEN
         CLOSE #fh%
-        _LOGWARN "DRW_load: File version too new: " + STR$(version%)
+        _LOGWARN "DRW_load_binary: File version too new: " + STR$(version%)
         POINTER_hide_for_dialog
         _MESSAGEBOX "Load Error", "File was created with a newer version of DRAW", "error"
         POINTER_show_after_dialog
-        MOUSE_cleanup_after_dialog FALSE  ' Clear buffers but don't move mouse
+        MOUSE_cleanup_after_dialog FALSE
         EXIT SUB
     END IF
-    
+
     GET #fh%, , canvasW&
     GET #fh%, , canvasH&
-    
+
     ' Resize canvas if file dimensions differ from current
     IF canvasW& <> SCRN.w& OR canvasH& <> SCRN.h& THEN
-        _LOGINFO "DRW_load: Resizing canvas from" + STR$(SCRN.w&) + "x" + STR$(SCRN.h&) + " to" + STR$(canvasW&) + "x" + STR$(canvasH&)
-        
+        _LOGINFO "DRW_load_binary: Resizing canvas from" + STR$(SCRN.w&) + "x" + STR$(SCRN.h&) + " to" + STR$(canvasW&) + "x" + STR$(canvasH&)
+
         ' Update canvas dimensions
         SCRN.w& = canvasW&
         SCRN.h& = canvasH&
-        
+
         ' Must SCREEN 0 first — can't _FREEIMAGE the active screen (CANVAS)
         SCREEN 0
-        
+
         ' Free and recreate main screen buffers at new size
         IF SCRN.CANVAS& < -1 THEN _FREEIMAGE SCRN.CANVAS&
         IF SCRN.PAINTING& < -1 THEN _FREEIMAGE SCRN.PAINTING&
         IF SCRN.GUI& < -1 THEN _FREEIMAGE SCRN.GUI&
-        
+
         SCRN.CANVAS&   = _NEWIMAGE(SCRN.w&, SCRN.h&, 32)
         SCRN.PAINTING& = _NEWIMAGE(SCRN.w&, SCRN.h&, 32)
         SCRN.GUI&      = _NEWIMAGE(SCRN.w&, SCRN.h&, 32)
-        
+
         _DEST SCRN.PAINTING&
         CLS , _RGBA32(0, 0, 0, 0)
         _DEST SCRN.CANVAS&
-        
+
         ' Free cached render buffers (they'll be lazily recreated at new size)
         IF SCENE_CACHE& < -1 THEN _FREEIMAGE SCENE_CACHE&: SCENE_CACHE& = 0
         IF PG_CACHE_IMG& < -1 THEN _FREEIMAGE PG_CACHE_IMG&: PG_CACHE_IMG& = 0
         IF COMPOSITE_BUFFER& < -1 THEN _FREEIMAGE COMPOSITE_BUFFER&: COMPOSITE_BUFFER& = 0
         IF COMPOSITE_BELOW_CACHE& < -1 THEN _FREEIMAGE COMPOSITE_BELOW_CACHE&: COMPOSITE_BELOW_CACHE& = 0
         COMPOSITE_BELOW_VALID% = FALSE
-        
+
         ' Set CANVAS as SCREEN and resize window (GPU scaling via $RESIZE:STRETCH)
         SCREEN SCRN.CANVAS&
         _DEST SCRN.CANVAS&
@@ -239,13 +278,13 @@ SUB DRW_load (filename AS STRING)
         newWinW& = SCRN.w& * SCRN.displayScale%
         newWinH& = SCRN.h& * SCRN.displayScale%
         glutReshapeWindow newWinW&, newWinH&
-        
+
         ' Force full scene redraw
         SCENE_DIRTY% = TRUE
         RENDER_ORDER_DIRTY% = TRUE
         GUI_NEEDS_REDRAW% = TRUE
     END IF
-    
+
     ' === PALETTE ===
     DIM savedFgIdx AS INTEGER, savedBgIdx AS INTEGER
     GET #fh%, , palCount%
@@ -257,17 +296,17 @@ SUB DRW_load (filename AS STRING)
     GET #fh%, , savedBgIdx%
     PAL_FG_IDX% = savedFgIdx%
     PAL_BG_IDX% = savedBgIdx%
-    
+
     ' Update palette loader color count so strip displays correctly
     PALETTE_LIST(PALETTE_LOADER_CURRENT_IDX%).count = palCount%
-    
+
     ' Update paint color
     PAINT_COLOR~& = PAL(PAL_FG_IDX%).value~&
     PAINT_BG_COLOR~& = PAL(PAL_BG_IDX%).value~&
-    
+
     ' Reset palette strip scroll
     PALETTE_STRIP_SCROLL_OFFSET% = 0
-    
+
     ' === LAYERS ===
     ' Clear existing layers first
     FOR i% = 1 TO 64
@@ -290,14 +329,14 @@ SUB DRW_load (filename AS STRING)
         LAYERS(i%).contentDirty% = TRUE
     NEXT i%
     LAYER_COUNT% = 0
-    
+
     GET #fh%, , layerCount%
     GET #fh%, , savedCurrentLayer%
-    
+
     ' Load each layer
     FOR i% = 1 TO layerCount%
         layerIdx% = i%  ' Use sequential indices
-        
+
         ' Layer properties
         GET #fh%, , nameFixed$
         LAYERS(layerIdx%).name = _TRIM$(nameFixed$)
@@ -307,7 +346,7 @@ SUB DRW_load (filename AS STRING)
         LAYERS(layerIdx%).opacity% = layerOpacity%
         GET #fh%, , layerZIndex%
         LAYERS(layerIdx%).zIndex% = layerZIndex%
-        
+
         ' v2+ fields: blendMode and opacityLock
         IF version% >= 2 THEN
             DIM layerBlendMode AS INTEGER
@@ -320,12 +359,12 @@ SUB DRW_load (filename AS STRING)
             LAYERS(layerIdx%).blendMode% = BLEND_NORMAL
             LAYERS(layerIdx%).opacityLock% = FALSE
         END IF
-        
+
         ' Create layer image
         LAYERS(layerIdx%).imgHandle& = _NEWIMAGE(SCRN.w&, SCRN.h&, 32)
         LAYERS(layerIdx%).imgWidth% = SCRN.w&
         LAYERS(layerIdx%).imgHeight% = SCRN.h&
-        
+
         ' Load pixel data
         oldDest& = _DEST
         _DEST LAYERS(layerIdx%).imgHandle&
@@ -336,17 +375,17 @@ SUB DRW_load (filename AS STRING)
             NEXT x%
         NEXT y%
         _DEST oldDest&
-        
+
         LAYER_COUNT% = LAYER_COUNT% + 1
     NEXT i%
-    
+
     ' Select the saved current layer
     IF savedCurrentLayer% >= 1 AND savedCurrentLayer% <= LAYER_COUNT% THEN
         LAYERS_select savedCurrentLayer%
     ELSE
         LAYERS_select 1
     END IF
-    
+
     ' === TOOL STATE ===
     GET #fh%, , savedTool%
     ' Sanitize restored tool - action tools (picker, fill, save, open, etc.)
@@ -366,14 +405,14 @@ SUB DRW_load (filename AS STRING)
     GET #fh%, , savedGridSize%
     GRID.gridWidth% = savedGridSize%
     GRID.gridHeight% = savedGridSize%
-    
+
     ' === PALETTE NAME (v3+) ===
     IF version% >= 3 THEN
         DIM savedPalName AS STRING * 64
         GET #fh%, , savedPalName$
         DIM palNameTrim AS STRING
         palNameTrim$ = RTRIM$(savedPalName$)
-        
+
         ' Try to find and reload the matching palette from GPL file
         IF LEN(palNameTrim$) > 0 THEN
             DIM pi AS INTEGER
@@ -391,27 +430,27 @@ SUB DRW_load (filename AS STRING)
                     PAINT_COLOR~& = PAL(PAL_FG_IDX%).value~&
                     PAINT_BG_COLOR~& = PAL(PAL_BG_IDX%).value~&
                     palFound% = TRUE
-                    _LOGINFO "DRW_load: Restored palette '" + palNameTrim$ + "' from GPL file"
+                    _LOGINFO "DRW_load_binary: Restored palette '" + palNameTrim$ + "' from GPL file"
                     EXIT FOR
                 END IF
             NEXT pi%
             IF NOT palFound% THEN
-                _LOGWARN "DRW_load: Palette '" + palNameTrim$ + "' not found, using saved colors"
+                _LOGWARN "DRW_load_binary: Palette '" + palNameTrim$ + "' not found, using saved colors"
             END IF
         END IF
     END IF
-    
+
     CLOSE #fh%
-    
+
     ' Reset undo history for loaded file
     UNDO_init
     WORKSPACE_UNDO_clear  ' Clear workspace undo states for loaded file
-    
+
     ' Reset tool and selection state (prevent stale state from previous file)
     MARQUEE_reset
     MOVE_init
     MAGIC_WAND_reset
-    
+
     ' Reset layer panel state
     LAYER_PANEL.scrollOffset% = 0
     LAYER_PANEL.soloLayer% = 0
@@ -420,15 +459,392 @@ SUB DRW_load (filename AS STRING)
     LAYER_PANEL.isDragging% = FALSE
     LAYER_PANEL.dragLayerIdx% = 0
     LAYER_PANEL.opacityDrag% = FALSE
-    
+
     ' Mark canvas as clean
     CANVAS_DIRTY% = FALSE
-    
+
     ' Force GUI redraw
     BLEND_invalidate_cache
     GUI_NEEDS_REDRAW% = TRUE
-    
-    _LOGINFO "DRW_load: Loaded " + STR$(layerCount%) + " layers from " + filename$
+
+    _LOGINFO "DRW_load_binary: Loaded " + STR$(layerCount%) + " layers from " + filename$
+END SUB
+
+
+' =============================================================================
+' PUBLIC API
+' =============================================================================
+
+''
+' Embed a drAw chunk with full project data into an existing PNG file.
+'
+' This modifies the PNG file in-place by inserting a custom "drAw" chunk
+' containing compressed project data (layers, palette, tool states) before
+' the IEND marker. The result is a valid PNG that any viewer can display,
+' and DRAW can fully restore the project from it.
+'
+' Call this after any _SAVEIMAGE that produces a PNG to make it round-trippable.
+'
+SUB DRW_embed_chunk_in_png (pngFilePath AS STRING)
+    DIM fh AS INTEGER
+    DIM tmpBin AS STRING
+    DIM projectData AS STRING
+    DIM compressed AS STRING
+    DIM chunkPayload AS STRING
+    DIM pngData AS STRING
+    DIM drAwChunk AS STRING
+    DIM newPng AS STRING
+
+    IF NOT _FILEEXISTS(pngFilePath$) THEN
+        _LOGWARN "DRW_embed_chunk_in_png: PNG file not found: " + pngFilePath$
+        EXIT SUB
+    END IF
+
+    ' Step 1: Save project data to temp binary file
+    tmpBin$ = pngFilePath$ + "~data.tmp"
+    DRW_save_binary tmpBin$
+
+    ' Step 2: Read temp binary file into string
+    fh% = FREEFILE
+    OPEN tmpBin$ FOR BINARY AS #fh%
+    projectData$ = SPACE$(LOF(fh%))
+    GET #fh%, 1, projectData$
+    CLOSE #fh%
+    KILL tmpBin$
+
+    ' Step 3: Build drAw chunk payload
+    '   [2 bytes] chunk format version (little-endian)
+    '   [4 bytes] uncompressed data size (little-endian)
+    '   [N bytes] DEFLATE-compressed binary project data
+    compressed$ = _DEFLATE$(projectData$, 9)
+    chunkPayload$ = MKI$(DRW_CHUNK_VERSION%) + MKL$(LEN(projectData$)) + compressed$
+
+    _LOGINFO "DRW_embed_chunk_in_png: Project data:" + STR$(LEN(projectData$)) + " bytes -> compressed:" + STR$(LEN(compressed$)) + " bytes"
+
+    ' Step 4: Read PNG file into string
+    fh% = FREEFILE
+    OPEN pngFilePath$ FOR BINARY AS #fh%
+    pngData$ = SPACE$(LOF(fh%))
+    GET #fh%, 1, pngData$
+    CLOSE #fh%
+
+    ' Step 5: Build drAw PNG chunk (length + type + data + CRC32)
+    drAwChunk$ = PNG_make_chunk$("drAw", chunkPayload$)
+
+    ' Step 6: Insert drAw chunk before IEND
+    ' IEND chunk is always the last 12 bytes of a valid PNG:
+    '   00 00 00 00 (length=0) + "IEND" + AE 42 60 82 (CRC)
+    newPng$ = LEFT$(pngData$, LEN(pngData$) - 12) + drAwChunk$ + RIGHT$(pngData$, 12)
+
+    ' Step 7: Write modified PNG back
+    fh% = FREEFILE
+    OPEN pngFilePath$ FOR OUTPUT AS #fh%: CLOSE #fh%  ' Truncate
+    fh% = FREEFILE
+    OPEN pngFilePath$ FOR BINARY AS #fh%
+    PUT #fh%, 1, newPng$
+    CLOSE #fh%
+
+    _LOGINFO "DRW_embed_chunk_in_png: Embedded drAw chunk (" + STR$(LEN(drAwChunk$)) + " bytes) in: " + pngFilePath$
+END SUB
+
+
+''
+' Save current project as PNG with embedded drAw chunk
+'
+' Creates a standard PNG file containing:
+'   1. Flattened preview of all visible layers (the PNG image data)
+'   2. A custom "drAw" chunk with compressed full project data
+'
+' The resulting .draw file is a valid PNG that can be previewed in any
+' image viewer, while DRAW restores the full layer/palette/tool state
+' from the drAw chunk.
+'
+SUB DRW_save (filename AS STRING)
+    DIM merged AS LONG
+    DIM layerCount AS INTEGER
+    DIM i AS INTEGER
+
+    ' Count active layers for log message
+    layerCount% = 0
+    FOR i% = 1 TO 64
+        IF LAYERS(i%).imgHandle& < -1 THEN layerCount% = layerCount% + 1
+    NEXT i%
+
+    ' Step 1: Create merged/flattened canvas image for PNG preview
+    merged& = LAYERS_flatten&
+    IF merged& = 0 THEN
+        _LOGWARN "DRW_save: Failed to create merged canvas"
+        EXIT SUB
+    END IF
+
+    ' Step 2: Save merged canvas as PNG
+    ' _SAVEIMAGE uses extension to determine format, and ".draw" is not recognized.
+    ' Workaround: save to a temp .png file first, then rename to the target filename.
+    DIM tmpPng AS STRING
+    tmpPng$ = filename$ + ".tmp.png"
+
+    ' Remove target file first so rename works cleanly
+    IF _FILEEXISTS(filename$) THEN KILL filename$
+    IF _FILEEXISTS(tmpPng$) THEN KILL tmpPng$
+
+    _SAVEIMAGE tmpPng$, merged&
+    IF merged& < -1 THEN _FREEIMAGE merged&
+
+    ' Verify temp PNG was created, then rename
+    IF _FILEEXISTS(tmpPng$) THEN
+        NAME tmpPng$ AS filename$
+    END IF
+
+    ' Verify final file exists
+    IF NOT _FILEEXISTS(filename$) THEN
+        _LOGWARN "DRW_save: Failed to create PNG"
+        IF _FILEEXISTS(tmpPng$) THEN KILL tmpPng$
+        EXIT SUB
+    END IF
+
+    ' Step 3: Embed drAw chunk with full project data
+    DRW_embed_chunk_in_png filename$
+
+    _LOGINFO "DRW_save: Saved " + STR$(layerCount%) + " layers as PNG with drAw chunk: " + filename$
+END SUB
+
+
+''
+' Load project from .draw file (auto-detects PNG or legacy binary format)
+'
+' Supported formats:
+'   1. PNG with drAw chunk (new format) - full project restore from chunk
+'   2. Legacy DRW1 binary (old format) - backward compatible direct load
+'
+SUB DRW_load (filename AS STRING)
+    DIM fh AS INTEGER
+    DIM header AS STRING
+    DIM pngSig AS STRING
+
+    IF NOT _FILEEXISTS(filename$) THEN
+        _LOGWARN "DRW_load: File not found: " + filename$
+        EXIT SUB
+    END IF
+
+    ' Read first 8 bytes to detect format
+    fh% = FREEFILE
+    OPEN filename$ FOR BINARY AS #fh%
+    header$ = SPACE$(8)
+    GET #fh%, 1, header$
+    CLOSE #fh%
+
+    ' PNG signature: 89 50 4E 47 0D 0A 1A 0A
+    pngSig$ = CHR$(137) + CHR$(80) + CHR$(78) + CHR$(71) + CHR$(13) + CHR$(10) + CHR$(26) + CHR$(10)
+
+    IF LEFT$(header$, 8) = pngSig$ THEN
+        ' PNG format - extract drAw chunk and load project data
+        _LOGINFO "DRW_load: Detected PNG format: " + filename$
+        DRW_load_from_png filename$
+    ELSEIF LEFT$(header$, 4) = DRW_MAGIC$ THEN
+        ' Legacy binary format - direct load
+        _LOGINFO "DRW_load: Detected legacy binary format: " + filename$
+        DRW_load_binary filename$
+    ELSE
+        _LOGWARN "DRW_load: Unknown file format: " + filename$
+        POINTER_hide_for_dialog
+        _MESSAGEBOX "Load Error", "Not a valid .draw file", "error"
+        POINTER_show_after_dialog
+        MOUSE_cleanup_after_dialog FALSE
+    END IF
+END SUB
+
+
+''
+' Load project from PNG file containing drAw chunk (internal helper)
+'
+' Scans PNG chunks for our custom "drAw" chunk, decompresses the payload,
+' and loads the full project data using the binary format parser.
+'
+SUB DRW_load_from_png (filename AS STRING)
+    DIM fh AS INTEGER
+    DIM pngData AS STRING
+    DIM scanPos AS LONG
+    DIM chunkLen AS _UNSIGNED LONG
+    DIM chunkType AS STRING
+    DIM chunkPayload AS STRING
+    DIM chunkVer AS INTEGER
+    DIM uncompSize AS LONG
+    DIM compressed AS STRING
+    DIM projectData AS STRING
+    DIM tmpBin AS STRING
+    DIM found AS INTEGER
+
+    ' Read entire PNG file
+    fh% = FREEFILE
+    OPEN filename$ FOR BINARY AS #fh%
+    pngData$ = SPACE$(LOF(fh%))
+    GET #fh%, 1, pngData$
+    CLOSE #fh%
+
+    ' Scan chunks starting after 8-byte PNG signature
+    scanPos& = 9  ' 1-based, after signature
+    found% = FALSE
+
+    DO WHILE scanPos& + 7 <= LEN(pngData$)
+        ' Read chunk length (4 bytes, big-endian)
+        chunkLen~& = PNG_read_uint32_be~&(MID$(pngData$, scanPos&, 4))
+        ' Read chunk type (4 bytes)
+        chunkType$ = MID$(pngData$, scanPos& + 4, 4)
+
+        IF chunkType$ = "drAw" THEN
+            ' Found our custom chunk - extract payload
+            chunkPayload$ = MID$(pngData$, scanPos& + 8, chunkLen~&)
+
+            ' Parse payload header:
+            '   [2 bytes] chunk format version (little-endian)
+            '   [4 bytes] uncompressed data size (little-endian)
+            '   [N bytes] DEFLATE-compressed binary project data
+            chunkVer% = CVI(LEFT$(chunkPayload$, 2))
+            uncompSize& = CVL(MID$(chunkPayload$, 3, 4))
+            compressed$ = MID$(chunkPayload$, 7)
+
+            _LOGINFO "DRW_load_from_png: Found drAw chunk v" + STR$(chunkVer%) + ", compressed:" + STR$(LEN(compressed$)) + " bytes, original:" + STR$(uncompSize&) + " bytes"
+
+            ' Decompress project data (pass original size hint for efficiency)
+            projectData$ = _INFLATE$(compressed$, uncompSize&)
+            found% = TRUE
+            EXIT DO
+        END IF
+
+        ' Move to next chunk: length(4) + type(4) + data(chunkLen) + CRC(4)
+        scanPos& = scanPos& + 12 + chunkLen~&
+
+        ' Safety: stop at IEND
+        IF chunkType$ = "IEND" THEN EXIT DO
+    LOOP
+
+    IF found% THEN
+        ' Write decompressed project data to temp file for binary loader
+        tmpBin$ = filename$ + "~data.tmp"
+        fh% = FREEFILE
+        OPEN tmpBin$ FOR OUTPUT AS #fh%: CLOSE #fh%  ' Truncate/create
+        fh% = FREEFILE
+        OPEN tmpBin$ FOR BINARY AS #fh%
+        PUT #fh%, 1, projectData$
+        CLOSE #fh%
+
+        ' Load using binary format parser
+        DRW_load_binary tmpBin$
+        KILL tmpBin$
+
+        _LOGINFO "DRW_load_from_png: Successfully loaded from PNG with drAw chunk: " + filename$
+    ELSE
+        ' No drAw chunk found - import this PNG as a flat single-layer image
+        _LOGINFO "DRW_load_from_png: No drAw chunk, importing as flat image: " + filename$
+
+        DIM loaded_img AS LONG
+        loaded_img& = _LOADIMAGE(filename$, 32)
+        IF loaded_img& < -1 THEN
+            DIM img_w AS INTEGER, img_h AS INTEGER
+            img_w% = _WIDTH(loaded_img&)
+            img_h% = _HEIGHT(loaded_img&)
+
+            ' Resize canvas if needed
+            IF img_w% <> SCRN.w& OR img_h% <> SCRN.h& THEN
+                SCRN.w& = img_w%
+                SCRN.h& = img_h%
+                SCREEN 0
+                IF SCRN.CANVAS& < -1 THEN _FREEIMAGE SCRN.CANVAS&
+                IF SCRN.PAINTING& < -1 THEN _FREEIMAGE SCRN.PAINTING&
+                IF SCRN.GUI& < -1 THEN _FREEIMAGE SCRN.GUI&
+                SCRN.CANVAS& = _NEWIMAGE(SCRN.w&, SCRN.h&, 32)
+                SCRN.PAINTING& = _NEWIMAGE(SCRN.w&, SCRN.h&, 32)
+                SCRN.GUI& = _NEWIMAGE(SCRN.w&, SCRN.h&, 32)
+                _DEST SCRN.PAINTING&: CLS , _RGBA32(0, 0, 0, 0): _DEST SCRN.CANVAS&
+                IF SCENE_CACHE& < -1 THEN _FREEIMAGE SCENE_CACHE&: SCENE_CACHE& = 0
+                IF PG_CACHE_IMG& < -1 THEN _FREEIMAGE PG_CACHE_IMG&: PG_CACHE_IMG& = 0
+                IF COMPOSITE_BUFFER& < -1 THEN _FREEIMAGE COMPOSITE_BUFFER&: COMPOSITE_BUFFER& = 0
+                IF COMPOSITE_BELOW_CACHE& < -1 THEN _FREEIMAGE COMPOSITE_BELOW_CACHE&: COMPOSITE_BELOW_CACHE& = 0
+                COMPOSITE_BELOW_VALID% = FALSE
+                SCREEN SCRN.CANVAS&: _DEST SCRN.CANVAS&
+                DIM newWW AS LONG, newWH AS LONG
+                newWW& = SCRN.w& * SCRN.displayScale%
+                newWH& = SCRN.h& * SCRN.displayScale%
+                glutReshapeWindow newWW&, newWH&
+                RENDER_ORDER_DIRTY% = TRUE
+            END IF
+
+            ' Clear all layers
+            DIM li AS INTEGER
+            FOR li% = 1 TO 64
+                IF LAYERS(li%).imgHandle& < -1 THEN
+                    _FREEIMAGE LAYERS(li%).imgHandle&
+                    LAYERS(li%).imgHandle& = 0
+                END IF
+                IF LAYERS(li%).opacityCacheImg& < -1 THEN
+                    _FREEIMAGE LAYERS(li%).opacityCacheImg&
+                    LAYERS(li%).opacityCacheImg& = 0
+                END IF
+                LAYERS(li%).name = ""
+                LAYERS(li%).visible% = FALSE
+                LAYERS(li%).opacity% = 255
+                LAYERS(li%).zIndex% = 0
+                LAYERS(li%).isSelected% = FALSE
+                LAYERS(li%).blendMode% = BLEND_NORMAL
+                LAYERS(li%).opacityLock% = FALSE
+                LAYERS(li%).opacityCacheVal% = 0
+                LAYERS(li%).contentDirty% = TRUE
+            NEXT li%
+            LAYER_COUNT% = 0
+
+            ' Create single layer with the imported image
+            LAYERS(1).imgHandle& = _NEWIMAGE(SCRN.w&, SCRN.h&, 32)
+            LAYERS(1).imgWidth% = SCRN.w&
+            LAYERS(1).imgHeight% = SCRN.h&
+            LAYERS(1).name = "Layer 1"
+            LAYERS(1).visible% = TRUE
+            LAYERS(1).opacity% = 255
+            LAYERS(1).zIndex% = 1
+            LAYERS(1).blendMode% = BLEND_NORMAL
+            LAYERS(1).opacityLock% = FALSE
+            LAYERS(1).contentDirty% = TRUE
+            LAYER_COUNT% = 1
+
+            DIM oldD2 AS LONG
+            oldD2& = _DEST
+            _DEST LAYERS(1).imgHandle&
+            CLS , _RGBA32(0, 0, 0, 0)
+            _PUTIMAGE (0, 0), loaded_img&
+            _DEST oldD2&
+            _FREEIMAGE loaded_img&
+
+            LAYERS_select 1
+            CURRENT_TOOL% = TOOL_BRUSH
+
+            ' Reset all state
+            UNDO_init
+            WORKSPACE_UNDO_clear
+            MARQUEE_reset
+            MOVE_init
+            MAGIC_WAND_reset
+            LAYER_PANEL.scrollOffset% = 0
+            LAYER_PANEL.soloLayer% = 0
+            LAYER_PANEL.visSwiping% = FALSE
+            LAYER_PANEL.dragPending% = FALSE
+            LAYER_PANEL.isDragging% = FALSE
+            LAYER_PANEL.dragLayerIdx% = 0
+            LAYER_PANEL.opacityDrag% = FALSE
+            PALETTE_STRIP_SCROLL_OFFSET% = 0
+            CANVAS_DIRTY% = FALSE
+            BLEND_invalidate_cache
+            SCENE_DIRTY% = TRUE
+            GUI_NEEDS_REDRAW% = TRUE
+            FRAME_IDLE% = FALSE
+
+            _LOGINFO "DRW_load_from_png: Imported flat PNG as single layer: " + filename$
+        ELSE
+            _LOGWARN "DRW_load_from_png: Failed to load PNG image: " + filename$
+            POINTER_hide_for_dialog
+            _MESSAGEBOX "Load Error", "Failed to load image: " + filename$, "error"
+            POINTER_show_after_dialog
+            MOUSE_cleanup_after_dialog FALSE
+        END IF
+    END IF
 END SUB
 
 
@@ -438,7 +854,7 @@ END SUB
 SUB DRW_save_dialog ()
     DIM filename AS STRING
     DIM default_path AS STRING
-    
+
     ' Use last directory if available, then config default
     IF LAST_DIRECTORY$ <> "" THEN
         default_path$ = LAST_DIRECTORY$ + "/"
@@ -447,18 +863,18 @@ SUB DRW_save_dialog ()
     ELSE
         default_path$ = ""
     END IF
-    
+
     ' If we have a current DRW filename, use it as default
     IF CURRENT_DRW_FILENAME$ <> "" THEN
         default_path$ = CURRENT_DRW_FILENAME$
     END IF
-    
+
     ' Show save file dialog
     POINTER_hide_for_dialog
-    filename$ = _SAVEFILEDIALOG$("Save DRAW Project", default_path$, "", "DRAW Project")
+    filename$ = _SAVEFILEDIALOG$("Save DRAW Project", default_path$, "*.draw", "DRAW Project")
     POINTER_show_after_dialog
     MOUSE_cleanup_after_dialog TRUE  ' Clear buffers and center mouse
-    
+
     ' If user didn't cancel
     IF filename$ <> "" THEN
         ' Update last directory
@@ -469,23 +885,29 @@ SUB DRW_save_dialog ()
                 EXIT FOR
             END IF
         NEXT i%
-        
+
         ' Ensure file has .draw extension
         IF LCASE$(RIGHT$(filename$, 5)) <> ".draw" THEN
             filename$ = filename$ + ".draw"
         END IF
-        
+
         ' Save the project
         DRW_save filename$
-        
-        ' Store current filename
-        CURRENT_DRW_FILENAME$ = filename$
-        
-        ' Mark canvas as clean
-        CANVAS_DIRTY% = FALSE
-        
-        POINTER_hide_for_dialog
-        _MESSAGEBOX "Save Complete", "Project saved to: " + filename$, "info"
+
+        ' Only mark clean if file was actually written
+        IF _FILEEXISTS(filename$) THEN
+            ' Store current filename
+            CURRENT_DRW_FILENAME$ = filename$
+
+            ' Mark canvas as clean
+            CANVAS_DIRTY% = FALSE
+
+            POINTER_hide_for_dialog
+            _MESSAGEBOX "Save Complete", "Project saved to: " + filename$, "info"
+        ELSE
+            POINTER_hide_for_dialog
+            _MESSAGEBOX "Save Failed", "Could not save project to: " + filename$, "error"
+        END IF
         POINTER_show_after_dialog
         MOUSE_cleanup_after_dialog TRUE  ' Clear buffers and center mouse
     END IF
@@ -498,7 +920,7 @@ END SUB
 SUB DRW_open_dialog ()
     DIM filename AS STRING
     DIM default_path AS STRING
-    
+
     ' Use last directory if available, then config default
     IF LAST_DIRECTORY$ <> "" THEN
         default_path$ = LAST_DIRECTORY$ + "/"
@@ -507,18 +929,18 @@ SUB DRW_open_dialog ()
     ELSE
         default_path$ = ""
     END IF
-    
+
     ' Show open file dialog
     POINTER_hide_for_dialog
     $IF MAC THEN
         ' macOS: File filters don't work reliably in native dialogs - show all files
         filename$ = _OPENFILEDIALOG$("Open DRAW Project", default_path$, "", "All Files", 0)
     $ELSE
-        filename$ = _OPENFILEDIALOG$("Open DRAW Project", default_path$, "*.draw|*.DRAW", "DRAW Project", 0)
+        filename$ = _OPENFILEDIALOG$("Open DRAW Project", default_path$, "*.draw|*.DRAW|*.png|*.PNG", "DRAW Project / PNG", 0)
     $END IF
     POINTER_show_after_dialog
     MOUSE_cleanup_after_dialog TRUE  ' Clear buffers and center mouse
-    
+
     ' If user didn't cancel
     IF filename$ <> "" THEN
         ' Update last directory
@@ -529,13 +951,16 @@ SUB DRW_open_dialog ()
                 EXIT FOR
             END IF
         NEXT i%
-        
+
         ' Load the project
         DRW_load filename$
-        
+
         ' Store current filename
         CURRENT_DRW_FILENAME$ = filename$
-        
+
+        ' Mark canvas as clean (freshly loaded = not dirty)
+        CANVAS_DIRTY% = FALSE
+
         ' Clear input buffers
         MOUSE_cleanup_after_dialog TRUE  ' Clear buffers and center mouse
     END IF
