@@ -238,6 +238,603 @@ END SUB
 
 
 ''
+' Render all visible layers with zoom, compositing bottom-to-top.
+' Handles blend modes, opacity caching, partial composite cache, and move preview.
+'
+' @param dx% X offset for zoomed canvas placement
+' @param dy% Y offset for zoomed canvas placement
+' @param zw& Zoomed canvas width
+' @param zh& Zoomed canvas height
+'
+SUB RENDER_layers (dx AS INTEGER, dy AS INTEGER, zw AS LONG, zh AS LONG)
+    _DEST SCRN.CANVAS&
+    _BLEND SCRN.CANVAS&
+
+    IF LAYER_COUNT% > 0 THEN
+        ' Composite layers by zIndex (bottom to top)
+        DIM layerI AS INTEGER
+        DIM layerFound AS INTEGER
+        DIM useComposite AS INTEGER
+        DIM compositeImg AS LONG
+
+        ' Check if we need per-pixel blending (any non-Normal blend mode)
+        useComposite% = BLEND_needs_composite%
+
+        ' Rebuild render order lookup table if dirty
+        IF RENDER_ORDER_DIRTY% THEN RENDER_ORDER_rebuild
+
+        ' Start index for layer loop (1 = full composite, >1 = partial cache hit)
+        DIM compositeStartIdx AS INTEGER
+        DIM savePartialCache AS INTEGER
+        compositeStartIdx% = 1
+        savePartialCache% = FALSE
+
+        IF useComposite% THEN
+            ' Reuse persistent composite buffer (avoid _NEWIMAGE/_FREEIMAGE every frame)
+            IF COMPOSITE_BUFFER& = 0 OR _
+               COMPOSITE_BUFFER_W& <> SCRN.w& OR _
+               COMPOSITE_BUFFER_H& <> SCRN.h& THEN
+                IF COMPOSITE_BUFFER& < -1 THEN _FREEIMAGE COMPOSITE_BUFFER&
+                COMPOSITE_BUFFER& = _NEWIMAGE(SCRN.w&, SCRN.h&, 32)
+                COMPOSITE_BUFFER_W& = SCRN.w&
+                COMPOSITE_BUFFER_H& = SCRN.h&
+            END IF
+            compositeImg& = COMPOSITE_BUFFER&
+
+            ' --- Partial composite cache: skip layers below current when only current changes ---
+            DIM currentRenderIdx AS INTEGER
+            DIM cri AS INTEGER
+            currentRenderIdx% = 0
+            FOR cri% = 1 TO RENDER_ORDER_COUNT%
+                IF RENDER_ORDER%(cri%) = CURRENT_LAYER% THEN
+                    currentRenderIdx% = cri%
+                    EXIT FOR
+                END IF
+            NEXT cri%
+
+            DIM compOldDest AS LONG
+            compOldDest& = _DEST
+
+            IF currentRenderIdx% > 1 AND COMPOSITE_BELOW_VALID% AND _
+               COMPOSITE_BELOW_LAYER% = CURRENT_LAYER% AND _
+               COMPOSITE_BELOW_CACHE& <> 0 THEN
+                ' Partial cache hit — restore composite of layers below current
+                _DEST compositeImg&
+                _DONTBLEND compositeImg&
+                _PUTIMAGE , COMPOSITE_BELOW_CACHE&, compositeImg&
+                _BLEND compositeImg&
+                _DEST compOldDest&
+                compositeStartIdx% = currentRenderIdx%
+            ELSE
+                ' Full composite — clear buffer
+                _DEST compositeImg&
+                _DONTBLEND compositeImg&
+                CLS , _RGBA32(0, 0, 0, 0)
+                _BLEND compositeImg&
+                _DEST compOldDest&
+                ' Schedule partial cache save if current layer isn't the bottommost
+                IF currentRenderIdx% > 1 THEN savePartialCache% = TRUE
+            END IF
+        END IF
+
+        FOR layerI% = compositeStartIdx% TO RENDER_ORDER_COUNT%
+            layerFound% = RENDER_ORDER%(layerI%)
+
+            IF layerFound% > 0 THEN
+                IF LAYERS(layerFound%).visible% THEN
+                ' Determine which image to render for this layer
+                ' If MOVE tool is active on this layer, use the preview buffer instead
+                DIM layerRenderSource AS LONG
+                DIM useMoveBuf AS INTEGER
+                useMoveBuf% = FALSE
+                IF CURRENT_TOOL% = TOOL_MOVE AND MOVE.ACTIVE AND layerFound% = CURRENT_LAYER% THEN
+                    layerRenderSource& = MOVE_get_preview_buffer&
+                    IF layerRenderSource& = 0 THEN
+                        layerRenderSource& = LAYERS(layerFound%).imgHandle&
+                    ELSE
+                        useMoveBuf% = TRUE
+                    END IF
+                ELSE
+                    layerRenderSource& = LAYERS(layerFound%).imgHandle&
+                END IF
+
+                ' Get opacity-adjusted image (cached when possible)
+                DIM opacityImg AS LONG
+                DIM layerOpacityI AS INTEGER
+                layerOpacityI% = LAYERS(layerFound%).opacity%
+                IF layerOpacityI% < 255 AND NOT useMoveBuf% THEN
+                    ' Check if opacity cache is valid
+                    IF LAYERS(layerFound%).opacityCacheImg& <> 0 AND _
+                       LAYERS(layerFound%).opacityCacheVal% = layerOpacityI% AND _
+                       NOT LAYERS(layerFound%).contentDirty% THEN
+                        ' Cache hit — use cached opacity image
+                        opacityImg& = LAYERS(layerFound%).opacityCacheImg&
+                    ELSE
+                        ' Cache miss — rebuild opacity image
+                        IF LAYERS(layerFound%).opacityCacheImg& = 0 THEN
+                            LAYERS(layerFound%).opacityCacheImg& = _NEWIMAGE(SCRN.w&, SCRN.h&, 32)
+                        END IF
+                        ' Copy source to cache and apply opacity
+                        _DEST LAYERS(layerFound%).opacityCacheImg&
+                        _DONTBLEND LAYERS(layerFound%).opacityCacheImg&
+                        _PUTIMAGE , layerRenderSource&, LAYERS(layerFound%).opacityCacheImg&
+                        _BLEND LAYERS(layerFound%).opacityCacheImg&
+                        DIM layerMem AS _MEM
+                        layerMem = _MEMIMAGE(LAYERS(layerFound%).opacityCacheImg&)
+                        DIM pixOffset AS _OFFSET
+                        DIM pixVal AS _UNSIGNED LONG
+                        DIM pixAlpha AS _UNSIGNED _BYTE
+                        DIM newAlpha AS INTEGER
+                        FOR pixOffset = layerMem.OFFSET TO layerMem.OFFSET + layerMem.SIZE - 4 STEP 4
+                            _MEMGET layerMem, pixOffset, pixVal~&
+                            pixAlpha~%% = _ALPHA32(pixVal~&)
+                            IF pixAlpha~%% > 0 THEN
+                                newAlpha% = (pixAlpha~%% * layerOpacityI%) \ 255
+                                _MEMPUT layerMem, pixOffset + 3, newAlpha% AS _UNSIGNED _BYTE
+                            END IF
+                        NEXT pixOffset
+                        _MEMFREE layerMem
+                        _DEST SCRN.CANVAS&
+                        LAYERS(layerFound%).opacityCacheVal% = layerOpacityI%
+                        LAYERS(layerFound%).contentDirty% = FALSE
+                        opacityImg& = LAYERS(layerFound%).opacityCacheImg&
+                    END IF
+                ELSEIF layerOpacityI% < 255 AND useMoveBuf% THEN
+                    ' Move preview — can't cache, build temp copy
+                    opacityImg& = _COPYIMAGE(layerRenderSource&, 32)
+                    layerMem = _MEMIMAGE(opacityImg&)
+                    FOR pixOffset = layerMem.OFFSET TO layerMem.OFFSET + layerMem.SIZE - 4 STEP 4
+                        _MEMGET layerMem, pixOffset, pixVal~&
+                        pixAlpha~%% = _ALPHA32(pixVal~&)
+                        IF pixAlpha~%% > 0 THEN
+                            newAlpha% = (pixAlpha~%% * layerOpacityI%) \ 255
+                            _MEMPUT layerMem, pixOffset + 3, newAlpha% AS _UNSIGNED _BYTE
+                        END IF
+                    NEXT pixOffset
+                    _MEMFREE layerMem
+                ELSE
+                    opacityImg& = 0 ' No opacity adjustment needed
+                END IF
+
+                ' Render the layer (using opacityImg if available, else layerRenderSource)
+                DIM renderImg AS LONG
+                IF opacityImg& <> 0 THEN
+                    renderImg& = opacityImg&
+                ELSE
+                    renderImg& = layerRenderSource&
+                END IF
+
+                IF useComposite% THEN
+                    ' --- Composite buffer path (blend modes) ---
+                    IF LAYERS(layerFound%).blendMode% = BLEND_NORMAL THEN
+                        _DEST compositeImg&
+                        _PUTIMAGE , renderImg&
+                        _DEST SCRN.CANVAS&
+                    ELSE
+                        ' Non-Normal blend: pass ORIGINAL image — blend function handles opacity
+                        LAYER_blend_composite compositeImg&, layerRenderSource&, LAYERS(layerFound%).blendMode%, LAYERS(layerFound%).opacity%
+                    END IF
+                ELSE
+                    ' --- Fast path (all Normal blend) ---
+                    _PUTIMAGE (dx%, dy%)-(dx% + zw& - 1, dy% + zh& - 1), renderImg&
+                END IF
+
+                ' Free temp image if we made one for move preview
+                IF useMoveBuf% AND opacityImg& <> 0 THEN
+                    IF opacityImg& < -1 THEN _FREEIMAGE opacityImg&
+                END IF
+                END IF  ' visible%
+            END IF  ' layerFound% > 0
+
+            ' Save partial composite cache at boundary just below current layer
+            IF savePartialCache% AND layerI% = currentRenderIdx% - 1 THEN
+                IF COMPOSITE_BELOW_CACHE& = 0 OR _
+                   _WIDTH(COMPOSITE_BELOW_CACHE&) <> SCRN.w& OR _
+                   _HEIGHT(COMPOSITE_BELOW_CACHE&) <> SCRN.h& THEN
+                    IF COMPOSITE_BELOW_CACHE& < -1 THEN _FREEIMAGE COMPOSITE_BELOW_CACHE&
+                    COMPOSITE_BELOW_CACHE& = _NEWIMAGE(SCRN.w&, SCRN.h&, 32)
+                END IF
+                DIM pcOldDest AS LONG
+                pcOldDest& = _DEST
+                _DEST COMPOSITE_BELOW_CACHE&
+                _DONTBLEND COMPOSITE_BELOW_CACHE&
+                _PUTIMAGE , compositeImg&, COMPOSITE_BELOW_CACHE&
+                _BLEND COMPOSITE_BELOW_CACHE&
+                _DEST pcOldDest&
+                COMPOSITE_BELOW_LAYER% = CURRENT_LAYER%
+                COMPOSITE_BELOW_VALID% = TRUE
+                savePartialCache% = FALSE
+            END IF
+        NEXT layerI%
+
+        ' If using composite, render the final composite to canvas with zoom
+        IF useComposite% THEN
+            _PUTIMAGE (dx%, dy%)-(dx% + zw& - 1, dy% + zh& - 1), compositeImg&, SCRN.CANVAS&
+            ' compositeImg& is persistent (COMPOSITE_BUFFER&), do NOT free it
+        END IF
+    ELSE
+        ' Fallback: Use SCRN.PAINTING if no layers exist yet (legacy support)
+        DIM paint_source AS LONG
+        paint_source& = MOVE_get_preview_buffer&
+        IF paint_source& <> 0 THEN
+            _SOURCE paint_source&
+            _PUTIMAGE (dx%, dy%)-(dx% + zw& - 1, dy% + zh& - 1), paint_source&
+        ELSE
+            _SOURCE SCRN.PAINTING&
+            _PUTIMAGE (dx%, dy%)-(dx% + zw& - 1, dy% + zh& - 1), SCRN.PAINTING&
+        END IF
+    END IF
+END SUB
+
+
+''
+' Render grid overlays (regular grid + pixel grid cache).
+' Called after layer compositing, before border/GUI.
+'
+' @param dx% X offset for zoomed canvas placement
+' @param dy% Y offset for zoomed canvas placement
+' @param zw& Zoomed canvas width
+' @param zh& Zoomed canvas height
+'
+SUB RENDER_grids (dx AS INTEGER, dy AS INTEGER, zw AS LONG, zh AS LONG)
+    IF GRID.SHOW% AND SCRN.zoom! >= 1.0 THEN
+        _DEST SCRN.CANVAS&
+        _SOURCE GRID.imgHandle&
+        _BLEND SCRN.CANVAS&
+        _PUTIMAGE (dx%, dy%)-(dx% + zw& - 1, dy% + zh& - 1), GRID.imgHandle&, SCRN.CANVAS&
+    END IF
+    ' Pixel grid shows at 400%+ zoom if enabled (on top of regular grid)
+    IF PIXEL_GRID.SHOW% AND SCRN.zoom! >= 4.0 THEN
+        DIM pgx AS INTEGER, pgy AS INTEGER
+        DIM pzoom AS INTEGER
+        DIM pgColor AS _UNSIGNED LONG
+        pzoom% = INT(SCRN.zoom!)
+        pgColor~& = _RGB32(_RED32(THEME.PIXEL_GRID_color1~&), _GREEN32(THEME.PIXEL_GRID_color1~&), _BLUE32(THEME.PIXEL_GRID_color1~&))
+
+        ' Reuse cached pixel grid image if zoom/size/color unchanged
+        IF PG_CACHE_IMG& = 0 OR _
+           PG_CACHE_ZW& <> zw& OR _
+           PG_CACHE_ZH& <> zh& OR _
+           PG_CACHE_ZOOM% <> pzoom% OR _
+           PG_CACHE_COLOR~& <> pgColor~& THEN
+            ' Cache miss — rebuild pixel grid image
+            IF PG_CACHE_IMG& < -1 THEN _FREEIMAGE PG_CACHE_IMG&
+            PG_CACHE_IMG& = _NEWIMAGE(zw& + 1, zh& + 1, 32)
+            PG_CACHE_ZW& = zw&
+            PG_CACHE_ZH& = zh&
+            PG_CACHE_ZOOM% = pzoom%
+            PG_CACHE_COLOR~& = pgColor~&
+            _DEST PG_CACHE_IMG&
+            CLS , _RGBA32(0, 0, 0, 0)
+            ' Draw vertical lines between each pixel column
+            FOR pgx% = 0 TO SCRN.w&
+                LINE (pgx% * pzoom%, 0)-(pgx% * pzoom%, zh&), pgColor~&
+            NEXT pgx%
+            ' Draw horizontal lines between each pixel row
+            FOR pgy% = 0 TO SCRN.h&
+                LINE (0, pgy% * pzoom%)-(zw&, pgy% * pzoom%), pgColor~&
+            NEXT pgy%
+            ' Apply 25% opacity globally to all drawn pixels (alpha 64)
+            _SETALPHA 64, pgColor~& TO pgColor~&, PG_CACHE_IMG&
+        END IF
+        ' Composite cached pixel grid onto canvas
+        _DEST SCRN.CANVAS&
+        _BLEND SCRN.CANVAS&
+        _PUTIMAGE (dx%, dy%), PG_CACHE_IMG&
+    END IF
+END SUB
+
+
+''
+' Render tool previews (line, rect, ellipse, polygon, marquee drag, move, text, zoom).
+' Drawn on canvas after grids/symmetry/border/import, before GUI layer.
+'
+' @param dx% X offset for zoomed canvas placement
+' @param dy% Y offset for zoomed canvas placement
+' @param zw& Zoomed canvas width
+' @param zh& Zoomed canvas height
+'
+SUB RENDER_tool_previews (dx AS INTEGER, dy AS INTEGER, zw AS LONG, zh AS LONG)
+    ' NOTE: Selection marching ants rendering moved AFTER scene cache save
+    ' (SkipToPointer section) so animated ants don't force full scene re-render.
+    ' Draw MARQUEE dragging preview (only when using marquee tool)
+    IF CURRENT_TOOL% = TOOL_MARQUEE AND MARQUEE.DRAGGING% THEN
+        MARQUEE_draw_drag_preview
+    END IF
+    ' Draw MOVE transform preview if active
+    IF CURRENT_TOOL% = TOOL_MOVE AND MOVE.ACTIVE THEN
+        _DEST SCRN.CANVAS&
+        MOVE_render_preview SCRN.CANVAS&
+        IF MARQUEE.USER_CREATED THEN
+            MARQUEE_draw TRUE
+        END IF
+    END IF
+    ' Draw TEXT preview if editing
+    IF CURRENT_TOOL% = TOOL_TEXT AND TEXT.ACTIVE THEN
+        _DEST SCRN.CANVAS&
+        TEXT_render_preview SCRN.CANVAS&, dx%, dy%, SCRN.zoom!
+    END IF
+    ' Draw ZOOM drag-to-region preview rectangle
+    IF CURRENT_TOOL% = TOOL_ZOOM AND ZOOM.DRAGGING THEN
+        DIM zx1 AS INTEGER, zy1 AS INTEGER, zx2 AS INTEGER, zy2 AS INTEGER
+        zx1% = ZOOM.START_X: zy1% = ZOOM.START_Y
+        zx2% = ZOOM.END_X: zy2% = ZOOM.END_Y
+        DIM zDragDist AS INTEGER
+        zDragDist% = ABS(zx2% - zx1%) + ABS(zy2% - zy1%)
+        IF zDragDist% >= 8 THEN
+            _DEST SCRN.CANVAS&
+            LINE (zx1%, zy1%)-(zx2%, zy2%), _RGBA32(255, 255, 255, 40), BF
+            LINE (zx1%, zy1%)-(zx2%, zy2%), _RGB32(255, 255, 255), B
+            LINE (zx1% - 1, zy1% - 1)-(zx2% + 1, zy2% + 1), _RGB32(0, 0, 0), B
+        END IF
+    END IF
+    ' Determine preview color - use white with black outline effect for transparent
+    DIM preview_color AS _UNSIGNED LONG
+    IF _ALPHA32(PAINT_COLOR~&) = 0 THEN
+        preview_color~& = _RGB32(255, 255, 255)
+    ELSE
+        preview_color~& = PAINT_COLOR~&
+    END IF
+
+    ' Draw LINE preview while dragging (converted to zoomed screen coordinates)
+    IF CURRENT_TOOL% = TOOL_LINE AND LINE_TOOL.DRAGGING AND NOT SCRN.panning% THEN
+        _DEST SCRN.CANVAS&
+        DIM lsx AS INTEGER, lsy AS INTEGER, lex AS INTEGER, ley AS INTEGER
+        lsx% = dx% + INT(LINE_TOOL.START_X * SCRN.zoom!)
+        lsy% = dy% + INT(LINE_TOOL.START_Y * SCRN.zoom!)
+        lex% = dx% + INT(LINE_TOOL.END_X * SCRN.zoom!)
+        ley% = dy% + INT(LINE_TOOL.END_Y * SCRN.zoom!)
+        IF _ALPHA32(PAINT_COLOR~&) = 0 THEN
+            LINE (lsx% - 1, lsy%)-(lex% - 1, ley%), _RGB32(0, 0, 0)
+            LINE (lsx% + 1, lsy%)-(lex% + 1, ley%), _RGB32(0, 0, 0)
+            LINE (lsx%, lsy% - 1)-(lex%, ley% - 1), _RGB32(0, 0, 0)
+            LINE (lsx%, lsy% + 1)-(lex%, ley% + 1), _RGB32(0, 0, 0)
+        END IF
+        LINE (lsx%, lsy%)-(lex%, ley%), preview_color~&
+    END IF
+    ' Draw POLY_LINE preview from last point to mouse cursor
+    IF (CURRENT_TOOL% = TOOL_POLYGON OR CURRENT_TOOL% = TOOL_POLYGON_FILLED) AND POLY_LINE.HAS_LAST AND NOT SCRN.panning% THEN
+        _DEST SCRN.CANVAS&
+        DIM plsx AS INTEGER, plsy AS INTEGER, plex AS INTEGER, pley AS INTEGER
+        plsx% = dx% + INT(POLY_LINE.LAST_X * SCRN.zoom!)
+        plsy% = dy% + INT(POLY_LINE.LAST_Y * SCRN.zoom!)
+        plex% = dx% + INT(MOUSE.X% * SCRN.zoom!)
+        pley% = dy% + INT(MOUSE.Y% * SCRN.zoom!)
+        IF _ALPHA32(PAINT_COLOR~&) = 0 THEN
+            LINE (plsx% - 1, plsy%)-(plex% - 1, pley%), _RGB32(0, 0, 0)
+            LINE (plsx% + 1, plsy%)-(plex% + 1, pley%), _RGB32(0, 0, 0)
+            LINE (plsx%, plsy% - 1)-(plex%, pley% - 1), _RGB32(0, 0, 0)
+            LINE (plsx%, plsy% + 1)-(plex%, pley% + 1), _RGB32(0, 0, 0)
+        END IF
+        LINE (plsx%, plsy%)-(plex%, pley%), preview_color~&
+    END IF
+    ' Draw RECT preview while dragging (converted to zoomed screen coordinates)
+    IF (CURRENT_TOOL% = TOOL_RECT OR CURRENT_TOOL% = TOOL_RECT_FILLED) AND RECT_TOOL.DRAGGING AND NOT SCRN.panning% THEN
+        _DEST SCRN.CANVAS&
+        DIM rsx AS INTEGER, rsy AS INTEGER, rex AS INTEGER, rey AS INTEGER
+        rsx% = dx% + INT(RECT_TOOL.START_X * SCRN.zoom!)
+        rsy% = dy% + INT(RECT_TOOL.START_Y * SCRN.zoom!)
+        rex% = dx% + INT(RECT_TOOL.END_X * SCRN.zoom!)
+        rey% = dy% + INT(RECT_TOOL.END_Y * SCRN.zoom!)
+
+        IF _ALPHA32(PAINT_COLOR~&) = 0 THEN
+            IF RECT_TOOL.FILLED THEN
+                LINE (rsx% - 1, rsy% - 1)-(rex% + 1, rey% + 1), _RGB32(0, 0, 0), B
+            ELSE
+                LINE (rsx% - 1, rsy% - 1)-(rex% + 1, rey% + 1), _RGB32(0, 0, 0), B
+                LINE (rsx% + 1, rsy% + 1)-(rex% - 1, rey% - 1), _RGB32(0, 0, 0), B
+            END IF
+        END IF
+
+        IF RECT_TOOL.FILLED THEN
+            LINE (rsx%, rsy%)-(rex%, rey%), preview_color~&, BF
+        ELSE
+            LINE (rsx%, rsy%)-(rex%, rey%), preview_color~&, B
+        END IF
+
+        ' Draw symmetry rectangles
+        IF SYMMETRY.MODE > 0 THEN
+            DIM rect_sx(0 TO 7) AS INTEGER, rect_sy(0 TO 7) AS INTEGER
+            DIM rect_ex(0 TO 7) AS INTEGER, rect_ey(0 TO 7) AS INTEGER
+            DIM rect_count AS INTEGER, rect_i AS INTEGER
+            SYMMETRY_get_mirrored_points RECT_TOOL.START_X, RECT_TOOL.START_Y, rect_sx%(), rect_sy%(), rect_count%
+            SYMMETRY_get_mirrored_points RECT_TOOL.END_X, RECT_TOOL.END_Y, rect_ex%(), rect_ey%(), rect_count%
+
+            FOR rect_i% = 0 TO rect_count% - 1
+                DIM rect_rsx AS INTEGER, rect_rsy AS INTEGER, rect_rex AS INTEGER, rect_rey AS INTEGER
+                rect_rsx% = dx% + INT(rect_sx%(rect_i%) * SCRN.zoom!)
+                rect_rsy% = dy% + INT(rect_sy%(rect_i%) * SCRN.zoom!)
+                rect_rex% = dx% + INT(rect_ex%(rect_i%) * SCRN.zoom!)
+                rect_rey% = dy% + INT(rect_ey%(rect_i%) * SCRN.zoom!)
+                IF RECT_TOOL.FILLED THEN
+                    LINE (rect_rsx%, rect_rsy%)-(rect_rex%, rect_rey%), preview_color~&, BF
+                ELSE
+                    LINE (rect_rsx%, rect_rsy%)-(rect_rex%, rect_rey%), preview_color~&, B
+                END IF
+            NEXT rect_i%
+        END IF
+    END IF
+    ' Draw ELLIPSE preview while dragging (converted to zoomed screen coordinates)
+    IF (CURRENT_TOOL% = TOOL_ELLIPSE OR CURRENT_TOOL% = TOOL_ELLIPSE_FILLED) AND ELLIPSE_TOOL.DRAGGING AND NOT SCRN.panning% THEN
+        DIM pcx AS INTEGER, pcy AS INTEGER, prx AS SINGLE, pry AS SINGLE, pasp AS SINGLE
+        DIM esx AS INTEGER, esy AS INTEGER, eex AS INTEGER, eey AS INTEGER
+        DIM prev_blend AS LONG
+        esx% = dx% + INT(ELLIPSE_TOOL.START_X * SCRN.zoom!)
+        esy% = dy% + INT(ELLIPSE_TOOL.START_Y * SCRN.zoom!)
+        eex% = dx% + INT(ELLIPSE_TOOL.END_X * SCRN.zoom!)
+        eey% = dy% + INT(ELLIPSE_TOOL.END_Y * SCRN.zoom!)
+        pcx% = (esx% + eex%) \ 2
+        pcy% = (esy% + eey%) \ 2
+        prx! = ABS(eex% - esx%) / 2
+        pry! = ABS(eey% - esy%) / 2
+        IF prx! > 0 THEN pasp! = pry! / prx! ELSE pasp! = 1
+
+        prev_blend& = _BLEND(SCRN.CANVAS&)
+
+        _DEST SCRN.CANVAS&
+        IF prx! > 0 THEN
+            IF _ALPHA32(PAINT_COLOR~&) = 0 THEN
+                CIRCLE (pcx%, pcy%), prx! + 1, _RGB32(0, 0, 0), , , pasp!
+            END IF
+
+            IF ELLIPSE_TOOL.FILLED THEN
+                DIM preview_temp AS LONG
+                DIM preview_w AS INTEGER, preview_h AS INTEGER
+                DIM temp_cx AS INTEGER, temp_cy AS INTEGER
+                preview_w% = INT(prx! * 2 + 4)
+                preview_h% = INT(pry! * 2 + 4)
+                preview_temp& = _NEWIMAGE(preview_w%, preview_h%, 32)
+                _DEST preview_temp&
+                CLS , _RGBA32(0, 0, 0, 0)
+                _CLEARCOLOR _RGBA32(0, 0, 0, 0), preview_temp&
+                temp_cx% = preview_w% \ 2
+                temp_cy% = preview_h% \ 2
+                CIRCLE (temp_cx%, temp_cy%), prx!, preview_color~&, , , pasp!
+                PAINT (temp_cx%, temp_cy%), preview_color~&, preview_color~&
+                _DEST SCRN.CANVAS&
+                _BLEND SCRN.CANVAS&
+                _PUTIMAGE (pcx% - temp_cx%, pcy% - temp_cy%), preview_temp&, SCRN.CANVAS&
+                IF preview_temp& < -1 THEN _FREEIMAGE preview_temp&
+            ELSE
+                CIRCLE (pcx%, pcy%), prx!, preview_color~&, , , pasp!
+            END IF
+
+            ' Draw symmetry ellipses
+            IF SYMMETRY.MODE > 0 THEN
+                DIM ell_csx(0 TO 7) AS INTEGER, ell_csy(0 TO 7) AS INTEGER
+                DIM ell_count AS INTEGER, ell_i AS INTEGER
+                DIM ell_cx AS INTEGER, ell_cy AS INTEGER
+                ell_cx% = (ELLIPSE_TOOL.START_X + ELLIPSE_TOOL.END_X) \ 2
+                ell_cy% = (ELLIPSE_TOOL.START_Y + ELLIPSE_TOOL.END_Y) \ 2
+                SYMMETRY_get_mirrored_points ell_cx%, ell_cy%, ell_csx%(), ell_csy%(), ell_count%
+
+                FOR ell_i% = 0 TO ell_count% - 1
+                    DIM ell_scx AS INTEGER, ell_scy AS INTEGER
+                    ell_scx% = dx% + INT(ell_csx%(ell_i%) * SCRN.zoom!)
+                    ell_scy% = dy% + INT(ell_csy%(ell_i%) * SCRN.zoom!)
+                    IF ELLIPSE_TOOL.FILLED THEN
+                        preview_temp& = _NEWIMAGE(preview_w%, preview_h%, 32)
+                        _DEST preview_temp&
+                        CLS , _RGBA32(0, 0, 0, 0)
+                        _CLEARCOLOR _RGBA32(0, 0, 0, 0), preview_temp&
+                        CIRCLE (temp_cx%, temp_cy%), prx!, preview_color~&, , , pasp!
+                        PAINT (temp_cx%, temp_cy%), preview_color~&, preview_color~&
+                        _DEST SCRN.CANVAS&
+                        _BLEND SCRN.CANVAS&
+                        _PUTIMAGE (ell_scx% - temp_cx%, ell_scy% - temp_cy%), preview_temp&, SCRN.CANVAS&
+                        IF preview_temp& < -1 THEN _FREEIMAGE preview_temp&
+                    ELSE
+                        _DEST SCRN.CANVAS&
+                        CIRCLE (ell_scx%, ell_scy%), prx!, preview_color~&, , , pasp!
+                    END IF
+                NEXT ell_i%
+            END IF
+        END IF
+
+        _DEST SCRN.CANVAS&
+        IF prev_blend& = 0 THEN _DONTBLEND SCRN.CANVAS&
+    END IF
+END SUB
+
+
+''
+' Render selection overlay (marching ants) after scene cache save.
+' Drawn every active frame regardless of SCENE_DIRTY since ants animate.
+'
+SUB RENDER_selection_overlay ()
+    IF SELECTION_has_active% THEN
+        IF MARQUEE.WAND_HAS_SELECTION AND MARQUEE.SELECTION_MASK < -1 THEN
+            _DEST SCRN.CANVAS&
+            MAGIC_WAND_draw_outline
+        ELSEIF MARQUEE.ACTIVE% AND MARQUEE.USER_CREATED THEN
+            IF MARQUEE.DRAGGING% AND MARQUEE.SELECTION_MODE <> SEL_MODE_REPLACE THEN
+                _DEST SCRN.CANVAS&
+                MARQUEE_draw_existing_box TRUE
+            ELSE
+                _DEST SCRN.CANVAS&
+                MARQUEE_draw TRUE
+            END IF
+        END IF
+    END IF
+END SUB
+
+
+''
+' Render crosshair overlay and command palette.
+' Crosshair shown when SHIFT held (without CTRL/ALT), not over UI, not in text mode.
+'
+SUB RENDER_crosshair_and_command_palette ()
+    DIM shiftHeld AS INTEGER, ctrlHeld AS INTEGER, altHeld AS INTEGER
+    shiftHeld% = (_KEYDOWN(KEY_LSHIFT&) OR _KEYDOWN(KEY_RSHIFT&))
+    ctrlHeld% = (_KEYDOWN(100305) OR _KEYDOWN(100306))
+    $IF MAC THEN
+        altHeld% = MAC_ALT_HELD%
+    $ELSE
+        altHeld% = (_KEYDOWN(KEY_LALT&) OR _KEYDOWN(KEY_RALT&))
+    $END IF
+
+    ' Check if mouse is over any UI element (suppress crosshair over all UI)
+    DIM crosshairOverUI AS INTEGER
+    crosshairOverUI% = FALSE
+    DIM cmx AS INTEGER, cmy AS INTEGER
+    cmx% = _MOUSEX: cmy% = _MOUSEY
+    IF SCRN.showToolbar% AND TOOLBAR_is_over_area%(cmx%, cmy%) THEN crosshairOverUI% = TRUE
+    IF NOT crosshairOverUI% AND LAYER_PANEL.visible% AND cmx% < CFG.LAYER_PANEL_WIDTH% THEN crosshairOverUI% = TRUE
+    IF NOT crosshairOverUI% AND SCRN.showMenubar% AND MENU_BAR.visible% THEN
+        IF (cmy% < MENU_BAR_HEIGHT AND cmx% >= MENU_BAR.barX%) OR MENUBAR_submenu_in_bounds%(cmx%, cmy%) THEN
+            crosshairOverUI% = TRUE
+        END IF
+    END IF
+    IF NOT crosshairOverUI% AND SCRN.showStatus% THEN
+        DIM ch_strip_top AS INTEGER
+        ch_strip_top% = SCRN.h& - THEME.STATUS_height% - PALETTE_STRIP_get_height%
+        IF cmy% >= ch_strip_top% THEN crosshairOverUI% = TRUE
+    END IF
+    IF NOT crosshairOverUI% AND PALETTE_MENU_VISIBLE% THEN crosshairOverUI% = TRUE
+
+    IF shiftHeld% AND NOT ctrlHeld% AND NOT altHeld% AND CURRENT_TOOL% <> TOOL_TEXT AND NOT MENUBAR_is_open% AND NOT crosshairOverUI% THEN
+        CROSSHAIR_render PAL_color(THEME.CROSSHAIR_fg%)
+    END IF
+
+    ' Command palette on top of everything except cursor
+    IF CMD_PALETTE.visible THEN
+        CMD_render SCRN.CANVAS&
+    END IF
+END SUB
+
+
+''
+' Render GUI elements (toolbar, status bar, palette strip, layer panel, menu bar).
+' Only redraws when GUI_NEEDS_REDRAW% is TRUE.
+'
+SUB RENDER_gui_elements ()
+    IF GUI_NEEDS_REDRAW% THEN
+        _DEST SCRN.GUI&
+        CLS , _RGBA32(0, 0, 0, 0)
+
+        IF SCRN.showToolbar% THEN
+            TOOLBAR_render 0, 0, 20
+        END IF
+        IF SCRN.showStatus% THEN
+            PALETTE_STRIP_render
+            STATUS_render
+        END IF
+
+        IF LAYER_PANEL.visible% THEN
+            LAYER_PANEL_render SCRN.h&
+        END IF
+
+        ' Menu bar renders LAST so submenus overlay other widgets
+        IF SCRN.showMenubar% AND MENU_BAR.visible% THEN
+            MENUBAR_render
+        END IF
+    END IF
+
+    _DEST SCRN.CANVAS&
+END SUB
+
+
+''
 ' Draws screen
 ' 
 SUB SCREEN_render ()
@@ -427,31 +1024,7 @@ SUB SCREEN_render ()
     
     ' Clear GUI layer and render toolbar/status conditionally
     ' Only redraw GUI elements when GUI_NEEDS_REDRAW is TRUE (optimization)
-    IF GUI_NEEDS_REDRAW% THEN
-        _DEST SCRN.GUI&
-        CLS , _RGBA32(0, 0, 0, 0) ' Clear with transparency
-        
-        IF SCRN.showToolbar% THEN
-            TOOLBAR_render 0, 0, 20  ' 3x7 layout: 21 buttons (0-20)
-        END IF
-        IF SCRN.showStatus% THEN 
-            PALETTE_STRIP_render
-            STATUS_render
-        END IF
-        
-        ' Render layer panel if visible
-        IF LAYER_PANEL.visible% THEN
-            LAYER_PANEL_render SCRN.h&
-        END IF
-
-        ' Menu bar renders LAST so submenus overlay other widgets
-        IF SCRN.showMenubar% AND MENU_BAR.visible% THEN
-            MENUBAR_render
-        END IF
-    END IF
-    
-    ' Switch back to canvas for main rendering
-    _DEST SCRN.CANVAS&
+    RENDER_gui_elements
     PERF_stop PERF_FULL_CLS_GUI
     
     ' Calculate zoomed dimensions and position (using logical canvas dimensions)
@@ -478,274 +1051,12 @@ SUB SCREEN_render ()
     
     ' Render all visible layers with zoom, compositing bottom-to-top
     PERF_start PERF_FULL_LAYERS
-    _DEST SCRN.CANVAS&
-    _BLEND SCRN.CANVAS&
-    
-    IF LAYER_COUNT% > 0 THEN
-        ' Composite layers by zIndex (bottom to top)
-        DIM layerI AS INTEGER
-        DIM layerFound AS INTEGER
-        DIM useComposite AS INTEGER
-        DIM compositeImg AS LONG
-
-        ' Check if we need per-pixel blending (any non-Normal blend mode)
-        useComposite% = BLEND_needs_composite%
-
-        ' Rebuild render order lookup table if dirty
-        IF RENDER_ORDER_DIRTY% THEN RENDER_ORDER_rebuild
-
-        ' Start index for layer loop (1 = full composite, >1 = partial cache hit)
-        DIM compositeStartIdx AS INTEGER
-        DIM savePartialCache AS INTEGER
-        compositeStartIdx% = 1
-        savePartialCache% = FALSE
-
-        IF useComposite% THEN
-            ' Reuse persistent composite buffer (avoid _NEWIMAGE/_FREEIMAGE every frame)
-            IF COMPOSITE_BUFFER& = 0 OR _
-               COMPOSITE_BUFFER_W& <> SCRN.w& OR _
-               COMPOSITE_BUFFER_H& <> SCRN.h& THEN
-                IF COMPOSITE_BUFFER& < -1 THEN _FREEIMAGE COMPOSITE_BUFFER&
-                COMPOSITE_BUFFER& = _NEWIMAGE(SCRN.w&, SCRN.h&, 32)
-                COMPOSITE_BUFFER_W& = SCRN.w&
-                COMPOSITE_BUFFER_H& = SCRN.h&
-            END IF
-            compositeImg& = COMPOSITE_BUFFER&
-
-            ' --- Partial composite cache: skip layers below current when only current changes ---
-            DIM currentRenderIdx AS INTEGER
-            DIM cri AS INTEGER
-            currentRenderIdx% = 0
-            FOR cri% = 1 TO RENDER_ORDER_COUNT%
-                IF RENDER_ORDER%(cri%) = CURRENT_LAYER% THEN
-                    currentRenderIdx% = cri%
-                    EXIT FOR
-                END IF
-            NEXT cri%
-
-            DIM compOldDest AS LONG
-            compOldDest& = _DEST
-
-            IF currentRenderIdx% > 1 AND COMPOSITE_BELOW_VALID% AND _
-               COMPOSITE_BELOW_LAYER% = CURRENT_LAYER% AND _
-               COMPOSITE_BELOW_CACHE& <> 0 THEN
-                ' Partial cache hit — restore composite of layers below current
-                _DEST compositeImg&
-                _DONTBLEND compositeImg&
-                _PUTIMAGE , COMPOSITE_BELOW_CACHE&, compositeImg&
-                _BLEND compositeImg&
-                _DEST compOldDest&
-                compositeStartIdx% = currentRenderIdx%
-            ELSE
-                ' Full composite — clear buffer
-                _DEST compositeImg&
-                _DONTBLEND compositeImg&
-                CLS , _RGBA32(0, 0, 0, 0)
-                _BLEND compositeImg&
-                _DEST compOldDest&
-                ' Schedule partial cache save if current layer isn't the bottommost
-                IF currentRenderIdx% > 1 THEN savePartialCache% = TRUE
-            END IF
-        END IF
-        
-        FOR layerI% = compositeStartIdx% TO RENDER_ORDER_COUNT%
-            layerFound% = RENDER_ORDER%(layerI%)
-            
-            IF layerFound% > 0 THEN
-                IF LAYERS(layerFound%).visible% THEN
-                ' Determine which image to render for this layer
-                ' If MOVE tool is active on this layer, use the preview buffer instead
-                DIM layerRenderSource AS LONG
-                DIM useMoveBuf AS INTEGER
-                useMoveBuf% = FALSE
-                IF CURRENT_TOOL% = TOOL_MOVE AND MOVE.ACTIVE AND layerFound% = CURRENT_LAYER% THEN
-                    layerRenderSource& = MOVE_get_preview_buffer&
-                    IF layerRenderSource& = 0 THEN
-                        layerRenderSource& = LAYERS(layerFound%).imgHandle&
-                    ELSE
-                        useMoveBuf% = TRUE
-                    END IF
-                ELSE
-                    layerRenderSource& = LAYERS(layerFound%).imgHandle&
-                END IF
-                
-                ' Get opacity-adjusted image (cached when possible)
-                DIM opacityImg AS LONG
-                DIM layerOpacityI AS INTEGER
-                layerOpacityI% = LAYERS(layerFound%).opacity%
-                IF layerOpacityI% < 255 AND NOT useMoveBuf% THEN
-                    ' Check if opacity cache is valid
-                    IF LAYERS(layerFound%).opacityCacheImg& <> 0 AND _
-                       LAYERS(layerFound%).opacityCacheVal% = layerOpacityI% AND _
-                       NOT LAYERS(layerFound%).contentDirty% THEN
-                        ' Cache hit — use cached opacity image
-                        opacityImg& = LAYERS(layerFound%).opacityCacheImg&
-                    ELSE
-                        ' Cache miss — rebuild opacity image
-                        IF LAYERS(layerFound%).opacityCacheImg& = 0 THEN
-                            LAYERS(layerFound%).opacityCacheImg& = _NEWIMAGE(SCRN.w&, SCRN.h&, 32)
-                        END IF
-                        ' Copy source to cache and apply opacity
-                        _DEST LAYERS(layerFound%).opacityCacheImg&
-                        _DONTBLEND LAYERS(layerFound%).opacityCacheImg&
-                        _PUTIMAGE , layerRenderSource&, LAYERS(layerFound%).opacityCacheImg&
-                        _BLEND LAYERS(layerFound%).opacityCacheImg&
-                        DIM layerMem AS _MEM
-                        layerMem = _MEMIMAGE(LAYERS(layerFound%).opacityCacheImg&)
-                        DIM pixOffset AS _OFFSET
-                        DIM pixVal AS _UNSIGNED LONG
-                        DIM pixAlpha AS _UNSIGNED _BYTE
-                        DIM newAlpha AS INTEGER
-                        FOR pixOffset = layerMem.OFFSET TO layerMem.OFFSET + layerMem.SIZE - 4 STEP 4
-                            _MEMGET layerMem, pixOffset, pixVal~&
-                            pixAlpha~%% = _ALPHA32(pixVal~&)
-                            IF pixAlpha~%% > 0 THEN
-                                newAlpha% = (pixAlpha~%% * layerOpacityI%) \ 255
-                                _MEMPUT layerMem, pixOffset + 3, newAlpha% AS _UNSIGNED _BYTE
-                            END IF
-                        NEXT pixOffset
-                        _MEMFREE layerMem
-                        _DEST SCRN.CANVAS&
-                        LAYERS(layerFound%).opacityCacheVal% = layerOpacityI%
-                        LAYERS(layerFound%).contentDirty% = FALSE
-                        opacityImg& = LAYERS(layerFound%).opacityCacheImg&
-                    END IF
-                ELSEIF layerOpacityI% < 255 AND useMoveBuf% THEN
-                    ' Move preview — can't cache, build temp copy
-                    opacityImg& = _COPYIMAGE(layerRenderSource&, 32)
-                    layerMem = _MEMIMAGE(opacityImg&)
-                    FOR pixOffset = layerMem.OFFSET TO layerMem.OFFSET + layerMem.SIZE - 4 STEP 4
-                        _MEMGET layerMem, pixOffset, pixVal~&
-                        pixAlpha~%% = _ALPHA32(pixVal~&)
-                        IF pixAlpha~%% > 0 THEN
-                            newAlpha% = (pixAlpha~%% * layerOpacityI%) \ 255
-                            _MEMPUT layerMem, pixOffset + 3, newAlpha% AS _UNSIGNED _BYTE
-                        END IF
-                    NEXT pixOffset
-                    _MEMFREE layerMem
-                ELSE
-                    opacityImg& = 0 ' No opacity adjustment needed
-                END IF
-                
-                ' Render the layer (using opacityImg if available, else layerRenderSource)
-                DIM renderImg AS LONG
-                IF opacityImg& <> 0 THEN
-                    renderImg& = opacityImg&
-                ELSE
-                    renderImg& = layerRenderSource&
-                END IF
-                
-                IF useComposite% THEN
-                    ' --- Composite buffer path (blend modes) ---
-                    IF LAYERS(layerFound%).blendMode% = BLEND_NORMAL THEN
-                        _DEST compositeImg&
-                        _PUTIMAGE , renderImg&
-                        _DEST SCRN.CANVAS&
-                    ELSE
-                        ' Non-Normal blend: pass ORIGINAL image — blend function handles opacity
-                        LAYER_blend_composite compositeImg&, layerRenderSource&, LAYERS(layerFound%).blendMode%, LAYERS(layerFound%).opacity%
-                    END IF
-                ELSE
-                    ' --- Fast path (all Normal blend) ---
-                    _PUTIMAGE (dx%, dy%)-(dx% + zw& - 1, dy% + zh& - 1), renderImg&
-                END IF
-                
-                ' Free temp image if we made one for move preview
-                IF useMoveBuf% AND opacityImg& <> 0 THEN
-                    IF opacityImg& < -1 THEN _FREEIMAGE opacityImg&
-                END IF
-                END IF  ' visible%
-            END IF  ' layerFound% > 0
-
-            ' Save partial composite cache at boundary just below current layer
-            IF savePartialCache% AND layerI% = currentRenderIdx% - 1 THEN
-                IF COMPOSITE_BELOW_CACHE& = 0 OR _
-                   _WIDTH(COMPOSITE_BELOW_CACHE&) <> SCRN.w& OR _
-                   _HEIGHT(COMPOSITE_BELOW_CACHE&) <> SCRN.h& THEN
-                    IF COMPOSITE_BELOW_CACHE& < -1 THEN _FREEIMAGE COMPOSITE_BELOW_CACHE&
-                    COMPOSITE_BELOW_CACHE& = _NEWIMAGE(SCRN.w&, SCRN.h&, 32)
-                END IF
-                DIM pcOldDest AS LONG
-                pcOldDest& = _DEST
-                _DEST COMPOSITE_BELOW_CACHE&
-                _DONTBLEND COMPOSITE_BELOW_CACHE&
-                _PUTIMAGE , compositeImg&, COMPOSITE_BELOW_CACHE&
-                _BLEND COMPOSITE_BELOW_CACHE&
-                _DEST pcOldDest&
-                COMPOSITE_BELOW_LAYER% = CURRENT_LAYER%
-                COMPOSITE_BELOW_VALID% = TRUE
-                savePartialCache% = FALSE
-            END IF
-        NEXT layerI%
-
-        ' If using composite, render the final composite to canvas with zoom
-        IF useComposite% THEN
-            _PUTIMAGE (dx%, dy%)-(dx% + zw& - 1, dy% + zh& - 1), compositeImg&, SCRN.CANVAS&
-            ' compositeImg& is persistent (COMPOSITE_BUFFER&), do NOT free it
-        END IF
-    ELSE
-        ' Fallback: Use SCRN.PAINTING if no layers exist yet (legacy support)
-        DIM paint_source AS LONG
-        paint_source& = MOVE_get_preview_buffer&
-        IF paint_source& <> 0 THEN
-            ' Use preview buffer showing move transform in realtime
-            _SOURCE paint_source&
-            _PUTIMAGE (dx%, dy%)-(dx% + zw& - 1, dy% + zh& - 1), paint_source&
-        ELSE
-            ' Normal painting layer render
-            _SOURCE SCRN.PAINTING&
-            _PUTIMAGE (dx%, dy%)-(dx% + zw& - 1, dy% + zh& - 1), SCRN.PAINTING&
-        END IF
-    END IF
+    RENDER_layers dx%, dy%, zw&, zh&
     PERF_stop PERF_FULL_LAYERS
     
     ' Draw grid overlays (after painting, before border/GUI)
     PERF_start PERF_FULL_GRIDS
-    IF GRID.SHOW% AND SCRN.zoom! >= 1.0 THEN
-        _DEST SCRN.CANVAS&
-        _SOURCE GRID.imgHandle&
-        _BLEND SCRN.CANVAS&
-        _PUTIMAGE (dx%, dy%)-(dx% + zw& - 1, dy% + zh& - 1), GRID.imgHandle&, SCRN.CANVAS&
-    END IF
-    ' Pixel grid shows at 400%+ zoom if enabled (on top of regular grid)
-    IF PIXEL_GRID.SHOW% AND SCRN.zoom! >= 4.0 THEN
-        DIM pgx AS INTEGER, pgy AS INTEGER
-        DIM pzoom AS INTEGER
-        DIM pgColor AS _UNSIGNED LONG
-        pzoom% = INT(SCRN.zoom!)
-        pgColor~& = _RGB32(_RED32(THEME.PIXEL_GRID_color1~&), _GREEN32(THEME.PIXEL_GRID_color1~&), _BLUE32(THEME.PIXEL_GRID_color1~&))
-        
-        ' Reuse cached pixel grid image if zoom/size/color unchanged
-        IF PG_CACHE_IMG& = 0 OR _
-           PG_CACHE_ZW& <> zw& OR _
-           PG_CACHE_ZH& <> zh& OR _
-           PG_CACHE_ZOOM% <> pzoom% OR _
-           PG_CACHE_COLOR~& <> pgColor~& THEN
-            ' Cache miss — rebuild pixel grid image
-            IF PG_CACHE_IMG& < -1 THEN _FREEIMAGE PG_CACHE_IMG&
-            PG_CACHE_IMG& = _NEWIMAGE(zw& + 1, zh& + 1, 32)
-            PG_CACHE_ZW& = zw&
-            PG_CACHE_ZH& = zh&
-            PG_CACHE_ZOOM% = pzoom%
-            PG_CACHE_COLOR~& = pgColor~&
-            _DEST PG_CACHE_IMG&
-            CLS , _RGBA32(0, 0, 0, 0)
-            ' Draw vertical lines between each pixel column
-            FOR pgx% = 0 TO SCRN.w&
-                LINE (pgx% * pzoom%, 0)-(pgx% * pzoom%, zh&), pgColor~&
-            NEXT pgx%
-            ' Draw horizontal lines between each pixel row
-            FOR pgy% = 0 TO SCRN.h&
-                LINE (0, pgy% * pzoom%)-(zw&, pgy% * pzoom%), pgColor~&
-            NEXT pgy%
-            ' Apply 25% opacity globally to all drawn pixels (alpha 64)
-            _SETALPHA 64, pgColor~& TO pgColor~&, PG_CACHE_IMG&
-        END IF
-        ' Composite cached pixel grid onto canvas
-        _DEST SCRN.CANVAS&
-        _BLEND SCRN.CANVAS&
-        _PUTIMAGE (dx%, dy%), PG_CACHE_IMG&
-    END IF
+    RENDER_grids dx%, dy%, zw&, zh&
     PERF_stop PERF_FULL_GRIDS
     
     ' Draw symmetry guide overlay (after grids, before border/GUI)
@@ -779,228 +1090,7 @@ SUB SCREEN_render ()
     
     ' ==== TOOL PREVIEWS (BEFORE GUI LAYER) ====
     PERF_start PERF_FULL_TOOL_PREVIEW
-    ' NOTE: Selection marching ants rendering moved AFTER scene cache save
-    ' (SkipToPointer section) so animated ants don't force full scene re-render.
-    ' Draw MARQUEE dragging preview (only when using marquee tool)
-    ' Show preview when dragging - uses dedicated function for clarity
-    IF CURRENT_TOOL% = TOOL_MARQUEE AND MARQUEE.DRAGGING% THEN
-        MARQUEE_draw_drag_preview
-    END IF
-    ' Draw MOVE transform preview if active
-    IF CURRENT_TOOL% = TOOL_MOVE AND MOVE.ACTIVE THEN
-        _DEST SCRN.CANVAS&
-        MOVE_render_preview SCRN.CANVAS&
-        ' Only draw marquee handles if this was a user-created selection (not full-layer move)
-        IF MARQUEE.USER_CREATED THEN
-            MARQUEE_draw TRUE
-        END IF
-    END IF
-    ' Draw TEXT preview if editing
-    IF CURRENT_TOOL% = TOOL_TEXT AND TEXT.ACTIVE THEN
-        _DEST SCRN.CANVAS&
-        TEXT_render_preview SCRN.CANVAS&, dx%, dy%, SCRN.zoom!
-    END IF
-    ' Draw ZOOM drag-to-region preview rectangle
-    IF CURRENT_TOOL% = TOOL_ZOOM AND ZOOM.DRAGGING THEN
-        DIM zx1 AS INTEGER, zy1 AS INTEGER, zx2 AS INTEGER, zy2 AS INTEGER
-        zx1% = ZOOM.START_X: zy1% = ZOOM.START_Y
-        zx2% = ZOOM.END_X: zy2% = ZOOM.END_Y
-        DIM zDragDist AS INTEGER
-        zDragDist% = ABS(zx2% - zx1%) + ABS(zy2% - zy1%)
-        IF zDragDist% >= 8 THEN
-            _DEST SCRN.CANVAS&
-            ' Draw semi-transparent fill
-            LINE (zx1%, zy1%)-(zx2%, zy2%), _RGBA32(255, 255, 255, 40), BF
-            ' Draw white dashed border
-            LINE (zx1%, zy1%)-(zx2%, zy2%), _RGB32(255, 255, 255), B
-            ' Draw black border offset for contrast
-            LINE (zx1% - 1, zy1% - 1)-(zx2% + 1, zy2% + 1), _RGB32(0, 0, 0), B
-        END IF
-    END IF
-    ' Determine preview color - use white with black outline effect for transparent
-    DIM preview_color AS _UNSIGNED LONG
-    IF _ALPHA32(PAINT_COLOR~&) = 0 THEN
-        ' Transparent mode: use alternating white/gray dashed pattern or solid white
-        preview_color~& = _RGB32(255, 255, 255)
-    ELSE
-        preview_color~& = PAINT_COLOR~&
-    END IF
-    
-    ' Draw LINE preview while dragging (converted to zoomed screen coordinates)
-    ' Skip when panning to avoid stale line rendering
-    IF CURRENT_TOOL% = TOOL_LINE AND LINE_TOOL.DRAGGING AND NOT SCRN.panning% THEN
-        _DEST SCRN.CANVAS&
-        DIM lsx AS INTEGER, lsy AS INTEGER, lex AS INTEGER, ley AS INTEGER
-        lsx% = dx% + INT(LINE_TOOL.START_X * SCRN.zoom!)
-        lsy% = dy% + INT(LINE_TOOL.START_Y * SCRN.zoom!)
-        lex% = dx% + INT(LINE_TOOL.END_X * SCRN.zoom!)
-        ley% = dy% + INT(LINE_TOOL.END_Y * SCRN.zoom!)
-        ' Draw black outline for visibility when transparent
-        IF _ALPHA32(PAINT_COLOR~&) = 0 THEN
-            LINE (lsx% - 1, lsy%)-(lex% - 1, ley%), _RGB32(0, 0, 0)
-            LINE (lsx% + 1, lsy%)-(lex% + 1, ley%), _RGB32(0, 0, 0)
-            LINE (lsx%, lsy% - 1)-(lex%, ley% - 1), _RGB32(0, 0, 0)
-            LINE (lsx%, lsy% + 1)-(lex%, ley% + 1), _RGB32(0, 0, 0)
-        END IF
-        LINE (lsx%, lsy%)-(lex%, ley%), preview_color~&
-    END IF
-    ' Draw POLY_LINE preview from last point to mouse cursor (converted to zoomed screen coordinates)
-    ' Skip when panning to avoid stale line rendering
-    IF (CURRENT_TOOL% = TOOL_POLYGON OR CURRENT_TOOL% = TOOL_POLYGON_FILLED) AND POLY_LINE.HAS_LAST AND NOT SCRN.panning% THEN
-        _DEST SCRN.CANVAS&
-        DIM plsx AS INTEGER, plsy AS INTEGER, plex AS INTEGER, pley AS INTEGER
-        plsx% = dx% + INT(POLY_LINE.LAST_X * SCRN.zoom!)
-        plsy% = dy% + INT(POLY_LINE.LAST_Y * SCRN.zoom!)
-        plex% = dx% + INT(MOUSE.X% * SCRN.zoom!)
-        pley% = dy% + INT(MOUSE.Y% * SCRN.zoom!)
-        ' Draw black outline for visibility when transparent
-        IF _ALPHA32(PAINT_COLOR~&) = 0 THEN
-            LINE (plsx% - 1, plsy%)-(plex% - 1, pley%), _RGB32(0, 0, 0)
-            LINE (plsx% + 1, plsy%)-(plex% + 1, pley%), _RGB32(0, 0, 0)
-            LINE (plsx%, plsy% - 1)-(plex%, pley% - 1), _RGB32(0, 0, 0)
-            LINE (plsx%, plsy% + 1)-(plex%, pley% + 1), _RGB32(0, 0, 0)
-        END IF
-        LINE (plsx%, plsy%)-(plex%, pley%), preview_color~&
-    END IF
-    ' Draw RECT preview while dragging (converted to zoomed screen coordinates)
-    ' Skip when panning to avoid stale preview rendering
-    IF (CURRENT_TOOL% = TOOL_RECT OR CURRENT_TOOL% = TOOL_RECT_FILLED) AND RECT_TOOL.DRAGGING AND NOT SCRN.panning% THEN
-        _DEST SCRN.CANVAS&
-        DIM rsx AS INTEGER, rsy AS INTEGER, rex AS INTEGER, rey AS INTEGER
-        rsx% = dx% + INT(RECT_TOOL.START_X * SCRN.zoom!)
-        rsy% = dy% + INT(RECT_TOOL.START_Y * SCRN.zoom!)
-        rex% = dx% + INT(RECT_TOOL.END_X * SCRN.zoom!)
-        rey% = dy% + INT(RECT_TOOL.END_Y * SCRN.zoom!)
-        
-        ' Draw black outline for visibility when transparent
-        IF _ALPHA32(PAINT_COLOR~&) = 0 THEN
-            IF RECT_TOOL.FILLED THEN
-                LINE (rsx% - 1, rsy% - 1)-(rex% + 1, rey% + 1), _RGB32(0, 0, 0), B
-            ELSE
-                LINE (rsx% - 1, rsy% - 1)-(rex% + 1, rey% + 1), _RGB32(0, 0, 0), B
-                LINE (rsx% + 1, rsy% + 1)-(rex% - 1, rey% - 1), _RGB32(0, 0, 0), B
-            END IF
-        END IF
-        
-        ' Draw master rectangle at full opacity
-        IF RECT_TOOL.FILLED THEN
-            LINE (rsx%, rsy%)-(rex%, rey%), preview_color~&, BF
-        ELSE
-            LINE (rsx%, rsy%)-(rex%, rey%), preview_color~&, B
-        END IF
-        
-        ' Draw symmetry rectangles at full opacity
-        IF SYMMETRY.MODE > 0 THEN
-            DIM rect_sx(0 TO 7) AS INTEGER, rect_sy(0 TO 7) AS INTEGER
-            DIM rect_ex(0 TO 7) AS INTEGER, rect_ey(0 TO 7) AS INTEGER
-            DIM rect_count AS INTEGER, rect_i AS INTEGER
-            SYMMETRY_get_mirrored_points RECT_TOOL.START_X, RECT_TOOL.START_Y, rect_sx%(), rect_sy%(), rect_count%
-            SYMMETRY_get_mirrored_points RECT_TOOL.END_X, RECT_TOOL.END_Y, rect_ex%(), rect_ey%(), rect_count%
-            
-            FOR rect_i% = 0 TO rect_count% - 1
-                DIM rect_rsx AS INTEGER, rect_rsy AS INTEGER, rect_rex AS INTEGER, rect_rey AS INTEGER
-                rect_rsx% = dx% + INT(rect_sx%(rect_i%) * SCRN.zoom!)
-                rect_rsy% = dy% + INT(rect_sy%(rect_i%) * SCRN.zoom!)
-                rect_rex% = dx% + INT(rect_ex%(rect_i%) * SCRN.zoom!)
-                rect_rey% = dy% + INT(rect_ey%(rect_i%) * SCRN.zoom!)
-                IF RECT_TOOL.FILLED THEN
-                    LINE (rect_rsx%, rect_rsy%)-(rect_rex%, rect_rey%), preview_color~&, BF
-                ELSE
-                    LINE (rect_rsx%, rect_rsy%)-(rect_rex%, rect_rey%), preview_color~&, B
-                END IF
-            NEXT rect_i%
-        END IF
-    END IF
-    ' Draw ELLIPSE preview while dragging (converted to zoomed screen coordinates)
-    ' Skip when panning to avoid stale preview rendering
-    IF (CURRENT_TOOL% = TOOL_ELLIPSE OR CURRENT_TOOL% = TOOL_ELLIPSE_FILLED) AND ELLIPSE_TOOL.DRAGGING AND NOT SCRN.panning% THEN
-        DIM pcx AS INTEGER, pcy AS INTEGER, prx AS SINGLE, pry AS SINGLE, pasp AS SINGLE
-        DIM esx AS INTEGER, esy AS INTEGER, eex AS INTEGER, eey AS INTEGER
-        DIM prev_blend AS LONG
-        ' Convert to screen coordinates
-        esx% = dx% + INT(ELLIPSE_TOOL.START_X * SCRN.zoom!)
-        esy% = dy% + INT(ELLIPSE_TOOL.START_Y * SCRN.zoom!)
-        eex% = dx% + INT(ELLIPSE_TOOL.END_X * SCRN.zoom!)
-        eey% = dy% + INT(ELLIPSE_TOOL.END_Y * SCRN.zoom!)
-        pcx% = (esx% + eex%) \ 2
-        pcy% = (esy% + eey%) \ 2
-        prx! = ABS(eex% - esx%) / 2
-        pry! = ABS(eey% - esy%) / 2
-        IF prx! > 0 THEN pasp! = pry! / prx! ELSE pasp! = 1
-        
-        ' Save blend state once before any drawing
-        prev_blend& = _BLEND(SCRN.CANVAS&)
-        
-        _DEST SCRN.CANVAS&
-        IF prx! > 0 THEN
-            ' Draw black outline for visibility when transparent
-            IF _ALPHA32(PAINT_COLOR~&) = 0 THEN
-                CIRCLE (pcx%, pcy%), prx! + 1, _RGB32(0, 0, 0), , , pasp!
-            END IF
-            
-            IF ELLIPSE_TOOL.FILLED THEN
-                ' Draw filled ellipse preview using temp transparent image to avoid PAINT issues
-                DIM preview_temp AS LONG
-                DIM preview_w AS INTEGER, preview_h AS INTEGER
-                DIM temp_cx AS INTEGER, temp_cy AS INTEGER
-                preview_w% = INT(prx! * 2 + 4)
-                preview_h% = INT(pry! * 2 + 4)
-                preview_temp& = _NEWIMAGE(preview_w%, preview_h%, 32)
-                _DEST preview_temp&
-                CLS , _RGBA32(0, 0, 0, 0)
-                _CLEARCOLOR _RGBA32(0, 0, 0, 0), preview_temp&
-                temp_cx% = preview_w% \ 2
-                temp_cy% = preview_h% \ 2
-                CIRCLE (temp_cx%, temp_cy%), prx!, preview_color~&, , , pasp!
-                PAINT (temp_cx%, temp_cy%), preview_color~&, preview_color~&
-                _DEST SCRN.CANVAS&
-                _BLEND SCRN.CANVAS&
-                _PUTIMAGE (pcx% - temp_cx%, pcy% - temp_cy%), preview_temp&, SCRN.CANVAS&
-                IF preview_temp& < -1 THEN _FREEIMAGE preview_temp&
-            ELSE
-                ' Draw ellipse outline
-                CIRCLE (pcx%, pcy%), prx!, preview_color~&, , , pasp!
-            END IF
-            
-            ' Draw symmetry ellipses at full opacity
-            IF SYMMETRY.MODE > 0 THEN
-                DIM ell_csx(0 TO 7) AS INTEGER, ell_csy(0 TO 7) AS INTEGER
-                DIM ell_count AS INTEGER, ell_i AS INTEGER
-                DIM ell_cx AS INTEGER, ell_cy AS INTEGER
-                ell_cx% = (ELLIPSE_TOOL.START_X + ELLIPSE_TOOL.END_X) \ 2
-                ell_cy% = (ELLIPSE_TOOL.START_Y + ELLIPSE_TOOL.END_Y) \ 2
-                SYMMETRY_get_mirrored_points ell_cx%, ell_cy%, ell_csx%(), ell_csy%(), ell_count%
-                
-                FOR ell_i% = 0 TO ell_count% - 1
-                    DIM ell_scx AS INTEGER, ell_scy AS INTEGER
-                    ell_scx% = dx% + INT(ell_csx%(ell_i%) * SCRN.zoom!)
-                    ell_scy% = dy% + INT(ell_csy%(ell_i%) * SCRN.zoom!)
-                    IF ELLIPSE_TOOL.FILLED THEN
-                        ' Filled symmetry ellipse
-                        preview_temp& = _NEWIMAGE(preview_w%, preview_h%, 32)
-                        _DEST preview_temp&
-                        CLS , _RGBA32(0, 0, 0, 0)
-                        _CLEARCOLOR _RGBA32(0, 0, 0, 0), preview_temp&
-                        CIRCLE (temp_cx%, temp_cy%), prx!, preview_color~&, , , pasp!
-                        PAINT (temp_cx%, temp_cy%), preview_color~&, preview_color~&
-                        _DEST SCRN.CANVAS&
-                        _BLEND SCRN.CANVAS&
-                        _PUTIMAGE (ell_scx% - temp_cx%, ell_scy% - temp_cy%), preview_temp&, SCRN.CANVAS&
-                        IF preview_temp& < -1 THEN _FREEIMAGE preview_temp&
-                    ELSE
-                        ' Outline symmetry ellipse
-                        _DEST SCRN.CANVAS&
-                        CIRCLE (ell_scx%, ell_scy%), prx!, preview_color~&, , , pasp!
-                    END IF
-                NEXT ell_i%
-            END IF
-        END IF
-        
-        ' Restore blend state once at the end
-        _DEST SCRN.CANVAS&
-        IF prev_blend& = 0 THEN _DONTBLEND SCRN.CANVAS&
-    END IF
-    ' ==== END TOOL PREVIEWS ====
+    RENDER_tool_previews dx%, dy%, zw&, zh&
     PERF_stop PERF_FULL_TOOL_PREVIEW
     
     ' ==== GUI LAYER (AFTER TOOL PREVIEWS) ====
@@ -1026,43 +1116,7 @@ SUB SCREEN_render ()
     ' Skip when Text tool is active (SHIFT is used for uppercase letters)
     ' Skip when CTRL or ALT are also held (those are modifier combos for other functions)
     PERF_start PERF_FULL_CROSSHAIR_CMD
-    DIM shiftHeld AS INTEGER, ctrlHeld AS INTEGER, altHeld AS INTEGER
-    shiftHeld% = (_KEYDOWN(KEY_LSHIFT&) OR _KEYDOWN(KEY_RSHIFT&))
-    ctrlHeld% = (_KEYDOWN(100305) OR _KEYDOWN(100306))  ' LCTRL or RCTRL
-    $IF MAC THEN
-        altHeld% = MAC_ALT_HELD%
-    $ELSE
-        altHeld% = (_KEYDOWN(KEY_LALT&) OR _KEYDOWN(KEY_RALT&))
-    $END IF
-    
-    ' Check if mouse is over any UI element (suppress crosshair over all UI)
-    DIM crosshairOverUI AS INTEGER
-    crosshairOverUI% = FALSE
-    DIM cmx AS INTEGER, cmy AS INTEGER
-    cmx% = _MOUSEX: cmy% = _MOUSEY
-    IF SCRN.showToolbar% AND TOOLBAR_is_over_area%(cmx%, cmy%) THEN crosshairOverUI% = TRUE
-    IF NOT crosshairOverUI% AND LAYER_PANEL.visible% AND cmx% < CFG.LAYER_PANEL_WIDTH% THEN crosshairOverUI% = TRUE
-    IF NOT crosshairOverUI% AND SCRN.showMenubar% AND MENU_BAR.visible% THEN
-        IF (cmy% < MENU_BAR_HEIGHT AND cmx% >= MENU_BAR.barX%) OR MENUBAR_submenu_in_bounds%(cmx%, cmy%) THEN
-            crosshairOverUI% = TRUE
-        END IF
-    END IF
-    IF NOT crosshairOverUI% AND SCRN.showStatus% THEN
-        DIM ch_strip_top AS INTEGER
-        ch_strip_top% = SCRN.h& - THEME.STATUS_height% - PALETTE_STRIP_get_height%
-        IF cmy% >= ch_strip_top% THEN crosshairOverUI% = TRUE
-    END IF
-    IF NOT crosshairOverUI% AND PALETTE_MENU_VISIBLE% THEN crosshairOverUI% = TRUE
-    
-    IF shiftHeld% AND NOT ctrlHeld% AND NOT altHeld% AND CURRENT_TOOL% <> TOOL_TEXT AND NOT MENUBAR_is_open% AND NOT crosshairOverUI% THEN 
-        CROSSHAIR_render PAL_color(THEME.CROSSHAIR_fg%)
-    END IF
-    
-    ' ==== COMMAND PALETTE (on top of everything except cursor) ====
-    IF CMD_PALETTE.visible THEN
-        CMD_render SCRN.CANVAS&
-    END IF
-    ' ==== END COMMAND PALETTE ====
+    RENDER_crosshair_and_command_palette
     PERF_stop PERF_FULL_CROSSHAIR_CMD
     
     ' Save scene to cache (everything rendered, before cursor)
@@ -1082,22 +1136,7 @@ SUB SCREEN_render ()
     SkipToPointer:
     ' ==== SELECTION OVERLAY (after scene cache, animates without full re-render) ====
     PERF_start PERF_SELECTION_OVERLAY
-    ' Draw MARQUEE selection marching ants if active (from any tool)
-    IF SELECTION_has_active% THEN
-        IF MARQUEE.WAND_HAS_SELECTION AND MARQUEE.SELECTION_MASK < -1 THEN
-            _DEST SCRN.CANVAS&
-            MAGIC_WAND_draw_outline
-        ELSEIF MARQUEE.ACTIVE% AND MARQUEE.USER_CREATED THEN
-            IF MARQUEE.DRAGGING% AND MARQUEE.SELECTION_MODE <> SEL_MODE_REPLACE THEN
-                _DEST SCRN.CANVAS&
-                MARQUEE_draw_existing_box TRUE
-            ELSE
-                _DEST SCRN.CANVAS&
-                MARQUEE_draw TRUE
-            END IF
-        END IF
-    END IF
-    ' ==== END SELECTION OVERLAY ====
+    RENDER_selection_overlay
     PERF_stop PERF_SELECTION_OVERLAY
     PERF_start PERF_POINTER_RENDER
     POINTER_update
