@@ -15,6 +15,8 @@ TYPE MOUSE_OBJ
     OLD_Y AS INTEGER
     RAW_X AS INTEGER         ' Raw screen X coordinate (for GUI hover)
     RAW_Y AS INTEGER         ' Raw screen Y coordinate (for GUI hover)
+    UNSNAPPED_X AS INTEGER   ' Canvas X before grid snap (for fill, picker, etc.)
+    UNSNAPPED_Y AS INTEGER   ' Canvas Y before grid snap (for fill, picker, etc.)
     CON_X AS INTEGER
     CON_Y AS INTEGER
     B1    AS INTEGER
