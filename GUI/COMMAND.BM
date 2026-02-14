@@ -592,7 +592,7 @@ SUB CMD_execute_action (action_id AS INTEGER)
         CASE 305: CLIPBOARD_paste MOUSE.X%, MOUSE.Y%  ' Paste at mouse position
         CASE 319: CLIPBOARD_copy_merged  ' Copy Merged
         CASE 320  ' Cut to New Layer
-            IF SELECTION_has_active% AND CURRENT_LAYER% > 0 THEN
+            IF CURRENT_LAYER% > 0 THEN
                 CLIPBOARD_cut
                 DIM ctnl_idx AS INTEGER
                 ctnl_idx% = LAYERS_new%
@@ -600,14 +600,14 @@ SUB CMD_execute_action (action_id AS INTEGER)
                 CLIPBOARD_paste CLIPBOARD.SOURCE_X + CLIPBOARD.WIDTH \ 2, CLIPBOARD.SOURCE_Y + CLIPBOARD.HEIGHT \ 2
             END IF
         CASE 321  ' Copy to New Layer
-            IF SELECTION_has_active% AND CURRENT_LAYER% > 0 THEN
+            IF CURRENT_LAYER% > 0 THEN
                 CLIPBOARD_copy
                 DIM cpnl_idx AS INTEGER
                 cpnl_idx% = LAYERS_new%
                 ' Paste at original source position (center of source region)
                 CLIPBOARD_paste CLIPBOARD.SOURCE_X + CLIPBOARD.WIDTH \ 2, CLIPBOARD.SOURCE_Y + CLIPBOARD.HEIGHT \ 2
             END IF
-        CASE 306: CLIPBOARD_clear_selection ' Clear selection
+        CASE 306, 308: CLIPBOARD_clear_selection ' Clear selection / Edit > Clear
         CASE 307: MARQUEE_reset   ' Deselect
         CASE 310: SELECTION_select_all  ' Select All
         CASE 311: SELECTION_invert  ' Invert Selection
@@ -760,12 +760,18 @@ SUB CMD_execute_action (action_id AS INTEGER)
                 DIM oldFillDest AS LONG
                 oldFillDest& = _DEST
                 _DEST LAYERS(CURRENT_LAYER%).imgHandle&
-                CLS , PAINT_COLOR~&
+                IF MARQUEE.ACTIVE AND MARQUEE.USER_CREATED AND MARQUEE.INITIALIZED THEN
+                    LINE (MARQUEE.BOX.x, MARQUEE.BOX.y)-(MARQUEE.BOX.x + MARQUEE.BOX.w - 1, MARQUEE.BOX.y + MARQUEE.BOX.h - 1), PAINT_COLOR~&, BF
+                ELSE
+                    CLS , PAINT_COLOR~&
+                END IF
                 _DEST oldFillDest&
                 LAYERS(CURRENT_LAYER%).contentDirty% = TRUE
                 BLEND_invalidate_cache
                 CANVAS_DIRTY% = TRUE
+                SCENE_DIRTY% = TRUE
                 GUI_NEEDS_REDRAW% = TRUE
+                FRAME_IDLE% = FALSE
             END IF
         CASE 314  ' Fill with BG
             IF CURRENT_LAYER% > 0 THEN
@@ -776,60 +782,142 @@ SUB CMD_execute_action (action_id AS INTEGER)
                 DIM oldBgDest AS LONG
                 oldBgDest& = _DEST
                 _DEST LAYERS(CURRENT_LAYER%).imgHandle&
-                CLS , PAINT_BG_COLOR~&
+                IF MARQUEE.ACTIVE AND MARQUEE.USER_CREATED AND MARQUEE.INITIALIZED THEN
+                    LINE (MARQUEE.BOX.x, MARQUEE.BOX.y)-(MARQUEE.BOX.x + MARQUEE.BOX.w - 1, MARQUEE.BOX.y + MARQUEE.BOX.h - 1), PAINT_BG_COLOR~&, BF
+                ELSE
+                    CLS , PAINT_BG_COLOR~&
+                END IF
                 _DEST oldBgDest&
                 LAYERS(CURRENT_LAYER%).contentDirty% = TRUE
                 BLEND_invalidate_cache
                 CANVAS_DIRTY% = TRUE
+                SCENE_DIRTY% = TRUE
                 GUI_NEEDS_REDRAW% = TRUE
+                FRAME_IDLE% = FALSE
             END IF
         CASE 315  ' Flip Horizontal
-            IF CURRENT_LAYER% > 0 THEN
+            IF CURRENT_TOOL% = TOOL_MOVE AND MOVE.ACTIVE AND MOVE.SELECTION_IMAGE < -1 THEN
+                ' Flip the floating move selection horizontally
+                DIM fhMoveW AS INTEGER, fhMoveH AS INTEGER
+                fhMoveW% = _WIDTH(MOVE.SELECTION_IMAGE)
+                fhMoveH% = _HEIGHT(MOVE.SELECTION_IMAGE)
+                DIM fhMoveTmp AS LONG
+                fhMoveTmp& = _NEWIMAGE(fhMoveW%, fhMoveH%, 32)
+                _PUTIMAGE (fhMoveW% - 1, 0)-(0, fhMoveH% - 1), MOVE.SELECTION_IMAGE, fhMoveTmp&
+                _DEST MOVE.SELECTION_IMAGE
+                _DONTBLEND MOVE.SELECTION_IMAGE
+                _PUTIMAGE , fhMoveTmp&, MOVE.SELECTION_IMAGE
+                _BLEND MOVE.SELECTION_IMAGE
+                _DEST SCRN.CANVAS&
+                IF fhMoveTmp& < -1 THEN _FREEIMAGE fhMoveTmp&
+                MOVE_update_preview_buffer
+                SCENE_DIRTY% = TRUE
+                GUI_NEEDS_REDRAW% = TRUE
+                FRAME_IDLE% = FALSE
+            ELSEIF CURRENT_LAYER% > 0 THEN
                 IF NOT UNDO_saved_this_frame% THEN
                     UNDO_save_state
                     UNDO_saved_this_frame% = TRUE
                 END IF
                 DIM flipH_src AS LONG, flipH_w AS LONG, flipH_h AS LONG
                 flipH_src& = LAYERS(CURRENT_LAYER%).imgHandle&
-                flipH_w& = _WIDTH(flipH_src&)
-                flipH_h& = _HEIGHT(flipH_src&)
-                DIM flipH_tmp AS LONG
-                flipH_tmp& = _NEWIMAGE(flipH_w&, flipH_h&, 32)
-                _PUTIMAGE (flipH_w& - 1, 0)-(0, flipH_h& - 1), flipH_src&, flipH_tmp&
-                DIM oldFlipDest AS LONG : oldFlipDest& = _DEST
-                _DEST flipH_src&
-                _DONTBLEND flipH_src&
-                _PUTIMAGE , flipH_tmp&, flipH_src&
-                _BLEND flipH_src&
-                _DEST oldFlipDest&
-                IF flipH_tmp& < -1 THEN _FREEIMAGE flipH_tmp&
+                IF MARQUEE.ACTIVE AND MARQUEE.USER_CREATED AND MARQUEE.INITIALIZED THEN
+                    ' Flip only within selection bounds
+                    DIM fhSelW AS INTEGER, fhSelH AS INTEGER
+                    fhSelW% = MARQUEE.BOX.w : fhSelH% = MARQUEE.BOX.h
+                    DIM fhRegion AS LONG
+                    fhRegion& = _NEWIMAGE(fhSelW%, fhSelH%, 32)
+                    _PUTIMAGE (0, 0), flipH_src&, fhRegion&, (MARQUEE.BOX.x, MARQUEE.BOX.y)-(MARQUEE.BOX.x + fhSelW% - 1, MARQUEE.BOX.y + fhSelH% - 1)
+                    DIM oldFHSelDest AS LONG : oldFHSelDest& = _DEST
+                    _DEST flipH_src&
+                    _DONTBLEND flipH_src&
+                    _PUTIMAGE (MARQUEE.BOX.x + fhSelW% - 1, MARQUEE.BOX.y)-(MARQUEE.BOX.x, MARQUEE.BOX.y + fhSelH% - 1), fhRegion&, flipH_src&
+                    _BLEND flipH_src&
+                    _DEST oldFHSelDest&
+                    IF fhRegion& < -1 THEN _FREEIMAGE fhRegion&
+                ELSE
+                    ' Flip entire layer
+                    flipH_w& = _WIDTH(flipH_src&)
+                    flipH_h& = _HEIGHT(flipH_src&)
+                    DIM flipH_tmp AS LONG
+                    flipH_tmp& = _NEWIMAGE(flipH_w&, flipH_h&, 32)
+                    _PUTIMAGE (flipH_w& - 1, 0)-(0, flipH_h& - 1), flipH_src&, flipH_tmp&
+                    DIM oldFlipDest AS LONG : oldFlipDest& = _DEST
+                    _DEST flipH_src&
+                    _DONTBLEND flipH_src&
+                    _PUTIMAGE , flipH_tmp&, flipH_src&
+                    _BLEND flipH_src&
+                    _DEST oldFlipDest&
+                    IF flipH_tmp& < -1 THEN _FREEIMAGE flipH_tmp&
+                END IF
                 LAYERS(CURRENT_LAYER%).contentDirty% = TRUE
                 BLEND_invalidate_cache
                 CANVAS_DIRTY% = TRUE
+                SCENE_DIRTY% = TRUE
+                GUI_NEEDS_REDRAW% = TRUE
+                FRAME_IDLE% = FALSE
             END IF
         CASE 316  ' Flip Vertical
-            IF CURRENT_LAYER% > 0 THEN
+            IF CURRENT_TOOL% = TOOL_MOVE AND MOVE.ACTIVE AND MOVE.SELECTION_IMAGE < -1 THEN
+                ' Flip the floating move selection vertically
+                DIM fvMoveW AS INTEGER, fvMoveH AS INTEGER
+                fvMoveW% = _WIDTH(MOVE.SELECTION_IMAGE)
+                fvMoveH% = _HEIGHT(MOVE.SELECTION_IMAGE)
+                DIM fvMoveTmp AS LONG
+                fvMoveTmp& = _NEWIMAGE(fvMoveW%, fvMoveH%, 32)
+                _PUTIMAGE (0, fvMoveH% - 1)-(fvMoveW% - 1, 0), MOVE.SELECTION_IMAGE, fvMoveTmp&
+                _DEST MOVE.SELECTION_IMAGE
+                _DONTBLEND MOVE.SELECTION_IMAGE
+                _PUTIMAGE , fvMoveTmp&, MOVE.SELECTION_IMAGE
+                _BLEND MOVE.SELECTION_IMAGE
+                _DEST SCRN.CANVAS&
+                IF fvMoveTmp& < -1 THEN _FREEIMAGE fvMoveTmp&
+                MOVE_update_preview_buffer
+                SCENE_DIRTY% = TRUE
+                GUI_NEEDS_REDRAW% = TRUE
+                FRAME_IDLE% = FALSE
+            ELSEIF CURRENT_LAYER% > 0 THEN
                 IF NOT UNDO_saved_this_frame% THEN
                     UNDO_save_state
                     UNDO_saved_this_frame% = TRUE
                 END IF
                 DIM flipV_src AS LONG, flipV_w AS LONG, flipV_h AS LONG
                 flipV_src& = LAYERS(CURRENT_LAYER%).imgHandle&
-                flipV_w& = _WIDTH(flipV_src&)
-                flipV_h& = _HEIGHT(flipV_src&)
-                DIM flipV_tmp AS LONG
-                flipV_tmp& = _NEWIMAGE(flipV_w&, flipV_h&, 32)
-                _PUTIMAGE (0, flipV_h& - 1)-(flipV_w& - 1, 0), flipV_src&, flipV_tmp&
-                DIM oldFlipVDest AS LONG : oldFlipVDest& = _DEST
-                _DEST flipV_src&
-                _DONTBLEND flipV_src&
-                _PUTIMAGE , flipV_tmp&, flipV_src&
-                _BLEND flipV_src&
-                _DEST oldFlipVDest&
-                IF flipV_tmp& < -1 THEN _FREEIMAGE flipV_tmp&
+                IF MARQUEE.ACTIVE AND MARQUEE.USER_CREATED AND MARQUEE.INITIALIZED THEN
+                    ' Flip only within selection bounds
+                    DIM fvSelW AS INTEGER, fvSelH AS INTEGER
+                    fvSelW% = MARQUEE.BOX.w : fvSelH% = MARQUEE.BOX.h
+                    DIM fvRegion AS LONG
+                    fvRegion& = _NEWIMAGE(fvSelW%, fvSelH%, 32)
+                    _PUTIMAGE (0, 0), flipV_src&, fvRegion&, (MARQUEE.BOX.x, MARQUEE.BOX.y)-(MARQUEE.BOX.x + fvSelW% - 1, MARQUEE.BOX.y + fvSelH% - 1)
+                    DIM oldFVSelDest AS LONG : oldFVSelDest& = _DEST
+                    _DEST flipV_src&
+                    _DONTBLEND flipV_src&
+                    _PUTIMAGE (MARQUEE.BOX.x, MARQUEE.BOX.y + fvSelH% - 1)-(MARQUEE.BOX.x + fvSelW% - 1, MARQUEE.BOX.y), fvRegion&, flipV_src&
+                    _BLEND flipV_src&
+                    _DEST oldFVSelDest&
+                    IF fvRegion& < -1 THEN _FREEIMAGE fvRegion&
+                ELSE
+                    ' Flip entire layer
+                    flipV_w& = _WIDTH(flipV_src&)
+                    flipV_h& = _HEIGHT(flipV_src&)
+                    DIM flipV_tmp AS LONG
+                    flipV_tmp& = _NEWIMAGE(flipV_w&, flipV_h&, 32)
+                    _PUTIMAGE (0, flipV_h& - 1)-(flipV_w& - 1, 0), flipV_src&, flipV_tmp&
+                    DIM oldFlipVDest AS LONG : oldFlipVDest& = _DEST
+                    _DEST flipV_src&
+                    _DONTBLEND flipV_src&
+                    _PUTIMAGE , flipV_tmp&, flipV_src&
+                    _BLEND flipV_src&
+                    _DEST oldFlipVDest&
+                    IF flipV_tmp& < -1 THEN _FREEIMAGE flipV_tmp&
+                END IF
                 LAYERS(CURRENT_LAYER%).contentDirty% = TRUE
                 BLEND_invalidate_cache
                 CANVAS_DIRTY% = TRUE
+                SCENE_DIRTY% = TRUE
+                GUI_NEEDS_REDRAW% = TRUE
+                FRAME_IDLE% = FALSE
             END IF
         CASE 317  ' Scale -50%
             ERR_info "Scale -50%: not yet implemented"

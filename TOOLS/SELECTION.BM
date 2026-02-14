@@ -36,8 +36,8 @@ END SUB
 ' Requires an active marquee selection
 '
 SUB CLIPBOARD_copy ()
-    ' Require active marquee
-    IF NOT MARQUEE.ACTIVE OR NOT MARQUEE.INITIALIZED THEN EXIT SUB
+    ' Need a valid layer
+    IF CURRENT_LAYER% < 1 THEN EXIT SUB
     
     ' If move tool is active with a selection, copy from the move buffer instead
     IF CURRENT_TOOL% = TOOL_MOVE AND MOVE.ACTIVE AND MOVE.SELECTION_IMAGE < -1 THEN
@@ -58,15 +58,24 @@ SUB CLIPBOARD_copy ()
     ' Free existing clipboard
     CLIPBOARD_free
     
-    ' Copy from painting layer
-    CLIPBOARD.WIDTH = MARQUEE.BOX.w
-    CLIPBOARD.HEIGHT = MARQUEE.BOX.h
-    CLIPBOARD.SOURCE_X = MARQUEE.BOX.x
-    CLIPBOARD.SOURCE_Y = MARQUEE.BOX.y
+    ' Determine source region: selection bounds or entire layer
+    DIM copySrc AS LONG
+    copySrc& = LAYER_current_image&
+    IF MARQUEE.ACTIVE AND MARQUEE.USER_CREATED AND MARQUEE.INITIALIZED THEN
+        CLIPBOARD.WIDTH = MARQUEE.BOX.w
+        CLIPBOARD.HEIGHT = MARQUEE.BOX.h
+        CLIPBOARD.SOURCE_X = MARQUEE.BOX.x
+        CLIPBOARD.SOURCE_Y = MARQUEE.BOX.y
+    ELSE
+        CLIPBOARD.WIDTH = _WIDTH(copySrc&)
+        CLIPBOARD.HEIGHT = _HEIGHT(copySrc&)
+        CLIPBOARD.SOURCE_X = 0
+        CLIPBOARD.SOURCE_Y = 0
+    END IF
     
-    ' Create clipboard image and copy selected region
+    ' Create clipboard image and copy region
     CLIPBOARD.IMAGE = _NEWIMAGE(CLIPBOARD.WIDTH, CLIPBOARD.HEIGHT, 32)
-    _PUTIMAGE (0, 0), LAYER_current_image&, CLIPBOARD.IMAGE, (MARQUEE.BOX.x, MARQUEE.BOX.y)-(MARQUEE.BOX.x + MARQUEE.BOX.w - 1, MARQUEE.BOX.y + MARQUEE.BOX.h - 1)
+    _PUTIMAGE (0, 0), copySrc&, CLIPBOARD.IMAGE, (CLIPBOARD.SOURCE_X, CLIPBOARD.SOURCE_Y)-(CLIPBOARD.SOURCE_X + CLIPBOARD.WIDTH - 1, CLIPBOARD.SOURCE_Y + CLIPBOARD.HEIGHT - 1)
     
     CLIPBOARD.VALID = TRUE
 END SUB
@@ -76,8 +85,8 @@ END SUB
 ' Requires an active marquee selection
 '
 SUB CLIPBOARD_cut ()
-    ' Require active marquee
-    IF NOT MARQUEE.ACTIVE OR NOT MARQUEE.INITIALIZED THEN EXIT SUB
+    ' Need a valid layer
+    IF CURRENT_LAYER% < 1 THEN EXIT SUB
     
     ' If move tool is active, handle differently - cut means copy and clear original source
     IF CURRENT_TOOL% = TOOL_MOVE AND MOVE.ACTIVE AND MOVE.SELECTION_IMAGE < -1 THEN
@@ -94,15 +103,32 @@ SUB CLIPBOARD_cut ()
     ' Save undo state
     UNDO_save_state
     
-    ' Copy first
+    ' Copy first (handles both selection and no-selection cases)
     CLIPBOARD_copy
     
-    ' Clear the original region with background color
-    _DEST LAYER_current_image&
-    LINE (MARQUEE.BOX.x, MARQUEE.BOX.y)-(MARQUEE.BOX.x + MARQUEE.BOX.w - 1, MARQUEE.BOX.y + MARQUEE.BOX.h - 1), PAINT_BG_COLOR~&, BF
-    _DEST SCRN.CANVAS&
+    ' Clear the source region
+    DIM cutImg AS LONG
+    cutImg& = LAYER_current_image&
+    IF MARQUEE.ACTIVE AND MARQUEE.USER_CREATED AND MARQUEE.INITIALIZED THEN
+        ' Clear just the selected region
+        _DEST cutImg&
+        LINE (MARQUEE.BOX.x, MARQUEE.BOX.y)-(MARQUEE.BOX.x + MARQUEE.BOX.w - 1, MARQUEE.BOX.y + MARQUEE.BOX.h - 1), PAINT_BG_COLOR~&, BF
+        _DEST SCRN.CANVAS&
+    ELSE
+        ' Clear entire layer to transparent
+        _DONTBLEND cutImg&
+        _DEST cutImg&
+        CLS , _RGBA32(0, 0, 0, 0)
+        _BLEND cutImg&
+        _DEST SCRN.CANVAS&
+    END IF
     
+    LAYERS(CURRENT_LAYER%).contentDirty% = TRUE
+    BLEND_invalidate_cache
     CANVAS_DIRTY% = TRUE
+    SCENE_DIRTY% = TRUE
+    GUI_NEEDS_REDRAW% = TRUE
+    FRAME_IDLE% = FALSE
 END SUB
 
 ''
@@ -196,16 +222,24 @@ END SUB
 ' Requires an active marquee selection
 '
 SUB CLIPBOARD_copy_merged ()
-    ' Require active marquee
-    IF NOT MARQUEE.ACTIVE OR NOT MARQUEE.INITIALIZED THEN EXIT SUB
+    ' Need at least one layer
+    IF LAYER_COUNT% < 1 THEN EXIT SUB
 
     ' Free existing clipboard
     CLIPBOARD_free
 
-    CLIPBOARD.WIDTH = MARQUEE.BOX.w
-    CLIPBOARD.HEIGHT = MARQUEE.BOX.h
-    CLIPBOARD.SOURCE_X = MARQUEE.BOX.x
-    CLIPBOARD.SOURCE_Y = MARQUEE.BOX.y
+    ' Determine source region: selection bounds or entire canvas
+    IF MARQUEE.ACTIVE AND MARQUEE.USER_CREATED AND MARQUEE.INITIALIZED THEN
+        CLIPBOARD.WIDTH = MARQUEE.BOX.w
+        CLIPBOARD.HEIGHT = MARQUEE.BOX.h
+        CLIPBOARD.SOURCE_X = MARQUEE.BOX.x
+        CLIPBOARD.SOURCE_Y = MARQUEE.BOX.y
+    ELSE
+        CLIPBOARD.WIDTH = SCRN.w&
+        CLIPBOARD.HEIGHT = SCRN.h&
+        CLIPBOARD.SOURCE_X = 0
+        CLIPBOARD.SOURCE_Y = 0
+    END IF
 
     ' Create a merged image of all visible layers at canvas size
     DIM mergedImg AS LONG
@@ -253,9 +287,9 @@ SUB CLIPBOARD_copy_merged ()
         END IF
     NEXT li%
 
-    ' Extract the selection region from merged image
+    ' Extract the source region from merged image
     CLIPBOARD.IMAGE = _NEWIMAGE(CLIPBOARD.WIDTH, CLIPBOARD.HEIGHT, 32)
-    _PUTIMAGE (0, 0), mergedImg&, CLIPBOARD.IMAGE, (MARQUEE.BOX.x, MARQUEE.BOX.y)-(MARQUEE.BOX.x + MARQUEE.BOX.w - 1, MARQUEE.BOX.y + MARQUEE.BOX.h - 1)
+    _PUTIMAGE (0, 0), mergedImg&, CLIPBOARD.IMAGE, (CLIPBOARD.SOURCE_X, CLIPBOARD.SOURCE_Y)-(CLIPBOARD.SOURCE_X + CLIPBOARD.WIDTH - 1, CLIPBOARD.SOURCE_Y + CLIPBOARD.HEIGHT - 1)
     CLIPBOARD.VALID = TRUE
 
     IF mergedImg& < -1 THEN _FREEIMAGE mergedImg&
@@ -268,8 +302,8 @@ END SUB
 ' Requires an active marquee selection
 '
 SUB CLIPBOARD_clear_selection ()
-    ' Require active marquee
-    IF NOT MARQUEE.ACTIVE OR NOT MARQUEE.INITIALIZED THEN EXIT SUB
+    ' Need a valid layer
+    IF CURRENT_LAYER% < 1 THEN EXIT SUB
     
     ' If move tool is active, just clear the move selection
     IF CURRENT_TOOL% = TOOL_MOVE AND MOVE.ACTIVE AND MOVE.SELECTION_IMAGE < -1 THEN
@@ -284,10 +318,26 @@ SUB CLIPBOARD_clear_selection ()
     ' Save undo state
     UNDO_save_state
     
-    ' Clear the selected region with background color
-    _DEST LAYER_current_image&
-    LINE (MARQUEE.BOX.x, MARQUEE.BOX.y)-(MARQUEE.BOX.x + MARQUEE.BOX.w - 1, MARQUEE.BOX.y + MARQUEE.BOX.h - 1), PAINT_BG_COLOR~&, BF
-    _DEST SCRN.CANVAS&
+    DIM clearImg AS LONG
+    clearImg& = LAYER_current_image&
+    IF MARQUEE.ACTIVE AND MARQUEE.USER_CREATED AND MARQUEE.INITIALIZED THEN
+        ' Clear just the selected region with background color
+        _DEST clearImg&
+        LINE (MARQUEE.BOX.x, MARQUEE.BOX.y)-(MARQUEE.BOX.x + MARQUEE.BOX.w - 1, MARQUEE.BOX.y + MARQUEE.BOX.h - 1), PAINT_BG_COLOR~&, BF
+        _DEST SCRN.CANVAS&
+    ELSE
+        ' Clear entire layer to transparent
+        _DONTBLEND clearImg&
+        _DEST clearImg&
+        CLS , _RGBA32(0, 0, 0, 0)
+        _BLEND clearImg&
+        _DEST SCRN.CANVAS&
+    END IF
     
+    LAYERS(CURRENT_LAYER%).contentDirty% = TRUE
+    BLEND_invalidate_cache
     CANVAS_DIRTY% = TRUE
+    SCENE_DIRTY% = TRUE
+    GUI_NEEDS_REDRAW% = TRUE
+    FRAME_IDLE% = FALSE
 END SUB
