@@ -169,7 +169,7 @@ DO
         FRAME_IDLE% = FALSE                                       ' Mouse moved (cursor only)
         GUI_NEEDS_REDRAW% = TRUE                                  ' Update status bar coords
     END IF
-    IF GUI_NEEDS_REDRAW% THEN FRAME_IDLE% = FALSE                            ' GUI needs update (handled separately in SCREEN_render)
+    IF GUI_NEEDS_REDRAW% THEN FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE   ' GUI needs update (forces scene re-render)
     IF SCRN.panning% THEN FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE      ' Panning active
     IF MODIFIERS.shift% THEN FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE   ' SHIFT held (crosshair/constraint)
     IF MOUSE.SW% <> 0 THEN FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE     ' Mouse wheel scrolled
