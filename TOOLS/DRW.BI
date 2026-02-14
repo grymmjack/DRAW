@@ -38,4 +38,5 @@ DECLARE SUB DRW_load (filename AS STRING)
 DECLARE SUB DRW_save_dialog ()
 DECLARE SUB DRW_open_dialog ()
 DECLARE SUB DRW_embed_chunk_in_png (pngFilePath AS STRING)
+DECLARE SUB DRW_new_canvas ()
 
