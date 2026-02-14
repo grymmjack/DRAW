@@ -29,11 +29,7 @@ $ELSE
     cmdArg$ = _TRIM$(COMMAND$)
 $END IF
 
-' ESC key state tracking for exit detection
-DIM ESC_KEY_LAST AS INTEGER
-ESC_KEY_LAST% = FALSE
-DIM SHARED ESC_CONSUMED_BY_TOOL AS INTEGER
-ESC_CONSUMED_BY_TOOL% = FALSE
+' ESC no longer exits the program - use File > Quit or OS close button
 
 IF cmdArg$ <> "" THEN
     ' Remove surrounding quotes if present
@@ -135,27 +131,6 @@ DO
     KEYBOARD_input_handler
     PERF_stop PERF_KEYBOARD_INPUT
     
-    ' Check for ESC key to exit program (after handlers have processed input)
-    ' Use _KEYDOWN instead of k& to avoid consuming ESC from keyboard buffer
-    DIM esc_now AS INTEGER
-    esc_now% = _KEYDOWN(27)
-    IF esc_now% AND NOT ESC_KEY_LAST% AND NOT ESC_CONSUMED_BY_TOOL% THEN
-        ' ESC just pressed - check if we should exit
-        IF MENUBAR_is_open% THEN
-            MENUBAR_close_all
-        ELSEIF NOT SHOULD_block_exit% THEN
-            ' No tool/modal blocking exit
-            IF CANVAS_DIRTY% THEN
-                IF SHOW_exit_confirm% THEN EXIT DO
-                ' If cancelled, continue loop
-            ELSE
-                EXIT DO  ' Clean canvas, exit immediately
-            END IF
-        END IF
-        ' If SHOULD_block_exit% = TRUE, let keyboard handler process ESC for tool cancellation
-    END IF
-    ESC_KEY_LAST% = esc_now%
-    ESC_CONSUMED_BY_TOOL% = FALSE  ' Reset for next frame
     PERF_start PERF_STICK_INPUT
     STICK_input_handler
     PERF_stop PERF_STICK_INPUT
@@ -238,24 +213,6 @@ MAIN_shutdown
 
 
 ''
-' Check if ESC should be blocked from exiting (tool/modal is active)
-' Returns TRUE if a tool or modal state should handle ESC instead of exiting
-'
-FUNCTION SHOULD_block_exit% ()
-    SHOULD_block_exit% = PALETTE_MENU_VISIBLE% _
-        OR CMD_PALETTE.visible _
-        OR MENUBAR_is_open% _
-        OR (IMG_IMPORT.STATE > IMPORT_STATE_IDLE) _
-        OR (CURRENT_TOOL% = TOOL_MOVE AND MOVE.ACTIVE) _
-        OR (CURRENT_TOOL% = TOOL_POLYGON AND POLY_LINE.HAS_LAST) _
-        OR (CURRENT_TOOL% = TOOL_TEXT AND TEXT.ACTIVE) _
-        OR LAYER_PANEL_is_dragging% _
-        OR (CURRENT_TOOL% = TOOL_MARQUEE AND MARQUEE.MAGIC_WAND_MODE AND MARQUEE.WAND_HAS_SELECTION) _
-        OR (CURRENT_TOOL% = TOOL_MARQUEE AND MARQUEE.ACTIVE%)
-END FUNCTION
-
-
-''
 ' Runs at the start of the loop before any other code
 ' 
 SUB LOOP_start ()
@@ -273,29 +230,6 @@ END SUB
 ' 
 SUB LOOP_end ()
 END SUB
-
-
-''
-' Simple message box using native QB64PE dialog
-' Returns TRUE if Yes clicked, FALSE if No
-'
-FUNCTION SHOW_exit_confirm% ()
-    DIM result AS LONG
-    POINTER_hide_for_dialog
-    result& = _MESSAGEBOX("Exit Confirmation", "Are you sure you want to exit?", "yesno", "question", 0)
-    POINTER_show_after_dialog
-    
-    ' Clear input buffers
-    DO WHILE _MOUSEINPUT : LOOP
-    _MOUSEMOVE _WIDTH \ 2, _HEIGHT \ 2
-    MOUSE_force_buttons_up
-    
-    IF result& = 1 THEN
-        SHOW_exit_confirm% = TRUE
-    ELSE
-        SHOW_exit_confirm% = FALSE
-    END IF
-END FUNCTION
 
 
 ''

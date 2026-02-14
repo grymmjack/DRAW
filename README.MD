@@ -80,7 +80,8 @@ DRAW is a pixel art editor written in QB64PE that can export images as sourcecod
 - **19 blend modes**: Normal, Multiply, Screen, Overlay, Add, Subtract, Difference, Darken, Lighten, Color Dodge, Color Burn, Hard Light, Soft Light, Exclusion, Vivid Light, Linear Light, Pin Light, Color, Luminosity
 - Solo layer (Alt+click eye icon) and visibility swipe (drag across eye icons)
 - Drag-and-drop layer reordering with visual feedback
-- Opacity lock, merge down, merge visible, duplicate
+- Opacity lock prevents drawing on transparent pixels (enforced by all drawing tools including shape tools)
+- Merge down, merge visible, duplicate layers
 - CTRL+Click layer to create selection from non-transparent pixels
 - DRW project format: PNG with embedded `drAw` chunk — preserves layers, blend modes, opacity, palette, and all tool states while remaining viewable in any image viewer
 
@@ -107,6 +108,7 @@ DRAW is a pixel art editor written in QB64PE that can export images as sourcecod
 **Canvas:** Delete (clear with prompt), Backspace (clear instant)  
 **View:** Mouse wheel (zoom), Middle click (pan), Ctrl+0 (reset)  
 **Clipboard:** Ctrl+C (copy), Ctrl+X (cut), Ctrl+V (paste at cursor), Ctrl+E (clear)  
+**Files:** Alt+O (open .draw), Alt+S (save .draw), Alt+X (exit)  
 **Undo/Redo:** Ctrl+Z / Ctrl+Y
 
 See [CHEATSHEET.md](CHEATSHEET.md) for complete controls reference.

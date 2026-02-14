@@ -535,6 +535,7 @@ When a selection is active (marquee or magic wand), it acts as a **clipping mask
 |-----|----------|
 | `Alt+O` | Open DRAW project (.draw) |
 | `Alt+S` | Save DRAW project (.draw) |
+| `Alt+X` | Exit DRAW (prompts if unsaved) |
 
 ### File Menu Commands
 | Command | Function |
@@ -546,7 +547,7 @@ When a selection is active (marquee or magic wand), it acts as a **clipping mask
 | File → Save as DRAW | Save as .draw project |
 | File → Save as PNG | Quick save as PNG |
 | File → Export Brush | Export active custom brush as PNG |
-| File → Quit | Exit DRAW |
+| File → Exit | Exit DRAW (`Alt+X`) |
 
 **Note:** .draw files are PNG images with an embedded `drAw` chunk that preserves all layers, blend modes, palette colors, tool states, and other project data. They can be previewed in any image viewer. Standard image saves flatten all visible layers to a single image.
 
@@ -633,7 +634,7 @@ Layers can be reordered by dragging them to a new position:
 - **Per-layer blend mode** (19 Photoshop-style blend modes)
 - **Solo layer** (Alt+click eye icon to isolate a single layer)
 - **Visibility swipe** (click+drag across eye icons to rapidly show/hide layers)
-- **Opacity lock** prevents drawing on transparent pixels
+- **Opacity lock** prevents drawing on transparent pixels (enforced by all tools: Brush, Dot, Line, Rectangle, Ellipse, Polygon, Fill, Spray)
 - **Background layer** created automatically on startup
 - **Transparency** shown as checkerboard pattern behind layers
 - **Drawing tools** automatically target the currently selected layer
@@ -741,7 +742,7 @@ DRAW has an optional menu bar at the top of the screen providing access to all c
 
 | Menu | Contents |
 |------|----------|
-| **File** | New, Open, Import Image, Save, Save as DRAW, Save as PNG, Export Layer, Export Brush, Quit |
+| **File** | New, Open, Import Image, Save, Save as DRAW, Save as PNG, Export Layer, Export Brush, Exit |
 | **Edit** | Undo, Redo, Cut, Copy, Paste, Select All, Deselect, Invert Selection, Flip H/V, Scale |
 | **View** | Toolbar, Status Bar, Layer Panel, Menu Bar, Cursors, Grid, Pixel Grid, Snap, Crosshair |
 | **Canvas** | Clear Canvas, Zoom In/Out, Reset Zoom |
