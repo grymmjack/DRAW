@@ -24,20 +24,31 @@
 | `*` | Transparent Color | Set foreground to transparent (eraser mode) |
 | `?` | Command Palette | Search commands and hotkeys |
 
+## Paint Opacity
+
+### Keyboard Shortcuts
+| Key | Opacity |
+|-----|---------|
+| `1` | 10% |
+| `2` | 20% |
+| `3` | 30% |
+| `4` | 40% |
+| `5` | 50% |
+| `6` | 60% |
+| `7` | 70% |
+| `8` | 80% |
+| `9` | 90% |
+| `0` | 100% (fully opaque) |
+
+Paint opacity applies to the entire stroke/operation as a unit — overlapping brush dabs
+within the same stroke will not compound opacity. The current opacity is shown in the
+status bar as `OP:nn%` when below 100%.
+
 ## Color Selection
 
 ### Keyboard Shortcuts
-| Key | Color |
-|-----|-------|
-| `0-7` | Colors 0-7 |
-| `8` or `)` | Color 8 |
-| `9` or `!` | Color 9 |
-| `@` | Color 10 |
-| `#` | Color 11 |
-| `$` | Color 12 |
-| `%` | Color 13 |
-| `^` | Color 14 |
-| `&` | Color 15 |
+| Key | Action |
+|-----|--------|
 | `*` | **Transparent** (eraser mode) |
 | `X` | Swap foreground and background colors |
 

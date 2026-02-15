@@ -84,6 +84,9 @@ DIM SHARED AS INTEGER WHEEL_COLOR, KEY_COLOR
 DIM SHARED AS _UNSIGNED LONG PAINT_COLOR
 DIM SHARED AS _UNSIGNED LONG PAINT_BG_COLOR
 DIM SHARED AS _UNSIGNED LONG DRAW_COLOR ' Current drawing color (FG or BG based on mouse button)
+DIM SHARED AS INTEGER PAINT_OPACITY              ' Paint opacity percentage (10-100, default 100)
+DIM SHARED AS LONG STROKE_BACKUP                 ' Saved layer image before stroke (for opacity compositing)
+DIM SHARED AS INTEGER STROKE_ACTIVE              ' TRUE when a stroke is in progress with opacity < 100%
 DIM SHARED AS INTEGER CONSTRAIN_X, CONSTRAIN_Y
 DIM SHARED AS INTEGER CURRENT_TOOL
 DIM SHARED AS INTEGER PREVIOUS_TOOL  ' Tool to return to after temporary picker
@@ -95,6 +98,7 @@ CONST IDLE_FPS_LIMIT = 15  ' Reduced FPS when idle (saves CPU)
 ' NOTE: MAC_ALT_HELD% is now declared in INPUT/MODIFIERS.BI
 CONSTRAIN_X% = FALSE : CONSTRAIN_Y% = FALSE
 WHEEL_COLOR% = FALSE : KEY_COLOR% = FALSE
+PAINT_OPACITY% = 100  ' Default to fully opaque
 PAINT_COLOR~& = 0  ' Will be set from palette after init
 PAINT_BG_COLOR~& = _RGB32(0, 0, 0)  ' Background color defaults to black
 CURRENT_TOOL% = TOOL_NULL  ' Default to null tool - user must select a tool

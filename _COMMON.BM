@@ -7,6 +7,116 @@
 '
 $INCLUDEONCE
 
+'' 
+' Apply paint opacity to a color value.
+' Modulates the color's alpha channel by PAINT_OPACITY% (10-100).
+' Eraser colors (alpha=0) pass through unchanged.
+'
+FUNCTION PAINT_apply_opacity~& (col AS _UNSIGNED LONG)
+    IF PAINT_OPACITY% >= 100 OR _ALPHA32(col~&) = 0 THEN
+        PAINT_apply_opacity~& = col~&
+    ELSE
+        DIM opA AS INTEGER
+        opA% = INT(_ALPHA32(col~&) * PAINT_OPACITY% / 100)
+        IF opA% < 0 THEN opA% = 0
+        IF opA% > 255 THEN opA% = 255
+        PAINT_apply_opacity~& = _RGBA32(_RED32(col~&), _GREEN32(col~&), _BLUE32(col~&), opA%)
+    END IF
+END FUNCTION
+
+
+''
+' Begin a stroke for opacity compositing.
+' Saves a backup of the current layer so we can blend at commit time.
+' All drawing during the stroke happens at full opacity on the real layer.
+' Call STROKE_commit when the stroke/operation finishes.
+'
+SUB STROKE_begin ()
+    IF PAINT_OPACITY% >= 100 THEN EXIT SUB        ' Full opacity needs no buffering
+    IF STROKE_ACTIVE% THEN EXIT SUB               ' Already in a stroke
+
+    DIM layerImg AS LONG
+    layerImg& = LAYERS(CURRENT_LAYER%).imgHandle&
+    IF layerImg& >= -1 THEN EXIT SUB               ' Invalid image handle
+
+    ' Free any stale backup
+    IF STROKE_BACKUP& < -1 THEN _FREEIMAGE STROKE_BACKUP&
+
+    ' Save current layer state
+    STROKE_BACKUP& = _COPYIMAGE(layerImg&, 32)
+    STROKE_ACTIVE% = TRUE
+END SUB
+
+
+''
+' Commit (end) a stroke, applying paint opacity.
+' For each pixel that changed during the stroke, lerps between the backup
+' (original) and current (full-opacity stroke) by PAINT_OPACITY%.
+' This ensures overlapping brush dabs within a stroke don't compound opacity.
+'
+SUB STROKE_commit ()
+    IF NOT STROKE_ACTIVE% THEN EXIT SUB
+    STROKE_ACTIVE% = FALSE
+
+    ' If opacity was changed to 100% mid-stroke, just clean up
+    IF PAINT_OPACITY% >= 100 THEN
+        IF STROKE_BACKUP& < -1 THEN _FREEIMAGE STROKE_BACKUP&
+        STROKE_BACKUP& = 0
+        EXIT SUB
+    END IF
+
+    DIM layerImg AS LONG
+    layerImg& = LAYERS(CURRENT_LAYER%).imgHandle&
+    IF layerImg& >= -1 OR STROKE_BACKUP& >= -1 THEN
+        IF STROKE_BACKUP& < -1 THEN _FREEIMAGE STROKE_BACKUP&
+        STROKE_BACKUP& = 0
+        EXIT SUB
+    END IF
+
+    ' Use _MEM for fast pixel-level blending
+    DIM mLayer AS _MEM, mBackup AS _MEM
+    mLayer = _MEMIMAGE(layerImg&)
+    mBackup = _MEMIMAGE(STROKE_BACKUP&)
+
+    DIM opPct AS INTEGER
+    opPct% = PAINT_OPACITY%
+
+    DIM pxOffset AS _OFFSET
+    DIM curPixel AS _UNSIGNED LONG
+    DIM bakPixel AS _UNSIGNED LONG
+    DIM cr AS INTEGER, cg AS INTEGER, cb AS INTEGER, ca AS INTEGER
+    DIM br AS INTEGER, bg AS INTEGER, bb AS INTEGER, ba AS INTEGER
+    DIM nr AS INTEGER, ng AS INTEGER, nb AS INTEGER, na AS INTEGER
+
+    FOR pxOffset = 0 TO mLayer.SIZE - 4 STEP 4
+        _MEMGET mLayer, mLayer.OFFSET + pxOffset, curPixel~&
+        _MEMGET mBackup, mBackup.OFFSET + pxOffset, bakPixel~&
+
+        IF curPixel~& <> bakPixel~& THEN
+            ' Pixel was changed by the stroke — lerp toward original by (1 - opacity)
+            cr% = _RED32(curPixel~&):   cg% = _GREEN32(curPixel~&)
+            cb% = _BLUE32(curPixel~&):  ca% = _ALPHA32(curPixel~&)
+            br% = _RED32(bakPixel~&):   bg% = _GREEN32(bakPixel~&)
+            bb% = _BLUE32(bakPixel~&):  ba% = _ALPHA32(bakPixel~&)
+
+            nr% = br% + (cr% - br%) * opPct% \ 100
+            ng% = bg% + (cg% - bg%) * opPct% \ 100
+            nb% = bb% + (cb% - bb%) * opPct% \ 100
+            na% = ba% + (ca% - ba%) * opPct% \ 100
+
+            _MEMPUT mLayer, mLayer.OFFSET + pxOffset, _RGBA32(nr%, ng%, nb%, na%) AS _UNSIGNED LONG
+        END IF
+    NEXT
+
+    _MEMFREE mLayer
+    _MEMFREE mBackup
+
+    ' Clean up backup
+    IF STROKE_BACKUP& < -1 THEN _FREEIMAGE STROKE_BACKUP&
+    STROKE_BACKUP& = 0
+END SUB
+
+
 ''
 ' Update window title bar to reflect current state
 ' Format: DRAW vX.X.X - filename *
