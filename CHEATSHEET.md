@@ -84,8 +84,22 @@ Press `*` (asterisk/star) to set the foreground color to **transparent**. This e
 | `'` (apostrophe) | Toggle grid visibility |
 | `Shift+'` (quote) | Toggle pixel grid (400%+ zoom) |
 | `;` (semicolon) | Toggle snap-to-grid |
+| `Ctrl+'` | Toggle grid alignment mode (Corner ↔ Center) |
 | `.` (period) | Increase grid size (+1px, max 50px) |
 | `,` (comma) | Decrease grid size (-1px, min 2px) |
+
+### Grid Alignment Modes
+
+| Mode | Description |
+|------|-------------|
+| **Corner** (default) | Snaps to grid intersection corners (top-left of cells) |
+| **Center** | Snaps to center of grid cells |
+
+Grid alignment affects all snap-to-grid operations including drawing tools, marquee, and move.
+
+### Grid Tile Mode
+
+Grid tile mode provides visual tile boundary feedback for tile-based workflows. When enabled, the grid overlay renders as distinct tiles rather than simple lines.
 
 **Notes:**
 - Regular grid shows at 100%+ zoom when enabled
@@ -197,6 +211,10 @@ The Spray (`K`) tool sprays random dots within a circular area:
 | **Selection Clipping** | Respects active marquee/wand selections |
 | **Dither Patterns** | Works with active dither patterns |
 | **Preview** | Circle + dot pattern preview shown when not actively spraying |
+| **Custom Brush** | When custom brush is active, stamps the brush at random positions within radius |
+
+**Custom Brush + Spray:**
+When a custom brush is captured (`Ctrl+B`), the spray tool stamps the custom brush image at random positions within the spray radius instead of individual dots. The spray radius scales proportionally with brush size, and density is maintained for consistent coverage. Recolor mode (`F9`) applies to spray-stamped custom brushes.
 
 ### Tool-Specific
 | Tool | Action | Function |
@@ -274,18 +292,21 @@ DRAW includes 10 dither patterns (0-9) that can be applied to brush, dot, and fi
 
 **Custom Brush Features:**
 - Capture any rectangular area as a reusable brush pattern
+- **Non-rectangular shapes**: Alpha channel is preserved during capture, so irregular/transparent shapes work as brushes (not just solid rectangles)
 - Automatic transparency: background color becomes transparent
 - **Recolor Mode (F9)**: Paint all non-transparent pixels in current FG color
 - **Outline (Shift+O)**: Add 1px outline around non-transparent pixels using BG color
   - Automatically turns off recolor mode to preserve outline color
-  - Press multiple times for thicker outlines
+  - Press multiple times for thicker outlines — canvas dynamically expands to prevent clipping
 - Works with LINE, RECTANGLE, ELLIPSE, and POLYGON tools
 - Creates "beaded" or stamped effects along shape perimeters
+- Works with SPRAY tool — stamps brush at random positions within spray radius
 - Flip horizontally or vertically for variations
 - Scale up/down or reset to adjust brush size
 - Exported PNG files use timestamp-based filenames for unique names
 - Visual feedback with marching ants during capture
 - Status bar shows `CB` when active, `CB+RECOLOR` when recolor mode is on
+- **Select from Current Layer** (`Ctrl+Click` layer row): Creates a selection mask from all non-transparent pixels on that layer, perfect for capturing complex shapes as custom brushes
 
 **Outlined Text Workflow:**
 1. Draw text on canvas, marquee select it, `Ctrl+B` to capture
@@ -307,10 +328,13 @@ DRAW includes 10 dither patterns (0-9) that can be applied to brush, dot, and fi
 | Key | Function |
 |-----|----------|
 | `Tab` | Toggle toolbar visibility |
+| `Ctrl+L` | Toggle layer panel visibility |
 | `F10` | Toggle status bar visibility |
 | `F11` | Toggle all UI (toolbar, status bar, layer panel, menu bar) |
 | `Ctrl+F11` | Toggle menu bar visibility |
 | `Shift` | Show crosshair (when held) |
+
+**Note:** Toggling the layer panel or menu bar does not shift the canvas position. UI panels overlay on top of the canvas.
 
 ### Canvas Zoom
 
@@ -524,6 +548,7 @@ When a selection is active (marquee or magic wand), it acts as a **clipping mask
 ### Standard Image Save/Load (CTRL)
 | Key | Function |
 |-----|----------|
+| `Ctrl+N` | New canvas (prompts to save unsaved changes, then resets to blank canvas) |
 | `Ctrl+O` | Open/import image file (PNG, BMP, JPG, GIF) |
 | `Ctrl+S` | Save image with dialog |
 | `Ctrl+Shift+S` | Quick save (no dialog if previously saved) |
@@ -569,7 +594,7 @@ The layer panel is displayed on the left side of the screen and can be toggled w
 | Key | Function |
 |-----|----------|
 | `Ctrl+L` | Toggle layer panel visibility |
-| `Ctrl+Shift+N` | Create new layer |
+| `Ctrl+Shift+N` | Create new layer (note: `Ctrl+N` creates new canvas) |
 | `Ctrl+Shift+D` | Duplicate current layer |
 | `Ctrl+Shift+Delete` | Delete current layer |
 | `Ctrl+PgUp` | Move layer up in stack |
