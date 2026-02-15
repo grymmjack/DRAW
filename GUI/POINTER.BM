@@ -198,7 +198,7 @@ SUB POINTER_build ()
         ELSEIF MARQUEE.ACTIVE% THEN
             ' Hover detection over handles
             DIM marq_hover AS INTEGER
-            marq_hover% = MARQUEE_get_handle_at%(MOUSE.X%, MOUSE.Y%)
+            marq_hover% = MARQUEE_get_handle_at%(MOUSE.UNSNAPPED_X%, MOUSE.UNSNAPPED_Y%)
             SELECT CASE marq_hover%
                 CASE 1  ' TL corner
                     POINTER.CURSOR_ID% = CURSOR_RESIZE_CORNER
@@ -255,7 +255,7 @@ SUB POINTER_build ()
         ELSEIF MOVE.ACTIVE AND MARQUEE.ACTIVE% THEN
             ' Selection exists - check which handle mouse is hovering
             DIM hover_handle AS INTEGER
-            hover_handle% = MARQUEE_get_handle_at%(MOUSE.X%, MOUSE.Y%)
+            hover_handle% = MARQUEE_get_handle_at%(MOUSE.UNSNAPPED_X%, MOUSE.UNSNAPPED_Y%)
             SELECT CASE hover_handle%
                 CASE 0  ' No handle / interior
                     POINTER.CURSOR_ID% = CURSOR_MOVE
@@ -691,27 +691,49 @@ END SUB
 SUB POINTER_draw_move_cursor (mx AS INTEGER, my AS INTEGER)
     DIM move_cid AS INTEGER
     move_cid% = POINTER.CURSOR_ID%
-    IF move_cid% >= 0 AND move_cid% <= CURSOR_COUNT AND CURSORS(move_cid%).img& < -1 THEN
-        ' Render PNG cursor with optional flip
-        DIM mc_dx AS INTEGER, mc_dy AS INTEGER
-        DIM mc_w AS INTEGER, mc_h AS INTEGER
-        mc_w% = CURSORS(move_cid%).w%
-        mc_h% = CURSORS(move_cid%).h%
-        mc_dx% = mx% - CURSORS(move_cid%).hotspot_pos_x%
-        mc_dy% = my% - CURSORS(move_cid%).hotspot_pos_y%
-        SELECT CASE POINTER.CURSOR_FLIP%
-            CASE 1  ' Flip horizontal
-                _PUTIMAGE (mc_dx% + mc_w% - 1, mc_dy%)-(mc_dx%, mc_dy% + mc_h% - 1), CURSORS(move_cid%).img&, SCRN.CANVAS&
-            CASE 2  ' Flip vertical
-                _PUTIMAGE (mc_dx%, mc_dy% + mc_h% - 1)-(mc_dx% + mc_w% - 1, mc_dy%), CURSORS(move_cid%).img&, SCRN.CANVAS&
-            CASE 3  ' Flip both
-                _PUTIMAGE (mc_dx% + mc_w% - 1, mc_dy% + mc_h% - 1)-(mc_dx%, mc_dy%), CURSORS(move_cid%).img&, SCRN.CANVAS&
-            CASE ELSE  ' No flip
-                _PUTIMAGE (mc_dx%, mc_dy%), CURSORS(move_cid%).img&, SCRN.CANVAS&
-        END SELECT
-        CURSOR_render_overlays move_cid%, mc_dx%, mc_dy%, mx%, my%, 0, 0, 0, 0, 0, 0, 0, 0
+    
+    ' Handle resize cursors - PNG only, no procedural fallback, NO move cursor overlay
+    IF move_cid% = CURSOR_RESIZE_CORNER OR move_cid% = CURSOR_RESIZE_HORIZ OR move_cid% = CURSOR_RESIZE_VERT THEN
+        ' Only draw if PNG is available
+        IF CURSORS(move_cid%).img& < -1 THEN
+            DIM mc_dx AS INTEGER, mc_dy AS INTEGER
+            DIM mc_w AS INTEGER, mc_h AS INTEGER
+            mc_w% = CURSORS(move_cid%).w%
+            mc_h% = CURSORS(move_cid%).h%
+            mc_dx% = mx% - CURSORS(move_cid%).hotspot_pos_x%
+            mc_dy% = my% - CURSORS(move_cid%).hotspot_pos_y%
+            SELECT CASE POINTER.CURSOR_FLIP%
+                CASE 1  ' Flip horizontal
+                    _PUTIMAGE (mc_dx% + mc_w% - 1, mc_dy%)-(mc_dx%, mc_dy% + mc_h% - 1), CURSORS(move_cid%).img&, SCRN.CANVAS&
+                CASE 2  ' Flip vertical
+                    _PUTIMAGE (mc_dx%, mc_dy% + mc_h% - 1)-(mc_dx% + mc_w% - 1, mc_dy%), CURSORS(move_cid%).img&, SCRN.CANVAS&
+                CASE 3  ' Flip both
+                    _PUTIMAGE (mc_dx% + mc_w% - 1, mc_dy% + mc_h% - 1)-(mc_dx%, mc_dy%), CURSORS(move_cid%).img&, SCRN.CANVAS&
+                CASE ELSE  ' No flip
+                    _PUTIMAGE (mc_dx%, mc_dy%), CURSORS(move_cid%).img&, SCRN.CANVAS&
+            END SELECT
+            CURSOR_render_overlays move_cid%, mc_dx%, mc_dy%, mx%, my%, 0, 0, 0, 0, 0, 0, 0, 0
+        END IF
+        ' Critical: Exit immediately for resize cursors - never draw move cursor
+        EXIT SUB
+    END IF
+    
+    ' Handle move cursor ONLY if cursor ID is actually CURSOR_MOVE
+    IF move_cid% <> CURSOR_MOVE THEN EXIT SUB
+    
+    ' Now we know it's CURSOR_MOVE - draw PNG or procedural fallback
+    IF CURSORS(CURSOR_MOVE).img& < -1 THEN
+        ' Draw move cursor PNG
+        DIM mm_dx AS INTEGER, mm_dy AS INTEGER
+        DIM mm_w AS INTEGER, mm_h AS INTEGER
+        mm_w% = CURSORS(CURSOR_MOVE).w%
+        mm_h% = CURSORS(CURSOR_MOVE).h%
+        mm_dx% = mx% - CURSORS(CURSOR_MOVE).hotspot_pos_x%
+        mm_dy% = my% - CURSORS(CURSOR_MOVE).hotspot_pos_y%
+        _PUTIMAGE (mm_dx%, mm_dy%), CURSORS(CURSOR_MOVE).img&, SCRN.CANVAS&
+        CURSOR_render_overlays CURSOR_MOVE, mm_dx%, mm_dy%, mx%, my%, 0, 0, 0, 0, 0, 0, 0, 0
     ELSE
-        ' Fallback: procedural 4-directional move arrow
+        ' Procedural 4-directional move arrow fallback
         DIM move_mx AS INTEGER, move_my AS INTEGER
         move_mx% = MOUSE.RAW_X%
         move_my% = MOUSE.RAW_Y%
@@ -1143,25 +1165,47 @@ SUB POINTER_render_cursor_overlay ()
     END IF
     
     ' Marquee/Move/Fill/Picker - PNG cursor
+    ' Use POINTER.CURSOR_ID% which was set by POINTER_build to respect
+    ' resize handle detection (avoids drawing move/marquee cursor over resize cursors)
     DIM cursor_id AS INTEGER
-    SELECT CASE CURRENT_TOOL%
-        CASE TOOL_MARQUEE
-            IF MARQUEE.MAGIC_WAND_MODE% THEN
-                cursor_id% = CURSOR_WAND
-            ELSE
-                cursor_id% = CURSOR_MARQUEE
-            END IF
-        CASE TOOL_MOVE: cursor_id% = CURSOR_MOVE
-        CASE TOOL_FILL: cursor_id% = CURSOR_FILL
-        CASE TOOL_PICKER: cursor_id% = CURSOR_DROPPER
-        CASE TOOL_ZOOM: cursor_id% = CURSOR_ZOOM
-        CASE TOOL_PAN: cursor_id% = CURSOR_HAND
-        CASE TOOL_TEXT: cursor_id% = CURSOR_NULL
-        CASE ELSE: cursor_id% = CURSOR_NULL
-    END SELECT
+    cursor_id% = POINTER.CURSOR_ID%
     
-    IF CURSORS(cursor_id%).img& < -1 THEN
-        _PUTIMAGE (mx% - CURSORS(cursor_id%).hotspot_pos_x%, my% - CURSORS(cursor_id%).hotspot_pos_y%), CURSORS(cursor_id%).img&, SCRN.CANVAS&
+    ' If POINTER_build didn't set a specific cursor, fall back to tool default
+    IF cursor_id% = CURSOR_NULL OR cursor_id% < 0 THEN
+        SELECT CASE CURRENT_TOOL%
+            CASE TOOL_MARQUEE
+                IF MARQUEE.MAGIC_WAND_MODE% THEN
+                    cursor_id% = CURSOR_WAND
+                ELSE
+                    cursor_id% = CURSOR_MARQUEE
+                END IF
+            CASE TOOL_MOVE: cursor_id% = CURSOR_MOVE
+            CASE TOOL_FILL: cursor_id% = CURSOR_FILL
+            CASE TOOL_PICKER: cursor_id% = CURSOR_DROPPER
+            CASE TOOL_ZOOM: cursor_id% = CURSOR_ZOOM
+            CASE TOOL_PAN: cursor_id% = CURSOR_HAND
+            CASE TOOL_TEXT: cursor_id% = CURSOR_NULL
+            CASE ELSE: cursor_id% = CURSOR_NULL
+        END SELECT
+    END IF
+    
+    IF cursor_id% >= 0 AND cursor_id% <= CURSOR_COUNT AND CURSORS(cursor_id%).img& < -1 THEN
+        DIM ov_dx AS INTEGER, ov_dy AS INTEGER
+        DIM ov_w AS INTEGER, ov_h AS INTEGER
+        ov_w% = CURSORS(cursor_id%).w%
+        ov_h% = CURSORS(cursor_id%).h%
+        ov_dx% = mx% - CURSORS(cursor_id%).hotspot_pos_x%
+        ov_dy% = my% - CURSORS(cursor_id%).hotspot_pos_y%
+        SELECT CASE POINTER.CURSOR_FLIP%
+            CASE 1  ' Flip horizontal
+                _PUTIMAGE (ov_dx% + ov_w% - 1, ov_dy%)-(ov_dx%, ov_dy% + ov_h% - 1), CURSORS(cursor_id%).img&, SCRN.CANVAS&
+            CASE 2  ' Flip vertical
+                _PUTIMAGE (ov_dx%, ov_dy% + ov_h% - 1)-(ov_dx% + ov_w% - 1, ov_dy%), CURSORS(cursor_id%).img&, SCRN.CANVAS&
+            CASE 3  ' Flip both
+                _PUTIMAGE (ov_dx% + ov_w% - 1, ov_dy% + ov_h% - 1)-(ov_dx%, ov_dy%), CURSORS(cursor_id%).img&, SCRN.CANVAS&
+            CASE ELSE  ' No flip
+                _PUTIMAGE (ov_dx%, ov_dy%), CURSORS(cursor_id%).img&, SCRN.CANVAS&
+        END SELECT
     END IF
     
     _DEST oldDest&
