@@ -771,19 +771,17 @@ SUB GRID_fill_cell (px AS INTEGER, py AS INTEGER, fillColor AS _UNSIGNED LONG)
             '   -30 deg: y = -tan30*x + m*yStep (goes up-right on screen)
             ' where yStep = 2*W/sqrt(3)
             '
-            ' Key identity: +30 line n and -30 line m intersect at:
-            '   x = (m-n)*W,  y = (m+n)*W/sqrt(3)
-            ' So ALL diagonal crossings land EXACTLY on vertical grid lines.
-            '
-            ' In column k (k*W <= x < (k+1)*W), triangle type depends on (m-n):
-            '   m-n = k:   crossing at LEFT vertical  -> 1 vertex left, 2 right
-            '   m-n = k+1: crossing at RIGHT vertical -> 2 vertices left, 1 right
+            ' In column k, the two valid triangle types use DERIVED m values:
+            '   Left-pointing:  m = n + k     (crossing at left vertical)
+            '   Right-pointing: m = n + k + 1 (crossing at right vertical)
+            ' We test 6 candidates (3 n-values x 2 types) with point-in-triangle
+            ' to robustly handle float precision at cell boundaries.
             DIM isoW AS SINGLE
             DIM isoTan30 AS SINGLE
             DIM isoYStepF AS SINGLE
             DIM isoCol AS INTEGER
             DIM isoColX AS SINGLE, isoColXR AS SINGLE
-            DIM isoN AS INTEGER, isoM AS INTEGER
+            DIM isoN AS INTEGER
             
             isoW! = GRID.gridWidth%
             isoTan30! = 0.57735027!  ' 1/sqrt(3)
@@ -795,65 +793,80 @@ SUB GRID_fill_cell (px AS INTEGER, py AS INTEGER, fillColor AS _UNSIGNED LONG)
             isoColX! = CSNG(isoCol%) * isoW!
             isoColXR! = CSNG(isoCol% + 1) * isoW!
             
-            ' Find +30 and -30 line indices
+            ' Approximate +30 line index from click point
             isoN% = INT((CSNG(py%) - isoTan30! * CSNG(px%)) / isoYStepF!)
-            isoM% = INT((CSNG(py%) + isoTan30! * CSNG(px%)) / isoYStepF!)
             
-            ' Triangle vertices - compute BOTH candidate triangles and test which
-            ' one contains the click point. This avoids float precision issues at
-            ' cell boundaries where INT() rounding can pick the wrong cell.
+            ' Test 6 candidate triangles: n-1, n, n+1 each with both types
+            DIM pxf AS SINGLE, pyf AS SINGLE
+            pxf! = CSNG(px%): pyf! = CSNG(py%)
+            
             DIM itx1 AS SINGLE, ity1 AS SINGLE
             DIM itx2 AS SINGLE, ity2 AS SINGLE
             DIM itx3 AS SINGLE, ity3 AS SINGLE
+            DIM foundTri AS INTEGER
+            foundTri% = FALSE
             
-            ' Candidate A: left-pointing (m-n = k case)
-            DIM atx1 AS SINGLE, aty1 AS SINGLE
-            DIM atx2 AS SINGLE, aty2 AS SINGLE
-            DIM atx3 AS SINGLE, aty3 AS SINGLE
-            atx1! = isoColX!
-            aty1! = isoTan30! * isoColX! + CSNG(isoN%) * isoYStepF!
-            atx2! = isoColXR!
-            aty2! = -isoTan30! * isoColXR! + CSNG(isoM%) * isoYStepF!
-            atx3! = isoColXR!
-            aty3! = isoTan30! * isoColXR! + CSNG(isoN%) * isoYStepF!
-            
-            ' Candidate B: right-pointing (m-n = k+1 case)
-            DIM btx1 AS SINGLE, bty1 AS SINGLE
-            DIM btx2 AS SINGLE, bty2 AS SINGLE
-            DIM btx3 AS SINGLE, bty3 AS SINGLE
-            btx1! = isoColXR!
-            bty1! = isoTan30! * isoColXR! + CSNG(isoN%) * isoYStepF!
-            btx2! = isoColX!
-            bty2! = isoTan30! * isoColX! + CSNG(isoN%) * isoYStepF!
-            btx3! = isoColX!
-            bty3! = -isoTan30! * isoColX! + CSNG(isoM%) * isoYStepF!
-            
-            ' Point-in-triangle test using cross products (sign of area)
-            ' A point P is inside triangle (V1,V2,V3) if all cross products
-            ' (V1V2 x V1P), (V2V3 x V2P), (V3V1 x V3P) have same sign
-            DIM pxf AS SINGLE, pyf AS SINGLE
+            DIM tryN AS INTEGER, tryM AS INTEGER, cn AS INTEGER
+            DIM cx1 AS SINGLE, cy1 AS SINGLE
+            DIM cx2 AS SINGLE, cy2 AS SINGLE
+            DIM cx3 AS SINGLE, cy3 AS SINGLE
             DIM d1 AS SINGLE, d2 AS SINGLE, d3 AS SINGLE
-            DIM useA AS INTEGER
-            pxf! = CSNG(px%)
-            pyf! = CSNG(py%)
             
-            ' Test candidate A
-            d1! = (atx2! - atx1!) * (pyf! - aty1!) - (aty2! - aty1!) * (pxf! - atx1!)
-            d2! = (atx3! - atx2!) * (pyf! - aty2!) - (aty3! - aty2!) * (pxf! - atx2!)
-            d3! = (atx1! - atx3!) * (pyf! - aty3!) - (aty1! - aty3!) * (pxf! - atx3!)
+            FOR cn% = 0 TO 5
+                ' 6 candidates: n, n-1, n+1 each with left/right type
+                SELECT CASE cn%
+                    CASE 0: tryN% = isoN%
+                    CASE 1: tryN% = isoN%
+                    CASE 2: tryN% = isoN% - 1
+                    CASE 3: tryN% = isoN% - 1
+                    CASE 4: tryN% = isoN% + 1
+                    CASE 5: tryN% = isoN% + 1
+                END SELECT
+                
+                IF (cn% AND 1) = 0 THEN
+                    ' Left-pointing: m = n + k
+                    tryM% = tryN% + isoCol%
+                    cx1! = isoColX!
+                    cy1! = isoTan30! * isoColX! + CSNG(tryN%) * isoYStepF!
+                    cx2! = isoColXR!
+                    cy2! = -isoTan30! * isoColXR! + CSNG(tryM%) * isoYStepF!
+                    cx3! = isoColXR!
+                    cy3! = isoTan30! * isoColXR! + CSNG(tryN%) * isoYStepF!
+                ELSE
+                    ' Right-pointing: m = n + k + 1
+                    tryM% = tryN% + isoCol% + 1
+                    cx1! = isoColXR!
+                    cy1! = isoTan30! * isoColXR! + CSNG(tryN%) * isoYStepF!
+                    cx2! = isoColX!
+                    cy2! = isoTan30! * isoColX! + CSNG(tryN%) * isoYStepF!
+                    cx3! = isoColX!
+                    cy3! = -isoTan30! * isoColX! + CSNG(tryM%) * isoYStepF!
+                END IF
+                
+                ' Point-in-triangle test (cross products - same sign = inside)
+                d1! = (cx2! - cx1!) * (pyf! - cy1!) - (cy2! - cy1!) * (pxf! - cx1!)
+                d2! = (cx3! - cx2!) * (pyf! - cy2!) - (cy3! - cy2!) * (pxf! - cx2!)
+                d3! = (cx1! - cx3!) * (pyf! - cy3!) - (cy1! - cy3!) * (pxf! - cx3!)
+                
+                IF (d1! >= 0 AND d2! >= 0 AND d3! >= 0) OR _
+                   (d1! <= 0 AND d2! <= 0 AND d3! <= 0) THEN
+                    itx1! = cx1!: ity1! = cy1!
+                    itx2! = cx2!: ity2! = cy2!
+                    itx3! = cx3!: ity3! = cy3!
+                    foundTri% = TRUE
+                    EXIT FOR
+                END IF
+            NEXT cn%
             
-            ' Point is inside if all cross products have same sign (or are zero)
-            useA% = ((d1! >= 0 AND d2! >= 0 AND d3! >= 0) OR _
-                     (d1! <= 0 AND d2! <= 0 AND d3! <= 0))
-            
-            IF useA% THEN
-                itx1! = atx1!: ity1! = aty1!
-                itx2! = atx2!: ity2! = aty2!
-                itx3! = atx3!: ity3! = aty3!
-            ELSE
-                itx1! = btx1!: ity1! = bty1!
-                itx2! = btx2!: ity2! = bty2!
-                itx3! = btx3!: ity3! = bty3!
+            ' Fallback (shouldn't happen)
+            IF NOT foundTri% THEN
+                tryM% = isoN% + isoCol%
+                itx1! = isoColX!
+                ity1! = isoTan30! * isoColX! + CSNG(isoN%) * isoYStepF!
+                itx2! = isoColXR!
+                ity2! = -isoTan30! * isoColXR! + CSNG(tryM%) * isoYStepF!
+                itx3! = isoColXR!
+                ity3! = isoTan30! * isoColXR! + CSNG(isoN%) * isoYStepF!
             END IF
             
             ' Fill triangle using scanline (no PAINT, no leak)
