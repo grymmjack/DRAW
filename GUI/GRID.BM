@@ -559,3 +559,344 @@ SUB PIXEL_GRID_draw ()
     
     _DEST oldDest&
 END SUB
+
+
+''
+' Scanline-fill a triangle. No PAINT needed, no leak possible.
+' @param SINGLE x1,y1,x2,y2,x3,y3 - triangle vertices
+' @param _UNSIGNED LONG c - fill color
+'
+SUB GRID_fill_tri (x1 AS SINGLE, y1 AS SINGLE, x2 AS SINGLE, y2 AS SINGLE, x3 AS SINGLE, y3 AS SINGLE, c AS _UNSIGNED LONG)
+    ' Sort vertices by y (ascending)
+    DIM ax AS SINGLE, ay AS SINGLE
+    DIM bx AS SINGLE, by AS SINGLE
+    DIM cx AS SINGLE, cy AS SINGLE
+    DIM tmp AS SINGLE
+    ax! = x1!: ay! = y1!
+    bx! = x2!: by! = y2!
+    cx! = x3!: cy! = y3!
+    IF ay! > by! THEN tmp! = ax!: ax! = bx!: bx! = tmp!: tmp! = ay!: ay! = by!: by! = tmp!
+    IF ay! > cy! THEN tmp! = ax!: ax! = cx!: cx! = tmp!: tmp! = ay!: ay! = cy!: cy! = tmp!
+    IF by! > cy! THEN tmp! = bx!: bx! = cx!: cx! = tmp!: tmp! = by!: by! = cy!: cy! = tmp!
+
+    DIM yMin AS INTEGER, yMax AS INTEGER
+    DIM yMid AS INTEGER, scanY AS INTEGER
+    DIM xAC AS SINGLE, xShort AS SINGLE
+    DIM xLeft AS SINGLE, xRight AS SINGLE
+    DIM t AS SINGLE
+
+    yMin% = INT(ay! + 0.5!)
+    yMax% = INT(cy! + 0.5!)
+    yMid% = INT(by! + 0.5!)
+    IF yMax% < yMin% THEN EXIT SUB
+
+    FOR scanY% = yMin% TO yMax%
+        ' Long edge A->C
+        IF cy! - ay! > 0.001! THEN
+            t! = (CSNG(scanY%) - ay!) / (cy! - ay!)
+        ELSE
+            t! = 0!
+        END IF
+        xAC! = ax! + t! * (cx! - ax!)
+
+        ' Short edge: A->B or B->C
+        IF scanY% < yMid% THEN
+            IF by! - ay! > 0.001! THEN
+                t! = (CSNG(scanY%) - ay!) / (by! - ay!)
+            ELSE
+                t! = 0!
+            END IF
+            xShort! = ax! + t! * (bx! - ax!)
+        ELSE
+            IF cy! - by! > 0.001! THEN
+                t! = (CSNG(scanY%) - by!) / (cy! - by!)
+            ELSE
+                t! = 0!
+            END IF
+            xShort! = bx! + t! * (cx! - bx!)
+        END IF
+
+        IF xAC! < xShort! THEN
+            xLeft! = xAC!: xRight! = xShort!
+        ELSE
+            xLeft! = xShort!: xRight! = xAC!
+        END IF
+        LINE (INT(xLeft! + 0.5!), scanY%)-(INT(xRight! + 0.5!), scanY%), c~&
+    NEXT scanY%
+END SUB
+
+
+''
+' Scanline-fill a convex polygon (up to 8 vertices). No PAINT leak.
+' @param INTEGER n - number of vertices
+' @param SINGLE vx() - x coordinates (0 to n-1)
+' @param SINGLE vy() - y coordinates (0 to n-1)
+' @param _UNSIGNED LONG c - fill color
+'
+SUB GRID_fill_poly (n AS INTEGER, vx() AS SINGLE, vy() AS SINGLE, c AS _UNSIGNED LONG)
+    IF n% < 3 THEN EXIT SUB
+
+    ' Find y range
+    DIM pyMin AS SINGLE, pyMax AS SINGLE
+    DIM pi AS INTEGER
+    pyMin! = vy(0): pyMax! = vy(0)
+    FOR pi% = 1 TO n% - 1
+        IF vy(pi%) < pyMin! THEN pyMin! = vy(pi%)
+        IF vy(pi%) > pyMax! THEN pyMax! = vy(pi%)
+    NEXT pi%
+
+    DIM yStart AS INTEGER, yEnd AS INTEGER
+    yStart% = INT(pyMin! + 0.5!)
+    yEnd% = INT(pyMax! + 0.5!)
+
+    DIM scanY AS INTEGER
+    DIM xMin AS SINGLE, xMax AS SINGLE
+    DIM gotHit AS INTEGER
+    DIM j AS INTEGER
+    DIM ey1 AS SINGLE, ey2 AS SINGLE
+    DIM ex1 AS SINGLE, ex2 AS SINGLE
+    DIM xHit AS SINGLE
+
+    FOR scanY% = yStart% TO yEnd%
+        gotHit% = FALSE
+        FOR pi% = 0 TO n% - 1
+            j% = (pi% + 1) MOD n%
+            ey1! = vy(pi%): ey2! = vy(j%)
+            ex1! = vx(pi%): ex2! = vx(j%)
+
+            ' Does this edge span scanY?
+            IF (ey1! <= CSNG(scanY%) AND ey2! >= CSNG(scanY%)) OR _
+               (ey2! <= CSNG(scanY%) AND ey1! >= CSNG(scanY%)) THEN
+                IF ABS(ey2! - ey1!) > 0.001! THEN
+                    xHit! = ex1! + (CSNG(scanY%) - ey1!) / (ey2! - ey1!) * (ex2! - ex1!)
+                ELSE
+                    xHit! = (ex1! + ex2!) / 2!
+                END IF
+                IF NOT gotHit% THEN
+                    xMin! = xHit!: xMax! = xHit!
+                    gotHit% = TRUE
+                ELSE
+                    IF xHit! < xMin! THEN xMin! = xHit!
+                    IF xHit! > xMax! THEN xMax! = xHit!
+                END IF
+            END IF
+        NEXT pi%
+
+        IF gotHit% THEN
+            LINE (INT(xMin! + 0.5!), scanY%)-(INT(xMax! + 0.5!), scanY%), c~&
+        END IF
+    NEXT scanY%
+END SUB
+
+
+''
+' Fill the grid cell containing the given point.
+' Uses scanline triangle/polygon fill (no PAINT, no leak).
+' Works for all grid modes: square, diagonal, isometric, hex.
+'
+' @param INTEGER px - X coordinate of click (canvas space)
+' @param INTEGER py - Y coordinate of click (canvas space)
+' @param _UNSIGNED LONG fillColor - Color to fill with
+'
+SUB GRID_fill_cell (px AS INTEGER, py AS INTEGER, fillColor AS _UNSIGNED LONG)
+    DIM targetImg AS LONG
+    DIM oldDest AS LONG
+    DIM oldSource AS LONG
+    
+    targetImg& = LAYER_current_image&
+    oldDest& = _DEST
+    oldSource& = _SOURCE
+    _DEST targetImg&
+    _SOURCE targetImg&
+    
+    SELECT CASE GRID.GRID_MODE%
+        CASE GRID_MODE_SQUARE
+            ' === Square: simple filled rectangle ===
+            DIM cellX AS INTEGER, cellY AS INTEGER
+            DIM sqx1 AS INTEGER, sqy1 AS INTEGER
+            DIM sqx2 AS INTEGER, sqy2 AS INTEGER
+            cellX% = INT(CSNG(px%) / CSNG(GRID.gridWidth%))
+            cellY% = INT(CSNG(py%) / CSNG(GRID.gridHeight%))
+            IF px% < 0 THEN cellX% = cellX% - 1
+            IF py% < 0 THEN cellY% = cellY% - 1
+            sqx1% = cellX% * GRID.gridWidth%
+            sqy1% = cellY% * GRID.gridHeight%
+            sqx2% = sqx1% + GRID.gridWidth% - 1
+            sqy2% = sqy1% + GRID.gridHeight% - 1
+            LINE (sqx1%, sqy1%)-(sqx2%, sqy2%), fillColor~&, BF
+
+        CASE GRID_MODE_DIAGONAL
+            ' === Diagonal: diamond cell via scanline polygon ===
+            DIM dcx AS INTEGER, dcy AS INTEGER
+            DIM dc0 AS INTEGER, dd0 AS INTEGER
+            DIM dYmxStep AS INTEGER, dYpxStep AS INTEGER
+            DIM dmc AS INTEGER, dmd AS INTEGER
+            DIM di AS INTEGER, dj AS INTEGER
+            DIM c1v AS INTEGER, c2v AS INTEGER
+            DIM d1v AS INTEGER, d2v AS INTEGER
+            
+            dcx% = GRID.imgWidth% \ 2
+            dcy% = GRID.imgHeight% \ 2
+            dc0% = dcy% - dcx%
+            dd0% = dcy% + dcx%
+            dYmxStep% = INT(GRID.gridWidth% * 1.41421356! / 2! + 0.5!) * 2
+            dYpxStep% = INT(GRID.gridHeight% * 1.41421356! / 2! + 0.5!) * 2
+            IF dYmxStep% < 2 THEN dYmxStep% = 2
+            IF dYpxStep% < 2 THEN dYpxStep% = 2
+            
+            dmc% = py% - px%
+            dmd% = py% + px%
+            di% = INT(CSNG(dmc% - dc0%) / CSNG(dYmxStep%))
+            dj% = INT(CSNG(dmd% - dd0%) / CSNG(dYpxStep%))
+            
+            c1v% = dc0% + di% * dYmxStep%
+            c2v% = c1v% + dYmxStep%
+            d1v% = dd0% + dj% * dYpxStep%
+            d2v% = d1v% + dYpxStep%
+            
+            ' Diamond corners via scanline polygon fill
+            DIM dvx(0 TO 3) AS SINGLE, dvy(0 TO 3) AS SINGLE
+            dvx(0) = CSNG((d1v% - c1v%) \ 2): dvy(0) = CSNG((d1v% + c1v%) \ 2) ' top
+            dvx(1) = CSNG((d2v% - c1v%) \ 2): dvy(1) = CSNG((d2v% + c1v%) \ 2) ' right
+            dvx(2) = CSNG((d2v% - c2v%) \ 2): dvy(2) = CSNG((d2v% + c2v%) \ 2) ' bottom
+            dvx(3) = CSNG((d1v% - c2v%) \ 2): dvy(3) = CSNG((d1v% + c2v%) \ 2) ' left
+            GRID_fill_poly 4, dvx(), dvy(), fillColor~&
+
+        CASE GRID_MODE_ISOMETRIC
+            ' === Isometric cell fill ===
+            ' Grid has 3 line families:
+            '   Vertical: x = k * W
+            '   +30 deg: y = tan30*x + n*yStep  (goes down-right on screen)
+            '   -30 deg: y = -tan30*x + m*yStep (goes up-right on screen)
+            ' where yStep = 2*W/sqrt(3)
+            '
+            ' Key identity: +30 line n and -30 line m intersect at:
+            '   x = (m-n)*W,  y = (m+n)*W/sqrt(3)
+            ' So ALL diagonal crossings land EXACTLY on vertical grid lines.
+            '
+            ' In column k (k*W <= x < (k+1)*W), triangle type depends on (m-n):
+            '   m-n = k:   crossing at LEFT vertical  -> 1 vertex left, 2 right
+            '   m-n = k+1: crossing at RIGHT vertical -> 2 vertices left, 1 right
+            DIM isoW AS SINGLE
+            DIM isoTan30 AS SINGLE
+            DIM isoYStepF AS SINGLE
+            DIM isoCol AS INTEGER
+            DIM isoColX AS SINGLE, isoColXR AS SINGLE
+            DIM isoN AS INTEGER, isoM AS INTEGER
+            
+            isoW! = GRID.gridWidth%
+            isoTan30! = 0.57735027!  ' 1/sqrt(3)
+            isoYStepF! = isoW! * 1.15470054!  ' 2W/sqrt(3)
+            
+            ' Column band
+            isoCol% = INT(CSNG(px%) / isoW!)
+            IF px% < 0 THEN isoCol% = isoCol% - 1
+            isoColX! = CSNG(isoCol%) * isoW!
+            isoColXR! = CSNG(isoCol% + 1) * isoW!
+            
+            ' Find +30 and -30 line indices
+            isoN% = INT((CSNG(py%) - isoTan30! * CSNG(px%)) / isoYStepF!)
+            isoM% = INT((CSNG(py%) + isoTan30! * CSNG(px%)) / isoYStepF!)
+            
+            ' Triangle vertices
+            DIM itx1 AS SINGLE, ity1 AS SINGLE
+            DIM itx2 AS SINGLE, ity2 AS SINGLE
+            DIM itx3 AS SINGLE, ity3 AS SINGLE
+            
+            IF (isoM% - isoN%) = isoCol% THEN
+                ' Crossing at LEFT vertical -> triangle: 1 left, 2 right
+                ' Left vertex: +30 line n meets -30 line m at x=k*W
+                itx1! = isoColX!
+                ity1! = isoTan30! * isoColX! + CSNG(isoN%) * isoYStepF!
+                ' Right-top: -30 line m at right vertical (goes up-right, so higher)
+                itx2! = isoColXR!
+                ity2! = -isoTan30! * isoColXR! + CSNG(isoM%) * isoYStepF!
+                ' Right-bottom: +30 line n at right vertical (goes down-right, so lower)
+                itx3! = isoColXR!
+                ity3! = isoTan30! * isoColXR! + CSNG(isoN%) * isoYStepF!
+            ELSE
+                ' Crossing at RIGHT vertical -> triangle: 2 left, 1 right
+                ' Right vertex: +30 line n meets -30 line m at x=(k+1)*W
+                itx1! = isoColXR!
+                ity1! = isoTan30! * isoColXR! + CSNG(isoN%) * isoYStepF!
+                ' Left-top: +30 line n at left vertical
+                itx2! = isoColX!
+                ity2! = isoTan30! * isoColX! + CSNG(isoN%) * isoYStepF!
+                ' Left-bottom: -30 line m at left vertical
+                itx3! = isoColX!
+                ity3! = -isoTan30! * isoColX! + CSNG(isoM%) * isoYStepF!
+            END IF
+            
+            ' Fill triangle using scanline (no PAINT, no leak)
+            GRID_fill_tri itx1!, ity1!, itx2!, ity2!, itx3!, ity3!, fillColor~&
+
+        CASE GRID_MODE_HEX
+            ' === Hex cell fill ===
+            ' Find nearest hex center, fill with scanline polygon fill
+            DIM hxW AS SINGLE, hxR AS SINGLE
+            DIM hxColStep AS SINGLE, hxRowStep AS SINGLE
+            DIM hxNearCol AS INTEGER
+            DIM hxBestDist AS SINGLE
+            DIM hxBcx AS SINGLE, hxBcy AS SINGLE
+            DIM hxCC AS INTEGER, hxRR AS INTEGER
+            DIM hxTestCx AS SINGLE, hxTestCy AS SINGLE, hxRowOff AS SINGLE
+            DIM hxDist AS SINGLE
+            DIM hxNearRow AS INTEGER
+            
+            hxW! = GRID.gridWidth%
+            hxR! = hxW! / 2.0!
+            hxColStep! = hxW! * 0.75!
+            hxRowStep! = hxW! * 0.86602540!
+            
+            hxNearCol% = INT(CSNG(px%) / hxColStep! + 0.5!)
+            hxBestDist! = 999999!
+            hxBcx! = 0!: hxBcy! = 0!
+            
+            FOR hxCC% = hxNearCol% - 1 TO hxNearCol% + 1
+                hxTestCx! = hxCC% * hxColStep!
+                IF (hxCC% AND 1) THEN
+                    hxRowOff! = hxRowStep! * 0.5!
+                ELSE
+                    hxRowOff! = 0!
+                END IF
+                hxNearRow% = INT((CSNG(py%) - hxRowOff!) / hxRowStep! + 0.5!)
+                FOR hxRR% = hxNearRow% - 1 TO hxNearRow% + 1
+                    hxTestCy! = hxRR% * hxRowStep! + hxRowOff!
+                    hxDist! = (px% - hxTestCx!) * (px% - hxTestCx!) + (py% - hxTestCy!) * (py% - hxTestCy!)
+                    IF hxDist! < hxBestDist! THEN
+                        hxBestDist! = hxDist!
+                        hxBcx! = hxTestCx!
+                        hxBcy! = hxTestCy!
+                    END IF
+                NEXT hxRR%
+            NEXT hxCC%
+            
+            ' 6 hex vertices as polygon for scanline fill (no PAINT leak)
+            DIM hvx(0 TO 5) AS SINGLE, hvy(0 TO 5) AS SINGLE
+            hvx(0) = hxBcx! + hxR!:                hvy(0) = hxBcy!
+            hvx(1) = hxBcx! + hxR! * 0.5!:         hvy(1) = hxBcy! - hxR! * 0.86602540!
+            hvx(2) = hxBcx! - hxR! * 0.5!:         hvy(2) = hxBcy! - hxR! * 0.86602540!
+            hvx(3) = hxBcx! - hxR!:                hvy(3) = hxBcy!
+            hvx(4) = hxBcx! - hxR! * 0.5!:         hvy(4) = hxBcy! + hxR! * 0.86602540!
+            hvx(5) = hxBcx! + hxR! * 0.5!:         hvy(5) = hxBcy! + hxR! * 0.86602540!
+            GRID_fill_poly 6, hvx(), hvy(), fillColor~&
+
+        CASE ELSE
+            ' Fallback: standard axis-aligned square grid fill
+            DIM fcx AS INTEGER, fcy AS INTEGER
+            DIM fsx1 AS INTEGER, fsy1 AS INTEGER
+            DIM fsx2 AS INTEGER, fsy2 AS INTEGER
+            fcx% = INT(CSNG(px%) / CSNG(GRID.gridWidth%))
+            fcy% = INT(CSNG(py%) / CSNG(GRID.gridHeight%))
+            IF px% < 0 THEN fcx% = fcx% - 1
+            IF py% < 0 THEN fcy% = fcy% - 1
+            fsx1% = fcx% * GRID.gridWidth%
+            fsy1% = fcy% * GRID.gridHeight%
+            fsx2% = fsx1% + GRID.gridWidth% - 1
+            fsy2% = fsy1% + GRID.gridHeight% - 1
+            LINE (fsx1%, fsy1%)-(fsx2%, fsy2%), fillColor~&, BF
+    END SELECT
+    
+    _SOURCE oldSource&
+    _DEST oldDest&
+END SUB
