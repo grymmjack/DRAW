@@ -27,7 +27,8 @@ END TYPE
 
 DIM SHARED SYMMETRY AS SYMMETRY_TYPE
 SYMMETRY.MODE = 0
-' CENTER_X and CENTER_Y are set by SYMMETRY_init() to canvas center
+SYMMETRY.CENTER_X% = 0  ' Set properly by SYMMETRY_init() to canvas center X
+SYMMETRY.CENTER_Y% = 0  ' Set properly by SYMMETRY_init() to canvas center Y
 SYMMETRY.imgHandle& = 0
 SYMMETRY.imgWidth% = 0
 SYMMETRY.imgHeight% = 0
