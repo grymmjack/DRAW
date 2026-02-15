@@ -36,6 +36,10 @@ TYPE DRAW_THEME
     TOOLBAR_border_fg      AS INTEGER ' Toolbar border palette color (0-255)
     PIXEL_GRID_color1      AS _UNSIGNED LONG ' Pixel grid checker color 1 (RGBA)
     PIXEL_GRID_color2      AS _UNSIGNED LONG ' Pixel grid checker color 2 (RGBA)
+    PIXEL_GRID_color_fg    AS _UNSIGNED LONG ' Pixel grid line color (RGB, opacity separate)
+    PIXEL_GRID_opacity     AS INTEGER ' Pixel grid line opacity (0-255, default 64)
+    GRID_angle             AS SINGLE  ' Grid rotation angle in degrees (default 0)
+    CROSSHAIR_angle        AS SINGLE  ' Crosshair rotation angle in degrees (default 0)
     SYMMETRY_guide_fg      AS _UNSIGNED LONG ' Symmetry guide line color (RGBA)
     SYMMETRY_center_fg     AS _UNSIGNED LONG ' Symmetry center crosshair color (RGBA)
     ' Menu bar theme colors

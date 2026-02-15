@@ -43,10 +43,16 @@ TYPE DRAW_CONFIG
     GRID_OPACITY                   AS INTEGER  ' Grid line opacity 0-255 (0=use theme)
     GRID_SIZE_X                    AS INTEGER  ' Grid cell width in pixels (0=use theme)
     GRID_SIZE_Y                    AS INTEGER  ' Grid cell height in pixels (0=use theme)
+    ' Pixel grid settings
+    PIXELGRID_COLOR_FG             AS _UNSIGNED LONG  ' Pixel grid line color (hex RGB, 0=use theme)
+    PIXELGRID_OPACITY              AS INTEGER  ' Pixel grid line opacity 0-255 (0=use theme)
     ' Crosshair settings
     CROSSHAIR_FG                   AS _UNSIGNED LONG  ' Crosshair line color (hex RGB, 0=use theme)
     CROSSHAIR_OPACITY              AS INTEGER  ' Crosshair line opacity 0-255 (0=use theme)
     CROSSHAIR_FONT_FG              AS _UNSIGNED LONG  ' Crosshair text color (hex RGB, 0=use theme)
+    CROSSHAIR_ANGLE                AS SINGLE   ' Crosshair rotation angle in degrees (0=use theme)
+    ' Grid angle
+    GRID_ANGLE                     AS SINGLE   ' Grid rotation angle in degrees (0=use theme)
     ' Transparency checkerboard settings
     TRANSPARENCY_CHECK_COLOR1      AS _UNSIGNED LONG  ' Light checkerboard color
     TRANSPARENCY_CHECK_COLOR2      AS _UNSIGNED LONG  ' Dark checkerboard color

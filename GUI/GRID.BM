@@ -57,16 +57,139 @@ SUB GRID_draw ()
     _DEST GRID.imgHandle&
     CLS , _RGBA32(0, 0, 0, 0)  ' Clear with transparency
     
-    ' Draw vertical lines at full opacity (always at grid positions)
-    FOR x% = GRID.xPos% TO GRID.imgWidth% STEP GRID.gridWidth%
-        LINE (x%, GRID.yPos%)-(x%, GRID.imgHeight%), _
-            GRID.fgColor~&, , GRID.vStyle%
-    NEXT x%
-    ' Draw horizontal lines at full opacity (always at grid positions)
-    FOR y% = GRID.yPos% TO GRID.imgHeight% STEP GRID.gridHeight%
-        LINE (GRID.xPos%, y%)-(GRID.imgWidth%, y%), _
-            GRID.fgColor~&, , GRID.hStyle%
-    NEXT y%
+    ' Resolve grid angle: config overrides theme (CFG 0 = use theme default)
+    DIM gridAngle AS SINGLE
+    IF CFG.GRID_ANGLE! <> 0 THEN
+        gridAngle! = CFG.GRID_ANGLE!
+    ELSE
+        gridAngle! = THEME.GRID_angle!
+    END IF
+
+    ' Detect if angle is effectively ±45° (mod 90)
+    DIM is45 AS INTEGER
+    DIM normAngle AS SINGLE
+    is45% = FALSE
+    IF gridAngle! <> 0 THEN
+        normAngle! = gridAngle!
+        DO WHILE normAngle! < 0: normAngle! = normAngle! + 180!: LOOP
+        DO WHILE normAngle! >= 180!: normAngle! = normAngle! - 180!: LOOP
+        is45% = (ABS(normAngle! - 45!) < 0.01!)
+    END IF
+
+    IF is45% THEN
+        ' === 45-degree grid: pure integer diagonal math ===
+        ' At 45deg, grid lines have slopes +1 and -1.
+        ' Line y=x+c hits pixels (n, n+c) for all n — perfect Bresenham.
+        ' Line y=-x+d hits pixels (n, d-n) for all n — perfect Bresenham.
+        ' Intersection of y=x+c and y=-x+d: x=(d-c)/2, y=(d+c)/2
+        ' When c and d have matching parity, intersection is an integer pixel.
+        ' We ensure this by using EVEN step spacing from the grid center.
+        DIM cx45 AS INTEGER, cy45 AS INTEGER
+        DIM c0 AS INTEGER, d0 AS INTEGER
+        DIM ymxStep AS INTEGER, ypxStep AS INTEGER
+        DIM numC AS INTEGER, numD AS INTEGER
+        DIM ic AS INTEGER, id AS INTEGER
+        DIM c AS INTEGER, d AS INTEGER
+        DIM imgW AS INTEGER, imgH AS INTEGER
+
+        cx45% = GRID.imgWidth% \ 2
+        cy45% = GRID.imgHeight% \ 2
+        c0% = cy45% - cx45%  ' y-x intercept at grid center
+        d0% = cy45% + cx45%  ' y+x intercept at grid center
+        ' Note: c0 + d0 = 2*cy → always even, so c0 and d0 share parity ✓
+        imgW% = GRID.imgWidth%
+        imgH% = GRID.imgHeight%
+
+        ' Step = nearest even integer to gridSize*sqrt(2)
+        ' Even step preserves parity → ALL intersections on integer pixels
+        ' Determine which step goes with which family based on angle variant
+        DIM normFull AS SINGLE
+        normFull! = gridAngle!
+        DO WHILE normFull! < 0: normFull! = normFull! + 360!: LOOP
+        DO WHILE normFull! >= 360!: normFull! = normFull! - 360!: LOOP
+        IF ABS(normFull! - 45!) < 0.01! OR ABS(normFull! - 225!) < 0.01! THEN
+            ' slope+1 family spaced gridWidth, slope-1 family spaced gridHeight
+            ymxStep% = INT(GRID.gridWidth% * 1.41421356! / 2! + 0.5!) * 2
+            ypxStep% = INT(GRID.gridHeight% * 1.41421356! / 2! + 0.5!) * 2
+        ELSE
+            ' 135° or 315°: swapped
+            ymxStep% = INT(GRID.gridHeight% * 1.41421356! / 2! + 0.5!) * 2
+            ypxStep% = INT(GRID.gridWidth% * 1.41421356! / 2! + 0.5!) * 2
+        END IF
+        IF ymxStep% < 2 THEN ymxStep% = 2
+        IF ypxStep% < 2 THEN ypxStep% = 2
+
+        ' Draw slope +1 family: y = x + c
+        numC% = (imgW% + imgH%) \ ymxStep% + 1
+        FOR ic% = -numC% TO numC%
+            c% = c0% + ic% * ymxStep%
+            LINE (0, c%)-(imgW% - 1, c% + imgW% - 1), GRID.fgColor~&
+        NEXT ic%
+
+        ' Draw slope -1 family: y = -x + d
+        numD% = (imgW% + imgH%) \ ypxStep% + 1
+        FOR id% = -numD% TO numD%
+            d% = d0% + id% * ypxStep%
+            LINE (0, d%)-(imgW% - 1, d% - imgW% + 1), GRID.fgColor~&
+        NEXT id%
+
+    ELSEIF gridAngle! <> 0 THEN
+        ' === General rotated grid: continuous edge-to-edge lines ===
+        DIM angleRad AS SINGLE
+        DIM cosA AS SINGLE, sinA AS SINGLE
+        DIM diagLen AS SINGLE
+        DIM cx AS SINGLE, cy AS SINGLE
+        DIM numA AS INTEGER, numB AS INTEGER
+        DIM i AS INTEGER
+        DIM x1 AS SINGLE, y1 AS SINGLE
+        DIM x2 AS SINGLE, y2 AS SINGLE
+
+        angleRad! = gridAngle! * 3.14159265! / 180.0!
+        cosA! = COS(angleRad!)
+        sinA! = SIN(angleRad!)
+        diagLen! = SQR(1! * GRID.imgWidth% * GRID.imgWidth% + 1! * GRID.imgHeight% * GRID.imgHeight%)
+        cx! = GRID.imgWidth% / 2.0!
+        cy! = GRID.imgHeight% / 2.0!
+
+        ' Family A: lines parallel to angle direction, spaced gridWidth apart
+        numA% = INT(diagLen! / GRID.gridWidth%) + 1
+        FOR i% = -numA% TO numA%
+            DIM lcxA AS SINGLE, lcyA AS SINGLE
+            lcxA! = cx! + i% * GRID.gridWidth% * (-sinA!)
+            lcyA! = cy! + i% * GRID.gridWidth% * cosA!
+            x1! = lcxA! - diagLen! * 0.5! * cosA!
+            y1! = lcyA! - diagLen! * 0.5! * sinA!
+            x2! = lcxA! + diagLen! * 0.5! * cosA!
+            y2! = lcyA! + diagLen! * 0.5! * sinA!
+            LINE (INT(x1!), INT(y1!))-(INT(x2!), INT(y2!)), GRID.fgColor~&
+        NEXT i%
+
+        ' Family B: lines perpendicular to angle, spaced gridHeight apart
+        numB% = INT(diagLen! / GRID.gridHeight%) + 1
+        FOR i% = -numB% TO numB%
+            DIM lcxB AS SINGLE, lcyB AS SINGLE
+            lcxB! = cx! + i% * GRID.gridHeight% * cosA!
+            lcyB! = cy! + i% * GRID.gridHeight% * sinA!
+            x1! = lcxB! - diagLen! * 0.5! * (-sinA!)
+            y1! = lcyB! - diagLen! * 0.5! * cosA!
+            x2! = lcxB! + diagLen! * 0.5! * (-sinA!)
+            y2! = lcyB! + diagLen! * 0.5! * cosA!
+            LINE (INT(x1!), INT(y1!))-(INT(x2!), INT(y2!)), GRID.fgColor~&
+        NEXT i%
+    ELSE
+        ' === Standard axis-aligned grid ===
+        ' Draw vertical lines at full opacity (always at grid positions)
+        FOR x% = GRID.xPos% TO GRID.imgWidth% STEP GRID.gridWidth%
+            LINE (x%, GRID.yPos%)-(x%, GRID.imgHeight%), _
+                GRID.fgColor~&, , GRID.vStyle%
+        NEXT x%
+        ' Draw horizontal lines at full opacity (always at grid positions)
+        FOR y% = GRID.yPos% TO GRID.imgHeight% STEP GRID.gridHeight%
+            LINE (GRID.xPos%, y%)-(GRID.imgWidth%, y%), _
+                GRID.fgColor~&, , GRID.hStyle%
+        NEXT y%
+    END IF
+
     ' Grid opacity: config overrides theme (CFG 0 = use theme default)
     IF CFG.GRID_OPACITY% > 0 THEN
         gridOpacity% = CFG.GRID_OPACITY%
@@ -108,6 +231,132 @@ FUNCTION GRID_snap% (value AS INTEGER)
         GRID_snap% = value
     END IF
 END FUNCTION
+
+
+''
+' Snap X,Y coordinate pair to nearest grid intersection point.
+' Handles both axis-aligned and rotated grids.
+' When GRID_ANGLE is non-zero, projects the point onto the rotated grid.
+' @param INTEGER snapX - X coordinate (modified in place)
+' @param INTEGER snapY - Y coordinate (modified in place)
+'
+SUB GRID_snap_xy (snapX AS INTEGER, snapY AS INTEGER)
+    IF NOT GRID.SNAP% THEN EXIT SUB
+
+    ' Resolve grid angle
+    DIM gridAngle AS SINGLE
+    IF CFG.GRID_ANGLE! <> 0 THEN
+        gridAngle! = CFG.GRID_ANGLE!
+    ELSE
+        gridAngle! = THEME.GRID_angle!
+    END IF
+
+    IF gridAngle! = 0 THEN
+        ' Standard axis-aligned snap
+        snapX% = GRID_snap%(snapX%)
+        snapY% = GRID_snap%(snapY%)
+    ELSE
+        ' Detect if angle is effectively ±45° (mod 90)
+        DIM is45s AS INTEGER
+        DIM normAngS AS SINGLE
+        is45s% = FALSE
+        normAngS! = gridAngle!
+        DO WHILE normAngS! < 0: normAngS! = normAngS! + 180!: LOOP
+        DO WHILE normAngS! >= 180!: normAngS! = normAngS! - 180!: LOOP
+        is45s% = (ABS(normAngS! - 45!) < 0.01!)
+
+        IF is45s% THEN
+            ' === 45-degree snap: pure integer diagonal math ===
+            ' Same math as GRID_draw 45° path — guarantees exact pixel match.
+            ' y-x and y+x projections give integer snap coordinates.
+            DIM scx AS INTEGER, scy AS INTEGER
+            DIM sc0 AS INTEGER, sd0 AS INTEGER
+            DIM sYmxStep AS INTEGER, sYpxStep AS INTEGER
+            DIM mc AS INTEGER, md AS INTEGER
+            DIM nearI AS INTEGER, nearJ AS INTEGER
+            DIM snappedC AS INTEGER, snappedD AS INTEGER
+
+            scx% = GRID.imgWidth% \ 2
+            scy% = GRID.imgHeight% \ 2
+            sc0% = scy% - scx%  ' y-x intercept at center
+            sd0% = scy% + scx%  ' y+x intercept at center
+
+            ' Match step computation from GRID_draw
+            DIM normFullS AS SINGLE
+            normFullS! = gridAngle!
+            DO WHILE normFullS! < 0: normFullS! = normFullS! + 360!: LOOP
+            DO WHILE normFullS! >= 360!: normFullS! = normFullS! - 360!: LOOP
+            IF ABS(normFullS! - 45!) < 0.01! OR ABS(normFullS! - 225!) < 0.01! THEN
+                sYmxStep% = INT(GRID.gridWidth% * 1.41421356! / 2! + 0.5!) * 2
+                sYpxStep% = INT(GRID.gridHeight% * 1.41421356! / 2! + 0.5!) * 2
+            ELSE
+                sYmxStep% = INT(GRID.gridHeight% * 1.41421356! / 2! + 0.5!) * 2
+                sYpxStep% = INT(GRID.gridWidth% * 1.41421356! / 2! + 0.5!) * 2
+            END IF
+            IF sYmxStep% < 2 THEN sYmxStep% = 2
+            IF sYpxStep% < 2 THEN sYpxStep% = 2
+
+            ' Project mouse onto diagonal space
+            mc% = snapY% - snapX%  ' y-x (slope +1 family)
+            md% = snapY% + snapX%  ' y+x (slope -1 family)
+
+            ' Snap to nearest grid line in each family
+            IF GRID.ALIGN_MODE% = GRID_ALIGN_CENTER THEN
+                ' Snap to cell center (halfway between grid lines)
+                DIM halfSA AS INTEGER, halfSB AS INTEGER
+                halfSA% = sYmxStep% \ 2
+                halfSB% = sYpxStep% \ 2
+                nearI% = INT(CSNG(mc% - sc0% - halfSA%) / CSNG(sYmxStep%) + 0.5!)
+                snappedC% = sc0% + halfSA% + nearI% * sYmxStep%
+                nearJ% = INT(CSNG(md% - sd0% - halfSB%) / CSNG(sYpxStep%) + 0.5!)
+                snappedD% = sd0% + halfSB% + nearJ% * sYpxStep%
+            ELSE
+                ' Snap to intersection (where grid lines cross)
+                nearI% = INT(CSNG(mc% - sc0%) / CSNG(sYmxStep%) + 0.5!)
+                snappedC% = sc0% + nearI% * sYmxStep%
+                nearJ% = INT(CSNG(md% - sd0%) / CSNG(sYpxStep%) + 0.5!)
+                snappedD% = sd0% + nearJ% * sYpxStep%
+            END IF
+
+            ' Convert back to x,y — guaranteed integer since c,d share parity
+            snapX% = (snappedD% - snappedC%) \ 2
+            snapY% = (snappedD% + snappedC%) \ 2
+        ELSE
+            ' === General rotated grid snap (trig-based) ===
+            DIM angleRad AS SINGLE
+            DIM cosA AS SINGLE, sinA AS SINGLE
+            DIM cx AS SINGLE, cy AS SINGLE
+            DIM relX AS SINGLE, relY AS SINGLE
+            DIM projA AS SINGLE, projB AS SINGLE
+            DIM snappedA AS SINGLE, snappedB AS SINGLE
+
+            angleRad! = gridAngle! * 3.14159265! / 180.0!
+            cosA! = COS(angleRad!)
+            sinA! = SIN(angleRad!)
+            cx! = GRID.imgWidth% / 2.0!
+            cy! = GRID.imgHeight% / 2.0!
+            relX! = snapX% - cx!
+            relY! = snapY% - cy!
+
+            projA! = relX! * cosA! + relY! * sinA!
+            projB! = -relX! * sinA! + relY! * cosA!
+
+            IF GRID.ALIGN_MODE% = GRID_ALIGN_CENTER THEN
+                DIM halfW AS SINGLE, halfH AS SINGLE
+                halfH! = GRID.gridHeight% / 2.0!
+                halfW! = GRID.gridWidth% / 2.0!
+                snappedA! = INT((projA! - halfH! + GRID.gridHeight% / 2.0!) / GRID.gridHeight%) * GRID.gridHeight% + halfH!
+                snappedB! = INT((projB! - halfW! + GRID.gridWidth% / 2.0!) / GRID.gridWidth%) * GRID.gridWidth% + halfW!
+            ELSE
+                snappedA! = INT((projA! + GRID.gridHeight% / 2.0!) / GRID.gridHeight%) * GRID.gridHeight%
+                snappedB! = INT((projB! + GRID.gridWidth% / 2.0!) / GRID.gridWidth%) * GRID.gridWidth%
+            END IF
+
+            snapX% = INT(cx! + snappedA! * cosA! - snappedB! * sinA!)
+            snapY% = INT(cy! + snappedA! * sinA! + snappedB! * cosA!)
+        END IF
+    END IF
+END SUB
 
 
 ''
