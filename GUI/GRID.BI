@@ -12,6 +12,13 @@ $INCLUDEONCE
 CONST GRID_ALIGN_CORNER = 0      ' Snap to grid line intersections (0, 8, 16...)
 CONST GRID_ALIGN_CENTER = 1      ' Snap to cell centers (4, 12, 20... for 8px grid)
 
+' Grid geometry modes
+CONST GRID_MODE_SQUARE = 0       ' Standard rectangular grid
+CONST GRID_MODE_DIAGONAL = 1     ' 45-degree diagonal diamond grid
+CONST GRID_MODE_ISOMETRIC = 2    ' Isometric grid (30/60deg diagonals + vertical)
+CONST GRID_MODE_HEX = 3          ' Hexagonal grid
+CONST GRID_MODE_COUNT = 4        ' Total number of modes (for cycling)
+
 TYPE DRAW_GRID
     imgWidth   AS INTEGER        ' Width of the full grid image
     imgHeight  AS INTEGER        ' Height of the full grid image
@@ -26,6 +33,7 @@ TYPE DRAW_GRID
     SHOW       AS INTEGER        ' Whether grid is visible (TRUE/FALSE)
     SNAP       AS INTEGER        ' Whether snap-to-grid is enabled (TRUE/FALSE)
     ALIGN_MODE AS INTEGER        ' Alignment mode: GRID_ALIGN_CORNER or GRID_ALIGN_CENTER
+    GRID_MODE  AS INTEGER        ' Geometry mode: GRID_MODE_SQUARE/DIAGONAL/ISOMETRIC/HEX
 END TYPE
 
 ' Pixel grid (checkerboard) for high zoom levels
