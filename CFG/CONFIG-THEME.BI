@@ -22,7 +22,8 @@ TYPE DRAW_THEME
     STATUS_height          AS INTEGER ' Status bar height in pixels
     CROSSHAIR_fg           AS INTEGER ' Crosshair fg palette color index (0-255)
     CROSSHAIR_pattern      AS INTEGER ' Crosshair line pattern (16 bit &B>inary)
-    GRID_fg                AS INTEGER ' Grid fg palette color index (0-255)
+    GRID_color_fg           AS _UNSIGNED LONG ' Grid foreground color (RGBA)
+    GRID_opacity            AS INTEGER ' Grid line opacity (0-255, default 38 ~15%)
     TOOLBAR_x              AS STRING  ' Toolbar X position "L | R | n" (n=any #)
     TOOLBAR_y              AS STRING  ' Toolbar Y position "T | B | n" (n=any #)
     TOOLBAR_bg             AS INTEGER ' Toolbar background palette color (0-255)

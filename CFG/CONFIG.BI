@@ -38,6 +38,9 @@ TYPE DRAW_CONFIG
     ' Layer panel settings
     LAYER_PANEL_WIDTH              AS INTEGER  ' Width of layer panel in pixels (min 100)
     LAYER_NAME_MAX_LEN             AS INTEGER  ' Max layer name length (1-64, default 16)
+    ' Grid settings
+    GRID_COLOR_FG                  AS _UNSIGNED LONG  ' Grid foreground color (hex RGB, 0=use theme)
+    GRID_OPACITY                   AS INTEGER  ' Grid line opacity 0-255 (0=use theme)
     ' Transparency checkerboard settings
     TRANSPARENCY_CHECK_COLOR1      AS _UNSIGNED LONG  ' Light checkerboard color
     TRANSPARENCY_CHECK_COLOR2      AS _UNSIGNED LONG  ' Dark checkerboard color

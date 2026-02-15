@@ -14,6 +14,7 @@ TYPE TRANSPARENCY_OBJ
     checkSize AS INTEGER    ' Size of each checker square
     color1    AS _UNSIGNED LONG  ' Light checker color
     color2    AS _UNSIGNED LONG  ' Dark checker color
+    lastZoom  AS SINGLE     ' Zoom level when cache was built
 END TYPE
 
 DIM SHARED TRANSPARENCY AS TRANSPARENCY_OBJ
