@@ -34,6 +34,7 @@ TYPE DRAW_GRID
     SNAP       AS INTEGER        ' Whether snap-to-grid is enabled (TRUE/FALSE)
     ALIGN_MODE AS INTEGER        ' Alignment mode: GRID_ALIGN_CORNER or GRID_ALIGN_CENTER
     GRID_MODE  AS INTEGER        ' Geometry mode: GRID_MODE_SQUARE/DIAGONAL/ISOMETRIC/HEX
+    CELL_FILL  AS INTEGER        ' Cell fill mode: fill tool fills grid cells instead of flood fill
 END TYPE
 
 ' Pixel grid (checkerboard) for high zoom levels
