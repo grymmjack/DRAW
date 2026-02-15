@@ -28,6 +28,8 @@ TYPE DRAW_THEME
     GRID_opacity            AS INTEGER ' Grid line opacity (0-255, default 38 ~15%)
     GRID_size_x             AS INTEGER ' Grid cell width in pixels (default 10)
     GRID_size_y             AS INTEGER ' Grid cell height in pixels (default 10)
+    TRANSPARENCY_check_size_x AS INTEGER ' Checkerboard square width (default 8)
+    TRANSPARENCY_check_size_y AS INTEGER ' Checkerboard square height (default 8)
     TOOLBAR_x              AS STRING  ' Toolbar X position "L | R | n" (n=any #)
     TOOLBAR_y              AS STRING  ' Toolbar Y position "T | B | n" (n=any #)
     TOOLBAR_bg             AS INTEGER ' Toolbar background palette color (0-255)
