@@ -10,10 +10,14 @@ $INCLUDEONCE
 THEME.STATUS_bg%              = 8                       ' Dark gray
 THEME.STATUS_fg%              = 0                       ' Opaque black
 THEME.STATUS_height%          = 11                      ' Status bar height in pixels
-THEME.CROSSHAIR_fg%           = 8                       ' Dark gray / bright black
+THEME.CROSSHAIR_color_fg~&    = _RGB32(128, 128, 128)   ' Medium gray crosshair lines
+THEME.CROSSHAIR_opacity%      = 128                     ' 50% opacity (alpha 0-255)
+THEME.CROSSHAIR_font_fg~&     = _RGB32(255, 255, 255)   ' White coordinate text
 THEME.CROSSHAIR_pattern%      = &B1010101010101010      ' - - - - - - - -
 THEME.GRID_color_fg~&         = _RGB32(250, 250, 250)   ' Bright white at full opacity
 THEME.GRID_opacity%           = 38                      ' ~15% opacity (alpha 0-255)
+THEME.GRID_size_x%            = 10                      ' Grid cell width in pixels
+THEME.GRID_size_y%            = 10                      ' Grid cell height in pixels
 THEME.TOOLBAR_x$              = "R"                     ' Screen right side (any res)
 THEME.TOOLBAR_y$              = "T"                     ' Screen top side (any res)
 THEME.TOOLBAR_bg%             = _RGBA32(0, 0, 0, 255)   ' Black background
