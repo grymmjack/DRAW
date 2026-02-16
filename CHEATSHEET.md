@@ -95,9 +95,31 @@ Press `*` (asterisk/star) to set the foreground color to **transparent**. This e
 | `'` (apostrophe) | Toggle grid visibility |
 | `Shift+'` (quote) | Toggle pixel grid (400%+ zoom) |
 | `;` (semicolon) | Toggle snap-to-grid |
-| `Ctrl+'` | Toggle grid alignment mode (Corner ↔ Center) |
+| `Ctrl+'` | Cycle grid geometry mode (Square → Diagonal → Isometric → Hex) |
 | `.` (period) | Increase grid size (+1px, max 50px) |
 | `,` (comma) | Decrease grid size (-1px, min 2px) |
+
+### Grid Geometry Modes
+
+| Mode | Status Tag | Description |
+|------|------------|-------------|
+| **Square** (default) | (none) | Standard axis-aligned rectangular grid |
+| **Diagonal** | `/DG` | 45° rotated diamond grid |
+| **Isometric** | `/ISO` | 30°/60° isometric triangle grid |
+| **Hex** | `/HEX` | Flat-top hexagonal grid with 45° diagonal sides |
+
+Cycle through modes with `Ctrl+'`. The current mode is shown in the status bar after the grid size (e.g., `G:16/ISO`).
+
+### Grid Cell Fill Mode
+
+When **Grid Cell Fill** is enabled (via View menu → Grid Cell Fill), the Fill tool fills individual grid cells instead of performing a flood fill. Works with all grid geometry modes:
+
+- **Square**: Fills rectangular cells
+- **Diagonal**: Fills diamond-shaped cells
+- **Isometric**: Fills triangular cells
+- **Hex**: Fills hexagonal cells
+
+Requires both grid visibility (`'`) and cell fill mode to be enabled.
 
 ### Grid Alignment Modes
 
@@ -106,18 +128,16 @@ Press `*` (asterisk/star) to set the foreground color to **transparent**. This e
 | **Corner** (default) | Snaps to grid intersection corners (top-left of cells) |
 | **Center** | Snaps to center of grid cells |
 
-Grid alignment affects all snap-to-grid operations including drawing tools, marquee, and move.
+Toggle via View menu → Grid Tile Mode. Grid alignment affects all snap-to-grid operations including drawing tools, marquee, and move.
 
-### Grid Tile Mode
+### Grid Notes
 
-Grid tile mode provides visual tile boundary feedback for tile-based workflows. When enabled, the grid overlay renders as distinct tiles rather than simple lines.
-
-**Notes:**
 - Regular grid shows at 100%+ zoom when enabled
 - Pixel grid shows at 400%+ zoom when enabled (fine grid around each pixel)
 - Both grids can be shown simultaneously at high zoom levels
 - Status bar shows grid state: `G:n` (visible) or `G:n S` (snap enabled)
 - Snap-to-grid rounds all drawing coordinates to nearest grid boundary
+- Grid color, opacity, and angle are configurable in DRAW.cfg and theme files
 
 ## Symmetry Drawing
 
@@ -231,7 +251,7 @@ When a custom brush is captured (`Ctrl+B`), the spray tool stamps the custom bru
 | Tool | Action | Function |
 |------|--------|----------|
 | **Dot** | Shift + Right Click | Draw line from last point to current |
-| **Picker** | Alt + Left Click | Temporarily activate picker |
+| **Picker** | Alt (hold) | Temporarily activate picker (releasing ALT returns to previous tool without opening the menu bar) |
 | **Marquee** | Drag handles | Resize selection |
 | **Marquee** | Drag inside | Move selection |
 | **Move** | Drag handles | Scale/resize |
@@ -893,6 +913,20 @@ DRAW stores settings in `DRAW.cfg` in the application directory. Settings are lo
 | `FPS_LIMIT` | Frame rate limit |
 | `ANGLE_SNAP_DEGREES` | Angle snap increment for lines/polygons |
 | `GRID_SIZE` | Grid cell size in pixels |
+| `GRID_COLOR_FG` | Grid line color (hex RGB, 0=use theme) |
+| `GRID_OPACITY` | Grid line opacity 0-255 (0=use theme) |
+| `GRID_ANGLE` | Grid rotation angle in degrees (0=use theme) |
+| `GRID_MODE` | Grid geometry mode (0=square, 1=diagonal, 2=isometric, 3=hex) |
+| `GRID_CELL_FILL` | Grid cell fill mode (0=off, 1=on) |
+| `PIXELGRID_COLOR_FG` | Pixel grid line color (hex RGB, 0=use theme) |
+| `PIXELGRID_OPACITY` | Pixel grid line opacity 0-255 (0=use theme) |
+| `CROSSHAIR_FG` | Crosshair line color (hex RGB, 0=use theme) |
+| `CROSSHAIR_OPACITY` | Crosshair line opacity 0-255 (0=use theme) |
+| `CROSSHAIR_ANGLE` | Crosshair rotation angle in degrees (0=use theme) |
+| `TRANSPARENCY_CHECK_COLOR1` | Light checkerboard color (hex RGB) |
+| `TRANSPARENCY_CHECK_COLOR2` | Dark checkerboard color (hex RGB) |
+| `TRANSPARENCY_CHECK_SIZE_X` | Checkerboard square width (0=use theme) |
+| `TRANSPARENCY_CHECK_SIZE_Y` | Checkerboard square height (0=use theme) |
 | `MAX_LAYERS` | Maximum number of layers (1-64) |
 | `LAYER_PANEL_WIDTH` | Width of layer panel in pixels |
 

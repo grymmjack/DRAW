@@ -42,10 +42,14 @@ DRAW is a pixel art editor written in QB64PE that can export images as sourcecod
 - Toggle grid visibility with `'` (apostrophe)
 - Pixel grid for precise work at 400%+ zoom (`Shift+'`)
 - Snap-to-grid mode with `;` (semicolon)
-- Grid alignment modes: Corner (snap to intersections) or Center (snap to cell centers) — toggle with `Ctrl+'`
+- **4 grid geometry modes**: Square, Diagonal (45°), Isometric (30°/60°), Hexagonal — cycle with `Ctrl+'`
+- Grid alignment modes: Corner (snap to intersections) or Center (snap to cell centers) — toggle via View menu
+- **Grid cell fill mode**: Fill tool fills individual grid cells (squares, diamonds, triangles, or hexagons) instead of flood fill — toggle via View menu
 - Dynamic grid sizing with `.` (increase) and `,` (decrease)
 - Both grids can be shown simultaneously at high zoom
-- Status bar indicator shows grid size and snap state
+- Configurable grid/pixel grid/crosshair color, opacity, and angle via DRAW.cfg
+- Configurable transparency checkerboard colors and size
+- Status bar indicator shows grid size, mode, and snap state
 
 ### Color System
 - **Dynamic Palette System** - Load palettes from .GPL files (GIMP Palette format)
@@ -91,7 +95,8 @@ DRAW is a pixel art editor written in QB64PE that can export images as sourcecod
 - Themeable PNG icon toolbar (21 buttons in 3×7 grid)
 - PNG cursors with theme-configurable hotspots and alpha transparency
 - Layer panel with PNG icons (visibility, lock, action buttons)
-- **Menu bar** with File, Edit, View, Layers, Tools, Help menus and full keyboard navigation (closes on outside click)
+- **Menu bar** with File, Edit, View, Select, Tools, Brush, Layers, Help menus and full keyboard navigation
+- Submenus auto-position within menu bar bounds (no toolbar/panel overlap)
 - Auto-hiding toolbar and status bar during active drawing
 - Manual UI toggle with Tab, F10, F11 — toggling panels does not shift the canvas
 - Status bar shows: tool, coordinates, zoom, grid state, colors
@@ -105,7 +110,7 @@ DRAW is a pixel art editor written in QB64PE that can export images as sourcecod
 **Tools:** B (Brush), D (Dot/Stamp), F (Fill), I (Picker), K (Spray), L (Line), R (Rectangle), E (Ellipse), Z (Zoom)  
 **Colors:** Left-click palette swatch for FG, Right-click for BG, or use 0-9 keys; hold ALT for temporary eyedropper  
 **Palette:** Click palette name dropdown to switch palettes, SHIFT+wheel for fast scroll  
-**Grid:** `'` (toggle), `Shift+'` (pixel grid), `;` (snap), `.` (bigger), `,` (smaller)  
+**Grid:** `'` (toggle), `Shift+'` (pixel grid), `;` (snap), `Ctrl+'` (cycle mode), `.` (bigger), `,` (smaller)  
 **Brush Size:** `[` (smaller), `]` (bigger), F6 (pixel perfect)  
 **Canvas:** Delete (clear with prompt), Backspace (clear instant)  
 **View:** Mouse wheel (zoom), Middle click (pan), Ctrl+0 (reset)  
