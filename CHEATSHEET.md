@@ -549,6 +549,12 @@ When a selection is active (marquee or magic wand), it acts as a **clipping mask
 | `Ctrl+Shift+S` | Save As (always prompts for filename) |
 | `Ctrl+Alt+Shift+S` | Export selection as cropped image |
 
+### Reference Image
+| Key | Function |
+|-----|----------|
+| `Ctrl+R` | Toggle reference image on/off (loads if none loaded) |
+| `Ctrl+Shift+Wheel` | Adjust reference image opacity |
+
 ### DRAW Project Files (ALT)
 | Key | Function |
 |-----|----------|
@@ -762,7 +768,7 @@ DRAW has an optional menu bar at the top of the screen providing access to all c
 |------|----------|
 | **File** | New, Open, Import Image, Save, Save As, Export Layer, Export Brush, Exit |
 | **Edit** | Undo, Redo, Cut, Copy, Paste, Select All, Deselect, Invert Selection, Flip H/V, Scale |
-| **View** | Toolbar, Status Bar, Layer Panel, Menu Bar, Cursors, Grid, Pixel Grid, Snap, Crosshair |
+| **View** | Toolbar, Status Bar, Layer Panel, Menu Bar, Cursors, Grid, Pixel Grid, Snap, Crosshair, Reference Image |
 | **Canvas** | Clear Canvas, Zoom In/Out, Reset Zoom |
 | **Tools** | All drawing tools (Dot, Brush, Line, etc.) |
 | **Palette** | Color Picker, Load Palette, Swap Colors |

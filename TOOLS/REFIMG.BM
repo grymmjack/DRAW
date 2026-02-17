@@ -1,0 +1,368 @@
+''
+' DRAW - TOOLS/REFIMG.BM
+' =============================================================================
+' Reference Image implementation - load, render, reposition, opacity control.
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+
+''
+' Load a reference image from a file dialog.
+' Sets up initial positioning: image is scaled to fit the canvas and centered.
+'
+SUB REFIMG_load ()
+    DIM filename AS STRING
+    DIM default_path AS STRING
+
+    ' Use last directory if available
+    IF LAST_DIRECTORY$ <> "" THEN
+        default_path$ = LAST_DIRECTORY$ + "/"
+    ELSEIF CFG.DEFAULT_SAVE_DIR$ <> "" THEN
+        default_path$ = CFG.DEFAULT_SAVE_DIR$ + "/"
+    ELSE
+        default_path$ = ""
+    END IF
+
+    POINTER_hide_for_dialog
+    filename$ = _OPENFILEDIALOG$("Load Reference Image", default_path$, "*.png|*.bmp|*.jpg|*.gif", "Image files")
+    POINTER_show_after_dialog
+    MOUSE_cleanup_after_dialog TRUE
+
+    IF filename$ = "" THEN EXIT SUB
+
+    REFIMG_load_file filename$
+END SUB
+
+
+''
+' Load a reference image from a specific file path.
+'
+SUB REFIMG_load_file (filename AS STRING)
+    DIM loaded_img AS LONG
+
+    loaded_img& = _LOADIMAGE(filename$, 32)
+    IF loaded_img& >= -1 THEN
+        _LOGERROR "REFIMG_load_file: failed to load " + filename$
+        POINTER_hide_for_dialog
+        _MESSAGEBOX "Reference Image", "Could not load image: " + filename$, "error"
+        POINTER_show_after_dialog
+        MOUSE_cleanup_after_dialog TRUE
+        EXIT SUB
+    END IF
+
+    ' Free previous image if any
+    IF REFIMG.IMAGE < -1 THEN _FREEIMAGE REFIMG.IMAGE
+
+    REFIMG.IMAGE = loaded_img&
+    REFIMG.IMAGE_W = _WIDTH(loaded_img&)
+    REFIMG.IMAGE_H = _HEIGHT(loaded_img&)
+    REFIMG.FILENAME = filename$
+
+    ' Scale to fit canvas, centered
+    DIM aspect AS SINGLE
+    DIM canvas_aspect AS SINGLE
+    DIM fit_scale AS SINGLE
+
+    aspect! = REFIMG.IMAGE_W / REFIMG.IMAGE_H
+    canvas_aspect! = SCRN.w& / SCRN.h&
+
+    IF aspect! > canvas_aspect! THEN
+        ' Wider than canvas - fit by width
+        fit_scale! = SCRN.w& / REFIMG.IMAGE_W
+    ELSE
+        ' Taller than canvas - fit by height
+        fit_scale! = SCRN.h& / REFIMG.IMAGE_H
+    END IF
+
+    REFIMG.SCALE_W = REFIMG.IMAGE_W * fit_scale!
+    REFIMG.SCALE_H = REFIMG.IMAGE_H * fit_scale!
+    REFIMG.POS_X = (SCRN.w& - REFIMG.SCALE_W) / 2.0
+    REFIMG.POS_Y = (SCRN.h& - REFIMG.SCALE_H) / 2.0
+
+    REFIMG.VISIBLE = TRUE
+    REFIMG.OPACITY = REFIMG_OPACITY_DEFAULT%
+
+    SCENE_DIRTY% = TRUE
+    GUI_NEEDS_REDRAW% = TRUE
+
+    ' Update last directory
+    DIM i AS INTEGER
+    FOR i% = LEN(filename$) TO 1 STEP -1
+        IF MID$(filename$, i%, 1) = "/" OR MID$(filename$, i%, 1) = "\" THEN
+            LAST_DIRECTORY$ = LEFT$(filename$, i% - 1)
+            EXIT FOR
+        END IF
+    NEXT i%
+
+    _LOGINFO "REFIMG: loaded " + filename$ + " (" + _TRIM$(STR$(REFIMG.IMAGE_W)) + "x" + _TRIM$(STR$(REFIMG.IMAGE_H)) + ")"
+END SUB
+
+
+''
+' Clear the reference image and free resources.
+'
+SUB REFIMG_clear ()
+    IF REFIMG.IMAGE < -1 THEN _FREEIMAGE REFIMG.IMAGE
+    REFIMG.IMAGE = 0
+    REFIMG.IMAGE_W = 0
+    REFIMG.IMAGE_H = 0
+    REFIMG.FILENAME = ""
+    REFIMG.VISIBLE = FALSE
+    REFIMG.REPOSITION = FALSE
+    REFIMG.DRAGGING = FALSE
+    SCENE_DIRTY% = TRUE
+    GUI_NEEDS_REDRAW% = TRUE
+    _LOGINFO "REFIMG: cleared"
+END SUB
+
+
+''
+' Toggle reference image visibility on/off.
+'
+SUB REFIMG_toggle ()
+    IF REFIMG.IMAGE < -1 THEN
+        REFIMG.VISIBLE = NOT REFIMG.VISIBLE
+        SCENE_DIRTY% = TRUE
+        GUI_NEEDS_REDRAW% = TRUE
+        IF REFIMG.VISIBLE THEN
+            _LOGINFO "REFIMG: visible"
+        ELSE
+            _LOGINFO "REFIMG: hidden"
+        END IF
+    ELSE
+        ' No image loaded — load one
+        REFIMG_load
+    END IF
+END SUB
+
+
+''
+' Enter reposition mode: saves current tool, allows drag-to-move.
+'
+SUB REFIMG_reposition_start ()
+    IF REFIMG.IMAGE >= -1 THEN
+        POINTER_hide_for_dialog
+        _MESSAGEBOX "Reference Image", "No reference image loaded.", "info"
+        POINTER_show_after_dialog
+        MOUSE_cleanup_after_dialog TRUE
+        EXIT SUB
+    END IF
+
+    ' Make sure it's visible so user can see it
+    REFIMG.VISIBLE = TRUE
+    REFIMG.REPOSITION = TRUE
+    REFIMG.DRAGGING = FALSE
+    REFIMG.PREV_TOOL = CURRENT_TOOL%
+    CURRENT_TOOL% = TOOL_NULL
+    SCENE_DIRTY% = TRUE
+    GUI_NEEDS_REDRAW% = TRUE
+    _LOGINFO "REFIMG: reposition mode started"
+END SUB
+
+
+''
+' Finish reposition mode: restore previous tool.
+'
+SUB REFIMG_reposition_finish ()
+    REFIMG.REPOSITION = FALSE
+    REFIMG.DRAGGING = FALSE
+    CURRENT_TOOL% = REFIMG.PREV_TOOL
+    SCENE_DIRTY% = TRUE
+    GUI_NEEDS_REDRAW% = TRUE
+    _LOGINFO "REFIMG: reposition mode finished"
+END SUB
+
+
+''
+' Handle mouse press during reposition mode.
+'
+SUB REFIMG_reposition_mouse_down (canvasX AS INTEGER, canvasY AS INTEGER)
+    IF NOT REFIMG.REPOSITION THEN EXIT SUB
+    REFIMG.DRAGGING = TRUE
+    REFIMG.DRAG_OFS_X = canvasX% - REFIMG.POS_X
+    REFIMG.DRAG_OFS_Y = canvasY% - REFIMG.POS_Y
+END SUB
+
+
+''
+' Handle mouse move during reposition mode.
+'
+SUB REFIMG_reposition_mouse_move (canvasX AS INTEGER, canvasY AS INTEGER)
+    IF NOT REFIMG.REPOSITION THEN EXIT SUB
+    IF NOT REFIMG.DRAGGING THEN EXIT SUB
+    REFIMG.POS_X = canvasX% - REFIMG.DRAG_OFS_X
+    REFIMG.POS_Y = canvasY% - REFIMG.DRAG_OFS_Y
+    SCENE_DIRTY% = TRUE
+END SUB
+
+
+''
+' Handle mouse release during reposition mode.
+'
+SUB REFIMG_reposition_mouse_up ()
+    IF NOT REFIMG.REPOSITION THEN EXIT SUB
+    REFIMG.DRAGGING = FALSE
+END SUB
+
+
+''
+' Handle mouse wheel during reposition mode (resize reference image).
+'
+SUB REFIMG_reposition_wheel (delta AS INTEGER)
+    IF NOT REFIMG.REPOSITION THEN EXIT SUB
+    IF REFIMG.IMAGE >= -1 THEN EXIT SUB
+
+    DIM old_w AS SINGLE, old_h AS SINGLE
+    DIM aspect AS SINGLE
+    DIM step_size AS SINGLE
+
+    old_w! = REFIMG.SCALE_W
+    old_h! = REFIMG.SCALE_H
+    aspect! = REFIMG.IMAGE_W / REFIMG.IMAGE_H
+
+    ' Scale step is 10% of current width
+    step_size! = REFIMG.SCALE_W * 0.1
+    IF step_size! < 1 THEN step_size! = 1
+
+    IF delta% < 0 THEN
+        ' Wheel down = bigger
+        REFIMG.SCALE_W = REFIMG.SCALE_W + step_size!
+    ELSEIF delta% > 0 THEN
+        ' Wheel up = smaller
+        REFIMG.SCALE_W = REFIMG.SCALE_W - step_size!
+        IF REFIMG.SCALE_W < 4 THEN REFIMG.SCALE_W = 4
+    END IF
+
+    ' Maintain aspect ratio
+    REFIMG.SCALE_H = REFIMG.SCALE_W / aspect!
+    IF REFIMG.SCALE_H < 4 THEN
+        REFIMG.SCALE_H = 4
+        REFIMG.SCALE_W = REFIMG.SCALE_H * aspect!
+    END IF
+
+    ' Keep centered on same point
+    REFIMG.POS_X = REFIMG.POS_X + (old_w! - REFIMG.SCALE_W) / 2.0
+    REFIMG.POS_Y = REFIMG.POS_Y + (old_h! - REFIMG.SCALE_H) / 2.0
+
+    SCENE_DIRTY% = TRUE
+END SUB
+
+
+''
+' Adjust reference image opacity by a delta (in percentage points).
+'
+SUB REFIMG_adjust_opacity (delta AS INTEGER)
+    IF REFIMG.IMAGE >= -1 THEN EXIT SUB
+
+    REFIMG.OPACITY = REFIMG.OPACITY + delta%
+    IF REFIMG.OPACITY < REFIMG_OPACITY_MIN% THEN REFIMG.OPACITY = REFIMG_OPACITY_MIN%
+    IF REFIMG.OPACITY > REFIMG_OPACITY_MAX% THEN REFIMG.OPACITY = REFIMG_OPACITY_MAX%
+    SCENE_DIRTY% = TRUE
+    _LOGINFO "REFIMG: opacity = " + _TRIM$(STR$(REFIMG.OPACITY)) + "%"
+END SUB
+
+
+''
+' Render the reference image onto the canvas.
+' Call this AFTER the transparency checkerboard and BEFORE layer compositing.
+'
+' @param dest&  Destination image handle (SCRN.CANVAS&)
+' @param dx%    Zoomed canvas X offset on screen
+' @param dy%    Zoomed canvas Y offset on screen
+' @param zw&    Zoomed canvas width
+' @param zh&    Zoomed canvas height
+'
+SUB REFIMG_render (dest AS LONG, dx AS INTEGER, dy AS INTEGER, zw AS LONG, zh AS LONG)
+    IF REFIMG.IMAGE >= -1 THEN EXIT SUB
+    IF NOT REFIMG.VISIBLE THEN EXIT SUB
+    
+    ' zw& and zh& available for clipping if needed in future
+    DIM dummy AS LONG: dummy& = zw& + zh&: dummy& = dummy&
+
+    DIM prevDest AS LONG
+    prevDest& = _DEST
+    _DEST dest&
+
+    ' Calculate screen coordinates for the reference image
+    DIM screen_x AS INTEGER, screen_y AS INTEGER
+    DIM screen_w AS INTEGER, screen_h AS INTEGER
+    screen_x% = dx% + INT(REFIMG.POS_X * SCRN.zoom!)
+    screen_y% = dy% + INT(REFIMG.POS_Y * SCRN.zoom!)
+    screen_w% = INT(REFIMG.SCALE_W * SCRN.zoom!)
+    screen_h% = INT(REFIMG.SCALE_H * SCRN.zoom!)
+
+    IF screen_w% < 1 THEN screen_w% = 1
+    IF screen_h% < 1 THEN screen_h% = 1
+
+    ' Create a temporary image to apply opacity
+    DIM tempImg AS LONG
+    tempImg& = _NEWIMAGE(screen_w%, screen_h%, 32)
+    IF tempImg& >= -1 THEN
+        _DEST prevDest&
+        EXIT SUB
+    END IF
+
+    ' Draw the reference image scaled into temp
+    _DEST tempImg&
+    _PUTIMAGE (0, 0)-(screen_w% - 1, screen_h% - 1), REFIMG.IMAGE, tempImg&
+
+    ' Apply opacity using _SETALPHA
+    DIM alpha AS INTEGER
+    alpha% = INT(255 * REFIMG.OPACITY / 100.0)
+    _SETALPHA alpha%, , tempImg&
+
+    ' Composite onto canvas
+    _DEST dest&
+    _PUTIMAGE (screen_x%, screen_y%), tempImg&, dest&
+
+    _FREEIMAGE tempImg&
+    _DEST prevDest&
+END SUB
+
+
+''
+' Render the reference image status bar when in reposition mode.
+'
+SUB REFIMG_render_status (dest AS LONG)
+    IF NOT REFIMG.REPOSITION THEN EXIT SUB
+
+    DIM prevDest AS LONG
+    prevDest& = _DEST
+    _DEST dest&
+
+    DIM status_text AS STRING
+    DIM opacity_text AS STRING
+    DIM bar_y AS INTEGER
+    DIM bar_w AS INTEGER
+    DIM text_h AS INTEGER
+    DIM old_font AS LONG
+
+    status_text$ = "DRAG: Move | WHEEL: Resize | ENTER: Done | ESC: Cancel"
+    opacity_text$ = _TRIM$(STR$(REFIMG.OPACITY)) + "% opacity"
+
+    IF STATUS_FONT > 0 THEN
+        old_font& = _FONT(dest&)
+        _FONT STATUS_FONT, dest&
+        text_h% = _FONTHEIGHT(STATUS_FONT)
+    ELSE
+        old_font& = 0
+        text_h% = 8
+    END IF
+
+    bar_y% = _HEIGHT(dest&) - text_h% - 4
+    bar_w% = _WIDTH(dest&)
+
+    ' Solid background bar
+    LINE (0, bar_y%)-(bar_w% - 1, _HEIGHT(dest&) - 1), _RGB32(32, 32, 32), BF
+    LINE (0, bar_y%)-(bar_w% - 1, bar_y%), _RGB32(80, 80, 80)
+
+    ' Status text left, opacity right
+    COLOR _RGB32(255, 255, 255), _RGB32(32, 32, 32)
+    _PRINTSTRING (4, bar_y% + 2), status_text$
+    _PRINTSTRING (bar_w% - _PRINTWIDTH(opacity_text$, dest&) - 4, bar_y% + 2), opacity_text$
+
+    IF old_font& > 0 THEN _FONT old_font&, dest&
+    _DEST prevDest&
+END SUB

@@ -253,6 +253,59 @@ END SUB
 
 
 ''
+' Reference image reposition mode mouse handling.
+' Returns TRUE when reposition is active and input was handled.
+'
+FUNCTION MOUSE_handle_refimg_reposition% ()
+    MOUSE_handle_refimg_reposition% = FALSE
+    IF NOT REFIMG.REPOSITION THEN EXIT FUNCTION
+    
+    ' Drain mouse input and accumulate wheel
+    DIM wheel_delta AS INTEGER
+    DIM rawX AS INTEGER, rawY AS INTEGER
+    wheel_delta% = 0
+    DO WHILE _MOUSEINPUT
+        wheel_delta% = wheel_delta% + _MOUSEWHEEL
+    LOOP
+    rawX% = _MOUSEX
+    rawY% = _MOUSEY
+    
+    ' Convert to canvas coordinates
+    DIM zw AS LONG, zh AS LONG, dx AS INTEGER, dy AS INTEGER
+    zw& = SCRN.w& * SCRN.zoom!
+    zh& = SCRN.h& * SCRN.zoom!
+    dx% = (SCRN.w& - zw&) \ 2 + SCRN.offsetX%
+    dy% = (SCRN.h& - zh&) \ 2 + SCRN.offsetY%
+    DIM canvasX AS INTEGER, canvasY AS INTEGER
+    canvasX% = INT((rawX% - dx%) / SCRN.zoom!)
+    canvasY% = INT((rawY% - dy%) / SCRN.zoom!)
+    
+    ' Button states
+    DIM b1 AS INTEGER
+    b1% = _MOUSEBUTTON(1)
+    
+    ' Mouse wheel: resize reference image
+    IF wheel_delta% <> 0 THEN
+        REFIMG_reposition_wheel wheel_delta%
+    END IF
+    
+    ' Mouse button press/release/drag
+    STATIC wasDown AS INTEGER
+    IF b1% AND NOT wasDown% THEN
+        REFIMG_reposition_mouse_down canvasX%, canvasY%
+    ELSEIF b1% AND wasDown% THEN
+        REFIMG_reposition_mouse_move canvasX%, canvasY%
+    ELSEIF NOT b1% AND wasDown% THEN
+        REFIMG_reposition_mouse_up
+    END IF
+    wasDown% = b1%
+    
+    FRAME_IDLE% = FALSE
+    MOUSE_handle_refimg_reposition% = TRUE
+END FUNCTION
+
+
+''
 ' Image import mode mouse handling.
 ' Returns TRUE when IMG_IMPORT is active and input was handled (caller should EXIT SUB).
 '
@@ -1817,6 +1870,20 @@ SUB MOUSE_handle_wheel (rawX AS INTEGER, rawY AS INTEGER, wheel_delta AS INTEGER
         ' Check if over status bar area (don't zoom when over status bar) - use RAW screen coords
         ELSEIF SCRN.showStatus% AND rawY% >= SCRN.h& - THEME.STATUS_height% - PALETTE_STRIP_get_height% THEN
             MOUSE.SW% = 0 ' Consume — ignored
+        ' Check if CTRL+SHIFT is held for reference image opacity adjustment
+        ELSEIF MODIFIERS.ctrl% AND MODIFIERS.shift% THEN
+            IF REFIMG.IMAGE < -1 THEN
+                IF MOUSE.SW% < 0 THEN
+                    REFIMG_adjust_opacity REFIMG_OPACITY_STEP%
+                ELSEIF MOUSE.SW% > 0 THEN
+                    REFIMG_adjust_opacity -REFIMG_OPACITY_STEP%
+                END IF
+                IF REFIMG.VISIBLE THEN
+                    SCENE_DIRTY% = TRUE
+                    FRAME_IDLE% = FALSE ' Force immediate re-render
+                END IF
+            END IF
+            MOUSE.SW% = 0 ' Consume
         ' Check if CTRL is held for brush size adjustment
         ELSEIF MODIFIERS.ctrl% THEN
             ' CTRL+Wheel adjusts brush size
@@ -2275,6 +2342,13 @@ END FUNCTION
 ' Handles mouse input
 ' 
 SUB MOUSE_input_handler ()
+    ' ==== REFERENCE IMAGE REPOSITION MODE ====
+    ' When repositioning, handle mouse directly for drag/resize
+    IF REFIMG.REPOSITION THEN
+        IF MOUSE_handle_refimg_reposition% THEN EXIT SUB
+    END IF
+    ' ==== END REFERENCE IMAGE REPOSITION MODE ====
+    
     ' ==== IMAGE IMPORT MODE - PROCESS OUTSIDE LOOP FOR PERFORMANCE ====
     ' When in image import mode, skip the normal buffered mouse processing
     ' and use direct polling for responsive interaction
