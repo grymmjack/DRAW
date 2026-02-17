@@ -545,16 +545,14 @@ When a selection is active (marquee or magic wand), it acts as a **clipping mask
 |-----|----------|
 | `Ctrl+N` | New canvas (prompts to save unsaved changes, then resets to blank canvas) |
 | `Ctrl+O` | Open/import image file (PNG, BMP, JPG, GIF) |
-| `Ctrl+S` | Save image with dialog |
-| `Ctrl+Shift+S` | Quick save (no dialog if previously saved) |
-| `Ctrl+Alt+S` | Save As (always prompts for filename) |
+| `Ctrl+S` | Save (silently if previously saved, dialog if new) |
+| `Ctrl+Shift+S` | Save As (always prompts for filename) |
 | `Ctrl+Alt+Shift+S` | Export selection as cropped image |
 
 ### DRAW Project Files (ALT)
 | Key | Function |
 |-----|----------|
 | `Alt+O` | Open DRAW project (.draw) |
-| `Alt+S` | Save DRAW project (.draw) |
 | `Alt+X` | Exit DRAW (prompts if unsaved) |
 
 ### File Menu Commands
@@ -563,9 +561,9 @@ When a selection is active (marquee or magic wand), it acts as a **clipping mask
 | File → New | Create a new empty canvas (prompts to save unsaved changes) |
 | File → Open | Open a .draw project file |
 | File → Import Image | Open/import image file |
-| File → Save | Save image |
-| File → Save as DRAW | Save as .draw project |
-| File → Save as PNG | Quick save as PNG |
+| File → Save | Save (silently if previously saved, dialog if new) |
+| File → Save As... | Save with a new filename (always prompts) |
+| File → Export Layer | Export current layer as PNG |
 | File → Export Brush | Export active custom brush as PNG |
 | File → Exit | Exit DRAW (`Alt+X`) |
 
@@ -762,7 +760,7 @@ DRAW has an optional menu bar at the top of the screen providing access to all c
 
 | Menu | Contents |
 |------|----------|
-| **File** | New, Open, Import Image, Save, Save as DRAW, Save as PNG, Export Layer, Export Brush, Exit |
+| **File** | New, Open, Import Image, Save, Save As, Export Layer, Export Brush, Exit |
 | **Edit** | Undo, Redo, Cut, Copy, Paste, Select All, Deselect, Invert Selection, Flip H/V, Scale |
 | **View** | Toolbar, Status Bar, Layer Panel, Menu Bar, Cursors, Grid, Pixel Grid, Snap, Crosshair |
 | **Canvas** | Clear Canvas, Zoom In/Out, Reset Zoom |
