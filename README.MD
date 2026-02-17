@@ -35,6 +35,7 @@ DRAW is a pixel art editor written in QB64PE that can export images as sourcecod
 - **Clipboard** - Copy/Cut/Paste selections (Ctrl+C/X/V), Merged copy (Ctrl+Shift+C), Clear selection (Ctrl+E)
 - **Text** - Text entry tool
 - **Custom Brush** - Capture selection as reusable brush with flip/scale transforms, non-rectangular shapes via alpha channel, dynamic outline expansion
+- **Reference Image** - Load a high-res image behind the canvas at adjustable opacity for tracing (`Ctrl+R` toggle, `Ctrl+Shift+Wheel` opacity, reposition via View menu); state persisted in `.draw` project files
 - **Crop** - Canvas crop/resize *(coming soon)*
 
 ### Grid System
@@ -89,7 +90,7 @@ DRAW is a pixel art editor written in QB64PE that can export images as sourcecod
 - Select from current layer: Ctrl+Click a layer row to create a selection mask from its non-transparent pixels
 - Merge down, merge visible, duplicate layers
 - CTRL+Click layer to create selection from non-transparent pixels
-- DRW project format: PNG with embedded `drAw` chunk — preserves layers, blend modes, opacity, palette, and all tool states while remaining viewable in any image viewer
+- DRW project format: PNG with embedded `drAw` chunk — preserves layers, blend modes, opacity, palette, tool states, and reference image configuration while remaining viewable in any image viewer
 
 ### User Interface
 - Themeable PNG icon toolbar (21 buttons in 3×7 grid)
@@ -108,14 +109,16 @@ DRAW is a pixel art editor written in QB64PE that can export images as sourcecod
 ### Essential Controls
 
 **Tools:** B (Brush), D (Dot/Stamp), F (Fill), I (Picker), K (Spray), L (Line), R (Rectangle), E (Ellipse), Z (Zoom)  
-**Colors:** Left-click palette swatch for FG, Right-click for BG, or use 0-9 keys; hold ALT for temporary eyedropper  
+**Drawing:** Left-click draws with FG color, Right-click draws with BG color (all drawing tools)  
+**Colors:** Left-click palette swatch for FG, Right-click for BG, `*` toggles transparent/eraser mode with color memory; hold ALT for temporary eyedropper  
 **Palette:** Click palette name dropdown to switch palettes, SHIFT+wheel for fast scroll  
 **Grid:** `'` (toggle), `Shift+'` (pixel grid), `;` (snap), `Ctrl+'` (cycle mode), `.` (bigger), `,` (smaller)  
 **Brush Size:** `[` (smaller), `]` (bigger), F6 (pixel perfect)  
 **Canvas:** Delete (clear with prompt), Backspace (clear instant)  
 **View:** Mouse wheel (zoom), Middle click (pan), Ctrl+0 (reset)  
 **Clipboard:** Ctrl+C (copy), Ctrl+X (cut), Ctrl+V (paste at cursor), Ctrl+E (clear)  
-**Files:** Ctrl+N (new), Alt+O (open .draw), Alt+S (save .draw), Alt+X (exit)  
+**Files:** Ctrl+N (new), Alt+O (open .draw), Ctrl+S (save), Ctrl+Shift+S (save as), Alt+X (exit)  
+**Reference:** Ctrl+R (toggle), Ctrl+Shift+Wheel (opacity)  
 **Undo/Redo:** Ctrl+Z / Ctrl+Y
 
 See [CHEATSHEET.md](CHEATSHEET.md) for complete controls reference.

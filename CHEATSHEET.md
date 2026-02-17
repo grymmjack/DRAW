@@ -21,7 +21,7 @@
 | `V` | Move | Transform selected region |
 | `Z` | Zoom | Zoom tool (click to zoom in, Alt+click to zoom out) |
 | `T` | Text | Text entry tool |
-| `*` | Transparent Color | Set foreground to transparent (eraser mode) |
+| `*` | Transparent Color | Toggle foreground to/from transparent (eraser mode with color memory) |
 | `?` | Command Palette | Search commands and hotkeys |
 
 ## Paint Opacity
@@ -49,12 +49,16 @@ status bar as `OP:nn%` when below 100%.
 ### Keyboard Shortcuts
 | Key | Action |
 |-----|--------|
-| `*` | **Transparent** (eraser mode) |
+| `*` | **Transparent** (eraser mode toggle — press again to restore previous color) |
 | `X` | Swap foreground and background colors |
 
 ### Transparent Color Mode
 
-Press `*` (asterisk/star) to set the foreground color to **transparent**. This enables eraser-like functionality:
+Press `*` (asterisk/star) to **toggle** the foreground color to/from transparent. This enables eraser-like functionality with **color memory**:
+
+- **First press**: Saves your current foreground color, sets FG to transparent
+- **Second press**: Restores your previously saved foreground color
+- This lets you quickly alternate between drawing and erasing without losing your color selection
 
 | Tool | Transparent Effect |
 |------|--------------------|
@@ -194,12 +198,14 @@ DRAW supports real-time symmetrical drawing with three modes: Vertical (|), Cros
 ### General
 | Action | Function |
 |--------|----------|
-| **Left Click** | Draw/Select/Activate tool |
-| **Right Click** | Sample background color |
+| **Left Click** | Draw/Select/Activate tool with foreground color |
+| **Right Click** | Draw with background color (Brush, Dot, Line, Rect, Ellipse, Fill, Spray) |
 | **Middle Click** | Pan canvas (hold and drag) |
 | **Double Middle Click** | Reset zoom and pan to default |
 | **Mouse Wheel** | Zoom in/out |
 | **Spacebar + Left Drag** | Pan canvas |
+
+> **Right-click exceptions:** Picker (picks BG color), Polygon (closes shape), Brush/Dot + Shift (connecting line from last point)
 
 ### Pan Tool
 
@@ -550,10 +556,34 @@ When a selection is active (marquee or magic wand), it acts as a **clipping mask
 | `Ctrl+Alt+Shift+S` | Export selection as cropped image |
 
 ### Reference Image
+
+Load a high-resolution image behind the canvas at adjustable opacity for tracing.
+The reference image is non-destructive and renders behind all layers.
+Reference image state (position, scale, opacity, visibility, filename) is saved and restored with `.draw` project files (DRW v4+).
+
 | Key | Function |
 |-----|----------|
 | `Ctrl+R` | Toggle reference image on/off (loads if none loaded) |
-| `Ctrl+Shift+Wheel` | Adjust reference image opacity |
+| `Ctrl+Shift+Wheel` | Adjust reference image opacity (5-100%) |
+
+**Reposition Mode** (View → Reposition Reference):
+
+| Action | Function |
+|--------|----------|
+| **Drag** | Move reference image |
+| **Mouse Wheel** | Scale reference image up/down |
+| **Arrow Keys** | Nudge reference image 1px |
+| **Enter** | Confirm and exit reposition mode |
+| **Escape** | Cancel and exit reposition mode |
+
+**View Menu Commands:**
+
+| Command | Function |
+|---------|----------|
+| View → Reference Image | Toggle visibility (Ctrl+R) |
+| View → Load Reference | Load a new reference image file |
+| View → Clear Reference | Remove the current reference image |
+| View → Reposition Reference | Enter reposition mode for drag/resize |
 
 ### DRAW Project Files (ALT)
 | Key | Function |
@@ -573,7 +603,7 @@ When a selection is active (marquee or magic wand), it acts as a **clipping mask
 | File → Export Brush | Export active custom brush as PNG |
 | File → Exit | Exit DRAW (`Alt+X`) |
 
-**Note:** .draw files are PNG images with an embedded `drAw` chunk that preserves all layers, blend modes, palette colors, tool states, and other project data. They can be previewed in any image viewer. Standard image saves flatten all visible layers to a single image.
+**Note:** .draw files are PNG images with an embedded `drAw` chunk that preserves all layers, blend modes, palette colors, tool states, reference image configuration, and other project data. They can be previewed in any image viewer. Standard image saves flatten all visible layers to a single image.
 
 ## Undo/Redo
 
@@ -768,7 +798,7 @@ DRAW has an optional menu bar at the top of the screen providing access to all c
 |------|----------|
 | **File** | New, Open, Import Image, Save, Save As, Export Layer, Export Brush, Exit |
 | **Edit** | Undo, Redo, Cut, Copy, Paste, Select All, Deselect, Invert Selection, Flip H/V, Scale |
-| **View** | Toolbar, Status Bar, Layer Panel, Menu Bar, Cursors, Grid, Pixel Grid, Snap, Crosshair, Reference Image |
+| **View** | Toolbar, Status Bar, Layer Panel, Menu Bar, Cursors, Grid, Pixel Grid, Snap, Crosshair, Reference Image (toggle/load/clear/reposition) |
 | **Canvas** | Clear Canvas, Zoom In/Out, Reset Zoom |
 | **Tools** | All drawing tools (Dot, Brush, Line, etc.) |
 | **Palette** | Color Picker, Load Palette, Swap Colors |
