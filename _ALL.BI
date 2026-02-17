@@ -66,7 +66,6 @@ $INCLUDEONCE
 
 ' TOOLS -----------------------------------------------------------------------
 '$INCLUDE:'./TOOLS/BRUSH.BI'
-'$INCLUDE:'./TOOLS/BRUSH-DITHERS.BI'
 '$INCLUDE:'./TOOLS/BRUSH-FILL.BI'
 '$INCLUDE:'./TOOLS/BRUSH-FX-OUTLINE.BI'
 '$INCLUDE:'./TOOLS/BRUSH-SIZE.BI'

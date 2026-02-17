@@ -188,7 +188,6 @@ DRAW supports real-time symmetrical drawing with three modes: Vertical (|), Cros
 - Use `Ctrl + Left Click` to quickly reposition center without changing modes
 - Press `F8` for instant disable when you need to draw without symmetry
 - Combine with grid snap for precise symmetrical patterns
-- Works great with dither patterns for complex symmetrical textures
 
 ## Mouse Controls
 
@@ -240,7 +239,6 @@ The Spray (`K`) tool sprays random dots within a circular area:
 | **Shift (hold)** | Constrain spray to horizontal or vertical axis |
 | **Symmetry** | Fully supported (all symmetry modes) |
 | **Selection Clipping** | Respects active marquee/wand selections |
-| **Dither Patterns** | Works with active dither patterns |
 | **Preview** | Circle + dot pattern preview shown when not actively spraying |
 | **Custom Brush** | When custom brush is active, stamps the brush at random positions within radius |
 
@@ -270,40 +268,6 @@ When a custom brush is captured (`Ctrl+B`), the spray tool stamps the custom bru
 | `` ` `` or `~` | Toggle brush preview |
 | `\` or `|` | Toggle brush shape |
 | `F6` | Toggle pixel perfect mode |
-
-## Dither Pattern Mode
-
-DRAW includes 10 dither patterns (0-9) that can be applied to brush, dot, and fill tools. Patterns are tiled seamlessly across the entire canvas.
-
-### Pattern Selection (NumLock ON or OFF)
-
-| NumPad Key | Pattern | Description |
-|------------|---------|-------------|
-| `0` | Solid | No dithering (default) |
-| `1` | Light Dots | Very sparse dots (6% fill) |
-| `2` | Dots | Sparse dot pattern (12% fill) |
-| `3` | Checkerboard | Fine alternating pixels (50% fill) |
-| `4` | Medium Dots | Offset dot pattern (25% fill) |
-| `5` | Grid | 2x2 box grid pattern |
-| `6` | Horizontal | Alternating horizontal lines |
-| `7` | Vertical | Alternating vertical lines |
-| `8` | Diagonal \ | Diagonal backslash line |
-| `9` | Checker 2x2 | Checkerboard with 2x2 blocks |
-
-**Notes:**
-- NumPad keys work with NumLock **ON** or **OFF**
-- Active pattern shown in status bar: `[PATTERN NAME]`
-- Pattern `0` disables dithering (solid fill)
-- Brush preview shows active pattern at current brush size
-- Patterns tile seamlessly across entire canvas using global coordinates
-- Works with: Brush, Dot, filled shapes (Rectangle, Ellipse, Polygon), and Fill tool
-
-### NumLock Indicator
-
-| Status Bar | Meaning |
-|------------|---------|
-| `NUM` | NumLock is ON |
-| (no indicator) | NumLock is OFF |
 
 ## Custom Brush
 
