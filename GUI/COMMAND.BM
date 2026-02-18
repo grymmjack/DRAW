@@ -80,6 +80,8 @@ SUB CMD_init ()
     CMD_register "Clear Canvas (No Prompt)", "Backspace", CMD_CAT_EDIT, 309
     CMD_register "Select All", "Ctrl+A", CMD_CAT_EDIT, 310
     CMD_register "Invert Selection", "Ctrl+Shift+I", CMD_CAT_EDIT, 311
+    CMD_register "Rotate 90 CW", ">", CMD_CAT_EDIT, 319
+    CMD_register "Rotate 90 CCW", "<", CMD_CAT_EDIT, 320
     
     ' ========== VIEW ==========
     CMD_register "Toggle Toolbar", "Tab", CMD_CAT_VIEW, 401
@@ -748,9 +750,17 @@ SUB CMD_execute_action (action_id AS INTEGER)
         CASE 1109  ' Reset scale
             IF CUSTOM_BRUSH_is_active% THEN CUSTOM_BRUSH_scale_reset
         CASE 1111  ' Rotate 90 CW
-            IF CUSTOM_BRUSH_is_active% THEN CUSTOM_BRUSH_rotate_cw
+            IF CUSTOM_BRUSH_is_active% THEN
+                CUSTOM_BRUSH_rotate_cw
+            ELSE
+                CMD_execute_action 319
+            END IF
         CASE 1112  ' Rotate 90 CCW
-            IF CUSTOM_BRUSH_is_active% THEN CUSTOM_BRUSH_rotate_ccw
+            IF CUSTOM_BRUSH_is_active% THEN
+                CUSTOM_BRUSH_rotate_ccw
+            ELSE
+                CMD_execute_action 320
+            END IF
         
         ' ========== FILE (menu-only) ==========
         CASE 202  ' Save (Ctrl+S)
@@ -848,7 +858,7 @@ SUB CMD_execute_action (action_id AS INTEGER)
         CASE 315  ' Flip Horizontal
             IF CUSTOM_BRUSH_is_active% THEN
                 CUSTOM_BRUSH_toggle_flip_h
-            ELSEIF CURRENT_TOOL% = TOOL_MOVE AND MOVE.ACTIVE AND MOVE.SELECTION_IMAGE < -1 THEN
+            ELSEIF MOVE.ACTIVE AND MOVE.SELECTION_IMAGE < -1 THEN
                 ' Flip the floating move selection horizontally
                 DIM fhMoveW AS INTEGER, fhMoveH AS INTEGER
                 fhMoveW% = _WIDTH(MOVE.SELECTION_IMAGE)
@@ -912,7 +922,7 @@ SUB CMD_execute_action (action_id AS INTEGER)
         CASE 316  ' Flip Vertical
             IF CUSTOM_BRUSH_is_active% THEN
                 CUSTOM_BRUSH_toggle_flip_v
-            ELSEIF CURRENT_TOOL% = TOOL_MOVE AND MOVE.ACTIVE AND MOVE.SELECTION_IMAGE < -1 THEN
+            ELSEIF MOVE.ACTIVE AND MOVE.SELECTION_IMAGE < -1 THEN
                 ' Flip the floating move selection vertically
                 DIM fvMoveW AS INTEGER, fvMoveH AS INTEGER
                 fvMoveW% = _WIDTH(MOVE.SELECTION_IMAGE)
@@ -976,17 +986,561 @@ SUB CMD_execute_action (action_id AS INTEGER)
         CASE 317  ' Scale -50%
             IF CUSTOM_BRUSH_is_active% THEN
                 CUSTOM_BRUSH_scale_down
-            ELSE
-                ERR_info "Scale -50%: not yet implemented"
+            ELSEIF MOVE.ACTIVE AND MOVE.SELECTION_IMAGE < -1 THEN
+                ' Scale the floating move selection down by 50%
+                DIM sdMoveW AS INTEGER, sdMoveH AS INTEGER
+                sdMoveW% = _WIDTH(MOVE.SELECTION_IMAGE)
+                sdMoveH% = _HEIGHT(MOVE.SELECTION_IMAGE)
+                DIM sdNewW AS INTEGER, sdNewH AS INTEGER
+                sdNewW% = INT(sdMoveW% * 0.5)
+                sdNewH% = INT(sdMoveH% * 0.5)
+                IF sdNewW% < 1 THEN sdNewW% = 1
+                IF sdNewH% < 1 THEN sdNewH% = 1
+                DIM sdMoveTmp AS LONG
+                sdMoveTmp& = _NEWIMAGE(sdNewW%, sdNewH%, 32)
+                _DONTBLEND sdMoveTmp&
+                _PUTIMAGE (0, 0)-(sdNewW% - 1, sdNewH% - 1), MOVE.SELECTION_IMAGE, sdMoveTmp&
+                _BLEND sdMoveTmp&
+                IF MOVE.SELECTION_IMAGE < -1 THEN _FREEIMAGE MOVE.SELECTION_IMAGE
+                MOVE.SELECTION_IMAGE = sdMoveTmp&
+                MOVE.CURRENT_W = sdNewW%
+                MOVE.CURRENT_H = sdNewH%
+                MOVE.SELECTION_W = sdNewW%
+                MOVE.SELECTION_H = sdNewH%
+                MARQUEE.BOX.w = sdNewW%
+                MARQUEE.BOX.h = sdNewH%
+                MOVE_update_preview_buffer
+                SCENE_DIRTY% = TRUE
+                GUI_NEEDS_REDRAW% = TRUE
+                FRAME_IDLE% = FALSE
+            ELSEIF CURRENT_LAYER% > 0 THEN
+                IF NOT UNDO_saved_this_frame% THEN
+                    UNDO_save_state
+                    UNDO_saved_this_frame% = TRUE
+                END IF
+                DIM sdSrc AS LONG
+                sdSrc& = LAYERS(CURRENT_LAYER%).imgHandle&
+                IF MARQUEE.ACTIVE AND MARQUEE.USER_CREATED AND MARQUEE.INITIALIZED THEN
+                    ' Scale only within selection bounds
+                    DIM sdSelW AS INTEGER, sdSelH AS INTEGER
+                    sdSelW% = MARQUEE.BOX.w : sdSelH% = MARQUEE.BOX.h
+                    DIM sdSelNW AS INTEGER, sdSelNH AS INTEGER
+                    sdSelNW% = INT(sdSelW% * 0.5)
+                    sdSelNH% = INT(sdSelH% * 0.5)
+                    IF sdSelNW% < 1 THEN sdSelNW% = 1
+                    IF sdSelNH% < 1 THEN sdSelNH% = 1
+                    ' Extract selection region
+                    DIM sdReg AS LONG
+                    sdReg& = _NEWIMAGE(sdSelW%, sdSelH%, 32)
+                    _DONTBLEND sdReg&
+                    _PUTIMAGE (0, 0), sdSrc&, sdReg&, (MARQUEE.BOX.x, MARQUEE.BOX.y)-(MARQUEE.BOX.x + sdSelW% - 1, MARQUEE.BOX.y + sdSelH% - 1)
+                    ' Scale to smaller size
+                    DIM sdScl AS LONG
+                    sdScl& = _NEWIMAGE(sdSelNW%, sdSelNH%, 32)
+                    _DONTBLEND sdScl&
+                    _PUTIMAGE (0, 0)-(sdSelNW% - 1, sdSelNH% - 1), sdReg&, sdScl&
+                    ' Clear selection area on layer
+                    DIM oldSdDest AS LONG : oldSdDest& = _DEST
+                    _DEST sdSrc&
+                    _DONTBLEND sdSrc&
+                    LINE (MARQUEE.BOX.x, MARQUEE.BOX.y)-(MARQUEE.BOX.x + sdSelW% - 1, MARQUEE.BOX.y + sdSelH% - 1), _RGBA32(0, 0, 0, 0), BF
+                    ' Center scaled content in selection bounds
+                    DIM sdCx AS INTEGER, sdCy AS INTEGER
+                    sdCx% = MARQUEE.BOX.x + (sdSelW% - sdSelNW%) \ 2
+                    sdCy% = MARQUEE.BOX.y + (sdSelH% - sdSelNH%) \ 2
+                    _PUTIMAGE (sdCx%, sdCy%)-(sdCx% + sdSelNW% - 1, sdCy% + sdSelNH% - 1), sdScl&, sdSrc&
+                    _BLEND sdSrc&
+                    _DEST oldSdDest&
+                    IF sdReg& < -1 THEN _FREEIMAGE sdReg&
+                    IF sdScl& < -1 THEN _FREEIMAGE sdScl&
+                ELSE
+                    ' Scale entire layer content down by 50%
+                    DIM sdLW AS LONG, sdLH AS LONG
+                    sdLW& = _WIDTH(sdSrc&)
+                    sdLH& = _HEIGHT(sdSrc&)
+                    DIM sdLNW AS INTEGER, sdLNH AS INTEGER
+                    sdLNW% = INT(sdLW& * 0.5)
+                    sdLNH% = INT(sdLH& * 0.5)
+                    IF sdLNW% < 1 THEN sdLNW% = 1
+                    IF sdLNH% < 1 THEN sdLNH% = 1
+                    ' Copy and scale layer content
+                    DIM sdLTmp AS LONG
+                    sdLTmp& = _NEWIMAGE(sdLNW%, sdLNH%, 32)
+                    _DONTBLEND sdLTmp&
+                    _PUTIMAGE (0, 0)-(sdLNW% - 1, sdLNH% - 1), sdSrc&, sdLTmp&
+                    ' Clear layer and center scaled content
+                    DIM oldSdLDest AS LONG : oldSdLDest& = _DEST
+                    _DEST sdSrc&
+                    _DONTBLEND sdSrc&
+                    CLS , _RGBA32(0, 0, 0, 0)
+                    DIM sdLCx AS INTEGER, sdLCy AS INTEGER
+                    sdLCx% = (sdLW& - sdLNW%) \ 2
+                    sdLCy% = (sdLH& - sdLNH%) \ 2
+                    _PUTIMAGE (sdLCx%, sdLCy%)-(sdLCx% + sdLNW% - 1, sdLCy% + sdLNH% - 1), sdLTmp&, sdSrc&
+                    _BLEND sdSrc&
+                    _DEST oldSdLDest&
+                    IF sdLTmp& < -1 THEN _FREEIMAGE sdLTmp&
+                END IF
+                LAYERS(CURRENT_LAYER%).contentDirty% = TRUE
+                BLEND_invalidate_cache
+                CANVAS_DIRTY% = TRUE
+                SCENE_DIRTY% = TRUE
+                GUI_NEEDS_REDRAW% = TRUE
+                FRAME_IDLE% = FALSE
             END IF
         CASE 318  ' Scale +50%
             IF CUSTOM_BRUSH_is_active% THEN
                 CUSTOM_BRUSH_scale_up
-            ELSE
-                ERR_info "Scale +50%: not yet implemented"
+            ELSEIF MOVE.ACTIVE AND MOVE.SELECTION_IMAGE < -1 THEN
+                ' Scale the floating move selection up by 50%
+                DIM suMoveW AS INTEGER, suMoveH AS INTEGER
+                suMoveW% = _WIDTH(MOVE.SELECTION_IMAGE)
+                suMoveH% = _HEIGHT(MOVE.SELECTION_IMAGE)
+                DIM suNewW AS INTEGER, suNewH AS INTEGER
+                suNewW% = INT(suMoveW% * 1.5)
+                suNewH% = INT(suMoveH% * 1.5)
+                IF suNewW% < 1 THEN suNewW% = 1
+                IF suNewH% < 1 THEN suNewH% = 1
+                DIM suMoveTmp AS LONG
+                suMoveTmp& = _NEWIMAGE(suNewW%, suNewH%, 32)
+                _DONTBLEND suMoveTmp&
+                _PUTIMAGE (0, 0)-(suNewW% - 1, suNewH% - 1), MOVE.SELECTION_IMAGE, suMoveTmp&
+                _BLEND suMoveTmp&
+                IF MOVE.SELECTION_IMAGE < -1 THEN _FREEIMAGE MOVE.SELECTION_IMAGE
+                MOVE.SELECTION_IMAGE = suMoveTmp&
+                MOVE.CURRENT_W = suNewW%
+                MOVE.CURRENT_H = suNewH%
+                MOVE.SELECTION_W = suNewW%
+                MOVE.SELECTION_H = suNewH%
+                MARQUEE.BOX.w = suNewW%
+                MARQUEE.BOX.h = suNewH%
+                MOVE_update_preview_buffer
+                SCENE_DIRTY% = TRUE
+                GUI_NEEDS_REDRAW% = TRUE
+                FRAME_IDLE% = FALSE
+            ELSEIF CURRENT_LAYER% > 0 THEN
+                IF NOT UNDO_saved_this_frame% THEN
+                    UNDO_save_state
+                    UNDO_saved_this_frame% = TRUE
+                END IF
+                DIM suSrc AS LONG
+                suSrc& = LAYERS(CURRENT_LAYER%).imgHandle&
+                IF MARQUEE.ACTIVE AND MARQUEE.USER_CREATED AND MARQUEE.INITIALIZED THEN
+                    ' Scale only within selection bounds (150%)
+                    DIM suSelW AS INTEGER, suSelH AS INTEGER
+                    suSelW% = MARQUEE.BOX.w : suSelH% = MARQUEE.BOX.h
+                    DIM suSelNW AS INTEGER, suSelNH AS INTEGER
+                    suSelNW% = INT(suSelW% * 1.5)
+                    suSelNH% = INT(suSelH% * 1.5)
+                    IF suSelNW% < 1 THEN suSelNW% = 1
+                    IF suSelNH% < 1 THEN suSelNH% = 1
+                    ' Extract selection region
+                    DIM suReg AS LONG
+                    suReg& = _NEWIMAGE(suSelW%, suSelH%, 32)
+                    _DONTBLEND suReg&
+                    _PUTIMAGE (0, 0), suSrc&, suReg&, (MARQUEE.BOX.x, MARQUEE.BOX.y)-(MARQUEE.BOX.x + suSelW% - 1, MARQUEE.BOX.y + suSelH% - 1)
+                    ' Scale up
+                    DIM suScl AS LONG
+                    suScl& = _NEWIMAGE(suSelNW%, suSelNH%, 32)
+                    _DONTBLEND suScl&
+                    _PUTIMAGE (0, 0)-(suSelNW% - 1, suSelNH% - 1), suReg&, suScl&
+                    ' Clear selection area on layer
+                    DIM oldSuDest AS LONG : oldSuDest& = _DEST
+                    _DEST suSrc&
+                    _DONTBLEND suSrc&
+                    LINE (MARQUEE.BOX.x, MARQUEE.BOX.y)-(MARQUEE.BOX.x + suSelW% - 1, MARQUEE.BOX.y + suSelH% - 1), _RGBA32(0, 0, 0, 0), BF
+                    ' Center scaled content in selection bounds (overflow clips to selection edges)
+                    DIM suSrcX AS INTEGER, suSrcY AS INTEGER
+                    DIM suDstX AS INTEGER, suDstY AS INTEGER
+                    DIM suCpW AS INTEGER, suCpH AS INTEGER
+                    ' Calculate centering offset
+                    suSrcX% = (suSelNW% - suSelW%) \ 2
+                    suSrcY% = (suSelNH% - suSelH%) \ 2
+                    suDstX% = MARQUEE.BOX.x
+                    suDstY% = MARQUEE.BOX.y
+                    suCpW% = suSelW%
+                    suCpH% = suSelH%
+                    _PUTIMAGE (suDstX%, suDstY%)-(suDstX% + suCpW% - 1, suDstY% + suCpH% - 1), suScl&, suSrc&, (suSrcX%, suSrcY%)-(suSrcX% + suCpW% - 1, suSrcY% + suCpH% - 1)
+                    _BLEND suSrc&
+                    _DEST oldSuDest&
+                    IF suReg& < -1 THEN _FREEIMAGE suReg&
+                    IF suScl& < -1 THEN _FREEIMAGE suScl&
+                ELSE
+                    ' Scale entire layer content up by 50%
+                    DIM suLW AS LONG, suLH AS LONG
+                    suLW& = _WIDTH(suSrc&)
+                    suLH& = _HEIGHT(suSrc&)
+                    DIM suLNW AS INTEGER, suLNH AS INTEGER
+                    suLNW% = INT(suLW& * 1.5)
+                    suLNH% = INT(suLH& * 1.5)
+                    IF suLNW% < 1 THEN suLNW% = 1
+                    IF suLNH% < 1 THEN suLNH% = 1
+                    ' Copy and scale layer content up
+                    DIM suLTmp AS LONG
+                    suLTmp& = _NEWIMAGE(suLNW%, suLNH%, 32)
+                    _DONTBLEND suLTmp&
+                    _PUTIMAGE (0, 0)-(suLNW% - 1, suLNH% - 1), suSrc&, suLTmp&
+                    ' Clear layer and center scaled content (overflow clips to layer edges)
+                    DIM oldSuLDest AS LONG : oldSuLDest& = _DEST
+                    _DEST suSrc&
+                    _DONTBLEND suSrc&
+                    CLS , _RGBA32(0, 0, 0, 0)
+                    DIM suOverX AS INTEGER, suOverY AS INTEGER
+                    suOverX% = (suLNW% - suLW&) \ 2
+                    suOverY% = (suLNH% - suLH&) \ 2
+                    _PUTIMAGE (0, 0)-(suLW& - 1, suLH& - 1), suLTmp&, suSrc&, (suOverX%, suOverY%)-(suOverX% + suLW& - 1, suOverY% + suLH& - 1)
+                    _BLEND suSrc&
+                    _DEST oldSuLDest&
+                    IF suLTmp& < -1 THEN _FREEIMAGE suLTmp&
+                END IF
+                LAYERS(CURRENT_LAYER%).contentDirty% = TRUE
+                BLEND_invalidate_cache
+                CANVAS_DIRTY% = TRUE
+                SCENE_DIRTY% = TRUE
+                GUI_NEEDS_REDRAW% = TRUE
+                FRAME_IDLE% = FALSE
             END IF
-        
-        ' ========== VIEW (menu-only) ==========
+        CASE 319  ' Rotate 90 CW
+            IF CUSTOM_BRUSH_is_active% THEN
+                CUSTOM_BRUSH_rotate_cw
+            ELSEIF MOVE.ACTIVE AND MOVE.SELECTION_IMAGE < -1 THEN
+                ' Rotate the floating move selection 90 CW
+                DIM rcMoveW AS INTEGER, rcMoveH AS INTEGER
+                rcMoveW% = _WIDTH(MOVE.SELECTION_IMAGE)
+                rcMoveH% = _HEIGHT(MOVE.SELECTION_IMAGE)
+                DIM rcNew AS LONG
+                rcNew& = _NEWIMAGE(rcMoveH%, rcMoveW%, 32)
+                DIM rcOldSrc AS LONG, rcOldDst AS LONG
+                rcOldSrc& = _SOURCE : rcOldDst& = _DEST
+                _SOURCE MOVE.SELECTION_IMAGE
+                _DEST rcNew&
+                _DONTBLEND rcNew&
+                CLS , _RGBA32(0, 0, 0, 0)
+                DIM rcPx AS INTEGER, rcPy AS INTEGER
+                DIM rcPixel AS _UNSIGNED LONG
+                FOR rcPy% = 0 TO rcMoveH% - 1
+                    FOR rcPx% = 0 TO rcMoveW% - 1
+                        rcPixel~& = POINT(rcPx%, rcPy%)
+                        PSET (rcMoveH% - 1 - rcPy%, rcPx%), rcPixel~&
+                    NEXT rcPx%
+                NEXT rcPy%
+                _BLEND rcNew&
+                _SOURCE rcOldSrc& : _DEST rcOldDst&
+                IF MOVE.SELECTION_IMAGE < -1 THEN _FREEIMAGE MOVE.SELECTION_IMAGE
+                MOVE.SELECTION_IMAGE = rcNew&
+                ' Swap dimensions
+                MOVE.CURRENT_W = rcMoveH%
+                MOVE.CURRENT_H = rcMoveW%
+                MOVE.SELECTION_W = rcMoveH%
+                MOVE.SELECTION_H = rcMoveW%
+                MARQUEE.BOX.w = rcMoveH%
+                MARQUEE.BOX.h = rcMoveW%
+                MOVE_update_preview_buffer
+                SCENE_DIRTY% = TRUE
+                GUI_NEEDS_REDRAW% = TRUE
+                FRAME_IDLE% = FALSE
+            ELSEIF CURRENT_LAYER% > 0 THEN
+                IF NOT UNDO_saved_this_frame% THEN
+                    UNDO_save_state
+                    UNDO_saved_this_frame% = TRUE
+                END IF
+                DIM rcSrc AS LONG
+                rcSrc& = LAYERS(CURRENT_LAYER%).imgHandle&
+                IF MARQUEE.ACTIVE AND MARQUEE.USER_CREATED AND MARQUEE.INITIALIZED THEN
+                    ' Rotate only within selection bounds
+                    DIM rcSelW AS INTEGER, rcSelH AS INTEGER
+                    rcSelW% = MARQUEE.BOX.w : rcSelH% = MARQUEE.BOX.h
+                    ' Extract selection region
+                    DIM rcReg AS LONG
+                    rcReg& = _NEWIMAGE(rcSelW%, rcSelH%, 32)
+                    _DONTBLEND rcReg&
+                    _PUTIMAGE (0, 0), rcSrc&, rcReg&, (MARQUEE.BOX.x, MARQUEE.BOX.y)-(MARQUEE.BOX.x + rcSelW% - 1, MARQUEE.BOX.y + rcSelH% - 1)
+                    ' Create rotated image (swapped dimensions)
+                    DIM rcRot AS LONG
+                    rcRot& = _NEWIMAGE(rcSelH%, rcSelW%, 32)
+                    DIM rcRotOS AS LONG, rcRotOD AS LONG
+                    rcRotOS& = _SOURCE : rcRotOD& = _DEST
+                    _SOURCE rcReg& : _DEST rcRot&
+                    _DONTBLEND rcRot&
+                    CLS , _RGBA32(0, 0, 0, 0)
+                    DIM rcSPx AS INTEGER, rcSPy AS INTEGER
+                    DIM rcSPixel AS _UNSIGNED LONG
+                    FOR rcSPy% = 0 TO rcSelH% - 1
+                        FOR rcSPx% = 0 TO rcSelW% - 1
+                            rcSPixel~& = POINT(rcSPx%, rcSPy%)
+                            PSET (rcSelH% - 1 - rcSPy%, rcSPx%), rcSPixel~&
+                        NEXT rcSPx%
+                    NEXT rcSPy%
+                    _BLEND rcRot&
+                    _SOURCE rcRotOS& : _DEST rcRotOD&
+                    ' Clear selection area and paste rotated content centered
+                    DIM rcD AS LONG : rcD& = _DEST
+                    _DEST rcSrc&
+                    _DONTBLEND rcSrc&
+                    LINE (MARQUEE.BOX.x, MARQUEE.BOX.y)-(MARQUEE.BOX.x + rcSelW% - 1, MARQUEE.BOX.y + rcSelH% - 1), _RGBA32(0, 0, 0, 0), BF
+                    ' Center rotated content (may differ in aspect)
+                    DIM rcCx AS INTEGER, rcCy AS INTEGER
+                    DIM rcCpW AS INTEGER, rcCpH AS INTEGER
+                    rcCpW% = rcSelW% : rcCpH% = rcSelH%
+                    rcCx% = MARQUEE.BOX.x + (rcSelW% - rcSelH%) \ 2
+                    rcCy% = MARQUEE.BOX.y + (rcSelH% - rcSelW%) \ 2
+                    ' Clip source region to fit within selection bounds
+                    DIM rcSrcX1 AS INTEGER, rcSrcY1 AS INTEGER
+                    DIM rcDstX1 AS INTEGER, rcDstY1 AS INTEGER
+                    DIM rcDrawW AS INTEGER, rcDrawH AS INTEGER
+                    rcSrcX1% = 0 : rcSrcY1% = 0
+                    rcDstX1% = rcCx% : rcDstY1% = rcCy%
+                    rcDrawW% = rcSelH% : rcDrawH% = rcSelW%
+                    IF rcDstX1% < MARQUEE.BOX.x THEN
+                        rcSrcX1% = MARQUEE.BOX.x - rcDstX1%
+                        rcDrawW% = rcDrawW% - rcSrcX1%
+                        rcDstX1% = MARQUEE.BOX.x
+                    END IF
+                    IF rcDstY1% < MARQUEE.BOX.y THEN
+                        rcSrcY1% = MARQUEE.BOX.y - rcDstY1%
+                        rcDrawH% = rcDrawH% - rcSrcY1%
+                        rcDstY1% = MARQUEE.BOX.y
+                    END IF
+                    IF rcDstX1% + rcDrawW% > MARQUEE.BOX.x + rcSelW% THEN
+                        rcDrawW% = MARQUEE.BOX.x + rcSelW% - rcDstX1%
+                    END IF
+                    IF rcDstY1% + rcDrawH% > MARQUEE.BOX.y + rcSelH% THEN
+                        rcDrawH% = MARQUEE.BOX.y + rcSelH% - rcDstY1%
+                    END IF
+                    IF rcDrawW% > 0 AND rcDrawH% > 0 THEN
+                        _PUTIMAGE (rcDstX1%, rcDstY1%)-(rcDstX1% + rcDrawW% - 1, rcDstY1% + rcDrawH% - 1), rcRot&, rcSrc&, (rcSrcX1%, rcSrcY1%)-(rcSrcX1% + rcDrawW% - 1, rcSrcY1% + rcDrawH% - 1)
+                    END IF
+                    _BLEND rcSrc&
+                    _DEST rcD&
+                    IF rcReg& < -1 THEN _FREEIMAGE rcReg&
+                    IF rcRot& < -1 THEN _FREEIMAGE rcRot&
+                ELSE
+                    ' Rotate entire layer 90 CW
+                    DIM rcLW AS LONG, rcLH AS LONG
+                    rcLW& = _WIDTH(rcSrc&) : rcLH& = _HEIGHT(rcSrc&)
+                    DIM rcLRot AS LONG
+                    rcLRot& = _NEWIMAGE(rcLH&, rcLW&, 32)
+                    DIM rcLOS AS LONG, rcLOD AS LONG
+                    rcLOS& = _SOURCE : rcLOD& = _DEST
+                    _SOURCE rcSrc& : _DEST rcLRot&
+                    _DONTBLEND rcLRot&
+                    CLS , _RGBA32(0, 0, 0, 0)
+                    DIM rcLPx AS INTEGER, rcLPy AS INTEGER
+                    DIM rcLPixel AS _UNSIGNED LONG
+                    FOR rcLPy% = 0 TO rcLH& - 1
+                        FOR rcLPx% = 0 TO rcLW& - 1
+                            rcLPixel~& = POINT(rcLPx%, rcLPy%)
+                            PSET (rcLH& - 1 - rcLPy%, rcLPx%), rcLPixel~&
+                        NEXT rcLPx%
+                    NEXT rcLPy%
+                    _BLEND rcLRot&
+                    _SOURCE rcLOS&
+                    ' Copy rotated content back, centered (clips to layer size)
+                    _DEST rcSrc&
+                    _DONTBLEND rcSrc&
+                    CLS , _RGBA32(0, 0, 0, 0)
+                    DIM rcLCx AS INTEGER, rcLCy AS INTEGER
+                    rcLCx% = (rcLW& - rcLH&) \ 2
+                    rcLCy% = (rcLH& - rcLW&) \ 2
+                    DIM rcLSx AS INTEGER, rcLSy AS INTEGER
+                    DIM rcLDw AS INTEGER, rcLDh AS INTEGER
+                    rcLSx% = 0 : rcLSy% = 0
+                    DIM rcLDx AS INTEGER, rcLDy AS INTEGER
+                    rcLDx% = rcLCx% : rcLDy% = rcLCy%
+                    rcLDw% = rcLH& : rcLDh% = rcLW&
+                    IF rcLDx% < 0 THEN
+                        rcLSx% = -rcLDx%
+                        rcLDw% = rcLDw% - rcLSx%
+                        rcLDx% = 0
+                    END IF
+                    IF rcLDy% < 0 THEN
+                        rcLSy% = -rcLDy%
+                        rcLDh% = rcLDh% - rcLSy%
+                        rcLDy% = 0
+                    END IF
+                    IF rcLDx% + rcLDw% > rcLW& THEN rcLDw% = rcLW& - rcLDx%
+                    IF rcLDy% + rcLDh% > rcLH& THEN rcLDh% = rcLH& - rcLDy%
+                    IF rcLDw% > 0 AND rcLDh% > 0 THEN
+                        _PUTIMAGE (rcLDx%, rcLDy%)-(rcLDx% + rcLDw% - 1, rcLDy% + rcLDh% - 1), rcLRot&, rcSrc&, (rcLSx%, rcLSy%)-(rcLSx% + rcLDw% - 1, rcLSy% + rcLDh% - 1)
+                    END IF
+                    _BLEND rcSrc&
+                    _DEST rcLOD&
+                    IF rcLRot& < -1 THEN _FREEIMAGE rcLRot&
+                END IF
+                LAYERS(CURRENT_LAYER%).contentDirty% = TRUE
+                BLEND_invalidate_cache
+                CANVAS_DIRTY% = TRUE
+                SCENE_DIRTY% = TRUE
+                GUI_NEEDS_REDRAW% = TRUE
+                FRAME_IDLE% = FALSE
+            END IF
+        CASE 320  ' Rotate 90 CCW
+            IF CUSTOM_BRUSH_is_active% THEN
+                CUSTOM_BRUSH_rotate_ccw
+            ELSEIF MOVE.ACTIVE AND MOVE.SELECTION_IMAGE < -1 THEN
+                ' Rotate the floating move selection 90 CCW
+                DIM rccMoveW AS INTEGER, rccMoveH AS INTEGER
+                rccMoveW% = _WIDTH(MOVE.SELECTION_IMAGE)
+                rccMoveH% = _HEIGHT(MOVE.SELECTION_IMAGE)
+                DIM rccNew AS LONG
+                rccNew& = _NEWIMAGE(rccMoveH%, rccMoveW%, 32)
+                DIM rccOldSrc AS LONG, rccOldDst AS LONG
+                rccOldSrc& = _SOURCE : rccOldDst& = _DEST
+                _SOURCE MOVE.SELECTION_IMAGE
+                _DEST rccNew&
+                _DONTBLEND rccNew&
+                CLS , _RGBA32(0, 0, 0, 0)
+                DIM rccPx AS INTEGER, rccPy AS INTEGER
+                DIM rccPixel AS _UNSIGNED LONG
+                FOR rccPy% = 0 TO rccMoveH% - 1
+                    FOR rccPx% = 0 TO rccMoveW% - 1
+                        rccPixel~& = POINT(rccPx%, rccPy%)
+                        PSET (rccPy%, rccMoveW% - 1 - rccPx%), rccPixel~&
+                    NEXT rccPx%
+                NEXT rccPy%
+                _BLEND rccNew&
+                _SOURCE rccOldSrc& : _DEST rccOldDst&
+                IF MOVE.SELECTION_IMAGE < -1 THEN _FREEIMAGE MOVE.SELECTION_IMAGE
+                MOVE.SELECTION_IMAGE = rccNew&
+                ' Swap dimensions
+                MOVE.CURRENT_W = rccMoveH%
+                MOVE.CURRENT_H = rccMoveW%
+                MOVE.SELECTION_W = rccMoveH%
+                MOVE.SELECTION_H = rccMoveW%
+                MARQUEE.BOX.w = rccMoveH%
+                MARQUEE.BOX.h = rccMoveW%
+                MOVE_update_preview_buffer
+                SCENE_DIRTY% = TRUE
+                GUI_NEEDS_REDRAW% = TRUE
+                FRAME_IDLE% = FALSE
+            ELSEIF CURRENT_LAYER% > 0 THEN
+                IF NOT UNDO_saved_this_frame% THEN
+                    UNDO_save_state
+                    UNDO_saved_this_frame% = TRUE
+                END IF
+                DIM rccSrc AS LONG
+                rccSrc& = LAYERS(CURRENT_LAYER%).imgHandle&
+                IF MARQUEE.ACTIVE AND MARQUEE.USER_CREATED AND MARQUEE.INITIALIZED THEN
+                    ' Rotate only within selection bounds
+                    DIM rccSelW AS INTEGER, rccSelH AS INTEGER
+                    rccSelW% = MARQUEE.BOX.w : rccSelH% = MARQUEE.BOX.h
+                    DIM rccReg AS LONG
+                    rccReg& = _NEWIMAGE(rccSelW%, rccSelH%, 32)
+                    _DONTBLEND rccReg&
+                    _PUTIMAGE (0, 0), rccSrc&, rccReg&, (MARQUEE.BOX.x, MARQUEE.BOX.y)-(MARQUEE.BOX.x + rccSelW% - 1, MARQUEE.BOX.y + rccSelH% - 1)
+                    DIM rccRot AS LONG
+                    rccRot& = _NEWIMAGE(rccSelH%, rccSelW%, 32)
+                    DIM rccRotOS AS LONG, rccRotOD AS LONG
+                    rccRotOS& = _SOURCE : rccRotOD& = _DEST
+                    _SOURCE rccReg& : _DEST rccRot&
+                    _DONTBLEND rccRot&
+                    CLS , _RGBA32(0, 0, 0, 0)
+                    DIM rccSPx AS INTEGER, rccSPy AS INTEGER
+                    DIM rccSPixel AS _UNSIGNED LONG
+                    FOR rccSPy% = 0 TO rccSelH% - 1
+                        FOR rccSPx% = 0 TO rccSelW% - 1
+                            rccSPixel~& = POINT(rccSPx%, rccSPy%)
+                            PSET (rccSPy%, rccSelW% - 1 - rccSPx%), rccSPixel~&
+                        NEXT rccSPx%
+                    NEXT rccSPy%
+                    _BLEND rccRot&
+                    _SOURCE rccRotOS& : _DEST rccRotOD&
+                    ' Clear selection area and paste rotated content centered
+                    DIM rccD AS LONG : rccD& = _DEST
+                    _DEST rccSrc&
+                    _DONTBLEND rccSrc&
+                    LINE (MARQUEE.BOX.x, MARQUEE.BOX.y)-(MARQUEE.BOX.x + rccSelW% - 1, MARQUEE.BOX.y + rccSelH% - 1), _RGBA32(0, 0, 0, 0), BF
+                    DIM rccCx AS INTEGER, rccCy AS INTEGER
+                    rccCx% = MARQUEE.BOX.x + (rccSelW% - rccSelH%) \ 2
+                    rccCy% = MARQUEE.BOX.y + (rccSelH% - rccSelW%) \ 2
+                    DIM rccSrcX1 AS INTEGER, rccSrcY1 AS INTEGER
+                    DIM rccDstX1 AS INTEGER, rccDstY1 AS INTEGER
+                    DIM rccDrawW AS INTEGER, rccDrawH AS INTEGER
+                    rccsrcX1% = 0 : rccSrcY1% = 0
+                    rccDstX1% = rccCx% : rccDstY1% = rccCy%
+                    rccDrawW% = rccSelH% : rccDrawH% = rccSelW%
+                    IF rccDstX1% < MARQUEE.BOX.x THEN
+                        rccSrcX1% = MARQUEE.BOX.x - rccDstX1%
+                        rccDrawW% = rccDrawW% - rccSrcX1%
+                        rccDstX1% = MARQUEE.BOX.x
+                    END IF
+                    IF rccDstY1% < MARQUEE.BOX.y THEN
+                        rccSrcY1% = MARQUEE.BOX.y - rccDstY1%
+                        rccDrawH% = rccDrawH% - rccSrcY1%
+                        rccDstY1% = MARQUEE.BOX.y
+                    END IF
+                    IF rccDstX1% + rccDrawW% > MARQUEE.BOX.x + rccSelW% THEN
+                        rccDrawW% = MARQUEE.BOX.x + rccSelW% - rccDstX1%
+                    END IF
+                    IF rccDstY1% + rccDrawH% > MARQUEE.BOX.y + rccSelH% THEN
+                        rccDrawH% = MARQUEE.BOX.y + rccSelH% - rccDstY1%
+                    END IF
+                    IF rccDrawW% > 0 AND rccDrawH% > 0 THEN
+                        _PUTIMAGE (rccDstX1%, rccDstY1%)-(rccDstX1% + rccDrawW% - 1, rccDstY1% + rccDrawH% - 1), rccRot&, rccSrc&, (rccSrcX1%, rccSrcY1%)-(rccSrcX1% + rccDrawW% - 1, rccSrcY1% + rccDrawH% - 1)
+                    END IF
+                    _BLEND rccSrc&
+                    _DEST rccD&
+                    IF rccReg& < -1 THEN _FREEIMAGE rccReg&
+                    IF rccRot& < -1 THEN _FREEIMAGE rccRot&
+                ELSE
+                    ' Rotate entire layer 90 CCW
+                    DIM rccLW AS LONG, rccLH AS LONG
+                    rccLW& = _WIDTH(rccSrc&) : rccLH& = _HEIGHT(rccSrc&)
+                    DIM rccLRot AS LONG
+                    rccLRot& = _NEWIMAGE(rccLH&, rccLW&, 32)
+                    DIM rccLOS AS LONG, rccLOD AS LONG
+                    rccLOS& = _SOURCE : rccLOD& = _DEST
+                    _SOURCE rccSrc& : _DEST rccLRot&
+                    _DONTBLEND rccLRot&
+                    CLS , _RGBA32(0, 0, 0, 0)
+                    DIM rccLPx AS INTEGER, rccLPy AS INTEGER
+                    DIM rccLPixel AS _UNSIGNED LONG
+                    FOR rccLPy% = 0 TO rccLH& - 1
+                        FOR rccLPx% = 0 TO rccLW& - 1
+                            rccLPixel~& = POINT(rccLPx%, rccLPy%)
+                            PSET (rccLPy%, rccLW& - 1 - rccLPx%), rccLPixel~&
+                        NEXT rccLPx%
+                    NEXT rccLPy%
+                    _BLEND rccLRot&
+                    _SOURCE rccLOS&
+                    _DEST rccSrc&
+                    _DONTBLEND rccSrc&
+                    CLS , _RGBA32(0, 0, 0, 0)
+                    DIM rccLCx AS INTEGER, rccLCy AS INTEGER
+                    rccLCx% = (rccLW& - rccLH&) \ 2
+                    rccLCy% = (rccLH& - rccLW&) \ 2
+                    DIM rccLSx AS INTEGER, rccLSy AS INTEGER
+                    DIM rccLDw AS INTEGER, rccLDh AS INTEGER
+                    rccLSx% = 0 : rccLSy% = 0
+                    DIM rccLDx AS INTEGER, rccLDy AS INTEGER
+                    rccLDx% = rccLCx% : rccLDy% = rccLCy%
+                    rccLDw% = rccLH& : rccLDh% = rccLW&
+                    IF rccLDx% < 0 THEN
+                        rccLSx% = -rccLDx%
+                        rccLDw% = rccLDw% - rccLSx%
+                        rccLDx% = 0
+                    END IF
+                    IF rccLDy% < 0 THEN
+                        rccLSy% = -rccLDy%
+                        rccLDh% = rccLDh% - rccLSy%
+                        rccLDy% = 0
+                    END IF
+                    IF rccLDx% + rccLDw% > rccLW& THEN rccLDw% = rccLW& - rccLDx%
+                    IF rccLDy% + rccLDh% > rccLH& THEN rccLDh% = rccLH& - rccLDy%
+                    IF rccLDw% > 0 AND rccLDh% > 0 THEN
+                        _PUTIMAGE (rccLDx%, rccLDy%)-(rccLDx% + rccLDw% - 1, rccLDy% + rccLDh% - 1), rccLRot&, rccSrc&, (rccLSx%, rccLSy%)-(rccLSx% + rccLDw% - 1, rccLSy% + rccLDh% - 1)
+                    END IF
+                    _BLEND rccSrc&
+                    _DEST rccLOD&
+                    IF rccLRot& < -1 THEN _FREEIMAGE rccLRot&
+                END IF
+                LAYERS(CURRENT_LAYER%).contentDirty% = TRUE
+                BLEND_invalidate_cache
+                CANVAS_DIRTY% = TRUE
+                SCENE_DIRTY% = TRUE
+                GUI_NEEDS_REDRAW% = TRUE
+                FRAME_IDLE% = FALSE
+            END IF
         CASE 411  ' Toggle Menu Bar
             SCRN.showMenubar% = NOT SCRN.showMenubar%
             MENU_BAR.visible% = SCRN.showMenubar%
