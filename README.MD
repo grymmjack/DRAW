@@ -21,15 +21,16 @@ DRAW is a pixel art editor written in QB64PE that can export images as sourcecod
 ### Drawing Tools
 - **Brush** - Continuous freehand painting with adjustable size (1-50px) and shape (circle/square)
 - **Dot** - Single-pixel stamp tool (click to place, no drag painting)
-- **Line** - Draw straight lines
-- **Rectangle** - Draw outlined or filled rectangles
-- **Ellipse** - Draw outlined or filled ellipses/circles
-- **Polygon** - Draw outlined or filled multi-point polygons
+- **Line** - Draw straight lines with brush size/shape, real-time thick preview
+- **Rectangle** - Draw outlined or filled rectangles with brush size/shape
+- **Ellipse** - Draw outlined or filled ellipses/circles with brush size/shape
+- **Polygon** - Draw outlined or filled multi-point polygons with brush size/shape
 - **Fill** - Flood fill tool
-- **Spray** - Spray paint with adjustable radius and density, custom brush stamp support, SHIFT axis constraint, circle preview
+- **Spray** - Spray paint with brush-shaped nozzle tips, radius doubles per brush size level, custom brush stamp support, SHIFT axis constraint, circle preview
 - **Picker** - Color sampling/eyedropper (hold ALT with any tool for temporary picker)
 - **Marquee** - Rectangular selection with move and resize
 - **Move** - Transform and position selected content with arrow keys and undo support
+- **Transform** - Universal flip H/V, rotate 90° CW/CCW, scale ±50% — works on layers, selections, or floating moves from any tool
 - **Pan** - Dedicated canvas panning tool (hand)
 - **Zoom** - Click to zoom in, Alt+click to zoom out, drag to zoom region
 - **Clipboard** - Copy/Cut/Paste selections (Ctrl+C/X/V), Merged copy (Ctrl+Shift+C), Clear selection (Ctrl+E)

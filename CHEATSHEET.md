@@ -238,8 +238,9 @@ The Spray (`K`) tool sprays random dots within a circular area:
 
 | Feature | Details |
 |---------|--------|
-| **Radius** | Uses current brush size (`[`/`]` to adjust) |
-| **Density** | Proportional to radius (larger = more dots per frame) |
+| **Nozzle Tips** | Uses current brush shape and size (circle/square, `[`/`]` to adjust) |
+| **Spray Radius** | Doubles with each brush size level (size 1 = 4px, size 2 = 8px, size 3 = 16px, etc.) |
+| **Density** | Proportional to radius (larger = more tips per frame) |
 | **Left Click** | Spray with foreground color |
 | **Right Click** | Spray with background color |
 | **Shift (hold)** | Constrain spray to horizontal or vertical axis |
@@ -247,6 +248,8 @@ The Spray (`K`) tool sprays random dots within a circular area:
 | **Selection Clipping** | Respects active marquee/wand selections |
 | **Preview** | Circle + dot pattern preview shown when not actively spraying |
 | **Custom Brush** | When custom brush is active, stamps the brush at random positions within radius |
+
+The spray nozzle stamps the current brush shape/size at each random position, so larger brush sizes produce thicker spray dots. The spray area radius also scales (2x per brush size level) to keep coverage proportional.
 
 **Custom Brush + Spray:**
 When a custom brush is captured (`Ctrl+B`), the spray tool stamps the custom brush image at random positions within the spray radius instead of individual dots. The spray radius scales proportionally with brush size, and density is maintained for consistent coverage. Recolor mode (`F9`) applies to spray-stamped custom brushes.
@@ -275,11 +278,9 @@ When a custom brush is captured (`Ctrl+B`), the spray tool stamps the custom bru
 | `\` or `|` | Toggle brush shape |
 | `F6` | Toggle pixel perfect mode |
 
-## Custom Brush
+Brush size and shape affect all drawing tools: Brush, Dot, Line, Rectangle, Ellipse, Polygon, and Spray. Shape tools preview the brush thickness in real-time during drag operations.
 
-| Key | Function |
-|-----|----------|
-| `Ctrl+B` | Capture custom brush from marquee selection |
+## Custom Brush
 | `Ctrl+B` (with brush active) | Clear/deactivate custom brush |
 | `F9` | Toggle recolor mode (paint brush in FG color) |
 | `Shift+O` | Apply 1px outline using BG color (turns off recolor mode) |
@@ -530,7 +531,22 @@ When a selection is active (marquee or magic wand), it acts as a **clipping mask
 - Regular `T` key continues to use standard VGA font
 - `Shift+T` continues to use Tiny5 small font
 
-## Move/Transform Tool
+## Transform Operations
+
+Transform operations work universally on the current layer, active selection, or floating move selection — no specific tool required.
+
+| Key | Function |
+|-----|----------|
+| **H** | Flip horizontally |
+| **Ctrl+Shift+H** | Flip vertically |
+| **>** | Rotate 90° clockwise |
+| **<** | Rotate 90° counter-clockwise |
+| **Ctrl+Shift+-** | Scale down 50% |
+| **Ctrl+Shift+=** | Scale up 50% |
+
+These also work on custom brushes when one is active (flip, rotate, scale).
+
+## Move Tool
 
 | Key | Function |
 |-----|----------|
@@ -538,8 +554,6 @@ When a selection is active (marquee or magic wand), it acts as a **clipping mask
 | **Shift + Arrows** | Move selection (10px) |
 | **Ctrl + Arrows** | Resize/scale selection (1px) |
 | **Ctrl+Shift + Arrows** | Resize/scale selection (10px) |
-| **H** | Flip selection horizontally |
-| **V** | Flip selection vertically |
 | **Alt (hold)** | Clone mode (keeps original pixels) |
 | **Enter** | Apply transformation and return to Marquee |
 | **Escape** | Cancel current drag operation |
@@ -797,7 +811,7 @@ DRAW has an optional menu bar at the top of the screen providing access to all c
 | Menu | Contents |
 |------|----------|
 | **File** | New, Open, Import Image, Save, Save As, Export Layer, Export Brush, Exit |
-| **Edit** | Undo, Redo, Cut, Copy, Paste, Select All, Deselect, Invert Selection, Flip H/V, Scale |
+| **Edit** | Undo, Redo, Cut, Copy, Paste, Select All, Deselect, Invert Selection, Flip H/V, Scale, Rotate 90° CW/CCW |
 | **View** | Toolbar, Status Bar, Layer Panel, Menu Bar, Cursors, Grid, Pixel Grid, Snap, Crosshair, Reference Image (toggle/load/clear/reposition) |
 | **Canvas** | Clear Canvas, Zoom In/Out, Reset Zoom |
 | **Tools** | All drawing tools (Dot, Brush, Line, etc.) |
