@@ -101,6 +101,7 @@ DIM SHARED LAYER_COUNT AS INTEGER         ' Number of layers currently in use
 
 ' Declare layer management functions
 DECLARE SUB LAYERS_init ()
+DECLARE FUNCTION LAYERS_recount% ()
 DECLARE FUNCTION LAYERS_new% ()
 DECLARE SUB LAYERS_delete (layerIndex AS INTEGER)
 DECLARE SUB LAYERS_duplicate (layerIndex AS INTEGER)

@@ -69,6 +69,14 @@ TYPE DRAW_CONFIG
     DEFAULT_LAYER_BG_COLOR         AS _UNSIGNED LONG  ' Default layer background color
     DEFAULT_SAVE_DIR               AS STRING   ' Default directory for save dialogs
     DEFAULT_OPEN_DIR               AS STRING   ' Default directory for open dialogs
+    ' Per-operation last-used directories (persisted to DRAW.cfg)
+    LAST_DIR_OPEN                  AS STRING   ' Last directory for File Open / Load Image
+    LAST_DIR_SAVE                  AS STRING   ' Last directory for File Save / Save As
+    LAST_DIR_IMPORT                AS STRING   ' Last directory for Import Image / Ref Image
+    LAST_DIR_EXPORT_BRUSH          AS STRING   ' Last directory for Export Brush
+    LAST_DIR_EXPORT_LAYER          AS STRING   ' Last directory for Export Layer / Selection
+    LAST_DIR_PALETTE               AS STRING   ' Last directory for Palette Import / Export
+    TEMPLATE_DIR                   AS STRING   ' Default directory for New from Template dialog
 END TYPE
 
 DIM SHARED CFG   AS DRAW_CONFIG
@@ -78,3 +86,7 @@ DECLARE SUB CONFIG_save ()
 DECLARE SUB CONFIG_set_defaults ()
 DECLARE SUB CONFIG_apply_startup_defaults ()
 DECLARE SUB CONFIG_validate_palette_strip ()
+DECLARE FUNCTION CONFIG_extract_dir$ (filepath AS STRING)
+DECLARE SUB RECENT_add_file (filepath AS STRING)
+DECLARE SUB RECENT_clear ()
+DECLARE FUNCTION RECENT_extract_filename$ (filepath AS STRING)

@@ -88,15 +88,23 @@ SUB CLIPBOARD_cut ()
     ' Need a valid layer
     IF CURRENT_LAYER% < 1 THEN EXIT SUB
     
-    ' If move tool is active, handle differently - cut means copy and clear original source
+    ' If move tool is active, handle differently - cut means copy and discard floating selection
     IF CURRENT_TOOL% = TOOL_MOVE AND MOVE.ACTIVE AND MOVE.SELECTION_IMAGE < -1 THEN
         ' Copy from move selection
         CLIPBOARD_copy
         
-        ' The move tool already handles clearing the original area when not cloning
-        ' Just make sure we're not in clone mode
-        MOVE.CLONING = FALSE
-        MOVE_update_preview_buffer
+        ' Discard the floating selection WITHOUT committing to canvas.
+        ' This preserves the "cut" visual: the canvas hole (from the original cut
+        ' or the un-pasted region) stays visible. The pixels live only in the
+        ' clipboard until the next Paste.
+        IF MOVE.SELECTION_IMAGE < -1 THEN _FREEIMAGE MOVE.SELECTION_IMAGE
+        IF MOVE.PREVIEW_BUFFER < -1 THEN _FREEIMAGE MOVE.PREVIEW_BUFFER
+        MOVE_init
+        
+        ' Mark scene dirty so the discarded floating selection disappears on screen
+        SCENE_DIRTY% = TRUE
+        GUI_NEEDS_REDRAW% = TRUE
+        FRAME_IDLE% = FALSE
         EXIT SUB
     END IF
     
@@ -107,9 +115,11 @@ SUB CLIPBOARD_cut ()
     DIM cutImg AS LONG
     cutImg& = LAYER_current_image&
     IF MARQUEE.ACTIVE AND MARQUEE.USER_CREATED AND MARQUEE.INITIALIZED THEN
-        ' Clear just the selected region
+        ' Clear just the selected region to transparent
+        _DONTBLEND cutImg&
         _DEST cutImg&
-        LINE (MARQUEE.BOX.x, MARQUEE.BOX.y)-(MARQUEE.BOX.x + MARQUEE.BOX.w - 1, MARQUEE.BOX.y + MARQUEE.BOX.h - 1), PAINT_BG_COLOR~&, BF
+        LINE (MARQUEE.BOX.x, MARQUEE.BOX.y)-(MARQUEE.BOX.x + MARQUEE.BOX.w - 1, MARQUEE.BOX.y + MARQUEE.BOX.h - 1), _RGBA32(0, 0, 0, 0), BF
+        _BLEND cutImg&
         _DEST SCRN.CANVAS&
     ELSE
         ' Clear entire layer to transparent
@@ -142,8 +152,8 @@ SUB CLIPBOARD_paste (mouseX AS INTEGER, mouseY AS INTEGER)
     IF NOT CLIPBOARD.VALID OR CLIPBOARD.IMAGE = 0 THEN EXIT SUB
     
     ' If move tool is currently active, apply any pending transform first
+    ' (MOVE_reset internally calls MOVE_apply_transform before cleanup)
     IF CURRENT_TOOL% = TOOL_MOVE AND MOVE.ACTIVE THEN
-        MOVE_apply_transform
         MOVE_reset
     END IF
     
@@ -252,7 +262,7 @@ SUB CLIPBOARD_copy_merged ()
     CLS , _RGBA32(0, 0, 0, 0)
     _BLEND mergedImg&
 
-    ' Composite all visible layers bottom-to-top
+    ' Composite all visible layers bottom-to-top (with blend modes)
     IF RENDER_ORDER_DIRTY% THEN RENDER_ORDER_rebuild
     DIM li AS INTEGER, lf AS INTEGER
     FOR li% = 1 TO RENDER_ORDER_COUNT%
@@ -261,26 +271,11 @@ SUB CLIPBOARD_copy_merged ()
             DIM srcImg AS LONG
             srcImg& = LAYERS(lf%).imgHandle&
             IF srcImg& < -1 THEN
-                IF LAYERS(lf%).opacity% < 255 THEN
-                    ' Apply opacity via temp copy
-                    DIM tmpImg AS LONG
-                    tmpImg& = _COPYIMAGE(srcImg&, 32)
-                    DIM tmpMem AS _MEM
-                    tmpMem = _MEMIMAGE(tmpImg&)
-                    DIM po AS _OFFSET, pv AS _UNSIGNED LONG, pa AS _UNSIGNED _BYTE
-                    FOR po = tmpMem.OFFSET TO tmpMem.OFFSET + tmpMem.SIZE - 4 STEP 4
-                        _MEMGET tmpMem, po, pv~&
-                        pa~%% = _ALPHA32(pv~&)
-                        IF pa~%% > 0 THEN
-                            DIM na AS INTEGER
-                            na% = (pa~%% * LAYERS(lf%).opacity%) \ 255
-                            _MEMPUT tmpMem, po + 3, na% AS _UNSIGNED _BYTE
-                        END IF
-                    NEXT po
-                    _MEMFREE tmpMem
-                    _PUTIMAGE , tmpImg&, mergedImg&
-                    IF tmpImg& < -1 THEN _FREEIMAGE tmpImg&
+                IF LAYERS(lf%).blendMode% <> BLEND_NORMAL OR LAYERS(lf%).opacity% < 255 THEN
+                    ' Non-Normal blend or reduced opacity: use per-pixel composite
+                    LAYER_blend_composite mergedImg&, srcImg&, LAYERS(lf%).blendMode%, LAYERS(lf%).opacity%
                 ELSE
+                    ' Normal blend at full opacity: fast path
                     _PUTIMAGE , srcImg&, mergedImg&
                 END IF
             END IF
@@ -318,9 +313,11 @@ SUB CLIPBOARD_clear_selection ()
     DIM clearImg AS LONG
     clearImg& = LAYER_current_image&
     IF MARQUEE.ACTIVE AND MARQUEE.USER_CREATED AND MARQUEE.INITIALIZED THEN
-        ' Clear just the selected region with background color
+        ' Clear just the selected region to transparent
+        _DONTBLEND clearImg&
         _DEST clearImg&
-        LINE (MARQUEE.BOX.x, MARQUEE.BOX.y)-(MARQUEE.BOX.x + MARQUEE.BOX.w - 1, MARQUEE.BOX.y + MARQUEE.BOX.h - 1), PAINT_BG_COLOR~&, BF
+        LINE (MARQUEE.BOX.x, MARQUEE.BOX.y)-(MARQUEE.BOX.x + MARQUEE.BOX.w - 1, MARQUEE.BOX.y + MARQUEE.BOX.h - 1), _RGBA32(0, 0, 0, 0), BF
+        _BLEND clearImg&
         _DEST SCRN.CANVAS&
     ELSE
         ' Clear entire layer to transparent

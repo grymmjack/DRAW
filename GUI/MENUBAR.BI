@@ -65,6 +65,14 @@ TYPE MENU_BAR_OBJ
     kbActive    AS INTEGER         ' Keyboard navigation active (ignore mouse until it moves)
     lastMouseX  AS INTEGER         ' Last mouse X for detecting actual movement
     lastMouseY  AS INTEGER         ' Last mouse Y for detecting actual movement
+    ' Recent files submenu state
+    recentOpen  AS INTEGER         ' TRUE when Recent Files submenu is showing
+    recentHover AS INTEGER         ' Hovered item in Recent submenu (-1 = none)
+    recentX     AS INTEGER         ' Recent submenu X position
+    recentY     AS INTEGER         ' Recent submenu Y position
+    recentW     AS INTEGER         ' Recent submenu width
+    recentH     AS INTEGER         ' Recent submenu height
+    recentItemIdx AS INTEGER       ' Child index of "RECENT" item in parent dropdown
 END TYPE
 
 DIM SHARED MENU_BAR AS MENU_BAR_OBJ
@@ -95,4 +103,7 @@ DECLARE FUNCTION MENUBAR_in_bounds% (rawX AS INTEGER, rawY AS INTEGER)
 DECLARE FUNCTION MENUBAR_submenu_in_bounds% (rawX AS INTEGER, rawY AS INTEGER)
 DECLARE FUNCTION MENUBAR_is_open% ()
 DECLARE FUNCTION MENUBAR_get_submenu_item_at% (rawY AS INTEGER)
+DECLARE SUB MENUBAR_render_recent_submenu ()
+DECLARE SUB MENUBAR_handle_recent_click (rawX AS INTEGER, rawY AS INTEGER)
+DECLARE FUNCTION MENUBAR_recent_in_bounds% (rawX AS INTEGER, rawY AS INTEGER)
 

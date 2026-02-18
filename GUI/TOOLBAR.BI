@@ -92,11 +92,12 @@ TOOLBAR_BUTTON_TO_TOOL(18) = TOOL_HELP
 TOOLBAR_BUTTON_TO_TOOL(19) = TOOL_ELLIPSE
 TOOLBAR_BUTTON_TO_TOOL(20) = TOOL_ELLIPSE_FILLED
 
-GUI_TB(TB_PSET).iSrc$          = "pset.png"
+GUI_TB(TB_PSET).iSrc$          = "dot.png"
 GUI_TB(TB_PSET).tip$           = "Draw using points (PSET)"
 GUI_TB(TB_PSET).evt$           = "PSET"
 
-GUI_TB(TB_PAINT).iSrc$         = "paint.png"
+GUI_TB(TB_PAINT).iSrc$         = "fill.png"
+GUI_TB(TB_PAINT).iSrcAlt$      = "fill-grid-cell.png"
 GUI_TB(TB_PAINT).tip$          = "Fill with color or pattern (PAINT)"
 GUI_TB(TB_PAINT).evt$          = "PAINT"
 

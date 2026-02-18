@@ -27,6 +27,7 @@ DECLARE SUB MOUSE_dispatch_tool_release (rawX AS INTEGER, rawY AS INTEGER)
 DECLARE SUB MOUSE_handle_symmetry_ctrl_click ()
 DECLARE SUB MOUSE_update_draw_color ()
 DECLARE SUB MOUSE_handle_alt_picker (rawX AS INTEGER, rawY AS INTEGER)
+DECLARE SUB MOUSE_handle_space_pan ()
 DECLARE FUNCTION MOUSE_handle_suppress_frames% ()
 DECLARE FUNCTION MOUSE_should_skip_tool_actions% ()
 DECLARE SUB MOUSE_handle_tool_phase (rawX AS INTEGER, rawY AS INTEGER)
@@ -485,7 +486,7 @@ FUNCTION MOUSE_handle_menubar_click% (rawX AS INTEGER, rawY AS INTEGER)
     IF NOT (SCRN.showMenubar% AND MENU_BAR.visible%) THEN EXIT FUNCTION
     IF NOT (MOUSE.B1% AND NOT MOUSE.OLD_B1%) THEN EXIT FUNCTION
 
-    IF MENUBAR_in_bounds%(rawX%, rawY%) OR MENUBAR_submenu_in_bounds%(rawX%, rawY%) THEN
+    IF MENUBAR_in_bounds%(rawX%, rawY%) OR MENUBAR_submenu_in_bounds%(rawX%, rawY%) OR MENUBAR_recent_in_bounds%(rawX%, rawY%) THEN
         MENUBAR_handle_click rawX%, rawY%
         MOUSE.TOOLBAR_CLICKED% = TRUE
         MOUSE.OLD_B1% = MOUSE.B1%
@@ -849,6 +850,15 @@ SUB MOUSE_tool_fill ()
         ' Grid cell fill mode: when enabled and grid visible, fill the grid cell
         IF GRID.CELL_FILL% AND GRID.SHOW% THEN
             GRID_fill_cell MOUSE.UNSNAPPED_X%, MOUSE.UNSNAPPED_Y%, FILL.COLOR~&
+            ' Also fill symmetry-mirrored cells
+            IF SYMMETRY.MODE% > 0 THEN
+                DIM gfc_mx(7) AS INTEGER, gfc_my(7) AS INTEGER, gfc_count AS INTEGER
+                SYMMETRY_get_mirrored_points MOUSE.UNSNAPPED_X%, MOUSE.UNSNAPPED_Y%, gfc_mx%(), gfc_my%(), gfc_count%
+                DIM gfc_i AS INTEGER
+                FOR gfc_i% = 0 TO gfc_count% - 1
+                    GRID_fill_cell gfc_mx%(gfc_i%), gfc_my%(gfc_i%), FILL.COLOR~&
+                NEXT gfc_i%
+            END IF
         ELSE
             FILL_flood MOUSE.UNSNAPPED_X%, MOUSE.UNSNAPPED_Y%
         END IF
@@ -970,11 +980,45 @@ SUB MOUSE_tool_marquee ()
         END IF
         ' Update resize, move, or drag position while button is held
         IF MARQUEE.RESIZING% THEN
-            MARQUEE_update_resize MOUSE.UNSNAPPED_X%, MOUSE.UNSNAPPED_Y%
+            ' When SHIFT is held during resize, snap to grid
+            IF MODIFIERS.shift% THEN
+                DIM marqResX AS INTEGER, marqResY AS INTEGER
+                marqResX% = MOUSE.UNSNAPPED_X% : marqResY% = MOUSE.UNSNAPPED_Y%
+                DIM savedSnapR AS INTEGER : savedSnapR% = GRID.SNAP%
+                GRID.SNAP% = TRUE
+                GRID_snap_xy marqResX%, marqResY%
+                GRID.SNAP% = savedSnapR%
+                MARQUEE_update_resize marqResX%, marqResY%
+            ELSE
+                MARQUEE_update_resize MOUSE.UNSNAPPED_X%, MOUSE.UNSNAPPED_Y%
+            END IF
         ELSEIF MARQUEE.MOVING% THEN
-            MARQUEE_update_move MOUSE.UNSNAPPED_X%, MOUSE.UNSNAPPED_Y%
+            ' When SHIFT is held during move, snap to grid
+            IF MODIFIERS.shift% THEN
+                DIM marqMovX AS INTEGER, marqMovY AS INTEGER
+                marqMovX% = MOUSE.UNSNAPPED_X% : marqMovY% = MOUSE.UNSNAPPED_Y%
+                DIM savedSnapM AS INTEGER : savedSnapM% = GRID.SNAP%
+                GRID.SNAP% = TRUE
+                GRID_snap_xy marqMovX%, marqMovY%
+                GRID.SNAP% = savedSnapM%
+                MARQUEE_update_move marqMovX%, marqMovY%
+            ELSE
+                MARQUEE_update_move MOUSE.UNSNAPPED_X%, MOUSE.UNSNAPPED_Y%
+            END IF
         ELSE
-            MARQUEE_update MOUSE.UNSNAPPED_X%, MOUSE.UNSNAPPED_Y%
+            ' When creating a new marquee with SHIFT held (and in replace mode),
+            ' snap to grid for the end point
+            IF MODIFIERS.shift% AND MARQUEE.SELECTION_MODE = SEL_MODE_REPLACE THEN
+                DIM marqDrgX AS INTEGER, marqDrgY AS INTEGER
+                marqDrgX% = MOUSE.UNSNAPPED_X% : marqDrgY% = MOUSE.UNSNAPPED_Y%
+                DIM savedSnapD AS INTEGER : savedSnapD% = GRID.SNAP%
+                GRID.SNAP% = TRUE
+                GRID_snap_xy marqDrgX%, marqDrgY%
+                GRID.SNAP% = savedSnapD%
+                MARQUEE_update marqDrgX%, marqDrgY%
+            ELSE
+                MARQUEE_update MOUSE.UNSNAPPED_X%, MOUSE.UNSNAPPED_Y%
+            END IF
         END IF
     END IF
 END SUB
@@ -1893,8 +1937,7 @@ SUB MOUSE_handle_right_click ()
         UNDO_save_state
         UNDO_saved_this_frame% = TRUE
         POLY_LINE_reset
-        ' Switch to NULL tool to prevent accidental clicks from starting new polygons
-        CURRENT_TOOL% = TOOL_NULL
+        ' Keep tool selected so user can draw more polygons
         GUI_NEEDS_REDRAW% = TRUE
         EXIT SUB
     END IF
@@ -1959,6 +2002,10 @@ SUB MOUSE_handle_wheel (rawX AS INTEGER, rawY AS INTEGER, wheel_delta AS INTEGER
         ' Check if over toolbar (don't zoom when over toolbar) - use RAW screen coords
         ELSEIF SCRN.showToolbar% AND TOOLBAR_is_over_area%(rawX%, rawY%) THEN
             MOUSE.SW% = 0 ' Consume — ignored
+        ' Check if over organizer - cycle widgets when scrolling
+        ELSEIF SCRN.showToolbar% AND ORGANIZER_is_over_area%(rawX%, rawY%) THEN
+            ORGANIZER_handle_wheel rawX%, rawY%, MOUSE.SW%
+            MOUSE.SW% = 0 ' Consume — organizer interaction doesn't zoom
         ' Check if over status bar area (don't zoom when over status bar) - use RAW screen coords
         ELSEIF SCRN.showStatus% AND rawY% >= SCRN.h& - THEME.STATUS_height% - PALETTE_STRIP_get_height% THEN
             MOUSE.SW% = 0 ' Consume — ignored
@@ -2253,6 +2300,49 @@ END SUB
 
 
 ''
+' Spacebar temporary pan tool switch.
+' When spacebar is pressed, temporarily switches to PAN tool.
+' When released, restores the previous tool. Similar to ALT→picker pattern.
+'
+SUB MOUSE_handle_space_pan ()
+    STATIC spaceWasHeld%
+    STATIC panFromSpace%
+
+    DIM spaceHeld AS INTEGER
+    spaceHeld% = _KEYDOWN(32)
+
+    ' Don't activate if text tool is active (space needed for typing)
+    DIM allowSpacePan AS INTEGER
+    allowSpacePan% = NOT (CURRENT_TOOL% = TOOL_TEXT AND TEXT.ACTIVE)
+
+    DIM spaceJustPressed AS INTEGER
+    spaceJustPressed% = (spaceHeld% AND NOT spaceWasHeld%)
+
+    IF spaceJustPressed% AND allowSpacePan% AND CURRENT_TOOL% <> TOOL_PAN THEN
+        ' Spacebar just pressed — enter pan mode
+        PREVIOUS_TOOL% = CURRENT_TOOL%
+        CURRENT_TOOL% = TOOL_PAN
+        GUI_NEEDS_REDRAW% = TRUE
+        FRAME_IDLE% = FALSE
+        panFromSpace% = TRUE
+    ELSEIF panFromSpace% THEN
+        ' We're in space-triggered pan mode — check if we should exit
+        IF NOT spaceHeld% THEN
+            ' Space released — restore previous tool
+            IF CURRENT_TOOL% = TOOL_PAN AND PREVIOUS_TOOL% <> TOOL_PAN THEN
+                CURRENT_TOOL% = PREVIOUS_TOOL%
+                GUI_NEEDS_REDRAW% = TRUE
+                FRAME_IDLE% = FALSE
+            END IF
+            panFromSpace% = FALSE
+        END IF
+    END IF
+
+    spaceWasHeld% = spaceHeld%
+END SUB
+
+
+''
 ' Handles post-dialog mouse suppression frames.
 ' Returns TRUE when current frame input should be suppressed.
 '
@@ -2285,6 +2375,14 @@ FUNCTION MOUSE_should_skip_tool_actions% ()
         MOUSE.OLD_B3% = MOUSE.B3%
         MOUSE.OLD_X% = MOUSE.X%
         MOUSE.OLD_Y% = MOUSE.Y%
+        ' Reset the flag once all buttons are released.
+        ' This MUST happen here (after consuming OLD_B* transition),
+        ' not earlier in the frame — otherwise MOUSE_dispatch_tool_release
+        ' sees OLD_B1=TRUE with TOOLBAR_CLICKED already cleared and
+        ' creates a spurious undo state on every GUI click-release cycle.
+        IF NOT MOUSE.B1% AND NOT MOUSE.B2% THEN
+            MOUSE.TOOLBAR_CLICKED% = FALSE
+        END IF
         MOUSE_should_skip_tool_actions% = TRUE
     ELSE
         MOUSE_should_skip_tool_actions% = FALSE
@@ -2405,14 +2503,17 @@ FUNCTION MOUSE_process_frame% (rawX AS INTEGER, rawY AS INTEGER, wheel_delta AS 
     ' Left button (B1) uses foreground, Right button (B2) uses background
     MOUSE_update_draw_color
 
-    ' Reset toolbar clicked flag only when mouse button is released
-    IF NOT MOUSE.B1% AND NOT MOUSE.B2% THEN
-        MOUSE.TOOLBAR_CLICKED% = FALSE
-    END IF
+    ' NOTE: TOOLBAR_CLICKED% reset moved into MOUSE_should_skip_tool_actions%
+    ' so the release-frame OLD_B1/B2 transition is consumed before the flag clears.
+    ' Resetting here (before the skip check) caused spurious UNDO_save_state calls
+    ' on every GUI click-release cycle (menu, toolbar, palette strip, etc.).
 
     MOUSE_handle_gui_panels rawX%, rawY%, wheel_delta%
 
     MOUSE_handle_alt_picker rawX%, rawY%
+
+    ' Spacebar temporary pan tool switch
+    MOUSE_handle_space_pan
 
     ' Double middle-click reset + UI auto-hide/restore
     MOUSE_handle_b3_dblclick_reset_zoom

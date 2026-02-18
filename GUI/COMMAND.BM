@@ -60,6 +60,8 @@ SUB CMD_init ()
     CMD_register "Export Selection", "Ctrl+Alt+Shift+S", CMD_CAT_FILE, 205
     CMD_register "Open Project (.draw)", "Alt+O", CMD_CAT_FILE, 206
     CMD_register "Import Image", "Right-click Open", CMD_CAT_FILE, 208
+    CMD_register "Revert", "", CMD_CAT_FILE, 207
+    CMD_register "New from Template...", "", CMD_CAT_FILE, 210
     CMD_register "Exit", "Alt+X", CMD_CAT_FILE, 212
     
     ' ========== REFERENCE IMAGE ==========
@@ -82,6 +84,8 @@ SUB CMD_init ()
     CMD_register "Invert Selection", "Ctrl+Shift+I", CMD_CAT_EDIT, 311
     CMD_register "Rotate 90 CW", ">", CMD_CAT_EDIT, 319
     CMD_register "Rotate 90 CCW", "<", CMD_CAT_EDIT, 320
+    CMD_register "Copy Merged", "Ctrl+Shift+C", CMD_CAT_EDIT, 322
+    CMD_register "Cut to New Layer", "Shift+Ctrl+X", CMD_CAT_EDIT, 323
     
     ' ========== VIEW ==========
     CMD_register "Toggle Toolbar", "Tab", CMD_CAT_VIEW, 401
@@ -581,30 +585,101 @@ SUB CMD_execute_action (action_id AS INTEGER)
             GUI_NEEDS_REDRAW% = TRUE
         
         ' ========== EDIT ==========
-        CASE 301: UNDO_undo  ' Undo
-        CASE 302: UNDO_redo  ' Redo
+        CASE 301  ' Undo (intelligent workspace/pixel routing)
+            IF CURRENT_TOOL% = TOOL_MOVE AND MOVE.ACTIVE THEN
+                ' Abort the active move instead of undoing — same as ESC
+                MOVE_cancel_transform
+                MOVE_reset
+                CURRENT_TOOL% = TOOL_MARQUEE
+                IF MARQUEE.ACTIVE% AND NOT MARQUEE.USER_CREATED THEN
+                    MARQUEE_reset
+                END IF
+            ELSE
+                DIM pixelUndoTs AS DOUBLE, workspaceUndoTs AS DOUBLE
+                pixelUndoTs# = UNDO_get_last_timestamp#
+                workspaceUndoTs# = WORKSPACE_UNDO_get_last_timestamp#
+                IF workspaceUndoTs# > pixelUndoTs# AND WORKSPACE_UNDO_can_undo% THEN
+                    WORKSPACE_UNDO_undo
+                ELSEIF pixelUndoTs# > 0 THEN
+                    UNDO_undo
+                END IF
+            END IF
+            GUI_NEEDS_REDRAW% = TRUE
+            FRAME_IDLE% = FALSE
+        CASE 302  ' Redo (intelligent workspace/pixel routing)
+            IF WORKSPACE_UNDO_can_redo% AND UNDO.current% >= UNDO.count% - 1 THEN
+                WORKSPACE_UNDO_redo
+            ELSE
+                UNDO_redo
+            END IF
+            GUI_NEEDS_REDRAW% = TRUE
+            FRAME_IDLE% = FALSE
         CASE 303: CLIPBOARD_copy  ' Copy
         CASE 304: CLIPBOARD_cut   ' Cut
         CASE 305: CLIPBOARD_paste MOUSE.X%, MOUSE.Y%  ' Paste at mouse position
-        CASE 319: CLIPBOARD_copy_merged  ' Copy Merged
-        CASE 320  ' Cut to New Layer
+        CASE 322: CLIPBOARD_copy_merged  ' Copy Merged
+        CASE 323  ' Cut to New Layer
             IF CURRENT_LAYER% > 0 THEN
+                ' Save workspace undo for the compound operation
                 CLIPBOARD_cut
                 DIM ctnl_idx AS INTEGER
                 ctnl_idx% = LAYERS_new%
-                ' Paste at original source position (center of source region)
-                CLIPBOARD_paste CLIPBOARD.SOURCE_X + CLIPBOARD.WIDTH \ 2, CLIPBOARD.SOURCE_Y + CLIPBOARD.HEIGHT \ 2
+                IF ctnl_idx% > 0 AND CLIPBOARD.VALID AND CLIPBOARD.IMAGE < -1 THEN
+                    ' Directly paint clipboard onto new layer (no floating selection)
+                    DIM ctnl_dest AS LONG
+                    ctnl_dest& = LAYERS(ctnl_idx%).imgHandle&
+                    IF ctnl_dest& < -1 THEN
+                        _PUTIMAGE (CLIPBOARD.SOURCE_X, CLIPBOARD.SOURCE_Y), CLIPBOARD.IMAGE, ctnl_dest&
+                        LAYERS(ctnl_idx%).contentDirty% = TRUE
+                        UNDO_save_state
+                        BLEND_invalidate_cache
+                        CANVAS_DIRTY% = TRUE
+                        SCENE_DIRTY% = TRUE
+                        GUI_NEEDS_REDRAW% = TRUE
+                        FRAME_IDLE% = FALSE
+                    END IF
+                END IF
             END IF
         CASE 321  ' Copy to New Layer
             IF CURRENT_LAYER% > 0 THEN
                 CLIPBOARD_copy
                 DIM cpnl_idx AS INTEGER
                 cpnl_idx% = LAYERS_new%
-                ' Paste at original source position (center of source region)
-                CLIPBOARD_paste CLIPBOARD.SOURCE_X + CLIPBOARD.WIDTH \ 2, CLIPBOARD.SOURCE_Y + CLIPBOARD.HEIGHT \ 2
+                IF cpnl_idx% > 0 AND CLIPBOARD.VALID AND CLIPBOARD.IMAGE < -1 THEN
+                    ' Directly paint clipboard onto new layer (no floating selection)
+                    DIM cpnl_dest AS LONG
+                    cpnl_dest& = LAYERS(cpnl_idx%).imgHandle&
+                    IF cpnl_dest& < -1 THEN
+                        _PUTIMAGE (CLIPBOARD.SOURCE_X, CLIPBOARD.SOURCE_Y), CLIPBOARD.IMAGE, cpnl_dest&
+                        LAYERS(cpnl_idx%).contentDirty% = TRUE
+                        UNDO_save_state
+                        BLEND_invalidate_cache
+                        CANVAS_DIRTY% = TRUE
+                        SCENE_DIRTY% = TRUE
+                        GUI_NEEDS_REDRAW% = TRUE
+                        FRAME_IDLE% = FALSE
+                    END IF
+                END IF
             END IF
-        CASE 306, 308: CLIPBOARD_clear_selection ' Clear selection / Edit > Clear
-        CASE 307: MARQUEE_reset   ' Deselect
+        CASE 306, 308  ' Clear selection / Edit > Clear
+            IF CURRENT_TOOL% = TOOL_MARQUEE AND MARQUEE.MAGIC_WAND_MODE AND MARQUEE.WAND_HAS_SELECTION THEN
+                MAGIC_WAND_clear_selected_transparent
+                MAGIC_WAND_reset
+                GUI_NEEDS_REDRAW% = TRUE
+            ELSE
+                CLIPBOARD_clear_selection
+            END IF
+        CASE 307  ' Deselect
+            IF MARQUEE.WAND_HAS_SELECTION AND MARQUEE.SELECTION_MASK < -1 THEN
+                MAGIC_WAND_reset
+                MARQUEE.ACTIVE% = FALSE
+                GUI_NEEDS_REDRAW% = TRUE
+                FRAME_IDLE% = FALSE
+            ELSEIF MARQUEE.ACTIVE% THEN
+                MARQUEE_clear
+                GUI_NEEDS_REDRAW% = TRUE
+                FRAME_IDLE% = FALSE
+            END IF
         CASE 310: SELECTION_select_all  ' Select All
         CASE 311: SELECTION_invert  ' Invert Selection
         
@@ -620,16 +695,25 @@ SUB CMD_execute_action (action_id AS INTEGER)
             GUI_NEEDS_REDRAW% = TRUE
             SCENE_DIRTY% = TRUE
         CASE 403  ' Toggle All UI
-            IF SCRN.showToolbar% OR SCRN.showStatus% THEN
+            IF SCRN.showToolbar% OR SCRN.showStatus% OR LAYER_PANEL.visible% OR (SCRN.showMenubar% AND MENU_BAR.visible%) THEN
                 SCRN.showToolbar% = FALSE
                 SCRN.showStatus% = FALSE
+                LAYER_PANEL.visible% = FALSE
+                MENU_BAR.visible% = FALSE
+                MENUBAR_close_all
                 SCRN.toolbarManuallyHidden% = TRUE
                 SCRN.statusManuallyHidden% = TRUE
+                SCRN.menubarManuallyHidden% = TRUE
+                SCRN.layerPanelManuallyHidden% = TRUE
             ELSE
                 SCRN.showToolbar% = TRUE
                 SCRN.showStatus% = TRUE
+                LAYER_PANEL.visible% = TRUE
+                MENU_BAR.visible% = TRUE
                 SCRN.toolbarManuallyHidden% = FALSE
                 SCRN.statusManuallyHidden% = FALSE
+                SCRN.menubarManuallyHidden% = FALSE
+                SCRN.layerPanelManuallyHidden% = FALSE
             END IF
             GUI_NEEDS_REDRAW% = TRUE
             SCENE_DIRTY% = TRUE
@@ -645,11 +729,14 @@ SUB CMD_execute_action (action_id AS INTEGER)
             GUI_NEEDS_REDRAW% = TRUE
             SCENE_DIRTY% = TRUE
         CASE 406  ' Zoom In
-            IF SCRN.zoom! < 8.0 THEN
-                IF SCRN.zoom! < 1.0 THEN
+            IF SCRN.zoom! < SCRN.zoomMax! THEN
+                IF SCRN.zoom! < 0.5 THEN
+                    SCRN.zoom! = 0.5
+                ELSEIF SCRN.zoom! < 1.0 THEN
                     SCRN.zoom! = 1.0
                 ELSE
-                    SCRN.zoom! = SCRN.zoom! + 1.0
+                    SCRN.zoom! = INT(SCRN.zoom!) + 1.0
+                    IF SCRN.zoom! > SCRN.zoomMax! THEN SCRN.zoom! = SCRN.zoomMax!
                 END IF
                 GUI_NEEDS_REDRAW% = TRUE
                 SCENE_DIRTY% = TRUE
@@ -657,8 +744,9 @@ SUB CMD_execute_action (action_id AS INTEGER)
         CASE 407  ' Zoom Out
             IF SCRN.zoom! > 0.25 THEN
                 IF SCRN.zoom! > 1.0 THEN
-                    SCRN.zoom! = SCRN.zoom! - 1.0
-                ELSEIF SCRN.zoom! = 1.0 THEN
+                    SCRN.zoom! = INT(SCRN.zoom!) - 1.0
+                    IF SCRN.zoom! < 1.0 THEN SCRN.zoom! = 1.0
+                ELSEIF SCRN.zoom! > 0.5 THEN
                     SCRN.zoom! = 0.5
                 ELSE
                     SCRN.zoom! = 0.25
@@ -668,16 +756,16 @@ SUB CMD_execute_action (action_id AS INTEGER)
             END IF
         
         ' ========== COLOR / OPACITY ==========
-        CASE 501: PAINT_OPACITY% = 10:  GUI_NEEDS_REDRAW% = TRUE
-        CASE 502: PAINT_OPACITY% = 20:  GUI_NEEDS_REDRAW% = TRUE
-        CASE 503: PAINT_OPACITY% = 30:  GUI_NEEDS_REDRAW% = TRUE
-        CASE 504: PAINT_OPACITY% = 40:  GUI_NEEDS_REDRAW% = TRUE
-        CASE 505: PAINT_OPACITY% = 50:  GUI_NEEDS_REDRAW% = TRUE
-        CASE 506: PAINT_OPACITY% = 60:  GUI_NEEDS_REDRAW% = TRUE
-        CASE 507: PAINT_OPACITY% = 70:  GUI_NEEDS_REDRAW% = TRUE
-        CASE 508: PAINT_OPACITY% = 80:  GUI_NEEDS_REDRAW% = TRUE
-        CASE 509: PAINT_OPACITY% = 90:  GUI_NEEDS_REDRAW% = TRUE
-        CASE 510: PAINT_OPACITY% = 100: GUI_NEEDS_REDRAW% = TRUE
+        CASE 501: PAINT_OPACITY% = 10:  GUI_NEEDS_REDRAW% = TRUE: SCENE_DIRTY% = TRUE
+        CASE 502: PAINT_OPACITY% = 20:  GUI_NEEDS_REDRAW% = TRUE: SCENE_DIRTY% = TRUE
+        CASE 503: PAINT_OPACITY% = 30:  GUI_NEEDS_REDRAW% = TRUE: SCENE_DIRTY% = TRUE
+        CASE 504: PAINT_OPACITY% = 40:  GUI_NEEDS_REDRAW% = TRUE: SCENE_DIRTY% = TRUE
+        CASE 505: PAINT_OPACITY% = 50:  GUI_NEEDS_REDRAW% = TRUE: SCENE_DIRTY% = TRUE
+        CASE 506: PAINT_OPACITY% = 60:  GUI_NEEDS_REDRAW% = TRUE: SCENE_DIRTY% = TRUE
+        CASE 507: PAINT_OPACITY% = 70:  GUI_NEEDS_REDRAW% = TRUE: SCENE_DIRTY% = TRUE
+        CASE 508: PAINT_OPACITY% = 80:  GUI_NEEDS_REDRAW% = TRUE: SCENE_DIRTY% = TRUE
+        CASE 509: PAINT_OPACITY% = 90:  GUI_NEEDS_REDRAW% = TRUE: SCENE_DIRTY% = TRUE
+        CASE 510: PAINT_OPACITY% = 100: GUI_NEEDS_REDRAW% = TRUE: SCENE_DIRTY% = TRUE
 
         ' ========== BRUSH ==========
         CASE 601: BRUSH_SIZE_decrease
@@ -771,16 +859,97 @@ SUB CMD_execute_action (action_id AS INTEGER)
             DRW_open_dialog
         CASE 208  ' Import Image
             IMPORT_image
+        CASE 207  ' Revert
+            ' Only revert if we have a saved file to revert to
+            IF CURRENT_DRW_FILENAME$ <> "" OR CURRENT_FILENAME$ <> "" THEN
+                DIM doRevert AS INTEGER
+                doRevert% = TRUE
+                IF CANVAS_DIRTY% THEN
+                    POINTER_hide_for_dialog
+                    DIM revertResult AS LONG
+                    revertResult& = _MESSAGEBOX("Revert", "Discard unsaved changes and revert to last saved version?", "yesno", "warning", 0)
+                    POINTER_show_after_dialog
+                    MOUSE_cleanup_after_dialog FALSE
+                    IF revertResult& <> 1 THEN doRevert% = FALSE
+                END IF
+                IF doRevert% THEN
+                    DIM revertFile AS STRING
+                    IF CURRENT_DRW_FILENAME$ <> "" THEN
+                        revertFile$ = CURRENT_DRW_FILENAME$
+                    ELSE
+                        revertFile$ = CURRENT_FILENAME$
+                    END IF
+                    DRW_load revertFile$
+                    CANVAS_DIRTY% = FALSE
+                    MOUSE_cleanup_after_dialog TRUE
+                END IF
+            END IF
         CASE 209  ' New
             DRW_new_canvas
         CASE 210  ' New from Template
-            ERR_info "New from template: not yet implemented"
+            ' Prompt to save if dirty
+            IF CANVAS_DIRTY% THEN
+                POINTER_hide_for_dialog
+                DIM tmplSave AS LONG
+                tmplSave& = _MESSAGEBOX("New from Template", "You have unsaved changes. Continue without saving?", "yesno", "warning", 0)
+                POINTER_show_after_dialog
+                MOUSE_cleanup_after_dialog FALSE
+                IF tmplSave& <> 1 THEN EXIT SUB
+            END IF
+
+            ' Open file dialog for template
+            DIM tmplDefault AS STRING
+            IF CFG.TEMPLATE_DIR$ <> "" THEN
+                tmplDefault$ = CFG.TEMPLATE_DIR$ + "/"
+            ELSEIF CFG.LAST_DIR_OPEN$ <> "" THEN
+                tmplDefault$ = CFG.LAST_DIR_OPEN$ + "/"
+            ELSEIF LAST_DIRECTORY$ <> "" THEN
+                tmplDefault$ = LAST_DIRECTORY$ + "/"
+            ELSE
+                tmplDefault$ = ""
+            END IF
+
+            POINTER_hide_for_dialog
+            DIM tmplFile AS STRING
+            tmplFile$ = _OPENFILEDIALOG$("New from Template", tmplDefault$, "*.draw|*.DRAW|*.png|*.PNG|*.bmp|*.BMP", "Template Files", 0)
+            POINTER_show_after_dialog
+            MOUSE_cleanup_after_dialog TRUE
+
+            IF LEN(tmplFile$) > 0 THEN
+                ' Update template directory
+                CFG.TEMPLATE_DIR$ = CONFIG_extract_dir$(tmplFile$)
+                CONFIG_save
+
+                ' Load the file
+                DRW_load tmplFile$
+
+                ' Do NOT set CURRENT_DRW_FILENAME$ or CURRENT_FILENAME$
+                ' This makes the file treated as a new untitled document
+                ' First Save/CTRL-S will trigger Save As dialog
+                CURRENT_DRW_FILENAME$ = ""
+                CURRENT_FILENAME$ = ""
+
+                ' Mark clean — template opens fresh
+                CANVAS_DIRTY% = FALSE
+
+                MOUSE_cleanup_after_dialog TRUE
+            END IF
         CASE 211  ' Export Layer
             DIM layerExportPath AS STRING
             POINTER_hide_for_dialog
-            layerExportPath$ = _SAVEFILEDIALOG$("Export Layer as PNG", "", "*.png", "PNG Image")
+            DIM layerExportDefault AS STRING
+            IF CFG.LAST_DIR_EXPORT_LAYER$ <> "" THEN
+                layerExportDefault$ = CFG.LAST_DIR_EXPORT_LAYER$ + "/"
+            ELSE
+                layerExportDefault$ = ""
+            END IF
+            layerExportPath$ = _SAVEFILEDIALOG$("Export Layer as PNG", layerExportDefault$, "*.png", "PNG Image")
             POINTER_show_after_dialog
             IF layerExportPath$ <> "" THEN
+                ' Update per-operation last directory
+                CFG.LAST_DIR_EXPORT_LAYER$ = CONFIG_extract_dir$(layerExportPath$)
+                LAST_DIRECTORY$ = CFG.LAST_DIR_EXPORT_LAYER$
+                CONFIG_save
                 ' Save the current layer's image handle as PNG
                 IF CURRENT_LAYER% > 0 AND CURRENT_LAYER% <= LAYER_COUNT% THEN
                     IF LAYERS(CURRENT_LAYER%).imgHandle& < -1 THEN
@@ -1609,13 +1778,24 @@ SUB CMD_execute_action (action_id AS INTEGER)
             IF MARQUEE.ACTIVE% THEN MARQUEE.BOX.y = MARQUEE.BOX.y - 10
         
         ' ========== PALETTE (menu-only) ==========
-        CASE 1501  ' Import palette
+        CASE 1510  ' Import palette
             ERR_info "Import palette: not yet implemented"
-        CASE 1502  ' Export palette
+        CASE 1511  ' Export palette
             ERR_info "Export palette: not yet implemented"
-        CASE 1503  ' Random palette
-            ERR_info "Random palette: not yet implemented"
-        CASE 1504  ' Swap FG/BG Colors
+        CASE 1512  ' Random palette
+            IF PALETTE_LOADER_COUNT% > 1 THEN
+                DIM rndPalIdx AS INTEGER
+                DO
+                    rndPalIdx% = INT(RND * PALETTE_LOADER_COUNT%)
+                LOOP WHILE rndPalIdx% = PALETTE_LOADER_CURRENT_IDX% AND PALETTE_LOADER_COUNT% > 1
+                DIM rndResult AS INTEGER
+                rndResult% = PALETTE_LOADER_load_by_index%(rndPalIdx%)
+                IF rndResult% > 0 THEN
+                    GUI_NEEDS_REDRAW% = TRUE
+                    SCENE_DIRTY% = TRUE
+                END IF
+            END IF
+        CASE 1513  ' Swap FG/BG Colors
             DIM swap_tmp_color AS _UNSIGNED LONG
             DIM swap_tmp_idx AS INTEGER
             swap_tmp_color~& = PAINT_COLOR~&
@@ -1635,7 +1815,6 @@ SUB CMD_execute_action (action_id AS INTEGER)
                 DIM picker_pal_idx AS INTEGER
                 picker_pal_idx% = PAL_find_index%(picker_color~&)
                 IF picker_pal_idx% >= 0 THEN PAL_FG_IDX% = picker_pal_idx%
-                CANVAS_DIRTY% = TRUE
                 GUI_NEEDS_REDRAW% = TRUE
             END IF
             MOUSE_reset_buttons
@@ -1650,9 +1829,19 @@ SUB CMD_execute_action (action_id AS INTEGER)
             IF CUSTOM_BRUSH_is_active% THEN
                 DIM brushExportPath AS STRING
                 POINTER_hide_for_dialog
-                brushExportPath$ = _SAVEFILEDIALOG$("Export Brush as PNG", "", "*.png", "PNG Image")
+                DIM brushExportDefault AS STRING
+                IF CFG.LAST_DIR_EXPORT_BRUSH$ <> "" THEN
+                    brushExportDefault$ = CFG.LAST_DIR_EXPORT_BRUSH$ + "/"
+                ELSE
+                    brushExportDefault$ = ""
+                END IF
+                brushExportPath$ = _SAVEFILEDIALOG$("Export Brush as PNG", brushExportDefault$, "*.png", "PNG Image")
                 POINTER_show_after_dialog
                 IF brushExportPath$ <> "" THEN
+                    ' Update per-operation last directory
+                    CFG.LAST_DIR_EXPORT_BRUSH$ = CONFIG_extract_dir$(brushExportPath$)
+                    LAST_DIRECTORY$ = CFG.LAST_DIR_EXPORT_BRUSH$
+                    CONFIG_save
                     CUSTOM_BRUSH_export_png brushExportPath$
                 END IF
             ELSE
@@ -1662,10 +1851,10 @@ SUB CMD_execute_action (action_id AS INTEGER)
             ERR_info "Zoom: use Ctrl+= / Ctrl+- or scroll wheel"
         CASE 1702  ' Spray tool
             PREVIOUS_TOOL% = CURRENT_TOOL%
-            CURRENT_TOOL% = TOOL_BRUSH  ' Spray is a brush variant
+            CURRENT_TOOL% = TOOL_SPRAY
             GUI_NEEDS_REDRAW% = TRUE
         CASE 1703  ' Command palette / cheat sheet
-            CMD_show_quick_ref
+            CMD_show_palette
         CASE 1704  ' Code / BAS export
             ERR_info "Code view: not yet implemented"
         

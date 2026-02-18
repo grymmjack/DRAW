@@ -73,6 +73,14 @@ SUB CONFIG_set_defaults ()
     CFG.DEFAULT_LAYER_BG_COLOR~& = _RGBA32(0, 0, 0, 0) ' Transparent by default
     CFG.DEFAULT_SAVE_DIR$ = "" ' Empty = use current directory
     CFG.DEFAULT_OPEN_DIR$ = "" ' Empty = use current directory
+    ' Per-operation last dirs (empty = use DEFAULT_OPEN_DIR/DEFAULT_SAVE_DIR as fallback)
+    CFG.LAST_DIR_OPEN$ = ""
+    CFG.LAST_DIR_SAVE$ = ""
+    CFG.LAST_DIR_IMPORT$ = ""
+    CFG.LAST_DIR_EXPORT_BRUSH$ = ""
+    CFG.LAST_DIR_EXPORT_LAYER$ = ""
+    CFG.LAST_DIR_PALETTE$ = ""
+    CFG.TEMPLATE_DIR$ = ""         ' Empty = use current directory for templates
 END SUB
 
 
@@ -255,6 +263,30 @@ SUB CONFIG_load ()
                         CFG.DEFAULT_SAVE_DIR$ = configValue$
                     CASE "DEFAULT_OPEN_DIR"
                         CFG.DEFAULT_OPEN_DIR$ = configValue$
+                    CASE "LAST_DIR_OPEN"
+                        CFG.LAST_DIR_OPEN$ = configValue$
+                    CASE "LAST_DIR_SAVE"
+                        CFG.LAST_DIR_SAVE$ = configValue$
+                    CASE "LAST_DIR_IMPORT"
+                        CFG.LAST_DIR_IMPORT$ = configValue$
+                    CASE "LAST_DIR_EXPORT_BRUSH"
+                        CFG.LAST_DIR_EXPORT_BRUSH$ = configValue$
+                    CASE "LAST_DIR_EXPORT_LAYER"
+                        CFG.LAST_DIR_EXPORT_LAYER$ = configValue$
+                    CASE "LAST_DIR_PALETTE"
+                        CFG.LAST_DIR_PALETTE$ = configValue$
+                    CASE "TEMPLATE_DIR"
+                        CFG.TEMPLATE_DIR$ = configValue$
+                    CASE ELSE
+                        ' Check for RECENT_FILE_N pattern
+                        IF LEFT$(configKey$, 12) = "RECENT_FILE_" THEN
+                            DIM rcfNum AS INTEGER
+                            rcfNum% = VAL(MID$(configKey$, 13))
+                            IF rcfNum% >= 1 AND rcfNum% <= RECENT_FILES_MAX THEN
+                                RECENT_FILES(rcfNum%) = configValue$
+                                IF rcfNum% > RECENT_FILE_COUNT% THEN RECENT_FILE_COUNT% = rcfNum%
+                            END IF
+                        END IF
                 END SELECT
             END IF
         END IF
@@ -291,11 +323,20 @@ SUB CONFIG_apply_startup_defaults ()
         BRUSH_SIZE.SHAPE = -1 ' Square (QB64-PE TRUE = -1)
     END IF
     
-    ' Apply default directories if configured
+    ' Seed per-operation dirs from legacy defaults if not explicitly set
+    IF CFG.LAST_DIR_OPEN$ = "" AND CFG.DEFAULT_OPEN_DIR$ <> "" THEN
+        CFG.LAST_DIR_OPEN$ = CFG.DEFAULT_OPEN_DIR$
+    END IF
+    IF CFG.LAST_DIR_SAVE$ = "" AND CFG.DEFAULT_SAVE_DIR$ <> "" THEN
+        CFG.LAST_DIR_SAVE$ = CFG.DEFAULT_SAVE_DIR$
+    END IF
+    IF CFG.LAST_DIR_IMPORT$ = "" AND CFG.DEFAULT_OPEN_DIR$ <> "" THEN
+        CFG.LAST_DIR_IMPORT$ = CFG.DEFAULT_OPEN_DIR$
+    END IF
+    ' Keep LAST_DIRECTORY$ for any code that still references it
     IF CFG.DEFAULT_SAVE_DIR$ <> "" AND LAST_DIRECTORY$ = "" THEN
         LAST_DIRECTORY$ = CFG.DEFAULT_SAVE_DIR$
     END IF
-    ' Note: DEFAULT_OPEN_DIR is used directly in file dialogs
 END SUB
 
 
@@ -862,6 +903,117 @@ SUB CONFIG_save ()
     
     PRINT #fh%, "# Default directory for open dialogs (empty = use last directory or current)"
     PRINT #fh%, "DEFAULT_OPEN_DIR=" + CFG.DEFAULT_OPEN_DIR$
+    PRINT #fh%, ""
+
+    ' Per-operation last-used directories
+    PRINT #fh%, "# Per-operation last-used directories (auto-updated, empty = use defaults above)"
+    PRINT #fh%, "LAST_DIR_OPEN=" + CFG.LAST_DIR_OPEN$
+    PRINT #fh%, "LAST_DIR_SAVE=" + CFG.LAST_DIR_SAVE$
+    PRINT #fh%, "LAST_DIR_IMPORT=" + CFG.LAST_DIR_IMPORT$
+    PRINT #fh%, "LAST_DIR_EXPORT_BRUSH=" + CFG.LAST_DIR_EXPORT_BRUSH$
+    PRINT #fh%, "LAST_DIR_EXPORT_LAYER=" + CFG.LAST_DIR_EXPORT_LAYER$
+    PRINT #fh%, "LAST_DIR_PALETTE=" + CFG.LAST_DIR_PALETTE$
+    PRINT #fh%, ""
+    PRINT #fh%, "# Default directory for New from Template dialog (empty = use current directory)"
+    PRINT #fh%, "TEMPLATE_DIR=" + CFG.TEMPLATE_DIR$
+    PRINT #fh%, ""
+
+    ' Recent files
+    PRINT #fh%, "# Recent files (auto-updated, most recent first)"
+    DIM rcfI AS INTEGER
+    FOR rcfI% = 1 TO RECENT_FILE_COUNT%
+        PRINT #fh%, "RECENT_FILE_" + _TRIM$(STR$(rcfI%)) + "=" + RECENT_FILES(rcfI%)
+    NEXT rcfI%
+    PRINT #fh%, ""
     
     CLOSE #fh%
 END SUB
+
+''
+' Extract directory path from a full filepath.
+' @param filepath STRING Full path to a file
+' @return STRING Directory portion (without trailing separator)
+'
+FUNCTION CONFIG_extract_dir$ (filepath AS STRING)
+    DIM ced_i AS INTEGER
+    FOR ced_i% = LEN(filepath$) TO 1 STEP -1
+        IF MID$(filepath$, ced_i%, 1) = "/" OR MID$(filepath$, ced_i%, 1) = "\" THEN
+            CONFIG_extract_dir$ = LEFT$(filepath$, ced_i% - 1)
+            EXIT FUNCTION
+        END IF
+    NEXT ced_i%
+    CONFIG_extract_dir$ = ""
+END FUNCTION
+
+
+''
+' Add a file to the top of the recent files list.
+' Deduplicates: if file already exists in list, moves it to top.
+' Caps at RECENT_FILES_MAX entries.
+' @param filepath STRING Full path to the file to add
+'
+SUB RECENT_add_file (filepath AS STRING)
+    IF filepath$ = "" THEN EXIT SUB
+    
+    ' Check if file already exists in the list
+    DIM raf_i AS INTEGER, raf_foundAt AS INTEGER
+    raf_foundAt% = 0
+    FOR raf_i% = 1 TO RECENT_FILE_COUNT%
+        IF RECENT_FILES(raf_i%) = filepath$ THEN
+            raf_foundAt% = raf_i%
+            EXIT FOR
+        END IF
+    NEXT raf_i%
+    
+    ' Shift entries down to make room at position 1
+    IF raf_foundAt% > 0 THEN
+        ' Move existing entry to top — shift entries above it down
+        FOR raf_i% = raf_foundAt% TO 2 STEP -1
+            RECENT_FILES(raf_i%) = RECENT_FILES(raf_i% - 1)
+        NEXT raf_i%
+    ELSE
+        ' New entry — shift everything down, cap at max
+        IF RECENT_FILE_COUNT% < RECENT_FILES_MAX THEN
+            RECENT_FILE_COUNT% = RECENT_FILE_COUNT% + 1
+        END IF
+        FOR raf_i% = RECENT_FILE_COUNT% TO 2 STEP -1
+            RECENT_FILES(raf_i%) = RECENT_FILES(raf_i% - 1)
+        NEXT raf_i%
+    END IF
+    
+    ' Place new entry at top
+    RECENT_FILES(1) = filepath$
+    
+    ' Save config to persist
+    CONFIG_save
+END SUB
+
+
+''
+' Clear all recent files.
+'
+SUB RECENT_clear ()
+    DIM rc_i AS INTEGER
+    FOR rc_i% = 1 TO RECENT_FILES_MAX
+        RECENT_FILES(rc_i%) = ""
+    NEXT rc_i%
+    RECENT_FILE_COUNT% = 0
+    CONFIG_save
+END SUB
+
+
+''
+' Extract just the filename from a full filepath.
+' @param filepath STRING Full path to a file
+' @return STRING Filename only (no directory)
+'
+FUNCTION RECENT_extract_filename$ (filepath AS STRING)
+    DIM ref_i AS INTEGER
+    FOR ref_i% = LEN(filepath$) TO 1 STEP -1
+        IF MID$(filepath$, ref_i%, 1) = "/" OR MID$(filepath$, ref_i%, 1) = "\" THEN
+            RECENT_extract_filename$ = MID$(filepath$, ref_i% + 1)
+            EXIT FUNCTION
+        END IF
+    NEXT ref_i%
+    RECENT_extract_filename$ = filepath$
+END FUNCTION

@@ -35,6 +35,28 @@ SUB ORGANIZER_load_images ()
             ORG_WIDGETS(i%).imgHandle4& = _LOADIMAGE(themeDir$ + ORG_WIDGETS(i%).imgSrc4$, 32)
         END IF
     NEXT i%
+
+    ' Load grid mode images (per-mode on/off icons)
+    DIM gridModeNames(0 TO 3) AS STRING
+    gridModeNames$(0) = "rect"
+    gridModeNames$(1) = "45"
+    gridModeNames$(2) = "isometric"
+    gridModeNames$(3) = "hex"
+    DIM gm AS INTEGER
+    FOR gm% = 0 TO 3
+        IF GRID_MODE_IMG_OFF(gm%) = 0 THEN
+            GRID_MODE_IMG_OFF(gm%) = _LOADIMAGE(themeDir$ + "grid-off-" + gridModeNames$(gm%) + ".png", 32)
+        END IF
+        IF GRID_MODE_IMG_ON(gm%) = 0 THEN
+            GRID_MODE_IMG_ON(gm%) = _LOADIMAGE(themeDir$ + "grid-on-" + gridModeNames$(gm%) + ".png", 32)
+        END IF
+    NEXT gm%
+
+    ' Load grid snap align images (edge/center × on/off)
+    IF GRID_SNAP_IMG(0) = 0 THEN GRID_SNAP_IMG(0) = _LOADIMAGE(themeDir$ + "grid-snap-edge-off.png", 32)
+    IF GRID_SNAP_IMG(1) = 0 THEN GRID_SNAP_IMG(1) = _LOADIMAGE(themeDir$ + "grid-snap-edge-on.png", 32)
+    IF GRID_SNAP_IMG(2) = 0 THEN GRID_SNAP_IMG(2) = _LOADIMAGE(themeDir$ + "grid-snap-center-off.png", 32)
+    IF GRID_SNAP_IMG(3) = 0 THEN GRID_SNAP_IMG(3) = _LOADIMAGE(themeDir$ + "grid-snap-center-on.png", 32)
 END SUB
 
 
@@ -87,19 +109,48 @@ FUNCTION ORGANIZER_get_state_image& (idx AS INTEGER)
             END SELECT
 
         CASE ORG_GRID_VIS
-            ' Show grid-visible or grid-invisible based on GRID.SHOW
+            ' Show per-mode grid icon based on GRID.GRID_MODE% and GRID.SHOW%
+            DIM gvMode AS INTEGER
+            gvMode% = GRID.GRID_MODE%
+            IF gvMode% < 0 OR gvMode% > 3 THEN gvMode% = 0
             IF GRID.SHOW% THEN
-                h& = ORG_WIDGETS(idx%).imgHandle2& ' grid-visible.png
+                h& = GRID_MODE_IMG_ON(gvMode%)
             ELSE
-                h& = ORG_WIDGETS(idx%).imgHandles& ' grid-invisible.png
+                h& = GRID_MODE_IMG_OFF(gvMode%)
+            END IF
+            ' Fallback to old images if mode images not loaded
+            IF h& = 0 OR NOT (h& < -1) THEN
+                IF GRID.SHOW% THEN
+                    h& = ORG_WIDGETS(idx%).imgHandle2&
+                ELSE
+                    h& = ORG_WIDGETS(idx%).imgHandles&
+                END IF
             END IF
 
         CASE ORG_GRID_SNAP
-            ' Show grid-snap-on or grid-snap-off based on GRID.SNAP
-            IF GRID.SNAP% THEN
-                h& = ORG_WIDGETS(idx%).imgHandle2& ' grid-snap-on.png
+            ' Show per-align grid snap icon based on GRID.ALIGN_MODE% and GRID.SNAP%
+            DIM gsAlign AS INTEGER
+            gsAlign% = GRID.ALIGN_MODE%
+            IF gsAlign% = GRID_ALIGN_CENTER THEN
+                IF GRID.SNAP% THEN
+                    h& = GRID_SNAP_IMG(3)  ' center-on
+                ELSE
+                    h& = GRID_SNAP_IMG(2)  ' center-off
+                END IF
             ELSE
-                h& = ORG_WIDGETS(idx%).imgHandles& ' grid-snap-off.png
+                IF GRID.SNAP% THEN
+                    h& = GRID_SNAP_IMG(1)  ' edge-on
+                ELSE
+                    h& = GRID_SNAP_IMG(0)  ' edge-off
+                END IF
+            END IF
+            ' Fallback to old images if align images not loaded
+            IF h& = 0 OR NOT (h& < -1) THEN
+                IF GRID.SNAP% THEN
+                    h& = ORG_WIDGETS(idx%).imgHandle2&
+                ELSE
+                    h& = ORG_WIDGETS(idx%).imgHandles&
+                END IF
             END IF
     END SELECT
 
@@ -160,8 +211,8 @@ SUB ORGANIZER_render (tbPanelY2 AS INTEGER)
     ORGANIZER.panelX2% = orgX2% + colW%
     ORGANIZER.panelY2% = orgY% + totalH%
 
-    bg_color~& = PAL_color(THEME.TOOLBAR_bg%)
-    border_color~& = PAL_color(THEME.TOOLBAR_border_fg%)
+    bg_color~& = THEME.TOOLBAR_bg~&
+    border_color~& = THEME.TOOLBAR_border_fg~&
     LINE (ORGANIZER.panelX1%, ORGANIZER.panelY1%)-(ORGANIZER.panelX2%, ORGANIZER.panelY2%), bg_color~&, BF
     LINE (ORGANIZER.panelX1%, ORGANIZER.panelY1%)-(ORGANIZER.panelX2%, ORGANIZER.panelY2%), border_color~&, B
 
@@ -431,3 +482,85 @@ FUNCTION ORGANIZER_is_over_area% (mouseX AS INTEGER, mouseY AS INTEGER)
         ORGANIZER_is_over_area% = FALSE
     END IF
 END FUNCTION
+
+
+''
+' Handle mousewheel over organizer widgets.
+' Cycles through states for brush size, grid type, and grid snap alignment.
+'
+' @param INTEGER mouseX Raw screen X
+' @param INTEGER mouseY Raw screen Y
+' @param INTEGER wheelDelta Wheel direction (positive = down, negative = up)
+'
+SUB ORGANIZER_handle_wheel (mouseX AS INTEGER, mouseY AS INTEGER, wheelDelta AS INTEGER)
+    DIM AS INTEGER i, wx, wy, ww, wh
+
+    ' Find which widget the mouse is over
+    FOR i% = 0 TO ORG_WIDGET_COUNT - 1
+        wx% = ORG_WIDGETS(i%).x%
+        wy% = ORG_WIDGETS(i%).y%
+        ww% = ORG_WIDGETS(i%).w%
+        wh% = ORG_WIDGETS(i%).h%
+
+        IF mouseX% >= wx% AND mouseX% < wx% + ww% AND mouseY% >= wy% AND mouseY% < wy% + wh% THEN
+            SELECT CASE i%
+                CASE ORG_BRUSH_SIZE
+                    ' Cycle brush size presets: scroll up = bigger, scroll down = smaller
+                    DIM bsPreset AS INTEGER
+                    IF BRUSH_SIZE.CURRENT <= 1 THEN
+                        bsPreset% = 1
+                    ELSEIF BRUSH_SIZE.CURRENT <= 2 THEN
+                        bsPreset% = 2
+                    ELSEIF BRUSH_SIZE.CURRENT <= 4 THEN
+                        bsPreset% = 3
+                    ELSE
+                        bsPreset% = 4
+                    END IF
+                    IF wheelDelta% > 0 THEN
+                        ' Scroll down = decrease
+                        bsPreset% = bsPreset% - 1
+                        IF bsPreset% < 1 THEN bsPreset% = 1
+                    ELSE
+                        ' Scroll up = increase
+                        bsPreset% = bsPreset% + 1
+                        IF bsPreset% > 4 THEN bsPreset% = 4
+                    END IF
+                    BRUSH_SIZE_set_preset bsPreset%
+                    GUI_NEEDS_REDRAW% = TRUE
+
+                CASE ORG_GRID_VIS
+                    ' Cycle grid mode: scroll up = next mode, scroll down = prev mode
+                    IF wheelDelta% < 0 THEN
+                        GRID.GRID_MODE% = GRID.GRID_MODE% + 1
+                        IF GRID.GRID_MODE% >= GRID_MODE_COUNT THEN GRID.GRID_MODE% = 0
+                    ELSE
+                        GRID.GRID_MODE% = GRID.GRID_MODE% - 1
+                        IF GRID.GRID_MODE% < 0 THEN GRID.GRID_MODE% = GRID_MODE_COUNT - 1
+                    END IF
+                    GRID_draw
+                    GUI_NEEDS_REDRAW% = TRUE
+                    SCENE_DIRTY% = TRUE
+                    FRAME_IDLE% = FALSE
+
+                CASE ORG_GRID_SNAP
+                    ' Cycle grid align mode: edge <-> center
+                    IF GRID.ALIGN_MODE% = GRID_ALIGN_CORNER THEN
+                        GRID.ALIGN_MODE% = GRID_ALIGN_CENTER
+                    ELSE
+                        GRID.ALIGN_MODE% = GRID_ALIGN_CORNER
+                    END IF
+                    GRID_draw
+                    GUI_NEEDS_REDRAW% = TRUE
+                    SCENE_DIRTY% = TRUE
+                    FRAME_IDLE% = FALSE
+
+                CASE ORG_SYMMETRY_MODE
+                    ' Cycle symmetry mode with wheel
+                    SYMMETRY_cycle_mode
+                    GUI_NEEDS_REDRAW% = TRUE
+                    SCENE_DIRTY% = TRUE
+            END SELECT
+            EXIT SUB
+        END IF
+    NEXT i%
+END SUB
