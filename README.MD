@@ -29,7 +29,7 @@ DRAW is a pixel art editor written in QB64PE that can export images as sourcecod
 - **Spray** - Spray paint with brush-shaped nozzle tips, radius doubles per brush size level, custom brush stamp support, SHIFT axis constraint, circle preview
 - **Picker** - Color sampling/eyedropper (hold ALT with any tool for temporary picker)
 - **Marquee** - Rectangular selection with move and resize
-- **Move** - Transform and position selected content with arrow keys and undo support
+- **Move** - Transform and position selected content with arrow keys, undo support, and ALT+drag clone stamping
 - **Transform** - Universal flip H/V, rotate 90° CW/CCW, scale ±50% — works on layers, selections, or floating moves from any tool
 - **Pan** - Dedicated canvas panning tool (hand)
 - **Zoom** - Click to zoom in, Alt+click to zoom out, drag to zoom region
@@ -37,7 +37,9 @@ DRAW is a pixel art editor written in QB64PE that can export images as sourcecod
 - **Text** - Text entry tool
 - **Custom Brush** - Capture selection as reusable brush with flip/scale transforms, non-rectangular shapes via alpha channel, dynamic outline expansion
 - **Reference Image** - Load a high-res image behind the canvas at adjustable opacity for tracing (`Ctrl+R` toggle, `Ctrl+Shift+Wheel` opacity, reposition via View menu); state persisted in `.draw` project files
-- **Crop** - Canvas crop/resize *(coming soon)*
+- **Image Import** - Load images with interactive placement, rotation (90° CW/CCW), horizontal/vertical flip, zoom, pan, and resize — with live preview of all transformations
+- **Crop** - Interactive canvas crop using marquee selection with dark overlay, resize handles, and size label; also supports canvas resize dialog
+- **Canvas Resize** - Resize canvas to arbitrary dimensions via dialog (Edit menu), preserving layer content at origin
 
 ### Grid System
 - Adjustable grid overlay (2-50px spacing)
@@ -66,13 +68,14 @@ DRAW is a pixel art editor written in QB64PE that can export images as sourcecod
 - Keyboard shortcuts 0-9, !, @, #, $, %, ^, & for quick color access
 
 ### Canvas & View
-- 320x200 default canvas size
+- Configurable canvas size (up to 4096x4096)
 - Clear canvas: `Delete` (with prompt) or `Backspace` (instant)
 - Infinite zoom levels (mouse wheel or Ctrl +/-)
 - Pan with middle mouse button or spacebar + drag
+- Scrollbars for canvases larger than the viewport
 - Keyboard panning with arrow keys
 - Reset view with Ctrl+0 or double-click middle mouse
-- Toggle UI elements (toolbar, status bar)
+- Toggle UI elements (toolbar, status bar, menu bar, layer panel)
 
 ### Brush System
 - Size adjustment: `[` decrease, `]` increase (1-50px)
@@ -91,7 +94,8 @@ DRAW is a pixel art editor written in QB64PE that can export images as sourcecod
 - Select from current layer: Ctrl+Click a layer row to create a selection mask from its non-transparent pixels
 - Merge down, merge visible, duplicate layers
 - CTRL+Click layer to create selection from non-transparent pixels
-- DRW project format: PNG with embedded `drAw` chunk — preserves layers, blend modes, opacity, palette, tool states, and reference image configuration while remaining viewable in any image viewer
+- **Recent Files** - File menu tracks up to 10 recently opened projects with submenu navigation
+- DRW project format: PNG with embedded `drAw` chunk — preserves layers, blend modes, opacity, palette, tool states, grid state, and reference image configuration while remaining viewable in any image viewer
 
 ### User Interface
 - Themeable PNG icon toolbar (21 buttons in 3×7 grid)

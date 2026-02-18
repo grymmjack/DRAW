@@ -768,12 +768,16 @@ When loading an image larger than the canvas, DRAW enters **Image Import Mode** 
 | **Alt + Arrows** | Pan within image crop (1px) |
 | **Alt+Shift + Arrows** | Pan within image crop (10px) |
 | **Right-click drag** | Pan image within crop area |
+| **`>`** (Shift+.) | Rotate image 90° clockwise |
+| **`<`** (Shift+,) | Rotate image 90° counter-clockwise |
+| **Home** | Flip image horizontally |
+| **End** | Flip image vertically |
 | **Enter** | Apply import to canvas |
 | **Escape** | Cancel import |
 
 ### Visual Indicators
 - **Dimmed overlay** shows the canvas area outside your placement box
-- **Preview** shows the cropped/scaled image in real-time
+- **Live preview** shows the cropped/scaled/rotated/flipped image in real-time
 - **Marching ants** border indicates the destination box
 - **Resize handles** at corners and edges for mouse resizing
 
@@ -782,6 +786,42 @@ When loading an image larger than the canvas, DRAW enters **Image Import Mode** 
 - Use **Alt+Arrows** or **right-drag** to pan to different parts of the zoomed image
 - Combine zoom and pan to precisely select which portion of an oversized image to use
 - The image is scaled to fit your destination box while maintaining the current crop
+- Rotation and flip transformations update the preview in real-time
+- Images are centered on the canvas at their original size (or proportionally fit if larger)
+
+## Crop Tool
+
+The crop tool lets you trim the canvas to a selected region. It uses the **Marquee** tool for all selection interaction.
+
+### How It Works
+1. Activate crop from the **Edit** menu or command palette
+2. Click and drag on the canvas to define the crop region (marquee selection)
+3. Resize using handles, move by dragging inside, nudge with arrow keys
+4. Press **Enter** to apply the crop or **Escape** to cancel
+
+### Crop Controls
+
+| Key | Function |
+|-----|----------|
+| **Click + Drag** | Draw crop region |
+| **Drag handles** | Resize crop region |
+| **Drag inside** | Move crop region |
+| **Arrow Keys** | Nudge crop region (1px) |
+| **Shift + Arrows** | Nudge crop region (10px) |
+| **Ctrl + Arrows** | Resize crop region from bottom-right |
+| **Enter** | Apply crop (resize canvas to selection) |
+| **Escape** | Cancel crop |
+
+### Visual Indicators
+- **Dark overlay** dims the area outside the crop region
+- **Marching ants** border with resize handles (from marquee tool)
+- **Size label** shows crop dimensions above the selection
+- Status bar shows "CROP" with contextual hints
+
+### Notes
+- Crop resets undo history (canvas dimensions change)
+- Crop resets zoom/pan to fit the new canvas size
+- All layers are cropped to the selected region simultaneously
 
 ## Menu Bar
 
@@ -811,7 +851,7 @@ DRAW has an optional menu bar at the top of the screen providing access to all c
 | Menu | Contents |
 |------|----------|
 | **File** | New, Open, Import Image, Save, Save As, Export Layer, Export Brush, Exit |
-| **Edit** | Undo, Redo, Cut, Copy, Paste, Select All, Deselect, Invert Selection, Flip H/V, Scale, Rotate 90° CW/CCW |
+| **Edit** | Undo, Redo, Cut, Copy, Paste, Select All, Deselect, Invert Selection, Flip H/V, Scale, Rotate 90° CW/CCW, Canvas Resize, Canvas Crop |
 | **View** | Toolbar, Status Bar, Layer Panel, Menu Bar, Cursors, Grid, Pixel Grid, Snap, Crosshair, Reference Image (toggle/load/clear/reposition) |
 | **Canvas** | Clear Canvas, Zoom In/Out, Reset Zoom |
 | **Tools** | All drawing tools (Dot, Brush, Line, etc.) |

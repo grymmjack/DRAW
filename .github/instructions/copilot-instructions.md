@@ -10,7 +10,7 @@ applyTo: "**"
 
 **Project**: DRAW is a pixel art editor written in QB64-PE by grymmjack (Rick Christy). Unique feature: exports artwork as QB64 source code. Build with: `qb64pe -w -x -o DRAW.run DRAW.BAS`
 
-**Version**: `APP_VERSION$` constant in `_COMMON.BI` (currently `"0.7.12"`).
+**Version**: `APP_VERSION$` constant in `_COMMON.BI` (currently `"0.7.13"`).
 
 ---
 
@@ -773,7 +773,7 @@ For sub-100% paint opacity, overlapping brush dabs within a single stroke must n
 
 ## Window Title Bar
 
-`DRAW v0.7.12 - myart.draw *`
+`DRAW v0.7.13 - myart.draw *`
 
 - **`TITLE_update`** (`_COMMON.BM`): Builds title string. Prefers `CURRENT_DRW_FILENAME$`.
 - **`TITLE_check`** (`_COMMON.BM`): Called every frame in `LOOP_start`. Only calls `_TITLE`
