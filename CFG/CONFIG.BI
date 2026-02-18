@@ -65,6 +65,7 @@ TYPE DRAW_CONFIG
     ' Default startup settings
     DEFAULT_TOOL                   AS INTEGER  ' Default tool on startup (1=brush, 2=fill, 3=dot, etc.)
     DEFAULT_BRUSH_SIZE             AS INTEGER  ' Default brush size index (1-25)
+    DEFAULT_BRUSH_SHAPE            AS INTEGER  ' Default brush shape (0=circle, 1=square)
     DEFAULT_LAYER_BG_COLOR         AS _UNSIGNED LONG  ' Default layer background color
     DEFAULT_SAVE_DIR               AS STRING   ' Default directory for save dialogs
     DEFAULT_OPEN_DIR               AS STRING   ' Default directory for open dialogs

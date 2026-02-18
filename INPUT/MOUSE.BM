@@ -526,6 +526,7 @@ SUB MOUSE_autocommit_move_if_click_on_gui (rawX AS INTEGER, rawY AS INTEGER)
     clickOnGUI% = FALSE
     IF LAYER_PANEL.visible% AND LAYER_PANEL_in_bounds%(rawX%, rawY%) THEN clickOnGUI% = TRUE
     IF SCRN.showToolbar% AND TOOLBAR_is_over_area%(rawX%, rawY%) THEN clickOnGUI% = TRUE
+    IF SCRN.showToolbar% AND ORGANIZER_is_over_area%(rawX%, rawY%) THEN clickOnGUI% = TRUE
     IF SCRN.showStatus% AND rawY% >= (SCRN.h& - 10) THEN clickOnGUI% = TRUE
     IF SCRN.showStatus% AND PALETTE_STRIP_in_bounds%(rawX%, rawY%) THEN clickOnGUI% = TRUE
     IF SCRN.showMenubar% AND MENU_BAR.visible% AND MENUBAR_in_bounds%(rawX%, rawY%) THEN clickOnGUI% = TRUE
@@ -636,6 +637,12 @@ SUB MOUSE_handle_toolbar_status_palette (rawX AS INTEGER, rawY AS INTEGER)
                 MOUSE.TOOLBAR_CLICKED% = TRUE  ' Flag to prevent canvas action
             END IF
         END IF
+        ' Check if clicking on organizer area (beneath toolbar)
+        IF SCRN.showToolbar% AND ORGANIZER_is_over_area%(rawX%, rawY%) THEN
+            IF ORGANIZER_handle_click%(rawX%, rawY%) THEN
+                MOUSE.TOOLBAR_CLICKED% = TRUE  ' Flag to prevent canvas action
+            END IF
+        END IF
         ' Check if clicking on status bar area (bottom of screen)
         IF SCRN.showStatus% AND rawY% >= (SCRN.h& - 10) THEN
             STATUS_handle_click rawX%, rawY%
@@ -660,6 +667,12 @@ SUB MOUSE_handle_toolbar_status_palette (rawX AS INTEGER, rawY AS INTEGER)
     IF NOT SCRN.panning% AND MOUSE.B2% AND NOT MOUSE.OLD_B2% THEN
         IF SCRN.showToolbar% AND TOOLBAR_is_over_area%(rawX%, rawY%) THEN
             TOOLBAR_handle_right_click rawX%, rawY%
+        END IF
+        ' Check for right-click on organizer
+        IF SCRN.showToolbar% AND ORGANIZER_is_over_area%(rawX%, rawY%) THEN
+            IF ORGANIZER_handle_right_click%(rawX%, rawY%) THEN
+                MOUSE.TOOLBAR_CLICKED% = TRUE
+            END IF
         END IF
     END IF
 
@@ -707,8 +720,8 @@ SUB MOUSE_handle_ui_autohide_restore (rawX AS INTEGER, rawY AS INTEGER)
     activelyDrawing% = ((MOUSE.B1% AND MOUSE.OLD_B1%) OR (MOUSE.B2% AND MOUSE.OLD_B2%)) OR shapeToolDrawing%
 
     IF CURRENT_TOOL% <> TOOL_NULL AND activelyDrawing% AND NOT SCRN.panning% AND NOT MOUSE.TOOLBAR_CLICKED% THEN
-        ' Check if mouse is over an actual toolbar button (not empty toolbar area)
-        IF SCRN.showToolbar% AND TOOLBAR_is_over_button%(rawX%, rawY%) THEN
+        ' Check if mouse is over an actual toolbar button or organizer (not empty toolbar area)
+        IF SCRN.showToolbar% AND (TOOLBAR_is_over_button%(rawX%, rawY%) OR ORGANIZER_is_over_area%(rawX%, rawY%)) THEN
             SCRN.showToolbar% = FALSE
             SCRN.toolbarManuallyHidden% = FALSE ' This is auto-hide, not manual
             GUI_NEEDS_REDRAW% = TRUE
@@ -1078,6 +1091,9 @@ SUB MOUSE_tool_poly ()
             IF CUSTOM_BRUSH_is_active% THEN
                 ' Use custom brush stamps along polygon edges
                 CUSTOM_BRUSH_stamp_line POLY_LINE.LAST_X, POLY_LINE.LAST_Y, poly_x%, poly_y%
+            ELSEIF BRUSH_SIZE_pixels% > 1 THEN
+                ' Thick brush line - stamp brush shapes along the path
+                LINE_draw_brushed POLY_LINE.LAST_X, POLY_LINE.LAST_Y, poly_x%, poly_y%, PAINT_COLOR~&
             ELSEIF SELECTION_has_active% OR LAYERS(CURRENT_LAYER%).opacityLock% THEN
                 ' Use clipped line drawing when selection is active or opacity lock is on
                 LINE_draw_clipped POLY_LINE.LAST_X, POLY_LINE.LAST_Y, poly_x%, poly_y%, PAINT_COLOR~&
@@ -1417,6 +1433,10 @@ SUB MOUSE_release_line ()
             ' Use custom brush stamps along the line
             CUSTOM_BRUSH_stamp_line LINE_TOOL.START_X, LINE_TOOL.START_Y, LINE_TOOL.END_X, LINE_TOOL.END_Y
             ' TODO: Add symmetry support for custom brush lines
+        ELSEIF BRUSH_SIZE_pixels% > 1 THEN
+            ' Thick brush line - stamp brush shapes along the path
+            ' Symmetry handled internally by PAINT_stamp_brush
+            LINE_draw_brushed LINE_TOOL.START_X, LINE_TOOL.START_Y, LINE_TOOL.END_X, LINE_TOOL.END_Y, DRAW_COLOR~&
         ELSEIF SELECTION_has_active% OR LAYERS(CURRENT_LAYER%).opacityLock% THEN
             ' Use clipped line drawing when selection is active or opacity lock is on
             LINE_draw_clipped LINE_TOOL.START_X, LINE_TOOL.START_Y, LINE_TOOL.END_X, LINE_TOOL.END_Y, DRAW_COLOR~&
@@ -1486,6 +1506,13 @@ SUB MOUSE_release_rect ()
             CUSTOM_BRUSH_stamp_line RECT_TOOL.END_X, RECT_TOOL.END_Y, RECT_TOOL.START_X, RECT_TOOL.END_Y     ' Bottom
             CUSTOM_BRUSH_stamp_line RECT_TOOL.START_X, RECT_TOOL.END_Y, RECT_TOOL.START_X, RECT_TOOL.START_Y ' Left
             ' TODO: Add symmetry support for custom brush rectangles
+        ELSEIF NOT RECT_TOOL.FILLED AND BRUSH_SIZE_pixels% > 1 THEN
+            ' Thick brush rect outline - draw 4 thick brush lines for edges
+            ' Symmetry handled internally by PAINT_stamp_brush
+            LINE_draw_brushed RECT_TOOL.START_X, RECT_TOOL.START_Y, RECT_TOOL.END_X, RECT_TOOL.START_Y, DRAW_COLOR~& ' Top
+            LINE_draw_brushed RECT_TOOL.END_X, RECT_TOOL.START_Y, RECT_TOOL.END_X, RECT_TOOL.END_Y, DRAW_COLOR~&     ' Right
+            LINE_draw_brushed RECT_TOOL.END_X, RECT_TOOL.END_Y, RECT_TOOL.START_X, RECT_TOOL.END_Y, DRAW_COLOR~&     ' Bottom
+            LINE_draw_brushed RECT_TOOL.START_X, RECT_TOOL.END_Y, RECT_TOOL.START_X, RECT_TOOL.START_Y, DRAW_COLOR~& ' Left
         ELSE
             ' Normal rectangle drawing
             IF RECT_TOOL.FILLED THEN
@@ -1590,6 +1617,10 @@ SUB MOUSE_release_ellip ()
                 ' Use custom brush stamps for outline only
                 CUSTOM_BRUSH_stamp_ellipse ecx%, ecy%, erx!, ery!
                 ' TODO: Add symmetry support for custom brush ellipses
+            ELSEIF NOT ELLIPSE_TOOL.FILLED AND BRUSH_SIZE_pixels% > 1 THEN
+                ' Thick brush ellipse outline - stamp brush shapes along path
+                ' Symmetry handled internally by PAINT_stamp_brush
+                ELLIPSE_draw_brushed ecx%, ecy%, erx!, ery!, DRAW_COLOR~&
             ELSE
                 ' Normal ellipse drawing
                 IF ELLIPSE_TOOL.FILLED THEN
@@ -1838,6 +1869,9 @@ SUB MOUSE_handle_right_click ()
             IF CUSTOM_BRUSH_is_active% THEN
                 ' Use custom brush stamps for closing line
                 CUSTOM_BRUSH_stamp_line POLY_LINE.LAST_X, POLY_LINE.LAST_Y, POLY_LINE.FIRST_X, POLY_LINE.FIRST_Y
+            ELSEIF BRUSH_SIZE_pixels% > 1 THEN
+                ' Thick brush line for closing line
+                LINE_draw_brushed POLY_LINE.LAST_X, POLY_LINE.LAST_Y, POLY_LINE.FIRST_X, POLY_LINE.FIRST_Y, PAINT_COLOR~&
             ELSEIF SELECTION_has_active% OR LAYERS(CURRENT_LAYER%).opacityLock% THEN
                 ' Use clipped line drawing for closing line when selection is active or opacity lock is on
                 LINE_draw_clipped POLY_LINE.LAST_X, POLY_LINE.LAST_Y, POLY_LINE.FIRST_X, POLY_LINE.FIRST_Y, PAINT_COLOR~&
