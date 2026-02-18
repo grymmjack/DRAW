@@ -10,9 +10,7 @@ $INCLUDEONCE
 
 CONST SCROLLBAR_THICKNESS = 8     ' Width (V) / Height (H) of scrollbar in pixels
 CONST SCROLLBAR_MIN_THUMB = 16    ' Minimum thumb size in pixels
-CONST SCROLLBAR_TRACK_ALPHA = 80  ' Track background alpha (0-255)
-CONST SCROLLBAR_THUMB_ALPHA = 180 ' Thumb alpha (0-255)
-CONST SCROLLBAR_MARGIN = 2        ' Margin from edge of viewport
+CONST SCROLLBAR_GAP = 2           ' Gap between scrollbar and adjacent GUI element
 
 TYPE SCROLLBAR_OBJ
     ' Horizontal scrollbar state

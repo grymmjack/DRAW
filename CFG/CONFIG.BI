@@ -64,6 +64,10 @@ TYPE DRAW_CONFIG
     TRANSPARENCY_CHECK_COLOR2      AS _UNSIGNED LONG  ' Dark checkerboard color
     TRANSPARENCY_CHECK_SIZE_X      AS INTEGER  ' Checkerboard square width (0=use theme)
     TRANSPARENCY_CHECK_SIZE_Y      AS INTEGER  ' Checkerboard square height (0=use theme)
+    ' Scrollbar settings
+    SCROLLBAR_BG                   AS _UNSIGNED LONG  ' Scrollbar track background color (hex RGB, 0=default)
+    SCROLLBAR_HANDLE_FG            AS _UNSIGNED LONG  ' Scrollbar thumb/handle color (hex RGB, 0=default)
+    SCROLLBAR_OPACITY              AS INTEGER  ' Scrollbar overall opacity 0-255 (0=use default 180)
     ' Workspace undo settings
     WORKSPACE_UNDO_MAX_STATES      AS INTEGER  ' Max workspace undo states (5-50, default 20)
     ' Default startup settings

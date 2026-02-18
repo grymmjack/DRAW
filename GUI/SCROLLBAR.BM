@@ -10,6 +10,9 @@ $INCLUDEONCE
 
 ''
 ' Update scrollbar visibility, track and thumb geometry.
+' Positions scrollbars OUTSIDE the GUI panels:
+'   H scrollbar: above palette strip, between layer panel and toolbar
+'   V scrollbar: left of toolbar, between menubar and palette strip
 ' Call once per frame before rendering.
 '
 SUB SCROLLBAR_update ()
@@ -37,18 +40,60 @@ SUB SCROLLBAR_update ()
         EXIT SUB
     END IF
 
-    ' Compute H scrollbar geometry
+    ' === Compute GUI edge boundaries ===
+    ' Left edge: layer panel right edge (if visible)
+    DIM leftEdge AS INTEGER
+    IF LAYER_PANEL.visible% THEN
+        leftEdge% = CFG.LAYER_PANEL_WIDTH%
+    ELSE
+        leftEdge% = 0
+    END IF
+
+    ' Right edge: toolbar left edge (if visible)
+    DIM rightEdge AS INTEGER
+    DIM tbScale AS INTEGER, tbScaledW AS INTEGER, tbScaledPad AS INTEGER
+    tbScale% = CFG.TOOLBAR_SCALE%
+    IF tbScale% < 1 THEN tbScale% = 1
+    tbScaledW% = TB_BTN_W * tbScale%
+    tbScaledPad% = TB_BTN_PADDING * tbScale%
+    IF SCRN.showToolbar% THEN
+        ' Toolbar leftmost column X = SCRN.w& - 3*scaledW - 2*scaledPad - 2
+        rightEdge% = SCRN.w& - (3 * tbScaledW%) - (2 * tbScaledPad%) - 2
+    ELSE
+        rightEdge% = SCRN.w&
+    END IF
+
+    ' Top edge: below menubar (if visible)
+    DIM topEdge AS INTEGER
+    IF NOT SCRN.menubarManuallyHidden% THEN
+        topEdge% = MENU_BAR_HEIGHT
+    ELSE
+        topEdge% = 0
+    END IF
+
+    ' Bottom edge: above palette strip + status bar
+    DIM bottomEdge AS INTEGER
+    DIM palStripH AS INTEGER
+    palStripH% = PALETTE_STRIP_get_height%
+    IF SCRN.showStatus% THEN
+        bottomEdge% = viewH& - THEME.STATUS_height% - palStripH%
+    ELSE
+        bottomEdge% = viewH& - palStripH%
+    END IF
+
+    ' Compute H scrollbar geometry (horizontal bar above palette strip)
     IF SCROLLBAR.hVisible% THEN
         SCROLLBAR.hTrackH% = SCROLLBAR_THICKNESS
-        SCROLLBAR.hTrackY% = viewH& - SCROLLBAR_THICKNESS - SCROLLBAR_MARGIN
+        SCROLLBAR.hTrackY% = bottomEdge% - SCROLLBAR_THICKNESS - SCROLLBAR_GAP
 
-        ' Track width: full viewport width minus V scrollbar if visible
+        ' Track spans from layer panel edge to toolbar/V-scrollbar edge
         IF SCROLLBAR.vVisible% THEN
-            SCROLLBAR.hTrackW% = viewW& - SCROLLBAR_THICKNESS - SCROLLBAR_MARGIN * 2
+            SCROLLBAR.hTrackW% = rightEdge% - leftEdge% - SCROLLBAR_THICKNESS - SCROLLBAR_GAP * 2
         ELSE
-            SCROLLBAR.hTrackW% = viewW& - SCROLLBAR_MARGIN * 2
+            SCROLLBAR.hTrackW% = rightEdge% - leftEdge% - SCROLLBAR_GAP * 2
         END IF
-        SCROLLBAR.hTrackX% = SCROLLBAR_MARGIN
+        IF SCROLLBAR.hTrackW% < SCROLLBAR_MIN_THUMB + 4 THEN SCROLLBAR.hTrackW% = SCROLLBAR_MIN_THUMB + 4
+        SCROLLBAR.hTrackX% = leftEdge% + SCROLLBAR_GAP
 
         ' Visible fraction of canvas
         visibleFractionH! = viewW& / zw&
@@ -64,14 +109,8 @@ SUB SCROLLBAR_update ()
         END IF
 
         ' Scroll position: offset maps to thumb position
-        ' The centered offset is: centerOff = (viewW& - zw&) / 2
-        ' At center (offsetX=0), canvas is centered; scrollbar should be in middle
-        ' Max scroll range: when canvas overflows, offset ranges from
-        '   -(zw& - viewW&)/2  (scrolled fully right)  to  +(zw& - viewW&)/2 (scrolled fully left)
         scrollRangeX& = zw& - viewW&
         IF scrollRangeX& > 0 THEN
-            ' Normalize: offset 0 = centered, negative = scrolled right, positive = scrolled left
-            ' scrollPosH: 0.0 = left edge, 1.0 = right edge
             scrollPosH! = 0.5 - (SCRN.offsetX% / scrollRangeX&)
             IF scrollPosH! < 0 THEN scrollPosH! = 0
             IF scrollPosH! > 1.0 THEN scrollPosH! = 1.0
@@ -84,18 +123,19 @@ SUB SCROLLBAR_update ()
         SCROLLBAR.hThumbX% = SCROLLBAR.hTrackX% + INT(hThumbRange% * scrollPosH!)
     END IF
 
-    ' Compute V scrollbar geometry
+    ' Compute V scrollbar geometry (vertical bar left of toolbar)
     IF SCROLLBAR.vVisible% THEN
         SCROLLBAR.vTrackW% = SCROLLBAR_THICKNESS
-        SCROLLBAR.vTrackX% = viewW& - SCROLLBAR_THICKNESS - SCROLLBAR_MARGIN
+        SCROLLBAR.vTrackX% = rightEdge% - SCROLLBAR_THICKNESS - SCROLLBAR_GAP
 
-        ' Track height: full viewport height minus H scrollbar if visible
+        ' Track spans from menubar to H-scrollbar/palette strip edge
         IF SCROLLBAR.hVisible% THEN
-            SCROLLBAR.vTrackH% = viewH& - SCROLLBAR_THICKNESS - SCROLLBAR_MARGIN * 2
+            SCROLLBAR.vTrackH% = bottomEdge% - topEdge% - SCROLLBAR_THICKNESS - SCROLLBAR_GAP * 2
         ELSE
-            SCROLLBAR.vTrackH% = viewH& - SCROLLBAR_MARGIN * 2
+            SCROLLBAR.vTrackH% = bottomEdge% - topEdge% - SCROLLBAR_GAP * 2
         END IF
-        SCROLLBAR.vTrackY% = SCROLLBAR_MARGIN
+        IF SCROLLBAR.vTrackH% < SCROLLBAR_MIN_THUMB + 4 THEN SCROLLBAR.vTrackH% = SCROLLBAR_MIN_THUMB + 4
+        SCROLLBAR.vTrackY% = topEdge% + SCROLLBAR_GAP
 
         ' Visible fraction of canvas
         visibleFractionV! = viewH& / zh&
@@ -131,6 +171,7 @@ END SUB
 
 ''
 ' Render scrollbars onto the current destination (should be SCRN.CANVAS&).
+' Uses config colors (SCROLLBAR_BG, SCROLLBAR_HANDLE_FG, SCROLLBAR_OPACITY) or defaults.
 '
 SUB SCROLLBAR_render ()
     IF NOT SCROLLBAR.hVisible% AND NOT SCROLLBAR.vVisible% THEN EXIT SUB
@@ -139,12 +180,46 @@ SUB SCROLLBAR_render ()
     oldDest& = _DEST
     _DEST SCRN.CANVAS&
 
+    ' Resolve colors from config or use defaults
+    DIM sbOpacity AS INTEGER
+    IF CFG.SCROLLBAR_OPACITY% > 0 THEN
+        sbOpacity% = CFG.SCROLLBAR_OPACITY%
+    ELSE
+        sbOpacity% = 180  ' default
+    END IF
+
+    DIM trackR AS INTEGER, trackG AS INTEGER, trackB AS INTEGER
+    DIM thumbR AS INTEGER, thumbG AS INTEGER, thumbB AS INTEGER
+    IF CFG.SCROLLBAR_BG~& <> 0 THEN
+        trackR% = _RED32(CFG.SCROLLBAR_BG~&)
+        trackG% = _GREEN32(CFG.SCROLLBAR_BG~&)
+        trackB% = _BLUE32(CFG.SCROLLBAR_BG~&)
+    ELSE
+        trackR% = 0: trackG% = 0: trackB% = 0  ' default: black
+    END IF
+
+    IF CFG.SCROLLBAR_HANDLE_FG~& <> 0 THEN
+        thumbR% = _RED32(CFG.SCROLLBAR_HANDLE_FG~&)
+        thumbG% = _GREEN32(CFG.SCROLLBAR_HANDLE_FG~&)
+        thumbB% = _BLUE32(CFG.SCROLLBAR_HANDLE_FG~&)
+    ELSE
+        thumbR% = 200: thumbG% = 200: thumbB% = 200  ' default: light gray
+    END IF
+
     DIM trackColor AS _UNSIGNED LONG
     DIM thumbColor AS _UNSIGNED LONG
     DIM thumbDragColor AS _UNSIGNED LONG
-    trackColor~& = _RGBA32(0, 0, 0, SCROLLBAR_TRACK_ALPHA)
-    thumbColor~& = _RGBA32(200, 200, 200, SCROLLBAR_THUMB_ALPHA)
-    thumbDragColor~& = _RGBA32(255, 255, 255, 220)
+    DIM trackAlpha AS INTEGER
+    trackAlpha% = sbOpacity% \ 2  ' track is more transparent than thumb
+    IF trackAlpha% < 20 THEN trackAlpha% = 20
+    trackColor~& = _RGBA32(trackR%, trackG%, trackB%, trackAlpha%)
+    thumbColor~& = _RGBA32(thumbR%, thumbG%, thumbB%, sbOpacity%)
+    ' Drag highlight: brighter version
+    DIM dragR AS INTEGER, dragG AS INTEGER, dragB AS INTEGER
+    dragR% = thumbR% + (255 - thumbR%) \ 2
+    dragG% = thumbG% + (255 - thumbG%) \ 2
+    dragB% = thumbB% + (255 - thumbB%) \ 2
+    thumbDragColor~& = _RGBA32(dragR%, dragG%, dragB%, 220)
 
     ' --- Horizontal scrollbar ---
     IF SCROLLBAR.hVisible% THEN
