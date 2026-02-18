@@ -9,8 +9,10 @@
 $INCLUDEONCE
 
 TYPE SCREEN_OBJ
-    w        AS LONG
-    h        AS LONG
+    w        AS LONG          ' Screen buffer / viewport width (GUI resolution)
+    h        AS LONG          ' Screen buffer / viewport height (GUI resolution)
+    canvasW  AS LONG          ' Actual artwork/canvas width (may be smaller than w)
+    canvasH  AS LONG          ' Actual artwork/canvas height (may be smaller than h)
     bpp      AS INTEGER
     CANVAS   AS LONG
     PAINTING AS LONG

@@ -100,9 +100,9 @@ SUB DRW_save_binary (filename AS STRING)
     version% = DRW_VERSION%
     PUT #fh%, , magic$
     PUT #fh%, , version%
-    tmpLong& = SCRN.w&
+    tmpLong& = SCRN.canvasW&
     PUT #fh%, , tmpLong&
-    tmpLong& = SCRN.h&
+    tmpLong& = SCRN.canvasH&
     PUT #fh%, , tmpLong&
 
     ' === PALETTE ===
@@ -148,8 +148,8 @@ SUB DRW_save_binary (filename AS STRING)
             ' Pixel data
             oldSrc& = _SOURCE
             _SOURCE LAYERS(i%).imgHandle&
-            FOR y% = 0 TO SCRN.h& - 1
-                FOR x% = 0 TO SCRN.w& - 1
+            FOR y% = 0 TO SCRN.canvasH& - 1
+                FOR x% = 0 TO SCRN.canvasW& - 1
                     c~& = POINT(x%, y%)
                     PUT #fh%, , c~&
                 NEXT x%
@@ -291,24 +291,43 @@ SUB DRW_load_binary (filename AS STRING)
     GET #fh%, , canvasW&
     GET #fh%, , canvasH&
 
-    ' Resize canvas if file dimensions differ from current
-    IF canvasW& <> SCRN.w& OR canvasH& <> SCRN.h& THEN
-        _LOGINFO "DRW_load_binary: Resizing canvas from" + STR$(SCRN.w&) + "x" + STR$(SCRN.h&) + " to" + STR$(canvasW&) + "x" + STR$(canvasH&)
+    ' Update canvas dimensions (artwork size — may differ from viewport)
+    SCRN.canvasW& = canvasW&
+    SCRN.canvasH& = canvasH&
 
-        ' Update canvas dimensions
-        SCRN.w& = canvasW&
-        SCRN.h& = canvasH&
+    ' Determine viewport size: never shrink below configured screen size
+    ' This ensures the GUI (toolbar, status bar, palette strip) always has room
+    DIM needScreenW AS LONG, needScreenH AS LONG
+    IF CFG.SCREEN_WIDTH% > 0 THEN
+        needScreenW& = CFG.SCREEN_WIDTH%
+    ELSE
+        needScreenW& = 320  ' Absolute minimum
+    END IF
+    IF CFG.SCREEN_HEIGHT% > 0 THEN
+        needScreenH& = CFG.SCREEN_HEIGHT%
+    ELSE
+        needScreenH& = 200  ' Absolute minimum
+    END IF
+    ' If canvas is larger than config, viewport grows to fit
+    IF canvasW& > needScreenW& THEN needScreenW& = canvasW&
+    IF canvasH& > needScreenH& THEN needScreenH& = canvasH&
+
+    ' Resize screen buffers if viewport dimensions changed
+    IF needScreenW& <> SCRN.w& OR needScreenH& <> SCRN.h& THEN
+        _LOGINFO "DRW_load_binary: Viewport from" + STR$(SCRN.w&) + "x" + STR$(SCRN.h&) + " to" + STR$(needScreenW&) + "x" + STR$(needScreenH&) + " (canvas" + STR$(canvasW&) + "x" + STR$(canvasH&) + ")"
+        SCRN.w& = needScreenW&
+        SCRN.h& = needScreenH&
 
         ' Must SCREEN 0 first — can't _FREEIMAGE the active screen (CANVAS)
         SCREEN 0
 
-        ' Free and recreate main screen buffers at new size
+        ' Free and recreate main screen buffers at viewport size
         IF SCRN.CANVAS& < -1 THEN _FREEIMAGE SCRN.CANVAS&
         IF SCRN.PAINTING& < -1 THEN _FREEIMAGE SCRN.PAINTING&
         IF SCRN.GUI& < -1 THEN _FREEIMAGE SCRN.GUI&
 
         SCRN.CANVAS&   = _NEWIMAGE(SCRN.w&, SCRN.h&, 32)
-        SCRN.PAINTING& = _NEWIMAGE(SCRN.w&, SCRN.h&, 32)
+        SCRN.PAINTING& = _NEWIMAGE(SCRN.canvasW&, SCRN.canvasH&, 32)
         SCRN.GUI&      = _NEWIMAGE(SCRN.w&, SCRN.h&, 32)
 
         _DEST SCRN.PAINTING&
@@ -331,6 +350,26 @@ SUB DRW_load_binary (filename AS STRING)
         glutReshapeWindow newWinW&, newWinH&
 
         ' Force full scene redraw
+        SCENE_DIRTY% = TRUE
+        RENDER_ORDER_DIRTY% = TRUE
+        GUI_NEEDS_REDRAW% = TRUE
+    ELSE
+        ' Viewport unchanged but canvas size may have changed — update PAINTING
+        IF SCRN.canvasW& <> canvasW& OR SCRN.canvasH& <> canvasH& THEN
+            IF SCRN.PAINTING& < -1 THEN _FREEIMAGE SCRN.PAINTING&
+            SCRN.PAINTING& = _NEWIMAGE(SCRN.canvasW&, SCRN.canvasH&, 32)
+            DIM tmpOldDest AS LONG
+            tmpOldDest& = _DEST
+            _DEST SCRN.PAINTING&
+            CLS , _RGBA32(0, 0, 0, 0)
+            _DEST tmpOldDest&
+        END IF
+        ' Free cached render buffers (canvas dims changed)
+        IF SCENE_CACHE& < -1 THEN _FREEIMAGE SCENE_CACHE&: SCENE_CACHE& = 0
+        IF PG_CACHE_IMG& < -1 THEN _FREEIMAGE PG_CACHE_IMG&: PG_CACHE_IMG& = 0
+        IF COMPOSITE_BUFFER& < -1 THEN _FREEIMAGE COMPOSITE_BUFFER&: COMPOSITE_BUFFER& = 0
+        IF COMPOSITE_BELOW_CACHE& < -1 THEN _FREEIMAGE COMPOSITE_BELOW_CACHE&: COMPOSITE_BELOW_CACHE& = 0
+        COMPOSITE_BELOW_VALID% = FALSE
         SCENE_DIRTY% = TRUE
         RENDER_ORDER_DIRTY% = TRUE
         GUI_NEEDS_REDRAW% = TRUE
@@ -411,16 +450,16 @@ SUB DRW_load_binary (filename AS STRING)
             LAYERS(layerIdx%).opacityLock% = FALSE
         END IF
 
-        ' Create layer image
-        LAYERS(layerIdx%).imgHandle& = _NEWIMAGE(SCRN.w&, SCRN.h&, 32)
-        LAYERS(layerIdx%).imgWidth% = SCRN.w&
-        LAYERS(layerIdx%).imgHeight% = SCRN.h&
+        ' Create layer image at canvas dimensions (not viewport)
+        LAYERS(layerIdx%).imgHandle& = _NEWIMAGE(SCRN.canvasW&, SCRN.canvasH&, 32)
+        LAYERS(layerIdx%).imgWidth% = SCRN.canvasW&
+        LAYERS(layerIdx%).imgHeight% = SCRN.canvasH&
 
         ' Load pixel data
         oldDest& = _DEST
         _DEST LAYERS(layerIdx%).imgHandle&
-        FOR y% = 0 TO SCRN.h& - 1
-            FOR x% = 0 TO SCRN.w& - 1
+        FOR y% = 0 TO SCRN.canvasH& - 1
+            FOR x% = 0 TO SCRN.canvasW& - 1
                 GET #fh%, , c~&
                 PSET (x%, y%), c~&
             NEXT x%
@@ -599,6 +638,32 @@ SUB DRW_load_binary (filename AS STRING)
 
     ' Mark canvas as clean
     CANVAS_DIRTY% = FALSE
+
+    ' Auto-zoom to fit canvas in viewport when canvas is smaller
+    IF SCRN.canvasW& < SCRN.w& OR SCRN.canvasH& < SCRN.h& THEN
+        ' Calculate best integer zoom to fit canvas within viewport
+        DIM fitZoomW AS SINGLE, fitZoomH AS SINGLE, autoZoom AS SINGLE
+        fitZoomW! = INT(SCRN.w& / SCRN.canvasW&)
+        fitZoomH! = INT(SCRN.h& / SCRN.canvasH&)
+        autoZoom! = fitZoomW!
+        IF fitZoomH! < autoZoom! THEN autoZoom! = fitZoomH!
+        IF autoZoom! < 1.0 THEN autoZoom! = 1.0
+        IF autoZoom! > SCRN.zoomMax! THEN autoZoom! = SCRN.zoomMax!
+        SCRN.zoom! = autoZoom!
+        SCRN.offsetX% = 0
+        SCRN.offsetY% = 0
+        _LOGINFO "DRW_load_binary: Auto-zoom to" + STR$(SCRN.zoom!) + "x for" + STR$(SCRN.canvasW&) + "x" + STR$(SCRN.canvasH&) + " canvas in" + STR$(SCRN.w&) + "x" + STR$(SCRN.h&) + " viewport"
+    ELSE
+        SCRN.zoom! = 1.0
+        SCRN.offsetX% = 0
+        SCRN.offsetY% = 0
+    END IF
+
+    ' Reinitialize grid and symmetry for new canvas dimensions
+    GRID_init
+    GRID_draw
+    PIXEL_GRID_init
+    SYMMETRY_init
 
     ' Force GUI redraw
     BLEND_invalidate_cache
@@ -881,30 +946,47 @@ SUB DRW_load_from_png (filename AS STRING)
             img_w% = _WIDTH(loaded_img&)
             img_h% = _HEIGHT(loaded_img&)
 
-            ' Resize canvas if needed
-            IF img_w% <> SCRN.w& OR img_h% <> SCRN.h& THEN
-                SCRN.w& = img_w%
-                SCRN.h& = img_h%
+            ' Set canvas dimensions from imported image
+            SCRN.canvasW& = img_w%
+            SCRN.canvasH& = img_h%
+
+            ' Viewport must be at least as large as canvas and config minimum
+            DIM pngNeedW AS LONG, pngNeedH AS LONG
+            pngNeedW& = img_w%
+            IF CFG.SCREEN_WIDTH% > pngNeedW& THEN pngNeedW& = CFG.SCREEN_WIDTH%
+            IF pngNeedW& < 320 THEN pngNeedW& = 320
+            pngNeedH& = img_h%
+            IF CFG.SCREEN_HEIGHT% > pngNeedH& THEN pngNeedH& = CFG.SCREEN_HEIGHT%
+            IF pngNeedH& < 200 THEN pngNeedH& = 200
+
+            ' Resize screen buffers if viewport dimensions changed
+            IF pngNeedW& <> SCRN.w& OR pngNeedH& <> SCRN.h& THEN
+                SCRN.w& = pngNeedW&
+                SCRN.h& = pngNeedH&
                 SCREEN 0
                 IF SCRN.CANVAS& < -1 THEN _FREEIMAGE SCRN.CANVAS&
-                IF SCRN.PAINTING& < -1 THEN _FREEIMAGE SCRN.PAINTING&
                 IF SCRN.GUI& < -1 THEN _FREEIMAGE SCRN.GUI&
                 SCRN.CANVAS& = _NEWIMAGE(SCRN.w&, SCRN.h&, 32)
-                SCRN.PAINTING& = _NEWIMAGE(SCRN.w&, SCRN.h&, 32)
                 SCRN.GUI& = _NEWIMAGE(SCRN.w&, SCRN.h&, 32)
-                _DEST SCRN.PAINTING&: CLS , _RGBA32(0, 0, 0, 0): _DEST SCRN.CANVAS&
-                IF SCENE_CACHE& < -1 THEN _FREEIMAGE SCENE_CACHE&: SCENE_CACHE& = 0
-                IF PG_CACHE_IMG& < -1 THEN _FREEIMAGE PG_CACHE_IMG&: PG_CACHE_IMG& = 0
-                IF COMPOSITE_BUFFER& < -1 THEN _FREEIMAGE COMPOSITE_BUFFER&: COMPOSITE_BUFFER& = 0
-                IF COMPOSITE_BELOW_CACHE& < -1 THEN _FREEIMAGE COMPOSITE_BELOW_CACHE&: COMPOSITE_BELOW_CACHE& = 0
-                COMPOSITE_BELOW_VALID% = FALSE
                 SCREEN SCRN.CANVAS&: _DEST SCRN.CANVAS&
                 DIM newWW AS LONG, newWH AS LONG
                 newWW& = SCRN.w& * SCRN.displayScale%
                 newWH& = SCRN.h& * SCRN.displayScale%
                 glutReshapeWindow newWW&, newWH&
-                RENDER_ORDER_DIRTY% = TRUE
             END IF
+
+            ' Always recreate PAINTING at canvas dimensions
+            IF SCRN.PAINTING& < -1 THEN _FREEIMAGE SCRN.PAINTING&
+            SCRN.PAINTING& = _NEWIMAGE(SCRN.canvasW&, SCRN.canvasH&, 32)
+            _DEST SCRN.PAINTING&: CLS , _RGBA32(0, 0, 0, 0): _DEST SCRN.CANVAS&
+
+            ' Invalidate all caches
+            IF SCENE_CACHE& < -1 THEN _FREEIMAGE SCENE_CACHE&: SCENE_CACHE& = 0
+            IF PG_CACHE_IMG& < -1 THEN _FREEIMAGE PG_CACHE_IMG&: PG_CACHE_IMG& = 0
+            IF COMPOSITE_BUFFER& < -1 THEN _FREEIMAGE COMPOSITE_BUFFER&: COMPOSITE_BUFFER& = 0
+            IF COMPOSITE_BELOW_CACHE& < -1 THEN _FREEIMAGE COMPOSITE_BELOW_CACHE&: COMPOSITE_BELOW_CACHE& = 0
+            COMPOSITE_BELOW_VALID% = FALSE
+            RENDER_ORDER_DIRTY% = TRUE
 
             ' Clear all layers
             DIM li AS INTEGER
@@ -930,9 +1012,9 @@ SUB DRW_load_from_png (filename AS STRING)
             LAYER_COUNT% = 0
 
             ' Create single layer with the imported image
-            LAYERS(1).imgHandle& = _NEWIMAGE(SCRN.w&, SCRN.h&, 32)
-            LAYERS(1).imgWidth% = SCRN.w&
-            LAYERS(1).imgHeight% = SCRN.h&
+            LAYERS(1).imgHandle& = _NEWIMAGE(SCRN.canvasW&, SCRN.canvasH&, 32)
+            LAYERS(1).imgWidth% = SCRN.canvasW&
+            LAYERS(1).imgHeight% = SCRN.canvasH&
             LAYERS(1).name = "Layer 1"
             LAYERS(1).visible% = TRUE
             LAYERS(1).opacity% = 255
@@ -968,6 +1050,29 @@ SUB DRW_load_from_png (filename AS STRING)
             LAYER_PANEL.opacityDrag% = FALSE
             PALETTE_STRIP_SCROLL_OFFSET% = 0
             CANVAS_DIRTY% = FALSE
+
+            ' Auto-zoom to fit canvas in viewport when canvas is smaller
+            IF SCRN.canvasW& < SCRN.w& OR SCRN.canvasH& < SCRN.h& THEN
+                DIM pngFitZoomW AS SINGLE, pngFitZoomH AS SINGLE, pngAutoZoom AS SINGLE
+                pngFitZoomW! = INT(SCRN.w& / SCRN.canvasW&)
+                pngFitZoomH! = INT(SCRN.h& / SCRN.canvasH&)
+                pngAutoZoom! = pngFitZoomW!
+                IF pngFitZoomH! < pngAutoZoom! THEN pngAutoZoom! = pngFitZoomH!
+                IF pngAutoZoom! < 1.0 THEN pngAutoZoom! = 1.0
+                IF pngAutoZoom! > SCRN.zoomMax! THEN pngAutoZoom! = SCRN.zoomMax!
+                SCRN.zoom! = pngAutoZoom!
+            ELSE
+                SCRN.zoom! = 1.0
+            END IF
+            SCRN.offsetX% = 0
+            SCRN.offsetY% = 0
+
+            ' Reinitialize grid and symmetry for new canvas dimensions
+            GRID_init
+            GRID_draw
+            PIXEL_GRID_init
+            SYMMETRY_init
+
             BLEND_invalidate_cache
             SCENE_DIRTY% = TRUE
             GUI_NEEDS_REDRAW% = TRUE
@@ -1155,6 +1260,14 @@ SUB DRW_new_canvas ()
         LAYERS(i%).contentDirty% = TRUE
     NEXT i%
     LAYER_COUNT% = 0
+
+    ' === RESET CANVAS DIMENSIONS TO VIEWPORT SIZE ===
+    SCRN.canvasW& = SCRN.w&
+    SCRN.canvasH& = SCRN.h&
+
+    ' === RECREATE PAINTING BUFFER AT CANVAS SIZE ===
+    IF SCRN.PAINTING& < -1 THEN _FREEIMAGE SCRN.PAINTING&
+    SCRN.PAINTING& = _NEWIMAGE(SCRN.canvasW&, SCRN.canvasH&, 32)
 
     ' === CLEAR PAINTING BUFFER ===
     DIM oldDest AS LONG

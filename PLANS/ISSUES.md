@@ -179,7 +179,9 @@
     - This should not create an UNDO step - since nothing "happened"
       - Even though the CTRL-Z is the undo keyboard shortcut
 
-[ ] (CHANGE) When creating Cloned copied stamps do not outline them with marching ants
+[ ] (CHANGE) When creating Cloned copied stamps do not outline the stamped clones with marching ants 
+  - If I MOVE the selected stuff, then stamp, there are no outlines.
+  - If I don't move the selected stuff first, and create stamps, there are marching ant outlines
 
 [ ] (CHANGE) When dragging to move with no selection on a layer, stop drawing boundaries of layers border
 
@@ -211,8 +213,27 @@
 ## SYMMETRY
 [x] (BUG) Grid Fill Mode does not honor symmetry, it should.
 
+[ ] (BUG) When cycling through the symmetry modes, and getting to the end to turn off symmetry
+  - The symmetry center point is lost if it was previously set
+  - It should keep the existing center point for symmetry if it was previously set even when turning off
 
 ## ORGANIZER
+[ ] (NEW FEATURE) CANVAS OPS
+  - Left click - Toggle Spare Page 
+    - a separate blank file, that has no layer support, used just for manipulating/scratchboard.
+  - Right click - Resize canvas 
+    - Create dialog, centered, 
+      - Title; Resize Canvas 
+      - Current Width/Height, Values box for New Width New Height, a LOCK to make them stay correct aspect ratio 
+      - Buttons at the bottom for cancel, and OK
+  - Middle click - Crop canvas 
+    - When clicked show status: "Drag to crop" 
+    - and use the similar controls as Image Import
+      - where the background is darkened while we crop
+      -  and the user can resize using edges and corners. 
+      - When hitting ENTER, canvas is resized accordingly. 
+    - CROP assumes cutting away, CROP should not allow to make image bigger, only smaller.
+
 [x] (BUG) When using mousewheel over organizer it should not zoom the canvas
   - Treat it like it's over the toolbox, that's already working that way.
 
@@ -251,10 +272,5 @@
 [x] (CHANGE) Fill button image name: `fill.png` (was `paint.png`)
 
 [x] (CHANGE) Dot button image name: `dot.png` (was `pset.png`)
-
-
-
-
-
 
 
