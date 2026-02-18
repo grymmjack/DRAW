@@ -291,26 +291,44 @@ SUB DRW_load_binary (filename AS STRING)
     GET #fh%, , canvasW&
     GET #fh%, , canvasH&
 
-    ' Update canvas dimensions (artwork size — may differ from viewport)
+    ' Save old canvas dimensions for comparison (before updating)
+    DIM oldCanvasW AS LONG, oldCanvasH AS LONG
+    oldCanvasW& = SCRN.canvasW&
+    oldCanvasH& = SCRN.canvasH&
+
+    ' Update canvas dimensions (artwork size — independent of viewport)
     SCRN.canvasW& = canvasW&
     SCRN.canvasH& = canvasH&
 
-    ' Determine viewport size: never shrink below configured screen size
-    ' This ensures the GUI (toolbar, status bar, palette strip) always has room
+    ' Determine viewport size from config — NEVER grow to match canvas.
+    ' Large canvases are handled by auto-zoom + scrollbars, not by enlarging the viewport.
+    ' Enlarging the viewport forces displayScale down, shrinking all GUI elements.
     DIM needScreenW AS LONG, needScreenH AS LONG
     IF CFG.SCREEN_WIDTH% > 0 THEN
         needScreenW& = CFG.SCREEN_WIDTH%
     ELSE
-        needScreenW& = 320  ' Absolute minimum
+        needScreenW& = SCRN.w&  ' Keep current viewport
     END IF
     IF CFG.SCREEN_HEIGHT% > 0 THEN
         needScreenH& = CFG.SCREEN_HEIGHT%
     ELSE
-        needScreenH& = 200  ' Absolute minimum
+        needScreenH& = SCRN.h&  ' Keep current viewport
     END IF
-    ' If canvas is larger than config, viewport grows to fit
-    IF canvasW& > needScreenW& THEN needScreenW& = canvasW&
-    IF canvasH& > needScreenH& THEN needScreenH& = canvasH&
+
+    ' Enforce WIN_MIN (overrides the absolute minimums above)
+    IF CFG.WIN_MIN_WIDTH% > 0 AND needScreenW& < CFG.WIN_MIN_WIDTH% THEN
+        needScreenW& = CFG.WIN_MIN_WIDTH%
+    END IF
+    IF CFG.WIN_MIN_HEIGHT% > 0 AND needScreenH& < CFG.WIN_MIN_HEIGHT% THEN
+        needScreenH& = CFG.WIN_MIN_HEIGHT%
+    END IF
+
+    ' Enforce effective WIN_MAX — cap viewport (not canvas)
+    DIM effMaxW AS LONG, effMaxH AS LONG
+    effMaxW& = SCREEN_effective_max_w&
+    effMaxH& = SCREEN_effective_max_h&
+    IF needScreenW& > effMaxW& THEN needScreenW& = effMaxW&
+    IF needScreenH& > effMaxH& THEN needScreenH& = effMaxH&
 
     ' Resize screen buffers if viewport dimensions changed
     IF needScreenW& <> SCRN.w& OR needScreenH& <> SCRN.h& THEN
@@ -344,6 +362,18 @@ SUB DRW_load_binary (filename AS STRING)
         ' Set CANVAS as SCREEN and resize window (GPU scaling via $RESIZE:STRETCH)
         SCREEN SCRN.CANVAS&
         _DEST SCRN.CANVAS&
+
+        ' Recalculate display scale to ensure window fits on desktop
+        DIM dsMaxFitW AS INTEGER, dsMaxFitH AS INTEGER
+        DIM dsClampedScale AS INTEGER
+        dsClampedScale% = SCRN.displayScale%
+        dsMaxFitW% = (_DESKTOPWIDTH - 100) \ SCRN.w&
+        dsMaxFitH% = (_DESKTOPHEIGHT - 100) \ SCRN.h&
+        IF dsClampedScale% > dsMaxFitW% THEN dsClampedScale% = dsMaxFitW%
+        IF dsClampedScale% > dsMaxFitH% THEN dsClampedScale% = dsMaxFitH%
+        IF dsClampedScale% < 1 THEN dsClampedScale% = 1
+        SCRN.displayScale% = dsClampedScale%
+
         DIM newWinW AS LONG, newWinH AS LONG
         newWinW& = SCRN.w& * SCRN.displayScale%
         newWinH& = SCRN.h& * SCRN.displayScale%
@@ -354,8 +384,9 @@ SUB DRW_load_binary (filename AS STRING)
         RENDER_ORDER_DIRTY% = TRUE
         GUI_NEEDS_REDRAW% = TRUE
     ELSE
-        ' Viewport unchanged but canvas size may have changed — update PAINTING
-        IF SCRN.canvasW& <> canvasW& OR SCRN.canvasH& <> canvasH& THEN
+        ' Viewport unchanged — recreate PAINTING at new canvas dimensions
+        ' (Compare against saved old dims since SCRN.canvasW/H already updated above)
+        IF SCRN.canvasW& <> oldCanvasW& OR SCRN.canvasH& <> oldCanvasH& THEN
             IF SCRN.PAINTING& < -1 THEN _FREEIMAGE SCRN.PAINTING&
             SCRN.PAINTING& = _NEWIMAGE(SCRN.canvasW&, SCRN.canvasH&, 32)
             DIM tmpOldDest AS LONG
@@ -639,20 +670,32 @@ SUB DRW_load_binary (filename AS STRING)
     ' Mark canvas as clean
     CANVAS_DIRTY% = FALSE
 
-    ' Auto-zoom to fit canvas in viewport when canvas is smaller
-    IF SCRN.canvasW& < SCRN.w& OR SCRN.canvasH& < SCRN.h& THEN
-        ' Calculate best integer zoom to fit canvas within viewport
+    ' Auto-zoom to fit canvas in viewport
+    IF SCRN.canvasW& > SCRN.w& OR SCRN.canvasH& > SCRN.h& THEN
+        ' Canvas exceeds viewport — zoom out (fractional) to fit
         DIM fitZoomW AS SINGLE, fitZoomH AS SINGLE, autoZoom AS SINGLE
-        fitZoomW! = INT(SCRN.w& / SCRN.canvasW&)
-        fitZoomH! = INT(SCRN.h& / SCRN.canvasH&)
+        fitZoomW! = SCRN.w& / SCRN.canvasW&
+        fitZoomH! = SCRN.h& / SCRN.canvasH&
         autoZoom! = fitZoomW!
         IF fitZoomH! < autoZoom! THEN autoZoom! = fitZoomH!
-        IF autoZoom! < 1.0 THEN autoZoom! = 1.0
-        IF autoZoom! > SCRN.zoomMax! THEN autoZoom! = SCRN.zoomMax!
+        IF autoZoom! < SCRN.zoomMin! THEN autoZoom! = SCRN.zoomMin!
         SCRN.zoom! = autoZoom!
         SCRN.offsetX% = 0
         SCRN.offsetY% = 0
-        _LOGINFO "DRW_load_binary: Auto-zoom to" + STR$(SCRN.zoom!) + "x for" + STR$(SCRN.canvasW&) + "x" + STR$(SCRN.canvasH&) + " canvas in" + STR$(SCRN.w&) + "x" + STR$(SCRN.h&) + " viewport"
+        _LOGINFO "DRW_load_binary: Auto-zoom OUT to" + STR$(SCRN.zoom!) + "x for" + STR$(SCRN.canvasW&) + "x" + STR$(SCRN.canvasH&) + " canvas in" + STR$(SCRN.w&) + "x" + STR$(SCRN.h&) + " viewport"
+    ELSEIF SCRN.canvasW& < SCRN.w& OR SCRN.canvasH& < SCRN.h& THEN
+        ' Canvas smaller than viewport — zoom in (integer for pixel-perfect)
+        DIM fitZoomW2 AS SINGLE, fitZoomH2 AS SINGLE, autoZoom2 AS SINGLE
+        fitZoomW2! = INT(SCRN.w& / SCRN.canvasW&)
+        fitZoomH2! = INT(SCRN.h& / SCRN.canvasH&)
+        autoZoom2! = fitZoomW2!
+        IF fitZoomH2! < autoZoom2! THEN autoZoom2! = fitZoomH2!
+        IF autoZoom2! < 1.0 THEN autoZoom2! = 1.0
+        IF autoZoom2! > SCRN.zoomMax! THEN autoZoom2! = SCRN.zoomMax!
+        SCRN.zoom! = autoZoom2!
+        SCRN.offsetX% = 0
+        SCRN.offsetY% = 0
+        _LOGINFO "DRW_load_binary: Auto-zoom IN to" + STR$(SCRN.zoom!) + "x for" + STR$(SCRN.canvasW&) + "x" + STR$(SCRN.canvasH&) + " canvas in" + STR$(SCRN.w&) + "x" + STR$(SCRN.h&) + " viewport"
     ELSE
         SCRN.zoom! = 1.0
         SCRN.offsetX% = 0
@@ -950,14 +993,28 @@ SUB DRW_load_from_png (filename AS STRING)
             SCRN.canvasW& = img_w%
             SCRN.canvasH& = img_h%
 
-            ' Viewport must be at least as large as canvas and config minimum
+            ' Viewport stays at current size — NEVER grow to match canvas.
+            ' Large images are handled by auto-zoom + scrollbars, not viewport enlargement.
             DIM pngNeedW AS LONG, pngNeedH AS LONG
-            pngNeedW& = img_w%
-            IF CFG.SCREEN_WIDTH% > pngNeedW& THEN pngNeedW& = CFG.SCREEN_WIDTH%
+            pngNeedW& = SCRN.w&
             IF pngNeedW& < 320 THEN pngNeedW& = 320
-            pngNeedH& = img_h%
-            IF CFG.SCREEN_HEIGHT% > pngNeedH& THEN pngNeedH& = CFG.SCREEN_HEIGHT%
+            pngNeedH& = SCRN.h&
             IF pngNeedH& < 200 THEN pngNeedH& = 200
+
+            ' Enforce WIN_MIN
+            IF CFG.WIN_MIN_WIDTH% > 0 AND pngNeedW& < CFG.WIN_MIN_WIDTH% THEN
+                pngNeedW& = CFG.WIN_MIN_WIDTH%
+            END IF
+            IF CFG.WIN_MIN_HEIGHT% > 0 AND pngNeedH& < CFG.WIN_MIN_HEIGHT% THEN
+                pngNeedH& = CFG.WIN_MIN_HEIGHT%
+            END IF
+
+            ' Enforce effective WIN_MAX — accounts for desktop size and display scale
+            DIM pngEffMaxW AS LONG, pngEffMaxH AS LONG
+            pngEffMaxW& = SCREEN_effective_max_w&
+            pngEffMaxH& = SCREEN_effective_max_h&
+            IF pngNeedW& > pngEffMaxW& THEN pngNeedW& = pngEffMaxW&
+            IF pngNeedH& > pngEffMaxH& THEN pngNeedH& = pngEffMaxH&
 
             ' Resize screen buffers if viewport dimensions changed
             IF pngNeedW& <> SCRN.w& OR pngNeedH& <> SCRN.h& THEN
@@ -969,6 +1026,18 @@ SUB DRW_load_from_png (filename AS STRING)
                 SCRN.CANVAS& = _NEWIMAGE(SCRN.w&, SCRN.h&, 32)
                 SCRN.GUI& = _NEWIMAGE(SCRN.w&, SCRN.h&, 32)
                 SCREEN SCRN.CANVAS&: _DEST SCRN.CANVAS&
+
+                ' Recalculate display scale to ensure window fits on desktop
+                DIM pngDsMaxW AS INTEGER, pngDsMaxH AS INTEGER
+                DIM pngDsClamped AS INTEGER
+                pngDsClamped% = SCRN.displayScale%
+                pngDsMaxW% = (_DESKTOPWIDTH - 100) \ SCRN.w&
+                pngDsMaxH% = (_DESKTOPHEIGHT - 100) \ SCRN.h&
+                IF pngDsClamped% > pngDsMaxW% THEN pngDsClamped% = pngDsMaxW%
+                IF pngDsClamped% > pngDsMaxH% THEN pngDsClamped% = pngDsMaxH%
+                IF pngDsClamped% < 1 THEN pngDsClamped% = 1
+                SCRN.displayScale% = pngDsClamped%
+
                 DIM newWW AS LONG, newWH AS LONG
                 newWW& = SCRN.w& * SCRN.displayScale%
                 newWH& = SCRN.h& * SCRN.displayScale%
@@ -1051,16 +1120,26 @@ SUB DRW_load_from_png (filename AS STRING)
             PALETTE_STRIP_SCROLL_OFFSET% = 0
             CANVAS_DIRTY% = FALSE
 
-            ' Auto-zoom to fit canvas in viewport when canvas is smaller
-            IF SCRN.canvasW& < SCRN.w& OR SCRN.canvasH& < SCRN.h& THEN
+            ' Auto-zoom to fit canvas in viewport
+            IF SCRN.canvasW& > SCRN.w& OR SCRN.canvasH& > SCRN.h& THEN
+                ' Canvas exceeds viewport — zoom out (fractional) to fit
                 DIM pngFitZoomW AS SINGLE, pngFitZoomH AS SINGLE, pngAutoZoom AS SINGLE
-                pngFitZoomW! = INT(SCRN.w& / SCRN.canvasW&)
-                pngFitZoomH! = INT(SCRN.h& / SCRN.canvasH&)
+                pngFitZoomW! = SCRN.w& / SCRN.canvasW&
+                pngFitZoomH! = SCRN.h& / SCRN.canvasH&
                 pngAutoZoom! = pngFitZoomW!
                 IF pngFitZoomH! < pngAutoZoom! THEN pngAutoZoom! = pngFitZoomH!
-                IF pngAutoZoom! < 1.0 THEN pngAutoZoom! = 1.0
-                IF pngAutoZoom! > SCRN.zoomMax! THEN pngAutoZoom! = SCRN.zoomMax!
+                IF pngAutoZoom! < SCRN.zoomMin! THEN pngAutoZoom! = SCRN.zoomMin!
                 SCRN.zoom! = pngAutoZoom!
+            ELSEIF SCRN.canvasW& < SCRN.w& OR SCRN.canvasH& < SCRN.h& THEN
+                ' Canvas smaller — zoom in (integer for pixel-perfect)
+                DIM pngFitZoomW2 AS SINGLE, pngFitZoomH2 AS SINGLE, pngAutoZoom2 AS SINGLE
+                pngFitZoomW2! = INT(SCRN.w& / SCRN.canvasW&)
+                pngFitZoomH2! = INT(SCRN.h& / SCRN.canvasH&)
+                pngAutoZoom2! = pngFitZoomW2!
+                IF pngFitZoomH2! < pngAutoZoom2! THEN pngAutoZoom2! = pngFitZoomH2!
+                IF pngAutoZoom2! < 1.0 THEN pngAutoZoom2! = 1.0
+                IF pngAutoZoom2! > SCRN.zoomMax! THEN pngAutoZoom2! = SCRN.zoomMax!
+                SCRN.zoom! = pngAutoZoom2!
             ELSE
                 SCRN.zoom! = 1.0
             END IF

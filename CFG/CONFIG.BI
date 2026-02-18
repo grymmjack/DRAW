@@ -22,6 +22,10 @@ TYPE DRAW_CONFIG
     FPS_LIMIT                      AS INTEGER
     SCREEN_WIDTH                   AS INTEGER
     SCREEN_HEIGHT                  AS INTEGER
+    WIN_MIN_WIDTH                  AS INTEGER  ' Minimum viewport width (0=use 320)
+    WIN_MIN_HEIGHT                 AS INTEGER  ' Minimum viewport height (0=use 200)
+    WIN_MAX_WIDTH                  AS INTEGER  ' Maximum viewport width (0=unlimited)
+    WIN_MAX_HEIGHT                 AS INTEGER  ' Maximum viewport height (0=unlimited)
     DEFAULT_PALETTE                AS STRING
     PALETTE_CHIP_WIDTH             AS INTEGER
     PALETTE_CHIP_HEIGHT            AS INTEGER

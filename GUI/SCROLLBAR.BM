@@ -1,0 +1,365 @@
+''
+' DRAW - GUI/SCROLLBAR.BM
+' =============================================================================
+' Overlay scrollbar widgets for navigating canvases larger than the viewport.
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+
+''
+' Update scrollbar visibility, track and thumb geometry.
+' Call once per frame before rendering.
+'
+SUB SCROLLBAR_update ()
+    DIM zw AS LONG, zh AS LONG
+    DIM viewW AS LONG, viewH AS LONG
+    DIM scrollRangeX AS LONG, scrollRangeY AS LONG
+    DIM visibleFractionH AS SINGLE, visibleFractionV AS SINGLE
+    DIM scrollPosH AS SINGLE, scrollPosV AS SINGLE
+
+    ' Zoomed canvas dimensions
+    zw& = SCRN.canvasW& * SCRN.zoom!
+    zh& = SCRN.canvasH& * SCRN.zoom!
+    viewW& = SCRN.w&
+    viewH& = SCRN.h&
+
+    ' --- Horizontal scrollbar ---
+    SCROLLBAR.hVisible% = (zw& > viewW&)
+
+    ' --- Vertical scrollbar ---
+    SCROLLBAR.vVisible% = (zh& > viewH&)
+
+    ' Neither visible — nothing to compute
+    IF NOT SCROLLBAR.hVisible% AND NOT SCROLLBAR.vVisible% THEN
+        SCROLLBAR.active% = SCROLLBAR.hDragging% OR SCROLLBAR.vDragging%
+        EXIT SUB
+    END IF
+
+    ' Compute H scrollbar geometry
+    IF SCROLLBAR.hVisible% THEN
+        SCROLLBAR.hTrackH% = SCROLLBAR_THICKNESS
+        SCROLLBAR.hTrackY% = viewH& - SCROLLBAR_THICKNESS - SCROLLBAR_MARGIN
+
+        ' Track width: full viewport width minus V scrollbar if visible
+        IF SCROLLBAR.vVisible% THEN
+            SCROLLBAR.hTrackW% = viewW& - SCROLLBAR_THICKNESS - SCROLLBAR_MARGIN * 2
+        ELSE
+            SCROLLBAR.hTrackW% = viewW& - SCROLLBAR_MARGIN * 2
+        END IF
+        SCROLLBAR.hTrackX% = SCROLLBAR_MARGIN
+
+        ' Visible fraction of canvas
+        visibleFractionH! = viewW& / zw&
+        IF visibleFractionH! > 1.0 THEN visibleFractionH! = 1.0
+
+        ' Thumb width (proportional to visible fraction, min size enforced)
+        SCROLLBAR.hThumbW% = INT(SCROLLBAR.hTrackW% * visibleFractionH!)
+        IF SCROLLBAR.hThumbW% < SCROLLBAR_MIN_THUMB THEN
+            SCROLLBAR.hThumbW% = SCROLLBAR_MIN_THUMB
+        END IF
+        IF SCROLLBAR.hThumbW% > SCROLLBAR.hTrackW% THEN
+            SCROLLBAR.hThumbW% = SCROLLBAR.hTrackW%
+        END IF
+
+        ' Scroll position: offset maps to thumb position
+        ' The centered offset is: centerOff = (viewW& - zw&) / 2
+        ' At center (offsetX=0), canvas is centered; scrollbar should be in middle
+        ' Max scroll range: when canvas overflows, offset ranges from
+        '   -(zw& - viewW&)/2  (scrolled fully right)  to  +(zw& - viewW&)/2 (scrolled fully left)
+        scrollRangeX& = zw& - viewW&
+        IF scrollRangeX& > 0 THEN
+            ' Normalize: offset 0 = centered, negative = scrolled right, positive = scrolled left
+            ' scrollPosH: 0.0 = left edge, 1.0 = right edge
+            scrollPosH! = 0.5 - (SCRN.offsetX% / scrollRangeX&)
+            IF scrollPosH! < 0 THEN scrollPosH! = 0
+            IF scrollPosH! > 1.0 THEN scrollPosH! = 1.0
+        ELSE
+            scrollPosH! = 0.5
+        END IF
+
+        DIM hThumbRange AS INTEGER
+        hThumbRange% = SCROLLBAR.hTrackW% - SCROLLBAR.hThumbW%
+        SCROLLBAR.hThumbX% = SCROLLBAR.hTrackX% + INT(hThumbRange% * scrollPosH!)
+    END IF
+
+    ' Compute V scrollbar geometry
+    IF SCROLLBAR.vVisible% THEN
+        SCROLLBAR.vTrackW% = SCROLLBAR_THICKNESS
+        SCROLLBAR.vTrackX% = viewW& - SCROLLBAR_THICKNESS - SCROLLBAR_MARGIN
+
+        ' Track height: full viewport height minus H scrollbar if visible
+        IF SCROLLBAR.hVisible% THEN
+            SCROLLBAR.vTrackH% = viewH& - SCROLLBAR_THICKNESS - SCROLLBAR_MARGIN * 2
+        ELSE
+            SCROLLBAR.vTrackH% = viewH& - SCROLLBAR_MARGIN * 2
+        END IF
+        SCROLLBAR.vTrackY% = SCROLLBAR_MARGIN
+
+        ' Visible fraction of canvas
+        visibleFractionV! = viewH& / zh&
+        IF visibleFractionV! > 1.0 THEN visibleFractionV! = 1.0
+
+        ' Thumb height
+        SCROLLBAR.vThumbH% = INT(SCROLLBAR.vTrackH% * visibleFractionV!)
+        IF SCROLLBAR.vThumbH% < SCROLLBAR_MIN_THUMB THEN
+            SCROLLBAR.vThumbH% = SCROLLBAR_MIN_THUMB
+        END IF
+        IF SCROLLBAR.vThumbH% > SCROLLBAR.vTrackH% THEN
+            SCROLLBAR.vThumbH% = SCROLLBAR.vTrackH%
+        END IF
+
+        ' Scroll position for V
+        scrollRangeY& = zh& - viewH&
+        IF scrollRangeY& > 0 THEN
+            scrollPosV! = 0.5 - (SCRN.offsetY% / scrollRangeY&)
+            IF scrollPosV! < 0 THEN scrollPosV! = 0
+            IF scrollPosV! > 1.0 THEN scrollPosV! = 1.0
+        ELSE
+            scrollPosV! = 0.5
+        END IF
+
+        DIM vThumbRange AS INTEGER
+        vThumbRange% = SCROLLBAR.vTrackH% - SCROLLBAR.vThumbH%
+        SCROLLBAR.vThumbY% = SCROLLBAR.vTrackY% + INT(vThumbRange% * scrollPosV!)
+    END IF
+
+    SCROLLBAR.active% = SCROLLBAR.hVisible% OR SCROLLBAR.vVisible% OR SCROLLBAR.hDragging% OR SCROLLBAR.vDragging%
+END SUB
+
+
+''
+' Render scrollbars onto the current destination (should be SCRN.CANVAS&).
+'
+SUB SCROLLBAR_render ()
+    IF NOT SCROLLBAR.hVisible% AND NOT SCROLLBAR.vVisible% THEN EXIT SUB
+
+    DIM oldDest AS LONG
+    oldDest& = _DEST
+    _DEST SCRN.CANVAS&
+
+    DIM trackColor AS _UNSIGNED LONG
+    DIM thumbColor AS _UNSIGNED LONG
+    DIM thumbDragColor AS _UNSIGNED LONG
+    trackColor~& = _RGBA32(0, 0, 0, SCROLLBAR_TRACK_ALPHA)
+    thumbColor~& = _RGBA32(200, 200, 200, SCROLLBAR_THUMB_ALPHA)
+    thumbDragColor~& = _RGBA32(255, 255, 255, 220)
+
+    ' --- Horizontal scrollbar ---
+    IF SCROLLBAR.hVisible% THEN
+        ' Track background
+        LINE (SCROLLBAR.hTrackX%, SCROLLBAR.hTrackY%)-(SCROLLBAR.hTrackX% + SCROLLBAR.hTrackW% - 1, SCROLLBAR.hTrackY% + SCROLLBAR.hTrackH% - 1), trackColor~&, BF
+
+        ' Thumb
+        IF SCROLLBAR.hDragging% THEN
+            LINE (SCROLLBAR.hThumbX%, SCROLLBAR.hTrackY% + 1)-(SCROLLBAR.hThumbX% + SCROLLBAR.hThumbW% - 1, SCROLLBAR.hTrackY% + SCROLLBAR.hTrackH% - 2), thumbDragColor~&, BF
+        ELSE
+            LINE (SCROLLBAR.hThumbX%, SCROLLBAR.hTrackY% + 1)-(SCROLLBAR.hThumbX% + SCROLLBAR.hThumbW% - 1, SCROLLBAR.hTrackY% + SCROLLBAR.hTrackH% - 2), thumbColor~&, BF
+        END IF
+    END IF
+
+    ' --- Vertical scrollbar ---
+    IF SCROLLBAR.vVisible% THEN
+        ' Track background
+        LINE (SCROLLBAR.vTrackX%, SCROLLBAR.vTrackY%)-(SCROLLBAR.vTrackX% + SCROLLBAR.vTrackW% - 1, SCROLLBAR.vTrackY% + SCROLLBAR.vTrackH% - 1), trackColor~&, BF
+
+        ' Thumb
+        IF SCROLLBAR.vDragging% THEN
+            LINE (SCROLLBAR.vTrackX% + 1, SCROLLBAR.vThumbY%)-(SCROLLBAR.vTrackX% + SCROLLBAR.vTrackW% - 2, SCROLLBAR.vThumbY% + SCROLLBAR.vThumbH% - 1), thumbDragColor~&, BF
+        ELSE
+            LINE (SCROLLBAR.vTrackX% + 1, SCROLLBAR.vThumbY%)-(SCROLLBAR.vTrackX% + SCROLLBAR.vTrackW% - 2, SCROLLBAR.vThumbY% + SCROLLBAR.vThumbH% - 1), thumbColor~&, BF
+        END IF
+    END IF
+
+    ' Corner square if both scrollbars are visible
+    IF SCROLLBAR.hVisible% AND SCROLLBAR.vVisible% THEN
+        LINE (SCROLLBAR.vTrackX%, SCROLLBAR.hTrackY%)-(SCROLLBAR.vTrackX% + SCROLLBAR.vTrackW% - 1, SCROLLBAR.hTrackY% + SCROLLBAR.hTrackH% - 1), trackColor~&, BF
+    END IF
+
+    _DEST oldDest&
+END SUB
+
+
+''
+' Handle mouse interaction with scrollbars.
+' Returns TRUE if the mouse event was consumed (click/drag on scrollbar).
+' mx, my: raw screen coordinates. b1: current button state. oldB1: previous frame.
+'
+FUNCTION SCROLLBAR_handle_mouse% (mx AS INTEGER, my AS INTEGER, b1 AS INTEGER, oldB1 AS INTEGER)
+    SCROLLBAR_handle_mouse% = FALSE
+
+    ' Handle ongoing drag even if mouse has moved outside scrollbar bounds
+    IF SCROLLBAR.hDragging% THEN
+        IF b1% THEN
+            ' Dragging H thumb — update offset
+            DIM hNewThumbX AS INTEGER
+            DIM hThumbRange2 AS INTEGER
+            DIM hScrollPos AS SINGLE
+            DIM hScrollRange AS LONG
+
+            hNewThumbX% = mx% - SCROLLBAR.hDragOffset%
+            ' Clamp to track
+            IF hNewThumbX% < SCROLLBAR.hTrackX% THEN hNewThumbX% = SCROLLBAR.hTrackX%
+            hThumbRange2% = SCROLLBAR.hTrackW% - SCROLLBAR.hThumbW%
+            IF hNewThumbX% > SCROLLBAR.hTrackX% + hThumbRange2% THEN
+                hNewThumbX% = SCROLLBAR.hTrackX% + hThumbRange2%
+            END IF
+
+            ' Convert thumb position to scroll offset
+            IF hThumbRange2% > 0 THEN
+                hScrollPos! = (hNewThumbX% - SCROLLBAR.hTrackX%) / hThumbRange2%
+            ELSE
+                hScrollPos! = 0.5
+            END IF
+            hScrollRange& = CLNG(SCRN.canvasW& * SCRN.zoom!) - SCRN.w&
+            SCRN.offsetX% = INT((0.5 - hScrollPos!) * hScrollRange&)
+
+            SCENE_DIRTY% = TRUE
+            FRAME_IDLE% = FALSE
+            SCROLLBAR_handle_mouse% = TRUE
+        ELSE
+            ' Released — stop dragging
+            SCROLLBAR.hDragging% = FALSE
+        END IF
+        SCROLLBAR_handle_mouse% = TRUE
+        EXIT FUNCTION
+    END IF
+
+    IF SCROLLBAR.vDragging% THEN
+        IF b1% THEN
+            ' Dragging V thumb — update offset
+            DIM vNewThumbY AS INTEGER
+            DIM vThumbRange2 AS INTEGER
+            DIM vScrollPos AS SINGLE
+            DIM vScrollRange AS LONG
+
+            vNewThumbY% = my% - SCROLLBAR.vDragOffset%
+            ' Clamp to track
+            IF vNewThumbY% < SCROLLBAR.vTrackY% THEN vNewThumbY% = SCROLLBAR.vTrackY%
+            vThumbRange2% = SCROLLBAR.vTrackH% - SCROLLBAR.vThumbH%
+            IF vNewThumbY% > SCROLLBAR.vTrackY% + vThumbRange2% THEN
+                vNewThumbY% = SCROLLBAR.vTrackY% + vThumbRange2%
+            END IF
+
+            ' Convert thumb position to scroll offset
+            IF vThumbRange2% > 0 THEN
+                vScrollPos! = (vNewThumbY% - SCROLLBAR.vTrackY%) / vThumbRange2%
+            ELSE
+                vScrollPos! = 0.5
+            END IF
+            vScrollRange& = CLNG(SCRN.canvasH& * SCRN.zoom!) - SCRN.h&
+            SCRN.offsetY% = INT((0.5 - vScrollPos!) * vScrollRange&)
+
+            SCENE_DIRTY% = TRUE
+            FRAME_IDLE% = FALSE
+            SCROLLBAR_handle_mouse% = TRUE
+        ELSE
+            ' Released — stop dragging
+            SCROLLBAR.vDragging% = FALSE
+        END IF
+        SCROLLBAR_handle_mouse% = TRUE
+        EXIT FUNCTION
+    END IF
+
+    ' Not currently dragging — check for new clicks on scrollbar
+    IF NOT SCROLLBAR.hVisible% AND NOT SCROLLBAR.vVisible% THEN EXIT FUNCTION
+
+    ' Check if click is on H scrollbar
+    IF SCROLLBAR.hVisible% AND b1% AND NOT oldB1% THEN
+        IF mx% >= SCROLLBAR.hTrackX% AND mx% < SCROLLBAR.hTrackX% + SCROLLBAR.hTrackW% THEN
+            IF my% >= SCROLLBAR.hTrackY% AND my% < SCROLLBAR.hTrackY% + SCROLLBAR.hTrackH% THEN
+                ' Click on H scrollbar
+                IF mx% >= SCROLLBAR.hThumbX% AND mx% < SCROLLBAR.hThumbX% + SCROLLBAR.hThumbW% THEN
+                    ' Click on thumb — start dragging
+                    SCROLLBAR.hDragging% = TRUE
+                    SCROLLBAR.hDragOffset% = mx% - SCROLLBAR.hThumbX%
+                ELSE
+                    ' Click on track — page scroll toward click
+                    DIM hPageScrollTarget AS SINGLE
+                    DIM hPageRange AS INTEGER
+                    DIM hPageScrollRange AS LONG
+                    hPageRange% = SCROLLBAR.hTrackW% - SCROLLBAR.hThumbW%
+                    IF hPageRange% > 0 THEN
+                        ' Center thumb on click position
+                        DIM hTargetThumbX AS INTEGER
+                        hTargetThumbX% = mx% - SCROLLBAR.hThumbW% \ 2
+                        IF hTargetThumbX% < SCROLLBAR.hTrackX% THEN hTargetThumbX% = SCROLLBAR.hTrackX%
+                        IF hTargetThumbX% > SCROLLBAR.hTrackX% + hPageRange% THEN
+                            hTargetThumbX% = SCROLLBAR.hTrackX% + hPageRange%
+                        END IF
+                        hPageScrollTarget! = (hTargetThumbX% - SCROLLBAR.hTrackX%) / hPageRange%
+                        hPageScrollRange& = CLNG(SCRN.canvasW& * SCRN.zoom!) - SCRN.w&
+                        SCRN.offsetX% = INT((0.5 - hPageScrollTarget!) * hPageScrollRange&)
+                        SCENE_DIRTY% = TRUE
+                        FRAME_IDLE% = FALSE
+                    END IF
+                END IF
+                SCROLLBAR_handle_mouse% = TRUE
+                EXIT FUNCTION
+            END IF
+        END IF
+    END IF
+
+    ' Check if click is on V scrollbar
+    IF SCROLLBAR.vVisible% AND b1% AND NOT oldB1% THEN
+        IF mx% >= SCROLLBAR.vTrackX% AND mx% < SCROLLBAR.vTrackX% + SCROLLBAR.vTrackW% THEN
+            IF my% >= SCROLLBAR.vTrackY% AND my% < SCROLLBAR.vTrackY% + SCROLLBAR.vTrackH% THEN
+                ' Click on V scrollbar
+                IF my% >= SCROLLBAR.vThumbY% AND my% < SCROLLBAR.vThumbY% + SCROLLBAR.vThumbH% THEN
+                    ' Click on thumb — start dragging
+                    SCROLLBAR.vDragging% = TRUE
+                    SCROLLBAR.vDragOffset% = my% - SCROLLBAR.vThumbY%
+                ELSE
+                    ' Click on track — page scroll toward click
+                    DIM vPageScrollTarget AS SINGLE
+                    DIM vPageRange AS INTEGER
+                    DIM vPageScrollRange AS LONG
+                    vPageRange% = SCROLLBAR.vTrackH% - SCROLLBAR.vThumbH%
+                    IF vPageRange% > 0 THEN
+                        DIM vTargetThumbY AS INTEGER
+                        vTargetThumbY% = my% - SCROLLBAR.vThumbH% \ 2
+                        IF vTargetThumbY% < SCROLLBAR.vTrackY% THEN vTargetThumbY% = SCROLLBAR.vTrackY%
+                        IF vTargetThumbY% > SCROLLBAR.vTrackY% + vPageRange% THEN
+                            vTargetThumbY% = SCROLLBAR.vTrackY% + vPageRange%
+                        END IF
+                        vPageScrollTarget! = (vTargetThumbY% - SCROLLBAR.vTrackY%) / vPageRange%
+                        vPageScrollRange& = CLNG(SCRN.canvasH& * SCRN.zoom!) - SCRN.h&
+                        SCRN.offsetY% = INT((0.5 - vPageScrollTarget!) * vPageScrollRange&)
+                        SCENE_DIRTY% = TRUE
+                        FRAME_IDLE% = FALSE
+                    END IF
+                END IF
+                SCROLLBAR_handle_mouse% = TRUE
+                EXIT FUNCTION
+            END IF
+        END IF
+    END IF
+END FUNCTION
+
+
+''
+' Check if mouse coordinates are within any visible scrollbar bounds.
+' Used by other GUI systems to avoid overlapping clicks.
+'
+FUNCTION SCROLLBAR_in_bounds% (mx AS INTEGER, my AS INTEGER)
+    SCROLLBAR_in_bounds% = FALSE
+
+    IF SCROLLBAR.hVisible% THEN
+        IF mx% >= SCROLLBAR.hTrackX% AND mx% < SCROLLBAR.hTrackX% + SCROLLBAR.hTrackW% THEN
+            IF my% >= SCROLLBAR.hTrackY% AND my% < SCROLLBAR.hTrackY% + SCROLLBAR.hTrackH% THEN
+                SCROLLBAR_in_bounds% = TRUE
+                EXIT FUNCTION
+            END IF
+        END IF
+    END IF
+
+    IF SCROLLBAR.vVisible% THEN
+        IF mx% >= SCROLLBAR.vTrackX% AND mx% < SCROLLBAR.vTrackX% + SCROLLBAR.vTrackW% THEN
+            IF my% >= SCROLLBAR.vTrackY% AND my% < SCROLLBAR.vTrackY% + SCROLLBAR.vTrackH% THEN
+                SCROLLBAR_in_bounds% = TRUE
+                EXIT FUNCTION
+            END IF
+        END IF
+    END IF
+END FUNCTION

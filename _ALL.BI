@@ -45,6 +45,7 @@ $INCLUDEONCE
 '$INCLUDE:'./GUI/TRANSPARENCY.BI'
 '$INCLUDE:'./GUI/COMMAND.BI'
 '$INCLUDE:'./GUI/MENUBAR.BI'
+'$INCLUDE:'./GUI/SCROLLBAR.BI'
 
 ' INPUT -----------------------------------------------------------------------
 '$INCLUDE:'./INPUT/MODIFIERS.BI'
