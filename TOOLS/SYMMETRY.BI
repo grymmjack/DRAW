@@ -21,6 +21,7 @@ TYPE SYMMETRY_TYPE
     imgWidth    AS INTEGER        ' Width of guide overlay
     imgHeight   AS INTEGER        ' Height of guide overlay
     DIRTY       AS INTEGER        ' TRUE when guides need regeneration
+    CENTER_SET  AS INTEGER        ' TRUE when center was explicitly set by user (Ctrl+Click)
     guideColor  AS _UNSIGNED LONG ' Color for guide lines
     centerColor AS _UNSIGNED LONG ' Color for center crosshair dot
 END TYPE
@@ -33,6 +34,7 @@ SYMMETRY.imgHandle& = 0
 SYMMETRY.imgWidth% = 0
 SYMMETRY.imgHeight% = 0
 SYMMETRY.DIRTY% = FALSE
+SYMMETRY.CENTER_SET% = FALSE
 SYMMETRY.guideColor~& = 0
 SYMMETRY.centerColor~& = 0
 

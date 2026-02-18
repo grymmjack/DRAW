@@ -36,6 +36,11 @@ SUB IMAGE_IMPORT_init ()
     IMG_IMPORT.RESIZING = FALSE
     IMG_IMPORT.LOCK_ASPECT = FALSE
     IMG_IMPORT.ASPECT_RATIO = 1.0
+    IMG_IMPORT.ROTATION = 0
+    IMG_IMPORT.FLIP_H = FALSE
+    IMG_IMPORT.FLIP_V = FALSE
+    IMG_IMPORT.SCALE_FACTOR = 1.0
+    IMG_IMPORT.PREVIEW_IMG = 0
     IMG_IMPORT.PREV_TOOL = TOOL_NULL
 END SUB
 
@@ -46,6 +51,9 @@ END SUB
 SUB IMAGE_IMPORT_reset ()
     IF IMG_IMPORT.IMAGE <> 0 AND IMG_IMPORT.IMAGE < -1 THEN
         _FREEIMAGE IMG_IMPORT.IMAGE
+    END IF
+    IF IMG_IMPORT.PREVIEW_IMG <> 0 AND IMG_IMPORT.PREVIEW_IMG < -1 THEN
+        _FREEIMAGE IMG_IMPORT.PREVIEW_IMG
     END IF
     IMAGE_IMPORT_init
 END SUB
@@ -77,23 +85,7 @@ FUNCTION IMAGE_IMPORT_load_file% (filename AS STRING)
     img_h% = _HEIGHT(loaded_img&)
     _LOGINFO "IMAGE_IMPORT_load_file: success - W=" + STR$(img_w%) + " H=" + STR$(img_h%)
     
-    ' Check if image fits in canvas
-    IF img_w% <= SCRN.canvasW& AND img_h% <= SCRN.canvasH& THEN
-        ' Image fits - load directly to current layer (legacy behavior)
-        _DEST LAYER_current_image&
-        CLS , _RGBA32(0, 0, 0, 0)
-        _PUTIMAGE (0, 0), loaded_img&
-        _FREEIMAGE loaded_img&
-        
-        CANVAS_DIRTY% = FALSE
-        CURRENT_FILENAME$ = filename$
-        UNDO_save_state
-        
-        IMAGE_IMPORT_load_file% = FALSE
-        EXIT FUNCTION
-    END IF
-    
-    ' Image is larger than canvas - enter placement mode
+    ' ALL images enter interactive placement mode
     ' Free any existing import image
     IF IMG_IMPORT.IMAGE <> 0 AND IMG_IMPORT.IMAGE < -1 THEN
         _FREEIMAGE IMG_IMPORT.IMAGE
@@ -106,24 +98,43 @@ FUNCTION IMAGE_IMPORT_load_file% (filename AS STRING)
     IMG_IMPORT.FILENAME = filename$
     IMG_IMPORT.ASPECT_RATIO = img_w% / img_h%
     
-    ' Default destination to full canvas
-    IMG_IMPORT.DEST_X = 0
-    IMG_IMPORT.DEST_Y = 0
-    IMG_IMPORT.DEST_W = SCRN.canvasW&
-    IMG_IMPORT.DEST_H = SCRN.canvasH&
+    ' Initialize transform state
+    IMG_IMPORT.ROTATION = 0
+    IMG_IMPORT.FLIP_H = FALSE
+    IMG_IMPORT.FLIP_V = FALSE
+    IMG_IMPORT.SCALE_FACTOR = 1.0
     
-    ' Calculate initial crop to fit/fill the canvas
-    ' Default: fit the image (show all, possibly with bars)
-    DIM fit_scale AS SINGLE
-    DIM canvas_aspect AS SINGLE
-    canvas_aspect! = SCRN.canvasW& / SCRN.canvasH&
-    
-    IF IMG_IMPORT.ASPECT_RATIO > canvas_aspect! THEN
-        ' Image is wider than canvas - fit by width
-        fit_scale! = SCRN.canvasW& / img_w%
+    ' Check if image fits in canvas — center at original size
+    IF img_w% <= SCRN.canvasW& AND img_h% <= SCRN.canvasH& THEN
+        ' Image fits: center at original dimensions
+        IMG_IMPORT.DEST_X = (SCRN.canvasW& - img_w%) \ 2
+        IMG_IMPORT.DEST_Y = (SCRN.canvasH& - img_h%) \ 2
+        IMG_IMPORT.DEST_W = img_w%
+        IMG_IMPORT.DEST_H = img_h%
     ELSE
-        ' Image is taller than canvas - fit by height
-        fit_scale! = SCRN.canvasH& / img_h%
+        ' Image is larger than canvas — fit proportionally, centered
+        DIM fit_scale AS SINGLE
+        DIM canvas_aspect AS SINGLE
+        canvas_aspect! = SCRN.canvasW& / SCRN.canvasH&
+        
+        IF IMG_IMPORT.ASPECT_RATIO > canvas_aspect! THEN
+            ' Image is wider — fit by width
+            fit_scale! = SCRN.canvasW& / img_w%
+        ELSE
+            ' Image is taller — fit by height
+            fit_scale! = SCRN.canvasH& / img_h%
+        END IF
+        
+        DIM fitW AS INTEGER, fitH AS INTEGER
+        fitW% = INT(img_w% * fit_scale!)
+        fitH% = INT(img_h% * fit_scale!)
+        IF fitW% < 1 THEN fitW% = 1
+        IF fitH% < 1 THEN fitH% = 1
+        
+        IMG_IMPORT.DEST_X = (SCRN.canvasW& - fitW%) \ 2
+        IMG_IMPORT.DEST_Y = (SCRN.canvasH& - fitH%) \ 2
+        IMG_IMPORT.DEST_W = fitW%
+        IMG_IMPORT.DEST_H = fitH%
     END IF
     
     ' Set crop to entire image initially
@@ -596,6 +607,74 @@ SUB IMAGE_IMPORT_apply ()
     ' Save state for undo (BEFORE the change)
     UNDO_save_state
     
+    ' Create a transformed version of the source if rotation/flip is applied
+    DIM srcImg AS LONG
+    srcImg& = IMG_IMPORT.IMAGE
+    DIM needsFreeSrc AS INTEGER
+    needsFreeSrc% = FALSE
+    
+    IF IMG_IMPORT.ROTATION <> 0 OR IMG_IMPORT.FLIP_H OR IMG_IMPORT.FLIP_V THEN
+        DIM srcW AS INTEGER, srcH AS INTEGER
+        srcW% = _WIDTH(IMG_IMPORT.IMAGE)
+        srcH% = _HEIGHT(IMG_IMPORT.IMAGE)
+        
+        ' Apply rotation first
+        IF IMG_IMPORT.ROTATION = 90 OR IMG_IMPORT.ROTATION = 270 THEN
+            srcImg& = _NEWIMAGE(srcH%, srcW%, 32)
+        ELSE
+            srcImg& = _NEWIMAGE(srcW%, srcH%, 32)
+        END IF
+        needsFreeSrc% = TRUE
+        
+        DIM oldApplyDest AS LONG : oldApplyDest& = _DEST
+        _DEST srcImg&
+        _DONTBLEND srcImg&
+        CLS , _RGBA32(0, 0, 0, 0)
+        
+        ' Manual rotation via pixel copy using _MEM
+        DIM srcMem AS _MEM, dstMem AS _MEM
+        srcMem = _MEMIMAGE(IMG_IMPORT.IMAGE)
+        dstMem = _MEMIMAGE(srcImg&)
+        DIM dstW AS INTEGER, dstH AS INTEGER
+        dstW% = _WIDTH(srcImg&)
+        dstH% = _HEIGHT(srcImg&)
+        DIM px AS INTEGER, py AS INTEGER
+        DIM srcOfs AS _OFFSET, dstOfs AS _OFFSET
+        DIM pixel AS _UNSIGNED LONG
+        
+        FOR py% = 0 TO srcH% - 1
+            FOR px% = 0 TO srcW% - 1
+                srcOfs = srcMem.OFFSET + (py% * srcW% + px%) * 4
+                _MEMGET srcMem, srcOfs, pixel~&
+                
+                DIM dx2 AS INTEGER, dy2 AS INTEGER
+                SELECT CASE IMG_IMPORT.ROTATION
+                    CASE 0
+                        dx2% = px% : dy2% = py%
+                    CASE 90
+                        dx2% = srcH% - 1 - py% : dy2% = px%
+                    CASE 180
+                        dx2% = srcW% - 1 - px% : dy2% = srcH% - 1 - py%
+                    CASE 270
+                        dx2% = py% : dy2% = srcW% - 1 - px%
+                END SELECT
+                
+                ' Apply flip
+                IF IMG_IMPORT.FLIP_H THEN dx2% = dstW% - 1 - dx2%
+                IF IMG_IMPORT.FLIP_V THEN dy2% = dstH% - 1 - dy2%
+                
+                IF dx2% >= 0 AND dx2% < dstW% AND dy2% >= 0 AND dy2% < dstH% THEN
+                    dstOfs = dstMem.OFFSET + (dy2% * dstW% + dx2%) * 4
+                    _MEMPUT dstMem, dstOfs, pixel~&
+                END IF
+            NEXT px%
+        NEXT py%
+        _MEMFREE srcMem
+        _MEMFREE dstMem
+        _BLEND srcImg&
+        _DEST oldApplyDest&
+    END IF
+    
     ' Draw the cropped/scaled image to the current layer
     _DEST LAYER_current_image&
     
@@ -604,15 +683,17 @@ SUB IMAGE_IMPORT_apply ()
     
     ' Use _PUTIMAGE with source and destination rectangles
     _PUTIMAGE (IMG_IMPORT.DEST_X, IMG_IMPORT.DEST_Y)-(IMG_IMPORT.DEST_X + IMG_IMPORT.DEST_W - 1, IMG_IMPORT.DEST_Y + IMG_IMPORT.DEST_H - 1), _
-              IMG_IMPORT.IMAGE, _
+              srcImg&, _
               LAYER_current_image&, _
               (INT(IMG_IMPORT.CROP_X), INT(IMG_IMPORT.CROP_Y))-(INT(IMG_IMPORT.CROP_X + IMG_IMPORT.CROP_W - 1), INT(IMG_IMPORT.CROP_Y + IMG_IMPORT.CROP_H - 1))
     
-    ' Save state AFTER the change (for redo to work)
-    UNDO_save_state
+    ' Free transformed source if we created one
+    IF needsFreeSrc% AND srcImg& < -1 THEN _FREEIMAGE srcImg&
     
     ' Mark canvas as dirty
     CANVAS_DIRTY% = TRUE
+    LAYERS(CURRENT_LAYER%).contentDirty% = TRUE
+    BLEND_invalidate_cache
     
     ' Store filename
     CURRENT_FILENAME$ = IMG_IMPORT.FILENAME
@@ -674,8 +755,15 @@ SUB IMAGE_IMPORT_draw (dest AS LONG)
     LINE (dx%, dy%)-(dx% + zw& - 1, dy% + zh& - 1), _RGBA32(0, 0, 0, 100), BF
     
     ' Draw the preview image in the destination rect
+    ' Use pre-transformed preview if available (rotation/flip applied)
+    DIM previewSrc AS LONG
+    IF IMG_IMPORT.PREVIEW_IMG <> 0 AND IMG_IMPORT.PREVIEW_IMG < -1 THEN
+        previewSrc& = IMG_IMPORT.PREVIEW_IMG
+    ELSE
+        previewSrc& = IMG_IMPORT.IMAGE
+    END IF
     _PUTIMAGE (screen_x%, screen_y%)-(screen_x% + screen_w% - 1, screen_y% + screen_h% - 1), _
-              IMG_IMPORT.IMAGE, _
+              previewSrc&, _
               dest&, _
               (INT(IMG_IMPORT.CROP_X), INT(IMG_IMPORT.CROP_Y))-(INT(IMG_IMPORT.CROP_X + IMG_IMPORT.CROP_W - 1), INT(IMG_IMPORT.CROP_Y + IMG_IMPORT.CROP_H - 1))
     
@@ -984,3 +1072,100 @@ FUNCTION IMAGE_IMPORT_get_handle_at% (x AS INTEGER, y AS INTEGER)
     
     IMAGE_IMPORT_get_handle_at% = 0
 END FUNCTION
+
+
+''
+' Rebuild the pre-transformed preview image from the source image.
+' Creates a new image with rotation and flip applied so the preview
+' shows the transform in real-time (not just on apply/commit).
+'
+SUB IMAGE_IMPORT_rebuild_preview ()
+    IF IMG_IMPORT.IMAGE = 0 THEN EXIT SUB
+    
+    ' Free existing preview
+    IF IMG_IMPORT.PREVIEW_IMG <> 0 AND IMG_IMPORT.PREVIEW_IMG < -1 THEN
+        _FREEIMAGE IMG_IMPORT.PREVIEW_IMG
+        IMG_IMPORT.PREVIEW_IMG = 0
+    END IF
+    
+    ' If no transform needed, leave preview as 0 (draw will use IMAGE directly)
+    IF IMG_IMPORT.ROTATION = 0 AND NOT IMG_IMPORT.FLIP_H AND NOT IMG_IMPORT.FLIP_V THEN
+        EXIT SUB
+    END IF
+    
+    DIM rpSrcW AS INTEGER, rpSrcH AS INTEGER
+    rpSrcW% = _WIDTH(IMG_IMPORT.IMAGE)
+    rpSrcH% = _HEIGHT(IMG_IMPORT.IMAGE)
+    
+    ' Create destination with swapped dimensions for 90/270 rotation
+    DIM rpDstW AS INTEGER, rpDstH AS INTEGER
+    IF IMG_IMPORT.ROTATION = 90 OR IMG_IMPORT.ROTATION = 270 THEN
+        rpDstW% = rpSrcH%
+        rpDstH% = rpSrcW%
+    ELSE
+        rpDstW% = rpSrcW%
+        rpDstH% = rpSrcH%
+    END IF
+    
+    IMG_IMPORT.PREVIEW_IMG = _NEWIMAGE(rpDstW%, rpDstH%, 32)
+    IF IMG_IMPORT.PREVIEW_IMG >= -1 THEN
+        IMG_IMPORT.PREVIEW_IMG = 0
+        EXIT SUB
+    END IF
+    
+    DIM rpOldDest AS LONG
+    rpOldDest& = _DEST
+    _DEST IMG_IMPORT.PREVIEW_IMG
+    _DONTBLEND IMG_IMPORT.PREVIEW_IMG
+    CLS , _RGBA32(0, 0, 0, 0)
+    
+    ' Per-pixel transform using _MEM (same logic as IMAGE_IMPORT_apply)
+    DIM rpSrcMem AS _MEM, rpDstMem AS _MEM
+    rpSrcMem = _MEMIMAGE(IMG_IMPORT.IMAGE)
+    rpDstMem = _MEMIMAGE(IMG_IMPORT.PREVIEW_IMG)
+    
+    DIM rpPX AS INTEGER, rpPY AS INTEGER
+    DIM rpSrcOfs AS _OFFSET, rpDstOfs AS _OFFSET
+    DIM rpPixel AS _UNSIGNED LONG
+    DIM rpDX AS INTEGER, rpDY AS INTEGER
+    
+    FOR rpPY% = 0 TO rpSrcH% - 1
+        FOR rpPX% = 0 TO rpSrcW% - 1
+            rpSrcOfs = rpSrcMem.OFFSET + (rpPY% * rpSrcW% + rpPX%) * 4
+            _MEMGET rpSrcMem, rpSrcOfs, rpPixel~&
+            
+            SELECT CASE IMG_IMPORT.ROTATION
+                CASE 0
+                    rpDX% = rpPX% : rpDY% = rpPY%
+                CASE 90
+                    rpDX% = rpSrcH% - 1 - rpPY% : rpDY% = rpPX%
+                CASE 180
+                    rpDX% = rpSrcW% - 1 - rpPX% : rpDY% = rpSrcH% - 1 - rpPY%
+                CASE 270
+                    rpDX% = rpPY% : rpDY% = rpSrcW% - 1 - rpPX%
+            END SELECT
+            
+            IF IMG_IMPORT.FLIP_H THEN rpDX% = rpDstW% - 1 - rpDX%
+            IF IMG_IMPORT.FLIP_V THEN rpDY% = rpDstH% - 1 - rpDY%
+            
+            IF rpDX% >= 0 AND rpDX% < rpDstW% AND rpDY% >= 0 AND rpDY% < rpDstH% THEN
+                rpDstOfs = rpDstMem.OFFSET + (rpDY% * rpDstW% + rpDX%) * 4
+                _MEMPUT rpDstMem, rpDstOfs, rpPixel~&
+            END IF
+        NEXT rpPX%
+    NEXT rpPY%
+    
+    _MEMFREE rpSrcMem
+    _MEMFREE rpDstMem
+    _BLEND IMG_IMPORT.PREVIEW_IMG
+    _DEST rpOldDest&
+    
+    ' Update crop dimensions to match transformed image
+    IMG_IMPORT.CROP_X = 0
+    IMG_IMPORT.CROP_Y = 0
+    IMG_IMPORT.CROP_W = rpDstW%
+    IMG_IMPORT.CROP_H = rpDstH%
+    
+    SCENE_DIRTY% = TRUE
+    FRAME_IDLE% = FALSE
+END SUB

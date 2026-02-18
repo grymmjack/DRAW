@@ -29,7 +29,12 @@ TYPE MOVE_OBJ
     CURRENT_H    AS INTEGER  ' Current transform height
     HANDLE       AS INTEGER  ' Which handle being dragged (0=center, 1-8=corners/sides)
     CLONING      AS INTEGER  ' Whether ALT is held (clone mode)
+    CLONE_STAMPED AS INTEGER ' TRUE if any stamp was placed in this move session
     CONSTRAIN    AS INTEGER  ' Whether SHIFT is held (constrain proportions)
+    ORIGINAL_IMAGE AS LONG   ' Preserved original image for lossless re-scaling
+    ORIGINAL_IMG_W AS INTEGER ' Width of original image
+    ORIGINAL_IMG_H AS INTEGER ' Height of original image
+    SCALE_FACTOR   AS SINGLE ' Cumulative scale factor (1.0 = original)
 END TYPE
 
 DIM SHARED MOVE AS MOVE_OBJ
@@ -50,3 +55,11 @@ DECLARE SUB MOVE_flip_horizontal ()
 DECLARE SUB MOVE_flip_vertical ()
 DECLARE SUB MOVE_nudge (dx AS INTEGER, dy AS INTEGER)
 DECLARE SUB MOVE_resize (dw AS INTEGER, dh AS INTEGER)
+
+' Shared state for layer-level lossless scaling
+DIM SHARED SCALE_ORIGINAL_IMAGE AS LONG    ' Backup of layer before first scale op
+DIM SHARED SCALE_ORIGINAL_LAYER AS INTEGER ' Which layer the backup belongs to
+DIM SHARED SCALE_FACTOR_LAYER AS SINGLE    ' Cumulative scale factor for layer scaling
+SCALE_ORIGINAL_IMAGE = 0
+SCALE_ORIGINAL_LAYER = 0
+SCALE_FACTOR_LAYER = 1.0

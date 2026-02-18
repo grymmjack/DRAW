@@ -11,6 +11,7 @@ $INCLUDEONCE
 ' Forward declarations for extracted helper functions
 DECLARE FUNCTION KEYBOARD_handle_command_palette% ()
 DECLARE FUNCTION KEYBOARD_handle_image_import% ()
+DECLARE FUNCTION KEYBOARD_handle_crop_tool% ()
 DECLARE FUNCTION KEYBOARD_handle_refimg_reposition% ()
 DECLARE FUNCTION KEYBOARD_handle_menubar% ()
 DECLARE FUNCTION KEYBOARD_handle_palette_menu% ()
@@ -497,11 +498,8 @@ FUNCTION KEYBOARD_handle_image_import% ()
                 IMAGE_IMPORT_cancel
             CASE 13  ' ENTER - apply import
                 IF IMG_IMPORT.STATE = IMPORT_STATE_LOADED THEN
-                    ' If no marquee drawn yet, use full canvas
-                    IMG_IMPORT.DEST_X = 0
-                    IMG_IMPORT.DEST_Y = 0
-                    IMG_IMPORT.DEST_W = SCRN.canvasW&
-                    IMG_IMPORT.DEST_H = SCRN.canvasH&
+                    ' Use dimensions already set during loading
+                    ' (centered at original size for small images, fitted for large)
                     IMAGE_IMPORT_update_crop_from_zoom
                     IMG_IMPORT.STATE = IMPORT_STATE_PLACING
                 END IF
@@ -509,8 +507,8 @@ FUNCTION KEYBOARD_handle_image_import% ()
         END SELECT
     END IF
     
-    ' Arrow key handling for import mode (works in PLACING state)
-    IF IMG_IMPORT.STATE >= IMPORT_STATE_PLACING THEN
+    ' Arrow key handling for import mode (works in LOADED or PLACING state)
+    IF IMG_IMPORT.STATE >= IMPORT_STATE_LOADED THEN
         DIM impIsCtrl AS INTEGER, impIsShift AS INTEGER, impIsAlt AS INTEGER
         DIM impMoveStep AS INTEGER
         
@@ -574,9 +572,132 @@ FUNCTION KEYBOARD_handle_image_import% ()
         impKeyDownLast% = impKeyDownNow%
         impKeyLeftLast% = impKeyLeftNow%
         impKeyRightLast% = impKeyRightNow%
+        
+        ' > key (Shift+.) = Rotate CW 90, < key (Shift+,) = Rotate CCW 90
+        STATIC impRotateCWLast AS INTEGER, impRotateCCWLast AS INTEGER
+        DIM impRotateCWNow AS INTEGER, impRotateCCWNow AS INTEGER
+        impRotateCWNow% = _KEYDOWN(62)   ' ASCII 62 = >
+        impRotateCCWNow% = _KEYDOWN(60)  ' ASCII 60 = <
+        IF impRotateCWNow% AND NOT impRotateCWLast% THEN
+            IMG_IMPORT.ROTATION = (IMG_IMPORT.ROTATION + 90) MOD 360   ' CW
+            IMAGE_IMPORT_rebuild_preview
+            _LOGINFO "IMAGE_IMPORT: Rotation = " + STR$(IMG_IMPORT.ROTATION) + " degrees (CW)"
+        END IF
+        impRotateCWLast% = impRotateCWNow%
+        IF impRotateCCWNow% AND NOT impRotateCCWLast% THEN
+            IMG_IMPORT.ROTATION = (IMG_IMPORT.ROTATION + 270) MOD 360  ' CCW
+            IMAGE_IMPORT_rebuild_preview
+            _LOGINFO "IMAGE_IMPORT: Rotation = " + STR$(IMG_IMPORT.ROTATION) + " degrees (CCW)"
+        END IF
+        impRotateCCWLast% = impRotateCCWNow%
+        
+        ' Home = Flip Horizontal, End = Flip Vertical
+        STATIC impFlipHLast AS INTEGER
+        DIM impFlipHNow AS INTEGER
+        impFlipHNow% = _KEYDOWN(18176)  ' Home key
+        IF impFlipHNow% AND NOT impFlipHLast% THEN
+            IMG_IMPORT.FLIP_H = NOT IMG_IMPORT.FLIP_H
+            IMAGE_IMPORT_rebuild_preview
+            _LOGINFO "IMAGE_IMPORT: Flip H = " + STR$(IMG_IMPORT.FLIP_H)
+        END IF
+        impFlipHLast% = impFlipHNow%
+        
+        STATIC impFlipVLast AS INTEGER
+        DIM impFlipVNow AS INTEGER
+        impFlipVNow% = _KEYDOWN(20224)  ' End key
+        IF impFlipVNow% AND NOT impFlipVLast% THEN
+            IMG_IMPORT.FLIP_V = NOT IMG_IMPORT.FLIP_V
+            IMAGE_IMPORT_rebuild_preview
+            _LOGINFO "IMAGE_IMPORT: Flip V = " + STR$(IMG_IMPORT.FLIP_V)
+        END IF
+        impFlipVLast% = impFlipVNow%
+        
+        ' Page Up = Scale up 50% from original, Page Down = Scale down 50% from original
+        STATIC impScaleUpLast AS INTEGER, impScaleDnLast AS INTEGER
+        DIM impScaleUpNow AS INTEGER, impScaleDnNow AS INTEGER
+        impScaleUpNow% = _KEYDOWN(18688)  ' Page Up
+        impScaleDnNow% = _KEYDOWN(20736)  ' Page Down
+        IF impScaleUpNow% AND NOT impScaleUpLast% THEN
+            IMG_IMPORT.SCALE_FACTOR = IMG_IMPORT.SCALE_FACTOR * 1.5
+            ' Recalculate dest dimensions from original * scale factor
+            DIM impSuW AS INTEGER, impSuH AS INTEGER
+            impSuW% = INT(IMG_IMPORT.IMAGE_W * IMG_IMPORT.SCALE_FACTOR)
+            impSuH% = INT(IMG_IMPORT.IMAGE_H * IMG_IMPORT.SCALE_FACTOR)
+            IF impSuW% < 1 THEN impSuW% = 1
+            IF impSuH% < 1 THEN impSuH% = 1
+            ' Center adjustment
+            DIM impSuOldCX AS INTEGER, impSuOldCY AS INTEGER
+            impSuOldCX% = IMG_IMPORT.DEST_X + IMG_IMPORT.DEST_W \ 2
+            impSuOldCY% = IMG_IMPORT.DEST_Y + IMG_IMPORT.DEST_H \ 2
+            IMG_IMPORT.DEST_W = impSuW%
+            IMG_IMPORT.DEST_H = impSuH%
+            IMG_IMPORT.DEST_X = impSuOldCX% - impSuW% \ 2
+            IMG_IMPORT.DEST_Y = impSuOldCY% - impSuH% \ 2
+            IMAGE_IMPORT_update_crop_from_zoom
+            SCENE_DIRTY% = TRUE
+            FRAME_IDLE% = FALSE
+            _LOGINFO "IMAGE_IMPORT: Scale factor = " + STR$(IMG_IMPORT.SCALE_FACTOR)
+        END IF
+        impScaleUpLast% = impScaleUpNow%
+        IF impScaleDnNow% AND NOT impScaleDnLast% THEN
+            IMG_IMPORT.SCALE_FACTOR = IMG_IMPORT.SCALE_FACTOR * 0.5
+            IF IMG_IMPORT.SCALE_FACTOR < 0.01 THEN IMG_IMPORT.SCALE_FACTOR = 0.01
+            ' Recalculate dest dimensions from original * scale factor
+            DIM impSdW AS INTEGER, impSdH AS INTEGER
+            impSdW% = INT(IMG_IMPORT.IMAGE_W * IMG_IMPORT.SCALE_FACTOR)
+            impSdH% = INT(IMG_IMPORT.IMAGE_H * IMG_IMPORT.SCALE_FACTOR)
+            IF impSdW% < 1 THEN impSdW% = 1
+            IF impSdH% < 1 THEN impSdH% = 1
+            ' Center adjustment
+            DIM impSdOldCX AS INTEGER, impSdOldCY AS INTEGER
+            impSdOldCX% = IMG_IMPORT.DEST_X + IMG_IMPORT.DEST_W \ 2
+            impSdOldCY% = IMG_IMPORT.DEST_Y + IMG_IMPORT.DEST_H \ 2
+            IMG_IMPORT.DEST_W = impSdW%
+            IMG_IMPORT.DEST_H = impSdH%
+            IMG_IMPORT.DEST_X = impSdOldCX% - impSdW% \ 2
+            IMG_IMPORT.DEST_Y = impSdOldCY% - impSdH% \ 2
+            IMAGE_IMPORT_update_crop_from_zoom
+            SCENE_DIRTY% = TRUE
+            FRAME_IDLE% = FALSE
+            _LOGINFO "IMAGE_IMPORT: Scale factor = " + STR$(IMG_IMPORT.SCALE_FACTOR)
+        END IF
+        impScaleDnLast% = impScaleDnNow%
     END IF
     
     KEYBOARD_handle_image_import% = TRUE  ' Consumed
+END FUNCTION
+
+
+''
+' Handle crop tool keyboard input (Enter, ESC, arrow keys).
+' Returns TRUE if crop mode consumed the input (caller should EXIT SUB).
+'
+FUNCTION KEYBOARD_handle_crop_tool% ()
+    IF CROP.STATE <> CROP_STATE_ACTIVE THEN
+        KEYBOARD_handle_crop_tool% = FALSE
+        EXIT FUNCTION
+    END IF
+
+    DIM cropKey AS STRING
+    cropKey$ = INKEY$
+    IF cropKey$ <> "" THEN
+        DIM cropKeyCode AS INTEGER
+        cropKeyCode% = ASC(cropKey$)
+
+        SELECT CASE cropKeyCode%
+            CASE 27  ' ESC - cancel crop
+                CROP_cancel
+                KEYBOARD_handle_crop_tool% = TRUE
+                EXIT FUNCTION
+            CASE 13  ' ENTER - apply crop
+                CROP_apply
+                KEYBOARD_handle_crop_tool% = TRUE
+                EXIT FUNCTION
+        END SELECT
+    END IF
+
+    ' Arrow keys and other input fall through to normal marquee handling
+    KEYBOARD_handle_crop_tool% = FALSE
 END FUNCTION
 
 
@@ -985,6 +1106,18 @@ SUB KEYBOARD_handle_ui_toggles ()
         END IF
     ELSEIF NOT _KEYDOWN(114) AND NOT _KEYDOWN(82) THEN
         ctrlRPressed% = FALSE
+    END IF
+    
+    ' Handle Ctrl+Alt+R for random palette
+    STATIC ctrlAltRPressed AS INTEGER
+    IF MODIFIERS.ctrl% AND MODIFIERS.alt% AND NOT MODIFIERS.shift% AND (_KEYDOWN(114) OR _KEYDOWN(82)) THEN
+        IF NOT ctrlAltRPressed% THEN
+            CMD_execute_action 1512
+            FRAME_IDLE% = FALSE
+            ctrlAltRPressed% = TRUE
+        END IF
+    ELSEIF NOT _KEYDOWN(114) AND NOT _KEYDOWN(82) THEN
+        ctrlAltRPressed% = FALSE
     END IF
 END SUB
 
@@ -1705,6 +1838,9 @@ SUB KEYBOARD_input_handler ()
     
     ' Handle IMAGE IMPORT mode - intercept Enter/Escape and arrow keys
     IF KEYBOARD_handle_image_import% THEN EXIT SUB
+
+    ' Handle CROP mode - intercept Enter/Escape and arrow keys
+    IF KEYBOARD_handle_crop_tool% THEN EXIT SUB
     
     ' Handle REFERENCE IMAGE reposition mode - intercept Enter/Escape
     IF KEYBOARD_handle_refimg_reposition% THEN EXIT SUB
@@ -1924,6 +2060,28 @@ SUB KEYBOARD_layers ()
         END IF
     ELSE
         layerCtrlShiftBracketRPressed% = FALSE
+    END IF
+    
+    ' CTRL+Home: Arrange layer to top
+    STATIC layerCtrlHomePressed AS INTEGER
+    IF isCtrl% AND NOT isShift% AND _KEYDOWN(18176) THEN
+        IF NOT layerCtrlHomePressed% THEN
+            LAYERS_to_top CURRENT_LAYER%
+            layerCtrlHomePressed% = TRUE
+        END IF
+    ELSEIF NOT _KEYDOWN(18176) THEN
+        layerCtrlHomePressed% = FALSE
+    END IF
+    
+    ' CTRL+End: Arrange layer to bottom
+    STATIC layerCtrlEndPressed AS INTEGER
+    IF isCtrl% AND NOT isShift% AND _KEYDOWN(20224) THEN
+        IF NOT layerCtrlEndPressed% THEN
+            LAYERS_to_bottom CURRENT_LAYER%
+            layerCtrlEndPressed% = TRUE
+        END IF
+    ELSEIF NOT _KEYDOWN(20224) THEN
+        layerCtrlEndPressed% = FALSE
     END IF
 END SUB
 

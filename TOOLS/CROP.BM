@@ -1,16 +1,462 @@
 ''
 ' DRAW - TOOLS/CROP.BM
 ' =============================================================================
-' Crop tool subs and functions (stub - future canvas resize).
+' Canvas resize and crop tool implementation.
 '
-' @todo Implement canvas crop/resize functionality
+' CANVAS_resize: Resizes the canvas to new dimensions, preserving layer content
+' at (0,0). Resets undo, frees caches, updates all buffers.
+'
+' Crop tool: Delegates to MARQUEE for all box interaction (click-drag,
+' resize handles, move, keyboard nudge). Crop adds a dark overlay outside
+' the marquee region and size label. Enter applies, ESC cancels.
+'
 ' @author Rick Christy <grymmjack@gmail.com>
 '
 $INCLUDEONCE
+
 
 ''
 ' Reset crop tool state
 '
 SUB CROP_reset ()
-    CROP.ACTIVE = FALSE
+    CROP.STATE         = CROP_STATE_IDLE
+    CROP.PREV_TOOL     = 0
+END SUB
+
+
+''
+' Resize the canvas to new dimensions, preserving existing layer content.
+' Content is anchored at (0,0) — pixels outside the new bounds are clipped,
+' new area is transparent.
+'
+' @param INTEGER newW New canvas width (must be >= 1)
+' @param INTEGER newH New canvas height (must be >= 1)
+'
+SUB CANVAS_resize (newW AS INTEGER, newH AS INTEGER)
+    DIM AS INTEGER i, w, h
+    DIM oldDest AS LONG
+    DIM oldImg AS LONG
+    DIM newImg AS LONG
+
+    w% = newW%: h% = newH%
+    IF w% < 1 THEN w% = 1
+    IF h% < 1 THEN h% = 1
+
+    ' No change?
+    IF w% = SCRN.canvasW& AND h% = SCRN.canvasH& THEN EXIT SUB
+
+    ' Cancel any active import / custom brush / move
+    IF IMG_IMPORT.STATE > IMPORT_STATE_IDLE THEN IMAGE_IMPORT_cancel
+    IF CUSTOM_BRUSH_is_active% THEN CUSTOM_BRUSH_reset
+    MARQUEE_reset
+    MOVE_init
+    MAGIC_WAND_reset
+
+    ' Update canvas dimensions
+    SCRN.canvasW& = w%
+    SCRN.canvasH& = h%
+
+    ' Recreate PAINTING buffer
+    IF SCRN.PAINTING& < -1 THEN _FREEIMAGE SCRN.PAINTING&
+    SCRN.PAINTING& = _NEWIMAGE(w%, h%, 32)
+    oldDest& = _DEST
+    _DEST SCRN.PAINTING&
+    CLS , _RGBA32(0, 0, 0, 0)
+    _DEST oldDest&
+
+    ' Resize each layer image, preserving content at (0,0)
+    FOR i% = 1 TO 64
+        IF LAYERS(i%).imgHandle& < -1 THEN
+            oldImg& = LAYERS(i%).imgHandle&
+            newImg& = _NEWIMAGE(w%, h%, 32)
+            oldDest& = _DEST
+            _DEST newImg&
+            CLS , _RGBA32(0, 0, 0, 0)
+            _PUTIMAGE (0, 0), oldImg&, newImg&
+            _DEST oldDest&
+            _FREEIMAGE oldImg&
+            LAYERS(i%).imgHandle& = newImg&
+            LAYERS(i%).imgWidth% = w%
+            LAYERS(i%).imgHeight% = h%
+            LAYERS(i%).contentDirty% = TRUE
+        END IF
+        ' Free opacity cache (will be lazily recreated)
+        IF LAYERS(i%).opacityCacheImg& < -1 THEN
+            _FREEIMAGE LAYERS(i%).opacityCacheImg&
+            LAYERS(i%).opacityCacheImg& = 0
+        END IF
+        LAYERS(i%).opacityCacheVal% = 0
+    NEXT i%
+
+    ' Free render caches (lazily recreated at new size)
+    IF SCENE_CACHE& < -1 THEN _FREEIMAGE SCENE_CACHE&: SCENE_CACHE& = 0
+    IF PG_CACHE_IMG& < -1 THEN _FREEIMAGE PG_CACHE_IMG&: PG_CACHE_IMG& = 0
+    IF COMPOSITE_BUFFER& < -1 THEN _FREEIMAGE COMPOSITE_BUFFER&: COMPOSITE_BUFFER& = 0
+    IF COMPOSITE_BELOW_CACHE& < -1 THEN _FREEIMAGE COMPOSITE_BELOW_CACHE&: COMPOSITE_BELOW_CACHE& = 0
+    COMPOSITE_BELOW_VALID% = FALSE
+
+    ' Free scale originals (dimensions changed, no longer valid)
+    IF SCALE_ORIGINAL_IMAGE < -1 THEN _FREEIMAGE SCALE_ORIGINAL_IMAGE
+    SCALE_ORIGINAL_IMAGE = 0
+    SCALE_ORIGINAL_LAYER = 0
+    SCALE_FACTOR_LAYER = 1.0
+    IF MOVE.ORIGINAL_IMAGE < -1 THEN _FREEIMAGE MOVE.ORIGINAL_IMAGE
+    MOVE.ORIGINAL_IMAGE = 0
+
+    ' Reset undo (old states are wrong size)
+    UNDO_init
+    WORKSPACE_UNDO_clear
+
+    ' Reset zoom/pan to fit new canvas
+    IF w% <= SCRN.w& AND h% <= SCRN.h& THEN
+        SCRN.zoom! = 1.0
+    ELSE
+        DIM fitZW AS SINGLE, fitZH AS SINGLE
+        fitZW! = SCRN.w& / w%
+        fitZH! = SCRN.h& / h%
+        IF fitZW! < fitZH! THEN SCRN.zoom! = fitZW! ELSE SCRN.zoom! = fitZH!
+    END IF
+    SCRN.offsetX% = 0
+    SCRN.offsetY% = 0
+    SCRN.panning% = FALSE
+
+    ' Recalculate symmetry center
+    SYMMETRY.CENTER_X% = w% \ 2
+    SYMMETRY.CENTER_Y% = h% \ 2
+    IF NOT SYMMETRY.CENTER_SET% THEN
+        ' Only auto-center if user hasn't explicitly set center
+    END IF
+
+    ' Redraw grid cache
+    GRID_draw
+
+    ' Mark everything dirty
+    CANVAS_DIRTY% = TRUE
+    BLEND_invalidate_cache
+    SCENE_DIRTY% = TRUE
+    RENDER_ORDER_DIRTY% = TRUE
+    GUI_NEEDS_REDRAW% = TRUE
+    FRAME_IDLE% = FALSE
+
+    _LOGINFO "CANVAS_resize: " + STR$(w%) + "x" + STR$(h%)
+END SUB
+
+
+''
+' Show native input dialog for canvas resize.
+' Prompts user for WxH, parses the response, and calls CANVAS_resize.
+'
+SUB CANVAS_resize_dialog ()
+    DIM currentSize AS STRING
+    DIM response AS STRING
+    DIM xPos AS INTEGER
+    DIM newW AS INTEGER, newH AS INTEGER
+
+    currentSize$ = _TRIM$(STR$(SCRN.canvasW&)) + "x" + _TRIM$(STR$(SCRN.canvasH&))
+
+    POINTER_hide_for_dialog
+    response$ = _INPUTBOX$("Resize Canvas", "Enter new size (WxH):", currentSize$)
+    POINTER_show_after_dialog
+    MOUSE_cleanup_after_dialog FALSE
+
+    IF LEN(response$) = 0 THEN EXIT SUB  ' User cancelled
+
+    ' Parse WxH format (case-insensitive x separator)
+    DIM upper AS STRING
+    upper$ = UCASE$(response$)
+    xPos% = INSTR(upper$, "X")
+    IF xPos% < 2 THEN
+        _LOGWARN "CANVAS_resize_dialog: Invalid format (no x separator): " + response$
+        EXIT SUB
+    END IF
+
+    newW% = VAL(LEFT$(response$, xPos% - 1))
+    newH% = VAL(MID$(response$, xPos% + 1))
+
+    IF newW% < 1 OR newH% < 1 THEN
+        _LOGWARN "CANVAS_resize_dialog: Invalid dimensions: " + response$
+        EXIT SUB
+    END IF
+
+    ' Reasonable upper limit (4096x4096)
+    IF newW% > 4096 THEN newW% = 4096
+    IF newH% > 4096 THEN newH% = 4096
+
+    CANVAS_resize newW%, newH%
+END SUB
+
+
+''
+' Begin crop mode: save previous tool, switch to MARQUEE tool.
+' User draws their own crop region using the marquee (click-drag).
+'
+SUB CROP_begin ()
+    IF CROP.STATE = CROP_STATE_ACTIVE THEN EXIT SUB
+
+    CROP.PREV_TOOL    = CURRENT_TOOL%
+    CROP.STATE        = CROP_STATE_ACTIVE
+
+    ' Switch to marquee tool — the marquee handles ALL box interaction
+    CURRENT_TOOL%     = TOOL_MARQUEE
+    MARQUEE_reset  ' Clear any existing selection so user draws fresh
+
+    FRAME_IDLE% = FALSE
+    SCENE_DIRTY% = TRUE
+    GUI_NEEDS_REDRAW% = TRUE
+
+    _LOGINFO "CROP_begin: Crop mode started (using MARQUEE)"
+END SUB
+
+
+''
+' Cancel crop mode without applying.
+'
+SUB CROP_cancel ()
+    IF CROP.STATE <> CROP_STATE_ACTIVE THEN EXIT SUB
+
+    CROP.STATE  = CROP_STATE_IDLE
+
+    ' Clear the marquee selection
+    MARQUEE_reset
+
+    ' Restore previous tool
+    IF CROP.PREV_TOOL > 0 THEN
+        CURRENT_TOOL% = CROP.PREV_TOOL
+    END IF
+
+    SCENE_DIRTY% = TRUE
+    GUI_NEEDS_REDRAW% = TRUE
+    FRAME_IDLE% = FALSE
+
+    _LOGINFO "CROP_cancel: Crop mode cancelled"
+END SUB
+
+
+''
+' Apply the crop region: resize canvas to marquee box, offsetting content.
+' Reads crop region from MARQUEE.BOX before resetting marquee.
+'
+SUB CROP_apply ()
+    DIM AS INTEGER bx, by, bw, bh, i
+    DIM oldDest AS LONG
+    DIM oldImg AS LONG
+    DIM newImg AS LONG
+
+    IF CROP.STATE <> CROP_STATE_ACTIVE THEN EXIT SUB
+
+    ' Read crop region from MARQUEE.BOX (before we reset it)
+    bx% = MARQUEE.BOX.x
+    by% = MARQUEE.BOX.y
+    bw% = MARQUEE.BOX.w
+    bh% = MARQUEE.BOX.h
+
+    ' If no marquee selection was made, just cancel
+    IF NOT MARQUEE.ACTIVE% THEN
+        CROP_cancel
+        EXIT SUB
+    END IF
+
+    ' Validate
+    IF bw% < 1 OR bh% < 1 THEN
+        CROP_cancel
+        EXIT SUB
+    END IF
+
+    ' If crop region equals full canvas, nothing to do
+    IF bx% = 0 AND by% = 0 AND bw% = SCRN.canvasW& AND bh% = SCRN.canvasH& THEN
+        CROP_cancel
+        EXIT SUB
+    END IF
+
+    ' Cancel active tools and clear the marquee
+    MARQUEE_reset
+    IF IMG_IMPORT.STATE > IMPORT_STATE_IDLE THEN IMAGE_IMPORT_cancel
+    IF CUSTOM_BRUSH_is_active% THEN CUSTOM_BRUSH_reset
+    MOVE_init
+    MAGIC_WAND_reset
+
+    ' Update canvas dimensions
+    SCRN.canvasW& = bw%
+    SCRN.canvasH& = bh%
+
+    ' Recreate PAINTING buffer
+    IF SCRN.PAINTING& < -1 THEN _FREEIMAGE SCRN.PAINTING&
+    SCRN.PAINTING& = _NEWIMAGE(bw%, bh%, 32)
+    oldDest& = _DEST
+    _DEST SCRN.PAINTING&
+    CLS , _RGBA32(0, 0, 0, 0)
+    _DEST oldDest&
+
+    ' Crop each layer: copy region (bx, by, bw, bh) to new image at (0,0)
+    FOR i% = 1 TO 64
+        IF LAYERS(i%).imgHandle& < -1 THEN
+            oldImg& = LAYERS(i%).imgHandle&
+            newImg& = _NEWIMAGE(bw%, bh%, 32)
+            oldDest& = _DEST
+            _DEST newImg&
+            CLS , _RGBA32(0, 0, 0, 0)
+            ' Copy the crop region from old image to (0,0) on new image
+            _PUTIMAGE (0, 0)-(bw% - 1, bh% - 1), oldImg&, newImg&, (bx%, by%)-(bx% + bw% - 1, by% + bh% - 1)
+            _DEST oldDest&
+            _FREEIMAGE oldImg&
+            LAYERS(i%).imgHandle& = newImg&
+            LAYERS(i%).imgWidth% = bw%
+            LAYERS(i%).imgHeight% = bh%
+            LAYERS(i%).contentDirty% = TRUE
+        END IF
+        ' Free opacity cache
+        IF LAYERS(i%).opacityCacheImg& < -1 THEN
+            _FREEIMAGE LAYERS(i%).opacityCacheImg&
+            LAYERS(i%).opacityCacheImg& = 0
+        END IF
+        LAYERS(i%).opacityCacheVal% = 0
+    NEXT i%
+
+    ' Free render caches
+    IF SCENE_CACHE& < -1 THEN _FREEIMAGE SCENE_CACHE&: SCENE_CACHE& = 0
+    IF PG_CACHE_IMG& < -1 THEN _FREEIMAGE PG_CACHE_IMG&: PG_CACHE_IMG& = 0
+    IF COMPOSITE_BUFFER& < -1 THEN _FREEIMAGE COMPOSITE_BUFFER&: COMPOSITE_BUFFER& = 0
+    IF COMPOSITE_BELOW_CACHE& < -1 THEN _FREEIMAGE COMPOSITE_BELOW_CACHE&: COMPOSITE_BELOW_CACHE& = 0
+    COMPOSITE_BELOW_VALID% = FALSE
+
+    ' Free scale originals
+    IF SCALE_ORIGINAL_IMAGE < -1 THEN _FREEIMAGE SCALE_ORIGINAL_IMAGE
+    SCALE_ORIGINAL_IMAGE = 0
+    SCALE_ORIGINAL_LAYER = 0
+    SCALE_FACTOR_LAYER = 1.0
+    IF MOVE.ORIGINAL_IMAGE < -1 THEN _FREEIMAGE MOVE.ORIGINAL_IMAGE
+    MOVE.ORIGINAL_IMAGE = 0
+
+    ' Reset undo
+    UNDO_init
+    WORKSPACE_UNDO_clear
+
+    ' Reset zoom/pan to fit
+    IF bw% <= SCRN.w& AND bh% <= SCRN.h& THEN
+        SCRN.zoom! = 1.0
+    ELSE
+        DIM fitZW AS SINGLE, fitZH AS SINGLE
+        fitZW! = SCRN.w& / bw%
+        fitZH! = SCRN.h& / bh%
+        IF fitZW! < fitZH! THEN SCRN.zoom! = fitZW! ELSE SCRN.zoom! = fitZH!
+    END IF
+    SCRN.offsetX% = 0
+    SCRN.offsetY% = 0
+    SCRN.panning% = FALSE
+
+    ' Recalculate symmetry center
+    SYMMETRY.CENTER_X% = bw% \ 2
+    SYMMETRY.CENTER_Y% = bh% \ 2
+
+    ' Redraw grid
+    GRID_draw
+
+    ' End crop mode
+    CROP.STATE  = CROP_STATE_IDLE
+
+    ' Restore previous tool
+    IF CROP.PREV_TOOL > 0 THEN
+        CURRENT_TOOL% = CROP.PREV_TOOL
+    END IF
+
+    ' Mark dirty
+    CANVAS_DIRTY% = TRUE
+    BLEND_invalidate_cache
+    SCENE_DIRTY% = TRUE
+    RENDER_ORDER_DIRTY% = TRUE
+    GUI_NEEDS_REDRAW% = TRUE
+    FRAME_IDLE% = FALSE
+
+    _LOGINFO "CROP_apply: Cropped to " + STR$(bw%) + "x" + STR$(bh%) + " from (" + STR$(bx%) + "," + STR$(by%) + ")"
+END SUB
+
+
+''
+' Render crop overlay onto destination image.
+' Draws dark overlay outside the marquee region and a size label.
+' The marquee tool handles drawing the marching ants and handles.
+'
+' @param LONG dest Destination image handle (usually SCRN.CANVAS&)
+'
+SUB CROP_render (dest AS LONG)
+    DIM AS INTEGER bx, by, bw, bh
+    DIM AS INTEGER sx1, sy1, sx2, sy2
+    DIM AS INTEGER cw, ch
+    DIM oldDest AS LONG
+    DIM darkClr AS _UNSIGNED LONG
+
+    IF CROP.STATE <> CROP_STATE_ACTIVE THEN EXIT SUB
+
+    ' Only draw overlay if the marquee has an active selection
+    IF NOT MARQUEE.ACTIVE% THEN EXIT SUB
+
+    oldDest& = _DEST
+    _DEST dest&
+
+    ' Read crop region from MARQUEE.BOX
+    bx% = MARQUEE.BOX.x: by% = MARQUEE.BOX.y
+    bw% = MARQUEE.BOX.w: bh% = MARQUEE.BOX.h
+    cw% = SCRN.canvasW&: ch% = SCRN.canvasH&
+
+    IF bw% < 1 OR bh% < 1 THEN
+        _DEST oldDest&
+        EXIT SUB
+    END IF
+
+    ' Calculate canvas-to-screen offset (centering + pan)
+    DIM AS LONG czw, czh
+    DIM AS INTEGER cdx, cdy
+    czw& = cw% * SCRN.zoom!
+    czh& = ch% * SCRN.zoom!
+    cdx% = (SCRN.w& - czw&) \ 2 + SCRN.offsetX%
+    cdy% = (SCRN.h& - czh&) \ 2 + SCRN.offsetY%
+
+    ' Transform crop box to screen coordinates
+    sx1% = INT(bx% * SCRN.zoom!) + cdx%
+    sy1% = INT(by% * SCRN.zoom!) + cdy%
+    sx2% = INT((bx% + bw%) * SCRN.zoom!) + cdx% - 1
+    sy2% = INT((by% + bh%) * SCRN.zoom!) + cdy% - 1
+
+    darkClr~& = _RGBA32(0, 0, 0, 128)
+
+    ' Darken outside crop region (4 rectangles around the crop box)
+    DIM canvasSX1 AS INTEGER, canvasSY1 AS INTEGER
+    DIM canvasSX2 AS INTEGER, canvasSY2 AS INTEGER
+    canvasSX1% = cdx%
+    canvasSY1% = cdy%
+    canvasSX2% = cdx% + czw& - 1
+    canvasSY2% = cdy% + czh& - 1
+
+    ' Top strip
+    IF sy1% > canvasSY1% THEN
+        LINE (canvasSX1%, canvasSY1%)-(canvasSX2%, sy1% - 1), darkClr~&, BF
+    END IF
+    ' Bottom strip
+    IF sy2% < canvasSY2% THEN
+        LINE (canvasSX1%, sy2% + 1)-(canvasSX2%, canvasSY2%), darkClr~&, BF
+    END IF
+    ' Left strip
+    IF sx1% > canvasSX1% THEN
+        LINE (canvasSX1%, sy1%)-(sx1% - 1, sy2%), darkClr~&, BF
+    END IF
+    ' Right strip
+    IF sx2% < canvasSX2% THEN
+        LINE (sx2% + 1, sy1%)-(canvasSX2%, sy2%), darkClr~&, BF
+    END IF
+
+    ' Draw size label above crop boundary
+    DIM sizeLabel AS STRING
+    DIM midX AS INTEGER
+    midX% = (sx1% + sx2%) \ 2
+    sizeLabel$ = _TRIM$(STR$(bw%)) + "x" + _TRIM$(STR$(bh%))
+    DIM labelX AS INTEGER, labelY AS INTEGER
+    labelX% = midX% - (LEN(sizeLabel$) * 4)
+    labelY% = sy1% - 12
+    IF labelY% < 0 THEN labelY% = sy2% + 4
+    COLOR _RGB32(255, 255, 255), _RGBA32(0, 0, 0, 180)
+    _PRINTSTRING (labelX%, labelY%), sizeLabel$
+
+    COLOR , _RGBA32(0, 0, 0, 0)  ' Reset background color
+
+    _DEST oldDest&
 END SUB

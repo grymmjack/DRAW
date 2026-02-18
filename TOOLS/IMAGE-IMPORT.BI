@@ -80,6 +80,13 @@ TYPE IMAGE_IMPORT_OBJ
     LOCK_ASPECT AS INTEGER  ' Lock source aspect ratio
     ASPECT_RATIO AS SINGLE  ' Source aspect ratio (w/h)
     
+    ' Transform state (for lossless rotate/flip/scale from original)
+    ROTATION    AS INTEGER  ' Rotation in degrees: 0, 90, 180, 270
+    FLIP_H      AS INTEGER  ' Flip horizontal flag
+    FLIP_V      AS INTEGER  ' Flip vertical flag
+    SCALE_FACTOR AS SINGLE  ' Cumulative scale factor (1.0 = original)
+    PREVIEW_IMG AS LONG      ' Pre-transformed preview image (rotation/flip applied)
+    
     ' Previous tool (to restore on cancel/apply)
     PREV_TOOL   AS INTEGER
 END TYPE
@@ -109,3 +116,4 @@ DECLARE FUNCTION IMAGE_IMPORT_is_point_inside% (x AS INTEGER, y AS INTEGER)
 DECLARE FUNCTION IMAGE_IMPORT_get_handle_at% (x AS INTEGER, y AS INTEGER)
 DECLARE SUB IMAGE_IMPORT_update_crop_from_zoom ()
 DECLARE SUB IMAGE_IMPORT_clamp_pan ()
+DECLARE SUB IMAGE_IMPORT_rebuild_preview ()
