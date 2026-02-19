@@ -15,7 +15,7 @@ CONST GRID_ALIGN_CENTER = 1      ' Snap to cell centers (4, 12, 20... for 8px gr
 ' Grid geometry modes
 CONST GRID_MODE_SQUARE = 0       ' Standard rectangular grid
 CONST GRID_MODE_DIAGONAL = 1     ' 45-degree diagonal diamond grid
-CONST GRID_MODE_ISOMETRIC = 2    ' Isometric grid (30/60deg diagonals + vertical)
+CONST GRID_MODE_ISOMETRIC = 2    ' 2:1 pixel isometric grid (26.565° diagonals + vertical)
 CONST GRID_MODE_HEX = 3          ' Hexagonal grid
 CONST GRID_MODE_COUNT = 4        ' Total number of modes (for cycling)
 

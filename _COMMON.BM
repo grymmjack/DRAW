@@ -194,30 +194,125 @@ END FUNCTION
 ' @param INTEGER snap_degrees Angle snap increment (15, 30, 45, 90, etc.)
 '
 SUB SNAP_to_angle (start_x AS INTEGER, start_y AS INTEGER, end_x AS INTEGER, end_y AS INTEGER, snap_degrees AS INTEGER)
-    ' Calculate the current angle from start to end point
     DIM dx AS SINGLE, dy AS SINGLE, angle AS SINGLE, distance AS SINGLE
-    DIM snapped_angle AS SINGLE, snap_rad AS SINGLE
-    
+
     dx! = end_x - start_x
     dy! = end_y - start_y
-    
+
     ' If start and end are the same point, nothing to snap
     IF dx! = 0 AND dy! = 0 THEN EXIT SUB
-    
-    ' Calculate angle in degrees (-180 to 180)
-    angle! = _ATAN2(dy!, dx!) * 180 / _PI
-    
-    ' Calculate distance from start to end
-    distance! = SQR(dx! * dx! + dy! * dy!)
-    
-    ' Snap angle to nearest increment
-    snapped_angle! = INT(angle! / snap_degrees + 0.5) * snap_degrees
-    
-    ' Convert back to radians
-    snap_rad! = snapped_angle! * _PI / 180
-    
-    ' Calculate new endpoint at snapped angle with same distance
-    end_x = start_x + INT(COS(snap_rad!) * distance! + 0.5)
-    end_y = start_y + INT(SIN(snap_rad!) * distance! + 0.5)
+
+    IF CFG.ANGLE_SNAP_PIXEL_ART% THEN
+        ' === Pixel Art Angle Snap ===
+        ' Snap to nearest angle from integer slope ratios (0:1 through 5:1)
+        ' which produce clean aliasing-free lines in pixel art.
+        ' Uses the ratio directly to compute endpoints (no trig = pixel perfect).
+        '
+        ' 22 pixel-art angles in full circle (11 per half, mirrored):
+        '   0, 11.31, 14.04, 18.43, 26.57, 45, 63.43, 71.57, 75.96, 78.69, 90
+        '   and their negatives/mirrors
+
+        ' Lookup table: integer slope ratios for first quadrant (0..90 degrees)
+        ' Each entry is (run, rise) where angle = atan2(rise, run)
+        ' Stored as pairs: run(i), rise(i)
+        CONST PA_NUM_ANGLES = 11
+        DIM pa_run(0 TO 10) AS INTEGER
+        DIM pa_rise(0 TO 10) AS INTEGER
+        pa_run(0) = 1:  pa_rise(0) = 0   '  0.00 deg
+        pa_run(1) = 5:  pa_rise(1) = 1   ' 11.31 deg
+        pa_run(2) = 4:  pa_rise(2) = 1   ' 14.04 deg
+        pa_run(3) = 3:  pa_rise(3) = 1   ' 18.43 deg
+        pa_run(4) = 2:  pa_rise(4) = 1   ' 26.57 deg
+        pa_run(5) = 1:  pa_rise(5) = 1   ' 45.00 deg
+        pa_run(6) = 1:  pa_rise(6) = 2   ' 63.43 deg
+        pa_run(7) = 1:  pa_rise(7) = 3   ' 71.57 deg
+        pa_run(8) = 1:  pa_rise(8) = 4   ' 75.96 deg
+        pa_run(9) = 1:  pa_rise(9) = 5   ' 78.69 deg
+        pa_run(10) = 0: pa_rise(10) = 1  ' 90.00 deg
+
+        ' Calculate angle of the line
+        angle! = _ATAN2(dy!, dx!)
+
+        ' Normalize to 0..2*PI
+        IF angle! < 0 THEN angle! = angle! + 2 * _PI
+
+        ' Determine which quadrant and mirror into first quadrant (0..PI/2)
+        DIM qa AS SINGLE
+        DIM quadrant AS INTEGER
+        IF angle! <= _PI / 2 THEN
+            qa! = angle!
+            quadrant% = 0
+        ELSEIF angle! <= _PI THEN
+            qa! = _PI - angle!
+            quadrant% = 1
+        ELSEIF angle! <= 3 * _PI / 2 THEN
+            qa! = angle! - _PI
+            quadrant% = 2
+        ELSE
+            qa! = 2 * _PI - angle!
+            quadrant% = 3
+        END IF
+
+        ' Find closest pixel-art angle in first quadrant
+        DIM bestIdx AS INTEGER, bestDiff AS SINGLE
+        DIM pa_angle AS SINGLE, diff AS SINGLE
+        DIM i AS INTEGER
+        bestIdx% = 0
+        bestDiff! = 999!
+        FOR i% = 0 TO PA_NUM_ANGLES - 1
+            pa_angle! = _ATAN2(CSNG(pa_rise(i%)), CSNG(pa_run(i%)))
+            diff! = ABS(qa! - pa_angle!)
+            IF diff! < bestDiff! THEN
+                bestDiff! = diff!
+                bestIdx% = i%
+            END IF
+        NEXT i%
+
+        ' Get the integer slope ratio
+        DIM bestRun AS INTEGER, bestRise AS INTEGER
+        bestRun% = pa_run(bestIdx%)
+        bestRise% = pa_rise(bestIdx%)
+
+        ' Apply quadrant mirroring to get signed run/rise
+        DIM signedRun AS INTEGER, signedRise AS INTEGER
+        SELECT CASE quadrant%
+            CASE 0: signedRun% = bestRun%:  signedRise% = bestRise%   ' Q1: +x, +y
+            CASE 1: signedRun% = -bestRun%: signedRise% = bestRise%   ' Q2: -x, +y
+            CASE 2: signedRun% = -bestRun%: signedRise% = -bestRise%  ' Q3: -x, -y
+            CASE 3: signedRun% = bestRun%:  signedRise% = -bestRise%  ' Q4: +x, -y
+        END SELECT
+
+        ' Project endpoint using integer ratio (pixel perfect)
+        ' Find the multiplier that gets closest to the original distance
+        distance! = SQR(dx! * dx! + dy! * dy!)
+        DIM stepLen AS SINGLE
+        stepLen! = SQR(CSNG(bestRun% * bestRun% + bestRise% * bestRise%))
+        IF stepLen! < 0.001! THEN stepLen! = 1!  ' safety for 0,0 (shouldn't happen)
+        DIM multiplier AS INTEGER
+        multiplier% = INT(distance! / stepLen! + 0.5!)
+        IF multiplier% < 1 THEN multiplier% = 1
+
+        end_x = start_x + signedRun% * multiplier%
+        end_y = start_y + signedRise% * multiplier%
+    ELSE
+        ' === Degree-based Angle Snap (original behavior) ===
+        DIM snapped_angle AS SINGLE, snap_rad AS SINGLE
+
+        ' Calculate angle in degrees (-180 to 180)
+        angle! = _ATAN2(dy!, dx!) * 180 / _PI
+
+        ' Calculate distance from start to end
+        distance! = SQR(dx! * dx! + dy! * dy!)
+
+        ' Snap angle to nearest increment
+        snapped_angle! = INT(angle! / snap_degrees + 0.5) * snap_degrees
+
+        ' Convert back to radians
+        snap_rad! = snapped_angle! * _PI / 180
+
+        ' Calculate new endpoint at snapped angle with same distance
+        end_x = start_x + INT(COS(snap_rad!) * distance! + 0.5)
+        end_y = start_y + INT(SIN(snap_rad!) * distance! + 0.5)
+    END IF
 END SUB
 

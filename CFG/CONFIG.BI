@@ -39,6 +39,7 @@ TYPE DRAW_CONFIG
     PALETTE_PICKER_CHIP_PADDING    AS INTEGER
     PALETTE_PICKER_COLUMNS         AS INTEGER
     ANGLE_SNAP_DEGREES             AS INTEGER
+    ANGLE_SNAP_PIXEL_ART           AS INTEGER  ' TRUE = snap to pixel-art angles (integer slope ratios)
     ' Layer panel settings
     LAYER_PANEL_WIDTH              AS INTEGER  ' Width of layer panel in pixels (min 100)
     LAYER_NAME_MAX_LEN             AS INTEGER  ' Max layer name length (1-64, default 16)

@@ -14,7 +14,7 @@ OPTION _EXPLICITARRAY
 
 ' Menu bar constants
 CONST MENU_MAX_ITEMS = 200         ' Max menu items across all menus
-CONST MENU_MAX_ROOT = 10           ' Max root-level menu entries
+CONST MENU_MAX_ROOT = 11           ' Max root-level menu entries
 CONST MENU_BAR_HEIGHT = 12         ' 8px Tiny5 font + 4px padding
 CONST MENU_ITEM_HEIGHT = 12        ' Height of each submenu item row
 CONST MENU_DIVIDER_HEIGHT = 5      ' Height of a divider row
