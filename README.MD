@@ -21,13 +21,13 @@ DRAW is a pixel art editor written in QB64PE that can export images as sourcecod
 ### Drawing Tools
 - **Brush** - Continuous freehand painting with adjustable size (1-50px) and shape (circle/square)
 - **Dot** - Single-pixel stamp tool (click to place, no drag painting)
-- **Line** - Draw straight lines with brush size/shape, real-time thick preview
+- **Line** - Draw straight lines with brush size/shape, real-time thick preview, angle snapping
 - **Rectangle** - Draw outlined or filled rectangles with brush size/shape
 - **Ellipse** - Draw outlined or filled ellipses/circles with brush size/shape
-- **Polygon** - Draw outlined or filled multi-point polygons with brush size/shape
+- **Polygon** - Draw outlined or filled multi-point polygons with brush size/shape, angle snapping
 - **Fill** - Flood fill tool
 - **Spray** - Spray paint with brush-shaped nozzle tips, radius doubles per brush size level, custom brush stamp support, SHIFT axis constraint, circle preview
-- **Picker** - Color sampling/eyedropper (hold ALT with any tool for temporary picker)
+- **Picker** - Color sampling/eyedropper (hold ALT with any tool for temporary picker; ALT+left picks FG, ALT+right picks BG)
 - **Marquee** - Rectangular selection with move and resize
 - **Move** - Transform and position selected content with arrow keys, undo support, and ALT+drag clone stamping
 - **Transform** - Universal flip H/V, rotate 90° CW/CCW, scale ±50% — works on layers, selections, or floating moves from any tool
@@ -39,14 +39,16 @@ DRAW is a pixel art editor written in QB64PE that can export images as sourcecod
 - **Reference Image** - Load a high-res image behind the canvas at adjustable opacity for tracing (`Ctrl+R` toggle, `Ctrl+Shift+Wheel` opacity, reposition via View menu); state persisted in `.draw` project files
 - **Image Import** - Load images with interactive placement, rotation (90° CW/CCW), horizontal/vertical flip, zoom, pan, and resize — with live preview of all transformations
 - **Crop** - Interactive canvas crop using marquee selection with dark overlay, resize handles, and size label; also supports canvas resize dialog
-- **Canvas Resize** - Resize canvas to arbitrary dimensions via dialog (Edit menu), preserving layer content at origin
+- **Canvas Resize** - Resize canvas to arbitrary dimensions via dialog (Canvas menu), preserving layer content at origin
+- **Angle Snap** - Two modes: degree-based (configurable 15°/30°/45°/90° increments) and pixel-art (11 integer-ratio angles for clean pixel lines). Hold Ctrl+Shift to snap + bypass grid. Applies to Line, Polygon, and Brush/Dot connecting lines
 
 ### Grid System
 - Adjustable grid overlay (2-50px spacing)
 - Toggle grid visibility with `'` (apostrophe)
 - Pixel grid for precise work at 400%+ zoom (`Shift+'`)
 - Snap-to-grid mode with `;` (semicolon)
-- **4 grid geometry modes**: Square, Diagonal (45°), Isometric (30°/60°), Hexagonal — cycle with `Ctrl+'`
+- **4 grid geometry modes**: Square, Diagonal (45°), Isometric (2:1 pixel art, 26.565°), Hexagonal — cycle with `Ctrl+'`
+- **Ctrl+Shift bypasses grid snap** for freehand placement when snap-to-grid is enabled
 - Grid alignment modes: Corner (snap to intersections) or Center (snap to cell centers) — toggle via View menu
 - **Grid cell fill mode**: Fill tool fills individual grid cells (squares, diamonds, triangles, or hexagons) instead of flood fill — toggle via View menu
 - Dynamic grid sizing with `.` (increase) and `,` (decrease)

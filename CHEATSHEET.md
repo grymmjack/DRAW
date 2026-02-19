@@ -109,7 +109,7 @@ Press `*` (asterisk/star) to **toggle** the foreground color to/from transparent
 |------|------------|-------------|
 | **Square** (default) | (none) | Standard axis-aligned rectangular grid |
 | **Diagonal** | `/DG` | 45° rotated diamond grid |
-| **Isometric** | `/ISO` | 30°/60° isometric triangle grid |
+| **Isometric** | `/ISO` | 2:1 pixel art isometric grid (26.565° diagonals) |
 | **Hex** | `/HEX` | Flat-top hexagonal grid with 45° diagonal sides |
 
 Cycle through modes with `Ctrl+'`. The current mode is shown in the status bar after the grid size (e.g., `G:16/ISO`).
@@ -141,6 +141,8 @@ Toggle via View menu → Grid Tile Mode. Grid alignment affects all snap-to-grid
 - Both grids can be shown simultaneously at high zoom levels
 - Status bar shows grid state: `G:n` (visible) or `G:n S` (snap enabled)
 - Snap-to-grid rounds all drawing coordinates to nearest grid boundary
+- **Ctrl+Shift** bypasses grid snap temporarily (for freehand placement off-grid while snap is enabled)
+- Grid state (mode, snap, alignment, cell fill, size) is preserved in `.draw` project files
 - Grid color, opacity, and angle are configurable in DRAW.cfg and theme files
 
 ## Symmetry Drawing
@@ -258,7 +260,8 @@ When a custom brush is captured (`Ctrl+B`), the spray tool stamps the custom bru
 | Tool | Action | Function |
 |------|--------|----------|
 | **Dot** | Shift + Right Click | Draw line from last point to current |
-| **Picker** | Alt (hold) | Temporarily activate picker (releasing ALT returns to previous tool without opening the menu bar) |
+| **Picker** | Alt + Left Click | Temporarily pick foreground color (returns to previous tool on ALT release) |
+| **Picker** | Alt + Right Click | Temporarily pick background color (returns to previous tool on ALT release) |
 | **Marquee** | Drag handles | Resize selection |
 | **Marquee** | Drag inside | Move selection |
 | **Move** | Drag handles | Scale/resize |
@@ -367,7 +370,8 @@ Brush size and shape affect all drawing tools: Brush, Dot, Line, Rectangle, Elli
 |------|----------|--------|
 | **Line/Rect/Ellipse** | Shift (drag) | Constrain to horizontal/vertical |
 | **Brush/Spray** | Shift (drag) | Constrain to horizontal or vertical axis |
-| **Line/Polygon** | Ctrl+Shift (drag/click) | Snap to angle increments (see Angle Snapping below) |
+| **Line/Polygon** | Ctrl+Shift (drag/click) | Snap to angle increments + bypass grid snap (see Angle Snapping below) |
+| **Brush/Dot** | Ctrl+Shift + Right Click | Connecting line with angle snap (from last point) |
 | **Rectangle** | Ctrl (drag) | Draw perfect square |
 | **Rectangle** | Shift (drag center) | Draw from center |
 | **Ellipse** | Ctrl (drag) | Draw perfect circle |
@@ -375,13 +379,13 @@ Brush size and shape affect all drawing tools: Brush, Dot, Line, Rectangle, Elli
 
 ## Angle Snapping
 
-Precise angle control for line and polygon drawing. Hold **Ctrl+Shift** to snap endpoints to configured angle increments.
+Precise angle control for line, polygon, and connecting-line drawing. Hold **Ctrl+Shift** to snap endpoints to configured angle increments. When grid snap is enabled, Ctrl+Shift also bypasses the grid so you can start lines at any pixel.
 
 ### Controls
 
 | Key | Function |
 |-----|----------|
-| `Ctrl+Shift` (hold while dragging) | Snap line/polygon angles to increments |
+| `Ctrl+Shift` (hold while dragging/clicking) | Snap angles to increments + bypass grid snap |
 
 ### Snap Increments
 
@@ -399,15 +403,17 @@ The default snap angle is **45°** (8 directions), configurable in `DRAW.cfg`:
 ### Supported Tools
 
 - **Line Tool**: Snap endpoint angle while dragging
-- **Polygon Tool**: Snap each segment angle as you click points
+- **Polygon Tool**: Snap each segment angle as you click points (preview shows snapped angle)
 - **Polygon Filled Tool**: Snap each filled polygon segment
+- **Brush/Dot + Shift+Right Click**: Connecting line from last point with angle snap
 
 ### Features
 
 - Preserves line distance while snapping angle
-- Visual feedback shows snapped position in real-time
+- Visual feedback shows snapped position in real-time (including polygon preview)
 - Works with symmetry drawing for complex symmetrical patterns
-- Combines with grid snap for precise positioned + angled lines
+- **Ctrl+Shift bypasses grid snap** — start and end lines at any pixel, even when snap-to-grid is on
+- Pixel art mode uses integer ratios for clean, aliasing-free lines
 
 ## Clipboard Operations
 
@@ -963,7 +969,8 @@ DRAW stores settings in `DRAW.cfg` in the application directory. Settings are lo
 | `CANVAS_W`, `CANVAS_H` | Canvas dimensions |
 | `DISPLAY_SCALE` | Window scale multiplier (1-4) |
 | `FPS_LIMIT` | Frame rate limit |
-| `ANGLE_SNAP_DEGREES` | Angle snap increment for lines/polygons |
+| `ANGLE_SNAP_DEGREES` | Angle snap increment for lines/polygons (degree mode) |
+| `ANGLE_SNAP_PIXEL_ART` | Use pixel-art-friendly integer slope angles (TRUE/FALSE) |
 | `GRID_SIZE` | Grid cell size in pixels |
 | `GRID_COLOR_FG` | Grid line color (hex RGB, 0=use theme) |
 | `GRID_OPACITY` | Grid line opacity 0-255 (0=use theme) |

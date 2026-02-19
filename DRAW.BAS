@@ -241,50 +241,121 @@ SUB MAIN_shutdown ()
     _MOUSESHOW
     SCREEN 0
     CLS
-    
-    ' Free main screen buffers
+
+    ' =====================================================================
+    ' FREE MAIN SCREEN BUFFERS
+    ' =====================================================================
     IF SCRN.CANVAS& < -1 THEN _FREEIMAGE SCRN.CANVAS&
     IF SCRN.PAINTING& < -1 THEN _FREEIMAGE SCRN.PAINTING&
     IF SCRN.GUI& < -1 THEN _FREEIMAGE SCRN.GUI&
     ' SCRN.CURSOR& no longer allocated — cursors draw directly onto SCRN.CANVAS&
-    
-    ' Free cached render buffers
+
+    ' =====================================================================
+    ' FREE CACHED RENDER BUFFERS
+    ' =====================================================================
     IF SCENE_CACHE& < -1 THEN _FREEIMAGE SCENE_CACHE&
     IF PG_CACHE_IMG& < -1 THEN _FREEIMAGE PG_CACHE_IMG&
     IF COMPOSITE_BUFFER& < -1 THEN _FREEIMAGE COMPOSITE_BUFFER&
     IF COMPOSITE_BELOW_CACHE& < -1 THEN _FREEIMAGE COMPOSITE_BELOW_CACHE&
-    
-    ' Free all toolbar button images
-    FOR i% = 0 TO 13
+
+    ' =====================================================================
+    ' FREE TOOLBAR BUTTON IMAGES (0-20, all used slots)
+    ' =====================================================================
+    FOR i% = 0 TO 20
         IF GUI_TB(i%).iHnd& < -1 THEN _FREEIMAGE GUI_TB(i%).iHnd&
         IF GUI_TB(i%).iHndAlt& < -1 THEN _FREEIMAGE GUI_TB(i%).iHndAlt&
     NEXT i%
-    
-    ' Free undo history images
+
+    ' =====================================================================
+    ' FREE UNDO HISTORY IMAGES (pixel + workspace)
+    ' =====================================================================
     UNDO_clear
-    
-    ' Free layer opacity cache images
+    WORKSPACE_UNDO_clear
+
+    ' =====================================================================
+    ' FREE LAYER IMAGES (pixel data + opacity cache)
+    ' =====================================================================
     DIM li AS INTEGER
     FOR li% = 1 TO 64
+        IF LAYERS(li%).imgHandle& < -1 THEN _FREEIMAGE LAYERS(li%).imgHandle&
         IF LAYERS(li%).opacityCacheImg& < -1 THEN _FREEIMAGE LAYERS(li%).opacityCacheImg&
     NEXT li%
-    
-    ' Free move selection image if active
-    IF MOVE.SELECTION_IMAGE < -1 THEN _FREEIMAGE MOVE.SELECTION_IMAGE
-    
-    ' Free custom cursor if loaded (ensure default cursor is shown first)
+
+    ' =====================================================================
+    ' FREE TOOL STATE IMAGES
+    ' =====================================================================
+    ' Move tool
+    IF MOVE.SELECTION_IMAGE& < -1 THEN _FREEIMAGE MOVE.SELECTION_IMAGE&
+    IF MOVE.PREVIEW_BUFFER& < -1 THEN _FREEIMAGE MOVE.PREVIEW_BUFFER&
+    IF MOVE.ORIGINAL_IMAGE& < -1 THEN _FREEIMAGE MOVE.ORIGINAL_IMAGE&
+    IF SCALE_ORIGINAL_IMAGE& < -1 THEN _FREEIMAGE SCALE_ORIGINAL_IMAGE&
+    ' Selection / Clipboard
+    IF CLIPBOARD.IMAGE& < -1 THEN _FREEIMAGE CLIPBOARD.IMAGE&
+    IF MARQUEE.SELECTION_MASK& < -1 THEN _FREEIMAGE MARQUEE.SELECTION_MASK&
+    ' Custom brush
+    IF CUSTOM_BRUSH.IMAGE& < -1 THEN _FREEIMAGE CUSTOM_BRUSH.IMAGE&
+    ' Image import
+    IF IMG_IMPORT.IMAGE& < -1 THEN _FREEIMAGE IMG_IMPORT.IMAGE&
+    IF IMG_IMPORT.PREVIEW_IMG& < -1 THEN _FREEIMAGE IMG_IMPORT.PREVIEW_IMG&
+    ' Reference image
+    IF REFIMG.IMAGE& < -1 THEN _FREEIMAGE REFIMG.IMAGE&
+    ' Stroke opacity backup
+    IF STROKE_BACKUP& < -1 THEN _FREEIMAGE STROKE_BACKUP&
+
+    ' =====================================================================
+    ' FREE GUI OVERLAY IMAGES
+    ' =====================================================================
+    ' Grid system
+    IF GRID.imgHandle& < -1 THEN _FREEIMAGE GRID.imgHandle&
+    IF PIXEL_GRID.imgHandle& < -1 THEN _FREEIMAGE PIXEL_GRID.imgHandle&
+    ' Symmetry guides
+    IF SYMMETRY.imgHandle& < -1 THEN _FREEIMAGE SYMMETRY.imgHandle&
+    ' Transparency checkerboard
+    IF TRANSPARENCY.imgHandle& < -1 THEN _FREEIMAGE TRANSPARENCY.imgHandle&
+
+    ' =====================================================================
+    ' FREE ORGANIZER WIDGET IMAGES
+    ' =====================================================================
+    DIM oi AS INTEGER
+    FOR oi% = 0 TO 7
+        IF ORG_WIDGETS(oi%).imgHandles& < -1 THEN _FREEIMAGE ORG_WIDGETS(oi%).imgHandles&
+        IF ORG_WIDGETS(oi%).imgHandle2& < -1 THEN _FREEIMAGE ORG_WIDGETS(oi%).imgHandle2&
+        IF ORG_WIDGETS(oi%).imgHandle3& < -1 THEN _FREEIMAGE ORG_WIDGETS(oi%).imgHandle3&
+        IF ORG_WIDGETS(oi%).imgHandle4& < -1 THEN _FREEIMAGE ORG_WIDGETS(oi%).imgHandle4&
+    NEXT oi%
+    ' Grid mode/snap organizer icons
+    DIM gi AS INTEGER
+    FOR gi% = 0 TO 3
+        IF GRID_MODE_IMG_OFF&(gi%) < -1 THEN _FREEIMAGE GRID_MODE_IMG_OFF&(gi%)
+        IF GRID_MODE_IMG_ON&(gi%) < -1 THEN _FREEIMAGE GRID_MODE_IMG_ON&(gi%)
+        IF GRID_SNAP_IMG&(gi%) < -1 THEN _FREEIMAGE GRID_SNAP_IMG&(gi%)
+    NEXT gi%
+
+    ' =====================================================================
+    ' FREE BRUSH PRIMITIVE IMAGES
+    ' =====================================================================
+    DIM bi AS INTEGER
+    FOR bi% = LBOUND(BRUSHES) TO UBOUND(BRUSHES)
+        IF BRUSHES(bi%).BRUSH.IMG& < -1 THEN _FREEIMAGE BRUSHES(bi%).BRUSH.IMG&
+    NEXT bi%
+
+    ' =====================================================================
+    ' FREE CURSOR IMAGES + LAYER PANEL ICONS
+    ' =====================================================================
     _MOUSESHOW  ' Ensure using default system cursor before freeing cursors
     CURSOR_cleanup
     LAYER_PANEL_cleanup_icons
-    
-    ' Free Tiny5 font if loaded
-    IF TEXT.FONT_HANDLE > 0 THEN
-        _FREEFONT TEXT.FONT_HANDLE
-    END IF
-    ' Free custom font if loaded
-    IF TEXT.CUSTOM_FONT_HANDLE > 0 THEN
-        _FREEFONT TEXT.CUSTOM_FONT_HANDLE
-    END IF
+
+    ' =====================================================================
+    ' FREE ALL FONT HANDLES
+    ' =====================================================================
+    IF TEXT.FONT_HANDLE& > 0 THEN _FREEFONT TEXT.FONT_HANDLE&
+    IF TEXT.CUSTOM_FONT_HANDLE& > 0 THEN _FREEFONT TEXT.CUSTOM_FONT_HANDLE&
+    IF CMD_FONT_HANDLE& > 0 THEN _FREEFONT CMD_FONT_HANDLE&
+    IF STATUS_FONT& > 0 THEN _FREEFONT STATUS_FONT&
+    IF PALETTE_STRIP_FONT& > 0 THEN _FREEFONT PALETTE_STRIP_FONT&
+    IF MENU_BAR.fontHandle& > 0 THEN _FREEFONT MENU_BAR.fontHandle&
+    IF LAYER_PANEL.fontHandle& > 0 THEN _FREEFONT LAYER_PANEL.fontHandle&
 
     SYSTEM
 END SUB
