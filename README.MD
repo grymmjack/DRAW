@@ -191,9 +191,9 @@ This allows you to maintain separate configurations per platform (e.g., differen
 
 On first launch (or when no config file exists), DRAW auto-detects optimal settings:
 
-- **Display scale** — Calculated from desktop resolution (4K=4x, 1440p=3x, 1080p=2x)
-- **Toolbar scale** — Calculated from viewport height (>=800px=4x, >=600px=3x, >=400px=2x)
-- **Screen dimensions** — Calculated from desktop resolution with margins for OS chrome
+- **Display scale** — Targets 90% of desktop, picks highest integer scale up to 4x where the viewport fits (manual override via `DISPLAY_SCALE` supports up to 8x)
+- **Toolbar scale** — Calculated from viewport height (>=800px=4x, >=600px=3x, >=400px=2x, else 1x)
+- **Screen dimensions** — Viewport = 90% of desktop ÷ scale, rounded to even pixels
 - All auto-detected values are saved to the config file for consistent subsequent launches
 
 ## Building

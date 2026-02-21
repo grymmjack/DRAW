@@ -1053,9 +1053,9 @@ On first launch (or when no config file exists), DRAW auto-detects optimal setti
 
 | Setting | Auto-Detection |
 |---------|----------------|
-| `DISPLAY_SCALE` | 4K=4x, 1440p=3x, 1080p=2x, else 1x |
-| `TOOLBAR_SCALE` | Viewport >=800px=4x, >=600px=3x, >=400px=2x, else 1x |
-| `SCREEN_WIDTH/HEIGHT` | Desktop resolution minus OS chrome margins, rounded to even |
+| `DISPLAY_SCALE` | Targets 90% of desktop, picks highest scale up to 4x (manual override supports up to 8x) |
+| `TOOLBAR_SCALE` | Viewport height >=800px=4x, >=600px=3x, >=400px=2x, else 1x |
+| `SCREEN_WIDTH/HEIGHT` | Viewport = 90% of desktop ÷ scale, rounded to even pixels |
 
 Set any value to `0` in `DRAW.cfg` to re-trigger auto-detection on next launch.
 All auto-detected values are saved to the config file for consistent subsequent launches.

@@ -743,7 +743,16 @@ saved by `CONFIG_save`.
 | Per-op dirs | LAST_DIR_OPEN$, LAST_DIR_SAVE$, LAST_DIR_IMPORT$, LAST_DIR_EXPORT_BRUSH/LAYER$, LAST_DIR_PALETTE$ |
 | Template | TEMPLATE_DIR$ |
 
-Defaults: DOT tool, brush size 1, square shape, 60 FPS, 4x scale, 128×128 canvas, 4 layers.
+Defaults: DOT tool, brush size 1, square shape, 60 FPS, auto-detect scale (90% of desktop, up to 4x cap), 128×128 canvas, 4 layers.
+
+### Auto-Detection (First Launch)
+
+When `DISPLAY_SCALE=0` or no config exists, `SCREEN_detect_display_scale%` targets 90% of
+desktop resolution and finds the highest integer scale (capped at 4) where the viewport is
+at least 320×200. Viewport dimensions = (desktop × 0.9) ÷ scale, rounded to even pixels.
+`TOOLBAR_SCALE=0` auto-detects from viewport height (≥800=4x, ≥600=3x, ≥400=2x, else 1x).
+Manual `DISPLAY_SCALE` supports up to `DISPLAY_SCALE_MAX` (8). All auto-detected values are
+saved to the config file on first launch via `CONFIG_NEEDS_INITIAL_SAVE%`.
 
 ---
 

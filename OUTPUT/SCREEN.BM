@@ -82,49 +82,48 @@ END SUB
 
 
 ''
-' Detects optimal display scale based on desktop resolution
+' Detects optimal display scale based on desktop resolution.
+' Strategy: target ~90% of desktop, find highest scale (up to 4) with usable viewport.
+' Auto-detect caps at 4x; users can set higher manually via DISPLAY_SCALE in config.
 ' Returns scale clamped to CFG.DISPLAY_SCALE_MAX%
 ' 
 FUNCTION SCREEN_detect_display_scale% ()
-    DIM desktopH AS INTEGER
+    DIM desktopW AS LONG, desktopH AS LONG
+    DIM targetW AS LONG, targetH AS LONG
     DIM scale AS INTEGER
-    DIM maxFitW AS INTEGER, maxFitH AS INTEGER
+    DIM vpW AS LONG, vpH AS LONG
     
-    ' Query desktop height without forcing SCREEN 0 creation.
-    ' Retry briefly if SDL2 hasn't initialized the display subsystem yet.
+    ' Query desktop resolution
     DIM dds_retries AS INTEGER
     dds_retries% = 0
     DO
-        desktopH% = _DESKTOPHEIGHT
-        IF desktopH% > 0 THEN EXIT DO
+        desktopW& = _DESKTOPWIDTH
+        desktopH& = _DESKTOPHEIGHT
+        IF desktopW& > 0 AND desktopH& > 0 THEN EXIT DO
         _DELAY 0.01
         dds_retries% = dds_retries% + 1
     LOOP UNTIL dds_retries% >= 100  ' Max 1 second
-    IF desktopH% <= 0 THEN desktopH% = 1080  ' Fallback to 1080p
+    IF desktopW& <= 0 THEN desktopW& = 1280
+    IF desktopH& <= 0 THEN desktopH& = 720
     
-    ' Calculate scale based on desktop height
-    ' 4K (2160+) = 4x, 1440p (1440+) = 3x, 1080p (1080+) = 2x, else 1x
-    IF desktopH% >= 2160 THEN
-        scale% = 4
-    ELSEIF desktopH% >= 1440 THEN
-        scale% = 3
-    ELSEIF desktopH% >= 1080 THEN
-        scale% = 2
-    ELSE
-        scale% = 1
-    END IF
+    ' Target window size = 90% of desktop
+    targetW& = (desktopW& * 9) \ 10
+    targetH& = (desktopH& * 9) \ 10
     
-    ' Clamp to configured maximum
-    IF scale% > CFG.DISPLAY_SCALE_MAX% THEN scale% = CFG.DISPLAY_SCALE_MAX%
+    ' Auto-detect caps at 4x to keep viewport usable (>= ~500x300).
+    ' DISPLAY_SCALE_MAX (up to 8) is for manual override only.
+    DIM autoMax AS INTEGER
+    autoMax% = 4
+    IF CFG.DISPLAY_SCALE_MAX% < autoMax% THEN autoMax% = CFG.DISPLAY_SCALE_MAX%
     
-    ' Also ensure window fits on desktop (leave some margin for taskbar/dock)
-    ' Calculate max scale that fits
-    IF SCRN.w& > 0 AND SCRN.h& > 0 THEN
-        maxFitW% = (_DESKTOPWIDTH - 100) \ SCRN.w&
-        maxFitH% = (_DESKTOPHEIGHT - 100) \ SCRN.h&
-        IF maxFitW% < scale% THEN scale% = maxFitW%
-        IF maxFitH% < scale% THEN scale% = maxFitH%
-    END IF
+    ' Find highest scale (up to autoMax) where viewport >= 320x200
+    scale% = autoMax%
+    DO WHILE scale% > 1
+        vpW& = targetW& \ scale%
+        vpH& = targetH& \ scale%
+        IF vpW& >= 320 AND vpH& >= 200 THEN EXIT DO
+        scale% = scale% - 1
+    LOOP
     
     ' Minimum scale is 1
     IF scale% < 1 THEN scale% = 1
@@ -155,9 +154,9 @@ SUB SCREEN_set_display_scale (newScale AS INTEGER)
         clampedScale% = CFG.DISPLAY_SCALE_MAX%
     END IF
     
-    ' Clamp to fit on desktop (leave margin for taskbar/dock)
-    maxFitW% = (_DESKTOPWIDTH - 100) \ SCRN.w&
-    maxFitH% = (_DESKTOPHEIGHT - 100) \ SCRN.h&
+    ' Clamp to fit on desktop (~90% of desktop)
+    maxFitW% = ((_DESKTOPWIDTH * 9) \ 10) \ SCRN.w&
+    maxFitH% = ((_DESKTOPHEIGHT * 9) \ 10) \ SCRN.h&
     IF clampedScale% > maxFitW% THEN clampedScale% = maxFitW%
     IF clampedScale% > maxFitH% THEN clampedScale% = maxFitH%
     
@@ -168,9 +167,14 @@ SUB SCREEN_set_display_scale (newScale AS INTEGER)
     SCRN.displayScale% = clampedScale%
     
     ' Resize window — GPU scaling via $RESIZE:STRETCH handles the rest
+    ' Move to upper-left first so macOS doesn't constrain the expanded size
     winW& = SCRN.w& * SCRN.displayScale%
     winH& = SCRN.h& * SCRN.displayScale%
+    _SCREENMOVE 0, 0
+    _DELAY 0.02
     glutReshapeWindow winW&, winH&
+    _DELAY 0.05
+    _SCREENMOVE _MIDDLE
     
     ' Reset input state after window resize
     MOUSE_cleanup_after_dialog FALSE  ' Clear buffers but don't move mouse (no dialog, but same cleanup needed)
@@ -219,13 +223,14 @@ SUB SCREEN_init ()
         SCRN.w& = CFG.SCREEN_WIDTH%
         SCRN.h& = CFG.SCREEN_HEIGHT%
     ELSE
-        ' Auto-detect: derive viewport from desktop resolution / display scale
-        ' SCRN.w/h are the internal viewport (pixel-art resolution), NOT window pixels.
-        ' The viewport gets GPU-scaled by displayScale to fill the actual window.
-        ' Subtract margin for OS chrome (macOS: menu bar ~25 + title bar ~28 + dock ~80 + buffer)
+        ' Auto-detect: target window = 90% of desktop, viewport = target / scale.
+        ' This makes the window as big as possible while staying ~10% from edges.
         SCREEN_detect_desktop_resolution
-        SCRN.w& = (SCRN.w& - 100) \ SCRN.displayScale%
-        SCRN.h& = (SCRN.h& - 150) \ SCRN.displayScale%
+        DIM targetW AS LONG, targetH AS LONG
+        targetW& = (SCRN.w& * 9) \ 10
+        targetH& = (SCRN.h& * 9) \ 10
+        SCRN.w& = targetW& \ SCRN.displayScale%
+        SCRN.h& = targetH& \ SCRN.displayScale%
         ' Round down to nearest even number for clean GPU scaling
         SCRN.w& = (SCRN.w& \ 2) * 2
         SCRN.h& = (SCRN.h& \ 2) * 2
@@ -245,13 +250,12 @@ SUB SCREEN_init ()
         SCRN.h& = CFG.WIN_MAX_HEIGHT%
     END IF
     
-    ' Ensure window (viewport * scale) fits on desktop with room for OS chrome.
-    ' Applies to both auto-detected and explicit config values.
+    ' Ensure window (viewport * scale) fits on desktop (~90% target).
     ' If the window would exceed the desktop, reduce scale first (keep viewport),
     ' then shrink viewport if still too big at scale 1.
     DIM initMaxW AS LONG, initMaxH AS LONG
-    initMaxW& = _DESKTOPWIDTH - 100
-    initMaxH& = _DESKTOPHEIGHT - 150
+    initMaxW& = (_DESKTOPWIDTH * 9) \ 10
+    initMaxH& = (_DESKTOPHEIGHT * 9) \ 10
     IF initMaxW& < 320 THEN initMaxW& = 320
     IF initMaxH& < 200 THEN initMaxH& = 200
     DO WHILE (SCRN.w& * SCRN.displayScale% > initMaxW& OR _
@@ -317,9 +321,18 @@ SUB SCREEN_init ()
     _DEST SCRN.CANVAS&
     
     ' Set window to scaled size (GPU texture scaling, no software _PUTIMAGE)
+    ' CRITICAL: On macOS, SCREEN creates window at viewport size (small), then
+    ' glutReshapeWindow expands it. If the small window is centered, the expansion
+    ' can push edges off-screen. macOS constrains the window, resulting in a size
+    ' that is NOT an integer multiple of the viewport → blurry GPU stretching.
+    ' Fix: move window to upper-left first so there's room to expand.
     winW& = SCRN.w& * SCRN.displayScale%
     winH& = SCRN.h& * SCRN.displayScale%
+    _SCREENMOVE 0, 0
+    _DELAY 0.02  ' Let macOS process the move before resize
     glutReshapeWindow winW&, winH&
+    _DELAY 0.05  ' Let macOS finalize window geometry
+    _SCREENMOVE _MIDDLE  ' Center the properly-sized window
     
     ' Set window icon (cross-platform via SDL2)
     DIM iconHandle AS LONG
