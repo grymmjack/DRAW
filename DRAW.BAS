@@ -12,7 +12,7 @@
 $RESIZE:STRETCH
 '$CONSOLE
 $EXEICON:'./ASSETS/ICONS/icon.ico'
-  
+
 ' Parse command line arguments (just store filename, load after first frame)
 ' --config / -c args are already consumed by CONFIG.BI inline code
 DIM cmdArg$

@@ -63,8 +63,21 @@ END FUNCTION
 ' Detects the resolution of the desktop and sets the width and height to It
 ' 
 SUB SCREEN_detect_desktop_resolution()
-    DO: _LIMIT CFG.FPS_LIMIT% : LOOP UNTIL _SCREENEXISTS
-    SCRN.w& = _DESKTOPWIDTH : SCRN.h& = _DESKTOPHEIGHT
+    ' Query desktop resolution without forcing SCREEN 0 creation.
+    ' _DESKTOPWIDTH/_DESKTOPHEIGHT query the OS display directly.
+    ' Retry briefly if SDL2 hasn't initialized the display subsystem yet.
+    DIM ddr_retries AS INTEGER
+    ddr_retries% = 0
+    DO
+        SCRN.w& = _DESKTOPWIDTH
+        SCRN.h& = _DESKTOPHEIGHT
+        IF SCRN.w& > 0 AND SCRN.h& > 0 THEN EXIT DO
+        _DELAY 0.01
+        ddr_retries% = ddr_retries% + 1
+    LOOP UNTIL ddr_retries% >= 100  ' Max 1 second
+    ' Fallback if detection failed
+    IF SCRN.w& <= 0 THEN SCRN.w& = 640
+    IF SCRN.h& <= 0 THEN SCRN.h& = 400
 END SUB
 
 
@@ -77,12 +90,17 @@ FUNCTION SCREEN_detect_display_scale% ()
     DIM scale AS INTEGER
     DIM maxFitW AS INTEGER, maxFitH AS INTEGER
     
-    ' Wait for screen to exist and get valid desktop dimensions
-    DO: _LIMIT CFG.FPS_LIMIT% : LOOP UNTIL _SCREENEXISTS
+    ' Query desktop height without forcing SCREEN 0 creation.
+    ' Retry briefly if SDL2 hasn't initialized the display subsystem yet.
+    DIM dds_retries AS INTEGER
+    dds_retries% = 0
     DO
         desktopH% = _DESKTOPHEIGHT
-        IF desktopH% <= 0 THEN _DELAY 0.01
-    LOOP UNTIL desktopH% > 0
+        IF desktopH% > 0 THEN EXIT DO
+        _DELAY 0.01
+        dds_retries% = dds_retries% + 1
+    LOOP UNTIL dds_retries% >= 100  ' Max 1 second
+    IF desktopH% <= 0 THEN desktopH% = 1080  ' Fallback to 1080p
     
     ' Calculate scale based on desktop height
     ' 4K (2160+) = 4x, 1440p (1440+) = 3x, 1080p (1080+) = 2x, else 1x
@@ -179,14 +197,35 @@ SUB SCREEN_init ()
     SCRN.h&   = 0
     SCRN.bpp% = 0
     
+    ' Determine display scale FIRST (needed for auto-detect viewport sizing)
+    IF CFG.DISPLAY_SCALE% > 0 THEN
+        ' Use explicit scale from config
+        SCRN.displayScale% = CFG.DISPLAY_SCALE%
+        ' Clamp to max
+        IF SCRN.displayScale% > CFG.DISPLAY_SCALE_MAX% THEN
+            SCRN.displayScale% = CFG.DISPLAY_SCALE_MAX%
+        END IF
+    ELSE
+        ' Auto-detect optimal scale
+        SCRN.displayScale% = SCREEN_detect_display_scale%
+    END IF
+    
+    ' Ensure minimum scale of 1
+    IF SCRN.displayScale% < 1 THEN SCRN.displayScale% = 1
+    
     ' Get screen dimensions from config or auto-detect
     IF CFG.SCREEN_WIDTH% > 0 AND CFG.SCREEN_HEIGHT% > 0 THEN
-        ' Use configured dimensions
+        ' Use configured dimensions (these are viewport/internal pixels)
         SCRN.w& = CFG.SCREEN_WIDTH%
         SCRN.h& = CFG.SCREEN_HEIGHT%
     ELSE
-        ' Auto-detect desktop resolution
+        ' Auto-detect: derive viewport from desktop resolution / display scale
+        ' SCRN.w/h are the internal viewport (pixel-art resolution), NOT window pixels.
+        ' The viewport gets GPU-scaled by displayScale to fill the actual window.
+        ' Subtract margin for OS chrome (macOS menu bar + dock + title bar, Win taskbar)
         SCREEN_detect_desktop_resolution
+        SCRN.w& = (SCRN.w& - 100) \ SCRN.displayScale%
+        SCRN.h& = (SCRN.h& - 120) \ SCRN.displayScale%
     END IF
     
     ' Enforce WIN_MIN/MAX on initial viewport
@@ -203,21 +242,23 @@ SUB SCREEN_init ()
         SCRN.h& = CFG.WIN_MAX_HEIGHT%
     END IF
     
-    ' Determine display scale
-    IF CFG.DISPLAY_SCALE% > 0 THEN
-        ' Use explicit scale from config
-        SCRN.displayScale% = CFG.DISPLAY_SCALE%
-        ' Clamp to max
-        IF SCRN.displayScale% > CFG.DISPLAY_SCALE_MAX% THEN
-            SCRN.displayScale% = CFG.DISPLAY_SCALE_MAX%
-        END IF
-    ELSE
-        ' Auto-detect optimal scale
-        SCRN.displayScale% = SCREEN_detect_display_scale%
-    END IF
-    
-    ' Ensure minimum scale of 1
-    IF SCRN.displayScale% < 1 THEN SCRN.displayScale% = 1
+    ' Ensure window (viewport * scale) fits on desktop with room for OS chrome.
+    ' Applies to both auto-detected and explicit config values.
+    ' If the window would exceed the desktop, reduce scale first (keep viewport),
+    ' then shrink viewport if still too big at scale 1.
+    DIM initMaxW AS LONG, initMaxH AS LONG
+    initMaxW& = _DESKTOPWIDTH - 100
+    initMaxH& = _DESKTOPHEIGHT - 120
+    IF initMaxW& < 320 THEN initMaxW& = 320
+    IF initMaxH& < 200 THEN initMaxH& = 200
+    DO WHILE (SCRN.w& * SCRN.displayScale% > initMaxW& OR _
+              SCRN.h& * SCRN.displayScale% > initMaxH&) AND _
+             SCRN.displayScale% > 1
+        SCRN.displayScale% = SCRN.displayScale% - 1
+    LOOP
+    ' If still too big at scale 1, shrink viewport to fit
+    IF SCRN.w& > initMaxW& THEN SCRN.w& = initMaxW&
+    IF SCRN.h& > initMaxH& THEN SCRN.h& = initMaxH&
     
     ' Canvas dimensions start equal to screen buffer at init
     SCRN.canvasW& = SCRN.w&
