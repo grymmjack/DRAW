@@ -24,7 +24,7 @@ $IF MAC THEN
     cmdArg$ = _TRIM$(ENVIRON$("DRAW_OPEN_FILE"))
     IF cmdArg$ = "" THEN
         ' Fallback: check COMMAND$ for direct terminal launch
-        ' Skip --config / -c and its value when looking for file args
+        ' Skip --config / -c and its value, and --config-upgrade when looking for file args
         DIM macArgIdx%
         macArgIdx% = 1
         DO WHILE macArgIdx% <= _COMMANDCOUNT
@@ -32,6 +32,8 @@ $IF MAC THEN
             macArgVal$ = _TRIM$(COMMAND$(macArgIdx%))
             IF LCASE$(macArgVal$) = "--config" OR LCASE$(macArgVal$) = "-c" THEN
                 macArgIdx% = macArgIdx% + 2 ' Skip flag + value
+            ELSEIF LCASE$(macArgVal$) = "--config-upgrade" THEN
+                macArgIdx% = macArgIdx% + 1 ' Skip flag only
             ELSE
                 cmdArg$ = macArgVal$
                 EXIT DO
@@ -39,7 +41,7 @@ $IF MAC THEN
         LOOP
     END IF
 $ELSE
-    ' Skip --config / -c and its value when looking for file args
+    ' Skip --config / -c and its value, and --config-upgrade when looking for file args
     DIM argIdx%
     argIdx% = 1
     DO WHILE argIdx% <= _COMMANDCOUNT
@@ -47,6 +49,8 @@ $ELSE
         argVal$ = _TRIM$(COMMAND$(argIdx%))
         IF LCASE$(argVal$) = "--config" OR LCASE$(argVal$) = "-c" THEN
             argIdx% = argIdx% + 2 ' Skip flag + value
+        ELSEIF LCASE$(argVal$) = "--config-upgrade" THEN
+            argIdx% = argIdx% + 1 ' Skip flag only
         ELSE
             cmdArg$ = argVal$
             EXIT DO

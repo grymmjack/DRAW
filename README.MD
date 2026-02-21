@@ -149,6 +149,53 @@ Supported formats:
 - **.draw** - DRAW project files (preserves layers, blend modes, palette, tool states)
 - **.png, .bmp, .jpg, .jpeg, .gif** - Image files (loads into current layer)
 
+### Command Line Options
+
+| Argument | Description |
+|----------|-------------|
+| `--config <file>` / `-c <file>` | Load a specific config file instead of the default |
+| `--config-upgrade` | Reconcile existing config with latest defaults (adds missing keys) |
+
+```bash
+# Use a specific config file
+./DRAW.run --config DRAW.macOS.cfg
+
+# Short form
+./DRAW.run -c DRAW.linux.cfg
+
+# Upgrade an existing config with new default settings
+./DRAW.run --config-upgrade
+
+# Upgrade a specific config file
+./DRAW.run -c DRAW.macOS.cfg --config-upgrade
+
+# Combine with a project file
+./DRAW.run -c DRAW.macOS.cfg myproject.draw
+```
+
+### OS-Specific Configuration
+
+DRAW automatically detects the operating system and looks for a platform-specific config file before falling back to `DRAW.cfg`:
+
+| OS | Config File | Fallback |
+|----|-------------|----------|
+| macOS | `DRAW.macOS.cfg` | `DRAW.cfg` |
+| Linux | `DRAW.linux.cfg` | `DRAW.cfg` |
+| Windows | `DRAW.windows.cfg` | `DRAW.cfg` |
+
+**Priority order:** `--config` argument > OS-specific config > `DRAW.cfg`
+
+This allows you to maintain separate configurations per platform (e.g., different display scales, toolbar sizes) while sharing the same project directory across platforms.
+
+### Auto-Detection
+
+On first launch (or when no config file exists), DRAW auto-detects optimal settings:
+
+- **Display scale** — Calculated from desktop resolution (4K=4x, 1440p=3x, 1080p=2x)
+- **Toolbar scale** — Calculated from viewport height (>=800px=4x, >=600px=3x, >=400px=2x)
+- **Screen dimensions** — Calculated from desktop resolution with margins for OS chrome
+- All auto-detected values are saved to the config file for consistent subsequent launches
+
 ## Building
 
 ```bash

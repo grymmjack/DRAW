@@ -10,6 +10,17 @@ $INCLUDEONCE
 ' Default config filename (can be overridden by --config / -c command line arg)
 CONST CONFIG_FILE_DEFAULT$ = "DRAW.cfg"
 
+' OS-specific config filenames (checked before falling back to DRAW.cfg)
+$IF MAC THEN
+    CONST CONFIG_FILE_OS_SPECIFIC$ = "DRAW.macOS.cfg"
+$ELSEIF LINUX THEN
+    CONST CONFIG_FILE_OS_SPECIFIC$ = "DRAW.linux.cfg"
+$ELSEIF WIN THEN
+    CONST CONFIG_FILE_OS_SPECIFIC$ = "DRAW.windows.cfg"
+$ELSE
+    CONST CONFIG_FILE_OS_SPECIFIC$ = ""
+$END IF
+
 ' Runtime config file path (set by command-line parsing below)
 DIM SHARED CONFIG_FILE_PATH$
 CONFIG_FILE_PATH$ = CONFIG_FILE_DEFAULT$
@@ -18,8 +29,12 @@ CONFIG_FILE_PATH$ = CONFIG_FILE_DEFAULT$
 DIM SHARED CMDLINE_CONFIG_ARG_COUNT%
 CMDLINE_CONFIG_ARG_COUNT% = 0
 
-' Parse --config / -c from command line BEFORE CONFIG_load runs
-' (CONFIG_load is called from SCREEN_init in SCREEN.BI, which is included after this)
+' Flag: TRUE if --config-upgrade was requested
+DIM SHARED CMDLINE_CONFIG_UPGRADE%
+CMDLINE_CONFIG_UPGRADE% = FALSE
+
+' Parse command-line args: --config / -c, --config-upgrade
+' (Executed at include time, BEFORE CONFIG_load runs from SCREEN_init)
 DIM CONFIG_cmdArgIdx%
 DIM CONFIG_cmdArgCount%
 DIM CONFIG_cmdArgVal$
@@ -27,7 +42,13 @@ CONFIG_cmdArgCount% = _COMMANDCOUNT
 CONFIG_cmdArgIdx% = 1
 DO WHILE CONFIG_cmdArgIdx% <= CONFIG_cmdArgCount%
     CONFIG_cmdArgVal$ = _TRIM$(COMMAND$(CONFIG_cmdArgIdx%))
-    IF LCASE$(CONFIG_cmdArgVal$) = "--config" OR LCASE$(CONFIG_cmdArgVal$) = "-c" THEN
+
+    IF LCASE$(CONFIG_cmdArgVal$) = "--config-upgrade" THEN
+        CMDLINE_CONFIG_UPGRADE% = TRUE
+        CMDLINE_CONFIG_ARG_COUNT% = CMDLINE_CONFIG_ARG_COUNT% + 1
+        CONFIG_cmdArgIdx% = CONFIG_cmdArgIdx% + 1
+
+    ELSEIF LCASE$(CONFIG_cmdArgVal$) = "--config" OR LCASE$(CONFIG_cmdArgVal$) = "-c" THEN
         ' Found --config / -c flag
         IF CONFIG_cmdArgIdx% + 1 <= CONFIG_cmdArgCount% THEN
             ' Next argument is the config file path
@@ -36,7 +57,7 @@ DO WHILE CONFIG_cmdArgIdx% <= CONFIG_cmdArgCount%
             IF LEFT$(CONFIG_FILE_PATH$, 1) = CHR$(34) AND RIGHT$(CONFIG_FILE_PATH$, 1) = CHR$(34) THEN
                 CONFIG_FILE_PATH$ = MID$(CONFIG_FILE_PATH$, 2, LEN(CONFIG_FILE_PATH$) - 2)
             END IF
-            CMDLINE_CONFIG_ARG_COUNT% = 2 ' --config + value = 2 args consumed
+            CMDLINE_CONFIG_ARG_COUNT% = CMDLINE_CONFIG_ARG_COUNT% + 2 ' --config + value
 
             ' Check if the specified config file exists
             IF NOT _FILEEXISTS(CONFIG_FILE_PATH$) THEN
@@ -48,7 +69,6 @@ DO WHILE CONFIG_cmdArgIdx% <= CONFIG_cmdArgCount%
                     "Create it with default settings?", "yesno", "warning")
                 IF CONFIG_msgResult% = 1 THEN
                     ' User chose Yes - will be created by CONFIG_load with defaults
-                    ' (CONFIG_load checks _FILEEXISTS and calls CONFIG_save if missing)
                 ELSE
                     ' User chose No - exit program
                     SYSTEM
@@ -63,10 +83,23 @@ DO WHILE CONFIG_cmdArgIdx% <= CONFIG_cmdArgCount%
                 "       DRAW -c DRAW.linux.cfg", "ok", "error")
             SYSTEM
         END IF
-        EXIT DO
+        CONFIG_cmdArgIdx% = CONFIG_cmdArgIdx% + 2
+
+    ELSE
+        CONFIG_cmdArgIdx% = CONFIG_cmdArgIdx% + 1
     END IF
-    CONFIG_cmdArgIdx% = CONFIG_cmdArgIdx% + 1
 LOOP
+
+' OS-specific config auto-detection (only if --config was NOT explicitly passed)
+' Priority: --config arg > OS-specific file > DRAW.cfg
+IF CMDLINE_CONFIG_ARG_COUNT% = 0 OR (CMDLINE_CONFIG_UPGRADE% AND CMDLINE_CONFIG_ARG_COUNT% = 1) THEN
+    ' No --config was specified — check for OS-specific config file
+    IF CONFIG_FILE_OS_SPECIFIC$ <> "" THEN
+        IF _FILEEXISTS(CONFIG_FILE_OS_SPECIFIC$) THEN
+            CONFIG_FILE_PATH$ = CONFIG_FILE_OS_SPECIFIC$
+        END IF
+    END IF
+END IF
 
 TYPE DRAW_CONFIG
     THEME                          AS STRING
@@ -153,6 +186,7 @@ DIM SHARED CONFIG_NEEDS_INITIAL_SAVE%  ' Deferred save flag: set when config fil
 DECLARE SUB CONFIG_load ()
 DECLARE SUB CONFIG_save ()
 DECLARE SUB CONFIG_set_defaults ()
+DECLARE SUB CONFIG_upgrade ()
 DECLARE SUB CONFIG_apply_startup_defaults ()
 DECLARE SUB CONFIG_validate_palette_strip ()
 DECLARE FUNCTION CONFIG_extract_dir$ (filepath AS STRING)

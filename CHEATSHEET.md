@@ -967,7 +967,12 @@ DRAW stores settings in `DRAW.cfg` in the application directory. Settings are lo
 | Setting | Description |
 |---------|-------------|
 | `CANVAS_W`, `CANVAS_H` | Canvas dimensions |
-| `DISPLAY_SCALE` | Window scale multiplier (1-4) |
+| `DISPLAY_SCALE` | Window scale multiplier (0=auto-detect, 1-8=explicit) |
+| `DISPLAY_SCALE_MAX` | Maximum allowed display scale (1-8, default 8) |
+| `TOOLBAR_SCALE` | Toolbar icon scale (0=auto-detect, 1-4=explicit) |
+| `SCREEN_WIDTH`, `SCREEN_HEIGHT` | Viewport dimensions (0=auto-detect from desktop) |
+| `WIN_MIN_WIDTH`, `WIN_MIN_HEIGHT` | Minimum viewport size (0=default 320x200) |
+| `WIN_MAX_WIDTH`, `WIN_MAX_HEIGHT` | Maximum viewport size (0=unlimited) |
 | `FPS_LIMIT` | Frame rate limit |
 | `ANGLE_SNAP_DEGREES` | Angle snap increment for lines/polygons (degree mode) |
 | `ANGLE_SNAP_PIXEL_ART` | Use pixel-art-friendly integer slope angles (TRUE/FALSE) |
@@ -1007,6 +1012,53 @@ DRAW can be launched with a file argument to automatically load an image or proj
 | `.png, .bmp, .jpg, .gif` | Loads image into current layer |
 
 If the image is larger than the canvas, import placement mode is activated automatically.
+
+### Command Line Options
+
+| Argument | Description |
+|----------|-------------|
+| `--config <file>` / `-c <file>` | Load a specific config file instead of the default |
+| `--config-upgrade` | Reconcile existing config with latest defaults (adds missing keys) |
+
+```bash
+# Use a specific config file
+./DRAW.run --config DRAW.macOS.cfg
+./DRAW.run -c DRAW.linux.cfg
+
+# Upgrade config with any new default settings
+./DRAW.run --config-upgrade
+
+# Upgrade a specific config file
+./DRAW.run -c DRAW.macOS.cfg --config-upgrade
+
+# Combine config with a project file
+./DRAW.run -c DRAW.macOS.cfg myproject.draw
+```
+
+### OS-Specific Configuration
+
+DRAW auto-detects the OS and looks for a platform-specific config before falling back to `DRAW.cfg`:
+
+| OS | Auto-Detected Config | Fallback |
+|----|---------------------|----------|
+| macOS | `DRAW.macOS.cfg` | `DRAW.cfg` |
+| Linux | `DRAW.linux.cfg` | `DRAW.cfg` |
+| Windows | `DRAW.windows.cfg` | `DRAW.cfg` |
+
+**Priority:** `--config` argument > OS-specific config > `DRAW.cfg`
+
+### Auto-Detection (First Launch)
+
+On first launch (or when no config file exists), DRAW auto-detects optimal settings:
+
+| Setting | Auto-Detection |
+|---------|----------------|
+| `DISPLAY_SCALE` | 4K=4x, 1440p=3x, 1080p=2x, else 1x |
+| `TOOLBAR_SCALE` | Viewport >=800px=4x, >=600px=3x, >=400px=2x, else 1x |
+| `SCREEN_WIDTH/HEIGHT` | Desktop resolution minus OS chrome margins, rounded to even |
+
+Set any value to `0` in `DRAW.cfg` to re-trigger auto-detection on next launch.
+All auto-detected values are saved to the config file for consistent subsequent launches.
 
 ## macOS Platform Notes
 

@@ -322,6 +322,11 @@ SUB CONFIG_load ()
     
     ' Validate all configuration settings
     CFG_validate
+
+    ' If --config-upgrade was requested, upgrade config after loading
+    IF CMDLINE_CONFIG_UPGRADE% THEN
+        CONFIG_upgrade
+    END IF
 END SUB
 
 
@@ -1138,6 +1143,142 @@ SUB RECENT_clear ()
     NEXT rc_i%
     RECENT_FILE_COUNT% = 0
     CONFIG_save
+END SUB
+
+
+''
+' Upgrade an existing config file by adding any missing keys from the current defaults.
+' Reads the existing config to find which keys are present, generates a fresh default
+' config, identifies missing keys (with their comments), and appends them.
+' Shows a message box informing the user what was added.
+'
+SUB CONFIG_upgrade ()
+    DIM fh AS INTEGER
+    DIM configLine AS STRING
+    DIM configKey AS STRING
+    DIM eqPos AS INTEGER
+
+    ' --- Step 1: Collect existing keys from current config file ---
+    CONST MAX_KEYS = 200
+    DIM existingKeys(1 TO MAX_KEYS) AS STRING
+    DIM existingKeyCount AS INTEGER
+    existingKeyCount% = 0
+
+    IF NOT _FILEEXISTS(CONFIG_FILE_PATH$) THEN
+        ' Nothing to upgrade — file doesn't exist yet, CONFIG_load will create it
+        EXIT SUB
+    END IF
+
+    fh% = FREEFILE
+    OPEN CONFIG_FILE_PATH$ FOR INPUT AS #fh%
+    DO WHILE NOT EOF(fh%)
+        LINE INPUT #fh%, configLine$
+        configLine$ = _TRIM$(configLine$)
+        ' Skip empty/comment lines
+        IF LEN(configLine$) > 0 AND LEFT$(configLine$, 1) <> "#" AND LEFT$(configLine$, 1) <> ";" THEN
+            eqPos% = INSTR(configLine$, "=")
+            IF eqPos% > 0 THEN
+                configKey$ = UCASE$(_TRIM$(LEFT$(configLine$, eqPos% - 1)))
+                IF existingKeyCount% < MAX_KEYS THEN
+                    existingKeyCount% = existingKeyCount% + 1
+                    existingKeys(existingKeyCount%) = configKey$
+                END IF
+            END IF
+        END IF
+    LOOP
+    CLOSE #fh%
+
+    ' --- Step 2: Generate fresh default config into a temp file ---
+    DIM tempPath AS STRING
+    tempPath$ = CONFIG_FILE_PATH$ + ".upgrade_tmp"
+
+    ' Temporarily swap config path to write defaults to temp file
+    DIM savedPath AS STRING
+    savedPath$ = CONFIG_FILE_PATH$
+    CONFIG_FILE_PATH$ = tempPath$
+    CONFIG_save
+    CONFIG_FILE_PATH$ = savedPath$
+
+    ' --- Step 3: Read temp file, find lines whose keys are missing ---
+    DIM missingLines AS STRING  ' Accumulated lines to append (with comments)
+    DIM missingKeys AS STRING   ' List of missing key names for the message
+    DIM pendingComments AS STRING ' Comment lines that precede a key
+    DIM missingCount AS INTEGER
+    missingLines$ = ""
+    missingKeys$ = ""
+    pendingComments$ = ""
+    missingCount% = 0
+
+    fh% = FREEFILE
+    OPEN tempPath$ FOR INPUT AS #fh%
+    DO WHILE NOT EOF(fh%)
+        LINE INPUT #fh%, configLine$
+
+        ' Track comments/blanks — they might be headers for the next key
+        IF LEN(_TRIM$(configLine$)) = 0 OR LEFT$(_TRIM$(configLine$), 1) = "#" OR LEFT$(_TRIM$(configLine$), 1) = ";" THEN
+            pendingComments$ = pendingComments$ + configLine$ + CHR$(10)
+        ELSE
+            ' This is a key=value line
+            eqPos% = INSTR(configLine$, "=")
+            IF eqPos% > 0 THEN
+                configKey$ = UCASE$(_TRIM$(LEFT$(configLine$, eqPos% - 1)))
+
+                ' Check if this key exists in the original config
+                DIM keyFound AS INTEGER
+                DIM ki AS INTEGER
+                keyFound% = FALSE
+                FOR ki% = 1 TO existingKeyCount%
+                    IF existingKeys(ki%) = configKey$ THEN
+                        keyFound% = TRUE
+                        EXIT FOR
+                    END IF
+                NEXT ki%
+
+                IF NOT keyFound% THEN
+                    ' Skip header comment block and RECENT_FILE entries
+                    IF LEFT$(configKey$, 12) <> "RECENT_FILE_" THEN
+                        missingLines$ = missingLines$ + CHR$(10) + pendingComments$ + configLine$ + CHR$(10)
+                        missingCount% = missingCount% + 1
+                        IF missingKeys$ <> "" THEN missingKeys$ = missingKeys$ + ", "
+                        missingKeys$ = missingKeys$ + configKey$
+                    END IF
+                END IF
+            END IF
+            pendingComments$ = "" ' Reset — these comments belonged to this key
+        END IF
+    LOOP
+    CLOSE #fh%
+
+    ' Clean up temp file
+    KILL tempPath$
+
+    ' --- Step 4: Append missing keys to existing config file ---
+    IF missingCount% > 0 THEN
+        fh% = FREEFILE
+        OPEN CONFIG_FILE_PATH$ FOR APPEND AS #fh%
+        PRINT #fh%, ""
+        PRINT #fh%, "# --- Added by --config-upgrade ---"
+        PRINT #fh%, missingLines$;
+        CLOSE #fh%
+
+        ' Inform the user
+        DIM upgradeMsg AS STRING
+        upgradeMsg$ = "Config upgraded: " + _TRIM$(STR$(missingCount%)) + " new setting(s) added to:" + CHR$(10) + CHR$(10)
+        upgradeMsg$ = upgradeMsg$ + CONFIG_FILE_PATH$ + CHR$(10) + CHR$(10)
+        upgradeMsg$ = upgradeMsg$ + "New keys: " + missingKeys$
+        DIM upgradeMsgResult%
+        upgradeMsgResult% = _MESSAGEBOX("Config Upgrade", upgradeMsg$, "ok", "info")
+
+        ' Re-load the config to pick up any new defaults
+        ' (recursive call is safe — CMDLINE_CONFIG_UPGRADE% prevents infinite loop)
+        CMDLINE_CONFIG_UPGRADE% = FALSE
+        CONFIG_load
+    ELSE
+        DIM noChangeResult%
+        noChangeResult% = _MESSAGEBOX("Config Upgrade", _
+            "Config file is up to date — no new settings to add." + CHR$(10) + CHR$(10) + _
+            CONFIG_FILE_PATH$, "ok", "info")
+    END IF
 END SUB
 
 
