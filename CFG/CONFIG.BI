@@ -148,6 +148,7 @@ TYPE DRAW_CONFIG
 END TYPE
 
 DIM SHARED CFG   AS DRAW_CONFIG
+DIM SHARED CONFIG_NEEDS_INITIAL_SAVE%  ' Deferred save flag: set when config file doesn't exist yet
 
 DECLARE SUB CONFIG_load ()
 DECLARE SUB CONFIG_save ()

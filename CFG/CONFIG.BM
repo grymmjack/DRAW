@@ -17,7 +17,7 @@ SUB CONFIG_set_defaults ()
     CFG.DISPLAY_SCALE_MAX% = 8       ' Maximum allowed scale multiplier
     CFG.DISPLAY_SCALE_CHANGED% = FALSE ' Runtime flag, not persisted
     CFG.THEME$              = "DEFAULT"
-    CFG.TOOLBAR_SCALE%      = 1   ' Toolbar icon scale (1-4, default 1 = 11x11 icons)
+    CFG.TOOLBAR_SCALE%      = 0   ' Toolbar icon scale (0=auto, 1-4 explicit)
     CFG.NUDGE_N%            = 10
     CFG.NUM_LAYERS%         = 1
     CFG.NUM_CUSTOM_BRUSHES% = 4
@@ -46,11 +46,11 @@ SUB CONFIG_set_defaults ()
     CFG.NUM_LAYERS% = 32 ' Max layer slots (1-64)
     CFG.LAYER_PANEL_WIDTH% = 100 ' Layer panel width in pixels (min 100)
     CFG.LAYER_NAME_MAX_LEN% = 15 ' Max layer name length (1-64)
-    ' Grid settings (0 = use theme defaults)
+    ' Grid settings (0 = use theme defaults, except size which needs a safe default)
     CFG.GRID_COLOR_FG~& = 0 ' 0 = use theme default
     CFG.GRID_OPACITY% = 0   ' 0 = use theme default
-    CFG.GRID_SIZE_X% = 0    ' 0 = use theme default
-    CFG.GRID_SIZE_Y% = 0    ' 0 = use theme default
+    CFG.GRID_SIZE_X% = 10   ' Default grid cell width (must be >0; theme may not be loaded yet)
+    CFG.GRID_SIZE_Y% = 10   ' Default grid cell height (must be >0; theme may not be loaded yet)
     ' Crosshair settings (0 = use theme defaults)
     CFG.CROSSHAIR_FG~& = 0       ' 0 = use theme default
     CFG.CROSSHAIR_OPACITY% = 0   ' 0 = use theme default
@@ -142,8 +142,9 @@ SUB CONFIG_load ()
     
     ' Check if config file exists
     IF NOT _FILEEXISTS(CONFIG_FILE_PATH$) THEN
-        ' File doesn't exist, save defaults
-        CONFIG_save
+        ' File doesn't exist — defer save until after SCREEN_init resolves viewport
+        ' so SCREEN_WIDTH/HEIGHT get the actual auto-detected values, not 0
+        CONFIG_NEEDS_INITIAL_SAVE% = TRUE
         EXIT SUB
     END IF
     
@@ -388,10 +389,10 @@ SUB CFG_validate ()
         CFG.DISPLAY_SCALE% = 0
     END IF
     
-    ' Validate toolbar scale (1-4, default 1)
-    IF CFG.TOOLBAR_SCALE% < 1 OR CFG.TOOLBAR_SCALE% > 4 THEN
-        ERR_warn "Config: TOOLBAR_SCALE out of range (" + _TRIM$(STR$(CFG.TOOLBAR_SCALE%)) + "), using default 1"
-        CFG.TOOLBAR_SCALE% = 1
+    ' Validate toolbar scale (0=auto, 1-4 explicit)
+    IF CFG.TOOLBAR_SCALE% < 0 OR CFG.TOOLBAR_SCALE% > 4 THEN
+        ERR_warn "Config: TOOLBAR_SCALE out of range (" + _TRIM$(STR$(CFG.TOOLBAR_SCALE%)) + "), using auto"
+        CFG.TOOLBAR_SCALE% = 0
     END IF
     
     ' Validate nudge amount (1-100, default 10)
@@ -497,16 +498,16 @@ SUB CFG_validate ()
         CFG.GRID_OPACITY% = 0
     END IF
 
-    ' Validate grid size X (0=use theme, 1-256=explicit)
-    IF CFG.GRID_SIZE_X% < 0 OR CFG.GRID_SIZE_X% > 256 THEN
-        ERR_warn "Config: GRID_SIZE_X out of range (" + _TRIM$(STR$(CFG.GRID_SIZE_X%)) + "), using theme default"
-        CFG.GRID_SIZE_X% = 0
+    ' Validate grid size X (1-256, default 10)
+    IF CFG.GRID_SIZE_X% < 1 OR CFG.GRID_SIZE_X% > 256 THEN
+        ERR_warn "Config: GRID_SIZE_X out of range (" + _TRIM$(STR$(CFG.GRID_SIZE_X%)) + "), using default 10"
+        CFG.GRID_SIZE_X% = 10
     END IF
 
-    ' Validate grid size Y (0=use theme, 1-256=explicit)
-    IF CFG.GRID_SIZE_Y% < 0 OR CFG.GRID_SIZE_Y% > 256 THEN
-        ERR_warn "Config: GRID_SIZE_Y out of range (" + _TRIM$(STR$(CFG.GRID_SIZE_Y%)) + "), using theme default"
-        CFG.GRID_SIZE_Y% = 0
+    ' Validate grid size Y (1-256, default 10)
+    IF CFG.GRID_SIZE_Y% < 1 OR CFG.GRID_SIZE_Y% > 256 THEN
+        ERR_warn "Config: GRID_SIZE_Y out of range (" + _TRIM$(STR$(CFG.GRID_SIZE_Y%)) + "), using default 10"
+        CFG.GRID_SIZE_Y% = 10
     END IF
 
     ' Validate crosshair opacity (0=use theme, 1-255=explicit alpha)
@@ -612,16 +613,30 @@ SUB CONFIG_save ()
     
     PRINT #fh%, "# Display scale multiplier (0=auto-detect from desktop, 1-8=explicit)"
     PRINT #fh%, "# Auto-detect: 4K=4x, 1440p=3x, 1080p=2x, else 1x"
-    PRINT #fh%, "DISPLAY_SCALE=" + _TRIM$(STR$(CFG.DISPLAY_SCALE%))
+    IF CFG.DISPLAY_SCALE% > 0 THEN
+        PRINT #fh%, "DISPLAY_SCALE=" + _TRIM$(STR$(CFG.DISPLAY_SCALE%))
+    ELSE
+        ' Save resolved value so reload is consistent with SCREEN_WIDTH/HEIGHT
+        PRINT #fh%, "DISPLAY_SCALE=" + _TRIM$(STR$(SCRN.displayScale%))
+    END IF
     PRINT #fh%, ""
     
     PRINT #fh%, "# Maximum display scale multiplier (1-8, default: 8)"
     PRINT #fh%, "DISPLAY_SCALE_MAX=" + _TRIM$(STR$(CFG.DISPLAY_SCALE_MAX%))
     PRINT #fh%, ""
     
-    PRINT #fh%, "# Screen dimensions (0=auto-detect desktop resolution)"
-    PRINT #fh%, "SCREEN_WIDTH=" + _TRIM$(STR$(CFG.SCREEN_WIDTH%))
-    PRINT #fh%, "SCREEN_HEIGHT=" + _TRIM$(STR$(CFG.SCREEN_HEIGHT%))
+    PRINT #fh%, "# Screen dimensions (0=auto-detect from desktop resolution)"
+    PRINT #fh%, "# When 0, auto-detects viewport from desktop size / display scale"
+    IF CFG.SCREEN_WIDTH% > 0 THEN
+        PRINT #fh%, "SCREEN_WIDTH=" + _TRIM$(STR$(CFG.SCREEN_WIDTH%))
+    ELSE
+        PRINT #fh%, "SCREEN_WIDTH=" + _TRIM$(STR$(SCRN.w&))
+    END IF
+    IF CFG.SCREEN_HEIGHT% > 0 THEN
+        PRINT #fh%, "SCREEN_HEIGHT=" + _TRIM$(STR$(CFG.SCREEN_HEIGHT%))
+    ELSE
+        PRINT #fh%, "SCREEN_HEIGHT=" + _TRIM$(STR$(SCRN.h&))
+    END IF
     PRINT #fh%, ""
     
     PRINT #fh%, "# Window viewport minimum size (0=default: 320x200)"
@@ -638,11 +653,19 @@ SUB CONFIG_save ()
     PRINT #fh%, ""
     
     ' Validate and save toolbar scale
-    IF CFG.TOOLBAR_SCALE% < 1 THEN CFG.TOOLBAR_SCALE% = 1
+    IF CFG.TOOLBAR_SCALE% < 0 THEN CFG.TOOLBAR_SCALE% = 0
     IF CFG.TOOLBAR_SCALE% > 4 THEN CFG.TOOLBAR_SCALE% = 4
-    PRINT #fh%, "# Toolbar icon scale multiplier (1-4, default: 1)"
+    PRINT #fh%, "# Toolbar icon scale multiplier (0=auto, 1-4 explicit)"
+    PRINT #fh%, "# 0 = auto-detect from viewport size"
     PRINT #fh%, "# 1 = 11x11 icons, 2 = 22x22, 3 = 33x33, 4 = 44x44"
-    PRINT #fh%, "TOOLBAR_SCALE=" + _TRIM$(STR$(CFG.TOOLBAR_SCALE%))
+    ' Save resolved value for consistency
+    DIM tbScaleToSave AS INTEGER
+    IF CFG.TOOLBAR_SCALE% > 0 THEN
+        tbScaleToSave% = CFG.TOOLBAR_SCALE%
+    ELSE
+        tbScaleToSave% = 1 ' fallback if somehow not resolved
+    END IF
+    PRINT #fh%, "TOOLBAR_SCALE=" + _TRIM$(STR$(tbScaleToSave%))
     PRINT #fh%, ""
     
     PRINT #fh%, "# Default palette file (empty=use built-in default)"
@@ -763,24 +786,18 @@ SUB CONFIG_save ()
         PRINT #fh%, "#GRID_OPACITY="
     END IF
     PRINT #fh%, ""
+    PRINT #fh%, "# Grid cell width in pixels (1-256, default: 10)"
     IF CFG.GRID_SIZE_X% > 0 THEN
-        PRINT #fh%, "# Grid cell width in pixels (1-256, default: 10)"
-        PRINT #fh%, "# Omit or set to 0 to use theme default"
         PRINT #fh%, "GRID_SIZE_X=" + _TRIM$(STR$(CFG.GRID_SIZE_X%))
     ELSE
-        PRINT #fh%, "# Grid cell width in pixels (1-256, default: 10)"
-        PRINT #fh%, "# Omit or set to 0 to use theme default"
-        PRINT #fh%, "#GRID_SIZE_X="
+        PRINT #fh%, "GRID_SIZE_X=10"
     END IF
     PRINT #fh%, ""
+    PRINT #fh%, "# Grid cell height in pixels (1-256, default: 10)"
     IF CFG.GRID_SIZE_Y% > 0 THEN
-        PRINT #fh%, "# Grid cell height in pixels (1-256, default: 10)"
-        PRINT #fh%, "# Omit or set to 0 to use theme default"
         PRINT #fh%, "GRID_SIZE_Y=" + _TRIM$(STR$(CFG.GRID_SIZE_Y%))
     ELSE
-        PRINT #fh%, "# Grid cell height in pixels (1-256, default: 10)"
-        PRINT #fh%, "# Omit or set to 0 to use theme default"
-        PRINT #fh%, "#GRID_SIZE_Y="
+        PRINT #fh%, "GRID_SIZE_Y=10"
     END IF
     PRINT #fh%, ""
     
