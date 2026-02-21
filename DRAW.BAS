@@ -14,6 +14,7 @@ $RESIZE:STRETCH
 $EXEICON:'./ASSETS/ICONS/icon.ico'
   
 ' Parse command line arguments (just store filename, load after first frame)
+' --config / -c args are already consumed by CONFIG.BI inline code
 DIM cmdArg$
 
 $IF MAC THEN
@@ -23,10 +24,34 @@ $IF MAC THEN
     cmdArg$ = _TRIM$(ENVIRON$("DRAW_OPEN_FILE"))
     IF cmdArg$ = "" THEN
         ' Fallback: check COMMAND$ for direct terminal launch
-        cmdArg$ = _TRIM$(COMMAND$)
+        ' Skip --config / -c and its value when looking for file args
+        DIM macArgIdx%
+        macArgIdx% = 1
+        DO WHILE macArgIdx% <= _COMMANDCOUNT
+            DIM macArgVal$
+            macArgVal$ = _TRIM$(COMMAND$(macArgIdx%))
+            IF LCASE$(macArgVal$) = "--config" OR LCASE$(macArgVal$) = "-c" THEN
+                macArgIdx% = macArgIdx% + 2 ' Skip flag + value
+            ELSE
+                cmdArg$ = macArgVal$
+                EXIT DO
+            END IF
+        LOOP
     END IF
 $ELSE
-    cmdArg$ = _TRIM$(COMMAND$)
+    ' Skip --config / -c and its value when looking for file args
+    DIM argIdx%
+    argIdx% = 1
+    DO WHILE argIdx% <= _COMMANDCOUNT
+        DIM argVal$
+        argVal$ = _TRIM$(COMMAND$(argIdx%))
+        IF LCASE$(argVal$) = "--config" OR LCASE$(argVal$) = "-c" THEN
+            argIdx% = argIdx% + 2 ' Skip flag + value
+        ELSE
+            cmdArg$ = argVal$
+            EXIT DO
+        END IF
+    LOOP
 $END IF
 
 ' ESC no longer exits the program - use File > Quit or OS close button

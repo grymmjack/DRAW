@@ -7,7 +7,66 @@
 '
 $INCLUDEONCE
 
-CONST CONFIG_FILE$ = "DRAW.cfg"
+' Default config filename (can be overridden by --config / -c command line arg)
+CONST CONFIG_FILE_DEFAULT$ = "DRAW.cfg"
+
+' Runtime config file path (set by command-line parsing below)
+DIM SHARED CONFIG_FILE_PATH$
+CONFIG_FILE_PATH$ = CONFIG_FILE_DEFAULT$
+
+' Flag: TRUE if --config / -c was used (so DRAW.BAS skips those args for file open)
+DIM SHARED CMDLINE_CONFIG_ARG_COUNT%
+CMDLINE_CONFIG_ARG_COUNT% = 0
+
+' Parse --config / -c from command line BEFORE CONFIG_load runs
+' (CONFIG_load is called from SCREEN_init in SCREEN.BI, which is included after this)
+DIM CONFIG_cmdArgIdx%
+DIM CONFIG_cmdArgCount%
+DIM CONFIG_cmdArgVal$
+CONFIG_cmdArgCount% = _COMMANDCOUNT
+CONFIG_cmdArgIdx% = 1
+DO WHILE CONFIG_cmdArgIdx% <= CONFIG_cmdArgCount%
+    CONFIG_cmdArgVal$ = _TRIM$(COMMAND$(CONFIG_cmdArgIdx%))
+    IF LCASE$(CONFIG_cmdArgVal$) = "--config" OR LCASE$(CONFIG_cmdArgVal$) = "-c" THEN
+        ' Found --config / -c flag
+        IF CONFIG_cmdArgIdx% + 1 <= CONFIG_cmdArgCount% THEN
+            ' Next argument is the config file path
+            CONFIG_FILE_PATH$ = _TRIM$(COMMAND$(CONFIG_cmdArgIdx% + 1))
+            ' Remove surrounding quotes if present
+            IF LEFT$(CONFIG_FILE_PATH$, 1) = CHR$(34) AND RIGHT$(CONFIG_FILE_PATH$, 1) = CHR$(34) THEN
+                CONFIG_FILE_PATH$ = MID$(CONFIG_FILE_PATH$, 2, LEN(CONFIG_FILE_PATH$) - 2)
+            END IF
+            CMDLINE_CONFIG_ARG_COUNT% = 2 ' --config + value = 2 args consumed
+
+            ' Check if the specified config file exists
+            IF NOT _FILEEXISTS(CONFIG_FILE_PATH$) THEN
+                ' Prompt user: create it or exit?
+                DIM CONFIG_msgResult%
+                CONFIG_msgResult% = _MESSAGEBOX("Config File Not Found", _
+                    "Config file not found:" + CHR$(10) + CHR$(10) + _
+                    _CWD$ + "/" + CONFIG_FILE_PATH$ + CHR$(10) + CHR$(10) + _
+                    "Create it with default settings?", "yesno", "warning")
+                IF CONFIG_msgResult% = 1 THEN
+                    ' User chose Yes - will be created by CONFIG_load with defaults
+                    ' (CONFIG_load checks _FILEEXISTS and calls CONFIG_save if missing)
+                ELSE
+                    ' User chose No - exit program
+                    SYSTEM
+                END IF
+            END IF
+        ELSE
+            ' --config / -c without a value - show error and exit
+            DIM CONFIG_noValResult%
+            CONFIG_noValResult% = _MESSAGEBOX("Missing Config Path", _
+                "The --config / -c argument requires a file path." + CHR$(10) + CHR$(10) + _
+                "Usage: DRAW --config DRAW.macOS.cfg" + CHR$(10) + _
+                "       DRAW -c DRAW.linux.cfg", "ok", "error")
+            SYSTEM
+        END IF
+        EXIT DO
+    END IF
+    CONFIG_cmdArgIdx% = CONFIG_cmdArgIdx% + 1
+LOOP
 
 TYPE DRAW_CONFIG
     THEME                          AS STRING
