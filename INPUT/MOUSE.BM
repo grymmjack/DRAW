@@ -1136,7 +1136,18 @@ END SUB
 '
 SUB MOUSE_tool_poly ()
     ' POLY_LINE tool: Click to click connected lines (B1 only — B2 finishes via right-click handler)
-    IF MOUSE.B1% AND NOT MOUSE.OLD_B1% THEN
+    ' On macOS, Ctrl+Click is mapped to right-click (B2) by the OS. When the user holds
+    ' Ctrl+Shift for angle snapping and clicks, we get B2 instead of B1. Detect this
+    ' and treat it as a normal point placement.
+    DIM poly_b1_pressed AS INTEGER
+    poly_b1_pressed% = (MOUSE.B1% AND NOT MOUSE.OLD_B1%)
+    $IF MAC THEN
+        ' macOS Ctrl+Click = B2. When Ctrl+Shift is held (angle snap), treat B2 as B1.
+        IF MODIFIERS.ctrlShift% AND (MOUSE.B2% AND NOT MOUSE.OLD_B2%) THEN
+            poly_b1_pressed% = TRUE
+        END IF
+    $END IF
+    IF poly_b1_pressed% THEN
         DIM poly_x AS INTEGER, poly_y AS INTEGER
         ' Use unsnapped coords when Ctrl+Shift held so angle snap overrides grid snap
         IF MODIFIERS.ctrlShift% THEN
@@ -1182,7 +1193,15 @@ SUB MOUSE_tool_poly ()
             _DEST SCRN.CANVAS&
             CANVAS_DIRTY% = TRUE
         ELSE
-            ' First point - just initialize, don't save undo yet
+            ' First point - save undo state NOW so the pixel undo timestamp
+            ' is newer than any prior workspace undo (e.g. layer add).
+            ' Without this, CTRL+Z during multi-click polygon drawing would
+            ' see a stale pixel timestamp and route to workspace undo instead,
+            ' removing the layer instead of undoing the polyline.
+            IF NOT UNDO_saved_this_frame% THEN
+                UNDO_save_state
+                UNDO_saved_this_frame% = TRUE
+            END IF
             STROKE_begin
             POLY_LINE.FIRST_X = poly_x%
             POLY_LINE.FIRST_Y = poly_y%
@@ -1939,7 +1958,12 @@ SUB MOUSE_handle_right_click ()
     END IF
 
     ' Right Click on POLY_LINE tool: finish poly line (stop drawing)
+    ' On macOS, Ctrl+Shift+Click arrives as B2. Skip finishing when Ctrl+Shift
+    ' is held — that B2 is already handled as a point placement in MOUSE_tool_poly.
     IF CURRENT_TOOL% = TOOL_POLYGON OR CURRENT_TOOL% = TOOL_POLYGON_FILLED THEN
+        $IF MAC THEN
+            IF MODIFIERS.ctrlShift% THEN EXIT SUB
+        $END IF
         ' Close the shape if filled polygon
         IF CURRENT_TOOL% = TOOL_POLYGON_FILLED AND POLY_LINE.HAS_LAST AND POLY_LINE.POINT_COUNT >= 3 THEN
             ' Draw closing line

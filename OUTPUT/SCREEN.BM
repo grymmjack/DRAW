@@ -133,6 +133,26 @@ END FUNCTION
 
 
 ''
+' Returns the maximum display scale that fits on the current desktop.
+' Used by menu system to disable Scale Up when already at max.
+'
+FUNCTION SCREEN_max_display_scale% ()
+    DIM maxW AS INTEGER, maxH AS INTEGER, maxS AS INTEGER
+    IF SCRN.w& <= 0 OR SCRN.h& <= 0 THEN
+        SCREEN_max_display_scale% = 1
+        EXIT FUNCTION
+    END IF
+    maxW% = _DESKTOPWIDTH \ SCRN.w&
+    maxH% = _DESKTOPHEIGHT \ SCRN.h&
+    maxS% = maxW%
+    IF maxH% < maxS% THEN maxS% = maxH%
+    IF maxS% > CFG.DISPLAY_SCALE_MAX% THEN maxS% = CFG.DISPLAY_SCALE_MAX%
+    IF maxS% < 1 THEN maxS% = 1
+    SCREEN_max_display_scale% = maxS%
+END FUNCTION
+
+
+''
 ' Set display scale at runtime (for hotkey scaling)
 ' newScale: desired new scale (will be clamped to valid range)
 ' 
@@ -140,6 +160,7 @@ SUB SCREEN_set_display_scale (newScale AS INTEGER)
     DIM winW AS LONG, winH AS LONG
     DIM maxFitW AS INTEGER, maxFitH AS INTEGER
     DIM clampedScale AS INTEGER
+    DIM maxScale AS INTEGER
     
     ' Don't allow scale changes in fullscreen mode
     IF CFG.FULLSCREEN% THEN EXIT SUB
@@ -154,14 +175,25 @@ SUB SCREEN_set_display_scale (newScale AS INTEGER)
         clampedScale% = CFG.DISPLAY_SCALE_MAX%
     END IF
     
-    ' Clamp to fit on desktop (~90% of desktop)
-    maxFitW% = ((_DESKTOPWIDTH * 9) \ 10) \ SCRN.w&
-    maxFitH% = ((_DESKTOPHEIGHT * 9) \ 10) \ SCRN.h&
-    IF clampedScale% > maxFitW% THEN clampedScale% = maxFitW%
-    IF clampedScale% > maxFitH% THEN clampedScale% = maxFitH%
+    ' Clamp to fit on desktop (use full desktop — user explicitly requested scale change)
+    maxFitW% = _DESKTOPWIDTH \ SCRN.w&
+    maxFitH% = _DESKTOPHEIGHT \ SCRN.h&
+    maxScale% = maxFitW%
+    IF maxFitH% < maxScale% THEN maxScale% = maxFitH%
+    IF maxScale% > CFG.DISPLAY_SCALE_MAX% THEN maxScale% = CFG.DISPLAY_SCALE_MAX%
+    IF clampedScale% > maxScale% THEN clampedScale% = maxScale%
     
-    ' No change needed
-    IF clampedScale% = SCRN.displayScale% THEN EXIT SUB
+    _LOGINFO "SCREEN_set_display_scale: requested=" + _TRIM$(STR$(newScale%)) + " clamped=" + _TRIM$(STR$(clampedScale%)) + " current=" + _TRIM$(STR$(SCRN.displayScale%)) + " maxFit=" + _TRIM$(STR$(maxScale%)) + " desktop=" + _TRIM$(STR$(_DESKTOPWIDTH)) + "x" + _TRIM$(STR$(_DESKTOPHEIGHT)) + " viewport=" + _TRIM$(STR$(SCRN.w&)) + "x" + _TRIM$(STR$(SCRN.h&))
+    
+    ' No change needed (already at requested scale or at limit)
+    IF clampedScale% = SCRN.displayScale% THEN
+        IF newScale% > SCRN.displayScale% THEN
+            _LOGWARN "SCREEN_set_display_scale: cannot scale up, " + _TRIM$(STR$(SCRN.displayScale%)) + "x is max for " + _TRIM$(STR$(SCRN.w&)) + "x" + _TRIM$(STR$(SCRN.h&)) + " on " + _TRIM$(STR$(_DESKTOPWIDTH)) + "x" + _TRIM$(STR$(_DESKTOPHEIGHT)) + " desktop"
+        ELSEIF newScale% < SCRN.displayScale% THEN
+            _LOGWARN "SCREEN_set_display_scale: cannot scale down, already at minimum (1x)"
+        END IF
+        EXIT SUB
+    END IF
     
     ' Update display scale
     SCRN.displayScale% = clampedScale%
@@ -170,10 +202,19 @@ SUB SCREEN_set_display_scale (newScale AS INTEGER)
     ' Move to upper-left first so macOS doesn't constrain the expanded size
     winW& = SCRN.w& * SCRN.displayScale%
     winH& = SCRN.h& * SCRN.displayScale%
+    _LOGINFO "SCREEN_set_display_scale: resizing window to " + _TRIM$(STR$(winW&)) + "x" + _TRIM$(STR$(winH&)) + " (scale " + _TRIM$(STR$(SCRN.displayScale%)) + "x)"
     _SCREENMOVE 0, 0
-    _DELAY 0.02
+    $IF MAC THEN
+        _DELAY 0.05  ' macOS needs more time for window manager to process move
+    $ELSE
+        _DELAY 0.02
+    $END IF
     glutReshapeWindow winW&, winH&
-    _DELAY 0.05
+    $IF MAC THEN
+        _DELAY 0.10  ' macOS needs more time on window resize
+    $ELSE
+        _DELAY 0.05
+    $END IF
     _SCREENMOVE _MIDDLE
     
     ' Reset input state after window resize
@@ -250,22 +291,88 @@ SUB SCREEN_init ()
         SCRN.h& = CFG.WIN_MAX_HEIGHT%
     END IF
     
-    ' Ensure window (viewport * scale) fits on desktop (~90% target).
-    ' If the window would exceed the desktop, reduce scale first (keep viewport),
-    ' then shrink viewport if still too big at scale 1.
+    ' Ensure window (viewport * scale) fits on desktop.
+    ' DISPLAY_SCALE controls how large the content appears — it takes priority.
+    ' If the viewport is too large for the requested scale, SHRINK THE VIEWPORT
+    ' (not the scale). This way DISPLAY_SCALE=3 always means 3x magnification.
+    ' SCREEN_WIDTH/HEIGHT become a "desired maximum" viewport, reduced as needed.
     DIM initMaxW AS LONG, initMaxH AS LONG
-    initMaxW& = (_DESKTOPWIDTH * 9) \ 10
-    initMaxH& = (_DESKTOPHEIGHT * 9) \ 10
+    DIM initDesktopW AS LONG, initDesktopH AS LONG
+    initDesktopW& = _DESKTOPWIDTH
+    initDesktopH& = _DESKTOPHEIGHT
+    IF CFG.DISPLAY_SCALE% > 0 THEN
+        ' User explicitly set scale — use full desktop as window limit
+        initMaxW& = initDesktopW&
+        initMaxH& = initDesktopH&
+    ELSE
+        ' Auto-detect — 90% margin for comfortable centering
+        initMaxW& = (initDesktopW& * 9) \ 10
+        initMaxH& = (initDesktopH& * 9) \ 10
+    END IF
     IF initMaxW& < 320 THEN initMaxW& = 320
     IF initMaxH& < 200 THEN initMaxH& = 200
-    DO WHILE (SCRN.w& * SCRN.displayScale% > initMaxW& OR _
-              SCRN.h& * SCRN.displayScale% > initMaxH&) AND _
-             SCRN.displayScale% > 1
+    
+    ' If window (viewport * scale) exceeds desktop, shrink viewport to fit
+    ' at the requested scale, rather than reducing the scale.
+    DIM maxVpW AS LONG, maxVpH AS LONG
+    maxVpW& = initMaxW& \ SCRN.displayScale%
+    maxVpH& = initMaxH& \ SCRN.displayScale%
+    ' Round down to even for clean GPU scaling
+    maxVpW& = (maxVpW& \ 2) * 2
+    maxVpH& = (maxVpH& \ 2) * 2
+    DIM vpShrunk AS INTEGER
+    vpShrunk% = FALSE
+    IF SCRN.w& > maxVpW& THEN
+        _LOGINFO "SCREEN_init: shrinking viewport width from " + _TRIM$(STR$(SCRN.w&)) + " to " + _TRIM$(STR$(maxVpW&)) + " to fit " + _TRIM$(STR$(SCRN.displayScale%)) + "x scale on " + _TRIM$(STR$(initDesktopW&)) + " wide desktop"
+        SCRN.w& = maxVpW&
+        vpShrunk% = TRUE
+    END IF
+    IF SCRN.h& > maxVpH& THEN
+        _LOGINFO "SCREEN_init: shrinking viewport height from " + _TRIM$(STR$(SCRN.h&)) + " to " + _TRIM$(STR$(maxVpH&)) + " to fit " + _TRIM$(STR$(SCRN.displayScale%)) + "x scale on " + _TRIM$(STR$(initDesktopH&)) + " tall desktop"
+        SCRN.h& = maxVpH&
+        vpShrunk% = TRUE
+    END IF
+    
+    ' Safety: if viewport went below minimum usable, reduce scale as last resort
+    DIM minW AS LONG, minH AS LONG
+    minW& = 320
+    minH& = 200
+    IF CFG.WIN_MIN_WIDTH% > 0 AND CFG.WIN_MIN_WIDTH% > minW& THEN minW& = CFG.WIN_MIN_WIDTH%
+    IF CFG.WIN_MIN_HEIGHT% > 0 AND CFG.WIN_MIN_HEIGHT% > minH& THEN minH& = CFG.WIN_MIN_HEIGHT%
+    DO WHILE (SCRN.w& < minW& OR SCRN.h& < minH&) AND SCRN.displayScale% > 1
         SCRN.displayScale% = SCRN.displayScale% - 1
+        maxVpW& = initMaxW& \ SCRN.displayScale%
+        maxVpH& = initMaxH& \ SCRN.displayScale%
+        maxVpW& = (maxVpW& \ 2) * 2
+        maxVpH& = (maxVpH& \ 2) * 2
+        IF CFG.SCREEN_WIDTH% > 0 THEN
+            SCRN.w& = CFG.SCREEN_WIDTH%
+            IF SCRN.w& > maxVpW& THEN SCRN.w& = maxVpW&
+        ELSE
+            SCRN.w& = maxVpW&
+        END IF
+        IF CFG.SCREEN_HEIGHT% > 0 THEN
+            SCRN.h& = CFG.SCREEN_HEIGHT%
+            IF SCRN.h& > maxVpH& THEN SCRN.h& = maxVpH&
+        ELSE
+            SCRN.h& = maxVpH&
+        END IF
+        _LOGWARN "SCREEN_init: viewport too small at " + _TRIM$(STR$(SCRN.displayScale% + 1)) + "x, reducing scale to " + _TRIM$(STR$(SCRN.displayScale%)) + "x (viewport now " + _TRIM$(STR$(SCRN.w&)) + "x" + _TRIM$(STR$(SCRN.h&)) + ")"
     LOOP
-    ' If still too big at scale 1, shrink viewport to fit
-    IF SCRN.w& > initMaxW& THEN SCRN.w& = initMaxW&
-    IF SCRN.h& > initMaxH& THEN SCRN.h& = initMaxH&
+    
+    ' Re-enforce WIN_MIN after any shrinking (in case viewport was reduced)
+    IF CFG.WIN_MIN_WIDTH% > 0 AND SCRN.w& < CFG.WIN_MIN_WIDTH% THEN
+        SCRN.w& = CFG.WIN_MIN_WIDTH%
+    END IF
+    IF CFG.WIN_MIN_HEIGHT% > 0 AND SCRN.h& < CFG.WIN_MIN_HEIGHT% THEN
+        SCRN.h& = CFG.WIN_MIN_HEIGHT%
+    END IF
+    
+    ' Log diagnostics
+    _LOGINFO "SCREEN_init: desktop=" + _TRIM$(STR$(initDesktopW&)) + "x" + _TRIM$(STR$(initDesktopH&)) + " viewport=" + _TRIM$(STR$(SCRN.w&)) + "x" + _TRIM$(STR$(SCRN.h&)) + " scale=" + _TRIM$(STR$(SCRN.displayScale%)) + "x window=" + _TRIM$(STR$(SCRN.w& * SCRN.displayScale%)) + "x" + _TRIM$(STR$(SCRN.h& * SCRN.displayScale%))
+    IF vpShrunk% THEN
+        _LOGINFO "SCREEN_init: viewport was reduced from configured " + _TRIM$(STR$(CFG.SCREEN_WIDTH%)) + "x" + _TRIM$(STR$(CFG.SCREEN_HEIGHT%)) + " to " + _TRIM$(STR$(SCRN.w&)) + "x" + _TRIM$(STR$(SCRN.h&)) + " to honor " + _TRIM$(STR$(SCRN.displayScale%)) + "x display scale"
+    END IF
     
     ' Auto-detect toolbar scale from viewport size if not explicitly set
     IF CFG.TOOLBAR_SCALE% = 0 THEN
@@ -320,6 +427,17 @@ SUB SCREEN_init ()
     SCREEN SCRN.CANVAS&
     _DEST SCRN.CANVAS&
     
+    ' Force first display cycle so the window is fully realized by the OS
+    ' before we try to resize it. Without this, glutReshapeWindow may be
+    ' silently ignored on macOS because the SDL2 window isn't ready yet.
+    CLS , _RGB32(0, 0, 0)
+    _DISPLAY
+    $IF MAC THEN
+        _DELAY 0.10  ' macOS Cocoa needs time to finalize window after first display
+    $ELSE
+        _DELAY 0.02
+    $END IF
+    
     ' Set window to scaled size (GPU texture scaling, no software _PUTIMAGE)
     ' CRITICAL: On macOS, SCREEN creates window at viewport size (small), then
     ' glutReshapeWindow expands it. If the small window is centered, the expansion
@@ -328,11 +446,28 @@ SUB SCREEN_init ()
     ' Fix: move window to upper-left first so there's room to expand.
     winW& = SCRN.w& * SCRN.displayScale%
     winH& = SCRN.h& * SCRN.displayScale%
+    _LOGINFO "SCREEN_init: window target=" + _TRIM$(STR$(winW&)) + "x" + _TRIM$(STR$(winH&)) + " (" + _TRIM$(STR$(SCRN.displayScale%)) + "x scale)"
     _SCREENMOVE 0, 0
-    _DELAY 0.02  ' Let macOS process the move before resize
+    $IF MAC THEN
+        _DELAY 0.05  ' macOS needs more time for window manager to process move
+    $ELSE
+        _DELAY 0.02
+    $END IF
     glutReshapeWindow winW&, winH&
-    _DELAY 0.05  ' Let macOS finalize window geometry
+    $IF MAC THEN
+        _DELAY 0.15  ' macOS needs more time to finalize window geometry
+    $ELSE
+        _DELAY 0.05
+    $END IF
     _SCREENMOVE _MIDDLE  ' Center the properly-sized window
+    
+    ' Schedule deferred resize for first main loop frame as backup.
+    ' On macOS, glutReshapeWindow during module init (before the event loop)
+    ' can be silently ignored. The deferred resize runs after at least one
+    ' full _DISPLAY cycle in the main loop, when the window is guaranteed ready.
+    IF SCRN.displayScale% > 1 THEN
+        SCREEN_DEFERRED_RESIZE% = TRUE
+    END IF
     
     ' Set window icon (cross-platform via SDL2)
     DIM iconHandle AS LONG

@@ -59,4 +59,9 @@ DIM SHARED SCENE_CACHE AS LONG       ' Cached pre-cursor canvas image
 DIM SHARED SCENE_DIRTY AS INTEGER    ' TRUE = must do full repaint
 SCENE_DIRTY% = TRUE                  ' Start dirty
 
+' Deferred window resize flag — set by SCREEN_init, handled on first main loop frame
+' On macOS, glutReshapeWindow during initialization may be ignored; retry after first _DISPLAY
+DIM SHARED SCREEN_DEFERRED_RESIZE AS INTEGER
+SCREEN_DEFERRED_RESIZE% = FALSE
+
 SCREEN_init

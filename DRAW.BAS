@@ -205,6 +205,32 @@ DO
         SCREEN_render
     END IF
     
+    ' Deferred display scale resize: retry glutReshapeWindow after the first
+    ' rendered frame. On macOS, the init-time call may be silently ignored
+    ' because the window wasn't fully realized yet.
+    IF SCREEN_DEFERRED_RESIZE% THEN
+        SCREEN_DEFERRED_RESIZE% = FALSE
+        IF SCRN.displayScale% > 1 THEN
+            DIM deferWinW AS LONG, deferWinH AS LONG
+            deferWinW& = SCRN.w& * SCRN.displayScale%
+            deferWinH& = SCRN.h& * SCRN.displayScale%
+            _SCREENMOVE 0, 0
+            $IF MAC THEN
+                _DELAY 0.05
+            $ELSE
+                _DELAY 0.02
+            $END IF
+            glutReshapeWindow deferWinW&, deferWinH&
+            $IF MAC THEN
+                _DELAY 0.10
+            $ELSE
+                _DELAY 0.05
+            $END IF
+            _SCREENMOVE _MIDDLE
+            _LOGINFO "Deferred display scale resize: " + _TRIM$(STR$(deferWinW&)) + "x" + _TRIM$(STR$(deferWinH&)) + " (" + _TRIM$(STR$(SCRN.displayScale%)) + "x)"
+        END IF
+    END IF
+    
     ' Apply frame rate limit AFTER render+display (reduced when idle)
     PERF_start PERF_LIMIT_WAIT
     IF FRAME_IDLE% THEN
