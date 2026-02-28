@@ -9,7 +9,7 @@ $INCLUDEONCE
 
 SUB TOOLBAR_render(xPos%, btnRangeStart%, btnRangeEnd%)
     DIM AS INTEGER b, i, w, h, x, y, row, col, btnIdx
-    DIM AS INTEGER TB_RIGHT, TB_CENTER, TB_LEFT
+    DIM AS INTEGER TB_RIGHT, TB_COL2, TB_COL1, TB_COL0
     DIM AS INTEGER scale, scaled_w, scaled_h, scaled_padding
     
     ' Get toolbar scale from config (1-4, default 1)
@@ -23,13 +23,14 @@ SUB TOOLBAR_render(xPos%, btnRangeStart%, btnRangeEnd%)
     scaled_padding% = TB_BTN_PADDING * scale%
     
     ' Calculate toolbar position dynamically to align to right edge of screen
-    ' 3 columns: RIGHT, CENTER, LEFT
-    TB_RIGHT = SCRN.w& - scaled_w% - 1  ' Right column: 1px from right edge
-    TB_CENTER = TB_RIGHT - scaled_w% - scaled_padding%  ' Center column
-    TB_LEFT = TB_CENTER - scaled_w% - scaled_padding%  ' Left column
+    ' 4 columns: RIGHT (col3), COL2, COL1, COL0
+    TB_RIGHT = SCRN.w& - scaled_w% - 1  ' Column 3: 1px from right edge
+    TB_COL2 = TB_RIGHT - scaled_w% - scaled_padding%
+    TB_COL1 = TB_COL2 - scaled_w% - scaled_padding%
+    TB_COL0 = TB_COL1 - scaled_w% - scaled_padding%
     
     ' Draw toolbar background panel with border
-    TOOLBAR_draw_background TB_LEFT, TB_RIGHT, btnRangeStart%, btnRangeEnd%
+    TOOLBAR_draw_background TB_COL0, TB_RIGHT, btnRangeStart%, btnRangeEnd%
     
     FOR i% = btnRangeStart% TO btnRangeEnd%
         ' Get the actual button index from the order array
@@ -43,15 +44,16 @@ SUB TOOLBAR_render(xPos%, btnRangeStart%, btnRangeEnd%)
         w% = GUI_TB(btnIdx%).w%
         h% = GUI_TB(btnIdx%).h%
         
-        ' Calculate row and column position (3 columns per row)
-        row% = i% \ 3
-        col% = i% MOD 3
+        ' Calculate row and column position (4 columns per row)
+        row% = i% \ TB_COLS
+        col% = i% MOD TB_COLS
         
         ' Determine x position based on column
         SELECT CASE col%
-            CASE 0: x% = TB_LEFT    ' First column
-            CASE 1: x% = TB_CENTER  ' Middle column
-            CASE 2: x% = TB_RIGHT   ' Right column
+            CASE 0: x% = TB_COL0
+            CASE 1: x% = TB_COL1
+            CASE 2: x% = TB_COL2
+            CASE 3: x% = TB_RIGHT
         END SELECT
         
         y% = TB_TOP + scaled_h% * row% + scaled_padding% * row%
@@ -107,6 +109,18 @@ SUB TOOLBAR_render(xPos%, btnRangeStart%, btnRangeEnd%)
         IF TOOLBAR_BUTTON_TO_TOOL(i%) = CURRENT_TOOL% THEN
             is_active% = TRUE
         END IF
+        ' Selection tool variants: highlight the correct button when TOOL_MARQUEE is active
+        IF CURRENT_TOOL% = TOOL_MARQUEE THEN
+            DIM mappedTool AS INTEGER
+            mappedTool% = TOOLBAR_BUTTON_TO_TOOL(i%)
+            IF mappedTool% = TOOL_SELECT_RECT OR mappedTool% = TOOL_SELECT_WAND _
+            OR mappedTool% = TOOL_SELECT_FREE OR mappedTool% = TOOL_SELECT_POLY _
+            OR mappedTool% = TOOL_SELECT_ELLIPSE THEN
+                IF mappedTool% = MARQUEE.VARIANT THEN
+                    is_active% = TRUE
+                END IF
+            END IF
+        END IF
         
         ' Draw the active indicator
         IF is_active% THEN
@@ -151,7 +165,7 @@ FUNCTION TOOLBAR_handle_click%(mouseX%, mouseY%)
     scaled_h% = TB_BTN_H * scale%
     
     ' Check all buttons using stored positions from rendering
-    FOR i% = 0 TO 20
+    FOR i% = 0 TO TB_TOTAL - 1
         ' Get the actual button index from the order array
         btnIdx% = TOOLBAR_BUTTON_ORDER(i%)
         
@@ -170,7 +184,7 @@ FUNCTION TOOLBAR_handle_click%(mouseX%, mouseY%)
             tool_id% = TOOLBAR_BUTTON_TO_TOOL(i%)
             
             ' Handle immediate action tools (load/save) - defer until after mouse processing
-            ' Deferred actions: 1=save, 2=import image, 3=open DRW project
+            ' Deferred actions: 1=save, 2=import image, 3=open DRW project, 4=export selection
             IF tool_id% = TOOL_SAVE THEN
                 MOUSE.DEFERRED_ACTION% = 1  ' 1 = save
                 MOUSE.TOOLBAR_CLICKED% = TRUE
@@ -181,11 +195,32 @@ FUNCTION TOOLBAR_handle_click%(mouseX%, mouseY%)
                 MOUSE.TOOLBAR_CLICKED% = TRUE
                 TOOLBAR_handle_click% = TRUE
                 EXIT FUNCTION
+            ELSEIF tool_id% = TOOL_EXPORT_SEL THEN
+                MOUSE.DEFERRED_ACTION% = 4  ' 4 = export selection
+                MOUSE.TOOLBAR_CLICKED% = TRUE
+                TOOLBAR_handle_click% = TRUE
+                EXIT FUNCTION
             END IF
             
             ' Help button opens command palette instead of switching tool
             IF tool_id% = TOOL_HELP THEN
                 CMD_show_palette
+                MOUSE.TOOLBAR_CLICKED% = TRUE
+                TOOLBAR_handle_click% = TRUE
+                EXIT FUNCTION
+            END IF
+            
+            ' Crop button enters crop mode
+            IF tool_id% = TOOL_CROP THEN
+                CROP_begin
+                MOUSE.TOOLBAR_CLICKED% = TRUE
+                TOOLBAR_handle_click% = TRUE
+                EXIT FUNCTION
+            END IF
+            
+            ' QB64/Code export (action button)
+            IF tool_id% = TOOL_CODE THEN
+                CMD_execute_action 1704  ' Code export
                 MOUSE.TOOLBAR_CLICKED% = TRUE
                 TOOLBAR_handle_click% = TRUE
                 EXIT FUNCTION
@@ -203,14 +238,38 @@ FUNCTION TOOLBAR_handle_click%(mouseX%, mouseY%)
             IF CURRENT_TOOL% = TOOL_FILL THEN FILL_activate
             ' Activate/deactivate picker
             IF CURRENT_TOOL% = TOOL_PICKER THEN PICKER_activate ELSE PICKER_deactivate
-            ' Left-click on marquee tool = regular rectangle mode (disable magic wand mode)
-            IF tool_id% = TOOL_MARQUEE THEN
+            ' Left-click on marquee rect = regular rectangle mode (disable magic wand mode)
+            IF tool_id% = TOOL_SELECT_RECT THEN
                 ' Clear auto-created marquee from MOVE tool (preserve user-created ones)
                 IF MARQUEE.ACTIVE% AND NOT MARQUEE.USER_CREATED THEN
                     MARQUEE_reset
                 END IF
                 MARQUEE.MAGIC_WAND_MODE = FALSE
+                MARQUEE.VARIANT = TOOL_SELECT_RECT
                 MAGIC_WAND_reset
+                CURRENT_TOOL% = TOOL_MARQUEE
+            END IF
+            ' Magic wand selection mode
+            IF tool_id% = TOOL_SELECT_WAND THEN
+                CURRENT_TOOL% = TOOL_MARQUEE
+                MARQUEE.MAGIC_WAND_MODE = TRUE
+                MARQUEE.VARIANT = TOOL_SELECT_WAND
+                MAGIC_WAND_reset
+                MARQUEE.ACTIVE% = FALSE
+                MARQUEE.INITIALIZED% = FALSE
+            END IF
+            ' Stub selection tools — map to TOOL_MARQUEE, no drawing logic yet
+            IF tool_id% = TOOL_SELECT_FREE OR tool_id% = TOOL_SELECT_POLY OR tool_id% = TOOL_SELECT_ELLIPSE THEN
+                CURRENT_TOOL% = TOOL_MARQUEE
+                MARQUEE.MAGIC_WAND_MODE = FALSE
+                MARQUEE.VARIANT = tool_id%
+                _LOGINFO "Selection tool stub activated: " + STR$(tool_id%)
+            END IF
+            ' Eraser tool — force transparent painting
+            IF tool_id% = TOOL_ERASER THEN
+                ERASER_activate
+            ELSE
+                ERASER_deactivate
             END IF
             ' Capture selection when switching to move tool (handles both marquee and full-layer cases)
             IF tool_id% = TOOL_MOVE THEN
@@ -262,7 +321,7 @@ SUB TOOLBAR_handle_right_click(mouseX%, mouseY%)
     scaled_h% = TB_BTN_H * scale%
     
     ' Check all buttons using stored positions from rendering
-    FOR i% = 0 TO 20
+    FOR i% = 0 TO TB_TOTAL - 1
         ' Get the actual button index from the order array
         btnIdx% = TOOLBAR_BUTTON_ORDER(i%)
         
@@ -295,8 +354,8 @@ SUB TOOLBAR_handle_right_click(mouseX%, mouseY%)
                 MOUSE.TOOLBAR_CLICKED% = TRUE
             END IF
             
-            ' Right-click on Marquee tool = Magic Wand mode
-            IF tool_id% = TOOL_MARQUEE THEN
+            ' Right-click on Marquee Rect tool = Magic Wand mode
+            IF tool_id% = TOOL_SELECT_RECT THEN
                 CURRENT_TOOL% = TOOL_MARQUEE
                 GUI_NEEDS_REDRAW% = TRUE
                 ' Reset other tools
@@ -328,7 +387,7 @@ SUB TOOLBAR_handle_middle_click(mouseX%, mouseY%)
     scaled_h% = TB_BTN_H * scale%
     
     ' Check all buttons using stored positions from rendering
-    FOR i% = 0 TO 20
+    FOR i% = 0 TO TB_TOTAL - 1
         ' Get the actual button index from the order array
         btnIdx% = TOOLBAR_BUTTON_ORDER(i%)
         
@@ -424,7 +483,7 @@ FUNCTION TOOLBAR_is_over_button%(mouseX%, mouseY%)
     scaled_h% = TB_BTN_H * scale%
     
     ' Check all buttons using stored positions from rendering
-    FOR i% = 0 TO 20
+    FOR i% = 0 TO TB_TOTAL - 1
         ' Get the actual button index from the order array
         btnIdx% = TOOLBAR_BUTTON_ORDER(i%)
         
@@ -451,7 +510,7 @@ END FUNCTION
 ''
 ' Draw toolbar background panel with border
 ' 
-SUB TOOLBAR_draw_background(TB_LEFT%, TB_RIGHT%, btnRangeStart%, btnRangeEnd%)
+SUB TOOLBAR_draw_background(TB_COL0%, TB_RIGHT%, btnRangeStart%, btnRangeEnd%)
     DIM AS INTEGER panel_x1, panel_y1, panel_x2, panel_y2
     DIM AS INTEGER num_rows
     DIM AS INTEGER scale, scaled_w, scaled_h, scaled_padding
@@ -468,11 +527,11 @@ SUB TOOLBAR_draw_background(TB_LEFT%, TB_RIGHT%, btnRangeStart%, btnRangeEnd%)
     scaled_h% = TB_BTN_H * scale%
     scaled_padding% = TB_BTN_PADDING * scale%
     
-    ' Calculate number of rows needed (3 columns per row)
-    num_rows% = ((btnRangeEnd% - btnRangeStart% + 1) + 2) \ 3  ' Divide by 3 and round up
+    ' Calculate number of rows needed (4 columns per row)
+    num_rows% = ((btnRangeEnd% - btnRangeStart% + 1) + (TB_COLS - 1)) \ TB_COLS
     
     ' Calculate panel bounds
-    panel_x1% = TB_LEFT% - 1  ' 1px padding on left
+    panel_x1% = TB_COL0% - 1  ' 1px padding on left
     panel_y1% = TB_TOP - 1    ' 1px padding on top
     panel_x2% = TB_RIGHT% + scaled_w%  ' Right edge of right column
     panel_y2% = TB_TOP + (num_rows% * scaled_h%) + ((num_rows% - 1) * scaled_padding%)  ' Bottom edge
@@ -493,7 +552,7 @@ END SUB
 ' Returns TRUE if over the entire toolbar area, FALSE otherwise
 ' 
 FUNCTION TOOLBAR_is_over_area%(mouseX%, mouseY%)
-    DIM AS INTEGER TB_RIGHT, TB_LEFT
+    DIM AS INTEGER TB_RIGHT, TB_COL0
     DIM AS INTEGER panel_x1, panel_y1, panel_x2, panel_y2
     DIM AS INTEGER num_rows
     DIM AS INTEGER scale, scaled_w, scaled_h, scaled_padding
@@ -509,17 +568,18 @@ FUNCTION TOOLBAR_is_over_area%(mouseX%, mouseY%)
     scaled_padding% = TB_BTN_PADDING * scale%
     
     ' Calculate toolbar position dynamically to align to right edge of screen
-    ' 3 columns: RIGHT, CENTER, LEFT
+    ' 4 columns: RIGHT (col3), COL2, COL1, COL0
     TB_RIGHT = SCRN.w& - scaled_w% - 1
-    DIM AS INTEGER TB_CENTER
-    TB_CENTER = TB_RIGHT - scaled_w% - scaled_padding%
-    TB_LEFT = TB_CENTER - scaled_w% - scaled_padding%
+    DIM AS INTEGER TB_COL2, TB_COL1
+    TB_COL2 = TB_RIGHT - scaled_w% - scaled_padding%
+    TB_COL1 = TB_COL2 - scaled_w% - scaled_padding%
+    TB_COL0 = TB_COL1 - scaled_w% - scaled_padding%
     
-    ' Calculate number of rows (21 buttons / 3 columns = 7 rows)
-    num_rows% = 7
+    ' Calculate number of rows
+    num_rows% = TB_ROWS
     
     ' Calculate panel bounds (same as TOOLBAR_draw_background)
-    panel_x1% = TB_LEFT% - 1
+    panel_x1% = TB_COL0% - 1
     panel_y1% = TB_TOP - 1
     panel_x2% = TB_RIGHT% + scaled_w%
     panel_y2% = TB_TOP + (num_rows% * scaled_h%) + ((num_rows% - 1) * scaled_padding%)

@@ -51,6 +51,7 @@ TYPE MARQUEE_OBJ
     WAND_HAS_SELECTION AS INTEGER ' Whether magic wand has an active selection
     USER_CREATED AS INTEGER        ' TRUE if user manually created selection (vs auto for move)
     SELECTION_MODE AS INTEGER      ' Selection mode: 0=replace, 1=add (Shift), 2=subtract (Alt)
+    VARIANT AS INTEGER             ' Which toolbar selection button is active (TOOL_SELECT_* constant)
 END TYPE
 
 ' Selection mode constants

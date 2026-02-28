@@ -3,29 +3,32 @@
 ' =============================================================================
 ' Toolbox Organizer - compact widget grid that sits directly beneath the Toolbar.
 ' Provides quick-access buttons for brush size, symmetry, grid, pattern/color
-' mode, canvas ops, and transform ops.
+' mode, canvas ops, transform ops, color ops, palette ops, and gradient mode.
 '
-' Layout (3 columns x 3 rows):
-'   Row 0: [CANVAS OPS]    [BRUSH SIZE top]   [PATTERN MODE]
-'   Row 1: [TRANSFORM OPS] [BRUSH SIZE bot]   [COLOR MODE]
-'   Row 2: [SYMMETRY MODE] [GRID VISIBILITY]  [GRID SNAP]
+' Layout (4 columns x 3 rows):
+'   Row 0: [COLOR OPS]     [CANVAS OPS]      [BRUSH SIZE top]  [PATTERN MODE]
+'   Row 1: [PALETTE OPS]   [TRANSFORM OPS]   [BRUSH SIZE bot]  [GRADIENT MODE]
+'   Row 2: [SYMMETRY MODE] [GRID VISIBILITY]  [GRID SNAP]      [COLOR MODE]
 '
-' Brush Size spans rows 0+1 in the center column (11x21 image).
+' Brush Size spans rows 0+1 in column 2 (11x21 image).
 '
 ' @author Rick Christy <grymmjack@gmail.com>
 '
 $INCLUDEONCE
 
 ' Widget indices
-CONST ORG_CANVAS_OPS    = 0
-CONST ORG_BRUSH_SIZE    = 1
-CONST ORG_PATTERN_MODE  = 2
-CONST ORG_TRANSFORM_OPS = 3
-CONST ORG_COLOR_MODE    = 4
-CONST ORG_SYMMETRY_MODE = 5
-CONST ORG_GRID_VIS      = 6
-CONST ORG_GRID_SNAP     = 7
-CONST ORG_WIDGET_COUNT  = 8
+CONST ORG_COLOR_OPS     = 0
+CONST ORG_CANVAS_OPS    = 1
+CONST ORG_BRUSH_SIZE    = 2
+CONST ORG_PATTERN_MODE  = 3
+CONST ORG_PALETTE_OPS   = 4
+CONST ORG_TRANSFORM_OPS = 5
+CONST ORG_GRADIENT_MODE = 6
+CONST ORG_SYMMETRY_MODE = 7
+CONST ORG_GRID_VIS      = 8
+CONST ORG_GRID_SNAP     = 9
+CONST ORG_COLOR_MODE    = 10
+CONST ORG_WIDGET_COUNT  = 11
 
 ' Widget cell dimensions (unscaled, native pixel sizes)
 CONST ORG_COL_W         = 11    ' Column width (all columns)
@@ -34,6 +37,7 @@ CONST ORG_ROW1_H        = 10    ' Row 1 height (row 0 + gap + row 1 = 21 for bru
 CONST ORG_ROW2_H        = 10    ' Row 2 height
 CONST ORG_BRUSH_H       = 21    ' Brush size image height (spans rows 0+1)
 CONST ORG_PADDING       = 1     ' Padding between cells
+CONST ORG_COLS          = 4     ' Number of columns
 
 TYPE ORGANIZER_WIDGET
     imgHandles AS LONG          ' Array of image handles (up to 4 states) - primary
@@ -62,17 +66,23 @@ TYPE ORGANIZER_STATE
     topY         AS INTEGER     ' Top Y position (below toolbar)
 END TYPE
 
-DIM SHARED ORG_WIDGETS(0 TO 7) AS ORGANIZER_WIDGET
+DIM SHARED ORG_WIDGETS(0 TO ORG_WIDGET_COUNT - 1) AS ORGANIZER_WIDGET
 DIM SHARED ORGANIZER AS ORGANIZER_STATE
 
 ' Initialize widget image sources and dimensions
-' Canvas Ops
+' ── Col 0, Row 0: Color Ops ──
+ORG_WIDGETS(ORG_COLOR_OPS).imgSrc$   = "color-ops.png"
+ORG_WIDGETS(ORG_COLOR_OPS).srcW%     = 11
+ORG_WIDGETS(ORG_COLOR_OPS).srcH%     = 10
+ORG_WIDGETS(ORG_COLOR_OPS).tip$      = "Color Ops (stub)"
+
+' ── Col 1, Row 0: Canvas Ops ──
 ORG_WIDGETS(ORG_CANVAS_OPS).imgSrc$   = "canvas-ops.png"
 ORG_WIDGETS(ORG_CANVAS_OPS).srcW%     = 11
 ORG_WIDGETS(ORG_CANVAS_OPS).srcH%     = 10
 ORG_WIDGETS(ORG_CANVAS_OPS).tip$      = "Canvas: L=Spare R=Resize M=Crop"
 
-' Brush Size (4 state images: one per preset)
+' ── Col 2, Row 0+1: Brush Size (spans 2 rows) ──
 ORG_WIDGETS(ORG_BRUSH_SIZE).imgSrc$   = "brush-size-1.png"
 ORG_WIDGETS(ORG_BRUSH_SIZE).imgSrc2$  = "brush-size-2.png"
 ORG_WIDGETS(ORG_BRUSH_SIZE).imgSrc3$  = "brush-size-3.png"
@@ -81,14 +91,20 @@ ORG_WIDGETS(ORG_BRUSH_SIZE).srcW%     = 11
 ORG_WIDGETS(ORG_BRUSH_SIZE).srcH%     = 21
 ORG_WIDGETS(ORG_BRUSH_SIZE).tip$      = "Brush Size (click to cycle F1-F4)"
 
-' Pattern Mode
+' ── Col 3, Row 0: Pattern Mode ──
 ORG_WIDGETS(ORG_PATTERN_MODE).imgSrc$  = "pattern-mode-off.png"
 ORG_WIDGETS(ORG_PATTERN_MODE).imgSrc2$ = "pattern-mode-on.png"
 ORG_WIDGETS(ORG_PATTERN_MODE).srcW%    = 11
 ORG_WIDGETS(ORG_PATTERN_MODE).srcH%    = 11
 ORG_WIDGETS(ORG_PATTERN_MODE).tip$     = "Pattern Mode (stub)"
 
-' Transform Ops
+' ── Col 0, Row 1: Palette Ops ──
+ORG_WIDGETS(ORG_PALETTE_OPS).imgSrc$   = "palette-ops.png"
+ORG_WIDGETS(ORG_PALETTE_OPS).srcW%     = 11
+ORG_WIDGETS(ORG_PALETTE_OPS).srcH%     = 10
+ORG_WIDGETS(ORG_PALETTE_OPS).tip$      = "Palette Ops (stub)"
+
+' ── Col 1, Row 1: Transform Ops ──
 ORG_WIDGETS(ORG_TRANSFORM_OPS).imgSrc$  = "transform-ops.png"
 ORG_WIDGETS(ORG_TRANSFORM_OPS).imgSrc2$ = "assistant-flip-horizontal.png"
 ORG_WIDGETS(ORG_TRANSFORM_OPS).imgSrc3$ = "assistant-flip-vertical.png"
@@ -96,14 +112,14 @@ ORG_WIDGETS(ORG_TRANSFORM_OPS).srcW%    = 11
 ORG_WIDGETS(ORG_TRANSFORM_OPS).srcH%    = 10
 ORG_WIDGETS(ORG_TRANSFORM_OPS).tip$     = "Transform: L=Flip H R=Flip V"
 
-' Color Mode
-ORG_WIDGETS(ORG_COLOR_MODE).imgSrc$  = "color-mode-on.png"
-ORG_WIDGETS(ORG_COLOR_MODE).imgSrc2$ = "color-mode-off.png"
-ORG_WIDGETS(ORG_COLOR_MODE).srcW%    = 11
-ORG_WIDGETS(ORG_COLOR_MODE).srcH%    = 11
-ORG_WIDGETS(ORG_COLOR_MODE).tip$     = "Color Mode (stub)"
+' ── Col 3, Row 1: Gradient Mode ──
+ORG_WIDGETS(ORG_GRADIENT_MODE).imgSrc$  = "gradient-mode-off.png"
+ORG_WIDGETS(ORG_GRADIENT_MODE).imgSrc2$ = "gradient-mode-on.png"
+ORG_WIDGETS(ORG_GRADIENT_MODE).srcW%    = 11
+ORG_WIDGETS(ORG_GRADIENT_MODE).srcH%    = 11
+ORG_WIDGETS(ORG_GRADIENT_MODE).tip$     = "Gradient Mode (stub)"
 
-' Symmetry Mode (4 states: off, mode 1, mode 2, mode 3)
+' ── Col 0, Row 2: Symmetry Mode (4 states: off, mode 1, mode 2, mode 3) ──
 ORG_WIDGETS(ORG_SYMMETRY_MODE).imgSrc$  = "symmetry-mode-off.png"
 ORG_WIDGETS(ORG_SYMMETRY_MODE).imgSrc2$ = "symmetry-mode-1.png"
 ORG_WIDGETS(ORG_SYMMETRY_MODE).imgSrc3$ = "symmetry-mode-2.png"
@@ -112,19 +128,26 @@ ORG_WIDGETS(ORG_SYMMETRY_MODE).srcW%    = 11
 ORG_WIDGETS(ORG_SYMMETRY_MODE).srcH%    = 10
 ORG_WIDGETS(ORG_SYMMETRY_MODE).tip$     = "Symmetry Mode (click to cycle)"
 
-' Grid Visibility
+' ── Col 1, Row 2: Grid Visibility ──
 ORG_WIDGETS(ORG_GRID_VIS).imgSrc$  = "grid-invisible.png"
 ORG_WIDGETS(ORG_GRID_VIS).imgSrc2$ = "grid-visible.png"
 ORG_WIDGETS(ORG_GRID_VIS).srcW%    = 11
 ORG_WIDGETS(ORG_GRID_VIS).srcH%    = 10
 ORG_WIDGETS(ORG_GRID_VIS).tip$     = "Grid Visibility"
 
-' Grid Snap
+' ── Col 2, Row 2: Grid Snap ──
 ORG_WIDGETS(ORG_GRID_SNAP).imgSrc$  = "grid-snap-off.png"
 ORG_WIDGETS(ORG_GRID_SNAP).imgSrc2$ = "grid-snap-on.png"
 ORG_WIDGETS(ORG_GRID_SNAP).srcW%    = 11
 ORG_WIDGETS(ORG_GRID_SNAP).srcH%    = 10
 ORG_WIDGETS(ORG_GRID_SNAP).tip$     = "Grid Snap"
+
+' ── Col 3, Row 2: Color Mode ──
+ORG_WIDGETS(ORG_COLOR_MODE).imgSrc$  = "color-mode-on.png"
+ORG_WIDGETS(ORG_COLOR_MODE).imgSrc2$ = "color-mode-off.png"
+ORG_WIDGETS(ORG_COLOR_MODE).srcW%    = 11
+ORG_WIDGETS(ORG_COLOR_MODE).srcH%    = 11
+ORG_WIDGETS(ORG_COLOR_MODE).tip$     = "Color Mode (stub)"
 
 ORGANIZER.visible% = TRUE
 
