@@ -51,6 +51,10 @@ THEME.MENU_SUB_sel_bg~&          = _RGB32(85, 85, 85)        ' #555555 - darker 
 THEME.MENU_SUB_disabled_fg~&     = _RGB32(80, 80, 80)        ' #505050 - dimmed disabled text
 THEME.MENU_SUB_sel_fg~&          = _RGB32(255, 255, 255)     ' White text on highlight
 
+' --- Fonts ---
+THEME.GLOBAL_FONT_FILE$          = "Tiny5-Regular.ttf"       ' Primary UI font
+THEME.ALT_FONT_FILE$             = "PICO-8.ttf"              ' Alternate font (reserved)
+
 ' =============================================================================
 ' CURSORS - PNG cursor configuration
 ' =============================================================================

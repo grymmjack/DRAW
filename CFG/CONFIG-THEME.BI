@@ -59,10 +59,14 @@ TYPE DRAW_THEME
     MENU_SUB_sel_bg        AS _UNSIGNED LONG ' Submenu selected item bg
     MENU_SUB_disabled_fg   AS _UNSIGNED LONG ' Submenu disabled item text
     MENU_SUB_sel_fg        AS _UNSIGNED LONG ' Submenu selected item fg
+    ' --- Fonts ---
+    GLOBAL_FONT_FILE       AS STRING          ' Primary UI font filename (e.g. Tiny5-Regular.ttf)
+    ALT_FONT_FILE          AS STRING          ' Alternate font filename (e.g. PICO-8.ttf) — reserved
 END TYPE
 
 ' Runtime theme loader — populates THEME from ASSETS/THEMES/{CFG.THEME$}/THEME.CFG
 DECLARE SUB THEME_load ()
 DECLARE FUNCTION THEME_parse_rgba~& (val$)
+DECLARE FUNCTION THEME_font_path$ (filename AS STRING)
 
 DIM SHARED THEME AS DRAW_THEME
