@@ -27,6 +27,7 @@ SUB MOVE_init ()
     MOVE.CLONING = FALSE
     MOVE.CLONE_STAMPED = FALSE
     MOVE.CONSTRAIN = FALSE
+    MOVE.CAPTURED_LAYER = 0
     ' Also clear layer-level scale original
     IF SCALE_ORIGINAL_IMAGE < -1 THEN _FREEIMAGE SCALE_ORIGINAL_IMAGE
     SCALE_ORIGINAL_IMAGE = 0
@@ -39,6 +40,12 @@ SUB MOVE_reset ()
     ' Apply any active transformation before resetting
     IF MOVE.ACTIVE AND MOVE.SELECTION_IMAGE < -1 THEN
         MOVE_apply_transform
+    END IF
+    ' Clean up auto-created marquee from full-layer move (preserve user-created selections)
+    ' Without this, the stale MARQUEE causes subsequent MOVE_capture_selection to capture
+    ' only the old MARQUEE.BOX region instead of the full layer ("only part moves" bug)
+    IF MARQUEE.ACTIVE% AND NOT MARQUEE.USER_CREATED THEN
+        MARQUEE_reset
     END IF
     IF MOVE.SELECTION_IMAGE < -1 THEN _FREEIMAGE MOVE.SELECTION_IMAGE
     IF MOVE.PREVIEW_BUFFER < -1 THEN _FREEIMAGE MOVE.PREVIEW_BUFFER
@@ -84,12 +91,16 @@ SUB MOVE_capture_selection ()
     MOVE.ORIGINAL_W = MOVE.SELECTION_W
     MOVE.ORIGINAL_H = MOVE.SELECTION_H
 
-    ' Save undo state NOW (before we start showing the preview buffer)
-    ' This ensures the pre-move layer state is captured for CTRL+Z
-    IF NOT UNDO_saved_this_frame% THEN
-        UNDO_save_state
-        UNDO_saved_this_frame% = TRUE
-    END IF
+    ' Track which layer we captured from (ensures apply targets the correct layer
+    ' even if the user switches layers before committing)
+    MOVE.CAPTURED_LAYER = CURRENT_LAYER%
+
+    ' NOTE: No undo save here. The post-move state is saved in MOVE_apply_transform.
+    ' The pre-move baseline comes from UNDO_init (file load), LAYERS_new, or
+    ' LAYERS_duplicate, ensuring every layer has a prior state for undo to restore.
+    ' Saving here AND in apply_transform created duplicate states when consecutive
+    ' moves happened (post-apply of move N = pre-capture of move N+1), causing
+    ' one undo press to "do nothing" visually.
 
     ' Create image buffer and copy selected region from CURRENT LAYER
     MOVE.SELECTION_IMAGE = _NEWIMAGE(MOVE.SELECTION_W, MOVE.SELECTION_H, 32)
@@ -295,19 +306,28 @@ SUB MOVE_apply_transform ()
         MOVE.CLONING = (_KEYDOWN(KEY_LALT&) OR _KEYDOWN(KEY_RALT&))
     $END IF
     
-    _DEST LAYER_current_image&
+    ' Use the captured layer (not necessarily current layer, which may have changed)
+    DIM targetLayer AS INTEGER
+    targetLayer% = MOVE.CAPTURED_LAYER
+    IF targetLayer% < 1 OR targetLayer% > 64 OR LAYERS(targetLayer%).imgHandle& = 0 THEN
+        targetLayer% = CURRENT_LAYER%  ' Fallback to current layer
+    END IF
+    DIM targetImg AS LONG
+    targetImg& = LAYERS(targetLayer%).imgHandle&
+    
+    _DEST targetImg&
     
     ' If not cloning (and no stamps were placed), clear the ORIGINAL area to transparent
     ' Must use _DONTBLEND so alpha=0 pixels actually overwrite existing content
     IF NOT MOVE.CLONING AND NOT MOVE.CLONE_STAMPED THEN
-        _DONTBLEND LAYER_current_image&
+        _DONTBLEND targetImg&
         LINE (MOVE.ORIGINAL_X, MOVE.ORIGINAL_Y)-(MOVE.ORIGINAL_X + MOVE.ORIGINAL_W - 1, MOVE.ORIGINAL_Y + MOVE.ORIGINAL_H - 1), _RGBA32(0, 0, 0, 0), BF
-        _BLEND LAYER_current_image&
+        _BLEND targetImg&
     END IF
     
     ' Draw the transformed selection
     IF MOVE.SELECTION_IMAGE < -1 THEN
-        _PUTIMAGE (MOVE.CURRENT_X, MOVE.CURRENT_Y)-(MOVE.CURRENT_X + MOVE.CURRENT_W - 1, MOVE.CURRENT_Y + MOVE.CURRENT_H - 1), MOVE.SELECTION_IMAGE, LAYER_current_image&
+        _PUTIMAGE (MOVE.CURRENT_X, MOVE.CURRENT_Y)-(MOVE.CURRENT_X + MOVE.CURRENT_W - 1, MOVE.CURRENT_Y + MOVE.CURRENT_H - 1), MOVE.SELECTION_IMAGE, targetImg&
     END IF
     
     _DEST SCRN.CANVAS&
@@ -319,14 +339,15 @@ SUB MOVE_apply_transform ()
     MARQUEE.BOX.h = MOVE.CURRENT_H
     
     CANVAS_DIRTY% = TRUE
-    LAYERS(CURRENT_LAYER%).contentDirty% = TRUE
+    LAYERS(targetLayer%).contentDirty% = TRUE
     BLEND_invalidate_cache
     
     ' Save undo state AFTER transform is committed so the post-move result
     ' is captured. Pre-move state was saved in MOVE_capture_selection.
-    ' Without this, subsequent undo skips past the entire move operation.
+    ' Use UNDO_save_layer_state with the target layer (CAPTURED_LAYER) so undo
+    ' captures the correct layer, not whichever layer happens to be selected now.
     IF NOT UNDO_saved_this_frame% THEN
-        UNDO_save_state
+        UNDO_save_layer_state targetLayer%
         UNDO_saved_this_frame% = TRUE
     END IF
     
@@ -342,20 +363,31 @@ SUB MOVE_stamp ()
     IF NOT MOVE.ACTIVE THEN EXIT SUB
     IF MOVE.SELECTION_IMAGE = 0 THEN EXIT SUB
     
-    ' Save undo state BEFORE making changes
-    IF NOT UNDO_saved_this_frame% THEN
-        UNDO_save_state
-        UNDO_saved_this_frame% = TRUE
+    ' Use the captured layer (not necessarily current layer)
+    DIM stampTarget AS INTEGER
+    stampTarget% = MOVE.CAPTURED_LAYER
+    IF stampTarget% < 1 OR stampTarget% > 64 OR LAYERS(stampTarget%).imgHandle& = 0 THEN
+        stampTarget% = CURRENT_LAYER%
     END IF
+    DIM stampImg AS LONG
+    stampImg& = LAYERS(stampTarget%).imgHandle&
     
-    _DEST LAYER_current_image&
+    _DEST stampImg&
     
     ' Draw a copy of the selection at current position (DON'T clear original - that's the point of stamp)
     IF MOVE.SELECTION_IMAGE < -1 THEN
-        _PUTIMAGE (MOVE.CURRENT_X, MOVE.CURRENT_Y)-(MOVE.CURRENT_X + MOVE.CURRENT_W - 1, MOVE.CURRENT_Y + MOVE.CURRENT_H - 1), MOVE.SELECTION_IMAGE, LAYER_current_image&
+        _PUTIMAGE (MOVE.CURRENT_X, MOVE.CURRENT_Y)-(MOVE.CURRENT_X + MOVE.CURRENT_W - 1, MOVE.CURRENT_Y + MOVE.CURRENT_H - 1), MOVE.SELECTION_IMAGE, stampImg&
     END IF
     
     _DEST SCRN.CANVAS&
+    
+    ' Save undo state AFTER stamp so the post-stamp result is captured.
+    ' This matches the "save after modification" pattern used by brush, line, etc.
+    ' Each stamp gets its own undo state, so consecutive stamps can be undone individually.
+    IF NOT UNDO_saved_this_frame% THEN
+        UNDO_save_layer_state stampTarget%
+        UNDO_saved_this_frame% = TRUE
+    END IF
     
     ' Latch clone mode - once stamped, don't clear original area on commit
     MOVE.CLONE_STAMPED = TRUE
@@ -371,7 +403,7 @@ SUB MOVE_stamp ()
     MARQUEE.BOX.h = MOVE.CURRENT_H
     
     CANVAS_DIRTY% = TRUE
-    LAYERS(CURRENT_LAYER%).contentDirty% = TRUE
+    LAYERS(stampTarget%).contentDirty% = TRUE
     BLEND_invalidate_cache
     
     ' Suppress marching ants around stamped clones
@@ -520,12 +552,21 @@ SUB MOVE_update_preview_buffer ()
     IF MOVE.PREVIEW_BUFFER = 0 THEN EXIT SUB
     IF MOVE.SELECTION_IMAGE = 0 THEN EXIT SUB
     
+    ' Use the captured layer (not necessarily current layer)
+    DIM previewLayer AS INTEGER
+    previewLayer% = MOVE.CAPTURED_LAYER
+    IF previewLayer% < 1 OR previewLayer% > 64 OR LAYERS(previewLayer%).imgHandle& = 0 THEN
+        previewLayer% = CURRENT_LAYER%
+    END IF
+    DIM previewSrc AS LONG
+    previewSrc& = LAYERS(previewLayer%).imgHandle&
+    
     ' Clear preview buffer first to prevent ghosts
     _DEST MOVE.PREVIEW_BUFFER
     CLS , _RGBA32(0, 0, 0, 0) ' Clear with transparency for layers
     
-    ' Copy entire current layer to preview buffer
-    _PUTIMAGE , LAYER_current_image&, MOVE.PREVIEW_BUFFER
+    ' Copy entire captured layer to preview buffer
+    _PUTIMAGE , previewSrc&, MOVE.PREVIEW_BUFFER
     
     ' If NOT cloning (and no stamps were placed), clear the ORIGINAL area to transparent
     ' Must use _DONTBLEND so alpha=0 pixels actually overwrite existing content

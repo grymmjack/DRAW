@@ -592,12 +592,13 @@ SUB CMD_execute_action (action_id AS INTEGER)
         CASE 301  ' Undo (intelligent workspace/pixel routing)
             IF CURRENT_TOOL% = TOOL_MOVE AND MOVE.ACTIVE THEN
                 ' Abort the active move instead of undoing — same as ESC
+                ' Suppress undo save in MOVE_apply_transform (called by MOVE_reset)
+                ' since the cancel just restores original pixels — saving would create
+                ' a phantom undo state identical to pre-capture.
+                UNDO_saved_this_frame% = TRUE
                 MOVE_cancel_transform
                 MOVE_reset
-                CURRENT_TOOL% = TOOL_MARQUEE
-                IF MARQUEE.ACTIVE% AND NOT MARQUEE.USER_CREATED THEN
-                    MARQUEE_reset
-                END IF
+                ' Keep TOOL_MOVE selected (MOVE_reset already cleans up auto-created marquee)
             ELSE
                 DIM pixelUndoTs AS DOUBLE, workspaceUndoTs AS DOUBLE
                 pixelUndoTs# = UNDO_get_last_timestamp#
@@ -611,9 +612,18 @@ SUB CMD_execute_action (action_id AS INTEGER)
             GUI_NEEDS_REDRAW% = TRUE
             FRAME_IDLE% = FALSE
         CASE 302  ' Redo (intelligent workspace/pixel routing)
-            IF WORKSPACE_UNDO_can_redo% AND UNDO.current% >= UNDO.count% - 1 THEN
+            ' Use timestamps to redo in correct chronological order (earliest first).
+            ' This mirrors the undo routing which uses timestamps for "latest first".
+            DIM pixelRedoTs AS DOUBLE, workspaceRedoTs AS DOUBLE
+            DIM canPixelRedo AS INTEGER, canWorkspaceRedo AS INTEGER
+            canPixelRedo% = (UNDO.current% < UNDO.count% - 1)
+            canWorkspaceRedo% = WORKSPACE_UNDO_can_redo%
+            pixelRedoTs# = 0: workspaceRedoTs# = 0
+            IF canPixelRedo% THEN pixelRedoTs# = UNDO_STATES(UNDO.current% + 1).timestamp#
+            IF canWorkspaceRedo% THEN workspaceRedoTs# = WORKSPACE_UNDO_STATES(WORKSPACE_UNDO.current% + 1).timestamp#
+            IF canWorkspaceRedo% AND (NOT canPixelRedo% OR workspaceRedoTs# < pixelRedoTs#) THEN
                 WORKSPACE_UNDO_redo
-            ELSE
+            ELSEIF canPixelRedo% THEN
                 UNDO_redo
             END IF
             GUI_NEEDS_REDRAW% = TRUE
@@ -635,7 +645,10 @@ SUB CMD_execute_action (action_id AS INTEGER)
                     IF ctnl_dest& < -1 THEN
                         _PUTIMAGE (CLIPBOARD.SOURCE_X, CLIPBOARD.SOURCE_Y), CLIPBOARD.IMAGE, ctnl_dest&
                         LAYERS(ctnl_idx%).contentDirty% = TRUE
-                        UNDO_save_state
+                        IF NOT UNDO_saved_this_frame% THEN
+                            UNDO_save_state
+                            UNDO_saved_this_frame% = TRUE
+                        END IF
                         BLEND_invalidate_cache
                         CANVAS_DIRTY% = TRUE
                         SCENE_DIRTY% = TRUE
@@ -656,7 +669,10 @@ SUB CMD_execute_action (action_id AS INTEGER)
                     IF cpnl_dest& < -1 THEN
                         _PUTIMAGE (CLIPBOARD.SOURCE_X, CLIPBOARD.SOURCE_Y), CLIPBOARD.IMAGE, cpnl_dest&
                         LAYERS(cpnl_idx%).contentDirty% = TRUE
-                        UNDO_save_state
+                        IF NOT UNDO_saved_this_frame% THEN
+                            UNDO_save_state
+                            UNDO_saved_this_frame% = TRUE
+                        END IF
                         BLEND_invalidate_cache
                         CANVAS_DIRTY% = TRUE
                         SCENE_DIRTY% = TRUE

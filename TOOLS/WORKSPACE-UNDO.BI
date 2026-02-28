@@ -23,14 +23,15 @@ TYPE WORKSPACE_UNDO_STATE
     img2 AS LONG                     ' Second image (for merge - stores bottom layer before merge)
     old_zIndex AS INTEGER            ' Previous zIndex (for reorder)
     new_zIndex AS INTEGER            ' New zIndex (for reorder)
-    old_name AS STRING * 16          ' Previous name (for rename)
-    new_name AS STRING * 16          ' New name (for rename)
+    old_name AS STRING * 64          ' Previous name (for rename/restore)
+    new_name AS STRING * 64          ' New name (for rename)
     old_layer_count AS INTEGER       ' Layer count before operation
     merge_top_index AS INTEGER       ' For merge: top layer index
     merge_bottom_index AS INTEGER    ' For merge: bottom layer index
     old_opacity AS INTEGER           ' Layer opacity before operation
     old_visible AS INTEGER           ' Layer visibility before operation
     old_opacityLock AS INTEGER       ' Opacity lock state before operation
+    old_blendMode AS INTEGER         ' Blend mode before operation
 END TYPE
 
 TYPE WORKSPACE_UNDO_SYSTEM

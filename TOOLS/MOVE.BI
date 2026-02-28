@@ -31,6 +31,7 @@ TYPE MOVE_OBJ
     CLONING      AS INTEGER  ' Whether ALT is held (clone mode)
     CLONE_STAMPED AS INTEGER ' TRUE if any stamp was placed in this move session
     CONSTRAIN    AS INTEGER  ' Whether SHIFT is held (constrain proportions)
+    CAPTURED_LAYER AS INTEGER ' Layer index that was captured (ensures apply targets correct layer)
     ORIGINAL_IMAGE AS LONG   ' Preserved original image for lossless re-scaling
     ORIGINAL_IMG_W AS INTEGER ' Width of original image
     ORIGINAL_IMG_H AS INTEGER ' Height of original image

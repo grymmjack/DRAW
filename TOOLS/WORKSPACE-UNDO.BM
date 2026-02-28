@@ -117,8 +117,21 @@ SUB WORKSPACE_UNDO_save_layer_add (layerIndex AS INTEGER)
     WORKSPACE_UNDO_STATES(idx%).timestamp# = TIMER
     WORKSPACE_UNDO_STATES(idx%).layer_index% = layerIndex%
     WORKSPACE_UNDO_STATES(idx%).old_layer_count% = LAYER_COUNT%
-    WORKSPACE_UNDO_STATES(idx%).img& = 0  ' No image needed for add
     WORKSPACE_UNDO_STATES(idx%).img2& = 0
+    
+    ' Save the added layer's full state so redo can restore it faithfully
+    ' (Important for duplicate layers which have custom names, content, etc.)
+    WORKSPACE_UNDO_STATES(idx%).old_name$ = LAYERS(layerIndex%).name$
+    WORKSPACE_UNDO_STATES(idx%).old_zIndex% = LAYERS(layerIndex%).zIndex%
+    WORKSPACE_UNDO_STATES(idx%).old_opacity% = LAYERS(layerIndex%).opacity%
+    WORKSPACE_UNDO_STATES(idx%).old_visible% = LAYERS(layerIndex%).visible%
+    WORKSPACE_UNDO_STATES(idx%).old_opacityLock% = LAYERS(layerIndex%).opacityLock%
+    WORKSPACE_UNDO_STATES(idx%).old_blendMode% = LAYERS(layerIndex%).blendMode%
+    IF LAYERS(layerIndex%).imgHandle& < -1 THEN
+        WORKSPACE_UNDO_STATES(idx%).img& = _COPYIMAGE(LAYERS(layerIndex%).imgHandle&)
+    ELSE
+        WORKSPACE_UNDO_STATES(idx%).img& = 0
+    END IF
 END SUB
 
 ' ============================================================================
@@ -152,9 +165,8 @@ SUB WORKSPACE_UNDO_save_layer_delete (layerIndex AS INTEGER)
     WORKSPACE_UNDO_STATES(idx%).old_opacity% = LAYERS(layerIndex%).opacity%
     WORKSPACE_UNDO_STATES(idx%).old_visible% = LAYERS(layerIndex%).visible%
     WORKSPACE_UNDO_STATES(idx%).old_opacityLock% = LAYERS(layerIndex%).opacityLock%
+    WORKSPACE_UNDO_STATES(idx%).old_blendMode% = LAYERS(layerIndex%).blendMode%
 END SUB
-
-' ============================================================================
 ' WORKSPACE_UNDO_save_layer_rename - Save state before renaming a layer
 ' ============================================================================
 SUB WORKSPACE_UNDO_save_layer_rename (layerIndex AS INTEGER, oldName AS STRING, newName AS STRING)
@@ -231,6 +243,7 @@ SUB WORKSPACE_UNDO_save_layer_merge (topIndex AS INTEGER, bottomIndex AS INTEGER
     WORKSPACE_UNDO_STATES(idx%).old_opacity% = LAYERS(topIndex%).opacity%
     WORKSPACE_UNDO_STATES(idx%).old_visible% = LAYERS(topIndex%).visible%
     WORKSPACE_UNDO_STATES(idx%).old_opacityLock% = LAYERS(topIndex%).opacityLock%
+    WORKSPACE_UNDO_STATES(idx%).old_blendMode% = LAYERS(topIndex%).blendMode%
 END SUB
 
 ' ============================================================================
@@ -248,6 +261,26 @@ SUB WORKSPACE_UNDO_undo
     SELECT CASE state.action_type%
         CASE WUNDO_TYPE_LAYER_ADD
             ' Undo layer add = delete the layer
+            ' First, snapshot the layer's current state back into the undo record
+            ' so redo can faithfully restore it (layer may have been modified since add)
+            IF state.layer_index% >= 1 AND state.layer_index% <= 64 THEN
+                IF LAYERS(state.layer_index%).imgHandle& <> 0 THEN
+                    WORKSPACE_UNDO_STATES(WORKSPACE_UNDO.current%).old_name$ = LAYERS(state.layer_index%).name$
+                    WORKSPACE_UNDO_STATES(WORKSPACE_UNDO.current%).old_zIndex% = LAYERS(state.layer_index%).zIndex%
+                    WORKSPACE_UNDO_STATES(WORKSPACE_UNDO.current%).old_opacity% = LAYERS(state.layer_index%).opacity%
+                    WORKSPACE_UNDO_STATES(WORKSPACE_UNDO.current%).old_visible% = LAYERS(state.layer_index%).visible%
+                    WORKSPACE_UNDO_STATES(WORKSPACE_UNDO.current%).old_opacityLock% = LAYERS(state.layer_index%).opacityLock%
+                    WORKSPACE_UNDO_STATES(WORKSPACE_UNDO.current%).old_blendMode% = LAYERS(state.layer_index%).blendMode%
+                    IF WORKSPACE_UNDO_STATES(WORKSPACE_UNDO.current%).img& < -1 THEN
+                        _FREEIMAGE WORKSPACE_UNDO_STATES(WORKSPACE_UNDO.current%).img&
+                    END IF
+                    IF LAYERS(state.layer_index%).imgHandle& < -1 THEN
+                        WORKSPACE_UNDO_STATES(WORKSPACE_UNDO.current%).img& = _COPYIMAGE(LAYERS(state.layer_index%).imgHandle&)
+                    ELSE
+                        WORKSPACE_UNDO_STATES(WORKSPACE_UNDO.current%).img& = 0
+                    END IF
+                END IF
+            END IF
             IF state.layer_index% <= LAYER_COUNT% THEN
                 LAYERS_delete state.layer_index%
             END IF
@@ -267,6 +300,7 @@ SUB WORKSPACE_UNDO_undo
             LAYERS(newIdx%).opacity% = state.old_opacity%
             LAYERS(newIdx%).visible% = state.old_visible%
             LAYERS(newIdx%).opacityLock% = state.old_opacityLock%
+            LAYERS(newIdx%).blendMode% = state.old_blendMode%
             
             ' Restore layer content
             IF state.img& < -1 THEN
@@ -342,6 +376,7 @@ SUB WORKSPACE_UNDO_undo
             LAYERS(topIdx%).opacity% = state.old_opacity%
             LAYERS(topIdx%).visible% = state.old_visible%
             LAYERS(topIdx%).opacityLock% = state.old_opacityLock%
+            LAYERS(topIdx%).blendMode% = state.old_blendMode%
             LAYERS(topIdx%).isSelected% = FALSE
             LAYERS(topIdx%).lastSelected% = FALSE
             
@@ -391,9 +426,26 @@ SUB WORKSPACE_UNDO_redo
     
     SELECT CASE state.action_type%
         CASE WUNDO_TYPE_LAYER_ADD
-            ' Redo layer add = add the layer again
+            ' Redo layer add = recreate the layer with its saved properties and content
             DIM redoNewIdx AS INTEGER
             redoNewIdx% = LAYERS_new%
+            IF redoNewIdx% > 0 THEN
+                ' Restore layer properties from the saved state
+                LAYERS(redoNewIdx%).name$ = state.old_name$
+                LAYERS(redoNewIdx%).zIndex% = state.old_zIndex%
+                LAYERS(redoNewIdx%).opacity% = state.old_opacity%
+                LAYERS(redoNewIdx%).visible% = state.old_visible%
+                LAYERS(redoNewIdx%).opacityLock% = state.old_opacityLock%
+                LAYERS(redoNewIdx%).blendMode% = state.old_blendMode%
+                LAYERS(redoNewIdx%).contentDirty% = TRUE
+                ' Restore layer pixel content
+                IF state.img& < -1 THEN
+                    IF LAYERS(redoNewIdx%).imgHandle& < -1 THEN
+                        _FREEIMAGE LAYERS(redoNewIdx%).imgHandle&
+                    END IF
+                    LAYERS(redoNewIdx%).imgHandle& = _COPYIMAGE(state.img&)
+                END IF
+            END IF
             
         CASE WUNDO_TYPE_LAYER_DELETE
             ' Redo layer delete = delete the layer again
@@ -425,6 +477,11 @@ SUB WORKSPACE_UNDO_redo
     WORKSPACE_UNDO_IN_PROGRESS% = FALSE  ' Allow undo saves again
     ' Safety net: recount layers to ensure LAYER_COUNT% is accurate
     LAYER_COUNT% = LAYERS_recount%
+    ' Mark all layers contentDirty since redo may have restored layer content
+    DIM wuri AS INTEGER
+    FOR wuri% = 1 TO 64
+        IF LAYERS(wuri%).imgHandle& <> 0 THEN LAYERS(wuri%).contentDirty% = TRUE
+    NEXT wuri%
     BLEND_invalidate_cache
     GUI_NEEDS_REDRAW% = TRUE
     SCENE_DIRTY% = TRUE

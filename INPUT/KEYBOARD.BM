@@ -204,6 +204,11 @@ SUB KEYBOARD_tools (keypress AS STRING)
             IF LAYER_PANEL_is_dragging% THEN
                 LAYER_PANEL_drag_cancel
             ELSEIF CURRENT_TOOL% = TOOL_MOVE AND MOVE.ACTIVE THEN
+                ' Cancel the move: restore pixels to original position, discard undo states
+                ' Set frame flag BEFORE reset so MOVE_apply_transform skips its undo save
+                ' (the apply just restores original pixels — saving would create a phantom state
+                ' identical to the pre-capture state, wasting a CTRL+Z press)
+                UNDO_saved_this_frame% = TRUE
                 MOVE_cancel_transform
                 MOVE_reset
                 ' Clear auto-created marquee but keep TOOL_MOVE selected
@@ -1586,6 +1591,9 @@ SUB KEYBOARD_handle_clipboard_operations ()
     IF keyZNow% AND NOT UNDO_KEY_Z_LAST% AND NOT clipIsShift% AND NOT clipIsAlt% THEN
         IF CURRENT_TOOL% = TOOL_MOVE AND MOVE.ACTIVE THEN
             ' Abort the active move instead of undoing — same as ESC
+            ' Suppress undo save so MOVE_apply_transform (called by MOVE_reset)
+            ' doesn't create a phantom state identical to pre-capture
+            UNDO_saved_this_frame% = TRUE
             MOVE_cancel_transform
             MOVE_reset
             ' Clear auto-created marquee but keep TOOL_MOVE selected
@@ -1613,11 +1621,18 @@ SUB KEYBOARD_handle_clipboard_operations ()
     
     ' Ctrl+Y OR Ctrl+Shift+Z: Intelligent Redo
     IF (keyYNow% AND NOT UNDO_KEY_Y_LAST%) OR (keyZNow% AND NOT UNDO_KEY_Z_LAST% AND clipIsShift%) THEN
-        ' If workspace has something to redo that's available and pixel doesn't, do workspace first
-        IF WORKSPACE_UNDO_can_redo% AND UNDO.current% >= UNDO.count% - 1 THEN
-            _LOGINFO "CTRL-Y: Workspace redo (pixel redo not available)"
+        ' If workspace has something to redo, use timestamps for correct chronological order
+        DIM redoPixelTs AS DOUBLE, redoWorkspaceTs AS DOUBLE
+        DIM redoCanPixel AS INTEGER, redoCanWorkspace AS INTEGER
+        redoCanPixel% = (UNDO.current% < UNDO.count% - 1)
+        redoCanWorkspace% = WORKSPACE_UNDO_can_redo%
+        redoPixelTs# = 0: redoWorkspaceTs# = 0
+        IF redoCanPixel% THEN redoPixelTs# = UNDO_STATES(UNDO.current% + 1).timestamp#
+        IF redoCanWorkspace% THEN redoWorkspaceTs# = WORKSPACE_UNDO_STATES(WORKSPACE_UNDO.current% + 1).timestamp#
+        IF redoCanWorkspace% AND (NOT redoCanPixel% OR redoWorkspaceTs# < redoPixelTs#) THEN
+            _LOGINFO "CTRL-Y: Workspace redo (ts=" + STR$(redoWorkspaceTs#) + " < pixel ts=" + STR$(redoPixelTs#) + ")"
             WORKSPACE_UNDO_redo
-        ELSE
+        ELSEIF redoCanPixel% THEN
             _LOGINFO "CTRL-Y: Pixel redo"
             UNDO_redo
         END IF

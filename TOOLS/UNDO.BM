@@ -23,13 +23,25 @@ SUB UNDO_init ()
             UNDO_STATES(i%).img& = 0
         END IF
         UNDO_STATES(i%).layer_index% = 0
+        UNDO_STATES(i%).timestamp# = 0
     NEXT i%
     
-    ' Save initial blank canvas as state 0 (use current layer image)
-    UNDO_STATES(0).img& = _COPYIMAGE(LAYER_current_image&, 32)
-    UNDO_STATES(0).layer_index% = CURRENT_LAYER%
-    UNDO.count% = 1
-    UNDO.current% = 0
+    ' Save initial state for ALL active layers (not just current layer).
+    ' This ensures every layer has a pixel undo baseline for operations like move
+    ' that need a prior state to restore when undone.
+    FOR i% = 1 TO 64
+        IF LAYERS(i%).imgHandle& < -1 THEN
+            UNDO_STATES(UNDO.count%).img& = _COPYIMAGE(LAYERS(i%).imgHandle&, 32)
+            UNDO_STATES(UNDO.count%).layer_index% = i%
+            UNDO_STATES(UNDO.count%).timestamp# = TIMER
+            UNDO.count% = UNDO.count% + 1
+        END IF
+    NEXT i%
+    IF UNDO.count% > 0 THEN
+        UNDO.current% = UNDO.count% - 1
+    ELSE
+        UNDO.current% = 0
+    END IF
 END SUB
 
 
@@ -63,13 +75,15 @@ SUB UNDO_save_state ()
             _FREEIMAGE UNDO_STATES(0).img&
         END IF
         
-        ' Shift all states down
+        ' Shift all states down (must copy ALL fields including timestamp)
         FOR i% = 0 TO UNDO.count% - 2
             UNDO_STATES(i%).img& = UNDO_STATES(i% + 1).img&
             UNDO_STATES(i%).layer_index% = UNDO_STATES(i% + 1).layer_index%
+            UNDO_STATES(i%).timestamp# = UNDO_STATES(i% + 1).timestamp#
         NEXT i%
         UNDO_STATES(UNDO.count% - 1).img& = 0
         UNDO_STATES(UNDO.count% - 1).layer_index% = 0
+        UNDO_STATES(UNDO.count% - 1).timestamp# = 0
         UNDO.count% = UNDO.count% - 1
         UNDO.current% = UNDO.current% - 1
     END IF
@@ -85,6 +99,61 @@ SUB UNDO_save_state ()
     PIXEL_UNDO_LAST_TIMESTAMP# = UNDO_STATES(UNDO.current%).timestamp#
     
     ' Mark canvas as dirty (has unsaved changes)
+    CANVAS_DIRTY% = TRUE
+END SUB
+
+
+''
+' Save a SPECIFIC layer's state to undo history.
+' Use this instead of UNDO_save_state when the target layer differs from CURRENT_LAYER%
+' (e.g., MOVE_apply_transform operates on CAPTURED_LAYER which may != CURRENT_LAYER%).
+'
+SUB UNDO_save_layer_state (layerIndex AS INTEGER)
+    DIM i AS INTEGER
+
+    ' Validate layer index
+    IF layerIndex% < 1 OR layerIndex% > 64 THEN EXIT SUB
+    IF LAYERS(layerIndex%).imgHandle& = 0 THEN EXIT SUB
+
+    _LOGINFO "UNDO_save_layer_state called: saving layer " + STR$(layerIndex%) + " count was " + STR$(UNDO.count%)
+
+    ' If we're not at the end of the undo stack, clear everything after current position
+    IF UNDO.current% < UNDO.count% - 1 THEN
+        FOR i% = UNDO.current% + 1 TO UNDO.count% - 1
+            IF UNDO_STATES(i%).img& < -1 THEN
+                _FREEIMAGE UNDO_STATES(i%).img&
+                UNDO_STATES(i%).img& = 0
+            END IF
+            UNDO_STATES(i%).layer_index% = 0
+        NEXT i%
+        UNDO.count% = UNDO.current% + 1
+    END IF
+
+    ' If we're at max capacity, remove oldest state
+    IF UNDO.count% >= UNDO.max_states% THEN
+        IF UNDO_STATES(0).img& < -1 THEN
+            _FREEIMAGE UNDO_STATES(0).img&
+        END IF
+        FOR i% = 0 TO UNDO.count% - 2
+            UNDO_STATES(i%).img& = UNDO_STATES(i% + 1).img&
+            UNDO_STATES(i%).layer_index% = UNDO_STATES(i% + 1).layer_index%
+            UNDO_STATES(i%).timestamp# = UNDO_STATES(i% + 1).timestamp#
+        NEXT i%
+        UNDO_STATES(UNDO.count% - 1).img& = 0
+        UNDO_STATES(UNDO.count% - 1).layer_index% = 0
+        UNDO_STATES(UNDO.count% - 1).timestamp# = 0
+        UNDO.count% = UNDO.count% - 1
+        UNDO.current% = UNDO.current% - 1
+    END IF
+
+    ' Save the specified layer's image
+    UNDO_STATES(UNDO.count%).img& = _COPYIMAGE(LAYERS(layerIndex%).imgHandle&, 32)
+    UNDO_STATES(UNDO.count%).layer_index% = layerIndex%
+    UNDO_STATES(UNDO.count%).timestamp# = TIMER
+    UNDO.count% = UNDO.count% + 1
+    UNDO.current% = UNDO.count% - 1
+
+    PIXEL_UNDO_LAST_TIMESTAMP# = UNDO_STATES(UNDO.current%).timestamp#
     CANVAS_DIRTY% = TRUE
 END SUB
 
@@ -289,3 +358,39 @@ FUNCTION UNDO_get_last_timestamp# ()
         UNDO_get_last_timestamp# = 0
     END IF
 END FUNCTION
+
+
+''
+' Discard the most recent undo state (pop from stack).
+' Used when cancelling a move — the pre-capture state saved by MOVE_capture_selection
+' is redundant since the layer was restored to its original state by the cancel.
+' Without popping, the dead state wastes a CTRL+Z press (no visible change).
+'
+SUB UNDO_pop_last ()
+    IF UNDO.count% <= 0 THEN EXIT SUB
+    IF UNDO.current% <= 0 THEN EXIT SUB
+    ' Only pop if we're at the top of the stack (not in middle of a redo branch)
+    IF UNDO.current% <> UNDO.count% - 1 THEN EXIT SUB
+
+    DIM popIdx AS INTEGER
+    popIdx% = UNDO.count% - 1
+
+    ' Free the image handle
+    IF UNDO_STATES(popIdx%).img& < -1 THEN
+        _FREEIMAGE UNDO_STATES(popIdx%).img&
+        UNDO_STATES(popIdx%).img& = 0
+    END IF
+    UNDO_STATES(popIdx%).layer_index% = 0
+
+    ' Shrink the stack
+    UNDO.count% = UNDO.count% - 1
+    UNDO.current% = UNDO.current% - 1
+
+    ' Update the global pixel undo timestamp
+    IF UNDO.current% >= 0 AND UNDO.current% < UNDO.count% THEN
+        PIXEL_UNDO_LAST_TIMESTAMP# = UNDO_STATES(UNDO.current%).timestamp#
+    ELSE
+        PIXEL_UNDO_LAST_TIMESTAMP# = 0
+    END IF
+    _LOGINFO "UNDO_pop_last: discarded state, current=" + STR$(UNDO.current%) + " count=" + STR$(UNDO.count%)
+END SUB
