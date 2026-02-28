@@ -46,7 +46,10 @@ applyTo: "**"
 | `OUTPUT/` | Screen rendering (`SCREEN_render`), file export (BAS, BMP, BSAVE) |
 | `TOOLS/` | Drawing tools (brush, line, rect, fill, marquee, etc.), undo systems, DRW format, image import |
 | `ASSETS/` | Fonts, icons, palettes (56 GPL files), primitives, themes |
+| `ASSETS/THEMES/DEFAULT/IMAGES/` | Theme images in subfolders: `TOOLBOX/` (toolbar icons), `DRAWER/` (organizer), `LAYERS/` (layer panel), `PALETTE/`, `PATTERNS/`, `ORPHANED/` |
+| `ASSETS/THEMES/DEFAULT/FONTS/` | Theme fonts (e.g., `Tiny5-Regular.ttf`, `PICO-8.ttf`) |
 | `includes/QB64_GJ_LIB/` | External utility library (BBX, DICT, STRINGS, VECT2D) |
+| `DEV-ONLY/` | Test/sample files excluded from release builds (`.draw`, `.run`, `.log`, screenshots) |
 
 ### Singleton State Pattern
 
@@ -809,16 +812,42 @@ Theme values are applied in two stages:
 
 Theme colors are `_UNSIGNED LONG` (`~&`) for RGB32 values. **Never use `INTEGER` for color fields** — it truncates RGB32 and causes corruption when the palette changes.
 
-Key fields added post-v0.8.1:
+Key fields added in v0.9.0:
 
 | Field | Type | Purpose |
-|-------|------|---------|
+|-------|------|------|
 | `TOOLBAR_btn_overlay~&` | `_UNSIGNED LONG` | Fill color of active toolbar button overlay (default: `_RGBA32(0,0,0,128)`) |
 | `TOOLBAR_btn_stroke~&` | `_UNSIGNED LONG` | Border color of active toolbar button indicator (default: `_RGBA32(255,255,255,255)`) |
+| `GLOBAL_FONT_FILE AS STRING` | `STRING` | Filename of main UI font (e.g., `Tiny5-Regular.ttf`); resolved via `THEME_font_path$()` |
+| `ALT_FONT_FILE AS STRING` | `STRING` | Filename of alternate font (e.g., `PICO-8.ttf`); resolved via `THEME_font_path$()` |
 
-### Toolbar Active Button Indicator
+### `THEME_font_path$(filename$)`
 
-The active tool button in the toolbar is highlighted by drawing:
+Declared in `CFG/CONFIG-THEME.BI`, implemented in `CFG/CONFIG-THEME.BM`. Resolves a font filename to an absolute path using a two-tier fallback:
+1. `ASSETS/THEMES/{CFG.THEME$}/FONTS/{filename}` — theme-specific font
+2. `ASSETS/FONTS/{filename}` — global fallback
+
+Logs `_LOGERROR` if neither location exists. **Always use this function** for `_LOADFONT` calls instead of hardcoded paths.
+
+```qb64
+' Correct pattern for loading theme fonts:
+DIM fontPath AS STRING
+fontPath = THEME_font_path$(THEME.GLOBAL_FONT_FILE$)
+IF myFont& < -1 THEN _FREEFONT myFont&
+myFont& = _LOADFONT(fontPath, fontSize%, "MONOSPACE")
+```
+
+### Theme Image Subfolders
+
+All theme images are stored in subfolders under `ASSETS/THEMES/{name}/IMAGES/`:
+- `TOOLBOX/` — toolbar button icons (loaded by `GUI/TOOLBAR.BM`)
+- `DRAWER/` — organizer widget icons (loaded by `GUI/ORGANIZER.BM`)
+- `LAYERS/` — layer panel icons (loaded by `GUI/LAYERS.BM`)
+- `PALETTE/` — palette-related icons
+- `PATTERNS/` — pattern/brush pattern images
+- `ORPHANED/` — images with no current code references (see README.md in that folder)
+
+**Custom themes** must use this subfolder structure. Image references in code already include the subfolder prefix (e.g., `themeImgDir$ + "IMAGES/TOOLBOX/" + iconName$`).
 1. A filled rectangle (`LINE ... BF`) in `TOOLBAR_btn_overlay~&` over the whole button
 2. Four non-overlapping filled border rectangles in `TOOLBAR_btn_stroke~&` (top, bottom, left inset, right inset)
 
@@ -842,7 +871,7 @@ For sub-100% paint opacity, overlapping brush dabs within a single stroke must n
 
 ## Window Title Bar
 
-`DRAW v0.8.0 - myart.draw *`
+`DRAW v0.9.0 - myart.draw *`
 
 - **`TITLE_update`** (`_COMMON.BM`): Builds title string. Prefers `CURRENT_DRW_FILENAME$`.
 - **`TITLE_check`** (`_COMMON.BM`): Called every frame in `LOOP_start`. Only calls `_TITLE`

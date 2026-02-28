@@ -14,7 +14,7 @@ DATA "::::::::", "::    ::", "::    ::", "::::  ::::", "  ::  ::  "
 
 DRAW is a pixel art editor written in QB64PE that can export images as sourcecode
 
-![DRAW GUI from v0.8.1](./GUI.png)
+![DRAW GUI from v0.9.0](./GUI.png)
 
 ## Features
 
@@ -77,6 +77,7 @@ DRAW is a pixel art editor written in QB64PE that can export images as sourcecod
 - Scrollbars for canvases larger than the viewport
 - Keyboard panning with arrow keys
 - Reset view with Ctrl+0 or double-click middle mouse
+- Adjust display scale at runtime: `Ctrl+PgUp` (scale up), `Ctrl+PgDn` (scale down), `Ctrl+Alt+PgDn` (reset to auto-detected default)
 - Toggle UI elements (toolbar, status bar, menu bar, layer panel)
 
 ### Brush System
@@ -110,6 +111,8 @@ DRAW is a pixel art editor written in QB64PE that can export images as sourcecod
 - Status bar shows: tool, coordinates, zoom, grid state, colors
 - Smooth zoom and pan
 - Help button opens searchable command palette
+- **Runtime theming** — Edit `ASSETS/THEMES/DEFAULT/THEME.CFG` to customize colors, icon paths, and fonts without recompiling; changes take effect on next launch
+- **Theme font system** — Place custom fonts in `ASSETS/THEMES/DEFAULT/FONTS/` and reference them via `GLOBAL_FONT_FILE`/`ALT_FONT_FILE` keys in `THEME.CFG`
 
 ## Quick Start
 
