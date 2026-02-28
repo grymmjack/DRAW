@@ -56,6 +56,7 @@ DECLARE SUB MOVE_flip_horizontal ()
 DECLARE SUB MOVE_flip_vertical ()
 DECLARE SUB MOVE_nudge (dx AS INTEGER, dy AS INTEGER)
 DECLARE SUB MOVE_resize (dw AS INTEGER, dh AS INTEGER)
+DECLARE SUB MOVE_sync_base ()
 
 ' Shared state for layer-level lossless scaling
 DIM SHARED SCALE_ORIGINAL_IMAGE AS LONG    ' Backup of layer before first scale op
