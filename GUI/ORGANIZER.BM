@@ -341,16 +341,89 @@ SUB ORGANIZER_render (tbPanelY2 AS INTEGER)
         _PUTIMAGE (wx%, wy%)-(wx% + ww% - 1, wy% + wh% - 1), imgH&, SCRN.GUI&, (0, 0)-(ORG_WIDGETS(wIdx%).srcW% - 1, ORG_WIDGETS(wIdx%).srcH% - 1)
     END IF
 
-    ' Color Mode (col 3, row 2): 11x11
+    ' Color Mode (col 3, row 2): 11x11 — dynamic FG/BG color chips
     wIdx% = ORG_COLOR_MODE
     wx% = orgX3%: wy% = row2Y%: ww% = colW%
     wh% = ORG_WIDGETS(wIdx%).srcH% * scale% ' 11px scaled
     ORG_WIDGETS(wIdx%).x% = wx%: ORG_WIDGETS(wIdx%).y% = wy%
     ORG_WIDGETS(wIdx%).w% = ww%: ORG_WIDGETS(wIdx%).h% = wh%
+    ' Draw the base image first
     imgH& = ORGANIZER_get_state_image&(wIdx%)
     IF imgH& < -1 THEN
         _PUTIMAGE (wx%, wy%)-(wx% + ww% - 1, wy% + wh% - 1), imgH&, SCRN.GUI&, (0, 0)-(ORG_WIDGETS(wIdx%).srcW% - 1, ORG_WIDGETS(wIdx%).srcH% - 1)
     END IF
+
+    ' Draw dynamic FG/BG color chips on top
+    DIM AS INTEGER fgX1, fgY1, fgX2, fgY2
+    DIM AS INTEGER bgX1, bgY1, bgX2, bgY2
+    DIM AS _UNSIGNED LONG fgColor, bgColor, fgOutline, bgOutline
+    DIM AS INTEGER fgR, fgG, fgB, bgR, bgG, bgB
+
+    ' FG chip: top-left area, origin (1,1), size 6x4 (unscaled)
+    fgX1% = wx% + 1 * scale%
+    fgY1% = wy% + 1 * scale%
+    fgX2% = fgX1% + 6 * scale% - 1
+    fgY2% = fgY1% + 4 * scale% - 1
+
+    ' BG chip: bottom-right area, origin (4,6), size 6x4 (unscaled)
+    bgX1% = wx% + 4 * scale%
+    bgY1% = wy% + 6 * scale%
+    bgX2% = bgX1% + 6 * scale% - 1
+    bgY2% = bgY1% + 4 * scale% - 1
+
+    ' Determine display colors (magenta for transparent)
+    IF PAL_FG_IS_TRANSPARENT% THEN
+        fgColor~& = _RGB32(255, 0, 255)
+    ELSE
+        fgColor~& = PAINT_COLOR~&
+    END IF
+    IF PAL_BG_IS_TRANSPARENT% THEN
+        bgColor~& = _RGB32(255, 0, 255)
+    ELSE
+        bgColor~& = PAINT_BG_COLOR~&
+    END IF
+
+    ' Determine outline colors (alt if near-white, always normal for transparent)
+    IF PAL_FG_IS_TRANSPARENT% THEN
+        fgOutline~& = THEME.COLOR_CHIP_outline~&
+    ELSE
+        fgR% = _RED32(fgColor~&): fgG% = _GREEN32(fgColor~&): fgB% = _BLUE32(fgColor~&)
+        IF fgR% > 220 AND fgG% > 220 AND fgB% > 220 THEN
+            fgOutline~& = THEME.COLOR_CHIP_outline_alt~&
+        ELSE
+            fgOutline~& = THEME.COLOR_CHIP_outline~&
+        END IF
+    END IF
+    IF PAL_BG_IS_TRANSPARENT% THEN
+        bgOutline~& = THEME.COLOR_CHIP_outline~&
+    ELSE
+        bgR% = _RED32(bgColor~&): bgG% = _GREEN32(bgColor~&): bgB% = _BLUE32(bgColor~&)
+        IF bgR% > 220 AND bgG% > 220 AND bgB% > 220 THEN
+            bgOutline~& = THEME.COLOR_CHIP_outline_alt~&
+        ELSE
+            bgOutline~& = THEME.COLOR_CHIP_outline~&
+        END IF
+    END IF
+
+    ' Draw BG chip first (behind FG chip)
+    IF PAL_BG_IS_TRANSPARENT% THEN
+        ' Transparent indicator: white fill + red diagonal
+        LINE (bgX1%, bgY1%)-(bgX2%, bgY2%), _RGB32(255, 255, 255), BF
+        LINE (bgX1%, bgY1%)-(bgX2%, bgY2%), _RGB32(255, 0, 0)
+    ELSE
+        LINE (bgX1%, bgY1%)-(bgX2%, bgY2%), bgColor~&, BF
+    END IF
+    LINE (bgX1%, bgY1%)-(bgX2%, bgY2%), bgOutline~&, B
+
+    ' Draw FG chip on top
+    IF PAL_FG_IS_TRANSPARENT% THEN
+        ' Transparent indicator: white fill + red diagonal
+        LINE (fgX1%, fgY1%)-(fgX2%, fgY2%), _RGB32(255, 255, 255), BF
+        LINE (fgX1%, fgY1%)-(fgX2%, fgY2%), _RGB32(255, 0, 0)
+    ELSE
+        LINE (fgX1%, fgY1%)-(fgX2%, fgY2%), fgColor~&, BF
+    END IF
+    LINE (fgX1%, fgY1%)-(fgX2%, fgY2%), fgOutline~&, B
 END SUB
 
 
@@ -471,8 +544,84 @@ SUB ORGANIZER_activate_widget (idx AS INTEGER, mouseX AS INTEGER)
             END IF
 
         CASE ORG_COLOR_MODE
-            ' Stub: Toggle color mode (no-op for now)
-            _LOGINFO "ORGANIZER: Color Mode clicked (stub)"
+            ' Color mode widget: check sub-zones
+            DIM AS INTEGER cmScale, cmWx, cmWy
+            DIM AS INTEGER cmFgX1, cmFgY1, cmFgX2, cmFgY2
+            DIM AS INTEGER cmSwX1, cmSwY1, cmSwX2, cmSwY2
+            DIM AS _UNSIGNED LONG cmChosen
+            DIM AS INTEGER cmPalIdx
+            cmScale% = CFG.TOOLBAR_SCALE%
+            IF cmScale% < 1 THEN cmScale% = 1
+            IF cmScale% > 4 THEN cmScale% = 4
+            cmWx% = ORG_WIDGETS(idx%).x%
+            cmWy% = ORG_WIDGETS(idx%).y%
+
+            ' FG chip zone: origin (1,1), size 6x4 (unscaled)
+            cmFgX1% = cmWx% + 1 * cmScale%
+            cmFgY1% = cmWy% + 1 * cmScale%
+            cmFgX2% = cmFgX1% + 6 * cmScale% - 1
+            cmFgY2% = cmFgY1% + 4 * cmScale% - 1
+
+            ' BG chip zone: origin (4,6), size 6x4 (unscaled)
+            DIM AS INTEGER cmBgX1, cmBgY1, cmBgX2, cmBgY2
+            cmBgX1% = cmWx% + 4 * cmScale%
+            cmBgY1% = cmWy% + 6 * cmScale%
+            cmBgX2% = cmBgX1% + 6 * cmScale% - 1
+            cmBgY2% = cmBgY1% + 4 * cmScale% - 1
+
+            ' Swap zone: origin (1,6), size 4x4 (unscaled)
+            cmSwX1% = cmWx% + 1 * cmScale%
+            cmSwY1% = cmWy% + 6 * cmScale%
+            cmSwX2% = cmSwX1% + 4 * cmScale% - 1
+            cmSwY2% = cmSwY1% + 4 * cmScale% - 1
+
+            IF mouseX% >= cmSwX1% AND mouseX% <= cmSwX2% AND _
+               MOUSE.RAW_Y% >= cmSwY1% AND MOUSE.RAW_Y% <= cmSwY2% THEN
+                ' Swap zone left-click: swap FG <-> BG
+                DIM AS _UNSIGNED LONG tmpColor
+                DIM AS INTEGER tmpIdx, tmpTrans
+                tmpColor~& = PAINT_COLOR~&
+                tmpIdx% = PAL_FG_IDX%
+                tmpTrans% = PAL_FG_IS_TRANSPARENT%
+                PAINT_COLOR~& = PAINT_BG_COLOR~&
+                PAL_FG_IDX% = PAL_BG_IDX%
+                PAL_FG_IS_TRANSPARENT% = PAL_BG_IS_TRANSPARENT%
+                PAINT_BG_COLOR~& = tmpColor~&
+                PAL_BG_IDX% = tmpIdx%
+                PAL_BG_IS_TRANSPARENT% = tmpTrans%
+                POINTER.C~& = PAINT_COLOR~&
+                GUI_NEEDS_REDRAW% = TRUE
+                _LOGINFO "ORGANIZER: Color Mode - Swap FG/BG"
+            ELSEIF mouseX% >= cmFgX1% AND mouseX% <= cmFgX2% AND _
+                   MOUSE.RAW_Y% >= cmFgY1% AND MOUSE.RAW_Y% <= cmFgY2% THEN
+                ' FG chip left-click: open picker for FG
+                cmChosen~& = PALETTE_PICKER_show~&("Choose Foreground Color", PAINT_COLOR~&)
+                IF cmChosen~& <> PAINT_COLOR~& THEN
+                    PAL_FG_IS_TRANSPARENT% = FALSE
+                    PAINT_COLOR~& = cmChosen~&
+                    POINTER.C~& = cmChosen~&
+                    cmPalIdx% = PAL_find_index%(cmChosen~&)
+                    IF cmPalIdx% >= 0 THEN PAL_FG_IDX% = cmPalIdx%
+                    GUI_NEEDS_REDRAW% = TRUE
+                END IF
+                MOUSE_reset_buttons
+                _LOGINFO "ORGANIZER: Color Mode - Pick FG"
+            ELSEIF mouseX% >= cmBgX1% AND mouseX% <= cmBgX2% AND _
+                   MOUSE.RAW_Y% >= cmBgY1% AND MOUSE.RAW_Y% <= cmBgY2% THEN
+                ' BG chip left-click: open picker for BG
+                cmChosen~& = PALETTE_PICKER_show~&("Choose Background Color", PAINT_BG_COLOR~&)
+                IF cmChosen~& <> PAINT_BG_COLOR~& THEN
+                    PAL_BG_IS_TRANSPARENT% = FALSE
+                    PAINT_BG_COLOR~& = cmChosen~&
+                    cmPalIdx% = PAL_find_index%(cmChosen~&)
+                    IF cmPalIdx% >= 0 THEN PAL_BG_IDX% = cmPalIdx%
+                    GUI_NEEDS_REDRAW% = TRUE
+                END IF
+                MOUSE_reset_buttons
+                _LOGINFO "ORGANIZER: Color Mode - Pick BG"
+            ELSE
+                ' Outside sub-zones: do nothing
+            END IF
 
         CASE ORG_SYMMETRY_MODE
             ' Cycle symmetry mode: off -> 1 -> 2 -> 3 -> off
@@ -514,6 +663,83 @@ SUB ORGANIZER_activate_widget_right (idx AS INTEGER, mouseX AS INTEGER)
             CMD_execute_action 316
             _LOGINFO "ORGANIZER: Flip Vertical (right-click)"
 
+        CASE ORG_COLOR_MODE
+            ' Color mode widget right-click: check sub-zones
+            DIM AS INTEGER cmrScale, cmrWx, cmrWy
+            DIM AS INTEGER cmrBgX1, cmrBgY1, cmrBgX2, cmrBgY2
+            DIM AS INTEGER cmrSwX1, cmrSwY1, cmrSwX2, cmrSwY2
+            DIM AS INTEGER cmrFgX1, cmrFgY1, cmrFgX2, cmrFgY2
+            DIM AS _UNSIGNED LONG cmrChosen
+            DIM AS INTEGER cmrPalIdx
+            cmrScale% = CFG.TOOLBAR_SCALE%
+            IF cmrScale% < 1 THEN cmrScale% = 1
+            IF cmrScale% > 4 THEN cmrScale% = 4
+            cmrWx% = ORG_WIDGETS(idx%).x%
+            cmrWy% = ORG_WIDGETS(idx%).y%
+
+            ' FG chip zone: origin (1,1), size 6x4 (unscaled)
+            cmrFgX1% = cmrWx% + 1 * cmrScale%
+            cmrFgY1% = cmrWy% + 1 * cmrScale%
+            cmrFgX2% = cmrFgX1% + 6 * cmrScale% - 1
+            cmrFgY2% = cmrFgY1% + 4 * cmrScale% - 1
+
+            ' BG chip zone: origin (4,6), size 6x4 (unscaled)
+            cmrBgX1% = cmrWx% + 4 * cmrScale%
+            cmrBgY1% = cmrWy% + 6 * cmrScale%
+            cmrBgX2% = cmrBgX1% + 6 * cmrScale% - 1
+            cmrBgY2% = cmrBgY1% + 4 * cmrScale% - 1
+
+            ' Swap zone: origin (1,6), size 4x4 (unscaled)
+            cmrSwX1% = cmrWx% + 1 * cmrScale%
+            cmrSwY1% = cmrWy% + 6 * cmrScale%
+            cmrSwX2% = cmrSwX1% + 4 * cmrScale% - 1
+            cmrSwY2% = cmrSwY1% + 4 * cmrScale% - 1
+
+            IF mouseX% >= cmrSwX1% AND mouseX% <= cmrSwX2% AND _
+               MOUSE.RAW_Y% >= cmrSwY1% AND MOUSE.RAW_Y% <= cmrSwY2% THEN
+                ' Swap zone right-click: reset FG=white, BG=black
+                PAL_FG_IS_TRANSPARENT% = FALSE
+                PAL_BG_IS_TRANSPARENT% = FALSE
+                PAINT_COLOR~& = _RGB32(255, 255, 255)
+                PAINT_BG_COLOR~& = _RGB32(0, 0, 0)
+                POINTER.C~& = PAINT_COLOR~&
+                cmrPalIdx% = PAL_find_index%(_RGB32(255, 255, 255))
+                IF cmrPalIdx% >= 0 THEN PAL_FG_IDX% = cmrPalIdx%
+                cmrPalIdx% = PAL_find_index%(_RGB32(0, 0, 0))
+                IF cmrPalIdx% >= 0 THEN PAL_BG_IDX% = cmrPalIdx%
+                GUI_NEEDS_REDRAW% = TRUE
+                _LOGINFO "ORGANIZER: Color Mode - Reset FG/BG"
+            ELSEIF mouseX% >= cmrBgX1% AND mouseX% <= cmrBgX2% AND _
+                   MOUSE.RAW_Y% >= cmrBgY1% AND MOUSE.RAW_Y% <= cmrBgY2% THEN
+                ' BG chip right-click: open custom color dialog for BG
+                cmrChosen~& = _COLORCHOOSERDIALOG("Choose Background Color", PAINT_BG_COLOR~&)
+                IF cmrChosen~& <> PAINT_BG_COLOR~& THEN
+                    PAL_BG_IS_TRANSPARENT% = FALSE
+                    PAINT_BG_COLOR~& = cmrChosen~&
+                    cmrPalIdx% = PAL_find_index%(cmrChosen~&)
+                    IF cmrPalIdx% >= 0 THEN PAL_BG_IDX% = cmrPalIdx%
+                    GUI_NEEDS_REDRAW% = TRUE
+                END IF
+                MOUSE_reset_buttons
+                _LOGINFO "ORGANIZER: Color Mode - Custom BG"
+            ELSEIF mouseX% >= cmrFgX1% AND mouseX% <= cmrFgX2% AND _
+                   MOUSE.RAW_Y% >= cmrFgY1% AND MOUSE.RAW_Y% <= cmrFgY2% THEN
+                ' FG chip right-click: open custom color dialog for FG
+                cmrChosen~& = _COLORCHOOSERDIALOG("Choose Foreground Color", PAINT_COLOR~&)
+                IF cmrChosen~& <> PAINT_COLOR~& THEN
+                    PAL_FG_IS_TRANSPARENT% = FALSE
+                    PAINT_COLOR~& = cmrChosen~&
+                    POINTER.C~& = cmrChosen~&
+                    cmrPalIdx% = PAL_find_index%(cmrChosen~&)
+                    IF cmrPalIdx% >= 0 THEN PAL_FG_IDX% = cmrPalIdx%
+                    GUI_NEEDS_REDRAW% = TRUE
+                END IF
+                MOUSE_reset_buttons
+                _LOGINFO "ORGANIZER: Color Mode - Custom FG"
+            ELSE
+                ' Outside sub-zones: do nothing
+            END IF
+
         CASE ELSE
             ' Other widgets: right-click not used
     END SELECT
@@ -545,6 +771,44 @@ FUNCTION ORGANIZER_handle_middle_click% (mouseX AS INTEGER, mouseY AS INTEGER)
                     ' Middle click = Crop tool
                     CROP_begin
                     _LOGINFO "ORGANIZER: Crop mode started (middle-click)"
+                    ORGANIZER_handle_middle_click% = TRUE
+                    EXIT FUNCTION
+
+                CASE ORG_COLOR_MODE
+                    ' Middle click on color-mode widget: set color to transparent
+                    ' Check FG chip zone: origin (1,1), size 6x4
+                    DIM AS INTEGER cmmScale, cmmWx, cmmWy
+                    DIM AS INTEGER cmmFgX1, cmmFgY1, cmmFgX2, cmmFgY2
+                    DIM AS INTEGER cmmBgX1, cmmBgY1, cmmBgX2, cmmBgY2
+                    cmmScale% = CFG.TOOLBAR_SCALE%
+                    IF cmmScale% < 1 THEN cmmScale% = 1
+                    IF cmmScale% > 4 THEN cmmScale% = 4
+                    cmmWx% = ORG_WIDGETS(i%).x%
+                    cmmWy% = ORG_WIDGETS(i%).y%
+                    cmmFgX1% = cmmWx% + 1 * cmmScale%
+                    cmmFgY1% = cmmWy% + 1 * cmmScale%
+                    cmmFgX2% = cmmFgX1% + 6 * cmmScale% - 1
+                    cmmFgY2% = cmmFgY1% + 4 * cmmScale% - 1
+                    cmmBgX1% = cmmWx% + 4 * cmmScale%
+                    cmmBgY1% = cmmWy% + 6 * cmmScale%
+                    cmmBgX2% = cmmBgX1% + 6 * cmmScale% - 1
+                    cmmBgY2% = cmmBgY1% + 4 * cmmScale% - 1
+
+                    IF mouseX% >= cmmFgX1% AND mouseX% <= cmmFgX2% AND _
+                       mouseY% >= cmmFgY1% AND mouseY% <= cmmFgY2% THEN
+                        ' FG chip: set FG to transparent
+                        PAL_FG_IS_TRANSPARENT% = TRUE
+                        PAINT_COLOR~& = _RGBA32(0, 0, 0, 0)
+                        GUI_NEEDS_REDRAW% = TRUE
+                        _LOGINFO "ORGANIZER: Color Mode - FG Transparent"
+                    ELSEIF mouseX% >= cmmBgX1% AND mouseX% <= cmmBgX2% AND _
+                           mouseY% >= cmmBgY1% AND mouseY% <= cmmBgY2% THEN
+                        ' BG chip: set BG to transparent
+                        PAL_BG_IS_TRANSPARENT% = TRUE
+                        PAINT_BG_COLOR~& = _RGBA32(0, 0, 0, 0)
+                        GUI_NEEDS_REDRAW% = TRUE
+                        _LOGINFO "ORGANIZER: Color Mode - BG Transparent"
+                    END IF
                     ORGANIZER_handle_middle_click% = TRUE
                     EXIT FUNCTION
             END SELECT

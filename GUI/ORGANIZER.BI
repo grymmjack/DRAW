@@ -147,7 +147,7 @@ ORG_WIDGETS(ORG_COLOR_MODE).imgSrc$  = "color-mode-on.png"
 ORG_WIDGETS(ORG_COLOR_MODE).imgSrc2$ = "color-mode-off.png"
 ORG_WIDGETS(ORG_COLOR_MODE).srcW%    = 11
 ORG_WIDGETS(ORG_COLOR_MODE).srcH%    = 11
-ORG_WIDGETS(ORG_COLOR_MODE).tip$     = "Color Mode (stub)"
+ORG_WIDGETS(ORG_COLOR_MODE).tip$     = "FG/BG Color (L=pick FG, R=pick BG, swap, reset)"
 
 ORGANIZER.visible% = TRUE
 
