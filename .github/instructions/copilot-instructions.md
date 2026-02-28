@@ -224,6 +224,41 @@ in the code must exactly match the filenames on disk. Mismatches cause silent fa
 where icon state changes don't show visually (e.g., `grid-snap-center-off.png` vs
 `grid-snap-off-center.png`).
 
+### 18. `_KEYHIT` Is Unreliable for Ctrl+ Combos on Linux/SDL2
+**NEVER use `_KEYHIT`-returned character codes to detect hotkeys that involve Ctrl, Alt, or
+both.** On Linux under SDL2, `_KEYHIT` returns modified or suppressed values for non-letter
+keys when Ctrl is held (e.g., `_KEYHIT` will not return ASCII 62 for `>` when Ctrl is held).
+
+**Always use `_KEYDOWN(physicalKeyCode)`** for any hotkey that requires Ctrl or Alt. Pair it
+with a `STATIC pressed AS INTEGER` guard to fire once per keypress, not once per frame.
+**Always put Ctrl+Alt hotkeys in `KEYBOARD.BM`** (inside the appropriate `KEYBOARD_handle_*`
+sub), never in `DRAW.BAS`.
+
+Working pattern (see `ctrlAltRPressed%` in `KEYBOARD.BM` as the canonical example):
+```qb64
+STATIC myActionPressed AS INTEGER
+IF MODIFIERS.ctrl% AND MODIFIERS.alt% AND _KEYDOWN(physicalCode&) THEN
+    IF NOT myActionPressed% THEN
+        CMD_execute_action ACTION_ID
+        FRAME_IDLE% = FALSE
+        myActionPressed% = TRUE
+    END IF
+ELSEIF NOT _KEYDOWN(physicalCode&) THEN
+    myActionPressed% = FALSE
+END IF
+```
+
+Key physical codes relevant to DRAW:
+- `KEY_PGUP& = 18688` — Page Up (Ctrl+PgUp = display scale up)
+- `KEY_PGDN& = 20736` — Page Down (Ctrl+PgDn = scale down, Ctrl+Alt+PgDn = scale reset)
+- `46` — period `.`
+- `44` — comma `,`
+- `47` — slash `/`
+- `82` / `114` — `R` / `r`
+
+**Super/Windows key (100311/100312)**: Unavailable on Linux — the compositor captures it
+before SDL2 sees it.
+
 ---
 
 ## Undo System Deep Dive
@@ -426,6 +461,9 @@ Menu items, keyboard shortcuts, command palette, and toolbar clicks all funnel t
 | 201-213 | File | Open, Save, SaveAs, Export, Import, New, Template, Revert, Recent, Exit |
 | 301-323 | Edit | Undo, Redo, Copy, Cut, Paste, Clear, Select All, Fill FG/BG, Flip, Scale, Rotate, CopyToNewLayer |
 | 401-413 | View | Toolbar, StatusBar, LayerPanel, MenuBar, Zoom, DisplayScale, Cursors |
+| 408 | View | Display Scale Up (`Ctrl+PgUp`) |
+| 409 | View | Display Scale Down (`Ctrl+PgDn`) |
+| 416 | View | Display Scale Reset (`Ctrl+Alt+PgDn`) |
 | 501-517 | Color | Opacity presets (10-100%), Swap FG/BG |
 | 601-609 | Brush | Size dec/inc, presets, preview, shape, pixel perfect |
 | 701-710 | Layer | New, Delete, MoveUp/Down, MergeDown, MergeVisible, Duplicate, ArrangeTop/Bottom |
@@ -454,16 +492,15 @@ DO
     1. Deferred command-line file loading (first frame only)
     2. Windows drag-and-drop handling (_ACCEPTFILEDROP)
     3. k& = _KEYHIT + MODIFIERS_track_alt_keyhit + MODIFIERS_update
-    4. Display scale hotkeys (CTRL+ALT+SHIFT +/-)
-    5. LOOP_start — resets UNDO_saved_this_frame%, calls TITLE_check
-    6. MOUSE_input_handler (perf tracked)
-    7. KEYBOARD_input_handler (perf tracked)
-    8. STICK_input_handler (perf tracked)
-    9. Idle detection → sets FRAME_IDLE%, SCENE_DIRTY%
-   10. IF NOT FRAME_IDLE% THEN SCREEN_render
-   11. _LIMIT (IDLE_FPS_LIMIT=15 when idle, CFG.FPS_LIMIT%=60 otherwise)
-   12. MOUSE/KEYBOARD/STICK_input_handler_loop (post-render)
-   13. PERF_frame_end, LOOP_end
+    4. LOOP_start — resets UNDO_saved_this_frame%, calls TITLE_check
+    5. MOUSE_input_handler (perf tracked)
+    6. KEYBOARD_input_handler (perf tracked)  ← display scale hotkeys handled here
+    7. STICK_input_handler (perf tracked)
+    8. Idle detection → sets FRAME_IDLE%, SCENE_DIRTY%
+    9. IF NOT FRAME_IDLE% THEN SCREEN_render
+   10. _LIMIT (IDLE_FPS_LIMIT=15 when idle, CFG.FPS_LIMIT%=60 otherwise)
+   11. MOUSE/KEYBOARD/STICK_input_handler_loop (post-render)
+   12. PERF_frame_end, LOOP_end
 LOOP
 ```
 
@@ -758,11 +795,34 @@ saved to the config file on first launch via `CONFIG_NEEDS_INITIAL_SAVE%`.
 
 ## Theme System
 
-**Files**: `CFG/CONFIG-THEME.BI` (DRAW_THEME UDT), `ASSETS/THEMES/DEFAULT/THEME.BI` (values)
+**Files**: `CFG/CONFIG-THEME.BI` (DRAW_THEME UDT + DECLARE), `CFG/CONFIG-THEME.BM` (runtime loader), `ASSETS/THEMES/DEFAULT/THEME.BI` (compiled-in defaults), `ASSETS/THEMES/DEFAULT/THEME.CFG` (runtime overrides)
 
-Theme colors are `_UNSIGNED LONG` (`~&`) for RGB32 values. Status bar fields use `INTEGER`
-for palette indices. **Toolbar fields (`TOOLBAR_bg~&`, `TOOLBAR_border_fg~&`) are
-`_UNSIGNED LONG`** — these were incorrectly `INTEGER` in the past, causing color corruption.
+### Two-Tier Theme Loading
+
+Theme values are applied in two stages:
+1. **Compile time** (`THEME.BI`): Hardcoded defaults set at include time. Always present. Serves as fallback.
+2. **Runtime** (`THEME.CFG`): Human-editable `key=value` text file in the theme directory. Loaded in `SCREEN_init` by `THEME_load` after `CONFIG_load`. Overrides any compiled-in defaults. **Edit this file to change theme colors without recompiling.**
+
+`THEME_load` (in `CFG/CONFIG-THEME.BM`) parses `ASSETS/THEMES/DEFAULT/THEME.CFG`, dispatching via `SELECT CASE UCASE$(key$)`. Colors are specified as `R,G,B,A` and parsed by `THEME_parse_rgba~&(val$)`.
+
+### DRAW_THEME UDT Fields
+
+Theme colors are `_UNSIGNED LONG` (`~&`) for RGB32 values. **Never use `INTEGER` for color fields** — it truncates RGB32 and causes corruption when the palette changes.
+
+Key fields added post-v0.8.1:
+
+| Field | Type | Purpose |
+|-------|------|---------|
+| `TOOLBAR_btn_overlay~&` | `_UNSIGNED LONG` | Fill color of active toolbar button overlay (default: `_RGBA32(0,0,0,128)`) |
+| `TOOLBAR_btn_stroke~&` | `_UNSIGNED LONG` | Border color of active toolbar button indicator (default: `_RGBA32(255,255,255,255)`) |
+
+### Toolbar Active Button Indicator
+
+The active tool button in the toolbar is highlighted by drawing:
+1. A filled rectangle (`LINE ... BF`) in `TOOLBAR_btn_overlay~&` over the whole button
+2. Four non-overlapping filled border rectangles in `TOOLBAR_btn_stroke~&` (top, bottom, left inset, right inset)
+
+Border thickness scales with `TOOLBAR_SCALE` (`bt% = scale%`, minimum 1). The four-rect approach (not `LINE ... B`) is required to avoid double alpha-compositing at corners, which would make corners appear brighter than edges.
 
 Cursor configuration defines 13 cursor types with PNG filenames and hotspot expressions.
 

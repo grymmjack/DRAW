@@ -291,8 +291,8 @@ Brush size and shape affect all drawing tools: Brush, Dot, Line, Rectangle, Elli
 | `F12` | Export active custom brush as PNG file |
 | `Home` | Flip custom brush horizontally |
 | `End` | Flip custom brush vertically |
-| `Page Up` | Scale custom brush up |
-| `Page Down` | Scale custom brush down |
+| `PgUp` | Scale custom brush up |
+| `PgDn` | Scale custom brush down |
 | `/` | Reset custom brush scale to original size |
 
 **Custom Brush Features:**
@@ -356,11 +356,11 @@ Brush size and shape affect all drawing tools: Brush, Dot, Line, Rectangle, Elli
 
 | Key | Function |
 |-----|----------|
-| `Ctrl+Alt+Shift+NumPad+` | Increase display scale (1x→2x→3x→4x) |
-| `Ctrl+Alt+Shift+NumPad-` | Decrease display scale (4x→3x→2x→1x) |
+| `Ctrl+PgUp` | Increase display scale (1x→2x→3x→4x) |
+| `Ctrl+PgDn` | Decrease display scale (4x→3x→2x→1x) |
+| `Ctrl+Alt+PgDn` | Reset display scale to configured default |
 
 **Notes:**
-- NumPad +/- work with NumLock ON or OFF
 - Display scale changes window size, not canvas zoom
 - Changed scale is remembered if you save config on exit
 

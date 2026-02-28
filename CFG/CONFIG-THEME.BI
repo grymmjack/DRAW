@@ -61,4 +61,8 @@ TYPE DRAW_THEME
     MENU_SUB_sel_fg        AS _UNSIGNED LONG ' Submenu selected item fg
 END TYPE
 
+' Runtime theme loader — populates THEME from ASSETS/THEMES/{CFG.THEME$}/THEME.CFG
+DECLARE SUB THEME_load ()
+DECLARE FUNCTION THEME_parse_rgba~& (val$)
+
 DIM SHARED THEME AS DRAW_THEME

@@ -41,6 +41,8 @@ CONST KEY_RALT&     = 100307
 CONST KEY_LALT&     = 100308
 CONST KEY_DELETE&   = 21248  ' DELETE key
 CONST KEY_BACKSPACE& = 8     ' BACKSPACE key
+CONST KEY_PGUP&     = 18688  ' Page Up key
+CONST KEY_PGDN&     = 20736  ' Page Down key
 
 ' Last directory for file dialogs (save/load)
 DIM SHARED LAST_DIRECTORY$

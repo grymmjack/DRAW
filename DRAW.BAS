@@ -140,17 +140,6 @@ DO
     ' Update modifier key state (CTRL, SHIFT, ALT) once per frame
     MODIFIERS_update
     
-    ' Handle display scale hotkeys: CTRL+ALT+SHIFT+= to scale up, CTRL+ALT+SHIFT+- to scale down
-    IF NOT CFG.FULLSCREEN% AND MODIFIERS.ctrlShiftAlt% THEN
-        ' Numpad + : 43 (NumLock ON), 19968 (NumLock OFF)
-        ' Numpad - : 45 (NumLock ON), 18944 (NumLock OFF)
-        IF k& = 43 OR k& = 19968 THEN
-            SCREEN_set_display_scale SCRN.displayScale% + 1
-        ELSEIF k& = 45 OR k& = 18944 THEN
-            SCREEN_set_display_scale SCRN.displayScale% - 1
-        END IF
-    END IF
-    
     LOOP_start
     PERF_start PERF_MAIN_LOOP_TOTAL
     PERF_start PERF_MOUSE_INPUT
