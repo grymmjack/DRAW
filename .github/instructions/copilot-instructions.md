@@ -10,7 +10,7 @@ applyTo: "**"
 
 **Project**: DRAW is a pixel art editor written in QB64-PE by grymmjack (Rick Christy). Unique feature: exports artwork as QB64 source code. Build with: `qb64pe -w -x -o DRAW.run DRAW.BAS`
 
-**Version**: `APP_VERSION$` constant in `_COMMON.BI` (currently `"0.8.0"`).
+**Version**: `APP_VERSION$` constant in `_COMMON.BI` (currently `"0.8.1"`).
 
 ---
 
