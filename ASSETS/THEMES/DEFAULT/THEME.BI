@@ -7,47 +7,49 @@
 '
 $INCLUDEONCE
 
-THEME.STATUS_bg%              = 8                       ' Dark gray
-THEME.STATUS_fg%              = 0                       ' Opaque black
-THEME.STATUS_height%          = 11                      ' Status bar height in pixels
-THEME.CROSSHAIR_color_fg~&    = _RGB32(128, 128, 128)   ' Medium gray crosshair lines
-THEME.CROSSHAIR_opacity%      = 128                     ' 50% opacity (alpha 0-255)
-THEME.CROSSHAIR_font_fg~&     = _RGB32(255, 255, 255)   ' White coordinate text
-THEME.CROSSHAIR_pattern%      = &B1010101010101010      ' - - - - - - - -
-THEME.GRID_color_fg~&         = _RGB32(250, 250, 250)   ' Bright white at full opacity
-THEME.GRID_opacity%           = 38                      ' ~15% opacity (alpha 0-255)
-THEME.GRID_size_x%            = 10                      ' Grid cell width in pixels
-THEME.GRID_size_y%            = 10                      ' Grid cell height in pixels
+THEME.STATUS_bg%                 = 8                       ' Dark gray
+THEME.STATUS_fg%                 = 0                       ' Opaque black
+THEME.STATUS_height%             = 11                      ' Status bar height in pixels
+THEME.CROSSHAIR_color_fg~&       = _RGB32(128, 128, 128)   ' Medium gray crosshair lines
+THEME.CROSSHAIR_opacity%         = 128                     ' 50% opacity (alpha 0-255)
+THEME.CROSSHAIR_font_fg~&        = _RGB32(255, 255, 255)   ' White coordinate text
+THEME.CROSSHAIR_pattern%         = &B1010101010101010      ' - - - - - - - -
+THEME.GRID_color_fg~&            = _RGB32(250, 250, 250)   ' Bright white at full opacity
+THEME.GRID_opacity%              = 38                      ' ~15% opacity (alpha 0-255)
+THEME.GRID_size_x%               = 10                      ' Grid cell width in pixels
+THEME.GRID_size_y%               = 10                      ' Grid cell height in pixels
 THEME.TRANSPARENCY_check_size_x% = 8                    ' Checkerboard square width
 THEME.TRANSPARENCY_check_size_y% = 8                    ' Checkerboard square height
-THEME.TOOLBAR_x$              = "R"                     ' Screen right side (any res)
-THEME.TOOLBAR_y$              = "T"                     ' Screen top side (any res)
-THEME.TOOLBAR_bg~&            = _RGBA32(0, 0, 0, 255)   ' Black background
-THEME.TOOLBAR_border_fg~&     = _RGBA32(0, 0, 0, 255)   ' Black border
-THEME.PIXEL_GRID_color1~&     = _RGBA32(80, 80, 80, 64) ' Dark gray grid lines at 25% opacity
-THEME.PIXEL_GRID_color2~&     = _RGBA32(60, 60, 60, 64) ' Unused (for future checkerboard) at 25% opacity
-THEME.PIXEL_GRID_color_fg~&   = _RGB32(80, 80, 80)       ' Pixel grid line color (dark gray)
-THEME.PIXEL_GRID_opacity%     = 64                       ' 25% opacity (alpha 0-255)
-THEME.GRID_angle!             = 0.0                      ' No grid rotation by default
-THEME.CROSSHAIR_angle!        = 0.0                      ' No crosshair rotation by default
-THEME.SYMMETRY_guide_fg~&     = _RGBA32(0, 255, 255, 128) ' Cyan guide lines at 50% opacity
-THEME.SYMMETRY_center_fg~&    = _RGBA32(255, 255, 0, 128)  ' Yellow center crosshair at 50% opacity
+THEME.TOOLBAR_x$                 = "R"                     ' Screen right side (any res)
+THEME.TOOLBAR_y$                 = "T"                     ' Screen top side (any res)
+THEME.TOOLBAR_bg~&               = _RGBA32(0, 0, 0, 255)   ' Black background
+THEME.TOOLBAR_border_fg~&        = _RGBA32(0, 0, 0, 255)   ' Black border
+THEME.TOOLBAR_btn_overlay~&      = _RGBA32(0, 0, 0, 128)   ' Active button overlay: 50% black
+THEME.TOOLBAR_btn_stroke~&       = _RGBA32(255, 255, 255, 255) ' Active button border: 75% white
+THEME.PIXEL_GRID_color1~&        = _RGBA32(80, 80, 80, 64) ' Dark gray grid lines at 25% opacity
+THEME.PIXEL_GRID_color2~&        = _RGBA32(60, 60, 60, 64) ' Unused (for future checkerboard) at 25% opacity
+THEME.PIXEL_GRID_color_fg~&      = _RGB32(80, 80, 80)       ' Pixel grid line color (dark gray)
+THEME.PIXEL_GRID_opacity%        = 64                       ' 25% opacity (alpha 0-255)
+THEME.GRID_angle!                = 0.0                      ' No grid rotation by default
+THEME.CROSSHAIR_angle!           = 0.0                      ' No crosshair rotation by default
+THEME.SYMMETRY_guide_fg~&        = _RGBA32(0, 255, 255, 128) ' Cyan guide lines at 50% opacity
+THEME.SYMMETRY_center_fg~&       = _RGBA32(255, 255, 0, 128)  ' Yellow center crosshair at 50% opacity
 
 ' Menu bar colors
-THEME.MENU_BAR_bg~&            = _RGB32(121, 121, 121)     ' #797979 - medium gray bar
-THEME.MENU_BAR_fg~&            = _RGB32(0, 0, 0)           ' Black text
-THEME.MENU_BAR_border~&        = _RGB32(0, 0, 0)           ' Black border
-THEME.MENU_BAR_divider~&       = _RGB32(121, 121, 121)     ' Same as bar bg
-THEME.MENU_BAR_sel_bg~&        = _RGB32(85, 85, 85)        ' #555555 - darker highlight
-THEME.MENU_BAR_sel_fg~&        = _RGB32(255, 255, 255)     ' White text on highlight
-THEME.MENU_BAR_disabled_fg~&   = _RGB32(80, 80, 80)        ' #505050 - dimmed disabled text
-THEME.MENU_SUB_bg~&            = _RGB32(121, 121, 121)     ' #797979 - medium gray submenu
-THEME.MENU_SUB_fg~&            = _RGB32(0, 0, 0)           ' Black text
-THEME.MENU_SUB_border~&        = _RGB32(0, 0, 0)           ' Black border
-THEME.MENU_SUB_divider~&       = _RGB32(85, 85, 85)        ' #555555 - subtle divider
-THEME.MENU_SUB_sel_bg~&        = _RGB32(85, 85, 85)        ' #555555 - darker highlight
-THEME.MENU_SUB_disabled_fg~&   = _RGB32(80, 80, 80)        ' #505050 - dimmed disabled text
-THEME.MENU_SUB_sel_fg~&        = _RGB32(255, 255, 255)     ' White text on highlight
+THEME.MENU_BAR_bg~&              = _RGB32(121, 121, 121)     ' #797979 - medium gray bar
+THEME.MENU_BAR_fg~&              = _RGB32(0, 0, 0)           ' Black text
+THEME.MENU_BAR_border~&          = _RGB32(0, 0, 0)           ' Black border
+THEME.MENU_BAR_divider~&         = _RGB32(121, 121, 121)     ' Same as bar bg
+THEME.MENU_BAR_sel_bg~&          = _RGB32(85, 85, 85)        ' #555555 - darker highlight
+THEME.MENU_BAR_sel_fg~&          = _RGB32(255, 255, 255)     ' White text on highlight
+THEME.MENU_BAR_disabled_fg~&     = _RGB32(80, 80, 80)        ' #505050 - dimmed disabled text
+THEME.MENU_SUB_bg~&              = _RGB32(121, 121, 121)     ' #797979 - medium gray submenu
+THEME.MENU_SUB_fg~&              = _RGB32(0, 0, 0)           ' Black text
+THEME.MENU_SUB_border~&          = _RGB32(0, 0, 0)           ' Black border
+THEME.MENU_SUB_divider~&         = _RGB32(85, 85, 85)        ' #555555 - subtle divider
+THEME.MENU_SUB_sel_bg~&          = _RGB32(85, 85, 85)        ' #555555 - darker highlight
+THEME.MENU_SUB_disabled_fg~&     = _RGB32(80, 80, 80)        ' #505050 - dimmed disabled text
+THEME.MENU_SUB_sel_fg~&          = _RGB32(255, 255, 255)     ' White text on highlight
 
 ' =============================================================================
 ' CURSORS - PNG cursor configuration
