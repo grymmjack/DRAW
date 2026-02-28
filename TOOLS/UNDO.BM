@@ -17,7 +17,7 @@ SUB UNDO_init ()
     
     ' Free any existing undo states
     DIM i AS INTEGER
-    FOR i% = 0 TO UNDO.max_states%
+    FOR i% = 0 TO UNDO_STATES_MAX%
         IF UNDO_STATES(i%).img& < -1 THEN
             _FREEIMAGE UNDO_STATES(i%).img&
             UNDO_STATES(i%).img& = 0
@@ -26,10 +26,17 @@ SUB UNDO_init ()
         UNDO_STATES(i%).timestamp# = 0
     NEXT i%
     
+    ' Cap max_states to safe limit (leave room for post-increment overshoot)
+    IF UNDO.max_states% > UNDO_STATES_MAX% - 1 THEN
+        UNDO.max_states% = UNDO_STATES_MAX% - 1
+    END IF
+    IF UNDO.max_states% < 1 THEN UNDO.max_states% = 100
+    
     ' Save initial state for ALL active layers (not just current layer).
     ' This ensures every layer has a pixel undo baseline for operations like move
     ' that need a prior state to restore when undone.
     FOR i% = 1 TO 64
+        IF UNDO.count% >= UNDO.max_states% THEN EXIT FOR ' Don't exceed capacity
         IF LAYERS(i%).imgHandle& < -1 THEN
             UNDO_STATES(UNDO.count%).img& = _COPYIMAGE(LAYERS(i%).imgHandle&, 32)
             UNDO_STATES(UNDO.count%).layer_index% = i%
@@ -53,13 +60,33 @@ END SUB
 '
 SUB UNDO_save_state ()
     DIM i AS INTEGER
+    DIM ubnd AS INTEGER
+    DIM srcImg AS LONG
+    ubnd% = UNDO_STATES_MAX%
     
-    _LOGINFO "UNDO_save_state called: saving layer " + STR$(CURRENT_LAYER%) + " count was " + STR$(UNDO.count%)
+    _LOGINFO "UNDO_save_state called: saving layer " + STR$(CURRENT_LAYER%) + " count was " + STR$(UNDO.count%) + " current=" + STR$(UNDO.current%)
+    
+    ' Sanitize state — clamp count and current to valid range
+    IF UNDO.count% < 0 THEN
+        _LOGWARN "UNDO_save_state: count was negative (" + STR$(UNDO.count%) + "), clamping to 0"
+        UNDO.count% = 0
+    END IF
+    IF UNDO.count% > ubnd% THEN
+        _LOGWARN "UNDO_save_state: count exceeded array bounds (" + STR$(UNDO.count%) + "), clamping to " + STR$(ubnd%)
+        UNDO.count% = ubnd%
+    END IF
+    IF UNDO.current% < 0 THEN UNDO.current% = 0
+    IF UNDO.current% > ubnd% THEN UNDO.current% = ubnd%
+    
+    ' Ensure max_states is valid
+    IF UNDO.max_states% < 1 THEN UNDO.max_states% = 100
+    IF UNDO.max_states% > ubnd% THEN UNDO.max_states% = ubnd%
     
     ' If we're not at the end of the undo stack, clear everything after current position
     ' (because we're creating a new branch)
     IF UNDO.current% < UNDO.count% - 1 THEN
         FOR i% = UNDO.current% + 1 TO UNDO.count% - 1
+            IF i% < 0 OR i% > ubnd% THEN EXIT FOR ' Bounds safety
             IF UNDO_STATES(i%).img& < -1 THEN
                 _FREEIMAGE UNDO_STATES(i%).img&
                 UNDO_STATES(i%).img& = 0
@@ -76,27 +103,50 @@ SUB UNDO_save_state ()
         END IF
         
         ' Shift all states down (must copy ALL fields including timestamp)
-        FOR i% = 0 TO UNDO.count% - 2
+        DIM shiftEnd AS INTEGER
+        shiftEnd% = UNDO.count% - 2
+        IF shiftEnd% > ubnd% - 1 THEN shiftEnd% = ubnd% - 1 ' Ensure i+1 stays in bounds
+        FOR i% = 0 TO shiftEnd%
             UNDO_STATES(i%).img& = UNDO_STATES(i% + 1).img&
             UNDO_STATES(i%).layer_index% = UNDO_STATES(i% + 1).layer_index%
             UNDO_STATES(i%).timestamp# = UNDO_STATES(i% + 1).timestamp#
         NEXT i%
-        UNDO_STATES(UNDO.count% - 1).img& = 0
-        UNDO_STATES(UNDO.count% - 1).layer_index% = 0
-        UNDO_STATES(UNDO.count% - 1).timestamp# = 0
+        IF UNDO.count% - 1 >= 0 AND UNDO.count% - 1 <= ubnd% THEN
+            UNDO_STATES(UNDO.count% - 1).img& = 0
+            UNDO_STATES(UNDO.count% - 1).layer_index% = 0
+            UNDO_STATES(UNDO.count% - 1).timestamp# = 0
+        END IF
         UNDO.count% = UNDO.count% - 1
         UNDO.current% = UNDO.current% - 1
+        IF UNDO.count% < 0 THEN UNDO.count% = 0
+        IF UNDO.current% < 0 THEN UNDO.current% = 0
+    END IF
+    
+    ' Final bounds check before saving new state
+    IF UNDO.count% < 0 OR UNDO.count% > ubnd% THEN
+        _LOGERROR "UNDO_save_state: count out of range after capacity check (" + STR$(UNDO.count%) + "), aborting save"
+        EXIT SUB
     END IF
     
     ' Save current layer image as new undo state, tracking which layer
-    UNDO_STATES(UNDO.count%).img& = _COPYIMAGE(LAYER_current_image&, 32)
+    srcImg& = LAYER_current_image&
+    IF srcImg& >= -1 THEN
+        _LOGWARN "UNDO_save_state: invalid source image handle from LAYER_current_image: " + STR$(srcImg&) + " (expected < -1)"
+        EXIT SUB
+    END IF
+    UNDO_STATES(UNDO.count%).img& = _COPYIMAGE(srcImg&, 32)
     UNDO_STATES(UNDO.count%).layer_index% = CURRENT_LAYER%
     UNDO_STATES(UNDO.count%).timestamp# = TIMER
     UNDO.count% = UNDO.count% + 1
+    ' Clamp count immediately — never leave it beyond array bounds
+    IF UNDO.count% > UNDO_STATES_MAX% THEN UNDO.count% = UNDO_STATES_MAX%
     UNDO.current% = UNDO.count% - 1
+    IF UNDO.current% < 0 THEN UNDO.current% = 0
     
     ' Update the global pixel undo timestamp for intelligent undo comparison
-    PIXEL_UNDO_LAST_TIMESTAMP# = UNDO_STATES(UNDO.current%).timestamp#
+    IF UNDO.current% >= 0 AND UNDO.current% <= UNDO_STATES_MAX% THEN
+        PIXEL_UNDO_LAST_TIMESTAMP# = UNDO_STATES(UNDO.current%).timestamp#
+    END IF
     
     ' Mark canvas as dirty (has unsaved changes)
     CANVAS_DIRTY% = TRUE
@@ -110,16 +160,38 @@ END SUB
 '
 SUB UNDO_save_layer_state (layerIndex AS INTEGER)
     DIM i AS INTEGER
+    DIM ubnd AS INTEGER
+    ubnd% = UNDO_STATES_MAX%
 
     ' Validate layer index
-    IF layerIndex% < 1 OR layerIndex% > 64 THEN EXIT SUB
-    IF LAYERS(layerIndex%).imgHandle& = 0 THEN EXIT SUB
+    IF layerIndex < 1 OR layerIndex > 64 THEN EXIT SUB
+    IF LAYERS(layerIndex).imgHandle& >= -1 THEN
+        _LOGWARN "UNDO_save_layer_state: invalid image handle for layer " + STR$(layerIndex) + ": " + STR$(LAYERS(layerIndex).imgHandle&) + " (expected < -1)"
+        EXIT SUB
+    END IF
 
-    _LOGINFO "UNDO_save_layer_state called: saving layer " + STR$(layerIndex%) + " count was " + STR$(UNDO.count%)
+    _LOGINFO "UNDO_save_layer_state called: saving layer " + STR$(layerIndex) + " count was " + STR$(UNDO.count%) + " current=" + STR$(UNDO.current%)
+
+    ' Sanitize state — clamp count and current to valid range
+    IF UNDO.count% < 0 THEN
+        _LOGWARN "UNDO_save_layer_state: count was negative (" + STR$(UNDO.count%) + "), clamping to 0"
+        UNDO.count% = 0
+    END IF
+    IF UNDO.count% > ubnd% THEN
+        _LOGWARN "UNDO_save_layer_state: count exceeded array bounds (" + STR$(UNDO.count%) + "), clamping to " + STR$(ubnd%)
+        UNDO.count% = ubnd%
+    END IF
+    IF UNDO.current% < 0 THEN UNDO.current% = 0
+    IF UNDO.current% > ubnd% THEN UNDO.current% = ubnd%
+
+    ' Ensure max_states is valid
+    IF UNDO.max_states% < 1 THEN UNDO.max_states% = 100
+    IF UNDO.max_states% > ubnd% THEN UNDO.max_states% = ubnd%
 
     ' If we're not at the end of the undo stack, clear everything after current position
     IF UNDO.current% < UNDO.count% - 1 THEN
         FOR i% = UNDO.current% + 1 TO UNDO.count% - 1
+            IF i% < 0 OR i% > ubnd% THEN EXIT FOR ' Bounds safety
             IF UNDO_STATES(i%).img& < -1 THEN
                 _FREEIMAGE UNDO_STATES(i%).img&
                 UNDO_STATES(i%).img& = 0
@@ -134,26 +206,44 @@ SUB UNDO_save_layer_state (layerIndex AS INTEGER)
         IF UNDO_STATES(0).img& < -1 THEN
             _FREEIMAGE UNDO_STATES(0).img&
         END IF
-        FOR i% = 0 TO UNDO.count% - 2
+        DIM shiftEnd AS INTEGER
+        shiftEnd% = UNDO.count% - 2
+        IF shiftEnd% > ubnd% - 1 THEN shiftEnd% = ubnd% - 1 ' Ensure i+1 stays in bounds
+        FOR i% = 0 TO shiftEnd%
             UNDO_STATES(i%).img& = UNDO_STATES(i% + 1).img&
             UNDO_STATES(i%).layer_index% = UNDO_STATES(i% + 1).layer_index%
             UNDO_STATES(i%).timestamp# = UNDO_STATES(i% + 1).timestamp#
         NEXT i%
-        UNDO_STATES(UNDO.count% - 1).img& = 0
-        UNDO_STATES(UNDO.count% - 1).layer_index% = 0
-        UNDO_STATES(UNDO.count% - 1).timestamp# = 0
+        IF UNDO.count% - 1 >= 0 AND UNDO.count% - 1 <= ubnd% THEN
+            UNDO_STATES(UNDO.count% - 1).img& = 0
+            UNDO_STATES(UNDO.count% - 1).layer_index% = 0
+            UNDO_STATES(UNDO.count% - 1).timestamp# = 0
+        END IF
         UNDO.count% = UNDO.count% - 1
         UNDO.current% = UNDO.current% - 1
+        IF UNDO.count% < 0 THEN UNDO.count% = 0
+        IF UNDO.current% < 0 THEN UNDO.current% = 0
+    END IF
+
+    ' Final bounds check before saving new state
+    IF UNDO.count% < 0 OR UNDO.count% > ubnd% THEN
+        _LOGERROR "UNDO_save_layer_state: count out of range after capacity check (" + STR$(UNDO.count%) + "), aborting save"
+        EXIT SUB
     END IF
 
     ' Save the specified layer's image
-    UNDO_STATES(UNDO.count%).img& = _COPYIMAGE(LAYERS(layerIndex%).imgHandle&, 32)
-    UNDO_STATES(UNDO.count%).layer_index% = layerIndex%
+    UNDO_STATES(UNDO.count%).img& = _COPYIMAGE(LAYERS(layerIndex).imgHandle&, 32)
+    UNDO_STATES(UNDO.count%).layer_index% = layerIndex
     UNDO_STATES(UNDO.count%).timestamp# = TIMER
     UNDO.count% = UNDO.count% + 1
+    ' Clamp count immediately — never leave it beyond array bounds
+    IF UNDO.count% > UNDO_STATES_MAX% THEN UNDO.count% = UNDO_STATES_MAX%
     UNDO.current% = UNDO.count% - 1
+    IF UNDO.current% < 0 THEN UNDO.current% = 0
 
-    PIXEL_UNDO_LAST_TIMESTAMP# = UNDO_STATES(UNDO.current%).timestamp#
+    IF UNDO.current% >= 0 AND UNDO.current% <= UNDO_STATES_MAX% THEN
+        PIXEL_UNDO_LAST_TIMESTAMP# = UNDO_STATES(UNDO.current%).timestamp#
+    END IF
     CANVAS_DIRTY% = TRUE
 END SUB
 
@@ -205,6 +295,14 @@ SUB UNDO_undo ()
     DIM currentLayer AS INTEGER
     DIM restoreIdx AS INTEGER
     DIM i AS INTEGER
+    DIM ubnd AS INTEGER
+    ubnd% = UNDO_STATES_MAX%
+    
+    ' Sanitize state before any array access
+    IF UNDO.current% < 0 THEN UNDO.current% = 0
+    IF UNDO.current% > ubnd% THEN UNDO.current% = ubnd%
+    IF UNDO.count% < 0 THEN UNDO.count% = 0
+    IF UNDO.count% > ubnd% THEN UNDO.count% = ubnd%
     
     _LOGINFO "UNDO_undo called: current=" + STR$(UNDO.current%) + " count=" + STR$(UNDO.count%)
     IF UNDO.current% > 0 THEN
@@ -286,11 +384,25 @@ SUB UNDO_redo ()
     DIM targetImg AS LONG
     DIM oldDest AS LONG
     DIM targetLayer AS INTEGER
+    DIM ubnd AS INTEGER
+    ubnd% = UNDO_STATES_MAX%
+    
+    ' Sanitize state before any array access
+    IF UNDO.current% < 0 THEN UNDO.current% = 0
+    IF UNDO.current% > ubnd% THEN UNDO.current% = ubnd%
+    IF UNDO.count% < 0 THEN UNDO.count% = 0
+    IF UNDO.count% > ubnd% THEN UNDO.count% = ubnd%
     
     _LOGINFO "UNDO_redo called: current=" + STR$(UNDO.current%) + " count=" + STR$(UNDO.count%)
     IF UNDO.current% < UNDO.count% - 1 THEN
         ' Move forward one state
         UNDO.current% = UNDO.current% + 1
+        
+        ' Bounds check after increment
+        IF UNDO.current% > ubnd% THEN
+            UNDO.current% = ubnd%
+            EXIT SUB
+        END IF
         
         ' Restore the state
         IF UNDO_STATES(UNDO.current%).img& < -1 THEN
@@ -336,7 +448,7 @@ END SUB
 '
 SUB UNDO_clear ()
     DIM i AS INTEGER
-    FOR i% = 0 TO UNDO.max_states%
+    FOR i% = 0 TO UNDO_STATES_MAX%
         IF UNDO_STATES(i%).img& < -1 THEN
             _FREEIMAGE UNDO_STATES(i%).img&
             UNDO_STATES(i%).img& = 0
@@ -352,7 +464,7 @@ END SUB
 ' @return DOUBLE - TIMER value when current state was saved, or 0 if none
 '
 FUNCTION UNDO_get_last_timestamp# ()
-    IF UNDO.current% >= 0 AND UNDO.current% < UNDO.count% THEN
+    IF UNDO.current% >= 0 AND UNDO.current% < UNDO.count% AND UNDO.current% <= UNDO_STATES_MAX% THEN
         UNDO_get_last_timestamp# = UNDO_STATES(UNDO.current%).timestamp#
     ELSE
         UNDO_get_last_timestamp# = 0
@@ -375,6 +487,9 @@ SUB UNDO_pop_last ()
     DIM popIdx AS INTEGER
     popIdx% = UNDO.count% - 1
 
+    ' Bounds check before array access
+    IF popIdx% < 0 OR popIdx% > UNDO_STATES_MAX% THEN EXIT SUB
+
     ' Free the image handle
     IF UNDO_STATES(popIdx%).img& < -1 THEN
         _FREEIMAGE UNDO_STATES(popIdx%).img&
@@ -385,9 +500,11 @@ SUB UNDO_pop_last ()
     ' Shrink the stack
     UNDO.count% = UNDO.count% - 1
     UNDO.current% = UNDO.current% - 1
+    IF UNDO.count% < 0 THEN UNDO.count% = 0
+    IF UNDO.current% < 0 THEN UNDO.current% = 0
 
     ' Update the global pixel undo timestamp
-    IF UNDO.current% >= 0 AND UNDO.current% < UNDO.count% THEN
+    IF UNDO.current% >= 0 AND UNDO.current% < UNDO.count% AND UNDO.current% <= UNDO_STATES_MAX% THEN
         PIXEL_UNDO_LAST_TIMESTAMP# = UNDO_STATES(UNDO.current%).timestamp#
     ELSE
         PIXEL_UNDO_LAST_TIMESTAMP# = 0
