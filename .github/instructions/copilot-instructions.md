@@ -862,9 +862,9 @@ For sub-100% paint opacity, overlapping brush dabs within a single stroke must n
 
 | Script | What It Does | Uninstall |
 |--------|--------------|-----------|
-| `install-linux.sh` | Desktop launcher, MIME type `application/x-draw-project`, hicolor icons | `--uninstall` |
-| `install-windows.cmd` | Per-user registry: `.draw` → `DRAW.Project` file assoc + icon | `/uninstall` |
-| `install-mac.command` | `~/Applications/DRAW.app` bundle with Info.plist, UTI + doc type | `--uninstall` |
+| `INSTALL/install-linux.sh` | Desktop launcher, MIME type `application/x-draw-project`, hicolor icons | `--uninstall` |
+| `INSTALL/install-windows.cmd` | Per-user registry: `.draw` → `DRAW.Project` file assoc + icon | `/uninstall` |
+| `INSTALL/install-mac.command` | Downloads latest `DRAW-osx-x64.tar.gz` from GitHub Releases, extracts to `~/Applications/DRAW/` | `--uninstall` |
 
 ---
 

@@ -204,43 +204,45 @@ qb64pe -w -x -o DRAW.run DRAW.BAS
 
 ## Installation
 
-Each platform has an installer that registers `.draw` file associations, installs app icons, and creates launcher entries.
+Install scripts are in the `INSTALL/` directory. Each platform has an installer that registers `.draw` file associations, installs app icons, and creates launcher entries.
 
 ### Linux
 
 ```bash
-chmod +x install-linux.sh
-./install-linux.sh
+chmod +x INSTALL/install-linux.sh
+INSTALL/install-linux.sh
 ```
 
 Installs a `.desktop` launcher, registers the `application/x-draw-project` MIME type for `.draw` files, and installs icons into the hicolor theme. To uninstall:
 
 ```bash
-./install-linux.sh --uninstall
+INSTALL/install-linux.sh --uninstall
 ```
 
 ### Windows
 
-Right-click `install-windows.cmd` and select **Run as administrator** (or run from an elevated command prompt). Registers the `.draw` file association in the registry with the DRAW icon and adds a Start Menu shortcut. To uninstall:
+Right-click `INSTALL\install-windows.cmd` and select **Run as administrator** (or run from an elevated command prompt). Registers the `.draw` file association in the registry with the DRAW icon and adds a Start Menu shortcut. To uninstall:
 
 ```cmd
-install-windows.cmd /uninstall
+INSTALL\install-windows.cmd /uninstall
 ```
 
 ### macOS
 
-```bash
-chmod +x install-mac.command
-./install-mac.command
-```
-
-Or double-click `install-mac.command` in Finder. Creates a `DRAW.app` bundle in `~/Applications`, registers `.draw` file associations via LaunchServices, and sets the app icon. To uninstall:
+Download `DRAW-osx-x64.tar.gz` from [Releases](https://github.com/grymmjack/DRAW/releases/latest), then run the install script (or double-click it in Finder):
 
 ```bash
-./install-mac.command --uninstall
+chmod +x INSTALL/install-mac.command
+INSTALL/install-mac.command
 ```
 
-> **macOS users:** There are platform-specific input differences on macOS. See [MAC-USERS-README.md](MAC-USERS-README.md) for details on Ctrl+Click behavior, Command key limitations, and Parallels compatibility.
+This downloads the latest release archive from GitHub and extracts it to `~/Applications/DRAW/`. To uninstall:
+
+```bash
+INSTALL/install-mac.command --uninstall
+```
+
+> **macOS users:** See [INSTALL/MAC-USERS-README.md](INSTALL/MAC-USERS-README.md) for platform-specific notes on quarantine, Ctrl+Click behavior, and Parallels compatibility.
 
 ## License
 

@@ -5,7 +5,10 @@
 
 set -e
 
-DRAW_DIR="$(cd "$(dirname "$0")" && pwd)"
+# INSTALL_DIR = this script's location (INSTALL/)
+# DRAW_DIR    = app root one level up (contains DRAW.run, ASSETS/, etc.)
+INSTALL_DIR="$(cd "$(dirname "$0")" && pwd)"
+DRAW_DIR="$(cd "$INSTALL_DIR/.." && pwd)"
 DESKTOP_FILE="$HOME/.local/share/applications/DRAW.desktop"
 MIME_DIR="$HOME/.local/share/mime"
 ICON_DIR="$HOME/.local/share/icons/hicolor"
@@ -13,7 +16,7 @@ ICON_DIR="$HOME/.local/share/icons/hicolor"
 if [ "$1" = "--uninstall" ]; then
     echo "Uninstalling DRAW..."
     rm -f "$DESKTOP_FILE"
-    rm -f "$MIME_DIR/packages/draw-project.xml"
+    rm -f "$MIME_DIR/packages/draw-project.xml"  # was installed from INSTALL/
     for size in 16 32 48 64 128 256; do
         rm -f "$ICON_DIR/${size}x${size}/apps/draw.png"
         rm -f "$ICON_DIR/${size}x${size}/mimetypes/application-x-draw-project.png"
@@ -29,13 +32,13 @@ echo "Installing DRAW from: $DRAW_DIR"
 
 # --- Desktop launcher ---
 mkdir -p "$HOME/.local/share/applications"
-sed "s|DRAW_INSTALL_PATH|$DRAW_DIR|g" "$DRAW_DIR/DRAW.desktop" > "$DESKTOP_FILE"
+sed "s|DRAW_INSTALL_PATH|$DRAW_DIR|g" "$INSTALL_DIR/DRAW.desktop" > "$DESKTOP_FILE"
 chmod +x "$DESKTOP_FILE"
 echo "  Desktop launcher: $DESKTOP_FILE"
 
 # --- MIME type for .draw files ---
 mkdir -p "$MIME_DIR/packages"
-cp "$DRAW_DIR/draw-project.xml" "$MIME_DIR/packages/draw-project.xml"
+cp "$INSTALL_DIR/draw-project.xml" "$MIME_DIR/packages/draw-project.xml"
 echo "  MIME type: application/x-draw-project (.draw)"
 
 # --- Icons (app + mime type) ---

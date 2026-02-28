@@ -5,9 +5,11 @@ REM   Run again to update. Run with /uninstall to remove.
 
 setlocal enabledelayedexpansion
 
-set "DRAW_DIR=%~dp0"
-REM Remove trailing backslash
-if "%DRAW_DIR:~-1%"=="\" set "DRAW_DIR=%DRAW_DIR:~0,-1%"
+REM INSTALL_DIR = this script's location (INSTALL\)
+REM DRAW_DIR    = app root one level up (contains DRAW.exe, ASSETS\, etc.)
+set "INSTALL_DIR=%~dp0"
+if "%INSTALL_DIR:~-1%"=="\" set "INSTALL_DIR=%INSTALL_DIR:~0,-1%"
+for %%i in ("%INSTALL_DIR%\..") do set "DRAW_DIR=%%~fi"
 
 if /i "%1"=="/uninstall" goto :uninstall
 
