@@ -190,6 +190,12 @@ SUB PAINT_on ()
                 
                 ' Only add if this pixel hasn't been drawn yet this stroke
                 IF existing_color~& <> DRAW_COLOR~& AND PP_STROKE_COUNT% < 10000 THEN
+                    ' Snapshot the layer before the very first pixel so PAINT_draw_pixel_perfect
+                    ' can restore both master AND mirrored pixels atomically in Step 1.
+                    IF PP_STROKE_COUNT% = 0 THEN
+                        IF PP_BACKUP& < -1 THEN _FREEIMAGE PP_BACKUP&
+                        PP_BACKUP& = _COPYIMAGE(targetImg&, 32)
+                    END IF
                     PP_STROKE(PP_STROKE_COUNT%).ORIGINAL_COLOR = existing_color~&
                     PP_STROKE(PP_STROKE_COUNT%).X = cx%
                     PP_STROKE(PP_STROKE_COUNT%).Y = cy%
@@ -453,14 +459,24 @@ SUB PAINT_draw_pixel_perfect ()
     targetImg& = LAYER_current_image&
     _DEST targetImg&
     
-    ' STEP 1: Restore ALL original pixels (erase the unfiltered stroke)
-    ' MUST disable blending or transparent pixels won't overwrite!
+    ' STEP 1: Restore ALL original pixels (master + mirrors) from pre-stroke backup.
+    ' Using the full image snapshot is the only correct approach: per-pixel PSET restore
+    ' cannot restore mirrored pixels because their original colors were never recorded.
     DIM i AS INTEGER
-    _DONTBLEND targetImg&
-    FOR i% = 0 TO PP_STROKE_COUNT% - 1
-        PSET (PP_STROKE(i%).X, PP_STROKE(i%).Y), PP_STROKE(i%).ORIGINAL_COLOR
-    NEXT i%
-    _BLEND targetImg&
+    IF PP_BACKUP& < -1 THEN
+        _DONTBLEND targetImg&
+        _PUTIMAGE , PP_BACKUP&, targetImg&
+        _BLEND targetImg&
+        _FREEIMAGE PP_BACKUP&
+        PP_BACKUP& = 0
+    ELSE
+        ' Fallback (no backup): restore master pixels only
+        _DONTBLEND targetImg&
+        FOR i% = 0 TO PP_STROKE_COUNT% - 1
+            PSET (PP_STROKE(i%).X, PP_STROKE(i%).Y), PP_STROKE(i%).ORIGINAL_COLOR
+        NEXT i%
+        _BLEND targetImg&
+    END IF
     
     ' STEP 2: Draw path with L-corner filtering (reference algorithm)
     DIM c AS INTEGER
@@ -499,7 +515,7 @@ SUB PAINT_draw_pixel_perfect ()
                 c% = c% + 1
                 ' Now draw the NEXT pixel without checking if it's a corner
                 IF c% < PP_STROKE_COUNT% THEN
-                    PSET (PP_STROKE(c%).X, PP_STROKE(c%).Y), DRAW_COLOR~&
+                    PAINT_pset_with_symmetry PP_STROKE(c%).X, PP_STROKE(c%).Y, DRAW_COLOR~&, TRUE
                 END IF
                 c% = c% + 1
                 ' Continue to next iteration (skip the normal draw below)
@@ -508,7 +524,7 @@ SUB PAINT_draw_pixel_perfect ()
         END IF
         
         ' Draw non-corner pixels
-        PSET (PP_STROKE(c%).X, PP_STROKE(c%).Y), DRAW_COLOR~&
+        PAINT_pset_with_symmetry PP_STROKE(c%).X, PP_STROKE(c%).Y, DRAW_COLOR~&, TRUE
         c% = c% + 1
         pp_continue:
     WEND
