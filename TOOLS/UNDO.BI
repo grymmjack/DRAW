@@ -29,5 +29,6 @@ CONST UNDO_STATES_MAX% = 200
 DIM SHARED UNDO_STATES(0 TO UNDO_STATES_MAX%) AS UNDO_STATE  ' 201 elements: indices 0..UNDO_STATES_MAX%
 '$DYNAMIC
 DIM SHARED UNDO_saved_this_frame AS INTEGER ' Prevent double-saves in same frame
+DIM SHARED UNDO_SEQ AS LONG ' Monotonic counter: guarantees workspace undo timestamp > pixel undo timestamp
 ' NOTE: UNDO_init must be called AFTER LAYERS_init (from SCREEN_init)
 ' DO NOT call UNDO_init here -- layers don't exist yet at include time
