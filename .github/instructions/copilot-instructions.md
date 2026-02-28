@@ -32,7 +32,7 @@ applyTo: "**"
 5. **INPUT**: MODIFIERS, KEYBOARD, MOUSE, STICK, FILE-BMP, FILE-BLOAD, FILE-PAL, API-LOSPEC
 6. **OUTPUT**: SCREEN, FILE-BAS, FILE-BMP, FILE-BSAVE
 7. **QB64_GJ_LIB**: BBX, DICT, STRINGS, VECT2D
-8. **TOOLS**: All 36 tool pairs (NULL, DOT, LINE, RECT, ELLIPSE, FILL, BRUSH, BRUSH-SIZE, BRUSH-FILL, BRUSH-FX-OUTLINE, BRUSH-TEXT, CUSTOM-BRUSH, POLY-LINE, POLY-FILL, MARQUEE, SELECTION, PAN, MOVE, MOVE-NUDGE, SAVE, LOAD, PICKER, UNDO, WORKSPACE-UNDO, DRW, COLOR-FG, COLOR-BG, COLOR-INVERT, CROP, SPRAY, ZOOM, TEXT, SYMMETRY, RAY, IMAGE-IMPORT, REFIMG)
+8. **TOOLS**: All 37 tool pairs (NULL, DOT, LINE, RECT, ELLIPSE, FILL, BRUSH, BRUSH-SIZE, BRUSH-FILL, BRUSH-FX-OUTLINE, BRUSH-TEXT, CUSTOM-BRUSH, POLY-LINE, POLY-FILL, MARQUEE, SELECTION, PAN, MOVE, MOVE-NUDGE, SAVE, LOAD, PICKER, UNDO, WORKSPACE-UNDO, DRW, COLOR-FG, COLOR-BG, COLOR-INVERT, CROP, SPRAY, ZOOM, TEXT, SYMMETRY, RAY, IMAGE-IMPORT, REFIMG, ERASER)
 9. **THEME**: `ASSETS/THEMES/DEFAULT/THEME.BI` (executed at include time, sets all `THEME.*`)
 
 ### Directory Structure
@@ -362,7 +362,7 @@ The system undoes whichever operation happened most recently by comparing TIMER 
 | B1, B2, B3 | INTEGER | Current button states |
 | OLD_B1, OLD_B2, OLD_B3 | INTEGER | Previous frame button states (for transition detection) |
 | TOOLBAR_CLICKED% | INTEGER | GUI click flag — prevents canvas tool actions |
-| DEFERRED_ACTION% | INTEGER | Post-frame file dialog (0=none, 1=save, 2=import, 3=open DRW) |
+| DEFERRED_ACTION% | INTEGER | Post-frame file dialog (0=none, 1=save, 2=import, 3=open DRW, 4=export selection) |
 | SUPPRESS_FRAMES% | INTEGER | Frames to suppress input after dialog cleanup |
 
 ### Single-Frame Processing Flow
@@ -403,6 +403,15 @@ MOUSE_input_handler_loop()                    ← post-render, end of main loop
 └── Process DEFERRED_ACTION% (file dialogs)
 ```
 
+### Menubar Width Calculation
+
+`MENUBAR_update_bar_geometry` computes the menubar width by subtracting the toolbar width
+from the screen width. The toolbar width is calculated dynamically:
+```qb64
+toolbarW% = (TB_BTN_W * scale% * TB_COLS) + (TB_BTN_PADDING * scale% * (TB_COLS - 1)) + 2
+```
+Always use `TB_COLS` — never hardcode the column count.
+
 ### Key Mechanisms
 
 **Drain-then-process pattern**: `MOUSE_drain_update_state` consumes ALL queued `_MOUSEINPUT`
@@ -417,7 +426,8 @@ dialog closes, arriving 1-2 frames after the dialog. This suppression catches th
 **DEFERRED_ACTION%**: File dialogs (`_OPENFILEDIALOG$`, `_SAVEFILEDIALOG$`) block the main
 loop. To avoid corrupting mouse state mid-processing, toolbar clicks set
 `MOUSE.DEFERRED_ACTION%` and the actual dialog opens in `MOUSE_input_handler_loop` (after
-all mouse processing is complete). Values: 1=save, 2=import image, 3=open DRW project.
+all mouse processing is complete). Values: 1=save, 2=import image, 3=open DRW project,
+4=export selection.
 
 ---
 
@@ -457,8 +467,8 @@ Menu items, keyboard shortcuts, command palette, and toolbar clicks all funnel t
 
 | Range | Category | Key Actions |
 |-------|----------|-------------|
-| 101-117 | Tools | Brush, Dot, Fill, Picker, Line, Polygon, Rect, Ellipse, Marquee, Move, Text, MagicWand |
-| 201-213 | File | Open, Save, SaveAs, Export, Import, New, Template, Revert, Recent, Exit |
+| 101-118 | Tools | Brush, Dot, Fill, Picker, Line, Polygon, Rect, Ellipse, Marquee, Move, Text, MagicWand, Eraser |
+| 201-213 | File | Open, Save, SaveAs, Export, ExportSelection, Import, New, Template, Revert, Recent, Exit |
 | 301-323 | Edit | Undo, Redo, Copy, Cut, Paste, Clear, Select All, Fill FG/BG, Flip, Scale, Rotate, CopyToNewLayer |
 | 401-413 | View | Toolbar, StatusBar, LayerPanel, MenuBar, Zoom, DisplayScale, Cursors |
 | 408 | View | Display Scale Up (`Ctrl+PgUp`) |
@@ -686,20 +696,30 @@ alignment.
 
 ## Organizer Panel
 
-**Files**: `GUI/ORGANIZER.BI`, `GUI/ORGANIZER.BM` (~567 lines)
+**Files**: `GUI/ORGANIZER.BI`, `GUI/ORGANIZER.BM` (~642 lines)
 
-3x3 grid of widget buttons beneath the toolbar. 8 slots:
+4x3 grid of widget buttons beneath the toolbar. 11 slots (Brush Size spans 2 rows):
 
 | Slot | ID | Purpose | Mousewheel Action |
 |------|----|---------|-------------------|
-| 0 | ORG_CANVAS_OPS | Canvas operations | — |
-| 1 | ORG_BRUSH_SIZE | Brush size | Cycles through 4 size presets |
-| 2 | ORG_PATTERN_MODE | Pattern mode | — |
-| 3 | ORG_TRANSFORM_OPS | Transform ops | — |
-| 4 | ORG_COLOR_MODE | Color mode | — |
-| 5 | ORG_SYMMETRY_MODE | Symmetry | Cycles 4 states (off + 3 modes) |
-| 6 | ORG_GRID_VIS | Grid visibility | Cycles grid modes (must call `GRID_draw`) |
-| 7 | ORG_GRID_SNAP | Grid snap | Toggles snap + alignment |
+| 0 | ORG_COLOR_OPS | Color operations (stub) | — |
+| 1 | ORG_CANVAS_OPS | Canvas operations | — |
+| 2 | ORG_BRUSH_SIZE | Brush size (spans rows 0+1) | Cycles through 4 size presets |
+| 3 | ORG_PATTERN_MODE | Pattern mode | — |
+| 4 | ORG_PALETTE_OPS | Palette operations (stub) | — |
+| 5 | ORG_TRANSFORM_OPS | Transform ops | — |
+| 6 | ORG_GRADIENT_MODE | Gradient mode (stub) | — |
+| 7 | ORG_SYMMETRY_MODE | Symmetry | Cycles 4 states (off + 3 modes) |
+| 8 | ORG_GRID_VIS | Grid visibility | Cycles grid modes (must call `GRID_draw`) |
+| 9 | ORG_GRID_SNAP | Grid snap | Toggles snap + alignment |
+| 10 | ORG_COLOR_MODE | Color mode | — |
+
+Layout:
+```
+Row 0: [COLOR OPS]     [CANVAS OPS]      [BRUSH SIZE top]  [PATTERN MODE]
+Row 1: [PALETTE OPS]   [TRANSFORM OPS]   [BRUSH SIZE bot]  [GRADIENT MODE]
+Row 2: [SYMMETRY MODE] [GRID VISIBILITY]  [GRID SNAP]       [COLOR MODE]
+```
 
 Each widget has up to 4 state images loaded from the theme directory.
 
@@ -747,6 +767,7 @@ WORKSPACE_UNDO_clear
 MARQUEE_reset
 MOVE_init
 MAGIC_WAND_reset
+ERASER_reset
 LAYER_PANEL.scrollOffset% = 0
 LAYER_PANEL.soloLayer% = 0
 LAYER_PANEL.visSwiping% = FALSE
@@ -816,6 +837,30 @@ Key fields added post-v0.8.1:
 | `TOOLBAR_btn_overlay~&` | `_UNSIGNED LONG` | Fill color of active toolbar button overlay (default: `_RGBA32(0,0,0,128)`) |
 | `TOOLBAR_btn_stroke~&` | `_UNSIGNED LONG` | Border color of active toolbar button indicator (default: `_RGBA32(255,255,255,255)`) |
 
+### Toolbar Layout (4×7, 28 buttons)
+
+The toolbar is a right-aligned 4-column × 7-row grid of 11×11px icon buttons, scaled by
+`CFG.TOOLBAR_SCALE%` (1-4x). Layout constants in `GUI/TOOLBAR.BI`:
+- `TB_COLS=4`, `TB_ROWS=7`, `TB_TOTAL=28`
+- Columns are computed dynamically: `TB_RIGHT` = rightmost, then `TB_COL2`, `TB_COL1`,
+  `TB_COL0` positioned leftward with `TB_BTN_PADDING` gaps.
+
+`TOOLBAR_BUTTON_ORDER(27)` maps position index → icon constant (for image loading).
+`TOOLBAR_BUTTON_TO_TOOL(27)` maps position index → tool constant (for activation).
+
+Row layout (left→right per row):
+```
+Row 0: Move         | Pan           | Zoom          | Crop
+Row 1: Select Rect  | Select Free   | Select Poly   | Select Ellipse
+Row 2: Select Wand  | Picker        | Text          | Eraser
+Row 3: Dot          | Brush         | Spray         | Fill
+Row 4: Line         | Polygon       | Polygon Fill  | Save
+Row 5: Rect         | Rect Filled   | Export Sel    | QB64 Export
+Row 6: Help         | Ellipse       | Ellipse Fill  | Open
+```
+
+Icon PNGs: `ASSETS/THEMES/DEFAULT/IMAGES/TOOLBOX/*.png`
+
 ### Toolbar Active Button Indicator
 
 The active tool button in the toolbar is highlighted by drawing:
@@ -823,6 +868,34 @@ The active tool button in the toolbar is highlighted by drawing:
 2. Four non-overlapping filled border rectangles in `TOOLBAR_btn_stroke~&` (top, bottom, left inset, right inset)
 
 Border thickness scales with `TOOLBAR_SCALE` (`bt% = scale%`, minimum 1). The four-rect approach (not `LINE ... B`) is required to avoid double alpha-compositing at corners, which would make corners appear brighter than edges.
+
+### Marquee Variant Tracking
+
+Multiple toolbar buttons (Select Rect, Free, Poly, Ellipse, Wand) all set
+`CURRENT_TOOL% = TOOL_MARQUEE` but differ in behavior. To highlight the correct toolbar
+button, `MARQUEE.VARIANT` stores the `TOOL_SELECT_*` constant of the last-activated
+variant. The toolbar render checks:
+```qb64
+IF CURRENT_TOOL% = TOOL_MARQUEE THEN
+    IF TOOLBAR_BUTTON_TO_TOOL(i%) = MARQUEE.VARIANT THEN is_active% = TRUE
+END IF
+```
+Set `MARQUEE.VARIANT` in every activation path (toolbar click, keyboard shortcut, command).
+
+### Eraser Tool
+
+**Files**: `TOOLS/ERASER.BI`, `TOOLS/ERASER.BM`
+
+Dedicated TOOL_ERASER (constant 41). Not a toggle — a separate tool that forces
+`PAINT_COLOR~&` to `_RGBA32(0,0,0,0)` (transparent) and delegates to the existing brush
+pipeline via `PAINT_stamp_brush`. `ERASER_activate` saves the user's current color;
+`ERASER_deactivate` restores it. Mouse dispatch treats `TOOL_ERASER` identically to
+`TOOL_BRUSH` (same CASE branches in hold/release/right-click).
+
+### Crop Tool Behavior
+
+Crop uses marquee to define the crop region. On completion (`CROP_apply`), the tool
+switches to `TOOL_NULL` (no active tool), not back to the previous tool.
 
 Cursor configuration defines 13 cursor types with PNG filenames and hotspot expressions.
 
@@ -908,7 +981,7 @@ the scene cache save, they force `SCENE_DIRTY% = TRUE` every frame, defeating th
 | `_COMMON.BI` | Core types (`SCREEN_OBJ`, `MOUSE_OBJ`), global state, tool constants |
 | `_COMMON.BM` | Stroke system, title bar, paint helpers |
 | `DRAW.BAS` | Main loop, application entry point |
-| `GUI/GUI.BI` | Additional tool constants, GUI context |
+| `GUI/GUI.BI` | Tool constants (TOOL_SELECT_RECT/POLY/ELLIPSE/FREE/WAND, TOOL_ERASER, TOOL_EXPORT_SEL), GUI context |
 | `GUI/COMMAND.BM` | Central action dispatcher (all 200+ commands) |
 | `INPUT/MOUSE.BM` | Mouse processing pipeline (~2590 lines) |
 | `INPUT/KEYBOARD.BM` | Keyboard shortcuts and handler |
@@ -917,6 +990,10 @@ the scene cache save, they force `SCENE_DIRTY% = TRUE` every frame, defeating th
 | `OUTPUT/SCREEN.BM` | Render pipeline (`SCREEN_render`) |
 | `GUI/LAYERS.BM` | Layer management (~2305 lines) |
 | `GUI/MENUBAR.BM` | Menu bar with keyboard nav |
+| `GUI/TOOLBAR.BI` | Toolbar layout constants (TB_COLS, TB_ROWS, TB_TOTAL), button-to-tool mapping |
+| `GUI/TOOLBAR.BM` | Toolbar rendering (4-col), click handling, active indicator |
+| `GUI/ORGANIZER.BI` | Organizer widget constants (ORG_*), 4×3 layout |
+| `TOOLS/ERASER.BI/BM` | Eraser tool (transparent painting via brush pipeline) |
 | `CFG/CONFIG.BI` | Configuration structure |
 | `CHEATSHEET.md` | All keyboard shortcuts |
 
