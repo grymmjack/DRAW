@@ -91,10 +91,27 @@ CURSORS(CURSOR_HAND).filename$       = "cursor-hand.png"
 CURSORS(CURSOR_HAND).hotspot_x_expr$ = "center"
 CURSORS(CURSOR_HAND).hotspot_y_expr$ = "center"
 
-' --- Marquee cursor ---
+' --- Marquee cursor (generic fallback, also used by crop) ---
 CURSORS(CURSOR_MARQUEE).filename$       = "cursor-marquee.png"
 CURSORS(CURSOR_MARQUEE).hotspot_x_expr$ = "center"
 CURSORS(CURSOR_MARQUEE).hotspot_y_expr$ = "center"
+
+' --- Marquee variant cursors ---
+CURSORS(CURSOR_MARQUEE_RECT).filename$       = "cursor-crosshair-rect.png"
+CURSORS(CURSOR_MARQUEE_RECT).hotspot_x_expr$ = "5"
+CURSORS(CURSOR_MARQUEE_RECT).hotspot_y_expr$ = "11"
+
+CURSORS(CURSOR_MARQUEE_FREE).filename$       = "cursor-crosshair-freehand.png"
+CURSORS(CURSOR_MARQUEE_FREE).hotspot_x_expr$ = "5"
+CURSORS(CURSOR_MARQUEE_FREE).hotspot_y_expr$ = "9"
+
+CURSORS(CURSOR_MARQUEE_POLY).filename$       = "cursor-crosshair-poly.png"
+CURSORS(CURSOR_MARQUEE_POLY).hotspot_x_expr$ = "5"
+CURSORS(CURSOR_MARQUEE_POLY).hotspot_y_expr$ = "10"
+
+CURSORS(CURSOR_MARQUEE_ELLIP).filename$       = "cursor-crosshair-ellipse.png"
+CURSORS(CURSOR_MARQUEE_ELLIP).hotspot_x_expr$ = "5"
+CURSORS(CURSOR_MARQUEE_ELLIP).hotspot_y_expr$ = "11"
 
 ' --- Move cursor ---
 CURSORS(CURSOR_MOVE).filename$       = "cursor-move.png"
@@ -122,9 +139,9 @@ CURSORS(CURSOR_SPRAY).hotspot_x_expr$ = "left"
 CURSORS(CURSOR_SPRAY).hotspot_y_expr$ = "top"
 
 ' --- Wand cursor (magic wand / right-click marquee) ---
-CURSORS(CURSOR_WAND).filename$       = "cursor-wand.png"
-CURSORS(CURSOR_WAND).hotspot_x_expr$ = "left"
-CURSORS(CURSOR_WAND).hotspot_y_expr$ = "top"
+CURSORS(CURSOR_WAND).filename$       = "cursor-crosshair-wand.png"
+CURSORS(CURSOR_WAND).hotspot_x_expr$ = "5"
+CURSORS(CURSOR_WAND).hotspot_y_expr$ = "9"
 
 ' --- Zoom cursor ---
 CURSORS(CURSOR_ZOOM).filename$       = "cursor-zoom.png"
