@@ -117,23 +117,30 @@ SUB CUSTOM_BRUSH_capture_from_marquee ()
     
     FOR py% = 0 TO sel_h% - 1
         FOR px% = 0 TO sel_w% - 1
-            pixel_color~& = POINT(sel_x% + px%, sel_y% + py%)
-            
-            ' Extract RGBA components
-            pixel_r% = _RED32(pixel_color~&)
-            pixel_g% = _GREEN32(pixel_color~&)
-            pixel_b% = _BLUE32(pixel_color~&)
-            pixel_alpha% = _ALPHA32(pixel_color~&)
-            
-            ' If source pixel is already transparent, keep it transparent
-            IF pixel_alpha% = 0 THEN
-                ' Leave transparent (already cleared to transparent)
-            ' Check if this pixel matches the current background color
-            ELSEIF pixel_r% = bg_r% AND pixel_g% = bg_g% AND pixel_b% = bg_b% THEN
-                ' Make BG color transparent
+            ' Skip pixels outside the actual selection shape (ellipse, polygon, freehand,
+            ' magic-wand, discontiguous add/subtract regions, etc.).
+            ' SELECTION_is_point_inside% uses the mask image for non-rectangular selections.
+            IF NOT SELECTION_is_point_inside%(sel_x% + px%, sel_y% + py%) THEN
+                ' Outside selection mask — leave transparent
             ELSE
-                ' Copy as opaque pixel, preserving source alpha
-                PSET (px%, py%), _RGBA32(pixel_r%, pixel_g%, pixel_b%, pixel_alpha%)
+                pixel_color~& = POINT(sel_x% + px%, sel_y% + py%)
+
+                ' Extract RGBA components
+                pixel_r% = _RED32(pixel_color~&)
+                pixel_g% = _GREEN32(pixel_color~&)
+                pixel_b% = _BLUE32(pixel_color~&)
+                pixel_alpha% = _ALPHA32(pixel_color~&)
+
+                ' If source pixel is already transparent, keep it transparent
+                IF pixel_alpha% = 0 THEN
+                    ' Leave transparent (already cleared to transparent)
+                ' Check if this pixel matches the current background color
+                ELSEIF pixel_r% = bg_r% AND pixel_g% = bg_g% AND pixel_b% = bg_b% THEN
+                    ' Make BG color transparent
+                ELSE
+                    ' Copy pixel, preserving source alpha
+                    PSET (px%, py%), _RGBA32(pixel_r%, pixel_g%, pixel_b%, pixel_alpha%)
+                END IF
             END IF
         NEXT px%
     NEXT py%
@@ -504,9 +511,9 @@ SUB CUSTOM_BRUSH_render_scaled (x AS INTEGER, y AS INTEGER, dest AS LONG, zoom A
                 pixel_color~& = POINT(px%, py%)
                 alpha_value% = _ALPHA32(pixel_color~&)
                 
-                ' Only draw non-transparent pixels, using FG color with full opacity
+                ' Only draw non-transparent pixels, scaling alpha by current paint opacity
                 IF alpha_value% > 0 THEN
-                    PSET (px%, py%), _RGBA32(_RED32(PAINT_COLOR~&), _GREEN32(PAINT_COLOR~&), _BLUE32(PAINT_COLOR~&), 255)
+                    PSET (px%, py%), _RGBA32(_RED32(PAINT_COLOR~&), _GREEN32(PAINT_COLOR~&), _BLUE32(PAINT_COLOR~&), (alpha_value% * PAINT_OPACITY%) \ 100)
                 END IF
             NEXT px%
         NEXT py%
@@ -518,8 +525,35 @@ SUB CUSTOM_BRUSH_render_scaled (x AS INTEGER, y AS INTEGER, dest AS LONG, zoom A
         
         IF temp_brush& < -1 THEN _FREEIMAGE temp_brush&
     ELSE
-        ' Use _PUTIMAGE to render with transparency support and scaling
-        _PUTIMAGE (x%, y%)-(x% + scaled_w% - 1, y% + scaled_h% - 1), CUSTOM_BRUSH.IMAGE&, dest&, (src_x1%, src_y1%)-(src_x2%, src_y2%)
+        ' Normal (no recolor): render at current paint opacity.
+        ' At full opacity just PUTIMAGE directly (fast path).
+        ' Below 100% build a temp copy with alpha scaled per-pixel, same as recolor path.
+        IF PAINT_OPACITY% >= 100 THEN
+            _PUTIMAGE (x%, y%)-(x% + scaled_w% - 1, y% + scaled_h% - 1), CUSTOM_BRUSH.IMAGE&, dest&, (src_x1%, src_y1%)-(src_x2%, src_y2%)
+        ELSE
+            DIM temp_brush2 AS LONG
+            temp_brush2& = _NEWIMAGE(CUSTOM_BRUSH.ORIG_WIDTH%, CUSTOM_BRUSH.ORIG_HEIGHT%, 32)
+            DIM old_dest3 AS LONG
+            old_dest3& = _DEST
+            _DEST temp_brush2&
+            CLS , _RGBA32(0, 0, 0, 0)
+            _SOURCE CUSTOM_BRUSH.IMAGE&
+            DIM px2 AS INTEGER, py2 AS INTEGER
+            DIM pix2 AS _UNSIGNED LONG
+            DIM alp2 AS INTEGER
+            FOR py2% = 0 TO CUSTOM_BRUSH.ORIG_HEIGHT% - 1
+                FOR px2% = 0 TO CUSTOM_BRUSH.ORIG_WIDTH% - 1
+                    pix2~& = POINT(px2%, py2%)
+                    alp2% = _ALPHA32(pix2~&)
+                    IF alp2% > 0 THEN
+                        PSET (px2%, py2%), _RGBA32(_RED32(pix2~&), _GREEN32(pix2~&), _BLUE32(pix2~&), (alp2% * PAINT_OPACITY%) \ 100)
+                    END IF
+                NEXT px2%
+            NEXT py2%
+            _DEST old_dest3&
+            _PUTIMAGE (x%, y%)-(x% + scaled_w% - 1, y% + scaled_h% - 1), temp_brush2&, dest&, (src_x1%, src_y1%)-(src_x2%, src_y2%)
+            IF temp_brush2& < -1 THEN _FREEIMAGE temp_brush2&
+        END IF
     END IF
     
     _SOURCE old_source&

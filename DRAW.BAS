@@ -10,6 +10,12 @@
 
 '$INCLUDE:'./_ALL.BI'
 $RESIZE:STRETCH
+
+' THEME.BI (included above) runs at include-time and resets all THEME.* fields to
+' compiled-in defaults, clobbering the values set by THEME_load inside SCREEN_init
+' (which runs from SCREEN.BI, before THEME.BI is included in _ALL.BI).
+' Re-apply runtime THEME.CFG overrides now that all BI includes are complete.
+THEME_load
 '$CONSOLE
 $EXEICON:'./ASSETS/ICONS/icon.ico'
 

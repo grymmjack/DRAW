@@ -53,6 +53,30 @@ THEME.MENU_SUB_sel_bg~&          = _RGB32(85, 85, 85)        ' #555555 - darker 
 THEME.MENU_SUB_disabled_fg~&     = _RGB32(80, 80, 80)        ' #505050 - dimmed disabled text
 THEME.MENU_SUB_sel_fg~&          = _RGB32(255, 255, 255)     ' White text on highlight
 
+' --- Layer panel ---
+THEME.LAYER_PANEL_header_height% = 16                          ' Header bar height in pixels
+THEME.LAYER_PANEL_btn_bar_height% = 16                         ' Button bar height in pixels
+THEME.LAYER_PANEL_bg~&           = _RGB32(40, 40, 40)          ' Panel background
+THEME.LAYER_PANEL_border~&       = _RGB32(60, 60, 60)          ' Right border
+THEME.LAYER_PANEL_header_bg~&    = _RGB32(50, 50, 50)          ' Header background
+THEME.LAYER_PANEL_header_fg~&    = _RGB32(200, 200, 200)       ' Header "LAYERS" text
+THEME.LAYER_PANEL_header_fg_dim~& = _RGB32(150, 150, 150)      ' Header layer count (dimmed)
+THEME.LAYER_PANEL_row_bg~&       = _RGB32(45, 45, 45)          ' Row normal background
+THEME.LAYER_PANEL_row_hover_bg~& = _RGB32(55, 55, 55)          ' Row hover background
+THEME.LAYER_PANEL_row_sel_bg~&   = _RGB32(70, 100, 140)        ' Row selected background
+THEME.LAYER_PANEL_row_fg~&       = _RGB32(220, 220, 220)       ' Layer name text
+THEME.LAYER_PANEL_row_fg_blend~& = _RGB32(180, 140, 255)       ' Blend mode short text
+THEME.LAYER_PANEL_opacity_bar_bg~& = _RGB32(30, 30, 30)        ' Opacity bar background
+THEME.LAYER_PANEL_opacity_bar_fg~& = _RGB32(100, 150, 200)     ' Opacity bar fill
+THEME.LAYER_PANEL_scrollbar_track~& = _RGB32(30, 30, 30)       ' Scrollbar track
+THEME.LAYER_PANEL_scrollbar_thumb~& = _RGB32(80, 80, 80)       ' Scrollbar thumb
+THEME.LAYER_PANEL_sep~&          = _RGB32(60, 60, 60)          ' Separator above button bar
+THEME.LAYER_PANEL_btn_bar_bg~&   = _RGB32(112, 112, 112)       ' Button bar background (#707070)
+THEME.LAYER_PANEL_drop_line~&    = _RGB32(100, 200, 255)       ' Drop indicator (primary)
+THEME.LAYER_PANEL_drop_line2~&   = _RGB32(50, 150, 200)        ' Drop indicator (shadow)
+THEME.LAYER_PANEL_drag_fill~&    = _RGBA32(60, 120, 180, 180)  ' Drag preview fill
+THEME.LAYER_PANEL_drag_border~&  = _RGB32(100, 200, 255)       ' Drag preview border
+
 ' --- Fonts ---
 THEME.GLOBAL_FONT_FILE$          = "Tiny5-Regular.ttf"       ' Primary UI font
 THEME.ALT_FONT_FILE$             = "PICO-8.ttf"              ' Alternate font (reserved)

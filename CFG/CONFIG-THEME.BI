@@ -61,6 +61,29 @@ TYPE DRAW_THEME
     MENU_SUB_sel_bg        AS _UNSIGNED LONG ' Submenu selected item bg
     MENU_SUB_disabled_fg   AS _UNSIGNED LONG ' Submenu disabled item text
     MENU_SUB_sel_fg        AS _UNSIGNED LONG ' Submenu selected item fg
+    ' --- Layer panel ---
+    LAYER_PANEL_header_height    AS INTEGER         ' Header bar height in pixels
+    LAYER_PANEL_btn_bar_height   AS INTEGER         ' Button bar height in pixels
+    LAYER_PANEL_bg               AS _UNSIGNED LONG  ' Panel background
+    LAYER_PANEL_border           AS _UNSIGNED LONG  ' Right border
+    LAYER_PANEL_header_bg        AS _UNSIGNED LONG  ' Header background
+    LAYER_PANEL_header_fg        AS _UNSIGNED LONG  ' Header title text
+    LAYER_PANEL_header_fg_dim    AS _UNSIGNED LONG  ' Header layer count (dimmed)
+    LAYER_PANEL_row_bg           AS _UNSIGNED LONG  ' Row normal background
+    LAYER_PANEL_row_hover_bg     AS _UNSIGNED LONG  ' Row hover background
+    LAYER_PANEL_row_sel_bg       AS _UNSIGNED LONG  ' Row selected background
+    LAYER_PANEL_row_fg           AS _UNSIGNED LONG  ' Layer name text
+    LAYER_PANEL_row_fg_blend     AS _UNSIGNED LONG  ' Blend mode short text
+    LAYER_PANEL_opacity_bar_bg   AS _UNSIGNED LONG  ' Opacity bar background
+    LAYER_PANEL_opacity_bar_fg   AS _UNSIGNED LONG  ' Opacity bar fill
+    LAYER_PANEL_scrollbar_track  AS _UNSIGNED LONG  ' Scrollbar track
+    LAYER_PANEL_scrollbar_thumb  AS _UNSIGNED LONG  ' Scrollbar thumb
+    LAYER_PANEL_sep              AS _UNSIGNED LONG  ' Separator line above button bar
+    LAYER_PANEL_btn_bar_bg       AS _UNSIGNED LONG  ' Button bar background
+    LAYER_PANEL_drop_line        AS _UNSIGNED LONG  ' Drop target indicator (primary)
+    LAYER_PANEL_drop_line2       AS _UNSIGNED LONG  ' Drop target indicator (shadow/secondary)
+    LAYER_PANEL_drag_fill        AS _UNSIGNED LONG  ' Drag preview row fill (RGBA)
+    LAYER_PANEL_drag_border      AS _UNSIGNED LONG  ' Drag preview row border
     ' --- Fonts ---
     GLOBAL_FONT_FILE       AS STRING          ' Primary UI font filename (e.g. Tiny5-Regular.ttf)
     ALT_FONT_FILE          AS STRING          ' Alternate font filename (e.g. PICO-8.ttf) — reserved

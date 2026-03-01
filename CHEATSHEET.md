@@ -14,14 +14,15 @@
 | `Shift+P` | Polygon (Filled) | Draw filled polygons |
 | `R` | Rectangle | Draw rectangle outlines |
 | `Shift+R` | Rectangle (Filled) | Draw filled rectangles |
-| `E` | Ellipse | Draw ellipse outlines |
-| `Shift+E` | Ellipse (Filled) | Draw filled ellipses |
+| `C` | Ellipse | Draw ellipse outlines |
+| `Shift+C` | Ellipse (Filled) | Draw filled ellipses |
+| `E` | Eraser | Erase to transparent — tap to activate permanently |
+| `Hold E` | Eraser (temp) | Hold E to erase, release to return to previous tool |
 | `M` | Marquee | Rectangular selection tool |
 | `W` | Magic Wand | Select contiguous same-color pixels |
 | `V` | Move | Transform selected region |
 | `Z` | Zoom | Zoom tool (click to zoom in, Alt+click to zoom out) |
 | `T` | Text | Text entry tool |
-| `*` | Eraser | Erase to transparent (dedicated eraser tool) |
 | `?` | Command Palette | Search commands and hotkeys |
 
 ## Paint Opacity
@@ -53,7 +54,9 @@ status bar as `OP:nn%` when below 100%.
 
 ### Eraser Tool
 
-Press `*` (asterisk/star) to activate the **Eraser tool**. The eraser paints with full transparency, effectively removing pixels. It uses the current brush shape and size.
+Press `E` to activate the **Eraser tool**. The eraser paints with full transparency, effectively removing pixels. It uses the current brush shape and size.
+
+**Hold `E`** to temporarily erase — the eraser activates while `E` is held and your previous tool is restored when you release.
 
 - When activated, your current foreground color is saved
 - When switching to another tool, your foreground color is restored
