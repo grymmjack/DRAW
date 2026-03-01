@@ -37,6 +37,11 @@ SUB WORKSPACE_UNDO_clear
         END IF
         WORKSPACE_UNDO_STATES(i%).img& = 0
         WORKSPACE_UNDO_STATES(i%).img2& = 0
+        ' Free selection mask if present
+        IF WORKSPACE_UNDO_STATES(i%).sel_mask& < -1 THEN
+            _FREEIMAGE WORKSPACE_UNDO_STATES(i%).sel_mask&
+            WORKSPACE_UNDO_STATES(i%).sel_mask& = 0
+        END IF
         ' Free merge-visible source layer images if applicable
         IF WORKSPACE_UNDO_STATES(i%).action_type% = WUNDO_TYPE_LAYER_MERGE_VISIBLE THEN
             MERGE_VIS_free_state_images i%
@@ -57,6 +62,11 @@ SUB WUNDO_shift_states_down
     END IF
     IF WORKSPACE_UNDO_STATES(1).img2& < -1 THEN
         _FREEIMAGE WORKSPACE_UNDO_STATES(1).img2&
+    END IF
+    ' Free selection mask for state 1 (being shifted out)
+    IF WORKSPACE_UNDO_STATES(1).sel_mask& < -1 THEN
+        _FREEIMAGE WORKSPACE_UNDO_STATES(1).sel_mask&
+        WORKSPACE_UNDO_STATES(1).sel_mask& = 0
     END IF
     ' Free merge-visible data for state 1 (being shifted out)
     IF WORKSPACE_UNDO_STATES(1).action_type% = WUNDO_TYPE_LAYER_MERGE_VISIBLE THEN
@@ -97,6 +107,11 @@ FUNCTION WUNDO_prepare_new_state%
             END IF
             WORKSPACE_UNDO_STATES(i%).img& = 0
             WORKSPACE_UNDO_STATES(i%).img2& = 0
+            ' Free selection mask if present
+            IF WORKSPACE_UNDO_STATES(i%).sel_mask& < -1 THEN
+                _FREEIMAGE WORKSPACE_UNDO_STATES(i%).sel_mask&
+                WORKSPACE_UNDO_STATES(i%).sel_mask& = 0
+            END IF
             ' Free merge-visible source layer images if applicable
             IF WORKSPACE_UNDO_STATES(i%).action_type% = WUNDO_TYPE_LAYER_MERGE_VISIBLE THEN
                 MERGE_VIS_free_state_images i%
@@ -268,6 +283,48 @@ SUB WORKSPACE_UNDO_save_layer_merge (topIndex AS INTEGER, bottomIndex AS INTEGER
     WORKSPACE_UNDO_STATES(idx%).old_visible% = LAYERS(topIndex%).visible%
     WORKSPACE_UNDO_STATES(idx%).old_opacityLock% = LAYERS(topIndex%).opacityLock%
     WORKSPACE_UNDO_STATES(idx%).old_blendMode% = LAYERS(topIndex%).blendMode%
+END SUB
+
+' ============================================================================
+' WORKSPACE_UNDO_save_selection - Save current selection state before a change
+' Called BEFORE any selection mutation (create, modify, deselect, invert)
+' Uses pre-change snapshot; undo/redo exchange the live state with the saved state
+' ============================================================================
+SUB WORKSPACE_UNDO_save_selection ()
+    ' Skip if workspace undo not ready (during initialization) or in progress (during undo/redo)
+    IF NOT WORKSPACE_UNDO_READY% THEN EXIT SUB
+    IF WORKSPACE_UNDO_IN_PROGRESS% THEN EXIT SUB
+
+    DIM idx AS INTEGER
+    idx% = WUNDO_prepare_new_state%
+
+    WORKSPACE_UNDO_STATES(idx%).action_type% = WUNDO_TYPE_SELECTION_CHANGE
+    UNDO_SEQ = UNDO_SEQ + 1
+    WORKSPACE_UNDO_STATES(idx%).timestamp# = UNDO_SEQ
+
+    ' Snapshot all selection-related MARQUEE fields
+    WORKSPACE_UNDO_STATES(idx%).sel_active%       = MARQUEE.ACTIVE
+    WORKSPACE_UNDO_STATES(idx%).sel_initialized%  = MARQUEE.INITIALIZED
+    WORKSPACE_UNDO_STATES(idx%).sel_user_created% = MARQUEE.USER_CREATED
+    WORKSPACE_UNDO_STATES(idx%).sel_box_x%        = MARQUEE.BOX.x
+    WORKSPACE_UNDO_STATES(idx%).sel_box_y%        = MARQUEE.BOX.y
+    WORKSPACE_UNDO_STATES(idx%).sel_box_w%        = MARQUEE.BOX.w
+    WORKSPACE_UNDO_STATES(idx%).sel_box_h%        = MARQUEE.BOX.h
+    WORKSPACE_UNDO_STATES(idx%).sel_wand_has%     = MARQUEE.WAND_HAS_SELECTION
+    WORKSPACE_UNDO_STATES(idx%).sel_wand_min_x%   = MARQUEE.WAND_MIN_X
+    WORKSPACE_UNDO_STATES(idx%).sel_wand_min_y%   = MARQUEE.WAND_MIN_Y
+    WORKSPACE_UNDO_STATES(idx%).sel_wand_max_x%   = MARQUEE.WAND_MAX_X
+    WORKSPACE_UNDO_STATES(idx%).sel_wand_max_y%   = MARQUEE.WAND_MAX_Y
+    WORKSPACE_UNDO_STATES(idx%).sel_variant%      = MARQUEE.VARIANT
+    ' img& and img2& are not used by selection states; clear to avoid confusion
+    WORKSPACE_UNDO_STATES(idx%).img& = 0
+    WORKSPACE_UNDO_STATES(idx%).img2& = 0
+    ' Take a _COPYIMAGE of the selection mask if one exists
+    IF MARQUEE.SELECTION_MASK < -1 THEN
+        WORKSPACE_UNDO_STATES(idx%).sel_mask& = _COPYIMAGE(MARQUEE.SELECTION_MASK)
+    ELSE
+        WORKSPACE_UNDO_STATES(idx%).sel_mask& = -1
+    END IF
 END SUB
 
 ' ============================================================================
@@ -570,6 +627,62 @@ SUB WORKSPACE_UNDO_undo
                     NEXT mvSelFb%
                 END IF
             END IF
+        CASE WUNDO_TYPE_SELECTION_CHANGE
+            ' Undo/redo selection change: exchange saved state with live MARQUEE state
+            ' (same exchange logic used for both undo and redo)
+            DIM selUndoTmpActive AS INTEGER, selUndoTmpInit AS INTEGER, selUndoTmpUserCreated AS INTEGER
+            DIM selUndoTmpBoxX AS INTEGER, selUndoTmpBoxY AS INTEGER
+            DIM selUndoTmpBoxW AS INTEGER, selUndoTmpBoxH AS INTEGER
+            DIM selUndoTmpWandHas AS INTEGER
+            DIM selUndoTmpWandMinX AS INTEGER, selUndoTmpWandMinY AS INTEGER
+            DIM selUndoTmpWandMaxX AS INTEGER, selUndoTmpWandMaxY AS INTEGER
+            DIM selUndoTmpVariant AS INTEGER
+            DIM selUndoTmpMask AS LONG
+            ' Capture live MARQUEE state into temps
+            selUndoTmpActive%       = MARQUEE.ACTIVE
+            selUndoTmpInit%         = MARQUEE.INITIALIZED
+            selUndoTmpUserCreated%  = MARQUEE.USER_CREATED
+            selUndoTmpBoxX%         = MARQUEE.BOX.x
+            selUndoTmpBoxY%         = MARQUEE.BOX.y
+            selUndoTmpBoxW%         = MARQUEE.BOX.w
+            selUndoTmpBoxH%         = MARQUEE.BOX.h
+            selUndoTmpWandHas%      = MARQUEE.WAND_HAS_SELECTION
+            selUndoTmpWandMinX%     = MARQUEE.WAND_MIN_X
+            selUndoTmpWandMinY%     = MARQUEE.WAND_MIN_Y
+            selUndoTmpWandMaxX%     = MARQUEE.WAND_MAX_X
+            selUndoTmpWandMaxY%     = MARQUEE.WAND_MAX_Y
+            selUndoTmpVariant%      = MARQUEE.VARIANT
+            selUndoTmpMask&         = MARQUEE.SELECTION_MASK   ' transfer ownership (no copy)
+            ' Restore saved state into live MARQUEE
+            MARQUEE.ACTIVE              = WORKSPACE_UNDO_STATES(WORKSPACE_UNDO.current%).sel_active%
+            MARQUEE.INITIALIZED         = WORKSPACE_UNDO_STATES(WORKSPACE_UNDO.current%).sel_initialized%
+            MARQUEE.USER_CREATED        = WORKSPACE_UNDO_STATES(WORKSPACE_UNDO.current%).sel_user_created%
+            MARQUEE.BOX.x               = WORKSPACE_UNDO_STATES(WORKSPACE_UNDO.current%).sel_box_x%
+            MARQUEE.BOX.y               = WORKSPACE_UNDO_STATES(WORKSPACE_UNDO.current%).sel_box_y%
+            MARQUEE.BOX.w               = WORKSPACE_UNDO_STATES(WORKSPACE_UNDO.current%).sel_box_w%
+            MARQUEE.BOX.h               = WORKSPACE_UNDO_STATES(WORKSPACE_UNDO.current%).sel_box_h%
+            MARQUEE.WAND_HAS_SELECTION  = WORKSPACE_UNDO_STATES(WORKSPACE_UNDO.current%).sel_wand_has%
+            MARQUEE.WAND_MIN_X          = WORKSPACE_UNDO_STATES(WORKSPACE_UNDO.current%).sel_wand_min_x%
+            MARQUEE.WAND_MIN_Y          = WORKSPACE_UNDO_STATES(WORKSPACE_UNDO.current%).sel_wand_min_y%
+            MARQUEE.WAND_MAX_X          = WORKSPACE_UNDO_STATES(WORKSPACE_UNDO.current%).sel_wand_max_x%
+            MARQUEE.WAND_MAX_Y          = WORKSPACE_UNDO_STATES(WORKSPACE_UNDO.current%).sel_wand_max_y%
+            MARQUEE.VARIANT             = WORKSPACE_UNDO_STATES(WORKSPACE_UNDO.current%).sel_variant%
+            MARQUEE.SELECTION_MASK      = WORKSPACE_UNDO_STATES(WORKSPACE_UNDO.current%).sel_mask&  ' transfer ownership
+            ' Write live state (captured in temps) back into the slot for future redo
+            WORKSPACE_UNDO_STATES(WORKSPACE_UNDO.current%).sel_active%       = selUndoTmpActive%
+            WORKSPACE_UNDO_STATES(WORKSPACE_UNDO.current%).sel_initialized%  = selUndoTmpInit%
+            WORKSPACE_UNDO_STATES(WORKSPACE_UNDO.current%).sel_user_created% = selUndoTmpUserCreated%
+            WORKSPACE_UNDO_STATES(WORKSPACE_UNDO.current%).sel_box_x%        = selUndoTmpBoxX%
+            WORKSPACE_UNDO_STATES(WORKSPACE_UNDO.current%).sel_box_y%        = selUndoTmpBoxY%
+            WORKSPACE_UNDO_STATES(WORKSPACE_UNDO.current%).sel_box_w%        = selUndoTmpBoxW%
+            WORKSPACE_UNDO_STATES(WORKSPACE_UNDO.current%).sel_box_h%        = selUndoTmpBoxH%
+            WORKSPACE_UNDO_STATES(WORKSPACE_UNDO.current%).sel_wand_has%     = selUndoTmpWandHas%
+            WORKSPACE_UNDO_STATES(WORKSPACE_UNDO.current%).sel_wand_min_x%   = selUndoTmpWandMinX%
+            WORKSPACE_UNDO_STATES(WORKSPACE_UNDO.current%).sel_wand_min_y%   = selUndoTmpWandMinY%
+            WORKSPACE_UNDO_STATES(WORKSPACE_UNDO.current%).sel_wand_max_x%   = selUndoTmpWandMaxX%
+            WORKSPACE_UNDO_STATES(WORKSPACE_UNDO.current%).sel_wand_max_y%   = selUndoTmpWandMaxY%
+            WORKSPACE_UNDO_STATES(WORKSPACE_UNDO.current%).sel_variant%      = selUndoTmpVariant%
+            WORKSPACE_UNDO_STATES(WORKSPACE_UNDO.current%).sel_mask&         = selUndoTmpMask&      ' transfer ownership
     END SELECT
     
     WORKSPACE_UNDO.current% = WORKSPACE_UNDO.current% - 1
@@ -656,6 +769,62 @@ SUB WORKSPACE_UNDO_redo
             ' so LAYERS_merge_visible's internal save call and LAYERS_new%/delete
             ' auto-saves will all be suppressed.
             LAYERS_merge_visible
+
+        CASE WUNDO_TYPE_SELECTION_CHANGE
+            ' Redo selection change: same exchange pattern as undo
+            DIM selRedoTmpActive AS INTEGER, selRedoTmpInit AS INTEGER, selRedoTmpUserCreated AS INTEGER
+            DIM selRedoTmpBoxX AS INTEGER, selRedoTmpBoxY AS INTEGER
+            DIM selRedoTmpBoxW AS INTEGER, selRedoTmpBoxH AS INTEGER
+            DIM selRedoTmpWandHas AS INTEGER
+            DIM selRedoTmpWandMinX AS INTEGER, selRedoTmpWandMinY AS INTEGER
+            DIM selRedoTmpWandMaxX AS INTEGER, selRedoTmpWandMaxY AS INTEGER
+            DIM selRedoTmpVariant AS INTEGER
+            DIM selRedoTmpMask AS LONG
+            ' Capture live MARQUEE state into temps
+            selRedoTmpActive%       = MARQUEE.ACTIVE
+            selRedoTmpInit%         = MARQUEE.INITIALIZED
+            selRedoTmpUserCreated%  = MARQUEE.USER_CREATED
+            selRedoTmpBoxX%         = MARQUEE.BOX.x
+            selRedoTmpBoxY%         = MARQUEE.BOX.y
+            selRedoTmpBoxW%         = MARQUEE.BOX.w
+            selRedoTmpBoxH%         = MARQUEE.BOX.h
+            selRedoTmpWandHas%      = MARQUEE.WAND_HAS_SELECTION
+            selRedoTmpWandMinX%     = MARQUEE.WAND_MIN_X
+            selRedoTmpWandMinY%     = MARQUEE.WAND_MIN_Y
+            selRedoTmpWandMaxX%     = MARQUEE.WAND_MAX_X
+            selRedoTmpWandMaxY%     = MARQUEE.WAND_MAX_Y
+            selRedoTmpVariant%      = MARQUEE.VARIANT
+            selRedoTmpMask&         = MARQUEE.SELECTION_MASK   ' transfer ownership (no copy)
+            ' Restore saved state into live MARQUEE
+            MARQUEE.ACTIVE              = WORKSPACE_UNDO_STATES(WORKSPACE_UNDO.current%).sel_active%
+            MARQUEE.INITIALIZED         = WORKSPACE_UNDO_STATES(WORKSPACE_UNDO.current%).sel_initialized%
+            MARQUEE.USER_CREATED        = WORKSPACE_UNDO_STATES(WORKSPACE_UNDO.current%).sel_user_created%
+            MARQUEE.BOX.x               = WORKSPACE_UNDO_STATES(WORKSPACE_UNDO.current%).sel_box_x%
+            MARQUEE.BOX.y               = WORKSPACE_UNDO_STATES(WORKSPACE_UNDO.current%).sel_box_y%
+            MARQUEE.BOX.w               = WORKSPACE_UNDO_STATES(WORKSPACE_UNDO.current%).sel_box_w%
+            MARQUEE.BOX.h               = WORKSPACE_UNDO_STATES(WORKSPACE_UNDO.current%).sel_box_h%
+            MARQUEE.WAND_HAS_SELECTION  = WORKSPACE_UNDO_STATES(WORKSPACE_UNDO.current%).sel_wand_has%
+            MARQUEE.WAND_MIN_X          = WORKSPACE_UNDO_STATES(WORKSPACE_UNDO.current%).sel_wand_min_x%
+            MARQUEE.WAND_MIN_Y          = WORKSPACE_UNDO_STATES(WORKSPACE_UNDO.current%).sel_wand_min_y%
+            MARQUEE.WAND_MAX_X          = WORKSPACE_UNDO_STATES(WORKSPACE_UNDO.current%).sel_wand_max_x%
+            MARQUEE.WAND_MAX_Y          = WORKSPACE_UNDO_STATES(WORKSPACE_UNDO.current%).sel_wand_max_y%
+            MARQUEE.VARIANT             = WORKSPACE_UNDO_STATES(WORKSPACE_UNDO.current%).sel_variant%
+            MARQUEE.SELECTION_MASK      = WORKSPACE_UNDO_STATES(WORKSPACE_UNDO.current%).sel_mask&  ' transfer ownership
+            ' Write live state (captured in temps) back into the slot for future undo
+            WORKSPACE_UNDO_STATES(WORKSPACE_UNDO.current%).sel_active%       = selRedoTmpActive%
+            WORKSPACE_UNDO_STATES(WORKSPACE_UNDO.current%).sel_initialized%  = selRedoTmpInit%
+            WORKSPACE_UNDO_STATES(WORKSPACE_UNDO.current%).sel_user_created% = selRedoTmpUserCreated%
+            WORKSPACE_UNDO_STATES(WORKSPACE_UNDO.current%).sel_box_x%        = selRedoTmpBoxX%
+            WORKSPACE_UNDO_STATES(WORKSPACE_UNDO.current%).sel_box_y%        = selRedoTmpBoxY%
+            WORKSPACE_UNDO_STATES(WORKSPACE_UNDO.current%).sel_box_w%        = selRedoTmpBoxW%
+            WORKSPACE_UNDO_STATES(WORKSPACE_UNDO.current%).sel_box_h%        = selRedoTmpBoxH%
+            WORKSPACE_UNDO_STATES(WORKSPACE_UNDO.current%).sel_wand_has%     = selRedoTmpWandHas%
+            WORKSPACE_UNDO_STATES(WORKSPACE_UNDO.current%).sel_wand_min_x%   = selRedoTmpWandMinX%
+            WORKSPACE_UNDO_STATES(WORKSPACE_UNDO.current%).sel_wand_min_y%   = selRedoTmpWandMinY%
+            WORKSPACE_UNDO_STATES(WORKSPACE_UNDO.current%).sel_wand_max_x%   = selRedoTmpWandMaxX%
+            WORKSPACE_UNDO_STATES(WORKSPACE_UNDO.current%).sel_wand_max_y%   = selRedoTmpWandMaxY%
+            WORKSPACE_UNDO_STATES(WORKSPACE_UNDO.current%).sel_variant%      = selRedoTmpVariant%
+            WORKSPACE_UNDO_STATES(WORKSPACE_UNDO.current%).sel_mask&         = selRedoTmpMask&      ' transfer ownership
     END SELECT
     
     WORKSPACE_UNDO_IN_PROGRESS% = FALSE  ' Allow undo saves again

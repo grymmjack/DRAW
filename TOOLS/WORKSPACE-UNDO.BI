@@ -15,6 +15,7 @@ CONST WUNDO_TYPE_LAYER_RENAME = 3   ' Layer renamed
 CONST WUNDO_TYPE_LAYER_REORDER = 4  ' Layer moved in stack (up/down)
 CONST WUNDO_TYPE_LAYER_MERGE = 5            ' Layers merged (2-layer merge down)
 CONST WUNDO_TYPE_LAYER_MERGE_VISIBLE = 6    ' Merge all visible layers
+CONST WUNDO_TYPE_SELECTION_CHANGE = 7       ' Any selection mutation (create/modify/deselect/invert)
 
 TYPE WORKSPACE_UNDO_STATE
     action_type AS INTEGER           ' WUNDO_TYPE_* constant
@@ -33,6 +34,21 @@ TYPE WORKSPACE_UNDO_STATE
     old_visible AS INTEGER           ' Layer visibility before operation
     old_opacityLock AS INTEGER       ' Opacity lock state before operation
     old_blendMode AS INTEGER         ' Blend mode before operation
+    ' --- Selection change fields (WUNDO_TYPE_SELECTION_CHANGE) ---
+    sel_active AS INTEGER            ' MARQUEE.ACTIVE
+    sel_initialized AS INTEGER       ' MARQUEE.INITIALIZED
+    sel_user_created AS INTEGER      ' MARQUEE.USER_CREATED
+    sel_box_x AS INTEGER             ' MARQUEE.BOX.x
+    sel_box_y AS INTEGER             ' MARQUEE.BOX.y
+    sel_box_w AS INTEGER             ' MARQUEE.BOX.w
+    sel_box_h AS INTEGER             ' MARQUEE.BOX.h
+    sel_wand_has AS INTEGER          ' MARQUEE.WAND_HAS_SELECTION
+    sel_wand_min_x AS INTEGER        ' MARQUEE.WAND_MIN_X
+    sel_wand_min_y AS INTEGER        ' MARQUEE.WAND_MIN_Y
+    sel_wand_max_x AS INTEGER        ' MARQUEE.WAND_MAX_X
+    sel_wand_max_y AS INTEGER        ' MARQUEE.WAND_MAX_Y
+    sel_variant AS INTEGER           ' MARQUEE.VARIANT
+    sel_mask AS LONG                 ' _COPYIMAGE of MARQUEE.SELECTION_MASK, or -1 if none
 END TYPE
 
 TYPE WORKSPACE_UNDO_SYSTEM
@@ -80,6 +96,7 @@ DECLARE SUB WORKSPACE_UNDO_save_layer_rename (layerIndex AS INTEGER, oldName AS 
 DECLARE SUB WORKSPACE_UNDO_save_layer_reorder (layerIndex AS INTEGER, oldZIndex AS INTEGER, newZIndex AS INTEGER)
 DECLARE SUB WORKSPACE_UNDO_save_layer_merge (topIndex AS INTEGER, bottomIndex AS INTEGER)
 DECLARE SUB WORKSPACE_UNDO_save_merge_visible (sortedLayers() AS INTEGER, sortCount AS INTEGER)
+DECLARE SUB WORKSPACE_UNDO_save_selection ()
 DECLARE SUB MERGE_VIS_free_state_images (stateIdx AS INTEGER)
 DECLARE SUB WORKSPACE_UNDO_undo ()
 DECLARE SUB WORKSPACE_UNDO_redo ()
