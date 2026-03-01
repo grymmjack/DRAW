@@ -30,13 +30,15 @@ DRAW is a pixel art editor written in QB64PE that can export images as sourcecod
 - **Fill** - Flood fill tool
 - **Spray** - Spray paint with brush-shaped nozzle tips, radius doubles per brush size level, custom brush stamp support, SHIFT axis constraint, circle preview
 - **Picker** - Color sampling/eyedropper (hold ALT with any tool for temporary picker; ALT+left picks FG, ALT+right picks BG)
-- **Marquee** - Rectangular selection with move and resize
+- **Marquee** - Selection tools: Rectangle, Freehand, Polygon, Ellipse — each with a distinct crosshair cursor
+- **Magic Wand** - Select contiguous same-color pixels with dedicated crosshair cursor
 - **Move** - Transform and position selected content with arrow keys, undo support, and ALT+drag clone stamping
 - **Transform** - Universal flip H/V, rotate 90° CW/CCW, scale ±50% — works on layers, selections, or floating moves from any tool
 - **Pan** - Dedicated canvas panning tool (hand)
 - **Zoom** - Click to zoom in, Alt+click to zoom out, drag to zoom region
 - **Clipboard** - Copy/Cut/Paste selections (Ctrl+C/X/V), Merged copy (Ctrl+Shift+C), Clear selection (Ctrl+E)
 - **Text** - Text entry tool
+- **Eraser** - Dedicated eraser tool that paints transparent; shares brush size preview and custom brush support
 - **Custom Brush** - Capture selection as reusable brush with flip/scale transforms, non-rectangular shapes via alpha channel, dynamic outline expansion
 - **Reference Image** - Load a high-res image behind the canvas at adjustable opacity for tracing (`Ctrl+R` toggle, `Ctrl+Shift+Wheel` opacity, reposition via View menu); state persisted in `.draw` project files
 - **Image Import** - Load images with interactive placement, rotation (90° CW/CCW), horizontal/vertical flip, zoom, pan, and resize — with live preview of all transformations

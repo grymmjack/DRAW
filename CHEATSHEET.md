@@ -21,6 +21,7 @@
 | `V` | Move | Transform selected region |
 | `Z` | Zoom | Zoom tool (click to zoom in, Alt+click to zoom out) |
 | `T` | Text | Text entry tool |
+| — | Eraser | Erase to transparent (toolbar or command palette only, no keyboard shortcut) |
 | `*` | Transparent Color | Toggle foreground to/from transparent (eraser mode with color memory) |
 | `?` | Command Palette | Search commands and hotkeys |
 
@@ -440,6 +441,9 @@ DRAW supports Photoshop-style selections that act as clipping masks. When a sele
 | Key | Mode | Description |
 |-----|------|-------------|
 | `M` | Rectangle Marquee | Draw rectangular selection by dragging |
+| — | Freehand Select | Draw freehand selection by dragging (toolbar or command palette) |
+| — | Polygon Select | Click to place polygon selection points (toolbar or command palette) |
+| — | Ellipse Select | Draw elliptical selection by dragging (toolbar or command palette) |
 | `W` | Magic Wand | Click to select contiguous pixels of same color |
 
 ### Marquee Tool

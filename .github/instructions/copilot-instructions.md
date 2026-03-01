@@ -10,7 +10,7 @@ applyTo: "**"
 
 **Project**: DRAW is a pixel art editor written in QB64-PE by grymmjack (Rick Christy). Unique feature: exports artwork as QB64 source code. Build with: `qb64pe -w -x -o DRAW.run DRAW.BAS`
 
-**Version**: `APP_VERSION$` constant in `_COMMON.BI` (currently `"0.8.1"`).
+**Version**: `APP_VERSION$` constant in `_COMMON.BI` (currently `"0.9.1"`).
 
 ---
 
@@ -882,6 +882,16 @@ END IF
 ```
 Set `MARQUEE.VARIANT` in every activation path (toolbar click, keyboard shortcut, command).
 
+Each marquee variant also gets a distinct crosshair cursor via
+`POINTER_marquee_cursor_for_variant%` (in `GUI/POINTER.BM`), which maps
+`MARQUEE.VARIANT` → cursor index:
+- `TOOL_SELECT_RECT` → `CURSOR_MARQUEE_RECT` (13)
+- `TOOL_SELECT_FREE` → `CURSOR_MARQUEE_FREE` (14)
+- `TOOL_SELECT_POLY` → `CURSOR_MARQUEE_POLY` (15)
+- `TOOL_SELECT_ELLIPSE` → `CURSOR_MARQUEE_ELLIP` (16)
+- `TOOL_SELECT_WAND` → `CURSOR_WAND` (11)
+- Fallback → `CURSOR_MARQUEE` (5, generic — also used by crop)
+
 ### Eraser Tool
 
 **Files**: `TOOLS/ERASER.BI`, `TOOLS/ERASER.BM`
@@ -892,12 +902,18 @@ pipeline via `PAINT_stamp_brush`. `ERASER_activate` saves the user's current col
 `ERASER_deactivate` restores it. Mouse dispatch treats `TOOL_ERASER` identically to
 `TOOL_BRUSH` (same CASE branches in hold/release/right-click).
 
+The eraser shares the brush cursor system: it uses `CURSOR_BRUSH`, shows the brush size
+preview circle/square, supports custom brush stamps, and renders the arrow overlay —
+identical to `TOOL_BRUSH`/`TOOL_DOT` in all 6 cursor dispatch points in `POINTER.BM`.
+
 ### Crop Tool Behavior
 
 Crop uses marquee to define the crop region. On completion (`CROP_apply`), the tool
 switches to `TOOL_NULL` (no active tool), not back to the previous tool.
 
-Cursor configuration defines 13 cursor types with PNG filenames and hotspot expressions.
+Cursor configuration defines 17 cursor types (indices 0–16) with PNG filenames and
+hotspot expressions. Indices 13–16 are per-variant marquee crosshairs
+(`CURSOR_MARQUEE_RECT`, `_FREE`, `_POLY`, `_ELLIP`).
 
 ---
 
