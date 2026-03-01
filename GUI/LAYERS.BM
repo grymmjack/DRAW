@@ -652,11 +652,14 @@ SUB LAYERS_merge_down (layerIndex AS INTEGER)
     ' Save workspace undo state BEFORE merge (captures both layers' content)
     WORKSPACE_UNDO_save_layer_merge layerIndex%, targetIndex%
     
-    ' Merge: composite current layer onto target with opacity
+    ' Merge: composite current layer onto target respecting blend mode and opacity
     oldDest& = _DEST
     
-    IF LAYERS(layerIndex%).opacity% < 255 THEN
-        ' Create temp image with opacity correctly scaled per-pixel.
+    IF LAYERS(layerIndex%).blendMode% <> BLEND_NORMAL THEN
+        ' Non-Normal blend mode: use per-pixel blend composite (handles opacity internally)
+        LAYER_blend_composite LAYERS(targetIndex%).imgHandle&, LAYERS(layerIndex%).imgHandle&, LAYERS(layerIndex%).blendMode%, LAYERS(layerIndex%).opacity%
+    ELSEIF LAYERS(layerIndex%).opacity% < 255 THEN
+        ' Normal blend with partial opacity: scale alpha per-pixel
         ' _SETALPHA must NOT be used here — it overwrites ALL pixels' alpha including
         ' transparent ones, turning empty pixels into semi-transparent black.
         ' Instead, scale each non-transparent pixel's alpha by (origAlpha * opacity / 255),
@@ -682,6 +685,7 @@ SUB LAYERS_merge_down (layerIndex AS INTEGER)
         _PUTIMAGE , tempImg&
         IF tempImg& < -1 THEN _FREEIMAGE tempImg&
     ELSE
+        ' Normal blend at full opacity
         _DEST LAYERS(targetIndex%).imgHandle&
         _BLEND LAYERS(targetIndex%).imgHandle&
         _PUTIMAGE , LAYERS(layerIndex%).imgHandle&
@@ -758,7 +762,7 @@ SUB LAYERS_merge_visible ()
     
     LAYERS(newIndex%).name = "Merged"
     
-    ' Composite all visible layers bottom-to-top
+    ' Composite all visible layers bottom-to-top respecting blend modes
     oldDest& = _DEST
     _DEST LAYERS(newIndex%).imgHandle&
     CLS , _RGBA32(0, 0, 0, 0)
@@ -768,7 +772,14 @@ SUB LAYERS_merge_visible ()
         DIM srcIdx AS INTEGER
         srcIdx% = sortedLayers%(i%)
         
-        IF LAYERS(srcIdx%).opacity% < 255 THEN
+        IF LAYERS(srcIdx%).blendMode% <> BLEND_NORMAL THEN
+            ' Non-Normal blend mode: use per-pixel blend composite (handles opacity internally)
+            ' Must restore _DEST first since LAYER_blend_composite uses _MEMIMAGE, not _DEST
+            _DEST oldDest&
+            LAYER_blend_composite LAYERS(newIndex%).imgHandle&, LAYERS(srcIdx%).imgHandle&, LAYERS(srcIdx%).blendMode%, LAYERS(srcIdx%).opacity%
+            _DEST LAYERS(newIndex%).imgHandle&
+        ELSEIF LAYERS(srcIdx%).opacity% < 255 THEN
+            ' Normal blend with partial opacity: scale alpha per-pixel
             tempImg& = _COPYIMAGE(LAYERS(srcIdx%).imgHandle&, 32)
             DIM mvMem AS _MEM
             DIM mvOffset AS _OFFSET
@@ -788,6 +799,7 @@ SUB LAYERS_merge_visible ()
             _PUTIMAGE , tempImg&
             IF tempImg& < -1 THEN _FREEIMAGE tempImg&
         ELSE
+            ' Normal blend at full opacity
             _PUTIMAGE , LAYERS(srcIdx%).imgHandle&
         END IF
     NEXT i%
@@ -843,8 +855,23 @@ FUNCTION LAYERS_flatten& ()
                     oldDest& = _DEST
                     _DEST result&
                     IF LAYERS(i%).opacity% < 255 THEN
+                        ' Scale alpha per-pixel (not _SETALPHA which overwrites transparent pixels)
                         tempImg& = _COPYIMAGE(LAYERS(i%).imgHandle&, 32)
-                        _SETALPHA LAYERS(i%).opacity%, , tempImg&
+                        DIM flatMem AS _MEM
+                        DIM flatOff AS _OFFSET
+                        DIM flatPix AS _UNSIGNED LONG
+                        DIM flatA AS _UNSIGNED _BYTE
+                        DIM flatNewA AS INTEGER
+                        flatMem = _MEMIMAGE(tempImg&)
+                        FOR flatOff = flatMem.OFFSET TO flatMem.OFFSET + flatMem.SIZE - 4 STEP 4
+                            _MEMGET flatMem, flatOff, flatPix~&
+                            flatA~%% = _ALPHA32(flatPix~&)
+                            IF flatA~%% > 0 THEN
+                                flatNewA% = (flatA~%% * LAYERS(i%).opacity%) \ 255
+                                _MEMPUT flatMem, flatOff + 3, flatNewA% AS _UNSIGNED _BYTE
+                            END IF
+                        NEXT flatOff
+                        _MEMFREE flatMem
                         _PUTIMAGE , tempImg&
                         IF tempImg& < -1 THEN _FREEIMAGE tempImg&
                     ELSE
