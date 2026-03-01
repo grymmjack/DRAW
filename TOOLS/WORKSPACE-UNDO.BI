@@ -13,7 +13,8 @@ CONST WUNDO_TYPE_LAYER_ADD = 1      ' Layer created
 CONST WUNDO_TYPE_LAYER_DELETE = 2   ' Layer deleted
 CONST WUNDO_TYPE_LAYER_RENAME = 3   ' Layer renamed
 CONST WUNDO_TYPE_LAYER_REORDER = 4  ' Layer moved in stack (up/down)
-CONST WUNDO_TYPE_LAYER_MERGE = 5    ' Layers merged
+CONST WUNDO_TYPE_LAYER_MERGE = 5            ' Layers merged (2-layer merge down)
+CONST WUNDO_TYPE_LAYER_MERGE_VISIBLE = 6    ' Merge all visible layers
 
 TYPE WORKSPACE_UNDO_STATE
     action_type AS INTEGER           ' WUNDO_TYPE_* constant
@@ -52,6 +53,25 @@ DIM SHARED WORKSPACE_UNDO_IN_PROGRESS AS INTEGER
 ' Timestamp of last pixel undo save (for comparing with workspace undo)
 DIM SHARED PIXEL_UNDO_LAST_TIMESTAMP AS DOUBLE
 
+' Merge-Visible undo backup storage
+' Stores per-source-layer data for undoing merge-visible operations
+TYPE MERGE_VIS_LAYER_BACKUP
+    img AS LONG            ' Copy of layer's image
+    name AS STRING * 64    ' Layer name
+    slotIndex AS INTEGER   ' Original array slot (1-64)
+    zIndex AS INTEGER      ' Original z-order
+    opacity AS INTEGER     ' 0-255
+    visible AS INTEGER     ' Boolean
+    opacityLock AS INTEGER ' Boolean
+    blendMode AS INTEGER   ' Blend mode constant
+END TYPE
+
+' Per workspace-undo-slot data for merge-visible operations
+' First dim: workspace undo state index (1 to 100, matches max workspace undo)
+' Second dim: source layer index within the merge (1 to 64)
+DIM SHARED MERGE_VIS_DATA(1 TO 100, 1 TO 64) AS MERGE_VIS_LAYER_BACKUP
+DIM SHARED MERGE_VIS_COUNT(1 TO 100) AS INTEGER
+
 DECLARE SUB WORKSPACE_UNDO_init ()
 DECLARE SUB WORKSPACE_UNDO_clear ()
 DECLARE SUB WORKSPACE_UNDO_save_layer_add (layerIndex AS INTEGER)
@@ -59,6 +79,8 @@ DECLARE SUB WORKSPACE_UNDO_save_layer_delete (layerIndex AS INTEGER)
 DECLARE SUB WORKSPACE_UNDO_save_layer_rename (layerIndex AS INTEGER, oldName AS STRING, newName AS STRING)
 DECLARE SUB WORKSPACE_UNDO_save_layer_reorder (layerIndex AS INTEGER, oldZIndex AS INTEGER, newZIndex AS INTEGER)
 DECLARE SUB WORKSPACE_UNDO_save_layer_merge (topIndex AS INTEGER, bottomIndex AS INTEGER)
+DECLARE SUB WORKSPACE_UNDO_save_merge_visible (sortedLayers() AS INTEGER, sortCount AS INTEGER)
+DECLARE SUB MERGE_VIS_free_state_images (stateIdx AS INTEGER)
 DECLARE SUB WORKSPACE_UNDO_undo ()
 DECLARE SUB WORKSPACE_UNDO_redo ()
 DECLARE FUNCTION WORKSPACE_UNDO_can_undo% ()

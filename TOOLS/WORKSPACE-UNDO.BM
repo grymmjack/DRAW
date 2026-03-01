@@ -37,6 +37,10 @@ SUB WORKSPACE_UNDO_clear
         END IF
         WORKSPACE_UNDO_STATES(i%).img& = 0
         WORKSPACE_UNDO_STATES(i%).img2& = 0
+        ' Free merge-visible source layer images if applicable
+        IF WORKSPACE_UNDO_STATES(i%).action_type% = WUNDO_TYPE_LAYER_MERGE_VISIBLE THEN
+            MERGE_VIS_free_state_images i%
+        END IF
     NEXT i%
     WORKSPACE_UNDO.current% = 0
     WORKSPACE_UNDO.count% = 0
@@ -54,13 +58,24 @@ SUB WUNDO_shift_states_down
     IF WORKSPACE_UNDO_STATES(1).img2& < -1 THEN
         _FREEIMAGE WORKSPACE_UNDO_STATES(1).img2&
     END IF
+    ' Free merge-visible data for state 1 (being shifted out)
+    IF WORKSPACE_UNDO_STATES(1).action_type% = WUNDO_TYPE_LAYER_MERGE_VISIBLE THEN
+        MERGE_VIS_free_state_images 1
+    END IF
     ' Shift all states down
     FOR i% = 1 TO WORKSPACE_UNDO.max_states% - 1
         WORKSPACE_UNDO_STATES(i%) = WORKSPACE_UNDO_STATES(i% + 1)
+        ' Also shift merge-visible data
+        MERGE_VIS_COUNT(i%) = MERGE_VIS_COUNT(i% + 1)
+        DIM mvShiftJ AS INTEGER
+        FOR mvShiftJ% = 1 TO 64
+            MERGE_VIS_DATA(i%, mvShiftJ%) = MERGE_VIS_DATA(i% + 1, mvShiftJ%)
+        NEXT mvShiftJ%
     NEXT i%
     ' Clear the last slot
     WORKSPACE_UNDO_STATES(WORKSPACE_UNDO.max_states%).img& = 0
     WORKSPACE_UNDO_STATES(WORKSPACE_UNDO.max_states%).img2& = 0
+    MERGE_VIS_COUNT(WORKSPACE_UNDO.max_states%) = 0
 END SUB
 
 ' ============================================================================
@@ -82,6 +97,10 @@ FUNCTION WUNDO_prepare_new_state%
             END IF
             WORKSPACE_UNDO_STATES(i%).img& = 0
             WORKSPACE_UNDO_STATES(i%).img2& = 0
+            ' Free merge-visible source layer images if applicable
+            IF WORKSPACE_UNDO_STATES(i%).action_type% = WUNDO_TYPE_LAYER_MERGE_VISIBLE THEN
+                MERGE_VIS_free_state_images i%
+            END IF
         NEXT i%
         WORKSPACE_UNDO.count% = WORKSPACE_UNDO.current%
     END IF
@@ -252,6 +271,64 @@ SUB WORKSPACE_UNDO_save_layer_merge (topIndex AS INTEGER, bottomIndex AS INTEGER
 END SUB
 
 ' ============================================================================
+' MERGE_VIS_free_state_images - Free all stored images for a merge-visible state
+' ============================================================================
+SUB MERGE_VIS_free_state_images (stateIdx AS INTEGER)
+    IF stateIdx% < 1 OR stateIdx% > 100 THEN EXIT SUB
+    DIM mvfi AS INTEGER
+    FOR mvfi% = 1 TO MERGE_VIS_COUNT(stateIdx%)
+        IF MERGE_VIS_DATA(stateIdx%, mvfi%).img& < -1 THEN
+            _FREEIMAGE MERGE_VIS_DATA(stateIdx%, mvfi%).img&
+            MERGE_VIS_DATA(stateIdx%, mvfi%).img& = 0
+        END IF
+    NEXT mvfi%
+    MERGE_VIS_COUNT(stateIdx%) = 0
+END SUB
+
+' ============================================================================
+' WORKSPACE_UNDO_save_merge_visible - Save state before merging all visible layers
+' sortedLayers(): array of visible layer slot indices, sorted by zIndex bottom-to-top
+' sortCount: number of entries in sortedLayers()
+' ============================================================================
+SUB WORKSPACE_UNDO_save_merge_visible (sortedLayers() AS INTEGER, sortCount AS INTEGER)
+    ' Skip if workspace undo not ready (during initialization) or in progress (during undo/redo)
+    IF NOT WORKSPACE_UNDO_READY% THEN EXIT SUB
+    IF WORKSPACE_UNDO_IN_PROGRESS% THEN EXIT SUB
+
+    DIM idx AS INTEGER
+    idx% = WUNDO_prepare_new_state%
+
+    WORKSPACE_UNDO_STATES(idx%).action_type% = WUNDO_TYPE_LAYER_MERGE_VISIBLE
+    UNDO_SEQ = UNDO_SEQ + 1
+    WORKSPACE_UNDO_STATES(idx%).timestamp# = UNDO_SEQ
+    WORKSPACE_UNDO_STATES(idx%).old_layer_count% = LAYER_COUNT%
+    WORKSPACE_UNDO_STATES(idx%).layer_index% = sortCount%  ' Store count of source layers
+    WORKSPACE_UNDO_STATES(idx%).merge_bottom_index% = CURRENT_LAYER%  ' Store selected layer for undo restore
+    WORKSPACE_UNDO_STATES(idx%).img& = 0
+    WORKSPACE_UNDO_STATES(idx%).img2& = 0
+
+    ' Save each source layer's data into MERGE_VIS_DATA
+    DIM mvsI AS INTEGER
+    DIM mvsSrcIdx AS INTEGER
+    MERGE_VIS_COUNT(idx%) = sortCount%
+    FOR mvsI% = 1 TO sortCount%
+        mvsSrcIdx% = sortedLayers%(mvsI%)
+        MERGE_VIS_DATA(idx%, mvsI%).slotIndex% = mvsSrcIdx%
+        MERGE_VIS_DATA(idx%, mvsI%).name$ = LAYERS(mvsSrcIdx%).name$
+        MERGE_VIS_DATA(idx%, mvsI%).zIndex% = LAYERS(mvsSrcIdx%).zIndex%
+        MERGE_VIS_DATA(idx%, mvsI%).opacity% = LAYERS(mvsSrcIdx%).opacity%
+        MERGE_VIS_DATA(idx%, mvsI%).visible% = LAYERS(mvsSrcIdx%).visible%
+        MERGE_VIS_DATA(idx%, mvsI%).opacityLock% = LAYERS(mvsSrcIdx%).opacityLock%
+        MERGE_VIS_DATA(idx%, mvsI%).blendMode% = LAYERS(mvsSrcIdx%).blendMode%
+        IF LAYERS(mvsSrcIdx%).imgHandle& < -1 THEN
+            MERGE_VIS_DATA(idx%, mvsI%).img& = _COPYIMAGE(LAYERS(mvsSrcIdx%).imgHandle&, 32)
+        ELSE
+            MERGE_VIS_DATA(idx%, mvsI%).img& = 0
+        END IF
+    NEXT mvsI%
+END SUB
+
+' ============================================================================
 ' WORKSPACE_UNDO_undo - Undo the last workspace operation
 ' ============================================================================
 SUB WORKSPACE_UNDO_undo
@@ -398,6 +475,101 @@ SUB WORKSPACE_UNDO_undo
             
             ' Select the restored top layer
             LAYERS_select topIdx%
+
+        CASE WUNDO_TYPE_LAYER_MERGE_VISIBLE
+            ' Undo merge visible = delete merged layer, recreate all source layers
+            DIM mvUndoIdx AS INTEGER
+            mvUndoIdx% = WORKSPACE_UNDO.current%
+
+            ' Delete the merged result layer
+            IF state.merge_top_index% >= 1 AND state.merge_top_index% <= 64 THEN
+                IF LAYERS(state.merge_top_index%).imgHandle& < -1 THEN
+                    ' Free the image and clear the slot directly (not via LAYERS_delete
+                    ' which has side effects like adjusting zIndices of other layers)
+                    IF LAYERS(state.merge_top_index%).opacityCacheImg& < -1 THEN
+                        _FREEIMAGE LAYERS(state.merge_top_index%).opacityCacheImg&
+                    END IF
+                    _FREEIMAGE LAYERS(state.merge_top_index%).imgHandle&
+                    LAYERS(state.merge_top_index%).imgHandle& = 0
+                    LAYERS(state.merge_top_index%).imgWidth% = 0
+                    LAYERS(state.merge_top_index%).imgHeight% = 0
+                    LAYERS(state.merge_top_index%).zIndex% = 0
+                    LAYERS(state.merge_top_index%).visible% = FALSE
+                    LAYERS(state.merge_top_index%).isSelected% = FALSE
+                    LAYERS(state.merge_top_index%).name$ = ""
+                    LAYERS(state.merge_top_index%).opacity% = 255
+                    LAYERS(state.merge_top_index%).opacityLock% = FALSE
+                    LAYERS(state.merge_top_index%).opacityCacheImg& = 0
+                    LAYERS(state.merge_top_index%).opacityCacheVal% = 0
+                    LAYERS(state.merge_top_index%).contentDirty% = FALSE
+                END IF
+            END IF
+
+            ' Recreate all source layers from backup
+            DIM mvRestoreI AS INTEGER
+            DIM mvRestoreSlot AS INTEGER
+            FOR mvRestoreI% = 1 TO MERGE_VIS_COUNT(mvUndoIdx%)
+                mvRestoreSlot% = MERGE_VIS_DATA(mvUndoIdx%, mvRestoreI%).slotIndex%
+
+                ' Verify slot is available (it should be after source layers were deleted
+                ' during merge and the merged layer was just cleared above)
+                IF mvRestoreSlot% >= 1 AND mvRestoreSlot% <= 64 THEN
+                    IF LAYERS(mvRestoreSlot%).imgHandle& <> 0 THEN
+                        ' Slot occupied — find first empty slot as fallback
+                        DIM mvFallback AS INTEGER
+                        mvRestoreSlot% = 0
+                        FOR mvFallback% = 1 TO 64
+                            IF LAYERS(mvFallback%).imgHandle& = 0 THEN
+                                mvRestoreSlot% = mvFallback%
+                                EXIT FOR
+                            END IF
+                        NEXT mvFallback%
+                    END IF
+                END IF
+
+                IF mvRestoreSlot% >= 1 AND mvRestoreSlot% <= 64 THEN
+                    ' Create layer manually (not via LAYERS_new% to avoid side effects)
+                    LAYERS(mvRestoreSlot%).imgHandle& = _NEWIMAGE(SCRN.canvasW&, SCRN.canvasH&, 32)
+                    LAYERS(mvRestoreSlot%).imgWidth% = SCRN.canvasW&
+                    LAYERS(mvRestoreSlot%).imgHeight% = SCRN.canvasH&
+                    LAYERS(mvRestoreSlot%).name$ = MERGE_VIS_DATA(mvUndoIdx%, mvRestoreI%).name$
+                    LAYERS(mvRestoreSlot%).zIndex% = MERGE_VIS_DATA(mvUndoIdx%, mvRestoreI%).zIndex%
+                    LAYERS(mvRestoreSlot%).opacity% = MERGE_VIS_DATA(mvUndoIdx%, mvRestoreI%).opacity%
+                    LAYERS(mvRestoreSlot%).visible% = MERGE_VIS_DATA(mvUndoIdx%, mvRestoreI%).visible%
+                    LAYERS(mvRestoreSlot%).opacityLock% = MERGE_VIS_DATA(mvUndoIdx%, mvRestoreI%).opacityLock%
+                    LAYERS(mvRestoreSlot%).blendMode% = MERGE_VIS_DATA(mvUndoIdx%, mvRestoreI%).blendMode%
+                    LAYERS(mvRestoreSlot%).isSelected% = FALSE
+                    LAYERS(mvRestoreSlot%).lastSelected% = FALSE
+                    LAYERS(mvRestoreSlot%).contentDirty% = TRUE
+
+                    ' Restore pixel content
+                    IF MERGE_VIS_DATA(mvUndoIdx%, mvRestoreI%).img& < -1 THEN
+                        IF LAYERS(mvRestoreSlot%).imgHandle& < -1 THEN
+                            _FREEIMAGE LAYERS(mvRestoreSlot%).imgHandle&
+                        END IF
+                        LAYERS(mvRestoreSlot%).imgHandle& = _COPYIMAGE(MERGE_VIS_DATA(mvUndoIdx%, mvRestoreI%).img&, 32)
+                    END IF
+                END IF
+            NEXT mvRestoreI%
+
+            ' Restore layer count from saved value
+            LAYER_COUNT% = state.old_layer_count%
+
+            ' Select the layer that was selected before the merge
+            IF state.merge_bottom_index% >= 1 AND state.merge_bottom_index% <= 64 THEN
+                IF LAYERS(state.merge_bottom_index%).imgHandle& < -1 THEN
+                    LAYERS_select state.merge_bottom_index%
+                ELSE
+                    ' Fallback: select first valid layer
+                    DIM mvSelFb AS INTEGER
+                    FOR mvSelFb% = 1 TO 64
+                        IF LAYERS(mvSelFb%).imgHandle& <> 0 THEN
+                            LAYERS_select mvSelFb%
+                            EXIT FOR
+                        END IF
+                    NEXT mvSelFb%
+                END IF
+            END IF
     END SELECT
     
     WORKSPACE_UNDO.current% = WORKSPACE_UNDO.current% - 1
@@ -477,6 +649,13 @@ SUB WORKSPACE_UNDO_redo
         CASE WUNDO_TYPE_LAYER_MERGE
             ' Redo merge = merge the layers again
             LAYERS_merge_down state.merge_top_index%
+
+        CASE WUNDO_TYPE_LAYER_MERGE_VISIBLE
+            ' Redo merge visible = merge the visible layers again
+            ' WORKSPACE_UNDO_IN_PROGRESS% is already TRUE (set by redo wrapper),
+            ' so LAYERS_merge_visible's internal save call and LAYERS_new%/delete
+            ' auto-saves will all be suppressed.
+            LAYERS_merge_visible
     END SELECT
     
     WORKSPACE_UNDO_IN_PROGRESS% = FALSE  ' Allow undo saves again
