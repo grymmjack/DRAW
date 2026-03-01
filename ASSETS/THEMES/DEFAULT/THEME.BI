@@ -26,6 +26,8 @@ THEME.TOOLBAR_bg~&               = _RGBA32(0, 0, 0, 255)   ' Black background
 THEME.TOOLBAR_border_fg~&        = _RGBA32(0, 0, 0, 255)   ' Black border
 THEME.TOOLBAR_btn_overlay~&      = _RGBA32(0, 0, 0, 128)   ' Active button overlay: 50% black
 THEME.TOOLBAR_btn_stroke~&       = _RGBA32(255, 255, 255, 255) ' Active button border: 75% white
+THEME.COLOR_CHIP_outline~&       = _RGBA32(255, 255, 255, 255) ' Color chip outline: white
+THEME.COLOR_CHIP_outline_alt~&   = _RGBA32(128, 128, 128, 255) ' Color chip outline alt: gray (when chip is near-white)
 THEME.PIXEL_GRID_color1~&        = _RGBA32(80, 80, 80, 64) ' Dark gray grid lines at 25% opacity
 THEME.PIXEL_GRID_color2~&        = _RGBA32(60, 60, 60, 64) ' Unused (for future checkerboard) at 25% opacity
 THEME.PIXEL_GRID_color_fg~&      = _RGB32(80, 80, 80)       ' Pixel grid line color (dark gray)
@@ -89,10 +91,27 @@ CURSORS(CURSOR_HAND).filename$       = "cursor-hand.png"
 CURSORS(CURSOR_HAND).hotspot_x_expr$ = "center"
 CURSORS(CURSOR_HAND).hotspot_y_expr$ = "center"
 
-' --- Marquee cursor ---
+' --- Marquee cursor (generic fallback, also used by crop) ---
 CURSORS(CURSOR_MARQUEE).filename$       = "cursor-marquee.png"
 CURSORS(CURSOR_MARQUEE).hotspot_x_expr$ = "center"
 CURSORS(CURSOR_MARQUEE).hotspot_y_expr$ = "center"
+
+' --- Marquee variant cursors ---
+CURSORS(CURSOR_MARQUEE_RECT).filename$       = "cursor-crosshair-rect.png"
+CURSORS(CURSOR_MARQUEE_RECT).hotspot_x_expr$ = "5"
+CURSORS(CURSOR_MARQUEE_RECT).hotspot_y_expr$ = "11"
+
+CURSORS(CURSOR_MARQUEE_FREE).filename$       = "cursor-crosshair-freehand.png"
+CURSORS(CURSOR_MARQUEE_FREE).hotspot_x_expr$ = "5"
+CURSORS(CURSOR_MARQUEE_FREE).hotspot_y_expr$ = "9"
+
+CURSORS(CURSOR_MARQUEE_POLY).filename$       = "cursor-crosshair-poly.png"
+CURSORS(CURSOR_MARQUEE_POLY).hotspot_x_expr$ = "5"
+CURSORS(CURSOR_MARQUEE_POLY).hotspot_y_expr$ = "10"
+
+CURSORS(CURSOR_MARQUEE_ELLIP).filename$       = "cursor-crosshair-ellipse.png"
+CURSORS(CURSOR_MARQUEE_ELLIP).hotspot_x_expr$ = "5"
+CURSORS(CURSOR_MARQUEE_ELLIP).hotspot_y_expr$ = "11"
 
 ' --- Move cursor ---
 CURSORS(CURSOR_MOVE).filename$       = "cursor-move.png"
@@ -120,9 +139,9 @@ CURSORS(CURSOR_SPRAY).hotspot_x_expr$ = "left"
 CURSORS(CURSOR_SPRAY).hotspot_y_expr$ = "top"
 
 ' --- Wand cursor (magic wand / right-click marquee) ---
-CURSORS(CURSOR_WAND).filename$       = "cursor-wand.png"
-CURSORS(CURSOR_WAND).hotspot_x_expr$ = "left"
-CURSORS(CURSOR_WAND).hotspot_y_expr$ = "top"
+CURSORS(CURSOR_WAND).filename$       = "cursor-crosshair-wand.png"
+CURSORS(CURSOR_WAND).hotspot_x_expr$ = "5"
+CURSORS(CURSOR_WAND).hotspot_y_expr$ = "9"
 
 ' --- Zoom cursor ---
 CURSORS(CURSOR_ZOOM).filename$       = "cursor-zoom.png"

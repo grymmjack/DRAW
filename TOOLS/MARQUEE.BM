@@ -20,6 +20,10 @@ SUB MARQUEE_reset ()
     MARQUEE.USER_CREATED = FALSE
     ' Reset magic wand state (but keep the mode)
     MAGIC_WAND_reset
+    ' Reset new selection tool states
+    FREEHAND_SEL_reset
+    POLY_SEL_reset
+    ELLIPSE_SEL_reset
 END SUB
 
 
@@ -1599,4 +1603,720 @@ SUB SELECTION_invert ()
     _SOURCE old_source&
     _DEST old_dest&
     GUI_NEEDS_REDRAW% = TRUE
+END SUB
+
+
+' ============================================================================
+' SELECTION MASK MERGE HELPER
+' ============================================================================
+
+''
+' Merge a newly-generated selection mask with the existing MARQUEE.SELECTION_MASK.
+' For SEL_MODE_ADD, pixels selected in either mask are selected in result.
+' For SEL_MODE_SUBTRACT, pixels in old mask but NOT in new mask are selected.
+' For SEL_MODE_REPLACE, new_mask replaces existing mask entirely.
+' After merge, updates bounding box and sets WAND_HAS_SELECTION.
+' The new_mask image is consumed (freed) by this function.
+'
+' @param LONG new_mask The newly-generated mask image handle
+' @param INTEGER mode Selection mode (SEL_MODE_REPLACE/ADD/SUBTRACT)
+'
+SUB SELECTION_merge_mask (new_mask AS LONG, mode AS INTEGER)
+    DIM w AS INTEGER, h AS INTEGER
+    DIM px AS INTEGER, py AS INTEGER
+    DIM old_pixel AS _UNSIGNED LONG, new_pixel AS _UNSIGNED LONG
+    DIM mask_color AS _UNSIGNED LONG
+    DIM old_dest AS LONG, old_source AS LONG
+    DIM final_mask AS LONG
+    DIM minX AS INTEGER, minY AS INTEGER, maxX AS INTEGER, maxY AS INTEGER
+
+    IF new_mask >= -1 THEN EXIT SUB
+
+    old_dest& = _DEST
+    old_source& = _SOURCE
+    mask_color~& = _RGB32(255, 255, 255)
+    w% = _WIDTH(new_mask&)
+    h% = _HEIGHT(new_mask&)
+
+    IF mode% = SEL_MODE_REPLACE THEN
+        ' Simple replace: free old mask, use new one directly
+        IF MARQUEE.SELECTION_MASK < -1 THEN _FREEIMAGE MARQUEE.SELECTION_MASK
+        MARQUEE.SELECTION_MASK = new_mask&
+    ELSEIF (MARQUEE.SELECTION_MASK < -1 AND MARQUEE.WAND_HAS_SELECTION) _
+        OR (MARQUEE.ACTIVE% AND NOT MARQUEE.WAND_HAS_SELECTION) THEN
+        ' Merge with existing selection (mask-based OR box-based)
+        ' If we have a box selection without a mask, convert it to a mask first
+        IF (MARQUEE.SELECTION_MASK >= -1 OR NOT MARQUEE.WAND_HAS_SELECTION) AND MARQUEE.ACTIVE% THEN
+            DIM box_mask AS LONG
+            box_mask& = _NEWIMAGE(w%, h%, 32)
+            IF box_mask& < -1 THEN
+                _DEST box_mask&
+                CLS , _RGBA32(0, 0, 0, 0)
+                _DONTBLEND box_mask&
+                LINE (MARQUEE.BOX.x, MARQUEE.BOX.y)-(MARQUEE.BOX.x + MARQUEE.BOX.w - 1, MARQUEE.BOX.y + MARQUEE.BOX.h - 1), mask_color~&, BF
+                _BLEND box_mask&
+                IF MARQUEE.SELECTION_MASK < -1 THEN _FREEIMAGE MARQUEE.SELECTION_MASK
+                MARQUEE.SELECTION_MASK = box_mask&
+                MARQUEE.WAND_HAS_SELECTION = TRUE
+            END IF
+        END IF
+        ' Now merge with existing mask
+        final_mask& = _NEWIMAGE(w%, h%, 32)
+        IF final_mask& < -1 THEN
+            _DEST final_mask&
+            CLS , _RGBA32(0, 0, 0, 0)
+            _DONTBLEND final_mask&
+
+            FOR py% = 0 TO h% - 1
+                FOR px% = 0 TO w% - 1
+                    _SOURCE MARQUEE.SELECTION_MASK
+                    old_pixel~& = POINT(px%, py%)
+                    _SOURCE new_mask&
+                    new_pixel~& = POINT(px%, py%)
+
+                    _DEST final_mask&
+                    IF mode% = SEL_MODE_ADD THEN
+                        IF _ALPHA32(old_pixel~&) > 0 OR _ALPHA32(new_pixel~&) > 0 THEN
+                            PSET (px%, py%), mask_color~&
+                        END IF
+                    ELSEIF mode% = SEL_MODE_SUBTRACT THEN
+                        IF _ALPHA32(old_pixel~&) > 0 AND _ALPHA32(new_pixel~&) = 0 THEN
+                            PSET (px%, py%), mask_color~&
+                        END IF
+                    END IF
+                NEXT px%
+            NEXT py%
+
+            _BLEND final_mask&
+            _FREEIMAGE MARQUEE.SELECTION_MASK
+            _FREEIMAGE new_mask&
+            MARQUEE.SELECTION_MASK = final_mask&
+        ELSE
+            ' Failed to create final mask, keep new one
+            _FREEIMAGE MARQUEE.SELECTION_MASK
+            MARQUEE.SELECTION_MASK = new_mask&
+        END IF
+    ELSE
+        ' No existing selection at all — for add, just use new_mask directly
+        ' For subtract with no existing selection, nothing to subtract from
+        IF mode% = SEL_MODE_SUBTRACT THEN
+            _FREEIMAGE new_mask&
+            _SOURCE old_source&
+            _DEST old_dest&
+            EXIT SUB
+        END IF
+        IF MARQUEE.SELECTION_MASK < -1 THEN _FREEIMAGE MARQUEE.SELECTION_MASK
+        MARQUEE.SELECTION_MASK = new_mask&
+    END IF
+
+    ' Recalculate bounding box from mask
+    minX% = w%: minY% = h%: maxX% = 0: maxY% = 0
+    IF MARQUEE.SELECTION_MASK < -1 THEN
+        _SOURCE MARQUEE.SELECTION_MASK
+        FOR py% = 0 TO h% - 1
+            FOR px% = 0 TO w% - 1
+                IF _ALPHA32(POINT(px%, py%)) > 0 THEN
+                    IF px% < minX% THEN minX% = px%
+                    IF px% > maxX% THEN maxX% = px%
+                    IF py% < minY% THEN minY% = py%
+                    IF py% > maxY% THEN maxY% = py%
+                END IF
+            NEXT px%
+        NEXT py%
+    END IF
+
+    IF minX% > maxX% THEN
+        ' Empty selection after merge
+        MARQUEE_clear
+        MAGIC_WAND_reset
+    ELSE
+        MARQUEE.WAND_MIN_X = minX%
+        MARQUEE.WAND_MIN_Y = minY%
+        MARQUEE.WAND_MAX_X = maxX%
+        MARQUEE.WAND_MAX_Y = maxY%
+        MARQUEE.BOX.x = minX%
+        MARQUEE.BOX.y = minY%
+        MARQUEE.BOX.w = maxX% - minX% + 1
+        MARQUEE.BOX.h = maxY% - minY% + 1
+        MARQUEE.ACTIVE% = TRUE
+        MARQUEE.INITIALIZED% = TRUE
+        MARQUEE.USER_CREATED = TRUE
+        MARQUEE.WAND_HAS_SELECTION = TRUE
+    END IF
+
+    _SOURCE old_source&
+    _DEST old_dest&
+END SUB
+
+
+' ============================================================================
+' FREEHAND SELECTION FUNCTIONS
+' ============================================================================
+
+''
+' Reset freehand selection state
+'
+SUB FREEHAND_SEL_reset ()
+    MARQUEE.FREE_DRAWING = FALSE
+    MARQUEE.FREE_POINT_COUNT = 0
+END SUB
+
+
+''
+' Start a freehand selection path at the given position
+' @param INTEGER x Starting X coordinate (canvas space)
+' @param INTEGER y Starting Y coordinate (canvas space)
+'
+SUB FREEHAND_SEL_start (x AS INTEGER, y AS INTEGER)
+    MARQUEE.FREE_DRAWING = TRUE
+    MARQUEE.FREE_POINT_COUNT = 1
+    SEL_POINTS_X(0) = x%
+    SEL_POINTS_Y(0) = y%
+END SUB
+
+
+''
+' Append a point to the freehand path (skips duplicates)
+' @param INTEGER x Current X coordinate (canvas space)
+' @param INTEGER y Current Y coordinate (canvas space)
+'
+SUB FREEHAND_SEL_update (x AS INTEGER, y AS INTEGER)
+    IF NOT MARQUEE.FREE_DRAWING THEN EXIT SUB
+    IF MARQUEE.FREE_POINT_COUNT >= SEL_MAX_POINTS THEN EXIT SUB
+
+    ' Skip duplicate points
+    DIM lastIdx AS INTEGER
+    lastIdx% = MARQUEE.FREE_POINT_COUNT - 1
+    IF lastIdx% >= 0 THEN
+        IF SEL_POINTS_X(lastIdx%) = x% AND SEL_POINTS_Y(lastIdx%) = y% THEN EXIT SUB
+    END IF
+
+    SEL_POINTS_X(MARQUEE.FREE_POINT_COUNT) = x%
+    SEL_POINTS_Y(MARQUEE.FREE_POINT_COUNT) = y%
+    MARQUEE.FREE_POINT_COUNT = MARQUEE.FREE_POINT_COUNT + 1
+END SUB
+
+
+''
+' Finish the freehand selection path and generate a selection mask.
+' The path is auto-closed (last point connects back to first point).
+' @param INTEGER mode Selection mode (SEL_MODE_REPLACE/ADD/SUBTRACT)
+'
+SUB FREEHAND_SEL_finish (mode AS INTEGER)
+    DIM w AS INTEGER, h AS INTEGER
+    DIM new_mask AS LONG
+    DIM old_dest AS LONG
+    DIM mask_color AS _UNSIGNED LONG
+
+    IF NOT MARQUEE.FREE_DRAWING THEN EXIT SUB
+
+    ' Need at least 3 points to form a closed shape
+    IF MARQUEE.FREE_POINT_COUNT < 3 THEN
+        FREEHAND_SEL_reset
+        EXIT SUB
+    END IF
+
+    w% = SCRN.canvasW&
+    h% = SCRN.canvasH&
+    mask_color~& = _RGB32(255, 255, 255)
+
+    ' Create new mask image
+    new_mask& = _NEWIMAGE(w%, h%, 32)
+    IF new_mask& >= -1 THEN
+        FREEHAND_SEL_reset
+        EXIT SUB
+    END IF
+
+    old_dest& = _DEST
+    _DEST new_mask&
+    CLS , _RGBA32(0, 0, 0, 0)
+    _DONTBLEND new_mask&
+
+    ' Temporarily disable selection so POLY_FILL_scanline doesn't clip to existing selection
+    DIM saved_active AS INTEGER, saved_wand AS INTEGER
+    saved_active% = MARQUEE.ACTIVE%
+    saved_wand% = MARQUEE.WAND_HAS_SELECTION
+    MARQUEE.ACTIVE% = FALSE
+    MARQUEE.WAND_HAS_SELECTION = FALSE
+
+    POLY_FILL_scanline SEL_POINTS_X(), SEL_POINTS_Y(), MARQUEE.FREE_POINT_COUNT, mask_color~&, new_mask&
+
+    ' Restore selection state before merge
+    MARQUEE.ACTIVE% = saved_active%
+    MARQUEE.WAND_HAS_SELECTION = saved_wand%
+
+    _BLEND new_mask&
+    _DEST old_dest&
+
+    ' Merge with existing selection
+    SELECTION_merge_mask new_mask&, mode%
+
+    FREEHAND_SEL_reset
+    GUI_NEEDS_REDRAW% = TRUE
+END SUB
+
+
+''
+' Draw the freehand path preview while the user is drawing.
+' Renders connected lines on SCRN.CANVAS& in zoomed screen coordinates.
+'
+SUB FREEHAND_SEL_draw_preview ()
+    IF NOT MARQUEE.FREE_DRAWING THEN EXIT SUB
+    IF MARQUEE.FREE_POINT_COUNT < 1 THEN EXIT SUB
+
+    DIM old_dest AS LONG
+    DIM i AS INTEGER
+    DIM sx1 AS INTEGER, sy1 AS INTEGER, sx2 AS INTEGER, sy2 AS INTEGER
+    DIM zw AS LONG, zh AS LONG, dx AS INTEGER, dy AS INTEGER
+    DIM antOffset AS INTEGER
+    DIM dotSize AS INTEGER, gapSize AS INTEGER
+
+    old_dest& = _DEST
+    _DEST SCRN.CANVAS&
+
+    ' Calculate zoom transformation
+    zw& = SCRN.canvasW& * SCRN.zoom!
+    zh& = SCRN.canvasH& * SCRN.zoom!
+    dx% = (SCRN.w& - zw&) \ 2 + SCRN.offsetX%
+    dy% = (SCRN.h& - zh&) \ 2 + SCRN.offsetY%
+
+    ' Animate marching ants
+    dotSize% = 2: gapSize% = 2
+    antOffset% = INT(TIMER * 8) MOD (dotSize% + gapSize%)
+
+    ' Draw the path segments
+    FOR i% = 0 TO MARQUEE.FREE_POINT_COUNT - 2
+        sx1% = dx% + INT(SEL_POINTS_X(i%) * SCRN.zoom!)
+        sy1% = dy% + INT(SEL_POINTS_Y(i%) * SCRN.zoom!)
+        sx2% = dx% + INT(SEL_POINTS_X(i% + 1) * SCRN.zoom!)
+        sy2% = dy% + INT(SEL_POINTS_Y(i% + 1) * SCRN.zoom!)
+        LINE (sx1%, sy1%)-(sx2%, sy2%), _RGB32(255, 255, 255)
+    NEXT i%
+
+    ' Draw closing line from last point back to first (dashed)
+    IF MARQUEE.FREE_POINT_COUNT >= 2 THEN
+        sx1% = dx% + INT(SEL_POINTS_X(MARQUEE.FREE_POINT_COUNT - 1) * SCRN.zoom!)
+        sy1% = dy% + INT(SEL_POINTS_Y(MARQUEE.FREE_POINT_COUNT - 1) * SCRN.zoom!)
+        sx2% = dx% + INT(SEL_POINTS_X(0) * SCRN.zoom!)
+        sy2% = dy% + INT(SEL_POINTS_Y(0) * SCRN.zoom!)
+        LINE (sx1%, sy1%)-(sx2%, sy2%), _RGBA32(255, 255, 255, 128)
+    END IF
+
+    ' Draw line from last point to current mouse position
+    sx1% = dx% + INT(SEL_POINTS_X(MARQUEE.FREE_POINT_COUNT - 1) * SCRN.zoom!)
+    sy1% = dy% + INT(SEL_POINTS_Y(MARQUEE.FREE_POINT_COUNT - 1) * SCRN.zoom!)
+    sx2% = dx% + INT(MOUSE.UNSNAPPED_X% * SCRN.zoom!)
+    sy2% = dy% + INT(MOUSE.UNSNAPPED_Y% * SCRN.zoom!)
+    LINE (sx1%, sy1%)-(sx2%, sy2%), _RGBA32(255, 255, 0, 200)
+
+    _DEST old_dest&
+END SUB
+
+
+' ============================================================================
+' POLYGON SELECTION FUNCTIONS
+' ============================================================================
+
+''
+' Reset polygon selection state
+'
+SUB POLY_SEL_reset ()
+    MARQUEE.POLY_DRAWING = FALSE
+    MARQUEE.POLY_POINT_COUNT = 0
+    MARQUEE.POLY_CLOSED = FALSE
+END SUB
+
+
+''
+' Add a vertex to the polygon selection.
+' On first click, starts a new polygon. On subsequent clicks, appends vertices.
+' @param INTEGER x Vertex X coordinate (canvas space)
+' @param INTEGER y Vertex Y coordinate (canvas space)
+'
+SUB POLY_SEL_add_point (x AS INTEGER, y AS INTEGER)
+    ' If polygon hasn't started yet, start it
+    IF NOT MARQUEE.POLY_DRAWING THEN
+        MARQUEE.POLY_DRAWING = TRUE
+        MARQUEE.POLY_POINT_COUNT = 1
+        MARQUEE.POLY_CLOSED = FALSE
+        SEL_POINTS_X(0) = x%
+        SEL_POINTS_Y(0) = y%
+        EXIT SUB
+    END IF
+
+    IF MARQUEE.POLY_POINT_COUNT >= SEL_MAX_POINTS THEN EXIT SUB
+
+    ' Check for proximity to first point (auto-close if within 3 pixels)
+    IF MARQUEE.POLY_POINT_COUNT >= 3 THEN
+        DIM distX AS INTEGER, distY AS INTEGER
+        distX% = ABS(x% - SEL_POINTS_X(0))
+        distY% = ABS(y% - SEL_POINTS_Y(0))
+        IF distX% <= 3 AND distY% <= 3 THEN
+            ' Close the polygon (don't add the final point, it auto-closes)
+            POLY_SEL_close MARQUEE.SELECTION_MODE
+            EXIT SUB
+        END IF
+    END IF
+
+    ' Add the new vertex
+    SEL_POINTS_X(MARQUEE.POLY_POINT_COUNT) = x%
+    SEL_POINTS_Y(MARQUEE.POLY_POINT_COUNT) = y%
+    MARQUEE.POLY_POINT_COUNT = MARQUEE.POLY_POINT_COUNT + 1
+END SUB
+
+
+''
+' Close the polygon and generate a selection mask.
+' Requires at least 3 vertices to form a valid polygon.
+' @param INTEGER mode Selection mode (SEL_MODE_REPLACE/ADD/SUBTRACT)
+'
+SUB POLY_SEL_close (mode AS INTEGER)
+    DIM w AS INTEGER, h AS INTEGER
+    DIM new_mask AS LONG
+    DIM old_dest AS LONG
+    DIM mask_color AS _UNSIGNED LONG
+
+    IF NOT MARQUEE.POLY_DRAWING THEN EXIT SUB
+
+    ' Need at least 3 vertices for a polygon
+    IF MARQUEE.POLY_POINT_COUNT < 3 THEN
+        POLY_SEL_reset
+        EXIT SUB
+    END IF
+
+    w% = SCRN.canvasW&
+    h% = SCRN.canvasH&
+    mask_color~& = _RGB32(255, 255, 255)
+
+    ' Create new mask image
+    new_mask& = _NEWIMAGE(w%, h%, 32)
+    IF new_mask& >= -1 THEN
+        POLY_SEL_reset
+        EXIT SUB
+    END IF
+
+    old_dest& = _DEST
+    _DEST new_mask&
+    CLS , _RGBA32(0, 0, 0, 0)
+    _DONTBLEND new_mask&
+
+    ' Temporarily disable selection so POLY_FILL_scanline doesn't clip to existing selection
+    DIM saved_active2 AS INTEGER, saved_wand2 AS INTEGER
+    saved_active2% = MARQUEE.ACTIVE%
+    saved_wand2% = MARQUEE.WAND_HAS_SELECTION
+    MARQUEE.ACTIVE% = FALSE
+    MARQUEE.WAND_HAS_SELECTION = FALSE
+
+    POLY_FILL_scanline SEL_POINTS_X(), SEL_POINTS_Y(), MARQUEE.POLY_POINT_COUNT, mask_color~&, new_mask&
+
+    ' Restore selection state before merge
+    MARQUEE.ACTIVE% = saved_active2%
+    MARQUEE.WAND_HAS_SELECTION = saved_wand2%
+
+    _BLEND new_mask&
+    _DEST old_dest&
+
+    ' Merge with existing selection
+    SELECTION_merge_mask new_mask&, mode%
+
+    POLY_SEL_reset
+    GUI_NEEDS_REDRAW% = TRUE
+END SUB
+
+
+''
+' Draw the polygon selection preview while user is placing vertices.
+' Shows placed vertices, connecting lines, rubber band line to mouse,
+' and a dim closing line from mouse back to first vertex.
+'
+SUB POLY_SEL_draw_preview ()
+    IF NOT MARQUEE.POLY_DRAWING THEN EXIT SUB
+    IF MARQUEE.POLY_POINT_COUNT < 1 THEN EXIT SUB
+
+    DIM old_dest AS LONG
+    DIM i AS INTEGER
+    DIM sx1 AS INTEGER, sy1 AS INTEGER, sx2 AS INTEGER, sy2 AS INTEGER
+    DIM zw AS LONG, zh AS LONG, dx AS INTEGER, dy AS INTEGER
+
+    old_dest& = _DEST
+    _DEST SCRN.CANVAS&
+
+    ' Calculate zoom transformation
+    zw& = SCRN.canvasW& * SCRN.zoom!
+    zh& = SCRN.canvasH& * SCRN.zoom!
+    dx% = (SCRN.w& - zw&) \ 2 + SCRN.offsetX%
+    dy% = (SCRN.h& - zh&) \ 2 + SCRN.offsetY%
+
+    ' Draw path segments between placed vertices (white solid)
+    FOR i% = 0 TO MARQUEE.POLY_POINT_COUNT - 2
+        sx1% = dx% + INT(SEL_POINTS_X(i%) * SCRN.zoom!)
+        sy1% = dy% + INT(SEL_POINTS_Y(i%) * SCRN.zoom!)
+        sx2% = dx% + INT(SEL_POINTS_X(i% + 1) * SCRN.zoom!)
+        sy2% = dy% + INT(SEL_POINTS_Y(i% + 1) * SCRN.zoom!)
+        LINE (sx1%, sy1%)-(sx2%, sy2%), _RGB32(255, 255, 255)
+    NEXT i%
+
+    ' Draw rubber band line from last vertex to mouse position (yellow)
+    sx1% = dx% + INT(SEL_POINTS_X(MARQUEE.POLY_POINT_COUNT - 1) * SCRN.zoom!)
+    sy1% = dy% + INT(SEL_POINTS_Y(MARQUEE.POLY_POINT_COUNT - 1) * SCRN.zoom!)
+    sx2% = dx% + INT(MOUSE.UNSNAPPED_X% * SCRN.zoom!)
+    sy2% = dy% + INT(MOUSE.UNSNAPPED_Y% * SCRN.zoom!)
+    LINE (sx1%, sy1%)-(sx2%, sy2%), _RGBA32(255, 255, 0, 200)
+
+    ' Draw closing line from mouse to first vertex (dim white)
+    IF MARQUEE.POLY_POINT_COUNT >= 2 THEN
+        sx1% = dx% + INT(MOUSE.UNSNAPPED_X% * SCRN.zoom!)
+        sy1% = dy% + INT(MOUSE.UNSNAPPED_Y% * SCRN.zoom!)
+        sx2% = dx% + INT(SEL_POINTS_X(0) * SCRN.zoom!)
+        sy2% = dy% + INT(SEL_POINTS_Y(0) * SCRN.zoom!)
+        LINE (sx1%, sy1%)-(sx2%, sy2%), _RGBA32(255, 255, 255, 80)
+    END IF
+
+    ' Draw vertex dots
+    DIM vx AS INTEGER, vy AS INTEGER
+    DIM dotR AS INTEGER
+    dotR% = INT(SCRN.zoom!)
+    IF dotR% < 1 THEN dotR% = 1
+    FOR i% = 0 TO MARQUEE.POLY_POINT_COUNT - 1
+        vx% = dx% + INT(SEL_POINTS_X(i%) * SCRN.zoom!)
+        vy% = dy% + INT(SEL_POINTS_Y(i%) * SCRN.zoom!)
+        LINE (vx% - dotR%, vy% - dotR%)-(vx% + dotR%, vy% + dotR%), _RGB32(255, 255, 255), BF
+        LINE (vx% - dotR%, vy% - dotR%)-(vx% + dotR%, vy% + dotR%), _RGB32(0, 0, 0), B
+    NEXT i%
+
+    ' Highlight first vertex if close enough to close
+    IF MARQUEE.POLY_POINT_COUNT >= 3 THEN
+        DIM closeDistX AS INTEGER, closeDistY AS INTEGER
+        closeDistX% = ABS(MOUSE.UNSNAPPED_X% - SEL_POINTS_X(0))
+        closeDistY% = ABS(MOUSE.UNSNAPPED_Y% - SEL_POINTS_Y(0))
+        IF closeDistX% <= 3 AND closeDistY% <= 3 THEN
+            vx% = dx% + INT(SEL_POINTS_X(0) * SCRN.zoom!)
+            vy% = dy% + INT(SEL_POINTS_Y(0) * SCRN.zoom!)
+            DIM hlR AS INTEGER
+            hlR% = dotR% + 1
+            LINE (vx% - hlR%, vy% - hlR%)-(vx% + hlR%, vy% + hlR%), _RGB32(0, 255, 255), B
+        END IF
+    END IF
+
+    _DEST old_dest&
+END SUB
+
+
+' ============================================================================
+' ELLIPSE SELECTION FUNCTIONS
+' ============================================================================
+
+''
+' Reset ellipse selection state
+'
+SUB ELLIPSE_SEL_reset ()
+    MARQUEE.ELLIP_DRAGGING = FALSE
+    MARQUEE.ELLIP_START_X = 0
+    MARQUEE.ELLIP_START_Y = 0
+    MARQUEE.ELLIP_END_X = 0
+    MARQUEE.ELLIP_END_Y = 0
+END SUB
+
+
+''
+' Start an ellipse selection drag
+' @param INTEGER x Starting X coordinate (canvas space)
+' @param INTEGER y Starting Y coordinate (canvas space)
+'
+SUB ELLIPSE_SEL_start (x AS INTEGER, y AS INTEGER)
+    MARQUEE.ELLIP_DRAGGING = TRUE
+    MARQUEE.ELLIP_START_X = x%
+    MARQUEE.ELLIP_START_Y = y%
+    MARQUEE.ELLIP_END_X = x%
+    MARQUEE.ELLIP_END_Y = y%
+END SUB
+
+
+''
+' Update the ellipse selection drag end point
+' @param INTEGER x Current X coordinate (canvas space)
+' @param INTEGER y Current Y coordinate (canvas space)
+'
+SUB ELLIPSE_SEL_update (x AS INTEGER, y AS INTEGER)
+    IF NOT MARQUEE.ELLIP_DRAGGING THEN EXIT SUB
+    MARQUEE.ELLIP_END_X = x%
+    MARQUEE.ELLIP_END_Y = y%
+END SUB
+
+
+''
+' Finish the ellipse selection drag and generate a selection mask.
+' The ellipse is inscribed in the drag rectangle (same as rect marquee bounds).
+' @param INTEGER mode Selection mode (SEL_MODE_REPLACE/ADD/SUBTRACT)
+'
+SUB ELLIPSE_SEL_finish (mode AS INTEGER)
+    DIM w AS INTEGER, h AS INTEGER
+    DIM new_mask AS LONG
+    DIM old_dest AS LONG
+    DIM mask_color AS _UNSIGNED LONG
+    DIM bx AS INTEGER, by AS INTEGER, bw AS INTEGER, bh AS INTEGER
+    DIM cx AS SINGLE, cy AS SINGLE, rx AS SINGLE, ry AS SINGLE
+    DIM py AS INTEGER, dx2 AS SINGLE, dy2 AS SINGLE
+    DIM x_left AS INTEGER, x_right AS INTEGER
+
+    IF NOT MARQUEE.ELLIP_DRAGGING THEN EXIT SUB
+
+    ' Calculate bounding box from drag
+    IF MARQUEE.ELLIP_START_X < MARQUEE.ELLIP_END_X THEN
+        bx% = MARQUEE.ELLIP_START_X
+    ELSE
+        bx% = MARQUEE.ELLIP_END_X
+    END IF
+    IF MARQUEE.ELLIP_START_Y < MARQUEE.ELLIP_END_Y THEN
+        by% = MARQUEE.ELLIP_START_Y
+    ELSE
+        by% = MARQUEE.ELLIP_END_Y
+    END IF
+    bw% = ABS(MARQUEE.ELLIP_END_X - MARQUEE.ELLIP_START_X)
+    bh% = ABS(MARQUEE.ELLIP_END_Y - MARQUEE.ELLIP_START_Y)
+
+    ' Need minimum size
+    IF bw% < 2 OR bh% < 2 THEN
+        ELLIPSE_SEL_reset
+        EXIT SUB
+    END IF
+
+    w% = SCRN.canvasW&
+    h% = SCRN.canvasH&
+    mask_color~& = _RGB32(255, 255, 255)
+
+    ' Create new mask image
+    new_mask& = _NEWIMAGE(w%, h%, 32)
+    IF new_mask& >= -1 THEN
+        ELLIPSE_SEL_reset
+        EXIT SUB
+    END IF
+
+    old_dest& = _DEST
+    _DEST new_mask&
+    CLS , _RGBA32(0, 0, 0, 0)
+    _DONTBLEND new_mask&
+
+    ' Calculate ellipse center and radii from bounding box
+    cx! = bx% + bw% / 2.0
+    cy! = by% + bh% / 2.0
+    rx! = bw% / 2.0
+    ry! = bh% / 2.0
+
+    ' Fill ellipse using scanline algorithm: (x-cx)^2/rx^2 + (y-cy)^2/ry^2 <= 1
+    DIM y_start AS INTEGER, y_end AS INTEGER
+    y_start% = by%
+    y_end% = by% + bh% - 1
+
+    FOR py% = y_start% TO y_end%
+        dy2! = (py% - cy!) / ry!
+        IF ABS(dy2!) <= 1.0001 THEN
+            dx2! = rx! * SQR(1 - dy2! * dy2!)
+            x_left% = INT(cx! - dx2! + 0.5)
+            x_right% = INT(cx! + dx2! + 0.5)
+            IF x_left% < 0 THEN x_left% = 0
+            IF x_right% >= w% THEN x_right% = w% - 1
+            IF x_left% <= x_right% THEN
+                LINE (x_left%, py%)-(x_right%, py%), mask_color~&
+            END IF
+        END IF
+    NEXT py%
+
+    _BLEND new_mask&
+    _DEST old_dest&
+
+    ' Merge with existing selection
+    SELECTION_merge_mask new_mask&, mode%
+
+    ELLIPSE_SEL_reset
+    GUI_NEEDS_REDRAW% = TRUE
+END SUB
+
+
+''
+' Draw the ellipse selection preview while the user is dragging.
+' Renders an ellipse outline on SCRN.CANVAS& in zoomed screen coordinates.
+'
+SUB ELLIPSE_SEL_draw_preview ()
+    IF NOT MARQUEE.ELLIP_DRAGGING THEN EXIT SUB
+
+    DIM old_dest AS LONG
+    DIM zw AS LONG, zh AS LONG, dx AS INTEGER, dy AS INTEGER
+    DIM bx AS INTEGER, by AS INTEGER, bw AS INTEGER, bh AS INTEGER
+    DIM cx AS SINGLE, cy AS SINGLE, rx AS SINGLE, ry AS SINGLE
+    DIM angle AS SINGLE
+    DIM prevX AS INTEGER, prevY AS INTEGER, curX AS INTEGER, curY AS INTEGER
+    DIM antOffset AS INTEGER
+    DIM dotSize AS INTEGER, gapSize AS INTEGER
+
+    old_dest& = _DEST
+    _DEST SCRN.CANVAS&
+
+    ' Calculate zoom transformation
+    zw& = SCRN.canvasW& * SCRN.zoom!
+    zh& = SCRN.canvasH& * SCRN.zoom!
+    dx% = (SCRN.w& - zw&) \ 2 + SCRN.offsetX%
+    dy% = (SCRN.h& - zh&) \ 2 + SCRN.offsetY%
+
+    ' Calculate bounding box from drag
+    IF MARQUEE.ELLIP_START_X < MARQUEE.ELLIP_END_X THEN
+        bx% = MARQUEE.ELLIP_START_X
+    ELSE
+        bx% = MARQUEE.ELLIP_END_X
+    END IF
+    IF MARQUEE.ELLIP_START_Y < MARQUEE.ELLIP_END_Y THEN
+        by% = MARQUEE.ELLIP_START_Y
+    ELSE
+        by% = MARQUEE.ELLIP_END_Y
+    END IF
+    bw% = ABS(MARQUEE.ELLIP_END_X - MARQUEE.ELLIP_START_X)
+    bh% = ABS(MARQUEE.ELLIP_END_Y - MARQUEE.ELLIP_START_Y)
+
+    IF bw% < 1 OR bh% < 1 THEN
+        _DEST old_dest&
+        EXIT SUB
+    END IF
+
+    ' Calculate ellipse center and radii in screen coordinates
+    cx! = dx% + (bx% + bw% / 2.0) * SCRN.zoom!
+    cy! = dy% + (by% + bh% / 2.0) * SCRN.zoom!
+    rx! = (bw% / 2.0) * SCRN.zoom!
+    ry! = (bh% / 2.0) * SCRN.zoom!
+
+    ' Animate marching ants
+    dotSize% = 2: gapSize% = 2
+    antOffset% = INT(TIMER * 8) MOD (dotSize% + gapSize%)
+
+    ' Draw ellipse outline using parametric equation
+    DIM numSegments AS INTEGER
+    numSegments% = INT(2 * 3.14159 * ((rx! + ry!) / 2)) + 16
+    IF numSegments% < 32 THEN numSegments% = 32
+    IF numSegments% > 360 THEN numSegments% = 360
+
+    DIM step_angle AS SINGLE
+    step_angle! = 6.28318 / numSegments%
+
+    prevX% = INT(cx! + rx!)
+    prevY% = INT(cy!)
+
+    DIM segIdx AS INTEGER
+    FOR segIdx% = 1 TO numSegments%
+        angle! = segIdx% * step_angle!
+        curX% = INT(cx! + rx! * COS(angle!))
+        curY% = INT(cy! + ry! * SIN(angle!))
+
+        ' Alternate white/black for marching ants effect
+        DIM pattern2 AS INTEGER
+        pattern2% = ((segIdx% + antOffset%) MOD (dotSize% + gapSize%))
+        IF pattern2% < dotSize% THEN
+            LINE (prevX%, prevY%)-(curX%, curY%), _RGB32(255, 255, 255)
+        ELSE
+            LINE (prevX%, prevY%)-(curX%, curY%), _RGB32(0, 0, 0)
+        END IF
+
+        prevX% = curX%
+        prevY% = curY%
+    NEXT segIdx%
+
+    _DEST old_dest&
 END SUB

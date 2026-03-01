@@ -36,6 +36,8 @@ TYPE DRAW_THEME
     TOOLBAR_border_fg      AS _UNSIGNED LONG ' Toolbar border color (RGB32)
     TOOLBAR_btn_overlay    AS _UNSIGNED LONG ' Active button dark overlay (RGBA)
     TOOLBAR_btn_stroke     AS _UNSIGNED LONG ' Active button border stroke (RGBA)
+    COLOR_CHIP_outline     AS _UNSIGNED LONG ' Color chip outline color (RGBA)
+    COLOR_CHIP_outline_alt AS _UNSIGNED LONG ' Color chip outline when color matches outline (RGBA)
     PIXEL_GRID_color1      AS _UNSIGNED LONG ' Pixel grid checker color 1 (RGBA)
     PIXEL_GRID_color2      AS _UNSIGNED LONG ' Pixel grid checker color 2 (RGBA)
     PIXEL_GRID_color_fg    AS _UNSIGNED LONG ' Pixel grid line color (RGB, opacity separate)
