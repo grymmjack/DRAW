@@ -1306,7 +1306,7 @@ SUB CMD_execute_action (action_id AS INTEGER)
             ELSEIF CURRENT_LAYER% > 0 THEN
                 DIM sdSrc AS LONG
                 sdSrc& = LAYERS(CURRENT_LAYER%).imgHandle&
-                IF MARQUEE.ACTIVE AND MARQUEE.USER_CREATED AND MARQUEE.INITIALIZED THEN
+                IF SELECTION_has_active% THEN
                     ' Scale only within selection bounds
                     DIM sdSelW AS INTEGER, sdSelH AS INTEGER
                     sdSelW% = MARQUEE.BOX.w : sdSelH% = MARQUEE.BOX.h
@@ -1339,6 +1339,9 @@ SUB CMD_execute_action (action_id AS INTEGER)
                     _DEST oldSdDest&
                     IF sdReg& < -1 THEN _FREEIMAGE sdReg&
                     IF sdScl& < -1 THEN _FREEIMAGE sdScl&
+                    ' Update marquee box to the scaled content position
+                    MARQUEE.BOX.x = sdCx% : MARQUEE.BOX.y = sdCy%
+                    MARQUEE.BOX.w = sdSelNW% : MARQUEE.BOX.h = sdSelNH%
                 ELSE
                     ' Scale entire layer content down by 50% (from original to prevent generation loss)
                     DIM sdLW AS LONG, sdLH AS LONG
@@ -1417,7 +1420,7 @@ SUB CMD_execute_action (action_id AS INTEGER)
             ELSEIF CURRENT_LAYER% > 0 THEN
                 DIM suSrc AS LONG
                 suSrc& = LAYERS(CURRENT_LAYER%).imgHandle&
-                IF MARQUEE.ACTIVE AND MARQUEE.USER_CREATED AND MARQUEE.INITIALIZED THEN
+                IF SELECTION_has_active% THEN
                     ' Scale only within selection bounds (150%)
                     DIM suSelW AS INTEGER, suSelH AS INTEGER
                     suSelW% = MARQUEE.BOX.w : suSelH% = MARQUEE.BOX.h
@@ -1441,22 +1444,33 @@ SUB CMD_execute_action (action_id AS INTEGER)
                     _DEST suSrc&
                     _DONTBLEND suSrc&
                     LINE (MARQUEE.BOX.x, MARQUEE.BOX.y)-(MARQUEE.BOX.x + suSelW% - 1, MARQUEE.BOX.y + suSelH% - 1), _RGBA32(0, 0, 0, 0), BF
-                    ' Center scaled content in selection bounds (overflow clips to selection edges)
+                    ' Center scaled content on selection centre; overflow clips to canvas only
                     DIM suSrcX AS INTEGER, suSrcY AS INTEGER
                     DIM suDstX AS INTEGER, suDstY AS INTEGER
                     DIM suCpW AS INTEGER, suCpH AS INTEGER
-                    ' Calculate centering offset
-                    suSrcX% = (suSelNW% - suSelW%) \ 2
-                    suSrcY% = (suSelNH% - suSelH%) \ 2
-                    suDstX% = MARQUEE.BOX.x
-                    suDstY% = MARQUEE.BOX.y
-                    suCpW% = suSelW%
-                    suCpH% = suSelH%
-                    _PUTIMAGE (suDstX%, suDstY%)-(suDstX% + suCpW% - 1, suDstY% + suCpH% - 1), suScl&, suSrc&, (suSrcX%, suSrcY%)-(suSrcX% + suCpW% - 1, suSrcY% + suCpH% - 1)
+                    DIM suCanvW AS INTEGER, suCanvH AS INTEGER
+                    suCanvW% = _WIDTH(suSrc&) : suCanvH% = _HEIGHT(suSrc&)
+                    ' Top-left when scaled image is centered on the selection centre
+                    suDstX% = MARQUEE.BOX.x + (suSelW% - suSelNW%) \ 2
+                    suDstY% = MARQUEE.BOX.y + (suSelH% - suSelNH%) \ 2
+                    suSrcX% = 0 : suSrcY% = 0
+                    suCpW% = suSelNW% : suCpH% = suSelNH%
+                    ' Clip to canvas left / top
+                    IF suDstX% < 0 THEN suSrcX% = -suDstX% : suCpW% = suCpW% - suSrcX% : suDstX% = 0
+                    IF suDstY% < 0 THEN suSrcY% = -suDstY% : suCpH% = suCpH% - suSrcY% : suDstY% = 0
+                    ' Clip to canvas right / bottom
+                    IF suDstX% + suCpW% > suCanvW% THEN suCpW% = suCanvW% - suDstX%
+                    IF suDstY% + suCpH% > suCanvH% THEN suCpH% = suCanvH% - suDstY%
+                    IF suCpW% > 0 AND suCpH% > 0 THEN
+                        _PUTIMAGE (suDstX%, suDstY%)-(suDstX% + suCpW% - 1, suDstY% + suCpH% - 1), suScl&, suSrc&, (suSrcX%, suSrcY%)-(suSrcX% + suCpW% - 1, suSrcY% + suCpH% - 1)
+                    END IF
                     _BLEND suSrc&
                     _DEST oldSuDest&
                     IF suReg& < -1 THEN _FREEIMAGE suReg&
                     IF suScl& < -1 THEN _FREEIMAGE suScl&
+                    ' Update marquee box to the actual drawn region (already canvas-clamped)
+                    MARQUEE.BOX.x = suDstX% : MARQUEE.BOX.y = suDstY%
+                    MARQUEE.BOX.w = suCpW% : MARQUEE.BOX.h = suCpH%
                 ELSE
                     ' Scale entire layer content up by 50% (from original to prevent generation loss)
                     DIM suLW AS LONG, suLH AS LONG
@@ -1573,40 +1587,28 @@ SUB CMD_execute_action (action_id AS INTEGER)
                     NEXT rcSPy%
                     _BLEND rcRot&
                     _SOURCE rcRotOS& : _DEST rcRotOD&
-                    ' Clear selection area and paste rotated content centered
+                    ' Clear selection area; paste rotated content centred on selection centre,
+                    ' clipping only to canvas bounds (not selection bounds)
                     DIM rcD AS LONG : rcD& = _DEST
                     _DEST rcSrc&
                     _DONTBLEND rcSrc&
                     LINE (MARQUEE.BOX.x, MARQUEE.BOX.y)-(MARQUEE.BOX.x + rcSelW% - 1, MARQUEE.BOX.y + rcSelH% - 1), _RGBA32(0, 0, 0, 0), BF
-                    ' Center rotated content (may differ in aspect)
-                    DIM rcCx AS INTEGER, rcCy AS INTEGER
-                    DIM rcCpW AS INTEGER, rcCpH AS INTEGER
-                    rcCpW% = rcSelW% : rcCpH% = rcSelH%
-                    rcCx% = MARQUEE.BOX.x + (rcSelW% - rcSelH%) \ 2
-                    rcCy% = MARQUEE.BOX.y + (rcSelH% - rcSelW%) \ 2
-                    ' Clip source region to fit within selection bounds
+                    DIM rcCanvW AS INTEGER, rcCanvH AS INTEGER
+                    rcCanvW% = _WIDTH(rcSrc&) : rcCanvH% = _HEIGHT(rcSrc&)
+                    ' Rotated image is rcSelH% x rcSelW%; centre it on the selection centre
                     DIM rcSrcX1 AS INTEGER, rcSrcY1 AS INTEGER
                     DIM rcDstX1 AS INTEGER, rcDstY1 AS INTEGER
                     DIM rcDrawW AS INTEGER, rcDrawH AS INTEGER
+                    rcDstX1% = MARQUEE.BOX.x + (rcSelW% - rcSelH%) \ 2
+                    rcDstY1% = MARQUEE.BOX.y + (rcSelH% - rcSelW%) \ 2
                     rcSrcX1% = 0 : rcSrcY1% = 0
-                    rcDstX1% = rcCx% : rcDstY1% = rcCy%
                     rcDrawW% = rcSelH% : rcDrawH% = rcSelW%
-                    IF rcDstX1% < MARQUEE.BOX.x THEN
-                        rcSrcX1% = MARQUEE.BOX.x - rcDstX1%
-                        rcDrawW% = rcDrawW% - rcSrcX1%
-                        rcDstX1% = MARQUEE.BOX.x
-                    END IF
-                    IF rcDstY1% < MARQUEE.BOX.y THEN
-                        rcSrcY1% = MARQUEE.BOX.y - rcDstY1%
-                        rcDrawH% = rcDrawH% - rcSrcY1%
-                        rcDstY1% = MARQUEE.BOX.y
-                    END IF
-                    IF rcDstX1% + rcDrawW% > MARQUEE.BOX.x + rcSelW% THEN
-                        rcDrawW% = MARQUEE.BOX.x + rcSelW% - rcDstX1%
-                    END IF
-                    IF rcDstY1% + rcDrawH% > MARQUEE.BOX.y + rcSelH% THEN
-                        rcDrawH% = MARQUEE.BOX.y + rcSelH% - rcDstY1%
-                    END IF
+                    ' Clip to canvas left / top
+                    IF rcDstX1% < 0 THEN rcSrcX1% = -rcDstX1% : rcDrawW% = rcDrawW% - rcSrcX1% : rcDstX1% = 0
+                    IF rcDstY1% < 0 THEN rcSrcY1% = -rcDstY1% : rcDrawH% = rcDrawH% - rcSrcY1% : rcDstY1% = 0
+                    ' Clip to canvas right / bottom
+                    IF rcDstX1% + rcDrawW% > rcCanvW% THEN rcDrawW% = rcCanvW% - rcDstX1%
+                    IF rcDstY1% + rcDrawH% > rcCanvH% THEN rcDrawH% = rcCanvH% - rcDstY1%
                     IF rcDrawW% > 0 AND rcDrawH% > 0 THEN
                         _PUTIMAGE (rcDstX1%, rcDstY1%)-(rcDstX1% + rcDrawW% - 1, rcDstY1% + rcDrawH% - 1), rcRot&, rcSrc&, (rcSrcX1%, rcSrcY1%)-(rcSrcX1% + rcDrawW% - 1, rcSrcY1% + rcDrawH% - 1)
                     END IF
@@ -1614,6 +1616,19 @@ SUB CMD_execute_action (action_id AS INTEGER)
                     _DEST rcD&
                     IF rcReg& < -1 THEN _FREEIMAGE rcReg&
                     IF rcRot& < -1 THEN _FREEIMAGE rcRot&
+                    ' Update marquee box: swap w/h and recentre on original selection centre,
+                    ' clamped to canvas so the box always matches the rotated pixel content
+                    DIM rcNewBx AS INTEGER, rcNewBy AS INTEGER
+                    DIM rcNewBw AS INTEGER, rcNewBh AS INTEGER
+                    rcNewBx% = MARQUEE.BOX.x + (rcSelW% - rcSelH%) \ 2
+                    rcNewBy% = MARQUEE.BOX.y + (rcSelH% - rcSelW%) \ 2
+                    rcNewBw% = rcSelH% : rcNewBh% = rcSelW%
+                    IF rcNewBx% < 0 THEN rcNewBx% = 0
+                    IF rcNewBy% < 0 THEN rcNewBy% = 0
+                    IF rcNewBx% + rcNewBw% > rcCanvW% THEN rcNewBw% = rcCanvW% - rcNewBx%
+                    IF rcNewBy% + rcNewBh% > rcCanvH% THEN rcNewBh% = rcCanvH% - rcNewBy%
+                    MARQUEE.BOX.x = rcNewBx% : MARQUEE.BOX.y = rcNewBy%
+                    MARQUEE.BOX.w = rcNewBw% : MARQUEE.BOX.h = rcNewBh%
                 ELSE
                     ' Rotate entire layer 90 CW
                     DIM rcLW AS LONG, rcLH AS LONG
@@ -1745,36 +1760,28 @@ SUB CMD_execute_action (action_id AS INTEGER)
                     NEXT rccSPy%
                     _BLEND rccRot&
                     _SOURCE rccRotOS& : _DEST rccRotOD&
-                    ' Clear selection area and paste rotated content centered
+                    ' Clear selection area; paste rotated content centred on selection centre,
+                    ' clipping only to canvas bounds (not selection bounds)
                     DIM rccD AS LONG : rccD& = _DEST
                     _DEST rccSrc&
                     _DONTBLEND rccSrc&
                     LINE (MARQUEE.BOX.x, MARQUEE.BOX.y)-(MARQUEE.BOX.x + rccSelW% - 1, MARQUEE.BOX.y + rccSelH% - 1), _RGBA32(0, 0, 0, 0), BF
-                    DIM rccCx AS INTEGER, rccCy AS INTEGER
-                    rccCx% = MARQUEE.BOX.x + (rccSelW% - rccSelH%) \ 2
-                    rccCy% = MARQUEE.BOX.y + (rccSelH% - rccSelW%) \ 2
+                    DIM rccCanvW AS INTEGER, rccCanvH AS INTEGER
+                    rccCanvW% = _WIDTH(rccSrc&) : rccCanvH% = _HEIGHT(rccSrc&)
+                    ' Rotated image is rccSelH% x rccSelW%; centre it on the selection centre
                     DIM rccSrcX1 AS INTEGER, rccSrcY1 AS INTEGER
                     DIM rccDstX1 AS INTEGER, rccDstY1 AS INTEGER
                     DIM rccDrawW AS INTEGER, rccDrawH AS INTEGER
-                    rccsrcX1% = 0 : rccSrcY1% = 0
-                    rccDstX1% = rccCx% : rccDstY1% = rccCy%
+                    rccDstX1% = MARQUEE.BOX.x + (rccSelW% - rccSelH%) \ 2
+                    rccDstY1% = MARQUEE.BOX.y + (rccSelH% - rccSelW%) \ 2
+                    rccSrcX1% = 0 : rccSrcY1% = 0
                     rccDrawW% = rccSelH% : rccDrawH% = rccSelW%
-                    IF rccDstX1% < MARQUEE.BOX.x THEN
-                        rccSrcX1% = MARQUEE.BOX.x - rccDstX1%
-                        rccDrawW% = rccDrawW% - rccSrcX1%
-                        rccDstX1% = MARQUEE.BOX.x
-                    END IF
-                    IF rccDstY1% < MARQUEE.BOX.y THEN
-                        rccSrcY1% = MARQUEE.BOX.y - rccDstY1%
-                        rccDrawH% = rccDrawH% - rccSrcY1%
-                        rccDstY1% = MARQUEE.BOX.y
-                    END IF
-                    IF rccDstX1% + rccDrawW% > MARQUEE.BOX.x + rccSelW% THEN
-                        rccDrawW% = MARQUEE.BOX.x + rccSelW% - rccDstX1%
-                    END IF
-                    IF rccDstY1% + rccDrawH% > MARQUEE.BOX.y + rccSelH% THEN
-                        rccDrawH% = MARQUEE.BOX.y + rccSelH% - rccDstY1%
-                    END IF
+                    ' Clip to canvas left / top
+                    IF rccDstX1% < 0 THEN rccSrcX1% = -rccDstX1% : rccDrawW% = rccDrawW% - rccSrcX1% : rccDstX1% = 0
+                    IF rccDstY1% < 0 THEN rccSrcY1% = -rccDstY1% : rccDrawH% = rccDrawH% - rccSrcY1% : rccDstY1% = 0
+                    ' Clip to canvas right / bottom
+                    IF rccDstX1% + rccDrawW% > rccCanvW% THEN rccDrawW% = rccCanvW% - rccDstX1%
+                    IF rccDstY1% + rccDrawH% > rccCanvH% THEN rccDrawH% = rccCanvH% - rccDstY1%
                     IF rccDrawW% > 0 AND rccDrawH% > 0 THEN
                         _PUTIMAGE (rccDstX1%, rccDstY1%)-(rccDstX1% + rccDrawW% - 1, rccDstY1% + rccDrawH% - 1), rccRot&, rccSrc&, (rccSrcX1%, rccSrcY1%)-(rccSrcX1% + rccDrawW% - 1, rccSrcY1% + rccDrawH% - 1)
                     END IF
@@ -1782,6 +1789,19 @@ SUB CMD_execute_action (action_id AS INTEGER)
                     _DEST rccD&
                     IF rccReg& < -1 THEN _FREEIMAGE rccReg&
                     IF rccRot& < -1 THEN _FREEIMAGE rccRot&
+                    ' Update marquee box: swap w/h and recentre on original selection centre,
+                    ' clamped to canvas so the box always matches the rotated pixel content
+                    DIM rccNewBx AS INTEGER, rccNewBy AS INTEGER
+                    DIM rccNewBw AS INTEGER, rccNewBh AS INTEGER
+                    rccNewBx% = MARQUEE.BOX.x + (rccSelW% - rccSelH%) \ 2
+                    rccNewBy% = MARQUEE.BOX.y + (rccSelH% - rccSelW%) \ 2
+                    rccNewBw% = rccSelH% : rccNewBh% = rccSelW%
+                    IF rccNewBx% < 0 THEN rccNewBx% = 0
+                    IF rccNewBy% < 0 THEN rccNewBy% = 0
+                    IF rccNewBx% + rccNewBw% > rccCanvW% THEN rccNewBw% = rccCanvW% - rccNewBx%
+                    IF rccNewBy% + rccNewBh% > rccCanvH% THEN rccNewBh% = rccCanvH% - rccNewBy%
+                    MARQUEE.BOX.x = rccNewBx% : MARQUEE.BOX.y = rccNewBy%
+                    MARQUEE.BOX.w = rccNewBw% : MARQUEE.BOX.h = rccNewBh%
                 ELSE
                     ' Rotate entire layer 90 CCW
                     DIM rccLW AS LONG, rccLH AS LONG
