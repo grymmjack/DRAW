@@ -12,9 +12,10 @@ $INCLUDEONCE
 KB.BRUSH$                 = "b"
 KB.BRUSH_CAPTURE$         = "+b"         'SHIFT-B
 KB.DOT$                   = "d"
-KB.ELLIPSE$               = "e"
-KB.ELLIPSE_FILL_SOLID$    = "+e"         'SHIFT-e
-KB.ELLIPSE_FILL_PATTERN$  = "^e"         'CTRL-e
+KB.ERASER$                = "e"          'hold=temp eraser, tap=permanent
+KB.ELLIPSE$               = "c"
+KB.ELLIPSE_FILL_SOLID$    = "+c"         'SHIFT-c
+KB.ELLIPSE_FILL_PATTERN$  = "^c"         'CTRL-c
 KB.FILL$                  = "f"      
 KB.LINE$                  = "l"      
 KB.POLYLINE$              = "p"      

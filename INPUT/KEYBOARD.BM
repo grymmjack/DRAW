@@ -24,6 +24,7 @@ DECLARE SUB KEYBOARD_handle_marquee_keys ()
 DECLARE SUB KEYBOARD_handle_move_keys ()
 DECLARE SUB KEYBOARD_handle_numpad_dithers ()
 DECLARE SUB KEYBOARD_handle_recent_files ()
+DECLARE SUB KEYBOARD_handle_eraser_hold ()
 
 ''
 ' Handles changing colors with keyboard
@@ -41,9 +42,7 @@ SUB KEYBOARD_colors (keypress AS STRING)
         CASE "8": PAINT_OPACITY% = 80: GUI_NEEDS_REDRAW% = TRUE: SCENE_DIRTY% = TRUE
         CASE "9": PAINT_OPACITY% = 90: GUI_NEEDS_REDRAW% = TRUE: SCENE_DIRTY% = TRUE
         CASE "0": PAINT_OPACITY% = 100: GUI_NEEDS_REDRAW% = TRUE: SCENE_DIRTY% = TRUE
-        CASE "*"  ' Eraser tool
-            CMD_execute_action 118
-            SCENE_DIRTY% = TRUE
+        CASE "*"  ' (Eraser was here; now on E key via KEYBOARD_handle_eraser_hold)
         CASE "x", "X"  ' Swap foreground and background colors
             DIM temp_color AS _UNSIGNED LONG
             DIM temp_idx AS INTEGER
@@ -117,9 +116,9 @@ SUB KEYBOARD_tools (keypress AS STRING)
                 CURRENT_TOOL% = TOOL_RECT
             END IF
             TOOLS_reset_all FALSE  ' Reset all tools, preserve marquee selection
-        CASE "e", "E"
+        CASE "c", "C"
             PREVIOUS_TOOL% = CURRENT_TOOL%
-            ' SHIFT+E = filled ellipse, E = outline ellipse
+            ' SHIFT+C = filled ellipse, C = outline ellipse
             IF _KEYDOWN(KEY_LSHIFT&) OR _KEYDOWN(KEY_RSHIFT&) THEN
                 CURRENT_TOOL% = TOOL_ELLIPSE_FILLED
             ELSE
@@ -1884,6 +1883,10 @@ SUB KEYBOARD_input_handler ()
     ' Layer keyboard handling - MUST run first before any EXIT SUB statements
     ' Uses _KEYDOWN() so runs every frame regardless of INKEY$ state
     KEYBOARD_layers
+
+    ' Eraser hold/tap handling - MUST run before EXIT SUBs
+    ' Uses _KEYDOWN() so runs every frame regardless of INKEY$ state
+    KEYBOARD_handle_eraser_hold
     
     ' Handle menu bar keyboard navigation (ALT tap, arrow keys, Enter, Escape)
     IF KEYBOARD_handle_menubar% THEN EXIT SUB
@@ -2288,3 +2291,88 @@ FUNCTION KEYBOARD_handle_refimg_reposition% ()
     
     KEYBOARD_handle_refimg_reposition% = TRUE  ' Consumed
 END FUNCTION
+
+
+''
+' Hold E = temporary eraser (restores previous tool on release)
+' Tap E  = permanently switch to eraser tool
+'
+' Uses _KEYDOWN for physical key state tracking. Must be called every frame
+' before any EXIT SUB statements in KEYBOARD_input_handler.
+'
+SUB KEYBOARD_handle_eraser_hold ()
+    CONST E_KEY_CODE = 101           ' physical 'e' keycode for _KEYDOWN
+    CONST E_HOLD_THRESHOLD = 0.18    ' seconds to distinguish hold vs tap
+
+    STATIC eHeld        AS INTEGER   ' E key is currently down
+    STATIC eTempMode    AS INTEGER   ' currently in temporary eraser mode
+    STATIC ePressTime   AS DOUBLE    ' TIMER value when E was first pressed
+    STATIC ePreTool     AS INTEGER   ' tool to restore when temp mode ends
+
+    ' Skip when modifiers are held (CTRL+E = clear selection, etc.)
+    ' or when text tool is active (E should type text)
+    ' or when command palette is open (E should search)
+    IF MODIFIERS.ctrl% OR MODIFIERS.alt% THEN EXIT SUB
+    IF CURRENT_TOOL% = TOOL_TEXT THEN EXIT SUB
+    IF CMD_PALETTE.visible THEN EXIT SUB
+
+    DIM eIsDown AS INTEGER
+    eIsDown% = _KEYDOWN(E_KEY_CODE)
+
+    IF eIsDown% THEN
+        IF NOT eHeld% THEN
+            ' --- Key just went down ---
+            eHeld% = TRUE
+            eTempMode% = FALSE
+            ePressTime# = TIMER
+            ' Save current tool so we can restore it on release
+            IF CURRENT_TOOL% <> TOOL_ERASER THEN
+                ePreTool% = CURRENT_TOOL%
+            ELSE
+                ePreTool% = PREVIOUS_TOOL%
+            END IF
+        ELSEIF NOT eTempMode% THEN
+            ' --- Key still held, check threshold ---
+            DIM elapsed AS DOUBLE
+            elapsed# = TIMER - ePressTime#
+            IF elapsed# < 0 THEN elapsed# = elapsed# + 86400  ' midnight wrap
+            IF elapsed# >= E_HOLD_THRESHOLD THEN
+                ' Hold detected: engage temporary eraser
+                eTempMode% = TRUE
+                PREVIOUS_TOOL% = ePreTool%
+                CURRENT_TOOL% = TOOL_ERASER
+                TOOLS_reset_all FALSE
+                ERASER_activate
+                GUI_NEEDS_REDRAW% = TRUE
+                SCENE_DIRTY% = TRUE
+                FRAME_IDLE% = FALSE
+            END IF
+        END IF
+    ELSE
+        IF eHeld% THEN
+            ' --- Key just released ---
+            IF eTempMode% THEN
+                ' Was in temporary mode: restore previous tool
+                ERASER_deactivate
+                IF ePreTool% <> TOOL_NULL AND ePreTool% <> TOOL_ERASER THEN
+                    CURRENT_TOOL% = ePreTool%
+                ELSE
+                    CURRENT_TOOL% = TOOL_BRUSH
+                END IF
+                PREVIOUS_TOOL% = TOOL_ERASER
+                TOOLS_reset_all FALSE
+                eTempMode% = FALSE
+            ELSE
+                ' Was a quick tap: permanently switch to eraser
+                IF CURRENT_TOOL% <> TOOL_ERASER THEN
+                    PREVIOUS_TOOL% = ePreTool%
+                END IF
+                CMD_execute_action 118
+            END IF
+            eHeld% = FALSE
+            FRAME_IDLE% = FALSE
+            GUI_NEEDS_REDRAW% = TRUE
+            SCENE_DIRTY% = TRUE
+        END IF
+    END IF
+END SUB
