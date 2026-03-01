@@ -410,9 +410,12 @@ The default snap angle is **45°** (8 directions), configurable in `DRAW.cfg`:
 | Key | Function |
 |-----|----------|
 | `Ctrl+C` | Copy selection to clipboard |
+| `Ctrl+Shift+C` | Copy merged (all visible layers) |
 | `Ctrl+X` | Cut selection (copy + clear original with BG color) |
 | `Ctrl+V` | Paste clipboard at mouse cursor (centered, engages Move tool) |
 | `Ctrl+E` | Clear/erase selection (fill with BG color, or transparent for magic wand) |
+| `Ctrl+Alt+C` | Copy to new layer |
+| `Ctrl+Alt+X` | Cut to new layer |
 
 **Workflow:**
 1. Use Marquee (`M`) or Magic Wand (`W`) to select an area
@@ -490,9 +493,12 @@ When a selection is active (marquee or magic wand), it acts as a **clipping mask
 | Key | Function |
 |-----|----------|
 | `Ctrl+C` | Copy selection to clipboard |
+| `Ctrl+Shift+C` | Copy merged (all visible layers) |
 | `Ctrl+X` | Cut selection (copy + clear with BG color) |
 | `Ctrl+V` | Paste at mouse cursor |
 | `Ctrl+E` | Clear selection (fill with BG color, or transparent for magic wand) |
+| `Ctrl+Alt+C` | Copy to new layer |
+| `Ctrl+Alt+X` | Cut to new layer |
 
 ## Polygon Tool
 
