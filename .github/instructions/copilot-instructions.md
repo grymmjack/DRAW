@@ -10,7 +10,7 @@ applyTo: "**"
 
 **Project**: DRAW is a pixel art editor written in QB64-PE by grymmjack (Rick Christy). Unique feature: exports artwork as QB64 source code. Build with: `qb64pe -w -x -o DRAW.run DRAW.BAS`
 
-**Version**: `APP_VERSION$` constant in `_COMMON.BI` (currently `"0.9.1"`).
+**Version**: `APP_VERSION$` constant in `_COMMON.BI` (currently `"0.9.2"`).
 
 ---
 
@@ -293,13 +293,13 @@ it was modified.
 Stores structural layer operations (add, delete, rename, reorder, merge). Does NOT store
 pixel data changes — those are handled by Pixel Undo.
 
-**Action types**: `WUNDO_TYPE_LAYER_ADD=1`, `DELETE=2`, `RENAME=3`, `REORDER=4`, `MERGE=5`
+**Action types**: `WUNDO_TYPE_LAYER_ADD=1`, `DELETE=2`, `RENAME=3`, `REORDER=4`, `MERGE=5`, `MERGE_VISIBLE=6`
 
 **Guards**: Every save function checks `WORKSPACE_UNDO_READY%` (prevents saves during init)
 and `WORKSPACE_UNDO_IN_PROGRESS%` (prevents undo/redo from creating new states).
 
 **Callers**: All in `GUI/LAYERS.BM` — `LAYERS_new%`, `LAYERS_duplicate`, `LAYERS_delete`,
-`LAYERS_rename`, `LAYERS_move_up`, `LAYERS_move_down`, `LAYERS_merge_down`.
+`LAYERS_rename`, `LAYERS_move_up`, `LAYERS_move_down`, `LAYERS_merge_down`, `LAYERS_merge_visible`.
 
 ### Intelligent CTRL+Z / CTRL+Y Routing
 
@@ -908,8 +908,10 @@ identical to `TOOL_BRUSH`/`TOOL_DOT` in all 6 cursor dispatch points in `POINTER
 
 ### Crop Tool Behavior
 
-Crop uses marquee to define the crop region. On completion (`CROP_apply`), the tool
-switches to `TOOL_NULL` (no active tool), not back to the previous tool.
+Crop uses marquee to define the crop region. `CROP_begin` forces
+`MARQUEE.VARIANT = TOOL_SELECT_RECT` because crop always uses rectangular selection.
+On completion (`CROP_apply`), the tool switches to `TOOL_NULL` (no active tool), not
+back to the previous tool.
 
 Cursor configuration defines 17 cursor types (indices 0–16) with PNG filenames and
 hotspot expressions. Indices 13–16 are per-variant marquee crosshairs

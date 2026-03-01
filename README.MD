@@ -36,7 +36,7 @@ DRAW is a pixel art editor written in QB64PE that can export images as sourcecod
 - **Transform** - Universal flip H/V, rotate 90° CW/CCW, scale ±50% — works on layers, selections, or floating moves from any tool
 - **Pan** - Dedicated canvas panning tool (hand)
 - **Zoom** - Click to zoom in, Alt+click to zoom out, drag to zoom region
-- **Clipboard** - Copy/Cut/Paste selections (Ctrl+C/X/V), Merged copy (Ctrl+Shift+C), Clear selection (Ctrl+E)
+- **Clipboard** - Copy/Cut/Paste selections (Ctrl+C/X/V), Merged copy (Ctrl+Shift+C), Clear selection (Ctrl+E); mask-aware operations for magic wand and non-rectangular selections
 - **Text** - Text entry tool
 - **Eraser** - Dedicated eraser tool that paints transparent; shares brush size preview and custom brush support
 - **Custom Brush** - Capture selection as reusable brush with flip/scale transforms, non-rectangular shapes via alpha channel, dynamic outline expansion
@@ -104,7 +104,7 @@ DRAW is a pixel art editor written in QB64PE that can export images as sourcecod
 - DRW project format: PNG with embedded `drAw` chunk — preserves layers, blend modes, opacity, palette, tool states, grid state, and reference image configuration while remaining viewable in any image viewer
 
 ### User Interface
-- Themeable PNG icon toolbar (21 buttons in 3×7 grid)
+- Themeable PNG icon toolbar (28 buttons in 4×7 grid)
 - PNG cursors with theme-configurable hotspots and alpha transparency
 - Layer panel with PNG icons (visibility, lock, action buttons)
 - **Menu bar** with File, Edit, View, Select, Tools, Brush, Layers, Help menus and full keyboard navigation
@@ -121,7 +121,7 @@ DRAW is a pixel art editor written in QB64PE that can export images as sourcecod
 
 **Tools:** B (Brush), D (Dot/Stamp), F (Fill), I (Picker), K (Spray), L (Line), R (Rectangle), E (Ellipse), Z (Zoom)  
 **Drawing:** Left-click draws with FG color, Right-click draws with BG color (all drawing tools)  
-**Colors:** Left-click palette swatch for FG, Right-click for BG, `*` toggles transparent/eraser mode with color memory; hold ALT for temporary eyedropper  
+**Colors:** Left-click palette swatch for FG, Right-click for BG, `*` activates Eraser tool; hold ALT for temporary eyedropper  
 **Palette:** Click palette name dropdown to switch palettes, SHIFT+wheel for fast scroll  
 **Grid:** `'` (toggle), `Shift+'` (pixel grid), `;` (snap), `Ctrl+'` (cycle mode), `.` (bigger), `,` (smaller)  
 **Brush Size:** `[` (smaller), `]` (bigger), F6 (pixel perfect)  

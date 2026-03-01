@@ -21,8 +21,7 @@
 | `V` | Move | Transform selected region |
 | `Z` | Zoom | Zoom tool (click to zoom in, Alt+click to zoom out) |
 | `T` | Text | Text entry tool |
-| — | Eraser | Erase to transparent (toolbar or command palette only, no keyboard shortcut) |
-| `*` | Transparent Color | Toggle foreground to/from transparent (eraser mode with color memory) |
+| `*` | Eraser | Erase to transparent (dedicated eraser tool) |
 | `?` | Command Palette | Search commands and hotkeys |
 
 ## Paint Opacity
@@ -50,33 +49,23 @@ status bar as `OP:nn%` when below 100%.
 ### Keyboard Shortcuts
 | Key | Action |
 |-----|--------|
-| `*` | **Transparent** (eraser mode toggle — press again to restore previous color) |
 | `X` | Swap foreground and background colors |
 
-### Transparent Color Mode
+### Eraser Tool
 
-Press `*` (asterisk/star) to **toggle** the foreground color to/from transparent. This enables eraser-like functionality with **color memory**:
+Press `*` (asterisk/star) to activate the **Eraser tool**. The eraser paints with full transparency, effectively removing pixels. It uses the current brush shape and size.
 
-- **First press**: Saves your current foreground color, sets FG to transparent
-- **Second press**: Restores your previously saved foreground color
-- This lets you quickly alternate between drawing and erasing without losing your color selection
+- When activated, your current foreground color is saved
+- When switching to another tool, your foreground color is restored
+- Works with all brush sizes and shapes (circle, square, custom brush)
 
 | Tool | Transparent Effect |
 |------|--------------------|
-| **Brush/Dot** | Erases pixels (makes transparent) |
-| **Fill** | Flood-fills area with transparency |
-| **Line** | Draws transparent line (erases) |
-| **Rectangle** | Draws transparent rect (erases) |
-| **Ellipse** | Draws transparent ellipse (erases) |
-| **Polygon** | Draws transparent polygon (erases) |
+| **Eraser** | Erases pixels to transparent using current brush |
 
 **Visual Indicators:**
-- Status bar shows `FG:TRN` when transparent is selected
+- Status bar shows `FG:TRN` when eraser is active
 - FG swatch displays checkerboard pattern (transparency indicator)
-- Tool previews show white outline for visibility (since color is invisible)
-
-### Palette Strip (Bottom Bar)
-| Action | Function |
 |--------|----------|
 | **Left-click swatch** | Select as foreground color |
 | **Right-click swatch** | Select as background color |
