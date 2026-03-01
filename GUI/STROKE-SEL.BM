@@ -1,0 +1,641 @@
+''
+' DRAW - GUI/STROKE-SEL.BM
+' =============================================================================
+' Stroke Selection - modal dialog and algorithmic stroke apply
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+''
+' Show the Stroke Selection dialog.
+'
+' Allows the user to pick stroke color (FG/BG/transparent), type
+' (OUTSIDE/ON/INSIDE), and width, then applies the stroke to the
+' current selection on the active layer.
+'
+' @return INTEGER - TRUE if stroke was applied, FALSE if cancelled
+'
+SUB STROKE_SEL_show_dialog
+    ' --- Defaults ---
+    DIM selColorMode AS INTEGER  ' 0=FG, 1=BG, 2=Transparent
+    DIM selType AS INTEGER       ' 0=OUTSIDE, 1=ON, 2=INSIDE
+    DIM selWidth AS INTEGER
+    DIM selColor AS _UNSIGNED LONG
+
+    selColorMode% = 0
+    selColor~& = PAINT_COLOR~&
+    selType% = STROKE_TYPE_OUTSIDE
+    selWidth% = BRUSH_PIXEL_SIZES(BRUSH_SIZE.CURRENT%)
+    IF selWidth% < 1 THEN selWidth% = 1
+    IF selWidth% > 32 THEN selWidth% = 32
+
+    ' ---- Load font ----
+    DIM fontH AS LONG
+    fontH& = _LOADFONT(THEME_font_path$(THEME.GLOBAL_FONT_FILE$), 8, "DONTBLEND")
+    IF fontH& < 1 THEN fontH& = 16
+
+    ' ---- Dialog size and position ----
+    DIM dlgW AS INTEGER, dlgH AS INTEGER
+    dlgW% = 256
+    dlgH% = 194
+
+    DIM dlgX AS INTEGER, dlgY AS INTEGER
+    dlgX% = (SCRN.w& - dlgW%) \ 2
+    dlgY% = (SCRN.h& - dlgH%) \ 2
+
+    ' ---- Create dialog buffer ----
+    DIM dlgImg AS LONG
+    dlgImg& = _NEWIMAGE(dlgW%, dlgH%, 32)
+
+    ' ---- Hit zone constants ----
+    ' Color chips row    (Y rows 34-60)  — 26px tall, 38px wide
+    DIM chipY1 AS INTEGER, chipY2 AS INTEGER
+    DIM chipX0 AS INTEGER, chipX1 AS INTEGER, chipX2 AS INTEGER, chipW AS INTEGER
+    chipY1% = 34 : chipY2% = 60
+    chipX0% = 10 : chipX1% = 56 : chipX2% = 102 : chipW% = 38
+
+    ' Type buttons row  (Y rows 88-112) — 24px tall, 3 equal buttons
+    DIM tBtnY1 AS INTEGER, tBtnY2 AS INTEGER, tBtnW AS INTEGER
+    DIM tBtnX0 AS INTEGER, tBtnX1 AS INTEGER, tBtnX2 AS INTEGER
+    tBtnY1% = 88 : tBtnY2% = 112 : tBtnW% = 76
+    tBtnX0% = 8  : tBtnX1% = 92  : tBtnX2% = 176
+
+    ' Width control row (Y rows 132-150) — 18px tall
+    DIM wBtnY AS INTEGER, wBtnH AS INTEGER, wBtnW AS INTEGER
+    DIM wMinX AS INTEGER, wValX AS INTEGER, wValW AS INTEGER, wPlusX AS INTEGER
+    wBtnY% = 132 : wBtnH% = 18 : wBtnW% = 24
+    wMinX% = 8   : wValX% = 40 : wValW% = 96 : wPlusX% = 144
+
+    ' OK / Cancel button row (Y rows 166-186)
+    DIM okX AS INTEGER, okY AS INTEGER, okW AS INTEGER, okH AS INTEGER
+    DIM cxBtn AS INTEGER, cyBtn AS INTEGER, cwBtn AS INTEGER, chBtn AS INTEGER
+    okX% = 14  : okY% = 166 : okW% = 100 : okH% = 20
+    cxBtn% = 142 : cyBtn% = 166 : cwBtn% = 100 : chBtn% = 20
+
+    ' ---- Input state ----
+    DIM mx AS INTEGER, my AS INTEGER, mb1 AS INTEGER
+    DIM omx AS INTEGER, omy AS INTEGER, omb1 AS INTEGER
+    DIM justClicked AS INTEGER
+    DIM done AS INTEGER, result AS INTEGER
+    done% = FALSE : result% = FALSE
+
+    ' ---- Draw-loop working variables (hoisted to avoid Duplicate Definition) ----
+    DIM k AS LONG
+    DIM titleS AS STRING
+    DIM ccx AS INTEGER, ccy AS INTEGER
+    DIM ccol AS _UNSIGNED LONG
+    DIM chipBorder AS _UNSIGNED LONG
+    DIM tLabels(2) AS STRING
+    DIM tXs(2) AS INTEGER
+    DIM ti AS INTEGER
+    DIM tBg AS _UNSIGNED LONG, tFg AS _UNSIGNED LONG, tBorder AS _UNSIGNED LONG
+    DIM tLbl AS STRING
+    DIM mBtnBg AS _UNSIGNED LONG
+    DIM wStr AS STRING
+    DIM pBtnBg AS _UNSIGNED LONG
+    DIM okBg AS _UNSIGNED LONG, cBg AS _UNSIGNED LONG
+    DIM sw AS INTEGER
+
+    _MOUSESHOW
+
+    DO
+        ' ---- Input poll ----
+        omx% = mx% : omy% = my% : omb1% = mb1%
+        DO WHILE _MOUSEINPUT
+            sw% = _MOUSEWHEEL
+            IF sw% > 0 THEN
+                selWidth% = selWidth% + sw%
+                IF selWidth% > 32 THEN selWidth% = 32
+            ELSEIF sw% < 0 THEN
+                selWidth% = selWidth% + sw%
+                IF selWidth% < 1 THEN selWidth% = 1
+            END IF
+        LOOP
+        mx% = _MOUSEX - dlgX%
+        my% = _MOUSEY - dlgY%
+        mb1% = _MOUSEBUTTON(1)
+        justClicked% = mb1% AND (NOT omb1%)
+
+        ' ---- Keyboard ----
+        k& = _KEYHIT
+        SELECT CASE k&
+            CASE 13 : done% = TRUE : result% = TRUE      ' Enter = OK
+            CASE 27 : done% = TRUE : result% = FALSE     ' Escape = Cancel
+            CASE 43, 61                                  ' + / =  inc width
+                selWidth% = selWidth% + 1
+                IF selWidth% > 32 THEN selWidth% = 32
+            CASE 45                                      ' -  dec width
+                selWidth% = selWidth% - 1
+                IF selWidth% < 1 THEN selWidth% = 1
+        END SELECT
+
+        ' ---- Mouse click dispatch ----
+        IF justClicked% THEN
+            ' Color chips
+            IF my% >= chipY1% AND my% <= chipY2% THEN
+                IF mx% >= chipX0% AND mx% <= chipX0% + chipW% THEN
+                    selColorMode% = 0 : selColor~& = PAINT_COLOR~&
+                ELSEIF mx% >= chipX1% AND mx% <= chipX1% + chipW% THEN
+                    selColorMode% = 1 : selColor~& = PAINT_BG_COLOR~&
+                ELSEIF mx% >= chipX2% AND mx% <= chipX2% + chipW% THEN
+                    selColorMode% = 2 : selColor~& = _RGBA32(0, 0, 0, 0)
+                END IF
+            END IF
+            ' Type buttons
+            IF my% >= tBtnY1% AND my% <= tBtnY2% THEN
+                IF mx% >= tBtnX0% AND mx% <= tBtnX0% + tBtnW% THEN
+                    selType% = STROKE_TYPE_OUTSIDE
+                ELSEIF mx% >= tBtnX1% AND mx% <= tBtnX1% + tBtnW% THEN
+                    selType% = STROKE_TYPE_ON
+                ELSEIF mx% >= tBtnX2% AND mx% <= tBtnX2% + tBtnW% THEN
+                    selType% = STROKE_TYPE_INSIDE
+                END IF
+            END IF
+            ' Width -/+
+            IF my% >= wBtnY% AND my% <= wBtnY% + wBtnH% THEN
+                IF mx% >= wMinX% AND mx% <= wMinX% + wBtnW% THEN
+                    selWidth% = selWidth% - 1
+                    IF selWidth% < 1 THEN selWidth% = 1
+                END IF
+                IF mx% >= wPlusX% AND mx% <= wPlusX% + wBtnW% THEN
+                    selWidth% = selWidth% + 1
+                    IF selWidth% > 32 THEN selWidth% = 32
+                END IF
+            END IF
+            ' OK / Cancel
+            IF my% >= okY% AND my% <= okY% + okH% AND mx% >= okX% AND mx% <= okX% + okW% THEN
+                done% = TRUE : result% = TRUE
+            END IF
+            IF my% >= cyBtn% AND my% <= cyBtn% + chBtn% AND mx% >= cxBtn% AND mx% <= cxBtn% + cwBtn% THEN
+                done% = TRUE : result% = FALSE
+            END IF
+        END IF
+
+        ' ---- Draw dialog ----
+        _DEST dlgImg&
+        _PRINTMODE _KEEPBACKGROUND
+        CLS , _RGB32(72, 72, 72)
+        LINE (0, 0)-(dlgW% - 1, dlgH% - 1), _RGB32(160, 160, 160), B
+        LINE (1, 1)-(dlgW% - 2, dlgH% - 2), _RGB32(48, 48, 48), B
+
+        ' Title bar
+        LINE (1, 1)-(dlgW% - 2, 17), _RGB32(40, 40, 40), BF
+        _FONT fontH&
+        COLOR _RGB32(255, 255, 255)
+        titleS$ = "STROKE SELECTION"
+        _PRINTSTRING ((dlgW% - _PRINTWIDTH(titleS$)) \ 2, 5), titleS$
+        LINE (1, 18)-(dlgW% - 2, 18), _RGB32(48, 48, 48)
+
+        ' === COLOR SECTION ===
+        COLOR _RGB32(200, 200, 200)
+        _PRINTSTRING (10, 22), "COLOR:"
+
+        ' Transparent chip : checkerboard pattern
+        FOR ccy% = chipY1% TO chipY2%
+            FOR ccx% = chipX2% TO chipX2% + chipW%
+                IF ((ccx% \ 4) + (ccy% \ 4)) MOD 2 = 0 THEN
+                    ccol~& = _RGB32(200, 200, 200)
+                ELSE
+                    ccol~& = _RGB32(100, 100, 100)
+                END IF
+                PSET (ccx%, ccy%), ccol~&
+            NEXT ccx%
+        NEXT ccy%
+
+        ' FG and BG chips
+        LINE (chipX0%, chipY1%)-(chipX0% + chipW%, chipY2%), PAINT_COLOR~&, BF
+        LINE (chipX1%, chipY1%)-(chipX1% + chipW%, chipY2%), PAINT_BG_COLOR~&, BF
+
+        ' Chip borders (yellow = selected, gray = unselected)
+        IF selColorMode% = 0 THEN
+            chipBorder~& = _RGB32(255, 220, 0)
+        ELSE
+            chipBorder~& = _RGB32(100, 100, 100)
+        END IF
+        LINE (chipX0%, chipY1%)-(chipX0% + chipW%, chipY2%), chipBorder~&, B
+
+        IF selColorMode% = 1 THEN
+            chipBorder~& = _RGB32(255, 220, 0)
+        ELSE
+            chipBorder~& = _RGB32(100, 100, 100)
+        END IF
+        LINE (chipX1%, chipY1%)-(chipX1% + chipW%, chipY2%), chipBorder~&, B
+
+        IF selColorMode% = 2 THEN
+            chipBorder~& = _RGB32(255, 220, 0)
+        ELSE
+            chipBorder~& = _RGB32(100, 100, 100)
+        END IF
+        LINE (chipX2%, chipY1%)-(chipX2% + chipW%, chipY2%), chipBorder~&, B
+
+        ' Chip labels
+        COLOR _RGB32(180, 180, 180)
+        _PRINTSTRING (chipX0% + (chipW% - _PRINTWIDTH("FG")) \ 2, chipY2% + 4), "FG"
+        _PRINTSTRING (chipX1% + (chipW% - _PRINTWIDTH("BG")) \ 2, chipY2% + 4), "BG"
+        _PRINTSTRING (chipX2% + (chipW% - _PRINTWIDTH("TRANS")) \ 2, chipY2% + 4), "TRANS"
+
+        LINE (1, 74)-(dlgW% - 2, 74), _RGB32(48, 48, 48)
+
+        ' === TYPE SECTION ===
+        COLOR _RGB32(200, 200, 200)
+        _PRINTSTRING (10, 78), "TYPE:"
+
+        tLabels$(0) = "OUTSIDE" : tLabels$(1) = " ON " : tLabels$(2) = "INSIDE"
+        tXs%(0) = tBtnX0% : tXs%(1) = tBtnX1% : tXs%(2) = tBtnX2%
+        FOR ti% = 0 TO 2
+            IF selType% = ti% THEN
+                tBg~& = _RGB32(40, 80, 160)
+                tFg~& = _RGB32(255, 255, 255)
+                tBorder~& = _RGB32(100, 160, 255)
+            ELSE
+                tBg~& = _RGB32(55, 55, 55)
+                tFg~& = _RGB32(170, 170, 170)
+                tBorder~& = _RGB32(90, 90, 90)
+            END IF
+            LINE (tXs%(ti%), tBtnY1%)-(tXs%(ti%) + tBtnW%, tBtnY2%), tBg~&, BF
+            LINE (tXs%(ti%), tBtnY1%)-(tXs%(ti%) + tBtnW%, tBtnY2%), tBorder~&, B
+            COLOR tFg~&
+            tLbl$ = tLabels$(ti%)
+            _PRINTSTRING (tXs%(ti%) + (tBtnW% - _PRINTWIDTH(tLbl$)) \ 2, tBtnY1% + 7), tLbl$
+        NEXT ti%
+
+        LINE (1, 118)-(dlgW% - 2, 118), _RGB32(48, 48, 48)
+
+        ' === WIDTH SECTION ===
+        COLOR _RGB32(200, 200, 200)
+        _PRINTSTRING (10, 122), "WIDTH:"
+
+        ' Minus button
+        IF mx% >= wMinX% AND mx% <= wMinX% + wBtnW% AND my% >= wBtnY% AND my% <= wBtnY% + wBtnH% THEN
+            mBtnBg~& = _RGB32(90, 90, 90)
+        ELSE
+            mBtnBg~& = _RGB32(55, 55, 55)
+        END IF
+        LINE (wMinX%, wBtnY%)-(wMinX% + wBtnW%, wBtnY% + wBtnH%), mBtnBg~&, BF
+        LINE (wMinX%, wBtnY%)-(wMinX% + wBtnW%, wBtnY% + wBtnH%), _RGB32(110, 110, 110), B
+        COLOR _RGB32(255, 255, 255)
+        _PRINTSTRING (wMinX% + (wBtnW% - _PRINTWIDTH("-")) \ 2, wBtnY% + 4), "-"
+
+        ' Value display
+        LINE (wValX%, wBtnY%)-(wValX% + wValW%, wBtnY% + wBtnH%), _RGB32(38, 38, 38), BF
+        LINE (wValX%, wBtnY%)-(wValX% + wValW%, wBtnY% + wBtnH%), _RGB32(110, 110, 110), B
+        wStr$ = _TRIM$(STR$(selWidth%)) + " px"
+        COLOR _RGB32(255, 255, 255)
+        _PRINTSTRING (wValX% + (wValW% - _PRINTWIDTH(wStr$)) \ 2, wBtnY% + 4), wStr$
+
+        ' Plus button
+        IF mx% >= wPlusX% AND mx% <= wPlusX% + wBtnW% AND my% >= wBtnY% AND my% <= wBtnY% + wBtnH% THEN
+            pBtnBg~& = _RGB32(90, 90, 90)
+        ELSE
+            pBtnBg~& = _RGB32(55, 55, 55)
+        END IF
+        LINE (wPlusX%, wBtnY%)-(wPlusX% + wBtnW%, wBtnY% + wBtnH%), pBtnBg~&, BF
+        LINE (wPlusX%, wBtnY%)-(wPlusX% + wBtnW%, wBtnY% + wBtnH%), _RGB32(110, 110, 110), B
+        COLOR _RGB32(255, 255, 255)
+        _PRINTSTRING (wPlusX% + (wBtnW% - _PRINTWIDTH("+")) \ 2, wBtnY% + 4), "+"
+
+        LINE (1, 158)-(dlgW% - 2, 158), _RGB32(48, 48, 48)
+
+        ' === OK / CANCEL ===
+        IF mx% >= okX% AND mx% <= okX% + okW% AND my% >= okY% AND my% <= okY% + okH% THEN
+            okBg~& = _RGB32(60, 150, 60)
+        ELSE
+            okBg~& = _RGB32(40, 100, 40)
+        END IF
+        IF mx% >= cxBtn% AND mx% <= cxBtn% + cwBtn% AND my% >= cyBtn% AND my% <= cyBtn% + chBtn% THEN
+            cBg~& = _RGB32(150, 60, 60)
+        ELSE
+            cBg~& = _RGB32(100, 40, 40)
+        END IF
+
+        LINE (okX%, okY%)-(okX% + okW%, okY% + okH%), okBg~&, BF
+        LINE (okX%, okY%)-(okX% + okW%, okY% + okH%), _RGB32(80, 200, 80), B
+        LINE (cxBtn%, cyBtn%)-(cxBtn% + cwBtn%, cyBtn% + chBtn%), cBg~&, BF
+        LINE (cxBtn%, cyBtn%)-(cxBtn% + cwBtn%, cyBtn% + chBtn%), _RGB32(200, 80, 80), B
+
+        COLOR _RGB32(255, 255, 255)
+        _PRINTSTRING (okX% + (okW% - _PRINTWIDTH("OK")) \ 2, okY% + 5), "OK"
+        _PRINTSTRING (cxBtn% + (cwBtn% - _PRINTWIDTH("CANCEL")) \ 2, cyBtn% + 5), "CANCEL"
+
+        ' ---- Blit to screen ----
+        _DEST 0
+        _PUTIMAGE (dlgX%, dlgY%)-(dlgX% + dlgW% - 1, dlgY% + dlgH% - 1), dlgImg&
+        _DISPLAY
+        _LIMIT 60
+    LOOP UNTIL done%
+
+    IF fontH& > 16 THEN
+        _DEST dlgImg&
+        _FONT 16
+        _DEST 0
+        _FONT 16
+        _FREEFONT fontH&
+    END IF
+    _FREEIMAGE dlgImg&
+
+    IF result% THEN
+        ' Refresh live color references in case they changed
+        IF selColorMode% = 0 THEN selColor~& = PAINT_COLOR~&
+        IF selColorMode% = 1 THEN selColor~& = PAINT_BG_COLOR~&
+        STROKE_SEL_apply selColor~&, selType%, selWidth%
+    END IF
+
+END SUB
+
+''
+' Apply a stroke to the current selection on the active layer.
+'
+' For mask selections (wand/free/ellipse/poly), uses boundary-stamp algorithm.
+' For box selections, draws rings via LINE BF.
+'
+' @param _UNSIGNED LONG strokeColor - Color to paint (transparent = erase)
+' @param INTEGER strokeType         - STROKE_TYPE_OUTSIDE/ON/INSIDE
+' @param INTEGER strokeWidth        - Stroke width in pixels (1-32)
+'
+SUB STROKE_SEL_apply (strokeColor AS _UNSIGNED LONG, strokeType AS INTEGER, strokeWidth AS INTEGER)
+    IF NOT MARQUEE.ACTIVE THEN EXIT SUB
+    IF NOT MARQUEE.USER_CREATED THEN EXIT SUB
+    IF CURRENT_LAYER% < 1 THEN EXIT SUB
+
+    ' Save undo before canvas modification
+    IF NOT UNDO_saved_this_frame% THEN
+        UNDO_save_state
+        UNDO_saved_this_frame% = TRUE
+    END IF
+
+    DIM oldDest AS LONG
+    oldDest& = _DEST
+    _DEST LAYERS(CURRENT_LAYER%).imgHandle&
+
+    DIM canvW AS INTEGER, canvH AS INTEGER
+    canvW% = _WIDTH(LAYERS(CURRENT_LAYER%).imgHandle&)
+    canvH% = _HEIGHT(LAYERS(CURRENT_LAYER%).imgHandle&)
+
+    IF MARQUEE.WAND_HAS_SELECTION AND MARQUEE.SELECTION_MASK < -1 THEN
+        ' =====================================================================
+        ' MASK-BASED STROKE
+        ' Boundary-stamp algorithm:
+        '   1. Find all boundary pixels (selected pixels touching unselected).
+        '   2. For each boundary pixel, stamp a radius around it.
+        '   3. Filter stamped pixels by strokeType zone.
+        ' =====================================================================
+
+        DIM bMinX AS INTEGER, bMinY AS INTEGER, bMaxX AS INTEGER, bMaxY AS INTEGER
+        bMinX% = MARQUEE.WAND_MIN_X
+        bMinY% = MARQUEE.WAND_MIN_Y
+        bMaxX% = MARQUEE.WAND_MAX_X
+        bMaxY% = MARQUEE.WAND_MAX_Y
+        IF bMinX% < 0 THEN bMinX% = 0
+        IF bMinY% < 0 THEN bMinY% = 0
+        IF bMaxX% > canvW% - 1 THEN bMaxX% = canvW% - 1
+        IF bMaxY% > canvH% - 1 THEN bMaxY% = canvH% - 1
+
+        ' For OUTSIDE/ON, pixels may be painted outside the wand bounding box
+        DIM srchMinX AS INTEGER, srchMinY AS INTEGER
+        DIM srchMaxX AS INTEGER, srchMaxY AS INTEGER
+        srchMinX% = bMinX% - strokeWidth%
+        srchMinY% = bMinY% - strokeWidth%
+        srchMaxX% = bMaxX% + strokeWidth%
+        srchMaxY% = bMaxY% + strokeWidth%
+        IF srchMinX% < 0 THEN srchMinX% = 0
+        IF srchMinY% < 0 THEN srchMinY% = 0
+        IF srchMaxX% > canvW% - 1 THEN srchMaxX% = canvW% - 1
+        IF srchMaxY% > canvH% - 1 THEN srchMaxY% = canvH% - 1
+
+        DIM maskWhite AS _UNSIGNED LONG
+        maskWhite~& = _RGB32(255, 255, 255)
+        DIM strokeMark AS _UNSIGNED LONG
+        strokeMark~& = _RGB32(255, 0, 255)  ' Distinct marker color for stroke temp image
+
+        ' Temporary image to accumulate stroke pixels
+        DIM strokeImg AS LONG
+        strokeImg& = _NEWIMAGE(canvW%, canvH%, 32)
+
+        DIM oldSrc AS LONG
+        oldSrc& = _SOURCE
+
+        DIM bx AS INTEGER, by AS INTEGER
+        DIM isSel AS INTEGER, isBound AS INTEGER
+        DIM dx AS INTEGER, dy AS INTEGER
+        DIM px AS INTEGER, py AS INTEGER
+        DIM nIsSel AS INTEGER
+        DIM stampR AS INTEGER
+
+        IF strokeType% = STROKE_TYPE_ON THEN
+            stampR% = (strokeWidth% + 1) \ 2
+        ELSE
+            stampR% = strokeWidth%
+        END IF
+
+        DIM distSq AS LONG
+        DIM rSq AS LONG
+        rSq& = CLng(stampR%) * CLng(stampR%)
+
+        FOR by% = bMinY% TO bMaxY%
+            FOR bx% = bMinX% TO bMaxX%
+                _SOURCE MARQUEE.SELECTION_MASK
+                isSel% = (POINT(bx%, by%) = maskWhite~&)
+                IF isSel% THEN
+                    ' Check if boundary pixel (has at least one unselected 4-neighbour)
+                    isBound% = FALSE
+                    IF bx% > 0 THEN
+                        IF POINT(bx% - 1, by%) <> maskWhite~& THEN isBound% = TRUE
+                    ELSE
+                        isBound% = TRUE  ' Edge of canvas = boundary
+                    END IF
+                    IF NOT isBound% THEN
+                        IF bx% < canvW% - 1 THEN
+                            IF POINT(bx% + 1, by%) <> maskWhite~& THEN isBound% = TRUE
+                        ELSE
+                            isBound% = TRUE
+                        END IF
+                    END IF
+                    IF NOT isBound% THEN
+                        IF by% > 0 THEN
+                            IF POINT(bx%, by% - 1) <> maskWhite~& THEN isBound% = TRUE
+                        ELSE
+                            isBound% = TRUE
+                        END IF
+                    END IF
+                    IF NOT isBound% THEN
+                        IF by% < canvH% - 1 THEN
+                            IF POINT(bx%, by% + 1) <> maskWhite~& THEN isBound% = TRUE
+                        ELSE
+                            isBound% = TRUE
+                        END IF
+                    END IF
+
+                    IF isBound% THEN
+                        ' Stamp radius around this boundary pixel
+                        FOR dy% = -stampR% TO stampR%
+                            py% = by% + dy%
+                            IF py% >= 0 AND py% < canvH% THEN
+                                FOR dx% = -stampR% TO stampR%
+                                    px% = bx% + dx%
+                                    IF px% >= 0 AND px% < canvW% THEN
+                                        distSq& = CLng(dx%) * CLng(dx%) + CLng(dy%) * CLng(dy%)
+                                        IF distSq& <= rSq& THEN
+                                            _SOURCE MARQUEE.SELECTION_MASK
+                                            nIsSel% = (POINT(px%, py%) = maskWhite~&)
+                                            _DEST strokeImg&
+                                            IF strokeType% = STROKE_TYPE_OUTSIDE THEN
+                                                IF NOT nIsSel% THEN PSET (px%, py%), strokeMark~&
+                                            ELSEIF strokeType% = STROKE_TYPE_ON THEN
+                                                PSET (px%, py%), strokeMark~&
+                                            ELSE
+                                                ' STROKE_TYPE_INSIDE
+                                                IF nIsSel% THEN PSET (px%, py%), strokeMark~&
+                                            END IF
+                                        END IF
+                                    END IF
+                                NEXT dx%
+                            END IF
+                        NEXT dy%
+                    END IF
+                END IF
+            NEXT bx%
+        NEXT by%
+
+        ' Apply marked pixels to the layer
+        _SOURCE strokeImg&
+        _DEST LAYERS(CURRENT_LAYER%).imgHandle&
+        DIM spx AS INTEGER, spy AS INTEGER
+        FOR spy% = srchMinY% TO srchMaxY%
+            FOR spx% = srchMinX% TO srchMaxX%
+                IF POINT(spx%, spy%) = strokeMark~& THEN
+                    PSET (spx%, spy%), strokeColor~&
+                END IF
+            NEXT spx%
+        NEXT spy%
+
+        _SOURCE oldSrc&
+        IF strokeImg& < -1 THEN _FREEIMAGE strokeImg&
+
+    ELSEIF MARQUEE.INITIALIZED AND MARQUEE.ACTIVE AND MARQUEE.USER_CREATED THEN
+        ' =====================================================================
+        ' BOX-BASED STROKE
+        ' Draws the appropriate ring around the selection rectangle.
+        ' =====================================================================
+
+        DIM bx1 AS INTEGER, by1 AS INTEGER, bx2 AS INTEGER, by2 AS INTEGER
+        bx1% = MARQUEE.BOX.x
+        by1% = MARQUEE.BOX.y
+        bx2% = MARQUEE.BOX.x + MARQUEE.BOX.w - 1
+        by2% = MARQUEE.BOX.y + MARQUEE.BOX.h - 1
+
+        DIM ox1 AS INTEGER, oy1 AS INTEGER, ox2 AS INTEGER, oy2 AS INTEGER
+        DIM ix1 AS INTEGER, iy1 AS INTEGER, ix2 AS INTEGER, iy2 AS INTEGER
+
+        SELECT CASE strokeType%
+            CASE STROKE_TYPE_OUTSIDE
+                ox1% = bx1% - strokeWidth%
+                oy1% = by1% - strokeWidth%
+                ox2% = bx2% + strokeWidth%
+                oy2% = by2% + strokeWidth%
+                IF ox1% < 0 THEN ox1% = 0
+                IF oy1% < 0 THEN oy1% = 0
+                IF ox2% > canvW% - 1 THEN ox2% = canvW% - 1
+                IF oy2% > canvH% - 1 THEN oy2% = canvH% - 1
+                ' Top strip
+                IF oy1% <= by1% - 1 THEN
+                    LINE (ox1%, oy1%)-(ox2%, by1% - 1), strokeColor~&, BF
+                END IF
+                ' Bottom strip
+                IF oy2% >= by2% + 1 THEN
+                    LINE (ox1%, by2% + 1)-(ox2%, oy2%), strokeColor~&, BF
+                END IF
+                ' Left strip (between top/bottom)
+                IF ox1% <= bx1% - 1 THEN
+                    LINE (ox1%, by1%)-(bx1% - 1, by2%), strokeColor~&, BF
+                END IF
+                ' Right strip
+                IF ox2% >= bx2% + 1 THEN
+                    LINE (bx2% + 1, by1%)-(ox2%, by2%), strokeColor~&, BF
+                END IF
+
+            CASE STROKE_TYPE_ON
+                DIM outerOff AS INTEGER, innerOff AS INTEGER
+                outerOff% = strokeWidth% \ 2
+                innerOff% = (strokeWidth% + 1) \ 2
+                ox1% = bx1% - outerOff%
+                oy1% = by1% - outerOff%
+                ox2% = bx2% + outerOff%
+                oy2% = by2% + outerOff%
+                ix1% = bx1% + innerOff%
+                iy1% = by1% + innerOff%
+                ix2% = bx2% - innerOff%
+                iy2% = by2% - innerOff%
+                IF ox1% < 0 THEN ox1% = 0
+                IF oy1% < 0 THEN oy1% = 0
+                IF ox2% > canvW% - 1 THEN ox2% = canvW% - 1
+                IF oy2% > canvH% - 1 THEN oy2% = canvH% - 1
+                IF ix1% > canvW% - 1 THEN ix1% = canvW% - 1
+                IF iy1% > canvH% - 1 THEN iy1% = canvH% - 1
+                IF ix2% < 0 THEN ix2% = 0
+                IF iy2% < 0 THEN iy2% = 0
+
+                IF ix1% < ix2% AND iy1% < iy2% THEN
+                    ' Top strip
+                    IF oy1% <= iy1% - 1 THEN
+                        LINE (ox1%, oy1%)-(ox2%, iy1% - 1), strokeColor~&, BF
+                    END IF
+                    ' Bottom strip
+                    IF oy2% >= iy2% + 1 THEN
+                        LINE (ox1%, iy2% + 1)-(ox2%, oy2%), strokeColor~&, BF
+                    END IF
+                    ' Left strip
+                    IF ox1% <= ix1% - 1 THEN
+                        LINE (ox1%, iy1%)-(ix1% - 1, iy2%), strokeColor~&, BF
+                    END IF
+                    ' Right strip
+                    IF ox2% >= ix2% + 1 THEN
+                        LINE (ix2% + 1, iy1%)-(ox2%, iy2%), strokeColor~&, BF
+                    END IF
+                ELSE
+                    ' Selection too small for ring: fill the full outer box
+                    LINE (ox1%, oy1%)-(ox2%, oy2%), strokeColor~&, BF
+                END IF
+
+            CASE STROKE_TYPE_INSIDE
+                DIM iMidX AS INTEGER, iMidY AS INTEGER
+                iMidX% = (bx1% + bx2%) \ 2
+                iMidY% = (by1% + by2%) \ 2
+                ix1% = bx1% + strokeWidth%
+                iy1% = by1% + strokeWidth%
+                ix2% = bx2% - strokeWidth%
+                iy2% = by2% - strokeWidth%
+                IF ix1% > iMidX% THEN ix1% = iMidX%
+                IF iy1% > iMidY% THEN iy1% = iMidY%
+                IF ix2% < iMidX% THEN ix2% = iMidX%
+                IF iy2% < iMidY% THEN iy2% = iMidY%
+
+                ' Top strip
+                IF by1% <= iy1% - 1 AND bx1% <= bx2% THEN
+                    LINE (bx1%, by1%)-(bx2%, iy1% - 1), strokeColor~&, BF
+                END IF
+                ' Bottom strip
+                IF iy2% + 1 <= by2% AND bx1% <= bx2% THEN
+                    LINE (bx1%, iy2% + 1)-(bx2%, by2%), strokeColor~&, BF
+                END IF
+                ' Left strip
+                IF bx1% <= ix1% - 1 AND iy1% <= iy2% THEN
+                    LINE (bx1%, iy1%)-(ix1% - 1, iy2%), strokeColor~&, BF
+                END IF
+                ' Right strip
+                IF ix2% + 1 <= bx2% AND iy1% <= iy2% THEN
+                    LINE (ix2% + 1, iy1%)-(bx2%, iy2%), strokeColor~&, BF
+                END IF
+
+        END SELECT
+    END IF
+
+    _DEST oldDest&
+
+    LAYERS(CURRENT_LAYER%).contentDirty% = TRUE
+    BLEND_invalidate_cache
+    CANVAS_DIRTY% = TRUE
+    SCENE_DIRTY% = TRUE
+    GUI_NEEDS_REDRAW% = TRUE
+    FRAME_IDLE% = FALSE
+END SUB
