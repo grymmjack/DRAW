@@ -315,8 +315,9 @@ Brush size and shape affect all drawing tools: Brush, Dot, Line, Rectangle, Elli
 
 | Key | Function |
 |-----|----------|
-| `Delete` | Clear canvas (with confirmation prompt) |
-| `Backspace` | Clear canvas (no prompt) |
+| `Delete` | Edit > Clear (clears selection, or whole layer if none) |
+| `Backspace` | Fill with foreground color |
+| `Shift+Backspace` | Fill with background color |
 
 ## View Controls
 
