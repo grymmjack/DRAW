@@ -10,7 +10,7 @@ applyTo: "**"
 
 **Project**: DRAW is a pixel art editor written in QB64-PE by grymmjack (Rick Christy). Unique feature: exports artwork as QB64 source code. Build with: `qb64pe -w -x -o DRAW.run DRAW.BAS`
 
-**Version**: `APP_VERSION$` constant in `_COMMON.BI` (currently `"0.9.2"`).
+**Version**: `APP_VERSION$` constant in `_COMMON.BI` (currently `"0.10.0"`).
 
 ---
 
@@ -28,7 +28,7 @@ applyTo: "**"
 1. `_COMMON.BI` — core types and globals
 2. **CORE**: PERF, ERROR, IMAGE
 3. **CFG**: CONFIG, CONFIG-THEME, CONFIG-KEYBOARD, CONFIG-MOUSE, CONFIG-STICK, BINDINGS-*
-4. **GUI**: PALETTE, PALETTE-LOADER, PALETTE-STRIP, GUI, BRUSHES, CROSSHAIR, GRID, HELP, LAYERS, PALETTE-PICKER, PICKER, CURSOR, POINTER, STATUS, TOOLBAR, ORGANIZER, TRANSPARENCY, COMMAND, MENUBAR
+4. **GUI**: PALETTE, PALETTE-LOADER, PALETTE-STRIP, GUI, BRUSHES, CROSSHAIR, GRID, HELP, LAYERS, PALETTE-PICKER, PICKER, CURSOR, POINTER, STATUS, TOOLBAR, ORGANIZER, TRANSPARENCY, COMMAND, MENUBAR, STROKE-SEL
 5. **INPUT**: MODIFIERS, KEYBOARD, MOUSE, STICK, FILE-BMP, FILE-BLOAD, FILE-PAL, API-LOSPEC
 6. **OUTPUT**: SCREEN, FILE-BAS, FILE-BMP, FILE-BSAVE
 7. **QB64_GJ_LIB**: BBX, DICT, STRINGS, VECT2D
@@ -469,7 +469,8 @@ Menu items, keyboard shortcuts, command palette, and toolbar clicks all funnel t
 |-------|----------|-------------|
 | 101-118 | Tools | Brush, Dot, Fill, Picker, Line, Polygon, Rect, Ellipse, Marquee, Move, Text, MagicWand, Eraser |
 | 201-213 | File | Open, Save, SaveAs, Export, ExportSelection, Import, New, Template, Revert, Recent, Exit |
-| 301-323 | Edit | Undo, Redo, Copy, Cut, Paste, Clear, Select All, Fill FG/BG, Flip, Scale, Rotate, CopyToNewLayer |
+| 301-324 | Edit | Undo, Redo, Copy, Cut, Paste, Clear, Select All, Fill FG/BG, Flip, Scale, Rotate, CopyToNewLayer, StrokeSelection |
+| 324 | Edit | Stroke Selection (dialog: color, width, inside/outside/center) |
 | 401-413 | View | Toolbar, StatusBar, LayerPanel, MenuBar, Zoom, DisplayScale, Cursors |
 | 408 | View | Display Scale Up (`Ctrl+PgUp`) |
 | 409 | View | Display Scale Down (`Ctrl+PgDn`) |
@@ -822,7 +823,10 @@ saved to the config file on first launch via `CONFIG_NEEDS_INITIAL_SAVE%`.
 
 Theme values are applied in two stages:
 1. **Compile time** (`THEME.BI`): Hardcoded defaults set at include time. Always present. Serves as fallback.
-2. **Runtime** (`THEME.CFG`): Human-editable `key=value` text file in the theme directory. Loaded in `SCREEN_init` by `THEME_load` after `CONFIG_load`. Overrides any compiled-in defaults. **Edit this file to change theme colors without recompiling.**
+2. **Runtime** (`THEME.CFG`): Human-editable `key=value` text file in the theme directory. Loaded **twice** to work around the `$INCLUDE` execution order problem. **Edit this file to change theme colors without recompiling.**
+
+**CRITICAL — THEME_load must be called after all `$INCLUDE` lines complete:**
+`SCREEN.BI` calls `SCREEN_init` → `THEME_load` early (so SDL window setup has correct colors). However, `THEME.BI` is included **after** `SCREEN.BI` in `_ALL.BI` and runs as inline code at include time, overwriting all `THEME.*` fields back to compiled defaults. To fix this, `THEME_load` is also called explicitly in `DRAW.BAS` immediately after `'$INCLUDE:'./_ALL.BI'`, ensuring runtime THEME.CFG values survive. Without this second call, all THEME.CFG overrides are silently discarded.
 
 `THEME_load` (in `CFG/CONFIG-THEME.BM`) parses `ASSETS/THEMES/DEFAULT/THEME.CFG`, dispatching via `SELECT CASE UCASE$(key$)`. Colors are specified as `R,G,B,A` and parsed by `THEME_parse_rgba~&(val$)`.
 
@@ -837,11 +841,20 @@ Key fields added post-v0.8.1:
 | `TOOLBAR_btn_overlay~&` | `_UNSIGNED LONG` | Fill color of active toolbar button overlay (default: `_RGBA32(0,0,0,128)`) |
 | `TOOLBAR_btn_stroke~&` | `_UNSIGNED LONG` | Border color of active toolbar button indicator (default: `_RGBA32(255,255,255,255)`) |
 
-### Toolbar Layout (4×7, 28 buttons)
+**Layer panel theming** (added v0.10.0): 23 new fields fully control all layer panel colors, header height, and button bar height. All configurable at runtime via `THEME.CFG` without recompiling:
 
-The toolbar is a right-aligned 4-column × 7-row grid of 11×11px icon buttons, scaled by
-`CFG.TOOLBAR_SCALE%` (1-4x). Layout constants in `GUI/TOOLBAR.BI`:
-- `TB_COLS=4`, `TB_ROWS=7`, `TB_TOTAL=28`
+| Field | Type | Purpose |
+|-------|------|---------|  
+| `LAYER_PANEL_header_height` | `INTEGER` | Header bar height in pixels |
+| `LAYER_PANEL_btn_bar_height` | `INTEGER` | Button bar height in pixels |
+| `LAYER_PANEL_bg~&` | `_UNSIGNED LONG` | Panel background color |
+| `LAYER_PANEL_border~&` | `_UNSIGNED LONG` | Right border color |
+| `LAYER_PANEL_header_bg~&` | `_UNSIGNED LONG` | Header background color |
+| `LAYER_PANEL_header_fg~&` | `_UNSIGNED LONG` | Header text color |
+| `LAYER_PANEL_header_fg_dim~&` | `_UNSIGNED LONG` | Header dim text color |
+| `LAYER_PANEL_btn_bar_bg~&` | `_UNSIGNED LONG` | Button bar background |
+| `LAYER_PANEL_btn_bar_sep~&` | `_UNSIGNED LONG` | Button bar separator line |
+| (+ 14 more row/selection/op/scrollbar color fields) | `_UNSIGNED LONG` | See `CFG/CONFIG-THEME.BI` |
 - Columns are computed dynamically: `TB_RIGHT` = rightmost, then `TB_COL2`, `TB_COL1`,
   `TB_COL0` positioned leftward with `TB_BTN_PADDING` gaps.
 

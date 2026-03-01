@@ -27,7 +27,7 @@ DRAW is a pixel art editor written in QB64PE that can export images as sourcecod
 - **Rectangle** - Draw outlined or filled rectangles with brush size/shape
 - **Ellipse** - Draw outlined or filled ellipses/circles with brush size/shape
 - **Polygon** - Draw outlined or filled multi-point polygons with brush size/shape, angle snapping
-- **Fill** - Flood fill tool
+- **Fill** - Flood fill tool; hold **Shift** to sample from merged visible canvas while painting onto the current layer
 - **Spray** - Spray paint with brush-shaped nozzle tips, radius doubles per brush size level, custom brush stamp support, SHIFT axis constraint, circle preview
 - **Picker** - Color sampling/eyedropper (hold ALT with any tool for temporary picker; ALT+left picks FG, ALT+right picks BG)
 - **Marquee** - Selection tools: Rectangle, Freehand, Polygon, Ellipse — each with a distinct crosshair cursor
@@ -39,6 +39,7 @@ DRAW is a pixel art editor written in QB64PE that can export images as sourcecod
 - **Clipboard** - Copy/Cut/Paste selections (Ctrl+C/X/V), Merged copy (Ctrl+Shift+C), Clear selection (Ctrl+E); mask-aware operations for magic wand and non-rectangular selections
 - **Text** - Text entry tool
 - **Eraser** - Dedicated eraser tool that paints transparent; shares brush size preview and custom brush support
+- **Stroke Selection** - Apply a configurable stroke (inside/outside/center, adjustable width) around the active selection boundary via Edit → Stroke Selection
 - **Custom Brush** - Capture selection as reusable brush with flip/scale transforms, non-rectangular shapes via alpha channel, dynamic outline expansion
 - **Reference Image** - Load a high-res image behind the canvas at adjustable opacity for tracing (`Ctrl+R` toggle, `Ctrl+Shift+Wheel` opacity, reposition via View menu); state persisted in `.draw` project files
 - **Image Import** - Load images with interactive placement, rotation (90° CW/CCW), horizontal/vertical flip, zoom, pan, and resize — with live preview of all transformations
@@ -92,7 +93,7 @@ DRAW is a pixel art editor written in QB64PE that can export images as sourcecod
 - Visual cursor feedback with current color
 
 ### Layer System
-- Up to 32 layers with per-layer opacity, visibility, and blend mode
+- Up to 64 layers with per-layer opacity, visibility, and blend mode
 - **19 blend modes**: Normal, Multiply, Screen, Overlay, Add, Subtract, Difference, Darken, Lighten, Color Dodge, Color Burn, Hard Light, Soft Light, Exclusion, Vivid Light, Linear Light, Pin Light, Color, Luminosity
 - Solo layer (Alt+click eye icon) and visibility swipe (drag across eye icons)
 - Drag-and-drop layer reordering with visual feedback
@@ -100,13 +101,13 @@ DRAW is a pixel art editor written in QB64PE that can export images as sourcecod
 - Select from current layer: Ctrl+Click a layer row to create a selection mask from its non-transparent pixels
 - Merge down, merge visible, duplicate layers
 - CTRL+Click layer to create selection from non-transparent pixels
-- **Recent Files** - File menu tracks up to 10 recently opened projects with submenu navigation
+- **Recent Files** - File menu tracks up to 10 recently opened projects with submenu navigation and `Alt+1`–`Alt+0` keyboard shortcuts
 - DRW project format: PNG with embedded `drAw` chunk — preserves layers, blend modes, opacity, palette, tool states, grid state, and reference image configuration while remaining viewable in any image viewer
 
 ### User Interface
-- Themeable PNG icon toolbar (28 buttons in 4×7 grid)
+- Themeable PNG icon toolbar (28 buttons in **4×7 grid**)
 - PNG cursors with theme-configurable hotspots and alpha transparency
-- Layer panel with PNG icons (visibility, lock, action buttons)
+- **Fully themeable layer panel** — all colors, header height, and button bar height configurable via `ASSETS/THEMES/DEFAULT/THEME.CFG` (no recompile needed)
 - **Menu bar** with File, Edit, View, Select, Tools, Brush, Layers, Help menus and full keyboard navigation
 - Submenus auto-position within menu bar bounds (no toolbar/panel overlap)
 - Auto-hiding toolbar and status bar during active drawing
@@ -119,9 +120,9 @@ DRAW is a pixel art editor written in QB64PE that can export images as sourcecod
 
 ### Essential Controls
 
-**Tools:** B (Brush), D (Dot/Stamp), F (Fill), I (Picker), K (Spray), L (Line), R (Rectangle), E (Ellipse), Z (Zoom)  
+**Tools:** B (Brush), D (Dot/Stamp), F (Fill), I (Picker), K (Spray), L (Line), R (Rectangle), C (Ellipse), E (Eraser), Z (Zoom)  
 **Drawing:** Left-click draws with FG color, Right-click draws with BG color (all drawing tools)  
-**Colors:** Left-click palette swatch for FG, Right-click for BG, `*` activates Eraser tool; hold ALT for temporary eyedropper  
+**Colors:** Left-click palette swatch for FG, Right-click for BG, hold ALT for temporary eyedropper  
 **Palette:** Click palette name dropdown to switch palettes, SHIFT+wheel for fast scroll  
 **Grid:** `'` (toggle), `Shift+'` (pixel grid), `;` (snap), `Ctrl+'` (cycle mode), `.` (bigger), `,` (smaller)  
 **Brush Size:** `[` (smaller), `]` (bigger), F6 (pixel perfect)  

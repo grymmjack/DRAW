@@ -6,7 +6,7 @@
 |-----|------|-------|
 | `B` | Brush | Continuous freehand painting (drag to paint) |
 | `D` | Dot | Single-pixel stamp (click to place, no drag painting) |
-| `F` | Fill | Flood fill tool |
+| `F` | Fill | Flood fill tool — hold **Shift** to sample from merged visible canvas (paints on current layer) |
 | `I` | Picker | Color picker/eyedropper |
 | `K` | Spray | Spray paint tool |
 | `L` | Line | Draw straight lines |
@@ -468,6 +468,11 @@ The Magic Wand (`W`) selects all contiguous pixels of the same color as the clic
 
 ### Selection as Clipping Mask
 
+### Grid and Angle Snap with Marquee
+
+When grid snap is enabled (`;`), marquee drag operations snap to grid boundaries.
+Hold **Ctrl+Shift** while dragging a marquee to snap to configured angle increments and bypass grid snap for the start position.
+
 When a selection is active (marquee or magic wand), it acts as a **clipping mask**:
 
 - **Brush/Dot**: Only paints inside selection boundary
@@ -485,6 +490,19 @@ When a selection is active (marquee or magic wand), it acts as a **clipping mask
 |-----|----------|
 | `Ctrl+A` | Select all (entire canvas) |
 | `Ctrl+Shift+I` | Invert selection |
+
+### Stroke Selection
+
+Apply a stroke (outline) around the current selection boundary.
+
+Access via **Edit menu → Stroke Selection** or the Command Palette.
+
+A dialog lets you choose:
+- **Width**: stroke width in pixels
+- **Color**: pick FG color or any custom color
+- **Position**: Inside, Outside, or Center of the selection edge
+
+The stroke is applied to the current layer inside the selection bounds. Requires an active selection.
 | `Ctrl+D` | Deselect/clear selection (works from **any tool**) |
 | `Escape` | Deselect/clear selection (works from **any tool**) |
 | Arrow Keys | Move selection (1px) |
@@ -613,6 +631,8 @@ Reference image state (position, scale, opacity, visibility, filename) is saved 
 |-----|----------|
 | `Alt+O` | Open DRAW project (.draw) |
 | `Alt+X` | Exit DRAW (prompts if unsaved) |
+| `Alt+1` … `Alt+9` | Open recent file #1 – #9 |
+| `Alt+0` | Open recent file #10 |
 
 ### File Menu Commands
 | Command | Function |
@@ -875,28 +895,32 @@ DRAW has an optional menu bar at the top of the screen providing access to all c
 
 ## Toolbar Layout
 
-The toolbar is displayed on the right edge of the screen as a 3-column, 7-row grid of icon buttons:
+The toolbar is displayed on the right edge of the screen as a **4-column, 7-row** grid of icon buttons:
 
-| Row | Left | Center | Right |
-|-----|------|--------|-------|
-| 1 | Save | Open | QB64 Code |
-| 2 | Move (V) | Hand/Pan | Zoom (Z) |
-| 3 | Marquee (M) | Picker (I) | Text (T) |
-| 4 | Dot (D) | Brush (B) | Spray (K) |
-| 5 | Line (L) | Polyline (P) | Poly Fill (Shift+P) |
-| 6 | Fill (F) | Rect (R) | Rect Filled (Shift+R) |
-| 7 | Help (?) | Ellipse (E) | Ellipse Filled (Shift+E) |
+| Row | Col 1 | Col 2 | Col 3 | Col 4 |
+|-----|-------|-------|-------|-------|
+| 1 | Move (V) | Pan (Hand) | Zoom (Z) | Crop |
+| 2 | Select Rect (M) | Select Free | Select Poly | Select Ellipse |
+| 3 | Select Wand (W) | Picker (I) | Text (T) | Eraser (E) |
+| 4 | Dot (D) | Brush (B) | Spray (K) | Fill (F) |
+| 5 | Line (L) | Polygon (P) | Poly Fill (Shift+P) | Save |
+| 6 | Rect (R) | Rect Filled (Shift+R) | Export Selection | QB64 Code Export |
+| 7 | Help (?) | Ellipse (C) | Ellipse Filled (Shift+C) | Open |
 
 ### Toolbar Button Actions
 
 | Button | Left-click | Right-click | Middle-click |
 |--------|-----------|-------------|--------------|
-| **Marquee** | Rectangle selection | Magic Wand mode | - |
+| **Select Rect** | Rectangle selection | — | — |
+| **Select Free** | Freehand selection | — | — |
+| **Select Poly** | Polygon selection | — | — |
+| **Select Ellipse** | Ellipse selection | — | — |
+| **Select Wand** | Magic Wand selection | — | — |
 | **Text** | VGA font | Tiny5 font | Load custom font |
-| **Open** | Open DRW project | Import image | - |
-| **Hand/Pan** | Pan mode | - | Double-click resets zoom+pan |
-| **Zoom** | Zoom tool mode | - | - |
-| **Help** | Open command palette | - | - |
+| **Open** | Open DRW project | Import image | — |
+| **Pan** | Pan mode | — | Double-click resets zoom+pan |
+| **Zoom** | Zoom tool mode | — | — |
+| **Help** | Open command palette | — | — |
 
 ### Toolbar Scale
 
@@ -964,6 +988,7 @@ DRAW stores settings in `DRAW.cfg` in the application directory. Settings are lo
 | 16 | Spray |
 | 17 | Crop |
 | 18 | Zoom |
+| 41 | Eraser |
 
 ### Other Notable Settings
 
