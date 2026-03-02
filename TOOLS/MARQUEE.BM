@@ -1191,6 +1191,502 @@ END SUB
 
 
 ''
+' Flood erase contiguous pixels of the same color (set to transparent)
+' Used when holding E and clicking with the magic wand tool active.
+' Saves undo state before modifying the current layer.
+' @param x INTEGER X coordinate to start flood erase
+' @param y INTEGER Y coordinate to start flood erase
+'
+SUB MAGIC_WAND_erase_flood (x AS INTEGER, y AS INTEGER)
+    DIM old_dest AS LONG : old_dest& = _DEST
+    DIM old_source AS LONG : old_source& = _SOURCE
+    DIM targetImg AS LONG : targetImg& = LAYER_current_image&
+    IF targetImg& >= -1 THEN EXIT SUB
+
+    DIM w AS INTEGER : w% = _WIDTH(targetImg&)
+    DIM h AS INTEGER : h% = _HEIGHT(targetImg&)
+    DIM target_color AS _UNSIGNED LONG
+
+    _SOURCE targetImg&
+    IF x% < 0 OR x% >= w% OR y% < 0 OR y% >= h% THEN
+        _SOURCE old_source&
+        EXIT SUB
+    END IF
+
+    target_color~& = POINT(x%, y%)
+
+    ' Nothing to erase if seed pixel is already fully transparent
+    IF _ALPHA32(target_color~&) = 0 THEN
+        _SOURCE old_source&
+        EXIT SUB
+    END IF
+
+    IF NOT UNDO_saved_this_frame% THEN
+        UNDO_save_state
+        UNDO_saved_this_frame% = TRUE
+    END IF
+
+    DIM stack_capacity AS LONG : stack_capacity& = 128
+    REDIM stack_x(1 TO 128) AS INTEGER
+    REDIM stack_y(1 TO 128) AS INTEGER
+    DIM stack_ptr AS LONG
+    DIM py AS INTEGER, x1 AS INTEGER, x2 AS INTEGER
+    DIM sx AS INTEGER, dy AS INTEGER, ny AS INTEGER
+    DIM in_span AS INTEGER
+
+    _DEST targetImg&
+    _DONTBLEND targetImg&
+
+    stack_ptr& = 1
+    stack_x(1) = x%
+    stack_y(1) = y%
+
+    WHILE stack_ptr& > 0
+        x% = stack_x(stack_ptr&)
+        py% = stack_y(stack_ptr&)
+        stack_ptr& = stack_ptr& - 1
+
+        IF py% < 0 OR py% >= h% OR x% < 0 OR x% >= w% THEN GOTO ef_next_seed
+
+        _SOURCE targetImg&
+        IF POINT(x%, py%) <> target_color~& THEN GOTO ef_next_seed
+
+        ' Find left and right edges of matching scanline
+        x1% = x%
+        WHILE x1% > 0
+            _SOURCE targetImg&
+            IF POINT(x1% - 1, py%) <> target_color~& THEN EXIT WHILE
+            x1% = x1% - 1
+        WEND
+
+        x2% = x%
+        WHILE x2% < w% - 1
+            _SOURCE targetImg&
+            IF POINT(x2% + 1, py%) <> target_color~& THEN EXIT WHILE
+            x2% = x2% + 1
+        WEND
+
+        ' Erase matching scanline (set to fully transparent)
+        _DEST targetImg&
+        LINE (x1%, py%)-(x2%, py%), _RGBA32(0, 0, 0, 0)
+
+        ' Queue seeds from adjacent rows
+        FOR dy% = -1 TO 1 STEP 2
+            ny% = py% + dy%
+            IF ny% >= 0 AND ny% < h% THEN
+                in_span% = FALSE
+                FOR sx% = x1% TO x2%
+                    _SOURCE targetImg&
+                    IF POINT(sx%, ny%) = target_color~& THEN
+                        IF NOT in_span% THEN
+                            IF stack_ptr& >= stack_capacity& THEN
+                                stack_capacity& = stack_capacity& * 2
+                                REDIM _PRESERVE stack_x(1 TO stack_capacity&) AS INTEGER
+                                REDIM _PRESERVE stack_y(1 TO stack_capacity&) AS INTEGER
+                            END IF
+                            stack_ptr& = stack_ptr& + 1
+                            stack_x(stack_ptr&) = sx%
+                            stack_y(stack_ptr&) = ny%
+                            in_span% = TRUE
+                        END IF
+                    ELSE
+                        in_span% = FALSE
+                    END IF
+                NEXT sx%
+            END IF
+        NEXT dy%
+
+        ef_next_seed:
+    WEND
+
+    ERASE stack_x, stack_y
+    _BLEND targetImg&
+    CANVAS_DIRTY% = TRUE
+    SCENE_DIRTY% = TRUE
+    FRAME_IDLE% = FALSE
+    _SOURCE old_source&
+    _DEST old_dest&
+END SUB
+
+
+''
+' Flood fill contiguous pixels of the same color with the foreground paint color
+' Used when holding F and clicking with the magic wand tool active.
+' Saves undo state before modifying the current layer.
+' @param x INTEGER X coordinate to start flood fill
+' @param y INTEGER Y coordinate to start flood fill
+'
+SUB MAGIC_WAND_fill_flood (x AS INTEGER, y AS INTEGER)
+    DIM old_dest AS LONG : old_dest& = _DEST
+    DIM old_source AS LONG : old_source& = _SOURCE
+    DIM targetImg AS LONG : targetImg& = LAYER_current_image&
+    IF targetImg& >= -1 THEN EXIT SUB
+
+    DIM w AS INTEGER : w% = _WIDTH(targetImg&)
+    DIM h AS INTEGER : h% = _HEIGHT(targetImg&)
+    DIM target_color AS _UNSIGNED LONG
+
+    _SOURCE targetImg&
+    IF x% < 0 OR x% >= w% OR y% < 0 OR y% >= h% THEN
+        _SOURCE old_source&
+        EXIT SUB
+    END IF
+
+    target_color~& = POINT(x%, y%)
+
+    ' Nothing to do if seed already is the paint color
+    IF target_color~& = PAINT_COLOR~& THEN
+        _SOURCE old_source&
+        EXIT SUB
+    END IF
+
+    IF NOT UNDO_saved_this_frame% THEN
+        UNDO_save_state
+        UNDO_saved_this_frame% = TRUE
+    END IF
+
+    DIM stack_capacity AS LONG : stack_capacity& = 128
+    REDIM stack_x(1 TO 128) AS INTEGER
+    REDIM stack_y(1 TO 128) AS INTEGER
+    DIM stack_ptr AS LONG
+    DIM py AS INTEGER, x1 AS INTEGER, x2 AS INTEGER
+    DIM sx AS INTEGER, dy AS INTEGER, ny AS INTEGER
+    DIM in_span AS INTEGER
+
+    _DEST targetImg&
+    _DONTBLEND targetImg&
+
+    stack_ptr& = 1
+    stack_x(1) = x%
+    stack_y(1) = y%
+
+    WHILE stack_ptr& > 0
+        x% = stack_x(stack_ptr&)
+        py% = stack_y(stack_ptr&)
+        stack_ptr& = stack_ptr& - 1
+
+        IF py% < 0 OR py% >= h% OR x% < 0 OR x% >= w% THEN GOTO ff_next_seed
+
+        _SOURCE targetImg&
+        IF POINT(x%, py%) <> target_color~& THEN GOTO ff_next_seed
+
+        ' Find left and right edges of matching scanline
+        x1% = x%
+        WHILE x1% > 0
+            _SOURCE targetImg&
+            IF POINT(x1% - 1, py%) <> target_color~& THEN EXIT WHILE
+            x1% = x1% - 1
+        WEND
+
+        x2% = x%
+        WHILE x2% < w% - 1
+            _SOURCE targetImg&
+            IF POINT(x2% + 1, py%) <> target_color~& THEN EXIT WHILE
+            x2% = x2% + 1
+        WEND
+
+        ' Paint scanline with foreground color
+        _DEST targetImg&
+        LINE (x1%, py%)-(x2%, py%), PAINT_COLOR~&
+
+        ' Queue seeds from adjacent rows
+        FOR dy% = -1 TO 1 STEP 2
+            ny% = py% + dy%
+            IF ny% >= 0 AND ny% < h% THEN
+                in_span% = FALSE
+                FOR sx% = x1% TO x2%
+                    _SOURCE targetImg&
+                    IF POINT(sx%, ny%) = target_color~& THEN
+                        IF NOT in_span% THEN
+                            IF stack_ptr& >= stack_capacity& THEN
+                                stack_capacity& = stack_capacity& * 2
+                                REDIM _PRESERVE stack_x(1 TO stack_capacity&) AS INTEGER
+                                REDIM _PRESERVE stack_y(1 TO stack_capacity&) AS INTEGER
+                            END IF
+                            stack_ptr& = stack_ptr& + 1
+                            stack_x(stack_ptr&) = sx%
+                            stack_y(stack_ptr&) = ny%
+                            in_span% = TRUE
+                        END IF
+                    ELSE
+                        in_span% = FALSE
+                    END IF
+                NEXT sx%
+            END IF
+        NEXT dy%
+
+        ff_next_seed:
+    WEND
+
+    ERASE stack_x, stack_y
+    _BLEND targetImg&
+    CANVAS_DIRTY% = TRUE
+    SCENE_DIRTY% = TRUE
+    FRAME_IDLE% = FALSE
+    _SOURCE old_source&
+    _DEST old_dest&
+END SUB
+
+
+''
+' Select contiguous pixels using the merged canvas (all visible layers) for color sampling
+' Used when holding W and clicking with the magic wand tool active.
+' All selection-mask writing is the same as MAGIC_WAND_select_with_mode; only
+' the color-comparison source is changed from the current layer to a merged composite.
+' @param x    INTEGER X coordinate to start selection
+' @param y    INTEGER Y coordinate to start selection
+' @param mode INTEGER SEL_MODE_REPLACE / SEL_MODE_ADD / SEL_MODE_SUBTRACT
+'
+SUB MAGIC_WAND_select_merged (x AS INTEGER, y AS INTEGER, mode AS INTEGER)
+    DIM old_dest AS LONG : old_dest& = _DEST
+    DIM old_source AS LONG : old_source& = _SOURCE
+    DIM targetImg AS LONG : targetImg& = LAYER_current_image&
+    IF targetImg& >= -1 THEN EXIT SUB
+
+    DIM w AS INTEGER : w% = _WIDTH(targetImg&)
+    DIM h AS INTEGER : h% = _HEIGHT(targetImg&)
+
+    IF x% < 0 OR x% >= w% OR y% < 0 OR y% >= h% THEN EXIT SUB
+
+    ' Build throwaway merged composite of all visible layers (bottom-to-top)
+    DIM mergedImg AS LONG
+    mergedImg& = _NEWIMAGE(w%, h%, 32)
+    IF mergedImg& >= -1 THEN EXIT SUB
+
+    _DEST mergedImg&
+    CLS , _RGBA32(0, 0, 0, 0)
+    _BLEND mergedImg&
+
+    DIM zi AS INTEGER, li AS INTEGER
+    DIM tmpImg AS LONG
+    DIM mvMem AS _MEM
+    DIM mvOff AS _OFFSET
+    DIM mvPix AS _UNSIGNED LONG
+    DIM mvAlpha AS _UNSIGNED _BYTE
+    DIM mvNewAlpha AS INTEGER
+
+    FOR zi% = 1 TO LAYER_COUNT%
+        FOR li% = 1 TO 64
+            IF LAYERS(li%).imgHandle& < -1 AND LAYERS(li%).visible AND LAYERS(li%).zIndex = zi% THEN
+                IF LAYERS(li%).opacity >= 255 THEN
+                    _PUTIMAGE , LAYERS(li%).imgHandle&
+                ELSE
+                    tmpImg& = _COPYIMAGE(LAYERS(li%).imgHandle&, 32)
+                    mvMem = _MEMIMAGE(tmpImg&)
+                    FOR mvOff = mvMem.OFFSET TO mvMem.OFFSET + mvMem.SIZE - 4 STEP 4
+                        _MEMGET mvMem, mvOff, mvPix~&
+                        mvAlpha~%% = _ALPHA32(mvPix~&)
+                        IF mvAlpha~%% > 0 THEN
+                            mvNewAlpha% = (mvAlpha~%% * LAYERS(li%).opacity) \ 255
+                            _MEMPUT mvMem, mvOff + 3, mvNewAlpha% AS _UNSIGNED _BYTE
+                        END IF
+                    NEXT mvOff
+                    _MEMFREE mvMem
+                    _PUTIMAGE , tmpImg&
+                    IF tmpImg& < -1 THEN _FREEIMAGE tmpImg&
+                END IF
+                EXIT FOR
+            END IF
+        NEXT li%
+    NEXT zi%
+
+    ' Sample seed color from the merged composite
+    DIM target_color AS _UNSIGNED LONG
+    _SOURCE mergedImg&
+    target_color~& = POINT(x%, y%)
+
+    ' Preserve existing mask for Add/Subtract modes
+    DIM existing_mask AS LONG : existing_mask& = 0
+    DIM has_existing AS INTEGER : has_existing% = FALSE
+    IF mode% <> SEL_MODE_REPLACE AND MARQUEE.WAND_HAS_SELECTION AND MARQUEE.SELECTION_MASK < -1 THEN
+        existing_mask& = MARQUEE.SELECTION_MASK
+        has_existing% = TRUE
+        MARQUEE.SELECTION_MASK = 0
+    ELSE
+        MAGIC_WAND_reset
+    END IF
+
+    ' Create fresh selection mask
+    MARQUEE.SELECTION_MASK = _NEWIMAGE(w%, h%, 32)
+    IF MARQUEE.SELECTION_MASK >= -1 THEN
+        _SOURCE old_source&
+        _DEST old_dest&
+        IF mergedImg& < -1 THEN _FREEIMAGE mergedImg&
+        EXIT SUB
+    END IF
+
+    _DEST MARQUEE.SELECTION_MASK
+    CLS , _RGBA32(0, 0, 0, 0)
+    _DONTBLEND MARQUEE.SELECTION_MASK
+
+    MARQUEE.WAND_MIN_X = w% : MARQUEE.WAND_MIN_Y = h%
+    MARQUEE.WAND_MAX_X = 0 : MARQUEE.WAND_MAX_Y = 0
+
+    DIM stack_capacity AS LONG : stack_capacity& = 128
+    REDIM stack_x(1 TO 128) AS INTEGER
+    REDIM stack_y(1 TO 128) AS INTEGER
+    DIM stack_ptr AS LONG
+    DIM py AS INTEGER, x1 AS INTEGER, x2 AS INTEGER
+    DIM sx AS INTEGER, dy AS INTEGER, ny AS INTEGER
+    DIM in_span AS INTEGER
+    DIM mask_color AS _UNSIGNED LONG : mask_color~& = _RGB32(255, 255, 255)
+
+    stack_ptr& = 1
+    stack_x(1) = x%
+    stack_y(1) = y%
+
+    WHILE stack_ptr& > 0
+        x% = stack_x(stack_ptr&)
+        py% = stack_y(stack_ptr&)
+        stack_ptr& = stack_ptr& - 1
+
+        IF py% < 0 OR py% >= h% OR x% < 0 OR x% >= w% THEN GOTO mg_next_seed
+
+        _SOURCE MARQUEE.SELECTION_MASK
+        IF POINT(x%, py%) = mask_color~& THEN GOTO mg_next_seed
+
+        _SOURCE mergedImg&
+        IF POINT(x%, py%) <> target_color~& THEN GOTO mg_next_seed
+
+        ' Find left and right edges
+        x1% = x%
+        WHILE x1% > 0
+            _SOURCE mergedImg&
+            IF POINT(x1% - 1, py%) <> target_color~& THEN EXIT WHILE
+            _SOURCE MARQUEE.SELECTION_MASK
+            IF POINT(x1% - 1, py%) = mask_color~& THEN EXIT WHILE
+            x1% = x1% - 1
+        WEND
+
+        x2% = x%
+        WHILE x2% < w% - 1
+            _SOURCE mergedImg&
+            IF POINT(x2% + 1, py%) <> target_color~& THEN EXIT WHILE
+            _SOURCE MARQUEE.SELECTION_MASK
+            IF POINT(x2% + 1, py%) = mask_color~& THEN EXIT WHILE
+            x2% = x2% + 1
+        WEND
+
+        ' Mark scanline as selected
+        _DEST MARQUEE.SELECTION_MASK
+        LINE (x1%, py%)-(x2%, py%), mask_color~&
+
+        IF x1% < MARQUEE.WAND_MIN_X THEN MARQUEE.WAND_MIN_X = x1%
+        IF x2% > MARQUEE.WAND_MAX_X THEN MARQUEE.WAND_MAX_X = x2%
+        IF py% < MARQUEE.WAND_MIN_Y THEN MARQUEE.WAND_MIN_Y = py%
+        IF py% > MARQUEE.WAND_MAX_Y THEN MARQUEE.WAND_MAX_Y = py%
+
+        ' Queue seeds from adjacent rows
+        FOR dy% = -1 TO 1 STEP 2
+            ny% = py% + dy%
+            IF ny% >= 0 AND ny% < h% THEN
+                in_span% = FALSE
+                FOR sx% = x1% TO x2%
+                    _SOURCE mergedImg&
+                    DIM pxColor AS _UNSIGNED LONG
+                    pxColor~& = POINT(sx%, ny%)
+                    IF pxColor~& = target_color~& THEN
+                        _SOURCE MARQUEE.SELECTION_MASK
+                        IF POINT(sx%, ny%) <> mask_color~& THEN
+                            IF NOT in_span% THEN
+                                IF stack_ptr& >= stack_capacity& THEN
+                                    stack_capacity& = stack_capacity& * 2
+                                    REDIM _PRESERVE stack_x(1 TO stack_capacity&) AS INTEGER
+                                    REDIM _PRESERVE stack_y(1 TO stack_capacity&) AS INTEGER
+                                END IF
+                                stack_ptr& = stack_ptr& + 1
+                                stack_x(stack_ptr&) = sx%
+                                stack_y(stack_ptr&) = ny%
+                                in_span% = TRUE
+                            END IF
+                        ELSE
+                            in_span% = FALSE
+                        END IF
+                    ELSE
+                        in_span% = FALSE
+                    END IF
+                NEXT sx%
+            END IF
+        NEXT dy%
+
+        mg_next_seed:
+    WEND
+
+    ERASE stack_x, stack_y
+
+    ' Merge with existing selection for Add/Subtract modes
+    IF has_existing% AND existing_mask& < -1 THEN
+        DIM px AS INTEGER, py2 AS INTEGER
+        DIM new_pixel AS _UNSIGNED LONG, old_pixel AS _UNSIGNED LONG
+        DIM final_mask AS LONG
+
+        final_mask& = _NEWIMAGE(w%, h%, 32)
+        IF final_mask& < -1 THEN
+            _DEST final_mask&
+            CLS , _RGBA32(0, 0, 0, 0)
+            _DONTBLEND final_mask&
+
+            FOR py2% = 0 TO h% - 1
+                FOR px% = 0 TO w% - 1
+                    _SOURCE existing_mask&
+                    old_pixel~& = POINT(px%, py2%)
+                    _SOURCE MARQUEE.SELECTION_MASK
+                    new_pixel~& = POINT(px%, py2%)
+
+                    _DEST final_mask&
+                    IF mode% = SEL_MODE_ADD THEN
+                        IF _ALPHA32(old_pixel~&) > 0 OR _ALPHA32(new_pixel~&) > 0 THEN
+                            PSET (px%, py2%), mask_color~&
+                            IF px% < MARQUEE.WAND_MIN_X THEN MARQUEE.WAND_MIN_X = px%
+                            IF px% > MARQUEE.WAND_MAX_X THEN MARQUEE.WAND_MAX_X = px%
+                            IF py2% < MARQUEE.WAND_MIN_Y THEN MARQUEE.WAND_MIN_Y = py2%
+                            IF py2% > MARQUEE.WAND_MAX_Y THEN MARQUEE.WAND_MAX_Y = py2%
+                        END IF
+                    ELSEIF mode% = SEL_MODE_SUBTRACT THEN
+                        IF _ALPHA32(old_pixel~&) > 0 AND _ALPHA32(new_pixel~&) = 0 THEN
+                            PSET (px%, py2%), mask_color~&
+                            IF px% < MARQUEE.WAND_MIN_X THEN MARQUEE.WAND_MIN_X = px%
+                            IF px% > MARQUEE.WAND_MAX_X THEN MARQUEE.WAND_MAX_X = px%
+                            IF py2% < MARQUEE.WAND_MIN_Y THEN MARQUEE.WAND_MIN_Y = py2%
+                            IF py2% > MARQUEE.WAND_MAX_Y THEN MARQUEE.WAND_MAX_Y = py2%
+                        END IF
+                    END IF
+                NEXT px%
+            NEXT py2%
+
+            _BLEND final_mask&
+            _FREEIMAGE MARQUEE.SELECTION_MASK
+            MARQUEE.SELECTION_MASK = final_mask&
+        END IF
+
+        _FREEIMAGE existing_mask&
+
+        IF mode% = SEL_MODE_SUBTRACT AND MARQUEE.WAND_MIN_X > MARQUEE.WAND_MAX_X THEN
+            MAGIC_WAND_reset
+            _SOURCE old_source&
+            _DEST old_dest&
+            IF mergedImg& < -1 THEN _FREEIMAGE mergedImg&
+            EXIT SUB
+        END IF
+    END IF
+
+    MARQUEE.WAND_HAS_SELECTION = TRUE
+    MARQUEE.BOX.x = MARQUEE.WAND_MIN_X
+    MARQUEE.BOX.y = MARQUEE.WAND_MIN_Y
+    MARQUEE.BOX.w = MARQUEE.WAND_MAX_X - MARQUEE.WAND_MIN_X + 1
+    MARQUEE.BOX.h = MARQUEE.WAND_MAX_Y - MARQUEE.WAND_MIN_Y + 1
+    MARQUEE.ACTIVE% = TRUE
+    MARQUEE.INITIALIZED% = TRUE
+    MARQUEE.USER_CREATED = TRUE
+
+    _BLEND MARQUEE.SELECTION_MASK
+    IF mergedImg& < -1 THEN _FREEIMAGE mergedImg&
+    _SOURCE old_source&
+    _DEST old_dest&
+END SUB
+
+
+''
 ' Draw marching ants outline around selected pixels in magic wand mask
 '
 SUB MAGIC_WAND_draw_outline ()
