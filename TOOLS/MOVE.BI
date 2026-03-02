@@ -45,6 +45,10 @@ DIM SHARED MOVE AS MOVE_OBJ
 REDIM SHARED MOVE_MULTI_LAYERS(1 TO 64) AS INTEGER  ' Layer indices (0 = unused slot)
 DIM SHARED MOVE_MULTI_COUNT AS INTEGER             ' Count of snapshotted layers
 MOVE_MULTI_COUNT% = 0
+' Per-layer original snapshots (canvas-sized copies taken at capture time)
+REDIM SHARED MOVE_MULTI_ORIGINALS(1 TO 64) AS LONG
+' Per-layer preview buffers (canvas-sized, shifted by current drag delta each frame)
+REDIM SHARED MOVE_MULTI_PREVIEWS(1 TO 64) AS LONG
 
 DECLARE SUB MOVE_init ()
 DECLARE SUB MOVE_reset ()
@@ -58,6 +62,7 @@ DECLARE SUB MOVE_render_preview (dest AS LONG)
 DECLARE SUB MOVE_render_status (dest AS LONG)
 DECLARE SUB MOVE_update_preview_buffer ()
 DECLARE FUNCTION MOVE_get_preview_buffer& ()
+DECLARE FUNCTION MOVE_get_multi_layer_preview& (layerIdx AS INTEGER)
 DECLARE SUB MOVE_flip_horizontal ()
 DECLARE SUB MOVE_flip_vertical ()
 DECLARE SUB MOVE_nudge (dx AS INTEGER, dy AS INTEGER)
