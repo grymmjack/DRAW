@@ -14,7 +14,7 @@ DATA "::::::::", "::    ::", "::    ::", "::::  ::::", "  ::  ::  "
 
 DRAW is a pixel art editor written in QB64PE that can export images as sourcecode
 
-![DRAW GUI from v0.12.0](./GUI.png)
+![DRAW GUI from v0.13.0](./GUI.png)
 
 ## Features
 
@@ -103,6 +103,13 @@ DRAW is a pixel art editor written in QB64PE that can export images as sourcecod
 - **Select → From Selected Layers**: creates a union selection mask from all non-transparent pixels across every selected layer (requires 2+ selected)
 - **Recent Files** - File menu tracks up to 10 recently opened projects with submenu navigation and `Alt+1`–`Alt+0` keyboard shortcuts
 - DRW project format: PNG with embedded `drAw` chunk — preserves layers, blend modes, opacity, palette, tool states, grid state, and reference image configuration while remaining viewable in any image viewer
+
+### Sound System
+- **21 categorized sound slots** covering menus, tools, selections, fill, clipboard, layers, text, sliders, drag-drop, point placement, and organizer interactions
+- All sounds loaded from `ASSETS/THEMES/DEFAULT/SOUNDS/` — fully replaceable per theme via `THEME.CFG`
+- Per-operation sound triggers: SND_POINT on every click/vertex, SND_DRAG_DROP on shape commit, SND_SELECTION looped during selection drags, SND_SLIDER on opacity wheel/release, SND_ORGANIZER on organizer widget click/wheel
+- `SOUND_loop` / `SOUND_stop` for collision-free per-frame looping sounds (selection drag)
+- Enable/disable and volume configurable in `DRAW.cfg` (`SOUNDS_ENABLED`, `SOUNDS_VOLUME`)
 
 ### User Interface
 - Themeable PNG icon toolbar (28 buttons in **4×7 grid**)

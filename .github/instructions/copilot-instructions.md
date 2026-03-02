@@ -1054,7 +1054,73 @@ the scene cache save, they force `SCENE_DIRTY% = TRUE` every frame, defeating th
 | `GUI/ORGANIZER.BI` | Organizer widget constants (ORG_*), 4×3 layout |
 | `TOOLS/ERASER.BI/BM` | Eraser tool (transparent painting via brush pipeline) |
 | `CFG/CONFIG.BI` | Configuration structure |
+| `CORE/SOUND.BI` | Sound category constants (`SND_*`), `SOUND_HANDLES()` array, all SUB declarations |
+| `CORE/SOUND.BM` | `SOUND_init`, `SOUND_play`, `SOUND_loop`, `SOUND_stop`, `SOUND_play_pitched`, `SOUND_apply_volume` |
 | `CHEATSHEET.md` | All keyboard shortcuts |
+
+---
+
+## Sound System
+
+**Files**: `CORE/SOUND.BI` (constants + declarations), `CORE/SOUND.BM` (loader + playback SUBs)
+
+### Sound Category Constants (`SOUND_HANDLES` array, 1–21)
+
+| Constant | Value | Trigger |
+|----------|-------|---------|
+| `SND_MENU_OPEN` | 1 | Opening a root menu |
+| `SND_MENU_SELECT` | 2 | Selecting a menu item |
+| `SND_NEW_FILE` | 3 | New file / startup |
+| `SND_NEW_LAYER` | 4 | New layer |
+| `SND_LAYER_OP` | 5 | Delete / arrange / duplicate / merge layer |
+| `SND_CLIPBOARD` | 6 | Copy / Cut / Paste |
+| `SND_FILL` | 7 | Flood fill |
+| `SND_SELECTION` | 8 | Selection operations (looped while dragging a marquee) |
+| `SND_DRAW` | 9 | Brush / dot / spray initial click |
+| `SND_TRANSFORM` | 10 | Flip / scale / rotate |
+| `SND_TEXT_ENTER` | 11 | Text tool — commit line (Enter key) |
+| `SND_MENU_HOVER` | 12 | Hover over new menu item |
+| `SND_TOOL_SELECT` | 13 | Toolbox button clicked |
+| `SND_TEXT_CHAR` | 14 | Text tool — printable character typed |
+| `SND_ERASER` | 15 | Eraser stroke initial click |
+| `SND_DRAW_REV` | 16 | Reversed draw sound (cardinal direction change) |
+| `SND_ERASER_REV` | 17 | Reversed eraser sound |
+| `SND_SLIDER` | 18 | Opacity / value slider drag, mousewheel, release |
+| `SND_DRAG_DROP` | 19 | Layer drag-and-drop; shape/selection commit |
+| `SND_POINT` | 20 | Click to place a point (line / shape / poly / dot tools) |
+| `SND_ORGANIZER` | 21 | Organizer/drawer widget click or mousewheel |
+
+### Playback SUBs
+
+```qb64
+SOUND_play SND_FILL          ' Fire-and-forget, checks CFG.SOUNDS_ENABLED% and handle validity
+SOUND_loop SND_SELECTION     ' Per-frame: plays only if NOT _SNDPLAYING (prevents restart stutter)
+SOUND_stop SND_SELECTION     ' Stops a looping sound
+SOUND_play_pitched SND_DRAW, 0.8, 1.2, 0.9  ' Randomised pitch between speedMin/speedMax
+```
+
+**NEVER play sounds by calling `_SNDPLAY` directly** — always use `SOUND_play` / `SOUND_loop`.
+They guard `CFG.SOUNDS_ENABLED%` and handle validity so callers need no extra checks.
+
+### Key Config Fields (in `DRAW.cfg`)
+
+| Key | Purpose |
+|-----|---------|
+| `SOUNDS_ENABLED` | 0 = disabled, 1 = enabled |
+| `SOUNDS_VOLUME` | 0.0–1.0 master volume |
+
+### Theme WAV Files
+
+All filenames live in `ASSETS/THEMES/DEFAULT/THEME.CFG` (and compiled-in defaults in `THEME.BI`).
+The sound loader uses `THEME.SOUND_*_FILE$` fields. To replace a sound: update THEME.CFG — no recompile needed.
+
+### Where Sounds Are Wired
+
+- **Shape tool clicks** (`INPUT/MOUSE.BM` `MOUSE_tool_line/rect/ellip/poly`): `SOUND_play SND_POINT` after `STROKE_begin`; `SOUND_play SND_DRAG_DROP` in the corresponding `MOUSE_release_*` sub
+- **Dot tool** (`MOUSE_tool_dot`): `SOUND_play SND_POINT` on every click
+- **Marquee tools** (`MOUSE_tool_marquee` + `MOUSE_release_marquee`): SND_POINT on click/vertex, `SOUND_loop SND_SELECTION` per frame while dragging, SND_POINT + SND_DRAG_DROP on finish — applies to all 5 variants (rect, freehand, poly, ellipse, wand)
+- **Opacity slider** (`INPUT/MOUSE.BM` opacityDrag release paths + `GUI/LAYERS.BM` wheel handler): `SOUND_play SND_SLIDER`
+- **Organizer widget** (`INPUT/MOUSE.BM` left/right/middle-click + wheel): `SOUND_play SND_ORGANIZER`
 
 ---
 
