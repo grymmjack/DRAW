@@ -96,6 +96,10 @@ $IF WIN THEN
     _ACCEPTFILEDROP
 $END IF
 
+' Initialise sound system (loads handles, applies volume; respects CFG.SOUNDS_ENABLED)
+SOUND_init
+SOUND_play SND_NEW_FILE  ' Startup chime (silent when sounds are disabled)
+
 ' Main Loop
 DIM k AS LONG
 DIM exitConfirmed AS INTEGER
@@ -109,6 +113,7 @@ DO
         pendingExt$ = LCASE$(RIGHT$(CMDLINE_PENDING_FILE$, 5))
         IF pendingExt$ = ".draw" THEN
             DRW_load CMDLINE_PENDING_FILE$
+            SOUND_play SND_NEW_FILE
             CURRENT_DRW_FILENAME$ = CMDLINE_PENDING_FILE$
         ELSE
             ' Image file - use image import
@@ -130,6 +135,7 @@ DO
                 dropExt$ = LCASE$(RIGHT$(dropFile$, 5))
                 IF dropExt$ = ".draw" THEN
                     DRW_load dropFile$
+                    SOUND_play SND_NEW_FILE
                     CURRENT_DRW_FILENAME$ = dropFile$
                 ELSE
                     DIM dropLoadResult%
@@ -389,6 +395,11 @@ SUB MAIN_shutdown ()
     IF PALETTE_STRIP_FONT& > 0 THEN _FREEFONT PALETTE_STRIP_FONT&
     IF MENU_BAR.fontHandle& > 0 THEN _FREEFONT MENU_BAR.fontHandle&
     IF LAYER_PANEL.fontHandle& > 0 THEN _FREEFONT LAYER_PANEL.fontHandle&
+
+    ' =====================================================================
+    ' FREE SOUND HANDLES
+    ' =====================================================================
+    SOUND_close_all
 
     SYSTEM
 END SUB
