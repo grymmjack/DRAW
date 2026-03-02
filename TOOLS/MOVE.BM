@@ -28,6 +28,20 @@ SUB MOVE_init ()
     MOVE.CLONE_STAMPED = FALSE
     MOVE.CONSTRAIN = FALSE
     MOVE.CAPTURED_LAYER = 0
+    ' Clear multi-layer move snapshot
+    REDIM _PRESERVE MOVE_MULTI_LAYERS(1 TO 64) AS INTEGER
+    DIM mmi AS INTEGER
+    FOR mmi% = 1 TO UBOUND(MOVE_MULTI_LAYERS)
+        MOVE_MULTI_LAYERS(mmi%) = 0
+    NEXT mmi%
+    MOVE_MULTI_COUNT% = 0
+    ' Zero out multi-layer preview handles (freeing is done in MOVE_reset before calling here)
+    REDIM _PRESERVE MOVE_MULTI_ORIGINALS(1 TO 64) AS LONG
+    REDIM _PRESERVE MOVE_MULTI_PREVIEWS(1 TO 64) AS LONG
+    FOR mmi% = 1 TO 64
+        MOVE_MULTI_ORIGINALS(mmi%) = 0
+        MOVE_MULTI_PREVIEWS(mmi%) = 0
+    NEXT mmi%
     ' Also clear layer-level scale original
     IF SCALE_ORIGINAL_IMAGE < -1 THEN _FREEIMAGE SCALE_ORIGINAL_IMAGE
     SCALE_ORIGINAL_IMAGE = 0
@@ -49,6 +63,12 @@ SUB MOVE_reset ()
     END IF
     IF MOVE.SELECTION_IMAGE < -1 THEN _FREEIMAGE MOVE.SELECTION_IMAGE
     IF MOVE.PREVIEW_BUFFER < -1 THEN _FREEIMAGE MOVE.PREVIEW_BUFFER
+    ' Free multi-layer original snapshots and preview buffers
+    DIM mrI AS INTEGER
+    FOR mrI% = 1 TO 64
+        IF MOVE_MULTI_ORIGINALS(mrI%) < -1 THEN _FREEIMAGE MOVE_MULTI_ORIGINALS(mrI%)
+        IF MOVE_MULTI_PREVIEWS(mrI%) < -1 THEN _FREEIMAGE MOVE_MULTI_PREVIEWS(mrI%)
+    NEXT mrI%
     MOVE_init
 END SUB
 
@@ -94,6 +114,55 @@ SUB MOVE_capture_selection ()
     ' Track which layer we captured from (ensures apply targets the correct layer
     ' even if the user switches layers before committing)
     MOVE.CAPTURED_LAYER = CURRENT_LAYER%
+
+    ' Snapshot multi-selected layers for linked move.
+    ' Only OTHER selected layers are recorded — the captured layer is handled
+    ' separately via the selection-image pipeline.
+    DIM capI AS INTEGER
+    MOVE_MULTI_COUNT% = 0
+    FOR capI% = 1 TO 64
+        MOVE_MULTI_LAYERS(capI%) = 0
+    NEXT capI%
+    IF MULTI_SELECT_has_any% THEN
+        FOR capI% = 1 TO 64
+            IF MULTI_SELECT_LAYERS(capI%) AND capI% <> CURRENT_LAYER% THEN
+                IF LAYERS(capI%).imgHandle& < -1 THEN
+                    MOVE_MULTI_COUNT% = MOVE_MULTI_COUNT% + 1
+                    MOVE_MULTI_LAYERS(MOVE_MULTI_COUNT%) = capI%
+                END IF
+            END IF
+        NEXT capI%
+    END IF
+
+    ' Allocate per-layer original snapshots and preview buffers for real-time drag preview.
+    ' Each multi-selected layer gets a canvas-sized snapshot (original content) and a
+    ' preview buffer (same size, shifted each frame by the current drag delta).
+    DIM capW AS LONG
+    DIM capH AS LONG
+    capW& = SCRN.canvasW&
+    capH& = SCRN.canvasH&
+    DIM capJ AS INTEGER
+    FOR capJ% = 1 TO MOVE_MULTI_COUNT%
+        DIM capLIdx AS INTEGER
+        capLIdx% = MOVE_MULTI_LAYERS(capJ%)
+        ' Free any stale images from a previous drag
+        IF MOVE_MULTI_ORIGINALS(capJ%) < -1 THEN _FREEIMAGE MOVE_MULTI_ORIGINALS(capJ%)
+        IF MOVE_MULTI_PREVIEWS(capJ%) < -1 THEN _FREEIMAGE MOVE_MULTI_PREVIEWS(capJ%)
+        ' Snapshot: copy the layer's current pixel content
+        MOVE_MULTI_ORIGINALS(capJ%) = _NEWIMAGE(capW&, capH&, 32)
+        _DEST MOVE_MULTI_ORIGINALS(capJ%)
+        _DONTBLEND MOVE_MULTI_ORIGINALS(capJ%)
+        CLS , _RGBA32(0, 0, 0, 0)
+        _BLEND MOVE_MULTI_ORIGINALS(capJ%)
+        _PUTIMAGE , LAYERS(capLIdx%).imgHandle&, MOVE_MULTI_ORIGINALS(capJ%)
+        ' Preview buffer: canvas-sized, will be updated each frame via MOVE_update_preview_buffer
+        MOVE_MULTI_PREVIEWS(capJ%) = _NEWIMAGE(capW&, capH&, 32)
+        _DEST MOVE_MULTI_PREVIEWS(capJ%)
+        _DONTBLEND MOVE_MULTI_PREVIEWS(capJ%)
+        CLS , _RGBA32(0, 0, 0, 0)
+        _BLEND MOVE_MULTI_PREVIEWS(capJ%)
+    NEXT capJ%
+    _DEST SCRN.CANVAS&
 
     ' NOTE: No undo save here. The post-move state is saved in MOVE_apply_transform.
     ' The pre-move baseline comes from UNDO_init (file load), LAYERS_new, or
@@ -183,7 +252,12 @@ SUB MOVE_update_transform (x AS INTEGER, y AS INTEGER)
         CASE 0 ' Move
             MOVE.CURRENT_X = MOVE.SELECTION_X + dx
             MOVE.CURRENT_Y = MOVE.SELECTION_Y + dy
-            
+            ' Snap the primary (captured) layer position to the grid.
+            ' Co-selected layers follow the same snapped delta automatically via
+            ' mmDx = MOVE.CURRENT_X - MOVE.ORIGINAL_X in MOVE_update_preview_buffer
+            ' and MOVE_apply_transform, so no additional snapping is needed for them.
+            GRID_snap_xy MOVE.CURRENT_X, MOVE.CURRENT_Y
+
         CASE 1 ' Scale (corner handles)
             aspect_ratio = MOVE.SELECTION_W / MOVE.SELECTION_H
             
@@ -351,7 +425,45 @@ SUB MOVE_apply_transform ()
         UNDO_save_layer_state targetLayer%
         UNDO_saved_this_frame% = TRUE
     END IF
-    
+
+    ' Multi-layer linked move: translate all other snapshotted layers by the same
+    ' translation delta. Only applies when TRANSFORM_TYPE=0 (pure translation) and
+    ' not cloning. Scale/stretch only affect the captured layer.
+    IF MOVE_MULTI_COUNT% > 0 AND MOVE.TRANSFORM_TYPE = 0 AND NOT MOVE.CLONING THEN
+        DIM mmDx AS INTEGER, mmDy AS INTEGER
+        mmDx% = MOVE.CURRENT_X - MOVE.ORIGINAL_X
+        mmDy% = MOVE.CURRENT_Y - MOVE.ORIGINAL_Y
+        IF mmDx% <> 0 OR mmDy% <> 0 THEN
+            DIM mmI AS INTEGER
+            FOR mmI% = 1 TO MOVE_MULTI_COUNT%
+                DIM mmIdx AS INTEGER
+                mmIdx% = MOVE_MULTI_LAYERS(mmI%)
+                IF mmIdx% >= 1 AND mmIdx% <= 64 THEN
+                    IF LAYERS(mmIdx%).imgHandle& < -1 THEN
+                        ' Save undo state BEFORE translate so undo restores pre-move
+                        UNDO_save_layer_state mmIdx%
+                        LAYER_translate_content mmIdx%, mmDx%, mmDy%
+                        LAYERS(mmIdx%).contentDirty% = TRUE
+                        ' Refresh the originals snapshot to the now-translated content.
+                        ' MOVE_sync_base resets delta to 0 and rerenders preview buffers,
+                        ' so the snapshot must reflect the post-translate pixels or the
+                        ' preview will render the layer back at its original position.
+                        IF MOVE_MULTI_ORIGINALS(mmI%) < -1 THEN
+                            DIM mmO AS LONG
+                            mmO& = MOVE_MULTI_ORIGINALS(mmI%)
+                            _DEST mmO&
+                            _DONTBLEND mmO&
+                            CLS , _RGBA32(0, 0, 0, 0)
+                            _BLEND mmO&
+                            _PUTIMAGE , LAYERS(mmIdx%).imgHandle&, mmO&
+                        END IF
+                    END IF
+                END IF
+            NEXT mmI%
+            _DEST SCRN.CANVAS&
+        END IF
+    END IF
+
     ' Reset transforming flag
     MOVE.TRANSFORMING = FALSE
 END SUB
@@ -581,6 +693,28 @@ SUB MOVE_update_preview_buffer ()
     
     ' Draw the transformed selection at its current position/size
     _PUTIMAGE (MOVE.CURRENT_X, MOVE.CURRENT_Y)-(MOVE.CURRENT_X + MOVE.CURRENT_W - 1, MOVE.CURRENT_Y + MOVE.CURRENT_H - 1), MOVE.SELECTION_IMAGE, MOVE.PREVIEW_BUFFER
+
+    ' Update per-layer preview buffers for all other multi-selected layers.
+    ' Each preview shows the layer's original content shifted by the same (dx, dy)
+    ' as the primary layer so the whole group drags together in real-time.
+    IF MOVE_MULTI_COUNT% > 0 AND MOVE.TRANSFORM_TYPE = 0 AND NOT MOVE.CLONING THEN
+        DIM mmDx AS INTEGER
+        DIM mmDy AS INTEGER
+        mmDx% = MOVE.CURRENT_X - MOVE.ORIGINAL_X
+        mmDy% = MOVE.CURRENT_Y - MOVE.ORIGINAL_Y
+        DIM upI AS INTEGER
+        FOR upI% = 1 TO MOVE_MULTI_COUNT%
+            IF MOVE_MULTI_PREVIEWS(upI%) < -1 AND MOVE_MULTI_ORIGINALS(upI%) < -1 THEN
+                _DEST MOVE_MULTI_PREVIEWS(upI%)
+                _DONTBLEND MOVE_MULTI_PREVIEWS(upI%)
+                CLS , _RGBA32(0, 0, 0, 0)
+                _BLEND MOVE_MULTI_PREVIEWS(upI%)
+                ' Paste original content shifted by the current drag delta
+                _PUTIMAGE (mmDx%, mmDy%), MOVE_MULTI_ORIGINALS(upI%), MOVE_MULTI_PREVIEWS(upI%)
+            END IF
+        NEXT upI%
+        _DEST SCRN.CANVAS&
+    END IF
 END SUB
 
 ' Get the preview buffer for rendering
@@ -591,6 +725,27 @@ FUNCTION MOVE_get_preview_buffer& ()
     ELSE
         MOVE_get_preview_buffer& = 0
     END IF
+END FUNCTION
+
+' Get the real-time drag preview buffer for a given multi-selected layer.
+' Returns the canvas-sized preview (shifted by current drag delta) if:
+'   - MOVE is active, TRANSFORM_TYPE=0 (move, not scale/stretch), not cloning
+'   - layerIdx% is one of the multi-selected layers
+' Returns 0 if no preview is available for this layer (caller will use original handle).
+FUNCTION MOVE_get_multi_layer_preview& (layerIdx AS INTEGER)
+    MOVE_get_multi_layer_preview& = 0
+    IF NOT MOVE.ACTIVE THEN EXIT FUNCTION
+    IF MOVE.TRANSFORM_TYPE <> 0 THEN EXIT FUNCTION
+    IF MOVE.CLONING THEN EXIT FUNCTION
+    DIM gmpI AS INTEGER
+    FOR gmpI% = 1 TO MOVE_MULTI_COUNT%
+        IF MOVE_MULTI_LAYERS(gmpI%) = layerIdx% THEN
+            IF MOVE_MULTI_PREVIEWS(gmpI%) < -1 THEN
+                MOVE_get_multi_layer_preview& = MOVE_MULTI_PREVIEWS(gmpI%)
+            END IF
+            EXIT FUNCTION
+        END IF
+    NEXT gmpI%
 END FUNCTION
 
 ' Flip the selection image horizontally

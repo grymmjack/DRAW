@@ -87,6 +87,10 @@ SUB CMD_init ()
     CMD_register "Clear Canvas (No Prompt)", "Backspace", CMD_CAT_EDIT, 309
     CMD_register "Select All", "Ctrl+A", CMD_CAT_EDIT, 310
     CMD_register "Invert Selection", "Ctrl+Shift+I", CMD_CAT_EDIT, 311
+    CMD_register "Expand Selection", "Hold M:=", CMD_CAT_EDIT, 1410
+    CMD_register "Contract Selection", "Hold M:-", CMD_CAT_EDIT, 1411
+    CMD_register "Expand Selection (large)", "Hold M:+", CMD_CAT_EDIT, 1412
+    CMD_register "Contract Selection (large)", "Hold M:_", CMD_CAT_EDIT, 1413
     CMD_register "Rotate 90 CW", ">", CMD_CAT_EDIT, 319
     CMD_register "Rotate 90 CCW", "<", CMD_CAT_EDIT, 320
     CMD_register "Copy Merged", "Ctrl+Shift+C", CMD_CAT_EDIT, 322
@@ -140,7 +144,22 @@ SUB CMD_init ()
     CMD_register "Move Layer Down", "Ctrl+PgDn", CMD_CAT_LAYER, 704
     CMD_register "Merge Layer Down", "Ctrl+Alt+E", CMD_CAT_LAYER, 705
     CMD_register "Merge All Visible", "Ctrl+Alt+Shift+E", CMD_CAT_LAYER, 706
+    CMD_register "Merge Selected Layers", "", CMD_CAT_LAYER, 711
     CMD_register "Duplicate Layer", "Ctrl+Shift+D", CMD_CAT_LAYER, 707
+    CMD_register "Arrange to Top", "Ctrl+Home", CMD_CAT_LAYER, 708
+    CMD_register "Arrange to Bottom", "Ctrl+End", CMD_CAT_LAYER, 709
+    CMD_register "Align Left (layers)", "", CMD_CAT_LAYER, 1901
+    CMD_register "Align Center H (layers)", "", CMD_CAT_LAYER, 1902
+    CMD_register "Align Right (layers)", "", CMD_CAT_LAYER, 1903
+    CMD_register "Align Top (layers)", "", CMD_CAT_LAYER, 1904
+    CMD_register "Align Middle V (layers)", "", CMD_CAT_LAYER, 1905
+    CMD_register "Align Bottom (layers)", "", CMD_CAT_LAYER, 1906
+    CMD_register "Distribute Horizontally (layers)", "", CMD_CAT_LAYER, 1907
+    CMD_register "Distribute Vertically (layers)", "", CMD_CAT_LAYER, 1908
+    
+    ' ========== SELECT ==========
+    CMD_register "Select From Current Layer", "", CMD_CAT_SELECT, 1401
+    CMD_register "Select From Selected Layers", "", CMD_CAT_SELECT, 1414
     
     ' ========== CANVAS ==========
     CMD_register "Pan Canvas", "Space+Drag or MMB", CMD_CAT_CANVAS, 801
@@ -730,6 +749,20 @@ SUB CMD_execute_action (action_id AS INTEGER)
             END IF
         CASE 306, 308  ' Clear selection / Edit > Clear
             CLIPBOARD_clear_selection
+            ' Apply clear to all other multi-selected layers
+            IF MULTI_SELECT_has_any% THEN
+                DIM mlClrI AS INTEGER
+                FOR mlClrI% = 1 TO 64
+                    IF MULTI_SELECT_LAYERS(mlClrI%) AND mlClrI% <> CURRENT_LAYER% THEN
+                        CMD_ml_clear mlClrI%
+                    END IF
+                NEXT mlClrI%
+                BLEND_invalidate_cache
+                CANVAS_DIRTY% = TRUE
+                SCENE_DIRTY% = TRUE
+                GUI_NEEDS_REDRAW% = TRUE
+                FRAME_IDLE% = FALSE
+            END IF
         CASE 307  ' Deselect
             IF MARQUEE.WAND_HAS_SELECTION AND MARQUEE.SELECTION_MASK < -1 THEN
                 WORKSPACE_UNDO_save_selection
@@ -858,12 +891,123 @@ SUB CMD_execute_action (action_id AS INTEGER)
         CASE 701  ' New Layer
             DIM newLayerIdx AS INTEGER
             newLayerIdx% = LAYERS_new%
-        CASE 702: LAYERS_delete CURRENT_LAYER%  ' Delete Layer
+        CASE 702  ' Delete Layer — if multi-select, delete all selected (stop at 1 remaining)
+            IF MULTI_SELECT_has_any% THEN
+                DIM delLayers(1 TO 64) AS INTEGER
+                DIM delCount AS INTEGER
+                DIM delZ AS INTEGER, delI AS INTEGER
+                ' Collect selected layer indices sorted by zIndex descending (delete from top down)
+                FOR delZ% = LAYER_COUNT% TO 1 STEP -1
+                    FOR delI% = 1 TO 64
+                        IF LAYERS(delI%).imgHandle& <> 0 AND LAYERS(delI%).zIndex% = delZ% AND MULTI_SELECT_LAYERS(delI%) THEN
+                            delCount% = delCount% + 1
+                            delLayers(delCount%) = delI%
+                        END IF
+                    NEXT delI%
+                NEXT delZ%
+                FOR delI% = 1 TO delCount%
+                    IF LAYER_COUNT% > 1 THEN LAYERS_delete delLayers(delI%)
+                NEXT delI%
+            ELSE
+                LAYERS_delete CURRENT_LAYER%
+            END IF
         CASE 703: LAYERS_move_up CURRENT_LAYER%
         CASE 704: LAYERS_move_down CURRENT_LAYER%
         CASE 705: LAYERS_merge_down CURRENT_LAYER%
         CASE 706: LAYERS_merge_visible
-        CASE 707: LAYERS_duplicate CURRENT_LAYER%  ' Duplicate Layer
+        CASE 707  ' Duplicate Layer — if multi-select, duplicate all selected
+            IF MULTI_SELECT_has_any% THEN
+                DIM dupI AS INTEGER
+                FOR dupI% = 1 TO 64
+                    IF MULTI_SELECT_LAYERS(dupI%) AND LAYERS(dupI%).imgHandle& <> 0 THEN
+                        LAYERS_duplicate dupI%
+                    END IF
+                NEXT dupI%
+            ELSE
+                LAYERS_duplicate CURRENT_LAYER%
+            END IF
+        
+        CASE 711  ' Merge Selected Layers
+            IF MULTI_SELECT_COUNT% < 2 THEN EXIT SELECT
+            ' Build sorted list of selected layers by zIndex (ascending = bottom first)
+            DIM ms711_sortedSel(1 TO 64) AS INTEGER
+            DIM ms711_sortCount AS INTEGER
+            DIM ms711_zi AS INTEGER, ms711_si AS INTEGER
+            ms711_sortCount% = 0
+            FOR ms711_zi% = 1 TO LAYER_COUNT%
+                FOR ms711_si% = 1 TO 64
+                    IF MULTI_SELECT_LAYERS(ms711_si%) AND LAYERS(ms711_si%).imgHandle& <> 0 AND LAYERS(ms711_si%).zIndex% = ms711_zi% THEN
+                        ms711_sortCount% = ms711_sortCount% + 1
+                        ms711_sortedSel%(ms711_sortCount%) = ms711_si%
+                        EXIT FOR
+                    END IF
+                NEXT ms711_si%
+            NEXT ms711_zi%
+            IF ms711_sortCount% < 2 THEN EXIT SELECT
+            ' Save workspace undo BEFORE any structural changes
+            WORKSPACE_UNDO_save_merge_visible ms711_sortedSel%(), ms711_sortCount%
+            WORKSPACE_UNDO_IN_PROGRESS% = TRUE
+            ' Create new blank layer for merged result
+            DIM ms711_newIdx AS INTEGER
+            ms711_newIdx% = LAYERS_new%
+            IF ms711_newIdx% = 0 THEN
+                WORKSPACE_UNDO_IN_PROGRESS% = FALSE
+                EXIT SELECT
+            END IF
+            WORKSPACE_UNDO_STATES(WORKSPACE_UNDO.current%).merge_top_index% = ms711_newIdx%
+            LAYERS(ms711_newIdx%).name = "Merged"
+            ' Composite selected layers bottom-to-top onto the new blank layer
+            DIM ms711_oldDest AS LONG
+            DIM ms711_tempImg AS LONG
+            ms711_oldDest& = _DEST
+            _DEST LAYERS(ms711_newIdx%).imgHandle&
+            CLS , _RGBA32(0, 0, 0, 0)
+            _BLEND LAYERS(ms711_newIdx%).imgHandle&
+            FOR ms711_si% = 1 TO ms711_sortCount%
+                DIM ms711_srcIdx AS INTEGER
+                ms711_srcIdx% = ms711_sortedSel%(ms711_si%)
+                IF LAYERS(ms711_srcIdx%).blendMode% <> BLEND_NORMAL THEN
+                    _DEST ms711_oldDest&
+                    LAYER_blend_composite LAYERS(ms711_newIdx%).imgHandle&, LAYERS(ms711_srcIdx%).imgHandle&, LAYERS(ms711_srcIdx%).blendMode%, LAYERS(ms711_srcIdx%).opacity%
+                    _DEST LAYERS(ms711_newIdx%).imgHandle&
+                ELSEIF LAYERS(ms711_srcIdx%).opacity% < 255 THEN
+                    ms711_tempImg& = _COPYIMAGE(LAYERS(ms711_srcIdx%).imgHandle&, 32)
+                    DIM ms711_mem AS _MEM
+                    DIM ms711_off AS _OFFSET
+                    DIM ms711_pix AS _UNSIGNED LONG
+                    DIM ms711_a AS _UNSIGNED _BYTE
+                    DIM ms711_na AS INTEGER
+                    ms711_mem = _MEMIMAGE(ms711_tempImg&)
+                    FOR ms711_off = ms711_mem.OFFSET TO ms711_mem.OFFSET + ms711_mem.SIZE - 4 STEP 4
+                        _MEMGET ms711_mem, ms711_off, ms711_pix~&
+                        ms711_a~%% = _ALPHA32(ms711_pix~&)
+                        IF ms711_a~%% > 0 THEN
+                            ms711_na% = (ms711_a~%% * LAYERS(ms711_srcIdx%).opacity%) \ 255
+                            _MEMPUT ms711_mem, ms711_off + 3, ms711_na% AS _UNSIGNED _BYTE
+                        END IF
+                    NEXT ms711_off
+                    _MEMFREE ms711_mem
+                    _PUTIMAGE , ms711_tempImg&
+                    IF ms711_tempImg& < -1 THEN _FREEIMAGE ms711_tempImg&
+                ELSE
+                    _PUTIMAGE , LAYERS(ms711_srcIdx%).imgHandle&
+                END IF
+            NEXT ms711_si%
+            _DEST ms711_oldDest&
+            LAYERS(ms711_newIdx%).contentDirty% = TRUE
+            ' Delete the source selected layers
+            FOR ms711_si% = 1 TO ms711_sortCount%
+                IF ms711_sortedSel%(ms711_si%) <> ms711_newIdx% THEN
+                    LAYERS_delete ms711_sortedSel%(ms711_si%)
+                END IF
+            NEXT ms711_si%
+            WORKSPACE_UNDO_IN_PROGRESS% = FALSE
+            MULTI_SELECT_clear
+            LAYERS_select ms711_newIdx%
+            BLEND_invalidate_cache
+            GUI_NEEDS_REDRAW% = TRUE
+            SCENE_DIRTY% = TRUE
+            FRAME_IDLE% = FALSE
         
         ' ========== GRID ==========
         CASE 901: GRID.SHOW% = NOT GRID.SHOW%: GUI_NEEDS_REDRAW% = TRUE: SCENE_DIRTY% = TRUE
@@ -1081,7 +1225,13 @@ SUB CMD_execute_action (action_id AS INTEGER)
                 ELSEIF MARQUEE.ACTIVE AND MARQUEE.USER_CREATED AND MARQUEE.INITIALIZED THEN
                     LINE (MARQUEE.BOX.x, MARQUEE.BOX.y)-(MARQUEE.BOX.x + MARQUEE.BOX.w - 1, MARQUEE.BOX.y + MARQUEE.BOX.h - 1), PAINT_COLOR~&, BF
                 ELSE
-                    CLS , PAINT_COLOR~&
+                    ' Multi-select: fill only opaque pixels so transparent areas on other layers
+                    ' are not flooded solid. Single-layer: keep full CLS behaviour.
+                    IF MULTI_SELECT_has_any% THEN
+                        CMD_ml_fill CURRENT_LAYER%, PAINT_COLOR~&
+                    ELSE
+                        CLS , PAINT_COLOR~&
+                    END IF
                 END IF
                 _DEST oldFillDest&
                 STROKE_commit
@@ -1090,6 +1240,15 @@ SUB CMD_execute_action (action_id AS INTEGER)
                     UNDO_saved_this_frame% = TRUE
                 END IF
                 LAYERS(CURRENT_LAYER%).contentDirty% = TRUE
+                ' Apply fill to all other multi-selected layers (opaque pixels only)
+                IF MULTI_SELECT_has_any% THEN
+                    DIM mlFgI AS INTEGER
+                    FOR mlFgI% = 1 TO 64
+                        IF MULTI_SELECT_LAYERS(mlFgI%) AND mlFgI% <> CURRENT_LAYER% THEN
+                            CMD_ml_fill mlFgI%, PAINT_COLOR~&
+                        END IF
+                    NEXT mlFgI%
+                END IF
                 BLEND_invalidate_cache
                 CANVAS_DIRTY% = TRUE
                 SCENE_DIRTY% = TRUE
@@ -1120,7 +1279,11 @@ SUB CMD_execute_action (action_id AS INTEGER)
                 ELSEIF MARQUEE.ACTIVE AND MARQUEE.USER_CREATED AND MARQUEE.INITIALIZED THEN
                     LINE (MARQUEE.BOX.x, MARQUEE.BOX.y)-(MARQUEE.BOX.x + MARQUEE.BOX.w - 1, MARQUEE.BOX.y + MARQUEE.BOX.h - 1), PAINT_BG_COLOR~&, BF
                 ELSE
-                    CLS , PAINT_BG_COLOR~&
+                    IF MULTI_SELECT_has_any% THEN
+                        CMD_ml_fill CURRENT_LAYER%, PAINT_BG_COLOR~&
+                    ELSE
+                        CLS , PAINT_BG_COLOR~&
+                    END IF
                 END IF
                 _DEST oldBgDest&
                 IF NOT UNDO_saved_this_frame% THEN
@@ -1128,6 +1291,15 @@ SUB CMD_execute_action (action_id AS INTEGER)
                     UNDO_saved_this_frame% = TRUE
                 END IF
                 LAYERS(CURRENT_LAYER%).contentDirty% = TRUE
+                ' Apply fill to all other multi-selected layers (opaque pixels only)
+                IF MULTI_SELECT_has_any% THEN
+                    DIM mlBgI AS INTEGER
+                    FOR mlBgI% = 1 TO 64
+                        IF MULTI_SELECT_LAYERS(mlBgI%) AND mlBgI% <> CURRENT_LAYER% THEN
+                            CMD_ml_fill mlBgI%, PAINT_BG_COLOR~&
+                        END IF
+                    NEXT mlBgI%
+                END IF
                 BLEND_invalidate_cache
                 CANVAS_DIRTY% = TRUE
                 SCENE_DIRTY% = TRUE
@@ -1205,6 +1377,15 @@ SUB CMD_execute_action (action_id AS INTEGER)
                     UNDO_saved_this_frame% = TRUE
                 END IF
                 LAYERS(CURRENT_LAYER%).contentDirty% = TRUE
+                ' Apply flip H to all other multi-selected layers
+                IF MULTI_SELECT_has_any% THEN
+                    DIM mlFhI AS INTEGER
+                    FOR mlFhI% = 1 TO 64
+                        IF MULTI_SELECT_LAYERS(mlFhI%) AND mlFhI% <> CURRENT_LAYER% THEN
+                            CMD_ml_flip_h mlFhI%
+                        END IF
+                    NEXT mlFhI%
+                END IF
                 BLEND_invalidate_cache
                 CANVAS_DIRTY% = TRUE
                 SCENE_DIRTY% = TRUE
@@ -1269,6 +1450,15 @@ SUB CMD_execute_action (action_id AS INTEGER)
                     UNDO_saved_this_frame% = TRUE
                 END IF
                 LAYERS(CURRENT_LAYER%).contentDirty% = TRUE
+                ' Apply flip V to all other multi-selected layers
+                IF MULTI_SELECT_has_any% THEN
+                    DIM mlFvI AS INTEGER
+                    FOR mlFvI% = 1 TO 64
+                        IF MULTI_SELECT_LAYERS(mlFvI%) AND mlFvI% <> CURRENT_LAYER% THEN
+                            CMD_ml_flip_v mlFvI%
+                        END IF
+                    NEXT mlFvI%
+                END IF
                 BLEND_invalidate_cache
                 CANVAS_DIRTY% = TRUE
                 SCENE_DIRTY% = TRUE
@@ -1383,6 +1573,15 @@ SUB CMD_execute_action (action_id AS INTEGER)
                     UNDO_saved_this_frame% = TRUE
                 END IF
                 LAYERS(CURRENT_LAYER%).contentDirty% = TRUE
+                ' Apply scale -50% to all other multi-selected layers
+                IF MULTI_SELECT_has_any% THEN
+                    DIM mlSdI AS INTEGER
+                    FOR mlSdI% = 1 TO 64
+                        IF MULTI_SELECT_LAYERS(mlSdI%) AND mlSdI% <> CURRENT_LAYER% THEN
+                            CMD_ml_scale mlSdI%, 0.5!
+                        END IF
+                    NEXT mlSdI%
+                END IF
                 BLEND_invalidate_cache
                 CANVAS_DIRTY% = TRUE
                 SCENE_DIRTY% = TRUE
@@ -1512,6 +1711,15 @@ SUB CMD_execute_action (action_id AS INTEGER)
                     UNDO_saved_this_frame% = TRUE
                 END IF
                 LAYERS(CURRENT_LAYER%).contentDirty% = TRUE
+                ' Apply scale +50% to all other multi-selected layers
+                IF MULTI_SELECT_has_any% THEN
+                    DIM mlSuI AS INTEGER
+                    FOR mlSuI% = 1 TO 64
+                        IF MULTI_SELECT_LAYERS(mlSuI%) AND mlSuI% <> CURRENT_LAYER% THEN
+                            CMD_ml_scale mlSuI%, 1.5!
+                        END IF
+                    NEXT mlSuI%
+                END IF
                 BLEND_invalidate_cache
                 CANVAS_DIRTY% = TRUE
                 SCENE_DIRTY% = TRUE
@@ -1687,6 +1895,15 @@ SUB CMD_execute_action (action_id AS INTEGER)
                     UNDO_saved_this_frame% = TRUE
                 END IF
                 LAYERS(CURRENT_LAYER%).contentDirty% = TRUE
+                ' Apply rotate CW to all other multi-selected layers
+                IF MULTI_SELECT_has_any% THEN
+                    DIM mlRcI AS INTEGER
+                    FOR mlRcI% = 1 TO 64
+                        IF MULTI_SELECT_LAYERS(mlRcI%) AND mlRcI% <> CURRENT_LAYER% THEN
+                            CMD_ml_rotate_cw mlRcI%
+                        END IF
+                    NEXT mlRcI%
+                END IF
                 BLEND_invalidate_cache
                 CANVAS_DIRTY% = TRUE
                 SCENE_DIRTY% = TRUE
@@ -1859,6 +2076,15 @@ SUB CMD_execute_action (action_id AS INTEGER)
                     UNDO_saved_this_frame% = TRUE
                 END IF
                 LAYERS(CURRENT_LAYER%).contentDirty% = TRUE
+                ' Apply rotate CCW to all other multi-selected layers
+                IF MULTI_SELECT_has_any% THEN
+                    DIM mlRccI AS INTEGER
+                    FOR mlRccI% = 1 TO 64
+                        IF MULTI_SELECT_LAYERS(mlRccI%) AND mlRccI% <> CURRENT_LAYER% THEN
+                            CMD_ml_rotate_ccw mlRccI%
+                        END IF
+                    NEXT mlRccI%
+                END IF
                 BLEND_invalidate_cache
                 CANVAS_DIRTY% = TRUE
                 SCENE_DIRTY% = TRUE
@@ -1916,11 +2142,277 @@ SUB CMD_execute_action (action_id AS INTEGER)
         CASE 710  ' Export Layer as PNG
             ERR_info "Export layer as PNG: not yet implemented"
         
+        ' ========== ALIGN/DISTRIBUTE ==========
+        ' Multi-select: align relative to CURRENT_LAYER% (reference); single: align to canvas.
+        ' Distribute (1907/1908) spaces layers evenly between extremes.
+        CASE 1901, 1902, 1903, 1904, 1905, 1906, 1907, 1908
+            DIM algnI AS INTEGER
+            DIM algnLayers(1 TO 64) AS INTEGER
+            DIM algnCount AS INTEGER
+            DIM algnMulti AS INTEGER
+            algnMulti% = MULTI_SELECT_has_any%
+            ' Collect selected layers
+            FOR algnI% = 1 TO 64
+                IF LAYERS(algnI%).imgHandle& <> 0 THEN
+                    IF algnMulti% THEN
+                        IF MULTI_SELECT_LAYERS(algnI%) THEN
+                            algnCount% = algnCount% + 1
+                            algnLayers(algnCount%) = algnI%
+                        END IF
+                    ELSE
+                        IF algnI% = CURRENT_LAYER% THEN
+                            algnCount% = algnCount% + 1
+                            algnLayers(1) = algnI%
+                        END IF
+                    END IF
+                END IF
+            NEXT algnI%
+
+            ' Determine alignment reference: CURRENT_LAYER% bounds (multi) or canvas (single)
+            DIM algRefX AS INTEGER, algRefY AS INTEGER, algRefW AS INTEGER, algRefH AS INTEGER
+            DIM algCanvasW AS INTEGER, algCanvasH AS INTEGER
+            algCanvasW% = _WIDTH(LAYER_current_image&)
+            algCanvasH% = _HEIGHT(LAYER_current_image&)
+            IF algnMulti% THEN
+                ' Reference is CURRENT_LAYER% content bounds
+                LAYER_get_content_bounds CURRENT_LAYER%, algRefX%, algRefY%, algRefW%, algRefH%
+                IF algRefW% <= 0 OR algRefH% <= 0 THEN
+                    ' Reference layer is empty — fall back to canvas
+                    algRefX% = 0: algRefY% = 0: algRefW% = algCanvasW%: algRefH% = algCanvasH%
+                END IF
+            ELSE
+                ' Single layer: align to canvas bounds
+                algRefX% = 0: algRefY% = 0: algRefW% = algCanvasW%: algRefH% = algCanvasH%
+            END IF
+
+            ' Save undo state for each affected layer BEFORE making changes
+            FOR algnI% = 1 TO algnCount%
+                UNDO_save_layer_state algnLayers(algnI%)
+            NEXT algnI%
+
+            DIM algBx AS INTEGER, algBy AS INTEGER, algBw AS INTEGER, algBh AS INTEGER
+            DIM algDx AS INTEGER, algDy AS INTEGER
+
+            ' ---- Distribute requires sorting by position; handled separately ----
+            IF action_id% = 1907 OR action_id% = 1908 THEN
+                ' Distribute H (1907) or V (1908)
+                ' Gather bounds per selected layer
+                DIM distBx(1 TO 64) AS INTEGER, distBy(1 TO 64) AS INTEGER
+                DIM distBw(1 TO 64) AS INTEGER, distBh(1 TO 64) AS INTEGER
+                DIM distOrder(1 TO 64) AS INTEGER  ' indices into algnLayers, sorted
+                DIM distValid AS INTEGER
+                distValid% = 0
+                FOR algnI% = 1 TO algnCount%
+                    LAYER_get_content_bounds algnLayers(algnI%), distBx(algnI%), distBy(algnI%), distBw(algnI%), distBh(algnI%)
+                    IF distBw(algnI%) > 0 AND distBh(algnI%) > 0 THEN
+                        distValid% = distValid% + 1
+                        distOrder(distValid%) = algnI%
+                    END IF
+                NEXT algnI%
+                IF distValid% >= 2 THEN
+                    ' Simple insertion sort by position (X for H, Y for V)
+                    DIM distJ AS INTEGER, distTmp AS INTEGER, distKey AS INTEGER
+                    FOR algnI% = 2 TO distValid%
+                        distTmp% = distOrder(algnI%)
+                        IF action_id% = 1907 THEN
+                            distKey% = distBx(distTmp%)
+                        ELSE
+                            distKey% = distBy(distTmp%)
+                        END IF
+                        distJ% = algnI% - 1
+                        DO WHILE distJ% >= 1
+                            DIM distCmp AS INTEGER
+                            IF action_id% = 1907 THEN
+                                distCmp% = distBx(distOrder(distJ%))
+                            ELSE
+                                distCmp% = distBy(distOrder(distJ%))
+                            END IF
+                            IF distCmp% <= distKey% THEN EXIT DO
+                            distOrder(distJ% + 1) = distOrder(distJ%)
+                            distJ% = distJ% - 1
+                        LOOP
+                        distOrder(distJ% + 1) = distTmp%
+                    NEXT algnI%
+                    ' Compute total span and content size sum
+                    DIM distFirst AS INTEGER, distLast AS INTEGER
+                    distFirst% = distOrder(1): distLast% = distOrder(distValid%)
+                    DIM distSpanStart AS INTEGER, distSpanEnd AS INTEGER
+                    DIM distContentSum AS INTEGER
+                    distContentSum% = 0
+                    FOR algnI% = 1 TO distValid%
+                        DIM distIdx2 AS INTEGER
+                        distIdx2% = distOrder(algnI%)
+                        IF action_id% = 1907 THEN
+                            distContentSum% = distContentSum% + distBw(distIdx2%)
+                        ELSE
+                            distContentSum% = distContentSum% + distBh(distIdx2%)
+                        END IF
+                    NEXT algnI%
+                    IF action_id% = 1907 THEN
+                        distSpanStart% = distBx(distFirst%)
+                        distSpanEnd% = distBx(distLast%) + distBw(distLast%)
+                    ELSE
+                        distSpanStart% = distBy(distFirst%)
+                        distSpanEnd% = distBy(distLast%) + distBh(distLast%)
+                    END IF
+                    DIM distTotalGap AS INTEGER, distGap AS SINGLE
+                    distTotalGap% = (distSpanEnd% - distSpanStart%) - distContentSum%
+                    IF distValid% > 1 THEN
+                        distGap! = distTotalGap% / (distValid% - 1)
+                    ELSE
+                        distGap! = 0
+                    END IF
+                    ' Place each layer at evenly spaced positions
+                    DIM distPos AS SINGLE
+                    distPos! = distSpanStart%
+                    FOR algnI% = 1 TO distValid%
+                        DIM distIdx3 AS INTEGER
+                        distIdx3% = distOrder(algnI%)
+                        DIM distTarget AS INTEGER
+                        distTarget% = INT(distPos! + 0.5)
+                        IF action_id% = 1907 THEN
+                            algDx% = distTarget% - distBx(distIdx3%)
+                            algDy% = 0
+                            distPos! = distPos! + distBw(distIdx3%) + distGap!
+                        ELSE
+                            algDx% = 0
+                            algDy% = distTarget% - distBy(distIdx3%)
+                            distPos! = distPos! + distBh(distIdx3%) + distGap!
+                        END IF
+                        IF algDx% <> 0 OR algDy% <> 0 THEN
+                            LAYER_translate_content algnLayers(distIdx3%), algDx%, algDy%
+                            LAYERS(algnLayers(distIdx3%)).contentDirty% = TRUE
+                        END IF
+                    NEXT algnI%
+                END IF
+            ELSE
+                ' ---- Align operations (1901-1906) ----
+                FOR algnI% = 1 TO algnCount%
+                    DIM algnIdx AS INTEGER
+                    algnIdx% = algnLayers(algnI%)
+                    ' Skip the reference layer in multi-select — it stays put
+                    IF algnMulti% AND algnIdx% = CURRENT_LAYER% THEN GOTO algNextLayer
+                    LAYER_get_content_bounds algnIdx%, algBx%, algBy%, algBw%, algBh%
+                    IF algBw% <= 0 OR algBh% <= 0 THEN GOTO algNextLayer
+                    algDx% = 0: algDy% = 0
+                    SELECT CASE action_id%
+                        CASE 1901  ' Align Left
+                            algDx% = algRefX% - algBx%
+                        CASE 1902  ' Align Center H
+                            algDx% = (algRefX% + algRefW% \ 2) - (algBx% + algBw% \ 2)
+                        CASE 1903  ' Align Right
+                            algDx% = (algRefX% + algRefW% - 1) - (algBx% + algBw% - 1)
+                        CASE 1904  ' Align Top
+                            algDy% = algRefY% - algBy%
+                        CASE 1905  ' Align Middle V
+                            algDy% = (algRefY% + algRefH% \ 2) - (algBy% + algBh% \ 2)
+                        CASE 1906  ' Align Bottom
+                            algDy% = (algRefY% + algRefH% - 1) - (algBy% + algBh% - 1)
+                    END SELECT
+                    IF algDx% <> 0 OR algDy% <> 0 THEN
+                        LAYER_translate_content algnIdx%, algDx%, algDy%
+                        LAYERS(algnIdx%).contentDirty% = TRUE
+                    END IF
+                    algNextLayer:
+                NEXT algnI%
+            END IF
+            BLEND_invalidate_cache
+            GUI_NEEDS_REDRAW% = TRUE
+            SCENE_DIRTY% = TRUE
+        
         ' ========== SELECT (menu-only) ==========
         CASE 801  ' Pan tool (space emulation)
             ERR_info "Pan mode: hold Space and drag on canvas"
         CASE 1401  ' Select from current layer
             LAYER_select_non_transparent CURRENT_LAYER%
+        CASE 1414  ' Select from selected layers (union of non-transparent pixels)
+            IF MULTI_SELECT_COUNT% < 2 THEN EXIT SELECT
+            DIM sel14_i AS INTEGER, sel14_px AS INTEGER, sel14_py AS INTEGER
+            DIM sel14_w AS INTEGER, sel14_h AS INTEGER
+            DIM sel14_imgH AS LONG, sel14_pix AS _UNSIGNED LONG
+            DIM sel14_minX AS INTEGER, sel14_minY AS INTEGER
+            DIM sel14_maxX AS INTEGER, sel14_maxY AS INTEGER
+            DIM sel14_found AS INTEGER
+            DIM sel14_oldDest AS LONG, sel14_oldSrc AS LONG
+            DIM sel14_maskClr AS _UNSIGNED LONG
+            ' Find first valid selected layer for canvas dimensions
+            sel14_imgH& = 0
+            FOR sel14_i% = 1 TO 64
+                IF MULTI_SELECT_LAYERS(sel14_i%) AND LAYERS(sel14_i%).imgHandle& <> 0 THEN
+                    sel14_imgH& = LAYERS(sel14_i%).imgHandle&
+                    EXIT FOR
+                END IF
+            NEXT sel14_i%
+            IF sel14_imgH& = 0 THEN EXIT SELECT
+            sel14_w% = _WIDTH(sel14_imgH&)
+            sel14_h% = _HEIGHT(sel14_imgH&)
+            sel14_oldDest& = _DEST
+            sel14_oldSrc& = _SOURCE
+            sel14_maskClr~& = _RGB32(255, 255, 255)
+            ' Reset any existing selection
+            MARQUEE_reset
+            MAGIC_WAND_reset
+            IF MARQUEE.SELECTION_MASK < -1 THEN
+                _FREEIMAGE MARQUEE.SELECTION_MASK
+                MARQUEE.SELECTION_MASK = 0
+            END IF
+            ' Create new selection mask
+            MARQUEE.SELECTION_MASK = _NEWIMAGE(sel14_w%, sel14_h%, 32)
+            IF MARQUEE.SELECTION_MASK >= -1 THEN
+                _DEST sel14_oldDest&: _SOURCE sel14_oldSrc&: EXIT SELECT
+            END IF
+            _DEST MARQUEE.SELECTION_MASK
+            CLS , _RGBA32(0, 0, 0, 0)
+            _DONTBLEND MARQUEE.SELECTION_MASK
+            ' Union non-transparent pixels across all selected layers
+            sel14_minX% = sel14_w%: sel14_minY% = sel14_h%: sel14_maxX% = 0: sel14_maxY% = 0
+            sel14_found% = FALSE
+            FOR sel14_i% = 1 TO 64
+                IF MULTI_SELECT_LAYERS(sel14_i%) AND LAYERS(sel14_i%).imgHandle& <> 0 THEN
+                    sel14_imgH& = LAYERS(sel14_i%).imgHandle&
+                    _SOURCE sel14_imgH&
+                    FOR sel14_py% = 0 TO sel14_h% - 1
+                        FOR sel14_px% = 0 TO sel14_w% - 1
+                            sel14_pix~& = POINT(sel14_px%, sel14_py%)
+                            IF _ALPHA32(sel14_pix~&) > 0 THEN
+                                _DEST MARQUEE.SELECTION_MASK
+                                PSET (sel14_px%, sel14_py%), sel14_maskClr~&
+                                IF sel14_px% < sel14_minX% THEN sel14_minX% = sel14_px%
+                                IF sel14_px% > sel14_maxX% THEN sel14_maxX% = sel14_px%
+                                IF sel14_py% < sel14_minY% THEN sel14_minY% = sel14_py%
+                                IF sel14_py% > sel14_maxY% THEN sel14_maxY% = sel14_py%
+                                sel14_found% = TRUE
+                                _SOURCE sel14_imgH&
+                            END IF
+                        NEXT sel14_px%
+                    NEXT sel14_py%
+                END IF
+            NEXT sel14_i%
+            _BLEND MARQUEE.SELECTION_MASK
+            _DEST sel14_oldDest&
+            _SOURCE sel14_oldSrc&
+            IF sel14_found% THEN
+                MARQUEE.WAND_MIN_X = sel14_minX%
+                MARQUEE.WAND_MIN_Y = sel14_minY%
+                MARQUEE.WAND_MAX_X = sel14_maxX%
+                MARQUEE.WAND_MAX_Y = sel14_maxY%
+                MARQUEE.BOX.x = sel14_minX%
+                MARQUEE.BOX.y = sel14_minY%
+                MARQUEE.BOX.w = sel14_maxX% - sel14_minX% + 1
+                MARQUEE.BOX.h = sel14_maxY% - sel14_minY% + 1
+                MARQUEE.ACTIVE% = TRUE
+                MARQUEE.INITIALIZED% = TRUE
+                MARQUEE.USER_CREATED = TRUE
+                MARQUEE.WAND_HAS_SELECTION = TRUE
+                MARQUEE.CFG.initX = sel14_minX%
+                MARQUEE.CFG.initY = sel14_minY%
+                MARQUEE.CFG.initW = sel14_maxX% - sel14_minX% + 1
+                MARQUEE.CFG.initH = sel14_maxY% - sel14_minY% + 1
+                GJ_BBX_InitWithConfig MARQUEE.CFG
+            END IF
+            GUI_NEEDS_REDRAW% = TRUE
+            SCENE_DIRTY% = TRUE
+            FRAME_IDLE% = FALSE
         CASE 1402  ' Nudge 1px left
             IF MARQUEE.ACTIVE% THEN MARQUEE.BOX.x = MARQUEE.BOX.x - 1
         CASE 1403  ' Nudge 1px right
@@ -1937,7 +2429,15 @@ SUB CMD_execute_action (action_id AS INTEGER)
             IF MARQUEE.ACTIVE% THEN MARQUEE.BOX.y = MARQUEE.BOX.y + 10
         CASE 1409  ' Nudge 10px up
             IF MARQUEE.ACTIVE% THEN MARQUEE.BOX.y = MARQUEE.BOX.y - 10
-        
+        CASE 1410  ' Expand Selection 1px
+            SELECTION_expand 1
+        CASE 1411  ' Contract Selection 1px
+            SELECTION_contract 1
+        CASE 1412  ' Expand Selection by NUDGE_N px
+            SELECTION_expand CFG.NUDGE_N%
+        CASE 1413  ' Contract Selection by NUDGE_N px
+            SELECTION_contract CFG.NUDGE_N%
+
         ' ========== PALETTE (menu-only) ==========
         CASE 1510  ' Import palette
             ERR_info "Import palette: not yet implemented"
@@ -2131,8 +2631,240 @@ END FUNCTION
 
 
 ''
-' Check if coordinates are within command palette bounds
+' ============================================================
+' Multi-layer edit helpers
+' Each sub operates on a single extra-selected layer:
+'   - saves undo state before modifying
+'   - marks contentDirty%
+'   - does NOT call BLEND_invalidate_cache (caller does it once after the loop)
+' ============================================================
+
+''
+' Fill every opaque pixel on layerIdx with fillColor.
+' Used so transparent areas on co-selected layers are not flooded solid.
 '
+SUB CMD_ml_fill (layerIdx AS INTEGER, fillColor AS _UNSIGNED LONG)
+    IF layerIdx% < 1 OR layerIdx% > 64 THEN EXIT SUB
+    IF LAYERS(layerIdx%).imgHandle& >= -1 THEN EXIT SUB
+    UNDO_save_layer_state layerIdx%
+    DIM mlFMem AS _MEM
+    mlFMem = _MEMIMAGE(LAYERS(layerIdx%).imgHandle&)
+    DIM mlFOff AS _OFFSET
+    DIM mlFAlpha AS _UNSIGNED _BYTE
+    FOR mlFOff = mlFMem.OFFSET TO mlFMem.OFFSET + mlFMem.SIZE - 4 STEP 4
+        _MEMGET mlFMem, mlFOff + 3, mlFAlpha~%%
+        IF mlFAlpha~%% > 0 THEN
+            _MEMPUT mlFMem, mlFOff, fillColor~& AS _UNSIGNED LONG
+        END IF
+    NEXT mlFOff
+    _MEMFREE mlFMem
+    LAYERS(layerIdx%).contentDirty% = TRUE
+END SUB
+
+''
+' Clear layerIdx (marquee region if user-created, otherwise whole layer).
+'
+SUB CMD_ml_clear (layerIdx AS INTEGER)
+    IF layerIdx% < 1 OR layerIdx% > 64 THEN EXIT SUB
+    IF LAYERS(layerIdx%).imgHandle& >= -1 THEN EXIT SUB
+    UNDO_save_layer_state layerIdx%
+    DIM mlCImg AS LONG : mlCImg& = LAYERS(layerIdx%).imgHandle&
+    DIM mlCOD AS LONG : mlCOD& = _DEST
+    _DEST mlCImg&
+    _DONTBLEND mlCImg&
+    IF MARQUEE.ACTIVE AND MARQUEE.USER_CREATED AND MARQUEE.INITIALIZED THEN
+        LINE (MARQUEE.BOX.x, MARQUEE.BOX.y)-(MARQUEE.BOX.x + MARQUEE.BOX.w - 1, MARQUEE.BOX.y + MARQUEE.BOX.h - 1), _RGBA32(0, 0, 0, 0), BF
+    ELSE
+        CLS , _RGBA32(0, 0, 0, 0)
+    END IF
+    _BLEND mlCImg&
+    _DEST mlCOD&
+    LAYERS(layerIdx%).contentDirty% = TRUE
+END SUB
+
+''
+' Flip layerIdx horizontally.
+'
+SUB CMD_ml_flip_h (layerIdx AS INTEGER)
+    IF layerIdx% < 1 OR layerIdx% > 64 THEN EXIT SUB
+    IF LAYERS(layerIdx%).imgHandle& >= -1 THEN EXIT SUB
+    UNDO_save_layer_state layerIdx%
+    DIM mlFHSrc AS LONG : mlFHSrc& = LAYERS(layerIdx%).imgHandle&
+    DIM mlFHW AS LONG : mlFHW& = _WIDTH(mlFHSrc&)
+    DIM mlFHH AS LONG : mlFHH& = _HEIGHT(mlFHSrc&)
+    DIM mlFHTmp AS LONG : mlFHTmp& = _NEWIMAGE(mlFHW&, mlFHH&, 32)
+    _PUTIMAGE (mlFHW& - 1, 0)-(0, mlFHH& - 1), mlFHSrc&, mlFHTmp&
+    DIM mlFHOD AS LONG : mlFHOD& = _DEST
+    _DEST mlFHSrc&
+    _DONTBLEND mlFHSrc&
+    _PUTIMAGE , mlFHTmp&, mlFHSrc&
+    _BLEND mlFHSrc&
+    _DEST mlFHOD&
+    IF mlFHTmp& < -1 THEN _FREEIMAGE mlFHTmp&
+    LAYERS(layerIdx%).contentDirty% = TRUE
+END SUB
+
+''
+' Flip layerIdx vertically.
+'
+SUB CMD_ml_flip_v (layerIdx AS INTEGER)
+    IF layerIdx% < 1 OR layerIdx% > 64 THEN EXIT SUB
+    IF LAYERS(layerIdx%).imgHandle& >= -1 THEN EXIT SUB
+    UNDO_save_layer_state layerIdx%
+    DIM mlFVSrc AS LONG : mlFVSrc& = LAYERS(layerIdx%).imgHandle&
+    DIM mlFVW AS LONG : mlFVW& = _WIDTH(mlFVSrc&)
+    DIM mlFVH AS LONG : mlFVH& = _HEIGHT(mlFVSrc&)
+    DIM mlFVTmp AS LONG : mlFVTmp& = _NEWIMAGE(mlFVW&, mlFVH&, 32)
+    _PUTIMAGE (0, mlFVH& - 1)-(mlFVW& - 1, 0), mlFVSrc&, mlFVTmp&
+    DIM mlFVOD AS LONG : mlFVOD& = _DEST
+    _DEST mlFVSrc&
+    _DONTBLEND mlFVSrc&
+    _PUTIMAGE , mlFVTmp&, mlFVSrc&
+    _BLEND mlFVSrc&
+    _DEST mlFVOD&
+    IF mlFVTmp& < -1 THEN _FREEIMAGE mlFVTmp&
+    LAYERS(layerIdx%).contentDirty% = TRUE
+END SUB
+
+''
+' Scale layerIdx content by factor, centered on the canvas (clips to canvas edges).
+' Mirrors the whole-layer logic in CASE 317/318 without lossless accumulation.
+'
+SUB CMD_ml_scale (layerIdx AS INTEGER, factor AS SINGLE)
+    IF layerIdx% < 1 OR layerIdx% > 64 THEN EXIT SUB
+    IF LAYERS(layerIdx%).imgHandle& >= -1 THEN EXIT SUB
+    UNDO_save_layer_state layerIdx%
+    DIM mlSSrc AS LONG : mlSSrc& = LAYERS(layerIdx%).imgHandle&
+    DIM mlSW AS LONG : mlSW& = _WIDTH(mlSSrc&)
+    DIM mlSH AS LONG : mlSH& = _HEIGHT(mlSSrc&)
+    DIM mlSNW AS INTEGER : mlSNW% = INT(mlSW& * factor!)
+    DIM mlSNH AS INTEGER : mlSNH% = INT(mlSH& * factor!)
+    IF mlSNW% < 1 THEN mlSNW% = 1
+    IF mlSNH% < 1 THEN mlSNH% = 1
+    DIM mlSTmp AS LONG : mlSTmp& = _NEWIMAGE(mlSNW%, mlSNH%, 32)
+    _DONTBLEND mlSTmp&
+    _PUTIMAGE (0, 0)-(mlSNW% - 1, mlSNH% - 1), mlSSrc&, mlSTmp&
+    DIM mlSOD AS LONG : mlSOD& = _DEST
+    _DEST mlSSrc&
+    _DONTBLEND mlSSrc&
+    CLS , _RGBA32(0, 0, 0, 0)
+    ' Centre scaled content; use source offset when scaled > canvas, dest offset when scaled < canvas
+    DIM mlSDX AS INTEGER : mlSDX% = (mlSW& - mlSNW%) \ 2
+    DIM mlSDY AS INTEGER : mlSDY% = (mlSH& - mlSNH%) \ 2
+    DIM mlSSX AS INTEGER : mlSSX% = 0
+    DIM mlSSY AS INTEGER : mlSSY% = 0
+    DIM mlSCW AS INTEGER : mlSCW% = mlSNW%
+    DIM mlSCH AS INTEGER : mlSCH% = mlSNH%
+    IF mlSDX% < 0 THEN mlSSX% = -mlSDX% : mlSCW% = mlSCW% + mlSDX% : mlSDX% = 0
+    IF mlSDY% < 0 THEN mlSSY% = -mlSDY% : mlSCH% = mlSCH% + mlSDY% : mlSDY% = 0
+    IF mlSDX% + mlSCW% > mlSW& THEN mlSCW% = mlSW& - mlSDX%
+    IF mlSDY% + mlSCH% > mlSH& THEN mlSCH% = mlSH& - mlSDY%
+    IF mlSCW% > 0 AND mlSCH% > 0 THEN
+        _PUTIMAGE (mlSDX%, mlSDY%)-(mlSDX% + mlSCW% - 1, mlSDY% + mlSCH% - 1), mlSTmp&, mlSSrc&, (mlSSX%, mlSSY%)-(mlSSX% + mlSCW% - 1, mlSSY% + mlSCH% - 1)
+    END IF
+    _BLEND mlSSrc&
+    _DEST mlSOD&
+    IF mlSTmp& < -1 THEN _FREEIMAGE mlSTmp&
+    LAYERS(layerIdx%).contentDirty% = TRUE
+END SUB
+
+''
+' Rotate layerIdx 90 degrees clockwise, centered on the canvas.
+'
+SUB CMD_ml_rotate_cw (layerIdx AS INTEGER)
+    IF layerIdx% < 1 OR layerIdx% > 64 THEN EXIT SUB
+    IF LAYERS(layerIdx%).imgHandle& >= -1 THEN EXIT SUB
+    UNDO_save_layer_state layerIdx%
+    DIM mlRcSrc AS LONG : mlRcSrc& = LAYERS(layerIdx%).imgHandle&
+    DIM mlRcW AS LONG : mlRcW& = _WIDTH(mlRcSrc&)
+    DIM mlRcH AS LONG : mlRcH& = _HEIGHT(mlRcSrc&)
+    DIM mlRcRot AS LONG : mlRcRot& = _NEWIMAGE(mlRcH&, mlRcW&, 32)
+    DIM mlRcOS AS LONG : mlRcOS& = _SOURCE
+    DIM mlRcOD AS LONG : mlRcOD& = _DEST
+    _SOURCE mlRcSrc& : _DEST mlRcRot&
+    _DONTBLEND mlRcRot&
+    CLS , _RGBA32(0, 0, 0, 0)
+    DIM mlRcPx AS INTEGER, mlRcPy AS INTEGER
+    FOR mlRcPy% = 0 TO mlRcH& - 1
+        FOR mlRcPx% = 0 TO mlRcW& - 1
+            PSET (mlRcH& - 1 - mlRcPy%, mlRcPx%), POINT(mlRcPx%, mlRcPy%)
+        NEXT mlRcPx%
+    NEXT mlRcPy%
+    _BLEND mlRcRot&
+    _SOURCE mlRcOS& : _DEST mlRcOD&
+    ' Copy rotated content back centred / clipped to original layer dimensions
+    DIM mlRcOD2 AS LONG : mlRcOD2& = _DEST
+    _DEST mlRcSrc&
+    _DONTBLEND mlRcSrc&
+    CLS , _RGBA32(0, 0, 0, 0)
+    DIM mlRcDx AS INTEGER : mlRcDx% = (mlRcW& - mlRcH&) \ 2
+    DIM mlRcDy AS INTEGER : mlRcDy% = (mlRcH& - mlRcW&) \ 2
+    DIM mlRcSx AS INTEGER : mlRcSx% = 0
+    DIM mlRcSy AS INTEGER : mlRcSy% = 0
+    DIM mlRcDw AS INTEGER : mlRcDw% = mlRcH&
+    DIM mlRcDh AS INTEGER : mlRcDh% = mlRcW&
+    IF mlRcDx% < 0 THEN mlRcSx% = -mlRcDx% : mlRcDw% = mlRcDw% - mlRcSx% : mlRcDx% = 0
+    IF mlRcDy% < 0 THEN mlRcSy% = -mlRcDy% : mlRcDh% = mlRcDh% - mlRcSy% : mlRcDy% = 0
+    IF mlRcDx% + mlRcDw% > mlRcW& THEN mlRcDw% = mlRcW& - mlRcDx%
+    IF mlRcDy% + mlRcDh% > mlRcH& THEN mlRcDh% = mlRcH& - mlRcDy%
+    IF mlRcDw% > 0 AND mlRcDh% > 0 THEN
+        _PUTIMAGE (mlRcDx%, mlRcDy%)-(mlRcDx% + mlRcDw% - 1, mlRcDy% + mlRcDh% - 1), mlRcRot&, mlRcSrc&, (mlRcSx%, mlRcSy%)-(mlRcSx% + mlRcDw% - 1, mlRcSy% + mlRcDh% - 1)
+    END IF
+    _BLEND mlRcSrc&
+    _DEST mlRcOD2&
+    IF mlRcRot& < -1 THEN _FREEIMAGE mlRcRot&
+    LAYERS(layerIdx%).contentDirty% = TRUE
+END SUB
+
+''
+' Rotate layerIdx 90 degrees counter-clockwise, centered on the canvas.
+'
+SUB CMD_ml_rotate_ccw (layerIdx AS INTEGER)
+    IF layerIdx% < 1 OR layerIdx% > 64 THEN EXIT SUB
+    IF LAYERS(layerIdx%).imgHandle& >= -1 THEN EXIT SUB
+    UNDO_save_layer_state layerIdx%
+    DIM mlRccSrc AS LONG : mlRccSrc& = LAYERS(layerIdx%).imgHandle&
+    DIM mlRccW AS LONG : mlRccW& = _WIDTH(mlRccSrc&)
+    DIM mlRccH AS LONG : mlRccH& = _HEIGHT(mlRccSrc&)
+    DIM mlRccRot AS LONG : mlRccRot& = _NEWIMAGE(mlRccH&, mlRccW&, 32)
+    DIM mlRccOS AS LONG : mlRccOS& = _SOURCE
+    DIM mlRccOD AS LONG : mlRccOD& = _DEST
+    _SOURCE mlRccSrc& : _DEST mlRccRot&
+    _DONTBLEND mlRccRot&
+    CLS , _RGBA32(0, 0, 0, 0)
+    DIM mlRccPx AS INTEGER, mlRccPy AS INTEGER
+    FOR mlRccPy% = 0 TO mlRccH& - 1
+        FOR mlRccPx% = 0 TO mlRccW& - 1
+            PSET (mlRccPy%, mlRccW& - 1 - mlRccPx%), POINT(mlRccPx%, mlRccPy%)
+        NEXT mlRccPx%
+    NEXT mlRccPy%
+    _BLEND mlRccRot&
+    _SOURCE mlRccOS& : _DEST mlRccOD&
+    DIM mlRccOD2 AS LONG : mlRccOD2& = _DEST
+    _DEST mlRccSrc&
+    _DONTBLEND mlRccSrc&
+    CLS , _RGBA32(0, 0, 0, 0)
+    DIM mlRccDx AS INTEGER : mlRccDx% = (mlRccW& - mlRccH&) \ 2
+    DIM mlRccDy AS INTEGER : mlRccDy% = (mlRccH& - mlRccW&) \ 2
+    DIM mlRccSx AS INTEGER : mlRccSx% = 0
+    DIM mlRccSy AS INTEGER : mlRccSy% = 0
+    DIM mlRccDw AS INTEGER : mlRccDw% = mlRccH&
+    DIM mlRccDh AS INTEGER : mlRccDh% = mlRccW&
+    IF mlRccDx% < 0 THEN mlRccSx% = -mlRccDx% : mlRccDw% = mlRccDw% - mlRccSx% : mlRccDx% = 0
+    IF mlRccDy% < 0 THEN mlRccSy% = -mlRccDy% : mlRccDh% = mlRccDh% - mlRccSy% : mlRccDy% = 0
+    IF mlRccDx% + mlRccDw% > mlRccW& THEN mlRccDw% = mlRccW& - mlRccDx%
+    IF mlRccDy% + mlRccDh% > mlRccH& THEN mlRccDh% = mlRccH& - mlRccDy%
+    IF mlRccDw% > 0 AND mlRccDh% > 0 THEN
+        _PUTIMAGE (mlRccDx%, mlRccDy%)-(mlRccDx% + mlRccDw% - 1, mlRccDy% + mlRccDh% - 1), mlRccRot&, mlRccSrc&, (mlRccSx%, mlRccSy%)-(mlRccSx% + mlRccDw% - 1, mlRccSy% + mlRccDh% - 1)
+    END IF
+    _BLEND mlRccSrc&
+    _DEST mlRccOD2&
+    IF mlRccRot& < -1 THEN _FREEIMAGE mlRccRot&
+    LAYERS(layerIdx%).contentDirty% = TRUE
+END SUB
+
+
+''
 FUNCTION CMD_in_bounds% (x AS INTEGER, y AS INTEGER)
     CMD_in_bounds% = (x% >= CMD_PALETTE_X AND x% <= CMD_PALETTE_X + CMD_PALETTE_W AND _
                       y% >= CMD_PALETTE_Y AND y% <= CMD_PALETTE_Y + CMD_PALETTE_H)

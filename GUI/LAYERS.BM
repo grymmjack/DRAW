@@ -52,6 +52,13 @@ SUB LAYERS_init ()
     LAYER_COUNT% = 0
     CURRENT_LAYER% = 0
     
+    ' Initialize multi-select state (will be properly set once first layer is created)
+    DIM msInit AS INTEGER
+    FOR msInit% = 1 TO 64
+        MULTI_SELECT_LAYERS(msInit%) = FALSE
+    NEXT msInit%
+    MULTI_SELECT_COUNT% = 0
+    
     ' Create default initial layer (Background)
     DIM defaultLayer AS INTEGER
     defaultLayer% = LAYERS_new%
@@ -436,7 +443,141 @@ SUB LAYERS_select (layerIndex AS INTEGER)
     LAYERS(layerIndex%).isSelected% = TRUE
     CURRENT_LAYER% = layerIndex%
     
+    ' Reset multi-select to just this layer (plain select always clears multi-select)
+    MULTI_SELECT_clear
+    
     GUI_NEEDS_REDRAW% = TRUE
+END SUB
+
+
+''
+' Clear multi-layer selection, pinning only CURRENT_LAYER%.
+' Invariant: MULTI_SELECT_COUNT% >= 1 after this call.
+'
+SUB MULTI_SELECT_clear ()
+    DIM i AS INTEGER
+    FOR i% = 1 TO 64
+        MULTI_SELECT_LAYERS(i%) = FALSE
+    NEXT i%
+    IF CURRENT_LAYER% >= 1 AND CURRENT_LAYER% <= 64 THEN
+        MULTI_SELECT_LAYERS(CURRENT_LAYER%) = TRUE
+    END IF
+    MULTI_SELECT_COUNT% = 1
+END SUB
+
+
+''
+' Returns TRUE if more than one layer is selected (multi-select active).
+'
+FUNCTION MULTI_SELECT_has_any% ()
+    MULTI_SELECT_has_any% = (MULTI_SELECT_COUNT% > 1)
+END FUNCTION
+
+
+''
+' Toggle a layer in/out of the multi-select set.
+' Invariant: MULTI_SELECT_COUNT% stays >= 1 (cannot deselect last).
+'
+SUB MULTI_SELECT_toggle (layerIndex AS INTEGER)
+    IF layerIndex% < 1 OR layerIndex% > 64 THEN EXIT SUB
+    IF LAYERS(layerIndex%).imgHandle& = 0 THEN EXIT SUB
+    ' Guard: never deselect if it is the only selected layer
+    IF MULTI_SELECT_LAYERS(layerIndex%) AND MULTI_SELECT_COUNT% <= 1 THEN EXIT SUB
+    IF MULTI_SELECT_LAYERS(layerIndex%) THEN
+        MULTI_SELECT_LAYERS(layerIndex%) = FALSE
+        MULTI_SELECT_COUNT% = MULTI_SELECT_COUNT% - 1
+    ELSE
+        MULTI_SELECT_LAYERS(layerIndex%) = TRUE
+        MULTI_SELECT_COUNT% = MULTI_SELECT_COUNT% + 1
+    END IF
+    GUI_NEEDS_REDRAW% = TRUE
+END SUB
+
+
+''
+' Get tight bounding box of non-transparent pixels on a layer.
+' Returns bx, by, bw, bh via output parameters (0,0,0,0 if layer is empty/invalid).
+'
+SUB LAYER_get_content_bounds (layerIndex AS INTEGER, bx AS INTEGER, by AS INTEGER, bw AS INTEGER, bh AS INTEGER)
+    bx% = 0: by% = 0: bw% = 0: bh% = 0
+    IF layerIndex% < 1 OR layerIndex% > 64 THEN EXIT SUB
+    DIM img AS LONG
+    img& = LAYERS(layerIndex%).imgHandle&
+    IF img& >= -1 THEN EXIT SUB
+    
+    DIM imgW AS INTEGER, imgH AS INTEGER
+    imgW% = _WIDTH(img&)
+    imgH% = _HEIGHT(img&)
+    IF imgW% <= 0 OR imgH% <= 0 THEN EXIT SUB
+    
+    DIM m AS _MEM
+    m = _MEMIMAGE(img&)
+    DIM x AS INTEGER, y AS INTEGER
+    DIM minX AS INTEGER, minY AS INTEGER, maxX AS INTEGER, maxY AS INTEGER
+    DIM found AS INTEGER
+    DIM a AS _UNSIGNED _BYTE
+    DIM offset AS _OFFSET
+    
+    minX% = imgW%: minY% = imgH%: maxX% = -1: maxY% = -1: found% = FALSE
+    
+    FOR y% = 0 TO imgH% - 1
+        FOR x% = 0 TO imgW% - 1
+            offset = (y% * imgW% + x%) * 4 + 3  ' Alpha byte offset (BGRA order)
+            _MEMGET m, m.OFFSET + offset, a
+            IF a > 0 THEN
+                IF NOT found% THEN found% = TRUE
+                IF x% < minX% THEN minX% = x%
+                IF x% > maxX% THEN maxX% = x%
+                IF y% < minY% THEN minY% = y%
+                IF y% > maxY% THEN maxY% = y%
+            END IF
+        NEXT x%
+    NEXT y%
+    
+    _MEMFREE m
+    
+    IF found% THEN
+        bx% = minX%
+        by% = minY%
+        bw% = maxX% - minX% + 1
+        bh% = maxY% - minY% + 1
+    END IF
+END SUB
+
+
+''
+' Translate (shift) pixel content of a layer by (dx, dy) pixels.
+' Pixels that shift outside the canvas bounds are clipped (lost).
+'
+SUB LAYER_translate_content (layerIndex AS INTEGER, dx AS INTEGER, dy AS INTEGER)
+    IF layerIndex% < 1 OR layerIndex% > 64 THEN EXIT SUB
+    IF dx% = 0 AND dy% = 0 THEN EXIT SUB
+    DIM img AS LONG
+    img& = LAYERS(layerIndex%).imgHandle&
+    IF img& >= -1 THEN EXIT SUB
+    DIM imgW AS INTEGER, imgH AS INTEGER
+    imgW% = _WIDTH(img&)
+    imgH% = _HEIGHT(img&)
+    ' Create a temp buffer, copy src with offset, then blit back raw (no alpha blend)
+    DIM tmp AS LONG
+    tmp& = _NEWIMAGE(imgW%, imgH%, 32)
+    DIM oldDest AS LONG, oldSrc AS LONG
+    oldDest& = _DEST
+    oldSrc& = _SOURCE
+    ' Clear temp to transparent, then copy original at offset
+    _DEST tmp&
+    _DONTBLEND tmp&
+    CLS , _RGBA32(0, 0, 0, 0)
+    _PUTIMAGE (dx%, dy%), img&, tmp&
+    ' Clear original layer and blit back the shifted copy
+    _DEST img&
+    _DONTBLEND img&
+    CLS , _RGBA32(0, 0, 0, 0)
+    _PUTIMAGE (0, 0), tmp&, img&
+    _BLEND img&
+    _DEST oldDest&
+    _SOURCE oldSrc&
+    IF tmp& < -1 THEN _FREEIMAGE tmp&
 END SUB
 
 
@@ -1020,15 +1161,22 @@ SUB LAYER_PANEL_render (canvasHeight AS INTEGER)
                 clipBottom% = drawY% + LAYER_ROW_HEIGHT - 1
                 IF clipBottom% >= listBottom% THEN clipBottom% = listBottom% - 1
                 
-                ' Row background (selected = highlight)
-                IF LAYERS(layerIdx%).isSelected% THEN
-                    rowBg~& = THEME.LAYER_PANEL_row_sel_bg~&
+                ' Row background — master (CURRENT) layer gets master tint + accent bar;
+                '   secondary multi-selected layers get dimmer tint; others normal/hover.
+                IF layerIdx% = CURRENT_LAYER% THEN
+                    rowBg~& = THEME.LAYER_PANEL_row_master_bg~&
+                ELSEIF MULTI_SELECT_LAYERS(layerIdx%) THEN
+                    rowBg~& = THEME.LAYER_PANEL_row_multi_sel_bg~&
                 ELSEIF LAYER_PANEL.hoverRow% = layerIdx% THEN
                     rowBg~& = THEME.LAYER_PANEL_row_hover_bg~&
                 ELSE
                     rowBg~& = THEME.LAYER_PANEL_row_bg~&
                 END IF
                 LINE (panelX% + 2, clipTop%)-(panelX% + panelW% - 12, clipBottom%), rowBg~&, BF
+                ' 2px left-edge accent bar to distinguish master (current) layer
+                IF layerIdx% = CURRENT_LAYER% THEN
+                    LINE (panelX% + 2, clipTop%)-(panelX% + 3, clipBottom%), THEME.LAYER_PANEL_row_master_accent~&, BF
+                END IF
                 
                 ' Only draw text if fully visible
                 IF drawY% >= listTop% AND drawY% + LAYER_ROW_HEIGHT <= listBottom% THEN
@@ -1499,8 +1647,16 @@ FUNCTION LAYER_PANEL_handle_click% (rawX AS INTEGER, rawY AS INTEGER, button AS 
                             MID$(LAYER_PANEL.visSwipedLayers, layerIdx%, 1) = CHR$(1)
                         END IF
                     ' Check if clicking lock toggle (next area)
+                    ' Ctrl+click on lock zone: create selection from layer non-transparent pixels
                     ELSEIF localX% < 24 THEN
-                        LAYERS_toggle_opacity_lock layerIdx%
+                        DIM ctrlHeldLk AS INTEGER
+                        ctrlHeldLk% = (_KEYDOWN(KEY_LCTRL&) OR _KEYDOWN(KEY_RCTRL&))
+                        IF ctrlHeldLk% THEN
+                            LAYERS_select layerIdx%
+                            LAYER_select_non_transparent layerIdx%
+                        ELSE
+                            LAYERS_toggle_opacity_lock layerIdx%
+                        END IF
                     ' Check if clicking opacity bar
                     ' Bar renders from panelW%-44 to panelW%-14 (width=30).
                     ' Use panelW%-46 as trigger for a 2px grab margin.
@@ -1514,12 +1670,15 @@ FUNCTION LAYER_PANEL_handle_click% (rawX AS INTEGER, rawY AS INTEGER, button AS 
                         IF barX% > 30 THEN barX% = 30
                         LAYERS_set_opacity layerIdx%, INT((barX% / 30.0) * 255)
                     ELSE
-                        ' Check for CTRL+Click to select non-transparent pixels
+                        ' Ctrl+click or Shift+click on body: toggle this layer in multi-select
+                        ' Plain click: make this the current layer and start drag if eligible
                         DIM ctrlHeld AS INTEGER
+                        DIM shiftHeld AS INTEGER
                         ctrlHeld% = (_KEYDOWN(KEY_LCTRL&) OR _KEYDOWN(KEY_RCTRL&))
-                        IF ctrlHeld% THEN
-                            LAYERS_select layerIdx%
-                            LAYER_select_non_transparent layerIdx%
+                        shiftHeld% = (_KEYDOWN(KEY_LSHIFT&) OR _KEYDOWN(KEY_RSHIFT&))
+                        IF ctrlHeld% OR shiftHeld% THEN
+                            ' Toggle this layer in/out of multi-select without changing CURRENT_LAYER%
+                            MULTI_SELECT_toggle layerIdx%
                         ELSE
                             ' Select the layer and start pending drag (threshold required)
                             LAYERS_select layerIdx%
@@ -1539,7 +1698,6 @@ FUNCTION LAYER_PANEL_handle_click% (rawX AS INTEGER, rawY AS INTEGER, button AS 
                     ' Right click context actions
                     LAYERS_select layerIdx%
                     ' Shift+right-click: cycle blend mode
-                    DIM shiftHeld AS INTEGER
                     shiftHeld% = (_KEYDOWN(KEY_LSHIFT&) OR _KEYDOWN(KEY_RSHIFT&))
                     IF shiftHeld% THEN
                         LAYERS(layerIdx%).blendMode% = (LAYERS(layerIdx%).blendMode% + 1) MOD BLEND_MODE_COUNT
