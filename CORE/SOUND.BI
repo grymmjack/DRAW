@@ -43,6 +43,7 @@ CONST SND_COUNT       = 21  ' Total number of sound categories
 
 DIM SHARED SOUND_HANDLES(1 TO SND_COUNT) AS LONG
 DIM SHARED MUSIC_HANDLE AS LONG
+DIM SHARED MUSIC_CURRENT_FILE AS STRING  ' Filename of the track currently loaded/playing
 
 DECLARE SUB SOUND_init ()
 DECLARE SUB SOUND_play (category AS INTEGER)
@@ -53,5 +54,6 @@ DECLARE SUB SOUND_apply_volume ()
 DECLARE SUB SOUND_close_all ()
 
 DECLARE SUB MUSIC_init ()
+DECLARE SUB MUSIC_play_random ()
 DECLARE SUB MUSIC_tick ()
 DECLARE SUB MUSIC_stop ()

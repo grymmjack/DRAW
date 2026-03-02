@@ -192,20 +192,24 @@ END SUB
 
 
 '''
-' Re-apply the current CFG.SOUNDS_VOLUME% (0-100) to all open handles.
-' Call this whenever the volume setting changes without reloading files.
+' Re-apply current volumes to all open handles.
+' SFX use CFG.SOUNDS_VOLUME% (0 when CFG.SOUNDS_MUTED%).
+' Music uses CFG.MUSIC_VOLUME% (0 when CFG.MUSIC_MUTED%).
+' Call whenever any volume or mute setting changes.
 '
 SUB SOUND_apply_volume ()
     DIM i AS INTEGER
-    DIM vol AS SINGLE
-    vol! = CFG.SOUNDS_VOLUME% / 100.0
+    DIM sfxVol AS SINGLE
+    DIM musVol AS SINGLE
+    IF CFG.SOUNDS_MUTED% THEN sfxVol! = 0.0 ELSE sfxVol! = CFG.SOUNDS_VOLUME% / 100.0
+    IF CFG.MUSIC_MUTED%  THEN musVol! = 0.0 ELSE musVol! = CFG.MUSIC_VOLUME%  / 100.0
     FOR i% = 1 TO SND_COUNT
         IF SOUND_HANDLES(i%) > 0 THEN
-            _SNDVOL SOUND_HANDLES(i%), vol!
+            _SNDVOL SOUND_HANDLES(i%), sfxVol!
         END IF
     NEXT i%
     IF MUSIC_HANDLE > 0 THEN
-        _SNDVOL MUSIC_HANDLE, vol!
+        _SNDVOL MUSIC_HANDLE, musVol!
     END IF
 END SUB
 
@@ -227,49 +231,133 @@ SUB SOUND_close_all ()
         _SNDCLOSE MUSIC_HANDLE
         MUSIC_HANDLE = 0
     END IF
+    MUSIC_CURRENT_FILE$ = ""
 END SUB
 
 
 ''
-' Initialise background music.
-' Loads THEME.MUSIC_FILE$ from the active theme SOUNDS directory.
-' Starts playback immediately when CFG.MUSIC_ENABLED% is TRUE.
-' Safe to call multiple times (closes previous handle first).
+' Initialise background music — picks a random track from the theme MUSIC/ folder.
+' Safe to call multiple times; delegates entirely to MUSIC_play_random.
 '
 SUB MUSIC_init ()
+    MUSIC_CURRENT_FILE$ = ""
+    MUSIC_play_random
+END SUB
+
+
+''
+' Per-frame tick — picks a new random track when the current one finishes.
+' Only acts when CFG.MUSIC_ENABLED% is TRUE.
+' Place this call once per iteration in the main DO loop.
+'
+SUB MUSIC_tick ()
+    IF NOT CFG.MUSIC_ENABLED% THEN EXIT SUB
+    IF MUSIC_HANDLE <= 0 THEN
+        MUSIC_play_random
+        EXIT SUB
+    END IF
+    IF NOT _SNDPLAYING(MUSIC_HANDLE) THEN MUSIC_play_random
+END SUB
+
+
+''
+' Stop background music playback (does NOT free the handle) and clear the track name.
+'
+SUB MUSIC_stop ()
+    IF MUSIC_HANDLE > 0 THEN _SNDSTOP MUSIC_HANDLE
+    MUSIC_CURRENT_FILE$ = ""
+END SUB
+
+
+''
+' Scan the active theme MUSIC/ folder, pick a random audio file (avoiding
+' repeating the last track when 2+ files exist), load it and start playback
+' when CFG.MUSIC_ENABLED% is TRUE.
+' Supports .mod / .s3m / .xm / .it tracker formats (libxmp, no dependencies).
+' Safe to call at any time; closes the previous handle first.
+'
+SUB MUSIC_play_random ()
+    DIM musicDir AS STRING
+    musicDir$ = "./ASSETS/THEMES/" + CFG.THEME$ + "/MUSIC/"
+
+    ' Close current handle
     IF MUSIC_HANDLE > 0 THEN
         _SNDSTOP MUSIC_HANDLE
         _SNDCLOSE MUSIC_HANDLE
         MUSIC_HANDLE = 0
     END IF
-    IF THEME.MUSIC_FILE$ = "" THEN EXIT SUB
-    DIM musicPath AS STRING
-    musicPath$ = "./ASSETS/THEMES/" + CFG.THEME$ + "/SOUNDS/" + THEME.MUSIC_FILE$
-    MUSIC_HANDLE = _SNDOPEN(musicPath$)
-    IF MUSIC_HANDLE <= 0 THEN
-        _LOGWARN "MUSIC_init: failed to load " + THEME.MUSIC_FILE$
+
+    ' Build file list via shell into a temp file (avoids DIR$ conflicts with OPTION _EXPLICIT)
+    DIM tmpList AS STRING
+    tmpList$ = _CWD$ + "/draw_musiclist.tmp"
+    $IF WIN THEN
+        SHELL "dir /b " + CHR$(34) + musicDir$ + CHR$(34) + " > " + CHR$(34) + tmpList$ + CHR$(34) + " 2>nul"
+    $ELSE
+        SHELL "ls -1 " + CHR$(34) + musicDir$ + CHR$(34) + " > " + CHR$(34) + tmpList$ + CHR$(34) + " 2>/dev/null"
+    $END IF
+
+    IF NOT _FILEEXISTS(tmpList$) THEN
+        _LOGWARN "MUSIC_play_random: could not scan " + musicDir$
         EXIT SUB
     END IF
-    _SNDVOL MUSIC_HANDLE, CFG.SOUNDS_VOLUME% / 100.0
+
+    ' Read and filter for tracker audio files
+    DIM musicFiles(0 TO 99) AS STRING
+    DIM fileCount AS INTEGER
+    DIM prevFile AS STRING
+    DIM scanF AS STRING
+    DIM scanExt3 AS STRING
+    DIM scanExt4 AS STRING
+    prevFile$ = MUSIC_CURRENT_FILE$
+    MUSIC_CURRENT_FILE$ = ""
+    fileCount% = 0
+
+    DIM lf AS INTEGER
+    lf% = FREEFILE
+    OPEN tmpList$ FOR INPUT AS #lf%
+    WHILE NOT EOF(lf%) AND fileCount% < 100
+        LINE INPUT #lf%, scanF$
+        scanF$ = _TRIM$(scanF$)
+        IF scanF$ <> "" THEN
+            scanExt3$ = LCASE$(RIGHT$(scanF$, 3))
+            scanExt4$ = LCASE$(RIGHT$(scanF$, 4))
+            IF scanExt4$ = ".mod" OR scanExt4$ = ".s3m" OR scanExt3$ = ".xm" OR scanExt3$ = ".it" THEN
+                musicFiles(fileCount%) = scanF$
+                fileCount% = fileCount% + 1
+            END IF
+        END IF
+    WEND
+    CLOSE #lf%
+    KILL tmpList$
+
+    IF fileCount% = 0 THEN
+        _LOGWARN "MUSIC_play_random: no audio files found in " + musicDir$
+        EXIT SUB
+    END IF
+
+    ' Pick a random file; avoid repeating the last track when 2+ exist
+    DIM pick AS INTEGER
+    DIM pickTries AS INTEGER
+    pick% = INT(RND * fileCount%)
+    pickTries% = 0
+    WHILE musicFiles(pick%) = prevFile$ AND fileCount% > 1 AND pickTries% < 10
+        pick% = INT(RND * fileCount%)
+        pickTries% = pickTries% + 1
+    WEND
+
+    MUSIC_CURRENT_FILE$ = musicFiles(pick%)
+
+    ' Open and play
+    DIM mh AS LONG
+    mh& = _SNDOPEN(musicDir$ + MUSIC_CURRENT_FILE$)
+    IF mh& <= 0 THEN
+        _LOGWARN "MUSIC_play_random: failed to load " + MUSIC_CURRENT_FILE$
+        MUSIC_CURRENT_FILE$ = ""
+        EXIT SUB
+    END IF
+    MUSIC_HANDLE = mh&
+    DIM musVol2 AS SINGLE
+    IF CFG.MUSIC_MUTED% THEN musVol2! = 0.0 ELSE musVol2! = CFG.MUSIC_VOLUME% / 100.0
+    _SNDVOL MUSIC_HANDLE, musVol2!
     IF CFG.MUSIC_ENABLED% THEN _SNDPLAY MUSIC_HANDLE
-END SUB
-
-
-''
-' Per-frame tick — restarts music when it finishes (seamless loop).
-' Only acts when CFG.MUSIC_ENABLED% and a valid handle are present.
-' Place this call once per iteration in the main DO loop.
-'
-SUB MUSIC_tick ()
-    IF NOT CFG.MUSIC_ENABLED% THEN EXIT SUB
-    IF MUSIC_HANDLE <= 0 THEN EXIT SUB
-    IF NOT _SNDPLAYING(MUSIC_HANDLE) THEN _SNDPLAY MUSIC_HANDLE
-END SUB
-
-
-''
-' Stop background music playback (does NOT free the handle).
-'
-SUB MUSIC_stop ()
-    IF MUSIC_HANDLE > 0 THEN _SNDSTOP MUSIC_HANDLE
 END SUB
