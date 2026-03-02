@@ -46,6 +46,7 @@ TYPE MENU_BAR_OBJ
     hoverRoot   AS INTEGER         ' Currently hovered root item (-1 = none)
     hoverSub    AS INTEGER         ' Currently hovered submenu item idx (-1 = none)
     subScroll   AS INTEGER         ' Submenu scroll offset
+    subScrollMax AS INTEGER        ' Maximum scroll offset (0 = no scroll arrows)
     fontHandle  AS LONG            ' Tiny5 font handle
     ' Bar geometry (recalculated each render)
     barX        AS INTEGER
