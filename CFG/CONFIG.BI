@@ -166,6 +166,7 @@ TYPE DRAW_CONFIG
     ' Sound settings
     SOUNDS_ENABLED                 AS INTEGER  ' TRUE=-1 / FALSE=0 (default 0=off)
     SOUNDS_VOLUME                  AS INTEGER  ' Volume percent 0-100 (default 75)
+    MUSIC_ENABLED                  AS INTEGER  ' TRUE=-1 / FALSE=0 (default 0=off)
     ' Default startup settings
     DEFAULT_TOOL                   AS INTEGER  ' Default tool on startup (1=brush, 2=fill, 3=dot, etc.)
     DEFAULT_BRUSH_SIZE             AS INTEGER  ' Default brush size index (1-25)

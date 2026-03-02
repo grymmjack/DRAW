@@ -99,6 +99,7 @@ $END IF
 ' Initialise sound system (loads handles, applies volume; respects CFG.SOUNDS_ENABLED)
 SOUND_init
 SOUND_play SND_NEW_FILE  ' Startup chime (silent when sounds are disabled)
+MUSIC_init               ' Initialise background music (plays if CFG.MUSIC_ENABLED)
 
 ' Main Loop
 DIM k AS LONG
@@ -159,6 +160,7 @@ DO
     MODIFIERS_update
     
     LOOP_start
+    MUSIC_tick
     PERF_start PERF_MAIN_LOOP_TOTAL
     PERF_start PERF_MOUSE_INPUT
     MOUSE_input_handler

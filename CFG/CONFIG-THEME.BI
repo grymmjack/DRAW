@@ -118,6 +118,7 @@ TYPE DRAW_THEME
     SOUND_DRAG_DROP_FILE AS STRING          ' Filename for layer drag-and-drop sound
     SOUND_POINT_FILE     AS STRING          ' Filename for click-to-place-point (line/shape/poly tools)
     SOUND_ORGANIZER_FILE AS STRING          ' Filename for organizer/drawer widget click or mousewheel
+    MUSIC_FILE           AS STRING          ' Filename for background music (IT/XM/MOD/S3M; empty=none)
 END TYPE
 
 ' Runtime theme loader — populates THEME from ASSETS/THEMES/{CFG.THEME$}/THEME.CFG

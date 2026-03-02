@@ -112,6 +112,7 @@ THEME.SOUND_SLIDER_FILE$    = "slider.wav"              ' Opacity/value slider d
 THEME.SOUND_DRAG_DROP_FILE$ = "drag-drop.wav"           ' Layer drag-and-drop reorder
 THEME.SOUND_POINT_FILE$     = "point.wav"               ' Click to place a point (line/shape/poly)
 THEME.SOUND_ORGANIZER_FILE$ = "text-char.wav"           ' Organizer/drawer widget click or mousewheel
+THEME.MUSIC_FILE$ = "music.it"                         ' Background music (tracker module)
 
 ' =============================================================================
 ' CURSORS - PNG cursor configuration
