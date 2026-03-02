@@ -20,7 +20,12 @@ DIM SHARED ERASER AS ERASER_OBJ
 
 ERASER.ACTIVE% = FALSE
 
+' Tracks which layers were modified by a Shift+Erase smart-erase stroke.
+' Used in MOUSE_release_brush to save per-layer undo states.
+DIM SHARED ERASER_SMART_DIRTY(1 TO 64) AS INTEGER
+
 DECLARE SUB ERASER_activate ()
 DECLARE SUB ERASER_deactivate ()
 DECLARE SUB ERASER_reset ()
 DECLARE SUB ERASER_draw_at (x AS INTEGER, y AS INTEGER, layerImg AS LONG)
+DECLARE SUB ERASER_smart_on ()

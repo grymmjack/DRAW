@@ -82,3 +82,72 @@ SUB ERASER_draw_at (x AS INTEGER, y AS INTEGER, layerImg AS LONG)
     END IF
     PAINT_stamp_brush x%, y%, eraseColor~&
 END SUB
+
+
+''
+' Smart erase: erase on every visible, non-opacity-locked layer that has
+' non-transparent pixels at the current brush position.
+'
+' Called from MOUSE_tool_brush when TOOL_ERASER + SHIFT + B1 is detected.
+' Uses the same PAINT_on interpolation pipeline as normal painting, but
+' temporarily reroutes CURRENT_LAYER% to each matching layer in turn.
+'
+' Layers actually modified are tracked in ERASER_SMART_DIRTY() so that
+' MOUSE_release_brush can save per-layer undo states for all of them.
+'
+SUB ERASER_smart_on ()
+    DIM i AS INTEGER
+    DIM savedLayer AS INTEGER
+    DIM srcSaved AS LONG
+    DIM checkX AS INTEGER, checkY AS INTEGER, checkR AS INTEGER
+    DIM cx AS INTEGER, cy AS INTEGER
+    DIM scanLeft AS INTEGER, scanRight AS INTEGER
+    DIM scanTop AS INTEGER, scanBot AS INTEGER
+    DIM anyHit AS INTEGER
+
+    savedLayer% = CURRENT_LAYER%
+    srcSaved& = _SOURCE
+
+    checkX% = MOUSE.X%
+    checkY% = MOUSE.Y%
+    ' Scan radius covers the brush footprint (at minimum 1 px)
+    checkR% = BRUSH_SIZE_pixels% \ 2
+    IF checkR% < 1 THEN checkR% = 1
+
+    FOR i% = 1 TO 64
+        IF LAYERS(i%).imgHandle& < -1 AND LAYERS(i%).visible% AND NOT LAYERS(i%).opacityLock% THEN
+            ' --- Check if any pixel in brush bounding box is non-transparent ---
+            anyHit% = FALSE
+            _SOURCE LAYERS(i%).imgHandle&
+            scanLeft%  = checkX% - checkR%: IF scanLeft%  < 0           THEN scanLeft%  = 0
+            scanRight% = checkX% + checkR%: IF scanRight% >= SCRN.canvasW& THEN scanRight% = SCRN.canvasW& - 1
+            scanTop%   = checkY% - checkR%: IF scanTop%   < 0           THEN scanTop%   = 0
+            scanBot%   = checkY% + checkR%: IF scanBot%   >= SCRN.canvasH& THEN scanBot%  = SCRN.canvasH& - 1
+            FOR cy% = scanTop% TO scanBot%
+                FOR cx% = scanLeft% TO scanRight%
+                    IF _ALPHA32(POINT(cx%, cy%)) > 0 THEN
+                        anyHit% = TRUE
+                        EXIT FOR
+                    END IF
+                NEXT cx%
+                IF anyHit% THEN EXIT FOR
+            NEXT cy%
+
+            ' --- Erase on this layer ---
+            IF anyHit% THEN
+                CURRENT_LAYER% = i%
+                PAINT_on                         ' full interpolated stroke on this layer
+                LAYERS(i%).contentDirty% = TRUE
+                ERASER_SMART_DIRTY(i%) = TRUE   ' flag for undo save on release
+            END IF
+        END IF
+    NEXT i%
+
+    CURRENT_LAYER% = savedLayer%
+    _SOURCE srcSaved&
+
+    BLEND_invalidate_cache
+    CANVAS_DIRTY% = TRUE
+    SCENE_DIRTY% = TRUE
+    FRAME_IDLE% = FALSE
+END SUB
