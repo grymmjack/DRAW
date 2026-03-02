@@ -14,7 +14,7 @@ DATA "::::::::", "::    ::", "::    ::", "::::  ::::", "  ::  ::  "
 
 DRAW is a pixel art editor written in QB64PE that can export images as sourcecode
 
-![DRAW GUI from v0.11.0](./GUI.png)
+![DRAW GUI from v0.12.0](./GUI.png)
 
 ## Features
 
@@ -36,7 +36,7 @@ DRAW is a pixel art editor written in QB64PE that can export images as sourcecod
 - **Zoom** - Click to zoom in, Alt+click to zoom out, drag to zoom region
 - **Clipboard** - Copy/Cut/Paste selections (Ctrl+C/X/V), Merged copy (Ctrl+Shift+C), Clear selection (Ctrl+E); mask-aware operations for magic wand and non-rectangular selections
 - **Text** - Text entry tool
-- **Eraser** - Dedicated eraser tool that paints transparent; shares brush size preview and custom brush support
+- **Eraser** - Dedicated eraser tool that paints transparent; shares brush size preview and custom brush support. **Smart Erase** (hold `Shift` while erasing) erases on every visible non-opacity-locked layer simultaneously
 - **Stroke Selection** - Apply a configurable stroke (inside/outside/center, adjustable width) around the active selection boundary via Edit → Stroke Selection
 - **Custom Brush** - Capture selection as reusable brush with flip/scale transforms, non-rectangular shapes via alpha channel, dynamic outline expansion
 - **Reference Image** - Load a high-res image behind the canvas at adjustable opacity for tracing (`Ctrl+R` toggle, `Ctrl+Shift+Wheel` opacity, reposition via View menu); state persisted in `.draw` project files

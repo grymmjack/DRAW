@@ -31,7 +31,7 @@ applyTo: "**"
 4. **GUI**: PALETTE, PALETTE-LOADER, PALETTE-STRIP, GUI, BRUSHES, CROSSHAIR, GRID, HELP, LAYERS, PALETTE-PICKER, PICKER, CURSOR, POINTER, STATUS, TOOLBAR, ORGANIZER, TRANSPARENCY, COMMAND, MENUBAR, STROKE-SEL
 5. **INPUT**: MODIFIERS, KEYBOARD, MOUSE, STICK, FILE-BMP, FILE-BLOAD, FILE-PAL, API-LOSPEC
 6. **OUTPUT**: SCREEN, FILE-BAS, FILE-BMP, FILE-BSAVE
-7. **QB64_GJ_LIB**: BBX, DICT, STRINGS, VECT2D
+7. **QB64_GJ_LIB**: DICT, STRINGS, VECT2D (BBX removed — marquee now uses internal `MARQUEE_BBOX`/`MARQUEE_CFG` types)
 8. **TOOLS**: All 37 tool pairs (NULL, DOT, LINE, RECT, ELLIPSE, FILL, BRUSH, BRUSH-SIZE, BRUSH-FILL, BRUSH-FX-OUTLINE, BRUSH-TEXT, CUSTOM-BRUSH, POLY-LINE, POLY-FILL, MARQUEE, SELECTION, PAN, MOVE, MOVE-NUDGE, SAVE, LOAD, PICKER, UNDO, WORKSPACE-UNDO, DRW, COLOR-FG, COLOR-BG, COLOR-INVERT, CROP, SPRAY, ZOOM, TEXT, SYMMETRY, RAY, IMAGE-IMPORT, REFIMG, ERASER)
 9. **THEME**: `ASSETS/THEMES/DEFAULT/THEME.BI` (executed at include time, sets all `THEME.*`)
 
@@ -46,7 +46,7 @@ applyTo: "**"
 | `OUTPUT/` | Screen rendering (`SCREEN_render`), file export (BAS, BMP, BSAVE) |
 | `TOOLS/` | Drawing tools (brush, line, rect, fill, marquee, etc.), undo systems, DRW format, image import |
 | `ASSETS/` | Fonts, icons, palettes (56 GPL files), primitives, themes |
-| `includes/QB64_GJ_LIB/` | External utility library (BBX, DICT, STRINGS, VECT2D) |
+| `includes/QB64_GJ_LIB/` | External utility library (DICT, STRINGS, VECT2D; BBX removed in v0.12.0) |
 
 ### Singleton State Pattern
 
@@ -607,7 +607,7 @@ Composited back-to-front onto `SCRN.CANVAS&`, then GPU-scaled to window via `_PU
 14. **Selection overlay** (marching ants) — drawn AFTER cache so animation doesn't
     invalidate it
 15. Pointer cursor (POINTER_update + POINTER_render)
-16. Scale `SCRN.CANVAS&` to window (integer scaling via `glutReshapeWindow`, nearest neighbor)
+16. Scale `SCRN.CANVAS&` to window (integer scaling via QB64PE `$RESIZE`, nearest neighbor)
 17. `_DISPLAY`
 
 ### Performance Patterns
@@ -937,6 +937,15 @@ pipeline via `PAINT_stamp_brush`. `ERASER_activate` saves the user's current col
 The eraser shares the brush cursor system: it uses `CURSOR_BRUSH`, shows the brush size
 preview circle/square, supports custom brush stamps, and renders the arrow overlay —
 identical to `TOOL_BRUSH`/`TOOL_DOT` in all 6 cursor dispatch points in `POINTER.BM`.
+
+**Smart Erase** (Shift + drag while Eraser is active): calls `ERASER_smart_on` instead
+of `PAINT_on`. Scans all 64 layer slots — for each visible, non-opacity-locked layer,
+checks if any pixel in the brush bounding box is non-transparent (`_ALPHA32 > 0`). If so,
+temporarily sets `CURRENT_LAYER%` to that layer and calls `PAINT_on` to perform a full
+interpolated stroke, then marks `LAYERS(i%).contentDirty% = TRUE` and
+`ERASER_SMART_DIRTY(i%) = TRUE`. On mouse release (`MOUSE_release_brush`), a per-layer
+undo state is saved for every layer flagged in `ERASER_SMART_DIRTY()`. The array is reset
+at the start of each new stroke.
 
 ### Crop Tool Behavior
 

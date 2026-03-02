@@ -58,13 +58,18 @@ Press `E` to activate the **Eraser tool**. The eraser paints with full transpare
 
 **Hold `E`** to temporarily erase — the eraser activates while `E` is held and your previous tool is restored when you release.
 
+**Hold `Shift`** while erasing to activate **Smart Erase** — automatically erases on every visible, non-opacity-locked layer that has non-transparent pixels under the brush. Per-layer undo states are saved for each modified layer.
+
 - When activated, your current foreground color is saved
 - When switching to another tool, your foreground color is restored
 - Works with all brush sizes and shapes (circle, square, custom brush)
+- Smart Erase (`Shift` + drag) affects all eligible layers simultaneously
 
 | Tool | Transparent Effect |
 |------|--------------------|
-| **Eraser** | Erases pixels to transparent using current brush |
+| **Eraser (normal)** | Erases pixels on the current layer only |
+| **Eraser (Smart, Shift held)** | Erases on every visible non-locked layer under the brush |
+
 
 **Visual Indicators:**
 - Status bar shows `FG:TRN` when eraser is active
