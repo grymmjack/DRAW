@@ -1347,7 +1347,17 @@ SUB LAYER_PANEL_render (canvasHeight AS INTEGER)
             thumbY% = scrollbarY%
         END IF
         
-        LINE (scrollbarX% + 1, thumbY%)-(scrollbarX% + 6, thumbY% + thumbH% - 1), THEME.LAYER_PANEL_scrollbar_thumb~&, BF
+        ' Brighten thumb while dragging
+        DIM sbThumbDrawColor AS _UNSIGNED LONG
+        IF LAYER_PANEL.scrollDragging% THEN
+            DIM sbDR AS INTEGER: sbDR% = _RED32(THEME.LAYER_PANEL_scrollbar_thumb~&)
+            DIM sbDG AS INTEGER: sbDG% = _GREEN32(THEME.LAYER_PANEL_scrollbar_thumb~&)
+            DIM sbDB AS INTEGER: sbDB% = _BLUE32(THEME.LAYER_PANEL_scrollbar_thumb~&)
+            sbThumbDrawColor~& = _RGB32(sbDR% + (255 - sbDR%) \ 2, sbDG% + (255 - sbDG%) \ 2, sbDB% + (255 - sbDB%) \ 2)
+        ELSE
+            sbThumbDrawColor~& = THEME.LAYER_PANEL_scrollbar_thumb~&
+        END IF
+        LINE (scrollbarX% + 1, thumbY%)-(scrollbarX% + 6, thumbY% + thumbH% - 1), sbThumbDrawColor~&, BF
     END IF
     
     ' Draw separator line above button area
@@ -1504,6 +1514,48 @@ FUNCTION LAYER_PANEL_handle_click% (rawX AS INTEGER, rawY AS INTEGER, button AS 
     IF rawX% < 0 OR rawX% >= panelW% THEN
         LAYER_PANEL_handle_click% = FALSE
         EXIT FUNCTION
+    END IF
+    
+    ' Check for scrollbar click (8px wide strip at right edge of panel)
+    DIM sbListTop2 AS INTEGER: sbListTop2% = THEME.LAYER_PANEL_header_height%
+    DIM sbListBot2 AS INTEGER: sbListBot2% = panelH% - THEME.LAYER_PANEL_btn_bar_height%
+    DIM sbListH2 AS INTEGER: sbListH2% = sbListBot2% - sbListTop2%
+    DIM sbTotalH2 AS INTEGER: sbTotalH2% = LAYER_COUNT% * LAYER_ROW_HEIGHT
+    IF sbTotalH2% > sbListH2% THEN
+        DIM sbSX2 AS INTEGER: sbSX2% = panelW% - 10
+        IF rawX% >= sbSX2% AND rawX% <= sbSX2% + 7 AND rawY% >= sbListTop2% AND rawY% < sbListBot2% THEN
+            DIM sbMaxScr2 AS INTEGER: sbMaxScr2% = sbTotalH2% - sbListH2%
+            IF sbMaxScr2% < 0 THEN sbMaxScr2% = 0
+            DIM sbTH2 AS INTEGER
+            sbTH2% = INT((sbListH2% / sbTotalH2%) * sbListH2%)
+            IF sbTH2% < 20 THEN sbTH2% = 20
+            IF sbTH2% > sbListH2% THEN sbTH2% = sbListH2%
+            DIM sbTY2 AS INTEGER
+            IF sbMaxScr2% > 0 THEN
+                sbTY2% = sbListTop2% + INT((LAYER_PANEL.scrollOffset% / sbMaxScr2%) * (sbListH2% - sbTH2%))
+            ELSE
+                sbTY2% = sbListTop2%
+            END IF
+            IF rawY% >= sbTY2% AND rawY% < sbTY2% + sbTH2% THEN
+                ' Clicked on thumb — start scroll drag
+                LAYER_PANEL.scrollDragging% = TRUE
+                LAYER_PANEL.scrollDragOffset% = rawY% - sbTY2%
+            ELSE
+                ' Clicked on track — jump to position
+                DIM sbJmpPos AS SINGLE
+                IF sbListH2% - sbTH2% > 0 THEN
+                    sbJmpPos! = (rawY% - sbListTop2% - sbTH2% \ 2) / (sbListH2% - sbTH2%)
+                    IF sbJmpPos! < 0 THEN sbJmpPos! = 0
+                    IF sbJmpPos! > 1.0 THEN sbJmpPos! = 1.0
+                    LAYER_PANEL.scrollOffset% = INT(sbJmpPos! * sbMaxScr2%)
+                END IF
+                GUI_NEEDS_REDRAW% = TRUE
+                SCENE_DIRTY% = TRUE
+                FRAME_IDLE% = FALSE
+            END IF
+            LAYER_PANEL_handle_click% = TRUE
+            EXIT FUNCTION
+        END IF
     END IF
     
     ' Check for button bar clicks
@@ -1720,6 +1772,58 @@ FUNCTION LAYER_PANEL_handle_click% (rawX AS INTEGER, rawY AS INTEGER, button AS 
     
     LAYER_PANEL_handle_click% = TRUE  ' Click was in panel, just not on anything specific
 END FUNCTION
+
+
+''
+' Handle scrollbar thumb drag.
+' Called every frame while scrollDragging% is TRUE and B1 is held.
+' Recomputes scrollOffset from current mouse Y position.
+'
+SUB LAYER_PANEL_handle_scroll_drag (rawY AS INTEGER)
+    IF NOT LAYER_PANEL.scrollDragging% THEN EXIT SUB
+    ' Compute the same geometry as LAYER_PANEL_render
+    DIM sbBBH AS INTEGER
+    IF SCRN.showStatus% THEN
+        sbBBH% = THEME.STATUS_height% + PALETTE_STRIP_get_height%
+    ELSE
+        sbBBH% = 0
+    END IF
+    DIM sbPanelH AS INTEGER: sbPanelH% = SCRN.h& - sbBBH%
+    DIM sbListTop AS INTEGER: sbListTop% = THEME.LAYER_PANEL_header_height%
+    DIM sbListBot AS INTEGER: sbListBot% = sbPanelH% - THEME.LAYER_PANEL_btn_bar_height%
+    DIM sbListH AS INTEGER: sbListH% = sbListBot% - sbListTop%
+    DIM sbTotalH AS INTEGER: sbTotalH% = LAYER_COUNT% * LAYER_ROW_HEIGHT
+    DIM sbMaxScr AS INTEGER: sbMaxScr% = sbTotalH% - sbListH%
+    IF sbMaxScr% < 0 THEN sbMaxScr% = 0
+
+    DIM sbTH AS INTEGER
+    IF sbTotalH% > 0 THEN
+        sbTH% = INT((sbListH% / sbTotalH%) * sbListH%)
+    ELSE
+        sbTH% = sbListH%
+    END IF
+    IF sbTH% < 20 THEN sbTH% = 20
+    IF sbTH% > sbListH% THEN sbTH% = sbListH%
+
+    ' Compute new thumb Y from drag position
+    DIM sbNewY AS INTEGER
+    sbNewY% = rawY% - LAYER_PANEL.scrollDragOffset%
+    IF sbNewY% < sbListTop% THEN sbNewY% = sbListTop%
+    DIM sbMaxThumbY AS INTEGER: sbMaxThumbY% = sbListTop% + sbListH% - sbTH%
+    IF sbNewY% > sbMaxThumbY% THEN sbNewY% = sbMaxThumbY%
+
+    ' Convert thumb position to scroll offset
+    DIM sbThumbRange AS INTEGER: sbThumbRange% = sbListH% - sbTH%
+    IF sbThumbRange% > 0 THEN
+        LAYER_PANEL.scrollOffset% = INT(((sbNewY% - sbListTop%) / sbThumbRange%) * sbMaxScr%)
+    END IF
+    IF LAYER_PANEL.scrollOffset% < 0 THEN LAYER_PANEL.scrollOffset% = 0
+    IF LAYER_PANEL.scrollOffset% > sbMaxScr% THEN LAYER_PANEL.scrollOffset% = sbMaxScr%
+
+    GUI_NEEDS_REDRAW% = TRUE
+    SCENE_DIRTY% = TRUE
+    FRAME_IDLE% = FALSE
+END SUB
 
 
 ''

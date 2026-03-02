@@ -91,6 +91,9 @@ TYPE LAYER_PANEL_OBJ
     visSwiping        AS INTEGER    ' TRUE while swiping visibility
     visSwipeAction    AS INTEGER    ' 1 = show, 0 = hide (action applied during swipe)
     visSwipedLayers   AS STRING * 64 ' Track which layers were already swiped (CHR$(1) = swiped)
+    ' Scrollbar drag state
+    scrollDragging    AS INTEGER    ' TRUE while dragging the scroll thumb
+    scrollDragOffset  AS INTEGER    ' Y offset from thumb top where drag started
 END TYPE
 
 ' Global layer state
@@ -132,6 +135,7 @@ DECLARE SUB LAYER_PANEL_drag_cancel ()
 DECLARE FUNCTION LAYER_PANEL_is_dragging% ()
 DECLARE SUB LAYER_PANEL_handle_vis_swipe (rawX AS INTEGER, rawY AS INTEGER)
 DECLARE SUB LAYER_PANEL_end_vis_swipe ()
+DECLARE SUB LAYER_PANEL_handle_scroll_drag (rawY AS INTEGER)
 
 DECLARE SUB LAYER_PANEL_load_icons ()
 DECLARE SUB LAYER_PANEL_cleanup_icons ()

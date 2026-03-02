@@ -734,15 +734,39 @@ SUB CMD_execute_action (action_id AS INTEGER)
         CASE 321  ' Copy to New Layer
             SOUND_play SND_CLIPBOARD
             IF CURRENT_LAYER% > 0 THEN
+                DIM cpnl_srcLyr AS INTEGER
+                cpnl_srcLyr% = CURRENT_LAYER%  ' Save before LAYERS_new% changes it
                 CLIPBOARD_copy
                 DIM cpnl_idx AS INTEGER
                 cpnl_idx% = LAYERS_new%
-                IF cpnl_idx% > 0 AND CLIPBOARD.VALID AND CLIPBOARD.IMAGE < -1 THEN
-                    ' Directly paint clipboard onto new layer (no floating selection)
+                IF cpnl_idx% > 0 THEN
+                    ' Directly paint onto new layer (no floating selection)
                     DIM cpnl_dest AS LONG
                     cpnl_dest& = LAYERS(cpnl_idx%).imgHandle&
                     IF cpnl_dest& < -1 THEN
-                        _PUTIMAGE (CLIPBOARD.SOURCE_X, CLIPBOARD.SOURCE_Y), CLIPBOARD.IMAGE, cpnl_dest&
+                        ' Opacity lock: copy only non-transparent pixels from source layer
+                        IF LAYERS(cpnl_srcLyr%).opacityLock% AND LAYERS(cpnl_srcLyr%).imgHandle& < -1 THEN
+                            DIM cpnlSrcMem AS _MEM, cpnlDstMem AS _MEM
+                            cpnlSrcMem = _MEMIMAGE(LAYERS(cpnl_srcLyr%).imgHandle&)
+                            cpnlDstMem = _MEMIMAGE(cpnl_dest&)
+                            DIM cpnlMaxOff AS _OFFSET
+                            cpnlMaxOff = cpnlSrcMem.SIZE
+                            IF cpnlDstMem.SIZE < cpnlMaxOff THEN cpnlMaxOff = cpnlDstMem.SIZE
+                            DIM cpnlOff AS _OFFSET
+                            DIM cpnlAlpha AS _UNSIGNED _BYTE
+                            DIM cpnlPx AS _UNSIGNED LONG
+                            FOR cpnlOff = 0 TO cpnlMaxOff - 4 STEP 4
+                                _MEMGET cpnlSrcMem, cpnlSrcMem.OFFSET + cpnlOff + 3, cpnlAlpha~%%
+                                IF cpnlAlpha~%% > 0 THEN
+                                    _MEMGET cpnlSrcMem, cpnlSrcMem.OFFSET + cpnlOff, cpnlPx~&
+                                    _MEMPUT cpnlDstMem, cpnlDstMem.OFFSET + cpnlOff, cpnlPx~&
+                                END IF
+                            NEXT cpnlOff
+                            _MEMFREE cpnlSrcMem
+                            _MEMFREE cpnlDstMem
+                        ELSEIF CLIPBOARD.VALID AND CLIPBOARD.IMAGE < -1 THEN
+                            _PUTIMAGE (CLIPBOARD.SOURCE_X, CLIPBOARD.SOURCE_Y), CLIPBOARD.IMAGE, cpnl_dest&
+                        END IF
                         LAYERS(cpnl_idx%).contentDirty% = TRUE
                         IF NOT UNDO_saved_this_frame% THEN
                             UNDO_save_state
@@ -1251,9 +1275,55 @@ SUB CMD_execute_action (action_id AS INTEGER)
                 LAST_DIRECTORY$ = CFG.LAST_DIR_EXPORT_LAYER$
                 CONFIG_save
                 ' Save the current layer's image handle as PNG
+                ' Crop to the bounding box of opaque pixels
                 IF CURRENT_LAYER% > 0 AND CURRENT_LAYER% <= LAYER_COUNT% THEN
                     IF LAYERS(CURRENT_LAYER%).imgHandle& < -1 THEN
-                        _SAVEIMAGE layerExportPath$, LAYERS(CURRENT_LAYER%).imgHandle&
+                        DIM eleSrcW AS INTEGER, eleSrcH AS INTEGER
+                        eleSrcW% = _WIDTH(LAYERS(CURRENT_LAYER%).imgHandle&)
+                        eleSrcH% = _HEIGHT(LAYERS(CURRENT_LAYER%).imgHandle&)
+                        DIM eleMinX AS INTEGER, eleMinY AS INTEGER
+                        DIM eleMaxX AS INTEGER, eleMaxY AS INTEGER
+                        eleMinX% = eleSrcW% : eleMinY% = eleSrcH%
+                        eleMaxX% = -1 : eleMaxY% = -1
+                        DIM eleMem AS _MEM
+                        eleMem = _MEMIMAGE(LAYERS(CURRENT_LAYER%).imgHandle&)
+                        DIM eleA AS _UNSIGNED _BYTE
+                        DIM elePX AS INTEGER, elePY AS INTEGER
+                        FOR elePY% = 0 TO eleSrcH% - 1
+                            FOR elePX% = 0 TO eleSrcW% - 1
+                                _MEMGET eleMem, eleMem.OFFSET + (elePY% * eleSrcW% + elePX%) * 4 + 3, eleA~%%
+                                IF eleA~%% > 0 THEN
+                                    IF elePX% < eleMinX% THEN eleMinX% = elePX%
+                                    IF elePX% > eleMaxX% THEN eleMaxX% = elePX%
+                                    IF elePY% < eleMinY% THEN eleMinY% = elePY%
+                                    IF elePY% > eleMaxY% THEN eleMaxY% = elePY%
+                                END IF
+                            NEXT elePX%
+                        NEXT elePY%
+                        _MEMFREE eleMem
+                        IF eleMaxX% < 0 THEN
+                            ' Layer is entirely transparent — save full image
+                            _SAVEIMAGE layerExportPath$, LAYERS(CURRENT_LAYER%).imgHandle&
+                        ELSE
+                            DIM eleCropW AS INTEGER: eleCropW% = eleMaxX% - eleMinX% + 1
+                            DIM eleCropH AS INTEGER: eleCropH% = eleMaxY% - eleMinY% + 1
+                            DIM eleCropImg AS LONG
+                            eleCropImg& = _NEWIMAGE(eleCropW%, eleCropH%, 32)
+                            IF eleCropImg& < -1 THEN
+                                DIM eleOldDest AS LONG: eleOldDest& = _DEST
+                                _DEST eleCropImg&
+                                _DONTBLEND eleCropImg&
+                                CLS , _RGBA32(0, 0, 0, 0)
+                                _PUTIMAGE (0, 0)-(eleCropW% - 1, eleCropH% - 1), LAYERS(CURRENT_LAYER%).imgHandle&, eleCropImg&, (eleMinX%, eleMinY%)-(eleMaxX%, eleMaxY%)
+                                _BLEND eleCropImg&
+                                _DEST eleOldDest&
+                                _SAVEIMAGE layerExportPath$, eleCropImg&
+                                _FREEIMAGE eleCropImg&
+                            ELSE
+                                ' _NEWIMAGE failed — save full image as fallback
+                                _SAVEIMAGE layerExportPath$, LAYERS(CURRENT_LAYER%).imgHandle&
+                            END IF
+                        END IF
                         _LOGINFO "Layer exported to: " + layerExportPath$
                     ELSE
                         ERR_info "Invalid layer image"
@@ -1304,9 +1374,9 @@ SUB CMD_execute_action (action_id AS INTEGER)
                 ELSEIF MARQUEE.ACTIVE AND MARQUEE.USER_CREATED AND MARQUEE.INITIALIZED THEN
                     LINE (MARQUEE.BOX.x, MARQUEE.BOX.y)-(MARQUEE.BOX.x + MARQUEE.BOX.w - 1, MARQUEE.BOX.y + MARQUEE.BOX.h - 1), PAINT_COLOR~&, BF
                 ELSE
-                    ' Multi-select: fill only opaque pixels so transparent areas on other layers
-                    ' are not flooded solid. Single-layer: keep full CLS behaviour.
-                    IF MULTI_SELECT_has_any% THEN
+                    ' Multi-select or opacity lock: fill only opaque pixels.
+                    ' Single-layer with no lock: full CLS to fill entire layer.
+                    IF MULTI_SELECT_has_any% OR LAYERS(CURRENT_LAYER%).opacityLock% THEN
                         CMD_ml_fill CURRENT_LAYER%, PAINT_COLOR~&
                     ELSE
                         CLS , PAINT_COLOR~&
@@ -1359,7 +1429,9 @@ SUB CMD_execute_action (action_id AS INTEGER)
                 ELSEIF MARQUEE.ACTIVE AND MARQUEE.USER_CREATED AND MARQUEE.INITIALIZED THEN
                     LINE (MARQUEE.BOX.x, MARQUEE.BOX.y)-(MARQUEE.BOX.x + MARQUEE.BOX.w - 1, MARQUEE.BOX.y + MARQUEE.BOX.h - 1), PAINT_BG_COLOR~&, BF
                 ELSE
-                    IF MULTI_SELECT_has_any% THEN
+                    ' Multi-select or opacity lock: fill only opaque pixels.
+                    ' Single-layer with no lock: full CLS to fill entire layer.
+                    IF MULTI_SELECT_has_any% OR LAYERS(CURRENT_LAYER%).opacityLock% THEN
                         CMD_ml_fill CURRENT_LAYER%, PAINT_BG_COLOR~&
                     ELSE
                         CLS , PAINT_BG_COLOR~&
