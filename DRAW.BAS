@@ -9,7 +9,7 @@
 '
 
 '$INCLUDE:'./_ALL.BI'
-$RESIZE:STRETCH
+$RESIZE:ON
 
 ' THEME.BI (included above) runs at include-time and resets all THEME.* fields to
 ' compiled-in defaults, clobbering the values set by THEME_load inside SCREEN_init
@@ -138,6 +138,12 @@ DO
             END IF
         END IF
     $END IF
+    ' OS-initiated window resize (maximize, drag, etc.): snap back to nearest
+    ' integer scale so $RESIZE:STRETCH always produces a pixel-perfect result.
+    IF _RESIZE THEN
+        SCREEN_snap_window_to_scale _ResizeWidth, _ResizeHeight
+    END IF
+
     k& = _KEYHIT
     
     ' Track macOS ALT key via _KEYHIT (must be before MODIFIERS_update)
@@ -200,31 +206,8 @@ DO
         SCREEN_render
     END IF
     
-    ' Deferred display scale resize: retry glutReshapeWindow after the first
-    ' rendered frame. On macOS, the init-time call may be silently ignored
-    ' because the window wasn't fully realized yet.
-    IF SCREEN_DEFERRED_RESIZE% THEN
-        SCREEN_DEFERRED_RESIZE% = FALSE
-        IF SCRN.displayScale% > 1 THEN
-            DIM deferWinW AS LONG, deferWinH AS LONG
-            deferWinW& = SCRN.w& * SCRN.displayScale%
-            deferWinH& = SCRN.h& * SCRN.displayScale%
-            _SCREENMOVE 0, 0
-            $IF MAC THEN
-                _DELAY 0.05
-            $ELSE
-                _DELAY 0.02
-            $END IF
-            glutReshapeWindow deferWinW&, deferWinH&
-            $IF MAC THEN
-                _DELAY 0.10
-            $ELSE
-                _DELAY 0.05
-            $END IF
-            _SCREENMOVE _MIDDLE
-            _LOGINFO "Deferred display scale resize: " + _TRIM$(STR$(deferWinW&)) + "x" + _TRIM$(STR$(deferWinH&)) + " (" + _TRIM$(STR$(SCRN.displayScale%)) + "x)"
-        END IF
-    END IF
+    ' (deferred glutReshapeWindow removed — SCREEN _NEWIMAGE in SCREEN_init
+    '  sets the window to the correct size immediately; no retry needed.)
     
     ' Apply frame rate limit AFTER render+display (reduced when idle)
     PERF_start PERF_LIMIT_WAIT
