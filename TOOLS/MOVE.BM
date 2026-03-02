@@ -28,6 +28,13 @@ SUB MOVE_init ()
     MOVE.CLONE_STAMPED = FALSE
     MOVE.CONSTRAIN = FALSE
     MOVE.CAPTURED_LAYER = 0
+    ' Clear multi-layer move snapshot
+    REDIM _PRESERVE MOVE_MULTI_LAYERS(1 TO 64) AS INTEGER
+    DIM mmi AS INTEGER
+    FOR mmi% = 1 TO UBOUND(MOVE_MULTI_LAYERS)
+        MOVE_MULTI_LAYERS(mmi%) = 0
+    NEXT mmi%
+    MOVE_MULTI_COUNT% = 0
     ' Also clear layer-level scale original
     IF SCALE_ORIGINAL_IMAGE < -1 THEN _FREEIMAGE SCALE_ORIGINAL_IMAGE
     SCALE_ORIGINAL_IMAGE = 0
@@ -94,6 +101,25 @@ SUB MOVE_capture_selection ()
     ' Track which layer we captured from (ensures apply targets the correct layer
     ' even if the user switches layers before committing)
     MOVE.CAPTURED_LAYER = CURRENT_LAYER%
+
+    ' Snapshot multi-selected layers for linked move.
+    ' Only OTHER selected layers are recorded — the captured layer is handled
+    ' separately via the selection-image pipeline.
+    DIM capI AS INTEGER
+    MOVE_MULTI_COUNT% = 0
+    FOR capI% = 1 TO 64
+        MOVE_MULTI_LAYERS(capI%) = 0
+    NEXT capI%
+    IF MULTI_SELECT_has_any% THEN
+        FOR capI% = 1 TO 64
+            IF MULTI_SELECT_LAYERS(capI%) AND capI% <> CURRENT_LAYER% THEN
+                IF LAYERS(capI%).imgHandle& < -1 THEN
+                    MOVE_MULTI_COUNT% = MOVE_MULTI_COUNT% + 1
+                    MOVE_MULTI_LAYERS(MOVE_MULTI_COUNT%) = capI%
+                END IF
+            END IF
+        NEXT capI%
+    END IF
 
     ' NOTE: No undo save here. The post-move state is saved in MOVE_apply_transform.
     ' The pre-move baseline comes from UNDO_init (file load), LAYERS_new, or
@@ -351,7 +377,31 @@ SUB MOVE_apply_transform ()
         UNDO_save_layer_state targetLayer%
         UNDO_saved_this_frame% = TRUE
     END IF
-    
+
+    ' Multi-layer linked move: translate all other snapshotted layers by the same
+    ' translation delta. Only applies when TRANSFORM_TYPE=0 (pure translation) and
+    ' not cloning. Scale/stretch only affect the captured layer.
+    IF MOVE_MULTI_COUNT% > 0 AND MOVE.TRANSFORM_TYPE = 0 AND NOT MOVE.CLONING THEN
+        DIM mmDx AS INTEGER, mmDy AS INTEGER
+        mmDx% = MOVE.CURRENT_X - MOVE.ORIGINAL_X
+        mmDy% = MOVE.CURRENT_Y - MOVE.ORIGINAL_Y
+        IF mmDx% <> 0 OR mmDy% <> 0 THEN
+            DIM mmI AS INTEGER
+            FOR mmI% = 1 TO MOVE_MULTI_COUNT%
+                DIM mmIdx AS INTEGER
+                mmIdx% = MOVE_MULTI_LAYERS(mmI%)
+                IF mmIdx% >= 1 AND mmIdx% <= 64 THEN
+                    IF LAYERS(mmIdx%).imgHandle& < -1 THEN
+                        ' Save undo state BEFORE translate so undo restores pre-move
+                        UNDO_save_layer_state mmIdx%
+                        LAYER_translate_content mmIdx%, mmDx%, mmDy%
+                        LAYERS(mmIdx%).contentDirty% = TRUE
+                    END IF
+                END IF
+            NEXT mmI%
+        END IF
+    END IF
+
     ' Reset transforming flag
     MOVE.TRANSFORMING = FALSE
 END SUB

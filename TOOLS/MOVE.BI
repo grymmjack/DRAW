@@ -40,6 +40,12 @@ END TYPE
 
 DIM SHARED MOVE AS MOVE_OBJ
 
+' Multi-layer move: snapshot of multi-selected layers at capture time.
+' When multiple layers are selected, translation propagates to all of them.
+REDIM SHARED MOVE_MULTI_LAYERS(1 TO 64) AS INTEGER  ' Layer indices (0 = unused slot)
+DIM SHARED MOVE_MULTI_COUNT AS INTEGER             ' Count of snapshotted layers
+MOVE_MULTI_COUNT% = 0
+
 DECLARE SUB MOVE_init ()
 DECLARE SUB MOVE_reset ()
 DECLARE SUB MOVE_capture_selection ()

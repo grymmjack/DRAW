@@ -87,6 +87,21 @@ DIM SHARED MENU_ROOT_COUNT AS INTEGER                   ' Number of root items
 DIM SHARED MENU_ROOT_IDX(MENU_MAX_ROOT) AS INTEGER      ' Index into MENU_ITEMS for each root
 DIM SHARED MENU_ROOT_ENABLED(MENU_MAX_ROOT) AS INTEGER  ' Whether each root menu is enabled
 
+' Overflow chevron state: when bar is too narrow, excess root menus go behind >>
+DIM SHARED MENU_VISIBLE_COUNT AS INTEGER   ' How many root items (excl HELP) fit before chevron
+DIM SHARED MENU_CHEVRON_ACTIVE AS INTEGER  ' TRUE when overflow exists
+DIM SHARED MENU_CHEVRON_X AS INTEGER       ' X position of >> label
+DIM SHARED MENU_CHEVRON_W AS INTEGER       ' Width of >> hitbox
+DIM SHARED MENU_OVERFLOW_OPEN AS INTEGER   ' TRUE when overflow popup is showing
+DIM SHARED MENU_OVERFLOW_HOVER AS INTEGER  ' Hovered index in overflow popup (-1 = none)
+DIM SHARED MENU_OVERFLOW_X AS INTEGER      ' Overflow popup position
+DIM SHARED MENU_OVERFLOW_Y AS INTEGER
+DIM SHARED MENU_OVERFLOW_W AS INTEGER
+DIM SHARED MENU_OVERFLOW_H AS INTEGER
+MENU_CHEVRON_ACTIVE% = FALSE
+MENU_OVERFLOW_OPEN% = FALSE
+MENU_OVERFLOW_HOVER% = -1
+
 ' Sub declarations
 DECLARE SUB MENUBAR_init ()
 DECLARE SUB MENUBAR_register_all ()
@@ -106,4 +121,7 @@ DECLARE FUNCTION MENUBAR_get_submenu_item_at% (rawY AS INTEGER)
 DECLARE SUB MENUBAR_render_recent_submenu ()
 DECLARE SUB MENUBAR_handle_recent_click (rawX AS INTEGER, rawY AS INTEGER)
 DECLARE FUNCTION MENUBAR_recent_in_bounds% (rawX AS INTEGER, rawY AS INTEGER)
+DECLARE SUB MENUBAR_render_overflow_popup ()
+DECLARE FUNCTION MENUBAR_overflow_in_bounds% (rawX AS INTEGER, rawY AS INTEGER)
+DECLARE SUB MENUBAR_handle_overflow_click (rawX AS INTEGER, rawY AS INTEGER)
 
