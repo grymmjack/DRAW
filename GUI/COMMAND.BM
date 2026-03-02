@@ -87,6 +87,10 @@ SUB CMD_init ()
     CMD_register "Clear Canvas (No Prompt)", "Backspace", CMD_CAT_EDIT, 309
     CMD_register "Select All", "Ctrl+A", CMD_CAT_EDIT, 310
     CMD_register "Invert Selection", "Ctrl+Shift+I", CMD_CAT_EDIT, 311
+    CMD_register "Expand Selection", "Hold M:=", CMD_CAT_EDIT, 1410
+    CMD_register "Contract Selection", "Hold M:-", CMD_CAT_EDIT, 1411
+    CMD_register "Expand Selection (large)", "Hold M:+", CMD_CAT_EDIT, 1412
+    CMD_register "Contract Selection (large)", "Hold M:_", CMD_CAT_EDIT, 1413
     CMD_register "Rotate 90 CW", ">", CMD_CAT_EDIT, 319
     CMD_register "Rotate 90 CCW", "<", CMD_CAT_EDIT, 320
     CMD_register "Copy Merged", "Ctrl+Shift+C", CMD_CAT_EDIT, 322
@@ -141,6 +145,16 @@ SUB CMD_init ()
     CMD_register "Merge Layer Down", "Ctrl+Alt+E", CMD_CAT_LAYER, 705
     CMD_register "Merge All Visible", "Ctrl+Alt+Shift+E", CMD_CAT_LAYER, 706
     CMD_register "Duplicate Layer", "Ctrl+Shift+D", CMD_CAT_LAYER, 707
+    CMD_register "Arrange to Top", "Ctrl+Home", CMD_CAT_LAYER, 708
+    CMD_register "Arrange to Bottom", "Ctrl+End", CMD_CAT_LAYER, 709
+    CMD_register "Align Left (layers)", "", CMD_CAT_LAYER, 1901
+    CMD_register "Align Center H (layers)", "", CMD_CAT_LAYER, 1902
+    CMD_register "Align Right (layers)", "", CMD_CAT_LAYER, 1903
+    CMD_register "Align Top (layers)", "", CMD_CAT_LAYER, 1904
+    CMD_register "Align Middle V (layers)", "", CMD_CAT_LAYER, 1905
+    CMD_register "Align Bottom (layers)", "", CMD_CAT_LAYER, 1906
+    CMD_register "Distribute Horizontally (layers)", "", CMD_CAT_LAYER, 1907
+    CMD_register "Distribute Vertically (layers)", "", CMD_CAT_LAYER, 1908
     
     ' ========== CANVAS ==========
     CMD_register "Pan Canvas", "Space+Drag or MMB", CMD_CAT_CANVAS, 801
@@ -858,12 +872,41 @@ SUB CMD_execute_action (action_id AS INTEGER)
         CASE 701  ' New Layer
             DIM newLayerIdx AS INTEGER
             newLayerIdx% = LAYERS_new%
-        CASE 702: LAYERS_delete CURRENT_LAYER%  ' Delete Layer
+        CASE 702  ' Delete Layer — if multi-select, delete all selected (stop at 1 remaining)
+            IF MULTI_SELECT_has_any% THEN
+                DIM delLayers(1 TO 64) AS INTEGER
+                DIM delCount AS INTEGER
+                DIM delZ AS INTEGER, delI AS INTEGER
+                ' Collect selected layer indices sorted by zIndex descending (delete from top down)
+                FOR delZ% = LAYER_COUNT% TO 1 STEP -1
+                    FOR delI% = 1 TO 64
+                        IF LAYERS(delI%).imgHandle& <> 0 AND LAYERS(delI%).zIndex% = delZ% AND MULTI_SELECT_LAYERS(delI%) THEN
+                            delCount% = delCount% + 1
+                            delLayers(delCount%) = delI%
+                        END IF
+                    NEXT delI%
+                NEXT delZ%
+                FOR delI% = 1 TO delCount%
+                    IF LAYER_COUNT% > 1 THEN LAYERS_delete delLayers(delI%)
+                NEXT delI%
+            ELSE
+                LAYERS_delete CURRENT_LAYER%
+            END IF
         CASE 703: LAYERS_move_up CURRENT_LAYER%
         CASE 704: LAYERS_move_down CURRENT_LAYER%
         CASE 705: LAYERS_merge_down CURRENT_LAYER%
         CASE 706: LAYERS_merge_visible
-        CASE 707: LAYERS_duplicate CURRENT_LAYER%  ' Duplicate Layer
+        CASE 707  ' Duplicate Layer — if multi-select, duplicate all selected
+            IF MULTI_SELECT_has_any% THEN
+                DIM dupI AS INTEGER
+                FOR dupI% = 1 TO 64
+                    IF MULTI_SELECT_LAYERS(dupI%) AND LAYERS(dupI%).imgHandle& <> 0 THEN
+                        LAYERS_duplicate dupI%
+                    END IF
+                NEXT dupI%
+            ELSE
+                LAYERS_duplicate CURRENT_LAYER%
+            END IF
         
         ' ========== GRID ==========
         CASE 901: GRID.SHOW% = NOT GRID.SHOW%: GUI_NEEDS_REDRAW% = TRUE: SCENE_DIRTY% = TRUE
@@ -1916,6 +1959,64 @@ SUB CMD_execute_action (action_id AS INTEGER)
         CASE 710  ' Export Layer as PNG
             ERR_info "Export layer as PNG: not yet implemented"
         
+        ' ========== ALIGN/DISTRIBUTE (multi-layer, relative to canvas bounds) ==========
+        ' Operations act on all multi-selected layers; single-select acts on CURRENT_LAYER% only.
+        CASE 1901, 1902, 1903, 1904, 1905, 1906, 1907, 1908
+            DIM algnI AS INTEGER
+            DIM algnLayers(1 TO 64) AS INTEGER
+            DIM algnCount AS INTEGER
+            ' Collect selected layers
+            FOR algnI% = 1 TO 64
+                IF LAYERS(algnI%).imgHandle& <> 0 THEN
+                    IF MULTI_SELECT_has_any% THEN
+                        IF MULTI_SELECT_LAYERS(algnI%) THEN
+                            algnCount% = algnCount% + 1
+                            algnLayers(algnCount%) = algnI%
+                        END IF
+                    ELSE
+                        IF algnI% = CURRENT_LAYER% THEN
+                            algnCount% = algnCount% + 1
+                            algnLayers(1) = algnI%
+                        END IF
+                    END IF
+                END IF
+            NEXT algnI%
+            ' Canvas dimensions
+            DIM algCanvasW AS INTEGER, algCanvasH AS INTEGER
+            algCanvasW% = _WIDTH(LAYER_current_image&)
+            algCanvasH% = _HEIGHT(LAYER_current_image&)
+            DIM algBx AS INTEGER, algBy AS INTEGER, algBw AS INTEGER, algBh AS INTEGER
+            DIM algDx AS INTEGER, algDy AS INTEGER
+            FOR algnI% = 1 TO algnCount%
+                DIM algnIdx AS INTEGER
+                algnIdx% = algnLayers(algnI%)
+                LAYER_get_content_bounds algnIdx%, algBx%, algBy%, algBw%, algBh%
+                IF algBw% <= 0 OR algBh% <= 0 THEN GOTO algNextLayer
+                algDx% = 0: algDy% = 0
+                SELECT CASE action_id%
+                    CASE 1901  ' Align Left: shift content so leftmost pixel = 0
+                        algDx% = -algBx%
+                    CASE 1902  ' Align Center H: center content horizontally
+                        algDx% = (algCanvasW% \ 2) - (algBx% + algBw% \ 2)
+                    CASE 1903  ' Align Right: shift content so rightmost pixel = canvas right edge
+                        algDx% = (algCanvasW% - 1) - (algBx% + algBw% - 1)
+                    CASE 1904  ' Align Top: shift content so topmost pixel = 0
+                        algDy% = -algBy%
+                    CASE 1905  ' Align Middle V: center content vertically
+                        algDy% = (algCanvasH% \ 2) - (algBy% + algBh% \ 2)
+                    CASE 1906  ' Align Bottom: shift content so bottommost pixel = canvas bottom
+                        algDy% = (algCanvasH% - 1) - (algBy% + algBh% - 1)
+                END SELECT
+                IF algDx% <> 0 OR algDy% <> 0 THEN
+                    LAYER_translate_content algnIdx%, algDx%, algDy%
+                    LAYERS(algnIdx%).contentDirty% = TRUE
+                END IF
+                algNextLayer:
+            NEXT algnI%
+            BLEND_invalidate_cache
+            GUI_NEEDS_REDRAW% = TRUE
+            SCENE_DIRTY% = TRUE
+        
         ' ========== SELECT (menu-only) ==========
         CASE 801  ' Pan tool (space emulation)
             ERR_info "Pan mode: hold Space and drag on canvas"
@@ -1937,7 +2038,15 @@ SUB CMD_execute_action (action_id AS INTEGER)
             IF MARQUEE.ACTIVE% THEN MARQUEE.BOX.y = MARQUEE.BOX.y + 10
         CASE 1409  ' Nudge 10px up
             IF MARQUEE.ACTIVE% THEN MARQUEE.BOX.y = MARQUEE.BOX.y - 10
-        
+        CASE 1410  ' Expand Selection 1px
+            SELECTION_expand 1
+        CASE 1411  ' Contract Selection 1px
+            SELECTION_contract 1
+        CASE 1412  ' Expand Selection by NUDGE_N px
+            SELECTION_expand CFG.NUDGE_N%
+        CASE 1413  ' Contract Selection by NUDGE_N px
+            SELECTION_contract CFG.NUDGE_N%
+
         ' ========== PALETTE (menu-only) ==========
         CASE 1510  ' Import palette
             ERR_info "Import palette: not yet implemented"

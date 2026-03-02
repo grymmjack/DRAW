@@ -124,6 +124,8 @@ DECLARE SUB SELECTION_merge_mask (new_mask AS LONG, mode AS INTEGER)
 ' Selection operations
 DECLARE SUB SELECTION_select_all ()
 DECLARE SUB SELECTION_invert ()
+DECLARE SUB SELECTION_expand (n AS INTEGER)
+DECLARE SUB SELECTION_contract (n AS INTEGER)
 
 ' Selection clipping (shared between marquee and wand)
 DECLARE FUNCTION SELECTION_is_point_inside% (x AS INTEGER, y AS INTEGER)

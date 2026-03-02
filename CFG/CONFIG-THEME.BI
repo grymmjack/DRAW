@@ -84,6 +84,9 @@ TYPE DRAW_THEME
     LAYER_PANEL_drop_line2       AS _UNSIGNED LONG  ' Drop target indicator (shadow/secondary)
     LAYER_PANEL_drag_fill        AS _UNSIGNED LONG  ' Drag preview row fill (RGBA)
     LAYER_PANEL_drag_border      AS _UNSIGNED LONG  ' Drag preview row border
+    LAYER_PANEL_row_master_bg     AS _UNSIGNED LONG  ' Master (CURRENT) layer row background
+    LAYER_PANEL_row_multi_sel_bg  AS _UNSIGNED LONG  ' Multi-selected (secondary) row background
+    LAYER_PANEL_row_master_accent AS _UNSIGNED LONG  ' Left-edge accent bar color for master row
     ' --- Fonts ---
     GLOBAL_FONT_FILE       AS STRING          ' Primary UI font filename (e.g. Tiny5-Regular.ttf)
     ALT_FONT_FILE          AS STRING          ' Alternate font filename (e.g. PICO-8.ttf) — reserved

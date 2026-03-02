@@ -157,7 +157,7 @@ DIM SHARED BLEND_COMPOSITE_CACHED AS INTEGER   ' Cached result of BLEND_needs_co
 DIM SHARED BLEND_COMPOSITE_DIRTY AS INTEGER    ' TRUE = must rescan
 BLEND_COMPOSITE_DIRTY% = TRUE                  ' Start dirty
 
-' Persistent composite buffer — avoid _NEWIMAGE/_FREEIMAGE every frame
+' Persist composite buffer — avoid _NEWIMAGE/_FREEIMAGE every frame
 DIM SHARED COMPOSITE_BUFFER AS LONG
 DIM SHARED COMPOSITE_BUFFER_W AS LONG
 DIM SHARED COMPOSITE_BUFFER_H AS LONG
@@ -167,6 +167,19 @@ DIM SHARED COMPOSITE_BELOW_CACHE AS LONG      ' Cached composite of layers below
 DIM SHARED COMPOSITE_BELOW_LAYER AS INTEGER    ' Which CURRENT_LAYER% this cache was built for
 DIM SHARED COMPOSITE_BELOW_VALID AS INTEGER    ' Is the cache still valid?
 COMPOSITE_BELOW_VALID% = FALSE
+
+' Multi-layer selection — allows selecting multiple layers at once for bulk operations
+' MULTI_SELECT_LAYERS(i): TRUE if layer i is selected (1-based, matches LAYERS array)
+' MULTI_SELECT_COUNT: number of selected layers (invariant: always >= 1)
+DIM SHARED MULTI_SELECT_LAYERS(1 TO 64) AS INTEGER
+DIM SHARED MULTI_SELECT_COUNT AS INTEGER
+MULTI_SELECT_COUNT% = 0
+
+DECLARE SUB MULTI_SELECT_clear ()
+DECLARE FUNCTION MULTI_SELECT_has_any% ()
+DECLARE SUB MULTI_SELECT_toggle (layerIndex AS INTEGER)
+DECLARE SUB LAYER_get_content_bounds (layerIndex AS INTEGER, bx AS INTEGER, by AS INTEGER, bw AS INTEGER, bh AS INTEGER)
+DECLARE SUB LAYER_translate_content (layerIndex AS INTEGER, dx AS INTEGER, dy AS INTEGER)
 
 ' Note: LAYERS_init is called from SCREEN_init after CONFIG_load
 ' LAYER_PANEL_load_icons is called from DRAW.BAS after CONFIG_apply_startup_defaults

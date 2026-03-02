@@ -75,7 +75,10 @@ THEME.LAYER_PANEL_btn_bar_bg~&   = _RGB32(112, 112, 112)       ' Button bar back
 THEME.LAYER_PANEL_drop_line~&    = _RGB32(100, 200, 255)       ' Drop indicator (primary)
 THEME.LAYER_PANEL_drop_line2~&   = _RGB32(50, 150, 200)        ' Drop indicator (shadow)
 THEME.LAYER_PANEL_drag_fill~&    = _RGBA32(60, 120, 180, 180)  ' Drag preview fill
-THEME.LAYER_PANEL_drag_border~&  = _RGB32(100, 200, 255)       ' Drag preview border
+THEME.LAYER_PANEL_drag_border~&      = _RGB32(100, 200, 255)       ' Drag preview border
+THEME.LAYER_PANEL_row_master_bg~&    = _RGB32(70, 100, 140)        ' Master layer row background
+THEME.LAYER_PANEL_row_multi_sel_bg~& = _RGB32(50, 75, 110)         ' Multi-selected row background
+THEME.LAYER_PANEL_row_master_accent~& = _RGB32(100, 180, 255)      ' Left-edge accent bar on master row
 
 ' --- Fonts ---
 THEME.GLOBAL_FONT_FILE$          = "Tiny5-Regular.ttf"       ' Primary UI font

@@ -1607,6 +1607,255 @@ END SUB
 
 
 ' ============================================================================
+' SELECTION EXPAND / CONTRACT (MORPHOLOGICAL DILATION / EROSION)
+' ============================================================================
+
+''
+' Expand (dilate) the current selection by n pixels using an 8-connected kernel.
+' Rect-only selections stay as rects; pixel-mask selections are dilated per-pixel.
+'
+' @param INTEGER n Number of pixels to expand
+'
+SUB SELECTION_expand (n AS INTEGER)
+    DIM w AS INTEGER, h AS INTEGER
+    DIM px AS INTEGER, py AS INTEGER
+    DIM nx AS INTEGER, ny AS INTEGER, dx AS INTEGER, dy AS INTEGER
+    DIM old_dest AS LONG, old_source AS LONG
+    DIM snap AS LONG
+    DIM pass AS INTEGER
+    DIM any_white AS INTEGER
+    DIM mask_color AS _UNSIGNED LONG
+
+    IF n < 1 THEN EXIT SUB
+    IF NOT SELECTION_has_active% THEN EXIT SUB
+
+    w% = SCRN.canvasW&
+    h% = SCRN.canvasH&
+    mask_color~& = _RGB32(255, 255, 255)
+
+    old_dest& = _DEST
+    old_source& = _SOURCE
+
+    IF MARQUEE.WAND_HAS_SELECTION AND MARQUEE.SELECTION_MASK < -1 THEN
+        ' ----- Pixel-mask path: n passes of 8-connected dilation -----
+        DIM minX AS INTEGER, minY AS INTEGER, maxX AS INTEGER, maxY AS INTEGER
+        minX% = w%: minY% = h%: maxX% = 0: maxY% = 0
+
+        FOR pass% = 1 TO n%
+            snap& = _COPYIMAGE(MARQUEE.SELECTION_MASK, 32)
+            IF snap& < -1 THEN
+                _DEST MARQUEE.SELECTION_MASK
+                _DONTBLEND MARQUEE.SELECTION_MASK
+                FOR py% = 0 TO h% - 1
+                    FOR px% = 0 TO w% - 1
+                        _SOURCE snap&
+                        IF _ALPHA32(POINT(px%, py%)) > 0 THEN
+                            ' Already selected — leave white
+                        ELSE
+                            ' Check all 8 neighbours in snapshot
+                            any_white% = FALSE
+                            FOR dy% = -1 TO 1
+                                FOR dx% = -1 TO 1
+                                    IF dx% = 0 AND dy% = 0 THEN _CONTINUE
+                                    nx% = px% + dx%
+                                    ny% = py% + dy%
+                                    IF nx% >= 0 AND nx% < w% AND ny% >= 0 AND ny% < h% THEN
+                                        IF _ALPHA32(POINT(nx%, ny%)) > 0 THEN
+                                            any_white% = TRUE
+                                            dx% = 2  ' break inner
+                                            dy% = 2  ' break outer
+                                        END IF
+                                    END IF
+                                NEXT dx%
+                            NEXT dy%
+                            IF any_white% THEN
+                                _DEST MARQUEE.SELECTION_MASK
+                                PSET (px%, py%), mask_color~&
+                            END IF
+                        END IF
+                    NEXT px%
+                NEXT py%
+                _BLEND MARQUEE.SELECTION_MASK
+                _FREEIMAGE snap&
+            END IF
+        NEXT pass%
+
+        ' Recalculate bounding box
+        _SOURCE MARQUEE.SELECTION_MASK
+        FOR py% = 0 TO h% - 1
+            FOR px% = 0 TO w% - 1
+                IF _ALPHA32(POINT(px%, py%)) > 0 THEN
+                    IF px% < minX% THEN minX% = px%
+                    IF px% > maxX% THEN maxX% = px%
+                    IF py% < minY% THEN minY% = py%
+                    IF py% > maxY% THEN maxY% = py%
+                END IF
+            NEXT px%
+        NEXT py%
+
+        MARQUEE.WAND_MIN_X = minX%
+        MARQUEE.WAND_MIN_Y = minY%
+        MARQUEE.WAND_MAX_X = maxX%
+        MARQUEE.WAND_MAX_Y = maxY%
+        MARQUEE.BOX.x = minX%
+        MARQUEE.BOX.y = minY%
+        MARQUEE.BOX.w = maxX% - minX% + 1
+        MARQUEE.BOX.h = maxY% - minY% + 1
+
+    ELSEIF MARQUEE.ACTIVE% AND MARQUEE.USER_CREATED THEN
+        ' ----- Rect-only path: grow all four sides symmetrically -----
+        MARQUEE.BOX.x = MARQUEE.BOX.x - n%
+        MARQUEE.BOX.y = MARQUEE.BOX.y - n%
+        MARQUEE.BOX.w = MARQUEE.BOX.w + n% * 2
+        MARQUEE.BOX.h = MARQUEE.BOX.h + n% * 2
+        ' Clamp to canvas
+        IF MARQUEE.BOX.x < 0 THEN
+            MARQUEE.BOX.w = MARQUEE.BOX.w + MARQUEE.BOX.x
+            MARQUEE.BOX.x = 0
+        END IF
+        IF MARQUEE.BOX.y < 0 THEN
+            MARQUEE.BOX.h = MARQUEE.BOX.h + MARQUEE.BOX.y
+            MARQUEE.BOX.y = 0
+        END IF
+        IF MARQUEE.BOX.x + MARQUEE.BOX.w > w% THEN
+            MARQUEE.BOX.w = w% - MARQUEE.BOX.x
+        END IF
+        IF MARQUEE.BOX.y + MARQUEE.BOX.h > h% THEN
+            MARQUEE.BOX.h = h% - MARQUEE.BOX.y
+        END IF
+    END IF
+
+    _SOURCE old_source&
+    _DEST old_dest&
+    GUI_NEEDS_REDRAW% = TRUE
+END SUB
+
+
+''
+' Contract (erode) the current selection by n pixels using an 8-connected kernel.
+' Rect-only selections stay as rects; pixel-mask selections are eroded per-pixel.
+' If the result would be empty the selection is cleared.
+'
+' @param INTEGER n Number of pixels to contract
+'
+SUB SELECTION_contract (n AS INTEGER)
+    DIM w AS INTEGER, h AS INTEGER
+    DIM px AS INTEGER, py AS INTEGER
+    DIM nx AS INTEGER, ny AS INTEGER, dx AS INTEGER, dy AS INTEGER
+    DIM old_dest AS LONG, old_source AS LONG
+    DIM snap AS LONG
+    DIM pass AS INTEGER
+    DIM any_empty AS INTEGER
+    DIM minX AS INTEGER, minY AS INTEGER, maxX AS INTEGER, maxY AS INTEGER
+
+    IF n < 1 THEN EXIT SUB
+    IF NOT SELECTION_has_active% THEN EXIT SUB
+
+    w% = SCRN.canvasW&
+    h% = SCRN.canvasH&
+
+    old_dest& = _DEST
+    old_source& = _SOURCE
+
+    IF MARQUEE.WAND_HAS_SELECTION AND MARQUEE.SELECTION_MASK < -1 THEN
+        ' ----- Pixel-mask path: n passes of 8-connected erosion -----
+        FOR pass% = 1 TO n%
+            snap& = _COPYIMAGE(MARQUEE.SELECTION_MASK, 32)
+            IF snap& < -1 THEN
+                _DEST MARQUEE.SELECTION_MASK
+                _DONTBLEND MARQUEE.SELECTION_MASK
+                FOR py% = 0 TO h% - 1
+                    FOR px% = 0 TO w% - 1
+                        _SOURCE snap&
+                        IF _ALPHA32(POINT(px%, py%)) > 0 THEN
+                            ' Currently selected — remove if any neighbour is empty
+                            any_empty% = FALSE
+                            FOR dy% = -1 TO 1
+                                FOR dx% = -1 TO 1
+                                    IF dx% = 0 AND dy% = 0 THEN _CONTINUE
+                                    nx% = px% + dx%
+                                    ny% = py% + dy%
+                                    IF nx% < 0 OR nx% >= w% OR ny% < 0 OR ny% >= h% THEN
+                                        ' Edge of canvas counts as empty
+                                        any_empty% = TRUE
+                                        dx% = 2
+                                        dy% = 2
+                                    ELSEIF _ALPHA32(POINT(nx%, ny%)) = 0 THEN
+                                        any_empty% = TRUE
+                                        dx% = 2
+                                        dy% = 2
+                                    END IF
+                                NEXT dx%
+                            NEXT dy%
+                            IF any_empty% THEN
+                                _DEST MARQUEE.SELECTION_MASK
+                                PSET (px%, py%), _RGBA32(0, 0, 0, 0)
+                            END IF
+                        END IF
+                    NEXT px%
+                NEXT py%
+                _BLEND MARQUEE.SELECTION_MASK
+                _FREEIMAGE snap&
+            END IF
+        NEXT pass%
+
+        ' Recalculate bounding box — check for empty mask
+        minX% = w%: minY% = h%: maxX% = -1: maxY% = -1
+        _SOURCE MARQUEE.SELECTION_MASK
+        FOR py% = 0 TO h% - 1
+            FOR px% = 0 TO w% - 1
+                IF _ALPHA32(POINT(px%, py%)) > 0 THEN
+                    IF px% < minX% THEN minX% = px%
+                    IF px% > maxX% THEN maxX% = px%
+                    IF py% < minY% THEN minY% = py%
+                    IF py% > maxY% THEN maxY% = py%
+                END IF
+            NEXT px%
+        NEXT py%
+
+        IF maxX% < 0 THEN
+            ' Mask is fully eroded — clear selection
+            _SOURCE old_source&
+            _DEST old_dest&
+            MARQUEE_clear
+            MAGIC_WAND_reset
+            GUI_NEEDS_REDRAW% = TRUE
+            EXIT SUB
+        ELSE
+            MARQUEE.WAND_MIN_X = minX%
+            MARQUEE.WAND_MIN_Y = minY%
+            MARQUEE.WAND_MAX_X = maxX%
+            MARQUEE.WAND_MAX_Y = maxY%
+            MARQUEE.BOX.x = minX%
+            MARQUEE.BOX.y = minY%
+            MARQUEE.BOX.w = maxX% - minX% + 1
+            MARQUEE.BOX.h = maxY% - minY% + 1
+        END IF
+
+    ELSEIF MARQUEE.ACTIVE% AND MARQUEE.USER_CREATED THEN
+        ' ----- Rect-only path: shrink all four sides symmetrically -----
+        MARQUEE.BOX.x = MARQUEE.BOX.x + n%
+        MARQUEE.BOX.y = MARQUEE.BOX.y + n%
+        MARQUEE.BOX.w = MARQUEE.BOX.w - n% * 2
+        MARQUEE.BOX.h = MARQUEE.BOX.h - n% * 2
+        ' If rect collapsed to nothing, clear selection
+        IF MARQUEE.BOX.w <= 0 OR MARQUEE.BOX.h <= 0 THEN
+            _SOURCE old_source&
+            _DEST old_dest&
+            MARQUEE_clear
+            MAGIC_WAND_reset
+            GUI_NEEDS_REDRAW% = TRUE
+            EXIT SUB
+        END IF
+    END IF
+
+    _SOURCE old_source&
+    _DEST old_dest&
+    GUI_NEEDS_REDRAW% = TRUE
+END SUB
+
+
+' ============================================================================
 ' SELECTION MASK MERGE HELPER
 ' ============================================================================
 
