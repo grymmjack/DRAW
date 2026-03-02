@@ -1959,16 +1959,19 @@ SUB CMD_execute_action (action_id AS INTEGER)
         CASE 710  ' Export Layer as PNG
             ERR_info "Export layer as PNG: not yet implemented"
         
-        ' ========== ALIGN/DISTRIBUTE (multi-layer, relative to canvas bounds) ==========
-        ' Operations act on all multi-selected layers; single-select acts on CURRENT_LAYER% only.
+        ' ========== ALIGN/DISTRIBUTE ==========
+        ' Multi-select: align relative to CURRENT_LAYER% (reference); single: align to canvas.
+        ' Distribute (1907/1908) spaces layers evenly between extremes.
         CASE 1901, 1902, 1903, 1904, 1905, 1906, 1907, 1908
             DIM algnI AS INTEGER
             DIM algnLayers(1 TO 64) AS INTEGER
             DIM algnCount AS INTEGER
+            DIM algnMulti AS INTEGER
+            algnMulti% = MULTI_SELECT_has_any%
             ' Collect selected layers
             FOR algnI% = 1 TO 64
                 IF LAYERS(algnI%).imgHandle& <> 0 THEN
-                    IF MULTI_SELECT_has_any% THEN
+                    IF algnMulti% THEN
                         IF MULTI_SELECT_LAYERS(algnI%) THEN
                             algnCount% = algnCount% + 1
                             algnLayers(algnCount%) = algnI%
@@ -1981,38 +1984,155 @@ SUB CMD_execute_action (action_id AS INTEGER)
                     END IF
                 END IF
             NEXT algnI%
-            ' Canvas dimensions
+
+            ' Determine alignment reference: CURRENT_LAYER% bounds (multi) or canvas (single)
+            DIM algRefX AS INTEGER, algRefY AS INTEGER, algRefW AS INTEGER, algRefH AS INTEGER
             DIM algCanvasW AS INTEGER, algCanvasH AS INTEGER
             algCanvasW% = _WIDTH(LAYER_current_image&)
             algCanvasH% = _HEIGHT(LAYER_current_image&)
+            IF algnMulti% THEN
+                ' Reference is CURRENT_LAYER% content bounds
+                LAYER_get_content_bounds CURRENT_LAYER%, algRefX%, algRefY%, algRefW%, algRefH%
+                IF algRefW% <= 0 OR algRefH% <= 0 THEN
+                    ' Reference layer is empty — fall back to canvas
+                    algRefX% = 0: algRefY% = 0: algRefW% = algCanvasW%: algRefH% = algCanvasH%
+                END IF
+            ELSE
+                ' Single layer: align to canvas bounds
+                algRefX% = 0: algRefY% = 0: algRefW% = algCanvasW%: algRefH% = algCanvasH%
+            END IF
+
+            ' Save undo state for each affected layer BEFORE making changes
+            FOR algnI% = 1 TO algnCount%
+                UNDO_save_layer_state algnLayers(algnI%)
+            NEXT algnI%
+
             DIM algBx AS INTEGER, algBy AS INTEGER, algBw AS INTEGER, algBh AS INTEGER
             DIM algDx AS INTEGER, algDy AS INTEGER
-            FOR algnI% = 1 TO algnCount%
-                DIM algnIdx AS INTEGER
-                algnIdx% = algnLayers(algnI%)
-                LAYER_get_content_bounds algnIdx%, algBx%, algBy%, algBw%, algBh%
-                IF algBw% <= 0 OR algBh% <= 0 THEN GOTO algNextLayer
-                algDx% = 0: algDy% = 0
-                SELECT CASE action_id%
-                    CASE 1901  ' Align Left: shift content so leftmost pixel = 0
-                        algDx% = -algBx%
-                    CASE 1902  ' Align Center H: center content horizontally
-                        algDx% = (algCanvasW% \ 2) - (algBx% + algBw% \ 2)
-                    CASE 1903  ' Align Right: shift content so rightmost pixel = canvas right edge
-                        algDx% = (algCanvasW% - 1) - (algBx% + algBw% - 1)
-                    CASE 1904  ' Align Top: shift content so topmost pixel = 0
-                        algDy% = -algBy%
-                    CASE 1905  ' Align Middle V: center content vertically
-                        algDy% = (algCanvasH% \ 2) - (algBy% + algBh% \ 2)
-                    CASE 1906  ' Align Bottom: shift content so bottommost pixel = canvas bottom
-                        algDy% = (algCanvasH% - 1) - (algBy% + algBh% - 1)
-                END SELECT
-                IF algDx% <> 0 OR algDy% <> 0 THEN
-                    LAYER_translate_content algnIdx%, algDx%, algDy%
-                    LAYERS(algnIdx%).contentDirty% = TRUE
+
+            ' ---- Distribute requires sorting by position; handled separately ----
+            IF action_id% = 1907 OR action_id% = 1908 THEN
+                ' Distribute H (1907) or V (1908)
+                ' Gather bounds per selected layer
+                DIM distBx(1 TO 64) AS INTEGER, distBy(1 TO 64) AS INTEGER
+                DIM distBw(1 TO 64) AS INTEGER, distBh(1 TO 64) AS INTEGER
+                DIM distOrder(1 TO 64) AS INTEGER  ' indices into algnLayers, sorted
+                DIM distValid AS INTEGER
+                distValid% = 0
+                FOR algnI% = 1 TO algnCount%
+                    LAYER_get_content_bounds algnLayers(algnI%), distBx(algnI%), distBy(algnI%), distBw(algnI%), distBh(algnI%)
+                    IF distBw(algnI%) > 0 AND distBh(algnI%) > 0 THEN
+                        distValid% = distValid% + 1
+                        distOrder(distValid%) = algnI%
+                    END IF
+                NEXT algnI%
+                IF distValid% >= 2 THEN
+                    ' Simple insertion sort by position (X for H, Y for V)
+                    DIM distJ AS INTEGER, distTmp AS INTEGER, distKey AS INTEGER
+                    FOR algnI% = 2 TO distValid%
+                        distTmp% = distOrder(algnI%)
+                        IF action_id% = 1907 THEN
+                            distKey% = distBx(distTmp%)
+                        ELSE
+                            distKey% = distBy(distTmp%)
+                        END IF
+                        distJ% = algnI% - 1
+                        DO WHILE distJ% >= 1
+                            DIM distCmp AS INTEGER
+                            IF action_id% = 1907 THEN
+                                distCmp% = distBx(distOrder(distJ%))
+                            ELSE
+                                distCmp% = distBy(distOrder(distJ%))
+                            END IF
+                            IF distCmp% <= distKey% THEN EXIT DO
+                            distOrder(distJ% + 1) = distOrder(distJ%)
+                            distJ% = distJ% - 1
+                        LOOP
+                        distOrder(distJ% + 1) = distTmp%
+                    NEXT algnI%
+                    ' Compute total span and content size sum
+                    DIM distFirst AS INTEGER, distLast AS INTEGER
+                    distFirst% = distOrder(1): distLast% = distOrder(distValid%)
+                    DIM distSpanStart AS INTEGER, distSpanEnd AS INTEGER
+                    DIM distContentSum AS INTEGER
+                    distContentSum% = 0
+                    FOR algnI% = 1 TO distValid%
+                        DIM distIdx2 AS INTEGER
+                        distIdx2% = distOrder(algnI%)
+                        IF action_id% = 1907 THEN
+                            distContentSum% = distContentSum% + distBw(distIdx2%)
+                        ELSE
+                            distContentSum% = distContentSum% + distBh(distIdx2%)
+                        END IF
+                    NEXT algnI%
+                    IF action_id% = 1907 THEN
+                        distSpanStart% = distBx(distFirst%)
+                        distSpanEnd% = distBx(distLast%) + distBw(distLast%)
+                    ELSE
+                        distSpanStart% = distBy(distFirst%)
+                        distSpanEnd% = distBy(distLast%) + distBh(distLast%)
+                    END IF
+                    DIM distTotalGap AS INTEGER, distGap AS SINGLE
+                    distTotalGap% = (distSpanEnd% - distSpanStart%) - distContentSum%
+                    IF distValid% > 1 THEN
+                        distGap! = distTotalGap% / (distValid% - 1)
+                    ELSE
+                        distGap! = 0
+                    END IF
+                    ' Place each layer at evenly spaced positions
+                    DIM distPos AS SINGLE
+                    distPos! = distSpanStart%
+                    FOR algnI% = 1 TO distValid%
+                        DIM distIdx3 AS INTEGER
+                        distIdx3% = distOrder(algnI%)
+                        DIM distTarget AS INTEGER
+                        distTarget% = INT(distPos! + 0.5)
+                        IF action_id% = 1907 THEN
+                            algDx% = distTarget% - distBx(distIdx3%)
+                            algDy% = 0
+                            distPos! = distPos! + distBw(distIdx3%) + distGap!
+                        ELSE
+                            algDx% = 0
+                            algDy% = distTarget% - distBy(distIdx3%)
+                            distPos! = distPos! + distBh(distIdx3%) + distGap!
+                        END IF
+                        IF algDx% <> 0 OR algDy% <> 0 THEN
+                            LAYER_translate_content algnLayers(distIdx3%), algDx%, algDy%
+                            LAYERS(algnLayers(distIdx3%)).contentDirty% = TRUE
+                        END IF
+                    NEXT algnI%
                 END IF
-                algNextLayer:
-            NEXT algnI%
+            ELSE
+                ' ---- Align operations (1901-1906) ----
+                FOR algnI% = 1 TO algnCount%
+                    DIM algnIdx AS INTEGER
+                    algnIdx% = algnLayers(algnI%)
+                    ' Skip the reference layer in multi-select — it stays put
+                    IF algnMulti% AND algnIdx% = CURRENT_LAYER% THEN GOTO algNextLayer
+                    LAYER_get_content_bounds algnIdx%, algBx%, algBy%, algBw%, algBh%
+                    IF algBw% <= 0 OR algBh% <= 0 THEN GOTO algNextLayer
+                    algDx% = 0: algDy% = 0
+                    SELECT CASE action_id%
+                        CASE 1901  ' Align Left
+                            algDx% = algRefX% - algBx%
+                        CASE 1902  ' Align Center H
+                            algDx% = (algRefX% + algRefW% \ 2) - (algBx% + algBw% \ 2)
+                        CASE 1903  ' Align Right
+                            algDx% = (algRefX% + algRefW% - 1) - (algBx% + algBw% - 1)
+                        CASE 1904  ' Align Top
+                            algDy% = algRefY% - algBy%
+                        CASE 1905  ' Align Middle V
+                            algDy% = (algRefY% + algRefH% \ 2) - (algBy% + algBh% \ 2)
+                        CASE 1906  ' Align Bottom
+                            algDy% = (algRefY% + algRefH% - 1) - (algBy% + algBh% - 1)
+                    END SELECT
+                    IF algDx% <> 0 OR algDy% <> 0 THEN
+                        LAYER_translate_content algnIdx%, algDx%, algDy%
+                        LAYERS(algnIdx%).contentDirty% = TRUE
+                    END IF
+                    algNextLayer:
+                NEXT algnI%
+            END IF
             BLEND_invalidate_cache
             GUI_NEEDS_REDRAW% = TRUE
             SCENE_DIRTY% = TRUE
