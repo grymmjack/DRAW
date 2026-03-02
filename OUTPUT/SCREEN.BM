@@ -198,23 +198,12 @@ SUB SCREEN_set_display_scale (newScale AS INTEGER)
     ' Update display scale
     SCRN.displayScale% = clampedScale%
     
-    ' Resize window — GPU scaling via $RESIZE:STRETCH handles the rest
-    ' Move to upper-left first so macOS doesn't constrain the expanded size
+    ' Recreate window-sized screen surface at new scale; no glutReshapeWindow needed.
     winW& = SCRN.w& * SCRN.displayScale%
     winH& = SCRN.h& * SCRN.displayScale%
     _LOGINFO "SCREEN_set_display_scale: resizing window to " + _TRIM$(STR$(winW&)) + "x" + _TRIM$(STR$(winH&)) + " (scale " + _TRIM$(STR$(SCRN.displayScale%)) + "x)"
-    _SCREENMOVE 0, 0
-    $IF MAC THEN
-        _DELAY 0.05  ' macOS needs more time for window manager to process move
-    $ELSE
-        _DELAY 0.02
-    $END IF
-    glutReshapeWindow winW&, winH&
-    $IF MAC THEN
-        _DELAY 0.10  ' macOS needs more time on window resize
-    $ELSE
-        _DELAY 0.05
-    $END IF
+    SCREEN _NEWIMAGE(winW&, winH&, 32)
+    _DEST SCRN.CANVAS&
     _SCREENMOVE _MIDDLE
     
     ' Reset input state after window resize
@@ -226,6 +215,56 @@ SUB SCREEN_set_display_scale (newScale AS INTEGER)
     
     ' Mark config as changed
     CFG.DISPLAY_SCALE_CHANGED% = TRUE
+END SUB
+
+
+''
+' Called when the OS resizes the window (maximize, drag, etc.).
+' Snaps the window back to the nearest integer multiple of the viewport so
+' $RESIZE:ON always produces a pixel-perfect integer scale.
+' Does NOT move the window or touch any app state beyond displayScale.
+'
+SUB SCREEN_snap_window_to_scale (newW AS LONG, newH AS LONG)
+    DIM snapW AS INTEGER, snapH AS INTEGER, snapScale AS INTEGER
+    DIM maxFitW AS INTEGER, maxFitH AS INTEGER, maxScale AS INTEGER
+
+    ' Compute best-fit integer scale from the new OS window dimensions
+    snapW% = CInt(newW&) \ CInt(SCRN.w&)
+    snapH% = CInt(newH&) \ CInt(SCRN.h&)
+    snapScale% = snapW%
+    IF snapH% < snapScale% THEN snapScale% = snapH%
+
+    ' Clamp to minimum 1
+    IF snapScale% < 1 THEN snapScale% = 1
+
+    ' Clamp to configured maximum
+    IF snapScale% > CFG.DISPLAY_SCALE_MAX% THEN snapScale% = CFG.DISPLAY_SCALE_MAX%
+
+    ' Clamp to fit on desktop
+    maxFitW% = _DESKTOPWIDTH \ CInt(SCRN.w&)
+    maxFitH% = _DESKTOPHEIGHT \ CInt(SCRN.h&)
+    maxScale% = maxFitW%
+    IF maxFitH% < maxScale% THEN maxScale% = maxFitH%
+    IF maxScale% > CFG.DISPLAY_SCALE_MAX% THEN maxScale% = CFG.DISPLAY_SCALE_MAX%
+    IF snapScale% > maxScale% THEN snapScale% = maxScale%
+
+    ' No change — already at the right integer scale (also prevents resonance with
+    ' the _RESIZE event that SCREEN _NEWIMAGE may itself fire)
+    IF snapScale% = SCRN.displayScale% THEN EXIT SUB
+
+    SCRN.displayScale% = snapScale%
+
+    ' Recreate window-sized screen surface; no glutReshapeWindow needed.
+    SCREEN _NEWIMAGE(SCRN.w& * SCRN.displayScale%, SCRN.h& * SCRN.displayScale%, 32)
+    _DEST SCRN.CANVAS&
+    _SCREENMOVE _MIDDLE
+
+    GUI_NEEDS_REDRAW% = TRUE
+    SCENE_DIRTY% = TRUE
+    FRAME_IDLE% = FALSE
+    CFG.DISPLAY_SCALE_CHANGED% = TRUE
+
+    _LOGINFO "SCREEN_snap_window_to_scale: snapped " + _TRIM$(STR$(newW&)) + "x" + _TRIM$(STR$(newH&)) + " -> " + _TRIM$(STR$(SCRN.displayScale%)) + "x (" + _TRIM$(STR$(SCRN.w& * SCRN.displayScale%)) + "x" + _TRIM$(STR$(SCRN.h& * SCRN.displayScale%)) + ")"
 END SUB
 
 
@@ -267,12 +306,21 @@ SUB SCREEN_init ()
         SCRN.w& = CFG.SCREEN_WIDTH%
         SCRN.h& = CFG.SCREEN_HEIGHT%
     ELSE
-        ' Auto-detect: target window = 90% of desktop, viewport = target / scale.
-        ' This makes the window as big as possible while staying ~10% from edges.
+        ' Auto-detect viewport: derive from desktop / displayScale.
+        ' When scale is explicit (CFG.DISPLAY_SCALE>0), fill the desktop exactly:
+        '   viewport = desktop / scale  (window = desktop, perfect fill, any aspect ratio)
+        ' When scale is also auto, stay at 90% so the window has a centering margin.
         SCREEN_detect_desktop_resolution
         DIM targetW AS LONG, targetH AS LONG
-        targetW& = (SCRN.w& * 9) \ 10
-        targetH& = (SCRN.h& * 9) \ 10
+        IF CFG.DISPLAY_SCALE% > 0 THEN
+            ' Explicit scale: viewport fills the monitor exactly regardless of ratio
+            targetW& = SCRN.w&
+            targetH& = SCRN.h&
+        ELSE
+            ' Auto scale: leave ~10% margin around the window
+            targetW& = (SCRN.w& * 9) \ 10
+            targetH& = (SCRN.h& * 9) \ 10
+        END IF
         SCRN.w& = targetW& \ SCRN.displayScale%
         SCRN.h& = targetH& \ SCRN.displayScale%
         ' Round down to nearest even number for clean GPU scaling
@@ -426,51 +474,16 @@ SUB SCREEN_init ()
     CLS , _RGBA32(0, 0, 0, 0)
     _DEST SCRN.GUI&
     
-    ' Use CANVAS as the SCREEN — GPU scaling via $RESIZE:STRETCH
-    SCREEN SCRN.CANVAS&
-    _DEST SCRN.CANVAS&
-    
-    ' Force first display cycle so the window is fully realized by the OS
-    ' before we try to resize it. Without this, glutReshapeWindow may be
-    ' silently ignored on macOS because the SDL2 window isn't ready yet.
-    CLS , _RGB32(0, 0, 0)
-    _DISPLAY
-    $IF MAC THEN
-        _DELAY 0.10  ' macOS Cocoa needs time to finalize window after first display
-    $ELSE
-        _DELAY 0.02
-    $END IF
-    
-    ' Set window to scaled size (GPU texture scaling, no software _PUTIMAGE)
-    ' CRITICAL: On macOS, SCREEN creates window at viewport size (small), then
-    ' glutReshapeWindow expands it. If the small window is centered, the expansion
-    ' can push edges off-screen. macOS constrains the window, resulting in a size
-    ' that is NOT an integer multiple of the viewport → blurry GPU stretching.
-    ' Fix: move window to upper-left first so there's room to expand.
+    ' Open the OS window at the correct scaled size immediately.
+    ' SCRN.CANVAS& stays as an offscreen render target (all rendering uses
+    ' _DEST SCRN.CANVAS& explicitly). SCREEN_render scales it to screen 0
+    ' with _PUTIMAGE before each _DISPLAY call. No glutReshapeWindow needed.
     winW& = SCRN.w& * SCRN.displayScale%
     winH& = SCRN.h& * SCRN.displayScale%
     _LOGINFO "SCREEN_init: window target=" + _TRIM$(STR$(winW&)) + "x" + _TRIM$(STR$(winH&)) + " (" + _TRIM$(STR$(SCRN.displayScale%)) + "x scale)"
-    _SCREENMOVE 0, 0
-    $IF MAC THEN
-        _DELAY 0.05  ' macOS needs more time for window manager to process move
-    $ELSE
-        _DELAY 0.02
-    $END IF
-    glutReshapeWindow winW&, winH&
-    $IF MAC THEN
-        _DELAY 0.15  ' macOS needs more time to finalize window geometry
-    $ELSE
-        _DELAY 0.05
-    $END IF
-    _SCREENMOVE _MIDDLE  ' Center the properly-sized window
-    
-    ' Schedule deferred resize for first main loop frame as backup.
-    ' On macOS, glutReshapeWindow during module init (before the event loop)
-    ' can be silently ignored. The deferred resize runs after at least one
-    ' full _DISPLAY cycle in the main loop, when the window is guaranteed ready.
-    IF SCRN.displayScale% > 1 THEN
-        SCREEN_DEFERRED_RESIZE% = TRUE
-    END IF
+    SCREEN _NEWIMAGE(winW&, winH&, 32)
+    _DEST SCRN.CANVAS&
+    _SCREENMOVE _MIDDLE
     
     ' Set window icon (cross-platform via SDL2)
     DIM iconHandle AS LONG
@@ -1398,7 +1411,8 @@ SUB SCREEN_render ()
             POINTER.PREV_DRAW_X% = new_mx%
             POINTER.PREV_DRAW_Y% = new_my%
 
-            ' --- GPU scaling via $RESIZE:STRETCH handles display ---
+            ' Scale viewport canvas to window screen before display
+            _PUTIMAGE (0, 0)-(_WIDTH(0) - 1, _HEIGHT(0) - 1), SCRN.CANVAS&, 0
 
             PERF_stop PERF_DIRTY_RECT_PATH
             PERF_start PERF_DISPLAY_CALL
@@ -1573,11 +1587,11 @@ SUB SCREEN_render ()
     POINTER.PREV_DRAW_X% = _MOUSEX
     POINTER.PREV_DRAW_Y% = _MOUSEY
     
-    ' GPU scaling via $RESIZE:STRETCH — no software scale needed
+    ' Scale viewport canvas to window screen (software _PUTIMAGE replaces $RESIZE:STRETCH)
     PERF_start PERF_FINAL_SCALE
-    ' (eliminated: glutReshapeWindow + $RESIZE:STRETCH handles scaling in _DISPLAY)
+    _PUTIMAGE (0, 0)-(_WIDTH(0) - 1, _HEIGHT(0) - 1), SCRN.CANVAS&, 0
     PERF_stop PERF_FINAL_SCALE
-    
+
     PERF_start PERF_DISPLAY_CALL
     _DISPLAY
     PERF_stop PERF_DISPLAY_CALL
