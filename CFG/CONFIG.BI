@@ -163,6 +163,9 @@ TYPE DRAW_CONFIG
     SCROLLBAR_OPACITY              AS INTEGER  ' Scrollbar overall opacity 0-255 (0=use default 180)
     ' Workspace undo settings
     WORKSPACE_UNDO_MAX_STATES      AS INTEGER  ' Max workspace undo states (5-50, default 20)
+    ' Sound settings
+    SOUNDS_ENABLED                 AS INTEGER  ' TRUE=-1 / FALSE=0 (default 0=off)
+    SOUNDS_VOLUME                  AS INTEGER  ' Volume percent 0-100 (default 75)
     ' Default startup settings
     DEFAULT_TOOL                   AS INTEGER  ' Default tool on startup (1=brush, 2=fill, 3=dot, etc.)
     DEFAULT_BRUSH_SIZE             AS INTEGER  ' Default brush size index (1-25)

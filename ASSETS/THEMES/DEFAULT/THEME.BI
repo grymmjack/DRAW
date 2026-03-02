@@ -84,6 +84,35 @@ THEME.LAYER_PANEL_row_master_accent~& = _RGB32(100, 180, 255)      ' Left-edge a
 THEME.GLOBAL_FONT_FILE$          = "Tiny5-Regular.ttf"       ' Primary UI font
 THEME.ALT_FONT_FILE$             = "PICO-8.ttf"              ' Alternate font (reserved)
 
+' --- Sounds ---
+THEME.SOUND_MENU_OPEN_FILE$   = "menu-open.wav"    ' Open root menu
+THEME.SOUND_MENU_SELECT_FILE$ = "menu-select.wav"   ' Select menu item
+THEME.SOUND_NEW_FILE_FILE$    = "new-file.wav"       ' New file / startup
+THEME.SOUND_NEW_LAYER_FILE$   = "new-layer.wav"      ' New layer
+THEME.SOUND_LAYER_OP_FILE$    = "layer-op.wav"       ' Delete/arrange/merge/duplicate layer
+THEME.SOUND_CLIPBOARD_FILE$   = "clipboard.wav"      ' Copy/Cut/Paste
+THEME.SOUND_FILL_FILE$        = "fill.wav"           ' Flood fill
+THEME.SOUND_SELECTION_FILE$   = "selections.wav"     ' Selection operations
+THEME.SOUND_DRAW_FILE$        = "draw.wav"           ' Brush/dot/spray drag
+THEME.SOUND_TRANSFORM_FILE$   = "transform.wav"      ' Flip/scale/rotate/About
+THEME.SOUND_TEXT_ENTER_FILE$  = "text-enter.wav"     ' Text tool Enter key
+THEME.SOUND_MENU_HOVER_FILE$  = "menu-hover.wav"     ' Hovering a new menu item
+THEME.SOUND_TOOL_SELECT_FILE$ = "tool-select.wav"    ' Toolbox button click
+THEME.SOUND_TEXT_CHAR_FILE$   = "text-char.wav"      ' Text tool character typed
+THEME.SOUND_ERASER_FILE$      = "eraser.wav"         ' Eraser stroke drag
+THEME.SOUND_DRAW_PITCH_MIN!   = 0.8                  ' Draw pitch range minimum
+THEME.SOUND_DRAW_PITCH_MAX!   = 1.2                  ' Draw pitch range maximum
+THEME.SOUND_ERASER_PITCH_MIN! = 0.8                  ' Eraser pitch range minimum
+THEME.SOUND_ERASER_PITCH_MAX! = 1.2                  ' Eraser pitch range maximum
+THEME.SOUND_DRAW_REVERSE_FILE$   = "draw-reversed.wav"  ' Reversed draw for direction change
+THEME.SOUND_ERASER_REVERSE_FILE$ = "draw-reversed.wav"  ' Reversed eraser for direction change
+THEME.SOUND_DRAW_LENGTH_DYNAMICS_MIN! = 0.2             ' Volume at short drag distance
+THEME.SOUND_DRAW_LENGTH_DYNAMICS_MAX! = 1.0             ' Volume at long drag distance
+THEME.SOUND_SLIDER_FILE$    = "slider.wav"              ' Opacity/value slider drag
+THEME.SOUND_DRAG_DROP_FILE$ = "drag-drop.wav"           ' Layer drag-and-drop reorder
+THEME.SOUND_POINT_FILE$     = "point.wav"               ' Click to place a point (line/shape/poly)
+THEME.SOUND_ORGANIZER_FILE$ = "text-char.wav"           ' Organizer/drawer widget click or mousewheel
+
 ' =============================================================================
 ' CURSORS - PNG cursor configuration
 ' =============================================================================

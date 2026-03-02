@@ -14,6 +14,7 @@ $INCLUDEONCE
 '$INCLUDE:'./CORE/PERF.BI'
 '$INCLUDE:'./CORE/ERROR.BI'
 '$INCLUDE:'./CORE/IMAGE.BI'
+'$INCLUDE:'./CORE/SOUND.BI'
 
 ' CONFIG ----------------------------------------------------------------------
 '$INCLUDE:'./CFG/CONFIG.BI'

@@ -90,6 +90,34 @@ TYPE DRAW_THEME
     ' --- Fonts ---
     GLOBAL_FONT_FILE       AS STRING          ' Primary UI font filename (e.g. Tiny5-Regular.ttf)
     ALT_FONT_FILE          AS STRING          ' Alternate font filename (e.g. PICO-8.ttf) — reserved
+    ' --- Sounds ---
+    SOUND_MENU_OPEN_FILE   AS STRING          ' Filename for menu-open sound
+    SOUND_MENU_SELECT_FILE AS STRING          ' Filename for menu-item-selected sound
+    SOUND_NEW_FILE_FILE    AS STRING          ' Filename for new file / startup sound
+    SOUND_NEW_LAYER_FILE   AS STRING          ' Filename for new layer sound
+    SOUND_LAYER_OP_FILE    AS STRING          ' Filename for layer delete/arrange/merge/duplicate
+    SOUND_CLIPBOARD_FILE   AS STRING          ' Filename for copy/cut/paste sound
+    SOUND_FILL_FILE        AS STRING          ' Filename for flood fill sound
+    SOUND_SELECTION_FILE   AS STRING          ' Filename for selection operation sound
+    SOUND_DRAW_FILE        AS STRING          ' Filename for draw click (brush/dot/spray)
+    SOUND_TRANSFORM_FILE   AS STRING          ' Filename for transform (flip/scale/rotate/about)
+    SOUND_TEXT_ENTER_FILE  AS STRING          ' Filename for text tool Enter (commit line)
+    SOUND_MENU_HOVER_FILE  AS STRING          ' Filename for hovering a new menu item
+    SOUND_TOOL_SELECT_FILE AS STRING          ' Filename for toolbox button click
+    SOUND_TEXT_CHAR_FILE   AS STRING          ' Filename for text tool character typed
+    SOUND_ERASER_FILE      AS STRING          ' Filename for eraser stroke initial click
+    SOUND_DRAW_PITCH_MIN   AS SINGLE          ' Min playback speed for draw pitch randomisation
+    SOUND_DRAW_PITCH_MAX   AS SINGLE          ' Max playback speed for draw pitch randomisation
+    SOUND_ERASER_PITCH_MIN AS SINGLE          ' Min playback speed for eraser pitch randomisation
+    SOUND_ERASER_PITCH_MAX    AS SINGLE          ' Max playback speed for eraser pitch randomisation
+    SOUND_DRAW_REVERSE_FILE   AS STRING          ' Reversed draw WAV for direction-change sound
+    SOUND_ERASER_REVERSE_FILE         AS STRING          ' Reversed eraser WAV for direction-change sound
+    SOUND_DRAW_LENGTH_DYNAMICS_MIN     AS SINGLE          ' Volume at short drag (0.0-1.0)
+    SOUND_DRAW_LENGTH_DYNAMICS_MAX     AS SINGLE          ' Volume at long drag (0.0-1.0)
+    SOUND_SLIDER_FILE    AS STRING          ' Filename for opacity/value slider drag sound
+    SOUND_DRAG_DROP_FILE AS STRING          ' Filename for layer drag-and-drop sound
+    SOUND_POINT_FILE     AS STRING          ' Filename for click-to-place-point (line/shape/poly tools)
+    SOUND_ORGANIZER_FILE AS STRING          ' Filename for organizer/drawer widget click or mousewheel
 END TYPE
 
 ' Runtime theme loader — populates THEME from ASSETS/THEMES/{CFG.THEME$}/THEME.CFG
