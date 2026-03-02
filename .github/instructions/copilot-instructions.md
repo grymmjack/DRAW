@@ -477,13 +477,13 @@ Menu items, keyboard shortcuts, command palette, and toolbar clicks all funnel t
 | 416 | View | Display Scale Reset (`Ctrl+Alt+PgDn`) |
 | 501-517 | Color | Opacity presets (10-100%), Swap FG/BG |
 | 601-609 | Brush | Size dec/inc, presets, preview, shape, pixel perfect |
-| 701-710 | Layer | New, Delete, MoveUp/Down, MergeDown, MergeVisible, Duplicate, ArrangeTop/Bottom |
+| 701-711 | Layer | New, Delete, MoveUp/Down, MergeDown, MergeVisible, Duplicate, ArrangeTop/Bottom, ExportLayerPNG, **MergeSelected** |
 | 801-802 | Canvas | Pan, Reset Pan |
 | 901-908 | Grid | Toggle, Pixel Grid, Snap, Size, AlignMode, MatchBrush, CellFill |
 | 1001-1003 | Symmetry | Cycle, Clear, Set Center |
 | 1101-1112 | Custom Brush | Capture, Clear, Recolor, Outline, Flip, Scale, Export, Rotate |
 | 1201-1206 | Assistants | Constrain, AngleSnap, Square/Circle, Center, Clone, TempPicker |
-| 1401-1409 | Selection | SelectFromLayer, Nudge 1/10px |
+| 1401-1414 | Selection | SelectFromLayer, Nudge 1/10px, Expand/Contract, **SelectFromSelectedLayers** |
 | 1501-1513 | Palette/Ref | RefImage, Palette Import/Export/Random, Color Picker, Swap FG/BG |
 | 1601-1607 | Help | About, CheatSheet, Manual, GitHub, Issues, Credits |
 | 1701-1704 | Tools (menu) | Zoom, Spray, CmdPalette, CodeExport |
@@ -651,6 +651,25 @@ Max 64 layers. 19 blend modes (Normal through Divide).
 
 `LAYER_current_image&`: Returns `LAYERS(CURRENT_LAYER%).imgHandle&` or falls back to
 `SCRN.PAINTING&` if invalid.
+
+### Multi-Layer Select
+
+Global state for simultaneously selecting multiple layers:
+
+| Variable | Type | Purpose |
+|----------|------|---------|
+| `MULTI_SELECT_LAYERS(1..64)` | INTEGER array | TRUE for each layer index that is selected |
+| `MULTI_SELECT_COUNT%` | INTEGER | Number of currently selected layers (always ≥ 1) |
+| `MULTI_SELECT_has_any%` | FUNCTION | Returns TRUE when `MULTI_SELECT_COUNT% > 1` |
+
+**Ctrl+Click or Shift+Click** a layer row to toggle it into/out of the multi-selection.
+**Plain left-click** calls `LAYERS_select` which internally calls `MULTI_SELECT_clear`, resetting to 1 layer.
+
+When 2+ layers are selected, Edit menu operations (Clear, Fill FG/BG, Flip H/V, Scale, Rotate) and `Layer → Merge Selected` apply to all selected layers. `Select → From Selected Layers` creates a union selection mask.
+
+Key helpers:
+- `MULTI_SELECT_clear` — resets to just `CURRENT_LAYER%`
+- `MULTI_SELECT_toggle layerIndex%` — adds/removes a layer (cannot deselect last)
 
 ### Layer Panel
 

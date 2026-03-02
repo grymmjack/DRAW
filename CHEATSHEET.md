@@ -304,7 +304,8 @@ Brush size and shape affect all drawing tools: Brush, Dot, Line, Rectangle, Elli
 - Exported PNG files use timestamp-based filenames for unique names
 - Visual feedback with marching ants during capture
 - Status bar shows `CB` when active, `CB+RECOLOR` when recolor mode is on
-- **Select from Current Layer** (`Ctrl+Click` layer row): Creates a selection mask from all non-transparent pixels on that layer, perfect for capturing complex shapes as custom brushes
+- **Select from Current Layer** (Select menu → From Current Layer): Creates a selection mask from all non-transparent pixels on the current layer, perfect for capturing complex shapes as custom brushes
+- **Select from Selected Layers** (Select menu → From Selected Layers, requires 2+ selected): Union mask of all non-transparent pixels across every selected layer
 
 **Outlined Text Workflow:**
 1. Draw text on canvas, marquee select it, `Ctrl+B` to capture
@@ -657,7 +658,7 @@ Reference image state (position, scale, opacity, visibility, filename) is saved 
 
 ## Layers
 
-DRAW supports a Photoshop-style layer system with up to 32 layers. Each layer has independent opacity, visibility, blend mode, and stacking order.
+DRAW supports a Photoshop-style layer system with up to 64 layers. Each layer has independent opacity, visibility, blend mode, and stacking order.
 
 ### Layer Panel
 
@@ -673,6 +674,38 @@ The layer panel is displayed on the left side of the screen and can be toggled w
 | `Ctrl+PgDn` | Move layer down in stack |
 | `Ctrl+Alt+E` | Merge current layer down |
 | `Ctrl+Alt+Shift+E` | Merge all visible layers |
+
+### Multi-Layer Select
+
+Select multiple layers at once to apply operations across all of them simultaneously.
+
+| Action | Function |
+|--------|----------|
+| **Ctrl+Left-click layer row** | Add/remove a layer from the multi-selection |
+| **Select another layer normally** | Clears multi-selection back to a single layer |
+
+When 2 or more layers are selected the following **Edit menu** operations apply to all selected layers:
+
+| Operation | Effect |
+|-----------|--------|
+| **Clear** (Ctrl+E) | Clears content on each selected layer |
+| **Fill FG** | Fills opaque pixels only on each selected layer with FG color |
+| **Fill BG** | Fills opaque pixels only on each selected layer with BG color |
+| **Flip Horizontal / Vertical** | Flips each selected layer |
+| **Scale +50% / -50%** | Scales content on each selected layer |
+| **Rotate CW / CCW** | Rotates each selected layer |
+
+The **Layer menu** shows two additional options when 2+ layers are selected:
+
+| Menu Item | Function |
+|-----------|----------|
+| **Layer → Merge Selected** | Composites all selected layers (bottom-to-top, respecting blend mode and opacity) into a single new layer, then removes the originals |
+
+The **Select menu** shows an additional option when 2+ layers are selected:
+
+| Menu Item | Function |
+|-----------|----------|
+| **Select → From Selected Layers** | Creates a marquee selection mask from the union of all non-transparent pixels across every selected layer |
 
 ### Layer Panel UI
 
@@ -697,8 +730,9 @@ The layer panel is displayed on the left side of the screen and can be toggled w
 
 | Action | Function |
 |--------|----------|
-| **Left-click layer row** | Select layer |
-| **Ctrl+Left-click layer row** | Select non-transparent pixels (creates marquee selection mask) |
+| **Left-click layer row** | Select layer (clears any multi-layer selection) |
+| **Ctrl+Left-click layer row** | Add/remove layer from multi-layer selection (2+ selected enables multi-layer ops) |
+| **Shift+Left-click layer row** | Add/remove layer from multi-layer selection (same as Ctrl+click) |
 | **Right-click layer row** | Select and rename layer |
 | **Shift+Right-click layer row** | Cycle blend mode (Normal → Multiply → Screen → ... → Luminosity) |
 | **Alt+Left-click visibility icon** | Solo/unsolo layer (hide all others) |
@@ -725,7 +759,7 @@ Layers can be reordered by dragging them to a new position:
 
 ### Layer Features
 
-- **32 layers maximum** (configurable in DRAW.cfg)
+- **64 layers maximum**
 - **Per-layer opacity** (0-255, displayed as percentage)
 - **Per-layer visibility** toggle
 - **Per-layer blend mode** (19 Photoshop-style blend modes)
@@ -882,8 +916,10 @@ DRAW has an optional menu bar at the top of the screen providing access to all c
 | **File** | New, Open, Import Image, Save, Save As, Export Layer, Export Brush, Exit |
 | **Edit** | Undo, Redo, Cut, Copy, Paste, Select All, Deselect, Invert Selection, Flip H/V, Scale, Rotate 90° CW/CCW, Canvas Resize, Canvas Crop |
 | **View** | Toolbar, Status Bar, Layer Panel, Menu Bar, Cursors, Grid, Pixel Grid, Snap, Crosshair, Reference Image (toggle/load/clear/reposition) |
+| **Select** | All, None, Invert, Expand, Contract, From Current Layer, **From Selected Layers** *(requires 2+ selected)* |
 | **Canvas** | Clear Canvas, Zoom In/Out, Reset Zoom |
 | **Tools** | All drawing tools (Dot, Brush, Line, etc.) |
+| **Layer** | New, Duplicate, Delete, Merge Down, Merge All, **Merge Selected** *(requires 2+ selected)*, Arrange, Align, Distribute |
 | **Palette** | Color Picker, Load Palette, Swap Colors |
 | **Help** | Command Palette, Cheatsheet |
 

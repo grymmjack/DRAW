@@ -14,7 +14,7 @@ DATA "::::::::", "::    ::", "::    ::", "::::  ::::", "  ::  ::  "
 
 DRAW is a pixel art editor written in QB64PE that can export images as sourcecode
 
-![DRAW GUI from v0.10.0](./GUI.png)
+![DRAW GUI from v0.11.0](./GUI.png)
 
 ## Features
 
@@ -97,8 +97,10 @@ DRAW is a pixel art editor written in QB64PE that can export images as sourcecod
 - Drag-and-drop layer reordering with visual feedback
 - Opacity lock prevents drawing on transparent pixels (enforced by all drawing tools including shape tools)
 - Select from current layer: Ctrl+Click a layer row to create a selection mask from its non-transparent pixels
-- Merge down, merge visible, duplicate layers
-- CTRL+Click layer to create selection from non-transparent pixels
+- Merge down, merge visible, **merge selected** (composites all multi-selected layers into one), duplicate layers
+- **Multi-layer select**: Ctrl+Click or Shift+Click layer rows to add/remove layers from the selection; Edit menu operations (clear, fill FG/BG, flip H/V, scale ±50%, rotate CW/CCW) apply to all selected layers simultaneously
+- **Select → From Current Layer**: creates a marquee selection mask from all non-transparent pixels on the current layer
+- **Select → From Selected Layers**: creates a union selection mask from all non-transparent pixels across every selected layer (requires 2+ selected)
 - **Recent Files** - File menu tracks up to 10 recently opened projects with submenu navigation and `Alt+1`–`Alt+0` keyboard shortcuts
 - DRW project format: PNG with embedded `drAw` chunk — preserves layers, blend modes, opacity, palette, tool states, grid state, and reference image configuration while remaining viewable in any image viewer
 
