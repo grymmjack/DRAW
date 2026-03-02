@@ -87,6 +87,8 @@ TYPE DRAW_THEME
     LAYER_PANEL_row_master_bg     AS _UNSIGNED LONG  ' Master (CURRENT) layer row background
     LAYER_PANEL_row_multi_sel_bg  AS _UNSIGNED LONG  ' Multi-selected (secondary) row background
     LAYER_PANEL_row_master_accent AS _UNSIGNED LONG  ' Left-edge accent bar color for master row
+    LAYER_PANEL_btn_drag_delete   AS _UNSIGNED LONG  ' Drag-over Delete button highlight (RGBA)
+    LAYER_PANEL_btn_drag_new      AS _UNSIGNED LONG  ' Drag-over New Layer button highlight (RGBA)
     ' --- Fonts ---
     GLOBAL_FONT_FILE       AS STRING          ' Primary UI font filename (e.g. Tiny5-Regular.ttf)
     ALT_FONT_FILE          AS STRING          ' Alternate font filename (e.g. PICO-8.ttf) — reserved

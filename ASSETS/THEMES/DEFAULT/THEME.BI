@@ -79,6 +79,8 @@ THEME.LAYER_PANEL_drag_border~&      = _RGB32(100, 200, 255)       ' Drag previe
 THEME.LAYER_PANEL_row_master_bg~&    = _RGB32(70, 100, 140)        ' Master layer row background
 THEME.LAYER_PANEL_row_multi_sel_bg~& = _RGB32(50, 75, 110)         ' Multi-selected row background
 THEME.LAYER_PANEL_row_master_accent~& = _RGB32(100, 180, 255)      ' Left-edge accent bar on master row
+THEME.LAYER_PANEL_btn_drag_delete~&  = _RGBA32(200, 80, 80, 220)   ' Drag-over Delete button highlight
+THEME.LAYER_PANEL_btn_drag_new~&     = _RGBA32(80, 200, 80, 220)   ' Drag-over New Layer button highlight
 
 ' --- Fonts ---
 THEME.GLOBAL_FONT_FILE$          = "Tiny5-Regular.ttf"       ' Primary UI font
