@@ -1,0 +1,104 @@
+---
+applyTo: "**/MENUBAR.BM, **/COMMAND.BM, **/TOOLBAR.BM, **/TOOLBAR.BI, **/ORGANIZER.BM, **/ORGANIZER.BI"
+---
+
+# DRAW — UI: Menus, Commands, Toolbar, Organizer
+
+---
+
+## Menu Bar (`GUI/MENUBAR.BI` / `GUI/MENUBAR.BM`, ~1382 lines)
+
+Root menus (indices 0–9): FILE(0), EDIT(1), VIEW(2), SELECT(3), TOOLS(4), BRUSH(5), LAYER(6), PALETTE(7), HELP(8), AUDIO(9)
+
+- **ALT tap toggle**: ALT pressed then released without other keys → toggle FILE menu
+- **Keyboard nav (`kbActive%`)**: Arrow keys navigate items. When `kbActive% = TRUE`, mouse hover is ignored until mouse actually moves.
+- **Recent files submenu**: Cascading submenu for action ID 213. Right arrow opens, Left/Escape closes.
+- **Dynamic state sync**: `MENUBAR_update_checkboxes` syncs checkboxes from live state (grid, snap, tool visibility, undo/redo availability, recent files).
+- **Click dispatch**: `MENUBAR_handle_click` → `CMD_execute_action(item.actionId)`
+
+---
+
+## Command System (`GUI/COMMAND.BI` / `GUI/COMMAND.BM`, ~1992 lines)
+
+`CMD_execute_action(action_id%)` — central dispatcher for ALL application actions (menus, keyboard shortcuts, command palette, toolbar clicks).
+
+### Action ID Ranges
+
+| Range     | Category     | Key Actions |
+| --------- | ------------ | ----------- |
+| 101–118   | Tools        | Brush, Dot, Fill, Picker, Line, Polygon, Rect, Ellipse, Marquee, Move, Text, MagicWand, Eraser |
+| 201–213   | File         | Open, Save, SaveAs, Export, ExportSelection, Import, New, Template, Revert, Recent, Exit |
+| 301–324   | Edit         | Undo, Redo, Copy, Cut, Paste, Clear, SelectAll, Fill FG/BG, Flip, Scale, Rotate, CopyToNewLayer, StrokeSelection |
+| 401–426   | View/Audio   | Toolbar, StatusBar, LayerPanel, MenuBar, Zoom, DisplayScale (408=Up/409=Down/416=Reset), SFX/Music controls |
+| 501–517   | Color        | Opacity presets (10–100%), Swap FG/BG |
+| 601–609   | Brush        | Size dec/inc, presets, preview, shape, pixel perfect |
+| 701–711   | Layer        | New, Delete, MoveUp/Down, MergeDown, MergeVisible, Duplicate, ArrangeTop/Bottom, ExportLayerPNG, MergeSelected |
+| 801–802   | Canvas       | Pan, Reset Pan |
+| 901–908   | Grid         | Toggle, Pixel Grid, Snap, Size, AlignMode, MatchBrush, CellFill |
+| 1001–1003 | Symmetry     | Cycle, Clear, Set Center |
+| 1101–1112 | Custom Brush | Capture, Clear, Recolor, Outline, Flip, Scale, Export, Rotate |
+| 1201–1206 | Assistants   | Constrain, AngleSnap, Square/Circle, Center, Clone, TempPicker |
+| 1401–1414 | Selection    | SelectFromLayer, Nudge 1/10px, Expand/Contract, SelectFromSelectedLayers |
+| 1501–1513 | Palette/Ref  | RefImage, Palette Import/Export/Random, Color Picker, Swap FG/BG |
+| 1601–1607 | Help         | About, CheatSheet, Manual, GitHub, Issues, Credits |
+| 1701–1704 | Tools (menu) | Zoom, Spray, CmdPalette, CodeExport |
+
+### Command Palette
+
+Opened with Ctrl+Shift+P. Fuzzy search (`CMD_fuzzy_match%`) checks characters appear in order. Keyboard navigation: up/down/page. Mouse click to execute.
+
+---
+
+## Toolbar (`GUI/TOOLBAR.BI` / `GUI/TOOLBAR.BM`)
+
+4-column layout. `TOOLBAR_BUTTON_ORDER(27)` maps position → icon constant. `TOOLBAR_BUTTON_TO_TOOL(27)` maps position → tool constant.
+
+Row layout (left→right):
+
+```
+Row 0: Move          | Pan            | Zoom           | Crop
+Row 1: Select Rect   | Select Free    | Select Poly    | Select Ellipse
+Row 2: Select Wand   | Picker         | Text           | Eraser
+Row 3: Dot           | Brush          | Spray          | Fill
+Row 4: Line          | Polygon        | Polygon Fill   | Save
+Row 5: Rect          | Rect Filled    | Export Sel     | QB64 Export
+Row 6: Help          | Ellipse        | Ellipse Fill   | Open
+```
+
+Icon PNGs: `ASSETS/THEMES/DEFAULT/IMAGES/TOOLBOX/*.png`
+
+### Active Button Indicator
+
+1. Filled rect (`LINE ... BF`) in `THEME.TOOLBAR_btn_overlay~&` over the whole button
+2. Four non-overlapping border rects in `THEME.TOOLBAR_btn_stroke~&`
+
+Four-rect approach (not `LINE ... B`) avoids double alpha-compositing at corners.
+
+### Marquee Variant Tracking
+
+All 5 marquee variants set `CURRENT_TOOL% = TOOL_MARQUEE` but `MARQUEE.VARIANT` stores which variant (`TOOL_SELECT_*`). The toolbar checks `MARQUEE.VARIANT` when highlighting the active button. Set it in every activation path (toolbar, keyboard, command).
+
+Each variant maps to a distinct cursor via `POINTER_marquee_cursor_for_variant%`:
+`TOOL_SELECT_RECT`→13, `_FREE`→14, `_POLY`→15, `_ELLIPSE`→16, `_WAND`→11, fallback→5
+
+---
+
+## Organizer Panel (`GUI/ORGANIZER.BI` / `GUI/ORGANIZER.BM`, ~642 lines)
+
+4×3 grid of widget buttons beneath the toolbar. 11 slots (Brush Size spans 2 rows):
+
+| Slot | ID                | Purpose        | Mousewheel Action |
+| ---- | ----------------- | -------------- | ----------------- |
+| 2    | ORG_BRUSH_SIZE    | Brush size     | Cycles 4 size presets |
+| 7    | ORG_SYMMETRY_MODE | Symmetry       | Cycles 4 states (off + 3 modes) |
+| 8    | ORG_GRID_VIS      | Grid visibility| Cycles grid modes (must call `GRID_draw`) |
+| 9    | ORG_GRID_SNAP     | Grid snap      | Toggles snap + alignment |
+
+Layout:
+```
+Row 0: [COLOR OPS]     [CANVAS OPS]    [BRUSH SIZE top]  [PATTERN MODE]
+Row 1: [PALETTE OPS]   [TRANSFORM OPS] [BRUSH SIZE bot]  [GRADIENT MODE]
+Row 2: [SYMMETRY MODE] [GRID VIS]      [GRID SNAP]       [COLOR MODE]
+```
+
+Each widget has up to 4 state images loaded from the theme directory. Icon filenames in code must exactly match filenames on disk.
