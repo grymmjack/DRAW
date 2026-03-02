@@ -74,6 +74,7 @@ TYPE LAYER_PANEL_OBJ
     dragOffsetY       AS INTEGER   ' Offset from row top where drag started
     autoScrollTimer   AS SINGLE    ' Timer for auto-scroll delay at edges
     dragPreviewY      AS INTEGER   ' Y position for drag preview cursor
+    dropOnButton      AS INTEGER   ' 0=none, 4=over Delete btn, 5=over New btn during drag
     ' Layer icon handles (loaded from theme PNGs, fallback to text if < -1 check fails)
     iconVisOn         AS LONG      ' Visibility on (eye open) image handle
     iconVisOff        AS LONG      ' Visibility off (eye closed) image handle
@@ -106,6 +107,7 @@ DIM SHARED LAYER_COUNT AS INTEGER         ' Number of layers currently in use
 DECLARE SUB LAYERS_init ()
 DECLARE FUNCTION LAYERS_recount% ()
 DECLARE FUNCTION LAYERS_new% ()
+DECLARE FUNCTION LAYERS_new_at_top% ()
 DECLARE SUB LAYERS_delete (layerIndex AS INTEGER)
 DECLARE SUB LAYERS_duplicate (layerIndex AS INTEGER)
 DECLARE SUB LAYERS_clear (layerIndex AS INTEGER)

@@ -196,6 +196,31 @@ END FUNCTION
 
 
 ''
+' Create a new layer at the very top of the stack (above all existing layers).
+' SHIFT+New Layer button variant.
+'
+FUNCTION LAYERS_new_at_top% ()
+    DIM topIdx AS INTEGER
+    DIM topZ AS INTEGER
+    DIM i AS INTEGER
+    ' Find the layer with the highest zIndex (the current topmost layer)
+    topIdx% = 0
+    topZ% = 0
+    FOR i% = 1 TO 64
+        IF LAYERS(i%).imgHandle& <> 0 THEN
+            IF LAYERS(i%).zIndex% > topZ% THEN
+                topZ% = LAYERS(i%).zIndex%
+                topIdx% = i%
+            END IF
+        END IF
+    NEXT i%
+    ' Temporarily select the topmost layer so LAYERS_new% inserts above it
+    IF topIdx% > 0 THEN LAYERS_select topIdx%
+    LAYERS_new_at_top% = LAYERS_new%
+END FUNCTION
+
+
+''
 ' Delete a layer
 ' 
 SUB LAYERS_delete (layerIndex AS INTEGER)
@@ -1431,12 +1456,18 @@ SUB LAYER_PANEL_render (canvasHeight AS INTEGER)
     ' Button 4: Delete Layer (x)
     btnX% = btnX% + btnW% + btnSpacing%
     btnEnabled% = (LAYER_COUNT% > 1)
+    ' Highlight when a layer is being dragged over this button
+    IF LAYER_PANEL.isDragging% AND LAYER_PANEL.dropOnButton% = 4 THEN
+        LINE (btnX%, btnY%)-(btnX% + btnW% - 1, btnY% + btnSlotH% - 1), _RGB32(200, 80, 80), BF
+    END IF
     btnIcon& = LAYER_PANEL.iconBtnDelete&
     IF btnIcon& < -1 THEN
         biW% = _WIDTH(btnIcon&): biH% = _HEIGHT(btnIcon&)
         _PUTIMAGE (btnX% + (btnW% - biW%) \ 2, btnY% + (btnSlotH% - biH%) \ 2)-(btnX% + (btnW% - biW%) \ 2 + biW% - 1, btnY% + (btnSlotH% - biH%) \ 2 + biH% - 1), btnIcon&, SCRN.GUI&
     ELSE
-        IF btnEnabled% THEN
+        IF LAYER_PANEL.isDragging% AND LAYER_PANEL.dropOnButton% = 4 THEN
+            ' Already filled with highlight above
+        ELSEIF btnEnabled% THEN
             LINE (btnX%, btnY%)-(btnX% + btnW% - 1, btnY% + btnSlotH% - 1), _RGB32(80, 50, 50), BF
         ELSE
             LINE (btnX%, btnY%)-(btnX% + btnW% - 1, btnY% + btnSlotH% - 1), _RGB32(45, 45, 45), BF
@@ -1445,12 +1476,20 @@ SUB LAYER_PANEL_render (canvasHeight AS INTEGER)
     
     ' Button 5: New Layer (+)
     btnX% = btnX% + btnW% + btnSpacing%
+    ' Highlight when a layer is being dragged over this button
+    IF LAYER_PANEL.isDragging% AND LAYER_PANEL.dropOnButton% = 5 THEN
+        LINE (btnX%, btnY%)-(btnX% + btnW% - 1, btnY% + btnSlotH% - 1), _RGB32(80, 200, 80), BF
+    END IF
     btnIcon& = LAYER_PANEL.iconBtnAdd&
     IF btnIcon& < -1 THEN
         biW% = _WIDTH(btnIcon&): biH% = _HEIGHT(btnIcon&)
         _PUTIMAGE (btnX% + (btnW% - biW%) \ 2, btnY% + (btnSlotH% - biH%) \ 2)-(btnX% + (btnW% - biW%) \ 2 + biW% - 1, btnY% + (btnSlotH% - biH%) \ 2 + biH% - 1), btnIcon&, SCRN.GUI&
     ELSE
-        LINE (btnX%, btnY%)-(btnX% + btnW% - 1, btnY% + btnSlotH% - 1), _RGB32(50, 70, 50), BF
+        IF LAYER_PANEL.isDragging% AND LAYER_PANEL.dropOnButton% = 5 THEN
+            ' Already filled with highlight above
+        ELSE
+            LINE (btnX%, btnY%)-(btnX% + btnW% - 1, btnY% + btnSlotH% - 1), _RGB32(50, 70, 50), BF
+        END IF
     END IF
     
     _FONT oldFont&
@@ -1606,18 +1645,55 @@ FUNCTION LAYER_PANEL_handle_click% (rawX AS INTEGER, rawY AS INTEGER, button AS 
         
         ' Execute button action (only if a button was actually clicked)
         IF clickBtn% > 0 THEN
+            DIM btnShiftHeld AS INTEGER
+            btnShiftHeld% = (_KEYDOWN(KEY_LSHIFT&) OR _KEYDOWN(KEY_RSHIFT&))
             SELECT CASE clickBtn%
-                CASE 1  ' Move Up
-                    IF CURRENT_LAYER% > 0 THEN SOUND_play SND_LAYER_OP: LAYERS_move_up CURRENT_LAYER%
-                CASE 2  ' Move Down
-                    IF CURRENT_LAYER% > 0 THEN SOUND_play SND_LAYER_OP: LAYERS_move_down CURRENT_LAYER%
-                CASE 3  ' Merge Down
-                    IF CURRENT_LAYER% > 0 THEN LAYERS_merge_down CURRENT_LAYER%
-                CASE 4  ' Delete
-                    IF LAYER_COUNT% > 1 AND CURRENT_LAYER% > 0 THEN LAYERS_delete CURRENT_LAYER%
-                CASE 5  ' New
+                CASE 1  ' Move Up  |  SHIFT = Move to Top
+                    IF CURRENT_LAYER% > 0 THEN
+                        SOUND_play SND_LAYER_OP
+                        IF btnShiftHeld% THEN
+                            LAYERS_to_top CURRENT_LAYER%
+                        ELSE
+                            LAYERS_move_up CURRENT_LAYER%
+                        END IF
+                    END IF
+                CASE 2  ' Move Down  |  SHIFT = Move to Bottom
+                    IF CURRENT_LAYER% > 0 THEN
+                        SOUND_play SND_LAYER_OP
+                        IF btnShiftHeld% THEN
+                            LAYERS_to_bottom CURRENT_LAYER%
+                        ELSE
+                            LAYERS_move_down CURRENT_LAYER%
+                        END IF
+                    END IF
+                CASE 3  ' Merge Down  |  SHIFT = Flatten (Merge Visible)
+                    IF CURRENT_LAYER% > 0 THEN
+                        IF btnShiftHeld% THEN
+                            LAYERS_merge_visible
+                        ELSE
+                            LAYERS_merge_down CURRENT_LAYER%
+                        END IF
+                    END IF
+                CASE 4  ' Delete  |  SHIFT = Clear layer pixels (keep layer)
+                    IF CURRENT_LAYER% > 0 THEN
+                        IF btnShiftHeld% THEN
+                            SOUND_play SND_LAYER_OP
+                            IF NOT UNDO_saved_this_frame% THEN
+                                UNDO_save_state
+                                UNDO_saved_this_frame% = TRUE
+                            END IF
+                            LAYERS_clear CURRENT_LAYER%
+                        ELSE
+                            IF LAYER_COUNT% > 1 THEN LAYERS_delete CURRENT_LAYER%
+                        END IF
+                    END IF
+                CASE 5  ' New  |  SHIFT = New layer at top of stack
                     DIM dummy AS INTEGER
-                    dummy% = LAYERS_new%
+                    IF btnShiftHeld% THEN
+                        dummy% = LAYERS_new_at_top%
+                    ELSE
+                        dummy% = LAYERS_new%
+                    END IF
             END SELECT
         END IF
         
@@ -2028,6 +2104,7 @@ SUB LAYER_PANEL_drag_cancel ()
     LAYER_PANEL.isDragging% = FALSE
     LAYER_PANEL.dragLayerIdx% = 0
     LAYER_PANEL.dropTargetZIndex% = -1
+    LAYER_PANEL.dropOnButton% = 0
     LAYER_PANEL.dragOffsetY% = 0
     LAYER_PANEL.autoScrollTimer! = 0
     LAYER_PANEL.dragPreviewY% = 0
@@ -2150,12 +2227,54 @@ SUB LAYER_PANEL_handle_drag (rawX AS INTEGER, rawY AS INTEGER)
     DIM draggedZ AS INTEGER
     draggedZ% = LAYERS(LAYER_PANEL.dragLayerIdx%).zIndex%
     
-    ' Only show as "no change" if layer would stay in same position
-    IF targetZIndex% = draggedZ% THEN
-        ' Already at target position - no visual indicator needed
-        LAYER_PANEL.dropTargetZIndex% = -1
+    ' --- Check if mouse is hovering over a drop-target button (Delete or New) ---
+    DIM btnBarTop AS INTEGER
+    btnBarTop% = listBottom%
+    IF rawY% >= btnBarTop% THEN
+        ' Mouse is over the button bar area - check which button slot
+        DIM dragBtnW AS INTEGER, dragBtnSpace AS INTEGER
+        dragBtnSpace% = 2
+        dragBtnW% = (panelW% - 8 - (4 * dragBtnSpace%)) \ 5
+        DIM hoverBtn AS INTEGER
+        hoverBtn% = 0
+        DIM bx AS INTEGER
+        bx% = 4
+        ' Slot 1: Move Up (^)
+        IF rawX% >= bx% AND rawX% < bx% + dragBtnW% THEN hoverBtn% = 1
+        bx% = bx% + dragBtnW% + dragBtnSpace%
+        ' Slot 2: Move Down (v)
+        IF rawX% >= bx% AND rawX% < bx% + dragBtnW% THEN hoverBtn% = 2
+        bx% = bx% + dragBtnW% + dragBtnSpace%
+        ' Slot 3: Merge Down (#)
+        IF rawX% >= bx% AND rawX% < bx% + dragBtnW% THEN hoverBtn% = 3
+        bx% = bx% + dragBtnW% + dragBtnSpace%
+        ' Slot 4: Delete (x)
+        IF rawX% >= bx% AND rawX% < bx% + dragBtnW% THEN hoverBtn% = 4
+        bx% = bx% + dragBtnW% + dragBtnSpace%
+        ' Slot 5: New (+)
+        IF rawX% >= bx% AND rawX% < bx% + dragBtnW% THEN hoverBtn% = 5
+        
+        IF hoverBtn% = 4 OR hoverBtn% = 5 THEN
+            LAYER_PANEL.dropOnButton% = hoverBtn%
+            LAYER_PANEL.dropTargetZIndex% = -1   ' Suppress normal reorder indicator
+        ELSE
+            LAYER_PANEL.dropOnButton% = 0
+            ' Normal reorder logic when over other buttons or non-target area
+            IF targetZIndex% = draggedZ% THEN
+                LAYER_PANEL.dropTargetZIndex% = -1
+            ELSE
+                LAYER_PANEL.dropTargetZIndex% = targetZIndex%
+            END IF
+        END IF
     ELSE
-        LAYER_PANEL.dropTargetZIndex% = targetZIndex%
+        LAYER_PANEL.dropOnButton% = 0
+        ' Only show as "no change" if layer would stay in same position
+        IF targetZIndex% = draggedZ% THEN
+            ' Already at target position - no visual indicator needed
+            LAYER_PANEL.dropTargetZIndex% = -1
+        ELSE
+            LAYER_PANEL.dropTargetZIndex% = targetZIndex%
+        END IF
     END IF
     GUI_NEEDS_REDRAW% = TRUE
 END SUB
@@ -2180,6 +2299,24 @@ SUB LAYER_PANEL_handle_drop ()
     draggedIdx% = LAYER_PANEL.dragLayerIdx%
     draggedZ% = LAYERS(draggedIdx%).zIndex%
     targetZ% = LAYER_PANEL.dropTargetZIndex%
+    
+    ' --- Handle drag-to-button actions (single layer only) ---
+    IF LAYER_PANEL.dropOnButton% = 4 THEN
+        ' Dragged onto Delete button: delete the dragged layer
+        IF LAYER_COUNT% > 1 THEN
+            SOUND_play SND_LAYER_OP
+            LAYERS_delete draggedIdx%
+        END IF
+        LAYER_PANEL_drag_cancel
+        EXIT SUB
+    ELSEIF LAYER_PANEL.dropOnButton% = 5 THEN
+        ' Dragged onto New Layer button: duplicate the dragged layer above current
+        SOUND_play SND_LAYER_OP
+        LAYERS_select draggedIdx%
+        LAYERS_duplicate draggedIdx%
+        LAYER_PANEL_drag_cancel
+        EXIT SUB
+    END IF
     
     ' Only move if we have a valid target and it's different from current position
     IF targetZ% >= 1 AND targetZ% <= LAYER_COUNT% AND targetZ% <> draggedZ% THEN
