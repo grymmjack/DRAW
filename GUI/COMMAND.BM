@@ -144,6 +144,7 @@ SUB CMD_init ()
     CMD_register "Move Layer Down", "Ctrl+PgDn", CMD_CAT_LAYER, 704
     CMD_register "Merge Layer Down", "Ctrl+Alt+E", CMD_CAT_LAYER, 705
     CMD_register "Merge All Visible", "Ctrl+Alt+Shift+E", CMD_CAT_LAYER, 706
+    CMD_register "Merge Selected Layers", "", CMD_CAT_LAYER, 711
     CMD_register "Duplicate Layer", "Ctrl+Shift+D", CMD_CAT_LAYER, 707
     CMD_register "Arrange to Top", "Ctrl+Home", CMD_CAT_LAYER, 708
     CMD_register "Arrange to Bottom", "Ctrl+End", CMD_CAT_LAYER, 709
@@ -155,6 +156,10 @@ SUB CMD_init ()
     CMD_register "Align Bottom (layers)", "", CMD_CAT_LAYER, 1906
     CMD_register "Distribute Horizontally (layers)", "", CMD_CAT_LAYER, 1907
     CMD_register "Distribute Vertically (layers)", "", CMD_CAT_LAYER, 1908
+    
+    ' ========== SELECT ==========
+    CMD_register "Select From Current Layer", "", CMD_CAT_SELECT, 1401
+    CMD_register "Select From Selected Layers", "", CMD_CAT_SELECT, 1414
     
     ' ========== CANVAS ==========
     CMD_register "Pan Canvas", "Space+Drag or MMB", CMD_CAT_CANVAS, 801
@@ -921,6 +926,88 @@ SUB CMD_execute_action (action_id AS INTEGER)
             ELSE
                 LAYERS_duplicate CURRENT_LAYER%
             END IF
+        
+        CASE 711  ' Merge Selected Layers
+            IF MULTI_SELECT_COUNT% < 2 THEN EXIT SELECT
+            ' Build sorted list of selected layers by zIndex (ascending = bottom first)
+            DIM ms711_sortedSel(1 TO 64) AS INTEGER
+            DIM ms711_sortCount AS INTEGER
+            DIM ms711_zi AS INTEGER, ms711_si AS INTEGER
+            ms711_sortCount% = 0
+            FOR ms711_zi% = 1 TO LAYER_COUNT%
+                FOR ms711_si% = 1 TO 64
+                    IF MULTI_SELECT_LAYERS(ms711_si%) AND LAYERS(ms711_si%).imgHandle& <> 0 AND LAYERS(ms711_si%).zIndex% = ms711_zi% THEN
+                        ms711_sortCount% = ms711_sortCount% + 1
+                        ms711_sortedSel%(ms711_sortCount%) = ms711_si%
+                        EXIT FOR
+                    END IF
+                NEXT ms711_si%
+            NEXT ms711_zi%
+            IF ms711_sortCount% < 2 THEN EXIT SELECT
+            ' Save workspace undo BEFORE any structural changes
+            WORKSPACE_UNDO_save_merge_visible ms711_sortedSel%(), ms711_sortCount%
+            WORKSPACE_UNDO_IN_PROGRESS% = TRUE
+            ' Create new blank layer for merged result
+            DIM ms711_newIdx AS INTEGER
+            ms711_newIdx% = LAYERS_new%
+            IF ms711_newIdx% = 0 THEN
+                WORKSPACE_UNDO_IN_PROGRESS% = FALSE
+                EXIT SELECT
+            END IF
+            WORKSPACE_UNDO_STATES(WORKSPACE_UNDO.current%).merge_top_index% = ms711_newIdx%
+            LAYERS(ms711_newIdx%).name = "Merged"
+            ' Composite selected layers bottom-to-top onto the new blank layer
+            DIM ms711_oldDest AS LONG
+            DIM ms711_tempImg AS LONG
+            ms711_oldDest& = _DEST
+            _DEST LAYERS(ms711_newIdx%).imgHandle&
+            CLS , _RGBA32(0, 0, 0, 0)
+            _BLEND LAYERS(ms711_newIdx%).imgHandle&
+            FOR ms711_si% = 1 TO ms711_sortCount%
+                DIM ms711_srcIdx AS INTEGER
+                ms711_srcIdx% = ms711_sortedSel%(ms711_si%)
+                IF LAYERS(ms711_srcIdx%).blendMode% <> BLEND_NORMAL THEN
+                    _DEST ms711_oldDest&
+                    LAYER_blend_composite LAYERS(ms711_newIdx%).imgHandle&, LAYERS(ms711_srcIdx%).imgHandle&, LAYERS(ms711_srcIdx%).blendMode%, LAYERS(ms711_srcIdx%).opacity%
+                    _DEST LAYERS(ms711_newIdx%).imgHandle&
+                ELSEIF LAYERS(ms711_srcIdx%).opacity% < 255 THEN
+                    ms711_tempImg& = _COPYIMAGE(LAYERS(ms711_srcIdx%).imgHandle&, 32)
+                    DIM ms711_mem AS _MEM
+                    DIM ms711_off AS _OFFSET
+                    DIM ms711_pix AS _UNSIGNED LONG
+                    DIM ms711_a AS _UNSIGNED _BYTE
+                    DIM ms711_na AS INTEGER
+                    ms711_mem = _MEMIMAGE(ms711_tempImg&)
+                    FOR ms711_off = ms711_mem.OFFSET TO ms711_mem.OFFSET + ms711_mem.SIZE - 4 STEP 4
+                        _MEMGET ms711_mem, ms711_off, ms711_pix~&
+                        ms711_a~%% = _ALPHA32(ms711_pix~&)
+                        IF ms711_a~%% > 0 THEN
+                            ms711_na% = (ms711_a~%% * LAYERS(ms711_srcIdx%).opacity%) \ 255
+                            _MEMPUT ms711_mem, ms711_off + 3, ms711_na% AS _UNSIGNED _BYTE
+                        END IF
+                    NEXT ms711_off
+                    _MEMFREE ms711_mem
+                    _PUTIMAGE , ms711_tempImg&
+                    IF ms711_tempImg& < -1 THEN _FREEIMAGE ms711_tempImg&
+                ELSE
+                    _PUTIMAGE , LAYERS(ms711_srcIdx%).imgHandle&
+                END IF
+            NEXT ms711_si%
+            _DEST ms711_oldDest&
+            LAYERS(ms711_newIdx%).contentDirty% = TRUE
+            ' Delete the source selected layers
+            FOR ms711_si% = 1 TO ms711_sortCount%
+                IF ms711_sortedSel%(ms711_si%) <> ms711_newIdx% THEN
+                    LAYERS_delete ms711_sortedSel%(ms711_si%)
+                END IF
+            NEXT ms711_si%
+            WORKSPACE_UNDO_IN_PROGRESS% = FALSE
+            MULTI_SELECT_clear
+            LAYERS_select ms711_newIdx%
+            BLEND_invalidate_cache
+            GUI_NEEDS_REDRAW% = TRUE
+            SCENE_DIRTY% = TRUE
+            FRAME_IDLE% = FALSE
         
         ' ========== GRID ==========
         CASE 901: GRID.SHOW% = NOT GRID.SHOW%: GUI_NEEDS_REDRAW% = TRUE: SCENE_DIRTY% = TRUE
@@ -2238,6 +2325,94 @@ SUB CMD_execute_action (action_id AS INTEGER)
             ERR_info "Pan mode: hold Space and drag on canvas"
         CASE 1401  ' Select from current layer
             LAYER_select_non_transparent CURRENT_LAYER%
+        CASE 1414  ' Select from selected layers (union of non-transparent pixels)
+            IF MULTI_SELECT_COUNT% < 2 THEN EXIT SELECT
+            DIM sel14_i AS INTEGER, sel14_px AS INTEGER, sel14_py AS INTEGER
+            DIM sel14_w AS INTEGER, sel14_h AS INTEGER
+            DIM sel14_imgH AS LONG, sel14_pix AS _UNSIGNED LONG
+            DIM sel14_minX AS INTEGER, sel14_minY AS INTEGER
+            DIM sel14_maxX AS INTEGER, sel14_maxY AS INTEGER
+            DIM sel14_found AS INTEGER
+            DIM sel14_oldDest AS LONG, sel14_oldSrc AS LONG
+            DIM sel14_maskClr AS _UNSIGNED LONG
+            ' Find first valid selected layer for canvas dimensions
+            sel14_imgH& = 0
+            FOR sel14_i% = 1 TO 64
+                IF MULTI_SELECT_LAYERS(sel14_i%) AND LAYERS(sel14_i%).imgHandle& <> 0 THEN
+                    sel14_imgH& = LAYERS(sel14_i%).imgHandle&
+                    EXIT FOR
+                END IF
+            NEXT sel14_i%
+            IF sel14_imgH& = 0 THEN EXIT SELECT
+            sel14_w% = _WIDTH(sel14_imgH&)
+            sel14_h% = _HEIGHT(sel14_imgH&)
+            sel14_oldDest& = _DEST
+            sel14_oldSrc& = _SOURCE
+            sel14_maskClr~& = _RGB32(255, 255, 255)
+            ' Reset any existing selection
+            MARQUEE_reset
+            MAGIC_WAND_reset
+            IF MARQUEE.SELECTION_MASK < -1 THEN
+                _FREEIMAGE MARQUEE.SELECTION_MASK
+                MARQUEE.SELECTION_MASK = 0
+            END IF
+            ' Create new selection mask
+            MARQUEE.SELECTION_MASK = _NEWIMAGE(sel14_w%, sel14_h%, 32)
+            IF MARQUEE.SELECTION_MASK >= -1 THEN
+                _DEST sel14_oldDest&: _SOURCE sel14_oldSrc&: EXIT SELECT
+            END IF
+            _DEST MARQUEE.SELECTION_MASK
+            CLS , _RGBA32(0, 0, 0, 0)
+            _DONTBLEND MARQUEE.SELECTION_MASK
+            ' Union non-transparent pixels across all selected layers
+            sel14_minX% = sel14_w%: sel14_minY% = sel14_h%: sel14_maxX% = 0: sel14_maxY% = 0
+            sel14_found% = FALSE
+            FOR sel14_i% = 1 TO 64
+                IF MULTI_SELECT_LAYERS(sel14_i%) AND LAYERS(sel14_i%).imgHandle& <> 0 THEN
+                    sel14_imgH& = LAYERS(sel14_i%).imgHandle&
+                    _SOURCE sel14_imgH&
+                    FOR sel14_py% = 0 TO sel14_h% - 1
+                        FOR sel14_px% = 0 TO sel14_w% - 1
+                            sel14_pix~& = POINT(sel14_px%, sel14_py%)
+                            IF _ALPHA32(sel14_pix~&) > 0 THEN
+                                _DEST MARQUEE.SELECTION_MASK
+                                PSET (sel14_px%, sel14_py%), sel14_maskClr~&
+                                IF sel14_px% < sel14_minX% THEN sel14_minX% = sel14_px%
+                                IF sel14_px% > sel14_maxX% THEN sel14_maxX% = sel14_px%
+                                IF sel14_py% < sel14_minY% THEN sel14_minY% = sel14_py%
+                                IF sel14_py% > sel14_maxY% THEN sel14_maxY% = sel14_py%
+                                sel14_found% = TRUE
+                                _SOURCE sel14_imgH&
+                            END IF
+                        NEXT sel14_px%
+                    NEXT sel14_py%
+                END IF
+            NEXT sel14_i%
+            _BLEND MARQUEE.SELECTION_MASK
+            _DEST sel14_oldDest&
+            _SOURCE sel14_oldSrc&
+            IF sel14_found% THEN
+                MARQUEE.WAND_MIN_X = sel14_minX%
+                MARQUEE.WAND_MIN_Y = sel14_minY%
+                MARQUEE.WAND_MAX_X = sel14_maxX%
+                MARQUEE.WAND_MAX_Y = sel14_maxY%
+                MARQUEE.BOX.x = sel14_minX%
+                MARQUEE.BOX.y = sel14_minY%
+                MARQUEE.BOX.w = sel14_maxX% - sel14_minX% + 1
+                MARQUEE.BOX.h = sel14_maxY% - sel14_minY% + 1
+                MARQUEE.ACTIVE% = TRUE
+                MARQUEE.INITIALIZED% = TRUE
+                MARQUEE.USER_CREATED = TRUE
+                MARQUEE.WAND_HAS_SELECTION = TRUE
+                MARQUEE.CFG.initX = sel14_minX%
+                MARQUEE.CFG.initY = sel14_minY%
+                MARQUEE.CFG.initW = sel14_maxX% - sel14_minX% + 1
+                MARQUEE.CFG.initH = sel14_maxY% - sel14_minY% + 1
+                GJ_BBX_InitWithConfig MARQUEE.CFG
+            END IF
+            GUI_NEEDS_REDRAW% = TRUE
+            SCENE_DIRTY% = TRUE
+            FRAME_IDLE% = FALSE
         CASE 1402  ' Nudge 1px left
             IF MARQUEE.ACTIVE% THEN MARQUEE.BOX.x = MARQUEE.BOX.x - 1
         CASE 1403  ' Nudge 1px right
