@@ -16,11 +16,13 @@ Ask the user:
 > (major = breaking/large new features, minor = new features, patch = bug fixes / polish)
 
 Parse the current version from `_COMMON.BI`:
+
 ```
 CONST APP_VERSION$ = "X.Y.Z"
 ```
 
 Compute the new version:
+
 - **major** → `(X+1).0.0`
 - **minor** → `X.(Y+1).0`
 - **patch** → `X.Y.(Z+1)`
@@ -32,6 +34,7 @@ Show the user: `Current: X.Y.Z → New: A.B.C` and confirm before proceeding.
 ## Step 2 — Collect changes
 
 Run:
+
 ```bash
 git log --oneline --no-merges $(git describe --tags --abbrev=0 2>/dev/null || git rev-list --max-parents=0 HEAD)..HEAD
 ```
@@ -41,6 +44,7 @@ If no tags exist, compare against the very first commit.
 Also review the **current conversation history** (the chat context above this message) for any features, fixes, or changes discussed and implemented during this session that may not yet be in git log (e.g. uncommitted work).
 
 Produce a deduplicated, categorised list of changes:
+
 - **New Features** — new tools, behaviours, UX additions
 - **Improvements** — refinements to existing features
 - **Bug Fixes** — defects corrected
@@ -52,10 +56,13 @@ Produce a deduplicated, categorised list of changes:
 ## Step 3 — Update `_COMMON.BI`
 
 In `_COMMON.BI`, replace:
+
 ```qb64
 CONST APP_VERSION$ = "X.Y.Z"
 ```
+
 with:
+
 ```qb64
 CONST APP_VERSION$ = "A.B.C"
 ```
@@ -67,6 +74,7 @@ CONST APP_VERSION$ = "A.B.C"
 Review `CHEATSHEET.md` against the collected changes list from Step 2.
 
 For each change that affects keyboard shortcuts, hotkeys, mouse behaviour, tool names, or controls:
+
 - Add missing entries
 - Update changed entries
 - Remove entries for removed features
@@ -80,6 +88,7 @@ Preserve the existing formatting and table structure. Only edit sections that ne
 Review `README.MD` against the collected changes list from Step 2.
 
 Update:
+
 - The version badge / header if present
 - Feature bullet lists (add new features, update changed ones, remove removed ones)
 - The screenshot if the GUI has visually changed significantly (note only — do not replace automatically)
@@ -87,24 +96,34 @@ Update:
 
 ---
 
-## Step 6 — Update `copilot-instructions.md`
+## Step 6 — Update instruction files
 
-Review `.github/instructions/copilot-instructions.md` against the collected changes list from Step 2.
+Review each file in `.github/instructions/` against the collected changes list from Step 2. Update only the files affected by this release — skip files whose content is still accurate.
 
-Update sections that are now inaccurate or incomplete:
-- Architecture / directory structure changes
-- New gotchas or updated gotchas
-- New systems (theme, font, etc.)
-- Updated action ID tables
-- Updated file lists
+| File                              | Update when…                                                                                                                                    |
+| --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `draw-project.instructions.md`    | Architecture changes, new directories, new/changed gotchas, new tools in key files table, updated adding-tools checklist, new QB64-PE APIs used |
+| `draw-undo.instructions.md`       | Undo system changes, new undo callers, new bug patterns                                                                                         |
+| `draw-rendering.instructions.md`  | Render pipeline step changes, new blend modes, layer type field changes, cache invalidation rule changes                                        |
+| `draw-mouse.instructions.md`      | `MOUSE_OBJ` field additions, new `DEFERRED_ACTION%` values, processing flow changes                                                             |
+| `draw-ui.instructions.md`         | New action IDs or ranges, new menu items, toolbar row/column layout changes, new organizer slots                                                |
+| `draw-sound.instructions.md`      | New sound constants, new playback wiring, new config keys, music system changes                                                                 |
+| `draw-fileformat.instructions.md` | New `.draw` binary sections or version bump, new config fields, new theme fields                                                                |
 
-Only edit what has changed. Do not rewrite accurate content.
+For each file that needs updating:
+
+- Add missing entries
+- Update changed entries
+- Remove entries for removed features
+- Preserve existing formatting and table structure
+- Only edit sections that need updating
 
 ---
 
 ## Step 7 — Compile verification
 
 Run the build to confirm the version bump and all doc changes haven't introduced any issues:
+
 ```bash
 cd /home/grymmjack/git/DRAW && /home/grymmjack/git/qb64pe/qb64pe -w -x DRAW.BAS -o DRAW.run 2>&1 | tail -5
 ```
@@ -125,23 +144,25 @@ Print the following markdown block in chat so the user can copy it directly to G
 > Released YYYY-MM-DD
 
 ### New Features
+
 - ...
 
 ### Improvements
+
 - ...
 
 ### Bug Fixes
+
 - ...
 
 ### Internal / Refactoring
+
 - ...
 
 ### Breaking Changes
+
 - ...
 
-### Build
-- QB64-PE v4.x required
-- Build: `qb64pe -w -x DRAW.BAS -o DRAW.run`
 ```
 
 ---
