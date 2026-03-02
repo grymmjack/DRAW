@@ -96,6 +96,14 @@ $IF WIN THEN
     _ACCEPTFILEDROP
 $END IF
 
+' Seed RNG once at startup so music shuffle and any other RND calls are truly random
+RANDOMIZE TIMER
+
+' Enable OS-exit trapping — prevents X button / CTRL+BREAK from bypassing cleanup.
+' The first call to _EXIT starts monitoring; any non-zero return means an exit was requested.
+DIM osExitTrap AS INTEGER
+osExitTrap% = _EXIT  ' Discard initial value; monitoring now active
+
 ' Initialise sound system (loads handles, applies volume; respects CFG.SOUNDS_ENABLED)
 SOUND_init
 SOUND_play SND_NEW_FILE  ' Startup chime (silent when sounds are disabled)
@@ -150,6 +158,11 @@ DO
     IF _RESIZE THEN
         SCREEN_snap_window_to_scale _ResizeWidth, _ResizeHeight
     END IF
+
+    ' Handle OS-initiated exit (window X button = bit 0, CTRL+BREAK = bit 1)
+    ' Route through the standard exit action which handles unsaved-changes dialog + full cleanup.
+    osExitTrap% = _EXIT
+    IF osExitTrap% THEN CMD_execute_action 212
 
     k& = _KEYHIT
     
