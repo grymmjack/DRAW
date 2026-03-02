@@ -1,22 +1,69 @@
 ''
 ' DRAW - TOOLS/MARQUEE.BI
 ' =============================================================================
-' Marquee selection tool using GJ_BBX_BBOX.
+' Marquee selection tool.
 '
 ' This tool provides a bounding box marquee selection with:
 ' - Dotted crosshair cursor (8x8, semi-transparent 33% opaque)
 ' - White and black outline like the brush cursor
-' - GJ_BBX_BBOX object for bounding box manipulation
+' - MARQUEE_BBOX object for bounding box state
 ' - Resizing, dragging, and handle management
 '
 ' @author Rick Christy <grymmjack@gmail.com>
 '
 $INCLUDEONCE
 
+' Bounding box state constants (local replacement for GJ_BBX_STATE_* from QB64_GJ_LIB)
+CONST MARQUEE_STATE_IDLE     = 0
+CONST MARQUEE_STATE_SELECTED = 10
+
+''
+' Minimal bounding box rectangle
+' (local replacement for GJ_BBX_BBOX from QB64_GJ_LIB)
+'
+TYPE MARQUEE_BBOX
+    x     AS INTEGER
+    y     AS INTEGER
+    w     AS INTEGER
+    h     AS INTEGER
+    state AS INTEGER
+END TYPE
+
+''
+' Bounding box configuration
+' (local replacement for GJ_BBX_CFG from QB64_GJ_LIB)
+'
+TYPE MARQUEE_CFG
+    HandleHalfSize       AS INTEGER
+    HandleFullSize       AS INTEGER
+    EdgeHalfSize         AS INTEGER
+    EdgeFullSize         AS INTEGER
+    HandleCornerSize     AS INTEGER
+    HandleEdgeSize       AS INTEGER
+    DragEdgePadding      AS INTEGER
+    MinBoxWidth          AS INTEGER
+    MinBoxHeight         AS INTEGER
+    colorIdle            AS _UNSIGNED LONG
+    colorHoverOnly       AS _UNSIGNED LONG
+    colorSelectedOnly    AS _UNSIGNED LONG
+    colorSelectedHover   AS _UNSIGNED LONG
+    colorDragging        AS _UNSIGNED LONG
+    colorResizing        AS _UNSIGNED LONG
+    HandleFillColor      AS _UNSIGNED LONG
+    HandleHoverFillColor AS _UNSIGNED LONG
+    HandleBorderColor    AS _UNSIGNED LONG
+    initX                AS INTEGER
+    initY                AS INTEGER
+    initW                AS INTEGER
+    initH                AS INTEGER
+    KeyRepeatDelay       AS DOUBLE
+    KeyRepeatRate        AS DOUBLE
+END TYPE
+
 TYPE MARQUEE_OBJ
     ACTIVE      AS INTEGER  ' Whether marquee tool is active
-    BOX         AS GJ_BBX_BBOX ' The bounding box object
-    CFG         AS GJ_BBX_CFG  ' Configuration for the bounding box
+    BOX         AS MARQUEE_BBOX ' The bounding box
+    CFG         AS MARQUEE_CFG  ' Configuration for the bounding box
     INITIALIZED AS INTEGER  ' Whether the marquee has been initialized
     DRAGGING    AS INTEGER  ' Whether currently dragging to create marquee
     DRAG_START_X AS INTEGER ' Starting X coordinate of drag

@@ -64,9 +64,6 @@ $INCLUDEONCE
 '$INCLUDE:'./OUTPUT/FILE-BMP.BI'
 '$INCLUDE:'./OUTPUT/FILE-BSAVE.BI'
 
-' QB64_GJ_LIB -----------------------------------------------------------------
-'$INCLUDE:'includes/QB64_GJ_LIB/_GJ_LIB.BI'
-
 ' TOOLS -----------------------------------------------------------------------
 '$INCLUDE:'./TOOLS/BRUSH.BI'
 '$INCLUDE:'./TOOLS/BRUSH-FILL.BI'
