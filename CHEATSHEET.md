@@ -364,6 +364,31 @@ Brush size and shape affect all drawing tools: Brush, Dot, Line, Rectangle, Elli
 - Display scale changes window size, not canvas zoom
 - Changed scale is remembered if you save config on exit
 
+## Audio Controls
+
+All audio settings are in the **Audio** menu (rightmost menu in the menu bar). Settings are saved to `DRAW.cfg`.
+
+### Sound FX
+
+| Menu Item | Action |
+|-----------|--------|
+| **Sound FX** ✓ | Toggle all sound effects on/off |
+| **SFX VOL UP** | Increase SFX volume by 10% |
+| **SFX VOL DOWN** | Decrease SFX volume by 10% |
+| **SFX MUTE** ✓ | Mute/unmute SFX without disabling |
+
+### Music
+
+| Menu Item | Action |
+|-----------|--------|
+| **Music** ✓ | Toggle background music on/off |
+| **MUSIC VOL UP** | Increase music volume by 10% |
+| **MUSIC VOL DOWN** | Decrease music volume by 10% |
+| **MUSIC MUTE** ✓ | Mute/unmute music without stopping |
+| **EXPLORE MUSIC...** | Open the theme's `MUSIC/` folder in your file manager |
+
+Background music plays random tracks from `ASSETS/THEMES/DEFAULT/MUSIC/` and auto-shuffles when a track ends or music is toggled. The currently playing track is shown as **NOW: trackname** at the bottom of the Audio menu.
+
 ## Drawing Modifiers
 
 | Tool | Modifier | Effect |

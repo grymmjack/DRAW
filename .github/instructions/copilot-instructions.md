@@ -475,6 +475,7 @@ Menu items, keyboard shortcuts, command palette, and toolbar clicks all funnel t
 | 408 | View | Display Scale Up (`Ctrl+PgUp`) |
 | 409 | View | Display Scale Down (`Ctrl+PgDn`) |
 | 416 | View | Display Scale Reset (`Ctrl+Alt+PgDn`) |
+| 417-426 | Audio | SFX toggle (417), SFX vol up (418), SFX vol down (419), Music toggle (420), SFX mute (421), Music vol up (422), Music vol down (423), Music mute (424), Explore music folder (425), Now Playing label (426 — disabled/display only) |
 | 501-517 | Color | Opacity presets (10-100%), Swap FG/BG |
 | 601-609 | Brush | Size dec/inc, presets, preview, shape, pixel perfect |
 | 701-711 | Layer | New, Delete, MoveUp/Down, MergeDown, MergeVisible, Duplicate, ArrangeTop/Bottom, ExportLayerPNG, **MergeSelected** |
@@ -500,20 +501,24 @@ checks if search characters appear in order in target string. Supports keyboard 
 
 ```
 DO
+    0. _EXIT check — OS window-close / CTRL+BREAK → CMD_execute_action 212 (graceful exit)
     1. Deferred command-line file loading (first frame only)
     2. Windows drag-and-drop handling (_ACCEPTFILEDROP)
     3. k& = _KEYHIT + MODIFIERS_track_alt_keyhit + MODIFIERS_update
     4. LOOP_start — resets UNDO_saved_this_frame%, calls TITLE_check
-    5. MOUSE_input_handler (perf tracked)
-    6. KEYBOARD_input_handler (perf tracked)  ← display scale hotkeys handled here
-    7. STICK_input_handler (perf tracked)
-    8. Idle detection → sets FRAME_IDLE%, SCENE_DIRTY%
-    9. IF NOT FRAME_IDLE% THEN SCREEN_render
-   10. _LIMIT (IDLE_FPS_LIMIT=15 when idle, CFG.FPS_LIMIT%=60 otherwise)
-   11. MOUSE/KEYBOARD/STICK_input_handler_loop (post-render)
-   12. PERF_frame_end, LOOP_end
+    5. MUSIC_tick — advances music shuffle (plays next random track if current has ended)
+    6. MOUSE_input_handler (perf tracked)
+    7. KEYBOARD_input_handler (perf tracked)  ← display scale hotkeys handled here
+    8. STICK_input_handler (perf tracked)
+    9. Idle detection → sets FRAME_IDLE%, SCENE_DIRTY%
+   10. IF NOT FRAME_IDLE% THEN SCREEN_render
+   11. _LIMIT (IDLE_FPS_LIMIT=15 when idle, CFG.FPS_LIMIT%=60 otherwise)
+   12. MOUSE/KEYBOARD/STICK_input_handler_loop (post-render)
+   13. PERF_frame_end, LOOP_end
 LOOP
 ```
+
+**OS Exit Trapping**: `_EXIT` is called once at startup (`osExitTrap% = _EXIT`) to begin monitoring. Each frame, `osExitTrap% = _EXIT` is checked; any non-zero value (1=X button, 2=CTRL+BREAK, 3=both) routes through `CMD_execute_action 212`, which shows the unsaved-changes dialog if `CANVAS_DIRTY%` is set, then calls `MAIN_shutdown` for full resource cleanup.
 
 ### CRITICAL: `_LIMIT` Placement
 
@@ -1107,7 +1112,28 @@ They guard `CFG.SOUNDS_ENABLED%` and handle validity so callers need no extra ch
 | Key | Purpose |
 |-----|---------|
 | `SOUNDS_ENABLED` | 0 = disabled, 1 = enabled |
-| `SOUNDS_VOLUME` | 0.0–1.0 master volume |
+| `SOUNDS_VOLUME` | 0–100 SFX volume (default 35) |
+| `SOUNDS_MUTED` | 0/1 — mute SFX without disabling |
+| `MUSIC_ENABLED` | 0 = off, 1 = on |
+| `MUSIC_VOLUME` | 0–100 music volume (default 35) |
+| `MUSIC_MUTED` | 0/1 — mute music without stopping |
+
+### Music System
+
+**Files**: `CORE/SOUND.BI`, `CORE/SOUND.BM`
+
+- `MUSIC_HANDLE` (LONG, shared) — current tracker file sound handle
+- `MUSIC_CURRENT_FILE$` (STRING, shared) — filename only (no path) of playing track; empty when not playing
+- `MUSIC_play_random` — scans theme `MUSIC/` dir via `SHELL ls/dir > draw_musiclist.tmp`, picks a random `.mod/.xm/.it/.s3m` file (avoids repeating last track when 2+ exist), opens with `_SNDOPEN`, applies music volume/mute, plays if `MUSIC_ENABLED`
+- `MUSIC_init` — clears `MUSIC_CURRENT_FILE$`, delegates to `MUSIC_play_random`
+- `MUSIC_tick` — called every frame; calls `MUSIC_play_random` when track ends (auto-shuffle)
+- `MUSIC_stop` — `_SNDSTOP` + `_SNDCLOSE`, clears `MUSIC_CURRENT_FILE$`
+- `SOUND_apply_volume` — applies **separate** sfxVol and musVol to all handles, respects `SOUNDS_MUTED%` and `MUSIC_MUTED%`
+- `RANDOMIZE TIMER` is called once at startup (before `SOUND_init`) so shuffle is truly random
+
+### AUDIO Root Menu (parentIdx=10, rightmost)
+
+`MENUBAR_register_item "AUDIO", "", -1, 0, FALSE, FALSE` — registered after HELP. Contains all SFX and music controls (action IDs 417–426). Item 426 is always disabled (greyed label-only NOW PLAYING status).
 
 ### Theme WAV Files
 

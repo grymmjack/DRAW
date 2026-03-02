@@ -14,7 +14,7 @@ DATA "::::::::", "::    ::", "::    ::", "::::  ::::", "  ::  ::  "
 
 DRAW is a pixel art editor written in QB64PE that can export images as sourcecode
 
-![DRAW GUI from v0.13.0](./GUI.png)
+![DRAW GUI from v0.14.0](./GUI.png)
 
 ## Features
 
@@ -109,7 +109,14 @@ DRAW is a pixel art editor written in QB64PE that can export images as sourcecod
 - All sounds loaded from `ASSETS/THEMES/DEFAULT/SOUNDS/` — fully replaceable per theme via `THEME.CFG`
 - Per-operation sound triggers: SND_POINT on every click/vertex, SND_DRAG_DROP on shape commit, SND_SELECTION looped during selection drags, SND_SLIDER on opacity wheel/release, SND_ORGANIZER on organizer widget click/wheel
 - `SOUND_loop` / `SOUND_stop` for collision-free per-frame looping sounds (selection drag)
-- Enable/disable and volume configurable in `DRAW.cfg` (`SOUNDS_ENABLED`, `SOUNDS_VOLUME`)
+- SFX enable/disable, volume (0–100%), and mute configurable independently in `DRAW.cfg`
+
+### Music System
+- **Background music** — plays random tracker files (`.mod`, `.xm`, `.it`, `.s3m`) from `ASSETS/THEMES/DEFAULT/MUSIC/`
+- **Auto-shuffle** — picks a new random track when the current one ends; avoids repeating the last track
+- **Dedicated AUDIO root menu** (rightmost in the menu bar) — separate controls for SFX and music: toggle, volume up/down (±10%), mute toggle, **Explore Music Folder**, and live **NOW PLAYING** status
+- Music volume and mute are independent of SFX volume and mute
+- All audio state persisted in `DRAW.cfg` (`SOUNDS_ENABLED`, `SOUNDS_VOLUME`, `SOUNDS_MUTED`, `MUSIC_ENABLED`, `MUSIC_VOLUME`, `MUSIC_MUTED`)
 
 ### User Interface
 - Themeable PNG icon toolbar (28 buttons in **4×7 grid**)
