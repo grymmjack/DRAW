@@ -19,6 +19,7 @@ CONST IMGDLG_OK_W  = 108     ' OK button width
 CONST IMGDLG_CX_X  = 138     ' Cancel button X
 CONST IMGDLG_CX_W  = 108     ' Cancel button width
 CONST IMGDLG_BTN_H = 22      ' OK/Cancel button height
+CONST IMGDLG_PREV_H = 144    ' Loupe preview pane height (pixels)
 
 
 ''
@@ -185,44 +186,144 @@ SUB IMGDLG_check_ok_cancel (ctx AS DIALOG_CTX)
 END SUB
 
 ' Slider Y positions for up to 4 sliders (0-based index)
-FUNCTION IMGDLG_label_y% (idx AS INTEGER)
-    IMGDLG_label_y% = 24 + idx * 38
+' ctx.prevH is added so sliders sit below the preview pane.
+FUNCTION IMGDLG_label_y% (ctx AS DIALOG_CTX, idx AS INTEGER)
+    IMGDLG_label_y% = 24 + ctx.prevH + idx * 38
 END FUNCTION
 
-FUNCTION IMGDLG_track_y% (idx AS INTEGER)
-    IMGDLG_track_y% = 36 + idx * 38
+FUNCTION IMGDLG_track_y% (ctx AS DIALOG_CTX, idx AS INTEGER)
+    IMGDLG_track_y% = 36 + ctx.prevH + idx * 38
 END FUNCTION
 
 
 ' =============================================================================
-' BRIGHTNESS / CONTRAST  (2 sliders, h=148)
+' LIVE PREVIEW SETUP  (Loupe Mode)
+' =============================================================================
+
+''
+' Expand dialog height by IMGDLG_PREV_H, re-centre, rebuild buffer.
+' Sets loupeDirty=TRUE so IMAGE_ADJ_update_loupe captures the canvas region
+' under the dialog on the very first loop iteration.
+' Call immediately after DIALOG_init for any dialog that wants a loupe preview.
+'
+SUB IMAGE_ADJ_setup_preview (ctx AS DIALOG_CTX, layerImg AS LONG)
+    ' layerImg kept for API compatibility — loupe captures from canvas coords.
+    ctx.prevH = IMGDLG_PREV_H
+    ctx.h     = ctx.h + IMGDLG_PREV_H
+
+    ' Re-centre vertically
+    ctx.y = (SCRN.h& - ctx.h) \ 2
+    IF ctx.y < 0               THEN ctx.y = 0
+    IF ctx.y + ctx.h > SCRN.h& THEN ctx.y = SCRN.h& - ctx.h
+
+    ' Rebuild dialog buffer at new height
+    IF ctx.imgHandle < -1 THEN _FREEIMAGE ctx.imgHandle
+    ctx.imgHandle = _NEWIMAGE(ctx.w, ctx.h, 32)
+
+    ctx.splitX       = ctx.w \ 2
+    ctx.loupeDirty   = TRUE   ' capture loupe region on first frame
+    ctx.previewDirty = TRUE
+END SUB
+
+''
+' Re-capture the canvas pixels under the dialog preview area into ctx.origThumb.
+' Maps dialog screen position to canvas pixel coordinates via SCRN.zoom/offsetX/Y.
+' Invalidates ctx.previewThumb and marks ctx.previewDirty=TRUE so the calling
+' dialog recomputes the adjusted preview this same frame.
+'
+SUB IMAGE_ADJ_update_loupe (ctx AS DIALOG_CTX)
+    IF CURRENT_LAYER% < 1 THEN ctx.loupeDirty = FALSE : EXIT SUB
+
+    DIM tw AS INTEGER : tw = ctx.w - 2
+    DIM th AS INTEGER : th = ctx.prevH
+
+    ' The dialog and SCRN.CANVAS& share the same logical-pixel coordinate space.
+    ' ctx.x/y are in logical (pre-displayScale) pixels, matching _MOUSEX\scale.
+    ' So we can copy directly from SCRN.CANVAS& — no zoom/pan math needed, and
+    ' we get the correct COMPOSITED view of all layers, not just one layer.
+    DIM px0 AS INTEGER : px0 = ctx.x + 1
+    DIM py0 AS INTEGER : py0 = ctx.y + 19     ' below title bar (18px) + 1px border
+    DIM px1 AS INTEGER : px1 = px0 + tw - 1
+    DIM py1 AS INTEGER : py1 = py0 + th - 1
+
+    ' Clamp to SCRN.CANVAS& bounds
+    IF px0 < 0 THEN px0 = 0
+    IF py0 < 0 THEN py0 = 0
+    IF px1 >= SCRN.w& THEN px1 = SCRN.w& - 1
+    IF py1 >= SCRN.h& THEN py1 = SCRN.h& - 1
+
+    ' Capture origThumb from the composited canvas — pixel-perfect, no scaling
+    IF ctx.origThumb < -1 THEN _FREEIMAGE ctx.origThumb
+    ctx.origThumb = _NEWIMAGE(tw, th, 32)
+    _DONTBLEND ctx.origThumb
+    _PUTIMAGE (0, 0)-(tw - 1, th - 1), SCRN.CANVAS&, ctx.origThumb, (px0, py0)-(px1, py1)
+    _BLEND ctx.origThumb
+
+    ' Invalidate preview thumb — dialog loop will recompute it via previewDirty
+    IF ctx.previewThumb < -1 THEN _FREEIMAGE ctx.previewThumb
+    ctx.previewThumb = 0
+    ctx.loupeDirty   = FALSE
+    ctx.previewDirty = TRUE
+END SUB
+
+
+' =============================================================================
+' BRIGHTNESS / CONTRAST  (2 sliders, base h=148)
 ' =============================================================================
 SUB IMAGE_ADJ_brightness_contrast_dialog ()
     IF CURRENT_LAYER% < 1 THEN EXIT SUB
 
     DIM ctx AS DIALOG_CTX
     DIALOG_init ctx, IMGDLG_W, 148
+    IMAGE_ADJ_setup_preview ctx, LAYERS(CURRENT_LAYER%).imgHandle&
 
     DIM brightness AS INTEGER, contrast AS INTEGER
+    DIM oBrightness AS INTEGER, oContrast AS INTEGER
+    DIM prvTmp AS LONG, prvResult AS LONG
     brightness% = 0 : contrast% = 0
 
     DIM k AS LONG
     DO
         DIALOG_poll_mouse ctx
+        IF ctx.loupeDirty% THEN IMAGE_ADJ_update_loupe ctx
         k& = _KEYHIT
         IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
         IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
 
-        brightness% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(0), IMGDLG_SW, 14, brightness%, -100, 100)
-        contrast%   = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(1), IMGDLG_SW, 14, contrast%,   -100, 100)
+        oBrightness% = brightness% : oContrast% = contrast%
+        brightness% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, brightness%, -100, 100)
+        contrast%   = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, contrast%,   -100, 100)
+        IF brightness% <> oBrightness% OR contrast% <> oContrast% THEN ctx.previewDirty% = TRUE
         IMGDLG_check_ok_cancel ctx
+
+        IF ctx.previewDirty% THEN
+            IF ctx.previewThumb < -1 THEN _FREEIMAGE ctx.previewThumb
+            IF brightness% > 0 THEN
+                prvTmp& = GJ_IMGADJ_Brightness(ctx.origThumb, "+", (brightness% * 255) \ 100)
+            ELSEIF brightness% < 0 THEN
+                prvTmp& = GJ_IMGADJ_Brightness(ctx.origThumb, "-", ((-brightness%) * 255) \ 100)
+            ELSE
+                prvTmp& = GJ_IMGADJ_CloneImage(ctx.origThumb)
+            END IF
+            IF contrast% > 0 THEN
+                prvResult& = GJ_IMGADJ_Contrast(prvTmp&, "+", contrast%)
+            ELSEIF contrast% < 0 THEN
+                prvResult& = GJ_IMGADJ_Contrast(prvTmp&, "-", -contrast%)
+            ELSE
+                prvResult& = GJ_IMGADJ_CloneImage(prvTmp&)
+            END IF
+            IF prvTmp& < -1 THEN _FREEIMAGE prvTmp&
+            ctx.previewThumb = prvResult&
+            ctx.previewDirty% = FALSE
+        END IF
 
         _DEST ctx.imgHandle
         DIALOG_draw_frame ctx, "BRIGHTNESS / CONTRAST"
-        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(0), "BRIGHTNESS:"
-        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(0), IMGDLG_SW, brightness%, -100, 100, "", ""
-        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(1), "CONTRAST:"
-        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(1), IMGDLG_SW, contrast%,   -100, 100, "", ""
+        DIALOG_draw_preview ctx
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "BRIGHTNESS:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, brightness%, -100, 100, "", ""
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 1), "CONTRAST:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, contrast%,   -100, 100, "", ""
         DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
         IMGDLG_draw_ok_cancel ctx
         DIALOG_blit ctx
@@ -232,7 +333,6 @@ SUB IMAGE_ADJ_brightness_contrast_dialog ()
         IMAGE_ADJ_save_undo
         DIM src AS LONG : src& = LAYERS(CURRENT_LAYER%).imgHandle&
         DIM tmp AS LONG, adjR AS LONG
-        ' Apply brightness
         IF brightness% > 0 THEN
             tmp& = GJ_IMGADJ_Brightness(src&, "+", (brightness% * 255) \ 100)
         ELSEIF brightness% < 0 THEN
@@ -240,7 +340,6 @@ SUB IMAGE_ADJ_brightness_contrast_dialog ()
         ELSE
             tmp& = GJ_IMGADJ_CloneImage(src&)
         END IF
-        ' Apply contrast to brightness result
         IF contrast% > 0 THEN
             adjR& = GJ_IMGADJ_Contrast(tmp&, "+", contrast%)
         ELSEIF contrast% < 0 THEN
@@ -264,27 +363,55 @@ SUB IMAGE_ADJ_hue_saturation_dialog ()
 
     DIM ctx AS DIALOG_CTX
     DIALOG_init ctx, IMGDLG_W, 148
+    IMAGE_ADJ_setup_preview ctx, LAYERS(CURRENT_LAYER%).imgHandle&
 
     DIM hueShift AS INTEGER, satShift AS INTEGER
+    DIM oHue AS INTEGER, oSat AS INTEGER
+    DIM prvTmp AS LONG, prvResult AS LONG
     hueShift% = 0 : satShift% = 0
 
     DIM k AS LONG
     DO
         DIALOG_poll_mouse ctx
+        IF ctx.loupeDirty% THEN IMAGE_ADJ_update_loupe ctx
         k& = _KEYHIT
         IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
         IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
 
-        hueShift% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(0), IMGDLG_SW, 14, hueShift%, -180, 180)
-        satShift% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(1), IMGDLG_SW, 14, satShift%, -100, 100)
+        oHue% = hueShift% : oSat% = satShift%
+        hueShift% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, hueShift%, -180, 180)
+        satShift% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, satShift%, -100, 100)
+        IF hueShift% <> oHue% OR satShift% <> oSat% THEN ctx.previewDirty% = TRUE
         IMGDLG_check_ok_cancel ctx
+
+        IF ctx.previewDirty% THEN
+            IF ctx.previewThumb < -1 THEN _FREEIMAGE ctx.previewThumb
+            IF hueShift% > 0 THEN
+                prvTmp& = GJ_IMGADJ_Hue(ctx.origThumb, "+", hueShift%)
+            ELSEIF hueShift% < 0 THEN
+                prvTmp& = GJ_IMGADJ_Hue(ctx.origThumb, "-", -hueShift%)
+            ELSE
+                prvTmp& = GJ_IMGADJ_CloneImage(ctx.origThumb)
+            END IF
+            IF satShift% > 0 THEN
+                prvResult& = GJ_IMGADJ_Saturation(prvTmp&, "+", satShift%)
+            ELSEIF satShift% < 0 THEN
+                prvResult& = GJ_IMGADJ_Saturation(prvTmp&, "-", -satShift%)
+            ELSE
+                prvResult& = GJ_IMGADJ_CloneImage(prvTmp&)
+            END IF
+            IF prvTmp& < -1 THEN _FREEIMAGE prvTmp&
+            ctx.previewThumb = prvResult&
+            ctx.previewDirty% = FALSE
+        END IF
 
         _DEST ctx.imgHandle
         DIALOG_draw_frame ctx, "HUE / SATURATION"
-        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(0), "HUE:"
-        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(0), IMGDLG_SW, hueShift%, -180, 180, "", CHR$(176)
-        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(1), "SATURATION:"
-        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(1), IMGDLG_SW, satShift%, -100, 100, "", ""
+        DIALOG_draw_preview ctx
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "HUE:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, hueShift%, -180, 180, "", CHR$(176)
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 1), "SATURATION:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, satShift%, -100, 100, "", ""
         DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
         IMGDLG_draw_ok_cancel ctx
         DIALOG_blit ctx
@@ -324,34 +451,47 @@ SUB IMAGE_ADJ_levels_dialog ()
 
     DIM ctx AS DIALOG_CTX
     DIALOG_init ctx, IMGDLG_W, 224
+    IMAGE_ADJ_setup_preview ctx, LAYERS(CURRENT_LAYER%).imgHandle&
 
     DIM inMin AS INTEGER, inMax AS INTEGER
     DIM outMin AS INTEGER, outMax AS INTEGER
+    DIM oInMin AS INTEGER, oInMax AS INTEGER, oOutMin AS INTEGER, oOutMax AS INTEGER
+    DIM prvResult AS LONG
     inMin% = 0 : inMax% = 255 : outMin% = 0 : outMax% = 255
 
     DIM k AS LONG
     DO
         DIALOG_poll_mouse ctx
+        IF ctx.loupeDirty% THEN IMAGE_ADJ_update_loupe ctx
         k& = _KEYHIT
         IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
         IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
 
-        inMin%  = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(0), IMGDLG_SW, 14, inMin%,  0, 255)
-        inMax%  = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(1), IMGDLG_SW, 14, inMax%,  0, 255)
-        outMin% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(2), IMGDLG_SW, 14, outMin%, 0, 255)
-        outMax% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(3), IMGDLG_SW, 14, outMax%, 0, 255)
+        oInMin% = inMin% : oInMax% = inMax% : oOutMin% = outMin% : oOutMax% = outMax%
+        inMin%  = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, inMin%,  0, 255)
+        inMax%  = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, inMax%,  0, 255)
+        outMin% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, 14, outMin%, 0, 255)
+        outMax% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 3), IMGDLG_SW, 14, outMax%, 0, 255)
+        IF inMin% <> oInMin% OR inMax% <> oInMax% OR outMin% <> oOutMin% OR outMax% <> oOutMax% THEN ctx.previewDirty% = TRUE
         IMGDLG_check_ok_cancel ctx
+
+        IF ctx.previewDirty% THEN
+            IF ctx.previewThumb < -1 THEN _FREEIMAGE ctx.previewThumb
+            ctx.previewThumb = GJ_IMGADJ_Levels(ctx.origThumb, inMin%, inMax%, outMin%, outMax%)
+            ctx.previewDirty% = FALSE
+        END IF
 
         _DEST ctx.imgHandle
         DIALOG_draw_frame ctx, "LEVELS"
-        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(0), "INPUT MIN:"
-        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(0), IMGDLG_SW, inMin%,  0, 255, "", ""
-        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(1), "INPUT MAX:"
-        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(1), IMGDLG_SW, inMax%,  0, 255, "", ""
-        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(2), "OUTPUT MIN:"
-        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(2), IMGDLG_SW, outMin%, 0, 255, "", ""
-        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(3), "OUTPUT MAX:"
-        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(3), IMGDLG_SW, outMax%, 0, 255, "", ""
+        DIALOG_draw_preview ctx
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "INPUT MIN:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, inMin%,  0, 255, "", ""
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 1), "INPUT MAX:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, inMax%,  0, 255, "", ""
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 2), "OUTPUT MIN:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, outMin%, 0, 255, "", ""
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 3), "OUTPUT MAX:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 3), IMGDLG_SW, outMax%, 0, 255, "", ""
         DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
         IMGDLG_draw_ok_cancel ctx
         DIALOG_blit ctx
@@ -376,30 +516,42 @@ SUB IMAGE_ADJ_color_balance_dialog ()
 
     DIM ctx AS DIALOG_CTX
     DIALOG_init ctx, IMGDLG_W, 186
+    IMAGE_ADJ_setup_preview ctx, LAYERS(CURRENT_LAYER%).imgHandle&
 
     DIM redShift AS INTEGER, greenShift AS INTEGER, blueShift AS INTEGER
+    DIM oRed AS INTEGER, oGreen AS INTEGER, oBlue AS INTEGER
     redShift% = 0 : greenShift% = 0 : blueShift% = 0
 
     DIM k AS LONG
     DO
         DIALOG_poll_mouse ctx
+        IF ctx.loupeDirty% THEN IMAGE_ADJ_update_loupe ctx
         k& = _KEYHIT
         IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
         IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
 
-        redShift%   = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(0), IMGDLG_SW, 14, redShift%,   -255, 255)
-        greenShift% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(1), IMGDLG_SW, 14, greenShift%, -255, 255)
-        blueShift%  = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(2), IMGDLG_SW, 14, blueShift%,  -255, 255)
+        oRed% = redShift% : oGreen% = greenShift% : oBlue% = blueShift%
+        redShift%   = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, redShift%,   -255, 255)
+        greenShift% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, greenShift%, -255, 255)
+        blueShift%  = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, 14, blueShift%,  -255, 255)
+        IF redShift% <> oRed% OR greenShift% <> oGreen% OR blueShift% <> oBlue% THEN ctx.previewDirty% = TRUE
         IMGDLG_check_ok_cancel ctx
+
+        IF ctx.previewDirty% THEN
+            IF ctx.previewThumb < -1 THEN _FREEIMAGE ctx.previewThumb
+            ctx.previewThumb = GJ_IMGADJ_ColorBalance(ctx.origThumb, redShift%, greenShift%, blueShift%)
+            ctx.previewDirty% = FALSE
+        END IF
 
         _DEST ctx.imgHandle
         DIALOG_draw_frame ctx, "COLOR BALANCE"
-        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(0), "RED:"
-        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(0), IMGDLG_SW, redShift%,   -255, 255, "", ""
-        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(1), "GREEN:"
-        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(1), IMGDLG_SW, greenShift%, -255, 255, "", ""
-        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(2), "BLUE:"
-        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(2), IMGDLG_SW, blueShift%,  -255, 255, "", ""
+        DIALOG_draw_preview ctx
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "RED:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, redShift%,   -255, 255, "", ""
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 1), "GREEN:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, greenShift%, -255, 255, "", ""
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 2), "BLUE:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, blueShift%,  -255, 255, "", ""
         DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
         IMGDLG_draw_ok_cancel ctx
         DIALOG_blit ctx
@@ -424,23 +576,35 @@ SUB IMAGE_ADJ_blur_dialog ()
 
     DIM ctx AS DIALOG_CTX
     DIALOG_init ctx, IMGDLG_W, 110
+    IMAGE_ADJ_setup_preview ctx, LAYERS(CURRENT_LAYER%).imgHandle&
 
     DIM radius AS INTEGER : radius% = 3
+    DIM oRadius AS INTEGER
 
     DIM k AS LONG
     DO
         DIALOG_poll_mouse ctx
+        IF ctx.loupeDirty% THEN IMAGE_ADJ_update_loupe ctx
         k& = _KEYHIT
         IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
         IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
 
-        radius% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(0), IMGDLG_SW, 14, radius%, 1, 20)
+        oRadius% = radius%
+        radius% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, radius%, 1, 20)
+        IF radius% <> oRadius% THEN ctx.previewDirty% = TRUE
         IMGDLG_check_ok_cancel ctx
+
+        IF ctx.previewDirty% THEN
+            IF ctx.previewThumb < -1 THEN _FREEIMAGE ctx.previewThumb
+            ctx.previewThumb = GJ_IMGADJ_Blur(ctx.origThumb, radius%)
+            ctx.previewDirty% = FALSE
+        END IF
 
         _DEST ctx.imgHandle
         DIALOG_draw_frame ctx, "BLUR"
-        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(0), "RADIUS:"
-        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(0), IMGDLG_SW, radius%, 1, 20, "", " px"
+        DIALOG_draw_preview ctx
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "RADIUS:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, radius%, 1, 20, "", " px"
         DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
         IMGDLG_draw_ok_cancel ctx
         DIALOG_blit ctx
@@ -465,23 +629,35 @@ SUB IMAGE_ADJ_sharpen_dialog ()
 
     DIM ctx AS DIALOG_CTX
     DIALOG_init ctx, IMGDLG_W, 110
+    IMAGE_ADJ_setup_preview ctx, LAYERS(CURRENT_LAYER%).imgHandle&
 
     DIM strength AS INTEGER : strength% = 3
+    DIM oStrength AS INTEGER
 
     DIM k AS LONG
     DO
         DIALOG_poll_mouse ctx
+        IF ctx.loupeDirty% THEN IMAGE_ADJ_update_loupe ctx
         k& = _KEYHIT
         IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
         IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
 
-        strength% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(0), IMGDLG_SW, 14, strength%, 1, 10)
+        oStrength% = strength%
+        strength% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, strength%, 1, 10)
+        IF strength% <> oStrength% THEN ctx.previewDirty% = TRUE
         IMGDLG_check_ok_cancel ctx
+
+        IF ctx.previewDirty% THEN
+            IF ctx.previewThumb < -1 THEN _FREEIMAGE ctx.previewThumb
+            ctx.previewThumb = IMAGE_ADJ_apply_sharpen&(ctx.origThumb, strength%)
+            ctx.previewDirty% = FALSE
+        END IF
 
         _DEST ctx.imgHandle
         DIALOG_draw_frame ctx, "SHARPEN"
-        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(0), "STRENGTH:"
-        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(0), IMGDLG_SW, strength%, 1, 10, "", ""
+        DIALOG_draw_preview ctx
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "STRENGTH:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, strength%, 1, 10, "", ""
         DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
         IMGDLG_draw_ok_cancel ctx
         DIALOG_blit ctx
@@ -506,23 +682,35 @@ SUB IMAGE_ADJ_posterize_dialog ()
 
     DIM ctx AS DIALOG_CTX
     DIALOG_init ctx, IMGDLG_W, 110
+    IMAGE_ADJ_setup_preview ctx, LAYERS(CURRENT_LAYER%).imgHandle&
 
     DIM levels AS INTEGER : levels% = 4
+    DIM oLevels AS INTEGER
 
     DIM k AS LONG
     DO
         DIALOG_poll_mouse ctx
+        IF ctx.loupeDirty% THEN IMAGE_ADJ_update_loupe ctx
         k& = _KEYHIT
         IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
         IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
 
-        levels% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(0), IMGDLG_SW, 14, levels%, 2, 16)
+        oLevels% = levels%
+        levels% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, levels%, 2, 16)
+        IF levels% <> oLevels% THEN ctx.previewDirty% = TRUE
         IMGDLG_check_ok_cancel ctx
+
+        IF ctx.previewDirty% THEN
+            IF ctx.previewThumb < -1 THEN _FREEIMAGE ctx.previewThumb
+            ctx.previewThumb = GJ_IMGADJ_Posterize(ctx.origThumb, levels%)
+            ctx.previewDirty% = FALSE
+        END IF
 
         _DEST ctx.imgHandle
         DIALOG_draw_frame ctx, "POSTERIZE"
-        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(0), "LEVELS:"
-        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(0), IMGDLG_SW, levels%, 2, 16, "", ""
+        DIALOG_draw_preview ctx
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "LEVELS:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, levels%, 2, 16, "", ""
         DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
         IMGDLG_draw_ok_cancel ctx
         DIALOG_blit ctx
@@ -547,23 +735,35 @@ SUB IMAGE_ADJ_pixelate_dialog ()
 
     DIM ctx AS DIALOG_CTX
     DIALOG_init ctx, IMGDLG_W, 110
+    IMAGE_ADJ_setup_preview ctx, LAYERS(CURRENT_LAYER%).imgHandle&
 
     DIM pixSize AS INTEGER : pixSize% = 4
+    DIM oPixSize AS INTEGER
 
     DIM k AS LONG
     DO
         DIALOG_poll_mouse ctx
+        IF ctx.loupeDirty% THEN IMAGE_ADJ_update_loupe ctx
         k& = _KEYHIT
         IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
         IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
 
-        pixSize% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(0), IMGDLG_SW, 14, pixSize%, 2, 32)
+        oPixSize% = pixSize%
+        pixSize% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, pixSize%, 2, 32)
+        IF pixSize% <> oPixSize% THEN ctx.previewDirty% = TRUE
         IMGDLG_check_ok_cancel ctx
+
+        IF ctx.previewDirty% THEN
+            IF ctx.previewThumb < -1 THEN _FREEIMAGE ctx.previewThumb
+            ctx.previewThumb = GJ_IMGADJ_Pixelate(ctx.origThumb, pixSize%)
+            ctx.previewDirty% = FALSE
+        END IF
 
         _DEST ctx.imgHandle
         DIALOG_draw_frame ctx, "PIXELATE"
-        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(0), "PIXEL SIZE:"
-        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(0), IMGDLG_SW, pixSize%, 2, 32, "", " px"
+        DIALOG_draw_preview ctx
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "PIXEL SIZE:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, pixSize%, 2, 32, "", " px"
         DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
         IMGDLG_draw_ok_cancel ctx
         DIALOG_blit ctx

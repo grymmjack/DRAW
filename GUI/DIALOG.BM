@@ -36,6 +36,19 @@ SUB DIALOG_init (ctx AS DIALOG_CTX, w AS INTEGER, h AS INTEGER)
     ctx.justClicked = FALSE
     ctx.done = FALSE
     ctx.result = FALSE
+    ' Preview / split / drag — zero-initialised; caller populates as needed
+    ctx.origThumb = 0
+    ctx.previewThumb = 0
+    ctx.prevH = 0
+    ctx.splitX = ctx.w \ 2
+    ctx.previewDirty = FALSE
+    ctx.loupeDirty   = FALSE
+    ctx.moveDrag = FALSE
+    ctx.moveDragOX = 0
+    ctx.moveDragOY = 0
+    ctx.splitDrag = FALSE
+    ' Capture screen snapshot for clean background during drag / blit
+    ctx.screenShot = _COPYIMAGE(0, 32)
 
     _MOUSESHOW
 END SUB
@@ -48,6 +61,9 @@ END SUB
 ' @param ctx  DIALOG_CTX  Context to clean up
 '
 SUB DIALOG_cleanup (ctx AS DIALOG_CTX)
+    IF ctx.origThumb < -1    THEN _FREEIMAGE ctx.origThumb    : ctx.origThumb = 0
+    IF ctx.previewThumb < -1 THEN _FREEIMAGE ctx.previewThumb : ctx.previewThumb = 0
+    IF ctx.screenShot < -1   THEN _FREEIMAGE ctx.screenShot   : ctx.screenShot = 0
     IF ctx.imgHandle < -1 THEN
         _DEST ctx.imgHandle
         _FONT 16
@@ -77,6 +93,48 @@ SUB DIALOG_poll_mouse (ctx AS DIALOG_CTX)
     ctx.my = (_MOUSEY \ ctx.scale) - ctx.y
     ctx.mb1 = _MOUSEBUTTON(1)
     ctx.justClicked = ctx.mb1 AND (NOT ctx.omb1)
+
+    ' ---- Start drag on this frame's click? ----
+    IF ctx.justClicked THEN
+        ' Title bar grab → move dialog
+        IF ctx.my >= 1 AND ctx.my <= 17 THEN
+            ctx.moveDrag = TRUE
+            ctx.moveDragOX = ctx.mx
+            ctx.moveDragOY = ctx.my
+        END IF
+        ' Split bar grab (in preview area, within ±8px of splitX)
+        IF ctx.prevH > 0 THEN
+            IF ctx.my >= 19 AND ctx.my <= 19 + ctx.prevH THEN
+                IF ABS(ctx.mx - ctx.splitX) <= 8 THEN
+                    ctx.splitDrag = TRUE
+                END IF
+            END IF
+        END IF
+    END IF
+
+    ' ---- Sustain drags while button held ----
+    IF ctx.mb1 THEN
+        IF ctx.moveDrag THEN
+            ctx.x = (_MOUSEX \ ctx.scale) - ctx.moveDragOX
+            ctx.y = (_MOUSEY \ ctx.scale) - ctx.moveDragOY
+            IF ctx.x < 0 THEN ctx.x = 0
+            IF ctx.y < 0 THEN ctx.y = 0
+            IF ctx.x + ctx.w > SCRN.w& THEN ctx.x = SCRN.w& - ctx.w
+            IF ctx.y + ctx.h > SCRN.h& THEN ctx.y = SCRN.h& - ctx.h
+            ' Recompute dialog-relative mouse after reposition
+            ctx.mx = (_MOUSEX \ ctx.scale) - ctx.x
+            ctx.my = (_MOUSEY \ ctx.scale) - ctx.y
+            ctx.loupeDirty = TRUE  ' dialog moved — loupe region needs recapture
+        END IF
+        IF ctx.splitDrag THEN
+            ctx.splitX = ctx.mx
+            IF ctx.splitX < 2          THEN ctx.splitX = 2
+            IF ctx.splitX > ctx.w - 3  THEN ctx.splitX = ctx.w - 3
+        END IF
+    ELSE
+        ctx.moveDrag  = FALSE
+        ctx.splitDrag = FALSE
+    END IF
 END SUB
 
 
@@ -129,8 +187,23 @@ SUB DIALOG_draw_frame (ctx AS DIALOG_CTX, title AS STRING)
     LINE (0, 0)-(ctx.w - 1, ctx.h - 1), _RGB32(160, 160, 160), B
     LINE (1, 1)-(ctx.w - 2, ctx.h - 2), _RGB32(48, 48, 48), B
 
-    ' Title bar fill
-    LINE (1, 1)-(ctx.w - 2, 17), _RGB32(40, 40, 40), BF
+    ' Title bar — blue when dragging, slightly lighter when hovering
+    DIM titleBg AS _UNSIGNED LONG
+    IF ctx.moveDrag THEN
+        titleBg~& = _RGB32(30, 35, 90)
+    ELSEIF ctx.my >= 1 AND ctx.my <= 17 THEN
+        titleBg~& = _RGB32(55, 55, 65)
+    ELSE
+        titleBg~& = _RGB32(40, 40, 40)
+    END IF
+    LINE (1, 1)-(ctx.w - 2, 17), titleBg~&, BF
+
+    ' Drag-grip dots on left side of title bar
+    DIM dotC AS _UNSIGNED LONG
+    IF ctx.moveDrag THEN dotC~& = _RGB32(140, 140, 220) ELSE dotC~& = _RGB32(90, 90, 90)
+    PSET (4, 5),  dotC~& : PSET (4, 9),  dotC~& : PSET (4, 13), dotC~&
+    PSET (7, 5),  dotC~& : PSET (7, 9),  dotC~& : PSET (7, 13), dotC~&
+
     _FONT ctx.fontH
     COLOR _RGB32(255, 255, 255)
     _PRINTSTRING ((ctx.w - _PRINTWIDTH(title)) \ 2, 5), title
@@ -249,7 +322,66 @@ END SUB
 '
 SUB DIALOG_blit (ctx AS DIALOG_CTX)
     _DEST 0
+    ' Restore the captured background so moved dialogs don't leave artifacts
+    IF ctx.screenShot < -1 THEN
+        _DONTBLEND 0
+        _PUTIMAGE , ctx.screenShot
+        _BLEND 0
+    END IF
     _PUTIMAGE (ctx.x * ctx.scale, ctx.y * ctx.scale)-((ctx.x + ctx.w) * ctx.scale - 1, (ctx.y + ctx.h) * ctx.scale - 1), ctx.imgHandle
     _DISPLAY
     _LIMIT 60
+END SUB
+
+
+''
+' Draw the live split-preview pane into ctx.imgHandle.
+' Left of splitX  = ctx.origThumb (original layer).
+' Right of splitX = ctx.previewThumb (adjusted result).
+' Does nothing if ctx.prevH = 0 or thumbnails are not valid.
+' _DEST ctx.imgHandle must already be set by the caller.
+'
+SUB DIALOG_draw_preview (ctx AS DIALOG_CTX)
+    IF ctx.prevH <= 0 THEN EXIT SUB
+    IF ctx.origThumb >= -1 AND ctx.origThumb <> 0 THEN EXIT SUB
+
+    DIM prevY AS INTEGER : prevY = 19
+    DIM tw    AS INTEGER : tw    = ctx.w - 2
+    DIM th    AS INTEGER : th    = ctx.prevH
+
+    ' Dark background for thumbnail area
+    LINE (1, prevY)-(ctx.w - 2, prevY + th - 1), _RGB32(18, 18, 18), BF
+
+    ' Split position relative to the thumb strip (left edge = x=1)
+    DIM sx AS INTEGER : sx = ctx.splitX - 1
+    IF sx < 0  THEN sx = 0
+    IF sx > tw THEN sx = tw
+
+    ' Blit left portion: origThumb
+    _DONTBLEND ctx.imgHandle
+    IF sx > 0 AND ctx.origThumb < -1 THEN
+        _PUTIMAGE (1, prevY)-(sx, prevY + th - 1), ctx.origThumb, ctx.imgHandle, (0, 0)-(sx - 1, th - 1)
+    END IF
+
+    ' Blit right portion: previewThumb
+    IF sx < tw AND ctx.previewThumb < -1 THEN
+        _PUTIMAGE (1 + sx, prevY)-(ctx.w - 2, prevY + th - 1), ctx.previewThumb, ctx.imgHandle, (sx, 0)-(tw - 1, th - 1)
+    END IF
+    _BLEND ctx.imgHandle
+
+    ' Vertical split line
+    LINE (ctx.splitX, prevY)-(ctx.splitX, prevY + th - 1), _RGB32(255, 200, 0)
+
+    ' Diamond handle at vertical midpoint
+    DIM midY AS INTEGER : midY = prevY + th \ 2
+    LINE (ctx.splitX - 5, midY)-(ctx.splitX + 5, midY), _RGB32(255, 200, 0)
+    LINE (ctx.splitX, midY - 5)-(ctx.splitX, midY + 5), _RGB32(255, 200, 0)
+
+    ' ORIG / ADJ labels
+    COLOR _RGB32(110, 110, 110)
+    IF sx > 24 THEN _PRINTSTRING (3, prevY + 2), "ORIG"
+    IF sx < tw - 26 THEN _PRINTSTRING (ctx.splitX + 3, prevY + 2), "ADJ"
+
+    ' Bottom border of preview pane
+    LINE (1, prevY + th)-(ctx.w - 2, prevY + th), _RGB32(48, 48, 48)
 END SUB

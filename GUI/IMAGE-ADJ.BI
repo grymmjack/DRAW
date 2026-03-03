@@ -22,6 +22,10 @@ DECLARE SUB IMAGE_ADJ_desaturate ()
 ' ---- Internal function -------------------------------------------------------
 DECLARE FUNCTION IMAGE_ADJ_apply_sharpen& (sourceImg AS LONG, amt AS INTEGER)
 
+' ---- Live loupe preview helpers ---------------------------------------------
+DECLARE SUB IMAGE_ADJ_setup_preview (ctx AS DIALOG_CTX, layerImg AS LONG)
+DECLARE SUB IMAGE_ADJ_update_loupe (ctx AS DIALOG_CTX)
+
 ' ---- Slider dialogs ----------------------------------------------------------
 DECLARE SUB IMAGE_ADJ_brightness_contrast_dialog ()
 DECLARE SUB IMAGE_ADJ_hue_saturation_dialog ()
