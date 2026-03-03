@@ -25,6 +25,7 @@ TYPE DIALOG_CTX
     mb1          AS INTEGER     ' Current left button state
     omb1         AS INTEGER     ' Previous left button state
     justClicked  AS INTEGER     ' mb1 transitioned 0->1 this frame
+    mwheel       AS INTEGER     ' Accumulated mouse wheel delta this frame
     done         AS INTEGER     ' TRUE when loop should exit
     result       AS INTEGER     ' TRUE=OK, FALSE=Cancel
     ' ---- Live preview / split view ----
@@ -74,3 +75,9 @@ DECLARE SUB DIALOG_draw_preview (ctx AS DIALOG_CTX)
 ' Returns updated slider value when mb1 is held over the slider track.
 ' Pass current value; returns new value (clamped to minV..maxV).
 DECLARE FUNCTION DIALOG_slider_drag% (ctx AS DIALOG_CTX, sx AS INTEGER, sy AS INTEGER, sw AS INTEGER, sh AS INTEGER, value AS INTEGER, minV AS INTEGER, maxV AS INTEGER)
+
+''
+' Returns updated slider value when mouse wheel scrolled over the slider row.
+' Scroll up increases, scroll down decreases by 1 per detent.
+' Hit zone: full slider width, 20px above track top to 4px below bottom.
+DECLARE FUNCTION DIALOG_slider_wheel% (ctx AS DIALOG_CTX, sx AS INTEGER, sy AS INTEGER, sw AS INTEGER, sh AS INTEGER, value AS INTEGER, minV AS INTEGER, maxV AS INTEGER)
