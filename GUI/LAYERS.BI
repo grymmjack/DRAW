@@ -142,6 +142,7 @@ DECLARE SUB LAYER_PANEL_handle_scroll_drag (rawY AS INTEGER)
 DECLARE SUB LAYER_PANEL_load_icons ()
 DECLARE SUB LAYER_PANEL_cleanup_icons ()
 DECLARE SUB LAYER_select_non_transparent (layerIdx AS INTEGER)
+DECLARE SUB LAYER_PANEL_scroll_to_layer (layerIdx AS INTEGER)
 
 ' Blend mode functions
 DECLARE FUNCTION BLEND_mode_name$ (mode AS INTEGER)
