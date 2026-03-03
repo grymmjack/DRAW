@@ -286,11 +286,74 @@ SUB IMAGE_ADJ_update_loupe (ctx AS DIALOG_CTX)
     _PUTIMAGE (0, 0)-(tw - 1, th - 1), SCRN.CANVAS&, ctx.origThumb, (px0, py0)-(px1, py1)
     _BLEND ctx.origThumb
 
+    ' Capture the current layer's rendered pixels at the same screen region.
+    ' This provides the alpha mask so previews only show adjustments on
+    ' non-transparent layer pixels — matching the final apply behaviour.
+    IF IMGADJ_LAYER_MASK& < -1 THEN _FREEIMAGE IMGADJ_LAYER_MASK&
+    DIM loupeLayerImg AS LONG
+    loupeLayerImg& = LAYERS(CURRENT_LAYER%).imgHandle&
+    IF loupeLayerImg& < -1 THEN
+        ' Render the layer at zoom/pan into a temp surface, then crop the loupe region
+        DIM loupeZW AS LONG, loupeZH AS LONG, loupeDX AS INTEGER, loupeDY AS INTEGER
+        loupeZW& = SCRN.canvasW& * SCRN.zoom!
+        loupeZH& = SCRN.canvasH& * SCRN.zoom!
+        loupeDX% = (SCRN.w& - loupeZW&) \ 2 + SCRN.offsetX%
+        loupeDY% = (SCRN.h& - loupeZH&) \ 2 + SCRN.offsetY%
+        DIM loupeFull AS LONG
+        loupeFull& = _NEWIMAGE(SCRN.w&, SCRN.h&, 32)
+        DIM loupeOldD AS LONG : loupeOldD& = _DEST
+        _DEST loupeFull&
+        CLS , _RGBA32(0, 0, 0, 0)
+        _DONTBLEND loupeFull&
+        _PUTIMAGE (loupeDX%, loupeDY%)-(loupeDX% + loupeZW& - 1, loupeDY% + loupeZH& - 1), loupeLayerImg&, loupeFull&
+        _BLEND loupeFull&
+        _DEST loupeOldD&
+        IMGADJ_LAYER_MASK& = _NEWIMAGE(tw, th, 32)
+        _DONTBLEND IMGADJ_LAYER_MASK&
+        _PUTIMAGE (0, 0)-(tw - 1, th - 1), loupeFull&, IMGADJ_LAYER_MASK&, (px0, py0)-(px1, py1)
+        _BLEND IMGADJ_LAYER_MASK&
+        IF loupeFull& < -1 THEN _FREEIMAGE loupeFull&
+    ELSE
+        IMGADJ_LAYER_MASK& = 0
+    END IF
+
     ' Invalidate preview thumb — dialog loop will recompute it via previewDirty
     IF ctx.previewThumb < -1 THEN _FREEIMAGE ctx.previewThumb
     ctx.previewThumb = 0
     ctx.loupeDirty   = FALSE
     ctx.previewDirty = TRUE
+END SUB
+
+
+''
+' Mask the previewThumb so pixels where the current layer is transparent
+' show the original canvas (origThumb) instead of the adjusted result.
+' This makes the preview match the final apply, which preserves alpha.
+'
+SUB IMAGE_ADJ_mask_preview (ctx AS DIALOG_CTX)
+    IF ctx.previewThumb >= -1 OR ctx.origThumb >= -1 THEN EXIT SUB
+    IF IMGADJ_LAYER_MASK& >= -1 THEN EXIT SUB
+
+    DIM mpMemMask AS _MEM, mpMemPrv AS _MEM, mpMemOrig AS _MEM
+    mpMemMask = _MEMIMAGE(IMGADJ_LAYER_MASK&)
+    mpMemPrv  = _MEMIMAGE(ctx.previewThumb)
+    mpMemOrig = _MEMIMAGE(ctx.origThumb)
+
+    DIM mpOff AS _OFFSET
+    DIM mpMaskAlpha AS _UNSIGNED _BYTE
+    DIM mpOrigPx AS _UNSIGNED LONG
+    FOR mpOff = 0 TO mpMemPrv.SIZE - 4 STEP 4
+        _MEMGET mpMemMask, mpMemMask.OFFSET + mpOff + 3, mpMaskAlpha~%%
+        IF mpMaskAlpha~%% = 0 THEN
+            ' Layer pixel is fully transparent — restore original canvas pixel
+            _MEMGET mpMemOrig, mpMemOrig.OFFSET + mpOff, mpOrigPx~&
+            _MEMPUT mpMemPrv, mpMemPrv.OFFSET + mpOff, mpOrigPx~&
+        END IF
+    NEXT mpOff
+
+    _MEMFREE mpMemMask
+    _MEMFREE mpMemPrv
+    _MEMFREE mpMemOrig
 END SUB
 
 
@@ -343,6 +406,7 @@ SUB IMAGE_ADJ_brightness_contrast_dialog ()
             END IF
             IF prvTmp& < -1 THEN _FREEIMAGE prvTmp&
             ctx.previewThumb = prvResult&
+            IMAGE_ADJ_mask_preview ctx
             ctx.previewDirty% = FALSE
         END IF
 
@@ -380,6 +444,7 @@ SUB IMAGE_ADJ_brightness_contrast_dialog ()
     END IF
 
     DIALOG_cleanup ctx
+    IF IMGADJ_LAYER_MASK& < -1 THEN _FREEIMAGE IMGADJ_LAYER_MASK& : IMGADJ_LAYER_MASK& = 0
 END SUB
 
 
@@ -432,6 +497,7 @@ SUB IMAGE_ADJ_hue_saturation_dialog ()
             END IF
             IF prvTmp& < -1 THEN _FREEIMAGE prvTmp&
             ctx.previewThumb = prvResult&
+            IMAGE_ADJ_mask_preview ctx
             ctx.previewDirty% = FALSE
         END IF
 
@@ -469,6 +535,7 @@ SUB IMAGE_ADJ_hue_saturation_dialog ()
     END IF
 
     DIALOG_cleanup ctx
+    IF IMGADJ_LAYER_MASK& < -1 THEN _FREEIMAGE IMGADJ_LAYER_MASK& : IMGADJ_LAYER_MASK& = 0
 END SUB
 
 
@@ -511,6 +578,7 @@ SUB IMAGE_ADJ_levels_dialog ()
         IF ctx.previewDirty% THEN
             IF ctx.previewThumb < -1 THEN _FREEIMAGE ctx.previewThumb
             ctx.previewThumb = GJ_IMGADJ_Levels(ctx.origThumb, inMin%, inMax%, outMin%, outMax%)
+            IMAGE_ADJ_mask_preview ctx
             ctx.previewDirty% = FALSE
         END IF
 
@@ -537,6 +605,7 @@ SUB IMAGE_ADJ_levels_dialog ()
     END IF
 
     DIALOG_cleanup ctx
+    IF IMGADJ_LAYER_MASK& < -1 THEN _FREEIMAGE IMGADJ_LAYER_MASK& : IMGADJ_LAYER_MASK& = 0
 END SUB
 
 
@@ -575,6 +644,7 @@ SUB IMAGE_ADJ_color_balance_dialog ()
         IF ctx.previewDirty% THEN
             IF ctx.previewThumb < -1 THEN _FREEIMAGE ctx.previewThumb
             ctx.previewThumb = GJ_IMGADJ_ColorBalance(ctx.origThumb, redShift%, greenShift%, blueShift%)
+            IMAGE_ADJ_mask_preview ctx
             ctx.previewDirty% = FALSE
         END IF
 
@@ -599,6 +669,7 @@ SUB IMAGE_ADJ_color_balance_dialog ()
     END IF
 
     DIALOG_cleanup ctx
+    IF IMGADJ_LAYER_MASK& < -1 THEN _FREEIMAGE IMGADJ_LAYER_MASK& : IMGADJ_LAYER_MASK& = 0
 END SUB
 
 
@@ -632,6 +703,7 @@ SUB IMAGE_ADJ_blur_dialog ()
         IF ctx.previewDirty% THEN
             IF ctx.previewThumb < -1 THEN _FREEIMAGE ctx.previewThumb
             ctx.previewThumb = GJ_IMGADJ_Blur(ctx.origThumb, radius%)
+            IMAGE_ADJ_mask_preview ctx
             ctx.previewDirty% = FALSE
         END IF
 
@@ -652,6 +724,7 @@ SUB IMAGE_ADJ_blur_dialog ()
     END IF
 
     DIALOG_cleanup ctx
+    IF IMGADJ_LAYER_MASK& < -1 THEN _FREEIMAGE IMGADJ_LAYER_MASK& : IMGADJ_LAYER_MASK& = 0
 END SUB
 
 
@@ -685,6 +758,7 @@ SUB IMAGE_ADJ_sharpen_dialog ()
         IF ctx.previewDirty% THEN
             IF ctx.previewThumb < -1 THEN _FREEIMAGE ctx.previewThumb
             ctx.previewThumb = IMAGE_ADJ_apply_sharpen&(ctx.origThumb, strength%)
+            IMAGE_ADJ_mask_preview ctx
             ctx.previewDirty% = FALSE
         END IF
 
@@ -705,6 +779,7 @@ SUB IMAGE_ADJ_sharpen_dialog ()
     END IF
 
     DIALOG_cleanup ctx
+    IF IMGADJ_LAYER_MASK& < -1 THEN _FREEIMAGE IMGADJ_LAYER_MASK& : IMGADJ_LAYER_MASK& = 0
 END SUB
 
 
@@ -738,6 +813,7 @@ SUB IMAGE_ADJ_posterize_dialog ()
         IF ctx.previewDirty% THEN
             IF ctx.previewThumb < -1 THEN _FREEIMAGE ctx.previewThumb
             ctx.previewThumb = GJ_IMGADJ_Posterize(ctx.origThumb, levels%)
+            IMAGE_ADJ_mask_preview ctx
             ctx.previewDirty% = FALSE
         END IF
 
@@ -758,6 +834,7 @@ SUB IMAGE_ADJ_posterize_dialog ()
     END IF
 
     DIALOG_cleanup ctx
+    IF IMGADJ_LAYER_MASK& < -1 THEN _FREEIMAGE IMGADJ_LAYER_MASK& : IMGADJ_LAYER_MASK& = 0
 END SUB
 
 
@@ -791,6 +868,7 @@ SUB IMAGE_ADJ_pixelate_dialog ()
         IF ctx.previewDirty% THEN
             IF ctx.previewThumb < -1 THEN _FREEIMAGE ctx.previewThumb
             ctx.previewThumb = GJ_IMGADJ_Pixelate(ctx.origThumb, pixSize%)
+            IMAGE_ADJ_mask_preview ctx
             ctx.previewDirty% = FALSE
         END IF
 
@@ -811,4 +889,5 @@ SUB IMAGE_ADJ_pixelate_dialog ()
     END IF
 
     DIALOG_cleanup ctx
+    IF IMGADJ_LAYER_MASK& < -1 THEN _FREEIMAGE IMGADJ_LAYER_MASK& : IMGADJ_LAYER_MASK& = 0
 END SUB

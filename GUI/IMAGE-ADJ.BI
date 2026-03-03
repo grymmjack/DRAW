@@ -24,6 +24,12 @@ DECLARE FUNCTION IMAGE_ADJ_apply_sharpen& (sourceImg AS LONG, amt AS INTEGER)
 ' ---- Live loupe preview helpers ---------------------------------------------
 DECLARE SUB IMAGE_ADJ_setup_preview (ctx AS DIALOG_CTX, layerImg AS LONG)
 DECLARE SUB IMAGE_ADJ_update_loupe (ctx AS DIALOG_CTX)
+DECLARE SUB IMAGE_ADJ_mask_preview (ctx AS DIALOG_CTX)
+
+' Shared layer-alpha mask for preview: captures the current layer's rendered
+' region at the same screen coordinates as origThumb. Used by mask_preview
+' to restore original pixels where the layer is transparent.
+DIM SHARED IMGADJ_LAYER_MASK AS LONG
 
 ' ---- Slider dialogs ----------------------------------------------------------
 DECLARE SUB IMAGE_ADJ_brightness_contrast_dialog ()
