@@ -209,6 +209,7 @@ DO
     IF CROP.STATE = CROP_STATE_ACTIVE THEN FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE
     IF CMD_PALETTE.visible THEN FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE
     IF MENUBAR_is_open% THEN FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE
+    IF LAYER_PANEL.blendPopupOpen% THEN FRAME_IDLE% = FALSE  ' Popup animation (hover) — no scene change
     IF SELECTION_has_active% THEN FRAME_IDLE% = FALSE  ' Animation only (marching ants) — no scene change
     IF SCENE_CHANGED% THEN SCENE_DIRTY% = TRUE
     ' Mark current layer content dirty when user is actively drawing

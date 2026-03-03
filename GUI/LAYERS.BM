@@ -1293,14 +1293,16 @@ SUB LAYER_PANEL_render (canvasHeight AS INTEGER)
                         END IF
                     END IF
                     
-                    ' Opacity bar (small bar showing opacity level)
+                    ' Opacity bar — vertical bar on right edge of each row
+                    ' Fills bottom-to-top: top (drawY%+2) = fully opaque, bottom (drawY%+16) = transparent
                     ' Only show when panel is wide enough (>=80px)
                     IF panelW% >= 80 THEN
-                        opacityBarW% = 30
-                        opacityFill% = INT((LAYERS(layerIdx%).opacity% / 255.0) * opacityBarW%)
-                        LINE (panelX% + panelW% - opacityBarW% - 14, drawY% + 14)-(panelX% + panelW% - 14, drawY% + 17), THEME.LAYER_PANEL_opacity_bar_bg~&, BF
+                        opacityFill% = INT((LAYERS(layerIdx%).opacity% / 255.0) * 14)
+                        ' Track background: 3px wide x 15px tall at panelW%-15 to panelW%-13
+                        LINE (panelX% + panelW% - 15, drawY% + 2)-(panelX% + panelW% - 13, drawY% + 16), THEME.LAYER_PANEL_opacity_bar_bg~&, BF
+                        ' Fill from bottom up
                         IF opacityFill% > 0 THEN
-                            LINE (panelX% + panelW% - opacityBarW% - 14, drawY% + 14)-(panelX% + panelW% - opacityBarW% - 14 + opacityFill%, drawY% + 17), THEME.LAYER_PANEL_opacity_bar_fg~&, BF
+                            LINE (panelX% + panelW% - 15, drawY% + 16 - opacityFill%)-(panelX% + panelW% - 13, drawY% + 16), THEME.LAYER_PANEL_opacity_bar_fg~&, BF
                         END IF
                     END IF
                 END IF
@@ -1799,19 +1801,18 @@ FUNCTION LAYER_PANEL_handle_click% (rawX AS INTEGER, rawY AS INTEGER, button AS 
                         ELSE
                             LAYERS_toggle_opacity_lock layerIdx%
                         END IF
-                    ' Check if clicking opacity bar
-                    ' Bar renders from panelW%-44 to panelW%-14 (width=30).
-                    ' Use panelW%-46 as trigger for a 2px grab margin.
-                    ELSEIF panelW% >= 80 AND localX% >= panelW% - 46 THEN
-                        ' Start opacity drag
+                    ' Check if clicking vertical opacity bar (3px wide at panelW%-15 to panelW%-13)
+                    ELSEIF panelW% >= 80 AND localX% >= panelW% - 17 AND localX% <= panelW% - 11 THEN
+                        ' Start vertical opacity drag (top=opaque, bottom=transparent)
                         SOUND_play SND_SLIDER
                         LAYER_PANEL.opacityDrag% = TRUE
                         LAYER_PANEL.opacityDragLayer% = layerIdx%
-                        DIM barX AS INTEGER
-                        barX% = localX% - (panelW% - 44)  ' Bar left edge = panelW%-44
-                        IF barX% < 0 THEN barX% = 0
-                        IF barX% > 30 THEN barX% = 30
-                        LAYERS_set_opacity layerIdx%, INT((barX% / 30.0) * 255)
+                        LAYER_PANEL.opacityDragRowY% = rowY% - LAYER_PANEL.scrollOffset%
+                        DIM initBarY AS INTEGER
+                        initBarY% = rawY% - LAYER_PANEL.opacityDragRowY% - 2
+                        IF initBarY% < 0 THEN initBarY% = 0
+                        IF initBarY% > 14 THEN initBarY% = 14
+                        LAYERS_set_opacity layerIdx%, 255 - INT((initBarY% / 14.0) * 255)
                     ELSE
                         ' Ctrl+click or Shift+click on body: toggle this layer in multi-select
                         ' Plain click: make this the current layer and start drag if eligible
@@ -1823,33 +1824,34 @@ FUNCTION LAYER_PANEL_handle_click% (rawX AS INTEGER, rawY AS INTEGER, button AS 
                             ' Toggle this layer in/out of multi-select without changing CURRENT_LAYER%
                             MULTI_SELECT_toggle layerIdx%
                         ELSE
-                            ' Select the layer and start pending drag (threshold required)
-                            LAYERS_select layerIdx%
-                            ' Start PENDING drag - will only become active after moving 10+ pixels
-                            LAYER_PANEL.dragPending% = TRUE
-                            LAYER_PANEL.isDragging% = FALSE
-                            LAYER_PANEL.dragLayerIdx% = layerIdx%
-                            LAYER_PANEL.dropTargetZIndex% = LAYERS(layerIdx%).zIndex%
-                            LAYER_PANEL.dragStartX% = rawX%
-                            LAYER_PANEL.dragStartY% = rawY%
-                            LAYER_PANEL.dragOffsetY% = clickY% - rowY%  ' Offset within row
-                            LAYER_PANEL.dragPreviewY% = rawY%
-                            LAYER_PANEL.autoScrollTimer! = TIMER
+                            ' Double-click: rename layer
+                            IF TIMER - MOUSE.B1_CLICK_TIME# < 0.3 THEN
+                                MOUSE.B1_CLICK_TIME# = 0  ' Prevent triple-fire
+                                LAYERS_select layerIdx%
+                                LAYERS_rename layerIdx%
+                            ELSE
+                                ' Single click: select and start pending drag
+                                MOUSE.B1_CLICK_TIME# = TIMER
+                                LAYERS_select layerIdx%
+                                ' Start PENDING drag - will only become active after moving 10+ pixels
+                                LAYER_PANEL.dragPending% = TRUE
+                                LAYER_PANEL.isDragging% = FALSE
+                                LAYER_PANEL.dragLayerIdx% = layerIdx%
+                                LAYER_PANEL.dropTargetZIndex% = LAYERS(layerIdx%).zIndex%
+                                LAYER_PANEL.dragStartX% = rawX%
+                                LAYER_PANEL.dragStartY% = rawY%
+                                LAYER_PANEL.dragOffsetY% = clickY% - rowY%  ' Offset within row
+                                LAYER_PANEL.dragPreviewY% = rawY%
+                                LAYER_PANEL.autoScrollTimer! = TIMER
+                            END IF
                         END IF
                     END IF
                 ELSEIF button% = 2 THEN
-                    ' Right click context actions
+                    ' Right-click: show blend mode popup
                     LAYERS_select layerIdx%
-                    ' Shift+right-click: cycle blend mode
-                    shiftHeld% = (_KEYDOWN(KEY_LSHIFT&) OR _KEYDOWN(KEY_RSHIFT&))
-                    IF shiftHeld% THEN
-                        LAYERS(layerIdx%).blendMode% = (LAYERS(layerIdx%).blendMode% + 1) MOD BLEND_MODE_COUNT
-                        BLEND_invalidate_cache
-                        GUI_NEEDS_REDRAW% = TRUE
-                    ELSE
-                        ' Plain right-click: rename
-                        LAYERS_rename layerIdx%
-                    END IF
+                    LAYER_PANEL_blend_popup_show layerIdx%, rawX%, rawY%
+                    GUI_NEEDS_REDRAW% = TRUE
+                    FRAME_IDLE% = FALSE
                 END IF
                 
                 LAYER_PANEL_handle_click% = TRUE
@@ -1917,23 +1919,22 @@ END SUB
 
 
 ''
-' Update opacity while dragging the opacity slider.
+' Update opacity while dragging the vertical opacity slider.
 ' Called every frame while opacityDrag% is TRUE and B1 is held.
-' Bar renders from panelW%-44 to panelW%-14 (width 30).
+' Bar spans opacityDragRowY%+2 (top=opaque) to opacityDragRowY%+16 (bottom=transparent).
 '
-SUB LAYER_PANEL_handle_opacity_drag (rawX AS INTEGER)
+SUB LAYER_PANEL_handle_opacity_drag (rawX AS INTEGER, rawY AS INTEGER)
     IF NOT LAYER_PANEL.opacityDrag% THEN EXIT SUB
     DIM layerIdx AS INTEGER
     layerIdx% = LAYER_PANEL.opacityDragLayer%
     IF layerIdx% < 1 OR layerIdx% > 64 THEN EXIT SUB
     IF LAYERS(layerIdx%).imgHandle& >= -1 THEN EXIT SUB
-    DIM panelW AS INTEGER
-    panelW% = CFG.LAYER_PANEL_WIDTH%
-    DIM barX AS INTEGER
-    barX% = rawX% - (panelW% - 44)  ' 0 at bar left edge, 30 at right edge
-    IF barX% < 0 THEN barX% = 0
-    IF barX% > 30 THEN barX% = 30
-    LAYERS_set_opacity layerIdx%, INT((barX% / 30.0) * 255)
+    ' Vertical bar: top = fully opaque (255), bottom = transparent (0)
+    DIM barY AS INTEGER
+    barY% = rawY% - LAYER_PANEL.opacityDragRowY% - 2
+    IF barY% < 0 THEN barY% = 0
+    IF barY% > 14 THEN barY% = 14
+    LAYERS_set_opacity layerIdx%, 255 - INT((barY% / 14.0) * 255)
 END SUB
 
 
@@ -1963,12 +1964,12 @@ SUB LAYER_PANEL_handle_wheel (rawX AS INTEGER, rawY AS INTEGER, delta AS INTEGER
     listTop% = HEADER_HEIGHT
     listBottom% = panelH% - BUTTON_AREA_HEIGHT
     
-    ' Opacity bar is on the right side of each row (only when panel wide enough)
-    opacityBarW% = 30
-    opacityBarX% = panelW% - opacityBarW% - 14
+    ' Vertical opacity bar is at panelW%-15 to panelW%-13 on right side of each row
+    opacityBarX% = panelW% - 15
+    opacityBarW% = 3
     
-    ' Check if mouse is over an opacity bar area (skip when panel too narrow)
-    IF panelW% >= 80 AND rawX% >= opacityBarX% AND rawX% <= panelW% - 10 THEN
+    ' Check if mouse is over a vertical opacity bar area (skip when panel too narrow)
+    IF panelW% >= 80 AND rawX% >= panelW% - 17 AND rawX% <= panelW% - 11 THEN
         ' Find which layer row the mouse is over
         rowY% = listTop%
         FOR z% = LAYER_COUNT% TO 1 STEP -1
@@ -1984,8 +1985,8 @@ SUB LAYER_PANEL_handle_wheel (rawX AS INTEGER, rawY AS INTEGER, delta AS INTEGER
                 DIM drawY AS INTEGER
                 drawY% = rowY% - LAYER_PANEL.scrollOffset%
                 
-                ' Check if mouse Y is within this row's opacity bar area (Y+14 to Y+17)
-                IF rawY% >= drawY% + 12 AND rawY% <= drawY% + 19 THEN
+                ' Check if mouse Y is within this row's vertical opacity bar (drawY%+2 to drawY%+16)
+                IF rawY% >= drawY% + 2 AND rawY% <= drawY% + 16 THEN
                     IF drawY% >= listTop% AND drawY% + LAYER_ROW_HEIGHT <= listBottom% THEN
                         ' Adjust opacity - wheel up (negative delta) = more opaque
                         DIM newOpacity AS INTEGER
@@ -2901,4 +2902,161 @@ SUB LAYER_blend_composite (dst AS LONG, src AS LONG, blendMode AS INTEGER, opaci
 
     _MEMFREE srcMem
     _MEMFREE dstMem
+END SUB
+
+''
+' Show blend mode popup for a layer, anchored near (x, y) on screen.
+'
+SUB LAYER_PANEL_blend_popup_show (layerIdx AS INTEGER, x AS INTEGER, y AS INTEGER)
+    DIM popW AS INTEGER: popW% = 90
+    DIM BLEND_ITEM_H AS INTEGER: BLEND_ITEM_H = 10
+    ' Total rows: 1 (Normal) + 1 (divider) + 18 (other modes) = BLEND_MODE_COUNT + 1
+    DIM popH AS INTEGER: popH% = 4 + ((BLEND_MODE_COUNT + 1) * BLEND_ITEM_H)
+    DIM popX AS INTEGER: popX% = x%
+    DIM popY AS INTEGER: popY% = y%
+    IF popX% + popW% > SCRN.w& THEN popX% = SCRN.w& - popW%
+    IF popX% < 0 THEN popX% = 0
+    IF popY% + popH% > SCRN.h& THEN popY% = y% - popH%
+    IF popY% < 0 THEN popY% = 0
+    LAYER_PANEL.blendPopupOpen% = TRUE
+    LAYER_PANEL.blendPopupLayer% = layerIdx%
+    LAYER_PANEL.blendPopupX% = popX%
+    LAYER_PANEL.blendPopupY% = popY%
+    LAYER_PANEL.blendPopupHover% = -1
+END SUB
+
+''
+' Close blend mode popup.
+'
+SUB LAYER_PANEL_blend_popup_close ()
+    LAYER_PANEL.blendPopupOpen% = FALSE
+    LAYER_PANEL.blendPopupHover% = -1
+    GUI_NEEDS_REDRAW% = TRUE
+    FRAME_IDLE% = FALSE
+END SUB
+
+''
+' Render the blend mode popup to SCRN.GUI& (called from SCREEN_render after SkipToPointer).
+' Layout: Normal (row 0), divider (row 1), Multiply..Luminosity (rows 2-19).
+'
+SUB LAYER_PANEL_blend_popup_render ()
+    IF NOT LAYER_PANEL.blendPopupOpen% THEN EXIT SUB
+    DIM oldDest AS LONG: oldDest& = _DEST
+    DIM oldFont AS LONG: oldFont& = _FONT
+    _DEST SCRN.GUI&
+    IF LAYER_PANEL.fontHandle& > 0 THEN _FONT LAYER_PANEL.fontHandle&
+    DIM layerIdx AS INTEGER: layerIdx% = LAYER_PANEL.blendPopupLayer%
+    DIM currentMode AS INTEGER
+    IF layerIdx% >= 1 AND layerIdx% <= 64 THEN
+        currentMode% = LAYERS(layerIdx%).blendMode%
+    ELSE
+        currentMode% = BLEND_NORMAL
+    END IF
+    DIM popX AS INTEGER: popX% = LAYER_PANEL.blendPopupX%
+    DIM popY AS INTEGER: popY% = LAYER_PANEL.blendPopupY%
+    DIM BLEND_ITEM_H AS INTEGER: BLEND_ITEM_H = 10
+    DIM popW AS INTEGER: popW% = 90
+    DIM popH AS INTEGER: popH% = 4 + ((BLEND_MODE_COUNT + 1) * BLEND_ITEM_H)
+    ' Border
+    LINE (popX% - 1, popY% - 1)-(popX% + popW%, popY% + popH%), THEME.MENU_SUB_border~&, BF
+    ' Background
+    LINE (popX%, popY%)-(popX% + popW% - 1, popY% + popH% - 1), THEME.MENU_SUB_bg~&, BF
+    ' Items: row 0=Normal, row 1=divider, rows 2..BLEND_MODE_COUNT=modes 1..18
+    DIM itemRow AS INTEGER
+    DIM itemY AS INTEGER
+    DIM modeName AS STRING
+    DIM modeIdx AS INTEGER
+    FOR itemRow% = 0 TO BLEND_MODE_COUNT
+        itemY% = popY% + 2 + itemRow% * BLEND_ITEM_H
+        IF itemRow% = 1 THEN
+            ' Divider line
+            LINE (popX% + 2, itemY% + 2)-(popX% + popW% - 3, itemY% + 2), THEME.MENU_SUB_border~&
+        ELSE
+            IF itemRow% = 0 THEN
+                modeIdx% = BLEND_NORMAL
+            ELSE
+                modeIdx% = itemRow% - 1   ' rows 2..19 -> modes 1..18
+            END IF
+            modeName$ = BLEND_mode_name$(modeIdx%)
+            IF LAYER_PANEL.blendPopupHover% = itemRow% THEN
+                LINE (popX% + 1, itemY%)-(popX% + popW% - 2, itemY% + BLEND_ITEM_H - 1), THEME.MENU_SUB_sel_bg~&, BF
+                COLOR THEME.MENU_SUB_sel_fg~&, _RGBA32(0, 0, 0, 0)
+            ELSE
+                COLOR THEME.MENU_SUB_fg~&, _RGBA32(0, 0, 0, 0)
+            END IF
+            ' Checkmark for current blend mode
+            IF currentMode% = modeIdx% THEN
+                _PRINTSTRING (popX% + 3, itemY% + 2), CHR$(251)
+            END IF
+            _PRINTSTRING (popX% + 13, itemY% + 2), modeName$
+        END IF
+    NEXT itemRow%
+    _FONT oldFont&
+    _DEST oldDest&
+END SUB
+
+''
+' Hit-test the blend mode popup.
+' Returns: mode index 0-18 if a mode item was clicked,
+'          -1 if inside popup but on non-clickable area (divider, padding),
+'          -2 if outside popup.
+'
+FUNCTION LAYER_PANEL_blend_popup_hit% (rawX AS INTEGER, rawY AS INTEGER)
+    IF NOT LAYER_PANEL.blendPopupOpen% THEN
+        LAYER_PANEL_blend_popup_hit% = -2
+        EXIT FUNCTION
+    END IF
+    DIM popX AS INTEGER: popX% = LAYER_PANEL.blendPopupX%
+    DIM popY AS INTEGER: popY% = LAYER_PANEL.blendPopupY%
+    DIM BLEND_ITEM_H AS INTEGER: BLEND_ITEM_H = 10
+    DIM popW AS INTEGER: popW% = 90
+    DIM popH AS INTEGER: popH% = 4 + ((BLEND_MODE_COUNT + 1) * BLEND_ITEM_H)
+    IF rawX% < popX% OR rawX% >= popX% + popW% OR rawY% < popY% OR rawY% >= popY% + popH% THEN
+        LAYER_PANEL_blend_popup_hit% = -2
+        EXIT FUNCTION
+    END IF
+    DIM relY AS INTEGER: relY% = rawY% - popY% - 2
+    DIM itemRow AS INTEGER: itemRow% = relY% \ BLEND_ITEM_H
+    IF itemRow% < 0 OR itemRow% > BLEND_MODE_COUNT THEN
+        LAYER_PANEL_blend_popup_hit% = -1
+        EXIT FUNCTION
+    END IF
+    IF itemRow% = 1 THEN
+        LAYER_PANEL_blend_popup_hit% = -1
+        EXIT FUNCTION
+    END IF
+    IF itemRow% = 0 THEN
+        LAYER_PANEL_blend_popup_hit% = BLEND_NORMAL
+    ELSE
+        LAYER_PANEL_blend_popup_hit% = itemRow% - 1
+    END IF
+END FUNCTION
+
+''
+' Update blend popup hover state from current mouse position.
+' Called every frame from MOUSE_handle_layer_panel when popup is open.
+'
+SUB LAYER_PANEL_blend_popup_hover (rawX AS INTEGER, rawY AS INTEGER)
+    IF NOT LAYER_PANEL.blendPopupOpen% THEN EXIT SUB
+    DIM popX AS INTEGER: popX% = LAYER_PANEL.blendPopupX%
+    DIM popY AS INTEGER: popY% = LAYER_PANEL.blendPopupY%
+    DIM BLEND_ITEM_H AS INTEGER: BLEND_ITEM_H = 10
+    DIM popW AS INTEGER: popW% = 90
+    DIM popH AS INTEGER: popH% = 4 + ((BLEND_MODE_COUNT + 1) * BLEND_ITEM_H)
+    DIM prevHover AS INTEGER: prevHover% = LAYER_PANEL.blendPopupHover%
+    IF rawX% < popX% OR rawX% >= popX% + popW% OR rawY% < popY% OR rawY% >= popY% + popH% THEN
+        LAYER_PANEL.blendPopupHover% = -1
+    ELSE
+        DIM relY AS INTEGER: relY% = rawY% - popY% - 2
+        DIM itemRow AS INTEGER: itemRow% = relY% \ BLEND_ITEM_H
+        IF itemRow% = 1 THEN
+            LAYER_PANEL.blendPopupHover% = -1
+        ELSE
+            LAYER_PANEL.blendPopupHover% = itemRow%
+        END IF
+    END IF
+    IF LAYER_PANEL.blendPopupHover% <> prevHover% THEN
+        GUI_NEEDS_REDRAW% = TRUE
+        FRAME_IDLE% = FALSE
+    END IF
 END SUB

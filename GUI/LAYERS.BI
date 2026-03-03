@@ -95,6 +95,14 @@ TYPE LAYER_PANEL_OBJ
     ' Scrollbar drag state
     scrollDragging    AS INTEGER    ' TRUE while dragging the scroll thumb
     scrollDragOffset  AS INTEGER    ' Y offset from thumb top where drag started
+    ' Blend mode popup state
+    blendPopupOpen    AS INTEGER    ' TRUE while blend popup is showing
+    blendPopupLayer   AS INTEGER    ' Layer index popup is for
+    blendPopupX       AS INTEGER    ' Popup screen X (top-left)
+    blendPopupY       AS INTEGER    ' Popup screen Y (top-left)
+    blendPopupHover   AS INTEGER    ' Currently hovered item index (-1 = none, 0=Normal, 2..19=mode idx+1 for divider)
+    ' Opacity drag anchor
+    opacityDragRowY   AS INTEGER    ' Rendered Y (drawY%) of row top when vertical opacity drag started
 END TYPE
 
 ' Global layer state
@@ -130,7 +138,7 @@ DECLARE SUB LAYER_PANEL_render (canvasHeight AS INTEGER)
 DECLARE FUNCTION LAYER_PANEL_in_bounds% (rawX AS INTEGER, rawY AS INTEGER)
 DECLARE FUNCTION LAYER_PANEL_handle_click% (rawX AS INTEGER, rawY AS INTEGER, button AS INTEGER)
 DECLARE SUB LAYER_PANEL_handle_wheel (rawX AS INTEGER, rawY AS INTEGER, delta AS INTEGER)
-DECLARE SUB LAYER_PANEL_handle_opacity_drag (rawX AS INTEGER)
+DECLARE SUB LAYER_PANEL_handle_opacity_drag (rawX AS INTEGER, rawY AS INTEGER)
 DECLARE SUB LAYER_PANEL_handle_drag (rawX AS INTEGER, rawY AS INTEGER)
 DECLARE SUB LAYER_PANEL_handle_drop ()
 DECLARE SUB LAYER_PANEL_drag_cancel ()
@@ -143,6 +151,13 @@ DECLARE SUB LAYER_PANEL_load_icons ()
 DECLARE SUB LAYER_PANEL_cleanup_icons ()
 DECLARE SUB LAYER_select_non_transparent (layerIdx AS INTEGER)
 DECLARE SUB LAYER_PANEL_scroll_to_layer (layerIdx AS INTEGER)
+
+' Blend mode popup
+DECLARE SUB LAYER_PANEL_blend_popup_show (layerIdx AS INTEGER, x AS INTEGER, y AS INTEGER)
+DECLARE SUB LAYER_PANEL_blend_popup_close ()
+DECLARE SUB LAYER_PANEL_blend_popup_render ()
+DECLARE FUNCTION LAYER_PANEL_blend_popup_hit% (rawX AS INTEGER, rawY AS INTEGER)
+DECLARE SUB LAYER_PANEL_blend_popup_hover (rawX AS INTEGER, rawY AS INTEGER)
 
 ' Blend mode functions
 DECLARE FUNCTION BLEND_mode_name$ (mode AS INTEGER)
