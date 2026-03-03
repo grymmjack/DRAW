@@ -379,13 +379,20 @@ All audio settings are in the **Audio** menu (rightmost menu in the menu bar). S
 
 ### Music
 
-| Menu Item | Action |
-|-----------|--------|
-| **Music** ✓ | Toggle background music on/off |
-| **MUSIC VOL UP** | Increase music volume by 10% |
-| **MUSIC VOL DOWN** | Decrease music volume by 10% |
-| **MUSIC MUTE** ✓ | Mute/unmute music without stopping |
-| **EXPLORE MUSIC...** | Open the theme's `MUSIC/` folder in your file manager |
+| Menu Item | Hotkey | Action |
+|-----------|--------|--------|
+| **Music** ✓ | | Toggle background music on/off |
+| **MUSIC VOL UP** | | Increase music volume by 10% |
+| **MUSIC VOL DOWN** | | Decrease music volume by 10% |
+| **MUSIC MUTE** ✓ | | Mute/unmute music without stopping |
+| **RANDOM TRACK** ▶ | `*` | Play a random track from any format (submenu selects format) |
+| **RANDOM TRACK › .MOD** | | Play a random .MOD track |
+| **RANDOM TRACK › .IT** | | Play a random .IT track |
+| **RANDOM TRACK › .XM** | | Play a random .XM track |
+| **RANDOM TRACK › .RAD** | | Play a random .RAD track |
+| **NEXT TRACK** | `}` | Skip to the next random track |
+| **PREV TRACK** | `{` | Return to the previously played track |
+| **EXPLORE MUSIC...** | | Open the theme's `MUSIC/` folder in your file manager |
 
 Background music plays random tracks from `ASSETS/THEMES/DEFAULT/MUSIC/` and auto-shuffles when a track ends or music is toggled. The currently playing track is shown as **NOW: trackname** at the bottom of the Audio menu.
 
@@ -490,9 +497,16 @@ The Magic Wand (`W`) selects all contiguous pixels of the same color as the clic
 | Action | Function |
 |--------|----------|
 | **Left Click** | Select contiguous pixels matching clicked color |
-| **Shift + Click** | Add to existing selection (union) || **Alt + Click** | Subtract from existing selection |
+| **Shift + Click** | Add to existing selection (union) |
+| **Alt + Click** | Subtract from existing selection |
+| **Hold `E` + Click** | **Flood erase** — erases contiguous same-color pixels to transparent (no selection step needed) |
+| **Hold `F` + Click** | **Flood fill** — fills contiguous same-color pixels with FG color (no selection step needed) |
+| **Hold `W` + Click** | Select from **merged** canvas (all visible layers used as color source) |
+
 **Magic Wand Features:**
 - Selects all connected pixels of the same color (flood-fill style)
+- **Flood Fill** (hold `F` + click): fills contiguous pixels with FG color directly without making a selection
+- **Flood Erase** (hold `E` + click): erases contiguous pixels to transparent directly without making a selection
 - Visual marching ants outline shows the selection boundary
 - Works with `Ctrl+E` to clear selected pixels to transparent
 - Selection persists when switching tools (acts as clipping mask)
@@ -917,6 +931,43 @@ The crop tool lets you trim the canvas to a selected region. It uses the **Marqu
 - Crop resets zoom/pan to fit the new canvas size
 - All layers are cropped to the selected region simultaneously
 
+## Image Adjustments
+
+Access non-destructive image adjustment operations via the **Image** menu in the menu bar. All adjustments operate on the **current layer** and support **live preview** while the dialog is open. Adjustments that preserve transparency keep the alpha channel of non-opaque pixels intact.
+
+### Adjustment Dialogs
+
+| Menu Item | Function |
+|-----------|----------|
+| **Brightness/Contrast...** | Adjust overall brightness and contrast levels |
+| **Hue/Saturation...** | Shift hue, adjust saturation and lightness |
+| **Levels...** | Set black point, white point, and midtone (gamma) |
+| **Color Balance...** | Shift RGB channel balance (Shadows/Midtones/Highlights) |
+| **Blur...** | Apply Gaussian blur with adjustable radius |
+| **Sharpen...** | Apply sharpening with adjustable intensity |
+
+### One-Shot Adjustments
+
+| Menu Item | Function |
+|-----------|---------|
+| **Invert** | Invert all RGB channels (negative effect), preserves alpha |
+| **Desaturate** | Convert to grayscale using luminosity weighting, preserves alpha |
+| **Posterize...** | Reduce color depth to N levels per channel |
+| **Pixelate...** | Apply block pixelation effect with adjustable cell size |
+
+### Dialog Controls
+
+All adjustment dialogs share common controls:
+
+| Control | Function |
+|---------|----------|
+| **Sliders** | Drag to adjust values — live preview updates the canvas |
+| **Mouse Wheel on slider** | Fine-tune slider value with the scroll wheel |
+| **OK / Enter** | Apply adjustment and close dialog |
+| **Cancel / Escape** | Cancel — canvas reverts to original state |
+
+Adjustments preserve the original alpha channel of each pixel — transparent and semi-transparent areas remain unchanged. Each applied adjustment saves an undo state (Ctrl+Z to revert).
+
 ## Menu Bar
 
 DRAW has an optional menu bar at the top of the screen providing access to all commands organized by category.
@@ -952,7 +1003,9 @@ DRAW has an optional menu bar at the top of the screen providing access to all c
 | **Tools** | All drawing tools (Dot, Brush, Line, etc.) |
 | **Layer** | New, Duplicate, Delete, Merge Down, Merge All, **Merge Selected** *(requires 2+ selected)*, Arrange, Align, Distribute |
 | **Palette** | Color Picker, Load Palette, Swap Colors |
+| **Image** | Resize, Crop, Brightness/Contrast, Hue/Saturation, Levels, Color Balance, Blur, Sharpen, Invert, Desaturate, Posterize, Pixelate |
 | **Help** | Command Palette, Cheatsheet |
+| **Audio** | Sound FX toggle, Music toggle, SFX/Music volume up/down, SFX/Music mute, Explore Music, Now Playing |
 
 ## UI Behavior
 

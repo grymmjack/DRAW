@@ -304,6 +304,10 @@ SUB MENUBAR_register_all ()
     MENUBAR_register_item "MUSIC VOL DOWN",   "", 10, 423, FALSE, FALSE
     MENUBAR_register_item "MUSIC MUTE",       "", 10, 424, TRUE,  FALSE
     MENUBAR_register_item "---", "", 10, 0, FALSE, TRUE
+    MENUBAR_register_item "RANDOM TRACK",     CHR$(16), 10, 433, FALSE, FALSE
+    MENUBAR_register_item "NEXT TRACK",       "}", 10, 427, FALSE, FALSE
+    MENUBAR_register_item "PREV TRACK",       "{", 10, 428, FALSE, FALSE
+    MENUBAR_register_item "---", "", 10, 0, FALSE, TRUE
     MENUBAR_register_item "EXPLORE MUSIC...", "", 10, 425, FALSE, FALSE
     MENUBAR_register_item "---", "", 10, 0, FALSE, TRUE
     MENUBAR_register_item "NOT PLAYING",      "", 10, 426, FALSE, FALSE
@@ -535,6 +539,8 @@ SUB MENUBAR_update_checkboxes ()
                 MENU_ITEMS(i%).enabled% = CFG.MUSIC_ENABLED% AND (NOT CFG.MUSIC_MUTED%) AND (CFG.MUSIC_VOLUME% > 0)
                 MENU_ITEMS(i%).label$ = "MUSIC VOL DOWN (" + _TRIM$(STR$(CFG.MUSIC_VOLUME%)) + "%)"
             CASE 424 ' Music Mute
+                MENU_ITEMS(i%).enabled% = CFG.MUSIC_ENABLED%
+            CASE 427, 428, 433 ' Next Track, Prev Track, Random Track
                 MENU_ITEMS(i%).enabled% = CFG.MUSIC_ENABLED%
             CASE 425 ' Explore Music Folder
                 MENU_ITEMS(i%).enabled% = TRUE
@@ -854,6 +860,15 @@ SUB MENUBAR_render_submenu (rootIdx AS INTEGER)
             END IF
         END IF
 
+        ' Track RANDOM TRACK item position for submenu
+        IF MENU_ITEMS(i%).actionId% = 433 THEN
+            MENU_BAR.randomItemIdx% = childIdx%
+            MENU_BAR.randomY% = itemY%
+            IF childIdx% = MENU_BAR.hoverSub% AND MENU_ITEMS(i%).enabled% AND NOT MENU_BAR.kbActive% THEN
+                MENU_BAR.randomOpen% = TRUE
+            END IF
+        END IF
+
         virtualY% = virtualY% + MENU_ITEM_HEIGHT
         childIdx% = childIdx% + 1
 
@@ -872,6 +887,11 @@ SUB MENUBAR_render_submenu (rootIdx AS INTEGER)
     ' Render recent files submenu if open
     IF MENU_BAR.recentOpen% AND RECENT_FILE_COUNT% > 0 THEN
         MENUBAR_render_recent_submenu
+    END IF
+
+    ' Render random track submenu if open
+    IF MENU_BAR.randomOpen% THEN
+        MENUBAR_render_random_submenu
     END IF
 END SUB
 
@@ -954,6 +974,12 @@ SUB MENUBAR_handle_click (rawX AS INTEGER, rawY AS INTEGER)
         EXIT SUB
     END IF
 
+    ' Check if click is on the random track submenu
+    IF MENU_BAR.randomOpen% AND MENUBAR_random_in_bounds%(rawX%, rawY%) THEN
+        MENUBAR_handle_random_click rawX%, rawY%
+        EXIT SUB
+    END IF
+
     ' Check if click is on the open submenu
     IF MENU_BAR.openMenu% >= 0 AND MENUBAR_submenu_in_bounds%(rawX%, rawY%) THEN
         ' Handle scroll arrow clicks first
@@ -999,6 +1025,14 @@ SUB MENUBAR_handle_click (rawX AS INTEGER, rawY AS INTEGER)
                                 MENU_BAR.recentOpen% = NOT MENU_BAR.recentOpen%
                                 IF NOT MENU_BAR.recentOpen% THEN
                                     MENU_BAR.recentHover% = -1
+                                END IF
+                                GUI_NEEDS_REDRAW% = TRUE
+                                EXIT SUB
+                            END IF
+                            IF MENU_ITEMS(itemIdx%).actionId% = 433 THEN
+                                MENU_BAR.randomOpen% = NOT MENU_BAR.randomOpen%
+                                IF NOT MENU_BAR.randomOpen% THEN
+                                    MENU_BAR.randomHover% = -1
                                 END IF
                                 GUI_NEEDS_REDRAW% = TRUE
                                 EXIT SUB
@@ -1053,6 +1087,8 @@ SUB MENUBAR_handle_mouse_move (rawX AS INTEGER, rawY AS INTEGER)
     oldOverflowHover% = MENU_OVERFLOW_HOVER%
     DIM oldRecentHover AS INTEGER
     oldRecentHover% = MENU_BAR.recentHover%
+    DIM oldRandomHover AS INTEGER
+    oldRandomHover% = MENU_BAR.randomHover%
 
     ' Check if mouse is on the overflow popup
     IF MENU_OVERFLOW_OPEN% AND MENU_CHEVRON_ACTIVE% AND MENUBAR_overflow_in_bounds%(rawX%, rawY%) THEN
@@ -1115,6 +1151,25 @@ SUB MENUBAR_handle_mouse_move (rawX AS INTEGER, rawY AS INTEGER)
             MENUBAR_hover_skip_root:
         NEXT i%
         MENUBAR_hover_done:
+    ELSEIF MENU_BAR.openMenu% >= 0 AND MENUBAR_random_in_bounds%(rawX%, rawY%) THEN
+        ' Mouse is on the random track submenu - track hover there
+        DIM randItemY AS INTEGER
+        randItemY% = MENU_BAR.randomY% + 2
+        MENU_BAR.randomHover% = -1
+        DIM randIdx AS INTEGER
+        FOR randIdx% = 0 TO 3  ' 0=MOD, 1=IT, 2=XM, 3=RAD
+            IF rawY% >= randItemY% AND rawY% < randItemY% + MENU_ITEM_HEIGHT THEN
+                MENU_BAR.randomHover% = randIdx%
+                EXIT FOR
+            END IF
+            randItemY% = randItemY% + MENU_ITEM_HEIGHT
+        NEXT randIdx%
+        MENU_BAR.hoverSub% = MENU_BAR.randomItemIdx%
+        MENU_BAR.hoverRoot% = MENU_BAR.openMenu%
+        IF MENU_BAR.randomHover% <> oldRandomHover% THEN
+            SOUND_play SND_MENU_HOVER
+            GUI_NEEDS_REDRAW% = TRUE
+        END IF
     ELSEIF MENU_BAR.openMenu% >= 0 AND MENUBAR_recent_in_bounds%(rawX%, rawY%) THEN
         ' Mouse is on the recent files submenu - track hover there
         DIM recItemY AS INTEGER, recIdx AS INTEGER
@@ -1180,6 +1235,11 @@ SUB MENUBAR_handle_mouse_move (rawX AS INTEGER, rawY AS INTEGER)
                 MENU_BAR.recentOpen% = FALSE
                 MENU_BAR.recentHover% = -1
             END IF
+            ' Close random submenu if hover moved away from RANDOM TRACK item
+            IF MENU_BAR.randomOpen% AND MENU_BAR.hoverSub% <> MENU_BAR.randomItemIdx% THEN
+                MENU_BAR.randomOpen% = FALSE
+                MENU_BAR.randomHover% = -1
+            END IF
         END IF
     ELSE
         ' Mouse is outside all menu areas
@@ -1191,6 +1251,11 @@ SUB MENUBAR_handle_mouse_move (rawX AS INTEGER, rawY AS INTEGER)
         IF MENU_BAR.recentOpen% THEN
             MENU_BAR.recentOpen% = FALSE
             MENU_BAR.recentHover% = -1
+        END IF
+        ' Close random submenu when mouse leaves all areas
+        IF MENU_BAR.randomOpen% THEN
+            MENU_BAR.randomOpen% = FALSE
+            MENU_BAR.randomHover% = -1
         END IF
         ' Clear overflow hover when mouse leaves popup
         IF MENU_OVERFLOW_HOVER% >= 0 THEN
@@ -1204,7 +1269,7 @@ SUB MENUBAR_handle_mouse_move (rawX AS INTEGER, rawY AS INTEGER)
     IF MENU_BAR.hoverRoot% <> oldHoverRoot% THEN
         SOUND_play SND_MENU_OPEN
     ELSEIF MENU_BAR.hoverSub% <> oldHoverSub% OR MENU_OVERFLOW_HOVER% <> oldOverflowHover% THEN
-        IF MENU_BAR.hoverSub% = MENU_BAR.recentItemIdx% THEN
+        IF MENU_BAR.hoverSub% = MENU_BAR.recentItemIdx% OR MENU_BAR.hoverSub% = MENU_BAR.randomItemIdx% THEN
             SOUND_play SND_MENU_OPEN
         ELSE
             SOUND_play SND_MENU_HOVER
@@ -1228,6 +1293,8 @@ SUB MENUBAR_close_all ()
     MENU_BAR.stayOpen% = FALSE
     MENU_BAR.recentOpen% = FALSE
     MENU_BAR.recentHover% = -1
+    MENU_BAR.randomOpen% = FALSE
+    MENU_BAR.randomHover% = -1
     MENU_OVERFLOW_OPEN% = FALSE
     MENU_OVERFLOW_HOVER% = -1
     GUI_NEEDS_REDRAW% = TRUE
@@ -1478,6 +1545,56 @@ FUNCTION MENUBAR_handle_key% (k AS LONG)
         END SELECT
     END IF
 
+    ' --- Random Track submenu keyboard navigation ---
+    IF MENU_BAR.randomOpen% THEN
+        SELECT CASE k&
+            CASE 18432 ' Up arrow
+                IF MENU_BAR.randomHover% <= 0 THEN
+                    MENU_BAR.randomHover% = 3
+                ELSE
+                    MENU_BAR.randomHover% = MENU_BAR.randomHover% - 1
+                END IF
+                SOUND_play SND_MENU_HOVER
+                MENU_BAR.kbActive% = TRUE
+                GUI_NEEDS_REDRAW% = TRUE
+                MENUBAR_handle_key% = TRUE
+                EXIT FUNCTION
+
+            CASE 20480 ' Down arrow
+                IF MENU_BAR.randomHover% >= 3 THEN
+                    MENU_BAR.randomHover% = 0
+                ELSE
+                    MENU_BAR.randomHover% = MENU_BAR.randomHover% + 1
+                END IF
+                SOUND_play SND_MENU_HOVER
+                MENU_BAR.kbActive% = TRUE
+                GUI_NEEDS_REDRAW% = TRUE
+                MENUBAR_handle_key% = TRUE
+                EXIT FUNCTION
+
+            CASE 13 ' Enter
+                IF MENU_BAR.randomHover% >= 0 AND MENU_BAR.randomHover% <= 3 THEN
+                    MENUBAR_close_all
+                    SELECT CASE MENU_BAR.randomHover%
+                        CASE 0: CMD_execute_action 429  ' .MOD
+                        CASE 1: CMD_execute_action 430  ' .IT
+                        CASE 2: CMD_execute_action 431  ' .XM
+                        CASE 3: CMD_execute_action 432  ' .RAD
+                    END SELECT
+                END IF
+                MENUBAR_handle_key% = TRUE
+                EXIT FUNCTION
+
+            CASE 19200, 27 ' Left arrow or Escape - close random submenu
+                MENU_BAR.randomOpen% = FALSE
+                MENU_BAR.randomHover% = -1
+                MENU_BAR.kbActive% = TRUE
+                GUI_NEEDS_REDRAW% = TRUE
+                MENUBAR_handle_key% = TRUE
+                EXIT FUNCTION
+        END SELECT
+    END IF
+
     ' --- Main menu keyboard navigation ---
     SELECT CASE k&
         CASE 19200 ' Left arrow
@@ -1524,6 +1641,12 @@ FUNCTION MENUBAR_handle_key% (k AS LONG)
             IF MENU_BAR.hoverSub% = MENU_BAR.recentItemIdx% AND RECENT_FILE_COUNT% > 0 THEN
                 MENU_BAR.recentOpen% = TRUE
                 MENU_BAR.recentHover% = 0
+                MENU_BAR.kbActive% = TRUE
+                GUI_NEEDS_REDRAW% = TRUE
+                MENUBAR_handle_key% = TRUE
+            ELSEIF MENU_BAR.hoverSub% = MENU_BAR.randomItemIdx% THEN
+                MENU_BAR.randomOpen% = TRUE
+                MENU_BAR.randomHover% = 0
                 MENU_BAR.kbActive% = TRUE
                 GUI_NEEDS_REDRAW% = TRUE
                 MENUBAR_handle_key% = TRUE
@@ -1675,7 +1798,7 @@ SUB MENUBAR_navigate_submenu (direction AS INTEGER)
     LOOP
 
     MENU_BAR.hoverSub% = newPos%
-    IF MENU_BAR.hoverSub% = MENU_BAR.recentItemIdx% THEN
+    IF MENU_BAR.hoverSub% = MENU_BAR.recentItemIdx% OR MENU_BAR.hoverSub% = MENU_BAR.randomItemIdx% THEN
         SOUND_play SND_MENU_OPEN
     ELSE
         SOUND_play SND_MENU_HOVER
@@ -2158,3 +2281,116 @@ SUB MENUBAR_handle_overflow_click (rawX AS INTEGER, rawY AS INTEGER)
         ovIdx% = ovIdx% + 1
     NEXT i%
 END SUB
+
+''
+' Render the Random Track cascading submenu (4 format options)
+'
+SUB MENUBAR_render_random_submenu ()
+    DIM randBg  AS _UNSIGNED LONG
+    DIM randFg  AS _UNSIGNED LONG
+    DIM randBrd AS _UNSIGNED LONG
+    DIM randSBg AS _UNSIGNED LONG
+    DIM randSFg AS _UNSIGNED LONG
+    DIM randItemY AS INTEGER
+    DIM randTotalH AS INTEGER
+    DIM randMaxW AS INTEGER, randFw AS INTEGER
+    DIM randI AS INTEGER
+
+    ' Label strings for the 4 format items (indices 0-3)
+    DIM randLabels(0 TO 3) AS STRING
+    randLabels(0) = ".MOD"
+    randLabels(1) = ".IT"
+    randLabels(2) = ".XM"
+    randLabels(3) = ".RAD"
+
+    randBg~&  = THEME.MENU_SUB_bg~&
+    randFg~&  = THEME.MENU_SUB_fg~&
+    randBrd~& = THEME.MENU_SUB_border~&
+    randSBg~& = THEME.MENU_SUB_sel_bg~&
+    randSFg~& = THEME.MENU_SUB_sel_fg~&
+
+    ' Measure width
+    randMaxW% = 0
+    FOR randI% = 0 TO 3
+        randFw% = _PRINTWIDTH(randLabels(randI%))
+        IF randFw% > randMaxW% THEN randMaxW% = randFw%
+    NEXT randI%
+    MENU_BAR.randomW% = MENU_SUB_PAD_LEFT + randMaxW% + MENU_SUB_PAD_RIGHT
+    IF MENU_BAR.randomW% < 80 THEN MENU_BAR.randomW% = 80
+
+    randTotalH% = 4 + (4 * MENU_ITEM_HEIGHT)
+    MENU_BAR.randomH% = randTotalH%
+
+    ' Position to the right of the main submenu, aligned with RANDOM TRACK item Y
+    MENU_BAR.randomX% = MENU_BAR.subX% + MENU_BAR.subW%
+    IF MENU_BAR.randomY% = 0 THEN MENU_BAR.randomY% = MENU_BAR.subY%
+
+    ' Clamp right edge to screen
+    IF MENU_BAR.randomX% + MENU_BAR.randomW% > SCRN.w& THEN
+        MENU_BAR.randomX% = MENU_BAR.subX% - MENU_BAR.randomW%
+        IF MENU_BAR.randomX% < 0 THEN MENU_BAR.randomX% = 0
+    END IF
+
+    ' Clamp bottom to screen
+    IF MENU_BAR.randomY% + MENU_BAR.randomH% > SCRN.h& THEN
+        MENU_BAR.randomY% = SCRN.h& - MENU_BAR.randomH%
+        IF MENU_BAR.randomY% < 0 THEN MENU_BAR.randomY% = 0
+    END IF
+
+    ' Draw border and background
+    LINE (MENU_BAR.randomX% - 1, MENU_BAR.randomY% - 1)-(MENU_BAR.randomX% + MENU_BAR.randomW%, MENU_BAR.randomY% + MENU_BAR.randomH%), randBrd~&, BF
+    LINE (MENU_BAR.randomX%, MENU_BAR.randomY%)-(MENU_BAR.randomX% + MENU_BAR.randomW% - 1, MENU_BAR.randomY% + MENU_BAR.randomH% - 1), randBg~&, BF
+
+    ' Draw the 4 format items
+    randItemY% = MENU_BAR.randomY% + 2
+    FOR randI% = 0 TO 3
+        IF randI% = MENU_BAR.randomHover% THEN
+            LINE (MENU_BAR.randomX% + 1, randItemY%)-(MENU_BAR.randomX% + MENU_BAR.randomW% - 2, randItemY% + MENU_ITEM_HEIGHT - 1), randSBg~&, BF
+            COLOR randSFg~&, _RGBA32(0, 0, 0, 0)
+        ELSE
+            COLOR randFg~&, _RGBA32(0, 0, 0, 0)
+        END IF
+        _PRINTSTRING (MENU_BAR.randomX% + MENU_SUB_PAD_LEFT, randItemY% + 2), randLabels(randI%)
+        randItemY% = randItemY% + MENU_ITEM_HEIGHT
+    NEXT randI%
+END SUB
+
+
+''
+' Handle a click inside the random track submenu
+'
+SUB MENUBAR_handle_random_click (rawX AS INTEGER, rawY AS INTEGER)
+    IF NOT MENU_BAR.randomOpen% THEN EXIT SUB
+    IF NOT MENUBAR_random_in_bounds%(rawX%, rawY%) THEN EXIT SUB
+
+    ' Determine which format item was clicked (0=MOD, 1=IT, 2=XM, 3=RAD)
+    DIM rClickY AS INTEGER
+    rClickY% = MENU_BAR.randomY% + 2
+    DIM rIdx AS INTEGER
+    FOR rIdx% = 0 TO 3
+        IF rawY% >= rClickY% AND rawY% < rClickY% + MENU_ITEM_HEIGHT THEN
+            MENUBAR_close_all
+            SELECT CASE rIdx%
+                CASE 0: CMD_execute_action 429  ' .MOD
+                CASE 1: CMD_execute_action 430  ' .IT
+                CASE 2: CMD_execute_action 431  ' .XM
+                CASE 3: CMD_execute_action 432  ' .RAD
+            END SELECT
+            EXIT SUB
+        END IF
+        rClickY% = rClickY% + MENU_ITEM_HEIGHT
+    NEXT rIdx%
+END SUB
+
+
+''
+' Check if a point is within the random track submenu bounds
+'
+FUNCTION MENUBAR_random_in_bounds% (rawX AS INTEGER, rawY AS INTEGER)
+    IF NOT MENU_BAR.randomOpen% THEN
+        MENUBAR_random_in_bounds% = FALSE
+        EXIT FUNCTION
+    END IF
+    MENUBAR_random_in_bounds% = (rawX% >= MENU_BAR.randomX% AND rawX% < MENU_BAR.randomX% + MENU_BAR.randomW% _
+        AND rawY% >= MENU_BAR.randomY% AND rawY% < MENU_BAR.randomY% + MENU_BAR.randomH%)
+END FUNCTION

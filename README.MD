@@ -14,7 +14,7 @@ DATA "::::::::", "::    ::", "::    ::", "::::  ::::", "  ::  ::  "
 
 DRAW is a pixel art editor written in QB64PE that can export images as sourcecode
 
-![DRAW GUI from v0.14.0](./GUI.png)
+![DRAW GUI from v0.15.0](./GUI.png)
 
 ## Features
 
@@ -29,7 +29,7 @@ DRAW is a pixel art editor written in QB64PE that can export images as sourcecod
 - **Spray** - Spray paint with brush-shaped nozzle tips, radius doubles per brush size level, custom brush stamp support, SHIFT axis constraint, circle preview
 - **Picker** - Color sampling/eyedropper (hold ALT with any tool for temporary picker; ALT+left picks FG, ALT+right picks BG)
 - **Marquee** - Selection tools: Rectangle, Freehand, Polygon, Ellipse — each with a distinct crosshair cursor
-- **Magic Wand** - Select contiguous same-color pixels with dedicated crosshair cursor
+- **Magic Wand** - Select contiguous same-color pixels with dedicated crosshair cursor; **Hold `F`+click to flood fill** contiguous pixels with FG color; **Hold `E`+click to flood erase** to transparent; **Hold `W`+click to select from merged** (all visible layers)
 - **Move** - Transform and position selected content with arrow keys, undo support, and ALT+drag clone stamping
 - **Transform** - Universal flip H/V, rotate 90° CW/CCW, scale ±50% — works on layers, selections, or floating moves from any tool
 - **Pan** - Dedicated canvas panning tool (hand)
@@ -44,6 +44,7 @@ DRAW is a pixel art editor written in QB64PE that can export images as sourcecod
 - **Crop** - Interactive canvas crop using marquee selection with dark overlay, resize handles, and size label; also supports canvas resize dialog
 - **Canvas Resize** - Resize canvas to arbitrary dimensions via dialog (Canvas menu), preserving layer content at origin
 - **Angle Snap** - Two modes: degree-based (configurable 15°/30°/45°/90° increments) and pixel-art (11 integer-ratio angles for clean pixel lines). Hold Ctrl+Shift to snap + bypass grid. Applies to Line, Polygon, and Brush/Dot connecting lines
+- **Image Adjustments** - Non-destructive per-layer adjustments via the Image menu: Brightness/Contrast, Hue/Saturation, Levels, Color Balance, Blur, Sharpen, Invert, Desaturate, Posterize, Pixelate — all with **live preview** and **mouse wheel slider** support; alpha channel preserved throughout
 
 ### Grid System
 - Adjustable grid overlay (2-50px spacing)
@@ -112,7 +113,7 @@ DRAW is a pixel art editor written in QB64PE that can export images as sourcecod
 - SFX enable/disable, volume (0–100%), and mute configurable independently in `DRAW.cfg`
 
 ### Music System
-- **Background music** — plays random tracker files (`.mod`, `.xm`, `.it`, `.s3m`) from `ASSETS/THEMES/DEFAULT/MUSIC/`
+- **Background music** — plays random tracker files (`.mod`, `.xm`, `.it`, `.s3m`, `.rad`) from `ASSETS/THEMES/DEFAULT/MUSIC/`
 - **Auto-shuffle** — picks a new random track when the current one ends; avoids repeating the last track
 - **Dedicated AUDIO root menu** (rightmost in the menu bar) — separate controls for SFX and music: toggle, volume up/down (±10%), mute toggle, **Explore Music Folder**, and live **NOW PLAYING** status
 - Music volume and mute are independent of SFX volume and mute

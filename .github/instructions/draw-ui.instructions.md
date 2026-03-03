@@ -8,7 +8,7 @@ applyTo: "**/MENUBAR.BM, **/COMMAND.BM, **/TOOLBAR.BM, **/TOOLBAR.BI, **/ORGANIZ
 
 ## Menu Bar (`GUI/MENUBAR.BI` / `GUI/MENUBAR.BM`, ~1382 lines)
 
-Root menus (indices 0–9): FILE(0), EDIT(1), VIEW(2), SELECT(3), TOOLS(4), BRUSH(5), LAYER(6), PALETTE(7), HELP(8), AUDIO(9)
+Root menus (indices 0–10): FILE(0), EDIT(1), VIEW(2), SELECT(3), TOOLS(4), BRUSH(5), LAYER(6), PALETTE(7), IMAGE(8), HELP(9), AUDIO(10)
 
 - **ALT tap toggle**: ALT pressed then released without other keys → toggle FILE menu
 - **Keyboard nav (`kbActive%`)**: Arrow keys navigate items. When `kbActive% = TRUE`, mouse hover is ignored until mouse actually moves.
@@ -29,7 +29,7 @@ Root menus (indices 0–9): FILE(0), EDIT(1), VIEW(2), SELECT(3), TOOLS(4), BRUS
 | 101–118   | Tools        | Brush, Dot, Fill, Picker, Line, Polygon, Rect, Ellipse, Marquee, Move, Text, MagicWand, Eraser |
 | 201–213   | File         | Open, Save, SaveAs, Export, ExportSelection, Import, New, Template, Revert, Recent, Exit |
 | 301–324   | Edit         | Undo, Redo, Copy, Cut, Paste, Clear, SelectAll, Fill FG/BG, Flip, Scale, Rotate, CopyToNewLayer, StrokeSelection |
-| 401–426   | View/Audio   | Toolbar, StatusBar, LayerPanel, MenuBar, Zoom, DisplayScale (408=Up/409=Down/416=Reset), SFX/Music controls |
+| 401–433   | View/Audio   | Toolbar, StatusBar, LayerPanel, MenuBar, Zoom, DisplayScale (408=Up/409=Down/416=Reset), SFX/Music controls (427=NextTrack, 428=PrevTrack, 429=RandomMOD, 430=RandomIT, 431=RandomXM, 432=RandomRAD, 433=RandomAny) |
 | 501–517   | Color        | Opacity presets (10–100%), Swap FG/BG |
 | 601–609   | Brush        | Size dec/inc, presets, preview, shape, pixel perfect |
 | 701–711   | Layer        | New, Delete, MoveUp/Down, MergeDown, MergeVisible, Duplicate, ArrangeTop/Bottom, ExportLayerPNG, MergeSelected |
@@ -42,6 +42,8 @@ Root menus (indices 0–9): FILE(0), EDIT(1), VIEW(2), SELECT(3), TOOLS(4), BRUS
 | 1501–1513 | Palette/Ref  | RefImage, Palette Import/Export/Random, Color Picker, Swap FG/BG |
 | 1601–1607 | Help         | About, CheatSheet, Manual, GitHub, Issues, Credits |
 | 1701–1704 | Tools (menu) | Zoom, Spray, CmdPalette, CodeExport |
+| 1801–1802 | Canvas       | Resize dialog (1801), Crop dialog (1802) |
+| 2001–2010 | Image Adj    | BrightnessContrast, HueSaturation, Levels, ColorBalance, Blur, Sharpen, Invert, Desaturate, Posterize, Pixelate |
 
 ### Command Palette
 

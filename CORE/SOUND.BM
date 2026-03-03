@@ -273,7 +273,7 @@ END SUB
 ' Scan the active theme MUSIC/ folder, pick a random audio file (avoiding
 ' repeating the last track when 2+ files exist), load it and start playback
 ' when CFG.MUSIC_ENABLED% is TRUE.
-' Supports .mod / .s3m / .xm / .it tracker formats (libxmp, no dependencies).
+' Supports .mod / .s3m / .xm / .it / .rad tracker formats (libxmp, no dependencies).
 ' Safe to call at any time; closes the previous handle first.
 '
 SUB MUSIC_play_random ()
@@ -308,6 +308,7 @@ SUB MUSIC_play_random ()
     DIM scanF AS STRING
     DIM scanExt3 AS STRING
     DIM scanExt4 AS STRING
+    MUSIC_PREV_FILE$ = MUSIC_CURRENT_FILE$
     prevFile$ = MUSIC_CURRENT_FILE$
     MUSIC_CURRENT_FILE$ = ""
     fileCount% = 0
@@ -321,7 +322,7 @@ SUB MUSIC_play_random ()
         IF scanF$ <> "" THEN
             scanExt3$ = LCASE$(RIGHT$(scanF$, 3))
             scanExt4$ = LCASE$(RIGHT$(scanF$, 4))
-            IF scanExt4$ = ".mod" OR scanExt4$ = ".s3m" OR scanExt3$ = ".xm" OR scanExt3$ = ".it" THEN
+            IF scanExt4$ = ".mod" OR scanExt4$ = ".s3m" OR scanExt3$ = ".xm" OR scanExt3$ = ".it" OR scanExt3$ = ".rad" THEN
                 musicFiles(fileCount%) = scanF$
                 fileCount% = fileCount% + 1
             END IF
@@ -360,4 +361,153 @@ SUB MUSIC_play_random ()
     IF CFG.MUSIC_MUTED% THEN musVol2! = 0.0 ELSE musVol2! = CFG.MUSIC_VOLUME% / 100.0
     _SNDVOL MUSIC_HANDLE, musVol2!
     IF CFG.MUSIC_ENABLED% THEN _SNDPLAY MUSIC_HANDLE
+END SUB
+
+
+''
+' Play a random track restricted to a specific file extension (e.g. ".mod", ".xm").
+' Shows a message box if no tracks of that extension are found.
+'
+SUB MUSIC_play_random_ext (ext AS STRING)
+    DIM musicDir AS STRING
+    musicDir$ = "./ASSETS/THEMES/" + CFG.THEME$ + "/MUSIC/"
+
+    ' Close current handle
+    IF MUSIC_HANDLE > 0 THEN
+        _SNDSTOP MUSIC_HANDLE
+        _SNDCLOSE MUSIC_HANDLE
+        MUSIC_HANDLE = 0
+    END IF
+
+    DIM tmpList AS STRING
+    tmpList$ = _CWD$ + "/draw_musiclist.tmp"
+    $IF WIN THEN
+        SHELL "dir /b " + CHR$(34) + musicDir$ + CHR$(34) + " > " + CHR$(34) + tmpList$ + CHR$(34) + " 2>nul"
+    $ELSE
+        SHELL "ls -1 " + CHR$(34) + musicDir$ + CHR$(34) + " > " + CHR$(34) + tmpList$ + CHR$(34) + " 2>/dev/null"
+    $END IF
+
+    IF NOT _FILEEXISTS(tmpList$) THEN
+        _LOGWARN "MUSIC_play_random_ext: could not scan " + musicDir$
+        EXIT SUB
+    END IF
+
+    DIM musicFiles(0 TO 99) AS STRING
+    DIM fileCount AS INTEGER
+    DIM prevFileE AS STRING
+    DIM scanFE AS STRING
+    prevFileE$ = MUSIC_CURRENT_FILE$
+    MUSIC_PREV_FILE$ = MUSIC_CURRENT_FILE$
+    MUSIC_CURRENT_FILE$ = ""
+    fileCount% = 0
+
+    DIM lfE AS INTEGER
+    lfE% = FREEFILE
+    OPEN tmpList$ FOR INPUT AS #lfE%
+    WHILE NOT EOF(lfE%) AND fileCount% < 100
+        LINE INPUT #lfE%, scanFE$
+        scanFE$ = _TRIM$(scanFE$)
+        IF scanFE$ <> "" THEN
+            IF LCASE$(RIGHT$(scanFE$, LEN(ext$))) = LCASE$(ext$) THEN
+                musicFiles(fileCount%) = scanFE$
+                fileCount% = fileCount% + 1
+            END IF
+        END IF
+    WEND
+    CLOSE #lfE%
+    KILL tmpList$
+
+    IF fileCount% = 0 THEN
+        _LOGWARN "MUSIC_play_random_ext: no " + ext$ + " files found in " + musicDir$
+        DIM noTracksMsg AS INTEGER
+        noTracksMsg% = _MESSAGEBOX("No Tracks Found", "No " + UCASE$(ext$) + " files found in:" + CHR$(10) + musicDir$, "ok", "info")
+        DO WHILE _MOUSEINPUT: LOOP
+        MOUSE_force_buttons_up
+        EXIT SUB
+    END IF
+
+    DIM pickE AS INTEGER
+    DIM pickTriesE AS INTEGER
+    pickE% = INT(RND * fileCount%)
+    pickTriesE% = 0
+    WHILE musicFiles(pickE%) = prevFileE$ AND fileCount% > 1 AND pickTriesE% < 10
+        pickE% = INT(RND * fileCount%)
+        pickTriesE% = pickTriesE% + 1
+    WEND
+
+    MUSIC_CURRENT_FILE$ = musicFiles(pickE%)
+
+    DIM mhE AS LONG
+    mhE& = _SNDOPEN(musicDir$ + MUSIC_CURRENT_FILE$)
+    IF mhE& <= 0 THEN
+        _LOGWARN "MUSIC_play_random_ext: failed to load " + MUSIC_CURRENT_FILE$
+        MUSIC_CURRENT_FILE$ = ""
+        EXIT SUB
+    END IF
+    MUSIC_HANDLE = mhE&
+    DIM musVolE AS SINGLE
+    IF CFG.MUSIC_MUTED% THEN musVolE! = 0.0 ELSE musVolE! = CFG.MUSIC_VOLUME% / 100.0
+    _SNDVOL MUSIC_HANDLE, musVolE!
+    IF CFG.MUSIC_ENABLED% THEN _SNDPLAY MUSIC_HANDLE
+END SUB
+
+
+''
+' Advance to the next random track immediately.
+'
+SUB MUSIC_next_track ()
+    IF NOT CFG.MUSIC_ENABLED% THEN EXIT SUB
+    MUSIC_play_random
+END SUB
+
+
+''
+' Return to the previously played track, or pick a new random one if no
+' history is available.
+'
+SUB MUSIC_prev_track ()
+    IF NOT CFG.MUSIC_ENABLED% THEN EXIT SUB
+
+    DIM prevF AS STRING
+    prevF$ = MUSIC_PREV_FILE$
+    IF prevF$ = "" THEN
+        MUSIC_play_random
+        EXIT SUB
+    END IF
+
+    DIM musicDirP AS STRING
+    musicDirP$ = "./ASSETS/THEMES/" + CFG.THEME$ + "/MUSIC/"
+
+    IF NOT _FILEEXISTS(musicDirP$ + prevF$) THEN
+        MUSIC_play_random
+        EXIT SUB
+    END IF
+
+    ' Swap: new prev = current, new current = prev
+    DIM swapTmp AS STRING
+    swapTmp$ = MUSIC_CURRENT_FILE$
+
+    ' Close current handle
+    IF MUSIC_HANDLE > 0 THEN
+        _SNDSTOP MUSIC_HANDLE
+        _SNDCLOSE MUSIC_HANDLE
+        MUSIC_HANDLE = 0
+    END IF
+
+    MUSIC_PREV_FILE$ = swapTmp$
+    MUSIC_CURRENT_FILE$ = prevF$
+
+    DIM mhP AS LONG
+    mhP& = _SNDOPEN(musicDirP$ + MUSIC_CURRENT_FILE$)
+    IF mhP& <= 0 THEN
+        _LOGWARN "MUSIC_prev_track: failed to load " + MUSIC_CURRENT_FILE$
+        MUSIC_CURRENT_FILE$ = ""
+        MUSIC_play_random
+        EXIT SUB
+    END IF
+    MUSIC_HANDLE = mhP&
+    DIM musVolP AS SINGLE
+    IF CFG.MUSIC_MUTED% THEN musVolP! = 0.0 ELSE musVolP! = CFG.MUSIC_VOLUME% / 100.0
+    _SNDVOL MUSIC_HANDLE, musVolP!
+    _SNDPLAY MUSIC_HANDLE
 END SUB

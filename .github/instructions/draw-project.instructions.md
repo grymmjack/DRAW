@@ -24,7 +24,7 @@ applyTo: "**"
 1. `_COMMON.BI` — core types and globals
 2. **CORE**: PERF, ERROR, IMAGE
 3. **CFG**: CONFIG, CONFIG-THEME, CONFIG-KEYBOARD, CONFIG-MOUSE, CONFIG-STICK, BINDINGS-\*
-4. **GUI**: PALETTE, PALETTE-LOADER, PALETTE-STRIP, GUI, BRUSHES, CROSSHAIR, GRID, HELP, LAYERS, PALETTE-PICKER, PICKER, CURSOR, POINTER, STATUS, TOOLBAR, ORGANIZER, TRANSPARENCY, COMMAND, MENUBAR, STROKE-SEL
+4. **GUI**: PALETTE, PALETTE-LOADER, PALETTE-STRIP, GUI, BRUSHES, CROSSHAIR, GRID, HELP, LAYERS, PALETTE-PICKER, PICKER, CURSOR, POINTER, STATUS, TOOLBAR, ORGANIZER, TRANSPARENCY, COMMAND, MENUBAR, SCROLLBAR, DIALOG, IMGADJ, IMAGE-ADJ, STROKE-SEL
 5. **INPUT**: MODIFIERS, KEYBOARD, MOUSE, STICK, FILE-BMP, FILE-BLOAD, FILE-PAL, API-LOSPEC
 6. **OUTPUT**: SCREEN, FILE-BAS, FILE-BMP, FILE-BSAVE
 7. **QB64_GJ_LIB**: DICT, STRINGS, VECT2D
@@ -246,6 +246,7 @@ A frame is "idle" when no input, mouse movement, GUI changes, or active tool ope
 | `_COMMON.BM`              | Stroke system, title bar, paint helpers                             |
 | `DRAW.BAS`                | Main loop, application entry point                                  |
 | `GUI/GUI.BI`              | Tool constants (`TOOL_SELECT_*`, `TOOL_ERASER`), GUI context        |
+| `GUI/IMAGE-ADJ.BI/BM`     | Image adjustment dialogs (Brightness/Contrast, Hue/Sat, Levels, Blur, etc.) with live preview |
 | `GUI/COMMAND.BM`          | Central action dispatcher (all 200+ commands)                       |
 | `INPUT/MOUSE.BM`          | Mouse processing pipeline (~2590 lines)                             |
 | `INPUT/KEYBOARD.BM`       | Keyboard shortcuts and handler                                      |

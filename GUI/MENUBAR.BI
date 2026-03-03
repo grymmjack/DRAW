@@ -74,6 +74,14 @@ TYPE MENU_BAR_OBJ
     recentW     AS INTEGER         ' Recent submenu width
     recentH     AS INTEGER         ' Recent submenu height
     recentItemIdx AS INTEGER       ' Child index of "RECENT" item in parent dropdown
+    ' Random Track submenu state
+    randomOpen  AS INTEGER         ' TRUE when Random Track submenu is showing
+    randomHover AS INTEGER         ' Hovered item in Random submenu (-1 = none)
+    randomX     AS INTEGER         ' Random submenu X position
+    randomY     AS INTEGER         ' Random submenu Y position
+    randomW     AS INTEGER         ' Random submenu width
+    randomH     AS INTEGER         ' Random submenu height
+    randomItemIdx AS INTEGER       ' Child index of "RANDOM TRACK" item in parent dropdown
 END TYPE
 
 DIM SHARED MENU_BAR AS MENU_BAR_OBJ
