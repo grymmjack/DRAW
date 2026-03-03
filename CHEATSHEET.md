@@ -610,6 +610,7 @@ These also work on custom brushes when one is active (flip, rotate, scale).
 |-----|----------|
 | **Arrow Keys** | Move selection (1px) |
 | **Shift + Arrows** | Move selection (10px) |
+| **Shift + Click** | Select topmost non-transparent layer at cursor & begin move. Hold Shift and click (no drag needed) to identify which layer has pixels at that position — useful for discovering what's on top before moving. |
 | **Ctrl + Arrows** | Resize/scale selection (1px) |
 | **Ctrl+Shift + Arrows** | Resize/scale selection (10px) |
 | **Alt (hold)** | Clone mode (keeps original pixels) |

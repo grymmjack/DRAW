@@ -1,0 +1,580 @@
+''
+' DRAW - GUI/IMAGE-ADJ.BM
+' =============================================================================
+' IMAGE menu adjustments - modal dialogs and direct operations.
+' All operations apply permanently to the active layer and are undoable.
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+' Layout constants shared by all dialogs
+' Title bar: y=0..17, slider label at y=24+i*38, track at y=36+i*38 (h=14)
+' Divider and OK/Cancel buttons near bottom (computed per dialog)
+CONST IMGDLG_W     = 256     ' All dialogs are this wide
+CONST IMGDLG_SX    = 8       ' Slider track left edge
+CONST IMGDLG_SW    = 240     ' Slider track width
+CONST IMGDLG_OK_X  = 10      ' OK button X
+CONST IMGDLG_OK_W  = 108     ' OK button width
+CONST IMGDLG_CX_X  = 138     ' Cancel button X
+CONST IMGDLG_CX_W  = 108     ' Cancel button width
+CONST IMGDLG_BTN_H = 22      ' OK/Cancel button height
+
+
+''
+' Initialise image adjustment system. Call once at startup.
+'
+SUB IMAGE_ADJ_init ()
+    GJ_IMGADJ_Init
+END SUB
+
+
+''
+' Shared helper: blit adjResult& into the active layer's imgHandle&, then
+' release adjResult& and mark everything dirty.
+' Preserves _DEST context. Does nothing if adjResult& is invalid.
+'
+' @param adjResult LONG  New image handle returned by a GJ_IMGADJ_* call
+'
+SUB IMAGE_ADJ_apply_to_layer (adjResult AS LONG)
+    IF adjResult& < -1 THEN
+        DIM oldDest AS LONG : oldDest& = _DEST
+        _DEST LAYERS(CURRENT_LAYER%).imgHandle&
+        _DONTBLEND LAYERS(CURRENT_LAYER%).imgHandle&
+        CLS , _RGBA32(0, 0, 0, 0)
+        _PUTIMAGE , adjResult&
+        _BLEND LAYERS(CURRENT_LAYER%).imgHandle&
+        _DEST oldDest&
+        _FREEIMAGE adjResult&
+        LAYERS(CURRENT_LAYER%).contentDirty% = TRUE
+        BLEND_invalidate_cache
+        CANVAS_DIRTY% = TRUE
+        SCENE_DIRTY% = TRUE
+        GUI_NEEDS_REDRAW% = TRUE
+        FRAME_IDLE% = FALSE
+    END IF
+END SUB
+
+
+''
+' Guarded undo save: save only once per frame before a destructive operation.
+'
+SUB IMAGE_ADJ_save_undo ()
+    IF NOT UNDO_saved_this_frame% THEN
+        UNDO_save_state
+        UNDO_saved_this_frame% = TRUE
+    END IF
+END SUB
+
+
+''
+' Build an unsharp-mask sharpened copy of sourceImg.
+' Returns a new image handle (caller must _FREEIMAGE when done).
+'
+' @param sourceImg LONG   Source image handle
+' @param amt       INTEGER  Strength 1-10
+'
+FUNCTION IMAGE_ADJ_apply_sharpen& (sourceImg AS LONG, amt AS INTEGER)
+    DIM blurred AS LONG
+    blurred& = GJ_IMGADJ_Blur(sourceImg, 1)
+    IF blurred& < -1 THEN
+        DIM result AS LONG
+        result& = GJ_IMGADJ_CloneImage(sourceImg)
+        IF result& < -1 THEN
+            DIM mSrc AS _MEM, mBlur AS _MEM, mRes AS _MEM
+            mSrc = _MEMIMAGE(sourceImg)
+            mBlur = _MEMIMAGE(blurred&)
+            mRes = _MEMIMAGE(result&)
+
+            DIM totalPx AS LONG
+            totalPx& = _WIDTH(sourceImg) * _HEIGHT(sourceImg)
+
+            DIM i AS LONG
+            DIM px AS _UNSIGNED LONG, bpx AS _UNSIGNED LONG
+            DIM r AS INTEGER, g AS INTEGER, bl AS INTEGER, a AS INTEGER
+            DIM br AS INTEGER, bg2 AS INTEGER, bb2 AS INTEGER
+            DIM nr AS INTEGER, ng AS INTEGER, nb AS INTEGER
+
+            FOR i& = 0 TO totalPx& - 1
+                _MEMGET mSrc,  mSrc.OFFSET  + i& * 4, px~&
+                _MEMGET mBlur, mBlur.OFFSET + i& * 4, bpx~&
+
+                r  = _RED32(px~&)
+                g  = _GREEN32(px~&)
+                bl = _BLUE32(px~&)
+                a  = _ALPHA32(px~&)
+
+                br  = _RED32(bpx~&)
+                bg2 = _GREEN32(bpx~&)
+                bb2 = _BLUE32(bpx~&)
+
+                nr = r  + (r  - br)  * amt% \ 5
+                ng = g  + (g  - bg2) * amt% \ 5
+                nb = bl + (bl - bb2) * amt% \ 5
+
+                IF nr < 0   THEN nr = 0
+                IF nr > 255 THEN nr = 255
+                IF ng < 0   THEN ng = 0
+                IF ng > 255 THEN ng = 255
+                IF nb < 0   THEN nb = 0
+                IF nb > 255 THEN nb = 255
+
+                DIM outPx AS _UNSIGNED LONG
+                outPx~& = _RGBA32(nr, ng, nb, a)
+                _MEMPUT mRes, mRes.OFFSET + i& * 4, outPx~&
+            NEXT i&
+
+            _MEMFREE mSrc
+            _MEMFREE mBlur
+            _MEMFREE mRes
+        END IF
+        IF blurred& < -1 THEN _FREEIMAGE blurred&
+        IMAGE_ADJ_apply_sharpen& = result&
+    ELSE
+        IMAGE_ADJ_apply_sharpen& = GJ_IMGADJ_CloneImage(sourceImg)
+    END IF
+END FUNCTION
+
+
+''
+' Direct op — invert all pixel colors on active layer.
+'
+SUB IMAGE_ADJ_invert ()
+    IF CURRENT_LAYER% < 1 THEN EXIT SUB
+    IMAGE_ADJ_save_undo
+    DIM adjR AS LONG
+    adjR& = GJ_IMGADJ_Invert(LAYERS(CURRENT_LAYER%).imgHandle&)
+    IMAGE_ADJ_apply_to_layer adjR&
+END SUB
+
+
+''
+' Direct op — desaturate active layer (luminance method).
+'
+SUB IMAGE_ADJ_desaturate ()
+    IF CURRENT_LAYER% < 1 THEN EXIT SUB
+    IMAGE_ADJ_save_undo
+    DIM adjR AS LONG
+    adjR& = GJ_IMGADJ_Desaturate(LAYERS(CURRENT_LAYER%).imgHandle&, GJ_IMGADJ_DESATURATE_LUMINANCE)
+    IMAGE_ADJ_apply_to_layer adjR&
+END SUB
+
+
+' =============================================================================
+' SHARED DIALOG HELPERS (internal)
+' =============================================================================
+
+' Draw OK and Cancel at fixed bottom positions for a dialog of height h%
+SUB IMGDLG_draw_ok_cancel (ctx AS DIALOG_CTX)
+    DIM btnY AS INTEGER
+    btnY% = ctx.h - IMGDLG_BTN_H - 8
+    DIALOG_draw_button ctx, IMGDLG_OK_X, btnY%, IMGDLG_OK_W, IMGDLG_BTN_H, "OK", _RGB32(40, 100, 40), _RGB32(60, 150, 60), _RGB32(80, 200, 80)
+    DIALOG_draw_button ctx, IMGDLG_CX_X, btnY%, IMGDLG_CX_W, IMGDLG_BTN_H, "CANCEL", _RGB32(100, 40, 40), _RGB32(150, 60, 60), _RGB32(200, 80, 80)
+END SUB
+
+' Check OK/Cancel hit at bottom of dialog
+SUB IMGDLG_check_ok_cancel (ctx AS DIALOG_CTX)
+    DIM btnY AS INTEGER
+    btnY% = ctx.h - IMGDLG_BTN_H - 8
+    IF DIALOG_hit%(ctx, IMGDLG_OK_X, btnY%, IMGDLG_OK_W, IMGDLG_BTN_H) THEN
+        ctx.done% = TRUE : ctx.result% = TRUE
+    END IF
+    IF DIALOG_hit%(ctx, IMGDLG_CX_X, btnY%, IMGDLG_CX_W, IMGDLG_BTN_H) THEN
+        ctx.done% = TRUE : ctx.result% = FALSE
+    END IF
+END SUB
+
+' Slider Y positions for up to 4 sliders (0-based index)
+FUNCTION IMGDLG_label_y% (idx AS INTEGER)
+    IMGDLG_label_y% = 24 + idx * 38
+END FUNCTION
+
+FUNCTION IMGDLG_track_y% (idx AS INTEGER)
+    IMGDLG_track_y% = 36 + idx * 38
+END FUNCTION
+
+
+' =============================================================================
+' BRIGHTNESS / CONTRAST  (2 sliders, h=148)
+' =============================================================================
+SUB IMAGE_ADJ_brightness_contrast_dialog ()
+    IF CURRENT_LAYER% < 1 THEN EXIT SUB
+
+    DIM ctx AS DIALOG_CTX
+    DIALOG_init ctx, IMGDLG_W, 148
+
+    DIM brightness AS INTEGER, contrast AS INTEGER
+    brightness% = 0 : contrast% = 0
+
+    DIM k AS LONG
+    DO
+        DIALOG_poll_mouse ctx
+        k& = _KEYHIT
+        IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
+        IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
+
+        brightness% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(0), IMGDLG_SW, 14, brightness%, -100, 100)
+        contrast%   = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(1), IMGDLG_SW, 14, contrast%,   -100, 100)
+        IMGDLG_check_ok_cancel ctx
+
+        _DEST ctx.imgHandle
+        DIALOG_draw_frame ctx, "BRIGHTNESS / CONTRAST"
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(0), "BRIGHTNESS:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(0), IMGDLG_SW, brightness%, -100, 100, "", ""
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(1), "CONTRAST:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(1), IMGDLG_SW, contrast%,   -100, 100, "", ""
+        DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
+        IMGDLG_draw_ok_cancel ctx
+        DIALOG_blit ctx
+    LOOP UNTIL ctx.done%
+
+    IF ctx.result% THEN
+        IMAGE_ADJ_save_undo
+        DIM src AS LONG : src& = LAYERS(CURRENT_LAYER%).imgHandle&
+        DIM tmp AS LONG, adjR AS LONG
+        ' Apply brightness
+        IF brightness% > 0 THEN
+            tmp& = GJ_IMGADJ_Brightness(src&, "+", (brightness% * 255) \ 100)
+        ELSEIF brightness% < 0 THEN
+            tmp& = GJ_IMGADJ_Brightness(src&, "-", ((-brightness%) * 255) \ 100)
+        ELSE
+            tmp& = GJ_IMGADJ_CloneImage(src&)
+        END IF
+        ' Apply contrast to brightness result
+        IF contrast% > 0 THEN
+            adjR& = GJ_IMGADJ_Contrast(tmp&, "+", contrast%)
+        ELSEIF contrast% < 0 THEN
+            adjR& = GJ_IMGADJ_Contrast(tmp&, "-", -contrast%)
+        ELSE
+            adjR& = GJ_IMGADJ_CloneImage(tmp&)
+        END IF
+        IF tmp& < -1 AND tmp& <> src& THEN _FREEIMAGE tmp&
+        IMAGE_ADJ_apply_to_layer adjR&
+    END IF
+
+    DIALOG_cleanup ctx
+END SUB
+
+
+' =============================================================================
+' HUE / SATURATION  (2 sliders, h=148)
+' =============================================================================
+SUB IMAGE_ADJ_hue_saturation_dialog ()
+    IF CURRENT_LAYER% < 1 THEN EXIT SUB
+
+    DIM ctx AS DIALOG_CTX
+    DIALOG_init ctx, IMGDLG_W, 148
+
+    DIM hueShift AS INTEGER, satShift AS INTEGER
+    hueShift% = 0 : satShift% = 0
+
+    DIM k AS LONG
+    DO
+        DIALOG_poll_mouse ctx
+        k& = _KEYHIT
+        IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
+        IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
+
+        hueShift% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(0), IMGDLG_SW, 14, hueShift%, -180, 180)
+        satShift% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(1), IMGDLG_SW, 14, satShift%, -100, 100)
+        IMGDLG_check_ok_cancel ctx
+
+        _DEST ctx.imgHandle
+        DIALOG_draw_frame ctx, "HUE / SATURATION"
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(0), "HUE:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(0), IMGDLG_SW, hueShift%, -180, 180, "", CHR$(176)
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(1), "SATURATION:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(1), IMGDLG_SW, satShift%, -100, 100, "", ""
+        DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
+        IMGDLG_draw_ok_cancel ctx
+        DIALOG_blit ctx
+    LOOP UNTIL ctx.done%
+
+    IF ctx.result% THEN
+        IMAGE_ADJ_save_undo
+        DIM src AS LONG : src& = LAYERS(CURRENT_LAYER%).imgHandle&
+        DIM tmp AS LONG, adjR AS LONG
+        IF hueShift% > 0 THEN
+            tmp& = GJ_IMGADJ_Hue(src&, "+", hueShift%)
+        ELSEIF hueShift% < 0 THEN
+            tmp& = GJ_IMGADJ_Hue(src&, "-", -hueShift%)
+        ELSE
+            tmp& = GJ_IMGADJ_CloneImage(src&)
+        END IF
+        IF satShift% > 0 THEN
+            adjR& = GJ_IMGADJ_Saturation(tmp&, "+", satShift%)
+        ELSEIF satShift% < 0 THEN
+            adjR& = GJ_IMGADJ_Saturation(tmp&, "-", -satShift%)
+        ELSE
+            adjR& = GJ_IMGADJ_CloneImage(tmp&)
+        END IF
+        IF tmp& < -1 AND tmp& <> src& THEN _FREEIMAGE tmp&
+        IMAGE_ADJ_apply_to_layer adjR&
+    END IF
+
+    DIALOG_cleanup ctx
+END SUB
+
+
+' =============================================================================
+' LEVELS  (4 sliders, h=224)
+' =============================================================================
+SUB IMAGE_ADJ_levels_dialog ()
+    IF CURRENT_LAYER% < 1 THEN EXIT SUB
+
+    DIM ctx AS DIALOG_CTX
+    DIALOG_init ctx, IMGDLG_W, 224
+
+    DIM inMin AS INTEGER, inMax AS INTEGER
+    DIM outMin AS INTEGER, outMax AS INTEGER
+    inMin% = 0 : inMax% = 255 : outMin% = 0 : outMax% = 255
+
+    DIM k AS LONG
+    DO
+        DIALOG_poll_mouse ctx
+        k& = _KEYHIT
+        IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
+        IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
+
+        inMin%  = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(0), IMGDLG_SW, 14, inMin%,  0, 255)
+        inMax%  = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(1), IMGDLG_SW, 14, inMax%,  0, 255)
+        outMin% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(2), IMGDLG_SW, 14, outMin%, 0, 255)
+        outMax% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(3), IMGDLG_SW, 14, outMax%, 0, 255)
+        IMGDLG_check_ok_cancel ctx
+
+        _DEST ctx.imgHandle
+        DIALOG_draw_frame ctx, "LEVELS"
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(0), "INPUT MIN:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(0), IMGDLG_SW, inMin%,  0, 255, "", ""
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(1), "INPUT MAX:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(1), IMGDLG_SW, inMax%,  0, 255, "", ""
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(2), "OUTPUT MIN:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(2), IMGDLG_SW, outMin%, 0, 255, "", ""
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(3), "OUTPUT MAX:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(3), IMGDLG_SW, outMax%, 0, 255, "", ""
+        DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
+        IMGDLG_draw_ok_cancel ctx
+        DIALOG_blit ctx
+    LOOP UNTIL ctx.done%
+
+    IF ctx.result% THEN
+        IMAGE_ADJ_save_undo
+        DIM adjR AS LONG
+        adjR& = GJ_IMGADJ_Levels(LAYERS(CURRENT_LAYER%).imgHandle&, inMin%, inMax%, outMin%, outMax%)
+        IMAGE_ADJ_apply_to_layer adjR&
+    END IF
+
+    DIALOG_cleanup ctx
+END SUB
+
+
+' =============================================================================
+' COLOR BALANCE  (3 sliders, h=186)
+' =============================================================================
+SUB IMAGE_ADJ_color_balance_dialog ()
+    IF CURRENT_LAYER% < 1 THEN EXIT SUB
+
+    DIM ctx AS DIALOG_CTX
+    DIALOG_init ctx, IMGDLG_W, 186
+
+    DIM redShift AS INTEGER, greenShift AS INTEGER, blueShift AS INTEGER
+    redShift% = 0 : greenShift% = 0 : blueShift% = 0
+
+    DIM k AS LONG
+    DO
+        DIALOG_poll_mouse ctx
+        k& = _KEYHIT
+        IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
+        IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
+
+        redShift%   = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(0), IMGDLG_SW, 14, redShift%,   -255, 255)
+        greenShift% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(1), IMGDLG_SW, 14, greenShift%, -255, 255)
+        blueShift%  = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(2), IMGDLG_SW, 14, blueShift%,  -255, 255)
+        IMGDLG_check_ok_cancel ctx
+
+        _DEST ctx.imgHandle
+        DIALOG_draw_frame ctx, "COLOR BALANCE"
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(0), "RED:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(0), IMGDLG_SW, redShift%,   -255, 255, "", ""
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(1), "GREEN:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(1), IMGDLG_SW, greenShift%, -255, 255, "", ""
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(2), "BLUE:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(2), IMGDLG_SW, blueShift%,  -255, 255, "", ""
+        DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
+        IMGDLG_draw_ok_cancel ctx
+        DIALOG_blit ctx
+    LOOP UNTIL ctx.done%
+
+    IF ctx.result% THEN
+        IMAGE_ADJ_save_undo
+        DIM adjR AS LONG
+        adjR& = GJ_IMGADJ_ColorBalance(LAYERS(CURRENT_LAYER%).imgHandle&, redShift%, greenShift%, blueShift%)
+        IMAGE_ADJ_apply_to_layer adjR&
+    END IF
+
+    DIALOG_cleanup ctx
+END SUB
+
+
+' =============================================================================
+' BLUR  (1 slider, h=110)
+' =============================================================================
+SUB IMAGE_ADJ_blur_dialog ()
+    IF CURRENT_LAYER% < 1 THEN EXIT SUB
+
+    DIM ctx AS DIALOG_CTX
+    DIALOG_init ctx, IMGDLG_W, 110
+
+    DIM radius AS INTEGER : radius% = 3
+
+    DIM k AS LONG
+    DO
+        DIALOG_poll_mouse ctx
+        k& = _KEYHIT
+        IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
+        IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
+
+        radius% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(0), IMGDLG_SW, 14, radius%, 1, 20)
+        IMGDLG_check_ok_cancel ctx
+
+        _DEST ctx.imgHandle
+        DIALOG_draw_frame ctx, "BLUR"
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(0), "RADIUS:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(0), IMGDLG_SW, radius%, 1, 20, "", " px"
+        DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
+        IMGDLG_draw_ok_cancel ctx
+        DIALOG_blit ctx
+    LOOP UNTIL ctx.done%
+
+    IF ctx.result% THEN
+        IMAGE_ADJ_save_undo
+        DIM adjR AS LONG
+        adjR& = GJ_IMGADJ_Blur(LAYERS(CURRENT_LAYER%).imgHandle&, radius%)
+        IMAGE_ADJ_apply_to_layer adjR&
+    END IF
+
+    DIALOG_cleanup ctx
+END SUB
+
+
+' =============================================================================
+' SHARPEN  (1 slider, h=110)
+' =============================================================================
+SUB IMAGE_ADJ_sharpen_dialog ()
+    IF CURRENT_LAYER% < 1 THEN EXIT SUB
+
+    DIM ctx AS DIALOG_CTX
+    DIALOG_init ctx, IMGDLG_W, 110
+
+    DIM strength AS INTEGER : strength% = 3
+
+    DIM k AS LONG
+    DO
+        DIALOG_poll_mouse ctx
+        k& = _KEYHIT
+        IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
+        IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
+
+        strength% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(0), IMGDLG_SW, 14, strength%, 1, 10)
+        IMGDLG_check_ok_cancel ctx
+
+        _DEST ctx.imgHandle
+        DIALOG_draw_frame ctx, "SHARPEN"
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(0), "STRENGTH:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(0), IMGDLG_SW, strength%, 1, 10, "", ""
+        DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
+        IMGDLG_draw_ok_cancel ctx
+        DIALOG_blit ctx
+    LOOP UNTIL ctx.done%
+
+    IF ctx.result% THEN
+        IMAGE_ADJ_save_undo
+        DIM adjR AS LONG
+        adjR& = IMAGE_ADJ_apply_sharpen&(LAYERS(CURRENT_LAYER%).imgHandle&, strength%)
+        IMAGE_ADJ_apply_to_layer adjR&
+    END IF
+
+    DIALOG_cleanup ctx
+END SUB
+
+
+' =============================================================================
+' POSTERIZE  (1 slider, h=110)
+' =============================================================================
+SUB IMAGE_ADJ_posterize_dialog ()
+    IF CURRENT_LAYER% < 1 THEN EXIT SUB
+
+    DIM ctx AS DIALOG_CTX
+    DIALOG_init ctx, IMGDLG_W, 110
+
+    DIM levels AS INTEGER : levels% = 4
+
+    DIM k AS LONG
+    DO
+        DIALOG_poll_mouse ctx
+        k& = _KEYHIT
+        IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
+        IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
+
+        levels% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(0), IMGDLG_SW, 14, levels%, 2, 16)
+        IMGDLG_check_ok_cancel ctx
+
+        _DEST ctx.imgHandle
+        DIALOG_draw_frame ctx, "POSTERIZE"
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(0), "LEVELS:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(0), IMGDLG_SW, levels%, 2, 16, "", ""
+        DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
+        IMGDLG_draw_ok_cancel ctx
+        DIALOG_blit ctx
+    LOOP UNTIL ctx.done%
+
+    IF ctx.result% THEN
+        IMAGE_ADJ_save_undo
+        DIM adjR AS LONG
+        adjR& = GJ_IMGADJ_Posterize(LAYERS(CURRENT_LAYER%).imgHandle&, levels%)
+        IMAGE_ADJ_apply_to_layer adjR&
+    END IF
+
+    DIALOG_cleanup ctx
+END SUB
+
+
+' =============================================================================
+' PIXELATE  (1 slider, h=110)
+' =============================================================================
+SUB IMAGE_ADJ_pixelate_dialog ()
+    IF CURRENT_LAYER% < 1 THEN EXIT SUB
+
+    DIM ctx AS DIALOG_CTX
+    DIALOG_init ctx, IMGDLG_W, 110
+
+    DIM pixSize AS INTEGER : pixSize% = 4
+
+    DIM k AS LONG
+    DO
+        DIALOG_poll_mouse ctx
+        k& = _KEYHIT
+        IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
+        IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
+
+        pixSize% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(0), IMGDLG_SW, 14, pixSize%, 2, 32)
+        IMGDLG_check_ok_cancel ctx
+
+        _DEST ctx.imgHandle
+        DIALOG_draw_frame ctx, "PIXELATE"
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(0), "PIXEL SIZE:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(0), IMGDLG_SW, pixSize%, 2, 32, "", " px"
+        DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
+        IMGDLG_draw_ok_cancel ctx
+        DIALOG_blit ctx
+    LOOP UNTIL ctx.done%
+
+    IF ctx.result% THEN
+        IMAGE_ADJ_save_undo
+        DIM adjR AS LONG
+        adjR& = GJ_IMGADJ_Pixelate(LAYERS(CURRENT_LAYER%).imgHandle&, pixSize%)
+        IMAGE_ADJ_apply_to_layer adjR&
+    END IF
+
+    DIALOG_cleanup ctx
+END SUB

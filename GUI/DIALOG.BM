@@ -1,0 +1,255 @@
+''
+' DRAW - GUI/DIALOG.BM
+' =============================================================================
+' Shared modal dialog helpers - init/poll/draw/cleanup implementations.
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+''
+' Initialise a modal dialog: load font, allocate offscreen buffer, centre on
+' screen, save display scale, show mouse cursor.
+'
+' @param ctx  DIALOG_CTX  Context to initialise (caller allocates DIM ctx AS DIALOG_CTX)
+' @param w    INTEGER      Buffer width  (logical pixels)
+' @param h    INTEGER      Buffer height (logical pixels)
+'
+SUB DIALOG_init (ctx AS DIALOG_CTX, w AS INTEGER, h AS INTEGER)
+    ctx.w = w
+    ctx.h = h
+    ctx.scale = SCRN.displayScale%
+    IF ctx.scale < 1 THEN ctx.scale = 1
+
+    ctx.x = (SCRN.w& - ctx.w) \ 2
+    ctx.y = (SCRN.h& - ctx.h) \ 2
+
+    ctx.fontH = _LOADFONT(THEME_font_path$(THEME.GLOBAL_FONT_FILE$), 8, "DONTBLEND")
+    IF ctx.fontH < 1 THEN ctx.fontH = 16
+
+    ctx.imgHandle = _NEWIMAGE(ctx.w, ctx.h, 32)
+
+    ctx.mx = 0
+    ctx.my = 0
+    ctx.mb1 = FALSE
+    ctx.omb1 = FALSE
+    ctx.justClicked = FALSE
+    ctx.done = FALSE
+    ctx.result = FALSE
+
+    _MOUSESHOW
+END SUB
+
+
+''
+' Clean up dialog resources and flush mouse state.
+' Call once after LOOP UNTIL ctx.done.
+'
+' @param ctx  DIALOG_CTX  Context to clean up
+'
+SUB DIALOG_cleanup (ctx AS DIALOG_CTX)
+    IF ctx.imgHandle < -1 THEN
+        _DEST ctx.imgHandle
+        _FONT 16
+        _DEST 0
+        _FONT 16
+        _FREEIMAGE ctx.imgHandle
+        ctx.imgHandle = 0
+    END IF
+    IF ctx.fontH > 16 THEN
+        _FREEFONT ctx.fontH
+        ctx.fontH = 0
+    END IF
+    MOUSE_cleanup_after_dialog FALSE
+END SUB
+
+
+''
+' Poll mouse input, update dialog-relative coordinates and click transition.
+' Call once per frame at the START of the input phase.
+'
+' @param ctx  DIALOG_CTX  Context to update
+'
+SUB DIALOG_poll_mouse (ctx AS DIALOG_CTX)
+    ctx.omb1 = ctx.mb1
+    DO WHILE _MOUSEINPUT: LOOP
+    ctx.mx = (_MOUSEX \ ctx.scale) - ctx.x
+    ctx.my = (_MOUSEY \ ctx.scale) - ctx.y
+    ctx.mb1 = _MOUSEBUTTON(1)
+    ctx.justClicked = ctx.mb1 AND (NOT ctx.omb1)
+END SUB
+
+
+''
+' Hit-test: returns TRUE if this frame's justClicked landed inside the rect.
+'
+FUNCTION DIALOG_hit% (ctx AS DIALOG_CTX, bx AS INTEGER, by AS INTEGER, bw AS INTEGER, bh AS INTEGER)
+    IF ctx.justClicked THEN
+        IF ctx.mx >= bx AND ctx.mx <= bx + bw AND ctx.my >= by AND ctx.my <= by + bh THEN
+            DIALOG_hit% = TRUE
+            EXIT FUNCTION
+        END IF
+    END IF
+    DIALOG_hit% = FALSE
+END FUNCTION
+
+
+''
+' Slider drag: while mb1 is held over the track, returns updated value.
+' Returns current value unchanged if mouse is not held over track.
+'
+FUNCTION DIALOG_slider_drag% (ctx AS DIALOG_CTX, sx AS INTEGER, sy AS INTEGER, sw AS INTEGER, sh AS INTEGER, value AS INTEGER, minV AS INTEGER, maxV AS INTEGER)
+    DIM newVal AS INTEGER
+    newVal = value
+    IF ctx.mb1 THEN
+        IF ctx.my >= sy AND ctx.my <= sy + sh THEN
+            IF ctx.mx >= sx AND ctx.mx <= sx + sw THEN
+                DIM range AS INTEGER
+                range = maxV - minV
+                IF range > 0 THEN
+                    newVal = minV + (ctx.mx - sx) * range \ sw
+                    IF newVal < minV THEN newVal = minV
+                    IF newVal > maxV THEN newVal = maxV
+                END IF
+            END IF
+        END IF
+    END IF
+    DIALOG_slider_drag% = newVal
+END FUNCTION
+
+
+''
+' Draw the standard dialog chrome: gray background, double border, title bar.
+' Call _DEST ctx.imgHandle before this.
+'
+SUB DIALOG_draw_frame (ctx AS DIALOG_CTX, title AS STRING)
+    _DEST ctx.imgHandle
+    _PRINTMODE _KEEPBACKGROUND
+    CLS , _RGB32(72, 72, 72)
+    LINE (0, 0)-(ctx.w - 1, ctx.h - 1), _RGB32(160, 160, 160), B
+    LINE (1, 1)-(ctx.w - 2, ctx.h - 2), _RGB32(48, 48, 48), B
+
+    ' Title bar fill
+    LINE (1, 1)-(ctx.w - 2, 17), _RGB32(40, 40, 40), BF
+    _FONT ctx.fontH
+    COLOR _RGB32(255, 255, 255)
+    _PRINTSTRING ((ctx.w - _PRINTWIDTH(title)) \ 2, 5), title
+    LINE (1, 18)-(ctx.w - 2, 18), _RGB32(48, 48, 48)
+END SUB
+
+
+''
+' Draw a horizontal divider line.
+' Call after DIALOG_draw_frame has been done for this frame.
+'
+SUB DIALOG_draw_divider (ctx AS DIALOG_CTX, dy AS INTEGER)
+    LINE (1, dy)-(ctx.w - 2, dy), _RGB32(48, 48, 48)
+END SUB
+
+
+''
+' Draw a push-button with hover highlight.
+'
+' @param bx..bh        Button rect
+' @param label         Button label
+' @param colNormal     Normal background color
+' @param colHover      Hover background color
+' @param colBorder     Border color
+'
+SUB DIALOG_draw_button (ctx AS DIALOG_CTX, bx AS INTEGER, by AS INTEGER, bw AS INTEGER, bh AS INTEGER, label AS STRING, colNormal AS _UNSIGNED LONG, colHover AS _UNSIGNED LONG, colBorder AS _UNSIGNED LONG)
+    DIM bg AS _UNSIGNED LONG
+    IF ctx.mx >= bx AND ctx.mx <= bx + bw AND ctx.my >= by AND ctx.my <= by + bh THEN
+        bg~& = colHover~&
+    ELSE
+        bg~& = colNormal~&
+    END IF
+    LINE (bx, by)-(bx + bw, by + bh), bg~&, BF
+    LINE (bx, by)-(bx + bw, by + bh), colBorder~&, B
+    COLOR _RGB32(255, 255, 255)
+    _PRINTSTRING (bx + (bw - _PRINTWIDTH(label)) \ 2, by + (bh - 8) \ 2), label
+END SUB
+
+
+''
+' Draw a toggle (radio-style) button — blue when selected, gray otherwise.
+'
+SUB DIALOG_draw_toggle (ctx AS DIALOG_CTX, bx AS INTEGER, by AS INTEGER, bw AS INTEGER, bh AS INTEGER, label AS STRING, selected AS INTEGER)
+    DIM bg AS _UNSIGNED LONG, fg AS _UNSIGNED LONG, border AS _UNSIGNED LONG
+    IF selected THEN
+        bg~& = _RGB32(40, 80, 160)
+        fg~& = _RGB32(255, 255, 255)
+        border~& = _RGB32(100, 160, 255)
+    ELSE
+        bg~& = _RGB32(55, 55, 55)
+        fg~& = _RGB32(170, 170, 170)
+        border~& = _RGB32(90, 90, 90)
+    END IF
+    LINE (bx, by)-(bx + bw, by + bh), bg~&, BF
+    LINE (bx, by)-(bx + bw, by + bh), border~&, B
+    COLOR fg~&
+    _PRINTSTRING (bx + (bw - _PRINTWIDTH(label)) \ 2, by + (bh - 8) \ 2), label
+END SUB
+
+
+''
+' Draw a static label.
+'
+SUB DIALOG_draw_label (ctx AS DIALOG_CTX, lx AS INTEGER, ly AS INTEGER, label AS STRING)
+    COLOR _RGB32(200, 200, 200)
+    _PRINTSTRING (lx, ly), label
+END SUB
+
+
+''
+' Draw a horizontal slider with filled track and value display.
+'
+' @param sx..sw  Slider rect (sy is top of track, sh implied as 14px)
+' @param value   Current value
+' @param minV    Minimum value
+' @param maxV    Maximum value
+' @param label   Label drawn above-left of track
+' @param units   Units suffix appended to numeric value (e.g. " px")
+'
+SUB DIALOG_draw_slider (ctx AS DIALOG_CTX, sx AS INTEGER, sy AS INTEGER, sw AS INTEGER, value AS INTEGER, minV AS INTEGER, maxV AS INTEGER, label AS STRING, units AS STRING)
+    DIM sh AS INTEGER : sh = 14
+    DIM range AS INTEGER : range = maxV - minV
+    DIM fillW AS INTEGER
+
+    ' Track background
+    LINE (sx, sy)-(sx + sw, sy + sh), _RGB32(38, 38, 38), BF
+    LINE (sx, sy)-(sx + sw, sy + sh), _RGB32(90, 90, 90), B
+
+    ' Filled portion
+    IF range > 0 THEN
+        fillW = (value - minV) * sw \ range
+        IF fillW < 0 THEN fillW = 0
+        IF fillW > sw THEN fillW = sw
+        IF fillW > 0 THEN
+            LINE (sx, sy)-(sx + fillW, sy + sh), _RGB32(40, 100, 180), BF
+        END IF
+    END IF
+
+    ' Value text centered in track
+    DIM valStr AS STRING
+    valStr$ = _TRIM$(STR$(value)) + units
+    COLOR _RGB32(255, 255, 255)
+    _PRINTSTRING (sx + (sw - _PRINTWIDTH(valStr$)) \ 2, sy + 3), valStr$
+
+    ' Label above the track (if provided)
+    IF LEN(label) > 0 THEN
+        COLOR _RGB32(200, 200, 200)
+        _PRINTSTRING (sx, sy - 12), label
+    END IF
+END SUB
+
+
+''
+' Blit the completed dialog frame to the screen at the correct scaled position.
+' Also calls _DISPLAY and _LIMIT 60.
+'
+SUB DIALOG_blit (ctx AS DIALOG_CTX)
+    _DEST 0
+    _PUTIMAGE (ctx.x * ctx.scale, ctx.y * ctx.scale)-((ctx.x + ctx.w) * ctx.scale - 1, (ctx.y + ctx.h) * ctx.scale - 1), ctx.imgHandle
+    _DISPLAY
+    _LIMIT 60
+END SUB

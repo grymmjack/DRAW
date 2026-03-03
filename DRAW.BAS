@@ -108,6 +108,7 @@ osExitTrap% = _EXIT  ' Discard initial value; monitoring now active
 SOUND_init
 SOUND_play SND_NEW_FILE  ' Startup chime (silent when sounds are disabled)
 MUSIC_init               ' Initialise background music (plays if CFG.MUSIC_ENABLED)
+IMAGE_ADJ_init           ' Initialise image adjustment library (IMGADJ)
 
 ' Main Loop
 DIM k AS LONG
