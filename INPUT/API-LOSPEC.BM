@@ -1,9 +1,758 @@
 ''
 ' DRAW - INPUT/API-LOSPEC.BM
 ' =============================================================================
-' LOSPEC API subs and functions.
+' Lospec palette download dialog implementation.
 '
-' @todo
+' Uses curl (or wget as fallback) to query the Lospec API and download .GPL
+' files into ./USER/PALETTES/.  A downloads.json index is maintained there.
+'
+' Lospec API endpoints used:
+'   Search:  GET https://lospec.com/palette-list.json
+'              ?tag=&colorNumberFilterType=any&colorNumber=8&page=1
+'              &sortingType=downloads&tag=QUERY
+'   Download: GET https://lospec.com/palette-list/SLUG.gpl
+'
 ' @author Rick Christy <grymmjack@gmail.com>
 '
 $INCLUDEONCE
+
+
+''
+' Show the Lospec palette download dialog.
+' Allows searching for palettes, adding to a batch, and downloading.
+'
+SUB LOSPEC_show_dialog ()
+    DIM ctx AS DIALOG_CTX
+    DIALOG_init ctx, 380, 280
+
+    ' Reset state
+    LOSPEC_RESULT_COUNT% = 0
+    LOSPEC_BATCH_COUNT% = 0
+
+    DIM searchBuf AS STRING
+    DIM searchLen AS INTEGER
+    searchBuf$ = SPACE$(128)
+    searchLen% = 0
+
+    ' Layout constants
+    CONST LS_SEARCH_Y = 22
+    CONST LS_SEARCH_H = 14
+    CONST LS_LIST_Y   = 42
+    CONST LS_LIST_H   = 180   ' height of results area
+    CONST LS_ROW_H    = 14
+    CONST LS_BATCH_X  = 220
+    CONST LS_BTN_Y    = 254
+    CONST LS_BTN_H    = 18
+
+    ' Scrolling
+    DIM listScroll AS INTEGER
+    DIM batchScroll AS INTEGER
+    listScroll% = 0
+    batchScroll% = 0
+
+    DIM hovResult AS INTEGER
+    DIM hovBatch AS INTEGER
+    hovResult% = -1
+    hovBatch% = -1
+
+    DIM visRows AS INTEGER
+    visRows% = LS_LIST_H \ LS_ROW_H
+
+    DIM k AS LONG
+
+    DO
+        DIALOG_poll_mouse ctx
+
+        ' ---- Keyboard ----
+        k& = _KEYHIT
+        SELECT CASE k&
+            CASE 27 : ctx.done = TRUE : ctx.result = FALSE  ' Escape = close
+            CASE 13  ' Enter = search
+                IF searchLen% > 0 THEN
+                    LOSPEC_search LEFT$(searchBuf$, searchLen%)
+                    listScroll% = 0
+                    hovResult% = -1
+                END IF
+            CASE 8   ' Backspace
+                IF searchLen% > 0 THEN
+                    searchLen% = searchLen% - 1
+                    MID$(searchBuf$, searchLen% + 1, 1) = " "
+                END IF
+            CASE ELSE
+                IF k& >= 32 AND k& <= 126 AND searchLen% < 64 THEN
+                    MID$(searchBuf$, searchLen% + 1, 1) = CHR$(k&)
+                    searchLen% = searchLen% + 1
+                END IF
+        END SELECT
+
+        ' ---- Mouse wheel ----
+        IF ctx.mwheel <> 0 THEN
+            IF ctx.mx < LS_BATCH_X THEN
+                listScroll% = listScroll% + ctx.mwheel
+            ELSE
+                batchScroll% = batchScroll% + ctx.mwheel
+            END IF
+        END IF
+        IF listScroll% < 0 THEN listScroll% = 0
+        IF LOSPEC_RESULT_COUNT% - visRows% > 0 THEN
+            IF listScroll% > LOSPEC_RESULT_COUNT% - visRows% THEN
+                listScroll% = LOSPEC_RESULT_COUNT% - visRows%
+            END IF
+        ELSE
+            listScroll% = 0
+        END IF
+        IF batchScroll% < 0 THEN batchScroll% = 0
+        IF LOSPEC_BATCH_COUNT% - visRows% > 0 THEN
+            IF batchScroll% > LOSPEC_BATCH_COUNT% - visRows% THEN
+                batchScroll% = LOSPEC_BATCH_COUNT% - visRows%
+            END IF
+        ELSE
+            batchScroll% = 0
+        END IF
+
+        ' ---- Hover detection ----
+        hovResult% = -1
+        hovBatch% = -1
+        IF ctx.my >= LS_LIST_Y AND ctx.my < LS_LIST_Y + LS_LIST_H THEN
+            DIM rowIdx AS INTEGER
+            rowIdx% = (ctx.my - LS_LIST_Y) \ LS_ROW_H + listScroll%
+            IF ctx.mx < LS_BATCH_X THEN
+                IF rowIdx% >= 0 AND rowIdx% < LOSPEC_RESULT_COUNT% THEN
+                    hovResult% = rowIdx%
+                END IF
+            ELSE
+                rowIdx% = (ctx.my - LS_LIST_Y) \ LS_ROW_H + batchScroll%
+                IF rowIdx% >= 0 AND rowIdx% < LOSPEC_BATCH_COUNT% THEN
+                    hovBatch% = rowIdx%
+                END IF
+            END IF
+        END IF
+
+        ' ---- Click dispatch ----
+        IF ctx.justClicked THEN
+            ' Click in search bar: focus (no-op, always focused)
+            ' Click in results list -> Add to batch
+            IF ctx.my >= LS_LIST_Y AND ctx.my < LS_LIST_Y + LS_LIST_H AND ctx.mx < LS_BATCH_X THEN
+                IF hovResult% >= 0 AND hovResult% < LOSPEC_RESULT_COUNT% THEN
+                    LOSPEC_add_to_batch hovResult%
+                END IF
+            END IF
+            ' Click in batch list -> remove from batch (double-click or right-click not available, single removes)
+            IF ctx.my >= LS_LIST_Y AND ctx.my < LS_LIST_Y + LS_LIST_H AND ctx.mx >= LS_BATCH_X THEN
+                IF hovBatch% >= 0 AND hovBatch% < LOSPEC_BATCH_COUNT% THEN
+                    ' Remove from batch by shifting down
+                    DIM bi AS INTEGER
+                    FOR bi% = hovBatch% TO LOSPEC_BATCH_COUNT% - 2
+                        LOSPEC_BATCH(bi%) = LOSPEC_BATCH(bi% + 1)
+                    NEXT bi%
+                    LOSPEC_BATCH_COUNT% = LOSPEC_BATCH_COUNT% - 1
+                    IF LOSPEC_BATCH_COUNT% < 0 THEN LOSPEC_BATCH_COUNT% = 0
+                END IF
+            END IF
+        END IF
+
+        ' Button: SEARCH
+        IF DIALOG_hit%(ctx, 4, LS_SEARCH_Y - 2, 64, LS_SEARCH_H + 4) THEN
+            ' same as pressing Enter in search box when query exists
+            IF searchLen% > 0 THEN
+                LOSPEC_search LEFT$(searchBuf$, searchLen%)
+                listScroll% = 0
+                hovResult% = -1
+            END IF
+        END IF
+
+        ' Button: DOWNLOAD SELECTED (single item under cursor in results)
+        IF DIALOG_hit%(ctx, 4, LS_BTN_Y, 100, LS_BTN_H) THEN
+            IF hovResult% >= 0 AND hovResult% < LOSPEC_RESULT_COUNT% THEN
+                LOSPEC_download_single hovResult%
+                ' Reload user palettes
+                PALETTE_LOADER_COUNT% = 0
+                PALETTE_LOADER_scan_folder "./ASSETS/PALETTES"
+                PALETTE_LOADER_scan_user_folders
+                GUI_NEEDS_REDRAW% = TRUE
+            END IF
+        END IF
+
+        ' Button: DOWNLOAD BATCH
+        IF DIALOG_hit%(ctx, 110, LS_BTN_Y, 100, LS_BTN_H) THEN
+            IF LOSPEC_BATCH_COUNT% > 0 THEN
+                LOSPEC_download_batch
+                PALETTE_LOADER_COUNT% = 0
+                PALETTE_LOADER_scan_folder "./ASSETS/PALETTES"
+                PALETTE_LOADER_scan_user_folders
+                GUI_NEEDS_REDRAW% = TRUE
+                LOSPEC_BATCH_COUNT% = 0
+            END IF
+        END IF
+
+        ' Button: CLOSE
+        IF DIALOG_hit%(ctx, 220, LS_BTN_Y, 154, LS_BTN_H) THEN
+            ctx.done = TRUE : ctx.result = TRUE
+        END IF
+
+        ' ---- Draw ----
+        _DEST ctx.imgHandle
+        _FONT ctx.fontH
+        DIALOG_draw_frame ctx, "LOAD FROM LOSPEC"
+
+        ' Search area
+        DIALOG_draw_label ctx, 4, 14, "SEARCH:"
+        ' Search box
+        LINE (72, LS_SEARCH_Y - 2)-(ctx.w - 4, LS_SEARCH_Y + LS_SEARCH_H + 1), _RGB32(30, 30, 40), BF
+        LINE (72, LS_SEARCH_Y - 2)-(ctx.w - 4, LS_SEARCH_Y + LS_SEARCH_H + 1), _RGB32(90, 90, 120), B
+        _PRINTSTRING (74, LS_SEARCH_Y), LEFT$(searchBuf$, searchLen%)
+        IF searchLen% < 64 THEN
+            ' Blinking cursor
+            IF (TIMER * 2) MOD 2 < 1 THEN
+                DIM cursorX AS INTEGER
+                cursorX% = 74 + _PRINTWIDTH(LEFT$(searchBuf$, searchLen%), ctx.imgHandle)
+                LINE (cursorX%, LS_SEARCH_Y)-(cursorX%, LS_SEARCH_Y + 10), _RGB32(200, 200, 220)
+            END IF
+        END IF
+
+        ' Column headers
+        COLOR _RGB32(140, 180, 220)
+        _PRINTSTRING (4, LS_LIST_Y - 10), "RESULTS (click to add to batch)"
+        _PRINTSTRING (LS_BATCH_X, LS_LIST_Y - 10), "BATCH (click to remove)"
+        COLOR _RGB32(200, 200, 200)
+
+        ' Divider between columns
+        LINE (LS_BATCH_X - 2, LS_LIST_Y - 11)-(LS_BATCH_X - 2, LS_LIST_Y + LS_LIST_H), _RGB32(80, 80, 100)
+
+        ' Results list
+        DIM ri AS INTEGER
+        FOR ri% = 0 TO visRows% - 1
+            DIM rAbsIdx AS INTEGER
+            rAbsIdx% = ri% + listScroll%
+            IF rAbsIdx% >= LOSPEC_RESULT_COUNT% THEN EXIT FOR
+            DIM rY AS INTEGER
+            rY% = LS_LIST_Y + ri% * LS_ROW_H
+            IF rAbsIdx% = hovResult% THEN
+                LINE (4, rY%)-(LS_BATCH_X - 4, rY% + LS_ROW_H - 1), _RGB32(50, 70, 110), BF
+            END IF
+            DIM rLabel AS STRING
+            rLabel$ = RTRIM$(LOSPEC_RESULTS(rAbsIdx%).palName) + " (" + _TRIM$(STR$(LOSPEC_RESULTS(rAbsIdx%).numColors)) + ")"
+            IF LEN(rLabel$) > 26 THEN rLabel$ = LEFT$(rLabel$, 24) + ".."
+            _PRINTSTRING (6, rY% + 2), rLabel$
+        NEXT ri%
+
+        ' Batch list
+        DIM bri AS INTEGER
+        FOR bri% = 0 TO visRows% - 1
+            DIM brAbsIdx AS INTEGER
+            brAbsIdx% = bri% + batchScroll%
+            IF brAbsIdx% >= LOSPEC_BATCH_COUNT% THEN EXIT FOR
+            DIM brY AS INTEGER
+            brY% = LS_LIST_Y + bri% * LS_ROW_H
+            IF brAbsIdx% = hovBatch% THEN
+                LINE (LS_BATCH_X, brY%)-(ctx.w - 4, brY% + LS_ROW_H - 1), _RGB32(80, 50, 50), BF
+            END IF
+            DIM brLabel AS STRING
+            brLabel$ = RTRIM$(LOSPEC_BATCH(brAbsIdx%).palName)
+            IF LEN(brLabel$) > 20 THEN brLabel$ = LEFT$(brLabel$, 18) + ".."
+            _PRINTSTRING (LS_BATCH_X + 2, brY% + 2), brLabel$
+        NEXT bri%
+
+        ' Status counts
+        COLOR _RGB32(160, 160, 160)
+        _PRINTSTRING (4, LS_LIST_Y + LS_LIST_H + 2), _TRIM$(STR$(LOSPEC_RESULT_COUNT%)) + " results"
+        _PRINTSTRING (LS_BATCH_X, LS_LIST_Y + LS_LIST_H + 2), _TRIM$(STR$(LOSPEC_BATCH_COUNT%)) + " in batch"
+        COLOR _RGB32(200, 200, 200)
+
+        ' Buttons
+        DIALOG_draw_button ctx, 4,   LS_BTN_Y, 100, LS_BTN_H, "DOWNLOAD",       _RGB32(40,60,90),  _RGB32(60,90,130), _RGB32(100,130,180)
+        DIALOG_draw_button ctx, 110, LS_BTN_Y, 100, LS_BTN_H, "DOWNLOAD BATCH", _RGB32(40,60,90),  _RGB32(60,90,130), _RGB32(100,130,180)
+        DIALOG_draw_button ctx, 220, LS_BTN_Y, 154, LS_BTN_H, "CLOSE",          _RGB32(50,40,40),  _RGB32(80,60,60),  _RGB32(130,100,100)
+
+        DIALOG_blit ctx
+    LOOP UNTIL ctx.done
+
+    DIALOG_cleanup ctx
+END SUB
+
+
+''
+' Search Lospec for palettes matching the query string.
+' Results are stored in LOSPEC_RESULTS().
+'
+' @param STRING query - Search term
+'
+SUB LOSPEC_search (query AS STRING)
+    PALETTE_LOADER_ensure_user_dirs
+
+    DIM tmpJson AS STRING
+    tmpJson$ = "./USER/PALETTES/lospec_search.tmp"
+
+    ' Properly URL-encode the query for the API request
+    DIM encQuery AS STRING
+    encQuery$ = LOSPEC_urlencode$(query$)
+
+    DIM apiUrl AS STRING
+    apiUrl$ = "https://lospec.com/palette-list.json?tag=&colorNumberFilterType=any&colorNumber=8&page=1&sortingType=downloads&tag=" + encQuery$
+
+    ' Try curl, fallback to wget
+    $IF WIN THEN
+        SHELL "curl -s -m 10 -o " + CHR$(34) + tmpJson$ + CHR$(34) + " " + CHR$(34) + apiUrl$ + CHR$(34) + " 2>nul"
+    $ELSE
+        SHELL "curl -s -m 10 -o " + tmpJson$ + " " + CHR$(34) + apiUrl$ + CHR$(34) + " 2>/dev/null || wget -q -T 10 -O " + tmpJson$ + " " + CHR$(34) + apiUrl$ + CHR$(34) + " 2>/dev/null"
+    $END IF
+
+    LOSPEC_RESULT_COUNT% = 0
+
+    IF NOT _FILEEXISTS(tmpJson$) THEN
+        _LOGWARN "LOSPEC_search: no response from Lospec API"
+        EXIT SUB
+    END IF
+
+    ' Read JSON
+    DIM ff4 AS INTEGER
+    DIM jsonStr AS STRING
+    DIM jsonLine AS STRING
+    ff4% = FREEFILE
+    jsonStr$ = ""
+    OPEN tmpJson$ FOR INPUT AS #ff4%
+    DO WHILE NOT EOF(ff4%)
+        LINE INPUT #ff4%, jsonLine$
+        jsonStr$ = jsonStr$ + jsonLine$
+    LOOP
+    CLOSE #ff4%
+    KILL tmpJson$
+
+    DIM parsed AS INTEGER
+    parsed% = LOSPEC_parse_results%(jsonStr$)
+    _LOGINFO "LOSPEC_search: found " + _TRIM$(STR$(LOSPEC_RESULT_COUNT%)) + " palettes for query: " + query$
+END SUB
+
+
+''
+' Sanitize a Lospec palette slug for safe use in shell commands and file paths.
+' Lospec slugs are typically lowercase alphanumeric + hyphens.
+' Returns the slug with only alphanumeric, hyphen, and underscore characters kept.
+'
+' @param STRING slug - Raw slug string from Lospec API
+' @return STRING - Sanitized slug safe for file paths and shell use
+'
+FUNCTION LOSPEC_sanitize_slug$ (slug AS STRING)
+    DIM result AS STRING
+    DIM si2 AS INTEGER
+    DIM ch AS STRING
+    result$ = ""
+    FOR si2% = 1 TO LEN(slug$)
+        ch$ = MID$(slug$, si2%, 1)
+        IF (ch$ >= "a" AND ch$ <= "z") OR (ch$ >= "A" AND ch$ <= "Z") OR _
+           (ch$ >= "0" AND ch$ <= "9") OR ch$ = "-" OR ch$ = "_" THEN
+            result$ = result$ + ch$
+        END IF
+    NEXT si2%
+    LOSPEC_sanitize_slug$ = result$
+END FUNCTION
+
+
+''
+' Sanitize a palette name for use as a filesystem filename.
+' Removes characters unsafe for filenames: / \ : * ? " < > |
+' Trims to a reasonable length.
+'
+' @param STRING name - Raw palette name
+' @return STRING - Sanitized name safe for use in file paths
+'
+FUNCTION LOSPEC_sanitize_filename$ (name AS STRING)
+    DIM result2 AS STRING
+    DIM si3 AS INTEGER
+    DIM ch2 AS STRING
+    result2$ = ""
+    FOR si3% = 1 TO LEN(name$)
+        ch2$ = MID$(name$, si3%, 1)
+        IF ch2$ = "/" OR ch2$ = "\" OR ch2$ = ":" OR ch2$ = "*" OR _
+           ch2$ = "?" OR ch2$ = CHR$(34) OR ch2$ = "<" OR ch2$ = ">" OR _
+           ch2$ = "|" THEN
+            result2$ = result2$ + "_"
+        ELSE
+            result2$ = result2$ + ch2$
+        END IF
+    NEXT si3%
+    ' Trim to 64 chars
+    IF LEN(result2$) > 64 THEN result2$ = LEFT$(result2$, 64)
+    LOSPEC_sanitize_filename$ = result2$
+END FUNCTION
+
+
+''
+' URL-encode a string for safe use in HTTP query parameters.
+' Encodes all non-alphanumeric characters (except - _ . ~) as %XX hex sequences.
+'
+' @param STRING s - String to encode
+' @return STRING - URL-encoded string
+'
+FUNCTION LOSPEC_urlencode$ (s AS STRING)
+    DIM encoded AS STRING
+    DIM si4 AS INTEGER
+    DIM c AS STRING
+    DIM asc AS INTEGER
+    encoded$ = ""
+    FOR si4% = 1 TO LEN(s$)
+        c$ = MID$(s$, si4%, 1)
+        asc% = ASC(c$)
+        IF (asc% >= 65 AND asc% <= 90) OR (asc% >= 97 AND asc% <= 122) OR _
+           (asc% >= 48 AND asc% <= 57) OR c$ = "-" OR c$ = "_" OR _
+           c$ = "." OR c$ = "~" THEN
+            encoded$ = encoded$ + c$
+        ELSEIF c$ = " " THEN
+            encoded$ = encoded$ + "+"
+        ELSE
+            DIM hx AS STRING
+            hx$ = HEX$(asc%)
+            IF LEN(hx$) = 1 THEN hx$ = "0" + hx$
+            encoded$ = encoded$ + "%" + hx$
+        END IF
+    NEXT si4%
+    LOSPEC_urlencode$ = encoded$
+END FUNCTION
+'
+' @param STRING jsonStr - Raw JSON string
+' @return INTEGER - Number of palettes parsed
+'
+FUNCTION LOSPEC_parse_results% (jsonStr AS STRING)
+    LOSPEC_RESULT_COUNT% = 0
+    IF LEN(jsonStr$) = 0 THEN
+        LOSPEC_parse_results% = 0
+        EXIT FUNCTION
+    END IF
+
+    ' Walk the palettes array: find each {"title":...} object
+    DIM pos AS INTEGER
+    pos% = 1
+    DIM objStart AS INTEGER, objEnd AS INTEGER
+    DIM bracketDepth AS INTEGER
+    DIM inArray AS INTEGER
+
+    ' Find "palettes":[
+    DIM palKey AS INTEGER
+    palKey% = INSTR(jsonStr$, CHR$(34) + "palettes" + CHR$(34))
+    IF palKey% = 0 THEN
+        LOSPEC_parse_results% = 0
+        EXIT FUNCTION
+    END IF
+    pos% = INSTR(palKey%, jsonStr$, "[")
+    IF pos% = 0 THEN
+        LOSPEC_parse_results% = 0
+        EXIT FUNCTION
+    END IF
+    pos% = pos% + 1
+
+    ' Iterate objects in array
+    DO WHILE pos% <= LEN(jsonStr$) AND LOSPEC_RESULT_COUNT% < LOSPEC_MAX_RESULTS
+        ' Find next {
+        objStart% = INSTR(pos%, jsonStr$, "{")
+        IF objStart% = 0 THEN EXIT DO
+
+        ' Find matching }
+        bracketDepth% = 0
+        DIM ci7 AS INTEGER
+        objEnd% = 0
+        FOR ci7% = objStart% TO LEN(jsonStr$)
+            DIM ch7 AS STRING
+            ch7$ = MID$(jsonStr$, ci7%, 1)
+            IF ch7$ = "{" THEN bracketDepth% = bracketDepth% + 1
+            IF ch7$ = "}" THEN
+                bracketDepth% = bracketDepth% - 1
+                IF bracketDepth% = 0 THEN
+                    objEnd% = ci7%
+                    EXIT FOR
+                END IF
+            END IF
+        NEXT ci7%
+        IF objEnd% = 0 THEN EXIT DO
+
+        DIM objStr AS STRING
+        objStr$ = MID$(jsonStr$, objStart%, objEnd% - objStart% + 1)
+
+        ' Extract title, slug, colorsTotal
+        DIM pTitle AS STRING, pSlug AS STRING, pColors AS STRING
+        pTitle$ = LOSPEC_extract_field$(objStr$, "title")
+        pSlug$  = LOSPEC_extract_field$(objStr$, "slug")
+        pColors$ = LOSPEC_extract_field$(objStr$, "colorsTotal")
+        IF LEN(pTitle$) = 0 THEN pTitle$ = LOSPEC_extract_field$(objStr$, "name")
+
+        IF LEN(pSlug$) > 0 THEN
+            LOSPEC_RESULTS(LOSPEC_RESULT_COUNT%).palName  = pTitle$
+            LOSPEC_RESULTS(LOSPEC_RESULT_COUNT%).palSlug  = pSlug$
+            LOSPEC_RESULTS(LOSPEC_RESULT_COUNT%).numColors = VAL(pColors$)
+            LOSPEC_RESULT_COUNT% = LOSPEC_RESULT_COUNT% + 1
+        END IF
+
+        pos% = objEnd% + 1
+    LOOP
+
+    LOSPEC_parse_results% = LOSPEC_RESULT_COUNT%
+END FUNCTION
+
+
+''
+' Extract a string or number field value from a simple JSON object string.
+' Handles both "field":"value" and "field":number forms.
+'
+' @param STRING jsonObj - JSON object fragment
+' @param STRING fieldName - Field key to extract
+' @return STRING - Field value (unquoted), or "" if not found
+'
+FUNCTION LOSPEC_extract_field$ (jsonObj AS STRING, fieldName AS STRING)
+    DIM key AS STRING
+    key$ = CHR$(34) + fieldName$ + CHR$(34) + ":"
+    DIM kPos AS INTEGER
+    kPos% = INSTR(jsonObj$, key$)
+    IF kPos% = 0 THEN
+        LOSPEC_extract_field$ = ""
+        EXIT FUNCTION
+    END IF
+    DIM vStart AS INTEGER
+    vStart% = kPos% + LEN(key$)
+    ' Skip whitespace
+    DO WHILE vStart% <= LEN(jsonObj$) AND MID$(jsonObj$, vStart%, 1) = " "
+        vStart% = vStart% + 1
+    LOOP
+    IF vStart% > LEN(jsonObj$) THEN
+        LOSPEC_extract_field$ = ""
+        EXIT FUNCTION
+    END IF
+
+    DIM firstChar AS STRING
+    firstChar$ = MID$(jsonObj$, vStart%, 1)
+    IF firstChar$ = CHR$(34) THEN
+        ' Quoted string: find closing quote (skip escaped quotes)
+        DIM vEnd AS INTEGER
+        vEnd% = vStart% + 1
+        DO WHILE vEnd% <= LEN(jsonObj$)
+            IF MID$(jsonObj$, vEnd%, 1) = CHR$(34) AND MID$(jsonObj$, vEnd% - 1, 1) <> "\" THEN EXIT DO
+            vEnd% = vEnd% + 1
+        LOOP
+        LOSPEC_extract_field$ = MID$(jsonObj$, vStart% + 1, vEnd% - vStart% - 1)
+    ELSE
+        ' Unquoted (number/bool): read until comma, }, or whitespace
+        DIM vEnd2 AS INTEGER
+        vEnd2% = vStart%
+        DO WHILE vEnd2% <= LEN(jsonObj$)
+            DIM ch8 AS STRING
+            ch8$ = MID$(jsonObj$, vEnd2%, 1)
+            IF ch8$ = "," OR ch8$ = "}" OR ch8$ = " " OR ch8$ = CHR$(10) OR ch8$ = CHR$(13) THEN EXIT DO
+            vEnd2% = vEnd2% + 1
+        LOOP
+        LOSPEC_extract_field$ = MID$(jsonObj$, vStart%, vEnd2% - vStart%)
+    END IF
+END FUNCTION
+
+
+''
+' Add a search result to the batch download list.
+' Prevents duplicates by slug.
+'
+' @param INTEGER idx - Index in LOSPEC_RESULTS()
+'
+SUB LOSPEC_add_to_batch (idx AS INTEGER)
+    IF idx% < 0 OR idx% >= LOSPEC_RESULT_COUNT% THEN EXIT SUB
+    IF LOSPEC_BATCH_COUNT% >= LOSPEC_MAX_BATCH THEN EXIT SUB
+    ' Check for duplicate slug
+    DIM bi2 AS INTEGER
+    FOR bi2% = 0 TO LOSPEC_BATCH_COUNT% - 1
+        IF RTRIM$(LOSPEC_BATCH(bi2%).palSlug) = RTRIM$(LOSPEC_RESULTS(idx%).palSlug) THEN EXIT SUB
+    NEXT bi2%
+    LOSPEC_BATCH(LOSPEC_BATCH_COUNT%) = LOSPEC_RESULTS(idx%)
+    LOSPEC_BATCH_COUNT% = LOSPEC_BATCH_COUNT% + 1
+END SUB
+
+
+''
+' Download a single palette from LOSPEC_RESULTS by index.
+'
+' @param INTEGER idx - Index in LOSPEC_RESULTS()
+'
+SUB LOSPEC_download_single (idx AS INTEGER)
+    IF idx% < 0 OR idx% >= LOSPEC_RESULT_COUNT% THEN EXIT SUB
+    DIM slugStr AS STRING
+    slugStr$ = LOSPEC_sanitize_slug$(RTRIM$(LOSPEC_RESULTS(idx%).palSlug))
+    IF LEN(slugStr$) = 0 THEN EXIT SUB
+
+    DIM tmpGpl AS STRING
+    tmpGpl$ = "./USER/PALETTES/draw_lospec_dl.tmp"
+    DIM gplUrl AS STRING
+    gplUrl$ = "https://lospec.com/palette-list/" + slugStr$ + ".gpl"
+
+    $IF WIN THEN
+        SHELL "curl -s -m 15 -o " + CHR$(34) + tmpGpl$ + CHR$(34) + " " + CHR$(34) + gplUrl$ + CHR$(34) + " 2>nul"
+    $ELSE
+        SHELL "curl -s -m 15 -o " + tmpGpl$ + " " + CHR$(34) + gplUrl$ + CHR$(34) + " 2>/dev/null || wget -q -T 15 -O " + tmpGpl$ + " " + CHR$(34) + gplUrl$ + CHR$(34) + " 2>/dev/null"
+    $END IF
+
+    IF _FILEEXISTS(tmpGpl$) THEN
+        ' Read GPL content
+        DIM ff5 AS INTEGER
+        DIM gplContent AS STRING
+        DIM gplLine AS STRING
+        ff5% = FREEFILE
+        gplContent$ = ""
+        OPEN tmpGpl$ FOR INPUT AS #ff5%
+        DO WHILE NOT EOF(ff5%)
+            LINE INPUT #ff5%, gplLine$
+            gplContent$ = gplContent$ + gplLine$ + CHR$(10)
+        LOOP
+        CLOSE #ff5%
+        KILL tmpGpl$
+
+        LOSPEC_save_gpl LOSPEC_RESULTS(idx%), gplContent$
+        LOSPEC_update_downloads_json LOSPEC_RESULTS(idx%)
+    ELSE
+        _LOGWARN "LOSPEC_download_single: failed to download " + gplUrl$
+    END IF
+END SUB
+
+
+''
+' Download all palettes in the batch list.
+'
+SUB LOSPEC_download_batch ()
+    DIM bi3 AS INTEGER
+    FOR bi3% = 0 TO LOSPEC_BATCH_COUNT% - 1
+        DIM slugB AS STRING
+        slugB$ = LOSPEC_sanitize_slug$(RTRIM$(LOSPEC_BATCH(bi3%).palSlug))
+        IF LEN(slugB$) = 0 THEN _CONTINUE
+
+        DIM tmpGplB AS STRING
+        tmpGplB$ = "./USER/PALETTES/draw_lospec_dl.tmp"
+        DIM gplUrlB AS STRING
+        gplUrlB$ = "https://lospec.com/palette-list/" + slugB$ + ".gpl"
+
+        $IF WIN THEN
+            SHELL "curl -s -m 15 -o " + CHR$(34) + tmpGplB$ + CHR$(34) + " " + CHR$(34) + gplUrlB$ + CHR$(34) + " 2>nul"
+        $ELSE
+            SHELL "curl -s -m 15 -o " + tmpGplB$ + " " + CHR$(34) + gplUrlB$ + CHR$(34) + " 2>/dev/null || wget -q -T 15 -O " + tmpGplB$ + " " + CHR$(34) + gplUrlB$ + CHR$(34) + " 2>/dev/null"
+        $END IF
+
+        IF _FILEEXISTS(tmpGplB$) THEN
+            DIM ff6 AS INTEGER
+            DIM gplContentB AS STRING
+            DIM gplLineB AS STRING
+            ff6% = FREEFILE
+            gplContentB$ = ""
+            OPEN tmpGplB$ FOR INPUT AS #ff6%
+            DO WHILE NOT EOF(ff6%)
+                LINE INPUT #ff6%, gplLineB$
+                gplContentB$ = gplContentB$ + gplLineB$ + CHR$(10)
+            LOOP
+            CLOSE #ff6%
+            KILL tmpGplB$
+
+            LOSPEC_save_gpl LOSPEC_BATCH(bi3%), gplContentB$
+            LOSPEC_update_downloads_json LOSPEC_BATCH(bi3%)
+        ELSE
+            _LOGWARN "LOSPEC_download_batch: failed to download " + gplUrlB$
+        END IF
+    NEXT bi3%
+END SUB
+
+
+''
+' Save a downloaded GPL file to ./USER/PALETTES/.
+' The filename format is: PALETTE_NAME (NUM_COLORS).gpl
+'
+' @param LOSPEC_PALETTE_INFO palInfo  - Palette metadata
+' @param STRING gplContent           - Raw GPL file content
+'
+SUB LOSPEC_save_gpl (palInfo AS LOSPEC_PALETTE_INFO, gplContent AS STRING)
+    PALETTE_LOADER_ensure_user_dirs
+
+    DIM nameStr AS STRING
+    nameStr$ = LOSPEC_sanitize_filename$(RTRIM$(palInfo.palName))
+    IF LEN(nameStr$) = 0 THEN nameStr$ = LOSPEC_sanitize_filename$(RTRIM$(palInfo.palSlug))
+    IF LEN(nameStr$) = 0 THEN nameStr$ = "unknown"
+    DIM numCol AS INTEGER
+    numCol% = palInfo.numColors
+
+    DIM fileName AS STRING
+    fileName$ = "./USER/PALETTES/" + nameStr$ + " (" + _TRIM$(STR$(numCol%)) + ").gpl"
+
+    ' Validate that content looks like a GIMP Palette file
+    IF INSTR(gplContent$, "GIMP Palette") = 0 THEN
+        _LOGWARN "LOSPEC_save_gpl: content doesn't appear to be a valid GPL file for " + nameStr$
+        EXIT SUB
+    END IF
+
+    DIM ff7 AS INTEGER
+    ff7% = FREEFILE
+    OPEN fileName$ FOR OUTPUT AS #ff7%
+    PRINT #ff7%, gplContent$;
+    CLOSE #ff7%
+
+    _LOGINFO "LOSPEC_save_gpl: saved " + fileName$
+END SUB
+
+
+''
+' Append an entry to ./USER/PALETTES/downloads.json.
+' Creates the file if it doesn't exist.
+'
+' @param LOSPEC_PALETTE_INFO palInfo - Palette metadata
+'
+SUB LOSPEC_update_downloads_json (palInfo AS LOSPEC_PALETTE_INFO)
+    PALETTE_LOADER_ensure_user_dirs
+
+    DIM jsonPath AS STRING
+    jsonPath$ = "./USER/PALETTES/downloads.json"
+
+    ' Read existing JSON array content (if any)
+    DIM existingJson AS STRING
+    existingJson$ = ""
+    IF _FILEEXISTS(jsonPath$) THEN
+        DIM ff8 AS INTEGER
+        DIM jLine AS STRING
+        ff8% = FREEFILE
+        OPEN jsonPath$ FOR INPUT AS #ff8%
+        DO WHILE NOT EOF(ff8%)
+            LINE INPUT #ff8%, jLine$
+            existingJson$ = existingJson$ + jLine$ + CHR$(10)
+        LOOP
+        CLOSE #ff8%
+        ' Strip trailing ] to allow append
+        DIM trimmedJson AS STRING
+        trimmedJson$ = RTRIM$(existingJson$)
+        DIM lastBracket AS INTEGER
+        lastBracket% = 0
+        DIM jci AS INTEGER
+        FOR jci% = LEN(trimmedJson$) TO 1 STEP -1
+            IF MID$(trimmedJson$, jci%, 1) = "]" THEN
+                lastBracket% = jci%
+                EXIT FOR
+            END IF
+        NEXT jci%
+        IF lastBracket% > 0 THEN
+            existingJson$ = LEFT$(trimmedJson$, lastBracket% - 1)
+        ELSE
+            existingJson$ = ""
+        END IF
+    END IF
+
+    ' Build the new entry
+    DIM slugStr2 AS STRING
+    DIM nameStr2 AS STRING
+    slugStr2$ = RTRIM$(palInfo.palSlug)
+    nameStr2$ = RTRIM$(palInfo.palName)
+    DIM newEntry AS STRING
+    newEntry$ = "  {" + CHR$(34) + "name" + CHR$(34) + ":" + CHR$(34) + nameStr2$ + CHR$(34) + "," + _
+                CHR$(34) + "url" + CHR$(34) + ":" + CHR$(34) + "https://lospec.com/palette-list/" + slugStr2$ + CHR$(34) + "}"
+
+    ' Determine separator
+    DIM needComma AS INTEGER
+    needComma% = (LEN(LTRIM$(RTRIM$(existingJson$))) > 1)
+
+    ' Reconstruct JSON array
+    DIM ff9 AS INTEGER
+    ff9% = FREEFILE
+    OPEN jsonPath$ FOR OUTPUT AS #ff9%
+    IF LEN(LTRIM$(RTRIM$(existingJson$))) <= 1 THEN
+        PRINT #ff9%, "["
+    ELSE
+        PRINT #ff9%, existingJson$ + ","
+    END IF
+    PRINT #ff9%, newEntry$
+    PRINT #ff9%, "]"
+    CLOSE #ff9%
+END SUB
