@@ -19,9 +19,11 @@ CONST LOSPEC_MAX_BATCH = 32
 
 ' A single palette entry returned by the Lospec API
 TYPE LOSPEC_PALETTE_INFO
-    palName  AS STRING * 64   ' Display name
-    palSlug  AS STRING * 64   ' URL slug (used to download .GPL)
-    numColors AS INTEGER       ' Color count
+    palName   AS STRING * 64   ' Display name
+    palSlug   AS STRING * 64   ' URL slug (used to download .GPL)
+    numColors AS INTEGER        ' Color count
+    author    AS STRING * 64   ' Author display name (from API "author.name")
+    colors    AS STRING * 512  ' Comma-delimited hex color values, no # prefix (up to first 64)
 END TYPE
 
 DIM SHARED LOSPEC_RESULTS(0 TO LOSPEC_MAX_RESULTS - 1) AS LOSPEC_PALETTE_INFO
@@ -37,8 +39,10 @@ DECLARE SUB LOSPEC_download_single (idx AS INTEGER)
 DECLARE SUB LOSPEC_download_batch ()
 DECLARE SUB LOSPEC_save_gpl (palInfo AS LOSPEC_PALETTE_INFO, gplContent AS STRING)
 DECLARE SUB LOSPEC_update_downloads_json (palInfo AS LOSPEC_PALETTE_INFO)
+DECLARE SUB LOSPEC_open_in_browser (url AS STRING)
 DECLARE FUNCTION LOSPEC_parse_results% (jsonStr AS STRING)
 DECLARE FUNCTION LOSPEC_extract_field$ (jsonObj AS STRING, fieldName AS STRING)
+DECLARE FUNCTION LOSPEC_extract_colors$ (jsonObj AS STRING)
 DECLARE FUNCTION LOSPEC_sanitize_slug$ (slug AS STRING)
 DECLARE FUNCTION LOSPEC_sanitize_filename$ (name AS STRING)
 DECLARE FUNCTION LOSPEC_urlencode$ (s AS STRING)

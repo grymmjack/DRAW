@@ -20,10 +20,13 @@ $INCLUDEONCE
 ''
 ' Show the Lospec palette download dialog.
 ' Allows searching for palettes, adding to a batch, and downloading.
+' The right-side panel shows a colour swatch preview, author name, and a
+' clickable link that opens the palette page in the system browser.
 '
 SUB LOSPEC_show_dialog ()
     DIM ctx AS DIALOG_CTX
-    DIALOG_init ctx, 380, 280
+    ' Wider dialog: left=results, middle=batch, right=preview panel
+    DIALOG_init ctx, 560, 320
 
     ' Reset state
     LOSPEC_RESULT_COUNT% = 0
@@ -34,29 +37,36 @@ SUB LOSPEC_show_dialog ()
     searchBuf$ = SPACE$(128)
     searchLen% = 0
 
-    ' Layout constants
-    CONST LS_SEARCH_Y = 22
-    CONST LS_SEARCH_H = 14
-    CONST LS_LIST_Y   = 42
-    CONST LS_LIST_H   = 180   ' height of results area
-    CONST LS_ROW_H    = 14
-    CONST LS_BATCH_X  = 220
-    CONST LS_BTN_Y    = 254
-    CONST LS_BTN_H    = 18
+    ' ---- Layout constants ----
+    CONST LS_SEARCH_Y   = 22     ' search-box top Y
+    CONST LS_SEARCH_H   = 14
+    CONST LS_LIST_Y     = 42     ' results / batch list top Y
+    CONST LS_LIST_H     = 220    ' height of results / batch area
+    CONST LS_ROW_H      = 14
+    CONST LS_BATCH_X    = 210    ' batch column left edge
+    CONST LS_BATCH_W    = 160    ' batch column width
+    CONST LS_PREV_X     = 378    ' preview panel left edge
+    CONST LS_PREV_W     = 178    ' preview panel width  (ctx.w - LS_PREV_X - 4)
+    CONST LS_BTN_Y      = 294    ' bottom button row Y
+    CONST LS_BTN_H      = 18
 
     ' Scrolling
-    DIM listScroll AS INTEGER
+    DIM listScroll  AS INTEGER
     DIM batchScroll AS INTEGER
-    listScroll% = 0
+    listScroll%  = 0
     batchScroll% = 0
 
-    DIM hovResult AS INTEGER
-    DIM hovBatch AS INTEGER
-    hovResult% = -1
-    hovBatch% = -1
+    DIM hovResult AS INTEGER : hovResult% = -1
+    DIM hovBatch  AS INTEGER : hovBatch%  = -1
+
+    ' Track which result index has its preview loaded
+    DIM previewIdx AS INTEGER : previewIdx% = -1
 
     DIM visRows AS INTEGER
     visRows% = LS_LIST_H \ LS_ROW_H
+
+    ' Link hover tracking
+    DIM linkHover AS INTEGER : linkHover% = FALSE
 
     DIM k AS LONG
 
@@ -71,7 +81,8 @@ SUB LOSPEC_show_dialog ()
                 IF searchLen% > 0 THEN
                     LOSPEC_search LEFT$(searchBuf$, searchLen%)
                     listScroll% = 0
-                    hovResult% = -1
+                    hovResult%  = -1
+                    previewIdx% = -1
                 END IF
             CASE 8   ' Backspace
                 IF searchLen% > 0 THEN
@@ -87,12 +98,15 @@ SUB LOSPEC_show_dialog ()
 
         ' ---- Mouse wheel ----
         IF ctx.mwheel <> 0 THEN
-            IF ctx.mx < LS_BATCH_X THEN
+            IF ctx.mx >= LS_PREV_X THEN
+                ' No scroll in preview panel
+            ELSEIF ctx.mx < LS_BATCH_X THEN
                 listScroll% = listScroll% + ctx.mwheel
             ELSE
                 batchScroll% = batchScroll% + ctx.mwheel
             END IF
         END IF
+        ' Clamp list scroll
         IF listScroll% < 0 THEN listScroll% = 0
         IF LOSPEC_RESULT_COUNT% - visRows% > 0 THEN
             IF listScroll% > LOSPEC_RESULT_COUNT% - visRows% THEN
@@ -101,6 +115,7 @@ SUB LOSPEC_show_dialog ()
         ELSE
             listScroll% = 0
         END IF
+        ' Clamp batch scroll
         IF batchScroll% < 0 THEN batchScroll% = 0
         IF LOSPEC_BATCH_COUNT% - visRows% > 0 THEN
             IF batchScroll% > LOSPEC_BATCH_COUNT% - visRows% THEN
@@ -112,35 +127,51 @@ SUB LOSPEC_show_dialog ()
 
         ' ---- Hover detection ----
         hovResult% = -1
-        hovBatch% = -1
+        hovBatch%  = -1
+        linkHover% = FALSE
         IF ctx.my >= LS_LIST_Y AND ctx.my < LS_LIST_Y + LS_LIST_H THEN
-            DIM rowIdx AS INTEGER
-            rowIdx% = (ctx.my - LS_LIST_Y) \ LS_ROW_H + listScroll%
-            IF ctx.mx < LS_BATCH_X THEN
+            IF ctx.mx >= 4 AND ctx.mx < LS_BATCH_X THEN
+                DIM rowIdx AS INTEGER
+                rowIdx% = (ctx.my - LS_LIST_Y) \ LS_ROW_H + listScroll%
                 IF rowIdx% >= 0 AND rowIdx% < LOSPEC_RESULT_COUNT% THEN
                     hovResult% = rowIdx%
+                    ' Update preview index when hover changes
+                    IF hovResult% <> previewIdx% THEN
+                        previewIdx% = hovResult%
+                    END IF
                 END IF
-            ELSE
-                rowIdx% = (ctx.my - LS_LIST_Y) \ LS_ROW_H + batchScroll%
-                IF rowIdx% >= 0 AND rowIdx% < LOSPEC_BATCH_COUNT% THEN
-                    hovBatch% = rowIdx%
+            ELSEIF ctx.mx >= LS_BATCH_X AND ctx.mx < LS_PREV_X THEN
+                DIM rowIdx2 AS INTEGER
+                rowIdx2% = (ctx.my - LS_LIST_Y) \ LS_ROW_H + batchScroll%
+                IF rowIdx2% >= 0 AND rowIdx2% < LOSPEC_BATCH_COUNT% THEN
+                    hovBatch% = rowIdx2%
                 END IF
+            END IF
+        END IF
+
+        ' Detect hover over the "OPEN ON LOSPEC" link in preview panel
+        DIM linkY AS INTEGER
+        linkY% = LS_LIST_Y + 30   ' Y position of hyperlink row (below author line)
+        IF previewIdx% >= 0 AND previewIdx% < LOSPEC_RESULT_COUNT% THEN
+            IF ctx.mx >= LS_PREV_X + 4 AND ctx.mx < LS_PREV_X + LS_PREV_W - 4 AND _
+               ctx.my >= linkY% AND ctx.my < linkY% + 12 THEN
+                linkHover% = TRUE
             END IF
         END IF
 
         ' ---- Click dispatch ----
         IF ctx.justClicked THEN
-            ' Click in search bar: focus (no-op, always focused)
             ' Click in results list -> Add to batch
-            IF ctx.my >= LS_LIST_Y AND ctx.my < LS_LIST_Y + LS_LIST_H AND ctx.mx < LS_BATCH_X THEN
+            IF ctx.my >= LS_LIST_Y AND ctx.my < LS_LIST_Y + LS_LIST_H AND _
+               ctx.mx >= 4 AND ctx.mx < LS_BATCH_X THEN
                 IF hovResult% >= 0 AND hovResult% < LOSPEC_RESULT_COUNT% THEN
                     LOSPEC_add_to_batch hovResult%
                 END IF
             END IF
-            ' Click in batch list -> remove from batch (double-click or right-click not available, single removes)
-            IF ctx.my >= LS_LIST_Y AND ctx.my < LS_LIST_Y + LS_LIST_H AND ctx.mx >= LS_BATCH_X THEN
+            ' Click in batch list -> remove from batch
+            IF ctx.my >= LS_LIST_Y AND ctx.my < LS_LIST_Y + LS_LIST_H AND _
+               ctx.mx >= LS_BATCH_X AND ctx.mx < LS_PREV_X THEN
                 IF hovBatch% >= 0 AND hovBatch% < LOSPEC_BATCH_COUNT% THEN
-                    ' Remove from batch by shifting down
                     DIM bi AS INTEGER
                     FOR bi% = hovBatch% TO LOSPEC_BATCH_COUNT% - 2
                         LOSPEC_BATCH(bi%) = LOSPEC_BATCH(bi% + 1)
@@ -149,23 +180,30 @@ SUB LOSPEC_show_dialog ()
                     IF LOSPEC_BATCH_COUNT% < 0 THEN LOSPEC_BATCH_COUNT% = 0
                 END IF
             END IF
+            ' Click "OPEN ON LOSPEC" link in preview panel
+            IF linkHover% AND previewIdx% >= 0 AND previewIdx% < LOSPEC_RESULT_COUNT% THEN
+                DIM slugForLink AS STRING
+                slugForLink$ = LOSPEC_sanitize_slug$(RTRIM$(LOSPEC_RESULTS(previewIdx%).palSlug))
+                IF LEN(slugForLink$) > 0 THEN
+                    LOSPEC_open_in_browser "https://lospec.com/palette-list/" + slugForLink$
+                END IF
+            END IF
         END IF
 
         ' Button: SEARCH
         IF DIALOG_hit%(ctx, 4, LS_SEARCH_Y - 2, 64, LS_SEARCH_H + 4) THEN
-            ' same as pressing Enter in search box when query exists
             IF searchLen% > 0 THEN
                 LOSPEC_search LEFT$(searchBuf$, searchLen%)
-                listScroll% = 0
-                hovResult% = -1
+                listScroll%  = 0
+                hovResult%   = -1
+                previewIdx%  = -1
             END IF
         END IF
 
-        ' Button: DOWNLOAD SELECTED (single item under cursor in results)
+        ' Button: DOWNLOAD (hovered result)
         IF DIALOG_hit%(ctx, 4, LS_BTN_Y, 100, LS_BTN_H) THEN
             IF hovResult% >= 0 AND hovResult% < LOSPEC_RESULT_COUNT% THEN
                 LOSPEC_download_single hovResult%
-                ' Reload user palettes
                 PALETTE_LOADER_COUNT% = 0
                 PALETTE_LOADER_scan_folder "./ASSETS/PALETTES"
                 PALETTE_LOADER_scan_user_folders
@@ -174,7 +212,7 @@ SUB LOSPEC_show_dialog ()
         END IF
 
         ' Button: DOWNLOAD BATCH
-        IF DIALOG_hit%(ctx, 110, LS_BTN_Y, 100, LS_BTN_H) THEN
+        IF DIALOG_hit%(ctx, 110, LS_BTN_Y, 120, LS_BTN_H) THEN
             IF LOSPEC_BATCH_COUNT% > 0 THEN
                 LOSPEC_download_batch
                 PALETTE_LOADER_COUNT% = 0
@@ -186,23 +224,28 @@ SUB LOSPEC_show_dialog ()
         END IF
 
         ' Button: CLOSE
-        IF DIALOG_hit%(ctx, 220, LS_BTN_Y, 154, LS_BTN_H) THEN
+        IF DIALOG_hit%(ctx, 238, LS_BTN_Y, 100, LS_BTN_H) THEN
             ctx.done = TRUE : ctx.result = TRUE
         END IF
 
-        ' ---- Draw ----
+        ' Button: ADD TO BATCH (in preview panel)
+        IF previewIdx% >= 0 AND previewIdx% < LOSPEC_RESULT_COUNT% THEN
+            IF DIALOG_hit%(ctx, LS_PREV_X + 4, LS_BTN_Y, LS_PREV_W - 8, LS_BTN_H) THEN
+                LOSPEC_add_to_batch previewIdx%
+            END IF
+        END IF
+
+        ' ===== DRAW =====
         _DEST ctx.imgHandle
         _FONT ctx.fontH
         DIALOG_draw_frame ctx, "LOAD FROM LOSPEC"
 
-        ' Search area
+        ' --- Search area ---
         DIALOG_draw_label ctx, 4, 14, "SEARCH:"
-        ' Search box
-        LINE (72, LS_SEARCH_Y - 2)-(ctx.w - 4, LS_SEARCH_Y + LS_SEARCH_H + 1), _RGB32(30, 30, 40), BF
-        LINE (72, LS_SEARCH_Y - 2)-(ctx.w - 4, LS_SEARCH_Y + LS_SEARCH_H + 1), _RGB32(90, 90, 120), B
+        LINE (72, LS_SEARCH_Y - 2)-(LS_PREV_X - 4, LS_SEARCH_Y + LS_SEARCH_H + 1), _RGB32(30, 30, 40), BF
+        LINE (72, LS_SEARCH_Y - 2)-(LS_PREV_X - 4, LS_SEARCH_Y + LS_SEARCH_H + 1), _RGB32(90, 90, 120), B
         _PRINTSTRING (74, LS_SEARCH_Y), LEFT$(searchBuf$, searchLen%)
         IF searchLen% < 64 THEN
-            ' Blinking cursor
             IF (TIMER * 2) MOD 2 < 1 THEN
                 DIM cursorX AS INTEGER
                 cursorX% = 74 + _PRINTWIDTH(LEFT$(searchBuf$, searchLen%), ctx.imgHandle)
@@ -210,16 +253,18 @@ SUB LOSPEC_show_dialog ()
             END IF
         END IF
 
-        ' Column headers
+        ' --- Column headers ---
         COLOR _RGB32(140, 180, 220)
-        _PRINTSTRING (4, LS_LIST_Y - 10), "RESULTS (click to add to batch)"
-        _PRINTSTRING (LS_BATCH_X, LS_LIST_Y - 10), "BATCH (click to remove)"
+        _PRINTSTRING (4, LS_LIST_Y - 10), "RESULTS (click to add)"
+        _PRINTSTRING (LS_BATCH_X + 2, LS_LIST_Y - 10), "BATCH (click to remove)"
+        _PRINTSTRING (LS_PREV_X + 4, LS_LIST_Y - 10), "PREVIEW"
         COLOR _RGB32(200, 200, 200)
 
-        ' Divider between columns
-        LINE (LS_BATCH_X - 2, LS_LIST_Y - 11)-(LS_BATCH_X - 2, LS_LIST_Y + LS_LIST_H), _RGB32(80, 80, 100)
+        ' Column dividers
+        LINE (LS_BATCH_X, LS_LIST_Y - 11)-(LS_BATCH_X, LS_LIST_Y + LS_LIST_H), _RGB32(80, 80, 100)
+        LINE (LS_PREV_X - 2, LS_LIST_Y - 11)-(LS_PREV_X - 2, LS_LIST_Y + LS_LIST_H), _RGB32(80, 80, 100)
 
-        ' Results list
+        ' --- Results list ---
         DIM ri AS INTEGER
         FOR ri% = 0 TO visRows% - 1
             DIM rAbsIdx AS INTEGER
@@ -228,15 +273,24 @@ SUB LOSPEC_show_dialog ()
             DIM rY AS INTEGER
             rY% = LS_LIST_Y + ri% * LS_ROW_H
             IF rAbsIdx% = hovResult% THEN
-                LINE (4, rY%)-(LS_BATCH_X - 4, rY% + LS_ROW_H - 1), _RGB32(50, 70, 110), BF
+                LINE (4, rY%)-(LS_BATCH_X - 2, rY% + LS_ROW_H - 1), _RGB32(50, 70, 110), BF
             END IF
             DIM rLabel AS STRING
-            rLabel$ = RTRIM$(LOSPEC_RESULTS(rAbsIdx%).palName) + " (" + _TRIM$(STR$(LOSPEC_RESULTS(rAbsIdx%).numColors)) + ")"
-            IF LEN(rLabel$) > 26 THEN rLabel$ = LEFT$(rLabel$, 24) + ".."
+            rLabel$ = RTRIM$(LOSPEC_RESULTS(rAbsIdx%).palName)
+            ' Append colour count in a dimmer colour
+            DIM rCountStr AS STRING
+            rCountStr$ = " (" + _TRIM$(STR$(LOSPEC_RESULTS(rAbsIdx%).numColors)) + ")"
+            DIM rMaxLen AS INTEGER
+            rMaxLen% = 22
+            IF LEN(rLabel$) > rMaxLen% THEN rLabel$ = LEFT$(rLabel$, rMaxLen% - 2) + ".."
+            COLOR _RGB32(220, 220, 220)
             _PRINTSTRING (6, rY% + 2), rLabel$
+            COLOR _RGB32(130, 160, 190)
+            _PRINTSTRING (6 + _PRINTWIDTH(rLabel$, ctx.imgHandle), rY% + 2), rCountStr$
+            COLOR _RGB32(200, 200, 200)
         NEXT ri%
 
-        ' Batch list
+        ' --- Batch list ---
         DIM bri AS INTEGER
         FOR bri% = 0 TO visRows% - 1
             DIM brAbsIdx AS INTEGER
@@ -245,24 +299,137 @@ SUB LOSPEC_show_dialog ()
             DIM brY AS INTEGER
             brY% = LS_LIST_Y + bri% * LS_ROW_H
             IF brAbsIdx% = hovBatch% THEN
-                LINE (LS_BATCH_X, brY%)-(ctx.w - 4, brY% + LS_ROW_H - 1), _RGB32(80, 50, 50), BF
+                LINE (LS_BATCH_X, brY%)-(LS_PREV_X - 4, brY% + LS_ROW_H - 1), _RGB32(80, 50, 50), BF
             END IF
             DIM brLabel AS STRING
             brLabel$ = RTRIM$(LOSPEC_BATCH(brAbsIdx%).palName)
-            IF LEN(brLabel$) > 20 THEN brLabel$ = LEFT$(brLabel$, 18) + ".."
+            IF LEN(brLabel$) > 18 THEN brLabel$ = LEFT$(brLabel$, 16) + ".."
             _PRINTSTRING (LS_BATCH_X + 2, brY% + 2), brLabel$
         NEXT bri%
 
-        ' Status counts
-        COLOR _RGB32(160, 160, 160)
+        ' --- Status counts ---
+        COLOR _RGB32(130, 130, 130)
         _PRINTSTRING (4, LS_LIST_Y + LS_LIST_H + 2), _TRIM$(STR$(LOSPEC_RESULT_COUNT%)) + " results"
-        _PRINTSTRING (LS_BATCH_X, LS_LIST_Y + LS_LIST_H + 2), _TRIM$(STR$(LOSPEC_BATCH_COUNT%)) + " in batch"
+        _PRINTSTRING (LS_BATCH_X + 2, LS_LIST_Y + LS_LIST_H + 2), _TRIM$(STR$(LOSPEC_BATCH_COUNT%)) + " in batch"
         COLOR _RGB32(200, 200, 200)
 
-        ' Buttons
-        DIALOG_draw_button ctx, 4,   LS_BTN_Y, 100, LS_BTN_H, "DOWNLOAD",       _RGB32(40,60,90),  _RGB32(60,90,130), _RGB32(100,130,180)
-        DIALOG_draw_button ctx, 110, LS_BTN_Y, 100, LS_BTN_H, "DOWNLOAD BATCH", _RGB32(40,60,90),  _RGB32(60,90,130), _RGB32(100,130,180)
-        DIALOG_draw_button ctx, 220, LS_BTN_Y, 154, LS_BTN_H, "CLOSE",          _RGB32(50,40,40),  _RGB32(80,60,60),  _RGB32(130,100,100)
+        ' --- Preview panel ---
+        ' Dark background
+        LINE (LS_PREV_X, LS_LIST_Y)-(ctx.w - 2, LS_LIST_Y + LS_LIST_H), _RGB32(25, 25, 35), BF
+
+        IF previewIdx% >= 0 AND previewIdx% < LOSPEC_RESULT_COUNT% THEN
+            DIM prevPal AS LOSPEC_PALETTE_INFO
+            prevPal = LOSPEC_RESULTS(previewIdx%)
+            DIM prevSlugStr AS STRING
+            prevSlugStr$ = RTRIM$(prevPal.palSlug)
+            DIM prevName AS STRING
+            prevName$ = RTRIM$(prevPal.palName)
+            DIM prevAuthor AS STRING
+            prevAuthor$ = RTRIM$(prevPal.author)
+            DIM prevColors AS STRING
+            prevColors$ = RTRIM$(prevPal.colors)
+
+            ' Palette name
+            DIM pnLabel AS STRING
+            pnLabel$ = prevName$
+            IF LEN(pnLabel$) > 22 THEN pnLabel$ = LEFT$(pnLabel$, 20) + ".."
+            COLOR _RGB32(230, 230, 240)
+            _PRINTSTRING (LS_PREV_X + 4, LS_LIST_Y + 4), pnLabel$
+
+            ' Author
+            IF LEN(prevAuthor$) > 0 THEN
+                DIM authorLabel AS STRING
+                authorLabel$ = "by " + prevAuthor$
+                IF LEN(authorLabel$) > 22 THEN authorLabel$ = LEFT$(authorLabel$, 20) + ".."
+                COLOR _RGB32(160, 180, 200)
+                _PRINTSTRING (LS_PREV_X + 4, LS_LIST_Y + 16), authorLabel$
+            END IF
+
+            ' "OPEN ON LOSPEC" link (styled as hyperlink)
+            DIM linkLabel AS STRING
+            linkLabel$ = "OPEN ON LOSPEC"
+            DIM linkX AS INTEGER, lLinkY AS INTEGER
+            linkX% = LS_PREV_X + 4
+            lLinkY% = linkY%
+            IF linkHover% THEN
+                COLOR _RGB32(130, 190, 255)
+            ELSE
+                COLOR _RGB32(80, 140, 220)
+            END IF
+            _PRINTSTRING (linkX%, lLinkY%), linkLabel$
+            ' Underline
+            DIM linkW AS INTEGER
+            linkW% = _PRINTWIDTH(linkLabel$, ctx.imgHandle)
+            LINE (linkX%, lLinkY% + 9)-(linkX% + linkW% - 1, lLinkY% + 9), _RGB32(80, 140, 220)
+            COLOR _RGB32(200, 200, 200)
+
+            ' Color swatches start below the link row
+            IF LEN(prevColors$) > 0 THEN
+                DIM swatchY   AS INTEGER : swatchY%   = LS_LIST_Y + 44
+                DIM swatchX0  AS INTEGER : swatchX0%  = LS_PREV_X + 4
+                DIM swatchSz  AS INTEGER : swatchSz%  = 10  ' swatch size in pixels
+                DIM swatchGap AS INTEGER : swatchGap% = 1
+                DIM swatchPerRow AS INTEGER
+                swatchPerRow% = (LS_PREV_W - 8) \ (swatchSz% + swatchGap%)
+                IF swatchPerRow% < 1 THEN swatchPerRow% = 1
+                DIM swatchCol AS INTEGER : swatchCol% = 0
+                DIM swatchRow AS INTEGER : swatchRow% = 0
+                DIM swatchPos AS INTEGER : swatchPos% = 1
+                DIM hexStr AS STRING
+                DIM swatchCount AS INTEGER : swatchCount% = 0
+                DIM maxSwatches AS INTEGER
+                maxSwatches% = ((LS_LIST_H - 44 - 4) \ (swatchSz% + swatchGap%)) * swatchPerRow%
+                IF maxSwatches% < 1 THEN maxSwatches% = 1
+
+                DO WHILE swatchPos% <= LEN(prevColors$) AND swatchCount% < maxSwatches%
+                    ' Extract next hex token (6 chars)
+                    DIM commaAt AS INTEGER
+                    commaAt% = INSTR(swatchPos%, prevColors$, ",")
+                    IF commaAt% = 0 THEN commaAt% = LEN(prevColors$) + 1
+                    hexStr$ = MID$(prevColors$, swatchPos%, commaAt% - swatchPos%)
+                    hexStr$ = LTRIM$(RTRIM$(hexStr$))
+                    IF LEN(hexStr$) = 6 THEN
+                        DIM sr AS INTEGER, sg AS INTEGER, sb AS INTEGER
+                        sr% = VAL("&H" + LEFT$(hexStr$, 2))
+                        sg% = VAL("&H" + MID$(hexStr$, 3, 2))
+                        sb% = VAL("&H" + RIGHT$(hexStr$, 2))
+                        DIM swX AS INTEGER, swY AS INTEGER
+                        swX% = swatchX0% + swatchCol% * (swatchSz% + swatchGap%)
+                        swY% = swatchY% + swatchRow% * (swatchSz% + swatchGap%)
+                        LINE (swX%, swY%)-(swX% + swatchSz% - 1, swY% + swatchSz% - 1), _RGB32(sr%, sg%, sb%), BF
+                        ' Thin border
+                        LINE (swX%, swY%)-(swX% + swatchSz% - 1, swY% + swatchSz% - 1), _RGB32(60, 60, 60), B
+                        swatchCol% = swatchCol% + 1
+                        IF swatchCol% >= swatchPerRow% THEN
+                            swatchCol% = 0
+                            swatchRow% = swatchRow% + 1
+                        END IF
+                        swatchCount% = swatchCount% + 1
+                    END IF
+                    swatchPos% = commaAt% + 1
+                LOOP
+            ELSE
+                ' No color data — show placeholder message
+                COLOR _RGB32(90, 90, 90)
+                _PRINTSTRING (LS_PREV_X + 4, LS_LIST_Y + 44), "No preview available"
+                _PRINTSTRING (LS_PREV_X + 4, LS_LIST_Y + 56), "(hover to load)"
+                COLOR _RGB32(200, 200, 200)
+            END IF
+        ELSE
+            ' Nothing hovered
+            COLOR _RGB32(70, 70, 80)
+            _PRINTSTRING (LS_PREV_X + 4, LS_LIST_Y + 4), "Hover a result"
+            _PRINTSTRING (LS_PREV_X + 4, LS_LIST_Y + 16), "to preview"
+            COLOR _RGB32(200, 200, 200)
+        END IF
+
+        ' --- Bottom buttons ---
+        DIALOG_draw_button ctx, 4,   LS_BTN_Y, 100, LS_BTN_H, "DOWNLOAD",       _RGB32(40,60,90),   _RGB32(60,90,130),  _RGB32(100,130,180)
+        DIALOG_draw_button ctx, 110, LS_BTN_Y, 120, LS_BTN_H, "DOWNLOAD BATCH", _RGB32(40,60,90),   _RGB32(60,90,130),  _RGB32(100,130,180)
+        DIALOG_draw_button ctx, 238, LS_BTN_Y, 100, LS_BTN_H, "CLOSE",          _RGB32(50,40,40),   _RGB32(80,60,60),   _RGB32(130,100,100)
+        IF previewIdx% >= 0 AND previewIdx% < LOSPEC_RESULT_COUNT% THEN
+            DIALOG_draw_button ctx, LS_PREV_X + 4, LS_BTN_Y, LS_PREV_W - 8, LS_BTN_H, "ADD TO BATCH", _RGB32(30,60,40), _RGB32(50,100,60), _RGB32(80,160,90)
+        END IF
 
         DIALOG_blit ctx
     LOOP UNTIL ctx.done
@@ -467,17 +634,42 @@ FUNCTION LOSPEC_parse_results% (jsonStr AS STRING)
         DIM objStr AS STRING
         objStr$ = MID$(jsonStr$, objStart%, objEnd% - objStart% + 1)
 
-        ' Extract title, slug, colorsTotal
+        ' Extract title, slug, colorsTotal, author.name, colors array
         DIM pTitle AS STRING, pSlug AS STRING, pColors AS STRING
-        pTitle$ = LOSPEC_extract_field$(objStr$, "title")
-        pSlug$  = LOSPEC_extract_field$(objStr$, "slug")
+        pTitle$  = LOSPEC_extract_field$(objStr$, "title")
+        pSlug$   = LOSPEC_extract_field$(objStr$, "slug")
         pColors$ = LOSPEC_extract_field$(objStr$, "colorsTotal")
         IF LEN(pTitle$) = 0 THEN pTitle$ = LOSPEC_extract_field$(objStr$, "name")
 
+        ' Author: "author":{"name":"...","username":"..."}
+        DIM pAuthor AS STRING
+        pAuthor$ = ""
+        DIM authKey AS INTEGER
+        authKey% = INSTR(objStr$, CHR$(34) + "author" + CHR$(34))
+        IF authKey% > 0 THEN
+            DIM authObjStart AS INTEGER, authObjEnd AS INTEGER
+            authObjStart% = INSTR(authKey%, objStr$, "{")
+            IF authObjStart% > 0 THEN
+                authObjEnd% = INSTR(authObjStart%, objStr$, "}")
+                IF authObjEnd% > 0 THEN
+                    DIM authSubStr AS STRING
+                    authSubStr$ = MID$(objStr$, authObjStart%, authObjEnd% - authObjStart% + 1)
+                    pAuthor$ = LOSPEC_extract_field$(authSubStr$, "name")
+                    IF LEN(pAuthor$) = 0 THEN pAuthor$ = LOSPEC_extract_field$(authSubStr$, "username")
+                END IF
+            END IF
+        END IF
+
+        ' Colors: "colors":["rrggbb",...]  — store up to 64 as comma-separated hex
+        DIM pColorsHex AS STRING
+        pColorsHex$ = LOSPEC_extract_colors$(objStr$)
+
         IF LEN(pSlug$) > 0 THEN
-            LOSPEC_RESULTS(LOSPEC_RESULT_COUNT%).palName  = pTitle$
-            LOSPEC_RESULTS(LOSPEC_RESULT_COUNT%).palSlug  = pSlug$
+            LOSPEC_RESULTS(LOSPEC_RESULT_COUNT%).palName   = pTitle$
+            LOSPEC_RESULTS(LOSPEC_RESULT_COUNT%).palSlug   = pSlug$
             LOSPEC_RESULTS(LOSPEC_RESULT_COUNT%).numColors = VAL(pColors$)
+            LOSPEC_RESULTS(LOSPEC_RESULT_COUNT%).author    = pAuthor$
+            LOSPEC_RESULTS(LOSPEC_RESULT_COUNT%).colors    = pColorsHex$
             LOSPEC_RESULT_COUNT% = LOSPEC_RESULT_COUNT% + 1
         END IF
 
@@ -540,6 +732,109 @@ FUNCTION LOSPEC_extract_field$ (jsonObj AS STRING, fieldName AS STRING)
         LOSPEC_extract_field$ = MID$(jsonObj$, vStart%, vEnd2% - vStart%)
     END IF
 END FUNCTION
+
+
+''
+' Extract the "colors" array from a Lospec JSON object as a comma-separated
+' string of 6-character hex values (no # prefix), capped at 64 entries.
+' Returns "" if the field is absent.
+'
+' @param STRING jsonObj - JSON object fragment containing "colors":[...]
+' @return STRING - Comma-delimited hex strings, e.g. "ff0000,00ff00,0000ff"
+'
+FUNCTION LOSPEC_extract_colors$ (jsonObj AS STRING)
+    DIM colKey AS INTEGER
+    colKey% = INSTR(jsonObj$, CHR$(34) + "colors" + CHR$(34))
+    IF colKey% = 0 THEN LOSPEC_extract_colors$ = "" : EXIT FUNCTION
+
+    DIM arrStart AS INTEGER
+    arrStart% = INSTR(colKey%, jsonObj$, "[")
+    IF arrStart% = 0 THEN LOSPEC_extract_colors$ = "" : EXIT FUNCTION
+
+    DIM arrEnd AS INTEGER
+    arrEnd% = INSTR(arrStart%, jsonObj$, "]")
+    IF arrEnd% = 0 THEN arrEnd% = LEN(jsonObj$)
+
+    DIM arrStr AS STRING
+    arrStr$ = MID$(jsonObj$, arrStart% + 1, arrEnd% - arrStart% - 1)
+
+    ' Parse quoted hex strings from the array
+    DIM result AS STRING
+    DIM hexCount AS INTEGER
+    DIM ap AS INTEGER
+    result$ = ""
+    hexCount% = 0
+    ap% = 1
+    DO WHILE ap% <= LEN(arrStr$) AND hexCount% < 64
+        DIM qStart AS INTEGER
+        qStart% = INSTR(ap%, arrStr$, CHR$(34))
+        IF qStart% = 0 THEN EXIT DO
+        DIM qEnd AS INTEGER
+        qEnd% = INSTR(qStart% + 1, arrStr$, CHR$(34))
+        IF qEnd% = 0 THEN EXIT DO
+        DIM hexVal AS STRING
+        hexVal$ = MID$(arrStr$, qStart% + 1, qEnd% - qStart% - 1)
+        ' Validate that it's exactly 6 valid hex characters before accepting
+        IF LEN(hexVal$) = 6 THEN
+            DIM isValidHex AS INTEGER
+            isValidHex% = TRUE
+            DIM hvi AS INTEGER
+            FOR hvi% = 1 TO 6
+                DIM hvc AS STRING
+                hvc$ = LCASE$(MID$(hexVal$, hvi%, 1))
+                IF NOT ((hvc$ >= "0" AND hvc$ <= "9") OR (hvc$ >= "a" AND hvc$ <= "f")) THEN
+                    isValidHex% = FALSE
+                    EXIT FOR
+                END IF
+            NEXT hvi%
+            IF isValidHex% THEN
+                IF hexCount% > 0 THEN result$ = result$ + ","
+                result$ = result$ + LCASE$(hexVal$)
+                hexCount% = hexCount% + 1
+            END IF
+        END IF
+        ap% = qEnd% + 1
+    LOOP
+    LOSPEC_extract_colors$ = result$
+END FUNCTION
+
+
+''
+' Open a URL in the system default web browser.
+' Cross-platform: uses xdg-open on Linux, start on Windows, open on macOS.
+' Only opens HTTPS URLs to prevent shell injection.
+'
+' @param STRING url - The URL to open (must start with https://)
+'
+SUB LOSPEC_open_in_browser (url AS STRING)
+    IF LEN(url$) = 0 THEN EXIT SUB
+    ' Only allow https:// URLs — reject anything that might be a shell injection attempt
+    IF LEFT$(url$, 8) <> "https://" THEN
+        _LOGWARN "LOSPEC_open_in_browser: rejected non-HTTPS URL"
+        EXIT SUB
+    END IF
+    ' Verify no shell metacharacters survived (paranoid check on the full URL)
+    DIM urlCheck AS STRING
+    urlCheck$ = url$
+    DIM uci AS INTEGER
+    FOR uci% = 1 TO LEN(urlCheck$)
+        DIM uch AS STRING
+        uch$ = MID$(urlCheck$, uci%, 1)
+        IF uch$ = ";" OR uch$ = "|" OR uch$ = "&" OR uch$ = "`" OR _
+           uch$ = "$" OR uch$ = CHR$(10) OR uch$ = CHR$(13) THEN
+            _LOGWARN "LOSPEC_open_in_browser: rejected URL with shell metacharacter"
+            EXIT SUB
+        END IF
+    NEXT uci%
+    $IF WIN THEN
+        SHELL _DONTWAIT "start " + CHR$(34) + CHR$(34) + " " + CHR$(34) + url$ + CHR$(34)
+    $ELSEIF MAC THEN
+        SHELL _DONTWAIT "open " + CHR$(34) + url$ + CHR$(34)
+    $ELSE
+        SHELL _DONTWAIT "xdg-open " + CHR$(34) + url$ + CHR$(34)
+    $END IF
+    _LOGINFO "LOSPEC_open_in_browser: " + url$
+END SUB
 
 
 ''
