@@ -105,6 +105,7 @@ $INCLUDEONCE
 '$INCLUDE:'./TOOLS/SELECTION.BI'
 '$INCLUDE:'./TOOLS/SYMMETRY.BI'
 '$INCLUDE:'./TOOLS/TEXT.BI'
+'$INCLUDE:'./TOOLS/TRANSFORM.BI'
 '$INCLUDE:'./TOOLS/ZOOM.BI'
 
 ' THEME -----------------------------------------------------------------------

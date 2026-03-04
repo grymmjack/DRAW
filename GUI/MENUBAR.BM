@@ -129,6 +129,8 @@ SUB MENUBAR_register_all ()
     MENUBAR_register_item "SCALE +50%", "PgUp", 1, 318, FALSE, FALSE
     MENUBAR_register_item "ROTATE 90 CW", ">", 1, 319, FALSE, FALSE
     MENUBAR_register_item "ROTATE 90 CCW", "<", 1, 320, FALSE, FALSE
+    MENUBAR_register_item "---", "", 1, 0, FALSE, TRUE
+    MENUBAR_register_item "TRANSFORM...", "", 1, 330, FALSE, FALSE
 
     ' ========== VIEW MENU (parentIdx = 2) ==========
     MENUBAR_register_item "MENU BAR", "Ctrl+F11", 2, 411, TRUE, FALSE
@@ -869,6 +871,15 @@ SUB MENUBAR_render_submenu (rootIdx AS INTEGER)
             END IF
         END IF
 
+        ' Track TRANSFORM item position for submenu
+        IF MENU_ITEMS(i%).actionId% = 330 THEN
+            MENU_BAR.transformItemIdx% = childIdx%
+            MENU_BAR.transformY% = itemY%
+            IF childIdx% = MENU_BAR.hoverSub% AND MENU_ITEMS(i%).enabled% AND NOT MENU_BAR.kbActive% THEN
+                MENU_BAR.transformOpen% = TRUE
+            END IF
+        END IF
+
         virtualY% = virtualY% + MENU_ITEM_HEIGHT
         childIdx% = childIdx% + 1
 
@@ -892,6 +903,11 @@ SUB MENUBAR_render_submenu (rootIdx AS INTEGER)
     ' Render random track submenu if open
     IF MENU_BAR.randomOpen% THEN
         MENUBAR_render_random_submenu
+    END IF
+
+    ' Render transform submenu if open
+    IF MENU_BAR.transformOpen% THEN
+        MENUBAR_render_transform_submenu
     END IF
 END SUB
 
@@ -980,6 +996,12 @@ SUB MENUBAR_handle_click (rawX AS INTEGER, rawY AS INTEGER)
         EXIT SUB
     END IF
 
+    ' Check if click is on the transform submenu
+    IF MENU_BAR.transformOpen% AND MENUBAR_transform_in_bounds%(rawX%, rawY%) THEN
+        MENUBAR_handle_transform_click rawX%, rawY%
+        EXIT SUB
+    END IF
+
     ' Check if click is on the open submenu
     IF MENU_BAR.openMenu% >= 0 AND MENUBAR_submenu_in_bounds%(rawX%, rawY%) THEN
         ' Handle scroll arrow clicks first
@@ -1037,6 +1059,14 @@ SUB MENUBAR_handle_click (rawX AS INTEGER, rawY AS INTEGER)
                                 GUI_NEEDS_REDRAW% = TRUE
                                 EXIT SUB
                             END IF
+                            IF MENU_ITEMS(itemIdx%).actionId% = 330 THEN
+                                MENU_BAR.transformOpen% = NOT MENU_BAR.transformOpen%
+                                IF NOT MENU_BAR.transformOpen% THEN
+                                    MENU_BAR.transformHover% = -1
+                                END IF
+                                GUI_NEEDS_REDRAW% = TRUE
+                                EXIT SUB
+                            END IF
                             ' Toggle checkbox if applicable
                             IF MENU_ITEMS(itemIdx%).hasCheckbox% THEN
                                 MENU_ITEMS(itemIdx%).checked% = NOT MENU_ITEMS(itemIdx%).checked%
@@ -1089,6 +1119,8 @@ SUB MENUBAR_handle_mouse_move (rawX AS INTEGER, rawY AS INTEGER)
     oldRecentHover% = MENU_BAR.recentHover%
     DIM oldRandomHover AS INTEGER
     oldRandomHover% = MENU_BAR.randomHover%
+    DIM oldTransformHover AS INTEGER
+    oldTransformHover% = MENU_BAR.transformHover%
 
     ' Check if mouse is on the overflow popup
     IF MENU_OVERFLOW_OPEN% AND MENU_CHEVRON_ACTIVE% AND MENUBAR_overflow_in_bounds%(rawX%, rawY%) THEN
@@ -1170,6 +1202,25 @@ SUB MENUBAR_handle_mouse_move (rawX AS INTEGER, rawY AS INTEGER)
             SOUND_play SND_MENU_HOVER
             GUI_NEEDS_REDRAW% = TRUE
         END IF
+    ELSEIF MENU_BAR.openMenu% >= 0 AND MENUBAR_transform_in_bounds%(rawX%, rawY%) THEN
+        ' Mouse is on the transform submenu - track hover there
+        DIM trItemY AS INTEGER
+        trItemY% = MENU_BAR.transformY% + 2
+        MENU_BAR.transformHover% = -1
+        DIM trIdx AS INTEGER
+        FOR trIdx% = 0 TO TRANSFORM_FLYOUT_ITEMS - 1
+            IF rawY% >= trItemY% AND rawY% < trItemY% + MENU_ITEM_HEIGHT THEN
+                MENU_BAR.transformHover% = trIdx%
+                EXIT FOR
+            END IF
+            trItemY% = trItemY% + MENU_ITEM_HEIGHT
+        NEXT trIdx%
+        MENU_BAR.hoverSub% = MENU_BAR.transformItemIdx%
+        MENU_BAR.hoverRoot% = MENU_BAR.openMenu%
+        IF MENU_BAR.transformHover% <> oldTransformHover% THEN
+            SOUND_play SND_MENU_HOVER
+            GUI_NEEDS_REDRAW% = TRUE
+        END IF
     ELSEIF MENU_BAR.openMenu% >= 0 AND MENUBAR_recent_in_bounds%(rawX%, rawY%) THEN
         ' Mouse is on the recent files submenu - track hover there
         DIM recItemY AS INTEGER, recIdx AS INTEGER
@@ -1240,6 +1291,11 @@ SUB MENUBAR_handle_mouse_move (rawX AS INTEGER, rawY AS INTEGER)
                 MENU_BAR.randomOpen% = FALSE
                 MENU_BAR.randomHover% = -1
             END IF
+            ' Close transform submenu if hover moved away from TRANSFORM... item
+            IF MENU_BAR.transformOpen% AND MENU_BAR.hoverSub% <> MENU_BAR.transformItemIdx% THEN
+                MENU_BAR.transformOpen% = FALSE
+                MENU_BAR.transformHover% = -1
+            END IF
         END IF
     ELSE
         ' Mouse is outside all menu areas
@@ -1257,6 +1313,11 @@ SUB MENUBAR_handle_mouse_move (rawX AS INTEGER, rawY AS INTEGER)
             MENU_BAR.randomOpen% = FALSE
             MENU_BAR.randomHover% = -1
         END IF
+        ' Close transform submenu when mouse leaves all areas
+        IF MENU_BAR.transformOpen% THEN
+            MENU_BAR.transformOpen% = FALSE
+            MENU_BAR.transformHover% = -1
+        END IF
         ' Clear overflow hover when mouse leaves popup
         IF MENU_OVERFLOW_HOVER% >= 0 THEN
             MENU_OVERFLOW_HOVER% = -1
@@ -1269,7 +1330,7 @@ SUB MENUBAR_handle_mouse_move (rawX AS INTEGER, rawY AS INTEGER)
     IF MENU_BAR.hoverRoot% <> oldHoverRoot% THEN
         SOUND_play SND_MENU_OPEN
     ELSEIF MENU_BAR.hoverSub% <> oldHoverSub% OR MENU_OVERFLOW_HOVER% <> oldOverflowHover% THEN
-        IF MENU_BAR.hoverSub% = MENU_BAR.recentItemIdx% OR MENU_BAR.hoverSub% = MENU_BAR.randomItemIdx% THEN
+        IF MENU_BAR.hoverSub% = MENU_BAR.recentItemIdx% OR MENU_BAR.hoverSub% = MENU_BAR.randomItemIdx% OR MENU_BAR.hoverSub% = MENU_BAR.transformItemIdx% THEN
             SOUND_play SND_MENU_OPEN
         ELSE
             SOUND_play SND_MENU_HOVER
@@ -1295,6 +1356,8 @@ SUB MENUBAR_close_all ()
     MENU_BAR.recentHover% = -1
     MENU_BAR.randomOpen% = FALSE
     MENU_BAR.randomHover% = -1
+    MENU_BAR.transformOpen% = FALSE
+    MENU_BAR.transformHover% = -1
     MENU_OVERFLOW_OPEN% = FALSE
     MENU_OVERFLOW_HOVER% = -1
     GUI_NEEDS_REDRAW% = TRUE
@@ -2393,4 +2456,118 @@ FUNCTION MENUBAR_random_in_bounds% (rawX AS INTEGER, rawY AS INTEGER)
     END IF
     MENUBAR_random_in_bounds% = (rawX% >= MENU_BAR.randomX% AND rawX% < MENU_BAR.randomX% + MENU_BAR.randomW% _
         AND rawY% >= MENU_BAR.randomY% AND rawY% < MENU_BAR.randomY% + MENU_BAR.randomH%)
+END FUNCTION
+
+
+''
+' Render the Transform cascading submenu
+'
+SUB MENUBAR_render_transform_submenu ()
+    DIM trBg  AS _UNSIGNED LONG
+    DIM trFg  AS _UNSIGNED LONG
+    DIM trBrd AS _UNSIGNED LONG
+    DIM trSBg AS _UNSIGNED LONG
+    DIM trSFg AS _UNSIGNED LONG
+    DIM trItemY AS INTEGER
+    DIM trTotalH AS INTEGER
+    DIM trMaxW AS INTEGER, trFw AS INTEGER
+    DIM trI AS INTEGER
+
+    DIM trLabels(0 TO 4) AS STRING
+    trLabels(0) = "SCALE..."
+    trLabels(1) = "DISTORT..."
+    trLabels(2) = "PERSPECTIVE..."
+    trLabels(3) = "ROTATE..."
+    trLabels(4) = "SHEAR..."
+
+    trBg~&  = THEME.MENU_SUB_bg~&
+    trFg~&  = THEME.MENU_SUB_fg~&
+    trBrd~& = THEME.MENU_SUB_border~&
+    trSBg~& = THEME.MENU_SUB_sel_bg~&
+    trSFg~& = THEME.MENU_SUB_sel_fg~&
+
+    ' Measure width
+    trMaxW% = 0
+    FOR trI% = 0 TO 4
+        trFw% = _PRINTWIDTH(trLabels(trI%))
+        IF trFw% > trMaxW% THEN trMaxW% = trFw%
+    NEXT trI%
+    MENU_BAR.transformW% = MENU_SUB_PAD_LEFT + trMaxW% + MENU_SUB_PAD_RIGHT
+    IF MENU_BAR.transformW% < 100 THEN MENU_BAR.transformW% = 100
+
+    trTotalH% = 4 + (5 * MENU_ITEM_HEIGHT)
+    MENU_BAR.transformH% = trTotalH%
+
+    ' Position to the right of the main submenu, aligned with TRANSFORM... item Y
+    MENU_BAR.transformX% = MENU_BAR.subX% + MENU_BAR.subW%
+    IF MENU_BAR.transformY% = 0 THEN MENU_BAR.transformY% = MENU_BAR.subY%
+
+    ' Clamp right edge to screen
+    IF MENU_BAR.transformX% + MENU_BAR.transformW% > SCRN.w& THEN
+        MENU_BAR.transformX% = MENU_BAR.subX% - MENU_BAR.transformW%
+        IF MENU_BAR.transformX% < 0 THEN MENU_BAR.transformX% = 0
+    END IF
+
+    ' Clamp bottom to screen
+    IF MENU_BAR.transformY% + MENU_BAR.transformH% > SCRN.h& THEN
+        MENU_BAR.transformY% = SCRN.h& - MENU_BAR.transformH%
+        IF MENU_BAR.transformY% < 0 THEN MENU_BAR.transformY% = 0
+    END IF
+
+    ' Draw border and background
+    LINE (MENU_BAR.transformX% - 1, MENU_BAR.transformY% - 1)-(MENU_BAR.transformX% + MENU_BAR.transformW%, MENU_BAR.transformY% + MENU_BAR.transformH%), trBrd~&, BF
+    LINE (MENU_BAR.transformX%, MENU_BAR.transformY%)-(MENU_BAR.transformX% + MENU_BAR.transformW% - 1, MENU_BAR.transformY% + MENU_BAR.transformH% - 1), trBg~&, BF
+
+    ' Draw the 5 transform items
+    trItemY% = MENU_BAR.transformY% + 2
+    FOR trI% = 0 TO 4
+        IF trI% = MENU_BAR.transformHover% THEN
+            LINE (MENU_BAR.transformX% + 1, trItemY%)-(MENU_BAR.transformX% + MENU_BAR.transformW% - 2, trItemY% + MENU_ITEM_HEIGHT - 1), trSBg~&, BF
+            COLOR trSFg~&, _RGBA32(0, 0, 0, 0)
+        ELSE
+            COLOR trFg~&, _RGBA32(0, 0, 0, 0)
+        END IF
+        _PRINTSTRING (MENU_BAR.transformX% + MENU_SUB_PAD_LEFT, trItemY% + 2), trLabels(trI%)
+        trItemY% = trItemY% + MENU_ITEM_HEIGHT
+    NEXT trI%
+END SUB
+
+
+''
+' Handle a click inside the transform submenu
+'
+SUB MENUBAR_handle_transform_click (rawX AS INTEGER, rawY AS INTEGER)
+    IF NOT MENU_BAR.transformOpen% THEN EXIT SUB
+    IF NOT MENUBAR_transform_in_bounds%(rawX%, rawY%) THEN EXIT SUB
+
+    DIM tClickY AS INTEGER
+    tClickY% = MENU_BAR.transformY% + 2
+    DIM tIdx AS INTEGER
+    FOR tIdx% = 0 TO 4
+        IF rawY% >= tClickY% AND rawY% < tClickY% + MENU_ITEM_HEIGHT THEN
+            MENUBAR_close_all
+            SELECT CASE tIdx%
+                CASE 0: CMD_execute_action TRANSFORM_ACT_SCALE
+                CASE 1: CMD_execute_action TRANSFORM_ACT_DISTORT
+                CASE 2: CMD_execute_action TRANSFORM_ACT_PERSPECTIVE
+                CASE 3: CMD_execute_action TRANSFORM_ACT_ROTATE
+                CASE 4: CMD_execute_action TRANSFORM_ACT_SHEAR
+            END SELECT
+            EXIT SUB
+        END IF
+        tClickY% = tClickY% + MENU_ITEM_HEIGHT
+    NEXT tIdx%
+END SUB
+
+
+''
+' Check if a point is within the transform submenu bounds
+'
+FUNCTION MENUBAR_transform_in_bounds% (rawX AS INTEGER, rawY AS INTEGER)
+    IF NOT MENU_BAR.transformOpen% THEN
+        MENUBAR_transform_in_bounds% = FALSE
+        EXIT FUNCTION
+    END IF
+    MENUBAR_transform_in_bounds% = (rawX% >= MENU_BAR.transformX% AND rawX% < MENU_BAR.transformX% + MENU_BAR.transformW% _
+        AND rawY% >= MENU_BAR.transformY% AND rawY% < MENU_BAR.transformY% + MENU_BAR.transformH%)
 END FUNCTION
