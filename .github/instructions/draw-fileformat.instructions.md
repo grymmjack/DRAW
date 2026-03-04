@@ -100,6 +100,9 @@ Key fields:
 | ----- | ---- | ------- |
 | `TOOLBAR_btn_overlay~&` | `_UNSIGNED LONG` | Active toolbar button fill overlay |
 | `TOOLBAR_btn_stroke~&`  | `_UNSIGNED LONG` | Active toolbar button border color |
+| `TRANSFORM_FRAME_COLOR~&` | `_UNSIGNED LONG` | Transform overlay bounding-box outline |
+| `TRANSFORM_FRAME_HANDLE_COLOR~&` | `_UNSIGNED LONG` | Transform overlay handle square fill |
+| `TRANSFORM_FRAME_HANDLE_SIZE%` | `INTEGER` | Transform overlay handle half-size in pixels |
 | `LAYER_PANEL_header_height` | `INTEGER` | Header bar height in pixels |
 | `LAYER_PANEL_btn_bar_height` | `INTEGER` | Button bar height in pixels |
 | `LAYER_PANEL_bg~&` through `LAYER_PANEL_scrollbar~&` | `_UNSIGNED LONG` | 23 layer panel color fields |

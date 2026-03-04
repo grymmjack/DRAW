@@ -28,7 +28,7 @@ applyTo: "**"
 5. **INPUT**: MODIFIERS, KEYBOARD, MOUSE, STICK, FILE-BMP, FILE-BLOAD, FILE-PAL, API-LOSPEC
 6. **OUTPUT**: SCREEN, FILE-BAS, FILE-BMP, FILE-BSAVE
 7. **QB64_GJ_LIB**: DICT, STRINGS, VECT2D
-8. **TOOLS**: 37 tool pairs (NULL, DOT, LINE, RECT, ELLIPSE, FILL, BRUSH, BRUSH-SIZE, BRUSH-FILL, BRUSH-FX-OUTLINE, BRUSH-TEXT, CUSTOM-BRUSH, POLY-LINE, POLY-FILL, MARQUEE, SELECTION, PAN, MOVE, MOVE-NUDGE, SAVE, LOAD, PICKER, UNDO, WORKSPACE-UNDO, DRW, COLOR-FG, COLOR-BG, COLOR-INVERT, CROP, SPRAY, ZOOM, TEXT, SYMMETRY, RAY, IMAGE-IMPORT, REFIMG, ERASER)
+8. **TOOLS**: 38 tool pairs (NULL, DOT, LINE, RECT, ELLIPSE, FILL, BRUSH, BRUSH-SIZE, BRUSH-FILL, BRUSH-FX-OUTLINE, BRUSH-TEXT, CUSTOM-BRUSH, POLY-LINE, POLY-FILL, MARQUEE, SELECTION, PAN, MOVE, MOVE-NUDGE, SAVE, LOAD, PICKER, UNDO, WORKSPACE-UNDO, DRW, COLOR-FG, COLOR-BG, COLOR-INVERT, CROP, SPRAY, ZOOM, TEXT, SYMMETRY, RAY, IMAGE-IMPORT, REFIMG, ERASER, TRANSFORM)
 9. **THEME**: `ASSETS/THEMES/DEFAULT/THEME.BI`
 
 ### Directory Structure
@@ -259,6 +259,7 @@ A frame is "idle" when no input, mouse movement, GUI changes, or active tool ope
 | `GUI/TOOLBAR.BM`          | Toolbar rendering, click handling, active indicator                 |
 | `GUI/ORGANIZER.BI`        | Organizer widget constants (`ORG_*`), 4×3 layout                    |
 | `TOOLS/ERASER.BI/BM`      | Eraser tool (transparent painting via brush pipeline)               |
+| `TOOLS/TRANSFORM.BI/BM`   | On-canvas transform overlay (Scale/Rotate/Shear/Distort/Perspective); activated via Edit→TRANSFORM...; not a toolbar tool |
 | `CFG/CONFIG.BI`           | Configuration structure                                             |
 | `CORE/SOUND.BI/BM`        | Sound constants, loader, playback SUBs                              |
 | `CHEATSHEET.md`           | All keyboard shortcuts                                              |

@@ -631,6 +631,46 @@ These also work on custom brushes when one is active (flip, rotate, scale).
 | **Enter** | Apply transformation and return to Marquee |
 | **Escape** | Cancel current drag operation |
 
+## Edit → Transform Overlay
+
+Accessed via **Edit → TRANSFORM...** submenu. Opens an interactive on-canvas bounding-box overlay for the current layer (or active selection). The previous tool is automatically restored when the overlay is dismissed.
+
+### Modes
+
+| Mode | Description |
+|------|-------------|
+| **Scale** | Drag corner or edge handles to resize |
+| **Rotate** | Drag to spin the content freely |
+| **Shear** | Drag to skew horizontally or vertically |
+| **Distort** | Drag individual corners independently |
+| **Perspective** | Drag corners to apply perspective projection |
+
+### Common Controls
+
+| Action | Function |
+|--------|----------|
+| **Drag handle** | Apply current transform mode |
+| **Enter** | Apply transform and return to previous tool |
+| **Escape** | Cancel transform and return to previous tool |
+
+### Mode-Specific Modifier (Shift)
+
+| Mode | Shift behaviour |
+|------|-----------------|
+| **Scale** | Lock aspect ratio |
+| **Rotate** | Snap angle to 15° increments |
+| **Perspective** | Mirror opposite corner on the same edge (wall/trapezoid projection) |
+
+### Theming
+
+The overlay frame and handles can be customised in `ASSETS/THEMES/DEFAULT/THEME.CFG`:
+
+| Key | Default | Purpose |
+|-----|---------|--------|
+| `TRANSFORM_FRAME_COLOR` | `180,220,255,255` | Bounding box outline colour |
+| `TRANSFORM_FRAME_HANDLE_COLOR` | `200,230,255,255` | Handle square fill colour |
+| `TRANSFORM_FRAME_HANDLE_SIZE` | `5` | Handle square half-size in pixels |
+
 ## File Operations
 
 ### Standard Image Save/Load (CTRL)
