@@ -89,6 +89,10 @@ TYPE DRAW_THEME
     LAYER_PANEL_row_master_accent AS _UNSIGNED LONG  ' Left-edge accent bar color for master row
     LAYER_PANEL_btn_drag_delete   AS _UNSIGNED LONG  ' Drag-over Delete button highlight (RGBA)
     LAYER_PANEL_btn_drag_new      AS _UNSIGNED LONG  ' Drag-over New Layer button highlight (RGBA)
+    ' --- Transform overlay frame ---
+    TRANSFORM_FRAME_COLOR        AS _UNSIGNED LONG  ' Quad outline color (RGBA)
+    TRANSFORM_FRAME_HANDLE_COLOR AS _UNSIGNED LONG  ' Unselected handle fill color (RGBA)
+    TRANSFORM_FRAME_HANDLE_SIZE  AS INTEGER         ' Handle half-size in screen pixels (draw + hit test)
     ' --- Fonts ---
     GLOBAL_FONT_FILE       AS STRING          ' Primary UI font filename (e.g. Tiny5-Regular.ttf)
     ALT_FONT_FILE          AS STRING          ' Alternate font filename (e.g. PICO-8.ttf) — reserved

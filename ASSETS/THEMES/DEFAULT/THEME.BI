@@ -82,6 +82,11 @@ THEME.LAYER_PANEL_row_master_accent~& = _RGB32(100, 180, 255)      ' Left-edge a
 THEME.LAYER_PANEL_btn_drag_delete~&  = _RGBA32(200, 80, 80, 220)   ' Drag-over Delete button highlight
 THEME.LAYER_PANEL_btn_drag_new~&     = _RGBA32(80, 200, 80, 220)   ' Drag-over New Layer button highlight
 
+' --- Transform overlay frame ---
+THEME.TRANSFORM_FRAME_COLOR~&        = _RGB32(180, 220, 255)       ' Quad outline
+THEME.TRANSFORM_FRAME_HANDLE_COLOR~& = _RGB32(200, 230, 255)       ' Unselected handle fill
+THEME.TRANSFORM_FRAME_HANDLE_SIZE%   = 5                           ' Handle half-size (screen px)
+
 ' --- Fonts ---
 THEME.GLOBAL_FONT_FILE$          = "Tiny5-Regular.ttf"       ' Primary UI font
 THEME.ALT_FONT_FILE$             = "PICO-8.ttf"              ' Alternate font (reserved)

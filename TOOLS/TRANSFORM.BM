@@ -52,9 +52,10 @@ END SUB
 FUNCTION TRANSFORM_hittest% (rawX AS INTEGER, rawY AS INTEGER)
     DIM i AS INTEGER, hsx AS INTEGER, hsy AS INTEGER
     TRANSFORM_hittest% = -1
+    DIM hitR AS INTEGER : hitR% = THEME.TRANSFORM_FRAME_HANDLE_SIZE% + 2
     FOR i% = 0 TO 3
         TRANSFORM_layer_to_screen TRANSFORM_HX(i%), TRANSFORM_HY(i%), hsx%, hsy%
-        IF ABS(rawX% - hsx%) <= TRANSFORM_HANDLE_RADIUS AND ABS(rawY% - hsy%) <= TRANSFORM_HANDLE_RADIUS THEN
+        IF ABS(rawX% - hsx%) <= hitR% AND ABS(rawY% - hsy%) <= hitR% THEN
             TRANSFORM_hittest% = i%
             EXIT FUNCTION
         END IF
@@ -397,6 +398,7 @@ SUB TRANSFORM_cancel ()
     TRANSFORM_free_preview
     TRANSFORM.ACTIVE  = FALSE
     TRANSFORM.GRABBED = -1
+    CURRENT_TOOL% = TRANSFORM.PREV_TOOL   ' restore tool that was active before transform
     ' Force full re-render by destroying scene cache (wipes all overlay artifacts)
     IF SCENE_CACHE& < -1 THEN _FREEIMAGE SCENE_CACHE&
     SCENE_CACHE& = 0
@@ -438,6 +440,7 @@ SUB TRANSFORM_commit ()
 
     TRANSFORM.ACTIVE  = FALSE
     TRANSFORM.GRABBED = -1
+    CURRENT_TOOL% = TRANSFORM.PREV_TOOL   ' restore tool that was active before transform
     ' Force full re-render by destroying scene cache (wipes all overlay artifacts)
     IF SCENE_CACHE& < -1 THEN _FREEIMAGE SCENE_CACHE&
     SCENE_CACHE& = 0
@@ -501,7 +504,7 @@ SUB TRANSFORM_render_overlay ()
         hsx(i%) = sdx% + INT(TRANSFORM_HX(i%) * SCRN.zoom!)
         hsy(i%) = sdy% + INT(TRANSFORM_HY(i%) * SCRN.zoom!)
     NEXT i%
-    COLOR _RGB32(180, 220, 255)
+    COLOR THEME.TRANSFORM_FRAME_COLOR~&
     LINE (hsx(0), hsy(0))-(hsx(1), hsy(1))
     LINE (hsx(1), hsy(1))-(hsx(2), hsy(2))
     LINE (hsx(2), hsy(2))-(hsx(3), hsy(3))
@@ -509,15 +512,16 @@ SUB TRANSFORM_render_overlay ()
 
     ' 4. Handle squares (drawn freely at handle positions, full-size)
     DIM hClr AS _UNSIGNED LONG, hOtl AS _UNSIGNED LONG
+    DIM hSz AS INTEGER : hSz% = THEME.TRANSFORM_FRAME_HANDLE_SIZE%
     hOtl~& = _RGB32(30, 30, 30)
     FOR i% = 0 TO 3
         IF i% = TRANSFORM.GRABBED THEN
-            hClr~& = _RGB32(255, 210, 50)
+            hClr~& = _RGB32(255, 210, 50)           ' grabbed handle highlighted
         ELSE
-            hClr~& = _RGB32(200, 230, 255)
+            hClr~& = THEME.TRANSFORM_FRAME_HANDLE_COLOR~&
         END IF
-        LINE (hsx(i%) - TRANSFORM_HANDLE_HALF, hsy(i%) - TRANSFORM_HANDLE_HALF)-(hsx(i%) + TRANSFORM_HANDLE_HALF, hsy(i%) + TRANSFORM_HANDLE_HALF), hClr~&, BF
-        LINE (hsx(i%) - TRANSFORM_HANDLE_HALF, hsy(i%) - TRANSFORM_HANDLE_HALF)-(hsx(i%) + TRANSFORM_HANDLE_HALF, hsy(i%) + TRANSFORM_HANDLE_HALF), hOtl~&, B
+        LINE (hsx(i%) - hSz%, hsy(i%) - hSz%)-(hsx(i%) + hSz%, hsy(i%) + hSz%), hClr~&, BF
+        LINE (hsx(i%) - hSz%, hsy(i%) - hSz%)-(hsx(i%) + hSz%, hsy(i%) + hSz%), hOtl~&, B
     NEXT i%
 
     _DEST oldDst&
@@ -538,7 +542,16 @@ SUB TRANSFORM_render_status (canvas AS LONG)
         CASE ELSE                       : modeLabel$ = "TRANSFORM"
     END SELECT
     DIM hint AS STRING
-    hint$ = modeLabel$ + "  |  Drag corners  |  ENTER: Apply  |  ESC: Cancel"
+    SELECT CASE TRANSFORM.MODE
+        CASE TRANSFORM_MODE_SCALE
+            hint$ = "SCALE  |  SHIFT: lock aspect  |  Drag corners  |  ENTER: Apply  |  ESC: Cancel"
+        CASE TRANSFORM_MODE_ROTATE
+            hint$ = "ROTATE  |  SHIFT: 15 deg snap  |  Drag corner  |  ENTER: Apply  |  ESC: Cancel"
+        CASE TRANSFORM_MODE_PERSPECTIVE
+            hint$ = "PERSPECTIVE  |  SHIFT: wall projection  |  Drag corners  |  ENTER: Apply  |  ESC: Cancel"
+        CASE ELSE
+            hint$ = modeLabel$ + "  |  Drag corners  |  ENTER: Apply  |  ESC: Cancel"
+    END SELECT
     IF SCRN.showStatus% THEN
         DIM sbY AS INTEGER
         sbY% = SCRN.h& - THEME.STATUS_height% - PALETTE_STRIP_get_height% + 2
@@ -623,9 +636,28 @@ SUB TRANSFORM_mouse_hold (rawX AS INTEGER, rawY AS INTEGER)
 
         SELECT CASE TRANSFORM.MODE
 
-            CASE TRANSFORM_MODE_DISTORT, TRANSFORM_MODE_PERSPECTIVE
+            CASE TRANSFORM_MODE_DISTORT
+                ' Free-form: each corner moves independently
                 TRANSFORM_HX(g%) = canX!
                 TRANSFORM_HY(g%) = canY!
+
+            CASE TRANSFORM_MODE_PERSPECTIVE
+                ' Free-form by default; SHIFT: symmetric wall projection
+                ' (mirror horizontal offset to opposite corner on the same edge)
+                TRANSFORM_HX(g%) = canX!
+                TRANSFORM_HY(g%) = canY!
+                IF MODIFIERS.shift% THEN
+                    SELECT CASE g%
+                        CASE 0 ' TL → mirror X delta to TR
+                            TRANSFORM_HX(1) = TRANSFORM_HX0(1) - (canX! - TRANSFORM_HX0(0))
+                        CASE 1 ' TR → mirror X delta to TL
+                            TRANSFORM_HX(0) = TRANSFORM_HX0(0) - (canX! - TRANSFORM_HX0(1))
+                        CASE 2 ' BR → mirror X delta to BL
+                            TRANSFORM_HX(3) = TRANSFORM_HX0(3) - (canX! - TRANSFORM_HX0(2))
+                        CASE 3 ' BL → mirror X delta to BR
+                            TRANSFORM_HX(2) = TRANSFORM_HX0(2) - (canX! - TRANSFORM_HX0(3))
+                    END SELECT
+                END IF
 
             CASE TRANSFORM_MODE_SCALE
                 ' Scale from opposite corner (axis-aligned rectangle)
@@ -635,6 +667,21 @@ SUB TRANSFORM_mouse_hold (rawX AS INTEGER, rawY AS INTEGER)
                 DIM nMinX AS SINGLE, nMaxX AS SINGLE, nMinY AS SINGLE, nMaxY AS SINGLE
                 IF canX! < opX! THEN nMinX! = canX! : nMaxX! = opX! ELSE nMinX! = opX! : nMaxX! = canX!
                 IF canY! < opY! THEN nMinY! = canY! : nMaxY! = opY! ELSE nMinY! = opY! : nMaxY! = canY!
+                ' SHIFT: lock aspect ratio to original source dimensions
+                IF MODIFIERS.shift% AND TRANSFORM.SRC_W > 0 AND TRANSFORM.SRC_H > 0 THEN
+                    DIM origAspect AS SINGLE : origAspect! = TRANSFORM.SRC_W / TRANSFORM.SRC_H
+                    DIM aspW AS SINGLE, aspH AS SINGLE
+                    aspW! = nMaxX! - nMinX!
+                    aspH! = nMaxY! - nMinY!
+                    ' Constrain to the axis that changed more
+                    IF aspW! / origAspect! < aspH! THEN
+                        aspH! = aspW! / origAspect!
+                    ELSE
+                        aspW! = aspH! * origAspect!
+                    END IF
+                    IF canX! < opX! THEN nMinX! = opX! - aspW! ELSE nMaxX! = opX! + aspW!
+                    IF canY! < opY! THEN nMinY! = opY! - aspH! ELSE nMaxY! = opY! + aspH!
+                END IF
                 TRANSFORM_HX(0) = nMinX! : TRANSFORM_HY(0) = nMinY!
                 TRANSFORM_HX(1) = nMaxX! : TRANSFORM_HY(1) = nMinY!
                 TRANSFORM_HX(2) = nMaxX! : TRANSFORM_HY(2) = nMaxY!
@@ -653,9 +700,17 @@ SUB TRANSFORM_mouse_hold (rawX AS INTEGER, rawY AS INTEGER)
                 origAngle! = _ATAN2(relOY!, relOX!)
                 newAngle!  = _ATAN2(canY! - TRANSFORM_PY, canX! - TRANSFORM_PX)
                 TRANSFORM.ANGLE = (newAngle! - origAngle!) * 57.295779513!
+                ' SHIFT: snap rotation to 15-degree increments
+                DIM deltaAngle AS SINGLE
+                IF MODIFIERS.shift% THEN
+                    TRANSFORM.ANGLE = INT((TRANSFORM.ANGLE / 15.0!) + 0.5!) * 15.0!
+                    deltaAngle! = TRANSFORM.ANGLE * 0.017453292521!   ' degrees to radians
+                ELSE
+                    deltaAngle! = newAngle! - origAngle!
+                END IF
                 DIM ca AS SINGLE, sa AS SINGLE
-                ca! = COS(newAngle! - origAngle!)
-                sa! = SIN(newAngle! - origAngle!)
+                ca! = COS(deltaAngle!)
+                sa! = SIN(deltaAngle!)
                 DIM ri AS INTEGER, rRx AS SINGLE, rRy AS SINGLE
                 FOR ri% = 0 TO 3
                     rRx! = TRANSFORM_HX0(ri%) - TRANSFORM_PX
