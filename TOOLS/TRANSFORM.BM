@@ -1,0 +1,696 @@
+''
+' DRAW - TOOLS/TRANSFORM.BM
+' =============================================================================
+' On-canvas transform modes: Scale, Rotate, Shear, Distort, Perspective.
+' Activated from Edit -> TRANSFORM -> submenu.
+' Handles live on the canvas; ENTER commits, ESC cancels.
+'
+' Coordinate systems used here:
+'   layer coords  = canvas pixel positions (MOUSE.UNSNAPPED_X/Y)
+'   screen coords = SCRN.CANVAS& pixel positions (raw mouse x/y)
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+' =============================================================================
+' PRIVATE HELPERS
+' =============================================================================
+
+''
+' Convert screen (raw) coords to layer (canvas pixel) coords.
+'
+SUB TRANSFORM_raw_to_layer (rawX AS INTEGER, rawY AS INTEGER, layX AS SINGLE, layY AS SINGLE)
+    DIM zw AS LONG, zh AS LONG
+    zw& = SCRN.canvasW& * SCRN.zoom!
+    zh& = SCRN.canvasH& * SCRN.zoom!
+    DIM dx AS INTEGER, dy AS INTEGER
+    dx% = (SCRN.w& - zw&) \ 2 + SCRN.offsetX%
+    dy% = (SCRN.h& - zh&) \ 2 + SCRN.offsetY%
+    layX! = (rawX% - dx%) / SCRN.zoom!
+    layY! = (rawY% - dy%) / SCRN.zoom!
+END SUB
+
+''
+' Convert layer coord to screen coord (for drawing handles).
+'
+SUB TRANSFORM_layer_to_screen (layX AS SINGLE, layY AS SINGLE, scrX AS INTEGER, scrY AS INTEGER)
+    DIM zw AS LONG, zh AS LONG
+    zw& = SCRN.canvasW& * SCRN.zoom!
+    zh& = SCRN.canvasH& * SCRN.zoom!
+    DIM dx AS INTEGER, dy AS INTEGER
+    dx% = (SCRN.w& - zw&) \ 2 + SCRN.offsetX%
+    dy% = (SCRN.h& - zh&) \ 2 + SCRN.offsetY%
+    scrX% = dx% + INT(layX! * SCRN.zoom!)
+    scrY% = dy% + INT(layY! * SCRN.zoom!)
+END SUB
+
+''
+' Hit-test raw mouse position against handle squares.
+' Returns handle index 0-3 or -1.
+'
+FUNCTION TRANSFORM_hittest% (rawX AS INTEGER, rawY AS INTEGER)
+    DIM i AS INTEGER, hsx AS INTEGER, hsy AS INTEGER
+    TRANSFORM_hittest% = -1
+    FOR i% = 0 TO 3
+        TRANSFORM_layer_to_screen TRANSFORM_HX(i%), TRANSFORM_HY(i%), hsx%, hsy%
+        IF ABS(rawX% - hsx%) <= TRANSFORM_HANDLE_RADIUS AND ABS(rawY% - hsy%) <= TRANSFORM_HANDLE_RADIUS THEN
+            TRANSFORM_hittest% = i%
+            EXIT FUNCTION
+        END IF
+    NEXT i%
+END FUNCTION
+
+''
+' Free the cached preview image.
+'
+SUB TRANSFORM_free_preview ()
+    IF TRANSFORM_PREVIEW_IMG < -1 THEN _FREEIMAGE TRANSFORM_PREVIEW_IMG
+    TRANSFORM_PREVIEW_IMG = 0
+    TRANSFORM_PREVIEW_DIRTY = TRUE
+END SUB
+
+''
+' Check whether a point (ox,oy) is inside triangle (ax,ay)-(bx,by)-(cx,cy).
+'
+FUNCTION TRANSFORM_in_triangle% (ox AS SINGLE, oy AS SINGLE, ax AS SINGLE, ay AS SINGLE, bx AS SINGLE, by AS SINGLE, cx AS SINGLE, cy AS SINGLE)
+    DIM d0 AS SINGLE, d1 AS SINGLE, d2 AS SINGLE
+    DIM hn AS INTEGER, hp AS INTEGER
+    d0! = (bx! - ax!) * (oy! - ay!) - (by! - ay!) * (ox! - ax!)
+    d1! = (cx! - bx!) * (oy! - by!) - (cy! - by!) * (ox! - bx!)
+    d2! = (ax! - cx!) * (oy! - cy!) - (ay! - cy!) * (ox! - cx!)
+    hn% = (d0! < 0.0!) OR (d1! < 0.0!) OR (d2! < 0.0!)
+    hp% = (d0! > 0.0!) OR (d1! > 0.0!) OR (d2! > 0.0!)
+    TRANSFORM_in_triangle% = NOT (hn% AND hp%)
+END FUNCTION
+
+''
+' Solve 8x8 DLT system for projective homography (dst->src inverse).
+' dxArr/dyArr = destination corners, sxArr/syArr = source corners.
+' Result placed in hArr(0..7). Returns TRUE on success.
+'
+FUNCTION TRANSFORM_solve_homography% (dxArr() AS SINGLE, dyArr() AS SINGLE, sxArr() AS SINGLE, syArr() AS SINGLE, hArr() AS SINGLE)
+    TRANSFORM_solve_homography% = FALSE
+    DIM aug(0 TO 7, 0 TO 8) AS SINGLE
+    DIM i AS INTEGER, j AS INTEGER, k AS INTEGER
+    DIM pivRow AS INTEGER
+    DIM maxVal AS SINGLE, factor AS SINGLE, tmp AS SINGLE
+    DIM dx AS SINGLE, dy AS SINGLE, sx AS SINGLE, sy AS SINGLE
+    FOR i% = 0 TO 3
+        dx! = dxArr(i%) : dy! = dyArr(i%) : sx! = sxArr(i%) : sy! = syArr(i%)
+        aug(2*i%,   0) = dx!  : aug(2*i%,   1) = dy!  : aug(2*i%,   2) = 1.0!
+        aug(2*i%,   3) = 0.0! : aug(2*i%,   4) = 0.0! : aug(2*i%,   5) = 0.0!
+        aug(2*i%,   6) = -dx! * sx! : aug(2*i%,   7) = -dy! * sx! : aug(2*i%,   8) = sx!
+        aug(2*i%+1, 0) = 0.0! : aug(2*i%+1, 1) = 0.0! : aug(2*i%+1, 2) = 0.0!
+        aug(2*i%+1, 3) = dx!  : aug(2*i%+1, 4) = dy!  : aug(2*i%+1, 5) = 1.0!
+        aug(2*i%+1, 6) = -dx! * sy! : aug(2*i%+1, 7) = -dy! * sy! : aug(2*i%+1, 8) = sy!
+    NEXT i%
+    FOR k% = 0 TO 7
+        maxVal! = ABS(aug(k%, k%)) : pivRow% = k%
+        FOR i% = k% + 1 TO 7
+            IF ABS(aug(i%, k%)) > maxVal! THEN maxVal! = ABS(aug(i%, k%)) : pivRow% = i%
+        NEXT i%
+        IF maxVal! < 0.0000000001 THEN EXIT FUNCTION
+        IF pivRow% <> k% THEN
+            FOR j% = 0 TO 8
+                tmp! = aug(k%, j%) : aug(k%, j%) = aug(pivRow%, j%) : aug(pivRow%, j%) = tmp!
+            NEXT j%
+        END IF
+        FOR i% = k% + 1 TO 7
+            factor! = aug(i%, k%) / aug(k%, k%)
+            FOR j% = k% TO 8
+                aug(i%, j%) = aug(i%, j%) - factor! * aug(k%, j%)
+            NEXT j%
+        NEXT i%
+    NEXT k%
+    FOR i% = 7 TO 0 STEP -1
+        hArr(i%) = aug(i%, 8)
+        FOR j% = i% + 1 TO 7
+            hArr(i%) = hArr(i%) - aug(i%, j%) * hArr(j%)
+        NEXT j%
+        hArr(i%) = hArr(i%) / aug(i%, i%)
+    NEXT i%
+    TRANSFORM_solve_homography% = TRUE
+END FUNCTION
+
+''
+' Compute the warped preview image from current handle positions and store in
+' TRANSFORM_PREVIEW_IMG.  Bounding-box origin stored in TRANSFORM_PREVIEW_OX/OY.
+'
+SUB TRANSFORM_compute_preview ()
+    TRANSFORM_free_preview
+    IF NOT TRANSFORM.ACTIVE THEN EXIT SUB
+    IF TRANSFORM.SRC_IMG >= -1 THEN EXIT SUB
+
+    DIM sw AS INTEGER : sw% = TRANSFORM.SRC_W
+    DIM sh AS INTEGER : sh% = TRANSFORM.SRC_H
+
+    ' Compute bounding box of destination quad in layer coordinates
+    DIM minX AS SINGLE, maxX AS SINGLE, minY AS SINGLE, maxY AS SINGLE
+    DIM i AS INTEGER
+    minX! = TRANSFORM_HX(0) : maxX! = TRANSFORM_HX(0)
+    minY! = TRANSFORM_HY(0) : maxY! = TRANSFORM_HY(0)
+    FOR i% = 1 TO 3
+        IF TRANSFORM_HX(i%) < minX! THEN minX! = TRANSFORM_HX(i%)
+        IF TRANSFORM_HX(i%) > maxX! THEN maxX! = TRANSFORM_HX(i%)
+        IF TRANSFORM_HY(i%) < minY! THEN minY! = TRANSFORM_HY(i%)
+        IF TRANSFORM_HY(i%) > maxY! THEN maxY! = TRANSFORM_HY(i%)
+    NEXT i%
+    DIM bbX AS INTEGER, bbY AS INTEGER, bbW AS INTEGER, bbH AS INTEGER
+    bbX% = INT(minX!) : bbY% = INT(minY!)
+    bbW% = INT(maxX!) - bbX% + 2
+    bbH% = INT(maxY!) - bbY% + 2
+    IF bbX% < 0 THEN bbX% = 0
+    IF bbY% < 0 THEN bbY% = 0
+    IF bbX% + bbW% > SCRN.canvasW& THEN bbW% = SCRN.canvasW& - bbX%
+    IF bbY% + bbH% > SCRN.canvasH& THEN bbH% = SCRN.canvasH& - bbY%
+    IF bbW% <= 0 OR bbH% <= 0 THEN EXIT SUB
+
+    TRANSFORM_PREVIEW_OX% = bbX%
+    TRANSFORM_PREVIEW_OY% = bbY%
+
+    ' Destination corners relative to bounding-box origin
+    DIM dc0x AS SINGLE, dc0y AS SINGLE, dc1x AS SINGLE, dc1y AS SINGLE
+    DIM dc2x AS SINGLE, dc2y AS SINGLE, dc3x AS SINGLE, dc3y AS SINGLE
+    dc0x! = TRANSFORM_HX(0) - bbX% : dc0y! = TRANSFORM_HY(0) - bbY%
+    dc1x! = TRANSFORM_HX(1) - bbX% : dc1y! = TRANSFORM_HY(1) - bbY%
+    dc2x! = TRANSFORM_HX(2) - bbX% : dc2y! = TRANSFORM_HY(2) - bbY%
+    dc3x! = TRANSFORM_HX(3) - bbX% : dc3y! = TRANSFORM_HY(3) - bbY%
+
+    ' Source corners (SRC_IMG local coords)
+    DIM sc0x AS SINGLE, sc0y AS SINGLE, sc1x AS SINGLE, sc1y AS SINGLE
+    DIM sc2x AS SINGLE, sc2y AS SINGLE, sc3x AS SINGLE, sc3y AS SINGLE
+    sc0x! = 0.0!         : sc0y! = 0.0!
+    sc1x! = sw% - 1.0!   : sc1y! = 0.0!
+    sc2x! = sw% - 1.0!   : sc2y! = sh% - 1.0!
+    sc3x! = 0.0!         : sc3y! = sh% - 1.0!
+
+    ' Allocate result image
+    TRANSFORM_PREVIEW_IMG = _NEWIMAGE(bbW%, bbH%, 32)
+    IF TRANSFORM_PREVIEW_IMG >= -1 THEN EXIT SUB
+    _DONTBLEND TRANSFORM_PREVIEW_IMG
+
+    DIM srcMem AS _MEM : srcMem = _MEMIMAGE(TRANSFORM.SRC_IMG)
+    DIM dstMem AS _MEM : dstMem = _MEMIMAGE(TRANSFORM_PREVIEW_IMG)
+    DIM transparent AS _UNSIGNED LONG : transparent = _RGBA32(0, 0, 0, 0)
+
+    IF TRANSFORM.MODE = TRANSFORM_MODE_PERSPECTIVE THEN
+        ' Full projective homography inverse
+        DIM dxArr(0 TO 3) AS SINGLE, dyArr(0 TO 3) AS SINGLE
+        DIM sxArr(0 TO 3) AS SINGLE, syArr(0 TO 3) AS SINGLE
+        DIM hArr(0 TO 7) AS SINGLE
+        dxArr(0) = dc0x! : dyArr(0) = dc0y! : sxArr(0) = sc0x! : syArr(0) = sc0y!
+        dxArr(1) = dc1x! : dyArr(1) = dc1y! : sxArr(1) = sc1x! : syArr(1) = sc1y!
+        dxArr(2) = dc2x! : dyArr(2) = dc2y! : sxArr(2) = sc2x! : syArr(2) = sc2y!
+        dxArr(3) = dc3x! : dyArr(3) = dc3y! : sxArr(3) = sc3x! : syArr(3) = sc3y!
+        IF TRANSFORM_solve_homography%(dxArr(), dyArr(), sxArr(), syArr(), hArr()) THEN
+            DIM hox AS LONG, hoy AS LONG, hDenom AS SINGLE
+            DIM hSrcX AS SINGLE, hSrcY AS SINGLE
+            DIM hSix AS LONG, hSiy AS LONG, hPx AS _UNSIGNED LONG
+            FOR hoy& = 0 TO bbH% - 1
+                FOR hox& = 0 TO bbW% - 1
+                    hDenom! = hArr(6) * hox& + hArr(7) * hoy& + 1.0!
+                    IF hDenom! <> 0.0! THEN
+                        hSrcX! = (hArr(0) * hox& + hArr(1) * hoy& + hArr(2)) / hDenom!
+                        hSrcY! = (hArr(3) * hox& + hArr(4) * hoy& + hArr(5)) / hDenom!
+                        hSix& = INT(hSrcX! + 0.5!)
+                        hSiy& = INT(hSrcY! + 0.5!)
+                        IF hSix& >= 0 AND hSix& < sw% AND hSiy& >= 0 AND hSiy& < sh% THEN
+                            _MEMGET srcMem, srcMem.OFFSET + (hSiy& * sw% + hSix&) * 4, hPx~&
+                        ELSE
+                            hPx~& = transparent~&
+                        END IF
+                    ELSE
+                        hPx~& = transparent~&
+                    END IF
+                    _MEMPUT dstMem, dstMem.OFFSET + (hoy& * bbW% + hox&) * 4, hPx~&
+                NEXT hox&
+            NEXT hoy&
+        END IF
+    ELSE
+        ' Per-triangle affine (covers Scale, Rotate, Shear, Distort)
+        ' Triangle A: dst (0,1,2) -> src (TL,TR,BR)
+        DIM adx1 AS SINGLE, ady1 AS SINGLE, adx2 AS SINGLE, ady2 AS SINGLE
+        DIM asx1 AS SINGLE, asy1 AS SINGLE, asx2 AS SINGLE, asy2 AS SINGLE
+        DIM detA AS SINGLE
+        DIM a00A AS SINGLE, a01A AS SINGLE, a10A AS SINGLE, a11A AS SINGLE, t0A AS SINGLE, t1A AS SINGLE
+        adx1! = dc1x! - dc0x! : ady1! = dc1y! - dc0y!
+        adx2! = dc2x! - dc0x! : ady2! = dc2y! - dc0y!
+        asx1! = sc1x! - sc0x! : asy1! = sc1y! - sc0y!
+        asx2! = sc2x! - sc0x! : asy2! = sc2y! - sc0y!
+        detA! = adx1! * ady2! - adx2! * ady1!
+        IF ABS(detA!) > 0.0001! THEN
+            a00A! = (asx1! * ady2! - asx2! * ady1!) / detA!
+            a01A! = (asx2! * adx1! - asx1! * adx2!) / detA!
+            a10A! = (asy1! * ady2! - asy2! * ady1!) / detA!
+            a11A! = (asy2! * adx1! - asy1! * adx2!) / detA!
+            t0A!  = sc0x! - a00A! * dc0x! - a01A! * dc0y!
+            t1A!  = sc0y! - a10A! * dc0x! - a11A! * dc0y!
+        END IF
+        ' Triangle B: dst (0,2,3) -> src (TL,BR,BL)
+        DIM bdx1 AS SINGLE, bdy1 AS SINGLE, bdx2 AS SINGLE, bdy2 AS SINGLE
+        DIM bsx1 AS SINGLE, bsy1 AS SINGLE, bsx2 AS SINGLE, bsy2 AS SINGLE
+        DIM detB AS SINGLE
+        DIM a00B AS SINGLE, a01B AS SINGLE, a10B AS SINGLE, a11B AS SINGLE, t0B AS SINGLE, t1B AS SINGLE
+        bdx1! = dc2x! - dc0x! : bdy1! = dc2y! - dc0y!
+        bdx2! = dc3x! - dc0x! : bdy2! = dc3y! - dc0y!
+        bsx1! = sc2x! - sc0x! : bsy1! = sc2y! - sc0y!
+        bsx2! = sc3x! - sc0x! : bsy2! = sc3y! - sc0y!
+        detB! = bdx1! * bdy2! - bdx2! * bdy1!
+        IF ABS(detB!) > 0.0001! THEN
+            a00B! = (bsx1! * bdy2! - bsx2! * bdy1!) / detB!
+            a01B! = (bsx2! * bdx1! - bsx1! * bdx2!) / detB!
+            a10B! = (bsy1! * bdy2! - bsy2! * bdy1!) / detB!
+            a11B! = (bsy2! * bdx1! - bsy1! * bdx2!) / detB!
+            t0B!  = sc0x! - a00B! * dc0x! - a01B! * dc0y!
+            t1B!  = sc0y! - a10B! * dc0x! - a11B! * dc0y!
+        END IF
+
+        DIM aox AS LONG, aoy AS LONG
+        DIM aSrcX AS SINGLE, aSrcY AS SINGLE
+        DIM aSix AS LONG, aSiy AS LONG
+        DIM aPx AS _UNSIGNED LONG, inA AS INTEGER
+        FOR aoy& = 0 TO bbH% - 1
+            FOR aox& = 0 TO bbW% - 1
+                inA% = TRANSFORM_in_triangle%(CSNG(aox&), CSNG(aoy&), dc0x!, dc0y!, dc1x!, dc1y!, dc2x!, dc2y!)
+                IF inA% THEN
+                    aSrcX! = a00A! * aox& + a01A! * aoy& + t0A!
+                    aSrcY! = a10A! * aox& + a11A! * aoy& + t1A!
+                ELSE
+                    aSrcX! = a00B! * aox& + a01B! * aoy& + t0B!
+                    aSrcY! = a10B! * aox& + a11B! * aoy& + t1B!
+                END IF
+                aSix& = INT(aSrcX! + 0.5!)
+                aSiy& = INT(aSrcY! + 0.5!)
+                IF aSix& >= 0 AND aSix& < sw% AND aSiy& >= 0 AND aSiy& < sh% THEN
+                    _MEMGET srcMem, srcMem.OFFSET + (aSiy& * sw% + aSix&) * 4, aPx~&
+                ELSE
+                    aPx~& = transparent~&
+                END IF
+                _MEMPUT dstMem, dstMem.OFFSET + (aoy& * bbW% + aox&) * 4, aPx~&
+            NEXT aox&
+        NEXT aoy&
+    END IF
+
+    _MEMFREE srcMem
+    _MEMFREE dstMem
+    _BLEND TRANSFORM_PREVIEW_IMG
+    TRANSFORM_PREVIEW_DIRTY = FALSE
+END SUB
+
+' =============================================================================
+' PUBLIC API
+' =============================================================================
+
+''
+' Activate an on-canvas transform mode.
+' Captures the current layer (or marquee selection) as SRC_IMG, places handles.
+'
+SUB TRANSFORM_activate (mode AS INTEGER)
+    IF CURRENT_LAYER% < 1 THEN EXIT SUB
+    IF TRANSFORM.ACTIVE THEN TRANSFORM_cancel
+    _LOGINFO "TRANSFORM_activate: mode=" + STR$(mode%) + " layer=" + STR$(CURRENT_LAYER%)
+
+    IF SELECTION_has_active% THEN
+        TRANSFORM.SRC_X = MARQUEE.BOX.x : TRANSFORM.SRC_Y = MARQUEE.BOX.y
+        TRANSFORM.SRC_W = MARQUEE.BOX.w : TRANSFORM.SRC_H = MARQUEE.BOX.h
+    ELSE
+        ' Scan layer for opaque pixel bounding box
+        DIM scanMem AS _MEM : scanMem = _MEMIMAGE(LAYERS(CURRENT_LAYER%).imgHandle&)
+        DIM scanW AS INTEGER, scanH AS INTEGER
+        scanW% = _WIDTH(LAYERS(CURRENT_LAYER%).imgHandle&)
+        scanH% = _HEIGHT(LAYERS(CURRENT_LAYER%).imgHandle&)
+        DIM oMinX AS INTEGER, oMinY AS INTEGER, oMaxX AS INTEGER, oMaxY AS INTEGER
+        oMinX% = scanW% : oMinY% = scanH% : oMaxX% = -1 : oMaxY% = -1
+        DIM scanX AS INTEGER, scanY AS INTEGER
+        DIM scanPx AS _UNSIGNED LONG
+        FOR scanY% = 0 TO scanH% - 1
+            FOR scanX% = 0 TO scanW% - 1
+                _MEMGET scanMem, scanMem.OFFSET + (scanY% * scanW% + scanX%) * 4, scanPx~&
+                IF _ALPHA32(scanPx~&) > 0 THEN
+                    IF scanX% < oMinX% THEN oMinX% = scanX%
+                    IF scanX% > oMaxX% THEN oMaxX% = scanX%
+                    IF scanY% < oMinY% THEN oMinY% = scanY%
+                    IF scanY% > oMaxY% THEN oMaxY% = scanY%
+                END IF
+            NEXT scanX%
+        NEXT scanY%
+        _MEMFREE scanMem
+        IF oMaxX% < 0 THEN
+            _LOGINFO "TRANSFORM_activate: layer entirely transparent, aborting"
+            EXIT SUB  ' Entirely transparent layer
+        END IF
+        _LOGINFO "TRANSFORM_activate: opaque bbox (" + STR$(oMinX%) + "," + STR$(oMinY%) + ")-(" + STR$(oMaxX%) + "," + STR$(oMaxY%) + ")"
+        TRANSFORM.SRC_X = oMinX% : TRANSFORM.SRC_Y = oMinY%
+        TRANSFORM.SRC_W = oMaxX% - oMinX% + 1 : TRANSFORM.SRC_H = oMaxY% - oMinY% + 1
+    END IF
+    IF TRANSFORM.SRC_W <= 0 OR TRANSFORM.SRC_H <= 0 THEN EXIT SUB
+
+    ' Capture source pixels
+    TRANSFORM.SRC_IMG = _NEWIMAGE(TRANSFORM.SRC_W, TRANSFORM.SRC_H, 32)
+    IF TRANSFORM.SRC_IMG >= -1 THEN EXIT SUB
+    DIM oldDst AS LONG : oldDst& = _DEST
+    _DONTBLEND TRANSFORM.SRC_IMG
+    _PUTIMAGE (0,0)-(TRANSFORM.SRC_W-1, TRANSFORM.SRC_H-1), LAYERS(CURRENT_LAYER%).imgHandle&, TRANSFORM.SRC_IMG, _
+        (TRANSFORM.SRC_X, TRANSFORM.SRC_Y)-(TRANSFORM.SRC_X+TRANSFORM.SRC_W-1, TRANSFORM.SRC_Y+TRANSFORM.SRC_H-1)
+    _BLEND TRANSFORM.SRC_IMG
+    _DEST oldDst&
+
+    ' Initial handle positions = source rect corners (layer coords TL=0 TR=1 BR=2 BL=3)
+    TRANSFORM_HX(0) = TRANSFORM.SRC_X
+    TRANSFORM_HY(0) = TRANSFORM.SRC_Y
+    TRANSFORM_HX(1) = TRANSFORM.SRC_X + TRANSFORM.SRC_W - 1
+    TRANSFORM_HY(1) = TRANSFORM.SRC_Y
+    TRANSFORM_HX(2) = TRANSFORM.SRC_X + TRANSFORM.SRC_W - 1
+    TRANSFORM_HY(2) = TRANSFORM.SRC_Y + TRANSFORM.SRC_H - 1
+    TRANSFORM_HX(3) = TRANSFORM.SRC_X
+    TRANSFORM_HY(3) = TRANSFORM.SRC_Y + TRANSFORM.SRC_H - 1
+    TRANSFORM_PX = TRANSFORM.SRC_X + TRANSFORM.SRC_W * 0.5!
+    TRANSFORM_PY = TRANSFORM.SRC_Y + TRANSFORM.SRC_H * 0.5!
+
+    TRANSFORM.MODE    = mode
+    TRANSFORM.ACTIVE  = TRUE
+    TRANSFORM.GRABBED = -1
+    TRANSFORM.ANGLE   = 0.0!
+    TRANSFORM.SCALE_X = 1.0!
+    TRANSFORM.SCALE_Y = 1.0!
+    TRANSFORM.PREV_TOOL = CURRENT_TOOL%
+
+    TRANSFORM_PREVIEW_IMG   = 0
+    TRANSFORM_PREVIEW_DIRTY = TRUE
+
+    SOUND_play SND_SELECTION
+    SCENE_DIRTY%       = TRUE
+    FRAME_IDLE%        = FALSE
+    GUI_NEEDS_REDRAW%  = TRUE
+    _LOGINFO "TRANSFORM_activate: SRC region (" + STR$(TRANSFORM.SRC_X) + "," + STR$(TRANSFORM.SRC_Y) + ") " + STR$(TRANSFORM.SRC_W) + "x" + STR$(TRANSFORM.SRC_H)
+END SUB
+
+''
+' Cancel: discard transform without touching the layer.
+'
+SUB TRANSFORM_cancel ()
+    IF NOT TRANSFORM.ACTIVE THEN EXIT SUB
+    _LOGINFO "TRANSFORM_cancel: clearing state"
+    IF TRANSFORM.SRC_IMG < -1 THEN _FREEIMAGE TRANSFORM.SRC_IMG
+    TRANSFORM.SRC_IMG = 0
+    TRANSFORM_free_preview
+    TRANSFORM.ACTIVE  = FALSE
+    TRANSFORM.GRABBED = -1
+    ' Force full re-render by destroying scene cache (wipes all overlay artifacts)
+    IF SCENE_CACHE& < -1 THEN _FREEIMAGE SCENE_CACHE&
+    SCENE_CACHE& = 0
+    SCENE_DIRTY%      = TRUE
+    FRAME_IDLE%       = FALSE
+    GUI_NEEDS_REDRAW% = TRUE
+END SUB
+
+''
+' Commit: save undo state, erase source region, blit warped result onto layer.
+'
+SUB TRANSFORM_commit ()
+    IF NOT TRANSFORM.ACTIVE THEN EXIT SUB
+    IF TRANSFORM.SRC_IMG >= -1 THEN TRANSFORM_cancel : EXIT SUB
+
+    ' Final-quality warp
+    TRANSFORM_PREVIEW_DIRTY = TRUE
+    TRANSFORM_compute_preview
+    IF TRANSFORM_PREVIEW_IMG >= -1 THEN TRANSFORM_cancel : EXIT SUB
+
+    UNDO_save_state
+
+    DIM layImg AS LONG : layImg& = LAYERS(CURRENT_LAYER%).imgHandle&
+    DIM oldDst AS LONG : oldDst& = _DEST
+    _DEST layImg&
+    _DONTBLEND layImg&
+    LINE (TRANSFORM.SRC_X, TRANSFORM.SRC_Y)-(TRANSFORM.SRC_X + TRANSFORM.SRC_W - 1, TRANSFORM.SRC_Y + TRANSFORM.SRC_H - 1), _RGBA32(0,0,0,0), BF
+    _BLEND layImg&
+    _PUTIMAGE (TRANSFORM_PREVIEW_OX%, TRANSFORM_PREVIEW_OY%), TRANSFORM_PREVIEW_IMG, layImg&
+    _DEST oldDst&
+
+    LAYERS(CURRENT_LAYER%).contentDirty% = TRUE
+    BLEND_invalidate_cache
+    CANVAS_DIRTY% = TRUE
+
+    IF TRANSFORM.SRC_IMG < -1 THEN _FREEIMAGE TRANSFORM.SRC_IMG
+    TRANSFORM.SRC_IMG = 0
+    TRANSFORM_free_preview
+
+    TRANSFORM.ACTIVE  = FALSE
+    TRANSFORM.GRABBED = -1
+    ' Force full re-render by destroying scene cache (wipes all overlay artifacts)
+    IF SCENE_CACHE& < -1 THEN _FREEIMAGE SCENE_CACHE&
+    SCENE_CACHE& = 0
+    SCENE_DIRTY%      = TRUE
+    FRAME_IDLE%       = FALSE
+    GUI_NEEDS_REDRAW% = TRUE
+END SUB
+
+''
+' Render the transform overlay onto SCRN.CANVAS&:
+'   - dark tint over source region
+'   - warped preview image
+'   - quad outline connecting handles
+'   - handle squares (highlighted when grabbed)
+'   - status bar hint text
+'
+SUB TRANSFORM_render_overlay ()
+    IF NOT TRANSFORM.ACTIVE THEN EXIT SUB
+
+    STATIC renderCount AS LONG
+    renderCount& = renderCount& + 1
+    IF renderCount& MOD 60 = 1 THEN
+        _LOGINFO "TRANSFORM_render_overlay: frame=" + STR$(renderCount&) + " grabbed=" + STR$(TRANSFORM.GRABBED) + " preview_dirty=" + STR$(TRANSFORM_PREVIEW_DIRTY)
+    END IF
+
+    DIM oldDst AS LONG : oldDst& = _DEST
+
+    DIM zw AS LONG, zh AS LONG
+    zw& = SCRN.canvasW& * SCRN.zoom!
+    zh& = SCRN.canvasH& * SCRN.zoom!
+    DIM sdx AS INTEGER, sdy AS INTEGER
+    sdx% = (SCRN.w& - zw&) \ 2 + SCRN.offsetX%
+    sdy% = (SCRN.h& - zh&) \ 2 + SCRN.offsetY%
+
+    _DEST SCRN.CANVAS&
+    _BLEND SCRN.CANVAS&
+
+    ' Canvas bounds (screen coords)
+    DIM cx1 AS INTEGER, cy1 AS INTEGER, cx2 AS INTEGER, cy2 AS INTEGER
+    cx1% = sdx% : cy1% = sdy%
+    cx2% = sdx% + zw& - 1 : cy2% = sdy% + zh& - 1
+
+    ' 1. Dark tint over ENTIRE canvas (matching IMAGE_IMPORT pattern)
+    '    This provides uniform visual separation between background and preview
+    LINE (cx1%, cy1%)-(cx2%, cy2%), _RGBA32(0, 0, 0, 100), BF
+
+    ' 2. Warped preview
+    IF TRANSFORM_PREVIEW_DIRTY THEN TRANSFORM_compute_preview
+    IF TRANSFORM_PREVIEW_IMG < -1 THEN
+        DIM px1 AS INTEGER, py1 AS INTEGER, px2 AS INTEGER, py2 AS INTEGER
+        px1% = sdx% + INT(TRANSFORM_PREVIEW_OX% * SCRN.zoom!)
+        py1% = sdy% + INT(TRANSFORM_PREVIEW_OY% * SCRN.zoom!)
+        px2% = sdx% + INT((TRANSFORM_PREVIEW_OX% + _WIDTH(TRANSFORM_PREVIEW_IMG)) * SCRN.zoom!) - 1
+        py2% = sdy% + INT((TRANSFORM_PREVIEW_OY% + _HEIGHT(TRANSFORM_PREVIEW_IMG)) * SCRN.zoom!) - 1
+        _PUTIMAGE (px1%, py1%)-(px2%, py2%), TRANSFORM_PREVIEW_IMG, SCRN.CANVAS&
+    END IF
+
+    ' 3. Quad outline (drawn freely — pre-cache rendering means CLS cleans each frame)
+    DIM hsx(3) AS INTEGER, hsy(3) AS INTEGER, i AS INTEGER
+    FOR i% = 0 TO 3
+        hsx(i%) = sdx% + INT(TRANSFORM_HX(i%) * SCRN.zoom!)
+        hsy(i%) = sdy% + INT(TRANSFORM_HY(i%) * SCRN.zoom!)
+    NEXT i%
+    COLOR _RGB32(180, 220, 255)
+    LINE (hsx(0), hsy(0))-(hsx(1), hsy(1))
+    LINE (hsx(1), hsy(1))-(hsx(2), hsy(2))
+    LINE (hsx(2), hsy(2))-(hsx(3), hsy(3))
+    LINE (hsx(3), hsy(3))-(hsx(0), hsy(0))
+
+    ' 4. Handle squares (drawn freely at handle positions, full-size)
+    DIM hClr AS _UNSIGNED LONG, hOtl AS _UNSIGNED LONG
+    hOtl~& = _RGB32(30, 30, 30)
+    FOR i% = 0 TO 3
+        IF i% = TRANSFORM.GRABBED THEN
+            hClr~& = _RGB32(255, 210, 50)
+        ELSE
+            hClr~& = _RGB32(200, 230, 255)
+        END IF
+        LINE (hsx(i%) - TRANSFORM_HANDLE_HALF, hsy(i%) - TRANSFORM_HANDLE_HALF)-(hsx(i%) + TRANSFORM_HANDLE_HALF, hsy(i%) + TRANSFORM_HANDLE_HALF), hClr~&, BF
+        LINE (hsx(i%) - TRANSFORM_HANDLE_HALF, hsy(i%) - TRANSFORM_HANDLE_HALF)-(hsx(i%) + TRANSFORM_HANDLE_HALF, hsy(i%) + TRANSFORM_HANDLE_HALF), hOtl~&, B
+    NEXT i%
+
+    _DEST oldDst&
+END SUB
+
+''
+' Render transform status bar hint (called from contextual status bars section).
+'
+SUB TRANSFORM_render_status (canvas AS LONG)
+    IF NOT TRANSFORM.ACTIVE THEN EXIT SUB
+    DIM modeLabel AS STRING
+    SELECT CASE TRANSFORM.MODE
+        CASE TRANSFORM_MODE_SCALE       : modeLabel$ = "SCALE"
+        CASE TRANSFORM_MODE_ROTATE      : modeLabel$ = "ROTATE"
+        CASE TRANSFORM_MODE_SHEAR       : modeLabel$ = "SHEAR"
+        CASE TRANSFORM_MODE_DISTORT     : modeLabel$ = "DISTORT"
+        CASE TRANSFORM_MODE_PERSPECTIVE : modeLabel$ = "PERSPECTIVE"
+        CASE ELSE                       : modeLabel$ = "TRANSFORM"
+    END SELECT
+    DIM hint AS STRING
+    hint$ = modeLabel$ + "  |  Drag corners  |  ENTER: Apply  |  ESC: Cancel"
+    IF SCRN.showStatus% THEN
+        DIM sbY AS INTEGER
+        sbY% = SCRN.h& - THEME.STATUS_height% - PALETTE_STRIP_get_height% + 2
+        _DEST canvas&
+        LINE (0, sbY% - 1)-(SCRN.w& - 1, sbY% + THEME.STATUS_height%), _RGBA32(20,20,20,220), BF
+        COLOR _RGB32(200, 230, 255), _RGBA32(0,0,0,0)
+        _PRINTSTRING (6, sbY% + 2), hint$
+    END IF
+END SUB
+
+''
+' Handle mouse PRESS while transform is active.
+'
+SUB TRANSFORM_mouse_press (rawX AS INTEGER, rawY AS INTEGER)
+    IF NOT TRANSFORM.ACTIVE THEN EXIT SUB
+
+    DIM grabbed AS INTEGER
+    grabbed% = TRANSFORM_hittest%(rawX%, rawY%)
+    TRANSFORM.GRABBED = grabbed%
+    _LOGINFO "TRANSFORM_mouse_press: raw=(" + STR$(rawX%) + "," + STR$(rawY%) + ") grabbed=" + STR$(grabbed%)
+
+    DIM i AS INTEGER
+    IF grabbed% >= 0 THEN
+        ' Snapshot handle positions for constrained modes
+        FOR i% = 0 TO 3
+            TRANSFORM_HX0(i%) = TRANSFORM_HX(i%)
+            TRANSFORM_HY0(i%) = TRANSFORM_HY(i%)
+        NEXT i%
+        TRANSFORM.DRAG_OFX = 0.0! : TRANSFORM.DRAG_OFY = 0.0!
+    ELSE
+        ' Check for body drag (click inside bounding box of handles)
+        DIM canX AS SINGLE, canY AS SINGLE
+        TRANSFORM_raw_to_layer rawX%, rawY%, canX!, canY!
+        DIM minHX AS SINGLE, maxHX AS SINGLE, minHY AS SINGLE, maxHY AS SINGLE
+        minHX! = TRANSFORM_HX(0) : maxHX! = TRANSFORM_HX(0)
+        minHY! = TRANSFORM_HY(0) : maxHY! = TRANSFORM_HY(0)
+        FOR i% = 1 TO 3
+            IF TRANSFORM_HX(i%) < minHX! THEN minHX! = TRANSFORM_HX(i%)
+            IF TRANSFORM_HX(i%) > maxHX! THEN maxHX! = TRANSFORM_HX(i%)
+            IF TRANSFORM_HY(i%) < minHY! THEN minHY! = TRANSFORM_HY(i%)
+            IF TRANSFORM_HY(i%) > maxHY! THEN maxHY! = TRANSFORM_HY(i%)
+        NEXT i%
+        IF canX! >= minHX! - 4.0! AND canX! <= maxHX! + 4.0! AND canY! >= minHY! - 4.0! AND canY! <= maxHY! + 4.0! THEN
+            TRANSFORM.GRABBED = 4
+            TRANSFORM.DRAG_OFX = canX! - TRANSFORM_HX(0)
+            TRANSFORM.DRAG_OFY = canY! - TRANSFORM_HY(0)
+            FOR i% = 0 TO 3
+                TRANSFORM_HX0(i%) = TRANSFORM_HX(i%)
+                TRANSFORM_HY0(i%) = TRANSFORM_HY(i%)
+            NEXT i%
+            ' Snapshot pivot so body-drag doesn't accumulate offset per frame
+            TRANSFORM_PX0 = TRANSFORM_PX
+            TRANSFORM_PY0 = TRANSFORM_PY
+        END IF
+    END IF
+END SUB
+
+''
+' Handle mouse HOLD while transform is active.
+'
+SUB TRANSFORM_mouse_hold (rawX AS INTEGER, rawY AS INTEGER)
+    IF NOT TRANSFORM.ACTIVE THEN EXIT SUB
+    IF TRANSFORM.GRABBED < 0 THEN EXIT SUB
+
+    DIM canX AS SINGLE, canY AS SINGLE
+    TRANSFORM_raw_to_layer rawX%, rawY%, canX!, canY!
+
+    IF TRANSFORM.GRABBED = 4 THEN
+        ' Body drag: translate all handles equally
+        DIM dX AS SINGLE, dY AS SINGLE
+        dX! = canX! - TRANSFORM.DRAG_OFX - TRANSFORM_HX0(0)
+        dY! = canY! - TRANSFORM.DRAG_OFY - TRANSFORM_HY0(0)
+        DIM i AS INTEGER
+        FOR i% = 0 TO 3
+            TRANSFORM_HX(i%) = TRANSFORM_HX0(i%) + dX!
+            TRANSFORM_HY(i%) = TRANSFORM_HY0(i%) + dY!
+        NEXT i%
+        TRANSFORM_PX = TRANSFORM_PX0 + dX!
+        TRANSFORM_PY = TRANSFORM_PY0 + dY!
+    ELSE
+        DIM g AS INTEGER : g% = TRANSFORM.GRABBED
+
+        SELECT CASE TRANSFORM.MODE
+
+            CASE TRANSFORM_MODE_DISTORT, TRANSFORM_MODE_PERSPECTIVE
+                TRANSFORM_HX(g%) = canX!
+                TRANSFORM_HY(g%) = canY!
+
+            CASE TRANSFORM_MODE_SCALE
+                ' Scale from opposite corner (axis-aligned rectangle)
+                DIM opp AS INTEGER : opp% = (g% + 2) MOD 4
+                DIM opX AS SINGLE, opY AS SINGLE
+                opX! = TRANSFORM_HX0(opp%) : opY! = TRANSFORM_HY0(opp%)
+                DIM nMinX AS SINGLE, nMaxX AS SINGLE, nMinY AS SINGLE, nMaxY AS SINGLE
+                IF canX! < opX! THEN nMinX! = canX! : nMaxX! = opX! ELSE nMinX! = opX! : nMaxX! = canX!
+                IF canY! < opY! THEN nMinY! = canY! : nMaxY! = opY! ELSE nMinY! = opY! : nMaxY! = canY!
+                TRANSFORM_HX(0) = nMinX! : TRANSFORM_HY(0) = nMinY!
+                TRANSFORM_HX(1) = nMaxX! : TRANSFORM_HY(1) = nMinY!
+                TRANSFORM_HX(2) = nMaxX! : TRANSFORM_HY(2) = nMaxY!
+                TRANSFORM_HX(3) = nMinX! : TRANSFORM_HY(3) = nMaxY!
+                TRANSFORM_PX = (nMinX! + nMaxX!) * 0.5!
+                TRANSFORM_PY = (nMinY! + nMaxY!) * 0.5!
+                IF TRANSFORM.SRC_W > 0 THEN TRANSFORM.SCALE_X = (nMaxX! - nMinX! + 1) / TRANSFORM.SRC_W
+                IF TRANSFORM.SRC_H > 0 THEN TRANSFORM.SCALE_Y = (nMaxY! - nMinY! + 1) / TRANSFORM.SRC_H
+
+            CASE TRANSFORM_MODE_ROTATE
+                ' Rotate all corners as rigid body around pivot
+                DIM origAngle AS SINGLE, newAngle AS SINGLE
+                DIM relOX AS SINGLE, relOY AS SINGLE
+                relOX! = TRANSFORM_HX0(g%) - TRANSFORM_PX
+                relOY! = TRANSFORM_HY0(g%) - TRANSFORM_PY
+                origAngle! = _ATAN2(relOY!, relOX!)
+                newAngle!  = _ATAN2(canY! - TRANSFORM_PY, canX! - TRANSFORM_PX)
+                TRANSFORM.ANGLE = (newAngle! - origAngle!) * 57.295779513!
+                DIM ca AS SINGLE, sa AS SINGLE
+                ca! = COS(newAngle! - origAngle!)
+                sa! = SIN(newAngle! - origAngle!)
+                DIM ri AS INTEGER, rRx AS SINGLE, rRy AS SINGLE
+                FOR ri% = 0 TO 3
+                    rRx! = TRANSFORM_HX0(ri%) - TRANSFORM_PX
+                    rRy! = TRANSFORM_HY0(ri%) - TRANSFORM_PY
+                    TRANSFORM_HX(ri%) = TRANSFORM_PX + rRx! * ca! - rRy! * sa!
+                    TRANSFORM_HY(ri%) = TRANSFORM_PY + rRx! * sa! + rRy! * ca!
+                NEXT ri%
+
+            CASE TRANSFORM_MODE_SHEAR
+                ' Shear: top pair (0,1) or bottom pair (2,3) shift together
+                DIM shiftX AS SINGLE, shiftY AS SINGLE
+                shiftX! = canX! - TRANSFORM_HX0(g%)
+                shiftY! = canY! - TRANSFORM_HY0(g%)
+                IF g% = 0 OR g% = 1 THEN
+                    TRANSFORM_HX(0) = TRANSFORM_HX0(0) + shiftX! : TRANSFORM_HY(0) = TRANSFORM_HY0(0) + shiftY!
+                    TRANSFORM_HX(1) = TRANSFORM_HX0(1) + shiftX! : TRANSFORM_HY(1) = TRANSFORM_HY0(1) + shiftY!
+                ELSE
+                    TRANSFORM_HX(2) = TRANSFORM_HX0(2) + shiftX! : TRANSFORM_HY(2) = TRANSFORM_HY0(2) + shiftY!
+                    TRANSFORM_HX(3) = TRANSFORM_HX0(3) + shiftX! : TRANSFORM_HY(3) = TRANSFORM_HY0(3) + shiftY!
+                END IF
+
+        END SELECT
+    END IF
+
+    TRANSFORM_PREVIEW_DIRTY = TRUE
+    SCENE_DIRTY%  = TRUE
+    FRAME_IDLE%   = FALSE
+    _LOGINFO "TRANSFORM_mouse_hold: grabbed=" + STR$(TRANSFORM.GRABBED) + " canX=" + STR$(canX!) + " canY=" + STR$(canY!)
+END SUB
+
+''
+' Handle mouse RELEASE while transform is active.
+'
+SUB TRANSFORM_mouse_release ()
+    IF NOT TRANSFORM.ACTIVE THEN EXIT SUB
+    _LOGINFO "TRANSFORM_mouse_release: was grabbed=" + STR$(TRANSFORM.GRABBED)
+    TRANSFORM.GRABBED = -1
+END SUB

@@ -82,6 +82,14 @@ TYPE MENU_BAR_OBJ
     randomW     AS INTEGER         ' Random submenu width
     randomH     AS INTEGER         ' Random submenu height
     randomItemIdx AS INTEGER       ' Child index of "RANDOM TRACK" item in parent dropdown
+    ' Transform submenu state
+    transformOpen  AS INTEGER      ' TRUE when Transform submenu is showing
+    transformHover AS INTEGER      ' Hovered item in Transform submenu (-1 = none)
+    transformX     AS INTEGER      ' Transform submenu X position
+    transformY     AS INTEGER      ' Transform submenu Y position
+    transformW     AS INTEGER      ' Transform submenu width
+    transformH     AS INTEGER      ' Transform submenu height
+    transformItemIdx AS INTEGER    ' Child index of "TRANSFORM..." item in parent dropdown
 END TYPE
 
 DIM SHARED MENU_BAR AS MENU_BAR_OBJ
