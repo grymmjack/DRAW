@@ -121,6 +121,9 @@ THEME.SOUND_POINT_FILE$     = "point.wav"               ' Click to place a point
 THEME.SOUND_ORGANIZER_FILE$ = "text-char.wav"           ' Organizer/drawer widget click or mousewheel
 THEME.MUSIC_FILE$ = "music.it"                         ' Background music (tracker module)
 
+' --- Lospec dialog ---
+THEME.LOSPEC_SWATCH_COLS%   = 16                         ' Lospec preview swatch columns
+
 ' =============================================================================
 ' CURSORS - PNG cursor configuration
 ' =============================================================================

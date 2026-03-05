@@ -23,7 +23,7 @@ TYPE LOSPEC_PALETTE_INFO
     palSlug   AS STRING * 64   ' URL slug (used to download .GPL)
     numColors AS INTEGER        ' Color count
     author    AS STRING * 64   ' Author display name (from API "author.name")
-    colors    AS STRING * 512  ' Comma-delimited hex color values, no # prefix (up to first 64)
+    colors    AS STRING * 2048 ' Comma-delimited hex color values, no # prefix (up to 256)
 END TYPE
 
 DIM SHARED LOSPEC_RESULTS(0 TO LOSPEC_MAX_RESULTS - 1) AS LOSPEC_PALETTE_INFO
@@ -31,6 +31,9 @@ DIM SHARED LOSPEC_RESULT_COUNT%
 
 DIM SHARED LOSPEC_BATCH(0 TO LOSPEC_MAX_BATCH - 1) AS LOSPEC_PALETTE_INFO
 DIM SHARED LOSPEC_BATCH_COUNT%
+
+' Download status message (displayed at bottom of dialog)
+DIM SHARED LOSPEC_DOWNLOAD_STATUS$
 
 DECLARE SUB LOSPEC_show_dialog ()
 DECLARE SUB LOSPEC_search (query AS STRING)
