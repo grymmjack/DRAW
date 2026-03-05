@@ -67,6 +67,8 @@ SUB LOSPEC_show_dialog ()
 
     ' Link hover tracking
     DIM linkHover AS INTEGER : linkHover% = FALSE
+    DIM detailFetched(0 TO LOSPEC_MAX_RESULTS - 1) AS INTEGER
+    DIM dfi AS INTEGER
 
     DIM k AS LONG
 
@@ -80,6 +82,7 @@ SUB LOSPEC_show_dialog ()
             CASE 13  ' Enter = search
                 IF searchLen% > 0 THEN
                     LOSPEC_search LEFT$(searchBuf$, searchLen%)
+                    FOR dfi% = 0 TO LOSPEC_MAX_RESULTS - 1 : detailFetched%(dfi%) = FALSE : NEXT dfi%
                     listScroll% = 0
                     hovResult%  = -1
                     previewIdx% = -1
@@ -159,6 +162,14 @@ SUB LOSPEC_show_dialog ()
             END IF
         END IF
 
+        ' Lazy-load palette detail when preview index changes (fetches .json for colors/author)
+        IF previewIdx% >= 0 AND previewIdx% < LOSPEC_RESULT_COUNT% THEN
+            IF NOT detailFetched%(previewIdx%) THEN
+                detailFetched%(previewIdx%) = TRUE
+                LOSPEC_fetch_detail previewIdx%
+            END IF
+        END IF
+
         ' ---- Click dispatch ----
         IF ctx.justClicked THEN
             ' Click in results list -> Add to batch
@@ -194,6 +205,7 @@ SUB LOSPEC_show_dialog ()
         IF DIALOG_hit%(ctx, 4, LS_SEARCH_Y - 2, 64, LS_SEARCH_H + 4) THEN
             IF searchLen% > 0 THEN
                 LOSPEC_search LEFT$(searchBuf$, searchLen%)
+                FOR dfi% = 0 TO LOSPEC_MAX_RESULTS - 1 : detailFetched%(dfi%) = FALSE : NEXT dfi%
                 listScroll%  = 0
                 hovResult%   = -1
                 previewIdx%  = -1
@@ -279,7 +291,11 @@ SUB LOSPEC_show_dialog ()
             rLabel$ = RTRIM$(LOSPEC_RESULTS(rAbsIdx%).palName)
             ' Append colour count in a dimmer colour
             DIM rCountStr AS STRING
-            rCountStr$ = " (" + _TRIM$(STR$(LOSPEC_RESULTS(rAbsIdx%).numColors)) + ")"
+            IF LOSPEC_RESULTS(rAbsIdx%).numColors > 0 THEN
+                rCountStr$ = " (" + _TRIM$(STR$(LOSPEC_RESULTS(rAbsIdx%).numColors)) + ")"
+            ELSE
+                rCountStr$ = " (?)"
+            END IF
             DIM rMaxLen AS INTEGER
             rMaxLen% = 22
             IF LEN(rLabel$) > rMaxLen% THEN rLabel$ = LEFT$(rLabel$, rMaxLen% - 2) + ".."
@@ -455,7 +471,7 @@ SUB LOSPEC_search (query AS STRING)
     encQuery$ = LOSPEC_urlencode$(query$)
 
     DIM apiUrl AS STRING
-    apiUrl$ = "https://lospec.com/palette-list.json?tag=&colorNumberFilterType=any&colorNumber=8&page=1&sortingType=downloads&tag=" + encQuery$
+    apiUrl$ = "https://lospec.com/palette-list/suggest/" + encQuery$
 
     ' Try curl, fallback to wget
     $IF WIN THEN
@@ -488,6 +504,73 @@ SUB LOSPEC_search (query AS STRING)
     DIM parsed AS INTEGER
     parsed% = LOSPEC_parse_results%(jsonStr$)
     _LOGINFO "LOSPEC_search: found " + _TRIM$(STR$(LOSPEC_RESULT_COUNT%)) + " palettes for query: " + query$
+END SUB
+
+
+''
+' Fetch full palette detail from the Lospec single-palette JSON endpoint.
+' Lazy-loads author, colors, and numColors into LOSPEC_RESULTS(idx%).
+' No-op if colors are already populated.
+'
+' @param INTEGER idx - Index in LOSPEC_RESULTS()
+'
+SUB LOSPEC_fetch_detail (idx AS INTEGER)
+    IF idx% < 0 OR idx% >= LOSPEC_RESULT_COUNT% THEN EXIT SUB
+    IF LEN(RTRIM$(LOSPEC_RESULTS(idx%).colors)) > 0 THEN EXIT SUB
+
+    DIM slugD AS STRING
+    slugD$ = LOSPEC_sanitize_slug$(RTRIM$(LOSPEC_RESULTS(idx%).palSlug))
+    IF LEN(slugD$) = 0 THEN EXIT SUB
+
+    PALETTE_LOADER_ensure_user_dirs
+    DIM tmpDetail AS STRING
+    tmpDetail$ = "./USER/PALETTES/lospec_detail.tmp"
+    DIM detailUrl AS STRING
+    detailUrl$ = "https://lospec.com/palette-list/" + slugD$ + ".json"
+
+    $IF WIN THEN
+        SHELL "curl -s -m 10 -o " + CHR$(34) + tmpDetail$ + CHR$(34) + " " + CHR$(34) + detailUrl$ + CHR$(34) + " 2>nul"
+    $ELSE
+        SHELL "curl -s -m 10 -o " + tmpDetail$ + " " + CHR$(34) + detailUrl$ + CHR$(34) + " 2>/dev/null"
+    $END IF
+
+    IF NOT _FILEEXISTS(tmpDetail$) THEN
+        _LOGWARN "LOSPEC_fetch_detail: no response for slug: " + slugD$
+        EXIT SUB
+    END IF
+
+    DIM ffD AS INTEGER
+    DIM jsonStrD AS STRING
+    DIM jsonLineD AS STRING
+    ffD% = FREEFILE
+    jsonStrD$ = ""
+    OPEN tmpDetail$ FOR INPUT AS #ffD%
+    DO WHILE NOT EOF(ffD%)
+        LINE INPUT #ffD%, jsonLineD$
+        jsonStrD$ = jsonStrD$ + jsonLineD$
+    LOOP
+    CLOSE #ffD%
+    KILL tmpDetail$
+
+    DIM parsedNameD AS STRING
+    DIM parsedAuthorD AS STRING
+    DIM parsedColorsD AS STRING
+    parsedNameD$   = LOSPEC_extract_field$(jsonStrD$, "name")
+    parsedAuthorD$ = LOSPEC_extract_field$(jsonStrD$, "author")
+    parsedColorsD$ = LOSPEC_extract_colors$(jsonStrD$)
+
+    IF LEN(parsedNameD$) > 0   THEN LOSPEC_RESULTS(idx%).palName = parsedNameD$
+    IF LEN(parsedAuthorD$) > 0 THEN LOSPEC_RESULTS(idx%).author  = parsedAuthorD$
+    IF LEN(parsedColorsD$) > 0 THEN
+        LOSPEC_RESULTS(idx%).colors = parsedColorsD$
+        DIM colorCountD AS INTEGER
+        DIM cpIdx AS INTEGER
+        colorCountD% = 1
+        FOR cpIdx% = 1 TO LEN(parsedColorsD$)
+            IF MID$(parsedColorsD$, cpIdx%, 1) = "," THEN colorCountD% = colorCountD% + 1
+        NEXT cpIdx%
+        LOSPEC_RESULTS(idx%).numColors = colorCountD%
+    END IF
 END SUB
 
 
@@ -565,7 +648,7 @@ FUNCTION LOSPEC_urlencode$ (s AS STRING)
            c$ = "." OR c$ = "~" THEN
             encoded$ = encoded$ + c$
         ELSEIF c$ = " " THEN
-            encoded$ = encoded$ + "+"
+            encoded$ = encoded$ + "%20"
         ELSE
             DIM hx AS STRING
             hx$ = HEX$(charCode%)
@@ -586,29 +669,20 @@ FUNCTION LOSPEC_parse_results% (jsonStr AS STRING)
         EXIT FUNCTION
     END IF
 
-    ' Walk the palettes array: find each {"title":...} object
+    ' Suggest endpoint returns a flat JSON array: [{"title":"...","slug":"..."},...]
+    ' Find opening [
     DIM scanPos AS INTEGER
-    scanPos% = 1
-    DIM objStart AS INTEGER, objEnd AS INTEGER
-    DIM bracketDepth AS INTEGER
-    DIM inArray AS INTEGER
-
-    ' Find "palettes":[
-    DIM palKey AS INTEGER
-    palKey% = INSTR(jsonStr$, CHR$(34) + "palettes" + CHR$(34))
-    IF palKey% = 0 THEN
-        LOSPEC_parse_results% = 0
-        EXIT FUNCTION
-    END IF
-    scanPos% = INSTR(palKey%, jsonStr$, "[")
+    scanPos% = INSTR(jsonStr$, "[")
     IF scanPos% = 0 THEN
         LOSPEC_parse_results% = 0
         EXIT FUNCTION
     END IF
     scanPos% = scanPos% + 1
 
-    ' Iterate objects in array
     DO WHILE scanPos% <= LEN(jsonStr$) AND LOSPEC_RESULT_COUNT% < LOSPEC_MAX_RESULTS
+        DIM objStart AS INTEGER, objEnd AS INTEGER
+        DIM bracketDepth AS INTEGER
+
         ' Find next {
         objStart% = INSTR(scanPos%, jsonStr$, "{")
         IF objStart% = 0 THEN EXIT DO
@@ -634,42 +708,16 @@ FUNCTION LOSPEC_parse_results% (jsonStr AS STRING)
         DIM objStr AS STRING
         objStr$ = MID$(jsonStr$, objStart%, objEnd% - objStart% + 1)
 
-        ' Extract title, slug, colorsTotal, author.name, colors array
-        DIM pTitle AS STRING, pSlug AS STRING, pColors AS STRING
-        pTitle$  = LOSPEC_extract_field$(objStr$, "title")
-        pSlug$   = LOSPEC_extract_field$(objStr$, "slug")
-        pColors$ = LOSPEC_extract_field$(objStr$, "colorsTotal")
-        IF LEN(pTitle$) = 0 THEN pTitle$ = LOSPEC_extract_field$(objStr$, "name")
-
-        ' Author: "author":{"name":"...","username":"..."}
-        DIM pAuthor AS STRING
-        pAuthor$ = ""
-        DIM authKey AS INTEGER
-        authKey% = INSTR(objStr$, CHR$(34) + "author" + CHR$(34))
-        IF authKey% > 0 THEN
-            DIM authObjStart AS INTEGER, authObjEnd AS INTEGER
-            authObjStart% = INSTR(authKey%, objStr$, "{")
-            IF authObjStart% > 0 THEN
-                authObjEnd% = INSTR(authObjStart%, objStr$, "}")
-                IF authObjEnd% > 0 THEN
-                    DIM authSubStr AS STRING
-                    authSubStr$ = MID$(objStr$, authObjStart%, authObjEnd% - authObjStart% + 1)
-                    pAuthor$ = LOSPEC_extract_field$(authSubStr$, "name")
-                    IF LEN(pAuthor$) = 0 THEN pAuthor$ = LOSPEC_extract_field$(authSubStr$, "username")
-                END IF
-            END IF
-        END IF
-
-        ' Colors: "colors":["rrggbb",...]  — store up to 64 as comma-separated hex
-        DIM pColorsHex AS STRING
-        pColorsHex$ = LOSPEC_extract_colors$(objStr$)
+        DIM pTitle AS STRING, pSlug AS STRING
+        pTitle$ = LOSPEC_extract_field$(objStr$, "title")
+        pSlug$  = LOSPEC_extract_field$(objStr$, "slug")
 
         IF LEN(pSlug$) > 0 THEN
             LOSPEC_RESULTS(LOSPEC_RESULT_COUNT%).palName   = pTitle$
             LOSPEC_RESULTS(LOSPEC_RESULT_COUNT%).palSlug   = pSlug$
-            LOSPEC_RESULTS(LOSPEC_RESULT_COUNT%).numColors = VAL(pColors$)
-            LOSPEC_RESULTS(LOSPEC_RESULT_COUNT%).author    = pAuthor$
-            LOSPEC_RESULTS(LOSPEC_RESULT_COUNT%).colors    = pColorsHex$
+            LOSPEC_RESULTS(LOSPEC_RESULT_COUNT%).numColors = 0
+            LOSPEC_RESULTS(LOSPEC_RESULT_COUNT%).author    = ""
+            LOSPEC_RESULTS(LOSPEC_RESULT_COUNT%).colors    = ""
             LOSPEC_RESULT_COUNT% = LOSPEC_RESULT_COUNT% + 1
         END IF
 
