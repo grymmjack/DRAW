@@ -263,10 +263,7 @@ SUB LOSPEC_show_dialog ()
         IF DIALOG_hit%(ctx, 4, LS_BTN_Y, 100, LS_BTN_H) THEN
             IF previewIdx% >= 0 AND previewIdx% < LOSPEC_RESULT_COUNT% THEN
                 LOSPEC_download_single previewIdx%
-                PALETTE_LOADER_COUNT% = 0
-                PALETTE_LOADER_scan_folder "./ASSETS/PALETTES"
-                PALETTE_LOADER_scan_user_folders
-                GUI_NEEDS_REDRAW% = TRUE
+                LOSPEC_reload_palettes
             END IF
         END IF
 
@@ -274,10 +271,7 @@ SUB LOSPEC_show_dialog ()
         IF DIALOG_hit%(ctx, 110, LS_BTN_Y, 120, LS_BTN_H) THEN
             IF LOSPEC_BATCH_COUNT% > 0 THEN
                 LOSPEC_download_batch
-                PALETTE_LOADER_COUNT% = 0
-                PALETTE_LOADER_scan_folder "./ASSETS/PALETTES"
-                PALETTE_LOADER_scan_user_folders
-                GUI_NEEDS_REDRAW% = TRUE
+                LOSPEC_reload_palettes
                 LOSPEC_BATCH_COUNT% = 0
             END IF
         END IF
@@ -311,13 +305,7 @@ SUB LOSPEC_show_dialog ()
             END IF
             COLOR statusColor~&
             DIM statusTrunc AS STRING
-            statusTrunc$ = LOSPEC_DOWNLOAD_STATUS$
-            IF _PRINTWIDTH(statusTrunc$, ctx.imgHandle) > ctx.w - 12 THEN
-                DO WHILE LEN(statusTrunc$) > 3 AND _PRINTWIDTH(statusTrunc$, ctx.imgHandle) > ctx.w - 12
-                    statusTrunc$ = LEFT$(statusTrunc$, LEN(statusTrunc$) - 1)
-                LOOP
-                statusTrunc$ = LEFT$(statusTrunc$, LEN(statusTrunc$) - 2) + ".."
-            END IF
+            statusTrunc$ = LOSPEC_fit_label$(LOSPEC_DOWNLOAD_STATUS$, "", ctx.w - 12, ctx.imgHandle)
             _PRINTSTRING (6, 3), statusTrunc$
             COLOR _RGB32(200, 200, 200)
         END IF
@@ -372,18 +360,7 @@ SUB LOSPEC_show_dialog ()
             ' Dynamic truncation: trim label until it fits with count string
             DIM rMaxPx AS INTEGER
             rMaxPx% = LS_BATCH_X - 10  ' Available width in pixels
-            DO WHILE LEN(rLabel$) > 0
-                IF _PRINTWIDTH(rLabel$ + rCountStr$, ctx.imgHandle) <= rMaxPx% THEN EXIT DO
-                ' Truncate and add ellipsis
-                IF LEN(rLabel$) > 2 THEN
-                    rLabel$ = LEFT$(rLabel$, LEN(rLabel$) - 1)
-                ELSE
-                    EXIT DO
-                END IF
-            LOOP
-            IF LEN(rLabel$) > 2 AND _PRINTWIDTH(rLabel$ + rCountStr$, ctx.imgHandle) > rMaxPx% THEN
-                rLabel$ = LEFT$(rLabel$, LEN(rLabel$) - 2) + ".."
-            END IF
+            rLabel$ = LOSPEC_fit_label$(rLabel$, rCountStr$, rMaxPx%, ctx.imgHandle)
             COLOR _RGB32(220, 220, 220)
             _PRINTSTRING (6, rY% + 2), rLabel$
             COLOR _RGB32(130, 160, 190)
@@ -407,17 +384,7 @@ SUB LOSPEC_show_dialog ()
             ' Dynamic truncation: trim label until it fits batch column width
             DIM brMaxPx AS INTEGER
             brMaxPx% = LS_PREV_X - LS_BATCH_X - 8  ' Available width in pixels
-            DO WHILE LEN(brLabel$) > 0
-                IF _PRINTWIDTH(brLabel$, ctx.imgHandle) <= brMaxPx% THEN EXIT DO
-                IF LEN(brLabel$) > 2 THEN
-                    brLabel$ = LEFT$(brLabel$, LEN(brLabel$) - 1)
-                ELSE
-                    EXIT DO
-                END IF
-            LOOP
-            IF LEN(brLabel$) > 2 AND _PRINTWIDTH(brLabel$, ctx.imgHandle) > brMaxPx% THEN
-                brLabel$ = LEFT$(brLabel$, LEN(brLabel$) - 2) + ".."
-            END IF
+            brLabel$ = LOSPEC_fit_label$(brLabel$, "", brMaxPx%, ctx.imgHandle)
             _PRINTSTRING (LS_BATCH_X + 2, brY% + 2), brLabel$
         NEXT bri%
 
@@ -601,11 +568,9 @@ SUB LOSPEC_show_dialog ()
                     ttLabel$ = "RGB: " + _TRIM$(STR$(ttR%)) + "," + _TRIM$(STR$(ttG%)) + "," + _TRIM$(STR$(ttB%)) + "  #" + UCASE$(ttHex$)
                     COLOR _RGB32(200, 200, 220)
                     _PRINTSTRING (LS_PREV_X + 6, tooltipY% + 2), ttLabel$
-                ELSE
-                    COLOR _RGB32(100, 100, 110)
-                    _PRINTSTRING (LS_PREV_X + 6, tooltipY% + 2), "Hover swatch for info"
                 END IF
-            ELSE
+            END IF
+            IF hovSwatchIdx% < 0 OR LEN(prevColors$) = 0 OR LEN(ttHex$) <> 6 THEN
                 COLOR _RGB32(100, 100, 110)
                 _PRINTSTRING (LS_PREV_X + 6, tooltipY% + 2), "Hover swatch for info"
             END IF
@@ -656,11 +621,7 @@ SUB LOSPEC_search (query AS STRING)
     apiUrl$ = "https://lospec.com/palette-list/suggest/" + encQuery$
 
     ' Try curl, fallback to wget
-    $IF WIN THEN
-        SHELL "curl -s -m 10 -o " + CHR$(34) + tmpJson$ + CHR$(34) + " " + CHR$(34) + apiUrl$ + CHR$(34) + " 2>nul"
-    $ELSE
-        SHELL "curl -s -m 10 -o " + tmpJson$ + " " + CHR$(34) + apiUrl$ + CHR$(34) + " 2>/dev/null || wget -q -T 10 -O " + tmpJson$ + " " + CHR$(34) + apiUrl$ + CHR$(34) + " 2>/dev/null"
-    $END IF
+    LOSPEC_http_fetch apiUrl$, tmpJson$, 10
 
     LOSPEC_RESULT_COUNT% = 0
 
@@ -670,17 +631,8 @@ SUB LOSPEC_search (query AS STRING)
     END IF
 
     ' Read JSON
-    DIM ff4 AS INTEGER
     DIM jsonStr AS STRING
-    DIM jsonLine AS STRING
-    ff4% = FREEFILE
-    jsonStr$ = ""
-    OPEN tmpJson$ FOR INPUT AS #ff4%
-    DO WHILE NOT EOF(ff4%)
-        LINE INPUT #ff4%, jsonLine$
-        jsonStr$ = jsonStr$ + jsonLine$
-    LOOP
-    CLOSE #ff4%
+    jsonStr$ = LOSPEC_read_file$(tmpJson$)
     KILL tmpJson$
 
     DIM parsed AS INTEGER
@@ -710,28 +662,15 @@ SUB LOSPEC_fetch_detail (idx AS INTEGER)
     DIM detailUrl AS STRING
     detailUrl$ = "https://lospec.com/palette-list/" + slugD$ + ".json"
 
-    $IF WIN THEN
-        SHELL "curl -s -m 10 -o " + CHR$(34) + tmpDetail$ + CHR$(34) + " " + CHR$(34) + detailUrl$ + CHR$(34) + " 2>nul"
-    $ELSE
-        SHELL "curl -s -m 10 -o " + tmpDetail$ + " " + CHR$(34) + detailUrl$ + CHR$(34) + " 2>/dev/null"
-    $END IF
+    LOSPEC_http_fetch detailUrl$, tmpDetail$, 10
 
     IF NOT _FILEEXISTS(tmpDetail$) THEN
         _LOGWARN "LOSPEC_fetch_detail: no response for slug: " + slugD$
         EXIT SUB
     END IF
 
-    DIM ffD AS INTEGER
     DIM jsonStrD AS STRING
-    DIM jsonLineD AS STRING
-    ffD% = FREEFILE
-    jsonStrD$ = ""
-    OPEN tmpDetail$ FOR INPUT AS #ffD%
-    DO WHILE NOT EOF(ffD%)
-        LINE INPUT #ffD%, jsonLineD$
-        jsonStrD$ = jsonStrD$ + jsonLineD$
-    LOOP
-    CLOSE #ffD%
+    jsonStrD$ = LOSPEC_read_file$(tmpDetail$)
     KILL tmpDetail$
 
     DIM parsedNameD AS STRING
@@ -1109,25 +1048,12 @@ SUB LOSPEC_download_single (idx AS INTEGER)
     DIM gplUrl AS STRING
     gplUrl$ = "https://lospec.com/palette-list/" + slugStr$ + ".gpl"
 
-    $IF WIN THEN
-        SHELL "curl -s -m 15 -o " + CHR$(34) + tmpGpl$ + CHR$(34) + " " + CHR$(34) + gplUrl$ + CHR$(34) + " 2>nul"
-    $ELSE
-        SHELL "curl -s -m 15 -o " + tmpGpl$ + " " + CHR$(34) + gplUrl$ + CHR$(34) + " 2>/dev/null || wget -q -T 15 -O " + tmpGpl$ + " " + CHR$(34) + gplUrl$ + CHR$(34) + " 2>/dev/null"
-    $END IF
+    LOSPEC_http_fetch gplUrl$, tmpGpl$, 15
 
     IF _FILEEXISTS(tmpGpl$) THEN
         ' Read GPL content
-        DIM ff5 AS INTEGER
         DIM gplContent AS STRING
-        DIM gplLine AS STRING
-        ff5% = FREEFILE
-        gplContent$ = ""
-        OPEN tmpGpl$ FOR INPUT AS #ff5%
-        DO WHILE NOT EOF(ff5%)
-            LINE INPUT #ff5%, gplLine$
-            gplContent$ = gplContent$ + gplLine$ + CHR$(10)
-        LOOP
-        CLOSE #ff5%
+        gplContent$ = LOSPEC_read_file$(tmpGpl$)
         KILL tmpGpl$
 
         LOSPEC_save_gpl LOSPEC_RESULTS(idx%), gplContent$
@@ -1156,24 +1082,11 @@ SUB LOSPEC_download_batch ()
         DIM gplUrlB AS STRING
         gplUrlB$ = "https://lospec.com/palette-list/" + slugB$ + ".gpl"
 
-        $IF WIN THEN
-            SHELL "curl -s -m 15 -o " + CHR$(34) + tmpGplB$ + CHR$(34) + " " + CHR$(34) + gplUrlB$ + CHR$(34) + " 2>nul"
-        $ELSE
-            SHELL "curl -s -m 15 -o " + tmpGplB$ + " " + CHR$(34) + gplUrlB$ + CHR$(34) + " 2>/dev/null || wget -q -T 15 -O " + tmpGplB$ + " " + CHR$(34) + gplUrlB$ + CHR$(34) + " 2>/dev/null"
-        $END IF
+        LOSPEC_http_fetch gplUrlB$, tmpGplB$, 15
 
         IF _FILEEXISTS(tmpGplB$) THEN
-            DIM ff6 AS INTEGER
             DIM gplContentB AS STRING
-            DIM gplLineB AS STRING
-            ff6% = FREEFILE
-            gplContentB$ = ""
-            OPEN tmpGplB$ FOR INPUT AS #ff6%
-            DO WHILE NOT EOF(ff6%)
-                LINE INPUT #ff6%, gplLineB$
-                gplContentB$ = gplContentB$ + gplLineB$ + CHR$(10)
-            LOOP
-            CLOSE #ff6%
+            gplContentB$ = LOSPEC_read_file$(tmpGplB$)
             KILL tmpGplB$
 
             LOSPEC_save_gpl LOSPEC_BATCH(bi3%), gplContentB$
@@ -1239,15 +1152,7 @@ SUB LOSPEC_update_downloads_json (palInfo AS LOSPEC_PALETTE_INFO)
     DIM existingJson AS STRING
     existingJson$ = ""
     IF _FILEEXISTS(jsonPath$) THEN
-        DIM ff8 AS INTEGER
-        DIM jLine AS STRING
-        ff8% = FREEFILE
-        OPEN jsonPath$ FOR INPUT AS #ff8%
-        DO WHILE NOT EOF(ff8%)
-            LINE INPUT #ff8%, jLine$
-            existingJson$ = existingJson$ + jLine$ + CHR$(10)
-        LOOP
-        CLOSE #ff8%
+        existingJson$ = LOSPEC_read_file$(jsonPath$)
         ' Strip trailing ] to allow append
         DIM trimmedJson AS STRING
         trimmedJson$ = RTRIM$(existingJson$)
@@ -1293,3 +1198,83 @@ SUB LOSPEC_update_downloads_json (palInfo AS LOSPEC_PALETTE_INFO)
     PRINT #ff9%, "]"
     CLOSE #ff9%
 END SUB
+
+
+''
+' Download a URL to a local file using curl (wget fallback on non-Windows).
+' This centralises the platform-conditional SHELL invocation used by every
+' network operation in this module.
+'
+' @param STRING url       - Fully-qualified HTTPS URL to fetch
+' @param STRING outFile   - Local path to write the response body to
+' @param INTEGER timeout  - Request timeout in seconds
+'
+SUB LOSPEC_http_fetch (url AS STRING, outFile AS STRING, timeout AS INTEGER)
+    DIM tStr AS STRING
+    tStr$ = _TRIM$(STR$(timeout%))
+    $IF WIN THEN
+        SHELL "curl -s -m " + tStr$ + " -o " + CHR$(34) + outFile$ + CHR$(34) + " " + CHR$(34) + url$ + CHR$(34) + " 2>nul"
+    $ELSE
+        SHELL "curl -s -m " + tStr$ + " -o " + outFile$ + " " + CHR$(34) + url$ + CHR$(34) + " 2>/dev/null || wget -q -T " + tStr$ + " -O " + outFile$ + " " + CHR$(34) + url$ + CHR$(34) + " 2>/dev/null"
+    $END IF
+END SUB
+
+
+''
+' Read an entire text file into a single string, joining lines with CHR$(10).
+' The caller is responsible for ensuring the file exists before calling.
+'
+' @param STRING filePath - Path to the file to read
+' @return STRING - File contents with lines joined by CHR$(10)
+'
+FUNCTION LOSPEC_read_file$ (filePath AS STRING)
+    DIM ff AS INTEGER
+    DIM content AS STRING
+    DIM ln AS STRING
+    ff% = FREEFILE
+    content$ = ""
+    OPEN filePath$ FOR INPUT AS #ff%
+    DO WHILE NOT EOF(ff%)
+        LINE INPUT #ff%, ln$
+        content$ = content$ + ln$ + CHR$(10)
+    LOOP
+    CLOSE #ff%
+    LOSPEC_read_file$ = content$
+END FUNCTION
+
+
+''
+' Reload the palette lists and signal a GUI redraw.
+' Called after any palette download to refresh the palette picker.
+'
+SUB LOSPEC_reload_palettes ()
+    PALETTE_LOADER_COUNT% = 0
+    PALETTE_LOADER_scan_folder "./ASSETS/PALETTES"
+    PALETTE_LOADER_scan_user_folders
+    GUI_NEEDS_REDRAW% = TRUE
+END SUB
+
+
+''
+' Truncate a label string (plus an optional suffix) to fit within maxPx pixels.
+' Trims one character at a time from label until label+suffix fits, then
+' replaces the last two characters with ".." if truncation was necessary.
+'
+' @param STRING label    - The primary display string to truncate
+' @param STRING suffix   - Optional suffix measured together with label (not truncated)
+' @param INTEGER maxPx   - Maximum allowed pixel width
+' @param LONG imgHandle  - Image handle used for _PRINTWIDTH measurement
+' @return STRING - Truncated label (suffix not included in return value)
+'
+FUNCTION LOSPEC_fit_label$ (label AS STRING, suffix AS STRING, maxPx AS INTEGER, imgHandle AS LONG)
+    DIM result AS STRING
+    result$ = label$
+    DO WHILE LEN(result$) > 2
+        IF _PRINTWIDTH(result$ + suffix$, imgHandle) <= maxPx% THEN EXIT DO
+        result$ = LEFT$(result$, LEN(result$) - 1)
+    LOOP
+    IF LEN(result$) > 2 AND _PRINTWIDTH(result$ + suffix$, imgHandle) > maxPx% THEN
+        result$ = LEFT$(result$, LEN(result$) - 2) + ".."
+    END IF
+    LOSPEC_fit_label$ = result$
+END FUNCTION
