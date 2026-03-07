@@ -53,6 +53,8 @@ END TYPE
 
 DIM SHARED REFIMG AS REFIMG_OBJ
 
+DECLARE FUNCTION REFIMG_sample_color_at_canvas% (canvasX AS INTEGER, canvasY AS INTEGER, sampledColor AS _UNSIGNED LONG)
+
 ' Initialise defaults
 REFIMG.IMAGE = 0
 REFIMG.VISIBLE = FALSE
