@@ -273,19 +273,6 @@ DO
     LOOP_end
 LOOP
 
-' Check if display scale changed during session and prompt to save
-IF CFG.DISPLAY_SCALE_CHANGED% THEN
-    DIM save_result AS LONG
-    POINTER_hide_for_dialog
-    save_result& = _MESSAGEBOX("Save Configuration?", "Display scale changed to " + _TRIM$(STR$(SCRN.displayScale%)) + "x. Save configuration for next time?", "yesno", "question", 0)
-    POINTER_show_after_dialog
-    IF save_result& = 1 THEN
-        ' Update the display scale in config before saving
-        CFG.DISPLAY_SCALE% = SCRN.displayScale%
-        CONFIG_save
-    END IF
-END IF
-
 MAIN_shutdown
 
 
@@ -314,6 +301,18 @@ END SUB
 ' 
 SUB MAIN_shutdown ()
     DIM i AS INTEGER
+
+    IF CFG.DISPLAY_SCALE_CHANGED% THEN
+        DIM save_result AS LONG
+        POINTER_hide_for_dialog
+        save_result& = _MESSAGEBOX("Save Configuration?", "Display scale changed to " + _TRIM$(STR$(SCRN.displayScale%)) + "x. Save configuration for next time?", "yesno", "question", 0)
+        POINTER_show_after_dialog
+        IF save_result& = 1 THEN
+            CFG.DISPLAY_SCALE% = SCRN.displayScale%
+            CONFIG_save
+        END IF
+    END IF
+
     _MOUSESHOW
     SCREEN 0
     CLS
