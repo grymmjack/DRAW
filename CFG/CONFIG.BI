@@ -185,6 +185,11 @@ TYPE DRAW_CONFIG
     LAST_DIR_EXPORT_LAYER          AS STRING   ' Last directory for Export Layer / Selection
     LAST_DIR_PALETTE               AS STRING   ' Last directory for Palette Import / Export
     TEMPLATE_DIR                   AS STRING   ' Default directory for New from Template dialog
+    ' User palette visibility settings
+    PALETTE_SHOW_LOSPEC            AS INTEGER  ' TRUE = include USER/PALETTES/*.gpl in picker
+    PALETTE_SHOW_CREATED           AS INTEGER  ' TRUE = include USER/PALETTES/CREATED/*.gpl in picker
+    ' Color extraction max for "Create from image"
+    PALETTE_CREATE_MAX_COLORS      AS INTEGER  ' Default max colors for Create from Image (default 32)
 END TYPE
 
 DIM SHARED CFG   AS DRAW_CONFIG

@@ -25,10 +25,17 @@ DIM SHARED PALETTE_LOADER_CURRENT_IDX%
 DIM SHARED PALETTE_EMBEDDED_NAME$ ' Name of embedded palette (when not found in GPL files)
 DIM SHARED PALETTE_EMBEDDED_ACTIVE% ' TRUE when using embedded palette from DRW file
 
+' Tracks which palette entries are from user sources (for filtering)
+' 0=builtin ASSETS, 1=Lospec user download, 2=Created from image
+DIM SHARED PALETTE_LIST_SOURCE(0 TO 255) AS INTEGER
+
 ' Declarations
 DECLARE SUB PALETTE_LOADER_init ()
 DECLARE SUB PALETTE_LOADER_scan_folder (folder AS STRING)
+DECLARE SUB PALETTE_LOADER_scan_user_folders ()
 DECLARE SUB PALETTE_LOADER_add_palette (palname AS STRING)
+DECLARE SUB PALETTE_LOADER_add_palette_with_path (palname AS STRING, filepath AS STRING, sourceType AS INTEGER)
+DECLARE SUB PALETTE_LOADER_add_separator (label AS STRING)
 DECLARE FUNCTION PALETTE_LOADER_load% (filename AS STRING)
 DECLARE FUNCTION PALETTE_LOADER_load_gpl% (filepath AS STRING)
 DECLARE FUNCTION PALETTE_LOADER_load_by_index% (idx AS INTEGER)
@@ -37,3 +44,7 @@ DECLARE FUNCTION PALETTE_LOADER_prev% ()
 DECLARE FUNCTION PALETTE_LOADER_get_name$ ()
 DECLARE FUNCTION PALETTE_LOADER_get_count% ()
 DECLARE FUNCTION PALETTE_LOADER_get_color_count% ()
+DECLARE SUB PALETTE_LOADER_create_from_image (maxColors AS INTEGER)
+DECLARE SUB PALETTE_LOADER_create_from_image_dialog ()
+DECLARE SUB PALETTE_LOADER_remap_to_palette ()
+DECLARE SUB PALETTE_LOADER_ensure_user_dirs ()

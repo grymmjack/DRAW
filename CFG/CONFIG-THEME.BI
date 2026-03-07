@@ -125,6 +125,70 @@ TYPE DRAW_THEME
     SOUND_POINT_FILE     AS STRING          ' Filename for click-to-place-point (line/shape/poly tools)
     SOUND_ORGANIZER_FILE AS STRING          ' Filename for organizer/drawer widget click or mousewheel
     MUSIC_FILE           AS STRING          ' Filename for background music (IT/XM/MOD/S3M; empty=none)
+    ' --- Lospec dialog ---
+    LOSPEC_SWATCH_COLS       AS INTEGER         ' Lospec preview swatch columns per row (default 16)
+    ' --- Dialog chrome ---
+    DIALOG_font_size         AS INTEGER         ' Font point size for dialogs (default 8)
+    DIALOG_bg                AS _UNSIGNED LONG  ' Dialog background fill
+    DIALOG_border_outer      AS _UNSIGNED LONG  ' Outer border line
+    DIALOG_border_inner      AS _UNSIGNED LONG  ' Inner border + dividers
+    DIALOG_title_bg          AS _UNSIGNED LONG  ' Title bar (idle)
+    DIALOG_title_hover_bg    AS _UNSIGNED LONG  ' Title bar hover
+    DIALOG_title_drag_bg     AS _UNSIGNED LONG  ' Title bar while dragging
+    DIALOG_title_fg          AS _UNSIGNED LONG  ' Title text color
+    DIALOG_title_grip        AS _UNSIGNED LONG  ' Drag-grip dots (idle)
+    DIALOG_title_grip_drag   AS _UNSIGNED LONG  ' Drag-grip dots (dragging)
+    DIALOG_label_fg          AS _UNSIGNED LONG  ' Static label text
+    DIALOG_btn_fg            AS _UNSIGNED LONG  ' Button / slider text
+    DIALOG_toggle_sel_bg     AS _UNSIGNED LONG  ' Toggle selected bg
+    DIALOG_toggle_sel_fg     AS _UNSIGNED LONG  ' Toggle selected text
+    DIALOG_toggle_sel_border AS _UNSIGNED LONG  ' Toggle selected border
+    DIALOG_toggle_bg         AS _UNSIGNED LONG  ' Toggle normal bg
+    DIALOG_toggle_fg         AS _UNSIGNED LONG  ' Toggle normal text
+    DIALOG_toggle_border     AS _UNSIGNED LONG  ' Toggle normal border
+    DIALOG_slider_track_bg   AS _UNSIGNED LONG  ' Slider track background
+    DIALOG_slider_track_bord AS _UNSIGNED LONG  ' Slider track border
+    DIALOG_slider_fill       AS _UNSIGNED LONG  ' Slider filled portion
+    DIALOG_preview_bg        AS _UNSIGNED LONG  ' Split-preview dark bg
+    DIALOG_preview_split     AS _UNSIGNED LONG  ' Split bar + diamond
+    DIALOG_preview_label_fg  AS _UNSIGNED LONG  ' ORIG/ADJ label text
+    ' --- Lospec dialog colors ---
+    LOSPEC_status_error_fg   AS _UNSIGNED LONG
+    LOSPEC_status_ok_fg      AS _UNSIGNED LONG
+    LOSPEC_status_info_fg    AS _UNSIGNED LONG
+    LOSPEC_search_bg         AS _UNSIGNED LONG
+    LOSPEC_search_border     AS _UNSIGNED LONG
+    LOSPEC_search_cursor     AS _UNSIGNED LONG
+    LOSPEC_col_header_fg     AS _UNSIGNED LONG
+    LOSPEC_col_divider       AS _UNSIGNED LONG
+    LOSPEC_result_sel_bg     AS _UNSIGNED LONG
+    LOSPEC_result_hover_bg   AS _UNSIGNED LONG
+    LOSPEC_result_fg         AS _UNSIGNED LONG
+    LOSPEC_result_count_fg   AS _UNSIGNED LONG
+    LOSPEC_batch_hover_bg    AS _UNSIGNED LONG
+    LOSPEC_count_fg          AS _UNSIGNED LONG
+    LOSPEC_preview_panel_bg  AS _UNSIGNED LONG
+    LOSPEC_preview_name_fg   AS _UNSIGNED LONG
+    LOSPEC_preview_author_fg AS _UNSIGNED LONG
+    LOSPEC_preview_link_fg   AS _UNSIGNED LONG
+    LOSPEC_preview_link_hov  AS _UNSIGNED LONG
+    LOSPEC_tooltip_sep       AS _UNSIGNED LONG
+    LOSPEC_tooltip_bg        AS _UNSIGNED LONG
+    LOSPEC_tooltip_fg        AS _UNSIGNED LONG
+    LOSPEC_tooltip_hint_fg   AS _UNSIGNED LONG
+    LOSPEC_empty_fg          AS _UNSIGNED LONG
+    LOSPEC_btn_dl_bg         AS _UNSIGNED LONG
+    LOSPEC_btn_dl_hover      AS _UNSIGNED LONG
+    LOSPEC_btn_dl_border     AS _UNSIGNED LONG
+    LOSPEC_btn_close_bg      AS _UNSIGNED LONG
+    LOSPEC_btn_close_hover   AS _UNSIGNED LONG
+    LOSPEC_btn_close_border  AS _UNSIGNED LONG
+    LOSPEC_checkbox_border   AS _UNSIGNED LONG
+    LOSPEC_checkbox_fill     AS _UNSIGNED LONG
+    LOSPEC_checkbox_dl_fill  AS _UNSIGNED LONG  ' Downloaded-state checkbox fill (green tint)
+    LOSPEC_downloaded_fg     AS _UNSIGNED LONG  ' Download date text in results list
+    PALETTE_MENU_SEP_fg      AS _UNSIGNED LONG  ' Palette menu separator label text color
+    PALETTE_MENU_SEP_bg      AS _UNSIGNED LONG  ' Palette menu separator label background box color
 END TYPE
 
 ' Runtime theme loader — populates THEME from ASSETS/THEMES/{CFG.THEME$}/THEME.CFG
@@ -133,3 +197,5 @@ DECLARE FUNCTION THEME_parse_rgba~& (val$)
 DECLARE FUNCTION THEME_font_path$ (filename AS STRING)
 
 DIM SHARED THEME AS DRAW_THEME
+DIM SHARED PALETTE_SEP_LOSPEC_LBL$   ' Section header label: Lospec downloaded palettes
+DIM SHARED PALETTE_SEP_CREATED_LBL$  ' Section header label: created palettes
