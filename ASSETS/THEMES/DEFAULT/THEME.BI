@@ -10,6 +10,15 @@ $INCLUDEONCE
 THEME.STATUS_bg%                 = 8                       ' Dark gray
 THEME.STATUS_fg%                 = 0                       ' Opaque black
 THEME.STATUS_height%             = 11                      ' Status bar height in pixels
+THEME.STATUS_bg_color~&          = _RGB32(68, 68, 68)     ' Status bar background
+THEME.STATUS_fg_color~&          = _RGB32(200, 200, 200)  ' Status bar text
+THEME.STATUS_swatch_fg_outline~& = _RGB32(255, 255, 255)  ' Foreground swatch outline
+THEME.STATUS_swatch_bg_outline~& = _RGB32(80, 80, 80)     ' Background swatch outline
+THEME.STATUS_swatch_transparent_bg~& = _RGB32(255, 255, 255) ' Transparent swatch fill
+THEME.STATUS_swatch_transparent_diagonal~& = _RGB32(200, 0, 0) ' Transparent swatch slash
+THEME.STATUS_swatch_transparent_border~& = _RGB32(128, 128, 128) ' Transparent swatch border
+THEME.STATUS_swatch_active_outer~& = _RGB32(0, 0, 0)      ' Active transparent swatch outer border
+THEME.STATUS_swatch_active_inner~& = _RGB32(255, 255, 255) ' Active transparent swatch inner border
 THEME.CROSSHAIR_color_fg~&       = _RGB32(128, 128, 128)   ' Medium gray crosshair lines
 THEME.CROSSHAIR_opacity%         = 128                     ' 50% opacity (alpha 0-255)
 THEME.CROSSHAIR_font_fg~&        = _RGB32(255, 255, 255)   ' White coordinate text
@@ -87,8 +96,87 @@ THEME.TRANSFORM_FRAME_COLOR~&        = _RGB32(180, 220, 255)       ' Quad outlin
 THEME.TRANSFORM_FRAME_HANDLE_COLOR~& = _RGB32(200, 230, 255)       ' Unselected handle fill
 THEME.TRANSFORM_FRAME_HANDLE_SIZE%   = 5                           ' Handle half-size (screen px)
 
+' --- Dialog chrome ---
+THEME.DIALOG_bg~&                 = _RGB32(72, 72, 72)             ' Dialog body background
+THEME.DIALOG_border_outer~&       = _RGB32(160, 160, 160)          ' Dialog outer border
+THEME.DIALOG_border_inner~&       = _RGB32(48, 48, 48)             ' Dialog inner border / dividers
+THEME.DIALOG_title_bg~&           = _RGB32(40, 40, 40)             ' Dialog title bar
+THEME.DIALOG_title_hover_bg~&     = _RGB32(55, 55, 65)             ' Dialog title bar hover
+THEME.DIALOG_title_drag_bg~&      = _RGB32(30, 35, 90)             ' Dialog title bar drag
+THEME.DIALOG_title_fg~&           = _RGB32(255, 255, 255)          ' Dialog title text
+THEME.DIALOG_title_grip~&         = _RGB32(90, 90, 90)             ' Dialog title grip dots
+THEME.DIALOG_title_grip_active~&  = _RGB32(140, 140, 220)          ' Dialog title grip dots while dragging
+THEME.DIALOG_button_fg~&          = _RGB32(255, 255, 255)          ' Dialog button text
+THEME.DIALOG_toggle_sel_bg~&      = _RGB32(40, 80, 160)            ' Selected toggle background
+THEME.DIALOG_toggle_sel_fg~&      = _RGB32(255, 255, 255)          ' Selected toggle text
+THEME.DIALOG_toggle_sel_border~&  = _RGB32(100, 160, 255)          ' Selected toggle border
+THEME.DIALOG_toggle_bg~&          = _RGB32(55, 55, 55)             ' Unselected toggle background
+THEME.DIALOG_toggle_fg~&          = _RGB32(170, 170, 170)          ' Unselected toggle text
+THEME.DIALOG_toggle_border~&      = _RGB32(90, 90, 90)             ' Unselected toggle border
+THEME.DIALOG_label_fg~&           = _RGB32(200, 200, 200)          ' Dialog labels
+THEME.DIALOG_slider_track_bg~&    = _RGB32(38, 38, 38)             ' Dialog slider track
+THEME.DIALOG_slider_track_border~& = _RGB32(90, 90, 90)            ' Dialog slider track border
+THEME.DIALOG_slider_fill~&        = _RGB32(40, 100, 180)           ' Dialog slider fill
+THEME.DIALOG_slider_value_fg~&    = _RGB32(255, 255, 255)          ' Dialog slider value text
+THEME.DIALOG_preview_bg~&         = _RGB32(18, 18, 18)             ' Dialog preview pane background
+THEME.DIALOG_preview_split~&      = _RGB32(255, 200, 0)            ' Dialog preview split line / handle
+THEME.DIALOG_preview_label_fg~&   = _RGB32(110, 110, 110)          ' Dialog preview labels
+THEME.DIALOG_title_height%        = 17                              ' Dialog title bar bottom Y
+THEME.DIALOG_slider_height%       = 14                              ' Dialog slider height
+THEME.DIALOG_preview_handle_size% = 5                               ' Dialog preview handle half-size
+
+' --- Command palette ---
+THEME.CMD_PALETTE_width_ratio!      = 0.55                         ' Palette width ratio vs screen width
+THEME.CMD_PALETTE_min_width%        = 280                          ' Palette minimum width
+THEME.CMD_PALETTE_max_width%        = 500                          ' Palette maximum width
+THEME.CMD_PALETTE_top%              = 40                           ' Palette top Y position
+THEME.CMD_PALETTE_frame_outer~&     = _RGB32(0, 0, 0)             ' Palette outer frame
+THEME.CMD_PALETTE_frame_mid~&       = _RGB32(80, 80, 80)          ' Palette mid frame
+THEME.CMD_PALETTE_bg~&              = _RGB32(40, 40, 50)          ' Palette background
+THEME.CMD_PALETTE_header_fg~&       = _RGB32(200, 200, 255)       ' Palette header text
+THEME.CMD_PALETTE_hint_fg~&         = _RGB32(128, 128, 128)       ' Palette close hint
+THEME.CMD_PALETTE_search_bg~&       = _RGB32(30, 30, 40)          ' Palette search box bg
+THEME.CMD_PALETTE_search_border~&   = _RGB32(100, 100, 120)       ' Palette search box border
+THEME.CMD_PALETTE_search_fg~&       = _RGB32(255, 255, 255)       ' Palette search text
+THEME.CMD_PALETTE_search_placeholder_fg~& = _RGB32(100, 100, 100) ' Palette search placeholder
+THEME.CMD_PALETTE_cursor_fg~&       = _RGB32(255, 255, 255)       ' Palette search cursor
+THEME.CMD_PALETTE_hover_bg~&        = _RGB32(60, 80, 120)         ' Palette hovered row
+THEME.CMD_PALETTE_category_fg~&     = _RGB32(100, 100, 140)       ' Palette category text
+THEME.CMD_PALETTE_name_fg~&         = _RGB32(220, 220, 220)       ' Palette command name
+THEME.CMD_PALETTE_hotkey_fg~&       = _RGB32(180, 180, 100)       ' Palette hotkey text
+THEME.CMD_PALETTE_scroll_fg~&       = _RGB32(100, 100, 100)       ' Palette scroll summary
+
+' --- Palette strip / palette menu ---
+THEME.PALETTE_STRIP_bg~&             = _RGB32(68, 68, 68)          ' Palette strip background
+THEME.PALETTE_STRIP_fg~&             = _RGB32(200, 200, 200)       ' Palette strip text
+THEME.PALETTE_STRIP_arrow_fg~&       = _RGB32(180, 180, 180)       ' Palette strip arrows
+THEME.PALETTE_STRIP_hover_fg~&       = _RGB32(255, 255, 255)       ' Palette strip hover text/arrows
+THEME.PALETTE_STRIP_separator~&      = _RGB32(80, 80, 80)          ' Palette strip separator
+THEME.PALETTE_STRIP_button_hover_bg~& = _RGB32(60, 60, 60)         ' Palette strip hover background
+THEME.PALETTE_STRIP_selected_border_outer~& = _RGB32(255, 255, 255) ' Selected swatch outer border
+THEME.PALETTE_STRIP_selected_border_inner~& = _RGB32(0, 0, 0)      ' Selected swatch inner border
+THEME.PALETTE_STRIP_inactive_border_outer~& = _RGB32(80, 80, 80)   ' Inactive swatch outer border
+THEME.PALETTE_STRIP_inactive_border_inner~& = _RGB32(0, 0, 0)      ' Inactive swatch inner border
+THEME.PALETTE_MENU_bg~&              = _RGB32(40, 40, 40)          ' Palette menu background
+THEME.PALETTE_MENU_fg~&              = _RGB32(200, 200, 200)       ' Palette menu text
+THEME.PALETTE_MENU_hover_bg~&        = _RGB32(70, 70, 70)          ' Palette menu hover background
+THEME.PALETTE_MENU_selected_bg~&     = _RGB32(80, 100, 120)        ' Palette menu selected background
+THEME.PALETTE_MENU_border~&          = _RGB32(100, 100, 100)       ' Palette menu border
+THEME.PALETTE_MENU_current_fg~&      = _RGB32(255, 255, 255)       ' Palette menu current item text
+THEME.PALETTE_MENU_scroll_fg~&       = _RGB32(150, 150, 150)       ' Palette menu scroll indicator
+THEME.PALETTE_MENU_item_height%      = 12                           ' Palette menu item height
+
+' --- Screen overlays ---
+THEME.ZOOM_BOX_fill~&                = _RGBA32(255, 255, 255, 40)  ' Zoom drag fill
+THEME.ZOOM_BOX_border~&              = _RGB32(255, 255, 255)       ' Zoom drag border
+THEME.ZOOM_BOX_outer_border~&        = _RGB32(0, 0, 0)             ' Zoom drag outer border
+THEME.TOOL_PREVIEW_transparent_fg~&  = _RGB32(255, 255, 255)       ' Transparent tool preview fill
+THEME.TOOL_PREVIEW_transparent_outline~& = _RGB32(0, 0, 0)         ' Transparent tool preview outline
+THEME.CANVAS_border~&                = _RGB32(51, 51, 51)          ' Canvas border
+
 ' --- Fonts ---
 THEME.GLOBAL_FONT_FILE$          = "Tiny5-Regular.ttf"       ' Primary UI font
+THEME.GLOBAL_FONT_SIZE%          = 8                         ' Primary UI font size
 THEME.ALT_FONT_FILE$             = "PICO-8.ttf"              ' Alternate font (reserved)
 
 ' --- Sounds ---
