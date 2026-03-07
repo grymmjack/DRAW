@@ -28,3 +28,12 @@ DIM SHARED CLIPBOARD_KEY_T_LAST AS INTEGER   ' Custom font text tool
 ' Undo/Redo hotkey state tracking (for single-press detection)
 DIM SHARED UNDO_KEY_Z_LAST AS INTEGER   ' Undo (Ctrl+Z)
 DIM SHARED UNDO_KEY_Y_LAST AS INTEGER   ' Redo (Ctrl+Y)
+
+CONST REDO_SOURCE_NONE = 0
+CONST REDO_SOURCE_PIXEL = 1
+CONST REDO_SOURCE_WORKSPACE = 2
+CONST REDO_SOURCE_HISTORY = 3
+
+' When an undo is performed from one stack, redo must stay on that same stack.
+' Otherwise a second independent redo stack can be chosen incorrectly.
+DIM SHARED PENDING_REDO_SOURCE AS INTEGER

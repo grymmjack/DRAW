@@ -696,39 +696,78 @@ SUB CMD_execute_action (action_id AS INTEGER)
                 MOVE_cancel_transform
                 MOVE_reset
                 ' Keep TOOL_MOVE selected (MOVE_reset already cleans up auto-created marquee)
+                PENDING_REDO_SOURCE% = REDO_SOURCE_NONE
             ELSE
                 DIM pixelUndoTs AS DOUBLE, workspaceUndoTs AS DOUBLE, historyUndoTs AS DOUBLE
+                DIM canPixelUndo AS INTEGER, canWorkspaceUndo AS INTEGER, canHistoryUndo AS INTEGER
                 pixelUndoTs# = UNDO_get_last_timestamp#
                 workspaceUndoTs# = WORKSPACE_UNDO_get_last_timestamp#
                 historyUndoTs# = HISTORY_get_last_timestamp#
-                IF historyUndoTs# > workspaceUndoTs# AND historyUndoTs# > pixelUndoTs# AND HISTORY_can_undo% THEN
+                canPixelUndo% = (pixelUndoTs# > 0)
+                canWorkspaceUndo% = WORKSPACE_UNDO_can_undo%
+                canHistoryUndo% = HISTORY_can_undo%
+                IF canHistoryUndo% AND historyUndoTs# > 0 AND (NOT canWorkspaceUndo% OR historyUndoTs# >= workspaceUndoTs#) AND (NOT canPixelUndo% OR historyUndoTs# >= pixelUndoTs#) THEN
                     HISTORY_undo
-                ELSEIF workspaceUndoTs# > pixelUndoTs# AND WORKSPACE_UNDO_can_undo% THEN
+                    PENDING_REDO_SOURCE% = REDO_SOURCE_HISTORY
+                ELSEIF canWorkspaceUndo% AND workspaceUndoTs# > 0 AND (NOT canPixelUndo% OR workspaceUndoTs# >= pixelUndoTs#) THEN
                     WORKSPACE_UNDO_undo
-                ELSEIF pixelUndoTs# > 0 THEN
+                    PENDING_REDO_SOURCE% = REDO_SOURCE_WORKSPACE
+                ELSEIF canPixelUndo% THEN
                     UNDO_undo
+                    PENDING_REDO_SOURCE% = REDO_SOURCE_PIXEL
                 END IF
             END IF
             GUI_NEEDS_REDRAW% = TRUE
             FRAME_IDLE% = FALSE
         CASE 302  ' Redo (intelligent workspace/pixel routing)
+            DIM redoHandled AS INTEGER
+            redoHandled% = FALSE
+
+            IF PENDING_REDO_SOURCE% = REDO_SOURCE_HISTORY THEN
+                IF HISTORY_can_redo% THEN
+                    HISTORY_redo
+                    redoHandled% = TRUE
+                    IF NOT HISTORY_can_redo% THEN PENDING_REDO_SOURCE% = REDO_SOURCE_NONE
+                ELSE
+                    PENDING_REDO_SOURCE% = REDO_SOURCE_NONE
+                END IF
+            ELSEIF PENDING_REDO_SOURCE% = REDO_SOURCE_WORKSPACE THEN
+                IF WORKSPACE_UNDO_can_redo% THEN
+                    WORKSPACE_UNDO_redo
+                    redoHandled% = TRUE
+                    IF NOT WORKSPACE_UNDO_can_redo% THEN PENDING_REDO_SOURCE% = REDO_SOURCE_NONE
+                ELSE
+                    PENDING_REDO_SOURCE% = REDO_SOURCE_NONE
+                END IF
+            ELSEIF PENDING_REDO_SOURCE% = REDO_SOURCE_PIXEL THEN
+                IF UNDO.current% < UNDO.count% - 1 THEN
+                    UNDO_redo
+                    redoHandled% = TRUE
+                    IF NOT (UNDO.current% < UNDO.count% - 1) THEN PENDING_REDO_SOURCE% = REDO_SOURCE_NONE
+                ELSE
+                    PENDING_REDO_SOURCE% = REDO_SOURCE_NONE
+                END IF
+            END IF
+
             ' Use timestamps to redo in correct chronological order (earliest first).
             ' This mirrors the undo routing which uses timestamps for "latest first".
-            DIM pixelRedoTs AS DOUBLE, workspaceRedoTs AS DOUBLE, historyRedoTs AS DOUBLE
-            DIM canPixelRedo AS INTEGER, canWorkspaceRedo AS INTEGER, canHistoryRedo AS INTEGER
-            canPixelRedo% = (UNDO.current% < UNDO.count% - 1)
-            canWorkspaceRedo% = WORKSPACE_UNDO_can_redo%
-            canHistoryRedo% = HISTORY_can_redo%
-            pixelRedoTs# = 0: workspaceRedoTs# = 0: historyRedoTs# = 0
-            IF canPixelRedo% THEN pixelRedoTs# = UNDO_get_next_timestamp#
-            IF canWorkspaceRedo% THEN workspaceRedoTs# = WORKSPACE_UNDO_STATES(WORKSPACE_UNDO.current% + 1).timestamp#
-            IF canHistoryRedo% THEN historyRedoTs# = HISTORY_get_next_timestamp#
-            IF canHistoryRedo% AND (NOT canWorkspaceRedo% OR historyRedoTs# < workspaceRedoTs#) AND (NOT canPixelRedo% OR historyRedoTs# < pixelRedoTs#) THEN
-                HISTORY_redo
-            ELSEIF canWorkspaceRedo% AND (NOT canPixelRedo% OR workspaceRedoTs# < pixelRedoTs#) THEN
-                WORKSPACE_UNDO_redo
-            ELSEIF canPixelRedo% THEN
-                UNDO_redo
+            IF NOT redoHandled% AND PENDING_REDO_SOURCE% = REDO_SOURCE_NONE THEN
+                DIM pixelRedoTs AS DOUBLE, workspaceRedoTs AS DOUBLE, historyRedoTs AS DOUBLE
+                DIM canPixelRedo AS INTEGER, canWorkspaceRedo AS INTEGER, canHistoryRedo AS INTEGER
+                canPixelRedo% = (UNDO.current% < UNDO.count% - 1)
+                canWorkspaceRedo% = WORKSPACE_UNDO_can_redo%
+                canHistoryRedo% = HISTORY_can_redo%
+                pixelRedoTs# = 0: workspaceRedoTs# = 0: historyRedoTs# = 0
+                IF canPixelRedo% THEN pixelRedoTs# = UNDO_get_next_timestamp#
+                IF canWorkspaceRedo% THEN workspaceRedoTs# = WORKSPACE_UNDO_STATES(WORKSPACE_UNDO.current% + 1).timestamp#
+                IF canHistoryRedo% THEN historyRedoTs# = HISTORY_get_next_timestamp#
+                IF canHistoryRedo% AND historyRedoTs# > 0 AND (NOT canWorkspaceRedo% OR historyRedoTs# <= workspaceRedoTs#) AND (NOT canPixelRedo% OR historyRedoTs# <= pixelRedoTs#) THEN
+                    HISTORY_redo
+                ELSEIF canWorkspaceRedo% AND workspaceRedoTs# > 0 AND (NOT canPixelRedo% OR workspaceRedoTs# <= pixelRedoTs#) THEN
+                    WORKSPACE_UNDO_redo
+                ELSEIF canPixelRedo% THEN
+                    UNDO_redo
+                END IF
             END IF
             GUI_NEEDS_REDRAW% = TRUE
             FRAME_IDLE% = FALSE

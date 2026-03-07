@@ -7,6 +7,13 @@
 '
 $INCLUDEONCE
 
+SUB HISTORY_sanitize_state ()
+    IF HISTORY.count% < 0 THEN HISTORY.count% = 0
+    IF HISTORY.count% > HISTORY_MAX_RECORDS THEN HISTORY.count% = HISTORY_MAX_RECORDS
+    IF HISTORY.current% < 0 THEN HISTORY.current% = 0
+    IF HISTORY.current% > HISTORY.count% THEN HISTORY.current% = HISTORY.count%
+END SUB
+
 SUB HISTORY_init ()
     HISTORY.current% = 0
     HISTORY.count% = 0
@@ -14,6 +21,8 @@ SUB HISTORY_init ()
     HISTORY.nextSequence& = UNDO_SEQ
     HISTORY.recording% = FALSE
     HISTORY_IN_PROGRESS% = FALSE
+    HISTORY_GROUP_ACTIVE% = FALSE
+    HISTORY_GROUP_SEQUENCE& = 0
 END SUB
 
 SUB HISTORY_clear ()
@@ -21,9 +30,11 @@ SUB HISTORY_clear ()
     FOR i% = 1 TO HISTORY_MAX_RECORDS
         IF HISTORY_RECORDS(i%).img& < -1 THEN
             _FREEIMAGE HISTORY_RECORDS(i%).img&
+            HISTORY_RECORDS(i%).img& = 0
         END IF
         IF HISTORY_RECORDS(i%).img2& < -1 THEN
             _FREEIMAGE HISTORY_RECORDS(i%).img2&
+            HISTORY_RECORDS(i%).img2& = 0
         END IF
         HISTORY_RECORDS(i%).kind% = HISTORY_KIND_NONE
         HISTORY_RECORDS(i%).exportKind% = HISTORY_EXPORT_NONE
@@ -59,14 +70,17 @@ SUB HISTORY_clear ()
 END SUB
 
 FUNCTION HISTORY_can_undo% ()
+    HISTORY_sanitize_state
     HISTORY_can_undo% = (HISTORY.current% > 0)
 END FUNCTION
 
 FUNCTION HISTORY_can_redo% ()
+    HISTORY_sanitize_state
     HISTORY_can_redo% = (HISTORY.current% < HISTORY.count%)
 END FUNCTION
 
 FUNCTION HISTORY_get_last_timestamp# ()
+    HISTORY_sanitize_state
     IF HISTORY.current% >= 1 AND HISTORY.current% <= HISTORY.count% THEN
         HISTORY_get_last_timestamp# = HISTORY_RECORDS(HISTORY.current%).sequence&
     ELSE
@@ -75,12 +89,29 @@ FUNCTION HISTORY_get_last_timestamp# ()
 END FUNCTION
 
 FUNCTION HISTORY_get_next_timestamp# ()
+    HISTORY_sanitize_state
     IF HISTORY.current% + 1 >= 1 AND HISTORY.current% + 1 <= HISTORY.count% THEN
         HISTORY_get_next_timestamp# = HISTORY_RECORDS(HISTORY.current% + 1).sequence&
     ELSE
         HISTORY_get_next_timestamp# = 0
     END IF
 END FUNCTION
+
+SUB HISTORY_begin_group ()
+    IF HISTORY.recording% THEN EXIT SUB
+    IF HISTORY_IN_PROGRESS% THEN EXIT SUB
+    IF HISTORY_GROUP_ACTIVE% THEN EXIT SUB
+
+    UNDO_SEQ = UNDO_SEQ + 1
+    HISTORY.nextSequence& = UNDO_SEQ
+    HISTORY_GROUP_SEQUENCE& = HISTORY.nextSequence&
+    HISTORY_GROUP_ACTIVE% = TRUE
+END SUB
+
+SUB HISTORY_end_group ()
+    HISTORY_GROUP_ACTIVE% = FALSE
+    HISTORY_GROUP_SEQUENCE& = 0
+END SUB
 
 FUNCTION HISTORY_begin_record% (kind AS INTEGER, exportKind AS INTEGER, label AS STRING)
     DIM idx AS INTEGER
@@ -93,14 +124,17 @@ FUNCTION HISTORY_begin_record% (kind AS INTEGER, exportKind AS INTEGER, label AS
         FOR i% = HISTORY.current% + 1 TO HISTORY.count%
             IF HISTORY_RECORDS(i%).img& < -1 THEN
                 _FREEIMAGE HISTORY_RECORDS(i%).img&
+                HISTORY_RECORDS(i%).img& = 0
             END IF
             IF HISTORY_RECORDS(i%).img2& < -1 THEN
                 _FREEIMAGE HISTORY_RECORDS(i%).img2&
+                HISTORY_RECORDS(i%).img2& = 0
             END IF
             HISTORY_RECORDS(i%).kind% = HISTORY_KIND_NONE
             HISTORY_RECORDS(i%).exportKind% = HISTORY_EXPORT_NONE
             HISTORY_RECORDS(i%).sequence& = 0
             HISTORY_RECORDS(i%).img& = 0
+            HISTORY_RECORDS(i%).img2& = 0
             HISTORY_RECORDS(i%).label$ = ""
         NEXT i%
         HISTORY.count% = HISTORY.current%
@@ -109,8 +143,12 @@ FUNCTION HISTORY_begin_record% (kind AS INTEGER, exportKind AS INTEGER, label AS
     IF HISTORY.count% >= HISTORY.maxRecords% THEN EXIT FUNCTION
 
     idx% = HISTORY.count% + 1
-    UNDO_SEQ = UNDO_SEQ + 1
-    HISTORY.nextSequence& = UNDO_SEQ
+    IF HISTORY_GROUP_ACTIVE% THEN
+        HISTORY.nextSequence& = HISTORY_GROUP_SEQUENCE&
+    ELSE
+        UNDO_SEQ = UNDO_SEQ + 1
+        HISTORY.nextSequence& = UNDO_SEQ
+    END IF
 
     HISTORY_RECORDS(idx%).kind% = kind%
     HISTORY_RECORDS(idx%).exportKind% = exportKind%
@@ -162,9 +200,11 @@ SUB HISTORY_cancel_record (recordIndex AS INTEGER)
     IF recordIndex% >= 1 AND recordIndex% <= HISTORY_MAX_RECORDS THEN
         IF HISTORY_RECORDS(recordIndex%).img& < -1 THEN
             _FREEIMAGE HISTORY_RECORDS(recordIndex%).img&
+            HISTORY_RECORDS(recordIndex%).img& = 0
         END IF
         IF HISTORY_RECORDS(recordIndex%).img2& < -1 THEN
             _FREEIMAGE HISTORY_RECORDS(recordIndex%).img2&
+            HISTORY_RECORDS(recordIndex%).img2& = 0
         END IF
         HISTORY_RECORDS(recordIndex%).kind% = HISTORY_KIND_NONE
         HISTORY_RECORDS(recordIndex%).exportKind% = HISTORY_EXPORT_NONE
@@ -790,29 +830,37 @@ SUB HISTORY_undo ()
     DIM idx AS INTEGER
     DIM layerIndex AS INTEGER
     DIM newSlot AS INTEGER
+    DIM groupSequence AS LONG
 
+    HISTORY_sanitize_state
     IF NOT HISTORY_can_undo% THEN EXIT SUB
 
     idx% = HISTORY.current%
+    IF idx% < 1 OR idx% > HISTORY.count% THEN EXIT SUB
     HISTORY_IN_PROGRESS% = TRUE
 
-    SELECT CASE HISTORY_RECORDS(idx%).kind%
-        CASE HISTORY_KIND_LAYER_ADD
-            layerIndex% = HISTORY_find_layer_slot_by_id%(HISTORY_RECORDS(idx%).primaryLayerId&)
-            IF layerIndex% > 0 THEN HISTORY_delete_layer_by_slot layerIndex%
-        CASE HISTORY_KIND_LAYER_DELETE
-            newSlot% = HISTORY_create_layer_from_record%(idx%, HISTORY_RECORDS(idx%).oldZIndex%)
-            IF newSlot% > 0 THEN LAYERS_select newSlot%
-        CASE HISTORY_KIND_LAYER_REORDER
-            HISTORY_move_layer_to_z HISTORY_RECORDS(idx%).primaryLayerId&, HISTORY_RECORDS(idx%).oldZIndex%
-        CASE HISTORY_KIND_LAYER_RENAME
-            layerIndex% = HISTORY_find_layer_slot_by_id%(HISTORY_RECORDS(idx%).primaryLayerId&)
-            IF layerIndex% > 0 THEN LAYERS(layerIndex%).name$ = HISTORY_RECORDS(idx%).oldName$
-        CASE HISTORY_KIND_LINE, HISTORY_KIND_RECT, HISTORY_KIND_ELLIPSE, HISTORY_KIND_POLYLINE, HISTORY_KIND_FILL, HISTORY_KIND_BRUSH, HISTORY_KIND_TRANSFORM
-            HISTORY_apply_layer_snapshot HISTORY_RECORDS(idx%).primaryLayerId&, HISTORY_RECORDS(idx%).img&
-    END SELECT
+    groupSequence& = HISTORY_RECORDS(idx%).sequence&
+    DO WHILE idx% >= 1
+        IF HISTORY_RECORDS(idx%).sequence& <> groupSequence& THEN EXIT DO
+        SELECT CASE HISTORY_RECORDS(idx%).kind%
+            CASE HISTORY_KIND_LAYER_ADD
+                layerIndex% = HISTORY_find_layer_slot_by_id%(HISTORY_RECORDS(idx%).primaryLayerId&)
+                IF layerIndex% > 0 THEN HISTORY_delete_layer_by_slot layerIndex%
+            CASE HISTORY_KIND_LAYER_DELETE
+                newSlot% = HISTORY_create_layer_from_record%(idx%, HISTORY_RECORDS(idx%).oldZIndex%)
+                IF newSlot% > 0 THEN LAYERS_select newSlot%
+            CASE HISTORY_KIND_LAYER_REORDER
+                HISTORY_move_layer_to_z HISTORY_RECORDS(idx%).primaryLayerId&, HISTORY_RECORDS(idx%).oldZIndex%
+            CASE HISTORY_KIND_LAYER_RENAME
+                layerIndex% = HISTORY_find_layer_slot_by_id%(HISTORY_RECORDS(idx%).primaryLayerId&)
+                IF layerIndex% > 0 THEN LAYERS(layerIndex%).name$ = HISTORY_RECORDS(idx%).oldName$
+            CASE HISTORY_KIND_LINE, HISTORY_KIND_RECT, HISTORY_KIND_ELLIPSE, HISTORY_KIND_POLYLINE, HISTORY_KIND_FILL, HISTORY_KIND_BRUSH, HISTORY_KIND_TRANSFORM
+                HISTORY_apply_layer_snapshot HISTORY_RECORDS(idx%).primaryLayerId&, HISTORY_RECORDS(idx%).img&
+        END SELECT
+        idx% = idx% - 1
+    LOOP
 
-    HISTORY.current% = HISTORY.current% - 1
+    HISTORY.current% = idx%
     HISTORY_IN_PROGRESS% = FALSE
     LAYER_COUNT% = LAYERS_recount%
     BLEND_invalidate_cache
@@ -825,29 +873,37 @@ SUB HISTORY_redo ()
     DIM idx AS INTEGER
     DIM layerIndex AS INTEGER
     DIM newSlot AS INTEGER
+    DIM groupSequence AS LONG
 
+    HISTORY_sanitize_state
     IF NOT HISTORY_can_redo% THEN EXIT SUB
 
     idx% = HISTORY.current% + 1
+    IF idx% < 1 OR idx% > HISTORY.count% THEN EXIT SUB
     HISTORY_IN_PROGRESS% = TRUE
 
-    SELECT CASE HISTORY_RECORDS(idx%).kind%
-        CASE HISTORY_KIND_LAYER_ADD
-            newSlot% = HISTORY_create_layer_from_record%(idx%, HISTORY_RECORDS(idx%).newZIndex%)
-            IF newSlot% > 0 THEN LAYERS_select newSlot%
-        CASE HISTORY_KIND_LAYER_DELETE
-            layerIndex% = HISTORY_find_layer_slot_by_id%(HISTORY_RECORDS(idx%).primaryLayerId&)
-            IF layerIndex% > 0 THEN HISTORY_delete_layer_by_slot layerIndex%
-        CASE HISTORY_KIND_LAYER_REORDER
-            HISTORY_move_layer_to_z HISTORY_RECORDS(idx%).primaryLayerId&, HISTORY_RECORDS(idx%).newZIndex%
-        CASE HISTORY_KIND_LAYER_RENAME
-            layerIndex% = HISTORY_find_layer_slot_by_id%(HISTORY_RECORDS(idx%).primaryLayerId&)
-            IF layerIndex% > 0 THEN LAYERS(layerIndex%).name$ = HISTORY_RECORDS(idx%).newName$
-        CASE HISTORY_KIND_LINE, HISTORY_KIND_RECT, HISTORY_KIND_ELLIPSE, HISTORY_KIND_POLYLINE, HISTORY_KIND_FILL, HISTORY_KIND_BRUSH, HISTORY_KIND_TRANSFORM
-            HISTORY_apply_layer_snapshot HISTORY_RECORDS(idx%).primaryLayerId&, HISTORY_RECORDS(idx%).img2&
-    END SELECT
+    groupSequence& = HISTORY_RECORDS(idx%).sequence&
+    DO WHILE idx% <= HISTORY.count%
+        IF HISTORY_RECORDS(idx%).sequence& <> groupSequence& THEN EXIT DO
+        SELECT CASE HISTORY_RECORDS(idx%).kind%
+            CASE HISTORY_KIND_LAYER_ADD
+                newSlot% = HISTORY_create_layer_from_record%(idx%, HISTORY_RECORDS(idx%).newZIndex%)
+                IF newSlot% > 0 THEN LAYERS_select newSlot%
+            CASE HISTORY_KIND_LAYER_DELETE
+                layerIndex% = HISTORY_find_layer_slot_by_id%(HISTORY_RECORDS(idx%).primaryLayerId&)
+                IF layerIndex% > 0 THEN HISTORY_delete_layer_by_slot layerIndex%
+            CASE HISTORY_KIND_LAYER_REORDER
+                HISTORY_move_layer_to_z HISTORY_RECORDS(idx%).primaryLayerId&, HISTORY_RECORDS(idx%).newZIndex%
+            CASE HISTORY_KIND_LAYER_RENAME
+                layerIndex% = HISTORY_find_layer_slot_by_id%(HISTORY_RECORDS(idx%).primaryLayerId&)
+                IF layerIndex% > 0 THEN LAYERS(layerIndex%).name$ = HISTORY_RECORDS(idx%).newName$
+            CASE HISTORY_KIND_LINE, HISTORY_KIND_RECT, HISTORY_KIND_ELLIPSE, HISTORY_KIND_POLYLINE, HISTORY_KIND_FILL, HISTORY_KIND_BRUSH, HISTORY_KIND_TRANSFORM
+                HISTORY_apply_layer_snapshot HISTORY_RECORDS(idx%).primaryLayerId&, HISTORY_RECORDS(idx%).img2&
+        END SELECT
+        HISTORY.current% = idx%
+        idx% = idx% + 1
+    LOOP
 
-    HISTORY.current% = idx%
     HISTORY_IN_PROGRESS% = FALSE
     LAYER_COUNT% = LAYERS_recount%
     BLEND_invalidate_cache

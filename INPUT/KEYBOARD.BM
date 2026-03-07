@@ -1733,51 +1733,92 @@ SUB KEYBOARD_handle_clipboard_operations ()
             END IF
             GUI_NEEDS_REDRAW% = TRUE
             FRAME_IDLE% = FALSE
+            PENDING_REDO_SOURCE% = REDO_SOURCE_NONE
         ELSE
+            DIM canPixelUndo AS INTEGER, canWorkspaceUndo AS INTEGER, canHistoryUndo AS INTEGER
             pixelUndoTs# = UNDO_get_last_timestamp#
             workspaceUndoTs# = WORKSPACE_UNDO_get_last_timestamp#
             historyUndoTs# = HISTORY_get_last_timestamp#
+            canPixelUndo% = (pixelUndoTs# > 0)
+            canWorkspaceUndo% = WORKSPACE_UNDO_can_undo%
+            canHistoryUndo% = HISTORY_can_undo%
         
-            IF historyUndoTs# > workspaceUndoTs# AND historyUndoTs# > pixelUndoTs# AND HISTORY_can_undo% THEN
+            IF canHistoryUndo% AND historyUndoTs# > 0 AND (NOT canWorkspaceUndo% OR historyUndoTs# >= workspaceUndoTs#) AND (NOT canPixelUndo% OR historyUndoTs# >= pixelUndoTs#) THEN
                 _LOGINFO "CTRL-Z: History undo (ts=" + STR$(historyUndoTs#) + " > workspace ts=" + STR$(workspaceUndoTs#) + ", pixel ts=" + STR$(pixelUndoTs#) + ")"
                 HISTORY_undo
-            ELSEIF workspaceUndoTs# > pixelUndoTs# AND WORKSPACE_UNDO_can_undo% THEN
+                PENDING_REDO_SOURCE% = REDO_SOURCE_HISTORY
+            ELSEIF canWorkspaceUndo% AND workspaceUndoTs# > 0 AND (NOT canPixelUndo% OR workspaceUndoTs# >= pixelUndoTs#) THEN
                 _LOGINFO "CTRL-Z: Workspace undo (ts=" + STR$(workspaceUndoTs#) + " > pixel ts=" + STR$(pixelUndoTs#) + ")"
                 WORKSPACE_UNDO_undo
-            ELSEIF pixelUndoTs# > 0 THEN
+                PENDING_REDO_SOURCE% = REDO_SOURCE_WORKSPACE
+            ELSEIF canPixelUndo% THEN
                 _LOGINFO "CTRL-Z: Pixel undo (ts=" + STR$(pixelUndoTs#) + " >= workspace ts=" + STR$(workspaceUndoTs#) + ")"
                 UNDO_undo
+                PENDING_REDO_SOURCE% = REDO_SOURCE_PIXEL
             END IF
             GUI_NEEDS_REDRAW% = TRUE
             FRAME_IDLE% = FALSE
+            SCREEN_render
         END IF
     END IF
     UNDO_KEY_Z_LAST% = keyZNow%
     
     ' Ctrl+Y OR Ctrl+Shift+Z: Intelligent Redo
     IF (keyYNow% AND NOT UNDO_KEY_Y_LAST%) OR (keyZNow% AND NOT UNDO_KEY_Z_LAST% AND clipIsShift%) THEN
+        DIM redoHandled AS INTEGER
+        redoHandled% = FALSE
+
+        IF PENDING_REDO_SOURCE% = REDO_SOURCE_HISTORY THEN
+            IF HISTORY_can_redo% THEN
+                HISTORY_redo
+                redoHandled% = TRUE
+                IF NOT HISTORY_can_redo% THEN PENDING_REDO_SOURCE% = REDO_SOURCE_NONE
+            ELSE
+                PENDING_REDO_SOURCE% = REDO_SOURCE_NONE
+            END IF
+        ELSEIF PENDING_REDO_SOURCE% = REDO_SOURCE_WORKSPACE THEN
+            IF WORKSPACE_UNDO_can_redo% THEN
+                WORKSPACE_UNDO_redo
+                redoHandled% = TRUE
+                IF NOT WORKSPACE_UNDO_can_redo% THEN PENDING_REDO_SOURCE% = REDO_SOURCE_NONE
+            ELSE
+                PENDING_REDO_SOURCE% = REDO_SOURCE_NONE
+            END IF
+        ELSEIF PENDING_REDO_SOURCE% = REDO_SOURCE_PIXEL THEN
+            IF UNDO.current% < UNDO.count% - 1 THEN
+                UNDO_redo
+                redoHandled% = TRUE
+                IF NOT (UNDO.current% < UNDO.count% - 1) THEN PENDING_REDO_SOURCE% = REDO_SOURCE_NONE
+            ELSE
+                PENDING_REDO_SOURCE% = REDO_SOURCE_NONE
+            END IF
+        END IF
+
         ' If workspace has something to redo, use timestamps for correct chronological order
-        DIM redoPixelTs AS DOUBLE, redoWorkspaceTs AS DOUBLE, redoHistoryTs AS DOUBLE
-        DIM redoCanPixel AS INTEGER, redoCanWorkspace AS INTEGER, redoCanHistory AS INTEGER
-        redoCanPixel% = (UNDO.current% < UNDO.count% - 1)
-        redoCanWorkspace% = WORKSPACE_UNDO_can_redo%
-        redoCanHistory% = HISTORY_can_redo%
-        redoPixelTs# = 0: redoWorkspaceTs# = 0: redoHistoryTs# = 0
-        IF redoCanPixel% THEN redoPixelTs# = UNDO_get_next_timestamp#
-        IF redoCanWorkspace% THEN redoWorkspaceTs# = WORKSPACE_UNDO_STATES(WORKSPACE_UNDO.current% + 1).timestamp#
-        IF redoCanHistory% THEN redoHistoryTs# = HISTORY_get_next_timestamp#
-        IF redoCanHistory% AND (NOT redoCanWorkspace% OR redoHistoryTs# < redoWorkspaceTs#) AND (NOT redoCanPixel% OR redoHistoryTs# < redoPixelTs#) THEN
-            _LOGINFO "CTRL-Y: History redo (ts=" + STR$(redoHistoryTs#) + " < workspace ts=" + STR$(redoWorkspaceTs#) + ", pixel ts=" + STR$(redoPixelTs#) + ")"
-            HISTORY_redo
-        ELSEIF redoCanWorkspace% AND (NOT redoCanPixel% OR redoWorkspaceTs# < redoPixelTs#) THEN
-            _LOGINFO "CTRL-Y: Workspace redo (ts=" + STR$(redoWorkspaceTs#) + " < pixel ts=" + STR$(redoPixelTs#) + ")"
-            WORKSPACE_UNDO_redo
-        ELSEIF redoCanPixel% THEN
-            _LOGINFO "CTRL-Y: Pixel redo"
-            UNDO_redo
+        IF NOT redoHandled% AND PENDING_REDO_SOURCE% = REDO_SOURCE_NONE THEN
+            DIM redoPixelTs AS DOUBLE, redoWorkspaceTs AS DOUBLE, redoHistoryTs AS DOUBLE
+            DIM redoCanPixel AS INTEGER, redoCanWorkspace AS INTEGER, redoCanHistory AS INTEGER
+            redoCanPixel% = (UNDO.current% < UNDO.count% - 1)
+            redoCanWorkspace% = WORKSPACE_UNDO_can_redo%
+            redoCanHistory% = HISTORY_can_redo%
+            redoPixelTs# = 0: redoWorkspaceTs# = 0: redoHistoryTs# = 0
+            IF redoCanPixel% THEN redoPixelTs# = UNDO_get_next_timestamp#
+            IF redoCanWorkspace% THEN redoWorkspaceTs# = WORKSPACE_UNDO_STATES(WORKSPACE_UNDO.current% + 1).timestamp#
+            IF redoCanHistory% THEN redoHistoryTs# = HISTORY_get_next_timestamp#
+            IF redoCanHistory% AND redoHistoryTs# > 0 AND (NOT redoCanWorkspace% OR redoHistoryTs# <= redoWorkspaceTs#) AND (NOT redoCanPixel% OR redoHistoryTs# <= redoPixelTs#) THEN
+                _LOGINFO "CTRL-Y: History redo (ts=" + STR$(redoHistoryTs#) + " < workspace ts=" + STR$(redoWorkspaceTs#) + ", pixel ts=" + STR$(redoPixelTs#) + ")"
+                HISTORY_redo
+            ELSEIF redoCanWorkspace% AND redoWorkspaceTs# > 0 AND (NOT redoCanPixel% OR redoWorkspaceTs# <= redoPixelTs#) THEN
+                _LOGINFO "CTRL-Y: Workspace redo (ts=" + STR$(redoWorkspaceTs#) + " < pixel ts=" + STR$(redoPixelTs#) + ")"
+                WORKSPACE_UNDO_redo
+            ELSEIF redoCanPixel% THEN
+                _LOGINFO "CTRL-Y: Pixel redo"
+                UNDO_redo
+            END IF
         END IF
         GUI_NEEDS_REDRAW% = TRUE
         FRAME_IDLE% = FALSE
+        SCREEN_render
     END IF
     UNDO_KEY_Y_LAST% = keyYNow%
 END SUB
@@ -1915,6 +1956,7 @@ END SUB
 ' 
 SUB KEYBOARD_input_handler ()
     DIM keypress AS STRING
+    DIM drainKey AS LONG
     
     ' Layer keyboard handling - MUST run first before any EXIT SUB statements
     ' Uses _KEYDOWN() so runs every frame regardless of INKEY$ state
@@ -1950,12 +1992,24 @@ SUB KEYBOARD_input_handler ()
     
     ' NOTE: Display scale hotkeys (CTRL+ALT+SHIFT+=/-) are handled in DRAW.BAS main loop
     ' using _KEYHIT which is more reliable on Linux for complex modifier combinations
+
+    ' On Linux/SDL2, Ctrl/Alt combinations can leak ASCII control characters into
+    ' INKEY$ even though the real shortcut handling below uses _KEYDOWN(). Drain the
+    ' keyboard buffer before any INKEY$-driven tool/color handlers so modifier presses
+    ' cannot masquerade as ESC/Z/Y/etc. when the user is only holding modifiers.
+    IF MODIFIERS.ctrl% OR MODIFIERS.alt% THEN
+        drainKey& = _KEYHIT
+        DO WHILE drainKey& <> 0
+            drainKey& = _KEYHIT
+        LOOP
+        keypress$ = ""
+    END IF
     
     ' Handle custom brush controls (Ctrl+B to capture, HOME/END/PgUp/PgDn for transformations)
     KEYBOARD_handle_custom_brush
     
     ' If text tool is active and editing, block ALL other keyboard processing except text input
-    keypress$ = INKEY$
+    IF keypress$ = "" THEN keypress$ = INKEY$
     IF KEYBOARD_handle_text_tool%(keypress$) THEN EXIT SUB
     IF keypress$ <> "" THEN
         ' Handle ? for command palette with search (before other processing)
