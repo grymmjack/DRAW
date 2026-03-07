@@ -54,3 +54,6 @@ DECLARE SUB LOSPEC_http_fetch (url AS STRING, outFile AS STRING, timeout AS INTE
 DECLARE FUNCTION LOSPEC_read_file$ (filePath AS STRING)
 DECLARE SUB LOSPEC_reload_palettes ()
 DECLARE FUNCTION LOSPEC_fit_label$ (label AS STRING, suffix AS STRING, maxPx AS INTEGER, imgHandle AS LONG)
+DECLARE FUNCTION LOSPEC_in_batch% (idx AS INTEGER)
+DECLARE SUB LOSPEC_remove_from_batch (idx AS INTEGER)
+DECLARE FUNCTION LOSPEC_find_gpl_path$ (idx AS INTEGER)
