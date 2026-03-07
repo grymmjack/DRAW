@@ -25,6 +25,7 @@
 '     LAYERS: count(2) + current(2) + per-layer data
 '     TOOL STATE: tool(2) + brush(2) + pixelperfect(2) + grid(2) + gridsize(2)
 '     PALETTE NAME: name(64) [v3+]
+'     HISTORY: stable layer ids + unified history records [v7+]
 '
 ' @author Rick Christy <grymmjack@gmail.com>
 '
@@ -144,6 +145,10 @@ SUB DRW_save_binary (filename AS STRING)
             PUT #fh%, , tmpInt%
             tmpInt% = LAYERS(i%).opacityLock%
             PUT #fh%, , tmpInt%
+            IF version% >= 7 THEN
+                tmpLong& = LAYERS(i%).historyId&
+                PUT #fh%, , tmpLong&
+            END IF
 
             ' Pixel data
             oldSrc& = _SOURCE
@@ -225,6 +230,9 @@ SUB DRW_save_binary (filename AS STRING)
     tmpInt% = GRID.ALIGN_MODE%
     PUT #fh%, , tmpInt%
 
+    ' === UNIFIED HISTORY (v7+) ===
+    HISTORY_save_binary fh%, SCRN.canvasW&, SCRN.canvasH&
+
     CLOSE #fh%
 
     _LOGINFO "DRW_save_binary: Wrote binary project data to " + filename$
@@ -250,6 +258,7 @@ SUB DRW_load_binary (filename AS STRING)
     DIM layerVisible AS INTEGER
     DIM layerOpacity AS INTEGER
     DIM layerZIndex AS INTEGER
+    DIM layerHistoryId AS LONG
     DIM layerIdx AS INTEGER
     DIM savedTool AS INTEGER
     DIM savedBrushSize AS INTEGER
@@ -478,6 +487,13 @@ SUB DRW_load_binary (filename AS STRING)
             LAYERS(layerIdx%).opacityLock% = FALSE
         END IF
 
+        IF version% >= 7 THEN
+            GET #fh%, , layerHistoryId&
+            LAYERS(layerIdx%).historyId& = layerHistoryId&
+        ELSE
+            LAYERS(layerIdx%).historyId& = LAYERS_alloc_history_id&
+        END IF
+
         ' Create layer image at canvas dimensions (not viewport)
         LAYERS(layerIdx%).imgHandle& = _NEWIMAGE(SCRN.canvasW&, SCRN.canvasH&, 32)
         LAYERS(layerIdx%).imgWidth% = SCRN.canvasW&
@@ -616,6 +632,13 @@ SUB DRW_load_binary (filename AS STRING)
         GRID.ALIGN_MODE% = savedAlignMode%
     END IF
 
+    IF version% >= 7 THEN
+        HISTORY_load_binary fh%, SCRN.canvasW&, SCRN.canvasH&
+    ELSE
+        HISTORY_clear
+        IF NEXT_LAYER_HISTORY_ID& < 1 THEN NEXT_LAYER_HISTORY_ID& = 1
+    END IF
+
     CLOSE #fh%
 
     ' Restore reference image after file is closed (REFIMG_load_file uses _LOADIMAGE)
@@ -649,7 +672,11 @@ SUB DRW_load_binary (filename AS STRING)
     ' Reset undo history for loaded file
     UNDO_init
     WORKSPACE_UNDO_clear  ' Clear workspace undo states for loaded file
-    HISTORY_clear
+    IF version% >= 7 THEN
+        IF UNDO_SEQ < HISTORY.nextSequence& THEN UNDO_SEQ = HISTORY.nextSequence&
+    ELSE
+        HISTORY_clear
+    END IF
 
     ' Reset tool and selection state (prevent stale state from previous file)
     IF TRANSFORM.ACTIVE THEN TRANSFORM_cancel

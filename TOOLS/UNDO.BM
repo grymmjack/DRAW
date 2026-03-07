@@ -289,6 +289,36 @@ FUNCTION LAYER_is_empty% (layerImg AS LONG)
     LAYER_is_empty% = TRUE
 END FUNCTION
 
+FUNCTION UNDO_find_current_visible_state% ()
+    DIM i AS INTEGER
+
+    FOR i% = UNDO.current% TO 0 STEP -1
+        IF i% >= 0 AND i% < UNDO.count% AND i% <= UNDO_STATES_MAX% THEN
+            IF UNDO_STATES(i%).timestamp# > 0 THEN
+                UNDO_find_current_visible_state% = i%
+                EXIT FUNCTION
+            END IF
+        END IF
+    NEXT i%
+
+    UNDO_find_current_visible_state% = -1
+END FUNCTION
+
+FUNCTION UNDO_find_next_visible_state% ()
+    DIM i AS INTEGER
+
+    FOR i% = UNDO.current% + 1 TO UNDO.count% - 1
+        IF i% >= 0 AND i% <= UNDO_STATES_MAX% THEN
+            IF UNDO_STATES(i%).timestamp# > 0 THEN
+                UNDO_find_next_visible_state% = i%
+                EXIT FUNCTION
+            END IF
+        END IF
+    NEXT i%
+
+    UNDO_find_next_visible_state% = -1
+END FUNCTION
+
 
 ''
 ' Undo - restore previous state
@@ -298,6 +328,7 @@ SUB UNDO_undo ()
     DIM targetImg AS LONG
     DIM oldDest AS LONG
     DIM currentLayer AS INTEGER
+    DIM sourceIdx AS INTEGER
     DIM restoreIdx AS INTEGER
     DIM i AS INTEGER
     DIM ubnd AS INTEGER
@@ -310,14 +341,15 @@ SUB UNDO_undo ()
     IF UNDO.count% > ubnd% THEN UNDO.count% = ubnd%
     
     _LOGINFO "UNDO_undo called: current=" + STR$(UNDO.current%) + " count=" + STR$(UNDO.count%)
-    IF UNDO.current% > 0 THEN
-        ' Get the layer that the current state modified
-        currentLayer% = UNDO_STATES(UNDO.current%).layer_index%
+    sourceIdx% = UNDO_find_current_visible_state%
+    IF sourceIdx% > 0 THEN
+        ' Get the layer that the current visible state modified
+        currentLayer% = UNDO_STATES(sourceIdx%).layer_index%
         
         ' Find the previous state for this SAME layer (or go to beginning)
         restoreIdx% = -1
-        FOR i% = UNDO.current% - 1 TO 0 STEP -1
-            IF UNDO_STATES(i%).layer_index% = currentLayer% THEN
+        FOR i% = sourceIdx% - 1 TO 0 STEP -1
+            IF UNDO_STATES(i%).timestamp# > 0 AND UNDO_STATES(i%).layer_index% = currentLayer% THEN
                 restoreIdx% = i%
                 EXIT FOR
             END IF
@@ -356,8 +388,9 @@ SUB UNDO_undo ()
             END IF
         END IF
         
-        ' Move back one state in the history
-        UNDO.current% = UNDO.current% - 1
+        ' Move back to the restored visible state in the history
+        UNDO.current% = restoreIdx%
+        PIXEL_UNDO_LAST_TIMESTAMP# = UNDO_get_last_timestamp#
         
         ' Mark layer as having changed content (for opacity cache invalidation)
         IF currentLayer% >= 1 AND currentLayer% <= LAYER_COUNT% THEN
@@ -377,6 +410,7 @@ SUB UNDO_redo ()
     DIM targetImg AS LONG
     DIM oldDest AS LONG
     DIM targetLayer AS INTEGER
+    DIM sourceIdx AS INTEGER
     DIM ubnd AS INTEGER
     ubnd% = UNDO_STATES_MAX%
     
@@ -387,15 +421,9 @@ SUB UNDO_redo ()
     IF UNDO.count% > ubnd% THEN UNDO.count% = ubnd%
     
     _LOGINFO "UNDO_redo called: current=" + STR$(UNDO.current%) + " count=" + STR$(UNDO.count%)
-    IF UNDO.current% < UNDO.count% - 1 THEN
-        ' Move forward one state
-        UNDO.current% = UNDO.current% + 1
-        
-        ' Bounds check after increment
-        IF UNDO.current% > ubnd% THEN
-            UNDO.current% = ubnd%
-            EXIT SUB
-        END IF
+    sourceIdx% = UNDO_find_next_visible_state%
+    IF sourceIdx% >= 0 THEN
+        UNDO.current% = sourceIdx%
         
         ' Restore the state
         IF UNDO_STATES(UNDO.current%).img& < -1 THEN
@@ -429,6 +457,7 @@ SUB UNDO_redo ()
         IF targetLayer% >= 1 AND targetLayer% <= LAYER_COUNT% THEN
             LAYERS(targetLayer%).contentDirty% = TRUE
         END IF
+        PIXEL_UNDO_LAST_TIMESTAMP# = UNDO_get_last_timestamp#
         BLEND_invalidate_cache
     ELSE
         _LOGINFO "REDO: Nothing to redo (current=" + STR$(UNDO.current%) + " count=" + STR$(UNDO.count%) + ")"
@@ -457,10 +486,24 @@ END SUB
 ' @return DOUBLE - TIMER value when current state was saved, or 0 if none
 '
 FUNCTION UNDO_get_last_timestamp# ()
-    IF UNDO.current% >= 0 AND UNDO.current% < UNDO.count% AND UNDO.current% <= UNDO_STATES_MAX% THEN
-        UNDO_get_last_timestamp# = UNDO_STATES(UNDO.current%).timestamp#
+    DIM visibleIdx AS INTEGER
+
+    visibleIdx% = UNDO_find_current_visible_state%
+    IF visibleIdx% >= 0 THEN
+        UNDO_get_last_timestamp# = UNDO_STATES(visibleIdx%).timestamp#
     ELSE
         UNDO_get_last_timestamp# = 0
+    END IF
+END FUNCTION
+
+FUNCTION UNDO_get_next_timestamp# ()
+    DIM visibleIdx AS INTEGER
+
+    visibleIdx% = UNDO_find_next_visible_state%
+    IF visibleIdx% >= 0 THEN
+        UNDO_get_next_timestamp# = UNDO_STATES(visibleIdx%).timestamp#
+    ELSE
+        UNDO_get_next_timestamp# = 0
     END IF
 END FUNCTION
 
@@ -497,10 +540,6 @@ SUB UNDO_pop_last ()
     IF UNDO.current% < 0 THEN UNDO.current% = 0
 
     ' Update the global pixel undo timestamp
-    IF UNDO.current% >= 0 AND UNDO.current% < UNDO.count% AND UNDO.current% <= UNDO_STATES_MAX% THEN
-        PIXEL_UNDO_LAST_TIMESTAMP# = UNDO_STATES(UNDO.current%).timestamp#
-    ELSE
-        PIXEL_UNDO_LAST_TIMESTAMP# = 0
-    END IF
+    PIXEL_UNDO_LAST_TIMESTAMP# = UNDO_get_last_timestamp#
     _LOGINFO "UNDO_pop_last: discarded state, current=" + STR$(UNDO.current%) + " count=" + STR$(UNDO.count%)
 END SUB
