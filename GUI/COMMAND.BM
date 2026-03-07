@@ -696,32 +696,81 @@ SUB CMD_execute_action (action_id AS INTEGER)
                 MOVE_cancel_transform
                 MOVE_reset
                 ' Keep TOOL_MOVE selected (MOVE_reset already cleans up auto-created marquee)
+                PENDING_REDO_SOURCE% = REDO_SOURCE_NONE
+            ELSEIF (CURRENT_TOOL% = TOOL_POLYGON OR CURRENT_TOOL% = TOOL_POLYGON_FILLED) AND POLY_LINE.HAS_LAST AND POLY_LINE.HISTORY_BEFORE_IMG < -1 THEN
+                POLY_LINE_cancel_restore
+                PENDING_REDO_SOURCE% = REDO_SOURCE_NONE
             ELSE
-                DIM pixelUndoTs AS DOUBLE, workspaceUndoTs AS DOUBLE
+                DIM pixelUndoTs AS DOUBLE, workspaceUndoTs AS DOUBLE, historyUndoTs AS DOUBLE
+                DIM canPixelUndo AS INTEGER, canWorkspaceUndo AS INTEGER, canHistoryUndo AS INTEGER
                 pixelUndoTs# = UNDO_get_last_timestamp#
                 workspaceUndoTs# = WORKSPACE_UNDO_get_last_timestamp#
-                IF workspaceUndoTs# > pixelUndoTs# AND WORKSPACE_UNDO_can_undo% THEN
+                historyUndoTs# = HISTORY_get_last_timestamp#
+                canPixelUndo% = (pixelUndoTs# > 0)
+                canWorkspaceUndo% = WORKSPACE_UNDO_can_undo%
+                canHistoryUndo% = HISTORY_can_undo%
+                IF canHistoryUndo% AND historyUndoTs# > 0 AND (NOT canWorkspaceUndo% OR historyUndoTs# >= workspaceUndoTs#) AND (NOT canPixelUndo% OR historyUndoTs# >= pixelUndoTs#) THEN
+                    HISTORY_undo
+                    PENDING_REDO_SOURCE% = REDO_SOURCE_HISTORY
+                ELSEIF canWorkspaceUndo% AND workspaceUndoTs# > 0 AND (NOT canPixelUndo% OR workspaceUndoTs# >= pixelUndoTs#) THEN
                     WORKSPACE_UNDO_undo
-                ELSEIF pixelUndoTs# > 0 THEN
+                    PENDING_REDO_SOURCE% = REDO_SOURCE_WORKSPACE
+                ELSEIF canPixelUndo% THEN
                     UNDO_undo
+                    PENDING_REDO_SOURCE% = REDO_SOURCE_PIXEL
                 END IF
             END IF
             GUI_NEEDS_REDRAW% = TRUE
             FRAME_IDLE% = FALSE
         CASE 302  ' Redo (intelligent workspace/pixel routing)
+            DIM redoHandled AS INTEGER
+            redoHandled% = FALSE
+
+            IF PENDING_REDO_SOURCE% = REDO_SOURCE_HISTORY THEN
+                IF HISTORY_can_redo% THEN
+                    HISTORY_redo
+                    redoHandled% = TRUE
+                    IF NOT HISTORY_can_redo% THEN PENDING_REDO_SOURCE% = REDO_SOURCE_NONE
+                ELSE
+                    PENDING_REDO_SOURCE% = REDO_SOURCE_NONE
+                END IF
+            ELSEIF PENDING_REDO_SOURCE% = REDO_SOURCE_WORKSPACE THEN
+                IF WORKSPACE_UNDO_can_redo% THEN
+                    WORKSPACE_UNDO_redo
+                    redoHandled% = TRUE
+                    IF NOT WORKSPACE_UNDO_can_redo% THEN PENDING_REDO_SOURCE% = REDO_SOURCE_NONE
+                ELSE
+                    PENDING_REDO_SOURCE% = REDO_SOURCE_NONE
+                END IF
+            ELSEIF PENDING_REDO_SOURCE% = REDO_SOURCE_PIXEL THEN
+                IF UNDO.current% < UNDO.count% - 1 THEN
+                    UNDO_redo
+                    redoHandled% = TRUE
+                    IF NOT (UNDO.current% < UNDO.count% - 1) THEN PENDING_REDO_SOURCE% = REDO_SOURCE_NONE
+                ELSE
+                    PENDING_REDO_SOURCE% = REDO_SOURCE_NONE
+                END IF
+            END IF
+
             ' Use timestamps to redo in correct chronological order (earliest first).
             ' This mirrors the undo routing which uses timestamps for "latest first".
-            DIM pixelRedoTs AS DOUBLE, workspaceRedoTs AS DOUBLE
-            DIM canPixelRedo AS INTEGER, canWorkspaceRedo AS INTEGER
-            canPixelRedo% = (UNDO.current% < UNDO.count% - 1)
-            canWorkspaceRedo% = WORKSPACE_UNDO_can_redo%
-            pixelRedoTs# = 0: workspaceRedoTs# = 0
-            IF canPixelRedo% AND (UNDO.current% + 1) <= UNDO_STATES_MAX% THEN pixelRedoTs# = UNDO_STATES(UNDO.current% + 1).timestamp#
-            IF canWorkspaceRedo% THEN workspaceRedoTs# = WORKSPACE_UNDO_STATES(WORKSPACE_UNDO.current% + 1).timestamp#
-            IF canWorkspaceRedo% AND (NOT canPixelRedo% OR workspaceRedoTs# < pixelRedoTs#) THEN
-                WORKSPACE_UNDO_redo
-            ELSEIF canPixelRedo% THEN
-                UNDO_redo
+            IF NOT redoHandled% AND PENDING_REDO_SOURCE% = REDO_SOURCE_NONE THEN
+                DIM pixelRedoTs AS DOUBLE, workspaceRedoTs AS DOUBLE, historyRedoTs AS DOUBLE
+                DIM canPixelRedo AS INTEGER, canWorkspaceRedo AS INTEGER, canHistoryRedo AS INTEGER
+                canPixelRedo% = (UNDO.current% < UNDO.count% - 1)
+                canWorkspaceRedo% = WORKSPACE_UNDO_can_redo%
+                canHistoryRedo% = HISTORY_can_redo%
+                pixelRedoTs# = 0: workspaceRedoTs# = 0: historyRedoTs# = 0
+                IF canPixelRedo% THEN pixelRedoTs# = UNDO_get_next_timestamp#
+                IF canWorkspaceRedo% THEN workspaceRedoTs# = WORKSPACE_UNDO_STATES(WORKSPACE_UNDO.current% + 1).timestamp#
+                IF canHistoryRedo% THEN historyRedoTs# = HISTORY_get_next_timestamp#
+                IF canHistoryRedo% AND historyRedoTs# > 0 AND (NOT canWorkspaceRedo% OR historyRedoTs# <= workspaceRedoTs#) AND (NOT canPixelRedo% OR historyRedoTs# <= pixelRedoTs#) THEN
+                    HISTORY_redo
+                ELSEIF canWorkspaceRedo% AND workspaceRedoTs# > 0 AND (NOT canPixelRedo% OR workspaceRedoTs# <= pixelRedoTs#) THEN
+                    WORKSPACE_UNDO_redo
+                ELSEIF canPixelRedo% THEN
+                    UNDO_redo
+                END IF
             END IF
             GUI_NEEDS_REDRAW% = TRUE
             FRAME_IDLE% = FALSE
@@ -743,10 +792,15 @@ SUB CMD_execute_action (action_id AS INTEGER)
                     IF ctnl_dest& < -1 THEN
                         _PUTIMAGE (CLIPBOARD.SOURCE_X, CLIPBOARD.SOURCE_Y), CLIPBOARD.IMAGE, ctnl_dest&
                         LAYERS(ctnl_idx%).contentDirty% = TRUE
-                        IF NOT UNDO_saved_this_frame% THEN
-                            UNDO_save_state
-                            UNDO_saved_this_frame% = TRUE
+                        HISTORY_refresh_layer_add_snapshot LAYERS(ctnl_idx%).historyId&
+                        DIM ctnl_savedPixelTs AS DOUBLE
+                        ctnl_savedPixelTs# = PIXEL_UNDO_LAST_TIMESTAMP#
+                        UNDO_save_layer_state ctnl_idx%
+                        IF UNDO.current% >= 0 AND UNDO.current% <= UNDO_STATES_MAX% THEN
+                            UNDO_STATES(UNDO.current%).timestamp# = 0
                         END IF
+                        PIXEL_UNDO_LAST_TIMESTAMP# = ctnl_savedPixelTs#
+                        UNDO_saved_this_frame% = TRUE
                         BLEND_invalidate_cache
                         CANVAS_DIRTY% = TRUE
                         SCENE_DIRTY% = TRUE
@@ -792,10 +846,15 @@ SUB CMD_execute_action (action_id AS INTEGER)
                             _PUTIMAGE (CLIPBOARD.SOURCE_X, CLIPBOARD.SOURCE_Y), CLIPBOARD.IMAGE, cpnl_dest&
                         END IF
                         LAYERS(cpnl_idx%).contentDirty% = TRUE
-                        IF NOT UNDO_saved_this_frame% THEN
-                            UNDO_save_state
-                            UNDO_saved_this_frame% = TRUE
+                        HISTORY_refresh_layer_add_snapshot LAYERS(cpnl_idx%).historyId&
+                        DIM cpnl_savedPixelTs AS DOUBLE
+                        cpnl_savedPixelTs# = PIXEL_UNDO_LAST_TIMESTAMP#
+                        UNDO_save_layer_state cpnl_idx%
+                        IF UNDO.current% >= 0 AND UNDO.current% <= UNDO_STATES_MAX% THEN
+                            UNDO_STATES(UNDO.current%).timestamp# = 0
                         END IF
+                        PIXEL_UNDO_LAST_TIMESTAMP# = cpnl_savedPixelTs#
+                        UNDO_saved_this_frame% = TRUE
                         BLEND_invalidate_cache
                         CANVAS_DIRTY% = TRUE
                         SCENE_DIRTY% = TRUE
@@ -805,6 +864,12 @@ SUB CMD_execute_action (action_id AS INTEGER)
                 END IF
             END IF
         CASE 306, 308  ' Clear selection / Edit > Clear
+            DIM clearUsedHistoryGroup AS INTEGER
+            clearUsedHistoryGroup% = FALSE
+            IF MULTI_SELECT_has_any% AND NOT HISTORY_IN_PROGRESS% THEN
+                HISTORY_begin_group
+                clearUsedHistoryGroup% = HISTORY_GROUP_ACTIVE%
+            END IF
             CLIPBOARD_clear_selection
             ' Apply clear to all other multi-selected layers
             IF MULTI_SELECT_has_any% THEN
@@ -820,6 +885,7 @@ SUB CMD_execute_action (action_id AS INTEGER)
                 GUI_NEEDS_REDRAW% = TRUE
                 FRAME_IDLE% = FALSE
             END IF
+            IF clearUsedHistoryGroup% THEN HISTORY_end_group
         CASE 307  ' Deselect
             IF MARQUEE.WAND_HAS_SELECTION AND MARQUEE.SELECTION_MASK < -1 THEN
                 WORKSPACE_UNDO_stage_selection
@@ -1164,6 +1230,9 @@ SUB CMD_execute_action (action_id AS INTEGER)
             DIM ms711SavedPixelTs AS DOUBLE
             ms711SavedPixelTs# = PIXEL_UNDO_LAST_TIMESTAMP#
             UNDO_save_layer_state ms711_newIdx%
+            IF UNDO.current% >= 0 AND UNDO.current% <= UNDO_STATES_MAX% THEN
+                UNDO_STATES(UNDO.current%).timestamp# = 0
+            END IF
             PIXEL_UNDO_LAST_TIMESTAMP# = ms711SavedPixelTs#
             MULTI_SELECT_clear
             LAYERS_select ms711_newIdx%
@@ -1414,7 +1483,21 @@ SUB CMD_execute_action (action_id AS INTEGER)
             SOUND_play SND_FILL
             IF CURRENT_LAYER% > 0 THEN
                 DIM oldFillDest AS LONG
+                DIM fillHistoryBefore AS LONG
+                DIM fillHistoryFlags AS LONG
+                DIM fillUsedHistoryGroup AS INTEGER
                 oldFillDest& = _DEST
+                fillHistoryBefore& = 0
+                fillHistoryFlags& = 0
+                fillUsedHistoryGroup% = FALSE
+                IF SELECTION_has_active% OR LAYERS(CURRENT_LAYER%).opacityLock% THEN fillHistoryFlags& = fillHistoryFlags& OR HISTORY_FLAG_CLIPPED
+                IF NOT HISTORY_IN_PROGRESS% AND LAYERS(CURRENT_LAYER%).historyId& > 0 AND LAYERS(CURRENT_LAYER%).imgHandle& < -1 THEN
+                    fillHistoryBefore& = _COPYIMAGE(LAYERS(CURRENT_LAYER%).imgHandle&, 32)
+                END IF
+                IF MULTI_SELECT_has_any% AND NOT HISTORY_IN_PROGRESS% THEN
+                    HISTORY_begin_group
+                    fillUsedHistoryGroup% = HISTORY_GROUP_ACTIVE%
+                END IF
                 STROKE_begin
                 _DEST LAYERS(CURRENT_LAYER%).imgHandle&
                 IF MARQUEE.WAND_HAS_SELECTION AND MARQUEE.SELECTION_MASK < -1 AND MARQUEE.ACTIVE AND MARQUEE.USER_CREATED THEN
@@ -1439,15 +1522,15 @@ SUB CMD_execute_action (action_id AS INTEGER)
                     ' Multi-select or opacity lock: fill only opaque pixels.
                     ' Single-layer with no lock: full CLS to fill entire layer.
                     IF MULTI_SELECT_has_any% OR LAYERS(CURRENT_LAYER%).opacityLock% THEN
-                        CMD_ml_fill CURRENT_LAYER%, PAINT_COLOR~&
+                        CMD_ml_fill CURRENT_LAYER%, PAINT_COLOR~&, fillHistoryFlags&, "Fill FG"
                     ELSE
                         CLS , PAINT_COLOR~&
                     END IF
                 END IF
                 _DEST oldFillDest&
                 STROKE_commit
-                IF NOT UNDO_saved_this_frame% THEN
-                    UNDO_save_state
+                IF fillHistoryBefore& < -1 THEN
+                    HISTORY_record_fill LAYERS(CURRENT_LAYER%).historyId&, CURRENT_LAYER%, PAINT_COLOR~&, fillHistoryFlags&, fillHistoryBefore&, -32768, -32768, "Fill FG"
                     UNDO_saved_this_frame% = TRUE
                 END IF
                 LAYERS(CURRENT_LAYER%).contentDirty% = TRUE
@@ -1456,10 +1539,11 @@ SUB CMD_execute_action (action_id AS INTEGER)
                     DIM mlFgI AS INTEGER
                     FOR mlFgI% = 1 TO 64
                         IF MULTI_SELECT_LAYERS(mlFgI%) AND mlFgI% <> CURRENT_LAYER% THEN
-                            CMD_ml_fill mlFgI%, PAINT_COLOR~&
+                            CMD_ml_fill mlFgI%, PAINT_COLOR~&, HISTORY_FLAG_CLIPPED, "Fill FG"
                         END IF
                     NEXT mlFgI%
                 END IF
+                IF fillUsedHistoryGroup% THEN HISTORY_end_group
                 BLEND_invalidate_cache
                 CANVAS_DIRTY% = TRUE
                 SCENE_DIRTY% = TRUE
@@ -1470,7 +1554,21 @@ SUB CMD_execute_action (action_id AS INTEGER)
             SOUND_play SND_FILL
             IF CURRENT_LAYER% > 0 THEN
                 DIM oldBgDest AS LONG
+                DIM bgHistoryBefore AS LONG
+                DIM bgHistoryFlags AS LONG
+                DIM bgUsedHistoryGroup AS INTEGER
                 oldBgDest& = _DEST
+                bgHistoryBefore& = 0
+                bgHistoryFlags& = 0
+                bgUsedHistoryGroup% = FALSE
+                IF SELECTION_has_active% OR LAYERS(CURRENT_LAYER%).opacityLock% THEN bgHistoryFlags& = bgHistoryFlags& OR HISTORY_FLAG_CLIPPED
+                IF NOT HISTORY_IN_PROGRESS% AND LAYERS(CURRENT_LAYER%).historyId& > 0 AND LAYERS(CURRENT_LAYER%).imgHandle& < -1 THEN
+                    bgHistoryBefore& = _COPYIMAGE(LAYERS(CURRENT_LAYER%).imgHandle&, 32)
+                END IF
+                IF MULTI_SELECT_has_any% AND NOT HISTORY_IN_PROGRESS% THEN
+                    HISTORY_begin_group
+                    bgUsedHistoryGroup% = HISTORY_GROUP_ACTIVE%
+                END IF
                 _DEST LAYERS(CURRENT_LAYER%).imgHandle&
                 IF MARQUEE.WAND_HAS_SELECTION AND MARQUEE.SELECTION_MASK < -1 AND MARQUEE.ACTIVE AND MARQUEE.USER_CREATED THEN
                     ' Mask-based selection: fill only selected pixels
@@ -1494,14 +1592,14 @@ SUB CMD_execute_action (action_id AS INTEGER)
                     ' Multi-select or opacity lock: fill only opaque pixels.
                     ' Single-layer with no lock: full CLS to fill entire layer.
                     IF MULTI_SELECT_has_any% OR LAYERS(CURRENT_LAYER%).opacityLock% THEN
-                        CMD_ml_fill CURRENT_LAYER%, PAINT_BG_COLOR~&
+                        CMD_ml_fill CURRENT_LAYER%, PAINT_BG_COLOR~&, bgHistoryFlags&, "Fill BG"
                     ELSE
                         CLS , PAINT_BG_COLOR~&
                     END IF
                 END IF
                 _DEST oldBgDest&
-                IF NOT UNDO_saved_this_frame% THEN
-                    UNDO_save_state
+                IF bgHistoryBefore& < -1 THEN
+                    HISTORY_record_fill LAYERS(CURRENT_LAYER%).historyId&, CURRENT_LAYER%, PAINT_BG_COLOR~&, bgHistoryFlags&, bgHistoryBefore&, -32768, -32768, "Fill BG"
                     UNDO_saved_this_frame% = TRUE
                 END IF
                 LAYERS(CURRENT_LAYER%).contentDirty% = TRUE
@@ -1510,10 +1608,11 @@ SUB CMD_execute_action (action_id AS INTEGER)
                     DIM mlBgI AS INTEGER
                     FOR mlBgI% = 1 TO 64
                         IF MULTI_SELECT_LAYERS(mlBgI%) AND mlBgI% <> CURRENT_LAYER% THEN
-                            CMD_ml_fill mlBgI%, PAINT_BG_COLOR~&
+                            CMD_ml_fill mlBgI%, PAINT_BG_COLOR~&, HISTORY_FLAG_CLIPPED, "Fill BG"
                         END IF
                     NEXT mlBgI%
                 END IF
+                IF bgUsedHistoryGroup% THEN HISTORY_end_group
                 BLEND_invalidate_cache
                 CANVAS_DIRTY% = TRUE
                 SCENE_DIRTY% = TRUE
@@ -1567,7 +1666,21 @@ SUB CMD_execute_action (action_id AS INTEGER)
                 FRAME_IDLE% = FALSE
             ELSEIF CURRENT_LAYER% > 0 THEN
                 DIM flipH_src AS LONG, flipH_w AS LONG, flipH_h AS LONG
+                DIM flipH_history_before AS LONG
+                DIM flipH_history_flags AS LONG
+                DIM flipH_used_history_group AS INTEGER
                 flipH_src& = LAYERS(CURRENT_LAYER%).imgHandle&
+                flipH_history_before& = 0
+                flipH_history_flags& = 0
+                flipH_used_history_group% = FALSE
+                IF SELECTION_has_active% OR LAYERS(CURRENT_LAYER%).opacityLock% THEN flipH_history_flags& = flipH_history_flags& OR HISTORY_FLAG_CLIPPED
+                IF NOT HISTORY_IN_PROGRESS% AND LAYERS(CURRENT_LAYER%).historyId& > 0 AND flipH_src& < -1 THEN
+                    flipH_history_before& = _COPYIMAGE(flipH_src&, 32)
+                END IF
+                IF MULTI_SELECT_has_any% AND NOT HISTORY_IN_PROGRESS% THEN
+                    HISTORY_begin_group
+                    flipH_used_history_group% = HISTORY_GROUP_ACTIVE%
+                END IF
                 IF SELECTION_has_active% THEN
                     ' Flip only within selection bounds
                     DIM fhSelW AS INTEGER, fhSelH AS INTEGER
@@ -1597,8 +1710,8 @@ SUB CMD_execute_action (action_id AS INTEGER)
                     _DEST oldFlipDest&
                     IF flipH_tmp& < -1 THEN _FREEIMAGE flipH_tmp&
                 END IF
-                IF NOT UNDO_saved_this_frame% THEN
-                    UNDO_save_state
+                IF flipH_history_before& < -1 THEN
+                    HISTORY_record_transform LAYERS(CURRENT_LAYER%).historyId&, CURRENT_LAYER%, flipH_history_flags&, flipH_history_before&, "Flip Horizontal"
                     UNDO_saved_this_frame% = TRUE
                 END IF
                 LAYERS(CURRENT_LAYER%).contentDirty% = TRUE
@@ -1607,10 +1720,11 @@ SUB CMD_execute_action (action_id AS INTEGER)
                     DIM mlFhI AS INTEGER
                     FOR mlFhI% = 1 TO 64
                         IF MULTI_SELECT_LAYERS(mlFhI%) AND mlFhI% <> CURRENT_LAYER% THEN
-                            CMD_ml_flip_h mlFhI%
+                            CMD_ml_flip_h mlFhI%, flipH_history_flags&, "Flip Horizontal"
                         END IF
                     NEXT mlFhI%
                 END IF
+                IF flipH_used_history_group% THEN HISTORY_end_group
                 BLEND_invalidate_cache
                 CANVAS_DIRTY% = TRUE
                 SCENE_DIRTY% = TRUE
@@ -1641,7 +1755,21 @@ SUB CMD_execute_action (action_id AS INTEGER)
                 FRAME_IDLE% = FALSE
             ELSEIF CURRENT_LAYER% > 0 THEN
                 DIM flipV_src AS LONG, flipV_w AS LONG, flipV_h AS LONG
+                DIM flipV_history_before AS LONG
+                DIM flipV_history_flags AS LONG
+                DIM flipV_used_history_group AS INTEGER
                 flipV_src& = LAYERS(CURRENT_LAYER%).imgHandle&
+                flipV_history_before& = 0
+                flipV_history_flags& = 0
+                flipV_used_history_group% = FALSE
+                IF SELECTION_has_active% OR LAYERS(CURRENT_LAYER%).opacityLock% THEN flipV_history_flags& = flipV_history_flags& OR HISTORY_FLAG_CLIPPED
+                IF NOT HISTORY_IN_PROGRESS% AND LAYERS(CURRENT_LAYER%).historyId& > 0 AND flipV_src& < -1 THEN
+                    flipV_history_before& = _COPYIMAGE(flipV_src&, 32)
+                END IF
+                IF MULTI_SELECT_has_any% AND NOT HISTORY_IN_PROGRESS% THEN
+                    HISTORY_begin_group
+                    flipV_used_history_group% = HISTORY_GROUP_ACTIVE%
+                END IF
                 IF SELECTION_has_active% THEN
                     ' Flip only within selection bounds
                     DIM fvSelW AS INTEGER, fvSelH AS INTEGER
@@ -1671,8 +1799,8 @@ SUB CMD_execute_action (action_id AS INTEGER)
                     _DEST oldFlipVDest&
                     IF flipV_tmp& < -1 THEN _FREEIMAGE flipV_tmp&
                 END IF
-                IF NOT UNDO_saved_this_frame% THEN
-                    UNDO_save_state
+                IF flipV_history_before& < -1 THEN
+                    HISTORY_record_transform LAYERS(CURRENT_LAYER%).historyId&, CURRENT_LAYER%, flipV_history_flags&, flipV_history_before&, "Flip Vertical"
                     UNDO_saved_this_frame% = TRUE
                 END IF
                 LAYERS(CURRENT_LAYER%).contentDirty% = TRUE
@@ -1681,10 +1809,11 @@ SUB CMD_execute_action (action_id AS INTEGER)
                     DIM mlFvI AS INTEGER
                     FOR mlFvI% = 1 TO 64
                         IF MULTI_SELECT_LAYERS(mlFvI%) AND mlFvI% <> CURRENT_LAYER% THEN
-                            CMD_ml_flip_v mlFvI%
+                            CMD_ml_flip_v mlFvI%, flipV_history_flags&, "Flip Vertical"
                         END IF
                     NEXT mlFvI%
                 END IF
+                IF flipV_used_history_group% THEN HISTORY_end_group
                 BLEND_invalidate_cache
                 CANVAS_DIRTY% = TRUE
                 SCENE_DIRTY% = TRUE
@@ -1722,7 +1851,21 @@ SUB CMD_execute_action (action_id AS INTEGER)
                 FRAME_IDLE% = FALSE
             ELSEIF CURRENT_LAYER% > 0 THEN
                 DIM sdSrc AS LONG
+                DIM sd_history_before AS LONG
+                DIM sd_history_flags AS LONG
+                DIM sd_used_history_group AS INTEGER
                 sdSrc& = LAYERS(CURRENT_LAYER%).imgHandle&
+                sd_history_before& = 0
+                sd_history_flags& = 0
+                sd_used_history_group% = FALSE
+                IF SELECTION_has_active% OR LAYERS(CURRENT_LAYER%).opacityLock% THEN sd_history_flags& = sd_history_flags& OR HISTORY_FLAG_CLIPPED
+                IF NOT HISTORY_IN_PROGRESS% AND LAYERS(CURRENT_LAYER%).historyId& > 0 AND sdSrc& < -1 THEN
+                    sd_history_before& = _COPYIMAGE(sdSrc&, 32)
+                END IF
+                IF MULTI_SELECT_has_any% AND NOT HISTORY_IN_PROGRESS% THEN
+                    HISTORY_begin_group
+                    sd_used_history_group% = HISTORY_GROUP_ACTIVE%
+                END IF
                 IF SELECTION_has_active% THEN
                     ' Scale only within selection bounds
                     DIM sdSelW AS INTEGER, sdSelH AS INTEGER
@@ -1795,8 +1938,8 @@ SUB CMD_execute_action (action_id AS INTEGER)
                     _DEST oldSdLDest&
                     IF sdLTmp& < -1 THEN _FREEIMAGE sdLTmp&
                 END IF
-                IF NOT UNDO_saved_this_frame% THEN
-                    UNDO_save_state
+                IF sd_history_before& < -1 THEN
+                    HISTORY_record_transform LAYERS(CURRENT_LAYER%).historyId&, CURRENT_LAYER%, sd_history_flags&, sd_history_before&, "Scale -50%"
                     UNDO_saved_this_frame% = TRUE
                 END IF
                 LAYERS(CURRENT_LAYER%).contentDirty% = TRUE
@@ -1805,10 +1948,11 @@ SUB CMD_execute_action (action_id AS INTEGER)
                     DIM mlSdI AS INTEGER
                     FOR mlSdI% = 1 TO 64
                         IF MULTI_SELECT_LAYERS(mlSdI%) AND mlSdI% <> CURRENT_LAYER% THEN
-                            CMD_ml_scale mlSdI%, 0.5!
+                            CMD_ml_scale mlSdI%, 0.5!, sd_history_flags&, "Scale -50%"
                         END IF
                     NEXT mlSdI%
                 END IF
+                IF sd_used_history_group% THEN HISTORY_end_group
                 BLEND_invalidate_cache
                 CANVAS_DIRTY% = TRUE
                 SCENE_DIRTY% = TRUE
@@ -1846,7 +1990,21 @@ SUB CMD_execute_action (action_id AS INTEGER)
                 FRAME_IDLE% = FALSE
             ELSEIF CURRENT_LAYER% > 0 THEN
                 DIM suSrc AS LONG
+                DIM su_history_before AS LONG
+                DIM su_history_flags AS LONG
+                DIM su_used_history_group AS INTEGER
                 suSrc& = LAYERS(CURRENT_LAYER%).imgHandle&
+                su_history_before& = 0
+                su_history_flags& = 0
+                su_used_history_group% = FALSE
+                IF SELECTION_has_active% OR LAYERS(CURRENT_LAYER%).opacityLock% THEN su_history_flags& = su_history_flags& OR HISTORY_FLAG_CLIPPED
+                IF NOT HISTORY_IN_PROGRESS% AND LAYERS(CURRENT_LAYER%).historyId& > 0 AND suSrc& < -1 THEN
+                    su_history_before& = _COPYIMAGE(suSrc&, 32)
+                END IF
+                IF MULTI_SELECT_has_any% AND NOT HISTORY_IN_PROGRESS% THEN
+                    HISTORY_begin_group
+                    su_used_history_group% = HISTORY_GROUP_ACTIVE%
+                END IF
                 IF SELECTION_has_active% THEN
                     ' Scale only within selection bounds (150%)
                     DIM suSelW AS INTEGER, suSelH AS INTEGER
@@ -1934,8 +2092,8 @@ SUB CMD_execute_action (action_id AS INTEGER)
                     _DEST oldSuLDest&
                     IF suLTmp& < -1 THEN _FREEIMAGE suLTmp&
                 END IF
-                IF NOT UNDO_saved_this_frame% THEN
-                    UNDO_save_state
+                IF su_history_before& < -1 THEN
+                    HISTORY_record_transform LAYERS(CURRENT_LAYER%).historyId&, CURRENT_LAYER%, su_history_flags&, su_history_before&, "Scale +50%"
                     UNDO_saved_this_frame% = TRUE
                 END IF
                 LAYERS(CURRENT_LAYER%).contentDirty% = TRUE
@@ -1944,10 +2102,11 @@ SUB CMD_execute_action (action_id AS INTEGER)
                     DIM mlSuI AS INTEGER
                     FOR mlSuI% = 1 TO 64
                         IF MULTI_SELECT_LAYERS(mlSuI%) AND mlSuI% <> CURRENT_LAYER% THEN
-                            CMD_ml_scale mlSuI%, 1.5!
+                            CMD_ml_scale mlSuI%, 1.5!, su_history_flags&, "Scale +50%"
                         END IF
                     NEXT mlSuI%
                 END IF
+                IF su_used_history_group% THEN HISTORY_end_group
                 BLEND_invalidate_cache
                 CANVAS_DIRTY% = TRUE
                 SCENE_DIRTY% = TRUE
@@ -1996,7 +2155,21 @@ SUB CMD_execute_action (action_id AS INTEGER)
                 FRAME_IDLE% = FALSE
             ELSEIF CURRENT_LAYER% > 0 THEN
                 DIM rcSrc AS LONG
+                DIM rc_history_before AS LONG
+                DIM rc_history_flags AS LONG
+                DIM rc_used_history_group AS INTEGER
                 rcSrc& = LAYERS(CURRENT_LAYER%).imgHandle&
+                rc_history_before& = 0
+                rc_history_flags& = 0
+                rc_used_history_group% = FALSE
+                IF SELECTION_has_active% OR LAYERS(CURRENT_LAYER%).opacityLock% THEN rc_history_flags& = rc_history_flags& OR HISTORY_FLAG_CLIPPED
+                IF NOT HISTORY_IN_PROGRESS% AND LAYERS(CURRENT_LAYER%).historyId& > 0 AND rcSrc& < -1 THEN
+                    rc_history_before& = _COPYIMAGE(rcSrc&, 32)
+                END IF
+                IF MULTI_SELECT_has_any% AND NOT HISTORY_IN_PROGRESS% THEN
+                    HISTORY_begin_group
+                    rc_used_history_group% = HISTORY_GROUP_ACTIVE%
+                END IF
                 IF SELECTION_has_active% THEN
                     ' Rotate only within selection bounds
                     DIM rcSelW AS INTEGER, rcSelH AS INTEGER
@@ -2119,8 +2292,8 @@ SUB CMD_execute_action (action_id AS INTEGER)
                     _DEST rcLOD&
                     IF rcLRot& < -1 THEN _FREEIMAGE rcLRot&
                 END IF
-                IF NOT UNDO_saved_this_frame% THEN
-                    UNDO_save_state
+                IF rc_history_before& < -1 THEN
+                    HISTORY_record_transform LAYERS(CURRENT_LAYER%).historyId&, CURRENT_LAYER%, rc_history_flags&, rc_history_before&, "Rotate 90 CW"
                     UNDO_saved_this_frame% = TRUE
                 END IF
                 LAYERS(CURRENT_LAYER%).contentDirty% = TRUE
@@ -2129,10 +2302,11 @@ SUB CMD_execute_action (action_id AS INTEGER)
                     DIM mlRcI AS INTEGER
                     FOR mlRcI% = 1 TO 64
                         IF MULTI_SELECT_LAYERS(mlRcI%) AND mlRcI% <> CURRENT_LAYER% THEN
-                            CMD_ml_rotate_cw mlRcI%
+                            CMD_ml_rotate_cw mlRcI%, rc_history_flags&, "Rotate 90 CW"
                         END IF
                     NEXT mlRcI%
                 END IF
+                IF rc_used_history_group% THEN HISTORY_end_group
                 BLEND_invalidate_cache
                 CANVAS_DIRTY% = TRUE
                 SCENE_DIRTY% = TRUE
@@ -2181,7 +2355,21 @@ SUB CMD_execute_action (action_id AS INTEGER)
                 FRAME_IDLE% = FALSE
             ELSEIF CURRENT_LAYER% > 0 THEN
                 DIM rccSrc AS LONG
+                DIM rcc_history_before AS LONG
+                DIM rcc_history_flags AS LONG
+                DIM rcc_used_history_group AS INTEGER
                 rccSrc& = LAYERS(CURRENT_LAYER%).imgHandle&
+                rcc_history_before& = 0
+                rcc_history_flags& = 0
+                rcc_used_history_group% = FALSE
+                IF SELECTION_has_active% OR LAYERS(CURRENT_LAYER%).opacityLock% THEN rcc_history_flags& = rcc_history_flags& OR HISTORY_FLAG_CLIPPED
+                IF NOT HISTORY_IN_PROGRESS% AND LAYERS(CURRENT_LAYER%).historyId& > 0 AND rccSrc& < -1 THEN
+                    rcc_history_before& = _COPYIMAGE(rccSrc&, 32)
+                END IF
+                IF MULTI_SELECT_has_any% AND NOT HISTORY_IN_PROGRESS% THEN
+                    HISTORY_begin_group
+                    rcc_used_history_group% = HISTORY_GROUP_ACTIVE%
+                END IF
                 IF SELECTION_has_active% THEN
                     ' Rotate only within selection bounds
                     DIM rccSelW AS INTEGER, rccSelH AS INTEGER
@@ -2301,8 +2489,8 @@ SUB CMD_execute_action (action_id AS INTEGER)
                     _DEST rccLOD&
                     IF rccLRot& < -1 THEN _FREEIMAGE rccLRot&
                 END IF
-                IF NOT UNDO_saved_this_frame% THEN
-                    UNDO_save_state
+                IF rcc_history_before& < -1 THEN
+                    HISTORY_record_transform LAYERS(CURRENT_LAYER%).historyId&, CURRENT_LAYER%, rcc_history_flags&, rcc_history_before&, "Rotate 90 CCW"
                     UNDO_saved_this_frame% = TRUE
                 END IF
                 LAYERS(CURRENT_LAYER%).contentDirty% = TRUE
@@ -2311,10 +2499,11 @@ SUB CMD_execute_action (action_id AS INTEGER)
                     DIM mlRccI AS INTEGER
                     FOR mlRccI% = 1 TO 64
                         IF MULTI_SELECT_LAYERS(mlRccI%) AND mlRccI% <> CURRENT_LAYER% THEN
-                            CMD_ml_rotate_ccw mlRccI%
+                            CMD_ml_rotate_ccw mlRccI%, rcc_history_flags&, "Rotate 90 CCW"
                         END IF
                     NEXT mlRccI%
                 END IF
+                IF rcc_used_history_group% THEN HISTORY_end_group
                 BLEND_invalidate_cache
                 CANVAS_DIRTY% = TRUE
                 SCENE_DIRTY% = TRUE
@@ -2380,11 +2569,28 @@ SUB CMD_execute_action (action_id AS INTEGER)
         CASE 1901, 1902, 1903, 1904, 1905, 1906, 1907, 1908
             DIM algnI AS INTEGER
             DIM algnLayers(1 TO 64) AS INTEGER
+            DIM algnBefore(1 TO 64) AS LONG
             DIM algnCount AS INTEGER
             DIM algnMulti AS INTEGER
+            DIM algnUsedHistoryGroup AS INTEGER
+            DIM algnRecorded AS INTEGER
+            DIM algnHistoryLabel AS STRING
             algnMulti% = MULTI_SELECT_has_any%
+            algnUsedHistoryGroup% = FALSE
+            algnRecorded% = FALSE
+            SELECT CASE action_id%
+                CASE 1901: algnHistoryLabel$ = "Align Left"
+                CASE 1902: algnHistoryLabel$ = "Align Center H"
+                CASE 1903: algnHistoryLabel$ = "Align Right"
+                CASE 1904: algnHistoryLabel$ = "Align Top"
+                CASE 1905: algnHistoryLabel$ = "Align Middle V"
+                CASE 1906: algnHistoryLabel$ = "Align Bottom"
+                CASE 1907: algnHistoryLabel$ = "Distribute H"
+                CASE 1908: algnHistoryLabel$ = "Distribute V"
+            END SELECT
             ' Collect selected layers
             FOR algnI% = 1 TO 64
+                algnBefore(algnI%) = 0
                 IF LAYERS(algnI%).imgHandle& <> 0 THEN
                     IF algnMulti% THEN
                         IF MULTI_SELECT_LAYERS(algnI%) THEN
@@ -2417,9 +2623,18 @@ SUB CMD_execute_action (action_id AS INTEGER)
                 algRefX% = 0: algRefY% = 0: algRefW% = algCanvasW%: algRefH% = algCanvasH%
             END IF
 
-            ' Save undo state for each affected layer BEFORE making changes
+            IF NOT HISTORY_IN_PROGRESS% THEN
+                HISTORY_begin_group
+                algnUsedHistoryGroup% = HISTORY_GROUP_ACTIVE%
+            END IF
+
+            ' Capture before-images for each affected layer before making changes
             FOR algnI% = 1 TO algnCount%
-                UNDO_save_layer_state algnLayers(algnI%)
+                DIM algnSnapLayer AS INTEGER
+                algnSnapLayer% = algnLayers(algnI%)
+                IF LAYERS(algnSnapLayer%).imgHandle& < -1 AND LAYERS(algnSnapLayer%).historyId& > 0 THEN
+                    algnBefore(algnSnapLayer%) = _COPYIMAGE(LAYERS(algnSnapLayer%).imgHandle&, 32)
+                END IF
             NEXT algnI%
 
             DIM algBx AS INTEGER, algBy AS INTEGER, algBw AS INTEGER, algBh AS INTEGER
@@ -2512,8 +2727,15 @@ SUB CMD_execute_action (action_id AS INTEGER)
                             distPos! = distPos! + distBh(distIdx3%) + distGap!
                         END IF
                         IF algDx% <> 0 OR algDy% <> 0 THEN
-                            LAYER_translate_content algnLayers(distIdx3%), algDx%, algDy%
-                            LAYERS(algnLayers(distIdx3%)).contentDirty% = TRUE
+                            DIM distLayerIdx AS INTEGER
+                            distLayerIdx% = algnLayers(distIdx3%)
+                            LAYER_translate_content distLayerIdx%, algDx%, algDy%
+                            LAYERS(distLayerIdx%).contentDirty% = TRUE
+                            IF algnBefore(distLayerIdx%) < -1 THEN
+                                HISTORY_record_transform LAYERS(distLayerIdx%).historyId&, distLayerIdx%, 0, algnBefore(distLayerIdx%), algnHistoryLabel$
+                                algnBefore(distLayerIdx%) = 0
+                                algnRecorded% = TRUE
+                            END IF
                         END IF
                     NEXT algnI%
                 END IF
@@ -2544,10 +2766,23 @@ SUB CMD_execute_action (action_id AS INTEGER)
                     IF algDx% <> 0 OR algDy% <> 0 THEN
                         LAYER_translate_content algnIdx%, algDx%, algDy%
                         LAYERS(algnIdx%).contentDirty% = TRUE
+                        IF algnBefore(algnIdx%) < -1 THEN
+                            HISTORY_record_transform LAYERS(algnIdx%).historyId&, algnIdx%, 0, algnBefore(algnIdx%), algnHistoryLabel$
+                            algnBefore(algnIdx%) = 0
+                            algnRecorded% = TRUE
+                        END IF
                     END IF
                     algNextLayer:
                 NEXT algnI%
             END IF
+            FOR algnI% = 1 TO algnCount%
+                IF algnBefore(algnLayers(algnI%)) < -1 THEN
+                    _FREEIMAGE algnBefore(algnLayers(algnI%))
+                    algnBefore(algnLayers(algnI%)) = 0
+                END IF
+            NEXT algnI%
+            IF algnUsedHistoryGroup% THEN HISTORY_end_group
+            IF algnRecorded% THEN UNDO_saved_this_frame% = TRUE
             BLEND_invalidate_cache
             GUI_NEEDS_REDRAW% = TRUE
             SCENE_DIRTY% = TRUE
@@ -2822,7 +3057,7 @@ SUB CMD_execute_action (action_id AS INTEGER)
         CASE 1703  ' Command palette / cheat sheet
             CMD_show_palette
         CASE 1704  ' Code / BAS export
-            ERR_info "Code view: not yet implemented"
+            FILE_BAS_export_dialog
         
         ' ========== HELP ==========
         CASE 1601  ' About
@@ -2965,10 +3200,14 @@ END FUNCTION
 ' Fill every opaque pixel on layerIdx with fillColor.
 ' Used so transparent areas on co-selected layers are not flooded solid.
 '
-SUB CMD_ml_fill (layerIdx AS INTEGER, fillColor AS _UNSIGNED LONG)
+SUB CMD_ml_fill (layerIdx AS INTEGER, fillColor AS _UNSIGNED LONG, historyFlags AS LONG, historyLabel AS STRING)
     IF layerIdx% < 1 OR layerIdx% > 64 THEN EXIT SUB
     IF LAYERS(layerIdx%).imgHandle& >= -1 THEN EXIT SUB
-    UNDO_save_layer_state layerIdx%
+    DIM mlFBefore AS LONG
+    mlFBefore& = 0
+    IF NOT HISTORY_IN_PROGRESS% AND LAYERS(layerIdx%).historyId& > 0 THEN
+        mlFBefore& = _COPYIMAGE(LAYERS(layerIdx%).imgHandle&, 32)
+    END IF
     DIM mlFMem AS _MEM
     mlFMem = _MEMIMAGE(LAYERS(layerIdx%).imgHandle&)
     DIM mlFOff AS _OFFSET
@@ -2980,6 +3219,9 @@ SUB CMD_ml_fill (layerIdx AS INTEGER, fillColor AS _UNSIGNED LONG)
         END IF
     NEXT mlFOff
     _MEMFREE mlFMem
+    IF mlFBefore& < -1 THEN
+        HISTORY_record_fill LAYERS(layerIdx%).historyId&, layerIdx%, fillColor~&, historyFlags&, mlFBefore&, -32768, -32768, historyLabel$
+    END IF
     LAYERS(layerIdx%).contentDirty% = TRUE
 END SUB
 
@@ -2989,7 +3231,14 @@ END SUB
 SUB CMD_ml_clear (layerIdx AS INTEGER)
     IF layerIdx% < 1 OR layerIdx% > 64 THEN EXIT SUB
     IF LAYERS(layerIdx%).imgHandle& >= -1 THEN EXIT SUB
-    UNDO_save_layer_state layerIdx%
+    DIM mlCBefore AS LONG
+    DIM mlCHistoryFlags AS LONG
+    mlCBefore& = 0
+    mlCHistoryFlags& = 0
+    IF MARQUEE.ACTIVE AND MARQUEE.USER_CREATED AND MARQUEE.INITIALIZED THEN mlCHistoryFlags& = HISTORY_FLAG_CLIPPED
+    IF NOT HISTORY_IN_PROGRESS% AND LAYERS(layerIdx%).historyId& > 0 THEN
+        mlCBefore& = _COPYIMAGE(LAYERS(layerIdx%).imgHandle&, 32)
+    END IF
     DIM mlCImg AS LONG : mlCImg& = LAYERS(layerIdx%).imgHandle&
     DIM mlCOD AS LONG : mlCOD& = _DEST
     _DEST mlCImg&
@@ -3001,16 +3250,23 @@ SUB CMD_ml_clear (layerIdx AS INTEGER)
     END IF
     _BLEND mlCImg&
     _DEST mlCOD&
+    IF mlCBefore& < -1 THEN
+        HISTORY_record_brush LAYERS(layerIdx%).historyId&, layerIdx%, _RGBA32(0, 0, 0, 0), mlCHistoryFlags&, mlCBefore&, "Clear"
+    END IF
     LAYERS(layerIdx%).contentDirty% = TRUE
 END SUB
 
 ''
 ' Flip layerIdx horizontally.
 '
-SUB CMD_ml_flip_h (layerIdx AS INTEGER)
+SUB CMD_ml_flip_h (layerIdx AS INTEGER, historyFlags AS LONG, historyLabel AS STRING)
     IF layerIdx% < 1 OR layerIdx% > 64 THEN EXIT SUB
     IF LAYERS(layerIdx%).imgHandle& >= -1 THEN EXIT SUB
-    UNDO_save_layer_state layerIdx%
+    DIM mlFHBefore AS LONG
+    mlFHBefore& = 0
+    IF NOT HISTORY_IN_PROGRESS% AND LAYERS(layerIdx%).historyId& > 0 THEN
+        mlFHBefore& = _COPYIMAGE(LAYERS(layerIdx%).imgHandle&, 32)
+    END IF
     DIM mlFHSrc AS LONG : mlFHSrc& = LAYERS(layerIdx%).imgHandle&
     DIM mlFHW AS LONG : mlFHW& = _WIDTH(mlFHSrc&)
     DIM mlFHH AS LONG : mlFHH& = _HEIGHT(mlFHSrc&)
@@ -3023,16 +3279,23 @@ SUB CMD_ml_flip_h (layerIdx AS INTEGER)
     _BLEND mlFHSrc&
     _DEST mlFHOD&
     IF mlFHTmp& < -1 THEN _FREEIMAGE mlFHTmp&
+    IF mlFHBefore& < -1 THEN
+        HISTORY_record_transform LAYERS(layerIdx%).historyId&, layerIdx%, historyFlags&, mlFHBefore&, historyLabel$
+    END IF
     LAYERS(layerIdx%).contentDirty% = TRUE
 END SUB
 
 ''
 ' Flip layerIdx vertically.
 '
-SUB CMD_ml_flip_v (layerIdx AS INTEGER)
+SUB CMD_ml_flip_v (layerIdx AS INTEGER, historyFlags AS LONG, historyLabel AS STRING)
     IF layerIdx% < 1 OR layerIdx% > 64 THEN EXIT SUB
     IF LAYERS(layerIdx%).imgHandle& >= -1 THEN EXIT SUB
-    UNDO_save_layer_state layerIdx%
+    DIM mlFVBefore AS LONG
+    mlFVBefore& = 0
+    IF NOT HISTORY_IN_PROGRESS% AND LAYERS(layerIdx%).historyId& > 0 THEN
+        mlFVBefore& = _COPYIMAGE(LAYERS(layerIdx%).imgHandle&, 32)
+    END IF
     DIM mlFVSrc AS LONG : mlFVSrc& = LAYERS(layerIdx%).imgHandle&
     DIM mlFVW AS LONG : mlFVW& = _WIDTH(mlFVSrc&)
     DIM mlFVH AS LONG : mlFVH& = _HEIGHT(mlFVSrc&)
@@ -3045,6 +3308,9 @@ SUB CMD_ml_flip_v (layerIdx AS INTEGER)
     _BLEND mlFVSrc&
     _DEST mlFVOD&
     IF mlFVTmp& < -1 THEN _FREEIMAGE mlFVTmp&
+    IF mlFVBefore& < -1 THEN
+        HISTORY_record_transform LAYERS(layerIdx%).historyId&, layerIdx%, historyFlags&, mlFVBefore&, historyLabel$
+    END IF
     LAYERS(layerIdx%).contentDirty% = TRUE
 END SUB
 
@@ -3052,10 +3318,14 @@ END SUB
 ' Scale layerIdx content by factor, centered on the canvas (clips to canvas edges).
 ' Mirrors the whole-layer logic in CASE 317/318 without lossless accumulation.
 '
-SUB CMD_ml_scale (layerIdx AS INTEGER, factor AS SINGLE)
+SUB CMD_ml_scale (layerIdx AS INTEGER, factor AS SINGLE, historyFlags AS LONG, historyLabel AS STRING)
     IF layerIdx% < 1 OR layerIdx% > 64 THEN EXIT SUB
     IF LAYERS(layerIdx%).imgHandle& >= -1 THEN EXIT SUB
-    UNDO_save_layer_state layerIdx%
+    DIM mlSBefore AS LONG
+    mlSBefore& = 0
+    IF NOT HISTORY_IN_PROGRESS% AND LAYERS(layerIdx%).historyId& > 0 THEN
+        mlSBefore& = _COPYIMAGE(LAYERS(layerIdx%).imgHandle&, 32)
+    END IF
     DIM mlSSrc AS LONG : mlSSrc& = LAYERS(layerIdx%).imgHandle&
     DIM mlSW AS LONG : mlSW& = _WIDTH(mlSSrc&)
     DIM mlSH AS LONG : mlSH& = _HEIGHT(mlSSrc&)
@@ -3087,16 +3357,23 @@ SUB CMD_ml_scale (layerIdx AS INTEGER, factor AS SINGLE)
     _BLEND mlSSrc&
     _DEST mlSOD&
     IF mlSTmp& < -1 THEN _FREEIMAGE mlSTmp&
+    IF mlSBefore& < -1 THEN
+        HISTORY_record_transform LAYERS(layerIdx%).historyId&, layerIdx%, historyFlags&, mlSBefore&, historyLabel$
+    END IF
     LAYERS(layerIdx%).contentDirty% = TRUE
 END SUB
 
 ''
 ' Rotate layerIdx 90 degrees clockwise, centered on the canvas.
 '
-SUB CMD_ml_rotate_cw (layerIdx AS INTEGER)
+SUB CMD_ml_rotate_cw (layerIdx AS INTEGER, historyFlags AS LONG, historyLabel AS STRING)
     IF layerIdx% < 1 OR layerIdx% > 64 THEN EXIT SUB
     IF LAYERS(layerIdx%).imgHandle& >= -1 THEN EXIT SUB
-    UNDO_save_layer_state layerIdx%
+    DIM mlRcBefore AS LONG
+    mlRcBefore& = 0
+    IF NOT HISTORY_IN_PROGRESS% AND LAYERS(layerIdx%).historyId& > 0 THEN
+        mlRcBefore& = _COPYIMAGE(LAYERS(layerIdx%).imgHandle&, 32)
+    END IF
     DIM mlRcSrc AS LONG : mlRcSrc& = LAYERS(layerIdx%).imgHandle&
     DIM mlRcW AS LONG : mlRcW& = _WIDTH(mlRcSrc&)
     DIM mlRcH AS LONG : mlRcH& = _HEIGHT(mlRcSrc&)
@@ -3135,16 +3412,23 @@ SUB CMD_ml_rotate_cw (layerIdx AS INTEGER)
     _BLEND mlRcSrc&
     _DEST mlRcOD2&
     IF mlRcRot& < -1 THEN _FREEIMAGE mlRcRot&
+    IF mlRcBefore& < -1 THEN
+        HISTORY_record_transform LAYERS(layerIdx%).historyId&, layerIdx%, historyFlags&, mlRcBefore&, historyLabel$
+    END IF
     LAYERS(layerIdx%).contentDirty% = TRUE
 END SUB
 
 ''
 ' Rotate layerIdx 90 degrees counter-clockwise, centered on the canvas.
 '
-SUB CMD_ml_rotate_ccw (layerIdx AS INTEGER)
+SUB CMD_ml_rotate_ccw (layerIdx AS INTEGER, historyFlags AS LONG, historyLabel AS STRING)
     IF layerIdx% < 1 OR layerIdx% > 64 THEN EXIT SUB
     IF LAYERS(layerIdx%).imgHandle& >= -1 THEN EXIT SUB
-    UNDO_save_layer_state layerIdx%
+    DIM mlRccBefore AS LONG
+    mlRccBefore& = 0
+    IF NOT HISTORY_IN_PROGRESS% AND LAYERS(layerIdx%).historyId& > 0 THEN
+        mlRccBefore& = _COPYIMAGE(LAYERS(layerIdx%).imgHandle&, 32)
+    END IF
     DIM mlRccSrc AS LONG : mlRccSrc& = LAYERS(layerIdx%).imgHandle&
     DIM mlRccW AS LONG : mlRccW& = _WIDTH(mlRccSrc&)
     DIM mlRccH AS LONG : mlRccH& = _HEIGHT(mlRccSrc&)
@@ -3182,6 +3466,9 @@ SUB CMD_ml_rotate_ccw (layerIdx AS INTEGER)
     _BLEND mlRccSrc&
     _DEST mlRccOD2&
     IF mlRccRot& < -1 THEN _FREEIMAGE mlRccRot&
+    IF mlRccBefore& < -1 THEN
+        HISTORY_record_transform LAYERS(layerIdx%).historyId&, layerIdx%, historyFlags&, mlRccBefore&, historyLabel$
+    END IF
     LAYERS(layerIdx%).contentDirty% = TRUE
 END SUB
 

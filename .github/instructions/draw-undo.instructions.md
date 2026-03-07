@@ -132,6 +132,38 @@ Why:
 - The first later pixel edit on that new layer needs a prior same-layer snapshot
 - Restoring `PIXEL_UNDO_LAST_TIMESTAMP#` ensures Ctrl+Z still routes to workspace undo for undoing the merge itself
 
+### Workspace Replay Layer Slot Rule
+
+When workspace undo/redo recreates a layer, restore it into its original layer slot and original z-order. Pixel undo/redo state is keyed by `layer_index%`; recreating the layer in a different slot disconnects existing pixel history from the restored layer.
+
+Do not use replay-time pixel baseline saves on a layer that already has pixel history. `UNDO_save_layer_state` truncates redo branches by design, so calling it during workspace replay can destroy a pending pixel redo chain.
+
+Use manual slot recreation during replay and preserve the original `layer_index%` whenever possible.
+
+### Reorder Save Rule
+
+Every reorder path must save a workspace reorder state before mutating `zIndex%`, including drag-drop reordering and top/bottom moves. Undo/redo for reorder must move the layer to the exact saved `old_zIndex%` or `new_zIndex%`, not assume a single-step move.
+
+Applies to:
+- Undo layer delete
+- Redo layer add
+- Undo merge down
+- Undo merge visible
+
+Pattern:
+
+```qb64
+DIM savedPixelTs AS DOUBLE
+savedPixelTs# = PIXEL_UNDO_LAST_TIMESTAMP#
+UNDO_save_layer_state restoredLayerIndex%
+PIXEL_UNDO_LAST_TIMESTAMP# = savedPixelTs#
+```
+
+Why:
+- The restored layer must have a same-layer pixel checkpoint that matches its post-replay pixels
+- Without this, the first later paint operation can undo to stale pre-replay content such as merged pixels or deleted-layer remnants
+- Restoring `PIXEL_UNDO_LAST_TIMESTAMP#` keeps Ctrl+Z routed to workspace undo for the structural action itself
+
 ---
 
 ## `TOOLBAR_CLICKED%` Lifecycle (Critical for Undo Correctness)

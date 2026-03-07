@@ -1,0 +1,117 @@
+''
+' DRAW - TOOLS/HISTORY.BI
+' =============================================================================
+' Unified chronological history scaffolding.
+'
+' This module is the replacement target for split pixel and workspace undo.
+' It is intentionally introduced first as a compiled foundation before producers
+' are rerouted to it.
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+CONST HISTORY_MAX_RECORDS = 1024
+
+CONST HISTORY_KIND_NONE = 0
+CONST HISTORY_KIND_LAYER_ADD = 1
+CONST HISTORY_KIND_LAYER_DELETE = 2
+CONST HISTORY_KIND_LAYER_REORDER = 3
+CONST HISTORY_KIND_SELECTION_CHANGE = 4
+CONST HISTORY_KIND_LINE = 5
+CONST HISTORY_KIND_RECT = 6
+CONST HISTORY_KIND_ELLIPSE = 7
+CONST HISTORY_KIND_FILL = 8
+CONST HISTORY_KIND_BRUSH = 9
+CONST HISTORY_KIND_TRANSFORM = 10
+CONST HISTORY_KIND_LAYER_RENAME = 11
+CONST HISTORY_KIND_POLYLINE = 12
+
+CONST HISTORY_FLAG_FILLED = 1
+CONST HISTORY_FLAG_CUSTOM_BRUSH = 2
+CONST HISTORY_FLAG_THICK_BRUSH = 4
+CONST HISTORY_FLAG_CLIPPED = 8
+CONST HISTORY_FLAG_SYMMETRY = 16
+
+CONST HISTORY_EXPORT_NONE = 0
+CONST HISTORY_EXPORT_DIRECT = 1
+CONST HISTORY_EXPORT_EXPANDED = 2
+CONST HISTORY_EXPORT_RASTER = 3
+
+TYPE HISTORY_RECORD
+    kind AS INTEGER
+    exportKind AS INTEGER
+    sequence AS LONG
+    primaryLayerId AS LONG
+    secondaryLayerId AS LONG
+    slotIndex AS INTEGER
+    oldZIndex AS INTEGER
+    newZIndex AS INTEGER
+    img AS LONG
+    img2 AS LONG
+    oldName AS STRING * 64
+    newName AS STRING * 64
+    oldOpacity AS INTEGER
+    oldVisible AS INTEGER
+    oldOpacityLock AS INTEGER
+    oldBlendMode AS INTEGER
+    toolId AS INTEGER
+    flags AS LONG
+    x1 AS INTEGER
+    y1 AS INTEGER
+    x2 AS INTEGER
+    y2 AS INTEGER
+    w AS INTEGER
+    h AS INTEGER
+    colorFG AS _UNSIGNED LONG
+    colorBG AS _UNSIGNED LONG
+    payloadOffset AS LONG
+    payloadLength AS LONG
+    label AS STRING * 32
+END TYPE
+
+TYPE HISTORY_SYSTEM
+    current AS INTEGER
+    count AS INTEGER
+    maxRecords AS INTEGER
+    nextSequence AS LONG
+    recording AS INTEGER
+END TYPE
+
+DIM SHARED HISTORY AS HISTORY_SYSTEM
+DIM SHARED HISTORY_RECORDS(1 TO HISTORY_MAX_RECORDS) AS HISTORY_RECORD
+DIM SHARED HISTORY_PAYLOADS(1 TO HISTORY_MAX_RECORDS) AS STRING
+DIM SHARED HISTORY_IN_PROGRESS AS INTEGER
+DIM SHARED HISTORY_GROUP_ACTIVE AS INTEGER
+DIM SHARED HISTORY_GROUP_SEQUENCE AS LONG
+
+DECLARE SUB HISTORY_init ()
+DECLARE SUB HISTORY_clear ()
+DECLARE FUNCTION HISTORY_can_undo% ()
+DECLARE FUNCTION HISTORY_can_redo% ()
+DECLARE FUNCTION HISTORY_get_last_timestamp# ()
+DECLARE FUNCTION HISTORY_get_next_timestamp# ()
+DECLARE SUB HISTORY_begin_group ()
+DECLARE SUB HISTORY_end_group ()
+DECLARE FUNCTION HISTORY_begin_record% (kind AS INTEGER, exportKind AS INTEGER, label AS STRING)
+DECLARE SUB HISTORY_commit_record (recordIndex AS INTEGER)
+DECLARE SUB HISTORY_cancel_record (recordIndex AS INTEGER)
+DECLARE FUNCTION HISTORY_text_payload$ (lineCount AS INTEGER, fontMode AS INTEGER, fontPath AS STRING, fontSize AS INTEGER)
+DECLARE FUNCTION HISTORY_polyline_payload$ (pointCount AS INTEGER, pointsX() AS INTEGER, pointsY() AS INTEGER)
+DECLARE SUB HISTORY_set_payload (recordIndex AS INTEGER, payload AS STRING, payloadMeta AS LONG)
+DECLARE SUB HISTORY_record_layer_add (layerId AS LONG, layerSlot AS INTEGER, zIndex AS INTEGER, label AS STRING)
+DECLARE SUB HISTORY_record_layer_delete (layerId AS LONG, layerSlot AS INTEGER, zIndex AS INTEGER, label AS STRING)
+DECLARE SUB HISTORY_record_layer_reorder (layerId AS LONG, layerSlot AS INTEGER, oldZIndex AS INTEGER, newZIndex AS INTEGER, label AS STRING)
+DECLARE SUB HISTORY_record_layer_rename (layerId AS LONG, oldName AS STRING, newName AS STRING, label AS STRING)
+DECLARE SUB HISTORY_record_line (layerId AS LONG, layerSlot AS INTEGER, x1 AS INTEGER, y1 AS INTEGER, x2 AS INTEGER, y2 AS INTEGER, drawColor AS _UNSIGNED LONG, flags AS LONG, beforeImg AS LONG, label AS STRING)
+DECLARE SUB HISTORY_record_rect (layerId AS LONG, layerSlot AS INTEGER, x1 AS INTEGER, y1 AS INTEGER, x2 AS INTEGER, y2 AS INTEGER, drawColor AS _UNSIGNED LONG, flags AS LONG, beforeImg AS LONG, label AS STRING)
+DECLARE SUB HISTORY_record_ellipse (layerId AS LONG, layerSlot AS INTEGER, x1 AS INTEGER, y1 AS INTEGER, x2 AS INTEGER, y2 AS INTEGER, drawColor AS _UNSIGNED LONG, flags AS LONG, beforeImg AS LONG, label AS STRING)
+DECLARE SUB HISTORY_record_polyline (layerId AS LONG, layerSlot AS INTEGER, drawColor AS _UNSIGNED LONG, flags AS LONG, beforeImg AS LONG, pointCount AS INTEGER, pointsX() AS INTEGER, pointsY() AS INTEGER, label AS STRING)
+DECLARE SUB HISTORY_record_fill (layerId AS LONG, layerSlot AS INTEGER, drawColor AS _UNSIGNED LONG, flags AS LONG, beforeImg AS LONG, seedX AS INTEGER, seedY AS INTEGER, label AS STRING)
+DECLARE SUB HISTORY_record_brush (layerId AS LONG, layerSlot AS INTEGER, drawColor AS _UNSIGNED LONG, flags AS LONG, beforeImg AS LONG, label AS STRING)
+DECLARE SUB HISTORY_record_transform (layerId AS LONG, layerSlot AS INTEGER, flags AS LONG, beforeImg AS LONG, label AS STRING)
+DECLARE SUB HISTORY_refresh_layer_add_snapshot (layerId AS LONG)
+DECLARE SUB HISTORY_save_binary (fh AS INTEGER, canvasW AS LONG, canvasH AS LONG)
+DECLARE SUB HISTORY_load_binary (fh AS INTEGER, canvasW AS LONG, canvasH AS LONG, formatVersion AS INTEGER)
+DECLARE SUB HISTORY_undo ()
+DECLARE SUB HISTORY_redo ()

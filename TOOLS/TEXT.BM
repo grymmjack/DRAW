@@ -13,10 +13,14 @@ SUB TEXT_init ()
     DIM preserve_custom AS INTEGER
     DIM preserve_handle AS LONG
     DIM preserve_tiny5 AS INTEGER
+    DIM preserve_custom_path AS STRING
+    DIM preserve_custom_size AS INTEGER
     DIM uiFontSize AS INTEGER
     preserve_custom = TEXT.USE_CUSTOM
     preserve_handle = TEXT.CUSTOM_FONT_HANDLE
     preserve_tiny5 = TEXT.USE_TINY5
+    preserve_custom_path$ = RTRIM$(TEXT.CUSTOM_FONT_PATH)
+    preserve_custom_size% = TEXT.CUSTOM_FONT_SIZE
     
     TEXT.ACTIVE = FALSE
     TEXT.START_X = 0
@@ -33,6 +37,8 @@ SUB TEXT_init ()
     TEXT.USE_CUSTOM = preserve_custom
     TEXT.CUSTOM_FONT_HANDLE = preserve_handle
     TEXT.USE_TINY5 = preserve_tiny5
+    TEXT.CUSTOM_FONT_PATH = preserve_custom_path$
+    TEXT.CUSTOM_FONT_SIZE = preserve_custom_size%
     _LOGINFO "TEXT_init: Custom font handle = " + STR$(TEXT.CUSTOM_FONT_HANDLE)
     
     ' Default to VGA font
@@ -180,9 +186,21 @@ END SUB
 ' Apply text to canvas
 SUB TEXT_apply ()
     IF NOT TEXT.ACTIVE THEN EXIT SUB
+
+    DIM text_history_before AS LONG
+    DIM text_history_flags AS LONG
+    DIM text_recorded AS INTEGER
     
     ' Mark inactive FIRST to prevent recursion with TEXT_reset
     TEXT.ACTIVE = FALSE
+
+    text_history_before& = 0
+    text_history_flags& = 0
+    text_recorded% = FALSE
+    IF SELECTION_has_active% OR LAYERS(CURRENT_LAYER%).opacityLock% THEN text_history_flags& = text_history_flags& OR HISTORY_FLAG_CLIPPED
+    IF NOT HISTORY_IN_PROGRESS% AND LAYERS(CURRENT_LAYER%).historyId& > 0 AND LAYERS(CURRENT_LAYER%).imgHandle& < -1 THEN
+        text_history_before& = _COPYIMAGE(LAYERS(CURRENT_LAYER%).imgHandle&, 32)
+    END IF
     
     ' Draw each line of text to the current layer
     STROKE_begin
@@ -214,10 +232,23 @@ SUB TEXT_apply ()
     
     ' Save state for undo AFTER drawing text
     STROKE_commit
-    IF NOT UNDO_saved_this_frame% THEN
-        UNDO_save_state
-        UNDO_saved_this_frame% = TRUE  ' Prevent double-save from mouse handler
+    IF text_history_before& < -1 THEN
+        HISTORY_record_brush LAYERS(CURRENT_LAYER%).historyId&, CURRENT_LAYER%, PAINT_apply_opacity~&(PAINT_COLOR~&), text_history_flags&, text_history_before&, "Text"
+        HISTORY_RECORDS(HISTORY.current%).x1% = TEXT.START_X
+        HISTORY_RECORDS(HISTORY.current%).y1% = TEXT.START_Y
+        HISTORY_RECORDS(HISTORY.current%).w% = TEXT.LINE_COUNT
+        HISTORY_RECORDS(HISTORY.current%).h% = TEXT.LINE_HEIGHT
+        IF TEXT.USE_CUSTOM AND TEXT.CUSTOM_FONT_HANDLE > 0 THEN
+            HISTORY_set_payload HISTORY.current%, HISTORY_text_payload$(TEXT.LINE_COUNT, 2, RTRIM$(TEXT.CUSTOM_FONT_PATH), TEXT.CUSTOM_FONT_SIZE), 2
+        ELSEIF TEXT.USE_TINY5 AND TEXT.FONT_HANDLE > 0 THEN
+            HISTORY_set_payload HISTORY.current%, HISTORY_text_payload$(TEXT.LINE_COUNT, 1, THEME_font_path$(THEME.GLOBAL_FONT_FILE$), THEME.GLOBAL_FONT_SIZE%), 1
+        ELSE
+            HISTORY_set_payload HISTORY.current%, HISTORY_text_payload$(TEXT.LINE_COUNT, 0, "", 0), 0
+        END IF
+        text_history_before& = 0
+        text_recorded% = TRUE
     END IF
+    IF text_recorded% THEN UNDO_saved_this_frame% = TRUE  ' Prevent double-save from mouse handler
     
     ' Reset text tool
     TEXT_reset

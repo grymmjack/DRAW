@@ -25,6 +25,7 @@
 '     LAYERS: count(2) + current(2) + per-layer data
 '     TOOL STATE: tool(2) + brush(2) + pixelperfect(2) + grid(2) + gridsize(2)
 '     PALETTE NAME: name(64) [v3+]
+'     HISTORY: stable layer ids + unified history records [v7+]
 '
 ' @author Rick Christy <grymmjack@gmail.com>
 '
@@ -144,6 +145,10 @@ SUB DRW_save_binary (filename AS STRING)
             PUT #fh%, , tmpInt%
             tmpInt% = LAYERS(i%).opacityLock%
             PUT #fh%, , tmpInt%
+            IF version% >= 7 THEN
+                tmpLong& = LAYERS(i%).historyId&
+                PUT #fh%, , tmpLong&
+            END IF
 
             ' Pixel data
             oldSrc& = _SOURCE
@@ -225,6 +230,9 @@ SUB DRW_save_binary (filename AS STRING)
     tmpInt% = GRID.ALIGN_MODE%
     PUT #fh%, , tmpInt%
 
+    ' === UNIFIED HISTORY (v7+) ===
+    HISTORY_save_binary fh%, SCRN.canvasW&, SCRN.canvasH&
+
     CLOSE #fh%
 
     _LOGINFO "DRW_save_binary: Wrote binary project data to " + filename$
@@ -250,12 +258,14 @@ SUB DRW_load_binary (filename AS STRING)
     DIM layerVisible AS INTEGER
     DIM layerOpacity AS INTEGER
     DIM layerZIndex AS INTEGER
+    DIM layerHistoryId AS LONG
     DIM layerIdx AS INTEGER
     DIM savedTool AS INTEGER
     DIM savedBrushSize AS INTEGER
     DIM savedPixelPerfect AS INTEGER
     DIM savedGridVisible AS INTEGER
     DIM savedGridSize AS INTEGER
+    DIM maxLoadedHistoryId AS LONG
 
     IF NOT _FILEEXISTS(filename$) THEN
         _LOGWARN "DRW_load_binary: File not found: " + filename$
@@ -450,6 +460,7 @@ SUB DRW_load_binary (filename AS STRING)
 
     GET #fh%, , layerCount%
     GET #fh%, , savedCurrentLayer%
+    maxLoadedHistoryId& = 0
 
     ' Load each layer
     FOR i% = 1 TO layerCount%
@@ -476,6 +487,15 @@ SUB DRW_load_binary (filename AS STRING)
         ELSE
             LAYERS(layerIdx%).blendMode% = BLEND_NORMAL
             LAYERS(layerIdx%).opacityLock% = FALSE
+        END IF
+
+        IF version% >= 7 THEN
+            GET #fh%, , layerHistoryId&
+            LAYERS(layerIdx%).historyId& = layerHistoryId&
+            IF layerHistoryId& > maxLoadedHistoryId& THEN maxLoadedHistoryId& = layerHistoryId&
+        ELSE
+            LAYERS(layerIdx%).historyId& = LAYERS_alloc_history_id&
+            IF LAYERS(layerIdx%).historyId& > maxLoadedHistoryId& THEN maxLoadedHistoryId& = LAYERS(layerIdx%).historyId&
         END IF
 
         ' Create layer image at canvas dimensions (not viewport)
@@ -614,6 +634,14 @@ SUB DRW_load_binary (filename AS STRING)
         GRID.CELL_FILL% = savedCellFill%
         GRID.SNAP% = savedGridSnap%
         GRID.ALIGN_MODE% = savedAlignMode%
+    END IF
+
+    IF version% >= 7 THEN
+        HISTORY_load_binary fh%, SCRN.canvasW&, SCRN.canvasH&, version%
+    ELSE
+        HISTORY_clear
+        NEXT_LAYER_HISTORY_ID& = maxLoadedHistoryId& + 1
+        IF NEXT_LAYER_HISTORY_ID& < 1 THEN NEXT_LAYER_HISTORY_ID& = 1
     END IF
 
     CLOSE #fh%
@@ -1131,6 +1159,7 @@ SUB DRW_load_from_png (filename AS STRING)
             ' Reset all state
             UNDO_init
             WORKSPACE_UNDO_clear
+            HISTORY_clear
             MARQUEE_reset
             MOVE_init
             MAGIC_WAND_reset
@@ -1400,6 +1429,7 @@ SUB DRW_new_canvas ()
     ' === RESET UNDO ===
     UNDO_init
     WORKSPACE_UNDO_clear
+    HISTORY_clear
 
     ' === RESET TOOL STATE ===
     MARQUEE_reset

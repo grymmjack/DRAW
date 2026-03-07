@@ -80,6 +80,8 @@ END IF
 ' Apply config startup defaults (tool, brush size, directories)
 ' Must be called after all modules are initialized via includes
 CONFIG_apply_startup_defaults
+HISTORY_init
+FILE_BAS_wip_reset
 
 ' Pre-load all cursor PNGs (must be after THEME.BI sets filenames and
 ' SCREEN_init calls CONFIG_load so CFG.THEME$ is available)
@@ -113,7 +115,11 @@ IMAGE_ADJ_init           ' Initialise image adjustment library (IMGADJ)
 ' Main Loop
 DIM k AS LONG
 DIM exitConfirmed AS INTEGER
+DIM prevShiftHeld AS INTEGER, prevCtrlHeld AS INTEGER, prevAltHeld AS INTEGER
 exitConfirmed% = FALSE
+prevShiftHeld% = MODIFIERS.shift%
+prevCtrlHeld% = MODIFIERS.ctrl%
+prevAltHeld% = MODIFIERS.alt%
     
 DO
     ' Deferred command line file loading (after first frame when everything is initialized)
@@ -157,7 +163,11 @@ DO
     ' OS-initiated window resize (maximize, drag, etc.): snap back to nearest
     ' integer scale so $RESIZE:STRETCH always produces a pixel-perfect result.
     IF _RESIZE THEN
-        SCREEN_snap_window_to_scale _ResizeWidth, _ResizeHeight
+        IF SCREEN_DEFERRED_RESIZE% > 0 THEN
+            SCREEN_DEFERRED_RESIZE% = SCREEN_DEFERRED_RESIZE% - 1
+        ELSE
+            SCREEN_snap_window_to_scale _ResizeWidth, _ResizeHeight
+        END IF
     END IF
 
     ' Handle OS-initiated exit (window X button = bit 0, CTRL+BREAK = bit 1)
@@ -192,7 +202,9 @@ DO
     PERF_start PERF_IDLE_DETECT
     FRAME_IDLE% = TRUE
     DIM SCENE_CHANGED AS INTEGER
+    DIM modifiersChanged AS INTEGER
     SCENE_CHANGED% = FALSE
+    modifiersChanged% = (MODIFIERS.shift% <> prevShiftHeld% OR MODIFIERS.ctrl% <> prevCtrlHeld% OR MODIFIERS.alt% <> prevAltHeld%)
     IF k& <> 0 THEN FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE   ' Key was pressed
     IF MOUSE.B1% OR MOUSE.B2% OR MOUSE.B3% THEN FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE  ' Mouse button held
     IF MOUSE.RAW_X% <> IDLE_PREV_MOUSE_X% OR MOUSE.RAW_Y% <> IDLE_PREV_MOUSE_Y% THEN
@@ -200,6 +212,7 @@ DO
         GUI_NEEDS_REDRAW% = TRUE                                  ' Update status bar coords
     END IF
     IF GUI_NEEDS_REDRAW% THEN FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE   ' GUI needs update (forces scene re-render)
+    IF modifiersChanged% THEN FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE   ' Modifier overlays affect cached scene and must repaint on press/release
     IF SCRN.panning% THEN FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE      ' Panning active
     IF MODIFIERS.shift% THEN FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE   ' SHIFT held (crosshair/constraint)
     IF MOUSE.SW% <> 0 THEN FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE     ' Mouse wheel scrolled
@@ -216,6 +229,9 @@ DO
     IF LAYER_PANEL.blendPopupOpen% THEN FRAME_IDLE% = FALSE  ' Popup animation (hover) — no scene change
     IF SELECTION_has_active% THEN FRAME_IDLE% = FALSE  ' Animation only (marching ants) — no scene change
     IF SCENE_CHANGED% THEN SCENE_DIRTY% = TRUE
+    prevShiftHeld% = MODIFIERS.shift%
+    prevCtrlHeld% = MODIFIERS.ctrl%
+    prevAltHeld% = MODIFIERS.alt%
     ' Mark current layer content dirty when user is actively drawing
     IF (MOUSE.B1% OR MOUSE.B2%) AND CURRENT_LAYER% > 0 THEN
         LAYERS(CURRENT_LAYER%).contentDirty% = TRUE
@@ -257,19 +273,6 @@ DO
     LOOP_end
 LOOP
 
-' Check if display scale changed during session and prompt to save
-IF CFG.DISPLAY_SCALE_CHANGED% THEN
-    DIM save_result AS LONG
-    POINTER_hide_for_dialog
-    save_result& = _MESSAGEBOX("Save Configuration?", "Display scale changed to " + _TRIM$(STR$(SCRN.displayScale%)) + "x. Save configuration for next time?", "yesno", "question", 0)
-    POINTER_show_after_dialog
-    IF save_result& = 1 THEN
-        ' Update the display scale in config before saving
-        CFG.DISPLAY_SCALE% = SCRN.displayScale%
-        CONFIG_save
-    END IF
-END IF
-
 MAIN_shutdown
 
 
@@ -298,6 +301,18 @@ END SUB
 ' 
 SUB MAIN_shutdown ()
     DIM i AS INTEGER
+
+    IF CFG.DISPLAY_SCALE_CHANGED% THEN
+        DIM save_result AS LONG
+        POINTER_hide_for_dialog
+        save_result& = _MESSAGEBOX("Save Configuration?", "Display scale changed to " + _TRIM$(STR$(SCRN.displayScale%)) + "x. Save configuration for next time?", "yesno", "question", 0)
+        POINTER_show_after_dialog
+        IF save_result& = 1 THEN
+            CFG.DISPLAY_SCALE% = SCRN.displayScale%
+            CONFIG_save
+        END IF
+    END IF
+
     _MOUSESHOW
     SCREEN 0
     CLS

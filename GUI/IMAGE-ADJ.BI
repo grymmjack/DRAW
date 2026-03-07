@@ -12,7 +12,7 @@ $INCLUDEONCE
 DECLARE SUB IMAGE_ADJ_init ()
 
 ' ---- Internal helpers --------------------------------------------------------
-DECLARE SUB IMAGE_ADJ_apply_to_layer (adjResult AS LONG)
+DECLARE SUB IMAGE_ADJ_apply_to_layer (adjResult AS LONG, historyLabel AS STRING)
 
 ' ---- Direct ops (no dialog) --------------------------------------------------
 DECLARE SUB IMAGE_ADJ_invert ()

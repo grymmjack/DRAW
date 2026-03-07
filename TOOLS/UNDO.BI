@@ -32,3 +32,7 @@ DIM SHARED UNDO_saved_this_frame AS INTEGER ' Prevent double-saves in same frame
 DIM SHARED UNDO_SEQ AS LONG ' Monotonic counter: guarantees workspace undo timestamp > pixel undo timestamp
 ' NOTE: UNDO_init must be called AFTER LAYERS_init (from SCREEN_init)
 ' DO NOT call UNDO_init here -- layers don't exist yet at include time
+
+DECLARE FUNCTION UNDO_get_last_timestamp# ()
+DECLARE FUNCTION UNDO_get_next_timestamp# ()
+DECLARE SUB UNDO_pop_last ()

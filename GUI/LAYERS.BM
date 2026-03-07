@@ -17,6 +17,7 @@ SUB LAYERS_init ()
     
     ' Initialize all layer slots to empty
     FOR i% = 1 TO 64
+        LAYERS(i%).historyId&    = 0
         LAYERS(i%).zIndex%       = 0
         LAYERS(i%).imgWidth%     = 0
         LAYERS(i%).imgHeight%    = 0
@@ -53,6 +54,7 @@ SUB LAYERS_init ()
     ' Initialize layer count and current layer
     LAYER_COUNT% = 0
     CURRENT_LAYER% = 0
+    NEXT_LAYER_HISTORY_ID& = 1
     
     ' Initialize multi-select state (will be properly set once first layer is created)
     DIM msInit AS INTEGER
@@ -76,6 +78,16 @@ SUB LAYERS_init ()
         _DEST oldDest2&
     END IF
 END SUB
+
+
+''
+' Allocate a stable runtime layer id for the unified history system.
+'
+FUNCTION LAYERS_alloc_history_id& ()
+    IF NEXT_LAYER_HISTORY_ID& < 1 THEN NEXT_LAYER_HISTORY_ID& = 1
+    LAYERS_alloc_history_id& = NEXT_LAYER_HISTORY_ID&
+    NEXT_LAYER_HISTORY_ID& = NEXT_LAYER_HISTORY_ID& + 1
+END FUNCTION
 
 
 ''
@@ -167,6 +179,7 @@ FUNCTION LAYERS_new% ()
     
     ' Set default properties
     LAYER_COUNT% = LAYER_COUNT% + 1
+    LAYERS(newIndex%).historyId&    = LAYERS_alloc_history_id&
     LAYERS(newIndex%).zIndex%      = newZ%  ' Insert above current layer
     LAYERS(newIndex%).visible%     = TRUE
     LAYERS(newIndex%).isSelected%  = FALSE
@@ -175,19 +188,25 @@ FUNCTION LAYERS_new% ()
     LAYERS(newIndex%).opacity%     = 255
     LAYERS(newIndex%).opacityLock% = FALSE
     LAYERS(newIndex%).blendMode%   = BLEND_NORMAL
+
+    IF NOT WORKSPACE_UNDO_IN_PROGRESS% AND NOT HISTORY_IN_PROGRESS% THEN
+        HISTORY_record_layer_add LAYERS(newIndex%).historyId&, newIndex%, newZ%, "Layer Add"
+    END IF
     
     ' Select the new layer
     LAYERS_select newIndex%
     
-    ' Save pixel undo baseline for the new layer (only after init is complete;
-    ' during init WORKSPACE_UNDO_READY% is FALSE so we skip -- UNDO_init handles
-    ' initial layer captures after LAYERS_init completes).
-    ' Also skip when WORKSPACE_UNDO_IN_PROGRESS% is TRUE (e.g. merge visible/down)
-    ' to avoid phantom pixel undo states that force double-undo.
-    IF WORKSPACE_UNDO_READY% AND NOT WORKSPACE_UNDO_IN_PROGRESS% THEN UNDO_save_layer_state newIndex%
-    
-    ' Save workspace undo state for layer addition
-    WORKSPACE_UNDO_save_layer_add newIndex%
+    ' Save pixel undo baseline for the new layer without letting the internal
+    ' checkpoint outrank the layer-add action in unified history routing.
+    IF WORKSPACE_UNDO_READY% AND NOT WORKSPACE_UNDO_IN_PROGRESS% THEN
+        DIM newLayerSavedPixelTs AS DOUBLE
+        newLayerSavedPixelTs# = PIXEL_UNDO_LAST_TIMESTAMP#
+        UNDO_save_layer_state newIndex%
+        IF UNDO.current% >= 0 AND UNDO.current% <= UNDO_STATES_MAX% THEN
+            UNDO_STATES(UNDO.current%).timestamp# = 0
+        END IF
+        PIXEL_UNDO_LAST_TIMESTAMP# = newLayerSavedPixelTs#
+    END IF
     
     BLEND_invalidate_cache
     GUI_NEEDS_REDRAW% = TRUE
@@ -228,6 +247,7 @@ END FUNCTION
 SUB LAYERS_delete (layerIndex AS INTEGER)
     DIM i AS INTEGER
     DIM deletedZ AS INTEGER
+    DIM deletedHistoryId AS LONG
     
     ' Can't delete if only one layer
     IF LAYER_COUNT% <= 1 THEN EXIT SUB
@@ -236,9 +256,6 @@ SUB LAYERS_delete (layerIndex AS INTEGER)
     IF layerIndex% < 1 OR layerIndex% > 64 THEN EXIT SUB
     IF LAYERS(layerIndex%).imgHandle& = 0 THEN EXIT SUB
     
-    ' Save workspace undo state BEFORE deletion (captures layer content)
-    WORKSPACE_UNDO_save_layer_delete layerIndex%
-    
     ' Cancel any pending/active drag that refers to this layer
     IF LAYER_PANEL.dragLayerIdx% = layerIndex% THEN
         LAYER_PANEL_drag_cancel
@@ -246,7 +263,12 @@ SUB LAYERS_delete (layerIndex AS INTEGER)
     
     ' Store zIndex before deleting
     deletedZ% = LAYERS(layerIndex%).zIndex%
+    deletedHistoryId& = LAYERS(layerIndex%).historyId&
     
+    IF NOT WORKSPACE_UNDO_IN_PROGRESS% AND NOT HISTORY_IN_PROGRESS% THEN
+        HISTORY_record_layer_delete deletedHistoryId&, layerIndex%, deletedZ%, "Layer Delete"
+    END IF
+
     ' Free the image
     IF LAYERS(layerIndex%).imgHandle& < -1 THEN
         _FREEIMAGE LAYERS(layerIndex%).imgHandle&
@@ -257,6 +279,7 @@ SUB LAYERS_delete (layerIndex AS INTEGER)
     END IF
     
     ' Clear the slot
+    LAYERS(layerIndex%).historyId& = 0
     LAYERS(layerIndex%).imgHandle& = 0
     LAYERS(layerIndex%).imgWidth%  = 0
     LAYERS(layerIndex%).imgHeight% = 0
@@ -271,7 +294,6 @@ SUB LAYERS_delete (layerIndex AS INTEGER)
     LAYERS(layerIndex%).contentDirty% = FALSE
     
     LAYER_COUNT% = LAYER_COUNT% - 1
-    
     ' Adjust zIndex of layers above the deleted one
     FOR i% = 1 TO 64
         IF LAYERS(i%).imgHandle& <> 0 AND LAYERS(i%).zIndex% > deletedZ% THEN
@@ -364,6 +386,7 @@ SUB LAYERS_duplicate (layerIndex AS INTEGER)
     
     ' Set layer properties
     LAYER_COUNT% = LAYER_COUNT% + 1
+    LAYERS(newIndex%).historyId&    = LAYERS_alloc_history_id&
     LAYERS(newIndex%).imgWidth%    = _WIDTH(LAYERS(newIndex%).imgHandle&)
     LAYERS(newIndex%).imgHeight%   = _HEIGHT(LAYERS(newIndex%).imgHandle&)
     LAYERS(newIndex%).zIndex%      = LAYER_COUNT%
@@ -375,16 +398,25 @@ SUB LAYERS_duplicate (layerIndex AS INTEGER)
     LAYERS(newIndex%).opacityLock% = LAYERS(layerIndex%).opacityLock%
     LAYERS(newIndex%).blendMode%   = LAYERS(layerIndex%).blendMode%
     LAYERS(newIndex%).contentDirty% = TRUE  ' New pixel data needs opacity cache build
+
+    IF NOT WORKSPACE_UNDO_IN_PROGRESS% AND NOT HISTORY_IN_PROGRESS% THEN
+        HISTORY_record_layer_add LAYERS(newIndex%).historyId&, newIndex%, LAYERS(newIndex%).zIndex%, "Layer Duplicate"
+    END IF
     
     ' Select the new layer
     LAYERS_select newIndex%
     
-    ' Save pixel undo baseline for the duplicated layer (only after init is complete).
-    IF WORKSPACE_UNDO_READY% THEN UNDO_save_layer_state newIndex%
-
-    ' Save workspace undo state
-    WORKSPACE_UNDO_save_layer_add newIndex%
-    
+    ' Save pixel undo baseline for the duplicated layer without letting the
+    ' internal checkpoint outrank the duplicate-as-add action.
+    IF WORKSPACE_UNDO_READY% THEN
+        DIM dupLayerSavedPixelTs AS DOUBLE
+        dupLayerSavedPixelTs# = PIXEL_UNDO_LAST_TIMESTAMP#
+        UNDO_save_layer_state newIndex%
+        IF UNDO.current% >= 0 AND UNDO.current% <= UNDO_STATES_MAX% THEN
+            UNDO_STATES(UNDO.current%).timestamp# = 0
+        END IF
+        PIXEL_UNDO_LAST_TIMESTAMP# = dupLayerSavedPixelTs#
+    END IF
     BLEND_invalidate_cache
     GUI_NEEDS_REDRAW% = TRUE
     SCENE_DIRTY% = TRUE
@@ -397,15 +429,29 @@ END SUB
 ' 
 SUB LAYERS_clear (layerIndex AS INTEGER)
     DIM oldDest AS LONG
+    DIM clearBefore AS LONG
+    DIM clearRecorded AS INTEGER
     
     ' Validate
     IF layerIndex% < 1 OR layerIndex% > 64 THEN EXIT SUB
     IF LAYERS(layerIndex%).imgHandle& = 0 THEN EXIT SUB
+
+    clearBefore& = 0
+    clearRecorded% = FALSE
+    IF NOT HISTORY_IN_PROGRESS% AND LAYERS(layerIndex%).historyId& > 0 AND LAYERS(layerIndex%).imgHandle& < -1 THEN
+        clearBefore& = _COPYIMAGE(LAYERS(layerIndex%).imgHandle&, 32)
+    END IF
     
     oldDest& = _DEST
     _DEST LAYERS(layerIndex%).imgHandle&
     CLS , _RGBA32(0, 0, 0, 0)
     _DEST oldDest&
+
+    IF clearBefore& < -1 THEN
+        HISTORY_record_brush LAYERS(layerIndex%).historyId&, layerIndex%, _RGBA32(0, 0, 0, 0), 0, clearBefore&, "Clear Layer"
+        clearRecorded% = TRUE
+    END IF
+    IF clearRecorded% THEN UNDO_saved_this_frame% = TRUE
     
     LAYERS(layerIndex%).contentDirty% = TRUE
     GUI_NEEDS_REDRAW% = TRUE
@@ -434,12 +480,16 @@ SUB LAYERS_rename (layerIndex AS INTEGER)
         IF LEN(newName$) > CFG.LAYER_NAME_MAX_LEN% THEN
             newName$ = LEFT$(newName$, CFG.LAYER_NAME_MAX_LEN%)
         END IF
-        
-        ' Save workspace undo state for rename
-        WORKSPACE_UNDO_save_layer_rename layerIndex%, _TRIM$(LAYERS(layerIndex%).name), newName$
-        
-        LAYERS(layerIndex%).name = newName$
-        GUI_NEEDS_REDRAW% = TRUE
+
+        IF _TRIM$(newName$) <> _TRIM$(LAYERS(layerIndex%).name) THEN
+            IF NOT WORKSPACE_UNDO_IN_PROGRESS% AND NOT HISTORY_IN_PROGRESS% THEN
+                HISTORY_record_layer_rename LAYERS(layerIndex%).historyId&, _TRIM$(LAYERS(layerIndex%).name), newName$, "Layer Rename"
+            END IF
+
+            LAYERS(layerIndex%).name = newName$
+            GUI_NEEDS_REDRAW% = TRUE
+            FRAME_IDLE% = FALSE
+        END IF
     END IF
 END SUB
 
@@ -632,12 +682,12 @@ SUB LAYERS_move_up (layerIndex AS INTEGER)
     NEXT i%
     
     IF targetIndex% > 0 THEN
-        ' Save workspace undo state for reorder
-        WORKSPACE_UNDO_save_layer_reorder layerIndex%, currentZ%, currentZ% + 1
-        
         ' Swap zIndex values
         LAYERS(layerIndex%).zIndex% = currentZ% + 1
         LAYERS(targetIndex%).zIndex% = currentZ%
+        IF NOT WORKSPACE_UNDO_IN_PROGRESS% AND NOT HISTORY_IN_PROGRESS% THEN
+            HISTORY_record_layer_reorder LAYERS(layerIndex%).historyId&, layerIndex%, currentZ%, currentZ% + 1, "Layer Reorder"
+        END IF
     END IF
     
     BLEND_invalidate_cache
@@ -670,12 +720,12 @@ SUB LAYERS_move_down (layerIndex AS INTEGER)
     NEXT i%
     
     IF targetIndex% > 0 THEN
-        ' Save workspace undo state for reorder
-        WORKSPACE_UNDO_save_layer_reorder layerIndex%, currentZ%, currentZ% - 1
-        
         ' Swap zIndex values
         LAYERS(layerIndex%).zIndex% = currentZ% - 1
         LAYERS(targetIndex%).zIndex% = currentZ%
+        IF NOT WORKSPACE_UNDO_IN_PROGRESS% AND NOT HISTORY_IN_PROGRESS% THEN
+            HISTORY_record_layer_reorder LAYERS(layerIndex%).historyId&, layerIndex%, currentZ%, currentZ% - 1, "Layer Reorder"
+        END IF
     END IF
     
     BLEND_invalidate_cache
@@ -696,7 +746,6 @@ SUB LAYERS_to_top (layerIndex AS INTEGER)
     
     currentZ% = LAYERS(layerIndex%).zIndex%
     IF currentZ% = LAYER_COUNT% THEN EXIT SUB  ' Already at top
-    
     ' Decrease zIndex of all layers above this one
     FOR i% = 1 TO 64
         IF LAYERS(i%).imgHandle& <> 0 AND LAYERS(i%).zIndex% > currentZ% THEN
@@ -706,6 +755,9 @@ SUB LAYERS_to_top (layerIndex AS INTEGER)
     
     ' Set this layer to top
     LAYERS(layerIndex%).zIndex% = LAYER_COUNT%
+    IF NOT WORKSPACE_UNDO_IN_PROGRESS% AND NOT HISTORY_IN_PROGRESS% THEN
+        HISTORY_record_layer_reorder LAYERS(layerIndex%).historyId&, layerIndex%, currentZ%, LAYER_COUNT%, "Layer Reorder"
+    END IF
     
     BLEND_invalidate_cache
     GUI_NEEDS_REDRAW% = TRUE
@@ -725,7 +777,6 @@ SUB LAYERS_to_bottom (layerIndex AS INTEGER)
     
     currentZ% = LAYERS(layerIndex%).zIndex%
     IF currentZ% = 1 THEN EXIT SUB  ' Already at bottom
-    
     ' Increase zIndex of all layers below this one
     FOR i% = 1 TO 64
         IF LAYERS(i%).imgHandle& <> 0 AND LAYERS(i%).zIndex% < currentZ% THEN
@@ -735,6 +786,9 @@ SUB LAYERS_to_bottom (layerIndex AS INTEGER)
     
     ' Set this layer to bottom
     LAYERS(layerIndex%).zIndex% = 1
+    IF NOT WORKSPACE_UNDO_IN_PROGRESS% AND NOT HISTORY_IN_PROGRESS% THEN
+        HISTORY_record_layer_reorder LAYERS(layerIndex%).historyId&, layerIndex%, currentZ%, 1, "Layer Reorder"
+    END IF
     
     BLEND_invalidate_cache
     GUI_NEEDS_REDRAW% = TRUE
@@ -878,6 +932,9 @@ SUB LAYERS_merge_down (layerIndex AS INTEGER)
     DIM mdSavedPixelTs AS DOUBLE
     mdSavedPixelTs# = PIXEL_UNDO_LAST_TIMESTAMP#
     UNDO_save_layer_state targetIndex%
+    IF UNDO.current% >= 0 AND UNDO.current% <= UNDO_STATES_MAX% THEN
+        UNDO_STATES(UNDO.current%).timestamp# = 0
+    END IF
     PIXEL_UNDO_LAST_TIMESTAMP# = mdSavedPixelTs#
     
     ' Select the target layer
@@ -1004,6 +1061,9 @@ SUB LAYERS_merge_visible ()
     DIM mvSavedPixelTs AS DOUBLE
     mvSavedPixelTs# = PIXEL_UNDO_LAST_TIMESTAMP#
     UNDO_save_layer_state newIndex%
+    IF UNDO.current% >= 0 AND UNDO.current% <= UNDO_STATES_MAX% THEN
+        UNDO_STATES(UNDO.current%).timestamp# = 0
+    END IF
     PIXEL_UNDO_LAST_TIMESTAMP# = mvSavedPixelTs#
     
     ' Select the merged layer
@@ -1694,10 +1754,6 @@ FUNCTION LAYER_PANEL_handle_click% (rawX AS INTEGER, rawY AS INTEGER, button AS 
                     IF CURRENT_LAYER% > 0 THEN
                         IF btnShiftHeld% THEN
                             SOUND_play SND_LAYER_OP
-                            IF NOT UNDO_saved_this_frame% THEN
-                                UNDO_save_state
-                                UNDO_saved_this_frame% = TRUE
-                            END IF
                             LAYERS_clear CURRENT_LAYER%
                         ELSE
                             IF LAYER_COUNT% > 1 THEN LAYERS_delete CURRENT_LAYER%
@@ -2395,6 +2451,9 @@ SUB LAYER_PANEL_handle_drop ()
     
     ' End drag operation
     IF targetZ% >= 1 AND targetZ% <= LAYER_COUNT% AND targetZ% <> draggedZ% THEN
+        IF NOT WORKSPACE_UNDO_IN_PROGRESS% AND NOT HISTORY_IN_PROGRESS% THEN
+            HISTORY_record_layer_reorder LAYERS(draggedIdx%).historyId&, draggedIdx%, draggedZ%, targetZ%, "Layer Reorder"
+        END IF
         SOUND_play SND_DRAG_DROP
     END IF
     BLEND_invalidate_cache

@@ -39,6 +39,7 @@ CONST BLEND_LUMINOSITY   = 18
 CONST BLEND_MODE_COUNT   = 19 ' Total number of blend modes
 
 TYPE DRAW_LAYER
+    historyId    AS LONG        ' Stable runtime identity for unified history
     zIndex       AS INTEGER     ' Layer stacking order (1 = bottom)
     imgWidth     AS INTEGER     ' Layer dimensions
     imgHeight    AS INTEGER
@@ -110,10 +111,12 @@ DIM SHARED LAYERS(1 TO 64) AS DRAW_LAYER  ' Fixed array, actual count in LAYER_C
 DIM SHARED LAYER_PANEL AS LAYER_PANEL_OBJ
 DIM SHARED CURRENT_LAYER AS INTEGER       ' Currently active layer index (1-based)
 DIM SHARED LAYER_COUNT AS INTEGER         ' Number of layers currently in use
+DIM SHARED NEXT_LAYER_HISTORY_ID AS LONG  ' Monotonic stable layer id allocator
 
 ' Declare layer management functions
 DECLARE SUB LAYERS_init ()
 DECLARE FUNCTION LAYERS_recount% ()
+DECLARE FUNCTION LAYERS_alloc_history_id& ()
 DECLARE FUNCTION LAYERS_new% ()
 DECLARE FUNCTION LAYERS_new_at_top% ()
 DECLARE SUB LAYERS_delete (layerIndex AS INTEGER)

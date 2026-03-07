@@ -164,12 +164,9 @@ SUB MOVE_capture_selection ()
     NEXT capJ%
     _DEST SCRN.CANVAS&
 
-    ' NOTE: No undo save here. The post-move state is saved in MOVE_apply_transform.
-    ' The pre-move baseline comes from UNDO_init (file load), LAYERS_new, or
-    ' LAYERS_duplicate, ensuring every layer has a prior state for undo to restore.
-    ' Saving here AND in apply_transform created duplicate states when consecutive
-    ' moves happened (post-apply of move N = pre-capture of move N+1), causing
-    ' one undo press to "do nothing" visually.
+    ' NOTE: No history save here. Commit-time snapshots are captured in
+    ' MOVE_apply_transform and MOVE_stamp so each committed move/stamp becomes
+    ' a single unified-history record without duplicate pre-capture states.
 
     ' Create image buffer and copy selected region from CURRENT LAYER
     MOVE.SELECTION_IMAGE = _NEWIMAGE(MOVE.SELECTION_W, MOVE.SELECTION_H, 32)
@@ -389,6 +386,17 @@ SUB MOVE_apply_transform ()
     IF targetLayer% < 1 OR targetLayer% > 64 OR LAYERS(targetLayer%).imgHandle& >= -1 THEN EXIT SUB
     DIM targetImg AS LONG
     targetImg& = LAYERS(targetLayer%).imgHandle&
+    DIM moveTargetBefore AS LONG
+    DIM moveUsedHistoryGroup AS INTEGER
+    DIM moveRecorded AS INTEGER
+    DIM moveDidChange AS INTEGER
+    moveTargetBefore& = 0
+    moveUsedHistoryGroup% = FALSE
+    moveRecorded% = FALSE
+    moveDidChange% = (MOVE.CURRENT_X <> MOVE.ORIGINAL_X) OR (MOVE.CURRENT_Y <> MOVE.ORIGINAL_Y) OR (MOVE.CURRENT_W <> MOVE.ORIGINAL_W) OR (MOVE.CURRENT_H <> MOVE.ORIGINAL_H)
+    IF NOT HISTORY_IN_PROGRESS% AND LAYERS(targetLayer%).historyId& > 0 AND targetImg& < -1 THEN
+        moveTargetBefore& = _COPYIMAGE(targetImg&, 32)
+    END IF
     
     _DEST targetImg&
     
@@ -416,15 +424,6 @@ SUB MOVE_apply_transform ()
     CANVAS_DIRTY% = TRUE
     LAYERS(targetLayer%).contentDirty% = TRUE
     BLEND_invalidate_cache
-    
-    ' Save undo state AFTER transform is committed so the post-move result
-    ' is captured. Pre-move state was saved in MOVE_capture_selection.
-    ' Use UNDO_save_layer_state with the target layer (CAPTURED_LAYER) so undo
-    ' captures the correct layer, not whichever layer happens to be selected now.
-    IF NOT UNDO_saved_this_frame% THEN
-        UNDO_save_layer_state targetLayer%
-        UNDO_saved_this_frame% = TRUE
-    END IF
 
     ' Multi-layer linked move: translate all other snapshotted layers by the same
     ' translation delta. Only applies when TRANSFORM_TYPE=0 (pure translation) and
@@ -434,16 +433,27 @@ SUB MOVE_apply_transform ()
         mmDx% = MOVE.CURRENT_X - MOVE.ORIGINAL_X
         mmDy% = MOVE.CURRENT_Y - MOVE.ORIGINAL_Y
         IF mmDx% <> 0 OR mmDy% <> 0 THEN
+            IF NOT HISTORY_IN_PROGRESS% THEN
+                HISTORY_begin_group
+                moveUsedHistoryGroup% = HISTORY_GROUP_ACTIVE%
+            END IF
             DIM mmI AS INTEGER
             FOR mmI% = 1 TO MOVE_MULTI_COUNT%
                 DIM mmIdx AS INTEGER
                 mmIdx% = MOVE_MULTI_LAYERS(mmI%)
                 IF mmIdx% >= 1 AND mmIdx% <= 64 THEN
                     IF LAYERS(mmIdx%).imgHandle& < -1 THEN
-                        ' Save undo state BEFORE translate so undo restores pre-move
-                        UNDO_save_layer_state mmIdx%
+                        DIM mmBefore AS LONG
+                        mmBefore& = 0
+                        IF LAYERS(mmIdx%).historyId& > 0 THEN
+                            mmBefore& = _COPYIMAGE(LAYERS(mmIdx%).imgHandle&, 32)
+                        END IF
                         LAYER_translate_content mmIdx%, mmDx%, mmDy%
                         LAYERS(mmIdx%).contentDirty% = TRUE
+                        IF mmBefore& < -1 THEN
+                            HISTORY_record_transform LAYERS(mmIdx%).historyId&, mmIdx%, 0, mmBefore&, "Move"
+                            moveRecorded% = TRUE
+                        END IF
                         ' Refresh the originals snapshot to the now-translated content.
                         ' MOVE_sync_base resets delta to 0 and rerenders preview buffers,
                         ' so the snapshot must reflect the post-translate pixels or the
@@ -463,6 +473,20 @@ SUB MOVE_apply_transform ()
             _DEST SCRN.CANVAS&
         END IF
     END IF
+
+    IF moveTargetBefore& < -1 AND (moveDidChange% OR MOVE.CLONING OR MOVE.CLONE_STAMPED) THEN
+        IF MOVE_MULTI_COUNT% > 0 AND MOVE.TRANSFORM_TYPE = 0 AND NOT MOVE.CLONING AND NOT moveUsedHistoryGroup% AND NOT HISTORY_IN_PROGRESS% THEN
+            HISTORY_begin_group
+            moveUsedHistoryGroup% = HISTORY_GROUP_ACTIVE%
+        END IF
+        HISTORY_record_transform LAYERS(targetLayer%).historyId&, targetLayer%, 0, moveTargetBefore&, "Move"
+        moveRecorded% = TRUE
+    ELSEIF moveTargetBefore& < -1 THEN
+        _FREEIMAGE moveTargetBefore&
+    END IF
+
+    IF moveUsedHistoryGroup% THEN HISTORY_end_group
+    IF moveRecorded% THEN UNDO_saved_this_frame% = TRUE
 
     ' Reset transforming flag
     MOVE.TRANSFORMING = FALSE
@@ -485,6 +509,11 @@ SUB MOVE_stamp ()
     IF stampTarget% < 1 OR stampTarget% > 64 OR LAYERS(stampTarget%).imgHandle& >= -1 THEN EXIT SUB
     DIM stampImg AS LONG
     stampImg& = LAYERS(stampTarget%).imgHandle&
+    DIM stampBefore AS LONG
+    stampBefore& = 0
+    IF NOT HISTORY_IN_PROGRESS% AND LAYERS(stampTarget%).historyId& > 0 AND stampImg& < -1 THEN
+        stampBefore& = _COPYIMAGE(stampImg&, 32)
+    END IF
     
     _DEST stampImg&
     
@@ -494,14 +523,6 @@ SUB MOVE_stamp ()
     END IF
     
     _DEST SCRN.CANVAS&
-    
-    ' Save undo state AFTER stamp so the post-stamp result is captured.
-    ' This matches the "save after modification" pattern used by brush, line, etc.
-    ' Each stamp gets its own undo state, so consecutive stamps can be undone individually.
-    IF NOT UNDO_saved_this_frame% THEN
-        UNDO_save_layer_state stampTarget%
-        UNDO_saved_this_frame% = TRUE
-    END IF
     
     ' Latch clone mode - once stamped, don't clear original area on commit
     MOVE.CLONE_STAMPED = TRUE
@@ -519,6 +540,10 @@ SUB MOVE_stamp ()
     CANVAS_DIRTY% = TRUE
     LAYERS(stampTarget%).contentDirty% = TRUE
     BLEND_invalidate_cache
+    IF stampBefore& < -1 THEN
+        HISTORY_record_transform LAYERS(stampTarget%).historyId&, stampTarget%, 0, stampBefore&, "Stamp"
+        UNDO_saved_this_frame% = TRUE
+    END IF
     
     ' Suppress marching ants around stamped clones
     MARQUEE.USER_CREATED = FALSE
