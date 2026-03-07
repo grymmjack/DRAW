@@ -191,6 +191,7 @@ TYPE DRAW_CONFIG
     DEFAULT_BRUSH_SHAPE            AS INTEGER  ' Default brush shape (0=circle, 1=square)
     DEFAULT_LAYER_BG_COLOR         AS _UNSIGNED LONG  ' Default layer background color
     BAS_EXPORT_BG_COLOR            AS _UNSIGNED LONG  ' Default generated BAS screen background color
+    BAS_WIP_ENABLED                AS INTEGER  ' TRUE = keep live *-wip.bas stream in sync with history
     DEFAULT_SAVE_DIR               AS STRING   ' Default directory for save dialogs
     DEFAULT_OPEN_DIR               AS STRING   ' Default directory for open dialogs
     ' Per-operation last-used directories (persisted to DRAW.cfg)
