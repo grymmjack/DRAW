@@ -209,6 +209,52 @@ THEME.SOUND_POINT_FILE$     = "point.wav"               ' Click to place a point
 THEME.SOUND_ORGANIZER_FILE$ = "text-char.wav"           ' Organizer/drawer widget click or mousewheel
 THEME.MUSIC_FILE$ = "music.it"                         ' Background music (tracker module)
 
+' --- Lospec dialog ---
+THEME.LOSPEC_SWATCH_COLS%   = 16                         ' Lospec preview swatch columns
+
+' --- Dialog chrome ---
+THEME.DIALOG_font_size%             = 8
+
+' --- Lospec dialog colors ---
+THEME.LOSPEC_status_error_fg~&      = _RGB32(255, 100, 100)
+THEME.LOSPEC_status_ok_fg~&         = _RGB32(100, 255, 150)
+THEME.LOSPEC_status_info_fg~&       = _RGB32(150, 200, 255)
+THEME.LOSPEC_search_bg~&            = _RGB32(30, 30, 40)
+THEME.LOSPEC_search_border~&        = _RGB32(90, 90, 120)
+THEME.LOSPEC_search_cursor~&        = _RGB32(200, 200, 220)
+THEME.LOSPEC_col_header_fg~&        = _RGB32(140, 180, 220)
+THEME.LOSPEC_col_divider~&          = _RGB32(80, 80, 100)
+THEME.LOSPEC_result_sel_bg~&        = _RGB32(30, 80, 40)
+THEME.LOSPEC_result_hover_bg~&      = _RGB32(50, 70, 110)
+THEME.LOSPEC_result_fg~&            = _RGB32(220, 220, 220)
+THEME.LOSPEC_result_count_fg~&      = _RGB32(130, 160, 190)
+THEME.LOSPEC_batch_hover_bg~&       = _RGB32(80, 50, 50)
+THEME.LOSPEC_count_fg~&             = _RGB32(130, 130, 130)
+THEME.LOSPEC_preview_panel_bg~&     = _RGB32(25, 25, 35)
+THEME.LOSPEC_preview_name_fg~&      = _RGB32(230, 230, 240)
+THEME.LOSPEC_preview_author_fg~&    = _RGB32(160, 180, 200)
+THEME.LOSPEC_preview_link_fg~&      = _RGB32(80, 140, 220)
+THEME.LOSPEC_preview_link_hov~&     = _RGB32(130, 190, 255)
+THEME.LOSPEC_tooltip_sep~&          = _RGB32(60, 60, 60)
+THEME.LOSPEC_tooltip_bg~&           = _RGB32(20, 20, 25)
+THEME.LOSPEC_tooltip_fg~&           = _RGB32(200, 200, 220)
+THEME.LOSPEC_tooltip_hint_fg~&      = _RGB32(100, 100, 110)
+THEME.LOSPEC_empty_fg~&             = _RGB32(70, 70, 80)
+THEME.LOSPEC_btn_dl_bg~&            = _RGB32(40, 60, 90)
+THEME.LOSPEC_btn_dl_hover~&         = _RGB32(60, 90, 130)
+THEME.LOSPEC_btn_dl_border~&        = _RGB32(100, 130, 180)
+THEME.LOSPEC_btn_close_bg~&         = _RGB32(50, 40, 40)
+THEME.LOSPEC_btn_close_hover~&      = _RGB32(80, 60, 60)
+THEME.LOSPEC_btn_close_border~&     = _RGB32(130, 100, 100)
+THEME.LOSPEC_checkbox_border~&      = _RGB32(90, 90, 90)
+THEME.LOSPEC_checkbox_fill~&        = _RGB32(40, 80, 160)
+THEME.LOSPEC_checkbox_dl_fill~&     = _RGB32(40, 120, 60)
+THEME.LOSPEC_downloaded_fg~&        = _RGB32(100, 190, 120)
+THEME.PALETTE_MENU_SEP_fg~&         = _RGB32(110, 110, 120)
+THEME.PALETTE_MENU_SEP_bg~&         = _RGB32(22, 22, 34)
+PALETTE_SEP_LOSPEC_LBL$             = "-- USER : LOSPEC --"
+PALETTE_SEP_CREATED_LBL$            = "-- USER : CREATED --"
+
 ' =============================================================================
 ' CURSORS - PNG cursor configuration
 ' =============================================================================
