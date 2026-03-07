@@ -12,6 +12,7 @@ $INCLUDEONCE
 '
 SUB PICKER_init ()
     PICKER.ACTIVE% = FALSE
+    PICKER_LOUPE_init
 END SUB
 
 
@@ -20,6 +21,7 @@ END SUB
 '
 SUB PICKER_activate ()
     PICKER.ACTIVE% = TRUE
+    PICKER_LOUPE_activate
 END SUB
 
 
@@ -28,6 +30,89 @@ END SUB
 '
 SUB PICKER_deactivate ()
     PICKER.ACTIVE% = FALSE
+    PICKER_LOUPE_deactivate
+END SUB
+
+
+''
+' Composite a cropped visible-layer region into a destination image.
+'
+SUB PICKER_compose_region (canvasX AS INTEGER, canvasY AS INTEGER, regionW AS INTEGER, regionH AS INTEGER, destImg AS LONG)
+    DIM oldDest AS LONG
+    DIM clipLeft AS INTEGER, clipTop AS INTEGER, clipRight AS INTEGER, clipBottom AS INTEGER
+    DIM destX AS INTEGER, destY AS INTEGER
+
+    IF destImg& >= -1 THEN EXIT SUB
+    IF regionW% < 1 OR regionH% < 1 THEN EXIT SUB
+
+    oldDest& = _DEST
+    _DEST destImg&
+    _DONTBLEND destImg&
+    CLS , _RGBA32(0, 0, 0, 0)
+    _BLEND destImg&
+
+    IF RENDER_ORDER_DIRTY% THEN RENDER_ORDER_rebuild
+
+    DIM pli AS INTEGER, plf AS INTEGER
+    FOR pli% = 1 TO RENDER_ORDER_COUNT%
+        plf% = RENDER_ORDER%(pli%)
+        IF plf% > 0 AND LAYERS(plf%).visible% THEN
+            DIM pSrcImg AS LONG
+            pSrcImg& = LAYERS(plf%).imgHandle&
+            IF pSrcImg& < -1 THEN
+                clipLeft% = canvasX%
+                clipTop% = canvasY%
+                clipRight% = canvasX% + regionW% - 1
+                clipBottom% = canvasY% + regionH% - 1
+                IF clipLeft% < 0 THEN clipLeft% = 0
+                IF clipTop% < 0 THEN clipTop% = 0
+                IF clipRight% >= SCRN.canvasW& THEN clipRight% = SCRN.canvasW& - 1
+                IF clipBottom% >= SCRN.canvasH& THEN clipBottom% = SCRN.canvasH& - 1
+
+                IF clipRight% >= clipLeft% AND clipBottom% >= clipTop% THEN
+                    destX% = clipLeft% - canvasX%
+                    destY% = clipTop% - canvasY%
+                    IF LAYERS(plf%).opacity% < 255 THEN
+                        DIM subW AS INTEGER, subH AS INTEGER
+                        DIM pTmp AS LONG
+                        subW% = clipRight% - clipLeft% + 1
+                        subH% = clipBottom% - clipTop% + 1
+                        pTmp& = _NEWIMAGE(subW%, subH%, 32)
+                        _DEST pTmp&
+                        _DONTBLEND pTmp&
+                        CLS , _RGBA32(0, 0, 0, 0)
+                        _BLEND pTmp&
+                        _PUTIMAGE (0, 0), pSrcImg&, pTmp&, (clipLeft%, clipTop%)-(clipRight%, clipBottom%)
+
+                        DIM pMem AS _MEM
+                        DIM pOff AS _OFFSET
+                        DIM pVal AS _UNSIGNED LONG
+                        DIM pAlpha AS _UNSIGNED _BYTE
+                        pMem = _MEMIMAGE(pTmp&)
+                        FOR pOff = pMem.OFFSET TO pMem.OFFSET + pMem.SIZE - 4 STEP 4
+                            _MEMGET pMem, pOff, pVal~&
+                            pAlpha~%% = _ALPHA32(pVal~&)
+                            IF pAlpha~%% > 0 THEN
+                                DIM pNewA AS INTEGER
+                                pNewA% = (pAlpha~%% * LAYERS(plf%).opacity%) \ 255
+                                _MEMPUT pMem, pOff + 3, pNewA% AS _UNSIGNED _BYTE
+                            END IF
+                        NEXT pOff
+                        _MEMFREE pMem
+
+                        _DEST destImg&
+                        _PUTIMAGE (destX%, destY%), pTmp&, destImg&
+                        IF pTmp& < -1 THEN _FREEIMAGE pTmp&
+                    ELSE
+                        _DEST destImg&
+                        _PUTIMAGE (destX%, destY%), pSrcImg&, destImg&, (clipLeft%, clipTop%)-(clipRight%, clipBottom%)
+                    END IF
+                END IF
+            END IF
+        END IF
+    NEXT pli%
+
+    _DEST oldDest&
 END SUB
 
 
@@ -42,69 +127,24 @@ SUB PICKER_pick_color (x AS INTEGER, y AS INTEGER, button AS INTEGER)
     DIM old_dest AS LONG
     DIM old_source AS LONG
     DIM picked_color AS _UNSIGNED LONG
-    DIM targetImg AS LONG
+    DIM mergedPick AS LONG
     
     old_dest& = _DEST
     old_source& = _SOURCE
 
-    ' Build a merged image of all visible layers for sampling
-    DIM mergedPick AS LONG
-    DIM pw AS INTEGER, ph AS INTEGER
-    pw% = SCRN.canvasW&
-    ph% = SCRN.canvasH&
-    mergedPick& = _NEWIMAGE(pw%, ph%, 32)
-    _DEST mergedPick&
-    _DONTBLEND mergedPick&
-    CLS , _RGBA32(0, 0, 0, 0)
-    _BLEND mergedPick&
-
-    ' Composite all visible layers bottom-to-top
-    IF RENDER_ORDER_DIRTY% THEN RENDER_ORDER_rebuild
-    DIM pli AS INTEGER, plf AS INTEGER
-    FOR pli% = 1 TO RENDER_ORDER_COUNT%
-        plf% = RENDER_ORDER%(pli%)
-        IF plf% > 0 AND LAYERS(plf%).visible% THEN
-            DIM pSrcImg AS LONG
-            pSrcImg& = LAYERS(plf%).imgHandle&
-            IF pSrcImg& < -1 THEN
-                IF LAYERS(plf%).opacity% < 255 THEN
-                    DIM pTmp AS LONG
-                    pTmp& = _COPYIMAGE(pSrcImg&, 32)
-                    DIM pMem AS _MEM
-                    pMem = _MEMIMAGE(pTmp&)
-                    DIM pOff AS _OFFSET, pVal AS _UNSIGNED LONG, pAlpha AS _UNSIGNED _BYTE
-                    FOR pOff = pMem.OFFSET TO pMem.OFFSET + pMem.SIZE - 4 STEP 4
-                        _MEMGET pMem, pOff, pVal~&
-                        pAlpha~%% = _ALPHA32(pVal~&)
-                        IF pAlpha~%% > 0 THEN
-                            DIM pNewA AS INTEGER
-                            pNewA% = (pAlpha~%% * LAYERS(plf%).opacity%) \ 255
-                            _MEMPUT pMem, pOff + 3, pNewA% AS _UNSIGNED _BYTE
-                        END IF
-                    NEXT pOff
-                    _MEMFREE pMem
-                    _PUTIMAGE , pTmp&, mergedPick&
-                    IF pTmp& < -1 THEN _FREEIMAGE pTmp&
-                ELSE
-                    _PUTIMAGE , pSrcImg&, mergedPick&
-                END IF
-            END IF
-        END IF
-    NEXT pli%
-
-    targetImg& = mergedPick&
-    _SOURCE targetImg&
-    
     ' Ensure coordinates are within bounds
-    IF x% < 0 OR x% >= _WIDTH(targetImg&) OR y% < 0 OR y% >= _HEIGHT(targetImg&) THEN
-        IF mergedPick& < -1 THEN _FREEIMAGE mergedPick&
+    IF x% < 0 OR x% >= SCRN.canvasW& OR y% < 0 OR y% >= SCRN.canvasH& THEN
         _SOURCE old_source&
         _DEST old_dest&
         EXIT SUB
     END IF
+
+    mergedPick& = _NEWIMAGE(1, 1, 32)
+    PICKER_compose_region x%, y%, 1, 1, mergedPick&
+    _SOURCE mergedPick&
     
     ' Pick the color at the mouse position from merged result
-    picked_color~& = POINT(x%, y%)
+    picked_color~& = POINT(0, 0)
     
     ' Free merged image
     IF mergedPick& < -1 THEN _FREEIMAGE mergedPick&

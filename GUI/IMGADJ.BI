@@ -74,9 +74,6 @@ DIM SHARED GJ_IMGADJ_noise(0 TO 65535) AS INTEGER
 DIM SHARED GJ_IMGADJ_noiseInit AS INTEGER
 
 ' Dithering cache for palette color lookups
-DIM SHARED GJ_IMGADJ_dither_cache_r(0 TO 255) AS INTEGER  
-DIM SHARED GJ_IMGADJ_dither_cache_g(0 TO 255) AS INTEGER
-DIM SHARED GJ_IMGADJ_dither_cache_b(0 TO 255) AS INTEGER
 DIM SHARED GJ_IMGADJ_dither_cache_valid AS INTEGER
 
 ' --- Function Declarations ---

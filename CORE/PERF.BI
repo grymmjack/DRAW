@@ -52,13 +52,11 @@ DIM SHARED PERF_hits(0 TO PERF_SECTION_COUNT - 1) AS LONG
 ' Frame counter
 DIM SHARED PERF_frame_count AS LONG
 ' Per-frame total for SCREEN_render (to compute max)
-DIM SHARED PERF_frame_render_ms AS DOUBLE
 DIM SHARED PERF_max_render_ms AS DOUBLE
 ' Section names for logging
 DIM SHARED PERF_names(0 TO PERF_SECTION_COUNT - 1) AS STRING
 
 ' Render path tracking
-DIM SHARED PERF_current_path AS INTEGER  ' 1=gui-only, 2=dirty-rect, 3=full
 
 ' Initialize names
 PERF_names(PERF_RENDER_TOTAL)       = "RENDER TOTAL"
