@@ -80,6 +80,7 @@ END IF
 ' Apply config startup defaults (tool, brush size, directories)
 ' Must be called after all modules are initialized via includes
 CONFIG_apply_startup_defaults
+HISTORY_init
 
 ' Pre-load all cursor PNGs (must be after THEME.BI sets filenames and
 ' SCREEN_init calls CONFIG_load so CFG.THEME$ is available)
