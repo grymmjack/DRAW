@@ -952,8 +952,20 @@ SUB MOUSE_tool_fill ()
     ' Flood fill on click (only on button press, not while held)
     ' Use unsnapped coordinates so grid snap doesn't affect fill behavior
     IF FILL.ACTIVE% AND ((MOUSE.B1% AND NOT MOUSE.OLD_B1%) OR (MOUSE.B2% AND NOT MOUSE.OLD_B2%)) AND NOT UNDO_saved_this_frame% THEN
+        DIM fill_history_before AS LONG
+        DIM fill_history_flags AS LONG
+        DIM fill_recorded AS INTEGER
+
+        fill_history_before& = 0
+        fill_history_flags& = 0
+        fill_recorded% = FALSE
         SOUND_play SND_FILL
         FILL.COLOR~& = DRAW_COLOR~&
+        IF NOT HISTORY_IN_PROGRESS% AND LAYERS(CURRENT_LAYER%).historyId& > 0 AND LAYERS(CURRENT_LAYER%).imgHandle& < -1 THEN
+            fill_history_before& = _COPYIMAGE(LAYERS(CURRENT_LAYER%).imgHandle&, 32)
+            IF SELECTION_has_active% OR LAYERS(CURRENT_LAYER%).opacityLock% THEN fill_history_flags& = fill_history_flags& OR HISTORY_FLAG_CLIPPED
+            IF SYMMETRY.MODE% > 0 THEN fill_history_flags& = fill_history_flags& OR HISTORY_FLAG_SYMMETRY
+        END IF
         STROKE_begin
         ' Grid cell fill mode: when enabled and grid visible, fill the grid cell
         IF GRID.CELL_FILL% AND GRID.SHOW% THEN
@@ -976,7 +988,15 @@ SUB MOUSE_tool_fill ()
             END IF
         END IF
         STROKE_commit
+        IF fill_history_before& < -1 THEN
+            HISTORY_record_fill LAYERS(CURRENT_LAYER%).historyId&, CURRENT_LAYER%, PAINT_apply_opacity~&(FILL.COLOR~&), fill_history_flags&, fill_history_before&, "Fill"
+            fill_recorded% = TRUE
+        END IF
         UNDO_save_state
+        IF fill_recorded% AND UNDO.current% >= 0 AND UNDO.current% <= UNDO_STATES_MAX% THEN
+            UNDO_STATES(UNDO.current%).timestamp# = 0
+            PIXEL_UNDO_LAST_TIMESTAMP# = UNDO_get_last_timestamp#
+        END IF
         UNDO_saved_this_frame% = TRUE
     END IF
 END SUB
@@ -1615,6 +1635,12 @@ SUB MOUSE_tool_dot ()
         SOUND_play SND_POINT
         IF PP_BACKUP& < -1 THEN _FREEIMAGE PP_BACKUP&: PP_BACKUP& = 0
         PP_STROKE_COUNT% = 0
+        IF DOT.HISTORY_BEFORE_IMG < -1 THEN _FREEIMAGE DOT.HISTORY_BEFORE_IMG
+        DOT.HISTORY_BEFORE_IMG = 0
+        DOT.HISTORY_COLOR~& = DRAW_COLOR~&
+        IF NOT HISTORY_IN_PROGRESS% AND LAYERS(CURRENT_LAYER%).historyId& > 0 AND LAYERS(CURRENT_LAYER%).imgHandle& < -1 THEN
+            DOT.HISTORY_BEFORE_IMG = _COPYIMAGE(LAYERS(CURRENT_LAYER%).imgHandle&, 32)
+        END IF
         STROKE_begin
         ' Set old position to current to prevent line interpolation
         MOUSE.OLD_X% = MOUSE.X%
@@ -1632,6 +1658,12 @@ SUB MOUSE_tool_spray ()
     IF MOUSE.B1% THEN
         ' Begin stroke on first press (for opacity compositing)
         IF NOT MOUSE.OLD_B1% THEN
+            IF SPRAY.HISTORY_BEFORE_IMG < -1 THEN _FREEIMAGE SPRAY.HISTORY_BEFORE_IMG
+            SPRAY.HISTORY_BEFORE_IMG = 0
+            SPRAY.HISTORY_COLOR~& = DRAW_COLOR~&
+            IF NOT HISTORY_IN_PROGRESS% AND LAYERS(CURRENT_LAYER%).historyId& > 0 AND LAYERS(CURRENT_LAYER%).imgHandle& < -1 THEN
+                SPRAY.HISTORY_BEFORE_IMG = _COPYIMAGE(LAYERS(CURRENT_LAYER%).imgHandle&, 32)
+            END IF
             STROKE_begin
         END IF
         ' Track drag direction for SHIFT axis constraint
@@ -1653,6 +1685,12 @@ SUB MOUSE_tool_spray ()
     ELSEIF MOUSE.B2% THEN
         ' Right button sprays with BG color
         IF NOT MOUSE.OLD_B2% THEN
+            IF SPRAY.HISTORY_BEFORE_IMG < -1 THEN _FREEIMAGE SPRAY.HISTORY_BEFORE_IMG
+            SPRAY.HISTORY_BEFORE_IMG = 0
+            SPRAY.HISTORY_COLOR~& = PAINT_BG_COLOR~&
+            IF NOT HISTORY_IN_PROGRESS% AND LAYERS(CURRENT_LAYER%).historyId& > 0 AND LAYERS(CURRENT_LAYER%).imgHandle& < -1 THEN
+                SPRAY.HISTORY_BEFORE_IMG = _COPYIMAGE(LAYERS(CURRENT_LAYER%).imgHandle&, 32)
+            END IF
             STROKE_begin
         END IF
         ' Track drag direction for SHIFT axis constraint
@@ -2197,10 +2235,28 @@ END SUB
 '
 SUB MOUSE_release_dot ()
     ' DOT stamps single pixel - just finalize
+    DIM dot_history_flags AS LONG
+    DIM dot_recorded AS INTEGER
+
+    dot_history_flags& = 0
+    dot_recorded% = FALSE
+    IF CUSTOM_BRUSH_is_active% THEN dot_history_flags& = dot_history_flags& OR HISTORY_FLAG_CUSTOM_BRUSH
+    IF BRUSH_SIZE_pixels% > 1 THEN dot_history_flags& = dot_history_flags& OR HISTORY_FLAG_THICK_BRUSH
+    IF SELECTION_has_active% OR LAYERS(CURRENT_LAYER%).opacityLock% THEN dot_history_flags& = dot_history_flags& OR HISTORY_FLAG_CLIPPED
+    IF SYMMETRY.MODE% > 0 THEN dot_history_flags& = dot_history_flags& OR HISTORY_FLAG_SYMMETRY
     CANVAS_DIRTY% = TRUE
     STROKE_commit
+    IF DOT.HISTORY_BEFORE_IMG < -1 THEN
+        HISTORY_record_brush LAYERS(CURRENT_LAYER%).historyId&, CURRENT_LAYER%, PAINT_apply_opacity~&(DOT.HISTORY_COLOR~&), dot_history_flags&, DOT.HISTORY_BEFORE_IMG&, "Dot"
+        DOT.HISTORY_BEFORE_IMG = 0
+        dot_recorded% = TRUE
+    END IF
     IF NOT UNDO_saved_this_frame% THEN
         UNDO_save_state
+        IF dot_recorded% AND UNDO.current% >= 0 AND UNDO.current% <= UNDO_STATES_MAX% THEN
+            UNDO_STATES(UNDO.current%).timestamp# = 0
+            PIXEL_UNDO_LAST_TIMESTAMP# = UNDO_get_last_timestamp#
+        END IF
         UNDO_saved_this_frame% = TRUE
     END IF
     DOT.LAST_X = MOUSE.X%
@@ -2228,10 +2284,28 @@ END SUB
 '
 SUB MOUSE_release_spray ()
     ' Spray tool - reset active flag on release
+    DIM spray_history_flags AS LONG
+    DIM spray_recorded AS INTEGER
+
+    spray_history_flags& = 0
+    spray_recorded% = FALSE
+    IF CUSTOM_BRUSH_is_active% THEN spray_history_flags& = spray_history_flags& OR HISTORY_FLAG_CUSTOM_BRUSH
+    IF BRUSH_SIZE_pixels% > 1 THEN spray_history_flags& = spray_history_flags& OR HISTORY_FLAG_THICK_BRUSH
+    IF SELECTION_has_active% OR LAYERS(CURRENT_LAYER%).opacityLock% THEN spray_history_flags& = spray_history_flags& OR HISTORY_FLAG_CLIPPED
+    IF SYMMETRY.MODE% > 0 THEN spray_history_flags& = spray_history_flags& OR HISTORY_FLAG_SYMMETRY
     SPRAY.ACTIVE = FALSE
     STROKE_commit
+    IF SPRAY.HISTORY_BEFORE_IMG < -1 THEN
+        HISTORY_record_brush LAYERS(CURRENT_LAYER%).historyId&, CURRENT_LAYER%, PAINT_apply_opacity~&(SPRAY.HISTORY_COLOR~&), spray_history_flags&, SPRAY.HISTORY_BEFORE_IMG&, "Spray"
+        SPRAY.HISTORY_BEFORE_IMG = 0
+        spray_recorded% = TRUE
+    END IF
     IF NOT UNDO_saved_this_frame% THEN
         UNDO_save_state
+        IF spray_recorded% AND UNDO.current% >= 0 AND UNDO.current% <= UNDO_STATES_MAX% THEN
+            UNDO_STATES(UNDO.current%).timestamp# = 0
+            PIXEL_UNDO_LAST_TIMESTAMP# = UNDO_get_last_timestamp#
+        END IF
         UNDO_saved_this_frame% = TRUE
     END IF
     CANVAS_DIRTY% = TRUE

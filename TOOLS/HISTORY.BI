@@ -99,6 +99,8 @@ DECLARE SUB HISTORY_record_line (layerId AS LONG, layerSlot AS INTEGER, x1 AS IN
 DECLARE SUB HISTORY_record_rect (layerId AS LONG, layerSlot AS INTEGER, x1 AS INTEGER, y1 AS INTEGER, x2 AS INTEGER, y2 AS INTEGER, drawColor AS _UNSIGNED LONG, flags AS LONG, beforeImg AS LONG, label AS STRING)
 DECLARE SUB HISTORY_record_ellipse (layerId AS LONG, layerSlot AS INTEGER, x1 AS INTEGER, y1 AS INTEGER, x2 AS INTEGER, y2 AS INTEGER, drawColor AS _UNSIGNED LONG, flags AS LONG, beforeImg AS LONG, label AS STRING)
 DECLARE SUB HISTORY_record_polyline (layerId AS LONG, layerSlot AS INTEGER, drawColor AS _UNSIGNED LONG, flags AS LONG, beforeImg AS LONG, label AS STRING)
+DECLARE SUB HISTORY_record_fill (layerId AS LONG, layerSlot AS INTEGER, drawColor AS _UNSIGNED LONG, flags AS LONG, beforeImg AS LONG, label AS STRING)
+DECLARE SUB HISTORY_record_brush (layerId AS LONG, layerSlot AS INTEGER, drawColor AS _UNSIGNED LONG, flags AS LONG, beforeImg AS LONG, label AS STRING)
 DECLARE SUB HISTORY_refresh_layer_add_snapshot (layerId AS LONG)
 DECLARE SUB HISTORY_save_binary (fh AS INTEGER, canvasW AS LONG, canvasH AS LONG)
 DECLARE SUB HISTORY_load_binary (fh AS INTEGER, canvasW AS LONG, canvasH AS LONG)

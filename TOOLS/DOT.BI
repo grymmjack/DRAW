@@ -12,6 +12,8 @@ TYPE DOT_TYPE
     LAST_X AS INTEGER    ' Last dot X position for SHIFT+RightClick line
     LAST_Y AS INTEGER    ' Last dot Y position for SHIFT+RightClick line
     HAS_LAST AS INTEGER  ' TRUE if we have a last position
+    HISTORY_BEFORE_IMG AS LONG
+    HISTORY_COLOR AS _UNSIGNED LONG
 END TYPE
 
 TYPE PIXEL_PERFECT_STROKE_TYPE
@@ -28,4 +30,6 @@ DIM SHARED PP_BACKUP AS LONG   ' Full layer snapshot before pixel-perfect stroke
 DOT.LAST_X = 0
 DOT.LAST_Y = 0
 DOT.HAS_LAST = FALSE
+DOT.HISTORY_BEFORE_IMG = 0
+DOT.HISTORY_COLOR~& = 0
 PP_STROKE_COUNT% = 0
