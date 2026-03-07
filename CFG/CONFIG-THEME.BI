@@ -158,10 +158,10 @@ TYPE DRAW_THEME
     PALETTE_STRIP_hover_fg       AS _UNSIGNED LONG  ' Palette strip hover text/arrow color
     PALETTE_STRIP_separator      AS _UNSIGNED LONG  ' Palette strip separator line
     PALETTE_STRIP_button_hover_bg AS _UNSIGNED LONG ' Palette strip hover background for buttons
-    PALETTE_STRIP_selected_border_outer AS _UNSIGNED LONG ' Selected palette swatch outer border
-    PALETTE_STRIP_selected_border_inner AS _UNSIGNED LONG ' Selected palette swatch inner border
-    PALETTE_STRIP_inactive_border_outer AS _UNSIGNED LONG ' Inactive palette swatch outer border
-    PALETTE_STRIP_inactive_border_inner AS _UNSIGNED LONG ' Inactive palette swatch inner border
+    PALETTE_STRIP_sel_border_outer AS _UNSIGNED LONG   ' Selected palette swatch outer border
+    PALETTE_STRIP_sel_border_inner AS _UNSIGNED LONG   ' Selected palette swatch inner border
+    PALETTE_STRIP_inact_border_outer AS _UNSIGNED LONG ' Inactive palette swatch outer border
+    PALETTE_STRIP_inact_border_inner AS _UNSIGNED LONG ' Inactive palette swatch inner border
     PALETTE_MENU_bg              AS _UNSIGNED LONG  ' Palette menu background
     PALETTE_MENU_fg              AS _UNSIGNED LONG  ' Palette menu text
     PALETTE_MENU_hover_bg        AS _UNSIGNED LONG  ' Palette menu hover background
