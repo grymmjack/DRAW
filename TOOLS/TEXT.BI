@@ -22,6 +22,8 @@ TYPE TEXT_OBJ
     FONT_HANDLE  AS LONG     ' Handle to loaded Tiny5 font
     USE_CUSTOM   AS INTEGER  ' Whether to use custom font loaded from disk
     CUSTOM_FONT_HANDLE AS LONG  ' Handle to custom font loaded via middle-click
+    CUSTOM_FONT_PATH AS STRING * 260  ' Path of the active custom font for export/replay
+    CUSTOM_FONT_SIZE AS INTEGER  ' Loaded custom font size for export/replay
     CHAR_WIDTH   AS INTEGER  ' Character width (5 for Tiny5, 8 for VGA)
     LINE_HEIGHT  AS INTEGER  ' Line height (8 for Tiny5, 13 for VGA)
 END TYPE

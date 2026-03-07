@@ -31,6 +31,159 @@ FUNCTION FILE_BAS_base_name_without_ext$ (path AS STRING)
 	FILE_BAS_base_name_without_ext$ = baseName$
 END FUNCTION
 
+FUNCTION FILE_BAS_safe_identifier$ (rawText AS STRING, fallbackText AS STRING)
+	DIM resultText AS STRING
+	DIM i AS INTEGER
+	DIM ch AS STRING * 1
+	DIM code AS INTEGER
+
+	resultText$ = ""
+	FOR i% = 1 TO LEN(rawText$)
+		ch$ = MID$(rawText$, i%, 1)
+		code% = ASC(ch$)
+		IF (code% >= 65 AND code% <= 90) OR (code% >= 48 AND code% <= 57) THEN
+			resultText$ = resultText$ + ch$
+		ELSEIF (code% >= 97 AND code% <= 122) THEN
+			resultText$ = resultText$ + ch$
+		ELSEIF ch$ = " " OR ch$ = "_" OR ch$ = "-" THEN
+			IF RIGHT$(resultText$, 1) <> "_" THEN resultText$ = resultText$ + "_"
+		ELSE
+			IF RIGHT$(resultText$, 1) <> "_" THEN resultText$ = resultText$ + "_"
+		END IF
+	NEXT i%
+	DO WHILE LEN(resultText$) > 0 AND LEFT$(resultText$, 1) = "_"
+		resultText$ = MID$(resultText$, 2)
+	LOOP
+	DO WHILE LEN(resultText$) > 0 AND RIGHT$(resultText$, 1) = "_"
+		resultText$ = LEFT$(resultText$, LEN(resultText$) - 1)
+	LOOP
+	IF LEN(resultText$) = 0 THEN resultText$ = fallbackText$
+	IF LEN(resultText$) = 0 THEN resultText$ = "Layer"
+	IF ASC(LEFT$(resultText$, 1)) >= 48 AND ASC(LEFT$(resultText$, 1)) <= 57 THEN resultText$ = "_" + resultText$
+	FILE_BAS_safe_identifier$ = resultText$
+END FUNCTION
+
+FUNCTION FILE_BAS_signed_number$ (value AS INTEGER)
+	IF value% >= 0 THEN
+		FILE_BAS_signed_number$ = "+" + _TRIM$(STR$(value%))
+	ELSE
+		FILE_BAS_signed_number$ = _TRIM$(STR$(value%))
+	END IF
+END FUNCTION
+
+FUNCTION FILE_BAS_export_mode_name$ (recordIndex AS INTEGER)
+	SELECT CASE FILE_BAS_emit_mode%(recordIndex%)
+		CASE HISTORY_EXPORT_DIRECT
+			FILE_BAS_export_mode_name$ = "direct"
+		CASE HISTORY_EXPORT_EXPANDED
+			FILE_BAS_export_mode_name$ = "expanded-raster"
+		CASE ELSE
+			FILE_BAS_export_mode_name$ = "skipped"
+	END SELECT
+END FUNCTION
+
+FUNCTION FILE_BAS_source_comment_text$ (recordIndex AS INTEGER)
+	DIM labelText AS STRING
+	DIM commentText AS STRING
+
+	labelText$ = RTRIM$(HISTORY_RECORDS(recordIndex%).label$)
+	commentText$ = "source kind=" + FILE_BAS_kind_name$(HISTORY_RECORDS(recordIndex%).kind%)
+	commentText$ = commentText$ + " label=" + CHR$(34) + FILE_BAS_escape$(labelText$) + CHR$(34)
+	commentText$ = commentText$ + " export=" + FILE_BAS_export_mode_name$(recordIndex%)
+	FILE_BAS_source_comment_text$ = commentText$
+END FUNCTION
+
+FUNCTION FILE_BAS_layer_sub_name$ (layerId AS LONG)
+	DIM fallbackText AS STRING
+
+	fallbackText$ = "layer_" + _TRIM$(STR$(layerId&))
+	FILE_BAS_layer_sub_name$ = FILE_BAS_safe_identifier$(FILE_BAS_layer_export_name$(layerId&), fallbackText$) + "_" + _TRIM$(STR$(layerId&))
+END FUNCTION
+
+FUNCTION FILE_BAS_layer_export_name$ (layerId AS LONG)
+	DIM i AS INTEGER
+	DIM fallbackName AS STRING
+
+	FOR i% = 1 TO LAYER_COUNT%
+		IF LAYERS(i%).historyId& = layerId& THEN
+			FILE_BAS_layer_export_name$ = RTRIM$(LAYERS(i%).name)
+			EXIT FUNCTION
+		END IF
+	NEXT i%
+
+	fallbackName$ = ""
+	FOR i% = 1 TO HISTORY.count%
+		IF HISTORY_RECORDS(i%).primaryLayerId& = layerId& THEN
+			SELECT CASE HISTORY_RECORDS(i%).kind%
+				CASE HISTORY_KIND_LAYER_RENAME
+					fallbackName$ = RTRIM$(HISTORY_RECORDS(i%).newName$)
+				CASE HISTORY_KIND_LAYER_ADD
+					IF LEN(fallbackName$) = 0 THEN fallbackName$ = RTRIM$(HISTORY_RECORDS(i%).oldName$)
+			END SELECT
+		END IF
+	NEXT i%
+
+	FILE_BAS_layer_export_name$ = fallbackName$
+END FUNCTION
+
+FUNCTION FILE_BAS_is_sub_layer_export% (layerId AS LONG)
+	DIM layerLabel AS STRING
+
+	layerLabel$ = UCASE$(RTRIM$(FILE_BAS_layer_export_name$(layerId&)))
+	IF LEFT$(layerLabel$, 4) = "SUB " THEN FILE_BAS_is_sub_layer_export% = TRUE
+END FUNCTION
+
+FUNCTION FILE_BAS_export_sub_name$ (layerId AS LONG)
+	DIM layerLabel AS STRING
+	DIM fallbackText AS STRING
+
+	layerLabel$ = RTRIM$(FILE_BAS_layer_export_name$(layerId&))
+	IF UCASE$(LEFT$(layerLabel$, 4)) = "SUB " THEN layerLabel$ = MID$(layerLabel$, 5)
+	fallbackText$ = "SubLayer"
+	FILE_BAS_export_sub_name$ = FILE_BAS_safe_identifier$(layerLabel$, fallbackText$)
+END FUNCTION
+
+FUNCTION FILE_BAS_draw_dir$ (stepX AS INTEGER, stepY AS INTEGER)
+	SELECT CASE stepX%
+		CASE -1
+			SELECT CASE stepY%
+				CASE -1: FILE_BAS_draw_dir$ = "H"
+				CASE 0: FILE_BAS_draw_dir$ = "L"
+				CASE 1: FILE_BAS_draw_dir$ = "G"
+			END SELECT
+		CASE 0
+			SELECT CASE stepY%
+				CASE -1: FILE_BAS_draw_dir$ = "U"
+				CASE 1: FILE_BAS_draw_dir$ = "D"
+			END SELECT
+		CASE 1
+			SELECT CASE stepY%
+				CASE -1: FILE_BAS_draw_dir$ = "E"
+				CASE 0: FILE_BAS_draw_dir$ = "R"
+				CASE 1: FILE_BAS_draw_dir$ = "F"
+			END SELECT
+	END SELECT
+END FUNCTION
+
+FUNCTION FILE_BAS_is_drawing_record% (recordIndex AS INTEGER)
+	SELECT CASE HISTORY_RECORDS(recordIndex%).kind%
+		CASE HISTORY_KIND_LINE, HISTORY_KIND_RECT, HISTORY_KIND_ELLIPSE, HISTORY_KIND_POLYLINE, HISTORY_KIND_FILL, HISTORY_KIND_BRUSH, HISTORY_KIND_TRANSFORM
+			FILE_BAS_is_drawing_record% = TRUE
+	END SELECT
+END FUNCTION
+
+FUNCTION FILE_BAS_layer_has_drawing_records% (layerId AS LONG)
+	DIM i AS INTEGER
+	FOR i% = 1 TO HISTORY.count%
+		IF HISTORY_RECORDS(i%).primaryLayerId& = layerId& THEN
+			IF FILE_BAS_is_drawing_record%(i%) THEN
+				FILE_BAS_layer_has_drawing_records% = TRUE
+				EXIT FUNCTION
+			END IF
+		END IF
+	NEXT i%
+END FUNCTION
+
 FUNCTION FILE_BAS_wip_target_path$ ()
 	DIM sourcePath AS STRING
 	DIM baseDir AS STRING
@@ -196,6 +349,325 @@ SUB FILE_BAS_write_expanded_record_ops (fh AS INTEGER, recordIndex AS INTEGER, i
 	_MEMFREE afterMem
 END SUB
 
+SUB FILE_BAS_write_canvas_expanded_ops (fh AS INTEGER, recordIndex AS INTEGER, indent AS STRING)
+	DIM beforeMem AS _MEM
+	DIM afterMem AS _MEM
+	DIM width AS LONG, height AS LONG
+	DIM x AS LONG, y AS LONG
+	DIM runStart AS LONG, runEnd AS LONG
+	DIM beforeCol AS _UNSIGNED LONG
+	DIM afterCol AS _UNSIGNED LONG
+	DIM nextBeforeCol AS _UNSIGNED LONG
+	DIM nextAfterCol AS _UNSIGNED LONG
+	DIM rowOffset AS _OFFSET
+	DIM runColorExpr AS STRING
+	DIM emittedAny AS INTEGER
+
+	IF NOT FILE_BAS_is_expanded_exportable%(recordIndex%) THEN EXIT SUB
+
+	width& = _WIDTH(HISTORY_RECORDS(recordIndex%).img2&)
+	height& = _HEIGHT(HISTORY_RECORDS(recordIndex%).img2&)
+	beforeMem = _MEMIMAGE(HISTORY_RECORDS(recordIndex%).img&)
+	afterMem = _MEMIMAGE(HISTORY_RECORDS(recordIndex%).img2&)
+	emittedAny% = FALSE
+
+	PRINT #fh%, indent$ + "' begin " + FILE_BAS_source_comment_text$(recordIndex%)
+	PRINT #fh%, indent$ + "_DONTBLEND 0"
+	FOR y& = 0 TO height& - 1
+		rowOffset = y& * width& * 4
+		x& = 0
+		DO WHILE x& < width&
+			_MEMGET beforeMem, beforeMem.OFFSET + rowOffset + x& * 4, beforeCol~&
+			_MEMGET afterMem, afterMem.OFFSET + rowOffset + x& * 4, afterCol~&
+			IF beforeCol~& = afterCol~& THEN
+				x& = x& + 1
+				_CONTINUE
+			END IF
+
+			runStart& = x&
+			runEnd& = x&
+			DO WHILE runEnd& + 1 < width&
+				_MEMGET beforeMem, beforeMem.OFFSET + rowOffset + (runEnd& + 1) * 4, nextBeforeCol~&
+				_MEMGET afterMem, afterMem.OFFSET + rowOffset + (runEnd& + 1) * 4, nextAfterCol~&
+				IF nextBeforeCol~& = nextAfterCol~& THEN EXIT DO
+				IF nextAfterCol~& <> afterCol~& THEN EXIT DO
+				runEnd& = runEnd& + 1
+			LOOP
+
+			runColorExpr$ = FILE_BAS_color_expr$(afterCol~&)
+			IF runStart& = runEnd& THEN
+				PRINT #fh%, indent$ + "PSET (" + _TRIM$(STR$(runStart&)) + ", " + _TRIM$(STR$(y&)) + "), " + runColorExpr$
+			ELSE
+				PRINT #fh%, indent$ + "LINE (" + _TRIM$(STR$(runStart&)) + ", " + _TRIM$(STR$(y&)) + ")-(" + _TRIM$(STR$(runEnd&)) + ", " + _TRIM$(STR$(y&)) + "), " + runColorExpr$
+			END IF
+			emittedAny% = TRUE
+			x& = runEnd& + 1
+		LOOP
+	NEXT y&
+	IF emittedAny% THEN PRINT #fh%, indent$ + "_BLEND 0"
+	PRINT #fh%, indent$ + "' end " + FILE_BAS_source_comment_text$(recordIndex%)
+
+	_MEMFREE beforeMem
+	_MEMFREE afterMem
+END SUB
+
+SUB FILE_BAS_write_direct_text_canvas_ops (fh AS INTEGER, recordIndex AS INTEGER, indent AS STRING)
+	DIM lineIndex AS INTEGER
+	DIM payload AS STRING
+	DIM lineText AS STRING
+	DIM yPos AS INTEGER
+	DIM payloadTag AS STRING
+	DIM fontMode AS INTEGER
+	DIM fontPath AS STRING
+	DIM fontSize AS INTEGER
+	DIM lineOffset AS INTEGER
+	DIM colorExpr AS STRING
+	DIM oldFontVar AS STRING
+	DIM loadedFontVar AS STRING
+
+	payload$ = HISTORY_PAYLOADS(recordIndex%)
+	payloadTag$ = FILE_BAS_payload_segment$(payload$, 0)
+	fontMode% = HISTORY_RECORDS(recordIndex%).payloadOffset&
+	fontPath$ = ""
+	fontSize% = 0
+	lineOffset% = 0
+	IF payloadTag$ = "TXT1" THEN
+		fontMode% = VAL(FILE_BAS_payload_segment$(payload$, 1))
+		fontPath$ = FILE_BAS_payload_segment$(payload$, 2)
+		fontSize% = VAL(FILE_BAS_payload_segment$(payload$, 3))
+		lineOffset% = 4
+	ELSEIF fontMode% = 1 THEN
+		fontPath$ = THEME_font_path$(THEME.GLOBAL_FONT_FILE$)
+		fontSize% = THEME.GLOBAL_FONT_SIZE%
+	END IF
+	colorExpr$ = FILE_BAS_color_expr$(HISTORY_RECORDS(recordIndex%).colorFG~&)
+	oldFontVar$ = "textOldFont" + _TRIM$(STR$(recordIndex%))
+	loadedFontVar$ = "textFont" + _TRIM$(STR$(recordIndex%))
+	PRINT #fh%, indent$ + "DIM " + oldFontVar$ + " AS LONG"
+	PRINT #fh%, indent$ + "DIM " + loadedFontVar$ + " AS LONG"
+	PRINT #fh%, indent$ + oldFontVar$ + " = _FONT"
+	PRINT #fh%, indent$ + loadedFontVar$ + " = 0"
+	PRINT #fh%, indent$ + "COLOR " + colorExpr$ + ", _RGBA32(0, 0, 0, 0)"
+	IF LEN(fontPath$) > 0 AND fontSize% > 0 THEN
+		PRINT #fh%, indent$ + loadedFontVar$ + " = _LOADFONT(" + CHR$(34) + FILE_BAS_escape$(fontPath$) + CHR$(34) + ", " + _TRIM$(STR$(fontSize%)) + ", " + CHR$(34) + "DONTBLEND" + CHR$(34) + ")"
+		PRINT #fh%, indent$ + "IF " + loadedFontVar$ + " > 0 THEN _FONT " + loadedFontVar$
+	END IF
+	FOR lineIndex% = 0 TO HISTORY_RECORDS(recordIndex%).w% - 1
+		lineText$ = FILE_BAS_payload_segment$(payload$, lineIndex% + lineOffset%)
+		yPos% = HISTORY_RECORDS(recordIndex%).y1% + lineIndex% * HISTORY_RECORDS(recordIndex%).h%
+		PRINT #fh%, indent$ + "_PRINTSTRING (" + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).x1%)) + ", " + _TRIM$(STR$(yPos%)) + "), " + CHR$(34) + FILE_BAS_escape$(lineText$) + CHR$(34)
+	NEXT lineIndex%
+	PRINT #fh%, indent$ + "_FONT " + oldFontVar$
+	PRINT #fh%, indent$ + "IF " + loadedFontVar$ + " > 0 THEN _FREEFONT " + loadedFontVar$
+END SUB
+
+SUB FILE_BAS_write_polygon_arrays (fh AS INTEGER, recordIndex AS INTEGER, indent AS STRING, arrayPrefix AS STRING)
+	DIM pointCount AS INTEGER
+	DIM payload AS STRING
+	DIM segmentText AS STRING
+	DIM commaPos AS LONG
+	DIM i AS INTEGER
+
+	pointCount% = HISTORY_RECORDS(recordIndex%).payloadOffset&
+	IF pointCount% < 2 THEN EXIT SUB
+	payload$ = HISTORY_PAYLOADS(recordIndex%)
+	PRINT #fh%, indent$ + "DIM " + arrayPrefix$ + "X(0 TO " + _TRIM$(STR$(pointCount% - 1)) + ") AS INTEGER"
+	PRINT #fh%, indent$ + "DIM " + arrayPrefix$ + "Y(0 TO " + _TRIM$(STR$(pointCount% - 1)) + ") AS INTEGER"
+	FOR i% = 0 TO pointCount% - 1
+		segmentText$ = FILE_BAS_payload_segment$(payload$, i%)
+		commaPos& = INSTR(segmentText$, ",")
+		IF commaPos& > 0 THEN
+			PRINT #fh%, indent$ + arrayPrefix$ + "X(" + _TRIM$(STR$(i%)) + ") = " + _TRIM$(LEFT$(segmentText$, commaPos& - 1))
+			PRINT #fh%, indent$ + arrayPrefix$ + "Y(" + _TRIM$(STR$(i%)) + ") = " + _TRIM$(MID$(segmentText$, commaPos& + 1))
+		END IF
+	NEXT i%
+END SUB
+
+SUB FILE_BAS_write_polyline_outline (fh AS INTEGER, recordIndex AS INTEGER, indent AS STRING, closeShape AS INTEGER, colorExpr AS STRING)
+	DIM pointCount AS INTEGER
+	DIM payload AS STRING
+	DIM polyX() AS INTEGER
+	DIM polyY() AS INTEGER
+	DIM i AS INTEGER
+	DIM x0 AS INTEGER, y0 AS INTEGER, x1 AS INTEGER, y1 AS INTEGER
+	DIM segmentText AS STRING
+	DIM commaPos AS LONG
+
+	pointCount% = HISTORY_RECORDS(recordIndex%).payloadOffset&
+	IF pointCount% < 2 THEN EXIT SUB
+	payload$ = HISTORY_PAYLOADS(recordIndex%)
+	REDIM polyX(0 TO pointCount% - 1) AS INTEGER
+	REDIM polyY(0 TO pointCount% - 1) AS INTEGER
+	FOR i% = 0 TO pointCount% - 1
+		segmentText$ = FILE_BAS_payload_segment$(payload$, i%)
+		commaPos& = INSTR(segmentText$, ",")
+		IF commaPos& > 0 THEN
+			polyX(i%) = VAL(LEFT$(segmentText$, commaPos& - 1))
+			polyY(i%) = VAL(MID$(segmentText$, commaPos& + 1))
+		END IF
+	NEXT i%
+	FOR i% = 1 TO pointCount% - 1
+		x0% = polyX(i% - 1): y0% = polyY(i% - 1)
+		x1% = polyX(i%): y1% = polyY(i%)
+		PRINT #fh%, indent$ + "LINE (" + _TRIM$(STR$(x0%)) + ", " + _TRIM$(STR$(y0%)) + ")-(" + _TRIM$(STR$(x1%)) + ", " + _TRIM$(STR$(y1%)) + "), " + colorExpr$
+	NEXT i%
+	IF closeShape% THEN
+		x0% = polyX(pointCount% - 1): y0% = polyY(pointCount% - 1)
+		x1% = polyX(0): y1% = polyY(0)
+		PRINT #fh%, indent$ + "LINE (" + _TRIM$(STR$(x0%)) + ", " + _TRIM$(STR$(y0%)) + ")-(" + _TRIM$(STR$(x1%)) + ", " + _TRIM$(STR$(y1%)) + "), " + colorExpr$
+	END IF
+END SUB
+
+FUNCTION FILE_BAS_fill_source_record% (fillRecordIndex AS INTEGER)
+	DIM prevRecordIndex AS INTEGER
+	DIM pointCount AS INTEGER
+	DIM payload AS STRING
+	DIM polyX() AS INTEGER
+	DIM polyY() AS INTEGER
+	DIM i AS INTEGER
+	DIM segmentText AS STRING
+	DIM commaPos AS LONG
+
+	IF fillRecordIndex% < 2 THEN EXIT FUNCTION
+	IF HISTORY_RECORDS(fillRecordIndex%).kind% <> HISTORY_KIND_FILL THEN EXIT FUNCTION
+	IF HISTORY_RECORDS(fillRecordIndex%).x1% = -32768 AND HISTORY_RECORDS(fillRecordIndex%).y1% = -32768 THEN EXIT FUNCTION
+	prevRecordIndex% = fillRecordIndex% - 1
+	DO WHILE prevRecordIndex% >= 1
+		IF HISTORY_RECORDS(prevRecordIndex%).primaryLayerId& <> HISTORY_RECORDS(fillRecordIndex%).primaryLayerId& THEN EXIT FUNCTION
+		IF HISTORY_RECORDS(prevRecordIndex%).kind% = HISTORY_KIND_FILL THEN
+			prevRecordIndex% = prevRecordIndex% - 1
+		ELSE
+			EXIT DO
+		END IF
+	LOOP
+	IF prevRecordIndex% < 1 THEN EXIT FUNCTION
+	SELECT CASE HISTORY_RECORDS(prevRecordIndex%).kind%
+		CASE HISTORY_KIND_POLYLINE
+			IF HISTORY_RECORDS(prevRecordIndex%).primaryLayerId& <> HISTORY_RECORDS(fillRecordIndex%).primaryLayerId& THEN EXIT FUNCTION
+			IF NOT FILE_BAS_is_direct_polyline_exportable%(prevRecordIndex%) THEN EXIT FUNCTION
+			pointCount% = HISTORY_RECORDS(prevRecordIndex%).payloadOffset&
+			IF pointCount% < 3 THEN EXIT FUNCTION
+			payload$ = HISTORY_PAYLOADS(prevRecordIndex%)
+			REDIM polyX(0 TO pointCount% - 1) AS INTEGER
+			REDIM polyY(0 TO pointCount% - 1) AS INTEGER
+			FOR i% = 0 TO pointCount% - 1
+				segmentText$ = FILE_BAS_payload_segment$(payload$, i%)
+				commaPos& = INSTR(segmentText$, ",")
+				IF commaPos& > 0 THEN
+					polyX(i%) = VAL(LEFT$(segmentText$, commaPos& - 1))
+					polyY(i%) = VAL(MID$(segmentText$, commaPos& + 1))
+				END IF
+			NEXT i%
+			IF FILE_BAS_point_in_polygon%(HISTORY_RECORDS(fillRecordIndex%).x1%, HISTORY_RECORDS(fillRecordIndex%).y1%, pointCount%, polyX%(), polyY%()) THEN FILE_BAS_fill_source_record% = prevRecordIndex%
+		CASE HISTORY_KIND_ELLIPSE
+			IF HISTORY_RECORDS(prevRecordIndex%).primaryLayerId& <> HISTORY_RECORDS(fillRecordIndex%).primaryLayerId& THEN EXIT FUNCTION
+			IF NOT FILE_BAS_is_direct_shape_exportable%(prevRecordIndex%) THEN EXIT FUNCTION
+			IF FILE_BAS_point_in_ellipse%(HISTORY_RECORDS(fillRecordIndex%).x1%, HISTORY_RECORDS(fillRecordIndex%).y1%, HISTORY_RECORDS(prevRecordIndex%).x1%, HISTORY_RECORDS(prevRecordIndex%).y1%, HISTORY_RECORDS(prevRecordIndex%).x2%, HISTORY_RECORDS(prevRecordIndex%).y2%) THEN FILE_BAS_fill_source_record% = prevRecordIndex%
+	END SELECT
+END FUNCTION
+
+SUB FILE_BAS_write_direct_polyline_draw_ops (fh AS INTEGER, recordIndex AS INTEGER, indent AS STRING)
+	DIM pointCount AS INTEGER
+	DIM payload AS STRING
+	DIM polyX() AS INTEGER
+	DIM polyY() AS INTEGER
+	DIM i AS INTEGER
+	DIM segmentText AS STRING
+	DIM commaPos AS LONG
+	DIM colorExpr AS STRING
+
+	pointCount% = HISTORY_RECORDS(recordIndex%).payloadOffset&
+	IF pointCount% < 2 THEN EXIT SUB
+	payload$ = HISTORY_PAYLOADS(recordIndex%)
+	REDIM polyX(0 TO pointCount% - 1) AS INTEGER
+	REDIM polyY(0 TO pointCount% - 1) AS INTEGER
+	FOR i% = 0 TO pointCount% - 1
+		segmentText$ = FILE_BAS_payload_segment$(payload$, i%)
+		commaPos& = INSTR(segmentText$, ",")
+		IF commaPos& > 0 THEN
+			polyX(i%) = VAL(LEFT$(segmentText$, commaPos& - 1))
+			polyY(i%) = VAL(MID$(segmentText$, commaPos& + 1))
+		END IF
+	NEXT i%
+	colorExpr$ = FILE_BAS_color_expr$(HISTORY_RECORDS(recordIndex%).colorFG~&)
+	IF (HISTORY_RECORDS(recordIndex%).flags& AND HISTORY_FLAG_FILLED) <> 0 THEN
+		CALL FILE_BAS_write_polygon_arrays(fh%, recordIndex%, indent$, "polyFill" + _TRIM$(STR$(recordIndex%)))
+		PRINT #fh%, indent$ + "CALL FillPolygonScanline(" + _TRIM$(STR$(pointCount%)) + ", polyFill" + _TRIM$(STR$(recordIndex%)) + "X(), polyFill" + _TRIM$(STR$(recordIndex%)) + "Y(), " + colorExpr$ + ")"
+	END IF
+	CALL FILE_BAS_write_polyline_outline(fh%, recordIndex%, indent$, (HISTORY_RECORDS(recordIndex%).flags& AND HISTORY_FLAG_FILLED) <> 0, colorExpr$)
+END SUB
+
+SUB FILE_BAS_write_sub_record_comment (fh AS INTEGER, recordIndex AS INTEGER, indent AS STRING)
+	PRINT #fh%, indent$ + "' " + FILE_BAS_source_comment_text$(recordIndex%)
+END SUB
+
+SUB FILE_BAS_write_sub_record_ops (fh AS INTEGER, recordIndex AS INTEGER, indent AS STRING)
+	DIM colorExpr AS STRING
+	DIM rectModeText AS STRING
+	DIM fillSourceRecord AS INTEGER
+
+	FILE_BAS_write_sub_record_comment fh%, recordIndex%, indent$
+
+	SELECT CASE HISTORY_RECORDS(recordIndex%).kind%
+		CASE HISTORY_KIND_LINE
+			IF FILE_BAS_is_direct_shape_exportable%(recordIndex%) THEN
+				colorExpr$ = FILE_BAS_color_expr$(HISTORY_RECORDS(recordIndex%).colorFG~&)
+				PRINT #fh%, indent$ + "LINE (" + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).x1%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).y1%)) + ")-(" + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).x2%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).y2%)) + "), " + colorExpr$
+			ELSEIF FILE_BAS_is_expanded_exportable%(recordIndex%) THEN
+				FILE_BAS_write_canvas_expanded_ops fh%, recordIndex%, indent$
+			END IF
+		CASE HISTORY_KIND_RECT
+			IF FILE_BAS_is_direct_shape_exportable%(recordIndex%) THEN
+				colorExpr$ = FILE_BAS_color_expr$(HISTORY_RECORDS(recordIndex%).colorFG~&)
+				rectModeText$ = "B"
+				IF (HISTORY_RECORDS(recordIndex%).flags& AND HISTORY_FLAG_FILLED) <> 0 THEN rectModeText$ = "BF"
+				PRINT #fh%, indent$ + "LINE (" + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).x1%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).y1%)) + ")-(" + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).x2%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).y2%)) + "), " + colorExpr$ + ", " + rectModeText$
+			ELSEIF FILE_BAS_is_expanded_exportable%(recordIndex%) THEN
+				FILE_BAS_write_canvas_expanded_ops fh%, recordIndex%, indent$
+			END IF
+		CASE HISTORY_KIND_ELLIPSE
+			IF FILE_BAS_is_direct_shape_exportable%(recordIndex%) THEN
+				colorExpr$ = FILE_BAS_color_expr$(HISTORY_RECORDS(recordIndex%).colorFG~&)
+				IF (HISTORY_RECORDS(recordIndex%).flags& AND HISTORY_FLAG_FILLED) <> 0 THEN
+					PRINT #fh%, indent$ + "CALL FillEllipseScanline(" + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).x1%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).y1%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).x2%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).y2%)) + ", " + colorExpr$ + ")"
+				END IF
+				PRINT #fh%, indent$ + "CIRCLE ((" + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).x1%)) + " + " + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).x2%)) + ") \ 2, (" + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).y1%)) + " + " + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).y2%)) + ") \ 2), ABS(" + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).x2%)) + " - " + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).x1%)) + ") / 2, " + colorExpr$ + ", , , ABS(" + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).y2%)) + " - " + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).y1%)) + ") / ABS(" + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).x2%)) + " - " + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).x1%)) + ")"
+			ELSEIF FILE_BAS_is_expanded_exportable%(recordIndex%) THEN
+				FILE_BAS_write_canvas_expanded_ops fh%, recordIndex%, indent$
+			END IF
+		CASE HISTORY_KIND_FILL
+			colorExpr$ = FILE_BAS_color_expr$(HISTORY_RECORDS(recordIndex%).colorFG~&)
+			fillSourceRecord% = FILE_BAS_fill_source_record%(recordIndex%)
+			IF HISTORY_RECORDS(recordIndex%).x1% = -32768 AND HISTORY_RECORDS(recordIndex%).y1% = -32768 THEN
+				PRINT #fh%, indent$ + "CLS , " + colorExpr$
+			ELSEIF fillSourceRecord% > 0 THEN
+				SELECT CASE HISTORY_RECORDS(fillSourceRecord%).kind%
+					CASE HISTORY_KIND_POLYLINE
+						CALL FILE_BAS_write_polygon_arrays(fh%, fillSourceRecord%, indent$, "polyFill" + _TRIM$(STR$(fillSourceRecord%)) + "_fill" + _TRIM$(STR$(recordIndex%)))
+						PRINT #fh%, indent$ + "CALL FillPolygonScanline(" + _TRIM$(STR$(HISTORY_RECORDS(fillSourceRecord%).payloadOffset&)) + ", polyFill" + _TRIM$(STR$(fillSourceRecord%)) + "_fill" + _TRIM$(STR$(recordIndex%)) + "X(), polyFill" + _TRIM$(STR$(fillSourceRecord%)) + "_fill" + _TRIM$(STR$(recordIndex%)) + "Y(), " + colorExpr$ + ")"
+						CALL FILE_BAS_write_polyline_outline(fh%, fillSourceRecord%, indent$, (HISTORY_RECORDS(fillSourceRecord%).flags& AND HISTORY_FLAG_FILLED) <> 0, FILE_BAS_color_expr$(HISTORY_RECORDS(fillSourceRecord%).colorFG~&))
+					CASE HISTORY_KIND_ELLIPSE
+						PRINT #fh%, indent$ + "CALL FillEllipseScanline(" + _TRIM$(STR$(HISTORY_RECORDS(fillSourceRecord%).x1%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(fillSourceRecord%).y1%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(fillSourceRecord%).x2%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(fillSourceRecord%).y2%)) + ", " + colorExpr$ + ")"
+						PRINT #fh%, indent$ + "CIRCLE ((" + _TRIM$(STR$(HISTORY_RECORDS(fillSourceRecord%).x1%)) + " + " + _TRIM$(STR$(HISTORY_RECORDS(fillSourceRecord%).x2%)) + ") \ 2, (" + _TRIM$(STR$(HISTORY_RECORDS(fillSourceRecord%).y1%)) + " + " + _TRIM$(STR$(HISTORY_RECORDS(fillSourceRecord%).y2%)) + ") \ 2), ABS(" + _TRIM$(STR$(HISTORY_RECORDS(fillSourceRecord%).x2%)) + " - " + _TRIM$(STR$(HISTORY_RECORDS(fillSourceRecord%).x1%)) + ") / 2, " + FILE_BAS_color_expr$(HISTORY_RECORDS(fillSourceRecord%).colorFG~&) + ", , , ABS(" + _TRIM$(STR$(HISTORY_RECORDS(fillSourceRecord%).y2%)) + " - " + _TRIM$(STR$(HISTORY_RECORDS(fillSourceRecord%).y1%)) + ") / ABS(" + _TRIM$(STR$(HISTORY_RECORDS(fillSourceRecord%).x2%)) + " - " + _TRIM$(STR$(HISTORY_RECORDS(fillSourceRecord%).x1%)) + ")"
+				END SELECT
+			ELSE
+				PRINT #fh%, indent$ + "PAINT (" + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).x1%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).y1%)) + "), " + colorExpr$
+			END IF
+		CASE HISTORY_KIND_POLYLINE
+			IF FILE_BAS_is_direct_polyline_exportable%(recordIndex%) THEN
+				FILE_BAS_write_direct_polyline_draw_ops fh%, recordIndex%, indent$
+			ELSEIF FILE_BAS_is_expanded_exportable%(recordIndex%) THEN
+				FILE_BAS_write_canvas_expanded_ops fh%, recordIndex%, indent$
+			END IF
+		CASE HISTORY_KIND_BRUSH
+			IF FILE_BAS_is_direct_text_exportable%(recordIndex%) THEN
+				FILE_BAS_write_direct_text_canvas_ops fh%, recordIndex%, indent$
+			ELSEIF FILE_BAS_is_expanded_exportable%(recordIndex%) THEN
+				FILE_BAS_write_canvas_expanded_ops fh%, recordIndex%, indent$
+			END IF
+	END SELECT
+END SUB
+
 FUNCTION FILE_BAS_payload_segment$ (payload AS STRING, segmentIndex AS INTEGER)
 	DIM currentIndex AS INTEGER
 	DIM segmentStart AS LONG
@@ -239,11 +711,22 @@ FUNCTION FILE_BAS_is_direct_polyline_exportable% (recordIndex AS INTEGER)
 END FUNCTION
 
 FUNCTION FILE_BAS_is_direct_text_exportable% (recordIndex AS INTEGER)
+	DIM payload AS STRING
+	DIM payloadTag AS STRING
+	DIM fontPath AS STRING
+
 	IF HISTORY_RECORDS(recordIndex%).kind% <> HISTORY_KIND_BRUSH THEN EXIT FUNCTION
 	IF UCASE$(RTRIM$(HISTORY_RECORDS(recordIndex%).label$)) <> "TEXT" THEN EXIT FUNCTION
 	IF LEN(HISTORY_PAYLOADS(recordIndex%)) = 0 THEN EXIT FUNCTION
-	IF HISTORY_RECORDS(recordIndex%).payloadOffset& = 2 THEN EXIT FUNCTION
 	IF (HISTORY_RECORDS(recordIndex%).flags& AND HISTORY_FLAG_CLIPPED) <> 0 THEN EXIT FUNCTION
+	payload$ = HISTORY_PAYLOADS(recordIndex%)
+	payloadTag$ = FILE_BAS_payload_segment$(payload$, 0)
+	IF payloadTag$ = "TXT1" THEN
+		fontPath$ = FILE_BAS_payload_segment$(payload$, 2)
+		IF HISTORY_RECORDS(recordIndex%).payloadOffset& = 2 AND LEN(fontPath$) = 0 THEN EXIT FUNCTION
+	ELSEIF HISTORY_RECORDS(recordIndex%).payloadOffset& = 2 THEN
+		EXIT FUNCTION
+	END IF
 	FILE_BAS_is_direct_text_exportable% = TRUE
 END FUNCTION
 
@@ -299,6 +782,21 @@ FUNCTION FILE_BAS_point_in_polygon% (testX AS INTEGER, testY AS INTEGER, pointCo
 	FILE_BAS_point_in_polygon% = inside%
 END FUNCTION
 
+FUNCTION FILE_BAS_point_in_ellipse% (testX AS INTEGER, testY AS INTEGER, x1 AS INTEGER, y1 AS INTEGER, x2 AS INTEGER, y2 AS INTEGER)
+	DIM centerX AS SINGLE, centerY AS SINGLE
+	DIM radiusX AS SINGLE, radiusY AS SINGLE
+	DIM normX AS SINGLE, normY AS SINGLE
+
+	centerX! = (x1% + x2%) / 2
+	centerY! = (y1% + y2%) / 2
+	radiusX! = ABS(x2% - x1%) / 2
+	radiusY! = ABS(y2% - y1%) / 2
+	IF radiusX! <= 0 OR radiusY! <= 0 THEN EXIT FUNCTION
+	normX! = (testX% - centerX!) / radiusX!
+	normY! = (testY% - centerY!) / radiusY!
+	IF normX! * normX! + normY! * normY! <= 1! THEN FILE_BAS_point_in_ellipse% = TRUE
+END FUNCTION
+
 SUB FILE_BAS_write_direct_fill_ops (fh AS INTEGER, recordIndex AS INTEGER, indent AS STRING)
 	DIM colorExpr AS STRING
 	DIM layerId AS LONG
@@ -308,7 +806,7 @@ SUB FILE_BAS_write_direct_fill_ops (fh AS INTEGER, recordIndex AS INTEGER, inden
 	IF HISTORY_RECORDS(recordIndex%).x1% = -32768 AND HISTORY_RECORDS(recordIndex%).y1% = -32768 THEN
 		PRINT #fh%, indent$ + "IF layerImg(" + _TRIM$(STR$(layerId&)) + ") < -1 THEN _DEST layerImg(" + _TRIM$(STR$(layerId&)) + "): CLS , " + colorExpr$ + ": _DEST 0"
 	ELSE
-		PRINT #fh%, indent$ + "IF layerImg(" + _TRIM$(STR$(layerId&)) + ") < -1 THEN _DEST layerImg(" + _TRIM$(STR$(layerId&)) + "): PAINT (" + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).x1%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).y1%)) + "), " + colorExpr$ + ": _DEST 0"
+		PRINT #fh%, indent$ + "CALL FloodFillLikeDRAW (" + _TRIM$(STR$(layerId&)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).x1%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).y1%)) + ", " + colorExpr$ + ")"
 	END IF
 END SUB
 
@@ -318,19 +816,57 @@ SUB FILE_BAS_write_direct_text_ops (fh AS INTEGER, recordIndex AS INTEGER, inden
 	DIM lineText AS STRING
 	DIM yPos AS INTEGER
 	DIM layerId AS LONG
+	DIM payloadTag AS STRING
+	DIM fontMode AS INTEGER
+	DIM fontPath AS STRING
+	DIM fontSize AS INTEGER
+	DIM lineOffset AS INTEGER
+	DIM colorExpr AS STRING
+	DIM oldFontVar AS STRING
+	DIM loadedFontVar AS STRING
 
 	payload$ = HISTORY_PAYLOADS(recordIndex%)
 	layerId& = HISTORY_RECORDS(recordIndex%).primaryLayerId&
-	IF HISTORY_RECORDS(recordIndex%).payloadOffset& = 1 THEN
-		PRINT #fh%, indent$ + "' Tiny5 text replay uses the current runtime font"
+	payloadTag$ = FILE_BAS_payload_segment$(payload$, 0)
+	fontMode% = HISTORY_RECORDS(recordIndex%).payloadOffset&
+	fontPath$ = ""
+	fontSize% = 0
+	lineOffset% = 0
+	IF payloadTag$ = "TXT1" THEN
+		fontMode% = VAL(FILE_BAS_payload_segment$(payload$, 1))
+		fontPath$ = FILE_BAS_payload_segment$(payload$, 2)
+		fontSize% = VAL(FILE_BAS_payload_segment$(payload$, 3))
+		lineOffset% = 4
+	ELSE
+		IF fontMode% = 1 THEN
+			fontPath$ = THEME_font_path$(THEME.GLOBAL_FONT_FILE$)
+			fontSize% = THEME.GLOBAL_FONT_SIZE%
+		END IF
+	END IF
+	colorExpr$ = FILE_BAS_color_expr$(HISTORY_RECORDS(recordIndex%).colorFG~&)
+	oldFontVar$ = "textOldFont" + _TRIM$(STR$(recordIndex%))
+	loadedFontVar$ = "textFont" + _TRIM$(STR$(recordIndex%))
+	IF fontMode% = 1 AND LEN(fontPath$) = 0 THEN
+		PRINT #fh%, indent$ + "' Tiny5 text replay fell back to default font because no font path was captured"
 	END IF
 	PRINT #fh%, indent$ + "IF layerImg(" + _TRIM$(STR$(layerId&)) + ") < -1 THEN"
 	PRINT #fh%, indent$ + "    _DEST layerImg(" + _TRIM$(STR$(layerId&)) + ")"
+	PRINT #fh%, indent$ + "    DIM " + oldFontVar$ + " AS LONG"
+	PRINT #fh%, indent$ + "    DIM " + loadedFontVar$ + " AS LONG"
+	PRINT #fh%, indent$ + "    " + oldFontVar$ + " = _FONT"
+	PRINT #fh%, indent$ + "    " + loadedFontVar$ + " = 0"
+	PRINT #fh%, indent$ + "    COLOR " + colorExpr$ + ", _RGBA32(0, 0, 0, 0)"
+	IF LEN(fontPath$) > 0 AND fontSize% > 0 THEN
+		PRINT #fh%, indent$ + "    " + loadedFontVar$ + " = _LOADFONT(" + CHR$(34) + FILE_BAS_escape$(fontPath$) + CHR$(34) + ", " + _TRIM$(STR$(fontSize%)) + ", " + CHR$(34) + "DONTBLEND" + CHR$(34) + ")"
+		PRINT #fh%, indent$ + "    IF " + loadedFontVar$ + " > 0 THEN _FONT " + loadedFontVar$
+	END IF
 	FOR lineIndex% = 0 TO HISTORY_RECORDS(recordIndex%).w% - 1
-		lineText$ = FILE_BAS_payload_segment$(payload$, lineIndex%)
+		lineText$ = FILE_BAS_payload_segment$(payload$, lineIndex% + lineOffset%)
 		yPos% = HISTORY_RECORDS(recordIndex%).y1% + lineIndex% * HISTORY_RECORDS(recordIndex%).h%
 		PRINT #fh%, indent$ + "    _PRINTSTRING (" + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).x1%)) + ", " + _TRIM$(STR$(yPos%)) + "), " + CHR$(34) + FILE_BAS_escape$(lineText$) + CHR$(34)
 	NEXT lineIndex%
+	PRINT #fh%, indent$ + "    _FONT " + oldFontVar$
+	PRINT #fh%, indent$ + "    IF " + loadedFontVar$ + " > 0 THEN _FREEFONT " + loadedFontVar$
 	PRINT #fh%, indent$ + "    _DEST 0"
 	PRINT #fh%, indent$ + "END IF"
 END SUB
@@ -389,7 +925,9 @@ SUB FILE_BAS_write_direct_polyline_ops (fh AS INTEGER, recordIndex AS INTEGER, i
 			IF foundSeed% THEN EXIT FOR
 		NEXT seedY%
 		IF foundSeed% THEN
-			PRINT #fh%, indent$ + "    PAINT (" + _TRIM$(STR$(seedX%)) + ", " + _TRIM$(STR$(seedY%)) + "), " + colorExpr$ + ", " + colorExpr$
+			PRINT #fh%, indent$ + "    _DEST 0"
+			PRINT #fh%, indent$ + "    CALL FloodFillLikeDRAW (" + _TRIM$(STR$(layerId&)) + ", " + _TRIM$(STR$(seedX%)) + ", " + _TRIM$(STR$(seedY%)) + ", " + colorExpr$ + ")"
+			PRINT #fh%, indent$ + "    _DEST layerImg(" + _TRIM$(STR$(layerId&)) + ")"
 		ELSE
 			PRINT #fh%, indent$ + "    ' Unable to find polygon interior seed for PAINT"
 		END IF
@@ -416,13 +954,13 @@ SUB FILE_BAS_write_record_ops (fh AS INTEGER, recordIndex AS INTEGER, indent AS 
 			newNameText$ = FILE_BAS_escape$(RTRIM$(HISTORY_RECORDS(recordIndex%).newName$))
 			SELECT CASE HISTORY_RECORDS(recordIndex%).kind%
 				CASE HISTORY_KIND_LAYER_ADD
-					PRINT #fh%, indent$ + "CreateLayer " + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).primaryLayerId&)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).newZIndex%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).oldVisible%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).oldOpacity%)) + ", " + CHR$(34) + oldNameText$ + CHR$(34)
+					PRINT #fh%, indent$ + "CreateLayer " + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).primaryLayerId&)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).newZIndex%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).oldVisible%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).oldOpacity%)) + ", " + CHR$(34) + FILE_BAS_escape$(FILE_BAS_layer_export_name$(HISTORY_RECORDS(recordIndex%).primaryLayerId&)) + CHR$(34)
 				CASE HISTORY_KIND_LAYER_DELETE
 					PRINT #fh%, indent$ + "DeleteLayer " + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).primaryLayerId&))
 				CASE HISTORY_KIND_LAYER_REORDER
 					PRINT #fh%, indent$ + "MoveLayerToZ " + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).primaryLayerId&)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).newZIndex%))
 				CASE HISTORY_KIND_LAYER_RENAME
-					PRINT #fh%, indent$ + "IF " + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).primaryLayerId&)) + " >= 1 AND " + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).primaryLayerId&)) + " <= MAX_LAYER_ID THEN layerName(" + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).primaryLayerId&)) + ") = " + CHR$(34) + newNameText$ + CHR$(34)
+					PRINT #fh%, indent$ + "' final layer name exported in CreateLayer; rename history omitted"
 			END SELECT
 		CASE HISTORY_KIND_LINE
 			IF FILE_BAS_is_direct_shape_exportable%(recordIndex%) THEN
@@ -448,7 +986,7 @@ SUB FILE_BAS_write_record_ops (fh AS INTEGER, recordIndex AS INTEGER, indent AS 
 			IF FILE_BAS_is_direct_shape_exportable%(recordIndex%) THEN
 				colorExpr$ = FILE_BAS_color_expr$(HISTORY_RECORDS(recordIndex%).colorFG~&)
 				IF (HISTORY_RECORDS(recordIndex%).flags& AND HISTORY_FLAG_FILLED) <> 0 THEN
-					PRINT #fh%, indent$ + "DrawFilledEllipse " + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).x1%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).y1%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).x2%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).y2%)) + ", " + colorExpr$ + ", " + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).primaryLayerId&))
+					PRINT #fh%, indent$ + "CALL DrawFilledEllipse (" + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).x1%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).y1%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).x2%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).y2%)) + ", " + colorExpr$ + ", " + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).primaryLayerId&)) + ")"
 				ELSE
 					PRINT #fh%, indent$ + "IF layerImg(" + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).primaryLayerId&)) + ") < -1 THEN _DEST layerImg(" + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).primaryLayerId&)) + "): CIRCLE ((" + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).x1%)) + " + " + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).x2%)) + ") \ 2, (" + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).y1%)) + " + " + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).y2%)) + ") \ 2), ABS(" + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).x2%)) + " - " + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).x1%)) + ") / 2, " + colorExpr$ + ", , , ABS(" + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).y2%)) + " - " + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).y1%)) + ") / ABS(" + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).x2%)) + " - " + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).x1%)) + "): _DEST 0"
 				END IF
@@ -511,7 +1049,7 @@ SUB FILE_BAS_write_wip_header (fh AS INTEGER)
 	PRINT #fh%, "DIM SHARED layerImg(1 TO MAX_LAYER_ID) AS LONG"
 	PRINT #fh%, ""
 	PRINT #fh%, "SCREEN _NEWIMAGE(CANVAS_W, CANVAS_H, 32)"
-	PRINT #fh%, "CLS , _RGBA32(0, 0, 0, 0)"
+	PRINT #fh%, "CLS , " + FILE_BAS_color_expr$(CFG.BAS_EXPORT_BG_COLOR~&)
 	PRINT #fh%, "InitWipLayers"
 	PRINT #fh%, ""
 	PRINT #fh%, "SUB InitWipLayers ()"
@@ -523,6 +1061,69 @@ SUB FILE_BAS_write_wip_header (fh AS INTEGER)
 	PRINT #fh%, "            CLS , _RGBA32(0, 0, 0, 0)"
 	PRINT #fh%, "        END IF"
 	PRINT #fh%, "    NEXT i"
+	PRINT #fh%, "    _DEST 0"
+	PRINT #fh%, "END SUB"
+	PRINT #fh%, ""
+	PRINT #fh%, "SUB FloodFillLikeDRAW (layerId AS LONG, startX AS INTEGER, startY AS INTEGER, fillCol AS _UNSIGNED LONG)"
+	PRINT #fh%, "    DIM targetCol AS _UNSIGNED LONG"
+	PRINT #fh%, "    DIM stackTop AS LONG"
+	PRINT #fh%, "    DIM currentX AS INTEGER, currentY AS INTEGER"
+	PRINT #fh%, "    DIM leftX AS INTEGER, rightX AS INTEGER, scanX AS INTEGER"
+	PRINT #fh%, "    DIM stackX() AS INTEGER, stackY() AS INTEGER"
+	PRINT #fh%, "    IF layerId < 1 OR layerId > MAX_LAYER_ID THEN EXIT SUB"
+	PRINT #fh%, "    IF layerImg(layerId) >= -1 THEN EXIT SUB"
+	PRINT #fh%, "    IF startX < 0 OR startY < 0 OR startX >= CANVAS_W OR startY >= CANVAS_H THEN EXIT SUB"
+	PRINT #fh%, "    _DEST layerImg(layerId)"
+	PRINT #fh%, "    targetCol = POINT(startX, startY)"
+	PRINT #fh%, "    IF targetCol = fillCol THEN _DEST 0: EXIT SUB"
+	PRINT #fh%, "    REDIM stackX(0 TO CANVAS_W * CANVAS_H - 1) AS INTEGER"
+	PRINT #fh%, "    REDIM stackY(0 TO CANVAS_W * CANVAS_H - 1) AS INTEGER"
+	PRINT #fh%, "    stackTop = 0"
+	PRINT #fh%, "    stackX(stackTop) = startX: stackY(stackTop) = startY"
+	PRINT #fh%, "    DO WHILE stackTop >= 0"
+	PRINT #fh%, "        currentX = stackX(stackTop): currentY = stackY(stackTop)"
+	PRINT #fh%, "        stackTop = stackTop - 1"
+	PRINT #fh%, "        IF POINT(currentX, currentY) <> targetCol THEN _CONTINUE"
+	PRINT #fh%, "        leftX = currentX"
+	PRINT #fh%, "        DO WHILE leftX > 0 AND POINT(leftX - 1, currentY) = targetCol"
+	PRINT #fh%, "            leftX = leftX - 1"
+	PRINT #fh%, "        LOOP"
+	PRINT #fh%, "        rightX = currentX"
+	PRINT #fh%, "        DO WHILE rightX < CANVAS_W - 1 AND POINT(rightX + 1, currentY) = targetCol"
+	PRINT #fh%, "            rightX = rightX + 1"
+	PRINT #fh%, "        LOOP"
+	PRINT #fh%, "        LINE (leftX, currentY)-(rightX, currentY), fillCol"
+	PRINT #fh%, "        IF currentY > 0 THEN"
+	PRINT #fh%, "            scanX = leftX"
+	PRINT #fh%, "            DO WHILE scanX <= rightX"
+	PRINT #fh%, "                DO WHILE scanX <= rightX AND POINT(scanX, currentY - 1) <> targetCol"
+	PRINT #fh%, "                    scanX = scanX + 1"
+	PRINT #fh%, "                LOOP"
+	PRINT #fh%, "                IF scanX <= rightX THEN"
+	PRINT #fh%, "                    stackTop = stackTop + 1"
+	PRINT #fh%, "                    stackX(stackTop) = scanX: stackY(stackTop) = currentY - 1"
+	PRINT #fh%, "                    DO WHILE scanX <= rightX AND POINT(scanX, currentY - 1) = targetCol"
+	PRINT #fh%, "                        scanX = scanX + 1"
+	PRINT #fh%, "                    LOOP"
+	PRINT #fh%, "                END IF"
+	PRINT #fh%, "            LOOP"
+	PRINT #fh%, "        END IF"
+	PRINT #fh%, "        IF currentY < CANVAS_H - 1 THEN"
+	PRINT #fh%, "            scanX = leftX"
+	PRINT #fh%, "            DO WHILE scanX <= rightX"
+	PRINT #fh%, "                DO WHILE scanX <= rightX AND POINT(scanX, currentY + 1) <> targetCol"
+	PRINT #fh%, "                    scanX = scanX + 1"
+	PRINT #fh%, "                LOOP"
+	PRINT #fh%, "                IF scanX <= rightX THEN"
+	PRINT #fh%, "                    stackTop = stackTop + 1"
+	PRINT #fh%, "                    stackX(stackTop) = scanX: stackY(stackTop) = currentY + 1"
+	PRINT #fh%, "                    DO WHILE scanX <= rightX AND POINT(scanX, currentY + 1) = targetCol"
+	PRINT #fh%, "                        scanX = scanX + 1"
+	PRINT #fh%, "                    LOOP"
+	PRINT #fh%, "                END IF"
+	PRINT #fh%, "            LOOP"
+	PRINT #fh%, "        END IF"
+	PRINT #fh%, "    LOOP"
 	PRINT #fh%, "    _DEST 0"
 	PRINT #fh%, "END SUB"
 	PRINT #fh%, ""
@@ -605,146 +1206,116 @@ END SUB
 SUB FILE_BAS_export (filename AS STRING)
 	DIM fh AS INTEGER
 	DIM i AS INTEGER
-	DIM supportedCount AS INTEGER
-	DIM expandedCount AS INTEGER
-	DIM unsupportedCount AS INTEGER
-	DIM maxLayerId AS LONG
-	DIM emitMode AS INTEGER
-
-	FOR i% = 1 TO HISTORY.count%
-		IF HISTORY_RECORDS(i%).primaryLayerId& > maxLayerId& THEN maxLayerId& = HISTORY_RECORDS(i%).primaryLayerId&
-		emitMode% = FILE_BAS_emit_mode%(i%)
-		IF emitMode% = HISTORY_EXPORT_DIRECT THEN
-			supportedCount% = supportedCount% + 1
-		ELSEIF emitMode% = HISTORY_EXPORT_EXPANDED THEN
-			supportedCount% = supportedCount% + 1
-			expandedCount% = expandedCount% + 1
-		ELSE
-			unsupportedCount% = unsupportedCount% + 1
-		END IF
-	NEXT i%
-	IF maxLayerId& < 1 THEN maxLayerId& = 1
+	DIM layerRecord AS INTEGER
+	DIM exportedSubCount AS INTEGER
+	DIM layerId AS LONG
 
 	fh% = FREEFILE
 	OPEN filename$ FOR OUTPUT AS #fh%
 
-	PRINT #fh%, "' DRAW - Generated BAS History Export"
+	PRINT #fh%, "' DRAW - Generated BAS Export"
 	PRINT #fh%, "' Source project generated by DRAW " + APP_VERSION$
-	PRINT #fh%, "' Canvas: " + _TRIM$(STR$(SCRN.canvasW&)) + "x" + _TRIM$(STR$(SCRN.canvasH&))
-	PRINT #fh%, "' History records: " + _TRIM$(STR$(HISTORY.count%)) + " (current cursor=" + _TRIM$(STR$(HISTORY.current%)) + ")"
-	PRINT #fh%, "' Supported records in this export: " + _TRIM$(STR$(supportedCount%))
-	PRINT #fh%, "' Expanded BASIC records in this export: " + _TRIM$(STR$(expandedCount%))
-	PRINT #fh%, "' Unsupported records omitted from executable replay: " + _TRIM$(STR$(unsupportedCount%))
 	PRINT #fh%, ""
 	PRINT #fh%, "OPTION _EXPLICIT"
 	PRINT #fh%, ""
 	PRINT #fh%, "CONST CANVAS_W = " + _TRIM$(STR$(SCRN.canvasW&))
 	PRINT #fh%, "CONST CANVAS_H = " + _TRIM$(STR$(SCRN.canvasH&))
-	PRINT #fh%, "CONST MAX_LAYER_ID = " + _TRIM$(STR$(maxLayerId&))
-	PRINT #fh%, "DIM SHARED layerImg(1 TO MAX_LAYER_ID) AS LONG"
-	PRINT #fh%, "DIM SHARED layerActive(1 TO MAX_LAYER_ID) AS INTEGER"
-	PRINT #fh%, "DIM SHARED layerVisible(1 TO MAX_LAYER_ID) AS INTEGER"
-	PRINT #fh%, "DIM SHARED layerZ(1 TO MAX_LAYER_ID) AS INTEGER"
-	PRINT #fh%, "DIM SHARED layerOpacity(1 TO MAX_LAYER_ID) AS INTEGER"
-	PRINT #fh%, "DIM SHARED layerName(1 TO MAX_LAYER_ID) AS STRING * 64"
 	PRINT #fh%, ""
 	PRINT #fh%, "SCREEN _NEWIMAGE(CANVAS_W, CANVAS_H, 32)"
-	PRINT #fh%, "CLS , _RGBA32(0, 0, 0, 0)"
-	PRINT #fh%, "ReplayHistory"
-	PRINT #fh%, "RenderLayers"
+	PRINT #fh%, "CLS , " + FILE_BAS_color_expr$(CFG.BAS_EXPORT_BG_COLOR~&)
+	exportedSubCount% = 0
+	FOR i% = 1 TO LAYER_COUNT%
+		layerId& = LAYERS(i%).historyId&
+		IF layerId& > 0 THEN
+			IF FILE_BAS_is_sub_layer_export%(layerId&) THEN
+				PRINT #fh%, FILE_BAS_export_sub_name$(layerId&)
+				exportedSubCount% = exportedSubCount% + 1
+			END IF
+		END IF
+	NEXT i%
+	IF exportedSubCount% = 0 THEN PRINT #fh%, "' No layers named SUB ... to export"
 	PRINT #fh%, "_DISPLAY"
-	PRINT #fh%, "SLEEP"
+	PRINT #fh%, "DO"
+	PRINT #fh%, "    _LIMIT 60"
+	PRINT #fh%, "LOOP UNTIL _KEYHIT = 27"
 	PRINT #fh%, "SYSTEM"
 	PRINT #fh%, ""
-	PRINT #fh%, "SUB CreateLayer (layerId AS LONG, zPos AS INTEGER, isVisible AS INTEGER, opacityVal AS INTEGER, layerLabel AS STRING)"
-	PRINT #fh%, "    IF layerId < 1 OR layerId > MAX_LAYER_ID THEN EXIT SUB"
-	PRINT #fh%, "    IF layerImg(layerId) < -1 THEN _FREEIMAGE layerImg(layerId)"
-	PRINT #fh%, "    layerImg(layerId) = _NEWIMAGE(CANVAS_W, CANVAS_H, 32)"
-	PRINT #fh%, "    IF layerImg(layerId) >= -1 THEN EXIT SUB"
-	PRINT #fh%, "    _DEST layerImg(layerId)"
-	PRINT #fh%, "    CLS , _RGBA32(0, 0, 0, 0)"
-	PRINT #fh%, "    _DEST 0"
-	PRINT #fh%, "    layerActive(layerId) = -1"
-	PRINT #fh%, "    layerVisible(layerId) = isVisible"
-	PRINT #fh%, "    layerZ(layerId) = zPos"
-	PRINT #fh%, "    layerOpacity(layerId) = opacityVal"
-	PRINT #fh%, "    layerName(layerId) = layerLabel"
-	PRINT #fh%, "END SUB"
-	PRINT #fh%, ""
-	PRINT #fh%, "SUB DeleteLayer (layerId AS LONG)"
-	PRINT #fh%, "    IF layerId < 1 OR layerId > MAX_LAYER_ID THEN EXIT SUB"
-	PRINT #fh%, "    IF layerImg(layerId) < -1 THEN _FREEIMAGE layerImg(layerId): layerImg(layerId) = 0"
-	PRINT #fh%, "    layerActive(layerId) = 0"
-	PRINT #fh%, "    layerVisible(layerId) = 0"
-	PRINT #fh%, "    layerZ(layerId) = 0"
-	PRINT #fh%, "    layerOpacity(layerId) = 0"
-	PRINT #fh%, "    layerName(layerId) = " + CHR$(34) + CHR$(34)
-	PRINT #fh%, "END SUB"
-	PRINT #fh%, ""
-	PRINT #fh%, "SUB MoveLayerToZ (layerId AS LONG, targetZ AS INTEGER)"
-	PRINT #fh%, "    DIM currentZ AS INTEGER"
-	PRINT #fh%, "    DIM i AS INTEGER"
-	PRINT #fh%, "    IF layerId < 1 OR layerId > MAX_LAYER_ID THEN EXIT SUB"
-	PRINT #fh%, "    IF layerActive(layerId) = 0 THEN EXIT SUB"
-	PRINT #fh%, "    currentZ = layerZ(layerId)"
-	PRINT #fh%, "    IF currentZ = targetZ THEN EXIT SUB"
-	PRINT #fh%, "    IF targetZ > currentZ THEN"
-	PRINT #fh%, "        FOR i = 1 TO MAX_LAYER_ID"
-	PRINT #fh%, "            IF i <> layerId AND layerActive(i) AND layerZ(i) > currentZ AND layerZ(i) <= targetZ THEN layerZ(i) = layerZ(i) - 1"
-	PRINT #fh%, "        NEXT i"
-	PRINT #fh%, "    ELSE"
-	PRINT #fh%, "        FOR i = 1 TO MAX_LAYER_ID"
-	PRINT #fh%, "            IF i <> layerId AND layerActive(i) AND layerZ(i) >= targetZ AND layerZ(i) < currentZ THEN layerZ(i) = layerZ(i) + 1"
-	PRINT #fh%, "        NEXT i"
-	PRINT #fh%, "    END IF"
-	PRINT #fh%, "    layerZ(layerId) = targetZ"
-	PRINT #fh%, "END SUB"
-	PRINT #fh%, ""
-	PRINT #fh%, "SUB DrawFilledEllipse (x1 AS INTEGER, y1 AS INTEGER, x2 AS INTEGER, y2 AS INTEGER, drawCol AS _UNSIGNED LONG, layerId AS LONG)"
-	PRINT #fh%, "    DIM cx AS INTEGER, cy AS INTEGER"
-	PRINT #fh%, "    DIM rx AS SINGLE, ry AS SINGLE"
-	PRINT #fh%, "    DIM y AS INTEGER, xLeft AS INTEGER, xRight AS INTEGER, scanX AS INTEGER"
-	PRINT #fh%, "    DIM dy AS SINGLE, dx AS SINGLE"
-	PRINT #fh%, "    IF layerId < 1 OR layerId > MAX_LAYER_ID THEN EXIT SUB"
-	PRINT #fh%, "    IF layerImg(layerId) >= -1 THEN EXIT SUB"
-	PRINT #fh%, "    cx = (x1 + x2) \ 2: cy = (y1 + y2) \ 2"
-	PRINT #fh%, "    rx = ABS(x2 - x1) / 2: ry = ABS(y2 - y1) / 2"
-	PRINT #fh%, "    IF rx <= 0 OR ry <= 0 THEN EXIT SUB"
-	PRINT #fh%, "    _DEST layerImg(layerId)"
-	PRINT #fh%, "    FOR y = cy - INT(ry + 0.5) TO cy + INT(ry + 0.5)"
-	PRINT #fh%, "        dy = (y - cy) / ry"
-	PRINT #fh%, "        IF ABS(dy) <= 1.0001 THEN"
-	PRINT #fh%, "            dx = rx * SQR(1 - dy * dy)"
-	PRINT #fh%, "            xLeft = cx - INT(dx + 0.5)"
-	PRINT #fh%, "            xRight = cx + INT(dx + 0.5)"
-	PRINT #fh%, "            IF xLeft <= xRight THEN LINE (xLeft, y)-(xRight, y), drawCol"
-	PRINT #fh%, "        END IF"
-	PRINT #fh%, "    NEXT y"
-	PRINT #fh%, "    _DEST 0"
-	PRINT #fh%, "END SUB"
-	PRINT #fh%, ""
-	PRINT #fh%, "SUB RenderLayers ()"
-	PRINT #fh%, "    DIM targetZ AS INTEGER, i AS INTEGER, maxZ AS INTEGER"
-	PRINT #fh%, "    CLS , _RGBA32(0, 0, 0, 0)"
-	PRINT #fh%, "    FOR i = 1 TO MAX_LAYER_ID"
-	PRINT #fh%, "        IF layerActive(i) AND layerZ(i) > maxZ THEN maxZ = layerZ(i)"
+	PRINT #fh%, "SUB FillPolygonScanline (pointCount AS INTEGER, polyX() AS INTEGER, polyY() AS INTEGER, fillCol AS _UNSIGNED LONG)"
+	PRINT #fh%, "    DIM minY AS INTEGER, maxY AS INTEGER"
+	PRINT #fh%, "    DIM i AS INTEGER, j AS INTEGER, y AS INTEGER"
+	PRINT #fh%, "    DIM nodeCount AS INTEGER, sortIndex AS INTEGER"
+	PRINT #fh%, "    DIM nodes() AS SINGLE"
+	PRINT #fh%, "    DIM swapValue AS SINGLE"
+	PRINT #fh%, "    IF pointCount < 3 THEN EXIT SUB"
+	PRINT #fh%, "    minY = polyY(0): maxY = polyY(0)"
+	PRINT #fh%, "    FOR i = 1 TO pointCount - 1"
+	PRINT #fh%, "        IF polyY(i) < minY THEN minY = polyY(i)"
+	PRINT #fh%, "        IF polyY(i) > maxY THEN maxY = polyY(i)"
 	PRINT #fh%, "    NEXT i"
-	PRINT #fh%, "    FOR targetZ = 1 TO maxZ"
-	PRINT #fh%, "        FOR i = 1 TO MAX_LAYER_ID"
-	PRINT #fh%, "            IF layerActive(i) AND layerVisible(i) AND layerZ(i) = targetZ AND layerImg(i) < -1 THEN _PUTIMAGE (0, 0), layerImg(i), 0"
+	PRINT #fh%, "    REDIM nodes(0 TO pointCount - 1) AS SINGLE"
+	PRINT #fh%, "    FOR y = minY TO maxY"
+	PRINT #fh%, "        nodeCount = 0"
+	PRINT #fh%, "        j = pointCount - 1"
+	PRINT #fh%, "        FOR i = 0 TO pointCount - 1"
+	PRINT #fh%, "            IF ((polyY(i) < y AND polyY(j) >= y) OR (polyY(j) < y AND polyY(i) >= y)) THEN"
+	PRINT #fh%, "                nodes(nodeCount) = polyX(i) + (y - polyY(i)) * (polyX(j) - polyX(i)) / (polyY(j) - polyY(i))"
+	PRINT #fh%, "                nodeCount = nodeCount + 1"
+	PRINT #fh%, "            END IF"
+	PRINT #fh%, "            j = i"
 	PRINT #fh%, "        NEXT i"
-	PRINT #fh%, "    NEXT targetZ"
+	PRINT #fh%, "        FOR i = 0 TO nodeCount - 2"
+	PRINT #fh%, "            FOR sortIndex = i + 1 TO nodeCount - 1"
+	PRINT #fh%, "                IF nodes(sortIndex) < nodes(i) THEN"
+	PRINT #fh%, "                    swapValue = nodes(i)"
+	PRINT #fh%, "                    nodes(i) = nodes(sortIndex)"
+	PRINT #fh%, "                    nodes(sortIndex) = swapValue"
+	PRINT #fh%, "                END IF"
+	PRINT #fh%, "            NEXT sortIndex"
+	PRINT #fh%, "        NEXT i"
+	PRINT #fh%, "        FOR i = 0 TO nodeCount - 2 STEP 2"
+	PRINT #fh%, "            LINE (INT(nodes(i) + .5), y)-(INT(nodes(i + 1) - .5), y), fillCol"
+	PRINT #fh%, "        NEXT i"
+	PRINT #fh%, "    NEXT y"
 	PRINT #fh%, "END SUB"
 	PRINT #fh%, ""
-	PRINT #fh%, "SUB ReplayHistory ()"
-
-	FOR i% = 1 TO HISTORY.count%
-		FILE_BAS_write_record_ops fh%, i%, "    ", FALSE
+	PRINT #fh%, "SUB FillEllipseScanline (x1 AS INTEGER, y1 AS INTEGER, x2 AS INTEGER, y2 AS INTEGER, fillCol AS _UNSIGNED LONG)"
+	PRINT #fh%, "    DIM centerX AS SINGLE, centerY AS SINGLE"
+	PRINT #fh%, "    DIM radiusX AS SINGLE, radiusY AS SINGLE"
+	PRINT #fh%, "    DIM rowOffset AS SINGLE, halfSpan AS SINGLE"
+	PRINT #fh%, "    DIM drawY AS INTEGER"
+	PRINT #fh%, "    centerX = (x1 + x2) / 2"
+	PRINT #fh%, "    centerY = (y1 + y2) / 2"
+	PRINT #fh%, "    radiusX = ABS(x2 - x1) / 2"
+	PRINT #fh%, "    radiusY = ABS(y2 - y1) / 2"
+	PRINT #fh%, "    IF radiusX <= 0 OR radiusY <= 0 THEN EXIT SUB"
+	PRINT #fh%, "    FOR drawY = y1 TO y2"
+	PRINT #fh%, "        rowOffset = (drawY - centerY) / radiusY"
+	PRINT #fh%, "        IF ABS(rowOffset) <= 1 THEN"
+	PRINT #fh%, "            halfSpan = radiusX * SQR(1 - rowOffset * rowOffset)"
+	PRINT #fh%, "            LINE (INT(centerX - halfSpan + .5), drawY)-(INT(centerX + halfSpan - .5), drawY), fillCol"
+	PRINT #fh%, "        END IF"
+	PRINT #fh%, "    NEXT drawY"
+	PRINT #fh%, "END SUB"
+	PRINT #fh%, ""
+	FOR i% = 1 TO LAYER_COUNT%
+		layerId& = LAYERS(i%).historyId&
+		IF layerId& > 0 THEN
+			IF FILE_BAS_is_sub_layer_export%(layerId&) THEN
+				PRINT #fh%, "SUB " + FILE_BAS_export_sub_name$(layerId&) + " ()"
+				FOR layerRecord% = 1 TO HISTORY.count%
+					IF HISTORY_RECORDS(layerRecord%).primaryLayerId& = layerId& THEN
+						IF FILE_BAS_is_drawing_record%(layerRecord%) THEN
+							FILE_BAS_write_sub_record_ops fh%, layerRecord%, "    "
+						END IF
+					END IF
+				NEXT layerRecord%
+				PRINT #fh%, "END SUB"
+				PRINT #fh%, ""
+			END IF
+		END IF
 	NEXT i%
-	PRINT #fh%, "END SUB"
-	PRINT #fh%, ""
 
 	CLOSE #fh%
 
-	_LOGINFO "FILE_BAS_export: Exported " + STR$(supportedCount%) + " history records (" + STR$(expandedCount%) + " expanded BASIC) to " + filename$
+	_LOGINFO "FILE_BAS_export: Exported " + STR$(exportedSubCount%) + " SUB layers to " + filename$
 END SUB
