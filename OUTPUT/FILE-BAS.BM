@@ -45,6 +45,10 @@ FUNCTION FILE_BAS_kind_name$ (kind AS INTEGER)
 	END SELECT
 END FUNCTION
 
+FUNCTION FILE_BAS_ulong_literal$ (value AS _UNSIGNED LONG)
+	FILE_BAS_ulong_literal$ = "&H" + HEX$(value~&) + "~&"
+END FUNCTION
+
 FUNCTION FILE_BAS_color_expr$ (col AS _UNSIGNED LONG)
 	IF _ALPHA32(col~&) < 255 THEN
 		FILE_BAS_color_expr$ = "_RGBA32(" + _TRIM$(STR$(_RED32(col~&))) + ", " + _TRIM$(STR$(_GREEN32(col~&))) + ", " + _TRIM$(STR$(_BLUE32(col~&))) + ", " + _TRIM$(STR$(_ALPHA32(col~&))) + ")"
@@ -63,6 +67,53 @@ FUNCTION FILE_BAS_is_direct_shape_exportable% (recordIndex AS INTEGER)
 			FILE_BAS_is_direct_shape_exportable% = TRUE
 	END SELECT
 END FUNCTION
+
+FUNCTION FILE_BAS_is_raster_fallback_exportable% (recordIndex AS INTEGER)
+	IF recordIndex% < 1 OR recordIndex% > HISTORY.count% THEN EXIT FUNCTION
+	IF HISTORY_RECORDS(recordIndex%).primaryLayerId& < 1 THEN EXIT FUNCTION
+	IF HISTORY_RECORDS(recordIndex%).img2& >= -1 THEN EXIT FUNCTION
+
+	SELECT CASE HISTORY_RECORDS(recordIndex%).kind%
+		CASE HISTORY_KIND_LINE, HISTORY_KIND_RECT, HISTORY_KIND_ELLIPSE, HISTORY_KIND_POLYLINE, HISTORY_KIND_FILL, HISTORY_KIND_BRUSH, HISTORY_KIND_TRANSFORM
+			FILE_BAS_is_raster_fallback_exportable% = TRUE
+	END SELECT
+END FUNCTION
+
+FUNCTION FILE_BAS_raster_label$ (recordIndex AS INTEGER)
+	FILE_BAS_raster_label$ = "RasterRecord" + _TRIM$(STR$(recordIndex%))
+END FUNCTION
+
+SUB FILE_BAS_write_raster_data (fh AS INTEGER, labelName AS STRING, imgHandle AS LONG)
+	DIM oldSrc AS LONG
+	DIM x AS LONG, y AS LONG
+	DIM col AS _UNSIGNED LONG
+	DIM itemsOnLine AS INTEGER
+	DIM dataLine AS STRING
+
+	IF imgHandle& >= -1 THEN EXIT SUB
+
+	PRINT #fh%, labelName$ + ":"
+	oldSrc& = _SOURCE
+	_SOURCE imgHandle&
+	itemsOnLine% = 0
+	dataLine$ = "DATA "
+	FOR y& = 0 TO _HEIGHT(imgHandle&) - 1
+		FOR x& = 0 TO _WIDTH(imgHandle&) - 1
+			col~& = POINT(x&, y&)
+			IF itemsOnLine% > 0 THEN dataLine$ = dataLine$ + ", "
+			dataLine$ = dataLine$ + FILE_BAS_ulong_literal$(col~&)
+			itemsOnLine% = itemsOnLine% + 1
+			IF itemsOnLine% >= 8 THEN
+				PRINT #fh%, dataLine$
+				dataLine$ = "DATA "
+				itemsOnLine% = 0
+			END IF
+		NEXT x&
+	NEXT y&
+	IF itemsOnLine% > 0 THEN PRINT #fh%, dataLine$
+	_SOURCE oldSrc&
+	PRINT #fh%, ""
+END SUB
 
 SUB FILE_BAS_export_dialog ()
 	DIM exportPath AS STRING
@@ -116,6 +167,7 @@ SUB FILE_BAS_export (filename AS STRING)
 	DIM fh AS INTEGER
 	DIM i AS INTEGER
 	DIM supportedCount AS INTEGER
+	DIM rasterFallbackCount AS INTEGER
 	DIM unsupportedCount AS INTEGER
 	DIM colorExpr AS STRING
 	DIM maxLayerId AS LONG
@@ -131,11 +183,19 @@ SUB FILE_BAS_export (filename AS STRING)
 			CASE HISTORY_KIND_LINE, HISTORY_KIND_RECT, HISTORY_KIND_ELLIPSE
 				IF FILE_BAS_is_direct_shape_exportable%(i%) THEN
 					supportedCount% = supportedCount% + 1
+				ELSEIF FILE_BAS_is_raster_fallback_exportable%(i%) THEN
+					supportedCount% = supportedCount% + 1
+					rasterFallbackCount% = rasterFallbackCount% + 1
 				ELSE
 					unsupportedCount% = unsupportedCount% + 1
 				END IF
 			CASE HISTORY_KIND_POLYLINE, HISTORY_KIND_FILL, HISTORY_KIND_BRUSH, HISTORY_KIND_TRANSFORM
-				unsupportedCount% = unsupportedCount% + 1
+				IF FILE_BAS_is_raster_fallback_exportable%(i%) THEN
+					supportedCount% = supportedCount% + 1
+					rasterFallbackCount% = rasterFallbackCount% + 1
+				ELSE
+					unsupportedCount% = unsupportedCount% + 1
+				END IF
 			CASE ELSE
 				unsupportedCount% = unsupportedCount% + 1
 		END SELECT
@@ -150,6 +210,7 @@ SUB FILE_BAS_export (filename AS STRING)
 	PRINT #fh%, "' Canvas: " + _TRIM$(STR$(SCRN.canvasW&)) + "x" + _TRIM$(STR$(SCRN.canvasH&))
 	PRINT #fh%, "' History records: " + _TRIM$(STR$(HISTORY.count%)) + " (current cursor=" + _TRIM$(STR$(HISTORY.current%)) + ")"
 	PRINT #fh%, "' Supported records in this export: " + _TRIM$(STR$(supportedCount%))
+	PRINT #fh%, "' Raster fallback records in this export: " + _TRIM$(STR$(rasterFallbackCount%))
 	PRINT #fh%, "' Unsupported records omitted from executable replay: " + _TRIM$(STR$(unsupportedCount%))
 	PRINT #fh%, ""
 	PRINT #fh%, "OPTION _EXPLICIT"
@@ -239,6 +300,23 @@ SUB FILE_BAS_export (filename AS STRING)
 	PRINT #fh%, "    _DEST 0"
 	PRINT #fh%, "END SUB"
 	PRINT #fh%, ""
+	PRINT #fh%, "SUB RestoreLayerRaster (layerId AS LONG)"
+	PRINT #fh%, "    DIM px AS LONG, py AS LONG"
+	PRINT #fh%, "    DIM c AS _UNSIGNED LONG"
+	PRINT #fh%, "    IF layerId < 1 OR layerId > MAX_LAYER_ID THEN EXIT SUB"
+	PRINT #fh%, "    IF layerImg(layerId) >= -1 THEN EXIT SUB"
+	PRINT #fh%, "    _DEST layerImg(layerId)"
+	PRINT #fh%, "    _DONTBLEND layerImg(layerId)"
+	PRINT #fh%, "    FOR py = 0 TO CANVAS_H - 1"
+	PRINT #fh%, "        FOR px = 0 TO CANVAS_W - 1"
+	PRINT #fh%, "            READ c"
+	PRINT #fh%, "            PSET (px, py), c"
+	PRINT #fh%, "        NEXT px"
+	PRINT #fh%, "    NEXT py"
+	PRINT #fh%, "    _BLEND layerImg(layerId)"
+	PRINT #fh%, "    _DEST 0"
+	PRINT #fh%, "END SUB"
+	PRINT #fh%, ""
 	PRINT #fh%, "SUB RenderLayers ()"
 	PRINT #fh%, "    DIM targetZ AS INTEGER, i AS INTEGER, maxZ AS INTEGER"
 	PRINT #fh%, "    CLS , _RGBA32(0, 0, 0, 0)"
@@ -273,6 +351,8 @@ SUB FILE_BAS_export (filename AS STRING)
 				IF FILE_BAS_is_direct_shape_exportable%(i%) THEN
 					colorExpr$ = FILE_BAS_color_expr$(HISTORY_RECORDS(i%).colorFG~&)
 					PRINT #fh%, "    IF layerImg(" + _TRIM$(STR$(HISTORY_RECORDS(i%).primaryLayerId&)) + ") < -1 THEN _DEST layerImg(" + _TRIM$(STR$(HISTORY_RECORDS(i%).primaryLayerId&)) + "): LINE (" + _TRIM$(STR$(HISTORY_RECORDS(i%).x1%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(i%).y1%)) + ")-(" + _TRIM$(STR$(HISTORY_RECORDS(i%).x2%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(i%).y2%)) + "), " + colorExpr$ + ": _DEST 0"
+				ELSEIF FILE_BAS_is_raster_fallback_exportable%(i%) THEN
+					PRINT #fh%, "    RESTORE " + FILE_BAS_raster_label$(i%) + ": RestoreLayerRaster " + _TRIM$(STR$(HISTORY_RECORDS(i%).primaryLayerId&))
 				ELSE
 					PRINT #fh%, "    ' Unsupported line record seq " + _TRIM$(STR$(HISTORY_RECORDS(i%).sequence&)) + " due to flags=" + _TRIM$(STR$(HISTORY_RECORDS(i%).flags&))
 				END IF
@@ -281,7 +361,9 @@ SUB FILE_BAS_export (filename AS STRING)
 					colorExpr$ = FILE_BAS_color_expr$(HISTORY_RECORDS(i%).colorFG~&)
 					rectModeText$ = "B"
 					IF (HISTORY_RECORDS(i%).flags& AND HISTORY_FLAG_FILLED) <> 0 THEN rectModeText$ = "BF"
-					PRINT #fh%, "    IF layerImg(" + _TRIM$(STR$(HISTORY_RECORDS(i%).primaryLayerId&)) + ") < -1 THEN _DEST layerImg(" + _TRIM$(STR$(HISTORY_RECORDS(i%).primaryLayerId&)) + "): LINE (" + _TRIM$(STR$(HISTORY_RECORDS(i%).x1%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(i%).y1%)) + ")-(" + _TRIM$(STR$(HISTORY_RECORDS(i%).x2%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(i%).y2%)) + "), " + colorExpr$ + ", " + CHR$(34) + rectModeText$ + CHR$(34) + ": _DEST 0"
+					PRINT #fh%, "    IF layerImg(" + _TRIM$(STR$(HISTORY_RECORDS(i%).primaryLayerId&)) + ") < -1 THEN _DEST layerImg(" + _TRIM$(STR$(HISTORY_RECORDS(i%).primaryLayerId&)) + "): LINE (" + _TRIM$(STR$(HISTORY_RECORDS(i%).x1%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(i%).y1%)) + ")-(" + _TRIM$(STR$(HISTORY_RECORDS(i%).x2%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(i%).y2%)) + "), " + colorExpr$ + ", " + rectModeText$ + ": _DEST 0"
+				ELSEIF FILE_BAS_is_raster_fallback_exportable%(i%) THEN
+					PRINT #fh%, "    RESTORE " + FILE_BAS_raster_label$(i%) + ": RestoreLayerRaster " + _TRIM$(STR$(HISTORY_RECORDS(i%).primaryLayerId&))
 				ELSE
 					PRINT #fh%, "    ' Unsupported rect record seq " + _TRIM$(STR$(HISTORY_RECORDS(i%).sequence&)) + " due to flags=" + _TRIM$(STR$(HISTORY_RECORDS(i%).flags&))
 				END IF
@@ -293,14 +375,29 @@ SUB FILE_BAS_export (filename AS STRING)
 					ELSE
 						PRINT #fh%, "    IF layerImg(" + _TRIM$(STR$(HISTORY_RECORDS(i%).primaryLayerId&)) + ") < -1 THEN _DEST layerImg(" + _TRIM$(STR$(HISTORY_RECORDS(i%).primaryLayerId&)) + "): CIRCLE ((" + _TRIM$(STR$(HISTORY_RECORDS(i%).x1%)) + " + " + _TRIM$(STR$(HISTORY_RECORDS(i%).x2%)) + ") \ 2, (" + _TRIM$(STR$(HISTORY_RECORDS(i%).y1%)) + " + " + _TRIM$(STR$(HISTORY_RECORDS(i%).y2%)) + ") \ 2), ABS(" + _TRIM$(STR$(HISTORY_RECORDS(i%).x2%)) + " - " + _TRIM$(STR$(HISTORY_RECORDS(i%).x1%)) + ") / 2, " + colorExpr$ + ", , , ABS(" + _TRIM$(STR$(HISTORY_RECORDS(i%).y2%)) + " - " + _TRIM$(STR$(HISTORY_RECORDS(i%).y1%)) + ") / ABS(" + _TRIM$(STR$(HISTORY_RECORDS(i%).x2%)) + " - " + _TRIM$(STR$(HISTORY_RECORDS(i%).x1%)) + "): _DEST 0"
 					END IF
+				ELSEIF FILE_BAS_is_raster_fallback_exportable%(i%) THEN
+					PRINT #fh%, "    RESTORE " + FILE_BAS_raster_label$(i%) + ": RestoreLayerRaster " + _TRIM$(STR$(HISTORY_RECORDS(i%).primaryLayerId&))
 				ELSE
 					PRINT #fh%, "    ' Unsupported ellipse record seq " + _TRIM$(STR$(HISTORY_RECORDS(i%).sequence&)) + " due to flags=" + _TRIM$(STR$(HISTORY_RECORDS(i%).flags&))
+				END IF
+			CASE HISTORY_KIND_POLYLINE, HISTORY_KIND_FILL, HISTORY_KIND_BRUSH, HISTORY_KIND_TRANSFORM
+				IF FILE_BAS_is_raster_fallback_exportable%(i%) THEN
+					PRINT #fh%, "    RESTORE " + FILE_BAS_raster_label$(i%) + ": RestoreLayerRaster " + _TRIM$(STR$(HISTORY_RECORDS(i%).primaryLayerId&))
+				ELSE
+					PRINT #fh%, "    ' Unsupported " + FILE_BAS_kind_name$(HISTORY_RECORDS(i%).kind%) + " record seq " + _TRIM$(STR$(HISTORY_RECORDS(i%).sequence&))
 				END IF
 		END SELECT
 	NEXT i%
 	PRINT #fh%, "END SUB"
+	PRINT #fh%, ""
+
+	FOR i% = 1 TO HISTORY.count%
+		IF FILE_BAS_is_raster_fallback_exportable%(i%) THEN
+			FILE_BAS_write_raster_data fh%, FILE_BAS_raster_label$(i%), HISTORY_RECORDS(i%).img2&
+		END IF
+	NEXT i%
 
 	CLOSE #fh%
 
-	_LOGINFO "FILE_BAS_export: Exported " + STR$(supportedCount%) + " history records to " + filename$
+	_LOGINFO "FILE_BAS_export: Exported " + STR$(supportedCount%) + " history records (" + STR$(rasterFallbackCount%) + " raster fallback) to " + filename$
 END SUB
