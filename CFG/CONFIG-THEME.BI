@@ -187,6 +187,8 @@ TYPE DRAW_THEME
     LOSPEC_checkbox_fill     AS _UNSIGNED LONG
     LOSPEC_checkbox_dl_fill  AS _UNSIGNED LONG  ' Downloaded-state checkbox fill (green tint)
     LOSPEC_downloaded_fg     AS _UNSIGNED LONG  ' Download date text in results list
+    PALETTE_MENU_SEP_fg      AS _UNSIGNED LONG  ' Palette menu separator label text color
+    PALETTE_MENU_SEP_bg      AS _UNSIGNED LONG  ' Palette menu separator label background box color
 END TYPE
 
 ' Runtime theme loader — populates THEME from ASSETS/THEMES/{CFG.THEME$}/THEME.CFG
@@ -195,3 +197,5 @@ DECLARE FUNCTION THEME_parse_rgba~& (val$)
 DECLARE FUNCTION THEME_font_path$ (filename AS STRING)
 
 DIM SHARED THEME AS DRAW_THEME
+DIM SHARED PALETTE_SEP_LOSPEC_LBL$   ' Section header label: Lospec downloaded palettes
+DIM SHARED PALETTE_SEP_CREATED_LBL$  ' Section header label: created palettes

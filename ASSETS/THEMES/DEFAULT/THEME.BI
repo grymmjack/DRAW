@@ -185,6 +185,10 @@ THEME.LOSPEC_checkbox_border~&      = _RGB32(90, 90, 90)
 THEME.LOSPEC_checkbox_fill~&        = _RGB32(40, 80, 160)
 THEME.LOSPEC_checkbox_dl_fill~&     = _RGB32(40, 120, 60)
 THEME.LOSPEC_downloaded_fg~&        = _RGB32(100, 190, 120)
+THEME.PALETTE_MENU_SEP_fg~&         = _RGB32(110, 110, 120)
+THEME.PALETTE_MENU_SEP_bg~&         = _RGB32(22, 22, 34)
+PALETTE_SEP_LOSPEC_LBL$             = "-- USER : LOSPEC --"
+PALETTE_SEP_CREATED_LBL$            = "-- USER : CREATED --"
 
 ' =============================================================================
 ' CURSORS - PNG cursor configuration
