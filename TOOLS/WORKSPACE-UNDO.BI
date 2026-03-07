@@ -42,12 +42,18 @@ TYPE WORKSPACE_UNDO_STATE
     sel_box_y AS INTEGER             ' MARQUEE.BOX.y
     sel_box_w AS INTEGER             ' MARQUEE.BOX.w
     sel_box_h AS INTEGER             ' MARQUEE.BOX.h
+    sel_box_state AS INTEGER         ' MARQUEE.BOX.state
     sel_wand_has AS INTEGER          ' MARQUEE.WAND_HAS_SELECTION
     sel_wand_min_x AS INTEGER        ' MARQUEE.WAND_MIN_X
     sel_wand_min_y AS INTEGER        ' MARQUEE.WAND_MIN_Y
     sel_wand_max_x AS INTEGER        ' MARQUEE.WAND_MAX_X
     sel_wand_max_y AS INTEGER        ' MARQUEE.WAND_MAX_Y
     sel_variant AS INTEGER           ' MARQUEE.VARIANT
+    sel_mode AS INTEGER              ' MARQUEE.SELECTION_MODE
+    sel_cfg_init_x AS INTEGER        ' MARQUEE.CFG.initX
+    sel_cfg_init_y AS INTEGER        ' MARQUEE.CFG.initY
+    sel_cfg_init_w AS INTEGER        ' MARQUEE.CFG.initW
+    sel_cfg_init_h AS INTEGER        ' MARQUEE.CFG.initH
     sel_mask AS LONG                 ' _COPYIMAGE of MARQUEE.SELECTION_MASK, or -1 if none
 END TYPE
 
@@ -65,6 +71,10 @@ DIM SHARED WORKSPACE_UNDO_READY AS INTEGER
 
 ' Flag to prevent undo/redo operations from creating new undo states
 DIM SHARED WORKSPACE_UNDO_IN_PROGRESS AS INTEGER
+
+' Staged selection snapshot used to avoid recording no-op selection changes.
+DIM SHARED WORKSPACE_UNDO_PENDING_SELECTION AS WORKSPACE_UNDO_STATE
+DIM SHARED WORKSPACE_UNDO_HAS_PENDING_SELECTION AS INTEGER
 
 ' Timestamp of last pixel undo save (for comparing with workspace undo)
 DIM SHARED PIXEL_UNDO_LAST_TIMESTAMP AS DOUBLE
@@ -97,6 +107,8 @@ DECLARE SUB WORKSPACE_UNDO_save_layer_reorder (layerIndex AS INTEGER, oldZIndex 
 DECLARE SUB WORKSPACE_UNDO_save_layer_merge (topIndex AS INTEGER, bottomIndex AS INTEGER)
 DECLARE SUB WORKSPACE_UNDO_save_merge_visible (sortedLayers() AS INTEGER, sortCount AS INTEGER)
 DECLARE SUB WORKSPACE_UNDO_save_selection ()
+DECLARE SUB WORKSPACE_UNDO_stage_selection ()
+DECLARE SUB WORKSPACE_UNDO_commit_selection ()
 DECLARE SUB MERGE_VIS_free_state_images (stateIdx AS INTEGER)
 DECLARE SUB WORKSPACE_UNDO_undo ()
 DECLARE SUB WORKSPACE_UNDO_redo ()
