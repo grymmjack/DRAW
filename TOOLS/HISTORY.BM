@@ -7,6 +7,38 @@
 '
 $INCLUDEONCE
 
+FUNCTION HISTORY_text_payload$ (lineCount AS INTEGER)
+    DIM payload AS STRING
+    DIM i AS INTEGER
+
+    payload$ = ""
+    FOR i% = 0 TO lineCount% - 1
+        IF i% > 0 THEN payload$ = payload$ + CHR$(30)
+        payload$ = payload$ + TEXT_BUFFER(i%)
+    NEXT i%
+    HISTORY_text_payload$ = payload$
+END FUNCTION
+
+FUNCTION HISTORY_polyline_payload$ (pointCount AS INTEGER, pointsX() AS INTEGER, pointsY() AS INTEGER)
+    DIM payload AS STRING
+    DIM i AS INTEGER
+
+    payload$ = ""
+    FOR i% = 0 TO pointCount% - 1
+        IF i% > 0 THEN payload$ = payload$ + CHR$(30)
+        payload$ = payload$ + _TRIM$(STR$(pointsX(i%))) + "," + _TRIM$(STR$(pointsY(i%)))
+    NEXT i%
+    HISTORY_polyline_payload$ = payload$
+END FUNCTION
+
+SUB HISTORY_set_payload (recordIndex AS INTEGER, payload AS STRING, payloadMeta AS LONG)
+    IF recordIndex% < 1 OR recordIndex% > HISTORY_MAX_RECORDS THEN EXIT SUB
+
+    HISTORY_PAYLOADS(recordIndex%) = payload$
+    HISTORY_RECORDS(recordIndex%).payloadOffset& = payloadMeta&
+    HISTORY_RECORDS(recordIndex%).payloadLength& = LEN(payload$)
+END SUB
+
 SUB HISTORY_sanitize_state ()
     IF HISTORY.count% < 0 THEN HISTORY.count% = 0
     IF HISTORY.count% > HISTORY_MAX_RECORDS THEN HISTORY.count% = HISTORY_MAX_RECORDS
@@ -15,6 +47,8 @@ SUB HISTORY_sanitize_state ()
 END SUB
 
 SUB HISTORY_init ()
+    DIM i AS INTEGER
+
     HISTORY.current% = 0
     HISTORY.count% = 0
     HISTORY.maxRecords% = HISTORY_MAX_RECORDS
@@ -23,6 +57,9 @@ SUB HISTORY_init ()
     HISTORY_IN_PROGRESS% = FALSE
     HISTORY_GROUP_ACTIVE% = FALSE
     HISTORY_GROUP_SEQUENCE& = 0
+    FOR i% = 1 TO HISTORY_MAX_RECORDS
+        HISTORY_PAYLOADS(i%) = ""
+    NEXT i%
 END SUB
 
 SUB HISTORY_clear ()
@@ -65,8 +102,10 @@ SUB HISTORY_clear ()
         HISTORY_RECORDS(i%).payloadOffset& = 0
         HISTORY_RECORDS(i%).payloadLength& = 0
         HISTORY_RECORDS(i%).label$ = ""
+        HISTORY_PAYLOADS(i%) = ""
     NEXT i%
     HISTORY_init
+    FILE_BAS_wip_reset
 END SUB
 
 FUNCTION HISTORY_can_undo% ()
@@ -136,6 +175,7 @@ FUNCTION HISTORY_begin_record% (kind AS INTEGER, exportKind AS INTEGER, label AS
             HISTORY_RECORDS(i%).img& = 0
             HISTORY_RECORDS(i%).img2& = 0
             HISTORY_RECORDS(i%).label$ = ""
+            HISTORY_PAYLOADS(i%) = ""
         NEXT i%
         HISTORY.count% = HISTORY.current%
     END IF
@@ -179,6 +219,7 @@ FUNCTION HISTORY_begin_record% (kind AS INTEGER, exportKind AS INTEGER, label AS
     HISTORY_RECORDS(idx%).payloadOffset& = 0
     HISTORY_RECORDS(idx%).payloadLength& = 0
     HISTORY_RECORDS(idx%).label$ = LEFT$(label$, 32)
+    HISTORY_PAYLOADS(idx%) = ""
     HISTORY.recording% = TRUE
 
     HISTORY_begin_record% = idx%
@@ -194,6 +235,7 @@ SUB HISTORY_commit_record (recordIndex AS INTEGER)
     HISTORY.count% = recordIndex%
     HISTORY.current% = recordIndex%
     HISTORY.recording% = FALSE
+    FILE_BAS_wip_append_record recordIndex%
 END SUB
 
 SUB HISTORY_cancel_record (recordIndex AS INTEGER)
@@ -235,6 +277,7 @@ SUB HISTORY_cancel_record (recordIndex AS INTEGER)
         HISTORY_RECORDS(recordIndex%).payloadOffset& = 0
         HISTORY_RECORDS(recordIndex%).payloadLength& = 0
         HISTORY_RECORDS(recordIndex%).label$ = ""
+        HISTORY_PAYLOADS(recordIndex%) = ""
     END IF
     HISTORY.recording% = FALSE
 END SUB
@@ -557,10 +600,10 @@ SUB HISTORY_record_ellipse (layerId AS LONG, layerSlot AS INTEGER, x1 AS INTEGER
     HISTORY_record_shape_common HISTORY_KIND_ELLIPSE, layerId&, layerSlot%, x1%, y1%, x2%, y2%, drawColor~&, flags&, beforeImg&, label$
 END SUB
 
-SUB HISTORY_record_polyline (layerId AS LONG, layerSlot AS INTEGER, drawColor AS _UNSIGNED LONG, flags AS LONG, beforeImg AS LONG, label AS STRING)
+SUB HISTORY_record_polyline (layerId AS LONG, layerSlot AS INTEGER, drawColor AS _UNSIGNED LONG, flags AS LONG, beforeImg AS LONG, pointCount AS INTEGER, pointsX() AS INTEGER, pointsY() AS INTEGER, label AS STRING)
     DIM idx AS INTEGER
 
-    idx% = HISTORY_begin_record%(HISTORY_KIND_POLYLINE, HISTORY_EXPORT_RASTER, label$)
+    idx% = HISTORY_begin_record%(HISTORY_KIND_POLYLINE, HISTORY_EXPORT_EXPANDED, label$)
     IF idx% = 0 THEN
         IF beforeImg& < -1 THEN _FREEIMAGE beforeImg&
         EXIT SUB
@@ -570,15 +613,22 @@ SUB HISTORY_record_polyline (layerId AS LONG, layerSlot AS INTEGER, drawColor AS
     HISTORY_RECORDS(idx%).slotIndex% = layerSlot%
     HISTORY_RECORDS(idx%).colorFG~& = drawColor~&
     HISTORY_RECORDS(idx%).flags& = flags&
+    IF pointCount% > 0 THEN
+        HISTORY_RECORDS(idx%).x1% = pointsX(0)
+        HISTORY_RECORDS(idx%).y1% = pointsY(0)
+        HISTORY_RECORDS(idx%).x2% = pointsX(pointCount% - 1)
+        HISTORY_RECORDS(idx%).y2% = pointsY(pointCount% - 1)
+        HISTORY_set_payload idx%, HISTORY_polyline_payload$(pointCount%, pointsX%(), pointsY%()), pointCount%
+    END IF
     HISTORY_RECORDS(idx%).img& = beforeImg&
     HISTORY_store_after_image idx%, layerSlot%
     HISTORY_commit_record idx%
 END SUB
 
-SUB HISTORY_record_fill (layerId AS LONG, layerSlot AS INTEGER, drawColor AS _UNSIGNED LONG, flags AS LONG, beforeImg AS LONG, label AS STRING)
+SUB HISTORY_record_fill (layerId AS LONG, layerSlot AS INTEGER, drawColor AS _UNSIGNED LONG, flags AS LONG, beforeImg AS LONG, seedX AS INTEGER, seedY AS INTEGER, label AS STRING)
     DIM idx AS INTEGER
 
-    idx% = HISTORY_begin_record%(HISTORY_KIND_FILL, HISTORY_EXPORT_RASTER, label$)
+    idx% = HISTORY_begin_record%(HISTORY_KIND_FILL, HISTORY_EXPORT_EXPANDED, label$)
     IF idx% = 0 THEN
         IF beforeImg& < -1 THEN _FREEIMAGE beforeImg&
         EXIT SUB
@@ -588,6 +638,8 @@ SUB HISTORY_record_fill (layerId AS LONG, layerSlot AS INTEGER, drawColor AS _UN
     HISTORY_RECORDS(idx%).slotIndex% = layerSlot%
     HISTORY_RECORDS(idx%).colorFG~& = drawColor~&
     HISTORY_RECORDS(idx%).flags& = flags&
+    HISTORY_RECORDS(idx%).x1% = seedX%
+    HISTORY_RECORDS(idx%).y1% = seedY%
     HISTORY_RECORDS(idx%).img& = beforeImg&
     HISTORY_store_after_image idx%, layerSlot%
     HISTORY_commit_record idx%
@@ -596,7 +648,7 @@ END SUB
 SUB HISTORY_record_brush (layerId AS LONG, layerSlot AS INTEGER, drawColor AS _UNSIGNED LONG, flags AS LONG, beforeImg AS LONG, label AS STRING)
     DIM idx AS INTEGER
 
-    idx% = HISTORY_begin_record%(HISTORY_KIND_BRUSH, HISTORY_EXPORT_RASTER, label$)
+    idx% = HISTORY_begin_record%(HISTORY_KIND_BRUSH, HISTORY_EXPORT_EXPANDED, label$)
     IF idx% = 0 THEN
         IF beforeImg& < -1 THEN _FREEIMAGE beforeImg&
         EXIT SUB
@@ -652,6 +704,8 @@ SUB HISTORY_save_binary (fh AS INTEGER, canvasW AS LONG, canvasH AS LONG)
     DIM hasImage AS INTEGER
     DIM c AS _UNSIGNED LONG
     DIM oldSrc AS LONG
+    DIM payloadChar AS STRING * 1
+    DIM payloadIndex AS LONG
 
     PUT #fh%, , NEXT_LAYER_HISTORY_ID&
     PUT #fh%, , HISTORY.count%
@@ -714,10 +768,18 @@ SUB HISTORY_save_binary (fh AS INTEGER, canvasW AS LONG, canvasH AS LONG)
             NEXT y&
             _SOURCE oldSrc&
         END IF
+
+        PUT #fh%, , HISTORY_RECORDS(i%).payloadLength&
+        IF HISTORY_RECORDS(i%).payloadLength& > 0 THEN
+            FOR payloadIndex& = 1 TO HISTORY_RECORDS(i%).payloadLength&
+                payloadChar$ = MID$(HISTORY_PAYLOADS(i%), payloadIndex&, 1)
+                PUT #fh%, , payloadChar$
+            NEXT payloadIndex&
+        END IF
     NEXT i%
 END SUB
 
-SUB HISTORY_load_binary (fh AS INTEGER, canvasW AS LONG, canvasH AS LONG)
+SUB HISTORY_load_binary (fh AS INTEGER, canvasW AS LONG, canvasH AS LONG, formatVersion AS INTEGER)
     DIM i AS INTEGER, x AS LONG, y AS LONG
     DIM savedCount AS INTEGER
     DIM savedCurrent AS INTEGER
@@ -725,6 +787,8 @@ SUB HISTORY_load_binary (fh AS INTEGER, canvasW AS LONG, canvasH AS LONG)
     DIM hasImage AS INTEGER
     DIM c AS _UNSIGNED LONG
     DIM oldDest AS LONG
+    DIM payloadChar AS STRING * 1
+    DIM payloadIndex AS LONG
 
     HISTORY_clear
 
@@ -812,6 +876,20 @@ SUB HISTORY_load_binary (fh AS INTEGER, canvasW AS LONG, canvasH AS LONG)
                 NEXT y&
             END IF
         END IF
+
+        HISTORY_PAYLOADS(i%) = ""
+        IF formatVersion% >= 9 THEN
+            GET #fh%, , HISTORY_RECORDS(i%).payloadLength&
+            IF HISTORY_RECORDS(i%).payloadLength& > 0 THEN
+                HISTORY_PAYLOADS(i%) = SPACE$(HISTORY_RECORDS(i%).payloadLength&)
+                FOR payloadIndex& = 1 TO HISTORY_RECORDS(i%).payloadLength&
+                    GET #fh%, , payloadChar$
+                    MID$(HISTORY_PAYLOADS(i%), payloadIndex&, 1) = payloadChar$
+                NEXT payloadIndex&
+            END IF
+        ELSE
+            HISTORY_RECORDS(i%).payloadLength& = 0
+        END IF
     NEXT i%
 
     HISTORY.count% = savedCount%
@@ -824,6 +902,7 @@ SUB HISTORY_load_binary (fh AS INTEGER, canvasW AS LONG, canvasH AS LONG)
     IF NEXT_LAYER_HISTORY_ID& < 1 THEN NEXT_LAYER_HISTORY_ID& = 1
     HISTORY.recording% = FALSE
     HISTORY_IN_PROGRESS% = FALSE
+    FILE_BAS_wip_rebuild_from_history
 END SUB
 
 SUB HISTORY_undo ()
@@ -867,6 +946,7 @@ SUB HISTORY_undo ()
     GUI_NEEDS_REDRAW% = TRUE
     SCENE_DIRTY% = TRUE
     FRAME_IDLE% = FALSE
+    FILE_BAS_wip_rebuild_from_history
 END SUB
 
 SUB HISTORY_redo ()
@@ -910,4 +990,5 @@ SUB HISTORY_redo ()
     GUI_NEEDS_REDRAW% = TRUE
     SCENE_DIRTY% = TRUE
     FRAME_IDLE% = FALSE
+    FILE_BAS_wip_rebuild_from_history
 END SUB

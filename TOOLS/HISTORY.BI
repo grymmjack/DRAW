@@ -80,6 +80,7 @@ END TYPE
 
 DIM SHARED HISTORY AS HISTORY_SYSTEM
 DIM SHARED HISTORY_RECORDS(1 TO HISTORY_MAX_RECORDS) AS HISTORY_RECORD
+DIM SHARED HISTORY_PAYLOADS(1 TO HISTORY_MAX_RECORDS) AS STRING
 DIM SHARED HISTORY_IN_PROGRESS AS INTEGER
 DIM SHARED HISTORY_GROUP_ACTIVE AS INTEGER
 DIM SHARED HISTORY_GROUP_SEQUENCE AS LONG
@@ -95,6 +96,9 @@ DECLARE SUB HISTORY_end_group ()
 DECLARE FUNCTION HISTORY_begin_record% (kind AS INTEGER, exportKind AS INTEGER, label AS STRING)
 DECLARE SUB HISTORY_commit_record (recordIndex AS INTEGER)
 DECLARE SUB HISTORY_cancel_record (recordIndex AS INTEGER)
+DECLARE FUNCTION HISTORY_text_payload$ (lineCount AS INTEGER)
+DECLARE FUNCTION HISTORY_polyline_payload$ (pointCount AS INTEGER, pointsX() AS INTEGER, pointsY() AS INTEGER)
+DECLARE SUB HISTORY_set_payload (recordIndex AS INTEGER, payload AS STRING, payloadMeta AS LONG)
 DECLARE SUB HISTORY_record_layer_add (layerId AS LONG, layerSlot AS INTEGER, zIndex AS INTEGER, label AS STRING)
 DECLARE SUB HISTORY_record_layer_delete (layerId AS LONG, layerSlot AS INTEGER, zIndex AS INTEGER, label AS STRING)
 DECLARE SUB HISTORY_record_layer_reorder (layerId AS LONG, layerSlot AS INTEGER, oldZIndex AS INTEGER, newZIndex AS INTEGER, label AS STRING)
@@ -102,12 +106,12 @@ DECLARE SUB HISTORY_record_layer_rename (layerId AS LONG, oldName AS STRING, new
 DECLARE SUB HISTORY_record_line (layerId AS LONG, layerSlot AS INTEGER, x1 AS INTEGER, y1 AS INTEGER, x2 AS INTEGER, y2 AS INTEGER, drawColor AS _UNSIGNED LONG, flags AS LONG, beforeImg AS LONG, label AS STRING)
 DECLARE SUB HISTORY_record_rect (layerId AS LONG, layerSlot AS INTEGER, x1 AS INTEGER, y1 AS INTEGER, x2 AS INTEGER, y2 AS INTEGER, drawColor AS _UNSIGNED LONG, flags AS LONG, beforeImg AS LONG, label AS STRING)
 DECLARE SUB HISTORY_record_ellipse (layerId AS LONG, layerSlot AS INTEGER, x1 AS INTEGER, y1 AS INTEGER, x2 AS INTEGER, y2 AS INTEGER, drawColor AS _UNSIGNED LONG, flags AS LONG, beforeImg AS LONG, label AS STRING)
-DECLARE SUB HISTORY_record_polyline (layerId AS LONG, layerSlot AS INTEGER, drawColor AS _UNSIGNED LONG, flags AS LONG, beforeImg AS LONG, label AS STRING)
-DECLARE SUB HISTORY_record_fill (layerId AS LONG, layerSlot AS INTEGER, drawColor AS _UNSIGNED LONG, flags AS LONG, beforeImg AS LONG, label AS STRING)
+DECLARE SUB HISTORY_record_polyline (layerId AS LONG, layerSlot AS INTEGER, drawColor AS _UNSIGNED LONG, flags AS LONG, beforeImg AS LONG, pointCount AS INTEGER, pointsX() AS INTEGER, pointsY() AS INTEGER, label AS STRING)
+DECLARE SUB HISTORY_record_fill (layerId AS LONG, layerSlot AS INTEGER, drawColor AS _UNSIGNED LONG, flags AS LONG, beforeImg AS LONG, seedX AS INTEGER, seedY AS INTEGER, label AS STRING)
 DECLARE SUB HISTORY_record_brush (layerId AS LONG, layerSlot AS INTEGER, drawColor AS _UNSIGNED LONG, flags AS LONG, beforeImg AS LONG, label AS STRING)
 DECLARE SUB HISTORY_record_transform (layerId AS LONG, layerSlot AS INTEGER, flags AS LONG, beforeImg AS LONG, label AS STRING)
 DECLARE SUB HISTORY_refresh_layer_add_snapshot (layerId AS LONG)
 DECLARE SUB HISTORY_save_binary (fh AS INTEGER, canvasW AS LONG, canvasH AS LONG)
-DECLARE SUB HISTORY_load_binary (fh AS INTEGER, canvasW AS LONG, canvasH AS LONG)
+DECLARE SUB HISTORY_load_binary (fh AS INTEGER, canvasW AS LONG, canvasH AS LONG, formatVersion AS INTEGER)
 DECLARE SUB HISTORY_undo ()
 DECLARE SUB HISTORY_redo ()

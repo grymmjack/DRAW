@@ -8,6 +8,60 @@
 '
 $INCLUDEONCE
 
+DIM SHARED FILE_BAS_WIP_PATH AS STRING
+
+FUNCTION FILE_BAS_base_name_without_ext$ (path AS STRING)
+	DIM baseName AS STRING
+	DIM i AS INTEGER
+
+	baseName$ = path$
+	FOR i% = LEN(baseName$) TO 1 STEP -1
+		IF MID$(baseName$, i%, 1) = "/" OR MID$(baseName$, i%, 1) = "\" THEN
+			baseName$ = MID$(baseName$, i% + 1)
+			EXIT FOR
+		END IF
+	NEXT i%
+	FOR i% = LEN(baseName$) TO 1 STEP -1
+		IF MID$(baseName$, i%, 1) = "." THEN
+			baseName$ = LEFT$(baseName$, i% - 1)
+			EXIT FOR
+		END IF
+	NEXT i%
+	IF LEN(baseName$) = 0 THEN baseName$ = "draw"
+	FILE_BAS_base_name_without_ext$ = baseName$
+END FUNCTION
+
+FUNCTION FILE_BAS_wip_target_path$ ()
+	DIM sourcePath AS STRING
+	DIM baseDir AS STRING
+	DIM baseName AS STRING
+
+	sourcePath$ = ""
+	baseDir$ = ""
+	baseName$ = "draw"
+
+	IF CURRENT_DRW_FILENAME$ <> "" THEN
+		sourcePath$ = CURRENT_DRW_FILENAME$
+	ELSEIF CURRENT_FILENAME$ <> "" THEN
+		sourcePath$ = CURRENT_FILENAME$
+	END IF
+
+	IF sourcePath$ <> "" THEN
+		baseDir$ = CONFIG_extract_dir$(sourcePath$)
+		baseName$ = FILE_BAS_base_name_without_ext$(sourcePath$)
+	ELSEIF CFG.LAST_DIR_SAVE$ <> "" THEN
+		baseDir$ = CFG.LAST_DIR_SAVE$
+	ELSEIF LAST_DIRECTORY$ <> "" THEN
+		baseDir$ = LAST_DIRECTORY$
+	END IF
+
+	IF LEN(baseDir$) > 0 THEN
+		FILE_BAS_wip_target_path$ = baseDir$ + "/" + baseName$ + "-wip.bas"
+	ELSE
+		FILE_BAS_wip_target_path$ = baseName$ + "-wip.bas"
+	END IF
+END FUNCTION
+
 FUNCTION FILE_BAS_escape$ (s AS STRING)
 	DIM escapedText AS STRING
 	DIM i AS INTEGER
@@ -45,10 +99,6 @@ FUNCTION FILE_BAS_kind_name$ (kind AS INTEGER)
 	END SELECT
 END FUNCTION
 
-FUNCTION FILE_BAS_ulong_literal$ (value AS _UNSIGNED LONG)
-	FILE_BAS_ulong_literal$ = "&H" + HEX$(value~&) + "~&"
-END FUNCTION
-
 FUNCTION FILE_BAS_color_expr$ (col AS _UNSIGNED LONG)
 	IF _ALPHA32(col~&) < 255 THEN
 		FILE_BAS_color_expr$ = "_RGBA32(" + _TRIM$(STR$(_RED32(col~&))) + ", " + _TRIM$(STR$(_GREEN32(col~&))) + ", " + _TRIM$(STR$(_BLUE32(col~&))) + ", " + _TRIM$(STR$(_ALPHA32(col~&))) + ")"
@@ -68,51 +118,440 @@ FUNCTION FILE_BAS_is_direct_shape_exportable% (recordIndex AS INTEGER)
 	END SELECT
 END FUNCTION
 
-FUNCTION FILE_BAS_is_raster_fallback_exportable% (recordIndex AS INTEGER)
+FUNCTION FILE_BAS_is_expanded_exportable% (recordIndex AS INTEGER)
 	IF recordIndex% < 1 OR recordIndex% > HISTORY.count% THEN EXIT FUNCTION
 	IF HISTORY_RECORDS(recordIndex%).primaryLayerId& < 1 THEN EXIT FUNCTION
+	IF HISTORY_RECORDS(recordIndex%).img& >= -1 THEN EXIT FUNCTION
 	IF HISTORY_RECORDS(recordIndex%).img2& >= -1 THEN EXIT FUNCTION
 
 	SELECT CASE HISTORY_RECORDS(recordIndex%).kind%
 		CASE HISTORY_KIND_LINE, HISTORY_KIND_RECT, HISTORY_KIND_ELLIPSE, HISTORY_KIND_POLYLINE, HISTORY_KIND_FILL, HISTORY_KIND_BRUSH, HISTORY_KIND_TRANSFORM
-			FILE_BAS_is_raster_fallback_exportable% = TRUE
+			FILE_BAS_is_expanded_exportable% = TRUE
 	END SELECT
 END FUNCTION
 
-FUNCTION FILE_BAS_raster_label$ (recordIndex AS INTEGER)
-	FILE_BAS_raster_label$ = "RasterRecord" + _TRIM$(STR$(recordIndex%))
+SUB FILE_BAS_write_expanded_record_ops (fh AS INTEGER, recordIndex AS INTEGER, indent AS STRING)
+	DIM beforeMem AS _MEM
+	DIM afterMem AS _MEM
+	DIM width AS LONG, height AS LONG
+	DIM x AS LONG, y AS LONG
+	DIM runStart AS LONG, runEnd AS LONG
+	DIM beforeCol AS _UNSIGNED LONG
+	DIM afterCol AS _UNSIGNED LONG
+	DIM nextBeforeCol AS _UNSIGNED LONG
+	DIM nextAfterCol AS _UNSIGNED LONG
+	DIM rowOffset AS _OFFSET
+	DIM runColorExpr AS STRING
+	DIM layerId AS LONG
+	DIM emittedAny AS INTEGER
+
+	IF NOT FILE_BAS_is_expanded_exportable%(recordIndex%) THEN EXIT SUB
+
+	layerId& = HISTORY_RECORDS(recordIndex%).primaryLayerId&
+	width& = _WIDTH(HISTORY_RECORDS(recordIndex%).img2&)
+	height& = _HEIGHT(HISTORY_RECORDS(recordIndex%).img2&)
+	beforeMem = _MEMIMAGE(HISTORY_RECORDS(recordIndex%).img&)
+	afterMem = _MEMIMAGE(HISTORY_RECORDS(recordIndex%).img2&)
+	emittedAny% = FALSE
+
+	PRINT #fh%, indent$ + "' Expanded " + FILE_BAS_kind_name$(HISTORY_RECORDS(recordIndex%).kind%) + " seq " + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).sequence&))
+	PRINT #fh%, indent$ + "IF layerImg(" + _TRIM$(STR$(layerId&)) + ") < -1 THEN _DEST layerImg(" + _TRIM$(STR$(layerId&)) + "): _DONTBLEND layerImg(" + _TRIM$(STR$(layerId&)) + ")"
+
+	FOR y& = 0 TO height& - 1
+		rowOffset = y& * width& * 4
+		x& = 0
+		DO WHILE x& < width&
+			_MEMGET beforeMem, beforeMem.OFFSET + rowOffset + x& * 4, beforeCol~&
+			_MEMGET afterMem, afterMem.OFFSET + rowOffset + x& * 4, afterCol~&
+			IF beforeCol~& = afterCol~& THEN
+				x& = x& + 1
+				_CONTINUE
+			END IF
+
+			runStart& = x&
+			runEnd& = x&
+			DO WHILE runEnd& + 1 < width&
+				_MEMGET beforeMem, beforeMem.OFFSET + rowOffset + (runEnd& + 1) * 4, nextBeforeCol~&
+				_MEMGET afterMem, afterMem.OFFSET + rowOffset + (runEnd& + 1) * 4, nextAfterCol~&
+				IF nextBeforeCol~& = nextAfterCol~& THEN EXIT DO
+				IF nextAfterCol~& <> afterCol~& THEN EXIT DO
+				runEnd& = runEnd& + 1
+			LOOP
+
+			runColorExpr$ = FILE_BAS_color_expr$(afterCol~&)
+			IF runStart& = runEnd& THEN
+				PRINT #fh%, indent$ + "    PSET (" + _TRIM$(STR$(runStart&)) + ", " + _TRIM$(STR$(y&)) + "), " + runColorExpr$
+			ELSE
+				PRINT #fh%, indent$ + "    LINE (" + _TRIM$(STR$(runStart&)) + ", " + _TRIM$(STR$(y&)) + ")-(" + _TRIM$(STR$(runEnd&)) + ", " + _TRIM$(STR$(y&)) + "), " + runColorExpr$
+			END IF
+			emittedAny% = TRUE
+			x& = runEnd& + 1
+		LOOP
+	NEXT y&
+
+	IF NOT emittedAny% THEN PRINT #fh%, indent$ + "    ' No pixel delta for this record"
+	PRINT #fh%, indent$ + "    _BLEND layerImg(" + _TRIM$(STR$(layerId&)) + "): _DEST 0"
+
+	_MEMFREE beforeMem
+	_MEMFREE afterMem
+END SUB
+
+FUNCTION FILE_BAS_payload_segment$ (payload AS STRING, segmentIndex AS INTEGER)
+	DIM currentIndex AS INTEGER
+	DIM segmentStart AS LONG
+	DIM segmentEnd AS LONG
+
+	IF segmentIndex% < 0 THEN EXIT FUNCTION
+	segmentStart& = 1
+	FOR currentIndex% = 0 TO segmentIndex%
+		segmentEnd& = INSTR(segmentStart&, payload$, CHR$(30))
+		IF currentIndex% = segmentIndex% THEN EXIT FOR
+		IF segmentEnd& = 0 THEN EXIT FUNCTION
+		segmentStart& = segmentEnd& + 1
+	NEXT currentIndex%
+
+	IF segmentEnd& = 0 THEN segmentEnd& = LEN(payload$) + 1
+	FILE_BAS_payload_segment$ = MID$(payload$, segmentStart&, segmentEnd& - segmentStart&)
 END FUNCTION
 
-SUB FILE_BAS_write_raster_data (fh AS INTEGER, labelName AS STRING, imgHandle AS LONG)
-	DIM oldSrc AS LONG
-	DIM x AS LONG, y AS LONG
-	DIM col AS _UNSIGNED LONG
-	DIM itemsOnLine AS INTEGER
-	DIM dataLine AS STRING
+FUNCTION FILE_BAS_is_direct_fill_exportable% (recordIndex AS INTEGER)
+	DIM labelText AS STRING
 
-	IF imgHandle& >= -1 THEN EXIT SUB
+	IF HISTORY_RECORDS(recordIndex%).kind% <> HISTORY_KIND_FILL THEN EXIT FUNCTION
+	IF (HISTORY_RECORDS(recordIndex%).flags& AND HISTORY_FLAG_CLIPPED) <> 0 THEN EXIT FUNCTION
+	IF (HISTORY_RECORDS(recordIndex%).flags& AND HISTORY_FLAG_SYMMETRY) <> 0 THEN EXIT FUNCTION
+	labelText$ = UCASE$(RTRIM$(HISTORY_RECORDS(recordIndex%).label$))
+	IF labelText$ = "FILL CELL" THEN EXIT FUNCTION
+	IF labelText$ = "FILL MERGED" THEN EXIT FUNCTION
+	IF labelText$ = "WAND FILL" THEN EXIT FUNCTION
+	FILE_BAS_is_direct_fill_exportable% = TRUE
+END FUNCTION
 
-	PRINT #fh%, labelName$ + ":"
-	oldSrc& = _SOURCE
-	_SOURCE imgHandle&
-	itemsOnLine% = 0
-	dataLine$ = "DATA "
-	FOR y& = 0 TO _HEIGHT(imgHandle&) - 1
-		FOR x& = 0 TO _WIDTH(imgHandle&) - 1
-			col~& = POINT(x&, y&)
-			IF itemsOnLine% > 0 THEN dataLine$ = dataLine$ + ", "
-			dataLine$ = dataLine$ + FILE_BAS_ulong_literal$(col~&)
-			itemsOnLine% = itemsOnLine% + 1
-			IF itemsOnLine% >= 8 THEN
-				PRINT #fh%, dataLine$
-				dataLine$ = "DATA "
-				itemsOnLine% = 0
+FUNCTION FILE_BAS_is_direct_polyline_exportable% (recordIndex AS INTEGER)
+	IF HISTORY_RECORDS(recordIndex%).kind% <> HISTORY_KIND_POLYLINE THEN EXIT FUNCTION
+	IF HISTORY_RECORDS(recordIndex%).payloadOffset& < 2 THEN EXIT FUNCTION
+	IF LEN(HISTORY_PAYLOADS(recordIndex%)) = 0 THEN EXIT FUNCTION
+	IF (HISTORY_RECORDS(recordIndex%).flags& AND HISTORY_FLAG_CUSTOM_BRUSH) <> 0 THEN EXIT FUNCTION
+	IF (HISTORY_RECORDS(recordIndex%).flags& AND HISTORY_FLAG_THICK_BRUSH) <> 0 THEN EXIT FUNCTION
+	IF (HISTORY_RECORDS(recordIndex%).flags& AND HISTORY_FLAG_CLIPPED) <> 0 THEN EXIT FUNCTION
+	IF (HISTORY_RECORDS(recordIndex%).flags& AND HISTORY_FLAG_SYMMETRY) <> 0 THEN EXIT FUNCTION
+	FILE_BAS_is_direct_polyline_exportable% = TRUE
+END FUNCTION
+
+FUNCTION FILE_BAS_is_direct_text_exportable% (recordIndex AS INTEGER)
+	IF HISTORY_RECORDS(recordIndex%).kind% <> HISTORY_KIND_BRUSH THEN EXIT FUNCTION
+	IF UCASE$(RTRIM$(HISTORY_RECORDS(recordIndex%).label$)) <> "TEXT" THEN EXIT FUNCTION
+	IF LEN(HISTORY_PAYLOADS(recordIndex%)) = 0 THEN EXIT FUNCTION
+	IF HISTORY_RECORDS(recordIndex%).payloadOffset& = 2 THEN EXIT FUNCTION
+	IF (HISTORY_RECORDS(recordIndex%).flags& AND HISTORY_FLAG_CLIPPED) <> 0 THEN EXIT FUNCTION
+	FILE_BAS_is_direct_text_exportable% = TRUE
+END FUNCTION
+
+FUNCTION FILE_BAS_emit_mode% (recordIndex AS INTEGER)
+	SELECT CASE HISTORY_RECORDS(recordIndex%).kind%
+		CASE HISTORY_KIND_LAYER_ADD, HISTORY_KIND_LAYER_DELETE, HISTORY_KIND_LAYER_REORDER, HISTORY_KIND_LAYER_RENAME
+			FILE_BAS_emit_mode% = HISTORY_EXPORT_DIRECT
+		CASE HISTORY_KIND_LINE, HISTORY_KIND_RECT, HISTORY_KIND_ELLIPSE
+			IF FILE_BAS_is_direct_shape_exportable%(recordIndex%) THEN
+				FILE_BAS_emit_mode% = HISTORY_EXPORT_DIRECT
+			ELSEIF FILE_BAS_is_expanded_exportable%(recordIndex%) THEN
+				FILE_BAS_emit_mode% = HISTORY_EXPORT_EXPANDED
 			END IF
-		NEXT x&
-	NEXT y&
-	IF itemsOnLine% > 0 THEN PRINT #fh%, dataLine$
-	_SOURCE oldSrc&
+		CASE HISTORY_KIND_FILL
+			IF FILE_BAS_is_direct_fill_exportable%(recordIndex%) THEN
+				FILE_BAS_emit_mode% = HISTORY_EXPORT_DIRECT
+			ELSEIF FILE_BAS_is_expanded_exportable%(recordIndex%) THEN
+				FILE_BAS_emit_mode% = HISTORY_EXPORT_EXPANDED
+			END IF
+		CASE HISTORY_KIND_POLYLINE
+			IF FILE_BAS_is_direct_polyline_exportable%(recordIndex%) THEN
+				FILE_BAS_emit_mode% = HISTORY_EXPORT_DIRECT
+			ELSEIF FILE_BAS_is_expanded_exportable%(recordIndex%) THEN
+				FILE_BAS_emit_mode% = HISTORY_EXPORT_EXPANDED
+			END IF
+		CASE HISTORY_KIND_BRUSH
+			IF FILE_BAS_is_direct_text_exportable%(recordIndex%) THEN
+				FILE_BAS_emit_mode% = HISTORY_EXPORT_DIRECT
+			ELSEIF FILE_BAS_is_expanded_exportable%(recordIndex%) THEN
+				FILE_BAS_emit_mode% = HISTORY_EXPORT_EXPANDED
+			END IF
+		CASE HISTORY_KIND_TRANSFORM
+			FILE_BAS_emit_mode% = HISTORY_EXPORT_NONE
+	END SELECT
+END FUNCTION
+
+FUNCTION FILE_BAS_point_in_polygon% (testX AS INTEGER, testY AS INTEGER, pointCount AS INTEGER, polyX() AS INTEGER, polyY() AS INTEGER)
+	DIM i AS INTEGER
+	DIM j AS INTEGER
+	DIM inside AS INTEGER
+
+	IF pointCount% < 3 THEN EXIT FUNCTION
+	inside% = FALSE
+	j% = pointCount% - 1
+	FOR i% = 0 TO pointCount% - 1
+		IF ((polyY(i%) > testY%) <> (polyY(j%) > testY%)) THEN
+			IF testX% < (polyX(j%) - polyX(i%)) * (testY% - polyY(i%)) / (polyY(j%) - polyY(i%)) + polyX(i%) THEN
+				inside% = NOT inside%
+			END IF
+		END IF
+		j% = i%
+	NEXT i%
+	FILE_BAS_point_in_polygon% = inside%
+END FUNCTION
+
+SUB FILE_BAS_write_direct_fill_ops (fh AS INTEGER, recordIndex AS INTEGER, indent AS STRING)
+	DIM colorExpr AS STRING
+	DIM layerId AS LONG
+
+	layerId& = HISTORY_RECORDS(recordIndex%).primaryLayerId&
+	colorExpr$ = FILE_BAS_color_expr$(HISTORY_RECORDS(recordIndex%).colorFG~&)
+	IF HISTORY_RECORDS(recordIndex%).x1% = -32768 AND HISTORY_RECORDS(recordIndex%).y1% = -32768 THEN
+		PRINT #fh%, indent$ + "IF layerImg(" + _TRIM$(STR$(layerId&)) + ") < -1 THEN _DEST layerImg(" + _TRIM$(STR$(layerId&)) + "): CLS , " + colorExpr$ + ": _DEST 0"
+	ELSE
+		PRINT #fh%, indent$ + "IF layerImg(" + _TRIM$(STR$(layerId&)) + ") < -1 THEN _DEST layerImg(" + _TRIM$(STR$(layerId&)) + "): PAINT (" + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).x1%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).y1%)) + "), " + colorExpr$ + ": _DEST 0"
+	END IF
+END SUB
+
+SUB FILE_BAS_write_direct_text_ops (fh AS INTEGER, recordIndex AS INTEGER, indent AS STRING)
+	DIM lineIndex AS INTEGER
+	DIM payload AS STRING
+	DIM lineText AS STRING
+	DIM yPos AS INTEGER
+	DIM layerId AS LONG
+
+	payload$ = HISTORY_PAYLOADS(recordIndex%)
+	layerId& = HISTORY_RECORDS(recordIndex%).primaryLayerId&
+	IF HISTORY_RECORDS(recordIndex%).payloadOffset& = 1 THEN
+		PRINT #fh%, indent$ + "' Tiny5 text replay uses the current runtime font"
+	END IF
+	PRINT #fh%, indent$ + "IF layerImg(" + _TRIM$(STR$(layerId&)) + ") < -1 THEN"
+	PRINT #fh%, indent$ + "    _DEST layerImg(" + _TRIM$(STR$(layerId&)) + ")"
+	FOR lineIndex% = 0 TO HISTORY_RECORDS(recordIndex%).w% - 1
+		lineText$ = FILE_BAS_payload_segment$(payload$, lineIndex%)
+		yPos% = HISTORY_RECORDS(recordIndex%).y1% + lineIndex% * HISTORY_RECORDS(recordIndex%).h%
+		PRINT #fh%, indent$ + "    _PRINTSTRING (" + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).x1%)) + ", " + _TRIM$(STR$(yPos%)) + "), " + CHR$(34) + FILE_BAS_escape$(lineText$) + CHR$(34)
+	NEXT lineIndex%
+	PRINT #fh%, indent$ + "    _DEST 0"
+	PRINT #fh%, indent$ + "END IF"
+END SUB
+
+SUB FILE_BAS_write_direct_polyline_ops (fh AS INTEGER, recordIndex AS INTEGER, indent AS STRING)
+	DIM pointCount AS INTEGER
+	DIM payload AS STRING
+	DIM polyX() AS INTEGER
+	DIM polyY() AS INTEGER
+	DIM i AS INTEGER
+	DIM segmentText AS STRING
+	DIM commaPos AS LONG
+	DIM minX AS INTEGER, minY AS INTEGER, maxX AS INTEGER, maxY AS INTEGER
+	DIM seedX AS INTEGER, seedY AS INTEGER
+	DIM foundSeed AS INTEGER
+	DIM colorExpr AS STRING
+	DIM layerId AS LONG
+
+	pointCount% = HISTORY_RECORDS(recordIndex%).payloadOffset&
+	IF pointCount% < 2 THEN EXIT SUB
+	payload$ = HISTORY_PAYLOADS(recordIndex%)
+	REDIM polyX(0 TO pointCount% - 1) AS INTEGER
+	REDIM polyY(0 TO pointCount% - 1) AS INTEGER
+	FOR i% = 0 TO pointCount% - 1
+		segmentText$ = FILE_BAS_payload_segment$(payload$, i%)
+		commaPos& = INSTR(segmentText$, ",")
+		IF commaPos& > 0 THEN
+			polyX(i%) = VAL(LEFT$(segmentText$, commaPos& - 1))
+			polyY(i%) = VAL(MID$(segmentText$, commaPos& + 1))
+		END IF
+	NEXT i%
+	colorExpr$ = FILE_BAS_color_expr$(HISTORY_RECORDS(recordIndex%).colorFG~&)
+	layerId& = HISTORY_RECORDS(recordIndex%).primaryLayerId&
+	PRINT #fh%, indent$ + "IF layerImg(" + _TRIM$(STR$(layerId&)) + ") < -1 THEN"
+	PRINT #fh%, indent$ + "    _DEST layerImg(" + _TRIM$(STR$(layerId&)) + ")"
+	FOR i% = 1 TO pointCount% - 1
+		PRINT #fh%, indent$ + "    LINE (" + _TRIM$(STR$(polyX(i% - 1))) + ", " + _TRIM$(STR$(polyY(i% - 1))) + ")-(" + _TRIM$(STR$(polyX(i%))) + ", " + _TRIM$(STR$(polyY(i%))) + "), " + colorExpr$
+	NEXT i%
+	IF (HISTORY_RECORDS(recordIndex%).flags& AND HISTORY_FLAG_FILLED) <> 0 THEN
+		PRINT #fh%, indent$ + "    LINE (" + _TRIM$(STR$(polyX(pointCount% - 1))) + ", " + _TRIM$(STR$(polyY(pointCount% - 1))) + ")-(" + _TRIM$(STR$(polyX(0))) + ", " + _TRIM$(STR$(polyY(0))) + "), " + colorExpr$
+		minX% = polyX(0): maxX% = polyX(0): minY% = polyY(0): maxY% = polyY(0)
+		FOR i% = 1 TO pointCount% - 1
+			IF polyX(i%) < minX% THEN minX% = polyX(i%)
+			IF polyX(i%) > maxX% THEN maxX% = polyX(i%)
+			IF polyY(i%) < minY% THEN minY% = polyY(i%)
+			IF polyY(i%) > maxY% THEN maxY% = polyY(i%)
+		NEXT i%
+		foundSeed% = FALSE
+		FOR seedY% = minY% TO maxY%
+			FOR seedX% = minX% TO maxX%
+				IF FILE_BAS_point_in_polygon%(seedX%, seedY%, pointCount%, polyX%(), polyY%()) THEN
+					foundSeed% = TRUE
+					EXIT FOR
+				END IF
+			NEXT seedX%
+			IF foundSeed% THEN EXIT FOR
+		NEXT seedY%
+		IF foundSeed% THEN
+			PRINT #fh%, indent$ + "    PAINT (" + _TRIM$(STR$(seedX%)) + ", " + _TRIM$(STR$(seedY%)) + "), " + colorExpr$ + ", " + colorExpr$
+		ELSE
+			PRINT #fh%, indent$ + "    ' Unable to find polygon interior seed for PAINT"
+		END IF
+	END IF
+	PRINT #fh%, indent$ + "    _DEST 0"
+	PRINT #fh%, indent$ + "END IF"
+END SUB
+
+SUB FILE_BAS_write_record_ops (fh AS INTEGER, recordIndex AS INTEGER, indent AS STRING, includeSeqComment AS INTEGER)
+	DIM colorExpr AS STRING
+	DIM rectModeText AS STRING
+	DIM oldNameText AS STRING
+	DIM newNameText AS STRING
+	DIM labelText AS STRING
+
+	labelText$ = RTRIM$(HISTORY_RECORDS(recordIndex%).label$)
+	IF includeSeqComment% THEN
+		PRINT #fh%, indent$ + "' seq " + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).sequence&)) + " " + FILE_BAS_kind_name$(HISTORY_RECORDS(recordIndex%).kind%) + " " + labelText$
+	END IF
+
+	SELECT CASE HISTORY_RECORDS(recordIndex%).kind%
+		CASE HISTORY_KIND_LAYER_ADD, HISTORY_KIND_LAYER_DELETE, HISTORY_KIND_LAYER_REORDER, HISTORY_KIND_LAYER_RENAME
+			oldNameText$ = FILE_BAS_escape$(RTRIM$(HISTORY_RECORDS(recordIndex%).oldName$))
+			newNameText$ = FILE_BAS_escape$(RTRIM$(HISTORY_RECORDS(recordIndex%).newName$))
+			SELECT CASE HISTORY_RECORDS(recordIndex%).kind%
+				CASE HISTORY_KIND_LAYER_ADD
+					PRINT #fh%, indent$ + "CreateLayer " + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).primaryLayerId&)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).newZIndex%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).oldVisible%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).oldOpacity%)) + ", " + CHR$(34) + oldNameText$ + CHR$(34)
+				CASE HISTORY_KIND_LAYER_DELETE
+					PRINT #fh%, indent$ + "DeleteLayer " + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).primaryLayerId&))
+				CASE HISTORY_KIND_LAYER_REORDER
+					PRINT #fh%, indent$ + "MoveLayerToZ " + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).primaryLayerId&)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).newZIndex%))
+				CASE HISTORY_KIND_LAYER_RENAME
+					PRINT #fh%, indent$ + "IF " + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).primaryLayerId&)) + " >= 1 AND " + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).primaryLayerId&)) + " <= MAX_LAYER_ID THEN layerName(" + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).primaryLayerId&)) + ") = " + CHR$(34) + newNameText$ + CHR$(34)
+			END SELECT
+		CASE HISTORY_KIND_LINE
+			IF FILE_BAS_is_direct_shape_exportable%(recordIndex%) THEN
+				colorExpr$ = FILE_BAS_color_expr$(HISTORY_RECORDS(recordIndex%).colorFG~&)
+				PRINT #fh%, indent$ + "IF layerImg(" + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).primaryLayerId&)) + ") < -1 THEN _DEST layerImg(" + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).primaryLayerId&)) + "): LINE (" + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).x1%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).y1%)) + ")-(" + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).x2%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).y2%)) + "), " + colorExpr$ + ": _DEST 0"
+			ELSEIF FILE_BAS_is_expanded_exportable%(recordIndex%) THEN
+				FILE_BAS_write_expanded_record_ops fh%, recordIndex%, indent$
+			ELSE
+				PRINT #fh%, indent$ + "' skipped unsupported line flags=" + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).flags&))
+			END IF
+		CASE HISTORY_KIND_RECT
+			IF FILE_BAS_is_direct_shape_exportable%(recordIndex%) THEN
+				colorExpr$ = FILE_BAS_color_expr$(HISTORY_RECORDS(recordIndex%).colorFG~&)
+				rectModeText$ = "B"
+				IF (HISTORY_RECORDS(recordIndex%).flags& AND HISTORY_FLAG_FILLED) <> 0 THEN rectModeText$ = "BF"
+				PRINT #fh%, indent$ + "IF layerImg(" + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).primaryLayerId&)) + ") < -1 THEN _DEST layerImg(" + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).primaryLayerId&)) + "): LINE (" + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).x1%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).y1%)) + ")-(" + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).x2%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).y2%)) + "), " + colorExpr$ + ", " + rectModeText$ + ": _DEST 0"
+			ELSEIF FILE_BAS_is_expanded_exportable%(recordIndex%) THEN
+				FILE_BAS_write_expanded_record_ops fh%, recordIndex%, indent$
+			ELSE
+				PRINT #fh%, indent$ + "' skipped unsupported rect flags=" + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).flags&))
+			END IF
+		CASE HISTORY_KIND_ELLIPSE
+			IF FILE_BAS_is_direct_shape_exportable%(recordIndex%) THEN
+				colorExpr$ = FILE_BAS_color_expr$(HISTORY_RECORDS(recordIndex%).colorFG~&)
+				IF (HISTORY_RECORDS(recordIndex%).flags& AND HISTORY_FLAG_FILLED) <> 0 THEN
+					PRINT #fh%, indent$ + "DrawFilledEllipse " + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).x1%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).y1%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).x2%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).y2%)) + ", " + colorExpr$ + ", " + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).primaryLayerId&))
+				ELSE
+					PRINT #fh%, indent$ + "IF layerImg(" + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).primaryLayerId&)) + ") < -1 THEN _DEST layerImg(" + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).primaryLayerId&)) + "): CIRCLE ((" + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).x1%)) + " + " + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).x2%)) + ") \ 2, (" + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).y1%)) + " + " + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).y2%)) + ") \ 2), ABS(" + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).x2%)) + " - " + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).x1%)) + ") / 2, " + colorExpr$ + ", , , ABS(" + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).y2%)) + " - " + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).y1%)) + ") / ABS(" + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).x2%)) + " - " + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).x1%)) + "): _DEST 0"
+				END IF
+			ELSEIF FILE_BAS_is_expanded_exportable%(recordIndex%) THEN
+				FILE_BAS_write_expanded_record_ops fh%, recordIndex%, indent$
+			ELSE
+				PRINT #fh%, indent$ + "' skipped unsupported ellipse flags=" + _TRIM$(STR$(HISTORY_RECORDS(recordIndex%).flags&))
+			END IF
+		CASE HISTORY_KIND_FILL
+			IF FILE_BAS_is_direct_fill_exportable%(recordIndex%) THEN
+				FILE_BAS_write_direct_fill_ops fh%, recordIndex%, indent$
+			ELSEIF FILE_BAS_is_expanded_exportable%(recordIndex%) THEN
+				FILE_BAS_write_expanded_record_ops fh%, recordIndex%, indent$
+			ELSE
+				PRINT #fh%, indent$ + "' skipped unsupported fill"
+			END IF
+		CASE HISTORY_KIND_POLYLINE
+			IF FILE_BAS_is_direct_polyline_exportable%(recordIndex%) THEN
+				FILE_BAS_write_direct_polyline_ops fh%, recordIndex%, indent$
+			ELSEIF FILE_BAS_is_expanded_exportable%(recordIndex%) THEN
+				FILE_BAS_write_expanded_record_ops fh%, recordIndex%, indent$
+			ELSE
+				PRINT #fh%, indent$ + "' skipped unsupported polyline"
+			END IF
+		CASE HISTORY_KIND_BRUSH
+			IF FILE_BAS_is_direct_text_exportable%(recordIndex%) THEN
+				FILE_BAS_write_direct_text_ops fh%, recordIndex%, indent$
+			ELSEIF FILE_BAS_is_expanded_exportable%(recordIndex%) THEN
+				FILE_BAS_write_expanded_record_ops fh%, recordIndex%, indent$
+			ELSE
+				PRINT #fh%, indent$ + "' skipped unsupported brush"
+			END IF
+		CASE HISTORY_KIND_TRANSFORM
+			PRINT #fh%, indent$ + "' skipped transform replay"
+		CASE ELSE
+			PRINT #fh%, indent$ + "' skipped non-drawing history record"
+	END SELECT
+END SUB
+
+SUB FILE_BAS_wip_rebuild_from_history ()
+	DIM i AS INTEGER
+
+	FILE_BAS_wip_reset
+	FOR i% = 1 TO HISTORY.current%
+		FILE_BAS_wip_append_record i%
+	NEXT i%
+END SUB
+
+SUB FILE_BAS_write_wip_header (fh AS INTEGER)
+	PRINT #fh%, "' DRAW - Live WIP BAS Stream"
+	PRINT #fh%, "' Regenerated whenever history is cleared. New records append below."
+	PRINT #fh%, "' Source project generated by DRAW " + APP_VERSION$
+	PRINT #fh%, "' Tail this file while drawing to watch emitted BASIC."
 	PRINT #fh%, ""
+	PRINT #fh%, "OPTION _EXPLICIT"
+	PRINT #fh%, ""
+	PRINT #fh%, "CONST CANVAS_W = " + _TRIM$(STR$(SCRN.canvasW&))
+	PRINT #fh%, "CONST CANVAS_H = " + _TRIM$(STR$(SCRN.canvasH&))
+	PRINT #fh%, "CONST MAX_LAYER_ID = 64"
+	PRINT #fh%, "DIM SHARED layerImg(1 TO MAX_LAYER_ID) AS LONG"
+	PRINT #fh%, ""
+	PRINT #fh%, "SCREEN _NEWIMAGE(CANVAS_W, CANVAS_H, 32)"
+	PRINT #fh%, "CLS , _RGBA32(0, 0, 0, 0)"
+	PRINT #fh%, "InitWipLayers"
+	PRINT #fh%, ""
+	PRINT #fh%, "SUB InitWipLayers ()"
+	PRINT #fh%, "    DIM i AS INTEGER"
+	PRINT #fh%, "    FOR i = 1 TO MAX_LAYER_ID"
+	PRINT #fh%, "        layerImg(i) = _NEWIMAGE(CANVAS_W, CANVAS_H, 32)"
+	PRINT #fh%, "        IF layerImg(i) < -1 THEN"
+	PRINT #fh%, "            _DEST layerImg(i)"
+	PRINT #fh%, "            CLS , _RGBA32(0, 0, 0, 0)"
+	PRINT #fh%, "        END IF"
+	PRINT #fh%, "    NEXT i"
+	PRINT #fh%, "    _DEST 0"
+	PRINT #fh%, "END SUB"
+	PRINT #fh%, ""
+	PRINT #fh%, "' --- appended drawing ops ---"
+END SUB
+
+SUB FILE_BAS_wip_reset ()
+	DIM fh AS INTEGER
+
+	FILE_BAS_WIP_PATH = FILE_BAS_wip_target_path$
+	fh% = FREEFILE
+	OPEN FILE_BAS_WIP_PATH FOR OUTPUT AS #fh%
+	FILE_BAS_write_wip_header fh%
+	CLOSE #fh%
+	_LOGINFO "FILE_BAS_wip_reset: Reset WIP BAS stream at " + FILE_BAS_WIP_PATH
+END SUB
+
+SUB FILE_BAS_wip_append_record (recordIndex AS INTEGER)
+	DIM fh AS INTEGER
+
+	IF recordIndex% < 1 OR recordIndex% > HISTORY.count% THEN EXIT SUB
+	IF FILE_BAS_WIP_PATH = "" THEN FILE_BAS_wip_reset
+
+	fh% = FREEFILE
+	OPEN FILE_BAS_WIP_PATH FOR APPEND AS #fh%
+	PRINT #fh%, ""
+	FILE_BAS_write_record_ops fh%, recordIndex%, "", TRUE
+
+	CLOSE #fh%
 END SUB
 
 SUB FILE_BAS_export_dialog ()
@@ -167,38 +606,22 @@ SUB FILE_BAS_export (filename AS STRING)
 	DIM fh AS INTEGER
 	DIM i AS INTEGER
 	DIM supportedCount AS INTEGER
-	DIM rasterFallbackCount AS INTEGER
+	DIM expandedCount AS INTEGER
 	DIM unsupportedCount AS INTEGER
-	DIM colorExpr AS STRING
 	DIM maxLayerId AS LONG
-	DIM oldNameText AS STRING
-	DIM newNameText AS STRING
-	DIM rectModeText AS STRING
+	DIM emitMode AS INTEGER
 
 	FOR i% = 1 TO HISTORY.count%
 		IF HISTORY_RECORDS(i%).primaryLayerId& > maxLayerId& THEN maxLayerId& = HISTORY_RECORDS(i%).primaryLayerId&
-		SELECT CASE HISTORY_RECORDS(i%).kind%
-			CASE HISTORY_KIND_LAYER_ADD, HISTORY_KIND_LAYER_DELETE, HISTORY_KIND_LAYER_REORDER, HISTORY_KIND_LAYER_RENAME
-				supportedCount% = supportedCount% + 1
-			CASE HISTORY_KIND_LINE, HISTORY_KIND_RECT, HISTORY_KIND_ELLIPSE
-				IF FILE_BAS_is_direct_shape_exportable%(i%) THEN
-					supportedCount% = supportedCount% + 1
-				ELSEIF FILE_BAS_is_raster_fallback_exportable%(i%) THEN
-					supportedCount% = supportedCount% + 1
-					rasterFallbackCount% = rasterFallbackCount% + 1
-				ELSE
-					unsupportedCount% = unsupportedCount% + 1
-				END IF
-			CASE HISTORY_KIND_POLYLINE, HISTORY_KIND_FILL, HISTORY_KIND_BRUSH, HISTORY_KIND_TRANSFORM
-				IF FILE_BAS_is_raster_fallback_exportable%(i%) THEN
-					supportedCount% = supportedCount% + 1
-					rasterFallbackCount% = rasterFallbackCount% + 1
-				ELSE
-					unsupportedCount% = unsupportedCount% + 1
-				END IF
-			CASE ELSE
-				unsupportedCount% = unsupportedCount% + 1
-		END SELECT
+		emitMode% = FILE_BAS_emit_mode%(i%)
+		IF emitMode% = HISTORY_EXPORT_DIRECT THEN
+			supportedCount% = supportedCount% + 1
+		ELSEIF emitMode% = HISTORY_EXPORT_EXPANDED THEN
+			supportedCount% = supportedCount% + 1
+			expandedCount% = expandedCount% + 1
+		ELSE
+			unsupportedCount% = unsupportedCount% + 1
+		END IF
 	NEXT i%
 	IF maxLayerId& < 1 THEN maxLayerId& = 1
 
@@ -210,7 +633,7 @@ SUB FILE_BAS_export (filename AS STRING)
 	PRINT #fh%, "' Canvas: " + _TRIM$(STR$(SCRN.canvasW&)) + "x" + _TRIM$(STR$(SCRN.canvasH&))
 	PRINT #fh%, "' History records: " + _TRIM$(STR$(HISTORY.count%)) + " (current cursor=" + _TRIM$(STR$(HISTORY.current%)) + ")"
 	PRINT #fh%, "' Supported records in this export: " + _TRIM$(STR$(supportedCount%))
-	PRINT #fh%, "' Raster fallback records in this export: " + _TRIM$(STR$(rasterFallbackCount%))
+	PRINT #fh%, "' Expanded BASIC records in this export: " + _TRIM$(STR$(expandedCount%))
 	PRINT #fh%, "' Unsupported records omitted from executable replay: " + _TRIM$(STR$(unsupportedCount%))
 	PRINT #fh%, ""
 	PRINT #fh%, "OPTION _EXPLICIT"
@@ -300,23 +723,6 @@ SUB FILE_BAS_export (filename AS STRING)
 	PRINT #fh%, "    _DEST 0"
 	PRINT #fh%, "END SUB"
 	PRINT #fh%, ""
-	PRINT #fh%, "SUB RestoreLayerRaster (layerId AS LONG)"
-	PRINT #fh%, "    DIM px AS LONG, py AS LONG"
-	PRINT #fh%, "    DIM c AS _UNSIGNED LONG"
-	PRINT #fh%, "    IF layerId < 1 OR layerId > MAX_LAYER_ID THEN EXIT SUB"
-	PRINT #fh%, "    IF layerImg(layerId) >= -1 THEN EXIT SUB"
-	PRINT #fh%, "    _DEST layerImg(layerId)"
-	PRINT #fh%, "    _DONTBLEND layerImg(layerId)"
-	PRINT #fh%, "    FOR py = 0 TO CANVAS_H - 1"
-	PRINT #fh%, "        FOR px = 0 TO CANVAS_W - 1"
-	PRINT #fh%, "            READ c"
-	PRINT #fh%, "            PSET (px, py), c"
-	PRINT #fh%, "        NEXT px"
-	PRINT #fh%, "    NEXT py"
-	PRINT #fh%, "    _BLEND layerImg(layerId)"
-	PRINT #fh%, "    _DEST 0"
-	PRINT #fh%, "END SUB"
-	PRINT #fh%, ""
 	PRINT #fh%, "SUB RenderLayers ()"
 	PRINT #fh%, "    DIM targetZ AS INTEGER, i AS INTEGER, maxZ AS INTEGER"
 	PRINT #fh%, "    CLS , _RGBA32(0, 0, 0, 0)"
@@ -333,71 +739,12 @@ SUB FILE_BAS_export (filename AS STRING)
 	PRINT #fh%, "SUB ReplayHistory ()"
 
 	FOR i% = 1 TO HISTORY.count%
-		SELECT CASE HISTORY_RECORDS(i%).kind%
-			CASE HISTORY_KIND_LAYER_ADD, HISTORY_KIND_LAYER_DELETE, HISTORY_KIND_LAYER_REORDER, HISTORY_KIND_LAYER_RENAME
-				oldNameText$ = FILE_BAS_escape$(RTRIM$(HISTORY_RECORDS(i%).oldName$))
-				newNameText$ = FILE_BAS_escape$(RTRIM$(HISTORY_RECORDS(i%).newName$))
-				SELECT CASE HISTORY_RECORDS(i%).kind%
-					CASE HISTORY_KIND_LAYER_ADD
-						PRINT #fh%, "    CreateLayer " + _TRIM$(STR$(HISTORY_RECORDS(i%).primaryLayerId&)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(i%).newZIndex%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(i%).oldVisible%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(i%).oldOpacity%)) + ", " + CHR$(34) + oldNameText$ + CHR$(34)
-					CASE HISTORY_KIND_LAYER_DELETE
-						PRINT #fh%, "    DeleteLayer " + _TRIM$(STR$(HISTORY_RECORDS(i%).primaryLayerId&))
-					CASE HISTORY_KIND_LAYER_REORDER
-						PRINT #fh%, "    MoveLayerToZ " + _TRIM$(STR$(HISTORY_RECORDS(i%).primaryLayerId&)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(i%).newZIndex%))
-					CASE HISTORY_KIND_LAYER_RENAME
-						PRINT #fh%, "    IF " + _TRIM$(STR$(HISTORY_RECORDS(i%).primaryLayerId&)) + " >= 1 AND " + _TRIM$(STR$(HISTORY_RECORDS(i%).primaryLayerId&)) + " <= MAX_LAYER_ID THEN layerName(" + _TRIM$(STR$(HISTORY_RECORDS(i%).primaryLayerId&)) + ") = " + CHR$(34) + newNameText$ + CHR$(34)
-				END SELECT
-			CASE HISTORY_KIND_LINE
-				IF FILE_BAS_is_direct_shape_exportable%(i%) THEN
-					colorExpr$ = FILE_BAS_color_expr$(HISTORY_RECORDS(i%).colorFG~&)
-					PRINT #fh%, "    IF layerImg(" + _TRIM$(STR$(HISTORY_RECORDS(i%).primaryLayerId&)) + ") < -1 THEN _DEST layerImg(" + _TRIM$(STR$(HISTORY_RECORDS(i%).primaryLayerId&)) + "): LINE (" + _TRIM$(STR$(HISTORY_RECORDS(i%).x1%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(i%).y1%)) + ")-(" + _TRIM$(STR$(HISTORY_RECORDS(i%).x2%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(i%).y2%)) + "), " + colorExpr$ + ": _DEST 0"
-				ELSEIF FILE_BAS_is_raster_fallback_exportable%(i%) THEN
-					PRINT #fh%, "    RESTORE " + FILE_BAS_raster_label$(i%) + ": RestoreLayerRaster " + _TRIM$(STR$(HISTORY_RECORDS(i%).primaryLayerId&))
-				ELSE
-					PRINT #fh%, "    ' Unsupported line record seq " + _TRIM$(STR$(HISTORY_RECORDS(i%).sequence&)) + " due to flags=" + _TRIM$(STR$(HISTORY_RECORDS(i%).flags&))
-				END IF
-			CASE HISTORY_KIND_RECT
-				IF FILE_BAS_is_direct_shape_exportable%(i%) THEN
-					colorExpr$ = FILE_BAS_color_expr$(HISTORY_RECORDS(i%).colorFG~&)
-					rectModeText$ = "B"
-					IF (HISTORY_RECORDS(i%).flags& AND HISTORY_FLAG_FILLED) <> 0 THEN rectModeText$ = "BF"
-					PRINT #fh%, "    IF layerImg(" + _TRIM$(STR$(HISTORY_RECORDS(i%).primaryLayerId&)) + ") < -1 THEN _DEST layerImg(" + _TRIM$(STR$(HISTORY_RECORDS(i%).primaryLayerId&)) + "): LINE (" + _TRIM$(STR$(HISTORY_RECORDS(i%).x1%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(i%).y1%)) + ")-(" + _TRIM$(STR$(HISTORY_RECORDS(i%).x2%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(i%).y2%)) + "), " + colorExpr$ + ", " + rectModeText$ + ": _DEST 0"
-				ELSEIF FILE_BAS_is_raster_fallback_exportable%(i%) THEN
-					PRINT #fh%, "    RESTORE " + FILE_BAS_raster_label$(i%) + ": RestoreLayerRaster " + _TRIM$(STR$(HISTORY_RECORDS(i%).primaryLayerId&))
-				ELSE
-					PRINT #fh%, "    ' Unsupported rect record seq " + _TRIM$(STR$(HISTORY_RECORDS(i%).sequence&)) + " due to flags=" + _TRIM$(STR$(HISTORY_RECORDS(i%).flags&))
-				END IF
-			CASE HISTORY_KIND_ELLIPSE
-				IF FILE_BAS_is_direct_shape_exportable%(i%) THEN
-					colorExpr$ = FILE_BAS_color_expr$(HISTORY_RECORDS(i%).colorFG~&)
-					IF (HISTORY_RECORDS(i%).flags& AND HISTORY_FLAG_FILLED) <> 0 THEN
-						PRINT #fh%, "    DrawFilledEllipse " + _TRIM$(STR$(HISTORY_RECORDS(i%).x1%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(i%).y1%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(i%).x2%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(i%).y2%)) + ", " + colorExpr$ + ", " + _TRIM$(STR$(HISTORY_RECORDS(i%).primaryLayerId&))
-					ELSE
-						PRINT #fh%, "    IF layerImg(" + _TRIM$(STR$(HISTORY_RECORDS(i%).primaryLayerId&)) + ") < -1 THEN _DEST layerImg(" + _TRIM$(STR$(HISTORY_RECORDS(i%).primaryLayerId&)) + "): CIRCLE ((" + _TRIM$(STR$(HISTORY_RECORDS(i%).x1%)) + " + " + _TRIM$(STR$(HISTORY_RECORDS(i%).x2%)) + ") \ 2, (" + _TRIM$(STR$(HISTORY_RECORDS(i%).y1%)) + " + " + _TRIM$(STR$(HISTORY_RECORDS(i%).y2%)) + ") \ 2), ABS(" + _TRIM$(STR$(HISTORY_RECORDS(i%).x2%)) + " - " + _TRIM$(STR$(HISTORY_RECORDS(i%).x1%)) + ") / 2, " + colorExpr$ + ", , , ABS(" + _TRIM$(STR$(HISTORY_RECORDS(i%).y2%)) + " - " + _TRIM$(STR$(HISTORY_RECORDS(i%).y1%)) + ") / ABS(" + _TRIM$(STR$(HISTORY_RECORDS(i%).x2%)) + " - " + _TRIM$(STR$(HISTORY_RECORDS(i%).x1%)) + "): _DEST 0"
-					END IF
-				ELSEIF FILE_BAS_is_raster_fallback_exportable%(i%) THEN
-					PRINT #fh%, "    RESTORE " + FILE_BAS_raster_label$(i%) + ": RestoreLayerRaster " + _TRIM$(STR$(HISTORY_RECORDS(i%).primaryLayerId&))
-				ELSE
-					PRINT #fh%, "    ' Unsupported ellipse record seq " + _TRIM$(STR$(HISTORY_RECORDS(i%).sequence&)) + " due to flags=" + _TRIM$(STR$(HISTORY_RECORDS(i%).flags&))
-				END IF
-			CASE HISTORY_KIND_POLYLINE, HISTORY_KIND_FILL, HISTORY_KIND_BRUSH, HISTORY_KIND_TRANSFORM
-				IF FILE_BAS_is_raster_fallback_exportable%(i%) THEN
-					PRINT #fh%, "    RESTORE " + FILE_BAS_raster_label$(i%) + ": RestoreLayerRaster " + _TRIM$(STR$(HISTORY_RECORDS(i%).primaryLayerId&))
-				ELSE
-					PRINT #fh%, "    ' Unsupported " + FILE_BAS_kind_name$(HISTORY_RECORDS(i%).kind%) + " record seq " + _TRIM$(STR$(HISTORY_RECORDS(i%).sequence&))
-				END IF
-		END SELECT
+		FILE_BAS_write_record_ops fh%, i%, "    ", FALSE
 	NEXT i%
 	PRINT #fh%, "END SUB"
 	PRINT #fh%, ""
 
-	FOR i% = 1 TO HISTORY.count%
-		IF FILE_BAS_is_raster_fallback_exportable%(i%) THEN
-			FILE_BAS_write_raster_data fh%, FILE_BAS_raster_label$(i%), HISTORY_RECORDS(i%).img2&
-		END IF
-	NEXT i%
-
 	CLOSE #fh%
 
-	_LOGINFO "FILE_BAS_export: Exported " + STR$(supportedCount%) + " history records (" + STR$(rasterFallbackCount%) + " raster fallback) to " + filename$
+	_LOGINFO "FILE_BAS_export: Exported " + STR$(supportedCount%) + " history records (" + STR$(expandedCount%) + " expanded BASIC) to " + filename$
 END SUB
