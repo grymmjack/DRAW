@@ -148,6 +148,21 @@ TYPE DRAW_CONFIG
     CROSSHAIR_OPACITY              AS INTEGER  ' Crosshair line opacity 0-255 (0=use theme)
     CROSSHAIR_FONT_FG              AS _UNSIGNED LONG  ' Crosshair text color (hex RGB, 0=use theme)
     CROSSHAIR_ANGLE                AS SINGLE   ' Crosshair rotation angle in degrees (0=use theme)
+    ' Picker loupe settings
+    PICKER_LOUPE_ZOOM_LEVEL        AS INTEGER
+    PICKER_LOUPE_RECT_X_OFFSET     AS INTEGER
+    PICKER_LOUPE_RECT_Y_OFFSET     AS INTEGER
+    PICKER_LOUPE_RECT_WIDTH        AS INTEGER
+    PICKER_LOUPE_RECT_HEIGHT       AS INTEGER
+    PICKER_LOUPE_RGBA_X            AS INTEGER
+    PICKER_LOUPE_RGBA_Y            AS INTEGER
+    PICKER_LOUPE_FONT              AS STRING
+    PICKER_LOUPE_FONT_SIZE         AS INTEGER
+    PICKER_LOUPE_FONT_FG           AS _UNSIGNED LONG
+    PICKER_LOUPE_FONT_BG           AS _UNSIGNED LONG
+    PICKER_LOUPE_RECT_STROKE_FG    AS _UNSIGNED LONG
+    PICKER_LOUPE_RECT_STROKE_WIDTH AS INTEGER
+    PICKER_LOUPE_PIXEL_PICKUP_COLOR AS _UNSIGNED LONG
     ' Grid mode and angle
     GRID_ANGLE                     AS SINGLE   ' Grid rotation angle in degrees (0=use theme)
     GRID_MODE                      AS INTEGER  ' Grid geometry mode (0=square,1=diagonal,2=iso,3=hex)
