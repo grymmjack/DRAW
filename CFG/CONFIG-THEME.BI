@@ -20,6 +20,15 @@ TYPE DRAW_THEME
     STATUS_bg              AS INTEGER ' Status bar bg palette color index (0-255)
     STATUS_fg              AS INTEGER ' Status bar fg palette color index (0-255)
     STATUS_height          AS INTEGER ' Status bar height in pixels
+    STATUS_bg_color        AS _UNSIGNED LONG ' Status bar background color (RGBA)
+    STATUS_fg_color        AS _UNSIGNED LONG ' Status bar foreground color (RGBA)
+    STATUS_swatch_fg_outline AS _UNSIGNED LONG ' Foreground swatch outline color
+    STATUS_swatch_bg_outline AS _UNSIGNED LONG ' Background swatch outline color
+    STATUS_swatch_transparent_bg AS _UNSIGNED LONG ' Transparent swatch fill color
+    STATUS_swatch_transparent_diagonal AS _UNSIGNED LONG ' Transparent swatch diagonal slash
+    STATUS_swatch_transparent_border AS _UNSIGNED LONG ' Transparent swatch border color
+    STATUS_swatch_active_outer AS _UNSIGNED LONG ' Active transparent swatch outer border
+    STATUS_swatch_active_inner AS _UNSIGNED LONG ' Active transparent swatch inner border
     CROSSHAIR_color_fg      AS _UNSIGNED LONG ' Crosshair line color (RGBA)
     CROSSHAIR_opacity       AS INTEGER ' Crosshair line opacity (0-255)
     CROSSHAIR_font_fg       AS _UNSIGNED LONG ' Crosshair coordinate text color (RGBA)
@@ -93,8 +102,84 @@ TYPE DRAW_THEME
     TRANSFORM_FRAME_COLOR        AS _UNSIGNED LONG  ' Quad outline color (RGBA)
     TRANSFORM_FRAME_HANDLE_COLOR AS _UNSIGNED LONG  ' Unselected handle fill color (RGBA)
     TRANSFORM_FRAME_HANDLE_SIZE  AS INTEGER         ' Handle half-size in screen pixels (draw + hit test)
+    ' --- Dialog chrome ---
+    DIALOG_bg                 AS _UNSIGNED LONG  ' Dialog background fill
+    DIALOG_border_outer       AS _UNSIGNED LONG  ' Dialog outer border
+    DIALOG_border_inner       AS _UNSIGNED LONG  ' Dialog inner border / dividers
+    DIALOG_title_bg           AS _UNSIGNED LONG  ' Dialog title bar background
+    DIALOG_title_hover_bg     AS _UNSIGNED LONG  ' Dialog title bar hover background
+    DIALOG_title_drag_bg      AS _UNSIGNED LONG  ' Dialog title bar drag background
+    DIALOG_title_fg           AS _UNSIGNED LONG  ' Dialog title text color
+    DIALOG_title_grip         AS _UNSIGNED LONG  ' Dialog title grip dot color
+    DIALOG_title_grip_active  AS _UNSIGNED LONG  ' Dialog title grip dot color while dragging
+    DIALOG_button_fg          AS _UNSIGNED LONG  ' Dialog button label color
+    DIALOG_toggle_sel_bg      AS _UNSIGNED LONG  ' Selected toggle background
+    DIALOG_toggle_sel_fg      AS _UNSIGNED LONG  ' Selected toggle text
+    DIALOG_toggle_sel_border  AS _UNSIGNED LONG  ' Selected toggle border
+    DIALOG_toggle_bg          AS _UNSIGNED LONG  ' Unselected toggle background
+    DIALOG_toggle_fg          AS _UNSIGNED LONG  ' Unselected toggle text
+    DIALOG_toggle_border      AS _UNSIGNED LONG  ' Unselected toggle border
+    DIALOG_label_fg           AS _UNSIGNED LONG  ' Dialog label text color
+    DIALOG_slider_track_bg    AS _UNSIGNED LONG  ' Dialog slider track background
+    DIALOG_slider_track_border AS _UNSIGNED LONG ' Dialog slider track border
+    DIALOG_slider_fill        AS _UNSIGNED LONG  ' Dialog slider fill
+    DIALOG_slider_value_fg    AS _UNSIGNED LONG  ' Dialog slider value text color
+    DIALOG_preview_bg         AS _UNSIGNED LONG  ' Dialog preview pane background
+    DIALOG_preview_split      AS _UNSIGNED LONG  ' Dialog preview split line / handle
+    DIALOG_preview_label_fg   AS _UNSIGNED LONG  ' Dialog preview ORIG/ADJ labels
+    DIALOG_title_height       AS INTEGER         ' Dialog title bar bottom Y
+    DIALOG_slider_height      AS INTEGER         ' Dialog slider track height
+    DIALOG_preview_handle_size AS INTEGER        ' Dialog preview split handle half-size
+    DIALOG_font_size          AS INTEGER         ' Font point size for dialogs (default 8)
+    ' --- Command palette ---
+    CMD_PALETTE_width_ratio      AS SINGLE          ' Palette width as a fraction of screen width
+    CMD_PALETTE_min_width        AS INTEGER         ' Palette minimum width
+    CMD_PALETTE_max_width        AS INTEGER         ' Palette maximum width
+    CMD_PALETTE_top              AS INTEGER         ' Palette top Y position
+    CMD_PALETTE_frame_outer      AS _UNSIGNED LONG  ' Palette outer frame color
+    CMD_PALETTE_frame_mid        AS _UNSIGNED LONG  ' Palette middle frame color
+    CMD_PALETTE_bg               AS _UNSIGNED LONG  ' Palette background color
+    CMD_PALETTE_header_fg        AS _UNSIGNED LONG  ' Palette header text color
+    CMD_PALETTE_hint_fg          AS _UNSIGNED LONG  ' Palette hint text color
+    CMD_PALETTE_search_bg        AS _UNSIGNED LONG  ' Palette search box background
+    CMD_PALETTE_search_border    AS _UNSIGNED LONG  ' Palette search box border
+    CMD_PALETTE_search_fg        AS _UNSIGNED LONG  ' Palette search text
+    CMD_PALETTE_search_placeholder_fg AS _UNSIGNED LONG ' Palette search placeholder text
+    CMD_PALETTE_cursor_fg        AS _UNSIGNED LONG  ' Palette search cursor
+    CMD_PALETTE_hover_bg         AS _UNSIGNED LONG  ' Palette hovered row background
+    CMD_PALETTE_category_fg      AS _UNSIGNED LONG  ' Palette category text
+    CMD_PALETTE_name_fg          AS _UNSIGNED LONG  ' Palette command name text
+    CMD_PALETTE_hotkey_fg        AS _UNSIGNED LONG  ' Palette hotkey text
+    CMD_PALETTE_scroll_fg        AS _UNSIGNED LONG  ' Palette scroll summary text
+    ' --- Palette strip / palette menu ---
+    PALETTE_STRIP_bg             AS _UNSIGNED LONG  ' Palette strip background
+    PALETTE_STRIP_fg             AS _UNSIGNED LONG  ' Palette strip text color
+    PALETTE_STRIP_arrow_fg       AS _UNSIGNED LONG  ' Palette strip arrow color
+    PALETTE_STRIP_hover_fg       AS _UNSIGNED LONG  ' Palette strip hover text/arrow color
+    PALETTE_STRIP_separator      AS _UNSIGNED LONG  ' Palette strip separator line
+    PALETTE_STRIP_button_hover_bg AS _UNSIGNED LONG ' Palette strip hover background for buttons
+    PALETTE_STRIP_selected_border_outer AS _UNSIGNED LONG ' Selected palette swatch outer border
+    PALETTE_STRIP_selected_border_inner AS _UNSIGNED LONG ' Selected palette swatch inner border
+    PALETTE_STRIP_inactive_border_outer AS _UNSIGNED LONG ' Inactive palette swatch outer border
+    PALETTE_STRIP_inactive_border_inner AS _UNSIGNED LONG ' Inactive palette swatch inner border
+    PALETTE_MENU_bg              AS _UNSIGNED LONG  ' Palette menu background
+    PALETTE_MENU_fg              AS _UNSIGNED LONG  ' Palette menu text
+    PALETTE_MENU_hover_bg        AS _UNSIGNED LONG  ' Palette menu hover background
+    PALETTE_MENU_selected_bg     AS _UNSIGNED LONG  ' Palette menu selected/current background
+    PALETTE_MENU_border          AS _UNSIGNED LONG  ' Palette menu border
+    PALETTE_MENU_current_fg      AS _UNSIGNED LONG  ' Palette menu current item text
+    PALETTE_MENU_scroll_fg       AS _UNSIGNED LONG  ' Palette menu scroll indicator text
+    PALETTE_MENU_item_height     AS INTEGER         ' Palette menu item height
+    ' --- Screen overlays ---
+    ZOOM_BOX_fill                AS _UNSIGNED LONG  ' Zoom drag fill overlay
+    ZOOM_BOX_border              AS _UNSIGNED LONG  ' Zoom drag inner border
+    ZOOM_BOX_outer_border        AS _UNSIGNED LONG  ' Zoom drag outer border
+    TOOL_PREVIEW_transparent_fg  AS _UNSIGNED LONG  ' Tool preview color when paint is transparent
+    TOOL_PREVIEW_transparent_outline AS _UNSIGNED LONG ' Tool preview outline when paint is transparent
+    CANVAS_border                AS _UNSIGNED LONG  ' Canvas border color
     ' --- Fonts ---
     GLOBAL_FONT_FILE       AS STRING          ' Primary UI font filename (e.g. Tiny5-Regular.ttf)
+    GLOBAL_FONT_SIZE       AS INTEGER         ' Primary UI font size in points/pixels
     ALT_FONT_FILE          AS STRING          ' Alternate font filename (e.g. PICO-8.ttf) — reserved
     ' --- Sounds ---
     SOUND_MENU_OPEN_FILE   AS STRING          ' Filename for menu-open sound
@@ -127,31 +212,6 @@ TYPE DRAW_THEME
     MUSIC_FILE           AS STRING          ' Filename for background music (IT/XM/MOD/S3M; empty=none)
     ' --- Lospec dialog ---
     LOSPEC_SWATCH_COLS       AS INTEGER         ' Lospec preview swatch columns per row (default 16)
-    ' --- Dialog chrome ---
-    DIALOG_font_size         AS INTEGER         ' Font point size for dialogs (default 8)
-    DIALOG_bg                AS _UNSIGNED LONG  ' Dialog background fill
-    DIALOG_border_outer      AS _UNSIGNED LONG  ' Outer border line
-    DIALOG_border_inner      AS _UNSIGNED LONG  ' Inner border + dividers
-    DIALOG_title_bg          AS _UNSIGNED LONG  ' Title bar (idle)
-    DIALOG_title_hover_bg    AS _UNSIGNED LONG  ' Title bar hover
-    DIALOG_title_drag_bg     AS _UNSIGNED LONG  ' Title bar while dragging
-    DIALOG_title_fg          AS _UNSIGNED LONG  ' Title text color
-    DIALOG_title_grip        AS _UNSIGNED LONG  ' Drag-grip dots (idle)
-    DIALOG_title_grip_drag   AS _UNSIGNED LONG  ' Drag-grip dots (dragging)
-    DIALOG_label_fg          AS _UNSIGNED LONG  ' Static label text
-    DIALOG_btn_fg            AS _UNSIGNED LONG  ' Button / slider text
-    DIALOG_toggle_sel_bg     AS _UNSIGNED LONG  ' Toggle selected bg
-    DIALOG_toggle_sel_fg     AS _UNSIGNED LONG  ' Toggle selected text
-    DIALOG_toggle_sel_border AS _UNSIGNED LONG  ' Toggle selected border
-    DIALOG_toggle_bg         AS _UNSIGNED LONG  ' Toggle normal bg
-    DIALOG_toggle_fg         AS _UNSIGNED LONG  ' Toggle normal text
-    DIALOG_toggle_border     AS _UNSIGNED LONG  ' Toggle normal border
-    DIALOG_slider_track_bg   AS _UNSIGNED LONG  ' Slider track background
-    DIALOG_slider_track_bord AS _UNSIGNED LONG  ' Slider track border
-    DIALOG_slider_fill       AS _UNSIGNED LONG  ' Slider filled portion
-    DIALOG_preview_bg        AS _UNSIGNED LONG  ' Split-preview dark bg
-    DIALOG_preview_split     AS _UNSIGNED LONG  ' Split bar + diamond
-    DIALOG_preview_label_fg  AS _UNSIGNED LONG  ' ORIG/ADJ label text
     ' --- Lospec dialog colors ---
     LOSPEC_status_error_fg   AS _UNSIGNED LONG
     LOSPEC_status_ok_fg      AS _UNSIGNED LONG

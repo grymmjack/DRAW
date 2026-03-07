@@ -58,6 +58,7 @@ DECLARE SUB DIALOG_draw_label (ctx AS DIALOG_CTX, lx AS INTEGER, ly AS INTEGER, 
 DECLARE SUB DIALOG_draw_slider (ctx AS DIALOG_CTX, sx AS INTEGER, sy AS INTEGER, sw AS INTEGER, value AS INTEGER, minV AS INTEGER, maxV AS INTEGER, label AS STRING, units AS STRING)
 DECLARE SUB DIALOG_draw_divider (ctx AS DIALOG_CTX, dy AS INTEGER)
 DECLARE SUB DIALOG_blit (ctx AS DIALOG_CTX)
+DECLARE FUNCTION DIALOG_font_height% (ctx AS DIALOG_CTX)
 
 ' ---- Hit-testing / input helpers --------------------------------------------
 
