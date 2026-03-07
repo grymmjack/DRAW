@@ -411,20 +411,28 @@ END SUB
 ' Commit: save undo state, erase source region, blit warped result onto layer.
 '
 SUB TRANSFORM_commit ()
+    DIM transform_history_before AS LONG
+    DIM transform_history_flags AS LONG
+    DIM transform_recorded AS INTEGER
+    DIM transform_saved_pixel_ts AS DOUBLE
+
     IF NOT TRANSFORM.ACTIVE THEN EXIT SUB
     IF TRANSFORM.SRC_IMG >= -1 THEN TRANSFORM_cancel : EXIT SUB
+
+    transform_history_before& = 0
+    transform_history_flags& = 0
+    transform_recorded% = FALSE
 
     ' Final-quality warp
     TRANSFORM_PREVIEW_DIRTY = TRUE
     TRANSFORM_compute_preview
     IF TRANSFORM_PREVIEW_IMG >= -1 THEN TRANSFORM_cancel : EXIT SUB
 
-    IF NOT UNDO_saved_this_frame% THEN
-        UNDO_save_state
-        UNDO_saved_this_frame% = TRUE
-    END IF
-
     DIM layImg AS LONG : layImg& = LAYERS(CURRENT_LAYER%).imgHandle&
+    IF NOT HISTORY_IN_PROGRESS% AND LAYERS(CURRENT_LAYER%).historyId& > 0 AND layImg& < -1 THEN
+        transform_history_before& = _COPYIMAGE(layImg&, 32)
+        IF SELECTION_has_active% OR LAYERS(CURRENT_LAYER%).opacityLock% THEN transform_history_flags& = transform_history_flags& OR HISTORY_FLAG_CLIPPED
+    END IF
     DIM oldDst AS LONG : oldDst& = _DEST
     _DEST layImg&
     _DONTBLEND layImg&
@@ -436,6 +444,20 @@ SUB TRANSFORM_commit ()
     LAYERS(CURRENT_LAYER%).contentDirty% = TRUE
     BLEND_invalidate_cache
     CANVAS_DIRTY% = TRUE
+    IF transform_history_before& < -1 THEN
+        HISTORY_record_transform LAYERS(CURRENT_LAYER%).historyId&, CURRENT_LAYER%, transform_history_flags&, transform_history_before&, "Transform"
+        transform_history_before& = 0
+        transform_recorded% = TRUE
+    END IF
+    IF NOT UNDO_saved_this_frame% THEN
+        transform_saved_pixel_ts# = PIXEL_UNDO_LAST_TIMESTAMP#
+        UNDO_save_state
+        IF transform_recorded% AND UNDO.current% >= 0 AND UNDO.current% <= UNDO_STATES_MAX% THEN
+            UNDO_STATES(UNDO.current%).timestamp# = 0
+            PIXEL_UNDO_LAST_TIMESTAMP# = transform_saved_pixel_ts#
+        END IF
+        UNDO_saved_this_frame% = TRUE
+    END IF
 
     IF TRANSFORM.SRC_IMG < -1 THEN _FREEIMAGE TRANSFORM.SRC_IMG
     TRANSFORM.SRC_IMG = 0
