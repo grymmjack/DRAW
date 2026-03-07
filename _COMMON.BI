@@ -108,3 +108,10 @@ PAINT_BG_COLOR~& = _RGB32(0, 0, 0)  ' Background color defaults to black
 CURRENT_TOOL% = TOOL_NULL  ' Default to null tool - user must select a tool
 PREVIOUS_TOOL% = TOOL_NULL  ' Initialize to same as current
 CANVAS_DIRTY% = FALSE  ' Start with clean canvas
+
+' ---------------------------------------------------------------------------
+' INVALIDATE helpers — collapse repeated 3-5-line dirty-flag sequences.
+' ---------------------------------------------------------------------------
+DECLARE SUB INVALIDATE_scene ()
+DECLARE SUB INVALIDATE_canvas ()
+DECLARE SUB INVALIDATE_layers ()
