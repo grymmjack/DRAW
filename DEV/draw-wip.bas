@@ -136,3 +136,69 @@ IF layerImg(1) < -1 THEN
     _DEST layerImg(1)
     _DEST 0
 END IF
+
+' seq 2 TRANSFORM Rotate 90 CW
+' skipped transform replay
+
+' seq 3 TRANSFORM Rotate 90 CW
+' skipped transform replay
+
+' seq 4 TRANSFORM Rotate 90 CW
+' skipped transform replay
+
+' seq 5 TRANSFORM Rotate 90 CW
+' skipped transform replay
+
+' seq 6 TRANSFORM Rotate 90 CW
+' skipped transform replay
+
+' seq 7 TRANSFORM Move
+' skipped transform replay
+
+' seq 8 TRANSFORM Move
+' skipped transform replay
+
+' seq 9 TRANSFORM Move
+' skipped transform replay
+
+' seq 10 TRANSFORM Move
+' skipped transform replay
+
+' seq 11 TRANSFORM Move
+' skipped transform replay
+
+' seq 12 TRANSFORM Move
+' skipped transform replay
+
+' seq 13 TRANSFORM Move
+' skipped transform replay
+
+' seq 14 TRANSFORM Move
+' skipped transform replay
+
+' seq 15 TRANSFORM Move
+' skipped transform replay
+
+' seq 16 TRANSFORM Move
+' skipped transform replay
+
+' seq 17 TRANSFORM Move
+' skipped transform replay
+
+' seq 18 TRANSFORM Move
+' skipped transform replay
+
+' seq 19 TRANSFORM Move
+' skipped transform replay
+
+' seq 20 TRANSFORM Move
+' skipped transform replay
+
+' seq 21 TRANSFORM Move
+' skipped transform replay
+
+' seq 22 TRANSFORM Move
+' skipped transform replay
+
+' seq 23 TRANSFORM Move
+' skipped transform replay
