@@ -7,6 +7,10 @@
 ' @author Rick Christy <grymmjack@gmail.com>
 '
 $INCLUDEONCE
+DECLARE SUB POLY_LINE_render_preview ()
+DECLARE SUB POLY_LINE_reset ()
+DECLARE SUB POLY_LINE_cancel_restore ()
+
 TYPE POLY_LINE_TYPE
     LAST_X AS INTEGER      ' Last point X for continuing line
     LAST_Y AS INTEGER      ' Last point Y for continuing line
@@ -15,7 +19,6 @@ TYPE POLY_LINE_TYPE
     HAS_LAST AS INTEGER    ' TRUE if we have a last position
     FILLED AS INTEGER      ' TRUE for filled polygon
     POINT_COUNT AS INTEGER ' Number of points in polygon
-    UNDO_BASELINE_INDEX AS INTEGER
     HISTORY_BEFORE_IMG AS LONG
 END TYPE
 
@@ -30,5 +33,4 @@ POLY_LINE.FIRST_Y = 0
 POLY_LINE.HAS_LAST = FALSE
 POLY_LINE.FILLED = FALSE
 POLY_LINE.POINT_COUNT = 0
-POLY_LINE.UNDO_BASELINE_INDEX = -1
 POLY_LINE.HISTORY_BEFORE_IMG = 0
