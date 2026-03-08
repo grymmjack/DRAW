@@ -189,6 +189,8 @@ TYPE DRAW_CONFIG
     DEFAULT_TOOL                   AS INTEGER  ' Default tool on startup (1=brush, 2=fill, 3=dot, etc.)
     DEFAULT_BRUSH_SIZE             AS INTEGER  ' Default brush size index (1-25)
     DEFAULT_BRUSH_SHAPE            AS INTEGER  ' Default brush shape (0=circle, 1=square)
+    DEFAULT_DRAW_MODE              AS INTEGER  ' Default paint mode on startup (1=color, 2=gradient, 3=pattern)
+    DEFAULT_BIN_MODE               AS INTEGER  ' Default bins panel on startup (1=brush, 2=pattern, 3=gradient)
     DEFAULT_LAYER_BG_COLOR         AS _UNSIGNED LONG  ' Default layer background color
     BAS_EXPORT_BG_COLOR            AS _UNSIGNED LONG  ' Default generated BAS screen background color
     BAS_WIP_ENABLED                AS INTEGER  ' TRUE = keep live *-wip.bas stream in sync with history

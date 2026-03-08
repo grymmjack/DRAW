@@ -51,6 +51,10 @@ status bar as `OP:nn%` when below 100%.
 | Key | Action |
 |-----|--------|
 | `X` | Swap foreground and background colors |
+| `F1` | Color mode / brush bins |
+| `F2` | Gradient mode |
+| `F3` | Pattern mode |
+| `F4` | Brush size preset 4 |
 
 ### Eraser Tool
 

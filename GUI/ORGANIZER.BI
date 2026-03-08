@@ -89,14 +89,14 @@ ORG_WIDGETS(ORG_BRUSH_SIZE).imgSrc3$  = "brush-size-3.png"
 ORG_WIDGETS(ORG_BRUSH_SIZE).imgSrc4$  = "brush-size-4.png"
 ORG_WIDGETS(ORG_BRUSH_SIZE).srcW%     = 11
 ORG_WIDGETS(ORG_BRUSH_SIZE).srcH%     = 21
-ORG_WIDGETS(ORG_BRUSH_SIZE).tip$      = "Brush Size (click to cycle F1-F4)"
+ORG_WIDGETS(ORG_BRUSH_SIZE).tip$      = "Brush Size (click to choose preset)"
 
 ' ── Col 3, Row 0: Pattern Mode ──
 ORG_WIDGETS(ORG_PATTERN_MODE).imgSrc$  = "pattern-mode-off.png"
 ORG_WIDGETS(ORG_PATTERN_MODE).imgSrc2$ = "pattern-mode-on.png"
 ORG_WIDGETS(ORG_PATTERN_MODE).srcW%    = 11
 ORG_WIDGETS(ORG_PATTERN_MODE).srcH%    = 11
-ORG_WIDGETS(ORG_PATTERN_MODE).tip$     = "Pattern Mode (stub)"
+ORG_WIDGETS(ORG_PATTERN_MODE).tip$     = "Pattern Mode (F3)"
 
 ' ── Col 0, Row 1: Palette Ops ──
 ORG_WIDGETS(ORG_PALETTE_OPS).imgSrc$   = "palette-ops.png"
@@ -117,7 +117,7 @@ ORG_WIDGETS(ORG_GRADIENT_MODE).imgSrc$  = "gradient-mode-off.png"
 ORG_WIDGETS(ORG_GRADIENT_MODE).imgSrc2$ = "gradient-mode-on.png"
 ORG_WIDGETS(ORG_GRADIENT_MODE).srcW%    = 11
 ORG_WIDGETS(ORG_GRADIENT_MODE).srcH%    = 11
-ORG_WIDGETS(ORG_GRADIENT_MODE).tip$     = "Gradient Mode (stub)"
+ORG_WIDGETS(ORG_GRADIENT_MODE).tip$     = "Gradient Mode (F2)"
 
 ' ── Col 0, Row 2: Symmetry Mode (4 states: off, mode 1, mode 2, mode 3) ──
 ORG_WIDGETS(ORG_SYMMETRY_MODE).imgSrc$  = "symmetry-mode-off.png"
@@ -147,7 +147,7 @@ ORG_WIDGETS(ORG_COLOR_MODE).imgSrc$  = "color-mode-on.png"
 ORG_WIDGETS(ORG_COLOR_MODE).imgSrc2$ = "color-mode-off.png"
 ORG_WIDGETS(ORG_COLOR_MODE).srcW%    = 11
 ORG_WIDGETS(ORG_COLOR_MODE).srcH%    = 11
-ORG_WIDGETS(ORG_COLOR_MODE).tip$     = "FG/BG Color (L=pick FG, R=pick BG, swap, reset)"
+ORG_WIDGETS(ORG_COLOR_MODE).tip$     = "FG/BG Color (F1, L=pick FG, R=pick BG, swap, reset)"
 
 ORGANIZER.visible% = TRUE
 

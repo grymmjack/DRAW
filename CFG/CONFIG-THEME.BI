@@ -45,6 +45,53 @@ TYPE DRAW_THEME
     TOOLBAR_border_fg      AS _UNSIGNED LONG ' Toolbar border color (RGB32)
     TOOLBAR_btn_overlay    AS _UNSIGNED LONG ' Active button dark overlay (RGBA)
     TOOLBAR_btn_stroke     AS _UNSIGNED LONG ' Active button border stroke (RGBA)
+    DRAWER_PANEL_PAD_X     AS INTEGER        ' Drawer panel inner horizontal padding
+    DRAWER_PANEL_PAD_Y     AS INTEGER        ' Drawer panel inner vertical padding
+    DRAWER_PANEL_GAP_Y     AS INTEGER        ' Shared vertical gap inside drawer panel
+    DRAWER_BIN_WIDTH       AS INTEGER        ' Bin width in unscaled pixels
+    DRAWER_BIN_HEIGHT      AS INTEGER        ' Bin height in unscaled pixels
+    DRAWER_BIN_GAP_X       AS INTEGER        ' Horizontal gap between bins
+    DRAWER_BIN_GAP_Y       AS INTEGER        ' Vertical gap between bins
+    DRAWER_BIN_PREVIEW_PAD AS INTEGER        ' Preview inset inside each bin
+    DRAWER_SCROLLBAR_WIDTH AS INTEGER        ' Drawer scrollbar width
+    DRAWER_SCROLLBAR_MIN_THUMB_H AS INTEGER  ' Minimum drawer scrollbar thumb height
+    DRAWER_MINI_PALETTE_COLS AS INTEGER      ' Mini palette column count
+    DRAWER_MINI_PALETTE_ROWS AS INTEGER      ' Mini palette row count
+    DRAWER_MINI_PALETTE_CELL_W AS INTEGER    ' Mini palette cell width
+    DRAWER_MINI_PALETTE_CELL_H AS INTEGER    ' Mini palette cell height
+    DRAWER_MINI_PALETTE_GAP_X AS INTEGER     ' Mini palette horizontal gap
+    DRAWER_MINI_PALETTE_GAP_Y AS INTEGER     ' Mini palette vertical gap
+    DRAWER_MINI_PALETTE_PAGE_BTN_W AS INTEGER ' Mini palette page button width
+    DRAWER_MINI_PALETTE_PAGE_BTN_H AS INTEGER ' Mini palette page button height
+    DRAWER_PANEL_BG        AS _UNSIGNED LONG ' Drawer panel background
+    DRAWER_PANEL_BORDER    AS _UNSIGNED LONG ' Drawer panel border
+    DRAWER_PANEL_ACCENT    AS _UNSIGNED LONG ' Drawer panel accent line
+    DRAWER_BIN_BG          AS _UNSIGNED LONG ' Filled bin background
+    DRAWER_BIN_BORDER      AS _UNSIGNED LONG ' Filled bin border
+    DRAWER_BIN_HOVER_BG    AS _UNSIGNED LONG ' Hovered bin background
+    DRAWER_BIN_HOVER_BORDER AS _UNSIGNED LONG ' Hovered bin border
+    DRAWER_BIN_SELECTED_BG AS _UNSIGNED LONG ' Selected bin background
+    DRAWER_BIN_SELECTED_BORDER AS _UNSIGNED LONG ' Selected bin border
+    DRAWER_BIN_EMPTY_BG    AS _UNSIGNED LONG ' Empty bin background
+    DRAWER_BIN_EMPTY_BORDER AS _UNSIGNED LONG ' Empty bin border
+    DRAWER_BIN_DISABLED_FG AS _UNSIGNED LONG ' Empty/disabled bin indicator color
+    DRAWER_BRUSH_CHECKER_DARK AS _UNSIGNED LONG ' Brush bin checker dark color
+    DRAWER_BRUSH_CHECKER_LIGHT AS _UNSIGNED LONG ' Brush bin checker light color
+    DRAWER_SCROLLBAR_TRACK AS _UNSIGNED LONG ' Drawer scrollbar track
+    DRAWER_SCROLLBAR_THUMB AS _UNSIGNED LONG ' Drawer scrollbar thumb
+    DRAWER_SCROLLBAR_THUMB_HOVER AS _UNSIGNED LONG ' Drawer scrollbar thumb hover
+    DRAWER_MINI_PALETTE_BORDER AS _UNSIGNED LONG ' Mini palette cell border
+    DRAWER_MINI_PALETTE_PAGE_BTN_BG AS _UNSIGNED LONG ' Mini palette page button bg
+    DRAWER_MINI_PALETTE_PAGE_BTN_BORDER AS _UNSIGNED LONG ' Mini palette page button border
+    DRAWER_MINI_PALETTE_PAGE_BTN_FG AS _UNSIGNED LONG ' Mini palette page button fg
+    DRAWER_MINI_PALETTE_PAGE_BTN_HOVER_BG AS _UNSIGNED LONG ' Mini palette page button hover bg
+    DRAWER_LABEL_FG        AS _UNSIGNED LONG ' Drawer label text
+    DRAWER_LABEL_DIM_FG    AS _UNSIGNED LONG ' Drawer dim label text
+    BINS_BG_COLOR          AS _UNSIGNED LONG ' Background behind the entire bins section
+    BINS_BRUSH_WIDTH       AS INTEGER        ' Brush bin width in unscaled pixels
+    BINS_BRUSH_HEIGHT      AS INTEGER        ' Brush bin height in unscaled pixels
+    BINS_WIDE_WIDTH        AS INTEGER        ' Wide bin width in unscaled pixels
+    BINS_WIDE_HEIGHT       AS INTEGER        ' Wide bin height in unscaled pixels
     COLOR_CHIP_outline     AS _UNSIGNED LONG ' Color chip outline color (RGBA)
     COLOR_CHIP_outline_alt AS _UNSIGNED LONG ' Color chip outline when color matches outline (RGBA)
     PIXEL_GRID_color1      AS _UNSIGNED LONG ' Pixel grid checker color 1 (RGBA)
