@@ -1100,10 +1100,13 @@ The toolbar is displayed on the right edge of the screen as a **4-column, 7-row*
 | **Select Ellipse** | Ellipse selection | — | — |
 | **Select Wand** | Magic Wand selection | — | — |
 | **Text** | VGA font | Tiny5 font | Load custom font |
+| **Dot** | Select dot tool | — | — |
 | **Open** | Open DRW project | Import image | — |
 | **Pan** | Pan mode | — | Double-click resets zoom+pan |
 | **Zoom** | Zoom tool mode | — | — |
 | **Help** | Open command palette | — | — |
+
+Double-left-click the **Dot** toolbar button to clear the active custom brush without changing the current tool.
 
 ### Toolbar Scale
 
