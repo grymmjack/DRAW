@@ -30,6 +30,12 @@ TYPE DRAWER_STATE
     paletteFGY          AS INTEGER
     paletteBGX          AS INTEGER
     paletteBGY          AS INTEGER
+    contextMenuOpen     AS INTEGER
+    contextMenuSlot     AS INTEGER
+    contextMenuX        AS INTEGER
+    contextMenuY        AS INTEGER
+    contextMenuW        AS INTEGER
+    contextMenuHover    AS INTEGER
     samplesLoaded       AS INTEGER
     loadedTheme         AS STRING * 64
 END TYPE
@@ -58,6 +64,12 @@ DECLARE FUNCTION DRAWER_handle_click% (mouseX AS INTEGER, mouseY AS INTEGER)
 DECLARE FUNCTION DRAWER_handle_right_click% (mouseX AS INTEGER, mouseY AS INTEGER)
 DECLARE FUNCTION DRAWER_handle_middle_click% (mouseX AS INTEGER, mouseY AS INTEGER)
 DECLARE SUB DRAWER_handle_wheel (mouseX AS INTEGER, mouseY AS INTEGER, wheelDelta AS INTEGER)
+DECLARE SUB DRAWER_context_menu_show (slotIndex AS INTEGER, mouseX AS INTEGER, mouseY AS INTEGER)
+DECLARE SUB DRAWER_context_menu_close ()
+DECLARE SUB DRAWER_context_menu_hover (mouseX AS INTEGER, mouseY AS INTEGER)
+DECLARE FUNCTION DRAWER_context_menu_hit% (mouseX AS INTEGER, mouseY AS INTEGER)
+DECLARE SUB DRAWER_context_menu_activate (actionValue AS INTEGER)
+DECLARE SUB DRAWER_context_menu_render ()
 DECLARE FUNCTION DRAWER_mode_is_active% (mode AS INTEGER)
 DECLARE FUNCTION DRAWER_has_paint_mode% ()
 DECLARE FUNCTION DRAWER_resolve_paint_color~& (x AS INTEGER, y AS INTEGER, baseColor AS _UNSIGNED LONG)
@@ -65,5 +77,7 @@ DECLARE SUB DRAWER_save_state_binary (fh AS INTEGER)
 DECLARE SUB DRAWER_load_state_binary (fh AS INTEGER)
 DECLARE SUB DRAWER_export_set_dialog ()
 DECLARE SUB DRAWER_import_set_dialog ()
+DECLARE SUB DRAWER_clear_active_set ()
+DECLARE SUB DRAWER_explore_sets_folder ()
 
 DRAWER_init

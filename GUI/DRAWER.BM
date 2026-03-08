@@ -4,6 +4,13 @@
 
 $INCLUDEONCE
 
+CONST DRAWER_CONTEXT_ITEM_H = MENU_ITEM_HEIGHT
+CONST DRAWER_CONTEXT_MAX_ITEMS = 12
+CONST DRAWER_CONTEXT_LOAD_SET = 1
+CONST DRAWER_CONTEXT_SAVE_SET = 2
+CONST DRAWER_CONTEXT_CLEAR_SET = 3
+CONST DRAWER_CONTEXT_EXPLORE_FOLDER = 4
+
 DECLARE SUB DRAWER_free_samples ()
 DECLARE SUB DRAWER_ensure_samples ()
 DECLARE FUNCTION DRAWER_load_theme_image& (subdir AS STRING, filename AS STRING)
@@ -27,6 +34,11 @@ DECLARE SUB DRAWER_clear_deferred_action ()
 DECLARE SUB DRAWER_save_slot_image (fh AS INTEGER, imgHandle AS LONG)
 DECLARE FUNCTION DRAWER_load_slot_image& (fh AS INTEGER)
 DECLARE FUNCTION DRAWER_set_mode_name$ (mode AS INTEGER)
+DECLARE FUNCTION DRAWER_popup_font_handle& ()
+DECLARE SUB DRAWER_context_menu_build (itemCount AS INTEGER)
+DECLARE SUB DRAWER_explore_context_folder ()
+DECLARE FUNCTION DRAWER_sets_dir$ ()
+DECLARE SUB DRAWER_ensure_sets_dir ()
 
 DIM SHARED DRAWER_PALETTE_IMG AS LONG
 DIM SHARED DRAWER_PALETTE_LEFT_IMG AS LONG
@@ -51,6 +63,12 @@ SUB DRAWER_init ()
     DRAWER.paletteFGY% = -1
     DRAWER.paletteBGX% = -1
     DRAWER.paletteBGY% = -1
+    DRAWER.contextMenuOpen% = FALSE
+    DRAWER.contextMenuSlot% = 0
+    DRAWER.contextMenuX% = 0
+    DRAWER.contextMenuY% = 0
+    DRAWER.contextMenuW% = 0
+    DRAWER.contextMenuHover% = -1
     DRAWER.samplesLoaded% = FALSE
     DRAWER.loadedTheme = ""
     DRAWER_DEFERRED_IMPORT_SLOT% = 0
@@ -439,6 +457,8 @@ END SUB
 
 SUB DRAWER_set_mode (mode AS INTEGER)
     IF mode% < DRAWER_MODE_NONE OR mode% > DRAWER_MODE_GRADIENT THEN EXIT SUB
+
+    IF DRAWER.contextMenuOpen% THEN DRAWER_context_menu_close
 
     IF mode% = DRAWER_MODE_NONE THEN
         DRAWER.visible% = TRUE
@@ -1328,7 +1348,7 @@ FUNCTION DRAWER_handle_right_click% (mouseX AS INTEGER, mouseY AS INTEGER)
         IF MODIFIERS.shift% THEN
             DRAWER_queue_slot_import slotIndex%
         ELSE
-            _LOGINFO "DRAWER: Slot editor not implemented yet"
+            DRAWER_context_menu_show slotIndex%, mouseX%, mouseY%
         END IF
         DRAWER_handle_right_click% = TRUE
     END IF
@@ -1360,6 +1380,190 @@ END FUNCTION
 SUB DRAWER_handle_wheel (mouseX AS INTEGER, mouseY AS INTEGER, wheelDelta AS INTEGER)
     IF NOT DRAWER_is_over_area%(mouseX%, mouseY%) THEN EXIT SUB
     IF wheelDelta% = 0 THEN EXIT SUB
+END SUB
+
+SUB DRAWER_context_menu_show (slotIndex AS INTEGER, mouseX AS INTEGER, mouseY AS INTEGER)
+    DIM itemCount AS INTEGER
+    DIM popupH AS INTEGER
+    DIM popupFont AS LONG
+
+    IF slotIndex% < 1 OR slotIndex% > DRAWER_SLOT_COUNT THEN EXIT SUB
+
+    DRAWER_context_menu_build itemCount%
+    popupFont& = DRAWER_popup_font_handle&
+    DRAWER.contextMenuW% = POPUP_MENU_measure_width%(itemCount%, popupFont&)
+    POPUP_MENU_place mouseX%, mouseY%, DRAWER.contextMenuW%, itemCount%, DRAWER_CONTEXT_ITEM_H, DRAWER.contextMenuX%, DRAWER.contextMenuY%, popupH%
+    DRAWER.contextMenuOpen% = TRUE
+    DRAWER.contextMenuSlot% = slotIndex%
+    DRAWER.contextMenuHover% = -1
+    GUI_NEEDS_REDRAW% = TRUE
+    FRAME_IDLE% = FALSE
+END SUB
+
+SUB DRAWER_context_menu_close ()
+    DRAWER.contextMenuOpen% = FALSE
+    DRAWER.contextMenuSlot% = 0
+    DRAWER.contextMenuHover% = -1
+    GUI_NEEDS_REDRAW% = TRUE
+    FRAME_IDLE% = FALSE
+END SUB
+
+SUB DRAWER_context_menu_hover (mouseX AS INTEGER, mouseY AS INTEGER)
+    DIM itemCount AS INTEGER
+    DIM prevHover AS INTEGER
+
+    IF NOT DRAWER.contextMenuOpen% THEN EXIT SUB
+
+    prevHover% = DRAWER.contextMenuHover%
+    DRAWER_context_menu_build itemCount%
+    DRAWER.contextMenuHover% = POPUP_MENU_hover_row%(DRAWER.contextMenuX%, DRAWER.contextMenuY%, DRAWER.contextMenuW%, itemCount%, DRAWER_CONTEXT_ITEM_H, mouseX%, mouseY%)
+    IF DRAWER.contextMenuHover% <> prevHover% THEN
+        GUI_NEEDS_REDRAW% = TRUE
+        FRAME_IDLE% = FALSE
+    END IF
+END SUB
+
+FUNCTION DRAWER_context_menu_hit% (mouseX AS INTEGER, mouseY AS INTEGER)
+    DIM itemCount AS INTEGER
+
+    IF NOT DRAWER.contextMenuOpen% THEN
+        DRAWER_context_menu_hit% = -2
+        EXIT FUNCTION
+    END IF
+
+    DRAWER_context_menu_build itemCount%
+    DRAWER_context_menu_hit% = POPUP_MENU_hit_value%(DRAWER.contextMenuX%, DRAWER.contextMenuY%, DRAWER.contextMenuW%, itemCount%, DRAWER_CONTEXT_ITEM_H, mouseX%, mouseY%)
+END FUNCTION
+
+SUB DRAWER_context_menu_activate (actionValue AS INTEGER)
+    SELECT CASE actionValue%
+        CASE DRAWER_CONTEXT_LOAD_SET
+            DRAWER_import_set_dialog
+        CASE DRAWER_CONTEXT_SAVE_SET
+            DRAWER_export_set_dialog
+        CASE DRAWER_CONTEXT_CLEAR_SET
+            DRAWER_clear_active_set
+        CASE DRAWER_CONTEXT_EXPLORE_FOLDER
+            DRAWER_explore_context_folder
+    END SELECT
+END SUB
+
+SUB DRAWER_context_menu_render ()
+    DIM itemCount AS INTEGER
+    DIM popupFont AS LONG
+
+    IF NOT DRAWER.contextMenuOpen% THEN EXIT SUB
+
+    DRAWER_context_menu_build itemCount%
+    popupFont& = DRAWER_popup_font_handle&
+    POPUP_MENU_render SCRN.CANVAS&, DRAWER.contextMenuX%, DRAWER.contextMenuY%, DRAWER.contextMenuW%, itemCount%, DRAWER_CONTEXT_ITEM_H, DRAWER.contextMenuHover%, popupFont&
+END SUB
+
+FUNCTION DRAWER_popup_font_handle& ()
+    IF MENU_BAR.fontHandle& > 0 THEN
+        DRAWER_popup_font_handle& = MENU_BAR.fontHandle&
+    ELSEIF LAYER_PANEL.fontHandle& > 0 THEN
+        DRAWER_popup_font_handle& = LAYER_PANEL.fontHandle&
+    ELSE
+        DRAWER_popup_font_handle& = 0
+    END IF
+END FUNCTION
+
+SUB DRAWER_context_menu_build (itemCount AS INTEGER)
+    POPUP_MENU_clear_items
+    itemCount% = 0
+
+    SELECT CASE DRAWER.mode%
+        CASE DRAWER_MODE_PATTERN
+            POPUP_MENU_set_item itemCount%, "SOURCE = CLIPBOARD", "", -1, POPUP_MENU_FLAG_DISABLED
+            itemCount% = itemCount% + 1
+            POPUP_MENU_set_item itemCount%, "", "", -1, POPUP_MENU_FLAG_DIVIDER
+            itemCount% = itemCount% + 1
+        CASE DRAWER_MODE_GRADIENT
+            POPUP_MENU_set_item itemCount%, "EDIT = Double Click", "", -1, POPUP_MENU_FLAG_DISABLED
+            itemCount% = itemCount% + 1
+            POPUP_MENU_set_item itemCount%, "", "", -1, POPUP_MENU_FLAG_DIVIDER
+            itemCount% = itemCount% + 1
+        CASE DRAWER_MODE_BRUSH
+            POPUP_MENU_set_item itemCount%, "SOURCE = CLIPBRD / BRUSH", "", -1, POPUP_MENU_FLAG_DISABLED
+            itemCount% = itemCount% + 1
+            POPUP_MENU_set_item itemCount%, "", "", -1, POPUP_MENU_FLAG_DIVIDER
+            itemCount% = itemCount% + 1
+    END SELECT
+
+    POPUP_MENU_set_item itemCount%, "SELECT", "LMB", -1, POPUP_MENU_FLAG_DISABLED
+    itemCount% = itemCount% + 1
+
+    POPUP_MENU_set_item itemCount%, "STORE", "Shift+LMB", -1, POPUP_MENU_FLAG_DISABLED
+    itemCount% = itemCount% + 1
+
+    POPUP_MENU_set_item itemCount%, "CLEAR", "Shift+MMB", -1, POPUP_MENU_FLAG_DISABLED
+    itemCount% = itemCount% + 1
+
+    POPUP_MENU_set_item itemCount%, "LOAD", "Shift+RMB", -1, POPUP_MENU_FLAG_DISABLED
+    itemCount% = itemCount% + 1
+
+    POPUP_MENU_set_item itemCount%, "", "", -1, POPUP_MENU_FLAG_DIVIDER
+    itemCount% = itemCount% + 1
+
+    POPUP_MENU_set_item itemCount%, "Load Drawer Set (.dset)", "", DRAWER_CONTEXT_LOAD_SET, 0
+    itemCount% = itemCount% + 1
+
+    POPUP_MENU_set_item itemCount%, "Save Drawer Set (.dset)", "", DRAWER_CONTEXT_SAVE_SET, 0
+    itemCount% = itemCount% + 1
+
+    POPUP_MENU_set_item itemCount%, "Clear Drawer Set", "", DRAWER_CONTEXT_CLEAR_SET, 0
+    itemCount% = itemCount% + 1
+
+    POPUP_MENU_set_item itemCount%, "", "", -1, POPUP_MENU_FLAG_DIVIDER
+    itemCount% = itemCount% + 1
+
+    POPUP_MENU_set_item itemCount%, "Explore Folder", "", DRAWER_CONTEXT_EXPLORE_FOLDER, 0
+    itemCount% = itemCount% + 1
+END SUB
+
+FUNCTION DRAWER_sets_dir$ ()
+    DRAWER_sets_dir$ = _CWD$ + "/USER/DRAWER-SETS"
+END FUNCTION
+
+SUB DRAWER_ensure_sets_dir ()
+    IF NOT _DIREXISTS(DRAWER_sets_dir$) THEN
+        MKDIR DRAWER_sets_dir$
+    END IF
+END SUB
+
+SUB DRAWER_explore_sets_folder ()
+    DIM setsDir AS STRING
+
+    setsDir$ = DRAWER_sets_dir$
+    DRAWER_ensure_sets_dir
+
+    $IF WIN THEN
+        SHELL _DONTWAIT "explorer /e " + CHR$(34) + setsDir$ + CHR$(34)
+    $ELSEIF MAC THEN
+        SHELL _DONTWAIT "open " + CHR$(34) + setsDir$ + CHR$(34)
+    $ELSE
+        SHELL _DONTWAIT "open " + CHR$(34) + setsDir$ + CHR$(34)
+    $END IF
+END SUB
+
+SUB DRAWER_explore_context_folder ()
+    DIM targetPath AS STRING
+
+    IF DRAWER.mode% = DRAWER_MODE_PATTERN THEN
+        targetPath$ = _CWD$ + "/ASSETS/THEMES/" + _TRIM$(CFG.THEME$) + "/IMAGES/PATTERNS"
+        IF NOT _DIREXISTS(targetPath$) THEN targetPath$ = _CWD$ + "/ASSETS/THEMES/DEFAULT/IMAGES/PATTERNS"
+
+        $IF WIN THEN
+            SHELL _DONTWAIT "explorer /e " + CHR$(34) + targetPath$ + CHR$(34)
+        $ELSEIF MAC THEN
+            SHELL _DONTWAIT "open " + CHR$(34) + targetPath$ + CHR$(34)
+        $ELSE
+            SHELL _DONTWAIT "open " + CHR$(34) + targetPath$ + CHR$(34)
+        $END IF
+    ELSE
+        DRAWER_explore_sets_folder
+    END IF
 END SUB
 
 SUB DRAWER_save_slot_image (fh AS INTEGER, imgHandle AS LONG)
@@ -1524,6 +1728,40 @@ FUNCTION DRAWER_set_mode_name$ (mode AS INTEGER)
     END SELECT
 END FUNCTION
 
+SUB DRAWER_clear_active_set ()
+    DIM i AS INTEGER
+
+    SELECT CASE DRAWER.mode%
+        CASE DRAWER_MODE_BRUSH
+            FOR i% = 1 TO DRAWER_SLOT_COUNT
+                IF DRAWER_BRUSH_SLOTS(i%).IMG < -1 THEN _FREEIMAGE DRAWER_BRUSH_SLOTS(i%).IMG
+                DRAWER_BRUSH_SLOTS(i%).IMG = 0
+                DRAWER_BRUSH_SLOTS(i%).W = 0
+                DRAWER_BRUSH_SLOTS(i%).H = 0
+            NEXT i%
+            DRAWER.brushSelected% = 1
+            CUSTOM_BRUSH_reset
+        CASE DRAWER_MODE_PATTERN
+            FOR i% = 1 TO DRAWER_SLOT_COUNT
+                IF DRAWER_PATTERN_SLOTS(i%) < -1 THEN _FREEIMAGE DRAWER_PATTERN_SLOTS(i%)
+                DRAWER_PATTERN_SLOTS(i%) = 0
+                DRAWER_PATTERN_HAS(i%) = FALSE
+            NEXT i%
+            DRAWER.patternSelected% = 1
+        CASE DRAWER_MODE_GRADIENT
+            FOR i% = 1 TO DRAWER_SLOT_COUNT
+                IF DRAWER_GRADIENT_SLOTS(i%) < -1 THEN _FREEIMAGE DRAWER_GRADIENT_SLOTS(i%)
+                DRAWER_GRADIENT_SLOTS(i%) = 0
+                DRAWER_GRADIENT_HAS(i%) = FALSE
+                DRAWER_GRADIENT_CUSTOM(i%) = TRUE
+            NEXT i%
+            DRAWER.gradientSelected% = 1
+    END SELECT
+
+    GUI_NEEDS_REDRAW% = TRUE
+    FRAME_IDLE% = FALSE
+END SUB
+
 SUB DRAWER_export_set_dialog ()
     DIM fh AS INTEGER
     DIM modeName AS STRING
@@ -1549,7 +1787,8 @@ SUB DRAWER_export_set_dialog ()
     ELSEIF LAST_DIRECTORY$ <> "" THEN
         defaultPath$ = LAST_DIRECTORY$ + "/" + LCASE$(modeName$) + "-set.dset"
     ELSE
-        defaultPath$ = LCASE$(modeName$) + "-set.dset"
+        DRAWER_ensure_sets_dir
+        defaultPath$ = DRAWER_sets_dir$ + "/" + LCASE$(modeName$) + "-set.dset"
     END IF
 
     POINTER_hide_for_dialog
@@ -1608,7 +1847,8 @@ SUB DRAWER_import_set_dialog ()
     ELSEIF LAST_DIRECTORY$ <> "" THEN
         defaultPath$ = LAST_DIRECTORY$ + "/"
     ELSE
-        defaultPath$ = ""
+        DRAWER_ensure_sets_dir
+        defaultPath$ = DRAWER_sets_dir$ + "/"
     END IF
 
     POINTER_hide_for_dialog
