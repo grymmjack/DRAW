@@ -53,6 +53,7 @@ $INCLUDEONCE
 '$INCLUDE:'./GUI/IMGADJ.BI'
 '$INCLUDE:'./GUI/IMAGE-ADJ.BI'
 '$INCLUDE:'./GUI/STROKE-SEL.BI'
+'$INCLUDE:'./GUI/PREVIEW.BI'
 
 ' INPUT -----------------------------------------------------------------------
 '$INCLUDE:'./INPUT/MODIFIERS.BI'

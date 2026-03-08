@@ -1,0 +1,646 @@
+''
+' DRAW - GUI/PREVIEW.BM
+' =============================================================================
+' Preview Window — implementation.
+' Resizable, movable floating window showing a live canvas composite.
+' Follow-pointer mode centers view on the cursor position.
+' Independent pan/zoom when follow-pointer is off.
+'
+' Rendering point: called from SCREEN_render after SkipToPointer so it does
+' NOT force scene cache invalidation on every frame.
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+OPTION _EXPLICIT
+OPTION _EXPLICITARRAY
+
+' ---------------------------------------------------------------------------
+' PREVIEW_init - Set defaults, allocate offscreen image handle.
+' Called once at startup (from SCREEN_init or DRW_init).
+' If CONFIG has valid saved position, apply it and mark as positioned.
+' ---------------------------------------------------------------------------
+SUB PREVIEW_init ()
+    PREVIEW.visible%      = FALSE
+    PREVIEW.minimized%    = FALSE
+    PREVIEW.positioned%   = FALSE
+    PREVIEW.followPointer% = TRUE
+    PREVIEW.panX!         = 0.0
+    PREVIEW.panY!         = 0.0
+    PREVIEW.zoom!         = 1.0
+    PREVIEW.zoomMin!      = 0.25
+    PREVIEW.zoomMax!      = 16.0
+    PREVIEW.dragging%     = FALSE
+    PREVIEW.panning%      = FALSE
+    PREVIEW.resizing%     = FALSE
+    PREVIEW.autoHidden%   = FALSE
+    PREVIEW.w%            = PREVIEW_DEFAULT_W
+    PREVIEW.h%            = PREVIEW_DEFAULT_H
+    PREVIEW.x%            = 0
+    PREVIEW.y%            = 0
+    PREVIEW.imgHandle&    = 0
+    PREVIEW.fontHandle&   = 0
+    SCRN.showPreviewWindow%    = FALSE
+    SCRN.previewManuallyHidden% = TRUE
+
+    ' Restore persisted position/visible state from CFG
+    IF CFG.PREVIEW_X% > -1 AND CFG.PREVIEW_Y% > -1 THEN
+        PREVIEW.x%         = CFG.PREVIEW_X%
+        PREVIEW.y%         = CFG.PREVIEW_Y%
+        PREVIEW.w%         = CFG.PREVIEW_W%
+        PREVIEW.h%         = CFG.PREVIEW_H%
+        PREVIEW.followPointer% = CFG.PREVIEW_FOLLOW%
+        PREVIEW.zoom!      = CFG.PREVIEW_ZOOM!
+        PREVIEW.positioned% = TRUE
+    END IF
+    IF CFG.PREVIEW_VISIBLE% THEN
+        PREVIEW.visible%            = TRUE
+        SCRN.showPreviewWindow%     = TRUE
+        SCRN.previewManuallyHidden% = FALSE
+        IF NOT PREVIEW.positioned% THEN
+            PREVIEW_auto_position
+        END IF
+    END IF
+
+    ' Cache title-bar font (load once here, not every frame)
+    ' Use the same pattern as STATUS_init / MENUBAR_init: GLOBAL_FONT at GLOBAL_FONT_SIZE
+    DIM prevFontFile AS STRING
+    DIM prevFontSize AS INTEGER
+    prevFontFile$ = THEME_font_path$(THEME.GLOBAL_FONT_FILE$)
+    prevFontSize% = THEME.GLOBAL_FONT_SIZE%
+    IF prevFontSize% < 1 THEN prevFontSize% = 8
+    IF _FILEEXISTS(prevFontFile$) THEN
+        PREVIEW.fontHandle& = _LOADFONT(prevFontFile$, prevFontSize%, "DONTBLEND")
+        IF PREVIEW.fontHandle& <= 0 THEN
+            _LOGWARN "PREVIEW_init: _LOADFONT failed for " + prevFontFile$ + " at size" + STR$(prevFontSize%)
+            PREVIEW.fontHandle& = 0
+        END IF
+    ELSE
+        _LOGWARN "PREVIEW_init: font file not found: " + prevFontFile$
+    END IF
+END SUB
+
+' ---------------------------------------------------------------------------
+' PREVIEW_cleanup - Free the offscreen image handle.
+' ---------------------------------------------------------------------------
+SUB PREVIEW_cleanup ()
+    IF PREVIEW.imgHandle& < -1 THEN
+        _FREEIMAGE PREVIEW.imgHandle&
+    END IF
+    PREVIEW.imgHandle& = 0
+    IF PREVIEW.fontHandle& > 0 THEN
+        _FREEFONT PREVIEW.fontHandle&
+    END IF
+    PREVIEW.fontHandle& = 0
+END SUB
+
+' ---------------------------------------------------------------------------
+' PREVIEW_toggle - Toggle visibility; on first open do smart placement.
+' ---------------------------------------------------------------------------
+SUB PREVIEW_toggle ()
+    IF PREVIEW.visible% THEN
+        PREVIEW.visible%            = FALSE
+        SCRN.showPreviewWindow%     = FALSE
+        SCRN.previewManuallyHidden% = TRUE
+    ELSE
+        PREVIEW.visible%            = TRUE
+        SCRN.showPreviewWindow%     = TRUE
+        SCRN.previewManuallyHidden% = FALSE
+        IF PREVIEW.minimized% THEN PREVIEW.minimized% = FALSE
+        IF NOT PREVIEW.positioned% THEN
+            PREVIEW_auto_position
+        END IF
+    END IF
+    CFG.PREVIEW_VISIBLE% = PREVIEW.visible%
+END SUB
+
+' ---------------------------------------------------------------------------
+' PREVIEW_auto_position - Place window bottom-right on first open.
+' Avoids the status bar, palette strip, and honours initial_padding theme.
+' ---------------------------------------------------------------------------
+SUB PREVIEW_auto_position ()
+    DIM pad AS INTEGER
+    DIM bottomH AS INTEGER
+    DIM maxX AS INTEGER
+    DIM maxY AS INTEGER
+
+    pad%     = THEME.PREVIEW_initial_padding%
+    bottomH% = THEME.STATUS_height% + PALETTE_STRIP_get_height%
+
+    IF PREVIEW.w% < PREVIEW_MIN_W THEN PREVIEW.w% = PREVIEW_DEFAULT_W
+    IF PREVIEW.h% < PREVIEW_MIN_H THEN PREVIEW.h% = PREVIEW_DEFAULT_H
+
+    maxX% = SCRN.w& - PREVIEW.w% - pad%
+    maxY% = SCRN.h& - PREVIEW.h% - bottomH% - pad%
+
+    IF maxX% < pad% THEN maxX% = pad%
+    IF maxY% < pad% THEN maxY% = pad%
+
+    PREVIEW.x% = maxX%
+    PREVIEW.y% = maxY%
+    PREVIEW.positioned% = TRUE
+
+    ' Persist position so zoom/follow state survives restart
+    CFG.PREVIEW_X% = PREVIEW.x%
+    CFG.PREVIEW_Y% = PREVIEW.y%
+    CFG.PREVIEW_W% = PREVIEW.w%
+    CFG.PREVIEW_H% = PREVIEW.h%
+    CONFIG_save
+END SUB
+
+' ---------------------------------------------------------------------------
+' PREVIEW_reset - Reset pan/zoom to defaults (called after file load).
+' Does NOT close the window or change visibility.
+' ---------------------------------------------------------------------------
+SUB PREVIEW_reset ()
+    PREVIEW.panX!  = 0.0
+    PREVIEW.panY!  = 0.0
+    ' zoom and followPointer are user preferences — not reset on file load
+    PREVIEW.minimized%     = FALSE
+    PREVIEW.dragging%      = FALSE
+    PREVIEW.panning%       = FALSE
+    PREVIEW.resizing%      = FALSE
+    PREVIEW.autoHidden%    = FALSE
+END SUB
+
+' ---------------------------------------------------------------------------
+' PREVIEW_render - Draw the preview window chrome and canvas composite.
+' Must be called from the SkipToPointer section of SCREEN_render so it
+' renders on top of everything and does not force scene re-compositing.
+' @param destHandle&  The destination image (typically SCRN.CANVAS&)
+' ---------------------------------------------------------------------------
+SUB PREVIEW_render (destHandle AS LONG)
+    IF NOT PREVIEW.visible% THEN EXIT SUB
+    IF PREVIEW.autoHidden% THEN EXIT SUB
+
+    DIM oldDest AS LONG : oldDest& = _DEST
+    _DEST destHandle&
+
+    ' --- Layout constants ---
+    DIM titleH  AS INTEGER : titleH%  = THEME.PREVIEW_title_height%
+    DIM bw      AS INTEGER : bw%      = THEME.PREVIEW_border_width%
+    DIM btnW    AS INTEGER : btnW%    = THEME.PREVIEW_button_width%
+    DIM btnH    AS INTEGER : btnH%    = THEME.PREVIEW_button_height%
+    DIM pad     AS INTEGER : pad%     = THEME.PREVIEW_padding%
+    DIM cbSz    AS INTEGER : cbSz%    = THEME.PREVIEW_checkbox_size%
+    DIM hndSz   AS INTEGER : hndSz%   = THEME.PREVIEW_resize_handle_size%
+
+    DIM wx AS INTEGER : wx% = PREVIEW.x%
+    DIM wy AS INTEGER : wy% = PREVIEW.y%
+    DIM ww AS INTEGER : ww% = PREVIEW.w%
+    DIM wh AS INTEGER : wh% = PREVIEW.h%
+    IF PREVIEW.minimized% THEN wh% = titleH% + bw% * 2
+
+    ' --- Border ---
+    LINE (wx%, wy%)-(wx% + ww% - 1, wy% + wh% - 1), THEME.PREVIEW_border~&, B
+
+    ' --- Title bar background (inside border) ---
+    DIM titleBg AS _UNSIGNED LONG
+    IF PREVIEW.dragging% THEN
+        titleBg~& = THEME.PREVIEW_title_drag_bg~&
+    ELSEIF MOUSE.RAW_X% >= wx% AND MOUSE.RAW_X% < wx% + ww% AND _
+           MOUSE.RAW_Y% >= wy% AND MOUSE.RAW_Y% < wy% + titleH% THEN
+        titleBg~& = THEME.PREVIEW_title_hover_bg~&
+    ELSE
+        titleBg~& = THEME.PREVIEW_title_bg~&
+    END IF
+    LINE (wx% + bw%, wy% + bw%)-(wx% + ww% - bw% - 1, wy% + titleH% - 1), titleBg~&, BF
+
+    ' --- Window background (content area background, not minimized) ---
+    IF NOT PREVIEW.minimized% THEN
+        LINE (wx% + bw%, wy% + titleH%)-(wx% + ww% - bw% - 1, wy% + wh% - bw% - 1), THEME.PREVIEW_bg~&, BF
+    END IF
+
+    ' --- Buttons (right-aligned in title bar) ---
+    ' Close button [X]
+    DIM closeX AS INTEGER : closeX% = wx% + ww% - bw% - btnW% - 1
+    DIM closeY AS INTEGER : closeY% = wy% + bw% + (titleH% - bw% - btnH%) \ 2
+    DIM closeHov AS INTEGER
+    closeHov% = MOUSE.RAW_X% >= closeX% AND MOUSE.RAW_X% < closeX% + btnW% AND _
+                MOUSE.RAW_Y% >= closeY% AND MOUSE.RAW_Y% < closeY% + btnH%
+    IF closeHov% THEN
+        LINE (closeX%, closeY%)-(closeX% + btnW% - 1, closeY% + btnH% - 1), THEME.PREVIEW_close_hover_bg~&, BF
+    END IF
+    DIM midCX AS INTEGER : midCX% = closeX% + btnW% \ 2
+    DIM midCY AS INTEGER : midCY% = closeY% + btnH% \ 2
+    LINE (midCX% - 2, midCY% - 2)-(midCX% + 2, midCY% + 2), THEME.PREVIEW_close_fg~&
+    LINE (midCX% - 2, midCY% + 2)-(midCX% + 2, midCY% - 2), THEME.PREVIEW_close_fg~&
+
+    ' Minimize button [_]
+    DIM minBtnX AS INTEGER : minBtnX% = closeX% - btnW% - 2
+    DIM minBtnY AS INTEGER : minBtnY% = closeY%
+    DIM minHov AS INTEGER
+    minHov% = MOUSE.RAW_X% >= minBtnX% AND MOUSE.RAW_X% < minBtnX% + btnW% AND _
+              MOUSE.RAW_Y% >= minBtnY% AND MOUSE.RAW_Y% < minBtnY% + btnH%
+    IF minHov% THEN
+        LINE (minBtnX%, minBtnY%)-(minBtnX% + btnW% - 1, minBtnY% + btnH% - 1), THEME.PREVIEW_minimize_hover_bg~&, BF
+    END IF
+    LINE (minBtnX% + 2, minBtnY% + btnH% - 3)-(minBtnX% + btnW% - 3, minBtnY% + btnH% - 3), THEME.PREVIEW_minimize_fg~&
+
+    ' --- Title text ---
+    IF PREVIEW.fontHandle& > 0 THEN _FONT PREVIEW.fontHandle&
+    COLOR THEME.PREVIEW_title_fg~&
+    _PRINTSTRING (wx% + bw% + 3, wy% + bw% + (titleH% - bw% - THEME.PREVIEW_font_size%) \ 2), "PREVIEW"
+
+    ' Early exit if minimized
+    IF PREVIEW.minimized% THEN
+        _DEST oldDest&
+        EXIT SUB
+    END IF
+
+    ' --- Follow-pointer checkbox (in title bar, after title text) ---
+    DIM cbX AS INTEGER : cbX% = wx% + bw% + 3 + 52   ' ~52px for "PREVIEW" text
+    DIM cbY AS INTEGER : cbY% = wy% + bw% + (titleH% - bw% - cbSz%) \ 2
+    ' Checkbox border
+    LINE (cbX%, cbY%)-(cbX% + cbSz% - 1, cbY% + cbSz% - 1), THEME.PREVIEW_checkbox_border~&, B
+    ' Checkbox fill
+    LINE (cbX% + 1, cbY% + 1)-(cbX% + cbSz% - 2, cbY% + cbSz% - 2), THEME.PREVIEW_checkbox_bg~&, BF
+    ' Checkmark
+    IF PREVIEW.followPointer% THEN
+        LINE (cbX% + 1, cbY% + cbSz% \ 2)-(cbX% + cbSz% \ 2 - 1, cbY% + cbSz% - 2), THEME.PREVIEW_checkbox_fg~&
+        LINE (cbX% + cbSz% \ 2 - 1, cbY% + cbSz% - 2)-(cbX% + cbSz% - 2, cbY% + 1), THEME.PREVIEW_checkbox_fg~&
+    END IF
+    ' "FP" label
+    COLOR THEME.PREVIEW_checkbox_fg~&
+    _PRINTSTRING (cbX% + cbSz% + 2, cbY%), "FP"
+
+    ' --- Content area ---
+    DIM cx1 AS INTEGER : cx1% = wx% + bw% + pad%
+    DIM cy1 AS INTEGER : cy1% = wy% + titleH% + pad%
+    DIM cx2 AS INTEGER : cx2% = wx% + ww% - bw% - pad% - 1
+    DIM cy2 AS INTEGER : cy2% = wy% + wh% - bw% - pad% - 1
+
+    IF cx2% <= cx1% OR cy2% <= cy1% THEN
+        _DEST oldDest&
+        EXIT SUB
+    END IF
+
+    ' Content border
+    LINE (cx1% - 1, cy1% - 1)-(cx2% + 1, cy2% + 1), THEME.PREVIEW_content_border~&, B
+
+    ' --- Blit canvas composite ---
+    IF COMPOSITE_BUFFER& < -1 THEN
+        DIM contentW AS INTEGER : contentW% = cx2% - cx1% + 1
+        DIM contentH AS INTEGER : contentH% = cy2% - cy1% + 1
+        DIM canvasW  AS LONG    : canvasW&  = SCRN.canvasW&
+        DIM canvasH  AS LONG    : canvasH&  = SCRN.canvasH&
+
+        DIM srcX1 AS SINGLE, srcY1 AS SINGLE
+        DIM srcX2 AS SINGLE, srcY2 AS SINGLE
+
+        IF PREVIEW.followPointer% THEN
+            ' Center viewport on mouse canvas position (unsnapped canvas coords)
+            DIM worldCX AS SINGLE : worldCX! = MOUSE.UNSNAPPED_X%
+            DIM worldCY AS SINGLE : worldCY! = MOUSE.UNSNAPPED_Y%
+            DIM halfSrcW AS SINGLE : halfSrcW! = (contentW% / PREVIEW.zoom!) / 2.0
+            DIM halfSrcH AS SINGLE : halfSrcH! = (contentH% / PREVIEW.zoom!) / 2.0
+            srcX1! = worldCX! - halfSrcW!
+            srcY1! = worldCY! - halfSrcH!
+            srcX2! = worldCX! + halfSrcW!
+            srcY2! = worldCY! + halfSrcH!
+        ELSE
+            ' Independent pan/zoom — pan is in canvas pixels
+            srcX1! = PREVIEW.panX!
+            srcY1! = PREVIEW.panY!
+            srcX2! = srcX1! + contentW% / PREVIEW.zoom!
+            srcY2! = srcY1! + contentH% / PREVIEW.zoom!
+        END IF
+
+        ' Draw transparency checkerboard behind canvas content
+        DIM pChkSzX AS INTEGER, pChkSzY AS INTEGER
+        IF CFG.TRANSPARENCY_CHECK_SIZE_X% > 0 THEN pChkSzX% = CFG.TRANSPARENCY_CHECK_SIZE_X% ELSE pChkSzX% = THEME.TRANSPARENCY_check_size_x%
+        IF CFG.TRANSPARENCY_CHECK_SIZE_Y% > 0 THEN pChkSzY% = CFG.TRANSPARENCY_CHECK_SIZE_Y% ELSE pChkSzY% = THEME.TRANSPARENCY_check_size_y%
+        DIM pScaledX AS INTEGER : pScaledX% = INT(pChkSzX% * PREVIEW.zoom!)
+        DIM pScaledY AS INTEGER : pScaledY% = INT(pChkSzY% * PREVIEW.zoom!)
+        IF pScaledX% < 2 THEN pScaledX% = 2
+        IF pScaledY% < 2 THEN pScaledY% = 2
+        ' Canvas-pixel offset within checkerboard (so pattern scrolls with pan)
+        DIM pOffPxX AS SINGLE : pOffPxX! = srcX1! * PREVIEW.zoom!
+        DIM pOffPxY AS SINGLE : pOffPxY! = srcY1! * PREVIEW.zoom!
+        DIM pcy AS INTEGER, pcx AS INTEGER
+        DIM pChkColIdx AS INTEGER
+        FOR pcy% = cy1% TO cy2%
+            FOR pcx% = cx1% TO cx2% STEP pScaledX%
+                pChkColIdx% = (INT((pcx% - cx1% + pOffPxX!) / pScaledX%) + INT((pcy% - cy1% + pOffPxY!) / pScaledY%)) MOD 2
+                DIM pChkColor AS _UNSIGNED LONG
+                IF pChkColIdx% = 0 THEN pChkColor~& = CFG.TRANSPARENCY_CHECK_COLOR1~& ELSE pChkColor~& = CFG.TRANSPARENCY_CHECK_COLOR2~&
+                DIM pChkX2 AS INTEGER : pChkX2% = pcx% + pScaledX% - 1
+                IF pChkX2% > cx2% THEN pChkX2% = cx2%
+                LINE (pcx%, pcy%)-(pChkX2%, pcy%), pChkColor~&
+            NEXT pcx%
+        NEXT pcy%
+
+        ' Blit composite with alpha blending on top of checkerboard
+        _PUTIMAGE (cx1%, cy1%)-(cx2%, cy2%), COMPOSITE_BUFFER&, destHandle&, (srcX1!, srcY1!)-(srcX2!, srcY2!)
+
+        ' --- Center tracking crosshair in follow mode ---
+        IF PREVIEW.followPointer% THEN
+            DIM cdx AS INTEGER : cdx% = cx1% + contentW% \ 2
+            DIM cdy AS INTEGER : cdy% = cy1% + contentH% \ 2
+            DIM dotC AS _UNSIGNED LONG : dotC~& = THEME.PREVIEW_center_dot_color~&
+            ' Crosshair arms (3px each direction, 1px gap from center)
+            LINE (cdx% - 4, cdy%)-(cdx% - 2, cdy%), dotC~&
+            LINE (cdx% + 2, cdy%)-(cdx% + 4, cdy%), dotC~&
+            LINE (cdx%, cdy% - 4)-(cdx%, cdy% - 2), dotC~&
+            LINE (cdx%, cdy% + 2)-(cdx%, cdy% + 4), dotC~&
+            ' Center dot
+            PSET (cdx%, cdy%), dotC~&
+        END IF
+    END IF
+
+    ' --- Resize handle dots (bottom-right corner indicator) ---
+    DIM hx AS INTEGER : hx% = wx% + ww% - bw% - 2
+    DIM hy AS INTEGER : hy% = wy% + wh% - bw% - 2
+    PSET (hx%,     hy%),     THEME.PREVIEW_resize_handle_fg~&
+    PSET (hx% - 3, hy%),     THEME.PREVIEW_resize_handle_fg~&
+    PSET (hx%,     hy% - 3), THEME.PREVIEW_resize_handle_fg~&
+    PSET (hx% - 6, hy%),     THEME.PREVIEW_resize_handle_fg~&
+    PSET (hx%,     hy% - 6), THEME.PREVIEW_resize_handle_fg~&
+    PSET (hx% - 3, hy% - 3), THEME.PREVIEW_resize_handle_fg~&
+
+    _DEST oldDest&
+END SUB
+
+' ---------------------------------------------------------------------------
+' Helper: return which resize edge (1-8) the given screen point is on.
+' Returns 0 if not on any edge.
+' Edge IDs: 1=N 2=NE 3=E 4=SE 5=S 6=SW 7=W 8=NW
+' ---------------------------------------------------------------------------
+FUNCTION PREVIEW_hit_resize_edge% (mx AS INTEGER, my AS INTEGER)
+    DIM hs AS INTEGER : hs% = THEME.PREVIEW_resize_handle_size%
+    DIM wx AS INTEGER : wx% = PREVIEW.x%
+    DIM wy AS INTEGER : wy% = PREVIEW.y%
+    DIM ww AS INTEGER : ww% = PREVIEW.w%
+    DIM wh AS INTEGER : wh% = PREVIEW.h%
+    IF PREVIEW.minimized% THEN wh% = THEME.PREVIEW_title_height% + THEME.PREVIEW_border_width% * 2
+
+    DIM onLeft   AS INTEGER : onLeft%   = (mx% >= wx% AND mx% < wx% + hs%)
+    DIM onRight  AS INTEGER : onRight%  = (mx% >= wx% + ww% - hs% AND mx% < wx% + ww%)
+    DIM onTop    AS INTEGER : onTop%    = (my% >= wy% AND my% < wy% + hs%)
+    DIM onBottom AS INTEGER : onBottom% = (my% >= wy% + wh% - hs% AND my% < wy% + wh%)
+    DIM inWindow AS INTEGER : inWindow% = (mx% >= wx% AND mx% < wx% + ww% AND my% >= wy% AND my% < wy% + wh%)
+
+    IF NOT inWindow% THEN PREVIEW_hit_resize_edge% = 0 : EXIT FUNCTION
+
+    IF onTop% AND onLeft%  THEN PREVIEW_hit_resize_edge% = 8 : EXIT FUNCTION
+    IF onTop% AND onRight% THEN PREVIEW_hit_resize_edge% = 2 : EXIT FUNCTION
+    IF onBottom% AND onLeft%  THEN PREVIEW_hit_resize_edge% = 6 : EXIT FUNCTION
+    IF onBottom% AND onRight% THEN PREVIEW_hit_resize_edge% = 4 : EXIT FUNCTION
+    IF onTop%    THEN PREVIEW_hit_resize_edge% = 1 : EXIT FUNCTION
+    IF onRight%  THEN PREVIEW_hit_resize_edge% = 3 : EXIT FUNCTION
+    IF onBottom% THEN PREVIEW_hit_resize_edge% = 5 : EXIT FUNCTION
+    IF onLeft%   THEN PREVIEW_hit_resize_edge% = 7 : EXIT FUNCTION
+    PREVIEW_hit_resize_edge% = 0
+END FUNCTION
+
+' ---------------------------------------------------------------------------
+' Helper: TRUE when the given point is inside the window rect.
+' ---------------------------------------------------------------------------
+FUNCTION PREVIEW_hit_window% (mx AS INTEGER, my AS INTEGER)
+    DIM wh AS INTEGER : wh% = PREVIEW.h%
+    IF PREVIEW.minimized% THEN wh% = THEME.PREVIEW_title_height% + THEME.PREVIEW_border_width% * 2
+    PREVIEW_hit_window% = (mx% >= PREVIEW.x% AND mx% < PREVIEW.x% + PREVIEW.w% AND _
+                           my% >= PREVIEW.y% AND my% < PREVIEW.y% + wh%)
+END FUNCTION
+
+' ---------------------------------------------------------------------------
+' PREVIEW_mouse_input - Handle mouse events for the preview window.
+' Called from MOUSE_input_handler every frame when PREVIEW.visible%.
+' Returns TRUE if the mouse event was consumed (no further processing needed).
+' ---------------------------------------------------------------------------
+SUB PREVIEW_mouse_input ()
+    IF NOT PREVIEW.visible% THEN EXIT SUB
+    IF PREVIEW.autoHidden% THEN EXIT SUB
+
+    DIM mx AS INTEGER : mx% = MOUSE.RAW_X%
+    DIM my AS INTEGER : my% = MOUSE.RAW_Y%
+    DIM bw AS INTEGER : bw% = THEME.PREVIEW_border_width%
+    DIM titleH AS INTEGER : titleH% = THEME.PREVIEW_title_height%
+    DIM btnW   AS INTEGER : btnW%   = THEME.PREVIEW_button_width%
+    DIM btnH   AS INTEGER : btnH%   = THEME.PREVIEW_button_height%
+
+    DIM wh AS INTEGER : wh% = PREVIEW.h%
+    IF PREVIEW.minimized% THEN wh% = titleH% + bw% * 2
+
+    ' Button regions
+    DIM btnY AS INTEGER : btnY% = PREVIEW.y% + bw% + (titleH% - bw% - btnH%) \ 2
+    DIM closeX AS INTEGER : closeX% = PREVIEW.x% + PREVIEW.w% - bw% - btnW% - 1
+    DIM minBtnX AS INTEGER : minBtnX% = closeX% - btnW% - 2
+
+    ' --- On press (B1 just went down) ---
+    IF MOUSE.B1% AND NOT MOUSE.OLD_B1% THEN
+
+        IF PREVIEW_hit_window%(mx%, my%) THEN
+            MOUSE.TOOLBAR_CLICKED% = TRUE
+
+            ' Close button?
+            IF mx% >= closeX% AND mx% < closeX% + btnW% AND my% >= btnY% AND my% < btnY% + btnH% THEN
+                CMD_execute_action 434   ' Toggle (hide) preview
+                EXIT SUB
+            END IF
+
+            ' Minimize button?
+            IF mx% >= minBtnX% AND mx% < minBtnX% + btnW% AND my% >= btnY% AND my% < btnY% + btnH% THEN
+                PREVIEW.minimized% = NOT PREVIEW.minimized%
+                GUI_NEEDS_REDRAW% = TRUE
+                FRAME_IDLE% = FALSE
+                EXIT SUB
+            END IF
+
+            ' Follow-pointer checkbox?
+            DIM cbX AS INTEGER : cbX% = PREVIEW.x% + bw% + 3 + 52
+            DIM cbY AS INTEGER : cbY% = PREVIEW.y% + bw% + (titleH% - bw% - THEME.PREVIEW_checkbox_size%) \ 2
+            DIM cbSz AS INTEGER : cbSz% = THEME.PREVIEW_checkbox_size%
+            IF mx% >= cbX% AND mx% < cbX% + cbSz% + 14 AND my% >= cbY% AND my% < cbY% + cbSz% + 2 THEN
+                PREVIEW.followPointer% = NOT PREVIEW.followPointer%
+                CFG.PREVIEW_FOLLOW% = PREVIEW.followPointer%
+                CONFIG_save
+                GUI_NEEDS_REDRAW% = TRUE
+                FRAME_IDLE% = FALSE
+                EXIT SUB
+            END IF
+
+            ' Title bar drag?
+            IF my% >= PREVIEW.y% AND my% < PREVIEW.y% + titleH% THEN
+                DIM edge AS INTEGER : edge% = PREVIEW_hit_resize_edge%(mx%, my%)
+                IF edge% = 0 THEN
+                    PREVIEW.dragging%  = TRUE
+                    PREVIEW.dragOffX%  = mx% - PREVIEW.x%
+                    PREVIEW.dragOffY%  = my% - PREVIEW.y%
+                    EXIT SUB
+                END IF
+            END IF
+
+            ' Resize edge?
+            IF NOT PREVIEW.minimized% THEN
+                DIM rEdge AS INTEGER : rEdge% = PREVIEW_hit_resize_edge%(mx%, my%)
+                IF rEdge% > 0 THEN
+                    PREVIEW.resizing%    = TRUE
+                    PREVIEW.resizeEdge%  = rEdge%
+                    PREVIEW.resizeStartX% = mx%
+                    PREVIEW.resizeStartY% = my%
+                    PREVIEW.resizeOrigX%  = PREVIEW.x%
+                    PREVIEW.resizeOrigY%  = PREVIEW.y%
+                    PREVIEW.resizeOrigW%  = PREVIEW.w%
+                    PREVIEW.resizeOrigH%  = PREVIEW.h%
+                    EXIT SUB
+                END IF
+            END IF
+
+            ' Content area click — pan (only when not in follow mode)
+            IF NOT PREVIEW.minimized% AND NOT PREVIEW.followPointer% THEN
+                DIM ccy1 AS INTEGER : ccy1% = PREVIEW.y% + titleH%
+                IF my% >= ccy1% THEN
+                    PREVIEW.panning%    = TRUE
+                    PREVIEW.panStartMX% = mx%
+                    PREVIEW.panStartMY% = my%
+                    PREVIEW.panOrigX!   = PREVIEW.panX!
+                    PREVIEW.panOrigY!   = PREVIEW.panY!
+                    EXIT SUB
+                END IF
+            END IF
+        END IF
+    END IF
+
+    ' --- Middle-click pan start ---
+    IF MOUSE.B3% AND NOT MOUSE.OLD_B3% THEN
+        IF NOT PREVIEW.minimized% AND NOT PREVIEW.followPointer% THEN
+            DIM cy1 AS INTEGER : cy1% = PREVIEW.y% + titleH%
+            IF PREVIEW_hit_window%(mx%, my%) AND my% >= cy1% THEN
+                PREVIEW.panning%    = TRUE
+                PREVIEW.panStartMX% = mx%
+                PREVIEW.panStartMY% = my%
+                PREVIEW.panOrigX!   = PREVIEW.panX!
+                PREVIEW.panOrigY!   = PREVIEW.panY!
+                EXIT SUB
+            END IF
+        END IF
+    END IF
+
+    ' --- Released ---
+    IF NOT MOUSE.B1% AND MOUSE.OLD_B1% THEN
+        IF PREVIEW.dragging% OR PREVIEW.resizing% THEN
+            PREVIEW.dragging%  = FALSE
+            PREVIEW.resizing%  = FALSE
+            ' Persist new position to config
+            CFG.PREVIEW_X%    = PREVIEW.x%
+            CFG.PREVIEW_Y%    = PREVIEW.y%
+            CFG.PREVIEW_W%    = PREVIEW.w%
+            CFG.PREVIEW_H%    = PREVIEW.h%
+            CONFIG_save
+        END IF
+        IF PREVIEW.panning% THEN PREVIEW.panning% = FALSE
+    END IF
+    IF NOT MOUSE.B3% AND MOUSE.OLD_B3% THEN
+        IF PREVIEW.panning% THEN PREVIEW.panning% = FALSE
+    END IF
+
+    ' --- Drag in-progress ---
+    IF PREVIEW.dragging% AND MOUSE.B1% THEN
+        PREVIEW.x% = mx% - PREVIEW.dragOffX%
+        PREVIEW.y% = my% - PREVIEW.dragOffY%
+        ' Clamp to viewport
+        IF PREVIEW.x% < 0 THEN PREVIEW.x% = 0
+        IF PREVIEW.y% < 0 THEN PREVIEW.y% = 0
+        IF PREVIEW.x% + PREVIEW.w% > SCRN.w& THEN PREVIEW.x% = SCRN.w& - PREVIEW.w%
+        DIM maxDragY AS INTEGER : maxDragY% = SCRN.h& - THEME.PREVIEW_title_height%
+        IF PREVIEW.y% > maxDragY% THEN PREVIEW.y% = maxDragY%
+        GUI_NEEDS_REDRAW% = TRUE
+        FRAME_IDLE% = FALSE
+        EXIT SUB
+    END IF
+
+    ' --- Resize in-progress ---
+    IF PREVIEW.resizing% AND MOUSE.B1% THEN
+        DIM dx AS INTEGER : dx% = mx% - PREVIEW.resizeStartX%
+        DIM dy AS INTEGER : dy% = my% - PREVIEW.resizeStartY%
+        DIM nx AS INTEGER : nx% = PREVIEW.resizeOrigX%
+        DIM ny AS INTEGER : ny% = PREVIEW.resizeOrigY%
+        DIM nw AS INTEGER : nw% = PREVIEW.resizeOrigW%
+        DIM nh AS INTEGER : nh% = PREVIEW.resizeOrigH%
+
+        SELECT CASE PREVIEW.resizeEdge%
+            CASE 1 ' N
+                ny% = ny% + dy% : nh% = nh% - dy%
+            CASE 2 ' NE
+                ny% = ny% + dy% : nh% = nh% - dy% : nw% = nw% + dx%
+            CASE 3 ' E
+                nw% = nw% + dx%
+            CASE 4 ' SE
+                nw% = nw% + dx% : nh% = nh% + dy%
+            CASE 5 ' S
+                nh% = nh% + dy%
+            CASE 6 ' SW
+                nx% = nx% + dx% : nw% = nw% - dx% : nh% = nh% + dy%
+            CASE 7 ' W
+                nx% = nx% + dx% : nw% = nw% - dx%
+            CASE 8 ' NW
+                nx% = nx% + dx% : nw% = nw% - dx% : ny% = ny% + dy% : nh% = nh% - dy%
+        END SELECT
+
+        IF nw% >= PREVIEW_MIN_W AND nh% >= PREVIEW_MIN_H THEN
+            PREVIEW.x% = nx% : PREVIEW.y% = ny%
+            PREVIEW.w% = nw% : PREVIEW.h% = nh%
+        ELSEIF nw% >= PREVIEW_MIN_W THEN
+            PREVIEW.x% = nx% : PREVIEW.w% = nw%
+        ELSEIF nh% >= PREVIEW_MIN_H THEN
+            PREVIEW.y% = ny% : PREVIEW.h% = nh%
+        END IF
+        GUI_NEEDS_REDRAW% = TRUE
+        FRAME_IDLE% = FALSE
+        EXIT SUB
+    END IF
+
+    ' --- Pan in-progress ---
+    IF PREVIEW.panning% AND (MOUSE.B1% OR MOUSE.B3%) THEN
+        ' Pan offset is in canvas pixels; mouse delta is screen pixels
+        PREVIEW.panX! = PREVIEW.panOrigX! - (mx% - PREVIEW.panStartMX%) / PREVIEW.zoom!
+        PREVIEW.panY! = PREVIEW.panOrigY! - (my% - PREVIEW.panStartMY%) / PREVIEW.zoom!
+        GUI_NEEDS_REDRAW% = TRUE
+        FRAME_IDLE% = FALSE
+        EXIT SUB
+    END IF
+END SUB
+
+' ---------------------------------------------------------------------------
+' PREVIEW_mouse_scroll - Handle mouse wheel zoom inside content area.
+' delta: +1 = zoom in, -1 = zoom out
+' ---------------------------------------------------------------------------
+SUB PREVIEW_mouse_scroll (delta AS INTEGER)
+    IF NOT PREVIEW.visible%    THEN EXIT SUB
+    IF PREVIEW.minimized%      THEN EXIT SUB
+    IF NOT PREVIEW_hit_window%(MOUSE.RAW_X%, MOUSE.RAW_Y%) THEN EXIT SUB
+
+    DIM oldZoom AS SINGLE : oldZoom! = PREVIEW.zoom!
+    IF delta% < 0 THEN
+        PREVIEW.zoom! = PREVIEW.zoom! * 2.0
+    ELSE
+        PREVIEW.zoom! = PREVIEW.zoom! * 0.5
+    END IF
+    IF PREVIEW.zoom! < PREVIEW.zoomMin! THEN PREVIEW.zoom! = PREVIEW.zoomMin!
+    IF PREVIEW.zoom! > PREVIEW.zoomMax! THEN PREVIEW.zoom! = PREVIEW.zoomMax!
+
+    ' Zoom relative to mouse position (keep canvas point under cursor fixed)
+    IF PREVIEW.zoom! <> oldZoom! AND NOT PREVIEW.followPointer% THEN
+        DIM bw AS INTEGER     : bw%  = THEME.PREVIEW_border_width%
+        DIM pad AS INTEGER    : pad% = THEME.PREVIEW_padding%
+        DIM titleH AS INTEGER : titleH% = THEME.PREVIEW_title_height%
+        DIM cx1 AS INTEGER    : cx1% = PREVIEW.x% + bw% + pad%
+        DIM cy1 AS INTEGER    : cy1% = PREVIEW.y% + titleH% + pad%
+        ' Mouse offset within content area (screen pixels)
+        DIM relX AS SINGLE : relX! = MOUSE.RAW_X% - cx1%
+        DIM relY AS SINGLE : relY! = MOUSE.RAW_Y% - cy1%
+        ' Canvas point under mouse at old zoom
+        DIM canvX AS SINGLE : canvX! = PREVIEW.panX! + relX! / oldZoom!
+        DIM canvY AS SINGLE : canvY! = PREVIEW.panY! + relY! / oldZoom!
+        ' Adjust pan so same canvas point stays under mouse at new zoom
+        PREVIEW.panX! = canvX! - relX! / PREVIEW.zoom!
+        PREVIEW.panY! = canvY! - relY! / PREVIEW.zoom!
+    END IF
+
+    CFG.PREVIEW_ZOOM! = PREVIEW.zoom!
+    CONFIG_save
+    GUI_NEEDS_REDRAW% = TRUE
+    FRAME_IDLE% = FALSE
+END SUB

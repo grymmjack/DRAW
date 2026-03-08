@@ -302,6 +302,16 @@ END SUB
 SUB MAIN_shutdown ()
     DIM i AS INTEGER
 
+    ' Always persist preview state on exit
+    CFG.PREVIEW_X%       = PREVIEW.x%
+    CFG.PREVIEW_Y%       = PREVIEW.y%
+    CFG.PREVIEW_W%       = PREVIEW.w%
+    CFG.PREVIEW_H%       = PREVIEW.h%
+    CFG.PREVIEW_ZOOM!    = PREVIEW.zoom!
+    CFG.PREVIEW_FOLLOW%  = PREVIEW.followPointer%
+    CFG.PREVIEW_VISIBLE% = PREVIEW.visible%
+    CONFIG_save
+
     IF CFG.DISPLAY_SCALE_CHANGED% THEN
         DIM save_result AS LONG
         POINTER_hide_for_dialog
