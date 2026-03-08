@@ -35,7 +35,10 @@ TYPE SCREEN_OBJ
     toolbarManuallyHidden AS INTEGER ' Toolbar manually hidden by user
     statusManuallyHidden AS INTEGER  ' Status manually hidden by user
     menubarManuallyHidden AS INTEGER ' Menu bar manually hidden by user
-    layerPanelManuallyHidden AS INTEGER ' Layer panel manually hidden by user
+    layerPanelManuallyHidden AS INTEGER
+    showPreviewWindow         AS INTEGER   ' TRUE when preview window is visible
+    previewManuallyHidden     AS INTEGER   ' TRUE when user explicitly hid preview window
+    previewHiddenByToggleAll  AS INTEGER   ' TRUE only when toggle-all (F11) hid the preview
 END TYPE
 
 DIM SHARED SCRN AS SCREEN_OBJ

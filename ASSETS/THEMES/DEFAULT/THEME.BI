@@ -241,6 +241,34 @@ THEME.TOOL_PREVIEW_transparent_fg~&  = _RGB32(255, 255, 255)       ' Transparent
 THEME.TOOL_PREVIEW_transparent_outline~& = _RGB32(0, 0, 0)         ' Transparent tool preview outline
 THEME.CANVAS_border~&                = _RGB32(51, 51, 51)          ' Canvas border
 
+' --- Preview Window ---
+THEME.PREVIEW_bg~&               = _RGB32(30, 30, 30)            ' Window background
+THEME.PREVIEW_border~&           = _RGB32(80, 80, 80)            ' Outer border
+THEME.PREVIEW_title_bg~&         = _RGB32(45, 45, 45)            ' Title bar background
+THEME.PREVIEW_title_hover_bg~&   = _RGB32(60, 60, 60)            ' Title bar hover
+THEME.PREVIEW_title_drag_bg~&    = _RGB32(35, 35, 100)           ' Title bar drag
+THEME.PREVIEW_title_fg~&         = _RGB32(200, 200, 200)         ' Title text color
+THEME.PREVIEW_close_fg~&         = _RGB32(220, 80, 80)           ' X button color
+THEME.PREVIEW_close_hover_bg~&   = _RGB32(180, 40, 40)           ' X button hover bg
+THEME.PREVIEW_minimize_fg~&      = _RGB32(200, 200, 80)          ' _ button color
+THEME.PREVIEW_minimize_hover_bg~& = _RGB32(100, 100, 40)         ' _ button hover bg
+THEME.PREVIEW_checkbox_fg~&      = _RGB32(180, 180, 180)         ' Checkbox text/check
+THEME.PREVIEW_checkbox_bg~&      = _RGB32(40, 40, 40)            ' Checkbox box fill
+THEME.PREVIEW_checkbox_border~&  = _RGB32(100, 100, 100)         ' Checkbox box border
+THEME.PREVIEW_resize_handle_fg~& = _RGB32(100, 100, 100)         ' Resize handle color
+THEME.PREVIEW_content_border~&   = _RGB32(60, 60, 60)            ' Preview image border
+THEME.PREVIEW_center_dot_color~& = _RGB32(0, 255, 0)             ' Center dot in follow mode
+THEME.PREVIEW_title_height%      = 14                            ' Title bar height px
+THEME.PREVIEW_border_width%      = 1                             ' Border stroke width
+THEME.PREVIEW_resize_handle_size% = 6                            ' Resize handle hit area
+THEME.PREVIEW_button_width%      = 12                            ' X / _ button width
+THEME.PREVIEW_button_height%     = 10                            ' X / _ button height
+THEME.PREVIEW_checkbox_size%     = 8                             ' Checkbox square size
+THEME.PREVIEW_padding%           = 2                             ' Content padding px
+THEME.PREVIEW_initial_padding%   = 8                             ' Edge padding on first open
+THEME.PREVIEW_font$              = ""                            ' Font (empty = global)
+THEME.PREVIEW_font_size%         = 8                             ' Font point size
+
 ' --- Fonts ---
 THEME.GLOBAL_FONT_FILE$          = "Tiny5-Regular.ttf"       ' Primary UI font
 THEME.GLOBAL_FONT_SIZE%          = 8                         ' Primary UI font size

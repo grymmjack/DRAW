@@ -244,6 +244,33 @@ TYPE DRAW_THEME
     TOOL_PREVIEW_transparent_fg  AS _UNSIGNED LONG  ' Tool preview color when paint is transparent
     TOOL_PREVIEW_transparent_outline AS _UNSIGNED LONG ' Tool preview outline when paint is transparent
     CANVAS_border                AS _UNSIGNED LONG  ' Canvas border color
+    ' --- Preview Window ---
+    PREVIEW_bg                   AS _UNSIGNED LONG  ' Window background fill
+    PREVIEW_border               AS _UNSIGNED LONG  ' Outer border/stroke color
+    PREVIEW_title_bg             AS _UNSIGNED LONG  ' Title bar background (normal)
+    PREVIEW_title_hover_bg       AS _UNSIGNED LONG  ' Title bar background (hovered)
+    PREVIEW_title_drag_bg        AS _UNSIGNED LONG  ' Title bar background (dragging)
+    PREVIEW_title_fg             AS _UNSIGNED LONG  ' Title bar text color
+    PREVIEW_close_fg             AS _UNSIGNED LONG  ' X button foreground color
+    PREVIEW_close_hover_bg       AS _UNSIGNED LONG  ' X button hover background
+    PREVIEW_minimize_fg          AS _UNSIGNED LONG  ' _ button foreground color
+    PREVIEW_minimize_hover_bg    AS _UNSIGNED LONG  ' _ button hover background
+    PREVIEW_checkbox_fg          AS _UNSIGNED LONG  ' Checkbox text/check color
+    PREVIEW_checkbox_bg          AS _UNSIGNED LONG  ' Checkbox box fill
+    PREVIEW_checkbox_border      AS _UNSIGNED LONG  ' Checkbox box border
+    PREVIEW_resize_handle_fg     AS _UNSIGNED LONG  ' Resize handle dot/line color
+    PREVIEW_content_border       AS _UNSIGNED LONG  ' 1px border around the preview image area
+    PREVIEW_center_dot_color     AS _UNSIGNED LONG  ' Center tracking dot color in follow mode
+    PREVIEW_title_height         AS INTEGER         ' Title bar height in pixels
+    PREVIEW_border_width         AS INTEGER         ' Outer border stroke width
+    PREVIEW_resize_handle_size   AS INTEGER         ' Resize handle hit area in pixels
+    PREVIEW_button_width         AS INTEGER         ' X and _ button width
+    PREVIEW_button_height        AS INTEGER         ' X and _ button height
+    PREVIEW_checkbox_size        AS INTEGER         ' Checkbox square size
+    PREVIEW_padding              AS INTEGER         ' Internal padding around content
+    PREVIEW_initial_padding      AS INTEGER         ' Padding from screen edges on first open
+    PREVIEW_font                 AS STRING          ' Font filename (empty = global fallback)
+    PREVIEW_font_size            AS INTEGER         ' Font point size
     ' --- Fonts ---
     GLOBAL_FONT_FILE       AS STRING          ' Primary UI font filename (e.g. Tiny5-Regular.ttf)
     GLOBAL_FONT_SIZE       AS INTEGER         ' Primary UI font size in points/pixels

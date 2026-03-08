@@ -216,6 +216,14 @@ TYPE DRAW_CONFIG
     PALETTE_SHOW_CREATED           AS INTEGER  ' TRUE = include USER/PALETTES/CREATED/*.gpl in picker
     ' Color extraction max for "Create from image"
     PALETTE_CREATE_MAX_COLORS      AS INTEGER  ' Default max colors for Create from Image (default 32)
+    ' Preview Window settings
+    PREVIEW_VISIBLE                AS INTEGER  ' TRUE = preview window open at startup
+    PREVIEW_X                      AS INTEGER  ' Last window X (-1 = use auto-position)
+    PREVIEW_Y                      AS INTEGER  ' Last window Y (-1 = use auto-position)
+    PREVIEW_W                      AS INTEGER  ' Last window width
+    PREVIEW_H                      AS INTEGER  ' Last window height
+    PREVIEW_FOLLOW                 AS INTEGER  ' TRUE = follow-pointer magnifier mode
+    PREVIEW_ZOOM                   AS SINGLE   ' Independent preview zoom level
 END TYPE
 
 DIM SHARED CFG   AS DRAW_CONFIG
