@@ -21,8 +21,28 @@ THEME.STATUS_swatch_active_outer~& = _RGB32(0, 0, 0)      ' Active transparent s
 THEME.STATUS_swatch_active_inner~& = _RGB32(255, 255, 255) ' Active transparent swatch inner border
 THEME.CROSSHAIR_color_fg~&       = _RGB32(128, 128, 128)   ' Medium gray crosshair lines
 THEME.CROSSHAIR_opacity%         = 128                     ' 50% opacity (alpha 0-255)
+THEME.CROSSHAIR_font$            = ""                     ' Empty = use global font
+THEME.CROSSHAIR_font_size%       = 0                       ' 0 = use global font size
 THEME.CROSSHAIR_font_fg~&        = _RGB32(255, 255, 255)   ' White coordinate text
+THEME.CROSSHAIR_font_stroke_fg~& = _RGB32(0, 0, 0)         ' Black coordinate outline
+THEME.CROSSHAIR_font_stroke_width% = 2                     ' Coordinate outline width
 THEME.CROSSHAIR_pattern%         = &B1010101010101010      ' - - - - - - - -
+THEME.PICKER_LOUPE_zoom_level%   = 8                       ' Loupe zoom factor
+THEME.PICKER_LOUPE_rect_x_offset% = 24                     ' Loupe X offset from mouse
+THEME.PICKER_LOUPE_rect_y_offset% = -24                    ' Loupe Y offset from mouse
+THEME.PICKER_LOUPE_rect_width%   = 96                      ' Loupe rectangle width
+THEME.PICKER_LOUPE_rect_height%  = 96                      ' Loupe rectangle height
+THEME.PICKER_LOUPE_rgba_x%       = 108                     ' RGB label X offset inside loupe
+THEME.PICKER_LOUPE_rgba_y%       = 6                       ' RGB label Y offset inside loupe
+THEME.PICKER_LOUPE_font$         = ""                     ' Empty = use global font
+THEME.PICKER_LOUPE_font_size%    = 16                      ' Loupe font size
+THEME.PICKER_LOUPE_font_fg~&     = _RGB32(255, 255, 255)   ' Loupe label text
+THEME.PICKER_LOUPE_font_bg~&     = _RGB32(0, 0, 0)         ' Loupe panel / label background
+THEME.PICKER_LOUPE_font_stroke_fg~& = _RGB32(0, 0, 0)      ' Loupe label outline color
+THEME.PICKER_LOUPE_font_stroke_width% = 1                  ' Loupe label outline width
+THEME.PICKER_LOUPE_rect_stroke_fg~& = _RGB32(255, 255, 255) ' Loupe border color
+THEME.PICKER_LOUPE_rect_stroke_width% = 2                  ' Loupe border width
+THEME.PICKER_LOUPE_pixel_pickup_color~& = _RGB32(0, 255, 0) ' Loupe sample marker color
 THEME.GRID_color_fg~&            = _RGB32(250, 250, 250)   ' Bright white at full opacity
 THEME.GRID_opacity%              = 38                      ' ~15% opacity (alpha 0-255)
 THEME.GRID_size_x%               = 10                      ' Grid cell width in pixels

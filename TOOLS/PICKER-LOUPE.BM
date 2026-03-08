@@ -9,8 +9,12 @@ $INCLUDEONCE
 
 DECLARE SUB PICKER_LOUPE_ensure_font ()
 DECLARE SUB PICKER_LOUPE_ensure_buffer (bufferW AS INTEGER, bufferH AS INTEGER)
+DECLARE SUB PICKER_LOUPE_ensure_text_buffer (bufferW AS INTEGER, bufferH AS INTEGER)
 DECLARE SUB PICKER_LOUPE_print_outlined (x AS INTEGER, y AS INTEGER, text AS STRING)
 DECLARE FUNCTION PICKER_LOUPE_should_suppress% ()
+DECLARE FUNCTION PICKER_LOUPE_resolve_color~& (configColor AS _UNSIGNED LONG, themeColor AS _UNSIGNED LONG, fallbackColor AS _UNSIGNED LONG)
+DECLARE FUNCTION PICKER_LOUPE_resolve_int% (configValue AS INTEGER, themeValue AS INTEGER, fallbackValue AS INTEGER)
+DECLARE FUNCTION PICKER_LOUPE_resolve_string$ (configValue AS STRING, themeValue AS STRING, fallbackValue AS STRING)
 
 
 ''
@@ -19,10 +23,14 @@ DECLARE FUNCTION PICKER_LOUPE_should_suppress% ()
 SUB PICKER_LOUPE_init ()
     IF PICKER_LOUPE.FONT_HANDLE& > 0 THEN _FREEFONT PICKER_LOUPE.FONT_HANDLE&
     IF PICKER_LOUPE.BUFFER& < -1 THEN _FREEIMAGE PICKER_LOUPE.BUFFER&
+    IF PICKER_LOUPE.TEXT_BUFFER& < -1 THEN _FREEIMAGE PICKER_LOUPE.TEXT_BUFFER&
     PICKER_LOUPE.ACTIVE% = FALSE
     PICKER_LOUPE.BUFFER& = 0
     PICKER_LOUPE.BUFFER_W% = 0
     PICKER_LOUPE.BUFFER_H% = 0
+    PICKER_LOUPE.TEXT_BUFFER& = 0
+    PICKER_LOUPE.TEXT_BUFFER_W% = 0
+    PICKER_LOUPE.TEXT_BUFFER_H% = 0
     PICKER_LOUPE.FONT_HANDLE& = 0
     PICKER_LOUPE.LAST_FONT_SIZE% = 0
     PICKER_LOUPE.SAMPLE_COLOR~& = _RGBA32(0, 0, 0, 0)
@@ -54,10 +62,8 @@ SUB PICKER_LOUPE_ensure_font ()
     DIM desiredSize AS INTEGER
     DIM fontPath AS STRING
 
-    desiredFont$ = _TRIM$(CFG.PICKER_LOUPE_FONT$)
-    IF desiredFont$ = "" THEN desiredFont$ = _TRIM$(THEME.GLOBAL_FONT_FILE$)
-    desiredSize% = CFG.PICKER_LOUPE_FONT_SIZE%
-    IF desiredSize% < 1 THEN desiredSize% = THEME.GLOBAL_FONT_SIZE%
+    desiredFont$ = PICKER_LOUPE_resolve_string$(CFG.PICKER_LOUPE_FONT$, THEME.PICKER_LOUPE_font$, THEME.GLOBAL_FONT_FILE$)
+    desiredSize% = PICKER_LOUPE_resolve_int%(CFG.PICKER_LOUPE_FONT_SIZE%, THEME.PICKER_LOUPE_font_size%, THEME.GLOBAL_FONT_SIZE%)
     IF desiredSize% < 1 THEN desiredSize% = STATUS_FONT_SIZE
 
     IF PICKER_LOUPE.FONT_HANDLE& > 0 AND PICKER_LOUPE_LAST_FONT$ = desiredFont$ AND PICKER_LOUPE.LAST_FONT_SIZE% = desiredSize% THEN EXIT SUB
@@ -75,6 +81,48 @@ END SUB
 
 
 ''
+' Resolve a config color, falling back to theme then hardcoded value.
+'
+FUNCTION PICKER_LOUPE_resolve_color~& (configColor AS _UNSIGNED LONG, themeColor AS _UNSIGNED LONG, fallbackColor AS _UNSIGNED LONG)
+    IF configColor~& <> 0 THEN
+        PICKER_LOUPE_resolve_color~& = configColor~&
+    ELSEIF themeColor~& <> 0 THEN
+        PICKER_LOUPE_resolve_color~& = themeColor~&
+    ELSE
+        PICKER_LOUPE_resolve_color~& = fallbackColor~&
+    END IF
+END FUNCTION
+
+
+''
+' Resolve an integer config override, falling back to theme then hardcoded value.
+'
+FUNCTION PICKER_LOUPE_resolve_int% (configValue AS INTEGER, themeValue AS INTEGER, fallbackValue AS INTEGER)
+    IF configValue% <> CONFIG_USE_THEME_DEFAULT% THEN
+        PICKER_LOUPE_resolve_int% = configValue%
+    ELSEIF themeValue% <> 0 THEN
+        PICKER_LOUPE_resolve_int% = themeValue%
+    ELSE
+        PICKER_LOUPE_resolve_int% = fallbackValue%
+    END IF
+END FUNCTION
+
+
+''
+' Resolve a string config override, falling back to theme then hardcoded value.
+'
+FUNCTION PICKER_LOUPE_resolve_string$ (configValue AS STRING, themeValue AS STRING, fallbackValue AS STRING)
+    IF _TRIM$(configValue$) <> "" THEN
+        PICKER_LOUPE_resolve_string$ = _TRIM$(configValue$)
+    ELSEIF _TRIM$(themeValue$) <> "" THEN
+        PICKER_LOUPE_resolve_string$ = _TRIM$(themeValue$)
+    ELSE
+        PICKER_LOUPE_resolve_string$ = _TRIM$(fallbackValue$)
+    END IF
+END FUNCTION
+
+
+''
 ' Ensure the scratch buffer matches the needed sample size.
 '
 SUB PICKER_LOUPE_ensure_buffer (bufferW AS INTEGER, bufferH AS INTEGER)
@@ -88,6 +136,23 @@ SUB PICKER_LOUPE_ensure_buffer (bufferW AS INTEGER, bufferH AS INTEGER)
     PICKER_LOUPE.BUFFER& = _NEWIMAGE(bufferW%, bufferH%, 32)
     PICKER_LOUPE.BUFFER_W% = bufferW%
     PICKER_LOUPE.BUFFER_H% = bufferH%
+END SUB
+
+
+''
+' Ensure the text scratch buffer matches the needed glyph size.
+'
+SUB PICKER_LOUPE_ensure_text_buffer (bufferW AS INTEGER, bufferH AS INTEGER)
+    IF bufferW% < 1 OR bufferH% < 1 THEN EXIT SUB
+
+    IF PICKER_LOUPE.TEXT_BUFFER& < -1 THEN
+        IF PICKER_LOUPE.TEXT_BUFFER_W% = bufferW% AND PICKER_LOUPE.TEXT_BUFFER_H% = bufferH% THEN EXIT SUB
+        _FREEIMAGE PICKER_LOUPE.TEXT_BUFFER&
+    END IF
+
+    PICKER_LOUPE.TEXT_BUFFER& = _NEWIMAGE(bufferW%, bufferH%, 32)
+    PICKER_LOUPE.TEXT_BUFFER_W% = bufferW%
+    PICKER_LOUPE.TEXT_BUFFER_H% = bufferH%
 END SUB
 
 
@@ -172,17 +237,62 @@ END FUNCTION
 
 
 ''
-' Draw loupe label text with a fixed 1px cardinal outline.
+' Draw loupe label text with configurable outline width.
 '
 SUB PICKER_LOUPE_print_outlined (x AS INTEGER, y AS INTEGER, text AS STRING)
-    COLOR CFG.PICKER_LOUPE_FONT_STROKE_FG~&, CFG.PICKER_LOUPE_FONT_BG~&
-    _PRINTSTRING (x% - 1, y%), text$
-    _PRINTSTRING (x% + 1, y%), text$
-    _PRINTSTRING (x%, y% - 1), text$
-    _PRINTSTRING (x%, y% + 1), text$
+    DIM strokeColor AS _UNSIGNED LONG
+    DIM fillColor AS _UNSIGNED LONG
+    DIM strokeWidth AS INTEGER
+    DIM offsetX AS INTEGER, offsetY AS INTEGER
+    DIM textW AS INTEGER, textH AS INTEGER
+    DIM bufferW AS INTEGER, bufferH AS INTEGER
+    DIM drawX AS INTEGER, drawY AS INTEGER
+    DIM oldDest AS LONG
 
-    COLOR CFG.PICKER_LOUPE_FONT_FG~&, CFG.PICKER_LOUPE_FONT_BG~&
-    _PRINTSTRING (x%, y%), text$
+    strokeColor~& = PICKER_LOUPE_resolve_color~&(CFG.PICKER_LOUPE_FONT_STROKE_FG~&, THEME.PICKER_LOUPE_font_stroke_fg~&, _RGB32(0, 0, 0))
+    fillColor~& = PICKER_LOUPE_resolve_color~&(CFG.PICKER_LOUPE_FONT_FG~&, THEME.PICKER_LOUPE_font_fg~&, _RGB32(255, 255, 255))
+    strokeWidth% = PICKER_LOUPE_resolve_int%(CFG.PICKER_LOUPE_FONT_STROKE_WIDTH%, THEME.PICKER_LOUPE_font_stroke_width%, 1)
+    IF strokeWidth% < 0 THEN strokeWidth% = 0
+
+    textW% = _PRINTWIDTH(text$)
+    IF PICKER_LOUPE.FONT_HANDLE& > 0 THEN
+        textH% = _FONTHEIGHT(PICKER_LOUPE.FONT_HANDLE&)
+    ELSE
+        textH% = 8
+    END IF
+    IF textW% < 1 THEN textW% = 1
+    IF textH% < 1 THEN textH% = 8
+
+    bufferW% = textW% + (strokeWidth% * 2)
+    bufferH% = textH% + (strokeWidth% * 2)
+    PICKER_LOUPE_ensure_text_buffer bufferW%, bufferH%
+
+    IF PICKER_LOUPE.TEXT_BUFFER& < -1 THEN
+        oldDest& = _DEST
+        _DEST PICKER_LOUPE.TEXT_BUFFER&
+        CLS , _RGBA32(0, 0, 0, 0)
+        _BLEND PICKER_LOUPE.TEXT_BUFFER&
+        IF PICKER_LOUPE.FONT_HANDLE& > 0 THEN _FONT PICKER_LOUPE.FONT_HANDLE&, PICKER_LOUPE.TEXT_BUFFER&
+
+        IF strokeWidth% > 0 THEN
+            COLOR strokeColor~&, _RGBA32(0, 0, 0, 0)
+            FOR offsetY% = -strokeWidth% TO strokeWidth%
+                FOR offsetX% = -strokeWidth% TO strokeWidth%
+                    IF offsetX% <> 0 OR offsetY% <> 0 THEN
+                        _PRINTSTRING (strokeWidth% + offsetX%, strokeWidth% + offsetY%), text$
+                    END IF
+                NEXT offsetX%
+            NEXT offsetY%
+        END IF
+
+        COLOR fillColor~&, _RGBA32(0, 0, 0, 0)
+        _PRINTSTRING (strokeWidth%, strokeWidth%), text$
+
+        _DEST oldDest&
+        drawX% = x% - strokeWidth%
+        drawY% = y% - strokeWidth%
+        _PUTIMAGE (drawX%, drawY%), PICKER_LOUPE.TEXT_BUFFER&, oldDest&
+    END IF
 END SUB
 
 
@@ -204,14 +314,17 @@ SUB PICKER_LOUPE_render (dest AS LONG)
     DIM transparencyColor1 AS _UNSIGNED LONG, transparencyColor2 AS _UNSIGNED LONG, checkerColor AS _UNSIGNED LONG
     DIM oldDest AS LONG, oldSource AS LONG, oldFont AS LONG
     DIM fontH AS INTEGER, lineGap AS INTEGER
-    DIM rLine AS STRING, gLine AS STRING, bLine AS STRING, hexLine AS STRING
-    DIM line1Y AS INTEGER, line2Y AS INTEGER, line3Y AS INTEGER, hexY AS INTEGER
+    DIM rLine AS STRING, gLine AS STRING, bLine AS STRING, xLine AS STRING, yLine AS STRING, hexLine AS STRING
+    DIM line1Y AS INTEGER, line2Y AS INTEGER, line3Y AS INTEGER, line4Y AS INTEGER, line5Y AS INTEGER, hexY AS INTEGER
     DIM lineMaxW AS INTEGER, lineW AS INTEGER, hexW AS INTEGER
     DIM minRelX AS INTEGER, maxRelX AS INTEGER, minRelY AS INTEGER, maxRelY AS INTEGER
     DIM textX AS INTEGER, hexX AS INTEGER, hexRelX AS INTEGER, markerX AS INTEGER, markerY AS INTEGER, markerRadius AS INTEGER
     DIM px AS INTEGER, py AS INTEGER
     DIM layerColor AS _UNSIGNED LONG
     DIM pxColor AS _UNSIGNED LONG
+    DIM fontBgColor AS _UNSIGNED LONG
+    DIM rectStrokeColor AS _UNSIGNED LONG
+    DIM pickupColor AS _UNSIGNED LONG
 
     IF NOT PICKER_LOUPE.ACTIVE% THEN EXIT SUB
     IF dest& >= -1 THEN EXIT SUB
@@ -225,10 +338,13 @@ SUB PICKER_LOUPE_render (dest AS LONG)
     IF MOUSE.RAW_Y% < dy% OR MOUSE.RAW_Y% >= dy% + zh& THEN EXIT SUB
     IF PICKER_LOUPE_should_suppress% THEN EXIT SUB
 
-    rectW% = CFG.PICKER_LOUPE_RECT_WIDTH%
-    rectH% = CFG.PICKER_LOUPE_RECT_HEIGHT%
-    strokeW% = CFG.PICKER_LOUPE_RECT_STROKE_WIDTH%
-    zoomLevel% = CFG.PICKER_LOUPE_ZOOM_LEVEL%
+    rectW% = PICKER_LOUPE_resolve_int%(CFG.PICKER_LOUPE_RECT_WIDTH%, THEME.PICKER_LOUPE_rect_width%, 96)
+    rectH% = PICKER_LOUPE_resolve_int%(CFG.PICKER_LOUPE_RECT_HEIGHT%, THEME.PICKER_LOUPE_rect_height%, 96)
+    strokeW% = PICKER_LOUPE_resolve_int%(CFG.PICKER_LOUPE_RECT_STROKE_WIDTH%, THEME.PICKER_LOUPE_rect_stroke_width%, 2)
+    zoomLevel% = PICKER_LOUPE_resolve_int%(CFG.PICKER_LOUPE_ZOOM_LEVEL%, THEME.PICKER_LOUPE_zoom_level%, 8)
+    fontBgColor~& = PICKER_LOUPE_resolve_color~&(CFG.PICKER_LOUPE_FONT_BG~&, THEME.PICKER_LOUPE_font_bg~&, _RGB32(0, 0, 0))
+    rectStrokeColor~& = PICKER_LOUPE_resolve_color~&(CFG.PICKER_LOUPE_RECT_STROKE_FG~&, THEME.PICKER_LOUPE_rect_stroke_fg~&, _RGB32(255, 255, 255))
+    pickupColor~& = PICKER_LOUPE_resolve_color~&(CFG.PICKER_LOUPE_PIXEL_PICKUP_COLOR~&, THEME.PICKER_LOUPE_pixel_pickup_color~&, _RGB32(0, 255, 0))
     IF rectW% < 24 THEN rectW% = 24
     IF rectH% < 24 THEN rectH% = 24
     IF strokeW% < 1 THEN strokeW% = 1
@@ -280,24 +396,30 @@ SUB PICKER_LOUPE_render (dest AS LONG)
     rLine$ = "R:" + ns$(_RED32(PICKER_LOUPE.SAMPLE_COLOR~&))
     gLine$ = "G:" + ns$(_GREEN32(PICKER_LOUPE.SAMPLE_COLOR~&))
     bLine$ = "B:" + ns$(_BLUE32(PICKER_LOUPE.SAMPLE_COLOR~&))
+    xLine$ = "X:" + ns$(regionX% + sampleLocalX%)
+    yLine$ = "Y:" + ns$(regionY% + sampleLocalY%)
     hexLine$ = "#" + RIGHT$("0" + HEX$(_RED32(PICKER_LOUPE.SAMPLE_COLOR~&)), 2) + RIGHT$("0" + HEX$(_GREEN32(PICKER_LOUPE.SAMPLE_COLOR~&)), 2) + RIGHT$("0" + HEX$(_BLUE32(PICKER_LOUPE.SAMPLE_COLOR~&)), 2)
 
     lineMaxW% = _PRINTWIDTH(rLine$, dest&)
     lineW% = _PRINTWIDTH(gLine$, dest&): IF lineW% > lineMaxW% THEN lineMaxW% = lineW%
     lineW% = _PRINTWIDTH(bLine$, dest&): IF lineW% > lineMaxW% THEN lineMaxW% = lineW%
+    lineW% = _PRINTWIDTH(xLine$, dest&): IF lineW% > lineMaxW% THEN lineMaxW% = lineW%
+    lineW% = _PRINTWIDTH(yLine$, dest&): IF lineW% > lineMaxW% THEN lineMaxW% = lineW%
     hexW% = _PRINTWIDTH(hexLine$, dest&)
 
-    rectX% = MOUSE.RAW_X% + CFG.PICKER_LOUPE_RECT_X_OFFSET%
-    rectY% = MOUSE.RAW_Y% + CFG.PICKER_LOUPE_RECT_Y_OFFSET%
+    rectX% = MOUSE.RAW_X% + PICKER_LOUPE_resolve_int%(CFG.PICKER_LOUPE_RECT_X_OFFSET%, THEME.PICKER_LOUPE_rect_x_offset%, 24)
+    rectY% = MOUSE.RAW_Y% + PICKER_LOUPE_resolve_int%(CFG.PICKER_LOUPE_RECT_Y_OFFSET%, THEME.PICKER_LOUPE_rect_y_offset%, -24)
 
     minRelX% = 0
     maxRelX% = rectW%
     minRelY% = 0
     maxRelY% = rectH%
-    IF CFG.PICKER_LOUPE_RGBA_X% < minRelX% THEN minRelX% = CFG.PICKER_LOUPE_RGBA_X%
-    IF CFG.PICKER_LOUPE_RGBA_Y% < minRelY% THEN minRelY% = CFG.PICKER_LOUPE_RGBA_Y%
-    IF CFG.PICKER_LOUPE_RGBA_X% + lineMaxW% > maxRelX% THEN maxRelX% = CFG.PICKER_LOUPE_RGBA_X% + lineMaxW%
-    IF CFG.PICKER_LOUPE_RGBA_Y% + (fontH% * 3) + (lineGap% * 2) > maxRelY% THEN maxRelY% = CFG.PICKER_LOUPE_RGBA_Y% + (fontH% * 3) + (lineGap% * 2)
+    textX% = PICKER_LOUPE_resolve_int%(CFG.PICKER_LOUPE_RGBA_X%, THEME.PICKER_LOUPE_rgba_x%, 108)
+    line1Y% = PICKER_LOUPE_resolve_int%(CFG.PICKER_LOUPE_RGBA_Y%, THEME.PICKER_LOUPE_rgba_y%, 6)
+    IF textX% < minRelX% THEN minRelX% = textX%
+    IF line1Y% < minRelY% THEN minRelY% = line1Y%
+    IF textX% + lineMaxW% > maxRelX% THEN maxRelX% = textX% + lineMaxW%
+    IF line1Y% + (fontH% * 5) + (lineGap% * 4) > maxRelY% THEN maxRelY% = line1Y% + (fontH% * 5) + (lineGap% * 4)
     hexRelX% = (rectW% - hexW%) \ 2
     IF hexRelX% < minRelX% THEN minRelX% = hexRelX%
     IF rectH% + lineGap% + fontH% > maxRelY% THEN maxRelY% = rectH% + lineGap% + fontH%
@@ -312,10 +434,10 @@ SUB PICKER_LOUPE_render (dest AS LONG)
     _DEST dest&
     _BLEND dest&
 
-    LINE (rectX%, rectY%)-(rectX% + rectW% - 1, rectY% + rectH% - 1), CFG.PICKER_LOUPE_RECT_STROKE_FG~&, BF
+    LINE (rectX%, rectY%)-(rectX% + rectW% - 1, rectY% + rectH% - 1), rectStrokeColor~&, BF
     innerX% = rectX% + strokeW%
     innerY% = rectY% + strokeW%
-    LINE (innerX%, innerY%)-(innerX% + innerW% - 1, innerY% + innerH% - 1), CFG.PICKER_LOUPE_FONT_BG~&, BF
+    LINE (innerX%, innerY%)-(innerX% + innerW% - 1, innerY% + innerH% - 1), fontBgColor~&, BF
 
     drawPixelsW% = sampleW% * zoomLevel%
     drawPixelsH% = sampleH% * zoomLevel%
@@ -347,17 +469,21 @@ SUB PICKER_LOUPE_render (dest AS LONG)
     markerY% = pixelOriginY% + (sampleLocalY% * zoomLevel%) + (zoomLevel% \ 2)
     markerRadius% = zoomLevel% \ 4
     IF markerRadius% < 1 THEN markerRadius% = 1
-    LINE (markerX% - markerRadius%, markerY% - markerRadius%)-(markerX% + markerRadius%, markerY% + markerRadius%), CFG.PICKER_LOUPE_PIXEL_PICKUP_COLOR~&, BF
+    LINE (markerX% - markerRadius%, markerY% - markerRadius%)-(markerX% + markerRadius%, markerY% + markerRadius%), pickupColor~&, BF
 
-    textX% = rectX% + CFG.PICKER_LOUPE_RGBA_X%
-    line1Y% = rectY% + CFG.PICKER_LOUPE_RGBA_Y%
+    textX% = rectX% + textX%
+    line1Y% = rectY% + line1Y%
     line2Y% = line1Y% + fontH% + lineGap%
     line3Y% = line2Y% + fontH% + lineGap%
+    line4Y% = line3Y% + fontH% + lineGap%
+    line5Y% = line4Y% + fontH% + lineGap%
     hexX% = rectX% + ((rectW% - hexW%) \ 2)
     hexY% = rectY% + rectH% + lineGap%
     PICKER_LOUPE_print_outlined textX%, line1Y%, rLine$
     PICKER_LOUPE_print_outlined textX%, line2Y%, gLine$
     PICKER_LOUPE_print_outlined textX%, line3Y%, bLine$
+    PICKER_LOUPE_print_outlined textX%, line4Y%, xLine$
+    PICKER_LOUPE_print_outlined textX%, line5Y%, yLine$
     PICKER_LOUPE_print_outlined hexX%, hexY%, hexLine$
 
     IF oldFont& > 0 THEN _FONT oldFont&, dest&

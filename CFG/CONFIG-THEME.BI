@@ -31,8 +31,28 @@ TYPE DRAW_THEME
     STATUS_swatch_active_inner AS _UNSIGNED LONG ' Active transparent swatch inner border
     CROSSHAIR_color_fg      AS _UNSIGNED LONG ' Crosshair line color (RGBA)
     CROSSHAIR_opacity       AS INTEGER ' Crosshair line opacity (0-255)
+    CROSSHAIR_font          AS STRING ' Crosshair coordinate font filename override
+    CROSSHAIR_font_size     AS INTEGER ' Crosshair coordinate font size in pixels
     CROSSHAIR_font_fg       AS _UNSIGNED LONG ' Crosshair coordinate text color (RGBA)
+    CROSSHAIR_font_stroke_fg AS _UNSIGNED LONG ' Crosshair coordinate outline color (RGBA)
+    CROSSHAIR_font_stroke_width AS INTEGER ' Crosshair coordinate outline width in pixels
     CROSSHAIR_pattern       AS INTEGER ' Crosshair line pattern (16 bit &B>inary)
+    PICKER_LOUPE_zoom_level AS INTEGER ' Loupe zoom factor
+    PICKER_LOUPE_rect_x_offset AS INTEGER ' Loupe X offset from mouse in screen pixels
+    PICKER_LOUPE_rect_y_offset AS INTEGER ' Loupe Y offset from mouse in screen pixels
+    PICKER_LOUPE_rect_width AS INTEGER ' Loupe rectangle width in screen pixels
+    PICKER_LOUPE_rect_height AS INTEGER ' Loupe rectangle height in screen pixels
+    PICKER_LOUPE_rgba_x AS INTEGER ' RGB text X offset relative to loupe rectangle
+    PICKER_LOUPE_rgba_y AS INTEGER ' RGB text Y offset relative to loupe rectangle
+    PICKER_LOUPE_font AS STRING ' Loupe font filename override
+    PICKER_LOUPE_font_size AS INTEGER ' Loupe font size in pixels
+    PICKER_LOUPE_font_fg AS _UNSIGNED LONG ' Loupe label foreground color
+    PICKER_LOUPE_font_bg AS _UNSIGNED LONG ' Loupe label background / panel fill color
+    PICKER_LOUPE_font_stroke_fg AS _UNSIGNED LONG ' Loupe label outline color
+    PICKER_LOUPE_font_stroke_width AS INTEGER ' Loupe label outline width in pixels
+    PICKER_LOUPE_rect_stroke_fg AS _UNSIGNED LONG ' Loupe border color
+    PICKER_LOUPE_rect_stroke_width AS INTEGER ' Loupe border width in pixels
+    PICKER_LOUPE_pixel_pickup_color AS _UNSIGNED LONG ' Loupe sampled-pixel marker color
     GRID_color_fg           AS _UNSIGNED LONG ' Grid foreground color (RGBA)
     GRID_opacity            AS INTEGER ' Grid line opacity (0-255, default 38 ~15%)
     GRID_size_x             AS INTEGER ' Grid cell width in pixels (default 10)

@@ -9,6 +9,7 @@ $INCLUDEONCE
 
 ' Default config filename (can be overridden by --config / -c command line arg)
 CONST CONFIG_FILE_DEFAULT$ = "DRAW.cfg"
+CONST CONFIG_USE_THEME_DEFAULT% = -32768
 
 ' OS-specific config filenames (checked before falling back to DRAW.cfg)
 $IF MAC THEN
@@ -146,7 +147,11 @@ TYPE DRAW_CONFIG
     ' Crosshair settings
     CROSSHAIR_FG                   AS _UNSIGNED LONG  ' Crosshair line color (hex RGB, 0=use theme)
     CROSSHAIR_OPACITY              AS INTEGER  ' Crosshair line opacity 0-255 (0=use theme)
+    CROSSHAIR_FONT                 AS STRING   ' Crosshair text font filename (empty=use theme/global font)
+    CROSSHAIR_FONT_SIZE            AS INTEGER  ' Crosshair text font size in pixels
     CROSSHAIR_FONT_FG              AS _UNSIGNED LONG  ' Crosshair text color (hex RGB, 0=use theme)
+    CROSSHAIR_FONT_STROKE_FG       AS _UNSIGNED LONG  ' Crosshair text outline color (hex RGB, 0=use theme)
+    CROSSHAIR_FONT_STROKE_WIDTH    AS INTEGER  ' Crosshair text outline width in pixels
     CROSSHAIR_ANGLE                AS SINGLE   ' Crosshair rotation angle in degrees (0=use theme)
     ' Picker loupe settings
     PICKER_LOUPE_ZOOM_LEVEL        AS INTEGER
@@ -161,6 +166,7 @@ TYPE DRAW_CONFIG
     PICKER_LOUPE_FONT_FG           AS _UNSIGNED LONG
     PICKER_LOUPE_FONT_BG           AS _UNSIGNED LONG
     PICKER_LOUPE_FONT_STROKE_FG    AS _UNSIGNED LONG
+    PICKER_LOUPE_FONT_STROKE_WIDTH AS INTEGER
     PICKER_LOUPE_RECT_STROKE_FG    AS _UNSIGNED LONG
     PICKER_LOUPE_RECT_STROKE_WIDTH AS INTEGER
     PICKER_LOUPE_PIXEL_PICKUP_COLOR AS _UNSIGNED LONG

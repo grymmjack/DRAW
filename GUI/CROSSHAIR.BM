@@ -12,6 +12,171 @@
 '
 $INCLUDEONCE
 
+DECLARE SUB CROSSHAIR_ensure_font ()
+DECLARE SUB CROSSHAIR_ensure_text_buffer (bufferW AS INTEGER, bufferH AS INTEGER)
+DECLARE SUB CROSSHAIR_print_outlined (dest AS LONG, x AS INTEGER, y AS INTEGER, text AS STRING)
+DECLARE FUNCTION CROSSHAIR_resolve_color~& (configColor AS _UNSIGNED LONG, themeColor AS _UNSIGNED LONG, fallbackColor AS _UNSIGNED LONG)
+DECLARE FUNCTION CROSSHAIR_resolve_int% (configValue AS INTEGER, themeValue AS INTEGER, fallbackValue AS INTEGER)
+DECLARE FUNCTION CROSSHAIR_resolve_string$ (configValue AS STRING, themeValue AS STRING, fallbackValue AS STRING)
+DECLARE FUNCTION CROSSHAIR_show_coords% ()
+
+
+''
+' Ensure the configured crosshair font is loaded.
+'
+SUB CROSSHAIR_ensure_font ()
+    DIM desiredFont AS STRING
+    DIM desiredSize AS INTEGER
+    DIM fontPath AS STRING
+
+    desiredFont$ = CROSSHAIR_resolve_string$(CFG.CROSSHAIR_FONT$, THEME.CROSSHAIR_font$, THEME.GLOBAL_FONT_FILE$)
+    desiredSize% = CROSSHAIR_resolve_int%(CFG.CROSSHAIR_FONT_SIZE%, THEME.CROSSHAIR_font_size%, THEME.GLOBAL_FONT_SIZE%)
+    IF desiredSize% < 1 THEN desiredSize% = STATUS_FONT_SIZE
+
+    IF CROSSHAIR_ASSIST.FONT_HANDLE& > 0 AND CROSSHAIR_LAST_FONT$ = desiredFont$ AND CROSSHAIR_ASSIST.LAST_FONT_SIZE% = desiredSize% THEN EXIT SUB
+
+    IF CROSSHAIR_ASSIST.FONT_HANDLE& > 0 THEN _FREEFONT CROSSHAIR_ASSIST.FONT_HANDLE&
+
+    fontPath$ = THEME_font_path$(desiredFont$)
+    CROSSHAIR_ASSIST.FONT_HANDLE& = _LOADFONT(fontPath$, desiredSize%, "DONTBLEND")
+    IF CROSSHAIR_ASSIST.FONT_HANDLE& <= 0 THEN
+        CROSSHAIR_ASSIST.FONT_HANDLE& = 16
+    END IF
+    CROSSHAIR_LAST_FONT$ = desiredFont$
+    CROSSHAIR_ASSIST.LAST_FONT_SIZE% = desiredSize%
+END SUB
+
+
+''
+' Ensure the scratch buffer matches the needed label size.
+'
+SUB CROSSHAIR_ensure_text_buffer (bufferW AS INTEGER, bufferH AS INTEGER)
+    IF bufferW% < 1 OR bufferH% < 1 THEN EXIT SUB
+
+    IF CROSSHAIR_ASSIST.TEXT_BUFFER& < -1 THEN
+        IF CROSSHAIR_ASSIST.TEXT_BUFFER_W% = bufferW% AND CROSSHAIR_ASSIST.TEXT_BUFFER_H% = bufferH% THEN EXIT SUB
+        _FREEIMAGE CROSSHAIR_ASSIST.TEXT_BUFFER&
+    END IF
+
+    CROSSHAIR_ASSIST.TEXT_BUFFER& = _NEWIMAGE(bufferW%, bufferH%, 32)
+    CROSSHAIR_ASSIST.TEXT_BUFFER_W% = bufferW%
+    CROSSHAIR_ASSIST.TEXT_BUFFER_H% = bufferH%
+END SUB
+
+
+''
+' Resolve a config color, falling back to theme then hardcoded value.
+'
+FUNCTION CROSSHAIR_resolve_color~& (configColor AS _UNSIGNED LONG, themeColor AS _UNSIGNED LONG, fallbackColor AS _UNSIGNED LONG)
+    IF configColor~& <> 0 THEN
+        CROSSHAIR_resolve_color~& = configColor~&
+    ELSEIF themeColor~& <> 0 THEN
+        CROSSHAIR_resolve_color~& = themeColor~&
+    ELSE
+        CROSSHAIR_resolve_color~& = fallbackColor~&
+    END IF
+END FUNCTION
+
+
+''
+' Resolve an integer config override, falling back to theme then hardcoded value.
+'
+FUNCTION CROSSHAIR_resolve_int% (configValue AS INTEGER, themeValue AS INTEGER, fallbackValue AS INTEGER)
+    IF configValue% <> CONFIG_USE_THEME_DEFAULT% THEN
+        CROSSHAIR_resolve_int% = configValue%
+    ELSEIF themeValue% <> 0 THEN
+        CROSSHAIR_resolve_int% = themeValue%
+    ELSE
+        CROSSHAIR_resolve_int% = fallbackValue%
+    END IF
+END FUNCTION
+
+
+''
+' Resolve a string config override, falling back to theme then hardcoded value.
+'
+FUNCTION CROSSHAIR_resolve_string$ (configValue AS STRING, themeValue AS STRING, fallbackValue AS STRING)
+    IF _TRIM$(configValue$) <> "" THEN
+        CROSSHAIR_resolve_string$ = _TRIM$(configValue$)
+    ELSEIF _TRIM$(themeValue$) <> "" THEN
+        CROSSHAIR_resolve_string$ = _TRIM$(themeValue$)
+    ELSE
+        CROSSHAIR_resolve_string$ = _TRIM$(fallbackValue$)
+    END IF
+END FUNCTION
+
+
+''
+' Hide coordinate text while Alt+Shift picker mode already shows X/Y in the loupe.
+'
+FUNCTION CROSSHAIR_show_coords% ()
+    CROSSHAIR_show_coords% = TRUE
+    IF MODIFIERS.alt% AND CURRENT_TOOL% = TOOL_PICKER AND PICKER.ACTIVE% THEN
+        CROSSHAIR_show_coords% = FALSE
+    END IF
+END FUNCTION
+
+
+''
+' Draw crosshair coordinate text with configurable outline width.
+'
+SUB CROSSHAIR_print_outlined (dest AS LONG, x AS INTEGER, y AS INTEGER, text AS STRING)
+    DIM strokeColor AS _UNSIGNED LONG
+    DIM fillColor AS _UNSIGNED LONG
+    DIM strokeWidth AS INTEGER
+    DIM offsetX AS INTEGER, offsetY AS INTEGER
+    DIM textW AS INTEGER, textH AS INTEGER
+    DIM bufferW AS INTEGER, bufferH AS INTEGER
+    DIM drawX AS INTEGER, drawY AS INTEGER
+    DIM oldDest AS LONG
+
+    strokeColor~& = CROSSHAIR_resolve_color~&(CFG.CROSSHAIR_FONT_STROKE_FG~&, THEME.CROSSHAIR_font_stroke_fg~&, _RGB32(0, 0, 0))
+    fillColor~& = CROSSHAIR_resolve_color~&(CFG.CROSSHAIR_FONT_FG~&, THEME.CROSSHAIR_font_fg~&, _RGB32(255, 255, 255))
+    strokeWidth% = CROSSHAIR_resolve_int%(CFG.CROSSHAIR_FONT_STROKE_WIDTH%, THEME.CROSSHAIR_font_stroke_width%, 2)
+    IF strokeWidth% < 0 THEN strokeWidth% = 0
+
+    textW% = _PRINTWIDTH(text$, dest&)
+    IF CROSSHAIR_ASSIST.FONT_HANDLE& > 0 THEN
+        textH% = _FONTHEIGHT(CROSSHAIR_ASSIST.FONT_HANDLE&)
+    ELSE
+        textH% = 8
+    END IF
+    IF textW% < 1 THEN textW% = 1
+    IF textH% < 1 THEN textH% = 8
+
+    bufferW% = textW% + (strokeWidth% * 2)
+    bufferH% = textH% + (strokeWidth% * 2)
+    CROSSHAIR_ensure_text_buffer bufferW%, bufferH%
+
+    IF CROSSHAIR_ASSIST.TEXT_BUFFER& < -1 THEN
+        oldDest& = _DEST
+        _DEST CROSSHAIR_ASSIST.TEXT_BUFFER&
+        CLS , _RGBA32(0, 0, 0, 0)
+        _BLEND CROSSHAIR_ASSIST.TEXT_BUFFER&
+        IF CROSSHAIR_ASSIST.FONT_HANDLE& > 0 THEN _FONT CROSSHAIR_ASSIST.FONT_HANDLE&, CROSSHAIR_ASSIST.TEXT_BUFFER&
+
+        IF strokeWidth% > 0 THEN
+            COLOR strokeColor~&, _RGBA32(0, 0, 0, 0)
+            FOR offsetY% = -strokeWidth% TO strokeWidth%
+                FOR offsetX% = -strokeWidth% TO strokeWidth%
+                    IF offsetX% <> 0 OR offsetY% <> 0 THEN
+                        _PRINTSTRING (strokeWidth% + offsetX%, strokeWidth% + offsetY%), text$
+                    END IF
+                NEXT offsetX%
+            NEXT offsetY%
+        END IF
+
+        COLOR fillColor~&, _RGBA32(0, 0, 0, 0)
+        _PRINTSTRING (strokeWidth%, strokeWidth%), text$
+
+        _DEST oldDest&
+        drawX% = x% - strokeWidth%
+        drawY% = y% - strokeWidth%
+        _BLEND dest&
+        _PUTIMAGE (drawX%, drawY%), CROSSHAIR_ASSIST.TEXT_BUFFER&, dest&
+    END IF
+END SUB
+
 ''
 ' Renders the crosshair assistant
 ' @param _UNSIGNED LONG kolor~& used for crosshair lines
@@ -22,9 +187,12 @@ SUB CROSSHAIR_render ()
     DIM AS INTEGER screen_x, screen_y, con_screen_x, con_screen_y
     DIM AS LONG zw, zh
     DIM AS INTEGER dx, dy
+    DIM dest AS LONG
+    DIM oldFont AS LONG
     DIM crosshairColor AS _UNSIGNED LONG
     DIM crosshairOpacity AS INTEGER
-    DIM fontColor AS _UNSIGNED LONG
+    DIM strokeWidth AS INTEGER
+    DIM showCoords AS INTEGER
     
     ' Resolve crosshair line color: config overrides theme (CFG 0 = use theme)
     IF CFG.CROSSHAIR_FG~& <> 0 THEN
@@ -40,13 +208,8 @@ SUB CROSSHAIR_render ()
     END IF
     ' Apply opacity to crosshair color
     crosshairColor~& = _RGBA32(_RED32(crosshairColor~&), _GREEN32(crosshairColor~&), _BLUE32(crosshairColor~&), crosshairOpacity%)
-    ' Resolve font color: config overrides theme (CFG 0 = use theme)
-    IF CFG.CROSSHAIR_FONT_FG~& <> 0 THEN
-        fontColor~& = CFG.CROSSHAIR_FONT_FG~&
-    ELSE
-        fontColor~& = THEME.CROSSHAIR_font_fg~&
-    END IF
-    
+    dest& = _DEST
+
     ' Calculate zoomed dimensions and offset (canvas dimensions, centered in viewport)
     zw& = SCRN.canvasW& * SCRN.zoom!
     zh& = SCRN.canvasH& * SCRN.zoom!
@@ -132,12 +295,37 @@ SUB CROSSHAIR_render ()
         END IF
     END IF
 
-    pw% = _PRINTWIDTH(s$)
-    ph% = _FONTHEIGHT
-    ' Position text near mouse cursor in screen coordinates
-    IF screen_x% > (_WIDTH - pw%) THEN px% = _WIDTH - pw% ELSE px% = screen_x%
-    IF screen_y% > (_HEIGHT - ph%) THEN py% = _HEIGHT - ph% ELSE py% = screen_y%
-    _PRINTMODE _KEEPBACKGROUND
-    COLOR fontColor~&
-    _PRINTSTRING(px%, py%), s$
+    showCoords% = CROSSHAIR_show_coords%
+    IF showCoords% THEN
+        CROSSHAIR_ensure_font
+        oldFont& = _FONT(dest&)
+        IF CROSSHAIR_ASSIST.FONT_HANDLE& > 0 THEN
+            _FONT CROSSHAIR_ASSIST.FONT_HANDLE&, dest&
+            ph% = _FONTHEIGHT(CROSSHAIR_ASSIST.FONT_HANDLE&)
+        ELSE
+            ph% = 8
+        END IF
+        IF ph% < 1 THEN ph% = 8
+
+        strokeWidth% = CROSSHAIR_resolve_int%(CFG.CROSSHAIR_FONT_STROKE_WIDTH%, THEME.CROSSHAIR_font_stroke_width%, 2)
+        IF strokeWidth% < 0 THEN strokeWidth% = 0
+
+        pw% = _PRINTWIDTH(s$, dest&)
+        IF screen_x% > (_WIDTH(dest&) - pw% - strokeWidth%) THEN
+            px% = _WIDTH(dest&) - pw% - strokeWidth%
+        ELSEIF screen_x% < strokeWidth% THEN
+            px% = strokeWidth%
+        ELSE
+            px% = screen_x%
+        END IF
+        IF screen_y% > (_HEIGHT(dest&) - ph% - strokeWidth%) THEN
+            py% = _HEIGHT(dest&) - ph% - strokeWidth%
+        ELSEIF screen_y% < strokeWidth% THEN
+            py% = strokeWidth%
+        ELSE
+            py% = screen_y%
+        END IF
+        CROSSHAIR_print_outlined dest&, px%, py%, s$
+        IF oldFont& > 0 THEN _FONT oldFont&, dest&
+    END IF
 END SUB
