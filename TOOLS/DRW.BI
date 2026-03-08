@@ -18,6 +18,7 @@
 '     Layers: properties + pixel data per layer
 '     Tool State: current tool, brush size, grid, etc.
 '     Palette Name: (v3+) name of loaded GPL palette
+'     Drawer State: (v10+) drawer mode, selected slots, and slot image payloads
 '
 '   Backward compatible: DRW_load auto-detects PNG vs legacy binary format.
 '
@@ -27,7 +28,7 @@ $INCLUDEONCE
 
 ' Binary project data format constants
 CONST DRW_MAGIC$ = "DRW1"
-CONST DRW_VERSION% = 9
+CONST DRW_VERSION% = 10
 
 ' PNG drAw chunk format version
 CONST DRW_CHUNK_VERSION% = 1
