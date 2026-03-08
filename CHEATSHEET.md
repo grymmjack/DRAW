@@ -7,7 +7,7 @@
 | `B` | Brush | Continuous freehand painting (drag to paint) |
 | `D` | Dot | Single-pixel stamp (click to place, no drag painting) |
 | `F` | Fill | Flood fill tool — hold **Shift** to sample from merged visible canvas (paints on current layer) |
-| `I` | Picker | Color picker/eyedropper |
+| `I` | Picker | Color picker/eyedropper with loupe overlay (RGB + hex readout) |
 | `K` | Spray | Spray paint tool |
 | `L` | Line | Draw straight lines |
 | `P` | Polygon | Draw polygon outlines |
@@ -51,10 +51,45 @@ status bar as `OP:nn%` when below 100%.
 | Key | Action |
 |-----|--------|
 | `X` | Swap foreground and background colors |
-| `F1` | Color mode / brush bins |
-| `F2` | Gradient mode |
-| `F3` | Pattern mode |
+| `F1` | Drawer brush mode |
+| `F2` | Drawer gradient mode |
+| `F3` | Drawer pattern mode |
 | `F4` | Brush size preset 4 |
+
+### Palette Controls
+| Action | Function |
+|--------|----------|
+| **Left-click swatch** | Select as foreground color |
+| **Right-click swatch** | Select as background color |
+| **Click `◄` arrow** | Scroll palette left |
+| **Click `►` arrow** | Scroll palette right |
+| **Mouse wheel on strip** | Scroll through palette colors |
+| **SHIFT + wheel** | Fast scroll (32 colors at a time) |
+| **Click palette name** | Open dropdown to switch palettes |
+| **Letter keys (in picker)** | Jump to first palette starting with that letter |
+
+### Status Bar Color Swatches
+| Action | Function |
+|--------|----------|
+| **Click FG swatch** | Open color picker for foreground |
+| **Click BG swatch** | Open color picker for background |
+
+### Drawer Panel
+
+The drawer panel sits beneath the organizer and provides 16 reusable slots for brushes, gradients, or patterns plus a mini palette.
+
+| Input | Function |
+|-------|----------|
+| `F1` | Switch drawer to **Brush** mode |
+| `F2` | Switch drawer to **Gradient** mode |
+| `F3` | Switch drawer to **Pattern** mode |
+| **Left Click slot** | Select the current brush/pattern/gradient slot |
+| **Middle Click slot** | Cycle drawer mode (Brush → Pattern → Gradient) |
+| **Shift + Right Click slot** | Import into the clicked slot |
+| **Left Click mini palette** | Set foreground color |
+| **Right Click mini palette** | Set background color |
+
+Brush slots load into the custom brush system. Pattern and gradient slots change the active paint mode for drawing tools.
 
 ### Eraser Tool
 
@@ -74,25 +109,9 @@ Press `E` to activate the **Eraser tool**. The eraser paints with full transpare
 | **Eraser (normal)** | Erases pixels on the current layer only |
 | **Eraser (Smart, Shift held)** | Erases on every visible non-locked layer under the brush |
 
-
 **Visual Indicators:**
 - Status bar shows `FG:TRN` when eraser is active
 - FG swatch displays checkerboard pattern (transparency indicator)
-|--------|----------|
-| **Left-click swatch** | Select as foreground color |
-| **Right-click swatch** | Select as background color |
-| **Click `◄` arrow** | Scroll palette left |
-| **Click `►` arrow** | Scroll palette right |
-| **Mouse wheel on strip** | Scroll through palette colors |
-| **SHIFT + wheel** | Fast scroll (32 colors at a time) |
-| **Click palette name** | Open dropdown to switch palettes |
-| **Letter keys (in picker)** | Jump to first palette starting with that letter |
-
-### Status Bar Color Swatches
-| Action | Function |
-|--------|----------|
-| **Click FG swatch** | Open color picker for foreground |
-| **Click BG swatch** | Open color picker for background |
 
 ## Grid Controls
 
@@ -1046,7 +1065,7 @@ DRAW has an optional menu bar at the top of the screen providing access to all c
 | **Canvas** | Clear Canvas, Zoom In/Out, Reset Zoom |
 | **Tools** | All drawing tools (Dot, Brush, Line, etc.) |
 | **Layer** | New, Duplicate, Delete, Merge Down, Merge All, **Merge Selected** *(requires 2+ selected)*, Arrange, Align, Distribute |
-| **Palette** | Color Picker, Load Palette, Swap Colors |
+| **Palette** | Color Picker, Load Palette, Load from Lospec, Create from Image, Remap to Palette, Show Lospec Palettes, Swap Colors |
 | **Image** | Resize, Crop, Brightness/Contrast, Hue/Saturation, Levels, Color Balance, Blur, Sharpen, Invert, Desaturate, Posterize, Pixelate |
 | **Help** | Command Palette, Cheatsheet |
 | **Audio** | Sound FX toggle, Music toggle, SFX/Music volume up/down, SFX/Music mute, Explore Music, Now Playing |

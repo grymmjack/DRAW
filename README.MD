@@ -14,7 +14,7 @@ DATA "::::::::", "::    ::", "::    ::", "::::  ::::", "  ::  ::  "
 
 DRAW is a pixel art editor written in QB64PE that can export images as sourcecode
 
-![DRAW GUI from v0.16.0](./GUI.png)
+![DRAW GUI from v0.17.0](./GUI.png)
 
 ## Features
 
@@ -27,7 +27,7 @@ DRAW is a pixel art editor written in QB64PE that can export images as sourcecod
 - **Polygon** - Draw outlined or filled multi-point polygons with brush size/shape, angle snapping
 - **Fill** - Flood fill tool; hold **Shift** to sample from merged visible canvas while painting onto the current layer
 - **Spray** - Spray paint with brush-shaped nozzle tips, radius doubles per brush size level, custom brush stamp support, SHIFT axis constraint, circle preview
-- **Picker** - Color sampling/eyedropper (hold ALT with any tool for temporary picker; ALT+left picks FG, ALT+right picks BG)
+- **Picker** - Color sampling/eyedropper with a cursor-adjacent loupe overlay that shows RGB and hex values; hold ALT with any tool for temporary picker; ALT+left picks FG, ALT+right picks BG
 - **Marquee** - Selection tools: Rectangle, Freehand, Polygon, Ellipse — each with a distinct crosshair cursor
 - **Magic Wand** - Select contiguous same-color pixels with dedicated crosshair cursor; **Hold `F`+click to flood fill** contiguous pixels with FG color; **Hold `E`+click to flood erase** to transparent; **Hold `W`+click to select from merged** (all visible layers)
 - **Move** - Transform and position selected content with arrow keys, undo support, and ALT+drag clone stamping
@@ -43,6 +43,7 @@ DRAW is a pixel art editor written in QB64PE that can export images as sourcecod
 - **Image Import** - Load images with interactive placement, rotation (90° CW/CCW), horizontal/vertical flip, zoom, pan, and resize — with live preview of all transformations
 - **Crop** - Interactive canvas crop using marquee selection with dark overlay, resize handles, and size label; also supports canvas resize dialog
 - **Canvas Resize** - Resize canvas to arbitrary dimensions via dialog (Canvas menu), preserving layer content at origin
+- **QB64 Export** - Generate QB64 source output from artwork/history, with improved raster fallback for operations that cannot be reproduced parametrically
 - **Angle Snap** - Two modes: degree-based (configurable 15°/30°/45°/90° increments) and pixel-art (11 integer-ratio angles for clean pixel lines). Hold Ctrl+Shift to snap + bypass grid. Applies to Line, Polygon, and Brush/Dot connecting lines
 - **Image Adjustments** - Non-destructive per-layer adjustments via the Image menu: Brightness/Contrast, Hue/Saturation, Levels, Color Balance, Blur, Sharpen, Invert, Desaturate, Posterize, Pixelate — all with **live preview** and **mouse wheel slider** support; alpha channel preserved throughout
 
@@ -65,6 +66,7 @@ DRAW is a pixel art editor written in QB64PE that can export images as sourcecod
 - **Dynamic Palette System** - Load palettes from .GPL files (GIMP Palette format)
 - **Palette Strip** - Shows current palette colors with scroll arrows for large palettes
 - **Palette Dropdown** - Click palette name to switch between available palettes
+- **Palette Workflows** - Load downloadable palettes from Lospec, create palettes from images, remap artwork to the active palette, and optionally include downloaded/user-created palettes in the picker
 - **Left-click swatch** - Select foreground color
 - **Right-click swatch** - Select background color
 - **Mouse wheel on strip** - Scroll through palette colors
@@ -120,6 +122,7 @@ DRAW is a pixel art editor written in QB64PE that can export images as sourcecod
 - All audio state persisted in `DRAW.cfg` (`SOUNDS_ENABLED`, `SOUNDS_VOLUME`, `SOUNDS_MUTED`, `MUSIC_ENABLED`, `MUSIC_VOLUME`, `MUSIC_MUTED`)
 
 ### User Interface
+- **Drawer panel** - A 16-slot drawer beneath the organizer for brush, gradient, and pattern sets; `F1`/`F2`/`F3` switch modes, left-click selects a slot, middle-click cycles modes, and `Shift+Right Click` imports into a slot
 - Themeable PNG icon toolbar (28 buttons in **4×7 grid**)
 - PNG cursors with theme-configurable hotspots and alpha transparency
 - **Fully themeable layer panel** — all colors, header height, and button bar height configurable via `ASSETS/THEMES/DEFAULT/THEME.CFG` (no recompile needed)

@@ -40,7 +40,7 @@ Root menus (indices 0–10): FILE(0), EDIT(1), VIEW(2), SELECT(3), TOOLS(4), BRU
 | 1101–1112 | Custom Brush | Capture, Clear, Recolor, Outline, Flip, Scale, Export, Rotate |
 | 1201–1206 | Assistants   | Constrain, AngleSnap, Square/Circle, Center, Clone, TempPicker |
 | 1401–1414 | Selection    | SelectFromLayer, Nudge 1/10px, Expand/Contract, SelectFromSelectedLayers |
-| 1501–1513 | Palette/Ref  | RefImage, Palette Import/Export/Random, Color Picker, Swap FG/BG |
+| 1501–1517 | Palette/Ref  | RefImage, Palette Import/Export/Random, Color Picker, Swap FG/BG, Load from Lospec, Create from Image, Remap to Palette, Show Lospec Palettes |
 | 1601–1607 | Help         | About, CheatSheet, Manual, GitHub, Issues, Credits |
 | 1701–1704 | Tools (menu) | Zoom, Spray, CmdPalette, CodeExport |
 | 1801–1802 | Canvas       | Resize dialog (1801), Crop dialog (1802) |
@@ -105,3 +105,17 @@ Row 2: [SYMMETRY MODE] [GRID VIS]      [GRID SNAP]       [COLOR MODE]
 ```
 
 Each widget has up to 4 state images loaded from the theme directory. Icon filenames in code must exactly match filenames on disk.
+
+## Drawer Panel (`GUI/DRAWER.BI` / `GUI/DRAWER.BM`)
+
+16-slot panel rendered directly beneath the organizer. The drawer has three modes: Brush, Pattern, and Gradient.
+
+- `F1` → Brush drawer
+- `F2` → Gradient drawer
+- `F3` → Pattern drawer
+- Left-click slot: select slot and activate the corresponding paint mode
+- Middle-click slot: cycle drawer mode (Brush → Pattern → Gradient)
+- `Shift+Right Click` slot: queue slot import via deferred dialog
+- Mini palette left/right clicks set FG/BG directly
+
+Brush drawer slots load into the custom brush pipeline. Pattern and gradient drawers switch `DRAWER.paintMode%` for the active drawing tools.

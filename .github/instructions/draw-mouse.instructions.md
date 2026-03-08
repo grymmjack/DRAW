@@ -19,7 +19,7 @@ applyTo: "**/MOUSE.BM, **/MOUSE.BI"
 | B1, B2, B3               | INTEGER | Current button states |
 | OLD_B1, OLD_B2, OLD_B3   | INTEGER | Previous frame states (transition detection) |
 | TOOLBAR_CLICKED%         | INTEGER | GUI click flag — prevents canvas tool actions |
-| DEFERRED_ACTION%         | INTEGER | Post-frame file dialog (0=none, 1=save, 2=import, 3=open DRW, 4=export selection) |
+| DEFERRED_ACTION%         | INTEGER | Post-frame file dialog (0=none, 1=save, 2=import image, 3=open DRW, 4=export selection, 5=drawer slot import) |
 | SUPPRESS_FRAMES%         | INTEGER | Frames to suppress input after dialog cleanup |
 
 ---
@@ -75,7 +75,9 @@ Set to 2 by `MOUSE_force_buttons_up` / `MOUSE_cleanup_after_dialog`. SDL2 produc
 ### DEFERRED_ACTION%
 File dialogs (`_OPENFILEDIALOG$`, `_SAVEFILEDIALOG$`) block the main loop. Toolbar clicks set `MOUSE.DEFERRED_ACTION%`; the actual dialog opens in `MOUSE_input_handler_loop` after all mouse processing is complete, avoiding mid-processing state corruption.
 
-Values: `1`=save, `2`=import image, `3`=open DRW project, `4`=export selection
+Values: `1`=save, `2`=import image, `3`=open DRW project, `4`=export selection, `5`=drawer slot import
+
+Drawer slot imports use the same deferred-dialog path: `Shift+Right Click` on a drawer slot queues action `5`, then `MOUSE_input_handler_loop` runs `DRAWER_run_deferred_action` after normal mouse processing finishes.
 
 ### Menubar Width Calculation
 `MENUBAR_update_bar_geometry` subtracts toolbar width from screen width. Toolbar width:

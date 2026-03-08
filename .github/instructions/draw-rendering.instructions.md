@@ -21,16 +21,19 @@ Composited back-to-front onto `SCRN.CANVAS&`, then GPU-scaled to window via `_PU
 5. Canvas border
 6. Image import preview
 7. **Tool previews** (marquee, line, rect, ellipse, polygon, move, text, zoom)
-8. GUI layer (`SCRN.GUI&` — toolbar, status bar, palette strip, layer panel)
-9. Image import / move status bars
-10. Crosshair (Shift held)
-11. Command palette
-12. **Scene cache save** → `SCENE_CACHE&`
-13. `SkipToPointer:` — fast path target for cursor-only updates
-14. **Selection overlay** (marching ants) — AFTER cache, so animation doesn't invalidate it
+8. GUI layer (`SCRN.GUI&` — toolbar, organizer, drawer panel, status bar, palette strip, layer panel, menubar)
+9. Crosshair overlay
+10. Scrollbars
+11. **Scene cache save** → `SCENE_CACHE&`
+12. `SkipToPointer:` — fast path target for cursor-only updates
+13. **Selection overlay** (marching ants) — AFTER cache, so animation doesn't invalidate it
+14. Blend-mode popup / command palette overlays
 15. Pointer cursor (`POINTER_update` + `POINTER_render`)
-16. Scale `SCRN.CANVAS&` to window (integer scaling, nearest neighbor)
-17. `_DISPLAY`
+16. GUI recomposite + scrollbars + contextual status bars
+17. Picker loupe overlay (`PICKER_LOUPE_render`) when the picker is active
+18. Cursor overlay
+19. Scale `SCRN.CANVAS&` to window (integer scaling, nearest neighbor)
+20. `_DISPLAY`
 
 ### Scene Cache (`SCENE_CACHE&`, `SCENE_DIRTY%`)
 
@@ -41,6 +44,8 @@ When only the cursor moved, `SCENE_DIRTY%` stays FALSE. The renderer copies the 
 **What sets `FRAME_IDLE% = FALSE` but NOT `SCENE_DIRTY%`**: Mouse movement alone (cursor-only fast path), active selections (marching ants animate after `SkipToPointer:`).
 
 **Rule**: Per-frame animations MUST render after `SkipToPointer:`. Placing them before forces `SCENE_DIRTY% = TRUE` every frame, defeating the cache.
+
+**Overlay rule**: Any overlay that must remain visible above the recomposited GUI layer belongs after the second GUI composite. The picker loupe is the current example.
 
 ### Performance Patterns
 

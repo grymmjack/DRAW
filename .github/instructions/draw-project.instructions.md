@@ -24,7 +24,7 @@ applyTo: "**"
 1. `_COMMON.BI` — core types and globals
 2. **CORE**: PERF, ERROR, IMAGE
 3. **CFG**: CONFIG, CONFIG-THEME, CONFIG-KEYBOARD, CONFIG-MOUSE, CONFIG-STICK, BINDINGS-\*
-4. **GUI**: PALETTE, PALETTE-LOADER, PALETTE-STRIP, GUI, BRUSHES, CROSSHAIR, GRID, HELP, LAYERS, PALETTE-PICKER, PICKER, CURSOR, POINTER, STATUS, TOOLBAR, ORGANIZER, TRANSPARENCY, COMMAND, MENUBAR, SCROLLBAR, DIALOG, IMGADJ, IMAGE-ADJ, STROKE-SEL
+4. **GUI**: PALETTE, PALETTE-LOADER, PALETTE-STRIP, GUI, BRUSHES, CROSSHAIR, GRID, HELP, LAYERS, PALETTE-PICKER, PICKER, CURSOR, POINTER, STATUS, TOOLBAR, ORGANIZER, DRAWER, TRANSPARENCY, COMMAND, MENUBAR, SCROLLBAR, DIALOG, IMGADJ, IMAGE-ADJ, STROKE-SEL
 5. **INPUT**: MODIFIERS, KEYBOARD, MOUSE, STICK, FILE-BMP, FILE-BLOAD, FILE-PAL, API-LOSPEC
 6. **OUTPUT**: SCREEN, FILE-BAS, FILE-BMP, FILE-BSAVE
 7. **QB64_GJ_LIB**: DICT, STRINGS, VECT2D
@@ -37,7 +37,7 @@ applyTo: "**"
 | ----------------------- | -------------------------------------------------------------------- |
 | `CFG/`                  | Configuration types, keyboard/mouse/joystick bindings                |
 | `CORE/`                 | Performance counters, error handling, image utilities                |
-| `GUI/`                  | UI components (toolbar, status bar, palette, grid, layers, menubar, command palette, organizer) |
+| `GUI/`                  | UI components (toolbar, status bar, palette, grid, layers, menubar, command palette, organizer, drawer panel) |
 | `INPUT/`                | Input handlers (mouse, keyboard, joystick), file loaders, Lospec API |
 | `OUTPUT/`               | Screen rendering (`SCREEN_render`), file export (BAS, BMP, BSAVE)   |
 | `TOOLS/`                | Drawing tools, undo systems, DRW format, image import                |
@@ -258,6 +258,8 @@ A frame is "idle" when no input, mouse movement, GUI changes, or active tool ope
 | `GUI/TOOLBAR.BI`          | Layout constants (`TB_COLS`, `TB_ROWS`), button-to-tool mapping     |
 | `GUI/TOOLBAR.BM`          | Toolbar rendering, click handling, active indicator                 |
 | `GUI/ORGANIZER.BI`        | Organizer widget constants (`ORG_*`), 4×3 layout                    |
+| `GUI/DRAWER.BI/BM`        | 16-slot brush/pattern/gradient drawer panel with mini palette and `.dset` import/export |
+| `TOOLS/HISTORY.BI/BM`     | Unified history system used by Ctrl+Z/Y before falling back to workspace/pixel undo |
 | `TOOLS/ERASER.BI/BM`      | Eraser tool (transparent painting via brush pipeline)               |
 | `TOOLS/TRANSFORM.BI/BM`   | On-canvas transform overlay (Scale/Rotate/Shear/Distort/Perspective); activated via Edit→TRANSFORM...; not a toolbar tool |
 | `CFG/CONFIG.BI`           | Configuration structure                                             |

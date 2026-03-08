@@ -4,7 +4,11 @@ applyTo: "**/UNDO*.B*, **/WORKSPACE-UNDO*.B*, **/MOUSE.BM, **/KEYBOARD.BM"
 
 # DRAW — Undo System
 
-DRAW has **two independent undo systems** sharing a single Ctrl+Z/Y keybinding via timestamp-based routing.
+DRAW now has **three undo/history systems** sharing a single Ctrl+Z/Y keybinding via timestamp-based routing.
+
+- `HISTORY` is the preferred unified record/replay path for most modern paint, transform, selection, text, and layer operations.
+- `WORKSPACE_UNDO` remains the structural fallback for layer operations not yet covered by `HISTORY`.
+- `UNDO` remains the legacy per-layer pixel snapshot fallback.
 
 ---
 
@@ -51,13 +55,28 @@ Stores structural layer operations. Does NOT store pixel data.
 
 ---
 
+## Unified History (`TOOLS/HISTORY.BI` / `HISTORY.BM`)
+
+`HISTORY` records replayable operations with stable `historyId&` layer identities, typed record kinds, optional payloads, and export metadata.
+
+Common record kinds include layer add/delete/reorder/rename, selection change, line/rect/ellipse/polyline, fill, brush, and transform.
+
+Use `HISTORY_*` recording helpers whenever an operation can be represented semantically. Prefer grouped history records for multi-layer move/transform operations.
+
+---
+
 ## Intelligent Ctrl+Z / Ctrl+Y Routing
 
 ```qb64
+historyUndoTs# = HISTORY_get_last_timestamp#
 pixelUndoTs# = UNDO_get_last_timestamp#
 workspaceUndoTs# = WORKSPACE_UNDO_get_last_timestamp#
 
-IF workspaceUndoTs# > pixelUndoTs# AND WORKSPACE_UNDO_can_undo% THEN
+IF HISTORY_can_undo% AND historyUndoTs# > 0 AND _
+   (NOT WORKSPACE_UNDO_can_undo% OR historyUndoTs# >= workspaceUndoTs#) AND _
+   (pixelUndoTs# <= 0 OR historyUndoTs# >= pixelUndoTs#) THEN
+    HISTORY_undo
+ELSEIF workspaceUndoTs# > pixelUndoTs# AND WORKSPACE_UNDO_can_undo% THEN
     WORKSPACE_UNDO_undo      ' Layer op was more recent
 ELSEIF pixelUndoTs# > 0 THEN
     UNDO_undo                ' Pixel change was more recent
@@ -88,6 +107,12 @@ END IF
 
 **Command dispatcher** (`GUI/COMMAND.BM`):
 - Copy to new layer, fill FG/BG, flip H/V, scale, rotate
+
+**History callers** (`TOOLS/HISTORY.BM` + operation sites):
+- Brush, dot, spray, fill, line, rect, ellipse, polyline
+- Transform, move, image adjustments, stroke selection
+- Text stamping, including payload data for custom font attributes
+- Multi-layer edit commands that can be replayed semantically
 
 ---
 

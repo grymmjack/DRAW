@@ -32,8 +32,10 @@ Extension changed from `.drw` to `.draw` in v0.7.4 (CorelDRAW conflict).
 | Reference Image | hasImage(2), filename(260), posX/Y(4), scaleW/H(4), visible(2), opacity(2) | v4+ |
 | Brush Shape     | shape(2) | v5+ |
 | Grid State      | mode(2), cellFill(2), snap(2), alignMode(2) | v6+ |
+| Unified History | stable layer ids + history records/payloads for replay/export | v7+ |
+| Drawer State    | visible(2), mode(2), miniPaletteOffset(2), selected slots(2 each), customBrushActive(2), 16 brush slots, 16 pattern slots, 16 gradient slots | v10+ |
 
-Constants: `DRW_MAGIC$ = "DRW1"`, `DRW_VERSION% = 6`, `DRW_CHUNK_VERSION% = 1`
+Constants: `DRW_MAGIC$ = "DRW1"`, `DRW_VERSION% = 10`, `DRW_CHUNK_VERSION% = 1`
 
 ### Key Functions
 
@@ -66,9 +68,12 @@ Config file: `DRAW.cfg` — plain text, one `key=value` per line. Loaded by `CON
 | Display  | `DISPLAY_SCALE%`, `FULLSCREEN%`, `FPS_LIMIT%` |
 | Canvas   | `SCREEN_WIDTH%`, `SCREEN_HEIGHT%` |
 | Palette  | `DEFAULT_PALETTE$`, `PALETTE_CHIP_WIDTH/HEIGHT%`, `PALETTE_MIN/MAX_ROWS%` |
-| Brush    | `DEFAULT_TOOL%`, `DEFAULT_BRUSH_SIZE%`, `DEFAULT_BRUSH_SHAPE%` |
+| Brush    | `DEFAULT_TOOL%`, `DEFAULT_BRUSH_SIZE%`, `DEFAULT_BRUSH_SHAPE%`, `DEFAULT_DRAW_MODE%`, `DEFAULT_BIN_MODE%` |
 | Grid     | `GRID_MODE%`, `GRID_SIZE_X/Y%`, `GRID_CELL_FILL%` |
 | Undo     | `WORKSPACE_UNDO_MAX_STATES%` |
+| Picker   | `PICKER_LOUPE_*` overlay layout, font, and colors |
+| Palette UI | `PALETTE_SHOW_LOSPEC%`, `PALETTE_SHOW_CREATED%`, `PALETTE_CREATE_MAX_COLORS%` |
+| Export   | `BAS_EXPORT_BG_COLOR~&`, `BAS_WIP_ENABLED%` |
 | Dirs     | `LAST_DIR_OPEN$`, `LAST_DIR_SAVE$`, `LAST_DIR_IMPORT$`, `LAST_DIR_EXPORT_BRUSH/LAYER$`, `LAST_DIR_PALETTE$` |
 
 Defaults: DOT tool, brush size 1, square shape, 60 FPS, 128×128 canvas, 4 layers.
@@ -100,6 +105,8 @@ Key fields:
 | ----- | ---- | ------- |
 | `TOOLBAR_btn_overlay~&` | `_UNSIGNED LONG` | Active toolbar button fill overlay |
 | `TOOLBAR_btn_stroke~&`  | `_UNSIGNED LONG` | Active toolbar button border color |
+| `DRAWER_PANEL_*` | `INTEGER` / `_UNSIGNED LONG` | Drawer layout, palette paging, scrollbar sizing, and drawer colors |
+| `LOSPEC_*` | `_UNSIGNED LONG` / `INTEGER` | Lospec dialog search/list/preview/status theming |
 | `TRANSFORM_FRAME_COLOR~&` | `_UNSIGNED LONG` | Transform overlay bounding-box outline |
 | `TRANSFORM_FRAME_HANDLE_COLOR~&` | `_UNSIGNED LONG` | Transform overlay handle square fill |
 | `TRANSFORM_FRAME_HANDLE_SIZE%` | `INTEGER` | Transform overlay handle half-size in pixels |
