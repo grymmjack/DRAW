@@ -13,7 +13,7 @@ OPTION _EXPLICITARRAY
 '$DYNAMIC
 
 ' Menu bar constants
-CONST MENU_MAX_ITEMS = 220         ' Max menu items across all menus
+CONST MENU_MAX_ITEMS = 256         ' Max menu items across all menus
 CONST MENU_MAX_ROOT = 12           ' Max root-level menu entries
 CONST MENU_BAR_HEIGHT = 12         ' 8px Tiny5 font + 4px padding
 CONST MENU_ITEM_HEIGHT = 12        ' Height of each submenu item row
