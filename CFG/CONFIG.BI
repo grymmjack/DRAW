@@ -253,6 +253,8 @@ TYPE DRAW_CONFIG
     PREVIEW_H                      AS INTEGER  ' Last window height
     PREVIEW_FOLLOW                 AS INTEGER  ' TRUE = follow-pointer magnifier mode
     PREVIEW_ZOOM                   AS SINGLE   ' Independent preview zoom level
+    PREVIEW_PAN_X                  AS SINGLE   ' Independent preview pan X (canvas pixels)
+    PREVIEW_PAN_Y                  AS SINGLE   ' Independent preview pan Y (canvas pixels)
     EDIT_BAR_VISIBLE               AS INTEGER  ' TRUE = edit bar visible at startup
     EDIT_BAR_DOCK_POSITION         AS STRING  ' "LEFT" or "RIGHT"
     ' Canvas size settings

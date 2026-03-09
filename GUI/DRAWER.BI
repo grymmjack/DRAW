@@ -10,9 +10,54 @@ CONST DRAWER_MODE_NONE     = 0
 CONST DRAWER_MODE_BRUSH    = 1
 CONST DRAWER_MODE_PATTERN  = 2
 CONST DRAWER_MODE_GRADIENT = 3
-CONST DRAWER_SLOT_COUNT    = 16
-CONST DRAWER_GRID_COLS     = 4
-CONST DRAWER_GRID_ROWS     = 4
+CONST DRAWER_SLOT_COUNT    = 30
+CONST DRAWER_GRID_COLS     = 3
+CONST DRAWER_GRID_ROWS     = 10
+
+' Maximum color/opacity stops per gradient definition
+CONST GRADIENT_MAX_STOPS   = 16
+
+' Gradient spatial families (how t is derived from x,y)
+CONST GRADIENT_FAMILY_HORIZONTAL  = 1
+CONST GRADIENT_FAMILY_VERTICAL    = 2
+CONST GRADIENT_FAMILY_DIAGONAL    = 3
+CONST GRADIENT_FAMILY_ANTI_DIAG   = 4
+CONST GRADIENT_FAMILY_RADIAL      = 5
+CONST GRADIENT_FAMILY_REFLECTED_H = 6
+CONST GRADIENT_FAMILY_REFLECTED_V = 7
+CONST GRADIENT_FAMILY_DIAMOND     = 8
+
+' A single color stop in a gradient definition
+TYPE GRADIENT_COLOR_STOP
+    position AS SINGLE          ' 0.0 to 1.0
+    clr      AS _UNSIGNED LONG  ' RGBA color at this stop
+END TYPE
+
+' A single opacity stop in a gradient definition
+TYPE GRADIENT_OPACITY_STOP
+    position AS SINGLE          ' 0.0 to 1.0
+    opacity  AS INTEGER         ' 0 to 255
+END TYPE
+
+' Complete editable gradient definition per slot
+TYPE GRADIENT_DEF
+    family       AS INTEGER     ' GRADIENT_FAMILY_* constant
+    colorCount   AS INTEGER     ' number of active color stops (1..GRADIENT_MAX_STOPS)
+    opacityCount AS INTEGER     ' number of active opacity stops (0..GRADIENT_MAX_STOPS)
+    usesFG       AS INTEGER     ' TRUE if preset references PAINT_COLOR~&
+    usesBG       AS INTEGER     ' TRUE if preset references PAINT_BG_COLOR~&
+    previewDirty AS INTEGER     ' TRUE when definition changed, preview needs rebuild
+    gName        AS STRING * 32 ' user-editable gradient name
+END TYPE
+
+' Operation-bounded gradient context for runtime sampling
+TYPE GRADIENT_CONTEXT
+    boundsX1 AS INTEGER         ' left edge of operation area
+    boundsY1 AS INTEGER         ' top edge of operation area
+    boundsX2 AS INTEGER         ' right edge of operation area
+    boundsY2 AS INTEGER         ' bottom edge of operation area
+    active   AS INTEGER         ' TRUE when context has valid bounds
+END TYPE
 
 TYPE DRAWER_STATE
     visible             AS INTEGER
@@ -50,6 +95,14 @@ DIM SHARED DRAWER_GRADIENT_CUSTOM(1 TO DRAWER_SLOT_COUNT) AS INTEGER
 DIM SHARED DRAWER_DEFERRED_IMPORT_SLOT AS INTEGER
 DIM SHARED DRAWER_DEFERRED_IMPORT_MODE AS INTEGER
 
+' Gradient definition arrays — parallel to DRAWER_GRADIENT_SLOTS
+DIM SHARED GRAD_DEFS(1 TO DRAWER_SLOT_COUNT) AS GRADIENT_DEF
+DIM SHARED GRAD_COLOR_STOPS(1 TO DRAWER_SLOT_COUNT, 1 TO GRADIENT_MAX_STOPS) AS GRADIENT_COLOR_STOP
+DIM SHARED GRAD_OPACITY_STOPS(1 TO DRAWER_SLOT_COUNT, 1 TO GRADIENT_MAX_STOPS) AS GRADIENT_OPACITY_STOP
+
+' Shared gradient context for operation-bounded sampling
+DIM SHARED GRAD_CTX AS GRADIENT_CONTEXT
+
 DECLARE SUB DRAWER_init ()
 DECLARE SUB DRAWER_reset ()
 DECLARE SUB DRAWER_render ()
@@ -73,6 +126,16 @@ DECLARE SUB DRAWER_context_menu_render ()
 DECLARE FUNCTION DRAWER_mode_is_active% (mode AS INTEGER)
 DECLARE FUNCTION DRAWER_has_paint_mode% ()
 DECLARE FUNCTION DRAWER_resolve_paint_color~& (x AS INTEGER, y AS INTEGER, baseColor AS _UNSIGNED LONG)
+DECLARE FUNCTION DRAWER_resolve_gradient_color~& (x AS INTEGER, y AS INTEGER, baseColor AS _UNSIGNED LONG, ctx AS GRADIENT_CONTEXT)
+DECLARE SUB GRAD_CTX_set (x1 AS INTEGER, y1 AS INTEGER, x2 AS INTEGER, y2 AS INTEGER)
+DECLARE SUB GRAD_CTX_clear ()
+DECLARE SUB GRAD_CTX_expand (x AS INTEGER, y AS INTEGER)
+DECLARE SUB GRAD_DEF_init_presets ()
+DECLARE SUB GRAD_DEF_rebuild_preview (slotIndex AS INTEGER)
+DECLARE FUNCTION GRAD_DEF_eval_color~& (slotIndex AS INTEGER, t AS SINGLE)
+DECLARE SUB GRAD_DEF_set_stop (slotIndex AS INTEGER, stopIndex AS INTEGER, stopPos AS SINGLE, c AS _UNSIGNED LONG)
+DECLARE SUB GRAD_DEF_update_fg_bg_stops ()
+DECLARE SUB GRADIENT_editor_dialog ()
 DECLARE SUB DRAWER_save_state_binary (fh AS INTEGER)
 DECLARE SUB DRAWER_load_state_binary (fh AS INTEGER)
 DECLARE SUB DRAWER_export_set_dialog ()
