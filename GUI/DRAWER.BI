@@ -48,6 +48,8 @@ TYPE GRADIENT_DEF
     usesBG       AS INTEGER     ' TRUE if preset references PAINT_BG_COLOR~&
     previewDirty AS INTEGER     ' TRUE when definition changed, preview needs rebuild
     gName        AS STRING * 32 ' user-editable gradient name
+    ditherMode   AS INTEGER     ' GJ_IMGADJ_DITHER_* constant or DITHER_NONE (-1)
+    ditherStrength AS SINGLE    ' 0.0 (none) to 1.0 (full)
 END TYPE
 
 ' Operation-bounded gradient context for runtime sampling

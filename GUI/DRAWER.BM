@@ -52,6 +52,7 @@ DIM SHARED DRAWER_GRADIENT_LAST_FG AS _UNSIGNED LONG
 DIM SHARED DRAWER_GRADIENT_LAST_BG AS _UNSIGNED LONG
 
 SUB DRAWER_init ()
+    DITHER_init
     DRAWER.visible% = TRUE
     DRAWER.mode% = DRAWER_MODE_BRUSH
     DRAWER.paintMode% = 1
@@ -403,6 +404,8 @@ SUB GRAD_DEF_init_presets ()
         GRAD_DEFS(i%).usesBG% = FALSE
         GRAD_DEFS(i%).previewDirty% = TRUE
         GRAD_DEFS(i%).gName = ""
+        GRAD_DEFS(i%).ditherMode% = DITHER_NONE
+        GRAD_DEFS(i%).ditherStrength! = 0.5
         FOR s% = 1 TO GRADIENT_MAX_STOPS
             GRAD_COLOR_STOPS(i%, s%).position = 0
             GRAD_COLOR_STOPS(i%, s%).clr = 0
@@ -667,7 +670,40 @@ SUB GRAD_DEF_rebuild_preview (slotIndex AS INTEGER)
     FOR y% = 0 TO h% - 1
         FOR x% = 0 TO w% - 1
             t! = DRAWER_gradient_eval_t!(slotIndex%, x%, y%, w%, h%)
-            c~& = GRAD_DEF_eval_color~&(slotIndex%, t!)
+            ' Apply dithering if enabled for this slot
+            IF GRAD_DEFS(slotIndex%).ditherMode% <> DITHER_NONE AND GRAD_DEFS(slotIndex%).colorCount% >= 2 THEN
+                DIM rpCount AS INTEGER
+                DIM rpI AS INTEGER
+                DIM rpSegT AS SINGLE
+                DIM rpSpan AS SINGLE
+                DIM rpThr AS SINGLE
+                DIM rpStr AS SINGLE
+                rpCount% = GRAD_DEFS(slotIndex%).colorCount%
+                rpStr! = GRAD_DEFS(slotIndex%).ditherStrength!
+
+                IF t! <= GRAD_COLOR_STOPS(slotIndex%, 1).position THEN
+                    c~& = GRAD_COLOR_STOPS(slotIndex%, 1).clr
+                ELSEIF t! >= GRAD_COLOR_STOPS(slotIndex%, rpCount%).position THEN
+                    c~& = GRAD_COLOR_STOPS(slotIndex%, rpCount%).clr
+                ELSE
+                    c~& = GRAD_COLOR_STOPS(slotIndex%, rpCount%).clr
+                    FOR rpI% = 1 TO rpCount% - 1
+                        IF t! >= GRAD_COLOR_STOPS(slotIndex%, rpI%).position AND t! <= GRAD_COLOR_STOPS(slotIndex%, rpI% + 1).position THEN
+                            rpSpan! = GRAD_COLOR_STOPS(slotIndex%, rpI% + 1).position - GRAD_COLOR_STOPS(slotIndex%, rpI%).position
+                            IF rpSpan! > 0 THEN rpSegT! = (t! - GRAD_COLOR_STOPS(slotIndex%, rpI%).position) / rpSpan! ELSE rpSegT! = 0
+                            rpThr! = DITHER_get_threshold!(GRAD_DEFS(slotIndex%).ditherMode%, x%, y%)
+                            IF rpSegT! < (rpThr! * rpStr! + (1! - rpStr!) * rpSegT!) THEN
+                                c~& = GRAD_COLOR_STOPS(slotIndex%, rpI%).clr
+                            ELSE
+                                c~& = GRAD_COLOR_STOPS(slotIndex%, rpI% + 1).clr
+                            END IF
+                            EXIT FOR
+                        END IF
+                    NEXT rpI%
+                END IF
+            ELSE
+                c~& = GRAD_DEF_eval_color~&(slotIndex%, t!)
+            END IF
             PSET (x%, y%), c~&
         NEXT x%
     NEXT y%
@@ -790,7 +826,59 @@ FUNCTION DRAWER_resolve_gradient_color~& (x AS INTEGER, y AS INTEGER, baseColor 
     IF t! < 0 THEN t! = 0
     IF t! > 1 THEN t! = 1
 
-    DRAWER_resolve_gradient_color~& = PAINT_apply_opacity~&(GRAD_DEF_eval_color~&(slotIdx%, t!))
+    ' Apply dithering if enabled for this gradient slot
+    IF GRAD_DEFS(slotIdx%).ditherMode% <> DITHER_NONE AND GRAD_DEFS(slotIdx%).colorCount% >= 2 THEN
+        DIM gdCount AS INTEGER
+        DIM gdI AS INTEGER
+        DIM gdSegT AS SINGLE
+        DIM gdSpan AS SINGLE
+        DIM gdThreshold AS SINGLE
+        DIM gdStrength AS SINGLE
+        DIM gdColorA AS _UNSIGNED LONG
+        DIM gdColorB AS _UNSIGNED LONG
+
+        gdCount% = GRAD_DEFS(slotIdx%).colorCount%
+        gdStrength! = GRAD_DEFS(slotIdx%).ditherStrength!
+
+        ' Before first stop
+        IF t! <= GRAD_COLOR_STOPS(slotIdx%, 1).position THEN
+            DRAWER_resolve_gradient_color~& = PAINT_apply_opacity~&(GRAD_COLOR_STOPS(slotIdx%, 1).clr)
+            EXIT FUNCTION
+        END IF
+
+        ' After last stop
+        IF t! >= GRAD_COLOR_STOPS(slotIdx%, gdCount%).position THEN
+            DRAWER_resolve_gradient_color~& = PAINT_apply_opacity~&(GRAD_COLOR_STOPS(slotIdx%, gdCount%).clr)
+            EXIT FUNCTION
+        END IF
+
+        ' Find bracketing stops and apply dither threshold
+        FOR gdI% = 1 TO gdCount% - 1
+            IF t! >= GRAD_COLOR_STOPS(slotIdx%, gdI%).position AND t! <= GRAD_COLOR_STOPS(slotIdx%, gdI% + 1).position THEN
+                gdSpan! = GRAD_COLOR_STOPS(slotIdx%, gdI% + 1).position - GRAD_COLOR_STOPS(slotIdx%, gdI%).position
+                IF gdSpan! > 0 THEN
+                    gdSegT! = (t! - GRAD_COLOR_STOPS(slotIdx%, gdI%).position) / gdSpan!
+                ELSE
+                    gdSegT! = 0
+                END IF
+                gdColorA~& = GRAD_COLOR_STOPS(slotIdx%, gdI%).clr
+                gdColorB~& = GRAD_COLOR_STOPS(slotIdx%, gdI% + 1).clr
+                gdThreshold! = DITHER_get_threshold!(GRAD_DEFS(slotIdx%).ditherMode%, x%, y%)
+                ' Apply strength: stronger = sharper snap, weaker = softer blend zone
+                IF gdSegT! < (gdThreshold! * gdStrength! + (1! - gdStrength!) * gdSegT!) THEN
+                    DRAWER_resolve_gradient_color~& = PAINT_apply_opacity~&(gdColorA~&)
+                ELSE
+                    DRAWER_resolve_gradient_color~& = PAINT_apply_opacity~&(gdColorB~&)
+                END IF
+                EXIT FUNCTION
+            END IF
+        NEXT gdI%
+
+        ' Fallback
+        DRAWER_resolve_gradient_color~& = PAINT_apply_opacity~&(GRAD_COLOR_STOPS(slotIdx%, gdCount%).clr)
+    ELSE
+        DRAWER_resolve_gradient_color~& = PAINT_apply_opacity~&(GRAD_DEF_eval_color~&(slotIdx%, t!))
+    END IF
 END FUNCTION
 
 SUB DRAWER_ensure_samples ()
@@ -2321,6 +2409,59 @@ SUB DRAWER_load_state_binary (fh AS INTEGER)
     END IF
 END SUB
 
+SUB DRAWER_save_grad_defs (fh AS INTEGER)
+    ' Save gradient definitions and color/opacity stops (v12+)
+    DIM i AS INTEGER, j AS INTEGER
+    FOR i% = 1 TO DRAWER_SLOT_COUNT
+        PUT #fh%, , GRAD_DEFS(i%).family%
+        PUT #fh%, , GRAD_DEFS(i%).colorCount%
+        PUT #fh%, , GRAD_DEFS(i%).opacityCount%
+        PUT #fh%, , GRAD_DEFS(i%).usesFG%
+        PUT #fh%, , GRAD_DEFS(i%).usesBG%
+        PUT #fh%, , GRAD_DEFS(i%).gName
+        PUT #fh%, , GRAD_DEFS(i%).ditherMode%
+        PUT #fh%, , GRAD_DEFS(i%).ditherStrength!
+        FOR j% = 1 TO GRADIENT_MAX_STOPS
+            PUT #fh%, , GRAD_COLOR_STOPS(i%, j%).position
+            PUT #fh%, , GRAD_COLOR_STOPS(i%, j%).clr
+        NEXT j%
+        FOR j% = 1 TO GRADIENT_MAX_STOPS
+            PUT #fh%, , GRAD_OPACITY_STOPS(i%, j%).position
+            PUT #fh%, , GRAD_OPACITY_STOPS(i%, j%).opacity%
+        NEXT j%
+    NEXT i%
+END SUB
+
+SUB DRAWER_load_grad_defs (fh AS INTEGER)
+    ' Load gradient definitions and color/opacity stops (v12+)
+    DIM i AS INTEGER, j AS INTEGER
+    FOR i% = 1 TO DRAWER_SLOT_COUNT
+        GET #fh%, , GRAD_DEFS(i%).family%
+        GET #fh%, , GRAD_DEFS(i%).colorCount%
+        GET #fh%, , GRAD_DEFS(i%).opacityCount%
+        GET #fh%, , GRAD_DEFS(i%).usesFG%
+        GET #fh%, , GRAD_DEFS(i%).usesBG%
+        GET #fh%, , GRAD_DEFS(i%).gName
+        GET #fh%, , GRAD_DEFS(i%).ditherMode%
+        GET #fh%, , GRAD_DEFS(i%).ditherStrength!
+        FOR j% = 1 TO GRADIENT_MAX_STOPS
+            GET #fh%, , GRAD_COLOR_STOPS(i%, j%).position
+            GET #fh%, , GRAD_COLOR_STOPS(i%, j%).clr
+        NEXT j%
+        FOR j% = 1 TO GRADIENT_MAX_STOPS
+            GET #fh%, , GRAD_OPACITY_STOPS(i%, j%).position
+            GET #fh%, , GRAD_OPACITY_STOPS(i%, j%).opacity%
+        NEXT j%
+        GRAD_DEFS(i%).previewDirty% = TRUE
+    NEXT i%
+    ' Rebuild previews for any slots that have definitions
+    FOR i% = 1 TO DRAWER_SLOT_COUNT
+        IF GRAD_DEFS(i%).colorCount% >= 1 THEN
+            GRAD_DEF_rebuild_preview i%
+        END IF
+    NEXT i%
+END SUB
+
 FUNCTION DRAWER_set_mode_name$ (mode AS INTEGER)
     SELECT CASE mode%
         CASE DRAWER_MODE_BRUSH
@@ -2583,7 +2724,14 @@ SUB GRADIENT_editor_dialog ()
     gedInfoY% = gedFamilyY% + 20
     gedAlphaY% = gedInfoY% + 20
     gedActY% = gedAlphaY% + 40
-    gedDivY% = gedActY% + GED_BTN_H + 16
+
+    ' Dither controls between actions and divider
+    DIM gedDitherY AS INTEGER
+    DIM gedStrengthY AS INTEGER
+    gedDitherY% = gedActY% + GED_BTN_H + 20
+    gedStrengthY% = gedDitherY% + 22
+
+    gedDivY% = gedStrengthY% + 28
     gedOkY% = gedDivY% + 6
     gedH% = gedOkY% + GED_OKCX_H + 8
 
@@ -2797,6 +2945,29 @@ SUB GRADIENT_editor_dialog ()
             ctx.done% = TRUE : ctx.result% = FALSE
         END IF
 
+        ' ---- Dither mode cycle button ----
+        IF DIALOG_hit%(ctx, GED_BAR_X, gedDitherY%, GED_BAR_W, 18) THEN
+            DIM curPpIdx AS INTEGER
+            curPpIdx% = DITHER_imgadj_to_perpixel%(GRAD_DEFS(slotIdx%).ditherMode%)
+            IF GRAD_DEFS(slotIdx%).ditherMode% = DITHER_NONE THEN
+                ' First per-pixel algorithm
+                GRAD_DEFS(slotIdx%).ditherMode% = DITHER_PERPIXEL_MAP(0)
+            ELSEIF curPpIdx% >= 0 AND curPpIdx% < DITHER_COUNT_PERPIXEL - 1 THEN
+                GRAD_DEFS(slotIdx%).ditherMode% = DITHER_PERPIXEL_MAP(curPpIdx% + 1)
+            ELSE
+                GRAD_DEFS(slotIdx%).ditherMode% = DITHER_NONE
+            END IF
+        END IF
+
+        ' ---- Dither strength slider ----
+        IF GRAD_DEFS(slotIdx%).ditherMode% <> DITHER_NONE THEN
+            DIM gedDitherPct AS INTEGER
+            gedDitherPct% = INT(GRAD_DEFS(slotIdx%).ditherStrength! * 100! + 0.5)
+            gedDitherPct% = DIALOG_slider_drag%(ctx, GED_BAR_X, gedStrengthY% + 14, GED_BAR_W, 14, gedDitherPct%, 0, 100)
+            gedDitherPct% = DIALOG_slider_wheel%(ctx, GED_BAR_X, gedStrengthY% + 14, GED_BAR_W, 14, gedDitherPct%, 0, 100)
+            GRAD_DEFS(slotIdx%).ditherStrength! = gedDitherPct% / 100!
+        END IF
+
         ' ========== RENDER ==========
         _DEST ctx.imgHandle
         DIALOG_draw_frame ctx, "GRADIENT EDITOR"
@@ -2814,11 +2985,54 @@ SUB GRADIENT_editor_dialog ()
         NEXT cby%
 
         ' Draw gradient bar
-        FOR gedGx% = 0 TO GED_BAR_W - 1
-            gedGt! = gedGx% / (GED_BAR_W - 1)
-            gedGc~& = GRAD_DEF_eval_color~&(slotIdx%, gedGt!)
-            LINE (GED_BAR_X + gedGx%, gedBarY%)-(GED_BAR_X + gedGx%, gedBarY% + GED_BAR_H - 1), gedGc~&
-        NEXT gedGx%
+        IF GRAD_DEFS(slotIdx%).ditherMode% <> DITHER_NONE AND GRAD_DEFS(slotIdx%).colorCount% >= 2 THEN
+            ' Per-pixel dithered rendering
+            DIM gedDy AS INTEGER
+            DIM gedDt AS SINGLE, gedDu AS SINGLE
+            DIM gedDsegT AS SINGLE, gedDspan AS SINGLE, gedDthr AS SINGLE
+            DIM gedDstr AS SINGLE, gedDi AS INTEGER
+            DIM gedDcolA AS _UNSIGNED LONG, gedDcolB AS _UNSIGNED LONG
+            DIM gedDcnt AS INTEGER
+            gedDcnt% = GRAD_DEFS(slotIdx%).colorCount%
+            gedDstr! = GRAD_DEFS(slotIdx%).ditherStrength!
+            FOR gedDy% = 0 TO GED_BAR_H - 1
+                FOR gedGx% = 0 TO GED_BAR_W - 1
+                    gedDt! = gedGx% / (GED_BAR_W - 1)
+                    ' Find bracketing stops
+                    gedDu! = gedDt!
+                    IF gedDu! < 0 THEN gedDu! = 0
+                    IF gedDu! > 1 THEN gedDu! = 1
+                    gedDcolA~& = GRAD_COLOR_STOPS(slotIdx%, 1).clr
+                    gedDcolB~& = gedDcolA~&
+                    gedDsegT! = 0.5
+                    FOR gedDi% = 1 TO gedDcnt% - 1
+                        IF gedDu! >= GRAD_COLOR_STOPS(slotIdx%, gedDi%).position AND gedDu! <= GRAD_COLOR_STOPS(slotIdx%, gedDi% + 1).position THEN
+                            gedDcolA~& = GRAD_COLOR_STOPS(slotIdx%, gedDi%).clr
+                            gedDcolB~& = GRAD_COLOR_STOPS(slotIdx%, gedDi% + 1).clr
+                            gedDspan! = GRAD_COLOR_STOPS(slotIdx%, gedDi% + 1).position - GRAD_COLOR_STOPS(slotIdx%, gedDi%).position
+                            IF gedDspan! > 0 THEN
+                                gedDsegT! = (gedDu! - GRAD_COLOR_STOPS(slotIdx%, gedDi%).position) / gedDspan!
+                            ELSE
+                                gedDsegT! = 0
+                            END IF
+                            EXIT FOR
+                        END IF
+                    NEXT gedDi%
+                    gedDthr! = DITHER_get_threshold!(GRAD_DEFS(slotIdx%).ditherMode%, GED_BAR_X + gedGx%, gedBarY% + gedDy%)
+                    IF gedDsegT! < (gedDthr! * gedDstr! + (1! - gedDstr!) * gedDsegT!) THEN
+                        PSET (GED_BAR_X + gedGx%, gedBarY% + gedDy%), gedDcolA~&
+                    ELSE
+                        PSET (GED_BAR_X + gedGx%, gedBarY% + gedDy%), gedDcolB~&
+                    END IF
+                NEXT gedGx%
+            NEXT gedDy%
+        ELSE
+            FOR gedGx% = 0 TO GED_BAR_W - 1
+                gedGt! = gedGx% / (GED_BAR_W - 1)
+                gedGc~& = GRAD_DEF_eval_color~&(slotIdx%, gedGt!)
+                LINE (GED_BAR_X + gedGx%, gedBarY%)-(GED_BAR_X + gedGx%, gedBarY% + GED_BAR_H - 1), gedGc~&
+            NEXT gedGx%
+        END IF
         ' Border
         LINE (GED_BAR_X - 1, gedBarY% - 1)-(GED_BAR_X + GED_BAR_W, gedBarY% + GED_BAR_H), _RGB32(100, 100, 100), B
 
@@ -2868,6 +3082,22 @@ SUB GRADIENT_editor_dialog ()
         DIALOG_draw_button ctx, GED_BAR_X, gedActY%, 80, GED_BTN_H, "PICK COLOR", _RGB32(40, 80, 100), _RGB32(60, 120, 150), _RGB32(80, 160, 200)
         DIALOG_draw_label ctx, GED_BAR_X, gedActY% + GED_BTN_H + 2, "SHIFT=SYS"
         DIALOG_draw_button ctx, GED_BAR_X + 90, gedActY%, 80, GED_BTN_H, "DEL STOP", _RGB32(100, 40, 40), _RGB32(150, 60, 60), _RGB32(200, 80, 80)
+
+        ' Dither mode button
+        DIM gedDithName AS STRING
+        IF GRAD_DEFS(slotIdx%).ditherMode% = DITHER_NONE THEN
+            gedDithName$ = "DITHER: OFF"
+        ELSE
+            gedDithName$ = "D: " + DITHER_algorithm_name$(GRAD_DEFS(slotIdx%).ditherMode%)
+        END IF
+        DIALOG_draw_button ctx, GED_BAR_X, gedDitherY%, GED_BAR_W, 18, gedDithName$, _RGB32(60, 60, 80), _RGB32(80, 80, 110), _RGB32(110, 110, 150)
+
+        ' Dither strength slider
+        IF GRAD_DEFS(slotIdx%).ditherMode% <> DITHER_NONE THEN
+            DIM gedStrPct AS INTEGER
+            gedStrPct% = INT(GRAD_DEFS(slotIdx%).ditherStrength! * 100! + 0.5)
+            DIALOG_draw_slider ctx, GED_BAR_X, gedStrengthY% + 14, GED_BAR_W, gedStrPct%, 0, 100, "STRENGTH", "%"
+        END IF
 
         ' Divider + OK/Cancel
         DIALOG_draw_divider ctx, gedDivY%
