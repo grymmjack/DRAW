@@ -842,6 +842,10 @@ END SUB
 ' Saves undo states for all affected layers before modifying them.
 '
 SUB PALETTE_LOADER_remap_to_palette ()
+    PALETTE_LOADER_remap_to_palette_ex DITHER_NONE, 0.5
+END SUB
+
+SUB PALETTE_LOADER_remap_to_palette_ex (ditherMode AS INTEGER, ditherStrength AS SINGLE)
     IF PAL_COLOR_COUNT% = 0 THEN EXIT SUB
 
     DIM li2 AS INTEGER
@@ -879,6 +883,7 @@ SUB PALETTE_LOADER_remap_to_palette ()
             DIM dr2 AS LONG, dg2 AS LONG, db2 AS LONG
             DIM pr2 AS INTEGER, pg2 AS INTEGER, pb2 AS INTEGER
             DIM ci6 AS INTEGER
+            DIM secondIdx AS INTEGER, secondDist AS LONG
 
             FOR lpy& = 0 TO cH2& - 1
                 FOR lpx& = 0 TO cW2& - 1
@@ -894,6 +899,8 @@ SUB PALETTE_LOADER_remap_to_palette ()
 
                     bestIdx% = 0
                     bestDist& = 2147483647
+                    secondIdx% = 0
+                    secondDist& = 2147483647
                     FOR ci6% = 0 TO PAL_COLOR_COUNT% - 1
                         pr2% = _RED32(PAL(ci6%).value~&)
                         pg2% = _GREEN32(PAL(ci6%).value~&)
@@ -903,14 +910,39 @@ SUB PALETTE_LOADER_remap_to_palette ()
                         db2& = srcB% - pb2%
                         dist2& = dr2& * dr2& + dg2& * dg2& + db2& * db2&
                         IF dist2& < bestDist& THEN
+                            secondDist& = bestDist&
+                            secondIdx% = bestIdx%
                             bestDist& = dist2&
                             bestIdx% = ci6%
-                            IF bestDist& = 0 THEN EXIT FOR
+                        ELSEIF dist2& < secondDist& THEN
+                            secondDist& = dist2&
+                            secondIdx% = ci6%
                         END IF
                     NEXT ci6%
 
                     DIM mappedColor AS _UNSIGNED LONG
-                    mappedColor~& = _RGBA32(_RED32(PAL(bestIdx%).value~&), _GREEN32(PAL(bestIdx%).value~&), _BLUE32(PAL(bestIdx%).value~&), _ALPHA32(lpixColor~&))
+                    DIM useIdx AS INTEGER
+                    useIdx% = bestIdx%
+
+                    IF ditherMode% <> DITHER_NONE AND bestDist& > 0 AND secondDist& < 2147483647 THEN
+                        ' Compute interpolation factor between best and second-best
+                        DIM totalDist AS SINGLE
+                        totalDist! = SQR(bestDist&) + SQR(secondDist&)
+                        IF totalDist! > 0 THEN
+                            DIM segT AS SINGLE
+                            segT! = SQR(bestDist&) / totalDist!
+                            DIM thr AS SINGLE
+                            thr! = DITHER_get_threshold!(ditherMode%, lpx&, lpy&)
+                            ' Scale threshold toward 0.5 as strength decreases
+                            DIM adjThr AS SINGLE
+                            adjThr! = 0.5 + (thr! - 0.5) * ditherStrength!
+                            IF segT! >= adjThr! THEN
+                                useIdx% = secondIdx%
+                            END IF
+                        END IF
+                    END IF
+
+                    mappedColor~& = _RGBA32(_RED32(PAL(useIdx%).value~&), _GREEN32(PAL(useIdx%).value~&), _BLUE32(PAL(useIdx%).value~&), _ALPHA32(lpixColor~&))
                     _MEMPUT lMem, lpixOfs, mappedColor~&
                 NEXT lpx&
             NEXT lpy&
@@ -933,5 +965,204 @@ SUB PALETTE_LOADER_remap_to_palette ()
         SCENE_DIRTY% = TRUE
         GUI_NEEDS_REDRAW% = TRUE
     END IF
+END SUB
+
+FUNCTION PALETTE_LOADER_remap_preview& (srcImg AS LONG, ditherMode AS INTEGER, ditherStrength AS SINGLE)
+    ' Create a remapped copy of srcImg for preview purposes
+    IF srcImg& >= -1 THEN PALETTE_LOADER_remap_preview& = 0 : EXIT FUNCTION
+    IF PAL_COLOR_COUNT% = 0 THEN PALETTE_LOADER_remap_preview& = 0 : EXIT FUNCTION
+
+    DIM rpW AS INTEGER, rpH AS INTEGER
+    rpW% = _WIDTH(srcImg&)
+    rpH% = _HEIGHT(srcImg&)
+    DIM rpResult AS LONG
+    rpResult& = _COPYIMAGE(srcImg&, 32)
+
+    DIM rpMem AS _MEM
+    rpMem = _MEMIMAGE(rpResult&)
+    DIM rpX AS INTEGER, rpY AS INTEGER
+    DIM rpOfs AS _OFFSET
+    DIM rpPx AS _UNSIGNED LONG
+    DIM rpBestIdx AS INTEGER, rpBestDist AS LONG
+    DIM rpSecIdx AS INTEGER, rpSecDist AS LONG
+    DIM rpDist AS LONG
+    DIM rpDr AS LONG, rpDg AS LONG, rpDb AS LONG
+    DIM rpSr AS INTEGER, rpSg AS INTEGER, rpSb AS INTEGER
+    DIM rpPr AS INTEGER, rpPg AS INTEGER, rpPb AS INTEGER
+    DIM rpCi AS INTEGER
+
+    FOR rpY% = 0 TO rpH% - 1
+        FOR rpX% = 0 TO rpW% - 1
+            rpOfs = rpMem.OFFSET + (rpY% * rpW% + rpX%) * 4
+            _MEMGET rpMem, rpOfs, rpPx~&
+            IF _ALPHA32(rpPx~&) = 0 THEN _CONTINUE
+
+            rpSr% = _RED32(rpPx~&)
+            rpSg% = _GREEN32(rpPx~&)
+            rpSb% = _BLUE32(rpPx~&)
+
+            rpBestIdx% = 0 : rpBestDist& = 2147483647
+            rpSecIdx% = 0 : rpSecDist& = 2147483647
+            FOR rpCi% = 0 TO PAL_COLOR_COUNT% - 1
+                rpPr% = _RED32(PAL(rpCi%).value~&)
+                rpPg% = _GREEN32(PAL(rpCi%).value~&)
+                rpPb% = _BLUE32(PAL(rpCi%).value~&)
+                rpDr& = rpSr% - rpPr%
+                rpDg& = rpSg% - rpPg%
+                rpDb& = rpSb% - rpPb%
+                rpDist& = rpDr& * rpDr& + rpDg& * rpDg& + rpDb& * rpDb&
+                IF rpDist& < rpBestDist& THEN
+                    rpSecDist& = rpBestDist&
+                    rpSecIdx% = rpBestIdx%
+                    rpBestDist& = rpDist&
+                    rpBestIdx% = rpCi%
+                ELSEIF rpDist& < rpSecDist& THEN
+                    rpSecDist& = rpDist&
+                    rpSecIdx% = rpCi%
+                END IF
+            NEXT rpCi%
+
+            DIM rpUseIdx AS INTEGER
+            rpUseIdx% = rpBestIdx%
+            IF ditherMode% <> DITHER_NONE AND rpBestDist& > 0 AND rpSecDist& < 2147483647 THEN
+                DIM rpTotDist AS SINGLE
+                rpTotDist! = SQR(rpBestDist&) + SQR(rpSecDist&)
+                IF rpTotDist! > 0 THEN
+                    DIM rpSegT AS SINGLE, rpThr AS SINGLE
+                    rpSegT! = SQR(rpBestDist&) / rpTotDist!
+                    rpThr! = DITHER_get_threshold!(ditherMode%, rpX%, rpY%)
+                    ' Scale threshold toward 0.5 as strength decreases
+                    DIM rpAdjThr AS SINGLE
+                    rpAdjThr! = 0.5 + (rpThr! - 0.5) * ditherStrength!
+                    IF rpSegT! >= rpAdjThr! THEN
+                        rpUseIdx% = rpSecIdx%
+                    END IF
+                END IF
+            END IF
+
+            DIM rpMapped AS _UNSIGNED LONG
+            rpMapped~& = _RGBA32(_RED32(PAL(rpUseIdx%).value~&), _GREEN32(PAL(rpUseIdx%).value~&), _BLUE32(PAL(rpUseIdx%).value~&), _ALPHA32(rpPx~&))
+            _MEMPUT rpMem, rpOfs, rpMapped~&
+        NEXT rpX%
+    NEXT rpY%
+    _MEMFREE rpMem
+
+    PALETTE_LOADER_remap_preview& = rpResult&
+END FUNCTION
+
+SUB PALETTE_LOADER_remap_dialog ()
+    IF PAL_COLOR_COUNT% = 0 OR LAYER_COUNT% < 1 THEN EXIT SUB
+
+    CONST RD_W = 256
+    CONST RD_SX = 8
+    CONST RD_SW = 240
+    CONST RD_BTN_H = 22
+    CONST RD_PREV_H = 144
+
+    DIM ctx AS DIALOG_CTX
+    DIALOG_init ctx, RD_W, 110
+
+    ' Setup preview - capture current canvas under dialog
+    ctx.prevH = RD_PREV_H
+    ctx.h = ctx.h + RD_PREV_H
+    ctx.y = (SCRN.h& - ctx.h) \ 2
+    IF ctx.y < 0 THEN ctx.y = 0
+    IF ctx.y + ctx.h > SCRN.h& THEN ctx.y = SCRN.h& - ctx.h
+    IF ctx.imgHandle < -1 THEN _FREEIMAGE ctx.imgHandle
+    ctx.imgHandle = _NEWIMAGE(ctx.w, ctx.h, 32)
+    ctx.splitX = ctx.w \ 2
+    ctx.loupeDirty = TRUE
+    ctx.previewDirty = TRUE
+
+    DIM rdDither AS INTEGER : rdDither% = DITHER_NONE
+    DIM rdStrength AS INTEGER : rdStrength% = 50
+    DIM rdStrengthF AS SINGLE : rdStrengthF! = 0.5
+
+    ' Layout Y positions (below preview)
+    DIM rdDitherY AS INTEGER : rdDitherY% = RD_PREV_H + 22
+    DIM rdStrY AS INTEGER : rdStrY% = rdDitherY% + 24
+    DIM rdDivY AS INTEGER : rdDivY% = rdStrY% + 30
+    DIM rdBtnY AS INTEGER : rdBtnY% = ctx.h - RD_BTN_H - 8
+
+    DIM k AS LONG
+    DIM rdOldDither AS INTEGER, rdOldStr AS INTEGER
+    DO
+        DIALOG_poll_mouse ctx
+
+        ' Capture canvas for preview
+        IF ctx.loupeDirty% THEN IMAGE_ADJ_update_loupe ctx
+
+        k& = _KEYHIT
+        IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
+        IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
+
+        rdOldDither% = rdDither%
+        rdOldStr% = rdStrength%
+
+        ' Dither cycle button
+        IF DIALOG_hit%(ctx, RD_SX, rdDitherY%, RD_SW, 18) THEN
+            IF rdDither% = DITHER_NONE THEN
+                rdDither% = GJ_IMGADJ_DITHER_ORDERED_2X2
+            ELSE
+                rdDither% = rdDither% + 1
+                IF rdDither% > DITHER_COUNT_ALL - 1 THEN rdDither% = DITHER_NONE
+            END IF
+        END IF
+
+        ' Strength slider
+        IF rdDither% <> DITHER_NONE THEN
+            rdStrength% = DIALOG_slider_drag%(ctx, RD_SX, rdStrY% + 14, RD_SW, 14, rdStrength%, 0, 100)
+            rdStrength% = DIALOG_slider_wheel%(ctx, RD_SX, rdStrY% + 14, RD_SW, 14, rdStrength%, 0, 100)
+            rdStrengthF! = rdStrength% / 100!
+        END IF
+
+        IF rdDither% <> rdOldDither% OR rdStrength% <> rdOldStr% THEN ctx.previewDirty% = TRUE
+
+        ' OK / Cancel
+        IF DIALOG_hit%(ctx, 10, rdBtnY%, 108, RD_BTN_H) THEN ctx.done% = TRUE : ctx.result% = TRUE
+        IF DIALOG_hit%(ctx, 138, rdBtnY%, 108, RD_BTN_H) THEN ctx.done% = TRUE : ctx.result% = FALSE
+
+        ' Rebuild preview when params change
+        IF ctx.previewDirty% THEN
+            IF ctx.previewThumb < -1 THEN _FREEIMAGE ctx.previewThumb
+            ctx.previewThumb = PALETTE_LOADER_remap_preview&(ctx.origThumb, rdDither%, rdStrengthF!)
+            ctx.previewDirty% = FALSE
+        END IF
+
+        ' ===== RENDER =====
+        _DEST ctx.imgHandle
+        DIALOG_draw_frame ctx, "REMAP TO PALETTE"
+        DIALOG_draw_preview ctx
+
+        ' Dither mode button
+        DIM rdDithName AS STRING
+        IF rdDither% = DITHER_NONE THEN
+            rdDithName$ = "DITHER: OFF"
+        ELSE
+            rdDithName$ = "D: " + DITHER_algorithm_name$(rdDither%)
+        END IF
+        DIALOG_draw_button ctx, RD_SX, rdDitherY%, RD_SW, 18, rdDithName$, _RGB32(60, 60, 80), _RGB32(80, 80, 110), _RGB32(110, 110, 150)
+
+        ' Strength slider
+        IF rdDither% <> DITHER_NONE THEN
+            DIALOG_draw_slider ctx, RD_SX, rdStrY% + 14, RD_SW, rdStrength%, 0, 100, "STRENGTH", "%"
+        END IF
+
+        ' Divider + OK/Cancel
+        DIALOG_draw_divider ctx, rdDivY%
+        DIALOG_draw_button ctx, 10, rdBtnY%, 108, RD_BTN_H, "OK", _RGB32(40, 100, 40), _RGB32(60, 150, 60), _RGB32(80, 200, 80)
+        DIALOG_draw_button ctx, 138, rdBtnY%, 108, RD_BTN_H, "CANCEL", _RGB32(100, 40, 40), _RGB32(150, 60, 60), _RGB32(200, 80, 80)
+
+        DIALOG_blit ctx
+    LOOP UNTIL ctx.done%
+
+    IF ctx.result% THEN
+        PALETTE_LOADER_remap_to_palette_ex rdDither%, rdStrengthF!
+    END IF
+
+    DIALOG_cleanup ctx
+    MOUSE_cleanup_after_dialog FALSE
+    GUI_NEEDS_REDRAW% = TRUE
+    FRAME_IDLE% = FALSE
 END SUB
 
