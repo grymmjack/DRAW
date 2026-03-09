@@ -59,6 +59,7 @@ TYPE SCREEN_OBJ
     layerPanelHiddenByToggleRight  AS INTEGER
     menubarHiddenByToggleTop       AS INTEGER
     statusHiddenByToggleBottom     AS INTEGER
+    patternTileMode  AS INTEGER  ' TRUE when 3x3 pattern tile view is active (doc-scoped)
 END TYPE
 
 DIM SHARED SCRN AS SCREEN_OBJ

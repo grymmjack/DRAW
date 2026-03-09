@@ -19,6 +19,26 @@ END SUB
 
 
 ''
+' Returns TRUE when the canvas is small enough for Pattern Tile Mode (<=512 in both dims).
+'
+FUNCTION SCREEN_pattern_tile_allowed% ()
+    SCREEN_pattern_tile_allowed% = (SCRN.canvasW& <= 512 AND SCRN.canvasH& <= 512)
+END FUNCTION
+
+
+''
+' Force Pattern Tile Mode OFF if the canvas exceeds 512 in either dimension.
+' Call after any resize, load, or new-document operation.
+'
+SUB SCREEN_pattern_tile_force_off ()
+    IF SCRN.patternTileMode% AND NOT SCREEN_pattern_tile_allowed% THEN
+        SCRN.patternTileMode% = FALSE
+        INVALIDATE_scene
+    END IF
+END SUB
+
+
+''
 ' Get effective maximum viewport width, accounting for desktop and display scale.
 ' When WIN_MAX_WIDTH is 0 (unlimited), derives max from desktop / displayScale.
 '
@@ -1464,7 +1484,7 @@ SUB SCREEN_render ()
     ' only the regions that need updating (pointer area + selection overlay)
     ' instead of copying and scaling the full canvas every frame.
     ' ========================================================================
-    IF NOT SCENE_DIRTY% AND SCENE_CACHE& <> 0 THEN
+    IF NOT SCENE_DIRTY% AND SCENE_CACHE& <> 0 AND NOT SCRN.patternTileMode% THEN
         ' Skip dirty-rect optimization when popup overlays are open — they need
         ' full-frame consistency to avoid flicker and z-order artifacts with scrollbars.
         IF LAYER_PANEL.blendPopupOpen% OR DRAWER.contextMenuOpen% OR CMD_PALETTE.visible THEN
@@ -1647,54 +1667,129 @@ SUB SCREEN_render ()
     
     ' Calculate zoomed dimensions and position (using canvas dimensions, centered in viewport)
     DIM zw AS LONG, zh AS LONG, dx AS INTEGER, dy AS INTEGER
-    zw& = SCRN.canvasW& * SCRN.zoom!
-    zh& = SCRN.canvasH& * SCRN.zoom!
-    dx% = (SCRN.w& - zw&) \ 2 + SCRN.offsetX%
-    dy% = (SCRN.h& - zh&) \ 2 + SCRN.offsetY%
-    
-    ' Render transparency checkerboard first (behind all layers)
-    PERF_start PERF_FULL_CHECKERBOARD
-    TRANSPARENCY_render SCRN.CANVAS&, dx%, dy%, zw&, zh&
-    PERF_stop PERF_FULL_CHECKERBOARD
-    
-    ' Render all visible layers with zoom, compositing bottom-to-top
-    PERF_start PERF_FULL_LAYERS
-    RENDER_layers dx%, dy%, zw&, zh&
-    PERF_stop PERF_FULL_LAYERS
-    
-    ' ==== REFERENCE IMAGE (above layers, behind grid) ====
-    IF REFIMG.IMAGE < -1 AND REFIMG.VISIBLE THEN
-        REFIMG_render SCRN.CANVAS&, dx%, dy%, zw&, zh&
+    IF SCRN.patternTileMode% THEN
+        ' In tile mode, compute viewport for the full 3x3 area
+        DIM totalZW AS LONG, totalZH AS LONG
+        totalZW& = SCRN.canvasW& * 3 * SCRN.zoom!
+        totalZH& = SCRN.canvasH& * 3 * SCRN.zoom!
+        DIM baseDX AS INTEGER, baseDY AS INTEGER
+        baseDX% = (SCRN.w& - totalZW&) \ 2 + SCRN.offsetX%
+        baseDY% = (SCRN.h& - totalZH&) \ 2 + SCRN.offsetY%
+        ' Single-tile zoomed size
+        zw& = SCRN.canvasW& * SCRN.zoom!
+        zh& = SCRN.canvasH& * SCRN.zoom!
+        ' Center tile origin (the source tile)
+        dx% = baseDX% + zw&
+        dy% = baseDY% + zh&
+    ELSE
+        zw& = SCRN.canvasW& * SCRN.zoom!
+        zh& = SCRN.canvasH& * SCRN.zoom!
+        dx% = (SCRN.w& - zw&) \ 2 + SCRN.offsetX%
+        dy% = (SCRN.h& - zh&) \ 2 + SCRN.offsetY%
     END IF
-    ' ==== END REFERENCE IMAGE ====
-    
-    ' Draw grid overlays (after painting, before border/GUI)
-    PERF_start PERF_FULL_GRIDS
-    RENDER_grids dx%, dy%, zw&, zh&
-    PERF_stop PERF_FULL_GRIDS
-    
-    ' Draw symmetry guide overlay (after grids, before border/GUI)
-    PERF_start PERF_FULL_SYMMETRY
-    IF SYMMETRY.MODE > 0 THEN
-        ' Recreate guide image if size changed
-        IF SYMMETRY.imgHandle& = 0 OR _WIDTH(SYMMETRY.imgHandle&) <> zw& OR _HEIGHT(SYMMETRY.imgHandle&) <> zh& THEN
-            IF SYMMETRY.imgHandle& < -1 THEN _FREEIMAGE SYMMETRY.imgHandle&
-            SYMMETRY.imgHandle& = _NEWIMAGE(zw&, zh&, 32)
-            SYMMETRY.DIRTY% = TRUE
+
+    IF SCRN.patternTileMode% THEN
+        ' ====== PATTERN TILE MODE: Render 3x3 grid of tiles ======
+        DIM tRow AS INTEGER, tCol AS INTEGER
+        DIM tdx AS INTEGER, tdy AS INTEGER
+
+        ' Render checkerboard, layers, ref image, and grids for each tile
+        PERF_start PERF_FULL_CHECKERBOARD
+        FOR tRow% = -1 TO 1
+            FOR tCol% = -1 TO 1
+                tdx% = dx% + tCol% * zw&
+                tdy% = dy% + tRow% * zh&
+                TRANSPARENCY_render SCRN.CANVAS&, tdx%, tdy%, zw&, zh&
+            NEXT tCol%
+        NEXT tRow%
+        PERF_stop PERF_FULL_CHECKERBOARD
+
+        PERF_start PERF_FULL_LAYERS
+        FOR tRow% = -1 TO 1
+            FOR tCol% = -1 TO 1
+                tdx% = dx% + tCol% * zw&
+                tdy% = dy% + tRow% * zh&
+                RENDER_layers tdx%, tdy%, zw&, zh&
+            NEXT tCol%
+        NEXT tRow%
+        PERF_stop PERF_FULL_LAYERS
+
+        ' Reference image — render on center tile only
+        IF REFIMG.IMAGE < -1 AND REFIMG.VISIBLE THEN
+            REFIMG_render SCRN.CANVAS&, dx%, dy%, zw&, zh&
         END IF
-        
-        ' (Logging removed from render path for performance)
-        SYMMETRY_render_guides zw&, zh&, SCRN.zoom!
-        _DEST SCRN.CANVAS&
-        _BLEND SCRN.CANVAS&  ' Use alpha blending for transparency
-        _PUTIMAGE (dx%, dy%), SYMMETRY.imgHandle&, SCRN.CANVAS&
-    END IF
-    PERF_stop PERF_FULL_SYMMETRY
-    
-    ' Draw border around canvas (after painting layer)
-    ' Hide border when all UI panels are hidden (F11 full canvas mode)
-    IF SCRN.showToolbar% OR SCRN.showStatus% OR LAYER_PANEL.visible% OR MENU_BAR.visible% THEN
-        LINE (dx% - 1, dy% - 1)-(dx% + zw&, dy% + zh&), THEME.CANVAS_border~&, B
+
+        ' Grids for each tile
+        PERF_start PERF_FULL_GRIDS
+        FOR tRow% = -1 TO 1
+            FOR tCol% = -1 TO 1
+                tdx% = dx% + tCol% * zw&
+                tdy% = dy% + tRow% * zh&
+                RENDER_grids tdx%, tdy%, zw&, zh&
+            NEXT tCol%
+        NEXT tRow%
+        PERF_stop PERF_FULL_GRIDS
+
+        ' Symmetry guides — center tile only
+        PERF_start PERF_FULL_SYMMETRY
+        IF SYMMETRY.MODE > 0 THEN
+            IF SYMMETRY.imgHandle& = 0 OR _WIDTH(SYMMETRY.imgHandle&) <> zw& OR _HEIGHT(SYMMETRY.imgHandle&) <> zh& THEN
+                IF SYMMETRY.imgHandle& < -1 THEN _FREEIMAGE SYMMETRY.imgHandle&
+                SYMMETRY.imgHandle& = _NEWIMAGE(zw&, zh&, 32)
+                SYMMETRY.DIRTY% = TRUE
+            END IF
+            SYMMETRY_render_guides zw&, zh&, SCRN.zoom!
+            _DEST SCRN.CANVAS&
+            _BLEND SCRN.CANVAS&
+            _PUTIMAGE (dx%, dy%), SYMMETRY.imgHandle&, SCRN.CANVAS&
+        END IF
+        PERF_stop PERF_FULL_SYMMETRY
+
+        ' No tile boundaries or canvas border in tile mode — seamless tiling
+    ELSE
+        ' ====== NORMAL MODE: Single canvas render ======
+        PERF_start PERF_FULL_CHECKERBOARD
+        TRANSPARENCY_render SCRN.CANVAS&, dx%, dy%, zw&, zh&
+        PERF_stop PERF_FULL_CHECKERBOARD
+
+        PERF_start PERF_FULL_LAYERS
+        RENDER_layers dx%, dy%, zw&, zh&
+        PERF_stop PERF_FULL_LAYERS
+
+        ' ==== REFERENCE IMAGE (above layers, behind grid) ====
+        IF REFIMG.IMAGE < -1 AND REFIMG.VISIBLE THEN
+            REFIMG_render SCRN.CANVAS&, dx%, dy%, zw&, zh&
+        END IF
+        ' ==== END REFERENCE IMAGE ====
+
+        ' Draw grid overlays (after painting, before border/GUI)
+        PERF_start PERF_FULL_GRIDS
+        RENDER_grids dx%, dy%, zw&, zh&
+        PERF_stop PERF_FULL_GRIDS
+
+        ' Draw symmetry guide overlay (after grids, before border/GUI)
+        PERF_start PERF_FULL_SYMMETRY
+        IF SYMMETRY.MODE > 0 THEN
+            ' Recreate guide image if size changed
+            IF SYMMETRY.imgHandle& = 0 OR _WIDTH(SYMMETRY.imgHandle&) <> zw& OR _HEIGHT(SYMMETRY.imgHandle&) <> zh& THEN
+                IF SYMMETRY.imgHandle& < -1 THEN _FREEIMAGE SYMMETRY.imgHandle&
+                SYMMETRY.imgHandle& = _NEWIMAGE(zw&, zh&, 32)
+                SYMMETRY.DIRTY% = TRUE
+            END IF
+
+            ' (Logging removed from render path for performance)
+            SYMMETRY_render_guides zw&, zh&, SCRN.zoom!
+            _DEST SCRN.CANVAS&
+            _BLEND SCRN.CANVAS&  ' Use alpha blending for transparency
+            _PUTIMAGE (dx%, dy%), SYMMETRY.imgHandle&, SCRN.CANVAS&
+        END IF
+        PERF_stop PERF_FULL_SYMMETRY
+
+        ' Draw border around canvas (after painting layer)
+        ' Hide border when all UI panels are hidden (F11 full canvas mode)
+        IF SCRN.showToolbar% OR SCRN.showStatus% OR LAYER_PANEL.visible% OR MENU_BAR.visible% THEN
+            LINE (dx% - 1, dy% - 1)-(dx% + zw&, dy% + zh&), THEME.CANVAS_border~&, B
+        END IF
     END IF
     
     ' ==== IMAGE IMPORT PREVIEW ====
