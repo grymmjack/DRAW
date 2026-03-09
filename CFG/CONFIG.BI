@@ -163,6 +163,8 @@ TYPE DRAW_CONFIG
     ' Layer panel settings
     LAYER_PANEL_WIDTH              AS INTEGER  ' Width of layer panel in pixels (min 100)
     LAYER_NAME_MAX_LEN             AS INTEGER  ' Max layer name length (1-64, default 16)
+    LAYERS_PANEL_DOCK_EDGE         AS STRING  ' "LEFT" or "RIGHT" (default: "LEFT")
+    TOOLBOX_DOCK_EDGE              AS STRING  ' "LEFT" or "RIGHT" (default: "RIGHT")
     ' Grid settings
     GRID_COLOR_FG                  AS _UNSIGNED LONG  ' Grid foreground color (hex RGB, 0=use theme)
     GRID_OPACITY                   AS INTEGER  ' Grid line opacity 0-255 (0=use theme)
@@ -252,7 +254,7 @@ TYPE DRAW_CONFIG
     PREVIEW_FOLLOW                 AS INTEGER  ' TRUE = follow-pointer magnifier mode
     PREVIEW_ZOOM                   AS SINGLE   ' Independent preview zoom level
     EDIT_BAR_VISIBLE               AS INTEGER  ' TRUE = edit bar visible at startup
-    EDIT_BAR_DOCK_POSITION         AS STRING * 8 ' "LEFT" or "RIGHT"
+    EDIT_BAR_DOCK_POSITION         AS STRING  ' "LEFT" or "RIGHT"
     ' Canvas size settings
     DEFAULT_CANVAS_SIZE_W          AS INTEGER  ' Default canvas width (0=fill viewport, >0=explicit)
     DEFAULT_CANVAS_SIZE_H          AS INTEGER  ' Default canvas height (0=fill viewport, >0=explicit)

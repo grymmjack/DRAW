@@ -104,6 +104,10 @@ TYPE LAYER_PANEL_OBJ
     blendPopupHover   AS INTEGER    ' Currently hovered item index (-1 = none, 0=Normal, 2..19=mode idx+1 for divider)
     ' Opacity drag anchor
     opacityDragRowY   AS INTEGER    ' Rendered Y (drawY%) of row top when vertical opacity drag started
+    ' Stored panel bounds (set each render, used for hit-testing next frame)
+    panelX1           AS INTEGER    ' Left edge of rendered panel (screen coords)
+    panelX2           AS INTEGER    ' Right edge of rendered panel (screen coords)
+    width             AS INTEGER    ' Panel width in pixels (mirrors CFG.LAYER_PANEL_WIDTH)
 END TYPE
 
 ' Global layer state
