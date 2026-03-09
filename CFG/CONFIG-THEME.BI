@@ -92,6 +92,9 @@ TYPE DRAW_THEME
     DRAWER_BIN_HOVER_BORDER AS _UNSIGNED LONG ' Hovered bin border
     DRAWER_BIN_SELECTED_BG AS _UNSIGNED LONG ' Selected bin background
     DRAWER_BIN_SELECTED_BORDER AS _UNSIGNED LONG ' Selected bin border
+    DRAWER_BIN_SELECTED_BORDER_BRUSH AS _UNSIGNED LONG ' Selected brush bin border
+    DRAWER_BIN_SELECTED_BORDER_PATTERN AS _UNSIGNED LONG ' Selected pattern bin border
+    DRAWER_BIN_SELECTED_BORDER_GRADIENT AS _UNSIGNED LONG ' Selected gradient bin border
     DRAWER_BIN_EMPTY_BG    AS _UNSIGNED LONG ' Empty bin background
     DRAWER_BIN_EMPTY_BORDER AS _UNSIGNED LONG ' Empty bin border
     DRAWER_BIN_DISABLED_FG AS _UNSIGNED LONG ' Empty/disabled bin indicator color

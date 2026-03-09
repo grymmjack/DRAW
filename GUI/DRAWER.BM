@@ -10,6 +10,7 @@ CONST DRAWER_CONTEXT_LOAD_SET = 1
 CONST DRAWER_CONTEXT_SAVE_SET = 2
 CONST DRAWER_CONTEXT_CLEAR_SET = 3
 CONST DRAWER_CONTEXT_EXPLORE_FOLDER = 4
+CONST DRAWER_CONTEXT_EDIT_GRADIENT = 5
 
 DECLARE SUB DRAWER_free_samples ()
 DECLARE SUB DRAWER_ensure_samples ()
@@ -18,6 +19,7 @@ DECLARE FUNCTION DRAWER_create_gradient_sample& (slotIndex AS INTEGER)
 DECLARE FUNCTION DRAWER_gradient_eval_t! (slotIndex AS INTEGER, x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER)
 DECLARE FUNCTION DRAWER_gradient_sample_stop~& (slotIndex AS INTEGER, t AS SINGLE)
 DECLARE FUNCTION DRAWER_gradient_lerp_color~& (c1 AS _UNSIGNED LONG, c2 AS _UNSIGNED LONG, t AS SINGLE)
+
 DECLARE FUNCTION DRAWER_paint_mode_from_panel% (panelMode AS INTEGER)
 DECLARE FUNCTION DRAWER_panel_mode_from_config% (binMode AS INTEGER)
 DECLARE SUB DRAWER_layout (contentX AS INTEGER, contentY AS INTEGER, binW AS INTEGER, binH AS INTEGER, binGapX AS INTEGER, binGapY AS INTEGER, miniX AS INTEGER, miniY AS INTEGER, miniCellW AS INTEGER, miniCellH AS INTEGER, miniGapX AS INTEGER, miniGapY AS INTEGER, pageBtnY AS INTEGER, scrollX AS INTEGER, scrollY AS INTEGER, scrollH AS INTEGER)
@@ -25,6 +27,8 @@ DECLARE FUNCTION DRAWER_slot_at% (mouseX AS INTEGER, mouseY AS INTEGER)
 DECLARE FUNCTION DRAWER_palette_cell_at% (mouseX AS INTEGER, mouseY AS INTEGER)
 DECLARE FUNCTION DRAWER_palette_page_button_at% (mouseX AS INTEGER, mouseY AS INTEGER)
 DECLARE SUB DRAWER_load_brush_slot_to_custom (slotIndex AS INTEGER)
+DECLARE SUB DRAWER_store_to_slot (slotIndex AS INTEGER)
+DECLARE SUB DRAWER_clear_slot (slotIndex AS INTEGER)
 DECLARE SUB DRAWER_select_palette_color (mouseX AS INTEGER, mouseY AS INTEGER, setBackground AS INTEGER)
 DECLARE SUB DRAWER_sync_palette_marker (targetColor AS _UNSIGNED LONG, setBackground AS INTEGER)
 DECLARE SUB DRAWER_draw_checker_fill (x1 AS INTEGER, y1 AS INTEGER, x2 AS INTEGER, y2 AS INTEGER, cellSize AS INTEGER)
@@ -73,6 +77,8 @@ SUB DRAWER_init ()
     DRAWER.loadedTheme = ""
     DRAWER_DEFERRED_IMPORT_SLOT% = 0
     DRAWER_DEFERRED_IMPORT_MODE% = DRAWER_MODE_NONE
+    GRAD_CTX_clear
+    GRAD_DEF_init_presets
 END SUB
 
 SUB DRAWER_reset ()
@@ -146,7 +152,7 @@ FUNCTION DRAWER_create_gradient_sample& (slotIndex AS INTEGER)
     FOR y% = 0 TO h% - 1
         FOR x% = 0 TO w% - 1
             t! = DRAWER_gradient_eval_t!(slotIndex%, x%, y%, w%, h%)
-            c~& = DRAWER_gradient_sample_stop~&(slotIndex%, t!)
+            c~& = GRAD_DEF_eval_color~&(slotIndex%, t!)
             PSET (x%, y%), c~&
         NEXT x%
     NEXT y%
@@ -166,7 +172,8 @@ FUNCTION DRAWER_gradient_eval_t! (slotIndex AS INTEGER, x AS INTEGER, y AS INTEG
     IF w% > 1 THEN u! = x% / (w% - 1) ELSE u! = 0
     IF h% > 1 THEN v! = y% / (h% - 1) ELSE v! = 0
 
-    family% = ((slotIndex% - 1) MOD 8) + 1
+    family% = GRAD_DEFS(slotIndex%).family%
+    IF family% < 1 OR family% > 8 THEN family% = ((slotIndex% - 1) MOD 8) + 1
     SELECT CASE family%
         CASE 1
             result! = u!
@@ -372,6 +379,420 @@ FUNCTION DRAWER_gradient_sample_stop~& (slotIndex AS INTEGER, t AS SINGLE)
     END SELECT
 END FUNCTION
 
+' ---------------------------------------------------------------------------
+' Gradient definition helpers
+' ---------------------------------------------------------------------------
+
+SUB GRAD_DEF_set_stop (slotIndex AS INTEGER, stopIndex AS INTEGER, stopPos AS SINGLE, c AS _UNSIGNED LONG)
+    IF slotIndex% < 1 OR slotIndex% > DRAWER_SLOT_COUNT THEN EXIT SUB
+    IF stopIndex% < 1 OR stopIndex% > GRADIENT_MAX_STOPS THEN EXIT SUB
+    GRAD_COLOR_STOPS(slotIndex%, stopIndex%).position = stopPos!
+    GRAD_COLOR_STOPS(slotIndex%, stopIndex%).clr = c~&
+END SUB
+
+SUB GRAD_DEF_init_presets ()
+    DIM i AS INTEGER
+    DIM s AS INTEGER
+
+    ' Clear all definitions first
+    FOR i% = 1 TO DRAWER_SLOT_COUNT
+        GRAD_DEFS(i%).family% = ((i% - 1) MOD 8) + 1
+        GRAD_DEFS(i%).colorCount% = 0
+        GRAD_DEFS(i%).opacityCount% = 0
+        GRAD_DEFS(i%).usesFG% = FALSE
+        GRAD_DEFS(i%).usesBG% = FALSE
+        GRAD_DEFS(i%).previewDirty% = TRUE
+        GRAD_DEFS(i%).gName = ""
+        FOR s% = 1 TO GRADIENT_MAX_STOPS
+            GRAD_COLOR_STOPS(i%, s%).position = 0
+            GRAD_COLOR_STOPS(i%, s%).clr = 0
+            GRAD_OPACITY_STOPS(i%, s%).position = 0
+            GRAD_OPACITY_STOPS(i%, s%).opacity% = 255
+        NEXT s%
+    NEXT i%
+
+    ' Slot 1: FG -> BG
+    GRAD_DEFS(1).colorCount% = 2
+    GRAD_DEFS(1).usesFG% = TRUE: GRAD_DEFS(1).usesBG% = TRUE
+    GRAD_DEFS(1).gName = "FG to BG"
+    GRAD_DEF_set_stop 1, 1, 0.0, PAINT_COLOR~&
+    GRAD_DEF_set_stop 1, 2, 1.0, PAINT_BG_COLOR~&
+
+    ' Slot 2: BG -> FG
+    GRAD_DEFS(2).colorCount% = 2
+    GRAD_DEFS(2).usesFG% = TRUE: GRAD_DEFS(2).usesBG% = TRUE
+    GRAD_DEFS(2).gName = "BG to FG"
+    GRAD_DEF_set_stop 2, 1, 0.0, PAINT_BG_COLOR~&
+    GRAD_DEF_set_stop 2, 2, 1.0, PAINT_COLOR~&
+
+    ' Slot 3: FG -> White -> BG
+    GRAD_DEFS(3).colorCount% = 3
+    GRAD_DEFS(3).usesFG% = TRUE: GRAD_DEFS(3).usesBG% = TRUE
+    GRAD_DEFS(3).gName = "FG White BG"
+    GRAD_DEF_set_stop 3, 1, 0.0, PAINT_COLOR~&
+    GRAD_DEF_set_stop 3, 2, 0.5, _RGB32(255, 255, 255)
+    GRAD_DEF_set_stop 3, 3, 1.0, PAINT_BG_COLOR~&
+
+    ' Slot 4: FG -> Black -> BG
+    GRAD_DEFS(4).colorCount% = 3
+    GRAD_DEFS(4).usesFG% = TRUE: GRAD_DEFS(4).usesBG% = TRUE
+    GRAD_DEFS(4).gName = "FG Black BG"
+    GRAD_DEF_set_stop 4, 1, 0.0, PAINT_COLOR~&
+    GRAD_DEF_set_stop 4, 2, 0.5, _RGB32(0, 0, 0)
+    GRAD_DEF_set_stop 4, 3, 1.0, PAINT_BG_COLOR~&
+
+    ' Slot 5: FG-light -> FG -> BG-light
+    GRAD_DEFS(5).colorCount% = 3
+    GRAD_DEFS(5).usesFG% = TRUE: GRAD_DEFS(5).usesBG% = TRUE
+    GRAD_DEFS(5).gName = "FG Light BG"
+    GRAD_DEF_set_stop 5, 1, 0.0, DRAWER_gradient_lerp_color~&(PAINT_COLOR~&, _RGB32(255, 255, 255), .5)
+    GRAD_DEF_set_stop 5, 2, 0.5, PAINT_COLOR~&
+    GRAD_DEF_set_stop 5, 3, 1.0, DRAWER_gradient_lerp_color~&(PAINT_BG_COLOR~&, _RGB32(255, 255, 255), .5)
+
+    ' Slot 6: FG -> FG+BG mid -> BG
+    GRAD_DEFS(6).colorCount% = 3
+    GRAD_DEFS(6).usesFG% = TRUE: GRAD_DEFS(6).usesBG% = TRUE
+    GRAD_DEFS(6).gName = "FG Mid BG"
+    GRAD_DEF_set_stop 6, 1, 0.0, PAINT_COLOR~&
+    GRAD_DEF_set_stop 6, 2, 0.5, DRAWER_gradient_lerp_color~&(PAINT_COLOR~&, PAINT_BG_COLOR~&, .5)
+    GRAD_DEF_set_stop 6, 3, 1.0, PAINT_BG_COLOR~&
+
+    ' Slot 7: BG -> BG+FG mid -> FG
+    GRAD_DEFS(7).colorCount% = 3
+    GRAD_DEFS(7).usesFG% = TRUE: GRAD_DEFS(7).usesBG% = TRUE
+    GRAD_DEFS(7).gName = "BG Mid FG"
+    GRAD_DEF_set_stop 7, 1, 0.0, PAINT_BG_COLOR~&
+    GRAD_DEF_set_stop 7, 2, 0.5, DRAWER_gradient_lerp_color~&(PAINT_BG_COLOR~&, PAINT_COLOR~&, .5)
+    GRAD_DEF_set_stop 7, 3, 1.0, PAINT_COLOR~&
+
+    ' Slot 8: FG -> FG-light -> BG-light -> BG (4-stop)
+    GRAD_DEFS(8).colorCount% = 4
+    GRAD_DEFS(8).usesFG% = TRUE: GRAD_DEFS(8).usesBG% = TRUE
+    GRAD_DEFS(8).gName = "FG Soft BG"
+    GRAD_DEF_set_stop 8, 1, 0.0, PAINT_COLOR~&
+    GRAD_DEF_set_stop 8, 2, 0.33, DRAWER_gradient_lerp_color~&(PAINT_COLOR~&, _RGB32(255, 255, 255), .35)
+    GRAD_DEF_set_stop 8, 3, 0.66, DRAWER_gradient_lerp_color~&(PAINT_BG_COLOR~&, _RGB32(255, 255, 255), .35)
+    GRAD_DEF_set_stop 8, 4, 1.0, PAINT_BG_COLOR~&
+
+    ' Slot 9: Rainbow (red -> yellow -> green -> cyan)
+    GRAD_DEFS(9).colorCount% = 4
+    GRAD_DEFS(9).gName = "Rainbow"
+    GRAD_DEF_set_stop 9, 1, 0.0, _RGB32(255, 0, 0)
+    GRAD_DEF_set_stop 9, 2, 0.3333, _RGB32(255, 255, 0)
+    GRAD_DEF_set_stop 9, 3, 0.6666, _RGB32(0, 255, 0)
+    GRAD_DEF_set_stop 9, 4, 1.0, _RGB32(0, 255, 255)
+
+    ' Slot 10: Ocean
+    GRAD_DEFS(10).colorCount% = 4
+    GRAD_DEFS(10).gName = "Ocean"
+    GRAD_DEF_set_stop 10, 1, 0.0, _RGB32(18, 36, 84)
+    GRAD_DEF_set_stop 10, 2, 0.3333, _RGB32(28, 140, 196)
+    GRAD_DEF_set_stop 10, 3, 0.6666, _RGB32(120, 232, 255)
+    GRAD_DEF_set_stop 10, 4, 1.0, _RGB32(255, 255, 255)
+
+    ' Slot 11: Sunset
+    GRAD_DEFS(11).colorCount% = 4
+    GRAD_DEFS(11).gName = "Sunset"
+    GRAD_DEF_set_stop 11, 1, 0.0, _RGB32(54, 12, 86)
+    GRAD_DEF_set_stop 11, 2, 0.3333, _RGB32(186, 48, 120)
+    GRAD_DEF_set_stop 11, 3, 0.6666, _RGB32(255, 138, 72)
+    GRAD_DEF_set_stop 11, 4, 1.0, _RGB32(255, 228, 120)
+
+    ' Slot 12: Fire
+    GRAD_DEFS(12).colorCount% = 4
+    GRAD_DEFS(12).gName = "Fire"
+    GRAD_DEF_set_stop 12, 1, 0.0, _RGB32(0, 0, 0)
+    GRAD_DEF_set_stop 12, 2, 0.3333, _RGB32(130, 0, 0)
+    GRAD_DEF_set_stop 12, 3, 0.6666, _RGB32(255, 128, 0)
+    GRAD_DEF_set_stop 12, 4, 1.0, _RGB32(255, 255, 160)
+
+    ' Slot 13: Steel
+    GRAD_DEFS(13).colorCount% = 4
+    GRAD_DEFS(13).gName = "Steel"
+    GRAD_DEF_set_stop 13, 1, 0.0, _RGB32(18, 52, 86)
+    GRAD_DEF_set_stop 13, 2, 0.3333, _RGB32(64, 128, 160)
+    GRAD_DEF_set_stop 13, 3, 0.6666, _RGB32(160, 208, 216)
+    GRAD_DEF_set_stop 13, 4, 1.0, _RGB32(255, 255, 255)
+
+    ' Slot 14: Forest
+    GRAD_DEFS(14).colorCount% = 4
+    GRAD_DEFS(14).gName = "Forest"
+    GRAD_DEF_set_stop 14, 1, 0.0, _RGB32(16, 64, 24)
+    GRAD_DEF_set_stop 14, 2, 0.3333, _RGB32(74, 160, 74)
+    GRAD_DEF_set_stop 14, 3, 0.6666, _RGB32(186, 224, 120)
+    GRAD_DEF_set_stop 14, 4, 1.0, _RGB32(255, 246, 202)
+
+    ' Slot 15: Neon
+    GRAD_DEFS(15).colorCount% = 4
+    GRAD_DEFS(15).gName = "Neon"
+    GRAD_DEF_set_stop 15, 1, 0.0, _RGB32(32, 0, 56)
+    GRAD_DEF_set_stop 15, 2, 0.3333, _RGB32(86, 0, 130)
+    GRAD_DEF_set_stop 15, 3, 0.6666, _RGB32(208, 64, 176)
+    GRAD_DEF_set_stop 15, 4, 1.0, _RGB32(255, 180, 220)
+
+    ' Slot 16: Grayscale
+    GRAD_DEFS(16).colorCount% = 4
+    GRAD_DEFS(16).gName = "Grayscale"
+    GRAD_DEF_set_stop 16, 1, 0.0, _RGB32(0, 0, 0)
+    GRAD_DEF_set_stop 16, 2, 0.3333, _RGB32(96, 96, 96)
+    GRAD_DEF_set_stop 16, 3, 0.6666, _RGB32(192, 192, 192)
+    GRAD_DEF_set_stop 16, 4, 1.0, _RGB32(255, 255, 255)
+END SUB
+
+SUB GRAD_DEF_update_fg_bg_stops ()
+    ' Refresh stop colors for presets that reference FG/BG
+    DIM i AS INTEGER
+
+    FOR i% = 1 TO DRAWER_SLOT_COUNT
+        IF GRAD_DEFS(i%).usesFG% OR GRAD_DEFS(i%).usesBG% THEN
+            GRAD_DEFS(i%).previewDirty% = TRUE
+            ' Re-init the FG/BG-dependent stop colors
+            SELECT CASE i%
+                CASE 1
+                    GRAD_DEF_set_stop 1, 1, 0.0, PAINT_COLOR~&
+                    GRAD_DEF_set_stop 1, 2, 1.0, PAINT_BG_COLOR~&
+                CASE 2
+                    GRAD_DEF_set_stop 2, 1, 0.0, PAINT_BG_COLOR~&
+                    GRAD_DEF_set_stop 2, 2, 1.0, PAINT_COLOR~&
+                CASE 3
+                    GRAD_DEF_set_stop 3, 1, 0.0, PAINT_COLOR~&
+                    GRAD_DEF_set_stop 3, 3, 1.0, PAINT_BG_COLOR~&
+                CASE 4
+                    GRAD_DEF_set_stop 4, 1, 0.0, PAINT_COLOR~&
+                    GRAD_DEF_set_stop 4, 3, 1.0, PAINT_BG_COLOR~&
+                CASE 5
+                    GRAD_DEF_set_stop 5, 1, 0.0, DRAWER_gradient_lerp_color~&(PAINT_COLOR~&, _RGB32(255, 255, 255), .5)
+                    GRAD_DEF_set_stop 5, 2, 0.5, PAINT_COLOR~&
+                    GRAD_DEF_set_stop 5, 3, 1.0, DRAWER_gradient_lerp_color~&(PAINT_BG_COLOR~&, _RGB32(255, 255, 255), .5)
+                CASE 6
+                    GRAD_DEF_set_stop 6, 1, 0.0, PAINT_COLOR~&
+                    GRAD_DEF_set_stop 6, 2, 0.5, DRAWER_gradient_lerp_color~&(PAINT_COLOR~&, PAINT_BG_COLOR~&, .5)
+                    GRAD_DEF_set_stop 6, 3, 1.0, PAINT_BG_COLOR~&
+                CASE 7
+                    GRAD_DEF_set_stop 7, 1, 0.0, PAINT_BG_COLOR~&
+                    GRAD_DEF_set_stop 7, 2, 0.5, DRAWER_gradient_lerp_color~&(PAINT_BG_COLOR~&, PAINT_COLOR~&, .5)
+                    GRAD_DEF_set_stop 7, 3, 1.0, PAINT_COLOR~&
+                CASE 8
+                    GRAD_DEF_set_stop 8, 1, 0.0, PAINT_COLOR~&
+                    GRAD_DEF_set_stop 8, 2, 0.33, DRAWER_gradient_lerp_color~&(PAINT_COLOR~&, _RGB32(255, 255, 255), .35)
+                    GRAD_DEF_set_stop 8, 3, 0.66, DRAWER_gradient_lerp_color~&(PAINT_BG_COLOR~&, _RGB32(255, 255, 255), .35)
+                    GRAD_DEF_set_stop 8, 4, 1.0, PAINT_BG_COLOR~&
+            END SELECT
+        END IF
+    NEXT i%
+END SUB
+
+FUNCTION GRAD_DEF_eval_color~& (slotIndex AS INTEGER, t AS SINGLE)
+    ' Evaluate gradient definition at parameter t using its color stops
+    DIM u AS SINGLE
+    DIM count AS INTEGER
+    DIM i AS INTEGER
+    DIM segT AS SINGLE
+
+    IF slotIndex% < 1 OR slotIndex% > DRAWER_SLOT_COUNT THEN
+        GRAD_DEF_eval_color~& = _RGB32(0, 0, 0)
+        EXIT FUNCTION
+    END IF
+
+    count% = GRAD_DEFS(slotIndex%).colorCount%
+    IF count% < 1 THEN
+        GRAD_DEF_eval_color~& = _RGB32(0, 0, 0)
+        EXIT FUNCTION
+    END IF
+
+    u! = t!
+    IF u! < 0 THEN u! = 0
+    IF u! > 1 THEN u! = 1
+
+    ' Single stop: solid color
+    IF count% = 1 THEN
+        GRAD_DEF_eval_color~& = GRAD_COLOR_STOPS(slotIndex%, 1).clr
+        EXIT FUNCTION
+    END IF
+
+    ' Before first stop
+    IF u! <= GRAD_COLOR_STOPS(slotIndex%, 1).position THEN
+        GRAD_DEF_eval_color~& = GRAD_COLOR_STOPS(slotIndex%, 1).clr
+        EXIT FUNCTION
+    END IF
+
+    ' After last stop
+    IF u! >= GRAD_COLOR_STOPS(slotIndex%, count%).position THEN
+        GRAD_DEF_eval_color~& = GRAD_COLOR_STOPS(slotIndex%, count%).clr
+        EXIT FUNCTION
+    END IF
+
+    ' Find the segment containing u
+    FOR i% = 1 TO count% - 1
+        IF u! >= GRAD_COLOR_STOPS(slotIndex%, i%).position AND u! <= GRAD_COLOR_STOPS(slotIndex%, i% + 1).position THEN
+            DIM spanLen AS SINGLE
+            spanLen! = GRAD_COLOR_STOPS(slotIndex%, i% + 1).position - GRAD_COLOR_STOPS(slotIndex%, i%).position
+            IF spanLen! > 0 THEN
+                segT! = (u! - GRAD_COLOR_STOPS(slotIndex%, i%).position) / spanLen!
+            ELSE
+                segT! = 0
+            END IF
+            GRAD_DEF_eval_color~& = DRAWER_gradient_lerp_color~&(GRAD_COLOR_STOPS(slotIndex%, i%).clr, GRAD_COLOR_STOPS(slotIndex%, i% + 1).clr, segT!)
+            EXIT FUNCTION
+        END IF
+    NEXT i%
+
+    ' Fallback
+    GRAD_DEF_eval_color~& = GRAD_COLOR_STOPS(slotIndex%, count%).clr
+END FUNCTION
+
+SUB GRAD_DEF_rebuild_preview (slotIndex AS INTEGER)
+    ' Rebuild a slot's cached preview image from its definition
+    DIM img AS LONG
+    DIM oldDest AS LONG
+    DIM x AS INTEGER
+    DIM y AS INTEGER
+    DIM t AS SINGLE
+    DIM w AS INTEGER
+    DIM h AS INTEGER
+    DIM c AS _UNSIGNED LONG
+
+    IF slotIndex% < 1 OR slotIndex% > DRAWER_SLOT_COUNT THEN EXIT SUB
+
+    w% = 128
+    h% = 128
+
+    img& = _NEWIMAGE(w%, h%, 32)
+    IF img& >= -1 THEN EXIT SUB
+
+    oldDest& = _DEST
+    _DEST img&
+    CLS , _RGBA32(0, 0, 0, 0)
+
+    FOR y% = 0 TO h% - 1
+        FOR x% = 0 TO w% - 1
+            t! = DRAWER_gradient_eval_t!(slotIndex%, x%, y%, w%, h%)
+            c~& = GRAD_DEF_eval_color~&(slotIndex%, t!)
+            PSET (x%, y%), c~&
+        NEXT x%
+    NEXT y%
+
+    _DEST oldDest&
+
+    ' Free old preview and replace
+    IF DRAWER_GRADIENT_SLOTS(slotIndex%) < -1 THEN _FREEIMAGE DRAWER_GRADIENT_SLOTS(slotIndex%)
+    DRAWER_GRADIENT_SLOTS(slotIndex%) = img&
+    DRAWER_GRADIENT_HAS(slotIndex%) = TRUE
+    GRAD_DEFS(slotIndex%).previewDirty% = FALSE
+END SUB
+
+SUB GRAD_CTX_set (x1 AS INTEGER, y1 AS INTEGER, x2 AS INTEGER, y2 AS INTEGER)
+    ' Set operation-bounded gradient context
+    IF x1% <= x2% THEN
+        GRAD_CTX.boundsX1% = x1%
+        GRAD_CTX.boundsX2% = x2%
+    ELSE
+        GRAD_CTX.boundsX1% = x2%
+        GRAD_CTX.boundsX2% = x1%
+    END IF
+    IF y1% <= y2% THEN
+        GRAD_CTX.boundsY1% = y1%
+        GRAD_CTX.boundsY2% = y2%
+    ELSE
+        GRAD_CTX.boundsY1% = y2%
+        GRAD_CTX.boundsY2% = y1%
+    END IF
+    GRAD_CTX.active% = TRUE
+END SUB
+
+SUB GRAD_CTX_clear ()
+    GRAD_CTX.boundsX1% = 0
+    GRAD_CTX.boundsY1% = 0
+    GRAD_CTX.boundsX2% = 0
+    GRAD_CTX.boundsY2% = 0
+    GRAD_CTX.active% = FALSE
+END SUB
+
+SUB GRAD_CTX_expand (x AS INTEGER, y AS INTEGER)
+    ' Expand active gradient context bounds to include point (x,y)
+    IF NOT GRAD_CTX.active% THEN EXIT SUB
+    IF x% < GRAD_CTX.boundsX1% THEN GRAD_CTX.boundsX1% = x%
+    IF y% < GRAD_CTX.boundsY1% THEN GRAD_CTX.boundsY1% = y%
+    IF x% > GRAD_CTX.boundsX2% THEN GRAD_CTX.boundsX2% = x%
+    IF y% > GRAD_CTX.boundsY2% THEN GRAD_CTX.boundsY2% = y%
+END SUB
+
+FUNCTION DRAWER_resolve_gradient_color~& (x AS INTEGER, y AS INTEGER, baseColor AS _UNSIGNED LONG, ctx AS GRADIENT_CONTEXT)
+    ' Context-aware gradient resolver: maps (x,y) to gradient color using operation bounds
+    DIM slotIdx AS INTEGER
+    DIM t AS SINGLE
+    DIM boundsW AS INTEGER
+    DIM boundsH AS INTEGER
+    DIM localX AS INTEGER
+    DIM localY AS INTEGER
+    DIM family AS INTEGER
+    DIM u AS SINGLE
+    DIM v AS SINGLE
+    DIM dx AS SINGLE
+    DIM dy AS SINGLE
+
+    IF _ALPHA32(baseColor~&) = 0 THEN
+        DRAWER_resolve_gradient_color~& = baseColor~&
+        EXIT FUNCTION
+    END IF
+
+    IF DRAWER.paintMode% <> 2 THEN
+        DRAWER_resolve_gradient_color~& = PAINT_apply_opacity~&(baseColor~&)
+        EXIT FUNCTION
+    END IF
+
+    slotIdx% = DRAWER.gradientSelected%
+    IF slotIdx% < 1 OR slotIdx% > DRAWER_SLOT_COUNT THEN
+        DRAWER_resolve_gradient_color~& = PAINT_apply_opacity~&(baseColor~&)
+        EXIT FUNCTION
+    END IF
+
+    IF GRAD_DEFS(slotIdx%).colorCount% < 1 THEN
+        DRAWER_resolve_gradient_color~& = PAINT_apply_opacity~&(baseColor~&)
+        EXIT FUNCTION
+    END IF
+
+    ' Compute local coordinates relative to context bounds
+    boundsW% = ctx.boundsX2% - ctx.boundsX1%
+    boundsH% = ctx.boundsY2% - ctx.boundsY1%
+    IF boundsW% < 1 THEN boundsW% = 1
+    IF boundsH% < 1 THEN boundsH% = 1
+
+    localX% = x% - ctx.boundsX1%
+    localY% = y% - ctx.boundsY1%
+
+    ' Evaluate spatial family using local coordinates
+    family% = GRAD_DEFS(slotIdx%).family%
+    IF boundsW% > 0 THEN u! = localX% / boundsW% ELSE u! = 0
+    IF boundsH% > 0 THEN v! = localY% / boundsH% ELSE v! = 0
+
+    SELECT CASE family%
+        CASE GRADIENT_FAMILY_HORIZONTAL
+            t! = u!
+        CASE GRADIENT_FAMILY_VERTICAL
+            t! = v!
+        CASE GRADIENT_FAMILY_DIAGONAL
+            t! = (u! + v!) / 2
+        CASE GRADIENT_FAMILY_ANTI_DIAG
+            t! = (u! + (1! - v!)) / 2
+        CASE GRADIENT_FAMILY_RADIAL
+            dx! = u! - .5
+            dy! = v! - .5
+            t! = SQR(dx! * dx! + dy! * dy!) / .7071068
+        CASE GRADIENT_FAMILY_REFLECTED_H
+            t! = ABS((u! - .5) * 2)
+        CASE GRADIENT_FAMILY_REFLECTED_V
+            t! = ABS((v! - .5) * 2)
+        CASE ELSE
+            t! = ABS(u! - .5) + ABS(v! - .5)
+    END SELECT
+
+    IF t! < 0 THEN t! = 0
+    IF t! > 1 THEN t! = 1
+
+    DRAWER_resolve_gradient_color~& = PAINT_apply_opacity~&(GRAD_DEF_eval_color~&(slotIdx%, t!))
+END FUNCTION
+
 SUB DRAWER_ensure_samples ()
     DIM i AS INTEGER
     DIM imgH AS LONG
@@ -385,11 +806,10 @@ SUB DRAWER_ensure_samples ()
     IF DRAWER.samplesLoaded% AND NOT themeChanged% AND NOT colorsChanged% THEN EXIT SUB
 
     IF DRAWER.samplesLoaded% AND NOT themeChanged% AND colorsChanged% THEN
+        GRAD_DEF_update_fg_bg_stops
         FOR i% = 1 TO DRAWER_SLOT_COUNT
             IF NOT DRAWER_GRADIENT_CUSTOM(i%) THEN
-                IF DRAWER_GRADIENT_SLOTS(i%) < -1 THEN _FREEIMAGE DRAWER_GRADIENT_SLOTS(i%)
-                DRAWER_GRADIENT_SLOTS(i%) = DRAWER_create_gradient_sample&(i%)
-                DRAWER_GRADIENT_HAS(i%) = (DRAWER_GRADIENT_SLOTS(i%) < -1)
+                GRAD_DEF_rebuild_preview i%
             END IF
         NEXT i%
         DRAWER_GRADIENT_LAST_FG~& = PAINT_COLOR~&
@@ -617,6 +1037,12 @@ FUNCTION DRAWER_resolve_paint_color~& (x AS INTEGER, y AS INTEGER, baseColor AS 
         EXIT FUNCTION
     END IF
 
+    ' When gradient mode has an active context, use operation-bounded resolver
+    IF DRAWER.paintMode% = 2 AND GRAD_CTX.active% THEN
+        DRAWER_resolve_paint_color~& = DRAWER_resolve_gradient_color~&(x%, y%, baseColor~&, GRAD_CTX)
+        EXIT FUNCTION
+    END IF
+
     sampleImg& = 0
     IF DRAWER.paintMode% = 3 THEN
         IF DRAWER.patternSelected% >= 1 AND DRAWER.patternSelected% <= DRAWER_SLOT_COUNT THEN
@@ -667,6 +1093,16 @@ FUNCTION DRAWER_resolve_paint_color~& (x AS INTEGER, y AS INTEGER, baseColor AS 
     _SOURCE sampleImg&
     sampleColor~& = POINT(srcX%, srcY%)
     _SOURCE oldSource&
+
+    ' Recolor mode: use base (FG) color where pattern has non-transparent pixels
+    IF DRAWER.paintMode% = 3 AND CUSTOM_BRUSH.RECOLOR_MODE% THEN
+        IF _ALPHA32(sampleColor~&) > 0 THEN
+            DRAWER_resolve_paint_color~& = PAINT_apply_opacity~&(baseColor~&)
+        ELSE
+            DRAWER_resolve_paint_color~& = sampleColor~&
+        END IF
+        EXIT FUNCTION
+    END IF
 
     DRAWER_resolve_paint_color~& = PAINT_apply_opacity~&(sampleColor~&)
 END FUNCTION
@@ -757,39 +1193,22 @@ SUB DRAWER_layout (contentX AS INTEGER, contentY AS INTEGER, binW AS INTEGER, bi
     DRAWER.panelY1% = ORGANIZER.panelY2% + 1
     DRAWER.panelY2% = availableBottom%
 
-    IF DRAWER.mode% = DRAWER_MODE_GRADIENT THEN
-        binGapX% = 0
-        binGapY% = THEME.DRAWER_BIN_GAP_Y% * uiScale%
-        IF binGapY% < 1 THEN binGapY% = 1
-        binW% = THEME.BINS_WIDE_WIDTH% * uiScale%
-        binH% = THEME.BINS_WIDE_HEIGHT% * uiScale%
-        IF binW% < 28 * uiScale% THEN binW% = 28 * uiScale%
-        IF binH% < 4 * uiScale% THEN binH% = 4 * uiScale%
-        requiredLeftW% = binW%
-    ELSE
-        binGapX% = THEME.DRAWER_BIN_GAP_X% * uiScale%
-        binGapY% = THEME.DRAWER_BIN_GAP_Y% * uiScale%
-        IF binGapX% < 1 THEN binGapX% = 1
-        IF binGapY% < 1 THEN binGapY% = 1
-        binW% = THEME.BINS_BRUSH_WIDTH% * uiScale%
-        binH% = THEME.BINS_BRUSH_HEIGHT% * uiScale%
-        IF binW% < 9 * uiScale% THEN binW% = 9 * uiScale%
-        IF binH% < 9 * uiScale% THEN binH% = 9 * uiScale%
-        requiredLeftW% = (3 * binW%) + (2 * binGapX%)
-    END IF
+    binGapX% = THEME.DRAWER_BIN_GAP_X% * uiScale%
+    binGapY% = THEME.DRAWER_BIN_GAP_Y% * uiScale%
+    IF binGapX% < 1 THEN binGapX% = 1
+    IF binGapY% < 1 THEN binGapY% = 1
+    binW% = THEME.BINS_BRUSH_WIDTH% * uiScale%
+    binH% = THEME.BINS_BRUSH_HEIGHT% * uiScale%
+    IF binW% < 9 * uiScale% THEN binW% = 9 * uiScale%
+    IF binH% < 9 * uiScale% THEN binH% = 9 * uiScale%
+    requiredLeftW% = (3 * binW%) + (2 * binGapX%)
 
     maxRailW% = panelW% - (padX% * 2) - separatorGap% - requiredLeftW%
     IF maxRailW% < minRailW% THEN
-        IF DRAWER.mode% = DRAWER_MODE_GRADIENT THEN
-            binW% = panelW% - (padX% * 2) - separatorGap% - minRailW%
-            IF binW% < 8 * uiScale% THEN binW% = 8 * uiScale%
-            requiredLeftW% = binW%
-        ELSE
-            binW% = (panelW% - (padX% * 2) - separatorGap% - minRailW% - (2 * binGapX%)) \ 3
-            IF binW% < 4 * uiScale% THEN binW% = 4 * uiScale%
-            binH% = binW%
-            requiredLeftW% = (3 * binW%) + (2 * binGapX%)
-        END IF
+        binW% = (panelW% - (padX% * 2) - separatorGap% - minRailW% - (2 * binGapX%)) \ 3
+        IF binW% < 4 * uiScale% THEN binW% = 4 * uiScale%
+        binH% = binW%
+        requiredLeftW% = (3 * binW%) + (2 * binGapX%)
         maxRailW% = panelW% - (padX% * 2) - separatorGap% - requiredLeftW%
     END IF
 
@@ -848,13 +1267,8 @@ FUNCTION DRAWER_slot_at% (mouseX AS INTEGER, mouseY AS INTEGER)
 
     DRAWER_layout contentX%, contentY%, binW%, binH%, binGapX%, binGapY%, miniX%, miniY%, miniCellW%, miniCellH%, miniGapX%, miniGapY%, pageBtnY%, scrollX%, scrollY%, scrollH%
 
-    IF DRAWER.mode% = DRAWER_MODE_GRADIENT THEN
-        slotCols% = 1
-        slotRows% = DRAWER_SLOT_COUNT
-    ELSE
-        slotCols% = 3
-        slotRows% = 8
-    END IF
+    slotCols% = DRAWER_GRID_COLS
+    slotRows% = DRAWER_GRID_ROWS
 
     FOR row% = 0 TO slotRows% - 1
         FOR col% = 0 TO slotCols% - 1
@@ -976,15 +1390,9 @@ SUB DRAWER_render ()
         DRAWER_sync_palette_marker PAINT_BG_COLOR~&, TRUE
     END IF
 
-    IF DRAWER.mode% = DRAWER_MODE_GRADIENT THEN
-        slotCols% = 1
-        slotRows% = DRAWER_SLOT_COUNT
-        totalCells% = DRAWER_SLOT_COUNT
-    ELSE
-        slotCols% = 3
-        slotRows% = 8
-        totalCells% = slotCols% * slotRows%
-    END IF
+    slotCols% = DRAWER_GRID_COLS
+    slotRows% = DRAWER_GRID_ROWS
+    totalCells% = slotCols% * slotRows%
 
     panelBg~& = THEME.BINS_BG_COLOR~&
     railBg~& = THEME.BINS_BG_COLOR~&
@@ -1001,6 +1409,9 @@ SUB DRAWER_render ()
             selectedSlot% = DRAWER.gradientSelected%
     END SELECT
 
+    STATIC drawerLastHoverSlot AS INTEGER
+    DIM drawerHoverHit AS INTEGER
+    drawerHoverHit% = FALSE
     cellIndex% = 0
     FOR row% = 0 TO slotRows% - 1
         FOR col% = 0 TO slotCols% - 1
@@ -1042,17 +1453,24 @@ SUB DRAWER_render ()
 
             IF slotIndex% <= DRAWER_SLOT_COUNT AND slotIndex% = selectedSlot% THEN
                 bgColor~& = THEME.DRAWER_BIN_BG~&
-                borderColor~& = THEME.DRAWER_BIN_SELECTED_BORDER~&
+                SELECT CASE DRAWER.mode%
+                    CASE DRAWER_MODE_BRUSH
+                        borderColor~& = THEME.DRAWER_BIN_SELECTED_BORDER_BRUSH~&
+                    CASE DRAWER_MODE_PATTERN
+                        borderColor~& = THEME.DRAWER_BIN_SELECTED_BORDER_PATTERN~&
+                    CASE ELSE
+                        borderColor~& = THEME.DRAWER_BIN_SELECTED_BORDER_GRADIENT~&
+                END SELECT
             ELSEIF MOUSE.RAW_X% >= slotX% AND MOUSE.RAW_X% <= slotX% + binW% - 1 AND MOUSE.RAW_Y% >= slotY% AND MOUSE.RAW_Y% <= slotY% + binH% - 1 THEN
                 bgColor~& = THEME.DRAWER_BIN_HOVER_BG~&
                 borderColor~& = THEME.DRAWER_BIN_HOVER_BORDER~&
+                IF slotIndex% <> drawerLastHoverSlot% THEN
+                    drawerLastHoverSlot% = slotIndex%
+                    SOUND_play SND_MENU_HOVER
+                END IF
             END IF
 
             LINE (slotX%, slotY%)-(slotX% + binW% - 1, slotY% + binH% - 1), bgColor~&, BF
-            IF DRAWER.mode% = DRAWER_MODE_GRADIENT THEN
-                LINE (slotX%, slotY%)-(slotX% + binW% - 1, slotY% + binH% - 1), borderColor~&, B
-                LINE (slotX% + 1, slotY% + 1)-(slotX% + binW% - 2, slotY% + binH% - 2), THEME.DRAWER_BIN_BORDER~&, B
-            END IF
 
             slotPad% = THEME.DRAWER_BIN_PREVIEW_PAD% * uiScale%
             IF slotPad% < 1 THEN slotPad% = 1
@@ -1063,9 +1481,7 @@ SUB DRAWER_render ()
             IF slotInnerX2% <= slotInnerX1% THEN slotInnerX2% = slotX% + binW% - 2
             IF slotInnerY2% <= slotInnerY1% THEN slotInnerY2% = slotY% + binH% - 2
 
-            IF DRAWER.mode% <> DRAWER_MODE_GRADIENT THEN
-                DRAWER_draw_checker_fill slotInnerX1%, slotInnerY1%, slotInnerX2%, slotInnerY2%, checkerSize%
-            END IF
+            DRAWER_draw_checker_fill slotInnerX1%, slotInnerY1%, slotInnerX2%, slotInnerY2%, checkerSize%
 
             IF slotImg& < -1 THEN
                 SELECT CASE DRAWER.mode%
@@ -1117,8 +1533,15 @@ SUB DRAWER_render ()
                 LINE (slotInnerX1%, slotInnerY1%)-(slotInnerX2%, slotInnerY2%), THEME.DRAWER_BIN_DISABLED_FG~&
                 LINE (slotInnerX2%, slotInnerY1%)-(slotInnerX1%, slotInnerY2%), THEME.DRAWER_BIN_DISABLED_FG~&
             END IF
+
+            ' Draw border on top of content (selected / hover / normal)
+            LINE (slotX%, slotY%)-(slotX% + binW% - 1, slotY% + binH% - 1), borderColor~&, B
+            IF MOUSE.RAW_X% >= slotX% AND MOUSE.RAW_X% <= slotX% + binW% - 1 AND MOUSE.RAW_Y% >= slotY% AND MOUSE.RAW_Y% <= slotY% + binH% - 1 THEN
+                drawerHoverHit% = TRUE
+            END IF
         NEXT col%
     NEXT row%
+    IF NOT drawerHoverHit% THEN drawerLastHoverSlot% = 0
 
     LINE (miniX%, miniY%)-(miniX% + miniCellW% - 1, miniY% + miniCellH% - 1), THEME.DRAWER_BIN_EMPTY_BG~&, BF
     IF DRAWER_PALETTE_IMG& < -1 THEN
@@ -1180,6 +1603,146 @@ SUB DRAWER_load_brush_slot_to_custom (slotIndex AS INTEGER)
     CUSTOM_BRUSH.ORIG_HEIGHT% = CUSTOM_BRUSH.HEIGHT%
     CUSTOM_BRUSH.SCALE! = 1.0
     CUSTOM_BRUSH.ACTIVE% = TRUE
+END SUB
+
+SUB DRAWER_store_to_slot (slotIndex AS INTEGER)
+    DIM srcImg AS LONG
+
+    IF slotIndex% < 1 OR slotIndex% > DRAWER_SLOT_COUNT THEN EXIT SUB
+
+    SELECT CASE DRAWER.mode%
+        CASE DRAWER_MODE_BRUSH
+            ' Store custom brush or clipboard image into brush slot
+            srcImg& = 0
+            IF CUSTOM_BRUSH.ACTIVE% AND CUSTOM_BRUSH.IMAGE& < -1 THEN
+                srcImg& = CUSTOM_BRUSH.IMAGE&
+            ELSEIF CLIPBOARD.VALID% AND CLIPBOARD.IMAGE& < -1 THEN
+                srcImg& = CLIPBOARD.IMAGE&
+            END IF
+            IF srcImg& < -1 THEN
+                IF DRAWER_BRUSH_SLOTS(slotIndex%).IMG < -1 THEN _FREEIMAGE DRAWER_BRUSH_SLOTS(slotIndex%).IMG
+                DRAWER_BRUSH_SLOTS(slotIndex%).IMG = _COPYIMAGE(srcImg&, 32)
+                DRAWER_BRUSH_SLOTS(slotIndex%).W = _WIDTH(DRAWER_BRUSH_SLOTS(slotIndex%).IMG)
+                DRAWER_BRUSH_SLOTS(slotIndex%).H = _HEIGHT(DRAWER_BRUSH_SLOTS(slotIndex%).IMG)
+                DRAWER.brushSelected% = slotIndex%
+            END IF
+
+        CASE DRAWER_MODE_PATTERN
+            ' Store clipboard image into pattern slot
+            srcImg& = 0
+            IF CLIPBOARD.VALID% AND CLIPBOARD.IMAGE& < -1 THEN
+                srcImg& = CLIPBOARD.IMAGE&
+            ELSEIF CUSTOM_BRUSH.ACTIVE% AND CUSTOM_BRUSH.IMAGE& < -1 THEN
+                srcImg& = CUSTOM_BRUSH.IMAGE&
+            END IF
+            IF srcImg& < -1 THEN
+                IF DRAWER_PATTERN_SLOTS(slotIndex%) < -1 THEN _FREEIMAGE DRAWER_PATTERN_SLOTS(slotIndex%)
+                DRAWER_PATTERN_SLOTS(slotIndex%) = _COPYIMAGE(srcImg&, 32)
+                DRAWER_PATTERN_HAS(slotIndex%) = TRUE
+                DRAWER.patternSelected% = slotIndex%
+            END IF
+
+        CASE DRAWER_MODE_GRADIENT
+            ' Store current FG→BG as a 2-stop gradient
+            GRAD_DEFS(slotIndex%).colorCount% = 2
+            IF GRAD_DEFS(slotIndex%).family% < 1 OR GRAD_DEFS(slotIndex%).family% > 8 THEN
+                GRAD_DEFS(slotIndex%).family% = 1
+            END IF
+            GRAD_DEFS(slotIndex%).usesFG% = FALSE
+            GRAD_DEFS(slotIndex%).usesBG% = FALSE
+            GRAD_COLOR_STOPS(slotIndex%, 1).position = 0
+            GRAD_COLOR_STOPS(slotIndex%, 1).clr = PAINT_COLOR~&
+            GRAD_COLOR_STOPS(slotIndex%, 2).position = 1
+            GRAD_COLOR_STOPS(slotIndex%, 2).clr = PAINT_BG_COLOR~&
+            GRAD_DEF_rebuild_preview slotIndex%
+            DRAWER.gradientSelected% = slotIndex%
+    END SELECT
+
+    SOUND_play SND_FILL
+    GUI_NEEDS_REDRAW% = TRUE
+    FRAME_IDLE% = FALSE
+
+    ' Easter egg: all brush bins filled with the same brush
+    IF DRAWER.mode% = DRAWER_MODE_BRUSH THEN
+        DRAWER_check_brush_easter_egg
+    END IF
+END SUB
+
+
+''
+' Easter egg: check if all brush bins contain identical brushes.
+' If so, show a congratulatory message and play the startup sound.
+'
+SUB DRAWER_check_brush_easter_egg ()
+    DIM i AS INTEGER
+    DIM refW AS INTEGER, refH AS INTEGER
+    DIM refMem AS _MEM, cmpMem AS _MEM
+    DIM refCRC AS _UNSIGNED LONG, cmpCRC AS _UNSIGNED LONG
+    DIM allMatch AS INTEGER
+
+    ' All slots must have a valid image
+    FOR i% = 1 TO DRAWER_SLOT_COUNT
+        IF DRAWER_BRUSH_SLOTS(i%).IMG >= -1 THEN EXIT SUB
+    NEXT i%
+
+    ' All must have the same dimensions as slot 1
+    refW% = DRAWER_BRUSH_SLOTS(1).W
+    refH% = DRAWER_BRUSH_SLOTS(1).H
+    IF refW% < 1 OR refH% < 1 THEN EXIT SUB
+    FOR i% = 2 TO DRAWER_SLOT_COUNT
+        IF DRAWER_BRUSH_SLOTS(i%).W <> refW% OR DRAWER_BRUSH_SLOTS(i%).H <> refH% THEN EXIT SUB
+    NEXT i%
+
+    ' Compare pixel data via CRC32
+    DIM refData AS STRING, cmpData AS STRING
+    refMem = _MEMIMAGE(DRAWER_BRUSH_SLOTS(1).IMG)
+    refData$ = SPACE$(refMem.SIZE)
+    _MEMGET refMem, refMem.OFFSET, refData$
+    refCRC~& = _CRC32(refData$)
+    _MEMFREE refMem
+    allMatch% = TRUE
+    FOR i% = 2 TO DRAWER_SLOT_COUNT
+        cmpMem = _MEMIMAGE(DRAWER_BRUSH_SLOTS(i%).IMG)
+        cmpData$ = SPACE$(cmpMem.SIZE)
+        _MEMGET cmpMem, cmpMem.OFFSET, cmpData$
+        cmpCRC~& = _CRC32(cmpData$)
+        _MEMFREE cmpMem
+        IF cmpCRC~& <> refCRC~& THEN
+            allMatch% = FALSE
+            EXIT FOR
+        END IF
+    NEXT i%
+
+    IF allMatch% THEN
+        SOUND_play SND_NEW_FILE
+        _MESSAGEBOX "GREAT JOB!", "GREAT JOB!" + CHR$(10) + "~Tim and Eric", "info"
+        MOUSE_cleanup_after_dialog FALSE
+    END IF
+END SUB
+
+SUB DRAWER_clear_slot (slotIndex AS INTEGER)
+    IF slotIndex% < 1 OR slotIndex% > DRAWER_SLOT_COUNT THEN EXIT SUB
+
+    SELECT CASE DRAWER.mode%
+        CASE DRAWER_MODE_BRUSH
+            IF DRAWER_BRUSH_SLOTS(slotIndex%).IMG < -1 THEN _FREEIMAGE DRAWER_BRUSH_SLOTS(slotIndex%).IMG
+            DRAWER_BRUSH_SLOTS(slotIndex%).IMG = 0
+            DRAWER_BRUSH_SLOTS(slotIndex%).W = 0
+            DRAWER_BRUSH_SLOTS(slotIndex%).H = 0
+        CASE DRAWER_MODE_PATTERN
+            IF DRAWER_PATTERN_SLOTS(slotIndex%) < -1 THEN _FREEIMAGE DRAWER_PATTERN_SLOTS(slotIndex%)
+            DRAWER_PATTERN_SLOTS(slotIndex%) = 0
+            DRAWER_PATTERN_HAS(slotIndex%) = FALSE
+        CASE DRAWER_MODE_GRADIENT
+            IF DRAWER_GRADIENT_SLOTS(slotIndex%) < -1 THEN _FREEIMAGE DRAWER_GRADIENT_SLOTS(slotIndex%)
+            DRAWER_GRADIENT_SLOTS(slotIndex%) = 0
+            DRAWER_GRADIENT_HAS(slotIndex%) = FALSE
+            GRAD_DEFS(slotIndex%).colorCount% = 0
+    END SELECT
+
+    SOUND_play SND_LAYER_OP
+    GUI_NEEDS_REDRAW% = TRUE
+    FRAME_IDLE% = FALSE
 END SUB
 
 SUB DRAWER_sync_palette_marker (targetColor AS _UNSIGNED LONG, setBackground AS INTEGER)
@@ -1285,6 +1848,12 @@ SUB DRAWER_select_palette_color (mouseX AS INTEGER, mouseY AS INTEGER, setBackgr
         POINTER.C~& = pickedColor~&
         DRAWER.paletteFGX% = srcX%
         DRAWER.paletteFGY% = srcY%
+        ' Auto-enable recolor when brush/pattern is active from drawer bin
+        IF CUSTOM_BRUSH.ACTIVE% AND DRAWER.mode% = DRAWER_MODE_BRUSH AND DRAWER.brushSelected% > 0 THEN
+            CUSTOM_BRUSH.RECOLOR_MODE% = TRUE
+        ELSEIF DRAWER.mode% = DRAWER_MODE_PATTERN AND DRAWER.patternSelected% > 0 THEN
+            CUSTOM_BRUSH.RECOLOR_MODE% = TRUE
+        END IF
     END IF
 END SUB
 
@@ -1313,18 +1882,26 @@ FUNCTION DRAWER_handle_click% (mouseX AS INTEGER, mouseY AS INTEGER)
 
     slotIndex% = DRAWER_slot_at%(mouseX%, mouseY%)
     IF slotIndex% > 0 THEN
-        SELECT CASE DRAWER.mode%
-            CASE DRAWER_MODE_BRUSH
-                DRAWER.brushSelected% = slotIndex%
-                DRAWER_load_brush_slot_to_custom slotIndex%
-                DRAWER.paintMode% = 1
-            CASE DRAWER_MODE_PATTERN
-                DRAWER.patternSelected% = slotIndex%
-                DRAWER.paintMode% = 3
-            CASE DRAWER_MODE_GRADIENT
-                DRAWER.gradientSelected% = slotIndex%
-                DRAWER.paintMode% = 2
-        END SELECT
+        IF MODIFIERS.shift% THEN
+            ' STORE: Shift+Left Click — store current content into slot
+            DRAWER_store_to_slot slotIndex%
+        ELSE
+            ' SELECT: Left Click — select and activate slot
+            SELECT CASE DRAWER.mode%
+                CASE DRAWER_MODE_BRUSH
+                    DRAWER.brushSelected% = slotIndex%
+                    DRAWER_load_brush_slot_to_custom slotIndex%
+                    DRAWER.paintMode% = 1
+                CASE DRAWER_MODE_PATTERN
+                    DRAWER.patternSelected% = slotIndex%
+                    DRAWER.paintMode% = 3
+                    CUSTOM_BRUSH.RECOLOR_MODE% = FALSE
+                CASE DRAWER_MODE_GRADIENT
+                    DRAWER.gradientSelected% = slotIndex%
+                    DRAWER.paintMode% = 2
+            END SELECT
+        END IF
+        SOUND_play SND_MENU_OPEN
         GUI_NEEDS_REDRAW% = TRUE
         FRAME_IDLE% = FALSE
         DRAWER_handle_click% = TRUE
@@ -1336,7 +1913,9 @@ FUNCTION DRAWER_handle_right_click% (mouseX AS INTEGER, mouseY AS INTEGER)
     DIM slotIndex AS INTEGER
 
     DRAWER_handle_right_click% = FALSE
-    IF NOT DRAWER_is_over_area%(mouseX%, mouseY%) THEN EXIT FUNCTION
+    IF NOT DRAWER_is_over_area%(mouseX%, mouseY%) THEN
+            EXIT FUNCTION
+    END IF
 
     cellIndex% = DRAWER_palette_cell_at%(mouseX%, mouseY%)
     IF cellIndex% > 0 THEN
@@ -1352,6 +1931,15 @@ FUNCTION DRAWER_handle_right_click% (mouseX AS INTEGER, mouseY AS INTEGER)
         IF MODIFIERS.shift% THEN
             DRAWER_queue_slot_import slotIndex%
         ELSE
+            ' Select the slot so the context menu acts on it
+            SELECT CASE DRAWER.mode%
+                CASE DRAWER_MODE_BRUSH
+                    DRAWER.brushSelected% = slotIndex%
+                CASE DRAWER_MODE_PATTERN
+                    DRAWER.patternSelected% = slotIndex%
+                CASE DRAWER_MODE_GRADIENT
+                    DRAWER.gradientSelected% = slotIndex%
+            END SELECT
             DRAWER_context_menu_show slotIndex%, mouseX%, mouseY%
         END IF
         DRAWER_handle_right_click% = TRUE
@@ -1370,11 +1958,18 @@ SUB DRAWER_cycle_mode ()
 END SUB
 
 FUNCTION DRAWER_handle_middle_click% (mouseX AS INTEGER, mouseY AS INTEGER)
+    DIM mcSlot AS INTEGER
     DRAWER_handle_middle_click% = FALSE
     IF NOT DRAWER_is_over_area%(mouseX%, mouseY%) THEN EXIT FUNCTION
 
-    IF DRAWER_slot_at%(mouseX%, mouseY%) > 0 THEN
-        DRAWER_cycle_mode
+    mcSlot% = DRAWER_slot_at%(mouseX%, mouseY%)
+    IF mcSlot% > 0 THEN
+        IF MODIFIERS.shift% THEN
+            ' CLEAR: Shift+Middle Click — clear the single slot
+            DRAWER_clear_slot mcSlot%
+        ELSE
+            DRAWER_cycle_mode
+        END IF
         GUI_NEEDS_REDRAW% = TRUE
         FRAME_IDLE% = FALSE
         DRAWER_handle_middle_click% = TRUE
@@ -1421,7 +2016,11 @@ SUB DRAWER_context_menu_hover (mouseX AS INTEGER, mouseY AS INTEGER)
     prevHover% = DRAWER.contextMenuHover%
     DRAWER_context_menu_build itemCount%
     DRAWER.contextMenuHover% = POPUP_MENU_hover_row%(DRAWER.contextMenuX%, DRAWER.contextMenuY%, DRAWER.contextMenuW%, itemCount%, DRAWER_CONTEXT_ITEM_H, mouseX%, mouseY%)
-    IF DRAWER.contextMenuHover% <> prevHover% THEN
+    IF DRAWER.contextMenuHover% <> prevHover% AND DRAWER.contextMenuHover% > 0 THEN
+        SOUND_play SND_MENU_HOVER
+        GUI_NEEDS_REDRAW% = TRUE
+        FRAME_IDLE% = FALSE
+    ELSEIF DRAWER.contextMenuHover% <> prevHover% THEN
         GUI_NEEDS_REDRAW% = TRUE
         FRAME_IDLE% = FALSE
     END IF
@@ -1449,6 +2048,9 @@ SUB DRAWER_context_menu_activate (actionValue AS INTEGER)
             DRAWER_clear_active_set
         CASE DRAWER_CONTEXT_EXPLORE_FOLDER
             DRAWER_explore_context_folder
+        CASE DRAWER_CONTEXT_EDIT_GRADIENT
+            DRAWER_context_menu_close
+            GRADIENT_editor_dialog
     END SELECT
 END SUB
 
@@ -1484,7 +2086,7 @@ SUB DRAWER_context_menu_build (itemCount AS INTEGER)
             POPUP_MENU_set_item itemCount%, "", "", -1, POPUP_MENU_FLAG_DIVIDER
             itemCount% = itemCount% + 1
         CASE DRAWER_MODE_GRADIENT
-            POPUP_MENU_set_item itemCount%, "EDIT = DOUBLE CLICK", "", -1, POPUP_MENU_FLAG_DISABLED
+            POPUP_MENU_set_item itemCount%, "EDIT GRADIENT...", "", DRAWER_CONTEXT_EDIT_GRADIENT, 0
             itemCount% = itemCount% + 1
             POPUP_MENU_set_item itemCount%, "", "", -1, POPUP_MENU_FLAG_DIVIDER
             itemCount% = itemCount% + 1
@@ -1762,6 +2364,7 @@ SUB DRAWER_clear_active_set ()
             DRAWER.gradientSelected% = 1
     END SELECT
 
+    SOUND_play SND_LAYER_OP
     GUI_NEEDS_REDRAW% = TRUE
     FRAME_IDLE% = FALSE
 END SUB
@@ -1936,6 +2539,358 @@ SUB DRAWER_import_set_dialog ()
     DRAWER.loadedTheme = _TRIM$(CFG.THEME$)
     DRAWER_GRADIENT_LAST_FG~& = PAINT_COLOR~&
     DRAWER_GRADIENT_LAST_BG~& = PAINT_BG_COLOR~&
+    GUI_NEEDS_REDRAW% = TRUE
+    FRAME_IDLE% = FALSE
+END SUB
+
+
+''
+' Modal gradient editor dialog.
+' Edits the currently selected gradient slot's color stops and family.
+'
+SUB GRADIENT_editor_dialog ()
+    DIM slotIdx AS INTEGER
+    slotIdx% = DRAWER.gradientSelected%
+    IF slotIdx% < 1 OR slotIdx% > DRAWER_SLOT_COUNT THEN EXIT SUB
+
+    ' ---- Layout constants ----
+    CONST GED_W = 256
+    CONST GED_BAR_X = 8
+    CONST GED_BAR_W = 240
+    CONST GED_BAR_H = 20
+    CONST GED_STOP_H = 8
+    CONST GED_BTN_H = 20
+    CONST GED_OK_X = 10
+    CONST GED_OK_W = 108
+    CONST GED_CX_X = 138
+    CONST GED_CX_W = 108
+    CONST GED_OKCX_H = 22
+
+    ' Compute dynamic heights
+    DIM gedBarY AS INTEGER
+    DIM gedStopY AS INTEGER
+    DIM gedFamilyY AS INTEGER
+    DIM gedInfoY AS INTEGER
+    DIM gedActY AS INTEGER
+    DIM gedAlphaY AS INTEGER
+    DIM gedDivY AS INTEGER
+    DIM gedOkY AS INTEGER
+    DIM gedH AS INTEGER
+
+    gedBarY% = 22
+    gedStopY% = gedBarY% + GED_BAR_H + 2
+    gedFamilyY% = gedStopY% + GED_STOP_H + 6
+    gedInfoY% = gedFamilyY% + 20
+    gedAlphaY% = gedInfoY% + 20
+    gedActY% = gedAlphaY% + 40
+    gedDivY% = gedActY% + GED_BTN_H + 16
+    gedOkY% = gedDivY% + 6
+    gedH% = gedOkY% + GED_OKCX_H + 8
+
+    ' ---- Init dialog context ----
+    DIM ctx AS DIALOG_CTX
+    DIALOG_init ctx, GED_W, gedH%
+
+    ' ---- Initialize empty slots with black-to-white default ----
+    IF GRAD_DEFS(slotIdx%).colorCount% < 2 THEN
+        GRAD_DEFS(slotIdx%).colorCount% = 2
+        IF GRAD_DEFS(slotIdx%).family% < 1 OR GRAD_DEFS(slotIdx%).family% > 8 THEN
+            GRAD_DEFS(slotIdx%).family% = 1
+        END IF
+        GRAD_COLOR_STOPS(slotIdx%, 1).position = 0
+        GRAD_COLOR_STOPS(slotIdx%, 1).clr = _RGB32(0, 0, 0)
+        GRAD_COLOR_STOPS(slotIdx%, 2).position = 1
+        GRAD_COLOR_STOPS(slotIdx%, 2).clr = _RGB32(255, 255, 255)
+    END IF
+
+    ' ---- Snapshot for cancel ----
+    DIM savedDef AS GRADIENT_DEF
+    DIM savedStops(1 TO GRADIENT_MAX_STOPS) AS GRADIENT_COLOR_STOP
+    savedDef = GRAD_DEFS(slotIdx%)
+    DIM gedSi AS INTEGER
+    FOR gedSi% = 1 TO GRADIENT_MAX_STOPS
+        savedStops(gedSi%) = GRAD_COLOR_STOPS(slotIdx%, gedSi%)
+    NEXT gedSi%
+
+    DIM selStop AS INTEGER
+    DIM dragStop AS INTEGER
+    DIM stopCnt AS INTEGER
+
+    selStop% = 1
+    dragStop% = 0
+
+    ' ---- Family name lookup ----
+    DIM famNames(1 TO 8) AS STRING
+    famNames(1) = "HORIZONTAL"
+    famNames(2) = "VERTICAL"
+    famNames(3) = "DIAGONAL"
+    famNames(4) = "ANTI-DIAG"
+    famNames(5) = "RADIAL"
+    famNames(6) = "REFLECT-H"
+    famNames(7) = "REFLECT-V"
+    famNames(8) = "DIAMOND"
+
+    ' ---- Modal loop ----
+    DIM gedK AS LONG
+    DIM gedGx AS INTEGER
+    DIM gedGt AS SINGLE
+    DIM gedGc AS _UNSIGNED LONG
+    DIM gedSx AS INTEGER
+    DIM hitIdx AS INTEGER
+    DIM newFam AS INTEGER
+    DIM gedI AS INTEGER
+    DIM gedJ AS INTEGER
+    DIM tmpStop AS GRADIENT_COLOR_STOP
+    DIM stopAlpha AS INTEGER
+
+    DO
+        DIALOG_poll_mouse ctx
+
+        ' Keyboard
+        gedK& = _KEYHIT
+        IF gedK& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
+        IF gedK& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
+        ' Delete key removes selected stop
+        IF gedK& = 21248 THEN
+            stopCnt% = GRAD_DEFS(slotIdx%).colorCount%
+            IF stopCnt% > 2 AND selStop% >= 1 AND selStop% <= stopCnt% THEN
+                FOR gedI% = selStop% TO stopCnt% - 1
+                    GRAD_COLOR_STOPS(slotIdx%, gedI%) = GRAD_COLOR_STOPS(slotIdx%, gedI% + 1)
+                NEXT gedI%
+                GRAD_DEFS(slotIdx%).colorCount% = stopCnt% - 1
+                IF selStop% > GRAD_DEFS(slotIdx%).colorCount% THEN selStop% = GRAD_DEFS(slotIdx%).colorCount%
+            END IF
+        END IF
+
+        stopCnt% = GRAD_DEFS(slotIdx%).colorCount%
+
+        ' ---- Stop interaction (click on stop markers) ----
+        IF ctx.justClicked% THEN
+            hitIdx% = 0
+
+            ' Check stop markers
+            FOR gedI% = 1 TO stopCnt%
+                gedSx% = GED_BAR_X + INT(GRAD_COLOR_STOPS(slotIdx%, gedI%).position * (GED_BAR_W - 1))
+                IF ctx.mx% >= gedSx% - 4 AND ctx.mx% <= gedSx% + 4 THEN
+                    IF ctx.my% >= gedStopY% AND ctx.my% <= gedStopY% + GED_STOP_H THEN
+                        hitIdx% = gedI%
+                        EXIT FOR
+                    END IF
+                END IF
+            NEXT gedI%
+
+            IF hitIdx% > 0 THEN
+                selStop% = hitIdx%
+                dragStop% = hitIdx%
+            ELSEIF ctx.my% >= gedBarY% AND ctx.my% <= gedBarY% + GED_BAR_H AND ctx.mx% >= GED_BAR_X AND ctx.mx% <= GED_BAR_X + GED_BAR_W THEN
+                ' Click on gradient bar = add new stop
+                IF stopCnt% < GRADIENT_MAX_STOPS THEN
+                    DIM newStopPos AS SINGLE
+                    newStopPos! = (ctx.mx% - GED_BAR_X) / (GED_BAR_W - 1)
+                    IF newStopPos! < 0 THEN newStopPos! = 0
+                    IF newStopPos! > 1 THEN newStopPos! = 1
+                    stopCnt% = stopCnt% + 1
+                    GRAD_DEFS(slotIdx%).colorCount% = stopCnt%
+                    GRAD_COLOR_STOPS(slotIdx%, stopCnt%).position = newStopPos!
+                    GRAD_COLOR_STOPS(slotIdx%, stopCnt%).clr = PAINT_COLOR~&
+                    selStop% = stopCnt%
+                    ' Sort stops by position
+                    FOR gedI% = 1 TO stopCnt% - 1
+                        FOR gedJ% = 1 TO stopCnt% - gedI%
+                            IF GRAD_COLOR_STOPS(slotIdx%, gedJ%).position > GRAD_COLOR_STOPS(slotIdx%, gedJ% + 1).position THEN
+                                tmpStop = GRAD_COLOR_STOPS(slotIdx%, gedJ%)
+                                GRAD_COLOR_STOPS(slotIdx%, gedJ%) = GRAD_COLOR_STOPS(slotIdx%, gedJ% + 1)
+                                GRAD_COLOR_STOPS(slotIdx%, gedJ% + 1) = tmpStop
+                                IF selStop% = gedJ% THEN
+                                    selStop% = gedJ% + 1
+                                ELSEIF selStop% = gedJ% + 1 THEN
+                                    selStop% = gedJ%
+                                END IF
+                            END IF
+                        NEXT gedJ%
+                    NEXT gedI%
+                END IF
+            END IF
+        END IF
+
+        ' ---- Drag selected stop ----
+        IF dragStop% > 0 AND ctx.mb1% THEN
+            DIM dragPos AS SINGLE
+            dragPos! = (ctx.mx% - GED_BAR_X) / (GED_BAR_W - 1)
+            IF dragPos! < 0 THEN dragPos! = 0
+            IF dragPos! > 1 THEN dragPos! = 1
+            GRAD_COLOR_STOPS(slotIdx%, dragStop%).position = dragPos!
+        ELSEIF dragStop% > 0 AND NOT ctx.mb1% THEN
+            dragStop% = 0
+            ' Re-sort after drag
+            FOR gedI% = 1 TO stopCnt% - 1
+                FOR gedJ% = 1 TO stopCnt% - gedI%
+                    IF GRAD_COLOR_STOPS(slotIdx%, gedJ%).position > GRAD_COLOR_STOPS(slotIdx%, gedJ% + 1).position THEN
+                        tmpStop = GRAD_COLOR_STOPS(slotIdx%, gedJ%)
+                        GRAD_COLOR_STOPS(slotIdx%, gedJ%) = GRAD_COLOR_STOPS(slotIdx%, gedJ% + 1)
+                        GRAD_COLOR_STOPS(slotIdx%, gedJ% + 1) = tmpStop
+                        IF selStop% = gedJ% THEN
+                            selStop% = gedJ% + 1
+                        ELSEIF selStop% = gedJ% + 1 THEN
+                            selStop% = gedJ%
+                        END IF
+                    END IF
+                NEXT gedJ%
+            NEXT gedI%
+        END IF
+
+        ' ---- Family cycle buttons ----
+        IF DIALOG_hit%(ctx, GED_BAR_X, gedFamilyY%, 20, 16) THEN
+            newFam% = GRAD_DEFS(slotIdx%).family% - 1
+            IF newFam% < 1 THEN newFam% = 8
+            GRAD_DEFS(slotIdx%).family% = newFam%
+        END IF
+        IF DIALOG_hit%(ctx, GED_BAR_X + GED_BAR_W - 20, gedFamilyY%, 20, 16) THEN
+            newFam% = GRAD_DEFS(slotIdx%).family% + 1
+            IF newFam% > 8 THEN newFam% = 1
+            GRAD_DEFS(slotIdx%).family% = newFam%
+        END IF
+
+        ' ---- Alpha slider for selected stop ----
+        IF selStop% >= 1 AND selStop% <= stopCnt% THEN
+            stopAlpha% = _ALPHA32(GRAD_COLOR_STOPS(slotIdx%, selStop%).clr)
+            stopAlpha% = DIALOG_slider_drag%(ctx, GED_BAR_X, gedAlphaY% + 14, GED_BAR_W, 14, stopAlpha%, 0, 255)
+            stopAlpha% = DIALOG_slider_wheel%(ctx, GED_BAR_X, gedAlphaY% + 14, GED_BAR_W, 14, stopAlpha%, 0, 255)
+            GRAD_COLOR_STOPS(slotIdx%, selStop%).clr = _RGBA32(_RED32(GRAD_COLOR_STOPS(slotIdx%, selStop%).clr), _GREEN32(GRAD_COLOR_STOPS(slotIdx%, selStop%).clr), _BLUE32(GRAD_COLOR_STOPS(slotIdx%, selStop%).clr), stopAlpha%)
+        END IF
+
+        ' ---- Pick Color button ----
+        ' Normal click = app palette picker, Shift+click = system color chooser
+        IF DIALOG_hit%(ctx, GED_BAR_X, gedActY%, 80, GED_BTN_H) THEN
+            IF selStop% >= 1 AND selStop% <= stopCnt% THEN
+                DIM pickedColor AS _UNSIGNED LONG
+                IF _KEYDOWN(KEY_LSHIFT&) OR _KEYDOWN(KEY_RSHIFT&) THEN
+                    pickedColor~& = _COLORCHOOSERDIALOG("Choose Stop Color", GRAD_COLOR_STOPS(slotIdx%, selStop%).clr)
+                ELSE
+                    pickedColor~& = PALETTE_PICKER_show~&("Choose Stop Color", GRAD_COLOR_STOPS(slotIdx%, selStop%).clr)
+                    _MOUSESHOW
+                END IF
+                stopAlpha% = _ALPHA32(GRAD_COLOR_STOPS(slotIdx%, selStop%).clr)
+                GRAD_COLOR_STOPS(slotIdx%, selStop%).clr = _RGBA32(_RED32(pickedColor~&), _GREEN32(pickedColor~&), _BLUE32(pickedColor~&), stopAlpha%)
+                GRAD_DEFS(slotIdx%).usesFG% = FALSE
+                GRAD_DEFS(slotIdx%).usesBG% = FALSE
+            END IF
+        END IF
+
+        ' ---- Delete Stop button ----
+        IF DIALOG_hit%(ctx, GED_BAR_X + 90, gedActY%, 80, GED_BTN_H) THEN
+            IF stopCnt% > 2 AND selStop% >= 1 AND selStop% <= stopCnt% THEN
+                FOR gedI% = selStop% TO stopCnt% - 1
+                    GRAD_COLOR_STOPS(slotIdx%, gedI%) = GRAD_COLOR_STOPS(slotIdx%, gedI% + 1)
+                NEXT gedI%
+                GRAD_DEFS(slotIdx%).colorCount% = stopCnt% - 1
+                stopCnt% = stopCnt% - 1
+                IF selStop% > stopCnt% THEN selStop% = stopCnt%
+            END IF
+        END IF
+
+        ' ---- OK / Cancel ----
+        IF DIALOG_hit%(ctx, GED_OK_X, gedOkY%, GED_OK_W, GED_OKCX_H) THEN
+            ctx.done% = TRUE : ctx.result% = TRUE
+        END IF
+        IF DIALOG_hit%(ctx, GED_CX_X, gedOkY%, GED_CX_W, GED_OKCX_H) THEN
+            ctx.done% = TRUE : ctx.result% = FALSE
+        END IF
+
+        ' ========== RENDER ==========
+        _DEST ctx.imgHandle
+        DIALOG_draw_frame ctx, "GRADIENT EDITOR"
+
+        ' Checker background behind gradient bar (for transparency)
+        DIM cbx AS INTEGER, cby AS INTEGER
+        FOR cby% = gedBarY% TO gedBarY% + GED_BAR_H - 1
+            FOR cbx% = GED_BAR_X TO GED_BAR_X + GED_BAR_W - 1
+                IF ((cbx% \ 4) + (cby% \ 4)) MOD 2 = 0 THEN
+                    PSET (cbx%, cby%), _RGB32(192, 192, 192)
+                ELSE
+                    PSET (cbx%, cby%), _RGB32(128, 128, 128)
+                END IF
+            NEXT cbx%
+        NEXT cby%
+
+        ' Draw gradient bar
+        FOR gedGx% = 0 TO GED_BAR_W - 1
+            gedGt! = gedGx% / (GED_BAR_W - 1)
+            gedGc~& = GRAD_DEF_eval_color~&(slotIdx%, gedGt!)
+            LINE (GED_BAR_X + gedGx%, gedBarY%)-(GED_BAR_X + gedGx%, gedBarY% + GED_BAR_H - 1), gedGc~&
+        NEXT gedGx%
+        ' Border
+        LINE (GED_BAR_X - 1, gedBarY% - 1)-(GED_BAR_X + GED_BAR_W, gedBarY% + GED_BAR_H), _RGB32(100, 100, 100), B
+
+        ' Draw stop markers
+        FOR gedI% = 1 TO stopCnt%
+            gedSx% = GED_BAR_X + INT(GRAD_COLOR_STOPS(slotIdx%, gedI%).position * (GED_BAR_W - 1))
+            ' Filled rect with stop color
+            LINE (gedSx% - 3, gedStopY%)-(gedSx% + 3, gedStopY% + GED_STOP_H - 1), GRAD_COLOR_STOPS(slotIdx%, gedI%).clr, BF
+            ' Selection highlight
+            IF gedI% = selStop% THEN
+                LINE (gedSx% - 4, gedStopY% - 1)-(gedSx% + 4, gedStopY% + GED_STOP_H), _RGB32(255, 255, 255), B
+            ELSE
+                LINE (gedSx% - 3, gedStopY%)-(gedSx% + 3, gedStopY% + GED_STOP_H - 1), _RGB32(64, 64, 64), B
+            END IF
+        NEXT gedI%
+
+        ' Family selector row
+        DIM famStr AS STRING
+        DIM famIdx AS INTEGER
+        famIdx% = GRAD_DEFS(slotIdx%).family%
+        IF famIdx% < 1 OR famIdx% > 8 THEN famIdx% = 1
+        famStr$ = famNames(famIdx%)
+        DIALOG_draw_button ctx, GED_BAR_X, gedFamilyY%, 20, 16, CHR$(17), _RGB32(60, 60, 80), _RGB32(80, 80, 120), _RGB32(120, 120, 160)
+        DIALOG_draw_button ctx, GED_BAR_X + GED_BAR_W - 20, gedFamilyY%, 20, 16, CHR$(16), _RGB32(60, 60, 80), _RGB32(80, 80, 120), _RGB32(120, 120, 160)
+        DIALOG_draw_label ctx, GED_BAR_X + 28, gedFamilyY% + 2, "FAMILY: " + famStr$
+
+        ' Selected stop info
+        IF selStop% >= 1 AND selStop% <= stopCnt% THEN
+            DIM posStr AS STRING
+            posStr$ = LTRIM$(STR$(INT(GRAD_COLOR_STOPS(slotIdx%, selStop%).position * 100 + 0.5)))
+            DIALOG_draw_label ctx, GED_BAR_X, gedInfoY% + 2, "STOP #" + LTRIM$(STR$(selStop%)) + " AT " + posStr$ + "%"
+            ' Show stop color swatch
+            LINE (GED_BAR_X + GED_BAR_W - 20, gedInfoY%)-(GED_BAR_X + GED_BAR_W - 1, gedInfoY% + 15), GRAD_COLOR_STOPS(slotIdx%, selStop%).clr, BF
+            LINE (GED_BAR_X + GED_BAR_W - 20, gedInfoY%)-(GED_BAR_X + GED_BAR_W - 1, gedInfoY% + 15), _RGB32(100, 100, 100), B
+        ELSE
+            DIALOG_draw_label ctx, GED_BAR_X, gedInfoY% + 2, "NO STOP SELECTED"
+        END IF
+
+        ' Alpha slider
+        IF selStop% >= 1 AND selStop% <= stopCnt% THEN
+            DIALOG_draw_slider ctx, GED_BAR_X, gedAlphaY% + 14, GED_BAR_W, _ALPHA32(GRAD_COLOR_STOPS(slotIdx%, selStop%).clr), 0, 255, "ALPHA", ""
+        ELSE
+            DIALOG_draw_slider ctx, GED_BAR_X, gedAlphaY% + 14, GED_BAR_W, 255, 0, 255, "ALPHA", ""
+        END IF
+
+        ' Action buttons
+        DIALOG_draw_button ctx, GED_BAR_X, gedActY%, 80, GED_BTN_H, "PICK COLOR", _RGB32(40, 80, 100), _RGB32(60, 120, 150), _RGB32(80, 160, 200)
+        DIALOG_draw_label ctx, GED_BAR_X, gedActY% + GED_BTN_H + 2, "SHIFT=SYS"
+        DIALOG_draw_button ctx, GED_BAR_X + 90, gedActY%, 80, GED_BTN_H, "DEL STOP", _RGB32(100, 40, 40), _RGB32(150, 60, 60), _RGB32(200, 80, 80)
+
+        ' Divider + OK/Cancel
+        DIALOG_draw_divider ctx, gedDivY%
+        DIALOG_draw_button ctx, GED_OK_X, gedOkY%, GED_OK_W, GED_OKCX_H, "OK", _RGB32(40, 100, 40), _RGB32(60, 150, 60), _RGB32(80, 200, 80)
+        DIALOG_draw_button ctx, GED_CX_X, gedOkY%, GED_CX_W, GED_OKCX_H, "CANCEL", _RGB32(100, 40, 40), _RGB32(150, 60, 60), _RGB32(200, 80, 80)
+
+        DIALOG_blit ctx
+    LOOP UNTIL ctx.done%
+
+    ' ---- Commit or cancel ----
+    IF ctx.result% THEN
+        ' Keep changes, rebuild the slot preview
+        GRAD_DEF_rebuild_preview slotIdx%
+    ELSE
+        ' Restore snapshot
+        GRAD_DEFS(slotIdx%) = savedDef
+        FOR gedSi% = 1 TO GRADIENT_MAX_STOPS
+            GRAD_COLOR_STOPS(slotIdx%, gedSi%) = savedStops(gedSi%)
+        NEXT gedSi%
+    END IF
+
+    DIALOG_cleanup ctx
+    MOUSE_cleanup_after_dialog FALSE
     GUI_NEEDS_REDRAW% = TRUE
     FRAME_IDLE% = FALSE
 END SUB

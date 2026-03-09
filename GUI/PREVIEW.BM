@@ -52,6 +52,8 @@ SUB PREVIEW_init ()
         PREVIEW.h%         = CFG.PREVIEW_H%
         PREVIEW.followPointer% = CFG.PREVIEW_FOLLOW%
         PREVIEW.zoom!      = CFG.PREVIEW_ZOOM!
+        PREVIEW.panX!      = CFG.PREVIEW_PAN_X!
+        PREVIEW.panY!      = CFG.PREVIEW_PAN_Y!
         PREVIEW.positioned% = TRUE
     END IF
     IF CFG.PREVIEW_VISIBLE% THEN
@@ -154,9 +156,7 @@ END SUB
 ' Does NOT close the window or change visibility.
 ' ---------------------------------------------------------------------------
 SUB PREVIEW_reset ()
-    PREVIEW.panX!  = 0.0
-    PREVIEW.panY!  = 0.0
-    ' zoom and followPointer are user preferences — not reset on file load
+    ' panX/panY and zoom are user preferences — restored from config, not reset on file load
     PREVIEW.minimized%     = FALSE
     PREVIEW.dragging%      = FALSE
     PREVIEW.panning%       = FALSE
@@ -307,31 +307,10 @@ SUB PREVIEW_render (destHandle AS LONG)
             srcY2! = srcY1! + contentH% / PREVIEW.zoom!
         END IF
 
-        ' Draw transparency checkerboard behind canvas content
-        DIM pChkSzX AS INTEGER, pChkSzY AS INTEGER
-        IF CFG.TRANSPARENCY_CHECK_SIZE_X% > 0 THEN pChkSzX% = CFG.TRANSPARENCY_CHECK_SIZE_X% ELSE pChkSzX% = THEME.TRANSPARENCY_check_size_x%
-        IF CFG.TRANSPARENCY_CHECK_SIZE_Y% > 0 THEN pChkSzY% = CFG.TRANSPARENCY_CHECK_SIZE_Y% ELSE pChkSzY% = THEME.TRANSPARENCY_check_size_y%
-        DIM pScaledX AS INTEGER : pScaledX% = INT(pChkSzX% * PREVIEW.zoom!)
-        DIM pScaledY AS INTEGER : pScaledY% = INT(pChkSzY% * PREVIEW.zoom!)
-        IF pScaledX% < 2 THEN pScaledX% = 2
-        IF pScaledY% < 2 THEN pScaledY% = 2
-        ' Canvas-pixel offset within checkerboard (so pattern scrolls with pan)
-        DIM pOffPxX AS SINGLE : pOffPxX! = srcX1! * PREVIEW.zoom!
-        DIM pOffPxY AS SINGLE : pOffPxY! = srcY1! * PREVIEW.zoom!
-        DIM pcy AS INTEGER, pcx AS INTEGER
-        DIM pChkColIdx AS INTEGER
-        FOR pcy% = cy1% TO cy2%
-            FOR pcx% = cx1% TO cx2% STEP pScaledX%
-                pChkColIdx% = (INT((pcx% - cx1% + pOffPxX!) / pScaledX%) + INT((pcy% - cy1% + pOffPxY!) / pScaledY%)) MOD 2
-                DIM pChkColor AS _UNSIGNED LONG
-                IF pChkColIdx% = 0 THEN pChkColor~& = CFG.TRANSPARENCY_CHECK_COLOR1~& ELSE pChkColor~& = CFG.TRANSPARENCY_CHECK_COLOR2~&
-                DIM pChkX2 AS INTEGER : pChkX2% = pcx% + pScaledX% - 1
-                IF pChkX2% > cx2% THEN pChkX2% = cx2%
-                LINE (pcx%, pcy%)-(pChkX2%, pcy%), pChkColor~&
-            NEXT pcx%
-        NEXT pcy%
+        ' Fill solid background behind canvas content (matches main canvas workspace color)
+        LINE (cx1%, cy1%)-(cx2%, cy2%), CFG.CANVAS_APRON_COLOR~&, BF
 
-        ' Blit composite with alpha blending on top of checkerboard
+        ' Blit composite with alpha blending on top of solid background
         _PUTIMAGE (cx1%, cy1%)-(cx2%, cy2%), COMPOSITE_BUFFER&, destHandle&, (srcX1!, srcY1!)-(srcX2!, srcY2!)
 
         ' --- Center tracking crosshair in follow mode ---
@@ -471,6 +450,9 @@ SUB PREVIEW_mouse_input ()
                         IF PREVIEW.zoom! < PREVIEW.zoomMin! THEN PREVIEW.zoom! = PREVIEW.zoomMin!
                         IF PREVIEW.zoom! > PREVIEW.zoomMax! THEN PREVIEW.zoom! = PREVIEW.zoomMax!
                     END IF
+                    CFG.PREVIEW_PAN_X! = PREVIEW.panX!
+                    CFG.PREVIEW_PAN_Y! = PREVIEW.panY!
+                    CFG.PREVIEW_ZOOM! = PREVIEW.zoom!
                 END IF
                 CONFIG_save
                 GUI_NEEDS_REDRAW% = TRUE
@@ -513,9 +495,7 @@ SUB PREVIEW_mouse_input ()
                     STATIC pvB1ClickTime AS DOUBLE
                     DIM pvB1Now AS DOUBLE : pvB1Now# = TIMER
                     IF pvB1Now# - pvB1ClickTime# < 0.3 THEN
-                        ' Fit entire canvas in preview
-                        PREVIEW.panX! = 0
-                        PREVIEW.panY! = 0
+                        ' Fit entire canvas in preview and center it
                         DIM fitBw AS INTEGER : fitBw% = THEME.PREVIEW_border_width%
                         DIM fitTH AS INTEGER : fitTH% = THEME.PREVIEW_title_height%
                         DIM fitPad AS INTEGER : fitPad% = THEME.PREVIEW_padding%
@@ -527,6 +507,14 @@ SUB PREVIEW_mouse_input ()
                             IF fitW! < fitH! THEN PREVIEW.zoom! = fitW! ELSE PREVIEW.zoom! = fitH!
                             IF PREVIEW.zoom! < PREVIEW.zoomMin! THEN PREVIEW.zoom! = PREVIEW.zoomMin!
                             IF PREVIEW.zoom! > PREVIEW.zoomMax! THEN PREVIEW.zoom! = PREVIEW.zoomMax!
+                            ' Center: pan so canvas center maps to viewport center
+                            DIM vpCanvasW AS SINGLE : vpCanvasW! = fitCW% / PREVIEW.zoom!
+                            DIM vpCanvasH AS SINGLE : vpCanvasH! = fitCH% / PREVIEW.zoom!
+                            PREVIEW.panX! = (SCRN.canvasW& - vpCanvasW!) / 2.0
+                            PREVIEW.panY! = (SCRN.canvasH& - vpCanvasH!) / 2.0
+                        ELSE
+                            PREVIEW.panX! = 0
+                            PREVIEW.panY! = 0
                         END IF
                         CFG.PREVIEW_ZOOM! = PREVIEW.zoom!
                         CONFIG_save
@@ -561,6 +549,8 @@ SUB PREVIEW_mouse_input ()
                     PREVIEW.panX! = 0
                     PREVIEW.panY! = 0
                     CFG.PREVIEW_ZOOM! = PREVIEW.zoom!
+                    CFG.PREVIEW_PAN_X! = PREVIEW.panX!
+                    CFG.PREVIEW_PAN_Y! = PREVIEW.panY!
                     CONFIG_save
                     GUI_NEEDS_REDRAW% = TRUE
                     FRAME_IDLE% = FALSE
@@ -591,10 +581,20 @@ SUB PREVIEW_mouse_input ()
             CFG.PREVIEW_H%    = PREVIEW.h%
             CONFIG_save
         END IF
-        IF PREVIEW.panning% THEN PREVIEW.panning% = FALSE
+        IF PREVIEW.panning% THEN
+            PREVIEW.panning% = FALSE
+            CFG.PREVIEW_PAN_X! = PREVIEW.panX!
+            CFG.PREVIEW_PAN_Y! = PREVIEW.panY!
+            CONFIG_save
+        END IF
     END IF
     IF NOT MOUSE.B3% AND MOUSE.OLD_B3% THEN
-        IF PREVIEW.panning% THEN PREVIEW.panning% = FALSE
+        IF PREVIEW.panning% THEN
+            PREVIEW.panning% = FALSE
+            CFG.PREVIEW_PAN_X! = PREVIEW.panX!
+            CFG.PREVIEW_PAN_Y! = PREVIEW.panY!
+            CONFIG_save
+        END IF
     END IF
 
     ' --- Drag in-progress ---
