@@ -60,6 +60,8 @@ TYPE SCREEN_OBJ
     menubarHiddenByToggleTop       AS INTEGER
     statusHiddenByToggleBottom     AS INTEGER
     patternTileMode  AS INTEGER  ' TRUE when 3x3 pattern tile view is active (doc-scoped)
+    showCanvasBorder AS INTEGER   ' TRUE when canvas border outline is drawn
+    canvasBorderOpacity AS INTEGER ' Border opacity (5-100, percentage)
 END TYPE
 
 DIM SHARED SCRN AS SCREEN_OBJ

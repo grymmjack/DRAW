@@ -510,6 +510,8 @@ SUB SCREEN_init ()
     SCRN.layerPanelHiddenByToggleRight% = FALSE
     SCRN.menubarHiddenByToggleTop% = FALSE
     SCRN.statusHiddenByToggleBottom% = FALSE
+    SCRN.showCanvasBorder% = TRUE
+    SCRN.canvasBorderOpacity% = 100
 
     ' Create image buffers (canvas at viewport size, painting at canvas size)
     SCRN.CANVAS&   = _NEWIMAGE(SCRN.w&, SCRN.h&, 32)
@@ -1001,6 +1003,15 @@ SUB RENDER_tool_previews (dx AS INTEGER, dy AS INTEGER, zw AS LONG, zh AS LONG)
                 DIM polyPrevX AS INTEGER, polyPrevY AS INTEGER
                 polyPrevX% = MOUSE.X%
                 polyPrevY% = MOUSE.Y%
+                ' Tile mode: unwrap preview endpoint relative to last polygon point
+                IF SCRN.patternTileMode% THEN
+                    DIM plDiffX AS INTEGER : plDiffX% = polyPrevX% - POLY_LINE.LAST_X
+                    IF plDiffX% > SCRN.canvasW& \ 2 THEN polyPrevX% = polyPrevX% - SCRN.canvasW&
+                    IF plDiffX% < -(SCRN.canvasW& \ 2) THEN polyPrevX% = polyPrevX% + SCRN.canvasW&
+                    DIM plDiffY AS INTEGER : plDiffY% = polyPrevY% - POLY_LINE.LAST_Y
+                    IF plDiffY% > SCRN.canvasH& \ 2 THEN polyPrevY% = polyPrevY% - SCRN.canvasH&
+                    IF plDiffY% < -(SCRN.canvasH& \ 2) THEN polyPrevY% = polyPrevY% + SCRN.canvasH&
+                END IF
                 IF MODIFIERS.ctrlShift% THEN
                     polyPrevX% = MOUSE.UNSNAPPED_X%
                     polyPrevY% = MOUSE.UNSNAPPED_Y%
@@ -1233,7 +1244,32 @@ SUB RENDER_tool_previews (dx AS INTEGER, dy AS INTEGER, zw AS LONG, zh AS LONG)
             prev_blend& = _BLEND(SCRN.CANVAS&)
             _DEST SCRN.CANVAS&
             _BLEND SCRN.CANVAS&
-            _PUTIMAGE (dx%, dy%)-(dx% + zw& - 1, dy% + zh& - 1), shpImg&, SCRN.CANVAS&
+            IF SCRN.patternTileMode% THEN
+                ' Self-tile the overlay so shapes wrapping past canvas edges appear correctly
+                DIM tmpShp AS LONG
+                tmpShp& = _COPYIMAGE(shpImg&, 32)
+                DIM stRow AS INTEGER, stCol AS INTEGER
+                FOR stRow% = -1 TO 1
+                    FOR stCol% = -1 TO 1
+                        IF stRow% <> 0 OR stCol% <> 0 THEN
+                            _PUTIMAGE (stCol% * SCRN.canvasW&, stRow% * SCRN.canvasH&), tmpShp&, shpImg&
+                        END IF
+                    NEXT stCol%
+                NEXT stRow%
+                IF tmpShp& < -1 THEN _FREEIMAGE tmpShp&
+                ' Blit to all 9 tile positions
+                DIM spRow AS INTEGER, spCol AS INTEGER
+                DIM spdx AS INTEGER, spdy AS INTEGER
+                FOR spRow% = -1 TO 1
+                    FOR spCol% = -1 TO 1
+                        spdx% = dx% + spCol% * zw&
+                        spdy% = dy% + spRow% * zh&
+                        _PUTIMAGE (spdx%, spdy%)-(spdx% + zw& - 1, spdy% + zh& - 1), shpImg&, SCRN.CANVAS&
+                    NEXT spCol%
+                NEXT spRow%
+            ELSE
+                _PUTIMAGE (dx%, dy%)-(dx% + zw& - 1, dy% + zh& - 1), shpImg&, SCRN.CANVAS&
+            END IF
             IF prev_blend& = 0 THEN _DONTBLEND SCRN.CANVAS&
             _FREEIMAGE shpImg&
         END IF
@@ -1745,7 +1781,31 @@ SUB SCREEN_render ()
         END IF
         PERF_stop PERF_FULL_SYMMETRY
 
-        ' No tile boundaries or canvas border in tile mode — seamless tiling
+        ' Draw tile boundaries and center border (controlled by # toggle)
+        IF SCRN.showCanvasBorder% THEN
+            _DEST SCRN.CANVAS&
+            DIM tileBorderColor AS _UNSIGNED LONG
+            DIM tileBorderAlpha AS INTEGER
+            tileBorderAlpha% = INT(SCRN.canvasBorderOpacity% * 0.8 * 2.55)
+            IF tileBorderAlpha% > 255 THEN tileBorderAlpha% = 255
+            IF tileBorderAlpha% < 1 THEN tileBorderAlpha% = 1
+            tileBorderColor~& = _RGBA32(128, 128, 128, tileBorderAlpha%)
+            FOR tRow% = -1 TO 1
+                FOR tCol% = -1 TO 1
+                    tdx% = dx% + tCol% * zw&
+                    tdy% = dy% + tRow% * zh&
+                    LINE (tdx% - 1, tdy% - 1)-(tdx% + zw&, tdy% + zh&), tileBorderColor~&, B
+                NEXT tCol%
+            NEXT tRow%
+            ' Center tile border (brighter to indicate source)
+            DIM centerAlpha AS INTEGER
+            centerAlpha% = INT(SCRN.canvasBorderOpacity% * 2.55)
+            IF centerAlpha% > 255 THEN centerAlpha% = 255
+            IF centerAlpha% < 1 THEN centerAlpha% = 1
+            DIM centerBorderColor AS _UNSIGNED LONG
+            centerBorderColor~& = _RGBA32(_RED32(THEME.CANVAS_border~&), _GREEN32(THEME.CANVAS_border~&), _BLUE32(THEME.CANVAS_border~&), centerAlpha%)
+            LINE (dx% - 1, dy% - 1)-(dx% + zw&, dy% + zh&), centerBorderColor~&, B
+        END IF
     ELSE
         ' ====== NORMAL MODE: Single canvas render ======
         PERF_start PERF_FULL_CHECKERBOARD
@@ -1787,8 +1847,14 @@ SUB SCREEN_render ()
 
         ' Draw border around canvas (after painting layer)
         ' Hide border when all UI panels are hidden (F11 full canvas mode)
-        IF SCRN.showToolbar% OR SCRN.showStatus% OR LAYER_PANEL.visible% OR MENU_BAR.visible% THEN
-            LINE (dx% - 1, dy% - 1)-(dx% + zw&, dy% + zh&), THEME.CANVAS_border~&, B
+        IF SCRN.showCanvasBorder% AND (SCRN.showToolbar% OR SCRN.showStatus% OR LAYER_PANEL.visible% OR MENU_BAR.visible%) THEN
+            DIM normBorderAlpha AS INTEGER
+            normBorderAlpha% = INT(SCRN.canvasBorderOpacity% * 2.55)
+            IF normBorderAlpha% > 255 THEN normBorderAlpha% = 255
+            IF normBorderAlpha% < 1 THEN normBorderAlpha% = 1
+            DIM normBorderColor AS _UNSIGNED LONG
+            normBorderColor~& = _RGBA32(_RED32(THEME.CANVAS_border~&), _GREEN32(THEME.CANVAS_border~&), _BLUE32(THEME.CANVAS_border~&), normBorderAlpha%)
+            LINE (dx% - 1, dy% - 1)-(dx% + zw&, dy% + zh&), normBorderColor~&, B
         END IF
     END IF
     
