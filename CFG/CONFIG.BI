@@ -34,6 +34,12 @@ CMDLINE_CONFIG_ARG_COUNT% = 0
 DIM SHARED CMDLINE_CONFIG_UPGRADE%
 CMDLINE_CONFIG_UPGRADE% = FALSE
 
+' Command-line canvas size override (--canvas-size WWWxHHH)
+DIM SHARED CMDLINE_CANVAS_W%
+DIM SHARED CMDLINE_CANVAS_H%
+CMDLINE_CANVAS_W% = 0  ' 0 = not specified on command line
+CMDLINE_CANVAS_H% = 0
+
 ' Parse command-line args: --config / -c, --config-upgrade
 ' (Executed at include time, BEFORE CONFIG_load runs from SCREEN_init)
 DIM CONFIG_cmdArgIdx%
@@ -48,6 +54,27 @@ DO WHILE CONFIG_cmdArgIdx% <= CONFIG_cmdArgCount%
         CMDLINE_CONFIG_UPGRADE% = TRUE
         CMDLINE_CONFIG_ARG_COUNT% = CMDLINE_CONFIG_ARG_COUNT% + 1
         CONFIG_cmdArgIdx% = CONFIG_cmdArgIdx% + 1
+
+    ELSEIF LCASE$(CONFIG_cmdArgVal$) = "--canvas-size" THEN
+        ' Parse --canvas-size WWWxHHH
+        IF CONFIG_cmdArgIdx% + 1 <= CONFIG_cmdArgCount% THEN
+            DIM CONFIG_canvasSizeArg$
+            DIM CONFIG_canvasXPos%
+            CONFIG_canvasSizeArg$ = _TRIM$(COMMAND$(CONFIG_cmdArgIdx% + 1))
+            CONFIG_canvasXPos% = INSTR(UCASE$(CONFIG_canvasSizeArg$), "X")
+            IF CONFIG_canvasXPos% >= 2 THEN
+                CMDLINE_CANVAS_W% = VAL(LEFT$(CONFIG_canvasSizeArg$, CONFIG_canvasXPos% - 1))
+                CMDLINE_CANVAS_H% = VAL(MID$(CONFIG_canvasSizeArg$, CONFIG_canvasXPos% + 1))
+                IF CMDLINE_CANVAS_W% < 1 THEN CMDLINE_CANVAS_W% = 0
+                IF CMDLINE_CANVAS_H% < 1 THEN CMDLINE_CANVAS_H% = 0
+                IF CMDLINE_CANVAS_W% > 4096 THEN CMDLINE_CANVAS_W% = 4096
+                IF CMDLINE_CANVAS_H% > 4096 THEN CMDLINE_CANVAS_H% = 4096
+            END IF
+            CMDLINE_CONFIG_ARG_COUNT% = CMDLINE_CONFIG_ARG_COUNT% + 2
+            CONFIG_cmdArgIdx% = CONFIG_cmdArgIdx% + 2
+        ELSE
+            CONFIG_cmdArgIdx% = CONFIG_cmdArgIdx% + 1
+        END IF
 
     ELSEIF LCASE$(CONFIG_cmdArgVal$) = "--config" OR LCASE$(CONFIG_cmdArgVal$) = "-c" THEN
         ' Found --config / -c flag
@@ -226,6 +253,10 @@ TYPE DRAW_CONFIG
     PREVIEW_ZOOM                   AS SINGLE   ' Independent preview zoom level
     EDIT_BAR_VISIBLE               AS INTEGER  ' TRUE = edit bar visible at startup
     EDIT_BAR_DOCK_POSITION         AS STRING * 8 ' "LEFT" or "RIGHT"
+    ' Canvas size settings
+    DEFAULT_CANVAS_SIZE_W          AS INTEGER  ' Default canvas width (0=fill viewport, >0=explicit)
+    DEFAULT_CANVAS_SIZE_H          AS INTEGER  ' Default canvas height (0=fill viewport, >0=explicit)
+    CANVAS_APRON_COLOR             AS _UNSIGNED LONG ' Background color around canvas when smaller than viewport
 END TYPE
 
 DIM SHARED CFG   AS DRAW_CONFIG

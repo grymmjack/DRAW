@@ -40,6 +40,8 @@ $IF MAC THEN
                 macArgIdx% = macArgIdx% + 2 ' Skip flag + value
             ELSEIF LCASE$(macArgVal$) = "--config-upgrade" THEN
                 macArgIdx% = macArgIdx% + 1 ' Skip flag only
+            ELSEIF LCASE$(macArgVal$) = "--canvas-size" THEN
+                macArgIdx% = macArgIdx% + 2 ' Skip flag + value
             ELSE
                 cmdArg$ = macArgVal$
                 EXIT DO
@@ -57,6 +59,8 @@ $ELSE
             argIdx% = argIdx% + 2 ' Skip flag + value
         ELSEIF LCASE$(argVal$) = "--config-upgrade" THEN
             argIdx% = argIdx% + 1 ' Skip flag only
+        ELSEIF LCASE$(argVal$) = "--canvas-size" THEN
+            argIdx% = argIdx% + 2 ' Skip flag + value
         ELSE
             cmdArg$ = argVal$
             EXIT DO
