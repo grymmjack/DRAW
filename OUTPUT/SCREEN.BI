@@ -42,6 +42,23 @@ TYPE SCREEN_OBJ
     showEditBar               AS INTEGER   ' TRUE when edit bar is visible
     editBarManuallyHidden     AS INTEGER   ' TRUE when user explicitly hid edit bar
     editBarHiddenByToggleAll  AS INTEGER   ' TRUE only when toggle-all (F11) hid the edit bar
+    ' Computed layout geometry — set by SCREEN_compute_layout() each render pass
+    uiLeftEdge   AS INTEGER  ' Canvas work area left X (after all left panels)
+    uiRightEdge  AS INTEGER  ' Canvas work area right X (before all right panels)
+    layerPanelX  AS INTEGER  ' Left edge of layer panel (position varies by dock side)
+    toolboxX     AS INTEGER  ' Left edge of toolbox stack background
+    editBarX     AS INTEGER  ' Left edge of edit bar (position varies by dock side)
+    menuBarLeftEdge  AS INTEGER  ' Menubar left X (after layers+toolbox, but NOT editbar)
+    menuBarRightEdge AS INTEGER  ' Menubar right X (before layers+toolbox, but NOT editbar)
+    ' Side-toggle bookkeeping — restore only what each side command itself hid
+    toolbarHiddenByToggleLeft      AS INTEGER
+    toolbarHiddenByToggleRight     AS INTEGER
+    editBarHiddenByToggleRight     AS INTEGER
+    editBarHiddenByToggleLeft      AS INTEGER
+    layerPanelHiddenByToggleLeft   AS INTEGER
+    layerPanelHiddenByToggleRight  AS INTEGER
+    menubarHiddenByToggleTop       AS INTEGER
+    statusHiddenByToggleBottom     AS INTEGER
 END TYPE
 
 DIM SHARED SCRN AS SCREEN_OBJ
