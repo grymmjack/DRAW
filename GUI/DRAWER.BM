@@ -43,6 +43,7 @@ DECLARE SUB DRAWER_context_menu_build (itemCount AS INTEGER)
 DECLARE SUB DRAWER_explore_context_folder ()
 DECLARE FUNCTION DRAWER_sets_dir$ ()
 DECLARE SUB DRAWER_ensure_sets_dir ()
+DECLARE FUNCTION DRAWER_load_dset_file% (filename AS STRING, targetMode AS INTEGER)
 
 DIM SHARED DRAWER_PALETTE_IMG AS LONG
 DIM SHARED DRAWER_PALETTE_LEFT_IMG AS LONG
@@ -928,6 +929,24 @@ SUB DRAWER_ensure_samples ()
 
     DRAWER_free_samples
 
+    ' Load default .dset files from config if specified
+    DIM loadedBrushes AS INTEGER
+    DIM loadedPatterns AS INTEGER
+    DIM loadedGradients AS INTEGER
+    loadedBrushes% = FALSE
+    loadedPatterns% = FALSE
+    loadedGradients% = FALSE
+    IF CFG.DEFAULT_DSET_BRUSHES_FILE$ <> "" THEN
+        loadedBrushes% = DRAWER_load_dset_file%(CFG.DEFAULT_DSET_BRUSHES_FILE$, DRAWER_MODE_BRUSH)
+    END IF
+    IF CFG.DEFAULT_DSET_PATTERNS_FILE$ <> "" THEN
+        loadedPatterns% = DRAWER_load_dset_file%(CFG.DEFAULT_DSET_PATTERNS_FILE$, DRAWER_MODE_PATTERN)
+    END IF
+    IF CFG.DEFAULT_DSET_GRADIENTS_FILE$ <> "" THEN
+        loadedGradients% = DRAWER_load_dset_file%(CFG.DEFAULT_DSET_GRADIENTS_FILE$, DRAWER_MODE_GRADIENT)
+    END IF
+
+    ' Fall back to built-in theme samples for any mode not loaded from .dset
     brushNames(1) = "cursor-brush.png"
     brushNames(2) = "cursor-spray.png"
     brushNames(3) = "cursor-fill.png"
@@ -946,28 +965,34 @@ SUB DRAWER_ensure_samples ()
     brushNames(16) = "cursor-crosshair-ellipse.png"
 
     FOR i% = 1 TO DRAWER_SLOT_COUNT
-        imgH& = DRAWER_load_theme_image&("IMAGES/PATTERNS", "pattern-" + _TRIM$(STR$(i% - 1)) + ".png")
-        IF imgH& < -1 THEN
-            DRAWER_PATTERN_SLOTS(i%) = imgH&
-            DRAWER_PATTERN_HAS(i%) = TRUE
+        IF NOT loadedPatterns% THEN
+            imgH& = DRAWER_load_theme_image&("IMAGES/PATTERNS", "pattern-" + _TRIM$(STR$(i% - 1)) + ".png")
+            IF imgH& < -1 THEN
+                DRAWER_PATTERN_SLOTS(i%) = imgH&
+                DRAWER_PATTERN_HAS(i%) = TRUE
+            END IF
         END IF
 
-        IF i% <= 4 THEN
-            imgH& = DRAWER_load_theme_image&("CURSORS", brushNames(i%))
-        ELSEIF i% <= 14 THEN
-            imgH& = DRAWER_load_theme_image&("IMAGES/TOOLBOX", brushNames(i%))
-        ELSE
-            imgH& = DRAWER_load_theme_image&("CURSORS", brushNames(i%))
-        END IF
-        IF imgH& < -1 THEN
-            DRAWER_BRUSH_SLOTS(i%).IMG = imgH&
-            DRAWER_BRUSH_SLOTS(i%).W = _WIDTH(imgH&)
-            DRAWER_BRUSH_SLOTS(i%).H = _HEIGHT(imgH&)
+        IF NOT loadedBrushes% THEN
+            IF i% <= 4 THEN
+                imgH& = DRAWER_load_theme_image&("CURSORS", brushNames(i%))
+            ELSEIF i% <= 14 THEN
+                imgH& = DRAWER_load_theme_image&("IMAGES/TOOLBOX", brushNames(i%))
+            ELSE
+                imgH& = DRAWER_load_theme_image&("CURSORS", brushNames(i%))
+            END IF
+            IF imgH& < -1 THEN
+                DRAWER_BRUSH_SLOTS(i%).IMG = imgH&
+                DRAWER_BRUSH_SLOTS(i%).W = _WIDTH(imgH&)
+                DRAWER_BRUSH_SLOTS(i%).H = _HEIGHT(imgH&)
+            END IF
         END IF
 
-        DRAWER_GRADIENT_SLOTS(i%) = DRAWER_create_gradient_sample&(i%)
-        DRAWER_GRADIENT_HAS(i%) = (DRAWER_GRADIENT_SLOTS(i%) < -1)
-        DRAWER_GRADIENT_CUSTOM(i%) = FALSE
+        IF NOT loadedGradients% THEN
+            DRAWER_GRADIENT_SLOTS(i%) = DRAWER_create_gradient_sample&(i%)
+            DRAWER_GRADIENT_HAS(i%) = (DRAWER_GRADIENT_SLOTS(i%) < -1)
+            DRAWER_GRADIENT_CUSTOM(i%) = FALSE
+        END IF
     NEXT i%
 
     DRAWER_PALETTE_IMG& = DRAWER_load_theme_image&("IMAGES/PALETTE", "palette-thin.png")
@@ -2343,6 +2368,96 @@ FUNCTION DRAWER_load_slot_image& (fh AS INTEGER)
     _DEST oldDest&
 
     DRAWER_load_slot_image& = imgHandle&
+END FUNCTION
+
+''
+' Load a .dset file into the specified mode's slots.
+' Returns TRUE on success, FALSE on failure.
+' targetMode: DRAWER_MODE_BRUSH, DRAWER_MODE_PATTERN, or DRAWER_MODE_GRADIENT
+' If targetMode = 0, uses the mode stored in the file.
+'
+FUNCTION DRAWER_load_dset_file% (filename AS STRING, targetMode AS INTEGER)
+    DIM fh AS INTEGER
+    DIM magic AS STRING * 4
+    DIM version AS INTEGER
+    DIM fileMode AS INTEGER
+    DIM selectedSlot AS INTEGER
+    DIM i AS INTEGER
+    DIM loadedImg AS LONG
+    DIM resolvedPath AS STRING
+
+    DRAWER_load_dset_file% = FALSE
+
+    ' Resolve path: try as-is, then relative to _STARTDIR$
+    IF _FILEEXISTS(filename$) THEN
+        resolvedPath$ = filename$
+    ELSEIF _FILEEXISTS(_STARTDIR$ + "/" + filename$) THEN
+        resolvedPath$ = _STARTDIR$ + "/" + filename$
+    ELSE
+        ERR_warn "Drawer: DEFAULT_DSET file not found: " + filename$
+        EXIT FUNCTION
+    END IF
+
+    fh% = FREEFILE
+    OPEN resolvedPath$ FOR BINARY AS #fh%
+    GET #fh%, , magic$
+    IF magic$ <> "DST1" THEN
+        CLOSE #fh%
+        ERR_warn "Drawer: Invalid .dset file: " + resolvedPath$
+        EXIT FUNCTION
+    END IF
+
+    GET #fh%, , version%
+    GET #fh%, , fileMode%
+    GET #fh%, , selectedSlot%
+    IF version% <> 1 OR fileMode% < DRAWER_MODE_BRUSH OR fileMode% > DRAWER_MODE_GRADIENT THEN
+        CLOSE #fh%
+        ERR_warn "Drawer: Unsupported .dset version in: " + resolvedPath$
+        EXIT FUNCTION
+    END IF
+
+    ' Use file mode if targetMode is 0, otherwise override
+    IF targetMode% > 0 THEN fileMode% = targetMode%
+
+    SELECT CASE fileMode%
+        CASE DRAWER_MODE_BRUSH
+            FOR i% = 1 TO DRAWER_SLOT_COUNT
+                IF DRAWER_BRUSH_SLOTS(i%).IMG < -1 THEN _FREEIMAGE DRAWER_BRUSH_SLOTS(i%).IMG
+                loadedImg& = DRAWER_load_slot_image&(fh%)
+                DRAWER_BRUSH_SLOTS(i%).IMG = loadedImg&
+                IF loadedImg& < -1 THEN
+                    DRAWER_BRUSH_SLOTS(i%).W = _WIDTH(loadedImg&)
+                    DRAWER_BRUSH_SLOTS(i%).H = _HEIGHT(loadedImg&)
+                ELSE
+                    DRAWER_BRUSH_SLOTS(i%).W = 0
+                    DRAWER_BRUSH_SLOTS(i%).H = 0
+                END IF
+            NEXT i%
+            DRAWER.brushSelected% = selectedSlot%
+            IF DRAWER.brushSelected% < 1 OR DRAWER.brushSelected% > DRAWER_SLOT_COUNT THEN DRAWER.brushSelected% = 1
+        CASE DRAWER_MODE_PATTERN
+            FOR i% = 1 TO DRAWER_SLOT_COUNT
+                IF DRAWER_PATTERN_SLOTS(i%) < -1 THEN _FREEIMAGE DRAWER_PATTERN_SLOTS(i%)
+                loadedImg& = DRAWER_load_slot_image&(fh%)
+                DRAWER_PATTERN_SLOTS(i%) = loadedImg&
+                DRAWER_PATTERN_HAS(i%) = (loadedImg& < -1)
+            NEXT i%
+            DRAWER.patternSelected% = selectedSlot%
+            IF DRAWER.patternSelected% < 1 OR DRAWER.patternSelected% > DRAWER_SLOT_COUNT THEN DRAWER.patternSelected% = 1
+        CASE DRAWER_MODE_GRADIENT
+            FOR i% = 1 TO DRAWER_SLOT_COUNT
+                IF DRAWER_GRADIENT_SLOTS(i%) < -1 THEN _FREEIMAGE DRAWER_GRADIENT_SLOTS(i%)
+                loadedImg& = DRAWER_load_slot_image&(fh%)
+                DRAWER_GRADIENT_SLOTS(i%) = loadedImg&
+                DRAWER_GRADIENT_HAS(i%) = (loadedImg& < -1)
+                DRAWER_GRADIENT_CUSTOM(i%) = (loadedImg& < -1)
+            NEXT i%
+            DRAWER.gradientSelected% = selectedSlot%
+            IF DRAWER.gradientSelected% < 1 OR DRAWER.gradientSelected% > DRAWER_SLOT_COUNT THEN DRAWER.gradientSelected% = 1
+    END SELECT
+    CLOSE #fh%
+
+    DRAWER_load_dset_file% = TRUE
 END FUNCTION
 
 SUB DRAWER_save_state_binary (fh AS INTEGER)
