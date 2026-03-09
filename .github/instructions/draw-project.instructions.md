@@ -172,11 +172,32 @@ Per-frame animations (marching ants, blinking cursors) must render **after** `Sk
 
 Changing grid settings requires calling `GRID_draw` to re-render into `GRID.imgHandle&`. Also set `SCENE_DIRTY% = TRUE` and `FRAME_IDLE% = FALSE`.
 
-### 17. Organizer Icon Filenames Must Match Code
+### 17. THEME.BI Include-Order Timing
+
+`SCREEN.BI` (line 70 in `_ALL.BI`) calls `SCREEN_init` inline. `THEME.BI` (line 121) sets compiled-in default THEME values **after** `SCREEN_init` has already executed. Any `SUB *_init` called from `SCREEN_init` that reads `THEME.*` string or numeric fields will see **empty strings / zeros** — not the compiled defaults.
+
+**Fix**: Defer `THEME.*` reads until the first render (lazy-load pattern). Example: `EDITBAR_load_icons` resolves `THEME.EDIT_BAR_ICON_*$` at first-render time, not in `EDITBAR_init`.
+
+### 18. Panel Visibility — Default-Hidden Must Set ManuallyHidden
+
+When adding a new hideable panel that **defaults to hidden**, you MUST set `ManuallyHidden% = TRUE` alongside `show% = FALSE`. The auto-hide restore logic in `MOUSE_handle_ui_autohide_restore` checks `NOT show% AND NOT ManuallyHidden%` and restores the panel to visible — so a panel initialized with `show%=FALSE` + `ManuallyHidden%=FALSE` becomes visible on the first frame.
+
+Follow the `PREVIEW_init` pattern:
+
+```qb64
+SCRN.showMyPanel% = FALSE
+SCRN.myPanelManuallyHidden% = TRUE
+IF CFG.MY_PANEL_VISIBLE% THEN
+    SCRN.showMyPanel% = TRUE
+    SCRN.myPanelManuallyHidden% = FALSE
+END IF
+```
+
+### 19. Organizer Icon Filenames Must Match Code
 
 Icon PNGs are loaded by filename from the theme directory. Mismatches cause silent failures (e.g., `grid-snap-center-off.png` vs `grid-snap-off-center.png`).
 
-### 18. `_KEYHIT` Is Unreliable for Ctrl+ Combos on Linux/SDL2
+### 20. `_KEYHIT` Is Unreliable for Ctrl+ Combos on Linux/SDL2
 
 **NEVER use `_KEYHIT` character codes for hotkeys involving Ctrl or Alt.** Always use `_KEYDOWN(physicalKeyCode)` with a `STATIC pressed%` guard. Put Ctrl+Alt hotkeys in `KEYBOARD.BM`, never in `DRAW.BAS`.
 
@@ -259,6 +280,7 @@ A frame is "idle" when no input, mouse movement, GUI changes, or active tool ope
 | `GUI/TOOLBAR.BM`          | Toolbar rendering, click handling, active indicator                 |
 | `GUI/ORGANIZER.BI`        | Organizer widget constants (`ORG_*`), 4×3 layout                    |
 | `GUI/DRAWER.BI/BM`        | 16-slot brush/pattern/gradient drawer panel with mini palette and `.dset` import/export |
+| `GUI/EDITBAR.BI/BM`       | Vertical icon bar mirroring Edit menu actions; dockable LEFT/RIGHT; toggle F5 |
 | `TOOLS/HISTORY.BI/BM`     | Unified history system used by Ctrl+Z/Y before falling back to workspace/pixel undo |
 | `TOOLS/ERASER.BI/BM`      | Eraser tool (transparent painting via brush pipeline)               |
 | `TOOLS/TRANSFORM.BI/BM`   | On-canvas transform overlay (Scale/Rotate/Shear/Distort/Perspective); activated via Edit→TRANSFORM...; not a toolbar tool |

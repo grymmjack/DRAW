@@ -1,8 +1,8 @@
 ---
-applyTo: "**/MENUBAR.BM, **/COMMAND.BM, **/TOOLBAR.BM, **/TOOLBAR.BI, **/ORGANIZER.BM, **/ORGANIZER.BI"
+applyTo: "**/MENUBAR.BM, **/COMMAND.BM, **/TOOLBAR.BM, **/TOOLBAR.BI, **/ORGANIZER.BM, **/ORGANIZER.BI, **/EDITBAR.BM, **/EDITBAR.BI"
 ---
 
-# DRAW — UI: Menus, Commands, Toolbar, Organizer
+# DRAW — UI: Menus, Commands, Toolbar, Organizer, Edit Bar
 
 ---
 
@@ -30,7 +30,7 @@ Root menus (indices 0–10): FILE(0), EDIT(1), VIEW(2), SELECT(3), TOOLS(4), BRU
 | 201–213   | File         | Open, Save, SaveAs, Export, ExportSelection, Import, New, Template, Revert, Recent, Exit |
 | 301–324   | Edit         | Undo, Redo, Copy, Cut, Paste, Clear, SelectAll, Fill FG/BG, Flip, Scale, Rotate, CopyToNewLayer, StrokeSelection |
 | 325–330   | Transform    | Overlay modes: Scale(325), Distort(326), Perspective(327), Rotate(328), Shear(329); 330=TRANSFORM_ACT_FLYOUT (opens the TRANSFORM... submenu) |
-| 401–433   | View/Audio   | Toolbar, StatusBar, LayerPanel, MenuBar, Zoom, DisplayScale (408=Up/409=Down/416=Reset), SFX/Music controls (427=NextTrack, 428=PrevTrack, 429=RandomMOD, 430=RandomIT, 431=RandomXM, 432=RandomRAD, 433=RandomAny) |
+| 401–435   | View/Audio   | Toolbar, StatusBar, LayerPanel, MenuBar, Zoom, DisplayScale (408=Up/409=Down/416=Reset), Edit Bar (435=toggle), SFX/Music controls (427=NextTrack, 428=PrevTrack, 429=RandomMOD, 430=RandomIT, 431=RandomXM, 432=RandomRAD, 433=RandomAny) |
 | 501–517   | Color        | Opacity presets (10–100%), Swap FG/BG |
 | 601–609   | Brush        | Size dec/inc, presets, preview, shape, pixel perfect |
 | 701–711   | Layer        | New, Delete, MoveUp/Down, MergeDown, MergeVisible, Duplicate, ArrangeTop/Bottom, ExportLayerPNG, MergeSelected |
@@ -119,3 +119,31 @@ Each widget has up to 4 state images loaded from the theme directory. Icon filen
 - Mini palette left/right clicks set FG/BG directly
 
 Brush drawer slots load into the custom brush pipeline. Pattern and gradient drawers switch `DRAWER.paintMode%` for the active drawing tools.
+
+---
+
+## Edit Bar (`GUI/EDITBAR.BI` / `GUI/EDITBAR.BM`)
+
+Vertical icon bar that mirrors Edit menu actions as clickable icon buttons. Dockable LEFT (adjacent to layers panel) or RIGHT (adjacent to toolbox/drawer). Toggle with F5 or action ID 435.
+
+- **25 slots**: 20 action icons + 5 dividers
+- **Groups**: History (Undo/Redo) | Clipboard (Cut/Copy/CopyMerged/Paste/PasteInPlace) | Layer ops (CutToLayer/CopyToLayer) | Clear | Fill/Stroke (FillFG/FillBG/StrokeSelection) | Quick transforms (FlipH/FlipV/Scale-/Scale+/RotateCW/RotateCCW)
+- **Config**: `EDIT_BAR_VISIBLE%`, `EDIT_BAR_DOCK_POSITION$` ("LEFT"/"RIGHT")
+- **Theme fields**: `EDIT_BAR_WIDTH%`, `EDIT_BAR_*_BORDER_WIDTH%`, `EDIT_BAR_ICON_PADDING%`, plus 20 `EDIT_BAR_ICON_*$` filename strings and color fields (`EDIT_BAR_BG~&`, `EDIT_BAR_HOVER~&`, `EDIT_BAR_BORDER*~&`)
+- **Icon dir**: `ASSETS/THEMES/DEFAULT/IMAGES/EDITBAR/*.png`
+
+### Lazy Icon Loading (Critical Pattern)
+
+Icons are loaded in `EDITBAR_load_icons`, called on **first render** — NOT in `EDITBAR_init`. This is mandatory because `EDITBAR_init` runs inside `SCREEN_init` (called inline from `SCREEN.BI`, `_ALL.BI` line 70), but `THEME.BI` (line 121) sets compiled-in icon filename defaults **after** `SCREEN_init` executes. Reading `THEME.EDIT_BAR_ICON_*$` in init returns empty strings, causing `_LOADIMAGE` to receive a bare directory path and crash with `std::bad_alloc`.
+
+The `iconsLoaded%` flag guards one-time loading in `EDITBAR_render`:
+
+```qb64
+IF NOT EDIT_BAR.iconsLoaded% THEN
+    EDITBAR_load_icons
+END IF
+```
+
+### Auto-Hide Visibility Pattern
+
+`EDITBAR_init` follows the `PREVIEW_init` pattern for default-hidden panels: sets `showEditBar% = FALSE` + `editBarManuallyHidden% = TRUE`, only clearing `ManuallyHidden` when config says visible. Without this, the auto-hide restore logic makes the panel visible on the first frame.

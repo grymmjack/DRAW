@@ -39,6 +39,9 @@ TYPE SCREEN_OBJ
     showPreviewWindow         AS INTEGER   ' TRUE when preview window is visible
     previewManuallyHidden     AS INTEGER   ' TRUE when user explicitly hid preview window
     previewHiddenByToggleAll  AS INTEGER   ' TRUE only when toggle-all (F11) hid the preview
+    showEditBar               AS INTEGER   ' TRUE when edit bar is visible
+    editBarManuallyHidden     AS INTEGER   ' TRUE when user explicitly hid edit bar
+    editBarHiddenByToggleAll  AS INTEGER   ' TRUE only when toggle-all (F11) hid the edit bar
 END TYPE
 
 DIM SHARED SCRN AS SCREEN_OBJ
