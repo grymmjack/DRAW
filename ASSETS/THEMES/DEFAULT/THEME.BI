@@ -347,6 +347,39 @@ THEME.LOSPEC_checkbox_dl_fill~&     = _RGB32(40, 120, 60)
 THEME.LOSPEC_downloaded_fg~&        = _RGB32(100, 190, 120)
 THEME.PALETTE_MENU_SEP_fg~&         = _RGB32(110, 110, 120)
 THEME.PALETTE_MENU_SEP_bg~&         = _RGB32(22, 22, 34)
+
+' =============================================================================
+' EDIT BAR - Vertical icon quick-action panel
+' =============================================================================
+THEME.EDIT_BAR_LEFT_BORDER_COLOR~&  = _RGB32(64, 64, 64)
+THEME.EDIT_BAR_RIGHT_BORDER_COLOR~& = _RGB32(64, 64, 64)
+THEME.EDIT_BAR_LEFT_BORDER_WIDTH%   = 1
+THEME.EDIT_BAR_RIGHT_BORDER_WIDTH%  = 1
+THEME.EDIT_BAR_WIDTH%               = 18
+THEME.EDIT_BAR_ICON_PADDING%        = 0
+THEME.EDIT_BAR_BG_COLOR~&           = _RGBA32(0, 0, 0, 255)
+THEME.EDIT_BAR_ICON_MOUSE_OUTLINE_COLOR~& = _RGBA32(255, 255, 255, 200)
+THEME.EDIT_BAR_DIVIDER_VERT_MARGIN% = 4
+THEME.EDIT_BAR_ICON_UNDO$           = "eb-undo.png"
+THEME.EDIT_BAR_ICON_REDO$           = "eb-redo.png"
+THEME.EDIT_BAR_ICON_CUT$            = "eb-cut.png"
+THEME.EDIT_BAR_ICON_COPY$           = "eb-copy.png"
+THEME.EDIT_BAR_ICON_COPY_MERGED$    = "eb-copy-merged.png"
+THEME.EDIT_BAR_ICON_PASTE$          = "eb-paste.png"
+THEME.EDIT_BAR_ICON_PASTE_IN_PLACE$ = "eb-paste-in-place.png"
+THEME.EDIT_BAR_ICON_CUT_TO_LAYER$   = "eb-cut-to-new-layer.png"
+THEME.EDIT_BAR_ICON_COPY_TO_LAYER$  = "eb-copy-to-new-layer.png"
+THEME.EDIT_BAR_ICON_CLEAR$          = "eb-clear.png"
+THEME.EDIT_BAR_ICON_FILL_WITH_FG$   = "eb-fill-with-fg-color.png"
+THEME.EDIT_BAR_ICON_FILL_WITH_BG$   = "eb-fill-with-bg-color.png"
+THEME.EDIT_BAR_ICON_STROKE_SELECTION$ = "eb-stroke-selection.png"
+THEME.EDIT_BAR_ICON_FLIP_HORIZONTAL$ = "eb-flip-horizontal.png"
+THEME.EDIT_BAR_ICON_FLIP_VERTICAL$  = "eb-flip-vertical.png"
+THEME.EDIT_BAR_ICON_SCALE_DOWN$     = "eb-scale-down.png"
+THEME.EDIT_BAR_ICON_SCALE_UP$       = "eb-scale-up.png"
+THEME.EDIT_BAR_ICON_ROTATE_CW$      = "eb-rotate-cw.png"
+THEME.EDIT_BAR_ICON_ROTATE_CCW$     = "eb-rotate-ccw.png"
+
 PALETTE_SEP_LOSPEC_LBL$             = "-- USER : LOSPEC --"
 PALETTE_SEP_CREATED_LBL$            = "-- USER : CREATED --"
 

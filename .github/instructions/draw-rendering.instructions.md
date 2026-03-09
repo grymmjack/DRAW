@@ -21,7 +21,7 @@ Composited back-to-front onto `SCRN.CANVAS&`, then GPU-scaled to window via `_PU
 5. Canvas border
 6. Image import preview
 7. **Tool previews** (marquee, line, rect, ellipse, polygon, move, text, zoom)
-8. GUI layer (`SCRN.GUI&` — toolbar, organizer, drawer panel, status bar, palette strip, layer panel, menubar)
+8. GUI layer (`SCRN.GUI&` — toolbar, organizer, drawer panel, edit bar, status bar, palette strip, layer panel, menubar)
 9. Crosshair overlay
 10. Scrollbars
 11. **Scene cache save** → `SCENE_CACHE&`

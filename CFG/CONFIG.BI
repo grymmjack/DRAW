@@ -224,6 +224,8 @@ TYPE DRAW_CONFIG
     PREVIEW_H                      AS INTEGER  ' Last window height
     PREVIEW_FOLLOW                 AS INTEGER  ' TRUE = follow-pointer magnifier mode
     PREVIEW_ZOOM                   AS SINGLE   ' Independent preview zoom level
+    EDIT_BAR_VISIBLE               AS INTEGER  ' TRUE = edit bar visible at startup
+    EDIT_BAR_DOCK_POSITION         AS STRING * 8 ' "LEFT" or "RIGHT"
 END TYPE
 
 DIM SHARED CFG   AS DRAW_CONFIG
