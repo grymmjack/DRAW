@@ -692,10 +692,21 @@ SUB GRAD_DEF_rebuild_preview (slotIndex AS INTEGER)
                             rpSpan! = GRAD_COLOR_STOPS(slotIndex%, rpI% + 1).position - GRAD_COLOR_STOPS(slotIndex%, rpI%).position
                             IF rpSpan! > 0 THEN rpSegT! = (t! - GRAD_COLOR_STOPS(slotIndex%, rpI%).position) / rpSpan! ELSE rpSegT! = 0
                             rpThr! = DITHER_get_threshold!(GRAD_DEFS(slotIndex%).ditherMode%, x%, y%)
-                            IF rpSegT! < (rpThr! * rpStr! + (1! - rpStr!) * rpSegT!) THEN
-                                c~& = GRAD_COLOR_STOPS(slotIndex%, rpI%).clr
+                            ' Blend smooth lerp with binary dither by strength
+                            DIM rpSmooth AS _UNSIGNED LONG
+                            DIM rpDither AS _UNSIGNED LONG
+                            rpSmooth~& = DRAWER_gradient_lerp_color~&(GRAD_COLOR_STOPS(slotIndex%, rpI%).clr, GRAD_COLOR_STOPS(slotIndex%, rpI% + 1).clr, rpSegT!)
+                            IF rpSegT! < rpThr! THEN rpDither~& = GRAD_COLOR_STOPS(slotIndex%, rpI%).clr ELSE rpDither~& = GRAD_COLOR_STOPS(slotIndex%, rpI% + 1).clr
+                            IF rpStr! >= 1 THEN
+                                c~& = rpDither~&
+                            ELSEIF rpStr! <= 0 THEN
+                                c~& = rpSmooth~&
                             ELSE
-                                c~& = GRAD_COLOR_STOPS(slotIndex%, rpI% + 1).clr
+                                DIM rpFR AS INTEGER, rpFG AS INTEGER, rpFB AS INTEGER
+                                rpFR% = _RED32(rpSmooth~&) + INT((_RED32(rpDither~&) - _RED32(rpSmooth~&)) * rpStr! + .5)
+                                rpFG% = _GREEN32(rpSmooth~&) + INT((_GREEN32(rpDither~&) - _GREEN32(rpSmooth~&)) * rpStr! + .5)
+                                rpFB% = _BLUE32(rpSmooth~&) + INT((_BLUE32(rpDither~&) - _BLUE32(rpSmooth~&)) * rpStr! + .5)
+                                c~& = _RGB32(rpFR%, rpFG%, rpFB%)
                             END IF
                             EXIT FOR
                         END IF
@@ -864,11 +875,21 @@ FUNCTION DRAWER_resolve_gradient_color~& (x AS INTEGER, y AS INTEGER, baseColor 
                 gdColorA~& = GRAD_COLOR_STOPS(slotIdx%, gdI%).clr
                 gdColorB~& = GRAD_COLOR_STOPS(slotIdx%, gdI% + 1).clr
                 gdThreshold! = DITHER_get_threshold!(GRAD_DEFS(slotIdx%).ditherMode%, x%, y%)
-                ' Apply strength: stronger = sharper snap, weaker = softer blend zone
-                IF gdSegT! < (gdThreshold! * gdStrength! + (1! - gdStrength!) * gdSegT!) THEN
-                    DRAWER_resolve_gradient_color~& = PAINT_apply_opacity~&(gdColorA~&)
+                ' Blend smooth lerp with binary dither by strength
+                DIM gdSmooth AS _UNSIGNED LONG
+                DIM gdDither AS _UNSIGNED LONG
+                gdSmooth~& = DRAWER_gradient_lerp_color~&(gdColorA~&, gdColorB~&, gdSegT!)
+                IF gdSegT! < gdThreshold! THEN gdDither~& = gdColorA~& ELSE gdDither~& = gdColorB~&
+                IF gdStrength! >= 1 THEN
+                    DRAWER_resolve_gradient_color~& = PAINT_apply_opacity~&(gdDither~&)
+                ELSEIF gdStrength! <= 0 THEN
+                    DRAWER_resolve_gradient_color~& = PAINT_apply_opacity~&(gdSmooth~&)
                 ELSE
-                    DRAWER_resolve_gradient_color~& = PAINT_apply_opacity~&(gdColorB~&)
+                    DIM gdFR AS INTEGER, gdFG AS INTEGER, gdFB AS INTEGER
+                    gdFR% = _RED32(gdSmooth~&) + INT((_RED32(gdDither~&) - _RED32(gdSmooth~&)) * gdStrength! + .5)
+                    gdFG% = _GREEN32(gdSmooth~&) + INT((_GREEN32(gdDither~&) - _GREEN32(gdSmooth~&)) * gdStrength! + .5)
+                    gdFB% = _BLUE32(gdSmooth~&) + INT((_BLUE32(gdDither~&) - _BLUE32(gdSmooth~&)) * gdStrength! + .5)
+                    DRAWER_resolve_gradient_color~& = PAINT_apply_opacity~&(_RGB32(gdFR%, gdFG%, gdFB%))
                 END IF
                 EXIT FUNCTION
             END IF
@@ -2396,6 +2417,15 @@ SUB DRAWER_load_state_binary (fh AS INTEGER)
         DRAWER_GRADIENT_CUSTOM(i%) = (loadedImg& < -1)
     NEXT i%
 
+    ' Recreate palette strip images (DRAWER_reset freed them)
+    DRAWER_PALETTE_IMG& = DRAWER_load_theme_image&("IMAGES/PALETTE", "palette-thin.png")
+    DRAWER_PALETTE_LEFT_IMG& = DRAWER_load_theme_image&("IMAGES/PALETTE", "palette-left.png")
+    DRAWER_PALETTE_RIGHT_IMG& = DRAWER_load_theme_image&("IMAGES/PALETTE", "palette-right.png")
+    IF DRAWER_PALETTE_IMG& < -1 THEN
+        DRAWER_sync_palette_marker PAINT_COLOR~&, FALSE
+        DRAWER_sync_palette_marker PAINT_BG_COLOR~&, TRUE
+    END IF
+
     DRAWER.samplesLoaded% = TRUE
     DRAWER.loadedTheme = _TRIM$(CFG.THEME$)
     DRAWER_GRADIENT_LAST_FG~& = PAINT_COLOR~&
@@ -3019,10 +3049,21 @@ SUB GRADIENT_editor_dialog ()
                         END IF
                     NEXT gedDi%
                     gedDthr! = DITHER_get_threshold!(GRAD_DEFS(slotIdx%).ditherMode%, GED_BAR_X + gedGx%, gedBarY% + gedDy%)
-                    IF gedDsegT! < (gedDthr! * gedDstr! + (1! - gedDstr!) * gedDsegT!) THEN
-                        PSET (GED_BAR_X + gedGx%, gedBarY% + gedDy%), gedDcolA~&
+                    ' Blend smooth lerp with binary dither by strength
+                    DIM gedSmooth AS _UNSIGNED LONG
+                    DIM gedDither AS _UNSIGNED LONG
+                    gedSmooth~& = DRAWER_gradient_lerp_color~&(gedDcolA~&, gedDcolB~&, gedDsegT!)
+                    IF gedDsegT! < gedDthr! THEN gedDither~& = gedDcolA~& ELSE gedDither~& = gedDcolB~&
+                    IF gedDstr! >= 1 THEN
+                        PSET (GED_BAR_X + gedGx%, gedBarY% + gedDy%), gedDither~&
+                    ELSEIF gedDstr! <= 0 THEN
+                        PSET (GED_BAR_X + gedGx%, gedBarY% + gedDy%), gedSmooth~&
                     ELSE
-                        PSET (GED_BAR_X + gedGx%, gedBarY% + gedDy%), gedDcolB~&
+                        DIM gedFR AS INTEGER, gedFG AS INTEGER, gedFB AS INTEGER
+                        gedFR% = _RED32(gedSmooth~&) + INT((_RED32(gedDither~&) - _RED32(gedSmooth~&)) * gedDstr! + .5)
+                        gedFG% = _GREEN32(gedSmooth~&) + INT((_GREEN32(gedDither~&) - _GREEN32(gedSmooth~&)) * gedDstr! + .5)
+                        gedFB% = _BLUE32(gedSmooth~&) + INT((_BLUE32(gedDither~&) - _BLUE32(gedSmooth~&)) * gedDstr! + .5)
+                        PSET (GED_BAR_X + gedGx%, gedBarY% + gedDy%), _RGB32(gedFR%, gedFG%, gedFB%)
                     END IF
                 NEXT gedGx%
             NEXT gedDy%
