@@ -27,13 +27,14 @@ Composited back-to-front onto `SCRN.CANVAS&`, then GPU-scaled to window via `_PU
 11. **Scene cache save** → `SCENE_CACHE&`
 12. `SkipToPointer:` — fast path target for cursor-only updates
 13. **Selection overlay** (marching ants) — AFTER cache, so animation doesn't invalidate it
-14. Blend-mode popup / command palette overlays
-15. Pointer cursor (`POINTER_update` + `POINTER_render`)
+14. Pointer cursor (`POINTER_update` + `POINTER_render`)
+15. **Preview window** (`PREVIEW_render`) — before the second GUI composite so menus and overlays stay above it
 16. GUI recomposite + scrollbars + contextual status bars
 17. Picker loupe overlay (`PICKER_LOUPE_render`) when the picker is active
-18. Cursor overlay
-19. Scale `SCRN.CANVAS&` to window (integer scaling, nearest neighbor)
-20. `_DISPLAY`
+18. **Final overlay popups** (blend-mode popup, drawer context menu, command palette)
+19. Cursor overlay
+20. Scale `SCRN.CANVAS&` to window (integer scaling, nearest neighbor)
+21. `_DISPLAY`
 
 ### Scene Cache (`SCENE_CACHE&`, `SCENE_DIRTY%`)
 
@@ -45,7 +46,7 @@ When only the cursor moved, `SCENE_DIRTY%` stays FALSE. The renderer copies the 
 
 **Rule**: Per-frame animations MUST render after `SkipToPointer:`. Placing them before forces `SCENE_DIRTY% = TRUE` every frame, defeating the cache.
 
-**Overlay rule**: Any overlay that must remain visible above the recomposited GUI layer belongs after the second GUI composite. The picker loupe is the current example.
+**Overlay rule**: Any overlay that must remain visible above the recomposited GUI layer belongs after the second GUI composite. The picker loupe and final popup overlays are the current examples. The preview window is the counterexample: it renders before the second GUI composite so menus, status overlays, and pickers can remain on top of it.
 
 ### Performance Patterns
 

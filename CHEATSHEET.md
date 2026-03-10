@@ -54,7 +54,6 @@ status bar as `OP:nn%` when below 100%.
 | `F1` | Drawer brush mode |
 | `F2` | Drawer gradient mode |
 | `F3` | Drawer pattern mode |
-| `F4` | Brush size preset 4 |
 
 ### Palette Controls
 | Action | Function |
@@ -76,7 +75,7 @@ status bar as `OP:nn%` when below 100%.
 
 ### Drawer Panel
 
-The drawer panel sits beneath the organizer and provides 16 reusable slots for brushes, gradients, or patterns plus a mini palette.
+The drawer panel sits beneath the organizer and provides 30 reusable slots for brushes, gradients, or patterns plus a mini palette.
 
 | Input | Function |
 |-------|----------|
@@ -84,7 +83,10 @@ The drawer panel sits beneath the organizer and provides 16 reusable slots for b
 | `F2` | Switch drawer to **Gradient** mode |
 | `F3` | Switch drawer to **Pattern** mode |
 | **Left Click slot** | Select the current brush/pattern/gradient slot |
+| **Shift + Left Click slot** | Store the current brush / clipboard image / FG→BG gradient into the slot |
+| **Right Click slot** | Open the slot context menu |
 | **Middle Click slot** | Cycle drawer mode (Brush → Pattern → Gradient) |
+| **Shift + Middle Click slot** | Clear the clicked slot |
 | **Shift + Right Click slot** | Import into the clicked slot |
 | **Left Click mini palette** | Set foreground color |
 | **Right Click mini palette** | Set background color |
@@ -294,10 +296,6 @@ When a custom brush is captured (`Ctrl+B`), the spray tool stamps the custom bru
 |-----|----------|
 | `[` or `{` | Decrease brush size |
 | `]` or `}` | Increase brush size |
-| `F1` | Brush preset 1 |
-| `F2` | Brush preset 2 |
-| `F3` | Brush preset 3 |
-| `F4` | Brush preset 4 |
 | `` ` `` or `~` | Toggle brush preview |
 | `\` or `|` | Toggle brush shape |
 | `F6` | Toggle pixel perfect mode |
@@ -357,9 +355,12 @@ Brush size and shape affect all drawing tools: Brush, Dot, Line, Rectangle, Elli
 |-----|----------|
 | `Tab` | Toggle toolbar visibility |
 | `Ctrl+L` | Toggle layer panel visibility |
+| `F4` | Toggle preview window |
+| `F5` | Toggle edit bar |
 | `F10` | Toggle status bar visibility |
 | `F11` | Toggle all UI (toolbar, status bar, layer panel, menu bar) |
 | `Ctrl+F11` | Toggle menu bar visibility |
+| `Shift+Tab` | Toggle pattern tile mode |
 | `Shift` | Show crosshair (when held) |
 
 **Note:** Toggling the layer panel or menu bar does not shift the canvas position. UI panels overlay on top of the canvas.
@@ -747,6 +748,7 @@ Reference image state (position, scale, opacity, visibility, filename) is saved 
 | Command | Function |
 |---------|----------|
 | File → New | Create a new empty canvas (prompts to save unsaved changes) |
+| File → New from Template | Start from a `.draw`, PNG, or BMP template and mark the result clean |
 | File → Open | Open a .draw project file |
 | File → Import Image | Open/import image file |
 | File → Save | Save (silently if previously saved, dialog if new) |

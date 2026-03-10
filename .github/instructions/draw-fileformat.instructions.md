@@ -33,9 +33,12 @@ Extension changed from `.drw` to `.draw` in v0.7.4 (CorelDRAW conflict).
 | Brush Shape     | shape(2) | v5+ |
 | Grid State      | mode(2), cellFill(2), snap(2), alignMode(2) | v6+ |
 | Unified History | stable layer ids + history records/payloads for replay/export | v7+ |
-| Drawer State    | visible(2), mode(2), miniPaletteOffset(2), selected slots(2 each), customBrushActive(2), 16 brush slots, 16 pattern slots, 16 gradient slots | v10+ |
+| Drawer State    | visible(2), mode(2), miniPaletteOffset(2), selected slots(2 each), customBrushActive(2), 30 brush slots, 30 pattern slots, 30 gradient slots | v10+ |
+| Pattern Tile Mode | enabled(2) | v11+ |
+| Gradient Definitions | per-slot gradient defs, color stops, opacity stops | v12+ |
+| Gradient Stop Types | per-slot stop type arrays for gradient editors/export | v13+ |
 
-Constants: `DRW_MAGIC$ = "DRW1"`, `DRW_VERSION% = 10`, `DRW_CHUNK_VERSION% = 1`
+Constants: `DRW_MAGIC$ = "DRW1"`, `DRW_VERSION% = 13`, `DRW_CHUNK_VERSION% = 1`
 
 ### Key Functions
 
@@ -47,6 +50,7 @@ Constants: `DRW_MAGIC$ = "DRW1"`, `DRW_VERSION% = 10`, `DRW_CHUNK_VERSION% = 1`
 
 ```qb64
 UNDO_init: WORKSPACE_UNDO_clear: MARQUEE_reset: MOVE_init: MAGIC_WAND_reset: ERASER_reset
+DRAWER_reset: PREVIEW_reset
 LAYER_PANEL.scrollOffset% = 0: LAYER_PANEL.soloLayer% = 0
 LAYER_PANEL.visSwiping% = FALSE: LAYER_PANEL.dragPending% = FALSE
 LAYER_PANEL.isDragging% = FALSE: LAYER_PANEL.dragLayerIdx% = 0
@@ -72,13 +76,18 @@ Config file: `DRAW.cfg` — plain text, one `key=value` per line. Loaded by `CON
 | Grid     | `GRID_MODE%`, `GRID_SIZE_X/Y%`, `GRID_CELL_FILL%` |
 | Undo     | `WORKSPACE_UNDO_MAX_STATES%` |
 | Picker   | `PICKER_LOUPE_*` overlay layout, font, and colors |
+| Preview / Panels | `PREVIEW_*`, `EDIT_BAR_VISIBLE%`, `EDIT_BAR_DOCK_POSITION$`, `LAYER_PANEL_WIDTH%`, `LAYERS_PANEL_DOCK_EDGE$`, `TOOLBOX_DOCK_EDGE$` |
 | Palette UI | `PALETTE_SHOW_LOSPEC%`, `PALETTE_SHOW_CREATED%`, `PALETTE_CREATE_MAX_COLORS%` |
+| Drawer / Templates | `DEFAULT_DSET_*_FILE$`, `TEMPLATE_DIR$` |
 | Export   | `BAS_EXPORT_BG_COLOR~&`, `BAS_WIP_ENABLED%` |
+| Audio    | `SOUNDS_*`, `MUSIC_*` |
 | Dirs     | `LAST_DIR_OPEN$`, `LAST_DIR_SAVE$`, `LAST_DIR_IMPORT$`, `LAST_DIR_EXPORT_BRUSH/LAYER$`, `LAST_DIR_PALETTE$` |
 
 Defaults: DOT tool, brush size 1, square shape, 60 FPS, 128×128 canvas, 4 layers.
 
 **Auto-Detection (first launch)**: When `DISPLAY_SCALE=0`, `SCREEN_detect_display_scale%` targets 90% of desktop resolution at highest integer scale (capped at 4). `TOOLBAR_SCALE=0` auto-detects from viewport height (≥800=4x, ≥600=3x, ≥400=2x, else 1x). Saved on first launch via `CONFIG_NEEDS_INITIAL_SAVE%`.
+
+Command-line config helpers: `--config <file>` / `-c <file>` selects an explicit config file, and `--config-upgrade` backfills newly-added keys into an existing config.
 
 ---
 
@@ -106,6 +115,8 @@ Key fields:
 | `TOOLBAR_btn_overlay~&` | `_UNSIGNED LONG` | Active toolbar button fill overlay |
 | `TOOLBAR_btn_stroke~&`  | `_UNSIGNED LONG` | Active toolbar button border color |
 | `DRAWER_PANEL_*` | `INTEGER` / `_UNSIGNED LONG` | Drawer layout, palette paging, scrollbar sizing, and drawer colors |
+| `PREVIEW_*` | `INTEGER` / `_UNSIGNED LONG` / `STRING` | Preview window chrome, font, checkbox, and resize-handle styling |
+| `EDIT_BAR_*` | `INTEGER` / `_UNSIGNED LONG` / `STRING` | Edit bar sizing, borders, colors, and icon filename configuration |
 | `LOSPEC_*` | `_UNSIGNED LONG` / `INTEGER` | Lospec dialog search/list/preview/status theming |
 | `TRANSFORM_FRAME_COLOR~&` | `_UNSIGNED LONG` | Transform overlay bounding-box outline |
 | `TRANSFORM_FRAME_HANDLE_COLOR~&` | `_UNSIGNED LONG` | Transform overlay handle square fill |

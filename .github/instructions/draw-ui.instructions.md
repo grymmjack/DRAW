@@ -30,7 +30,7 @@ Root menus (indices 0–10): FILE(0), EDIT(1), VIEW(2), SELECT(3), TOOLS(4), BRU
 | 201–213   | File         | Open, Save, SaveAs, Export, ExportSelection, Import, New, Template, Revert, Recent, Exit |
 | 301–324   | Edit         | Undo, Redo, Copy, Cut, Paste, Clear, SelectAll, Fill FG/BG, Flip, Scale, Rotate, CopyToNewLayer, StrokeSelection |
 | 325–330   | Transform    | Overlay modes: Scale(325), Distort(326), Perspective(327), Rotate(328), Shear(329); 330=TRANSFORM_ACT_FLYOUT (opens the TRANSFORM... submenu) |
-| 401–435   | View/Audio   | Toolbar, StatusBar, LayerPanel, MenuBar, Zoom, DisplayScale (408=Up/409=Down/416=Reset), Edit Bar (435=toggle), SFX/Music controls (427=NextTrack, 428=PrevTrack, 429=RandomMOD, 430=RandomIT, 431=RandomXM, 432=RandomRAD, 433=RandomAny) |
+| 401–440   | View/Audio   | Toolbar, StatusBar, LayerPanel, MenuBar, Zoom, DisplayScale (408=Up/409=Down/416=Reset), Preview Window (434=toggle), Edit Bar (435=toggle), Pattern Tile Mode (440=toggle), SFX/Music controls (427=NextTrack, 428=PrevTrack, 429=RandomMOD, 430=RandomIT, 431=RandomXM, 432=RandomRAD, 433=RandomAny) |
 | 501–517   | Color        | Opacity presets (10–100%), Swap FG/BG |
 | 601–609   | Brush        | Size dec/inc, presets, preview, shape, pixel perfect |
 | 701–711   | Layer        | New, Delete, MoveUp/Down, MergeDown, MergeVisible, Duplicate, ArrangeTop/Bottom, ExportLayerPNG, MergeSelected |
@@ -44,6 +44,7 @@ Root menus (indices 0–10): FILE(0), EDIT(1), VIEW(2), SELECT(3), TOOLS(4), BRU
 | 1601–1607 | Help         | About, CheatSheet, Manual, GitHub, Issues, Credits |
 | 1701–1704 | Tools (menu) | Zoom, Spray, CmdPalette, CodeExport |
 | 1801–1802 | Canvas       | Resize dialog (1801), Crop dialog (1802) |
+| 1911–1914 | Drawer Sets  | Load, Save, Clear, Explore drawer-set folder |
 | 2001–2010 | Image Adj    | BrightnessContrast, HueSaturation, Levels, ColorBalance, Blur, Sharpen, Invert, Desaturate, Posterize, Pixelate |
 
 ### Command Palette
@@ -108,17 +109,33 @@ Each widget has up to 4 state images loaded from the theme directory. Icon filen
 
 ## Drawer Panel (`GUI/DRAWER.BI` / `GUI/DRAWER.BM`)
 
-16-slot panel rendered directly beneath the organizer. The drawer has three modes: Brush, Pattern, and Gradient.
+30-slot panel rendered directly beneath the organizer in a 3×10 grid. The drawer has three modes: Brush, Pattern, and Gradient.
 
 - `F1` → Brush drawer
 - `F2` → Gradient drawer
 - `F3` → Pattern drawer
 - Left-click slot: select slot and activate the corresponding paint mode
+- `Shift+Left Click` slot: store current brush / clipboard image / FG→BG gradient into the slot
+- Right-click slot: open slot context menu
 - Middle-click slot: cycle drawer mode (Brush → Pattern → Gradient)
+- `Shift+Middle Click` slot: clear the clicked slot
 - `Shift+Right Click` slot: queue slot import via deferred dialog
 - Mini palette left/right clicks set FG/BG directly
 
 Brush drawer slots load into the custom brush pipeline. Pattern and gradient drawers switch `DRAWER.paintMode%` for the active drawing tools.
+
+The drawer context menu uses `POPUP_MENU_*` helpers and exposes mode-specific actions plus drawer-set management: load `.dset`, save `.dset`, clear active set, explore folder, and gradient editing when in gradient mode.
+
+## Preview Window (`GUI/PREVIEW.BI` / `GUI/PREVIEW.BM`)
+
+Floating live preview panel toggled with `F4` / action ID `434`.
+
+- Title-bar drag to move
+- Resize handle in the bottom-right corner
+- Independent wheel zoom and pan when follow-pointer is off
+- Follow-pointer checkbox lives in the title bar and persists to config
+- Minimize/close buttons live in the title bar
+- Position is clamped to the current work area so the window stays recoverable
 
 ---
 

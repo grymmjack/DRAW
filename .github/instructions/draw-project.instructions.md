@@ -24,7 +24,7 @@ applyTo: "**"
 1. `_COMMON.BI` — core types and globals
 2. **CORE**: PERF, ERROR, IMAGE
 3. **CFG**: CONFIG, CONFIG-THEME, CONFIG-KEYBOARD, CONFIG-MOUSE, CONFIG-STICK, BINDINGS-\*
-4. **GUI**: PALETTE, PALETTE-LOADER, PALETTE-STRIP, GUI, BRUSHES, CROSSHAIR, GRID, HELP, LAYERS, PALETTE-PICKER, PICKER, CURSOR, POINTER, STATUS, TOOLBAR, ORGANIZER, DRAWER, TRANSPARENCY, COMMAND, MENUBAR, SCROLLBAR, DIALOG, IMGADJ, IMAGE-ADJ, STROKE-SEL
+4. **GUI**: PALETTE, PALETTE-LOADER, PALETTE-STRIP, GUI, BRUSHES, CROSSHAIR, GRID, HELP, LAYERS, PALETTE-PICKER, PICKER, CURSOR, POINTER, STATUS, TOOLBAR, ORGANIZER, DITHER, DRAWER, PREVIEW, EDITBAR, TRANSPARENCY, COMMAND, MENUBAR, SCROLLBAR, DIALOG, IMGADJ, IMAGE-ADJ, POPUP-MENU, STROKE-SEL
 5. **INPUT**: MODIFIERS, KEYBOARD, MOUSE, STICK, FILE-BMP, FILE-BLOAD, FILE-PAL, API-LOSPEC
 6. **OUTPUT**: SCREEN, FILE-BAS, FILE-BMP, FILE-BSAVE
 7. **QB64_GJ_LIB**: DICT, STRINGS, VECT2D
@@ -37,7 +37,7 @@ applyTo: "**"
 | ----------------------- | -------------------------------------------------------------------- |
 | `CFG/`                  | Configuration types, keyboard/mouse/joystick bindings                |
 | `CORE/`                 | Performance counters, error handling, image utilities                |
-| `GUI/`                  | UI components (toolbar, status bar, palette, grid, layers, menubar, command palette, organizer, drawer panel) |
+| `GUI/`                  | UI components (toolbar, status bar, palette, grid, layers, menubar, command palette, organizer, drawer panel, preview window, edit bar, popup menus, dithering helpers) |
 | `INPUT/`                | Input handlers (mouse, keyboard, joystick), file loaders, Lospec API |
 | `OUTPUT/`               | Screen rendering (`SCREEN_render`), file export (BAS, BMP, BSAVE)   |
 | `TOOLS/`                | Drawing tools, undo systems, DRW format, image import                |
@@ -267,8 +267,9 @@ A frame is "idle" when no input, mouse movement, GUI changes, or active tool ope
 | `_COMMON.BM`              | Stroke system, title bar, paint helpers                             |
 | `DRAW.BAS`                | Main loop, application entry point                                  |
 | `GUI/GUI.BI`              | Tool constants (`TOOL_SELECT_*`, `TOOL_ERASER`), GUI context        |
-| `GUI/IMAGE-ADJ.BI/BM`     | Image adjustment dialogs (Brightness/Contrast, Hue/Sat, Levels, Blur, etc.) with live preview |
+| `GUI/IMAGE-ADJ.BI/BM`     | Image adjustment dialogs (Brightness/Contrast, Hue/Sat, Levels, Blur, Posterize, Pixelate, etc.) with live preview |
 | `GUI/COMMAND.BM`          | Central action dispatcher (all 200+ commands)                       |
+| `GUI/DITHER.BI/BM`        | Shared dithering algorithms and threshold helpers for gradients and posterize |
 | `INPUT/MOUSE.BM`          | Mouse processing pipeline (~2590 lines)                             |
 | `INPUT/KEYBOARD.BM`       | Keyboard shortcuts and handler                                      |
 | `TOOLS/UNDO.BM`           | Pixel undo system                                                   |
@@ -279,8 +280,10 @@ A frame is "idle" when no input, mouse movement, GUI changes, or active tool ope
 | `GUI/TOOLBAR.BI`          | Layout constants (`TB_COLS`, `TB_ROWS`), button-to-tool mapping     |
 | `GUI/TOOLBAR.BM`          | Toolbar rendering, click handling, active indicator                 |
 | `GUI/ORGANIZER.BI`        | Organizer widget constants (`ORG_*`), 4×3 layout                    |
-| `GUI/DRAWER.BI/BM`        | 16-slot brush/pattern/gradient drawer panel with mini palette and `.dset` import/export |
+| `GUI/DRAWER.BI/BM`        | 30-slot brush/pattern/gradient drawer panel with mini palette, slot context menus, and `.dset` import/export |
+| `GUI/PREVIEW.BI/BM`       | Floating preview window with follow-pointer mode, pan/zoom, resize, and work-area clamping |
 | `GUI/EDITBAR.BI/BM`       | Vertical icon bar mirroring Edit menu actions; dockable LEFT/RIGHT; toggle F5 |
+| `GUI/POPUP-MENU.BI/BM`    | Shared popup menu layout/rendering used by drawer and other contextual overlays |
 | `TOOLS/HISTORY.BI/BM`     | Unified history system used by Ctrl+Z/Y before falling back to workspace/pixel undo |
 | `TOOLS/ERASER.BI/BM`      | Eraser tool (transparent painting via brush pipeline)               |
 | `TOOLS/TRANSFORM.BI/BM`   | On-canvas transform overlay (Scale/Rotate/Shear/Distort/Perspective); activated via Edit→TRANSFORM...; not a toolbar tool |

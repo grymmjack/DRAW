@@ -14,7 +14,11 @@ DATA "::::::::", "::    ::", "::    ::", "::::  ::::", "  ::  ::  "
 
 DRAW is a pixel art editor written in QB64PE that can export images as sourcecode
 
+Current release: v0.18.0
+
 ![DRAW GUI from v0.17.0](./GUI.png)
+
+Note: screenshot refresh pending for v0.18.0. The current UI also includes the preview window, edit bar, and expanded drawer workflows not shown above.
 
 ## Features
 
@@ -43,9 +47,10 @@ DRAW is a pixel art editor written in QB64PE that can export images as sourcecod
 - **Image Import** - Load images with interactive placement, rotation (90° CW/CCW), horizontal/vertical flip, zoom, pan, and resize — with live preview of all transformations
 - **Crop** - Interactive canvas crop using marquee selection with dark overlay, resize handles, and size label; also supports canvas resize dialog
 - **Canvas Resize** - Resize canvas to arbitrary dimensions via dialog (Canvas menu), preserving layer content at origin
+- **New from Template** - Start fresh from bundled `.draw`/image templates or a remembered template folder
 - **QB64 Export** - Generate QB64 source output from artwork/history, with improved raster fallback for operations that cannot be reproduced parametrically
 - **Angle Snap** - Two modes: degree-based (configurable 15°/30°/45°/90° increments) and pixel-art (11 integer-ratio angles for clean pixel lines). Hold Ctrl+Shift to snap + bypass grid. Applies to Line, Polygon, and Brush/Dot connecting lines
-- **Image Adjustments** - Non-destructive per-layer adjustments via the Image menu: Brightness/Contrast, Hue/Saturation, Levels, Color Balance, Blur, Sharpen, Invert, Desaturate, Posterize, Pixelate — all with **live preview** and **mouse wheel slider** support; alpha channel preserved throughout
+- **Image Adjustments** - Non-destructive per-layer adjustments via the Image menu: Brightness/Contrast, Hue/Saturation, Levels, Color Balance, Blur, Sharpen, Invert, Desaturate, Posterize, Pixelate — all with **live preview** and **mouse wheel slider** support; Posterize also supports multiple dithering algorithms; alpha channel preserved throughout
 
 ### Grid System
 - Adjustable grid overlay (2-50px spacing)
@@ -83,14 +88,16 @@ DRAW is a pixel art editor written in QB64PE that can export images as sourcecod
 - Scrollbars for canvases larger than the viewport
 - Keyboard panning with arrow keys
 - Reset view with Ctrl+0 or double-click middle mouse
-- Toggle UI elements (toolbar, status bar, menu bar, layer panel)
+- **Preview Window** - Floating live preview with independent zoom/pan, follow-pointer mode, move/resize controls, and persistent state (`F4`)
+- **Pattern Tile Mode** - 3×3 tiled canvas preview for seamless work on canvases up to 512×512 (`Shift+Tab`)
+- Toggle UI elements (toolbar, status bar, menu bar, layer panel, preview window, edit bar)
 
 ### Brush System
 - Size adjustment: `[` decrease, `]` increase (1-50px)
 - Shape toggle: `\` or `|` (circle/square)
 - Preview mode: `` ` `` or `~` (shows outline + color preview)
 - Pixel perfect mode: `F6` (removes L-corners for cleaner strokes)
-- 4 brush presets (F1-F4)
+- 4 brush size presets via the organizer widget and command palette
 - Visual cursor feedback with current color
 
 ### Layer System
@@ -122,11 +129,13 @@ DRAW is a pixel art editor written in QB64PE that can export images as sourcecod
 - All audio state persisted in `DRAW.cfg` (`SOUNDS_ENABLED`, `SOUNDS_VOLUME`, `SOUNDS_MUTED`, `MUSIC_ENABLED`, `MUSIC_VOLUME`, `MUSIC_MUTED`)
 
 ### User Interface
-- **Drawer panel** - A 16-slot drawer beneath the organizer for brush, gradient, and pattern sets; `F1`/`F2`/`F3` switch modes, left-click selects a slot, middle-click cycles modes, and `Shift+Right Click` imports into a slot
+- **Drawer panel** - A 30-slot drawer beneath the organizer for brush, gradient, and pattern sets; `F1`/`F2`/`F3` switch modes, left-click selects, `Shift+Left Click` stores, right-click opens a context menu, middle-click cycles modes, `Shift+Middle Click` clears a slot, and `Shift+Right Click` imports into a slot
+- **Preview window** - A floating canvas preview panel with follow-pointer mode, pan/zoom, minimize/close buttons, and work-area clamping
+- **Edit bar** - A dockable vertical strip of edit-action icons on the left or right side of the workspace (`F5`)
 - Themeable PNG icon toolbar (28 buttons in **4×7 grid**)
 - PNG cursors with theme-configurable hotspots and alpha transparency
 - **Fully themeable layer panel** — all colors, header height, and button bar height configurable via `ASSETS/THEMES/DEFAULT/THEME.CFG` (no recompile needed)
-- **Menu bar** with File, Edit, View, Select, Tools, Brush, Layers, Help menus and full keyboard navigation
+- **Menu bar** with File, Edit, View, Select, Tools, Brush, Layer, Palette, Image, Help, and Audio menus plus full keyboard navigation
 - Submenus auto-position within menu bar bounds (no toolbar/panel overlap)
 - Auto-hiding toolbar and status bar during active drawing
 - Manual UI toggle with Tab, F10, F11 — toggling panels does not shift the canvas
@@ -144,6 +153,7 @@ DRAW is a pixel art editor written in QB64PE that can export images as sourcecod
 **Palette:** Click palette name dropdown to switch palettes, SHIFT+wheel for fast scroll  
 **Grid:** `'` (toggle), `Shift+'` (pixel grid), `;` (snap), `Ctrl+'` (cycle mode), `.` (bigger), `,` (smaller)  
 **Brush Size:** `[` (smaller), `]` (bigger), F6 (pixel perfect)  
+**Panels:** F4 (preview), F5 (edit bar), Tab/F10/F11 (UI), Shift+Tab (pattern tile)  
 **Canvas:** Delete (clear with prompt), Backspace (clear instant)  
 **View:** Mouse wheel (zoom), Middle click (pan), Ctrl+0 (reset)  
 **Clipboard:** Ctrl+C (copy), Ctrl+X (cut), Ctrl+V (paste at cursor), Ctrl+E (clear)  
