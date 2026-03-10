@@ -23,6 +23,7 @@ Where `<directory>` is a path (absolute or relative) to a folder containing imag
 | `-b` | Brush | Creates brush drawer sets (default) |
 | `-p` | Pattern | Creates pattern drawer sets |
 | `-g` | Gradient | Creates gradient drawer sets |
+| `-d` | Desaturate | Creates desaturated drawer set (this can also be used on a dset directly without needing source images) |
 
 If no flag is given, brush mode is used.
 
