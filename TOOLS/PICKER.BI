@@ -12,6 +12,7 @@ TYPE PICKER_TOOL
 END TYPE
 
 DIM SHARED PICKER AS PICKER_TOOL
+DIM SHARED PICKER_REFIMG_RESET AS INTEGER  ' TRUE = reset R-key arm state on next resolve call (Linux/SDL2 ghost-key guard)
 
 DECLARE SUB PICKER_init ()
 DECLARE SUB PICKER_activate ()

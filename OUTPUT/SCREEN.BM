@@ -1490,6 +1490,9 @@ SUB SCREEN_render ()
             PALETTE_STRIP_render
             STATUS_render
         END IF
+        IF SCRN.showEditBar% THEN
+            EDITBAR_render
+        END IF
         IF LAYER_PANEL.visible% THEN
             LAYER_PANEL_render SCRN.h&
         END IF
@@ -1545,8 +1548,8 @@ SUB SCREEN_render ()
 
         PERF_start PERF_DIRTY_RECT_PATH
         DIM new_mx AS INTEGER, new_my AS INTEGER
-        new_mx% = _MOUSEX
-        new_my% = _MOUSEY
+        new_mx% = MOUSE.RAW_X%
+        new_my% = MOUSE.RAW_Y%
 
         ' Dynamic padding: covers cursor PNG + brush preview + overlays
         DIM ptr_pad AS INTEGER
@@ -1600,12 +1603,23 @@ SUB SCREEN_render ()
         IF dr_x2% >= SCRN.w& THEN dr_x2% = SCRN.w& - 1
         IF dr_y2% >= SCRN.h& THEN dr_y2% = SCRN.h& - 1
 
-        ' Area check: if dirty rect > half the canvas, fall back to full copy
+        ' Dirty-rect path only pays off when overlays stay local to the pointer area.
+        ' Wider overlays are handled by the full cached-scene path below.
+        DIM can_partial_present AS INTEGER
+        can_partial_present% = TRUE
+        IF PREVIEW.visible% AND NOT PREVIEW.autoHidden% THEN can_partial_present% = FALSE
+        IF IMG_IMPORT.STATE > IMPORT_STATE_IDLE THEN can_partial_present% = FALSE
+        IF REFIMG.REPOSITION THEN can_partial_present% = FALSE
+        IF CURRENT_TOOL% = TOOL_MOVE AND MOVE.ACTIVE THEN can_partial_present% = FALSE
+        IF CURRENT_TOOL% = TOOL_PICKER AND PICKER.ACTIVE% THEN can_partial_present% = FALSE
+
+        ' Area check: if dirty rect > half the canvas, or overlays are broader than the
+        ' pointer region, fall back to full copy
         DIM dr_area AS LONG, canvas_area AS LONG
         dr_area& = CLNG(dr_x2% - dr_x1% + 1) * CLNG(dr_y2% - dr_y1% + 1)
         canvas_area& = SCRN.w& * SCRN.h&
 
-        IF dr_area& < (canvas_area& \ 2) AND dr_x2% > dr_x1% AND dr_y2% > dr_y1% THEN
+        IF can_partial_present% AND dr_area& < (canvas_area& \ 2) AND dr_x2% > dr_x1% AND dr_y2% > dr_y1% THEN
             ' --- Partial restore from scene cache (erase old pointer + ants) ---
             _DEST SCRN.CANVAS&
             _DONTBLEND SCRN.CANVAS&
@@ -1628,19 +1642,13 @@ SUB SCREEN_render ()
                 END IF
             END IF
 
-            ' --- Re-composite GUI so ants don't show over UI elements ---
-            _DEST SCRN.CANVAS&
-            _PUTIMAGE (dr_x1%, dr_y1%)-(dr_x2%, dr_y2%), SCRN.GUI&, SCRN.CANVAS&, (dr_x1%, dr_y1%)-(dr_x2%, dr_y2%)
-
             ' --- Draw pointer at new position ---
             POINTER_update
             POINTER_render
 
-            ' --- Preview window (before GUI re-composite so menus, pickers render on top) ---
-            PREVIEW_render SCRN.CANVAS&
-            
-            ' --- Re-composite full GUI so brush previews don't show over UI elements ---
-            _DEST SCRN.CANVAS& : _SOURCE SCRN.GUI& : _PUTIMAGE
+            ' --- Clip pointer and selection overlays back behind fixed UI elements ---
+            _DEST SCRN.CANVAS&
+            _PUTIMAGE (dr_x1%, dr_y1%)-(dr_x2%, dr_y2%), SCRN.GUI&, SCRN.CANVAS&, (dr_x1%, dr_y1%)-(dr_x2%, dr_y2%)
 
             ' --- Crosshair assistant overlay ---
             RENDER_crosshair_and_command_palette
@@ -1682,8 +1690,16 @@ SUB SCREEN_render ()
             POINTER.PREV_DRAW_X% = new_mx%
             POINTER.PREV_DRAW_Y% = new_my%
 
-            ' Scale viewport canvas to window screen before display
-            _PUTIMAGE (0, 0)-(_WIDTH(0) - 1, _HEIGHT(0) - 1), SCRN.CANVAS&, 0
+            ' Present only the scaled dirty rectangle to the window.
+            DIM dr_scale AS INTEGER
+            DIM win_x1 AS LONG, win_y1 AS LONG, win_x2 AS LONG, win_y2 AS LONG
+            dr_scale% = SCRN.displayScale%
+            IF dr_scale% < 1 THEN dr_scale% = 1
+            win_x1& = CLNG(dr_x1%) * dr_scale%
+            win_y1& = CLNG(dr_y1%) * dr_scale%
+            win_x2& = CLNG(dr_x2% + 1) * dr_scale% - 1
+            win_y2& = CLNG(dr_y2% + 1) * dr_scale% - 1
+            _PUTIMAGE (win_x1&, win_y1&)-(win_x2&, win_y2&), SCRN.CANVAS&, 0, (dr_x1%, dr_y1%)-(dr_x2%, dr_y2%)
 
             PERF_stop PERF_DIRTY_RECT_PATH
             PERF_start PERF_DISPLAY_CALL
@@ -1984,8 +2000,8 @@ SUB SCREEN_render ()
     POINTER_render_cursor_overlay
 
     ' Save pointer position for next frame's dirty-rect optimization
-    POINTER.PREV_DRAW_X% = _MOUSEX
-    POINTER.PREV_DRAW_Y% = _MOUSEY
+    POINTER.PREV_DRAW_X% = MOUSE.RAW_X%
+    POINTER.PREV_DRAW_Y% = MOUSE.RAW_Y%
     
     ' Scale viewport canvas to window screen (software _PUTIMAGE replaces $RESIZE:STRETCH)
     PERF_start PERF_FINAL_SCALE

@@ -32,9 +32,59 @@ END SUB
 ''
 ' Render the pointer
 ' 
+''                                                                             
+' Returns the OS system cursor string for the current POINTER.CURSOR_ID% /
+' POINTER.CURSOR_FLIP% combination when CFG.SYSTEM_CURSORS_ENABLED% is TRUE.
+' Returns "" if no system cursor is available (use custom PNG instead).
+'
+FUNCTION POINTER_system_cursor_string$ (cursorID AS INTEGER, cursorFlip AS INTEGER)
+    IF NOT CFG.SYSTEM_CURSORS_ENABLED% THEN EXIT FUNCTION
+    SELECT CASE cursorID%
+        CASE CURSOR_RESIZE_VERT
+            POINTER_system_cursor_string$ = "VERTICAL"
+        CASE CURSOR_RESIZE_HORIZ
+            POINTER_system_cursor_string$ = "HORIZONTAL"
+        CASE CURSOR_RESIZE_CORNER
+            IF cursorFlip% = 1 OR cursorFlip% = 2 THEN
+                POINTER_system_cursor_string$ = "TOPRIGHT_BOTTOMLEFT"
+            ELSE
+                POINTER_system_cursor_string$ = "TOPLEFT_BOTTOMRIGHT"
+            END IF
+    END SELECT
+END FUNCTION
+
 SUB POINTER_render ()
     IF POINTER.HIDDEN THEN EXIT SUB
     POINTER_build
+    ' Decide: OS system cursor or hidden (custom drawn) cursor.
+    ' CURSOR_NULL = UI areas — always system (arrow at display rate).
+    ' Other cursors with system equivalents (when SYSTEM_CURSORS enabled) also use OS.
+    ' Tool-specific cursors with no system equivalent (brush, dropper, fill, zoom
+    ' spray, marquee, wand) always use custom PNG.
+    DIM sysCur AS STRING
+    IF POINTER.CURSOR_ID% = CURSOR_NULL THEN
+        ' UI areas (toolbar, menus, panels) — always OS arrow
+        sysCur$ = "DEFAULT"
+    ELSEIF CFG.SYSTEM_CURSORS_ENABLED% THEN
+        ' Canvas area — only use OS cursors when POINTER_build left a procedural/system cursor
+        IF POINTER.CURSOR_ID% = -1 THEN
+            ' Procedural canvas cursors: text tool = I-beam, all others = crosshair
+            IF CURRENT_TOOL% = TOOL_TEXT THEN
+                sysCur$ = "TEXT"
+            ELSE
+                sysCur$ = "CROSSHAIR"
+            END IF
+        ELSE
+            sysCur$ = POINTER_system_cursor_string$(POINTER.CURSOR_ID%, POINTER.CURSOR_FLIP%)
+        END IF
+    END IF
+    IF sysCur$ <> "" THEN
+        _MOUSESHOW sysCur$
+        POINTER.USING_SYSTEM_CURSOR% = TRUE
+    ELSE
+        _MOUSEHIDE
+        POINTER.USING_SYSTEM_CURSOR% = FALSE
+    END IF
     POINTER_draw
 END SUB
 
@@ -1020,7 +1070,7 @@ SUB POINTER_draw ()
 
     ' --- Early exits: panning, UI areas, custom brush ---
     IF SCRN.panning% THEN
-        POINTER_draw_pan mx%, my%
+        IF NOT POINTER.USING_SYSTEM_CURSOR% THEN POINTER_draw_pan mx%, my%
         _DEST oldDest&
         EXIT SUB
     END IF
@@ -1060,7 +1110,7 @@ SUB POINTER_draw ()
     END IF
 
     IF use_ui_cursor% THEN
-        POINTER_draw_ui_cursor mx%, my%
+        ' System cursor (_MOUSESHOW) is already showing — skip custom arrow drawing
         _DEST oldDest&
         EXIT SUB
     END IF
@@ -1082,7 +1132,7 @@ SUB POINTER_draw ()
 
     SELECT CASE CURRENT_TOOL%
         CASE TOOL_LINE, TOOL_POLYGON, TOOL_POLYGON_FILLED, TOOL_RECT, TOOL_RECT_FILLED, TOOL_ELLIPSE, TOOL_ELLIPSE_FILLED
-            POINTER_draw_shape_crosshair mx%, my%
+            IF NOT POINTER.USING_SYSTEM_CURSOR% THEN POINTER_draw_shape_crosshair mx%, my%
         CASE TOOL_PICKER
             POINTER_draw_picker mx%, my%
         CASE TOOL_BRUSH, TOOL_DOT, TOOL_ERASER
@@ -1092,9 +1142,9 @@ SUB POINTER_draw ()
         CASE TOOL_MARQUEE
             POINTER_draw_marquee mx%, my%
         CASE TOOL_MOVE
-            POINTER_draw_move_cursor mx%, my%
+            IF NOT POINTER.USING_SYSTEM_CURSOR% THEN POINTER_draw_move_cursor mx%, my%
         CASE TOOL_TEXT
-            POINTER_draw_ibeam_cursor
+            IF NOT POINTER.USING_SYSTEM_CURSOR% THEN POINTER_draw_ibeam_cursor
         CASE TOOL_FILL
             POINTER_draw_fill_cursor mx%, my%
     END SELECT
@@ -1316,6 +1366,11 @@ SUB POINTER_render_cursor_overlay ()
     ' This section runs AFTER PREVIEW_render in the pipeline, so z-order is correct.
     IF NOT use_ui_cursor% AND PREVIEW.visible% AND NOT PREVIEW.autoHidden% AND PREVIEW_hit_window%(mx%, my%) THEN
         DIM prevCID AS INTEGER : prevCID% = POINTER.CURSOR_ID%
+        ' CURSOR_NULL or OS system cursor already showing — skip custom draw
+        IF prevCID% = CURSOR_NULL OR POINTER.USING_SYSTEM_CURSOR% THEN
+            _DEST oldDest&
+            EXIT SUB
+        END IF
         IF prevCID% >= 0 AND prevCID% <= CURSOR_COUNT AND CURSORS(prevCID%).img& < -1 THEN
             DIM pov_w AS INTEGER : pov_w% = CURSORS(prevCID%).w%
             DIM pov_h AS INTEGER : pov_h% = CURSORS(prevCID%).h%
@@ -1342,20 +1397,13 @@ SUB POINTER_render_cursor_overlay ()
     END IF
 
     IF use_ui_cursor% THEN
-        IF CURSORS(CURSOR_NULL).img& < -1 THEN
-            _PUTIMAGE (mx% - CURSORS(CURSOR_NULL).hotspot_pos_x%, my% - CURSORS(CURSOR_NULL).hotspot_pos_y%), CURSORS(CURSOR_NULL).img&, SCRN.CANVAS&
-        ELSE
-            ' Fallback procedural arrow
-            DIM arr_i AS INTEGER, arr_w AS INTEGER
-            FOR arr_i% = 0 TO 10
-                IF arr_i% <= 7 THEN arr_w% = arr_i% ELSE arr_w% = 3
-                LINE (mx%, my% + arr_i%)-(mx% + arr_w% + 1, my% + arr_i%), _RGB32(0, 0, 0)
-            NEXT arr_i%
-            FOR arr_i% = 1 TO 9
-                IF arr_i% <= 6 THEN arr_w% = arr_i% - 1 ELSE arr_w% = 2
-                IF arr_w% >= 1 THEN LINE (mx% + 1, my% + arr_i%)-(mx% + arr_w%, my% + arr_i%), _RGB32(255, 255, 255)
-            NEXT arr_i%
-        END IF
+        ' System cursor (_MOUSESHOW) is already showing — skip custom arrow drawing
+        _DEST oldDest&
+        EXIT SUB
+    END IF
+
+    ' System cursor handles this cursor type — skip custom PNG
+    IF POINTER.USING_SYSTEM_CURSOR% THEN
         _DEST oldDest&
         EXIT SUB
     END IF
