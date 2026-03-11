@@ -214,8 +214,6 @@ TYPE DRAW_CONFIG
     SCROLLBAR_BG                   AS _UNSIGNED LONG  ' Scrollbar track background color (hex RGB, 0=default)
     SCROLLBAR_HANDLE_FG            AS _UNSIGNED LONG  ' Scrollbar thumb/handle color (hex RGB, 0=default)
     SCROLLBAR_OPACITY              AS INTEGER  ' Scrollbar overall opacity 0-255 (0=use default 180)
-    ' Workspace undo settings
-    WORKSPACE_UNDO_MAX_STATES      AS INTEGER  ' Max workspace undo states (5-50, default 20)
     ' Sound / music settings
     SOUNDS_ENABLED                 AS INTEGER  ' TRUE=-1 / FALSE=0 (default 0=off)
     SOUNDS_VOLUME                  AS INTEGER  ' Volume percent 0-100 (default 35)

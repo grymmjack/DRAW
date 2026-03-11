@@ -192,7 +192,7 @@ FUNCTION LAYERS_new% ()
     LAYERS(newIndex%).opacityLock% = FALSE
     LAYERS(newIndex%).blendMode%   = BLEND_NORMAL
 
-    IF NOT WORKSPACE_UNDO_IN_PROGRESS% AND NOT HISTORY_IN_PROGRESS% THEN
+    IF NOT HISTORY_IN_PROGRESS% THEN
         HISTORY_record_layer_add LAYERS(newIndex%).historyId&, newIndex%, newZ%, "Layer Add"
     END IF
     
@@ -201,7 +201,7 @@ FUNCTION LAYERS_new% ()
     
     ' Save pixel undo baseline for the new layer without letting the internal
     ' checkpoint outrank the layer-add action in unified history routing.
-    IF WORKSPACE_UNDO_READY% AND NOT WORKSPACE_UNDO_IN_PROGRESS% THEN
+    IF NOT HISTORY_IN_PROGRESS% THEN
         DIM newLayerSavedPixelTs AS DOUBLE
         newLayerSavedPixelTs# = PIXEL_UNDO_LAST_TIMESTAMP#
         UNDO_save_layer_state newIndex%
@@ -266,7 +266,7 @@ SUB LAYERS_delete (layerIndex AS INTEGER)
     deletedZ% = LAYERS(layerIndex%).zIndex%
     deletedHistoryId& = LAYERS(layerIndex%).historyId&
     
-    IF NOT WORKSPACE_UNDO_IN_PROGRESS% AND NOT HISTORY_IN_PROGRESS% THEN
+    IF NOT HISTORY_IN_PROGRESS% THEN
         HISTORY_record_layer_delete deletedHistoryId&, layerIndex%, deletedZ%, "Layer Delete"
     END IF
 
@@ -398,7 +398,7 @@ SUB LAYERS_duplicate (layerIndex AS INTEGER)
     LAYERS(newIndex%).blendMode%   = LAYERS(layerIndex%).blendMode%
     LAYERS(newIndex%).contentDirty% = TRUE  ' New pixel data needs opacity cache build
 
-    IF NOT WORKSPACE_UNDO_IN_PROGRESS% AND NOT HISTORY_IN_PROGRESS% THEN
+    IF NOT HISTORY_IN_PROGRESS% THEN
         HISTORY_record_layer_add LAYERS(newIndex%).historyId&, newIndex%, LAYERS(newIndex%).zIndex%, "Layer Duplicate"
     END IF
     
@@ -407,7 +407,7 @@ SUB LAYERS_duplicate (layerIndex AS INTEGER)
     
     ' Save pixel undo baseline for the duplicated layer without letting the
     ' internal checkpoint outrank the duplicate-as-add action.
-    IF WORKSPACE_UNDO_READY% THEN
+    IF TRUE THEN
         DIM dupLayerSavedPixelTs AS DOUBLE
         dupLayerSavedPixelTs# = PIXEL_UNDO_LAST_TIMESTAMP#
         UNDO_save_layer_state newIndex%
@@ -477,7 +477,7 @@ SUB LAYERS_rename (layerIndex AS INTEGER)
         END IF
 
         IF _TRIM$(newName$) <> _TRIM$(LAYERS(layerIndex%).name) THEN
-            IF NOT WORKSPACE_UNDO_IN_PROGRESS% AND NOT HISTORY_IN_PROGRESS% THEN
+            IF NOT HISTORY_IN_PROGRESS% THEN
                 HISTORY_record_layer_rename LAYERS(layerIndex%).historyId&, _TRIM$(LAYERS(layerIndex%).name), newName$, "Layer Rename"
             END IF
 
@@ -680,7 +680,7 @@ SUB LAYERS_move_up (layerIndex AS INTEGER)
         ' Swap zIndex values
         LAYERS(layerIndex%).zIndex% = currentZ% + 1
         LAYERS(targetIndex%).zIndex% = currentZ%
-        IF NOT WORKSPACE_UNDO_IN_PROGRESS% AND NOT HISTORY_IN_PROGRESS% THEN
+        IF NOT HISTORY_IN_PROGRESS% THEN
             HISTORY_record_layer_reorder LAYERS(layerIndex%).historyId&, layerIndex%, currentZ%, currentZ% + 1, "Layer Reorder"
         END IF
     END IF
@@ -718,7 +718,7 @@ SUB LAYERS_move_down (layerIndex AS INTEGER)
         ' Swap zIndex values
         LAYERS(layerIndex%).zIndex% = currentZ% - 1
         LAYERS(targetIndex%).zIndex% = currentZ%
-        IF NOT WORKSPACE_UNDO_IN_PROGRESS% AND NOT HISTORY_IN_PROGRESS% THEN
+        IF NOT HISTORY_IN_PROGRESS% THEN
             HISTORY_record_layer_reorder LAYERS(layerIndex%).historyId&, layerIndex%, currentZ%, currentZ% - 1, "Layer Reorder"
         END IF
     END IF
@@ -750,7 +750,7 @@ SUB LAYERS_to_top (layerIndex AS INTEGER)
     
     ' Set this layer to top
     LAYERS(layerIndex%).zIndex% = LAYER_COUNT%
-    IF NOT WORKSPACE_UNDO_IN_PROGRESS% AND NOT HISTORY_IN_PROGRESS% THEN
+    IF NOT HISTORY_IN_PROGRESS% THEN
         HISTORY_record_layer_reorder LAYERS(layerIndex%).historyId&, layerIndex%, currentZ%, LAYER_COUNT%, "Layer Reorder"
     END IF
     
@@ -781,7 +781,7 @@ SUB LAYERS_to_bottom (layerIndex AS INTEGER)
     
     ' Set this layer to bottom
     LAYERS(layerIndex%).zIndex% = 1
-    IF NOT WORKSPACE_UNDO_IN_PROGRESS% AND NOT HISTORY_IN_PROGRESS% THEN
+    IF NOT HISTORY_IN_PROGRESS% THEN
         HISTORY_record_layer_reorder LAYERS(layerIndex%).historyId&, layerIndex%, currentZ%, 1, "Layer Reorder"
     END IF
     
@@ -868,8 +868,8 @@ SUB LAYERS_merge_down (layerIndex AS INTEGER)
     
     IF targetIndex% = 0 THEN EXIT SUB
     
-    ' Save workspace undo state BEFORE merge (captures both layers' content)
-    WORKSPACE_UNDO_save_layer_merge layerIndex%, targetIndex%
+    ' Record in unified history BEFORE merge (captures both layers' before-state)
+    HISTORY_record_layer_merge layerIndex%, targetIndex%
     
     ' Merge: composite current layer onto target respecting blend mode and opacity
     oldDest& = _DEST
@@ -915,15 +915,15 @@ SUB LAYERS_merge_down (layerIndex AS INTEGER)
     ' Mark target layer content dirty (its pixels changed from merge)
     LAYERS(targetIndex%).contentDirty% = TRUE
     
-    ' Delete the merged layer (suppress undo save since we already saved merge state)
-    WORKSPACE_UNDO_IN_PROGRESS% = TRUE
+    ' Delete the merged layer (suppress undo save since we already recorded merge state)
+    HISTORY_IN_PROGRESS% = TRUE
     LAYERS_delete layerIndex%
-    WORKSPACE_UNDO_IN_PROGRESS% = FALSE
+    HISTORY_IN_PROGRESS% = FALSE
     
     ' Save a pixel undo baseline for the target (merged-into) layer so that
     ' subsequent pixel operations have a prior checkpoint to restore to.
     ' Suppress PIXEL_UNDO_LAST_TIMESTAMP# so Ctrl+Z still routes to
-    ' workspace undo for undoing the merge itself.
+    ' history undo for undoing the merge itself.
     DIM mdSavedPixelTs AS DOUBLE
     mdSavedPixelTs# = PIXEL_UNDO_LAST_TIMESTAMP#
     UNDO_save_layer_state targetIndex%
@@ -964,30 +964,34 @@ SUB LAYERS_merge_visible ()
     
     IF sortCount% < 2 THEN EXIT SUB  ' Need at least 2 visible layers to merge
     
-    ' Save workspace undo state BEFORE merge (captures all source layers' content)
-    ' This must happen before WORKSPACE_UNDO_IN_PROGRESS% is set TRUE
-    WORKSPACE_UNDO_save_merge_visible sortedLayers%(), sortCount%
-    
-    ' Suppress workspace undo auto-saves from LAYERS_new% and LAYERS_delete
-    WORKSPACE_UNDO_IN_PROGRESS% = TRUE
-    
+    ' Record in unified history BEFORE merge (captures all source layers' before-state)
+    ' Pass 0 as mergedResultSlot — updated after LAYERS_new% succeeds below.
+    HISTORY_record_layer_merge_visible sortedLayers%(), sortCount%, 0
+
+    ' Suppress history auto-saves from LAYERS_new% and LAYERS_delete
+    HISTORY_IN_PROGRESS% = TRUE
+
     ' Create new layer for merged result
     newIndex% = LAYERS_new%
     IF newIndex% = 0 THEN
-        ' Rollback: remove the undo state we just saved
-        IF WORKSPACE_UNDO.current% > 0 THEN
+        ' Rollback: remove the history record we just saved
+        IF HISTORY.current% > 0 THEN
             DIM mvRbIdx AS INTEGER
-            mvRbIdx% = WORKSPACE_UNDO.current%
-            MERGE_VIS_free_state_images mvRbIdx%
-            WORKSPACE_UNDO.count% = WORKSPACE_UNDO.count% - 1
-            WORKSPACE_UNDO.current% = WORKSPACE_UNDO.current% - 1
+            mvRbIdx% = HISTORY.current%
+            DIM mvRbSlt AS INTEGER : mvRbSlt% = HISTORY_MV_SLOT(mvRbIdx%)
+            IF mvRbSlt% >= 1 THEN HISTORY_MV_free_slot mvRbSlt%
+            HISTORY_MV_SLOT(mvRbIdx%) = 0
+            HISTORY_RECORDS(mvRbIdx%).kind% = HISTORY_KIND_NONE
+            HISTORY.count% = HISTORY.count% - 1
+            HISTORY.current% = HISTORY.current% - 1
         END IF
-        WORKSPACE_UNDO_IN_PROGRESS% = FALSE
+        HISTORY_IN_PROGRESS% = FALSE
         EXIT SUB
     END IF
-    
-    ' Store the merged layer's slot index in the undo state for undo/redo
-    WORKSPACE_UNDO_STATES(WORKSPACE_UNDO.current%).merge_top_index% = newIndex%
+
+    ' Update the history record with the actual merged result slot
+    HISTORY_RECORDS(HISTORY.current%).slotIndex% = newIndex%
+    HISTORY_merge_update_result_id LAYERS(newIndex%).historyId&
     
     LAYERS(newIndex%).name = "Merged"
     
@@ -1036,21 +1040,21 @@ SUB LAYERS_merge_visible ()
     _DEST oldDest&
     
     ' Delete the source visible layers (except the new one)
-    ' WORKSPACE_UNDO_IN_PROGRESS% is TRUE, so LAYERS_delete won't create undo states
+    ' HISTORY_IN_PROGRESS% is TRUE, so LAYERS_delete won't create undo states
     FOR i% = 1 TO sortCount%
         IF sortedLayers%(i%) <> newIndex% THEN
             LAYERS_delete sortedLayers%(i%)
         END IF
     NEXT i%
-    
-    WORKSPACE_UNDO_IN_PROGRESS% = FALSE
+
+    HISTORY_IN_PROGRESS% = FALSE
     
     ' Save a pixel undo baseline for the merged layer so that subsequent
     ' pixel operations (adjustments, draw strokes, etc.) have a prior
     ' checkpoint to restore to on Ctrl+Z. Without this, the merged layer
     ' has NO pixel undo states and UNDO_undo silently fails.
     ' Suppress PIXEL_UNDO_LAST_TIMESTAMP# so Ctrl+Z still routes to
-    ' workspace undo for undoing the merge itself.
+    ' history undo for undoing the merge itself.
     DIM mvSavedPixelTs AS DOUBLE
     mvSavedPixelTs# = PIXEL_UNDO_LAST_TIMESTAMP#
     UNDO_save_layer_state newIndex%
@@ -2448,7 +2452,7 @@ SUB LAYER_PANEL_handle_drop ()
     
     ' End drag operation
     IF targetZ% >= 1 AND targetZ% <= LAYER_COUNT% AND targetZ% <> draggedZ% THEN
-        IF NOT WORKSPACE_UNDO_IN_PROGRESS% AND NOT HISTORY_IN_PROGRESS% THEN
+        IF NOT HISTORY_IN_PROGRESS% THEN
             HISTORY_record_layer_reorder LAYERS(draggedIdx%).historyId&, draggedIdx%, draggedZ%, targetZ%, "Layer Reorder"
         END IF
         SOUND_play SND_DRAG_DROP

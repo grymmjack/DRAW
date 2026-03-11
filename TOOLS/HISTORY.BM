@@ -73,6 +73,15 @@ SUB HISTORY_clear ()
             _FREEIMAGE HISTORY_RECORDS(i%).img2&
             HISTORY_RECORDS(i%).img2& = 0
         END IF
+        IF HISTORY_SEL_DATA(i%).sel_mask& < -1 THEN
+            _FREEIMAGE HISTORY_SEL_DATA(i%).sel_mask&
+            HISTORY_SEL_DATA(i%).sel_mask& = 0
+        END IF
+        IF HISTORY_RECORDS(i%).kind% = HISTORY_KIND_LAYER_MERGE_VISIBLE THEN
+            DIM clsMvSlt AS INTEGER : clsMvSlt% = HISTORY_MV_SLOT(i%)
+            IF clsMvSlt% >= 1 THEN HISTORY_MV_free_slot clsMvSlt%
+            HISTORY_MV_SLOT(i%) = 0
+        END IF
         HISTORY_RECORDS(i%).kind% = HISTORY_KIND_NONE
         HISTORY_RECORDS(i%).exportKind% = HISTORY_EXPORT_NONE
         HISTORY_RECORDS(i%).sequence& = 0
@@ -104,6 +113,7 @@ SUB HISTORY_clear ()
         HISTORY_RECORDS(i%).label$ = ""
         HISTORY_PAYLOADS(i%) = ""
     NEXT i%
+    HISTORY_sel_clear_pending
     HISTORY_init
     FILE_BAS_wip_reset
 END SUB
@@ -1027,6 +1037,485 @@ SUB HISTORY_load_binary (fh AS INTEGER, canvasW AS LONG, canvasH AS LONG, format
     FILE_BAS_wip_rebuild_from_history
 END SUB
 
+' ============================================================================
+' HISTORY_MV_alloc_slot% - Allocate an MV slot for merge-visible backup data.
+' Returns 0 if no slot is available.
+' ============================================================================
+FUNCTION HISTORY_MV_alloc_slot% ()
+    DIM s AS INTEGER
+    FOR s% = 1 TO HISTORY_MAX_MV_SLOTS
+        IF HISTORY_MV_COUNT(s%) = 0 THEN
+            HISTORY_MV_alloc_slot% = s%
+            EXIT FUNCTION
+        END IF
+    NEXT s%
+    HISTORY_MV_alloc_slot% = 0
+END FUNCTION
+
+' ============================================================================
+' HISTORY_MV_free_slot - Free all images stored in an MV slot and reset it.
+' ============================================================================
+SUB HISTORY_MV_free_slot (mvSlot AS INTEGER)
+    IF mvSlot% < 1 OR mvSlot% > HISTORY_MAX_MV_SLOTS THEN EXIT SUB
+    DIM j AS INTEGER
+    FOR j% = 1 TO HISTORY_MV_COUNT(mvSlot%)
+        IF HISTORY_MV_DATA(mvSlot%, j%).img& < -1 THEN
+            _FREEIMAGE HISTORY_MV_DATA(mvSlot%, j%).img&
+            HISTORY_MV_DATA(mvSlot%, j%).img& = 0
+        END IF
+    NEXT j%
+    HISTORY_MV_COUNT(mvSlot%) = 0
+END SUB
+
+' ============================================================================
+' HISTORY_sel_capture - Capture live MARQUEE state into a HISTORY_SEL_SNAP.
+' ============================================================================
+SUB HISTORY_sel_capture (snap AS HISTORY_SEL_SNAP)
+    snap.sel_active%       = MARQUEE.ACTIVE
+    snap.sel_initialized%  = MARQUEE.INITIALIZED
+    snap.sel_user_created% = MARQUEE.USER_CREATED
+    snap.sel_box_x%        = MARQUEE.BOX.x
+    snap.sel_box_y%        = MARQUEE.BOX.y
+    snap.sel_box_w%        = MARQUEE.BOX.w
+    snap.sel_box_h%        = MARQUEE.BOX.h
+    snap.sel_box_state%    = MARQUEE.BOX.state
+    snap.sel_wand_has%     = MARQUEE.WAND_HAS_SELECTION
+    snap.sel_wand_min_x%   = MARQUEE.WAND_MIN_X
+    snap.sel_wand_min_y%   = MARQUEE.WAND_MIN_Y
+    snap.sel_wand_max_x%   = MARQUEE.WAND_MAX_X
+    snap.sel_wand_max_y%   = MARQUEE.WAND_MAX_Y
+    snap.sel_variant%      = MARQUEE.VARIANT
+    snap.sel_mode%         = MARQUEE.SELECTION_MODE
+    snap.sel_cfg_init_x%   = MARQUEE.CFG.initX
+    snap.sel_cfg_init_y%   = MARQUEE.CFG.initY
+    snap.sel_cfg_init_w%   = MARQUEE.CFG.initW
+    snap.sel_cfg_init_h%   = MARQUEE.CFG.initH
+    IF MARQUEE.SELECTION_MASK < -1 THEN
+        snap.sel_mask& = _COPYIMAGE(MARQUEE.SELECTION_MASK)
+    ELSE
+        snap.sel_mask& = 0
+    END IF
+END SUB
+
+' ============================================================================
+' HISTORY_sel_apply - Restore a HISTORY_SEL_SNAP into live MARQUEE state.
+' ============================================================================
+SUB HISTORY_sel_apply (snap AS HISTORY_SEL_SNAP)
+    MARQUEE.ACTIVE           = snap.sel_active%
+    MARQUEE.INITIALIZED      = snap.sel_initialized%
+    MARQUEE.USER_CREATED     = snap.sel_user_created%
+    MARQUEE.BOX.x            = snap.sel_box_x%
+    MARQUEE.BOX.y            = snap.sel_box_y%
+    MARQUEE.BOX.w            = snap.sel_box_w%
+    MARQUEE.BOX.h            = snap.sel_box_h%
+    MARQUEE.BOX.state        = snap.sel_box_state%
+    MARQUEE.WAND_HAS_SELECTION = snap.sel_wand_has%
+    MARQUEE.WAND_MIN_X       = snap.sel_wand_min_x%
+    MARQUEE.WAND_MIN_Y       = snap.sel_wand_min_y%
+    MARQUEE.WAND_MAX_X       = snap.sel_wand_max_x%
+    MARQUEE.WAND_MAX_Y       = snap.sel_wand_max_y%
+    MARQUEE.VARIANT          = snap.sel_variant%
+    MARQUEE.SELECTION_MODE   = snap.sel_mode%
+    MARQUEE.CFG.initX        = snap.sel_cfg_init_x%
+    MARQUEE.CFG.initY        = snap.sel_cfg_init_y%
+    MARQUEE.CFG.initW        = snap.sel_cfg_init_w%
+    MARQUEE.CFG.initH        = snap.sel_cfg_init_h%
+    MARQUEE.DRAGGING         = FALSE
+    MARQUEE.RESIZING         = FALSE
+    MARQUEE.RESIZE_HANDLE    = 0
+    MARQUEE.MOVING           = FALSE
+    MARQUEE.FREE_DRAWING     = FALSE
+    MARQUEE.ELLIP_DRAGGING   = FALSE
+    IF snap.sel_mask& < -1 THEN
+        MARQUEE.SELECTION_MASK = snap.sel_mask&
+    ELSE
+        MARQUEE.SELECTION_MASK = 0
+    END IF
+    IF MARQUEE.WAND_HAS_SELECTION THEN
+        IF MARQUEE.SELECTION_MASK >= -1 THEN MARQUEE.WAND_HAS_SELECTION = FALSE
+    ELSEIF MARQUEE.ACTIVE% AND MARQUEE.USER_CREATED THEN
+        IF MARQUEE.BOX.w <= 0 THEN MARQUEE.BOX.w = 1
+        IF MARQUEE.BOX.h <= 0 THEN MARQUEE.BOX.h = 1
+        IF MARQUEE.BOX.state = 0 THEN MARQUEE.BOX.state = MARQUEE_STATE_IDLE
+        IF MARQUEE.CFG.initW <= 0 THEN MARQUEE.CFG.initW = MARQUEE.BOX.w
+        IF MARQUEE.CFG.initH <= 0 THEN MARQUEE.CFG.initH = MARQUEE.BOX.h
+        MARQUEE.CFG.initX = MARQUEE.BOX.x
+        MARQUEE.CFG.initY = MARQUEE.BOX.y
+        MARQUEE.SELECTION_MASK = 0
+    END IF
+END SUB
+
+' ============================================================================
+' HISTORY_sel_masks_match% - Compare two selection mask image handles.
+' ============================================================================
+FUNCTION HISTORY_sel_masks_match% (savedMask AS LONG, liveMask AS LONG)
+    IF savedMask& >= -1 AND liveMask& >= -1 THEN
+        HISTORY_sel_masks_match% = TRUE : EXIT FUNCTION
+    END IF
+    IF (savedMask& >= -1 AND liveMask& < -1) OR (savedMask& < -1 AND liveMask& >= -1) THEN
+        EXIT FUNCTION
+    END IF
+    IF _WIDTH(savedMask&) <> _WIDTH(liveMask&) OR _HEIGHT(savedMask&) <> _HEIGHT(liveMask&) THEN
+        EXIT FUNCTION
+    END IF
+    DIM sm AS _MEM : DIM lm AS _MEM : DIM byteOff AS _OFFSET
+    DIM sp AS _UNSIGNED LONG : DIM lp AS _UNSIGNED LONG
+    sm = _MEMIMAGE(savedMask&)
+    lm = _MEMIMAGE(liveMask&)
+    IF sm.SIZE <> lm.SIZE THEN _MEMFREE sm : _MEMFREE lm : EXIT FUNCTION
+    FOR byteOff = 0 TO sm.SIZE - 4 STEP 4
+        _MEMGET sm, sm.OFFSET + byteOff, sp~&
+        _MEMGET lm, lm.OFFSET + byteOff, lp~&
+        IF sp~& <> lp~& THEN _MEMFREE sm : _MEMFREE lm : EXIT FUNCTION
+    NEXT byteOff
+    _MEMFREE sm : _MEMFREE lm
+    HISTORY_sel_masks_match% = TRUE
+END FUNCTION
+
+' ============================================================================
+' HISTORY_sel_matches_live% - Compare staged snapshot to live MARQUEE state.
+' ============================================================================
+FUNCTION HISTORY_sel_matches_live% (snap AS HISTORY_SEL_SNAP)
+    IF snap.sel_active%       <> MARQUEE.ACTIVE             THEN EXIT FUNCTION
+    IF snap.sel_initialized%  <> MARQUEE.INITIALIZED        THEN EXIT FUNCTION
+    IF snap.sel_user_created% <> MARQUEE.USER_CREATED       THEN EXIT FUNCTION
+    IF snap.sel_box_x%        <> MARQUEE.BOX.x              THEN EXIT FUNCTION
+    IF snap.sel_box_y%        <> MARQUEE.BOX.y              THEN EXIT FUNCTION
+    IF snap.sel_box_w%        <> MARQUEE.BOX.w              THEN EXIT FUNCTION
+    IF snap.sel_box_h%        <> MARQUEE.BOX.h              THEN EXIT FUNCTION
+    IF snap.sel_box_state%    <> MARQUEE.BOX.state          THEN EXIT FUNCTION
+    IF snap.sel_wand_has%     <> MARQUEE.WAND_HAS_SELECTION THEN EXIT FUNCTION
+    IF snap.sel_wand_min_x%   <> MARQUEE.WAND_MIN_X         THEN EXIT FUNCTION
+    IF snap.sel_wand_min_y%   <> MARQUEE.WAND_MIN_Y         THEN EXIT FUNCTION
+    IF snap.sel_wand_max_x%   <> MARQUEE.WAND_MAX_X         THEN EXIT FUNCTION
+    IF snap.sel_wand_max_y%   <> MARQUEE.WAND_MAX_Y         THEN EXIT FUNCTION
+    IF snap.sel_variant%      <> MARQUEE.VARIANT            THEN EXIT FUNCTION
+    IF snap.sel_mode%         <> MARQUEE.SELECTION_MODE     THEN EXIT FUNCTION
+    IF snap.sel_cfg_init_x%   <> MARQUEE.CFG.initX          THEN EXIT FUNCTION
+    IF snap.sel_cfg_init_y%   <> MARQUEE.CFG.initY          THEN EXIT FUNCTION
+    IF snap.sel_cfg_init_w%   <> MARQUEE.CFG.initW          THEN EXIT FUNCTION
+    IF snap.sel_cfg_init_h%   <> MARQUEE.CFG.initH          THEN EXIT FUNCTION
+    IF NOT HISTORY_sel_masks_match%(snap.sel_mask&, MARQUEE.SELECTION_MASK) THEN EXIT FUNCTION
+    HISTORY_sel_matches_live% = TRUE
+END FUNCTION
+
+' ============================================================================
+' HISTORY_sel_clear_pending - Release any staged (uncommitted) selection snap.
+' ============================================================================
+SUB HISTORY_sel_clear_pending ()
+    IF HISTORY_SEL_PENDING.sel_mask& < -1 THEN
+        _FREEIMAGE HISTORY_SEL_PENDING.sel_mask&
+    END IF
+    HISTORY_SEL_PENDING.sel_mask& = 0
+    HISTORY_HAS_PENDING_SEL% = FALSE
+END SUB
+
+' ============================================================================
+' HISTORY_selection_stage - Stage current MARQUEE state before a mutation.
+' Called BEFORE any selection mutation (create, modify, deselect, invert).
+' ============================================================================
+SUB HISTORY_selection_stage ()
+    IF HISTORY_IN_PROGRESS% THEN EXIT SUB
+    HISTORY_sel_clear_pending
+    HISTORY_sel_capture HISTORY_SEL_PENDING
+    HISTORY_HAS_PENDING_SEL% = TRUE
+END SUB
+
+' ============================================================================
+' HISTORY_selection_commit - Commit staged selection if state changed.
+' Called AFTER the selection mutation.  No-op if state is unchanged.
+' ============================================================================
+SUB HISTORY_selection_commit ()
+    IF NOT HISTORY_HAS_PENDING_SEL% THEN EXIT SUB
+    IF HISTORY_sel_matches_live%(HISTORY_SEL_PENDING) THEN
+        HISTORY_sel_clear_pending
+        EXIT SUB
+    END IF
+
+    ' Truncate redo tail
+    DIM i AS INTEGER
+    IF HISTORY.current% < HISTORY.count% THEN
+        FOR i% = HISTORY.current% + 1 TO HISTORY.count%
+            IF HISTORY_RECORDS(i%).img& < -1 THEN
+                _FREEIMAGE HISTORY_RECORDS(i%).img&
+                HISTORY_RECORDS(i%).img& = 0
+            END IF
+            IF HISTORY_RECORDS(i%).img2& < -1 THEN
+                _FREEIMAGE HISTORY_RECORDS(i%).img2&
+                HISTORY_RECORDS(i%).img2& = 0
+            END IF
+            IF HISTORY_SEL_DATA(i%).sel_mask& < -1 THEN
+                _FREEIMAGE HISTORY_SEL_DATA(i%).sel_mask&
+                HISTORY_SEL_DATA(i%).sel_mask& = 0
+            END IF
+            IF HISTORY_RECORDS(i%).kind% = HISTORY_KIND_LAYER_MERGE_VISIBLE THEN
+                DIM mvSlt AS INTEGER : mvSlt% = HISTORY_MV_SLOT(i%)
+                IF mvSlt% >= 1 THEN HISTORY_MV_free_slot mvSlt%
+                HISTORY_MV_SLOT(i%) = 0
+            END IF
+            HISTORY_RECORDS(i%).kind% = HISTORY_KIND_NONE
+            HISTORY_PAYLOADS(i%) = ""
+        NEXT i%
+        HISTORY.count% = HISTORY.current%
+    END IF
+
+    ' Wrap-around: drop oldest if at capacity
+    IF HISTORY.count% >= HISTORY_MAX_RECORDS THEN
+        IF HISTORY_RECORDS(1).img& < -1 THEN _FREEIMAGE HISTORY_RECORDS(1).img&
+        IF HISTORY_RECORDS(1).img2& < -1 THEN _FREEIMAGE HISTORY_RECORDS(1).img2&
+        IF HISTORY_SEL_DATA(1).sel_mask& < -1 THEN
+            _FREEIMAGE HISTORY_SEL_DATA(1).sel_mask&
+            HISTORY_SEL_DATA(1).sel_mask& = 0
+        END IF
+        IF HISTORY_RECORDS(1).kind% = HISTORY_KIND_LAYER_MERGE_VISIBLE THEN
+            DIM mvSlt2 AS INTEGER : mvSlt2% = HISTORY_MV_SLOT(1)
+            IF mvSlt2% >= 1 THEN HISTORY_MV_free_slot mvSlt2%
+            HISTORY_MV_SLOT(1) = 0
+        END IF
+        FOR i% = 1 TO HISTORY_MAX_RECORDS - 1
+            HISTORY_RECORDS(i%) = HISTORY_RECORDS(i% + 1)
+            HISTORY_SEL_DATA(i%) = HISTORY_SEL_DATA(i% + 1)
+            HISTORY_MV_SLOT(i%) = HISTORY_MV_SLOT(i% + 1)
+            HISTORY_PAYLOADS(i%) = HISTORY_PAYLOADS(i% + 1)
+        NEXT i%
+        HISTORY_RECORDS(HISTORY_MAX_RECORDS).kind% = HISTORY_KIND_NONE
+        HISTORY_SEL_DATA(HISTORY_MAX_RECORDS).sel_mask& = 0
+        HISTORY_MV_SLOT(HISTORY_MAX_RECORDS) = 0
+        HISTORY_PAYLOADS(HISTORY_MAX_RECORDS) = ""
+        IF HISTORY.current% > 0 THEN HISTORY.current% = HISTORY.current% - 1
+        HISTORY.count% = HISTORY.count% - 1
+    END IF
+
+    HISTORY.count% = HISTORY.count% + 1
+    HISTORY.current% = HISTORY.count%
+    UNDO_SEQ = UNDO_SEQ + 1
+    HISTORY.nextSequence& = UNDO_SEQ
+
+    HISTORY_RECORDS(HISTORY.current%).kind%     = HISTORY_KIND_SELECTION_CHANGE
+    HISTORY_RECORDS(HISTORY.current%).sequence& = UNDO_SEQ
+    HISTORY_RECORDS(HISTORY.current%).exportKind% = HISTORY_EXPORT_NONE
+    HISTORY_RECORDS(HISTORY.current%).label$    = "Selection Change"
+    HISTORY_RECORDS(HISTORY.current%).img&      = 0
+    HISTORY_RECORDS(HISTORY.current%).img2&     = 0
+    HISTORY_MV_SLOT(HISTORY.current%) = 0
+
+    ' Transfer ownership of the mask image (no extra copy needed)
+    HISTORY_SEL_DATA(HISTORY.current%).sel_active%       = HISTORY_SEL_PENDING.sel_active%
+    HISTORY_SEL_DATA(HISTORY.current%).sel_initialized%  = HISTORY_SEL_PENDING.sel_initialized%
+    HISTORY_SEL_DATA(HISTORY.current%).sel_user_created% = HISTORY_SEL_PENDING.sel_user_created%
+    HISTORY_SEL_DATA(HISTORY.current%).sel_box_x%        = HISTORY_SEL_PENDING.sel_box_x%
+    HISTORY_SEL_DATA(HISTORY.current%).sel_box_y%        = HISTORY_SEL_PENDING.sel_box_y%
+    HISTORY_SEL_DATA(HISTORY.current%).sel_box_w%        = HISTORY_SEL_PENDING.sel_box_w%
+    HISTORY_SEL_DATA(HISTORY.current%).sel_box_h%        = HISTORY_SEL_PENDING.sel_box_h%
+    HISTORY_SEL_DATA(HISTORY.current%).sel_box_state%    = HISTORY_SEL_PENDING.sel_box_state%
+    HISTORY_SEL_DATA(HISTORY.current%).sel_wand_has%     = HISTORY_SEL_PENDING.sel_wand_has%
+    HISTORY_SEL_DATA(HISTORY.current%).sel_wand_min_x%   = HISTORY_SEL_PENDING.sel_wand_min_x%
+    HISTORY_SEL_DATA(HISTORY.current%).sel_wand_min_y%   = HISTORY_SEL_PENDING.sel_wand_min_y%
+    HISTORY_SEL_DATA(HISTORY.current%).sel_wand_max_x%   = HISTORY_SEL_PENDING.sel_wand_max_x%
+    HISTORY_SEL_DATA(HISTORY.current%).sel_wand_max_y%   = HISTORY_SEL_PENDING.sel_wand_max_y%
+    HISTORY_SEL_DATA(HISTORY.current%).sel_variant%      = HISTORY_SEL_PENDING.sel_variant%
+    HISTORY_SEL_DATA(HISTORY.current%).sel_mode%         = HISTORY_SEL_PENDING.sel_mode%
+    HISTORY_SEL_DATA(HISTORY.current%).sel_cfg_init_x%   = HISTORY_SEL_PENDING.sel_cfg_init_x%
+    HISTORY_SEL_DATA(HISTORY.current%).sel_cfg_init_y%   = HISTORY_SEL_PENDING.sel_cfg_init_y%
+    HISTORY_SEL_DATA(HISTORY.current%).sel_cfg_init_w%   = HISTORY_SEL_PENDING.sel_cfg_init_w%
+    HISTORY_SEL_DATA(HISTORY.current%).sel_cfg_init_h%   = HISTORY_SEL_PENDING.sel_cfg_init_h%
+    HISTORY_SEL_DATA(HISTORY.current%).sel_mask&         = HISTORY_SEL_PENDING.sel_mask&
+    ' Pending mask ownership transferred — clear without freeing
+    HISTORY_SEL_PENDING.sel_mask& = 0
+    HISTORY_HAS_PENDING_SEL% = FALSE
+END SUB
+
+' ============================================================================
+' HISTORY_sel_exchange - Exchange stored selection state with live MARQUEE.
+' Used identically by both undo and redo (bidirectional exchange pattern).
+' ============================================================================
+SUB HISTORY_sel_exchange (recIdx AS INTEGER)
+    DIM tmpSnap AS HISTORY_SEL_SNAP
+    ' Capture live state into a temporary snap
+    HISTORY_sel_capture tmpSnap
+
+    ' Restore stored state into live MARQUEE (transfers stored mask ownership)
+    HISTORY_sel_apply HISTORY_SEL_DATA(recIdx%)
+    HISTORY_SEL_DATA(recIdx%).sel_mask& = 0  ' ownership transferred to MARQUEE
+
+    ' Write the previously-live state back to the stored slot (for next undo/redo)
+    HISTORY_SEL_DATA(recIdx%).sel_active%       = tmpSnap.sel_active%
+    HISTORY_SEL_DATA(recIdx%).sel_initialized%  = tmpSnap.sel_initialized%
+    HISTORY_SEL_DATA(recIdx%).sel_user_created% = tmpSnap.sel_user_created%
+    HISTORY_SEL_DATA(recIdx%).sel_box_x%        = tmpSnap.sel_box_x%
+    HISTORY_SEL_DATA(recIdx%).sel_box_y%        = tmpSnap.sel_box_y%
+    HISTORY_SEL_DATA(recIdx%).sel_box_w%        = tmpSnap.sel_box_w%
+    HISTORY_SEL_DATA(recIdx%).sel_box_h%        = tmpSnap.sel_box_h%
+    HISTORY_SEL_DATA(recIdx%).sel_box_state%    = tmpSnap.sel_box_state%
+    HISTORY_SEL_DATA(recIdx%).sel_wand_has%     = tmpSnap.sel_wand_has%
+    HISTORY_SEL_DATA(recIdx%).sel_wand_min_x%   = tmpSnap.sel_wand_min_x%
+    HISTORY_SEL_DATA(recIdx%).sel_wand_min_y%   = tmpSnap.sel_wand_min_y%
+    HISTORY_SEL_DATA(recIdx%).sel_wand_max_x%   = tmpSnap.sel_wand_max_x%
+    HISTORY_SEL_DATA(recIdx%).sel_wand_max_y%   = tmpSnap.sel_wand_max_y%
+    HISTORY_SEL_DATA(recIdx%).sel_variant%      = tmpSnap.sel_variant%
+    HISTORY_SEL_DATA(recIdx%).sel_mode%         = tmpSnap.sel_mode%
+    HISTORY_SEL_DATA(recIdx%).sel_cfg_init_x%   = tmpSnap.sel_cfg_init_x%
+    HISTORY_SEL_DATA(recIdx%).sel_cfg_init_y%   = tmpSnap.sel_cfg_init_y%
+    HISTORY_SEL_DATA(recIdx%).sel_cfg_init_w%   = tmpSnap.sel_cfg_init_w%
+    HISTORY_SEL_DATA(recIdx%).sel_cfg_init_h%   = tmpSnap.sel_cfg_init_h%
+    HISTORY_SEL_DATA(recIdx%).sel_mask&         = tmpSnap.sel_mask&  ' transfer ownership
+    ' tmpSnap's mask is now owned by the slot — clear without freeing
+    tmpSnap.sel_mask& = 0
+END SUB
+
+' ============================================================================
+' HISTORY_create_layer_at_slot% - Internal: recreate a layer slot at a given
+' z-position. Used when undoing merge-visible to restore source layers.
+' Returns slotIndex% on success, 0 on failure.
+' ============================================================================
+FUNCTION HISTORY_create_layer_at_slot% (slotIndex AS INTEGER, targetZ AS INTEGER)
+    DIM i AS INTEGER
+    DIM oldDest AS LONG
+
+    IF slotIndex% < 1 OR slotIndex% > 64 THEN EXIT FUNCTION
+    IF LAYERS(slotIndex%).imgHandle& <> 0 THEN EXIT FUNCTION
+    IF LAYER_COUNT% >= CFG.NUM_LAYERS% THEN EXIT FUNCTION
+
+    IF targetZ% < 1 THEN targetZ% = 1
+    IF targetZ% > LAYER_COUNT% + 1 THEN targetZ% = LAYER_COUNT% + 1
+
+    FOR i% = 1 TO 64
+        IF LAYERS(i%).imgHandle& <> 0 THEN
+            IF LAYERS(i%).zIndex% >= targetZ% THEN
+                LAYERS(i%).zIndex% = LAYERS(i%).zIndex% + 1
+            END IF
+        END IF
+    NEXT i%
+
+    LAYERS(slotIndex%).imgWidth%  = SCRN.canvasW&
+    LAYERS(slotIndex%).imgHeight% = SCRN.canvasH&
+    LAYERS(slotIndex%).imgHandle& = _NEWIMAGE(SCRN.canvasW&, SCRN.canvasH&, 32)
+    IF LAYERS(slotIndex%).imgHandle& >= -1 THEN
+        LAYERS(slotIndex%).imgHandle& = 0
+        LAYERS(slotIndex%).imgWidth%  = 0
+        LAYERS(slotIndex%).imgHeight% = 0
+        EXIT FUNCTION
+    END IF
+
+    oldDest& = _DEST
+    _DEST LAYERS(slotIndex%).imgHandle&
+    CLS , _RGBA32(0, 0, 0, 0)
+    _DEST oldDest&
+
+    LAYER_COUNT% = LAYER_COUNT% + 1
+    LAYERS(slotIndex%).historyId&       = LAYERS_alloc_history_id&
+    LAYERS(slotIndex%).zIndex%          = targetZ%
+    LAYERS(slotIndex%).visible%         = TRUE
+    LAYERS(slotIndex%).isSelected%      = FALSE
+    LAYERS(slotIndex%).lastSelected%    = FALSE
+    LAYERS(slotIndex%).name$            = ""
+    LAYERS(slotIndex%).opacity%         = 255
+    LAYERS(slotIndex%).opacityLock%     = FALSE
+    LAYERS(slotIndex%).blendMode%       = BLEND_NORMAL
+    LAYERS(slotIndex%).opacityCacheImg& = 0
+    LAYERS(slotIndex%).opacityCacheVal% = 0
+    LAYERS(slotIndex%).contentDirty%    = TRUE
+
+    HISTORY_create_layer_at_slot% = slotIndex%
+END FUNCTION
+
+' ============================================================================
+' HISTORY_record_layer_merge - Record a merge-down operation for undo.
+' Called BEFORE the merge is performed.
+' topIndex: slot of the top (source) layer being merged
+' bottomIndex: slot of the bottom (target) layer being merged into
+' ============================================================================
+SUB HISTORY_record_layer_merge (topIndex AS INTEGER, bottomIndex AS INTEGER)
+    IF HISTORY_IN_PROGRESS% THEN EXIT SUB
+    IF topIndex% < 1 OR topIndex% > 64   THEN EXIT SUB
+    IF bottomIndex% < 1 OR bottomIndex% > 64 THEN EXIT SUB
+    IF LAYERS(topIndex%).imgHandle& >= -1 THEN EXIT SUB
+    IF LAYERS(bottomIndex%).imgHandle& >= -1 THEN EXIT SUB
+
+    DIM recIdx AS INTEGER
+    recIdx% = HISTORY_begin_record%(HISTORY_KIND_LAYER_MERGE, HISTORY_EXPORT_NONE, "Merge Down")
+    IF recIdx% < 1 THEN EXIT SUB
+
+    HISTORY_RECORDS(recIdx%).primaryLayerId&   = LAYERS(topIndex%).historyId&
+    HISTORY_RECORDS(recIdx%).secondaryLayerId& = LAYERS(bottomIndex%).historyId&
+    HISTORY_RECORDS(recIdx%).slotIndex%        = topIndex%
+    HISTORY_RECORDS(recIdx%).oldZIndex%        = LAYERS(topIndex%).zIndex%
+    HISTORY_RECORDS(recIdx%).oldName$          = LAYERS(topIndex%).name$
+    HISTORY_RECORDS(recIdx%).oldOpacity%       = LAYERS(topIndex%).opacity%
+    HISTORY_RECORDS(recIdx%).oldVisible%       = LAYERS(topIndex%).visible%
+    HISTORY_RECORDS(recIdx%).oldOpacityLock%   = LAYERS(topIndex%).opacityLock%
+    HISTORY_RECORDS(recIdx%).oldBlendMode%     = LAYERS(topIndex%).blendMode%
+    HISTORY_MV_SLOT(recIdx%) = 0
+
+    ' img  = before-state of top layer (to restore it on undo)
+    ' img2 = before-state of bottom layer (to restore it on undo)
+    IF LAYERS(topIndex%).imgHandle& < -1 THEN
+        HISTORY_RECORDS(recIdx%).img& = _COPYIMAGE(LAYERS(topIndex%).imgHandle&, 32)
+    END IF
+    IF LAYERS(bottomIndex%).imgHandle& < -1 THEN
+        HISTORY_RECORDS(recIdx%).img2& = _COPYIMAGE(LAYERS(bottomIndex%).imgHandle&, 32)
+    END IF
+
+    HISTORY_commit_record recIdx%
+END SUB
+
+' ============================================================================
+' HISTORY_record_layer_merge_visible - Record a merge-visible/merge-selected
+' operation for undo.  Called BEFORE the merge is performed.
+' sortedLayers(): source layer slots sorted bottom-to-top by zIndex
+' sortCount: number of entries in sortedLayers()
+' mergedResultSlot: slot of the newly created merged result layer
+' ============================================================================
+SUB HISTORY_record_layer_merge_visible (sortedLayers() AS INTEGER, sortCount AS INTEGER, mergedResultSlot AS INTEGER)
+    IF HISTORY_IN_PROGRESS% THEN EXIT SUB
+
+    DIM mvSlot AS INTEGER
+    mvSlot% = HISTORY_MV_alloc_slot%
+    IF mvSlot% = 0 THEN EXIT SUB  ' No free slot available
+
+    DIM recIdx AS INTEGER
+    recIdx% = HISTORY_begin_record%(HISTORY_KIND_LAYER_MERGE_VISIBLE, HISTORY_EXPORT_NONE, "Merge Visible")
+    IF recIdx% < 1 THEN EXIT SUB
+
+    HISTORY_RECORDS(recIdx%).primaryLayerId& = 0  ' filled after LAYERS_new% succeeds
+    HISTORY_RECORDS(recIdx%).slotIndex%      = mergedResultSlot%
+    HISTORY_RECORDS(recIdx%).x1%             = CURRENT_LAYER%  ' selected layer before merge (for restore)
+    HISTORY_MV_SLOT(recIdx%) = mvSlot%
+
+    ' Store all source layers' data in the MV slot
+    DIM si AS INTEGER
+    DIM srcIdx AS INTEGER
+    HISTORY_MV_COUNT(mvSlot%) = sortCount%
+    FOR si% = 1 TO sortCount%
+        srcIdx% = sortedLayers%(si%)
+        HISTORY_MV_DATA(mvSlot%, si%).slotIndex%   = srcIdx%
+        HISTORY_MV_DATA(mvSlot%, si%).layerId&     = LAYERS(srcIdx%).historyId&
+        HISTORY_MV_DATA(mvSlot%, si%).zIndex%      = LAYERS(srcIdx%).zIndex%
+        HISTORY_MV_DATA(mvSlot%, si%).opacity%     = LAYERS(srcIdx%).opacity%
+        HISTORY_MV_DATA(mvSlot%, si%).visible%     = LAYERS(srcIdx%).visible%
+        HISTORY_MV_DATA(mvSlot%, si%).opacityLock% = LAYERS(srcIdx%).opacityLock%
+        HISTORY_MV_DATA(mvSlot%, si%).blendMode%   = LAYERS(srcIdx%).blendMode%
+        HISTORY_MV_DATA(mvSlot%, si%).name$        = LAYERS(srcIdx%).name$
+        IF LAYERS(srcIdx%).imgHandle& < -1 THEN
+            HISTORY_MV_DATA(mvSlot%, si%).img& = _COPYIMAGE(LAYERS(srcIdx%).imgHandle&, 32)
+        ELSE
+            HISTORY_MV_DATA(mvSlot%, si%).img& = 0
+        END IF
+    NEXT si%
+
+    HISTORY_commit_record recIdx%
+END SUB
+
+' ============================================================================
+' HISTORY_merge_update_result_id - Store the merged-result layer's historyId
+' into the most-recent LAYER_MERGE_VISIBLE record.  Called after LAYERS_new%.
+' ============================================================================
+SUB HISTORY_merge_update_result_id (resultLayerId AS LONG)
+    IF HISTORY.current% < 1 THEN EXIT SUB
+    IF HISTORY_RECORDS(HISTORY.current%).kind% <> HISTORY_KIND_LAYER_MERGE_VISIBLE THEN EXIT SUB
+    HISTORY_RECORDS(HISTORY.current%).primaryLayerId& = resultLayerId&
+END SUB
+
 SUB HISTORY_undo ()
     DIM idx AS INTEGER
     DIM layerIndex AS INTEGER
@@ -1057,6 +1546,86 @@ SUB HISTORY_undo ()
                 IF layerIndex% > 0 THEN LAYERS(layerIndex%).name$ = HISTORY_RECORDS(idx%).oldName$
             CASE HISTORY_KIND_LINE, HISTORY_KIND_RECT, HISTORY_KIND_ELLIPSE, HISTORY_KIND_POLYLINE, HISTORY_KIND_FILL, HISTORY_KIND_BRUSH, HISTORY_KIND_TRANSFORM
                 HISTORY_apply_layer_snapshot HISTORY_RECORDS(idx%).primaryLayerId&, HISTORY_RECORDS(idx%).img&
+            CASE HISTORY_KIND_SELECTION_CHANGE
+                HISTORY_sel_exchange idx%
+            CASE HISTORY_KIND_LAYER_MERGE
+                ' Undo merge-down: restore bottom layer pixels, recreate top layer
+                DIM mergeUndoBottom AS INTEGER
+                mergeUndoBottom% = HISTORY_find_layer_slot_by_id%(HISTORY_RECORDS(idx%).secondaryLayerId&)
+                IF mergeUndoBottom% > 0 AND HISTORY_RECORDS(idx%).img2& < -1 THEN
+                    IF LAYERS(mergeUndoBottom%).imgHandle& < -1 THEN
+                        _FREEIMAGE LAYERS(mergeUndoBottom%).imgHandle&
+                    END IF
+                    LAYERS(mergeUndoBottom%).imgHandle& = _COPYIMAGE(HISTORY_RECORDS(idx%).img2&, 32)
+                    LAYERS(mergeUndoBottom%).contentDirty% = TRUE
+                END IF
+                DIM mergeUndoTopSlot AS INTEGER
+                mergeUndoTopSlot% = HISTORY_create_layer_from_record%(idx%, HISTORY_RECORDS(idx%).oldZIndex%)
+                IF mergeUndoTopSlot% > 0 THEN
+                    LAYERS(mergeUndoTopSlot%).name$        = HISTORY_RECORDS(idx%).oldName$
+                    LAYERS(mergeUndoTopSlot%).opacity%     = HISTORY_RECORDS(idx%).oldOpacity%
+                    LAYERS(mergeUndoTopSlot%).visible%     = HISTORY_RECORDS(idx%).oldVisible%
+                    LAYERS(mergeUndoTopSlot%).opacityLock% = HISTORY_RECORDS(idx%).oldOpacityLock%
+                    LAYERS(mergeUndoTopSlot%).blendMode%   = HISTORY_RECORDS(idx%).oldBlendMode%
+                    LAYERS_select mergeUndoTopSlot%
+                END IF
+            CASE HISTORY_KIND_LAYER_MERGE_VISIBLE
+                ' Undo merge-visible: delete merged result, recreate all source layers
+                DIM mvUndoSlot AS INTEGER
+                mvUndoSlot% = HISTORY_MV_SLOT(idx%)
+                ' Delete merged result layer
+                DIM mvUndoResultIdx AS INTEGER
+                mvUndoResultIdx% = HISTORY_find_layer_slot_by_id%(HISTORY_RECORDS(idx%).primaryLayerId&)
+                IF mvUndoResultIdx% <= 0 THEN mvUndoResultIdx% = HISTORY_RECORDS(idx%).slotIndex%
+                IF mvUndoResultIdx% >= 1 AND mvUndoResultIdx% <= 64 THEN
+                    IF LAYERS(mvUndoResultIdx%).imgHandle& < -1 THEN
+                        IF LAYERS(mvUndoResultIdx%).opacityCacheImg& < -1 THEN
+                            _FREEIMAGE LAYERS(mvUndoResultIdx%).opacityCacheImg&
+                        END IF
+                        _FREEIMAGE LAYERS(mvUndoResultIdx%).imgHandle&
+                        LAYERS(mvUndoResultIdx%).imgHandle&       = 0
+                        LAYERS(mvUndoResultIdx%).imgWidth%        = 0
+                        LAYERS(mvUndoResultIdx%).imgHeight%       = 0
+                        LAYERS(mvUndoResultIdx%).zIndex%          = 0
+                        LAYERS(mvUndoResultIdx%).visible%         = FALSE
+                        LAYERS(mvUndoResultIdx%).isSelected%      = FALSE
+                        LAYERS(mvUndoResultIdx%).name$            = ""
+                        LAYERS(mvUndoResultIdx%).opacity%         = 255
+                        LAYERS(mvUndoResultIdx%).opacityLock%     = FALSE
+                        LAYERS(mvUndoResultIdx%).opacityCacheImg& = 0
+                        LAYERS(mvUndoResultIdx%).opacityCacheVal% = 0
+                        LAYERS(mvUndoResultIdx%).contentDirty%    = FALSE
+                    END IF
+                END IF
+                ' Recreate all source layers from MV backup
+                DIM mvUndoI AS INTEGER : DIM mvUndoRestoreSlot AS INTEGER
+                FOR mvUndoI% = 1 TO HISTORY_MV_COUNT(mvUndoSlot%)
+                    mvUndoRestoreSlot% = HISTORY_MV_DATA(mvUndoSlot%, mvUndoI%).slotIndex%
+                    mvUndoRestoreSlot% = HISTORY_create_layer_at_slot%(mvUndoRestoreSlot%, HISTORY_MV_DATA(mvUndoSlot%, mvUndoI%).zIndex%)
+                    IF mvUndoRestoreSlot% >= 1 THEN
+                        LAYERS(mvUndoRestoreSlot%).name$            = HISTORY_MV_DATA(mvUndoSlot%, mvUndoI%).name$
+                        LAYERS(mvUndoRestoreSlot%).zIndex%          = HISTORY_MV_DATA(mvUndoSlot%, mvUndoI%).zIndex%
+                        LAYERS(mvUndoRestoreSlot%).opacity%         = HISTORY_MV_DATA(mvUndoSlot%, mvUndoI%).opacity%
+                        LAYERS(mvUndoRestoreSlot%).visible%         = HISTORY_MV_DATA(mvUndoSlot%, mvUndoI%).visible%
+                        LAYERS(mvUndoRestoreSlot%).opacityLock%     = HISTORY_MV_DATA(mvUndoSlot%, mvUndoI%).opacityLock%
+                        LAYERS(mvUndoRestoreSlot%).blendMode%       = HISTORY_MV_DATA(mvUndoSlot%, mvUndoI%).blendMode%
+                        LAYERS(mvUndoRestoreSlot%).isSelected%      = FALSE
+                        LAYERS(mvUndoRestoreSlot%).lastSelected%    = FALSE
+                        LAYERS(mvUndoRestoreSlot%).contentDirty%    = TRUE
+                        IF HISTORY_MV_DATA(mvUndoSlot%, mvUndoI%).img& < -1 THEN
+                            IF LAYERS(mvUndoRestoreSlot%).imgHandle& < -1 THEN
+                                _FREEIMAGE LAYERS(mvUndoRestoreSlot%).imgHandle&
+                            END IF
+                            LAYERS(mvUndoRestoreSlot%).imgHandle& = _COPYIMAGE(HISTORY_MV_DATA(mvUndoSlot%, mvUndoI%).img&, 32)
+                        END IF
+                    END IF
+                NEXT mvUndoI%
+                ' Select originally-selected layer (stored in x1%)
+                DIM mvUndoOrigSel AS INTEGER
+                mvUndoOrigSel% = HISTORY_RECORDS(idx%).x1%
+                IF mvUndoOrigSel% >= 1 AND mvUndoOrigSel% <= 64 AND LAYERS(mvUndoOrigSel%).imgHandle& < -1 THEN
+                    LAYERS_select mvUndoOrigSel%
+                END IF
         END SELECT
         idx% = idx% - 1
     LOOP
@@ -1099,6 +1668,20 @@ SUB HISTORY_redo ()
                 IF layerIndex% > 0 THEN LAYERS(layerIndex%).name$ = HISTORY_RECORDS(idx%).newName$
             CASE HISTORY_KIND_LINE, HISTORY_KIND_RECT, HISTORY_KIND_ELLIPSE, HISTORY_KIND_POLYLINE, HISTORY_KIND_FILL, HISTORY_KIND_BRUSH, HISTORY_KIND_TRANSFORM
                 HISTORY_apply_layer_snapshot HISTORY_RECORDS(idx%).primaryLayerId&, HISTORY_RECORDS(idx%).img2&
+            CASE HISTORY_KIND_SELECTION_CHANGE
+                HISTORY_sel_exchange idx%
+            CASE HISTORY_KIND_LAYER_MERGE
+                ' Redo merge-down: re-run the merge
+                DIM mergeRedoTop AS INTEGER
+                mergeRedoTop% = HISTORY_find_layer_slot_by_id%(HISTORY_RECORDS(idx%).primaryLayerId&)
+                IF mergeRedoTop% <= 0 THEN mergeRedoTop% = HISTORY_RECORDS(idx%).slotIndex%
+                IF mergeRedoTop% >= 1 AND mergeRedoTop% <= 64 AND LAYERS(mergeRedoTop%).imgHandle& < -1 THEN
+                    LAYERS_merge_down mergeRedoTop%
+                END IF
+            CASE HISTORY_KIND_LAYER_MERGE_VISIBLE
+                ' Redo merge-visible: re-run the merge
+                ' HISTORY_IN_PROGRESS% is TRUE, so LAYERS_merge_visible won't record a new entry
+                LAYERS_merge_visible
         END SELECT
         HISTORY.current% = idx%
         idx% = idx% + 1

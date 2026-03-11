@@ -713,20 +713,15 @@ SUB CMD_execute_action (action_id AS INTEGER)
                 POLY_LINE_cancel_restore
                 PENDING_REDO_SOURCE% = REDO_SOURCE_NONE
             ELSE
-                DIM pixelUndoTs AS DOUBLE, workspaceUndoTs AS DOUBLE, historyUndoTs AS DOUBLE
-                DIM canPixelUndo AS INTEGER, canWorkspaceUndo AS INTEGER, canHistoryUndo AS INTEGER
+                DIM pixelUndoTs AS DOUBLE, historyUndoTs AS DOUBLE
+                DIM canPixelUndo AS INTEGER, canHistoryUndo AS INTEGER
                 pixelUndoTs# = UNDO_get_last_timestamp#
-                workspaceUndoTs# = WORKSPACE_UNDO_get_last_timestamp#
                 historyUndoTs# = HISTORY_get_last_timestamp#
                 canPixelUndo% = (pixelUndoTs# > 0)
-                canWorkspaceUndo% = WORKSPACE_UNDO_can_undo%
                 canHistoryUndo% = HISTORY_can_undo%
-                IF canHistoryUndo% AND historyUndoTs# > 0 AND (NOT canWorkspaceUndo% OR historyUndoTs# >= workspaceUndoTs#) AND (NOT canPixelUndo% OR historyUndoTs# >= pixelUndoTs#) THEN
+                IF canHistoryUndo% AND historyUndoTs# > 0 AND (NOT canPixelUndo% OR historyUndoTs# >= pixelUndoTs#) THEN
                     HISTORY_undo
                     PENDING_REDO_SOURCE% = REDO_SOURCE_HISTORY
-                ELSEIF canWorkspaceUndo% AND workspaceUndoTs# > 0 AND (NOT canPixelUndo% OR workspaceUndoTs# >= pixelUndoTs#) THEN
-                    WORKSPACE_UNDO_undo
-                    PENDING_REDO_SOURCE% = REDO_SOURCE_WORKSPACE
                 ELSEIF canPixelUndo% THEN
                     UNDO_undo
                     PENDING_REDO_SOURCE% = REDO_SOURCE_PIXEL
@@ -746,14 +741,6 @@ SUB CMD_execute_action (action_id AS INTEGER)
                 ELSE
                     PENDING_REDO_SOURCE% = REDO_SOURCE_NONE
                 END IF
-            ELSEIF PENDING_REDO_SOURCE% = REDO_SOURCE_WORKSPACE THEN
-                IF WORKSPACE_UNDO_can_redo% THEN
-                    WORKSPACE_UNDO_redo
-                    redoHandled% = TRUE
-                    IF NOT WORKSPACE_UNDO_can_redo% THEN PENDING_REDO_SOURCE% = REDO_SOURCE_NONE
-                ELSE
-                    PENDING_REDO_SOURCE% = REDO_SOURCE_NONE
-                END IF
             ELSEIF PENDING_REDO_SOURCE% = REDO_SOURCE_PIXEL THEN
                 IF UNDO.current% < UNDO.count% - 1 THEN
                     UNDO_redo
@@ -767,19 +754,15 @@ SUB CMD_execute_action (action_id AS INTEGER)
             ' Use timestamps to redo in correct chronological order (earliest first).
             ' This mirrors the undo routing which uses timestamps for "latest first".
             IF NOT redoHandled% AND PENDING_REDO_SOURCE% = REDO_SOURCE_NONE THEN
-                DIM pixelRedoTs AS DOUBLE, workspaceRedoTs AS DOUBLE, historyRedoTs AS DOUBLE
-                DIM canPixelRedo AS INTEGER, canWorkspaceRedo AS INTEGER, canHistoryRedo AS INTEGER
+                DIM pixelRedoTs AS DOUBLE, historyRedoTs AS DOUBLE
+                DIM canPixelRedo AS INTEGER, canHistoryRedo AS INTEGER
                 canPixelRedo% = (UNDO.current% < UNDO.count% - 1)
-                canWorkspaceRedo% = WORKSPACE_UNDO_can_redo%
                 canHistoryRedo% = HISTORY_can_redo%
-                pixelRedoTs# = 0: workspaceRedoTs# = 0: historyRedoTs# = 0
+                pixelRedoTs# = 0: historyRedoTs# = 0
                 IF canPixelRedo% THEN pixelRedoTs# = UNDO_get_next_timestamp#
-                IF canWorkspaceRedo% THEN workspaceRedoTs# = WORKSPACE_UNDO_STATES(WORKSPACE_UNDO.current% + 1).timestamp#
                 IF canHistoryRedo% THEN historyRedoTs# = HISTORY_get_next_timestamp#
-                IF canHistoryRedo% AND historyRedoTs# > 0 AND (NOT canWorkspaceRedo% OR historyRedoTs# <= workspaceRedoTs#) AND (NOT canPixelRedo% OR historyRedoTs# <= pixelRedoTs#) THEN
+                IF canHistoryRedo% AND historyRedoTs# > 0 AND (NOT canPixelRedo% OR historyRedoTs# <= pixelRedoTs#) THEN
                     HISTORY_redo
-                ELSEIF canWorkspaceRedo% AND workspaceRedoTs# > 0 AND (NOT canPixelRedo% OR workspaceRedoTs# <= pixelRedoTs#) THEN
-                    WORKSPACE_UNDO_redo
                 ELSEIF canPixelRedo% THEN
                     UNDO_redo
                 END IF
@@ -888,29 +871,29 @@ SUB CMD_execute_action (action_id AS INTEGER)
             IF clearUsedHistoryGroup% THEN HISTORY_end_group
         CASE 307  ' Deselect
             IF MARQUEE.WAND_HAS_SELECTION AND MARQUEE.SELECTION_MASK < -1 THEN
-                WORKSPACE_UNDO_stage_selection
+                HISTORY_selection_stage
                 MAGIC_WAND_reset
                 MARQUEE.ACTIVE% = FALSE
-                WORKSPACE_UNDO_commit_selection
+                HISTORY_selection_commit
                 GUI_NEEDS_REDRAW% = TRUE
                 FRAME_IDLE% = FALSE
             ELSEIF MARQUEE.ACTIVE% THEN
-                WORKSPACE_UNDO_stage_selection
+                HISTORY_selection_stage
                 MARQUEE_clear
-                WORKSPACE_UNDO_commit_selection
+                HISTORY_selection_commit
                 GUI_NEEDS_REDRAW% = TRUE
                 FRAME_IDLE% = FALSE
             END IF
         CASE 310  ' Select All
             SOUND_play SND_SELECTION
-            WORKSPACE_UNDO_stage_selection
+            HISTORY_selection_stage
             SELECTION_select_all
-            WORKSPACE_UNDO_commit_selection
+            HISTORY_selection_commit
         CASE 311  ' Invert Selection
             SOUND_play SND_SELECTION
-            WORKSPACE_UNDO_stage_selection
+            HISTORY_selection_stage
             SELECTION_invert
-            WORKSPACE_UNDO_commit_selection
+            HISTORY_selection_commit
         
         ' ========== VIEW ==========
         CASE 401  ' Toggle Toolbar
@@ -1330,17 +1313,19 @@ SUB CMD_execute_action (action_id AS INTEGER)
                 NEXT ms711_si%
             NEXT ms711_zi%
             IF ms711_sortCount% < 2 THEN EXIT SELECT
-            ' Save workspace undo BEFORE any structural changes
-            WORKSPACE_UNDO_save_merge_visible ms711_sortedSel%(), ms711_sortCount%
-            WORKSPACE_UNDO_IN_PROGRESS% = TRUE
+            ' Record in unified history BEFORE structural changes
+            HISTORY_record_layer_merge_visible ms711_sortedSel%(), ms711_sortCount%, 0
+            HISTORY_IN_PROGRESS% = TRUE
             ' Create new blank layer for merged result
             DIM ms711_newIdx AS INTEGER
             ms711_newIdx% = LAYERS_new%
             IF ms711_newIdx% = 0 THEN
-                WORKSPACE_UNDO_IN_PROGRESS% = FALSE
+                HISTORY_IN_PROGRESS% = FALSE
                 EXIT SELECT
             END IF
-            WORKSPACE_UNDO_STATES(WORKSPACE_UNDO.current%).merge_top_index% = ms711_newIdx%
+            ' Update history record with the actual slot now that we have it
+            HISTORY_RECORDS(HISTORY.current%).slotIndex% = ms711_newIdx%
+            HISTORY_merge_update_result_id LAYERS(ms711_newIdx%).historyId&
             LAYERS(ms711_newIdx%).name = "Merged"
             ' Composite selected layers bottom-to-top onto the new blank layer
             DIM ms711_oldDest AS LONG
@@ -1387,7 +1372,7 @@ SUB CMD_execute_action (action_id AS INTEGER)
                     LAYERS_delete ms711_sortedSel%(ms711_si%)
                 END IF
             NEXT ms711_si%
-            WORKSPACE_UNDO_IN_PROGRESS% = FALSE
+            HISTORY_IN_PROGRESS% = FALSE
             DIM ms711SavedPixelTs AS DOUBLE
             ms711SavedPixelTs# = PIXEL_UNDO_LAST_TIMESTAMP#
             UNDO_save_layer_state ms711_newIdx%

@@ -382,7 +382,6 @@ SUB MAIN_shutdown ()
     ' FREE UNDO HISTORY IMAGES (pixel + workspace)
     ' =====================================================================
     UNDO_clear
-    WORKSPACE_UNDO_clear
 
     ' =====================================================================
     ' FREE LAYER IMAGES (pixel data + opacity cache)
