@@ -120,10 +120,12 @@ IMAGE_ADJ_init           ' Initialise image adjustment library (IMGADJ)
 DIM k AS LONG
 DIM exitConfirmed AS INTEGER
 DIM prevShiftHeld AS INTEGER, prevCtrlHeld AS INTEGER, prevAltHeld AS INTEGER
+DIM prevMouseOverCanvas AS INTEGER
 exitConfirmed% = FALSE
 prevShiftHeld% = MODIFIERS.shift%
 prevCtrlHeld% = MODIFIERS.ctrl%
 prevAltHeld% = MODIFIERS.alt%
+prevMouseOverCanvas% = FALSE
     
 DO
     ' Deferred command line file loading (after first frame when everything is initialized)
@@ -207,20 +209,42 @@ DO
     FRAME_IDLE% = TRUE
     DIM SCENE_CHANGED AS INTEGER
     DIM modifiersChanged AS INTEGER
+    DIM mouseMoved AS INTEGER
+    DIM mouseOverCanvas AS INTEGER
     SCENE_CHANGED% = FALSE
     modifiersChanged% = (MODIFIERS.shift% <> prevShiftHeld% OR MODIFIERS.ctrl% <> prevCtrlHeld% OR MODIFIERS.alt% <> prevAltHeld%)
+    mouseMoved% = (MOUSE.RAW_X% <> IDLE_PREV_MOUSE_X% OR MOUSE.RAW_Y% <> IDLE_PREV_MOUSE_Y%)
+    mouseOverCanvas% = FALSE
+
+    DIM idleZW AS LONG, idleZH AS LONG, idleDX AS INTEGER, idleDY AS INTEGER
+    IF SCRN.patternTileMode% THEN
+        idleZW& = SCRN.canvasW& * 3 * SCRN.zoom!
+        idleZH& = SCRN.canvasH& * 3 * SCRN.zoom!
+    ELSE
+        idleZW& = SCRN.canvasW& * SCRN.zoom!
+        idleZH& = SCRN.canvasH& * SCRN.zoom!
+    END IF
+    idleDX% = (SCRN.w& - idleZW&) \ 2 + SCRN.offsetX%
+    idleDY% = (SCRN.h& - idleZH&) \ 2 + SCRN.offsetY%
+    IF MOUSE.RAW_X% >= idleDX% AND MOUSE.RAW_X% < idleDX% + idleZW& AND MOUSE.RAW_Y% >= idleDY% AND MOUSE.RAW_Y% < idleDY% + idleZH& THEN
+        mouseOverCanvas% = TRUE
+    END IF
+
     IF k& <> 0 THEN FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE   ' Key was pressed
     IF MOUSE.B1% OR MOUSE.B2% OR MOUSE.B3% THEN FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE  ' Mouse button held
-    IF MOUSE.RAW_X% <> IDLE_PREV_MOUSE_X% OR MOUSE.RAW_Y% <> IDLE_PREV_MOUSE_Y% THEN
+    IF mouseMoved% THEN
         FRAME_IDLE% = FALSE                                       ' Mouse moved (cursor only)
-        GUI_NEEDS_REDRAW% = TRUE                                  ' Update status bar coords
+        GUI_NEEDS_REDRAW% = TRUE                                  ' Update hover highlights in toolbar/organizer/drawer/editbar/layerpanel
     END IF
-    IF GUI_NEEDS_REDRAW% THEN FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE   ' GUI needs update (forces scene re-render)
+    IF GUI_NEEDS_REDRAW% THEN FRAME_IDLE% = FALSE   ' GUI-only updates should stay on the cached-scene path unless something else dirtied the scene
     IF modifiersChanged% THEN FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE   ' Modifier overlays affect cached scene and must repaint on press/release
     IF SCRN.panning% THEN FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE      ' Panning active
     IF MODIFIERS.shift% THEN FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE   ' SHIFT held (crosshair/constraint)
     IF MOUSE.SW% <> 0 THEN FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE     ' Mouse wheel scrolled
     IF CURRENT_TOOL% = TOOL_MOVE AND MOVE.ACTIVE THEN FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE
+    ' Rubber-band tools: keep scene dirty while vertices are placed (no button held)
+    IF (CURRENT_TOOL% = TOOL_POLYGON OR CURRENT_TOOL% = TOOL_POLYGON_FILLED) AND POLY_LINE.HAS_LAST THEN FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE
+    IF CURRENT_TOOL% = TOOL_MARQUEE AND (MARQUEE.POLY_DRAWING OR MARQUEE.FREE_DRAWING OR MARQUEE.ELLIP_DRAGGING) THEN FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE
     IF TRANSFORM.ACTIVE THEN
         FRAME_IDLE% = FALSE   ' keep render loop active while overlay is live
         IF TRANSFORM.GRABBED >= 0 OR TRANSFORM_PREVIEW_DIRTY THEN SCENE_CHANGED% = TRUE
@@ -229,13 +253,12 @@ DO
     IF IMG_IMPORT.STATE > IMPORT_STATE_IDLE THEN FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE
     IF CROP.STATE = CROP_STATE_ACTIVE THEN FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE
     IF CMD_PALETTE.visible THEN FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE
-    IF MENUBAR_is_open% THEN FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE
-    IF LAYER_PANEL.blendPopupOpen% THEN FRAME_IDLE% = FALSE  ' Popup animation (hover) — no scene change
     IF SELECTION_has_active% THEN FRAME_IDLE% = FALSE  ' Animation only (marching ants) — no scene change
     IF SCENE_CHANGED% THEN SCENE_DIRTY% = TRUE
     prevShiftHeld% = MODIFIERS.shift%
     prevCtrlHeld% = MODIFIERS.ctrl%
     prevAltHeld% = MODIFIERS.alt%
+    prevMouseOverCanvas% = mouseOverCanvas%
     ' Mark current layer content dirty when user is actively drawing
     IF (MOUSE.B1% OR MOUSE.B2%) AND CURRENT_LAYER% > 0 THEN
         LAYERS(CURRENT_LAYER%).contentDirty% = TRUE

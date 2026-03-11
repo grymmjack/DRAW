@@ -19,6 +19,7 @@ TYPE POINTER_OBJ
     HIDDEN AS INTEGER      ' TRUE when pointer is hidden for native dialogs
     PREV_DRAW_X AS INTEGER ' Previous frame pointer X (canvas coords) for dirty-rect
     PREV_DRAW_Y AS INTEGER ' Previous frame pointer Y (canvas coords) for dirty-rect
+    USING_SYSTEM_CURSOR AS INTEGER ' TRUE when OS system cursor is active this frame
 END TYPE
 
 DIM SHARED POINTER AS POINTER_OBJ

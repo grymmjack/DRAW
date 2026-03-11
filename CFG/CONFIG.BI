@@ -263,8 +263,9 @@ TYPE DRAW_CONFIG
     DEFAULT_DSET_GRADIENTS_FILE    AS STRING   ' Default gradient drawer set (.dset)
     ' Canvas size settings
     DEFAULT_CANVAS_SIZE_W          AS INTEGER  ' Default canvas width (0=fill viewport, >0=explicit)
-    DEFAULT_CANVAS_SIZE_H          AS INTEGER  ' Default canvas height (0=fill viewport, >0=explicit)
+    DEFAULT_CANVAS_SIZE_H          AS INTEGER  ' Default canvas height (>0=explicit)
     CANVAS_APRON_COLOR             AS _UNSIGNED LONG ' Background color around canvas when smaller than viewport
+    SYSTEM_CURSORS_ENABLED         AS INTEGER  ' TRUE = use OS system cursors for resize/hand/text/move
 END TYPE
 
 DIM SHARED CFG   AS DRAW_CONFIG
