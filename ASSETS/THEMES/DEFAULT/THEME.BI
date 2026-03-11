@@ -26,6 +26,8 @@ THEME.CROSSHAIR_font_size%       = 0                       ' 0 = use global font
 THEME.CROSSHAIR_font_fg~&        = _RGB32(255, 255, 255)   ' White coordinate text
 THEME.CROSSHAIR_font_stroke_fg~& = _RGB32(0, 0, 0)         ' Black coordinate outline
 THEME.CROSSHAIR_font_stroke_width% = 2                     ' Coordinate outline width
+THEME.CROSSHAIR_font_offset_x%     = 8                     ' Coordinate text X offset from cursor
+THEME.CROSSHAIR_font_offset_y%     = 8                     ' Coordinate text Y offset from cursor
 THEME.CROSSHAIR_pattern%         = &B1010101010101010      ' - - - - - - - -
 THEME.PICKER_LOUPE_zoom_level%   = 8                       ' Loupe zoom factor
 THEME.PICKER_LOUPE_rect_x_offset% = 24                     ' Loupe X offset from mouse

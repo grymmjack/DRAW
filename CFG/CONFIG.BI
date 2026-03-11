@@ -181,6 +181,8 @@ TYPE DRAW_CONFIG
     CROSSHAIR_FONT_FG              AS _UNSIGNED LONG  ' Crosshair text color (hex RGB, 0=use theme)
     CROSSHAIR_FONT_STROKE_FG       AS _UNSIGNED LONG  ' Crosshair text outline color (hex RGB, 0=use theme)
     CROSSHAIR_FONT_STROKE_WIDTH    AS INTEGER  ' Crosshair text outline width in pixels
+    CROSSHAIR_FONT_OFFSET_X        AS INTEGER  ' Crosshair text X offset from cursor (CONFIG_USE_THEME_DEFAULT=use theme)
+    CROSSHAIR_FONT_OFFSET_Y        AS INTEGER  ' Crosshair text Y offset from cursor (CONFIG_USE_THEME_DEFAULT=use theme)
     CROSSHAIR_ANGLE                AS SINGLE   ' Crosshair rotation angle in degrees (0=use theme)
     ' Picker loupe settings
     PICKER_LOUPE_ZOOM_LEVEL        AS INTEGER
