@@ -56,6 +56,8 @@ DIM SHARED TOOL AS TOOL_OBJ
 
 Key globals: `SCRN`, `MOUSE`, `CFG`, `THEME`, `CURRENT_TOOL%`, `PAINT_COLOR~&`, `PAINT_BG_COLOR~&`, `DRAW_COLOR~&`, `CANVAS_DIRTY%`
 
+`POINTER_OBJ` key fields: `CURSOR_ID%`, `CURSOR_FLIP%`, `HIDDEN%`, `PREV_DRAW_X/Y%`, `USING_SYSTEM_CURSOR%` (TRUE when OS `_MOUSESHOW` is active this frame — skip custom PNG draw for that cursor type)
+
 ---
 
 ## Naming Conventions

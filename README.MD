@@ -14,7 +14,7 @@ DATA "::::::::", "::    ::", "::    ::", "::::  ::::", "  ::  ::  "
 
 DRAW is a pixel art editor written in QB64PE that can export images as sourcecode
 
-Current release: v0.18.0
+Current release: v0.19.0
 
 ![DRAW GUI from v0.17.0](./GUI.png)
 
@@ -132,6 +132,7 @@ Note: screenshot refresh pending for v0.18.0. The current UI also includes the p
 - **Drawer panel** - A 30-slot drawer beneath the organizer for brush, gradient, and pattern sets; `F1`/`F2`/`F3` switch modes, left-click selects, `Shift+Left Click` stores, right-click opens a context menu, middle-click cycles modes, `Shift+Middle Click` clears a slot, and `Shift+Right Click` imports into a slot
 - **Preview window** - A floating canvas preview panel with follow-pointer mode, pan/zoom, minimize/close buttons, and work-area clamping
 - **Edit bar** - A dockable vertical strip of edit-action icons on the left or right side of the workspace (`F5`)
+- **System cursors** - Automatically uses OS native cursors for UI areas (arrow in toolbar/panels), canvas work (crosshair for drawing tools, I-beam for text, resize arrows for handles) and move tool (move pointer); falls back to custom PNG cursors for tools that need them (brush, fill, picker loupe, spray, marquee); configurable via `SYSTEM_CURSORS` in `DRAW.cfg`
 - Themeable PNG icon toolbar (28 buttons in **4×7 grid**)
 - PNG cursors with theme-configurable hotspots and alpha transparency
 - **Fully themeable layer panel** — all colors, header height, and button bar height configurable via `ASSETS/THEMES/DEFAULT/THEME.CFG` (no recompile needed)
