@@ -698,74 +698,28 @@ SUB CMD_execute_action (action_id AS INTEGER)
             GUI_NEEDS_REDRAW% = TRUE
         
         ' ========== EDIT ==========
-        CASE 301  ' Undo (intelligent workspace/pixel routing)
+        CASE 301  ' Undo
             IF CURRENT_TOOL% = TOOL_MOVE AND MOVE.ACTIVE THEN
                 ' Abort the active move instead of undoing — same as ESC
                 ' Suppress undo save in MOVE_apply_transform (called by MOVE_reset)
                 ' since the cancel just restores original pixels — saving would create
                 ' a phantom undo state identical to pre-capture.
-                UNDO_saved_this_frame% = TRUE
+                HISTORY_saved_this_frame% = TRUE
                 MOVE_cancel_transform
                 MOVE_reset
                 ' Keep TOOL_MOVE selected (MOVE_reset already cleans up auto-created marquee)
-                PENDING_REDO_SOURCE% = REDO_SOURCE_NONE
             ELSEIF (CURRENT_TOOL% = TOOL_POLYGON OR CURRENT_TOOL% = TOOL_POLYGON_FILLED) AND POLY_LINE.HAS_LAST AND POLY_LINE.HISTORY_BEFORE_IMG < -1 THEN
                 POLY_LINE_cancel_restore
-                PENDING_REDO_SOURCE% = REDO_SOURCE_NONE
             ELSE
-                DIM pixelUndoTs AS DOUBLE, historyUndoTs AS DOUBLE
-                DIM canPixelUndo AS INTEGER, canHistoryUndo AS INTEGER
-                pixelUndoTs# = UNDO_get_last_timestamp#
-                historyUndoTs# = HISTORY_get_last_timestamp#
-                canPixelUndo% = (pixelUndoTs# > 0)
-                canHistoryUndo% = HISTORY_can_undo%
-                IF canHistoryUndo% AND historyUndoTs# > 0 AND (NOT canPixelUndo% OR historyUndoTs# >= pixelUndoTs#) THEN
+                IF HISTORY_can_undo% THEN
                     HISTORY_undo
-                    PENDING_REDO_SOURCE% = REDO_SOURCE_HISTORY
-                ELSEIF canPixelUndo% THEN
-                    UNDO_undo
-                    PENDING_REDO_SOURCE% = REDO_SOURCE_PIXEL
                 END IF
             END IF
             GUI_NEEDS_REDRAW% = TRUE
             FRAME_IDLE% = FALSE
-        CASE 302  ' Redo (intelligent workspace/pixel routing)
-            DIM redoHandled AS INTEGER
-            redoHandled% = FALSE
-
-            IF PENDING_REDO_SOURCE% = REDO_SOURCE_HISTORY THEN
-                IF HISTORY_can_redo% THEN
-                    HISTORY_redo
-                    redoHandled% = TRUE
-                    IF NOT HISTORY_can_redo% THEN PENDING_REDO_SOURCE% = REDO_SOURCE_NONE
-                ELSE
-                    PENDING_REDO_SOURCE% = REDO_SOURCE_NONE
-                END IF
-            ELSEIF PENDING_REDO_SOURCE% = REDO_SOURCE_PIXEL THEN
-                IF UNDO.current% < UNDO.count% - 1 THEN
-                    UNDO_redo
-                    redoHandled% = TRUE
-                    IF NOT (UNDO.current% < UNDO.count% - 1) THEN PENDING_REDO_SOURCE% = REDO_SOURCE_NONE
-                ELSE
-                    PENDING_REDO_SOURCE% = REDO_SOURCE_NONE
-                END IF
-            END IF
-
-            ' Use timestamps to redo in correct chronological order (earliest first).
-            ' This mirrors the undo routing which uses timestamps for "latest first".
-            IF NOT redoHandled% AND PENDING_REDO_SOURCE% = REDO_SOURCE_NONE THEN
-                DIM pixelRedoTs AS DOUBLE, historyRedoTs AS DOUBLE
-                DIM canPixelRedo AS INTEGER, canHistoryRedo AS INTEGER
-                canPixelRedo% = (UNDO.current% < UNDO.count% - 1)
-                canHistoryRedo% = HISTORY_can_redo%
-                pixelRedoTs# = 0: historyRedoTs# = 0
-                IF canPixelRedo% THEN pixelRedoTs# = UNDO_get_next_timestamp#
-                IF canHistoryRedo% THEN historyRedoTs# = HISTORY_get_next_timestamp#
-                IF canHistoryRedo% AND historyRedoTs# > 0 AND (NOT canPixelRedo% OR historyRedoTs# <= pixelRedoTs#) THEN
-                    HISTORY_redo
-                ELSEIF canPixelRedo% THEN
-                    UNDO_redo
-                END IF
+        CASE 302  ' Redo
+            IF HISTORY_can_redo% THEN
+                HISTORY_redo
             END IF
             GUI_NEEDS_REDRAW% = TRUE
             FRAME_IDLE% = FALSE
@@ -788,14 +742,7 @@ SUB CMD_execute_action (action_id AS INTEGER)
                         _PUTIMAGE (CLIPBOARD.SOURCE_X, CLIPBOARD.SOURCE_Y), CLIPBOARD.IMAGE, ctnl_dest&
                         LAYERS(ctnl_idx%).contentDirty% = TRUE
                         HISTORY_refresh_layer_add_snapshot LAYERS(ctnl_idx%).historyId&
-                        DIM ctnl_savedPixelTs AS DOUBLE
-                        ctnl_savedPixelTs# = PIXEL_UNDO_LAST_TIMESTAMP#
-                        UNDO_save_layer_state ctnl_idx%
-                        IF UNDO.current% >= 0 AND UNDO.current% <= UNDO_STATES_MAX% THEN
-                            UNDO_STATES(UNDO.current%).timestamp# = 0
-                        END IF
-                        PIXEL_UNDO_LAST_TIMESTAMP# = ctnl_savedPixelTs#
-                        UNDO_saved_this_frame% = TRUE
+                        HISTORY_saved_this_frame% = TRUE
                         INVALIDATE_layers
                     END IF
                 END IF
@@ -838,14 +785,7 @@ SUB CMD_execute_action (action_id AS INTEGER)
                         END IF
                         LAYERS(cpnl_idx%).contentDirty% = TRUE
                         HISTORY_refresh_layer_add_snapshot LAYERS(cpnl_idx%).historyId&
-                        DIM cpnl_savedPixelTs AS DOUBLE
-                        cpnl_savedPixelTs# = PIXEL_UNDO_LAST_TIMESTAMP#
-                        UNDO_save_layer_state cpnl_idx%
-                        IF UNDO.current% >= 0 AND UNDO.current% <= UNDO_STATES_MAX% THEN
-                            UNDO_STATES(UNDO.current%).timestamp# = 0
-                        END IF
-                        PIXEL_UNDO_LAST_TIMESTAMP# = cpnl_savedPixelTs#
-                        UNDO_saved_this_frame% = TRUE
+                        HISTORY_saved_this_frame% = TRUE
                         INVALIDATE_layers
                     END IF
                 END IF
@@ -1373,13 +1313,6 @@ SUB CMD_execute_action (action_id AS INTEGER)
                 END IF
             NEXT ms711_si%
             HISTORY_IN_PROGRESS% = FALSE
-            DIM ms711SavedPixelTs AS DOUBLE
-            ms711SavedPixelTs# = PIXEL_UNDO_LAST_TIMESTAMP#
-            UNDO_save_layer_state ms711_newIdx%
-            IF UNDO.current% >= 0 AND UNDO.current% <= UNDO_STATES_MAX% THEN
-                UNDO_STATES(UNDO.current%).timestamp# = 0
-            END IF
-            PIXEL_UNDO_LAST_TIMESTAMP# = ms711SavedPixelTs#
             MULTI_SELECT_clear
             LAYERS_select ms711_newIdx%
             BLEND_invalidate_cache
@@ -1685,7 +1618,7 @@ SUB CMD_execute_action (action_id AS INTEGER)
                 STROKE_commit
                 IF fillHistoryBefore& < -1 THEN
                     HISTORY_record_fill LAYERS(CURRENT_LAYER%).historyId&, CURRENT_LAYER%, PAINT_COLOR~&, fillHistoryFlags&, fillHistoryBefore&, -32768, -32768, "Fill FG"
-                    UNDO_saved_this_frame% = TRUE
+                    HISTORY_saved_this_frame% = TRUE
                 END IF
                 LAYERS(CURRENT_LAYER%).contentDirty% = TRUE
                 ' Apply fill to all other multi-selected layers (opaque pixels only)
@@ -1750,7 +1683,7 @@ SUB CMD_execute_action (action_id AS INTEGER)
                 _DEST oldBgDest&
                 IF bgHistoryBefore& < -1 THEN
                     HISTORY_record_fill LAYERS(CURRENT_LAYER%).historyId&, CURRENT_LAYER%, PAINT_BG_COLOR~&, bgHistoryFlags&, bgHistoryBefore&, -32768, -32768, "Fill BG"
-                    UNDO_saved_this_frame% = TRUE
+                    HISTORY_saved_this_frame% = TRUE
                 END IF
                 LAYERS(CURRENT_LAYER%).contentDirty% = TRUE
                 ' Apply fill to all other multi-selected layers (opaque pixels only)
@@ -1856,7 +1789,7 @@ SUB CMD_execute_action (action_id AS INTEGER)
                 END IF
                 IF flipH_history_before& < -1 THEN
                     HISTORY_record_transform LAYERS(CURRENT_LAYER%).historyId&, CURRENT_LAYER%, flipH_history_flags&, flipH_history_before&, "Flip Horizontal"
-                    UNDO_saved_this_frame% = TRUE
+                    HISTORY_saved_this_frame% = TRUE
                 END IF
                 LAYERS(CURRENT_LAYER%).contentDirty% = TRUE
                 ' Apply flip H to all other multi-selected layers
@@ -1939,7 +1872,7 @@ SUB CMD_execute_action (action_id AS INTEGER)
                 END IF
                 IF flipV_history_before& < -1 THEN
                     HISTORY_record_transform LAYERS(CURRENT_LAYER%).historyId&, CURRENT_LAYER%, flipV_history_flags&, flipV_history_before&, "Flip Vertical"
-                    UNDO_saved_this_frame% = TRUE
+                    HISTORY_saved_this_frame% = TRUE
                 END IF
                 LAYERS(CURRENT_LAYER%).contentDirty% = TRUE
                 ' Apply flip V to all other multi-selected layers
@@ -2072,7 +2005,7 @@ SUB CMD_execute_action (action_id AS INTEGER)
                 END IF
                 IF sd_history_before& < -1 THEN
                     HISTORY_record_transform LAYERS(CURRENT_LAYER%).historyId&, CURRENT_LAYER%, sd_history_flags&, sd_history_before&, "Scale -50%"
-                    UNDO_saved_this_frame% = TRUE
+                    HISTORY_saved_this_frame% = TRUE
                 END IF
                 LAYERS(CURRENT_LAYER%).contentDirty% = TRUE
                 ' Apply scale -50% to all other multi-selected layers
@@ -2220,7 +2153,7 @@ SUB CMD_execute_action (action_id AS INTEGER)
                 END IF
                 IF su_history_before& < -1 THEN
                     HISTORY_record_transform LAYERS(CURRENT_LAYER%).historyId&, CURRENT_LAYER%, su_history_flags&, su_history_before&, "Scale +50%"
-                    UNDO_saved_this_frame% = TRUE
+                    HISTORY_saved_this_frame% = TRUE
                 END IF
                 LAYERS(CURRENT_LAYER%).contentDirty% = TRUE
                 ' Apply scale +50% to all other multi-selected layers
@@ -2414,7 +2347,7 @@ SUB CMD_execute_action (action_id AS INTEGER)
                 END IF
                 IF rc_history_before& < -1 THEN
                     HISTORY_record_transform LAYERS(CURRENT_LAYER%).historyId&, CURRENT_LAYER%, rc_history_flags&, rc_history_before&, "Rotate 90 CW"
-                    UNDO_saved_this_frame% = TRUE
+                    HISTORY_saved_this_frame% = TRUE
                 END IF
                 LAYERS(CURRENT_LAYER%).contentDirty% = TRUE
                 ' Apply rotate CW to all other multi-selected layers
@@ -2605,7 +2538,7 @@ SUB CMD_execute_action (action_id AS INTEGER)
                 END IF
                 IF rcc_history_before& < -1 THEN
                     HISTORY_record_transform LAYERS(CURRENT_LAYER%).historyId&, CURRENT_LAYER%, rcc_history_flags&, rcc_history_before&, "Rotate 90 CCW"
-                    UNDO_saved_this_frame% = TRUE
+                    HISTORY_saved_this_frame% = TRUE
                 END IF
                 LAYERS(CURRENT_LAYER%).contentDirty% = TRUE
                 ' Apply rotate CCW to all other multi-selected layers
@@ -2892,7 +2825,7 @@ SUB CMD_execute_action (action_id AS INTEGER)
                 END IF
             NEXT algnI%
             IF algnUsedHistoryGroup% THEN HISTORY_end_group
-            IF algnRecorded% THEN UNDO_saved_this_frame% = TRUE
+            IF algnRecorded% THEN HISTORY_saved_this_frame% = TRUE
             BLEND_invalidate_cache
             GUI_NEEDS_REDRAW% = TRUE
             SCENE_DIRTY% = TRUE

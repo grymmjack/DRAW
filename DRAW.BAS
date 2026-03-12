@@ -308,7 +308,7 @@ MAIN_shutdown
 ' 
 SUB LOOP_start ()
     ' Reset undo save flag once per frame
-    UNDO_saved_this_frame% = FALSE
+    HISTORY_saved_this_frame% = FALSE
     ' Don't update MARQUEE here - let mouse handler control it
     
     ' Update title bar when dirty/filename state changes
@@ -377,11 +377,6 @@ SUB MAIN_shutdown ()
         IF GUI_TB(i%).iHnd& < -1 THEN _FREEIMAGE GUI_TB(i%).iHnd&
         IF GUI_TB(i%).iHndAlt& < -1 THEN _FREEIMAGE GUI_TB(i%).iHndAlt&
     NEXT i%
-
-    ' =====================================================================
-    ' FREE UNDO HISTORY IMAGES (pixel + workspace)
-    ' =====================================================================
-    UNDO_clear
 
     ' =====================================================================
     ' FREE LAYER IMAGES (pixel data + opacity cache)
