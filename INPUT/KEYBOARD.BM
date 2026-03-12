@@ -211,7 +211,7 @@ SUB KEYBOARD_tools (keypress AS STRING)
                 ' Set frame flag BEFORE reset so MOVE_apply_transform skips its undo save
                 ' (the apply just restores original pixels — saving would create a phantom state
                 ' identical to the pre-capture state, wasting a CTRL+Z press)
-                UNDO_saved_this_frame% = TRUE
+                HISTORY_saved_this_frame% = TRUE
                 MOVE_cancel_transform
                 MOVE_reset
                 ' Clear auto-created marquee but keep TOOL_MOVE selected
@@ -1780,7 +1780,6 @@ SUB KEYBOARD_handle_clipboard_operations ()
     
     ' Undo/Redo operations
     DIM keyZNow AS INTEGER, keyYNow AS INTEGER
-    DIM pixelUndoTs AS DOUBLE, workspaceUndoTs AS DOUBLE, historyUndoTs AS DOUBLE
     
     keyZNow% = _KEYDOWN(122) OR _KEYDOWN(90)
     keyYNow% = _KEYDOWN(121) OR _KEYDOWN(89)
@@ -1791,7 +1790,7 @@ SUB KEYBOARD_handle_clipboard_operations ()
             ' Abort the active move instead of undoing — same as ESC
             ' Suppress undo save so MOVE_apply_transform (called by MOVE_reset)
             ' doesn't create a phantom state identical to pre-capture
-            UNDO_saved_this_frame% = TRUE
+            HISTORY_saved_this_frame% = TRUE
             MOVE_cancel_transform
             MOVE_reset
             ' Clear auto-created marquee but keep TOOL_MOVE selected
@@ -1800,33 +1799,14 @@ SUB KEYBOARD_handle_clipboard_operations ()
             END IF
             GUI_NEEDS_REDRAW% = TRUE
             FRAME_IDLE% = FALSE
-            PENDING_REDO_SOURCE% = REDO_SOURCE_NONE
         ELSEIF (CURRENT_TOOL% = TOOL_POLYGON OR CURRENT_TOOL% = TOOL_POLYGON_FILLED) AND POLY_LINE.HAS_LAST AND POLY_LINE.HISTORY_BEFORE_IMG < -1 THEN
             POLY_LINE_cancel_restore
             GUI_NEEDS_REDRAW% = TRUE
             FRAME_IDLE% = FALSE
-            PENDING_REDO_SOURCE% = REDO_SOURCE_NONE
         ELSE
-            DIM canPixelUndo AS INTEGER, canWorkspaceUndo AS INTEGER, canHistoryUndo AS INTEGER
-            pixelUndoTs# = UNDO_get_last_timestamp#
-            workspaceUndoTs# = WORKSPACE_UNDO_get_last_timestamp#
-            historyUndoTs# = HISTORY_get_last_timestamp#
-            canPixelUndo% = (pixelUndoTs# > 0)
-            canWorkspaceUndo% = WORKSPACE_UNDO_can_undo%
-            canHistoryUndo% = HISTORY_can_undo%
-        
-            IF canHistoryUndo% AND historyUndoTs# > 0 AND (NOT canWorkspaceUndo% OR historyUndoTs# >= workspaceUndoTs#) AND (NOT canPixelUndo% OR historyUndoTs# >= pixelUndoTs#) THEN
-                _LOGINFO "CTRL-Z: History undo (ts=" + STR$(historyUndoTs#) + " > workspace ts=" + STR$(workspaceUndoTs#) + ", pixel ts=" + STR$(pixelUndoTs#) + ")"
+            IF HISTORY_can_undo% THEN
+                _LOGINFO "CTRL-Z: History undo"
                 HISTORY_undo
-                PENDING_REDO_SOURCE% = REDO_SOURCE_HISTORY
-            ELSEIF canWorkspaceUndo% AND workspaceUndoTs# > 0 AND (NOT canPixelUndo% OR workspaceUndoTs# >= pixelUndoTs#) THEN
-                _LOGINFO "CTRL-Z: Workspace undo (ts=" + STR$(workspaceUndoTs#) + " > pixel ts=" + STR$(pixelUndoTs#) + ")"
-                WORKSPACE_UNDO_undo
-                PENDING_REDO_SOURCE% = REDO_SOURCE_WORKSPACE
-            ELSEIF canPixelUndo% THEN
-                _LOGINFO "CTRL-Z: Pixel undo (ts=" + STR$(pixelUndoTs#) + " >= workspace ts=" + STR$(workspaceUndoTs#) + ")"
-                UNDO_undo
-                PENDING_REDO_SOURCE% = REDO_SOURCE_PIXEL
             END IF
             GUI_NEEDS_REDRAW% = TRUE
             FRAME_IDLE% = FALSE
@@ -1837,56 +1817,9 @@ SUB KEYBOARD_handle_clipboard_operations ()
     
     ' Ctrl+Y OR Ctrl+Shift+Z: Intelligent Redo
     IF (keyYNow% AND NOT UNDO_KEY_Y_LAST%) OR (keyZNow% AND NOT UNDO_KEY_Z_LAST% AND clipIsShift%) THEN
-        DIM redoHandled AS INTEGER
-        redoHandled% = FALSE
-
-        IF PENDING_REDO_SOURCE% = REDO_SOURCE_HISTORY THEN
-            IF HISTORY_can_redo% THEN
-                HISTORY_redo
-                redoHandled% = TRUE
-                IF NOT HISTORY_can_redo% THEN PENDING_REDO_SOURCE% = REDO_SOURCE_NONE
-            ELSE
-                PENDING_REDO_SOURCE% = REDO_SOURCE_NONE
-            END IF
-        ELSEIF PENDING_REDO_SOURCE% = REDO_SOURCE_WORKSPACE THEN
-            IF WORKSPACE_UNDO_can_redo% THEN
-                WORKSPACE_UNDO_redo
-                redoHandled% = TRUE
-                IF NOT WORKSPACE_UNDO_can_redo% THEN PENDING_REDO_SOURCE% = REDO_SOURCE_NONE
-            ELSE
-                PENDING_REDO_SOURCE% = REDO_SOURCE_NONE
-            END IF
-        ELSEIF PENDING_REDO_SOURCE% = REDO_SOURCE_PIXEL THEN
-            IF UNDO.current% < UNDO.count% - 1 THEN
-                UNDO_redo
-                redoHandled% = TRUE
-                IF NOT (UNDO.current% < UNDO.count% - 1) THEN PENDING_REDO_SOURCE% = REDO_SOURCE_NONE
-            ELSE
-                PENDING_REDO_SOURCE% = REDO_SOURCE_NONE
-            END IF
-        END IF
-
-        ' If workspace has something to redo, use timestamps for correct chronological order
-        IF NOT redoHandled% AND PENDING_REDO_SOURCE% = REDO_SOURCE_NONE THEN
-            DIM redoPixelTs AS DOUBLE, redoWorkspaceTs AS DOUBLE, redoHistoryTs AS DOUBLE
-            DIM redoCanPixel AS INTEGER, redoCanWorkspace AS INTEGER, redoCanHistory AS INTEGER
-            redoCanPixel% = (UNDO.current% < UNDO.count% - 1)
-            redoCanWorkspace% = WORKSPACE_UNDO_can_redo%
-            redoCanHistory% = HISTORY_can_redo%
-            redoPixelTs# = 0: redoWorkspaceTs# = 0: redoHistoryTs# = 0
-            IF redoCanPixel% THEN redoPixelTs# = UNDO_get_next_timestamp#
-            IF redoCanWorkspace% THEN redoWorkspaceTs# = WORKSPACE_UNDO_STATES(WORKSPACE_UNDO.current% + 1).timestamp#
-            IF redoCanHistory% THEN redoHistoryTs# = HISTORY_get_next_timestamp#
-            IF redoCanHistory% AND redoHistoryTs# > 0 AND (NOT redoCanWorkspace% OR redoHistoryTs# <= redoWorkspaceTs#) AND (NOT redoCanPixel% OR redoHistoryTs# <= redoPixelTs#) THEN
-                _LOGINFO "CTRL-Y: History redo (ts=" + STR$(redoHistoryTs#) + " < workspace ts=" + STR$(redoWorkspaceTs#) + ", pixel ts=" + STR$(redoPixelTs#) + ")"
-                HISTORY_redo
-            ELSEIF redoCanWorkspace% AND redoWorkspaceTs# > 0 AND (NOT redoCanPixel% OR redoWorkspaceTs# <= redoPixelTs#) THEN
-                _LOGINFO "CTRL-Y: Workspace redo (ts=" + STR$(redoWorkspaceTs#) + " < pixel ts=" + STR$(redoPixelTs#) + ")"
-                WORKSPACE_UNDO_redo
-            ELSEIF redoCanPixel% THEN
-                _LOGINFO "CTRL-Y: Pixel redo"
-                UNDO_redo
-            END IF
+        IF HISTORY_can_redo% THEN
+            _LOGINFO "CTRL-Y: History redo"
+            HISTORY_redo
         END IF
         GUI_NEEDS_REDRAW% = TRUE
         FRAME_IDLE% = FALSE
@@ -2282,7 +2215,7 @@ SUB KEYBOARD_input_handler_loop ()
     ' ALT+X (no CTRL): Exit application
     STATIC DRW_KEY_X_LAST AS INTEGER
     DIM drwKeyXNow AS INTEGER
-    drwKeyXNow% = _KEYDOWN(120)  ' lowercase x
+    drwKeyXNow% = _KEYDOWN(120) OR _KEYDOWN(88)  ' lowercase x or uppercase X
     IF drwIsAlt% AND NOT drwIsCtrl% AND drwKeyXNow% AND NOT DRW_KEY_X_LAST% THEN
         CMD_execute_action 212
         MENU_BAR.altTapped% = FALSE
