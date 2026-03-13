@@ -121,11 +121,17 @@ DIM k AS LONG
 DIM exitConfirmed AS INTEGER
 DIM prevShiftHeld AS INTEGER, prevCtrlHeld AS INTEGER, prevAltHeld AS INTEGER
 DIM prevMouseOverCanvas AS INTEGER
+DIM ebPrevCanUndo AS INTEGER, ebPrevCanRedo AS INTEGER
+DIM ebPrevHasClip AS INTEGER, ebPrevHasSel AS INTEGER
 exitConfirmed% = FALSE
 prevShiftHeld% = MODIFIERS.shift%
 prevCtrlHeld% = MODIFIERS.ctrl%
 prevAltHeld% = MODIFIERS.alt%
 prevMouseOverCanvas% = FALSE
+ebPrevCanUndo% = FALSE
+ebPrevCanRedo% = FALSE
+ebPrevHasClip% = FALSE
+ebPrevHasSel%  = FALSE
     
 DO
     ' Deferred command line file loading (after first frame when everything is initialized)
@@ -211,9 +217,11 @@ DO
     DIM modifiersChanged AS INTEGER
     DIM mouseMoved AS INTEGER
     DIM mouseOverCanvas AS INTEGER
+    DIM canvasCoordChanged AS INTEGER
     SCENE_CHANGED% = FALSE
     modifiersChanged% = (MODIFIERS.shift% <> prevShiftHeld% OR MODIFIERS.ctrl% <> prevCtrlHeld% OR MODIFIERS.alt% <> prevAltHeld%)
     mouseMoved% = (MOUSE.RAW_X% <> IDLE_PREV_MOUSE_X% OR MOUSE.RAW_Y% <> IDLE_PREV_MOUSE_Y%)
+    canvasCoordChanged% = (MOUSE.X% <> MOUSE.OLD_X% OR MOUSE.Y% <> MOUSE.OLD_Y%)
     mouseOverCanvas% = FALSE
 
     DIM idleZW AS LONG, idleZH AS LONG, idleDX AS INTEGER, idleDY AS INTEGER
@@ -234,9 +242,19 @@ DO
     IF MOUSE.B1% OR MOUSE.B2% OR MOUSE.B3% THEN FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE  ' Mouse button held
     IF mouseMoved% THEN
         FRAME_IDLE% = FALSE                                       ' Mouse moved (cursor only)
-        GUI_NEEDS_REDRAW% = TRUE                                  ' Update hover highlights in toolbar/organizer/drawer/editbar/layerpanel
+        ' Only trigger status bar rebuild when canvas coords change (e.g. at zoom 2x
+        ' two raw pixels map to the same canvas pixel — no coord display update needed).
+        IF canvasCoordChanged% THEN
+            STATUS_NEEDS_REDRAW% = TRUE                           ' Status bar coords need refresh
+        END IF
+        ' Only trigger expensive full GUI rebuild on hover-zone change (not every canvas pixel).
+        ' Canvas movement doesn't change toolbar/organizer visuals — status-only path handles it.
+        IF NOT mouseOverCanvas% THEN
+            GUI_NEEDS_REDRAW% = TRUE                              ' Update hover highlights in toolbar/organizer/drawer/editbar/layerpanel
+        END IF
     END IF
     IF GUI_NEEDS_REDRAW% THEN FRAME_IDLE% = FALSE   ' GUI-only updates should stay on the cached-scene path unless something else dirtied the scene
+    IF STATUS_NEEDS_REDRAW% THEN FRAME_IDLE% = FALSE
     IF modifiersChanged% THEN FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE   ' Modifier overlays affect cached scene and must repaint on press/release
     IF SCRN.panning% THEN FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE      ' Panning active
     IF MODIFIERS.shift% THEN FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE   ' SHIFT held (crosshair/constraint)
@@ -255,6 +273,24 @@ DO
     IF CMD_PALETTE.visible THEN FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE
     IF SELECTION_has_active% THEN FRAME_IDLE% = FALSE  ' Animation only (marching ants) — no scene change
     IF SCENE_CHANGED% THEN SCENE_DIRTY% = TRUE
+    ' Edit bar context-sensitive button states: force GUI redraw when any change
+    IF SCRN.showEditBar% THEN
+        DIM ebCanUndo AS INTEGER, ebCanRedo AS INTEGER
+        DIM ebHasClip AS INTEGER, ebHasSel AS INTEGER
+        ebCanUndo% = HISTORY_can_undo%
+        ebCanRedo% = HISTORY_can_redo%
+        ebHasClip% = CLIPBOARD.VALID
+        ebHasSel%  = SELECTION_has_active%
+        IF ebCanUndo% <> ebPrevCanUndo% OR ebCanRedo% <> ebPrevCanRedo% OR _
+           ebHasClip% <> ebPrevHasClip% OR ebHasSel% <> ebPrevHasSel% THEN
+            GUI_NEEDS_REDRAW% = TRUE
+            FRAME_IDLE% = FALSE
+        END IF
+        ebPrevCanUndo% = ebCanUndo%
+        ebPrevCanRedo% = ebCanRedo%
+        ebPrevHasClip% = ebHasClip%
+        ebPrevHasSel%  = ebHasSel%
+    END IF
     prevShiftHeld% = MODIFIERS.shift%
     prevCtrlHeld% = MODIFIERS.ctrl%
     prevAltHeld% = MODIFIERS.alt%
@@ -279,10 +315,21 @@ DO
     ' (deferred glutReshapeWindow removed — SCREEN _NEWIMAGE in SCREEN_init
     '  sets the window to the correct size immediately; no retry needed.)
     
-    ' Apply frame rate limit AFTER render+display (reduced when idle)
+    ' Apply frame rate limit AFTER render+display (reduced when idle).
+    ' Cursor-only movement (mouse moved, no scene changes, no buttons held) is throttled
+    ' to CURSOR_FPS_LIMIT (20 FPS), regardless of zoom level.
+    '   - At HIGH zoom:  canvasCoordChanged% is rare   → was already relying on this
+    '   - At LOW zoom:   canvasCoordChanged% fires every frame (1 raw px = 44+ canvas px)
+    '                    → old check "AND NOT canvasCoordChanged%" prevented throttle
+    ' Removing canvasCoordChanged% from the guard fixes the low-zoom CPU spike.
+    DIM cursorOnlyMove AS INTEGER
+    cursorOnlyMove% = (mouseMoved% AND NOT SCENE_CHANGED% _
+                       AND NOT MOUSE.B1% AND NOT MOUSE.B2% AND NOT MOUSE.B3%)
     PERF_start PERF_LIMIT_WAIT
     IF FRAME_IDLE% THEN
         _LIMIT IDLE_FPS_LIMIT
+    ELSEIF cursorOnlyMove% THEN
+        _LIMIT CURSOR_FPS_LIMIT
     ELSEIF CFG.FPS_LIMIT% > 0 AND CFG.FPS_LIMIT% <= 1000 THEN
         _LIMIT CFG.FPS_LIMIT%
     ELSE

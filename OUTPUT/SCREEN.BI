@@ -71,6 +71,12 @@ DIM SHARED SCRN AS SCREEN_OBJ
 DIM SHARED GUI_NEEDS_REDRAW AS INTEGER
 GUI_NEEDS_REDRAW% = TRUE ' Start with redraw needed
 
+' Status-only dirty flag - when TRUE, only re-render the status bar + palette strip
+' strip in SCRN.GUI& (skips expensive toolbar/organizer/drawer/layerpanel/menubar).
+' Set to TRUE by DRAW.BAS when the mouse moves over the canvas (coords changed).
+DIM SHARED STATUS_NEEDS_REDRAW AS INTEGER
+STATUS_NEEDS_REDRAW% = FALSE
+
 ' Cached pixel grid image — avoid _NEWIMAGE/_FREEIMAGE every frame at 400%+ zoom
 DIM SHARED PG_CACHE_IMG AS LONG
 DIM SHARED PG_CACHE_ZW AS LONG
