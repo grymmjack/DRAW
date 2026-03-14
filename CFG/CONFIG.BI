@@ -269,6 +269,9 @@ TYPE DRAW_CONFIG
     DEFAULT_CANVAS_SIZE_H          AS INTEGER  ' Default canvas height (>0=explicit)
     CANVAS_APRON_COLOR             AS _UNSIGNED LONG ' Background color around canvas when smaller than viewport
     SYSTEM_CURSORS_ENABLED         AS INTEGER  ' TRUE = use OS system cursors for resize/hand/text/move
+    ' Tooltip settings
+    TOOLTIP_HOVER_DELAY_MS         AS INTEGER  ' Milliseconds before tooltip appears (default 500)
+    TOOLTIPS_DISABLED              AS INTEGER  ' TRUE = hide toolbar tooltips entirely
 END TYPE
 
 DIM SHARED CFG   AS DRAW_CONFIG

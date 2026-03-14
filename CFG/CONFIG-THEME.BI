@@ -378,6 +378,15 @@ TYPE DRAW_THEME
     EDIT_BAR_ICON_SCALE_UP      AS STRING * 64
     EDIT_BAR_ICON_ROTATE_CW     AS STRING * 64
     EDIT_BAR_ICON_ROTATE_CCW    AS STRING * 64
+    ' --- Tooltips ---
+    TOOLTIP_FONT               AS STRING          ' Tooltip font filename (empty = use global font)
+    TOOLTIP_FONT_SIZE          AS INTEGER         ' Tooltip font size in pixels (default 8)
+    TOOLTIP_BG_COLOR           AS _UNSIGNED LONG  ' Tooltip background color (RGBA)
+    TOOLTIP_FG_COLOR           AS _UNSIGNED LONG  ' Tooltip text color (RGBA)
+    TOOLTIP_BOLD_FG_COLOR      AS _UNSIGNED LONG  ' Tooltip bold/hotkey text color (RGBA)
+    TOOLTIP_PADDING            AS INTEGER         ' Tooltip inner padding in pixels (default 3)
+    TOOLTIP_BORDER_COLOR       AS _UNSIGNED LONG  ' Tooltip border color (RGBA)
+    TOOLTIP_BORDER_WIDTH       AS INTEGER         ' Tooltip border width in pixels (default 1)
 END TYPE
 
 ' Runtime theme loader — populates THEME from ASSETS/THEMES/{CFG.THEME$}/THEME.CFG

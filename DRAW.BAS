@@ -218,6 +218,9 @@ DO
     STICK_input_handler
     PERF_stop PERF_STICK_INPUT
     
+    ' Update tooltip state (must run before idle detection so hover keeps loop alive)
+    TOOLTIP_update
+
     ' Idle detection: reduce FPS when nothing is happening to save CPU
     ' Check if anything needs updating this frame
     PERF_start PERF_IDLE_DETECT
@@ -316,6 +319,8 @@ DO
     END IF
     IF CMD_PALETTE.visible THEN FRAME_IDLE% = FALSE  ' Overlay only — scene cache + SkipToPointer handles rendering; no scene rebuild needed
     IF SELECTION_has_active% THEN FRAME_IDLE% = FALSE  ' Animation only (marching ants) — no scene change
+    ' Tooltip hover: keep frames active while timer is counting or tooltip is visible
+    IF TOOLTIP.HOVER_BTN_IDX% >= 0 THEN FRAME_IDLE% = FALSE
     IF SCENE_CHANGED% THEN SCENE_DIRTY% = TRUE
 
     ' Edit bar context-sensitive button states: force GUI redraw when any change

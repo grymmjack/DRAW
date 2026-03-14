@@ -1,0 +1,252 @@
+''
+' DRAW - GUI/TOOLTIP.BM
+' =============================================================================
+' Tooltip rendering and hover-delay logic for toolbar buttons.
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+''
+' Returns the toolbar button order index (0..TB_TOTAL-1) under the mouse,
+' or -1 if not hovering any button.
+'
+FUNCTION TOOLTIP_get_hovered_btn_idx% (mouseX%, mouseY%)
+    DIM AS INTEGER i, btnIdx, x, y, w, h
+    DIM AS INTEGER scale, scaled_w, scaled_h
+
+    scale% = CFG.TOOLBAR_SCALE%
+    IF scale% < 1 THEN scale% = 1
+    IF scale% > 4 THEN scale% = 4
+
+    scaled_w% = TB_BTN_W * scale%
+    scaled_h% = TB_BTN_H * scale%
+
+    FOR i% = 0 TO TB_TOTAL - 1
+        btnIdx% = TOOLBAR_BUTTON_ORDER(i%)
+        IF btnIdx% < 0 THEN GOTO TOOLTIP_hover_next
+        x% = GUI_TB(btnIdx%).x%
+        y% = GUI_TB(btnIdx%).y%
+        w% = scaled_w%
+        h% = scaled_h%
+
+        IF mouseX% >= x% AND mouseX% < x% + w% AND mouseY% >= y% AND mouseY% < y% + h% THEN
+            TOOLTIP_get_hovered_btn_idx% = i%
+            EXIT FUNCTION
+        END IF
+        TOOLTIP_hover_next:
+    NEXT i%
+
+    TOOLTIP_get_hovered_btn_idx% = -1
+END FUNCTION
+
+''
+' Update tooltip state each frame. Call from DRAW.BAS main loop before idle check.
+'
+SUB TOOLTIP_update ()
+    IF CFG.TOOLTIPS_DISABLED% THEN
+        IF TOOLTIP.ACTIVE% THEN
+            TOOLTIP.ACTIVE% = FALSE
+            TOOLTIP.HOVER_BTN_IDX% = -1
+            FRAME_IDLE% = FALSE
+        END IF
+        EXIT SUB
+    END IF
+
+    DIM hoverIdx AS INTEGER
+    hoverIdx% = TOOLTIP_get_hovered_btn_idx%(MOUSE.RAW_X%, MOUSE.RAW_Y%)
+
+    ' If mouse moved to a different button (or off buttons), reset timer
+    IF hoverIdx% <> TOOLTIP.HOVER_BTN_IDX% THEN
+        TOOLTIP.HOVER_BTN_IDX% = hoverIdx%
+        TOOLTIP.ACTIVE% = FALSE
+        FRAME_IDLE% = FALSE  ' Force redraw to clear old tooltip
+        IF hoverIdx% >= 0 THEN
+            TOOLTIP.HOVER_START# = TIMER
+        ELSE
+            TOOLTIP.HOVER_START# = 0
+        END IF
+        EXIT SUB
+    END IF
+
+    ' Not over any button
+    IF hoverIdx% < 0 THEN
+        TOOLTIP.ACTIVE% = FALSE
+        EXIT SUB
+    END IF
+
+    ' Check if delay has elapsed
+    IF NOT TOOLTIP.ACTIVE% THEN
+        DIM elapsed AS DOUBLE
+        elapsed# = TIMER - TOOLTIP.HOVER_START#
+        ' Handle TIMER wraparound at midnight
+        IF elapsed# < 0 THEN elapsed# = elapsed# + 86400
+        IF elapsed# * 1000 >= CFG.TOOLTIP_HOVER_DELAY_MS% THEN
+            TOOLTIP.ACTIVE% = TRUE
+        END IF
+    END IF
+END SUB
+
+''
+' Reset tooltip state (e.g., when clicking or switching tools).
+'
+SUB TOOLTIP_reset ()
+    TOOLTIP.ACTIVE% = FALSE
+    TOOLTIP.HOVER_BTN_IDX% = -1
+    TOOLTIP.HOVER_START# = 0
+END SUB
+
+''
+' Render the tooltip onto the given target image handle.
+' Called from SCREEN_render after final overlay popups.
+'
+SUB TOOLTIP_render (target&)
+    IF NOT TOOLTIP.ACTIVE% THEN EXIT SUB
+    IF TOOLTIP.HOVER_BTN_IDX% < 0 OR TOOLTIP.HOVER_BTN_IDX% > 27 THEN EXIT SUB
+
+    ' Hide tooltip if any mouse button is down or a menu/popup is open
+    IF MOUSE.B1% OR MOUSE.B2% OR MOUSE.B3% THEN EXIT SUB
+    IF CMD_PALETTE.visible THEN EXIT SUB
+    IF LAYER_PANEL.blendPopupOpen% THEN EXIT SUB
+    IF DRAWER.contextMenuOpen% THEN EXIT SUB
+
+    DIM AS INTEGER idx
+    idx% = TOOLTIP.HOVER_BTN_IDX%
+
+    DIM line1$, line2$
+    line1$ = TOOLTIP_LINE1$(idx%)
+    line2$ = TOOLTIP_LINE2$(idx%)
+    IF LEN(line1$) = 0 AND LEN(line2$) = 0 THEN EXIT SUB
+
+    DIM oldDest AS LONG
+    oldDest& = _DEST
+    _DEST target&
+
+    ' Lazy-load tooltip font
+    IF TOOLTIP.FONT_HANDLE& = 0 THEN
+        DIM ttFontFile$
+        IF LEN(THEME.TOOLTIP_FONT$) > 0 THEN
+            ttFontFile$ = THEME_font_path$(_TRIM$(THEME.TOOLTIP_FONT$))
+        ELSE
+            ttFontFile$ = THEME_font_path$(THEME.GLOBAL_FONT_FILE$)
+        END IF
+        DIM ttFontSize AS INTEGER
+        ttFontSize% = THEME.TOOLTIP_FONT_SIZE%
+        IF ttFontSize% < 4 THEN ttFontSize% = 8
+        IF LEN(ttFontFile$) > 0 THEN
+            TOOLTIP.FONT_HANDLE& = _LOADFONT(ttFontFile$, ttFontSize%, "DONTBLEND")
+            IF TOOLTIP.FONT_HANDLE& <= 0 THEN
+                _LOGWARN "TOOLTIP_render: _LOADFONT failed for " + ttFontFile$
+                TOOLTIP.FONT_HANDLE& = 0
+            END IF
+        END IF
+    END IF
+
+    ' Set font for measuring
+    DIM oldFont AS LONG
+    oldFont& = _FONT
+    IF TOOLTIP.FONT_HANDLE& > 0 THEN _FONT TOOLTIP.FONT_HANDLE&
+
+    ' Measure text widths
+    DIM w1 AS INTEGER, w2 AS INTEGER, maxW AS INTEGER
+    DIM fontH AS INTEGER
+    fontH% = _FONTHEIGHT
+    w1% = _PRINTWIDTH(line1$)
+    IF LEN(line2$) > 0 THEN
+        w2% = _PRINTWIDTH(line2$)
+    ELSE
+        w2% = 0
+    END IF
+    IF w1% > w2% THEN maxW% = w1% ELSE maxW% = w2%
+
+    ' Calculate tooltip dimensions
+    DIM pad AS INTEGER, bw AS INTEGER
+    pad% = THEME.TOOLTIP_PADDING%
+    IF pad% < 1 THEN pad% = 3
+    bw% = THEME.TOOLTIP_BORDER_WIDTH%
+    IF bw% < 0 THEN bw% = 1
+
+    DIM numLines AS INTEGER
+    IF LEN(line2$) > 0 THEN numLines% = 2 ELSE numLines% = 1
+
+    DIM ttW AS INTEGER, ttH AS INTEGER
+    ttW% = maxW% + pad% * 2 + bw% * 2
+    ttH% = fontH% * numLines% + pad% * 2 + bw% * 2
+    IF numLines% = 2 THEN ttH% = ttH% + 1 ' 1px gap between lines
+
+    ' Position tooltip relative to mouse cursor
+    DIM ttX AS INTEGER, ttY AS INTEGER
+    ttX% = MOUSE.RAW_X% + 8  ' Offset right from cursor
+    ttY% = MOUSE.RAW_Y% + 16 ' Offset below cursor
+
+    ' Clamp to screen bounds — never go off-screen
+    DIM scrW AS INTEGER, scrH AS INTEGER
+    scrW% = _WIDTH(target&)
+    scrH% = _HEIGHT(target&)
+
+    ' Prevent going off the right edge
+    IF ttX% + ttW% > scrW% - 2 THEN
+        ttX% = MOUSE.RAW_X% - ttW% - 4  ' Flip to left of cursor
+    END IF
+    ' Prevent going off the bottom edge
+    IF ttY% + ttH% > scrH% - 2 THEN
+        ttY% = MOUSE.RAW_Y% - ttH% - 4  ' Flip above cursor
+    END IF
+    ' Prevent going off the left edge
+    IF ttX% < 2 THEN ttX% = 2
+    ' Prevent going off the top edge
+    IF ttY% < 2 THEN ttY% = 2
+
+    ' Avoid overlapping the toolbar area
+    DIM tbOver AS INTEGER
+    tbOver% = TOOLBAR_is_over_area%(ttX%, ttY%)
+    IF tbOver% THEN
+        ' Push tooltip to the left of the toolbar
+        ttX% = SCRN.toolboxX% - ttW% - 4
+        IF ttX% < 2 THEN ttX% = 2
+    END IF
+
+    ' Draw tooltip background
+    DIM bgColor AS _UNSIGNED LONG, borderColor AS _UNSIGNED LONG
+    DIM fgColor AS _UNSIGNED LONG, boldColor AS _UNSIGNED LONG
+    bgColor~& = THEME.TOOLTIP_BG_COLOR~&
+    IF bgColor~& = 0 THEN bgColor~& = _RGBA32(40, 40, 50, 240)
+    borderColor~& = THEME.TOOLTIP_BORDER_COLOR~&
+    IF borderColor~& = 0 THEN borderColor~& = _RGBA32(100, 100, 120, 255)
+    fgColor~& = THEME.TOOLTIP_FG_COLOR~&
+    IF fgColor~& = 0 THEN fgColor~& = _RGBA32(200, 200, 200, 255)
+    boldColor~& = THEME.TOOLTIP_BOLD_FG_COLOR~&
+    IF boldColor~& = 0 THEN boldColor~& = _RGBA32(255, 255, 100, 255)
+
+    ' Fill background
+    LINE (ttX%, ttY%)-(ttX% + ttW% - 1, ttY% + ttH% - 1), bgColor~&, BF
+
+    ' Draw border
+    IF bw% > 0 THEN
+        DIM bIdx AS INTEGER
+        FOR bIdx% = 0 TO bw% - 1
+            LINE (ttX% + bIdx%, ttY% + bIdx%)-(ttX% + ttW% - 1 - bIdx%, ttY% + ttH% - 1 - bIdx%), borderColor~&, B
+        NEXT bIdx%
+    END IF
+
+    ' Draw text with transparent background (keep tooltip BG visible behind glyphs)
+    _PRINTMODE _KEEPBACKGROUND
+
+    ' Draw line 1 (bold/hotkey color)
+    DIM textX AS INTEGER, textY AS INTEGER
+    textX% = ttX% + pad% + bw%
+    textY% = ttY% + pad% + bw%
+    COLOR boldColor~&
+    _PRINTSTRING (textX%, textY%), line1$
+
+    ' Draw line 2 (normal color)
+    IF LEN(line2$) > 0 THEN
+        textY% = textY% + fontH% + 1
+        COLOR fgColor~&
+        _PRINTSTRING (textX%, textY%), line2$
+    END IF
+
+    ' Restore font and dest
+    IF oldFont& > 0 THEN _FONT oldFont&
+    _DEST oldDest&
+END SUB
