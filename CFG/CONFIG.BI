@@ -241,6 +241,7 @@ TYPE DRAW_CONFIG
     LAST_DIR_IMPORT                AS STRING   ' Last directory for Import Image / Ref Image
     LAST_DIR_EXPORT_BRUSH          AS STRING   ' Last directory for Export Brush
     LAST_DIR_EXPORT_LAYER          AS STRING   ' Last directory for Export Layer / Selection
+    LAST_DIR_EXTRACT               AS STRING   ' Last directory for Extract Images
     LAST_DIR_PALETTE               AS STRING   ' Last directory for Palette Import / Export
     TEMPLATE_DIR                   AS STRING   ' Default directory for New from Template dialog
     ' User palette visibility settings

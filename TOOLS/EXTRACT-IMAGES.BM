@@ -1,0 +1,962 @@
+''
+' DRAW - TOOLS/EXTRACT-IMAGES.BM
+' =============================================================================
+' Extract Images — dialog, connected-component finder, per-component PNG export,
+' and progress dialog with Open Destination button.
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+OPTION _EXPLICIT
+OPTION _EXPLICITARRAY
+'$DYNAMIC
+
+' Dialog layout constants
+CONST EXDLG_W     = 380
+CONST EXDLG_H     = 360
+CONST EXDLG_PAD   = 10
+CONST EXDLG_LBL_H = 14
+CONST EXDLG_ROW_H = 20
+CONST EXDLG_BTN_H = 22
+CONST EXDLG_TGL_W = 90
+CONST EXDLG_TGL_H = 18
+CONST EXDLG_CHK_SZ = 12
+CONST EXDLG_INPUT_H = 18
+
+
+''
+' Main Extract Images dialog — collects user configuration and runs extraction.
+'
+SUB EXTRACT_IMAGES_dialog ()
+    IF CURRENT_LAYER% < 1 OR CURRENT_LAYER% > LAYER_COUNT% THEN EXIT SUB
+
+    DIM ctx AS DIALOG_CTX
+    DIALOG_init ctx, EXDLG_W, EXDLG_H
+
+    ' ---- State variables ----
+    DIM bgMode AS INTEGER: bgMode% = EXTRACT_BG_TRANSPARENT
+    DIM namingMethod AS INTEGER: namingMethod% = EXTRACT_NAME_NUMBERS
+    DIM startNum AS INTEGER: startNum% = 1
+    DIM appendDims AS INTEGER: appendDims% = TRUE
+    DIM mergeLayers AS INTEGER: mergeLayers% = FALSE
+    DIM canMerge AS INTEGER: canMerge% = (LAYER_COUNT% > 1)
+
+    ' Destination directory (priority: last extract > last export > last save > CWD)
+    DIM destDir AS STRING
+    IF CFG.LAST_DIR_EXTRACT$ <> "" THEN
+        destDir$ = CFG.LAST_DIR_EXTRACT$
+    ELSEIF CFG.LAST_DIR_EXPORT_LAYER$ <> "" THEN
+        destDir$ = CFG.LAST_DIR_EXPORT_LAYER$
+    ELSEIF CFG.LAST_DIR_SAVE$ <> "" THEN
+        destDir$ = CFG.LAST_DIR_SAVE$
+    ELSE
+        destDir$ = _CWD$
+    END IF
+
+    ' Base filename
+    DIM baseFile AS STRING: baseFile$ = "Image-"
+
+    ' Start number text buffer
+    DIM startNumText AS STRING: startNumText$ = LTRIM$(STR$(startNum%))
+
+    ' Focus tracking for text fields (0=none, 1=destDir, 2=baseFile, 3=startNum)
+    DIM focusField AS INTEGER: focusField% = 0
+
+    ' Layout Y positions
+    DIM yBgLabel AS INTEGER:    yBgLabel%    = 26
+    DIM yBgRow AS INTEGER:      yBgRow%      = yBgLabel% + EXDLG_LBL_H + 2
+    DIM yDestLabel AS INTEGER:  yDestLabel%  = yBgRow% + EXDLG_TGL_H + 8
+    DIM yDestInput AS INTEGER:  yDestInput%  = yDestLabel% + EXDLG_LBL_H + 2
+    DIM yBaseLabel AS INTEGER:  yBaseLabel%  = yDestInput% + EXDLG_INPUT_H + 8
+    DIM yBaseInput AS INTEGER:  yBaseInput%  = yBaseLabel% + EXDLG_LBL_H + 2
+    DIM yNameLabel AS INTEGER:  yNameLabel%  = yBaseInput% + EXDLG_INPUT_H + 8
+    DIM yNameRow AS INTEGER:    yNameRow%    = yNameLabel% + EXDLG_LBL_H + 2
+    DIM yStartLabel AS INTEGER: yStartLabel% = yNameRow% + EXDLG_TGL_H + 4
+    DIM yStartInput AS INTEGER: yStartInput% = yStartLabel%
+    DIM yFlags AS INTEGER:      yFlags%      = yStartInput% + EXDLG_INPUT_H + 8
+    DIM yPreview AS INTEGER:    yPreview%    = yFlags% + EXDLG_ROW_H * 2 + 4
+    DIM yButtons AS INTEGER:    yButtons%    = EXDLG_H - EXDLG_BTN_H - 8
+
+    ' Button layout
+    DIM okX AS INTEGER:    okX%    = EXDLG_PAD
+    DIM okW AS INTEGER:    okW%    = 140
+    DIM cxX AS INTEGER:    cxX%    = EXDLG_W - EXDLG_PAD - 140
+    DIM cxW AS INTEGER:    cxW%    = 140
+
+    ' Toggle widths for BG mode (3 buttons)
+    DIM bgTglW AS INTEGER: bgTglW% = (EXDLG_W - EXDLG_PAD * 2 - 4) \ 3
+
+    ' Toggle widths for naming method (2 buttons)
+    DIM nmTglW AS INTEGER: nmTglW% = (EXDLG_W - EXDLG_PAD * 2 - 2) \ 2
+
+    ' Input field dimensions
+    DIM inputW AS INTEGER: inputW% = EXDLG_W - EXDLG_PAD * 2 - 70
+    DIM browseX AS INTEGER: browseX% = EXDLG_PAD + inputW% + 4
+    DIM browseW AS INTEGER: browseW% = 62
+
+    DIM k AS LONG
+    DO
+        DIALOG_poll_mouse ctx
+        k& = _KEYHIT
+        IF k& = 27 THEN ctx.done% = TRUE: ctx.result% = FALSE
+        IF k& = 13 THEN ctx.done% = TRUE: ctx.result% = TRUE
+
+        ' ---- Input handling ----
+
+        ' Background mode toggles
+        IF DIALOG_hit%(ctx, EXDLG_PAD, yBgRow%, bgTglW%, EXDLG_TGL_H) THEN
+            bgMode% = EXTRACT_BG_TRANSPARENT
+        END IF
+        IF DIALOG_hit%(ctx, EXDLG_PAD + bgTglW% + 2, yBgRow%, bgTglW%, EXDLG_TGL_H) THEN
+            bgMode% = EXTRACT_BG_FG_COLOR
+        END IF
+        IF DIALOG_hit%(ctx, EXDLG_PAD + (bgTglW% + 2) * 2, yBgRow%, bgTglW%, EXDLG_TGL_H) THEN
+            bgMode% = EXTRACT_BG_BG_COLOR
+        END IF
+
+        ' Destination input field click → focus
+        IF DIALOG_hit%(ctx, EXDLG_PAD, yDestInput%, inputW%, EXDLG_INPUT_H) THEN
+            focusField% = 1
+        END IF
+
+        ' Browse button
+        IF DIALOG_hit%(ctx, browseX%, yDestInput%, browseW%, EXDLG_INPUT_H) THEN
+            DIM browseResult AS STRING
+            _MOUSEHIDE
+            browseResult$ = _SAVEFILEDIALOG$("Select Extract Destination", destDir$ + "/extract-here", "*.*", "All Files")
+            _MOUSESHOW
+            IF browseResult$ <> "" THEN
+                destDir$ = CONFIG_extract_dir$(browseResult$)
+                focusField% = 0
+            END IF
+        END IF
+
+        ' Base filename input field click → focus
+        IF DIALOG_hit%(ctx, EXDLG_PAD, yBaseInput%, inputW% + browseW% + 4, EXDLG_INPUT_H) THEN
+            focusField% = 2
+        END IF
+
+        ' Naming method toggles
+        IF DIALOG_hit%(ctx, EXDLG_PAD, yNameRow%, nmTglW%, EXDLG_TGL_H) THEN
+            namingMethod% = EXTRACT_NAME_NUMBERS
+        END IF
+        IF canMerge% THEN
+            IF DIALOG_hit%(ctx, EXDLG_PAD + nmTglW% + 2, yNameRow%, nmTglW%, EXDLG_TGL_H) THEN
+                namingMethod% = EXTRACT_NAME_LAYER_NAME
+            END IF
+        END IF
+
+        ' Start number input click → focus
+        IF namingMethod% = EXTRACT_NAME_NUMBERS THEN
+            DIM startInputX AS INTEGER: startInputX% = EXDLG_PAD + 130
+            IF DIALOG_hit%(ctx, startInputX%, yStartInput%, 50, EXDLG_INPUT_H) THEN
+                focusField% = 3
+            END IF
+        END IF
+
+        ' Append dimensions checkbox
+        IF DIALOG_hit%(ctx, EXDLG_PAD, yFlags%, EXDLG_W - EXDLG_PAD * 2, EXDLG_ROW_H) THEN
+            appendDims% = NOT appendDims%
+        END IF
+
+        ' Merge layers checkbox
+        IF canMerge% THEN
+            IF DIALOG_hit%(ctx, EXDLG_PAD, yFlags% + EXDLG_ROW_H, EXDLG_W - EXDLG_PAD * 2, EXDLG_ROW_H) THEN
+                mergeLayers% = NOT mergeLayers%
+            END IF
+        END IF
+
+        ' Click outside fields clears focus
+        IF ctx.justClicked% AND focusField% > 0 THEN
+            ' Check if click was NOT in any text field
+            DIM inField AS INTEGER: inField% = FALSE
+            IF ctx.mx >= EXDLG_PAD AND ctx.mx <= EXDLG_PAD + inputW% AND ctx.my >= yDestInput% AND ctx.my <= yDestInput% + EXDLG_INPUT_H THEN inField% = TRUE
+            IF ctx.mx >= EXDLG_PAD AND ctx.mx <= EXDLG_PAD + inputW% + browseW% + 4 AND ctx.my >= yBaseInput% AND ctx.my <= yBaseInput% + EXDLG_INPUT_H THEN inField% = TRUE
+            DIM snfX AS INTEGER: snfX% = EXDLG_PAD + 130
+            IF ctx.mx >= snfX% AND ctx.mx <= snfX% + 50 AND ctx.my >= yStartInput% AND ctx.my <= yStartInput% + EXDLG_INPUT_H THEN inField% = TRUE
+            IF NOT inField% THEN focusField% = 0
+        END IF
+
+        ' OK / Cancel buttons
+        IF DIALOG_hit%(ctx, okX%, yButtons%, okW%, EXDLG_BTN_H) THEN
+            ctx.done% = TRUE: ctx.result% = TRUE
+        END IF
+        IF DIALOG_hit%(ctx, cxX%, yButtons%, cxW%, EXDLG_BTN_H) THEN
+            ctx.done% = TRUE: ctx.result% = FALSE
+        END IF
+
+        ' ---- Keyboard input for focused text field ----
+        IF focusField% > 0 AND k& > 0 THEN
+            SELECT CASE focusField%
+                CASE 1 ' destDir
+                    IF k& = 8 THEN ' Backspace
+                        IF LEN(destDir$) > 0 THEN destDir$ = LEFT$(destDir$, LEN(destDir$) - 1)
+                    ELSEIF k& >= 32 AND k& <= 126 THEN
+                        IF LEN(destDir$) < 255 THEN destDir$ = destDir$ + CHR$(k&)
+                    END IF
+                CASE 2 ' baseFile
+                    IF k& = 8 THEN
+                        IF LEN(baseFile$) > 0 THEN baseFile$ = LEFT$(baseFile$, LEN(baseFile$) - 1)
+                    ELSEIF k& >= 32 AND k& <= 126 THEN
+                        IF LEN(baseFile$) < 60 THEN baseFile$ = baseFile$ + CHR$(k&)
+                    END IF
+                CASE 3 ' startNum
+                    IF k& = 8 THEN
+                        IF LEN(startNumText$) > 0 THEN startNumText$ = LEFT$(startNumText$, LEN(startNumText$) - 1)
+                    ELSEIF k& >= 48 AND k& <= 57 THEN ' digits only
+                        IF LEN(startNumText$) < 3 THEN
+                            DIM testVal AS INTEGER
+                            testVal% = VAL(startNumText$ + CHR$(k&))
+                            IF testVal% >= 0 AND testVal% <= 999 THEN
+                                startNumText$ = startNumText$ + CHR$(k&)
+                            END IF
+                        END IF
+                    END IF
+            END SELECT
+        END IF
+
+        ' ---- Drawing ----
+        _DEST ctx.imgHandle
+        DIALOG_draw_frame ctx, "EXTRACT IMAGES"
+
+        ' Background color section
+        DIALOG_draw_label ctx, EXDLG_PAD, yBgLabel%, "BACKGROUND COLOR:"
+        DIALOG_draw_toggle ctx, EXDLG_PAD, yBgRow%, bgTglW%, EXDLG_TGL_H, "TRANSPARENT", (bgMode% = EXTRACT_BG_TRANSPARENT)
+        DIALOG_draw_toggle ctx, EXDLG_PAD + bgTglW% + 2, yBgRow%, bgTglW%, EXDLG_TGL_H, "FG COLOR", (bgMode% = EXTRACT_BG_FG_COLOR)
+        DIALOG_draw_toggle ctx, EXDLG_PAD + (bgTglW% + 2) * 2, yBgRow%, bgTglW%, EXDLG_TGL_H, "BG COLOR", (bgMode% = EXTRACT_BG_BG_COLOR)
+
+        ' Destination section
+        DIALOG_draw_label ctx, EXDLG_PAD, yDestLabel%, "DESTINATION:"
+        EXTRACT_draw_text_field ctx, EXDLG_PAD, yDestInput%, inputW%, EXDLG_INPUT_H, destDir$, (focusField% = 1)
+        DIALOG_draw_button ctx, browseX%, yDestInput%, browseW%, EXDLG_INPUT_H, "BROWSE", _RGB32(60, 60, 80), _RGB32(80, 80, 120), _RGB32(100, 100, 140)
+
+        ' Base filename section
+        DIALOG_draw_label ctx, EXDLG_PAD, yBaseLabel%, "BASE FILENAME:"
+        EXTRACT_draw_text_field ctx, EXDLG_PAD, yBaseInput%, inputW% + browseW% + 4, EXDLG_INPUT_H, baseFile$, (focusField% = 2)
+
+        ' Naming method section
+        DIALOG_draw_label ctx, EXDLG_PAD, yNameLabel%, "NAMING METHOD:"
+        DIALOG_draw_toggle ctx, EXDLG_PAD, yNameRow%, nmTglW%, EXDLG_TGL_H, "NUMBERS", (namingMethod% = EXTRACT_NAME_NUMBERS)
+        IF canMerge% THEN
+            DIALOG_draw_toggle ctx, EXDLG_PAD + nmTglW% + 2, yNameRow%, nmTglW%, EXDLG_TGL_H, "LAYER NAME", (namingMethod% = EXTRACT_NAME_LAYER_NAME)
+        ELSE
+            ' Grayed out
+            DIM grayBg AS _UNSIGNED LONG: grayBg~& = _RGB32(40, 40, 40)
+            LINE (EXDLG_PAD + nmTglW% + 2, yNameRow%)-STEP(nmTglW%, EXDLG_TGL_H), grayBg~&, BF
+            LINE (EXDLG_PAD + nmTglW% + 2, yNameRow%)-STEP(nmTglW%, EXDLG_TGL_H), _RGB32(60, 60, 60), B
+            COLOR _RGB32(80, 80, 80)
+            DIM gfH AS INTEGER: gfH% = DIALOG_font_height%(ctx)
+            _PRINTSTRING (EXDLG_PAD + nmTglW% + 2 + (nmTglW% - _PRINTWIDTH("LAYER NAME")) \ 2, yNameRow% + (EXDLG_TGL_H - gfH%) \ 2), "LAYER NAME"
+        END IF
+
+        ' Start number (only when NUMBERS naming)
+        IF namingMethod% = EXTRACT_NAME_NUMBERS THEN
+            DIALOG_draw_label ctx, EXDLG_PAD, yStartLabel% + (EXDLG_INPUT_H - DIALOG_font_height%(ctx)) \ 2, "STARTING NUMBER:"
+            EXTRACT_draw_text_field ctx, EXDLG_PAD + 130, yStartInput%, 50, EXDLG_INPUT_H, startNumText$, (focusField% = 3)
+        END IF
+
+        ' Checkboxes
+        EXTRACT_draw_checkbox ctx, EXDLG_PAD, yFlags%, "APPEND WxH@XxY + BLEND MODE", appendDims%
+        IF canMerge% THEN
+            EXTRACT_draw_checkbox ctx, EXDLG_PAD, yFlags% + EXDLG_ROW_H, "EXPORT LAYERS MERGED", mergeLayers%
+        ELSE
+            COLOR _RGB32(80, 80, 80)
+            _PRINTSTRING (EXDLG_PAD + EXDLG_CHK_SZ + 6, yFlags% + EXDLG_ROW_H + 1), "EXPORT LAYERS MERGED"
+            LINE (EXDLG_PAD, yFlags% + EXDLG_ROW_H + 1)-STEP(EXDLG_CHK_SZ, EXDLG_CHK_SZ), _RGB32(60, 60, 60), B
+        END IF
+
+        ' Preview label showing example filename
+        DIM exampleName AS STRING
+        exampleName$ = baseFile$
+        IF namingMethod% = EXTRACT_NAME_NUMBERS THEN
+            IF startNumText$ = "" THEN
+                exampleName$ = exampleName$ + "1"
+            ELSE
+                exampleName$ = exampleName$ + startNumText$
+            END IF
+        ELSE
+            exampleName$ = exampleName$ + "LayerName"
+        END IF
+        IF appendDims% THEN exampleName$ = exampleName$ + "_16x16@0x0_NRM"
+        exampleName$ = exampleName$ + ".png"
+        COLOR _RGB32(140, 140, 160)
+        _PRINTSTRING (EXDLG_PAD, yPreview%), "EXAMPLE: " + exampleName$
+
+        ' OK / Cancel
+        DIALOG_draw_button ctx, okX%, yButtons%, okW%, EXDLG_BTN_H, "EXTRACT", _RGB32(40, 100, 40), _RGB32(60, 150, 60), _RGB32(80, 200, 80)
+        DIALOG_draw_button ctx, cxX%, yButtons%, cxW%, EXDLG_BTN_H, "CANCEL", _RGB32(100, 40, 40), _RGB32(150, 60, 60), _RGB32(200, 80, 80)
+
+        DIALOG_blit ctx
+        _DISPLAY
+        _LIMIT 30
+    LOOP UNTIL ctx.done%
+
+    DIALOG_cleanup ctx
+
+    IF NOT ctx.result% THEN EXIT SUB
+
+    ' ---- Validate and parse inputs ----
+    IF LEN(destDir$) = 0 THEN destDir$ = "."
+
+    ' Parse start number
+    IF startNumText$ = "" THEN
+        startNum% = 1
+    ELSE
+        startNum% = VAL(startNumText$)
+        IF startNum% < 0 THEN startNum% = 0
+        IF startNum% > 999 THEN startNum% = 999
+    END IF
+
+    ' Save last directory
+    CFG.LAST_DIR_EXTRACT$ = destDir$
+    CFG.LAST_DIR_EXPORT_LAYER$ = destDir$
+    LAST_DIRECTORY$ = destDir$
+    CONFIG_save
+
+    ' ---- Populate config ----
+    EXTRACT_CONFIG.bgMode% = bgMode%
+    EXTRACT_CONFIG.destDir$ = destDir$
+    EXTRACT_CONFIG.baseFilename$ = baseFile$
+    EXTRACT_CONFIG.namingMethod% = namingMethod%
+    EXTRACT_CONFIG.startNumber% = startNum%
+    EXTRACT_CONFIG.appendDims% = appendDims%
+    EXTRACT_CONFIG.mergeLayers% = mergeLayers%
+    EXTRACT_CONFIG.cancelled% = FALSE
+
+    ' ---- Get source image and build component list ----
+    DIM srcImg AS LONG
+    DIM li AS INTEGER
+    DIM elci AS INTEGER: elci% = 0
+
+    ' Pre-allocate arrays
+    REDIM EXTRACT_COMPS(1 TO 64) AS EXTRACT_COMPONENT_OBJ
+    REDIM EXTRACT_LAYER_NAMES(1 TO 64) AS STRING
+    REDIM EXTRACT_SRC_IMGS(1 TO 64) AS LONG
+    REDIM EXTRACT_BLEND_MODES(1 TO 64) AS INTEGER
+    EXTRACT_COMP_COUNT% = 0
+    EXTRACT_FLOOD_FILL_MODE% = FALSE
+
+    IF mergeLayers% AND LAYER_COUNT% > 1 THEN
+        ' ---- Merged mode: flatten with blend modes, extract per-layer bbox ----
+        EXTRACT_MERGED_MODE% = TRUE
+        srcImg& = LAYERS_flatten&
+
+        _LOGINFO "EXTRACT merged: LAYER_COUNT%=" + STR$(LAYER_COUNT%) + " scanning all 64 slots"
+
+        FOR li% = 1 TO 64
+            IF LAYERS(li%).imgHandle& <> 0 AND LAYERS(li%).visible% THEN
+                DIM elw AS INTEGER, elh AS INTEGER
+                elw% = _WIDTH(LAYERS(li%).imgHandle&)
+                elh% = _HEIGHT(LAYERS(li%).imgHandle&)
+                DIM elMem AS _MEM
+                elMem = _MEMIMAGE(LAYERS(li%).imgHandle&)
+                DIM elMinX AS INTEGER, elMinY AS INTEGER, elMaxX AS INTEGER, elMaxY AS INTEGER
+                elMinX% = elw%: elMinY% = elh%: elMaxX% = -1: elMaxY% = -1
+                DIM elx AS INTEGER, ely AS INTEGER
+                DIM elPix AS _UNSIGNED LONG
+                FOR ely% = 0 TO elh% - 1
+                    FOR elx% = 0 TO elw% - 1
+                        _MEMGET elMem, elMem.OFFSET + (ely% * elw% + elx%) * 4, elPix~&
+                        IF _ALPHA32(elPix~&) > 0 THEN
+                            IF elx% < elMinX% THEN elMinX% = elx%
+                            IF elx% > elMaxX% THEN elMaxX% = elx%
+                            IF ely% < elMinY% THEN elMinY% = ely%
+                            IF ely% > elMaxY% THEN elMaxY% = ely%
+                        END IF
+                    NEXT elx%
+                NEXT ely%
+                _MEMFREE elMem
+
+                DIM elName AS STRING
+                elName$ = LTRIM$(RTRIM$(LAYERS(li%).name))
+
+                IF elMaxX% >= 0 THEN
+                    elci% = elci% + 1
+                    EXTRACT_COMPS(elci%).minX% = elMinX%
+                    EXTRACT_COMPS(elci%).minY% = elMinY%
+                    EXTRACT_COMPS(elci%).maxX% = elMaxX%
+                    EXTRACT_COMPS(elci%).maxY% = elMaxY%
+                    EXTRACT_LAYER_NAMES(elci%) = elName$
+                    EXTRACT_BLEND_MODES(elci%) = LAYERS(li%).blendMode%
+                    EXTRACT_SRC_IMGS(elci%) = srcImg&
+                    _LOGINFO "EXTRACT layer slot" + STR$(li%) + " '" + elName$ + "' bbox=" + STR$(elMinX%) + "," + STR$(elMinY%) + "-" + STR$(elMaxX%) + "," + STR$(elMaxY%)
+                END IF
+            END IF
+        NEXT li%
+        EXTRACT_COMP_COUNT% = elci%
+
+        IF elci% > 0 THEN
+            REDIM _PRESERVE EXTRACT_COMPS(1 TO elci%) AS EXTRACT_COMPONENT_OBJ
+            REDIM _PRESERVE EXTRACT_LAYER_NAMES(1 TO elci%) AS STRING
+            REDIM _PRESERVE EXTRACT_SRC_IMGS(1 TO elci%) AS LONG
+            REDIM _PRESERVE EXTRACT_BLEND_MODES(1 TO elci%) AS INTEGER
+        END IF
+        _LOGINFO "EXTRACT merged: found" + STR$(elci%) + " layers with opaque content"
+
+    ELSEIF LAYER_COUNT% > 1 AND NOT mergeLayers% THEN
+        ' ---- Multi-layer non-merged: extract each visible layer individually ----
+        EXTRACT_MERGED_MODE% = FALSE
+        srcImg& = 0
+
+        _LOGINFO "EXTRACT per-layer: LAYER_COUNT%=" + STR$(LAYER_COUNT%) + " scanning all 64 slots"
+
+        FOR li% = 1 TO 64
+            IF LAYERS(li%).imgHandle& <> 0 AND LAYERS(li%).visible% THEN
+                DIM plw AS INTEGER, plh AS INTEGER
+                plw% = _WIDTH(LAYERS(li%).imgHandle&)
+                plh% = _HEIGHT(LAYERS(li%).imgHandle&)
+                DIM plMem AS _MEM
+                plMem = _MEMIMAGE(LAYERS(li%).imgHandle&)
+                DIM plMinX AS INTEGER, plMinY AS INTEGER, plMaxX AS INTEGER, plMaxY AS INTEGER
+                plMinX% = plw%: plMinY% = plh%: plMaxX% = -1: plMaxY% = -1
+                DIM plx AS INTEGER, ply AS INTEGER
+                DIM plPix AS _UNSIGNED LONG
+                FOR ply% = 0 TO plh% - 1
+                    FOR plx% = 0 TO plw% - 1
+                        _MEMGET plMem, plMem.OFFSET + (ply% * plw% + plx%) * 4, plPix~&
+                        IF _ALPHA32(plPix~&) > 0 THEN
+                            IF plx% < plMinX% THEN plMinX% = plx%
+                            IF plx% > plMaxX% THEN plMaxX% = plx%
+                            IF ply% < plMinY% THEN plMinY% = ply%
+                            IF ply% > plMaxY% THEN plMaxY% = ply%
+                        END IF
+                    NEXT plx%
+                NEXT ply%
+                _MEMFREE plMem
+
+                DIM plName AS STRING
+                plName$ = LTRIM$(RTRIM$(LAYERS(li%).name))
+
+                IF plMaxX% >= 0 THEN
+                    elci% = elci% + 1
+                    EXTRACT_COMPS(elci%).minX% = plMinX%
+                    EXTRACT_COMPS(elci%).minY% = plMinY%
+                    EXTRACT_COMPS(elci%).maxX% = plMaxX%
+                    EXTRACT_COMPS(elci%).maxY% = plMaxY%
+                    EXTRACT_LAYER_NAMES(elci%) = plName$
+                    EXTRACT_BLEND_MODES(elci%) = LAYERS(li%).blendMode%
+                    EXTRACT_SRC_IMGS(elci%) = _COPYIMAGE(LAYERS(li%).imgHandle&, 32)
+                    _LOGINFO "EXTRACT layer slot" + STR$(li%) + " '" + plName$ + "' bbox=" + STR$(plMinX%) + "," + STR$(plMinY%) + "-" + STR$(plMaxX%) + "," + STR$(plMaxY%)
+                END IF
+            END IF
+        NEXT li%
+        EXTRACT_COMP_COUNT% = elci%
+
+        IF elci% > 0 THEN
+            REDIM _PRESERVE EXTRACT_COMPS(1 TO elci%) AS EXTRACT_COMPONENT_OBJ
+            REDIM _PRESERVE EXTRACT_LAYER_NAMES(1 TO elci%) AS STRING
+            REDIM _PRESERVE EXTRACT_SRC_IMGS(1 TO elci%) AS LONG
+            REDIM _PRESERVE EXTRACT_BLEND_MODES(1 TO elci%) AS INTEGER
+        END IF
+        _LOGINFO "EXTRACT per-layer: found" + STR$(elci%) + " layers with opaque content"
+
+    ELSE
+        ' ---- Single layer (or 1 layer non-merged): flood fill component extraction ----
+        EXTRACT_MERGED_MODE% = FALSE
+        EXTRACT_FLOOD_FILL_MODE% = TRUE
+
+        IF LAYERS(CURRENT_LAYER%).imgHandle& < -1 THEN
+            srcImg& = _COPYIMAGE(LAYERS(CURRENT_LAYER%).imgHandle&, 32)
+        ELSE
+            _LOGWARN "EXTRACT: invalid layer image handle"
+            EXIT SUB
+        END IF
+
+        _LOGINFO "EXTRACT flood-fill: single layer, bgMode=" + STR$(bgMode%)
+        EXTRACT_find_components srcImg&, bgMode%
+
+        ' Populate SRC_IMGS, LAYER_NAMES, BLEND_MODES for flood fill components
+        IF EXTRACT_COMP_COUNT% > 0 THEN
+            DIM ffName AS STRING
+            ffName$ = LTRIM$(RTRIM$(LAYERS(CURRENT_LAYER%).name))
+            DIM ffBlend AS INTEGER
+            ffBlend% = LAYERS(CURRENT_LAYER%).blendMode%
+            REDIM EXTRACT_SRC_IMGS(1 TO EXTRACT_COMP_COUNT%) AS LONG
+            REDIM EXTRACT_LAYER_NAMES(1 TO EXTRACT_COMP_COUNT%) AS STRING
+            REDIM EXTRACT_BLEND_MODES(1 TO EXTRACT_COMP_COUNT%) AS INTEGER
+            DIM ffi AS INTEGER
+            FOR ffi% = 1 TO EXTRACT_COMP_COUNT%
+                EXTRACT_SRC_IMGS(ffi%) = srcImg&
+                EXTRACT_LAYER_NAMES(ffi%) = ffName$
+                EXTRACT_BLEND_MODES(ffi%) = ffBlend%
+            NEXT ffi%
+        END IF
+        _LOGINFO "EXTRACT flood-fill: found" + STR$(EXTRACT_COMP_COUNT%) + " components"
+    END IF
+
+    IF EXTRACT_COMP_COUNT% = 0 THEN
+        DIM noPixMsg AS INTEGER
+        noPixMsg% = _MESSAGEBOX("Extract Images", "No opaque pixel groups found.", "information", "ok")
+        IF srcImg& < -1 THEN _FREEIMAGE srcImg&
+        EXIT SUB
+    END IF
+
+    ' ---- Create output directory (best effort) ----
+    $IF WIN THEN
+        SHELL _HIDE "mkdir " + CHR$(34) + destDir$ + CHR$(34) + " 2>NUL"
+    $ELSE
+        SHELL _HIDE "mkdir -p " + CHR$(34) + destDir$ + CHR$(34) + " 2>/dev/null"
+    $END IF
+
+    ' ---- Run extraction with progress ----
+    EXTRACT_progress_dialog srcImg&, EXTRACT_LABELS()
+
+    ' Free source images
+    IF EXTRACT_MERGED_MODE% THEN
+        IF srcImg& < -1 THEN _FREEIMAGE srcImg&
+    ELSEIF EXTRACT_FLOOD_FILL_MODE% THEN
+        IF srcImg& < -1 THEN _FREEIMAGE srcImg&
+    ELSE
+        ' Free per-layer copies
+        DIM freeI AS INTEGER
+        FOR freeI% = 1 TO EXTRACT_COMP_COUNT%
+            IF EXTRACT_SRC_IMGS(freeI%) < -1 THEN
+                _FREEIMAGE EXTRACT_SRC_IMGS(freeI%)
+                EXTRACT_SRC_IMGS(freeI%) = 0
+            END IF
+        NEXT freeI%
+    END IF
+END SUB
+
+
+''
+' Draw a text input field (local helper, not added to DIALOG.BM for minimal scope).
+'
+SUB EXTRACT_draw_text_field (ctx AS DIALOG_CTX, fx AS INTEGER, fy AS INTEGER, fw AS INTEGER, fh AS INTEGER, text AS STRING, focused AS INTEGER)
+    DIM bg AS _UNSIGNED LONG, border AS _UNSIGNED LONG
+    IF focused% THEN
+        bg~& = _RGB32(30, 30, 50)
+        border~& = _RGB32(100, 140, 255)
+    ELSE
+        bg~& = _RGB32(25, 25, 35)
+        border~& = _RGB32(80, 80, 100)
+    END IF
+    LINE (fx%, fy%)-STEP(fw%, fh%), bg~&, BF
+    LINE (fx%, fy%)-STEP(fw%, fh%), border~&, B
+
+    DIM fontH AS INTEGER: fontH% = DIALOG_font_height%(ctx)
+    DIM displayText AS STRING
+    DIM availW AS INTEGER: availW% = fw% - 6
+
+    ' Trim from the left until the text fits the available pixel width
+    displayText$ = text$
+    IF _PRINTWIDTH(displayText$) > availW% THEN
+        DO WHILE LEN(displayText$) > 1 AND _PRINTWIDTH(displayText$) > availW%
+            displayText$ = RIGHT$(displayText$, LEN(displayText$) - 1)
+        LOOP
+    END IF
+
+    COLOR THEME.DIALOG_label_fg~&
+    _PRINTSTRING (fx% + 3, fy% + (fh% - fontH%) \ 2), displayText$
+
+    ' Blinking cursor
+    IF focused% THEN
+        DIM cursorX AS INTEGER
+        cursorX% = fx% + 3 + _PRINTWIDTH(displayText$)
+        IF cursorX% < fx% + fw% - 2 THEN
+            IF (TIMER MOD 1) < 0.5 THEN
+                LINE (cursorX%, fy% + 2)-(cursorX%, fy% + fh% - 2), _RGB32(200, 200, 255)
+            END IF
+        END IF
+    END IF
+END SUB
+
+
+''
+' Draw a checkbox — small square with X mark when checked, label to the right.
+'
+SUB EXTRACT_draw_checkbox (ctx AS DIALOG_CTX, cx AS INTEGER, cy AS INTEGER, label AS STRING, checked AS INTEGER)
+    DIM boxColor AS _UNSIGNED LONG: boxColor~& = _RGB32(100, 100, 120)
+    LINE (cx%, cy% + 1)-STEP(EXDLG_CHK_SZ, EXDLG_CHK_SZ), _RGB32(25, 25, 35), BF
+    LINE (cx%, cy% + 1)-STEP(EXDLG_CHK_SZ, EXDLG_CHK_SZ), boxColor~&, B
+    IF checked% THEN
+        ' Draw X check mark
+        DIM chkCol AS _UNSIGNED LONG: chkCol~& = _RGB32(100, 200, 100)
+        LINE (cx% + 2, cy% + 3)-(cx% + EXDLG_CHK_SZ - 2, cy% + EXDLG_CHK_SZ - 1), chkCol~&
+        LINE (cx% + EXDLG_CHK_SZ - 2, cy% + 3)-(cx% + 2, cy% + EXDLG_CHK_SZ - 1), chkCol~&
+    END IF
+    DIM fontH AS INTEGER: fontH% = DIALOG_font_height%(ctx)
+    COLOR THEME.DIALOG_label_fg~&
+    _PRINTSTRING (cx% + EXDLG_CHK_SZ + 6, cy% + (EXDLG_CHK_SZ + 2 - fontH%) \ 2 + 1), label$
+END SUB
+
+
+''
+' Connected-component labeling using 8-connected scanline flood fill.
+' Populates EXTRACT_COMPS() and EXTRACT_COMP_COUNT%.
+'
+' Also populates the module-level EXTRACT_LABELS() array for use by save.
+'
+SUB EXTRACT_find_components (srcImg AS LONG, bgMode AS INTEGER)
+    DIM w AS INTEGER, h AS INTEGER
+    w% = _WIDTH(srcImg&)
+    h% = _HEIGHT(srcImg&)
+
+    EXTRACT_COMP_COUNT% = 0
+    REDIM EXTRACT_COMPS(0) AS EXTRACT_COMPONENT_OBJ
+    REDIM EXTRACT_LABELS(0 TO w% - 1, 0 TO h% - 1) AS INTEGER
+
+    ' Determine which color to treat as "background" (skip)
+    DIM skipColor AS _UNSIGNED LONG
+    DIM useSkipColor AS INTEGER: useSkipColor% = FALSE
+    SELECT CASE bgMode%
+        CASE EXTRACT_BG_FG_COLOR
+            skipColor~& = PAINT_COLOR~&
+            useSkipColor% = TRUE
+        CASE EXTRACT_BG_BG_COLOR
+            skipColor~& = PAINT_BG_COLOR~&
+            useSkipColor% = TRUE
+    END SELECT
+
+    ' Read image via _MEM for performance
+    DIM srcMem AS _MEM
+    srcMem = _MEMIMAGE(srcImg&)
+
+    DIM px AS INTEGER, py AS INTEGER
+    DIM pxColor AS _UNSIGNED LONG
+    DIM pxAlpha AS _UNSIGNED _BYTE
+    DIM compId AS INTEGER: compId% = 0
+
+    ' Scanline flood fill stack
+    DIM stackCap AS LONG: stackCap& = 256
+    REDIM stkX(1 TO 256) AS INTEGER
+    REDIM stkY(1 TO 256) AS INTEGER
+    DIM stkPtr AS LONG
+
+    FOR py% = 0 TO h% - 1
+        FOR px% = 0 TO w% - 1
+            IF EXTRACT_LABELS(px%, py%) <> 0 THEN GOTO ext_next_pixel
+
+            ' Read pixel
+            _MEMGET srcMem, srcMem.OFFSET + (py% * w% + px%) * 4, pxColor~&
+            pxAlpha~%% = _ALPHA32(pxColor~&)
+
+            ' Skip transparent pixels
+            IF pxAlpha~%% = 0 THEN GOTO ext_next_pixel
+
+            ' Skip background color if applicable
+            IF useSkipColor% THEN
+                IF pxColor~& = skipColor~& THEN GOTO ext_next_pixel
+            END IF
+
+            ' Found a new component — flood fill to label it
+            compId% = compId% + 1
+            IF compId% > EXTRACT_MAX_COMPONENTS THEN
+                _LOGWARN "EXTRACT_find_components: too many components (>" + STR$(EXTRACT_MAX_COMPONENTS) + ")"
+                compId% = compId% - 1
+                GOTO ext_done_scan
+            END IF
+
+            ' Grow component array
+            REDIM _PRESERVE EXTRACT_COMPS(1 TO compId%) AS EXTRACT_COMPONENT_OBJ
+            EXTRACT_COMPS(compId%).minX% = px%
+            EXTRACT_COMPS(compId%).minY% = py%
+            EXTRACT_COMPS(compId%).maxX% = px%
+            EXTRACT_COMPS(compId%).maxY% = py%
+
+            ' Flood fill using stack
+            stkPtr& = 1
+            stkX(1) = px%
+            stkY(1) = py%
+
+            WHILE stkPtr& > 0
+                DIM cx AS INTEGER, cy AS INTEGER
+                cx% = stkX(stkPtr&)
+                cy% = stkY(stkPtr&)
+                stkPtr& = stkPtr& - 1
+
+                IF cx% < 0 OR cx% >= w% OR cy% < 0 OR cy% >= h% THEN GOTO ext_next_stack
+                IF EXTRACT_LABELS(cx%, cy%) <> 0 THEN GOTO ext_next_stack
+
+                ' Read this pixel
+                DIM cColor AS _UNSIGNED LONG
+                _MEMGET srcMem, srcMem.OFFSET + (cy% * w% + cx%) * 4, cColor~&
+                DIM cAlpha AS _UNSIGNED _BYTE
+                cAlpha~%% = _ALPHA32(cColor~&)
+                IF cAlpha~%% = 0 THEN GOTO ext_next_stack
+                IF useSkipColor% AND cColor~& = skipColor~& THEN GOTO ext_next_stack
+
+                ' Label this pixel
+                EXTRACT_LABELS(cx%, cy%) = compId%
+
+                ' Update bounding box
+                IF cx% < EXTRACT_COMPS(compId%).minX% THEN EXTRACT_COMPS(compId%).minX% = cx%
+                IF cx% > EXTRACT_COMPS(compId%).maxX% THEN EXTRACT_COMPS(compId%).maxX% = cx%
+                IF cy% < EXTRACT_COMPS(compId%).minY% THEN EXTRACT_COMPS(compId%).minY% = cy%
+                IF cy% > EXTRACT_COMPS(compId%).maxY% THEN EXTRACT_COMPS(compId%).maxY% = cy%
+
+                ' Push 8 neighbors
+                DIM dx AS INTEGER, dy AS INTEGER
+                FOR dy% = -1 TO 1
+                    FOR dx% = -1 TO 1
+                        IF dx% = 0 AND dy% = 0 THEN GOTO ext_skip_self
+                        DIM nx AS INTEGER, ny AS INTEGER
+                        nx% = cx% + dx%
+                        ny% = cy% + dy%
+                        IF nx% >= 0 AND nx% < w% AND ny% >= 0 AND ny% < h% THEN
+                            IF EXTRACT_LABELS(nx%, ny%) = 0 THEN
+                                ' Grow stack if needed
+                                IF stkPtr& >= stackCap& THEN
+                                    stackCap& = stackCap& * 2
+                                    REDIM _PRESERVE stkX(1 TO stackCap&) AS INTEGER
+                                    REDIM _PRESERVE stkY(1 TO stackCap&) AS INTEGER
+                                END IF
+                                stkPtr& = stkPtr& + 1
+                                stkX(stkPtr&) = nx%
+                                stkY(stkPtr&) = ny%
+                            END IF
+                        END IF
+                        ext_skip_self:
+                    NEXT dx%
+                NEXT dy%
+                ext_next_stack:
+            WEND
+
+            ext_next_pixel:
+        NEXT px%
+    NEXT py%
+
+    ext_done_scan:
+    EXTRACT_COMP_COUNT% = compId%
+    _MEMFREE srcMem
+
+    ERASE stkX, stkY
+    _LOGINFO "EXTRACT_find_components: found" + STR$(EXTRACT_COMP_COUNT%) + " components"
+END SUB
+
+
+''
+' Save a single component as a cropped PNG. Only pixels matching the given
+' component label are copied; all others become transparent (or bg color).
+'
+SUB EXTRACT_save_component (srcImg AS LONG, compIdx AS INTEGER, labelArr() AS INTEGER, outputPath AS STRING, bgMode AS INTEGER)
+    DIM bx AS INTEGER, by AS INTEGER, bw AS INTEGER, bh AS INTEGER
+    bx% = EXTRACT_COMPS(compIdx%).minX%
+    by% = EXTRACT_COMPS(compIdx%).minY%
+    bw% = EXTRACT_COMPS(compIdx%).maxX% - bx% + 1
+    bh% = EXTRACT_COMPS(compIdx%).maxY% - by% + 1
+
+    IF bw% < 1 OR bh% < 1 THEN EXIT SUB
+
+    DIM cropImg AS LONG
+    cropImg& = _NEWIMAGE(bw%, bh%, 32)
+    IF cropImg& >= -1 THEN
+        _LOGWARN "EXTRACT_save_component: _NEWIMAGE failed for component" + STR$(compIdx%)
+        EXIT SUB
+    END IF
+
+    DIM oldDest AS LONG: oldDest& = _DEST
+    _DEST cropImg&
+    _DONTBLEND cropImg&
+
+    ' Fill with background
+    SELECT CASE bgMode%
+        CASE EXTRACT_BG_TRANSPARENT
+            CLS , _RGBA32(0, 0, 0, 0)
+        CASE EXTRACT_BG_FG_COLOR
+            CLS , PAINT_COLOR~&
+        CASE EXTRACT_BG_BG_COLOR
+            CLS , PAINT_BG_COLOR~&
+    END SELECT
+
+    ' Copy only pixels belonging to this component
+    DIM srcMem AS _MEM, dstMem AS _MEM
+    srcMem = _MEMIMAGE(srcImg&)
+    dstMem = _MEMIMAGE(cropImg&)
+
+    DIM srcW AS INTEGER: srcW% = _WIDTH(srcImg&)
+    DIM sx AS INTEGER, sy AS INTEGER
+    DIM dstOff AS _OFFSET, srcOff AS _OFFSET
+    DIM pixVal AS _UNSIGNED LONG
+
+    FOR sy% = by% TO by% + bh% - 1
+        FOR sx% = bx% TO bx% + bw% - 1
+            srcOff = srcMem.OFFSET + (sy% * srcW% + sx%) * 4
+            _MEMGET srcMem, srcOff, pixVal~&
+            IF EXTRACT_FLOOD_FILL_MODE% THEN
+                ' Flood fill mode: only copy labeled pixels for this component
+                IF labelArr(sx%, sy%) = compIdx% THEN
+                    dstOff = dstMem.OFFSET + ((sy% - by%) * bw% + (sx% - bx%)) * 4
+                    _MEMPUT dstMem, dstOff, pixVal~&
+                END IF
+            ELSE
+                ' Per-layer / merged mode: copy all non-transparent pixels in bbox
+                IF _ALPHA32(pixVal~&) > 0 THEN
+                    dstOff = dstMem.OFFSET + ((sy% - by%) * bw% + (sx% - bx%)) * 4
+                    _MEMPUT dstMem, dstOff, pixVal~&
+                END IF
+            END IF
+        NEXT sx%
+    NEXT sy%
+
+    _MEMFREE srcMem
+    _MEMFREE dstMem
+    _BLEND cropImg&
+    _DEST oldDest&
+
+    _SAVEIMAGE outputPath$, cropImg&
+    _FREEIMAGE cropImg&
+END SUB
+
+
+''
+' Progress dialog — iterates all components, saves each, shows progress bar.
+' When done, shows summary with OPEN DESTINATION and OK buttons.
+'
+SUB EXTRACT_progress_dialog (srcImg AS LONG, labelArr() AS INTEGER)
+    DIM ctx AS DIALOG_CTX
+    DIALOG_init ctx, 280, 120
+
+    DIM i AS INTEGER
+    DIM outputPath AS STRING
+    DIM isDone AS INTEGER: isDone% = FALSE
+    DIM currentComp AS INTEGER: currentComp% = 0
+    DIM compName AS STRING
+
+    ' Process all components first pass (no dialog interaction during save)
+    FOR i% = 1 TO EXTRACT_COMP_COUNT%
+        currentComp% = i%
+
+        ' Build output filename
+        DIM fname AS STRING
+        IF EXTRACT_CONFIG.namingMethod% = EXTRACT_NAME_NUMBERS THEN
+            fname$ = EXTRACT_CONFIG.baseFilename$ + LTRIM$(STR$(EXTRACT_CONFIG.startNumber% + i% - 1))
+        ELSE
+            IF i% >= 1 AND i% <= UBOUND(EXTRACT_LAYER_NAMES) THEN
+                fname$ = EXTRACT_CONFIG.baseFilename$ + EXTRACT_LAYER_NAMES(i%)
+            ELSE
+                fname$ = EXTRACT_CONFIG.baseFilename$ + LTRIM$(STR$(i%))
+            END IF
+        END IF
+
+        IF EXTRACT_CONFIG.appendDims% THEN
+            DIM cw AS INTEGER, ch AS INTEGER, cx AS INTEGER, cy AS INTEGER
+            cw% = EXTRACT_COMPS(i%).maxX% - EXTRACT_COMPS(i%).minX% + 1
+            ch% = EXTRACT_COMPS(i%).maxY% - EXTRACT_COMPS(i%).minY% + 1
+            cx% = EXTRACT_COMPS(i%).minX%
+            cy% = EXTRACT_COMPS(i%).minY%
+            DIM blendAbbr AS STRING
+            blendAbbr$ = BLEND_mode_short$(EXTRACT_BLEND_MODES(i%))
+            fname$ = fname$ + "_" + LTRIM$(STR$(cw%)) + "x" + LTRIM$(STR$(ch%)) + "@" + LTRIM$(STR$(cx%)) + "x" + LTRIM$(STR$(cy%)) + "_" + blendAbbr$
+        END IF
+
+        outputPath$ = EXTRACT_CONFIG.destDir$ + "/" + fname$ + ".png"
+        compName$ = fname$ + ".png"
+
+        ' Save this component — use per-component source image
+        DIM compSrcImg AS LONG
+        compSrcImg& = EXTRACT_SRC_IMGS(i%)
+        EXTRACT_save_component compSrcImg&, i%, labelArr(), outputPath$, EXTRACT_CONFIG.bgMode%
+
+        ' Draw progress frame
+        _DEST ctx.imgHandle
+        DIALOG_draw_frame ctx, "EXTRACTING..."
+
+        ' Progress bar
+        DIM barX AS INTEGER: barX% = 10
+        DIM barY AS INTEGER: barY% = 30
+        DIM barW AS INTEGER: barW% = 260
+        DIM barH AS INTEGER: barH% = 16
+        DIM fillW AS INTEGER
+        fillW% = INT(barW% * (i% / EXTRACT_COMP_COUNT%))
+        LINE (barX%, barY%)-STEP(barW%, barH%), _RGB32(40, 40, 50), BF
+        LINE (barX%, barY%)-STEP(fillW%, barH%), _RGB32(60, 140, 60), BF
+        LINE (barX%, barY%)-STEP(barW%, barH%), _RGB32(80, 80, 100), B
+
+        ' Progress text
+        DIM progText AS STRING
+        progText$ = LTRIM$(STR$(i%)) + " / " + LTRIM$(STR$(EXTRACT_COMP_COUNT%))
+        COLOR THEME.DIALOG_label_fg~&
+        _PRINTSTRING (barX% + (barW% - _PRINTWIDTH(progText$)) \ 2, barY% + 2), progText$
+
+        ' Current file name
+        DIM dispName AS STRING
+        DIM pFntW AS INTEGER: pFntW% = _FONTWIDTH
+        IF pFntW% < 1 THEN pFntW% = 8
+        DIM maxNameW AS INTEGER: maxNameW% = 260 \ pFntW%
+        IF LEN(compName$) > maxNameW% THEN
+            dispName$ = RIGHT$(compName$, maxNameW%)
+        ELSE
+            dispName$ = compName$
+        END IF
+        _PRINTSTRING (10, barY% + barH% + 6), dispName$
+
+        DIALOG_blit ctx
+        _DISPLAY
+    NEXT i%
+
+    ' ---- Done state — show summary with buttons ----
+    isDone% = TRUE
+    DIM doneMsg AS STRING
+    doneMsg$ = "DONE! " + LTRIM$(STR$(EXTRACT_COMP_COUNT%)) + " images extracted."
+
+    DIM openBtnX AS INTEGER: openBtnX% = 10
+    DIM openBtnW AS INTEGER: openBtnW% = 155
+    DIM okBtnX AS INTEGER:   okBtnX%   = 175
+    DIM okBtnW AS INTEGER:   okBtnW%   = 95
+    DIM btnY AS INTEGER:     btnY%     = 120 - EXDLG_BTN_H - 8
+
+    ctx.done% = FALSE
+    DO
+        DIALOG_poll_mouse ctx
+        DIM dk AS LONG
+        dk& = _KEYHIT
+        IF dk& = 27 OR dk& = 13 THEN ctx.done% = TRUE
+
+        IF DIALOG_hit%(ctx, openBtnX%, btnY%, openBtnW%, EXDLG_BTN_H) THEN
+            EXTRACT_open_folder EXTRACT_CONFIG.destDir$
+        END IF
+        IF DIALOG_hit%(ctx, okBtnX%, btnY%, okBtnW%, EXDLG_BTN_H) THEN
+            ctx.done% = TRUE
+        END IF
+
+        _DEST ctx.imgHandle
+        DIALOG_draw_frame ctx, "EXTRACT IMAGES"
+
+        ' Full progress bar
+        LINE (10, 30)-STEP(260, 16), _RGB32(60, 140, 60), BF
+        LINE (10, 30)-STEP(260, 16), _RGB32(80, 200, 80), B
+        COLOR THEME.DIALOG_label_fg~&
+        _PRINTSTRING (10 + (260 - _PRINTWIDTH("100%")) \ 2, 32), "100%"
+
+        ' Done message
+        COLOR _RGB32(150, 255, 150)
+        _PRINTSTRING (10, 54), doneMsg$
+
+        ' Buttons
+        DIALOG_draw_button ctx, openBtnX%, btnY%, openBtnW%, EXDLG_BTN_H, "OPEN DESTINATION", _RGB32(40, 80, 120), _RGB32(60, 120, 180), _RGB32(80, 160, 220)
+        DIALOG_draw_button ctx, okBtnX%, btnY%, okBtnW%, EXDLG_BTN_H, "OK", _RGB32(40, 100, 40), _RGB32(60, 150, 60), _RGB32(80, 200, 80)
+
+        DIALOG_blit ctx
+        _DISPLAY
+        _LIMIT 30
+    LOOP UNTIL ctx.done%
+
+    DIALOG_cleanup ctx
+END SUB
+
+
+''
+' Cross-platform folder open helper.
+'
+SUB EXTRACT_open_folder (folderPath AS STRING)
+    ' Sanitize path - no shell metacharacters allowed
+    DIM sanitized AS STRING: sanitized$ = folderPath$
+    DIM sci AS INTEGER
+    FOR sci% = 1 TO LEN(sanitized$)
+        DIM sch AS STRING: sch$ = MID$(sanitized$, sci%, 1)
+        IF sch$ = ";" OR sch$ = "|" OR sch$ = "&" OR sch$ = "`" OR _
+           sch$ = "$" OR sch$ = CHR$(10) OR sch$ = CHR$(13) THEN
+            _LOGWARN "EXTRACT_open_folder: rejected path with shell metacharacter"
+            EXIT SUB
+        END IF
+    NEXT sci%
+
+    $IF WIN THEN
+        SHELL _DONTWAIT "explorer " + CHR$(34) + sanitized$ + CHR$(34)
+    $ELSEIF MAC THEN
+        SHELL _DONTWAIT "open " + CHR$(34) + sanitized$ + CHR$(34)
+    $ELSE
+        SHELL _DONTWAIT "xdg-open " + CHR$(34) + sanitized$ + CHR$(34)
+    $END IF
+END SUB
