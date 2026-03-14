@@ -14,11 +14,11 @@ DATA "::::::::", "::    ::", "::    ::", "::::  ::::", "  ::  ::  "
 
 DRAW is a pixel art editor written in QB64PE that can export images as sourcecode
 
-Current release: v0.20.0
+Current release: v0.21.0
 
 ![DRAW GUI from v0.17.0](./GUI.png)
 
-Note: screenshot refresh pending for v0.20.0. The current UI also includes the preview window, edit bar, and expanded drawer workflows not shown above.
+Note: screenshot refresh pending for v0.21.0. The current UI also includes the preview window, edit bar, and expanded drawer workflows not shown above.
 
 ## Features
 
@@ -51,6 +51,7 @@ Note: screenshot refresh pending for v0.20.0. The current UI also includes the p
 - **QB64 Export** - Generate QB64 source output from artwork/history, with improved raster fallback for operations that cannot be reproduced parametrically
 - **Angle Snap** - Two modes: degree-based (configurable 15°/30°/45°/90° increments) and pixel-art (11 integer-ratio angles for clean pixel lines). Hold Ctrl+Shift to snap + bypass grid. Applies to Line, Polygon, and Brush/Dot connecting lines
 - **Image Adjustments** - Non-destructive per-layer adjustments via the Image menu: Brightness/Contrast, Hue/Saturation, Levels, Color Balance, Blur, Sharpen, Invert, Desaturate, Posterize, Pixelate — all with **live preview** and **mouse wheel slider** support; Posterize also supports multiple dithering algorithms; alpha channel preserved throughout
+- **Extract Images** - Extract individual sprites or components from sprite sheets or multi-layer artwork as separate PNG files (File → Extract Images); supports transparent/FG color/BG color background modes, connected-component flood fill for single-layer sheets, per-layer or merged extraction for multi-layer files, configurable output naming and dimensions; extraction settings persisted in `.draw` project files
 
 ### Grid System
 - Adjustable grid overlay (2-50px spacing)
@@ -112,7 +113,7 @@ Note: screenshot refresh pending for v0.20.0. The current UI also includes the p
 - **Select → From Current Layer**: creates a marquee selection mask from all non-transparent pixels on the current layer
 - **Select → From Selected Layers**: creates a union selection mask from all non-transparent pixels across every selected layer (requires 2+ selected)
 - **Recent Files** - File menu tracks up to 10 recently opened projects with submenu navigation and `Alt+1`–`Alt+0` keyboard shortcuts
-- DRW project format: PNG with embedded `drAw` chunk — preserves layers, blend modes, opacity, palette, tool states, grid state, and reference image configuration while remaining viewable in any image viewer
+- DRW project format: PNG with embedded `drAw` chunk — preserves layers, blend modes, opacity, palette, tool states, grid state, reference image configuration, and extract images settings while remaining viewable in any image viewer
 
 ### Sound System
 - **21 categorized sound slots** covering menus, tools, selections, fill, clipboard, layers, text, sliders, drag-drop, point placement, and organizer interactions
@@ -143,6 +144,7 @@ Note: screenshot refresh pending for v0.20.0. The current UI also includes the p
 - Status bar shows: tool, coordinates, zoom, grid state, colors
 - Smooth zoom and pan
 - Help button opens searchable command palette
+- **Tooltips** - Hover hints for toolbar buttons, organizer widgets, and drawer mini palette; toggleable via Help menu → Show Tooltips
 
 ## Quick Start
 

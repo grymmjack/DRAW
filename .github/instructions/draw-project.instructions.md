@@ -28,7 +28,7 @@ applyTo: "**"
 5. **INPUT**: MODIFIERS, KEYBOARD, MOUSE, STICK, FILE-BMP, FILE-BLOAD, FILE-PAL, API-LOSPEC
 6. **OUTPUT**: SCREEN, FILE-BAS, FILE-BMP, FILE-BSAVE
 7. **QB64_GJ_LIB**: DICT, STRINGS, VECT2D
-8. **TOOLS**: 38 tool pairs (NULL, DOT, LINE, RECT, ELLIPSE, FILL, BRUSH, BRUSH-SIZE, BRUSH-FILL, BRUSH-FX-OUTLINE, BRUSH-TEXT, CUSTOM-BRUSH, POLY-LINE, POLY-FILL, MARQUEE, SELECTION, PAN, MOVE, MOVE-NUDGE, SAVE, LOAD, PICKER, PICKER-LOUPE, HISTORY, DRW, COLOR-FG, COLOR-BG, COLOR-INVERT, CROP, SPRAY, ZOOM, TEXT, SYMMETRY, RAY, IMAGE-IMPORT, REFIMG, ERASER, TRANSFORM)
+8. **TOOLS**: 39 tool pairs (NULL, DOT, LINE, RECT, ELLIPSE, FILL, BRUSH, BRUSH-SIZE, BRUSH-FILL, BRUSH-FX-OUTLINE, BRUSH-TEXT, CUSTOM-BRUSH, POLY-LINE, POLY-FILL, MARQUEE, SELECTION, PAN, MOVE, MOVE-NUDGE, SAVE, LOAD, PICKER, PICKER-LOUPE, HISTORY, DRW, COLOR-FG, COLOR-BG, COLOR-INVERT, CROP, SPRAY, ZOOM, TEXT, SYMMETRY, RAY, IMAGE-IMPORT, REFIMG, ERASER, TRANSFORM, EXTRACT-IMAGES)
 9. **THEME**: `ASSETS/THEMES/DEFAULT/THEME.BI`
 
 ### Directory Structure
@@ -37,10 +37,10 @@ applyTo: "**"
 | ----------------------- | -------------------------------------------------------------------- |
 | `CFG/`                  | Configuration types, keyboard/mouse/joystick bindings                |
 | `CORE/`                 | Performance counters, error handling, image utilities                |
-| `GUI/`                  | UI components (toolbar, status bar, palette, grid, layers, menubar, command palette, organizer, drawer panel, preview window, edit bar, popup menus, dithering helpers) |
+| `GUI/`                  | UI components (toolbar, status bar, palette, grid, layers, menubar, command palette, organizer, drawer panel, preview window, edit bar, popup menus, dithering helpers, tooltips) |
 | `INPUT/`                | Input handlers (mouse, keyboard, joystick), file loaders, Lospec API |
 | `OUTPUT/`               | Screen rendering (`SCREEN_render`), file export (BAS, BMP, BSAVE)   |
-| `TOOLS/`                | Drawing tools, history/undo system, DRW format, image import         |
+| `TOOLS/`                | Drawing tools, history/undo system, DRW format, image import, extract images |
 | `ASSETS/`               | Fonts, icons, palettes (56 GPL files), themes                        |
 | `includes/QB64_GJ_LIB/` | External utility library (DICT, STRINGS, VECT2D)                     |
 
@@ -288,6 +288,7 @@ A frame is "idle" when no input, mouse movement, GUI changes, or active tool ope
 | `TOOLS/HISTORY.BI/BM`     | Unified history system for all Ctrl+Z/Y undo/redo                   |
 | `TOOLS/ERASER.BI/BM`      | Eraser tool (transparent painting via brush pipeline)               |
 | `TOOLS/TRANSFORM.BI/BM`   | On-canvas transform overlay (Scale/Rotate/Shear/Distort/Perspective); activated via Edit→TRANSFORM...; not a toolbar tool |
+| `TOOLS/EXTRACT-IMAGES.BI/BM` | Extract individual sprites/components from sprite sheets or multi-layer artwork as separate PNGs; supports flood fill, per-layer, or merged extraction; config persisted in DRW v14+ |
 | `CFG/CONFIG.BI`           | Configuration structure                                             |
 | `CORE/SOUND.BI/BM`        | Sound constants, loader, playback SUBs                              |
 | `CHEATSHEET.md`           | All keyboard shortcuts                                              |

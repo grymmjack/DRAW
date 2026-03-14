@@ -37,8 +37,9 @@ Extension changed from `.drw` to `.draw` in v0.7.4 (CorelDRAW conflict).
 | Pattern Tile Mode | enabled(2) | v11+ |
 | Gradient Definitions | per-slot gradient defs, color stops, opacity stops | v12+ |
 | Gradient Stop Types | per-slot stop type arrays for gradient editors/export | v13+ |
+| Extract Images Config | bgMode(2), namingMethod(2), startNumber(2), appendDims(2), mergeLayers(2), baseFilename(64), destDir(260) | v14+ |
 
-Constants: `DRW_MAGIC$ = "DRW1"`, `DRW_VERSION% = 13`, `DRW_CHUNK_VERSION% = 1`
+Constants: `DRW_MAGIC$ = "DRW1"`, `DRW_VERSION% = 14`, `DRW_CHUNK_VERSION% = 1`
 
 ### Key Functions
 
@@ -50,7 +51,7 @@ Constants: `DRW_MAGIC$ = "DRW1"`, `DRW_VERSION% = 13`, `DRW_CHUNK_VERSION% = 1`
 
 ```qb64
 HISTORY_clear: MARQUEE_reset: MOVE_init: MAGIC_WAND_reset: ERASER_reset
-DRAWER_reset: PREVIEW_reset
+DRAWER_reset: PREVIEW_reset: EXTRACT_reset_saved_config
 LAYER_PANEL.scrollOffset% = 0: LAYER_PANEL.soloLayer% = 0
 LAYER_PANEL.visSwiping% = FALSE: LAYER_PANEL.dragPending% = FALSE
 LAYER_PANEL.isDragging% = FALSE: LAYER_PANEL.dragLayerIdx% = 0
@@ -82,7 +83,7 @@ Config file: `DRAW.cfg` — plain text, one `key=value` per line. Loaded by `CON
 | Export   | `BAS_EXPORT_BG_COLOR~&`, `BAS_WIP_ENABLED%` |
 | Audio    | `SOUNDS_*`, `MUSIC_*` |
 | Cursor   | `SYSTEM_CURSORS_ENABLED%` — TRUE=OS native cursors for UI/canvas; FALSE=always custom PNG |
-| Dirs     | `LAST_DIR_OPEN$`, `LAST_DIR_SAVE$`, `LAST_DIR_IMPORT$`, `LAST_DIR_EXPORT_BRUSH/LAYER$`, `LAST_DIR_PALETTE$` |
+| Dirs     | `LAST_DIR_OPEN$`, `LAST_DIR_SAVE$`, `LAST_DIR_IMPORT$`, `LAST_DIR_EXPORT_BRUSH/LAYER$`, `LAST_DIR_PALETTE$`, `LAST_DIR_EXTRACT$` |
 
 Defaults: DOT tool, brush size 1, square shape, 60 FPS, 128×128 canvas, 4 layers.
 
