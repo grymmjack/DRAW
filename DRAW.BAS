@@ -372,7 +372,7 @@ DO
     
     ' Apply frame rate limit AFTER render+display (reduced when idle).
     ' Cursor-only movement (mouse moved, no scene changes, no buttons held) is throttled
-    ' to CURSOR_FPS_LIMIT (20 FPS), regardless of zoom level.
+    ' to CFG.FPS_CURSOR% (20 FPS default), regardless of zoom level.
     '   - At HIGH zoom:  canvasCoordChanged% is rare   → was already relying on this
     '   - At LOW zoom:   canvasCoordChanged% fires every frame (1 raw px = 44+ canvas px)
     '                    → old check "AND NOT canvasCoordChanged%" prevented throttle
@@ -382,13 +382,11 @@ DO
                        AND NOT MOUSE.B1% AND NOT MOUSE.B2% AND NOT MOUSE.B3%)
     PERF_start PERF_LIMIT_WAIT
     IF FRAME_IDLE% THEN
-        _LIMIT IDLE_FPS_LIMIT
+        _LIMIT CFG.FPS_IDLE%
     ELSEIF cursorOnlyMove% THEN
-        _LIMIT CURSOR_FPS_LIMIT
-    ELSEIF CFG.FPS_LIMIT% > 0 AND CFG.FPS_LIMIT% <= 1000 THEN
-        _LIMIT CFG.FPS_LIMIT%
+        _LIMIT CFG.FPS_CURSOR%
     ELSE
-        _LIMIT 60  ' Safe fallback
+        _LIMIT CFG.FPS_LIMIT%
     END IF
     PERF_stop PERF_LIMIT_WAIT
     

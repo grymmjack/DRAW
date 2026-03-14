@@ -140,6 +140,9 @@ TYPE DRAW_CONFIG
     NUM_CUSTOM_BRUSHES             AS INTEGER
     NUM_LAYERS                     AS INTEGER
     FPS_LIMIT                      AS INTEGER
+    FPS_IDLE                       AS INTEGER  ' Reduced FPS when idle (default 15)
+    FPS_CURSOR                     AS INTEGER  ' Reduced FPS cursor-only movement (default 20)
+    FPS_DIALOG                     AS INTEGER  ' FPS for modal dialogs (default 60)
     SCREEN_WIDTH                   AS INTEGER
     SCREEN_HEIGHT                  AS INTEGER
     WIN_MIN_WIDTH                  AS INTEGER  ' Minimum viewport width (0=use 320)

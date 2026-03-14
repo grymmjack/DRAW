@@ -98,8 +98,7 @@ DIM SHARED AS INTEGER CANVAS_DIRTY  ' Track if canvas has unsaved changes
 DIM SHARED TEXT_BUFFER(0 TO 99) AS STRING  ' Text tool buffer for 100 lines
 DIM SHARED AS INTEGER FRAME_IDLE  ' TRUE when nothing needs updating (idle throttling)
 DIM SHARED AS INTEGER IDLE_PREV_MOUSE_X, IDLE_PREV_MOUSE_Y  ' Previous frame mouse position
-CONST IDLE_FPS_LIMIT = 15    ' Reduced FPS when idle (saves CPU)
-CONST CURSOR_FPS_LIMIT = 20  ' Reduced FPS when only cursor moves (no drawing/buttons)
+' FPS limits now in CFG.FPS_IDLE%, CFG.FPS_CURSOR%, CFG.FPS_DIALOG% (DRAW.cfg)
 ' NOTE: MAC_ALT_HELD% is now declared in INPUT/MODIFIERS.BI
 CONSTRAIN_X% = FALSE : CONSTRAIN_Y% = FALSE
 WHEEL_COLOR% = FALSE : KEY_COLOR% = FALSE

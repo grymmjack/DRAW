@@ -17,6 +17,8 @@ DRAG pan. D-CLICK center / fit.
 
 
 ## ZOOM
+
+### OPTIONS
 [ 50% ] [ 100% ]  [200% ] [ 400% ] [ FIT ]
 
 ### STATUS
