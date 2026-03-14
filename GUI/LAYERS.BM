@@ -776,7 +776,7 @@ SUB LAYERS_toggle_visibility (layerIndex AS INTEGER)
     IF LAYERS(layerIndex%).imgHandle& = 0 THEN EXIT SUB
     
     LAYERS(layerIndex%).visible% = NOT LAYERS(layerIndex%).visible%
-    BLEND_invalidate_cache
+    BLEND_invalidate_visibility layerIndex%
     GUI_NEEDS_REDRAW% = TRUE
 END SUB
 
@@ -1763,7 +1763,7 @@ FUNCTION LAYER_PANEL_handle_click% (rawX AS INTEGER, rawY AS INTEGER, button AS 
                                     END IF
                                 NEXT ri%
                                 LAYER_PANEL.soloLayer% = 0
-                                BLEND_invalidate_cache
+                                BLEND_invalidate_visibility 0
                             ELSE
                                 ' Solo: save all states, hide all except clicked
                                 DIM si AS INTEGER
@@ -1782,7 +1782,7 @@ FUNCTION LAYER_PANEL_handle_click% (rawX AS INTEGER, rawY AS INTEGER, button AS 
                                     END IF
                                 NEXT si%
                                 LAYER_PANEL.soloLayer% = layerIdx%
-                                BLEND_invalidate_cache
+                                BLEND_invalidate_visibility 0
                             END IF
                             GUI_NEEDS_REDRAW% = TRUE
                         ELSE
@@ -2131,7 +2131,7 @@ SUB LAYER_PANEL_handle_vis_swipe (rawX AS INTEGER, rawY AS INTEGER)
                         LAYERS(layerIdx%).visible% = FALSE
                     END IF
                     MID$(LAYER_PANEL.visSwipedLayers, layerIdx%, 1) = CHR$(1)
-                    BLEND_invalidate_cache
+                    BLEND_invalidate_visibility layerIdx%
                     GUI_NEEDS_REDRAW% = TRUE
                 END IF
                 EXIT SUB
@@ -2682,11 +2682,34 @@ SUB BLEND_invalidate_cache ()
     RENDER_ORDER_DIRTY% = TRUE
     SCENE_DIRTY% = TRUE
     COMPOSITE_BELOW_VALID% = FALSE
+    COMPOSITE_RESULT_VALID% = FALSE
     ' NOTE: We intentionally do NOT mark all layers contentDirty% here.
     ' contentDirty% controls the per-layer opacity cache, which only depends on
     ' the layer's own pixel data + opacity value. Visibility/structure changes
     ' don't affect individual layer pixel content. Only mark contentDirty% when
     ' actual pixel data changes (e.g. drawing, undo, file load).
+END SUB
+
+
+''
+' Lighter invalidation for visibility-only changes (no z-order/structure change).
+' Skips RENDER_ORDER rebuild since zIndex order is unchanged.
+' Only invalidates COMPOSITE_BELOW_CACHE when the changed layer renders below
+' the current layer (i.e. it's part of the cached composite).
+' Pass changedLayer% = 0 when multiple layers changed (force full invalidation).
+'
+SUB BLEND_invalidate_visibility (changedLayer AS INTEGER)
+    BLEND_COMPOSITE_DIRTY% = TRUE
+    SCENE_DIRTY% = TRUE
+    COMPOSITE_RESULT_VALID% = FALSE
+    IF COMPOSITE_BELOW_VALID% THEN
+        IF changedLayer% < 1 OR changedLayer% > 64 OR CURRENT_LAYER% < 1 OR CURRENT_LAYER% > 64 THEN
+            COMPOSITE_BELOW_VALID% = FALSE
+        ELSEIF LAYERS(changedLayer%).zIndex% < LAYERS(CURRENT_LAYER%).zIndex% THEN
+            COMPOSITE_BELOW_VALID% = FALSE
+        END IF
+        ' Changed layer is above or IS current → below-cache still valid
+    END IF
 END SUB
 
 
@@ -2915,11 +2938,188 @@ SUB LAYER_blend_composite (dst AS LONG, src AS LONG, blendMode AS INTEGER, opaci
     _MEMFREE dstMem
 END SUB
 
+
+''
+' Region-based blend composite — same as LAYER_blend_composite but only
+' processes the rectangle (rx1,ry1)-(rx2,ry2) in canvas coordinates.
+' Falls back to full if region is invalid.
+'
+SUB LAYER_blend_composite_region (dst AS LONG, src AS LONG, blendMode AS INTEGER, opacity AS INTEGER, rx1 AS INTEGER, ry1 AS INTEGER, rx2 AS INTEGER, ry2 AS INTEGER)
+    IF dst& = 0 OR src& = 0 THEN EXIT SUB
+    DIM imgW AS INTEGER, imgH AS INTEGER
+    imgW% = _WIDTH(dst&)
+    imgH% = _HEIGHT(dst&)
+    IF imgW% <> _WIDTH(src&) OR imgH% <> _HEIGHT(src&) THEN EXIT SUB
+
+    ' Clamp region to image bounds
+    DIM cx1 AS INTEGER, cy1 AS INTEGER, cx2 AS INTEGER, cy2 AS INTEGER
+    cx1% = rx1%: cy1% = ry1%: cx2% = rx2%: cy2% = ry2%
+    IF cx1% < 0 THEN cx1% = 0
+    IF cy1% < 0 THEN cy1% = 0
+    IF cx2% >= imgW% THEN cx2% = imgW% - 1
+    IF cy2% >= imgH% THEN cy2% = imgH% - 1
+    IF cx2% < cx1% OR cy2% < cy1% THEN EXIT SUB
+
+    DIM dstMem AS _MEM, srcMem AS _MEM
+    DIM pixOff AS _OFFSET
+    DIM dstPix AS _UNSIGNED LONG, srcPix AS _UNSIGNED LONG
+    DIM sA AS LONG, sR AS LONG, sG AS LONG, sB AS LONG
+    DIM dA AS LONG, dR AS LONG, dG AS LONG, dB AS LONG
+    DIM bR AS LONG, bG AS LONG, bB AS LONG
+    DIM rR AS LONG, rG AS LONG, rB AS LONG, rA AS LONG
+    DIM effAlpha AS LONG
+    DIM rowY AS INTEGER, colX AS INTEGER
+    DIM rowOff AS _OFFSET, stride AS _OFFSET
+
+    dstMem = _MEMIMAGE(dst&)
+    srcMem = _MEMIMAGE(src&)
+    stride = CLNG(imgW%) * 4
+
+    FOR rowY% = cy1% TO cy2%
+        rowOff = CLNG(rowY%) * stride
+        FOR colX% = cx1% TO cx2%
+            pixOff = rowOff + CLNG(colX%) * 4
+            _MEMGET srcMem, srcMem.OFFSET + pixOff, srcPix~&
+            sA& = _ALPHA32(srcPix~&)
+            IF sA& = 0 THEN _CONTINUE
+            effAlpha& = (sA& * opacity%) \ 255
+            IF effAlpha& <= 0 THEN _CONTINUE
+
+            sR& = _RED32(srcPix~&): sG& = _GREEN32(srcPix~&): sB& = _BLUE32(srcPix~&)
+            _MEMGET dstMem, dstMem.OFFSET + pixOff, dstPix~&
+            dA& = _ALPHA32(dstPix~&)
+            dR& = _RED32(dstPix~&): dG& = _GREEN32(dstPix~&): dB& = _BLUE32(dstPix~&)
+
+            SELECT CASE blendMode%
+                CASE BLEND_MULTIPLY
+                    bR& = (dR& * sR&) \ 255: bG& = (dG& * sG&) \ 255: bB& = (dB& * sB&) \ 255
+                CASE BLEND_SCREEN
+                    bR& = 255 - ((255 - dR&) * (255 - sR&)) \ 255: bG& = 255 - ((255 - dG&) * (255 - sG&)) \ 255: bB& = 255 - ((255 - dB&) * (255 - sB&)) \ 255
+                CASE BLEND_OVERLAY
+                    IF dR& < 128 THEN bR& = (2 * dR& * sR&) \ 255 ELSE bR& = 255 - (2 * (255 - dR&) * (255 - sR&)) \ 255
+                    IF dG& < 128 THEN bG& = (2 * dG& * sG&) \ 255 ELSE bG& = 255 - (2 * (255 - dG&) * (255 - sG&)) \ 255
+                    IF dB& < 128 THEN bB& = (2 * dB& * sB&) \ 255 ELSE bB& = 255 - (2 * (255 - dB&) * (255 - sB&)) \ 255
+                CASE BLEND_ADD
+                    bR& = dR& + sR&: IF bR& > 255 THEN bR& = 255
+                    bG& = dG& + sG&: IF bG& > 255 THEN bG& = 255
+                    bB& = dB& + sB&: IF bB& > 255 THEN bB& = 255
+                CASE BLEND_SUBTRACT
+                    bR& = dR& - sR&: IF bR& < 0 THEN bR& = 0
+                    bG& = dG& - sG&: IF bG& < 0 THEN bG& = 0
+                    bB& = dB& - sB&: IF bB& < 0 THEN bB& = 0
+                CASE BLEND_DIFFERENCE
+                    bR& = ABS(dR& - sR&): bG& = ABS(dG& - sG&): bB& = ABS(dB& - sB&)
+                CASE BLEND_DARKEN
+                    IF dR& < sR& THEN bR& = dR& ELSE bR& = sR&
+                    IF dG& < sG& THEN bG& = dG& ELSE bG& = sG&
+                    IF dB& < sB& THEN bB& = dB& ELSE bB& = sB&
+                CASE BLEND_LIGHTEN
+                    IF dR& > sR& THEN bR& = dR& ELSE bR& = sR&
+                    IF dG& > sG& THEN bG& = dG& ELSE bG& = sG&
+                    IF dB& > sB& THEN bB& = dB& ELSE bB& = sB&
+                CASE BLEND_COLOR_DODGE
+                    IF sR& >= 255 THEN bR& = 255 ELSE bR& = (dR& * 255) \ (255 - sR&): IF bR& > 255 THEN bR& = 255
+                    IF sG& >= 255 THEN bG& = 255 ELSE bG& = (dG& * 255) \ (255 - sG&): IF bG& > 255 THEN bG& = 255
+                    IF sB& >= 255 THEN bB& = 255 ELSE bB& = (dB& * 255) \ (255 - sB&): IF bB& > 255 THEN bB& = 255
+                CASE BLEND_COLOR_BURN
+                    IF sR& <= 0 THEN bR& = 0 ELSE bR& = 255 - ((255 - dR&) * 255) \ sR&: IF bR& < 0 THEN bR& = 0
+                    IF sG& <= 0 THEN bG& = 0 ELSE bG& = 255 - ((255 - dG&) * 255) \ sG&: IF bG& < 0 THEN bG& = 0
+                    IF sB& <= 0 THEN bB& = 0 ELSE bB& = 255 - ((255 - dB&) * 255) \ sB&: IF bB& < 0 THEN bB& = 0
+                CASE BLEND_HARD_LIGHT
+                    IF sR& < 128 THEN bR& = (2 * sR& * dR&) \ 255 ELSE bR& = 255 - (2 * (255 - sR&) * (255 - dR&)) \ 255
+                    IF sG& < 128 THEN bG& = (2 * sG& * dG&) \ 255 ELSE bG& = 255 - (2 * (255 - sG&) * (255 - dG&)) \ 255
+                    IF sB& < 128 THEN bB& = (2 * sB& * dB&) \ 255 ELSE bB& = 255 - (2 * (255 - sB&) * (255 - dB&)) \ 255
+                CASE BLEND_SOFT_LIGHT
+                    bR& = ((255 - 2 * sR&) * dR& * dR&) \ 65025 + (2 * sR& * dR&) \ 255
+                    bG& = ((255 - 2 * sG&) * dG& * dG&) \ 65025 + (2 * sG& * dG&) \ 255
+                    bB& = ((255 - 2 * sB&) * dB& * dB&) \ 65025 + (2 * sB& * dB&) \ 255
+                    IF bR& < 0 THEN bR& = 0 ELSE IF bR& > 255 THEN bR& = 255
+                    IF bG& < 0 THEN bG& = 0 ELSE IF bG& > 255 THEN bG& = 255
+                    IF bB& < 0 THEN bB& = 0 ELSE IF bB& > 255 THEN bB& = 255
+                CASE BLEND_EXCLUSION
+                    bR& = dR& + sR& - (2 * dR& * sR&) \ 255
+                    bG& = dG& + sG& - (2 * dG& * sG&) \ 255
+                    bB& = dB& + sB& - (2 * dB& * sB&) \ 255
+                CASE BLEND_VIVID_LIGHT
+                    IF sR& > 128 THEN
+                        DIM vrr AS LONG: vrr& = 2 * (sR& - 128): IF vrr& >= 255 THEN bR& = 255 ELSE bR& = (dR& * 255) \ (255 - vrr&): IF bR& > 255 THEN bR& = 255
+                    ELSE
+                        DIM vrr2 AS LONG: vrr2& = 2 * sR&: IF vrr2& <= 0 THEN bR& = 0 ELSE bR& = 255 - ((255 - dR&) * 255) \ vrr2&: IF bR& < 0 THEN bR& = 0
+                    END IF
+                    IF sG& > 128 THEN
+                        DIM vgr AS LONG: vgr& = 2 * (sG& - 128): IF vgr& >= 255 THEN bG& = 255 ELSE bG& = (dG& * 255) \ (255 - vgr&): IF bG& > 255 THEN bG& = 255
+                    ELSE
+                        DIM vgr2 AS LONG: vgr2& = 2 * sG&: IF vgr2& <= 0 THEN bG& = 0 ELSE bG& = 255 - ((255 - dG&) * 255) \ vgr2&: IF bG& < 0 THEN bG& = 0
+                    END IF
+                    IF sB& > 128 THEN
+                        DIM vbr AS LONG: vbr& = 2 * (sB& - 128): IF vbr& >= 255 THEN bB& = 255 ELSE bB& = (dB& * 255) \ (255 - vbr&): IF bB& > 255 THEN bB& = 255
+                    ELSE
+                        DIM vbr2 AS LONG: vbr2& = 2 * sB&: IF vbr2& <= 0 THEN bB& = 0 ELSE bB& = 255 - ((255 - dB&) * 255) \ vbr2&: IF bB& < 0 THEN bB& = 0
+                    END IF
+                CASE BLEND_LINEAR_LIGHT
+                    bR& = dR& + 2 * sR& - 255: IF bR& < 0 THEN bR& = 0 ELSE IF bR& > 255 THEN bR& = 255
+                    bG& = dG& + 2 * sG& - 255: IF bG& < 0 THEN bG& = 0 ELSE IF bG& > 255 THEN bG& = 255
+                    bB& = dB& + 2 * sB& - 255: IF bB& < 0 THEN bB& = 0 ELSE IF bB& > 255 THEN bB& = 255
+                CASE BLEND_PIN_LIGHT
+                    IF sR& > 128 THEN
+                        DIM psr AS LONG: psr& = 2 * sR& - 255: IF dR& > psr& THEN bR& = dR& ELSE bR& = psr&
+                    ELSE
+                        psr& = 2 * sR&: IF dR& < psr& THEN bR& = dR& ELSE bR& = psr&
+                    END IF
+                    IF sG& > 128 THEN
+                        psr& = 2 * sG& - 255: IF dG& > psr& THEN bG& = dG& ELSE bG& = psr&
+                    ELSE
+                        psr& = 2 * sG&: IF dG& < psr& THEN bG& = dG& ELSE bG& = psr&
+                    END IF
+                    IF sB& > 128 THEN
+                        psr& = 2 * sB& - 255: IF dB& > psr& THEN bB& = dB& ELSE bB& = psr&
+                    ELSE
+                        psr& = 2 * sB&: IF dB& < psr& THEN bB& = dB& ELSE bB& = psr&
+                    END IF
+                CASE BLEND_COLOR
+                    DIM srcLumR AS LONG, dstLumR AS LONG, deltaLumR AS LONG
+                    srcLumR& = (sR& * 77 + sG& * 150 + sB& * 29) \ 256
+                    dstLumR& = (dR& * 77 + dG& * 150 + dB& * 29) \ 256
+                    deltaLumR& = dstLumR& - srcLumR&
+                    bR& = sR& + deltaLumR&: IF bR& < 0 THEN bR& = 0 ELSE IF bR& > 255 THEN bR& = 255
+                    bG& = sG& + deltaLumR&: IF bG& < 0 THEN bG& = 0 ELSE IF bG& > 255 THEN bG& = 255
+                    bB& = sB& + deltaLumR&: IF bB& < 0 THEN bB& = 0 ELSE IF bB& > 255 THEN bB& = 255
+                CASE BLEND_LUMINOSITY
+                    DIM srcLumR2 AS LONG, dstLumR2 AS LONG, deltaLumR2 AS LONG
+                    srcLumR2& = (sR& * 77 + sG& * 150 + sB& * 29) \ 256
+                    dstLumR2& = (dR& * 77 + dG& * 150 + dB& * 29) \ 256
+                    deltaLumR2& = srcLumR2& - dstLumR2&
+                    bR& = dR& + deltaLumR2&: IF bR& < 0 THEN bR& = 0 ELSE IF bR& > 255 THEN bR& = 255
+                    bG& = dG& + deltaLumR2&: IF bG& < 0 THEN bG& = 0 ELSE IF bG& > 255 THEN bG& = 255
+                    bB& = dB& + deltaLumR2&: IF bB& < 0 THEN bB& = 0 ELSE IF bB& > 255 THEN bB& = 255
+                CASE ELSE
+                    bR& = sR&: bG& = sG&: bB& = sB&
+            END SELECT
+
+            IF dA& = 0 THEN
+                rR& = bR&: rG& = bG&: rB& = bB&: rA& = effAlpha&
+            ELSE
+                rR& = dR& + ((bR& - dR&) * effAlpha&) \ 255
+                rG& = dG& + ((bG& - dG&) * effAlpha&) \ 255
+                rB& = dB& + ((bB& - dB&) * effAlpha&) \ 255
+                rA& = dA& + effAlpha& - (dA& * effAlpha&) \ 255
+                IF rA& > 255 THEN rA& = 255
+            END IF
+            _MEMPUT dstMem, dstMem.OFFSET + pixOff, _RGBA32(rR&, rG&, rB&, rA&) AS _UNSIGNED LONG
+        NEXT colX%
+    NEXT rowY%
+
+    _MEMFREE srcMem
+    _MEMFREE dstMem
+END SUB
+
+
 ''
 ' Show blend mode popup for a layer, anchored near (x, y) on screen.
 '
 SUB LAYER_PANEL_blend_popup_show (layerIdx AS INTEGER, x AS INTEGER, y AS INTEGER)
     DIM popH AS INTEGER
+    LAYER_PANEL_blend_popup_build
     POPUP_MENU_place x%, y%, 90, BLEND_MODE_COUNT + 1, 10, LAYER_PANEL.blendPopupX%, LAYER_PANEL.blendPopupY%, popH%
     LAYER_PANEL.blendPopupOpen% = TRUE
     LAYER_PANEL.blendPopupLayer% = layerIdx%
@@ -2971,7 +3171,7 @@ FUNCTION LAYER_PANEL_blend_popup_hit% (rawX AS INTEGER, rawY AS INTEGER)
         LAYER_PANEL_blend_popup_hit% = -2
         EXIT FUNCTION
     END IF
-    LAYER_PANEL_blend_popup_build
+    ' Items built in _show and rebuilt in _render; reused here
     LAYER_PANEL_blend_popup_hit% = POPUP_MENU_hit_value%(LAYER_PANEL.blendPopupX%, LAYER_PANEL.blendPopupY%, 90, BLEND_MODE_COUNT + 1, 10, rawX%, rawY%)
 END FUNCTION
 
@@ -2982,7 +3182,7 @@ END FUNCTION
 SUB LAYER_PANEL_blend_popup_hover (rawX AS INTEGER, rawY AS INTEGER)
     IF NOT LAYER_PANEL.blendPopupOpen% THEN EXIT SUB
     DIM prevHover AS INTEGER: prevHover% = LAYER_PANEL.blendPopupHover%
-    LAYER_PANEL_blend_popup_build
+    ' Items built once in _show and rebuilt in _render; reused here (only one popup open at a time)
     LAYER_PANEL.blendPopupHover% = POPUP_MENU_hover_row%(LAYER_PANEL.blendPopupX%, LAYER_PANEL.blendPopupY%, 90, BLEND_MODE_COUNT + 1, 10, rawX%, rawY%)
     IF LAYER_PANEL.blendPopupHover% <> prevHover% THEN
         GUI_NEEDS_REDRAW% = TRUE

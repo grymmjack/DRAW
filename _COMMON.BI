@@ -98,7 +98,8 @@ DIM SHARED AS INTEGER CANVAS_DIRTY  ' Track if canvas has unsaved changes
 DIM SHARED TEXT_BUFFER(0 TO 99) AS STRING  ' Text tool buffer for 100 lines
 DIM SHARED AS INTEGER FRAME_IDLE  ' TRUE when nothing needs updating (idle throttling)
 DIM SHARED AS INTEGER IDLE_PREV_MOUSE_X, IDLE_PREV_MOUSE_Y  ' Previous frame mouse position
-CONST IDLE_FPS_LIMIT = 15  ' Reduced FPS when idle (saves CPU)
+CONST IDLE_FPS_LIMIT = 15    ' Reduced FPS when idle (saves CPU)
+CONST CURSOR_FPS_LIMIT = 20  ' Reduced FPS when only cursor moves (no drawing/buttons)
 ' NOTE: MAC_ALT_HELD% is now declared in INPUT/MODIFIERS.BI
 CONSTRAIN_X% = FALSE : CONSTRAIN_Y% = FALSE
 WHEEL_COLOR% = FALSE : KEY_COLOR% = FALSE
@@ -108,6 +109,18 @@ PAINT_BG_COLOR~& = _RGB32(0, 0, 0)  ' Background color defaults to black
 CURRENT_TOOL% = TOOL_NULL  ' Default to null tool - user must select a tool
 PREVIOUS_TOOL% = TOOL_NULL  ' Initialize to same as current
 CANVAS_DIRTY% = FALSE  ' Start with clean canvas
+
+' ---------------------------------------------------------------------------
+' Composite dirty rect — tracks canvas region modified per frame so
+' RENDER_layers can recomposite only the changed area instead of the
+' full canvas.  Set by drawing dispatch; reset in LOOP_start.
+' ---------------------------------------------------------------------------
+DIM SHARED AS INTEGER COMP_DIRTY_X1, COMP_DIRTY_Y1  ' Top-left  (canvas coords)
+DIM SHARED AS INTEGER COMP_DIRTY_X2, COMP_DIRTY_Y2  ' Bot-right (canvas coords)
+DIM SHARED AS INTEGER COMP_DIRTY_VALID               ' TRUE when rect set this frame
+DECLARE SUB COMP_mark_dirty (x1 AS INTEGER, y1 AS INTEGER, x2 AS INTEGER, y2 AS INTEGER)
+
+DIM SHARED            KEYHIT_CHAR AS STRING  ' _KEYHIT → CHR$ fallback for INKEY$
 
 ' ---------------------------------------------------------------------------
 ' INVALIDATE helpers — collapse repeated 3-5-line dirty-flag sequences.

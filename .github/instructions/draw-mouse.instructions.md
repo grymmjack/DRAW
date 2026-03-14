@@ -18,7 +18,7 @@ applyTo: "**/MOUSE.BM, **/MOUSE.BI"
 | UNSNAPPED_X, UNSNAPPED_Y | INTEGER | Canvas coords before grid snap (fill, picker) |
 | B1, B2, B3               | INTEGER | Current button states |
 | OLD_B1, OLD_B2, OLD_B3   | INTEGER | Previous frame states (transition detection) |
-| TOOLBAR_CLICKED%         | INTEGER | GUI click flag — prevents canvas tool actions |
+| UI_CHROME_CLICKED%         | INTEGER | GUI click flag — prevents canvas tool actions |
 | DEFERRED_ACTION%         | INTEGER | Post-frame file dialog (0=none, 1=save, 2=import image, 3=open DRW, 4=export selection, 5=drawer slot import) |
 | SUPPRESS_FRAMES%         | INTEGER | Frames to suppress input after dialog cleanup |
 
@@ -37,19 +37,19 @@ MOUSE_input_handler()
 │   │   ├── MOUSE_autocommit_move_if_click_on_gui()
 │   │   ├── MOUSE_handle_command_palette_click%()
 │   │   ├── MOUSE_handle_menubar_mouse_move()
-│   │   ├── MOUSE_handle_menubar_click%()     ← sets TOOLBAR_CLICKED% on menu clicks
+│   │   ├── MOUSE_handle_menubar_click%()     ← sets UI_CHROME_CLICKED% on menu clicks
 │   │   └── MOUSE_handle_palette_menu_close%()
 │   ├── MOUSE_handle_symmetry_ctrl_click()
 │   ├── MOUSE_update_draw_color()
 │   ├── MOUSE_handle_gui_panels()
 │   │   ├── MOUSE_handle_layer_panel()
-│   │   └── MOUSE_handle_toolbar_status_palette()  ← sets TOOLBAR_CLICKED% on GUI clicks
+│   │   └── MOUSE_handle_toolbar_status_palette()  ← sets UI_CHROME_CLICKED% on GUI clicks
 │   ├── MOUSE_handle_alt_picker()
 │   ├── MOUSE_handle_space_pan()
 │   ├── MOUSE_handle_b3_dblclick_reset_zoom()
 │   ├── MOUSE_handle_ui_autohide_restore()
 │   ├── MOUSE_handle_panning()
-│   ├── MOUSE_should_skip_tool_actions%()     ← checks TOOLBAR_CLICKED%, consumes OLD_B*,
+│   ├── MOUSE_should_skip_tool_actions%()     ← checks UI_CHROME_CLICKED%, consumes OLD_B*,
 │   │                                            resets flag when buttons released
 │   └── MOUSE_handle_tool_phase()
 │       ├── MOUSE_dispatch_tool_hold()

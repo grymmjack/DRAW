@@ -574,6 +574,7 @@ SUB MARQUEE_finish_drag ()
                     MARQUEE.BOX.h = maxY% - minY% + 1
                     MARQUEE.ACTIVE% = TRUE
                     MARQUEE.WAND_HAS_SELECTION = TRUE
+                    MARQUEE.WAND_EDGE_DIRTY = TRUE
                     MARQUEE.USER_CREATED = TRUE
                 END IF
             END IF
@@ -907,6 +908,10 @@ SUB MAGIC_WAND_reset ()
     MARQUEE.WAND_MIN_Y = 0
     MARQUEE.WAND_MAX_X = 0
     MARQUEE.WAND_MAX_Y = 0
+    MARQUEE.WAND_EDGE_COUNT = 0
+    MARQUEE.WAND_EDGE_DIRTY = FALSE
+    REDIM WAND_EDGE_X(0) AS INTEGER
+    REDIM WAND_EDGE_Y(0) AS INTEGER
 END SUB
 
 
@@ -1171,6 +1176,7 @@ SUB MAGIC_WAND_select_with_mode (x AS INTEGER, y AS INTEGER, mode AS INTEGER)
     
     ' Mark selection as valid
     MARQUEE.WAND_HAS_SELECTION = TRUE
+    MARQUEE.WAND_EDGE_DIRTY = TRUE
     
     ' Also set regular marquee box to bounding box of selection
     ' This allows resize handles to work if desired in future
@@ -1691,6 +1697,7 @@ SUB MAGIC_WAND_select_merged (x AS INTEGER, y AS INTEGER, mode AS INTEGER)
     END IF
 
     MARQUEE.WAND_HAS_SELECTION = TRUE
+    MARQUEE.WAND_EDGE_DIRTY = TRUE
     MARQUEE.BOX.x = MARQUEE.WAND_MIN_X
     MARQUEE.BOX.y = MARQUEE.WAND_MIN_Y
     MARQUEE.BOX.w = MARQUEE.WAND_MAX_X - MARQUEE.WAND_MIN_X + 1
@@ -1707,96 +1714,388 @@ END SUB
 
 
 ''
-' Draw marching ants outline around selected pixels in magic wand mask
+' Select ALL pixels matching the color at (x,y) across the merged composite (non-contiguous).
+' Unlike MAGIC_WAND_select_merged which flood-fills contiguous regions, this selects every
+' pixel in the entire image that matches the target color — useful for global color selection.
+' @param x    INTEGER X coordinate to sample color from
+' @param y    INTEGER Y coordinate to sample color from
+' @param mode INTEGER SEL_MODE_REPLACE / SEL_MODE_ADD / SEL_MODE_SUBTRACT
+'
+SUB MAGIC_WAND_select_all_color_merged (x AS INTEGER, y AS INTEGER, mode AS INTEGER)
+    DIM old_dest AS LONG : old_dest& = _DEST
+    DIM old_source AS LONG : old_source& = _SOURCE
+    DIM targetImg AS LONG : targetImg& = LAYER_current_image&
+    IF targetImg& >= -1 THEN EXIT SUB
+
+    DIM w AS INTEGER : w% = _WIDTH(targetImg&)
+    DIM h AS INTEGER : h% = _HEIGHT(targetImg&)
+
+    IF x% < 0 OR x% >= w% OR y% < 0 OR y% >= h% THEN EXIT SUB
+
+    ' Build throwaway merged composite of all visible layers (bottom-to-top)
+    DIM mergedImg AS LONG
+    mergedImg& = _NEWIMAGE(w%, h%, 32)
+    IF mergedImg& >= -1 THEN EXIT SUB
+
+    _DEST mergedImg&
+    CLS , _RGBA32(0, 0, 0, 0)
+    _BLEND mergedImg&
+
+    DIM zi AS INTEGER, li AS INTEGER
+    DIM tmpImg AS LONG
+    DIM mvMem AS _MEM
+    DIM mvOff AS _OFFSET
+    DIM mvPix AS _UNSIGNED LONG
+    DIM mvAlpha AS _UNSIGNED _BYTE
+    DIM mvNewAlpha AS INTEGER
+
+    FOR zi% = 1 TO LAYER_COUNT%
+        FOR li% = 1 TO 64
+            IF LAYERS(li%).imgHandle& < -1 AND LAYERS(li%).visible AND LAYERS(li%).zIndex = zi% THEN
+                IF LAYERS(li%).opacity >= 255 THEN
+                    _PUTIMAGE , LAYERS(li%).imgHandle&
+                ELSE
+                    tmpImg& = _COPYIMAGE(LAYERS(li%).imgHandle&, 32)
+                    mvMem = _MEMIMAGE(tmpImg&)
+                    FOR mvOff = mvMem.OFFSET TO mvMem.OFFSET + mvMem.SIZE - 4 STEP 4
+                        _MEMGET mvMem, mvOff, mvPix~&
+                        mvAlpha~%% = _ALPHA32(mvPix~&)
+                        IF mvAlpha~%% > 0 THEN
+                            mvNewAlpha% = (mvAlpha~%% * LAYERS(li%).opacity) \ 255
+                            _MEMPUT mvMem, mvOff + 3, mvNewAlpha% AS _UNSIGNED _BYTE
+                        END IF
+                    NEXT mvOff
+                    _MEMFREE mvMem
+                    _PUTIMAGE , tmpImg&
+                    IF tmpImg& < -1 THEN _FREEIMAGE tmpImg&
+                END IF
+                EXIT FOR
+            END IF
+        NEXT li%
+    NEXT zi%
+
+    ' Sample target color from the merged composite
+    DIM target_color AS _UNSIGNED LONG
+    _SOURCE mergedImg&
+    target_color~& = POINT(x%, y%)
+
+    ' Preserve existing mask for Add/Subtract modes
+    DIM existing_mask AS LONG : existing_mask& = 0
+    DIM has_existing AS INTEGER : has_existing% = FALSE
+    IF mode% <> SEL_MODE_REPLACE AND MARQUEE.WAND_HAS_SELECTION AND MARQUEE.SELECTION_MASK < -1 THEN
+        existing_mask& = MARQUEE.SELECTION_MASK
+        has_existing% = TRUE
+        MARQUEE.SELECTION_MASK = 0
+    ELSE
+        MAGIC_WAND_reset
+    END IF
+
+    ' Create fresh selection mask
+    MARQUEE.SELECTION_MASK = _NEWIMAGE(w%, h%, 32)
+    IF MARQUEE.SELECTION_MASK >= -1 THEN
+        _SOURCE old_source&
+        _DEST old_dest&
+        IF mergedImg& < -1 THEN _FREEIMAGE mergedImg&
+        EXIT SUB
+    END IF
+
+    _DEST MARQUEE.SELECTION_MASK
+    CLS , _RGBA32(0, 0, 0, 0)
+    _DONTBLEND MARQUEE.SELECTION_MASK
+
+    MARQUEE.WAND_MIN_X = w% : MARQUEE.WAND_MIN_Y = h%
+    MARQUEE.WAND_MAX_X = 0 : MARQUEE.WAND_MAX_Y = 0
+
+    DIM mask_color AS _UNSIGNED LONG : mask_color~& = _RGB32(255, 255, 255)
+    DIM px AS INTEGER, py AS INTEGER
+
+    ' Select ALL matching pixels (non-contiguous) across the entire image
+    FOR py% = 0 TO h% - 1
+        FOR px% = 0 TO w% - 1
+            _SOURCE mergedImg&
+            IF POINT(px%, py%) = target_color~& THEN
+                _DEST MARQUEE.SELECTION_MASK
+                PSET (px%, py%), mask_color~&
+                IF px% < MARQUEE.WAND_MIN_X THEN MARQUEE.WAND_MIN_X = px%
+                IF px% > MARQUEE.WAND_MAX_X THEN MARQUEE.WAND_MAX_X = px%
+                IF py% < MARQUEE.WAND_MIN_Y THEN MARQUEE.WAND_MIN_Y = py%
+                IF py% > MARQUEE.WAND_MAX_Y THEN MARQUEE.WAND_MAX_Y = py%
+            END IF
+        NEXT px%
+    NEXT py%
+
+    ' Merge with existing selection for Add/Subtract modes
+    IF has_existing% AND existing_mask& < -1 THEN
+        DIM new_pixel AS _UNSIGNED LONG, old_pixel AS _UNSIGNED LONG
+        DIM final_mask AS LONG
+
+        final_mask& = _NEWIMAGE(w%, h%, 32)
+        IF final_mask& < -1 THEN
+            _DEST final_mask&
+            CLS , _RGBA32(0, 0, 0, 0)
+            _DONTBLEND final_mask&
+
+            DIM py2 AS INTEGER
+            FOR py2% = 0 TO h% - 1
+                FOR px% = 0 TO w% - 1
+                    _SOURCE existing_mask&
+                    old_pixel~& = POINT(px%, py2%)
+                    _SOURCE MARQUEE.SELECTION_MASK
+                    new_pixel~& = POINT(px%, py2%)
+
+                    _DEST final_mask&
+                    IF mode% = SEL_MODE_ADD THEN
+                        IF _ALPHA32(old_pixel~&) > 0 OR _ALPHA32(new_pixel~&) > 0 THEN
+                            PSET (px%, py2%), mask_color~&
+                            IF px% < MARQUEE.WAND_MIN_X THEN MARQUEE.WAND_MIN_X = px%
+                            IF px% > MARQUEE.WAND_MAX_X THEN MARQUEE.WAND_MAX_X = px%
+                            IF py2% < MARQUEE.WAND_MIN_Y THEN MARQUEE.WAND_MIN_Y = py2%
+                            IF py2% > MARQUEE.WAND_MAX_Y THEN MARQUEE.WAND_MAX_Y = py2%
+                        END IF
+                    ELSEIF mode% = SEL_MODE_SUBTRACT THEN
+                        IF _ALPHA32(old_pixel~&) > 0 AND _ALPHA32(new_pixel~&) = 0 THEN
+                            PSET (px%, py2%), mask_color~&
+                            IF px% < MARQUEE.WAND_MIN_X THEN MARQUEE.WAND_MIN_X = px%
+                            IF px% > MARQUEE.WAND_MAX_X THEN MARQUEE.WAND_MAX_X = px%
+                            IF py2% < MARQUEE.WAND_MIN_Y THEN MARQUEE.WAND_MIN_Y = py2%
+                            IF py2% > MARQUEE.WAND_MAX_Y THEN MARQUEE.WAND_MAX_Y = py2%
+                        END IF
+                    END IF
+                NEXT px%
+            NEXT py2%
+
+            _BLEND final_mask&
+            _FREEIMAGE MARQUEE.SELECTION_MASK
+            MARQUEE.SELECTION_MASK = final_mask&
+        END IF
+
+        _FREEIMAGE existing_mask&
+
+        IF mode% = SEL_MODE_SUBTRACT AND MARQUEE.WAND_MIN_X > MARQUEE.WAND_MAX_X THEN
+            MAGIC_WAND_reset
+            _SOURCE old_source&
+            _DEST old_dest&
+            IF mergedImg& < -1 THEN _FREEIMAGE mergedImg&
+            EXIT SUB
+        END IF
+    END IF
+
+    MARQUEE.WAND_HAS_SELECTION = TRUE
+    MARQUEE.WAND_EDGE_DIRTY = TRUE
+    MARQUEE.BOX.x = MARQUEE.WAND_MIN_X
+    MARQUEE.BOX.y = MARQUEE.WAND_MIN_Y
+    MARQUEE.BOX.w = MARQUEE.WAND_MAX_X - MARQUEE.WAND_MIN_X + 1
+    MARQUEE.BOX.h = MARQUEE.WAND_MAX_Y - MARQUEE.WAND_MIN_Y + 1
+    MARQUEE.ACTIVE% = TRUE
+    MARQUEE.INITIALIZED% = TRUE
+    MARQUEE.USER_CREATED = TRUE
+
+    _BLEND MARQUEE.SELECTION_MASK
+    IF mergedImg& < -1 THEN _FREEIMAGE mergedImg&
+    _SOURCE old_source&
+    _DEST old_dest&
+END SUB
+
+
+''
+' Build a cached list of edge pixel coordinates from the wand selection mask.
+' Called once when the selection is created or modified — avoids scanning the
+' entire bounding box with POINT() every frame during draw_outline.
+'
+SUB MAGIC_WAND_build_edge_cache ()
+    IF NOT MARQUEE.WAND_HAS_SELECTION THEN EXIT SUB
+    IF MARQUEE.SELECTION_MASK >= -1 THEN EXIT SUB
+
+    DIM old_source AS LONG : old_source& = _SOURCE
+
+    DIM w AS INTEGER : w% = _WIDTH(MARQUEE.SELECTION_MASK)
+    DIM h AS INTEGER : h% = _HEIGHT(MARQUEE.SELECTION_MASK)
+    DIM mask_mem AS _MEM : mask_mem = _MEMIMAGE(MARQUEE.SELECTION_MASK)
+    DIM stride AS LONG : stride& = w% * 4  ' 32-bit = 4 bytes per pixel
+
+    ' First pass: count edge pixels
+    DIM edgeCount AS LONG : edgeCount& = 0
+    DIM x AS INTEGER, y AS INTEGER
+    DIM pix AS _UNSIGNED LONG
+    DIM isSelected AS INTEGER, isEdge AS INTEGER
+
+    FOR y% = MARQUEE.WAND_MIN_Y TO MARQUEE.WAND_MAX_Y
+        FOR x% = MARQUEE.WAND_MIN_X TO MARQUEE.WAND_MAX_X
+            _MEMGET mask_mem, mask_mem.OFFSET + (y% * stride& + x% * 4), pix~&
+            isSelected% = (_ALPHA32(pix~&) > 0)
+            IF isSelected% THEN
+                isEdge% = FALSE
+                IF x% = 0 THEN
+                    isEdge% = TRUE
+                ELSE
+                    _MEMGET mask_mem, mask_mem.OFFSET + (y% * stride& + (x% - 1) * 4), pix~&
+                    IF _ALPHA32(pix~&) = 0 THEN isEdge% = TRUE
+                END IF
+                IF NOT isEdge% THEN
+                    IF x% = w% - 1 THEN
+                        isEdge% = TRUE
+                    ELSE
+                        _MEMGET mask_mem, mask_mem.OFFSET + (y% * stride& + (x% + 1) * 4), pix~&
+                        IF _ALPHA32(pix~&) = 0 THEN isEdge% = TRUE
+                    END IF
+                END IF
+                IF NOT isEdge% THEN
+                    IF y% = 0 THEN
+                        isEdge% = TRUE
+                    ELSE
+                        _MEMGET mask_mem, mask_mem.OFFSET + ((y% - 1) * stride& + x% * 4), pix~&
+                        IF _ALPHA32(pix~&) = 0 THEN isEdge% = TRUE
+                    END IF
+                END IF
+                IF NOT isEdge% THEN
+                    IF y% = h% - 1 THEN
+                        isEdge% = TRUE
+                    ELSE
+                        _MEMGET mask_mem, mask_mem.OFFSET + ((y% + 1) * stride& + x% * 4), pix~&
+                        IF _ALPHA32(pix~&) = 0 THEN isEdge% = TRUE
+                    END IF
+                END IF
+                IF isEdge% THEN edgeCount& = edgeCount& + 1
+            END IF
+        NEXT x%
+    NEXT y%
+
+    ' Allocate edge arrays
+    IF edgeCount& = 0 THEN
+        MARQUEE.WAND_EDGE_COUNT = 0
+        MARQUEE.WAND_EDGE_DIRTY = FALSE
+        _MEMFREE mask_mem
+        _SOURCE old_source&
+        EXIT SUB
+    END IF
+    REDIM WAND_EDGE_X(1 TO edgeCount&) AS INTEGER
+    REDIM WAND_EDGE_Y(1 TO edgeCount&) AS INTEGER
+
+    ' Second pass: populate edge arrays
+    DIM idx AS LONG : idx& = 0
+    FOR y% = MARQUEE.WAND_MIN_Y TO MARQUEE.WAND_MAX_Y
+        FOR x% = MARQUEE.WAND_MIN_X TO MARQUEE.WAND_MAX_X
+            _MEMGET mask_mem, mask_mem.OFFSET + (y% * stride& + x% * 4), pix~&
+            isSelected% = (_ALPHA32(pix~&) > 0)
+            IF isSelected% THEN
+                isEdge% = FALSE
+                IF x% = 0 THEN
+                    isEdge% = TRUE
+                ELSE
+                    _MEMGET mask_mem, mask_mem.OFFSET + (y% * stride& + (x% - 1) * 4), pix~&
+                    IF _ALPHA32(pix~&) = 0 THEN isEdge% = TRUE
+                END IF
+                IF NOT isEdge% THEN
+                    IF x% = w% - 1 THEN
+                        isEdge% = TRUE
+                    ELSE
+                        _MEMGET mask_mem, mask_mem.OFFSET + (y% * stride& + (x% + 1) * 4), pix~&
+                        IF _ALPHA32(pix~&) = 0 THEN isEdge% = TRUE
+                    END IF
+                END IF
+                IF NOT isEdge% THEN
+                    IF y% = 0 THEN
+                        isEdge% = TRUE
+                    ELSE
+                        _MEMGET mask_mem, mask_mem.OFFSET + ((y% - 1) * stride& + x% * 4), pix~&
+                        IF _ALPHA32(pix~&) = 0 THEN isEdge% = TRUE
+                    END IF
+                END IF
+                IF NOT isEdge% THEN
+                    IF y% = h% - 1 THEN
+                        isEdge% = TRUE
+                    ELSE
+                        _MEMGET mask_mem, mask_mem.OFFSET + ((y% + 1) * stride& + x% * 4), pix~&
+                        IF _ALPHA32(pix~&) = 0 THEN isEdge% = TRUE
+                    END IF
+                END IF
+                IF isEdge% THEN
+                    idx& = idx& + 1
+                    WAND_EDGE_X(idx&) = x%
+                    WAND_EDGE_Y(idx&) = y%
+                END IF
+            END IF
+        NEXT x%
+    NEXT y%
+
+    MARQUEE.WAND_EDGE_COUNT = idx&
+    MARQUEE.WAND_EDGE_DIRTY = FALSE
+    _MEMFREE mask_mem
+    _SOURCE old_source&
+END SUB
+
+
+''
+' Draw marching ants outline around selected pixels in magic wand mask.
+' Uses the pre-computed edge cache for O(edges) instead of O(bounding_box) per frame.
 '
 SUB MAGIC_WAND_draw_outline ()
     IF NOT MARQUEE.WAND_HAS_SELECTION THEN EXIT SUB
     IF MARQUEE.SELECTION_MASK >= -1 THEN EXIT SUB
-    
-    DIM old_dest AS LONG
-    DIM old_source AS LONG
-    DIM x AS INTEGER, y AS INTEGER
-    DIM w AS INTEGER, h AS INTEGER
-    DIM mask_color AS _UNSIGNED LONG
-    DIM lineColor AS _UNSIGNED LONG
-    
-    old_dest& = _DEST
-    old_source& = _SOURCE
-    
-    _SOURCE MARQUEE.SELECTION_MASK
+
+    ' Rebuild edge cache if needed (first draw after selection creation/change)
+    IF MARQUEE.WAND_EDGE_DIRTY OR MARQUEE.WAND_EDGE_COUNT = 0 THEN
+        MAGIC_WAND_build_edge_cache
+    END IF
+    IF MARQUEE.WAND_EDGE_COUNT = 0 THEN EXIT SUB
+
+    DIM old_dest AS LONG : old_dest& = _DEST
     _DEST SCRN.CANVAS&
-    
-    w% = _WIDTH(MARQUEE.SELECTION_MASK)
-    h% = _HEIGHT(MARQUEE.SELECTION_MASK)
-    
-    mask_color~& = _RGB32(255, 255, 255)
-    lineColor~& = _RGB32(255, 255, 255)  ' White outline
-    
-    ' Calculate zoom transformation values (canvas dimensions, centered in viewport)
+
+    ' Calculate zoom transformation values
     DIM zw AS LONG, zh AS LONG, dx AS INTEGER, dy AS INTEGER
     zw& = SCRN.canvasW& * SCRN.zoom!
     zh& = SCRN.canvasH& * SCRN.zoom!
     dx% = (SCRN.w& - zw&) \ 2 + SCRN.offsetX%
     dy% = (SCRN.h& - zh&) \ 2 + SCRN.offsetY%
-    
+
+    ' Viewport clip bounds
+    DIM vx1 AS INTEGER, vy1 AS INTEGER, vx2 AS INTEGER, vy2 AS INTEGER
+    vx1% = 0: vy1% = 0
+    vx2% = _WIDTH(SCRN.CANVAS&) - 1
+    vy2% = _HEIGHT(SCRN.CANVAS&) - 1
+
     ' Animate the marching ants with time-based offset
     DIM antOffset AS INTEGER
     DIM dotSize AS INTEGER, gapSize AS INTEGER
-    
-    ' Fixed dot and gap size in canvas pixels (consistent pattern at any zoom)
-    dotSize% = 2
-    gapSize% = 2
-    
-    ' Use TIMER for animation (shift pattern over time)
+    dotSize% = 2: gapSize% = 2
     antOffset% = INT(TIMER * 8) MOD (dotSize% + gapSize%)
-    
-    ' Only scan within bounding box for performance
-    FOR y% = MARQUEE.WAND_MIN_Y TO MARQUEE.WAND_MAX_Y
-        FOR x% = MARQUEE.WAND_MIN_X TO MARQUEE.WAND_MAX_X
-            _SOURCE MARQUEE.SELECTION_MASK
-            IF POINT(x%, y%) = mask_color~& THEN
-                ' This pixel is selected - check if it's on an edge
-                DIM isEdge AS INTEGER
-                isEdge% = FALSE
-                
-                ' Check 4-connected neighbors
-                IF x% = 0 OR POINT(x% - 1, y%) <> mask_color~& THEN isEdge% = TRUE  ' Left edge
-                IF NOT isEdge% AND (x% = w% - 1 OR POINT(x% + 1, y%) <> mask_color~&) THEN isEdge% = TRUE  ' Right edge
-                IF NOT isEdge% AND (y% = 0 OR POINT(x%, y% - 1) <> mask_color~&) THEN isEdge% = TRUE  ' Top edge
-                IF NOT isEdge% AND (y% = h% - 1 OR POINT(x%, y% + 1) <> mask_color~&) THEN isEdge% = TRUE  ' Bottom edge
-                
-                IF isEdge% THEN
-                    ' Draw edge pixel with marching ants effect
-                    DIM screenX AS INTEGER, screenY AS INTEGER
-                    screenX% = dx% + INT(x% * SCRN.zoom!)
-                    screenY% = dy% + INT(y% * SCRN.zoom!)
-                    
-                    ' Marching ants pattern: alternate based on position + time offset
-                    DIM pattern AS INTEGER
-                    pattern% = ((x% + y% + antOffset%) MOD (dotSize% + gapSize%))
-                    
-                    _DEST SCRN.CANVAS&
-                    IF pattern% < dotSize% THEN
-                        ' Draw white pixel
-                        IF SCRN.zoom! >= 1 THEN
-                            LINE (screenX%, screenY%)-(screenX% + INT(SCRN.zoom!) - 1, screenY% + INT(SCRN.zoom!) - 1), _RGB32(255, 255, 255), BF
-                        ELSE
-                            PSET (screenX%, screenY%), _RGB32(255, 255, 255)
-                        END IF
-                    ELSE
-                        ' Draw black pixel for contrast
-                        IF SCRN.zoom! >= 1 THEN
-                            LINE (screenX%, screenY%)-(screenX% + INT(SCRN.zoom!) - 1, screenY% + INT(SCRN.zoom!) - 1), _RGB32(0, 0, 0), BF
-                        ELSE
-                            PSET (screenX%, screenY%), _RGB32(0, 0, 0)
-                        END IF
-                    END IF
-                END IF
+
+    DIM i AS LONG
+    DIM sx AS INTEGER, sy AS INTEGER
+    DIM zoomI AS INTEGER : zoomI% = INT(SCRN.zoom!)
+    DIM pattern AS INTEGER
+
+    FOR i& = 1 TO MARQUEE.WAND_EDGE_COUNT
+        sx% = dx% + INT(WAND_EDGE_X(i&) * SCRN.zoom!)
+        sy% = dy% + INT(WAND_EDGE_Y(i&) * SCRN.zoom!)
+
+        ' Clip to viewport
+        IF SCRN.zoom! >= 1 THEN
+            IF sx% + zoomI% - 1 < vx1% OR sx% > vx2% THEN GOTO mw_next_edge
+            IF sy% + zoomI% - 1 < vy1% OR sy% > vy2% THEN GOTO mw_next_edge
+        ELSE
+            IF sx% < vx1% OR sx% > vx2% OR sy% < vy1% OR sy% > vy2% THEN GOTO mw_next_edge
+        END IF
+
+        pattern% = ((WAND_EDGE_X(i&) + WAND_EDGE_Y(i&) + antOffset%) MOD (dotSize% + gapSize%))
+        IF pattern% < dotSize% THEN
+            IF zoomI% > 1 THEN
+                LINE (sx%, sy%)-(sx% + zoomI% - 1, sy% + zoomI% - 1), _RGB32(255, 255, 255), BF
+            ELSE
+                PSET (sx%, sy%), _RGB32(255, 255, 255)
             END IF
-        NEXT x%
-    NEXT y%
-    
-    _SOURCE old_source&
+        ELSE
+            IF zoomI% > 1 THEN
+                LINE (sx%, sy%)-(sx% + zoomI% - 1, sy% + zoomI% - 1), _RGB32(0, 0, 0), BF
+            ELSE
+                PSET (sx%, sy%), _RGB32(0, 0, 0)
+            END IF
+        END IF
+
+        mw_next_edge:
+    NEXT i&
+
     _DEST old_dest&
 END SUB
 
@@ -2120,6 +2419,7 @@ SUB SELECTION_invert ()
             IF MARQUEE.SELECTION_MASK < -1 THEN _FREEIMAGE MARQUEE.SELECTION_MASK
             MARQUEE.SELECTION_MASK = new_mask&
             MARQUEE.WAND_HAS_SELECTION = TRUE
+            MARQUEE.WAND_EDGE_DIRTY = TRUE
             
             ' Update bounding box to full canvas (inverted selection spans entire canvas minus original box)
             MARQUEE.WAND_MIN_X = 0
@@ -2443,6 +2743,7 @@ SUB SELECTION_merge_mask (new_mask AS LONG, mode AS INTEGER)
                 IF MARQUEE.SELECTION_MASK < -1 THEN _FREEIMAGE MARQUEE.SELECTION_MASK
                 MARQUEE.SELECTION_MASK = box_mask&
                 MARQUEE.WAND_HAS_SELECTION = TRUE
+                MARQUEE.WAND_EDGE_DIRTY = TRUE
             END IF
         END IF
         ' Now merge with existing mask
@@ -2527,6 +2828,7 @@ SUB SELECTION_merge_mask (new_mask AS LONG, mode AS INTEGER)
         MARQUEE.INITIALIZED% = TRUE
         MARQUEE.USER_CREATED = TRUE
         MARQUEE.WAND_HAS_SELECTION = TRUE
+        MARQUEE.WAND_EDGE_DIRTY = TRUE
     END IF
 
     _SOURCE old_source&

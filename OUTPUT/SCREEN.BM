@@ -602,6 +602,12 @@ SUB RENDER_layers (dx AS INTEGER, dy AS INTEGER, zw AS LONG, zh AS LONG)
         compositeStartIdx% = 1
         savePartialCache% = FALSE
 
+        ' Region-based compositing: when we have a valid dirty rect and a cached
+        ' composite result, restore from cache and only update the dirty region.
+        DIM useRegionComposite AS INTEGER
+        DIM rcX1 AS INTEGER, rcY1 AS INTEGER, rcX2 AS INTEGER, rcY2 AS INTEGER
+        useRegionComposite% = FALSE
+
         IF useComposite% THEN
             ' Reuse persistent composite buffer (avoid _NEWIMAGE/_FREEIMAGE every frame)
             IF COMPOSITE_BUFFER& = 0 OR _
@@ -611,42 +617,81 @@ SUB RENDER_layers (dx AS INTEGER, dy AS INTEGER, zw AS LONG, zh AS LONG)
                 COMPOSITE_BUFFER& = _NEWIMAGE(SCRN.canvasW&, SCRN.canvasH&, 32)
                 COMPOSITE_BUFFER_W& = SCRN.canvasW&
                 COMPOSITE_BUFFER_H& = SCRN.canvasH&
+                COMPOSITE_RESULT_VALID% = FALSE
             END IF
             compositeImg& = COMPOSITE_BUFFER&
 
-            ' --- Partial composite cache: skip layers below current when only current changes ---
-            DIM currentRenderIdx AS INTEGER
-            DIM cri AS INTEGER
-            currentRenderIdx% = 0
-            FOR cri% = 1 TO RENDER_ORDER_COUNT%
-                IF RENDER_ORDER%(cri%) = CURRENT_LAYER% THEN
-                    currentRenderIdx% = cri%
-                    EXIT FOR
+            ' --- Region composite fast path ---
+            ' When we have a cached composite result and a small dirty rect,
+            ' restore from cache and only recomposite the dirty region.
+            ' This avoids full-canvas per-pixel blend loops (the #1 CPU cost).
+            IF COMP_DIRTY_VALID% AND COMPOSITE_RESULT_VALID% AND _
+               COMPOSITE_RESULT_CACHE& <> 0 AND _
+               _WIDTH(COMPOSITE_RESULT_CACHE&) = SCRN.canvasW& AND _
+               _HEIGHT(COMPOSITE_RESULT_CACHE&) = SCRN.canvasH& THEN
+                ' Clamp dirty rect to canvas bounds
+                rcX1% = COMP_DIRTY_X1%: rcY1% = COMP_DIRTY_Y1%
+                rcX2% = COMP_DIRTY_X2%: rcY2% = COMP_DIRTY_Y2%
+                IF rcX1% < 0 THEN rcX1% = 0
+                IF rcY1% < 0 THEN rcY1% = 0
+                IF rcX2% >= SCRN.canvasW& THEN rcX2% = SCRN.canvasW& - 1
+                IF rcY2% >= SCRN.canvasH& THEN rcY2% = SCRN.canvasH& - 1
+                ' Only use region path when dirty rect is < 25% of canvas (otherwise full is faster)
+                DIM rcArea AS LONG, rcCanvasArea AS LONG
+                rcArea& = CLNG(rcX2% - rcX1% + 1) * CLNG(rcY2% - rcY1% + 1)
+                rcCanvasArea& = CLNG(SCRN.canvasW&) * CLNG(SCRN.canvasH&)
+                IF rcX2% >= rcX1% AND rcY2% >= rcY1% AND rcArea& < (rcCanvasArea& \ 4) THEN
+                    useRegionComposite% = TRUE
+                    ' Restore full composite from previous frame
+                    DIM rcOldDest AS LONG
+                    rcOldDest& = _DEST
+                    _DEST compositeImg&
+                    _DONTBLEND compositeImg&
+                    _PUTIMAGE , COMPOSITE_RESULT_CACHE&, compositeImg&
+                    ' Clear only the dirty region so we can re-composite it
+                    LINE (rcX1%, rcY1%)-(rcX2%, rcY2%), _RGBA32(0, 0, 0, 0), BF
+                    _BLEND compositeImg&
+                    _DEST rcOldDest&
+                    compositeStartIdx% = 1  ' Must process all layers for the region
                 END IF
-            NEXT cri%
+            END IF
 
-            DIM compOldDest AS LONG
-            compOldDest& = _DEST
+            IF NOT useRegionComposite% THEN
+                ' --- Standard composite path ---
+                ' Partial composite cache: skip layers below current when only current changes
+                DIM currentRenderIdx AS INTEGER
+                DIM cri AS INTEGER
+                currentRenderIdx% = 0
+                FOR cri% = 1 TO RENDER_ORDER_COUNT%
+                    IF RENDER_ORDER%(cri%) = CURRENT_LAYER% THEN
+                        currentRenderIdx% = cri%
+                        EXIT FOR
+                    END IF
+                NEXT cri%
 
-            IF currentRenderIdx% > 1 AND COMPOSITE_BELOW_VALID% AND _
-               COMPOSITE_BELOW_LAYER% = CURRENT_LAYER% AND _
-               COMPOSITE_BELOW_CACHE& <> 0 THEN
-                ' Partial cache hit — restore composite of layers below current
-                _DEST compositeImg&
-                _DONTBLEND compositeImg&
-                _PUTIMAGE , COMPOSITE_BELOW_CACHE&, compositeImg&
-                _BLEND compositeImg&
-                _DEST compOldDest&
-                compositeStartIdx% = currentRenderIdx%
-            ELSE
-                ' Full composite — clear buffer
-                _DEST compositeImg&
-                _DONTBLEND compositeImg&
-                CLS , _RGBA32(0, 0, 0, 0)
-                _BLEND compositeImg&
-                _DEST compOldDest&
-                ' Schedule partial cache save if current layer isn't the bottommost
-                IF currentRenderIdx% > 1 THEN savePartialCache% = TRUE
+                DIM compOldDest AS LONG
+                compOldDest& = _DEST
+
+                IF currentRenderIdx% > 1 AND COMPOSITE_BELOW_VALID% AND _
+                   COMPOSITE_BELOW_LAYER% = CURRENT_LAYER% AND _
+                   COMPOSITE_BELOW_CACHE& <> 0 THEN
+                    ' Partial cache hit — restore composite of layers below current
+                    _DEST compositeImg&
+                    _DONTBLEND compositeImg&
+                    _PUTIMAGE , COMPOSITE_BELOW_CACHE&, compositeImg&
+                    _BLEND compositeImg&
+                    _DEST compOldDest&
+                    compositeStartIdx% = currentRenderIdx%
+                ELSE
+                    ' Full composite — clear buffer
+                    _DEST compositeImg&
+                    _DONTBLEND compositeImg&
+                    CLS , _RGBA32(0, 0, 0, 0)
+                    _BLEND compositeImg&
+                    _DEST compOldDest&
+                    ' Schedule partial cache save if current layer isn't the bottommost
+                    IF currentRenderIdx% > 1 THEN savePartialCache% = TRUE
+                END IF
             END IF
         END IF
 
@@ -751,14 +796,27 @@ SUB RENDER_layers (dx AS INTEGER, dy AS INTEGER, zw AS LONG, zh AS LONG)
                 END IF
 
                 IF useComposite% THEN
-                    ' --- Composite buffer path (blend modes) ---
-                    IF LAYERS(layerFound%).blendMode% = BLEND_NORMAL THEN
-                        _DEST compositeImg&
-                        _PUTIMAGE , renderImg&
-                        _DEST SCRN.CANVAS&
+                    IF useRegionComposite% THEN
+                        ' --- Region composite path: only update dirty rect ---
+                        IF LAYERS(layerFound%).blendMode% = BLEND_NORMAL THEN
+                            ' Blit only the dirty region from this layer
+                            _DEST compositeImg&
+                            _PUTIMAGE (rcX1%, rcY1%)-(rcX2%, rcY2%), renderImg&, compositeImg&, (rcX1%, rcY1%)-(rcX2%, rcY2%)
+                            _DEST SCRN.CANVAS&
+                        ELSE
+                            ' Region-based blend: only process dirty rect pixels
+                            LAYER_blend_composite_region compositeImg&, layerRenderSource&, LAYERS(layerFound%).blendMode%, LAYERS(layerFound%).opacity%, rcX1%, rcY1%, rcX2%, rcY2%
+                        END IF
                     ELSE
-                        ' Non-Normal blend: pass ORIGINAL image — blend function handles opacity
-                        LAYER_blend_composite compositeImg&, layerRenderSource&, LAYERS(layerFound%).blendMode%, LAYERS(layerFound%).opacity%
+                        ' --- Full composite buffer path (blend modes) ---
+                        IF LAYERS(layerFound%).blendMode% = BLEND_NORMAL THEN
+                            _DEST compositeImg&
+                            _PUTIMAGE , renderImg&
+                            _DEST SCRN.CANVAS&
+                        ELSE
+                            ' Non-Normal blend: pass ORIGINAL image — blend function handles opacity
+                            LAYER_blend_composite compositeImg&, layerRenderSource&, LAYERS(layerFound%).blendMode%, LAYERS(layerFound%).opacity%
+                        END IF
                     END IF
                 ELSE
                     ' --- Fast path (all Normal blend) ---
@@ -773,7 +831,7 @@ SUB RENDER_layers (dx AS INTEGER, dy AS INTEGER, zw AS LONG, zh AS LONG)
             END IF  ' layerFound% > 0
 
             ' Save partial composite cache at boundary just below current layer
-            IF savePartialCache% AND layerI% = currentRenderIdx% - 1 THEN
+            IF NOT useRegionComposite% AND savePartialCache% AND layerI% = currentRenderIdx% - 1 THEN
                 IF COMPOSITE_BELOW_CACHE& = 0 OR _
                    _WIDTH(COMPOSITE_BELOW_CACHE&) <> SCRN.canvasW& OR _
                    _HEIGHT(COMPOSITE_BELOW_CACHE&) <> SCRN.canvasH& THEN
@@ -797,6 +855,22 @@ SUB RENDER_layers (dx AS INTEGER, dy AS INTEGER, zw AS LONG, zh AS LONG)
         IF useComposite% THEN
             _PUTIMAGE (dx%, dy%)-(dx% + zw& - 1, dy% + zh& - 1), compositeImg&, SCRN.CANVAS&
             ' compositeImg& is persistent (COMPOSITE_BUFFER&), do NOT free it
+
+            ' Save completed composite for next frame's region-based path
+            IF COMPOSITE_RESULT_CACHE& = 0 OR _
+               _WIDTH(COMPOSITE_RESULT_CACHE&) <> SCRN.canvasW& OR _
+               _HEIGHT(COMPOSITE_RESULT_CACHE&) <> SCRN.canvasH& THEN
+                IF COMPOSITE_RESULT_CACHE& < -1 THEN _FREEIMAGE COMPOSITE_RESULT_CACHE&
+                COMPOSITE_RESULT_CACHE& = _NEWIMAGE(SCRN.canvasW&, SCRN.canvasH&, 32)
+            END IF
+            DIM crOldDest AS LONG
+            crOldDest& = _DEST
+            _DEST COMPOSITE_RESULT_CACHE&
+            _DONTBLEND COMPOSITE_RESULT_CACHE&
+            _PUTIMAGE , compositeImg&, COMPOSITE_RESULT_CACHE&
+            _BLEND COMPOSITE_RESULT_CACHE&
+            _DEST crOldDest&
+            COMPOSITE_RESULT_VALID% = TRUE
         END IF
     ELSE
         ' Fallback: Use SCRN.PAINTING if no layers exist yet (legacy support)
@@ -1460,6 +1534,7 @@ END SUB
 ' 
 SUB SCREEN_render ()
     PERF_start PERF_RENDER_TOTAL
+    DIM so_used_fallback AS INTEGER  ' TRUE when STATUS-ONLY fallback routes to SkipToPointer
     ' ========================================================================
     ' GUI-ONLY REFRESH: When only GUI elements changed (e.g. brush size in
     ' status bar) but the scene (layers, grid) hasn't, re-composite just the
@@ -1524,6 +1599,197 @@ SUB SCREEN_render ()
         ' Jump to pointer+selection+upscale — must NOT fall through to
         ' dirty-rect, which only upscales the pointer region and would
         ' leave the updated GUI invisible in the window image.
+        STATUS_NEEDS_REDRAW% = FALSE
+        PERF_stop PERF_GUI_ONLY_PATH
+        GOTO SkipToPointer
+    END IF
+
+    ' ========================================================================
+    ' STATUS-ONLY REFRESH: Mouse moved over canvas — only cursor coordinates
+    ' in the status bar changed.  Fully self-contained: partial blits for
+    ' pointer dirty-rect + status strip only, partial window present, EXIT SUB.
+    ' Never touches the palette strip swatch loop or does any full-frame copy.
+    ' Falls back to SkipToPointer only when partial present is unsafe.
+    ' ========================================================================
+    IF NOT SCENE_DIRTY% AND NOT GUI_NEEDS_REDRAW% AND STATUS_NEEDS_REDRAW% AND SCENE_CACHE& <> 0 THEN
+        PERF_start PERF_GUI_ONLY_PATH
+        ' SCREEN_compute_layout is intentionally skipped here.
+        ' STATUS-ONLY fires only when NOT GUI_NEEDS_REDRAW%, meaning the GUI
+        ' (and therefore layout) is unchanged from the last full or GUI-only
+        ' render — the values computed then are still valid.
+
+        ' Same partial-present safety gates as the dirty-rect path.
+        ' PREVIEW.visible% is no longer a gate here: we call PREVIEW_render inline
+        ' and present the preview window rect as a separate partial present, so the
+        ' expensive full-frame window scale is never needed just for canvas hover.
+        DIM so_can_partial AS INTEGER
+        so_can_partial% = NOT SCRN.patternTileMode%
+        IF IMG_IMPORT.STATE > IMPORT_STATE_IDLE THEN so_can_partial% = FALSE
+        IF REFIMG.REPOSITION THEN so_can_partial% = FALSE
+        IF CURRENT_TOOL% = TOOL_MOVE AND MOVE.ACTIVE THEN so_can_partial% = FALSE
+        IF CURRENT_TOOL% = TOOL_PICKER AND PICKER.ACTIVE% THEN so_can_partial% = FALSE
+        IF LAYER_PANEL.blendPopupOpen% OR DRAWER.contextMenuOpen% OR CMD_PALETTE.visible THEN so_can_partial% = FALSE
+
+        ' Update only the pure status bar row in SCRN.GUI& (NOT palette strip).
+        DIM so_statusTop AS INTEGER
+        so_statusTop% = SCRN.h& - THEME.STATUS_height%
+        IF so_statusTop% < 0 THEN so_statusTop% = 0
+        IF SCRN.showStatus% THEN
+            _DEST SCRN.GUI&
+            LINE (0, so_statusTop%)-(SCRN.w& - 1, SCRN.h& - 1), _RGBA32(0, 0, 0, 0), BF
+            STATUS_render
+            _DEST SCRN.CANVAS&
+        END IF
+
+        IF so_can_partial% THEN
+            ' Build union dirty rect: old pointer position + new pointer position.
+            DIM so_pad AS INTEGER
+            so_pad% = POINTER_get_dirty_pad%
+            DIM so_nx AS INTEGER, so_ny AS INTEGER
+            so_nx% = MOUSE.RAW_X%
+            so_ny% = MOUSE.RAW_Y%
+            DIM so_px1 AS INTEGER, so_py1 AS INTEGER, so_px2 AS INTEGER, so_py2 AS INTEGER
+            so_px1% = so_nx% - so_pad%
+            so_py1% = so_ny% - so_pad%
+            so_px2% = so_nx% + so_pad%
+            so_py2% = so_ny% + so_pad%
+            IF POINTER.PREV_DRAW_X% > -9999 THEN
+                DIM so_opx AS INTEGER, so_opy AS INTEGER
+                so_opx% = POINTER.PREV_DRAW_X%
+                so_opy% = POINTER.PREV_DRAW_Y%
+                IF so_opx% - so_pad% < so_px1% THEN so_px1% = so_opx% - so_pad%
+                IF so_opy% - so_pad% < so_py1% THEN so_py1% = so_opy% - so_pad%
+                IF so_opx% + so_pad% > so_px2% THEN so_px2% = so_opx% + so_pad%
+                IF so_opy% + so_pad% > so_py2% THEN so_py2% = so_opy% + so_pad%
+            END IF
+            IF so_px1% < 0 THEN so_px1% = 0
+            IF so_py1% < 0 THEN so_py1% = 0
+            IF so_px2% >= SCRN.w& THEN so_px2% = SCRN.w& - 1
+            IF so_py2% >= SCRN.h& THEN so_py2% = SCRN.h& - 1
+
+            ' Restore pointer area from scene cache (erase old ghost).
+            _DEST SCRN.CANVAS&
+            _DONTBLEND SCRN.CANVAS&
+            _PUTIMAGE (so_px1%, so_py1%)-(so_px2%, so_py2%), SCENE_CACHE&, SCRN.CANVAS&, (so_px1%, so_py1%)-(so_px2%, so_py2%)
+            _BLEND SCRN.CANVAS&
+
+            ' Selection overlay (marching ants animate every frame).
+            IF SELECTION_has_active% THEN
+                IF MARQUEE.WAND_HAS_SELECTION AND MARQUEE.SELECTION_MASK < -1 THEN
+                    _DEST SCRN.CANVAS&
+                    MAGIC_WAND_draw_outline
+                ELSEIF MARQUEE.ACTIVE% AND MARQUEE.USER_CREATED THEN
+                    IF MARQUEE.DRAGGING% AND MARQUEE.SELECTION_MODE <> SEL_MODE_REPLACE THEN
+                        _DEST SCRN.CANVAS&
+                        MARQUEE_draw_existing_box TRUE
+                    ELSE
+                        _DEST SCRN.CANVAS&
+                        MARQUEE_draw TRUE
+                    END IF
+                END IF
+            END IF
+
+            ' Draw pointer at new position.
+            POINTER_update
+            POINTER_render
+
+            ' Preview window: only re-render when content has actually changed.
+            ' In follow-pointer mode the viewport pans with the cursor — must re-render every frame.
+            ' Otherwise content is static unless the pointer dirty-rect overlaps the preview window,
+            ' which would expose a SCENE_CACHE hole that needs repairing.
+            ' Skipping saves an expensive _PUTIMAGE of COMPOSITE_BUFFER& per frame.
+            IF PREVIEW.visible% AND NOT PREVIEW.autoHidden% THEN
+                DIM so_pv_need_render AS INTEGER
+                so_pv_need_render% = PREVIEW.followPointer%
+                IF NOT so_pv_need_render% THEN
+                    ' Check if pointer dirty-rect overlaps preview bounds
+                    IF so_px2% >= PREVIEW.x% AND so_px1% <= PREVIEW.x% + PREVIEW.w% - 1 AND _
+                       so_py2% >= PREVIEW.y% AND so_py1% <= PREVIEW.y% + PREVIEW.h% - 1 THEN
+                        so_pv_need_render% = TRUE
+                    END IF
+                END IF
+                IF so_pv_need_render% THEN
+                    PREVIEW_render SCRN.CANVAS&
+                END IF
+            END IF
+
+            ' Re-composite GUI over pointer dirty rect only (not full frame).
+            _DEST SCRN.CANVAS&
+            _PUTIMAGE (so_px1%, so_py1%)-(so_px2%, so_py2%), SCRN.GUI&, SCRN.CANVAS&, (so_px1%, so_py1%)-(so_px2%, so_py2%)
+
+            ' Status strip: restore from SCENE_CACHE, overlay updated GUI,
+            ' write back to SCENE_CACHE so next dirty-rect frame has correct cache.
+            IF SCRN.showStatus% THEN
+                _DEST SCRN.CANVAS&
+                _DONTBLEND SCRN.CANVAS&
+                _PUTIMAGE (0, so_statusTop%)-(SCRN.w& - 1, SCRN.h& - 1), SCENE_CACHE&, SCRN.CANVAS&, (0, so_statusTop%)-(SCRN.w& - 1, SCRN.h& - 1)
+                _BLEND SCRN.CANVAS&
+                _PUTIMAGE (0, so_statusTop%)-(SCRN.w& - 1, SCRN.h& - 1), SCRN.GUI&, SCRN.CANVAS&, (0, so_statusTop%)-(SCRN.w& - 1, SCRN.h& - 1)
+                _DEST SCENE_CACHE&
+                _DONTBLEND SCENE_CACHE&
+                _PUTIMAGE (0, so_statusTop%)-(SCRN.w& - 1, SCRN.h& - 1), SCRN.CANVAS&, SCENE_CACHE&, (0, so_statusTop%)-(SCRN.w& - 1, SCRN.h& - 1)
+                _BLEND SCENE_CACHE&
+                _DEST SCRN.CANVAS&
+            END IF
+
+            SCROLLBAR_render
+            RENDER_crosshair_and_command_palette
+            POINTER_render_cursor_overlay
+
+            POINTER.PREV_DRAW_X% = so_nx%
+            POINTER.PREV_DRAW_Y% = so_ny%
+
+            ' Partial window presents: pointer area + status strip + preview window.
+            ' Avoids the expensive full-frame _PUTIMAGE scale to window.
+            DIM so_sc AS INTEGER
+            so_sc% = SCRN.displayScale%
+            IF so_sc% < 1 THEN so_sc% = 1
+            _PUTIMAGE (CLNG(so_px1%) * so_sc%, CLNG(so_py1%) * so_sc%)-(CLNG(so_px2% + 1) * so_sc% - 1, CLNG(so_py2% + 1) * so_sc% - 1), SCRN.CANVAS&, 0, (so_px1%, so_py1%)-(so_px2%, so_py2%)
+            IF SCRN.showStatus% THEN
+                _PUTIMAGE (0, CLNG(so_statusTop%) * so_sc%)-(_WIDTH(0) - 1, _HEIGHT(0) - 1), SCRN.CANVAS&, 0, (0, so_statusTop%)-(SCRN.w& - 1, SCRN.h& - 1)
+            END IF
+            ' Preview window partial present: present the preview widget area directly
+            ' instead of doing a full-frame upscale just because preview is visible.
+            IF PREVIEW.visible% AND NOT PREVIEW.autoHidden% THEN
+                DIM so_pv_x1 AS INTEGER, so_pv_y1 AS INTEGER
+                DIM so_pv_x2 AS INTEGER, so_pv_y2 AS INTEGER
+                so_pv_x1% = PREVIEW.x%
+                so_pv_y1% = PREVIEW.y%
+                so_pv_x2% = PREVIEW.x% + PREVIEW.w% - 1
+                IF PREVIEW.minimized% THEN
+                    so_pv_y2% = PREVIEW.y% + THEME.PREVIEW_title_height% + THEME.PREVIEW_border_width% * 2 - 1
+                ELSE
+                    so_pv_y2% = PREVIEW.y% + PREVIEW.h% - 1
+                END IF
+                IF so_pv_x1% < 0 THEN so_pv_x1% = 0
+                IF so_pv_y1% < 0 THEN so_pv_y1% = 0
+                IF so_pv_x2% >= SCRN.w& THEN so_pv_x2% = SCRN.w& - 1
+                IF so_pv_y2% >= SCRN.h& THEN so_pv_y2% = SCRN.h& - 1
+                _PUTIMAGE (CLNG(so_pv_x1%) * so_sc%, CLNG(so_pv_y1%) * so_sc%)-(CLNG(so_pv_x2% + 1) * so_sc% - 1, CLNG(so_pv_y2% + 1) * so_sc% - 1), SCRN.CANVAS&, 0, (so_pv_x1%, so_pv_y1%)-(so_pv_x2%, so_pv_y2%)
+            END IF
+
+            _DISPLAY
+            STATUS_NEEDS_REDRAW% = FALSE
+            GUI_NEEDS_REDRAW% = FALSE
+            PERF_stop PERF_GUI_ONLY_PATH
+            PERF_stop PERF_RENDER_TOTAL
+            EXIT SUB
+        END IF
+
+        ' Fallback when partial present is unsafe (preview visible, popup open, etc.).
+        ' Still skips PALETTE_STRIP_render. Restore scene from cache and jump to
+        ' SkipToPointer. SCRN.GUI& was updated with STATUS_render above, so
+        ' SkipToPointer's GUI composite will reflect the new status.
+        ' so_used_fallback% signals SkipToPointer to use a partial GUI composite
+        ' (pointer dirty-rect + status strip only) instead of the expensive
+        ' full-frame alpha-blend — the biggest per-frame cost on canvas hover.
+        _DEST SCRN.CANVAS&
+        _DONTBLEND SCRN.CANVAS&
+        _PUTIMAGE , SCENE_CACHE&, SCRN.CANVAS&
+        _BLEND SCRN.CANVAS&
+        _DEST SCRN.CANVAS&
+        so_used_fallback% = TRUE
+        STATUS_NEEDS_REDRAW% = FALSE
         PERF_stop PERF_GUI_ONLY_PATH
         GOTO SkipToPointer
     END IF
@@ -1603,9 +1869,10 @@ SUB SCREEN_render ()
 
         ' Dirty-rect path only pays off when overlays stay local to the pointer area.
         ' Wider overlays are handled by the full cached-scene path below.
+        ' PREVIEW.visible% is no longer a gate: preview is handled inline the same way
+        ' as the STATUS-ONLY path (conditional render + separate partial window present).
         DIM can_partial_present AS INTEGER
         can_partial_present% = TRUE
-        IF PREVIEW.visible% AND NOT PREVIEW.autoHidden% THEN can_partial_present% = FALSE
         IF IMG_IMPORT.STATE > IMPORT_STATE_IDLE THEN can_partial_present% = FALSE
         IF REFIMG.REPOSITION THEN can_partial_present% = FALSE
         IF CURRENT_TOOL% = TOOL_MOVE AND MOVE.ACTIVE THEN can_partial_present% = FALSE
@@ -1647,6 +1914,24 @@ SUB SCREEN_render ()
             ' --- Clip pointer and selection overlays back behind fixed UI elements ---
             _DEST SCRN.CANVAS&
             _PUTIMAGE (dr_x1%, dr_y1%)-(dr_x2%, dr_y2%), SCRN.GUI&, SCRN.CANVAS&, (dr_x1%, dr_y1%)-(dr_x2%, dr_y2%)
+
+            ' --- Preview window (inline, same logic as STATUS-ONLY path) ---
+            ' Re-render only when follow-pointer mode is active (viewport pans with cursor)
+            ' or when the pointer dirty-rect overlaps the preview window bounds
+            ' (which would expose a SCENE_CACHE hole that needs repairing).
+            IF PREVIEW.visible% AND NOT PREVIEW.autoHidden% THEN
+                DIM dr_pv_need_render AS INTEGER
+                dr_pv_need_render% = PREVIEW.followPointer%
+                IF NOT dr_pv_need_render% THEN
+                    IF dr_x2% >= PREVIEW.x% AND dr_x1% <= PREVIEW.x% + PREVIEW.w% - 1 AND _
+                       dr_y2% >= PREVIEW.y% AND dr_y1% <= PREVIEW.y% + PREVIEW.h% - 1 THEN
+                        dr_pv_need_render% = TRUE
+                    END IF
+                END IF
+                IF dr_pv_need_render% THEN
+                    PREVIEW_render SCRN.CANVAS&
+                END IF
+            END IF
 
             ' --- Crosshair assistant overlay ---
             RENDER_crosshair_and_command_palette
@@ -1699,10 +1984,30 @@ SUB SCREEN_render ()
             win_y2& = CLNG(dr_y2% + 1) * dr_scale% - 1
             _PUTIMAGE (win_x1&, win_y1&)-(win_x2&, win_y2&), SCRN.CANVAS&, 0, (dr_x1%, dr_y1%)-(dr_x2%, dr_y2%)
 
+            ' Preview window partial present (avoids full-frame upscale just for preview)
+            IF PREVIEW.visible% AND NOT PREVIEW.autoHidden% THEN
+                DIM dr_pv_x1 AS INTEGER, dr_pv_y1 AS INTEGER
+                DIM dr_pv_x2 AS INTEGER, dr_pv_y2 AS INTEGER
+                dr_pv_x1% = PREVIEW.x%
+                dr_pv_y1% = PREVIEW.y%
+                dr_pv_x2% = PREVIEW.x% + PREVIEW.w% - 1
+                IF PREVIEW.minimized% THEN
+                    dr_pv_y2% = PREVIEW.y% + THEME.PREVIEW_title_height% + THEME.PREVIEW_border_width% * 2 - 1
+                ELSE
+                    dr_pv_y2% = PREVIEW.y% + PREVIEW.h% - 1
+                END IF
+                IF dr_pv_x1% < 0 THEN dr_pv_x1% = 0
+                IF dr_pv_y1% < 0 THEN dr_pv_y1% = 0
+                IF dr_pv_x2% >= SCRN.w& THEN dr_pv_x2% = SCRN.w& - 1
+                IF dr_pv_y2% >= SCRN.h& THEN dr_pv_y2% = SCRN.h& - 1
+                _PUTIMAGE (CLNG(dr_pv_x1%) * dr_scale%, CLNG(dr_pv_y1%) * dr_scale%)-(CLNG(dr_pv_x2% + 1) * dr_scale% - 1, CLNG(dr_pv_y2% + 1) * dr_scale% - 1), SCRN.CANVAS&, 0, (dr_pv_x1%, dr_pv_y1%)-(dr_pv_x2%, dr_pv_y2%)
+            END IF
+
             PERF_stop PERF_DIRTY_RECT_PATH
             PERF_start PERF_DISPLAY_CALL
             _DISPLAY
             PERF_stop PERF_DISPLAY_CALL
+            STATUS_NEEDS_REDRAW% = FALSE
             GUI_NEEDS_REDRAW% = FALSE
             PERF_stop PERF_RENDER_TOTAL
             EXIT SUB
@@ -1958,9 +2263,39 @@ SUB SCREEN_render ()
     ' ==== PREVIEW WINDOW (before GUI re-composite so menus, pickers, etc. render on top) ====
     PREVIEW_render SCRN.CANVAS&
     
-    ' Re-composite GUI so brush previews and marching ants don't show over UI elements
-    ' This must happen AFTER POINTER_render since brush previews are drawn there
-    _DEST SCRN.CANVAS& : _SOURCE SCRN.GUI& : _PUTIMAGE
+    ' Re-composite GUI so brush previews and marching ants don't show over UI elements.
+    ' This must happen AFTER POINTER_render since brush previews are drawn there.
+    ' STATUS-ONLY fallback: partial composite to skip the expensive full-frame alpha-blend.
+    _DEST SCRN.CANVAS&
+    IF so_used_fallback% THEN
+        ' Partial: only clip pointer dirty-rect + status strip (nothing else changed).
+        DIM so_fb_pad AS INTEGER
+        so_fb_pad% = POINTER_get_dirty_pad%
+        DIM so_fb_px1 AS INTEGER, so_fb_py1 AS INTEGER, so_fb_px2 AS INTEGER, so_fb_py2 AS INTEGER
+        so_fb_px1% = MOUSE.RAW_X% - so_fb_pad%
+        so_fb_py1% = MOUSE.RAW_Y% - so_fb_pad%
+        so_fb_px2% = MOUSE.RAW_X% + so_fb_pad%
+        so_fb_py2% = MOUSE.RAW_Y% + so_fb_pad%
+        IF POINTER.PREV_DRAW_X% > -9999 THEN
+            IF POINTER.PREV_DRAW_X% - so_fb_pad% < so_fb_px1% THEN so_fb_px1% = POINTER.PREV_DRAW_X% - so_fb_pad%
+            IF POINTER.PREV_DRAW_Y% - so_fb_pad% < so_fb_py1% THEN so_fb_py1% = POINTER.PREV_DRAW_Y% - so_fb_pad%
+            IF POINTER.PREV_DRAW_X% + so_fb_pad% > so_fb_px2% THEN so_fb_px2% = POINTER.PREV_DRAW_X% + so_fb_pad%
+            IF POINTER.PREV_DRAW_Y% + so_fb_pad% > so_fb_py2% THEN so_fb_py2% = POINTER.PREV_DRAW_Y% + so_fb_pad%
+        END IF
+        IF so_fb_px1% < 0 THEN so_fb_px1% = 0
+        IF so_fb_py1% < 0 THEN so_fb_py1% = 0
+        IF so_fb_px2% >= SCRN.w& THEN so_fb_px2% = SCRN.w& - 1
+        IF so_fb_py2% >= SCRN.h& THEN so_fb_py2% = SCRN.h& - 1
+        _PUTIMAGE (so_fb_px1%, so_fb_py1%)-(so_fb_px2%, so_fb_py2%), SCRN.GUI&, SCRN.CANVAS&, (so_fb_px1%, so_fb_py1%)-(so_fb_px2%, so_fb_py2%)
+        IF SCRN.showStatus% THEN
+            DIM so_fb_statusTop AS INTEGER
+            so_fb_statusTop% = SCRN.h& - THEME.STATUS_height%
+            IF so_fb_statusTop% < 0 THEN so_fb_statusTop% = 0
+            _PUTIMAGE (0, so_fb_statusTop%)-(SCRN.w& - 1, SCRN.h& - 1), SCRN.GUI&, SCRN.CANVAS&, (0, so_fb_statusTop%)-(SCRN.w& - 1, SCRN.h& - 1)
+        END IF
+    ELSE
+        _SOURCE SCRN.GUI& : _PUTIMAGE
+    END IF
     
     ' Re-render scrollbars after GUI re-composite (they must stay on top)
     SCROLLBAR_render
@@ -2001,7 +2336,7 @@ SUB SCREEN_render ()
     POINTER.PREV_DRAW_X% = MOUSE.RAW_X%
     POINTER.PREV_DRAW_Y% = MOUSE.RAW_Y%
     
-    ' Scale viewport canvas to window screen (software _PUTIMAGE replaces $RESIZE:STRETCH)
+    ' Present canvas to window.
     PERF_start PERF_FINAL_SCALE
     _PUTIMAGE (0, 0)-(_WIDTH(0) - 1, _HEIGHT(0) - 1), SCRN.CANVAS&, 0
     PERF_stop PERF_FINAL_SCALE
@@ -2010,7 +2345,8 @@ SUB SCREEN_render ()
     _DISPLAY
     PERF_stop PERF_DISPLAY_CALL
     
-    ' Reset GUI dirty flag at end of render
+    ' Reset dirty flags at end of render
+    STATUS_NEEDS_REDRAW% = FALSE
     GUI_NEEDS_REDRAW% = FALSE
     PERF_stop PERF_RENDER_TOTAL
 END SUB
