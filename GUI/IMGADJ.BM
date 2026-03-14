@@ -1675,6 +1675,210 @@ END FUNCTION
 
 
 ''
+' Remove background by making pixels matching a target color transparent.
+' Uses Euclidean RGB distance: pixels within the threshold distance from
+' targetColor have their alpha channel set to 0 (fully transparent).
+'
+' @param sourceImg LONG Source image handle
+' @param targetColor _UNSIGNED LONG Color to remove (e.g. _RGB32(255,255,255) for white)
+' @param threshold INTEGER Distance tolerance 0-441 (0=exact match, 441=all colors)
+' @return LONG New image handle with background removed, 0 on error
+'
+FUNCTION GJ_IMGADJ_RemoveBackground (sourceImg AS LONG, targetColor AS _UNSIGNED LONG, threshold AS INTEGER)
+    IF sourceImg = 0 OR sourceImg = -1 THEN
+        GJ_IMGADJ_RemoveBackground = 0
+        EXIT FUNCTION
+    END IF
+
+    DIM w AS INTEGER, h AS INTEGER
+    w = _WIDTH(sourceImg)
+    h = _HEIGHT(sourceImg)
+
+    ' Clone the source image (preserves all pixel data including alpha)
+    DIM resultImg AS LONG
+    resultImg = _NEWIMAGE(w, h, 32)
+    DIM oldDest AS LONG : oldDest = _DEST
+    _DEST resultImg
+    _DONTBLEND resultImg
+    _PUTIMAGE , sourceImg
+    _BLEND resultImg
+    _DEST oldDest
+
+    DIM srcMem AS _MEM
+    srcMem = _MEMIMAGE(resultImg)
+
+    ' Extract target color components
+    DIM tR AS INTEGER, tG AS INTEGER, tB AS INTEGER
+    tR = _RED32(targetColor)
+    tG = _GREEN32(targetColor)
+    tB = _BLUE32(targetColor)
+
+    ' Threshold squared for fast comparison (avoids SQR per pixel)
+    DIM threshSq AS LONG
+    threshSq& = CLNG(threshold) * CLNG(threshold)
+
+    DIM pxOff AS _OFFSET
+    DIM px AS _UNSIGNED LONG
+    DIM pR AS INTEGER, pG AS INTEGER, pB AS INTEGER
+    DIM dR AS LONG, dG AS LONG, dB AS LONG
+    DIM distSq AS LONG
+
+    FOR pxOff = 0 TO srcMem.SIZE - 4 STEP 4
+        _MEMGET srcMem, srcMem.OFFSET + pxOff, px~&
+
+        pR = _RED32(px~&)
+        pG = _GREEN32(px~&)
+        pB = _BLUE32(px~&)
+
+        dR& = CLNG(pR) - CLNG(tR)
+        dG& = CLNG(pG) - CLNG(tG)
+        dB& = CLNG(pB) - CLNG(tB)
+        distSq& = dR& * dR& + dG& * dG& + dB& * dB&
+
+        IF distSq& <= threshSq& THEN
+            ' Set alpha to 0 (fully transparent) — keep RGB intact
+            _MEMPUT srcMem, srcMem.OFFSET + pxOff + 3, 0 AS _UNSIGNED _BYTE
+        END IF
+    NEXT pxOff
+
+    _MEMFREE srcMem
+    GJ_IMGADJ_RemoveBackground = resultImg
+END FUNCTION
+
+
+''
+' Remove background using contiguous flood fill from image edges.
+' Only removes pixels that are connected to the border AND within threshold.
+' Interior "islands" of matching color are preserved.
+'
+' @param sourceImg LONG Source image handle
+' @param targetColor _UNSIGNED LONG Color to remove
+' @param threshold INTEGER Distance tolerance 0-441
+' @return LONG New image handle with background removed, 0 on error
+'
+FUNCTION GJ_IMGADJ_RemoveBackgroundContiguous (sourceImg AS LONG, targetColor AS _UNSIGNED LONG, threshold AS INTEGER)
+    IF sourceImg = 0 OR sourceImg = -1 THEN
+        GJ_IMGADJ_RemoveBackgroundContiguous = 0
+        EXIT FUNCTION
+    END IF
+
+    DIM rcW AS INTEGER, rcH AS INTEGER
+    rcW% = _WIDTH(sourceImg)
+    rcH% = _HEIGHT(sourceImg)
+
+    ' Clone source with alpha preserved
+    DIM rcResult AS LONG
+    rcResult& = _NEWIMAGE(rcW%, rcH%, 32)
+    DIM rcOldD AS LONG : rcOldD& = _DEST
+    _DEST rcResult&
+    _DONTBLEND rcResult&
+    _PUTIMAGE , sourceImg
+    _BLEND rcResult&
+    _DEST rcOldD&
+
+    DIM rcMem AS _MEM
+    rcMem = _MEMIMAGE(rcResult&)
+
+    ' Target color components
+    DIM rcTR AS INTEGER, rcTG AS INTEGER, rcTB AS INTEGER
+    rcTR% = _RED32(targetColor~&)
+    rcTG% = _GREEN32(targetColor~&)
+    rcTB% = _BLUE32(targetColor~&)
+
+    DIM rcThreshSq AS LONG
+    rcThreshSq& = CLNG(threshold%) * CLNG(threshold%)
+
+    DIM rcMaxPx AS LONG : rcMaxPx& = CLNG(rcW%) * CLNG(rcH%)
+
+    ' Visited buffer (1 byte per pixel, zeroed)
+    DIM rcVisited AS _MEM : rcVisited = _MEMNEW(rcMaxPx&)
+    _MEMFILL rcVisited, rcVisited.OFFSET, rcMaxPx&, 0 AS _UNSIGNED _BYTE
+
+    ' BFS queue buffer (4 bytes per LONG index)
+    DIM rcQueue AS _MEM : rcQueue = _MEMNEW(rcMaxPx& * 4)
+    DIM rcQHead AS LONG : rcQHead& = 0
+    DIM rcQTail AS LONG : rcQTail& = 0
+
+    ' Working variables
+    DIM rcPx AS _UNSIGNED LONG
+    DIM rcPR AS INTEGER, rcPG AS INTEGER, rcPB AS INTEGER
+    DIM rcDR AS LONG, rcDG AS LONG, rcDB AS LONG
+    DIM rcDistSq AS LONG
+    DIM rcIdx AS LONG
+    DIM rcX AS INTEGER, rcY AS INTEGER
+    DIM rcVis AS _UNSIGNED _BYTE
+
+    ' Seed all edge pixels that match threshold
+    FOR rcY% = 0 TO rcH% - 1
+        FOR rcX% = 0 TO rcW% - 1
+            IF rcX% = 0 OR rcX% = rcW% - 1 OR rcY% = 0 OR rcY% = rcH% - 1 THEN
+                rcIdx& = CLNG(rcY%) * CLNG(rcW%) + CLNG(rcX%)
+                _MEMGET rcMem, rcMem.OFFSET + rcIdx& * 4, rcPx~&
+                rcPR% = _RED32(rcPx~&) : rcPG% = _GREEN32(rcPx~&) : rcPB% = _BLUE32(rcPx~&)
+                rcDR& = CLNG(rcPR%) - CLNG(rcTR%) : rcDG& = CLNG(rcPG%) - CLNG(rcTG%) : rcDB& = CLNG(rcPB%) - CLNG(rcTB%)
+                rcDistSq& = rcDR& * rcDR& + rcDG& * rcDG& + rcDB& * rcDB&
+                IF rcDistSq& <= rcThreshSq& THEN
+                    _MEMPUT rcVisited, rcVisited.OFFSET + rcIdx&, 1 AS _UNSIGNED _BYTE
+                    _MEMPUT rcQueue, rcQueue.OFFSET + rcQTail& * 4, rcIdx& AS LONG
+                    rcQTail& = rcQTail& + 1
+                END IF
+            END IF
+        NEXT rcX%
+    NEXT rcY%
+
+    ' BFS flood fill from edge pixels
+    DIM rcCurIdx AS LONG, rcCurX AS INTEGER, rcCurY AS INTEGER
+    DIM rcNX AS INTEGER, rcNY AS INTEGER, rcNIdx AS LONG
+    DIM rcDI AS INTEGER
+
+    WHILE rcQHead& < rcQTail&
+        _MEMGET rcQueue, rcQueue.OFFSET + rcQHead& * 4, rcCurIdx&
+        rcQHead& = rcQHead& + 1
+        rcCurX% = rcCurIdx& MOD rcW%
+        rcCurY% = rcCurIdx& \ rcW%
+
+        FOR rcDI% = 0 TO 3
+            SELECT CASE rcDI%
+                CASE 0 : rcNX% = rcCurX% - 1 : rcNY% = rcCurY%
+                CASE 1 : rcNX% = rcCurX% + 1 : rcNY% = rcCurY%
+                CASE 2 : rcNX% = rcCurX% : rcNY% = rcCurY% - 1
+                CASE 3 : rcNX% = rcCurX% : rcNY% = rcCurY% + 1
+            END SELECT
+
+            IF rcNX% >= 0 AND rcNX% < rcW% AND rcNY% >= 0 AND rcNY% < rcH% THEN
+                rcNIdx& = CLNG(rcNY%) * CLNG(rcW%) + CLNG(rcNX%)
+                _MEMGET rcVisited, rcVisited.OFFSET + rcNIdx&, rcVis~%%
+                IF rcVis~%% = 0 THEN
+                    _MEMGET rcMem, rcMem.OFFSET + rcNIdx& * 4, rcPx~&
+                    rcPR% = _RED32(rcPx~&) : rcPG% = _GREEN32(rcPx~&) : rcPB% = _BLUE32(rcPx~&)
+                    rcDR& = CLNG(rcPR%) - CLNG(rcTR%) : rcDG& = CLNG(rcPG%) - CLNG(rcTG%) : rcDB& = CLNG(rcPB%) - CLNG(rcTB%)
+                    rcDistSq& = rcDR& * rcDR& + rcDG& * rcDG& + rcDB& * rcDB&
+                    IF rcDistSq& <= rcThreshSq& THEN
+                        _MEMPUT rcVisited, rcVisited.OFFSET + rcNIdx&, 1 AS _UNSIGNED _BYTE
+                        _MEMPUT rcQueue, rcQueue.OFFSET + rcQTail& * 4, rcNIdx& AS LONG
+                        rcQTail& = rcQTail& + 1
+                    END IF
+                END IF
+            END IF
+        NEXT rcDI%
+    WEND
+
+    ' Set alpha=0 for all visited (reachable from edge) pixels
+    FOR rcIdx& = 0 TO rcMaxPx& - 1
+        _MEMGET rcVisited, rcVisited.OFFSET + rcIdx&, rcVis~%%
+        IF rcVis~%% THEN
+            _MEMPUT rcMem, rcMem.OFFSET + rcIdx& * 4 + 3, 0 AS _UNSIGNED _BYTE
+        END IF
+    NEXT rcIdx&
+
+    _MEMFREE rcMem
+    _MEMFREE rcVisited
+    _MEMFREE rcQueue
+    GJ_IMGADJ_RemoveBackgroundContiguous = rcResult&
+END FUNCTION
+
+
+''
 ' Apply pixel scaling algorithms to images
 ' Uses QB64PE's built-in pixel scalers for retro-style upscaling without blurring
 ' 

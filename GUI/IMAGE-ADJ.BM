@@ -948,3 +948,303 @@ SUB IMAGE_ADJ_pixelate_dialog ()
     DIALOG_cleanup ctx
     IF IMGADJ_LAYER_MASK& < -1 THEN _FREEIMAGE IMGADJ_LAYER_MASK& : IMGADJ_LAYER_MASK& = 0
 END SUB
+
+
+' =============================================================================
+' REMOVE BACKGROUND  (eyedropper + threshold slider + contiguous toggle, h=148)
+' =============================================================================
+' Unlike other adjustments, this intentionally MODIFIES the alpha channel
+' (setting matching pixels to transparent). The standard apply_to_layer SUB
+' preserves alpha, so we use a custom apply path here.
+'
+' PICK enters eyedropper mode: click the canvas to sample a background color.
+' CONTIGUOUS toggle: when ON, only removes pixels connected to image edges
+' (flood fill from borders), preserving interior "islands" of matching color.
+
+SUB IMAGE_ADJ_remove_background_dialog ()
+    IF CURRENT_LAYER% < 1 THEN EXIT SUB
+
+    DIM ctx AS DIALOG_CTX
+    DIALOG_init ctx, IMGDLG_W, 148
+    IMAGE_ADJ_setup_preview ctx, LAYERS(CURRENT_LAYER%).imgHandle&
+
+    ' Default target color = current background color
+    DIM targetColor AS _UNSIGNED LONG : targetColor~& = PAINT_BG_COLOR~&
+
+    ' Threshold 0-100 slider (maps to Euclidean distance 0-441)
+    DIM threshold AS INTEGER : threshold% = 0
+    DIM oThreshold AS INTEGER
+
+    ' Contiguous mode toggle (default ON — smarter removal)
+    DIM contiguous AS INTEGER : contiguous% = TRUE
+
+    ' Eyedropper state
+    DIM eyedropperMode AS INTEGER : eyedropperMode% = FALSE
+    DIM epWaitRelease AS INTEGER : epWaitRelease% = FALSE
+    DIM sampleColor AS _UNSIGNED LONG : sampleColor~& = targetColor~&
+
+    ' Color row layout constants
+    DIM colorRowY AS INTEGER        ' Y of the color swatch/pick row
+    DIM swatchX AS INTEGER          ' Color swatch X
+    DIM swatchW AS INTEGER          ' Color swatch width
+    DIM swatchH AS INTEGER          ' Color swatch height
+    DIM pickBtnX AS INTEGER         ' PICK button X
+    DIM pickBtnW AS INTEGER         ' PICK button width
+    swatchX% = IMGDLG_SX
+    swatchW% = 48
+    swatchH% = 14
+    pickBtnX% = IMGDLG_SX + swatchW% + 8
+    pickBtnW% = 50
+
+    ' Slider and toggle Y positions (computed each frame from colorRowY)
+    DIM sliderLabelY AS INTEGER
+    DIM sliderTrackY AS INTEGER
+    DIM toggleY AS INTEGER
+
+    ' Checkerboard tile for transparency preview
+    DIM checkerTile AS LONG
+    checkerTile& = _NEWIMAGE(8, 8, 32)
+    DIM rbOldD AS LONG : rbOldD& = _DEST
+    _DEST checkerTile&
+    CLS , _RGB32(180, 180, 180)
+    LINE (0, 0)-(3, 3), _RGB32(220, 220, 220), BF
+    LINE (4, 4)-(7, 7), _RGB32(220, 220, 220), BF
+    _DEST rbOldD&
+
+    ' Eyedropper variables
+    DIM epMX AS INTEGER, epMY AS INTEGER
+    DIM epMB1 AS INTEGER
+    DIM epOldSrc AS LONG
+    DIM epHintStr AS STRING
+    DIM epHintW AS INTEGER, epHintH AS INTEGER, epHintX AS INTEGER
+
+    DIM k AS LONG
+    DIM rbResult AS LONG
+    DIM rawThresh AS INTEGER
+    DIM tw AS INTEGER, th AS INTEGER
+    DIM prvD AS LONG
+    DIM cx AS INTEGER, cy AS INTEGER
+    DIM rgbStr AS STRING
+
+    DO
+        IF eyedropperMode% THEN
+            ' ---- EYEDROPPER MODE: show canvas, crosshair, sample on click ----
+            WHILE _MOUSEINPUT : WEND
+            epMX% = _MOUSEX
+            epMY% = _MOUSEY
+            epMB1% = _MOUSEBUTTON(1)
+
+            ' Sample color from screenshot at mouse position
+            IF ctx.screenShot < -1 THEN
+                epOldSrc& = _SOURCE
+                _SOURCE ctx.screenShot
+                IF epMX% >= 0 AND epMX% < _WIDTH(ctx.screenShot) AND epMY% >= 0 AND epMY% < _HEIGHT(ctx.screenShot) THEN
+                    sampleColor~& = POINT(epMX%, epMY%)
+                END IF
+                _SOURCE epOldSrc&
+            END IF
+
+            ' Draw canvas + crosshair
+            _DEST 0
+            IF ctx.screenShot < -1 THEN
+                _DONTBLEND 0
+                _PUTIMAGE , ctx.screenShot
+                _BLEND 0
+            END IF
+
+            ' Crosshair lines with gap at center
+            IF epMX% >= 0 AND epMX% < _WIDTH(0) AND epMY% >= 0 AND epMY% < _HEIGHT(0) THEN
+                IF epMX% > 4 THEN LINE (0, epMY%)-(epMX% - 4, epMY%), _RGB32(255, 255, 255)
+                IF epMX% < _WIDTH(0) - 5 THEN LINE (epMX% + 4, epMY%)-(_WIDTH(0) - 1, epMY%), _RGB32(255, 255, 255)
+                IF epMY% > 4 THEN LINE (epMX%, 0)-(epMX%, epMY% - 4), _RGB32(255, 255, 255)
+                IF epMY% < _HEIGHT(0) - 5 THEN LINE (epMX%, epMY% + 4)-(epMX%, _HEIGHT(0) - 1), _RGB32(255, 255, 255)
+
+                ' Color swatch near cursor
+                LINE (epMX% + 8, epMY% + 8)-(epMX% + 28, epMY% + 28), sampleColor~&, BF
+                LINE (epMX% + 8, epMY% + 8)-(epMX% + 28, epMY% + 28), _RGB32(255, 255, 255), B
+            END IF
+
+            ' Hint text at top center
+            epHintStr$ = "CLICK TO SAMPLE - ESC TO CANCEL"
+            epHintW% = _PRINTWIDTH(epHintStr$)
+            epHintH% = _FONTHEIGHT
+            epHintX% = (_WIDTH(0) - epHintW%) \ 2
+            LINE (epHintX% - 4, 2)-(epHintX% + epHintW% + 4, 4 + epHintH%), _RGBA32(0, 0, 0, 200), BF
+            COLOR _RGB32(255, 255, 255)
+            _PRINTSTRING (epHintX%, 4), epHintStr$
+
+            _DISPLAY
+            _LIMIT CFG.FPS_DIALOG%
+
+            ' Wait for initial button release before accepting clicks
+            IF epWaitRelease% THEN
+                IF NOT epMB1% THEN epWaitRelease% = FALSE
+            ELSE
+                IF epMB1% THEN
+                    targetColor~& = sampleColor~&
+                    eyedropperMode% = FALSE
+                    ctx.previewDirty% = TRUE
+                END IF
+            END IF
+
+            ' Escape cancels eyedropper
+            k& = _KEYHIT
+            IF k& = 27 THEN eyedropperMode% = FALSE
+        ELSE
+            ' ---- NORMAL DIALOG MODE ----
+            DIALOG_poll_mouse ctx
+            IF ctx.loupeDirty% THEN IMAGE_ADJ_update_loupe ctx
+            k& = _KEYHIT
+            IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
+            IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
+
+            ' Color row Y position (first control row below preview)
+            colorRowY% = 24 + ctx.prevH
+
+            ' PICK button → enter eyedropper mode
+            IF DIALOG_hit%(ctx, pickBtnX%, colorRowY%, pickBtnW%, swatchH%) THEN
+                eyedropperMode% = TRUE
+                epWaitRelease% = TRUE
+            END IF
+
+            ' Slider and toggle Y positions
+            sliderLabelY% = colorRowY% + swatchH% + 10
+            sliderTrackY% = sliderLabelY% + 12
+            toggleY% = sliderTrackY% + 22
+
+            ' Threshold slider
+            oThreshold% = threshold%
+            threshold% = DIALOG_slider_drag%(ctx, IMGDLG_SX, sliderTrackY%, IMGDLG_SW, 14, threshold%, 0, 100)
+            threshold% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, sliderTrackY%, IMGDLG_SW, 14, threshold%, 0, 100)
+            IF threshold% <> oThreshold% THEN ctx.previewDirty% = TRUE
+
+            ' Contiguous toggle
+            IF DIALOG_hit%(ctx, IMGDLG_SX, toggleY%, IMGDLG_SW, 14) THEN
+                contiguous% = NOT contiguous%
+                ctx.previewDirty% = TRUE
+            END IF
+
+            IMGDLG_check_ok_cancel ctx
+
+            ' Recompute preview when color, threshold, or mode changes
+            IF ctx.previewDirty% THEN
+                IF ctx.previewThumb < -1 THEN _FREEIMAGE ctx.previewThumb
+
+                ' Map 0-100 slider to 0-441 Euclidean distance
+                rawThresh% = INT(threshold% * 4.41 + 0.5)
+                IF rawThresh% > 441 THEN rawThresh% = 441
+
+                ' Run the appropriate removal algorithm on the preview thumbnail
+                IF contiguous% THEN
+                    rbResult& = GJ_IMGADJ_RemoveBackgroundContiguous(ctx.origThumb, targetColor~&, rawThresh%)
+                ELSE
+                    rbResult& = GJ_IMGADJ_RemoveBackground(ctx.origThumb, targetColor~&, rawThresh%)
+                END IF
+
+                ' Composite result onto checkerboard so transparency is visible
+                tw% = _WIDTH(ctx.origThumb)
+                th% = _HEIGHT(ctx.origThumb)
+                ctx.previewThumb = _NEWIMAGE(tw%, th%, 32)
+                prvD& = _DEST
+                _DEST ctx.previewThumb
+                ' Tile checkerboard as background
+                FOR cy% = 0 TO th% - 1 STEP 8
+                    FOR cx% = 0 TO tw% - 1 STEP 8
+                        _PUTIMAGE (cx%, cy%)-(cx% + 7, cy% + 7), checkerTile&
+                    NEXT cx%
+                NEXT cy%
+                ' Composite the removed-background image on top (alpha blend)
+                _BLEND ctx.previewThumb
+                IF rbResult& < -1 THEN
+                    _PUTIMAGE , rbResult&, ctx.previewThumb
+                    _FREEIMAGE rbResult&
+                END IF
+                _DEST prvD&
+
+                ' Do NOT call IMAGE_ADJ_mask_preview — we want to show the
+                ' transparency effect, not restore original pixels.
+                ctx.previewDirty% = FALSE
+            END IF
+
+            ' ---- Draw ----
+            _DEST ctx.imgHandle
+            DIALOG_draw_frame ctx, "REMOVE BACKGROUND"
+            DIALOG_draw_preview ctx
+
+            ' Color swatch + label
+            DIALOG_draw_label ctx, IMGDLG_SX, colorRowY% - 12, "COLOR:"
+            LINE (swatchX%, colorRowY%)-(swatchX% + swatchW%, colorRowY% + swatchH%), targetColor~&, BF
+            LINE (swatchX%, colorRowY%)-(swatchX% + swatchW%, colorRowY% + swatchH%), _RGB32(160, 160, 160), B
+
+            ' PICK button (eyedropper)
+            DIALOG_draw_button ctx, pickBtnX%, colorRowY%, pickBtnW%, swatchH%, "PICK", _RGB32(60, 60, 80), _RGB32(80, 80, 120), _RGB32(120, 120, 160)
+
+            ' RGB readout next to PICK button
+            rgbStr$ = _TRIM$(STR$(_RED32(targetColor~&))) + "," + _TRIM$(STR$(_GREEN32(targetColor~&))) + "," + _TRIM$(STR$(_BLUE32(targetColor~&)))
+            COLOR _RGB32(160, 160, 160)
+            _PRINTSTRING (pickBtnX% + pickBtnW% + 8, colorRowY% + 3), rgbStr$
+
+            ' Threshold slider
+            DIALOG_draw_label ctx, IMGDLG_SX, sliderLabelY%, "THRESHOLD:"
+            DIALOG_draw_slider ctx, IMGDLG_SX, sliderTrackY%, IMGDLG_SW, threshold%, 0, 100, "", "%"
+
+            ' Contiguous toggle
+            DIALOG_draw_toggle ctx, IMGDLG_SX, toggleY%, IMGDLG_SW, 14, "CONTIGUOUS (EDGES ONLY)", contiguous%
+
+            DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
+            IMGDLG_draw_ok_cancel ctx
+            DIALOG_blit ctx
+        END IF
+    LOOP UNTIL ctx.done%
+
+    ' ---- Apply (custom — intentionally modifies alpha) ----
+    IF ctx.result% THEN
+        DIM applyLayerImg AS LONG
+        applyLayerImg& = LAYERS(CURRENT_LAYER%).imgHandle&
+
+        ' Snapshot original for undo
+        DIM applySnap AS LONG
+        applySnap& = _COPYIMAGE(applyLayerImg&, 32)
+
+        ' Map threshold and run algorithm on the full layer image
+        DIM applyThresh AS INTEGER
+        applyThresh% = INT(threshold% * 4.41 + 0.5)
+        IF applyThresh% > 441 THEN applyThresh% = 441
+
+        DIM applyResult AS LONG
+        IF contiguous% THEN
+            applyResult& = GJ_IMGADJ_RemoveBackgroundContiguous(applyLayerImg&, targetColor~&, applyThresh%)
+        ELSE
+            applyResult& = GJ_IMGADJ_RemoveBackground(applyLayerImg&, targetColor~&, applyThresh%)
+        END IF
+
+        IF applyResult& < -1 THEN
+            ' Blit with _DONTBLEND to overwrite alpha channel
+            DIM applyOldD AS LONG : applyOldD& = _DEST
+            _DEST applyLayerImg&
+            _DONTBLEND applyLayerImg&
+            CLS , _RGBA32(0, 0, 0, 0)
+            _PUTIMAGE , applyResult&
+            _BLEND applyLayerImg&
+            _DEST applyOldD&
+            _FREEIMAGE applyResult&
+
+            ' Record undo
+            IF applySnap& < -1 THEN
+                HISTORY_record_transform LAYERS(CURRENT_LAYER%).historyId&, CURRENT_LAYER%, 0, applySnap&, "Remove Background"
+                HISTORY_saved_this_frame% = TRUE
+            END IF
+
+            LAYERS(CURRENT_LAYER%).contentDirty% = TRUE
+            INVALIDATE_layers
+        ELSE
+            ' Algorithm failed — free the snapshot
+            IF applySnap& < -1 THEN _FREEIMAGE applySnap&
+        END IF
+    END IF
+
+    ' ---- Cleanup ----
+    IF checkerTile& < -1 THEN _FREEIMAGE checkerTile&
+    DIALOG_cleanup ctx
+    IF IMGADJ_LAYER_MASK& < -1 THEN _FREEIMAGE IMGADJ_LAYER_MASK& : IMGADJ_LAYER_MASK& = 0
+END SUB
