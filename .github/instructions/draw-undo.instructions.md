@@ -1,100 +1,106 @@
 ---
-applyTo: "**/UNDO*.B*, **/WORKSPACE-UNDO*.B*, **/MOUSE.BM, **/KEYBOARD.BM"
+applyTo: "**/HISTORY*.B*, **/MOUSE.BM, **/KEYBOARD.BM"
 ---
 
-# DRAW — Undo System
+# DRAW — History / Undo System
 
-DRAW now has **three undo/history systems** sharing a single Ctrl+Z/Y keybinding via timestamp-based routing.
-
-- `HISTORY` is the preferred unified record/replay path for most modern paint, transform, selection, text, and layer operations.
-- `WORKSPACE_UNDO` remains the structural fallback for layer operations not yet covered by `HISTORY`.
-- `UNDO` remains the legacy per-layer pixel snapshot fallback.
-
----
-
-## Pixel Undo (`TOOLS/UNDO.BI` / `UNDO.BM`)
-
-Stores per-layer `_COPYIMAGE` snapshots.
-
-**Types**: `UNDO_STATE` (`img&`, `layer_index%`, `timestamp#`), `UNDO_SYSTEM` (`current%`, `count%`, `max_states%` = 100)  
-**Storage**: `DIM SHARED UNDO_STATES(100) AS UNDO_STATE`
-
-| Function | Behavior |
-|---|---|
-| `UNDO_init` | Resets all states, saves initial blank canvas as state 0 |
-| `UNDO_save_state` | Truncates redo branch, shifts oldest if at max, saves `_COPYIMAGE` of `LAYER_current_image&` with `TIMER` timestamp, sets `CANVAS_DIRTY% = TRUE` |
-| `UNDO_undo` | Scans backward for same-layer state, restores via `_PUTIMAGE`. If no previous state, clears layer to transparent. Calls `BLEND_invalidate_cache`. |
-| `UNDO_redo` | Moves forward one state, restores via `_PUTIMAGE` |
-| `UNDO_get_last_timestamp#` | Returns TIMER value of current state |
-
-**Double-save guard**: `UNDO_saved_this_frame%` — reset to `FALSE` every frame in `LOOP_start`. Always check before saving:
-
-```qb64
-IF NOT UNDO_saved_this_frame% THEN
-    UNDO_save_state
-    UNDO_saved_this_frame% = TRUE
-END IF
-```
-
----
-
-## Workspace Undo (`TOOLS/WORKSPACE-UNDO.BI` / `WORKSPACE-UNDO.BM`)
-
-Stores structural layer operations. Does NOT store pixel data.
-
-**Action types**: `WUNDO_TYPE_LAYER_ADD=1`, `DELETE=2`, `RENAME=3`, `REORDER=4`, `MERGE=5`, `MERGE_VISIBLE=6`
-
-**Guards**:
-- `WORKSPACE_UNDO_READY%` — prevents saves during init
-- `WORKSPACE_UNDO_IN_PROGRESS%` — prevents undo/redo from creating new states
-
-**Selection rule**:
-- Selection mutations must use a staged pre-change snapshot plus a post-change commit. Do NOT push a workspace undo state before the mutation is known to have changed MARQUEE state, or no-op clicks will consume undo and incorrectly truncate redo.
-
-**Callers** (all in `GUI/LAYERS.BM`): `LAYERS_new%`, `LAYERS_duplicate`, `LAYERS_delete`, `LAYERS_rename`, `LAYERS_move_up`, `LAYERS_move_down`, `LAYERS_merge_down`, `LAYERS_merge_visible`
+DRAW uses a **unified history system** (`TOOLS/HISTORY.BI` / `HISTORY.BM`) for all Ctrl+Z/Y undo/redo. The old separate `UNDO` (pixel snapshots) and `WORKSPACE_UNDO` (structural layer ops) systems have been removed.
 
 ---
 
 ## Unified History (`TOOLS/HISTORY.BI` / `HISTORY.BM`)
 
-`HISTORY` records replayable operations with stable `historyId&` layer identities, typed record kinds, optional payloads, and export metadata.
+`HISTORY` records replayable operations with stable `historyId&` layer identities, typed record kinds, optional payloads, and export metadata. Up to `HISTORY_MAX_RECORDS = 1024` entries.
 
-Common record kinds include layer add/delete/reorder/rename, selection change, line/rect/ellipse/polyline, fill, brush, and transform.
+### Record Kinds
 
-Use `HISTORY_*` recording helpers whenever an operation can be represented semantically. Prefer grouped history records for multi-layer move/transform operations.
+| Constant | Value | Use |
+|---|---|---|
+| `HISTORY_KIND_BRUSH` | 9 | Brush, dot, spray, eraser strokes |
+| `HISTORY_KIND_LINE` | 5 | Line tool |
+| `HISTORY_KIND_RECT` | 6 | Rectangle tool |
+| `HISTORY_KIND_ELLIPSE` | 7 | Ellipse tool |
+| `HISTORY_KIND_POLYLINE` | 12 | Polygon tool |
+| `HISTORY_KIND_FILL` | 8 | Flood fill |
+| `HISTORY_KIND_TRANSFORM` | 10 | Transform, move, image adjustments, flip/scale/rotate |
+| `HISTORY_KIND_SELECTION_CHANGE` | 4 | Selection/marquee/wand mutations |
+| `HISTORY_KIND_LAYER_ADD` | 1 | Layer created |
+| `HISTORY_KIND_LAYER_DELETE` | 2 | Layer deleted |
+| `HISTORY_KIND_LAYER_REORDER` | 3 | Layer z-order changed |
+| `HISTORY_KIND_LAYER_RENAME` | 11 | Layer renamed |
+| `HISTORY_KIND_LAYER_MERGE` | 13 | Merge down |
+| `HISTORY_KIND_LAYER_MERGE_VISIBLE` | 14 | Merge all visible |
 
----
+### Key Types
 
-## Intelligent Ctrl+Z / Ctrl+Y Routing
+**`HISTORY_RECORD`**: `kind%`, `exportKind%`, `sequence&`, `primaryLayerId&`, `secondaryLayerId&`, `slotIndex%`, `oldZIndex%`, `newZIndex%`, `img&` (before-image), `img2&`, `toolId%`, `flags&`, coordinate fields, color fields, `payloadOffset&`, `payloadLength&`, `label$`
+
+**`HISTORY_SYSTEM`**: `current%`, `count%`, `maxRecords%`, `nextSequence&`, `recording%`
+
+### Key Functions
+
+| Function | Behavior |
+|---|---|
+| `HISTORY_init` | Initializes the history system |
+| `HISTORY_clear` | Resets all history records, frees images |
+| `HISTORY_can_undo%` / `HISTORY_can_redo%` | Check availability |
+| `HISTORY_undo` | Undo the current record |
+| `HISTORY_redo` | Redo the next record |
+| `HISTORY_record_brush` | Record brush/dot/spray/eraser stroke (before-image) |
+| `HISTORY_record_line` | Record line with endpoints |
+| `HISTORY_record_rect` | Record rectangle with bounds |
+| `HISTORY_record_ellipse` | Record ellipse with bounds |
+| `HISTORY_record_polyline` | Record polygon with point arrays |
+| `HISTORY_record_fill` | Record flood fill with seed point |
+| `HISTORY_record_transform` | Record transform/move/image adjustment |
+| `HISTORY_record_layer_add/delete/reorder/rename` | Structural layer ops |
+| `HISTORY_record_layer_merge` | Merge down |
+| `HISTORY_record_layer_merge_visible` | Merge visible (backs up all source layers) |
+| `HISTORY_selection_stage` | Snapshot selection state before mutation |
+| `HISTORY_selection_commit` | Save selection change if state differs from snapshot |
+| `HISTORY_begin_group` / `HISTORY_end_group` | Group multiple records as one undo step |
+
+### Double-Save Guard
+
+`HISTORY_saved_this_frame%` — reset to `FALSE` every frame in `LOOP_start`. Always check before saving:
 
 ```qb64
-historyUndoTs# = HISTORY_get_last_timestamp#
-pixelUndoTs# = UNDO_get_last_timestamp#
-workspaceUndoTs# = WORKSPACE_UNDO_get_last_timestamp#
-
-IF HISTORY_can_undo% AND historyUndoTs# > 0 AND _
-   (NOT WORKSPACE_UNDO_can_undo% OR historyUndoTs# >= workspaceUndoTs#) AND _
-   (pixelUndoTs# <= 0 OR historyUndoTs# >= pixelUndoTs#) THEN
-    HISTORY_undo
-ELSEIF workspaceUndoTs# > pixelUndoTs# AND WORKSPACE_UNDO_can_undo% THEN
-    WORKSPACE_UNDO_undo      ' Layer op was more recent
-ELSEIF pixelUndoTs# > 0 THEN
-    UNDO_undo                ' Pixel change was more recent
+IF NOT HISTORY_saved_this_frame% THEN
+    HISTORY_record_brush layerId&, slotIdx%, drawColor~&, flags&, beforeImg&, "Brush"
+    HISTORY_saved_this_frame% = TRUE
 END IF
 ```
 
 ---
 
-## Where Undo States Are Created
+## Ctrl+Z / Ctrl+Y Routing (`INPUT/KEYBOARD.BM`)
+
+Routing is direct — no multi-system timestamp comparison:
+
+```qb64
+IF HISTORY_can_undo% THEN
+    HISTORY_undo
+END IF
+' ...
+IF HISTORY_can_redo% THEN
+    HISTORY_redo
+END IF
+```
+
+Special case: Active polygon in-progress is cancelled instead of undoing.
+
+---
+
+## Where History States Are Created
 
 **Mouse release handlers** (`INPUT/MOUSE.BM`):
-- `MOUSE_release_brush`, `MOUSE_release_dot`, `MOUSE_release_spray` — on button up
-- `MOUSE_release_line`, `MOUSE_release_rect`, `MOUSE_release_ellip` — after shape commit
-- Fill tool — after flood fill completes
-- Right-click shift-line — after connecting line drawn
+- Brush, dot, spray, eraser — on button up via `HISTORY_record_brush`
+- Line, rect, ellipse — after shape commit via `HISTORY_record_line/rect/ellipse`
+- Fill — after flood fill completes via `HISTORY_record_fill`
+- Polygon — on close/commit via `HISTORY_record_polyline`
 
 **Selection callers**:
-- Use `WORKSPACE_UNDO_stage_selection` before selection mutation and `WORKSPACE_UNDO_commit_selection` after it.
+- Use `HISTORY_selection_stage` before selection mutation and `HISTORY_selection_commit` after it.
 - This pattern applies to wand select, marquee finish/resize/move, polygon close, Select All, Invert, Deselect, and click-outside-selection deselect paths.
 
 **Tool implementations**:
@@ -107,34 +113,23 @@ END IF
 
 **Command dispatcher** (`GUI/COMMAND.BM`):
 - Copy to new layer, fill FG/BG, flip H/V, scale, rotate
+- Image adjustments, stroke selection
 
-**History callers** (`TOOLS/HISTORY.BM` + operation sites):
-- Brush, dot, spray, fill, line, rect, ellipse, polyline
-- Transform, move, image adjustments, stroke selection
-- Text stamping, including payload data for custom font attributes
-- Multi-layer edit commands that can be replayed semantically
+**Layer operations** (`GUI/LAYERS.BM`):
+- `LAYERS_new%`, `LAYERS_duplicate`, `LAYERS_delete`, `LAYERS_rename`
+- `LAYERS_move_up`, `LAYERS_move_down`
+- `LAYERS_merge_down`, `LAYERS_merge_visible`
 
 ---
-
-## Bug Patterns (Lessons Learned)
-
-| Bug | Root Cause | Fix |
-|---|---|---|
-| Ctrl+Z does nothing for 2 presses after menu action | `UI_CHROME_CLICKED%` reset before `MOUSE_should_skip_tool_actions%`, allowing phantom undo states on release | Move reset inside `MOUSE_should_skip_tool_actions%` |
-| Undo broken after Palette Random | `_DEST _CONSOLE` debug prints in `PALETTE_LOADER_load_by_index%` corrupted `_DEST` | Remove all `_DEST _CONSOLE`; use `_LOGINFO` |
-| Double undo states per brush stroke | Missing `UNDO_saved_this_frame%` check | Always check flag before `UNDO_save_state` |
-| Dead undo step after no-op selection click | Selection history pushed before mutation, even when MARQUEE state did not change | Stage selection first, then commit only if the post-mutation state differs |
-| First pixel edit on a merged layer will not undo | New merged layer created while workspace undo auto-save is suppressed, so no pixel baseline exists for that layer | Manually call `UNDO_save_layer_state` after the merge and restore `PIXEL_UNDO_LAST_TIMESTAMP#` |
-| Transform commit can create duplicate save points | Transform saved pixel undo without the standard frame guard | Wrap `UNDO_save_state` in the usual `UNDO_saved_this_frame%` guard |
 
 ## Selection Undo Pattern
 
 Use this for any selection mutation that might be a no-op:
 
 ```qb64
-WORKSPACE_UNDO_stage_selection
+HISTORY_selection_stage
 ' ... mutate MARQUEE / selection mask ...
-WORKSPACE_UNDO_commit_selection
+HISTORY_selection_commit
 ```
 
 Why:
@@ -142,52 +137,16 @@ Why:
 - Avoids dead Ctrl+Z steps after clicks inside the same selection
 - Keeps deselect paths undoable without forcing every caller to pre-compute whether the mutation will change the mask
 
-## Merged Layer Pixel Baseline Rule
+---
 
-If a command creates a brand-new raster layer while `WORKSPACE_UNDO_IN_PROGRESS% = TRUE`, the normal `LAYERS_new%` pixel baseline save is suppressed on purpose. If the new layer will later receive pixel edits, the command must manually create a pixel baseline after the structural operation completes:
+## Bug Patterns (Lessons Learned)
 
-```qb64
-DIM savedPixelTs AS DOUBLE
-savedPixelTs# = PIXEL_UNDO_LAST_TIMESTAMP#
-UNDO_save_layer_state newLayerIndex%
-PIXEL_UNDO_LAST_TIMESTAMP# = savedPixelTs#
-```
-
-Why:
-- The first later pixel edit on that new layer needs a prior same-layer snapshot
-- Restoring `PIXEL_UNDO_LAST_TIMESTAMP#` ensures Ctrl+Z still routes to workspace undo for undoing the merge itself
-
-### Workspace Replay Layer Slot Rule
-
-When workspace undo/redo recreates a layer, restore it into its original layer slot and original z-order. Pixel undo/redo state is keyed by `layer_index%`; recreating the layer in a different slot disconnects existing pixel history from the restored layer.
-
-Do not use replay-time pixel baseline saves on a layer that already has pixel history. `UNDO_save_layer_state` truncates redo branches by design, so calling it during workspace replay can destroy a pending pixel redo chain.
-
-Use manual slot recreation during replay and preserve the original `layer_index%` whenever possible.
-
-### Reorder Save Rule
-
-Every reorder path must save a workspace reorder state before mutating `zIndex%`, including drag-drop reordering and top/bottom moves. Undo/redo for reorder must move the layer to the exact saved `old_zIndex%` or `new_zIndex%`, not assume a single-step move.
-
-Applies to:
-- Undo layer delete
-- Redo layer add
-- Undo merge down
-- Undo merge visible
-
-Pattern:
-
-```qb64
-DIM savedPixelTs AS DOUBLE
-savedPixelTs# = PIXEL_UNDO_LAST_TIMESTAMP#
-UNDO_save_layer_state restoredLayerIndex%
-PIXEL_UNDO_LAST_TIMESTAMP# = savedPixelTs#
-```
-
-Why:
-- The restored layer must have a same-layer pixel checkpoint that matches its post-replay pixels
-- Without this, the first later paint operation can undo to stale pre-replay content such as merged pixels or deleted-layer remnants
-- Restoring `PIXEL_UNDO_LAST_TIMESTAMP#` keeps Ctrl+Z routed to workspace undo for the structural action itself
+| Bug | Root Cause | Fix |
+|---|---|---|
+| Ctrl+Z does nothing for 2 presses after menu action | `UI_CHROME_CLICKED%` reset before `MOUSE_should_skip_tool_actions%`, allowing phantom history states on release | Move reset inside `MOUSE_should_skip_tool_actions%` |
+| Undo broken after Palette Random | `_DEST _CONSOLE` debug prints corrupted `_DEST` | Remove all `_DEST _CONSOLE`; use `_LOGINFO` |
+| Double history states per brush stroke | Missing `HISTORY_saved_this_frame%` check | Always check flag before recording |
+| Dead undo step after no-op selection click | Selection history pushed before mutation, even when state did not change | Stage selection first, then commit only if the post-mutation state differs |
 
 ---
 
@@ -197,4 +156,4 @@ Why:
 2. **Checked** by `MOUSE_should_skip_tool_actions%` — when TRUE, consumes `OLD_B*` so `MOUSE_dispatch_tool_release` never fires
 3. **Reset FALSE** inside `MOUSE_should_skip_tool_actions%` when all buttons are released
 
-**CRITICAL**: Reset MUST happen inside `MOUSE_should_skip_tool_actions%`. If it resets earlier, the release-frame sees stale `OLD_B1%=TRUE` with the flag cleared — causing `MOUSE_dispatch_tool_release` to fire and create a phantom `UNDO_save_state`. Each GUI click-release creates 2 phantom undo states with identical data, making Ctrl+Z appear to "do nothing".
+**CRITICAL**: Reset MUST happen inside `MOUSE_should_skip_tool_actions%`. If it resets earlier, the release-frame sees stale `OLD_B1%=TRUE` with the flag cleared — causing `MOUSE_dispatch_tool_release` to fire and create a phantom history record.

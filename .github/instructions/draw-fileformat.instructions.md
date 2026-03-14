@@ -49,7 +49,7 @@ Constants: `DRW_MAGIC$ = "DRW1"`, `DRW_VERSION% = 13`, `DRW_CHUNK_VERSION% = 1`
 ### State Reset on File Load (`DRW_load_binary`)
 
 ```qb64
-UNDO_init: WORKSPACE_UNDO_clear: MARQUEE_reset: MOVE_init: MAGIC_WAND_reset: ERASER_reset
+HISTORY_clear: MARQUEE_reset: MOVE_init: MAGIC_WAND_reset: ERASER_reset
 DRAWER_reset: PREVIEW_reset
 LAYER_PANEL.scrollOffset% = 0: LAYER_PANEL.soloLayer% = 0
 LAYER_PANEL.visSwiping% = FALSE: LAYER_PANEL.dragPending% = FALSE
@@ -74,7 +74,7 @@ Config file: `DRAW.cfg` — plain text, one `key=value` per line. Loaded by `CON
 | Palette  | `DEFAULT_PALETTE$`, `PALETTE_CHIP_WIDTH/HEIGHT%`, `PALETTE_MIN/MAX_ROWS%` |
 | Brush    | `DEFAULT_TOOL%`, `DEFAULT_BRUSH_SIZE%`, `DEFAULT_BRUSH_SHAPE%`, `DEFAULT_DRAW_MODE%`, `DEFAULT_BIN_MODE%` |
 | Grid     | `GRID_MODE%`, `GRID_SIZE_X/Y%`, `GRID_CELL_FILL%` |
-| Undo     | `WORKSPACE_UNDO_MAX_STATES%` |
+| Undo     | `HISTORY_MAX_RECORDS` (1024)                            |
 | Picker   | `PICKER_LOUPE_*` overlay layout, font, and colors |
 | Preview / Panels | `PREVIEW_*`, `EDIT_BAR_VISIBLE%`, `EDIT_BAR_DOCK_POSITION$`, `LAYER_PANEL_WIDTH%`, `LAYERS_PANEL_DOCK_EDGE$`, `TOOLBOX_DOCK_EDGE$` |
 | Palette UI | `PALETTE_SHOW_LOSPEC%`, `PALETTE_SHOW_CREATED%`, `PALETTE_CREATE_MAX_COLORS%` |

@@ -51,7 +51,9 @@ When only the cursor moved, `SCENE_DIRTY%` stays FALSE. The renderer copies the 
 ### Performance Patterns
 
 - **Persistent buffers**: `COMPOSITE_BUFFER&`, `SCENE_CACHE&`, `PG_CACHE_IMG&` — allocated once, never reallocated per frame
-- **Conditional GUI redraw**: `GUI_NEEDS_REDRAW%` gates toolbar/status/palette/layer re-rendering
+- **Conditional GUI redraw**: `GUI_NEEDS_REDRAW%` gates toolbar/status/palette/layer re-rendering. Per-widget dirty flags allow selective rendering of individual GUI components without redrawing the entire GUI layer.
+- **Region-based compositing**: `COMP_DIRTY_X1/Y1/X2/Y2` track the canvas region modified per frame (set by drawing dispatch, reset in `LOOP_start`). When `COMP_DIRTY_VALID% = TRUE` and `COMPOSITE_RESULT_VALID% = TRUE`, `RENDER_layers` restricts blend compositing to the dirty rect instead of the full canvas.
+- **Status-only redraw**: When only the status bar content changes (e.g. coordinate display during mouse movement), the renderer can skip full GUI redraw and update only the status bar.
 - **Layer render order**: `RENDER_ORDER%()` lookup table, rebuilt when `RENDER_ORDER_DIRTY%`
 - **Opacity cache**: Per-layer `opacityCacheImg&` + `opacityCacheVal%` + `contentDirty%`. Cache hit skips expensive per-pixel `_MEM` opacity loop. Only mark `contentDirty% = TRUE` when pixel content actually changes.
 - **`contentDirty%` discipline**: `BLEND_invalidate_cache` does NOT mark layers `contentDirty%`. It only sets `BLEND_COMPOSITE_DIRTY%`, `RENDER_ORDER_DIRTY%`, `SCENE_DIRTY%`, and `COMPOSITE_BELOW_VALID% = FALSE`.
@@ -101,7 +103,7 @@ Helpers: `MULTI_SELECT_clear`, `MULTI_SELECT_toggle layerIndex%`
 ### Mark `contentDirty% = TRUE` when layer pixels actually change:
 - Drawing/painting committed (brush stroke, fill, text stamp)
 - `LAYERS_clear`, `LAYERS_merge_down`, `LAYERS_duplicate`
-- `WORKSPACE_UNDO_undo` / `_redo` when restoring pixel data
+- `WORKSPACE_UNDO_undo` / `_redo` when restoring pixel data (now via `HISTORY_undo` / `HISTORY_redo`)
 - Any `_COPYIMAGE` / `_PUTIMAGE` modifying layer `imgHandle&`
 
 **Do NOT** blanket-set `contentDirty%` on all layers in `BLEND_invalidate_cache`.

@@ -146,8 +146,12 @@ Vertical icon bar that mirrors Edit menu actions as clickable icon buttons. Dock
 - **25 slots**: 20 action icons + 5 dividers
 - **Groups**: History (Undo/Redo) | Clipboard (Cut/Copy/CopyMerged/Paste/PasteInPlace) | Layer ops (CutToLayer/CopyToLayer) | Clear | Fill/Stroke (FillFG/FillBG/StrokeSelection) | Quick transforms (FlipH/FlipV/Scale-/Scale+/RotateCW/RotateCCW)
 - **Config**: `EDIT_BAR_VISIBLE%`, `EDIT_BAR_DOCK_POSITION$` ("LEFT"/"RIGHT")
-- **Theme fields**: `EDIT_BAR_WIDTH%`, `EDIT_BAR_*_BORDER_WIDTH%`, `EDIT_BAR_ICON_PADDING%`, plus 20 `EDIT_BAR_ICON_*$` filename strings and color fields (`EDIT_BAR_BG~&`, `EDIT_BAR_HOVER~&`, `EDIT_BAR_BORDER*~&`)
+- **Theme fields**: `EDIT_BAR_WIDTH%`, `EDIT_BAR_*_BORDER_WIDTH%`, `EDIT_BAR_ICON_PADDING%`, `EDIT_BAR_DISABLED_ALPHA%`, plus 20 `EDIT_BAR_ICON_*$` filename strings and color fields (`EDIT_BAR_BG~&`, `EDIT_BAR_HOVER~&`, `EDIT_BAR_BORDER*~&`)
 - **Icon dir**: `ASSETS/THEMES/DEFAULT/IMAGES/EDITBAR/*.png`
+
+### Disabled Icon Dimming
+
+When an action is unavailable (e.g., Undo when history is empty, Paste when clipboard is empty), the icon is rendered with reduced alpha (`EDIT_BAR_DISABLED_ALPHA%`). The button is visually dimmed and unclickable, providing clear feedback about which actions are currently enabled.
 
 ### Lazy Icon Loading (Critical Pattern)
 

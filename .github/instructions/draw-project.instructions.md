@@ -28,7 +28,7 @@ applyTo: "**"
 5. **INPUT**: MODIFIERS, KEYBOARD, MOUSE, STICK, FILE-BMP, FILE-BLOAD, FILE-PAL, API-LOSPEC
 6. **OUTPUT**: SCREEN, FILE-BAS, FILE-BMP, FILE-BSAVE
 7. **QB64_GJ_LIB**: DICT, STRINGS, VECT2D
-8. **TOOLS**: 38 tool pairs (NULL, DOT, LINE, RECT, ELLIPSE, FILL, BRUSH, BRUSH-SIZE, BRUSH-FILL, BRUSH-FX-OUTLINE, BRUSH-TEXT, CUSTOM-BRUSH, POLY-LINE, POLY-FILL, MARQUEE, SELECTION, PAN, MOVE, MOVE-NUDGE, SAVE, LOAD, PICKER, UNDO, WORKSPACE-UNDO, DRW, COLOR-FG, COLOR-BG, COLOR-INVERT, CROP, SPRAY, ZOOM, TEXT, SYMMETRY, RAY, IMAGE-IMPORT, REFIMG, ERASER, TRANSFORM)
+8. **TOOLS**: 38 tool pairs (NULL, DOT, LINE, RECT, ELLIPSE, FILL, BRUSH, BRUSH-SIZE, BRUSH-FILL, BRUSH-FX-OUTLINE, BRUSH-TEXT, CUSTOM-BRUSH, POLY-LINE, POLY-FILL, MARQUEE, SELECTION, PAN, MOVE, MOVE-NUDGE, SAVE, LOAD, PICKER, PICKER-LOUPE, HISTORY, DRW, COLOR-FG, COLOR-BG, COLOR-INVERT, CROP, SPRAY, ZOOM, TEXT, SYMMETRY, RAY, IMAGE-IMPORT, REFIMG, ERASER, TRANSFORM)
 9. **THEME**: `ASSETS/THEMES/DEFAULT/THEME.BI`
 
 ### Directory Structure
@@ -40,7 +40,7 @@ applyTo: "**"
 | `GUI/`                  | UI components (toolbar, status bar, palette, grid, layers, menubar, command palette, organizer, drawer panel, preview window, edit bar, popup menus, dithering helpers) |
 | `INPUT/`                | Input handlers (mouse, keyboard, joystick), file loaders, Lospec API |
 | `OUTPUT/`               | Screen rendering (`SCREEN_render`), file export (BAS, BMP, BSAVE)   |
-| `TOOLS/`                | Drawing tools, undo systems, DRW format, image import                |
+| `TOOLS/`                | Drawing tools, history/undo system, DRW format, image import         |
 | `ASSETS/`               | Fonts, icons, palettes (56 GPL files), themes                        |
 | `includes/QB64_GJ_LIB/` | External utility library (DICT, STRINGS, VECT2D)                     |
 
@@ -100,16 +100,16 @@ _DEST targetImage&
 _DEST oldDest&
 ```
 
-### 4. Undo System — #1 Source of Bugs
+### 4. History System — #1 Source of Bugs
 
-Read `draw-undo.instructions.md` before touching any code that saves undo states, handles mouse press/release, opens GUI dialogs, or changes `MOUSE.UI_CHROME_CLICKED%`. Common bugs: ghost undo states from GUI click-release cycles, double-saves from missing guard, `_DEST` corruption from debug prints.
+Read `draw-undo.instructions.md` before touching any code that saves history states, handles mouse press/release, opens GUI dialogs, or changes `MOUSE.UI_CHROME_CLICKED%`. DRAW uses a unified `HISTORY` system (`TOOLS/HISTORY.BI/BM`) — the old separate `UNDO` and `WORKSPACE_UNDO` systems have been removed. Common bugs: ghost history states from GUI click-release cycles, double-saves from missing guard, `_DEST` corruption from debug prints.
 
-### 5. Undo Double-Save Prevention
+### 5. History Double-Save Prevention
 
 ```qb64
-IF NOT UNDO_saved_this_frame% THEN
-    UNDO_save_state
-    UNDO_saved_this_frame% = TRUE
+IF NOT HISTORY_saved_this_frame% THEN
+    HISTORY_record_brush ...
+    HISTORY_saved_this_frame% = TRUE
 END IF
 ```
 
@@ -159,7 +159,7 @@ Per-frame animations (marching ants, blinking cursors) must render **after** `Sk
 2. **Checked** by `MOUSE_should_skip_tool_actions%` — consumes `OLD_B*` transition when TRUE, preventing `MOUSE_dispatch_tool_release` from firing
 3. **Reset FALSE** inside `MOUSE_should_skip_tool_actions%` when all buttons released
 
-**CRITICAL**: The reset MUST happen inside `MOUSE_should_skip_tool_actions%`, NEVER before it — otherwise the release-frame fires a spurious `UNDO_save_state`.
+**CRITICAL**: The reset MUST happen inside `MOUSE_should_skip_tool_actions%`, NEVER before it — otherwise the release-frame fires a spurious history save.
 
 ### 14. `SCENE_CHANGED%` vs `FRAME_IDLE%` for Animations
 
@@ -228,7 +228,7 @@ DO
     1.  Deferred command-line file load (first frame only)
     2.  Windows drag-and-drop (_ACCEPTFILEDROP)
     3.  k& = _KEYHIT + MODIFIERS_track_alt_keyhit + MODIFIERS_update
-    4.  LOOP_start — resets UNDO_saved_this_frame%, calls TITLE_check
+    4.  LOOP_start — resets HISTORY_saved_this_frame%, calls TITLE_check
     5.  MUSIC_tick — auto-shuffle to next track when current ends
     6.  MOUSE_input_handler
     7.  KEYBOARD_input_handler
@@ -274,8 +274,7 @@ A frame is "idle" when no input, mouse movement, GUI changes, or active tool ope
 | `GUI/DITHER.BI/BM`        | Shared dithering algorithms and threshold helpers for gradients and posterize |
 | `INPUT/MOUSE.BM`          | Mouse processing pipeline (~2590 lines)                             |
 | `INPUT/KEYBOARD.BM`       | Keyboard shortcuts and handler                                      |
-| `TOOLS/UNDO.BM`           | Pixel undo system                                                   |
-| `TOOLS/WORKSPACE-UNDO.BM` | Workspace undo system                                               |
+
 | `OUTPUT/SCREEN.BM`        | Render pipeline (`SCREEN_render`)                                   |
 | `GUI/LAYERS.BM`           | Layer management (~2305 lines)                                      |
 | `GUI/MENUBAR.BM`          | Menu bar with keyboard navigation                                   |
@@ -286,7 +285,7 @@ A frame is "idle" when no input, mouse movement, GUI changes, or active tool ope
 | `GUI/PREVIEW.BI/BM`       | Floating preview window with follow-pointer mode, pan/zoom, resize, and work-area clamping |
 | `GUI/EDITBAR.BI/BM`       | Vertical icon bar mirroring Edit menu actions; dockable LEFT/RIGHT; toggle F5 |
 | `GUI/POPUP-MENU.BI/BM`    | Shared popup menu layout/rendering used by drawer and other contextual overlays |
-| `TOOLS/HISTORY.BI/BM`     | Unified history system used by Ctrl+Z/Y before falling back to workspace/pixel undo |
+| `TOOLS/HISTORY.BI/BM`     | Unified history system for all Ctrl+Z/Y undo/redo                   |
 | `TOOLS/ERASER.BI/BM`      | Eraser tool (transparent painting via brush pipeline)               |
 | `TOOLS/TRANSFORM.BI/BM`   | On-canvas transform overlay (Scale/Rotate/Shear/Distort/Perspective); activated via Edit→TRANSFORM...; not a toolbar tool |
 | `CFG/CONFIG.BI`           | Configuration structure                                             |
@@ -303,7 +302,7 @@ A frame is "idle" when no input, mouse movement, GUI changes, or active tool ope
 4. Add includes to `_ALL.BI` and `_ALL.BM`
 5. Add keyboard binding in `KEYBOARD_tools()`
 6. Add action ID in `CMD_init`, handler in `CMD_execute_action`
-7. Add mouse handling: hold in `MOUSE_dispatch_tool_hold`, release in `MOUSE_dispatch_tool_release` (with `UNDO_save_state` on commit)
+7. Add mouse handling: hold in `MOUSE_dispatch_tool_hold`, release in `MOUSE_dispatch_tool_release` (with `HISTORY_record_*` on commit)
 8. Add preview rendering in `SCREEN_render()` before scene cache save
 9. Register menu item in `MENUBAR_init` with action ID
 10. Ensure `DRW_load_binary` resets any new tool state
