@@ -120,7 +120,7 @@ END IF
 
 | Bug | Root Cause | Fix |
 |---|---|---|
-| Ctrl+Z does nothing for 2 presses after menu action | `TOOLBAR_CLICKED%` reset before `MOUSE_should_skip_tool_actions%`, allowing phantom undo states on release | Move reset inside `MOUSE_should_skip_tool_actions%` |
+| Ctrl+Z does nothing for 2 presses after menu action | `UI_CHROME_CLICKED%` reset before `MOUSE_should_skip_tool_actions%`, allowing phantom undo states on release | Move reset inside `MOUSE_should_skip_tool_actions%` |
 | Undo broken after Palette Random | `_DEST _CONSOLE` debug prints in `PALETTE_LOADER_load_by_index%` corrupted `_DEST` | Remove all `_DEST _CONSOLE`; use `_LOGINFO` |
 | Double undo states per brush stroke | Missing `UNDO_saved_this_frame%` check | Always check flag before `UNDO_save_state` |
 | Dead undo step after no-op selection click | Selection history pushed before mutation, even when MARQUEE state did not change | Stage selection first, then commit only if the post-mutation state differs |
@@ -191,7 +191,7 @@ Why:
 
 ---
 
-## `TOOLBAR_CLICKED%` Lifecycle (Critical for Undo Correctness)
+## `UI_CHROME_CLICKED%` Lifecycle (Critical for Undo Correctness)
 
 1. **Set TRUE** when any GUI element is clicked (toolbar, organizer, palette, menubar)
 2. **Checked** by `MOUSE_should_skip_tool_actions%` — when TRUE, consumes `OLD_B*` so `MOUSE_dispatch_tool_release` never fires

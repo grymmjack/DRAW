@@ -71,6 +71,17 @@ DIM SHARED SCRN AS SCREEN_OBJ
 DIM SHARED GUI_NEEDS_REDRAW AS INTEGER
 GUI_NEEDS_REDRAW% = TRUE ' Start with redraw needed
 
+' Per-widget dirty flags — allow selective GUI rendering instead of redrawing
+' all 9 widgets whenever any one changes.  GUI_NEEDS_REDRAW% is the aggregate
+' (OR of all per-widget flags); RENDER_gui_elements checks individual flags.
+DIM SHARED TOOLBAR_NEEDS_REDRAW AS INTEGER
+DIM SHARED ORGANIZER_NEEDS_REDRAW AS INTEGER
+DIM SHARED DRAWER_NEEDS_REDRAW AS INTEGER
+DIM SHARED EDITBAR_NEEDS_REDRAW AS INTEGER
+DIM SHARED MENUBAR_NEEDS_REDRAW AS INTEGER
+DIM SHARED LAYER_PANEL_NEEDS_REDRAW AS INTEGER
+DIM SHARED PALETTE_STRIP_NEEDS_REDRAW AS INTEGER
+
 ' Status-only dirty flag - when TRUE, only re-render the status bar + palette strip
 ' strip in SCRN.GUI& (skips expensive toolbar/organizer/drawer/layerpanel/menubar).
 ' Set to TRUE by DRAW.BAS when the mouse moves over the canvas (coords changed).

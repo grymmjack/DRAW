@@ -147,6 +147,7 @@ DECLARE SUB MAGIC_WAND_clear_selected_transparent ()
 DECLARE SUB MAGIC_WAND_erase_flood (x AS INTEGER, y AS INTEGER)
 DECLARE SUB MAGIC_WAND_fill_flood (x AS INTEGER, y AS INTEGER)
 DECLARE SUB MAGIC_WAND_select_merged (x AS INTEGER, y AS INTEGER, mode AS INTEGER)
+DECLARE SUB MAGIC_WAND_select_all_color_merged (x AS INTEGER, y AS INTEGER, mode AS INTEGER)
 
 ' Freehand selection functions
 DECLARE SUB FREEHAND_SEL_start (x AS INTEGER, y AS INTEGER)

@@ -170,8 +170,10 @@ DECLARE SUB LAYER_PANEL_blend_popup_hover (rawX AS INTEGER, rawY AS INTEGER)
 DECLARE FUNCTION BLEND_mode_name$ (mode AS INTEGER)
 DECLARE FUNCTION BLEND_mode_short$ (mode AS INTEGER)
 DECLARE SUB LAYER_blend_composite (dst AS LONG, src AS LONG, blendMode AS INTEGER, opacity AS INTEGER)
+DECLARE SUB LAYER_blend_composite_region (dst AS LONG, src AS LONG, blendMode AS INTEGER, opacity AS INTEGER, rx1 AS INTEGER, ry1 AS INTEGER, rx2 AS INTEGER, ry2 AS INTEGER)
 DECLARE FUNCTION BLEND_needs_composite% ()
 DECLARE SUB BLEND_invalidate_cache ()
+DECLARE SUB BLEND_invalidate_visibility (changedLayer AS INTEGER)
 DECLARE SUB RENDER_ORDER_rebuild ()
 
 ' Layer render order — pre-sorted array avoids O(n×64) lookup per frame
@@ -196,6 +198,13 @@ DIM SHARED COMPOSITE_BELOW_CACHE AS LONG      ' Cached composite of layers below
 DIM SHARED COMPOSITE_BELOW_LAYER AS INTEGER    ' Which CURRENT_LAYER% this cache was built for
 DIM SHARED COMPOSITE_BELOW_VALID AS INTEGER    ' Is the cache still valid?
 COMPOSITE_BELOW_VALID% = FALSE
+
+' Full composite result cache — skip re-compositing when only a small region changed.
+' When COMP_DIRTY_VALID% is TRUE and COMPOSITE_RESULT_VALID% is TRUE, RENDER_layers
+' restores from COMPOSITE_RESULT_CACHE& and only re-blends the dirty region.
+DIM SHARED COMPOSITE_RESULT_CACHE AS LONG     ' Previous frame's completed composite
+DIM SHARED COMPOSITE_RESULT_VALID AS INTEGER   ' Is the full composite cache usable?
+COMPOSITE_RESULT_VALID% = FALSE
 
 ' Multi-layer selection — allows selecting multiple layers at once for bulk operations
 ' MULTI_SELECT_LAYERS(i): TRUE if layer i is selected (1-based, matches LAYERS array)

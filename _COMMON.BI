@@ -111,6 +111,18 @@ PREVIOUS_TOOL% = TOOL_NULL  ' Initialize to same as current
 CANVAS_DIRTY% = FALSE  ' Start with clean canvas
 
 ' ---------------------------------------------------------------------------
+' Composite dirty rect — tracks canvas region modified per frame so
+' RENDER_layers can recomposite only the changed area instead of the
+' full canvas.  Set by drawing dispatch; reset in LOOP_start.
+' ---------------------------------------------------------------------------
+DIM SHARED AS INTEGER COMP_DIRTY_X1, COMP_DIRTY_Y1  ' Top-left  (canvas coords)
+DIM SHARED AS INTEGER COMP_DIRTY_X2, COMP_DIRTY_Y2  ' Bot-right (canvas coords)
+DIM SHARED AS INTEGER COMP_DIRTY_VALID               ' TRUE when rect set this frame
+DECLARE SUB COMP_mark_dirty (x1 AS INTEGER, y1 AS INTEGER, x2 AS INTEGER, y2 AS INTEGER)
+
+DIM SHARED            KEYHIT_CHAR AS STRING  ' _KEYHIT → CHR$ fallback for INKEY$
+
+' ---------------------------------------------------------------------------
 ' INVALIDATE helpers — collapse repeated 3-5-line dirty-flag sequences.
 ' ---------------------------------------------------------------------------
 DECLARE SUB INVALIDATE_scene ()

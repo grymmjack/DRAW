@@ -189,6 +189,15 @@ DO
 
     k& = _KEYHIT
     
+    ' Build INKEY$-compatible fallback from _KEYHIT for handlers that need it
+    IF k& >= 32 AND k& <= 126 THEN
+        KEYHIT_CHAR$ = CHR$(k&)
+    ELSEIF k& = 8 OR k& = 13 OR k& = 27 THEN
+        KEYHIT_CHAR$ = CHR$(k&)
+    ELSE
+        KEYHIT_CHAR$ = ""
+    END IF
+    
     ' Track macOS ALT key via _KEYHIT (must be before MODIFIERS_update)
     MODIFIERS_track_alt_keyhit k&
     
@@ -239,7 +248,22 @@ DO
     END IF
 
     IF k& <> 0 THEN FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE   ' Key was pressed
-    IF MOUSE.B1% OR MOUSE.B2% OR MOUSE.B3% THEN FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE  ' Mouse button held
+    IF MOUSE.B1% OR MOUSE.B2% OR MOUSE.B3% THEN
+        FRAME_IDLE% = FALSE                                       ' Mouse button held — keep render loop active
+        IF NOT SCRN.panning% THEN
+            SCENE_CHANGED% = TRUE                                 ' Only rebuild scene for drawing, not panning (pan handles its own SCENE via mouseMoved)
+            COMPOSITE_RESULT_VALID% = FALSE                       ' Drawing may have changed layer pixels — stale composite would skip them
+        END IF
+    END IF
+    ' Button release transitions: tool release handlers commit final pixels to
+    ' the layer (LINE, RECT, ELLIPSE, etc.). Must rebuild scene to show them
+    ' instead of the stale rubber-band preview in the scene cache.
+    IF (MOUSE.OLD_B1% AND NOT MOUSE.B1%) OR (MOUSE.OLD_B2% AND NOT MOUSE.B2%) THEN
+        FRAME_IDLE% = FALSE
+        SCENE_CHANGED% = TRUE
+        COMPOSITE_RESULT_VALID% = FALSE                           ' Committed pixels invalidate cached composite
+        IF CURRENT_LAYER% > 0 THEN LAYERS(CURRENT_LAYER%).contentDirty% = TRUE   ' Invalidate opacity cache for < 100% layers
+    END IF
     IF mouseMoved% THEN
         FRAME_IDLE% = FALSE                                       ' Mouse moved (cursor only)
         ' Only trigger status bar rebuild when canvas coords change (e.g. at zoom 2x
@@ -256,23 +280,44 @@ DO
     IF GUI_NEEDS_REDRAW% THEN FRAME_IDLE% = FALSE   ' GUI-only updates should stay on the cached-scene path unless something else dirtied the scene
     IF STATUS_NEEDS_REDRAW% THEN FRAME_IDLE% = FALSE
     IF modifiersChanged% THEN FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE   ' Modifier overlays affect cached scene and must repaint on press/release
-    IF SCRN.panning% THEN FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE      ' Panning active
-    IF MODIFIERS.shift% THEN FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE   ' SHIFT held (crosshair/constraint)
+    IF SCRN.panning% THEN FRAME_IDLE% = FALSE                             ' Panning active — only dirty scene when mouse moves
+    IF SCRN.panning% AND mouseMoved% THEN SCENE_CHANGED% = TRUE
+    IF MODIFIERS.shift% THEN
+        FRAME_IDLE% = FALSE                                       ' Keep render loop active for crosshair overlay
+        IF mouseMoved% THEN SCENE_CHANGED% = TRUE                 ' Crosshair position changed — rebuild scene (crosshair is in scene cache)
+        ' Transition frame (press/release) already handled by modifiersChanged above
+    END IF
     IF MOUSE.SW% <> 0 THEN FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE     ' Mouse wheel scrolled
-    IF CURRENT_TOOL% = TOOL_MOVE AND MOVE.ACTIVE THEN FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE
+    IF CURRENT_TOOL% = TOOL_MOVE AND MOVE.ACTIVE THEN
+        FRAME_IDLE% = FALSE                                       ' Keep render loop active
+        IF mouseMoved% THEN SCENE_CHANGED% = TRUE                 ' Move overlay only changes on mouse movement
+    END IF
     ' Rubber-band tools: keep scene dirty while vertices are placed (no button held)
-    IF (CURRENT_TOOL% = TOOL_POLYGON OR CURRENT_TOOL% = TOOL_POLYGON_FILLED) AND POLY_LINE.HAS_LAST THEN FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE
-    IF CURRENT_TOOL% = TOOL_MARQUEE AND (MARQUEE.POLY_DRAWING OR MARQUEE.FREE_DRAWING OR MARQUEE.ELLIP_DRAGGING) THEN FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE
+    IF (CURRENT_TOOL% = TOOL_POLYGON OR CURRENT_TOOL% = TOOL_POLYGON_FILLED) AND POLY_LINE.HAS_LAST THEN
+        FRAME_IDLE% = FALSE
+        IF mouseMoved% THEN SCENE_CHANGED% = TRUE                 ' Rubber band preview only changes on mouse movement
+    END IF
+    IF CURRENT_TOOL% = TOOL_MARQUEE AND (MARQUEE.POLY_DRAWING OR MARQUEE.FREE_DRAWING OR MARQUEE.ELLIP_DRAGGING) THEN
+        FRAME_IDLE% = FALSE
+        IF mouseMoved% THEN SCENE_CHANGED% = TRUE                 ' Marquee preview only changes on mouse movement
+    END IF
     IF TRANSFORM.ACTIVE THEN
         FRAME_IDLE% = FALSE   ' keep render loop active while overlay is live
         IF TRANSFORM.GRABBED >= 0 OR TRANSFORM_PREVIEW_DIRTY THEN SCENE_CHANGED% = TRUE
     END IF
-    IF CURRENT_TOOL% = TOOL_TEXT AND TEXT.ACTIVE THEN FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE
-    IF IMG_IMPORT.STATE > IMPORT_STATE_IDLE THEN FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE
-    IF CROP.STATE = CROP_STATE_ACTIVE THEN FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE
-    IF CMD_PALETTE.visible THEN FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE
+    IF CURRENT_TOOL% = TOOL_TEXT AND TEXT.ACTIVE THEN FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE  ' Text cursor blinks (0.5s timer) — renders before scene cache
+    IF IMG_IMPORT.STATE > IMPORT_STATE_IDLE THEN
+        FRAME_IDLE% = FALSE
+        IF mouseMoved% THEN SCENE_CHANGED% = TRUE                 ' Import overlay only changes on mouse movement
+    END IF
+    IF CROP.STATE = CROP_STATE_ACTIVE THEN
+        FRAME_IDLE% = FALSE
+        IF mouseMoved% THEN SCENE_CHANGED% = TRUE                 ' Crop overlay only changes on mouse movement
+    END IF
+    IF CMD_PALETTE.visible THEN FRAME_IDLE% = FALSE  ' Overlay only — scene cache + SkipToPointer handles rendering; no scene rebuild needed
     IF SELECTION_has_active% THEN FRAME_IDLE% = FALSE  ' Animation only (marching ants) — no scene change
     IF SCENE_CHANGED% THEN SCENE_DIRTY% = TRUE
+
     ' Edit bar context-sensitive button states: force GUI redraw when any change
     IF SCRN.showEditBar% THEN
         DIM ebCanUndo AS INTEGER, ebCanRedo AS INTEGER
@@ -298,6 +343,16 @@ DO
     ' Mark current layer content dirty when user is actively drawing
     IF (MOUSE.B1% OR MOUSE.B2%) AND CURRENT_LAYER% > 0 THEN
         LAYERS(CURRENT_LAYER%).contentDirty% = TRUE
+        ' Track dirty region for region-based blend compositing.
+        ' Base padding = brush half-size. Spray tool has much larger radius.
+        DIM compHalf AS INTEGER
+        IF CURRENT_TOOL% = TOOL_SPRAY THEN
+            compHalf% = BRUSH_PIXEL_SIZES(BRUSH_SIZE.CURRENT) * 2 + 4
+        ELSE
+            compHalf% = BRUSH_SIZE_pixels% \ 2 + 2
+        END IF
+        COMP_mark_dirty MOUSE.X% - compHalf%, MOUSE.Y% - compHalf%, MOUSE.X% + compHalf%, MOUSE.Y% + compHalf%
+        COMP_mark_dirty MOUSE.OLD_X% - compHalf%, MOUSE.OLD_Y% - compHalf%, MOUSE.OLD_X% + compHalf%, MOUSE.OLD_Y% + compHalf%
     END IF
     IDLE_PREV_MOUSE_X% = MOUSE.RAW_X%
     IDLE_PREV_MOUSE_Y% = MOUSE.RAW_Y%
@@ -356,6 +411,8 @@ MAIN_shutdown
 SUB LOOP_start ()
     ' Reset undo save flag once per frame
     HISTORY_saved_this_frame% = FALSE
+    ' Reset composite dirty rect for this frame
+    COMP_DIRTY_VALID% = FALSE
     ' Don't update MARQUEE here - let mouse handler control it
     
     ' Update title bar when dirty/filename state changes

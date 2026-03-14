@@ -88,6 +88,7 @@ TYPE DRAWER_STATE
     contextMenuY        AS INTEGER
     contextMenuW        AS INTEGER
     contextMenuHover    AS INTEGER
+    contextMenuItems    AS INTEGER
     samplesLoaded       AS INTEGER
     loadedTheme         AS STRING * 64
 END TYPE

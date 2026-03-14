@@ -102,7 +102,7 @@ _DEST oldDest&
 
 ### 4. Undo System — #1 Source of Bugs
 
-Read `draw-undo.instructions.md` before touching any code that saves undo states, handles mouse press/release, opens GUI dialogs, or changes `MOUSE.TOOLBAR_CLICKED%`. Common bugs: ghost undo states from GUI click-release cycles, double-saves from missing guard, `_DEST` corruption from debug prints.
+Read `draw-undo.instructions.md` before touching any code that saves undo states, handles mouse press/release, opens GUI dialogs, or changes `MOUSE.UI_CHROME_CLICKED%`. Common bugs: ghost undo states from GUI click-release cycles, double-saves from missing guard, `_DEST` corruption from debug prints.
 
 ### 5. Undo Double-Save Prevention
 
@@ -152,9 +152,9 @@ After native dialogs, call `MOUSE_cleanup_after_dialog` (drains buffer, forces b
 
 Per-frame animations (marching ants, blinking cursors) must render **after** `SkipToPointer:` (step 13 in render pipeline), not before the scene cache save. Placing them before forces `SCENE_DIRTY% = TRUE` every frame, defeating the cache.
 
-### 13. TOOLBAR_CLICKED% and Spurious Undo States
+### 13. UI_CHROME_CLICKED% and Spurious Undo States
 
-`MOUSE.TOOLBAR_CLICKED%` lifecycle is critical for undo correctness:
+`MOUSE.UI_CHROME_CLICKED%` lifecycle is critical for undo correctness:
 1. **Set TRUE** when any GUI element is clicked
 2. **Checked** by `MOUSE_should_skip_tool_actions%` — consumes `OLD_B*` transition when TRUE, preventing `MOUSE_dispatch_tool_release` from firing
 3. **Reset FALSE** inside `MOUSE_should_skip_tool_actions%` when all buttons released

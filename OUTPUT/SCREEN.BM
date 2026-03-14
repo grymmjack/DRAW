@@ -602,6 +602,12 @@ SUB RENDER_layers (dx AS INTEGER, dy AS INTEGER, zw AS LONG, zh AS LONG)
         compositeStartIdx% = 1
         savePartialCache% = FALSE
 
+        ' Region-based compositing: when we have a valid dirty rect and a cached
+        ' composite result, restore from cache and only update the dirty region.
+        DIM useRegionComposite AS INTEGER
+        DIM rcX1 AS INTEGER, rcY1 AS INTEGER, rcX2 AS INTEGER, rcY2 AS INTEGER
+        useRegionComposite% = FALSE
+
         IF useComposite% THEN
             ' Reuse persistent composite buffer (avoid _NEWIMAGE/_FREEIMAGE every frame)
             IF COMPOSITE_BUFFER& = 0 OR _
@@ -611,42 +617,81 @@ SUB RENDER_layers (dx AS INTEGER, dy AS INTEGER, zw AS LONG, zh AS LONG)
                 COMPOSITE_BUFFER& = _NEWIMAGE(SCRN.canvasW&, SCRN.canvasH&, 32)
                 COMPOSITE_BUFFER_W& = SCRN.canvasW&
                 COMPOSITE_BUFFER_H& = SCRN.canvasH&
+                COMPOSITE_RESULT_VALID% = FALSE
             END IF
             compositeImg& = COMPOSITE_BUFFER&
 
-            ' --- Partial composite cache: skip layers below current when only current changes ---
-            DIM currentRenderIdx AS INTEGER
-            DIM cri AS INTEGER
-            currentRenderIdx% = 0
-            FOR cri% = 1 TO RENDER_ORDER_COUNT%
-                IF RENDER_ORDER%(cri%) = CURRENT_LAYER% THEN
-                    currentRenderIdx% = cri%
-                    EXIT FOR
+            ' --- Region composite fast path ---
+            ' When we have a cached composite result and a small dirty rect,
+            ' restore from cache and only recomposite the dirty region.
+            ' This avoids full-canvas per-pixel blend loops (the #1 CPU cost).
+            IF COMP_DIRTY_VALID% AND COMPOSITE_RESULT_VALID% AND _
+               COMPOSITE_RESULT_CACHE& <> 0 AND _
+               _WIDTH(COMPOSITE_RESULT_CACHE&) = SCRN.canvasW& AND _
+               _HEIGHT(COMPOSITE_RESULT_CACHE&) = SCRN.canvasH& THEN
+                ' Clamp dirty rect to canvas bounds
+                rcX1% = COMP_DIRTY_X1%: rcY1% = COMP_DIRTY_Y1%
+                rcX2% = COMP_DIRTY_X2%: rcY2% = COMP_DIRTY_Y2%
+                IF rcX1% < 0 THEN rcX1% = 0
+                IF rcY1% < 0 THEN rcY1% = 0
+                IF rcX2% >= SCRN.canvasW& THEN rcX2% = SCRN.canvasW& - 1
+                IF rcY2% >= SCRN.canvasH& THEN rcY2% = SCRN.canvasH& - 1
+                ' Only use region path when dirty rect is < 25% of canvas (otherwise full is faster)
+                DIM rcArea AS LONG, rcCanvasArea AS LONG
+                rcArea& = CLNG(rcX2% - rcX1% + 1) * CLNG(rcY2% - rcY1% + 1)
+                rcCanvasArea& = CLNG(SCRN.canvasW&) * CLNG(SCRN.canvasH&)
+                IF rcX2% >= rcX1% AND rcY2% >= rcY1% AND rcArea& < (rcCanvasArea& \ 4) THEN
+                    useRegionComposite% = TRUE
+                    ' Restore full composite from previous frame
+                    DIM rcOldDest AS LONG
+                    rcOldDest& = _DEST
+                    _DEST compositeImg&
+                    _DONTBLEND compositeImg&
+                    _PUTIMAGE , COMPOSITE_RESULT_CACHE&, compositeImg&
+                    ' Clear only the dirty region so we can re-composite it
+                    LINE (rcX1%, rcY1%)-(rcX2%, rcY2%), _RGBA32(0, 0, 0, 0), BF
+                    _BLEND compositeImg&
+                    _DEST rcOldDest&
+                    compositeStartIdx% = 1  ' Must process all layers for the region
                 END IF
-            NEXT cri%
+            END IF
 
-            DIM compOldDest AS LONG
-            compOldDest& = _DEST
+            IF NOT useRegionComposite% THEN
+                ' --- Standard composite path ---
+                ' Partial composite cache: skip layers below current when only current changes
+                DIM currentRenderIdx AS INTEGER
+                DIM cri AS INTEGER
+                currentRenderIdx% = 0
+                FOR cri% = 1 TO RENDER_ORDER_COUNT%
+                    IF RENDER_ORDER%(cri%) = CURRENT_LAYER% THEN
+                        currentRenderIdx% = cri%
+                        EXIT FOR
+                    END IF
+                NEXT cri%
 
-            IF currentRenderIdx% > 1 AND COMPOSITE_BELOW_VALID% AND _
-               COMPOSITE_BELOW_LAYER% = CURRENT_LAYER% AND _
-               COMPOSITE_BELOW_CACHE& <> 0 THEN
-                ' Partial cache hit — restore composite of layers below current
-                _DEST compositeImg&
-                _DONTBLEND compositeImg&
-                _PUTIMAGE , COMPOSITE_BELOW_CACHE&, compositeImg&
-                _BLEND compositeImg&
-                _DEST compOldDest&
-                compositeStartIdx% = currentRenderIdx%
-            ELSE
-                ' Full composite — clear buffer
-                _DEST compositeImg&
-                _DONTBLEND compositeImg&
-                CLS , _RGBA32(0, 0, 0, 0)
-                _BLEND compositeImg&
-                _DEST compOldDest&
-                ' Schedule partial cache save if current layer isn't the bottommost
-                IF currentRenderIdx% > 1 THEN savePartialCache% = TRUE
+                DIM compOldDest AS LONG
+                compOldDest& = _DEST
+
+                IF currentRenderIdx% > 1 AND COMPOSITE_BELOW_VALID% AND _
+                   COMPOSITE_BELOW_LAYER% = CURRENT_LAYER% AND _
+                   COMPOSITE_BELOW_CACHE& <> 0 THEN
+                    ' Partial cache hit — restore composite of layers below current
+                    _DEST compositeImg&
+                    _DONTBLEND compositeImg&
+                    _PUTIMAGE , COMPOSITE_BELOW_CACHE&, compositeImg&
+                    _BLEND compositeImg&
+                    _DEST compOldDest&
+                    compositeStartIdx% = currentRenderIdx%
+                ELSE
+                    ' Full composite — clear buffer
+                    _DEST compositeImg&
+                    _DONTBLEND compositeImg&
+                    CLS , _RGBA32(0, 0, 0, 0)
+                    _BLEND compositeImg&
+                    _DEST compOldDest&
+                    ' Schedule partial cache save if current layer isn't the bottommost
+                    IF currentRenderIdx% > 1 THEN savePartialCache% = TRUE
+                END IF
             END IF
         END IF
 
@@ -751,14 +796,27 @@ SUB RENDER_layers (dx AS INTEGER, dy AS INTEGER, zw AS LONG, zh AS LONG)
                 END IF
 
                 IF useComposite% THEN
-                    ' --- Composite buffer path (blend modes) ---
-                    IF LAYERS(layerFound%).blendMode% = BLEND_NORMAL THEN
-                        _DEST compositeImg&
-                        _PUTIMAGE , renderImg&
-                        _DEST SCRN.CANVAS&
+                    IF useRegionComposite% THEN
+                        ' --- Region composite path: only update dirty rect ---
+                        IF LAYERS(layerFound%).blendMode% = BLEND_NORMAL THEN
+                            ' Blit only the dirty region from this layer
+                            _DEST compositeImg&
+                            _PUTIMAGE (rcX1%, rcY1%)-(rcX2%, rcY2%), renderImg&, compositeImg&, (rcX1%, rcY1%)-(rcX2%, rcY2%)
+                            _DEST SCRN.CANVAS&
+                        ELSE
+                            ' Region-based blend: only process dirty rect pixels
+                            LAYER_blend_composite_region compositeImg&, layerRenderSource&, LAYERS(layerFound%).blendMode%, LAYERS(layerFound%).opacity%, rcX1%, rcY1%, rcX2%, rcY2%
+                        END IF
                     ELSE
-                        ' Non-Normal blend: pass ORIGINAL image — blend function handles opacity
-                        LAYER_blend_composite compositeImg&, layerRenderSource&, LAYERS(layerFound%).blendMode%, LAYERS(layerFound%).opacity%
+                        ' --- Full composite buffer path (blend modes) ---
+                        IF LAYERS(layerFound%).blendMode% = BLEND_NORMAL THEN
+                            _DEST compositeImg&
+                            _PUTIMAGE , renderImg&
+                            _DEST SCRN.CANVAS&
+                        ELSE
+                            ' Non-Normal blend: pass ORIGINAL image — blend function handles opacity
+                            LAYER_blend_composite compositeImg&, layerRenderSource&, LAYERS(layerFound%).blendMode%, LAYERS(layerFound%).opacity%
+                        END IF
                     END IF
                 ELSE
                     ' --- Fast path (all Normal blend) ---
@@ -773,7 +831,7 @@ SUB RENDER_layers (dx AS INTEGER, dy AS INTEGER, zw AS LONG, zh AS LONG)
             END IF  ' layerFound% > 0
 
             ' Save partial composite cache at boundary just below current layer
-            IF savePartialCache% AND layerI% = currentRenderIdx% - 1 THEN
+            IF NOT useRegionComposite% AND savePartialCache% AND layerI% = currentRenderIdx% - 1 THEN
                 IF COMPOSITE_BELOW_CACHE& = 0 OR _
                    _WIDTH(COMPOSITE_BELOW_CACHE&) <> SCRN.canvasW& OR _
                    _HEIGHT(COMPOSITE_BELOW_CACHE&) <> SCRN.canvasH& THEN
@@ -797,6 +855,22 @@ SUB RENDER_layers (dx AS INTEGER, dy AS INTEGER, zw AS LONG, zh AS LONG)
         IF useComposite% THEN
             _PUTIMAGE (dx%, dy%)-(dx% + zw& - 1, dy% + zh& - 1), compositeImg&, SCRN.CANVAS&
             ' compositeImg& is persistent (COMPOSITE_BUFFER&), do NOT free it
+
+            ' Save completed composite for next frame's region-based path
+            IF COMPOSITE_RESULT_CACHE& = 0 OR _
+               _WIDTH(COMPOSITE_RESULT_CACHE&) <> SCRN.canvasW& OR _
+               _HEIGHT(COMPOSITE_RESULT_CACHE&) <> SCRN.canvasH& THEN
+                IF COMPOSITE_RESULT_CACHE& < -1 THEN _FREEIMAGE COMPOSITE_RESULT_CACHE&
+                COMPOSITE_RESULT_CACHE& = _NEWIMAGE(SCRN.canvasW&, SCRN.canvasH&, 32)
+            END IF
+            DIM crOldDest AS LONG
+            crOldDest& = _DEST
+            _DEST COMPOSITE_RESULT_CACHE&
+            _DONTBLEND COMPOSITE_RESULT_CACHE&
+            _PUTIMAGE , compositeImg&, COMPOSITE_RESULT_CACHE&
+            _BLEND COMPOSITE_RESULT_CACHE&
+            _DEST crOldDest&
+            COMPOSITE_RESULT_VALID% = TRUE
         END IF
     ELSE
         ' Fallback: Use SCRN.PAINTING if no layers exist yet (legacy support)
