@@ -96,6 +96,8 @@ TYPE MARQUEE_OBJ
     WAND_MAX_X AS INTEGER      ' Bounding box of mask selection (max X)
     WAND_MAX_Y AS INTEGER      ' Bounding box of mask selection (max Y)
     WAND_HAS_SELECTION AS INTEGER ' Whether mask-based selection is active
+    WAND_EDGE_COUNT AS LONG        ' Number of cached edge pixels
+    WAND_EDGE_DIRTY AS INTEGER     ' TRUE when edge cache needs rebuild
     USER_CREATED AS INTEGER        ' TRUE if user manually created selection (vs auto for move)
     SELECTION_MODE AS INTEGER      ' Selection mode: 0=replace, 1=add (Shift), 2=subtract (Alt)
     VARIANT AS INTEGER             ' Which toolbar selection button is active (TOOL_SELECT_* constant)
@@ -126,6 +128,10 @@ CONST SEL_MAX_POINTS = 4000
 DIM SHARED SEL_POINTS_X(SEL_MAX_POINTS) AS INTEGER
 DIM SHARED SEL_POINTS_Y(SEL_MAX_POINTS) AS INTEGER
 
+' Cached edge pixel coordinates for wand outline (rebuilt when selection changes)
+DIM SHARED WAND_EDGE_X(0) AS INTEGER
+DIM SHARED WAND_EDGE_Y(0) AS INTEGER
+
 DECLARE FUNCTION MARQUEE_is_point_inside% (x AS INTEGER, y AS INTEGER)
 DECLARE FUNCTION MARQUEE_get_handle_at% (x AS INTEGER, y AS INTEGER)
 DECLARE SUB MARQUEE_start_resize (handle AS INTEGER, x AS INTEGER, y AS INTEGER)
@@ -141,6 +147,7 @@ DECLARE SUB MARQUEE_draw_existing_box (showHUD AS INTEGER)
 DECLARE SUB MAGIC_WAND_select (x AS INTEGER, y AS INTEGER)
 DECLARE SUB MAGIC_WAND_select_with_mode (x AS INTEGER, y AS INTEGER, mode AS INTEGER)
 DECLARE SUB MAGIC_WAND_draw_outline ()
+DECLARE SUB MAGIC_WAND_build_edge_cache ()
 DECLARE SUB MAGIC_WAND_reset ()
 DECLARE FUNCTION MAGIC_WAND_has_selection% ()
 DECLARE SUB MAGIC_WAND_clear_selected_transparent ()
