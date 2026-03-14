@@ -20,14 +20,15 @@ CONST EDITBAR_DOCK_LEFT  = 0
 CONST EDITBAR_DOCK_RIGHT = 1
 
 TYPE EDITBAR_ITEM_OBJ
-    actionID   AS INTEGER  ' CMD action ID to execute on click (0 = divider)
-    iconHandle AS LONG     ' Loaded image handle (< -1 = valid)
-    iconFile   AS STRING * 64 ' Theme filename for icon
-    x          AS INTEGER  ' Screen position set during render
-    y          AS INTEGER
-    w          AS INTEGER
-    h          AS INTEGER
-    isDivider  AS INTEGER  ' TRUE = spacer, no icon
+    actionID       AS INTEGER  ' CMD action ID to execute on click (0 = divider)
+    iconHandle     AS LONG     ' Loaded image handle (< -1 = valid)
+    disabledHandle AS LONG     ' Pre-computed dimmed copy (per-pixel alpha scaled)
+    iconFile       AS STRING * 64 ' Theme filename for icon
+    x              AS INTEGER  ' Screen position set during render
+    y              AS INTEGER
+    w              AS INTEGER
+    h              AS INTEGER
+    isDivider      AS INTEGER  ' TRUE = spacer, no icon
 END TYPE
 
 TYPE EDITBAR_OBJ
