@@ -106,6 +106,8 @@ DECLARE FUNCTION GJ_IMGADJ_Levels (sourceImg AS LONG, inputMin AS INTEGER, input
 DECLARE FUNCTION GJ_IMGADJ_ColorBalance (sourceImg AS LONG, redShift AS INTEGER, greenShift AS INTEGER, blueShift AS INTEGER) AS LONG
 DECLARE FUNCTION GJ_IMGADJ_Colorize (sourceImg AS LONG, hue AS INTEGER, saturation AS SINGLE) AS LONG
 DECLARE FUNCTION GJ_IMGADJ_Pixelate (sourceImg AS LONG, pixelSize AS INTEGER) AS LONG
+DECLARE FUNCTION GJ_IMGADJ_RemoveBackground (sourceImg AS LONG, targetColor AS _UNSIGNED LONG, threshold AS INTEGER) AS LONG
+DECLARE FUNCTION GJ_IMGADJ_RemoveBackgroundContiguous (sourceImg AS LONG, targetColor AS _UNSIGNED LONG, threshold AS INTEGER) AS LONG
 DECLARE FUNCTION GJ_IMGADJ_PixelScaler (sourceImg AS LONG, scalerType AS INTEGER) AS LONG
 
 ' --- Dithering Functions ---
