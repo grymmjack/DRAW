@@ -1,21 +1,29 @@
 ''
 ' DRAW - GUI/TOOLTIP.BI
 ' =============================================================================
-' Tooltip system for toolbar buttons.
+' Tooltip system for toolbar buttons, organizer widgets, and drawer mini palette.
 '
 ' @author Rick Christy <grymmjack@gmail.com>
 '
 $INCLUDEONCE
 
+' Tooltip hover source constants
+CONST TOOLTIP_SRC_NONE      = 0
+CONST TOOLTIP_SRC_TOOLBAR   = 1
+CONST TOOLTIP_SRC_ORGANIZER = 2
+CONST TOOLTIP_SRC_MINI_PAL  = 3
+
 TYPE TOOLTIP_OBJ
     ACTIVE          AS INTEGER      ' TRUE when a tooltip is currently visible
-    HOVER_BTN_IDX   AS INTEGER      ' Toolbar button order index currently hovered (-1 = none)
+    HOVER_BTN_IDX   AS INTEGER      ' Index into currently hovered element (-1 = none)
+    HOVER_SOURCE    AS INTEGER      ' Which UI area: TOOLTIP_SRC_* constant
     HOVER_START     AS DOUBLE       ' TIMER value when hover began
     FONT_HANDLE     AS LONG         ' Loaded font handle for tooltip text
 END TYPE
 
 DIM SHARED TOOLTIP AS TOOLTIP_OBJ
 TOOLTIP.HOVER_BTN_IDX% = -1
+TOOLTIP.HOVER_SOURCE% = TOOLTIP_SRC_NONE
 
 ' Tooltip text arrays — indexed by toolbar button order (0..TB_TOTAL-1)
 DIM SHARED TOOLTIP_LINE1$(0 TO 27) ' First line: hotkey + tool name + description
@@ -91,7 +99,53 @@ TOOLTIP_LINE2$(26) = "DRAW filled ellipse. L-CLICK FG color. R-CLICK BG color. C
 TOOLTIP_LINE1$(27) = "CTRL+o - LOAD IMAGE from disk."
 TOOLTIP_LINE2$(27) = "SHIFT+CTRL+o - IMPORT and PLACE image from disk."
 
+' Organizer widget tooltip text arrays — indexed by ORG_* constants (0..10)
+DIM SHARED TOOLTIP_ORG_LINE1$(0 TO 10)
+DIM SHARED TOOLTIP_ORG_LINE2$(0 TO 10)
+
+' 0 = ORG_COLOR_OPS
+TOOLTIP_ORG_LINE1$(0) = "COLOR OPS - L-CLICK to IMPORT, R-CLICK to LOAD from Lospec"
+TOOLTIP_ORG_LINE2$(0) = "See the PALETTE MENU in the MENUBAR for more options."
+' 1 = ORG_CANVAS_OPS
+TOOLTIP_ORG_LINE1$(1) = "CANVAS OPS - L-CLICK to switch to SPARE PAGE. R-CLICK to CLEAR SPARE PAGE."
+TOOLTIP_ORG_LINE2$(1) = "Use SPARE PAGE as a scratchpad, test area, assembly canvas, etc."
+' 2 = ORG_BRUSH_SIZE
+TOOLTIP_ORG_LINE1$(2) = "CTRL+WHEEL - Change brush size. Click width to change."
+TOOLTIP_ORG_LINE2$(2) = "Make selection and use CTRL-b to create custom brush, then store it in bin for later recall."
+' 3 = ORG_PATTERN_MODE
+TOOLTIP_ORG_LINE1$(3) = "F3 - DRAW MODE: PATTERN"
+TOOLTIP_ORG_LINE2$(3) = "All fills will use patterns. Pick color to change opaque pixels of pattern. R-CLICK on patterns for menu."
+' 4 = ORG_PALETTE_OPS
+TOOLTIP_ORG_LINE1$(4) = "PALETTE OPS - L-CLICK remap image to current palette."
+TOOLTIP_ORG_LINE2$(4) = "Try CTRL-ALT-r to choose a RANDOM palette then remap, for inspiration!"
+' 5 = ORG_TRANSFORM_OPS
+TOOLTIP_ORG_LINE1$(5) = "TRANSFORM OPS - L-CLICK icon on left to flip HORIZONTALLY. right to flip VERTICALLY."
+TOOLTIP_ORG_LINE2$(5) = "See the EDIT -> TRANSFORM menu in the MENUBAR for more transformations."
+' 6 = ORG_GRADIENT_MODE
+TOOLTIP_ORG_LINE1$(6) = "F2 - DRAW MODE: GRADIENT"
+TOOLTIP_ORG_LINE2$(6) = "All fills will use gradients. R-CLICK on gradients for menu, and editor."
+' 7 = ORG_SYMMETRY_MODE
+TOOLTIP_ORG_LINE1$(7) = "SYMMETRY MODE - L-CLICK toggle. WHEEL over icon change SYMMETRY TYPE."
+TOOLTIP_ORG_LINE2$(7) = "DRAW mirrored or kaleidoscopic patterns at once."
+' 8 = ORG_GRID_VIS
+TOOLTIP_ORG_LINE1$(8) = "' - GRID - Toggle show/hide of grid. WHEEL over icon to change GRID TYPE."
+TOOLTIP_ORG_LINE2$(8) = ". / , to change GRID size. SHIFT+' show/hide PIXEL GRID. CTRL+SHIFT+/ make GRID brush size."
+' 9 = ORG_GRID_SNAP
+TOOLTIP_ORG_LINE1$(9) = "; - SNAP TO GRID - Toggle grid snapping. WHEEL over icon = change SNAP TYPE."
+TOOLTIP_ORG_LINE2$(9) = "/ to change SNAP TYPE - CENTER, or CORNER."
+' 10 = ORG_COLOR_MODE
+TOOLTIP_ORG_LINE1$(10) = "F1 - DRAW MODE: BRUSH - L-CLICK BL = SWAP FG/BG. R-CLICK BL = DEFAULT colors."
+TOOLTIP_ORG_LINE2$(10) = "All drawing tools will use custom brushes. R-CLICK on brushes for menu."
+
+' Drawer mini palette tooltip text
+DIM SHARED TOOLTIP_MINI_PAL_LINE1$
+DIM SHARED TOOLTIP_MINI_PAL_LINE2$
+TOOLTIP_MINI_PAL_LINE1$ = "MINI PALETTE - L-CLICK choose FG color. R-CLICK choose BG color."
+TOOLTIP_MINI_PAL_LINE2$ = "You can use any image for this palette, see the documentation."
+
 DECLARE SUB TOOLTIP_update ()
 DECLARE SUB TOOLTIP_render (target&)
 DECLARE SUB TOOLTIP_reset ()
 DECLARE FUNCTION TOOLTIP_get_hovered_btn_idx% (mouseX%, mouseY%)
+DECLARE FUNCTION TOOLTIP_get_hovered_org_idx% (mouseX%, mouseY%)
+DECLARE FUNCTION TOOLTIP_get_hovered_mini_pal% (mouseX%, mouseY%)
