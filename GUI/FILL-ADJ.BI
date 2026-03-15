@@ -13,6 +13,12 @@ $INCLUDEONCE
 CONST FILL_ADJ_SHAPE_RECT = 0
 CONST FILL_ADJ_SHAPE_ELLIPSE = 1
 CONST FILL_ADJ_SHAPE_POLYGON = 2
+CONST FILL_ADJ_SHAPE_FLOOD = 3
+
+' Paint source mode (what is being tiled/sampled)
+CONST FILL_ADJ_PAINT_BRUSH = 0     ' Custom brush tiling
+CONST FILL_ADJ_PAINT_PATTERN = 1   ' Drawer pattern tiling
+CONST FILL_ADJ_PAINT_GRADIENT = 2  ' Drawer gradient mapping
 
 ' Drag mode constants for L-shaped handle
 CONST FILL_ADJ_DRAG_NONE = 0       ' Not dragging
@@ -37,6 +43,14 @@ TYPE FILL_ADJ_OBJ
     ELL_RY          AS SINGLE
     ' Polygon vertex count (vertices in FILL_ADJ_POLY_X/Y arrays)
     POLY_COUNT      AS INTEGER
+    ' Flood fill mask (canvas-sized image: white=filled, transparent=skip)
+    FILL_MASK       AS LONG
+    FLOOD_X1        AS INTEGER      ' Flood fill bounding box
+    FLOOD_Y1        AS INTEGER
+    FLOOD_X2        AS INTEGER
+    FLOOD_Y2        AS INTEGER
+    ' Paint source mode
+    PAINT_MODE      AS INTEGER      ' FILL_ADJ_PAINT_* — what type of fill
     ' Tile adjustment parameters
     TILE_W          AS SINGLE       ' Current tile width (starts at brush width)
     TILE_H          AS SINGLE       ' Current tile height (starts at brush height)
@@ -68,6 +82,7 @@ DIM SHARED FILL_ADJ_ICON_HANDLE AS LONG   ' Loaded PNG widget handle (0 = not lo
 DECLARE SUB FILL_ADJ_enter_rect (x1 AS INTEGER, y1 AS INTEGER, x2 AS INTEGER, y2 AS INTEGER, cancel_img AS LONG, history_flags AS LONG)
 DECLARE SUB FILL_ADJ_enter_ellipse (cx AS INTEGER, cy AS INTEGER, rx AS SINGLE, ry AS SINGLE, cancel_img AS LONG, history_flags AS LONG)
 DECLARE SUB FILL_ADJ_enter_polygon (x_coords%(), y_coords%(), num_points AS INTEGER, cancel_img AS LONG, history_flags AS LONG)
+DECLARE SUB FILL_ADJ_enter_flood (mask_img AS LONG, bx1 AS INTEGER, by1 AS INTEGER, bx2 AS INTEGER, by2 AS INTEGER, cancel_img AS LONG, history_flags AS LONG)
 DECLARE SUB FILL_ADJ_update ()
 DECLARE SUB FILL_ADJ_commit ()
 DECLARE SUB FILL_ADJ_cancel ()
@@ -78,5 +93,8 @@ DECLARE SUB FILL_ADJ_handle_mouse_drag (cx AS INTEGER, cy AS INTEGER, rawX AS IN
 DECLARE SUB FILL_ADJ_handle_mouse_release ()
 DECLARE FUNCTION FILL_ADJ_hit_test% (rawX AS INTEGER, rawY AS INTEGER)
 DECLARE SUB FILL_ADJ_render_overlay ()
+DECLARE SUB FILL_ADJ_render_mask_brush ()
+DECLARE SUB FILL_ADJ_render_paint_mode ()
+DECLARE SUB FILL_ADJ_detect_paint_mode ()
 DECLARE SUB FILL_ADJ_toggle_enabled ()
 DECLARE FUNCTION FILL_ADJ_is_active% ()

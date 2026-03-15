@@ -46,8 +46,7 @@ SUB FILL_ADJ_enter_rect (x1 AS INTEGER, y1 AS INTEGER, x2 AS INTEGER, y2 AS INTE
     FILL_ADJ.RECT_Y2% = y2%
     FILL_ADJ.LAYER_IDX% = CURRENT_LAYER%
     FILL_ADJ.HISTORY_FLAGS& = history_flags&
-    FILL_ADJ.TILE_W! = CUSTOM_BRUSH.WIDTH%
-    FILL_ADJ.TILE_H! = CUSTOM_BRUSH.HEIGHT%
+    FILL_ADJ_detect_paint_mode
     FILL_ADJ.ORIGIN_X! = 0
     FILL_ADJ.ORIGIN_Y! = 0
 
@@ -78,8 +77,7 @@ SUB FILL_ADJ_enter_ellipse (cx AS INTEGER, cy AS INTEGER, rx AS SINGLE, ry AS SI
     FILL_ADJ.ELL_RY! = ry!
     FILL_ADJ.LAYER_IDX% = CURRENT_LAYER%
     FILL_ADJ.HISTORY_FLAGS& = history_flags&
-    FILL_ADJ.TILE_W! = CUSTOM_BRUSH.WIDTH%
-    FILL_ADJ.TILE_H! = CUSTOM_BRUSH.HEIGHT%
+    FILL_ADJ_detect_paint_mode
     FILL_ADJ.ORIGIN_X! = 0
     FILL_ADJ.ORIGIN_Y! = 0
 
@@ -103,8 +101,7 @@ SUB FILL_ADJ_enter_polygon (x_coords%(), y_coords%(), num_points AS INTEGER, can
     FILL_ADJ.POLY_COUNT% = num_points%
     FILL_ADJ.LAYER_IDX% = CURRENT_LAYER%
     FILL_ADJ.HISTORY_FLAGS& = history_flags&
-    FILL_ADJ.TILE_W! = CUSTOM_BRUSH.WIDTH%
-    FILL_ADJ.TILE_H! = CUSTOM_BRUSH.HEIGHT%
+    FILL_ADJ_detect_paint_mode
     FILL_ADJ.ORIGIN_X! = 0
     FILL_ADJ.ORIGIN_Y! = 0
 
@@ -125,6 +122,73 @@ END SUB
 
 
 ''
+' Enter fill adjustment mode for a flood-filled region
+'
+SUB FILL_ADJ_enter_flood (mask_img AS LONG, bx1 AS INTEGER, by1 AS INTEGER, bx2 AS INTEGER, by2 AS INTEGER, cancel_img AS LONG, history_flags AS LONG)
+    FILL_ADJ_reset
+
+    FILL_ADJ.ACTIVE% = TRUE
+    FILL_ADJ.SHAPE_TYPE% = FILL_ADJ_SHAPE_FLOOD
+    FILL_ADJ.FILL_MASK& = mask_img&
+    FILL_ADJ.FLOOD_X1% = bx1%
+    FILL_ADJ.FLOOD_Y1% = by1%
+    FILL_ADJ.FLOOD_X2% = bx2%
+    FILL_ADJ.FLOOD_Y2% = by2%
+    FILL_ADJ.LAYER_IDX% = CURRENT_LAYER%
+    FILL_ADJ.HISTORY_FLAGS& = history_flags&
+
+    ' Determine paint mode and initial tile size
+    FILL_ADJ_detect_paint_mode
+
+    FILL_ADJ.ORIGIN_X! = 0
+    FILL_ADJ.ORIGIN_Y! = 0
+
+    FILL_ADJ.CANCEL_IMG& = cancel_img&
+    FILL_ADJ.REDRAW_IMG& = _COPYIMAGE(LAYERS(CURRENT_LAYER%).imgHandle&, 32)
+
+    FILL_ADJ_update
+
+    _LOGINFO "FILL_ADJ: Entered flood mode. Wheel=Scale, Drag=Pan, Enter=Accept, Esc=Cancel"
+END SUB
+
+
+''
+' Detect paint source mode and set initial tile dimensions
+'
+SUB FILL_ADJ_detect_paint_mode ()
+    DIM patImg AS LONG
+    IF CUSTOM_BRUSH_is_active% THEN
+        FILL_ADJ.PAINT_MODE% = FILL_ADJ_PAINT_BRUSH
+        FILL_ADJ.TILE_W! = CUSTOM_BRUSH.WIDTH%
+        FILL_ADJ.TILE_H! = CUSTOM_BRUSH.HEIGHT%
+    ELSEIF DRAWER.paintMode% = 3 THEN ' Pattern mode
+        FILL_ADJ.PAINT_MODE% = FILL_ADJ_PAINT_PATTERN
+        IF DRAWER.patternSelected% >= 1 AND DRAWER.patternSelected% <= DRAWER_SLOT_COUNT THEN
+            patImg& = DRAWER_PATTERN_SLOTS(DRAWER.patternSelected%)
+            IF patImg& < -1 THEN
+                FILL_ADJ.TILE_W! = _WIDTH(patImg&)
+                FILL_ADJ.TILE_H! = _HEIGHT(patImg&)
+            ELSE
+                FILL_ADJ.TILE_W! = 16
+                FILL_ADJ.TILE_H! = 16
+            END IF
+        END IF
+    ELSEIF DRAWER.paintMode% = 2 THEN ' Gradient mode
+        FILL_ADJ.PAINT_MODE% = FILL_ADJ_PAINT_GRADIENT
+        ' Gradient tile size = shape bounding box (gradient stretches across)
+        FILL_ADJ.TILE_W! = 64
+        FILL_ADJ.TILE_H! = 64
+    ELSE
+        FILL_ADJ.PAINT_MODE% = FILL_ADJ_PAINT_BRUSH
+        FILL_ADJ.TILE_W! = CUSTOM_BRUSH.WIDTH%
+        FILL_ADJ.TILE_H! = CUSTOM_BRUSH.HEIGHT%
+    END IF
+    IF FILL_ADJ.TILE_W! < 1 THEN FILL_ADJ.TILE_W! = 1
+    IF FILL_ADJ.TILE_H! < 1 THEN FILL_ADJ.TILE_H! = 1
+END SUB
+
+
+''
 ' Restore layer and re-render fill with current adjustment parameters
 '
 SUB FILL_ADJ_update ()
@@ -141,14 +205,22 @@ SUB FILL_ADJ_update ()
     _DEST old_dest&
 
     ' Re-render fill with current parameters
-    ' (fill functions check FILL_ADJ.ACTIVE and use TILE_W/H + ORIGIN_X/Y)
-    SELECT CASE FILL_ADJ.SHAPE_TYPE%
-        CASE FILL_ADJ_SHAPE_RECT
-            CUSTOM_BRUSH_fill_rect FILL_ADJ.RECT_X1%, FILL_ADJ.RECT_Y1%, FILL_ADJ.RECT_X2%, FILL_ADJ.RECT_Y2%
-        CASE FILL_ADJ_SHAPE_ELLIPSE
-            CUSTOM_BRUSH_fill_ellipse FILL_ADJ.ELL_CX%, FILL_ADJ.ELL_CY%, FILL_ADJ.ELL_RX!, FILL_ADJ.ELL_RY!
-        CASE FILL_ADJ_SHAPE_POLYGON
-            CUSTOM_BRUSH_fill_polygon FILL_ADJ_POLY_X%(), FILL_ADJ_POLY_Y%(), FILL_ADJ.POLY_COUNT%
+    SELECT CASE FILL_ADJ.PAINT_MODE%
+        CASE FILL_ADJ_PAINT_BRUSH
+            ' Custom brush tiling (existing path)
+            SELECT CASE FILL_ADJ.SHAPE_TYPE%
+                CASE FILL_ADJ_SHAPE_RECT
+                    CUSTOM_BRUSH_fill_rect FILL_ADJ.RECT_X1%, FILL_ADJ.RECT_Y1%, FILL_ADJ.RECT_X2%, FILL_ADJ.RECT_Y2%
+                CASE FILL_ADJ_SHAPE_ELLIPSE
+                    CUSTOM_BRUSH_fill_ellipse FILL_ADJ.ELL_CX%, FILL_ADJ.ELL_CY%, FILL_ADJ.ELL_RX!, FILL_ADJ.ELL_RY!
+                CASE FILL_ADJ_SHAPE_POLYGON
+                    CUSTOM_BRUSH_fill_polygon FILL_ADJ_POLY_X%(), FILL_ADJ_POLY_Y%(), FILL_ADJ.POLY_COUNT%
+                CASE FILL_ADJ_SHAPE_FLOOD
+                    FILL_ADJ_render_mask_brush
+            END SELECT
+        CASE FILL_ADJ_PAINT_PATTERN, FILL_ADJ_PAINT_GRADIENT
+            ' Pattern/gradient rendering with adjustable tiling/bounds
+            FILL_ADJ_render_paint_mode
     END SELECT
 
     ' Mark layer dirty and force re-render
@@ -166,7 +238,13 @@ SUB FILL_ADJ_commit ()
 
     ' Record history using the cancel image (pre-shape state) as the before image
     IF FILL_ADJ.CANCEL_IMG& < -1 AND LAYERS(FILL_ADJ.LAYER_IDX%).historyId& > 0 THEN
-        HISTORY_record_brush LAYERS(FILL_ADJ.LAYER_IDX%).historyId&, FILL_ADJ.LAYER_IDX%, PAINT_apply_opacity~&(PAINT_COLOR~&), FILL_ADJ.HISTORY_FLAGS&, FILL_ADJ.CANCEL_IMG&, "Brush Fill (adjusted)"
+        DIM adj_label AS STRING
+        SELECT CASE FILL_ADJ.PAINT_MODE%
+            CASE FILL_ADJ_PAINT_PATTERN: adj_label$ = "Pattern Fill (adjusted)"
+            CASE FILL_ADJ_PAINT_GRADIENT: adj_label$ = "Gradient Fill (adjusted)"
+            CASE ELSE: adj_label$ = "Brush Fill (adjusted)"
+        END SELECT
+        HISTORY_record_brush LAYERS(FILL_ADJ.LAYER_IDX%).historyId&, FILL_ADJ.LAYER_IDX%, PAINT_apply_opacity~&(PAINT_COLOR~&), FILL_ADJ.HISTORY_FLAGS&, FILL_ADJ.CANCEL_IMG&, adj_label$
         FILL_ADJ.CANCEL_IMG& = 0 ' Ownership transferred to history
         HISTORY_saved_this_frame% = TRUE
     END IF
@@ -176,8 +254,10 @@ SUB FILL_ADJ_commit ()
     ' Clean up (don't restore — current layer state IS the result)
     IF FILL_ADJ.REDRAW_IMG& < -1 THEN _FREEIMAGE FILL_ADJ.REDRAW_IMG&
     IF FILL_ADJ.CANCEL_IMG& < -1 THEN _FREEIMAGE FILL_ADJ.CANCEL_IMG&
+    IF FILL_ADJ.FILL_MASK& < -1 THEN _FREEIMAGE FILL_ADJ.FILL_MASK&
     FILL_ADJ.REDRAW_IMG& = 0
     FILL_ADJ.CANCEL_IMG& = 0
+    FILL_ADJ.FILL_MASK& = 0
     FILL_ADJ.ACTIVE% = FALSE
 
     CANVAS_DIRTY% = TRUE
@@ -209,8 +289,10 @@ SUB FILL_ADJ_cancel ()
     ' Clean up
     IF FILL_ADJ.REDRAW_IMG& < -1 THEN _FREEIMAGE FILL_ADJ.REDRAW_IMG&
     IF FILL_ADJ.CANCEL_IMG& < -1 THEN _FREEIMAGE FILL_ADJ.CANCEL_IMG&
+    IF FILL_ADJ.FILL_MASK& < -1 THEN _FREEIMAGE FILL_ADJ.FILL_MASK&
     FILL_ADJ.REDRAW_IMG& = 0
     FILL_ADJ.CANCEL_IMG& = 0
+    FILL_ADJ.FILL_MASK& = 0
     FILL_ADJ.ACTIVE% = FALSE
 
     LAYERS(FILL_ADJ.LAYER_IDX%).contentDirty% = TRUE
@@ -228,14 +310,17 @@ END SUB
 SUB FILL_ADJ_reset ()
     IF FILL_ADJ.REDRAW_IMG& < -1 THEN _FREEIMAGE FILL_ADJ.REDRAW_IMG&
     IF FILL_ADJ.CANCEL_IMG& < -1 THEN _FREEIMAGE FILL_ADJ.CANCEL_IMG&
+    IF FILL_ADJ.FILL_MASK& < -1 THEN _FREEIMAGE FILL_ADJ.FILL_MASK&
     FILL_ADJ.ACTIVE% = FALSE
     FILL_ADJ.SHAPE_TYPE% = 0
+    FILL_ADJ.PAINT_MODE% = 0
     FILL_ADJ.TILE_W! = 0
     FILL_ADJ.TILE_H! = 0
     FILL_ADJ.ORIGIN_X! = 0
     FILL_ADJ.ORIGIN_Y! = 0
     FILL_ADJ.REDRAW_IMG& = 0
     FILL_ADJ.CANCEL_IMG& = 0
+    FILL_ADJ.FILL_MASK& = 0
     FILL_ADJ.DRAGGING% = FALSE
     FILL_ADJ.DRAG_MODE% = FILL_ADJ_DRAG_NONE
 END SUB
@@ -293,6 +378,8 @@ FUNCTION FILL_ADJ_hit_test% (rawX AS INTEGER, rawY AS INTEGER)
                 IF FILL_ADJ_POLY_X%(hpi%) < shapeMinX% THEN shapeMinX% = FILL_ADJ_POLY_X%(hpi%)
                 IF FILL_ADJ_POLY_Y%(hpi%) < shapeMinY% THEN shapeMinY% = FILL_ADJ_POLY_Y%(hpi%)
             NEXT hpi%
+        CASE FILL_ADJ_SHAPE_FLOOD
+            shapeMinX% = FILL_ADJ.FLOOD_X1%: shapeMinY% = FILL_ADJ.FLOOD_Y1%
     END SELECT
 
     ' Origin in screen coords
@@ -423,6 +510,229 @@ END SUB
 
 
 ''
+' Render tiled custom brush into flood fill mask region
+'
+SUB FILL_ADJ_render_mask_brush ()
+    IF FILL_ADJ.FILL_MASK& >= -1 THEN EXIT SUB
+    IF NOT CUSTOM_BRUSH_is_active% THEN EXIT SUB
+    IF CUSTOM_BRUSH.IMAGE& = 0 THEN EXIT SUB
+
+    DIM old_dest AS LONG, old_source AS LONG
+    DIM px AS INTEGER, py AS INTEGER
+    DIM bw AS INTEGER, bh AS INTEGER
+    DIM bx AS INTEGER, by AS INTEGER
+    DIM src_px AS INTEGER, src_py AS INTEGER
+    DIM pixel_color AS _UNSIGNED LONG
+    DIM alpha_value AS INTEGER
+    DIM mask_color AS _UNSIGNED LONG
+
+    bw% = INT(FILL_ADJ.TILE_W! + 0.5)
+    bh% = INT(FILL_ADJ.TILE_H! + 0.5)
+    IF bw% < 1 THEN bw% = 1
+    IF bh% < 1 THEN bh% = 1
+
+    old_dest& = _DEST
+    old_source& = _SOURCE
+
+    ' Read mask to check which pixels to paint
+    DIM maskSrc AS LONG
+    maskSrc& = FILL_ADJ.FILL_MASK&
+    mask_color~& = _RGB32(255, 255, 255)
+
+    _DEST LAYERS(FILL_ADJ.LAYER_IDX%).imgHandle&
+
+    FOR py% = FILL_ADJ.FLOOD_Y1% TO FILL_ADJ.FLOOD_Y2%
+        FOR px% = FILL_ADJ.FLOOD_X1% TO FILL_ADJ.FLOOD_X2%
+            ' Check mask
+            _SOURCE maskSrc&
+            IF POINT(px%, py%) <> mask_color~& THEN _CONTINUE
+
+            IF NOT OPACITY_LOCK_allows_draw%(px%, py%) THEN _CONTINUE
+
+            ' Map pixel to tiled brush coordinate
+            bx% = ((px% - FILL_ADJ.FLOOD_X1% - INT(FILL_ADJ.ORIGIN_X!)) MOD bw% + bw%) MOD bw%
+            by% = ((py% - FILL_ADJ.FLOOD_Y1% - INT(FILL_ADJ.ORIGIN_Y!)) MOD bh% + bh%) MOD bh%
+
+            IF CUSTOM_BRUSH.FLIP_H% THEN
+                src_px% = CUSTOM_BRUSH.ORIG_WIDTH% - 1 - INT(bx% * CUSTOM_BRUSH.ORIG_WIDTH% / bw%)
+            ELSE
+                src_px% = INT(bx% * CUSTOM_BRUSH.ORIG_WIDTH% / bw%)
+            END IF
+            IF CUSTOM_BRUSH.FLIP_V% THEN
+                src_py% = CUSTOM_BRUSH.ORIG_HEIGHT% - 1 - INT(by% * CUSTOM_BRUSH.ORIG_HEIGHT% / bh%)
+            ELSE
+                src_py% = INT(by% * CUSTOM_BRUSH.ORIG_HEIGHT% / bh%)
+            END IF
+
+            _SOURCE CUSTOM_BRUSH.IMAGE&
+            pixel_color~& = POINT(src_px%, src_py%)
+            alpha_value% = _ALPHA32(pixel_color~&)
+            IF alpha_value% = 0 THEN _CONTINUE
+
+            IF PAL_FG_IS_TRANSPARENT% THEN
+                _DONTBLEND LAYERS(FILL_ADJ.LAYER_IDX%).imgHandle&
+                PSET (px%, py%), _RGBA32(0, 0, 0, 0)
+                _BLEND LAYERS(FILL_ADJ.LAYER_IDX%).imgHandle&
+            ELSEIF CUSTOM_BRUSH.RECOLOR_MODE% THEN
+                PSET (px%, py%), _RGBA32(_RED32(PAINT_COLOR~&), _GREEN32(PAINT_COLOR~&), _BLUE32(PAINT_COLOR~&), 255)
+            ELSE
+                PSET (px%, py%), pixel_color~&
+            END IF
+        NEXT px%
+    NEXT py%
+
+    _SOURCE old_source&
+    _DEST old_dest&
+END SUB
+
+
+''
+' Render pattern or gradient into the fill region with adjustable tiling/bounds
+'
+SUB FILL_ADJ_render_paint_mode ()
+    DIM old_dest AS LONG, old_source AS LONG
+    DIM px AS INTEGER, py AS INTEGER
+    DIM minX AS INTEGER, maxX AS INTEGER, minY AS INTEGER, maxY AS INTEGER
+    DIM bw AS INTEGER, bh AS INTEGER
+    DIM fill_color AS _UNSIGNED LONG
+    DIM resolved_color AS _UNSIGNED LONG
+
+    old_dest& = _DEST
+    old_source& = _SOURCE
+
+    fill_color~& = DRAW_COLOR~&
+
+    ' Determine shape bounding box
+    SELECT CASE FILL_ADJ.SHAPE_TYPE%
+        CASE FILL_ADJ_SHAPE_RECT
+            minX% = FILL_ADJ.RECT_X1%: maxX% = FILL_ADJ.RECT_X2%
+            minY% = FILL_ADJ.RECT_Y1%: maxY% = FILL_ADJ.RECT_Y2%
+            IF minX% > maxX% THEN SWAP minX%, maxX%
+            IF minY% > maxY% THEN SWAP minY%, maxY%
+        CASE FILL_ADJ_SHAPE_ELLIPSE
+            minX% = FILL_ADJ.ELL_CX% - INT(FILL_ADJ.ELL_RX! + 0.5)
+            maxX% = FILL_ADJ.ELL_CX% + INT(FILL_ADJ.ELL_RX! + 0.5)
+            minY% = FILL_ADJ.ELL_CY% - INT(FILL_ADJ.ELL_RY! + 0.5)
+            maxY% = FILL_ADJ.ELL_CY% + INT(FILL_ADJ.ELL_RY! + 0.5)
+        CASE FILL_ADJ_SHAPE_POLYGON
+            DIM opi AS INTEGER
+            minX% = FILL_ADJ_POLY_X%(0): maxX% = minX%
+            minY% = FILL_ADJ_POLY_Y%(0): maxY% = minY%
+            FOR opi% = 1 TO FILL_ADJ.POLY_COUNT% - 1
+                IF FILL_ADJ_POLY_X%(opi%) < minX% THEN minX% = FILL_ADJ_POLY_X%(opi%)
+                IF FILL_ADJ_POLY_X%(opi%) > maxX% THEN maxX% = FILL_ADJ_POLY_X%(opi%)
+                IF FILL_ADJ_POLY_Y%(opi%) < minY% THEN minY% = FILL_ADJ_POLY_Y%(opi%)
+                IF FILL_ADJ_POLY_Y%(opi%) > maxY% THEN maxY% = FILL_ADJ_POLY_Y%(opi%)
+            NEXT opi%
+        CASE FILL_ADJ_SHAPE_FLOOD
+            minX% = FILL_ADJ.FLOOD_X1%: maxX% = FILL_ADJ.FLOOD_X2%
+            minY% = FILL_ADJ.FLOOD_Y1%: maxY% = FILL_ADJ.FLOOD_Y2%
+    END SELECT
+
+    bw% = INT(FILL_ADJ.TILE_W! + 0.5)
+    bh% = INT(FILL_ADJ.TILE_H! + 0.5)
+    IF bw% < 1 THEN bw% = 1
+    IF bh% < 1 THEN bh% = 1
+
+    ' Set gradient context using tile dimensions offset from shape min
+    IF FILL_ADJ.PAINT_MODE% = FILL_ADJ_PAINT_GRADIENT THEN
+        GRAD_CTX_set minX% + INT(FILL_ADJ.ORIGIN_X!), minY% + INT(FILL_ADJ.ORIGIN_Y!), minX% + INT(FILL_ADJ.ORIGIN_X!) + bw% - 1, minY% + INT(FILL_ADJ.ORIGIN_Y!) + bh% - 1
+    END IF
+
+    _DEST LAYERS(FILL_ADJ.LAYER_IDX%).imgHandle&
+
+    DIM mask_color AS _UNSIGNED LONG
+    DIM has_mask AS INTEGER
+    has_mask% = (FILL_ADJ.SHAPE_TYPE% = FILL_ADJ_SHAPE_FLOOD AND FILL_ADJ.FILL_MASK& < -1)
+    mask_color~& = _RGB32(255, 255, 255)
+
+    DIM sampleImg AS LONG, imgW AS INTEGER, imgH AS INTEGER
+    DIM srcX AS INTEGER, srcY AS INTEGER
+    IF FILL_ADJ.PAINT_MODE% = FILL_ADJ_PAINT_PATTERN THEN
+        IF DRAWER.patternSelected% >= 1 AND DRAWER.patternSelected% <= DRAWER_SLOT_COUNT THEN
+            sampleImg& = DRAWER_PATTERN_SLOTS(DRAWER.patternSelected%)
+        ELSE
+            sampleImg& = 0
+        END IF
+        IF sampleImg& < -1 THEN
+            imgW% = _WIDTH(sampleImg&)
+            imgH% = _HEIGHT(sampleImg&)
+        ELSE
+            _SOURCE old_source&: _DEST old_dest&
+            IF FILL_ADJ.PAINT_MODE% = FILL_ADJ_PAINT_GRADIENT THEN GRAD_CTX_clear
+            EXIT SUB
+        END IF
+    END IF
+
+    FOR py% = minY% TO maxY%
+        FOR px% = minX% TO maxX%
+            ' Shape masking
+            SELECT CASE FILL_ADJ.SHAPE_TYPE%
+                CASE FILL_ADJ_SHAPE_ELLIPSE
+                    DIM edx AS SINGLE, edy AS SINGLE
+                    edx! = (px% - FILL_ADJ.ELL_CX%) / FILL_ADJ.ELL_RX!
+                    edy! = (py% - FILL_ADJ.ELL_CY%) / FILL_ADJ.ELL_RY!
+                    IF (edx! * edx! + edy! * edy!) > 1.0 THEN _CONTINUE
+                CASE FILL_ADJ_SHAPE_POLYGON
+                    IF NOT FILL_ADJ_point_in_polygon%(px%, py%) THEN _CONTINUE
+                CASE FILL_ADJ_SHAPE_FLOOD
+                    _SOURCE FILL_ADJ.FILL_MASK&
+                    IF POINT(px%, py%) <> mask_color~& THEN _CONTINUE
+            END SELECT
+
+            IF NOT SELECTION_is_point_inside%(px%, py%) THEN _CONTINUE
+            IF NOT OPACITY_LOCK_allows_draw%(px%, py%) THEN _CONTINUE
+
+            ' Resolve paint color based on mode
+            IF FILL_ADJ.PAINT_MODE% = FILL_ADJ_PAINT_PATTERN THEN
+                ' Tiled pattern with adjustable origin and scale
+                DIM bx AS INTEGER, by AS INTEGER
+                bx% = ((px% - minX% - INT(FILL_ADJ.ORIGIN_X!)) MOD bw% + bw%) MOD bw%
+                by% = ((py% - minY% - INT(FILL_ADJ.ORIGIN_Y!)) MOD bh% + bh%) MOD bh%
+                srcX% = INT(bx% * imgW% / bw%)
+                srcY% = INT(by% * imgH% / bh%)
+                IF srcX% >= imgW% THEN srcX% = imgW% - 1
+                IF srcY% >= imgH% THEN srcY% = imgH% - 1
+                _SOURCE sampleImg&
+                resolved_color~& = PAINT_apply_opacity~&(POINT(srcX%, srcY%))
+            ELSE
+                ' Gradient — use context-aware resolver
+                resolved_color~& = DRAWER_resolve_paint_color~&(px%, py%, fill_color~&)
+            END IF
+
+            IF _ALPHA32(resolved_color~&) = 0 THEN _CONTINUE
+            PSET (px%, py%), resolved_color~&
+        NEXT px%
+    NEXT py%
+
+    _SOURCE old_source&
+    _DEST old_dest&
+
+    IF FILL_ADJ.PAINT_MODE% = FILL_ADJ_PAINT_GRADIENT THEN GRAD_CTX_clear
+END SUB
+
+
+''
+' Point-in-polygon test for polygon shape masking in paint mode
+'
+FUNCTION FILL_ADJ_point_in_polygon% (testX AS INTEGER, testY AS INTEGER)
+    DIM i AS INTEGER, j AS INTEGER
+    DIM inside AS INTEGER
+    inside% = FALSE
+    j% = FILL_ADJ.POLY_COUNT% - 1
+    FOR i% = 0 TO FILL_ADJ.POLY_COUNT% - 1
+        IF ((FILL_ADJ_POLY_Y%(i%) > testY%) <> (FILL_ADJ_POLY_Y%(j%) > testY%)) THEN
+            DIM ix AS SINGLE
+            ix! = FILL_ADJ_POLY_X%(i%) + (testY% - FILL_ADJ_POLY_Y%(i%)) * (FILL_ADJ_POLY_X%(j%) - FILL_ADJ_POLY_X%(i%)) / (FILL_ADJ_POLY_Y%(j%) - FILL_ADJ_POLY_Y%(i%))
+            IF testX% < ix! THEN inside% = NOT inside%
+        END IF
+        j% = i%
+    NEXT i%
+    FILL_ADJ_point_in_polygon% = inside%
+END FUNCTION
+
+
+''
 ' Render overlay for fill adjustment mode
 ' Shows L-shaped scale handle at tile origin, dashed bounding box, and info text
 '
@@ -460,6 +770,9 @@ SUB FILL_ADJ_render_overlay ()
                 IF FILL_ADJ_POLY_X%(oi%) > shapeMaxX% THEN shapeMaxX% = FILL_ADJ_POLY_X%(oi%)
                 IF FILL_ADJ_POLY_Y%(oi%) > shapeMaxY% THEN shapeMaxY% = FILL_ADJ_POLY_Y%(oi%)
             NEXT oi%
+        CASE FILL_ADJ_SHAPE_FLOOD
+            shapeMinX% = FILL_ADJ.FLOOD_X1%: shapeMinY% = FILL_ADJ.FLOOD_Y1%
+            shapeMaxX% = FILL_ADJ.FLOOD_X2%: shapeMaxY% = FILL_ADJ.FLOOD_Y2%
     END SELECT
 
     shapeCX% = (shapeMinX% + shapeMaxX%) \ 2
