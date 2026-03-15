@@ -218,6 +218,10 @@ END IF
 
 Key physical codes: `KEY_PGUP& = 18688`, `KEY_PGDN& = 20736`, `.` = 46, `,` = 44, `/` = 47, `R/r` = 82/114
 
+### 21. Custom Brush Rendering Must Handle Eraser Mode
+
+`CUSTOM_BRUSH_render()` bypasses `PAINT_pset_with_symmetry()` — it uses `_PUTIMAGE` with `_BLEND`, which silently drops transparent pixels. When adding new rendering paths through custom brush, always check `PAL_FG_IS_TRANSPARENT%` and use `_DONTBLEND` + per-pixel PSET of `_RGBA32(0,0,0,0)` for eraser mode, matching the pattern in `PAINT_pset_with_symmetry()`.
+
 ---
 
 ## Main Loop Structure (DRAW.BAS)
