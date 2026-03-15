@@ -12,6 +12,7 @@ CONST TOOLTIP_SRC_NONE      = 0
 CONST TOOLTIP_SRC_TOOLBAR   = 1
 CONST TOOLTIP_SRC_ORGANIZER = 2
 CONST TOOLTIP_SRC_MINI_PAL  = 3
+CONST TOOLTIP_SRC_DOCK_SWAP = 4
 
 TYPE TOOLTIP_OBJ
     ACTIVE          AS INTEGER      ' TRUE when a tooltip is currently visible
@@ -143,9 +144,16 @@ DIM SHARED TOOLTIP_MINI_PAL_LINE2$
 TOOLTIP_MINI_PAL_LINE1$ = "MINI PALETTE - L-CLICK choose FG color. R-CLICK choose BG color."
 TOOLTIP_MINI_PAL_LINE2$ = "You can use any image for this palette, see the documentation."
 
+' Dock swap tooltip text (for blank panel areas)
+DIM SHARED TOOLTIP_DOCK_LINE1$
+DIM SHARED TOOLTIP_DOCK_LINE2$
+TOOLTIP_DOCK_LINE1$ = "CTRL+SHIFT+L-CLICK LAYOUT DOCK EDGE"
+TOOLTIP_DOCK_LINE2$ = "Click once while holding SHIFT and CTRL to swap this panel to dock on other side of window."
+
 DECLARE SUB TOOLTIP_update ()
 DECLARE SUB TOOLTIP_render (target&)
 DECLARE SUB TOOLTIP_reset ()
 DECLARE FUNCTION TOOLTIP_get_hovered_btn_idx% (mouseX%, mouseY%)
 DECLARE FUNCTION TOOLTIP_get_hovered_org_idx% (mouseX%, mouseY%)
 DECLARE FUNCTION TOOLTIP_get_hovered_mini_pal% (mouseX%, mouseY%)
+DECLARE FUNCTION TOOLTIP_get_hovered_dock_area% (mouseX%, mouseY%)
