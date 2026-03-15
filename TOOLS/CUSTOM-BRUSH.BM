@@ -627,6 +627,7 @@ SUB CUSTOM_BRUSH_toggle_recolor ()
     ELSE
         _LOGINFO "RECOLOR MODE: OFF"
     END IF
+    INVALIDATE_scene
 END SUB
 
 
@@ -636,6 +637,7 @@ END SUB
 SUB CUSTOM_BRUSH_toggle_outline ()
     IF NOT CUSTOM_BRUSH.ACTIVE% THEN EXIT SUB
     CUSTOM_BRUSH.SHOW_OUTLINE% = NOT CUSTOM_BRUSH.SHOW_OUTLINE%
+    INVALIDATE_scene
 END SUB
 
 
@@ -826,4 +828,334 @@ SUB CUSTOM_BRUSH_export_png (filepath AS STRING)
     
     ' Clean up
     IF temp_img& < -1 THEN _FREEIMAGE temp_img&
+END SUB
+
+
+''
+' Fill a rectangle area with tiled custom brush stamps
+' @param x1 INTEGER Left edge
+' @param y1 INTEGER Top edge
+' @param x2 INTEGER Right edge
+' @param y2 INTEGER Bottom edge
+'
+SUB CUSTOM_BRUSH_fill_rect (x1 AS INTEGER, y1 AS INTEGER, x2 AS INTEGER, y2 AS INTEGER)
+    IF NOT CUSTOM_BRUSH.ACTIVE% THEN EXIT SUB
+
+    DIM minX AS INTEGER, maxX AS INTEGER, minY AS INTEGER, maxY AS INTEGER
+    DIM tx AS INTEGER, ty AS INTEGER
+    DIM stamp_x AS INTEGER, stamp_y AS INTEGER
+    DIM bw AS INTEGER, bh AS INTEGER
+
+    minX% = x1%: maxX% = x2%
+    IF minX% > maxX% THEN SWAP minX%, maxX%
+    minY% = y1%: maxY% = y2%
+    IF minY% > maxY% THEN SWAP minY%, maxY%
+
+    IF FILL_ADJ.ACTIVE% THEN
+        bw% = INT(FILL_ADJ.TILE_W! + 0.5)
+        bh% = INT(FILL_ADJ.TILE_H! + 0.5)
+    ELSE
+        bw% = CUSTOM_BRUSH.WIDTH%
+        bh% = CUSTOM_BRUSH.HEIGHT%
+    END IF
+    IF bw% < 1 THEN bw% = 1
+    IF bh% < 1 THEN bh% = 1
+
+    IF FILL_ADJ.ACTIVE% THEN
+        ' Per-pixel tiled rendering with adjustable tile size and origin offset
+        DIM px AS INTEGER, py AS INTEGER
+        DIM bx AS INTEGER, by AS INTEGER
+        DIM src_px AS INTEGER, src_py AS INTEGER
+        DIM pixel_color AS _UNSIGNED LONG
+        DIM alpha_value AS INTEGER
+        DIM old_dest AS LONG, old_source AS LONG
+        IF CUSTOM_BRUSH.IMAGE& = 0 THEN EXIT SUB
+
+        old_dest& = _DEST
+        old_source& = _SOURCE
+        _SOURCE CUSTOM_BRUSH.IMAGE&
+        _DEST LAYER_current_image&
+
+        FOR py% = minY% TO maxY%
+            FOR px% = minX% TO maxX%
+                IF NOT SELECTION_is_point_inside%(px%, py%) THEN _CONTINUE
+                IF NOT OPACITY_LOCK_allows_draw%(px%, py%) THEN _CONTINUE
+
+                bx% = ((px% - minX% - INT(FILL_ADJ.ORIGIN_X!)) MOD bw% + bw%) MOD bw%
+                by% = ((py% - minY% - INT(FILL_ADJ.ORIGIN_Y!)) MOD bh% + bh%) MOD bh%
+
+                IF CUSTOM_BRUSH.FLIP_H% THEN
+                    src_px% = CUSTOM_BRUSH.ORIG_WIDTH% - 1 - INT(bx% * CUSTOM_BRUSH.ORIG_WIDTH% / bw%)
+                ELSE
+                    src_px% = INT(bx% * CUSTOM_BRUSH.ORIG_WIDTH% / bw%)
+                END IF
+                IF CUSTOM_BRUSH.FLIP_V% THEN
+                    src_py% = CUSTOM_BRUSH.ORIG_HEIGHT% - 1 - INT(by% * CUSTOM_BRUSH.ORIG_HEIGHT% / bh%)
+                ELSE
+                    src_py% = INT(by% * CUSTOM_BRUSH.ORIG_HEIGHT% / bh%)
+                END IF
+
+                pixel_color~& = POINT(src_px%, src_py%)
+                alpha_value% = _ALPHA32(pixel_color~&)
+                IF alpha_value% = 0 THEN _CONTINUE
+
+                IF PAL_FG_IS_TRANSPARENT% THEN
+                    _DONTBLEND LAYER_current_image&
+                    PSET (px%, py%), _RGBA32(0, 0, 0, 0)
+                    _BLEND LAYER_current_image&
+                ELSEIF CUSTOM_BRUSH.RECOLOR_MODE% THEN
+                    PSET (px%, py%), _RGBA32(_RED32(PAINT_COLOR~&), _GREEN32(PAINT_COLOR~&), _BLUE32(PAINT_COLOR~&), 255)
+                ELSE
+                    PSET (px%, py%), pixel_color~&
+                END IF
+            NEXT px%
+        NEXT py%
+
+        _SOURCE old_source&
+        _DEST old_dest&
+    ELSE
+        ' Tile stamps across the rectangle interior
+        FOR ty% = minY% TO maxY% STEP bh%
+            FOR tx% = minX% TO maxX% STEP bw%
+                stamp_x% = tx%
+                stamp_y% = ty%
+                GRID_snap_xy stamp_x%, stamp_y%
+                CUSTOM_BRUSH_stamp stamp_x%, stamp_y%
+            NEXT tx%
+        NEXT ty%
+    END IF
+END SUB
+
+
+''
+' Fill an ellipse area with tiled custom brush stamps
+' Only stamps where the tile position is inside the ellipse equation.
+' @param cx INTEGER Center X
+' @param cy INTEGER Center Y
+' @param rx SINGLE Radius X
+' @param ry SINGLE Radius Y
+'
+SUB CUSTOM_BRUSH_fill_ellipse (cx AS INTEGER, cy AS INTEGER, rx AS SINGLE, ry AS SINGLE)
+    IF NOT CUSTOM_BRUSH.ACTIVE% THEN EXIT SUB
+    IF rx! <= 0 OR ry! <= 0 THEN EXIT SUB
+    IF CUSTOM_BRUSH.IMAGE& = 0 THEN EXIT SUB
+
+    DIM minX AS INTEGER, maxX AS INTEGER, minY AS INTEGER, maxY AS INTEGER
+    DIM px AS INTEGER, py AS INTEGER
+    DIM bw AS INTEGER, bh AS INTEGER
+    DIM edx AS SINGLE, edy AS SINGLE
+    DIM bx AS INTEGER, by AS INTEGER
+    DIM src_px AS INTEGER, src_py AS INTEGER
+    DIM pixel_color AS _UNSIGNED LONG
+    DIM alpha_value AS INTEGER
+    DIM old_dest AS LONG, old_source AS LONG
+
+    minX% = cx% - INT(rx! + 0.5)
+    maxX% = cx% + INT(rx! + 0.5)
+    minY% = cy% - INT(ry! + 0.5)
+    maxY% = cy% + INT(ry! + 0.5)
+
+    IF FILL_ADJ.ACTIVE% THEN
+        bw% = INT(FILL_ADJ.TILE_W! + 0.5)
+        bh% = INT(FILL_ADJ.TILE_H! + 0.5)
+    ELSE
+        bw% = CUSTOM_BRUSH.WIDTH%
+        bh% = CUSTOM_BRUSH.HEIGHT%
+    END IF
+    IF bw% < 1 THEN bw% = 1
+    IF bh% < 1 THEN bh% = 1
+
+    old_dest& = _DEST
+    old_source& = _SOURCE
+    _SOURCE CUSTOM_BRUSH.IMAGE&
+    _DEST LAYER_current_image&
+
+    ' Per-pixel tiled rendering with ellipse masking
+    FOR py% = minY% TO maxY%
+        FOR px% = minX% TO maxX%
+            ' Ellipse boundary test
+            edx! = (px% - cx%) / rx!
+            edy! = (py% - cy%) / ry!
+            IF (edx! * edx! + edy! * edy!) > 1.0 THEN _CONTINUE
+
+            ' Selection + opacity lock check
+            IF NOT SELECTION_is_point_inside%(px%, py%) THEN _CONTINUE
+            IF NOT OPACITY_LOCK_allows_draw%(px%, py%) THEN _CONTINUE
+
+            ' Map canvas pixel to tiled brush coordinate
+            IF FILL_ADJ.ACTIVE% THEN
+                bx% = ((px% - minX% - INT(FILL_ADJ.ORIGIN_X!)) MOD bw% + bw%) MOD bw%
+                by% = ((py% - minY% - INT(FILL_ADJ.ORIGIN_Y!)) MOD bh% + bh%) MOD bh%
+            ELSE
+                bx% = ((px% - minX%) MOD bw% + bw%) MOD bw%
+                by% = ((py% - minY%) MOD bh% + bh%) MOD bh%
+            END IF
+
+            ' Apply flip
+            IF CUSTOM_BRUSH.FLIP_H% THEN
+                src_px% = CUSTOM_BRUSH.ORIG_WIDTH% - 1 - INT(bx% * CUSTOM_BRUSH.ORIG_WIDTH% / bw%)
+            ELSE
+                src_px% = INT(bx% * CUSTOM_BRUSH.ORIG_WIDTH% / bw%)
+            END IF
+            IF CUSTOM_BRUSH.FLIP_V% THEN
+                src_py% = CUSTOM_BRUSH.ORIG_HEIGHT% - 1 - INT(by% * CUSTOM_BRUSH.ORIG_HEIGHT% / bh%)
+            ELSE
+                src_py% = INT(by% * CUSTOM_BRUSH.ORIG_HEIGHT% / bh%)
+            END IF
+
+            pixel_color~& = POINT(src_px%, src_py%)
+            alpha_value% = _ALPHA32(pixel_color~&)
+            IF alpha_value% = 0 THEN _CONTINUE
+
+            ' Eraser mode
+            IF PAL_FG_IS_TRANSPARENT% THEN
+                _DONTBLEND LAYER_current_image&
+                PSET (px%, py%), _RGBA32(0, 0, 0, 0)
+                _BLEND LAYER_current_image&
+            ELSEIF CUSTOM_BRUSH.RECOLOR_MODE% THEN
+                PSET (px%, py%), _RGBA32(_RED32(PAINT_COLOR~&), _GREEN32(PAINT_COLOR~&), _BLUE32(PAINT_COLOR~&), 255)
+            ELSE
+                PSET (px%, py%), pixel_color~&
+            END IF
+        NEXT px%
+    NEXT py%
+
+    _SOURCE old_source&
+    _DEST old_dest&
+END SUB
+
+
+''
+' Fill a polygon area with tiled custom brush stamps
+' Uses ray-casting point-in-polygon test for each tile position.
+' @param x_coords() INTEGER Array of polygon X vertices
+' @param y_coords() INTEGER Array of polygon Y vertices
+' @param num_points INTEGER Number of polygon vertices
+'
+SUB CUSTOM_BRUSH_fill_polygon (x_coords%(), y_coords%(), num_points AS INTEGER)
+    IF NOT CUSTOM_BRUSH.ACTIVE% THEN EXIT SUB
+    IF num_points% < 3 THEN EXIT SUB
+    IF CUSTOM_BRUSH.IMAGE& = 0 THEN EXIT SUB
+
+    DIM minX AS INTEGER, maxX AS INTEGER, minY AS INTEGER, maxY AS INTEGER
+    DIM px AS INTEGER, py AS INTEGER
+    DIM bw AS INTEGER, bh AS INTEGER
+    DIM bx AS INTEGER, by AS INTEGER
+    DIM src_px AS INTEGER, src_py AS INTEGER
+    DIM pixel_color AS _UNSIGNED LONG
+    DIM alpha_value AS INTEGER
+    DIM i AS INTEGER, j AS INTEGER
+    DIM old_dest AS LONG, old_source AS LONG
+    DIM num_intersects AS INTEGER
+    DIM intersections(1000) AS INTEGER
+    DIM ey1 AS INTEGER, ey2 AS INTEGER, ex1 AS INTEGER, ex2 AS INTEGER
+    DIM edge_slope AS SINGLE, edge_ix AS SINGLE
+    DIM si AS INTEGER, sj AS INTEGER, stemp AS INTEGER
+    DIM pair AS INTEGER
+
+    ' Find polygon bounding box
+    minX% = x_coords%(0): maxX% = x_coords%(0)
+    minY% = y_coords%(0): maxY% = y_coords%(0)
+    FOR i% = 1 TO num_points% - 1
+        IF x_coords%(i%) < minX% THEN minX% = x_coords%(i%)
+        IF x_coords%(i%) > maxX% THEN maxX% = x_coords%(i%)
+        IF y_coords%(i%) < minY% THEN minY% = y_coords%(i%)
+        IF y_coords%(i%) > maxY% THEN maxY% = y_coords%(i%)
+    NEXT i%
+
+    IF FILL_ADJ.ACTIVE% THEN
+        bw% = INT(FILL_ADJ.TILE_W! + 0.5)
+        bh% = INT(FILL_ADJ.TILE_H! + 0.5)
+    ELSE
+        bw% = CUSTOM_BRUSH.WIDTH%
+        bh% = CUSTOM_BRUSH.HEIGHT%
+    END IF
+    IF bw% < 1 THEN bw% = 1
+    IF bh% < 1 THEN bh% = 1
+
+    old_dest& = _DEST
+    old_source& = _SOURCE
+    _SOURCE CUSTOM_BRUSH.IMAGE&
+    _DEST LAYER_current_image&
+
+    ' Per-pixel tiled rendering with polygon masking (scanline approach)
+    FOR py% = minY% TO maxY%
+        ' Build scanline intersections for this row (same algorithm as POLY_FILL_scanline)
+        num_intersects% = 0
+
+        FOR i% = 0 TO num_points% - 1
+            j% = (i% + 1) MOD num_points%
+            ex1% = x_coords%(i%): ey1% = y_coords%(i%)
+            ex2% = x_coords%(j%): ey2% = y_coords%(j%)
+            IF (ey1% <= py% AND ey2% > py%) OR (ey2% <= py% AND ey1% > py%) THEN
+                IF ey2% <> ey1% THEN
+                    edge_slope! = (ex2% - ex1%) / (ey2% - ey1%)
+                    edge_ix! = ex1% + edge_slope! * (py% - ey1%)
+                    intersections%(num_intersects%) = INT(edge_ix! + 0.5)
+                    num_intersects% = num_intersects% + 1
+                END IF
+            END IF
+        NEXT i%
+
+        ' Sort intersections
+        IF num_intersects% > 1 THEN
+            FOR si% = 0 TO num_intersects% - 2
+                FOR sj% = si% + 1 TO num_intersects% - 1
+                    IF intersections%(si%) > intersections%(sj%) THEN
+                        stemp% = intersections%(si%)
+                        intersections%(si%) = intersections%(sj%)
+                        intersections%(sj%) = stemp%
+                    END IF
+                NEXT sj%
+            NEXT si%
+
+            ' Fill between pairs of intersections
+            FOR pair% = 0 TO num_intersects% - 2 STEP 2
+                FOR px% = intersections%(pair%) TO intersections%(pair% + 1)
+                    ' Selection + opacity lock check
+                    IF NOT SELECTION_is_point_inside%(px%, py%) THEN _CONTINUE
+                    IF NOT OPACITY_LOCK_allows_draw%(px%, py%) THEN _CONTINUE
+
+                    ' Map canvas pixel to tiled brush coordinate
+                    IF FILL_ADJ.ACTIVE% THEN
+                        bx% = ((px% - minX% - INT(FILL_ADJ.ORIGIN_X!)) MOD bw% + bw%) MOD bw%
+                        by% = ((py% - minY% - INT(FILL_ADJ.ORIGIN_Y!)) MOD bh% + bh%) MOD bh%
+                    ELSE
+                        bx% = ((px% - minX%) MOD bw% + bw%) MOD bw%
+                        by% = ((py% - minY%) MOD bh% + bh%) MOD bh%
+                    END IF
+
+                    ' Apply flip
+                    IF CUSTOM_BRUSH.FLIP_H% THEN
+                        src_px% = CUSTOM_BRUSH.ORIG_WIDTH% - 1 - INT(bx% * CUSTOM_BRUSH.ORIG_WIDTH% / bw%)
+                    ELSE
+                        src_px% = INT(bx% * CUSTOM_BRUSH.ORIG_WIDTH% / bw%)
+                    END IF
+                    IF CUSTOM_BRUSH.FLIP_V% THEN
+                        src_py% = CUSTOM_BRUSH.ORIG_HEIGHT% - 1 - INT(by% * CUSTOM_BRUSH.ORIG_HEIGHT% / bh%)
+                    ELSE
+                        src_py% = INT(by% * CUSTOM_BRUSH.ORIG_HEIGHT% / bh%)
+                    END IF
+
+                    pixel_color~& = POINT(src_px%, src_py%)
+                    alpha_value% = _ALPHA32(pixel_color~&)
+                    IF alpha_value% = 0 THEN _CONTINUE
+
+                    ' Eraser mode
+                    IF PAL_FG_IS_TRANSPARENT% THEN
+                        _DONTBLEND LAYER_current_image&
+                        PSET (px%, py%), _RGBA32(0, 0, 0, 0)
+                        _BLEND LAYER_current_image&
+                    ELSEIF CUSTOM_BRUSH.RECOLOR_MODE% THEN
+                        PSET (px%, py%), _RGBA32(_RED32(PAINT_COLOR~&), _GREEN32(PAINT_COLOR~&), _BLUE32(PAINT_COLOR~&), 255)
+                    ELSE
+                        PSET (px%, py%), pixel_color~&
+                    END IF
+                NEXT px%
+            NEXT pair%
+        END IF
+    NEXT py%
+
+    _SOURCE old_source&
+    _DEST old_dest&
 END SUB

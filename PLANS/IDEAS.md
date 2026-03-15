@@ -1,5 +1,6 @@
 # IDEAS
 
+
 ## CROSSHAIR ASSISTANT LINE STROKE OUTLINE
 
 - Can we make the crosshair assistant have a stroke outline?

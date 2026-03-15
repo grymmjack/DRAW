@@ -168,6 +168,23 @@ THEME.TRANSFORM_FRAME_COLOR~&        = _RGB32(180, 220, 255)       ' Quad outlin
 THEME.TRANSFORM_FRAME_HANDLE_COLOR~& = _RGB32(200, 230, 255)       ' Unselected handle fill
 THEME.TRANSFORM_FRAME_HANDLE_SIZE%   = 5                           ' Handle half-size (screen px)
 
+' --- Fill adjustment L-handle ---
+THEME.FILL_ADJ_CORNER_COLOR~&        = _RGBA32(255, 255, 255, 255)  ' Corner box (white)
+THEME.FILL_ADJ_CORNER_ACTIVE_COLOR~& = _RGBA32(255, 255, 100, 255)  ' Corner box active (yellow)
+THEME.FILL_ADJ_ARM_X_COLOR~&         = _RGBA32(255, 80, 80, 255)    ' Horiz arm (red)
+THEME.FILL_ADJ_ARM_X_ACTIVE_COLOR~&  = _RGBA32(255, 140, 140, 255)  ' Horiz arm active (bright red)
+THEME.FILL_ADJ_ARM_Y_COLOR~&         = _RGBA32(80, 200, 80, 255)    ' Vert arm (green)
+THEME.FILL_ADJ_ARM_Y_ACTIVE_COLOR~&  = _RGBA32(140, 255, 140, 255)  ' Vert arm active (bright green)
+THEME.FILL_ADJ_SHADOW_COLOR~&        = _RGBA32(0, 0, 0, 140)        ' Shadow/outline
+THEME.FILL_ADJ_DASH_COLOR1~&         = _RGBA32(255, 255, 255, 255)  ' Dash color 1
+THEME.FILL_ADJ_DASH_COLOR2~&         = _RGBA32(0, 0, 0, 255)        ' Dash color 2
+THEME.FILL_ADJ_INFO_BG_COLOR~&       = _RGBA32(0, 0, 0, 180)        ' Info text bg
+THEME.FILL_ADJ_INFO_FG_COLOR~&       = _RGBA32(255, 255, 255, 255)  ' Info text fg
+THEME.FILL_ADJ_HANDLE_SIZE%          = 7                            ' Corner half-size (px)
+THEME.FILL_ADJ_ARM_LENGTH%           = 40                           ' Arm length (px)
+THEME.FILL_ADJ_ARM_THICKNESS%        = 5                            ' Arm half-thickness (px)
+THEME.FILL_ADJ_ICON_FILE$            = ""                            ' PNG widget (empty=procedural)
+
 ' --- Dialog chrome ---
 THEME.DIALOG_bg~&                 = _RGB32(72, 72, 72)             ' Dialog body background
 THEME.DIALOG_border_outer~&       = _RGB32(160, 160, 160)          ' Dialog outer border

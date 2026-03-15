@@ -57,6 +57,7 @@ $INCLUDEONCE
 '$INCLUDE:'./GUI/STROKE-SEL.BI'
 '$INCLUDE:'./GUI/PREVIEW.BI'
 '$INCLUDE:'./GUI/EDITBAR.BI'
+'$INCLUDE:'./GUI/FILL-ADJ.BI'
 
 ' INPUT -----------------------------------------------------------------------
 '$INCLUDE:'./INPUT/MODIFIERS.BI'
