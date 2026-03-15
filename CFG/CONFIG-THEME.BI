@@ -39,6 +39,9 @@ TYPE DRAW_THEME
     CROSSHAIR_font_offset_x AS INTEGER ' Crosshair coordinate text X offset from cursor
     CROSSHAIR_font_offset_y AS INTEGER ' Crosshair coordinate text Y offset from cursor
     CROSSHAIR_pattern       AS INTEGER ' Crosshair line pattern (16 bit &B>inary)
+    CROSSHAIR_outline_fg    AS _UNSIGNED LONG ' Crosshair outline stroke color (RGBA)
+    CROSSHAIR_outline_opacity AS INTEGER ' Crosshair outline stroke opacity (0-255)
+    CROSSHAIR_outline_width AS INTEGER ' Crosshair outline stroke width in pixels
     PICKER_LOUPE_zoom_level AS INTEGER ' Loupe zoom factor
     PICKER_LOUPE_rect_x_offset AS INTEGER ' Loupe X offset from mouse in screen pixels
     PICKER_LOUPE_rect_y_offset AS INTEGER ' Loupe Y offset from mouse in screen pixels
