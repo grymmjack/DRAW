@@ -1,38 +1,16 @@
 # IDEAS
 
-## FILE -> EXTRACT IMAGES
+## CROSSHAIR ASSISTANT LINE STROKE OUTLINE
 
-### GOAL
+- Can we make the crosshair assistant have a stroke outline?
+- This would let me be able to see the crosshair even if it was somehow the same color as the canvas.
+- I can use white and black to make sure it's visible ALWAYS.
 
-Make it super easy to extract multiple images all at once, using a simple name
-and a number scheme with a destination directory.
+- NOTE: This outline stroke draws the outline adjacent to the CROSSHAIR ASSISTANT GUIDE LINES themselves.
+- SEPARATE FROM the text outline in the cross hair assistant.
 
-### DIALOG
-
-Arrange your artwork so that nothing touches, and extract each contiguous set
-of opaque pixels that are neighboring each other as a group into a batch!
-
-BACKGROUND COLOR : 
-(o) TRANSPARENCY   ( ) FG   ( ) BG    ( ) CUSTOM [ CHIP ] (left-click = temporarily, pick from canvas, right-click choose from color palette)
-
-DESTINATION: 
-[___________________________________] [ BROWSE ]
-
-BASE FILENAME: 
-[___________________________________]
-
-NAMING METHOD:
-( ) NUMBERS STARTING WITH [___] 
-( ) DIMENSION / POSITION (WxH @ XxY)
-( ) LAYER NAME (grayed out if only one layer)
-
-----------------------------------------------
-
-[ CANCEL ]                              [ OK ]          
-
-
-### OPERATION STATUS
-Show simple message box showing what is being extracted to destination with
-what filename, with a little progress bar, then an OK button when it's done.
-
+- Implement with #DRAW.cfg settings, that are also in #THEME.cfg:
+  - CROSSHAIR_OUTLINE_STROKE_FG
+  - CROSSHAIR_OUTLINE_STROKE_OPACITY
+  - CROSSHAIR_OUTLINE_STROKE_WIDTH
 
