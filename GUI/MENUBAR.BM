@@ -852,14 +852,10 @@ SUB MENUBAR_render_submenu (rootIdx AS INTEGER)
             GOTO MENUBAR_render_next_item
         END IF
 
-        ' Draw highlight or normal background
-        IF childIdx% = MENU_BAR.hoverSub% THEN
+        ' Draw highlight or normal background (skip highlight for disabled items)
+        IF childIdx% = MENU_BAR.hoverSub% AND MENU_ITEMS(i%).enabled% THEN
             LINE (MENU_BAR.subX% + 1, itemY%)-(MENU_BAR.subX% + MENU_BAR.subW% - 2, itemY% + MENU_ITEM_HEIGHT - 1), subSelBg~&, BF
-            IF MENU_ITEMS(i%).enabled% THEN
-                COLOR subSelFg~&, _RGBA32(0, 0, 0, 0)
-            ELSE
-                COLOR THEME.MENU_SUB_disabled_fg~&, _RGBA32(0, 0, 0, 0)
-            END IF
+            COLOR subSelFg~&, _RGBA32(0, 0, 0, 0)
         ELSE
             IF MENU_ITEMS(i%).enabled% THEN
                 COLOR subFg~&, _RGBA32(0, 0, 0, 0)
@@ -1425,13 +1421,16 @@ SUB MENUBAR_handle_mouse_move (rawX AS INTEGER, rawY AS INTEGER)
 
     ' Root item hovered/switched -> MENU_OPEN; sub-item hovered -> MENU_HOVER
     ' Exception: sub-items that open a cascading menu also play MENU_OPEN
+    ' Disabled items do not play any sound
     IF MENU_BAR.hoverRoot% <> oldHoverRoot% THEN
         SOUND_play SND_MENU_OPEN
     ELSEIF MENU_BAR.hoverSub% <> oldHoverSub% OR MENU_OVERFLOW_HOVER% <> oldOverflowHover% THEN
-        IF MENU_BAR.hoverSub% = MENU_BAR.recentItemIdx% OR MENU_BAR.hoverSub% = MENU_BAR.randomItemIdx% OR MENU_BAR.hoverSub% = MENU_BAR.transformItemIdx% OR MENU_BAR.hoverSub% = MENU_BAR.layoutItemIdx% THEN
-            SOUND_play SND_MENU_OPEN
-        ELSE
-            SOUND_play SND_MENU_HOVER
+        IF MENUBAR_is_sub_item_enabled%(MENU_BAR.hoverSub%) THEN
+            IF MENUBAR_is_cascading_item%(MENU_BAR.hoverSub%) THEN
+                SOUND_play SND_MENU_OPEN
+            ELSE
+                SOUND_play SND_MENU_HOVER
+            END IF
         END IF
     END IF
     IF MENU_BAR.hoverRoot% <> oldHoverRoot% OR MENU_BAR.hoverSub% <> oldHoverSub% _
@@ -1941,28 +1940,31 @@ SUB MENUBAR_navigate_submenu (direction AS INTEGER)
         IF newPos% < 0 THEN newPos% = totalChildren% - 1
         IF newPos% >= totalChildren% THEN newPos% = 0
 
-        ' Check if this position is a divider
+        ' Check if this position is a divider or disabled item
         childIdx% = 0
         DIM isDivider AS INTEGER
+        DIM isDisabled AS INTEGER
         isDivider% = FALSE
+        isDisabled% = FALSE
         FOR i% = 0 TO MENU_ITEM_COUNT% - 1
             IF MENU_ITEMS(i%).parentIdx% = MENU_BAR.openMenu% THEN
                 IF childIdx% = newPos% THEN
                     isDivider% = MENU_ITEMS(i%).isDivider%
+                    isDisabled% = NOT MENU_ITEMS(i%).enabled%
                     EXIT FOR
                 END IF
                 childIdx% = childIdx% + 1
             END IF
         NEXT i%
 
-        IF NOT isDivider% THEN EXIT DO
+        IF NOT isDivider% AND NOT isDisabled% THEN EXIT DO
 
         attempts% = attempts% + 1
         IF attempts% >= totalChildren% THEN EXIT DO  ' Safety: all dividers
     LOOP
 
     MENU_BAR.hoverSub% = newPos%
-    IF MENU_BAR.hoverSub% = MENU_BAR.recentItemIdx% OR MENU_BAR.hoverSub% = MENU_BAR.randomItemIdx% THEN
+    IF MENUBAR_is_cascading_item%(MENU_BAR.hoverSub%) THEN
         SOUND_play SND_MENU_OPEN
     ELSE
         SOUND_play SND_MENU_HOVER
@@ -2825,4 +2827,60 @@ FUNCTION MENUBAR_layout_in_bounds% (rawX AS INTEGER, rawY AS INTEGER)
     END IF
     MENUBAR_layout_in_bounds% = (rawX% >= MENU_BAR.layoutX% AND rawX% < MENU_BAR.layoutX% + MENU_BAR.layoutW% _
         AND rawY% >= MENU_BAR.layoutY% AND rawY% < MENU_BAR.layoutY% + MENU_BAR.layoutH%)
+END FUNCTION
+
+
+''
+' Check if a submenu child item (by child index) is enabled
+' Used to gate hover sounds and highlight for disabled items
+'
+FUNCTION MENUBAR_is_sub_item_enabled% (childPosition AS INTEGER)
+    IF childPosition% < 0 THEN MENUBAR_is_sub_item_enabled% = FALSE : EXIT FUNCTION
+    IF MENU_BAR.openMenu% < 0 THEN MENUBAR_is_sub_item_enabled% = FALSE : EXIT FUNCTION
+    DIM ci AS INTEGER, mi AS INTEGER
+    ci% = 0
+    FOR mi% = 0 TO MENU_ITEM_COUNT% - 1
+        IF MENU_ITEMS(mi%).parentIdx% = MENU_BAR.openMenu% THEN
+            IF ci% = childPosition% THEN
+                MENUBAR_is_sub_item_enabled% = MENU_ITEMS(mi%).enabled%
+                EXIT FUNCTION
+            END IF
+            ci% = ci% + 1
+        END IF
+    NEXT mi%
+    MENUBAR_is_sub_item_enabled% = FALSE
+END FUNCTION
+
+
+''
+' Check if a submenu child item is a cascading submenu item in the CURRENTLY open menu
+' Returns TRUE only when the child index matches a cascading item AND the open menu
+' is the parent that owns that cascading item.
+'
+FUNCTION MENUBAR_is_cascading_item% (childPosition AS INTEGER)
+    IF childPosition% < 0 OR MENU_BAR.openMenu% < 0 THEN
+        MENUBAR_is_cascading_item% = FALSE
+        EXIT FUNCTION
+    END IF
+    ' RECENT (action 213) -> FILE (parent 0)
+    IF childPosition% = MENU_BAR.recentItemIdx% AND MENU_BAR.openMenu% = 0 THEN
+        MENUBAR_is_cascading_item% = TRUE
+        EXIT FUNCTION
+    END IF
+    ' TRANSFORM... (action 330) -> EDIT (parent 1)
+    IF childPosition% = MENU_BAR.transformItemIdx% AND MENU_BAR.openMenu% = 1 THEN
+        MENUBAR_is_cascading_item% = TRUE
+        EXIT FUNCTION
+    END IF
+    ' LAYOUT (action 442) -> VIEW (parent 2)
+    IF childPosition% = MENU_BAR.layoutItemIdx% AND MENU_BAR.openMenu% = 2 THEN
+        MENUBAR_is_cascading_item% = TRUE
+        EXIT FUNCTION
+    END IF
+    ' RANDOM TRACK (action 433) -> AUDIO (parent 10)
+    IF childPosition% = MENU_BAR.randomItemIdx% AND MENU_BAR.openMenu% = 10 THEN
+        MENUBAR_is_cascading_item% = TRUE
+        EXIT FUNCTION
+    END IF
+    MENUBAR_is_cascading_item% = FALSE
 END FUNCTION
