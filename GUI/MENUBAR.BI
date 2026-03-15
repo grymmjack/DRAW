@@ -90,6 +90,14 @@ TYPE MENU_BAR_OBJ
     transformW     AS INTEGER      ' Transform submenu width
     transformH     AS INTEGER      ' Transform submenu height
     transformItemIdx AS INTEGER    ' Child index of "TRANSFORM..." item in parent dropdown
+    ' Layout submenu state
+    layoutOpen     AS INTEGER      ' TRUE when Layout submenu is showing
+    layoutHover    AS INTEGER      ' Hovered item (-1 = none)
+    layoutX        AS INTEGER      ' Layout submenu X position
+    layoutY        AS INTEGER      ' Layout submenu Y position
+    layoutW        AS INTEGER      ' Layout submenu width
+    layoutH        AS INTEGER      ' Layout submenu height
+    layoutItemIdx  AS INTEGER      ' Child index of "LAYOUT" item in parent dropdown
 END TYPE
 
 DIM SHARED MENU_BAR AS MENU_BAR_OBJ

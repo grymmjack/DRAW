@@ -1,15 +1,5 @@
 # BUGS
 
-## CANVAS HITBOX NOT HONORING DIFFERENT LAYOUTS
-- Set TOOLBOX and EDITBAR left, and LAYERS RIGHT to reproduce.
-
-
-## PREVIEW WINDOW CANVAS JIGGLE
-- The preview window canvas is jiggling in follow mode.
-- It is sometimes showing one size of the canvas, and at sometimes showing a different size.
-- It's only by 1px it seems, like old playstation 1 types of jiggling, but it's annoying and i'd like that to not happen.
-- Is it because it's not using integers or a rounding error?
-
 
 ## PREVIEW CANVAS MISSING TRANSPARENCY CHECKERBOARD
 - The preview window canvas used to have a checkerboard in both follow nad normal mode.
