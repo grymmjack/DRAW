@@ -102,16 +102,116 @@ END SUB
 
 
 ''
+' Returns recommended DISPLAY_SCALE and TOOLBAR_SCALE for known desktop
+' resolutions.  outScale% = 0 means "no preset, use algorithm".
+' Tolerances: width ±10px, height ±10px.
+'
+SUB SCREEN_get_resolution_preset (desktopW AS LONG, desktopH AS LONG, outScale AS INTEGER, outTB AS INTEGER)
+    outScale% = 0
+    outTB%    = 0
+    SELECT CASE desktopW&
+        CASE 3830 TO 3850  ' 3840x2160 (4K)
+            IF desktopH& >= 2150 AND desktopH& <= 2170 THEN outScale% = 4: outTB% = 2
+        CASE 2550 TO 2570  ' 2560x1440 (QHD)
+            IF desktopH& >= 1430 AND desktopH& <= 1450 THEN outScale% = 4: outTB% = 2
+        CASE 1910 TO 1930  ' 1920x1080 (FHD)
+            IF desktopH& >= 1070 AND desktopH& <= 1090 THEN outScale% = 3: outTB% = 2
+        CASE 1590 TO 1610  ' 1600x900
+            IF desktopH& >= 890  AND desktopH& <= 910  THEN outScale% = 3: outTB% = 1
+        CASE 1526 TO 1546  ' 1536x864
+            IF desktopH& >= 854  AND desktopH& <= 874  THEN outScale% = 2: outTB% = 2
+        CASE 1430 TO 1450  ' 1440x900
+            IF desktopH& >= 890  AND desktopH& <= 910  THEN outScale% = 2: outTB% = 2
+        CASE 1356 TO 1376  ' 1366x768 and 1360x768
+            IF desktopH& >= 758  AND desktopH& <= 778  THEN outScale% = 2: outTB% = 2
+        CASE 1270 TO 1290  ' 1280x720 (HD)
+            IF desktopH& >= 710  AND desktopH& <= 730  THEN outScale% = 2: outTB% = 2
+        CASE 1014 TO 1034  ' 1024x768
+            IF desktopH& >= 758  AND desktopH& <= 778  THEN outScale% = 2: outTB% = 1
+    END SELECT
+END SUB
+
+
+''
+' Estimates the highest TOOLBAR_SCALE that fits in the given viewport,
+' using PROPORTIONAL thresholds relative to the unscaled 12px menu bar.
+'
+' The menu bar is always 12px (8px font + 4px padding).
+' TB=2 (22px buttons) gives a 1.8:1 ratio vs menu — good.
+' TB=3 (33px) gives 2.75:1 — only acceptable with very large viewports
+'   where the menu text looks tiny and bigger buttons help.
+' TB=4 (44px) gives 3.67:1 — only for huge viewports (scale=1 or 2 on 4K).
+'
+' These thresholds are intentionally high: TB=2 is the typical auto-detect
+' result. TB=3/4 require viewports so large that the 12px menu bar itself
+' appears proportionally small.
+'
+FUNCTION SCREEN_estimate_toolbar_scale% (vpW AS LONG, vpH AS LONG)
+    ' TB=4 only when viewport is enormous (e.g., 4K at 1x or 2x scale)
+    IF vpW& >= 1200 AND vpH& >= 900 THEN
+        SCREEN_estimate_toolbar_scale% = 4
+    ' TB=3 for large viewports (e.g., 1440p+ at 2x)
+    ELSEIF vpW& >= 900 AND vpH& >= 700 THEN
+        SCREEN_estimate_toolbar_scale% = 3
+    ' TB=2 is the standard for most auto-detect scenarios
+    ELSEIF vpW& >= 440 AND vpH& >= 300 THEN
+        SCREEN_estimate_toolbar_scale% = 2
+    ELSE
+        SCREEN_estimate_toolbar_scale% = 1
+    END IF
+END FUNCTION
+
+
+''
+' Calculates the minimum viewport width for a given toolbar scale.
+' Chrome accounted for:
+'   Toolbar:      4×(11×TB) + 3×(1×TB) + 2   (TB_COLS=4, TB_BTN_W=11, TB_BTN_PADDING=1)
+'   Layers panel: 100 px   (default CFG.LAYER_PANEL_WIDTH)
+'   Edit bar:      20 px   (18 base + 1+1 borders)
+'   Min canvas:   320 px   (minimum usable canvas + menu bar width)
+'
+FUNCTION SCREEN_chrome_min_w& (tbScale AS INTEGER)
+    DIM toolboxW AS LONG
+    toolboxW& = 4 * (11 * tbScale%) + 3 * (1 * tbScale%) + 2
+    SCREEN_chrome_min_w& = toolboxW& + 100 + 20 + 320
+END FUNCTION
+
+
+''
+' Calculates the minimum viewport height for a given toolbar scale.
+' Returns the binding constraint: MAX of toolbar-column needs vs canvas-column needs.
+'
+' Toolbar column: (115 × TB) + 40 (drawer) + 23 (status+palette) = (115*TB) + 63
+' Canvas column:  12 (menu) + 200 (canvas) + 11 (status) + 12 (palette) = 235
+'
+FUNCTION SCREEN_chrome_min_h& (tbScale AS INTEGER)
+    DIM tbColH AS LONG, canvasColH AS LONG
+    tbColH&     = (115 * tbScale%) + 63  ' toolbar+org + drawer + bottom chrome
+    canvasColH& = 235                    ' menu + min canvas + bottom chrome
+    IF tbColH& > canvasColH& THEN
+        SCREEN_chrome_min_h& = tbColH&
+    ELSE
+        SCREEN_chrome_min_h& = canvasColH&
+    END IF
+END FUNCTION
+
+
+''
 ' Detects optimal display scale based on desktop resolution.
-' Strategy: target ~90% of desktop, find highest scale (up to 4) with usable viewport.
-' Auto-detect caps at 4x; users can set higher manually via DISPLAY_SCALE in config.
-' Returns scale clamped to CFG.DISPLAY_SCALE_MAX%
-' 
+' Chrome-aware: accounts for toolbar, organizer, drawer, layers panel,
+' edit bar, menu bar, status bar, and palette strip when choosing scale.
+' Checks resolution presets first, then falls back to algorithm.
+' Auto-detect caps at 4x; users can set higher manually via DISPLAY_SCALE.
+' Also sets SCREEN_preset_toolbar_scale% when a preset matches.
+'
 FUNCTION SCREEN_detect_display_scale% ()
     DIM desktopW AS LONG, desktopH AS LONG
     DIM targetW AS LONG, targetH AS LONG
     DIM scale AS INTEGER
     DIM vpW AS LONG, vpH AS LONG
+    
+    ' Reset preset hint
+    SCREEN_preset_toolbar_scale% = 0
     
     ' Query desktop resolution
     DIM dds_retries AS INTEGER
@@ -126,27 +226,55 @@ FUNCTION SCREEN_detect_display_scale% ()
     IF desktopW& <= 0 THEN desktopW& = 1280
     IF desktopH& <= 0 THEN desktopH& = 720
     
+    ' --- Check resolution presets first ---
+    DIM presetScale AS INTEGER, presetTB AS INTEGER
+    SCREEN_get_resolution_preset desktopW&, desktopH&, presetScale%, presetTB%
+    IF presetScale% > 0 THEN
+        ' Clamp to configured max
+        IF presetScale% > CFG.DISPLAY_SCALE_MAX% THEN presetScale% = CFG.DISPLAY_SCALE_MAX%
+        SCREEN_preset_toolbar_scale% = presetTB%
+        _LOGINFO "SCREEN_detect: preset match for " + _TRIM$(STR$(desktopW&)) + "x" + _TRIM$(STR$(desktopH&)) + " -> scale=" + _TRIM$(STR$(presetScale%)) + "x TB=" + _TRIM$(STR$(presetTB%))
+        SCREEN_detect_display_scale% = presetScale%
+        EXIT FUNCTION
+    END IF
+    
+    ' --- Chrome-aware algorithm for unlisted resolutions ---
     ' Target window size = 90% of desktop
     targetW& = (desktopW& * 9) \ 10
     targetH& = (desktopH& * 9) \ 10
     
-    ' Auto-detect caps at 4x to keep viewport usable (>= ~500x300).
-    ' DISPLAY_SCALE_MAX (up to 8) is for manual override only.
+    ' Auto-detect caps at 4x (manual override can go to DISPLAY_SCALE_MAX 8)
     DIM autoMax AS INTEGER
     autoMax% = 4
     IF CFG.DISPLAY_SCALE_MAX% < autoMax% THEN autoMax% = CFG.DISPLAY_SCALE_MAX%
     
-    ' Find highest scale (up to autoMax) where viewport >= 320x200
+    ' Find highest scale where ALL chrome + min canvas fits in viewport
+    DIM estTB AS INTEGER
+    DIM minW AS LONG, minH AS LONG
     scale% = autoMax%
     DO WHILE scale% > 1
         vpW& = targetW& \ scale%
         vpH& = targetH& \ scale%
-        IF vpW& >= 320 AND vpH& >= 200 THEN EXIT DO
+        
+        ' Estimate toolbar scale for this viewport
+        estTB% = SCREEN_estimate_toolbar_scale%(vpW&, vpH&)
+        
+        ' Calculate chrome-aware minimums
+        minW& = SCREEN_chrome_min_w&(estTB%)
+        minH& = SCREEN_chrome_min_h&(estTB%)
+        
+        IF vpW& >= minW& AND vpH& >= minH& THEN
+            _LOGINFO "SCREEN_detect: algorithm picked " + _TRIM$(STR$(scale%)) + "x for " + _TRIM$(STR$(desktopW&)) + "x" + _TRIM$(STR$(desktopH&)) + " (vp=" + _TRIM$(STR$(vpW&)) + "x" + _TRIM$(STR$(vpH&)) + " estTB=" + _TRIM$(STR$(estTB%)) + " minW=" + _TRIM$(STR$(minW&)) + " minH=" + _TRIM$(STR$(minH&)) + ")"
+            SCREEN_detect_display_scale% = scale%
+            EXIT FUNCTION
+        END IF
+        _LOGINFO "SCREEN_detect: rejecting " + _TRIM$(STR$(scale%)) + "x (vp=" + _TRIM$(STR$(vpW&)) + "x" + _TRIM$(STR$(vpH&)) + " < min " + _TRIM$(STR$(minW&)) + "x" + _TRIM$(STR$(minH&)) + ")"
         scale% = scale% - 1
     LOOP
     
     ' Minimum scale is 1
     IF scale% < 1 THEN scale% = 1
+    _LOGINFO "SCREEN_detect: fallback to " + _TRIM$(STR$(scale%)) + "x for " + _TRIM$(STR$(desktopW&)) + "x" + _TRIM$(STR$(desktopH&))
     
     SCREEN_detect_display_scale% = scale%
 END FUNCTION
@@ -404,10 +532,12 @@ SUB SCREEN_init ()
         vpShrunk% = TRUE
     END IF
     
-    ' Safety: if viewport went below minimum usable, reduce scale as last resort
+    ' Safety: if viewport went below chrome-aware minimum, reduce scale as last resort
     DIM minW AS LONG, minH AS LONG
-    minW& = 320
-    minH& = 200
+    DIM safetyTB AS INTEGER
+    safetyTB% = SCREEN_estimate_toolbar_scale%(SCRN.w&, SCRN.h&)
+    minW& = SCREEN_chrome_min_w&(safetyTB%)
+    minH& = SCREEN_chrome_min_h&(safetyTB%)
     IF CFG.WIN_MIN_WIDTH% > 0 AND CFG.WIN_MIN_WIDTH% > minW& THEN minW& = CFG.WIN_MIN_WIDTH%
     IF CFG.WIN_MIN_HEIGHT% > 0 AND CFG.WIN_MIN_HEIGHT% > minH& THEN minH& = CFG.WIN_MIN_HEIGHT%
     DO WHILE (SCRN.w& < minW& OR SCRN.h& < minH&) AND SCRN.displayScale% > 1
@@ -428,6 +558,12 @@ SUB SCREEN_init ()
         ELSE
             SCRN.h& = maxVpH&
         END IF
+        ' Recompute chrome-aware minimums for the new viewport
+        safetyTB% = SCREEN_estimate_toolbar_scale%(SCRN.w&, SCRN.h&)
+        minW& = SCREEN_chrome_min_w&(safetyTB%)
+        minH& = SCREEN_chrome_min_h&(safetyTB%)
+        IF CFG.WIN_MIN_WIDTH% > 0 AND CFG.WIN_MIN_WIDTH% > minW& THEN minW& = CFG.WIN_MIN_WIDTH%
+        IF CFG.WIN_MIN_HEIGHT% > 0 AND CFG.WIN_MIN_HEIGHT% > minH& THEN minH& = CFG.WIN_MIN_HEIGHT%
         _LOGWARN "SCREEN_init: viewport too small at " + _TRIM$(STR$(SCRN.displayScale% + 1)) + "x, reducing scale to " + _TRIM$(STR$(SCRN.displayScale%)) + "x (viewport now " + _TRIM$(STR$(SCRN.w&)) + "x" + _TRIM$(STR$(SCRN.h&)) + ")"
     LOOP
     
@@ -447,19 +583,14 @@ SUB SCREEN_init ()
     
     ' Auto-detect toolbar scale from viewport size if not explicitly set
     IF CFG.TOOLBAR_SCALE% = 0 THEN
-        ' Scale based on viewport height:
-        '   >= 400px  -> 2x (22px icons, comfortable for most displays)
-        '   >= 600px  -> 3x (33px icons, good for large viewports)
-        '   >= 800px  -> 4x (44px icons, 4K displays)
-        '   < 400px   -> 1x (11px icons, minimum usable)
-        IF SCRN.h& >= 800 THEN
-            CFG.TOOLBAR_SCALE% = 4
-        ELSEIF SCRN.h& >= 600 THEN
-            CFG.TOOLBAR_SCALE% = 3
-        ELSEIF SCRN.h& >= 400 THEN
-            CFG.TOOLBAR_SCALE% = 2
+        ' If a resolution preset provided a recommended TB scale, use it
+        IF SCREEN_preset_toolbar_scale% > 0 THEN
+            CFG.TOOLBAR_SCALE% = SCREEN_preset_toolbar_scale%
+            _LOGINFO "SCREEN_init: using preset toolbar scale=" + _TRIM$(STR$(CFG.TOOLBAR_SCALE%))
         ELSE
-            CFG.TOOLBAR_SCALE% = 1
+            ' Calculate highest TB scale that fits the viewport proportionally
+            CFG.TOOLBAR_SCALE% = SCREEN_estimate_toolbar_scale%(SCRN.w&, SCRN.h&)
+            _LOGINFO "SCREEN_init: auto-detected toolbar scale=" + _TRIM$(STR$(CFG.TOOLBAR_SCALE%)) + " for viewport " + _TRIM$(STR$(SCRN.w&)) + "x" + _TRIM$(STR$(SCRN.h&))
         END IF
     END IF
 

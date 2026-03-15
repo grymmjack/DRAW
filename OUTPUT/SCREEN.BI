@@ -66,6 +66,11 @@ END TYPE
 
 DIM SHARED SCRN AS SCREEN_OBJ
 
+' Preset toolbar scale hint — set by SCREEN_detect_display_scale% when a
+' resolution preset provides a recommended TOOLBAR_SCALE.  SCREEN_init
+' applies it when CFG.TOOLBAR_SCALE% = 0 (auto).  0 = no preset.
+DIM SHARED SCREEN_preset_toolbar_scale AS INTEGER
+
 ' GUI dirty flag - when FALSE, skip toolbar/status redraw for performance
 ' Set to TRUE when: tool switch, palette change, window resize, toolbar/status toggle
 DIM SHARED GUI_NEEDS_REDRAW AS INTEGER
