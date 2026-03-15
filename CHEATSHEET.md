@@ -177,7 +177,7 @@ DRAW supports real-time symmetrical drawing with three modes: Vertical (|), Cros
 | Key | Function |
 |-----|----------|
 | `F7` | Cycle symmetry mode (Off → Vertical → Cross → Asterisk → Off) |
-| `F8` | Turn off symmetry (instant disable) |
+| `F8` | Fill Adjustment Mode (when custom brush or paint mode active) / Turn off symmetry (otherwise) |
 | `Ctrl + Left Click` | Reposition symmetry center to mouse location |
 
 > **macOS Note:** On macOS, Ctrl+Click is intercepted by the OS and converted to a right-click.
@@ -217,6 +217,55 @@ DRAW supports real-time symmetrical drawing with three modes: Vertical (|), Cros
 - Use `Ctrl + Left Click` to quickly reposition center without changing modes
 - Press `F8` for instant disable when you need to draw without symmetry
 - Combine with grid snap for precise symmetrical patterns
+
+## Fill Adjustment Mode
+
+When a **custom brush** or **drawer paint mode** (pattern/gradient) is active, `F8` enters Fill Adjustment Mode instead of disabling symmetry. This mode provides an interactive overlay for adjusting tiled fill parameters before committing.
+
+### Activation
+
+| Condition | `F8` Behaviour |
+|-----------|---------------|
+| Custom brush or paint mode active | Enters Fill Adjustment Mode |
+| No custom brush / no paint mode | Turns off symmetry (original behaviour) |
+
+### Fill Adjustment Controls
+
+| Action | Function |
+|--------|----------|
+| **Drag canvas** | Reposition tile origin |
+| **Mouse wheel** | Scale tile size (uniform X and Y) |
+| **L-handle (corner)** | Drag to scale X and Y independently |
+| **L-handle horizontal arm** | Drag to scale X only |
+| **L-handle vertical arm** | Drag to scale Y only |
+| **Enter / Left Click outside** | Apply the fill |
+| **Escape / Right Click** | Cancel and revert |
+
+### Supported Tools
+
+Fill Adjustment Mode works with:
+- **Filled Rectangle** (`Shift+R`)
+- **Filled Ellipse** (`Shift+C`)
+- **Filled Polygon** (`Shift+P`)
+- **Flood Fill** (`F`) — generates a fill mask, then enters adjustment mode
+
+## Layout Docking
+
+Panels can be docked to the left or right side of the workspace.
+
+### Dockable Panels
+
+| Panel | Default Dock | Menu Path |
+|-------|-------------|-----------|
+| Toolbox | Right | View → Layout → Toolbox Dock Left / Right |
+| Layer Panel | Right | View → Layout → Layer Panel Dock Left / Right |
+| Edit Bar | Left | View → Layout → Edit Bar Dock Left / Right |
+
+### Quick Dock Toggle
+
+| Action | Function |
+|--------|----------|
+| **Ctrl+Shift+Click** on panel | Toggle dock side (left ↔ right) |
 
 ## Mouse Controls
 

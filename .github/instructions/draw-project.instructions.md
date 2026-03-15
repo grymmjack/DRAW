@@ -281,7 +281,7 @@ A frame is "idle" when no input, mouse movement, GUI changes, or active tool ope
 
 | `OUTPUT/SCREEN.BM`        | Render pipeline (`SCREEN_render`)                                   |
 | `GUI/LAYERS.BM`           | Layer management (~2305 lines)                                      |
-| `GUI/MENUBAR.BM`          | Menu bar with keyboard navigation                                   |
+| `GUI/MENUBAR.BM`          | Menu bar with keyboard navigation and cascading submenu support     |
 | `GUI/TOOLBAR.BI`          | Layout constants (`TB_COLS`, `TB_ROWS`), button-to-tool mapping     |
 | `GUI/TOOLBAR.BM`          | Toolbar rendering, click handling, active indicator                 |
 | `GUI/ORGANIZER.BI`        | Organizer widget constants (`ORG_*`), 4×3 layout                    |
@@ -293,6 +293,8 @@ A frame is "idle" when no input, mouse movement, GUI changes, or active tool ope
 | `TOOLS/ERASER.BI/BM`      | Eraser tool (transparent painting via brush pipeline)               |
 | `TOOLS/TRANSFORM.BI/BM`   | On-canvas transform overlay (Scale/Rotate/Shear/Distort/Perspective); activated via Edit→TRANSFORM...; not a toolbar tool |
 | `TOOLS/EXTRACT-IMAGES.BI/BM` | Extract individual sprites/components from sprite sheets or multi-layer artwork as separate PNGs; supports flood fill, per-layer, or merged extraction; config persisted in DRW v14+ |
+| `TOOLS/FILL-ADJ.BI/BM`   | Interactive Fill Adjustment overlay (F8) for custom brush and paint mode tiled fills; L-handle for independent X/Y scaling |
+| `GUI/CROSSHAIR.BI/BM`    | Crosshair assistant line rendering with configurable outline stroke |
 | `CFG/CONFIG.BI`           | Configuration structure                                             |
 | `CORE/SOUND.BI/BM`        | Sound constants, loader, playback SUBs                              |
 | `CHEATSHEET.md`           | All keyboard shortcuts                                              |

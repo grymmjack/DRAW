@@ -43,7 +43,8 @@ MOUSE_input_handler()
 │   ├── MOUSE_update_draw_color()
 │   ├── MOUSE_handle_gui_panels()
 │   │   ├── MOUSE_handle_layer_panel()
-│   │   └── MOUSE_handle_toolbar_status_palette()  ← sets UI_CHROME_CLICKED% on GUI clicks
+│   │   ├── MOUSE_handle_toolbar_status_palette()  ← sets UI_CHROME_CLICKED% on GUI clicks
+│   │   └── Ctrl+Shift+Click on panels → toggle dock side (left ↔ right)
 │   ├── MOUSE_handle_alt_picker()
 │   ├── MOUSE_handle_space_pan()
 │   ├── MOUSE_handle_b3_dblclick_reset_zoom()

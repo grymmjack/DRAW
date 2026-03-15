@@ -75,6 +75,7 @@ Config file: `DRAW.cfg` — plain text, one `key=value` per line. Loaded by `CON
 | Palette  | `DEFAULT_PALETTE$`, `PALETTE_CHIP_WIDTH/HEIGHT%`, `PALETTE_MIN/MAX_ROWS%` |
 | Brush    | `DEFAULT_TOOL%`, `DEFAULT_BRUSH_SIZE%`, `DEFAULT_BRUSH_SHAPE%`, `DEFAULT_DRAW_MODE%`, `DEFAULT_BIN_MODE%` |
 | Grid     | `GRID_MODE%`, `GRID_SIZE_X/Y%`, `GRID_CELL_FILL%` |
+| Crosshair | `CROSSHAIR_OUTLINE_FG$`, `CROSSHAIR_OUTLINE_OPACITY%`, `CROSSHAIR_OUTLINE_WIDTH%` |
 | Undo     | `HISTORY_MAX_RECORDS` (1024)                            |
 | Picker   | `PICKER_LOUPE_*` overlay layout, font, and colors |
 | Preview / Panels | `PREVIEW_*`, `EDIT_BAR_VISIBLE%`, `EDIT_BAR_DOCK_POSITION$`, `LAYER_PANEL_WIDTH%`, `LAYERS_PANEL_DOCK_EDGE$`, `TOOLBOX_DOCK_EDGE$` |
@@ -123,6 +124,9 @@ Key fields:
 | `TRANSFORM_FRAME_COLOR~&` | `_UNSIGNED LONG` | Transform overlay bounding-box outline |
 | `TRANSFORM_FRAME_HANDLE_COLOR~&` | `_UNSIGNED LONG` | Transform overlay handle square fill |
 | `TRANSFORM_FRAME_HANDLE_SIZE%` | `INTEGER` | Transform overlay handle half-size in pixels |
+| `CROSSHAIR_outline_fg~&` | `_UNSIGNED LONG` | Crosshair outline stroke color |
+| `CROSSHAIR_outline_opacity%` | `INTEGER` | Crosshair outline opacity (0–255) |
+| `CROSSHAIR_outline_width%` | `INTEGER` | Crosshair outline width in pixels (0–8) |
 | `LAYER_PANEL_header_height` | `INTEGER` | Header bar height in pixels |
 | `LAYER_PANEL_btn_bar_height` | `INTEGER` | Button bar height in pixels |
 | `LAYER_PANEL_bg~&` through `LAYER_PANEL_scrollbar~&` | `_UNSIGNED LONG` | 23 layer panel color fields |

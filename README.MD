@@ -14,7 +14,7 @@ DATA "::::::::", "::    ::", "::    ::", "::::  ::::", "  ::  ::  "
 
 DRAW is a pixel art editor written in QB64PE that can export images as sourcecode
 
-Current release: v0.21.1
+Current release: v0.22.0
 
 ![DRAW GUI from v0.17.0](./GUI.png)
 
@@ -26,10 +26,10 @@ Note: screenshot refresh pending for v0.21.0. The current UI also includes the p
 - **Brush** - Continuous freehand painting with adjustable size (1-50px) and shape (circle/square)
 - **Dot** - Single-pixel stamp tool (click to place, no drag painting)
 - **Line** - Draw straight lines with brush size/shape, real-time thick preview, angle snapping
-- **Rectangle** - Draw outlined or filled rectangles with brush size/shape
-- **Ellipse** - Draw outlined or filled ellipses/circles with brush size/shape
-- **Polygon** - Draw outlined or filled multi-point polygons with brush size/shape, angle snapping
-- **Fill** - Flood fill tool; hold **Shift** to sample from merged visible canvas while painting onto the current layer
+- **Rectangle** - Draw outlined or filled rectangles with brush size/shape; filled mode supports custom brush tiled fill and drawer paint modes with interactive Fill Adjustment (`F8`)
+- **Ellipse** - Draw outlined or filled ellipses/circles with brush size/shape; filled mode supports custom brush tiled fill and drawer paint modes with interactive Fill Adjustment (`F8`)
+- **Polygon** - Draw outlined or filled multi-point polygons with brush size/shape, angle snapping; filled mode supports custom brush tiled fill and drawer paint modes with interactive Fill Adjustment (`F8`)
+- **Fill** - Flood fill tool; hold **Shift** to sample from merged visible canvas while painting onto the current layer; supports custom brush tiled fills and drawer paint mode fills with interactive Fill Adjustment overlay (`F8`)
 - **Spray** - Spray paint with brush-shaped nozzle tips, radius doubles per brush size level, custom brush stamp support, SHIFT axis constraint, circle preview
 - **Picker** - Color sampling/eyedropper with a cursor-adjacent loupe overlay that shows RGB and hex values; hold ALT with any tool for temporary picker; ALT+left picks FG, ALT+right picks BG
 - **Marquee** - Selection tools: Rectangle, Freehand, Polygon, Ellipse — each with a distinct crosshair cursor
@@ -65,6 +65,7 @@ Note: screenshot refresh pending for v0.21.0. The current UI also includes the p
 - Dynamic grid sizing with `.` (increase) and `,` (decrease)
 - Both grids can be shown simultaneously at high zoom
 - Configurable grid/pixel grid/crosshair color, opacity, and angle via DRAW.cfg
+- Crosshair assistant lines with configurable outline stroke (color, opacity, width) for improved visibility against any background
 - Configurable transparency checkerboard colors and size
 - Status bar indicator shows grid size, mode, and snap state
 
@@ -133,6 +134,7 @@ Note: screenshot refresh pending for v0.21.0. The current UI also includes the p
 - **Drawer panel** - A 30-slot drawer beneath the organizer for brush, gradient, and pattern sets; `F1`/`F2`/`F3` switch modes, left-click selects, `Shift+Left Click` stores, right-click opens a context menu, middle-click cycles modes, `Shift+Middle Click` clears a slot, and `Shift+Right Click` imports into a slot
 - **Preview window** - A floating canvas preview panel with follow-pointer mode, pan/zoom, minimize/close buttons, and work-area clamping
 - **Edit bar** - A dockable vertical strip of edit-action icons on the left or right side of the workspace (`F5`)
+- **Layout docking** - Toolbox, layer panel, and edit bar can each be docked to the left or right side of the workspace via View → Layout menu or `Ctrl+Shift+Click` on the panel
 - **System cursors** - Automatically uses OS native cursors for UI areas (arrow in toolbar/panels), canvas work (crosshair for drawing tools, I-beam for text, resize arrows for handles) and move tool (move pointer); falls back to custom PNG cursors for tools that need them (brush, fill, picker loupe, spray, marquee); configurable via `SYSTEM_CURSORS` in `DRAW.cfg`
 - Themeable PNG icon toolbar (28 buttons in **4×7 grid**)
 - PNG cursors with theme-configurable hotspots and alpha transparency

@@ -41,6 +41,14 @@ git log --oneline --no-merges $(git describe --tags --abbrev=0 2>/dev/null || gi
 
 If no tags exist, compare against the very first commit.
 
+Also check **merged pull requests** since the last tag to capture feature-chunk descriptions:
+
+```bash
+gh pr list --repo grymmjack/DRAW --state merged --limit 20 --json number,title,body,mergedAt,headRefName --jq '.[] | "PR #\(.number): \(.title) | Branch: \(.headRefName) | Merged: \(.mergedAt[0:10])\n\(.body)\n---"'
+```
+
+Filter to only PRs merged **after** the last tag date (`git log --format="%ci" -1 <tag>`). PR descriptions often contain richer change details than commit messages — use them to supplement the git log.
+
 Also review the **current conversation history** (the chat context above this message) for any features, fixes, or changes discussed and implemented during this session that may not yet be in git log (e.g. uncommitted work).
 
 Produce a deduplicated, categorised list of changes:
