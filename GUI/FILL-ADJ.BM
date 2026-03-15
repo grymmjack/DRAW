@@ -1,0 +1,606 @@
+''
+' DRAW - GUI/FILL-ADJ.BM
+' =============================================================================
+' Interactive fill adjustment overlay mode implementation.
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+
+''
+' Check if fill adjustment mode is active
+'
+FUNCTION FILL_ADJ_is_active% ()
+    FILL_ADJ_is_active% = FILL_ADJ.ACTIVE%
+END FUNCTION
+
+
+''
+' Toggle the interactive fill adjust enabled state (F8)
+'
+SUB FILL_ADJ_toggle_enabled ()
+    FILL_ADJ.ENABLED% = NOT FILL_ADJ.ENABLED%
+    IF FILL_ADJ.ENABLED% THEN
+        _LOGINFO "FILL_ADJ: Interactive fill adjust ENABLED (F8)"
+    ELSE
+        _LOGINFO "FILL_ADJ: Interactive fill adjust DISABLED (F8)"
+        ' If currently in active adjustment, cancel it
+        IF FILL_ADJ.ACTIVE% THEN FILL_ADJ_cancel
+    END IF
+    INVALIDATE_scene
+END SUB
+
+
+''
+' Enter fill adjustment mode for a filled rectangle
+'
+SUB FILL_ADJ_enter_rect (x1 AS INTEGER, y1 AS INTEGER, x2 AS INTEGER, y2 AS INTEGER, cancel_img AS LONG, history_flags AS LONG)
+    FILL_ADJ_reset
+
+    FILL_ADJ.ACTIVE% = TRUE
+    FILL_ADJ.SHAPE_TYPE% = FILL_ADJ_SHAPE_RECT
+    FILL_ADJ.RECT_X1% = x1%
+    FILL_ADJ.RECT_Y1% = y1%
+    FILL_ADJ.RECT_X2% = x2%
+    FILL_ADJ.RECT_Y2% = y2%
+    FILL_ADJ.LAYER_IDX% = CURRENT_LAYER%
+    FILL_ADJ.HISTORY_FLAGS& = history_flags&
+    FILL_ADJ.TILE_W! = CUSTOM_BRUSH.WIDTH%
+    FILL_ADJ.TILE_H! = CUSTOM_BRUSH.HEIGHT%
+    FILL_ADJ.ORIGIN_X! = 0
+    FILL_ADJ.ORIGIN_Y! = 0
+
+    ' cancel_img is the pre-shape state (for undo) — take ownership
+    FILL_ADJ.CANCEL_IMG& = cancel_img&
+
+    ' Save current layer state as redraw baseline (post-outline, pre-fill)
+    FILL_ADJ.REDRAW_IMG& = _COPYIMAGE(LAYERS(CURRENT_LAYER%).imgHandle&, 32)
+
+    ' Render initial fill
+    FILL_ADJ_update
+
+    _LOGINFO "FILL_ADJ: Entered rect mode. Wheel=Scale, Drag=Pan, Enter=Accept, Esc=Cancel"
+END SUB
+
+
+''
+' Enter fill adjustment mode for a filled ellipse
+'
+SUB FILL_ADJ_enter_ellipse (cx AS INTEGER, cy AS INTEGER, rx AS SINGLE, ry AS SINGLE, cancel_img AS LONG, history_flags AS LONG)
+    FILL_ADJ_reset
+
+    FILL_ADJ.ACTIVE% = TRUE
+    FILL_ADJ.SHAPE_TYPE% = FILL_ADJ_SHAPE_ELLIPSE
+    FILL_ADJ.ELL_CX% = cx%
+    FILL_ADJ.ELL_CY% = cy%
+    FILL_ADJ.ELL_RX! = rx!
+    FILL_ADJ.ELL_RY! = ry!
+    FILL_ADJ.LAYER_IDX% = CURRENT_LAYER%
+    FILL_ADJ.HISTORY_FLAGS& = history_flags&
+    FILL_ADJ.TILE_W! = CUSTOM_BRUSH.WIDTH%
+    FILL_ADJ.TILE_H! = CUSTOM_BRUSH.HEIGHT%
+    FILL_ADJ.ORIGIN_X! = 0
+    FILL_ADJ.ORIGIN_Y! = 0
+
+    FILL_ADJ.CANCEL_IMG& = cancel_img&
+    FILL_ADJ.REDRAW_IMG& = _COPYIMAGE(LAYERS(CURRENT_LAYER%).imgHandle&, 32)
+
+    FILL_ADJ_update
+
+    _LOGINFO "FILL_ADJ: Entered ellipse mode. Wheel=Scale, Drag=Pan, Enter=Accept, Esc=Cancel"
+END SUB
+
+
+''
+' Enter fill adjustment mode for a filled polygon
+'
+SUB FILL_ADJ_enter_polygon (x_coords%(), y_coords%(), num_points AS INTEGER, cancel_img AS LONG, history_flags AS LONG)
+    FILL_ADJ_reset
+
+    FILL_ADJ.ACTIVE% = TRUE
+    FILL_ADJ.SHAPE_TYPE% = FILL_ADJ_SHAPE_POLYGON
+    FILL_ADJ.POLY_COUNT% = num_points%
+    FILL_ADJ.LAYER_IDX% = CURRENT_LAYER%
+    FILL_ADJ.HISTORY_FLAGS& = history_flags&
+    FILL_ADJ.TILE_W! = CUSTOM_BRUSH.WIDTH%
+    FILL_ADJ.TILE_H! = CUSTOM_BRUSH.HEIGHT%
+    FILL_ADJ.ORIGIN_X! = 0
+    FILL_ADJ.ORIGIN_Y! = 0
+
+    ' Copy polygon vertices
+    DIM pi AS INTEGER
+    FOR pi% = 0 TO num_points% - 1
+        FILL_ADJ_POLY_X%(pi%) = x_coords%(pi%)
+        FILL_ADJ_POLY_Y%(pi%) = y_coords%(pi%)
+    NEXT pi%
+
+    FILL_ADJ.CANCEL_IMG& = cancel_img&
+    FILL_ADJ.REDRAW_IMG& = _COPYIMAGE(LAYERS(CURRENT_LAYER%).imgHandle&, 32)
+
+    FILL_ADJ_update
+
+    _LOGINFO "FILL_ADJ: Entered polygon mode. Wheel=Scale, Drag=Pan, Enter=Accept, Esc=Cancel"
+END SUB
+
+
+''
+' Restore layer and re-render fill with current adjustment parameters
+'
+SUB FILL_ADJ_update ()
+    IF NOT FILL_ADJ.ACTIVE% THEN EXIT SUB
+
+    DIM old_dest AS LONG
+    old_dest& = _DEST
+
+    ' Restore layer to pre-fill state (redraw baseline)
+    _DEST LAYERS(FILL_ADJ.LAYER_IDX%).imgHandle&
+    _DONTBLEND LAYERS(FILL_ADJ.LAYER_IDX%).imgHandle&
+    _PUTIMAGE , FILL_ADJ.REDRAW_IMG&
+    _BLEND LAYERS(FILL_ADJ.LAYER_IDX%).imgHandle&
+    _DEST old_dest&
+
+    ' Re-render fill with current parameters
+    ' (fill functions check FILL_ADJ.ACTIVE and use TILE_W/H + ORIGIN_X/Y)
+    SELECT CASE FILL_ADJ.SHAPE_TYPE%
+        CASE FILL_ADJ_SHAPE_RECT
+            CUSTOM_BRUSH_fill_rect FILL_ADJ.RECT_X1%, FILL_ADJ.RECT_Y1%, FILL_ADJ.RECT_X2%, FILL_ADJ.RECT_Y2%
+        CASE FILL_ADJ_SHAPE_ELLIPSE
+            CUSTOM_BRUSH_fill_ellipse FILL_ADJ.ELL_CX%, FILL_ADJ.ELL_CY%, FILL_ADJ.ELL_RX!, FILL_ADJ.ELL_RY!
+        CASE FILL_ADJ_SHAPE_POLYGON
+            CUSTOM_BRUSH_fill_polygon FILL_ADJ_POLY_X%(), FILL_ADJ_POLY_Y%(), FILL_ADJ.POLY_COUNT%
+    END SELECT
+
+    ' Mark layer dirty and force re-render
+    LAYERS(FILL_ADJ.LAYER_IDX%).contentDirty% = TRUE
+    BLEND_invalidate_cache
+    INVALIDATE_scene
+END SUB
+
+
+''
+' Commit the current fill and exit adjustment mode
+'
+SUB FILL_ADJ_commit ()
+    IF NOT FILL_ADJ.ACTIVE% THEN EXIT SUB
+
+    ' Record history using the cancel image (pre-shape state) as the before image
+    IF FILL_ADJ.CANCEL_IMG& < -1 AND LAYERS(FILL_ADJ.LAYER_IDX%).historyId& > 0 THEN
+        HISTORY_record_brush LAYERS(FILL_ADJ.LAYER_IDX%).historyId&, FILL_ADJ.LAYER_IDX%, PAINT_apply_opacity~&(PAINT_COLOR~&), FILL_ADJ.HISTORY_FLAGS&, FILL_ADJ.CANCEL_IMG&, "Brush Fill (adjusted)"
+        FILL_ADJ.CANCEL_IMG& = 0 ' Ownership transferred to history
+        HISTORY_saved_this_frame% = TRUE
+    END IF
+
+    SOUND_play SND_DRAG_DROP
+
+    ' Clean up (don't restore — current layer state IS the result)
+    IF FILL_ADJ.REDRAW_IMG& < -1 THEN _FREEIMAGE FILL_ADJ.REDRAW_IMG&
+    IF FILL_ADJ.CANCEL_IMG& < -1 THEN _FREEIMAGE FILL_ADJ.CANCEL_IMG&
+    FILL_ADJ.REDRAW_IMG& = 0
+    FILL_ADJ.CANCEL_IMG& = 0
+    FILL_ADJ.ACTIVE% = FALSE
+
+    CANVAS_DIRTY% = TRUE
+    INVALIDATE_scene
+
+    _LOGINFO "FILL_ADJ: Committed"
+END SUB
+
+
+''
+' Cancel the fill and restore the layer to pre-shape state
+'
+SUB FILL_ADJ_cancel ()
+    IF NOT FILL_ADJ.ACTIVE% THEN EXIT SUB
+
+    ' Restore layer to original pre-shape state
+    IF FILL_ADJ.CANCEL_IMG& < -1 THEN
+        DIM old_dest AS LONG
+        old_dest& = _DEST
+        _DEST LAYERS(FILL_ADJ.LAYER_IDX%).imgHandle&
+        _DONTBLEND LAYERS(FILL_ADJ.LAYER_IDX%).imgHandle&
+        _PUTIMAGE , FILL_ADJ.CANCEL_IMG&
+        _BLEND LAYERS(FILL_ADJ.LAYER_IDX%).imgHandle&
+        _DEST old_dest&
+    END IF
+
+    SOUND_play SND_SELECTION
+
+    ' Clean up
+    IF FILL_ADJ.REDRAW_IMG& < -1 THEN _FREEIMAGE FILL_ADJ.REDRAW_IMG&
+    IF FILL_ADJ.CANCEL_IMG& < -1 THEN _FREEIMAGE FILL_ADJ.CANCEL_IMG&
+    FILL_ADJ.REDRAW_IMG& = 0
+    FILL_ADJ.CANCEL_IMG& = 0
+    FILL_ADJ.ACTIVE% = FALSE
+
+    LAYERS(FILL_ADJ.LAYER_IDX%).contentDirty% = TRUE
+    BLEND_invalidate_cache
+    CANVAS_DIRTY% = TRUE
+    INVALIDATE_scene
+
+    _LOGINFO "FILL_ADJ: Cancelled"
+END SUB
+
+
+''
+' Reset fill adjustment state
+'
+SUB FILL_ADJ_reset ()
+    IF FILL_ADJ.REDRAW_IMG& < -1 THEN _FREEIMAGE FILL_ADJ.REDRAW_IMG&
+    IF FILL_ADJ.CANCEL_IMG& < -1 THEN _FREEIMAGE FILL_ADJ.CANCEL_IMG&
+    FILL_ADJ.ACTIVE% = FALSE
+    FILL_ADJ.SHAPE_TYPE% = 0
+    FILL_ADJ.TILE_W! = 0
+    FILL_ADJ.TILE_H! = 0
+    FILL_ADJ.ORIGIN_X! = 0
+    FILL_ADJ.ORIGIN_Y! = 0
+    FILL_ADJ.REDRAW_IMG& = 0
+    FILL_ADJ.CANCEL_IMG& = 0
+    FILL_ADJ.DRAGGING% = FALSE
+    FILL_ADJ.DRAG_MODE% = FILL_ADJ_DRAG_NONE
+END SUB
+
+
+''
+' Handle mouse wheel for uniform tile scaling
+'
+SUB FILL_ADJ_handle_wheel (delta AS INTEGER)
+    IF NOT FILL_ADJ.ACTIVE% THEN EXIT SUB
+
+    DIM scale_factor AS SINGLE
+    IF delta% > 0 THEN
+        scale_factor! = 1.0 / 1.15  ' Zoom in = smaller tiles = more repetitions
+    ELSE
+        scale_factor! = 1.15         ' Zoom out = larger tiles = fewer repetitions
+    END IF
+
+    FILL_ADJ.TILE_W! = FILL_ADJ.TILE_W! * scale_factor!
+    FILL_ADJ.TILE_H! = FILL_ADJ.TILE_H! * scale_factor!
+
+    ' Clamp to reasonable bounds
+    IF FILL_ADJ.TILE_W! < 1.0 THEN FILL_ADJ.TILE_W! = 1.0
+    IF FILL_ADJ.TILE_H! < 1.0 THEN FILL_ADJ.TILE_H! = 1.0
+    IF FILL_ADJ.TILE_W! > 9999 THEN FILL_ADJ.TILE_W! = 9999
+    IF FILL_ADJ.TILE_H! > 9999 THEN FILL_ADJ.TILE_H! = 9999
+
+    FILL_ADJ_update
+
+    SOUND_play SND_ORGANIZER
+END SUB
+
+
+''
+' Hit-test the L-shaped handle at the tile origin.
+' Returns FILL_ADJ_DRAG_UNIFORM (corner), FILL_ADJ_DRAG_SCALE_X (horiz arm),
+' FILL_ADJ_DRAG_SCALE_Y (vert arm), or FILL_ADJ_DRAG_PAN (miss = pan).
+' rawX/rawY are screen pixels.
+'
+FUNCTION FILL_ADJ_hit_test% (rawX AS INTEGER, rawY AS INTEGER)
+    ' Compute shape bounding box top-left in screen coords
+    DIM shapeMinX AS INTEGER, shapeMinY AS INTEGER
+    SELECT CASE FILL_ADJ.SHAPE_TYPE%
+        CASE FILL_ADJ_SHAPE_RECT
+            shapeMinX% = FILL_ADJ.RECT_X1%: shapeMinY% = FILL_ADJ.RECT_Y1%
+            IF FILL_ADJ.RECT_X2% < shapeMinX% THEN shapeMinX% = FILL_ADJ.RECT_X2%
+            IF FILL_ADJ.RECT_Y2% < shapeMinY% THEN shapeMinY% = FILL_ADJ.RECT_Y2%
+        CASE FILL_ADJ_SHAPE_ELLIPSE
+            shapeMinX% = FILL_ADJ.ELL_CX% - INT(FILL_ADJ.ELL_RX! + 0.5)
+            shapeMinY% = FILL_ADJ.ELL_CY% - INT(FILL_ADJ.ELL_RY! + 0.5)
+        CASE FILL_ADJ_SHAPE_POLYGON
+            shapeMinX% = FILL_ADJ_POLY_X%(0): shapeMinY% = FILL_ADJ_POLY_Y%(0)
+            DIM hpi AS INTEGER
+            FOR hpi% = 1 TO FILL_ADJ.POLY_COUNT% - 1
+                IF FILL_ADJ_POLY_X%(hpi%) < shapeMinX% THEN shapeMinX% = FILL_ADJ_POLY_X%(hpi%)
+                IF FILL_ADJ_POLY_Y%(hpi%) < shapeMinY% THEN shapeMinY% = FILL_ADJ_POLY_Y%(hpi%)
+            NEXT hpi%
+    END SELECT
+
+    ' Origin in screen coords
+    DIM zw AS LONG, zh AS LONG
+    DIM scrDX AS INTEGER, scrDY AS INTEGER
+    zw& = INT(SCRN.canvasW& * SCRN.zoom!)
+    zh& = INT(SCRN.canvasH& * SCRN.zoom!)
+    scrDX% = (SCRN.w& - zw&) \ 2 + SCRN.offsetX%
+    scrDY% = (SCRN.h& - zh&) \ 2 + SCRN.offsetY%
+
+    DIM ox AS INTEGER, oy AS INTEGER
+    ox% = INT((shapeMinX% + FILL_ADJ.ORIGIN_X!) * SCRN.zoom!) + scrDX%
+    oy% = INT((shapeMinY% + FILL_ADJ.ORIGIN_Y!) * SCRN.zoom!) + scrDY%
+
+    ' Handle dimensions in screen pixels — from theme
+    DIM handleSize AS INTEGER, armLen AS INTEGER, armThick AS INTEGER
+    handleSize% = THEME.FILL_ADJ_HANDLE_SIZE%
+    armLen% = THEME.FILL_ADJ_ARM_LENGTH%
+    armThick% = THEME.FILL_ADJ_ARM_THICKNESS%
+
+    ' Test corner box first (highest priority)
+    IF rawX% >= ox% - handleSize% AND rawX% <= ox% + handleSize% AND rawY% >= oy% - handleSize% AND rawY% <= oy% + handleSize% THEN
+        FILL_ADJ_hit_test% = FILL_ADJ_DRAG_UNIFORM
+        EXIT FUNCTION
+    END IF
+
+    ' Test horizontal arm (extends right from corner)
+    IF rawX% >= ox% + handleSize% AND rawX% <= ox% + handleSize% + armLen% AND rawY% >= oy% - armThick% AND rawY% <= oy% + armThick% THEN
+        FILL_ADJ_hit_test% = FILL_ADJ_DRAG_SCALE_X
+        EXIT FUNCTION
+    END IF
+
+    ' Test vertical arm (extends down from corner)
+    IF rawX% >= ox% - armThick% AND rawX% <= ox% + armThick% AND rawY% >= oy% + handleSize% AND rawY% <= oy% + handleSize% + armLen% THEN
+        FILL_ADJ_hit_test% = FILL_ADJ_DRAG_SCALE_Y
+        EXIT FUNCTION
+    END IF
+
+    ' Miss — pan mode
+    FILL_ADJ_hit_test% = FILL_ADJ_DRAG_PAN
+END FUNCTION
+
+
+''
+' Handle mouse press — hit-test L-handle to determine drag mode
+'
+SUB FILL_ADJ_handle_mouse_press (cx AS INTEGER, cy AS INTEGER, rawX AS INTEGER, rawY AS INTEGER)
+    IF NOT FILL_ADJ.ACTIVE% THEN EXIT SUB
+
+    FILL_ADJ.DRAG_MODE% = FILL_ADJ_hit_test%(rawX%, rawY%)
+    FILL_ADJ.DRAGGING% = TRUE
+    FILL_ADJ.DRAG_START_MX% = rawX%
+    FILL_ADJ.DRAG_START_MY% = rawY%
+    FILL_ADJ.DRAG_START_CX% = cx%
+    FILL_ADJ.DRAG_START_CY% = cy%
+    FILL_ADJ.START_ORIGIN_X! = FILL_ADJ.ORIGIN_X!
+    FILL_ADJ.START_ORIGIN_Y! = FILL_ADJ.ORIGIN_Y!
+    FILL_ADJ.START_TILE_W! = FILL_ADJ.TILE_W!
+    FILL_ADJ.START_TILE_H! = FILL_ADJ.TILE_H!
+END SUB
+
+
+''
+' Handle mouse drag — behavior depends on drag mode
+'
+SUB FILL_ADJ_handle_mouse_drag (cx AS INTEGER, cy AS INTEGER, rawX AS INTEGER, rawY AS INTEGER)
+    IF NOT FILL_ADJ.ACTIVE% THEN EXIT SUB
+    IF NOT FILL_ADJ.DRAGGING% THEN EXIT SUB
+
+    DIM dx AS INTEGER, dy AS INTEGER
+    DIM sdx AS INTEGER, sdy AS INTEGER
+    DIM scale AS SINGLE
+
+    SELECT CASE FILL_ADJ.DRAG_MODE%
+        CASE FILL_ADJ_DRAG_PAN
+            ' Pan origin in canvas coords
+            dx% = cx% - FILL_ADJ.DRAG_START_CX%
+            dy% = cy% - FILL_ADJ.DRAG_START_CY%
+            FILL_ADJ.ORIGIN_X! = FILL_ADJ.START_ORIGIN_X! + dx%
+            FILL_ADJ.ORIGIN_Y! = FILL_ADJ.START_ORIGIN_Y! + dy%
+
+        CASE FILL_ADJ_DRAG_UNIFORM
+            ' Uniform scale: use screen-space horizontal distance
+            sdx% = rawX% - FILL_ADJ.DRAG_START_MX%
+            scale! = 1.0 + sdx% / 100.0
+            IF scale! < 0.1 THEN scale! = 0.1
+            IF scale! > 50.0 THEN scale! = 50.0
+            FILL_ADJ.TILE_W! = FILL_ADJ.START_TILE_W! * scale!
+            FILL_ADJ.TILE_H! = FILL_ADJ.START_TILE_H! * scale!
+            IF FILL_ADJ.TILE_W! < 1.0 THEN FILL_ADJ.TILE_W! = 1.0
+            IF FILL_ADJ.TILE_H! < 1.0 THEN FILL_ADJ.TILE_H! = 1.0
+            IF FILL_ADJ.TILE_W! > 9999 THEN FILL_ADJ.TILE_W! = 9999
+            IF FILL_ADJ.TILE_H! > 9999 THEN FILL_ADJ.TILE_H! = 9999
+
+        CASE FILL_ADJ_DRAG_SCALE_X
+            ' Scale X only: horizontal screen movement
+            sdx% = rawX% - FILL_ADJ.DRAG_START_MX%
+            scale! = 1.0 + sdx% / 100.0
+            IF scale! < 0.1 THEN scale! = 0.1
+            IF scale! > 50.0 THEN scale! = 50.0
+            FILL_ADJ.TILE_W! = FILL_ADJ.START_TILE_W! * scale!
+            IF FILL_ADJ.TILE_W! < 1.0 THEN FILL_ADJ.TILE_W! = 1.0
+            IF FILL_ADJ.TILE_W! > 9999 THEN FILL_ADJ.TILE_W! = 9999
+
+        CASE FILL_ADJ_DRAG_SCALE_Y
+            ' Scale Y only: vertical screen movement
+            sdy% = rawY% - FILL_ADJ.DRAG_START_MY%
+            scale! = 1.0 + sdy% / 100.0
+            IF scale! < 0.1 THEN scale! = 0.1
+            IF scale! > 50.0 THEN scale! = 50.0
+            FILL_ADJ.TILE_H! = FILL_ADJ.START_TILE_H! * scale!
+            IF FILL_ADJ.TILE_H! < 1.0 THEN FILL_ADJ.TILE_H! = 1.0
+            IF FILL_ADJ.TILE_H! > 9999 THEN FILL_ADJ.TILE_H! = 9999
+    END SELECT
+
+    FILL_ADJ_update
+END SUB
+
+
+''
+' Handle mouse release to stop dragging
+'
+SUB FILL_ADJ_handle_mouse_release ()
+    IF NOT FILL_ADJ.ACTIVE% THEN EXIT SUB
+    FILL_ADJ.DRAGGING% = FALSE
+    FILL_ADJ.DRAG_MODE% = FILL_ADJ_DRAG_NONE
+END SUB
+
+
+''
+' Render overlay for fill adjustment mode
+' Shows L-shaped scale handle at tile origin, dashed bounding box, and info text
+'
+SUB FILL_ADJ_render_overlay ()
+    IF NOT FILL_ADJ.ACTIVE% THEN EXIT SUB
+
+    DIM old_dest AS LONG
+    old_dest& = _DEST
+    _DEST SCRN.CANVAS&
+    _BLEND SCRN.CANVAS&
+
+    ' Calculate shape bounding box
+    DIM shapeMinX AS INTEGER, shapeMinY AS INTEGER
+    DIM shapeMaxX AS INTEGER, shapeMaxY AS INTEGER
+    DIM shapeCX AS INTEGER, shapeCY AS INTEGER
+
+    SELECT CASE FILL_ADJ.SHAPE_TYPE%
+        CASE FILL_ADJ_SHAPE_RECT
+            shapeMinX% = FILL_ADJ.RECT_X1%: shapeMinY% = FILL_ADJ.RECT_Y1%
+            shapeMaxX% = FILL_ADJ.RECT_X2%: shapeMaxY% = FILL_ADJ.RECT_Y2%
+            IF shapeMinX% > shapeMaxX% THEN SWAP shapeMinX%, shapeMaxX%
+            IF shapeMinY% > shapeMaxY% THEN SWAP shapeMinY%, shapeMaxY%
+        CASE FILL_ADJ_SHAPE_ELLIPSE
+            shapeMinX% = FILL_ADJ.ELL_CX% - INT(FILL_ADJ.ELL_RX! + 0.5)
+            shapeMinY% = FILL_ADJ.ELL_CY% - INT(FILL_ADJ.ELL_RY! + 0.5)
+            shapeMaxX% = FILL_ADJ.ELL_CX% + INT(FILL_ADJ.ELL_RX! + 0.5)
+            shapeMaxY% = FILL_ADJ.ELL_CY% + INT(FILL_ADJ.ELL_RY! + 0.5)
+        CASE FILL_ADJ_SHAPE_POLYGON
+            shapeMinX% = FILL_ADJ_POLY_X%(0): shapeMinY% = FILL_ADJ_POLY_Y%(0)
+            shapeMaxX% = FILL_ADJ_POLY_X%(0): shapeMaxY% = FILL_ADJ_POLY_Y%(0)
+            DIM oi AS INTEGER
+            FOR oi% = 1 TO FILL_ADJ.POLY_COUNT% - 1
+                IF FILL_ADJ_POLY_X%(oi%) < shapeMinX% THEN shapeMinX% = FILL_ADJ_POLY_X%(oi%)
+                IF FILL_ADJ_POLY_Y%(oi%) < shapeMinY% THEN shapeMinY% = FILL_ADJ_POLY_Y%(oi%)
+                IF FILL_ADJ_POLY_X%(oi%) > shapeMaxX% THEN shapeMaxX% = FILL_ADJ_POLY_X%(oi%)
+                IF FILL_ADJ_POLY_Y%(oi%) > shapeMaxY% THEN shapeMaxY% = FILL_ADJ_POLY_Y%(oi%)
+            NEXT oi%
+    END SELECT
+
+    shapeCX% = (shapeMinX% + shapeMaxX%) \ 2
+    shapeCY% = (shapeMinY% + shapeMaxY%) \ 2
+
+    ' Convert canvas coordinates to screen coordinates
+    DIM scrDX AS INTEGER, scrDY AS INTEGER
+    DIM zw AS LONG, zh AS LONG
+    zw& = INT(SCRN.canvasW& * SCRN.zoom!)
+    zh& = INT(SCRN.canvasH& * SCRN.zoom!)
+    scrDX% = (SCRN.w& - zw&) \ 2 + SCRN.offsetX%
+    scrDY% = (SCRN.h& - zh&) \ 2 + SCRN.offsetY%
+
+    ' Origin (L-handle corner) position in screen space
+    DIM ox AS INTEGER, oy AS INTEGER
+    ox% = INT((shapeMinX% + FILL_ADJ.ORIGIN_X!) * SCRN.zoom!) + scrDX%
+    oy% = INT((shapeMinY% + FILL_ADJ.ORIGIN_Y!) * SCRN.zoom!) + scrDY%
+
+    ' ---- L-shaped handle ----
+    ' Lazy-load PNG icon if configured
+    IF FILL_ADJ_ICON_HANDLE& = 0 AND LEN(_TRIM$(THEME.FILL_ADJ_ICON_FILE$)) > 0 THEN
+        DIM iconPath AS STRING
+        iconPath$ = "ASSETS/THEMES/" + _TRIM$(CFG.THEME$) + "/IMAGES/" + _TRIM$(THEME.FILL_ADJ_ICON_FILE$)
+        FILL_ADJ_ICON_HANDLE& = _LOADIMAGE(iconPath$, 32)
+        IF FILL_ADJ_ICON_HANDLE& >= -1 THEN
+            _LOGWARN "FILL_ADJ: icon not found: " + iconPath$
+            FILL_ADJ_ICON_HANDLE& = -1 ' Mark as failed so we don't retry
+        END IF
+    END IF
+
+    ' Draw L-handle: PNG icon if available, else procedural
+    IF FILL_ADJ_ICON_HANDLE& < -1 THEN
+        ' PNG icon mode — center on origin point
+        DIM iconW AS INTEGER, iconH AS INTEGER
+        iconW% = _WIDTH(FILL_ADJ_ICON_HANDLE&)
+        iconH% = _HEIGHT(FILL_ADJ_ICON_HANDLE&)
+        _PUTIMAGE (ox% - iconW% \ 4, oy% - iconH% \ 4), FILL_ADJ_ICON_HANDLE&
+    ELSE
+        ' Procedural L-handle
+        DIM handleSize AS INTEGER, armLen AS INTEGER, armThick AS INTEGER
+    DIM cornerColor AS _UNSIGNED LONG
+    DIM armXColor AS _UNSIGNED LONG
+    DIM armYColor AS _UNSIGNED LONG
+    handleSize% = THEME.FILL_ADJ_HANDLE_SIZE%
+    armLen% = THEME.FILL_ADJ_ARM_LENGTH%
+    armThick% = THEME.FILL_ADJ_ARM_THICKNESS%
+
+    ' Highlight active drag zone
+    IF FILL_ADJ.DRAG_MODE% = FILL_ADJ_DRAG_UNIFORM THEN
+        cornerColor~& = THEME.FILL_ADJ_CORNER_ACTIVE_COLOR~&
+    ELSE
+        cornerColor~& = THEME.FILL_ADJ_CORNER_COLOR~&
+    END IF
+    IF FILL_ADJ.DRAG_MODE% = FILL_ADJ_DRAG_SCALE_X THEN
+        armXColor~& = THEME.FILL_ADJ_ARM_X_ACTIVE_COLOR~&
+    ELSE
+        armXColor~& = THEME.FILL_ADJ_ARM_X_COLOR~&
+    END IF
+    IF FILL_ADJ.DRAG_MODE% = FILL_ADJ_DRAG_SCALE_Y THEN
+        armYColor~& = THEME.FILL_ADJ_ARM_Y_ACTIVE_COLOR~&
+    ELSE
+        armYColor~& = THEME.FILL_ADJ_ARM_Y_COLOR~&
+    END IF
+
+    ' Horizontal arm (extends right from corner) — X scale
+    LINE (ox% + handleSize%, oy% - armThick%)-(ox% + handleSize% + armLen%, oy% + armThick%), THEME.FILL_ADJ_SHADOW_COLOR~&, BF
+    LINE (ox% + handleSize% + 1, oy% - armThick% + 1)-(ox% + handleSize% + armLen% - 1, oy% + armThick% - 1), armXColor~&, BF
+    ' Arrow tip on horizontal arm
+    DIM arrowX AS INTEGER
+    arrowX% = ox% + handleSize% + armLen%
+    LINE (arrowX%, oy% - armThick% - 3)-(arrowX% + 5, oy%), armXColor~&
+    LINE (arrowX% + 5, oy%)-(arrowX%, oy% + armThick% + 3), armXColor~&
+
+    ' Vertical arm (extends down from corner) — Y scale
+    LINE (ox% - armThick%, oy% + handleSize%)-(ox% + armThick%, oy% + handleSize% + armLen%), THEME.FILL_ADJ_SHADOW_COLOR~&, BF
+    LINE (ox% - armThick% + 1, oy% + handleSize% + 1)-(ox% + armThick% - 1, oy% + handleSize% + armLen% - 1), armYColor~&, BF
+    ' Arrow tip on vertical arm
+    DIM arrowY AS INTEGER
+    arrowY% = oy% + handleSize% + armLen%
+    LINE (ox% - armThick% - 3, arrowY%)-(ox%, arrowY% + 5), armYColor~&
+    LINE (ox%, arrowY% + 5)-(ox% + armThick% + 3, arrowY%), armYColor~&
+
+    ' Corner box (uniform scale) — drawn last so it's on top
+    LINE (ox% - handleSize% - 1, oy% - handleSize% - 1)-(ox% + handleSize% + 1, oy% + handleSize% + 1), THEME.FILL_ADJ_SHADOW_COLOR~&, BF
+    LINE (ox% - handleSize%, oy% - handleSize%)-(ox% + handleSize%, oy% + handleSize%), cornerColor~&, BF
+    ' Diagonal arrows icon inside corner box
+    LINE (ox% - 3, oy% - 3)-(ox% + 3, oy% + 3), THEME.FILL_ADJ_DASH_COLOR2~&
+    LINE (ox% + 3, oy% - 3)-(ox% - 3, oy% + 3), THEME.FILL_ADJ_DASH_COLOR2~&
+    END IF ' END procedural vs PNG icon
+
+    ' ---- Dashed bounding box ----
+    DIM sx1 AS INTEGER, sy1 AS INTEGER, sx2 AS INTEGER, sy2 AS INTEGER
+    sx1% = INT(shapeMinX% * SCRN.zoom!) + scrDX%
+    sy1% = INT(shapeMinY% * SCRN.zoom!) + scrDY%
+    sx2% = INT((shapeMaxX% + 1) * SCRN.zoom!) + scrDX%
+    sy2% = INT((shapeMaxY% + 1) * SCRN.zoom!) + scrDY%
+
+    DIM di AS INTEGER
+    DIM dashColor AS _UNSIGNED LONG
+    ' Top edge
+    FOR di% = sx1% TO sx2% STEP 4
+        IF (di% \ 4) MOD 2 = 0 THEN dashColor~& = THEME.FILL_ADJ_DASH_COLOR1~& ELSE dashColor~& = THEME.FILL_ADJ_DASH_COLOR2~&
+        LINE (di%, sy1%)-((di% + 3), sy1%), dashColor~&
+    NEXT di%
+    ' Bottom edge
+    FOR di% = sx1% TO sx2% STEP 4
+        IF (di% \ 4) MOD 2 = 0 THEN dashColor~& = THEME.FILL_ADJ_DASH_COLOR1~& ELSE dashColor~& = THEME.FILL_ADJ_DASH_COLOR2~&
+        LINE (di%, sy2%)-((di% + 3), sy2%), dashColor~&
+    NEXT di%
+    ' Left edge
+    FOR di% = sy1% TO sy2% STEP 4
+        IF (di% \ 4) MOD 2 = 0 THEN dashColor~& = THEME.FILL_ADJ_DASH_COLOR1~& ELSE dashColor~& = THEME.FILL_ADJ_DASH_COLOR2~&
+        LINE (sx1%, di%)-(sx1%, (di% + 3)), dashColor~&
+    NEXT di%
+    ' Right edge
+    FOR di% = sy1% TO sy2% STEP 4
+        IF (di% \ 4) MOD 2 = 0 THEN dashColor~& = THEME.FILL_ADJ_DASH_COLOR1~& ELSE dashColor~& = THEME.FILL_ADJ_DASH_COLOR2~&
+        LINE (sx2%, di%)-(sx2%, (di% + 3)), dashColor~&
+    NEXT di%
+
+    ' ---- Info text ----
+    DIM info AS STRING
+    DIM modeStr AS STRING
+    SELECT CASE FILL_ADJ.DRAG_MODE%
+        CASE FILL_ADJ_DRAG_UNIFORM: modeStr$ = " [Uniform]"
+        CASE FILL_ADJ_DRAG_SCALE_X: modeStr$ = " [X only]"
+        CASE FILL_ADJ_DRAG_SCALE_Y: modeStr$ = " [Y only]"
+        CASE ELSE: modeStr$ = ""
+    END SELECT
+    info$ = "Tile: " + LTRIM$(STR$(INT(FILL_ADJ.TILE_W! + 0.5))) + "x" + LTRIM$(STR$(INT(FILL_ADJ.TILE_H! + 0.5))) + modeStr$ + "  Wheel=Scale  L-Handle=Resize  Drag=Pan  Enter/Esc"
+    DIM textX AS INTEGER, textY AS INTEGER
+    DIM textW AS INTEGER
+    textW% = _PRINTWIDTH(info$)
+    textX% = shapeCX% * SCRN.zoom! + scrDX% - textW% \ 2
+    textY% = sy1% - 14
+    IF textY% < 2 THEN textY% = sy2% + 4
+
+    ' Background for readability
+    LINE (textX% - 2, textY% - 1)-(textX% + textW% + 1, textY% + 10), THEME.FILL_ADJ_INFO_BG_COLOR~&, BF
+    COLOR THEME.FILL_ADJ_INFO_FG_COLOR~&
+    _PRINTSTRING (textX%, textY%), info$
+
+    _DEST old_dest&
+END SUB

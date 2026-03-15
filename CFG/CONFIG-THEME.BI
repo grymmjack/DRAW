@@ -174,6 +174,22 @@ TYPE DRAW_THEME
     TRANSFORM_FRAME_COLOR        AS _UNSIGNED LONG  ' Quad outline color (RGBA)
     TRANSFORM_FRAME_HANDLE_COLOR AS _UNSIGNED LONG  ' Unselected handle fill color (RGBA)
     TRANSFORM_FRAME_HANDLE_SIZE  AS INTEGER         ' Handle half-size in screen pixels (draw + hit test)
+    ' --- Fill adjustment L-handle ---
+    FILL_ADJ_CORNER_COLOR        AS _UNSIGNED LONG  ' L-handle corner box color (RGBA)
+    FILL_ADJ_CORNER_ACTIVE_COLOR AS _UNSIGNED LONG  ' L-handle corner box active/drag highlight (RGBA)
+    FILL_ADJ_ARM_X_COLOR         AS _UNSIGNED LONG  ' L-handle horizontal arm color (RGBA)
+    FILL_ADJ_ARM_X_ACTIVE_COLOR  AS _UNSIGNED LONG  ' L-handle horizontal arm active (RGBA)
+    FILL_ADJ_ARM_Y_COLOR         AS _UNSIGNED LONG  ' L-handle vertical arm color (RGBA)
+    FILL_ADJ_ARM_Y_ACTIVE_COLOR  AS _UNSIGNED LONG  ' L-handle vertical arm active (RGBA)
+    FILL_ADJ_SHADOW_COLOR        AS _UNSIGNED LONG  ' L-handle shadow/outline (RGBA)
+    FILL_ADJ_DASH_COLOR1         AS _UNSIGNED LONG  ' Bounding box dash color 1 (RGBA)
+    FILL_ADJ_DASH_COLOR2         AS _UNSIGNED LONG  ' Bounding box dash color 2 (RGBA)
+    FILL_ADJ_INFO_BG_COLOR       AS _UNSIGNED LONG  ' Info text background (RGBA)
+    FILL_ADJ_INFO_FG_COLOR       AS _UNSIGNED LONG  ' Info text foreground (RGBA)
+    FILL_ADJ_HANDLE_SIZE         AS INTEGER         ' Corner box half-size in screen px (default 7)
+    FILL_ADJ_ARM_LENGTH          AS INTEGER         ' Arm length in screen px (default 40)
+    FILL_ADJ_ARM_THICKNESS       AS INTEGER         ' Arm half-thickness in screen px (default 5)
+    FILL_ADJ_ICON_FILE           AS STRING * 64     ' PNG widget for L-handle (empty = procedural)
     ' --- Dialog chrome ---
     DIALOG_bg                 AS _UNSIGNED LONG  ' Dialog background fill
     DIALOG_border_outer       AS _UNSIGNED LONG  ' Dialog outer border
