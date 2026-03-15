@@ -1,14 +1,6 @@
 # BUGS
 
-
-## PREVIEW CANVAS MISSING TRANSPARENCY CHECKERBOARD
-- The preview window canvas used to have a checkerboard in both follow nad normal mode.
-
-
-## MENU BARS
-- I should not be able to hover to select a disabled option
-- The disabled options should not play any sounds
-
+# BUGS
 
 ## OVER-ZEALOUS CUSTOM BRUSH CURSOR
 - Custom brush preview brush cursor should only be displayed when:
@@ -35,4 +27,6 @@
           - Cut out anything outside the edges of the shape - the RECT existed but then the shape
             served as a cut-out mask on top of it.
             
+
+
 
