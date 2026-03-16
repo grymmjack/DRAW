@@ -13,7 +13,7 @@ Root menus (indices 0–10): FILE(0), EDIT(1), VIEW(2), SELECT(3), TOOLS(4), BRU
 - **ALT tap toggle**: ALT pressed then released without other keys → toggle FILE menu
 - **Keyboard nav (`kbActive%`)**: Arrow keys navigate items. When `kbActive% = TRUE`, mouse hover is ignored until mouse actually moves.
 - **Recent files submenu**: Cascading submenu for action ID 213. Right arrow opens, Left/Escape closes.
-- **Cascading submenus**: Any menu item marked as a submenu parent gets a `▶` indicator and spawns a child submenu on hover/right-arrow. Managed by `MENUBAR_cascading_submenu_*` helpers. Used by Recent Files (213), Layout (442), and Transform (330).
+- **Cascading submenus**: Any menu item marked as a submenu parent gets a `▶` indicator and spawns a child submenu on hover/right-arrow. Managed by `MENUBAR_cascading_submenu_*` helpers. Used by Recent Files (213), Layout (442), Transform (330), Preview Window (2012), and Preview Recent (2018).
 - **Layout submenu**: Under View → Layout; dock left/right actions for Toolbox (443/444), Layer Panel (445/446), Edit Bar (447/448).
 - **Dynamic state sync**: `MENUBAR_update_checkboxes` syncs checkboxes from live state (grid, snap, tool visibility, undo/redo availability, recent files).
 - **Click dispatch**: `MENUBAR_handle_click` → `CMD_execute_action(item.actionId)`
@@ -48,6 +48,7 @@ Root menus (indices 0–10): FILE(0), EDIT(1), VIEW(2), SELECT(3), TOOLS(4), BRU
 | 1801–1802 | Canvas       | Resize dialog (1801), Crop dialog (1802) |
 | 1911–1914 | Drawer Sets  | Load, Save, Clear, Explore drawer-set folder |
 | 2001–2010 | Image Adj    | BrightnessContrast, HueSaturation, Levels, ColorBalance, Blur, Sharpen, Invert, Desaturate, Posterize, Pixelate |
+| 2012–2019 | Preview Win  | PreviewWindowSubmenu(2012), FollowMode(2013), FloatingImageMode(2014), BinQuickLook(2015), AllowColorPicking(2016), LoadImage(2017), RecentImages(2018), ClearRecentImages(2019) |
 
 ### Command Palette
 
@@ -138,6 +139,11 @@ Floating live preview panel toggled with `F4` / action ID `434`.
 - Follow-pointer checkbox lives in the title bar and persists to config
 - Minimize/close buttons live in the title bar
 - Position is clamped to the current work area so the window stays recoverable
+- **Two modes**: `PREVIEW_MODE_FOLLOW` (0) = canvas magnifier tracking pointer, `PREVIEW_MODE_FLOAT` (1) = display a loaded image file
+- **Bin Quick Look**: When enabled (`CFG.PREVIEW_BIN_QUICK_LOOK%`), hovering a drawer slot shows its brush/pattern/gradient content in the preview pane; managed by `binQuickLookActive%`, `binQuickLookSlot%`, `binQuickLookImg&`
+- **Color Picking**: When enabled (`CFG.PREVIEW_COLOR_PICK%`), Alt+click inside the preview samples FG color, Alt+right-click samples BG; dispatched by `PREVIEW_pick_color_at`
+- **Recent Preview Images**: Up to 10 recently loaded floating images tracked via `RECENT_PREVIEW_FILES()` / `RECENT_PREVIEW_COUNT%`; managed by `RECENT_PREVIEW_add_file` / `RECENT_PREVIEW_clear`
+- **Cascading submenus**: View → Preview Window (action 2012) with child items Follow(2013), Float(2014), Bin Quick Look(2015), Color Pick(2016), Load Image(2017), Recent(2018), Clear Recent(2019); menu state in `MENU_BAR.pvw*` / `MENU_BAR.pvwRecent*` fields
 
 ---
 

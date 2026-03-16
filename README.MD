@@ -14,7 +14,7 @@ DATA "::::::::", "::    ::", "::    ::", "::::  ::::", "  ::  ::  "
 
 DRAW is a pixel art editor written in QB64PE that can export images as sourcecode
 
-Current release: v0.22.0
+Current release: v0.23.0
 
 ![DRAW GUI from v0.17.0](./GUI.png)
 
@@ -90,7 +90,7 @@ Note: screenshot refresh pending for v0.21.0. The current UI also includes the p
 - Scrollbars for canvases larger than the viewport
 - Keyboard panning with arrow keys
 - Reset view with Ctrl+0 or double-click middle mouse
-- **Preview Window** - Floating live preview with independent zoom/pan, follow-pointer mode, move/resize controls, and persistent state (`F4`)
+- **Preview Window** - Floating preview with two modes: Follow (magnifier) and Floating Image (load a reference image); Bin Quick Look previews drawer slot contents on hover; Color Picking with Alt+Click; Recent Preview Images submenu; independent zoom/pan, move/resize controls, and persistent state (`F4`)
 - **Pattern Tile Mode** - 3×3 tiled canvas preview for seamless work on canvases up to 512×512 (`Shift+Tab`)
 - Toggle UI elements (toolbar, status bar, menu bar, layer panel, preview window, edit bar)
 
@@ -132,7 +132,7 @@ Note: screenshot refresh pending for v0.21.0. The current UI also includes the p
 
 ### User Interface
 - **Drawer panel** - A 30-slot drawer beneath the organizer for brush, gradient, and pattern sets; `F1`/`F2`/`F3` switch modes, left-click selects, `Shift+Left Click` stores, right-click opens a context menu, middle-click cycles modes, `Shift+Middle Click` clears a slot, and `Shift+Right Click` imports into a slot
-- **Preview window** - A floating canvas preview panel with follow-pointer mode, pan/zoom, minimize/close buttons, and work-area clamping
+- **Preview window** - A floating preview panel with two modes: **Follow** (canvas magnifier following the pointer) and **Floating Image** (display a loaded reference image); supports **Bin Quick Look** (hover drawer slots to preview brush/pattern/gradient), **Color Picking** (Alt+Click to sample colors from preview), and **Recent Preview Images** (up to 10 recently loaded images); pan/zoom, minimize/close buttons, and work-area clamping
 - **Edit bar** - A dockable vertical strip of edit-action icons on the left or right side of the workspace (`F5`)
 - **Layout docking** - Toolbox, layer panel, and edit bar can each be docked to the left or right side of the workspace via View → Layout menu or `Ctrl+Shift+Click` on the panel
 - **System cursors** - Automatically uses OS native cursors for UI areas (arrow in toolbar/panels), canvas work (crosshair for drawing tools, I-beam for text, resize arrows for handles) and move tool (move pointer); falls back to custom PNG cursors for tools that need them (brush, fill, picker loupe, spray, marquee); configurable via `SYSTEM_CURSORS` in `DRAW.cfg`

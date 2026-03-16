@@ -249,6 +249,47 @@ Fill Adjustment Mode works with:
 - **Filled Polygon** (`Shift+P`)
 - **Flood Fill** (`F`) — generates a fill mask, then enters adjustment mode
 
+## Preview Window
+
+The preview window (`F4`) supports two modes and several enhancement features.
+
+### Preview Modes
+
+| Mode | Description |
+|------|-------------|
+| **Follow** (default) | Magnified view that follows the mouse pointer on the canvas |
+| **Floating Image** | Displays a loaded image file in the preview pane (for reference) |
+
+Switch modes via **View → Preview Window** submenu.
+
+### Preview Window Controls
+
+| Action | Function |
+|--------|----------|
+| **FP checkbox** (Follow mode) | Toggle follow-pointer tracking |
+| **CP checkbox** (Float mode) | Toggle color picking from the preview image |
+| **Alt+Click in preview** | Pick foreground color from the preview (when CP enabled) |
+| **Alt+Right-Click** | Pick background color from the preview (when CP enabled) |
+| **Mouse wheel in preview** | Zoom preview independently |
+| **Drag title bar** | Move preview window |
+| **Drag resize handle** | Resize preview window |
+
+### Preview Window Menu (View → Preview Window)
+
+| Menu Item | Function |
+|-----------|----------|
+| **Follow Mode** | Switch to canvas follow/magnifier mode |
+| **Floating Image Mode** | Switch to loaded image display mode |
+| **Bin Quick Look** | Toggle: hover drawer slots to preview brush/pattern/gradient in the preview window |
+| **Allow Color Picking** | Toggle: enable Alt+Click color sampling from the preview |
+| **Load Image...** | Open file dialog to load an image into floating mode |
+| **Recent Images** | Submenu of up to 10 recently loaded preview images |
+| **Clear Recent Images** | Clear the recent preview images list |
+
+### Bin Quick Look
+
+When enabled, hovering over a drawer slot automatically shows a magnified preview of that slot's content (brush, pattern, or gradient) in the preview window. The preview reverts to normal when the mouse leaves the drawer.
+
 ## Layout Docking
 
 Panels can be docked to the left or right side of the workspace.
@@ -1111,7 +1152,7 @@ DRAW has an optional menu bar at the top of the screen providing access to all c
 |------|----------|
 | **File** | New, Open, Import Image, Save, Save As, Export Layer, Export Brush, Exit |
 | **Edit** | Undo, Redo, Cut, Copy, Paste, Select All, Deselect, Invert Selection, Flip H/V, Scale, Rotate 90° CW/CCW, Canvas Resize, Canvas Crop |
-| **View** | Toolbar, Status Bar, Layer Panel, Menu Bar, Cursors, Grid, Pixel Grid, Snap, Crosshair, Reference Image (toggle/load/clear/reposition) |
+| **View** | Toolbar, Status Bar, Layer Panel, Menu Bar, Cursors, Grid, Pixel Grid, Snap, Crosshair, Reference Image (toggle/load/clear/reposition), Preview Window (Follow/Float modes, Bin Quick Look, Color Pick, Load Image, Recent Images), Layout docking |
 | **Select** | All, None, Invert, Expand, Contract, From Current Layer, **From Selected Layers** *(requires 2+ selected)* |
 | **Canvas** | Clear Canvas, Zoom In/Out, Reset Zoom |
 | **Tools** | All drawing tools (Dot, Brush, Line, etc.) |

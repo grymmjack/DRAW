@@ -286,7 +286,7 @@ A frame is "idle" when no input, mouse movement, GUI changes, or active tool ope
 | `GUI/TOOLBAR.BM`          | Toolbar rendering, click handling, active indicator                 |
 | `GUI/ORGANIZER.BI`        | Organizer widget constants (`ORG_*`), 4×3 layout                    |
 | `GUI/DRAWER.BI/BM`        | 30-slot brush/pattern/gradient drawer panel with mini palette, slot context menus, and `.dset` import/export |
-| `GUI/PREVIEW.BI/BM`       | Floating preview window with follow-pointer mode, pan/zoom, resize, and work-area clamping |
+| `GUI/PREVIEW.BI/BM`       | Floating preview window with two modes (Follow magnifier / Floating Image), Bin Quick Look drawer hover preview, color picking, recent preview images, pan/zoom, resize, and work-area clamping |
 | `GUI/EDITBAR.BI/BM`       | Vertical icon bar mirroring Edit menu actions; dockable LEFT/RIGHT; toggle F5 |
 | `GUI/POPUP-MENU.BI/BM`    | Shared popup menu layout/rendering used by drawer and other contextual overlays |
 | `TOOLS/HISTORY.BI/BM`     | Unified history system for all Ctrl+Z/Y undo/redo                   |
