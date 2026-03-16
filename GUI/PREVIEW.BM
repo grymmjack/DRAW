@@ -65,6 +65,22 @@ SUB PREVIEW_init ()
         END IF
     END IF
 
+    ' Restore floating image mode state from config
+    PREVIEW.mode%              = CFG.PREVIEW_MODE%
+    PREVIEW.colorPickEnabled%  = CFG.PREVIEW_COLOR_PICK%
+    PREVIEW.binQuickLookEnabled% = CFG.PREVIEW_BIN_QUICK_LOOK%
+    IF PREVIEW.mode% = PREVIEW_MODE_FLOAT AND LEN(CFG.PREVIEW_FLOAT_IMAGE_PATH$) > 0 THEN
+        IF _FILEEXISTS(CFG.PREVIEW_FLOAT_IMAGE_PATH$) THEN
+            PREVIEW.floatImage& = _LOADIMAGE(CFG.PREVIEW_FLOAT_IMAGE_PATH$, 32)
+            IF PREVIEW.floatImage& < -1 THEN
+                PREVIEW.floatImageW% = _WIDTH(PREVIEW.floatImage&)
+                PREVIEW.floatImageH% = _HEIGHT(PREVIEW.floatImage&)
+                PREVIEW.floatImagePath$ = CFG.PREVIEW_FLOAT_IMAGE_PATH$
+                PREVIEW.floatImageDepth% = 32
+            END IF
+        END IF
+    END IF
+
     ' Cache title-bar font (load once here, not every frame)
     ' Use the same pattern as STATUS_init / MENUBAR_init: GLOBAL_FONT at GLOBAL_FONT_SIZE
     DIM prevFontFile AS STRING
@@ -95,6 +111,10 @@ SUB PREVIEW_cleanup ()
         _FREEFONT PREVIEW.fontHandle&
     END IF
     PREVIEW.fontHandle& = 0
+    PREVIEW_free_floating_image
+    IF PREVIEW.binQuickLookImg& < -1 THEN _FREEIMAGE PREVIEW.binQuickLookImg&
+    PREVIEW.binQuickLookImg& = 0
+    PREVIEW.binQuickLookActive% = FALSE
 END SUB
 
 ' ---------------------------------------------------------------------------
@@ -305,14 +325,24 @@ SUB PREVIEW_render (destHandle AS LONG)
     LINE (cbX%, cbY%)-(cbX% + cbSz% - 1, cbY% + cbSz% - 1), THEME.PREVIEW_checkbox_border~&, B
     ' Checkbox fill
     LINE (cbX% + 1, cbY% + 1)-(cbX% + cbSz% - 2, cbY% + cbSz% - 2), THEME.PREVIEW_checkbox_bg~&, BF
-    ' Checkmark
-    IF PREVIEW.followPointer% THEN
+    ' Checkmark (FP = follow pointer checked, CP = color pick enabled)
+    DIM pvCbChecked AS INTEGER
+    IF PREVIEW.mode% = PREVIEW_MODE_FLOAT THEN
+        pvCbChecked% = PREVIEW.colorPickEnabled%
+    ELSE
+        pvCbChecked% = PREVIEW.followPointer%
+    END IF
+    IF pvCbChecked% THEN
         LINE (cbX% + 1, cbY% + cbSz% \ 2)-(cbX% + cbSz% \ 2 - 1, cbY% + cbSz% - 2), THEME.PREVIEW_checkbox_fg~&
         LINE (cbX% + cbSz% \ 2 - 1, cbY% + cbSz% - 2)-(cbX% + cbSz% - 2, cbY% + 1), THEME.PREVIEW_checkbox_fg~&
     END IF
-    ' "FP" label
+    ' "FP" label (Follow Pointer) or "CP" label (Color Pick) in float mode
     COLOR THEME.PREVIEW_checkbox_fg~&
-    _PRINTSTRING (cbX% + cbSz% + 2, cbY%), "FP"
+    IF PREVIEW.mode% = PREVIEW_MODE_FLOAT THEN
+        _PRINTSTRING (cbX% + cbSz% + 2, cbY%), "CP"
+    ELSE
+        _PRINTSTRING (cbX% + cbSz% + 2, cbY%), "FP"
+    END IF
 
     ' --- Content area ---
     DIM cx1 AS INTEGER : cx1% = wx% + bw% + pad%
@@ -328,17 +358,99 @@ SUB PREVIEW_render (destHandle AS LONG)
     ' Content border
     LINE (cx1% - 1, cy1% - 1)-(cx2% + 1, cy2% + 1), THEME.PREVIEW_content_border~&, B
 
-    ' --- Blit canvas composite ---
-    IF COMPOSITE_BUFFER& < -1 THEN
+    ' --- Bin Quick Look: detect drawer slot hover ---
+    IF PREVIEW.binQuickLookEnabled% AND DRAWER.visible% AND NOT PREVIEW.minimized% THEN
+        DIM bqlSlot AS INTEGER : bqlSlot% = DRAWER_slot_at%(MOUSE.RAW_X%, MOUSE.RAW_Y%)
+        IF bqlSlot% > 0 THEN
+            ' Check if this slot has content
+            DIM bqlImg AS LONG : bqlImg& = 0
+            SELECT CASE DRAWER.mode%
+                CASE DRAWER_MODE_BRUSH
+                    bqlImg& = DRAWER_BRUSH_SLOTS(bqlSlot%).IMG
+                CASE DRAWER_MODE_PATTERN
+                    IF DRAWER_PATTERN_HAS(bqlSlot%) THEN bqlImg& = DRAWER_PATTERN_SLOTS(bqlSlot%)
+                CASE DRAWER_MODE_GRADIENT
+                    bqlImg& = DRAWER_GRADIENT_SLOTS(bqlSlot%)
+            END SELECT
+            IF bqlImg& < -1 THEN
+                ' Slot has content — activate quick look
+                IF bqlSlot% <> PREVIEW.binQuickLookSlot% OR DRAWER.mode% <> PREVIEW.binQuickLookMode% THEN
+                    ' Different slot — free old temp image and create new one
+                    IF PREVIEW.binQuickLookImg& < -1 THEN _FREEIMAGE PREVIEW.binQuickLookImg&
+                    PREVIEW.binQuickLookImg& = _COPYIMAGE(bqlImg&, 32)
+                    PREVIEW.binQuickLookSlot% = bqlSlot%
+                    PREVIEW.binQuickLookMode% = DRAWER.mode%
+                END IF
+                PREVIEW.binQuickLookActive% = TRUE
+            ELSE
+                ' Empty slot — deactivate
+                IF PREVIEW.binQuickLookActive% THEN
+                    IF PREVIEW.binQuickLookImg& < -1 THEN _FREEIMAGE PREVIEW.binQuickLookImg&
+                    PREVIEW.binQuickLookImg& = 0
+                    PREVIEW.binQuickLookActive% = FALSE
+                    PREVIEW.binQuickLookSlot% = 0
+                END IF
+            END IF
+        ELSE
+            ' Not hovering a slot — deactivate
+            IF PREVIEW.binQuickLookActive% THEN
+                IF PREVIEW.binQuickLookImg& < -1 THEN _FREEIMAGE PREVIEW.binQuickLookImg&
+                PREVIEW.binQuickLookImg& = 0
+                PREVIEW.binQuickLookActive% = FALSE
+                PREVIEW.binQuickLookSlot% = 0
+            END IF
+        END IF
+    ELSEIF PREVIEW.binQuickLookActive% THEN
+        ' Bin Quick Look was active but is now disabled/drawer hidden
+        IF PREVIEW.binQuickLookImg& < -1 THEN _FREEIMAGE PREVIEW.binQuickLookImg&
+        PREVIEW.binQuickLookImg& = 0
+        PREVIEW.binQuickLookActive% = FALSE
+        PREVIEW.binQuickLookSlot% = 0
+    END IF
+
+    ' --- Blit canvas composite or floating image ---
+    ' Determine source image and dimensions based on mode
+    DIM pvSrcImg AS LONG
+    DIM pvSrcW   AS LONG
+    DIM pvSrcH   AS LONG
+    DIM pvHasSource AS INTEGER
+
+    ' Bin Quick Look overrides the normal source
+    IF PREVIEW.binQuickLookActive% AND PREVIEW.binQuickLookImg& < -1 THEN
+        pvSrcImg& = PREVIEW.binQuickLookImg&
+        pvSrcW&   = _WIDTH(PREVIEW.binQuickLookImg&)
+        pvSrcH&   = _HEIGHT(PREVIEW.binQuickLookImg&)
+        pvHasSource% = TRUE
+    ELSEIF PREVIEW.mode% = PREVIEW_MODE_FLOAT THEN
+        IF PREVIEW.floatImage& < -1 THEN
+            pvSrcImg& = PREVIEW.floatImage&
+            pvSrcW&   = PREVIEW.floatImageW%
+            pvSrcH&   = PREVIEW.floatImageH%
+            pvHasSource% = TRUE
+        ELSE
+            pvHasSource% = FALSE
+        END IF
+    ELSE
+        IF COMPOSITE_BUFFER& < -1 THEN
+            pvSrcImg& = COMPOSITE_BUFFER&
+            pvSrcW&   = SCRN.canvasW&
+            pvSrcH&   = SCRN.canvasH&
+            pvHasSource% = TRUE
+        ELSE
+            pvHasSource% = FALSE
+        END IF
+    END IF
+
+    IF pvHasSource% THEN
         DIM contentW AS INTEGER : contentW% = cx2% - cx1% + 1
         DIM contentH AS INTEGER : contentH% = cy2% - cy1% + 1
-        DIM canvasW  AS LONG    : canvasW&  = SCRN.canvasW&
-        DIM canvasH  AS LONG    : canvasH&  = SCRN.canvasH&
+        DIM canvasW  AS LONG    : canvasW&  = pvSrcW&
+        DIM canvasH  AS LONG    : canvasH&  = pvSrcH&
 
         DIM srcX1 AS SINGLE, srcY1 AS SINGLE
         DIM srcX2 AS SINGLE, srcY2 AS SINGLE
 
-        IF PREVIEW.followPointer% THEN
+        IF PREVIEW.followPointer% AND NOT PREVIEW.binQuickLookActive% THEN
             ' Center viewport on mouse canvas position (unsnapped canvas coords).
             ' Use integer source dimensions so srcX1/srcX2 are always integer-valued
             ' SINGLEs — a fractional halfSrcW (e.g. 50.5 when contentW is odd) would
@@ -354,6 +466,12 @@ SUB PREVIEW_render (destHandle AS LONG)
             srcY1! = worldCY% - (srcH% \ 2)
             srcX2! = srcX1! + srcW% - 1
             srcY2! = srcY1! + srcH% - 1
+        ELSEIF PREVIEW.binQuickLookActive% THEN
+            ' Bin Quick Look: show entire slot image (auto-fit, ignore pan/zoom)
+            srcX1! = 0
+            srcY1! = 0
+            srcX2! = canvasW& - 1
+            srcY2! = canvasH& - 1
         ELSE
             ' Independent pan/zoom — pan is in canvas pixels.
             ' Inclusive rect convention: srcX2 = srcX1 + srcW - 1.
@@ -402,10 +520,65 @@ SUB PREVIEW_render (destHandle AS LONG)
         NEXT chkCY%
 
         ' Blit composite with alpha blending on top of checkerboard
-        _PUTIMAGE (cx1%, cy1%)-(cx2%, cy2%), COMPOSITE_BUFFER&, destHandle&, (srcX1!, srcY1!)-(srcX2!, srcY2!)
+        IF PREVIEW.binQuickLookActive% THEN
+            ' Bin Quick Look: mode-specific rendering
+            IF PREVIEW.binQuickLookMode% = DRAWER_MODE_PATTERN THEN
+                ' Pattern: tile entire content area at 100% scale
+                DIM bqlPW AS INTEGER : bqlPW% = pvSrcW&
+                DIM bqlPH AS INTEGER : bqlPH% = pvSrcH&
+                IF bqlPW% > 0 AND bqlPH% > 0 THEN
+                    DIM bqlCols AS INTEGER : bqlCols% = (contentW% + bqlPW% - 1) \ bqlPW%
+                    DIM bqlRows AS INTEGER : bqlRows% = (contentH% + bqlPH% - 1) \ bqlPH%
+                    DIM bqlR AS INTEGER, bqlC AS INTEGER
+                    DIM bqlDX1 AS INTEGER, bqlDY1 AS INTEGER
+                    DIM bqlDX2 AS INTEGER, bqlDY2 AS INTEGER
+                    DIM bqlSX1 AS INTEGER, bqlSY1 AS INTEGER
+                    DIM bqlSX2 AS INTEGER, bqlSY2 AS INTEGER
+                    FOR bqlR% = 0 TO bqlRows% - 1
+                        FOR bqlC% = 0 TO bqlCols% - 1
+                            bqlDX1% = cx1% + bqlC% * bqlPW%
+                            bqlDY1% = cy1% + bqlR% * bqlPH%
+                            bqlDX2% = bqlDX1% + bqlPW% - 1
+                            bqlDY2% = bqlDY1% + bqlPH% - 1
+                            ' Clip to content area
+                            bqlSX1% = 0 : bqlSY1% = 0
+                            bqlSX2% = bqlPW% - 1 : bqlSY2% = bqlPH% - 1
+                            IF bqlDX1% < cx1% THEN bqlSX1% = bqlSX1% + (cx1% - bqlDX1%) : bqlDX1% = cx1%
+                            IF bqlDY1% < cy1% THEN bqlSY1% = bqlSY1% + (cy1% - bqlDY1%) : bqlDY1% = cy1%
+                            IF bqlDX2% > cx2% THEN bqlSX2% = bqlSX2% - (bqlDX2% - cx2%) : bqlDX2% = cx2%
+                            IF bqlDY2% > cy2% THEN bqlSY2% = bqlSY2% - (bqlDY2% - cy2%) : bqlDY2% = cy2%
+                            IF bqlDX2% >= bqlDX1% AND bqlDY2% >= bqlDY1% THEN
+                                _PUTIMAGE (bqlDX1%, bqlDY1%)-(bqlDX2%, bqlDY2%), pvSrcImg&, destHandle&, (bqlSX1%, bqlSY1%)-(bqlSX2%, bqlSY2%)
+                            END IF
+                        NEXT bqlC%
+                    NEXT bqlR%
+                END IF
+            ELSEIF PREVIEW.binQuickLookMode% = DRAWER_MODE_BRUSH THEN
+                ' Brush: scale down to fit, but never scale up (show at native size if smaller)
+                DIM bqlBW AS SINGLE : bqlBW! = pvSrcW&
+                DIM bqlBH AS SINGLE : bqlBH! = pvSrcH&
+                DIM bqlScale AS SINGLE
+                DIM bqlFitW AS SINGLE : bqlFitW! = contentW% / bqlBW!
+                DIM bqlFitH AS SINGLE : bqlFitH! = contentH% / bqlBH!
+                IF bqlFitW! < bqlFitH! THEN bqlScale! = bqlFitW! ELSE bqlScale! = bqlFitH!
+                IF bqlScale! > 1.0 THEN bqlScale! = 1.0
+                DIM bqlDW AS INTEGER : bqlDW% = INT(bqlBW! * bqlScale!)
+                DIM bqlDH AS INTEGER : bqlDH% = INT(bqlBH! * bqlScale!)
+                IF bqlDW% < 1 THEN bqlDW% = 1
+                IF bqlDH% < 1 THEN bqlDH% = 1
+                DIM bqlBX AS INTEGER : bqlBX% = cx1% + (contentW% - bqlDW%) \ 2
+                DIM bqlBY AS INTEGER : bqlBY% = cy1% + (contentH% - bqlDH%) \ 2
+                _PUTIMAGE (bqlBX%, bqlBY%)-(bqlBX% + bqlDW% - 1, bqlBY% + bqlDH% - 1), pvSrcImg&, destHandle&, (0, 0)-(pvSrcW& - 1, pvSrcH& - 1)
+            ELSE
+                ' Gradient or other: stretch to fit (existing behavior)
+                _PUTIMAGE (cx1%, cy1%)-(cx2%, cy2%), pvSrcImg&, destHandle&, (srcX1!, srcY1!)-(srcX2!, srcY2!)
+            END IF
+        ELSE
+            _PUTIMAGE (cx1%, cy1%)-(cx2%, cy2%), pvSrcImg&, destHandle&, (srcX1!, srcY1!)-(srcX2!, srcY2!)
+        END IF
 
         ' --- Center tracking crosshair in follow mode ---
-        IF PREVIEW.followPointer% THEN
+        IF PREVIEW.followPointer% AND PREVIEW.mode% = PREVIEW_MODE_FOLLOW AND NOT PREVIEW.binQuickLookActive% THEN
             DIM cdx AS INTEGER : cdx% = cx1% + contentW% \ 2
             DIM cdy AS INTEGER : cdy% = cy1% + contentH% \ 2
             DIM dotC AS _UNSIGNED LONG : dotC~& = THEME.PREVIEW_center_dot_color~&
@@ -417,6 +590,19 @@ SUB PREVIEW_render (destHandle AS LONG)
             ' Center dot
             PSET (cdx%, cdy%), dotC~&
         END IF
+    ELSEIF PREVIEW.mode% = PREVIEW_MODE_FLOAT THEN
+        ' No floating image loaded — show prompt text
+        DIM promptW AS INTEGER : promptW% = cx2% - cx1% + 1
+        DIM promptH AS INTEGER : promptH% = cy2% - cy1% + 1
+        DIM promptTxt AS STRING : promptTxt$ = "LOAD IMAGE..."
+        DIM promptTxtW AS INTEGER : promptTxtW% = _PRINTWIDTH(promptTxt$)
+        DIM promptFH AS INTEGER : promptFH% = _FONTHEIGHT
+        DIM promptPX AS INTEGER : promptPX% = cx1% + (promptW% - promptTxtW%) \ 2
+        DIM promptPY AS INTEGER : promptPY% = cy1% + (promptH% - promptFH%) \ 2
+        IF promptPX% < cx1% THEN promptPX% = cx1%
+        IF promptPY% < cy1% THEN promptPY% = cy1%
+        COLOR THEME.PREVIEW_title_fg~&
+        _PRINTSTRING (promptPX%, promptPY%), promptTxt$
     END IF
 
     ' --- Resize handle dots (bottom-right corner indicator) ---
@@ -429,7 +615,126 @@ SUB PREVIEW_render (destHandle AS LONG)
     PSET (hx%,     hy% - 6), THEME.PREVIEW_resize_handle_fg~&
     PSET (hx% - 3, hy% - 3), THEME.PREVIEW_resize_handle_fg~&
 
+    ' --- Floating image tooltip hover tracking (drawing deferred to PREVIEW_render_tooltip) ---
+    IF PREVIEW.mode% = PREVIEW_MODE_FLOAT AND PREVIEW.floatImage& < -1 THEN
+        DIM ttInContent AS INTEGER
+        ttInContent% = (MOUSE.RAW_X% >= cx1% AND MOUSE.RAW_X% <= cx2% AND _
+                        MOUSE.RAW_Y% >= cy1% AND MOUSE.RAW_Y% <= cy2%)
+        IF ttInContent% AND NOT MOUSE.B1% AND NOT MOUSE.B2% AND NOT MOUSE.B3% THEN
+            ' Track hover timing using PREVIEW_OBJ fields
+            IF MOUSE.RAW_X% <> PREVIEW.floatTooltipLastMX% OR _
+               MOUSE.RAW_Y% <> PREVIEW.floatTooltipLastMY% THEN
+                ' Mouse moved — reset hover timer
+                PREVIEW.floatTooltipHoverStart# = TIMER
+                PREVIEW.floatTooltipActive% = FALSE
+                PREVIEW.floatTooltipLastMX% = MOUSE.RAW_X%
+                PREVIEW.floatTooltipLastMY% = MOUSE.RAW_Y%
+            ELSE
+                ' Mouse stationary — check delay
+                DIM ttElapsed AS DOUBLE
+                ttElapsed# = TIMER - PREVIEW.floatTooltipHoverStart#
+                IF ttElapsed# < 0 THEN ttElapsed# = ttElapsed# + 86400 ' midnight wrap
+                DIM ttDelayMs AS INTEGER : ttDelayMs% = CFG.TOOLTIP_HOVER_DELAY_MS%
+                IF ttDelayMs% < 100 THEN ttDelayMs% = 500
+                IF ttElapsed# * 1000 >= ttDelayMs% THEN
+                    PREVIEW.floatTooltipActive% = TRUE
+                    FRAME_IDLE% = FALSE
+                END IF
+            END IF
+        ELSE
+            ' Mouse left content area or button down — reset tooltip
+            PREVIEW.floatTooltipActive% = FALSE
+            PREVIEW.floatTooltipHoverStart# = TIMER
+        END IF
+    END IF
+
     _DEST oldDest&
+END SUB
+
+' ---------------------------------------------------------------------------
+' PREVIEW_render_tooltip - Draw the floating image info tooltip.
+' Called AFTER the GUI composite so the tooltip renders on top of all UI.
+' ---------------------------------------------------------------------------
+SUB PREVIEW_render_tooltip (destHandle AS LONG)
+    IF NOT PREVIEW.visible% OR PREVIEW.autoHidden% THEN EXIT SUB
+    IF PREVIEW.mode% <> PREVIEW_MODE_FLOAT THEN EXIT SUB
+    IF PREVIEW.floatImage& >= -1 THEN EXIT SUB
+    IF NOT PREVIEW.floatTooltipActive% THEN EXIT SUB
+
+    DIM oldDest2 AS LONG : oldDest2& = _DEST
+    _DEST destHandle&
+
+    ' Build 3-line tooltip
+    DIM ttFile AS STRING
+    DIM ttDir AS STRING
+    DIM ttDims AS STRING
+    DIM ttSlash AS INTEGER
+    ttSlash% = _INSTRREV(PREVIEW.floatImagePath$, "/")
+    IF ttSlash% = 0 THEN ttSlash% = _INSTRREV(PREVIEW.floatImagePath$, "\")
+    IF ttSlash% > 0 THEN
+        ttFile$ = MID$(PREVIEW.floatImagePath$, ttSlash% + 1)
+        ttDir$ = "in " + LEFT$(PREVIEW.floatImagePath$, ttSlash% - 1)
+    ELSE
+        ttFile$ = PREVIEW.floatImagePath$
+        ttDir$ = ""
+    END IF
+    ttDims$ = _TRIM$(STR$(PREVIEW.floatImageW%)) + " x " + _TRIM$(STR$(PREVIEW.floatImageH%)) + " @ " + _TRIM$(STR$(PREVIEW.floatImageDepth%)) + " bit"
+
+    ' Measure text
+    DIM ttFontH AS INTEGER : ttFontH% = _FONTHEIGHT
+    DIM ttPad AS INTEGER : ttPad% = THEME.TOOLTIP_PADDING%
+    IF ttPad% < 2 THEN ttPad% = 3
+    DIM ttBW AS INTEGER : ttBW% = THEME.TOOLTIP_BORDER_WIDTH%
+    IF ttBW% < 1 THEN ttBW% = 1
+    DIM ttW1 AS INTEGER : ttW1% = _PRINTWIDTH(ttFile$)
+    DIM ttW2 AS INTEGER : ttW2% = _PRINTWIDTH(ttDir$)
+    DIM ttW3 AS INTEGER : ttW3% = _PRINTWIDTH(ttDims$)
+    DIM ttMaxW AS INTEGER
+    ttMaxW% = ttW1%
+    IF ttW2% > ttMaxW% THEN ttMaxW% = ttW2%
+    IF ttW3% > ttMaxW% THEN ttMaxW% = ttW3%
+    DIM ttNumLines AS INTEGER : ttNumLines% = 3
+    IF LEN(ttDir$) = 0 THEN ttNumLines% = 2
+    DIM ttTW AS INTEGER : ttTW% = ttMaxW% + ttPad% * 2 + ttBW% * 2
+    DIM ttTH AS INTEGER : ttTH% = ttFontH% * ttNumLines% + (ttNumLines% - 1) + ttPad% * 2 + ttBW% * 2
+
+    ' Position: near cursor, clamp to screen
+    DIM ttX AS INTEGER : ttX% = MOUSE.RAW_X% + 8
+    DIM ttY AS INTEGER : ttY% = MOUSE.RAW_Y% + 16
+    IF ttX% + ttTW% > SCRN.w& - 2 THEN ttX% = MOUSE.RAW_X% - ttTW% - 4
+    IF ttY% + ttTH% > SCRN.h& - 2 THEN ttY% = MOUSE.RAW_Y% - ttTH% - 4
+    IF ttX% < 2 THEN ttX% = 2
+    IF ttY% < 2 THEN ttY% = 2
+
+    ' Draw tooltip background and border
+    DIM ttBg AS _UNSIGNED LONG : ttBg~& = THEME.TOOLTIP_BG_COLOR~&
+    DIM ttBrd AS _UNSIGNED LONG : ttBrd~& = THEME.TOOLTIP_BORDER_COLOR~&
+    DIM ttBold AS _UNSIGNED LONG : ttBold~& = THEME.TOOLTIP_BOLD_FG_COLOR~&
+    DIM ttFg AS _UNSIGNED LONG : ttFg~& = THEME.TOOLTIP_FG_COLOR~&
+    IF ttBg~& = 0 THEN ttBg~& = _RGBA32(40, 40, 50, 240)
+    IF ttBrd~& = 0 THEN ttBrd~& = _RGBA32(100, 100, 120, 255)
+    IF ttBold~& = 0 THEN ttBold~& = _RGBA32(255, 255, 100, 255)
+    IF ttFg~& = 0 THEN ttFg~& = _RGBA32(200, 200, 200, 255)
+
+    LINE (ttX%, ttY%)-(ttX% + ttTW% - 1, ttY% + ttTH% - 1), ttBg~&, BF
+    LINE (ttX%, ttY%)-(ttX% + ttTW% - 1, ttY% + ttTH% - 1), ttBrd~&, B
+
+    ' Draw text
+    _PRINTMODE _KEEPBACKGROUND
+    DIM ttTX AS INTEGER : ttTX% = ttX% + ttBW% + ttPad%
+    DIM ttTY AS INTEGER : ttTY% = ttY% + ttBW% + ttPad%
+    COLOR ttBold~&
+    _PRINTSTRING (ttTX%, ttTY%), ttFile$
+    ttTY% = ttTY% + ttFontH% + 1
+    IF LEN(ttDir$) > 0 THEN
+        COLOR ttFg~&
+        _PRINTSTRING (ttTX%, ttTY%), ttDir$
+        ttTY% = ttTY% + ttFontH% + 1
+    END IF
+    COLOR ttFg~&
+    _PRINTSTRING (ttTX%, ttTY%), ttDims$
+
+    _DEST oldDest2&
 END SUB
 
 ' ---------------------------------------------------------------------------
@@ -518,11 +823,20 @@ SUB PREVIEW_mouse_input ()
                 EXIT SUB
             END IF
 
-            ' Follow-pointer checkbox?
+            ' Follow-pointer / Color-pick checkbox?
             DIM cbX AS INTEGER : cbX% = PREVIEW.x% + bw% + 3 + 52
             DIM cbY AS INTEGER : cbY% = PREVIEW.y% + bw% + (titleH% - bw% - THEME.PREVIEW_checkbox_size%) \ 2
             DIM cbSz AS INTEGER : cbSz% = THEME.PREVIEW_checkbox_size%
             IF mx% >= cbX% AND mx% < cbX% + cbSz% + 14 AND my% >= cbY% AND my% < cbY% + cbSz% + 2 THEN
+                IF PREVIEW.mode% = PREVIEW_MODE_FLOAT THEN
+                    ' Toggle color picking in floating image mode
+                    PREVIEW.colorPickEnabled% = NOT PREVIEW.colorPickEnabled%
+                    CFG.PREVIEW_COLOR_PICK% = PREVIEW.colorPickEnabled%
+                    CONFIG_save
+                    GUI_NEEDS_REDRAW% = TRUE
+                    FRAME_IDLE% = FALSE
+                    EXIT SUB
+                END IF
                 PREVIEW.followPointer% = NOT PREVIEW.followPointer%
                 CFG.PREVIEW_FOLLOW% = PREVIEW.followPointer%
                 ' When turning off follow-pointer, fit entire canvas in preview
@@ -578,6 +892,17 @@ SUB PREVIEW_mouse_input ()
                 END IF
             END IF
 
+            ' Color picking from preview content area (Alt + click)
+            ' Alt is explicit user intent — works in both Follow and Float modes
+            IF MODIFIERS.alt% AND NOT PREVIEW.minimized% AND PREVIEW.colorPickEnabled% THEN
+                DIM cpCy1 AS INTEGER : cpCy1% = PREVIEW.y% + titleH%
+                IF my% >= cpCy1% THEN
+                    MOUSE.UI_CHROME_CLICKED% = TRUE
+                    PREVIEW_pick_color_at mx%, my%, 1 ' B1 = foreground
+                    EXIT SUB
+                END IF
+            END IF
+
             ' Content area click — double-click to fit, or pan (only when not in follow mode)
             IF NOT PREVIEW.minimized% AND NOT PREVIEW.followPointer% THEN
                 DIM ccy1 AS INTEGER : ccy1% = PREVIEW.y% + titleH%
@@ -586,23 +911,32 @@ SUB PREVIEW_mouse_input ()
                     STATIC pvB1ClickTime AS DOUBLE
                     DIM pvB1Now AS DOUBLE : pvB1Now# = TIMER
                     IF pvB1Now# - pvB1ClickTime# < 0.3 THEN
-                        ' Fit entire canvas in preview and center it
+                        ' Fit entire canvas/image in preview and center it
                         DIM fitBw AS INTEGER : fitBw% = THEME.PREVIEW_border_width%
                         DIM fitTH AS INTEGER : fitTH% = THEME.PREVIEW_title_height%
                         DIM fitPad AS INTEGER : fitPad% = THEME.PREVIEW_padding%
                         DIM fitCW AS INTEGER : fitCW% = PREVIEW.w% - fitBw% * 2 - fitPad% * 2
                         DIM fitCH AS INTEGER : fitCH% = PREVIEW.h% - fitTH% - fitBw% - fitPad% * 2
+                        ' Use floating image dimensions if in float mode
+                        DIM fitImgW AS LONG, fitImgH AS LONG
+                        IF PREVIEW.mode% = PREVIEW_MODE_FLOAT AND PREVIEW.floatImage& < -1 THEN
+                            fitImgW& = PREVIEW.floatImageW%
+                            fitImgH& = PREVIEW.floatImageH%
+                        ELSE
+                            fitImgW& = SCRN.canvasW&
+                            fitImgH& = SCRN.canvasH&
+                        END IF
                         IF fitCW% > 0 AND fitCH% > 0 THEN
-                            DIM fitW AS SINGLE : fitW! = fitCW% / SCRN.canvasW&
-                            DIM fitH AS SINGLE : fitH! = fitCH% / SCRN.canvasH&
+                            DIM fitW AS SINGLE : fitW! = fitCW% / fitImgW&
+                            DIM fitH AS SINGLE : fitH! = fitCH% / fitImgH&
                             IF fitW! < fitH! THEN PREVIEW.zoom! = fitW! ELSE PREVIEW.zoom! = fitH!
                             IF PREVIEW.zoom! < PREVIEW.zoomMin! THEN PREVIEW.zoom! = PREVIEW.zoomMin!
                             IF PREVIEW.zoom! > PREVIEW.zoomMax! THEN PREVIEW.zoom! = PREVIEW.zoomMax!
-                            ' Center: pan so canvas center maps to viewport center
+                            ' Center: pan so image center maps to viewport center
                             DIM vpCanvasW AS SINGLE : vpCanvasW! = fitCW% / PREVIEW.zoom!
                             DIM vpCanvasH AS SINGLE : vpCanvasH! = fitCH% / PREVIEW.zoom!
-                            PREVIEW.panX! = (SCRN.canvasW& - vpCanvasW!) / 2.0
-                            PREVIEW.panY! = (SCRN.canvasH& - vpCanvasH!) / 2.0
+                            PREVIEW.panX! = (fitImgW& - vpCanvasW!) / 2.0
+                            PREVIEW.panY! = (fitImgH& - vpCanvasH!) / 2.0
                         ELSE
                             PREVIEW.panX! = 0
                             PREVIEW.panY! = 0
@@ -622,6 +956,19 @@ SUB PREVIEW_mouse_input ()
                     PREVIEW.panOrigX!   = PREVIEW.panX!
                     PREVIEW.panOrigY!   = PREVIEW.panY!
                     EXIT SUB
+                END IF
+            END IF
+        END IF
+    END IF
+
+    ' --- B2 color picking (Alt + right-click = background color) ---
+    IF MOUSE.B2% AND NOT MOUSE.OLD_B2% THEN
+        IF MODIFIERS.alt% AND NOT PREVIEW.minimized% AND PREVIEW.colorPickEnabled% THEN
+            IF PREVIEW_hit_window%(mx%, my%) THEN
+                DIM cpB2Y1 AS INTEGER : cpB2Y1% = PREVIEW.y% + titleH%
+                IF my% >= cpB2Y1% THEN
+                    MOUSE.UI_CHROME_CLICKED% = TRUE
+                    PREVIEW_pick_color_at mx%, my%, 2 ' B2 = background
                 END IF
             END IF
         END IF
@@ -791,4 +1138,590 @@ SUB PREVIEW_mouse_scroll (delta AS INTEGER)
     CONFIG_save
     GUI_NEEDS_REDRAW% = TRUE
     FRAME_IDLE% = FALSE
+END SUB
+
+' ---------------------------------------------------------------------------
+' PREVIEW_set_follow_mode - Switch preview to Follow (magnifier) mode.
+' ---------------------------------------------------------------------------
+SUB PREVIEW_set_follow_mode ()
+    PREVIEW.mode% = PREVIEW_MODE_FOLLOW
+    PREVIEW.followPointer% = TRUE
+    CFG.PREVIEW_FOLLOW% = TRUE
+    ' Reset pan to canvas center
+    PREVIEW.panX! = 0
+    PREVIEW.panY! = 0
+    CFG.PREVIEW_PAN_X! = 0
+    CFG.PREVIEW_PAN_Y! = 0
+    GUI_NEEDS_REDRAW% = TRUE
+    FRAME_IDLE% = FALSE
+END SUB
+
+' ---------------------------------------------------------------------------
+' PREVIEW_set_floating_mode - Switch preview to Floating Image mode.
+' ---------------------------------------------------------------------------
+SUB PREVIEW_set_floating_mode ()
+    PREVIEW.mode% = PREVIEW_MODE_FLOAT
+    PREVIEW.followPointer% = FALSE
+    CFG.PREVIEW_FOLLOW% = FALSE
+    ' If a floating image is already loaded, auto-fit it
+    IF PREVIEW.floatImage& < -1 THEN
+        PREVIEW.panX! = 0
+        PREVIEW.panY! = 0
+        DIM fmBw AS INTEGER : fmBw% = THEME.PREVIEW_border_width%
+        DIM fmTH AS INTEGER : fmTH% = THEME.PREVIEW_title_height%
+        DIM fmPad AS INTEGER : fmPad% = THEME.PREVIEW_padding%
+        DIM fmCW AS INTEGER : fmCW% = PREVIEW.w% - fmBw% * 2 - fmPad% * 2
+        DIM fmCH AS INTEGER : fmCH% = PREVIEW.h% - fmTH% - fmBw% - fmPad% * 2
+        IF fmCW% > 0 AND fmCH% > 0 THEN
+            DIM fmFitW AS SINGLE : fmFitW! = fmCW% / PREVIEW.floatImageW%
+            DIM fmFitH AS SINGLE : fmFitH! = fmCH% / PREVIEW.floatImageH%
+            IF fmFitW! < fmFitH! THEN PREVIEW.zoom! = fmFitW! ELSE PREVIEW.zoom! = fmFitH!
+            IF PREVIEW.zoom! < PREVIEW.zoomMin! THEN PREVIEW.zoom! = PREVIEW.zoomMin!
+            IF PREVIEW.zoom! > PREVIEW.zoomMax! THEN PREVIEW.zoom! = PREVIEW.zoomMax!
+        END IF
+        CFG.PREVIEW_PAN_X! = PREVIEW.panX!
+        CFG.PREVIEW_PAN_Y! = PREVIEW.panY!
+        CFG.PREVIEW_ZOOM! = PREVIEW.zoom!
+    END IF
+    GUI_NEEDS_REDRAW% = TRUE
+    FRAME_IDLE% = FALSE
+END SUB
+
+' ---------------------------------------------------------------------------
+' PREVIEW_load_floating_image - Load a reference image into floating mode.
+' If filePath$ is empty, opens a file dialog.
+' ---------------------------------------------------------------------------
+SUB PREVIEW_load_floating_image (filePath AS STRING)
+    DIM filename AS STRING
+
+    IF LEN(filePath$) > 0 THEN
+        filename$ = filePath$
+    ELSE
+        ' Build default path for dialog
+        DIM default_path AS STRING
+        IF CFG.PREVIEW_FLOAT_LAST_DIR$ <> "" THEN
+            default_path$ = CFG.PREVIEW_FLOAT_LAST_DIR$ + "/"
+        ELSEIF CFG.LAST_DIR_IMPORT$ <> "" THEN
+            default_path$ = CFG.LAST_DIR_IMPORT$ + "/"
+        ELSEIF CFG.DEFAULT_OPEN_DIR$ <> "" THEN
+            default_path$ = CFG.DEFAULT_OPEN_DIR$ + "/"
+        ELSE
+            default_path$ = ""
+        END IF
+
+        POINTER_hide_for_dialog
+        filename$ = _OPENFILEDIALOG$("Load Preview Image", default_path$, "*.png|*.bmp|*.jpg|*.gif", "Image files")
+        POINTER_show_after_dialog
+        MOUSE_cleanup_after_dialog TRUE
+
+        IF filename$ = "" THEN EXIT SUB
+    END IF
+
+    ' Verify file exists
+    IF NOT _FILEEXISTS(filename$) THEN
+        POINTER_hide_for_dialog
+        _MESSAGEBOX "Preview Image", "File not found: " + filename$, "error"
+        POINTER_show_after_dialog
+        MOUSE_cleanup_after_dialog TRUE
+        EXIT SUB
+    END IF
+
+    ' Load the image
+    DIM loaded_img AS LONG
+    loaded_img& = _LOADIMAGE(filename$, 32)
+    IF loaded_img& >= -1 THEN
+        POINTER_hide_for_dialog
+        _MESSAGEBOX "Preview Image", "Could not load image: " + filename$, "error"
+        POINTER_show_after_dialog
+        MOUSE_cleanup_after_dialog TRUE
+        EXIT SUB
+    END IF
+
+    ' Free previous floating image
+    PREVIEW_free_floating_image
+
+    ' Store new floating image
+    PREVIEW.floatImage& = loaded_img&
+    PREVIEW.floatImageW% = _WIDTH(loaded_img&)
+    PREVIEW.floatImageH% = _HEIGHT(loaded_img&)
+    PREVIEW.floatImagePath$ = filename$
+    PREVIEW.floatImageDepth% = 32
+
+    ' Switch to floating image mode
+    PREVIEW.mode% = PREVIEW_MODE_FLOAT
+    PREVIEW.followPointer% = FALSE
+    CFG.PREVIEW_MODE% = PREVIEW_MODE_FLOAT
+    CFG.PREVIEW_FOLLOW% = FALSE
+    CFG.PREVIEW_FLOAT_IMAGE_PATH$ = filename$
+
+    ' Update directory tracking
+    CFG.PREVIEW_FLOAT_LAST_DIR$ = CONFIG_extract_dir$(filename$)
+
+    ' Add to recent preview images
+    RECENT_PREVIEW_add_file filename$
+
+    ' Auto-fit zoom to image
+    PREVIEW.panX! = 0
+    PREVIEW.panY! = 0
+    DIM liBw AS INTEGER : liBw% = THEME.PREVIEW_border_width%
+    DIM liTH AS INTEGER : liTH% = THEME.PREVIEW_title_height%
+    DIM liPad AS INTEGER : liPad% = THEME.PREVIEW_padding%
+    DIM liCW AS INTEGER : liCW% = PREVIEW.w% - liBw% * 2 - liPad% * 2
+    DIM liCH AS INTEGER : liCH% = PREVIEW.h% - liTH% - liBw% - liPad% * 2
+    IF liCW% > 0 AND liCH% > 0 THEN
+        DIM liFitW AS SINGLE : liFitW! = liCW% / PREVIEW.floatImageW%
+        DIM liFitH AS SINGLE : liFitH! = liCH% / PREVIEW.floatImageH%
+        IF liFitW! < liFitH! THEN PREVIEW.zoom! = liFitW! ELSE PREVIEW.zoom! = liFitH!
+        IF PREVIEW.zoom! < PREVIEW.zoomMin! THEN PREVIEW.zoom! = PREVIEW.zoomMin!
+        IF PREVIEW.zoom! > PREVIEW.zoomMax! THEN PREVIEW.zoom! = PREVIEW.zoomMax!
+    END IF
+    CFG.PREVIEW_PAN_X! = PREVIEW.panX!
+    CFG.PREVIEW_PAN_Y! = PREVIEW.panY!
+    CFG.PREVIEW_ZOOM! = PREVIEW.zoom!
+
+    ' Make preview visible if hidden
+    IF NOT PREVIEW.visible% THEN
+        PREVIEW_toggle
+    END IF
+
+    CONFIG_save
+    GUI_NEEDS_REDRAW% = TRUE
+    FRAME_IDLE% = FALSE
+
+    _LOGINFO "PREVIEW: loaded float image " + filename$ + " (" + _TRIM$(STR$(PREVIEW.floatImageW%)) + "x" + _TRIM$(STR$(PREVIEW.floatImageH%)) + ")"
+END SUB
+
+' ---------------------------------------------------------------------------
+' PREVIEW_free_floating_image - Free the floating image handle and clear state.
+' ---------------------------------------------------------------------------
+SUB PREVIEW_free_floating_image ()
+    IF PREVIEW.floatImage& < -1 THEN
+        _FREEIMAGE PREVIEW.floatImage&
+    END IF
+    PREVIEW.floatImage& = 0
+    PREVIEW.floatImageW% = 0
+    PREVIEW.floatImageH% = 0
+    PREVIEW.floatImagePath$ = ""
+    PREVIEW.floatImageDepth% = 0
+END SUB
+
+' ---------------------------------------------------------------------------
+' PREVIEW_pick_color_at - Sample a color from the preview content area.
+' Reverse-maps screen coords to source image coords and reads the pixel.
+' button: 1 = set foreground, 2 = set background
+' ---------------------------------------------------------------------------
+SUB PREVIEW_pick_color_at (rawX AS INTEGER, rawY AS INTEGER, button AS INTEGER)
+    DIM pcBw AS INTEGER : pcBw% = THEME.PREVIEW_border_width%
+    DIM pcTH AS INTEGER : pcTH% = THEME.PREVIEW_title_height%
+    DIM pcPad AS INTEGER : pcPad% = THEME.PREVIEW_padding%
+
+    ' Content area bounds
+    DIM pcCx1 AS INTEGER : pcCx1% = PREVIEW.x% + pcBw% + pcPad%
+    DIM pcCy1 AS INTEGER : pcCy1% = PREVIEW.y% + pcTH% + pcPad%
+    DIM pcCx2 AS INTEGER : pcCx2% = PREVIEW.x% + PREVIEW.w% - pcBw% - pcPad% - 1
+    DIM pcCy2 AS INTEGER : pcCy2% = PREVIEW.y% + PREVIEW.h% - pcBw% - pcPad% - 1
+    IF pcCx2% <= pcCx1% OR pcCy2% <= pcCy1% THEN EXIT SUB
+
+    ' Mouse must be within content area
+    IF rawX% < pcCx1% OR rawX% > pcCx2% OR rawY% < pcCy1% OR rawY% > pcCy2% THEN EXIT SUB
+
+    DIM pcContentW AS INTEGER : pcContentW% = pcCx2% - pcCx1% + 1
+    DIM pcContentH AS INTEGER : pcContentH% = pcCy2% - pcCy1% + 1
+
+    ' Determine source image
+    DIM pcSrcImg AS LONG
+    DIM pcSrcW AS LONG
+    DIM pcSrcH AS LONG
+    IF PREVIEW.mode% = PREVIEW_MODE_FLOAT THEN
+        IF PREVIEW.floatImage& >= -1 THEN EXIT SUB
+        pcSrcImg& = PREVIEW.floatImage&
+        pcSrcW& = PREVIEW.floatImageW%
+        pcSrcH& = PREVIEW.floatImageH%
+    ELSE
+        IF COMPOSITE_BUFFER& >= -1 THEN EXIT SUB
+        pcSrcImg& = COMPOSITE_BUFFER&
+        pcSrcW& = SCRN.canvasW&
+        pcSrcH& = SCRN.canvasH&
+    END IF
+
+    ' Reverse pan/zoom transform: screen pixel → source image pixel
+    DIM pcRelX AS SINGLE : pcRelX! = rawX% - pcCx1%
+    DIM pcRelY AS SINGLE : pcRelY! = rawY% - pcCy1%
+
+    DIM pcImgX AS INTEGER
+    DIM pcImgY AS INTEGER
+
+    IF PREVIEW.followPointer% AND PREVIEW.mode% = PREVIEW_MODE_FOLLOW THEN
+        ' Follow mode: viewport centered on mouse canvas position
+        DIM pcSrcW2 AS INTEGER : pcSrcW2% = INT(pcContentW% / PREVIEW.zoom!)
+        DIM pcSrcH2 AS INTEGER : pcSrcH2% = INT(pcContentH% / PREVIEW.zoom!)
+        IF pcSrcW2% < 1 THEN pcSrcW2% = 1
+        IF pcSrcH2% < 1 THEN pcSrcH2% = 1
+        DIM pcWorldCX AS INTEGER : pcWorldCX% = MOUSE.UNSNAPPED_X%
+        DIM pcWorldCY AS INTEGER : pcWorldCY% = MOUSE.UNSNAPPED_Y%
+        DIM pcSrcX1 AS SINGLE : pcSrcX1! = pcWorldCX% - (pcSrcW2% \ 2)
+        DIM pcSrcY1 AS SINGLE : pcSrcY1! = pcWorldCY% - (pcSrcH2% \ 2)
+        pcImgX% = INT(pcSrcX1! + pcRelX! / PREVIEW.zoom!)
+        pcImgY% = INT(pcSrcY1! + pcRelY! / PREVIEW.zoom!)
+    ELSE
+        ' Pan/zoom mode
+        pcImgX% = INT(PREVIEW.panX! + pcRelX! / PREVIEW.zoom!)
+        pcImgY% = INT(PREVIEW.panY! + pcRelY! / PREVIEW.zoom!)
+    END IF
+
+    ' Bounds check
+    IF pcImgX% < 0 OR pcImgX% >= pcSrcW& OR pcImgY% < 0 OR pcImgY% >= pcSrcH& THEN EXIT SUB
+
+    ' Sample pixel color from source image
+    DIM pcOldSrc AS LONG : pcOldSrc& = _SOURCE
+    _SOURCE pcSrcImg&
+    DIM pcSampledColor AS _UNSIGNED LONG
+    pcSampledColor~& = POINT(pcImgX%, pcImgY%)
+    _SOURCE pcOldSrc&
+
+    ' Set foreground or background color
+    IF button% = 1 THEN
+        PAINT_COLOR~& = pcSampledColor~&
+        ' Match palette index if possible
+        DIM pcI AS INTEGER
+        FOR pcI% = 0 TO 15
+            IF PAL_color(pcI%) = pcSampledColor~& THEN
+                PAL_FG_IDX% = pcI%
+                EXIT FOR
+            END IF
+        NEXT pcI%
+    ELSEIF button% = 2 THEN
+        PAINT_BG_COLOR~& = pcSampledColor~&
+    END IF
+
+    GUI_NEEDS_REDRAW% = TRUE
+    FRAME_IDLE% = FALSE
+END SUB
+
+
+''
+' Render a loupe overlay when the picker is active and cursor is over the
+' preview window.  Samples from the preview's own source image (floating
+' image, bin quicklook, or COMPOSITE_BUFFER) — not from canvas layers.
+'
+' @param LONG dest - Screen destination image handle (SCRN.CANVAS&)
+' ---------------------------------------------------------------------------
+SUB PREVIEW_render_loupe (dest AS LONG)
+    IF dest& >= -1 THEN EXIT SUB
+    IF NOT PICKER.ACTIVE% THEN EXIT SUB
+    IF NOT PICKER_LOUPE.ACTIVE% THEN EXIT SUB
+    IF NOT PREVIEW.colorPickEnabled% THEN EXIT SUB
+    IF NOT PREVIEW.visible% OR PREVIEW.autoHidden% OR PREVIEW.minimized% THEN EXIT SUB
+    IF NOT PREVIEW_hit_window%(MOUSE.RAW_X%, MOUSE.RAW_Y%) THEN EXIT SUB
+    ' Suppress loupe when Alt is held with another key (e.g. Alt+X exit)
+    IF MODIFIERS.alt% AND (_KEYDOWN(88) OR _KEYDOWN(120) OR _KEYDOWN(111) OR _KEYDOWN(79)) THEN EXIT SUB
+
+    ' ---- Content area bounds (same math as PREVIEW_render / PREVIEW_pick_color_at) ----
+    DIM plBw AS INTEGER  : plBw%  = THEME.PREVIEW_border_width%
+    DIM plTH AS INTEGER  : plTH%  = THEME.PREVIEW_title_height%
+    DIM plPad AS INTEGER : plPad% = THEME.PREVIEW_padding%
+
+    DIM plCx1 AS INTEGER : plCx1% = PREVIEW.x% + plBw% + plPad%
+    DIM plCy1 AS INTEGER : plCy1% = PREVIEW.y% + plTH% + plPad%
+    DIM plCx2 AS INTEGER : plCx2% = PREVIEW.x% + PREVIEW.w% - plBw% - plPad% - 1
+    DIM plCy2 AS INTEGER : plCy2% = PREVIEW.y% + PREVIEW.h% - plBw% - plPad% - 1
+    IF plCx2% <= plCx1% OR plCy2% <= plCy1% THEN EXIT SUB
+
+    ' Must be inside content area
+    DIM mx AS INTEGER : mx% = MOUSE.RAW_X%
+    DIM my AS INTEGER : my% = MOUSE.RAW_Y%
+    IF mx% < plCx1% OR mx% > plCx2% OR my% < plCy1% OR my% > plCy2% THEN EXIT SUB
+
+    DIM plContentW AS INTEGER : plContentW% = plCx2% - plCx1% + 1
+    DIM plContentH AS INTEGER : plContentH% = plCy2% - plCy1% + 1
+
+    ' ---- Determine source image ----
+    DIM plSrcImg AS LONG
+    DIM plSrcW AS LONG
+    DIM plSrcH AS LONG
+
+    IF PREVIEW.binQuickLookActive% AND PREVIEW.binQuickLookImg& < -1 THEN
+        plSrcImg& = PREVIEW.binQuickLookImg&
+        plSrcW& = _WIDTH(PREVIEW.binQuickLookImg&)
+        plSrcH& = _HEIGHT(PREVIEW.binQuickLookImg&)
+    ELSEIF PREVIEW.mode% = PREVIEW_MODE_FLOAT THEN
+        IF PREVIEW.floatImage& >= -1 THEN EXIT SUB
+        plSrcImg& = PREVIEW.floatImage&
+        plSrcW& = PREVIEW.floatImageW%
+        plSrcH& = PREVIEW.floatImageH%
+    ELSE
+        IF COMPOSITE_BUFFER& >= -1 THEN EXIT SUB
+        plSrcImg& = COMPOSITE_BUFFER&
+        plSrcW& = SCRN.canvasW&
+        plSrcH& = SCRN.canvasH&
+    END IF
+
+    ' ---- Reverse pan/zoom transform: screen pixel -> source image pixel ----
+    DIM plRelX AS SINGLE : plRelX! = mx% - plCx1%
+    DIM plRelY AS SINGLE : plRelY! = my% - plCy1%
+
+    DIM plImgX AS INTEGER
+    DIM plImgY AS INTEGER
+
+    IF PREVIEW.binQuickLookActive% THEN
+        ' Quick look: image is fit-to-view (entire source fills content area)
+        IF PREVIEW.binQuickLookMode% = DRAWER_MODE_PATTERN THEN
+            ' Tiled at 1:1 - relative X wraps within tile
+            IF plSrcW& > 0 AND plSrcH& > 0 THEN
+                plImgX% = INT(plRelX!) MOD plSrcW&
+                plImgY% = INT(plRelY!) MOD plSrcH&
+                IF plImgX% < 0 THEN plImgX% = plImgX% + plSrcW&
+                IF plImgY% < 0 THEN plImgY% = plImgY% + plSrcH&
+            ELSE
+                EXIT SUB
+            END IF
+        ELSEIF PREVIEW.binQuickLookMode% = DRAWER_MODE_BRUSH THEN
+            ' Brush: scale-to-fit (never upscaled)
+            DIM plBrW AS SINGLE : plBrW! = plSrcW&
+            DIM plBrH AS SINGLE : plBrH! = plSrcH&
+            DIM plBrScale AS SINGLE
+            DIM plBrFW AS SINGLE : plBrFW! = plContentW% / plBrW!
+            DIM plBrFH AS SINGLE : plBrFH! = plContentH% / plBrH!
+            IF plBrFW! < plBrFH! THEN plBrScale! = plBrFW! ELSE plBrScale! = plBrFH!
+            IF plBrScale! > 1.0 THEN plBrScale! = 1.0
+            DIM plBrDW AS INTEGER : plBrDW% = INT(plBrW! * plBrScale!)
+            DIM plBrDH AS INTEGER : plBrDH% = INT(plBrH! * plBrScale!)
+            IF plBrDW% < 1 THEN plBrDW% = 1
+            IF plBrDH% < 1 THEN plBrDH% = 1
+            DIM plBrOX AS INTEGER : plBrOX% = (plContentW% - plBrDW%) \ 2
+            DIM plBrOY AS INTEGER : plBrOY% = (plContentH% - plBrDH%) \ 2
+            DIM plBrRX AS SINGLE : plBrRX! = plRelX! - plBrOX%
+            DIM plBrRY AS SINGLE : plBrRY! = plRelY! - plBrOY%
+            IF plBrRX! < 0 OR plBrRX! >= plBrDW% OR plBrRY! < 0 OR plBrRY! >= plBrDH% THEN EXIT SUB
+            plImgX% = INT(plBrRX! / plBrScale!)
+            plImgY% = INT(plBrRY! / plBrScale!)
+        ELSE
+            ' Gradient or other: stretch to fit
+            IF plContentW% > 0 AND plContentH% > 0 THEN
+                plImgX% = INT(plRelX! * plSrcW& / plContentW%)
+                plImgY% = INT(plRelY! * plSrcH& / plContentH%)
+            ELSE
+                EXIT SUB
+            END IF
+        END IF
+    ELSEIF PREVIEW.followPointer% AND PREVIEW.mode% = PREVIEW_MODE_FOLLOW THEN
+        DIM plFSrcW AS INTEGER : plFSrcW% = INT(plContentW% / PREVIEW.zoom!)
+        DIM plFSrcH AS INTEGER : plFSrcH% = INT(plContentH% / PREVIEW.zoom!)
+        IF plFSrcW% < 1 THEN plFSrcW% = 1
+        IF plFSrcH% < 1 THEN plFSrcH% = 1
+        DIM plFCX AS INTEGER : plFCX% = MOUSE.UNSNAPPED_X%
+        DIM plFCY AS INTEGER : plFCY% = MOUSE.UNSNAPPED_Y%
+        plImgX% = INT((plFCX% - (plFSrcW% \ 2)) + plRelX! / PREVIEW.zoom!)
+        plImgY% = INT((plFCY% - (plFSrcH% \ 2)) + plRelY! / PREVIEW.zoom!)
+    ELSE
+        ' Pan/zoom mode
+        plImgX% = INT(PREVIEW.panX! + plRelX! / PREVIEW.zoom!)
+        plImgY% = INT(PREVIEW.panY! + plRelY! / PREVIEW.zoom!)
+    END IF
+
+    ' Bounds check
+    IF plImgX% < 0 OR plImgX% >= plSrcW& OR plImgY% < 0 OR plImgY% >= plSrcH& THEN EXIT SUB
+
+    ' ---- Loupe configuration ----
+    DIM plRectW AS INTEGER : plRectW% = 96
+    IF CFG.PICKER_LOUPE_RECT_WIDTH% > 0 THEN plRectW% = CFG.PICKER_LOUPE_RECT_WIDTH%
+    IF plRectW% < 24 THEN plRectW% = 24
+    DIM plRectH AS INTEGER : plRectH% = 96
+    IF CFG.PICKER_LOUPE_RECT_HEIGHT% > 0 THEN plRectH% = CFG.PICKER_LOUPE_RECT_HEIGHT%
+    IF plRectH% < 24 THEN plRectH% = 24
+    DIM plStrokeW AS INTEGER : plStrokeW% = 2
+    IF CFG.PICKER_LOUPE_RECT_STROKE_WIDTH% > 0 THEN plStrokeW% = CFG.PICKER_LOUPE_RECT_STROKE_WIDTH%
+    IF plStrokeW% < 1 THEN plStrokeW% = 1
+    DIM plZoom AS INTEGER : plZoom% = 8
+    IF CFG.PICKER_LOUPE_ZOOM_LEVEL% > 0 THEN plZoom% = CFG.PICKER_LOUPE_ZOOM_LEVEL%
+    IF plZoom% < 1 THEN plZoom% = 1
+
+    DIM plInnerW AS INTEGER : plInnerW% = plRectW% - (plStrokeW% * 2)
+    DIM plInnerH AS INTEGER : plInnerH% = plRectH% - (plStrokeW% * 2)
+    IF plInnerW% < plZoom% THEN plInnerW% = plZoom%
+    IF plInnerH% < plZoom% THEN plInnerH% = plZoom%
+
+    DIM plSampW AS INTEGER : plSampW% = plInnerW% \ plZoom%
+    DIM plSampH AS INTEGER : plSampH% = plInnerH% \ plZoom%
+    IF plSampW% < 1 THEN plSampW% = 1
+    IF plSampH% < 1 THEN plSampH% = 1
+    IF plSampW% > 1 AND plSampW% MOD 2 = 0 THEN plSampW% = plSampW% - 1
+    IF plSampH% > 1 AND plSampH% MOD 2 = 0 THEN plSampH% = plSampH% - 1
+
+    ' Region in source image to sample
+    DIM plRegX AS INTEGER : plRegX% = plImgX% - (plSampW% \ 2)
+    DIM plRegY AS INTEGER : plRegY% = plImgY% - (plSampH% \ 2)
+
+    ' ---- Sample center pixel color ----
+    DIM plOldSrc AS LONG : plOldSrc& = _SOURCE
+    _SOURCE plSrcImg&
+    DIM plSampleColor AS _UNSIGNED LONG
+    plSampleColor~& = POINT(plImgX%, plImgY%)
+    _SOURCE plOldSrc&
+
+    ' ---- Set loupe font (same as regular PICKER_LOUPE_render) ----
+    PICKER_LOUPE_ensure_font
+    DIM plOldFont AS LONG : plOldFont& = _FONT(dest&)
+    IF PICKER_LOUPE.FONT_HANDLE& > 0 THEN
+        _FONT PICKER_LOUPE.FONT_HANDLE&, dest&
+    END IF
+
+    ' ---- Position loupe (same layout as regular PICKER_LOUPE_render) ----
+    DIM plRX AS INTEGER
+    DIM plRY AS INTEGER
+    plRX% = mx% + PICKER_LOUPE_resolve_int%(CFG.PICKER_LOUPE_RECT_X_OFFSET%, THEME.PICKER_LOUPE_rect_x_offset%, 24)
+    plRY% = my% + PICKER_LOUPE_resolve_int%(CFG.PICKER_LOUPE_RECT_Y_OFFSET%, THEME.PICKER_LOUPE_rect_y_offset%, -24)
+
+    ' Text layout
+    DIM plFontH AS INTEGER
+    IF PICKER_LOUPE.FONT_HANDLE& > 0 THEN
+        plFontH% = _FONTHEIGHT(PICKER_LOUPE.FONT_HANDLE&)
+    ELSE
+        plFontH% = 8
+    END IF
+    IF plFontH% < 1 THEN plFontH% = 8
+    DIM plLineGap AS INTEGER : plLineGap% = 1
+
+    ' Build text lines
+    DIM plRL AS STRING : plRL$ = "R:" + ns$(_RED32(plSampleColor~&))
+    DIM plGL AS STRING : plGL$ = "G:" + ns$(_GREEN32(plSampleColor~&))
+    DIM plBL AS STRING : plBL$ = "B:" + ns$(_BLUE32(plSampleColor~&))
+    DIM plXL AS STRING : plXL$ = "X:" + ns$(plImgX%)
+    DIM plYL AS STRING : plYL$ = "Y:" + ns$(plImgY%)
+    DIM plHex AS STRING : plHex$ = "#" + RIGHT$("0" + HEX$(_RED32(plSampleColor~&)), 2) + RIGHT$("0" + HEX$(_GREEN32(plSampleColor~&)), 2) + RIGHT$("0" + HEX$(_BLUE32(plSampleColor~&)), 2)
+
+    ' Measure text widths
+    DIM plTxtMaxW AS INTEGER : plTxtMaxW% = _PRINTWIDTH(plRL$, dest&)
+    DIM plTmpW AS INTEGER
+    plTmpW% = _PRINTWIDTH(plGL$, dest&) : IF plTmpW% > plTxtMaxW% THEN plTxtMaxW% = plTmpW%
+    plTmpW% = _PRINTWIDTH(plBL$, dest&) : IF plTmpW% > plTxtMaxW% THEN plTxtMaxW% = plTmpW%
+    plTmpW% = _PRINTWIDTH(plXL$, dest&) : IF plTmpW% > plTxtMaxW% THEN plTxtMaxW% = plTmpW%
+    plTmpW% = _PRINTWIDTH(plYL$, dest&) : IF plTmpW% > plTxtMaxW% THEN plTxtMaxW% = plTmpW%
+    DIM plHexW AS INTEGER : plHexW% = _PRINTWIDTH(plHex$, dest&)
+
+    ' Compute text position using same theme/config offsets as regular loupe
+    DIM plTxtRelX AS INTEGER
+    plTxtRelX% = PICKER_LOUPE_resolve_int%(CFG.PICKER_LOUPE_RGBA_X%, THEME.PICKER_LOUPE_rgba_x%, 108)
+    DIM plTxtRelY AS INTEGER
+    plTxtRelY% = PICKER_LOUPE_resolve_int%(CFG.PICKER_LOUPE_RGBA_Y%, THEME.PICKER_LOUPE_rgba_y%, 6)
+
+    ' Build bounding box of all elements (same logic as PICKER_LOUPE_render)
+    DIM plMinRX AS INTEGER : plMinRX% = 0
+    DIM plMaxRX AS INTEGER : plMaxRX% = plRectW%
+    DIM plMinRY AS INTEGER : plMinRY% = 0
+    DIM plMaxRY AS INTEGER : plMaxRY% = plRectH%
+    IF plTxtRelX% < plMinRX% THEN plMinRX% = plTxtRelX%
+    IF plTxtRelY% < plMinRY% THEN plMinRY% = plTxtRelY%
+    IF plTxtRelX% + plTxtMaxW% > plMaxRX% THEN plMaxRX% = plTxtRelX% + plTxtMaxW%
+    IF plTxtRelY% + (plFontH% * 5) + (plLineGap% * 4) > plMaxRY% THEN plMaxRY% = plTxtRelY% + (plFontH% * 5) + (plLineGap% * 4)
+    DIM plHexRelX AS INTEGER : plHexRelX% = (plRectW% - plHexW%) \ 2
+    IF plHexRelX% < plMinRX% THEN plMinRX% = plHexRelX%
+    IF plRectH% + plLineGap% + plFontH% > plMaxRY% THEN plMaxRY% = plRectH% + plLineGap% + plFontH%
+    IF plHexRelX% + plHexW% > plMaxRX% THEN plMaxRX% = plHexRelX% + plHexW%
+
+    ' Clamp to screen edges (same as regular loupe)
+    IF plRX% + plMinRX% < 0 THEN plRX% = -plMinRX%
+    IF plRY% + plMinRY% < 0 THEN plRY% = -plMinRY%
+    IF plRX% + plMaxRX% > _WIDTH(dest&) - 1 THEN plRX% = (_WIDTH(dest&) - 1) - plMaxRX%
+    IF plRY% + plMaxRY% > _HEIGHT(dest&) - 1 THEN plRY% = (_HEIGHT(dest&) - 1) - plMaxRY%
+
+    ' ---- Draw loupe ----
+    DIM plOldDest AS LONG : plOldDest& = _DEST
+    _DEST dest&
+    _BLEND dest&
+
+    DIM plStrokeColor AS _UNSIGNED LONG : plStrokeColor~& = _RGB32(255, 255, 255)
+    DIM plBgColor AS _UNSIGNED LONG : plBgColor~& = _RGB32(0, 0, 0)
+    DIM plPickupColor AS _UNSIGNED LONG : plPickupColor~& = _RGB32(0, 255, 0)
+
+    ' Outer rect (stroke)
+    LINE (plRX%, plRY%)-(plRX% + plRectW% - 1, plRY% + plRectH% - 1), plStrokeColor~&, BF
+    ' Inner rect (background)
+    DIM plIX AS INTEGER : plIX% = plRX% + plStrokeW%
+    DIM plIY AS INTEGER : plIY% = plRY% + plStrokeW%
+    LINE (plIX%, plIY%)-(plIX% + plInnerW% - 1, plIY% + plInnerH% - 1), plBgColor~&, BF
+
+    ' Draw zoomed pixels from source image
+    DIM plDrawW AS INTEGER : plDrawW% = plSampW% * plZoom%
+    DIM plDrawH AS INTEGER : plDrawH% = plSampH% * plZoom%
+    DIM plPixOX AS INTEGER : plPixOX% = plIX% + ((plInnerW% - plDrawW%) \ 2)
+    DIM plPixOY AS INTEGER : plPixOY% = plIY% + ((plInnerH% - plDrawH%) \ 2)
+
+    DIM plChk1 AS _UNSIGNED LONG : plChk1~& = CFG.TRANSPARENCY_CHECK_COLOR1~&
+    DIM plChk2 AS _UNSIGNED LONG : plChk2~& = CFG.TRANSPARENCY_CHECK_COLOR2~&
+
+    plOldSrc& = _SOURCE
+    _SOURCE plSrcImg&
+    DIM plPX AS INTEGER, plPY AS INTEGER
+    DIM plSrcPX AS INTEGER, plSrcPY AS INTEGER
+    DIM plPxColor AS _UNSIGNED LONG
+    DIM plChkColor AS _UNSIGNED LONG
+    DIM plSampCtrX AS INTEGER : plSampCtrX% = plSampW% \ 2
+    DIM plSampCtrY AS INTEGER : plSampCtrY% = plSampH% \ 2
+    FOR plPY% = 0 TO plSampH% - 1
+        FOR plPX% = 0 TO plSampW% - 1
+            plSrcPX% = plRegX% + plPX%
+            plSrcPY% = plRegY% + plPY%
+            ' Checkerboard background
+            IF ((plPX% + plPY%) MOD 2) = 0 THEN
+                plChkColor~& = plChk1~&
+            ELSE
+                plChkColor~& = plChk2~&
+            END IF
+            LINE (plPixOX% + plPX% * plZoom%, plPixOY% + plPY% * plZoom%)-(plPixOX% + plPX% * plZoom% + plZoom% - 1, plPixOY% + plPY% * plZoom% + plZoom% - 1), plChkColor~&, BF
+            ' Sample pixel if in bounds
+            IF plSrcPX% >= 0 AND plSrcPX% < plSrcW& AND plSrcPY% >= 0 AND plSrcPY% < plSrcH& THEN
+                plPxColor~& = POINT(plSrcPX%, plSrcPY%)
+                IF _ALPHA32(plPxColor~&) > 0 THEN
+                    LINE (plPixOX% + plPX% * plZoom%, plPixOY% + plPY% * plZoom%)-(plPixOX% + plPX% * plZoom% + plZoom% - 1, plPixOY% + plPY% * plZoom% + plZoom% - 1), plPxColor~&, BF
+                END IF
+            END IF
+        NEXT plPX%
+    NEXT plPY%
+    _SOURCE plOldSrc&
+
+    ' Center marker (green dot)
+    DIM plMkX AS INTEGER : plMkX% = plPixOX% + (plSampCtrX% * plZoom%) + (plZoom% \ 2)
+    DIM plMkY AS INTEGER : plMkY% = plPixOY% + (plSampCtrY% * plZoom%) + (plZoom% \ 2)
+    DIM plMkR AS INTEGER : plMkR% = plZoom% \ 4
+    IF plMkR% < 1 THEN plMkR% = 1
+    LINE (plMkX% - plMkR%, plMkY% - plMkR%)-(plMkX% + plMkR%, plMkY% + plMkR%), plPickupColor~&, BF
+
+    ' ---- Draw text info ----
+    DIM plTxtX AS INTEGER : plTxtX% = plRX% + plTxtRelX%
+    DIM plL1Y AS INTEGER : plL1Y% = plRY% + plTxtRelY%
+    DIM plL2Y AS INTEGER : plL2Y% = plL1Y% + plFontH% + plLineGap%
+    DIM plL3Y AS INTEGER : plL3Y% = plL2Y% + plFontH% + plLineGap%
+    DIM plL4Y AS INTEGER : plL4Y% = plL3Y% + plFontH% + plLineGap%
+    DIM plL5Y AS INTEGER : plL5Y% = plL4Y% + plFontH% + plLineGap%
+    DIM plHexX AS INTEGER : plHexX% = plRX% + plHexRelX%
+    DIM plHexY AS INTEGER : plHexY% = plRY% + plRectH% + plLineGap%
+
+    ' Text with black outline (1px)
+    DIM plFgC AS _UNSIGNED LONG : plFgC~& = _RGB32(255, 255, 255)
+    DIM plOlC AS _UNSIGNED LONG : plOlC~& = _RGB32(0, 0, 0)
+    DIM plOX AS INTEGER, plOY AS INTEGER
+    FOR plOY% = -1 TO 1
+        FOR plOX% = -1 TO 1
+            IF plOX% <> 0 OR plOY% <> 0 THEN
+                COLOR plOlC~&, _RGBA32(0, 0, 0, 0)
+                _PRINTSTRING (plTxtX% + plOX%, plL1Y% + plOY%), plRL$
+                _PRINTSTRING (plTxtX% + plOX%, plL2Y% + plOY%), plGL$
+                _PRINTSTRING (plTxtX% + plOX%, plL3Y% + plOY%), plBL$
+                _PRINTSTRING (plTxtX% + plOX%, plL4Y% + plOY%), plXL$
+                _PRINTSTRING (plTxtX% + plOX%, plL5Y% + plOY%), plYL$
+                _PRINTSTRING (plHexX% + plOX%, plHexY% + plOY%), plHex$
+            END IF
+        NEXT plOX%
+    NEXT plOY%
+    COLOR plFgC~&, _RGBA32(0, 0, 0, 0)
+    _PRINTSTRING (plTxtX%, plL1Y%), plRL$
+    _PRINTSTRING (plTxtX%, plL2Y%), plGL$
+    _PRINTSTRING (plTxtX%, plL3Y%), plBL$
+    _PRINTSTRING (plTxtX%, plL4Y%), plXL$
+    _PRINTSTRING (plTxtX%, plL5Y%), plYL$
+    _PRINTSTRING (plHexX%, plHexY%), plHex$
+
+    IF plOldFont& > 0 THEN _FONT plOldFont&, dest&
+    _DEST plOldDest&
 END SUB

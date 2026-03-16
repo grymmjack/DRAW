@@ -148,6 +148,11 @@ SUB CONFIG_set_defaults ()
     CFG.PREVIEW_ZOOM!    = 2.0   ' 2:1 zoom by default
     CFG.PREVIEW_PAN_X!   = 0.0   ' Pan X default
     CFG.PREVIEW_PAN_Y!   = 0.0   ' Pan Y default
+    CFG.PREVIEW_MODE%    = 0     ' 0=Follow, 1=Floating
+    CFG.PREVIEW_COLOR_PICK% = FALSE ' Color picking disabled by default
+    CFG.PREVIEW_BIN_QUICK_LOOK% = FALSE ' Bin Quick Look disabled by default
+    CFG.PREVIEW_FLOAT_IMAGE_PATH$ = "" ' No floating image by default
+    CFG.PREVIEW_FLOAT_LAST_DIR$ = ""   ' No last dir by default
     ' Edit Bar settings
     CFG.EDIT_BAR_VISIBLE% = FALSE  ' Edit bar hidden by default
     CFG.EDIT_BAR_DOCK_POSITION$ = "RIGHT" ' Dock on right side by default
@@ -488,6 +493,16 @@ SUB CONFIG_load ()
                         CFG.PREVIEW_PAN_X! = VAL(configValue$)
                     CASE "PREVIEW_PAN_Y"
                         CFG.PREVIEW_PAN_Y! = VAL(configValue$)
+                    CASE "PREVIEW_MODE"
+                        CFG.PREVIEW_MODE% = VAL(configValue$)
+                    CASE "PREVIEW_COLOR_PICK"
+                        CFG.PREVIEW_COLOR_PICK% = VAL(configValue$)
+                    CASE "PREVIEW_BIN_QUICK_LOOK"
+                        CFG.PREVIEW_BIN_QUICK_LOOK% = VAL(configValue$)
+                    CASE "PREVIEW_FLOAT_IMAGE_PATH"
+                        CFG.PREVIEW_FLOAT_IMAGE_PATH$ = configValue$
+                    CASE "PREVIEW_FLOAT_LAST_DIR"
+                        CFG.PREVIEW_FLOAT_LAST_DIR$ = configValue$
                     CASE "EDIT_BAR_VISIBLE"
                         CFG.EDIT_BAR_VISIBLE% = VAL(configValue$)
                     CASE "EDIT_BAR_DOCK_POSITION"
@@ -512,6 +527,14 @@ SUB CONFIG_load ()
                             IF rcfNum% >= 1 AND rcfNum% <= RECENT_FILES_MAX THEN
                                 RECENT_FILES(rcfNum%) = configValue$
                                 IF rcfNum% > RECENT_FILE_COUNT% THEN RECENT_FILE_COUNT% = rcfNum%
+                            END IF
+                        ' Check for RECENT_PREVIEW_FILE_N pattern
+                        ELSEIF LEFT$(configKey$, 20) = "RECENT_PREVIEW_FILE_" THEN
+                            DIM rpfNum AS INTEGER
+                            rpfNum% = VAL(MID$(configKey$, 21))
+                            IF rpfNum% >= 1 AND rpfNum% <= RECENT_PREVIEW_MAX THEN
+                                RECENT_PREVIEW_FILES(rpfNum%) = configValue$
+                                IF rpfNum% > RECENT_PREVIEW_COUNT% THEN RECENT_PREVIEW_COUNT% = rpfNum%
                             END IF
                         END IF
                 END SELECT
@@ -1746,6 +1769,22 @@ SUB CONFIG_save ()
     PRINT #fh%, "PREVIEW_PAN_Y=" + _TRIM$(STR$(CFG.PREVIEW_PAN_Y!))
     PRINT #fh%, ""
 
+    PRINT #fh%, "# Preview Window: mode (0=Follow, 1=Floating Image)"
+    PRINT #fh%, "PREVIEW_MODE=" + _TRIM$(STR$(CFG.PREVIEW_MODE%))
+    PRINT #fh%, ""
+    PRINT #fh%, "# Preview Window: allow color picking from preview (1=yes, 0=no)"
+    PRINT #fh%, "PREVIEW_COLOR_PICK=" + _TRIM$(STR$(CFG.PREVIEW_COLOR_PICK%))
+    PRINT #fh%, ""
+    PRINT #fh%, "# Preview Window: Bin Quick Look on drawer hover (1=yes, 0=no)"
+    PRINT #fh%, "PREVIEW_BIN_QUICK_LOOK=" + _TRIM$(STR$(CFG.PREVIEW_BIN_QUICK_LOOK%))
+    PRINT #fh%, ""
+    PRINT #fh%, "# Preview Window: last loaded floating image path"
+    PRINT #fh%, "PREVIEW_FLOAT_IMAGE_PATH=" + CFG.PREVIEW_FLOAT_IMAGE_PATH$
+    PRINT #fh%, ""
+    PRINT #fh%, "# Preview Window: last directory for Load Image dialog"
+    PRINT #fh%, "PREVIEW_FLOAT_LAST_DIR=" + CFG.PREVIEW_FLOAT_LAST_DIR$
+    PRINT #fh%, ""
+
     ' Edit Bar settings
     PRINT #fh%, "# Edit Bar: show on startup (1=yes, 0=no)"
     PRINT #fh%, "EDIT_BAR_VISIBLE=" + _TRIM$(STR$(CFG.EDIT_BAR_VISIBLE%))
@@ -1783,6 +1822,14 @@ SUB CONFIG_save ()
     FOR rcfI% = 1 TO RECENT_FILE_COUNT%
         PRINT #fh%, "RECENT_FILE_" + _TRIM$(STR$(rcfI%)) + "=" + RECENT_FILES(rcfI%)
     NEXT rcfI%
+    PRINT #fh%, ""
+
+    ' Recent preview images
+    PRINT #fh%, "# Recent preview images (auto-updated, most recent first)"
+    DIM rpfI AS INTEGER
+    FOR rpfI% = 1 TO RECENT_PREVIEW_COUNT%
+        PRINT #fh%, "RECENT_PREVIEW_FILE_" + _TRIM$(STR$(rpfI%)) + "=" + RECENT_PREVIEW_FILES(rpfI%)
+    NEXT rpfI%
     PRINT #fh%, ""
     
     CLOSE #fh%
@@ -1857,6 +1904,62 @@ SUB RECENT_clear ()
         RECENT_FILES(rc_i%) = ""
     NEXT rc_i%
     RECENT_FILE_COUNT% = 0
+    CONFIG_save
+END SUB
+
+
+''
+' Add a file to the top of the recent preview images list.
+' Deduplicates: if file already exists in list, moves it to top.
+' Caps at RECENT_PREVIEW_MAX entries.
+' @param filepath STRING Full path to the preview image to add
+'
+SUB RECENT_PREVIEW_add_file (filepath AS STRING)
+    IF filepath$ = "" THEN EXIT SUB
+    
+    ' Check if file already exists in the list
+    DIM rpaf_i AS INTEGER, rpaf_foundAt AS INTEGER
+    rpaf_foundAt% = 0
+    FOR rpaf_i% = 1 TO RECENT_PREVIEW_COUNT%
+        IF RECENT_PREVIEW_FILES(rpaf_i%) = filepath$ THEN
+            rpaf_foundAt% = rpaf_i%
+            EXIT FOR
+        END IF
+    NEXT rpaf_i%
+    
+    ' Shift entries down to make room at position 1
+    IF rpaf_foundAt% > 0 THEN
+        ' Move existing entry to top — shift entries above it down
+        FOR rpaf_i% = rpaf_foundAt% TO 2 STEP -1
+            RECENT_PREVIEW_FILES(rpaf_i%) = RECENT_PREVIEW_FILES(rpaf_i% - 1)
+        NEXT rpaf_i%
+    ELSE
+        ' New entry — shift everything down, cap at max
+        IF RECENT_PREVIEW_COUNT% < RECENT_PREVIEW_MAX THEN
+            RECENT_PREVIEW_COUNT% = RECENT_PREVIEW_COUNT% + 1
+        END IF
+        FOR rpaf_i% = RECENT_PREVIEW_COUNT% TO 2 STEP -1
+            RECENT_PREVIEW_FILES(rpaf_i%) = RECENT_PREVIEW_FILES(rpaf_i% - 1)
+        NEXT rpaf_i%
+    END IF
+    
+    ' Place new entry at top
+    RECENT_PREVIEW_FILES(1) = filepath$
+    
+    ' Save config to persist
+    CONFIG_save
+END SUB
+
+
+''
+' Clear all recent preview images.
+'
+SUB RECENT_PREVIEW_clear ()
+    DIM rpc_i AS INTEGER
+    FOR rpc_i% = 1 TO RECENT_PREVIEW_MAX
+        RECENT_PREVIEW_FILES(rpc_i%) = ""
+    NEXT rpc_i%
+    RECENT_PREVIEW_COUNT% = 0
     CONFIG_save
 END SUB
 
@@ -1950,8 +2053,8 @@ SUB CONFIG_upgrade ()
                 NEXT ki%
 
                 IF NOT keyFound% THEN
-                    ' Skip header comment block and RECENT_FILE entries
-                    IF LEFT$(configKey$, 12) <> "RECENT_FILE_" THEN
+                    ' Skip header comment block, RECENT_FILE, and RECENT_PREVIEW_FILE entries
+                    IF LEFT$(configKey$, 12) <> "RECENT_FILE_" AND LEFT$(configKey$, 20) <> "RECENT_PREVIEW_FILE_" THEN
                         missingLines$ = missingLines$ + CHR$(10) + pendingComments$ + configLine$ + CHR$(10)
                         missingCount% = missingCount% + 1
                         IF missingKeys$ <> "" THEN missingKeys$ = missingKeys$ + ", "
