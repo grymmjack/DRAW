@@ -98,6 +98,22 @@ TYPE MENU_BAR_OBJ
     layoutW        AS INTEGER      ' Layout submenu width
     layoutH        AS INTEGER      ' Layout submenu height
     layoutItemIdx  AS INTEGER      ' Child index of "LAYOUT" item in parent dropdown
+    ' Preview Window submenu state
+    pvwOpen        AS INTEGER      ' TRUE when Preview Window submenu is showing
+    pvwHover       AS INTEGER      ' Hovered item (-1 = none)
+    pvwX           AS INTEGER      ' Preview Window submenu X position
+    pvwY           AS INTEGER      ' Preview Window submenu Y position
+    pvwW           AS INTEGER      ' Preview Window submenu width
+    pvwH           AS INTEGER      ' Preview Window submenu height
+    pvwItemIdx     AS INTEGER      ' Child index of "PREVIEW WINDOW" item in parent dropdown
+    ' Preview Window > Recent sub-submenu state
+    pvwRecentOpen  AS INTEGER      ' TRUE when Recent preview submenu is showing
+    pvwRecentHover AS INTEGER      ' Hovered item in Recent preview submenu (-1 = none)
+    pvwRecentX     AS INTEGER      ' Recent preview submenu X position
+    pvwRecentY     AS INTEGER      ' Recent preview submenu Y position
+    pvwRecentW     AS INTEGER      ' Recent preview submenu width
+    pvwRecentH     AS INTEGER      ' Recent preview submenu height
+    pvwRecentItemIdx AS INTEGER    ' Child index of "RECENT" item in pvw submenu
 END TYPE
 
 DIM SHARED MENU_BAR AS MENU_BAR_OBJ
@@ -151,4 +167,10 @@ DECLARE FUNCTION MENUBAR_recent_in_bounds% (rawX AS INTEGER, rawY AS INTEGER)
 DECLARE SUB MENUBAR_render_overflow_popup ()
 DECLARE FUNCTION MENUBAR_overflow_in_bounds% (rawX AS INTEGER, rawY AS INTEGER)
 DECLARE SUB MENUBAR_handle_overflow_click (rawX AS INTEGER, rawY AS INTEGER)
+DECLARE SUB MENUBAR_render_pvw_submenu ()
+DECLARE SUB MENUBAR_handle_pvw_click (rawX AS INTEGER, rawY AS INTEGER)
+DECLARE FUNCTION MENUBAR_pvw_in_bounds% (rawX AS INTEGER, rawY AS INTEGER)
+DECLARE SUB MENUBAR_render_pvw_recent_submenu ()
+DECLARE SUB MENUBAR_handle_pvw_recent_click (rawX AS INTEGER, rawY AS INTEGER)
+DECLARE FUNCTION MENUBAR_pvw_recent_in_bounds% (rawX AS INTEGER, rawY AS INTEGER)
 

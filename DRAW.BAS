@@ -321,6 +321,11 @@ DO
     IF SELECTION_has_active% THEN FRAME_IDLE% = FALSE  ' Animation only (marching ants) — no scene change
     ' Tooltip hover: keep frames active while timer is counting or tooltip is visible
     IF TOOLTIP.HOVER_BTN_IDX% >= 0 THEN FRAME_IDLE% = FALSE
+    ' Preview tooltip: keep render loop active while hover timer counts or tooltip is shown
+    IF PREVIEW.visible% AND NOT PREVIEW.autoHidden% AND PREVIEW.mode% = PREVIEW_MODE_FLOAT THEN
+        IF PREVIEW.floatTooltipHoverStart# > 0 AND NOT PREVIEW.floatTooltipActive% THEN FRAME_IDLE% = FALSE
+        IF PREVIEW.floatTooltipActive% THEN FRAME_IDLE% = FALSE
+    END IF
     IF SCENE_CHANGED% THEN SCENE_DIRTY% = TRUE
 
     ' Edit bar context-sensitive button states: force GUI redraw when any change

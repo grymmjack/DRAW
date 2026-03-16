@@ -262,6 +262,11 @@ TYPE DRAW_CONFIG
     PREVIEW_ZOOM                   AS SINGLE   ' Independent preview zoom level
     PREVIEW_PAN_X                  AS SINGLE   ' Independent preview pan X (canvas pixels)
     PREVIEW_PAN_Y                  AS SINGLE   ' Independent preview pan Y (canvas pixels)
+    PREVIEW_MODE                   AS INTEGER  ' 0=Follow, 1=Floating Image
+    PREVIEW_COLOR_PICK             AS INTEGER  ' TRUE = allow color picking from preview
+    PREVIEW_BIN_QUICK_LOOK         AS INTEGER  ' TRUE = enable Bin Quick Look hover preview
+    PREVIEW_FLOAT_IMAGE_PATH       AS STRING   ' Last loaded floating image path
+    PREVIEW_FLOAT_LAST_DIR         AS STRING   ' Last directory used for Load Image dialog
     EDIT_BAR_VISIBLE               AS INTEGER  ' TRUE = edit bar visible at startup
     EDIT_BAR_DOCK_POSITION         AS STRING  ' "LEFT" or "RIGHT"
     ' Default drawer set files (path to .dset, empty = use built-in samples)
