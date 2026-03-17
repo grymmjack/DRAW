@@ -90,15 +90,15 @@ CONST TOOL_CROP            = 15
 CONST TOOL_ZOOM            = 16
 ' Note: TOOL_MOVE, TOOL_TEXT, TOOL_SAVE, TOOL_OPEN, TOOL_CODE, TOOL_HELP defined in GUI/GUI.BI (30-39)
 
-DIM SHARED AS INTEGER WHEEL_COLOR, KEY_COLOR
-DIM SHARED AS _UNSIGNED LONG PAINT_COLOR
-DIM SHARED AS _UNSIGNED LONG PAINT_BG_COLOR
+DIM SHARED AS INTEGER WHEEL_COLOR, KEY_COLOR ' TRUE when color was changed via wheel/key
+DIM SHARED AS _UNSIGNED LONG PAINT_COLOR    ' Current foreground paint color (RGBA)
+DIM SHARED AS _UNSIGNED LONG PAINT_BG_COLOR ' Current background paint color (RGBA)
 DIM SHARED AS _UNSIGNED LONG DRAW_COLOR ' Current drawing color (FG or BG based on mouse button)
 DIM SHARED AS INTEGER PAINT_OPACITY              ' Paint opacity percentage (10-100, default 100)
 DIM SHARED AS LONG STROKE_BACKUP                 ' Saved layer image before stroke (for opacity compositing)
 DIM SHARED AS INTEGER STROKE_ACTIVE              ' TRUE when a stroke is in progress with opacity < 100%
-DIM SHARED AS INTEGER CONSTRAIN_X, CONSTRAIN_Y
-DIM SHARED AS INTEGER CURRENT_TOOL
+DIM SHARED AS INTEGER CONSTRAIN_X, CONSTRAIN_Y ' TRUE when axis-constrained drawing is active
+DIM SHARED AS INTEGER CURRENT_TOOL              ' Currently active tool constant (TOOL_*)
 DIM SHARED AS INTEGER PREVIOUS_TOOL  ' Tool to return to after temporary picker
 DIM SHARED AS INTEGER CANVAS_DIRTY  ' Track if canvas has unsaved changes
 DIM SHARED TEXT_BUFFER(0 TO 99) AS STRING  ' Text tool buffer for 100 lines
