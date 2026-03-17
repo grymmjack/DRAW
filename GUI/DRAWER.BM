@@ -36,6 +36,9 @@ DECLARE SUB DRAWER_sync_palette_marker (targetColor AS _UNSIGNED LONG, setBackgr
 DECLARE SUB DRAWER_draw_checker_fill (x1 AS INTEGER, y1 AS INTEGER, x2 AS INTEGER, y2 AS INTEGER, cellSize AS INTEGER)
 DECLARE SUB DRAWER_draw_transparent_chip (x1 AS INTEGER, y1 AS INTEGER, x2 AS INTEGER, y2 AS INTEGER, borderColor AS _UNSIGNED LONG)
 DECLARE SUB DRAWER_cycle_mode ()
+DECLARE SUB DRAWER_select_slot (slotIndex AS INTEGER)
+DECLARE SUB DRAWER_swap_slots (slotA AS INTEGER, slotB AS INTEGER)
+DECLARE SUB DRAWER_insert_slot (srcSlot AS INTEGER, dstSlot AS INTEGER)
 DECLARE SUB DRAWER_clear_deferred_action ()
 DECLARE SUB DRAWER_save_slot_image (fh AS INTEGER, imgHandle AS LONG)
 DECLARE FUNCTION DRAWER_load_slot_image& (fh AS INTEGER)
@@ -579,54 +582,24 @@ END SUB
 
 SUB GRAD_DEF_update_fg_bg_stops ()
     ' Refresh stop colors for presets that reference FG/BG
+    ' Only updates RGB of stops typed as FG or BG, preserving position and alpha
     DIM i AS INTEGER
+    DIM j AS INTEGER
+    DIM stopAlpha AS INTEGER
 
     FOR i% = 1 TO DRAWER_SLOT_COUNT
         IF GRAD_DEFS(i%).usesFG% OR GRAD_DEFS(i%).usesBG% THEN
             GRAD_DEFS(i%).previewDirty% = TRUE
-            ' Re-init the FG/BG-dependent stop colors
-            SELECT CASE i%
-                CASE 1
-                    GRAD_DEF_set_stop 1, 1, 0.0, PAINT_COLOR~&
-                    GRAD_DEF_set_stop 1, 2, 1.0, PAINT_BG_COLOR~&
-                CASE 2
-                    GRAD_DEF_set_stop 2, 1, 0.0, PAINT_BG_COLOR~&
-                    GRAD_DEF_set_stop 2, 2, 1.0, PAINT_COLOR~&
-                CASE 3
-                    GRAD_DEF_set_stop 3, 1, 0.0, PAINT_COLOR~&
-                    GRAD_DEF_set_stop 3, 3, 1.0, PAINT_BG_COLOR~&
-                CASE 4
-                    GRAD_DEF_set_stop 4, 1, 0.0, PAINT_COLOR~&
-                    GRAD_DEF_set_stop 4, 3, 1.0, PAINT_BG_COLOR~&
-                CASE 5
-                    GRAD_DEF_set_stop 5, 1, 0.0, DRAWER_gradient_lerp_color~&(PAINT_COLOR~&, _RGB32(255, 255, 255), .5)
-                    GRAD_DEF_set_stop 5, 2, 0.5, PAINT_COLOR~&
-                    GRAD_DEF_set_stop 5, 3, 1.0, DRAWER_gradient_lerp_color~&(PAINT_BG_COLOR~&, _RGB32(255, 255, 255), .5)
-                CASE 6
-                    GRAD_DEF_set_stop 6, 1, 0.0, PAINT_COLOR~&
-                    GRAD_DEF_set_stop 6, 2, 0.5, DRAWER_gradient_lerp_color~&(PAINT_COLOR~&, PAINT_BG_COLOR~&, .5)
-                    GRAD_DEF_set_stop 6, 3, 1.0, PAINT_BG_COLOR~&
-                CASE 7
-                    GRAD_DEF_set_stop 7, 1, 0.0, PAINT_BG_COLOR~&
-                    GRAD_DEF_set_stop 7, 2, 0.5, DRAWER_gradient_lerp_color~&(PAINT_BG_COLOR~&, PAINT_COLOR~&, .5)
-                    GRAD_DEF_set_stop 7, 3, 1.0, PAINT_COLOR~&
-                CASE 8
-                    GRAD_DEF_set_stop 8, 1, 0.0, PAINT_COLOR~&
-                    GRAD_DEF_set_stop 8, 2, 0.33, DRAWER_gradient_lerp_color~&(PAINT_COLOR~&, _RGB32(255, 255, 255), .35)
-                    GRAD_DEF_set_stop 8, 3, 0.66, DRAWER_gradient_lerp_color~&(PAINT_BG_COLOR~&, _RGB32(255, 255, 255), .35)
-                    GRAD_DEF_set_stop 8, 4, 1.0, PAINT_BG_COLOR~&
-                CASE ELSE
-                    ' Generic: update stops based on per-stop type flags
-                    DIM j AS INTEGER
-                    FOR j% = 1 TO GRAD_DEFS(i%).colorCount%
-                        SELECT CASE GRAD_STOP_TYPES(i%, j%)
-                            CASE GRAD_STOP_FG
-                                GRAD_COLOR_STOPS(i%, j%).clr = PAINT_COLOR~&
-                            CASE GRAD_STOP_BG
-                                GRAD_COLOR_STOPS(i%, j%).clr = PAINT_BG_COLOR~&
-                        END SELECT
-                    NEXT j%
-            END SELECT
+            FOR j% = 1 TO GRAD_DEFS(i%).colorCount%
+                SELECT CASE GRAD_STOP_TYPES(i%, j%)
+                    CASE GRAD_STOP_FG
+                        stopAlpha% = _ALPHA32(GRAD_COLOR_STOPS(i%, j%).clr)
+                        GRAD_COLOR_STOPS(i%, j%).clr = _RGBA32(_RED32(PAINT_COLOR~&), _GREEN32(PAINT_COLOR~&), _BLUE32(PAINT_COLOR~&), stopAlpha%)
+                    CASE GRAD_STOP_BG
+                        stopAlpha% = _ALPHA32(GRAD_COLOR_STOPS(i%, j%).clr)
+                        GRAD_COLOR_STOPS(i%, j%).clr = _RGBA32(_RED32(PAINT_BG_COLOR~&), _GREEN32(PAINT_BG_COLOR~&), _BLUE32(PAINT_BG_COLOR~&), stopAlpha%)
+                END SELECT
+            NEXT j%
         END IF
     NEXT i%
 END SUB
@@ -1139,6 +1112,14 @@ SUB DRAWER_ensure_samples ()
         DRAWER_sync_palette_marker PAINT_COLOR~&, FALSE
         DRAWER_sync_palette_marker PAINT_BG_COLOR~&, TRUE
     END IF
+
+    ' Ensure all parametric gradient slots reflect current FG/BG colors
+    GRAD_DEF_update_fg_bg_stops
+    FOR i% = 1 TO DRAWER_SLOT_COUNT
+        IF GRAD_DEFS(i%).colorCount% >= 1 AND NOT DRAWER_GRADIENT_CUSTOM(i%) THEN
+            GRAD_DEF_rebuild_preview i%
+        END IF
+    NEXT i%
 
     DRAWER.samplesLoaded% = TRUE
     DRAWER.loadedTheme = _TRIM$(CFG.THEME$)
@@ -1822,6 +1803,49 @@ SUB DRAWER_render ()
     NEXT row%
     IF NOT drawerHoverHit% THEN drawerLastHoverSlot% = 0
 
+    ' --- Drag overlay: highlight drop target and draw ghost of dragged bin ---
+    IF DRAWER.isDragging% THEN
+        DIM dragRow AS INTEGER, dragCol AS INTEGER
+        DIM dragSlotX AS INTEGER, dragSlotY AS INTEGER
+        ' Draw highlight on drop target slot
+        IF DRAWER.dragTargetSlot% > 0 THEN
+            dragRow% = (DRAWER.dragTargetSlot% - 1) \ slotCols%
+            dragCol% = (DRAWER.dragTargetSlot% - 1) MOD slotCols%
+            dragSlotX% = contentX% + dragCol% * (binW% + binGapX%)
+            dragSlotY% = contentY% + dragRow% * (binH% + binGapY%)
+            IF MODIFIERS.shift% THEN
+                ' Insert mode indicator: thick colored line on the edge closest to source
+                DIM edgeX AS INTEGER, edgeY AS INTEGER
+                DIM lineThick AS INTEGER
+                lineThick% = uiScale%
+                IF lineThick% < 1 THEN lineThick% = 1
+                IF DRAWER.dragSourceSlot% < DRAWER.dragTargetSlot% THEN
+                    ' Source is above/left - draw line on left/top edge
+                    edgeX% = dragSlotX%
+                    edgeY% = dragSlotY%
+                    LINE (edgeX%, edgeY%)-(edgeX%, edgeY% + binH% - 1), THEME.DRAWER_BIN_DRAG_INSERT_LINE~&, BF
+                    IF lineThick% > 1 THEN LINE (edgeX% + 1, edgeY%)-(edgeX% + lineThick% - 1, edgeY% + binH% - 1), THEME.DRAWER_BIN_DRAG_INSERT_LINE~&, BF
+                ELSE
+                    ' Source is below/right - draw line on right/bottom edge
+                    edgeX% = dragSlotX% + binW% - 1
+                    edgeY% = dragSlotY%
+                    LINE (edgeX%, edgeY%)-(edgeX%, edgeY% + binH% - 1), THEME.DRAWER_BIN_DRAG_INSERT_LINE~&, BF
+                    IF lineThick% > 1 THEN LINE (edgeX% - lineThick% + 1, edgeY%)-(edgeX%, edgeY% + binH% - 1), THEME.DRAWER_BIN_DRAG_INSERT_LINE~&, BF
+                END IF
+            ELSE
+                ' Swap mode indicator: highlighted border on drop target
+                LINE (dragSlotX%, dragSlotY%)-(dragSlotX% + binW% - 1, dragSlotY% + binH% - 1), THEME.DRAWER_BIN_DRAG_SWAP_BORDER~&, B
+                IF uiScale% > 1 THEN LINE (dragSlotX% + 1, dragSlotY% + 1)-(dragSlotX% + binW% - 2, dragSlotY% + binH% - 2), THEME.DRAWER_BIN_DRAG_SWAP_BORDER~&, B
+            END IF
+        END IF
+        ' Dim the source slot to show it's being dragged
+        dragRow% = (DRAWER.dragSourceSlot% - 1) \ slotCols%
+        dragCol% = (DRAWER.dragSourceSlot% - 1) MOD slotCols%
+        dragSlotX% = contentX% + dragCol% * (binW% + binGapX%)
+        dragSlotY% = contentY% + dragRow% * (binH% + binGapY%)
+        LINE (dragSlotX%, dragSlotY%)-(dragSlotX% + binW% - 1, dragSlotY% + binH% - 1), THEME.DRAWER_BIN_DRAG_SOURCE_FILL~&, BF
+    END IF
+
     LINE (miniX%, miniY%)-(miniX% + miniCellW% - 1, miniY% + miniCellH% - 1), THEME.DRAWER_BIN_EMPTY_BG~&, BF
     IF DRAWER_PALETTE_IMG& < -1 THEN
         _PUTIMAGE (miniX%, miniY%)-(miniX% + miniCellW% - 1, miniY% + miniCellH% - 1), DRAWER_PALETTE_IMG&, SCRN.GUI&
@@ -1922,7 +1946,7 @@ SUB DRAWER_store_to_slot (slotIndex AS INTEGER)
             END IF
 
         CASE DRAWER_MODE_GRADIENT
-            ' Store current FG→BG as a 2-stop gradient
+            ' Store current FG->BG as a 2-stop gradient
             GRAD_DEFS(slotIndex%).colorCount% = 2
             IF GRAD_DEFS(slotIndex%).family% < 1 OR GRAD_DEFS(slotIndex%).family% > 8 THEN
                 GRAD_DEFS(slotIndex%).family% = 1
@@ -2020,6 +2044,220 @@ SUB DRAWER_clear_slot (slotIndex AS INTEGER)
     END SELECT
 
     SOUND_play SND_LAYER_OP
+    GUI_NEEDS_REDRAW% = TRUE
+    FRAME_IDLE% = FALSE
+END SUB
+
+
+''
+' Returns TRUE if a drawer bin drag is in progress or pending
+'
+FUNCTION DRAWER_is_dragging% ()
+    DRAWER_is_dragging% = DRAWER.isDragging% OR DRAWER.dragPending%
+END FUNCTION
+
+
+''
+' Cancel any in-progress or pending drawer bin drag
+'
+SUB DRAWER_drag_cancel ()
+    DRAWER.dragPending% = FALSE
+    DRAWER.isDragging% = FALSE
+    DRAWER.dragSourceSlot% = 0
+    DRAWER.dragTargetSlot% = 0
+    DRAWER.dragStartX% = 0
+    DRAWER.dragStartY% = 0
+    GUI_NEEDS_REDRAW% = TRUE
+END SUB
+
+
+''
+' Handle mouse movement during a drawer bin drag operation.
+' Promotes pending to active after threshold, then updates drop target.
+'
+SUB DRAWER_handle_drag (rawX AS INTEGER, rawY AS INTEGER)
+    CONST DRAG_THRESHOLD = 5
+    DIM dx AS INTEGER, dy AS INTEGER
+    DIM target AS INTEGER
+
+    ' Check if pending drag should promote to active
+    IF DRAWER.dragPending% THEN
+        dx% = ABS(rawX% - DRAWER.dragStartX%)
+        dy% = ABS(rawY% - DRAWER.dragStartY%)
+        IF dx% >= DRAG_THRESHOLD OR dy% >= DRAG_THRESHOLD THEN
+            DRAWER.dragPending% = FALSE
+            DRAWER.isDragging% = TRUE
+        ELSE
+            EXIT SUB
+        END IF
+    END IF
+
+    IF NOT DRAWER.isDragging% THEN EXIT SUB
+
+    ' Find what slot the mouse is currently over
+    target% = DRAWER_slot_at%(rawX%, rawY%)
+    IF target% > 0 AND target% <> DRAWER.dragSourceSlot% THEN
+        DRAWER.dragTargetSlot% = target%
+    ELSE
+        DRAWER.dragTargetSlot% = 0
+    END IF
+    GUI_NEEDS_REDRAW% = TRUE
+    FRAME_IDLE% = FALSE
+END SUB
+
+
+''
+' Select a slot (the same logic that was in handle_click before drag was added)
+'
+SUB DRAWER_select_slot (slotIndex AS INTEGER)
+    IF slotIndex% < 1 OR slotIndex% > DRAWER_SLOT_COUNT THEN EXIT SUB
+    SELECT CASE DRAWER.mode%
+        CASE DRAWER_MODE_BRUSH
+            DRAWER.brushSelected% = slotIndex%
+            DRAWER_load_brush_slot_to_custom slotIndex%
+            DRAWER.paintMode% = 1
+        CASE DRAWER_MODE_PATTERN
+            DRAWER.patternSelected% = slotIndex%
+            DRAWER.paintMode% = 3
+            CUSTOM_BRUSH.RECOLOR_MODE% = FALSE
+        CASE DRAWER_MODE_GRADIENT
+            DRAWER.gradientSelected% = slotIndex%
+            DRAWER.paintMode% = 2
+    END SELECT
+END SUB
+
+
+''
+' Swap all parallel array data between two bin slots for the current mode.
+'
+SUB DRAWER_swap_slots (slotA AS INTEGER, slotB AS INTEGER)
+    DIM tmpBrush AS DRAW_BRUSH
+    DIM tmpImg AS LONG
+    DIM tmpHas AS INTEGER
+    DIM tmpCustom AS INTEGER
+    DIM tmpDef AS GRADIENT_DEF
+    DIM tmpColorStop AS GRADIENT_COLOR_STOP
+    DIM tmpOpacityStop AS GRADIENT_OPACITY_STOP
+    DIM tmpStopType AS INTEGER
+    DIM s AS INTEGER
+
+    IF slotA% < 1 OR slotA% > DRAWER_SLOT_COUNT THEN EXIT SUB
+    IF slotB% < 1 OR slotB% > DRAWER_SLOT_COUNT THEN EXIT SUB
+    IF slotA% = slotB% THEN EXIT SUB
+
+    SELECT CASE DRAWER.mode%
+        CASE DRAWER_MODE_BRUSH
+            tmpBrush = DRAWER_BRUSH_SLOTS(slotA%)
+            DRAWER_BRUSH_SLOTS(slotA%) = DRAWER_BRUSH_SLOTS(slotB%)
+            DRAWER_BRUSH_SLOTS(slotB%) = tmpBrush
+        CASE DRAWER_MODE_PATTERN
+            tmpImg& = DRAWER_PATTERN_SLOTS(slotA%)
+            DRAWER_PATTERN_SLOTS(slotA%) = DRAWER_PATTERN_SLOTS(slotB%)
+            DRAWER_PATTERN_SLOTS(slotB%) = tmpImg&
+            tmpHas% = DRAWER_PATTERN_HAS(slotA%)
+            DRAWER_PATTERN_HAS(slotA%) = DRAWER_PATTERN_HAS(slotB%)
+            DRAWER_PATTERN_HAS(slotB%) = tmpHas%
+        CASE DRAWER_MODE_GRADIENT
+            tmpImg& = DRAWER_GRADIENT_SLOTS(slotA%)
+            DRAWER_GRADIENT_SLOTS(slotA%) = DRAWER_GRADIENT_SLOTS(slotB%)
+            DRAWER_GRADIENT_SLOTS(slotB%) = tmpImg&
+            tmpHas% = DRAWER_GRADIENT_HAS(slotA%)
+            DRAWER_GRADIENT_HAS(slotA%) = DRAWER_GRADIENT_HAS(slotB%)
+            DRAWER_GRADIENT_HAS(slotB%) = tmpHas%
+            tmpCustom% = DRAWER_GRADIENT_CUSTOM(slotA%)
+            DRAWER_GRADIENT_CUSTOM(slotA%) = DRAWER_GRADIENT_CUSTOM(slotB%)
+            DRAWER_GRADIENT_CUSTOM(slotB%) = tmpCustom%
+            tmpDef = GRAD_DEFS(slotA%)
+            GRAD_DEFS(slotA%) = GRAD_DEFS(slotB%)
+            GRAD_DEFS(slotB%) = tmpDef
+            FOR s% = 1 TO GRADIENT_MAX_STOPS
+                tmpColorStop = GRAD_COLOR_STOPS(slotA%, s%)
+                GRAD_COLOR_STOPS(slotA%, s%) = GRAD_COLOR_STOPS(slotB%, s%)
+                GRAD_COLOR_STOPS(slotB%, s%) = tmpColorStop
+                tmpOpacityStop = GRAD_OPACITY_STOPS(slotA%, s%)
+                GRAD_OPACITY_STOPS(slotA%, s%) = GRAD_OPACITY_STOPS(slotB%, s%)
+                GRAD_OPACITY_STOPS(slotB%, s%) = tmpOpacityStop
+                tmpStopType% = GRAD_STOP_TYPES(slotA%, s%)
+                GRAD_STOP_TYPES(slotA%, s%) = GRAD_STOP_TYPES(slotB%, s%)
+                GRAD_STOP_TYPES(slotB%, s%) = tmpStopType%
+            NEXT s%
+    END SELECT
+END SUB
+
+
+''
+' Insert slot at target position, shifting others to make room.
+' Moves source slot data to target position, shifting intervening slots
+' toward the vacated source position.
+'
+SUB DRAWER_insert_slot (srcSlot AS INTEGER, dstSlot AS INTEGER)
+    DIM i AS INTEGER
+
+    IF srcSlot% < 1 OR srcSlot% > DRAWER_SLOT_COUNT THEN EXIT SUB
+    IF dstSlot% < 1 OR dstSlot% > DRAWER_SLOT_COUNT THEN EXIT SUB
+    IF srcSlot% = dstSlot% THEN EXIT SUB
+
+    ' Shift slots between source and destination by swapping adjacent pairs
+    ' This moves the source toward the destination one position at a time
+    IF srcSlot% < dstSlot% THEN
+        FOR i% = srcSlot% TO dstSlot% - 1
+            DRAWER_swap_slots i%, i% + 1
+        NEXT i%
+    ELSE
+        FOR i% = srcSlot% TO dstSlot% + 1 STEP -1
+            DRAWER_swap_slots i%, i% - 1
+        NEXT i%
+    END IF
+END SUB
+
+
+''
+' Handle mouse release during a drawer bin drag.
+' If drag never activated (below threshold), treat as a normal click/select.
+' If drag is active: Shift held = insert, otherwise = swap.
+'
+SUB DRAWER_handle_drop ()
+    DIM src AS INTEGER, dst AS INTEGER
+
+    ' If drag never activated, treat as a simple click/select
+    IF DRAWER.dragPending% AND NOT DRAWER.isDragging% THEN
+        DRAWER_select_slot DRAWER.dragSourceSlot%
+        SOUND_play SND_MENU_OPEN
+        GUI_NEEDS_REDRAW% = TRUE
+        FRAME_IDLE% = FALSE
+        DRAWER_drag_cancel
+        EXIT SUB
+    END IF
+
+    IF NOT DRAWER.isDragging% THEN
+        DRAWER_drag_cancel
+        EXIT SUB
+    END IF
+
+    src% = DRAWER.dragSourceSlot%
+    dst% = DRAWER.dragTargetSlot%
+
+    IF dst% > 0 AND dst% <> src% THEN
+        IF MODIFIERS.shift% THEN
+            ' INSERT: shift+drag - push other bins aside
+            DRAWER_insert_slot src%, dst%
+        ELSE
+            ' SWAP: normal drag - exchange the two bins
+            DRAWER_swap_slots src%, dst%
+        END IF
+        ' Update selected slot to follow the dragged content
+        SELECT CASE DRAWER.mode%
+            CASE DRAWER_MODE_BRUSH
+                IF DRAWER.brushSelected% = src% THEN DRAWER.brushSelected% = dst%
+            CASE DRAWER_MODE_PATTERN
+                IF DRAWER.patternSelected% = src% THEN DRAWER.patternSelected% = dst%
+            CASE DRAWER_MODE_GRADIENT
+                IF DRAWER.gradientSelected% = src% THEN DRAWER.gradientSelected% = dst%
+        END SELECT
+        SOUND_play SND_DRAG_DROP
+    END IF
+
+    DRAWER_drag_cancel
     GUI_NEEDS_REDRAW% = TRUE
     FRAME_IDLE% = FALSE
 END SUB
@@ -2163,23 +2401,17 @@ FUNCTION DRAWER_handle_click% (mouseX AS INTEGER, mouseY AS INTEGER)
     slotIndex% = DRAWER_slot_at%(mouseX%, mouseY%)
     IF slotIndex% > 0 THEN
         IF MODIFIERS.shift% THEN
-            ' STORE: Shift+Left Click — store current content into slot
+            ' STORE: Shift+Left Click - store current content into slot
             DRAWER_store_to_slot slotIndex%
         ELSE
-            ' SELECT: Left Click — select and activate slot
-            SELECT CASE DRAWER.mode%
-                CASE DRAWER_MODE_BRUSH
-                    DRAWER.brushSelected% = slotIndex%
-                    DRAWER_load_brush_slot_to_custom slotIndex%
-                    DRAWER.paintMode% = 1
-                CASE DRAWER_MODE_PATTERN
-                    DRAWER.patternSelected% = slotIndex%
-                    DRAWER.paintMode% = 3
-                    CUSTOM_BRUSH.RECOLOR_MODE% = FALSE
-                CASE DRAWER_MODE_GRADIENT
-                    DRAWER.gradientSelected% = slotIndex%
-                    DRAWER.paintMode% = 2
-            END SELECT
+            ' Start pending drag - will become a drag if mouse moves, otherwise
+            ' acts as a normal select on release
+            DRAWER.dragPending% = TRUE
+            DRAWER.isDragging% = FALSE
+            DRAWER.dragSourceSlot% = slotIndex%
+            DRAWER.dragTargetSlot% = 0
+            DRAWER.dragStartX% = mouseX%
+            DRAWER.dragStartY% = mouseY%
         END IF
         SOUND_play SND_MENU_OPEN
         GUI_NEEDS_REDRAW% = TRUE
@@ -2245,7 +2477,7 @@ FUNCTION DRAWER_handle_middle_click% (mouseX AS INTEGER, mouseY AS INTEGER)
     mcSlot% = DRAWER_slot_at%(mouseX%, mouseY%)
     IF mcSlot% > 0 THEN
         IF MODIFIERS.shift% THEN
-            ' CLEAR: Shift+Middle Click — clear the single slot
+            ' CLEAR: Shift+Middle Click - clear the single slot
             DRAWER_clear_slot mcSlot%
         ELSE
             DRAWER_cycle_mode
@@ -2625,6 +2857,12 @@ FUNCTION DRAWER_load_dset_file% (filename AS STRING, targetMode AS INTEGER)
                     IF GRAD_DEFS(i%).colorCount% >= 1 THEN DRAWER_GRADIENT_CUSTOM(i%) = FALSE
                     GRAD_DEFS(i%).previewDirty% = TRUE
                 NEXT i%
+                ' Rebuild previews from loaded definitions
+                FOR i% = 1 TO DRAWER_SLOT_COUNT
+                    IF GRAD_DEFS(i%).colorCount% >= 1 THEN
+                        GRAD_DEF_rebuild_preview i%
+                    END IF
+                NEXT i%
             END IF
             DRAWER.gradientSelected% = selectedSlot%
             IF DRAWER.gradientSelected% < 1 OR DRAWER.gradientSelected% > DRAWER_SLOT_COUNT THEN DRAWER.gradientSelected% = 1
@@ -2872,7 +3110,7 @@ SUB DRAWER_export_set_dialog ()
     fh% = FREEFILE
     OPEN filename$ FOR BINARY AS #fh%
     magic$ = "DST1"
-    version% = 1
+    IF DRAWER.mode% = DRAWER_MODE_GRADIENT THEN version% = 2 ELSE version% = 1
     PUT #fh%, , magic$
     PUT #fh%, , version%
     PUT #fh%, , DRAWER.mode%
@@ -2896,6 +3134,32 @@ SUB DRAWER_export_set_dialog ()
                 DRAWER_save_slot_image fh%, DRAWER_GRADIENT_SLOTS(i%)
         END SELECT
     NEXT i%
+
+    ' Version 2: write per-slot grad_defs, color/opacity stops, and stop types
+    IF version% = 2 THEN
+        DIM gs AS INTEGER
+        FOR i% = 1 TO DRAWER_SLOT_COUNT
+            PUT #fh%, , GRAD_DEFS(i%).family%
+            PUT #fh%, , GRAD_DEFS(i%).colorCount%
+            PUT #fh%, , GRAD_DEFS(i%).opacityCount%
+            PUT #fh%, , GRAD_DEFS(i%).usesFG%
+            PUT #fh%, , GRAD_DEFS(i%).usesBG%
+            PUT #fh%, , GRAD_DEFS(i%).gName
+            PUT #fh%, , GRAD_DEFS(i%).ditherMode%
+            PUT #fh%, , GRAD_DEFS(i%).ditherStrength!
+            FOR gs% = 1 TO GRADIENT_MAX_STOPS
+                PUT #fh%, , GRAD_COLOR_STOPS(i%, gs%).position
+                PUT #fh%, , GRAD_COLOR_STOPS(i%, gs%).clr
+            NEXT gs%
+            FOR gs% = 1 TO GRADIENT_MAX_STOPS
+                PUT #fh%, , GRAD_OPACITY_STOPS(i%, gs%).position
+                PUT #fh%, , GRAD_OPACITY_STOPS(i%, gs%).opacity%
+            NEXT gs%
+            FOR gs% = 1 TO GRADIENT_MAX_STOPS
+                PUT #fh%, , GRAD_STOP_TYPES(i%, gs%)
+            NEXT gs%
+        NEXT i%
+    END IF
     CLOSE #fh%
 END SUB
 
@@ -3019,6 +3283,12 @@ SUB DRAWER_import_set_dialog ()
                     IF GRAD_DEFS(i%).colorCount% >= 1 THEN DRAWER_GRADIENT_CUSTOM(i%) = FALSE
                     GRAD_DEFS(i%).previewDirty% = TRUE
                 NEXT i%
+                ' Rebuild previews from loaded definitions
+                FOR i% = 1 TO DRAWER_SLOT_COUNT
+                    IF GRAD_DEFS(i%).colorCount% >= 1 THEN
+                        GRAD_DEF_rebuild_preview i%
+                    END IF
+                NEXT i%
             END IF
             DRAWER.gradientSelected% = selectedSlot%
             IF DRAWER.gradientSelected% < 1 OR DRAWER.gradientSelected% > DRAWER_SLOT_COUNT THEN DRAWER.gradientSelected% = 1
@@ -3131,7 +3401,7 @@ SUB GRADIENT_editor_dialog ()
                 GRAD_DEFS(slotIdx%).family% = 1
             END IF
         ELSE
-            ' Truly empty slot — use black-to-white default
+            ' Truly empty slot - use black-to-white default
             GRAD_DEFS(slotIdx%).colorCount% = 2
             IF GRAD_DEFS(slotIdx%).family% < 1 OR GRAD_DEFS(slotIdx%).family% > 8 THEN
                 GRAD_DEFS(slotIdx%).family% = 1

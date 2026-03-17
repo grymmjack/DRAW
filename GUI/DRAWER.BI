@@ -91,6 +91,13 @@ TYPE DRAWER_STATE
     contextMenuItems    AS INTEGER
     samplesLoaded       AS INTEGER
     loadedTheme         AS STRING * 64
+    ' Bin drag-and-drop reordering state
+    dragPending         AS INTEGER   ' TRUE when mouse down but not yet moved threshold
+    isDragging          AS INTEGER   ' TRUE while actively dragging bin for reorder
+    dragSourceSlot      AS INTEGER   ' Slot index (1-30) being dragged
+    dragTargetSlot      AS INTEGER   ' Current drop target slot (0 = none)
+    dragStartX          AS INTEGER   ' Raw X when drag started
+    dragStartY          AS INTEGER   ' Raw Y when drag started
 END TYPE
 
 DIM SHARED DRAWER AS DRAWER_STATE
@@ -126,6 +133,10 @@ DECLARE FUNCTION DRAWER_handle_click% (mouseX AS INTEGER, mouseY AS INTEGER)
 DECLARE FUNCTION DRAWER_handle_right_click% (mouseX AS INTEGER, mouseY AS INTEGER)
 DECLARE FUNCTION DRAWER_handle_middle_click% (mouseX AS INTEGER, mouseY AS INTEGER)
 DECLARE SUB DRAWER_handle_wheel (mouseX AS INTEGER, mouseY AS INTEGER, wheelDelta AS INTEGER)
+DECLARE FUNCTION DRAWER_is_dragging% ()
+DECLARE SUB DRAWER_drag_cancel ()
+DECLARE SUB DRAWER_handle_drag (rawX AS INTEGER, rawY AS INTEGER)
+DECLARE SUB DRAWER_handle_drop ()
 DECLARE SUB DRAWER_context_menu_show (slotIndex AS INTEGER, mouseX AS INTEGER, mouseY AS INTEGER)
 DECLARE SUB DRAWER_context_menu_close ()
 DECLARE SUB DRAWER_context_menu_hover (mouseX AS INTEGER, mouseY AS INTEGER)

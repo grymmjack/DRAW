@@ -103,6 +103,9 @@ TYPE DRAW_THEME
     DRAWER_BIN_EMPTY_BG    AS _UNSIGNED LONG ' Empty bin background
     DRAWER_BIN_EMPTY_BORDER AS _UNSIGNED LONG ' Empty bin border
     DRAWER_BIN_DISABLED_FG AS _UNSIGNED LONG ' Empty/disabled bin indicator color
+    DRAWER_BIN_DRAG_SWAP_BORDER AS _UNSIGNED LONG ' Drag swap mode drop target border
+    DRAWER_BIN_DRAG_INSERT_LINE AS _UNSIGNED LONG ' Drag insert mode edge line
+    DRAWER_BIN_DRAG_SOURCE_FILL AS _UNSIGNED LONG ' Drag source slot dim overlay
     DRAWER_BRUSH_CHECKER_DARK AS _UNSIGNED LONG ' Brush bin checker dark color
     DRAWER_BRUSH_CHECKER_LIGHT AS _UNSIGNED LONG ' Brush bin checker light color
     DRAWER_SCROLLBAR_TRACK AS _UNSIGNED LONG ' Drawer scrollbar track
