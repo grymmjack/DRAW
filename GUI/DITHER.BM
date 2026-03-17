@@ -6,6 +6,12 @@
 '
 $INCLUDEONCE
 
+''
+' Initializes the dither system by populating Bayer threshold matrices (2x2,
+' 4x4, 8x8, 16x16), the clustered-dot 4x4 matrix, and the per-pixel UI
+' index to GJ_IMGADJ constant mapping table. Safe to call multiple times;
+' subsequent calls are no-ops guarded by DITHER_INITIALIZED%.
+'
 SUB DITHER_init ()
     IF DITHER_INITIALIZED% THEN EXIT SUB
     DITHER_INITIALIZED% = TRUE
@@ -68,6 +74,16 @@ SUB DITHER_init ()
 END SUB
 
 
+''
+' Returns a normalized dither threshold in [0.0, 1.0] for the given algorithm
+' at pixel coordinates (x, y). Used for per-pixel gradient dithering and
+' ordered image dithering. Error-diffusion algorithms (modes 4-15) are not
+' spatially deterministic and return 0.5 (neutral, no perturbation).
+' @param ditherMode GJ_IMGADJ_DITHER_* constant selecting the dither algorithm
+' @param x Pixel x coordinate (tiled into the algorithm's matrix size)
+' @param y Pixel y coordinate (tiled into the algorithm's matrix size)
+' @return SINGLE - threshold value in [0.0, 1.0]
+'
 FUNCTION DITHER_get_threshold! (ditherMode AS INTEGER, x AS INTEGER, y AS INTEGER)
     ' Returns a normalized threshold in [0.0, 1.0] for the given dither algorithm
     ' at position (x, y). Used for per-pixel gradient dithering and ordered image
@@ -134,6 +150,13 @@ FUNCTION DITHER_get_threshold! (ditherMode AS INTEGER, x AS INTEGER, y AS INTEGE
 END FUNCTION
 
 
+''
+' Returns a human-readable display name for any dither algorithm, including
+' DITHER_NONE and all 22 GJ_IMGADJ_DITHER_* constants. Used by UI labels in
+' gradient settings, posterize dialog, and palette remap.
+' @param ditherMode GJ_IMGADJ_DITHER_* constant or DITHER_NONE (-1)
+' @return STRING - display name (e.g. "ORDERED 4x4", "FLOYD-STEINBERG", "NONE")
+'
 FUNCTION DITHER_algorithm_name$ (ditherMode AS INTEGER)
     ' Returns human-readable name for any GJ_IMGADJ_DITHER_* constant or DITHER_NONE
     SELECT CASE ditherMode%
@@ -189,6 +212,13 @@ FUNCTION DITHER_algorithm_name$ (ditherMode AS INTEGER)
 END FUNCTION
 
 
+''
+' Returns a display name for a per-pixel dither UI index (0..9) or DITHER_NONE.
+' Resolves the UI index through DITHER_PERPIXEL_MAP to the internal constant,
+' then delegates to DITHER_algorithm_name$. Out-of-range indices return "NONE".
+' @param uiIndex Per-pixel UI index (0..9) or DITHER_NONE (-1)
+' @return STRING - display name for the algorithm at this UI slot
+'
 FUNCTION DITHER_perpixel_name$ (uiIndex AS INTEGER)
     ' Returns name for a per-pixel UI index (0..9) or DITHER_NONE
     IF uiIndex% = DITHER_NONE THEN
@@ -201,6 +231,14 @@ FUNCTION DITHER_perpixel_name$ (uiIndex AS INTEGER)
 END FUNCTION
 
 
+''
+' Tests whether a GJ_IMGADJ_DITHER_* constant is a per-pixel (spatially
+' deterministic) algorithm suitable for gradient painting and real-time
+' dithering. Returns FALSE for error-diffusion algorithms that require a
+' full-image pass.
+' @param ditherMode GJ_IMGADJ_DITHER_* constant to test
+' @return INTEGER - TRUE if the algorithm can be evaluated per-pixel
+'
 FUNCTION DITHER_is_perpixel% (ditherMode AS INTEGER)
     ' Returns TRUE if the given GJ_IMGADJ constant is a per-pixel algorithm
     SELECT CASE ditherMode%
@@ -220,6 +258,12 @@ FUNCTION DITHER_is_perpixel% (ditherMode AS INTEGER)
 END FUNCTION
 
 
+''
+' Converts a per-pixel UI index (0..9) to the corresponding GJ_IMGADJ_DITHER_*
+' constant via DITHER_PERPIXEL_MAP. Returns DITHER_NONE for out-of-range input.
+' @param uiIndex Per-pixel UI slot index (0 to DITHER_COUNT_PERPIXEL-1)
+' @return INTEGER - GJ_IMGADJ_DITHER_* constant, or DITHER_NONE if invalid
+'
 FUNCTION DITHER_perpixel_to_imgadj% (uiIndex AS INTEGER)
     ' Convert per-pixel UI index (0..9) to GJ_IMGADJ_DITHER_* constant
     IF uiIndex% >= 0 AND uiIndex% < DITHER_COUNT_PERPIXEL THEN
@@ -230,6 +274,13 @@ FUNCTION DITHER_perpixel_to_imgadj% (uiIndex AS INTEGER)
 END FUNCTION
 
 
+''
+' Converts a GJ_IMGADJ_DITHER_* constant back to its per-pixel UI index
+' (0..9) by searching DITHER_PERPIXEL_MAP. Returns DITHER_NONE if the
+' constant is not a per-pixel algorithm (e.g. error-diffusion modes).
+' @param ditherMode GJ_IMGADJ_DITHER_* constant to look up
+' @return INTEGER - UI index (0..9), or DITHER_NONE if not found
+'
 FUNCTION DITHER_imgadj_to_perpixel% (ditherMode AS INTEGER)
     ' Convert GJ_IMGADJ_DITHER_* constant to per-pixel UI index (0..9)
     ' Returns DITHER_NONE if not a per-pixel algorithm
@@ -243,6 +294,17 @@ FUNCTION DITHER_imgadj_to_perpixel% (ditherMode AS INTEGER)
     DITHER_imgadj_to_perpixel% = DITHER_NONE
 END FUNCTION
 
+''
+' Applies a dither effect to a source image by dispatching to the appropriate
+' GJ_IMGADJ_Dither* library function. Supports all 22 dither algorithms.
+' Returns a new 32-bit image handle with the dithered result; the caller is
+' responsible for freeing it. Returns 0 for invalid source handles, or a
+' plain copy for unrecognized dither modes.
+' @param sourceImg Valid QB64 image handle (must be < -1)
+' @param ditherMode GJ_IMGADJ_DITHER_* constant selecting the algorithm
+' @param amount Dither strength (0.0 = none, 1.0 = full effect)
+' @return LONG - new image handle with dithered result, or 0 on error
+'
 FUNCTION DITHER_apply_to_image& (sourceImg AS LONG, ditherMode AS INTEGER, amount AS SINGLE)
     ' Dispatch to the appropriate GJ_IMGADJ_Dither* function
     IF sourceImg& >= -1 THEN DITHER_apply_to_image& = 0 : EXIT FUNCTION
