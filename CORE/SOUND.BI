@@ -41,8 +41,8 @@ CONST SND_ORGANIZER   = 21  ' Organizer / drawer widget click or mousewheel
 
 CONST SND_COUNT       = 21  ' Total number of sound categories
 
-DIM SHARED SOUND_HANDLES(1 TO SND_COUNT) AS LONG
-DIM SHARED MUSIC_HANDLE AS LONG
+DIM SHARED SOUND_HANDLES(1 TO SND_COUNT) AS LONG ' Pre-loaded SFX handles indexed by SND_* constants
+DIM SHARED MUSIC_HANDLE AS LONG                  ' Handle for the currently playing background music track
 DIM SHARED MUSIC_CURRENT_FILE AS STRING  ' Filename of the track currently loaded/playing
 DIM SHARED MUSIC_PREV_FILE AS STRING     ' Filename of the previously played track (for Prev Track)
 
