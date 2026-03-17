@@ -334,72 +334,72 @@ TYPE DRAW_THEME
     ' --- Lospec dialog ---
     LOSPEC_SWATCH_COLS       AS INTEGER         ' Lospec preview swatch columns per row (default 16)
     ' --- Lospec dialog colors ---
-    LOSPEC_status_error_fg   AS _UNSIGNED LONG
-    LOSPEC_status_ok_fg      AS _UNSIGNED LONG
-    LOSPEC_status_info_fg    AS _UNSIGNED LONG
-    LOSPEC_search_bg         AS _UNSIGNED LONG
-    LOSPEC_search_border     AS _UNSIGNED LONG
-    LOSPEC_search_cursor     AS _UNSIGNED LONG
-    LOSPEC_col_header_fg     AS _UNSIGNED LONG
-    LOSPEC_col_divider       AS _UNSIGNED LONG
-    LOSPEC_result_sel_bg     AS _UNSIGNED LONG
-    LOSPEC_result_hover_bg   AS _UNSIGNED LONG
-    LOSPEC_result_fg         AS _UNSIGNED LONG
-    LOSPEC_result_count_fg   AS _UNSIGNED LONG
-    LOSPEC_batch_hover_bg    AS _UNSIGNED LONG
-    LOSPEC_count_fg          AS _UNSIGNED LONG
-    LOSPEC_preview_panel_bg  AS _UNSIGNED LONG
-    LOSPEC_preview_name_fg   AS _UNSIGNED LONG
-    LOSPEC_preview_author_fg AS _UNSIGNED LONG
-    LOSPEC_preview_link_fg   AS _UNSIGNED LONG
-    LOSPEC_preview_link_hov  AS _UNSIGNED LONG
-    LOSPEC_tooltip_sep       AS _UNSIGNED LONG
-    LOSPEC_tooltip_bg        AS _UNSIGNED LONG
-    LOSPEC_tooltip_fg        AS _UNSIGNED LONG
-    LOSPEC_tooltip_hint_fg   AS _UNSIGNED LONG
-    LOSPEC_empty_fg          AS _UNSIGNED LONG
-    LOSPEC_btn_dl_bg         AS _UNSIGNED LONG
-    LOSPEC_btn_dl_hover      AS _UNSIGNED LONG
-    LOSPEC_btn_dl_border     AS _UNSIGNED LONG
-    LOSPEC_btn_close_bg      AS _UNSIGNED LONG
-    LOSPEC_btn_close_hover   AS _UNSIGNED LONG
-    LOSPEC_btn_close_border  AS _UNSIGNED LONG
-    LOSPEC_checkbox_border   AS _UNSIGNED LONG
-    LOSPEC_checkbox_fill     AS _UNSIGNED LONG
+    LOSPEC_status_error_fg   AS _UNSIGNED LONG  ' Lospec error status text color
+    LOSPEC_status_ok_fg      AS _UNSIGNED LONG  ' Lospec success status text color
+    LOSPEC_status_info_fg    AS _UNSIGNED LONG  ' Lospec info status text color
+    LOSPEC_search_bg         AS _UNSIGNED LONG  ' Lospec search input background
+    LOSPEC_search_border     AS _UNSIGNED LONG  ' Lospec search input border
+    LOSPEC_search_cursor     AS _UNSIGNED LONG  ' Lospec search input cursor color
+    LOSPEC_col_header_fg     AS _UNSIGNED LONG  ' Lospec column header text color
+    LOSPEC_col_divider       AS _UNSIGNED LONG  ' Lospec column divider line color
+    LOSPEC_result_sel_bg     AS _UNSIGNED LONG  ' Lospec selected result row background
+    LOSPEC_result_hover_bg   AS _UNSIGNED LONG  ' Lospec hovered result row background
+    LOSPEC_result_fg         AS _UNSIGNED LONG  ' Lospec result row text color
+    LOSPEC_result_count_fg   AS _UNSIGNED LONG  ' Lospec result color count text
+    LOSPEC_batch_hover_bg    AS _UNSIGNED LONG  ' Lospec batch download hover background
+    LOSPEC_count_fg          AS _UNSIGNED LONG  ' Lospec total results count text
+    LOSPEC_preview_panel_bg  AS _UNSIGNED LONG  ' Lospec preview panel background
+    LOSPEC_preview_name_fg   AS _UNSIGNED LONG  ' Lospec preview palette name text
+    LOSPEC_preview_author_fg AS _UNSIGNED LONG  ' Lospec preview author text
+    LOSPEC_preview_link_fg   AS _UNSIGNED LONG  ' Lospec preview link text color
+    LOSPEC_preview_link_hov  AS _UNSIGNED LONG  ' Lospec preview link hover color
+    LOSPEC_tooltip_sep       AS _UNSIGNED LONG  ' Lospec tooltip separator color
+    LOSPEC_tooltip_bg        AS _UNSIGNED LONG  ' Lospec tooltip background
+    LOSPEC_tooltip_fg        AS _UNSIGNED LONG  ' Lospec tooltip text color
+    LOSPEC_tooltip_hint_fg   AS _UNSIGNED LONG  ' Lospec tooltip hint text color
+    LOSPEC_empty_fg          AS _UNSIGNED LONG  ' Lospec empty state text color
+    LOSPEC_btn_dl_bg         AS _UNSIGNED LONG  ' Lospec download button background
+    LOSPEC_btn_dl_hover      AS _UNSIGNED LONG  ' Lospec download button hover background
+    LOSPEC_btn_dl_border     AS _UNSIGNED LONG  ' Lospec download button border
+    LOSPEC_btn_close_bg      AS _UNSIGNED LONG  ' Lospec close button background
+    LOSPEC_btn_close_hover   AS _UNSIGNED LONG  ' Lospec close button hover background
+    LOSPEC_btn_close_border  AS _UNSIGNED LONG  ' Lospec close button border
+    LOSPEC_checkbox_border   AS _UNSIGNED LONG  ' Lospec checkbox border color
+    LOSPEC_checkbox_fill     AS _UNSIGNED LONG  ' Lospec checkbox fill color
     LOSPEC_checkbox_dl_fill  AS _UNSIGNED LONG  ' Downloaded-state checkbox fill (green tint)
     LOSPEC_downloaded_fg     AS _UNSIGNED LONG  ' Download date text in results list
     PALETTE_MENU_SEP_fg      AS _UNSIGNED LONG  ' Palette menu separator label text color
     PALETTE_MENU_SEP_bg      AS _UNSIGNED LONG  ' Palette menu separator label background box color
     ' Edit Bar
-    EDIT_BAR_LEFT_BORDER_COLOR  AS _UNSIGNED LONG
-    EDIT_BAR_RIGHT_BORDER_COLOR AS _UNSIGNED LONG
-    EDIT_BAR_LEFT_BORDER_WIDTH  AS INTEGER
-    EDIT_BAR_RIGHT_BORDER_WIDTH AS INTEGER
-    EDIT_BAR_WIDTH              AS INTEGER
-    EDIT_BAR_ICON_PADDING       AS INTEGER
-    EDIT_BAR_BG_COLOR           AS _UNSIGNED LONG
-    EDIT_BAR_ICON_MOUSE_OUTLINE_COLOR AS _UNSIGNED LONG
+    EDIT_BAR_LEFT_BORDER_COLOR  AS _UNSIGNED LONG  ' Edit bar left border color
+    EDIT_BAR_RIGHT_BORDER_COLOR AS _UNSIGNED LONG  ' Edit bar right border color
+    EDIT_BAR_LEFT_BORDER_WIDTH  AS INTEGER         ' Edit bar left border width in pixels
+    EDIT_BAR_RIGHT_BORDER_WIDTH AS INTEGER         ' Edit bar right border width in pixels
+    EDIT_BAR_WIDTH              AS INTEGER         ' Edit bar content width in pixels
+    EDIT_BAR_ICON_PADDING       AS INTEGER         ' Padding around each icon in pixels
+    EDIT_BAR_BG_COLOR           AS _UNSIGNED LONG  ' Edit bar background fill color
+    EDIT_BAR_ICON_MOUSE_OUTLINE_COLOR AS _UNSIGNED LONG ' Icon hover outline color
     EDIT_BAR_ICON_DISABLED_ALPHA    AS INTEGER   ' How much to dim disabled icons (0=no dim, 255=fully transparent)
-    EDIT_BAR_DIVIDER_VERT_MARGIN AS INTEGER
-    EDIT_BAR_ICON_UNDO          AS STRING * 64
-    EDIT_BAR_ICON_REDO          AS STRING * 64
-    EDIT_BAR_ICON_CUT           AS STRING * 64
-    EDIT_BAR_ICON_COPY          AS STRING * 64
-    EDIT_BAR_ICON_COPY_MERGED   AS STRING * 64
-    EDIT_BAR_ICON_PASTE         AS STRING * 64
-    EDIT_BAR_ICON_PASTE_IN_PLACE AS STRING * 64
-    EDIT_BAR_ICON_CUT_TO_LAYER  AS STRING * 64
-    EDIT_BAR_ICON_COPY_TO_LAYER AS STRING * 64
-    EDIT_BAR_ICON_CLEAR         AS STRING * 64
-    EDIT_BAR_ICON_FILL_WITH_FG  AS STRING * 64
-    EDIT_BAR_ICON_FILL_WITH_BG  AS STRING * 64
-    EDIT_BAR_ICON_STROKE_SELECTION AS STRING * 64
-    EDIT_BAR_ICON_FLIP_HORIZONTAL AS STRING * 64
-    EDIT_BAR_ICON_FLIP_VERTICAL AS STRING * 64
-    EDIT_BAR_ICON_SCALE_DOWN    AS STRING * 64
-    EDIT_BAR_ICON_SCALE_UP      AS STRING * 64
-    EDIT_BAR_ICON_ROTATE_CW     AS STRING * 64
-    EDIT_BAR_ICON_ROTATE_CCW    AS STRING * 64
+    EDIT_BAR_DIVIDER_VERT_MARGIN AS INTEGER   ' Vertical margin around divider lines
+    EDIT_BAR_ICON_UNDO          AS STRING * 64 ' Undo icon PNG filename
+    EDIT_BAR_ICON_REDO          AS STRING * 64 ' Redo icon PNG filename
+    EDIT_BAR_ICON_CUT           AS STRING * 64 ' Cut icon PNG filename
+    EDIT_BAR_ICON_COPY          AS STRING * 64 ' Copy icon PNG filename
+    EDIT_BAR_ICON_COPY_MERGED   AS STRING * 64 ' Copy merged icon PNG filename
+    EDIT_BAR_ICON_PASTE         AS STRING * 64 ' Paste icon PNG filename
+    EDIT_BAR_ICON_PASTE_IN_PLACE AS STRING * 64 ' Paste in place icon PNG filename
+    EDIT_BAR_ICON_CUT_TO_LAYER  AS STRING * 64 ' Cut to layer icon PNG filename
+    EDIT_BAR_ICON_COPY_TO_LAYER AS STRING * 64 ' Copy to layer icon PNG filename
+    EDIT_BAR_ICON_CLEAR         AS STRING * 64 ' Clear icon PNG filename
+    EDIT_BAR_ICON_FILL_WITH_FG  AS STRING * 64 ' Fill with FG icon PNG filename
+    EDIT_BAR_ICON_FILL_WITH_BG  AS STRING * 64 ' Fill with BG icon PNG filename
+    EDIT_BAR_ICON_STROKE_SELECTION AS STRING * 64 ' Stroke selection icon PNG filename
+    EDIT_BAR_ICON_FLIP_HORIZONTAL AS STRING * 64 ' Flip horizontal icon PNG filename
+    EDIT_BAR_ICON_FLIP_VERTICAL AS STRING * 64 ' Flip vertical icon PNG filename
+    EDIT_BAR_ICON_SCALE_DOWN    AS STRING * 64 ' Scale down icon PNG filename
+    EDIT_BAR_ICON_SCALE_UP      AS STRING * 64 ' Scale up icon PNG filename
+    EDIT_BAR_ICON_ROTATE_CW     AS STRING * 64 ' Rotate clockwise icon PNG filename
+    EDIT_BAR_ICON_ROTATE_CCW    AS STRING * 64 ' Rotate counter-clockwise icon PNG filename
     ' --- Tooltips ---
     TOOLTIP_FONT               AS STRING          ' Tooltip font filename (empty = use global font)
     TOOLTIP_FONT_SIZE          AS INTEGER         ' Tooltip font size in pixels (default 8)
