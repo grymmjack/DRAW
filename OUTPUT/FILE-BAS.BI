@@ -14,7 +14,7 @@ $INCLUDEONCE
 DECLARE SUB FILE_BAS_export_dialog ()
 ''
 ' Exports the full drawing history as a standalone QB64 BAS source file
-' @param filename$ Output file path for the generated .bas file
+' @param filename STRING Output file path for the generated .bas file
 '
 DECLARE SUB FILE_BAS_export (filename AS STRING)
 ''
@@ -23,7 +23,7 @@ DECLARE SUB FILE_BAS_export (filename AS STRING)
 DECLARE SUB FILE_BAS_wip_reset ()
 ''
 ' Appends a single history record's drawing ops to the WIP BAS stream file
-' @param recordIndex% Index into HISTORY_RECORDS() to export
+' @param recordIndex INTEGER Index into HISTORY_RECORDS() to export
 '
 DECLARE SUB FILE_BAS_wip_append_record (recordIndex AS INTEGER)
 ''
