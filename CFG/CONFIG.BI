@@ -130,38 +130,38 @@ IF CMDLINE_CONFIG_ARG_COUNT% = 0 OR (CMDLINE_CONFIG_UPGRADE% AND CMDLINE_CONFIG_
 END IF
 
 TYPE DRAW_CONFIG
-    THEME                          AS STRING
-    FULLSCREEN                     AS INTEGER
+    THEME                          AS STRING   ' Active theme directory name (e.g. "DEFAULT")
+    FULLSCREEN                     AS INTEGER  ' TRUE = fullscreen, FALSE = windowed
     DISPLAY_SCALE                  AS INTEGER  ' 0=auto-detect, 1-8=explicit scale
     DISPLAY_SCALE_MAX              AS INTEGER  ' Maximum allowed scale (default 8)
     DISPLAY_SCALE_CHANGED          AS INTEGER  ' Runtime flag: scale changed during session
     TOOLBAR_SCALE                  AS INTEGER  ' Toolbar icon scale multiplier (1-4, default 1)
-    NUDGE_N                        AS INTEGER
-    NUM_CUSTOM_BRUSHES             AS INTEGER
-    NUM_LAYERS                     AS INTEGER
-    FPS_LIMIT                      AS INTEGER
+    NUDGE_N                        AS INTEGER  ' Multi-pixel nudge distance (default 10)
+    NUM_CUSTOM_BRUSHES             AS INTEGER  ' Number of custom brush slots (default 4)
+    NUM_LAYERS                     AS INTEGER  ' Initial number of layers on new file
+    FPS_LIMIT                      AS INTEGER  ' Maximum frames per second when active (default 60)
     FPS_IDLE                       AS INTEGER  ' Reduced FPS when idle (default 15)
     FPS_CURSOR                     AS INTEGER  ' Reduced FPS cursor-only movement (default 20)
     FPS_DIALOG                     AS INTEGER  ' FPS for modal dialogs (default 60)
-    SCREEN_WIDTH                   AS INTEGER
-    SCREEN_HEIGHT                  AS INTEGER
+    SCREEN_WIDTH                   AS INTEGER  ' Viewport width in pixels (0=auto-detect)
+    SCREEN_HEIGHT                  AS INTEGER  ' Viewport height in pixels (0=auto-detect)
     WIN_MIN_WIDTH                  AS INTEGER  ' Minimum viewport width (0=use 320)
     WIN_MIN_HEIGHT                 AS INTEGER  ' Minimum viewport height (0=use 200)
     WIN_MAX_WIDTH                  AS INTEGER  ' Maximum viewport width (0=unlimited)
     WIN_MAX_HEIGHT                 AS INTEGER  ' Maximum viewport height (0=unlimited)
-    DEFAULT_PALETTE                AS STRING
-    PALETTE_CHIP_WIDTH             AS INTEGER
-    PALETTE_CHIP_HEIGHT            AS INTEGER
-    PALETTE_MAX_CHIPS_PER_ROW      AS INTEGER
-    PALETTE_MAX_ROWS               AS INTEGER
-    PALETTE_MIN_ROWS               AS INTEGER
-    PALETTE_CHIPS_ROW_THRESHOLD    AS INTEGER
-    PALETTE_DEFAULT_FG_COLOR_INDEX AS INTEGER
-    PALETTE_DEFAULT_BG_COLOR_INDEX AS INTEGER
-    PALETTE_PICKER_CHIP_SIZE       AS INTEGER
-    PALETTE_PICKER_CHIP_PADDING    AS INTEGER
-    PALETTE_PICKER_COLUMNS         AS INTEGER
-    ANGLE_SNAP_DEGREES             AS INTEGER
+    DEFAULT_PALETTE                AS STRING   ' Default palette name to load on startup
+    PALETTE_CHIP_WIDTH             AS INTEGER  ' Width of each color chip in palette strip
+    PALETTE_CHIP_HEIGHT            AS INTEGER  ' Height of each color chip in palette strip
+    PALETTE_MAX_CHIPS_PER_ROW      AS INTEGER  ' Maximum color chips per row in strip
+    PALETTE_MAX_ROWS               AS INTEGER  ' Maximum palette strip rows (1-8)
+    PALETTE_MIN_ROWS               AS INTEGER  ' Minimum palette strip rows always shown
+    PALETTE_CHIPS_ROW_THRESHOLD    AS INTEGER  ' Start new row every N chips
+    PALETTE_DEFAULT_FG_COLOR_INDEX AS INTEGER  ' Default foreground palette index (0-based)
+    PALETTE_DEFAULT_BG_COLOR_INDEX AS INTEGER  ' Default background palette index (0-based)
+    PALETTE_PICKER_CHIP_SIZE       AS INTEGER  ' Chip size in palette picker dialog (8-48)
+    PALETTE_PICKER_CHIP_PADDING    AS INTEGER  ' Padding between chips in palette picker
+    PALETTE_PICKER_COLUMNS         AS INTEGER  ' Number of columns in palette picker grid
+    ANGLE_SNAP_DEGREES             AS INTEGER  ' Angle snapping increment in degrees
     ANGLE_SNAP_PIXEL_ART           AS INTEGER  ' TRUE = snap to pixel-art angles (integer slope ratios)
     ' Layer panel settings
     LAYER_PANEL_WIDTH              AS INTEGER  ' Width of layer panel in pixels (min 100)
@@ -191,22 +191,22 @@ TYPE DRAW_CONFIG
     CROSSHAIR_OUTLINE_OPACITY      AS INTEGER  ' Crosshair outline stroke opacity 0-255 (0=use theme)
     CROSSHAIR_OUTLINE_WIDTH        AS INTEGER  ' Crosshair outline stroke width in pixels
     ' Picker loupe settings
-    PICKER_LOUPE_ZOOM_LEVEL        AS INTEGER
-    PICKER_LOUPE_RECT_X_OFFSET     AS INTEGER
-    PICKER_LOUPE_RECT_Y_OFFSET     AS INTEGER
-    PICKER_LOUPE_RECT_WIDTH        AS INTEGER
-    PICKER_LOUPE_RECT_HEIGHT       AS INTEGER
-    PICKER_LOUPE_RGBA_X            AS INTEGER
-    PICKER_LOUPE_RGBA_Y            AS INTEGER
-    PICKER_LOUPE_FONT              AS STRING
-    PICKER_LOUPE_FONT_SIZE         AS INTEGER
-    PICKER_LOUPE_FONT_FG           AS _UNSIGNED LONG
-    PICKER_LOUPE_FONT_BG           AS _UNSIGNED LONG
-    PICKER_LOUPE_FONT_STROKE_FG    AS _UNSIGNED LONG
-    PICKER_LOUPE_FONT_STROKE_WIDTH AS INTEGER
-    PICKER_LOUPE_RECT_STROKE_FG    AS _UNSIGNED LONG
-    PICKER_LOUPE_RECT_STROKE_WIDTH AS INTEGER
-    PICKER_LOUPE_PIXEL_PICKUP_COLOR AS _UNSIGNED LONG
+    PICKER_LOUPE_ZOOM_LEVEL        AS INTEGER  ' Loupe zoom factor (1-8)
+    PICKER_LOUPE_RECT_X_OFFSET     AS INTEGER  ' Loupe X offset from cursor in screen pixels
+    PICKER_LOUPE_RECT_Y_OFFSET     AS INTEGER  ' Loupe Y offset from cursor in screen pixels
+    PICKER_LOUPE_RECT_WIDTH        AS INTEGER  ' Loupe rectangle width in screen pixels
+    PICKER_LOUPE_RECT_HEIGHT       AS INTEGER  ' Loupe rectangle height in screen pixels
+    PICKER_LOUPE_RGBA_X            AS INTEGER  ' RGB text X offset relative to loupe
+    PICKER_LOUPE_RGBA_Y            AS INTEGER  ' RGB text Y offset relative to loupe
+    PICKER_LOUPE_FONT              AS STRING   ' Loupe font filename override (empty=global)
+    PICKER_LOUPE_FONT_SIZE         AS INTEGER  ' Loupe font size in pixels
+    PICKER_LOUPE_FONT_FG           AS _UNSIGNED LONG  ' Loupe label foreground color
+    PICKER_LOUPE_FONT_BG           AS _UNSIGNED LONG  ' Loupe label background color
+    PICKER_LOUPE_FONT_STROKE_FG    AS _UNSIGNED LONG  ' Loupe label outline color
+    PICKER_LOUPE_FONT_STROKE_WIDTH AS INTEGER  ' Loupe label outline width in pixels
+    PICKER_LOUPE_RECT_STROKE_FG    AS _UNSIGNED LONG  ' Loupe border color
+    PICKER_LOUPE_RECT_STROKE_WIDTH AS INTEGER  ' Loupe border width in pixels
+    PICKER_LOUPE_PIXEL_PICKUP_COLOR AS _UNSIGNED LONG ' Loupe sampled-pixel marker color
     ' Grid mode and angle
     GRID_ANGLE                     AS SINGLE   ' Grid rotation angle in degrees (0=use theme)
     GRID_MODE                      AS INTEGER  ' Grid geometry mode (0=square,1=diagonal,2=iso,3=hex)

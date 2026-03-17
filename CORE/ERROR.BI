@@ -43,7 +43,7 @@ TYPE ERROR_OBJ
     HAS_ERROR AS INTEGER   ' TRUE if an error is currently set
 END TYPE
 
-DIM SHARED ERR_STATE AS ERROR_OBJ
+DIM SHARED ERR_STATE AS ERROR_OBJ ' Global error state singleton
 
 ' Initialize error state
 ERR_STATE.CODE = ERR_NONE
