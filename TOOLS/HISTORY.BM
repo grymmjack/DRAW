@@ -7,6 +7,15 @@
 '
 $INCLUDEONCE
 
+''
+' Builds a serialized text-tool payload string for storage in a history record.
+' Encodes font settings and all text buffer lines separated by CHR$(30).
+' @param lineCount% Number of lines in the TEXT_BUFFER to include
+' @param fontMode% Font rendering mode identifier
+' @param fontPath$ File path to the font file
+' @param fontSize% Font size in points
+' @return STRING - CHR$(30)-delimited payload starting with "TXT1" header
+'
 FUNCTION HISTORY_text_payload$ (lineCount AS INTEGER, fontMode AS INTEGER, fontPath AS STRING, fontSize AS INTEGER)
     DIM payload AS STRING
     DIM i AS INTEGER
@@ -19,6 +28,14 @@ FUNCTION HISTORY_text_payload$ (lineCount AS INTEGER, fontMode AS INTEGER, fontP
     HISTORY_text_payload$ = payload$
 END FUNCTION
 
+''
+' Builds a serialized polyline payload string for storage in a history record.
+' Encodes point coordinates as comma-separated X,Y pairs delimited by CHR$(30).
+' @param pointCount% Number of points in the polyline
+' @param pointsX%() Array of X coordinates (0-based)
+' @param pointsY%() Array of Y coordinates (0-based)
+' @return STRING - CHR$(30)-delimited payload of "X,Y" coordinate pairs
+'
 FUNCTION HISTORY_polyline_payload$ (pointCount AS INTEGER, pointsX() AS INTEGER, pointsY() AS INTEGER)
     DIM payload AS STRING
     DIM i AS INTEGER
@@ -31,6 +48,12 @@ FUNCTION HISTORY_polyline_payload$ (pointCount AS INTEGER, pointsX() AS INTEGER,
     HISTORY_polyline_payload$ = payload$
 END FUNCTION
 
+''
+' Stores an arbitrary payload string and metadata for a history record.
+' @param recordIndex% Index into HISTORY_RECORDS (1..HISTORY_MAX_RECORDS)
+' @param payload$ The payload string to store
+' @param payloadMeta& Metadata value stored in payloadOffset (e.g. point count)
+'
 SUB HISTORY_set_payload (recordIndex AS INTEGER, payload AS STRING, payloadMeta AS LONG)
     IF recordIndex% < 1 OR recordIndex% > HISTORY_MAX_RECORDS THEN EXIT SUB
 
@@ -39,6 +62,10 @@ SUB HISTORY_set_payload (recordIndex AS INTEGER, payload AS STRING, payloadMeta 
     HISTORY_RECORDS(recordIndex%).payloadLength& = LEN(payload$)
 END SUB
 
+''
+' Clamps history system counters to valid ranges to guard against corruption.
+' Ensures count is within 0..HISTORY_MAX_RECORDS and current is within 0..count.
+'
 SUB HISTORY_sanitize_state ()
     IF HISTORY.count% < 0 THEN HISTORY.count% = 0
     IF HISTORY.count% > HISTORY_MAX_RECORDS THEN HISTORY.count% = HISTORY_MAX_RECORDS
@@ -46,6 +73,11 @@ SUB HISTORY_sanitize_state ()
     IF HISTORY.current% > HISTORY.count% THEN HISTORY.current% = HISTORY.count%
 END SUB
 
+''
+' Initializes the history system to a clean state.
+' Resets current position, count, sequence counter, and recording flags.
+' Clears all payload strings. Called at startup and after HISTORY_clear.
+'
 SUB HISTORY_init ()
     DIM i AS INTEGER
 
@@ -62,6 +94,12 @@ SUB HISTORY_init ()
     NEXT i%
 END SUB
 
+''
+' Frees all history resources and resets the system to empty.
+' Releases all before/after images, selection masks, merge-visible backups,
+' and payload strings. Clears pending selection snapshots and reinitializes.
+' Also resets the BAS WIP export state via FILE_BAS_wip_reset.
+'
 SUB HISTORY_clear ()
     DIM i AS INTEGER
     FOR i% = 1 TO HISTORY_MAX_RECORDS
@@ -118,16 +156,28 @@ SUB HISTORY_clear ()
     FILE_BAS_wip_reset
 END SUB
 
+''
+' Checks whether an undo operation is available.
+' @return INTEGER - TRUE if current position > 0 (records exist to undo)
+'
 FUNCTION HISTORY_can_undo% ()
     HISTORY_sanitize_state
     HISTORY_can_undo% = (HISTORY.current% > 0)
 END FUNCTION
 
+''
+' Checks whether a redo operation is available.
+' @return INTEGER - TRUE if current position < count (records exist to redo)
+'
 FUNCTION HISTORY_can_redo% ()
     HISTORY_sanitize_state
     HISTORY_can_redo% = (HISTORY.current% < HISTORY.count%)
 END FUNCTION
 
+''
+' Returns the sequence number of the current (most recently undone/applied) record.
+' @return DOUBLE - Sequence number of the current record, or 0 if none
+'
 FUNCTION HISTORY_get_last_timestamp# ()
     HISTORY_sanitize_state
     IF HISTORY.current% >= 1 AND HISTORY.current% <= HISTORY.count% THEN
@@ -137,6 +187,10 @@ FUNCTION HISTORY_get_last_timestamp# ()
     END IF
 END FUNCTION
 
+''
+' Returns the sequence number of the next record available for redo.
+' @return DOUBLE - Sequence number of the next redo record, or 0 if none
+'
 FUNCTION HISTORY_get_next_timestamp# ()
     HISTORY_sanitize_state
     IF HISTORY.current% + 1 >= 1 AND HISTORY.current% + 1 <= HISTORY.count% THEN
@@ -146,6 +200,11 @@ FUNCTION HISTORY_get_next_timestamp# ()
     END IF
 END FUNCTION
 
+''
+' Begins a history group so multiple records share the same sequence number.
+' Grouped records are undone/redone together as a single step.
+' No-op if already recording, in progress, or a group is already active.
+'
 SUB HISTORY_begin_group ()
     IF HISTORY.recording% THEN EXIT SUB
     IF HISTORY_IN_PROGRESS% THEN EXIT SUB
@@ -157,11 +216,25 @@ SUB HISTORY_begin_group ()
     HISTORY_GROUP_ACTIVE% = TRUE
 END SUB
 
+''
+' Ends the current history group. Subsequent records will get new sequence numbers.
+'
 SUB HISTORY_end_group ()
     HISTORY_GROUP_ACTIVE% = FALSE
     HISTORY_GROUP_SEQUENCE& = 0
 END SUB
 
+''
+' Allocates and initializes a new history record slot.
+' Truncates any redo tail (records after current position) before allocating.
+' Assigns a sequence number (shared within a group, or unique otherwise).
+' The caller must populate record fields and call HISTORY_commit_record or
+' HISTORY_cancel_record when done.
+' @param kind% Record kind constant (HISTORY_KIND_*)
+' @param exportKind% Export classification (HISTORY_EXPORT_*)
+' @param label$ Human-readable label for the record (max 32 chars)
+' @return INTEGER - Record index (1..HISTORY_MAX_RECORDS), or 0 on failure
+'
 FUNCTION HISTORY_begin_record% (kind AS INTEGER, exportKind AS INTEGER, label AS STRING)
     DIM idx AS INTEGER
     DIM i AS INTEGER
@@ -235,6 +308,11 @@ FUNCTION HISTORY_begin_record% (kind AS INTEGER, exportKind AS INTEGER, label AS
     HISTORY_begin_record% = idx%
 END FUNCTION
 
+''
+' Finalizes a history record, advancing the current position and count.
+' Also appends the record to the BAS WIP export stream.
+' @param recordIndex% Index of the record to commit
+'
 SUB HISTORY_commit_record (recordIndex AS INTEGER)
     IF NOT HISTORY.recording% THEN EXIT SUB
     IF recordIndex% < 1 OR recordIndex% > HISTORY_MAX_RECORDS THEN
@@ -248,6 +326,11 @@ SUB HISTORY_commit_record (recordIndex AS INTEGER)
     FILE_BAS_wip_append_record recordIndex%
 END SUB
 
+''
+' Cancels a pending history record, freeing its images and resetting all fields.
+' Used when a record was begun but the operation was abandoned.
+' @param recordIndex% Index of the record to cancel
+'
 SUB HISTORY_cancel_record (recordIndex AS INTEGER)
     IF recordIndex% >= 1 AND recordIndex% <= HISTORY_MAX_RECORDS THEN
         IF HISTORY_RECORDS(recordIndex%).img& < -1 THEN
@@ -292,6 +375,13 @@ SUB HISTORY_cancel_record (recordIndex AS INTEGER)
     HISTORY.recording% = FALSE
 END SUB
 
+''
+' Captures the current state of a layer as the after-image (img2) for a record.
+' Frees any existing after-image before copying. Used to store the result
+' state for redo operations on drawing/transform records.
+' @param recordIndex% Index of the history record
+' @param layerSlot% Layer array index (1..64) to snapshot
+'
 SUB HISTORY_store_after_image (recordIndex AS INTEGER, layerSlot AS INTEGER)
     IF recordIndex% < 1 OR recordIndex% > HISTORY_MAX_RECORDS THEN EXIT SUB
     IF layerSlot% < 1 OR layerSlot% > 64 THEN EXIT SUB
@@ -303,6 +393,13 @@ SUB HISTORY_store_after_image (recordIndex AS INTEGER, layerSlot AS INTEGER)
     HISTORY_RECORDS(recordIndex%).img2& = _COPYIMAGE(LAYERS(layerSlot%).imgHandle&, 32)
 END SUB
 
+''
+' Restores a layer's pixel content from a snapshot image.
+' Clears the layer to transparent, then copies the snapshot onto it.
+' Marks the layer's contentDirty flag for cache invalidation.
+' @param layerId& Stable history ID of the target layer
+' @param snapshotImg& Image handle containing the pixel data to restore
+'
 SUB HISTORY_apply_layer_snapshot (layerId AS LONG, snapshotImg AS LONG)
     DIM layerSlot AS INTEGER
     DIM oldDest AS LONG
@@ -321,6 +418,21 @@ SUB HISTORY_apply_layer_snapshot (layerId AS LONG, snapshotImg AS LONG)
     LAYERS(layerSlot%).contentDirty% = TRUE
 END SUB
 
+''
+' Internal helper that records a shape operation (line, rect, or ellipse).
+' Creates a history record with before/after images and shape coordinates.
+' @param kind% Record kind (HISTORY_KIND_LINE, _RECT, or _ELLIPSE)
+' @param layerId& Stable history ID of the affected layer
+' @param layerSlot% Layer array index (1..64)
+' @param x1% Start X coordinate of the shape
+' @param y1% Start Y coordinate of the shape
+' @param x2% End X coordinate of the shape
+' @param y2% End Y coordinate of the shape
+' @param drawColor~& Color used for drawing the shape
+' @param flags& Combination of HISTORY_FLAG_* bit flags
+' @param beforeImg& Image handle of the layer state before the shape was drawn
+' @param label$ Human-readable label for the record
+'
 SUB HISTORY_record_shape_common (kind AS INTEGER, layerId AS LONG, layerSlot AS INTEGER, x1 AS INTEGER, y1 AS INTEGER, x2 AS INTEGER, y2 AS INTEGER, drawColor AS _UNSIGNED LONG, flags AS LONG, beforeImg AS LONG, label AS STRING)
     DIM idx AS INTEGER
 
@@ -343,6 +455,12 @@ SUB HISTORY_record_shape_common (kind AS INTEGER, layerId AS LONG, layerSlot AS 
     HISTORY_commit_record idx%
 END SUB
 
+''
+' Finds the current array slot index for a layer by its stable history ID.
+' Scans all 64 layer slots for a matching historyId with a valid image handle.
+' @param layerId& Stable history ID to search for
+' @return INTEGER - Layer slot index (1..64), or 0 if not found
+'
 FUNCTION HISTORY_find_layer_slot_by_id% (layerId AS LONG)
     DIM i AS INTEGER
     FOR i% = 1 TO 64
@@ -355,6 +473,13 @@ FUNCTION HISTORY_find_layer_slot_by_id% (layerId AS LONG)
     NEXT i%
 END FUNCTION
 
+''
+' Captures a layer's metadata and pixel data into a history record for undo.
+' Stores name, opacity, visibility, opacity lock, blend mode, and a copy
+' of the layer's image into the record's img field.
+' @param recordIndex% Index of the history record to populate
+' @param layerSlot% Layer array index (1..64) to capture from
+'
 SUB HISTORY_capture_layer_payload (recordIndex AS INTEGER, layerSlot AS INTEGER)
     IF recordIndex% < 1 OR recordIndex% > HISTORY_MAX_RECORDS THEN EXIT SUB
     IF layerSlot% < 1 OR layerSlot% > 64 THEN EXIT SUB
@@ -375,6 +500,14 @@ SUB HISTORY_capture_layer_payload (recordIndex AS INTEGER, layerSlot AS INTEGER)
     END IF
 END SUB
 
+''
+' Recreates a layer from a history record during undo/redo.
+' Allocates the layer image at the record's original slot, shifts other layers'
+' z-indices to make room, and restores all metadata and pixel data from the record.
+' @param recordIndex% History record containing the layer data to restore
+' @param targetZ% Desired z-index position for the recreated layer
+' @return INTEGER - Slot index of the recreated layer, or 0 on failure
+'
 FUNCTION HISTORY_create_layer_from_record% (recordIndex AS INTEGER, targetZ AS INTEGER)
     DIM i AS INTEGER
     DIM slotIndex AS INTEGER
@@ -433,6 +566,12 @@ FUNCTION HISTORY_create_layer_from_record% (recordIndex AS INTEGER, targetZ AS I
     HISTORY_create_layer_from_record% = slotIndex%
 END FUNCTION
 
+''
+' Removes a layer by its array slot index during undo/redo operations.
+' Frees the layer image and opacity cache, resets all layer fields,
+' compacts z-indices of remaining layers, and selects a replacement layer.
+' @param layerIndex% Layer array slot (1..64) to delete
+'
 SUB HISTORY_delete_layer_by_slot (layerIndex AS INTEGER)
     DIM i AS INTEGER
     DIM deletedZ AS INTEGER
@@ -499,6 +638,13 @@ SUB HISTORY_delete_layer_by_slot (layerIndex AS INTEGER)
     IF replacementIdx% > 0 THEN LAYERS_select replacementIdx%
 END SUB
 
+''
+' Moves a layer to a new z-index position by swapping with adjacent layers.
+' Used during undo/redo of layer reorder operations. Shifts intervening
+' layers up or down one position to make room at the target z-index.
+' @param layerId& Stable history ID of the layer to move
+' @param targetZ% Desired z-index position (clamped to 1..LAYER_COUNT)
+'
 SUB HISTORY_move_layer_to_z (layerId AS LONG, targetZ AS INTEGER)
     DIM layerIndex AS INTEGER
     DIM currentZ AS INTEGER
@@ -547,6 +693,14 @@ SUB HISTORY_move_layer_to_z (layerId AS LONG, targetZ AS INTEGER)
     END IF
 END SUB
 
+''
+' Records a layer-add operation in the history system.
+' Captures the new layer's metadata and pixel data for undo (delete) / redo (recreate).
+' @param layerId& Stable history ID assigned to the new layer
+' @param layerSlot% Array slot (1..64) where the layer was created
+' @param zIndex% Z-index position of the new layer
+' @param label$ Human-readable label for the record
+'
 SUB HISTORY_record_layer_add (layerId AS LONG, layerSlot AS INTEGER, zIndex AS INTEGER, label AS STRING)
     DIM idx AS INTEGER
 
@@ -560,6 +714,14 @@ SUB HISTORY_record_layer_add (layerId AS LONG, layerSlot AS INTEGER, zIndex AS I
     HISTORY_commit_record idx%
 END SUB
 
+''
+' Records a layer-delete operation in the history system.
+' Captures the deleted layer's metadata and pixel data for undo (recreate) / redo (delete).
+' @param layerId& Stable history ID of the layer being deleted
+' @param layerSlot% Array slot (1..64) of the layer being deleted
+' @param zIndex% Z-index position of the layer at time of deletion
+' @param label$ Human-readable label for the record
+'
 SUB HISTORY_record_layer_delete (layerId AS LONG, layerSlot AS INTEGER, zIndex AS INTEGER, label AS STRING)
     DIM idx AS INTEGER
 
@@ -573,6 +735,15 @@ SUB HISTORY_record_layer_delete (layerId AS LONG, layerSlot AS INTEGER, zIndex A
     HISTORY_commit_record idx%
 END SUB
 
+''
+' Records a layer z-order change in the history system.
+' Stores old and new z-indices so undo restores the original position.
+' @param layerId& Stable history ID of the reordered layer
+' @param layerSlot% Array slot (1..64) of the layer
+' @param oldZIndex% Z-index before the reorder
+' @param newZIndex% Z-index after the reorder
+' @param label$ Human-readable label for the record
+'
 SUB HISTORY_record_layer_reorder (layerId AS LONG, layerSlot AS INTEGER, oldZIndex AS INTEGER, newZIndex AS INTEGER, label AS STRING)
     DIM idx AS INTEGER
 
@@ -586,6 +757,14 @@ SUB HISTORY_record_layer_reorder (layerId AS LONG, layerSlot AS INTEGER, oldZInd
     HISTORY_commit_record idx%
 END SUB
 
+''
+' Records a layer rename operation in the history system.
+' Stores old and new names so undo/redo can swap between them.
+' @param layerId& Stable history ID of the renamed layer
+' @param oldName$ Layer name before the rename (max 64 chars)
+' @param newName$ Layer name after the rename (max 64 chars)
+' @param label$ Human-readable label for the record
+'
 SUB HISTORY_record_layer_rename (layerId AS LONG, oldName AS STRING, newName AS STRING, label AS STRING)
     DIM idx AS INTEGER
 
@@ -598,18 +777,71 @@ SUB HISTORY_record_layer_rename (layerId AS LONG, oldName AS STRING, newName AS 
     HISTORY_commit_record idx%
 END SUB
 
+''
+' Records a line drawing operation via the shared shape recording helper.
+' @param layerId& Stable history ID of the affected layer
+' @param layerSlot% Layer array index (1..64)
+' @param x1% Line start X coordinate
+' @param y1% Line start Y coordinate
+' @param x2% Line end X coordinate
+' @param y2% Line end Y coordinate
+' @param drawColor~& Color used for the line
+' @param flags& Combination of HISTORY_FLAG_* bit flags
+' @param beforeImg& Image handle of layer state before drawing (ownership transferred)
+' @param label$ Human-readable label for the record
+'
 SUB HISTORY_record_line (layerId AS LONG, layerSlot AS INTEGER, x1 AS INTEGER, y1 AS INTEGER, x2 AS INTEGER, y2 AS INTEGER, drawColor AS _UNSIGNED LONG, flags AS LONG, beforeImg AS LONG, label AS STRING)
     HISTORY_record_shape_common HISTORY_KIND_LINE, layerId&, layerSlot%, x1%, y1%, x2%, y2%, drawColor~&, flags&, beforeImg&, label$
 END SUB
 
+''
+' Records a rectangle drawing operation via the shared shape recording helper.
+' @param layerId& Stable history ID of the affected layer
+' @param layerSlot% Layer array index (1..64)
+' @param x1% Rectangle top-left X coordinate
+' @param y1% Rectangle top-left Y coordinate
+' @param x2% Rectangle bottom-right X coordinate
+' @param y2% Rectangle bottom-right Y coordinate
+' @param drawColor~& Color used for the rectangle
+' @param flags& Combination of HISTORY_FLAG_* bit flags
+' @param beforeImg& Image handle of layer state before drawing (ownership transferred)
+' @param label$ Human-readable label for the record
+'
 SUB HISTORY_record_rect (layerId AS LONG, layerSlot AS INTEGER, x1 AS INTEGER, y1 AS INTEGER, x2 AS INTEGER, y2 AS INTEGER, drawColor AS _UNSIGNED LONG, flags AS LONG, beforeImg AS LONG, label AS STRING)
     HISTORY_record_shape_common HISTORY_KIND_RECT, layerId&, layerSlot%, x1%, y1%, x2%, y2%, drawColor~&, flags&, beforeImg&, label$
 END SUB
 
+''
+' Records an ellipse drawing operation via the shared shape recording helper.
+' @param layerId& Stable history ID of the affected layer
+' @param layerSlot% Layer array index (1..64)
+' @param x1% Ellipse bounding-box top-left X coordinate
+' @param y1% Ellipse bounding-box top-left Y coordinate
+' @param x2% Ellipse bounding-box bottom-right X coordinate
+' @param y2% Ellipse bounding-box bottom-right Y coordinate
+' @param drawColor~& Color used for the ellipse
+' @param flags& Combination of HISTORY_FLAG_* bit flags
+' @param beforeImg& Image handle of layer state before drawing (ownership transferred)
+' @param label$ Human-readable label for the record
+'
 SUB HISTORY_record_ellipse (layerId AS LONG, layerSlot AS INTEGER, x1 AS INTEGER, y1 AS INTEGER, x2 AS INTEGER, y2 AS INTEGER, drawColor AS _UNSIGNED LONG, flags AS LONG, beforeImg AS LONG, label AS STRING)
     HISTORY_record_shape_common HISTORY_KIND_ELLIPSE, layerId&, layerSlot%, x1%, y1%, x2%, y2%, drawColor~&, flags&, beforeImg&, label$
 END SUB
 
+''
+' Records a polyline/polygon drawing operation in the history system.
+' Stores all vertex coordinates as a serialized payload and captures
+' before/after images for undo/redo.
+' @param layerId& Stable history ID of the affected layer
+' @param layerSlot% Layer array index (1..64)
+' @param drawColor~& Color used for the polyline
+' @param flags& Combination of HISTORY_FLAG_* bit flags
+' @param beforeImg& Image handle of layer state before drawing (ownership transferred)
+' @param pointCount% Number of vertices in the polyline
+' @param pointsX%() Array of vertex X coordinates (0-based)
+' @param pointsY%() Array of vertex Y coordinates (0-based)
+' @param label$ Human-readable label for the record
+'
 SUB HISTORY_record_polyline (layerId AS LONG, layerSlot AS INTEGER, drawColor AS _UNSIGNED LONG, flags AS LONG, beforeImg AS LONG, pointCount AS INTEGER, pointsX() AS INTEGER, pointsY() AS INTEGER, label AS STRING)
     DIM idx AS INTEGER
 
@@ -635,6 +867,18 @@ SUB HISTORY_record_polyline (layerId AS LONG, layerSlot AS INTEGER, drawColor AS
     HISTORY_commit_record idx%
 END SUB
 
+''
+' Records a flood fill operation in the history system.
+' Stores the seed point, fill color, and before/after images for undo/redo.
+' @param layerId& Stable history ID of the affected layer
+' @param layerSlot% Layer array index (1..64)
+' @param drawColor~& Color used for the flood fill
+' @param flags& Combination of HISTORY_FLAG_* bit flags
+' @param beforeImg& Image handle of layer state before the fill (ownership transferred)
+' @param seedX% X coordinate of the fill origin point
+' @param seedY% Y coordinate of the fill origin point
+' @param label$ Human-readable label for the record
+'
 SUB HISTORY_record_fill (layerId AS LONG, layerSlot AS INTEGER, drawColor AS _UNSIGNED LONG, flags AS LONG, beforeImg AS LONG, seedX AS INTEGER, seedY AS INTEGER, label AS STRING)
     DIM idx AS INTEGER
 
@@ -655,6 +899,17 @@ SUB HISTORY_record_fill (layerId AS LONG, layerSlot AS INTEGER, drawColor AS _UN
     HISTORY_commit_record idx%
 END SUB
 
+''
+' Records a brush/dot/spray/eraser stroke in the history system.
+' Stores before/after layer images for undo/redo. The stroke path is not
+' stored individually; undo restores the full before-image.
+' @param layerId& Stable history ID of the affected layer
+' @param layerSlot% Layer array index (1..64)
+' @param drawColor~& Color used for the brush stroke
+' @param flags& Combination of HISTORY_FLAG_* bit flags
+' @param beforeImg& Image handle of layer state before the stroke (ownership transferred)
+' @param label$ Human-readable label for the record
+'
 SUB HISTORY_record_brush (layerId AS LONG, layerSlot AS INTEGER, drawColor AS _UNSIGNED LONG, flags AS LONG, beforeImg AS LONG, label AS STRING)
     DIM idx AS INTEGER
 
@@ -673,6 +928,15 @@ SUB HISTORY_record_brush (layerId AS LONG, layerSlot AS INTEGER, drawColor AS _U
     HISTORY_commit_record idx%
 END SUB
 
+''
+' Records a transform operation (move, flip, scale, rotate, image adjustment).
+' Stores before/after layer images for undo/redo.
+' @param layerId& Stable history ID of the affected layer
+' @param layerSlot% Layer array index (1..64)
+' @param flags& Combination of HISTORY_FLAG_* bit flags
+' @param beforeImg& Image handle of layer state before the transform (ownership transferred)
+' @param label$ Human-readable label for the record
+'
 SUB HISTORY_record_transform (layerId AS LONG, layerSlot AS INTEGER, flags AS LONG, beforeImg AS LONG, label AS STRING)
     DIM idx AS INTEGER
 
@@ -690,6 +954,12 @@ SUB HISTORY_record_transform (layerId AS LONG, layerSlot AS INTEGER, flags AS LO
     HISTORY_commit_record idx%
 END SUB
 
+''
+' Updates the most recent LAYER_ADD history record for a given layer with
+' current layer data. Called after a layer is modified post-creation to ensure
+' the add record reflects the final state for correct undo/redo.
+' @param layerId& Stable history ID of the layer whose add record to refresh
+'
 SUB HISTORY_refresh_layer_add_snapshot (layerId AS LONG)
     DIM idx AS INTEGER
     DIM layerSlot AS INTEGER
@@ -709,6 +979,14 @@ SUB HISTORY_refresh_layer_add_snapshot (layerId AS LONG)
     NEXT idx%
 END SUB
 
+''
+' Serializes the entire history system to a binary file for .draw project saving.
+' Writes the global next-layer ID, system counters, all record fields,
+' before/after images as raw RGBA pixel data, and payload strings.
+' @param fh% Open file handle to write to
+' @param canvasW& Canvas width in pixels (for image serialization)
+' @param canvasH& Canvas height in pixels (for image serialization)
+'
 SUB HISTORY_save_binary (fh AS INTEGER, canvasW AS LONG, canvasH AS LONG)
     DIM i AS INTEGER, x AS LONG, y AS LONG
     DIM hasImage AS INTEGER
@@ -850,6 +1128,16 @@ SUB HISTORY_save_binary (fh AS INTEGER, canvasW AS LONG, canvasH AS LONG)
     NEXT i%
 END SUB
 
+''
+' Deserializes history system data from a binary file during .draw project loading.
+' Clears existing history, reads system counters and all record fields,
+' reconstructs before/after images from raw RGBA pixel data, and reads payload
+' strings. Sanitizes loaded values and rebuilds the BAS WIP export state.
+' @param fh% Open file handle to read from
+' @param canvasW& Canvas width in pixels (for image reconstruction)
+' @param canvasH& Canvas height in pixels (for image reconstruction)
+' @param formatVersion% DRW format version (controls payload reading behavior)
+'
 SUB HISTORY_load_binary (fh AS INTEGER, canvasW AS LONG, canvasH AS LONG, formatVersion AS INTEGER)
     DIM i AS INTEGER, x AS LONG, y AS LONG
     DIM savedCount AS INTEGER
@@ -1037,10 +1325,11 @@ SUB HISTORY_load_binary (fh AS INTEGER, canvasW AS LONG, canvasH AS LONG, format
     FILE_BAS_wip_rebuild_from_history
 END SUB
 
-' ============================================================================
-' HISTORY_MV_alloc_slot% - Allocate an MV slot for merge-visible backup data.
-' Returns 0 if no slot is available.
-' ============================================================================
+''
+' Allocates an MV (merge-visible) slot for storing per-layer backup data.
+' Scans for the first unused slot in the HISTORY_MV_COUNT array.
+' @return INTEGER - Slot index (1..HISTORY_MAX_MV_SLOTS), or 0 if none available
+'
 FUNCTION HISTORY_MV_alloc_slot% ()
     DIM s AS INTEGER
     FOR s% = 1 TO HISTORY_MAX_MV_SLOTS
@@ -1052,9 +1341,11 @@ FUNCTION HISTORY_MV_alloc_slot% ()
     HISTORY_MV_alloc_slot% = 0
 END FUNCTION
 
-' ============================================================================
-' HISTORY_MV_free_slot - Free all images stored in an MV slot and reset it.
-' ============================================================================
+''
+' Frees all image handles stored in a merge-visible backup slot and resets
+' the slot's layer count to zero.
+' @param mvSlot% MV slot index (1..HISTORY_MAX_MV_SLOTS) to free
+'
 SUB HISTORY_MV_free_slot (mvSlot AS INTEGER)
     IF mvSlot% < 1 OR mvSlot% > HISTORY_MAX_MV_SLOTS THEN EXIT SUB
     DIM j AS INTEGER
@@ -1067,9 +1358,12 @@ SUB HISTORY_MV_free_slot (mvSlot AS INTEGER)
     HISTORY_MV_COUNT(mvSlot%) = 0
 END SUB
 
-' ============================================================================
-' HISTORY_sel_capture - Capture live MARQUEE state into a HISTORY_SEL_SNAP.
-' ============================================================================
+''
+' Captures the current live MARQUEE selection state into a snapshot struct.
+' Copies all selection fields (active, bounds, wand state, variant, mode,
+' initial config) and duplicates the selection mask image if present.
+' @param snap HISTORY_SEL_SNAP struct to populate with current state
+'
 SUB HISTORY_sel_capture (snap AS HISTORY_SEL_SNAP)
     snap.sel_active%       = MARQUEE.ACTIVE
     snap.sel_initialized%  = MARQUEE.INITIALIZED
@@ -1097,9 +1391,12 @@ SUB HISTORY_sel_capture (snap AS HISTORY_SEL_SNAP)
     END IF
 END SUB
 
-' ============================================================================
-' HISTORY_sel_apply - Restore a HISTORY_SEL_SNAP into live MARQUEE state.
-' ============================================================================
+''
+' Restores a HISTORY_SEL_SNAP into the live MARQUEE selection state.
+' Sets all selection fields, resets interaction flags (dragging, resizing, moving),
+' and validates state consistency (e.g. wand mask presence, box dimensions).
+' @param snap HISTORY_SEL_SNAP struct containing the state to restore
+'
 SUB HISTORY_sel_apply (snap AS HISTORY_SEL_SNAP)
     MARQUEE.ACTIVE           = snap.sel_active%
     MARQUEE.INITIALIZED      = snap.sel_initialized%
@@ -1145,9 +1442,14 @@ SUB HISTORY_sel_apply (snap AS HISTORY_SEL_SNAP)
     END IF
 END SUB
 
-' ============================================================================
-' HISTORY_sel_masks_match% - Compare two selection mask image handles.
-' ============================================================================
+''
+' Performs a pixel-by-pixel comparison of two selection mask images.
+' Returns TRUE if both are invalid/empty, or if both have identical dimensions
+' and every pixel matches. Uses _MEM access for efficient comparison.
+' @param savedMask& Image handle of the first mask (or 0/-1 if none)
+' @param liveMask& Image handle of the second mask (or 0/-1 if none)
+' @return INTEGER - TRUE if masks are equivalent, FALSE otherwise
+'
 FUNCTION HISTORY_sel_masks_match% (savedMask AS LONG, liveMask AS LONG)
     IF savedMask& >= -1 AND liveMask& >= -1 THEN
         HISTORY_sel_masks_match% = TRUE : EXIT FUNCTION
@@ -1172,9 +1474,12 @@ FUNCTION HISTORY_sel_masks_match% (savedMask AS LONG, liveMask AS LONG)
     HISTORY_sel_masks_match% = TRUE
 END FUNCTION
 
-' ============================================================================
-' HISTORY_sel_matches_live% - Compare staged snapshot to live MARQUEE state.
-' ============================================================================
+''
+' Compares a staged selection snapshot against the current live MARQUEE state.
+' Checks all scalar fields and delegates mask comparison to HISTORY_sel_masks_match%.
+' @param snap HISTORY_SEL_SNAP struct to compare against live state
+' @return INTEGER - TRUE if the snapshot matches live state exactly, FALSE otherwise
+'
 FUNCTION HISTORY_sel_matches_live% (snap AS HISTORY_SEL_SNAP)
     IF snap.sel_active%       <> MARQUEE.ACTIVE             THEN EXIT FUNCTION
     IF snap.sel_initialized%  <> MARQUEE.INITIALIZED        THEN EXIT FUNCTION
@@ -1199,9 +1504,10 @@ FUNCTION HISTORY_sel_matches_live% (snap AS HISTORY_SEL_SNAP)
     HISTORY_sel_matches_live% = TRUE
 END FUNCTION
 
-' ============================================================================
-' HISTORY_sel_clear_pending - Release any staged (uncommitted) selection snap.
-' ============================================================================
+''
+' Releases any staged (uncommitted) selection snapshot.
+' Frees the pending mask image if valid and clears the pending flag.
+'
 SUB HISTORY_sel_clear_pending ()
     IF HISTORY_SEL_PENDING.sel_mask& < -1 THEN
         _FREEIMAGE HISTORY_SEL_PENDING.sel_mask&
@@ -1210,10 +1516,12 @@ SUB HISTORY_sel_clear_pending ()
     HISTORY_HAS_PENDING_SEL% = FALSE
 END SUB
 
-' ============================================================================
-' HISTORY_selection_stage - Stage current MARQUEE state before a mutation.
-' Called BEFORE any selection mutation (create, modify, deselect, invert).
-' ============================================================================
+''
+' Stages the current MARQUEE selection state before a mutation begins.
+' Must be called BEFORE any selection change (create, modify, deselect, invert).
+' The staged snapshot is later compared in HISTORY_selection_commit to determine
+' whether the mutation actually changed anything.
+'
 SUB HISTORY_selection_stage ()
     IF HISTORY_IN_PROGRESS% THEN EXIT SUB
     HISTORY_sel_clear_pending
@@ -1221,10 +1529,13 @@ SUB HISTORY_selection_stage ()
     HISTORY_HAS_PENDING_SEL% = TRUE
 END SUB
 
-' ============================================================================
-' HISTORY_selection_commit - Commit staged selection if state changed.
-' Called AFTER the selection mutation.  No-op if state is unchanged.
-' ============================================================================
+''
+' Commits a staged selection change if the live state differs from the snapshot.
+' Called AFTER a selection mutation. If state is unchanged, silently discards
+' the staged snapshot (no-op). Otherwise, truncates the redo tail, handles
+' wrap-around capacity, and writes a HISTORY_KIND_SELECTION_CHANGE record.
+' Transfers mask image ownership from the pending snapshot to the record.
+'
 SUB HISTORY_selection_commit ()
     IF NOT HISTORY_HAS_PENDING_SEL% THEN EXIT SUB
     IF HISTORY_sel_matches_live%(HISTORY_SEL_PENDING) THEN
@@ -1325,10 +1636,13 @@ SUB HISTORY_selection_commit ()
     HISTORY_HAS_PENDING_SEL% = FALSE
 END SUB
 
-' ============================================================================
-' HISTORY_sel_exchange - Exchange stored selection state with live MARQUEE.
-' Used identically by both undo and redo (bidirectional exchange pattern).
-' ============================================================================
+''
+' Exchanges the stored selection state in a history record with the live
+' MARQUEE state. Used identically by both undo and redo (bidirectional swap).
+' Captures current live state, applies the stored state, then writes the
+' previously-live state back to the record for the reverse operation.
+' @param recIdx% Index of the HISTORY_SEL_DATA record to exchange with
+'
 SUB HISTORY_sel_exchange (recIdx AS INTEGER)
     DIM tmpSnap AS HISTORY_SEL_SNAP
     ' Capture live state into a temporary snap
@@ -1363,11 +1677,15 @@ SUB HISTORY_sel_exchange (recIdx AS INTEGER)
     tmpSnap.sel_mask& = 0
 END SUB
 
-' ============================================================================
-' HISTORY_create_layer_at_slot% - Internal: recreate a layer slot at a given
-' z-position. Used when undoing merge-visible to restore source layers.
-' Returns slotIndex% on success, 0 on failure.
-' ============================================================================
+''
+' Recreates a layer at a specific array slot and z-position.
+' Used when undoing merge-visible to restore source layers. Allocates a new
+' transparent image, assigns a fresh history ID, sets default layer properties,
+' and shifts existing layers' z-indices to make room.
+' @param slotIndex% Target array slot (1..64) to create the layer in
+' @param targetZ% Desired z-index position for the new layer
+' @return INTEGER - slotIndex% on success, 0 on failure
+'
 FUNCTION HISTORY_create_layer_at_slot% (slotIndex AS INTEGER, targetZ AS INTEGER)
     DIM i AS INTEGER
     DIM oldDest AS LONG
@@ -1419,12 +1737,13 @@ FUNCTION HISTORY_create_layer_at_slot% (slotIndex AS INTEGER, targetZ AS INTEGER
     HISTORY_create_layer_at_slot% = slotIndex%
 END FUNCTION
 
-' ============================================================================
-' HISTORY_record_layer_merge - Record a merge-down operation for undo.
-' Called BEFORE the merge is performed.
-' topIndex: slot of the top (source) layer being merged
-' bottomIndex: slot of the bottom (target) layer being merged into
-' ============================================================================
+''
+' Records a merge-down operation for undo. Called BEFORE the merge is performed.
+' Stores before-state images of both the top (source) and bottom (target) layers
+' along with the top layer's metadata for reconstruction on undo.
+' @param topIndex% Slot of the top (source) layer being merged
+' @param bottomIndex% Slot of the bottom (target) layer being merged into
+'
 SUB HISTORY_record_layer_merge (topIndex AS INTEGER, bottomIndex AS INTEGER)
     IF HISTORY_IN_PROGRESS% THEN EXIT SUB
     IF topIndex% < 1 OR topIndex% > 64   THEN EXIT SUB
@@ -1459,13 +1778,14 @@ SUB HISTORY_record_layer_merge (topIndex AS INTEGER, bottomIndex AS INTEGER)
     HISTORY_commit_record recIdx%
 END SUB
 
-' ============================================================================
-' HISTORY_record_layer_merge_visible - Record a merge-visible/merge-selected
-' operation for undo.  Called BEFORE the merge is performed.
-' sortedLayers(): source layer slots sorted bottom-to-top by zIndex
-' sortCount: number of entries in sortedLayers()
-' mergedResultSlot: slot of the newly created merged result layer
-' ============================================================================
+''
+' Records a merge-visible (or merge-selected) operation for undo.
+' Called BEFORE the merge is performed. Allocates an MV backup slot and stores
+' a full copy of every source layer's metadata and pixel data.
+' @param sortedLayers%() Source layer slots sorted bottom-to-top by zIndex (1-based)
+' @param sortCount% Number of entries in sortedLayers()
+' @param mergedResultSlot% Slot of the newly created merged result layer
+'
 SUB HISTORY_record_layer_merge_visible (sortedLayers() AS INTEGER, sortCount AS INTEGER, mergedResultSlot AS INTEGER)
     IF HISTORY_IN_PROGRESS% THEN EXIT SUB
 
@@ -1506,16 +1826,25 @@ SUB HISTORY_record_layer_merge_visible (sortedLayers() AS INTEGER, sortCount AS 
     HISTORY_commit_record recIdx%
 END SUB
 
-' ============================================================================
-' HISTORY_merge_update_result_id - Store the merged-result layer's historyId
-' into the most-recent LAYER_MERGE_VISIBLE record.  Called after LAYERS_new%.
-' ============================================================================
+''
+' Stores the merged-result layer's stable history ID into the most recent
+' LAYER_MERGE_VISIBLE record. Called after LAYERS_new% creates the merged
+' result layer so the record can reference it for redo.
+' @param resultLayerId& History ID of the newly created merged result layer
+'
 SUB HISTORY_merge_update_result_id (resultLayerId AS LONG)
     IF HISTORY.current% < 1 THEN EXIT SUB
     IF HISTORY_RECORDS(HISTORY.current%).kind% <> HISTORY_KIND_LAYER_MERGE_VISIBLE THEN EXIT SUB
     HISTORY_RECORDS(HISTORY.current%).primaryLayerId& = resultLayerId&
 END SUB
 
+''
+' Undoes the current history record (or group of records sharing a sequence).
+' Dispatches by record kind: restores layer snapshots, deletes/recreates layers,
+' reverses z-order changes, reverts renames, exchanges selection state, and
+' reconstructs source layers from merge-down/merge-visible backups.
+' Invalidates caches and rebuilds BAS WIP export state after completion.
+'
 SUB HISTORY_undo ()
     DIM idx AS INTEGER
     DIM layerIndex AS INTEGER
@@ -1638,6 +1967,13 @@ SUB HISTORY_undo ()
     FILE_BAS_wip_rebuild_from_history
 END SUB
 
+''
+' Redoes the next history record (or group of records sharing a sequence).
+' Dispatches by record kind: recreates/deletes layers, applies after-image
+' snapshots, reapplies z-order changes and renames, exchanges selection state,
+' and re-runs merge-down/merge-visible operations.
+' Invalidates caches and rebuilds BAS WIP export state after completion.
+'
 SUB HISTORY_redo ()
     DIM idx AS INTEGER
     DIM layerIndex AS INTEGER
