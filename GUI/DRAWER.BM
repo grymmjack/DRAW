@@ -116,6 +116,8 @@ SUB DRAWER_free_samples ()
         IF DRAWER_PATTERN_SLOTS(i%) < -1 THEN _FREEIMAGE DRAWER_PATTERN_SLOTS(i%)
         DRAWER_PATTERN_SLOTS(i%) = 0
         DRAWER_PATTERN_HAS(i%) = FALSE
+        DRAWER_PATTERN_1BIT(i%) = FALSE
+        DRAWER_PATTERN_1BIT_FG(i%) = 0
 
         IF DRAWER_GRADIENT_SLOTS(i%) < -1 THEN _FREEIMAGE DRAWER_GRADIENT_SLOTS(i%)
         DRAWER_GRADIENT_SLOTS(i%) = 0
@@ -1245,6 +1247,8 @@ SUB DRAWER_ensure_samples ()
         END IF
     NEXT i%
 
+    DRAWER_analyze_all_1bit
+
     DRAWER.samplesLoaded% = TRUE
     DRAWER.loadedTheme = _TRIM$(CFG.THEME$)
     DRAWER_GRADIENT_LAST_FG~& = PAINT_COLOR~&
@@ -1393,6 +1397,7 @@ SUB DRAWER_run_deferred_action ()
                 IF DRAWER_PATTERN_SLOTS(DRAWER_DEFERRED_IMPORT_SLOT%) < -1 THEN _FREEIMAGE DRAWER_PATTERN_SLOTS(DRAWER_DEFERRED_IMPORT_SLOT%)
                 DRAWER_PATTERN_SLOTS(DRAWER_DEFERRED_IMPORT_SLOT%) = loadedImg&
                 DRAWER_PATTERN_HAS(DRAWER_DEFERRED_IMPORT_SLOT%) = TRUE
+                DRAWER_analyze_1bit DRAWER_DEFERRED_IMPORT_SLOT%
                 DRAWER.patternSelected% = DRAWER_DEFERRED_IMPORT_SLOT%
             CASE DRAWER_MODE_GRADIENT
                 IF DRAWER_GRADIENT_SLOTS(DRAWER_DEFERRED_IMPORT_SLOT%) < -1 THEN _FREEIMAGE DRAWER_GRADIENT_SLOTS(DRAWER_DEFERRED_IMPORT_SLOT%)
@@ -1531,6 +1536,30 @@ FUNCTION DRAWER_resolve_paint_color~& (x AS INTEGER, y AS INTEGER, baseColor AS 
     _SOURCE sampleImg&
     sampleColor~& = POINT(srcX%, srcY%)
     _SOURCE oldSource&
+
+    ' 1-bit pattern auto-remap: FG pixels → baseColor, BG/transparent → PAINT_BG_COLOR
+    ' Always takes priority (even over RECOLOR_MODE) since 1-bit patterns need
+    ' both FG and BG mapped — RECOLOR_MODE would collapse them to one color.
+    IF DRAWER.paintMode% = 3 THEN
+        IF DRAWER.patternSelected% >= 1 AND DRAWER.patternSelected% <= DRAWER_SLOT_COUNT THEN
+            IF DRAWER_PATTERN_1BIT(DRAWER.patternSelected%) THEN
+                DIM sampleRGB AS _UNSIGNED LONG
+                sampleRGB~& = _RGB32(_RED32(sampleColor~&), _GREEN32(sampleColor~&), _BLUE32(sampleColor~&))
+                IF _ALPHA32(sampleColor~&) > 0 AND sampleRGB~& = DRAWER_PATTERN_1BIT_FG(DRAWER.patternSelected%) THEN
+                    ' FG pixel → draw with current paint color
+                    DRAWER_resolve_paint_color~& = PAINT_apply_opacity~&(baseColor~&)
+                ELSE
+                    ' BG or transparent pixel → use BG color or transparent
+                    IF PAL_BG_IS_TRANSPARENT% THEN
+                        DRAWER_resolve_paint_color~& = _RGBA32(0, 0, 0, 0)
+                    ELSE
+                        DRAWER_resolve_paint_color~& = PAINT_apply_opacity~&(PAINT_BG_COLOR~&)
+                    END IF
+                END IF
+                EXIT FUNCTION
+            END IF
+        END IF
+    END IF
 
     ' Recolor mode: use base (FG) color where pattern has non-transparent pixels
     IF DRAWER.paintMode% = 3 AND CUSTOM_BRUSH.RECOLOR_MODE% THEN
@@ -1880,6 +1909,24 @@ SUB DRAWER_render ()
     DIM sourceW AS INTEGER
     DIM sourceH AS INTEGER
     DIM checkerSize AS INTEGER
+    DIM remapImg AS LONG
+    DIM remapOldDest AS LONG
+    DIM remapOldSrc AS LONG
+    DIM remapX AS INTEGER
+    DIM remapY AS INTEGER
+    DIM remapC AS _UNSIGNED LONG
+    DIM remapA AS _UNSIGNED LONG
+    DIM remapOrigFG AS _UNSIGNED LONG
+    DIM sigilS AS INTEGER
+    DIM sigilGW AS INTEGER
+    DIM sigilGH AS INTEGER
+    DIM sigilPad AS INTEGER
+    DIM sigilBX AS INTEGER
+    DIM sigilBY AS INTEGER
+    DIM sigilBW AS INTEGER
+    DIM sigilBH AS INTEGER
+    DIM sigilOX AS INTEGER
+    DIM sigilOY AS INTEGER
     IF NOT DRAWER.visible% OR DRAWER.mode% = DRAWER_MODE_NONE THEN EXIT SUB
 
     uiScale% = CFG.TOOLBAR_SCALE%
@@ -1996,8 +2043,51 @@ SUB DRAWER_render ()
             IF slotImg& < -1 THEN
                 SELECT CASE DRAWER.mode%
                     CASE DRAWER_MODE_PATTERN
-                        tileW% = _WIDTH(slotImg&)
-                        tileH% = _HEIGHT(slotImg&)
+                        ' For 1-bit patterns, create a remapped temp image
+                        remapImg& = 0
+                        IF slotIndex% >= 1 AND slotIndex% <= DRAWER_SLOT_COUNT THEN
+                            IF DRAWER_PATTERN_1BIT(slotIndex%) THEN
+                                remapOrigFG~& = DRAWER_PATTERN_1BIT_FG(slotIndex%)
+                                remapImg& = _COPYIMAGE(slotImg&, 32)
+                                IF remapImg& < -1 THEN
+                                    remapOldDest& = _DEST
+                                    remapOldSrc& = _SOURCE
+                                    _SOURCE remapImg&
+                                    _DEST remapImg&
+                                    FOR remapY% = 0 TO _HEIGHT(remapImg&) - 1
+                                        FOR remapX% = 0 TO _WIDTH(remapImg&) - 1
+                                            remapC~& = POINT(remapX%, remapY%)
+                                            remapA~& = _ALPHA32(remapC~&)
+                                            IF remapA~& > 0 THEN
+                                                ' Strip alpha for comparison
+                                                IF _RGB32(_RED32(remapC~&), _GREEN32(remapC~&), _BLUE32(remapC~&)) = remapOrigFG~& THEN
+                                                    PSET (remapX%, remapY%), PAINT_COLOR~&
+                                                ELSE
+                                                    IF PAL_BG_IS_TRANSPARENT% THEN
+                                                        PSET (remapX%, remapY%), _RGBA32(0, 0, 0, 0)
+                                                    ELSE
+                                                        PSET (remapX%, remapY%), PAINT_BG_COLOR~&
+                                                    END IF
+                                                END IF
+                                            ELSE
+                                                IF PAL_BG_IS_TRANSPARENT% THEN
+                                                    PSET (remapX%, remapY%), _RGBA32(0, 0, 0, 0)
+                                                ELSE
+                                                    PSET (remapX%, remapY%), PAINT_BG_COLOR~&
+                                                END IF
+                                            END IF
+                                        NEXT remapX%
+                                    NEXT remapY%
+                                    _DEST remapOldDest&
+                                    _SOURCE remapOldSrc&
+                                END IF
+                            END IF
+                        END IF
+
+                        DIM tileImg AS LONG
+                        IF remapImg& < -1 THEN tileImg& = remapImg& ELSE tileImg& = slotImg&
+                        tileW% = _WIDTH(tileImg&)
+                        tileH% = _HEIGHT(tileImg&)
                         IF tileW% > 0 AND tileH% > 0 THEN
                             drawW% = slotInnerX2% - slotInnerX1% + 1
                             drawH% = slotInnerY2% - slotInnerY1% + 1
@@ -2018,10 +2108,47 @@ SUB DRAWER_render ()
                                         srcY1% = destY1% - tileY%
                                         srcX2% = srcX1% + (destX2% - destX1%)
                                         srcY2% = srcY1% + (destY2% - destY1%)
-                                        _PUTIMAGE (destX1%, destY1%)-(destX2%, destY2%), slotImg&, SCRN.GUI&, (srcX1%, srcY1%)-(srcX2%, srcY2%)
+                                        _PUTIMAGE (destX1%, destY1%)-(destX2%, destY2%), tileImg&, SCRN.GUI&, (srcX1%, srcY1%)-(srcX2%, srcY2%)
                                     END IF
                                 NEXT tileX%
                             NEXT tileY%
+                        END IF
+
+                        IF remapImg& < -1 THEN _FREEIMAGE remapImg&
+
+                        ' Draw tiny "1" sigil badge on 1-bit pattern bins
+                        IF slotIndex% >= 1 AND slotIndex% <= DRAWER_SLOT_COUNT THEN
+                            IF DRAWER_PATTERN_1BIT(slotIndex%) THEN
+                                ' Each glyph "pixel" is 1x1 (no scaling)
+                                sigilS% = 1
+                                ' 3x3 pixel art "1":
+                                '  .#.
+                                '  ##.
+                                '  .#.
+                                sigilGW% = 3 * sigilS%
+                                sigilGH% = 3 * sigilS%
+                                sigilPad% = THEME.DRAWER_BIN_1BIT_SIGIL_PAD% * sigilS%
+                                IF sigilPad% < sigilS% THEN sigilPad% = sigilS%
+                                sigilBW% = sigilGW% + sigilPad% * 2
+                                sigilBH% = sigilGH% + sigilPad% * 2
+                                sigilBX% = slotInnerX2% - sigilBW% + 1
+                                sigilBY% = slotInnerY2% - sigilBH% + 1
+                                IF sigilBX% < slotInnerX1% THEN sigilBX% = slotInnerX1%
+                                IF sigilBY% < slotInnerY1% THEN sigilBY% = slotInnerY1%
+                                ' Background
+                                LINE (sigilBX%, sigilBY%)-(sigilBX% + sigilBW% - 1, sigilBY% + sigilBH% - 1), THEME.DRAWER_BIN_1BIT_SIGIL_BG~&, BF
+                                ' Border
+                                LINE (sigilBX%, sigilBY%)-(sigilBX% + sigilBW% - 1, sigilBY% + sigilBH% - 1), THEME.DRAWER_BIN_1BIT_SIGIL_BORDER~&, B
+                                ' Draw 3x3 "1" glyph
+                                sigilOX% = sigilBX% + sigilPad%
+                                sigilOY% = sigilBY% + sigilPad%
+                                ' Row 0: .#.
+                                LINE (sigilOX% + sigilS%, sigilOY%)-(sigilOX% + sigilS% * 2 - 1, sigilOY% + sigilS% - 1), THEME.DRAWER_BIN_1BIT_SIGIL_FG~&, BF
+                                ' Row 1: ##.
+                                LINE (sigilOX%, sigilOY% + sigilS%)-(sigilOX% + sigilS% * 2 - 1, sigilOY% + sigilS% * 2 - 1), THEME.DRAWER_BIN_1BIT_SIGIL_FG~&, BF
+                                ' Row 2: .#.
+                                LINE (sigilOX% + sigilS%, sigilOY% + sigilS% * 2)-(sigilOX% + sigilS% * 2 - 1, sigilOY% + sigilS% * 3 - 1), THEME.DRAWER_BIN_1BIT_SIGIL_FG~&, BF
+                            END IF
                         END IF
                     CASE DRAWER_MODE_BRUSH
                         drawW% = slotInnerX2% - slotInnerX1% + 1 - uiScale%
@@ -2222,6 +2349,7 @@ SUB DRAWER_store_to_slot (slotIndex AS INTEGER)
                 IF DRAWER_PATTERN_SLOTS(slotIndex%) < -1 THEN _FREEIMAGE DRAWER_PATTERN_SLOTS(slotIndex%)
                 DRAWER_PATTERN_SLOTS(slotIndex%) = _COPYIMAGE(srcImg&, 32)
                 DRAWER_PATTERN_HAS(slotIndex%) = TRUE
+                DRAWER_analyze_1bit slotIndex%
                 DRAWER.patternSelected% = slotIndex%
             END IF
 
@@ -2320,6 +2448,8 @@ SUB DRAWER_clear_slot (slotIndex AS INTEGER)
             IF DRAWER_PATTERN_SLOTS(slotIndex%) < -1 THEN _FREEIMAGE DRAWER_PATTERN_SLOTS(slotIndex%)
             DRAWER_PATTERN_SLOTS(slotIndex%) = 0
             DRAWER_PATTERN_HAS(slotIndex%) = FALSE
+            DRAWER_PATTERN_1BIT(slotIndex%) = FALSE
+            DRAWER_PATTERN_1BIT_FG(slotIndex%) = 0
         CASE DRAWER_MODE_GRADIENT
             IF DRAWER_GRADIENT_SLOTS(slotIndex%) < -1 THEN _FREEIMAGE DRAWER_GRADIENT_SLOTS(slotIndex%)
             DRAWER_GRADIENT_SLOTS(slotIndex%) = 0
@@ -2447,6 +2577,14 @@ SUB DRAWER_swap_slots (slotA AS INTEGER, slotB AS INTEGER)
             tmpHas% = DRAWER_PATTERN_HAS(slotA%)
             DRAWER_PATTERN_HAS(slotA%) = DRAWER_PATTERN_HAS(slotB%)
             DRAWER_PATTERN_HAS(slotB%) = tmpHas%
+            DIM tmp1bit AS INTEGER
+            DIM tmp1bitFG AS _UNSIGNED LONG
+            tmp1bit% = DRAWER_PATTERN_1BIT(slotA%)
+            DRAWER_PATTERN_1BIT(slotA%) = DRAWER_PATTERN_1BIT(slotB%)
+            DRAWER_PATTERN_1BIT(slotB%) = tmp1bit%
+            tmp1bitFG~& = DRAWER_PATTERN_1BIT_FG(slotA%)
+            DRAWER_PATTERN_1BIT_FG(slotA%) = DRAWER_PATTERN_1BIT_FG(slotB%)
+            DRAWER_PATTERN_1BIT_FG(slotB%) = tmp1bitFG~&
         CASE DRAWER_MODE_GRADIENT
             tmpImg& = DRAWER_GRADIENT_SLOTS(slotA%)
             DRAWER_GRADIENT_SLOTS(slotA%) = DRAWER_GRADIENT_SLOTS(slotB%)
@@ -3227,6 +3365,7 @@ FUNCTION DRAWER_load_dset_file% (filename AS STRING, targetMode AS INTEGER)
                 DRAWER_PATTERN_SLOTS(i%) = loadedImg&
                 DRAWER_PATTERN_HAS(i%) = (loadedImg& < -1)
             NEXT i%
+            DRAWER_analyze_all_1bit
             DRAWER.patternSelected% = selectedSlot%
             IF DRAWER.patternSelected% < 1 OR DRAWER.patternSelected% > DRAWER_SLOT_COUNT THEN DRAWER.patternSelected% = 1
         CASE DRAWER_MODE_GRADIENT
@@ -3358,6 +3497,8 @@ SUB DRAWER_load_state_binary (fh AS INTEGER)
         DRAWER_PATTERN_SLOTS(i%) = loadedImg&
         DRAWER_PATTERN_HAS(i%) = (loadedImg& < -1)
     NEXT i%
+
+    DRAWER_analyze_all_1bit
 
     FOR i% = 1 TO DRAWER_SLOT_COUNT
         loadedImg& = DRAWER_load_slot_image&(fh%)
@@ -3694,6 +3835,7 @@ SUB DRAWER_import_set_dialog ()
                 DRAWER_PATTERN_SLOTS(i%) = loadedImg&
                 DRAWER_PATTERN_HAS(i%) = (loadedImg& < -1)
             NEXT i%
+            DRAWER_analyze_all_1bit
             DRAWER.patternSelected% = selectedSlot%
             IF DRAWER.patternSelected% < 1 OR DRAWER.patternSelected% > DRAWER_SLOT_COUNT THEN DRAWER.patternSelected% = 1
         CASE ELSE
@@ -4324,4 +4466,128 @@ SUB GRADIENT_editor_dialog ()
     MOUSE_cleanup_after_dialog FALSE
     GUI_NEEDS_REDRAW% = TRUE
     FRAME_IDLE% = FALSE
+END SUB
+
+
+''
+' Check whether a pattern slot is flagged as 1-bit.
+' @param slotIndex INTEGER Slot index (1..DRAWER_SLOT_COUNT)
+' @return INTEGER - TRUE if the slot contains a 1-bit pattern
+'
+FUNCTION DRAWER_pattern_is_1bit% (slotIndex AS INTEGER)
+    IF slotIndex% < 1 OR slotIndex% > DRAWER_SLOT_COUNT THEN
+        DRAWER_pattern_is_1bit% = FALSE
+        EXIT FUNCTION
+    END IF
+    DRAWER_pattern_is_1bit% = DRAWER_PATTERN_1BIT(slotIndex%)
+END FUNCTION
+
+
+''
+' Analyze a pattern slot to determine if it is a 1-bit pattern.
+' A 1-bit pattern has at most 1 opaque color (on transparent), or exactly
+' 2 opaque colors where the majority-pixel color is treated as BG and the
+' minority-pixel color as FG.
+' Sets DRAWER_PATTERN_1BIT(slot) and DRAWER_PATTERN_1BIT_FG(slot).
+' @param slotIndex INTEGER Slot index (1..DRAWER_SLOT_COUNT)
+'
+SUB DRAWER_analyze_1bit (slotIndex AS INTEGER)
+    DIM img AS LONG
+    DIM imgW AS INTEGER
+    DIM imgH AS INTEGER
+    DIM oldSource AS LONG
+    DIM px AS INTEGER
+    DIM py AS INTEGER
+    DIM c AS _UNSIGNED LONG
+    DIM a AS _UNSIGNED LONG
+    DIM color1 AS _UNSIGNED LONG
+    DIM color2 AS _UNSIGNED LONG
+    DIM count1 AS LONG
+    DIM count2 AS LONG
+    DIM numColors AS INTEGER
+
+    IF slotIndex% < 1 OR slotIndex% > DRAWER_SLOT_COUNT THEN EXIT SUB
+
+    DRAWER_PATTERN_1BIT(slotIndex%) = FALSE
+    DRAWER_PATTERN_1BIT_FG(slotIndex%) = 0
+
+    img& = DRAWER_PATTERN_SLOTS(slotIndex%)
+    IF img& >= -1 THEN EXIT SUB
+
+    imgW% = _WIDTH(img&)
+    imgH% = _HEIGHT(img&)
+    IF imgW% < 1 OR imgH% < 1 THEN EXIT SUB
+
+    oldSource& = _SOURCE
+    _SOURCE img&
+
+    numColors% = 0
+    color1~& = 0
+    color2~& = 0
+    count1& = 0
+    count2& = 0
+
+    FOR py% = 0 TO imgH% - 1
+        FOR px% = 0 TO imgW% - 1
+            c~& = POINT(px%, py%)
+            a~& = _ALPHA32(c~&)
+            IF a~& = 0 THEN _CONTINUE ' skip fully transparent pixels
+
+            ' Strip alpha channel for comparison (treat any opaque/semi-opaque as same color)
+            c~& = _RGB32(_RED32(c~&), _GREEN32(c~&), _BLUE32(c~&))
+
+            IF numColors% = 0 THEN
+                color1~& = c~&
+                count1& = 1
+                numColors% = 1
+            ELSEIF c~& = color1~& THEN
+                count1& = count1& + 1
+            ELSEIF numColors% = 1 THEN
+                color2~& = c~&
+                count2& = 1
+                numColors% = 2
+            ELSEIF c~& = color2~& THEN
+                count2& = count2& + 1
+            ELSE
+                ' More than 2 opaque colors — not 1-bit
+                _SOURCE oldSource&
+                EXIT SUB
+            END IF
+        NEXT px%
+    NEXT py%
+
+    _SOURCE oldSource&
+
+    IF numColors% = 0 THEN
+        ' All transparent — not useful as 1-bit
+        EXIT SUB
+    ELSEIF numColors% = 1 THEN
+        ' Single opaque color on transparent — 1-bit
+        DRAWER_PATTERN_1BIT(slotIndex%) = TRUE
+        DRAWER_PATTERN_1BIT_FG(slotIndex%) = color1~&
+    ELSEIF numColors% = 2 THEN
+        ' Two opaque colors — majority is BG, minority is FG
+        DRAWER_PATTERN_1BIT(slotIndex%) = TRUE
+        IF count1& <= count2& THEN
+            DRAWER_PATTERN_1BIT_FG(slotIndex%) = color1~&
+        ELSE
+            DRAWER_PATTERN_1BIT_FG(slotIndex%) = color2~&
+        END IF
+    END IF
+END SUB
+
+
+''
+' Analyze all populated pattern slots for 1-bit status.
+'
+SUB DRAWER_analyze_all_1bit ()
+    DIM i AS INTEGER
+    FOR i% = 1 TO DRAWER_SLOT_COUNT
+        IF DRAWER_PATTERN_HAS(i%) THEN
+            DRAWER_analyze_1bit i%
+        ELSE
+            DRAWER_PATTERN_1BIT(i%) = FALSE
+            DRAWER_PATTERN_1BIT_FG(i%) = 0
+        END IF
+    NEXT i%
 END SUB
