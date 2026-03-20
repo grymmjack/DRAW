@@ -30,6 +30,10 @@ SUB FONT_LIST_scan ()
         FONT_LIST_scan_dir themeFontDir$, 0, TRUE
     END IF
 
+    ' --- QB64-PE built-in bitmap fonts ---
+    FONT_LIST_add_builtin "QB64 8x8", 8
+    FONT_LIST_add_builtin "QB64 8x16", 16
+
     ' --- System fonts (OS-specific) ---
     $IF WIN THEN
         FONT_LIST_scan_dir "C:\Windows\Fonts", 0, FALSE
@@ -231,7 +235,32 @@ END SUB
 
 
 ''
-' Sort font list: bundled first, then alphabetical by display name.
+' Add a built-in QB64-PE bitmap font to the list.
+' @param displayName$ Human-readable name (e.g. "QB64 8x8")
+' @param builtInHandle& The built-in font handle (8, 14, or 16)
+'
+SUB FONT_LIST_add_builtin (displayName$, builtInHandle&)
+    IF FONT_LIST_COUNT% >= FONT_LIST_MAX THEN EXIT SUB
+
+    DIM idx AS INTEGER
+    idx% = FONT_LIST_COUNT%
+
+    FONT_LIST(idx%).path = ""
+    FONT_LIST(idx%).displayName = displayName$
+    FONT_LIST(idx%).isBundled = TRUE
+    FONT_LIST(idx%).isBuiltIn = TRUE
+    FONT_LIST(idx%).builtInHandle = builtInHandle&
+    FONT_LIST(idx%).hasBold = FALSE
+    FONT_LIST(idx%).hasItalic = FALSE
+    FONT_LIST(idx%).hasBoldItalic = FALSE
+
+    FONT_LIST_COUNT% = FONT_LIST_COUNT% + 1
+END SUB
+
+
+''
+' Sort font list: bundled TTF first, then built-in QB64, then system.
+' Within each tier, sort alphabetical by display name.
 ' Simple insertion sort — 512 max is fine.
 '
 SUB FONT_LIST_sort ()
@@ -242,23 +271,40 @@ SUB FONT_LIST_sort ()
     DIM tmp AS FONT_ENTRY
     DIM nameI AS STRING
     DIM nameJ AS STRING
+    DIM tierI AS INTEGER
+    DIM tierJ AS INTEGER
 
     FOR i% = 1 TO FONT_LIST_COUNT% - 1
         tmp = FONT_LIST(i%)
         j% = i% - 1
 
+        ' Tier: 0=bundled TTF, 1=built-in QB64, 2=system
+        IF tmp.isBundled AND NOT tmp.isBuiltIn THEN
+            tierI% = 0
+        ELSEIF tmp.isBuiltIn THEN
+            tierI% = 1
+        ELSE
+            tierI% = 2
+        END IF
+
         DO WHILE j% >= 0
-            ' Bundled fonts always come first
-            IF FONT_LIST(j%).isBundled AND NOT tmp.isBundled THEN EXIT DO
-            IF NOT FONT_LIST(j%).isBundled AND tmp.isBundled THEN
-                ' tmp is bundled, j is not — shift j right
-            ELSEIF FONT_LIST(j%).isBundled = tmp.isBundled THEN
-                ' Same category — sort alphabetically
+            IF FONT_LIST(j%).isBundled AND NOT FONT_LIST(j%).isBuiltIn THEN
+                tierJ% = 0
+            ELSEIF FONT_LIST(j%).isBuiltIn THEN
+                tierJ% = 1
+            ELSE
+                tierJ% = 2
+            END IF
+
+            ' Lower tier number = higher priority
+            IF tierJ% < tierI% THEN EXIT DO
+            IF tierJ% > tierI% THEN
+                ' tmp has higher priority — shift j right
+            ELSEIF tierJ% = tierI% THEN
+                ' Same tier — sort alphabetically
                 nameJ$ = UCASE$(RTRIM$(FONT_LIST(j%).displayName))
                 nameI$ = UCASE$(RTRIM$(tmp.displayName))
                 IF nameJ$ <= nameI$ THEN EXIT DO
-            ELSE
-                EXIT DO
             END IF
 
             FONT_LIST(j% + 1) = FONT_LIST(j%)
@@ -279,10 +325,17 @@ END SUB
 ' @param fontStyle$ FONT_STYLE_REGULAR$, FONT_STYLE_BOLD$, etc.
 ' @return LONG font handle or -1 on failure
 '
-FUNCTION FONT_LIST_get_handle& (fontIdx%, fontSize%, fontStyle$)
+FUNCTION FONT_LIST_get_handle& (fontIdx%, fontSize%, fontStyle$, mono%)
     FONT_LIST_get_handle& = -1
 
     IF fontIdx% < 0 OR fontIdx% >= FONT_LIST_COUNT% THEN EXIT FUNCTION
+
+    ' Built-in QB64-PE bitmap fonts — return handle directly, no cache
+    IF FONT_LIST(fontIdx%).isBuiltIn THEN
+        FONT_LIST_get_handle& = FONT_LIST(fontIdx%).builtInHandle
+        EXIT FUNCTION
+    END IF
+
     IF fontSize% < 4 OR fontSize% > 128 THEN EXIT FUNCTION
 
     ' Check cache first
@@ -291,8 +344,10 @@ FUNCTION FONT_LIST_get_handle& (fontIdx%, fontSize%, fontStyle$)
         IF FONT_CACHE_IDX(i%) = fontIdx% THEN
             IF FONT_CACHE_SIZE(i%) = fontSize% THEN
                 IF RTRIM$(FONT_CACHE_STYLE(i%)) = fontStyle$ THEN
-                    FONT_LIST_get_handle& = FONT_CACHE_HANDLE(i%)
-                    EXIT FUNCTION
+                    IF FONT_CACHE_MONO(i%) = mono% THEN
+                        FONT_LIST_get_handle& = FONT_CACHE_HANDLE(i%)
+                        EXIT FUNCTION
+                    END IF
                 END IF
             END IF
         END IF
@@ -326,7 +381,10 @@ FUNCTION FONT_LIST_get_handle& (fontIdx%, fontSize%, fontStyle$)
     IF LEN(loadPath$) = 0 THEN EXIT FUNCTION
 
     DIM handle AS LONG
-    handle& = _LOADFONT(loadPath$, fontSize%, "DONTBLEND")
+    DIM loadStyle AS STRING
+    loadStyle$ = "DONTBLEND"
+    IF mono% THEN loadStyle$ = loadStyle$ + ", MONOSPACE"
+    handle& = _LOADFONT(loadPath$, fontSize%, loadStyle$)
     IF handle& <= 0 THEN
         _LOGWARN "FONT_LIST_get_handle: failed to load " + loadPath$ + " at size" + STR$(fontSize%)
         EXIT FUNCTION
@@ -341,6 +399,7 @@ FUNCTION FONT_LIST_get_handle& (fontIdx%, fontSize%, fontStyle$)
             FONT_CACHE_SIZE(ci%) = FONT_CACHE_SIZE(ci% + 1)
             FONT_CACHE_STYLE(ci%) = FONT_CACHE_STYLE(ci% + 1)
             FONT_CACHE_HANDLE(ci%) = FONT_CACHE_HANDLE(ci% + 1)
+            FONT_CACHE_MONO(ci%) = FONT_CACHE_MONO(ci% + 1)
         NEXT ci%
         FONT_CACHE_COUNT% = FONT_CACHE_COUNT% - 1
     END IF
@@ -352,6 +411,7 @@ FUNCTION FONT_LIST_get_handle& (fontIdx%, fontSize%, fontStyle$)
     FONT_CACHE_SIZE(slot%) = fontSize%
     FONT_CACHE_STYLE(slot%) = fontStyle$
     FONT_CACHE_HANDLE(slot%) = handle&
+    FONT_CACHE_MONO(slot%) = mono%
     FONT_CACHE_COUNT% = FONT_CACHE_COUNT% + 1
 
     FONT_LIST_get_handle& = handle&

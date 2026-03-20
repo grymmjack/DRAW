@@ -24,9 +24,10 @@ TYPE TEXT_LAYER_OBJ
     lineCount    AS INTEGER    ' Number of lines (>= 1 when used)
     fontIdx      AS INTEGER    ' Default font index for new chars
     fontSize     AS INTEGER    ' Default font size for new chars
-    defaultLeading AS INTEGER  ' Default line spacing in px (default = fontSize + 4)
+    defaultLeading AS INTEGER  ' Default line spacing in px (default = fontSize + 1)
     cursorPos    AS INTEGER    ' Cursor position (0-based char index)
     dirty        AS INTEGER    ' TRUE when text data changed, triggers re-render
+    monospace    AS INTEGER    ' TRUE to load all fonts with MONOSPACE flag
 END TYPE
 
 ' Pool of text layer data (indexed by DRAW_LAYER.textDataIdx)
@@ -66,3 +67,6 @@ DECLARE FUNCTION TEXT_LAYER_get_line_y% (idx AS INTEGER, lineNum AS INTEGER)
 DECLARE FUNCTION TEXT_LAYER_get_char_x% (idx AS INTEGER, charIdx AS INTEGER)
 DECLARE FUNCTION TEXT_LAYER_get_line_for_char% (idx AS INTEGER, charIdx AS INTEGER)
 DECLARE SUB TEXT_LAYER_copy_data (srcIdx AS INTEGER, destIdx AS INTEGER)
+DECLARE FUNCTION TEXT_LAYER_get_cursor_at_pos% (idx AS INTEGER, canvasX AS INTEGER, canvasY AS INTEGER)
+DECLARE FUNCTION TEXT_LAYER_prev_word_pos% (idx AS INTEGER, fromPos AS INTEGER)
+DECLARE FUNCTION TEXT_LAYER_next_word_pos% (idx AS INTEGER, fromPos AS INTEGER)

@@ -419,11 +419,23 @@ TYPE DRAW_THEME
     TEXT_BAR_BORDER            AS _UNSIGNED LONG  ' Text bar border color
     TEXT_BAR_BTN_ACTIVE        AS _UNSIGNED LONG  ' Active toggle button highlight
     TEXT_BAR_BTN_HOVER         AS _UNSIGNED LONG  ' Hovered button highlight
+    TEXT_BAR_BTN_BG            AS _UNSIGNED LONG  ' Toggle button default background
+    TEXT_BAR_BTN_FG            AS _UNSIGNED LONG  ' Toggle button default text color
+    TEXT_BAR_BTN_BORDER        AS _UNSIGNED LONG  ' Toggle button border color
+    TEXT_BAR_ICON_SELECTED_OPACITY AS INTEGER     ' Icon alpha when style is active (0-255)
+    TEXT_BAR_ICON_DESELECTED_OPACITY AS INTEGER   ' Icon alpha when style is off (0-255)
     TEXT_BAR_DROPDOWN_BG       AS _UNSIGNED LONG  ' Dropdown background color
     TEXT_BAR_DROPDOWN_FG       AS _UNSIGNED LONG  ' Dropdown text color
     TEXT_BAR_DROPDOWN_HIGHLIGHT AS _UNSIGNED LONG ' Dropdown selected item highlight
+    TEXT_BAR_ICON_BOLD           AS STRING * 64     ' Bold button icon PNG filename
+    TEXT_BAR_ICON_ITALIC         AS STRING * 64     ' Italic button icon PNG filename
+    TEXT_BAR_ICON_UNDERLINE      AS STRING * 64     ' Underline button icon PNG filename
+    TEXT_BAR_ICON_STRIKE         AS STRING * 64     ' Strikethrough button icon PNG filename
+    TEXT_BAR_ICON_MONO           AS STRING * 64     ' Monospace button icon PNG filename
+    TEXT_BAR_ICON_LINE_HEIGHT    AS STRING * 64     ' Line height button icon PNG filename
     ' --- Text Layers ---
     LAYER_PANEL_TEXT_ACCENT    AS _UNSIGNED LONG  ' Accent color for [T] text layer rows
+    TEXT_LAYER_HOVER_OUTLINE   AS _UNSIGNED LONG  ' Outline color when hovering editable text layer
 END TYPE
 
 ' Runtime theme loader — populates THEME from ASSETS/THEMES/{CFG.THEME$}/THEME.CFG

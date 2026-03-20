@@ -897,7 +897,11 @@ SUB RENDER_layers (dx AS INTEGER, dy AS INTEGER, zw AS LONG, zh AS LONG)
                     tlDIdx% = LAYERS(layerFound%).textDataIdx%
                     IF tlDIdx% >= 1 AND TEXT_LAYER_DATA(tlDIdx%).dirty THEN
                         TEXT_LAYER_render tlDIdx%, LAYERS(layerFound%).imgHandle&
-                        TEXT_LAYER_DATA(tlDIdx%).dirty = FALSE
+                        ' Only clear dirty if NOT the actively-editing text layer
+                        ' TEXT_render_preview also needs the dirty flag to refresh its preview cache
+                        IF NOT (TEXT.ACTIVE AND TEXT.editingTextLayer% = layerFound%) THEN
+                            TEXT_LAYER_DATA(tlDIdx%).dirty = FALSE
+                        END IF
                     END IF
                 END IF
                 ' Determine which image to render for this layer
@@ -2513,6 +2517,66 @@ SUB SCREEN_render ()
     PERF_start PERF_SELECTION_OVERLAY
     RENDER_selection_overlay
     PERF_stop PERF_SELECTION_OVERLAY
+
+    ' ==== TEXT LAYER HOVER OUTLINE (after scene cache, moves with mouse) ====
+    IF CURRENT_TOOL% = TOOL_TEXT AND NOT TEXT.ACTIVE THEN
+        ' Compute canvas-to-screen offset locally (dx%/dy% from the main
+        ' render path are not set when we arrive via GOTO SkipToPointer).
+        DIM hovZW AS LONG, hovZH AS LONG
+        DIM hovDX AS INTEGER, hovDY AS INTEGER
+        hovZW& = SCRN.canvasW& * SCRN.zoom!
+        hovZH& = SCRN.canvasH& * SCRN.zoom!
+        IF SCRN.patternTileMode% THEN
+            hovDX% = (SCRN.w& - hovZW& * 3) \ 2 + SCRN.offsetX% + hovZW&
+            hovDY% = (SCRN.h& - hovZH& * 3) \ 2 + SCRN.offsetY% + hovZH&
+        ELSE
+            hovDX% = (SCRN.w& - hovZW&) \ 2 + SCRN.offsetX%
+            hovDY% = (SCRN.h& - hovZH&) \ 2 + SCRN.offsetY%
+        END IF
+        DIM hovLi AS INTEGER
+        FOR hovLi% = 64 TO 1 STEP -1
+            IF LAYERS(hovLi%).imgHandle& < -1 AND LAYERS(hovLi%).layerType% = LAYER_TYPE_TEXT THEN
+                IF LAYERS(hovLi%).visible% THEN
+                    DIM hovTd AS INTEGER
+                    hovTd% = LAYERS(hovLi%).textDataIdx%
+                    IF hovTd% >= 1 AND TEXT_LAYER_DATA(hovTd%).used THEN
+                        IF TEXT_LAYER_DATA(hovTd%).charCount > 0 THEN
+                            DIM hovCX AS INTEGER, hovCY AS INTEGER
+                            hovCX% = TEXT_LAYER_DATA(hovTd%).startX
+                            hovCY% = TEXT_LAYER_DATA(hovTd%).startY
+                            DIM hovFS AS INTEGER, hovLC AS INTEGER
+                            hovFS% = TEXT_LAYER_DATA(hovTd%).fontSize
+                            IF hovFS% < 4 THEN hovFS% = 4
+                            hovLC% = TEXT_LAYER_DATA(hovTd%).lineCount
+                            IF hovLC% < 1 THEN hovLC% = 1
+                            DIM hovW AS INTEGER, hovH AS INTEGER
+                            hovW% = TEXT_LAYER_get_char_x%(hovTd%, TEXT_LAYER_DATA(hovTd%).charCount) - hovCX%
+                            IF hovW% < 32 THEN hovW% = 32
+                            DIM hovLead AS INTEGER
+                            hovLead% = TEXT_LAYER_DATA(hovTd%).defaultLeading
+                            IF hovLead% < hovFS% THEN hovLead% = hovFS% + 4
+                            hovH% = hovLC% * hovLead%
+                            IF hovH% < 16 THEN hovH% = 16
+                            ' Hit-test mouse in canvas coords
+                            IF MOUSE.X% >= hovCX% AND MOUSE.X% < hovCX% + hovW% AND MOUSE.Y% >= hovCY% AND MOUSE.Y% < hovCY% + hovH% THEN
+                                ' Convert canvas coords to screen coords
+                                DIM hovSX1 AS INTEGER, hovSY1 AS INTEGER
+                                DIM hovSX2 AS INTEGER, hovSY2 AS INTEGER
+                                hovSX1% = INT(hovCX% * SCRN.zoom!) + hovDX% - 1
+                                hovSY1% = INT(hovCY% * SCRN.zoom!) + hovDY% - 1
+                                hovSX2% = INT((hovCX% + hovW%) * SCRN.zoom!) + hovDX%
+                                hovSY2% = INT((hovCY% + hovH%) * SCRN.zoom!) + hovDY%
+                                _DEST SCRN.CANVAS&
+                                LINE (hovSX1%, hovSY1%)-(hovSX2%, hovSY2%), THEME.TEXT_LAYER_HOVER_OUTLINE~&, B
+                                EXIT FOR
+                            END IF
+                        END IF
+                    END IF
+                END IF
+            END IF
+        NEXT hovLi%
+    END IF
+
     PERF_start PERF_POINTER_RENDER
     POINTER_update
     POINTER_render

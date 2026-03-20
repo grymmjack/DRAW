@@ -131,15 +131,8 @@ SUB TEXT_start (x AS INTEGER, y AS INTEGER)
         IF fontIdx% >= 0 THEN TEXT_BAR.selectedFontIdx% = fontIdx%
     END IF
 
-    ' Default to Tiny5 Regular if no font has been explicitly selected yet
-    STATIC defaultFontResolved AS INTEGER
-    IF NOT defaultFontResolved% AND FONT_LIST_COUNT% > 0 THEN
-        DIM tiny5Idx AS INTEGER
-        tiny5Idx% = FONT_LIST_find_by_name%("Tiny5 Regular")
-        IF tiny5Idx% < 0 THEN tiny5Idx% = FONT_LIST_find_by_name%("Tiny5")
-        IF tiny5Idx% >= 0 THEN TEXT_BAR.selectedFontIdx% = tiny5Idx%
-        defaultFontResolved% = TRUE
-    END IF
+    ' Note: default font (Tiny5 Regular) is resolved once in TEXT_BAR_init.
+    ' No override here — user's dropdown selection must be preserved.
 
     ' Set text layer default font from text bar selections
     DIM tdIdx AS INTEGER
@@ -147,7 +140,16 @@ SUB TEXT_start (x AS INTEGER, y AS INTEGER)
     IF tdIdx% >= 1 THEN
         TEXT_LAYER_DATA(tdIdx%).fontIdx = TEXT_BAR.selectedFontIdx%
         TEXT_LAYER_DATA(tdIdx%).fontSize = TEXT_BAR.selectedSize%
-        TEXT_LAYER_DATA(tdIdx%).defaultLeading = TEXT_BAR.selectedSize% + 4
+        ' Use actual font height for leading when built-in bitmap font
+        DIM actualH AS INTEGER
+        IF FONT_LIST(TEXT_BAR.selectedFontIdx%).isBuiltIn THEN
+            actualH% = FONT_LIST(TEXT_BAR.selectedFontIdx%).builtInHandle
+            TEXT_LAYER_DATA(tdIdx%).defaultLeading = actualH%
+        ELSE
+            actualH% = TEXT_BAR.selectedSize%
+            TEXT_LAYER_DATA(tdIdx%).defaultLeading = actualH% + 1
+        END IF
+        TEXT_LAYER_DATA(tdIdx%).monospace = TEXT_BAR.monoActive%
         TEXT_LAYER_DATA(tdIdx%).startX = x%
         TEXT_LAYER_DATA(tdIdx%).startY = y%
     END IF
@@ -171,6 +173,9 @@ END SUB
 SUB TEXT_add_char (ch AS STRING)
     IF NOT TEXT.ACTIVE THEN EXIT SUB
     IF TEXT.editingTextLayer% < 1 THEN EXIT SUB
+
+    ' Delete selection if active (replaces selected text with typed char)
+    IF TEXT_has_selection% THEN TEXT_delete_selection
 
     DIM tdIdx AS INTEGER
     tdIdx% = LAYERS(TEXT.editingTextLayer%).textDataIdx%
@@ -209,7 +214,7 @@ SUB TEXT_add_char (ch AS STRING)
     DIM bottomLimit AS INTEGER
     DIM curLineHeight AS INTEGER
     curLineHeight% = TEXT_BAR.selectedSize%
-    IF curLineHeight% < 8 THEN curLineHeight% = 8
+    IF curLineHeight% < 4 THEN curLineHeight% = 4
     bottomLimit% = SCRN.canvasH& - 1
     IF TEXT.CURSOR_Y + curLineHeight% - 1 > bottomLimit% THEN
         ' Undo the character we just added
@@ -283,7 +288,7 @@ SUB TEXT_add_char (ch AS STRING)
             ' After wrap, check if the new line is off the bottom
             DIM wrapLineH AS INTEGER
             wrapLineH% = TEXT_BAR.selectedSize%
-            IF wrapLineH% < 8 THEN wrapLineH% = 8
+            IF wrapLineH% < 4 THEN wrapLineH% = 4
             IF TEXT.CURSOR_Y + wrapLineH% - 1 > SCRN.canvasH& - 1 THEN
                 ' Undo the character that caused the wrap
                 TEXT_LAYER_delete_char tdIdx%
@@ -321,6 +326,15 @@ SUB TEXT_backspace ()
     IF NOT TEXT.ACTIVE THEN EXIT SUB
     IF TEXT.editingTextLayer% < 1 THEN EXIT SUB
 
+    ' If selection active, delete selection instead of single char
+    IF TEXT_has_selection% THEN
+        TEXT_delete_selection
+        TEXT_LAYER_DATA(LAYERS(TEXT.editingTextLayer%).textDataIdx%).dirty = TRUE
+        FRAME_IDLE% = FALSE
+        SCENE_DIRTY% = TRUE
+        EXIT SUB
+    END IF
+
     DIM tdIdx AS INTEGER
     tdIdx% = LAYERS(TEXT.editingTextLayer%).textDataIdx%
     IF tdIdx% < 1 THEN EXIT SUB
@@ -356,6 +370,9 @@ SUB TEXT_newline ()
     IF NOT TEXT.ACTIVE THEN EXIT SUB
     IF TEXT.editingTextLayer% < 1 THEN EXIT SUB
 
+    ' Delete selection first if active
+    IF TEXT_has_selection% THEN TEXT_delete_selection
+
     DIM tdIdx AS INTEGER
     tdIdx% = LAYERS(TEXT.editingTextLayer%).textDataIdx%
     IF tdIdx% < 1 THEN EXIT SUB
@@ -363,7 +380,7 @@ SUB TEXT_newline ()
     ' Check if adding a new line would overflow the bottom
     DIM nlLineH AS INTEGER
     nlLineH% = TEXT_BAR.selectedSize%
-    IF nlLineH% < 8 THEN nlLineH% = 8
+    IF nlLineH% < 4 THEN nlLineH% = 4
     DIM nlCurY AS INTEGER
     nlCurY% = TEXT_LAYER_get_line_y%(tdIdx%, TEXT_LAYER_DATA(tdIdx%).lineCount)
     DIM nlNextY AS INTEGER
@@ -594,12 +611,55 @@ SUB TEXT_re_edit (layerIdx AS INTEGER)
     TEXT_BAR.lastPaintColor~& = PAINT_COLOR~&
     TEXT_BAR.lastPaintBgColor~& = PAINT_BG_COLOR~&
 
+    ' Sync TEXT_BAR style toggles from character at cursor position
+    TEXT_sync_bar_to_cursor
+
     ' Select this layer
     CURRENT_LAYER% = layerIdx%
 
+    ' Mark dirty so TEXT_render_preview refreshes
+    TEXT_LAYER_DATA(tdIdx%).dirty = TRUE
+
     FRAME_IDLE% = FALSE
+    SCENE_DIRTY% = TRUE
     GUI_NEEDS_REDRAW% = TRUE
     _LOGINFO "TEXT_re_edit: Editing text layer " + STR$(layerIdx%) + " with " + STR$(TEXT_LAYER_DATA(tdIdx%).charCount) + " chars"
+END SUB
+
+''
+' Syncs TEXT_BAR style toggles from the character at the current cursor position.
+' Call after entering re-edit mode or when cursor moves during editing.
+'
+SUB TEXT_sync_bar_to_cursor ()
+    IF NOT TEXT.ACTIVE THEN EXIT SUB
+    IF TEXT.editingTextLayer% < 1 THEN EXIT SUB
+
+    DIM tdIdx AS INTEGER
+    tdIdx% = LAYERS(TEXT.editingTextLayer%).textDataIdx%
+    IF tdIdx% < 1 THEN EXIT SUB
+    IF TEXT_LAYER_DATA(tdIdx%).charCount = 0 THEN EXIT SUB
+
+    ' When there's a selection, read from the first selected character;
+    ' otherwise read from the character at cursor position.
+    DIM charIdx AS INTEGER
+    IF TEXT_has_selection% THEN
+        charIdx% = TEXT.selStart%
+        IF TEXT.selEnd% < charIdx% THEN charIdx% = TEXT.selEnd%
+    ELSE
+        charIdx% = TEXT_LAYER_DATA(tdIdx%).cursorPos
+    END IF
+    IF charIdx% >= TEXT_LAYER_DATA(tdIdx%).charCount THEN
+        charIdx% = TEXT_LAYER_DATA(tdIdx%).charCount - 1
+    END IF
+    IF charIdx% < 0 THEN EXIT SUB
+
+    TEXT_BAR.boldActive% = TL_BOLD(tdIdx%, charIdx%)
+    TEXT_BAR.italicActive% = TL_ITALIC(tdIdx%, charIdx%)
+    TEXT_BAR.underlineActive% = TL_UNDERLINE(tdIdx%, charIdx%)
+    TEXT_BAR.strikeActive% = TL_STRIKE(tdIdx%, charIdx%)
+    TEXT_BAR.selectedFontIdx% = TL_FONT_IDX(tdIdx%, charIdx%)
+    TEXT_BAR.selectedSize% = TL_FONT_SIZE(tdIdx%, charIdx%)
+    TEXT_BAR.monoActive% = TEXT_LAYER_DATA(tdIdx%).monospace
 END SUB
 
 ''
@@ -648,8 +708,9 @@ SUB TEXT_render_preview (dest AS LONG, dx AS INTEGER, dy AS INTEGER, zoom AS SIN
         _MEMFREE prvMem
         TEXT_LAYER_render tdIdx%, TEXT_PREVIEW_CACHE&
         _DEST dest
-        ' Do NOT clear dirty here — SCREEN.BM render pipeline also needs to
-        ' re-render the layer's imgHandle& from the same dirty flag
+        ' Clear dirty now — SCREEN.BM compositing already re-rendered imgHandle&
+        ' but deferred clearing dirty for the editing layer so we could refresh here
+        TEXT_LAYER_DATA(tdIdx%).dirty = FALSE
     END IF
 
     ' Scale and blit cached text to screen
@@ -664,11 +725,98 @@ SUB TEXT_render_preview (dest AS LONG, dx AS INTEGER, dy AS INTEGER, zoom AS SIN
         _PUTIMAGE (screen_x%, screen_y%)-(screen_x% + scaled_w% - 1, screen_y% + scaled_h% - 1), TEXT_PREVIEW_CACHE&, dest
     END IF
 
+    ' Draw selection highlights over selected characters
+    IF TEXT_has_selection% THEN
+        DIM selMin AS INTEGER, selMax AS INTEGER
+        selMin% = TEXT.selStart%: selMax% = TEXT.selEnd%
+        IF selMin% > selMax% THEN SWAP selMin%, selMax%
+
+        DIM selCurX AS INTEGER, selCurY AS INTEGER, selCurLine AS INTEGER
+        selCurX% = TEXT_LAYER_DATA(tdIdx%).startX
+        selCurY% = TEXT_LAYER_DATA(tdIdx%).startY
+        selCurLine% = 0
+
+        DIM selC AS INTEGER
+        FOR selC% = 0 TO TEXT_LAYER_DATA(tdIdx%).charCount - 1
+            ' Check for line break
+            IF selCurLine% < TEXT_LAYER_DATA(tdIdx%).lineCount - 1 THEN
+                IF selC% = TL_LINE_BREAK(tdIdx%, selCurLine% + 1) THEN
+                    selCurLine% = selCurLine% + 1
+                    selCurX% = TEXT_LAYER_DATA(tdIdx%).startX
+                    DIM selLead AS INTEGER
+                    selLead% = TL_LEADING(tdIdx%, selCurLine% - 1)
+                    IF selLead% = 0 THEN selLead% = TEXT_LAYER_DATA(tdIdx%).defaultLeading
+                    selCurY% = selCurY% + selLead%
+                END IF
+            END IF
+
+            IF TL_CHAR(tdIdx%, selC%) = CHR$(10) THEN _CONTINUE
+
+            ' Get char width for this character
+            DIM selFStyle AS STRING
+            selFStyle$ = FONT_STYLE_REGULAR$
+            IF TL_BOLD(tdIdx%, selC%) AND TL_ITALIC(tdIdx%, selC%) THEN
+                selFStyle$ = FONT_STYLE_BOLDITALIC$
+            ELSEIF TL_BOLD(tdIdx%, selC%) THEN
+                selFStyle$ = FONT_STYLE_BOLD$
+            ELSEIF TL_ITALIC(tdIdx%, selC%) THEN
+                selFStyle$ = FONT_STYLE_ITALIC$
+            END IF
+
+            DIM selFH AS LONG
+            selFH& = FONT_LIST_get_handle&(TL_FONT_IDX(tdIdx%, selC%), TL_FONT_SIZE(tdIdx%, selC%), selFStyle$, TEXT_LAYER_DATA(tdIdx%).monospace)
+            DIM selCW AS INTEGER, selCH AS INTEGER
+            selCH% = TL_FONT_SIZE(tdIdx%, selC%)
+            IF selFH& > 0 THEN
+                DIM selOldF AS LONG: selOldF& = _FONT
+                _FONT selFH&
+                selCW% = _PRINTWIDTH(TL_CHAR(tdIdx%, selC%))
+                _FONT selOldF&
+            ELSE
+                selCW% = 8
+            END IF
+
+            ' Draw highlight if in selection range
+            IF selC% >= selMin% AND selC% < selMax% THEN
+                DIM hlX AS INTEGER, hlY AS INTEGER, hlW AS INTEGER, hlH AS INTEGER
+                hlX% = dx% + INT(selCurX% * zoom!)
+                hlY% = dy% + INT(selCurY% * zoom!)
+                hlW% = INT(selCW% * zoom!)
+                hlH% = INT(selCH% * zoom!)
+                IF hlW% < 1 THEN hlW% = 1
+                IF hlH% < 1 THEN hlH% = 1
+                LINE (hlX%, hlY%)-(hlX% + hlW% - 1, hlY% + hlH% - 1), _RGBA32(80, 120, 200, 128), BF
+            END IF
+
+            selCurX% = selCurX% + selCW% + TL_KERN(tdIdx%, selC%)
+        NEXT selC%
+    END IF
+
     ' Draw blinking cursor (blink state managed in DRAW.BAS main loop)
     DIM cx AS INTEGER, cy AS INTEGER
     DIM curLineH AS INTEGER
-    curLineH% = TEXT_BAR.selectedSize%
-    IF curLineH% < 8 THEN curLineH% = 8
+    ' Cursor height matches the text size at the cursor position
+    DIM curCharIdx AS INTEGER
+    curCharIdx% = TEXT_LAYER_DATA(tdIdx%).cursorPos
+    IF curCharIdx% > 0 THEN curCharIdx% = curCharIdx% - 1
+    IF curCharIdx% >= TEXT_LAYER_DATA(tdIdx%).charCount THEN curCharIdx% = TEXT_LAYER_DATA(tdIdx%).charCount - 1
+    IF curCharIdx% >= 0 AND TEXT_LAYER_DATA(tdIdx%).charCount > 0 THEN
+        ' Use actual font height (handles built-in bitmap fonts correctly)
+        DIM curFontIdx AS INTEGER
+        curFontIdx% = TL_FONT_IDX(tdIdx%, curCharIdx%)
+        IF curFontIdx% >= 0 AND curFontIdx% < FONT_LIST_COUNT% THEN
+            IF FONT_LIST(curFontIdx%).isBuiltIn THEN
+                curLineH% = FONT_LIST(curFontIdx%).builtInHandle
+            ELSE
+                curLineH% = TL_FONT_SIZE(tdIdx%, curCharIdx%)
+            END IF
+        ELSE
+            curLineH% = TL_FONT_SIZE(tdIdx%, curCharIdx%)
+        END IF
+    ELSE
+        curLineH% = TEXT_BAR.selectedSize%
+    END IF
+    IF curLineH% < 4 THEN curLineH% = 4
     cx% = dx% + INT(TEXT.CURSOR_X * zoom!)
     cy% = dy% + INT(TEXT.CURSOR_Y * zoom!)
 
@@ -684,7 +832,18 @@ SUB TEXT_render_preview (dest AS LONG, dx AS INTEGER, dy AS INTEGER, zoom AS SIN
         LINE (cx% - 1, cy%)-(cx% + 1, cy% + INT(curLineH% * zoom!) - 1), flashColor~&, BF
         TEXT.OVERFLOW_FLASH = TEXT.OVERFLOW_FLASH - 1
     ELSEIF TEXT.CURSOR_BLINK THEN
-        LINE (cx%, cy%)-(cx%, cy% + INT(curLineH% * zoom!) - 1), PAINT_COLOR~&
+        ' Draw contrasting outline so cursor is visible over text glyphs
+        DIM cursorH AS INTEGER
+        cursorH% = INT(curLineH% * zoom!) - 1
+        DIM cursorOutline AS _UNSIGNED LONG
+        IF _RED32(PAINT_COLOR~&) + _GREEN32(PAINT_COLOR~&) + _BLUE32(PAINT_COLOR~&) > 384 THEN
+            cursorOutline~& = _RGB32(0, 0, 0)
+        ELSE
+            cursorOutline~& = _RGB32(255, 255, 255)
+        END IF
+        LINE (cx% - 1, cy%)-(cx% - 1, cy% + cursorH%), cursorOutline~&
+        LINE (cx% + 1, cy%)-(cx% + 1, cy% + cursorH%), cursorOutline~&
+        LINE (cx%, cy%)-(cx%, cy% + cursorH%), PAINT_COLOR~&
     END IF
 END SUB
 
@@ -715,5 +874,53 @@ END SUB
 ' Returns TRUE if text has an active selection.
 '
 FUNCTION TEXT_has_selection% ()
-    TEXT_has_selection% = TEXT.selActive% AND TEXT.selStart% >= 0 AND TEXT.selEnd% >= 0 AND TEXT.selStart% <> TEXT.selEnd%
+    TEXT_has_selection% = FALSE
+    IF NOT TEXT.selActive% THEN EXIT FUNCTION
+    IF TEXT.selStart% < 0 THEN EXIT FUNCTION
+    IF TEXT.selEnd% < 0 THEN EXIT FUNCTION
+    IF TEXT.selStart% = TEXT.selEnd% THEN EXIT FUNCTION
+    TEXT_has_selection% = TRUE
 END FUNCTION
+
+''
+' Deletes the currently selected text range.
+' Sets cursor to the left edge of the deleted range.
+'
+SUB TEXT_delete_selection ()
+    IF NOT TEXT_has_selection% THEN EXIT SUB
+    IF NOT TEXT.ACTIVE THEN EXIT SUB
+    IF TEXT.editingTextLayer% < 1 THEN EXIT SUB
+
+    DIM tdIdx AS INTEGER
+    tdIdx% = LAYERS(TEXT.editingTextLayer%).textDataIdx%
+    IF tdIdx% < 1 THEN EXIT SUB
+
+    DIM sMin AS INTEGER, sMax AS INTEGER
+    sMin% = TEXT.selStart%
+    sMax% = TEXT.selEnd%
+    IF sMin% > sMax% THEN SWAP sMin%, sMax%
+
+    ' Clamp to valid range
+    IF sMin% < 0 THEN sMin% = 0
+    IF sMax% > TEXT_LAYER_DATA(tdIdx%).charCount THEN sMax% = TEXT_LAYER_DATA(tdIdx%).charCount
+
+    ' Delete chars by positioning cursor at sMax and deleting backwards
+    DIM delCount AS INTEGER
+    delCount% = sMax% - sMin%
+    TEXT_LAYER_DATA(tdIdx%).cursorPos = sMax%
+    DIM delI AS INTEGER
+    FOR delI% = 1 TO delCount%
+        TEXT_LAYER_delete_char tdIdx%
+    NEXT delI%
+
+    ' Clear selection
+    TEXT_clear_selection
+
+    ' Update cursor
+    TEXT.CURSOR_X = TEXT_LAYER_get_char_x%(tdIdx%, TEXT_LAYER_DATA(tdIdx%).cursorPos)
+    TEXT.CURSOR_Y = TEXT_LAYER_get_line_y%(tdIdx%, TEXT_LAYER_get_line_for_char%(tdIdx%, TEXT_LAYER_DATA(tdIdx%).cursorPos))
+
+    TEXT_LAYER_DATA(tdIdx%).dirty = TRUE
+    FRAME_IDLE% = FALSE
+    SCENE_DIRTY% = TRUE
+END SUB

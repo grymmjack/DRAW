@@ -871,9 +871,11 @@ FUNCTION KEYBOARD_handle_text_tool% (keypress AS STRING)
     STATIC ctrlBold AS INTEGER, ctrlItalic AS INTEGER
     STATIC ctrlUnder AS INTEGER, ctrlStrike AS INTEGER
     STATIC ctrlSizUp AS INTEGER, ctrlSizDn AS INTEGER
+    STATIC ctrlKernUp AS INTEGER, ctrlKernDn AS INTEGER
+    STATIC ctrlBaseUp AS INTEGER, ctrlBaseDn AS INTEGER
 
     ' Ctrl+B = Toggle Bold
-    IF MODIFIERS.ctrl% AND _KEYDOWN(98) THEN
+    IF MODIFIERS.ctrl% AND (_KEYDOWN(98) OR _KEYDOWN(66)) THEN
         IF NOT ctrlBold% THEN
             TEXT_BAR.boldActive% = NOT TEXT_BAR.boldActive%
             IF TEXT_has_selection% THEN TEXT_BAR_apply_style_to_selection "bold"
@@ -885,7 +887,7 @@ FUNCTION KEYBOARD_handle_text_tool% (keypress AS STRING)
     END IF
 
     ' Ctrl+I = Toggle Italic
-    IF MODIFIERS.ctrl% AND _KEYDOWN(105) THEN
+    IF MODIFIERS.ctrl% AND (_KEYDOWN(105) OR _KEYDOWN(73)) THEN
         IF NOT ctrlItalic% THEN
             TEXT_BAR.italicActive% = NOT TEXT_BAR.italicActive%
             IF TEXT_has_selection% THEN TEXT_BAR_apply_style_to_selection "italic"
@@ -897,7 +899,7 @@ FUNCTION KEYBOARD_handle_text_tool% (keypress AS STRING)
     END IF
 
     ' Ctrl+U = Toggle Underline
-    IF MODIFIERS.ctrl% AND _KEYDOWN(117) THEN
+    IF MODIFIERS.ctrl% AND (_KEYDOWN(117) OR _KEYDOWN(85)) THEN
         IF NOT ctrlUnder% THEN
             TEXT_BAR.underlineActive% = NOT TEXT_BAR.underlineActive%
             IF TEXT_has_selection% THEN TEXT_BAR_apply_style_to_selection "underline"
@@ -909,7 +911,7 @@ FUNCTION KEYBOARD_handle_text_tool% (keypress AS STRING)
     END IF
 
     ' Ctrl+Shift+X = Toggle Strikethrough
-    IF MODIFIERS.ctrl% AND MODIFIERS.shift% AND _KEYDOWN(120) THEN
+    IF MODIFIERS.ctrl% AND MODIFIERS.shift% AND (_KEYDOWN(120) OR _KEYDOWN(88)) THEN
         IF NOT ctrlStrike% THEN
             TEXT_BAR.strikeActive% = NOT TEXT_BAR.strikeActive%
             IF TEXT_has_selection% THEN TEXT_BAR_apply_style_to_selection "strike"
@@ -921,8 +923,11 @@ FUNCTION KEYBOARD_handle_text_tool% (keypress AS STRING)
     END IF
 
     ' Ctrl+Shift+. = Increase font size
-    IF MODIFIERS.ctrl% AND MODIFIERS.shift% AND _KEYDOWN(46) THEN
+    ' Check both unshifted (46=.) and shifted (62=>) codes for Linux/SDL2 compatibility
+    IF MODIFIERS.ctrl% AND MODIFIERS.shift% AND (_KEYDOWN(46) OR _KEYDOWN(62)) THEN
         IF NOT ctrlSizUp% THEN
+            ' Sync bar size from selection/cursor so we step from the actual text size
+            TEXT_sync_bar_to_cursor
             DIM sizeIdx AS INTEGER
             FOR sizeIdx% = 0 TO TEXT_BAR_SIZE_COUNT - 1
                 IF TEXT_BAR_SIZES(sizeIdx%) > TEXT_BAR.selectedSize% THEN
@@ -930,6 +935,19 @@ FUNCTION KEYBOARD_handle_text_tool% (keypress AS STRING)
                     EXIT FOR
                 END IF
             NEXT sizeIdx%
+            IF TEXT_has_selection% AND TEXT.editingTextLayer% >= 1 THEN
+                DIM suTd AS INTEGER
+                suTd% = LAYERS(TEXT.editingTextLayer%).textDataIdx%
+                IF suTd% >= 1 THEN
+                    DIM suMin AS INTEGER, suMax AS INTEGER
+                    suMin% = TEXT.selStart%: suMax% = TEXT.selEnd%
+                    IF suMin% > suMax% THEN SWAP suMin%, suMax%
+                    TEXT_LAYER_set_selection_attr suTd%, suMin%, suMax% - 1, "FONT_SIZE", TEXT_BAR.selectedSize%
+                    TEXT_LAYER_DATA(suTd%).dirty = TRUE
+                    TEXT.CURSOR_X = TEXT_LAYER_get_char_x%(suTd%, TEXT_LAYER_DATA(suTd%).cursorPos)
+                    SCENE_DIRTY% = TRUE
+                END IF
+            END IF
             FRAME_IDLE% = FALSE: GUI_NEEDS_REDRAW% = TRUE
             ctrlSizUp% = TRUE
         END IF
@@ -938,8 +956,11 @@ FUNCTION KEYBOARD_handle_text_tool% (keypress AS STRING)
     END IF
 
     ' Ctrl+Shift+, = Decrease font size
-    IF MODIFIERS.ctrl% AND MODIFIERS.shift% AND _KEYDOWN(44) THEN
+    ' Check both unshifted (44=,) and shifted (60=<) codes for Linux/SDL2 compatibility
+    IF MODIFIERS.ctrl% AND MODIFIERS.shift% AND (_KEYDOWN(44) OR _KEYDOWN(60)) THEN
         IF NOT ctrlSizDn% THEN
+            ' Sync bar size from selection/cursor so we step from the actual text size
+            TEXT_sync_bar_to_cursor
             DIM sizeIdx2 AS INTEGER
             FOR sizeIdx2% = TEXT_BAR_SIZE_COUNT - 1 TO 0 STEP -1
                 IF TEXT_BAR_SIZES(sizeIdx2%) < TEXT_BAR.selectedSize% THEN
@@ -947,6 +968,19 @@ FUNCTION KEYBOARD_handle_text_tool% (keypress AS STRING)
                     EXIT FOR
                 END IF
             NEXT sizeIdx2%
+            IF TEXT_has_selection% AND TEXT.editingTextLayer% >= 1 THEN
+                DIM sdTd AS INTEGER
+                sdTd% = LAYERS(TEXT.editingTextLayer%).textDataIdx%
+                IF sdTd% >= 1 THEN
+                    DIM sdMin AS INTEGER, sdMax AS INTEGER
+                    sdMin% = TEXT.selStart%: sdMax% = TEXT.selEnd%
+                    IF sdMin% > sdMax% THEN SWAP sdMin%, sdMax%
+                    TEXT_LAYER_set_selection_attr sdTd%, sdMin%, sdMax% - 1, "FONT_SIZE", TEXT_BAR.selectedSize%
+                    TEXT_LAYER_DATA(sdTd%).dirty = TRUE
+                    TEXT.CURSOR_X = TEXT_LAYER_get_char_x%(sdTd%, TEXT_LAYER_DATA(sdTd%).cursorPos)
+                    SCENE_DIRTY% = TRUE
+                END IF
+            END IF
             FRAME_IDLE% = FALSE: GUI_NEEDS_REDRAW% = TRUE
             ctrlSizDn% = TRUE
         END IF
@@ -954,12 +988,130 @@ FUNCTION KEYBOARD_handle_text_tool% (keypress AS STRING)
     ELSE: ctrlSizDn% = FALSE
     END IF
 
+    ' Ctrl+Alt+. / Ctrl+Alt+> = Increase kerning at cursor or selection
+    IF MODIFIERS.ctrl% AND MODIFIERS.alt% AND (_KEYDOWN(46) OR _KEYDOWN(62)) THEN
+        IF NOT ctrlKernUp% THEN
+            IF TEXT.editingTextLayer% >= 1 THEN
+                DIM kuTd AS INTEGER
+                kuTd% = LAYERS(TEXT.editingTextLayer%).textDataIdx%
+                IF kuTd% >= 1 THEN
+                    IF TEXT_has_selection% THEN
+                        DIM kuMin AS INTEGER, kuMax AS INTEGER
+                        kuMin% = TEXT.selStart%: kuMax% = TEXT.selEnd%
+                        IF kuMin% > kuMax% THEN SWAP kuMin%, kuMax%
+                        DIM kuC AS INTEGER
+                        FOR kuC% = kuMin% TO kuMax% - 1
+                            TL_KERN(kuTd%, kuC%) = TL_KERN(kuTd%, kuC%) + 1
+                        NEXT kuC%
+                    ELSEIF TEXT_LAYER_DATA(kuTd%).cursorPos < TEXT_LAYER_DATA(kuTd%).charCount THEN
+                        TL_KERN(kuTd%, TEXT_LAYER_DATA(kuTd%).cursorPos) = TL_KERN(kuTd%, TEXT_LAYER_DATA(kuTd%).cursorPos) + 1
+                    END IF
+                    TEXT_LAYER_DATA(kuTd%).dirty = TRUE
+                    TEXT.CURSOR_X = TEXT_LAYER_get_char_x%(kuTd%, TEXT_LAYER_DATA(kuTd%).cursorPos)
+                    SCENE_DIRTY% = TRUE
+                END IF
+            END IF
+            FRAME_IDLE% = FALSE: GUI_NEEDS_REDRAW% = TRUE
+            ctrlKernUp% = TRUE
+        END IF
+        KEYBOARD_handle_text_tool% = TRUE: EXIT FUNCTION
+    ELSE: ctrlKernUp% = FALSE
+    END IF
+
+    ' Ctrl+Alt+, / Ctrl+Alt+< = Decrease kerning at cursor or selection
+    IF MODIFIERS.ctrl% AND MODIFIERS.alt% AND (_KEYDOWN(44) OR _KEYDOWN(60)) THEN
+        IF NOT ctrlKernDn% THEN
+            IF TEXT.editingTextLayer% >= 1 THEN
+                DIM kdTd AS INTEGER
+                kdTd% = LAYERS(TEXT.editingTextLayer%).textDataIdx%
+                IF kdTd% >= 1 THEN
+                    IF TEXT_has_selection% THEN
+                        DIM kdMin AS INTEGER, kdMax AS INTEGER
+                        kdMin% = TEXT.selStart%: kdMax% = TEXT.selEnd%
+                        IF kdMin% > kdMax% THEN SWAP kdMin%, kdMax%
+                        DIM kdC AS INTEGER
+                        FOR kdC% = kdMin% TO kdMax% - 1
+                            TL_KERN(kdTd%, kdC%) = TL_KERN(kdTd%, kdC%) - 1
+                        NEXT kdC%
+                    ELSEIF TEXT_LAYER_DATA(kdTd%).cursorPos < TEXT_LAYER_DATA(kdTd%).charCount THEN
+                        TL_KERN(kdTd%, TEXT_LAYER_DATA(kdTd%).cursorPos) = TL_KERN(kdTd%, TEXT_LAYER_DATA(kdTd%).cursorPos) - 1
+                    END IF
+                    TEXT_LAYER_DATA(kdTd%).dirty = TRUE
+                    TEXT.CURSOR_X = TEXT_LAYER_get_char_x%(kdTd%, TEXT_LAYER_DATA(kdTd%).cursorPos)
+                    SCENE_DIRTY% = TRUE
+                END IF
+            END IF
+            FRAME_IDLE% = FALSE: GUI_NEEDS_REDRAW% = TRUE
+            ctrlKernDn% = TRUE
+        END IF
+        KEYBOARD_handle_text_tool% = TRUE: EXIT FUNCTION
+    ELSE: ctrlKernDn% = FALSE
+    END IF
+
+    ' Ctrl+Alt+Up = Raise baseline at cursor or selection
+    IF MODIFIERS.ctrl% AND MODIFIERS.alt% AND _KEYDOWN(18432) THEN
+        IF NOT ctrlBaseUp% THEN
+            IF TEXT.editingTextLayer% >= 1 THEN
+                DIM buTd AS INTEGER
+                buTd% = LAYERS(TEXT.editingTextLayer%).textDataIdx%
+                IF buTd% >= 1 THEN
+                    IF TEXT_has_selection% THEN
+                        DIM buMin AS INTEGER, buMax AS INTEGER
+                        buMin% = TEXT.selStart%: buMax% = TEXT.selEnd%
+                        IF buMin% > buMax% THEN SWAP buMin%, buMax%
+                        DIM buC AS INTEGER
+                        FOR buC% = buMin% TO buMax% - 1
+                            TL_BASELINE(buTd%, buC%) = TL_BASELINE(buTd%, buC%) + 1
+                        NEXT buC%
+                    ELSEIF TEXT_LAYER_DATA(buTd%).cursorPos < TEXT_LAYER_DATA(buTd%).charCount THEN
+                        TL_BASELINE(buTd%, TEXT_LAYER_DATA(buTd%).cursorPos) = TL_BASELINE(buTd%, TEXT_LAYER_DATA(buTd%).cursorPos) + 1
+                    END IF
+                    TEXT_LAYER_DATA(buTd%).dirty = TRUE
+                    SCENE_DIRTY% = TRUE
+                END IF
+            END IF
+            FRAME_IDLE% = FALSE: GUI_NEEDS_REDRAW% = TRUE
+            ctrlBaseUp% = TRUE
+        END IF
+        KEYBOARD_handle_text_tool% = TRUE: EXIT FUNCTION
+    ELSE: ctrlBaseUp% = FALSE
+    END IF
+
+    ' Ctrl+Alt+Down = Lower baseline at cursor or selection
+    IF MODIFIERS.ctrl% AND MODIFIERS.alt% AND _KEYDOWN(20480) THEN
+        IF NOT ctrlBaseDn% THEN
+            IF TEXT.editingTextLayer% >= 1 THEN
+                DIM bdTd AS INTEGER
+                bdTd% = LAYERS(TEXT.editingTextLayer%).textDataIdx%
+                IF bdTd% >= 1 THEN
+                    IF TEXT_has_selection% THEN
+                        DIM bdMin AS INTEGER, bdMax AS INTEGER
+                        bdMin% = TEXT.selStart%: bdMax% = TEXT.selEnd%
+                        IF bdMin% > bdMax% THEN SWAP bdMin%, bdMax%
+                        DIM bdC AS INTEGER
+                        FOR bdC% = bdMin% TO bdMax% - 1
+                            TL_BASELINE(bdTd%, bdC%) = TL_BASELINE(bdTd%, bdC%) - 1
+                        NEXT bdC%
+                    ELSEIF TEXT_LAYER_DATA(bdTd%).cursorPos < TEXT_LAYER_DATA(bdTd%).charCount THEN
+                        TL_BASELINE(bdTd%, TEXT_LAYER_DATA(bdTd%).cursorPos) = TL_BASELINE(bdTd%, TEXT_LAYER_DATA(bdTd%).cursorPos) - 1
+                    END IF
+                    TEXT_LAYER_DATA(bdTd%).dirty = TRUE
+                    SCENE_DIRTY% = TRUE
+                END IF
+            END IF
+            FRAME_IDLE% = FALSE: GUI_NEEDS_REDRAW% = TRUE
+            ctrlBaseDn% = TRUE
+        END IF
+        KEYBOARD_handle_text_tool% = TRUE: EXIT FUNCTION
+    ELSE: ctrlBaseDn% = FALSE
+    END IF
+
     ' --- Text clipboard operations ---
     STATIC ctrlCopy AS INTEGER, ctrlPaste AS INTEGER
     STATIC ctrlCut AS INTEGER, ctrlSelAll AS INTEGER
 
-    ' Ctrl+C = Copy selected text to OS clipboard
-    IF MODIFIERS.ctrl% AND NOT MODIFIERS.shift% AND _KEYDOWN(99) THEN
+    ' Ctrl+C = Copy selected text to OS clipboard (with rich formatting)
+    IF MODIFIERS.ctrl% AND NOT MODIFIERS.shift% AND (_KEYDOWN(99) OR _KEYDOWN(67)) THEN
         IF NOT ctrlCopy% THEN
             IF TEXT_has_selection% AND TEXT.editingTextLayer% >= 1 THEN
                 DIM cpTd AS INTEGER
@@ -970,10 +1122,26 @@ FUNCTION KEYBOARD_handle_text_tool% (keypress AS STRING)
                     IF cpStart% > cpEnd% THEN SWAP cpStart%, cpEnd%
                     DIM cpText AS STRING
                     cpText$ = ""
+                    TEXT_CLIP_COUNT% = 0
                     DIM cpI AS INTEGER
                     FOR cpI% = cpStart% TO cpEnd% - 1
+                        DIM cpIdx AS INTEGER
+                        cpIdx% = cpI% - cpStart%
                         cpText$ = cpText$ + TL_CHAR(cpTd%, cpI%)
+                        TEXT_CLIP_CHAR(cpIdx%) = TL_CHAR(cpTd%, cpI%)
+                        TEXT_CLIP_FG(cpIdx%) = TL_FG(cpTd%, cpI%)
+                        TEXT_CLIP_BG(cpIdx%) = TL_BG(cpTd%, cpI%)
+                        TEXT_CLIP_FONT_IDX(cpIdx%) = TL_FONT_IDX(cpTd%, cpI%)
+                        TEXT_CLIP_FONT_SIZE(cpIdx%) = TL_FONT_SIZE(cpTd%, cpI%)
+                        TEXT_CLIP_BOLD(cpIdx%) = TL_BOLD(cpTd%, cpI%)
+                        TEXT_CLIP_ITALIC(cpIdx%) = TL_ITALIC(cpTd%, cpI%)
+                        TEXT_CLIP_UNDERLINE(cpIdx%) = TL_UNDERLINE(cpTd%, cpI%)
+                        TEXT_CLIP_STRIKE(cpIdx%) = TL_STRIKE(cpTd%, cpI%)
+                        TEXT_CLIP_KERN(cpIdx%) = TL_KERN(cpTd%, cpI%)
+                        TEXT_CLIP_BASELINE(cpIdx%) = TL_BASELINE(cpTd%, cpI%)
+                        TEXT_CLIP_COUNT% = TEXT_CLIP_COUNT% + 1
                     NEXT cpI%
+                    TEXT_CLIP_PLAIN$ = cpText$
                     _CLIPBOARD$ = cpText$
                 END IF
             END IF
@@ -983,8 +1151,8 @@ FUNCTION KEYBOARD_handle_text_tool% (keypress AS STRING)
     ELSE: ctrlCopy% = FALSE
     END IF
 
-    ' Ctrl+X = Cut selected text to OS clipboard
-    IF MODIFIERS.ctrl% AND NOT MODIFIERS.shift% AND _KEYDOWN(120) THEN
+    ' Ctrl+X = Cut selected text to OS clipboard (with rich formatting)
+    IF MODIFIERS.ctrl% AND NOT MODIFIERS.shift% AND (_KEYDOWN(120) OR _KEYDOWN(88)) THEN
         IF NOT ctrlCut% THEN
             IF TEXT_has_selection% AND TEXT.editingTextLayer% >= 1 THEN
                 DIM cxTd AS INTEGER
@@ -995,10 +1163,26 @@ FUNCTION KEYBOARD_handle_text_tool% (keypress AS STRING)
                     IF cxStart% > cxEnd% THEN SWAP cxStart%, cxEnd%
                     DIM cxText AS STRING
                     cxText$ = ""
+                    TEXT_CLIP_COUNT% = 0
                     DIM cxI AS INTEGER
                     FOR cxI% = cxStart% TO cxEnd% - 1
+                        DIM cxIdx AS INTEGER
+                        cxIdx% = cxI% - cxStart%
                         cxText$ = cxText$ + TL_CHAR(cxTd%, cxI%)
+                        TEXT_CLIP_CHAR(cxIdx%) = TL_CHAR(cxTd%, cxI%)
+                        TEXT_CLIP_FG(cxIdx%) = TL_FG(cxTd%, cxI%)
+                        TEXT_CLIP_BG(cxIdx%) = TL_BG(cxTd%, cxI%)
+                        TEXT_CLIP_FONT_IDX(cxIdx%) = TL_FONT_IDX(cxTd%, cxI%)
+                        TEXT_CLIP_FONT_SIZE(cxIdx%) = TL_FONT_SIZE(cxTd%, cxI%)
+                        TEXT_CLIP_BOLD(cxIdx%) = TL_BOLD(cxTd%, cxI%)
+                        TEXT_CLIP_ITALIC(cxIdx%) = TL_ITALIC(cxTd%, cxI%)
+                        TEXT_CLIP_UNDERLINE(cxIdx%) = TL_UNDERLINE(cxTd%, cxI%)
+                        TEXT_CLIP_STRIKE(cxIdx%) = TL_STRIKE(cxTd%, cxI%)
+                        TEXT_CLIP_KERN(cxIdx%) = TL_KERN(cxTd%, cxI%)
+                        TEXT_CLIP_BASELINE(cxIdx%) = TL_BASELINE(cxTd%, cxI%)
+                        TEXT_CLIP_COUNT% = TEXT_CLIP_COUNT% + 1
                     NEXT cxI%
+                    TEXT_CLIP_PLAIN$ = cxText$
                     _CLIPBOARD$ = cxText$
                     ' Delete the selected characters (back to front)
                     DIM cxD AS INTEGER
@@ -1020,12 +1204,26 @@ FUNCTION KEYBOARD_handle_text_tool% (keypress AS STRING)
     ELSE: ctrlCut% = FALSE
     END IF
 
-    ' Ctrl+V = Paste text from OS clipboard
-    IF MODIFIERS.ctrl% AND NOT MODIFIERS.shift% AND _KEYDOWN(118) THEN
+    ' Ctrl+V = Paste text from OS clipboard (with rich formatting if available)
+    IF MODIFIERS.ctrl% AND NOT MODIFIERS.shift% AND (_KEYDOWN(118) OR _KEYDOWN(86)) THEN
         IF NOT ctrlPaste% THEN
             DIM pastedText AS STRING
             pastedText$ = _CLIPBOARD$
             IF LEN(pastedText$) > 0 THEN
+                ' Check if we have a matching rich clipboard (internal copy/cut)
+                DIM useRichClip AS INTEGER
+                useRichClip% = FALSE
+                IF TEXT_CLIP_COUNT% > 0 AND pastedText$ = TEXT_CLIP_PLAIN$ THEN
+                    useRichClip% = TRUE
+                END IF
+                DIM pvTd AS INTEGER
+                IF TEXT.editingTextLayer% >= 1 THEN
+                    pvTd% = LAYERS(TEXT.editingTextLayer%).textDataIdx%
+                ELSE
+                    pvTd% = 0
+                END IF
+                DIM pvRichIdx AS INTEGER
+                pvRichIdx% = 0
                 DIM pvI AS INTEGER
                 FOR pvI% = 1 TO LEN(pastedText$)
                     DIM pvCh AS STRING
@@ -1038,8 +1236,27 @@ FUNCTION KEYBOARD_handle_text_tool% (keypress AS STRING)
                             IF ASC(MID$(pastedText$, pvI% + 1, 1)) = 10 THEN pvI% = pvI% + 1
                         END IF
                         TEXT_newline
+                        pvRichIdx% = pvRichIdx% + 1
                     ELSEIF pvCode% >= 32 AND pvCode% <= 126 THEN
                         TEXT_add_char pvCh$
+                        ' Override with rich clipboard attributes if available
+                        IF useRichClip% AND pvRichIdx% < TEXT_CLIP_COUNT% AND pvTd% >= 1 THEN
+                            DIM pvCharIdx AS INTEGER
+                            pvCharIdx% = TEXT_LAYER_DATA(pvTd%).cursorPos - 1
+                            IF pvCharIdx% >= 0 AND pvCharIdx% < TEXT_LAYER_MAX_CHARS THEN
+                                TL_FG(pvTd%, pvCharIdx%) = TEXT_CLIP_FG(pvRichIdx%)
+                                TL_BG(pvTd%, pvCharIdx%) = TEXT_CLIP_BG(pvRichIdx%)
+                                TL_FONT_IDX(pvTd%, pvCharIdx%) = TEXT_CLIP_FONT_IDX(pvRichIdx%)
+                                TL_FONT_SIZE(pvTd%, pvCharIdx%) = TEXT_CLIP_FONT_SIZE(pvRichIdx%)
+                                TL_BOLD(pvTd%, pvCharIdx%) = TEXT_CLIP_BOLD(pvRichIdx%)
+                                TL_ITALIC(pvTd%, pvCharIdx%) = TEXT_CLIP_ITALIC(pvRichIdx%)
+                                TL_UNDERLINE(pvTd%, pvCharIdx%) = TEXT_CLIP_UNDERLINE(pvRichIdx%)
+                                TL_STRIKE(pvTd%, pvCharIdx%) = TEXT_CLIP_STRIKE(pvRichIdx%)
+                                TL_KERN(pvTd%, pvCharIdx%) = TEXT_CLIP_KERN(pvRichIdx%)
+                                TL_BASELINE(pvTd%, pvCharIdx%) = TEXT_CLIP_BASELINE(pvRichIdx%)
+                            END IF
+                        END IF
+                        pvRichIdx% = pvRichIdx% + 1
                     END IF
                 NEXT pvI%
                 FRAME_IDLE% = FALSE: SCENE_DIRTY% = TRUE
@@ -1051,7 +1268,7 @@ FUNCTION KEYBOARD_handle_text_tool% (keypress AS STRING)
     END IF
 
     ' Ctrl+A = Select all text in current text layer
-    IF MODIFIERS.ctrl% AND NOT MODIFIERS.shift% AND _KEYDOWN(97) THEN
+    IF MODIFIERS.ctrl% AND NOT MODIFIERS.shift% AND (_KEYDOWN(97) OR _KEYDOWN(65)) THEN
         IF NOT ctrlSelAll% THEN
             IF TEXT.editingTextLayer% >= 1 THEN
                 DIM saTd AS INTEGER
@@ -1077,6 +1294,232 @@ FUNCTION KEYBOARD_handle_text_tool% (keypress AS STRING)
             DIM akPos AS INTEGER
             akPos% = TEXT_LAYER_DATA(akTd%).cursorPos
 
+            ' --- Ctrl+Left = jump to previous word boundary ---
+            STATIC ctrlLeftWas AS INTEGER
+            IF MODIFIERS.ctrl% AND NOT MODIFIERS.shift% AND _KEYDOWN(19200) THEN
+                IF NOT ctrlLeftWas% THEN
+                    IF TEXT.selActive% THEN TEXT_clear_selection
+                    DIM wlPos AS INTEGER
+                    wlPos% = TEXT_LAYER_prev_word_pos%(akTd%, akPos%)
+                    TEXT_LAYER_DATA(akTd%).cursorPos = wlPos%
+                    TEXT.CURSOR_X = TEXT_LAYER_get_char_x%(akTd%, wlPos%)
+                    TEXT.CURSOR_Y = TEXT_LAYER_get_line_y%(akTd%, TEXT_LAYER_get_line_for_char%(akTd%, wlPos%))
+                    TEXT.CURSOR_BLINK = 1: TEXT.BLINK_TIMER = TIMER
+                    FRAME_IDLE% = FALSE: SCENE_DIRTY% = TRUE
+                    ctrlLeftWas% = TRUE
+                END IF
+                KEYBOARD_handle_text_tool% = TRUE: EXIT FUNCTION
+            ELSE: ctrlLeftWas% = FALSE
+            END IF
+
+            ' --- Ctrl+Right = jump to next word boundary ---
+            STATIC ctrlRightWas AS INTEGER
+            IF MODIFIERS.ctrl% AND NOT MODIFIERS.shift% AND _KEYDOWN(19712) THEN
+                IF NOT ctrlRightWas% THEN
+                    IF TEXT.selActive% THEN TEXT_clear_selection
+                    DIM wrPos AS INTEGER
+                    wrPos% = TEXT_LAYER_next_word_pos%(akTd%, akPos%)
+                    TEXT_LAYER_DATA(akTd%).cursorPos = wrPos%
+                    TEXT.CURSOR_X = TEXT_LAYER_get_char_x%(akTd%, wrPos%)
+                    TEXT.CURSOR_Y = TEXT_LAYER_get_line_y%(akTd%, TEXT_LAYER_get_line_for_char%(akTd%, wrPos%))
+                    TEXT.CURSOR_BLINK = 1: TEXT.BLINK_TIMER = TIMER
+                    FRAME_IDLE% = FALSE: SCENE_DIRTY% = TRUE
+                    ctrlRightWas% = TRUE
+                END IF
+                KEYBOARD_handle_text_tool% = TRUE: EXIT FUNCTION
+            ELSE: ctrlRightWas% = FALSE
+            END IF
+
+            ' --- Ctrl+Shift+Left = select to previous word boundary ---
+            STATIC ctrlShiftLeftWas AS INTEGER
+            IF MODIFIERS.ctrl% AND MODIFIERS.shift% AND _KEYDOWN(19200) THEN
+                IF NOT ctrlShiftLeftWas% THEN
+                    DIM cslPos AS INTEGER
+                    cslPos% = TEXT_LAYER_prev_word_pos%(akTd%, akPos%)
+                    IF TEXT.selStart% < 0 THEN TEXT.selStart% = akPos%
+                    TEXT_LAYER_DATA(akTd%).cursorPos = cslPos%
+                    TEXT.selEnd% = cslPos%
+                    IF TEXT.selStart% <> TEXT.selEnd% THEN
+                        TEXT.selActive% = TRUE
+                    ELSE
+                        TEXT.selActive% = FALSE
+                    END IF
+                    TEXT.CURSOR_X = TEXT_LAYER_get_char_x%(akTd%, cslPos%)
+                    TEXT.CURSOR_Y = TEXT_LAYER_get_line_y%(akTd%, TEXT_LAYER_get_line_for_char%(akTd%, cslPos%))
+                    TEXT.CURSOR_BLINK = 1: TEXT.BLINK_TIMER = TIMER
+                    FRAME_IDLE% = FALSE: SCENE_DIRTY% = TRUE
+                    ctrlShiftLeftWas% = TRUE
+                END IF
+                KEYBOARD_handle_text_tool% = TRUE: EXIT FUNCTION
+            ELSE: ctrlShiftLeftWas% = FALSE
+            END IF
+
+            ' --- Ctrl+Shift+Right = select to next word boundary ---
+            STATIC ctrlShiftRightWas AS INTEGER
+            IF MODIFIERS.ctrl% AND MODIFIERS.shift% AND _KEYDOWN(19712) THEN
+                IF NOT ctrlShiftRightWas% THEN
+                    DIM csrPos AS INTEGER
+                    csrPos% = TEXT_LAYER_next_word_pos%(akTd%, akPos%)
+                    IF TEXT.selStart% < 0 THEN TEXT.selStart% = akPos%
+                    TEXT_LAYER_DATA(akTd%).cursorPos = csrPos%
+                    TEXT.selEnd% = csrPos%
+                    IF TEXT.selStart% <> TEXT.selEnd% THEN
+                        TEXT.selActive% = TRUE
+                    ELSE
+                        TEXT.selActive% = FALSE
+                    END IF
+                    TEXT.CURSOR_X = TEXT_LAYER_get_char_x%(akTd%, csrPos%)
+                    TEXT.CURSOR_Y = TEXT_LAYER_get_line_y%(akTd%, TEXT_LAYER_get_line_for_char%(akTd%, csrPos%))
+                    TEXT.CURSOR_BLINK = 1: TEXT.BLINK_TIMER = TIMER
+                    FRAME_IDLE% = FALSE: SCENE_DIRTY% = TRUE
+                    ctrlShiftRightWas% = TRUE
+                END IF
+                KEYBOARD_handle_text_tool% = TRUE: EXIT FUNCTION
+            ELSE: ctrlShiftRightWas% = FALSE
+            END IF
+
+            ' --- Up arrow (18432) = move cursor up one line ---
+            STATIC arrowUpWas AS INTEGER
+            STATIC arrowUpTimer AS DOUBLE
+            STATIC arrowUpDelay AS DOUBLE
+            IF _KEYDOWN(18432) AND NOT MODIFIERS.ctrl% THEN
+                DIM arrowUpNow AS DOUBLE
+                arrowUpNow# = TIMER(.001)
+                DIM doUpMove AS INTEGER
+                doUpMove% = FALSE
+                IF NOT arrowUpWas% THEN
+                    doUpMove% = TRUE
+                    arrowUpTimer# = arrowUpNow#
+                    arrowUpDelay# = 0.3
+                ELSEIF arrowUpNow# - arrowUpTimer# >= arrowUpDelay# THEN
+                    doUpMove% = TRUE
+                    arrowUpTimer# = arrowUpNow#
+                    arrowUpDelay# = 0.08
+                END IF
+                IF doUpMove% THEN
+                    akPos% = TEXT_LAYER_DATA(akTd%).cursorPos
+                    DIM upLine AS INTEGER
+                    upLine% = TEXT_LAYER_get_line_for_char%(akTd%, akPos%)
+                    IF upLine% > 0 THEN
+                        ' Get current X position and target the line above
+                        DIM upCurX AS INTEGER
+                        upCurX% = TEXT_LAYER_get_char_x%(akTd%, akPos%)
+                        DIM upTargetY AS INTEGER
+                        upTargetY% = TEXT_LAYER_get_line_y%(akTd%, upLine% - 1)
+                        DIM upNewPos AS INTEGER
+                        upNewPos% = TEXT_LAYER_get_cursor_at_pos%(akTd%, upCurX%, upTargetY% + 1)
+                        IF upNewPos% < 0 THEN upNewPos% = TL_LINE_BREAK(akTd%, upLine% - 1)
+                        IF MODIFIERS.shift% THEN
+                            IF TEXT.selStart% < 0 THEN TEXT.selStart% = akPos%
+                            TEXT.selEnd% = upNewPos%
+                            IF TEXT.selStart% <> TEXT.selEnd% THEN
+                                TEXT.selActive% = TRUE
+                            ELSE
+                                TEXT.selActive% = FALSE
+                            END IF
+                        ELSEIF TEXT.selActive% THEN
+                            TEXT_clear_selection
+                        END IF
+                        TEXT_LAYER_DATA(akTd%).cursorPos = upNewPos%
+                        TEXT.CURSOR_X = TEXT_LAYER_get_char_x%(akTd%, upNewPos%)
+                        TEXT.CURSOR_Y = TEXT_LAYER_get_line_y%(akTd%, upLine% - 1)
+                    ELSE
+                        ' Already on first line — move to start
+                        IF MODIFIERS.shift% THEN
+                            IF TEXT.selStart% < 0 THEN TEXT.selStart% = akPos%
+                            TEXT.selEnd% = 0
+                            IF TEXT.selStart% <> TEXT.selEnd% THEN
+                                TEXT.selActive% = TRUE
+                            ELSE
+                                TEXT.selActive% = FALSE
+                            END IF
+                        ELSEIF TEXT.selActive% THEN
+                            TEXT_clear_selection
+                        END IF
+                        TEXT_LAYER_DATA(akTd%).cursorPos = 0
+                        TEXT.CURSOR_X = TEXT_LAYER_get_char_x%(akTd%, 0)
+                        TEXT.CURSOR_Y = TEXT_LAYER_get_line_y%(akTd%, 0)
+                    END IF
+                    TEXT.CURSOR_BLINK = 1: TEXT.BLINK_TIMER = TIMER
+                    FRAME_IDLE% = FALSE: SCENE_DIRTY% = TRUE
+                END IF
+                arrowUpWas% = TRUE
+                KEYBOARD_handle_text_tool% = TRUE: EXIT FUNCTION
+            ELSE: arrowUpWas% = FALSE
+            END IF
+
+            ' --- Down arrow (20480) = move cursor down one line ---
+            STATIC arrowDownWas AS INTEGER
+            STATIC arrowDownTimer AS DOUBLE
+            STATIC arrowDownDelay AS DOUBLE
+            IF _KEYDOWN(20480) AND NOT MODIFIERS.ctrl% THEN
+                DIM arrowDownNow AS DOUBLE
+                arrowDownNow# = TIMER(.001)
+                DIM doDownMove AS INTEGER
+                doDownMove% = FALSE
+                IF NOT arrowDownWas% THEN
+                    doDownMove% = TRUE
+                    arrowDownTimer# = arrowDownNow#
+                    arrowDownDelay# = 0.3
+                ELSEIF arrowDownNow# - arrowDownTimer# >= arrowDownDelay# THEN
+                    doDownMove% = TRUE
+                    arrowDownTimer# = arrowDownNow#
+                    arrowDownDelay# = 0.08
+                END IF
+                IF doDownMove% THEN
+                    akPos% = TEXT_LAYER_DATA(akTd%).cursorPos
+                    DIM dnLine AS INTEGER
+                    dnLine% = TEXT_LAYER_get_line_for_char%(akTd%, akPos%)
+                    IF dnLine% < TEXT_LAYER_DATA(akTd%).lineCount - 1 THEN
+                        ' Get current X position and target the line below
+                        DIM dnCurX AS INTEGER
+                        dnCurX% = TEXT_LAYER_get_char_x%(akTd%, akPos%)
+                        DIM dnTargetY AS INTEGER
+                        dnTargetY% = TEXT_LAYER_get_line_y%(akTd%, dnLine% + 1)
+                        DIM dnNewPos AS INTEGER
+                        dnNewPos% = TEXT_LAYER_get_cursor_at_pos%(akTd%, dnCurX%, dnTargetY% + 1)
+                        IF dnNewPos% < 0 THEN dnNewPos% = TL_LINE_BREAK(akTd%, dnLine% + 1)
+                        IF MODIFIERS.shift% THEN
+                            IF TEXT.selStart% < 0 THEN TEXT.selStart% = akPos%
+                            TEXT.selEnd% = dnNewPos%
+                            IF TEXT.selStart% <> TEXT.selEnd% THEN
+                                TEXT.selActive% = TRUE
+                            ELSE
+                                TEXT.selActive% = FALSE
+                            END IF
+                        ELSEIF TEXT.selActive% THEN
+                            TEXT_clear_selection
+                        END IF
+                        TEXT_LAYER_DATA(akTd%).cursorPos = dnNewPos%
+                        TEXT.CURSOR_X = TEXT_LAYER_get_char_x%(akTd%, dnNewPos%)
+                        TEXT.CURSOR_Y = TEXT_LAYER_get_line_y%(akTd%, dnLine% + 1)
+                    ELSE
+                        ' Already on last line — move to end
+                        DIM dnEndPos AS INTEGER
+                        dnEndPos% = TEXT_LAYER_DATA(akTd%).charCount
+                        IF MODIFIERS.shift% THEN
+                            IF TEXT.selStart% < 0 THEN TEXT.selStart% = akPos%
+                            TEXT.selEnd% = dnEndPos%
+                            IF TEXT.selStart% <> TEXT.selEnd% THEN
+                                TEXT.selActive% = TRUE
+                            ELSE
+                                TEXT.selActive% = FALSE
+                            END IF
+                        ELSEIF TEXT.selActive% THEN
+                            TEXT_clear_selection
+                        END IF
+                        TEXT_LAYER_DATA(akTd%).cursorPos = dnEndPos%
+                        TEXT.CURSOR_X = TEXT_LAYER_get_char_x%(akTd%, dnEndPos%)
+                        TEXT.CURSOR_Y = TEXT_LAYER_get_line_y%(akTd%, dnLine%)
+                    END IF
+                    TEXT.CURSOR_BLINK = 1: TEXT.BLINK_TIMER = TIMER
+                    FRAME_IDLE% = FALSE: SCENE_DIRTY% = TRUE
+                END IF
+                arrowDownWas% = TRUE
+                KEYBOARD_handle_text_tool% = TRUE: EXIT FUNCTION
+            ELSE: arrowDownWas% = FALSE
+            END IF
+
             ' Left arrow (19200)
             STATIC arrowLeftWas AS INTEGER
             STATIC arrowLeftTimer AS DOUBLE
@@ -1084,27 +1527,49 @@ FUNCTION KEYBOARD_handle_text_tool% (keypress AS STRING)
             IF _KEYDOWN(19200) THEN
                 DIM arrowLeftNow AS DOUBLE
                 arrowLeftNow# = TIMER(.001)
+                DIM doLeftMove AS INTEGER
+                doLeftMove% = FALSE
                 IF NOT arrowLeftWas% THEN
-                    IF akPos% > 0 THEN
-                        TEXT_LAYER_DATA(akTd%).cursorPos = akPos% - 1
-                        TEXT.CURSOR_X = TEXT_LAYER_get_char_x%(akTd%, akPos% - 1)
-                        TEXT.CURSOR_Y = TEXT_LAYER_get_line_y%(akTd%, TEXT_LAYER_get_line_for_char%(akTd%, akPos% - 1))
-                        TEXT.CURSOR_BLINK = 1: TEXT.BLINK_TIMER = TIMER
-                        FRAME_IDLE% = FALSE: SCENE_DIRTY% = TRUE
-                    END IF
+                    doLeftMove% = TRUE
                     arrowLeftTimer# = arrowLeftNow#
                     arrowLeftDelay# = 0.3
                 ELSEIF arrowLeftNow# - arrowLeftTimer# >= arrowLeftDelay# THEN
-                    IF akPos% > 0 THEN
-                        akPos% = TEXT_LAYER_DATA(akTd%).cursorPos
-                        TEXT_LAYER_DATA(akTd%).cursorPos = akPos% - 1
-                        TEXT.CURSOR_X = TEXT_LAYER_get_char_x%(akTd%, akPos% - 1)
-                        TEXT.CURSOR_Y = TEXT_LAYER_get_line_y%(akTd%, TEXT_LAYER_get_line_for_char%(akTd%, akPos% - 1))
-                        TEXT.CURSOR_BLINK = 1: TEXT.BLINK_TIMER = TIMER
-                        FRAME_IDLE% = FALSE: SCENE_DIRTY% = TRUE
-                    END IF
+                    doLeftMove% = TRUE
                     arrowLeftTimer# = arrowLeftNow#
                     arrowLeftDelay# = 0.08
+                END IF
+                IF doLeftMove% THEN
+                    akPos% = TEXT_LAYER_DATA(akTd%).cursorPos
+                    IF MODIFIERS.shift% THEN
+                        ' Shift+Left: extend selection leftward
+                        IF akPos% > 0 THEN
+                            IF TEXT.selStart% < 0 THEN TEXT.selStart% = akPos%
+                            TEXT_LAYER_DATA(akTd%).cursorPos = akPos% - 1
+                            TEXT.selEnd% = akPos% - 1
+                            IF TEXT.selStart% <> TEXT.selEnd% THEN
+                                TEXT.selActive% = TRUE
+                            ELSE
+                                TEXT.selActive% = FALSE
+                            END IF
+                        END IF
+                    ELSEIF TEXT.selActive% THEN
+                        ' Collapse selection to left edge
+                        DIM clpL AS INTEGER
+                        clpL% = TEXT.selStart%
+                        IF TEXT.selEnd% < clpL% THEN clpL% = TEXT.selEnd%
+                        TEXT_LAYER_DATA(akTd%).cursorPos = clpL%
+                        TEXT_clear_selection
+                    ELSE
+                        ' Clear any stale selection anchor
+                        TEXT.selStart% = -1: TEXT.selEnd% = -1
+                        IF akPos% > 0 THEN
+                            TEXT_LAYER_DATA(akTd%).cursorPos = akPos% - 1
+                        END IF
+                    END IF
+                    TEXT.CURSOR_X = TEXT_LAYER_get_char_x%(akTd%, TEXT_LAYER_DATA(akTd%).cursorPos)
+                    TEXT.CURSOR_Y = TEXT_LAYER_get_line_y%(akTd%, TEXT_LAYER_get_line_for_char%(akTd%, TEXT_LAYER_DATA(akTd%).cursorPos))
+                    TEXT.CURSOR_BLINK = 1: TEXT.BLINK_TIMER = TIMER
+                    FRAME_IDLE% = FALSE: SCENE_DIRTY% = TRUE
                 END IF
                 arrowLeftWas% = TRUE
                 KEYBOARD_handle_text_tool% = TRUE: EXIT FUNCTION
@@ -1118,27 +1583,49 @@ FUNCTION KEYBOARD_handle_text_tool% (keypress AS STRING)
             IF _KEYDOWN(19712) THEN
                 DIM arrowRightNow AS DOUBLE
                 arrowRightNow# = TIMER(.001)
+                DIM doRightMove AS INTEGER
+                doRightMove% = FALSE
                 IF NOT arrowRightWas% THEN
-                    IF akPos% < TEXT_LAYER_DATA(akTd%).charCount THEN
-                        TEXT_LAYER_DATA(akTd%).cursorPos = akPos% + 1
-                        TEXT.CURSOR_X = TEXT_LAYER_get_char_x%(akTd%, akPos% + 1)
-                        TEXT.CURSOR_Y = TEXT_LAYER_get_line_y%(akTd%, TEXT_LAYER_get_line_for_char%(akTd%, akPos% + 1))
-                        TEXT.CURSOR_BLINK = 1: TEXT.BLINK_TIMER = TIMER
-                        FRAME_IDLE% = FALSE: SCENE_DIRTY% = TRUE
-                    END IF
+                    doRightMove% = TRUE
                     arrowRightTimer# = arrowRightNow#
                     arrowRightDelay# = 0.3
                 ELSEIF arrowRightNow# - arrowRightTimer# >= arrowRightDelay# THEN
-                    IF akPos% < TEXT_LAYER_DATA(akTd%).charCount THEN
-                        akPos% = TEXT_LAYER_DATA(akTd%).cursorPos
-                        TEXT_LAYER_DATA(akTd%).cursorPos = akPos% + 1
-                        TEXT.CURSOR_X = TEXT_LAYER_get_char_x%(akTd%, akPos% + 1)
-                        TEXT.CURSOR_Y = TEXT_LAYER_get_line_y%(akTd%, TEXT_LAYER_get_line_for_char%(akTd%, akPos% + 1))
-                        TEXT.CURSOR_BLINK = 1: TEXT.BLINK_TIMER = TIMER
-                        FRAME_IDLE% = FALSE: SCENE_DIRTY% = TRUE
-                    END IF
+                    doRightMove% = TRUE
                     arrowRightTimer# = arrowRightNow#
                     arrowRightDelay# = 0.08
+                END IF
+                IF doRightMove% THEN
+                    akPos% = TEXT_LAYER_DATA(akTd%).cursorPos
+                    IF MODIFIERS.shift% THEN
+                        ' Shift+Right: extend selection rightward
+                        IF akPos% < TEXT_LAYER_DATA(akTd%).charCount THEN
+                            IF TEXT.selStart% < 0 THEN TEXT.selStart% = akPos%
+                            TEXT_LAYER_DATA(akTd%).cursorPos = akPos% + 1
+                            TEXT.selEnd% = akPos% + 1
+                            IF TEXT.selStart% <> TEXT.selEnd% THEN
+                                TEXT.selActive% = TRUE
+                            ELSE
+                                TEXT.selActive% = FALSE
+                            END IF
+                        END IF
+                    ELSEIF TEXT.selActive% THEN
+                        ' Collapse selection to right edge
+                        DIM clpR AS INTEGER
+                        clpR% = TEXT.selStart%
+                        IF TEXT.selEnd% > clpR% THEN clpR% = TEXT.selEnd%
+                        TEXT_LAYER_DATA(akTd%).cursorPos = clpR%
+                        TEXT_clear_selection
+                    ELSE
+                        ' Clear any stale selection anchor
+                        TEXT.selStart% = -1: TEXT.selEnd% = -1
+                        IF akPos% < TEXT_LAYER_DATA(akTd%).charCount THEN
+                            TEXT_LAYER_DATA(akTd%).cursorPos = akPos% + 1
+                        END IF
+                    END IF
+                    TEXT.CURSOR_X = TEXT_LAYER_get_char_x%(akTd%, TEXT_LAYER_DATA(akTd%).cursorPos)
+                    TEXT.CURSOR_Y = TEXT_LAYER_get_line_y%(akTd%, TEXT_LAYER_get_line_for_char%(akTd%, TEXT_LAYER_DATA(akTd%).cursorPos))
+                    TEXT.CURSOR_BLINK = 1: TEXT.BLINK_TIMER = TIMER
+                    FRAME_IDLE% = FALSE: SCENE_DIRTY% = TRUE
                 END IF
                 arrowRightWas% = TRUE
                 KEYBOARD_handle_text_tool% = TRUE: EXIT FUNCTION
@@ -1151,6 +1638,17 @@ FUNCTION KEYBOARD_handle_text_tool% (keypress AS STRING)
                 akLine% = TEXT_LAYER_get_line_for_char%(akTd%, akPos%)
                 DIM akLineStart AS INTEGER
                 akLineStart% = TL_LINE_BREAK(akTd%, akLine%)
+                IF MODIFIERS.shift% THEN
+                    IF TEXT.selStart% < 0 THEN TEXT.selStart% = akPos%
+                    TEXT.selEnd% = akLineStart%
+                    IF TEXT.selStart% <> TEXT.selEnd% THEN
+                        TEXT.selActive% = TRUE
+                    ELSE
+                        TEXT.selActive% = FALSE
+                    END IF
+                ELSEIF TEXT.selActive% THEN
+                    TEXT_clear_selection
+                END IF
                 TEXT_LAYER_DATA(akTd%).cursorPos = akLineStart%
                 TEXT.CURSOR_X = TEXT_LAYER_get_char_x%(akTd%, akLineStart%)
                 TEXT.CURSOR_Y = TEXT_LAYER_get_line_y%(akTd%, akLine%)
@@ -1169,6 +1667,17 @@ FUNCTION KEYBOARD_handle_text_tool% (keypress AS STRING)
                 ELSE
                     akLineEnd% = TEXT_LAYER_DATA(akTd%).charCount
                 END IF
+                IF MODIFIERS.shift% THEN
+                    IF TEXT.selStart% < 0 THEN TEXT.selStart% = akPos%
+                    TEXT.selEnd% = akLineEnd%
+                    IF TEXT.selStart% <> TEXT.selEnd% THEN
+                        TEXT.selActive% = TRUE
+                    ELSE
+                        TEXT.selActive% = FALSE
+                    END IF
+                ELSEIF TEXT.selActive% THEN
+                    TEXT_clear_selection
+                END IF
                 TEXT_LAYER_DATA(akTd%).cursorPos = akLineEnd%
                 TEXT.CURSOR_X = TEXT_LAYER_get_char_x%(akTd%, akLineEnd%)
                 TEXT.CURSOR_Y = TEXT_LAYER_get_line_y%(akTd%, akLine2%)
@@ -1177,7 +1686,7 @@ FUNCTION KEYBOARD_handle_text_tool% (keypress AS STRING)
                 KEYBOARD_handle_text_tool% = TRUE: EXIT FUNCTION
             END IF
 
-            ' Delete key (21248) — delete character after cursor
+            ' Delete key (21248) — delete character after cursor (or selection)
             STATIC delKeyWas AS INTEGER
             STATIC delKeyTimer AS DOUBLE
             STATIC delKeyDelay AS DOUBLE
@@ -1185,28 +1694,34 @@ FUNCTION KEYBOARD_handle_text_tool% (keypress AS STRING)
                 DIM delKeyNow AS DOUBLE
                 delKeyNow# = TIMER(.001)
                 IF NOT delKeyWas% THEN
-                    IF akPos% < TEXT_LAYER_DATA(akTd%).charCount THEN
+                    IF TEXT_has_selection% THEN
+                        TEXT_delete_selection
+                        TEXT_LAYER_DATA(akTd%).dirty = TRUE
+                    ELSEIF akPos% < TEXT_LAYER_DATA(akTd%).charCount THEN
                         TEXT_LAYER_DATA(akTd%).cursorPos = akPos% + 1
                         TEXT_LAYER_delete_char akTd%
-                        TEXT.CURSOR_X = TEXT_LAYER_get_char_x%(akTd%, TEXT_LAYER_DATA(akTd%).cursorPos)
-                        TEXT.CURSOR_Y = TEXT_LAYER_get_line_y%(akTd%, TEXT_LAYER_get_line_for_char%(akTd%, TEXT_LAYER_DATA(akTd%).cursorPos))
-                        TEXT.CURSOR_BLINK = 1: TEXT.BLINK_TIMER = TIMER
                         TEXT_LAYER_DATA(akTd%).dirty = TRUE
-                        FRAME_IDLE% = FALSE: SCENE_DIRTY% = TRUE
                     END IF
+                    TEXT.CURSOR_X = TEXT_LAYER_get_char_x%(akTd%, TEXT_LAYER_DATA(akTd%).cursorPos)
+                    TEXT.CURSOR_Y = TEXT_LAYER_get_line_y%(akTd%, TEXT_LAYER_get_line_for_char%(akTd%, TEXT_LAYER_DATA(akTd%).cursorPos))
+                    TEXT.CURSOR_BLINK = 1: TEXT.BLINK_TIMER = TIMER
+                    FRAME_IDLE% = FALSE: SCENE_DIRTY% = TRUE
                     delKeyTimer# = delKeyNow#
                     delKeyDelay# = 0.3
                 ELSEIF delKeyNow# - delKeyTimer# >= delKeyDelay# THEN
                     akPos% = TEXT_LAYER_DATA(akTd%).cursorPos
-                    IF akPos% < TEXT_LAYER_DATA(akTd%).charCount THEN
+                    IF TEXT_has_selection% THEN
+                        TEXT_delete_selection
+                        TEXT_LAYER_DATA(akTd%).dirty = TRUE
+                    ELSEIF akPos% < TEXT_LAYER_DATA(akTd%).charCount THEN
                         TEXT_LAYER_DATA(akTd%).cursorPos = akPos% + 1
                         TEXT_LAYER_delete_char akTd%
-                        TEXT.CURSOR_X = TEXT_LAYER_get_char_x%(akTd%, TEXT_LAYER_DATA(akTd%).cursorPos)
-                        TEXT.CURSOR_Y = TEXT_LAYER_get_line_y%(akTd%, TEXT_LAYER_get_line_for_char%(akTd%, TEXT_LAYER_DATA(akTd%).cursorPos))
-                        TEXT.CURSOR_BLINK = 1: TEXT.BLINK_TIMER = TIMER
                         TEXT_LAYER_DATA(akTd%).dirty = TRUE
-                        FRAME_IDLE% = FALSE: SCENE_DIRTY% = TRUE
                     END IF
+                    TEXT.CURSOR_X = TEXT_LAYER_get_char_x%(akTd%, TEXT_LAYER_DATA(akTd%).cursorPos)
+                    TEXT.CURSOR_Y = TEXT_LAYER_get_line_y%(akTd%, TEXT_LAYER_get_line_for_char%(akTd%, TEXT_LAYER_DATA(akTd%).cursorPos))
+                    TEXT.CURSOR_BLINK = 1: TEXT.BLINK_TIMER = TIMER
+                    FRAME_IDLE% = FALSE: SCENE_DIRTY% = TRUE
                     delKeyTimer# = delKeyNow#
                     delKeyDelay# = 0.08
                 END IF
@@ -1228,6 +1743,12 @@ FUNCTION KEYBOARD_handle_text_tool% (keypress AS STRING)
             CASE 13  ' ENTER - newline
                 SOUND_play SND_TEXT_ENTER
                 TEXT_newline
+            CASE 9   ' TAB - insert 4 spaces
+                SOUND_play SND_TEXT_CHAR
+                DIM tabI AS INTEGER
+                FOR tabI% = 1 TO 4
+                    TEXT_add_char " "
+                NEXT tabI%
             CASE 8   ' BACKSPACE
                 SOUND_play SND_MENU_SELECT
                 TEXT_backspace
@@ -1266,6 +1787,10 @@ SUB KEYBOARD_handle_custom_brush ()
         ctrlBPressed% = FALSE
     END IF
     
+    ' Skip transform keys when text tool is actively editing — these keys are handled
+    ' by KEYBOARD_handle_text_tool% for cursor navigation instead
+    IF TEXT.ACTIVE THEN GOTO SkipTransformKeys
+
     ' HOME key for horizontal flip
     STATIC homePressed AS INTEGER
     IF _KEYDOWN(18176) AND NOT MODIFIERS.ctrl% THEN
@@ -1325,6 +1850,8 @@ SUB KEYBOARD_handle_custom_brush ()
     ELSE
         pgDnPressed% = FALSE
     END IF
+
+    SkipTransformKeys:
     
     ' / key for resetting brush scale
     STATIC slashPressed AS INTEGER
@@ -1339,7 +1866,7 @@ SUB KEYBOARD_handle_custom_brush ()
     
     ' > key (Shift+.) for rotating 90 CW (universal, only outside image import)
     STATIC rotateCWPressed AS INTEGER
-    IF _KEYDOWN(62) THEN  ' ASCII 62 = >
+    IF _KEYDOWN(62) AND NOT TEXT.ACTIVE THEN  ' ASCII 62 = >
         IF NOT rotateCWPressed% THEN
             IF IMG_IMPORT.STATE = IMPORT_STATE_IDLE THEN
                 IF TRANSFORM.ACTIVE THEN
@@ -1356,7 +1883,7 @@ SUB KEYBOARD_handle_custom_brush ()
     
     ' < key (Shift+,) for rotating 90 CCW (universal, only outside image import)
     STATIC rotateCCWPressed AS INTEGER
-    IF _KEYDOWN(60) THEN  ' ASCII 60 = <
+    IF _KEYDOWN(60) AND NOT TEXT.ACTIVE THEN  ' ASCII 60 = <
         IF NOT rotateCCWPressed% THEN
             IF IMG_IMPORT.STATE = IMPORT_STATE_IDLE THEN
                 IF TRANSFORM.ACTIVE THEN
@@ -1437,8 +1964,8 @@ SUB KEYBOARD_handle_ui_toggles ()
     ' Static variables to prevent key repeat
     STATIC tabPressed AS INTEGER, f10Pressed AS INTEGER, f11Pressed AS INTEGER
     
-    ' Handle TAB for toolbar toggle (but not when CTRL or SHIFT is held)
-    IF _KEYDOWN(9) AND NOT MODIFIERS.ctrl% AND NOT MODIFIERS.shift% THEN
+    ' Handle TAB for toolbar toggle (but not when CTRL or SHIFT is held, or text editing)
+    IF _KEYDOWN(9) AND NOT MODIFIERS.ctrl% AND NOT MODIFIERS.shift% AND NOT (CURRENT_TOOL% = TOOL_TEXT AND TEXT.ACTIVE) THEN
         IF NOT tabPressed% THEN
             SCRN.showToolbar% = NOT SCRN.showToolbar%
             SCRN.toolbarManuallyHidden% = NOT SCRN.showToolbar%
@@ -1611,9 +2138,9 @@ SUB KEYBOARD_handle_ui_toggles ()
         sideDownPressed% = FALSE
     END IF
 
-    ' Handle Shift+Tab for Pattern Tile Mode toggle
+    ' Handle Shift+Tab for Pattern Tile Mode toggle (skip during text editing)
     STATIC shiftTabPressed AS INTEGER
-    IF MODIFIERS.shift% AND NOT MODIFIERS.ctrl% AND NOT MODIFIERS.alt% AND _KEYDOWN(9) THEN
+    IF MODIFIERS.shift% AND NOT MODIFIERS.ctrl% AND NOT MODIFIERS.alt% AND _KEYDOWN(9) AND NOT (CURRENT_TOOL% = TOOL_TEXT AND TEXT.ACTIVE) THEN
         IF NOT shiftTabPressed% THEN
             CMD_execute_action 440
             FRAME_IDLE% = FALSE
@@ -2366,7 +2893,8 @@ SUB KEYBOARD_input_handler ()
     ' On Linux/SDL2, Alt frequently fails to register when Ctrl+Shift are held.
     ' We accept Ctrl+Shift (with or without Alt) to ensure reliability.
     ' The move auto-activation already requires NOT shift%, so no conflict.
-    IF MODIFIERS.ctrl% AND MODIFIERS.shift% THEN
+    ' Skip when text tool is editing — Ctrl+Shift+Arrow is word select there.
+    IF MODIFIERS.ctrl% AND MODIFIERS.shift% AND NOT (CURRENT_TOOL% = TOOL_TEXT AND TEXT.ACTIVE) THEN
         IF _KEYDOWN(19200) OR _KEYDOWN(19712) OR _KEYDOWN(18432) OR _KEYDOWN(20480) THEN
             KEYBOARD_handle_ui_toggles
             ' Keep move/marquee key tracking in sync to prevent false transitions
