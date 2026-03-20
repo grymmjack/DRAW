@@ -441,6 +441,7 @@ THEME.TEXT_BAR_ICON_MONO$            = "IMAGES/TEXTBAR/tb-monospace.png"
 THEME.TEXT_BAR_ICON_LINE_HEIGHT$     = "IMAGES/TEXTBAR/tb-line-height.png"
 THEME.LAYER_PANEL_TEXT_ACCENT~&      = _RGB32(80, 120, 200)
 THEME.TEXT_LAYER_HOVER_OUTLINE~&     = _RGBA32(100, 200, 255, 180)
+THEME.TEXT_LAYER_HOVER_OUTLINE_WIDTH% = 2
 
 ' =============================================================================
 ' CURSORS - PNG cursor configuration

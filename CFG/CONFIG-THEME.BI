@@ -436,6 +436,7 @@ TYPE DRAW_THEME
     ' --- Text Layers ---
     LAYER_PANEL_TEXT_ACCENT    AS _UNSIGNED LONG  ' Accent color for [T] text layer rows
     TEXT_LAYER_HOVER_OUTLINE   AS _UNSIGNED LONG  ' Outline color when hovering editable text layer
+    TEXT_LAYER_HOVER_OUTLINE_WIDTH AS INTEGER       ' Stroke width in pixels for hover outline
 END TYPE
 
 ' Runtime theme loader — populates THEME from ASSETS/THEMES/{CFG.THEME$}/THEME.CFG

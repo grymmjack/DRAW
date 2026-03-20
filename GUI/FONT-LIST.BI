@@ -35,6 +35,7 @@ TYPE FONT_ENTRY
     boldPath      AS STRING * 260  ' Path to bold variant (if found)
     italicPath    AS STRING * 260  ' Path to italic variant (if found)
     boldItalicPath AS STRING * 260 ' Path to bold-italic variant (if found)
+    isFavorite    AS INTEGER       ' TRUE if font is in DRAW_FONT_FAVORITES.txt
 END TYPE
 
 ' Font list (populated by FONT_LIST_scan)
@@ -50,6 +51,18 @@ DIM SHARED FONT_CACHE_HANDLE(0 TO FONT_CACHE_MAX - 1) AS LONG    ' Loaded handle
 DIM SHARED FONT_CACHE_MONO(0 TO FONT_CACHE_MAX - 1) AS INTEGER   ' Monospace flag
 DIM SHARED FONT_CACHE_COUNT AS INTEGER
 
+' Blacklist: fonts whose path/filename matches are excluded from the list
+CONST FONT_BLACKLIST_FILE$ = "./DRAW_FONT_BLACKLIST.txt"
+CONST FONT_BLACKLIST_MAX = 256
+DIM SHARED FONT_BLACKLIST(0 TO FONT_BLACKLIST_MAX - 1) AS STRING * 260
+DIM SHARED FONT_BLACKLIST_COUNT AS INTEGER
+
+' Favorites: font display names shown at the top of the dropdown
+CONST FONT_FAVORITES_FILE$ = "./DRAW_FONT_FAVORITES.txt"
+CONST FONT_FAVORITES_MAX = 64
+DIM SHARED FONT_FAVORITES(0 TO FONT_FAVORITES_MAX - 1) AS STRING * 64
+DIM SHARED FONT_FAVORITES_COUNT AS INTEGER
+
 DECLARE SUB FONT_LIST_scan ()
 DECLARE SUB FONT_LIST_scan_dir (dir$, recursive%, isBundled%)
 DECLARE SUB FONT_LIST_add_font (fontPath$, isBundled%)
@@ -59,3 +72,7 @@ DECLARE FUNCTION FONT_LIST_get_handle& (fontIdx%, fontSize%, fontStyle$, mono%)
 DECLARE FUNCTION FONT_LIST_extract_name$ (fontPath$)
 DECLARE FUNCTION FONT_LIST_find_by_name% (displayName$)
 DECLARE SUB FONT_LIST_free_cache ()
+DECLARE SUB FONT_LIST_load_blacklist ()
+DECLARE SUB FONT_LIST_load_favorites ()
+DECLARE FUNCTION FONT_LIST_is_blacklisted% (fontPath$)
+DECLARE SUB FONT_LIST_apply_favorites ()

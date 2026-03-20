@@ -281,6 +281,9 @@ TYPE DRAW_CONFIG
     ' Tooltip settings
     TOOLTIP_HOVER_DELAY_MS         AS INTEGER  ' Milliseconds before tooltip appears (default 500)
     TOOLTIPS_DISABLED              AS INTEGER  ' TRUE = hide toolbar tooltips entirely
+    ' Text tool default font settings
+    FONT_DEFAULT_FONT              AS STRING   ' Default font name for text tool (empty=use Tiny5 Regular)
+    FONT_DEFAULT_SIZE              AS INTEGER  ' Default font size for text tool (4-128, 0=use program default 8)
 END TYPE
 
 DIM SHARED CFG   AS DRAW_CONFIG

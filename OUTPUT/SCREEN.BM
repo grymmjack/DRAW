@@ -1875,6 +1875,7 @@ SUB SCREEN_render ()
         IF TOOLTIP.HOVER_BTN_IDX% >= 0 THEN so_can_partial% = FALSE  ' Tooltip needs full SkipToPointer path
         IF MENUBAR_is_open% THEN so_can_partial% = FALSE             ' Menu dropdowns need full GUI composite over preview
         IF PREVIEW.floatTooltipActive% THEN so_can_partial% = FALSE   ' Float tooltip extends beyond preview bounds
+        IF CURRENT_TOOL% = TOOL_TEXT AND NOT TEXT.ACTIVE THEN so_can_partial% = FALSE  ' Text hover outline needs SkipToPointer path
 
         ' Update only the pure status bar row in SCRN.GUI& (NOT palette strip).
         DIM so_statusTop AS INTEGER
@@ -2036,7 +2037,13 @@ SUB SCREEN_render ()
         _PUTIMAGE , SCENE_CACHE&, SCRN.CANVAS&
         _BLEND SCRN.CANVAS&
         _DEST SCRN.CANVAS&
-        so_used_fallback% = TRUE
+        ' When text tool hover forced us into this fallback (so_can_partial% was FALSE),
+        ' use full GUI composite at SkipToPointer so the hover outline area is properly handled.
+        IF CURRENT_TOOL% = TOOL_TEXT AND NOT TEXT.ACTIVE THEN
+            so_used_fallback% = FALSE
+        ELSE
+            so_used_fallback% = TRUE
+        END IF
         STATUS_NEEDS_REDRAW% = FALSE
         PERF_stop PERF_GUI_ONLY_PATH
         GOTO SkipToPointer
@@ -2128,6 +2135,7 @@ SUB SCREEN_render ()
         IF TOOLTIP.HOVER_BTN_IDX% >= 0 THEN can_partial_present% = FALSE  ' Tooltip needs full SkipToPointer path
         IF MENUBAR_is_open% THEN can_partial_present% = FALSE             ' Menu dropdowns need full GUI composite over preview
         IF PREVIEW.floatTooltipActive% THEN can_partial_present% = FALSE   ' Float tooltip extends beyond preview bounds
+        IF CURRENT_TOOL% = TOOL_TEXT AND NOT TEXT.ACTIVE THEN can_partial_present% = FALSE  ' Text hover outline needs SkipToPointer path
 
         ' Area check: if dirty rect > half the canvas, or overlays are broader than the
         ' pointer region, fall back to full copy
@@ -2549,16 +2557,45 @@ SUB SCREEN_render ()
                             IF hovFS% < 4 THEN hovFS% = 4
                             hovLC% = TEXT_LAYER_DATA(hovTd%).lineCount
                             IF hovLC% < 1 THEN hovLC% = 1
-                            DIM hovW AS INTEGER, hovH AS INTEGER
-                            hovW% = TEXT_LAYER_get_char_x%(hovTd%, TEXT_LAYER_DATA(hovTd%).charCount) - hovCX%
-                            IF hovW% < 32 THEN hovW% = 32
+                            ' Compute max line width across ALL lines
+                            DIM hovW AS INTEGER
+                            hovW% = 0
+                            DIM hovLn AS INTEGER
+                            FOR hovLn% = 0 TO hovLC% - 1
+                                DIM hovLineEnd AS INTEGER
+                                IF hovLn% < hovLC% - 1 THEN
+                                    hovLineEnd% = TL_LINE_BREAK(hovTd%, hovLn% + 1)
+                                ELSE
+                                    hovLineEnd% = TEXT_LAYER_DATA(hovTd%).charCount
+                                END IF
+                                DIM hovLineW AS INTEGER
+                                hovLineW% = TEXT_LAYER_get_char_x%(hovTd%, hovLineEnd%) - hovCX%
+                                IF hovLineW% > hovW% THEN hovW% = hovLineW%
+                            NEXT hovLn%
+                            IF hovW% < 8 THEN hovW% = 8
+                            ' Height: leading for lines 0..N-2, plus font height for last line
+                            DIM hovH AS INTEGER
                             DIM hovLead AS INTEGER
-                            hovLead% = TEXT_LAYER_DATA(hovTd%).defaultLeading
-                            IF hovLead% < hovFS% THEN hovLead% = hovFS% + 4
-                            hovH% = hovLC% * hovLead%
-                            IF hovH% < 16 THEN hovH% = 16
-                            ' Hit-test mouse in canvas coords
-                            IF MOUSE.X% >= hovCX% AND MOUSE.X% < hovCX% + hovW% AND MOUSE.Y% >= hovCY% AND MOUSE.Y% < hovCY% + hovH% THEN
+                            hovH% = 0
+                            FOR hovLn% = 0 TO hovLC% - 2
+                                hovLead% = TL_LEADING(hovTd%, hovLn%)
+                                IF hovLead% = 0 THEN hovLead% = TEXT_LAYER_DATA(hovTd%).defaultLeading
+                                hovH% = hovH% + hovLead%
+                            NEXT hovLn%
+                            ' Add font height of last line (actual glyph height)
+                            DIM hovLastFS AS INTEGER
+                            IF TEXT_LAYER_DATA(hovTd%).charCount > 0 THEN
+                                DIM hovLastC AS INTEGER
+                                hovLastC% = TEXT_LAYER_DATA(hovTd%).charCount - 1
+                                hovLastFS% = TL_FONT_SIZE(hovTd%, hovLastC%)
+                            ELSE
+                                hovLastFS% = hovFS%
+                            END IF
+                            IF hovLastFS% < hovFS% THEN hovLastFS% = hovFS%
+                            hovH% = hovH% + hovLastFS%
+                            IF hovH% < 8 THEN hovH% = 8
+                            ' Hit-test mouse in canvas coords (use unsnapped to avoid grid-snap shimmer)
+                            IF MOUSE.UNSNAPPED_X% >= hovCX% AND MOUSE.UNSNAPPED_X% < hovCX% + hovW% AND MOUSE.UNSNAPPED_Y% >= hovCY% AND MOUSE.UNSNAPPED_Y% < hovCY% + hovH% THEN
                                 ' Convert canvas coords to screen coords
                                 DIM hovSX1 AS INTEGER, hovSY1 AS INTEGER
                                 DIM hovSX2 AS INTEGER, hovSY2 AS INTEGER
@@ -2567,7 +2604,12 @@ SUB SCREEN_render ()
                                 hovSX2% = INT((hovCX% + hovW%) * SCRN.zoom!) + hovDX%
                                 hovSY2% = INT((hovCY% + hovH%) * SCRN.zoom!) + hovDY%
                                 _DEST SCRN.CANVAS&
-                                LINE (hovSX1%, hovSY1%)-(hovSX2%, hovSY2%), THEME.TEXT_LAYER_HOVER_OUTLINE~&, B
+                                DIM hovStroke AS INTEGER, hovS AS INTEGER
+                                hovStroke% = THEME.TEXT_LAYER_HOVER_OUTLINE_WIDTH%
+                                IF hovStroke% < 1 THEN hovStroke% = 1
+                                FOR hovS% = 0 TO hovStroke% - 1
+                                    LINE (hovSX1% - hovS%, hovSY1% - hovS%)-(hovSX2% + hovS%, hovSY2% + hovS%), THEME.TEXT_LAYER_HOVER_OUTLINE~&, B
+                                NEXT hovS%
                                 EXIT FOR
                             END IF
                         END IF

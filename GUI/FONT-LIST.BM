@@ -20,6 +20,10 @@ SUB FONT_LIST_scan ()
 
     FONT_LIST_COUNT% = 0
 
+    ' Load blacklist and favorites before scanning
+    FONT_LIST_load_blacklist
+    FONT_LIST_load_favorites
+
     ' --- Bundled fonts (ASSETS/FONTS/) ---
     FONT_LIST_scan_dir "./ASSETS/FONTS", 0, TRUE
 
@@ -70,6 +74,9 @@ SUB FONT_LIST_scan ()
 
     ' Sort: bundled first, then alphabetical
     FONT_LIST_sort
+
+    ' Move favorites to the top of the list
+    IF FONT_FAVORITES_COUNT% > 0 THEN FONT_LIST_apply_favorites
 
     FONT_LIST_SCANNED% = TRUE
     _LOGINFO "FONT_LIST_scan: found" + STR$(FONT_LIST_COUNT%) + " fonts"
@@ -152,6 +159,9 @@ END SUB
 '
 SUB FONT_LIST_add_font (fontPath$, isBundled%)
     IF FONT_LIST_COUNT% >= FONT_LIST_MAX THEN EXIT SUB
+
+    ' Check blacklist before adding
+    IF FONT_LIST_is_blacklisted%(fontPath$) THEN EXIT SUB
 
     ' Check for duplicate paths or display names
     DIM i AS INTEGER
@@ -498,4 +508,143 @@ SUB FONT_LIST_free_cache ()
         FONT_CACHE_HANDLE(i%) = 0
     NEXT i%
     FONT_CACHE_COUNT% = 0
+END SUB
+
+
+''
+' Load font blacklist from DRAW_FONT_BLACKLIST.txt (if it exists).
+' Each line is a path or filename substring. Lines starting with # are comments.
+'
+SUB FONT_LIST_load_blacklist ()
+    FONT_BLACKLIST_COUNT% = 0
+    IF NOT _FILEEXISTS(FONT_BLACKLIST_FILE$) THEN EXIT SUB
+
+    DIM ff AS INTEGER
+    ff% = FREEFILE
+    OPEN FONT_BLACKLIST_FILE$ FOR INPUT AS #ff%
+
+    DIM blLine AS STRING
+    DO WHILE NOT EOF(ff%)
+        LINE INPUT #ff%, blLine$
+        blLine$ = LTRIM$(RTRIM$(blLine$))
+        IF LEN(blLine$) = 0 THEN _CONTINUE
+        IF LEFT$(blLine$, 1) = "#" THEN _CONTINUE
+        IF FONT_BLACKLIST_COUNT% >= FONT_BLACKLIST_MAX THEN EXIT DO
+        FONT_BLACKLIST(FONT_BLACKLIST_COUNT%) = blLine$
+        FONT_BLACKLIST_COUNT% = FONT_BLACKLIST_COUNT% + 1
+    LOOP
+
+    CLOSE #ff%
+    _LOGINFO "FONT_LIST_load_blacklist: loaded" + STR$(FONT_BLACKLIST_COUNT%) + " entries"
+END SUB
+
+
+''
+' Check if a font path matches any blacklist entry.
+' Matches if the blacklist entry appears anywhere in the font path (case-insensitive).
+' @param fontPath$ Full path to the font file
+' @return INTEGER TRUE if blacklisted
+'
+FUNCTION FONT_LIST_is_blacklisted% (fontPath$)
+    FONT_LIST_is_blacklisted% = FALSE
+    IF FONT_BLACKLIST_COUNT% = 0 THEN EXIT FUNCTION
+
+    DIM upperPath AS STRING
+    upperPath$ = UCASE$(fontPath$)
+
+    DIM bi AS INTEGER
+    DIM blEntry AS STRING
+    FOR bi% = 0 TO FONT_BLACKLIST_COUNT% - 1
+        blEntry$ = UCASE$(RTRIM$(FONT_BLACKLIST(bi%)))
+        IF LEN(blEntry$) > 0 THEN
+            IF INSTR(upperPath$, blEntry$) > 0 THEN
+                FONT_LIST_is_blacklisted% = TRUE
+                EXIT FUNCTION
+            END IF
+        END IF
+    NEXT bi%
+END FUNCTION
+
+
+''
+' Load font favorites from DRAW_FONT_FAVORITES.txt (if it exists).
+' Each line is a font display name. Lines starting with # are comments.
+'
+SUB FONT_LIST_load_favorites ()
+    FONT_FAVORITES_COUNT% = 0
+    IF NOT _FILEEXISTS(FONT_FAVORITES_FILE$) THEN EXIT SUB
+
+    DIM ff AS INTEGER
+    ff% = FREEFILE
+    OPEN FONT_FAVORITES_FILE$ FOR INPUT AS #ff%
+
+    DIM favLine AS STRING
+    DO WHILE NOT EOF(ff%)
+        LINE INPUT #ff%, favLine$
+        favLine$ = LTRIM$(RTRIM$(favLine$))
+        IF LEN(favLine$) = 0 THEN _CONTINUE
+        IF LEFT$(favLine$, 1) = "#" THEN _CONTINUE
+        IF FONT_FAVORITES_COUNT% >= FONT_FAVORITES_MAX THEN EXIT DO
+        FONT_FAVORITES(FONT_FAVORITES_COUNT%) = favLine$
+        FONT_FAVORITES_COUNT% = FONT_FAVORITES_COUNT% + 1
+    LOOP
+
+    CLOSE #ff%
+    _LOGINFO "FONT_LIST_load_favorites: loaded" + STR$(FONT_FAVORITES_COUNT%) + " entries"
+END SUB
+
+
+''
+' Move favorite fonts to the top of the font list and mark them.
+' Preserves the order of favorites as listed in the file.
+'
+SUB FONT_LIST_apply_favorites ()
+    IF FONT_FAVORITES_COUNT% = 0 THEN EXIT SUB
+    IF FONT_LIST_COUNT% < 1 THEN EXIT SUB
+
+    ' First, mark isFavorite on matching fonts
+    DIM fi AS INTEGER, li AS INTEGER
+    DIM favName AS STRING
+    FOR fi% = 0 TO FONT_FAVORITES_COUNT% - 1
+        favName$ = UCASE$(RTRIM$(FONT_FAVORITES(fi%)))
+        IF LEN(favName$) = 0 THEN _CONTINUE
+        FOR li% = 0 TO FONT_LIST_COUNT% - 1
+            IF UCASE$(RTRIM$(FONT_LIST(li%).displayName)) = favName$ THEN
+                FONT_LIST(li%).isFavorite = TRUE
+                EXIT FOR
+            END IF
+        NEXT li%
+    NEXT fi%
+
+    ' Build a reordered list: favorites first (in favorites-file order), then the rest
+    DIM tmpList(0 TO FONT_LIST_MAX - 1) AS FONT_ENTRY
+    DIM tmpCount AS INTEGER
+    tmpCount% = 0
+
+    ' Add favorites in the order they appear in the favorites file
+    FOR fi% = 0 TO FONT_FAVORITES_COUNT% - 1
+        favName$ = UCASE$(RTRIM$(FONT_FAVORITES(fi%)))
+        IF LEN(favName$) = 0 THEN _CONTINUE
+        FOR li% = 0 TO FONT_LIST_COUNT% - 1
+            IF UCASE$(RTRIM$(FONT_LIST(li%).displayName)) = favName$ THEN
+                tmpList(tmpCount%) = FONT_LIST(li%)
+                tmpCount% = tmpCount% + 1
+                EXIT FOR
+            END IF
+        NEXT li%
+    NEXT fi%
+
+    ' Add non-favorites in their existing sort order
+    FOR li% = 0 TO FONT_LIST_COUNT% - 1
+        IF NOT FONT_LIST(li%).isFavorite THEN
+            tmpList(tmpCount%) = FONT_LIST(li%)
+            tmpCount% = tmpCount% + 1
+        END IF
+    NEXT li%
+
+    ' Copy back
+    FOR li% = 0 TO tmpCount% - 1
+        FONT_LIST(li%) = tmpList(li%)
+    NEXT li%
+    FONT_LIST_COUNT% = tmpCount%
 END SUB

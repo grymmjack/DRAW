@@ -4,21 +4,6 @@
 
 ### TEXT TOOL
 
-- [ ] Add settings in DRAW.cfg for:
-  - FONT_DEFAULT_FONT - default font to choose when entering text if empty use as we have already
-  - FONT_DEFAULT_SIZE - default size in legal range if empty use program default
-
-- [ ] The font dropdown menu should be longer down the screen, to about 75% of the size 
-  - If there are enough fonts to warrant that, otherwise render as long down as the fonts need.
- 
-- [ ] Add ./DRAW_FONT_BLACKLIST.txt support (if it exists)
-  - This should contain lists of fonts by path/filename that are NOT shown in the font picker
-
-- [ ] Add ./DRAW_FONT_FAVORITES.txt support (if it exists)
-  - This should contain a list of fonts that are shown at the very top of the font picker list.
-  - Just the font name, not the whole filename obviously, should be in the dropdown.
-  - Then a divider --- after them
-
 - [ ] When scrolling with the wheel of my mouse over the text dropdown when it is open i do not see a selected item color.
       - I want to be able to hover over a different font in the list to see a realtime preview of the font change
 
@@ -140,4 +125,19 @@
   - Double-click also positions cursor at click point instead of end-of-text
   - `TEXT_sync_bar_to_cursor` syncs TEXT_BAR style toggles (B/I/U/S, font, size) from character at cursor
   - Text layers remain `LAYER_TYPE_TEXT` until explicitly rasterized — fully non-destructive
+
+- [x] Add settings in DRAW.cfg for:
+  - FONT_DEFAULT_FONT - default font to choose when entering text if empty use as we have already
+  - FONT_DEFAULT_SIZE - default size in legal range if empty use program default
+
+- [x] The font dropdown menu should be longer down the screen, to about 75% of the size 
+  - If there are enough fonts to warrant that, otherwise render as long down as the fonts need.
+ 
+- [x] Add ./DRAW_FONT_BLACKLIST.txt support (if it exists)
+  - This should contain lists of fonts by path/filename that are NOT shown in the font picker
+
+- [x] Add ./DRAW_FONT_FAVORITES.txt support (if it exists)
+  - This should contain a list of fonts that are shown at the very top of the font picker list.
+  - Just the font name, not the whole filename obviously, should be in the dropdown.
+  - Then a divider --- after them
 
