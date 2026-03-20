@@ -234,6 +234,52 @@ END FUNCTION
 
 
 ''
+' Create a new text layer above the current layer.
+' @param x% Canvas X origin for text placement
+' @param y% Canvas Y origin for text placement
+' @return INTEGER - Layer index, or 0 on failure
+'
+FUNCTION LAYERS_new_text% (x%, y%)
+    LAYERS_new_text% = 0
+
+    DIM newIdx AS INTEGER
+    newIdx% = LAYERS_new%
+    IF newIdx% = 0 THEN EXIT FUNCTION
+
+    ' Allocate text data
+    DIM tdIdx AS INTEGER
+    tdIdx% = TEXT_LAYER_alloc%
+    IF tdIdx% = 0 THEN
+        ' Pool is full — delete the just-created layer
+        LAYERS_delete newIdx%
+        EXIT FUNCTION
+    END IF
+
+    ' Configure as text layer
+    LAYERS(newIdx%).layerType% = LAYER_TYPE_TEXT
+    LAYERS(newIdx%).textDataIdx% = tdIdx%
+    LAYERS(newIdx%).name = "Text"
+
+    ' Set text layer defaults
+    TEXT_LAYER_DATA(tdIdx%).startX = x%
+    TEXT_LAYER_DATA(tdIdx%).startY = y%
+    TEXT_LAYER_DATA(tdIdx%).fontSize = TEXT_BAR.selectedSize%
+    TEXT_LAYER_DATA(tdIdx%).defaultLeading = TEXT_BAR.selectedSize% + 4
+    TEXT_LAYER_DATA(tdIdx%).dirty = TRUE
+
+    ' Ensure font list is scanned
+    FONT_LIST_scan
+
+    ' Default to first bundled font if available
+    IF FONT_LIST_COUNT% > 0 THEN
+        TEXT_LAYER_DATA(tdIdx%).fontIdx = 0
+    END IF
+
+    LAYERS_new_text% = newIdx%
+END FUNCTION
+
+
+''
 ' Delete a layer
 ' @param layerIndex INTEGER Index of the layer to delete (1-64)
 '
@@ -262,6 +308,22 @@ SUB LAYERS_delete (layerIndex AS INTEGER)
         HISTORY_record_layer_delete deletedHistoryId&, layerIndex%, deletedZ%, "Layer Delete"
     END IF
 
+    ' Free text layer data if this is a text layer
+    IF LAYERS(layerIndex%).layerType% = LAYER_TYPE_TEXT THEN
+        IF LAYERS(layerIndex%).textDataIdx% > 0 THEN
+            TEXT_LAYER_free LAYERS(layerIndex%).textDataIdx%
+        END IF
+    END IF
+
+    ' If this layer was being actively edited, cancel text editing
+    IF TEXT.editingTextLayer% = layerIndex% THEN
+        TEXT.ACTIVE = FALSE
+        TEXT.editingTextLayer% = 0
+        TEXT_BAR.editingLayerIdx% = 0
+        FRAME_IDLE% = FALSE
+        GUI_NEEDS_REDRAW% = TRUE
+    END IF
+
     ' Free the image
     IF LAYERS(layerIndex%).imgHandle& < -1 THEN
         _FREEIMAGE LAYERS(layerIndex%).imgHandle&
@@ -285,6 +347,8 @@ SUB LAYERS_delete (layerIndex AS INTEGER)
     LAYERS(layerIndex%).opacityCacheImg& = 0
     LAYERS(layerIndex%).opacityCacheVal% = 0
     LAYERS(layerIndex%).contentDirty% = FALSE
+    LAYERS(layerIndex%).layerType% = LAYER_TYPE_IMAGE
+    LAYERS(layerIndex%).textDataIdx% = 0
     
     LAYER_COUNT% = LAYER_COUNT% - 1
     ' Adjust zIndex of layers above the deleted one
@@ -390,6 +454,25 @@ SUB LAYERS_duplicate (layerIndex AS INTEGER)
     LAYERS(newIndex%).opacityLock% = LAYERS(layerIndex%).opacityLock%
     LAYERS(newIndex%).blendMode%   = LAYERS(layerIndex%).blendMode%
     LAYERS(newIndex%).contentDirty% = TRUE  ' New pixel data needs opacity cache build
+    LAYERS(newIndex%).layerType% = LAYERS(layerIndex%).layerType%
+
+    ' Duplicate text layer data if source is a text layer
+    IF LAYERS(layerIndex%).layerType% = LAYER_TYPE_TEXT THEN
+        IF LAYERS(layerIndex%).textDataIdx% > 0 THEN
+            DIM newTextIdx AS INTEGER
+            newTextIdx% = TEXT_LAYER_alloc%
+            IF newTextIdx% > 0 THEN
+                TEXT_LAYER_copy_data LAYERS(layerIndex%).textDataIdx%, newTextIdx%
+                LAYERS(newIndex%).textDataIdx% = newTextIdx%
+            ELSE
+                ' Pool full — rasterize to image layer
+                LAYERS(newIndex%).layerType% = LAYER_TYPE_IMAGE
+                LAYERS(newIndex%).textDataIdx% = 0
+            END IF
+        END IF
+    ELSE
+        LAYERS(newIndex%).textDataIdx% = 0
+    END IF
 
     IF NOT HISTORY_IN_PROGRESS% THEN
         HISTORY_record_layer_add LAYERS(newIndex%).historyId&, newIndex%, LAYERS(newIndex%).zIndex%, "Layer Duplicate"
@@ -1312,6 +1395,9 @@ SUB LAYER_PANEL_render (canvasHeight AS INTEGER)
                     DIM layerName AS STRING
                     DIM availW AS INTEGER
                     layerName$ = _TRIM$(LAYERS(layerIdx%).name)
+                    IF LAYERS(layerIdx%).layerType% = LAYER_TYPE_TEXT THEN
+                        layerName$ = "[T] " + layerName$
+                    END IF
                     availW% = panelW% - 24 - 14  ' left icons offset - scrollbar/right padding
                     ' Trim from end until it fits the available pixel width
                     DO WHILE LEN(layerName$) > 0 AND _PRINTWIDTH(layerName$) > availW%
@@ -1400,6 +1486,9 @@ SUB LAYER_PANEL_render (canvasHeight AS INTEGER)
         IF previewY% + previewH% > listBottom% THEN previewY% = listBottom% - previewH%
         
         dragLayerName$ = RTRIM$(LAYERS(LAYER_PANEL.dragLayerIdx%).name)
+        IF LAYERS(LAYER_PANEL.dragLayerIdx%).layerType% = LAYER_TYPE_TEXT THEN
+            dragLayerName$ = "[T] " + dragLayerName$
+        END IF
         dragLayerZ% = LAYERS(LAYER_PANEL.dragLayerIdx%).zIndex%
         
         ' Draw semi-transparent preview row

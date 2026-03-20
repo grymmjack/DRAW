@@ -413,6 +413,17 @@ TYPE DRAW_THEME
     TOOLTIP_PADDING            AS INTEGER         ' Tooltip inner padding in pixels (default 3)
     TOOLTIP_BORDER_COLOR       AS _UNSIGNED LONG  ' Tooltip border color (RGBA)
     TOOLTIP_BORDER_WIDTH       AS INTEGER         ' Tooltip border width in pixels (default 1)
+    ' --- Text Formatting Bar ---
+    TEXT_BAR_BG                AS _UNSIGNED LONG  ' Text bar background color
+    TEXT_BAR_FG                AS _UNSIGNED LONG  ' Text bar text/label color
+    TEXT_BAR_BORDER            AS _UNSIGNED LONG  ' Text bar border color
+    TEXT_BAR_BTN_ACTIVE        AS _UNSIGNED LONG  ' Active toggle button highlight
+    TEXT_BAR_BTN_HOVER         AS _UNSIGNED LONG  ' Hovered button highlight
+    TEXT_BAR_DROPDOWN_BG       AS _UNSIGNED LONG  ' Dropdown background color
+    TEXT_BAR_DROPDOWN_FG       AS _UNSIGNED LONG  ' Dropdown text color
+    TEXT_BAR_DROPDOWN_HIGHLIGHT AS _UNSIGNED LONG ' Dropdown selected item highlight
+    ' --- Text Layers ---
+    LAYER_PANEL_TEXT_ACCENT    AS _UNSIGNED LONG  ' Accent color for [T] text layer rows
 END TYPE
 
 ' Runtime theme loader — populates THEME from ASSETS/THEMES/{CFG.THEME$}/THEME.CFG

@@ -26,10 +26,21 @@ TYPE TEXT_OBJ
     CUSTOM_FONT_SIZE AS INTEGER  ' Loaded custom font size for export/replay
     CHAR_WIDTH   AS INTEGER  ' Character width (5 for Tiny5, 8 for VGA)
     LINE_HEIGHT  AS INTEGER  ' Line height (8 for Tiny5, 13 for VGA)
+    ' --- Rich text layer integration (Phase 4) ---
+    editingTextLayer AS INTEGER  ' Layer index being edited (0 = none, for re-edit)
+    selStart     AS INTEGER  ' Selection start char index (-1 = no selection)
+    selEnd       AS INTEGER  ' Selection end char index (-1 = no selection)
+    selActive    AS INTEGER  ' TRUE when text selection is active
+    OVERFLOW_FLASH AS INTEGER ' Countdown frames for overflow visual feedback
 END TYPE
 
 ' Text buffer declared in _COMMON.BI
 DIM SHARED TEXT AS TEXT_OBJ
+
+' Cached text preview image (avoids per-frame _NEWIMAGE/_FREEIMAGE)
+DIM SHARED TEXT_PREVIEW_CACHE AS LONG
+DIM SHARED TEXT_PREVIEW_CACHE_W AS INTEGER
+DIM SHARED TEXT_PREVIEW_CACHE_H AS INTEGER
 
 DECLARE SUB TEXT_init ()
 DECLARE SUB TEXT_reset ()
@@ -39,5 +50,9 @@ DECLARE SUB TEXT_backspace ()
 DECLARE SUB TEXT_newline ()
 DECLARE SUB TEXT_apply ()
 DECLARE SUB TEXT_cancel ()
+DECLARE SUB TEXT_commit ()
+DECLARE SUB TEXT_re_edit (layerIdx AS INTEGER)
 DECLARE SUB TEXT_render_preview (dest AS LONG, dx AS INTEGER, dy AS INTEGER, zoom AS SINGLE)
 DECLARE SUB TEXT_update_cursor ()
+DECLARE SUB TEXT_clear_selection ()
+DECLARE FUNCTION TEXT_has_selection% ()

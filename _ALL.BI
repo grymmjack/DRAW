@@ -29,6 +29,9 @@ $INCLUDEONCE
 ' GUI -------------------------------------------------------------------------
 '$INCLUDE:'./GUI/PALETTE.BI'
 '$INCLUDE:'./GUI/PALETTE-LOADER.BI'
+'$INCLUDE:'./GUI/FONT-LIST.BI'
+'$INCLUDE:'./GUI/TEXT-LAYER.BI'
+'$INCLUDE:'./GUI/TEXT-BAR.BI'
 '$INCLUDE:'./GUI/PALETTE-STRIP.BI'
 '$INCLUDE:'./GUI/GUI.BI'
 '$INCLUDE:'./GUI/POPUP-MENU.BI'

@@ -42,6 +42,7 @@ TYPE SCREEN_OBJ
     showEditBar               AS INTEGER   ' TRUE when edit bar is visible
     editBarManuallyHidden     AS INTEGER   ' TRUE when user explicitly hid edit bar
     editBarHiddenByToggleAll  AS INTEGER   ' TRUE only when toggle-all (F11) hid the edit bar
+    textBarHiddenByToggleAll  AS INTEGER   ' TRUE only when toggle-all (F11) hid the text bar
     ' Computed layout geometry — set by SCREEN_compute_layout() each render pass
     uiLeftEdge   AS INTEGER  ' Canvas work area left X (after all left panels)
     uiRightEdge  AS INTEGER  ' Canvas work area right X (before all right panels)

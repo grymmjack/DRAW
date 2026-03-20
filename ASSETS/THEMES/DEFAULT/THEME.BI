@@ -417,6 +417,19 @@ PALETTE_SEP_LOSPEC_LBL$             = "-- USER : LOSPEC --"
 PALETTE_SEP_CREATED_LBL$            = "-- USER : CREATED --"
 
 ' =============================================================================
+' TEXT BAR - Rich text formatting bar (below menu bar when text tool active)
+' =============================================================================
+THEME.TEXT_BAR_BG~&                  = _RGB32(28, 28, 42)
+THEME.TEXT_BAR_FG~&                  = _RGB32(200, 200, 200)
+THEME.TEXT_BAR_BORDER~&              = _RGB32(64, 64, 64)
+THEME.TEXT_BAR_BTN_ACTIVE~&          = _RGB32(80, 80, 160)
+THEME.TEXT_BAR_BTN_HOVER~&           = _RGB32(60, 60, 90)
+THEME.TEXT_BAR_DROPDOWN_BG~&         = _RGB32(32, 32, 48)
+THEME.TEXT_BAR_DROPDOWN_FG~&         = _RGB32(200, 200, 200)
+THEME.TEXT_BAR_DROPDOWN_HIGHLIGHT~&  = _RGB32(60, 80, 160)
+THEME.LAYER_PANEL_TEXT_ACCENT~&      = _RGB32(80, 120, 200)
+
+' =============================================================================
 ' CURSORS - PNG cursor configuration
 ' =============================================================================
 ' Each cursor has a filename, hotspot, and optional overlays.

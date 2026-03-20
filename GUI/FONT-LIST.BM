@@ -1,0 +1,441 @@
+''
+' DRAW - GUI/FONT-LIST.BM
+' =============================================================================
+' Cross-platform font enumeration, caching, and handle management.
+' Discovers bundled + system TTF/OTF fonts using SHELL + temp file pattern.
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+OPTION _EXPLICIT
+OPTION _EXPLICITARRAY
+'$DYNAMIC
+
+
+''
+' Scan all available fonts (bundled + system). Lazy — only runs once.
+'
+SUB FONT_LIST_scan ()
+    IF FONT_LIST_SCANNED% THEN EXIT SUB
+
+    FONT_LIST_COUNT% = 0
+
+    ' --- Bundled fonts (ASSETS/FONTS/) ---
+    FONT_LIST_scan_dir "./ASSETS/FONTS", 0, TRUE
+
+    ' --- Theme fonts (if theme directory has fonts) ---
+    DIM themeFontDir AS STRING
+    themeFontDir$ = "./ASSETS/THEMES/" + RTRIM$(CFG.THEME$) + "/FONTS"
+    IF _DIREXISTS(themeFontDir$) THEN
+        FONT_LIST_scan_dir themeFontDir$, 0, TRUE
+    END IF
+
+    ' --- System fonts (OS-specific) ---
+    $IF WIN THEN
+        FONT_LIST_scan_dir "C:\Windows\Fonts", 0, FALSE
+        DIM localFonts AS STRING
+        localFonts$ = ENVIRON$("LOCALAPPDATA") + "\Microsoft\Windows\Fonts"
+        IF _DIREXISTS(localFonts$) THEN
+            FONT_LIST_scan_dir localFonts$, 0, FALSE
+        END IF
+    $ELSEIF LINUX THEN
+        FONT_LIST_scan_dir "/usr/share/fonts", 1, FALSE
+        FONT_LIST_scan_dir "/usr/local/share/fonts", 1, FALSE
+        DIM homeDir AS STRING
+        homeDir$ = ENVIRON$("HOME")
+        IF LEN(homeDir$) > 0 THEN
+            DIM userFonts AS STRING
+            userFonts$ = homeDir$ + "/.local/share/fonts"
+            IF _DIREXISTS(userFonts$) THEN
+                FONT_LIST_scan_dir userFonts$, 1, FALSE
+            END IF
+        END IF
+    $ELSEIF MAC THEN
+        FONT_LIST_scan_dir "/System/Library/Fonts", 1, FALSE
+        FONT_LIST_scan_dir "/Library/Fonts", 1, FALSE
+        DIM homeDirMac AS STRING
+        homeDirMac$ = ENVIRON$("HOME")
+        IF LEN(homeDirMac$) > 0 THEN
+            DIM userFontsMac AS STRING
+            userFontsMac$ = homeDirMac$ + "/Library/Fonts"
+            IF _DIREXISTS(userFontsMac$) THEN
+                FONT_LIST_scan_dir userFontsMac$, 1, FALSE
+            END IF
+        END IF
+    $END IF
+
+    ' Sort: bundled first, then alphabetical
+    FONT_LIST_sort
+
+    FONT_LIST_SCANNED% = TRUE
+    _LOGINFO "FONT_LIST_scan: found" + STR$(FONT_LIST_COUNT%) + " fonts"
+END SUB
+
+
+''
+' Scan a single directory for TTF/OTF files.
+' @param dir$ Directory path to scan
+' @param recursive% TRUE to recurse subdirectories (Linux/Mac use find)
+' @param isBundled% TRUE if these are DRAW-bundled fonts
+'
+SUB FONT_LIST_scan_dir (dir$, recursive%, isBundled%)
+    IF NOT _DIREXISTS(dir$) THEN EXIT SUB
+
+    DIM tmpFile AS STRING
+    tmpFile$ = "./draw_font_scan.tmp"
+
+    $IF WIN THEN
+        IF recursive% THEN
+            SHELL "dir /b /s " + CHR$(34) + dir$ + "\*.ttf" + CHR$(34) + " > " + CHR$(34) + tmpFile$ + CHR$(34) + " 2>nul"
+            SHELL "dir /b /s " + CHR$(34) + dir$ + "\*.otf" + CHR$(34) + " >> " + CHR$(34) + tmpFile$ + CHR$(34) + " 2>nul"
+        ELSE
+            SHELL "dir /b " + CHR$(34) + dir$ + "\*.ttf" + CHR$(34) + " > " + CHR$(34) + tmpFile$ + CHR$(34) + " 2>nul"
+            SHELL "dir /b " + CHR$(34) + dir$ + "\*.otf" + CHR$(34) + " >> " + CHR$(34) + tmpFile$ + CHR$(34) + " 2>nul"
+        END IF
+    $ELSE
+        IF recursive% THEN
+            SHELL "find " + CHR$(34) + dir$ + CHR$(34) + " -type f \( -iname '*.ttf' -o -iname '*.otf' \) 2>/dev/null > " + CHR$(34) + tmpFile$ + CHR$(34)
+        ELSE
+            SHELL "ls -1 " + CHR$(34) + dir$ + CHR$(34) + " 2>/dev/null | grep -iE '\.(ttf|otf)$' > " + CHR$(34) + tmpFile$ + CHR$(34) + " 2>/dev/null"
+        END IF
+    $END IF
+
+    IF NOT _FILEEXISTS(tmpFile$) THEN EXIT SUB
+
+    DIM ff AS INTEGER
+    ff% = FREEFILE
+    OPEN tmpFile$ FOR INPUT AS #ff%
+
+    DIM lineIn AS STRING
+    DIM fullPath AS STRING
+
+    DO WHILE NOT EOF(ff%)
+        LINE INPUT #ff%, lineIn$
+        lineIn$ = LTRIM$(RTRIM$(lineIn$))
+        IF LEN(lineIn$) < 5 THEN _CONTINUE
+
+        $IF WIN THEN
+            ' dir /b without /s gives just filenames — prepend dir
+            IF recursive% THEN
+                fullPath$ = lineIn$
+            ELSE
+                fullPath$ = dir$ + "\" + lineIn$
+            END IF
+        $ELSE
+            IF recursive% THEN
+                ' find returns full paths
+                fullPath$ = lineIn$
+            ELSE
+                ' ls returns just filenames — prepend dir
+                fullPath$ = dir$ + "/" + lineIn$
+            END IF
+        $END IF
+
+        IF _FILEEXISTS(fullPath$) THEN
+            FONT_LIST_add_font fullPath$, isBundled%
+        END IF
+    LOOP
+
+    CLOSE #ff%
+    KILL tmpFile$
+END SUB
+
+
+''
+' Add a single font file to the list. Detects bold/italic variants.
+' @param fontPath$ Full path to the font file
+' @param isBundled% TRUE if bundled with DRAW
+'
+SUB FONT_LIST_add_font (fontPath$, isBundled%)
+    IF FONT_LIST_COUNT% >= FONT_LIST_MAX THEN EXIT SUB
+
+    ' Check for duplicate paths or display names
+    DIM i AS INTEGER
+    DIM newName AS STRING
+    newName$ = FONT_LIST_extract_name$(fontPath$)
+    FOR i% = 0 TO FONT_LIST_COUNT% - 1
+        IF RTRIM$(FONT_LIST(i%).path) = fontPath$ THEN EXIT SUB
+        IF UCASE$(RTRIM$(FONT_LIST(i%).displayName)) = UCASE$(newName$) THEN EXIT SUB
+    NEXT i%
+
+    ' Skip variant files — they'll be linked from their base font
+    DIM upperPath AS STRING
+    upperPath$ = UCASE$(fontPath$)
+    IF INSTR(upperPath$, "-BOLD.") > 0 AND INSTR(upperPath$, "-BOLDITALIC.") = 0 THEN EXIT SUB
+    IF INSTR(upperPath$, "-ITALIC.") > 0 THEN EXIT SUB
+    IF INSTR(upperPath$, "-BOLDITALIC.") > 0 THEN EXIT SUB
+    IF INSTR(upperPath$, "BOLD.") > 0 AND INSTR(upperPath$, "-BOLD.") = 0 THEN
+        ' Check it's actually a variant suffix not part of the name
+        DIM bPos AS INTEGER
+        bPos% = _INSTRREV(upperPath$, "BOLD.")
+        IF bPos% > 1 THEN
+            DIM prevCh AS STRING
+            prevCh$ = MID$(upperPath$, bPos% - 1, 1)
+            IF prevCh$ = "-" OR prevCh$ = "_" THEN EXIT SUB
+        END IF
+    END IF
+
+    DIM idx AS INTEGER
+    idx% = FONT_LIST_COUNT%
+
+    FONT_LIST(idx%).path = fontPath$
+    FONT_LIST(idx%).displayName = FONT_LIST_extract_name$(fontPath$)
+    FONT_LIST(idx%).isBundled = isBundled%
+
+    ' Look for bold/italic variant files
+    DIM basePath AS STRING
+    DIM ext AS STRING
+    DIM dotPos AS INTEGER
+    dotPos% = _INSTRREV(fontPath$, ".")
+    IF dotPos% > 0 THEN
+        basePath$ = LEFT$(fontPath$, dotPos% - 1)
+        ext$ = MID$(fontPath$, dotPos%)
+    ELSE
+        basePath$ = fontPath$
+        ext$ = ".ttf"
+    END IF
+
+    ' Strip -Regular suffix if present
+    DIM upperBase AS STRING
+    upperBase$ = UCASE$(basePath$)
+    IF RIGHT$(upperBase$, 8) = "-REGULAR" THEN
+        basePath$ = LEFT$(basePath$, LEN(basePath$) - 8)
+    END IF
+
+    ' Check for variant files
+    DIM boldPath AS STRING
+    DIM italicPath AS STRING
+    DIM boldItalicPath AS STRING
+
+    boldPath$ = basePath$ + "-Bold" + ext$
+    italicPath$ = basePath$ + "-Italic" + ext$
+    boldItalicPath$ = basePath$ + "-BoldItalic" + ext$
+
+    IF _FILEEXISTS(boldPath$) THEN
+        FONT_LIST(idx%).hasBold = TRUE
+        FONT_LIST(idx%).boldPath = boldPath$
+    END IF
+
+    IF _FILEEXISTS(italicPath$) THEN
+        FONT_LIST(idx%).hasItalic = TRUE
+        FONT_LIST(idx%).italicPath = italicPath$
+    END IF
+
+    IF _FILEEXISTS(boldItalicPath$) THEN
+        FONT_LIST(idx%).hasBoldItalic = TRUE
+        FONT_LIST(idx%).boldItalicPath = boldItalicPath$
+    END IF
+
+    FONT_LIST_COUNT% = FONT_LIST_COUNT% + 1
+END SUB
+
+
+''
+' Sort font list: bundled first, then alphabetical by display name.
+' Simple insertion sort — 512 max is fine.
+'
+SUB FONT_LIST_sort ()
+    IF FONT_LIST_COUNT% < 2 THEN EXIT SUB
+
+    DIM i AS INTEGER
+    DIM j AS INTEGER
+    DIM tmp AS FONT_ENTRY
+    DIM nameI AS STRING
+    DIM nameJ AS STRING
+
+    FOR i% = 1 TO FONT_LIST_COUNT% - 1
+        tmp = FONT_LIST(i%)
+        j% = i% - 1
+
+        DO WHILE j% >= 0
+            ' Bundled fonts always come first
+            IF FONT_LIST(j%).isBundled AND NOT tmp.isBundled THEN EXIT DO
+            IF NOT FONT_LIST(j%).isBundled AND tmp.isBundled THEN
+                ' tmp is bundled, j is not — shift j right
+            ELSEIF FONT_LIST(j%).isBundled = tmp.isBundled THEN
+                ' Same category — sort alphabetically
+                nameJ$ = UCASE$(RTRIM$(FONT_LIST(j%).displayName))
+                nameI$ = UCASE$(RTRIM$(tmp.displayName))
+                IF nameJ$ <= nameI$ THEN EXIT DO
+            ELSE
+                EXIT DO
+            END IF
+
+            FONT_LIST(j% + 1) = FONT_LIST(j%)
+            j% = j% - 1
+        LOOP
+
+        FONT_LIST(j% + 1) = tmp
+    NEXT i%
+END SUB
+
+
+''
+' Get a cached font handle for a given font index, size, and style.
+' Loads the font if not yet cached. Returns -1 on failure.
+'
+' @param fontIdx% Index into FONT_LIST()
+' @param fontSize% Desired pixel size
+' @param fontStyle$ FONT_STYLE_REGULAR$, FONT_STYLE_BOLD$, etc.
+' @return LONG font handle or -1 on failure
+'
+FUNCTION FONT_LIST_get_handle& (fontIdx%, fontSize%, fontStyle$)
+    FONT_LIST_get_handle& = -1
+
+    IF fontIdx% < 0 OR fontIdx% >= FONT_LIST_COUNT% THEN EXIT FUNCTION
+    IF fontSize% < 4 OR fontSize% > 128 THEN EXIT FUNCTION
+
+    ' Check cache first
+    DIM i AS INTEGER
+    FOR i% = 0 TO FONT_CACHE_COUNT% - 1
+        IF FONT_CACHE_IDX(i%) = fontIdx% THEN
+            IF FONT_CACHE_SIZE(i%) = fontSize% THEN
+                IF RTRIM$(FONT_CACHE_STYLE(i%)) = fontStyle$ THEN
+                    FONT_LIST_get_handle& = FONT_CACHE_HANDLE(i%)
+                    EXIT FUNCTION
+                END IF
+            END IF
+        END IF
+    NEXT i%
+
+    ' Not cached — determine which file to load
+    DIM loadPath AS STRING
+    SELECT CASE fontStyle$
+        CASE FONT_STYLE_BOLD$
+            IF FONT_LIST(fontIdx%).hasBold THEN
+                loadPath$ = RTRIM$(FONT_LIST(fontIdx%).boldPath)
+            ELSE
+                loadPath$ = RTRIM$(FONT_LIST(fontIdx%).path)
+            END IF
+        CASE FONT_STYLE_ITALIC$
+            IF FONT_LIST(fontIdx%).hasItalic THEN
+                loadPath$ = RTRIM$(FONT_LIST(fontIdx%).italicPath)
+            ELSE
+                loadPath$ = RTRIM$(FONT_LIST(fontIdx%).path)
+            END IF
+        CASE FONT_STYLE_BOLDITALIC$
+            IF FONT_LIST(fontIdx%).hasBoldItalic THEN
+                loadPath$ = RTRIM$(FONT_LIST(fontIdx%).boldItalicPath)
+            ELSE
+                loadPath$ = RTRIM$(FONT_LIST(fontIdx%).path)
+            END IF
+        CASE ELSE
+            loadPath$ = RTRIM$(FONT_LIST(fontIdx%).path)
+    END SELECT
+
+    IF LEN(loadPath$) = 0 THEN EXIT FUNCTION
+
+    DIM handle AS LONG
+    handle& = _LOADFONT(loadPath$, fontSize%, "DONTBLEND")
+    IF handle& <= 0 THEN
+        _LOGWARN "FONT_LIST_get_handle: failed to load " + loadPath$ + " at size" + STR$(fontSize%)
+        EXIT FUNCTION
+    END IF
+
+    ' Evict oldest cache entry if full
+    IF FONT_CACHE_COUNT% >= FONT_CACHE_MAX THEN
+        IF FONT_CACHE_HANDLE(0) > 0 THEN _FREEIMAGE FONT_CACHE_HANDLE(0)
+        DIM ci AS INTEGER
+        FOR ci% = 0 TO FONT_CACHE_COUNT% - 2
+            FONT_CACHE_IDX(ci%) = FONT_CACHE_IDX(ci% + 1)
+            FONT_CACHE_SIZE(ci%) = FONT_CACHE_SIZE(ci% + 1)
+            FONT_CACHE_STYLE(ci%) = FONT_CACHE_STYLE(ci% + 1)
+            FONT_CACHE_HANDLE(ci%) = FONT_CACHE_HANDLE(ci% + 1)
+        NEXT ci%
+        FONT_CACHE_COUNT% = FONT_CACHE_COUNT% - 1
+    END IF
+
+    ' Add to cache
+    DIM slot AS INTEGER
+    slot% = FONT_CACHE_COUNT%
+    FONT_CACHE_IDX(slot%) = fontIdx%
+    FONT_CACHE_SIZE(slot%) = fontSize%
+    FONT_CACHE_STYLE(slot%) = fontStyle$
+    FONT_CACHE_HANDLE(slot%) = handle&
+    FONT_CACHE_COUNT% = FONT_CACHE_COUNT% + 1
+
+    FONT_LIST_get_handle& = handle&
+END FUNCTION
+
+
+''
+' Extract a human-readable display name from a font file path.
+' Strips directory, extension, and common suffixes. Replaces - and _ with spaces.
+'
+' @param fontPath$ Full path to the font file
+' @return STRING Display name
+'
+FUNCTION FONT_LIST_extract_name$ (fontPath$)
+    DIM result AS STRING
+    DIM slashPos AS INTEGER
+    DIM dotPosE AS INTEGER
+    DIM ci AS INTEGER
+
+    ' Get just the filename
+    result$ = fontPath$
+    slashPos% = 0
+    FOR ci% = LEN(result$) TO 1 STEP -1
+        DIM ch AS STRING
+        ch$ = MID$(result$, ci%, 1)
+        IF ch$ = "/" OR ch$ = "\" THEN
+            slashPos% = ci%
+            EXIT FOR
+        END IF
+    NEXT ci%
+    IF slashPos% > 0 THEN result$ = MID$(result$, slashPos% + 1)
+
+    ' Strip extension
+    dotPosE% = _INSTRREV(result$, ".")
+    IF dotPosE% > 1 THEN result$ = LEFT$(result$, dotPosE% - 1)
+
+    ' Strip common suffixes
+    DIM upperResult AS STRING
+    upperResult$ = UCASE$(result$)
+    IF RIGHT$(upperResult$, 8) = "-REGULAR" THEN result$ = LEFT$(result$, LEN(result$) - 8)
+
+    ' Replace hyphens and underscores with spaces
+    DIM ci2 AS INTEGER
+    FOR ci2% = 1 TO LEN(result$)
+        DIM c AS STRING
+        c$ = MID$(result$, ci2%, 1)
+        IF c$ = "-" OR c$ = "_" THEN MID$(result$, ci2%, 1) = " "
+    NEXT ci2%
+
+    FONT_LIST_extract_name$ = LTRIM$(RTRIM$(result$))
+END FUNCTION
+
+
+''
+' Find a font by display name. Returns index or -1 if not found.
+' Case-insensitive comparison.
+'
+' @param displayName$ Name to search for
+' @return INTEGER Index into FONT_LIST() or -1
+'
+FUNCTION FONT_LIST_find_by_name% (displayName$)
+    FONT_LIST_find_by_name% = -1
+
+    DIM searchName AS STRING
+    searchName$ = UCASE$(LTRIM$(RTRIM$(displayName$)))
+
+    DIM i AS INTEGER
+    FOR i% = 0 TO FONT_LIST_COUNT% - 1
+        IF UCASE$(RTRIM$(FONT_LIST(i%).displayName)) = searchName$ THEN
+            FONT_LIST_find_by_name% = i%
+            EXIT FUNCTION
+        END IF
+    NEXT i%
+END FUNCTION
+
+
+''
+' Free all cached font handles. Call on shutdown or when clearing state.
+'
+SUB FONT_LIST_free_cache ()
+    DIM i AS INTEGER
+    FOR i% = 0 TO FONT_CACHE_COUNT% - 1
+        IF FONT_CACHE_HANDLE(i%) > 0 THEN _FREEIMAGE FONT_CACHE_HANDLE(i%)
+        FONT_CACHE_HANDLE(i%) = 0
+    NEXT i%
+    FONT_CACHE_COUNT% = 0
+END SUB

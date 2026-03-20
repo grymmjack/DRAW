@@ -594,6 +594,7 @@ SUB MOUSE_autocommit_move_if_click_on_gui (rawX AS INTEGER, rawY AS INTEGER)
     IF SCRN.showStatus% AND rawY% >= (SCRN.h& - 10) THEN clickOnGUI% = TRUE
     IF SCRN.showStatus% AND PALETTE_STRIP_in_bounds%(rawX%, rawY%) THEN clickOnGUI% = TRUE
     IF SCRN.showMenubar% AND MENU_BAR.visible% AND MENUBAR_in_bounds%(rawX%, rawY%) THEN clickOnGUI% = TRUE
+    IF TEXT_BAR.visible% AND TEXT_BAR_in_bounds%(rawX%, rawY%) THEN clickOnGUI% = TRUE
 
     IF clickOnGUI% THEN
         MOVE_apply_transform
@@ -1294,9 +1295,54 @@ END SUB
 ' Tool handler: Text.
 '
 SUB MOUSE_tool_text ()
-    ' TEXT tool: Click to start or reposition text entry
+    ' TEXT tool: Click to start or reposition text entry.
+    ' Double-click on an existing text layer to re-edit it.
     IF NOT MOUSE.OLD_B1% THEN
-        TEXT_start MOUSE.X%, MOUSE.Y%
+        DIM clickTime AS DOUBLE
+        clickTime# = TIMER
+        DIM isDblClick AS INTEGER
+        isDblClick% = FALSE
+        IF clickTime# - MOUSE.B1_CLICK_TIME# < 0.3 THEN
+            ' Double-click detected — check for text layer under cursor
+            DIM li AS INTEGER
+            FOR li% = LAYER_COUNT% TO 1 STEP -1
+                IF LAYERS(li%).visible% AND LAYERS(li%).layerType% = LAYER_TYPE_TEXT THEN
+                    DIM tdI AS INTEGER
+                    tdI% = LAYERS(li%).textDataIdx%
+                    IF tdI% >= 1 AND TEXT_LAYER_DATA(tdI%).charCount > 0 THEN
+                        ' Approximate bounding box from text layer data
+                        DIM tlX AS INTEGER, tlY AS INTEGER
+                        tlX% = TEXT_LAYER_DATA(tdI%).startX
+                        tlY% = TEXT_LAYER_DATA(tdI%).startY
+                        DIM tlFS AS INTEGER, tlLC AS INTEGER
+                        tlFS% = TEXT_LAYER_DATA(tdI%).fontSize
+                        IF tlFS% < 8 THEN tlFS% = 8
+                        tlLC% = TEXT_LAYER_DATA(tdI%).lineCount
+                        IF tlLC% < 1 THEN tlLC% = 1
+                        ' Width: last char x pos gives right edge
+                        DIM tlW AS INTEGER, tlH AS INTEGER
+                        tlW% = TEXT_LAYER_get_char_x%(tdI%, TEXT_LAYER_DATA(tdI%).charCount) - tlX%
+                        IF tlW% < 32 THEN tlW% = 32
+                        ' Height: line count × (fontSize + leading)
+                        DIM tlLead AS INTEGER
+                        tlLead% = TEXT_LAYER_DATA(tdI%).defaultLeading
+                        IF tlLead% < tlFS% THEN tlLead% = tlFS% + 4
+                        tlH% = tlLC% * tlLead%
+                        IF tlH% < 16 THEN tlH% = 16
+                        IF MOUSE.X% >= tlX% AND MOUSE.X% < tlX% + tlW% AND MOUSE.Y% >= tlY% AND MOUSE.Y% < tlY% + tlH% THEN
+                            TEXT_re_edit li%
+                            isDblClick% = TRUE
+                            MOUSE.B1_CLICK_TIME# = 0
+                            EXIT FOR
+                        END IF
+                    END IF
+                END IF
+            NEXT li%
+        END IF
+        IF NOT isDblClick% THEN
+            MOUSE.B1_CLICK_TIME# = clickTime#
+            TEXT_start MOUSE.X%, MOUSE.Y%
+        END IF
     END IF
 END SUB
 
@@ -3641,6 +3687,68 @@ FUNCTION MOUSE_handle_gui_early% (rawX AS INTEGER, rawY AS INTEGER)
         EXIT FUNCTION
     END IF
 
+    ' Handle text formatting bar clicks (below menu bar, before panels)
+    IF TEXT_BAR.visible% AND (MOUSE.B1% AND NOT MOUSE.OLD_B1%) THEN
+        IF TEXT_BAR_in_bounds%(rawX%, rawY%) OR TEXT_BAR.fontDropdownOpen% OR TEXT_BAR.sizeDropdownOpen% THEN
+            IF TEXT_BAR_handle_click%(rawX%, rawY%) THEN
+                MOUSE.UI_CHROME_CLICKED% = TRUE
+                MOUSE.OLD_B1% = MOUSE.B1%
+                MOUSE.OLD_B2% = MOUSE.B2%
+                MOUSE.OLD_B3% = MOUSE.B3%
+                GUI_NEEDS_REDRAW% = TRUE
+                MOUSE_handle_gui_early% = TRUE
+                EXIT FUNCTION
+            END IF
+        END IF
+    END IF
+
+    ' Handle text bar right-click (FG/BG swatch transparent toggle)
+    IF TEXT_BAR.visible% AND (MOUSE.B2% AND NOT MOUSE.OLD_B2%) THEN
+        IF TEXT_BAR_in_bounds%(rawX%, rawY%) THEN
+            IF rawX% >= TEXT_BAR.fgSwatchX% AND rawX% < TEXT_BAR.fgSwatchX% + 10 THEN
+                PAL_FG_IS_TRANSPARENT% = NOT PAL_FG_IS_TRANSPARENT%
+                IF PAL_FG_IS_TRANSPARENT% THEN
+                    PAINT_COLOR~& = _RGBA32(0, 0, 0, 0)
+                ELSE
+                    ' Restore last palette FG color
+                    IF PAL_FG_IDX% >= 0 AND PAL_FG_IDX% < PAL_COLOR_COUNT% THEN
+                        PAINT_COLOR~& = PAL(PAL_FG_IDX%).value~&
+                    ELSE
+                        PAINT_COLOR~& = _RGB32(255, 255, 255)
+                    END IF
+                END IF
+                MOUSE.UI_CHROME_CLICKED% = TRUE
+                MOUSE.OLD_B1% = MOUSE.B1%
+                MOUSE.OLD_B2% = MOUSE.B2%
+                MOUSE.OLD_B3% = MOUSE.B3%
+                GUI_NEEDS_REDRAW% = TRUE
+                FRAME_IDLE% = FALSE
+                MOUSE_handle_gui_early% = TRUE
+                EXIT FUNCTION
+            ELSEIF rawX% >= TEXT_BAR.bgSwatchX% AND rawX% < TEXT_BAR.bgSwatchX% + 10 THEN
+                PAL_BG_IS_TRANSPARENT% = NOT PAL_BG_IS_TRANSPARENT%
+                IF PAL_BG_IS_TRANSPARENT% THEN
+                    PAINT_BG_COLOR~& = _RGBA32(0, 0, 0, 0)
+                ELSE
+                    ' Restore last palette BG color
+                    IF PAL_BG_IDX% >= 0 AND PAL_BG_IDX% < PAL_COLOR_COUNT% THEN
+                        PAINT_BG_COLOR~& = PAL(PAL_BG_IDX%).value~&
+                    ELSE
+                        PAINT_BG_COLOR~& = _RGB32(0, 0, 0)
+                    END IF
+                END IF
+                MOUSE.UI_CHROME_CLICKED% = TRUE
+                MOUSE.OLD_B1% = MOUSE.B1%
+                MOUSE.OLD_B2% = MOUSE.B2%
+                MOUSE.OLD_B3% = MOUSE.B3%
+                GUI_NEEDS_REDRAW% = TRUE
+                FRAME_IDLE% = FALSE
+                MOUSE_handle_gui_early% = TRUE
+                EXIT FUNCTION
+            END IF
+        END IF
+    END IF
+
     ' Close palette menu when clicking outside its bounds
     DIM paletteClosed AS INTEGER
     paletteClosed% = MOUSE_handle_palette_menu_close%(rawX%, rawY%)
@@ -3732,6 +3840,20 @@ FUNCTION MOUSE_process_frame% (rawX AS INTEGER, rawY AS INTEGER, wheel_delta AS 
     END IF
 
     IF MOUSE_handle_gui_early%(rawX%, rawY%) THEN
+        MOUSE_process_frame% = FALSE
+        EXIT FUNCTION
+    END IF
+
+    ' Handle mousewheel scroll in text bar font dropdown
+    IF TEXT_BAR.visible% AND TEXT_BAR.fontDropdownOpen% AND wheel_delta% <> 0 THEN
+        TEXT_BAR.fontDropdownScroll% = TEXT_BAR.fontDropdownScroll% + wheel_delta% * 3
+        IF TEXT_BAR.fontDropdownScroll% < 0 THEN TEXT_BAR.fontDropdownScroll% = 0
+        DIM fddMaxScroll AS INTEGER
+        fddMaxScroll% = FONT_LIST_COUNT% - 20
+        IF fddMaxScroll% < 0 THEN fddMaxScroll% = 0
+        IF TEXT_BAR.fontDropdownScroll% > fddMaxScroll% THEN TEXT_BAR.fontDropdownScroll% = fddMaxScroll%
+        GUI_NEEDS_REDRAW% = TRUE
+        FRAME_IDLE% = FALSE
         MOUSE_process_frame% = FALSE
         EXIT FUNCTION
     END IF

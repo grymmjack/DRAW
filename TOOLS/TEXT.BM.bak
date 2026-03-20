@@ -1,0 +1,403 @@
+''
+' DRAW - TOOLS/TEXT.BM
+' =============================================================================
+' Text tool implementation.
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+''
+' Initializes the text tool state.
+' Preserves custom font settings across resets and loads the Tiny5 UI font if needed.
+'
+SUB TEXT_init ()
+    ' Preserve custom font state across resets
+    DIM preserve_custom AS INTEGER
+    DIM preserve_handle AS LONG
+    DIM preserve_tiny5 AS INTEGER
+    DIM preserve_custom_path AS STRING
+    DIM preserve_custom_size AS INTEGER
+    DIM uiFontSize AS INTEGER
+    preserve_custom = TEXT.USE_CUSTOM
+    preserve_handle = TEXT.CUSTOM_FONT_HANDLE
+    preserve_tiny5 = TEXT.USE_TINY5
+    preserve_custom_path$ = RTRIM$(TEXT.CUSTOM_FONT_PATH)
+    preserve_custom_size% = TEXT.CUSTOM_FONT_SIZE
+    
+    TEXT.ACTIVE = FALSE
+    TEXT.START_X = 0
+    TEXT.START_Y = 0
+    TEXT.CURSOR_X = 0
+    TEXT.CURSOR_Y = 0
+    TEXT.TEXT_SIZE = 1
+    TEXT.MAX_LINES = 100
+    TEXT.LINE_COUNT = 0
+    TEXT.CURSOR_BLINK = 0
+    TEXT.BLINK_TIMER = 0
+    
+    ' Restore custom font state
+    TEXT.USE_CUSTOM = preserve_custom
+    TEXT.CUSTOM_FONT_HANDLE = preserve_handle
+    TEXT.USE_TINY5 = preserve_tiny5
+    TEXT.CUSTOM_FONT_PATH = preserve_custom_path$
+    TEXT.CUSTOM_FONT_SIZE = preserve_custom_size%
+    _LOGINFO "TEXT_init: Custom font handle = " + STR$(TEXT.CUSTOM_FONT_HANDLE)
+    
+    ' Default to VGA font
+    IF TEXT.CHAR_WIDTH = 0 THEN TEXT.CHAR_WIDTH = 8
+    IF TEXT.LINE_HEIGHT = 0 THEN TEXT.LINE_HEIGHT = 13
+    
+    ' Load Tiny5 font if not already loaded
+    IF TEXT.FONT_HANDLE = 0 THEN
+        uiFontSize% = THEME.GLOBAL_FONT_SIZE%
+        IF uiFontSize% < 1 THEN uiFontSize% = 8
+        TEXT.FONT_HANDLE = _LOADFONT(THEME_font_path$(THEME.GLOBAL_FONT_FILE$), uiFontSize%, "DONTBLEND")
+    END IF
+    
+    ' Clear text buffer
+    DIM i AS INTEGER
+    FOR i = 0 TO TEXT.MAX_LINES - 1
+        TEXT_BUFFER(i) = ""
+    NEXT i
+END SUB
+
+''
+' Resets the text tool, applying any active text to the canvas before reinitializing
+'
+SUB TEXT_reset ()
+    IF TEXT.ACTIVE THEN TEXT_apply
+    TEXT_init
+END SUB
+
+''
+' Starts text entry at a canvas position.
+' If text is already active, applies the current text first before starting anew.
+' @param x INTEGER Canvas X coordinate for the text insertion point
+' @param y INTEGER Canvas Y coordinate for the text insertion point
+'
+SUB TEXT_start (x AS INTEGER, y AS INTEGER)
+    ' If already active, apply current text first
+    IF TEXT.ACTIVE THEN
+        TEXT_apply
+    END IF
+    
+    TEXT.ACTIVE = TRUE
+    TEXT.START_X = x
+    TEXT.START_Y = y
+    TEXT.CURSOR_X = x
+    TEXT.CURSOR_Y = y
+    TEXT.LINE_COUNT = 1
+    TEXT.CURSOR_BLINK = 1
+    TEXT.BLINK_TIMER = TIMER
+    
+    ' Clear text buffer
+    DIM i AS INTEGER
+    FOR i = 0 TO TEXT.MAX_LINES - 1
+        TEXT_BUFFER(i) = ""
+    NEXT i
+END SUB
+
+''
+' Adds a character at the current cursor position and advances the cursor.
+' Uses _PRINTWIDTH for accurate positioning when a custom or Tiny5 font is active.
+' @param ch STRING Character string to append to the current text line
+'
+SUB TEXT_add_char (ch AS STRING)
+    IF NOT TEXT.ACTIVE THEN EXIT SUB
+    IF TEXT.LINE_COUNT < 1 THEN TEXT.LINE_COUNT = 1
+    
+    ' Get current line index (0-based)
+    DIM line_idx AS INTEGER
+    line_idx = TEXT.LINE_COUNT - 1
+    
+    ' Add character to current line
+    TEXT_BUFFER(line_idx) = TEXT_BUFFER(line_idx) + ch
+    
+    ' Update cursor position - measure actual printed width for custom or Tiny5 fonts
+    IF TEXT.USE_CUSTOM AND TEXT.CUSTOM_FONT_HANDLE > 0 THEN
+        DIM old_font AS LONG
+        old_font = _FONT
+        _FONT TEXT.CUSTOM_FONT_HANDLE
+        TEXT.CURSOR_X = TEXT.START_X + _PRINTWIDTH(TEXT_BUFFER(line_idx))
+        _FONT old_font
+    ELSEIF TEXT.USE_TINY5 AND TEXT.FONT_HANDLE > 0 THEN
+        DIM old_font2 AS LONG
+        old_font2 = _FONT
+        _FONT TEXT.FONT_HANDLE
+        TEXT.CURSOR_X = TEXT.START_X + _PRINTWIDTH(TEXT_BUFFER(line_idx))
+        _FONT old_font2
+    ELSE
+        TEXT.CURSOR_X = TEXT.CURSOR_X + TEXT.CHAR_WIDTH
+    END IF
+END SUB
+
+''
+' Handles backspace by removing the last character from the current line.
+' If the current line is empty, moves the cursor up to the previous line.
+'
+SUB TEXT_backspace ()
+    IF NOT TEXT.ACTIVE THEN EXIT SUB
+    IF TEXT.LINE_COUNT < 1 THEN EXIT SUB
+    
+    DIM line_idx AS INTEGER
+    line_idx = TEXT.LINE_COUNT - 1
+    
+    DIM line_len AS INTEGER
+    line_len = LEN(TEXT_BUFFER(line_idx))
+    
+    IF line_len > 0 THEN
+        ' Remove last character from current line
+        TEXT_BUFFER(line_idx) = LEFT$(TEXT_BUFFER(line_idx), line_len - 1)
+        ' Use _PRINTWIDTH for accurate cursor positioning with custom or Tiny5 fonts
+        IF TEXT.USE_CUSTOM AND TEXT.CUSTOM_FONT_HANDLE > 0 THEN
+            DIM old_font AS LONG
+            old_font = _FONT
+            _FONT TEXT.CUSTOM_FONT_HANDLE
+            TEXT.CURSOR_X = TEXT.START_X + _PRINTWIDTH(TEXT_BUFFER(line_idx))
+            _FONT old_font
+        ELSEIF TEXT.USE_TINY5 AND TEXT.FONT_HANDLE > 0 THEN
+            DIM old_font2 AS LONG
+            old_font2 = _FONT
+            _FONT TEXT.FONT_HANDLE
+            TEXT.CURSOR_X = TEXT.START_X + _PRINTWIDTH(TEXT_BUFFER(line_idx))
+            _FONT old_font2
+        ELSE
+            TEXT.CURSOR_X = TEXT.CURSOR_X - TEXT.CHAR_WIDTH
+        END IF
+    ELSEIF TEXT.LINE_COUNT > 1 THEN
+        ' Current line is empty, move to previous line
+        TEXT.LINE_COUNT = TEXT.LINE_COUNT - 1
+        line_idx = TEXT.LINE_COUNT - 1
+        TEXT.CURSOR_Y = TEXT.START_Y + (TEXT.LINE_COUNT - 1) * TEXT.LINE_HEIGHT
+        ' Position cursor at end of previous line using _PRINTWIDTH for custom or Tiny5 fonts
+        IF TEXT.USE_CUSTOM AND TEXT.CUSTOM_FONT_HANDLE > 0 THEN
+            DIM old_font3 AS LONG
+            old_font3 = _FONT
+            _FONT TEXT.CUSTOM_FONT_HANDLE
+            TEXT.CURSOR_X = TEXT.START_X + _PRINTWIDTH(TEXT_BUFFER(line_idx))
+            _FONT old_font3
+        ELSEIF TEXT.USE_TINY5 AND TEXT.FONT_HANDLE > 0 THEN
+            DIM old_font4 AS LONG
+            old_font4 = _FONT
+            _FONT TEXT.FONT_HANDLE
+            TEXT.CURSOR_X = TEXT.START_X + _PRINTWIDTH(TEXT_BUFFER(line_idx))
+            _FONT old_font4
+        ELSE
+            TEXT.CURSOR_X = TEXT.START_X + LEN(TEXT_BUFFER(line_idx)) * TEXT.CHAR_WIDTH
+        END IF
+    END IF
+END SUB
+
+''
+' Handles newline (Enter key) by advancing to the next text line.
+' Resets cursor X to the left margin and increments the line count.
+'
+SUB TEXT_newline ()
+    IF NOT TEXT.ACTIVE THEN EXIT SUB
+    IF TEXT.LINE_COUNT >= TEXT.MAX_LINES THEN EXIT SUB
+    
+    ' Move to next line
+    TEXT.LINE_COUNT = TEXT.LINE_COUNT + 1
+    TEXT.CURSOR_X = TEXT.START_X  ' Reset to left margin
+    TEXT.CURSOR_Y = TEXT.START_Y + (TEXT.LINE_COUNT - 1) * TEXT.LINE_HEIGHT
+END SUB
+
+''
+' Applies (stamps) all buffered text lines onto the current layer.
+' Records a history state for undo, including font and text payload metadata.
+'
+SUB TEXT_apply ()
+    IF NOT TEXT.ACTIVE THEN EXIT SUB
+
+    DIM text_history_before AS LONG
+    DIM text_history_flags AS LONG
+    DIM text_recorded AS INTEGER
+    
+    ' Mark inactive FIRST to prevent recursion with TEXT_reset
+    TEXT.ACTIVE = FALSE
+
+    text_history_before& = 0
+    text_history_flags& = 0
+    text_recorded% = FALSE
+    IF SELECTION_has_active% OR LAYERS(CURRENT_LAYER%).opacityLock% THEN text_history_flags& = text_history_flags& OR HISTORY_FLAG_CLIPPED
+    IF NOT HISTORY_IN_PROGRESS% AND LAYERS(CURRENT_LAYER%).historyId& > 0 AND LAYERS(CURRENT_LAYER%).imgHandle& < -1 THEN
+        text_history_before& = _COPYIMAGE(LAYERS(CURRENT_LAYER%).imgHandle&, 32)
+    END IF
+    
+    ' Draw each line of text to the current layer
+    STROKE_begin
+    _DEST LAYER_current_image&
+    DIM i AS INTEGER
+    DIM y_pos AS INTEGER
+    DIM old_font AS LONG
+    old_font = _FONT
+    
+    ' Switch to custom, Tiny5, or default font
+    IF TEXT.USE_CUSTOM AND TEXT.CUSTOM_FONT_HANDLE > 0 THEN
+        _FONT TEXT.CUSTOM_FONT_HANDLE
+    ELSEIF TEXT.USE_TINY5 AND TEXT.FONT_HANDLE > 0 THEN
+        _FONT TEXT.FONT_HANDLE
+    END IF
+    
+    FOR i = 0 TO TEXT.LINE_COUNT - 1
+        IF LEN(TEXT_BUFFER(i)) > 0 THEN
+            y_pos = TEXT.START_Y + i * TEXT.LINE_HEIGHT
+            COLOR PAINT_COLOR~&, _RGBA32(0, 0, 0, 0)
+            _PRINTSTRING (TEXT.START_X, y_pos), TEXT_BUFFER(i)
+        END IF
+    NEXT i
+    
+    ' Restore previous font
+    IF (TEXT.USE_CUSTOM AND TEXT.CUSTOM_FONT_HANDLE > 0) OR (TEXT.USE_TINY5 AND TEXT.FONT_HANDLE > 0) THEN
+        _FONT old_font
+    END IF
+    
+    ' Save state for undo AFTER drawing text
+    STROKE_commit
+    IF text_history_before& < -1 THEN
+        HISTORY_record_brush LAYERS(CURRENT_LAYER%).historyId&, CURRENT_LAYER%, PAINT_apply_opacity~&(PAINT_COLOR~&), text_history_flags&, text_history_before&, "Text"
+        HISTORY_RECORDS(HISTORY.current%).x1% = TEXT.START_X
+        HISTORY_RECORDS(HISTORY.current%).y1% = TEXT.START_Y
+        HISTORY_RECORDS(HISTORY.current%).w% = TEXT.LINE_COUNT
+        HISTORY_RECORDS(HISTORY.current%).h% = TEXT.LINE_HEIGHT
+        IF TEXT.USE_CUSTOM AND TEXT.CUSTOM_FONT_HANDLE > 0 THEN
+            HISTORY_set_payload HISTORY.current%, HISTORY_text_payload$(TEXT.LINE_COUNT, 2, RTRIM$(TEXT.CUSTOM_FONT_PATH), TEXT.CUSTOM_FONT_SIZE), 2
+        ELSEIF TEXT.USE_TINY5 AND TEXT.FONT_HANDLE > 0 THEN
+            HISTORY_set_payload HISTORY.current%, HISTORY_text_payload$(TEXT.LINE_COUNT, 1, THEME_font_path$(THEME.GLOBAL_FONT_FILE$), THEME.GLOBAL_FONT_SIZE%), 1
+        ELSE
+            HISTORY_set_payload HISTORY.current%, HISTORY_text_payload$(TEXT.LINE_COUNT, 0, "", 0), 0
+        END IF
+        text_history_before& = 0
+        text_recorded% = TRUE
+    END IF
+    IF text_recorded% THEN HISTORY_saved_this_frame% = TRUE  ' Prevent double-save from mouse handler
+    
+    ' Reset text tool
+    TEXT_reset
+END SUB
+
+''
+' Cancels text entry without applying, discarding all buffered text
+'
+SUB TEXT_cancel ()
+    TEXT_reset
+END SUB
+
+''
+' Renders a live text preview overlay on the GUI layer.
+' Creates a temp image at canvas resolution, renders text and cursor, then scales to screen.
+' @param dest LONG Destination image handle to render the preview onto
+' @param dx INTEGER Display X offset for the canvas origin on screen
+' @param dy INTEGER Display Y offset for the canvas origin on screen
+' @param zoom SINGLE Current zoom level for scaling text to screen coordinates
+'
+SUB TEXT_render_preview (dest AS LONG, dx AS INTEGER, dy AS INTEGER, zoom AS SINGLE)
+    IF NOT TEXT.ACTIVE THEN EXIT SUB
+    
+    _DEST dest
+    
+    DIM old_font AS LONG
+    old_font = _FONT
+    
+    ' Switch to custom, Tiny5, or default font
+    IF TEXT.USE_CUSTOM AND TEXT.CUSTOM_FONT_HANDLE > 0 THEN
+        _FONT TEXT.CUSTOM_FONT_HANDLE
+    ELSEIF TEXT.USE_TINY5 AND TEXT.FONT_HANDLE > 0 THEN
+        _FONT TEXT.FONT_HANDLE
+    END IF
+    
+    ' Calculate the bounding box of all text lines at native (canvas) resolution
+    DIM max_text_w AS INTEGER, total_text_h AS INTEGER
+    DIM i AS INTEGER
+    DIM line_w AS INTEGER
+    max_text_w% = TEXT.CHAR_WIDTH ' Minimum 1 char wide for cursor
+    total_text_h% = TEXT.LINE_COUNT * TEXT.LINE_HEIGHT
+    IF total_text_h% < TEXT.LINE_HEIGHT THEN total_text_h% = TEXT.LINE_HEIGHT
+    
+    FOR i = 0 TO TEXT.LINE_COUNT - 1
+        IF LEN(TEXT_BUFFER(i)) > 0 THEN
+            line_w% = _PRINTWIDTH(TEXT_BUFFER(i))
+            IF line_w% > max_text_w% THEN max_text_w% = line_w%
+        END IF
+    NEXT i
+    
+    ' Add margin for cursor at end of line
+    max_text_w% = max_text_w% + TEXT.CHAR_WIDTH
+    
+    ' Create a temporary image at canvas resolution to render text into
+    DIM tmpImg AS LONG
+    tmpImg& = _NEWIMAGE(max_text_w%, total_text_h%, 32)
+    IF tmpImg& >= -1 THEN
+        ' Fallback if image creation fails - shouldn't happen
+        IF (TEXT.USE_CUSTOM AND TEXT.CUSTOM_FONT_HANDLE > 0) OR (TEXT.USE_TINY5 AND TEXT.FONT_HANDLE > 0) THEN
+            _FONT old_font
+        END IF
+        EXIT SUB
+    END IF
+    
+    ' Render text at native resolution into the temp image
+    _DEST tmpImg&
+    ' Re-apply font to new dest
+    IF TEXT.USE_CUSTOM AND TEXT.CUSTOM_FONT_HANDLE > 0 THEN
+        _FONT TEXT.CUSTOM_FONT_HANDLE
+    ELSEIF TEXT.USE_TINY5 AND TEXT.FONT_HANDLE > 0 THEN
+        _FONT TEXT.FONT_HANDLE
+    END IF
+    
+    CLS , _RGBA32(0, 0, 0, 0)   ' Transparent background
+    
+    DIM y_pos AS INTEGER
+    FOR i = 0 TO TEXT.LINE_COUNT - 1
+        IF LEN(TEXT_BUFFER(i)) > 0 THEN
+            y_pos% = i * TEXT.LINE_HEIGHT
+            COLOR PAINT_COLOR~&, _RGBA32(0, 0, 0, 0)
+            _PRINTSTRING (0, y_pos%), TEXT_BUFFER(i)
+        END IF
+    NEXT i
+    
+    ' Draw cursor into the temp image at canvas resolution
+    TEXT_update_cursor
+    DIM cursor_local_x AS INTEGER, cursor_local_y AS INTEGER
+    cursor_local_x% = TEXT.CURSOR_X - TEXT.START_X
+    cursor_local_y% = TEXT.CURSOR_Y - TEXT.START_Y
+    IF TEXT.CURSOR_BLINK THEN
+        LINE (cursor_local_x%, cursor_local_y%)-(cursor_local_x%, cursor_local_y% + TEXT.LINE_HEIGHT - 1), PAINT_COLOR~&
+    END IF
+    
+    ' Draw I-beam origin marker (vertical line) at canvas resolution
+    LINE (0, 0)-(0, TEXT.LINE_HEIGHT - 1), _RGB32(128, 128, 128)
+    
+    ' Restore font before switching dest
+    IF (TEXT.USE_CUSTOM AND TEXT.CUSTOM_FONT_HANDLE > 0) OR (TEXT.USE_TINY5 AND TEXT.FONT_HANDLE > 0) THEN
+        _FONT old_font
+    END IF
+    
+    ' Now scale the temp image to the screen with zoom using _PUTIMAGE
+    _DEST dest
+    DIM screen_x AS INTEGER, screen_y AS INTEGER
+    DIM scaled_w AS INTEGER, scaled_h AS INTEGER
+    screen_x% = dx% + INT(TEXT.START_X * zoom!)
+    screen_y% = dy% + INT(TEXT.START_Y * zoom!)
+    scaled_w% = INT(max_text_w% * zoom!)
+    scaled_h% = INT(total_text_h% * zoom!)
+    
+    IF scaled_w% > 0 AND scaled_h% > 0 THEN
+        _PUTIMAGE (screen_x%, screen_y%)-(screen_x% + scaled_w% - 1, screen_y% + scaled_h% - 1), tmpImg&, dest
+    END IF
+    
+    _FREEIMAGE tmpImg&
+END SUB
+
+''
+' Updates the cursor blink state, toggling visibility every 0.5 seconds
+'
+SUB TEXT_update_cursor ()
+    IF NOT TEXT.ACTIVE THEN EXIT SUB
+    
+    ' Toggle cursor every 0.5 seconds
+    IF TIMER - TEXT.BLINK_TIMER > 0.5 THEN
+        TEXT.CURSOR_BLINK = 1 - TEXT.CURSOR_BLINK
+        TEXT.BLINK_TIMER = TIMER
+    END IF
+END SUB
