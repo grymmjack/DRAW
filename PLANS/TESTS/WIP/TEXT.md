@@ -220,6 +220,8 @@ Verify cursor movement with arrow keys, including key repeat.
 3. [ ] Press `End`
 4. [ ] Verify cursor is at end of "Line 1" (before the newline)
 
+> **FAILED**: Pressing `End` moves cursor to end of Line 2 instead of end of Line 1. The `End` key appears to move to the end of the entire text buffer rather than the end of the current line.
+
 #### [ ] Key repeat on held arrow key
 1. [ ] Type "A long line of text for testing"
 2. [ ] Press `Home`

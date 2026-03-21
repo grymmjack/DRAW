@@ -343,26 +343,42 @@ assert_no_crash() {
 
 # snap_region X Y W H label
 # Capture a specific viewport-pixel region of the DRAW window.
+# Two-step crop: fullscreen → window → sub-region. This eliminates any
+# decoration offset from xdotool coordinates.
 # Prints the path to the saved PNG. Use with assert_regions_differ / assert_regions_same.
-# Automatically restores DRAW focus after spectacle (which steals it on Wayland).
 snap_region() {
     local vx=$1 vy=$2 vw=$3 vh=$4 label=${5:-"snap"}
     local out="$SCREENSHOTS_DIR/_snap_${label}_$$.png"
     local fulltmp="/tmp/draw-qa-snap-$$.png"
+    local wintmp="/tmp/draw-qa-win-$$.png"
+
     _update_win_pos
-    local ax=$(( WIN_ABS_X + vx * DISPLAY_SCALE ))
-    local ay=$(( WIN_ABS_Y + vy * DISPLAY_SCALE ))
-    local aw=$(( vw * DISPLAY_SCALE ))
-    local ah=$(( vh * DISPLAY_SCALE ))
+    eval "$(xdotool getwindowgeometry --shell "$DRAW_WID" 2>/dev/null)"
+    local win_w=${WIDTH:-0} win_h=${HEIGHT:-0}
+
+    # Sub-region offsets (viewport pixels → physical pixels)
+    local rx=$(( vx * DISPLAY_SCALE ))
+    local ry=$(( vy * DISPLAY_SCALE ))
+    local rw=$(( vw * DISPLAY_SCALE ))
+    local rh=$(( vh * DISPLAY_SCALE ))
+
+    # Ensure DRAW is in the foreground before capturing
+    draw_focus
+    sleep 0.15
+
+    # Step 1: fullscreen capture
     if [[ -n "${WAYLAND_DISPLAY:-}" ]] && command -v spectacle &>/dev/null; then
         spectacle -b -n -f -o "$fulltmp" 2>/dev/null
-        # Spectacle steals focus on Wayland — restore DRAW immediately
-        xdotool windowactivate --sync "$DRAW_WID" 2>/dev/null; sleep 0.3
     else
         scrot "$fulltmp" 2>/dev/null
     fi
-    convert "$fulltmp" -crop "${aw}x${ah}+${ax}+${ay}" +repage "$out" 2>/dev/null
-    rm -f "$fulltmp"
+
+    # Step 2: crop to full DRAW window (same as screenshot()), then sub-crop region
+    convert "$fulltmp" \
+        -crop "${win_w}x${win_h}+${WIN_ABS_X}+${WIN_ABS_Y}" +repage \
+        -crop "${rw}x${rh}+${rx}+${ry}" +repage \
+        "$out" 2>/dev/null
+    rm -f "$fulltmp" "$wintmp"
     echo "$out"
 }
 
