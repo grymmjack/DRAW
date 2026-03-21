@@ -309,15 +309,17 @@ DO
         IF TRANSFORM.GRABBED >= 0 OR TRANSFORM_PREVIEW_DIRTY THEN SCENE_CHANGED% = TRUE
     END IF
     IF CURRENT_TOOL% = TOOL_TEXT AND TEXT.ACTIVE THEN
+        ' Text editing must stay at full FPS so keyboard repeats are consumed
+        ' promptly — dropping to 15 FPS idle makes typing feel sluggish.
+        FRAME_IDLE% = FALSE
         ' Cursor blink: only dirty scene when cursor state actually toggles (every 0.5s)
         IF TIMER - TEXT.BLINK_TIMER > 0.5 THEN
             TEXT.CURSOR_BLINK = 1 - TEXT.CURSOR_BLINK
             TEXT.BLINK_TIMER = TIMER
-            FRAME_IDLE% = FALSE
             SCENE_CHANGED% = TRUE
         END IF
         ' Overflow flash animates every frame until countdown reaches 0
-        IF TEXT.OVERFLOW_FLASH > 0 THEN FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE
+        IF TEXT.OVERFLOW_FLASH > 0 THEN SCENE_CHANGED% = TRUE
     END IF
     IF IMG_IMPORT.STATE > IMPORT_STATE_IDLE THEN
         FRAME_IDLE% = FALSE

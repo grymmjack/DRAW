@@ -1,3 +1,8 @@
+---
+name: create-qb64pe-program
+description: "Write a new QB64PE program for a given task, validating syntax and compiling iteratively until clean."
+---
+
 Write a new QB64PE program to do: {{task}}
 1. Look up any unfamiliar keywords with lookup_qb64pe_keyword before writing code
 2. Validate syntax with validate_qb64pe_syntax before compiling

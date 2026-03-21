@@ -1,4 +1,5 @@
 ---
+name: qa-test
 description: "Create a manual QA test checklist for a DRAW feature or tool. Generates a hierarchical checklist in PLANS/TESTS/ with test cases derived from state diagrams, keyboard/mouse bindings, source code, and project instructions."
 ---
 

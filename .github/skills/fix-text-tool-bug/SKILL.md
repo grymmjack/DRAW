@@ -1,4 +1,5 @@
 ---
+name: fix-text-tool-bug
 description: "Fix a bug in DRAW's text tool using the state machine diagram, source code, and QB64-PE MCP. Follows a structured workflow: diagnose → fix → verify → update diagram."
 ---
 

@@ -1,4 +1,5 @@
 ---
+name: create-release
 description: Prepare a DRAW release — bump version, update docs, generate release notes
 ---
 

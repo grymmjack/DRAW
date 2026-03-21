@@ -1,3 +1,8 @@
+---
+name: debug-qb64pe-error
+description: "Debug a QB64PE compilation or runtime problem using debugging helpers, compatibility checks, and enhanced logging."
+---
+
 Debug this QB64PE compilation or runtime problem: {{error_or_description}}
 1. Use get_debugging_help with the error text
 2. Use enhance_qb64pe_code_for_debugging to add logging if needed

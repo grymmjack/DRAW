@@ -1,4 +1,5 @@
 ---
+name: fix-using-state-diagram
 description: "Fix a bug in DRAW using a state machine diagram to guide diagnosis. Structured workflow: select diagram → diagnose → fix → verify → update BUGS.md → update diagram if needed."
 ---
 

@@ -5,40 +5,46 @@
 ### [ ] Activating the Text Tool
 Verify the text tool can be activated from keyboard and toolbar, and that the TEXT BAR appears.
 
-#### [ ] Activate via T key
-1. [ ] Press `T` to activate text tool
-2. [ ] Verify toolbar shows text tool as active (highlighted)
-3. [ ] Verify TEXT BAR appears below the menu bar
-4. [ ] Verify status bar shows text tool indicator
+#### [x] Activate via T key
+1. [x] Press `T` to activate text tool
+2. [x] Verify toolbar shows text tool as active (highlighted)
+3. [x] Verify TEXT BAR appears below the menu bar
+4. [x] Verify status bar shows text tool indicator
 
-#### [ ] Activate via Shift+T (Tiny5 font)
-1. [ ] Press `Shift+T` to activate text tool with Tiny5 font
-2. [ ] Verify TEXT BAR shows "Tiny5" or small font selected
-3. [ ] Click canvas and type — verify text appears in Tiny5 (5px wide glyphs)
+#### [x] Activate via Shift+T (Tiny5 font)
+1. [x] Press `Shift+T` to activate text tool with Tiny5 font
+2. [x] Verify TEXT BAR shows "Tiny5" or small font selected
+3. [x] Click canvas and type — verify text appears in Tiny5 (5px wide glyphs)
 
-#### [ ] Activate via Ctrl+T (custom font)
-1. [ ] First load a custom font: middle-click the Text toolbar icon, select a .ttf file
-2. [ ] Switch to another tool (e.g. Brush)
-3. [ ] Press `Ctrl+T` to activate text tool with custom font
-4. [ ] Click canvas and type — verify text appears in the loaded custom font
+#### [x] Activate via Ctrl+T (custom font)
+1. [x] First load a custom font: middle-click the Text toolbar icon, select a .ttf file
+2. [x] Switch to another tool (e.g. Brush)
+3. [x] Press `Ctrl+T` to activate text tool with custom font
+4. [x] Click canvas and type — verify text appears in the loaded custom font
 
-#### [ ] Activate via toolbar click
-1. [ ] Click the Text tool icon in the toolbar
-2. [ ] Verify TEXT BAR appears
-3. [ ] Verify tool is active (toolbar highlight)
+#### [x] Activate via toolbar click
+1. [x] Click the Text tool icon in the toolbar
+2. [x] Verify TEXT BAR appears
+3. [x] Verify tool is active (toolbar highlight)
 
-#### [ ] Switch away from text tool
-1. [ ] Activate text tool with `T`
-2. [ ] Press `B` to switch to Brush
-3. [ ] Verify TEXT BAR disappears
-4. [ ] Verify toolbar shows Brush as active
+#### [x] Switch away from text tool
+1. [x] Activate text tool with `T`
+2. [x] Press `B` to switch to Brush
+3. [x] Verify TEXT BAR disappears
+4. [x] Verify toolbar shows Brush as active
 
-#### [ ] Switch away while editing text (commit)
-1. [ ] Activate text tool, click canvas, type "Hello"
-2. [ ] Press `B` to switch to Brush
-3. [ ] Verify the text "Hello" is preserved as a text layer (not rasterized)
-4. [ ] Verify TEXT BAR disappears
-5. [ ] Re-activate text tool (`T`), click the text — verify it's re-editable
+> **FIXED** 2026-03-21: Root cause — GUI-only render path restored stale `SCENE_CACHE&` (which had TEXT BAR baked in) then composited transparent `SCRN.GUI&` on top, leaving bar visible. Fix: set `SCENE_DIRTY% = TRUE` alongside `GUI_NEEDS_REDRAW% = TRUE` in `KEYBOARD_tools` and `TOOLBAR_handle_click%` whenever the tool changes, ensuring the full render path runs and `SCENE_CACHE&` is rebuilt correctly.
+
+#### [x] Switch away while editing text (commit)
+1. [x] Activate text tool, click canvas, type "Hello"
+2. [x] Press `Escape` to commit text (stays as editable text layer)
+3. [x] Press `B` to switch to Brush
+4. [x] Verify the text "Hello" is preserved as a text layer (not rasterized)
+5. [x] Verify TEXT BAR disappears immediately
+6. [x] Re-activate text tool (`T`), click the text — verify it's re-editable
+
+> Note: pressing `B` **while actively editing** (cursor blinking) types the letter 'b' — Escape must be pressed first to commit, then B switches tools.
+> **FIXED** 2026-03-21: same root cause as above; test step 2 updated to include Escape.
 
 ---
 
@@ -47,62 +53,62 @@ Verify the text tool can be activated from keyboard and toolbar, and that the TE
 ### [ ] Starting Text Entry
 Verify clicking on the canvas creates a new text layer and begins editing.
 
-#### [ ] Click canvas to start text entry
-1. [ ] Activate text tool (`T`)
-2. [ ] Click on empty area of canvas
-3. [ ] Verify a blinking cursor appears at the click point
-4. [ ] Verify a new layer is created in the layer panel with type TEXT
-5. [ ] Type "DRAW" — verify each character appears at the cursor position
+#### [x] Click canvas to start text entry
+1. [x] Activate text tool (`T`)
+2. [x] Click on empty area of canvas
+3. [x] Verify a blinking cursor appears at the click point
+4. [x] Verify a new layer is created in the layer panel with type TEXT
+5. [x] Type "DRAW" — verify each character appears at the cursor position
 
-#### [ ] Type printable ASCII characters
-1. [ ] Start text entry on canvas
-2. [ ] Type lowercase: `abcdefghijklmnopqrstuvwxyz`
-3. [ ] Verify all 26 lowercase characters render correctly
-4. [ ] Start new text entry, type uppercase: `ABCDEFGHIJKLMNOPQRSTUVWXYZ`
-5. [ ] Verify all 26 uppercase characters render correctly
-6. [ ] Start new text entry, type digits: `0123456789`
-7. [ ] Verify all 10 digits render correctly
-8. [ ] Start new text entry, type symbols: `!@#$%^&*()-=_+[]{}|;:',.<>/?`
-9. [ ] Verify all symbols render correctly
+#### [x] Type printable ASCII characters
+1. [x] Start text entry on canvas
+2. [x] Type lowercase: `abcdefghijklmnopqrstuvwxyz`
+3. [x] Verify all 26 lowercase characters render correctly
+4. [x] Start new text entry, type uppercase: `ABCDEFGHIJKLMNOPQRSTUVWXYZ`
+5. [x] Verify all 26 uppercase characters render correctly
+6. [x] Start new text entry, type digits: `0123456789`
+7. [x] Verify all 10 digits render correctly
+8. [x] Start new text entry, type symbols: `!@#$%^&*()-=_+[]{}|;:',.<>/?`
+9. [x] Verify all symbols render correctly
 
-#### [ ] Enter key inserts newline
-1. [ ] Start text entry, type "Line 1"
-2. [ ] Press `Enter`
-3. [ ] Type "Line 2"
-4. [ ] Verify two lines of text appear, with "Line 2" below "Line 1"
+#### [x] Enter key inserts newline
+1. [x] Start text entry, type "Line 1"
+2. [x] Press `Enter`
+3. [x] Type "Line 2"
+4. [x] Verify two lines of text appear, with "Line 2" below "Line 1"
 
-#### [ ] Tab inserts 4 spaces
-1. [ ] Start text entry
-2. [ ] Press `Tab`
-3. [ ] Type "indented"
-4. [ ] Verify 4 spaces appear before "indented"
+#### [x] Tab inserts 4 spaces
+1. [x] Start text entry
+2. [x] Press `Tab`
+3. [x] Type "indented"
+4. [x] Verify 4 spaces appear before "indented"
 
-#### [ ] Backspace deletes character
-1. [ ] Type "Hello World"
-2. [ ] Press `Backspace` once
-3. [ ] Verify "d" is deleted, text shows "Hello Worl"
-4. [ ] Press `Backspace` 5 more times
-5. [ ] Verify text shows "Hello"
+#### [x] Backspace deletes character
+1. [x] Type "Hello World"
+2. [x] Press `Backspace` once
+3. [x] Verify "d" is deleted, text shows "Hello Worl"
+4. [x] Press `Backspace` 5 more times
+5. [x] Verify text shows "Hello"
 
-#### [ ] Backspace at start of line does nothing
-1. [ ] Start text entry, type "Test"
-2. [ ] Press `Home` to move cursor to start of line
-3. [ ] Press `Backspace`
-4. [ ] Verify "Test" remains unchanged and cursor stays at position 0
+#### [x] Backspace at start of line does nothing
+1. [x] Start text entry, type "Test"
+2. [x] Press `Home` to move cursor to start of line
+3. [x] Press `Backspace`
+4. [x] Verify "Test" remains unchanged and cursor stays at position 0
 
-#### [ ] Delete key removes character after cursor
-1. [ ] Type "Hello"
-2. [ ] Press `Home` to move cursor to start
-3. [ ] Press `Delete`
-4. [ ] Verify "H" is removed, text shows "ello"
-5. [ ] Press `Delete` again
-6. [ ] Verify text shows "llo"
+#### [x] Delete key removes character after cursor
+1. [x] Type "Hello"
+2. [x] Press `Home` to move cursor to start
+3. [x] Press `Delete`
+4. [x] Verify "H" is removed, text shows "ello"
+5. [x] Press `Delete` again
+6. [x] Verify text shows "llo"
 
-#### [ ] Delete key at end of text does nothing
-1. [ ] Type "Test"
-2. [ ] Cursor should be at the end
-3. [ ] Press `Delete`
-4. [ ] Verify "Test" remains unchanged
+#### [x] Delete key at end of text does nothing
+1. [x] Type "Test"
+2. [x] Cursor should be at the end
+3. [x] Press `Delete`
+4. [x] Verify "Test" remains unchanged
 
 ---
 
@@ -111,16 +117,16 @@ Verify clicking on the canvas creates a new text layer and begins editing.
 ### [ ] Auto-Wrap Behavior
 Verify text wraps when reaching canvas edge.
 
-#### [ ] Word-wrap at right edge
-1. [ ] Start text entry near the right edge of canvas (within ~30px of right edge)
-2. [ ] Type a long sentence: "This is a test of word wrapping behavior"
-3. [ ] Verify text wraps to next line at a word boundary (space character)
-4. [ ] Verify wrapped text continues on the next line below
+#### [x] Word-wrap at right edge
+1. [x] Start text entry near the right edge of canvas (within ~30px of right edge)
+2. [x] Type a long sentence: "This is a test of word wrapping behavior"
+3. [x] Verify text wraps to next line at a word boundary (space character)
+4. [x] Verify wrapped text continues on the next line below
 
-#### [ ] Character-wrap when no space found
-1. [ ] Start text entry near the right edge of canvas
-2. [ ] Type a single long word with no spaces: "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-3. [ ] Verify text wraps character-by-character when no space is available
+#### [x] Character-wrap when no space found
+1. [x] Start text entry near the right edge of canvas
+2. [x] Type a single long word with no spaces: "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+3. [x] Verify text wraps character-by-character when no space is available
 
 #### [ ] Bottom overflow flash
 1. [ ] Use a small canvas (e.g. 16x16)

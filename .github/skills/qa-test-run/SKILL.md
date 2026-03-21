@@ -1,4 +1,5 @@
 ---
+name: qa-test-run
 description: "Execute a QA test checklist for DRAW. Moves test file to WIP, presents tests one by one, tracks pass/fail, cascades checkmarks hierarchically, and moves completed files to RESULTS."
 ---
 

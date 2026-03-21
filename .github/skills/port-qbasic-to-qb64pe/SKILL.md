@@ -1,3 +1,8 @@
+---
+name: port-qbasic-to-qb64pe
+description: "Port QBasic code to QB64PE by analyzing compatibility, automating conversion, validating syntax, and compiling until clean."
+---
+
 Port this QBasic code to QB64PE: {{code_or_file}}
 1. Use analyze_qbasic_compatibility first to identify issues
 2. Use port_qbasic_to_qb64pe to do the automated conversion
