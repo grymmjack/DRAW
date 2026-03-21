@@ -117,7 +117,8 @@ draw_launch() {
     info "Waiting for window (up to ${timeout}s) — PID=$DRAW_PID"
     local i=0
     while [[ $i -lt $(( timeout * 2 )) ]]; do
-        DRAW_WID=$(xdotool search --name "$WINDOW_TITLE" 2>/dev/null | head -1)
+        # Match by PID so other DRAW instances don't interfere
+        DRAW_WID=$(xdotool search --pid "$DRAW_PID" --name "$WINDOW_TITLE" 2>/dev/null | head -1)
         [[ -n "$DRAW_WID" ]] && break
         sleep 0.5
         i=$(( i + 1 ))
@@ -156,11 +157,13 @@ draw_quit() {
     fi
 }
 
-# Focus the DRAW window
+# Focus the DRAW window — uses both windowactivate and windowfocus for
+# reliable refocusing under KDE Wayland (e.g. after spectacle steals focus).
 draw_focus() {
     [[ -z "$DRAW_WID" ]] && return
-    xdotool windowactivate --sync "$DRAW_WID"
-    sleep 0.1
+    xdotool windowactivate --sync "$DRAW_WID" 2>/dev/null
+    xdotool windowfocus --sync "$DRAW_WID" 2>/dev/null
+    sleep 0.2
 }
 
 # ── input helpers ─────────────────────────────────────────────────────────────
@@ -247,9 +250,10 @@ type_text() {
 # key — send one or more key combos (space-separated)
 # Examples: key Return   key ctrl+z   key Escape F1
 #
-# Does NOT use --window; sends via real X11 focus path so SDL2's
-# SDL_GetKeyboardState (used by _KEYDOWN) sees the events correctly.
-# draw_focus ensures DRAW is the active window before sending.
+# Does NOT use --window. xdotool without --window uses XTEST extension which
+# generates real key events that SDL2's SDL_GetKeyboardState (and _KEYDOWN)
+# can see. With --window it uses XSendEvent which doesn't update physical
+# keyboard state — breaking all modifier combos (ctrl+shift+n etc.).
 key() {
     draw_focus
     xdotool key "$@"
@@ -353,7 +357,7 @@ snap_region() {
     if [[ -n "${WAYLAND_DISPLAY:-}" ]] && command -v spectacle &>/dev/null; then
         spectacle -b -n -f -o "$fulltmp" 2>/dev/null
         # Spectacle steals focus on Wayland — restore DRAW immediately
-        xdotool windowactivate --sync "$DRAW_WID" 2>/dev/null; sleep 0.1
+        xdotool windowactivate --sync "$DRAW_WID" 2>/dev/null; sleep 0.3
     else
         scrot "$fulltmp" 2>/dev/null
     fi
@@ -366,22 +370,32 @@ snap_region() {
 # Fail if two region snapshots are pixel-identical (action had no visual effect).
 assert_regions_differ() {
     local f1=$1 f2=$2 msg=${3:-"region changed"}
-    local diff_count
-    diff_count=$(compare -metric AE -fuzz 5% "$f1" "$f2" /dev/null 2>&1 || true)
+    local diff_output diff_count
+    diff_output=$(compare -metric AE -fuzz 2% "$f1" "$f2" /dev/null 2>&1 || true)
+    # AE outputs a plain integer (or float) on stderr; strip any extra IM warnings
+    diff_count=$(echo "$diff_output" | grep -oE '^[0-9]+(\.[0-9]+)?' | head -1)
+    diff_count=${diff_count%.*}  # truncate to integer
+    info "  [diff] raw='$diff_output' count='${diff_count:-?}' f1=$(basename $f1) f2=$(basename $f2)"
     if [[ "${diff_count:-0}" -gt 0 ]] 2>/dev/null; then
         pass "$msg (${diff_count} pixels differ)"
     else
         fail "$msg — regions are identical (action had no effect?)"
     fi
-    rm -f "$f1" "$f2"
+    # Keep files on failure for inspection; clean on pass
+    if [[ "${diff_count:-0}" -gt 0 ]] 2>/dev/null; then
+        rm -f "$f1" "$f2"
+    fi
 }
 
 # assert_regions_same file1 file2 msg
 # Fail if two region snapshots differ (unexpected visual change).
 assert_regions_same() {
     local f1=$1 f2=$2 msg=${3:-"region unchanged"}
-    local diff_count
-    diff_count=$(compare -metric AE -fuzz 5% "$f1" "$f2" /dev/null 2>&1 || true)
+    local diff_output diff_count
+    diff_output=$(compare -metric AE -fuzz 2% "$f1" "$f2" /dev/null 2>&1 || true)
+    diff_count=$(echo "$diff_output" | grep -oE '^[0-9]+(\.[0-9]+)?' | head -1)
+    diff_count=${diff_count%.*}
+    info "  [diff] raw='$diff_output' count='${diff_count:-?}' f1=$(basename $f1) f2=$(basename $f2)"
     if [[ "${diff_count:-0}" -eq 0 ]] 2>/dev/null; then
         pass "$msg (regions match)"
     else

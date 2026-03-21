@@ -128,29 +128,29 @@ Verify text wraps when reaching canvas edge.
 2. [x] Type a single long word with no spaces: "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 3. [x] Verify text wraps character-by-character when no space is available
 
-#### [ ] Bottom overflow flash
-1. [ ] Use a small canvas (e.g. 16x16)
-2. [ ] Start text entry at top-left
-3. [ ] Type many lines until text would exceed canvas bottom boundary
-4. [ ] Verify cursor flashes (visual feedback) and an error sound plays
-5. [ ] Verify no new line is added past the canvas bottom
+#### [x] Bottom overflow flash
+1. [x] Use a small canvas (e.g. 16x16)
+2. [x] Start text entry at top-left
+3. [x] Type many lines until text would exceed canvas bottom boundary
+4. [x] Verify cursor flashes (visual feedback) and an error sound plays
+5. [x] Verify no new line is added past the canvas bottom
 
 ### [ ] Multi-line Text
 Verify multi-line text behavior with line navigation.
 
-#### [ ] Multiple newlines
-1. [ ] Type "A", press `Enter`
-2. [ ] Type "B", press `Enter`
-3. [ ] Type "C", press `Enter`
-4. [ ] Type "D"
-5. [ ] Verify 4 lines appear correctly stacked
+#### [x] Multiple newlines
+1. [x] Type "A", press `Enter`
+2. [x] Type "B", press `Enter`
+3. [x] Type "C", press `Enter`
+4. [x] Type "D"
+5. [x] Verify 4 lines appear correctly stacked
 
-#### [ ] Lines with different lengths
-1. [ ] Type "Short" + Enter
-2. [ ] Type "A much longer line of text" + Enter
-3. [ ] Type "Mid"
-4. [ ] Verify all three lines render at their respective lengths
-5. [ ] Navigate with arrows — verify cursor moves correctly across different-length lines
+#### [x] Lines with different lengths
+1. [x] Type "Short" + Enter
+2. [x] Type "A much longer line of text" + Enter
+3. [x] Type "Mid"
+4. [x] Verify all three lines render at their respective lengths
+5. [x] Navigate with arrows — verify cursor moves correctly across different-length lines
 
 ---
 
@@ -159,60 +159,60 @@ Verify multi-line text behavior with line navigation.
 ### [ ] Arrow Key Movement
 Verify cursor movement with arrow keys, including key repeat.
 
-#### [ ] Left arrow moves cursor left
-1. [ ] Type "Hello"
-2. [ ] Press Left arrow once
-3. [ ] Verify cursor is between 'l' and 'o'
-4. [ ] Type "X"
-5. [ ] Verify text reads "HellXo"
+#### [x] Left arrow moves cursor left
+1. [x] Type "Hello"
+2. [x] Press Left arrow once
+3. [x] Verify cursor is between 'l' and 'o'
+4. [x] Type "X"
+5. [x] Verify text reads "HellXo"
 
-#### [ ] Right arrow moves cursor right
-1. [ ] Type "Hello"
-2. [ ] Press `Home` to go to start
-3. [ ] Press Right arrow once
-4. [ ] Verify cursor is between 'H' and 'e'
-5. [ ] Type "X"
-6. [ ] Verify text reads "HXello"
+#### [x] Right arrow moves cursor right
+1. [x] Type "Hello"
+2. [x] Press `Home` to go to start
+3. [x] Press Right arrow once
+4. [x] Verify cursor is between 'H' and 'e'
+5. [x] Type "X"
+6. [x] Verify text reads "HXello"
 
-#### [ ] Left arrow at position 0 does nothing
-1. [ ] Type "Test"
-2. [ ] Press `Home`
-3. [ ] Press Left arrow
-4. [ ] Verify cursor stays at position 0
+#### [x] Left arrow at position 0 does nothing
+1. [x] Type "Test"
+2. [x] Press `Home`
+3. [x] Press Left arrow
+4. [x] Verify cursor stays at position 0
 
-#### [ ] Right arrow at end of text does nothing
-1. [ ] Type "Test"
-2. [ ] Press Right arrow
-3. [ ] Verify cursor stays at end
+#### [x] Right arrow at end of text does nothing
+1. [x] Type "Test"
+2. [x] Press Right arrow
+3. [x] Verify cursor stays at end
 
-#### [ ] Up arrow moves to line above
-1. [ ] Type "Line 1" + Enter + "Line 2"
-2. [ ] Cursor should be at end of "Line 2"
-3. [ ] Press Up arrow
-4. [ ] Verify cursor moves to "Line 1" (approximately same X position)
+#### [x] Up arrow moves to line above
+1. [x] Type "Line 1" + Enter + "Line 2"
+2. [x] Cursor should be at end of "Line 2"
+3. [x] Press Up arrow
+4. [x] Verify cursor moves to "Line 1" (approximately same X position)
 
-#### [ ] Down arrow moves to line below
-1. [ ] Type "Line 1" + Enter + "Line 2"
-2. [ ] Press `Home`, then Up arrow to position cursor on Line 1
-3. [ ] Press Down arrow
-4. [ ] Verify cursor moves to Line 2
+#### [x] Down arrow moves to line below
+1. [x] Type "Line 1" + Enter + "Line 2"
+2. [x] Press `Home`, then Up arrow to position cursor on Line 1
+3. [x] Press Down arrow
+4. [x] Verify cursor moves to Line 2
 
-#### [ ] Up arrow on first line moves to position 0
-1. [ ] Type "Hello"
-2. [ ] Press `End` to ensure at end of line
-3. [ ] Press Up arrow
-4. [ ] Verify cursor moves to position 0 (start of text)
+#### [x] Up arrow on first line moves to position 0
+1. [x] Type "Hello"
+2. [x] Press `End` to ensure at end of line
+3. [x] Press Up arrow
+4. [x] Verify cursor moves to position 0 (start of text)
 
-#### [ ] Down arrow on last line moves to end
-1. [ ] Type "Hello" + Enter + "World"
-2. [ ] Press `Home` (cursor at start of "World")
-3. [ ] Press Down arrow
-4. [ ] Verify cursor moves to end of "World"
+#### [x] Down arrow on last line moves to end
+1. [x] Type "Hello" + Enter + "World"
+2. [x] Press `Home` (cursor at start of "World")
+3. [x] Press Down arrow
+4. [x] Verify cursor moves to end of "World"
 
-#### [ ] Home key moves to start of line
-1. [ ] Type "Hello World"
-2. [ ] Press `Home`
-3. [ ] Verify cursor is at position 0 (start of the line)
+#### [x] Home key moves to start of line
+1. [x] Type "Hello World"
+2. [x] Press `Home`
+3. [x] Verify cursor is at position 0 (start of the line)
 
 #### [ ] End key moves to end of line
 1. [ ] Type "Line 1" + Enter + "Line 2"
