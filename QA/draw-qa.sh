@@ -31,6 +31,7 @@ FAIL=0
 SKIP=0
 KEEP_OPEN=0
 LOG_FILE=""
+DECORATION_Y=0    # physical pixels of KDE title-bar decoration (detected at launch)
 
 # ── parse DRAW.cfg ────────────────────────────────────────────────────────────
 _cfg() { grep -m1 "^${1}=" "$DRAW_CFG" 2>/dev/null | cut -d= -f2 | tr -d '[:space:]'; }
@@ -103,6 +104,49 @@ check_deps() {
 
 # ── DRAW lifecycle ────────────────────────────────────────────────────────────
 
+# Detect how many physical pixels of window decoration (title bar) the
+# compositor draws above the client area.  spectacle captures the full
+# decorated window, but xdotool positions/sizes describe the client area.
+# We take a screenshot, crop to the reported window rect, then scan for
+# the first row where nearly every pixel has non-background content
+# (DRAW's 12 px menu bar is full-width, decoration is narrow text).
+_detect_decoration() {
+    [[ -z "$DRAW_WID" ]] && return
+    local tmp="/tmp/draw-qa-deco-$$.png"
+    local win="/tmp/draw-qa-deco-win-$$.png"
+    eval "$(xdotool getwindowgeometry --shell "$DRAW_WID" 2>/dev/null)"
+    local ww=${WIDTH:-0} wh=${HEIGHT:-0}
+    draw_focus; sleep 0.2
+    if [[ -n "${WAYLAND_DISPLAY:-}" ]] && command -v spectacle &>/dev/null; then
+        spectacle -b -n -f -o "$tmp" 2>/dev/null
+    else
+        scrot "$tmp" 2>/dev/null
+    fi
+    convert "$tmp" -crop "${ww}x${wh}+${WIN_ABS_X}+${WIN_ABS_Y}" +repage "$win" 2>/dev/null
+    rm -f "$tmp"
+    # Scan for first row with >80% non-zero-alpha / non-background pixels
+    DECORATION_Y=$(python3 -c "
+from PIL import Image
+img = Image.open('$win')
+w = img.size[0]
+for y in range(min(64, img.size[1])):
+    row = [img.getpixel((x, y)) for x in range(w)]
+    if img.mode == 'P':
+        nz = sum(1 for p in row if p != 0)
+    elif img.mode in ('RGB','RGBA'):
+        nz = sum(1 for p in row if (p[0]+p[1]+p[2]) > 30)
+    else:
+        nz = w
+    if nz > w * 0.8:
+        print(y); break
+else:
+    print(0)
+" 2>/dev/null)
+    DECORATION_Y=${DECORATION_Y:-0}
+    rm -f "$win"
+    [[ $DECORATION_Y -gt 0 ]] && info "Decoration offset: ${DECORATION_Y}px"
+}
+
 # Launch DRAW and wait for its window to appear (up to $1 seconds, default 15)
 draw_launch() {
     local timeout=${1:-15}
@@ -136,6 +180,7 @@ draw_launch() {
     sleep 0.4   # let KDE finish the window animation
     _update_win_pos
     info "Window position: ${WIN_ABS_X},${WIN_ABS_Y}"
+    _detect_decoration
     sleep 0.3
 }
 
@@ -254,9 +299,42 @@ type_text() {
 # generates real key events that SDL2's SDL_GetKeyboardState (and _KEYDOWN)
 # can see. With --window it uses XSendEvent which doesn't update physical
 # keyboard state — breaking all modifier combos (ctrl+shift+n etc.).
+#
+# For combos with modifiers (ctrl+, shift+, alt+, super+), we hold modifiers
+# via keydown, sleep so DRAW's _KEYDOWN polling (60fps = 16.7ms) registers
+# them, tap the base key, then release. Without this, xdotool's microsecond
+# press/release cycle finishes before DRAW's next frame poll.
 key() {
     draw_focus
-    xdotool key "$@"
+    local combo
+    for combo in "$@"; do
+        if [[ "$combo" == *"+"* ]]; then
+            # Split modifier combo: ctrl+shift+n → mods=(ctrl shift) base=n
+            local IFS='+' parts=($combo)
+            local base="${parts[-1]}"
+            local mods=("${parts[@]:0:${#parts[@]}-1}")
+            # Hold modifiers one at a time so DRAW's polling loop registers each
+            local m
+            for m in "${mods[@]}"; do
+                xdotool keydown "$m"
+                sleep 0.04   # ~2 DRAW frames between each modifier
+            done
+            sleep 0.05   # let DRAW poll the full modifier state
+            # Press and release the base key while modifiers are held
+            xdotool keydown "$base"
+            sleep 0.04
+            xdotool keyup "$base"
+            sleep 0.04
+            # Release modifiers in reverse order
+            local i
+            for (( i=${#mods[@]}-1; i>=0; i-- )); do
+                xdotool keyup "${mods[$i]}"
+            done
+        else
+            xdotool key "$combo"
+        fi
+        sleep 0.05
+    done
     sleep 0.1
 }
 
@@ -356,9 +434,9 @@ snap_region() {
     eval "$(xdotool getwindowgeometry --shell "$DRAW_WID" 2>/dev/null)"
     local win_w=${WIDTH:-0} win_h=${HEIGHT:-0}
 
-    # Sub-region offsets (viewport pixels → physical pixels)
+    # Sub-region offsets (viewport pixels → physical pixels + decoration offset)
     local rx=$(( vx * DISPLAY_SCALE ))
-    local ry=$(( vy * DISPLAY_SCALE ))
+    local ry=$(( vy * DISPLAY_SCALE + DECORATION_Y ))
     local rw=$(( vw * DISPLAY_SCALE ))
     local rh=$(( vh * DISPLAY_SCALE ))
 
