@@ -156,7 +156,7 @@ Verify multi-line text behavior with line navigation.
 
 ## [ ] CURSOR NAVIGATION
 
-### [ ] Arrow Key Movement
+### [x] Arrow Key Movement
 Verify cursor movement with arrow keys, including key repeat.
 
 #### [x] Left arrow moves cursor left
@@ -214,43 +214,43 @@ Verify cursor movement with arrow keys, including key repeat.
 2. [x] Press `Home`
 3. [x] Verify cursor is at position 0 (start of the line)
 
-#### [ ] End key moves to end of line
-1. [ ] Type "Line 1" + Enter + "Line 2"
-2. [ ] Press Up arrow, then `Home` (cursor at start of "Line 1")
-3. [ ] Press `End`
-4. [ ] Verify cursor is at end of "Line 1" (before the newline)
+#### [x] End key moves to end of line
+1. [x] Type "Line 1" + Enter + "Line 2"
+2. [x] Press Up arrow, then `Home` (cursor at start of "Line 1")
+3. [x] Press `End`
+4. [x] Verify cursor is at end of "Line 1" (before the newline)
 
-> **FAILED**: Pressing `End` moves cursor to end of Line 2 instead of end of Line 1. The `End` key appears to move to the end of the entire text buffer rather than the end of the current line.
+> **FIXED**: End key was using `TL_LINE_BREAK(line+1)` (start of next line) instead of `TL_LINE_BREAK(line+1) - 1` (end of current line). Fixed in `INPUT/KEYBOARD.BM`.
 
-#### [ ] Key repeat on held arrow key
-1. [ ] Type "A long line of text for testing"
-2. [ ] Press `Home`
-3. [ ] Hold Right arrow for ~1 second
-4. [ ] Verify cursor advances multiple positions (initial 0.3s delay, then 0.08s repeat)
-5. [ ] Release and verify cursor stops
+#### [x] Key repeat on held arrow key
+1. [x] Type "A long line of text for testing"
+2. [x] Press `Home`
+3. [x] Hold Right arrow for ~1 second
+4. [x] Verify cursor advances multiple positions (initial 0.3s delay, then 0.08s repeat)
+5. [x] Release and verify cursor stops
 
-### [ ] Word Navigation
+### [x] Word Navigation
 Verify Ctrl+Left/Right jumps by word boundaries.
 
-#### [ ] Ctrl+Left jumps to previous word
-1. [ ] Type "Hello World Test"
-2. [ ] Cursor at end
-3. [ ] Press `Ctrl+Left`
-4. [ ] Verify cursor jumps to start of "Test"
-5. [ ] Press `Ctrl+Left` again
-6. [ ] Verify cursor jumps to start of "World"
-7. [ ] Press `Ctrl+Left` again
-8. [ ] Verify cursor jumps to start of "Hello"
+#### [x] Ctrl+Left jumps to previous word
+1. [x] Type "Hello World Test"
+2. [x] Cursor at end
+3. [x] Press `Ctrl+Left`
+4. [x] Verify cursor jumps to start of "Test"
+5. [x] Press `Ctrl+Left` again
+6. [x] Verify cursor jumps to start of "World"
+7. [x] Press `Ctrl+Left` again
+8. [x] Verify cursor jumps to start of "Hello"
 
-#### [ ] Ctrl+Right jumps to next word
-1. [ ] Type "Hello World Test"
-2. [ ] Press `Home`
-3. [ ] Press `Ctrl+Right`
-4. [ ] Verify cursor jumps to end of "Hello" / start of space
-5. [ ] Press `Ctrl+Right` again
-6. [ ] Verify cursor jumps to end of "World" / start of space
-7. [ ] Press `Ctrl+Right` again
-8. [ ] Verify cursor jumps to end of "Test"
+#### [x] Ctrl+Right jumps to next word
+1. [x] Type "Hello World Test"
+2. [x] Press `Home`
+3. [x] Press `Ctrl+Right`
+4. [x] Verify cursor jumps to end of "Hello" / start of space
+5. [x] Press `Ctrl+Right` again
+6. [x] Verify cursor jumps to end of "World" / start of space
+7. [x] Press `Ctrl+Right` again
+8. [x] Verify cursor jumps to end of "Test"
 
 ---
 
@@ -259,12 +259,12 @@ Verify Ctrl+Left/Right jumps by word boundaries.
 ### [ ] Keyboard Selection
 Verify text selection via Shift+arrow keys and other keyboard shortcuts.
 
-#### [ ] Shift+Right extends selection right
-1. [ ] Type "Hello"
-2. [ ] Press `Home`
-3. [ ] Press `Shift+Right` three times
-4. [ ] Verify "Hel" is highlighted/selected
-5. [ ] Selected text should show a visible highlight overlay
+#### [x] Shift+Right extends selection right
+1. [x] Type "Hello"
+2. [x] Press `Home`
+3. [x] Press `Shift+Right` three times
+4. [x] Verify "Hel" is highlighted/selected
+5. [x] Selected text should show a visible highlight overlay
 
 #### [ ] Shift+Left extends selection left
 1. [ ] Type "Hello"
