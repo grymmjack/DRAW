@@ -81,6 +81,10 @@
   - Blocks typing/Enter when text would overflow bottom edge
   - Plays pitched-down alert sound + flashing black/white cursor on overflow
 
+- [x] After resizing text, re-editing, pressing Enter shows overflow flash instead of creating new line
+  - `TEXT_newline` overflow check was requiring room for TWO lines (current + phantom next) instead of one
+  - Fixed to check only whether the actual new line fits: `nlCurY% + nlLineH% - 1 > canvasH - 1`
+
 - [x] Key repeat rate is too fast
   - Arrowing back after typing some text ...
   - and pressing DELETE sometimes deletes more than 1 character

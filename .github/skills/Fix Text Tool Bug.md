@@ -10,7 +10,7 @@ When the user reports a text tool bug (e.g. "text cursor is wrong", "text bar do
 
 ## Step 1 — Read the state machine
 
-Read the text tool state machine diagram at `PLANS/diagrams/TEXT-TOOL-STATES.DOT` and the transition table at `/memories/session/text-state-transition-table.md` (if it exists). These define:
+Read the text tool state machine diagram at `PLANS/diagrams/TOOLS/TEXT-TOOL-STATES.DOT` and the transition table at `/memories/session/text-state-transition-table.md` (if it exists). These define:
 
 - **6 main states**: Inactive → Idle → Editing → Re-editing → Committed → Rasterized
 - **6 sub-state machines**: TEXT_BAR dropdowns, Cursor blink/navigation, Selection, Rich Clipboard, Layer Pool lifecycle, History integration
@@ -121,7 +121,7 @@ After the user confirms the bug is fixed, update `PLANS/BUGS.md`:
 
 ## Step 7 — Update the state machine diagram
 
-After the user confirms the bug is fixed, update `PLANS/diagrams/TEXT-TOOL-STATES.DOT` **if the fix changed any state transitions, guards, or added new behavior**:
+After the user confirms the bug is fixed, update `PLANS/diagrams/TOOLS/TEXT-TOOL-STATES.DOT` **if the fix changed any state transitions, guards, or added new behavior**:
 
 - **New transitions**: Add edges with appropriate colors (green=activate, red=deactivate, blue=re-edit, yellow=commit, purple=rasterize)
 - **New guards**: Update node labels to document new invariants or bounds checks
@@ -131,8 +131,8 @@ After the user confirms the bug is fixed, update `PLANS/diagrams/TEXT-TOOL-STATE
 Re-render the diagram:
 
 ```bash
-dot -Tsvg PLANS/diagrams/TEXT-TOOL-STATES.DOT -o PLANS/diagrams/TEXT-TOOL-STATES.svg
-dot -Tpng -Gdpi=150 PLANS/diagrams/TEXT-TOOL-STATES.DOT -o PLANS/diagrams/TEXT-TOOL-STATES.png
+dot -Tsvg PLANS/diagrams/TOOLS/TEXT-TOOL-STATES.DOT -o PLANS/diagrams/TOOLS/TEXT-TOOL-STATES.svg
+dot -Tpng -Gdpi=150 PLANS/diagrams/TOOLS/TEXT-TOOL-STATES.DOT -o PLANS/diagrams/TOOLS/TEXT-TOOL-STATES.png
 ```
 
 Verify both render without errors.
