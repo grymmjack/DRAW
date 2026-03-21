@@ -417,6 +417,33 @@ PALETTE_SEP_LOSPEC_LBL$             = "-- USER : LOSPEC --"
 PALETTE_SEP_CREATED_LBL$            = "-- USER : CREATED --"
 
 ' =============================================================================
+' TEXT BAR - Rich text formatting bar (below menu bar when text tool active)
+' =============================================================================
+THEME.TEXT_BAR_BG~&                  = _RGB32(28, 28, 42)
+THEME.TEXT_BAR_FG~&                  = _RGB32(200, 200, 200)
+THEME.TEXT_BAR_BORDER~&              = _RGB32(64, 64, 64)
+THEME.TEXT_BAR_BTN_ACTIVE~&          = _RGB32(80, 80, 160)
+THEME.TEXT_BAR_BTN_HOVER~&           = _RGB32(60, 60, 90)
+THEME.TEXT_BAR_BTN_BG~&              = _RGB32(38, 38, 52)
+THEME.TEXT_BAR_BTN_FG~&              = _RGB32(200, 200, 200)
+THEME.TEXT_BAR_BTN_BORDER~&          = _RGB32(64, 64, 80)
+THEME.TEXT_BAR_ICON_SELECTED_OPACITY%   = 255
+THEME.TEXT_BAR_ICON_DESELECTED_OPACITY% = 100
+THEME.TEXT_BAR_DROPDOWN_BG~&         = _RGB32(32, 32, 48)
+THEME.TEXT_BAR_DROPDOWN_FG~&         = _RGB32(200, 200, 200)
+THEME.TEXT_BAR_DROPDOWN_HIGHLIGHT~&  = _RGB32(60, 80, 160)
+' Icon filenames (from ASSETS/THEMES/{theme}/IMAGES/TEXTBAR/)
+THEME.TEXT_BAR_ICON_BOLD$            = "IMAGES/TEXTBAR/tb-bold.png"
+THEME.TEXT_BAR_ICON_ITALIC$          = "IMAGES/TEXTBAR/tb-italic.png"
+THEME.TEXT_BAR_ICON_UNDERLINE$       = "IMAGES/TEXTBAR/tb-underline.png"
+THEME.TEXT_BAR_ICON_STRIKE$          = "IMAGES/TEXTBAR/tb-strikethrough.png"
+THEME.TEXT_BAR_ICON_MONO$            = "IMAGES/TEXTBAR/tb-monospace.png"
+THEME.TEXT_BAR_ICON_LINE_HEIGHT$     = "IMAGES/TEXTBAR/tb-line-height.png"
+THEME.LAYER_PANEL_TEXT_ACCENT~&      = _RGB32(80, 120, 200)
+THEME.TEXT_LAYER_HOVER_OUTLINE~&     = _RGBA32(100, 200, 255, 180)
+THEME.TEXT_LAYER_HOVER_OUTLINE_WIDTH% = 2
+
+' =============================================================================
 ' CURSORS - PNG cursor configuration
 ' =============================================================================
 ' Each cursor has a filename, hotspot, and optional overlays.

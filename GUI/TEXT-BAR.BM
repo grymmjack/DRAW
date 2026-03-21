@@ -1,0 +1,1063 @@
+''
+' DRAW - GUI/TEXT-BAR.BM
+' =============================================================================
+' Text formatting bar — renders below menu bar when text tool is active.
+' Provides font picker, size, style toggles [B][I][U][S], color swatches,
+' [LOAD] button for custom fonts, and [DONE] to commit text editing.
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+OPTION _EXPLICIT
+OPTION _EXPLICITARRAY
+'$DYNAMIC
+
+
+''
+' Initialize text bar with default values.
+'
+SUB TEXT_BAR_init ()
+    TEXT_BAR.visible% = FALSE
+    TEXT_BAR.fontDropdownOpen% = FALSE
+    TEXT_BAR.sizeDropdownOpen% = FALSE
+    TEXT_BAR.fontDropdownScroll% = 0
+    TEXT_BAR.selectedFontIdx% = 0
+    TEXT_BAR.selectedSize% = 8
+    TEXT_BAR.boldActive% = FALSE
+    TEXT_BAR.italicActive% = FALSE
+    TEXT_BAR.underlineActive% = FALSE
+    TEXT_BAR.strikeActive% = FALSE
+    TEXT_BAR.barH% = TEXT_BAR_HEIGHT
+    TEXT_BAR.hoverBtn% = TEXT_BTN_NONE
+    TEXT_BAR.lastPaintColor~& = 0
+    TEXT_BAR.lastPaintBgColor~& = 0
+    TEXT_BAR.editingLayerIdx% = 0
+    TEXT_BAR.autoLineHeight% = TRUE
+
+    ' Populate preset sizes (4-17 individually, then larger steps)
+    TEXT_BAR_SIZES(0) = 4
+    TEXT_BAR_SIZES(1) = 5
+    TEXT_BAR_SIZES(2) = 6
+    TEXT_BAR_SIZES(3) = 7
+    TEXT_BAR_SIZES(4) = 8
+    TEXT_BAR_SIZES(5) = 9
+    TEXT_BAR_SIZES(6) = 10
+    TEXT_BAR_SIZES(7) = 11
+    TEXT_BAR_SIZES(8) = 12
+    TEXT_BAR_SIZES(9) = 13
+    TEXT_BAR_SIZES(10) = 14
+    TEXT_BAR_SIZES(11) = 15
+    TEXT_BAR_SIZES(12) = 16
+    TEXT_BAR_SIZES(13) = 17
+    TEXT_BAR_SIZES(14) = 18
+    TEXT_BAR_SIZES(15) = 20
+    TEXT_BAR_SIZES(16) = 24
+    TEXT_BAR_SIZES(17) = 28
+    TEXT_BAR_SIZES(18) = 32
+    TEXT_BAR_SIZES(19) = 48
+    TEXT_BAR_SIZES(20) = 64
+    TEXT_BAR_SIZES(21) = 72
+    TEXT_BAR_SIZES(22) = 96
+    TEXT_BAR_SIZES(23) = 112
+    TEXT_BAR_SIZES(24) = 128
+
+    ' Resolve default font immediately so the bar
+    ' shows the correct name before the user clicks on canvas
+    FONT_LIST_scan
+    IF FONT_LIST_COUNT% > 0 THEN
+        DIM initTiny5 AS INTEGER
+        initTiny5% = -1
+        ' Check for user-configured default font first
+        IF LEN(CFG.FONT_DEFAULT_FONT$) > 0 THEN
+            initTiny5% = FONT_LIST_find_by_name%(CFG.FONT_DEFAULT_FONT$)
+        END IF
+        ' Fall back to Tiny5 Regular if no config or not found
+        IF initTiny5% < 0 THEN initTiny5% = FONT_LIST_find_by_name%("Tiny5 Regular")
+        IF initTiny5% < 0 THEN initTiny5% = FONT_LIST_find_by_name%("Tiny5")
+        IF initTiny5% >= 0 THEN TEXT_BAR.selectedFontIdx% = initTiny5%
+    END IF
+    ' Apply configured default font size (4-128), or keep program default (8)
+    IF CFG.FONT_DEFAULT_SIZE% >= 4 AND CFG.FONT_DEFAULT_SIZE% <= 128 THEN
+        TEXT_BAR.selectedSize% = CFG.FONT_DEFAULT_SIZE%
+    END IF
+END SUB
+
+
+''
+' Load text bar button icons from the theme directory.
+' Called lazily on first render (THEME fields are empty at init time).
+'
+SUB TEXT_BAR_load_icons ()
+    DIM themeDir AS STRING
+    themeDir$ = "ASSETS/THEMES/" + _TRIM$(CFG.THEME$) + "/"
+
+    DIM iconFile AS STRING
+
+    iconFile$ = _TRIM$(THEME.TEXT_BAR_ICON_BOLD$)
+    IF LEN(iconFile$) > 0 THEN TEXT_BAR.iconBold& = _LOADIMAGE(themeDir$ + iconFile$, 32)
+
+    iconFile$ = _TRIM$(THEME.TEXT_BAR_ICON_ITALIC$)
+    IF LEN(iconFile$) > 0 THEN TEXT_BAR.iconItalic& = _LOADIMAGE(themeDir$ + iconFile$, 32)
+
+    iconFile$ = _TRIM$(THEME.TEXT_BAR_ICON_UNDERLINE$)
+    IF LEN(iconFile$) > 0 THEN TEXT_BAR.iconUnderline& = _LOADIMAGE(themeDir$ + iconFile$, 32)
+
+    iconFile$ = _TRIM$(THEME.TEXT_BAR_ICON_STRIKE$)
+    IF LEN(iconFile$) > 0 THEN TEXT_BAR.iconStrike& = _LOADIMAGE(themeDir$ + iconFile$, 32)
+
+    iconFile$ = _TRIM$(THEME.TEXT_BAR_ICON_MONO$)
+    IF LEN(iconFile$) > 0 THEN TEXT_BAR.iconMono& = _LOADIMAGE(themeDir$ + iconFile$, 32)
+
+    iconFile$ = _TRIM$(THEME.TEXT_BAR_ICON_LINE_HEIGHT$)
+    IF LEN(iconFile$) > 0 THEN TEXT_BAR.iconLineHeight& = _LOADIMAGE(themeDir$ + iconFile$, 32)
+
+    ' Build deselected (dimmed) copies with per-pixel alpha scaling
+    DIM dimScale AS SINGLE
+    dimScale! = THEME.TEXT_BAR_ICON_DESELECTED_OPACITY% / 255!
+    IF dimScale! < 0 THEN dimScale! = 0
+    IF dimScale! > 1 THEN dimScale! = 1
+
+    IF TEXT_BAR.iconBold& < -1 THEN
+        TEXT_BAR.iconBoldOff& = _COPYIMAGE(TEXT_BAR.iconBold&)
+        TEXT_BAR_dim_icon TEXT_BAR.iconBoldOff&, dimScale!
+    END IF
+    IF TEXT_BAR.iconItalic& < -1 THEN
+        TEXT_BAR.iconItalicOff& = _COPYIMAGE(TEXT_BAR.iconItalic&)
+        TEXT_BAR_dim_icon TEXT_BAR.iconItalicOff&, dimScale!
+    END IF
+    IF TEXT_BAR.iconUnderline& < -1 THEN
+        TEXT_BAR.iconUnderlineOff& = _COPYIMAGE(TEXT_BAR.iconUnderline&)
+        TEXT_BAR_dim_icon TEXT_BAR.iconUnderlineOff&, dimScale!
+    END IF
+    IF TEXT_BAR.iconStrike& < -1 THEN
+        TEXT_BAR.iconStrikeOff& = _COPYIMAGE(TEXT_BAR.iconStrike&)
+        TEXT_BAR_dim_icon TEXT_BAR.iconStrikeOff&, dimScale!
+    END IF
+    IF TEXT_BAR.iconMono& < -1 THEN
+        TEXT_BAR.iconMonoOff& = _COPYIMAGE(TEXT_BAR.iconMono&)
+        TEXT_BAR_dim_icon TEXT_BAR.iconMonoOff&, dimScale!
+    END IF
+    IF TEXT_BAR.iconLineHeight& < -1 THEN
+        TEXT_BAR.iconLineHeightOff& = _COPYIMAGE(TEXT_BAR.iconLineHeight&)
+        TEXT_BAR_dim_icon TEXT_BAR.iconLineHeightOff&, dimScale!
+    END IF
+
+    TEXT_BAR.iconsLoaded% = TRUE
+END SUB
+
+
+''
+' Scale per-pixel alpha on an icon handle for dimmed rendering.
+'
+SUB TEXT_BAR_dim_icon (handle AS LONG, dimScale AS SINGLE)
+    DIM m AS _MEM
+    DIM px AS _UNSIGNED LONG
+    DIM a AS INTEGER, newA AS INTEGER
+    DIM offs AS _OFFSET
+
+    m = _MEMIMAGE(handle&)
+    offs = m.OFFSET
+    DO WHILE offs < m.OFFSET + m.SIZE
+        px~& = _MEMGET(m, offs, _UNSIGNED LONG)
+        a% = _ALPHA32(px~&)
+        IF a% > 0 THEN
+            newA% = INT(a% * dimScale!)
+            IF newA% < 0 THEN newA% = 0
+            px~& = _RGBA32(_RED32(px~&), _GREEN32(px~&), _BLUE32(px~&), newA%)
+            _MEMPUT m, offs, px~& AS _UNSIGNED LONG
+        END IF
+        offs = offs + 4
+    LOOP
+    _MEMFREE m
+END SUB
+
+
+''
+' Render the text formatting bar on the GUI overlay.
+' Call from RENDER_gui_elements when TEXT_BAR.visible is TRUE.
+'
+SUB TEXT_BAR_render ()
+    IF NOT TEXT_BAR.visible% THEN EXIT SUB
+
+    DIM oldDest AS LONG
+    oldDest& = _DEST
+    _DEST SCRN.GUI&
+
+    ' Lazy-load icons on first render
+    IF NOT TEXT_BAR.iconsLoaded% THEN TEXT_BAR_load_icons
+
+    DIM bx AS INTEGER, by AS INTEGER, bw AS INTEGER, bh AS INTEGER
+    bx% = TEXT_BAR.barX%
+    by% = TEXT_BAR.barY%
+    bw% = TEXT_BAR.barW%
+    bh% = TEXT_BAR.barH%
+
+    ' Background
+    LINE (bx%, by%)-(bx% + bw% - 1, by% + bh% - 1), THEME.TEXT_BAR_BG~&, BF
+    ' Bottom border
+    LINE (bx%, by% + bh% - 1)-(bx% + bw% - 1, by% + bh% - 1), THEME.TEXT_BAR_BORDER~&
+
+    ' Use the menu bar font for consistency
+    DIM oldFont AS LONG
+    oldFont& = _FONT
+    IF MENU_BAR.fontHandle& > 0 THEN _FONT MENU_BAR.fontHandle&, SCRN.GUI&
+
+    DIM cx AS INTEGER
+    cx% = bx% + 4
+
+    ' --- FONT label + name button ---
+    COLOR THEME.TEXT_BAR_FG~&, _RGBA32(0, 0, 0, 0)
+    _PRINTSTRING (cx%, by% + 3), "FONT:"
+    cx% = cx% + _PRINTWIDTH("FONT:") + 3
+
+    ' Font name button
+    DIM fontName AS STRING
+    IF FONT_LIST_COUNT% > 0 AND TEXT_BAR.selectedFontIdx% >= 0 AND TEXT_BAR.selectedFontIdx% < FONT_LIST_COUNT% THEN
+        fontName$ = RTRIM$(FONT_LIST(TEXT_BAR.selectedFontIdx%).displayName)
+    ELSE
+        fontName$ = "(none)"
+    END IF
+    IF LEN(fontName$) > 16 THEN fontName$ = LEFT$(fontName$, 15) + "~"
+
+    DIM fontBtnW AS INTEGER
+    fontBtnW% = _PRINTWIDTH(fontName$) + 12
+    TEXT_BAR.fontBtnX% = cx%
+    TEXT_BAR.fontBtnW% = fontBtnW% + 6  ' include down arrow area
+    IF TEXT_BAR.hoverBtn% = TEXT_BTN_FONT OR TEXT_BAR.fontDropdownOpen% THEN
+        LINE (cx%, by% + 1)-(cx% + fontBtnW% - 1, by% + bh% - 3), THEME.TEXT_BAR_BTN_HOVER~&, BF
+    END IF
+    _PRINTSTRING (cx% + 4, by% + 3), fontName$
+    cx% = cx% + fontBtnW% + 2
+
+    ' Down arrow
+    _PRINTSTRING (cx% - 8, by% + 3), CHR$(25)
+    cx% = cx% + 4
+
+    ' --- SIZE label + value ---
+    _PRINTSTRING (cx%, by% + 3), "SIZE:"
+    cx% = cx% + _PRINTWIDTH("SIZE:") + 3
+
+    DIM sizeStr AS STRING
+    sizeStr$ = _TRIM$(STR$(TEXT_BAR.selectedSize%))
+    DIM sizeBtnW AS INTEGER
+    sizeBtnW% = _PRINTWIDTH(sizeStr$) + 12
+    TEXT_BAR.sizeBtnX% = cx%
+    TEXT_BAR.sizeBtnW% = sizeBtnW% + 6  ' include down arrow area
+    IF TEXT_BAR.hoverBtn% = TEXT_BTN_SIZE OR TEXT_BAR.sizeDropdownOpen% THEN
+        LINE (cx%, by% + 1)-(cx% + sizeBtnW% - 1, by% + bh% - 3), THEME.TEXT_BAR_BTN_HOVER~&, BF
+    END IF
+    _PRINTSTRING (cx% + 4, by% + 3), sizeStr$
+    cx% = cx% + sizeBtnW% + 2
+
+    ' Down arrow
+    _PRINTSTRING (cx% - 8, by% + 3), CHR$(25)
+    cx% = cx% + 6
+
+    ' --- Style toggle buttons [B] [I] [U] [S] ---
+    DIM btnW AS INTEGER
+    btnW% = 12
+    TEXT_BAR.styleBtnW% = btnW%
+    DIM iconY AS INTEGER
+    iconY% = by% + 2  ' vertically center 10px icon in 14px bar
+
+    ' Bold
+    TEXT_BAR.boldBtnX% = cx%
+    IF TEXT_BAR.boldActive% THEN
+        LINE (cx%, by% + 1)-(cx% + btnW% - 1, by% + bh% - 3), THEME.TEXT_BAR_BTN_ACTIVE~&, BF
+    ELSEIF TEXT_BAR.hoverBtn% = TEXT_BTN_BOLD THEN
+        LINE (cx%, by% + 1)-(cx% + btnW% - 1, by% + bh% - 3), THEME.TEXT_BAR_BTN_HOVER~&, BF
+    ELSE
+        LINE (cx%, by% + 1)-(cx% + btnW% - 1, by% + bh% - 3), THEME.TEXT_BAR_BTN_BG~&, BF
+    END IF
+    LINE (cx%, by% + 1)-(cx% + btnW% - 1, by% + bh% - 3), THEME.TEXT_BAR_BTN_BORDER~&, B
+    IF TEXT_BAR.iconBold& < -1 THEN
+        IF TEXT_BAR.boldActive% THEN
+            _PUTIMAGE (cx% + 1, iconY%)-(cx% + 10, iconY% + 9), TEXT_BAR.iconBold&
+        ELSE
+            _PUTIMAGE (cx% + 1, iconY%)-(cx% + 10, iconY% + 9), TEXT_BAR.iconBoldOff&
+        END IF
+    ELSE
+        IF TEXT_BAR.boldActive% THEN
+            COLOR THEME.TEXT_BAR_FG~&, _RGBA32(0, 0, 0, 0)
+        ELSE
+            COLOR THEME.TEXT_BAR_BTN_FG~&, _RGBA32(0, 0, 0, 0)
+        END IF
+        _PRINTSTRING (cx% + 3, by% + 3), "B"
+    END IF
+    cx% = cx% + btnW% + 2
+
+    ' Italic
+    TEXT_BAR.italicBtnX% = cx%
+    IF TEXT_BAR.italicActive% THEN
+        LINE (cx%, by% + 1)-(cx% + btnW% - 1, by% + bh% - 3), THEME.TEXT_BAR_BTN_ACTIVE~&, BF
+    ELSEIF TEXT_BAR.hoverBtn% = TEXT_BTN_ITALIC THEN
+        LINE (cx%, by% + 1)-(cx% + btnW% - 1, by% + bh% - 3), THEME.TEXT_BAR_BTN_HOVER~&, BF
+    ELSE
+        LINE (cx%, by% + 1)-(cx% + btnW% - 1, by% + bh% - 3), THEME.TEXT_BAR_BTN_BG~&, BF
+    END IF
+    LINE (cx%, by% + 1)-(cx% + btnW% - 1, by% + bh% - 3), THEME.TEXT_BAR_BTN_BORDER~&, B
+    IF TEXT_BAR.iconItalic& < -1 THEN
+        IF TEXT_BAR.italicActive% THEN
+            _PUTIMAGE (cx% + 1, iconY%)-(cx% + 10, iconY% + 9), TEXT_BAR.iconItalic&
+        ELSE
+            _PUTIMAGE (cx% + 1, iconY%)-(cx% + 10, iconY% + 9), TEXT_BAR.iconItalicOff&
+        END IF
+    ELSE
+        IF TEXT_BAR.italicActive% THEN
+            COLOR THEME.TEXT_BAR_FG~&, _RGBA32(0, 0, 0, 0)
+        ELSE
+            COLOR THEME.TEXT_BAR_BTN_FG~&, _RGBA32(0, 0, 0, 0)
+        END IF
+        _PRINTSTRING (cx% + 3, by% + 3), "I"
+    END IF
+    cx% = cx% + btnW% + 2
+
+    ' Underline
+    TEXT_BAR.underlineBtnX% = cx%
+    IF TEXT_BAR.underlineActive% THEN
+        LINE (cx%, by% + 1)-(cx% + btnW% - 1, by% + bh% - 3), THEME.TEXT_BAR_BTN_ACTIVE~&, BF
+    ELSEIF TEXT_BAR.hoverBtn% = TEXT_BTN_UNDERLINE THEN
+        LINE (cx%, by% + 1)-(cx% + btnW% - 1, by% + bh% - 3), THEME.TEXT_BAR_BTN_HOVER~&, BF
+    ELSE
+        LINE (cx%, by% + 1)-(cx% + btnW% - 1, by% + bh% - 3), THEME.TEXT_BAR_BTN_BG~&, BF
+    END IF
+    LINE (cx%, by% + 1)-(cx% + btnW% - 1, by% + bh% - 3), THEME.TEXT_BAR_BTN_BORDER~&, B
+    IF TEXT_BAR.iconUnderline& < -1 THEN
+        IF TEXT_BAR.underlineActive% THEN
+            _PUTIMAGE (cx% + 1, iconY%)-(cx% + 10, iconY% + 9), TEXT_BAR.iconUnderline&
+        ELSE
+            _PUTIMAGE (cx% + 1, iconY%)-(cx% + 10, iconY% + 9), TEXT_BAR.iconUnderlineOff&
+        END IF
+    ELSE
+        IF TEXT_BAR.underlineActive% THEN
+            COLOR THEME.TEXT_BAR_FG~&, _RGBA32(0, 0, 0, 0)
+        ELSE
+            COLOR THEME.TEXT_BAR_BTN_FG~&, _RGBA32(0, 0, 0, 0)
+        END IF
+        _PRINTSTRING (cx% + 3, by% + 3), "U"
+    END IF
+    cx% = cx% + btnW% + 2
+
+    ' Strikethrough
+    TEXT_BAR.strikeBtnX% = cx%
+    IF TEXT_BAR.strikeActive% THEN
+        LINE (cx%, by% + 1)-(cx% + btnW% - 1, by% + bh% - 3), THEME.TEXT_BAR_BTN_ACTIVE~&, BF
+    ELSEIF TEXT_BAR.hoverBtn% = TEXT_BTN_STRIKE THEN
+        LINE (cx%, by% + 1)-(cx% + btnW% - 1, by% + bh% - 3), THEME.TEXT_BAR_BTN_HOVER~&, BF
+    ELSE
+        LINE (cx%, by% + 1)-(cx% + btnW% - 1, by% + bh% - 3), THEME.TEXT_BAR_BTN_BG~&, BF
+    END IF
+    LINE (cx%, by% + 1)-(cx% + btnW% - 1, by% + bh% - 3), THEME.TEXT_BAR_BTN_BORDER~&, B
+    IF TEXT_BAR.iconStrike& < -1 THEN
+        IF TEXT_BAR.strikeActive% THEN
+            _PUTIMAGE (cx% + 1, iconY%)-(cx% + 10, iconY% + 9), TEXT_BAR.iconStrike&
+        ELSE
+            _PUTIMAGE (cx% + 1, iconY%)-(cx% + 10, iconY% + 9), TEXT_BAR.iconStrikeOff&
+        END IF
+    ELSE
+        IF TEXT_BAR.strikeActive% THEN
+            COLOR THEME.TEXT_BAR_FG~&, _RGBA32(0, 0, 0, 0)
+        ELSE
+            COLOR THEME.TEXT_BAR_BTN_FG~&, _RGBA32(0, 0, 0, 0)
+        END IF
+        _PRINTSTRING (cx% + 3, by% + 3), "S"
+    END IF
+    cx% = cx% + btnW% + 4
+
+    ' --- FG color swatch ---
+    TEXT_BAR.fgSwatchX% = cx%
+    IF PAL_FG_IS_TRANSPARENT% THEN
+        ' Draw checkerboard to indicate transparency
+        DIM cfby AS INTEGER, cfbx AS INTEGER
+        FOR cfby% = by% + 2 TO by% + bh% - 4
+            FOR cfbx% = cx% TO cx% + 9
+                IF ((cfbx% + cfby%) AND 1) = 0 THEN
+                    PSET (cfbx%, cfby%), _RGB32(192, 192, 192)
+                ELSE
+                    PSET (cfbx%, cfby%), _RGB32(255, 255, 255)
+                END IF
+            NEXT cfbx%
+        NEXT cfby%
+    ELSE
+        LINE (cx%, by% + 2)-(cx% + 9, by% + bh% - 4), PAINT_COLOR~&, BF
+    END IF
+    LINE (cx%, by% + 2)-(cx% + 9, by% + bh% - 4), THEME.TEXT_BAR_FG~&, B
+    cx% = cx% + 14
+
+    ' --- BG color swatch ---
+    TEXT_BAR.bgSwatchX% = cx%
+    IF PAL_BG_IS_TRANSPARENT% THEN
+        ' Draw checkerboard to indicate transparency
+        DIM cby AS INTEGER, cbx AS INTEGER
+        FOR cby% = by% + 2 TO by% + bh% - 4
+            FOR cbx% = cx% TO cx% + 9
+                IF ((cbx% + cby%) AND 1) = 0 THEN
+                    PSET (cbx%, cby%), _RGB32(192, 192, 192)
+                ELSE
+                    PSET (cbx%, cby%), _RGB32(255, 255, 255)
+                END IF
+            NEXT cbx%
+        NEXT cby%
+    ELSE
+        LINE (cx%, by% + 2)-(cx% + 9, by% + bh% - 4), PAINT_BG_COLOR~&, BF
+    END IF
+    LINE (cx%, by% + 2)-(cx% + 9, by% + bh% - 4), THEME.TEXT_BAR_FG~&, B
+    cx% = cx% + 16
+
+    ' --- Monospace toggle [MONO] ---
+    TEXT_BAR.monoBtnX% = cx%
+    DIM monoBtnW AS INTEGER
+    IF TEXT_BAR.iconMono& < -1 THEN
+        monoBtnW% = btnW%  ' icon: same width as style buttons
+    ELSE
+        monoBtnW% = _PRINTWIDTH("MONO") + 4  ' text: dynamic width
+    END IF
+    TEXT_BAR.monoBtnW% = monoBtnW%
+    IF TEXT_BAR.monoActive% THEN
+        LINE (cx%, by% + 1)-(cx% + monoBtnW% - 1, by% + bh% - 3), THEME.TEXT_BAR_BTN_ACTIVE~&, BF
+    ELSEIF TEXT_BAR.hoverBtn% = TEXT_BTN_MONO THEN
+        LINE (cx%, by% + 1)-(cx% + monoBtnW% - 1, by% + bh% - 3), THEME.TEXT_BAR_BTN_HOVER~&, BF
+    ELSE
+        LINE (cx%, by% + 1)-(cx% + monoBtnW% - 1, by% + bh% - 3), THEME.TEXT_BAR_BTN_BG~&, BF
+    END IF
+    LINE (cx%, by% + 1)-(cx% + monoBtnW% - 1, by% + bh% - 3), THEME.TEXT_BAR_BTN_BORDER~&, B
+    IF TEXT_BAR.iconMono& < -1 THEN
+        IF TEXT_BAR.monoActive% THEN
+            _PUTIMAGE (cx% + 1, iconY%)-(cx% + 10, iconY% + 9), TEXT_BAR.iconMono&
+        ELSE
+            _PUTIMAGE (cx% + 1, iconY%)-(cx% + 10, iconY% + 9), TEXT_BAR.iconMonoOff&
+        END IF
+    ELSE
+        IF TEXT_BAR.monoActive% THEN
+            COLOR THEME.TEXT_BAR_FG~&, _RGBA32(0, 0, 0, 0)
+        ELSE
+            COLOR THEME.TEXT_BAR_BTN_FG~&, _RGBA32(0, 0, 0, 0)
+        END IF
+        _PRINTSTRING (cx% + 2, by% + 3), "MONO"
+    END IF
+    cx% = cx% + monoBtnW% + 4
+
+    ' --- Line Height ---
+    TEXT_BAR.lineHeightLabelX% = cx%
+    COLOR THEME.TEXT_BAR_FG~&, _RGBA32(0, 0, 0, 0)
+    IF TEXT_BAR.iconLineHeight& < -1 THEN
+        _PUTIMAGE (cx%, iconY%)-(cx% + 9, iconY% + 9), TEXT_BAR.iconLineHeight&
+        cx% = cx% + 12
+    ELSE
+        _PRINTSTRING (cx%, by% + 3), "LH:"
+        cx% = cx% + _PRINTWIDTH("LH:") + 3
+    END IF
+
+    DIM lhStr AS STRING
+    lhStr$ = LTRIM$(STR$(TEXT_BAR_get_line_height%))
+    TEXT_BAR.lineHeightBtnX% = cx%
+    TEXT_BAR.lineHeightBtnW% = _PRINTWIDTH(lhStr$) + 8
+    LINE (cx%, by% + 1)-(cx% + TEXT_BAR.lineHeightBtnW% - 1, by% + bh% - 3), THEME.TEXT_BAR_BTN_HOVER~&, B
+    _PRINTSTRING (cx% + 4, by% + 3), lhStr$
+    cx% = cx% + TEXT_BAR.lineHeightBtnW% + 2
+
+    ' --- Auto Line Height checkbox [x] AUTO ---
+    TEXT_BAR.autoLHBtnX% = cx%
+    DIM autoLbl AS STRING
+    autoLbl$ = "AUTO"
+    TEXT_BAR.autoLHBtnW% = _PRINTWIDTH(autoLbl$) + 4
+    IF TEXT_BAR.autoLineHeight% THEN
+        LINE (cx%, by% + 1)-(cx% + TEXT_BAR.autoLHBtnW% - 1, by% + bh% - 3), THEME.TEXT_BAR_BTN_ACTIVE~&, BF
+    ELSEIF TEXT_BAR.hoverBtn% = TEXT_BTN_AUTO_LH THEN
+        LINE (cx%, by% + 1)-(cx% + TEXT_BAR.autoLHBtnW% - 1, by% + bh% - 3), THEME.TEXT_BAR_BTN_HOVER~&, BF
+    ELSE
+        LINE (cx%, by% + 1)-(cx% + TEXT_BAR.autoLHBtnW% - 1, by% + bh% - 3), THEME.TEXT_BAR_BTN_BG~&, BF
+    END IF
+    LINE (cx%, by% + 1)-(cx% + TEXT_BAR.autoLHBtnW% - 1, by% + bh% - 3), THEME.TEXT_BAR_BTN_BORDER~&, B
+    IF TEXT_BAR.autoLineHeight% THEN
+        COLOR THEME.TEXT_BAR_FG~&, _RGBA32(0, 0, 0, 0)
+    ELSE
+        COLOR THEME.TEXT_BAR_BTN_FG~&, _RGBA32(0, 0, 0, 0)
+    END IF
+    _PRINTSTRING (cx% + 2, by% + 3), autoLbl$
+    cx% = cx% + TEXT_BAR.autoLHBtnW% + 4
+
+    _FONT oldFont&
+
+    ' Render open dropdowns on top
+    IF TEXT_BAR.fontDropdownOpen% THEN TEXT_BAR_render_font_dropdown
+    IF TEXT_BAR.sizeDropdownOpen% THEN TEXT_BAR_render_size_dropdown
+
+    _DEST oldDest&
+END SUB
+
+
+''
+' Render the font dropdown (text-only list, scrollable).
+'
+SUB TEXT_BAR_render_font_dropdown ()
+    IF FONT_LIST_COUNT% = 0 THEN EXIT SUB
+
+    DIM ddOldFont AS LONG
+    ddOldFont& = _FONT
+    IF MENU_BAR.fontHandle& > 0 THEN _FONT MENU_BAR.fontHandle&
+
+    DIM ddX AS INTEGER, ddY AS INTEGER, ddW AS INTEGER, ddH AS INTEGER
+    DIM maxVisible AS INTEGER
+    DIM itemH AS INTEGER
+    DIM i AS INTEGER
+    DIM dispName AS STRING
+
+    itemH% = 12
+    maxVisible% = TEXT_BAR_font_dropdown_max_visible%
+    ddW% = 160
+    ddH% = maxVisible% * itemH% + 2
+    ddX% = TEXT_BAR.fontBtnX%
+    ddY% = TEXT_BAR.barY% + TEXT_BAR.barH%
+
+    ' Background
+    LINE (ddX%, ddY%)-(ddX% + ddW% - 1, ddY% + ddH% - 1), THEME.TEXT_BAR_DROPDOWN_BG~&, BF
+    LINE (ddX%, ddY%)-(ddX% + ddW% - 1, ddY% + ddH% - 1), THEME.TEXT_BAR_BORDER~&, B
+
+    DIM drawY AS INTEGER
+    drawY% = ddY% + 1
+
+    DIM startIdx AS INTEGER
+    startIdx% = TEXT_BAR.fontDropdownScroll%
+    IF startIdx% < 0 THEN startIdx% = 0
+    IF startIdx% > FONT_LIST_COUNT% - maxVisible% THEN startIdx% = FONT_LIST_COUNT% - maxVisible%
+    IF startIdx% < 0 THEN startIdx% = 0
+
+    FOR i% = startIdx% TO startIdx% + maxVisible% - 1
+        IF i% >= FONT_LIST_COUNT% THEN EXIT FOR
+
+        ' Highlight selected item
+        IF i% = TEXT_BAR.selectedFontIdx% THEN
+            LINE (ddX% + 1, drawY%)-(ddX% + ddW% - 2, drawY% + itemH% - 1), THEME.TEXT_BAR_DROPDOWN_HIGHLIGHT~&, BF
+        END IF
+
+        ' Add separator after last favorite font
+        IF i% > 0 THEN
+            IF NOT FONT_LIST(i%).isFavorite AND FONT_LIST(i% - 1).isFavorite THEN
+                LINE (ddX% + 4, drawY%)-(ddX% + ddW% - 5, drawY%), THEME.TEXT_BAR_BORDER~&
+            END IF
+        END IF
+
+        ' Add separator after last bundled font (when no favorites divider was drawn)
+        IF i% > 0 THEN
+            IF FONT_LIST(i%).isBundled = FALSE AND FONT_LIST(i% - 1).isBundled = TRUE THEN
+                IF NOT FONT_LIST(i% - 1).isFavorite THEN
+                    LINE (ddX% + 4, drawY%)-(ddX% + ddW% - 5, drawY%), THEME.TEXT_BAR_BORDER~&
+                END IF
+            END IF
+        END IF
+
+        dispName$ = RTRIM$(FONT_LIST(i%).displayName)
+        IF LEN(dispName$) > 24 THEN dispName$ = LEFT$(dispName$, 23) + "~"
+
+        COLOR THEME.TEXT_BAR_DROPDOWN_FG~&, _RGBA32(0, 0, 0, 0)
+        _PRINTSTRING (ddX% + 4, drawY% + 2), dispName$
+
+        drawY% = drawY% + itemH%
+    NEXT i%
+
+    _FONT ddOldFont&
+END SUB
+
+
+''
+' Render the size dropdown (preset sizes list).
+'
+SUB TEXT_BAR_render_size_dropdown ()
+    DIM ddX AS INTEGER, ddY AS INTEGER, ddW AS INTEGER, ddH AS INTEGER
+    DIM itemH AS INTEGER
+    DIM i AS INTEGER
+    DIM sizeStr AS STRING
+
+    DIM ddOldFont2 AS LONG
+    ddOldFont2& = _FONT
+    IF MENU_BAR.fontHandle& > 0 THEN _FONT MENU_BAR.fontHandle&
+
+    itemH% = 12
+    ddW% = 40
+    ddH% = TEXT_BAR_SIZE_COUNT * itemH% + 2
+    ' Position under the size button area
+    ddX% = TEXT_BAR.sizeBtnX%
+    ddY% = TEXT_BAR.barY% + TEXT_BAR.barH%
+
+    ' Background
+    LINE (ddX%, ddY%)-(ddX% + ddW% - 1, ddY% + ddH% - 1), THEME.TEXT_BAR_DROPDOWN_BG~&, BF
+    LINE (ddX%, ddY%)-(ddX% + ddW% - 1, ddY% + ddH% - 1), THEME.TEXT_BAR_BORDER~&, B
+
+    DIM drawY AS INTEGER
+    drawY% = ddY% + 1
+
+    FOR i% = 0 TO TEXT_BAR_SIZE_COUNT - 1
+        IF TEXT_BAR_SIZES(i%) = TEXT_BAR.selectedSize% THEN
+            LINE (ddX% + 1, drawY%)-(ddX% + ddW% - 2, drawY% + itemH% - 1), THEME.TEXT_BAR_DROPDOWN_HIGHLIGHT~&, BF
+        END IF
+
+        sizeStr$ = _TRIM$(STR$(TEXT_BAR_SIZES(i%)))
+        COLOR THEME.TEXT_BAR_DROPDOWN_FG~&, _RGBA32(0, 0, 0, 0)
+        _PRINTSTRING (ddX% + 4, drawY% + 2), sizeStr$
+
+        drawY% = drawY% + itemH%
+    NEXT i%
+
+    _FONT ddOldFont2&
+END SUB
+
+
+''
+' Handle a mouse click within the text bar bounds.
+' Returns TRUE if the click was consumed (prevents pass-through to canvas).
+'
+' @param rawX% Screen X coordinate
+' @param rawY% Screen Y coordinate
+' @return INTEGER TRUE if click was consumed
+'
+FUNCTION TEXT_BAR_handle_click% (rawX%, rawY%)
+    TEXT_BAR_handle_click% = FALSE
+    IF NOT TEXT_BAR.visible% THEN EXIT FUNCTION
+
+    ' Close any open dropdown if clicking outside it
+    IF TEXT_BAR.fontDropdownOpen% OR TEXT_BAR.sizeDropdownOpen% THEN
+        ' Check if click is inside a dropdown
+        DIM inDropdown AS INTEGER
+        inDropdown% = FALSE
+
+        ' Font dropdown bounds
+        IF TEXT_BAR.fontDropdownOpen% THEN
+            DIM fddX AS INTEGER, fddY AS INTEGER, fddW AS INTEGER, fddH AS INTEGER
+            DIM fMaxVis AS INTEGER
+            fMaxVis% = TEXT_BAR_font_dropdown_max_visible%
+            fddX% = TEXT_BAR.fontBtnX%
+            fddY% = TEXT_BAR.barY% + TEXT_BAR.barH%
+            fddW% = 160
+            fddH% = fMaxVis% * 12 + 2
+            IF rawX% >= fddX% AND rawX% < fddX% + fddW% THEN
+                IF rawY% >= fddY% AND rawY% < fddY% + fddH% THEN
+                    inDropdown% = TRUE
+                    ' Select a font
+                    DIM fontClicked AS INTEGER
+                    fontClicked% = TEXT_BAR.fontDropdownScroll% + (rawY% - fddY% - 1) \ 12
+                    IF fontClicked% >= 0 AND fontClicked% < FONT_LIST_COUNT% THEN
+                        TEXT_BAR.selectedFontIdx% = fontClicked%
+                        ' Auto-set size to native height for built-in bitmap fonts
+                        IF FONT_LIST(fontClicked%).isBuiltIn THEN
+                            TEXT_BAR.selectedSize% = FONT_LIST(fontClicked%).builtInHandle
+                        END IF
+                        ' Apply font to selection if active
+                        IF TEXT_has_selection% THEN
+                            IF TEXT_BAR.editingLayerIdx% >= 1 THEN
+                                DIM fsTd AS INTEGER
+                                fsTd% = LAYERS(TEXT_BAR.editingLayerIdx%).textDataIdx%
+                                IF fsTd% >= 1 THEN
+                                    DIM fsMin AS INTEGER, fsMax AS INTEGER
+                                    fsMin% = TEXT.selStart%: fsMax% = TEXT.selEnd%
+                                    IF fsMin% > fsMax% THEN SWAP fsMin%, fsMax%
+                                    TEXT_LAYER_set_selection_attr fsTd%, fsMin%, fsMax% - 1, "FONT_IDX", fontClicked%
+                                    SCENE_DIRTY% = TRUE
+                                END IF
+                            END IF
+                        END IF
+                        TEXT_BAR.fontDropdownOpen% = FALSE
+                        FRAME_IDLE% = FALSE
+                        TEXT_BAR_auto_update_line_height
+                    END IF
+                END IF
+            END IF
+            IF NOT inDropdown% THEN TEXT_BAR.fontDropdownOpen% = FALSE
+        END IF
+
+        IF TEXT_BAR.sizeDropdownOpen% THEN
+            DIM sddX AS INTEGER, sddY AS INTEGER, sddW AS INTEGER, sddH AS INTEGER
+            sddX% = TEXT_BAR.sizeBtnX%
+            sddY% = TEXT_BAR.barY% + TEXT_BAR.barH%
+            sddW% = 40
+            sddH% = TEXT_BAR_SIZE_COUNT * 12 + 2
+            IF rawX% >= sddX% AND rawX% < sddX% + sddW% THEN
+                IF rawY% >= sddY% AND rawY% < sddY% + sddH% THEN
+                    inDropdown% = TRUE
+                    DIM sizeClicked AS INTEGER
+                    sizeClicked% = (rawY% - sddY% - 1) \ 12
+                    IF sizeClicked% >= 0 AND sizeClicked% < TEXT_BAR_SIZE_COUNT THEN
+                        TEXT_BAR.selectedSize% = TEXT_BAR_SIZES(sizeClicked%)
+                        ' Apply size to selection if active
+                        IF TEXT_has_selection% THEN
+                            IF TEXT_BAR.editingLayerIdx% >= 1 THEN
+                                DIM szTd AS INTEGER
+                                szTd% = LAYERS(TEXT_BAR.editingLayerIdx%).textDataIdx%
+                                IF szTd% >= 1 THEN
+                                    DIM szMin AS INTEGER, szMax AS INTEGER
+                                    szMin% = TEXT.selStart%: szMax% = TEXT.selEnd%
+                                    IF szMin% > szMax% THEN SWAP szMin%, szMax%
+                                    TEXT_LAYER_set_selection_attr szTd%, szMin%, szMax% - 1, "FONT_SIZE", TEXT_BAR_SIZES(sizeClicked%)
+                                    SCENE_DIRTY% = TRUE
+                                END IF
+                            END IF
+                        END IF
+                        TEXT_BAR.sizeDropdownOpen% = FALSE
+                        FRAME_IDLE% = FALSE
+                        TEXT_BAR_auto_update_line_height
+                    END IF
+                END IF
+            END IF
+            IF NOT inDropdown% THEN TEXT_BAR.sizeDropdownOpen% = FALSE
+        END IF
+
+        TEXT_BAR_handle_click% = TRUE
+        EXIT FUNCTION
+    END IF
+
+    ' Check if click is in the bar itself
+    IF NOT TEXT_BAR_in_bounds%(rawX%, rawY%) THEN EXIT FUNCTION
+
+    TEXT_BAR_handle_click% = TRUE
+
+    ' Use stored hit zone positions from last render
+    DIM bw AS INTEGER
+    bw% = TEXT_BAR.styleBtnW%
+
+    IF rawX% >= TEXT_BAR.fontBtnX% AND rawX% < TEXT_BAR.fontBtnX% + TEXT_BAR.fontBtnW% THEN
+        ' Font dropdown area
+        TEXT_BAR.fontDropdownOpen% = NOT TEXT_BAR.fontDropdownOpen%
+        TEXT_BAR.sizeDropdownOpen% = FALSE
+        FONT_LIST_scan  ' Ensure fonts are enumerated
+        FRAME_IDLE% = FALSE
+    ELSEIF rawX% >= TEXT_BAR.sizeBtnX% AND rawX% < TEXT_BAR.sizeBtnX% + TEXT_BAR.sizeBtnW% THEN
+        ' Size dropdown area
+        TEXT_BAR.sizeDropdownOpen% = NOT TEXT_BAR.sizeDropdownOpen%
+        TEXT_BAR.fontDropdownOpen% = FALSE
+        FRAME_IDLE% = FALSE
+    ELSEIF rawX% >= TEXT_BAR.boldBtnX% AND rawX% < TEXT_BAR.boldBtnX% + bw% THEN
+        ' Bold toggle
+        TEXT_BAR.boldActive% = NOT TEXT_BAR.boldActive%
+        TEXT_BAR_apply_style_to_selection "BOLD"
+        FRAME_IDLE% = FALSE
+    ELSEIF rawX% >= TEXT_BAR.italicBtnX% AND rawX% < TEXT_BAR.italicBtnX% + bw% THEN
+        ' Italic toggle
+        TEXT_BAR.italicActive% = NOT TEXT_BAR.italicActive%
+        TEXT_BAR_apply_style_to_selection "ITALIC"
+        FRAME_IDLE% = FALSE
+    ELSEIF rawX% >= TEXT_BAR.underlineBtnX% AND rawX% < TEXT_BAR.underlineBtnX% + bw% THEN
+        ' Underline toggle
+        TEXT_BAR.underlineActive% = NOT TEXT_BAR.underlineActive%
+        TEXT_BAR_apply_style_to_selection "UNDERLINE"
+        FRAME_IDLE% = FALSE
+    ELSEIF rawX% >= TEXT_BAR.strikeBtnX% AND rawX% < TEXT_BAR.strikeBtnX% + bw% THEN
+        ' Strikethrough toggle
+        TEXT_BAR.strikeActive% = NOT TEXT_BAR.strikeActive%
+        TEXT_BAR_apply_style_to_selection "STRIKE"
+        FRAME_IDLE% = FALSE
+    ELSEIF rawX% >= TEXT_BAR.fgSwatchX% AND rawX% < TEXT_BAR.fgSwatchX% + 10 THEN
+        ' FG color swatch — open palette picker for foreground
+        TEXT_BAR_close_dropdowns
+        CMD_execute_action 1505
+        FRAME_IDLE% = FALSE
+    ELSEIF rawX% >= TEXT_BAR.bgSwatchX% AND rawX% < TEXT_BAR.bgSwatchX% + 10 THEN
+        ' BG color swatch — open palette picker for background
+        TEXT_BAR_close_dropdowns
+        CMD_execute_action 1506
+        FRAME_IDLE% = FALSE
+    ELSEIF rawX% >= TEXT_BAR.monoBtnX% AND rawX% < TEXT_BAR.monoBtnX% + TEXT_BAR.monoBtnW% THEN
+        ' Monospace toggle
+        TEXT_BAR.monoActive% = NOT TEXT_BAR.monoActive%
+        ' Apply to current text layer
+        IF TEXT_BAR.editingLayerIdx% >= 1 THEN
+            DIM monoTd AS INTEGER
+            monoTd% = LAYERS(TEXT_BAR.editingLayerIdx%).textDataIdx%
+            IF monoTd% >= 1 THEN
+                TEXT_LAYER_DATA(monoTd%).monospace = TEXT_BAR.monoActive%
+                TEXT_LAYER_DATA(monoTd%).dirty = TRUE
+                SCENE_DIRTY% = TRUE
+            END IF
+        END IF
+        FRAME_IDLE% = FALSE
+    ELSEIF rawX% >= TEXT_BAR.lineHeightBtnX% AND rawX% < TEXT_BAR.lineHeightBtnX% + TEXT_BAR.lineHeightBtnW% THEN
+        ' Line height — prompt for manual value (disables auto)
+        TEXT_BAR_close_dropdowns
+        TEXT_BAR_adjust_line_height
+        FRAME_IDLE% = FALSE
+    ELSEIF rawX% >= TEXT_BAR.autoLHBtnX% AND rawX% < TEXT_BAR.autoLHBtnX% + TEXT_BAR.autoLHBtnW% THEN
+        ' Toggle auto line height
+        TEXT_BAR.autoLineHeight% = NOT TEXT_BAR.autoLineHeight%
+        IF TEXT_BAR.autoLineHeight% THEN
+            ' Immediately recalculate line height
+            TEXT_BAR_auto_update_line_height
+        END IF
+        FRAME_IDLE% = FALSE
+    ELSE
+        TEXT_BAR_close_dropdowns
+    END IF
+END FUNCTION
+
+
+''
+' Handle keyboard shortcuts for text formatting.
+' @param k& Key code from _KEYHIT
+'
+SUB TEXT_BAR_handle_key (k&)
+    IF NOT TEXT_BAR.visible% THEN EXIT SUB
+    ' Ctrl+B, Ctrl+I, Ctrl+U handled in KEYBOARD.BM Phase 4
+END SUB
+
+
+''
+' Sync text formatting colors with PAINT_COLOR~& and PAINT_BG_COLOR~&.
+' Called each frame when the text bar is visible.
+' This is the mechanism for global color sync — any color pick in DRAW
+' automatically updates text formatting.
+'
+SUB TEXT_BAR_sync_paint_color ()
+    IF NOT TEXT_BAR.visible% THEN EXIT SUB
+    IF TEXT_BAR.editingLayerIdx% <= 0 THEN EXIT SUB
+
+    DIM tdIdx AS INTEGER
+    tdIdx% = LAYERS(TEXT_BAR.editingLayerIdx%).textDataIdx%
+    IF tdIdx% < 1 THEN EXIT SUB
+
+    ' Check if FG color changed
+    IF PAINT_COLOR~& <> TEXT_BAR.lastPaintColor~& THEN
+        TEXT_BAR.lastPaintColor~& = PAINT_COLOR~&
+        IF TEXT_has_selection% THEN
+            ' Apply FG color only to selected characters
+            DIM fgMin AS INTEGER, fgMax AS INTEGER
+            fgMin% = TEXT.selStart%: fgMax% = TEXT.selEnd%
+            IF fgMin% > fgMax% THEN SWAP fgMin%, fgMax%
+            TEXT_LAYER_set_selection_attr tdIdx%, fgMin%, fgMax% - 1, "FG", PAINT_COLOR~&
+        ELSE
+            ' Apply new FG color to all existing characters in the current text layer
+            DIM syncFgI AS INTEGER
+            FOR syncFgI% = 0 TO TEXT_LAYER_DATA(tdIdx%).charCount - 1
+                TL_FG(tdIdx%, syncFgI%) = PAINT_COLOR~&
+            NEXT syncFgI%
+        END IF
+        TEXT_LAYER_DATA(tdIdx%).dirty = TRUE
+        SCENE_DIRTY% = TRUE
+        FRAME_IDLE% = FALSE
+    END IF
+
+    ' Check if BG color changed
+    IF PAINT_BG_COLOR~& <> TEXT_BAR.lastPaintBgColor~& THEN
+        TEXT_BAR.lastPaintBgColor~& = PAINT_BG_COLOR~&
+        IF TEXT_has_selection% THEN
+            ' Apply BG color only to selected characters
+            DIM bgMin AS INTEGER, bgMax AS INTEGER
+            bgMin% = TEXT.selStart%: bgMax% = TEXT.selEnd%
+            IF bgMin% > bgMax% THEN SWAP bgMin%, bgMax%
+            TEXT_LAYER_set_selection_attr tdIdx%, bgMin%, bgMax% - 1, "BG", PAINT_BG_COLOR~&
+        ELSE
+            ' Apply new BG color to all existing characters in the current text layer
+            DIM syncBgI AS INTEGER
+            FOR syncBgI% = 0 TO TEXT_LAYER_DATA(tdIdx%).charCount - 1
+                TL_BG(tdIdx%, syncBgI%) = PAINT_BG_COLOR~&
+            NEXT syncBgI%
+        END IF
+        TEXT_LAYER_DATA(tdIdx%).dirty = TRUE
+        SCENE_DIRTY% = TRUE
+        FRAME_IDLE% = FALSE
+    END IF
+END SUB
+
+
+''
+' Check if a screen coordinate falls within the text bar bounds.
+' @param rawX% Screen X
+' @param rawY% Screen Y
+' @return INTEGER TRUE if within bounds
+'
+FUNCTION TEXT_BAR_in_bounds% (rawX%, rawY%)
+    TEXT_BAR_in_bounds% = FALSE
+    IF NOT TEXT_BAR.visible% THEN EXIT FUNCTION
+    IF rawX% >= TEXT_BAR.barX% AND rawX% < TEXT_BAR.barX% + TEXT_BAR.barW% THEN
+        IF rawY% >= TEXT_BAR.barY% AND rawY% < TEXT_BAR.barY% + TEXT_BAR.barH% THEN
+            TEXT_BAR_in_bounds% = TRUE
+        END IF
+    END IF
+END FUNCTION
+
+
+''
+' Close any open dropdowns.
+'
+SUB TEXT_BAR_close_dropdowns ()
+    TEXT_BAR.fontDropdownOpen% = FALSE
+    TEXT_BAR.sizeDropdownOpen% = FALSE
+END SUB
+
+
+''
+' Apply a style toggle to the current text selection (if any).
+' If no selection, the toggle state is just stored as default for new chars.
+' Full selection logic will be wired in Phase 4.
+'
+' @param attrName$ Attribute name: "BOLD", "ITALIC", "UNDERLINE", "STRIKE"
+'
+SUB TEXT_BAR_apply_style_to_selection (attrName$)
+    IF TEXT_BAR.editingLayerIdx% <= 0 THEN EXIT SUB
+
+    DIM tdIdx AS INTEGER
+    tdIdx% = LAYERS(TEXT_BAR.editingLayerIdx%).textDataIdx%
+    IF tdIdx% < 1 THEN EXIT SUB
+
+    ' If there's an active selection, apply the style to selected chars
+    IF TEXT_has_selection% THEN
+        DIM asMin AS INTEGER, asMax AS INTEGER
+        asMin% = TEXT.selStart%: asMax% = TEXT.selEnd%
+        IF asMin% > asMax% THEN SWAP asMin%, asMax%
+        DIM asAttr AS STRING
+        asAttr$ = UCASE$(attrName$)
+        DIM asVal AS LONG
+        SELECT CASE asAttr$
+            CASE "BOLD": asVal& = TEXT_BAR.boldActive%
+            CASE "ITALIC": asVal& = TEXT_BAR.italicActive%
+            CASE "UNDERLINE": asVal& = TEXT_BAR.underlineActive%
+            CASE "STRIKE": asVal& = TEXT_BAR.strikeActive%
+        END SELECT
+        TEXT_LAYER_set_selection_attr tdIdx%, asMin%, asMax% - 1, asAttr$, asVal&
+        ' Recompute cursor X — character widths may have changed (e.g. faux bold on/off)
+        TEXT.CURSOR_X = TEXT_LAYER_get_char_x%(tdIdx%, TEXT_LAYER_DATA(tdIdx%).cursorPos)
+        SCENE_DIRTY% = TRUE
+        FRAME_IDLE% = FALSE
+    END IF
+
+    TEXT_LAYER_DATA(tdIdx%).dirty = TRUE
+END SUB
+
+
+''
+' Get current line height (defaultLeading) for the active text layer.
+' Returns selectedSize + 1 if no active layer.
+'
+FUNCTION TEXT_BAR_get_line_height% ()
+    IF TEXT_BAR.editingLayerIdx% >= 1 THEN
+        DIM lhTd AS INTEGER
+        lhTd% = LAYERS(TEXT_BAR.editingLayerIdx%).textDataIdx%
+        IF lhTd% >= 1 THEN
+            IF TEXT_LAYER_DATA(lhTd%).defaultLeading > 0 THEN
+                TEXT_BAR_get_line_height% = TEXT_LAYER_DATA(lhTd%).defaultLeading
+            ELSE
+                IF FONT_LIST(TEXT_BAR.selectedFontIdx%).isBuiltIn THEN
+                    TEXT_BAR_get_line_height% = FONT_LIST(TEXT_BAR.selectedFontIdx%).builtInHandle
+                ELSE
+                    TEXT_BAR_get_line_height% = TEXT_BAR.selectedSize% + 1
+                END IF
+            END IF
+            EXIT FUNCTION
+        END IF
+    END IF
+    IF FONT_LIST(TEXT_BAR.selectedFontIdx%).isBuiltIn THEN
+        TEXT_BAR_get_line_height% = FONT_LIST(TEXT_BAR.selectedFontIdx%).builtInHandle
+    ELSE
+        TEXT_BAR_get_line_height% = TEXT_BAR.selectedSize% + 1
+    END IF
+END FUNCTION
+
+
+''
+' Adjust line height for the active text layer via input box.
+'
+SUB TEXT_BAR_adjust_line_height ()
+    IF TEXT_BAR.editingLayerIdx% < 1 THEN EXIT SUB
+    DIM alhTd AS INTEGER
+    alhTd% = LAYERS(TEXT_BAR.editingLayerIdx%).textDataIdx%
+    IF alhTd% < 1 THEN EXIT SUB
+
+    DIM curLH AS INTEGER
+    curLH% = TEXT_BAR_get_line_height%
+    DIM result AS STRING
+    result$ = _INPUTBOX$("Line Height", "Enter line height in pixels:", LTRIM$(STR$(curLH%)))
+    IF LEN(result$) > 0 THEN
+        DIM newLH AS INTEGER
+        newLH% = VAL(result$)
+        IF newLH% >= 1 AND newLH% <= 999 THEN
+            TEXT_LAYER_DATA(alhTd%).defaultLeading = newLH%
+            TEXT_LAYER_DATA(alhTd%).dirty = TRUE
+            SCENE_DIRTY% = TRUE
+            FRAME_IDLE% = FALSE
+            ' Manual line height change disables auto
+            TEXT_BAR.autoLineHeight% = FALSE
+        END IF
+    END IF
+    MOUSE_cleanup_after_dialog FALSE
+END SUB
+
+
+''
+' Auto-update line height based on the largest font size in the active text layer.
+' If no text exists yet, uses the current TEXT_BAR.selectedSize%.
+' Called when AUTO is on and font/size changes.
+'
+SUB TEXT_BAR_auto_update_line_height ()
+    IF NOT TEXT_BAR.autoLineHeight% THEN EXIT SUB
+
+    DIM newLH AS INTEGER
+    newLH% = TEXT_BAR.selectedSize%
+
+    ' For built-in bitmap fonts, use native height
+    IF TEXT_BAR.selectedFontIdx% >= 0 AND TEXT_BAR.selectedFontIdx% < FONT_LIST_COUNT% THEN
+        IF FONT_LIST(TEXT_BAR.selectedFontIdx%).isBuiltIn THEN
+            newLH% = FONT_LIST(TEXT_BAR.selectedFontIdx%).builtInHandle
+        END IF
+    END IF
+
+    ' Scan existing characters to find the largest font size in use
+    IF TEXT_BAR.editingLayerIdx% >= 1 THEN
+        DIM auTd AS INTEGER
+        auTd% = LAYERS(TEXT_BAR.editingLayerIdx%).textDataIdx%
+        IF auTd% >= 1 AND TEXT_LAYER_DATA(auTd%).used THEN
+            DIM auI AS INTEGER
+            DIM auMax AS INTEGER
+            auMax% = newLH%
+            FOR auI% = 0 TO TEXT_LAYER_DATA(auTd%).charCount - 1
+                DIM auCharSize AS INTEGER
+                DIM auCharFontIdx AS INTEGER
+                auCharFontIdx% = TL_FONT_IDX(auTd%, auI%)
+                IF auCharFontIdx% >= 0 AND auCharFontIdx% < FONT_LIST_COUNT% THEN
+                    IF FONT_LIST(auCharFontIdx%).isBuiltIn THEN
+                        auCharSize% = FONT_LIST(auCharFontIdx%).builtInHandle
+                    ELSE
+                        auCharSize% = TL_FONT_SIZE(auTd%, auI%)
+                    END IF
+                ELSE
+                    auCharSize% = TL_FONT_SIZE(auTd%, auI%)
+                END IF
+                IF auCharSize% > auMax% THEN auMax% = auCharSize%
+            NEXT auI%
+
+            ' For TTF fonts add +1 for spacing; bitmap fonts use exact height
+            IF FONT_LIST(TEXT_BAR.selectedFontIdx%).isBuiltIn THEN
+                newLH% = auMax%
+            ELSE
+                newLH% = auMax% + 1
+            END IF
+
+            ' Apply to text layer
+            IF newLH% <> TEXT_LAYER_DATA(auTd%).defaultLeading THEN
+                TEXT_LAYER_DATA(auTd%).defaultLeading = newLH%
+                TEXT_LAYER_DATA(auTd%).dirty = TRUE
+                SCENE_DIRTY% = TRUE
+                FRAME_IDLE% = FALSE
+            END IF
+            EXIT SUB
+        END IF
+    END IF
+
+    ' No active layer — nothing more to do (selectedSize reflects in get_line_height)
+END SUB
+
+
+''
+' Compute the max visible items for the font dropdown.
+' Uses ~75% of screen height if there are enough fonts, otherwise fits to count.
+' @return INTEGER number of visible rows
+'
+FUNCTION TEXT_BAR_font_dropdown_max_visible% ()
+    DIM itemH AS INTEGER
+    DIM available AS INTEGER
+    DIM maxItems AS INTEGER
+    itemH% = 12
+    ' Available vertical space: from dropdown top to 75% of viewport height
+    available% = INT(SCRN.h& * 0.75) - (TEXT_BAR.barY% + TEXT_BAR.barH%)
+    IF available% < itemH% THEN available% = itemH%
+    maxItems% = available% \ itemH%
+    IF maxItems% < 5 THEN maxItems% = 5
+    IF FONT_LIST_COUNT% < maxItems% THEN maxItems% = FONT_LIST_COUNT%
+    TEXT_BAR_font_dropdown_max_visible% = maxItems%
+END FUNCTION

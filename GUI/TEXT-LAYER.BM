@@ -1,0 +1,949 @@
+''
+' DRAW - GUI/TEXT-LAYER.BM
+' =============================================================================
+' Non-destructive text layer operations: alloc, free, render, edit, rasterize.
+' Renders rich text with per-character formatting and typography controls.
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+OPTION _EXPLICIT
+OPTION _EXPLICITARRAY
+'$DYNAMIC
+
+
+''
+' Allocate a free text layer pool slot.
+' @return INTEGER pool index (1-based) or 0 if pool is full
+'
+FUNCTION TEXT_LAYER_alloc% ()
+    TEXT_LAYER_alloc% = 0
+    DIM i AS INTEGER
+    FOR i% = 1 TO TEXT_LAYER_POOL_SIZE
+        IF NOT TEXT_LAYER_DATA(i%).used THEN
+            TEXT_LAYER_DATA(i%).used = TRUE
+            TEXT_LAYER_DATA(i%).charCount = 0
+            TEXT_LAYER_DATA(i%).lineCount = 1
+            TEXT_LAYER_DATA(i%).cursorPos = 0
+            TEXT_LAYER_DATA(i%).dirty = TRUE
+            TL_LINE_BREAK(i%, 0) = 0  ' First line starts at char 0
+            TEXT_LAYER_alloc% = i%
+            EXIT FUNCTION
+        END IF
+    NEXT i%
+END FUNCTION
+
+
+''
+' Release a text layer pool slot and zero out all per-char data.
+' @param idx% Pool index (1-based)
+'
+SUB TEXT_LAYER_free (idx%)
+    IF idx% < 1 OR idx% > TEXT_LAYER_POOL_SIZE THEN EXIT SUB
+    IF NOT TEXT_LAYER_DATA(idx%).used THEN EXIT SUB
+
+    TEXT_LAYER_DATA(idx%).used = FALSE
+    TEXT_LAYER_DATA(idx%).charCount = 0
+    TEXT_LAYER_DATA(idx%).lineCount = 0
+    TEXT_LAYER_DATA(idx%).startX = 0
+    TEXT_LAYER_DATA(idx%).startY = 0
+    TEXT_LAYER_DATA(idx%).fontIdx = 0
+    TEXT_LAYER_DATA(idx%).fontSize = 0
+    TEXT_LAYER_DATA(idx%).defaultLeading = 0
+    TEXT_LAYER_DATA(idx%).cursorPos = 0
+    TEXT_LAYER_DATA(idx%).dirty = FALSE
+
+    ' Clear per-char arrays
+    DIM c AS INTEGER
+    FOR c% = 0 TO TEXT_LAYER_MAX_CHARS - 1
+        TL_CHAR(idx%, c%) = CHR$(0)
+        TL_FG(idx%, c%) = 0
+        TL_BG(idx%, c%) = 0
+        TL_FONT_IDX(idx%, c%) = 0
+        TL_FONT_SIZE(idx%, c%) = 0
+        TL_BOLD(idx%, c%) = FALSE
+        TL_ITALIC(idx%, c%) = FALSE
+        TL_UNDERLINE(idx%, c%) = FALSE
+        TL_STRIKE(idx%, c%) = FALSE
+        TL_KERN(idx%, c%) = 0
+        TL_BASELINE(idx%, c%) = 0
+    NEXT c%
+
+    ' Clear per-line arrays
+    DIM ln AS INTEGER
+    FOR ln% = 0 TO TEXT_LAYER_MAX_LINES - 1
+        TL_LINE_BREAK(idx%, ln%) = 0
+        TL_LEADING(idx%, ln%) = 0
+    NEXT ln%
+END SUB
+
+
+''
+' Render rich text to a destination image buffer.
+' Handles per-char font, size, color, bold/italic synthesis, underline, strikethrough,
+' kerning offsets, baseline shifts, and per-line leading.
+'
+' @param idx% Pool index (1-based)
+' @param destImg& Destination image handle to render into
+'
+SUB TEXT_LAYER_render (idx%, destImg&)
+    IF idx% < 1 OR idx% > TEXT_LAYER_POOL_SIZE THEN EXIT SUB
+    IF NOT TEXT_LAYER_DATA(idx%).used THEN EXIT SUB
+    IF destImg& >= -1 THEN EXIT SUB
+
+    DIM oldDest AS LONG
+    oldDest& = _DEST
+    _DEST destImg&
+
+    ' Clear the destination to fully transparent using _MEM for guaranteed RGBA(0,0,0,0) fill
+    DIM clrMem AS _MEM
+    clrMem = _MEMIMAGE(destImg&)
+    DIM clrOff AS _OFFSET
+    FOR clrOff = clrMem.OFFSET TO clrMem.OFFSET + clrMem.SIZE - 4 STEP 4
+        _MEMPUT clrMem, clrOff, 0 AS _UNSIGNED LONG
+    NEXT clrOff
+    _MEMFREE clrMem
+
+    ' Nothing to draw if no characters, but destination was already cleared above
+    IF TEXT_LAYER_DATA(idx%).charCount = 0 THEN _DEST oldDest&: EXIT SUB
+
+    DIM curX AS INTEGER
+    DIM curY AS INTEGER
+    DIM curLine AS INTEGER
+    DIM c AS INTEGER
+    DIM ch AS STRING
+    DIM fgColor AS _UNSIGNED LONG
+    DIM bgColor AS _UNSIGNED LONG
+    DIM fHandle AS LONG
+    DIM charW AS INTEGER
+    DIM charH AS INTEGER
+    DIM leading AS INTEGER
+
+    curX% = TEXT_LAYER_DATA(idx%).startX
+    curY% = TEXT_LAYER_DATA(idx%).startY
+    curLine% = 0
+
+    FOR c% = 0 TO TEXT_LAYER_DATA(idx%).charCount - 1
+        ' Check for line break
+        IF curLine% < TEXT_LAYER_DATA(idx%).lineCount - 1 THEN
+            IF c% = TL_LINE_BREAK(idx%, curLine% + 1) THEN
+                curLine% = curLine% + 1
+                curX% = TEXT_LAYER_DATA(idx%).startX
+                ' Advance Y by leading for previous line
+                leading% = TL_LEADING(idx%, curLine% - 1)
+                IF leading% = 0 THEN leading% = TEXT_LAYER_DATA(idx%).defaultLeading
+                curY% = curY% + leading%
+            END IF
+        END IF
+
+        ch$ = TL_CHAR(idx%, c%)
+        IF ch$ = CHR$(10) THEN _CONTINUE  ' Skip newline chars (handled above)
+
+        fgColor~& = TL_FG(idx%, c%)
+        bgColor~& = TL_BG(idx%, c%)
+
+        ' Load font for this character
+        DIM fontStyle AS STRING
+        fontStyle$ = FONT_STYLE_REGULAR$
+        IF TL_BOLD(idx%, c%) AND TL_ITALIC(idx%, c%) THEN
+            fontStyle$ = FONT_STYLE_BOLDITALIC$
+        ELSEIF TL_BOLD(idx%, c%) THEN
+            fontStyle$ = FONT_STYLE_BOLD$
+        ELSEIF TL_ITALIC(idx%, c%) THEN
+            fontStyle$ = FONT_STYLE_ITALIC$
+        END IF
+
+        fHandle& = FONT_LIST_get_handle&(TL_FONT_IDX(idx%, c%), TL_FONT_SIZE(idx%, c%), fontStyle$, TEXT_LAYER_DATA(idx%).monospace)
+        IF fHandle& <= 0 THEN
+            ' Font unavailable — still advance cursor by estimated width
+            curX% = curX% + 8 + TL_KERN(idx%, c%)
+            _CONTINUE
+        END IF
+
+        _FONT fHandle&
+        charW% = _PRINTWIDTH(ch$)
+        charH% = _FONTHEIGHT
+
+        ' Apply kerning offset
+        DIM drawX AS INTEGER
+        drawX% = curX% + TL_KERN(idx%, c%)
+
+        ' Apply baseline shift
+        DIM drawY AS INTEGER
+        drawY% = curY% - TL_BASELINE(idx%, c%)
+
+        ' Faux bold detection: +1px advance for synthesis glyph width
+        DIM fauxBoldAdv AS INTEGER
+        fauxBoldAdv% = 0
+        IF TL_BOLD(idx%, c%) AND NOT FONT_LIST(TL_FONT_IDX(idx%, c%)).hasBold THEN
+            IF fontStyle$ = FONT_STYLE_BOLD$ OR fontStyle$ = FONT_STYLE_BOLDITALIC$ THEN
+                fauxBoldAdv% = 1
+            END IF
+        END IF
+
+        ' Draw background color if not transparent — extend by 1px for faux bold
+        IF _ALPHA32(bgColor~&) > 0 THEN
+            LINE (drawX%, drawY%)-(drawX% + charW% - 1 + fauxBoldAdv%, drawY% + charH% - 1), bgColor~&, BF
+        END IF
+
+        ' Draw character — use _KEEPBACKGROUND so _PRINTSTRING does not fill
+        ' the character cell with opaque black behind each glyph
+        COLOR fgColor~&
+        _PRINTMODE _KEEPBACKGROUND
+        _PRINTSTRING (drawX%, drawY%), ch$
+
+        ' Faux bold synthesis: draw again offset +1px
+        IF fauxBoldAdv% THEN
+            _PRINTSTRING (drawX% + 1, drawY%), ch$
+        END IF
+
+        ' Underline — extend by 1px for faux bold
+        IF TL_UNDERLINE(idx%, c%) THEN
+            LINE (drawX%, drawY% + charH% - 2)-(drawX% + charW% - 1 + fauxBoldAdv%, drawY% + charH% - 2), fgColor~&
+        END IF
+
+        ' Strikethrough — extend by 1px for faux bold
+        IF TL_STRIKE(idx%, c%) THEN
+            DIM midY AS INTEGER
+            midY% = drawY% + charH% \ 2
+            LINE (drawX%, midY%)-(drawX% + charW% - 1 + fauxBoldAdv%, midY%), fgColor~&
+        END IF
+
+        curX% = curX% + charW% + TL_KERN(idx%, c%) + fauxBoldAdv%
+    NEXT c%
+
+    _DEST oldDest&
+END SUB
+
+
+''
+' Add a character at the cursor position with current default formatting.
+' @param idx% Pool index
+' @param ch$ Character to add (single character)
+'
+SUB TEXT_LAYER_add_char (idx%, ch$)
+    IF idx% < 1 OR idx% > TEXT_LAYER_POOL_SIZE THEN EXIT SUB
+    IF NOT TEXT_LAYER_DATA(idx%).used THEN EXIT SUB
+    IF TEXT_LAYER_DATA(idx%).charCount >= TEXT_LAYER_MAX_CHARS THEN EXIT SUB
+    IF LEN(ch$) = 0 THEN EXIT SUB
+
+    DIM cpos AS INTEGER
+    cpos% = TEXT_LAYER_DATA(idx%).cursorPos
+
+    ' Shift existing characters right to make room
+    DIM i AS INTEGER
+    IF cpos% < TEXT_LAYER_DATA(idx%).charCount THEN
+        FOR i% = TEXT_LAYER_DATA(idx%).charCount - 1 TO cpos% STEP -1
+            TL_CHAR(idx%, i% + 1) = TL_CHAR(idx%, i%)
+            TL_FG(idx%, i% + 1) = TL_FG(idx%, i%)
+            TL_BG(idx%, i% + 1) = TL_BG(idx%, i%)
+            TL_FONT_IDX(idx%, i% + 1) = TL_FONT_IDX(idx%, i%)
+            TL_FONT_SIZE(idx%, i% + 1) = TL_FONT_SIZE(idx%, i%)
+            TL_BOLD(idx%, i% + 1) = TL_BOLD(idx%, i%)
+            TL_ITALIC(idx%, i% + 1) = TL_ITALIC(idx%, i%)
+            TL_UNDERLINE(idx%, i% + 1) = TL_UNDERLINE(idx%, i%)
+            TL_STRIKE(idx%, i% + 1) = TL_STRIKE(idx%, i%)
+            TL_KERN(idx%, i% + 1) = TL_KERN(idx%, i%)
+            TL_BASELINE(idx%, i% + 1) = TL_BASELINE(idx%, i%)
+        NEXT i%
+    END IF
+
+    ' Insert the new character with defaults from TEXT_BAR
+    TL_CHAR(idx%, cpos%) = LEFT$(ch$, 1)
+    TL_FG(idx%, cpos%) = PAINT_COLOR~&
+    TL_BG(idx%, cpos%) = _RGBA32(0, 0, 0, 0)  ' Transparent BG by default
+    TL_FONT_IDX(idx%, cpos%) = TEXT_LAYER_DATA(idx%).fontIdx
+    TL_FONT_SIZE(idx%, cpos%) = TEXT_LAYER_DATA(idx%).fontSize
+    TL_BOLD(idx%, cpos%) = FALSE
+    TL_ITALIC(idx%, cpos%) = FALSE
+    TL_UNDERLINE(idx%, cpos%) = FALSE
+    TL_STRIKE(idx%, cpos%) = FALSE
+    TL_KERN(idx%, cpos%) = 0
+    TL_BASELINE(idx%, cpos%) = 0
+
+    ' Update line breaks — shift any line breaks strictly after the insertion pos.
+    ' Using > (not >=) so that inserting at the start of a line keeps that
+    ' line break in place and the new character belongs to the new line.
+    DIM ln AS INTEGER
+    FOR ln% = TEXT_LAYER_DATA(idx%).lineCount - 1 TO 0 STEP -1
+        IF TL_LINE_BREAK(idx%, ln%) > cpos% AND ln% > 0 THEN
+            TL_LINE_BREAK(idx%, ln%) = TL_LINE_BREAK(idx%, ln%) + 1
+        END IF
+    NEXT ln%
+
+    TEXT_LAYER_DATA(idx%).charCount = TEXT_LAYER_DATA(idx%).charCount + 1
+    TEXT_LAYER_DATA(idx%).cursorPos = cpos% + 1
+    TEXT_LAYER_DATA(idx%).dirty = TRUE
+END SUB
+
+
+''
+' Delete the character before the cursor (backspace behavior).
+' @param idx% Pool index
+'
+SUB TEXT_LAYER_delete_char (idx%)
+    IF idx% < 1 OR idx% > TEXT_LAYER_POOL_SIZE THEN EXIT SUB
+    IF NOT TEXT_LAYER_DATA(idx%).used THEN EXIT SUB
+    IF TEXT_LAYER_DATA(idx%).cursorPos <= 0 THEN EXIT SUB
+
+    DIM cpos AS INTEGER
+    cpos% = TEXT_LAYER_DATA(idx%).cursorPos - 1
+    DIM wasNewline AS INTEGER
+    wasNewline% = (TL_CHAR(idx%, cpos%) = CHR$(10))
+
+    ' Shift characters left
+    DIM i AS INTEGER
+    FOR i% = cpos% TO TEXT_LAYER_DATA(idx%).charCount - 2
+        TL_CHAR(idx%, i%) = TL_CHAR(idx%, i% + 1)
+        TL_FG(idx%, i%) = TL_FG(idx%, i% + 1)
+        TL_BG(idx%, i%) = TL_BG(idx%, i% + 1)
+        TL_FONT_IDX(idx%, i%) = TL_FONT_IDX(idx%, i% + 1)
+        TL_FONT_SIZE(idx%, i%) = TL_FONT_SIZE(idx%, i% + 1)
+        TL_BOLD(idx%, i%) = TL_BOLD(idx%, i% + 1)
+        TL_ITALIC(idx%, i%) = TL_ITALIC(idx%, i% + 1)
+        TL_UNDERLINE(idx%, i%) = TL_UNDERLINE(idx%, i% + 1)
+        TL_STRIKE(idx%, i%) = TL_STRIKE(idx%, i% + 1)
+        TL_KERN(idx%, i%) = TL_KERN(idx%, i% + 1)
+        TL_BASELINE(idx%, i%) = TL_BASELINE(idx%, i% + 1)
+    NEXT i%
+
+    TEXT_LAYER_DATA(idx%).charCount = TEXT_LAYER_DATA(idx%).charCount - 1
+    TEXT_LAYER_DATA(idx%).cursorPos = cpos%
+
+    ' If we deleted a newline, merge lines
+    IF wasNewline% THEN
+        ' Remove the line break and shift remaining line breaks
+        DIM ln AS INTEGER
+        DIM removedLine AS INTEGER
+        removedLine% = -1
+        FOR ln% = 1 TO TEXT_LAYER_DATA(idx%).lineCount - 1
+            IF TL_LINE_BREAK(idx%, ln%) = cpos% + 1 THEN
+                removedLine% = ln%
+                EXIT FOR
+            END IF
+        NEXT ln%
+
+        IF removedLine% >= 1 THEN
+            FOR ln% = removedLine% TO TEXT_LAYER_DATA(idx%).lineCount - 2
+                TL_LINE_BREAK(idx%, ln%) = TL_LINE_BREAK(idx%, ln% + 1)
+                TL_LEADING(idx%, ln%) = TL_LEADING(idx%, ln% + 1)
+            NEXT ln%
+            TEXT_LAYER_DATA(idx%).lineCount = TEXT_LAYER_DATA(idx%).lineCount - 1
+        END IF
+    END IF
+
+    ' Shift line breaks that come after deleted position
+    DIM ln2 AS INTEGER
+    FOR ln2% = 1 TO TEXT_LAYER_DATA(idx%).lineCount - 1
+        IF TL_LINE_BREAK(idx%, ln2%) > cpos% THEN
+            TL_LINE_BREAK(idx%, ln2%) = TL_LINE_BREAK(idx%, ln2%) - 1
+        END IF
+    NEXT ln2%
+
+    TEXT_LAYER_DATA(idx%).dirty = TRUE
+END SUB
+
+
+''
+' Insert a newline at the cursor position.
+' @param idx% Pool index
+'
+SUB TEXT_LAYER_newline (idx%)
+    IF idx% < 1 OR idx% > TEXT_LAYER_POOL_SIZE THEN EXIT SUB
+    IF NOT TEXT_LAYER_DATA(idx%).used THEN EXIT SUB
+    IF TEXT_LAYER_DATA(idx%).lineCount >= TEXT_LAYER_MAX_LINES THEN EXIT SUB
+    IF TEXT_LAYER_DATA(idx%).charCount >= TEXT_LAYER_MAX_CHARS THEN EXIT SUB
+
+    DIM cpos AS INTEGER
+    cpos% = TEXT_LAYER_DATA(idx%).cursorPos
+
+    ' Insert newline character first (shifts chars and existing line breaks)
+    TEXT_LAYER_add_char idx%, CHR$(10)
+
+    ' Now the newline char is at cpos%, cursor is at cpos%+1
+    ' Determine which line the newline char belongs to
+    DIM newLineNum AS INTEGER
+    newLineNum% = TEXT_LAYER_get_line_for_char%(idx%, cpos%) + 1
+
+    ' Shift existing line breaks to make room for the new line
+    DIM ln AS INTEGER
+    FOR ln% = TEXT_LAYER_DATA(idx%).lineCount - 1 TO newLineNum% STEP -1
+        TL_LINE_BREAK(idx%, ln% + 1) = TL_LINE_BREAK(idx%, ln%)
+        TL_LEADING(idx%, ln% + 1) = TL_LEADING(idx%, ln%)
+    NEXT ln%
+
+    ' Set the new line break to start at the character after the newline
+    TL_LINE_BREAK(idx%, newLineNum%) = cpos% + 1
+    TL_LEADING(idx%, newLineNum%) = 0  ' Use default leading
+
+    TEXT_LAYER_DATA(idx%).lineCount = TEXT_LAYER_DATA(idx%).lineCount + 1
+    TEXT_LAYER_DATA(idx%).dirty = TRUE
+END SUB
+
+
+''
+' Apply a formatting attribute to a range of characters.
+' @param idx% Pool index
+' @param startChar% First char index (inclusive)
+' @param endChar% Last char index (inclusive)
+' @param attrName$ Attribute name: "BOLD", "ITALIC", "UNDERLINE", "STRIKE", "FG", "BG", "FONT_IDX", "FONT_SIZE", "KERN", "BASELINE"
+' @param value& Value to set (for colors pass as ~&, for bools pass 0/1, for sizes pass px)
+'
+SUB TEXT_LAYER_set_selection_attr (idx%, startChar%, endChar%, attrName$, value&)
+    IF idx% < 1 OR idx% > TEXT_LAYER_POOL_SIZE THEN EXIT SUB
+    IF NOT TEXT_LAYER_DATA(idx%).used THEN EXIT SUB
+    IF startChar% < 0 OR endChar% < startChar% THEN EXIT SUB
+
+    DIM endC AS INTEGER
+    endC% = endChar%
+    IF endC% >= TEXT_LAYER_DATA(idx%).charCount THEN endC% = TEXT_LAYER_DATA(idx%).charCount - 1
+
+    DIM i AS INTEGER
+    DIM attr AS STRING
+    attr$ = UCASE$(attrName$)
+
+    FOR i% = startChar% TO endC%
+        SELECT CASE attr$
+            CASE "BOLD"
+                TL_BOLD(idx%, i%) = value&
+            CASE "ITALIC"
+                TL_ITALIC(idx%, i%) = value&
+            CASE "UNDERLINE"
+                TL_UNDERLINE(idx%, i%) = value&
+            CASE "STRIKE"
+                TL_STRIKE(idx%, i%) = value&
+            CASE "FG"
+                TL_FG(idx%, i%) = value&
+            CASE "BG"
+                TL_BG(idx%, i%) = value&
+            CASE "FONT_IDX"
+                TL_FONT_IDX(idx%, i%) = value&
+            CASE "FONT_SIZE"
+                TL_FONT_SIZE(idx%, i%) = value&
+            CASE "KERN"
+                TL_KERN(idx%, i%) = value&
+            CASE "BASELINE"
+                TL_BASELINE(idx%, i%) = value&
+        END SELECT
+    NEXT i%
+
+    TEXT_LAYER_DATA(idx%).dirty = TRUE
+END SUB
+
+
+''
+' Hit-test: find which character index is at a given canvas position.
+' Returns the char index or -1 if no character at that position.
+'
+' @param idx% Pool index
+' @param canvasX% Canvas X coordinate
+' @param canvasY% Canvas Y coordinate
+' @return INTEGER char index or -1
+'
+FUNCTION TEXT_LAYER_get_char_at_pos% (idx%, canvasX%, canvasY%)
+    TEXT_LAYER_get_char_at_pos% = -1
+    IF idx% < 1 OR idx% > TEXT_LAYER_POOL_SIZE THEN EXIT FUNCTION
+    IF NOT TEXT_LAYER_DATA(idx%).used THEN EXIT FUNCTION
+    IF TEXT_LAYER_DATA(idx%).charCount = 0 THEN EXIT FUNCTION
+
+    DIM curX AS INTEGER
+    DIM curY AS INTEGER
+    DIM curLine AS INTEGER
+    DIM c AS INTEGER
+    DIM fHandle AS LONG
+    DIM charW AS INTEGER
+    DIM charH AS INTEGER
+    DIM leading AS INTEGER
+
+    curX% = TEXT_LAYER_DATA(idx%).startX
+    curY% = TEXT_LAYER_DATA(idx%).startY
+    curLine% = 0
+
+    FOR c% = 0 TO TEXT_LAYER_DATA(idx%).charCount - 1
+        ' Check for line break
+        IF curLine% < TEXT_LAYER_DATA(idx%).lineCount - 1 THEN
+            IF c% = TL_LINE_BREAK(idx%, curLine% + 1) THEN
+                curLine% = curLine% + 1
+                curX% = TEXT_LAYER_DATA(idx%).startX
+                leading% = TL_LEADING(idx%, curLine% - 1)
+                IF leading% = 0 THEN leading% = TEXT_LAYER_DATA(idx%).defaultLeading
+                curY% = curY% + leading%
+            END IF
+        END IF
+
+        IF TL_CHAR(idx%, c%) = CHR$(10) THEN _CONTINUE
+
+        DIM fontStyle AS STRING
+        fontStyle$ = FONT_STYLE_REGULAR$
+        IF TL_BOLD(idx%, c%) AND TL_ITALIC(idx%, c%) THEN
+            fontStyle$ = FONT_STYLE_BOLDITALIC$
+        ELSEIF TL_BOLD(idx%, c%) THEN
+            fontStyle$ = FONT_STYLE_BOLD$
+        ELSEIF TL_ITALIC(idx%, c%) THEN
+            fontStyle$ = FONT_STYLE_ITALIC$
+        END IF
+
+        fHandle& = FONT_LIST_get_handle&(TL_FONT_IDX(idx%, c%), TL_FONT_SIZE(idx%, c%), fontStyle$, TEXT_LAYER_DATA(idx%).monospace)
+        IF fHandle& <= 0 THEN _CONTINUE
+
+        DIM oldFont AS LONG
+        oldFont& = _FONT
+        _FONT fHandle&
+        charW% = _PRINTWIDTH(TL_CHAR(idx%, c%))
+        charH% = _FONTHEIGHT
+        _FONT oldFont&
+
+        DIM drawX AS INTEGER
+        DIM drawY AS INTEGER
+        drawX% = curX% + TL_KERN(idx%, c%)
+        drawY% = curY% - TL_BASELINE(idx%, c%)
+
+        ' Faux bold advance: +1 for wider glyph, +1 for minimum 1px gap
+        ' Faux bold: +1px for synthesis glyph width
+        DIM fauxBoldAdv AS INTEGER
+        fauxBoldAdv% = 0
+        IF TL_BOLD(idx%, c%) THEN
+            IF NOT FONT_LIST(TL_FONT_IDX(idx%, c%)).hasBold THEN
+                fauxBoldAdv% = 1
+            END IF
+        END IF
+
+        ' Check if the point falls within this character's bounding box
+        IF canvasX% >= drawX% AND canvasX% < drawX% + charW% + fauxBoldAdv% THEN
+            IF canvasY% >= drawY% AND canvasY% < drawY% + charH% THEN
+                TEXT_LAYER_get_char_at_pos% = c%
+                EXIT FUNCTION
+            END IF
+        END IF
+
+        curX% = curX% + charW% + TL_KERN(idx%, c%) + fauxBoldAdv%
+    NEXT c%
+END FUNCTION
+
+
+''
+' Rasterize a text layer: render text into the layer's imgHandle,
+' convert it from LAYER_TYPE_TEXT to LAYER_TYPE_IMAGE, and free text data.
+'
+' @param layerIdx% Layer index in LAYERS() array (1-based)
+'
+SUB TEXT_LAYER_rasterize (layerIdx%)
+    IF layerIdx% < 1 OR layerIdx% > 64 THEN EXIT SUB
+    IF LAYERS(layerIdx%).layerType <> LAYER_TYPE_TEXT THEN EXIT SUB
+
+    DIM tdIdx AS INTEGER
+    tdIdx% = LAYERS(layerIdx%).textDataIdx
+    IF tdIdx% < 1 OR tdIdx% > TEXT_LAYER_POOL_SIZE THEN EXIT SUB
+
+    ' Validate image handle before rendering
+    IF LAYERS(layerIdx%).imgHandle& < -1 THEN
+        ' Render text into the layer's image
+        TEXT_LAYER_render tdIdx%, LAYERS(layerIdx%).imgHandle&
+    ELSE
+        _LOGERROR "TEXT_LAYER_rasterize: Invalid imgHandle for layer" + STR$(layerIdx%)
+    END IF
+
+    ' Convert to image layer
+    LAYERS(layerIdx%).layerType = LAYER_TYPE_IMAGE
+    LAYERS(layerIdx%).textDataIdx = 0
+    LAYERS(layerIdx%).contentDirty = TRUE
+
+    ' Free text data
+    TEXT_LAYER_free tdIdx%
+
+    _LOGINFO "TEXT_LAYER_rasterize: rasterized layer" + STR$(layerIdx%)
+END SUB
+
+
+''
+' Find the start of the previous word boundary (for Ctrl+Left).
+' Skips whitespace/newlines backward, then skips non-whitespace backward.
+' @param idx% Pool index
+' @param fromPos% Current cursor position (0-based)
+' @return INTEGER New cursor position at start of previous word
+'
+FUNCTION TEXT_LAYER_prev_word_pos% (idx%, fromPos%)
+    TEXT_LAYER_prev_word_pos% = 0
+    IF idx% < 1 OR idx% > TEXT_LAYER_POOL_SIZE THEN EXIT FUNCTION
+    IF NOT TEXT_LAYER_DATA(idx%).used THEN EXIT FUNCTION
+    IF fromPos% <= 0 THEN EXIT FUNCTION
+
+    DIM p AS INTEGER
+    p% = fromPos%
+
+    ' Phase 1: skip whitespace / newlines backward
+    DO WHILE p% > 0
+        DIM c1 AS STRING
+        c1$ = TL_CHAR(idx%, p% - 1)
+        IF c1$ <> " " AND c1$ <> CHR$(10) THEN EXIT DO
+        p% = p% - 1
+    LOOP
+
+    ' Phase 2: skip word characters backward
+    DO WHILE p% > 0
+        DIM c2 AS STRING
+        c2$ = TL_CHAR(idx%, p% - 1)
+        IF c2$ = " " OR c2$ = CHR$(10) THEN EXIT DO
+        p% = p% - 1
+    LOOP
+
+    TEXT_LAYER_prev_word_pos% = p%
+END FUNCTION
+
+
+''
+' Find the end of the next word boundary (for Ctrl+Right).
+' Skips non-whitespace forward, then skips whitespace/newlines forward.
+' @param idx% Pool index
+' @param fromPos% Current cursor position (0-based)
+' @return INTEGER New cursor position at end of next word
+'
+FUNCTION TEXT_LAYER_next_word_pos% (idx%, fromPos%)
+    TEXT_LAYER_next_word_pos% = 0
+    IF idx% < 1 OR idx% > TEXT_LAYER_POOL_SIZE THEN EXIT FUNCTION
+    IF NOT TEXT_LAYER_DATA(idx%).used THEN EXIT FUNCTION
+
+    DIM cc AS INTEGER
+    cc% = TEXT_LAYER_DATA(idx%).charCount
+    IF fromPos% >= cc% THEN
+        TEXT_LAYER_next_word_pos% = cc%
+        EXIT FUNCTION
+    END IF
+
+    DIM p AS INTEGER
+    p% = fromPos%
+
+    ' Phase 1: skip word characters forward
+    DO WHILE p% < cc%
+        DIM c3 AS STRING
+        c3$ = TL_CHAR(idx%, p%)
+        IF c3$ = " " OR c3$ = CHR$(10) THEN EXIT DO
+        p% = p% + 1
+    LOOP
+
+    ' Phase 2: skip whitespace / newlines forward
+    DO WHILE p% < cc%
+        DIM c4 AS STRING
+        c4$ = TL_CHAR(idx%, p%)
+        IF c4$ <> " " AND c4$ <> CHR$(10) THEN EXIT DO
+        p% = p% + 1
+    LOOP
+
+    TEXT_LAYER_next_word_pos% = p%
+END FUNCTION
+
+
+''
+' Get the Y position for a given line number (accounts for leading).
+' @param idx% Pool index
+' @param lineNum% Line number (0-based)
+' @return INTEGER Y position in canvas coordinates
+'
+FUNCTION TEXT_LAYER_get_line_y% (idx%, lineNum%)
+    TEXT_LAYER_get_line_y% = 0
+    IF idx% < 1 OR idx% > TEXT_LAYER_POOL_SIZE THEN EXIT FUNCTION
+    IF NOT TEXT_LAYER_DATA(idx%).used THEN EXIT FUNCTION
+
+    DIM y AS INTEGER
+    y% = TEXT_LAYER_DATA(idx%).startY
+
+    DIM ln AS INTEGER
+    FOR ln% = 0 TO lineNum% - 1
+        DIM leading AS INTEGER
+        leading% = TL_LEADING(idx%, ln%)
+        IF leading% = 0 THEN leading% = TEXT_LAYER_DATA(idx%).defaultLeading
+        y% = y% + leading%
+    NEXT ln%
+
+    TEXT_LAYER_get_line_y% = y%
+END FUNCTION
+
+
+''
+' Get the X position for a given character (accounts for kerning and widths).
+' @param idx% Pool index
+' @param charIdx% Character index (0-based)
+' @return INTEGER X position in canvas coordinates
+'
+FUNCTION TEXT_LAYER_get_char_x% (idx%, charIdx%)
+    TEXT_LAYER_get_char_x% = 0
+    IF idx% < 1 OR idx% > TEXT_LAYER_POOL_SIZE THEN EXIT FUNCTION
+    IF NOT TEXT_LAYER_DATA(idx%).used THEN EXIT FUNCTION
+
+    DIM curX AS INTEGER
+    DIM curLine AS INTEGER
+    DIM c AS INTEGER
+    curX% = TEXT_LAYER_DATA(idx%).startX
+    curLine% = 0
+
+    FOR c% = 0 TO charIdx% - 1
+        IF c% >= TEXT_LAYER_DATA(idx%).charCount THEN EXIT FOR
+
+        ' Check for line break
+        IF curLine% < TEXT_LAYER_DATA(idx%).lineCount - 1 THEN
+            IF c% = TL_LINE_BREAK(idx%, curLine% + 1) THEN
+                curLine% = curLine% + 1
+                curX% = TEXT_LAYER_DATA(idx%).startX
+            END IF
+        END IF
+
+        IF TL_CHAR(idx%, c%) = CHR$(10) THEN _CONTINUE
+
+        DIM fontStyle AS STRING
+        fontStyle$ = FONT_STYLE_REGULAR$
+        IF TL_BOLD(idx%, c%) AND TL_ITALIC(idx%, c%) THEN
+            fontStyle$ = FONT_STYLE_BOLDITALIC$
+        ELSEIF TL_BOLD(idx%, c%) THEN
+            fontStyle$ = FONT_STYLE_BOLD$
+        ELSEIF TL_ITALIC(idx%, c%) THEN
+            fontStyle$ = FONT_STYLE_ITALIC$
+        END IF
+
+        DIM fHandle AS LONG
+        fHandle& = FONT_LIST_get_handle&(TL_FONT_IDX(idx%, c%), TL_FONT_SIZE(idx%, c%), fontStyle$, TEXT_LAYER_DATA(idx%).monospace)
+        IF fHandle& > 0 THEN
+            DIM oldFont AS LONG
+            oldFont& = _FONT
+            _FONT fHandle&
+            DIM charW AS INTEGER
+            charW% = _PRINTWIDTH(TL_CHAR(idx%, c%))
+            _FONT oldFont&
+            ' Faux bold: +1px for synthesis glyph width
+            DIM fauxBoldAdv AS INTEGER
+            fauxBoldAdv% = 0
+            IF TL_BOLD(idx%, c%) THEN
+                IF NOT FONT_LIST(TL_FONT_IDX(idx%, c%)).hasBold THEN
+                    fauxBoldAdv% = 1
+                END IF
+            END IF
+            curX% = curX% + charW% + TL_KERN(idx%, c%) + fauxBoldAdv%
+        END IF
+    NEXT c%
+
+    ' Check if charIdx% itself sits at a line break (cursor at start of new line)
+    IF curLine% < TEXT_LAYER_DATA(idx%).lineCount - 1 THEN
+        IF charIdx% = TL_LINE_BREAK(idx%, curLine% + 1) THEN
+            curX% = TEXT_LAYER_DATA(idx%).startX
+        END IF
+    END IF
+
+    TEXT_LAYER_get_char_x% = curX%
+END FUNCTION
+
+
+''
+' Get which line a character belongs to.
+' @param idx% Pool index
+' @param charIdx% Character index (0-based)
+' @return INTEGER Line number (0-based)
+'
+FUNCTION TEXT_LAYER_get_line_for_char% (idx%, charIdx%)
+    TEXT_LAYER_get_line_for_char% = 0
+    IF idx% < 1 OR idx% > TEXT_LAYER_POOL_SIZE THEN EXIT FUNCTION
+    IF NOT TEXT_LAYER_DATA(idx%).used THEN EXIT FUNCTION
+
+    DIM ln AS INTEGER
+    FOR ln% = TEXT_LAYER_DATA(idx%).lineCount - 1 TO 0 STEP -1
+        IF charIdx% >= TL_LINE_BREAK(idx%, ln%) THEN
+            TEXT_LAYER_get_line_for_char% = ln%
+            EXIT FUNCTION
+        END IF
+    NEXT ln%
+END FUNCTION
+
+
+''
+' Copy all text layer data from one pool slot to another.
+' Used for layer duplication.
+' @param srcIdx% Source pool index
+' @param destIdx% Destination pool index (must be pre-allocated)
+'
+SUB TEXT_LAYER_copy_data (srcIdx%, destIdx%)
+    IF srcIdx% < 1 OR srcIdx% > TEXT_LAYER_POOL_SIZE THEN EXIT SUB
+    IF destIdx% < 1 OR destIdx% > TEXT_LAYER_POOL_SIZE THEN EXIT SUB
+    IF NOT TEXT_LAYER_DATA(srcIdx%).used THEN EXIT SUB
+
+    TEXT_LAYER_DATA(destIdx%) = TEXT_LAYER_DATA(srcIdx%)
+
+    ' Copy per-char arrays
+    DIM c AS INTEGER
+    FOR c% = 0 TO TEXT_LAYER_DATA(srcIdx%).charCount - 1
+        TL_CHAR(destIdx%, c%) = TL_CHAR(srcIdx%, c%)
+        TL_FG(destIdx%, c%) = TL_FG(srcIdx%, c%)
+        TL_BG(destIdx%, c%) = TL_BG(srcIdx%, c%)
+        TL_FONT_IDX(destIdx%, c%) = TL_FONT_IDX(srcIdx%, c%)
+        TL_FONT_SIZE(destIdx%, c%) = TL_FONT_SIZE(srcIdx%, c%)
+        TL_BOLD(destIdx%, c%) = TL_BOLD(srcIdx%, c%)
+        TL_ITALIC(destIdx%, c%) = TL_ITALIC(srcIdx%, c%)
+        TL_UNDERLINE(destIdx%, c%) = TL_UNDERLINE(srcIdx%, c%)
+        TL_STRIKE(destIdx%, c%) = TL_STRIKE(srcIdx%, c%)
+        TL_KERN(destIdx%, c%) = TL_KERN(srcIdx%, c%)
+        TL_BASELINE(destIdx%, c%) = TL_BASELINE(srcIdx%, c%)
+    NEXT c%
+
+    ' Copy per-line arrays
+    DIM ln AS INTEGER
+    FOR ln% = 0 TO TEXT_LAYER_DATA(srcIdx%).lineCount - 1
+        TL_LINE_BREAK(destIdx%, ln%) = TL_LINE_BREAK(srcIdx%, ln%)
+        TL_LEADING(destIdx%, ln%) = TL_LEADING(srcIdx%, ln%)
+    NEXT ln%
+
+    TEXT_LAYER_DATA(destIdx%).dirty = TRUE
+END SUB
+
+
+''
+' Find the nearest cursor position for a canvas click within a text layer.
+' Returns the cursor position (0 to charCount) where the cursor should be
+' placed, or -1 if the click is outside the text area entirely.
+'
+' Unlike TEXT_LAYER_get_char_at_pos% which only matches exact character bounds,
+' this function finds the closest insertion point including clicks between chars,
+' at end of lines, and in vertical space between lines.
+'
+' @param idx% Pool index
+' @param canvasX% Canvas X coordinate
+' @param canvasY% Canvas Y coordinate
+' @return INTEGER cursor position (0–charCount) or -1 if outside text area
+'
+FUNCTION TEXT_LAYER_get_cursor_at_pos% (idx%, canvasX%, canvasY%)
+    TEXT_LAYER_get_cursor_at_pos% = -1
+    IF idx% < 1 OR idx% > TEXT_LAYER_POOL_SIZE THEN EXIT FUNCTION
+    IF NOT TEXT_LAYER_DATA(idx%).used THEN EXIT FUNCTION
+
+    DIM startX AS INTEGER, startY AS INTEGER
+    startX% = TEXT_LAYER_DATA(idx%).startX
+    startY% = TEXT_LAYER_DATA(idx%).startY
+    DIM lc AS INTEGER
+    lc% = TEXT_LAYER_DATA(idx%).lineCount
+    IF lc% < 1 THEN lc% = 1
+    DIM fs AS INTEGER
+    fs% = TEXT_LAYER_DATA(idx%).fontSize
+    IF fs% < 4 THEN fs% = 4
+    DIM defLead AS INTEGER
+    defLead% = TEXT_LAYER_DATA(idx%).defaultLeading
+    IF defLead% < fs% THEN defLead% = fs% + 4
+
+    ' Compute total text block height
+    DIM totalH AS INTEGER
+    totalH% = 0
+    DIM ln AS INTEGER
+    FOR ln% = 0 TO lc% - 1
+        DIM lnLead AS INTEGER
+        lnLead% = TL_LEADING(idx%, ln%)
+        IF lnLead% = 0 THEN lnLead% = defLead%
+        totalH% = totalH% + lnLead%
+    NEXT ln%
+    IF totalH% < defLead% THEN totalH% = defLead%
+
+    ' Compute max line width for broad X check
+    DIM maxW AS INTEGER
+    maxW% = TEXT_LAYER_get_char_x%(idx%, TEXT_LAYER_DATA(idx%).charCount) - startX%
+    ' Check each line's end position for true max width
+    FOR ln% = 0 TO lc% - 1
+        DIM lineEnd AS INTEGER
+        IF ln% < lc% - 1 THEN
+            lineEnd% = TL_LINE_BREAK(idx%, ln% + 1)
+        ELSE
+            lineEnd% = TEXT_LAYER_DATA(idx%).charCount
+        END IF
+        DIM lineW AS INTEGER
+        lineW% = TEXT_LAYER_get_char_x%(idx%, lineEnd%) - startX%
+        IF lineW% > maxW% THEN maxW% = lineW%
+    NEXT ln%
+    IF maxW% < 32 THEN maxW% = 32
+
+    ' Add margin for clicking slightly outside
+    DIM margin AS INTEGER
+    margin% = fs% \ 2
+    IF margin% < 4 THEN margin% = 4
+
+    ' Broad bounding box check
+    IF canvasX% < startX% - margin% OR canvasX% > startX% + maxW% + margin% THEN EXIT FUNCTION
+    IF canvasY% < startY% - margin% OR canvasY% > startY% + totalH% + margin% THEN EXIT FUNCTION
+
+    ' Find which line the click is on
+    DIM targetLine AS INTEGER
+    targetLine% = -1
+    DIM lineY AS INTEGER
+    lineY% = startY%
+    FOR ln% = 0 TO lc% - 1
+        lnLead% = TL_LEADING(idx%, ln%)
+        IF lnLead% = 0 THEN lnLead% = defLead%
+        IF canvasY% >= lineY% AND canvasY% < lineY% + lnLead% THEN
+            targetLine% = ln%
+            EXIT FOR
+        END IF
+        lineY% = lineY% + lnLead%
+    NEXT ln%
+    ' If below all lines, snap to last line
+    IF targetLine% = -1 THEN targetLine% = lc% - 1
+
+    ' Get the char range for the target line
+    DIM lineStart AS INTEGER, lineEndPos AS INTEGER
+    lineStart% = TL_LINE_BREAK(idx%, targetLine%)
+    IF targetLine% < lc% - 1 THEN
+        lineEndPos% = TL_LINE_BREAK(idx%, targetLine% + 1)
+    ELSE
+        lineEndPos% = TEXT_LAYER_DATA(idx%).charCount
+    END IF
+
+    ' If line is empty (or only contains a newline char), return line start
+    IF lineStart% >= lineEndPos% THEN
+        TEXT_LAYER_get_cursor_at_pos% = lineStart%
+        EXIT FUNCTION
+    END IF
+
+    ' Walk characters on this line to find nearest cursor position
+    DIM curX AS INTEGER
+    curX% = startX%
+    DIM bestPos AS INTEGER
+    bestPos% = lineStart%
+    DIM bestDist AS INTEGER
+    bestDist% = ABS(canvasX% - curX%)
+
+    DIM c AS INTEGER
+    FOR c% = lineStart% TO lineEndPos% - 1
+        IF TL_CHAR(idx%, c%) = CHR$(10) THEN _CONTINUE
+
+        DIM cFontStyle AS STRING
+        cFontStyle$ = FONT_STYLE_REGULAR$
+        IF TL_BOLD(idx%, c%) AND TL_ITALIC(idx%, c%) THEN
+            cFontStyle$ = FONT_STYLE_BOLDITALIC$
+        ELSEIF TL_BOLD(idx%, c%) THEN
+            cFontStyle$ = FONT_STYLE_BOLD$
+        ELSEIF TL_ITALIC(idx%, c%) THEN
+            cFontStyle$ = FONT_STYLE_ITALIC$
+        END IF
+
+        DIM cFHandle AS LONG
+        cFHandle& = FONT_LIST_get_handle&(TL_FONT_IDX(idx%, c%), TL_FONT_SIZE(idx%, c%), cFontStyle$, TEXT_LAYER_DATA(idx%).monospace)
+        IF cFHandle& > 0 THEN
+            DIM cOldFont AS LONG
+            cOldFont& = _FONT
+            _FONT cFHandle&
+            DIM cCharW AS INTEGER
+            cCharW% = _PRINTWIDTH(TL_CHAR(idx%, c%))
+            _FONT cOldFont&
+            ' Faux bold: +1px for synthesis glyph width
+            DIM cFauxBoldAdv AS INTEGER
+            cFauxBoldAdv% = 0
+            IF TL_BOLD(idx%, c%) THEN
+                IF NOT FONT_LIST(TL_FONT_IDX(idx%, c%)).hasBold THEN
+                    cFauxBoldAdv% = 1
+                END IF
+            END IF
+            curX% = curX% + cCharW% + TL_KERN(idx%, c%) + cFauxBoldAdv%
+        END IF
+
+        ' Check if cursor position after this char is closer
+        DIM dist AS INTEGER
+        dist% = ABS(canvasX% - curX%)
+        IF dist% < bestDist% THEN
+            bestDist% = dist%
+            bestPos% = c% + 1
+        END IF
+    NEXT c%
+
+    TEXT_LAYER_get_cursor_at_pos% = bestPos%
+END FUNCTION

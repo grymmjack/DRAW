@@ -38,6 +38,10 @@ CONST BLEND_COLOR        = 17
 CONST BLEND_LUMINOSITY   = 18
 CONST BLEND_MODE_COUNT   = 19 ' Total number of blend modes
 
+' Layer type constants
+CONST LAYER_TYPE_IMAGE = 0   ' Standard pixel/image layer (default)
+CONST LAYER_TYPE_TEXT  = 1   ' Non-destructive text layer
+
 TYPE DRAW_LAYER
     historyId    AS LONG        ' Stable runtime identity for unified history
     zIndex       AS INTEGER     ' Layer stacking order (1 = bottom)
@@ -55,6 +59,8 @@ TYPE DRAW_LAYER
     opacityCacheImg AS LONG     ' Cached opacity-adjusted image (0 = not cached)
     opacityCacheVal AS INTEGER  ' Opacity value when cache was built
     contentDirty    AS INTEGER  ' TRUE = layer content changed, invalidate opacity cache
+    layerType       AS INTEGER  ' LAYER_TYPE_IMAGE (0) or LAYER_TYPE_TEXT (1)
+    textDataIdx     AS INTEGER  ' Index into TEXT_LAYER_DATA() pool (0 = not a text layer)
 END TYPE
 
 TYPE LAYER_PANEL_OBJ
@@ -123,6 +129,7 @@ DECLARE FUNCTION LAYERS_recount% ()
 DECLARE FUNCTION LAYERS_alloc_history_id& ()
 DECLARE FUNCTION LAYERS_new% ()
 DECLARE FUNCTION LAYERS_new_at_top% ()
+DECLARE FUNCTION LAYERS_new_text% (x AS INTEGER, y AS INTEGER)
 DECLARE SUB LAYERS_delete (layerIndex AS INTEGER)
 DECLARE SUB LAYERS_duplicate (layerIndex AS INTEGER)
 DECLARE SUB LAYERS_clear (layerIndex AS INTEGER)

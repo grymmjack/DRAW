@@ -1,0 +1,108 @@
+# STATE MACHINES TO CREATE
+
+As state machines are so helpful for our work together for the text tool, I want you to create similar state machines for:
+
+## GLOBAL
+- MOUSE OPERATION
+  - ALL GESTURES
+- KEYBOARD OPERATION
+  - HOTKEYS
+  - CHORDS
+
+## GUI CHROME / WIDGETS / PANELS
+
+- Menu Bar
+  - Including Sub-menus
+- Layers Panel (including Blend mode popup-menu)
+- Toolbox
+- Organizer
+- Drawers
+- Tooltips
+- Mini Palette
+
+- Drawing Mode: Color (Brushes Bin)
+- Drawing Mode: Graidents (Gradient Bin)
+- Drawing Mode: Pattern (Patterns Bin)
+
+- Edit Bar
+- Status Bar
+- Color Strip
+- Palette Menu
+- Command Palette
+- Preview Window (Preview Window Mode, Floating Image Mode, Follow Cursor, ALlow Color Pick, Bin QUicklook)
+- Dialogs (ALL)
+
+## TOOLS
+
+- MOVE
+- PAN
+- ZOOM
+- CROP
+- MARQUEE: RECTANGLE
+- MARQUEE: FREEHAND
+- MARQUEE: POLYGONAL
+- MARQUEE: ELLIPSE
+- MARQUEE: WAND
+- COLOR PICKER
+- ERASER
+- DOT
+- BRUSH (including custom brush, create custom brush, store custom brush in bin, transform brush, recolor mode, pixel perfect mode)
+- SPRAY
+- FILL
+- LINE
+- POLY LINE
+- FILLED POLYGON
+- SAVE
+- QB64 CODE
+- RECTANGLE
+- FILLED RECTANGLE
+- EXPORT SELECTION
+- CHEAT SHEET
+- ELLIPSE
+- FILLED ELLIPSE
+- LOAD
+
+## UTILTIIES AND ASSISTANTS
+- CROSSHAIR ASSITANT
+- COLOR PICKER LOUPE
+- SYMMETRY ASSISTANT
+- PATTERN TILE MODE
+- GRID (SNAP, SNAP MODES, MODES, GRID CELL FILL)
+- BRUSH SIZE
+- COLOR MODE SLOT (RESET COLORS, SWAP COLORS)
+- REFERENCE IMAGE (REPOSITION, LOAD, CLEAR)
+
+## LAYER OPERATIONS
+- ADD NEW
+- DUPLICATE
+- DELETE
+- MERGE DOWN
+- MERGE SELECTED
+- MERGE ALL
+- ARRANGE MOVE UP
+- ARRANGE MOVE DOWN
+- ARRANGE MOVE TO TOP
+- ARRANGE MOVE TO BOTTOM
+- ALIGN LEFT/CENTER/RIGHT/TOP/MIDDLE/BOTTOM
+- DISTRIBUTE H/V
+- MULTIPLE LAYER SELECTIONS
+
+## TRANSFORM OPERATIONS
+- FLIP HORIZONTAL
+- FLIP VERTICAL
+- ROTATE 90 CW
+- ROTATE 90 CCW
+- SCALE +50%
+- SCALE -50%
+- TRANSFORM OPERATIONS: SCALE, DISTORT, PERSPECTIVE, ROTATE, SHEAR
+
+## IMAGE OPERATIONS
+- RESIZE
+- CROP
+- DIALOG BASED ADJUSTMENTS (BRIGHTNESS, HUE, LEVELS, BLUR, SHARPEN, etc.)
+- REMOVE BACKGROUND
+
+## FILE OPERATIONS
+- IMPORT IMAGE
+- EXTRACT IMAGES
+- LOAD RECENT

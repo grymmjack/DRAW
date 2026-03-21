@@ -749,6 +749,7 @@ SUB SCREEN_init ()
     SCRN.showMenubar% = TRUE
     PREVIEW_init  ' Initialize preview window (must be after CONFIG_load and SCREEN dimensions set)
     EDITBAR_init  ' Initialize edit bar (must be after CONFIG_load and THEME_load)
+    TEXT_BAR_init  ' Initialize text formatting bar
 
     ' Save config if this was a first-run (file didn't exist)
     ' Now SCRN.w/h and displayScale are resolved, so saved values will be correct
@@ -890,6 +891,19 @@ SUB RENDER_layers (dx AS INTEGER, dy AS INTEGER, zw AS LONG, zh AS LONG)
 
             IF layerFound% > 0 THEN
                 IF LAYERS(layerFound%).visible% THEN
+                ' Render dirty text layers into their imgHandle before compositing
+                IF LAYERS(layerFound%).layerType% = LAYER_TYPE_TEXT THEN
+                    DIM tlDIdx AS INTEGER
+                    tlDIdx% = LAYERS(layerFound%).textDataIdx%
+                    IF tlDIdx% >= 1 AND TEXT_LAYER_DATA(tlDIdx%).dirty THEN
+                        TEXT_LAYER_render tlDIdx%, LAYERS(layerFound%).imgHandle&
+                        ' Only clear dirty if NOT the actively-editing text layer
+                        ' TEXT_render_preview also needs the dirty flag to refresh its preview cache
+                        IF NOT (TEXT.ACTIVE AND TEXT.editingTextLayer% = layerFound%) THEN
+                            TEXT_LAYER_DATA(tlDIdx%).dirty = FALSE
+                        END IF
+                    END IF
+                END IF
                 ' Determine which image to render for this layer
                 ' If MOVE tool is active on this layer, use the preview buffer instead
                 DIM layerRenderSource AS LONG
@@ -1598,6 +1612,9 @@ SUB RENDER_crosshair_and_command_palette ()
             crosshairOverUI% = TRUE
         END IF
     END IF
+    IF NOT crosshairOverUI% AND TEXT_BAR.visible% AND TEXT_BAR_in_bounds%(cmx%, cmy%) THEN
+        crosshairOverUI% = TRUE
+    END IF
     IF NOT crosshairOverUI% AND SCRN.showStatus% THEN
         DIM ch_strip_top AS INTEGER
         ch_strip_top% = SCRN.h& - THEME.STATUS_height% - PALETTE_STRIP_get_height%
@@ -1673,6 +1690,25 @@ SUB SCREEN_compute_layout ()
 
     SCRN.uiLeftEdge% = leftX%
     SCRN.uiRightEdge% = rightX%
+
+    ' Text formatting bar — sits below menu bar when text tool active or editing text layer
+    ' Respect toggle-all (F11) — suppress visibility while hidden by toggle-all
+    IF SCRN.textBarHiddenByToggleAll% THEN
+        TEXT_BAR.visible% = FALSE
+    ELSE
+        TEXT_BAR.visible% = (CURRENT_TOOL% = TOOL_TEXT) OR (TEXT_BAR.editingLayerIdx% > 0)
+    END IF
+    IF TEXT_BAR.visible% AND SCRN.showMenubar% THEN
+        TEXT_BAR.barX% = SCRN.menuBarLeftEdge%
+        TEXT_BAR.barY% = MENU_BAR_HEIGHT
+        TEXT_BAR.barW% = SCRN.menuBarRightEdge% - SCRN.menuBarLeftEdge% + 1
+        TEXT_BAR.barH% = TEXT_BAR_HEIGHT
+    ELSEIF TEXT_BAR.visible% THEN
+        TEXT_BAR.barX% = SCRN.menuBarLeftEdge%
+        TEXT_BAR.barY% = 0
+        TEXT_BAR.barW% = SCRN.menuBarRightEdge% - SCRN.menuBarLeftEdge% + 1
+        TEXT_BAR.barH% = TEXT_BAR_HEIGHT
+    END IF
 END SUB
 
 
@@ -1709,6 +1745,12 @@ SUB RENDER_gui_elements ()
 
         IF LAYER_PANEL.visible% THEN
             LAYER_PANEL_render SCRN.h&
+        END IF
+
+        ' Text formatting bar below menu bar
+        IF TEXT_BAR.visible% THEN
+            TEXT_BAR_render
+            TEXT_BAR_sync_paint_color
         END IF
 
         ' Menu bar renders LAST so submenus overlay other widgets
@@ -1763,6 +1805,12 @@ SUB SCREEN_render ()
         END IF
         IF LAYER_PANEL.visible% THEN
             LAYER_PANEL_render SCRN.h&
+        END IF
+
+        ' Text formatting bar below menu bar
+        IF TEXT_BAR.visible% THEN
+            TEXT_BAR_render
+            TEXT_BAR_sync_paint_color
         END IF
 
         ' Menu bar renders LAST so submenus overlay other widgets
@@ -1827,6 +1875,7 @@ SUB SCREEN_render ()
         IF TOOLTIP.HOVER_BTN_IDX% >= 0 THEN so_can_partial% = FALSE  ' Tooltip needs full SkipToPointer path
         IF MENUBAR_is_open% THEN so_can_partial% = FALSE             ' Menu dropdowns need full GUI composite over preview
         IF PREVIEW.floatTooltipActive% THEN so_can_partial% = FALSE   ' Float tooltip extends beyond preview bounds
+        IF CURRENT_TOOL% = TOOL_TEXT AND NOT TEXT.ACTIVE THEN so_can_partial% = FALSE  ' Text hover outline needs SkipToPointer path
 
         ' Update only the pure status bar row in SCRN.GUI& (NOT palette strip).
         DIM so_statusTop AS INTEGER
@@ -1988,7 +2037,13 @@ SUB SCREEN_render ()
         _PUTIMAGE , SCENE_CACHE&, SCRN.CANVAS&
         _BLEND SCRN.CANVAS&
         _DEST SCRN.CANVAS&
-        so_used_fallback% = TRUE
+        ' When text tool hover forced us into this fallback (so_can_partial% was FALSE),
+        ' use full GUI composite at SkipToPointer so the hover outline area is properly handled.
+        IF CURRENT_TOOL% = TOOL_TEXT AND NOT TEXT.ACTIVE THEN
+            so_used_fallback% = FALSE
+        ELSE
+            so_used_fallback% = TRUE
+        END IF
         STATUS_NEEDS_REDRAW% = FALSE
         PERF_stop PERF_GUI_ONLY_PATH
         GOTO SkipToPointer
@@ -2080,6 +2135,7 @@ SUB SCREEN_render ()
         IF TOOLTIP.HOVER_BTN_IDX% >= 0 THEN can_partial_present% = FALSE  ' Tooltip needs full SkipToPointer path
         IF MENUBAR_is_open% THEN can_partial_present% = FALSE             ' Menu dropdowns need full GUI composite over preview
         IF PREVIEW.floatTooltipActive% THEN can_partial_present% = FALSE   ' Float tooltip extends beyond preview bounds
+        IF CURRENT_TOOL% = TOOL_TEXT AND NOT TEXT.ACTIVE THEN can_partial_present% = FALSE  ' Text hover outline needs SkipToPointer path
 
         ' Area check: if dirty rect > half the canvas, or overlays are broader than the
         ' pointer region, fall back to full copy
@@ -2469,6 +2525,100 @@ SUB SCREEN_render ()
     PERF_start PERF_SELECTION_OVERLAY
     RENDER_selection_overlay
     PERF_stop PERF_SELECTION_OVERLAY
+
+    ' ==== TEXT LAYER HOVER OUTLINE (after scene cache, moves with mouse) ====
+    IF CURRENT_TOOL% = TOOL_TEXT AND NOT TEXT.ACTIVE THEN
+        ' Compute canvas-to-screen offset locally (dx%/dy% from the main
+        ' render path are not set when we arrive via GOTO SkipToPointer).
+        DIM hovZW AS LONG, hovZH AS LONG
+        DIM hovDX AS INTEGER, hovDY AS INTEGER
+        hovZW& = SCRN.canvasW& * SCRN.zoom!
+        hovZH& = SCRN.canvasH& * SCRN.zoom!
+        IF SCRN.patternTileMode% THEN
+            hovDX% = (SCRN.w& - hovZW& * 3) \ 2 + SCRN.offsetX% + hovZW&
+            hovDY% = (SCRN.h& - hovZH& * 3) \ 2 + SCRN.offsetY% + hovZH&
+        ELSE
+            hovDX% = (SCRN.w& - hovZW&) \ 2 + SCRN.offsetX%
+            hovDY% = (SCRN.h& - hovZH&) \ 2 + SCRN.offsetY%
+        END IF
+        DIM hovLi AS INTEGER
+        FOR hovLi% = 64 TO 1 STEP -1
+            IF LAYERS(hovLi%).imgHandle& < -1 AND LAYERS(hovLi%).layerType% = LAYER_TYPE_TEXT THEN
+                IF LAYERS(hovLi%).visible% THEN
+                    DIM hovTd AS INTEGER
+                    hovTd% = LAYERS(hovLi%).textDataIdx%
+                    IF hovTd% >= 1 AND TEXT_LAYER_DATA(hovTd%).used THEN
+                        IF TEXT_LAYER_DATA(hovTd%).charCount > 0 THEN
+                            DIM hovCX AS INTEGER, hovCY AS INTEGER
+                            hovCX% = TEXT_LAYER_DATA(hovTd%).startX
+                            hovCY% = TEXT_LAYER_DATA(hovTd%).startY
+                            DIM hovFS AS INTEGER, hovLC AS INTEGER
+                            hovFS% = TEXT_LAYER_DATA(hovTd%).fontSize
+                            IF hovFS% < 4 THEN hovFS% = 4
+                            hovLC% = TEXT_LAYER_DATA(hovTd%).lineCount
+                            IF hovLC% < 1 THEN hovLC% = 1
+                            ' Compute max line width across ALL lines
+                            DIM hovW AS INTEGER
+                            hovW% = 0
+                            DIM hovLn AS INTEGER
+                            FOR hovLn% = 0 TO hovLC% - 1
+                                DIM hovLineEnd AS INTEGER
+                                IF hovLn% < hovLC% - 1 THEN
+                                    hovLineEnd% = TL_LINE_BREAK(hovTd%, hovLn% + 1)
+                                ELSE
+                                    hovLineEnd% = TEXT_LAYER_DATA(hovTd%).charCount
+                                END IF
+                                DIM hovLineW AS INTEGER
+                                hovLineW% = TEXT_LAYER_get_char_x%(hovTd%, hovLineEnd%) - hovCX%
+                                IF hovLineW% > hovW% THEN hovW% = hovLineW%
+                            NEXT hovLn%
+                            IF hovW% < 8 THEN hovW% = 8
+                            ' Height: leading for lines 0..N-2, plus font height for last line
+                            DIM hovH AS INTEGER
+                            DIM hovLead AS INTEGER
+                            hovH% = 0
+                            FOR hovLn% = 0 TO hovLC% - 2
+                                hovLead% = TL_LEADING(hovTd%, hovLn%)
+                                IF hovLead% = 0 THEN hovLead% = TEXT_LAYER_DATA(hovTd%).defaultLeading
+                                hovH% = hovH% + hovLead%
+                            NEXT hovLn%
+                            ' Add font height of last line (actual glyph height)
+                            DIM hovLastFS AS INTEGER
+                            IF TEXT_LAYER_DATA(hovTd%).charCount > 0 THEN
+                                DIM hovLastC AS INTEGER
+                                hovLastC% = TEXT_LAYER_DATA(hovTd%).charCount - 1
+                                hovLastFS% = TL_FONT_SIZE(hovTd%, hovLastC%)
+                            ELSE
+                                hovLastFS% = hovFS%
+                            END IF
+                            IF hovLastFS% < hovFS% THEN hovLastFS% = hovFS%
+                            hovH% = hovH% + hovLastFS%
+                            IF hovH% < 8 THEN hovH% = 8
+                            ' Hit-test mouse in canvas coords (use unsnapped to avoid grid-snap shimmer)
+                            IF MOUSE.UNSNAPPED_X% >= hovCX% AND MOUSE.UNSNAPPED_X% < hovCX% + hovW% AND MOUSE.UNSNAPPED_Y% >= hovCY% AND MOUSE.UNSNAPPED_Y% < hovCY% + hovH% THEN
+                                ' Convert canvas coords to screen coords
+                                DIM hovSX1 AS INTEGER, hovSY1 AS INTEGER
+                                DIM hovSX2 AS INTEGER, hovSY2 AS INTEGER
+                                hovSX1% = INT(hovCX% * SCRN.zoom!) + hovDX% - 1
+                                hovSY1% = INT(hovCY% * SCRN.zoom!) + hovDY% - 1
+                                hovSX2% = INT((hovCX% + hovW%) * SCRN.zoom!) + hovDX%
+                                hovSY2% = INT((hovCY% + hovH%) * SCRN.zoom!) + hovDY%
+                                _DEST SCRN.CANVAS&
+                                DIM hovStroke AS INTEGER, hovS AS INTEGER
+                                hovStroke% = THEME.TEXT_LAYER_HOVER_OUTLINE_WIDTH%
+                                IF hovStroke% < 1 THEN hovStroke% = 1
+                                FOR hovS% = 0 TO hovStroke% - 1
+                                    LINE (hovSX1% - hovS%, hovSY1% - hovS%)-(hovSX2% + hovS%, hovSY2% + hovS%), THEME.TEXT_LAYER_HOVER_OUTLINE~&, B
+                                NEXT hovS%
+                                EXIT FOR
+                            END IF
+                        END IF
+                    END IF
+                END IF
+            END IF
+        NEXT hovLi%
+    END IF
+
     PERF_start PERF_POINTER_RENDER
     POINTER_update
     POINTER_render

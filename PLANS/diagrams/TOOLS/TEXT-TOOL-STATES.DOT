@@ -1,0 +1,382 @@
+digraph TEXT_TOOL {
+    label="TEXT TOOL STATE MACHINE" labelloc=t labeljust=c
+    ordering=out rankdir=TB
+    fontcolor=white fontsize=24.0 fontname="Cascadia Code PL"
+    splines=true compound=true
+    bgcolor=transparent
+    edge [
+        color=gray fontcolor="#aaaaaa" fontsize=9.0
+        fontname="Cascadia Code PL"
+    ];
+    node [
+        color=white shape=rect style=""
+        fontname="Cascadia Code PL" fontsize=11.0 fontcolor=cyan
+    ];
+
+    // ─────────────────────────────────────────────────────
+    //  CATEGORY FOLDERS
+    // ─────────────────────────────────────────────────────
+
+    { node [shape=folder color=orange penwidth=2 fontcolor=orange fontsize=13.0];
+        MAIN_STATES [label="MAIN STATES"];
+        TEXT_BAR_UI [label="TEXT BAR"];
+        CURSOR [label="CURSOR"];
+        SELECTION [label="SELECTION"];
+        CLIPBOARD [label="CLIPBOARD"];
+        POOL [label="LAYER POOL"];
+        HISTORY [label="HISTORY"];
+    }
+
+    // ─────────────────────────────────────────────────────
+    //  MAIN STATES
+    // ─────────────────────────────────────────────────────
+
+    S1 [label="1 · INACTIVE\n─────────────────\nTEXT.ACTIVE = FALSE\nCURRENT_TOOL ≠ TOOL_TEXT\nTEXT_BAR.visible = FALSE"];
+    S2 [label="2 · IDLE\n─────────────────\nTEXT.ACTIVE = FALSE\nCURRENT_TOOL = TOOL_TEXT\nTEXT_BAR.visible = TRUE\neditingTextLayer = 0"];
+    S3 [label="3 · EDITING\n─────────────────\nTEXT.ACTIVE = TRUE\neditingTextLayer ≥ 1\nTEXT_BAR.visible = TRUE\nAccepts keyboard input\nBounds: layerIdx 1–64"];
+    S4 [label="4 · RE-EDITING\n─────────────────\nTEXT.ACTIVE = TRUE\nLoaded from existing layer\ncursorPos = charCount\n(same ops as State 3)"];
+    S5 [label="5 · COMMITTED\n─────────────────\nTEXT.ACTIVE = FALSE\nlayerType = LAYER_TYPE_TEXT\nText preserved, editable\nNo history entry"];
+    S6 [label="6 · RASTERIZED\n─────────────────\nlayerType = LAYER_TYPE_IMAGE\ntextDataIdx = 0 (freed)\nText is now pixels\nIrreversible\nGuard: imgHandle < -1"];
+
+    // ─────────────────────────────────────────────────────
+    //  MAIN TRANSITIONS
+    // ─────────────────────────────────────────────────────
+
+    S1 -> S2 [
+        label="  Toolbar click / 'T' key\n  TOOLBAR_click · KEYBOARD_tools"
+        arrowhead=normal color="#66cc66"
+    ];
+    S2 -> S1 [
+        label="  Switch to another tool\n  TEXT_reset()"
+        arrowhead=normal color="#cc6666" style=dashed
+    ];
+    S2 -> S3 [
+        label="  Canvas click (B1)\n  MOUSE_tool_text → TEXT_start(x,y)\n  Creates new LAYER_TYPE_TEXT"
+        arrowhead=normal color="#66cc66"
+    ];
+    S2 -> S4 [
+        label="  Click/Double-click text layer\n  MOUSE_tool_text → TEXT_re_edit(li%)\n  Cursor at click pos · TEXT_sync_bar_to_cursor"
+        arrowhead=normal color="#6699ff"
+    ];
+    S3 -> S5 [
+        label="  ESC (with text) · Tool switch\n  TEXT_cancel → TEXT_commit()\n  Layer stays LAYER_TYPE_TEXT"
+        arrowhead=normal color="#cccc66"
+    ];
+    S3 -> S1 [
+        label="  ESC (empty layer)\n  TEXT_cancel() → LAYERS_delete()\n  Layer removed entirely"
+        arrowhead=normal color="#cc6666" style=dashed
+    ];
+    S3 -> S6 [
+        label="  Menu 713: Rasterize Text Layer\n  TEXT_commit → TEXT_LAYER_rasterize()\n  HISTORY_record_brush"
+        arrowhead=normal color="#cc66cc"
+    ];
+    S4 -> S5 [
+        label="  ESC · Tool switch\n  TEXT_commit()"
+        arrowhead=normal color="#cccc66"
+    ];
+    S3 -> S3 [
+        label="  Single-click on active text\n  MOUSE_tool_text → get_cursor_at_pos\n  Moves cursor, no new layer"
+        arrowhead=normal color="#88aacc"
+    ];
+    S4 -> S6 [
+        label="  Menu 713/714: Rasterize\n  TEXT_LAYER_rasterize()"
+        arrowhead=normal color="#cc66cc"
+    ];
+    S5 -> S4 [
+        label="  Click/Double-click text layer\n  TEXT_re_edit(layer%)\n  Cursor at click pos · TEXT_sync_bar_to_cursor"
+        arrowhead=normal color="#6699ff"
+    ];
+    S5 -> S6 [
+        label="  Menu 713/714: Rasterize\n  CMD_execute_action(713/714)"
+        arrowhead=normal color="#cc66cc"
+    ];
+    S3 -> S1 [
+        label="  DRW_load_binary\n  TEXT_cancel → TEXT_reset()"
+        arrowhead=normal color="#cc6666" style=dotted
+        weight=0
+    ];
+    S3 -> S1 [
+        label="  LAYERS_delete(editingLayer)\n  Resets TEXT.ACTIVE, editingTextLayer,\n  TEXT_BAR.editingLayerIdx (forced)"
+        arrowhead=normal color="#ff6666" weight=0
+    ];
+    S4 -> S1 [
+        label="  LAYERS_delete(editingLayer)\n  (forced cleanup)"
+        arrowhead=normal color="#ff6666" weight=0
+    ];
+
+    // ─────────────────────────────────────────────────────
+    //  TEXT BAR sub-states
+    // ─────────────────────────────────────────────────────
+
+    subgraph cluster_textbar {
+        label="TEXT BAR INTERACTIONS" labelloc=t labeljust=l
+        fontcolor=orange fontsize=11.0 fontname="Cascadia Code PL"
+        color=orange style=dashed penwidth=1
+
+        TB_CLOSED  [label="Dropdowns Closed\n─────────────────\nfontDropdownOpen = FALSE\nsizeDropdownOpen = FALSE"
+                    fontsize=10.0];
+        TB_FONT    [label="Font Dropdown Open\n─────────────────\nfontDropdownOpen = TRUE\nFONT_LIST_scan()\nMousewheel: scroll ±3"
+                    fontsize=10.0];
+        TB_SIZE    [label="Size Dropdown Open\n─────────────────\nsizeDropdownOpen = TRUE\n26 presets (3–128)"
+                    fontsize=10.0];
+        TB_STYLE   [label="Style Toggles\n─────────────────\n[B] Bold  ·  Ctrl+B\n[I] Italic  ·  Ctrl+I\n[U] Underline  ·  Ctrl+U\n[S] Strike  ·  Ctrl+Shift+X"
+                    fontsize=10.0];
+        TB_COLOR   [label="Color Controls\n─────────────────\nFG swatch → color picker\nBG swatch → toggle transparent\nSync: PAINT_COLOR~&"
+                    fontsize=10.0];
+
+        TB_CLOSED -> TB_FONT [
+            label=" Click font btn"
+            arrowhead=normal color="#88aacc" fontsize=8.0
+        ];
+        TB_CLOSED -> TB_SIZE [
+            label=" Click size btn"
+            arrowhead=normal color="#88aacc" fontsize=8.0
+        ];
+        TB_FONT -> TB_CLOSED [
+            label=" Click item / outside"
+            arrowhead=normal color="#88aacc" fontsize=8.0
+        ];
+        TB_FONT -> TB_SIZE [
+            label=" Click size btn"
+            arrowhead=normal color="#88aacc" fontsize=8.0
+        ];
+        TB_SIZE -> TB_CLOSED [
+            label=" Click item / outside"
+            arrowhead=normal color="#88aacc" fontsize=8.0
+        ];
+        TB_SIZE -> TB_FONT [
+            label=" Click font btn"
+            arrowhead=normal color="#88aacc" fontsize=8.0
+        ];
+        TB_CLOSED -> TB_STYLE [
+            label=" Click [B]/[I]/[U]/[S]"
+            arrowhead=normal color="#88aacc" fontsize=8.0
+        ];
+        TB_STYLE -> TB_CLOSED [
+            arrowhead=normal color="#88aacc" style=invis
+        ];
+        TB_CLOSED -> TB_COLOR [
+            label=" Click swatch"
+            arrowhead=normal color="#88aacc" fontsize=8.0
+        ];
+        TB_COLOR -> TB_CLOSED [
+            arrowhead=normal color="#88aacc" style=invis
+        ];
+    }
+
+    // ─────────────────────────────────────────────────────
+    //  CURSOR sub-states
+    // ─────────────────────────────────────────────────────
+
+    subgraph cluster_cursor {
+        label="CURSOR & NAVIGATION" labelloc=t labeljust=l
+        fontcolor=orange fontsize=11.0 fontname="Cascadia Code PL"
+        color=orange style=dashed penwidth=1
+
+        C_BLINK_ON  [label="Cursor Visible\n────────────\nCURSOR_BLINK = 1\n0.5s timer" fontsize=10.0];
+        C_BLINK_OFF [label="Cursor Hidden\n────────────\nCURSOR_BLINK = 0\n0.5s timer" fontsize=10.0];
+        C_NAV       [label="Navigation Keys\n────────────\n← →  move ±1 (0.08s repeat)\nShift+← →  extend selection\nCtrl+← →  word boundary jump\nCtrl+Shift+← →  word select\n↑ ↓  move to line above/below\nShift+↑ ↓  extend selection vert.\nHome  line start\nEnd   line end\nShift+Home/End  select to edge\nTab  insert 4 spaces\nDel   forward-delete\nAll Ctrl+letter: CapsLock-safe"
+                     fontsize=10.0];
+
+        C_BLINK_ON -> C_BLINK_OFF [
+            label=" TIMER > 0.5s\n TEXT_update_cursor"
+            arrowhead=normal color="#88aacc" fontsize=8.0
+        ];
+        C_BLINK_OFF -> C_BLINK_ON [
+            label=" TIMER > 0.5s\n TEXT_update_cursor"
+            arrowhead=normal color="#88aacc" fontsize=8.0
+        ];
+        C_BLINK_ON -> C_NAV [
+            label=" Any key: reset blink"
+            arrowhead=normal color="#88aacc" fontsize=8.0 style=dashed
+        ];
+        C_NAV -> C_BLINK_ON [
+            arrowhead=normal color="#88aacc" style=invis
+        ];
+    }
+
+    // ─────────────────────────────────────────────────────
+    //  SELECTION sub-states
+    // ─────────────────────────────────────────────────────
+
+    subgraph cluster_selection {
+        label="SELECTION" labelloc=t labeljust=l
+        fontcolor=orange fontsize=11.0 fontname="Cascadia Code PL"
+        color=orange style=dashed penwidth=1
+
+        SEL_NONE   [label="No Selection\n────────────\nselActive = FALSE\nselStart = -1\nselEnd = -1"
+                    fontsize=10.0];
+        SEL_ACTIVE [label="Active Selection\n────────────\nselActive = TRUE\n[selStart, selEnd)\nHighlight overlay"
+                    fontsize=10.0];
+
+        SEL_NONE -> SEL_ACTIVE [
+            label=" Shift+← / Shift+→\n Ctrl+Shift+← / Ctrl+Shift+→\n Shift+↑ / Shift+↓\n Shift+Home / Shift+End\n Mouse drag\n Shift+click\n Ctrl+A (select all)"
+            arrowhead=normal color="#88aacc" fontsize=8.0
+        ];
+        SEL_ACTIVE -> SEL_NONE [
+            label=" ← / → (plain arrow)\n ↑ / ↓ (plain arrow)\n Ctrl+← / Ctrl+→ (word jump)\n Any typed char\n Backspace / Delete\n Ctrl+X (cut)\n Click without Shift\n TEXT_clear_selection()"
+            arrowhead=normal color="#88aacc" fontsize=8.0
+        ];
+        SEL_ACTIVE -> SEL_ACTIVE [
+            label=" Shift+← / Shift+→ (extend)\n Ctrl+C (copy · rich clipboard)\n Ctrl+B/I/U/S (apply style)\n Font/Size change (apply)\n Color change (apply)"
+            arrowhead=normal color="#88aacc" fontsize=8.0
+        ];
+    }
+
+    // ─────────────────────────────────────────────────────
+    //  CLIPBOARD sub-states
+    // ─────────────────────────────────────────────────────
+
+    subgraph cluster_clipboard {
+        label="RICH CLIPBOARD" labelloc=t labeljust=l
+        fontcolor=orange fontsize=11.0 fontname="Cascadia Code PL"
+        color=orange style=dashed penwidth=1
+
+        CLIP_EMPTY [label="Clipboard Empty\n────────────\nTEXT_CLIP_COUNT = 0"
+                    fontsize=10.0];
+        CLIP_RICH  [label="Rich Clipboard\n────────────\nTEXT_CLIP_COUNT > 0\nTEXT_CLIP_PLAIN$ set\nPer-char: FG, BG, font,\nsize, bold, italic,\nunderline, strike, kern,\nbaseline preserved"
+                    fontsize=10.0];
+
+        CLIP_EMPTY -> CLIP_RICH [
+            label=" Ctrl+C (copy)\n Ctrl+X (cut)\n Stores attrs + plain text"
+            arrowhead=normal color="#88aacc" fontsize=8.0
+        ];
+        CLIP_RICH -> CLIP_RICH [
+            label=" Ctrl+V (paste)\n If _CLIPBOARD$ = CLIP_PLAIN$:\n  restore rich attrs\n Else: use TEXT_BAR defaults"
+            arrowhead=normal color="#88aacc" fontsize=8.0
+        ];
+    }
+
+    // ─────────────────────────────────────────────────────
+    //  TEXT_LAYER POOL lifecycle
+    // ─────────────────────────────────────────────────────
+
+    subgraph cluster_pool {
+        label="TEXT_LAYER POOL (1–64 slots)" labelloc=t labeljust=l
+        fontcolor=orange fontsize=11.0 fontname="Cascadia Code PL"
+        color=orange style=dashed penwidth=1
+
+        P_FREE  [label="Slot Free\n────────────\nused = FALSE" fontsize=10.0];
+        P_ALLOC [label="Slot Allocated\n────────────\nused = TRUE\ncharCount = 0\nlineCount = 1" fontsize=10.0];
+        P_LIVE  [label="Slot In Use\n────────────\nchars, lines,\nfonts, styles\nstored per-char" fontsize=10.0];
+
+        P_FREE -> P_ALLOC [
+            label=" TEXT_LAYER_alloc()"
+            arrowhead=normal color="#88aacc" fontsize=8.0
+        ];
+        P_ALLOC -> P_LIVE [
+            label=" TEXT_LAYER_add_char()\n TEXT_LAYER_newline()"
+            arrowhead=normal color="#88aacc" fontsize=8.0
+        ];
+        P_LIVE -> P_FREE [
+            label=" TEXT_LAYER_free()\n (rasterize / delete)"
+            arrowhead=normal color="#cc6666" fontsize=8.0
+        ];
+    }
+
+    // ─────────────────────────────────────────────────────
+    //  HISTORY integration
+    // ─────────────────────────────────────────────────────
+
+    subgraph cluster_history {
+        label="HISTORY INTEGRATION" labelloc=t labeljust=l
+        fontcolor=orange fontsize=11.0 fontname="Cascadia Code PL"
+        color=orange style=dashed penwidth=1
+
+        H_NONE    [label="No History Entry\n────────────\nTEXT_commit()\nkeeps layer editable\nno snapshot" fontsize=10.0];
+        H_RECORD  [label="History Recorded\n────────────\nTEXT_apply()\nHISTORY_record_brush()\nbefore& snapshot\npayload: font/size/type"
+                   fontsize=10.0];
+
+        H_NONE -> H_RECORD [
+            label=" Rasterize (713/714)\n TEXT_apply → HISTORY_record_brush\n HISTORY_set_payload"
+            arrowhead=normal color="#88aacc" fontsize=8.0
+        ];
+    }
+
+    // ─────────────────────────────────────────────────────
+    //  CROSS-LINKS: Main ↔ Sub-states
+    // ─────────────────────────────────────────────────────
+
+    // State 3 (Editing) activates all sub-state machines
+    S3 -> TB_CLOSED [
+        label="  TEXT_BAR active during editing"
+        arrowhead=normal color="#555555" style=dotted
+        lhead=cluster_textbar
+    ];
+    S3 -> C_BLINK_ON [
+        label="  Cursor blink starts"
+        arrowhead=normal color="#555555" style=dotted
+        lhead=cluster_cursor
+    ];
+    S3 -> SEL_NONE [
+        label="  Selection system available"
+        arrowhead=normal color="#555555" style=dotted
+        lhead=cluster_selection
+    ];
+    S3 -> CLIP_EMPTY [
+        label="  Rich clipboard available"
+        arrowhead=normal color="#555555" style=dotted
+        lhead=cluster_clipboard
+    ];
+
+    // State 2 (Idle) → canvas click triggers pool alloc
+    S2 -> P_FREE [
+        label="  Canvas click → alloc pool slot"
+        arrowhead=normal color="#555555" style=dotted
+        lhead=cluster_pool
+    ];
+
+    // Rasterize → history
+    S6 -> H_RECORD [
+        label="  Rasterize records history"
+        arrowhead=normal color="#555555" style=dotted
+        lhead=cluster_history
+    ];
+
+    // ─────────────────────────────────────────────────────
+    //  LAYOUT HINTS
+    // ─────────────────────────────────────────────────────
+
+    { rank=same; S1; S2 }
+    { rank=same; S3; S4 }
+    { rank=same; S5; S6 }
+
+    // Category folder connections (legend)
+    MAIN_STATES -> S1 [arrowhead=none color="#555555" style=dotted];
+    TEXT_BAR_UI -> TB_CLOSED [arrowhead=none color="#555555" style=dotted lhead=cluster_textbar];
+    CURSOR -> C_BLINK_ON [arrowhead=none color="#555555" style=dotted lhead=cluster_cursor];
+    SELECTION -> SEL_NONE [arrowhead=none color="#555555" style=dotted lhead=cluster_selection];
+    CLIPBOARD -> CLIP_EMPTY [arrowhead=none color="#555555" style=dotted lhead=cluster_clipboard];
+    POOL -> P_FREE [arrowhead=none color="#555555" style=dotted lhead=cluster_pool];
+    HISTORY -> H_NONE [arrowhead=none color="#555555" style=dotted lhead=cluster_history];
+
+    // Top-level folder rank
+    { rank=min; MAIN_STATES; TEXT_BAR_UI; CURSOR; SELECTION; CLIPBOARD; POOL; HISTORY }
+
+    // ─────────────────────────────────────────────────────
+    //  LEGEND
+    // ─────────────────────────────────────────────────────
+
+    subgraph cluster_legend {
+        label="LEGEND" labelloc=t labeljust=l
+        fontcolor=white fontsize=11.0 fontname="Cascadia Code PL"
+        color=white style=dashed penwidth=1
+
+        L1 [label="" shape=point width=0.01];
+        L2 [label="" shape=point width=0.01];
+        L3 [label="" shape=point width=0.01];
+        L4 [label="" shape=point width=0.01];
+        L5 [label="" shape=point width=0.01];
+        L6 [label="" shape=point width=0.01];
+        L7 [label="" shape=point width=0.01];
+        L8 [label="" shape=point width=0.01];
+        L9 [label="" shape=point width=0.01];
+        L10 [label="" shape=point width=0.01];
+
+        L1 -> L2 [label=" Activate / Enter" arrowhead=normal color="#66cc66" fontsize=9.0];
+        L3 -> L4 [label=" Deactivate / Exit" arrowhead=normal color="#cc6666" style=dashed fontsize=9.0];
+        L5 -> L6 [label=" Re-edit" arrowhead=normal color="#6699ff" fontsize=9.0];
+        L7 -> L8 [label=" Commit (keep editable)" arrowhead=normal color="#cccc66" fontsize=9.0];
+        L9 -> L10 [label=" Rasterize (permanent)" arrowhead=normal color="#cc66cc" fontsize=9.0];
+    }
+}

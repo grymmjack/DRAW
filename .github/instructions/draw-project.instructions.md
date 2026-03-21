@@ -43,6 +43,7 @@ applyTo: "**"
 | `TOOLS/`                | Drawing tools, history/undo system, DRW format, image import, extract images |
 | `ASSETS/`               | Fonts, icons, palettes (56 GPL files), themes                        |
 | `includes/QB64_GJ_LIB/` | External utility library (DICT, STRINGS, VECT2D)                     |
+| `PLANS/diagrams/`       | Graphviz DOT state machine diagrams organized by category: `GLOBAL/`, `GUI/`, `TOOLS/`, `UTILITIES/`, `LAYER-OPS/`, `TRANSFORM-OPS/`, `IMAGE-OPS/`, `FILE-OPS/` |
 
 ### Singleton State Pattern
 

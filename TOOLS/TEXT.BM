@@ -2,6 +2,8 @@
 ' DRAW - TOOLS/TEXT.BM
 ' =============================================================================
 ' Text tool implementation.
+' Refactored for rich text layer system (Phase 4).
+' Creates text layers instead of stamping directly to canvas.
 '
 ' @author Rick Christy <grymmjack@gmail.com>
 '
@@ -35,6 +37,10 @@ SUB TEXT_init ()
     TEXT.LINE_COUNT = 0
     TEXT.CURSOR_BLINK = 0
     TEXT.BLINK_TIMER = 0
+    TEXT.editingTextLayer% = 0
+    TEXT.selStart% = -1
+    TEXT.selEnd% = -1
+    TEXT.selActive% = FALSE
     
     ' Restore custom font state
     TEXT.USE_CUSTOM = preserve_custom
@@ -55,7 +61,13 @@ SUB TEXT_init ()
         TEXT.FONT_HANDLE = _LOADFONT(THEME_font_path$(THEME.GLOBAL_FONT_FILE$), uiFontSize%, "DONTBLEND")
     END IF
     
-    ' Clear text buffer
+    ' Free cached text preview image
+    IF TEXT_PREVIEW_CACHE& < -1 THEN _FREEIMAGE TEXT_PREVIEW_CACHE&
+    TEXT_PREVIEW_CACHE& = 0
+    TEXT_PREVIEW_CACHE_W% = 0
+    TEXT_PREVIEW_CACHE_H% = 0
+
+    ' Clear text buffer (legacy — kept for backward compat with history replay)
     DIM i AS INTEGER
     FOR i = 0 TO TEXT.MAX_LINES - 1
         TEXT_BUFFER(i) = ""
@@ -63,25 +75,36 @@ SUB TEXT_init ()
 END SUB
 
 ''
-' Resets the text tool, applying any active text to the canvas before reinitializing
+' Resets the text tool, committing any active text layer editing.
 '
 SUB TEXT_reset ()
-    IF TEXT.ACTIVE THEN TEXT_apply
+    IF TEXT.ACTIVE THEN TEXT_commit
+    TEXT.editingTextLayer% = 0
+    TEXT_BAR.editingLayerIdx% = 0
     TEXT_init
 END SUB
 
 ''
 ' Starts text entry at a canvas position.
-' If text is already active, applies the current text first before starting anew.
+' Creates a new text layer via the text layer system.
+' If text is already active, commits the current text first.
 ' @param x INTEGER Canvas X coordinate for the text insertion point
 ' @param y INTEGER Canvas Y coordinate for the text insertion point
 '
 SUB TEXT_start (x AS INTEGER, y AS INTEGER)
-    ' If already active, apply current text first
+    ' If already active, commit current text first
     IF TEXT.ACTIVE THEN
-        TEXT_apply
+        TEXT_commit
     END IF
-    
+
+    ' Create a new text layer
+    DIM newLayerIdx AS INTEGER
+    newLayerIdx% = LAYERS_new_text%(x%, y%)
+    IF newLayerIdx% < 1 THEN
+        _LOGWARN "TEXT_start: Failed to create text layer"
+        EXIT SUB
+    END IF
+
     TEXT.ACTIVE = TRUE
     TEXT.START_X = x
     TEXT.START_Y = y
@@ -90,177 +113,347 @@ SUB TEXT_start (x AS INTEGER, y AS INTEGER)
     TEXT.LINE_COUNT = 1
     TEXT.CURSOR_BLINK = 1
     TEXT.BLINK_TIMER = TIMER
-    
-    ' Clear text buffer
+    TEXT.editingTextLayer% = newLayerIdx%
+    TEXT.selStart% = -1
+    TEXT.selEnd% = -1
+    TEXT.selActive% = FALSE
+
+    ' Wire up text bar to this layer
+    TEXT_BAR.editingLayerIdx% = newLayerIdx%
+    TEXT_BAR.lastPaintColor~& = PAINT_COLOR~&
+    TEXT_BAR.lastPaintBgColor~& = PAINT_BG_COLOR~&
+
+    ' Sync text bar with current font settings
+    IF TEXT.USE_CUSTOM AND FONT_LIST_COUNT% > 0 THEN
+        ' Try to find the custom font in the list
+        DIM fontIdx AS INTEGER
+        fontIdx% = FONT_LIST_find_by_name%(FONT_LIST_extract_name$(RTRIM$(TEXT.CUSTOM_FONT_PATH)))
+        IF fontIdx% >= 0 THEN TEXT_BAR.selectedFontIdx% = fontIdx%
+    END IF
+
+    ' Note: default font (Tiny5 Regular) is resolved once in TEXT_BAR_init.
+    ' No override here — user's dropdown selection must be preserved.
+
+    ' Set text layer default font from text bar selections
+    DIM tdIdx AS INTEGER
+    tdIdx% = LAYERS(newLayerIdx%).textDataIdx%
+    IF tdIdx% >= 1 THEN
+        TEXT_LAYER_DATA(tdIdx%).fontIdx = TEXT_BAR.selectedFontIdx%
+        TEXT_LAYER_DATA(tdIdx%).fontSize = TEXT_BAR.selectedSize%
+        ' Use actual font height for leading when built-in bitmap font
+        DIM actualH AS INTEGER
+        IF FONT_LIST(TEXT_BAR.selectedFontIdx%).isBuiltIn THEN
+            actualH% = FONT_LIST(TEXT_BAR.selectedFontIdx%).builtInHandle
+            TEXT_LAYER_DATA(tdIdx%).defaultLeading = actualH%
+        ELSE
+            actualH% = TEXT_BAR.selectedSize%
+            TEXT_LAYER_DATA(tdIdx%).defaultLeading = actualH% + 1
+        END IF
+        TEXT_LAYER_DATA(tdIdx%).monospace = TEXT_BAR.monoActive%
+        TEXT_LAYER_DATA(tdIdx%).startX = x%
+        TEXT_LAYER_DATA(tdIdx%).startY = y%
+    END IF
+
+    ' Clear legacy text buffer
     DIM i AS INTEGER
     FOR i = 0 TO TEXT.MAX_LINES - 1
         TEXT_BUFFER(i) = ""
     NEXT i
+
+    FRAME_IDLE% = FALSE
+    GUI_NEEDS_REDRAW% = TRUE
+    _LOGINFO "TEXT_start: Created text layer " + STR$(newLayerIdx%) + " at " + STR$(x%) + "," + STR$(y%)
 END SUB
 
 ''
-' Adds a character at the current cursor position and advances the cursor.
-' Uses _PRINTWIDTH for accurate positioning when a custom or Tiny5 font is active.
-' @param ch STRING Character string to append to the current text line
+' Adds a character at the current cursor position.
+' Routes through the text layer system for rich text support.
+' @param ch STRING Character string to append
 '
 SUB TEXT_add_char (ch AS STRING)
     IF NOT TEXT.ACTIVE THEN EXIT SUB
-    IF TEXT.LINE_COUNT < 1 THEN TEXT.LINE_COUNT = 1
-    
-    ' Get current line index (0-based)
-    DIM line_idx AS INTEGER
-    line_idx = TEXT.LINE_COUNT - 1
-    
-    ' Add character to current line
-    TEXT_BUFFER(line_idx) = TEXT_BUFFER(line_idx) + ch
-    
-    ' Update cursor position - measure actual printed width for custom or Tiny5 fonts
-    IF TEXT.USE_CUSTOM AND TEXT.CUSTOM_FONT_HANDLE > 0 THEN
-        DIM old_font AS LONG
-        old_font = _FONT
-        _FONT TEXT.CUSTOM_FONT_HANDLE
-        TEXT.CURSOR_X = TEXT.START_X + _PRINTWIDTH(TEXT_BUFFER(line_idx))
-        _FONT old_font
-    ELSEIF TEXT.USE_TINY5 AND TEXT.FONT_HANDLE > 0 THEN
-        DIM old_font2 AS LONG
-        old_font2 = _FONT
-        _FONT TEXT.FONT_HANDLE
-        TEXT.CURSOR_X = TEXT.START_X + _PRINTWIDTH(TEXT_BUFFER(line_idx))
-        _FONT old_font2
-    ELSE
-        TEXT.CURSOR_X = TEXT.CURSOR_X + TEXT.CHAR_WIDTH
+    IF TEXT.editingTextLayer% < 1 THEN EXIT SUB
+
+    ' Delete selection if active (replaces selected text with typed char)
+    IF TEXT_has_selection% THEN TEXT_delete_selection
+
+    DIM tdIdx AS INTEGER
+    tdIdx% = LAYERS(TEXT.editingTextLayer%).textDataIdx%
+    IF tdIdx% < 1 THEN EXIT SUB
+
+    ' Apply current text bar formatting to the character
+    TEXT_LAYER_add_char tdIdx%, ch$
+
+    ' Apply text bar style defaults to the just-added character
+    DIM charIdx AS INTEGER
+    charIdx% = TEXT_LAYER_DATA(tdIdx%).cursorPos - 1
+    IF charIdx% >= 0 AND charIdx% < TEXT_LAYER_MAX_CHARS THEN
+        TL_FONT_IDX(tdIdx%, charIdx%) = TEXT_BAR.selectedFontIdx%
+        TL_FONT_SIZE(tdIdx%, charIdx%) = TEXT_BAR.selectedSize%
+        TL_BOLD(tdIdx%, charIdx%) = TEXT_BAR.boldActive%
+        TL_ITALIC(tdIdx%, charIdx%) = TEXT_BAR.italicActive%
+        TL_UNDERLINE(tdIdx%, charIdx%) = TEXT_BAR.underlineActive%
+        TL_STRIKE(tdIdx%, charIdx%) = TEXT_BAR.strikeActive%
+        TL_FG(tdIdx%, charIdx%) = PAINT_COLOR~&
+        TL_BG(tdIdx%, charIdx%) = PAINT_BG_COLOR~&
     END IF
+
+    ' Also maintain legacy buffer for history compatibility
+    IF TEXT.LINE_COUNT < 1 THEN TEXT.LINE_COUNT = 1
+    DIM line_idx AS INTEGER
+    line_idx% = TEXT.LINE_COUNT - 1
+    IF line_idx% >= 0 AND line_idx% < TEXT.MAX_LINES THEN
+        TEXT_BUFFER(line_idx%) = TEXT_BUFFER(line_idx%) + ch$
+    END IF
+
+    ' Update cursor position from text layer data
+    TEXT.CURSOR_X = TEXT_LAYER_get_char_x%(tdIdx%, TEXT_LAYER_DATA(tdIdx%).cursorPos)
+    TEXT.CURSOR_Y = TEXT_LAYER_get_line_y%(tdIdx%, TEXT_LAYER_get_line_for_char%(tdIdx%, TEXT_LAYER_DATA(tdIdx%).cursorPos))
+
+    ' --- Bottom boundary check (before auto-wrap, catch simple overflow) ---
+    DIM bottomLimit AS INTEGER
+    DIM curLineHeight AS INTEGER
+    curLineHeight% = TEXT_BAR.selectedSize%
+    IF curLineHeight% < 4 THEN curLineHeight% = 4
+    bottomLimit% = SCRN.canvasH& - 1
+    IF TEXT.CURSOR_Y + curLineHeight% - 1 > bottomLimit% THEN
+        ' Undo the character we just added
+        TEXT_LAYER_delete_char tdIdx%
+        ' Restore legacy buffer
+        IF line_idx% >= 0 AND line_idx% < TEXT.MAX_LINES THEN
+            IF LEN(TEXT_BUFFER(line_idx%)) > 0 THEN
+                TEXT_BUFFER(line_idx%) = LEFT$(TEXT_BUFFER(line_idx%), LEN(TEXT_BUFFER(line_idx%)) - 1)
+            END IF
+        END IF
+        ' Re-sync cursor
+        TEXT.CURSOR_X = TEXT_LAYER_get_char_x%(tdIdx%, TEXT_LAYER_DATA(tdIdx%).cursorPos)
+        TEXT.CURSOR_Y = TEXT_LAYER_get_line_y%(tdIdx%, TEXT_LAYER_get_line_for_char%(tdIdx%, TEXT_LAYER_DATA(tdIdx%).cursorPos))
+        SOUND_play_pitched SND_POINT, 0.3, 0.4, 1.0
+        TEXT.OVERFLOW_FLASH = 8
+        TEXT_LAYER_DATA(tdIdx%).dirty = TRUE
+        FRAME_IDLE% = FALSE
+        EXIT SUB
+    END IF
+
+    ' Auto-wrap: if cursor X goes past canvas right edge, insert a line break
+    DIM canvasRight AS INTEGER
+    canvasRight% = SCRN.canvasW& - 1
+    IF TEXT.CURSOR_X > canvasRight% THEN
+        IF canvasRight% > 0 THEN
+            ' Find the start of the current line
+            DIM wrapCurLine AS INTEGER
+            wrapCurLine% = TEXT_LAYER_get_line_for_char%(tdIdx%, TEXT_LAYER_DATA(tdIdx%).cursorPos - 1)
+            DIM wrapLineStart AS INTEGER
+            IF wrapCurLine% > 0 THEN
+                wrapLineStart% = TL_LINE_BREAK(tdIdx%, wrapCurLine%)
+            ELSE
+                wrapLineStart% = 0
+            END IF
+
+            ' Scan backward from cursor for a space to do word-wrap
+            DIM wrapPos AS INTEGER
+            wrapPos% = -1
+            DIM wrapSc AS INTEGER
+            FOR wrapSc% = TEXT_LAYER_DATA(tdIdx%).cursorPos - 1 TO wrapLineStart% + 1 STEP -1
+                IF TL_CHAR(tdIdx%, wrapSc%) = " " THEN
+                    wrapPos% = wrapSc%
+                    EXIT FOR
+                END IF
+            NEXT wrapSc%
+
+            IF wrapPos% >= wrapLineStart% + 1 THEN
+                ' Word-wrap: insert newline after the space
+                DIM wrapSaved AS INTEGER
+                wrapSaved% = TEXT_LAYER_DATA(tdIdx%).cursorPos
+                TEXT_LAYER_DATA(tdIdx%).cursorPos = wrapPos% + 1
+                TEXT_LAYER_newline tdIdx%
+                ' Restore cursor (shifted +1 for the newline char inserted)
+                TEXT_LAYER_DATA(tdIdx%).cursorPos = wrapSaved% + 1
+            ELSE
+                ' No space found — character-wrap just before the char we added
+                DIM wrapSaved2 AS INTEGER
+                wrapSaved2% = TEXT_LAYER_DATA(tdIdx%).cursorPos
+                TEXT_LAYER_DATA(tdIdx%).cursorPos = TEXT_LAYER_DATA(tdIdx%).cursorPos - 1
+                TEXT_LAYER_newline tdIdx%
+                TEXT_LAYER_DATA(tdIdx%).cursorPos = wrapSaved2% + 1
+            END IF
+
+            ' Re-sync cursor X/Y after wrap
+            TEXT.CURSOR_X = TEXT_LAYER_get_char_x%(tdIdx%, TEXT_LAYER_DATA(tdIdx%).cursorPos)
+            TEXT.CURSOR_Y = TEXT_LAYER_get_line_y%(tdIdx%, TEXT_LAYER_get_line_for_char%(tdIdx%, TEXT_LAYER_DATA(tdIdx%).cursorPos))
+
+            ' Update legacy line count
+            TEXT.LINE_COUNT = TEXT_LAYER_DATA(tdIdx%).lineCount
+
+            ' After wrap, check if the new line is off the bottom
+            DIM wrapLineH AS INTEGER
+            wrapLineH% = TEXT_BAR.selectedSize%
+            IF wrapLineH% < 4 THEN wrapLineH% = 4
+            IF TEXT.CURSOR_Y + wrapLineH% - 1 > SCRN.canvasH& - 1 THEN
+                ' Undo the character that caused the wrap
+                TEXT_LAYER_delete_char tdIdx%
+                ' Also undo the newline that wrap inserted
+                ' (delete_char at the newline position removes it)
+                TEXT_LAYER_delete_char tdIdx%
+                ' Restore legacy buffer
+                IF line_idx% >= 0 AND line_idx% < TEXT.MAX_LINES THEN
+                    IF LEN(TEXT_BUFFER(line_idx%)) > 0 THEN
+                        TEXT_BUFFER(line_idx%) = LEFT$(TEXT_BUFFER(line_idx%), LEN(TEXT_BUFFER(line_idx%)) - 1)
+                    END IF
+                END IF
+                TEXT.LINE_COUNT = TEXT_LAYER_DATA(tdIdx%).lineCount
+                ' Re-sync cursor
+                TEXT.CURSOR_X = TEXT_LAYER_get_char_x%(tdIdx%, TEXT_LAYER_DATA(tdIdx%).cursorPos)
+                TEXT.CURSOR_Y = TEXT_LAYER_get_line_y%(tdIdx%, TEXT_LAYER_get_line_for_char%(tdIdx%, TEXT_LAYER_DATA(tdIdx%).cursorPos))
+                SOUND_play_pitched SND_POINT, 0.3, 0.4, 1.0
+                TEXT.OVERFLOW_FLASH = 8
+                TEXT_LAYER_DATA(tdIdx%).dirty = TRUE
+                FRAME_IDLE% = FALSE
+                EXIT SUB
+            END IF
+        END IF
+    END IF
+
+    TEXT_LAYER_DATA(tdIdx%).dirty = TRUE
+    FRAME_IDLE% = FALSE
+    SCENE_DIRTY% = TRUE
 END SUB
 
 ''
-' Handles backspace by removing the last character from the current line.
-' If the current line is empty, moves the cursor up to the previous line.
+' Handles backspace by removing the last character from the text layer.
 '
 SUB TEXT_backspace ()
     IF NOT TEXT.ACTIVE THEN EXIT SUB
-    IF TEXT.LINE_COUNT < 1 THEN EXIT SUB
-    
-    DIM line_idx AS INTEGER
-    line_idx = TEXT.LINE_COUNT - 1
-    
-    DIM line_len AS INTEGER
-    line_len = LEN(TEXT_BUFFER(line_idx))
-    
-    IF line_len > 0 THEN
-        ' Remove last character from current line
-        TEXT_BUFFER(line_idx) = LEFT$(TEXT_BUFFER(line_idx), line_len - 1)
-        ' Use _PRINTWIDTH for accurate cursor positioning with custom or Tiny5 fonts
-        IF TEXT.USE_CUSTOM AND TEXT.CUSTOM_FONT_HANDLE > 0 THEN
-            DIM old_font AS LONG
-            old_font = _FONT
-            _FONT TEXT.CUSTOM_FONT_HANDLE
-            TEXT.CURSOR_X = TEXT.START_X + _PRINTWIDTH(TEXT_BUFFER(line_idx))
-            _FONT old_font
-        ELSEIF TEXT.USE_TINY5 AND TEXT.FONT_HANDLE > 0 THEN
-            DIM old_font2 AS LONG
-            old_font2 = _FONT
-            _FONT TEXT.FONT_HANDLE
-            TEXT.CURSOR_X = TEXT.START_X + _PRINTWIDTH(TEXT_BUFFER(line_idx))
-            _FONT old_font2
-        ELSE
-            TEXT.CURSOR_X = TEXT.CURSOR_X - TEXT.CHAR_WIDTH
-        END IF
-    ELSEIF TEXT.LINE_COUNT > 1 THEN
-        ' Current line is empty, move to previous line
-        TEXT.LINE_COUNT = TEXT.LINE_COUNT - 1
-        line_idx = TEXT.LINE_COUNT - 1
-        TEXT.CURSOR_Y = TEXT.START_Y + (TEXT.LINE_COUNT - 1) * TEXT.LINE_HEIGHT
-        ' Position cursor at end of previous line using _PRINTWIDTH for custom or Tiny5 fonts
-        IF TEXT.USE_CUSTOM AND TEXT.CUSTOM_FONT_HANDLE > 0 THEN
-            DIM old_font3 AS LONG
-            old_font3 = _FONT
-            _FONT TEXT.CUSTOM_FONT_HANDLE
-            TEXT.CURSOR_X = TEXT.START_X + _PRINTWIDTH(TEXT_BUFFER(line_idx))
-            _FONT old_font3
-        ELSEIF TEXT.USE_TINY5 AND TEXT.FONT_HANDLE > 0 THEN
-            DIM old_font4 AS LONG
-            old_font4 = _FONT
-            _FONT TEXT.FONT_HANDLE
-            TEXT.CURSOR_X = TEXT.START_X + _PRINTWIDTH(TEXT_BUFFER(line_idx))
-            _FONT old_font4
-        ELSE
-            TEXT.CURSOR_X = TEXT.START_X + LEN(TEXT_BUFFER(line_idx)) * TEXT.CHAR_WIDTH
+    IF TEXT.editingTextLayer% < 1 THEN EXIT SUB
+
+    ' If selection active, delete selection instead of single char
+    IF TEXT_has_selection% THEN
+        TEXT_delete_selection
+        TEXT_LAYER_DATA(LAYERS(TEXT.editingTextLayer%).textDataIdx%).dirty = TRUE
+        FRAME_IDLE% = FALSE
+        SCENE_DIRTY% = TRUE
+        EXIT SUB
+    END IF
+
+    DIM tdIdx AS INTEGER
+    tdIdx% = LAYERS(TEXT.editingTextLayer%).textDataIdx%
+    IF tdIdx% < 1 THEN EXIT SUB
+
+    TEXT_LAYER_delete_char tdIdx%
+
+    ' Update legacy buffer
+    IF TEXT.LINE_COUNT >= 1 THEN
+        DIM line_idx AS INTEGER
+        line_idx% = TEXT.LINE_COUNT - 1
+        IF line_idx% >= 0 AND line_idx% < TEXT.MAX_LINES THEN
+            IF LEN(TEXT_BUFFER(line_idx%)) > 0 THEN
+                TEXT_BUFFER(line_idx%) = LEFT$(TEXT_BUFFER(line_idx%), LEN(TEXT_BUFFER(line_idx%)) - 1)
+            ELSEIF TEXT.LINE_COUNT > 1 THEN
+                TEXT.LINE_COUNT = TEXT.LINE_COUNT - 1
+            END IF
         END IF
     END IF
+
+    ' Update cursor position
+    TEXT.CURSOR_X = TEXT_LAYER_get_char_x%(tdIdx%, TEXT_LAYER_DATA(tdIdx%).cursorPos)
+    TEXT.CURSOR_Y = TEXT_LAYER_get_line_y%(tdIdx%, TEXT_LAYER_get_line_for_char%(tdIdx%, TEXT_LAYER_DATA(tdIdx%).cursorPos))
+
+    TEXT_LAYER_DATA(tdIdx%).dirty = TRUE
+    FRAME_IDLE% = FALSE
+    SCENE_DIRTY% = TRUE
 END SUB
 
 ''
-' Handles newline (Enter key) by advancing to the next text line.
-' Resets cursor X to the left margin and increments the line count.
+' Handles newline (Enter key).
 '
 SUB TEXT_newline ()
     IF NOT TEXT.ACTIVE THEN EXIT SUB
-    IF TEXT.LINE_COUNT >= TEXT.MAX_LINES THEN EXIT SUB
-    
-    ' Move to next line
-    TEXT.LINE_COUNT = TEXT.LINE_COUNT + 1
-    TEXT.CURSOR_X = TEXT.START_X  ' Reset to left margin
-    TEXT.CURSOR_Y = TEXT.START_Y + (TEXT.LINE_COUNT - 1) * TEXT.LINE_HEIGHT
+    IF TEXT.editingTextLayer% < 1 THEN EXIT SUB
+
+    ' Delete selection first if active
+    IF TEXT_has_selection% THEN TEXT_delete_selection
+
+    DIM tdIdx AS INTEGER
+    tdIdx% = LAYERS(TEXT.editingTextLayer%).textDataIdx%
+    IF tdIdx% < 1 THEN EXIT SUB
+
+    ' Check if adding a new line would overflow the bottom
+    DIM nlLineH AS INTEGER
+    nlLineH% = TEXT_BAR.selectedSize%
+    IF nlLineH% < 4 THEN nlLineH% = 4
+    DIM nlCurY AS INTEGER
+    nlCurY% = TEXT_LAYER_get_line_y%(tdIdx%, TEXT_LAYER_DATA(tdIdx%).lineCount)
+    IF nlCurY% + nlLineH% - 1 > SCRN.canvasH& - 1 THEN
+        SOUND_play_pitched SND_POINT, 0.3, 0.4, 1.0
+        TEXT.OVERFLOW_FLASH = 8
+        FRAME_IDLE% = FALSE
+        EXIT SUB
+    END IF
+
+    TEXT_LAYER_newline tdIdx%
+
+    ' Update legacy buffer
+    IF TEXT.LINE_COUNT < TEXT.MAX_LINES THEN
+        TEXT.LINE_COUNT = TEXT.LINE_COUNT + 1
+    END IF
+
+    ' Update cursor position from text layer data
+    TEXT.CURSOR_X = TEXT_LAYER_get_char_x%(tdIdx%, TEXT_LAYER_DATA(tdIdx%).cursorPos)
+    TEXT.CURSOR_Y = TEXT_LAYER_get_line_y%(tdIdx%, TEXT_LAYER_get_line_for_char%(tdIdx%, TEXT_LAYER_DATA(tdIdx%).cursorPos))
+
+    TEXT_LAYER_DATA(tdIdx%).dirty = TRUE
+    FRAME_IDLE% = FALSE
+    SCENE_DIRTY% = TRUE
 END SUB
 
 ''
-' Applies (stamps) all buffered text lines onto the current layer.
-' Records a history state for undo, including font and text payload metadata.
+' Applies (rasterizes) the text layer into pixels.
+' Converts the text layer to an image layer and records history.
+' This is the "stamp" operation — text becomes non-editable pixels.
 '
 SUB TEXT_apply ()
     IF NOT TEXT.ACTIVE THEN EXIT SUB
 
+    DIM layerIdx AS INTEGER
+    layerIdx% = TEXT.editingTextLayer%
+    IF layerIdx% < 1 THEN
+        TEXT.ACTIVE = FALSE
+        TEXT_init
+        EXIT SUB
+    END IF
+
+    DIM tdIdx AS INTEGER
+    tdIdx% = LAYERS(layerIdx%).textDataIdx%
+
+    ' Record history before rasterization
     DIM text_history_before AS LONG
     DIM text_history_flags AS LONG
     DIM text_recorded AS INTEGER
-    
-    ' Mark inactive FIRST to prevent recursion with TEXT_reset
-    TEXT.ACTIVE = FALSE
-
     text_history_before& = 0
     text_history_flags& = 0
     text_recorded% = FALSE
-    IF SELECTION_has_active% OR LAYERS(CURRENT_LAYER%).opacityLock% THEN text_history_flags& = text_history_flags& OR HISTORY_FLAG_CLIPPED
-    IF NOT HISTORY_IN_PROGRESS% AND LAYERS(CURRENT_LAYER%).historyId& > 0 AND LAYERS(CURRENT_LAYER%).imgHandle& < -1 THEN
-        text_history_before& = _COPYIMAGE(LAYERS(CURRENT_LAYER%).imgHandle&, 32)
+
+    IF SELECTION_has_active% OR LAYERS(layerIdx%).opacityLock% THEN
+        text_history_flags& = text_history_flags& OR HISTORY_FLAG_CLIPPED
     END IF
-    
-    ' Draw each line of text to the current layer
-    STROKE_begin
-    _DEST LAYER_current_image&
-    DIM i AS INTEGER
-    DIM y_pos AS INTEGER
-    DIM old_font AS LONG
-    old_font = _FONT
-    
-    ' Switch to custom, Tiny5, or default font
-    IF TEXT.USE_CUSTOM AND TEXT.CUSTOM_FONT_HANDLE > 0 THEN
-        _FONT TEXT.CUSTOM_FONT_HANDLE
-    ELSEIF TEXT.USE_TINY5 AND TEXT.FONT_HANDLE > 0 THEN
-        _FONT TEXT.FONT_HANDLE
+    IF NOT HISTORY_IN_PROGRESS% AND LAYERS(layerIdx%).historyId& > 0 AND LAYERS(layerIdx%).imgHandle& < -1 THEN
+        text_history_before& = _COPYIMAGE(LAYERS(layerIdx%).imgHandle&, 32)
     END IF
-    
-    FOR i = 0 TO TEXT.LINE_COUNT - 1
-        IF LEN(TEXT_BUFFER(i)) > 0 THEN
-            y_pos = TEXT.START_Y + i * TEXT.LINE_HEIGHT
-            COLOR PAINT_COLOR~&, _RGBA32(0, 0, 0, 0)
-            _PRINTSTRING (TEXT.START_X, y_pos), TEXT_BUFFER(i)
-        END IF
-    NEXT i
-    
-    ' Restore previous font
-    IF (TEXT.USE_CUSTOM AND TEXT.CUSTOM_FONT_HANDLE > 0) OR (TEXT.USE_TINY5 AND TEXT.FONT_HANDLE > 0) THEN
-        _FONT old_font
+
+    ' Rasterize the text layer (renders text to imgHandle, frees text data)
+    IF tdIdx% >= 1 THEN
+        TEXT_LAYER_rasterize layerIdx%
     END IF
-    
-    ' Save state for undo AFTER drawing text
-    STROKE_commit
+
+    ' Mark inactive FIRST to prevent recursion
+    TEXT.ACTIVE = FALSE
+    TEXT.editingTextLayer% = 0
+    TEXT_BAR.editingLayerIdx% = 0
+
+    ' Record in history
     IF text_history_before& < -1 THEN
-        HISTORY_record_brush LAYERS(CURRENT_LAYER%).historyId&, CURRENT_LAYER%, PAINT_apply_opacity~&(PAINT_COLOR~&), text_history_flags&, text_history_before&, "Text"
-        HISTORY_RECORDS(HISTORY.current%).x1% = TEXT.START_X
-        HISTORY_RECORDS(HISTORY.current%).y1% = TEXT.START_Y
-        HISTORY_RECORDS(HISTORY.current%).w% = TEXT.LINE_COUNT
-        HISTORY_RECORDS(HISTORY.current%).h% = TEXT.LINE_HEIGHT
+        HISTORY_record_brush LAYERS(layerIdx%).historyId&, layerIdx%, PAINT_apply_opacity~&(PAINT_COLOR~&), text_history_flags&, text_history_before&, "Text"
+        ' Store text payload for history replay
         IF TEXT.USE_CUSTOM AND TEXT.CUSTOM_FONT_HANDLE > 0 THEN
             HISTORY_set_payload HISTORY.current%, HISTORY_text_payload$(TEXT.LINE_COUNT, 2, RTRIM$(TEXT.CUSTOM_FONT_PATH), TEXT.CUSTOM_FONT_SIZE), 2
         ELSEIF TEXT.USE_TINY5 AND TEXT.FONT_HANDLE > 0 THEN
@@ -268,25 +461,205 @@ SUB TEXT_apply ()
         ELSE
             HISTORY_set_payload HISTORY.current%, HISTORY_text_payload$(TEXT.LINE_COUNT, 0, "", 0), 0
         END IF
-        text_history_before& = 0
         text_recorded% = TRUE
     END IF
-    IF text_recorded% THEN HISTORY_saved_this_frame% = TRUE  ' Prevent double-save from mouse handler
-    
-    ' Reset text tool
-    TEXT_reset
+    IF text_recorded% THEN HISTORY_saved_this_frame% = TRUE
+
+    LAYERS(layerIdx%).contentDirty% = TRUE
+    SCENE_DIRTY% = TRUE
+    GUI_NEEDS_REDRAW% = TRUE
+    FRAME_IDLE% = FALSE
+
+    TEXT_init
 END SUB
 
 ''
-' Cancels text entry without applying, discarding all buffered text
+' Commits text editing without rasterizing.
+' The text layer remains editable (layerType stays TEXT).
+' Called by [DONE] button and tool-switch.
+'
+SUB TEXT_commit ()
+    IF NOT TEXT.ACTIVE THEN EXIT SUB
+
+    DIM layerIdx AS INTEGER
+    layerIdx% = TEXT.editingTextLayer%
+
+    ' Bounds check to prevent subscript error (layer slots are 1-64)
+    IF layerIdx% < 1 OR layerIdx% > 64 THEN
+        TEXT.ACTIVE = FALSE
+        TEXT.editingTextLayer% = 0
+        TEXT_BAR.editingLayerIdx% = 0
+        TEXT_init
+        EXIT SUB
+    END IF
+
+    ' If the text layer is empty, delete it instead
+    IF layerIdx% >= 1 THEN
+        DIM tdIdx AS INTEGER
+        tdIdx% = LAYERS(layerIdx%).textDataIdx%
+        IF tdIdx% >= 1 AND TEXT_LAYER_DATA(tdIdx%).charCount <= 0 THEN
+            LAYERS_delete layerIdx%
+            TEXT.ACTIVE = FALSE
+            TEXT.editingTextLayer% = 0
+            TEXT_BAR.editingLayerIdx% = 0
+            SCENE_DIRTY% = TRUE
+            GUI_NEEDS_REDRAW% = TRUE
+            FRAME_IDLE% = FALSE
+            TEXT_init
+            EXIT SUB
+        END IF
+    END IF
+
+    ' End editing mode but keep text layer intact
+    TEXT.ACTIVE = FALSE
+    TEXT.editingTextLayer% = 0
+    TEXT_BAR.editingLayerIdx% = 0
+
+    ' Mark layer dirty to render text into imgHandle
+    IF layerIdx% >= 1 THEN
+        DIM tdIdx2 AS INTEGER
+        tdIdx2% = LAYERS(layerIdx%).textDataIdx%
+        IF tdIdx2% >= 1 THEN
+            TEXT_LAYER_DATA(tdIdx2%).dirty = TRUE
+        END IF
+        LAYERS(layerIdx%).contentDirty% = TRUE
+    END IF
+
+    SCENE_DIRTY% = TRUE
+    GUI_NEEDS_REDRAW% = TRUE
+    FRAME_IDLE% = FALSE
+    TEXT_init
+END SUB
+
+''
+' Cancels text entry. Deletes the text layer if empty, otherwise commits.
 '
 SUB TEXT_cancel ()
-    TEXT_reset
+    IF NOT TEXT.ACTIVE THEN EXIT SUB
+
+    DIM layerIdx AS INTEGER
+    layerIdx% = TEXT.editingTextLayer%
+
+    IF layerIdx% >= 1 THEN
+        DIM tdIdx AS INTEGER
+        tdIdx% = LAYERS(layerIdx%).textDataIdx%
+        IF tdIdx% >= 1 AND TEXT_LAYER_DATA(tdIdx%).charCount <= 0 THEN
+            ' Empty text layer — delete it
+            LAYERS_delete layerIdx%
+            TEXT.ACTIVE = FALSE
+            TEXT.editingTextLayer% = 0
+            TEXT_BAR.editingLayerIdx% = 0
+            SCENE_DIRTY% = TRUE
+            GUI_NEEDS_REDRAW% = TRUE
+            FRAME_IDLE% = FALSE
+            TEXT_init
+            EXIT SUB
+        END IF
+    END IF
+
+    ' Non-empty — commit instead of discarding
+    TEXT_commit
+END SUB
+
+''
+' Re-edits an existing text layer (activated by double-click).
+' @param layerIdx INTEGER Index of the text layer to re-edit
+'
+SUB TEXT_re_edit (layerIdx AS INTEGER)
+    IF layerIdx% < 1 OR layerIdx% > 64 THEN EXIT SUB
+    IF LAYERS(layerIdx%).layerType% <> LAYER_TYPE_TEXT THEN EXIT SUB
+
+    DIM tdIdx AS INTEGER
+    tdIdx% = LAYERS(layerIdx%).textDataIdx%
+    IF tdIdx% < 1 THEN EXIT SUB
+
+    ' Commit any currently active text editing
+    IF TEXT.ACTIVE THEN TEXT_commit
+
+    ' Switch to text tool
+    CURRENT_TOOL% = TOOL_TEXT
+
+    ' Set up editing state
+    TEXT.ACTIVE = TRUE
+    TEXT.editingTextLayer% = layerIdx%
+    TEXT.START_X = TEXT_LAYER_DATA(tdIdx%).startX
+    TEXT.START_Y = TEXT_LAYER_DATA(tdIdx%).startY
+    TEXT.CURSOR_BLINK = 1
+    TEXT.BLINK_TIMER = TIMER
+    TEXT.selStart% = -1
+    TEXT.selEnd% = -1
+    TEXT.selActive% = FALSE
+
+    ' Place cursor at end of text
+    DIM cursorPos AS INTEGER
+    cursorPos% = TEXT_LAYER_DATA(tdIdx%).charCount
+    TEXT_LAYER_DATA(tdIdx%).cursorPos = cursorPos%
+
+    ' Update cursor screen position (get_char_x/get_line_y already include startX/Y)
+    TEXT.CURSOR_X = TEXT_LAYER_get_char_x%(tdIdx%, cursorPos%)
+    TEXT.CURSOR_Y = TEXT_LAYER_get_line_y%(tdIdx%, TEXT_LAYER_get_line_for_char%(tdIdx%, cursorPos%))
+
+    ' Wire up text bar
+    TEXT_BAR.editingLayerIdx% = layerIdx%
+    TEXT_BAR.selectedFontIdx% = TEXT_LAYER_DATA(tdIdx%).fontIdx
+    TEXT_BAR.selectedSize% = TEXT_LAYER_DATA(tdIdx%).fontSize
+    TEXT_BAR.lastPaintColor~& = PAINT_COLOR~&
+    TEXT_BAR.lastPaintBgColor~& = PAINT_BG_COLOR~&
+
+    ' Sync TEXT_BAR style toggles from character at cursor position
+    TEXT_sync_bar_to_cursor
+
+    ' Select this layer
+    CURRENT_LAYER% = layerIdx%
+
+    ' Mark dirty so TEXT_render_preview refreshes
+    TEXT_LAYER_DATA(tdIdx%).dirty = TRUE
+
+    FRAME_IDLE% = FALSE
+    SCENE_DIRTY% = TRUE
+    GUI_NEEDS_REDRAW% = TRUE
+    _LOGINFO "TEXT_re_edit: Editing text layer " + STR$(layerIdx%) + " with " + STR$(TEXT_LAYER_DATA(tdIdx%).charCount) + " chars"
+END SUB
+
+''
+' Syncs TEXT_BAR style toggles from the character at the current cursor position.
+' Call after entering re-edit mode or when cursor moves during editing.
+'
+SUB TEXT_sync_bar_to_cursor ()
+    IF NOT TEXT.ACTIVE THEN EXIT SUB
+    IF TEXT.editingTextLayer% < 1 THEN EXIT SUB
+
+    DIM tdIdx AS INTEGER
+    tdIdx% = LAYERS(TEXT.editingTextLayer%).textDataIdx%
+    IF tdIdx% < 1 THEN EXIT SUB
+    IF TEXT_LAYER_DATA(tdIdx%).charCount = 0 THEN EXIT SUB
+
+    ' When there's a selection, read from the first selected character;
+    ' otherwise read from the character at cursor position.
+    DIM charIdx AS INTEGER
+    IF TEXT_has_selection% THEN
+        charIdx% = TEXT.selStart%
+        IF TEXT.selEnd% < charIdx% THEN charIdx% = TEXT.selEnd%
+    ELSE
+        charIdx% = TEXT_LAYER_DATA(tdIdx%).cursorPos
+    END IF
+    IF charIdx% >= TEXT_LAYER_DATA(tdIdx%).charCount THEN
+        charIdx% = TEXT_LAYER_DATA(tdIdx%).charCount - 1
+    END IF
+    IF charIdx% < 0 THEN EXIT SUB
+
+    TEXT_BAR.boldActive% = TL_BOLD(tdIdx%, charIdx%)
+    TEXT_BAR.italicActive% = TL_ITALIC(tdIdx%, charIdx%)
+    TEXT_BAR.underlineActive% = TL_UNDERLINE(tdIdx%, charIdx%)
+    TEXT_BAR.strikeActive% = TL_STRIKE(tdIdx%, charIdx%)
+    TEXT_BAR.selectedFontIdx% = TL_FONT_IDX(tdIdx%, charIdx%)
+    TEXT_BAR.selectedSize% = TL_FONT_SIZE(tdIdx%, charIdx%)
+    TEXT_BAR.monoActive% = TEXT_LAYER_DATA(tdIdx%).monospace
 END SUB
 
 ''
 ' Renders a live text preview overlay on the GUI layer.
-' Creates a temp image at canvas resolution, renders text and cursor, then scales to screen.
+' Routes through TEXT_LAYER_render for rich text support.
 ' @param dest LONG Destination image handle to render the preview onto
 ' @param dx INTEGER Display X offset for the canvas origin on screen
 ' @param dy INTEGER Display Y offset for the canvas origin on screen
@@ -294,99 +667,179 @@ END SUB
 '
 SUB TEXT_render_preview (dest AS LONG, dx AS INTEGER, dy AS INTEGER, zoom AS SINGLE)
     IF NOT TEXT.ACTIVE THEN EXIT SUB
-    
+    IF TEXT.editingTextLayer% < 1 THEN EXIT SUB
+
+    DIM tdIdx AS INTEGER
+    tdIdx% = LAYERS(TEXT.editingTextLayer%).textDataIdx%
+    IF tdIdx% < 1 THEN EXIT SUB
+
     _DEST dest
-    
-    DIM old_font AS LONG
-    old_font = _FONT
-    
-    ' Switch to custom, Tiny5, or default font
-    IF TEXT.USE_CUSTOM AND TEXT.CUSTOM_FONT_HANDLE > 0 THEN
-        _FONT TEXT.CUSTOM_FONT_HANDLE
-    ELSEIF TEXT.USE_TINY5 AND TEXT.FONT_HANDLE > 0 THEN
-        _FONT TEXT.FONT_HANDLE
+
+    DIM renderW AS INTEGER, renderH AS INTEGER
+    renderW% = SCRN.canvasW&
+    renderH% = SCRN.canvasH&
+    IF renderW% < 1 THEN renderW% = 320
+    IF renderH% < 1 THEN renderH% = 200
+
+    ' Reallocate cached image if canvas size changed
+    IF TEXT_PREVIEW_CACHE& >= -1 OR TEXT_PREVIEW_CACHE_W% <> renderW% OR TEXT_PREVIEW_CACHE_H% <> renderH% THEN
+        IF TEXT_PREVIEW_CACHE& < -1 THEN _FREEIMAGE TEXT_PREVIEW_CACHE&
+        TEXT_PREVIEW_CACHE& = _NEWIMAGE(renderW%, renderH%, 32)
+        TEXT_PREVIEW_CACHE_W% = renderW%
+        TEXT_PREVIEW_CACHE_H% = renderH%
+        TEXT_LAYER_DATA(tdIdx%).dirty = TRUE  ' force re-render after resize
     END IF
-    
-    ' Calculate the bounding box of all text lines at native (canvas) resolution
-    DIM max_text_w AS INTEGER, total_text_h AS INTEGER
-    DIM i AS INTEGER
-    DIM line_w AS INTEGER
-    max_text_w% = TEXT.CHAR_WIDTH ' Minimum 1 char wide for cursor
-    total_text_h% = TEXT.LINE_COUNT * TEXT.LINE_HEIGHT
-    IF total_text_h% < TEXT.LINE_HEIGHT THEN total_text_h% = TEXT.LINE_HEIGHT
-    
-    FOR i = 0 TO TEXT.LINE_COUNT - 1
-        IF LEN(TEXT_BUFFER(i)) > 0 THEN
-            line_w% = _PRINTWIDTH(TEXT_BUFFER(i))
-            IF line_w% > max_text_w% THEN max_text_w% = line_w%
-        END IF
-    NEXT i
-    
-    ' Add margin for cursor at end of line
-    max_text_w% = max_text_w% + TEXT.CHAR_WIDTH
-    
-    ' Create a temporary image at canvas resolution to render text into
-    DIM tmpImg AS LONG
-    tmpImg& = _NEWIMAGE(max_text_w%, total_text_h%, 32)
-    IF tmpImg& >= -1 THEN
-        ' Fallback if image creation fails - shouldn't happen
-        IF (TEXT.USE_CUSTOM AND TEXT.CUSTOM_FONT_HANDLE > 0) OR (TEXT.USE_TINY5 AND TEXT.FONT_HANDLE > 0) THEN
-            _FONT old_font
-        END IF
-        EXIT SUB
+    IF TEXT_PREVIEW_CACHE& >= -1 THEN EXIT SUB
+
+    ' Only re-render text into cache when content has changed
+    IF TEXT_LAYER_DATA(tdIdx%).dirty THEN
+        ' Clear preview cache to transparent using _MEM
+        DIM prvMem AS _MEM
+        prvMem = _MEMIMAGE(TEXT_PREVIEW_CACHE&)
+        DIM prvOff AS _OFFSET
+        FOR prvOff = prvMem.OFFSET TO prvMem.OFFSET + prvMem.SIZE - 4 STEP 4
+            _MEMPUT prvMem, prvOff, 0 AS _UNSIGNED LONG
+        NEXT prvOff
+        _MEMFREE prvMem
+        TEXT_LAYER_render tdIdx%, TEXT_PREVIEW_CACHE&
+        _DEST dest
+        ' Clear dirty now — SCREEN.BM compositing already re-rendered imgHandle&
+        ' but deferred clearing dirty for the editing layer so we could refresh here
+        TEXT_LAYER_DATA(tdIdx%).dirty = FALSE
     END IF
-    
-    ' Render text at native resolution into the temp image
-    _DEST tmpImg&
-    ' Re-apply font to new dest
-    IF TEXT.USE_CUSTOM AND TEXT.CUSTOM_FONT_HANDLE > 0 THEN
-        _FONT TEXT.CUSTOM_FONT_HANDLE
-    ELSEIF TEXT.USE_TINY5 AND TEXT.FONT_HANDLE > 0 THEN
-        _FONT TEXT.FONT_HANDLE
-    END IF
-    
-    CLS , _RGBA32(0, 0, 0, 0)   ' Transparent background
-    
-    DIM y_pos AS INTEGER
-    FOR i = 0 TO TEXT.LINE_COUNT - 1
-        IF LEN(TEXT_BUFFER(i)) > 0 THEN
-            y_pos% = i * TEXT.LINE_HEIGHT
-            COLOR PAINT_COLOR~&, _RGBA32(0, 0, 0, 0)
-            _PRINTSTRING (0, y_pos%), TEXT_BUFFER(i)
-        END IF
-    NEXT i
-    
-    ' Draw cursor into the temp image at canvas resolution
-    TEXT_update_cursor
-    DIM cursor_local_x AS INTEGER, cursor_local_y AS INTEGER
-    cursor_local_x% = TEXT.CURSOR_X - TEXT.START_X
-    cursor_local_y% = TEXT.CURSOR_Y - TEXT.START_Y
-    IF TEXT.CURSOR_BLINK THEN
-        LINE (cursor_local_x%, cursor_local_y%)-(cursor_local_x%, cursor_local_y% + TEXT.LINE_HEIGHT - 1), PAINT_COLOR~&
-    END IF
-    
-    ' Draw I-beam origin marker (vertical line) at canvas resolution
-    LINE (0, 0)-(0, TEXT.LINE_HEIGHT - 1), _RGB32(128, 128, 128)
-    
-    ' Restore font before switching dest
-    IF (TEXT.USE_CUSTOM AND TEXT.CUSTOM_FONT_HANDLE > 0) OR (TEXT.USE_TINY5 AND TEXT.FONT_HANDLE > 0) THEN
-        _FONT old_font
-    END IF
-    
-    ' Now scale the temp image to the screen with zoom using _PUTIMAGE
-    _DEST dest
+
+    ' Scale and blit cached text to screen
     DIM screen_x AS INTEGER, screen_y AS INTEGER
     DIM scaled_w AS INTEGER, scaled_h AS INTEGER
-    screen_x% = dx% + INT(TEXT.START_X * zoom!)
-    screen_y% = dy% + INT(TEXT.START_Y * zoom!)
-    scaled_w% = INT(max_text_w% * zoom!)
-    scaled_h% = INT(total_text_h% * zoom!)
-    
+    screen_x% = dx%
+    screen_y% = dy%
+    scaled_w% = INT(renderW% * zoom!)
+    scaled_h% = INT(renderH% * zoom!)
+
     IF scaled_w% > 0 AND scaled_h% > 0 THEN
-        _PUTIMAGE (screen_x%, screen_y%)-(screen_x% + scaled_w% - 1, screen_y% + scaled_h% - 1), tmpImg&, dest
+        _PUTIMAGE (screen_x%, screen_y%)-(screen_x% + scaled_w% - 1, screen_y% + scaled_h% - 1), TEXT_PREVIEW_CACHE&, dest
     END IF
-    
-    _FREEIMAGE tmpImg&
+
+    ' Draw selection highlights over selected characters
+    IF TEXT_has_selection% THEN
+        DIM selMin AS INTEGER, selMax AS INTEGER
+        selMin% = TEXT.selStart%: selMax% = TEXT.selEnd%
+        IF selMin% > selMax% THEN SWAP selMin%, selMax%
+
+        DIM selCurX AS INTEGER, selCurY AS INTEGER, selCurLine AS INTEGER
+        selCurX% = TEXT_LAYER_DATA(tdIdx%).startX
+        selCurY% = TEXT_LAYER_DATA(tdIdx%).startY
+        selCurLine% = 0
+
+        DIM selC AS INTEGER
+        FOR selC% = 0 TO TEXT_LAYER_DATA(tdIdx%).charCount - 1
+            ' Check for line break
+            IF selCurLine% < TEXT_LAYER_DATA(tdIdx%).lineCount - 1 THEN
+                IF selC% = TL_LINE_BREAK(tdIdx%, selCurLine% + 1) THEN
+                    selCurLine% = selCurLine% + 1
+                    selCurX% = TEXT_LAYER_DATA(tdIdx%).startX
+                    DIM selLead AS INTEGER
+                    selLead% = TL_LEADING(tdIdx%, selCurLine% - 1)
+                    IF selLead% = 0 THEN selLead% = TEXT_LAYER_DATA(tdIdx%).defaultLeading
+                    selCurY% = selCurY% + selLead%
+                END IF
+            END IF
+
+            IF TL_CHAR(tdIdx%, selC%) = CHR$(10) THEN _CONTINUE
+
+            ' Get char width for this character
+            DIM selFStyle AS STRING
+            selFStyle$ = FONT_STYLE_REGULAR$
+            IF TL_BOLD(tdIdx%, selC%) AND TL_ITALIC(tdIdx%, selC%) THEN
+                selFStyle$ = FONT_STYLE_BOLDITALIC$
+            ELSEIF TL_BOLD(tdIdx%, selC%) THEN
+                selFStyle$ = FONT_STYLE_BOLD$
+            ELSEIF TL_ITALIC(tdIdx%, selC%) THEN
+                selFStyle$ = FONT_STYLE_ITALIC$
+            END IF
+
+            DIM selFH AS LONG
+            selFH& = FONT_LIST_get_handle&(TL_FONT_IDX(tdIdx%, selC%), TL_FONT_SIZE(tdIdx%, selC%), selFStyle$, TEXT_LAYER_DATA(tdIdx%).monospace)
+            DIM selCW AS INTEGER, selCH AS INTEGER
+            selCH% = TL_FONT_SIZE(tdIdx%, selC%)
+            IF selFH& > 0 THEN
+                DIM selOldF AS LONG: selOldF& = _FONT
+                _FONT selFH&
+                selCW% = _PRINTWIDTH(TL_CHAR(tdIdx%, selC%))
+                _FONT selOldF&
+            ELSE
+                selCW% = 8
+            END IF
+
+            ' Draw highlight if in selection range
+            IF selC% >= selMin% AND selC% < selMax% THEN
+                DIM hlX AS INTEGER, hlY AS INTEGER, hlW AS INTEGER, hlH AS INTEGER
+                hlX% = dx% + INT(selCurX% * zoom!)
+                hlY% = dy% + INT(selCurY% * zoom!)
+                hlW% = INT(selCW% * zoom!)
+                hlH% = INT(selCH% * zoom!)
+                IF hlW% < 1 THEN hlW% = 1
+                IF hlH% < 1 THEN hlH% = 1
+                LINE (hlX%, hlY%)-(hlX% + hlW% - 1, hlY% + hlH% - 1), _RGBA32(80, 120, 200, 128), BF
+            END IF
+
+            selCurX% = selCurX% + selCW% + TL_KERN(tdIdx%, selC%)
+        NEXT selC%
+    END IF
+
+    ' Draw blinking cursor (blink state managed in DRAW.BAS main loop)
+    DIM cx AS INTEGER, cy AS INTEGER
+    DIM curLineH AS INTEGER
+    ' Cursor height matches the text size at the cursor position
+    DIM curCharIdx AS INTEGER
+    curCharIdx% = TEXT_LAYER_DATA(tdIdx%).cursorPos
+    IF curCharIdx% > 0 THEN curCharIdx% = curCharIdx% - 1
+    IF curCharIdx% >= TEXT_LAYER_DATA(tdIdx%).charCount THEN curCharIdx% = TEXT_LAYER_DATA(tdIdx%).charCount - 1
+    IF curCharIdx% >= 0 AND TEXT_LAYER_DATA(tdIdx%).charCount > 0 THEN
+        ' Use actual font height (handles built-in bitmap fonts correctly)
+        DIM curFontIdx AS INTEGER
+        curFontIdx% = TL_FONT_IDX(tdIdx%, curCharIdx%)
+        IF curFontIdx% >= 0 AND curFontIdx% < FONT_LIST_COUNT% THEN
+            IF FONT_LIST(curFontIdx%).isBuiltIn THEN
+                curLineH% = FONT_LIST(curFontIdx%).builtInHandle
+            ELSE
+                curLineH% = TL_FONT_SIZE(tdIdx%, curCharIdx%)
+            END IF
+        ELSE
+            curLineH% = TL_FONT_SIZE(tdIdx%, curCharIdx%)
+        END IF
+    ELSE
+        curLineH% = TEXT_BAR.selectedSize%
+    END IF
+    IF curLineH% < 4 THEN curLineH% = 4
+    cx% = dx% + INT(TEXT.CURSOR_X * zoom!)
+    cy% = dy% + INT(TEXT.CURSOR_Y * zoom!)
+
+    IF TEXT.OVERFLOW_FLASH > 0 THEN
+        ' Alternate between high-contrast inverted cursor colors each frame
+        DIM flashColor AS _UNSIGNED LONG
+        IF TEXT.OVERFLOW_FLASH MOD 2 = 0 THEN
+            flashColor~& = _RGB32(255, 255, 255)
+        ELSE
+            flashColor~& = _RGB32(0, 0, 0)
+        END IF
+        ' Draw a thick flashing cursor (3px wide for visibility)
+        LINE (cx% - 1, cy%)-(cx% + 1, cy% + INT(curLineH% * zoom!) - 1), flashColor~&, BF
+        TEXT.OVERFLOW_FLASH = TEXT.OVERFLOW_FLASH - 1
+    ELSEIF TEXT.CURSOR_BLINK THEN
+        ' Draw contrasting outline so cursor is visible over text glyphs
+        DIM cursorH AS INTEGER
+        cursorH% = INT(curLineH% * zoom!) - 1
+        DIM cursorOutline AS _UNSIGNED LONG
+        IF _RED32(PAINT_COLOR~&) + _GREEN32(PAINT_COLOR~&) + _BLUE32(PAINT_COLOR~&) > 384 THEN
+            cursorOutline~& = _RGB32(0, 0, 0)
+        ELSE
+            cursorOutline~& = _RGB32(255, 255, 255)
+        END IF
+        LINE (cx% - 1, cy%)-(cx% - 1, cy% + cursorH%), cursorOutline~&
+        LINE (cx% + 1, cy%)-(cx% + 1, cy% + cursorH%), cursorOutline~&
+        LINE (cx%, cy%)-(cx%, cy% + cursorH%), PAINT_COLOR~&
+    END IF
 END SUB
 
 ''
@@ -399,5 +852,70 @@ SUB TEXT_update_cursor ()
     IF TIMER - TEXT.BLINK_TIMER > 0.5 THEN
         TEXT.CURSOR_BLINK = 1 - TEXT.CURSOR_BLINK
         TEXT.BLINK_TIMER = TIMER
+        FRAME_IDLE% = FALSE
     END IF
+END SUB
+
+''
+' Clears the current text selection.
+'
+SUB TEXT_clear_selection ()
+    TEXT.selStart% = -1
+    TEXT.selEnd% = -1
+    TEXT.selActive% = FALSE
+END SUB
+
+''
+' Returns TRUE if text has an active selection.
+'
+FUNCTION TEXT_has_selection% ()
+    TEXT_has_selection% = FALSE
+    IF NOT TEXT.selActive% THEN EXIT FUNCTION
+    IF TEXT.selStart% < 0 THEN EXIT FUNCTION
+    IF TEXT.selEnd% < 0 THEN EXIT FUNCTION
+    IF TEXT.selStart% = TEXT.selEnd% THEN EXIT FUNCTION
+    TEXT_has_selection% = TRUE
+END FUNCTION
+
+''
+' Deletes the currently selected text range.
+' Sets cursor to the left edge of the deleted range.
+'
+SUB TEXT_delete_selection ()
+    IF NOT TEXT_has_selection% THEN EXIT SUB
+    IF NOT TEXT.ACTIVE THEN EXIT SUB
+    IF TEXT.editingTextLayer% < 1 THEN EXIT SUB
+
+    DIM tdIdx AS INTEGER
+    tdIdx% = LAYERS(TEXT.editingTextLayer%).textDataIdx%
+    IF tdIdx% < 1 THEN EXIT SUB
+
+    DIM sMin AS INTEGER, sMax AS INTEGER
+    sMin% = TEXT.selStart%
+    sMax% = TEXT.selEnd%
+    IF sMin% > sMax% THEN SWAP sMin%, sMax%
+
+    ' Clamp to valid range
+    IF sMin% < 0 THEN sMin% = 0
+    IF sMax% > TEXT_LAYER_DATA(tdIdx%).charCount THEN sMax% = TEXT_LAYER_DATA(tdIdx%).charCount
+
+    ' Delete chars by positioning cursor at sMax and deleting backwards
+    DIM delCount AS INTEGER
+    delCount% = sMax% - sMin%
+    TEXT_LAYER_DATA(tdIdx%).cursorPos = sMax%
+    DIM delI AS INTEGER
+    FOR delI% = 1 TO delCount%
+        TEXT_LAYER_delete_char tdIdx%
+    NEXT delI%
+
+    ' Clear selection
+    TEXT_clear_selection
+
+    ' Update cursor
+    TEXT.CURSOR_X = TEXT_LAYER_get_char_x%(tdIdx%, TEXT_LAYER_DATA(tdIdx%).cursorPos)
+    TEXT.CURSOR_Y = TEXT_LAYER_get_line_y%(tdIdx%, TEXT_LAYER_get_line_for_char%(tdIdx%, TEXT_LAYER_DATA(tdIdx%).cursorPos))
+
+    TEXT_LAYER_DATA(tdIdx%).dirty = TRUE
+    FRAME_IDLE% = FALSE
+    SCENE_DIRTY% = TRUE
 END SUB
