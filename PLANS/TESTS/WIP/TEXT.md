@@ -735,69 +735,69 @@ Verify re-editing works when clicking text on different layers.
 
 ---
 
-## [ ] FONT LOADING
+## [x] FONT LOADING
 
-### [ ] Custom Font from Disk
+### [x] Custom Font from Disk
 Verify loading TTF/OTF fonts via the TEXT BAR LOAD button.
 
-#### [ ] Load font via TEXT BAR LOAD button
-1. [ ] Activate text tool
-2. [ ] Click the LOAD button in TEXT BAR
-3. [ ] Verify file dialog opens filtered for .ttf and .otf files
-4. [ ] Select a .ttf font file and confirm
-5. [ ] Verify the font dropdown updates to show the loaded font
-6. [ ] Type text — verify it renders in the loaded font
+#### [x] Load font via TEXT BAR LOAD button — N/A (LOAD button removed from TEXT BAR)
+1. [x] ~~Activate text tool~~
+2. [x] ~~Click the LOAD button in TEXT BAR~~
+3. [x] ~~Verify file dialog opens filtered for .ttf and .otf files~~
+4. [x] ~~Select a .ttf font file and confirm~~
+5. [x] ~~Verify the font dropdown updates to show the loaded font~~
+6. [x] ~~Type text — verify it renders in the loaded font~~
 
-#### [ ] Load font via middle-click toolbar icon
-1. [ ] Middle-click the Text tool icon in the toolbar
-2. [ ] Verify file dialog opens for font selection
-3. [ ] Select a font and confirm
-4. [ ] Verify the custom font is loaded and active
+#### [x] Load font via middle-click toolbar icon
+1. [x] Middle-click the Text tool icon in the toolbar
+2. [x] Verify file dialog opens for font selection
+3. [x] Select a font and confirm
+4. [x] Verify the custom font is loaded and active
 
-#### [ ] Custom font persists across tool switches
-1. [ ] Load a custom font
-2. [ ] Switch to Brush tool, then back to text tool (Ctrl+T)
-3. [ ] Verify the custom font is still selected and usable
+#### [x] Custom font persists across tool switches
+1. [x] Load a custom font
+2. [x] Switch to Brush tool, then back to text tool (Ctrl+T)
+3. [x] Verify the custom font is still selected and usable
 
-### [ ] Font List Features
+### [x] Font List Features
 Verify the font list scan and filtering features.
 
-#### [ ] Bundled fonts appear above system fonts
-1. [ ] Open the font dropdown
-2. [ ] Verify ASSETS/FONTS/ fonts appear near the top
-3. [ ] Verify system fonts appear after bundled fonts
+#### [x] Bundled fonts appear above system fonts
+1. [x] Open the font dropdown
+2. [x] Verify ASSETS/FONTS/ fonts appear near the top
+3. [x] Verify system fonts appear after bundled fonts
 
-#### [ ] Built-in QB64-PE bitmap fonts available
-1. [ ] Open font dropdown
-2. [ ] Verify QB64-PE bitmap fonts (8x8, 8x16) appear in the list
-3. [ ] Select "QB64-PE 8x16" — verify text renders in classic bitmap style
+#### [x] Built-in QB64-PE bitmap fonts available
+1. [x] Open font dropdown
+2. [x] Verify QB64-PE bitmap fonts (8x8, 8x16) appear in the list
+3. [x] Select "QB64-PE 8x16" — verify text renders in classic bitmap style
 
 ---
 
 ## [ ] COMMIT AND CANCEL
 
-### [ ] Escape Key Behavior
+### [x] Escape Key Behavior
 Verify Escape commits text with content, or cancels (deletes) empty text layers.
 
-#### [ ] Escape with text commits the layer
-1. [ ] Start text entry, type "Hello"
-2. [ ] Press Escape
-3. [ ] Verify text tool returns to idle (editing stops)
-4. [ ] Verify the text layer is preserved (visible in layer panel as LAYER_TYPE_TEXT)
-5. [ ] Verify the text is still visible on canvas
+#### [x] Escape with text commits the layer
+1. [x] Start text entry, type "Hello"
+2. [x] Press Escape
+3. [x] Verify text tool returns to idle (editing stops)
+4. [x] Verify the text layer is preserved (visible in layer panel as LAYER_TYPE_TEXT)
+5. [x] Verify the text is still visible on canvas
 
-#### [ ] Escape with empty text deletes the layer
-1. [ ] Start text entry by clicking canvas (creates new layer)
-2. [ ] Don't type anything
-3. [ ] Press Escape
-4. [ ] Verify the empty text layer is deleted from the layer panel
-5. [ ] Verify no blank layer remains
+#### [x] Escape with empty text deletes the layer
+1. [x] Start text entry by clicking canvas (creates new layer)
+2. [x] Don't type anything
+3. [x] Press Escape
+4. [x] Verify the empty text layer is deleted from the layer panel
+5. [x] Verify no blank layer remains
 
-#### [ ] Tool switch commits active text
-1. [ ] Start text entry, type "Auto Commit"
-2. [ ] Press `B` to switch to Brush tool
-3. [ ] Verify text is committed (layer preserved)
-4. [ ] Switch back to text tool — verify text is still there and re-editable
+#### [x] Tool switch commits active text
+1. [x] Start text entry, type "Auto Commit"
+2. [x] Press `B` to switch to Brush tool
+3. [x] Verify text is committed (layer preserved)
+4. [x] Switch back to text tool — verify text is still there and re-editable
 
 ### [ ] Done Button
 Verify the DONE button in the TEXT BAR.
