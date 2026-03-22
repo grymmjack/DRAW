@@ -1078,54 +1078,54 @@ Verify the text layer pool manages slots correctly.
 
 ---
 
-## [ ] FILE SAVE/LOAD
+## [x] FILE SAVE/LOAD
 
-### [ ] DRW Format Preservation
+### [x] DRW Format Preservation
 Verify text layers survive save/load cycle in .draw format.
 
-#### [ ] Save and load preserves text layers
-1. [ ] Create multiple text layers with different content and formatting
-2. [ ] Save as .draw file (Alt+S or File → Save)
-3. [ ] Close and reopen the .draw file (Alt+O)
-4. [ ] Verify all text layers load correctly
-5. [ ] Verify text is re-editable (click to re-edit)
-6. [ ] Verify per-character formatting (font, size, color, bold, etc.) is preserved
+#### [x] Save and load preserves text layers
+1. [x] Create multiple text layers with different content and formatting
+2. [x] Save as .draw file (Alt+S or File → Save)
+3. [x] Close and reopen the .draw file (Alt+O)
+4. [x] Verify all text layers load correctly
+5. [x] Verify text is re-editable (click to re-edit)
+6. [x] Verify per-character formatting (font, size, color, bold, etc.) is preserved
 
-#### [ ] Export as image rasterizes all text
-1. [ ] Create text layers
-2. [ ] Export as PNG (Ctrl+S)
-3. [ ] Verify the exported image contains the text as pixels
-4. [ ] Verify no text layer data remains in the PNG (it's a flat image)
+#### [x] Export as image rasterizes all text
+1. [x] Create text layers
+2. [x] Export as PNG (Ctrl+S)
+3. [x] Verify the exported image contains the text as pixels
+4. [x] Verify no text layer data remains in the PNG (it's a flat image)
 
 ---
 
-## [ ] RENDERING
+## [x] RENDERING
 
-### [ ] Text Preview on Canvas
+### [x] Text Preview on Canvas
 Verify live text preview renders correctly while editing.
 
-#### [ ] Live preview updates as you type
-1. [ ] Start text entry
-2. [ ] Type characters one at a time
-3. [ ] Verify each character appears immediately on the canvas
+#### [x] Live preview updates as you type
+1. [x] Start text entry
+2. [x] Type characters one at a time
+3. [x] Verify each character appears immediately on the canvas
 
-#### [ ] Selection highlight renders correctly
-1. [ ] Type "Hello World"
-2. [ ] Select "World"
-3. [ ] Verify highlight overlay covers exactly the selected characters
-4. [ ] Verify highlight color is visible but doesn't fully obscure text
+#### [x] Selection highlight renders correctly
+1. [x] Type "Hello World"
+2. [x] Select "World"
+3. [x] Verify highlight overlay covers exactly the selected characters
+4. [x] Verify highlight color is visible but doesn't fully obscure text
 
-#### [ ] Cursor renders at correct position
-1. [ ] Type "Test"
-2. [ ] Press Home — verify cursor is at left edge of 'T'
-3. [ ] Press End — verify cursor is at right edge of 't'
-4. [ ] Press Left twice — verify cursor is between 'e' and 's'
+#### [x] Cursor renders at correct position
+1. [x] Type "Test"
+2. [x] Press Home — verify cursor is at left edge of 'T'
+3. [x] Press End — verify cursor is at right edge of 't'
+4. [x] Press Left twice — verify cursor is between 'e' and 's'
 
-#### [ ] Underline and strikethrough render at correct positions
-1. [ ] Type "Underline" with underline enabled
-2. [ ] Verify underline appears 1px below the text baseline
-3. [ ] Type "Strike" with strikethrough enabled
-4. [ ] Verify strikethrough line appears at vertical midpoint of text
+#### [x] Underline and strikethrough render at correct positions
+1. [x] Type "Underline" with underline enabled
+2. [x] Verify underline appears 1px below the text baseline
+3. [x] Type "Strike" with strikethrough enabled
+4. [x] Verify strikethrough line appears at vertical midpoint of text
 
 ---
 
@@ -1134,11 +1134,11 @@ Verify live text preview renders correctly while editing.
 ### [ ] State Transition Guard Conditions
 Verify edge cases from the state machine diagram.
 
-#### [ ] DRW load during active editing resets text state
-1. [ ] Start editing text on canvas (type something)
-2. [ ] While still editing, load a .draw file (Alt+O, select file)
-3. [ ] Verify text editing is cleanly cancelled
-4. [ ] Verify TEXT.ACTIVE = FALSE and TEXT BAR is reset
+#### [x] DRW load during active editing resets text state
+1. [x] Start editing text on canvas (type something)
+2. [x] While still editing, load a .draw file (Alt+O, select file)
+3. [x] Verify text editing is cleanly cancelled
+4. [x] Verify TEXT.ACTIVE = FALSE and TEXT BAR is reset
 
 #### [ ] Layer delete during active editing resets text state
 1. [ ] Start editing text on canvas
