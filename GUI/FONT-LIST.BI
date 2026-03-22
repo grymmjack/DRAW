@@ -36,6 +36,9 @@ TYPE FONT_ENTRY
     italicPath    AS STRING * 260  ' Path to italic variant (if found)
     boldItalicPath AS STRING * 260 ' Path to bold-italic variant (if found)
     isFavorite    AS INTEGER       ' TRUE if font is in DRAW_FONT_FAVORITES.txt
+    isBitmapFont  AS INTEGER       ' TRUE if raw bitmap font (F??, PSF, BDF, PCF)
+    bitmapGlyphW  AS INTEGER       ' Glyph width for bitmap fonts (pixels)
+    bitmapGlyphH  AS INTEGER       ' Glyph height for bitmap fonts (pixels)
 END TYPE
 
 ' Font list (populated by FONT_LIST_scan)
@@ -65,9 +68,17 @@ DIM SHARED FONT_FAVORITES_COUNT AS INTEGER
 
 DECLARE SUB FONT_LIST_scan ()
 DECLARE SUB FONT_LIST_scan_dir (dir$, recursive%, isBundled%)
+DECLARE SUB FONT_LIST_scan_bitmap_dir (dir$, isBundled%)
 DECLARE SUB FONT_LIST_add_font (fontPath$, isBundled%)
+DECLARE SUB FONT_LIST_add_bitmap_font (fontPath$, isBundled%, glyphW%, glyphH%)
 DECLARE SUB FONT_LIST_add_builtin (displayName$, builtInHandle&)
 DECLARE SUB FONT_LIST_sort ()
+DECLARE FUNCTION BITMAP_FONT_detect_fxx% (fontPath$, outW AS INTEGER, outH AS INTEGER)
+DECLARE FUNCTION BITMAP_FONT_detect_psf% (fontPath$, outW AS INTEGER, outH AS INTEGER)
+DECLARE FUNCTION BITMAP_FONT_detect_bdf% (fontPath$, outW AS INTEGER, outH AS INTEGER)
+DECLARE SUB BITMAP_FONT_render_glyph_fxx (fontPath$, charIdx%, glyphH%, destImg AS LONG)
+DECLARE SUB BITMAP_FONT_render_glyph_psf (fontPath$, charIdx%, glyphW%, glyphH%, destImg AS LONG)
+DECLARE SUB BITMAP_FONT_render_glyph_bdf (fontPath$, charIdx%, destImg AS LONG, outW AS INTEGER, outH AS INTEGER)
 DECLARE FUNCTION FONT_LIST_get_handle& (fontIdx%, fontSize%, fontStyle$, mono%)
 DECLARE FUNCTION FONT_LIST_extract_name$ (fontPath$)
 DECLARE FUNCTION FONT_LIST_find_by_name% (displayName$)

@@ -284,6 +284,21 @@ TYPE DRAW_CONFIG
     ' Text tool default font settings
     FONT_DEFAULT_FONT              AS STRING   ' Default font name for text tool (empty=use Tiny5 Regular)
     FONT_DEFAULT_SIZE              AS INTEGER  ' Default font size for text tool (4-128, 0=use program default 8)
+    ' Character Map panel settings
+    CHARMAP_VISIBLE                AS INTEGER  ' TRUE = character map panel visible at startup
+    CHARMAP_PANEL_DOCK_EDGE        AS STRING   ' "LEFT" or "RIGHT" (default: "LEFT")
+    CHARMAP_CELL_W                 AS INTEGER  ' Cell width in pixels (default 8)
+    CHARMAP_CELL_H                 AS INTEGER  ' Cell height in pixels (default 8)
+    CHARMAP_CELL_PADDING           AS INTEGER  ' Padding between cells (default 1)
+    CHARMAP_DEFAULT_FONT           AS STRING   ' Default font name for charmap (empty = use text tool font)
+    CHARMAP_CHAR_SELECTED          AS INTEGER  ' Last selected character index (0-255, -1=none)
+    CHARMAP_USE_CHARS              AS INTEGER  ' TRUE = Character Mode (Use Chars) active
+    ' Character Grid settings
+    CHAR_GRID_WIDTH                AS INTEGER  ' Character grid cell width (0 = match font)
+    CHAR_GRID_HEIGHT               AS INTEGER  ' Character grid cell height (0 = match font)
+    CHAR_GRID_OPACITY              AS INTEGER  ' Character grid opacity 0-255 (0 = use theme)
+    ' Tab width in Character Mode
+    CHARMAP_TAB_CHARS              AS INTEGER  ' Number of characters per TAB (default 4)
 END TYPE
 
 DIM SHARED CFG   AS DRAW_CONFIG

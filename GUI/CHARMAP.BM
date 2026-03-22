@@ -1,0 +1,751 @@
+''
+' DRAW - GUI/CHARMAP.BM
+' =============================================================================
+' Character Map — implementation.
+' Dockable panel showing a 16x16 grid of font glyphs.
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+''
+' Initialise Character Map state from config.
+' Called from SCREEN_init (via _ALL.BM include chain).
+' Follows the PREVIEW/EDITBAR default-hidden + ManuallyHidden pattern.
+'
+SUB CHARMAP_init ()
+    CHARMAP.visible% = FALSE
+    CHARMAP.selectedIdx% = CHARMAP_NO_SELECTION
+    CHARMAP.hoverIdx% = -1
+    CHARMAP.scrollY% = 0
+    CHARMAP.cacheValid% = FALSE
+    CHARMAP.cacheFontIdx% = -1
+    CHARMAP.cacheFontSize% = 0
+    CHARMAP.cacheMono% = FALSE
+    CHARMAP.flashIdx% = -1
+    CHARMAP.flashTimer! = 0
+    CHARMAP.useChars% = FALSE
+
+    ' Apply config
+    CHARMAP.cellW% = CFG.CHARMAP_CELL_W%
+    IF CHARMAP.cellW% < 6 THEN CHARMAP.cellW% = 8
+    CHARMAP.cellH% = CFG.CHARMAP_CELL_H%
+    IF CHARMAP.cellH% < 6 THEN CHARMAP.cellH% = 8
+    CHARMAP.cellPadding% = CFG.CHARMAP_CELL_PADDING%
+    IF CHARMAP.cellPadding% < 0 THEN CHARMAP.cellPadding% = 1
+
+    IF UCASE$(_TRIM$(CFG.CHARMAP_PANEL_DOCK_EDGE$)) = "LEFT" THEN
+        CHARMAP.dockSide% = CHARMAP_DOCK_LEFT
+    ELSE
+        CHARMAP.dockSide% = CHARMAP_DOCK_RIGHT
+    END IF
+
+    ' Selected char from config
+    IF CFG.CHARMAP_CHAR_SELECTED% >= 0 AND CFG.CHARMAP_CHAR_SELECTED% < CHARMAP_CELL_COUNT THEN
+        CHARMAP.selectedIdx% = CFG.CHARMAP_CHAR_SELECTED%
+    END IF
+
+    ' Use Chars state from config
+    CHARMAP.useChars% = CFG.CHARMAP_USE_CHARS%
+
+    ' Visibility — follow the default-hidden ManuallyHidden pattern
+    SCRN.showCharMap% = FALSE
+    SCRN.charMapManuallyHidden% = TRUE
+    IF CFG.CHARMAP_VISIBLE% THEN
+        SCRN.showCharMap% = TRUE
+        SCRN.charMapManuallyHidden% = FALSE
+    END IF
+    CHARMAP.visible% = SCRN.showCharMap%
+
+    ' Character grid overlay defaults
+    CHARMAP.charGridShow% = FALSE
+    CHARMAP.charGridSnap% = FALSE
+    CHARMAP.charGridImg& = 0
+    ' Character grid cell size from config (0 = auto-detect from font)
+    CHARMAP.charGridW% = CFG.CHAR_GRID_WIDTH%
+    CHARMAP.charGridH% = CFG.CHAR_GRID_HEIGHT%
+END SUB
+
+
+''
+' Toggle Character Map visibility.
+' Mirrors the EDITBAR_toggle / PREVIEW_toggle pattern.
+'
+SUB CHARMAP_toggle ()
+    IF SCRN.showCharMap% THEN
+        SCRN.showCharMap% = FALSE
+        SCRN.charMapManuallyHidden% = TRUE
+        CHARMAP.visible% = FALSE
+    ELSE
+        SCRN.showCharMap% = TRUE
+        SCRN.charMapManuallyHidden% = FALSE
+        CHARMAP.visible% = TRUE
+        ' Rebuild cache if stale
+        IF NOT CHARMAP.cacheValid% THEN CHARMAP_rebuild_cache
+    END IF
+    CFG.CHARMAP_VISIBLE% = SCRN.showCharMap%
+    CONFIG_save
+    GUI_NEEDS_REDRAW% = TRUE
+    CHARMAP_NEEDS_REDRAW% = TRUE
+    SCENE_DIRTY% = TRUE
+END SUB
+
+
+''
+' Compute panel width from cell metrics.
+'
+FUNCTION CHARMAP_panel_width% ()
+    DIM pw AS INTEGER
+    pw% = CHARMAP_COLS * CHARMAP.cellW% + (CHARMAP_COLS - 1) * CHARMAP.cellPadding% + 4 ' +4 outer pad
+    CHARMAP_panel_width% = pw%
+END FUNCTION
+
+
+''
+' Reset transient panel state (called on file load).
+'
+SUB CHARMAP_reset ()
+    CHARMAP.hoverIdx% = -1
+    CHARMAP.flashIdx% = -1
+    CHARMAP.flashTimer! = 0
+    CHARMAP_NEEDS_REDRAW% = TRUE
+END SUB
+
+
+''
+' Free all cached glyph images.
+'
+SUB CHARMAP_free_cache ()
+    DIM i AS INTEGER
+    FOR i% = 0 TO CHARMAP_CELL_COUNT - 1
+        IF CHARMAP_GLYPH(i%) < -1 THEN
+            _FREEIMAGE CHARMAP_GLYPH(i%)
+        END IF
+        CHARMAP_GLYPH(i%) = 0
+        CHARMAP_GLYPH_W(i%) = 0
+        CHARMAP_GLYPH_H(i%) = 0
+    NEXT i%
+    CHARMAP.cacheValid% = FALSE
+END SUB
+
+
+''
+' Rebuild the glyph cache for the current font/size.
+' Renders each character (0..255) to a small 32-bit image.
+' For bitmap fonts, reads raw glyph data from the file directly.
+'
+SUB CHARMAP_rebuild_cache ()
+    DIM fIdx AS INTEGER
+    DIM fSize AS INTEGER
+    DIM fMono AS INTEGER
+    DIM fHandle AS LONG
+    DIM ch AS STRING
+    DIM tmpImg AS LONG
+    DIM oldDest AS LONG
+    DIM charW AS INTEGER
+    DIM charH AS INTEGER
+    DIM i AS INTEGER
+
+    ' Use the current text bar font settings
+    fIdx% = TEXT_BAR.selectedFontIdx%
+    fSize% = TEXT_BAR.selectedSize%
+    IF fSize% < 4 THEN fSize% = 8
+    fMono% = TEXT_BAR.monoActive%
+
+    ' Free previous cache
+    CHARMAP_free_cache
+
+    ' Check if selected font is a bitmap font
+    IF fIdx% >= 0 AND fIdx% < FONT_LIST_COUNT% THEN
+        IF FONT_LIST(fIdx%).isBitmapFont THEN
+            CHARMAP_rebuild_cache_bitmap fIdx%
+            EXIT SUB
+        END IF
+    END IF
+
+    ' Get font handle (TTF/OTF/built-in path)
+    fHandle& = FONT_LIST_get_handle&(fIdx%, fSize%, "", fMono%)
+    IF fHandle& < 1 THEN fHandle& = 16 ' Fallback to VGA 8x16
+
+    FOR i% = 0 TO CHARMAP_CELL_COUNT - 1
+        IF i% = 0 THEN
+            ch$ = CHR$(32) ' Render space for char 0 (NULL)
+        ELSE
+            ch$ = CHR$(i%)
+        END IF
+
+        ' Measure glyph
+        DIM prevFont AS LONG
+        tmpImg& = _NEWIMAGE(1, 1, 32)
+        oldDest& = _DEST
+        _DEST tmpImg&
+        prevFont& = _FONT
+        _FONT fHandle&
+        charW% = _PRINTWIDTH(ch$)
+        charH% = _FONTHEIGHT
+        _FONT prevFont&
+        _DEST oldDest&
+        IF tmpImg& < -1 THEN _FREEIMAGE tmpImg&
+
+        IF charW% < 1 THEN charW% = 1
+        IF charH% < 1 THEN charH% = 1
+
+        ' Render glyph to 32-bit RGBA image
+        tmpImg& = _NEWIMAGE(charW%, charH%, 32)
+        IF tmpImg& >= -1 THEN
+            CHARMAP_GLYPH(i%) = 0
+            _CONTINUE
+        END IF
+        oldDest& = _DEST
+        _DEST tmpImg&
+        CLS , _RGBA32(0, 0, 0, 0) ' Transparent background
+        _DONTBLEND
+        prevFont& = _FONT
+        _FONT fHandle&
+        COLOR _RGB32(255, 255, 255), _RGBA32(0, 0, 0, 0)
+        _PRINTSTRING (0, 0), ch$
+        _FONT prevFont&
+        _BLEND
+        _DEST oldDest&
+
+        CHARMAP_GLYPH(i%) = tmpImg&
+        CHARMAP_GLYPH_W(i%) = charW%
+        CHARMAP_GLYPH_H(i%) = charH%
+    NEXT i%
+
+    ' Mark cache valid with current settings
+    CHARMAP.cacheFontIdx% = fIdx%
+    CHARMAP.cacheFontSize% = fSize%
+    CHARMAP.cacheMono% = fMono%
+    CHARMAP.cacheValid% = TRUE
+    CHARMAP_NEEDS_REDRAW% = TRUE
+END SUB
+
+
+''
+' Rebuild glyph cache using raw bitmap font data (F??, PSF, BDF).
+' @param fIdx% Font list index of the bitmap font
+'
+SUB CHARMAP_rebuild_cache_bitmap (fIdx AS INTEGER)
+    DIM fontPath AS STRING
+    DIM gw AS INTEGER, gh AS INTEGER
+    DIM i AS INTEGER
+    DIM glyphImg AS LONG
+
+    fontPath$ = RTRIM$(FONT_LIST(fIdx%).path)
+    gw% = FONT_LIST(fIdx%).bitmapGlyphW
+    gh% = FONT_LIST(fIdx%).bitmapGlyphH
+    IF gw% < 1 OR gh% < 1 THEN EXIT SUB
+
+    ' Determine format from extension
+    DIM upperPath AS STRING
+    upperPath$ = UCASE$(fontPath$)
+    DIM isFxx AS INTEGER, isPsf AS INTEGER, isBdf AS INTEGER
+    isFxx% = FALSE: isPsf% = FALSE: isBdf% = FALSE
+
+    IF RIGHT$(upperPath$, 4) = ".BDF" THEN
+        isBdf% = TRUE
+    ELSEIF RIGHT$(upperPath$, 4) = ".PSF" THEN
+        isPsf% = TRUE
+    ELSE
+        ' Check for .F?? extension
+        DIM dotP AS INTEGER
+        dotP% = _INSTRREV(upperPath$, ".")
+        IF dotP% > 0 THEN
+            DIM extStr AS STRING
+            extStr$ = MID$(upperPath$, dotP% + 1)
+            IF LEN(extStr$) >= 2 AND LEN(extStr$) <= 3 THEN
+                IF LEFT$(extStr$, 1) = "F" THEN isFxx% = TRUE
+            END IF
+        END IF
+    END IF
+
+    FOR i% = 0 TO CHARMAP_CELL_COUNT - 1
+        glyphImg& = 0
+
+        IF isFxx% THEN
+            BITMAP_FONT_render_glyph_fxx fontPath$, i%, gh%, glyphImg&
+        ELSEIF isPsf% THEN
+            BITMAP_FONT_render_glyph_psf fontPath$, i%, gw%, gh%, glyphImg&
+        ELSEIF isBdf% THEN
+            DIM bdfW AS INTEGER, bdfH AS INTEGER
+            BITMAP_FONT_render_glyph_bdf fontPath$, i%, glyphImg&, bdfW%, bdfH%
+            IF glyphImg& < -1 THEN
+                gw% = bdfW%: gh% = bdfH%
+            END IF
+        END IF
+
+        IF glyphImg& < -1 THEN
+            CHARMAP_GLYPH(i%) = glyphImg&
+            CHARMAP_GLYPH_W(i%) = _WIDTH(glyphImg&)
+            CHARMAP_GLYPH_H(i%) = _HEIGHT(glyphImg&)
+        ELSE
+            CHARMAP_GLYPH(i%) = 0
+            CHARMAP_GLYPH_W(i%) = gw%
+            CHARMAP_GLYPH_H(i%) = gh%
+        END IF
+    NEXT i%
+
+    CHARMAP.cacheFontIdx% = fIdx%
+    CHARMAP.cacheFontSize% = gh% ' Use height as "size" for bitmap fonts
+    CHARMAP.cacheMono% = TRUE
+    CHARMAP.cacheValid% = TRUE
+    CHARMAP_NEEDS_REDRAW% = TRUE
+END SUB
+
+
+''
+' Select a glyph by index. Deselect on same index.
+'
+SUB CHARMAP_select_glyph (idx AS INTEGER)
+    IF idx% < 0 OR idx% >= CHARMAP_CELL_COUNT THEN
+        CHARMAP.selectedIdx% = CHARMAP_NO_SELECTION
+    ELSEIF CHARMAP.selectedIdx% = idx% THEN
+        CHARMAP.selectedIdx% = CHARMAP_NO_SELECTION ' Deselect toggle
+    ELSE
+        CHARMAP.selectedIdx% = idx%
+    END IF
+    CFG.CHARMAP_CHAR_SELECTED% = CHARMAP.selectedIdx%
+    CHARMAP_NEEDS_REDRAW% = TRUE
+END SUB
+
+
+''
+' Flash a glyph briefly (for typed character feedback).
+'
+SUB CHARMAP_flash_glyph (idx AS INTEGER)
+    IF idx% >= 0 AND idx% < CHARMAP_CELL_COUNT THEN
+        CHARMAP.flashIdx% = idx%
+        CHARMAP.flashTimer! = TIMER
+        CHARMAP_NEEDS_REDRAW% = TRUE
+    END IF
+END SUB
+
+
+''
+' Hit test: is the mouse over the Character Map panel area?
+'
+FUNCTION CHARMAP_is_over_area% (mouseX AS INTEGER, mouseY AS INTEGER)
+    IF NOT CHARMAP.visible% THEN CHARMAP_is_over_area% = FALSE: EXIT FUNCTION
+    IF mouseX% >= CHARMAP.panelX1% AND mouseX% <= CHARMAP.panelX2% AND _
+       mouseY% >= CHARMAP.panelY1% AND mouseY% <= CHARMAP.panelY2% THEN
+        CHARMAP_is_over_area% = TRUE
+    ELSE
+        CHARMAP_is_over_area% = FALSE
+    END IF
+END FUNCTION
+
+
+''
+' Hit test: which cell index is at the given screen coords?
+' Returns 0..255 or -1 if not over a cell.
+'
+FUNCTION CHARMAP_hit_test_cell% (mouseX AS INTEGER, mouseY AS INTEGER)
+    DIM relX AS INTEGER, relY AS INTEGER
+    DIM col AS INTEGER, row AS INTEGER
+    DIM cellStepX AS INTEGER, cellStepY AS INTEGER
+    DIM idx AS INTEGER
+
+    CHARMAP_hit_test_cell% = -1
+    IF NOT CHARMAP.visible% THEN EXIT FUNCTION
+
+    relX% = mouseX% - CHARMAP.gridX%
+    relY% = mouseY% - CHARMAP.gridY%
+    IF relX% < 0 OR relY% < 0 THEN EXIT FUNCTION
+
+    cellStepX% = CHARMAP.cellW% + CHARMAP.cellPadding%
+    cellStepY% = CHARMAP.cellH% + CHARMAP.cellPadding%
+    IF cellStepX% < 1 OR cellStepY% < 1 THEN EXIT FUNCTION
+
+    col% = relX% \ cellStepX%
+    row% = relY% \ cellStepY%
+    IF col% >= CHARMAP_COLS OR row% >= CHARMAP_ROWS THEN EXIT FUNCTION
+
+    ' Check we're inside the cell, not in padding
+    IF (relX% MOD cellStepX%) >= CHARMAP.cellW% THEN EXIT FUNCTION
+    IF (relY% MOD cellStepY%) >= CHARMAP.cellH% THEN EXIT FUNCTION
+
+    idx% = row% * CHARMAP_COLS + col%
+    IF idx% >= 0 AND idx% < CHARMAP_CELL_COUNT THEN
+        CHARMAP_hit_test_cell% = idx%
+    END IF
+END FUNCTION
+
+
+''
+' Update hover state from raw mouse coords.
+'
+SUB CHARMAP_update_hover (rawX AS INTEGER, rawY AS INTEGER)
+    DIM newHover AS INTEGER
+    newHover% = CHARMAP_hit_test_cell%(rawX%, rawY%)
+    IF newHover% <> CHARMAP.hoverIdx% THEN
+        CHARMAP.hoverIdx% = newHover%
+        CHARMAP_NEEDS_REDRAW% = TRUE
+    END IF
+END SUB
+
+
+''
+' Handle a click on the Character Map panel.
+' btn: 1=left, 2=right
+'
+SUB CHARMAP_handle_click (rawX AS INTEGER, rawY AS INTEGER, btn AS INTEGER)
+    DIM cellIdx AS INTEGER
+    cellIdx% = CHARMAP_hit_test_cell%(rawX%, rawY%)
+    IF cellIdx% < 0 THEN EXIT SUB
+
+    ' Left click = select/deselect glyph
+    IF btn% = 1 THEN
+        CHARMAP_select_glyph cellIdx%
+        CHARMAP_flash_glyph cellIdx%
+
+        ' If a glyph is now selected, route it based on context
+        IF CHARMAP.selectedIdx% >= 0 THEN
+            IF CHARMAP.useChars% AND CURRENT_TOOL% = TOOL_TEXT AND TEXT.ACTIVE THEN
+                ' Text tool active + Character Mode → insert as text character
+                TEXT_add_char CHR$(CHARMAP.selectedIdx%)
+            ELSE
+                ' Non-text context → copy glyph to custom brush
+                CHARMAP_copy_glyph_to_custom_brush
+            END IF
+        END IF
+    END IF
+
+    CHARMAP_NEEDS_REDRAW% = TRUE
+    FRAME_IDLE% = FALSE
+END SUB
+
+
+''
+' Copy the currently selected glyph image into the active custom brush.
+' Enables recolor mode automatically.
+'
+SUB CHARMAP_copy_glyph_to_custom_brush ()
+    DIM idx AS INTEGER
+    DIM srcImg AS LONG
+    DIM brushImg AS LONG
+    DIM oldDest AS LONG
+    DIM gw AS INTEGER, gh AS INTEGER
+
+    idx% = CHARMAP.selectedIdx%
+    IF idx% < 0 OR idx% >= CHARMAP_CELL_COUNT THEN EXIT SUB
+    srcImg& = CHARMAP_GLYPH(idx%)
+    IF srcImg& >= -1 THEN EXIT SUB ' No valid cache image
+
+    gw% = CHARMAP_GLYPH_W(idx%)
+    gh% = CHARMAP_GLYPH_H(idx%)
+    IF gw% < 1 OR gh% < 1 THEN EXIT SUB
+
+    ' Create a copy for the custom brush
+    brushImg& = _NEWIMAGE(gw%, gh%, 32)
+    IF brushImg& >= -1 THEN EXIT SUB
+    oldDest& = _DEST
+    _DEST brushImg&
+    CLS , _RGBA32(0, 0, 0, 0)
+    _PUTIMAGE (0, 0), srcImg&
+    _DEST oldDest&
+
+    ' Free existing custom brush image
+    IF CUSTOM_BRUSH.IMAGE& < -1 THEN _FREEIMAGE CUSTOM_BRUSH.IMAGE&
+
+    CUSTOM_BRUSH.IMAGE& = brushImg&
+    CUSTOM_BRUSH.WIDTH% = gw%
+    CUSTOM_BRUSH.HEIGHT% = gh%
+    CUSTOM_BRUSH.ORIG_WIDTH% = gw%
+    CUSTOM_BRUSH.ORIG_HEIGHT% = gh%
+    CUSTOM_BRUSH.ACTIVE% = TRUE
+    CUSTOM_BRUSH.HAS_TRANSPARENCY% = TRUE
+    CUSTOM_BRUSH.FLIP_H% = FALSE
+    CUSTOM_BRUSH.FLIP_V% = FALSE
+    CUSTOM_BRUSH.SCALE! = 1.0
+    CUSTOM_BRUSH.RECOLOR_MODE% = TRUE ' Auto-enable recolor for glyph painting
+END SUB
+
+
+''
+' Render the Character Map panel into SCRN.GUI&.
+' Must be called from RENDER_gui_elements when panel is visible.
+'
+SUB CHARMAP_render ()
+    DIM oldDest AS LONG
+    DIM x1 AS INTEGER, y1 AS INTEGER
+    DIM cw AS INTEGER, ch AS INTEGER, cp AS INTEGER
+    DIM col AS INTEGER, row AS INTEGER, idx AS INTEGER
+    DIM cx AS INTEGER, cy AS INTEGER
+    DIM cellBg AS _UNSIGNED LONG
+    DIM cellFg AS _UNSIGNED LONG
+    DIM gridFg AS _UNSIGNED LONG
+    DIM flashActive AS INTEGER
+    DIM elapsed AS SINGLE
+
+    IF NOT CHARMAP.visible% THEN EXIT SUB
+
+    ' Ensure cache is built
+    IF NOT CHARMAP.cacheValid% THEN CHARMAP_rebuild_cache
+
+    ' Check if font settings changed — invalidate and rebuild
+    IF CHARMAP.cacheFontIdx% <> TEXT_BAR.selectedFontIdx% OR _
+       CHARMAP.cacheFontSize% <> TEXT_BAR.selectedSize% OR _
+       CHARMAP.cacheMono% <> TEXT_BAR.monoActive% THEN
+        CHARMAP_rebuild_cache
+    END IF
+
+    oldDest& = _DEST
+    _DEST SCRN.GUI&
+
+    cw% = CHARMAP.cellW%
+    ch% = CHARMAP.cellH%
+    cp% = CHARMAP.cellPadding%
+    x1% = CHARMAP.panelX1%
+    y1% = CHARMAP.panelY1%
+
+    ' Panel background
+    LINE (x1%, y1%)-(CHARMAP.panelX2%, CHARMAP.panelY2%), THEME.CHARMAP_BG~&, BF
+
+    ' Grid origin with 2px padding
+    CHARMAP.gridX% = x1% + 2
+    CHARMAP.gridY% = y1% + 2
+
+    ' Flash decay check
+    flashActive% = FALSE
+    IF CHARMAP.flashIdx% >= 0 THEN
+        elapsed! = TIMER - CHARMAP.flashTimer!
+        IF elapsed! < 0 THEN elapsed! = elapsed! + 86400 ' Midnight wrap
+        IF elapsed! < 0.3 THEN
+            flashActive% = TRUE
+        ELSE
+            CHARMAP.flashIdx% = -1
+        END IF
+    END IF
+
+    ' Draw cells
+    FOR row% = 0 TO CHARMAP_ROWS - 1
+        FOR col% = 0 TO CHARMAP_COLS - 1
+            idx% = row% * CHARMAP_COLS + col%
+            cx% = CHARMAP.gridX% + col% * (cw% + cp%)
+            cy% = CHARMAP.gridY% + row% * (ch% + cp%)
+
+            ' Determine cell colors
+            IF idx% = CHARMAP.selectedIdx% THEN
+                cellBg~& = THEME.CHARMAP_SELECTED_BG~&
+                cellFg~& = THEME.CHARMAP_SELECTED_FG~&
+            ELSEIF idx% = CHARMAP.hoverIdx% THEN
+                cellBg~& = THEME.CHARMAP_HOVER_BG~&
+                cellFg~& = THEME.CHARMAP_HOVER_FG~&
+            ELSE
+                cellBg~& = THEME.CHARMAP_BG~&
+                cellFg~& = THEME.CHARMAP_FG~&
+            END IF
+
+            ' Flash override
+            IF flashActive% AND idx% = CHARMAP.flashIdx% THEN
+                cellFg~& = THEME.CHARMAP_FLASH_FG~&
+            END IF
+
+            ' Cell background
+            LINE (cx%, cy%)-(cx% + cw% - 1, cy% + ch% - 1), cellBg~&, BF
+
+            ' Draw glyph (centered in cell)
+            IF CHARMAP_GLYPH(idx%) < -1 THEN
+                DIM gw AS INTEGER, gh AS INTEGER
+                DIM gx AS INTEGER, gy AS INTEGER
+                gw% = CHARMAP_GLYPH_W(idx%)
+                gh% = CHARMAP_GLYPH_H(idx%)
+                gx% = cx% + (cw% - gw%) \ 2
+                gy% = cy% + (ch% - gh%) \ 2
+                IF gx% < cx% THEN gx% = cx%
+                IF gy% < cy% THEN gy% = cy%
+
+                ' Tint glyph to cell foreground color using per-pixel recolor
+                DIM glyphDest AS LONG
+                DIM px AS INTEGER, py AS INTEGER
+                DIM srcColor AS _UNSIGNED LONG
+                DIM srcA AS INTEGER
+                glyphDest& = _NEWIMAGE(gw%, gh%, 32)
+                IF glyphDest& < -1 THEN
+                    DIM gdOld AS LONG
+                    gdOld& = _DEST
+                    _DEST glyphDest&
+                    CLS , _RGBA32(0, 0, 0, 0)
+                    _DONTBLEND
+                    DIM gdSrc AS LONG
+                    gdSrc& = _SOURCE
+                    _SOURCE CHARMAP_GLYPH(idx%)
+                    FOR py% = 0 TO gh% - 1
+                        FOR px% = 0 TO gw% - 1
+                            srcColor~& = POINT(px%, py%)
+                            srcA% = _ALPHA32(srcColor~&)
+                            IF srcA% > 0 THEN
+                                PSET (px%, py%), _RGBA32(_RED32(cellFg~&), _GREEN32(cellFg~&), _BLUE32(cellFg~&), srcA%)
+                            END IF
+                        NEXT px%
+                    NEXT py%
+                    _SOURCE gdSrc&
+                    _BLEND
+                    _DEST gdOld&
+
+                    _PUTIMAGE (gx%, gy%), glyphDest&, SCRN.GUI&
+                    _FREEIMAGE glyphDest&
+                END IF
+            END IF
+
+            ' Grid lines (right and bottom edges)
+            IF cp% > 0 THEN
+                gridFg~& = THEME.CHARMAP_GRID_FG~&
+                IF col% < CHARMAP_COLS - 1 THEN
+                    LINE (cx% + cw%, cy%)-(cx% + cw%, cy% + ch% - 1), gridFg~&
+                END IF
+                IF row% < CHARMAP_ROWS - 1 THEN
+                    LINE (cx%, cy% + ch%)-(cx% + cw% - 1, cy% + ch%), gridFg~&
+                END IF
+            END IF
+        NEXT col%
+    NEXT row%
+
+    _DEST oldDest&
+END SUB
+
+
+''
+' Update character grid cell size from the current font metrics.
+' If config values are 0, auto-detect from the selected font glyph size.
+'
+SUB CHARMAP_char_grid_update_size ()
+    DIM fIdx AS INTEGER
+    DIM gw AS INTEGER, gh AS INTEGER
+
+    fIdx% = TEXT_BAR.selectedFontIdx%
+
+    ' Try to get dimensions from the font
+    IF fIdx% >= 0 AND fIdx% < FONT_LIST_COUNT% THEN
+        IF FONT_LIST(fIdx%).isBitmapFont THEN
+            gw% = FONT_LIST(fIdx%).bitmapGlyphW
+            gh% = FONT_LIST(fIdx%).bitmapGlyphH
+        ELSE
+            ' For TTF/OTF, measure from font handle
+            DIM fHandle AS LONG
+            DIM fSize AS INTEGER
+            fSize% = TEXT_BAR.selectedSize%
+            IF fSize% < 4 THEN fSize% = 8
+            fHandle& = FONT_LIST_get_handle&(fIdx%, fSize%, "", TEXT_BAR.monoActive%)
+            IF fHandle& > 0 THEN
+                DIM tmpI AS LONG
+                DIM oldD AS LONG
+                tmpI& = _NEWIMAGE(1, 1, 32)
+                oldD& = _DEST
+                _DEST tmpI&
+                DIM prevF AS LONG
+                prevF& = _FONT
+                _FONT fHandle&
+                gw% = _PRINTWIDTH("M")
+                gh% = _FONTHEIGHT
+                _FONT prevF&
+                _DEST oldD&
+                IF tmpI& < -1 THEN _FREEIMAGE tmpI&
+            ELSE
+                gw% = 8: gh% = 16
+            END IF
+        END IF
+    ELSE
+        gw% = 8: gh% = 16
+    END IF
+
+    ' Config overrides auto-detect
+    IF CFG.CHAR_GRID_WIDTH% > 0 THEN gw% = CFG.CHAR_GRID_WIDTH%
+    IF CFG.CHAR_GRID_HEIGHT% > 0 THEN gh% = CFG.CHAR_GRID_HEIGHT%
+    IF gw% < 1 THEN gw% = 8
+    IF gh% < 1 THEN gh% = 8
+
+    CHARMAP.charGridW% = gw%
+    CHARMAP.charGridH% = gh%
+END SUB
+
+
+''
+' Draw the on-canvas character grid overlay into its image handle.
+' Similar to GRID_draw but uses character cell dimensions.
+'
+SUB CHARMAP_char_grid_draw ()
+    IF CHARMAP.charGridW% < 1 OR CHARMAP.charGridH% < 1 THEN
+        CHARMAP_char_grid_update_size
+    END IF
+
+    ' Free previous image if exists
+    IF CHARMAP.charGridImg& < -1 THEN _FREEIMAGE CHARMAP.charGridImg&
+
+    DIM cw AS INTEGER, ch AS INTEGER
+    cw% = SCRN.canvasW&
+    ch% = SCRN.canvasH&
+    IF cw% < 1 OR ch% < 1 THEN EXIT SUB
+
+    CHARMAP.charGridImg& = _NEWIMAGE(cw%, ch%, 32)
+    IF CHARMAP.charGridImg& >= -1 THEN CHARMAP.charGridImg& = 0: EXIT SUB
+
+    DIM oldDest AS LONG
+    oldDest& = _DEST
+    _DEST CHARMAP.charGridImg&
+    CLS , _RGBA32(0, 0, 0, 0)
+
+    ' Resolve color and opacity
+    DIM gridColor AS _UNSIGNED LONG
+    DIM gridOpacity AS INTEGER
+    IF THEME.CHAR_GRID_COLOR_FG~& <> 0 THEN
+        gridColor~& = THEME.CHAR_GRID_COLOR_FG~&
+    ELSE
+        gridColor~& = _RGB32(100, 180, 255) ' Default: light blue
+    END IF
+    gridOpacity% = CFG.CHAR_GRID_OPACITY%
+    IF gridOpacity% <= 0 THEN gridOpacity% = 80
+
+    DIM lineColor AS _UNSIGNED LONG
+    lineColor~& = _RGBA32(_RED32(gridColor~&), _GREEN32(gridColor~&), _BLUE32(gridColor~&), gridOpacity%)
+
+    ' Draw vertical lines
+    DIM x AS INTEGER
+    FOR x% = CHARMAP.charGridW% TO cw% - 1 STEP CHARMAP.charGridW%
+        LINE (x%, 0)-(x%, ch% - 1), lineColor~&
+    NEXT x%
+
+    ' Draw horizontal lines
+    DIM y AS INTEGER
+    FOR y% = CHARMAP.charGridH% TO ch% - 1 STEP CHARMAP.charGridH%
+        LINE (0, y%)-(cw% - 1, y%), lineColor~&
+    NEXT y%
+
+    _DEST oldDest&
+END SUB
+
+
+''
+' Toggle character grid visibility on canvas.
+'
+SUB CHARMAP_char_grid_toggle ()
+    CHARMAP.charGridShow% = NOT CHARMAP.charGridShow%
+    IF CHARMAP.charGridShow% THEN
+        CHARMAP_char_grid_update_size
+        CHARMAP_char_grid_draw
+    END IF
+    SCENE_DIRTY% = TRUE
+    FRAME_IDLE% = FALSE
+END SUB
+
+
+''
+' Toggle snap-to-character-grid.
+'
+SUB CHARMAP_char_grid_snap_toggle ()
+    CHARMAP.charGridSnap% = NOT CHARMAP.charGridSnap%
+    FRAME_IDLE% = FALSE
+END SUB
+
+
+''
+' Snap coordinates to the character grid.
+' @param snapX% IN/OUT: X coordinate to snap
+' @param snapY% IN/OUT: Y coordinate to snap
+'
+SUB CHARMAP_char_grid_snap_xy (snapX AS INTEGER, snapY AS INTEGER)
+    IF CHARMAP.charGridW% < 1 OR CHARMAP.charGridH% < 1 THEN EXIT SUB
+    snapX% = INT(snapX% / CHARMAP.charGridW%) * CHARMAP.charGridW%
+    snapY% = INT(snapY% / CHARMAP.charGridH%) * CHARMAP.charGridH%
+END SUB

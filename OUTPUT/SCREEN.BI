@@ -63,6 +63,10 @@ TYPE SCREEN_OBJ
     patternTileMode  AS INTEGER  ' TRUE when 3x3 pattern tile view is active (doc-scoped)
     showCanvasBorder AS INTEGER   ' TRUE when canvas border outline is drawn
     canvasBorderOpacity AS INTEGER ' Border opacity (5-100, percentage)
+    showCharMap              AS INTEGER   ' TRUE when character map panel is visible
+    charMapManuallyHidden    AS INTEGER   ' TRUE when user explicitly hid character map
+    charMapHiddenByToggleAll AS INTEGER   ' TRUE only when toggle-all (F11) hid charmap
+    charMapX                 AS INTEGER   ' Left edge of charmap panel (position varies by dock side)
 END TYPE
 
 DIM SHARED SCRN AS SCREEN_OBJ

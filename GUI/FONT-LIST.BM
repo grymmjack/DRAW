@@ -38,6 +38,10 @@ SUB FONT_LIST_scan ()
     FONT_LIST_add_builtin "QB64 8x8", 8
     FONT_LIST_add_builtin "QB64 8x16", 16
 
+    ' --- Bitmap fonts (bundled + user) ---
+    FONT_LIST_scan_bitmap_dir "./ASSETS/FONTS/BITMAP", TRUE
+    FONT_LIST_scan_bitmap_dir "./USER/FONTS/BITMAP", FALSE
+
     ' --- System fonts (OS-specific) ---
     $IF WIN THEN
         FONT_LIST_scan_dir "C:\Windows\Fonts", 0, FALSE
@@ -647,4 +651,605 @@ SUB FONT_LIST_apply_favorites ()
         FONT_LIST(li%) = tmpList(li%)
     NEXT li%
     FONT_LIST_COUNT% = tmpCount%
+END SUB
+
+
+''
+' Scan a directory for bitmap font files (F??, PSF, BDF, PCF).
+' @param dir$ Directory path to scan
+' @param isBundled% TRUE if these are DRAW-bundled fonts
+'
+SUB FONT_LIST_scan_bitmap_dir (dir$, isBundled%)
+    IF NOT _DIREXISTS(dir$) THEN EXIT SUB
+
+    DIM tmpFile AS STRING
+    tmpFile$ = "./draw_bitmap_font_scan.tmp"
+
+    $IF WIN THEN
+        SHELL "dir /b " + CHR$(34) + dir$ + CHR$(34) + " > " + CHR$(34) + tmpFile$ + CHR$(34) + " 2>nul"
+    $ELSE
+        SHELL "ls -1 " + CHR$(34) + dir$ + CHR$(34) + " 2>/dev/null > " + CHR$(34) + tmpFile$ + CHR$(34) + " 2>/dev/null"
+    $END IF
+
+    IF NOT _FILEEXISTS(tmpFile$) THEN EXIT SUB
+
+    DIM ff AS INTEGER
+    ff% = FREEFILE
+    OPEN tmpFile$ FOR INPUT AS #ff%
+
+    DIM lineIn AS STRING
+    DIM fullPath AS STRING
+    DIM upperLine AS STRING
+    DIM gw AS INTEGER, gh AS INTEGER
+
+    DO WHILE NOT EOF(ff%)
+        LINE INPUT #ff%, lineIn$
+        lineIn$ = LTRIM$(RTRIM$(lineIn$))
+        IF LEN(lineIn$) < 3 THEN _CONTINUE
+
+        upperLine$ = UCASE$(lineIn$)
+
+        ' Skip non-bitmap-font files
+        DIM isBitmapExt AS INTEGER
+        isBitmapExt% = FALSE
+        IF RIGHT$(upperLine$, 4) = ".PSF" THEN isBitmapExt% = TRUE
+        IF RIGHT$(upperLine$, 4) = ".BDF" THEN isBitmapExt% = TRUE
+        IF RIGHT$(upperLine$, 4) = ".PCF" THEN isBitmapExt% = TRUE
+        ' Match .F?? extensions (F06, F08, F12, F14, F16, F19, F24, F32)
+        IF LEN(upperLine$) > 4 THEN
+            DIM extCheck AS STRING
+            extCheck$ = MID$(upperLine$, _INSTRREV(upperLine$, "."))
+            IF LEN(extCheck$) = 4 THEN
+                IF LEFT$(extCheck$, 2) = ".F" THEN
+                    DIM extDigits AS STRING
+                    extDigits$ = MID$(extCheck$, 3, 2)
+                    IF ASC(extDigits$) >= 48 AND ASC(extDigits$) <= 57 THEN
+                        IF ASC(extDigits$, 2) >= 48 AND ASC(extDigits$, 2) <= 57 THEN
+                            isBitmapExt% = TRUE
+                        END IF
+                    END IF
+                END IF
+            END IF
+        END IF
+        IF NOT isBitmapExt% THEN _CONTINUE
+
+        $IF WIN THEN
+            fullPath$ = dir$ + "\" + lineIn$
+        $ELSE
+            fullPath$ = dir$ + "/" + lineIn$
+        $END IF
+
+        IF NOT _FILEEXISTS(fullPath$) THEN _CONTINUE
+
+        ' Detect format and glyph dimensions
+        gw% = 0: gh% = 0
+        IF BITMAP_FONT_detect_fxx%(fullPath$, gw%, gh%) THEN
+            FONT_LIST_add_bitmap_font fullPath$, isBundled%, gw%, gh%
+        ELSEIF BITMAP_FONT_detect_psf%(fullPath$, gw%, gh%) THEN
+            FONT_LIST_add_bitmap_font fullPath$, isBundled%, gw%, gh%
+        ELSEIF BITMAP_FONT_detect_bdf%(fullPath$, gw%, gh%) THEN
+            FONT_LIST_add_bitmap_font fullPath$, isBundled%, gw%, gh%
+        ELSE
+            _LOGWARN "FONT_LIST_scan_bitmap_dir: unrecognized format: " + fullPath$
+        END IF
+    LOOP
+
+    CLOSE #ff%
+    KILL tmpFile$
+END SUB
+
+
+''
+' Add a bitmap font to the font list.
+' @param fontPath$ Full path to the bitmap font file
+' @param isBundled% TRUE if bundled with DRAW
+' @param glyphW% Glyph width in pixels
+' @param glyphH% Glyph height in pixels
+'
+SUB FONT_LIST_add_bitmap_font (fontPath$, isBundled%, glyphW%, glyphH%)
+    IF FONT_LIST_COUNT% >= FONT_LIST_MAX THEN EXIT SUB
+    IF FONT_LIST_is_blacklisted%(fontPath$) THEN EXIT SUB
+
+    ' Check for duplicates
+    DIM i AS INTEGER
+    DIM newName AS STRING
+    newName$ = FONT_LIST_extract_name$(fontPath$)
+    FOR i% = 0 TO FONT_LIST_COUNT% - 1
+        IF RTRIM$(FONT_LIST(i%).path) = fontPath$ THEN EXIT SUB
+        IF UCASE$(RTRIM$(FONT_LIST(i%).displayName)) = UCASE$(newName$) THEN EXIT SUB
+    NEXT i%
+
+    DIM idx AS INTEGER
+    idx% = FONT_LIST_COUNT%
+
+    FONT_LIST(idx%).path = fontPath$
+    FONT_LIST(idx%).displayName = newName$ + " " + _TRIM$(STR$(glyphW%)) + "x" + _TRIM$(STR$(glyphH%))
+    FONT_LIST(idx%).isBundled = isBundled%
+    FONT_LIST(idx%).isBuiltIn = FALSE
+    FONT_LIST(idx%).isBitmapFont = TRUE
+    FONT_LIST(idx%).bitmapGlyphW = glyphW%
+    FONT_LIST(idx%).bitmapGlyphH = glyphH%
+    FONT_LIST(idx%).hasBold = FALSE
+    FONT_LIST(idx%).hasItalic = FALSE
+    FONT_LIST(idx%).hasBoldItalic = FALSE
+
+    FONT_LIST_COUNT% = FONT_LIST_COUNT% + 1
+END SUB
+
+
+''
+' Detect if a file is a Fontraption .F?? format.
+' Width is always 8, height is encoded in the extension (F06=6, F08=8, F16=16, etc.).
+' Validates file size = 256 * height.
+' @return TRUE if valid, sets outW% and outH%
+'
+FUNCTION BITMAP_FONT_detect_fxx% (fontPath$, outW AS INTEGER, outH AS INTEGER)
+    BITMAP_FONT_detect_fxx% = FALSE
+    outW% = 0: outH% = 0
+
+    ' Extract extension
+    DIM dotPos AS INTEGER
+    dotPos% = _INSTRREV(fontPath$, ".")
+    IF dotPos% < 1 THEN EXIT FUNCTION
+
+    DIM ext AS STRING
+    ext$ = UCASE$(MID$(fontPath$, dotPos% + 1))
+
+    ' Must start with F followed by 2 digits
+    IF LEN(ext$) < 2 OR LEN(ext$) > 3 THEN EXIT FUNCTION
+    IF LEFT$(ext$, 1) <> "F" THEN EXIT FUNCTION
+
+    DIM heightStr AS STRING
+    heightStr$ = MID$(ext$, 2)
+    DIM h AS INTEGER
+    h% = VAL(heightStr$)
+    IF h% < 1 OR h% > 64 THEN EXIT FUNCTION
+
+    ' Also handle compound extensions like .F08.psf — strip inner ext
+    DIM innerDot AS INTEGER
+    innerDot% = INSTR(fontPath$, ".F")
+    IF innerDot% < 1 THEN EXIT FUNCTION
+    DIM afterF AS STRING
+    afterF$ = MID$(fontPath$, innerDot% + 2)
+    ' Check if there's another dot (compound extension like F08.psf)
+    DIM nextDot AS INTEGER
+    nextDot% = INSTR(afterF$, ".")
+    IF nextDot% > 0 THEN
+        ' Compound extension — this is actually a PSF with size hint in name
+        EXIT FUNCTION
+    END IF
+
+    ' Verify file size = 256 * height
+    DIM expectedSize AS LONG
+    expectedSize& = 256 * h%
+    DIM fxxFF AS INTEGER
+    DIM actualSize AS LONG
+    fxxFF% = FREEFILE
+    OPEN fontPath$ FOR BINARY AS #fxxFF%
+    actualSize& = LOF(fxxFF%)
+    CLOSE #fxxFF%
+    IF actualSize& <> expectedSize& THEN EXIT FUNCTION
+
+    outW% = 8
+    outH% = h%
+    BITMAP_FONT_detect_fxx% = TRUE
+END FUNCTION
+
+
+''
+' Detect if a file is a PSF (PC Screen Font) format.
+' Supports PSFv1 (magic 0x36 0x04) and PSFv2 (magic 0x72 0xb5 0x4a 0x86).
+' @return TRUE if valid, sets outW% and outH%
+'
+FUNCTION BITMAP_FONT_detect_psf% (fontPath$, outW AS INTEGER, outH AS INTEGER)
+    BITMAP_FONT_detect_psf% = FALSE
+    outW% = 0: outH% = 0
+
+    DIM ff AS INTEGER
+    ff% = FREEFILE
+    OPEN fontPath$ FOR BINARY AS #ff%
+    IF LOF(ff%) < 4 THEN CLOSE #ff%: EXIT FUNCTION
+
+    DIM magic1 AS _UNSIGNED _BYTE
+    DIM magic2 AS _UNSIGNED _BYTE
+    DIM magic3 AS _UNSIGNED _BYTE
+    DIM magic4 AS _UNSIGNED _BYTE
+
+    GET #ff%, 1, magic1
+    GET #ff%, 2, magic2
+
+    ' Check PSFv1: magic = 0x36, 0x04
+    IF magic1 = &H36 AND magic2 = &H04 THEN
+        IF LOF(ff%) < 4 THEN CLOSE #ff%: EXIT FUNCTION
+        DIM psf1Mode AS _UNSIGNED _BYTE
+        DIM psf1Height AS _UNSIGNED _BYTE
+        GET #ff%, 3, psf1Mode
+        GET #ff%, 4, psf1Height
+        outW% = 8
+        outH% = psf1Height
+        CLOSE #ff%
+        IF outH% >= 1 AND outH% <= 64 THEN BITMAP_FONT_detect_psf% = TRUE
+        EXIT FUNCTION
+    END IF
+
+    ' Check PSFv2: magic = 0x72, 0xb5, 0x4a, 0x86
+    GET #ff%, 3, magic3
+    GET #ff%, 4, magic4
+    IF magic1 = &H72 AND magic2 = &HB5 AND magic3 = &H4A AND magic4 = &H86 THEN
+        IF LOF(ff%) < 32 THEN CLOSE #ff%: EXIT FUNCTION
+        ' PSFv2 header: version(4), headersize(4), flags(4), numglyphs(4), bytesPerGlyph(4), height(4), width(4)
+        DIM psf2Height AS LONG
+        DIM psf2Width AS LONG
+        GET #ff%, 25, psf2Height&  ' Offset 24 = height (0-indexed byte 24, 1-indexed = 25)
+        GET #ff%, 29, psf2Width&   ' Offset 28 = width
+        outW% = psf2Width&
+        outH% = psf2Height&
+        CLOSE #ff%
+        IF outW% >= 1 AND outW% <= 32 AND outH% >= 1 AND outH% <= 64 THEN
+            BITMAP_FONT_detect_psf% = TRUE
+        END IF
+        EXIT FUNCTION
+    END IF
+
+    CLOSE #ff%
+END FUNCTION
+
+
+''
+' Detect if a file is a BDF (Bitmap Distribution Format).
+' Parses header for FONTBOUNDINGBOX to get glyph dimensions.
+' @return TRUE if valid, sets outW% and outH%
+'
+FUNCTION BITMAP_FONT_detect_bdf% (fontPath$, outW AS INTEGER, outH AS INTEGER)
+    BITMAP_FONT_detect_bdf% = FALSE
+    outW% = 0: outH% = 0
+
+    ' Quick extension check
+    DIM upperPath AS STRING
+    upperPath$ = UCASE$(fontPath$)
+    IF RIGHT$(upperPath$, 4) <> ".BDF" THEN EXIT FUNCTION
+
+    DIM ff AS INTEGER
+    ff% = FREEFILE
+    OPEN fontPath$ FOR INPUT AS #ff%
+
+    DIM lineIn AS STRING
+    DIM lineCount AS INTEGER
+    lineCount% = 0
+
+    DO WHILE NOT EOF(ff%) AND lineCount% < 50
+        LINE INPUT #ff%, lineIn$
+        lineIn$ = LTRIM$(RTRIM$(lineIn$))
+        lineCount% = lineCount% + 1
+
+        ' STARTFONT line confirms BDF
+        ' FONTBOUNDINGBOX w h xoff yoff
+        IF LEFT$(UCASE$(lineIn$), 16) = "FONTBOUNDINGBOX " THEN
+            DIM bdfParts AS STRING
+            bdfParts$ = MID$(lineIn$, 17)
+            bdfParts$ = LTRIM$(RTRIM$(bdfParts$))
+            ' Parse width
+            DIM spPos AS INTEGER
+            spPos% = INSTR(bdfParts$, " ")
+            IF spPos% > 0 THEN
+                outW% = VAL(LEFT$(bdfParts$, spPos% - 1))
+                DIM rest AS STRING
+                rest$ = LTRIM$(MID$(bdfParts$, spPos% + 1))
+                spPos% = INSTR(rest$, " ")
+                IF spPos% > 0 THEN
+                    outH% = VAL(LEFT$(rest$, spPos% - 1))
+                ELSE
+                    outH% = VAL(rest$)
+                END IF
+            END IF
+            CLOSE #ff%
+            IF outW% >= 1 AND outW% <= 32 AND outH% >= 1 AND outH% <= 64 THEN
+                BITMAP_FONT_detect_bdf% = TRUE
+            END IF
+            EXIT FUNCTION
+        END IF
+    LOOP
+
+    CLOSE #ff%
+END FUNCTION
+
+
+''
+' Render a single glyph from a Fontraption .F?? format font file.
+' Creates a 32-bit RGBA image with white pixels on transparent background.
+' @param fontPath$ Path to the font file
+' @param charIdx% Character index (0-255)
+' @param glyphH% Glyph height in pixels (width is always 8)
+' @param destImg& Output: image handle (caller must check < -1)
+'
+SUB BITMAP_FONT_render_glyph_fxx (fontPath$, charIdx%, glyphH%, destImg AS LONG)
+    destImg& = 0
+    IF charIdx% < 0 OR charIdx% > 255 THEN EXIT SUB
+    IF glyphH% < 1 THEN EXIT SUB
+
+    DIM ff AS INTEGER
+    ff% = FREEFILE
+    OPEN fontPath$ FOR BINARY AS #ff%
+    IF LOF(ff%) < 256& * glyphH% THEN CLOSE #ff%: EXIT SUB
+
+    ' Create output image
+    destImg& = _NEWIMAGE(8, glyphH%, 32)
+    IF destImg& >= -1 THEN CLOSE #ff%: destImg& = 0: EXIT SUB
+
+    DIM oldDest AS LONG
+    oldDest& = _DEST
+    _DEST destImg&
+    CLS , _RGBA32(0, 0, 0, 0)
+    _DONTBLEND
+
+    ' Seek to glyph data
+    DIM offset AS LONG
+    offset& = CLng(charIdx%) * CLng(glyphH%) + 1 ' 1-based for GET
+    DIM rowByte AS _UNSIGNED _BYTE
+    DIM py AS INTEGER, px AS INTEGER
+    FOR py% = 0 TO glyphH% - 1
+        GET #ff%, offset& + py%, rowByte
+        FOR px% = 0 TO 7
+            IF rowByte AND (128 \ (2 ^ px%)) THEN
+                PSET (px%, py%), _RGB32(255, 255, 255)
+            END IF
+        NEXT px%
+    NEXT py%
+
+    _BLEND
+    _DEST oldDest&
+    CLOSE #ff%
+END SUB
+
+
+''
+' Render a single glyph from a PSF format font file.
+' @param fontPath$ Path to the font file
+' @param charIdx% Character index (0-255)
+' @param glyphW% Glyph width
+' @param glyphH% Glyph height
+' @param destImg& Output: image handle
+'
+SUB BITMAP_FONT_render_glyph_psf (fontPath$, charIdx%, glyphW%, glyphH%, destImg AS LONG)
+    destImg& = 0
+    IF charIdx% < 0 OR charIdx% > 255 THEN EXIT SUB
+    IF glyphW% < 1 OR glyphH% < 1 THEN EXIT SUB
+
+    DIM ff AS INTEGER
+    ff% = FREEFILE
+    OPEN fontPath$ FOR BINARY AS #ff%
+    IF LOF(ff%) < 4 THEN CLOSE #ff%: EXIT SUB
+
+    DIM magic1 AS _UNSIGNED _BYTE
+    DIM magic2 AS _UNSIGNED _BYTE
+    GET #ff%, 1, magic1
+    GET #ff%, 2, magic2
+
+    DIM dataOffset AS LONG
+    DIM bytesPerGlyph AS LONG
+    DIM bytesPerRow AS INTEGER
+
+    bytesPerRow% = (glyphW% + 7) \ 8
+
+    IF magic1 = &H36 AND magic2 = &H04 THEN
+        ' PSFv1
+        dataOffset& = 4 + 1 ' 4-byte header, 1-based
+        bytesPerGlyph& = CLng(glyphH%)  ' Width=8 always for v1
+    ELSE
+        ' PSFv2
+        DIM headerSize AS LONG
+        GET #ff%, 9, headerSize&  ' Offset 8 = headersize
+        DIM bpg AS LONG
+        GET #ff%, 17, bpg&  ' Offset 16 = bytesPerGlyph
+        dataOffset& = headerSize& + 1 ' 1-based
+        bytesPerGlyph& = bpg&
+    END IF
+
+    ' Create output image
+    destImg& = _NEWIMAGE(glyphW%, glyphH%, 32)
+    IF destImg& >= -1 THEN CLOSE #ff%: destImg& = 0: EXIT SUB
+
+    DIM oldDest AS LONG
+    oldDest& = _DEST
+    _DEST destImg&
+    CLS , _RGBA32(0, 0, 0, 0)
+    _DONTBLEND
+
+    DIM glyphStart AS LONG
+    glyphStart& = dataOffset& + CLng(charIdx%) * bytesPerGlyph&
+
+    DIM rowByte AS _UNSIGNED _BYTE
+    DIM py AS INTEGER, px AS INTEGER, bx AS INTEGER
+    FOR py% = 0 TO glyphH% - 1
+        FOR bx% = 0 TO bytesPerRow% - 1
+            GET #ff%, glyphStart& + CLng(py%) * CLng(bytesPerRow%) + CLng(bx%), rowByte
+            FOR px% = 0 TO 7
+                DIM pixX AS INTEGER
+                pixX% = bx% * 8 + px%
+                IF pixX% < glyphW% THEN
+                    IF rowByte AND (128 \ (2 ^ px%)) THEN
+                        PSET (pixX%, py%), _RGB32(255, 255, 255)
+                    END IF
+                END IF
+            NEXT px%
+        NEXT bx%
+    NEXT py%
+
+    _BLEND
+    _DEST oldDest&
+    CLOSE #ff%
+END SUB
+
+
+''
+' Render a single glyph from a BDF (Bitmap Distribution Format) font file.
+' @param fontPath$ Path to the font file
+' @param charIdx% Character index (0-255)
+' @param destImg& Output: image handle
+' @param outW% Output: actual glyph width
+' @param outH% Output: actual glyph height
+'
+SUB BITMAP_FONT_render_glyph_bdf (fontPath$, charIdx%, destImg AS LONG, outW AS INTEGER, outH AS INTEGER)
+    destImg& = 0
+    outW% = 0: outH% = 0
+    IF charIdx% < 0 OR charIdx% > 255 THEN EXIT SUB
+
+    DIM ff AS INTEGER
+    ff% = FREEFILE
+    OPEN fontPath$ FOR INPUT AS #ff%
+
+    DIM lineIn AS STRING
+    DIM inGlyph AS INTEGER
+    DIM foundEncoding AS INTEGER
+    DIM inBitmap AS INTEGER
+    DIM encoding AS INTEGER
+    DIM bbxW AS INTEGER, bbxH AS INTEGER
+    DIM bitmapRow AS INTEGER
+    DIM bdfFontW AS INTEGER, bdfFontH AS INTEGER
+
+    inGlyph% = FALSE
+    foundEncoding% = FALSE
+    inBitmap% = FALSE
+    bitmapRow% = 0
+    bdfFontW% = 8: bdfFontH% = 16 ' Defaults
+
+    ' First pass: get FONTBOUNDINGBOX
+    DO WHILE NOT EOF(ff%)
+        LINE INPUT #ff%, lineIn$
+        lineIn$ = LTRIM$(RTRIM$(lineIn$))
+        IF LEFT$(UCASE$(lineIn$), 16) = "FONTBOUNDINGBOX " THEN
+            DIM fbbParts AS STRING
+            fbbParts$ = MID$(lineIn$, 17)
+            DIM sp1 AS INTEGER
+            sp1% = INSTR(fbbParts$, " ")
+            IF sp1% > 0 THEN
+                bdfFontW% = VAL(LEFT$(fbbParts$, sp1% - 1))
+                DIM fbbRest AS STRING
+                fbbRest$ = LTRIM$(MID$(fbbParts$, sp1% + 1))
+                sp1% = INSTR(fbbRest$, " ")
+                IF sp1% > 0 THEN
+                    bdfFontH% = VAL(LEFT$(fbbRest$, sp1% - 1))
+                ELSE
+                    bdfFontH% = VAL(fbbRest$)
+                END IF
+            END IF
+            EXIT DO
+        END IF
+    LOOP
+
+    CLOSE #ff%
+
+    ' Second pass: find and render the specific glyph
+    ff% = FREEFILE
+    OPEN fontPath$ FOR INPUT AS #ff%
+
+    bbxW% = bdfFontW%: bbxH% = bdfFontH%
+
+    DO WHILE NOT EOF(ff%)
+        LINE INPUT #ff%, lineIn$
+        lineIn$ = LTRIM$(RTRIM$(lineIn$))
+
+        IF LEFT$(UCASE$(lineIn$), 10) = "STARTCHAR " THEN
+            inGlyph% = TRUE
+            foundEncoding% = FALSE
+            bbxW% = bdfFontW%: bbxH% = bdfFontH%
+            _CONTINUE
+        END IF
+
+        IF inGlyph% THEN
+            IF LEFT$(UCASE$(lineIn$), 9) = "ENCODING " THEN
+                encoding% = VAL(MID$(lineIn$, 10))
+                IF encoding% = charIdx% THEN
+                    foundEncoding% = TRUE
+                END IF
+                _CONTINUE
+            END IF
+
+            IF LEFT$(UCASE$(lineIn$), 4) = "BBX " THEN
+                DIM bbxParts AS STRING
+                bbxParts$ = MID$(lineIn$, 5)
+                DIM bsp1 AS INTEGER
+                bsp1% = INSTR(bbxParts$, " ")
+                IF bsp1% > 0 THEN
+                    bbxW% = VAL(LEFT$(bbxParts$, bsp1% - 1))
+                    DIM bbxRest AS STRING
+                    bbxRest$ = LTRIM$(MID$(bbxParts$, bsp1% + 1))
+                    bsp1% = INSTR(bbxRest$, " ")
+                    IF bsp1% > 0 THEN
+                        bbxH% = VAL(LEFT$(bbxRest$, bsp1% - 1))
+                    ELSE
+                        bbxH% = VAL(bbxRest$)
+                    END IF
+                END IF
+                _CONTINUE
+            END IF
+
+            IF UCASE$(lineIn$) = "BITMAP" AND foundEncoding% THEN
+                inBitmap% = TRUE
+                bitmapRow% = 0
+
+                ' Create output image
+                destImg& = _NEWIMAGE(bbxW%, bbxH%, 32)
+                IF destImg& >= -1 THEN destImg& = 0: CLOSE #ff%: EXIT SUB
+                DIM oldD AS LONG
+                oldD& = _DEST
+                _DEST destImg&
+                CLS , _RGBA32(0, 0, 0, 0)
+                _DONTBLEND
+                _CONTINUE
+            END IF
+
+            IF inBitmap% THEN
+                IF UCASE$(lineIn$) = "ENDCHAR" THEN
+                    _BLEND
+                    _DEST oldD&
+                    outW% = bbxW%: outH% = bbxH%
+                    CLOSE #ff%
+                    EXIT SUB
+                END IF
+
+                ' Parse hex row data
+                IF bitmapRow% < bbxH% THEN
+                    DIM hexStr AS STRING
+                    hexStr$ = UCASE$(LTRIM$(RTRIM$(lineIn$)))
+                    DIM bytesInRow AS INTEGER
+                    bytesInRow% = (bbxW% + 7) \ 8
+                    DIM bdfBx AS INTEGER, bdfPx AS INTEGER
+                    FOR bdfBx% = 0 TO bytesInRow% - 1
+                        DIM hexByte AS STRING
+                        IF bdfBx% * 2 + 2 <= LEN(hexStr$) THEN
+                            hexByte$ = MID$(hexStr$, bdfBx% * 2 + 1, 2)
+                        ELSE
+                            hexByte$ = "00"
+                        END IF
+                        DIM byteVal AS INTEGER
+                        byteVal% = VAL("&H" + hexByte$)
+                        FOR bdfPx% = 0 TO 7
+                            DIM bdfPixX AS INTEGER
+                            bdfPixX% = bdfBx% * 8 + bdfPx%
+                            IF bdfPixX% < bbxW% THEN
+                                IF byteVal% AND (128 \ (2 ^ bdfPx%)) THEN
+                                    PSET (bdfPixX%, bitmapRow%), _RGB32(255, 255, 255)
+                                END IF
+                            END IF
+                        NEXT bdfPx%
+                    NEXT bdfBx%
+                    bitmapRow% = bitmapRow% + 1
+                END IF
+                _CONTINUE
+            END IF
+
+            IF UCASE$(lineIn$) = "ENDCHAR" THEN
+                inGlyph% = FALSE
+                inBitmap% = FALSE
+                IF foundEncoding% THEN
+                    ' Glyph had no BITMAP section — return empty
+                    CLOSE #ff%
+                    EXIT SUB
+                END IF
+            END IF
+        END IF
+    LOOP
+
+    CLOSE #ff%
 END SUB

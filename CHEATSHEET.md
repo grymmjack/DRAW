@@ -292,6 +292,30 @@ Switch modes via **View → Preview Window** submenu.
 
 When enabled, hovering over a drawer slot automatically shows a magnified preview of that slot's content (brush, pattern, or gradient) in the preview window. The preview reverts to normal when the mouse leaves the drawer.
 
+## Character Map
+
+The character map (`Ctrl+M`) is a dockable panel showing a 16×16 grid of all 256 font glyphs.
+
+### Controls
+
+| Control | Function |
+|---------|----------|
+| `Ctrl+M` | Toggle character map visibility |
+| **Left-click cell** | Select glyph (click again to deselect) |
+| **CHAR button** (text bar) | Toggle Character Mode (auto-opens map if hidden) |
+
+### Character Mode
+
+When **CHAR** is active in the text bar:
+- Typed characters flash and highlight in the map
+- Clicking a glyph in the map inserts it into the active text layer
+- The selected glyph stays synced with keyboard input
+- Tab width uses the config-backed tab count (`CHARMAP_TAB_CHARS`)
+
+When **CHAR** is off or the text tool is not active:
+- Clicking a glyph copies it to the custom brush (with recolor mode enabled)
+- The glyph can be stamped with any brush tool, symmetry, and transforms
+
 ## Layout Docking
 
 Panels can be docked to the left or right side of the workspace.
@@ -303,6 +327,7 @@ Panels can be docked to the left or right side of the workspace.
 | Toolbox | Right | View → Layout → Toolbox Dock Left / Right |
 | Layer Panel | Right | View → Layout → Layer Panel Dock Left / Right |
 | Edit Bar | Left | View → Layout → Edit Bar Dock Left / Right |
+| Character Map | Right | View → Layout → Character Map Left / Right |
 
 ### Quick Dock Toggle
 
@@ -449,6 +474,7 @@ Brush size and shape affect all drawing tools: Brush, Dot, Line, Rectangle, Elli
 | `Ctrl+L` | Toggle layer panel visibility |
 | `F4` | Toggle preview window |
 | `F5` | Toggle edit bar |
+| `Ctrl+M` | Toggle character map panel |
 | `F10` | Toggle status bar visibility |
 | `F11` | Toggle all UI (toolbar, status bar, layer panel, menu bar) |
 | `Ctrl+F11` | Toggle menu bar visibility |
