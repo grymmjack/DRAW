@@ -10,6 +10,10 @@ Support loading fonts made with: https://github.com/viler-int10h/fontraption
 - romfont
 - Fontraption .F?? fonts
 
+#### FONT DIRECTORIES
+- DRAW provided bitmap fonts are at ASSETS/FONTS/BITMAP/*
+- User supplemental fonts can be in USER/FONTS/BITMAP/*
+
 ### CHARACTER MAP VIEW (View -> Character Map)
 A character map panel with a grid the can be docked to left or right side.
 See: https://blog.glyphdrawing.club/moebiusxbin-ascii-and-text-mode-art-editor-with-custom-font-support/
@@ -27,7 +31,7 @@ Views the current font chosen in text tool.
 - Click on existing selected char
   - Deselect selected char
 
-#### PAINTING CHARACTERS
+##### PAINTING CHARACTERS
 - L-Click to draw character with FG color
 - R-Click to draw character with BG color
 - Treat the characters as custom brushes when they are picked
@@ -41,7 +45,7 @@ Views the current font chosen in text tool.
 - Honors all layer stuff
 - Is treated like a TEXT layer and allows re-editing
 
-#### TYPING CHARACTERS
+##### TYPING CHARACTERS
 - If text tool is active and [USE CHARS] is ON
   - Use the characters from the map
   - When user types a character flash it's FG color `TEXT_TYPE_USE_CHARS_FG`
@@ -67,7 +71,7 @@ Views the current font chosen in text tool.
   - Guards for screen edges
   - etc.
 
-#### MENU CHANGES
+### MENU CHANGES
 - View -> Layout -> CHARACTER MAP RIGHT
 - View -> Layout -> CHARACTER MAP LEFT
 - View -> ------
@@ -75,7 +79,7 @@ Views the current font chosen in text tool.
 - View -> [x] CHAR GRID
 - View -> ------
 
-#### TEXT BAR CHANGES
+### TEXT BAR CHANGES
 - Add [USE CHARS] button
   - When ON: 
     - allow characters to be selected in char map and placed
@@ -90,7 +94,7 @@ Views the current font chosen in text tool.
   - Automatically enable AUTO line height
   - Modify CHAR GRID width and height to match chosen font glyph cell W/H
 
-#### TEXT TOOL CHANGES
+### TEXT TOOL CHANGES
 - If [USE CHARS] is on in TEXT BAR
   - Show hint in title bar (CHAR MODE)
   - Automatically enable View -> SNAP to CHAR GRID
@@ -115,7 +119,7 @@ Views the current font chosen in text tool.
     F11 - 32
     F12 - 32
 
-#### DRAW.cfg settings for character map panel
+### DRAW.cfg settings for character map panel
 - `CHARMAP_CELL_W`
 - `CHARMAP_CELL_H`
 - `CHARMAP_CELL_PADDING`
@@ -129,7 +133,7 @@ Views the current font chosen in text tool.
 - `CHARMAP_CHAR_SELECTED` - This is to remember the last character selected in map
 - `TEXT_BAR_TAB_CHARS` - Number of chars for TAB
 
-#### THEME.cfg settings for character map styles
+### THEME.cfg settings for character map styles
 - `CHARMAP_BG`
 - `CHARMAP_FG`
 - `CHARMAP_SELECTED_FG`
@@ -139,6 +143,11 @@ Views the current font chosen in text tool.
 - `CHARMAP_GRID_FG`
 - `TEXT_TYPE_USE_CHARS_FG` - Used for highlighting which character is typed on map
 - `CHAR_GRID_COLOR_FG`
+
+### UPDATE PLANS / DIAGRAMS
+- When finished implementation create graphviz state diagram for this mode
+- Ammend other state diagrams accordingly for this new functionality as needed
+
 
 
 
