@@ -37,10 +37,10 @@ applyTo: "**"
 | ----------------------- | -------------------------------------------------------------------- |
 | `CFG/`                  | Configuration types, keyboard/mouse/joystick bindings                |
 | `CORE/`                 | Performance counters, error handling, image utilities                |
-| `GUI/`                  | UI components (toolbar, status bar, palette, grid, layers, menubar, command palette, organizer, drawer panel, preview window, edit bar, popup menus, dithering helpers, tooltips) |
+| `GUI/`                  | UI components (toolbar, status bar, palette, grid, layers, menubar, command palette, organizer, drawer panel, preview window, edit bar, text bar, popup menus, dithering helpers, tooltips) |
 | `INPUT/`                | Input handlers (mouse, keyboard, joystick), file loaders, Lospec API |
 | `OUTPUT/`               | Screen rendering (`SCREEN_render`), file export (BAS, BMP, BSAVE)   |
-| `TOOLS/`                | Drawing tools, history/undo system, DRW format, image import, extract images |
+| `TOOLS/`                | Drawing tools, history/undo system, DRW format, image import, extract images, text tool |
 | `ASSETS/`               | Fonts, icons, palettes (56 GPL files), themes                        |
 | `includes/QB64_GJ_LIB/` | External utility library (DICT, STRINGS, VECT2D)                     |
 | `PLANS/diagrams/`       | Graphviz DOT state machine diagrams organized by category: `GLOBAL/`, `GUI/`, `TOOLS/`, `UTILITIES/`, `LAYER-OPS/`, `TRANSFORM-OPS/`, `IMAGE-OPS/`, `FILE-OPS/` |
@@ -127,7 +127,7 @@ Formula: `canvasX% = INT((rawX% - offsetX%) / zoom!)`
 ### 7. Tool State Reset on Switch
 
 ```qb64
-MARQUEE_reset: LINE_reset: RECT_reset: ELLIPSE_reset: POLY_LINE_reset: MOVE_reset
+MARQUEE_reset: LINE_reset: RECT_reset: ELLIPSE_reset: POLY_LINE_reset: MOVE_reset: TEXT_reset
 ```
 
 ### 8. Mouse Button Transition Detection
@@ -294,6 +294,10 @@ A frame is "idle" when no input, mouse movement, GUI changes, or active tool ope
 | `TOOLS/ERASER.BI/BM`      | Eraser tool (transparent painting via brush pipeline)               |
 | `TOOLS/TRANSFORM.BI/BM`   | On-canvas transform overlay (Scale/Rotate/Shear/Distort/Perspective); activated via Edit→TRANSFORM...; not a toolbar tool |
 | `TOOLS/EXTRACT-IMAGES.BI/BM` | Extract individual sprites/components from sprite sheets or multi-layer artwork as separate PNGs; supports flood fill, per-layer, or merged extraction; config persisted in DRW v14+ |
+| `TOOLS/TEXT.BI/BM`        | Text tool state machine and keyboard input handler for text entry on canvas |
+| `GUI/TEXT-BAR.BI/BM`      | Text tool property bar (font, size, bold/italic/underline/strikethrough, colors, spacing) |
+| `GUI/TEXT-LAYER.BI/BM`    | Text layer data storage, serialization/deserialization, and rendering |
+| `GUI/FONT-LIST.BI/BM`     | Font registry (VGA, Tiny5, custom TTF/OTF) with size management |
 | `TOOLS/FILL-ADJ.BI/BM`   | Interactive Fill Adjustment overlay (F8) for custom brush and paint mode tiled fills; L-handle for independent X/Y scaling |
 | `GUI/CROSSHAIR.BI/BM`    | Crosshair assistant line rendering with configurable outline stroke |
 | `CFG/CONFIG.BI`           | Configuration structure                                             |

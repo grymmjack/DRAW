@@ -14,9 +14,9 @@ DATA "::::::::", "::    ::", "::    ::", "::::  ::::", "  ::  ::  "
 
 DRAW is a pixel art editor written in QB64PE that can export images as sourcecode
 
-Current release: v0.23.0
+Current release: v0.24.0
 
-![DRAW GUI from v0.23.0](./GUI.png)
+![DRAW GUI from v0.24.0](./GUI.png)
 
 ## Features
 
@@ -37,7 +37,7 @@ Current release: v0.23.0
 - **Pan** - Dedicated canvas panning tool (hand)
 - **Zoom** - Click to zoom in, Alt+click to zoom out, drag to zoom region
 - **Clipboard** - Copy/Cut/Paste selections (Ctrl+C/X/V), Merged copy (Ctrl+Shift+C), Clear selection (Ctrl+E); mask-aware operations for magic wand and non-rectangular selections
-- **Text** - Text entry tool
+- **Text** - Text entry tool with text layers, font properties bar (VGA/Tiny5/custom TTF/OTF), rich per-character formatting (bold/italic/underline/strikethrough), per-character FG/BG colors, cursor navigation, selection, clipboard, auto-wrap, and sound feedback; text layers persist in DRW files with full undo/redo support; click existing text layers to re-edit
 - **Eraser** - Dedicated eraser tool that paints transparent; shares brush size preview and custom brush support. **Smart Erase** (hold `Shift` while erasing) erases on every visible non-opacity-locked layer simultaneously
 - **Stroke Selection** - Apply a configurable stroke (inside/outside/center, adjustable width) around the active selection boundary via Edit → Stroke Selection
 - **Custom Brush** - Capture selection as reusable brush with flip/scale transforms, non-rectangular shapes via alpha channel, dynamic outline expansion
@@ -129,7 +129,7 @@ Current release: v0.23.0
 - All audio state persisted in `DRAW.cfg` (`SOUNDS_ENABLED`, `SOUNDS_VOLUME`, `SOUNDS_MUTED`, `MUSIC_ENABLED`, `MUSIC_VOLUME`, `MUSIC_MUTED`)
 
 ### User Interface
-- **Drawer panel** - A 30-slot drawer beneath the organizer for brush, gradient, and pattern sets; `F1`/`F2`/`F3` switch modes, left-click selects, `Shift+Left Click` stores, right-click opens a context menu, middle-click cycles modes, `Shift+Middle Click` clears a slot, and `Shift+Right Click` imports into a slot
+- **Drawer panel** - A 30-slot drawer beneath the organizer for brush, gradient, and pattern sets (including 1-bit patterns); `F1`/`F2`/`F3` switch modes, left-click selects, `Shift+Left Click` stores, right-click opens a context menu, middle-click cycles modes, `Shift+Middle Click` clears a slot, `Shift+Right Click` imports into a slot, and drag-and-drop to reorder bins
 - **Preview window** - A floating preview panel with two modes: **Follow** (canvas magnifier following the pointer) and **Floating Image** (display a loaded reference image); supports **Bin Quick Look** (hover drawer slots to preview brush/pattern/gradient), **Color Picking** (Alt+Click to sample colors from preview), and **Recent Preview Images** (up to 10 recently loaded images); pan/zoom, minimize/close buttons, and work-area clamping
 - **Edit bar** - A dockable vertical strip of edit-action icons on the left or right side of the workspace (`F5`)
 - **Layout docking** - Toolbox, layer panel, and edit bar can each be docked to the left or right side of the workspace via View → Layout menu or `Ctrl+Shift+Click` on the panel
@@ -152,7 +152,7 @@ Current release: v0.23.0
 
 **Tools:** B (Brush), D (Dot/Stamp), F (Fill), I (Picker), K (Spray), L (Line), R (Rectangle), C (Ellipse), E (Eraser), Z (Zoom)  
 **Drawing:** Left-click draws with FG color, Right-click draws with BG color (all drawing tools)  
-**Colors:** Left-click palette swatch for FG, Right-click for BG, hold ALT for temporary eyedropper  
+**Colors:** Left-click palette swatch for FG, Right-click for BG, hold ALT for temporary eyedropper, Ctrl+D (reset defaults), Shift+Delete (BG transparent)  
 **Palette:** Click palette name dropdown to switch palettes, SHIFT+wheel for fast scroll  
 **Grid:** `'` (toggle), `Shift+'` (pixel grid), `;` (snap), `Ctrl+'` (cycle mode), `.` (bigger), `,` (smaller)  
 **Brush Size:** `[` (smaller), `]` (bigger), F6 (pixel perfect)  

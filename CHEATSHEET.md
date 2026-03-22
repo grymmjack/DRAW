@@ -50,7 +50,9 @@ status bar as `OP:nn%` when below 100%.
 ### Keyboard Shortcuts
 | Key | Action |
 |-----|--------|
-| `X` | Swap foreground and background colors |
+| `X` | Swap foreground and background colors (including transparency state) |
+| `Ctrl+D` | Reset FG to white, BG to black (also deselects active selection) |
+| `Shift+Delete` | Set BG to transparent (leave FG as-is) |
 | `F1` | Drawer brush mode |
 | `F2` | Drawer gradient mode |
 | `F3` | Drawer pattern mode |
@@ -698,8 +700,45 @@ The stroke is applied to the current layer inside the selection bounds. Requires
 | **Ctrl+T** | Text tool with custom loaded font |
 | **Type** | Enter text |
 | **Enter** | New line |
-| **Backspace** | Delete character |
-| **Escape** | Apply/finish text |
+| **Backspace** | Delete character before cursor |
+| **Delete** | Delete character after cursor |
+| **Escape** | Apply/finish text (commits text layer) |
+
+### Cursor Navigation
+
+| Key | Function |
+|-----|----------|
+| **Left/Right Arrow** | Move cursor one character |
+| **Up/Down Arrow** | Move cursor one line |
+| **Home** | Move cursor to start of line |
+| **End** | Move cursor to end of line |
+| **Ctrl+Left/Right** | Move cursor one word |
+| **Ctrl+Home** | Move cursor to start of text |
+| **Ctrl+End** | Move cursor to end of text |
+
+### Text Selection
+
+| Key | Function |
+|-----|----------|
+| **Shift+Left/Right** | Select one character |
+| **Shift+Up/Down** | Select one line |
+| **Shift+Home/End** | Select to start/end of line |
+| **Ctrl+Shift+Left/Right** | Select one word |
+| **Ctrl+A** | Select all text |
+
+### Text Bar (GUI Controls)
+
+When the text tool is active, a text property bar appears with:
+- **Font dropdown** — Choose from VGA, Tiny5, or custom loaded fonts
+- **Font size dropdown** — Select character size
+- **Bold / Italic / Underline / Strikethrough** — Toggle formatting buttons (applied per-character)
+- **Line height** — Adjust vertical line spacing
+- **Letter spacing** — Adjust horizontal character spacing
+- **FG/BG color swatches** — Per-character foreground and background colors (uses current paint colors)
+
+### Re-editing Text Layers
+
+Click on an existing text layer (in text tool mode) to re-enter editing. All formatting, font, and color properties are preserved.
 
 ### Custom Font Loading
 
