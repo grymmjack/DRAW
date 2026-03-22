@@ -1027,18 +1027,18 @@ Verify text placement respects grid snap settings.
 ### [ ] Per-Character Rich Formatting
 Verify mixed formatting within a single text layer.
 
-#### [ ] Multiple fonts in one layer
-1. [ ] Start text entry
-2. [ ] Type "A" in font A
-3. [ ] Change font in TEXT BAR dropdown
-4. [ ] Type "B" in font B
-5. [ ] Verify both characters render in their respective fonts
+#### [x] Multiple fonts in one layer
+1. [x] Start text entry
+2. [x] Type "A" in font A
+3. [x] Change font in TEXT BAR dropdown
+4. [x] Type "B" in font B
+5. [x] Verify both characters render in their respective fonts
 
-#### [ ] Multiple sizes in one layer
-1. [ ] Type "Big" at size 24
-2. [ ] Change size to 8
-3. [ ] Type "small"
-4. [ ] Verify "Big" is 24px and "small" is 8px
+#### [x] Multiple sizes in one layer
+1. [x] Type "Big" at size 24
+2. [x] Change size to 8
+3. [x] Type "small"
+4. [x] Verify "Big" is 24px and "small" is 8px
 
 #### [ ] Multiple colors in one layer
 1. [ ] Type "Red" in red FG color
