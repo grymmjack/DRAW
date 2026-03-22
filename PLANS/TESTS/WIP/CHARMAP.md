@@ -1,40 +1,40 @@
 # [ ] CHARMAP TESTING
 
-## [ ] PANEL VISIBILITY AND TOGGLING
+## [x] PANEL VISIBILITY AND TOGGLING
 
-### [ ] Opening and Closing the Character Map Panel
+### [x] Opening and Closing the Character Map Panel
 Verify the character map panel can be toggled via keyboard shortcut, menu, and command palette. Panel shows a 16x16 grid of 256 glyphs from the current font.
 
-#### [ ] Toggle via Ctrl+M
-1. [ ] Press `Ctrl+M` — verify the character map panel appears
-2. [ ] Verify a 16×16 grid of glyphs (0–255) is rendered
-3. [ ] Verify the panel is docked on the expected side (default: RIGHT)
-4. [ ] Press `Ctrl+M` again — verify the panel hides
-5. [ ] Verify canvas work area expands to fill the freed space
+#### [x] Toggle via Ctrl+M
+1. [x] Press `Ctrl+M` — verify the character map panel appears
+2. [x] Verify a 16×16 grid of glyphs (0–255) is rendered
+3. [x] Verify the panel is docked on the expected side (default: RIGHT)
+4. [x] Press `Ctrl+M` again — verify the panel hides
+5. [x] Verify canvas work area expands to fill the freed space
 
-#### [ ] Toggle via View menu
-1. [ ] Open View menu → click "CHARACTER MAP"
-2. [ ] Verify the panel appears with a checkmark next to the menu item
-3. [ ] Open View menu → click "CHARACTER MAP" again
-4. [ ] Verify the panel hides and the checkmark is removed
+#### [x] Toggle via View menu
+1. [x] Open View menu → click "CHARACTER MAP"
+2. [x] Verify the panel appears with a checkmark next to the menu item
+3. [x] Open View menu → click "CHARACTER MAP" again
+4. [x] Verify the panel hides and the checkmark is removed
 
-#### [ ] Toggle via Command Palette
-1. [ ] Press `?` to open the Command Palette
-2. [ ] Type "character" and select "Toggle Character Map"
-3. [ ] Verify the panel appears
-4. [ ] Repeat to hide
+#### [x] Toggle via Command Palette
+1. [x] Press `?` to open the Command Palette
+2. [x] Type "character" and select "Toggle Character Map"
+3. [x] Verify the panel appears
+4. [x] Repeat to hide
 
-#### [ ] Panel state persists across sessions
-1. [ ] Open the character map (`Ctrl+M`)
-2. [ ] Exit and restart DRAW
-3. [ ] Verify the character map is still visible on startup (check `DRAW.cfg` for `CHARMAP_VISIBLE=1`)
+#### [x] Panel state persists across sessions
+1. [x] Open the character map (`Ctrl+M`)
+2. [x] Exit and restart DRAW
+3. [x] Verify the character map is still visible on startup (check `DRAW.cfg` for `CHARMAP_VISIBLE=1`)
 
-#### [ ] Toggle-all (F11) includes charmap
-1. [ ] Open character map (`Ctrl+M`)
-2. [ ] Press `F11` to hide all UI panels
-3. [ ] Verify the character map panel hides along with toolbar/statusbar/layers
-4. [ ] Press `F11` again to restore all panels
-5. [ ] Verify character map is restored (was auto-hidden, not manually hidden)
+#### [x] Toggle-all (F11) includes charmap
+1. [x] Open character map (`Ctrl+M`)
+2. [x] Press `F11` to hide all UI panels
+3. [x] Verify the character map panel hides along with toolbar/statusbar/layers
+4. [x] Press `F11` again to restore all panels
+5. [x] Verify character map is restored (was auto-hidden, not manually hidden)
 
 ---
 
@@ -43,11 +43,11 @@ Verify the character map panel can be toggled via keyboard shortcut, menu, and c
 ### [ ] Docking Left and Right
 Verify the character map panel can be docked to either side of the workspace and that layout reflows correctly.
 
-#### [ ] Dock Left via menu
-1. [ ] Open character map (`Ctrl+M`)
-2. [ ] Open View → Layout → "Character Map Left"
-3. [ ] Verify the panel moves to the left side of the canvas
-4. [ ] Verify the canvas work area shrinks on the left to accommodate the panel
+#### [x] Dock Left via menu
+1. [x] Open character map (`Ctrl+M`)
+2. [x] Open View → Layout → "Character Map Left"
+3. [x] Verify the panel moves to the left side of the canvas
+4. [x] Verify the canvas work area shrinks on the left to accommodate the panel
 
 #### [ ] Dock Right via menu
 1. [ ] With panel docked left, open View → Layout → "Character Map Right"
