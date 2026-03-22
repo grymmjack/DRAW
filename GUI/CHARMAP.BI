@@ -84,6 +84,7 @@ DECLARE SUB CHARMAP_handle_click (rawX AS INTEGER, rawY AS INTEGER, btn AS INTEG
 DECLARE SUB CHARMAP_update_hover (rawX AS INTEGER, rawY AS INTEGER)
 DECLARE SUB CHARMAP_copy_glyph_to_custom_brush ()
 DECLARE SUB CHARMAP_copy_glyph_to_custom_brush_bg ()
+DECLARE FUNCTION CHARMAP_effective_font_size% ()
 DECLARE FUNCTION CHARMAP_panel_width% ()
 DECLARE SUB CHARMAP_char_grid_draw ()
 DECLARE SUB CHARMAP_char_grid_toggle ()

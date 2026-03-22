@@ -291,6 +291,8 @@ TYPE DRAW_CONFIG
     CHARMAP_CELL_H                 AS INTEGER  ' Cell height in pixels (default 8)
     CHARMAP_CELL_PADDING           AS INTEGER  ' Padding between cells (default 1)
     CHARMAP_DEFAULT_FONT           AS STRING   ' Default font name for charmap (empty = use text tool font)
+    CHARMAP_MIN_FONT_SIZE          AS INTEGER  ' Minimum font size used by charmap preview (default 4)
+    CHARMAP_MAX_FONT_SIZE          AS INTEGER  ' Maximum font size used by charmap preview (default 16)
     CHARMAP_CHAR_SELECTED          AS INTEGER  ' Last selected character index (0-255, -1=none)
     CHARMAP_USE_CHARS              AS INTEGER  ' TRUE = Character Mode (Use Chars) active
     ' Character Grid settings
