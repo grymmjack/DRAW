@@ -5,12 +5,6 @@
 # Verifies duplicate creates a new layer row and undo removes it
 # =============================================================================
 
-# -- Layer panel region (LAYERS_DOCK=LEFT) --
-LP_X=0
-LP_Y=12
-LP_W=100
-LP_H=68
-
 # -- Establish known state --
 info "=== Layer Duplicate Test ==="
 canvas_focus v

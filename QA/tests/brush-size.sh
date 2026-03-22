@@ -12,12 +12,12 @@ wait_for 0.1 "Pointer arrow hidden"
 # --- Snap organizer region BEFORE size change ---
 # Organizer is in the toolbar column; brush size widget is at slot 2 (top-right area)
 if [[ "$TOOLBOX_DOCK" == "RIGHT" ]]; then
-    ORG_X=$(( VP_W - TOOLBOX_W + 2 ))
+    ORG_X=$(( VP_W - TOOLBAR_W + 2 ))
 else
     ORG_X=2
 fi
-ORG_Y=$(( MENUBAR_H + TOOLBAR_H + 2 ))
-ORG_W=$(( TOOLBOX_W - 4 ))
+ORG_Y=$(( MENU_BAR_H + TOOLBAR_H + 2 ))
+ORG_W=$(( TOOLBAR_W - 4 ))
 ORG_H=30
 
 park_mouse

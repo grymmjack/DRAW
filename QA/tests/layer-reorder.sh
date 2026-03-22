@@ -5,12 +5,6 @@
 # Verifies layer z-order changes are reflected in the layer panel
 # =============================================================================
 
-# -- Layer panel region (LAYERS_DOCK=LEFT) --
-LP_X=0
-LP_Y=12
-LP_W=100
-LP_H=68
-
 # -- Establish known state --
 info "=== Layer Reorder Test ==="
 canvas_focus v

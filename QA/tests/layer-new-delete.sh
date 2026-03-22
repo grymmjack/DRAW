@@ -5,12 +5,6 @@
 # Verifies layer panel updates correctly for both operations
 # =============================================================================
 
-# -- Layer panel region (LAYERS_DOCK=LEFT) --
-LP_X=0
-LP_Y=12
-LP_W=100
-LP_H=68
-
 # -- Establish known state --
 info "=== Layer New/Delete Test ==="
 canvas_focus v

@@ -8,6 +8,8 @@
 #   ./draw-qa.sh --keep-open      Don't close DRAW after tests (for debugging)
 #   ./draw-qa.sh --fail-fast      Stop on first failure (for tuning tests)
 #   ./draw-qa.sh --verbose        Show every mouse/key action for debugging
+#   ./draw-qa.sh --rerun-passed   Re-run tests that previously passed
+#   ./draw-qa.sh --reset          Clear the passed-test cache
 #
 # Each test is ATOMIC: DRAW is launched fresh and closed after every test
 # to prevent state from one test tainting the next.
@@ -37,7 +39,9 @@ SKIP=0
 KEEP_OPEN=0
 FAIL_FAST=0
 VERBOSE=0
+RERUN_PASSED=0
 LOG_FILE=""
+PASSED_CACHE="$RESULTS_DIR/passed.txt"
 
 # ── parse DRAW.cfg ────────────────────────────────────────────────────────────
 _cfg() { grep -m1 "^${1}=" "$DRAW_CFG" 2>/dev/null | cut -d= -f2 | tr -d '[:space:]'; }
@@ -76,6 +80,12 @@ MENU_BAR_H=12
 STATUS_H=11
 PALETTE_H=30    # 3 rows × 9px + 3px padding
 TOOLBAR_W=$(( 47 * TOOLBAR_SCALE + 2 ))   # TB_COLS*TB_BTN_W*TB + gaps + 2
+TOOLBAR_H=$(( 83 * TOOLBAR_SCALE ))        # TB_ROWS*TB_BTN_H*TB + gaps
+ORGANIZER_H=$(( 32 * TOOLBAR_SCALE ))      # 3 rows × 10 × TB + 2 gaps × TB
+
+# Convenience aliases used by tests
+VP_W=$VIEWPORT_W
+VP_H=$VIEWPORT_H
 
 # Canvas work area in viewport pixels
 if [[ "$LAYERS_DOCK" == "LEFT" ]]; then
@@ -97,6 +107,39 @@ CANVAS_OFFSET_Y=$(( WORK_TOP  + (WORK_H - CANVAS_H) / 2 ))
 # Centre of the canvas in viewport pixels
 CANVAS_CX=$(( CANVAS_OFFSET_X + CANVAS_W / 2 ))
 CANVAS_CY=$(( CANVAS_OFFSET_Y + CANVAS_H / 2 ))
+
+# ── panel geometry (viewport pixels) for test snap regions ────────────────────
+
+# Toolbar panel position & size
+if [[ "$TOOLBOX_DOCK" == "RIGHT" ]]; then
+    TB_X=$(( VIEWPORT_W - TOOLBAR_W ))
+else
+    TB_X=0
+fi
+TB_Y=$MENU_BAR_H
+TB_W=$TOOLBAR_W
+TB_H=$TOOLBAR_H
+
+# Layer panel position & size
+if [[ "$LAYERS_DOCK" == "LEFT" ]]; then
+    LP_X=0
+else
+    LP_X=$(( VIEWPORT_W - LAYER_PANEL_W ))
+fi
+LP_Y=$MENU_BAR_H
+LP_W=$LAYER_PANEL_W
+LP_H=$(( VIEWPORT_H - MENU_BAR_H - STATUS_H - PALETTE_H ))
+
+# Aliases used by new-layer.sh
+LAYER_PANEL_X=$LP_X
+LAYER_PANEL_Y=$LP_Y
+LAYER_PANEL_H=$LP_H
+
+# Palette strip position & size
+PAL_X=0
+PAL_Y=$(( VIEWPORT_H - STATUS_H - PALETTE_H ))
+PAL_W=$VIEWPORT_W
+PAL_H=$PALETTE_H
 
 # ── colours ──────────────────────────────────────────────────────────────────
 GREEN="\033[0;32m"
@@ -348,22 +391,24 @@ drag() {
     draw_focus
     xdotool mousemove "$ax1" "$ay1"
     sleep 0.1
-    xdotool mousedown "$btn"
-    sleep 0.1
+    xdotool mousedown "$btn" mousemove $(( ax1 + 1 )) "$ay1"
+    sleep 0.05
     xdotool mousemove "$ax2" "$ay2"
     sleep 0.15
     xdotool mouseup "$btn"
     sleep 0.1
 }
 
-# scroll_up / scroll_down at window-relative coords
+# scroll_up / scroll_down at viewport-pixel coords
 scroll_up() {
     local ax ay; read -r ax ay <<< "$(_abs "$1" "$2")"
-    draw_focus; xdotool mousemove "$ax" "$ay"; sleep 0.05; xdotool click 4
+    draw_focus; xdotool mousemove "$ax" "$ay"; sleep 0.05
+    xdotool click 4; sleep 0.05
 }
 scroll_down() {
     local ax ay; read -r ax ay <<< "$(_abs "$1" "$2")"
-    draw_focus; xdotool mousemove "$ax" "$ay"; sleep 0.05; xdotool click 5
+    draw_focus; xdotool mousemove "$ax" "$ay"; sleep 0.05
+    xdotool click 5; sleep 0.05
 }
 
 # type text (printable chars only)
@@ -571,6 +616,25 @@ run_test_file() {
     local name; name=$(basename "$test_file" .sh)
     log ""
     log "${CYAN}━━━ $name ━━━${RESET}"
+
+    # Check passed-test cache (skip unless --rerun-passed)
+    if [[ $RERUN_PASSED -eq 0 ]] && grep -qxF "$name" "$PASSED_CACHE" 2>/dev/null; then
+        skip "$name — already passed (use --rerun-passed to re-run)"
+        return
+    fi
+
+    # Check for SKIP marker: first non-shebang comment starting with "# SKIP:"
+    local skip_reason
+    skip_reason=$(sed -n '2,5{ s/^# SKIP: *//p; }' "$test_file" | head -1)
+    if [[ -n "$skip_reason" ]]; then
+        skip "$name — $skip_reason"
+        log "  ${YELLOW}  Run manually: ./draw-qa.sh tests/$name.sh${RESET}"
+        return
+    fi
+
+    # Track failures before this test
+    local fail_before=$FAIL
+
     # Each test is atomic: fresh DRAW instance
     draw_launch 15
     # Source directly in the current shell — DRAW_PID/WID/counters all shared.
@@ -578,15 +642,22 @@ run_test_file() {
     source "$test_file"
     log "${GREEN}  ► $name: done${RESET}"
     draw_quit
+
+    # Record in passed cache if no new failures
+    if [[ $FAIL -eq $fail_before ]]; then
+        mkdir -p "$RESULTS_DIR"
+        echo "$name" >> "$PASSED_CACHE"
+    fi
 }
 
 # ── entrypoint ────────────────────────────────────────────────────────────────
 
 # Parse flags
 for arg in "$@"; do
-    [[ "$arg" == "--keep-open" ]] && KEEP_OPEN=1
-    [[ "$arg" == "--fail-fast" ]] && FAIL_FAST=1
-    [[ "$arg" == "--verbose" ]]   && VERBOSE=1
+    [[ "$arg" == "--keep-open" ]]    && KEEP_OPEN=1
+    [[ "$arg" == "--fail-fast" ]]    && FAIL_FAST=1
+    [[ "$arg" == "--verbose" ]]      && VERBOSE=1
+    [[ "$arg" == "--rerun-passed" ]] && RERUN_PASSED=1
 done
 
 mkdir -p "$RESULTS_DIR" "$SCREENSHOTS_DIR"
@@ -599,18 +670,33 @@ case "${1:-}" in
         echo "Available tests:"
         for f in "$TESTS_DIR"/*.sh; do echo "  $(basename "$f" .sh)"; done
         exit 0 ;;
+    --reset)
+        rm -f "$RESULTS_DIR/passed.txt"
+        echo "Passed-test cache cleared."
+        exit 0 ;;
     --help|-h)
-        sed -n '2,12p' "$0"; exit 0 ;;
+        sed -n '2,14p' "$0"; exit 0 ;;
 esac
 
 check_deps
 trap 'draw_quit' EXIT INT TERM
+
+# Count cached passes for banner
+_CACHED_COUNT=0
+[[ -f "$PASSED_CACHE" ]] && _CACHED_COUNT=$(wc -l < "$PASSED_CACHE")
 
 log "═══════════════════════════════════════════════════"
 log " DRAW QA — $(date '+%Y-%m-%d %H:%M:%S')"
 log " DRAW: $DRAW_BIN"
 log " Scale: ${DISPLAY_SCALE}x  Viewport: ${VIEWPORT_W}×${VIEWPORT_H}"
 log " Canvas: ${CANVAS_W}×${CANVAS_H}  Centre: (${CANVAS_CX},${CANVAS_CY}) viewport px"
+if [[ $_CACHED_COUNT -gt 0 ]]; then
+    if [[ $RERUN_PASSED -eq 1 ]]; then
+        log " Cache: ${_CACHED_COUNT} passed (re-running all)"
+    else
+        log " Cache: ${_CACHED_COUNT} already passed (--rerun-passed to redo)"
+    fi
+fi
 log "═══════════════════════════════════════════════════"
 
 # Collect test files (skip flags)

@@ -5,15 +5,8 @@
 # Verifies toolbar column disappears and reappears
 # =============================================================================
 
-# -- Toolbar region depends on dock side --
-if [[ "$TOOLBOX_DOCK" == "LEFT" ]]; then
-    TB_X=0
-else
-    TB_X=$(( VIEWPORT_W - TOOLBAR_W ))
-fi
-TB_Y=$MENU_BAR_H
-TB_W=$TOOLBAR_W
-TB_H=100
+# TB_H: just the top portion we care about (not full toolbar height)
+TB_H_SNAP=100
 
 # -- Establish known state --
 info "=== UI Toolbar Toggle Test ==="
@@ -24,7 +17,7 @@ wait_for 0.1 "Pointer arrow hidden"
 
 # -- Snap toolbar region before --
 park_mouse
-snap_region $TB_X $TB_Y $TB_W $TB_H "toolbar-before"
+snap_region $TB_X $TB_Y $TB_W $TB_H_SNAP "toolbar-before"
 BEFORE="$SNAP_RESULT"
 assert_no_crash
 
@@ -36,7 +29,7 @@ assert_no_crash
 
 # -- Snap after hide --
 park_mouse
-snap_region $TB_X $TB_Y $TB_W $TB_H "toolbar-hidden"
+snap_region $TB_X $TB_Y $TB_W $TB_H_SNAP "toolbar-hidden"
 HIDDEN="$SNAP_RESULT"
 assert_regions_differ "$BEFORE" "$HIDDEN" "Toolbar region should change when hidden"
 screenshot "toolbar-hidden"
@@ -49,7 +42,7 @@ assert_no_crash
 
 # -- Snap after restore --
 park_mouse
-snap_region $TB_X $TB_Y $TB_W $TB_H "toolbar-restored"
+snap_region $TB_X $TB_Y $TB_W $TB_H_SNAP "toolbar-restored"
 RESTORED="$SNAP_RESULT"
 assert_regions_differ "$HIDDEN" "$RESTORED" "Toolbar region should change when restored"
 screenshot "toolbar-restored"

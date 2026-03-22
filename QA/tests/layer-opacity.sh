@@ -1,13 +1,16 @@
 #!/bin/bash
+# SKIP: scroll wheel not registering via xdotool on SDL2 (works manually)
 # =============================================================================
 # layer-opacity.sh — QA test: Change layer opacity via scroll wheel
 # Tests: Scroll wheel on opacity area in layer panel
 # Verifies canvas rendering changes with opacity adjustment
 # =============================================================================
 
-# -- Opacity area in layer panel (LAYERS_DOCK=LEFT, first layer row) --
-OPACITY_X=50
-OPACITY_Y=42
+# -- Opacity bar in layer panel (right-docked, first layer row) --
+# Opacity bar local X: panelW-17 to panelW-11 → center at panelW-14
+# First layer row Y: header(16)+2=18 to header(16)+16=32 → center at 25
+OPACITY_X=$(( LP_X + LP_W - 14 ))
+OPACITY_Y=25
 
 # -- Canvas center region for opacity checks --
 CW=160

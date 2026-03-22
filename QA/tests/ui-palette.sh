@@ -5,12 +5,6 @@
 # Verifies palette strip updates visually on color swap
 # =============================================================================
 
-# -- Palette + status bar region at bottom of viewport --
-PAL_X=0
-PAL_Y=$(( VIEWPORT_H - STATUS_H - PALETTE_H ))
-PAL_W=$VIEWPORT_W
-PAL_H=$(( STATUS_H + PALETTE_H ))
-
 # -- Establish known state --
 info "=== UI Palette Test ==="
 canvas_focus b

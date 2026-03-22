@@ -6,8 +6,6 @@
 # =============================================================================
 
 # -- Organizer region (below toolbar in toolbar column) --
-TOOLBAR_H=$(( 83 * TOOLBAR_SCALE ))
-ORG_H=$(( 32 * TOOLBAR_SCALE ))
 if [[ "$TOOLBOX_DOCK" == "LEFT" ]]; then
     ORG_X=0
 else
@@ -15,6 +13,7 @@ else
 fi
 ORG_Y=$(( MENU_BAR_H + TOOLBAR_H ))
 ORG_W=$TOOLBAR_W
+ORG_H=$ORGANIZER_H
 
 # -- Establish known state --
 info "=== UI Organizer Test ==="

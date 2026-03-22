@@ -1,12 +1,5 @@
 #!/bin/bash
 # QA/tests/new-layer.sh — Test adding and undoing a new layer
-#
-# Layer panel: LEFT dock, x=0..100 viewport px, y=12..80
-
-LAYER_PANEL_X=0
-LAYER_PANEL_Y=12
-LAYER_PANEL_W=100
-LAYER_PANEL_H=68
 
 canvas_focus v
 wait_for 0.3 "Move tool ready"
