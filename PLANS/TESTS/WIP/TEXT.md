@@ -409,9 +409,9 @@ Verify clipboard operations preserve per-character formatting.
 
 ---
 
-## [ ] TEXT BAR — FONT CONTROLS
+## [x] TEXT BAR — FONT CONTROLS
 
-### [ ] Font Dropdown
+### [x] Font Dropdown
 Verify the font dropdown lists available fonts and applies selection.
 
 #### [x] Open font dropdown
@@ -434,164 +434,164 @@ Verify the font dropdown lists available fonts and applies selection.
 4. [x] Scroll mouse wheel up
 5. [x] Verify the list scrolls back up
 
-#### [ ] Close font dropdown by clicking outside
-1. [ ] Open font dropdown
-2. [ ] Click somewhere outside the dropdown (on canvas or other bar area)
-3. [ ] Verify dropdown closes
+#### [x] Close font dropdown by clicking outside
+1. [x] Open font dropdown
+2. [x] Click somewhere outside the dropdown (on canvas or other bar area)
+3. [x] Verify dropdown closes
 
-#### [ ] Font change applies to selection
-1. [ ] Type "Hello World"
-2. [ ] Select "World" (Shift+Left 5 times)
-3. [ ] Change font in the TEXT BAR dropdown
-4. [ ] Verify "World" renders in the new font while "Hello " stays in the original font
+#### [x] Font change applies to selection
+1. [x] Type "Hello World"
+2. [x] Select "World" (Shift+Left 5 times)
+3. [x] Change font in the TEXT BAR dropdown
+4. [x] Verify "World" renders in the new font while "Hello " stays in the original font
 
-### [ ] Size Dropdown
+### [x] Size Dropdown
 Verify font size controls work correctly.
 
-#### [ ] Open size dropdown
-1. [ ] Click the size number in the TEXT BAR
-2. [ ] Verify a dropdown with 25 preset sizes appears (4–128)
-3. [ ] Verify the current size is highlighted
+#### [x] Open size dropdown
+1. [x] Click the size number in the TEXT BAR
+2. [x] Verify a dropdown with 25 preset sizes appears (4–128)
+3. [x] Verify the current size is highlighted
 
-#### [ ] Select a size from dropdown
-1. [ ] Open size dropdown
-2. [ ] Click on size "24"
-3. [ ] Verify dropdown closes
-4. [ ] Type new text — verify it appears at 24px size
+#### [x] Select a size from dropdown
+1. [x] Open size dropdown
+2. [x] Click on size "24"
+3. [x] Verify dropdown closes
+4. [x] Type new text — verify it appears at 24px size
 
-#### [ ] Size change applies to selection
-1. [ ] Type "Hello World"
-2. [ ] Select "World"
-3. [ ] Change size from dropdown to a different value (e.g. 32)
-4. [ ] Verify "World" renders larger while "Hello " stays at the original size
+#### [x] Size change applies to selection
+1. [x] Type "Hello World"
+2. [x] Select "World"
+3. [x] Change size from dropdown to a different value (e.g. 32)
+4. [x] Verify "World" renders larger while "Hello " stays at the original size
 
-#### [ ] Ctrl+Shift+. increases font size
-1. [ ] Type "Test" — note the current size
-2. [ ] Select all (Ctrl+A)
-3. [ ] Press Ctrl+Shift+. (period / >)
-4. [ ] Verify text size increases to next preset size
-5. [ ] Press again — verify it steps to next preset
+#### [x] Ctrl+Shift+. increases font size
+1. [x] Type "Test" — note the current size
+2. [x] Select all (Ctrl+A)
+3. [x] Press Ctrl+Shift+. (period / >)
+4. [x] Verify text size increases to next preset size
+5. [x] Press again — verify it steps to next preset
 
-#### [ ] Ctrl+Shift+, decreases font size
-1. [ ] Type "Test" with size 24
-2. [ ] Select all (Ctrl+A)
-3. [ ] Press Ctrl+Shift+, (comma / <)
-4. [ ] Verify text size decreases to next smaller preset size
+#### [x] Ctrl+Shift+, decreases font size
+1. [x] Type "Test" with size 24
+2. [x] Select all (Ctrl+A)
+3. [x] Press Ctrl+Shift+, (comma / <)
+4. [x] Verify text size decreases to next smaller preset size
 
 ---
 
-## [ ] TEXT BAR — STYLE TOGGLES
+## [x] TEXT BAR — STYLE TOGGLES
 
-### [ ] Bold
+### [x] Bold
 Verify bold toggle works via button click and keyboard shortcut.
 
-#### [ ] Toggle bold via Ctrl+B
-1. [ ] Start text entry
-2. [ ] Press Ctrl+B
-3. [ ] Verify [B] button in TEXT BAR shows active (darker background)
-4. [ ] Type "Bold" — verify text appears bold (or faux-bold with +1px offset)
-5. [ ] Press Ctrl+B again
-6. [ ] Verify [B] button shows inactive
-7. [ ] Type "Normal" — verify text appears normal weight
+#### [x] Toggle bold via Ctrl+B
+1. [x] Start text entry
+2. [x] Press Ctrl+B
+3. [x] Verify [B] button in TEXT BAR shows active (darker background)
+4. [x] Type "Bold" — verify text appears bold (or faux-bold with +1px offset)
+5. [x] Press Ctrl+B again
+6. [x] Verify [B] button shows inactive
+7. [x] Type "Normal" — verify text appears normal weight
 
-#### [ ] Toggle bold via button click
-1. [ ] Click the [B] button in the TEXT BAR
-2. [ ] Verify it toggles active/inactive
-3. [ ] Type text — verify bold/normal respectively
+#### [x] Toggle bold via button click
+1. [x] Click the [B] button in the TEXT BAR
+2. [x] Verify it toggles active/inactive
+3. [x] Type text — verify bold/normal respectively
 
-#### [ ] Apply bold to selection
-1. [ ] Type "Hello World"
-2. [ ] Select "World"
-3. [ ] Press Ctrl+B
-4. [ ] Verify "World" appears bold while "Hello " is normal
+#### [x] Apply bold to selection
+1. [x] Type "Hello World"
+2. [x] Select "World"
+3. [x] Press Ctrl+B
+4. [x] Verify "World" appears bold while "Hello " is normal
 
-### [ ] Italic
+### [x] Italic
 Verify italic toggle.
 
-#### [ ] Toggle italic via Ctrl+I
-1. [ ] Start text entry, press Ctrl+I
-2. [ ] Verify [I] button shows active
-3. [ ] Type "Italic" — verify text appears italic (if font supports it) or faux-italic
-4. [ ] Press Ctrl+I to toggle off
+#### [x] Toggle italic via Ctrl+I
+1. [x] Start text entry, press Ctrl+I
+2. [x] Verify [I] button shows active
+3. [x] Type "Italic" — verify text appears italic (if font supports it) or faux-italic
+4. [x] Press Ctrl+I to toggle off
 
-#### [ ] Apply italic to selection
-1. [ ] Type "Hello World", select "World"
-2. [ ] Press Ctrl+I
-3. [ ] Verify "World" appears italic
+#### [x] Apply italic to selection
+1. [x] Type "Hello World", select "World"
+2. [x] Press Ctrl+I
+3. [x] Verify "World" appears italic
 
-### [ ] Underline
+### [x] Underline
 Verify underline toggle.
 
-#### [ ] Toggle underline via Ctrl+U
-1. [ ] Start text entry, press Ctrl+U
-2. [ ] Verify [U] button shows active
-3. [ ] Type "Underline" — verify underline appears 1px below text
-4. [ ] Press Ctrl+U to toggle off
+#### [x] Toggle underline via Ctrl+U
+1. [x] Start text entry, press Ctrl+U
+2. [x] Verify [U] button shows active
+3. [x] Type "Underline" — verify underline appears 1px below text
+4. [x] Press Ctrl+U to toggle off
 
-#### [ ] Apply underline to selection
-1. [ ] Type "Hello World", select "World"
-2. [ ] Press Ctrl+U
-3. [ ] Verify underline appears only under "World"
+#### [x] Apply underline to selection
+1. [x] Type "Hello World", select "World"
+2. [x] Press Ctrl+U
+3. [x] Verify underline appears only under "World"
 
-### [ ] Strikethrough
+### [x] Strikethrough
 Verify strikethrough toggle.
 
-#### [ ] Toggle strikethrough via Ctrl+Shift+X
-1. [ ] Start text entry, press Ctrl+Shift+X
-2. [ ] Verify [S] button shows active
-3. [ ] Type "Strike" — verify strikethrough line at vertical midpoint
-4. [ ] Press Ctrl+Shift+X to toggle off
+#### [x] Toggle strikethrough via Ctrl+Shift+X
+1. [x] Start text entry, press Ctrl+Shift+X
+2. [x] Verify [S] button shows active
+3. [x] Type "Strike" — verify strikethrough line at vertical midpoint
+4. [x] Press Ctrl+Shift+X to toggle off
 
-#### [ ] Apply strikethrough to selection
-1. [ ] Type "Hello World", select "World"
-2. [ ] Press Ctrl+Shift+X
-3. [ ] Verify strikethrough appears only through "World"
+#### [x] Apply strikethrough to selection
+1. [x] Type "Hello World", select "World"
+2. [x] Press Ctrl+Shift+X
+3. [x] Verify strikethrough appears only through "World"
 
-### [ ] Monospace Toggle
+### [x] Monospace Toggle
 Verify monospace mode.
 
-#### [ ] Toggle monospace via TEXT BAR [M] button
-1. [ ] Start text entry
-2. [ ] Click the [M] button in TEXT BAR
-3. [ ] Verify it toggles active
-4. [ ] Type "monospace test" — verify all characters are equal width
-5. [ ] Click [M] again to toggle off
-6. [ ] Verify monospace applies to entire text layer (not per-character)
+#### [x] Toggle monospace via TEXT BAR [M] button
+1. [x] Start text entry
+2. [x] Click the [M] button in TEXT BAR
+3. [x] Verify it toggles active
+4. [x] Type "monospace test" — verify all characters are equal width
+5. [x] Click [M] again to toggle off
+6. [x] Verify monospace applies to entire text layer (not per-character)
 
 ---
 
-## [ ] TEXT BAR — COLOR CONTROLS
+## [x] TEXT BAR — COLOR CONTROLS
 
-### [ ] FG Color Swatch
+### [x] FG Color Swatch
 Verify foreground color from TEXT BAR affects text.
 
-#### [ ] FG color syncs from palette
-1. [ ] Start text entry
-2. [ ] Change FG color by clicking a swatch in the palette strip
-3. [ ] Verify TEXT BAR FG swatch updates to match
-4. [ ] Type text — verify it appears in the new FG color
+#### [x] FG color syncs from palette
+1. [x] Start text entry
+2. [x] Change FG color by clicking a swatch in the palette strip
+3. [x] Verify TEXT BAR FG swatch updates to match
+4. [x] Type text — verify it appears in the new FG color
 
-#### [ ] Click FG swatch opens color picker
-1. [ ] Start text entry
-2. [ ] Click the FG color swatch in the TEXT BAR
-3. [ ] Verify color picker dialog opens
-4. [ ] Select a color and confirm
-5. [ ] Type text — verify it appears in chosen color
+#### [x] Click FG swatch opens color picker
+1. [x] Start text entry
+2. [x] Click the FG color swatch in the TEXT BAR
+3. [x] Verify color picker dialog opens
+4. [x] Select a color and confirm
+5. [x] Type text — verify it appears in chosen color
 
-#### [ ] FG color applies to selection
-1. [ ] Type "Hello World" in red
-2. [ ] Select "World"
-3. [ ] Change FG color to blue (via palette strip click)
-4. [ ] Verify "World" changes to blue while "Hello " stays red
+#### [x] FG color applies to selection
+1. [x] Type "Hello World" in red
+2. [x] Select "World"
+3. [x] Change FG color to blue (via palette strip click)
+4. [x] Verify "World" changes to blue while "Hello " stays red
 
-### [ ] BG Color Swatch
+### [x] BG Color Swatch
 Verify background color highlighting for text characters.
 
-#### [ ] Click BG swatch toggles transparent background
-1. [ ] Start text entry
-2. [ ] Click the BG color swatch in the TEXT BAR
-3. [ ] Verify it toggles between transparent (checkerboard) and the BG color
-4. [ ] Type text — verify background appears behind characters when BG is not transparent
+#### [x] Click BG swatch toggles transparent background
+1. [x] Start text entry
+2. [x] Click the BG color swatch in the TEXT BAR
+3. [x] Verify it toggles between transparent (checkerboard) and the BG color
+4. [x] Type text — verify background appears behind characters when BG is not transparent
 
 ---
 
