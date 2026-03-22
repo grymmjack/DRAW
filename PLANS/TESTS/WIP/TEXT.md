@@ -595,143 +595,143 @@ Verify background color highlighting for text characters.
 
 ---
 
-## [ ] TEXT BAR — LINE HEIGHT
+## [x] TEXT BAR — LINE HEIGHT
 
-### [ ] Line Height Controls
+### [x] Line Height Controls
 Verify line height (leading) adjustment.
 
-#### [ ] Auto line height updates from largest font
-1. [ ] Start text entry with AUTO line-height enabled (default)
-2. [ ] Type text at size 12, then select some chars, change to size 24
-3. [ ] Verify line height auto-adjusts based on the largest font size in the layer
-4. [ ] Verify the line height value in TEXT BAR updates
+#### [x] Auto line height updates from largest font
+1. [x] Start text entry with AUTO line-height enabled (default)
+2. [x] Type text at size 12, then select some chars, change to size 24
+3. [x] Verify line height auto-adjusts based on the largest font size in the layer
+4. [x] Verify the line height value in TEXT BAR updates
 
-#### [ ] Manual line height via input dialog
-1. [ ] Click the line height value in TEXT BAR
-2. [ ] Verify an input dialog appears
-3. [ ] Enter a value (e.g. "30") and confirm
-4. [ ] Verify AUTO checkbox is unchecked
-5. [ ] Verify line spacing changes to 30px
+#### [x] Manual line height via input dialog
+1. [x] Click the line height value in TEXT BAR
+2. [x] Verify an input dialog appears
+3. [x] Enter a value (e.g. "30") and confirm
+4. [x] Verify AUTO checkbox is unchecked
+5. [x] Verify line spacing changes to 30px
 
-#### [ ] Toggle AUTO line height
-1. [ ] Click the AUTO checkbox in TEXT BAR
-2. [ ] Verify toggling AUTO on restores automatic line height calculation
-3. [ ] Verify toggling AUTO off preserves the current height value
+#### [x] Toggle AUTO line height
+1. [x] Click the AUTO checkbox in TEXT BAR
+2. [x] Verify toggling AUTO on restores automatic line height calculation
+3. [x] Verify toggling AUTO off preserves the current height value
 
 ---
 
-## [ ] TYPOGRAPHY CONTROLS
+## [x] TYPOGRAPHY CONTROLS
 
-### [ ] Kerning Adjustment
+### [x] Kerning Adjustment
 Verify per-character kerning via Ctrl+Alt shortcuts.
 
-#### [ ] Ctrl+Alt+. increases kerning
-1. [ ] Type "AV" (two characters commonly used for kerning test)
-2. [ ] Position cursor on 'V' (or select it)
-3. [ ] Press Ctrl+Alt+. (period)
-4. [ ] Verify spacing between A and V increases by 1px
-5. [ ] Press again — verify it increases further
+#### [x] Ctrl+Alt+. increases kerning
+1. [x] Type "AV" (two characters commonly used for kerning test)
+2. [x] Position cursor on 'V' (or select it)
+3. [x] Press Ctrl+Alt+. (period)
+4. [x] Verify spacing between A and V increases by 1px
+5. [x] Press again — verify it increases further
 
-#### [ ] Ctrl+Alt+, decreases kerning
-1. [ ] Type "AV"
-2. [ ] Position cursor on 'V'
-3. [ ] Press Ctrl+Alt+, (comma)
-4. [ ] Verify spacing between A and V decreases by 1px
-5. [ ] Verify negative kerning (overlap) is possible
+#### [x] Ctrl+Alt+, decreases kerning
+1. [x] Type "AV"
+2. [x] Position cursor on 'V'
+3. [x] Press Ctrl+Alt+, (comma)
+4. [x] Verify spacing between A and V decreases by 1px
+5. [x] Verify negative kerning (overlap) is possible
 
-#### [ ] Kerning applies to selection
-1. [ ] Type "HELLO"
-2. [ ] Select "ELL"
-3. [ ] Press Ctrl+Alt+. several times
-4. [ ] Verify kerning applies to all 3 selected characters
-5. [ ] Verify "H" and "O" are unaffected
+#### [x] Kerning applies to selection
+1. [x] Type "HELLO"
+2. [x] Select "ELL"
+3. [x] Press Ctrl+Alt+. several times
+4. [x] Verify kerning applies to all 3 selected characters
+5. [x] Verify "H" and "O" are unaffected
 
-### [ ] Baseline Adjustment
+### [x] Baseline Adjustment
 Verify per-character baseline shift via Ctrl+Alt+Arrow.
 
-#### [ ] Ctrl+Alt+Up raises baseline
-1. [ ] Type "Hello"
-2. [ ] Position cursor on 'e' (or select it)
-3. [ ] Press Ctrl+Alt+Up arrow
-4. [ ] Verify 'e' moves up by 1px relative to other characters
+#### [x] Ctrl+Alt+Up raises baseline
+1. [x] Type "Hello"
+2. [x] Position cursor on 'e' (or select it)
+3. [x] Press Ctrl+Alt+Up arrow
+4. [x] Verify 'e' moves up by 1px relative to other characters
 
-#### [ ] Ctrl+Alt+Down lowers baseline
-1. [ ] Type "Hello"
-2. [ ] Position cursor on 'e'
-3. [ ] Press Ctrl+Alt+Down arrow
-4. [ ] Verify 'e' moves down by 1px relative to other characters
+#### [x] Ctrl+Alt+Down lowers baseline
+1. [x] Type "Hello"
+2. [x] Position cursor on 'e'
+3. [x] Press Ctrl+Alt+Down arrow
+4. [x] Verify 'e' moves down by 1px relative to other characters
 
-#### [ ] Baseline applies to selection
-1. [ ] Type "HELLO"
-2. [ ] Select "ELL"
-3. [ ] Press Ctrl+Alt+Up several times
-4. [ ] Verify all 3 selected characters shift up while "H" and "O" stay
+#### [x] Baseline applies to selection
+1. [x] Type "HELLO"
+2. [x] Select "ELL"
+3. [x] Press Ctrl+Alt+Up several times
+4. [x] Verify all 3 selected characters shift up while "H" and "O" stay
 
 ---
 
-## [ ] CURSOR BEHAVIOR
+## [x] CURSOR BEHAVIOR
 
-### [ ] Cursor Blinking
+### [x] Cursor Blinking
 Verify cursor blink state and visual feedback.
 
-#### [ ] Cursor blinks at 0.5s interval
-1. [ ] Start text entry on canvas
-2. [ ] Observe the cursor — verify it alternates visible/hidden every ~0.5 seconds
+#### [x] Cursor blinks at 0.5s interval
+1. [x] Start text entry on canvas
+2. [x] Observe the cursor — verify it alternates visible/hidden every ~0.5 seconds
 
-#### [ ] Cursor resets blink on key press
-1. [ ] Start text entry, wait for cursor to blink off
-2. [ ] Press any arrow key
-3. [ ] Verify cursor immediately becomes visible (blink reset)
+#### [x] Cursor resets blink on key press
+1. [x] Start text entry, wait for cursor to blink off
+2. [x] Press any arrow key
+3. [x] Verify cursor immediately becomes visible (blink reset)
 
-#### [ ] Cursor position tracks with text insertion
-1. [ ] Type "Hello" — cursor should be after 'o'
-2. [ ] Press `Home` — cursor should be before 'H'
-3. [ ] Type "X" — cursor should be after 'X', before 'H'
-4. [ ] Verify "XHello" renders correctly
+#### [x] Cursor position tracks with text insertion
+1. [x] Type "Hello" — cursor should be after 'o'
+2. [x] Press `Home` — cursor should be before 'H'
+3. [x] Type "X" — cursor should be after 'X', before 'H'
+4. [x] Verify "XHello" renders correctly
 
 ---
 
-## [ ] RE-EDITING TEXT LAYERS
+## [x] RE-EDITING TEXT LAYERS
 
-### [ ] Single-click Re-edit
+### [x] Single-click Re-edit
 Verify clicking on a committed text layer opens it for editing.
 
-#### [ ] Single-click opens committed text for editing
-1. [ ] Create text: type "Test Layer", press Escape to commit
-2. [ ] Activate text tool again (`T`)
-3. [ ] Single-click on the "Test Layer" text on canvas
-4. [ ] Verify the text layer enters edit mode (cursor appears at click position)
-5. [ ] Type " More" — verify it inserts at the cursor position
+#### [x] Single-click opens committed text for editing
+1. [x] Create text: type "Test Layer", press Escape to commit
+2. [x] Activate text tool again (`T`)
+3. [x] Single-click on the "Test Layer" text on canvas
+4. [x] Verify the text layer enters edit mode (cursor appears at click position)
+5. [x] Type " More" — verify it inserts at the cursor position
 
-#### [ ] Click positions cursor at click point
-1. [ ] Create text "Hello World", commit (Esc)
-2. [ ] Re-edit by clicking between "Hello" and "World"
-3. [ ] Verify cursor appears at the clicked position (not at end of text)
+#### [x] Click positions cursor at click point
+1. [x] Create text "Hello World", commit (Esc)
+2. [x] Re-edit by clicking between "Hello" and "World"
+3. [x] Verify cursor appears at the clicked position (not at end of text)
 
-### [ ] Double-click Re-edit
+### [x] Double-click Re-edit
 Verify double-clicking also re-edits text layers.
 
-#### [ ] Double-click on text layer re-edits it
-1. [ ] Create text "Test", commit (Esc)
-2. [ ] Switch to another tool and back to text tool
-3. [ ] Double-click on the committed text
-4. [ ] Verify it enters edit mode with cursor at the double-click position
+#### [x] Double-click on text layer re-edits it
+1. [x] Create text "Test", commit (Esc)
+2. [x] Switch to another tool and back to text tool
+3. [x] Double-click on the committed text
+4. [x] Verify it enters edit mode with cursor at the double-click position
 
-### [ ] Re-edit Across Layers
+### [x] Re-edit Across Layers
 Verify re-editing works when clicking text on different layers.
 
-#### [ ] Click on overlapping text layers picks topmost visible
-1. [ ] Create text "Layer 1" on layer 1, commit
-2. [ ] Create new layer, create text "Layer 2" overlapping Layer 1's position
-3. [ ] Commit Layer 2
-4. [ ] Click on the overlapping region
-5. [ ] Verify the topmost visible text layer (Layer 2) is re-edited
+#### [x] Click on overlapping text layers picks topmost visible
+1. [x] Create text "Layer 1" on layer 1, commit
+2. [x] Create new layer, create text "Layer 2" overlapping Layer 1's position
+3. [x] Commit Layer 2
+4. [x] Click on the overlapping region
+5. [x] Verify the topmost visible text layer (Layer 2) is re-edited
 
-#### [ ] Re-edit hidden text layer is not possible
-1. [ ] Create text on a layer, commit
-2. [ ] Hide the layer (toggle visibility in layer panel)
-3. [ ] Click where the text was
-4. [ ] Verify a new text layer is created instead of re-editing the hidden one
+#### [x] Re-edit hidden text layer is not possible
+1. [x] Create text on a layer, commit
+2. [x] Hide the layer (toggle visibility in layer panel)
+3. [x] Click where the text was
+4. [x] Verify a new text layer is created instead of re-editing the hidden one
 
 ---
 
