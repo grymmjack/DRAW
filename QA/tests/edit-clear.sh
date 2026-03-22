@@ -25,10 +25,11 @@ assert_no_crash
 # -- Snap canvas after stroke --
 park_mouse
 WITH_STROKE=$(snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "clear-with-stroke")
-screenshot "clear-before"
 
 # -- Clear canvas: Delete key --
 info "Clear canvas (Delete)"
+draw_focus
+sleep 0.2
 key Delete
 wait_for 0.5 "Canvas cleared"
 assert_no_crash

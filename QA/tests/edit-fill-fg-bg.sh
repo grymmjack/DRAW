@@ -12,15 +12,17 @@ wait_for 0.3 "Fill tool ready"
 key grave
 wait_for 0.1 "Pointer arrow hidden"
 
+# -- Default FG is gray, BG is black, canvas bg is black --
+# -- Gray FG on black canvas will produce visible fill --
+
 # -- Snap canvas before fill --
 park_mouse
 BEFORE_FILL=$(snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "fill-fg-before")
 assert_no_crash
 
-# -- Fill canvas center --
-
-info "Flood fill at canvas center"
-click $CANVAS_CX $CANVAS_CY
+# -- Fill away from center (avoid any artifacts from canvas_focus click) --
+info "Flood fill on canvas"
+click $(( CANVAS_CX - 40 )) $(( CANVAS_CY - 30 ))
 wait_for 0.5 "Flood fill applied"
 assert_no_crash
 
