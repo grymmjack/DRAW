@@ -297,6 +297,7 @@ TYPE DRAW_CONFIG
     CHAR_GRID_WIDTH                AS INTEGER  ' Character grid cell width (0 = match font)
     CHAR_GRID_HEIGHT               AS INTEGER  ' Character grid cell height (0 = match font)
     CHAR_GRID_OPACITY              AS INTEGER  ' Character grid opacity 0-255 (0 = use theme)
+    CHAR_GRID_COLOR_FG             AS _UNSIGNED LONG  ' Character grid line color (hex RGB, 0=use theme)
     ' Tab width in Character Mode
     CHARMAP_TAB_CHARS              AS INTEGER  ' Number of characters per TAB (default 4)
 END TYPE

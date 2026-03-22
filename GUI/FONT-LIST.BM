@@ -729,6 +729,8 @@ SUB FONT_LIST_scan_bitmap_dir (dir$, isBundled%)
             FONT_LIST_add_bitmap_font fullPath$, isBundled%, gw%, gh%
         ELSEIF BITMAP_FONT_detect_bdf%(fullPath$, gw%, gh%) THEN
             FONT_LIST_add_bitmap_font fullPath$, isBundled%, gw%, gh%
+        ELSEIF BITMAP_FONT_detect_pcf%(fullPath$, gw%, gh%) THEN
+            FONT_LIST_add_bitmap_font fullPath$, isBundled%, gw%, gh%
         ELSE
             _LOGWARN "FONT_LIST_scan_bitmap_dir: unrecognized format: " + fullPath$
         END IF
@@ -1251,5 +1253,246 @@ SUB BITMAP_FONT_render_glyph_bdf (fontPath$, charIdx%, destImg AS LONG, outW AS 
         END IF
     LOOP
 
+    CLOSE #ff%
+END SUB
+
+
+''
+' Detect if a file is a PCF (Portable Compiled Font).
+' PCF magic number: 0x01 0x66 0x63 0x70 ("\x01fcp")
+' Parses TOC to find PCF_METRICS table and extract glyph dimensions.
+' @return TRUE if valid, sets outW% and outH%
+'
+FUNCTION BITMAP_FONT_detect_pcf% (fontPath$, outW AS INTEGER, outH AS INTEGER)
+    BITMAP_FONT_detect_pcf% = FALSE
+    outW% = 0: outH% = 0
+
+    ' Quick extension check
+    DIM upperPath AS STRING
+    upperPath$ = UCASE$(fontPath$)
+    IF RIGHT$(upperPath$, 4) <> ".PCF" THEN EXIT FUNCTION
+
+    DIM ff AS INTEGER
+    ff% = FREEFILE
+    OPEN fontPath$ FOR BINARY AS #ff%
+    IF LOF(ff%) < 16 THEN CLOSE #ff%: EXIT FUNCTION
+
+    ' Check magic: 01 66 63 70
+    DIM pcm1 AS _UNSIGNED _BYTE, pcm2 AS _UNSIGNED _BYTE
+    DIM pcm3 AS _UNSIGNED _BYTE, pcm4 AS _UNSIGNED _BYTE
+    GET #ff%, 1, pcm1: GET #ff%, 2, pcm2: GET #ff%, 3, pcm3: GET #ff%, 4, pcm4
+    IF pcm1 <> &H01 OR pcm2 <> &H66 OR pcm3 <> &H63 OR pcm4 <> &H70 THEN
+        CLOSE #ff%: EXIT FUNCTION
+    END IF
+
+    ' Read TOC count (int32 LE at offset 4)
+    DIM tocCount AS LONG
+    GET #ff%, 5, tocCount&
+    IF tocCount& < 1 OR tocCount& > 256 THEN CLOSE #ff%: EXIT FUNCTION
+    IF LOF(ff%) < 8 + tocCount& * 16 THEN CLOSE #ff%: EXIT FUNCTION
+
+    ' Search TOC for PCF_METRICS (type = 4)
+    DIM pcfTType AS LONG, pcfTFormat AS LONG, pcfTSize AS LONG, pcfTOffset AS LONG
+    DIM metricsOffset AS LONG, metricsFormat AS LONG
+    DIM ti AS LONG
+    metricsOffset& = 0
+    FOR ti& = 0 TO tocCount& - 1
+        DIM tocBase AS LONG
+        tocBase& = 9 + ti& * 16 ' 1-based, each TOC entry = 16 bytes
+        GET #ff%, tocBase&, pcfTType&
+        GET #ff%, tocBase& + 4, pcfTFormat&
+        GET #ff%, tocBase& + 8, pcfTSize&
+        GET #ff%, tocBase& + 12, pcfTOffset&
+        IF pcfTType& = 4 THEN ' PCF_METRICS
+            metricsOffset& = pcfTOffset&
+            metricsFormat& = pcfTFormat&
+            EXIT FOR
+        END IF
+    NEXT ti&
+
+    IF metricsOffset& = 0 THEN CLOSE #ff%: EXIT FUNCTION
+
+    ' Parse metrics table
+    DIM mFmt AS LONG
+    GET #ff%, metricsOffset& + 1, mFmt&
+
+    DIM isCompressed AS INTEGER
+    isCompressed% = (mFmt& AND &H100) <> 0 ' PCF_COMPRESSED_METRICS bit
+
+    IF isCompressed% THEN
+        ' Compressed: 2-byte count, then 5-byte entries
+        DIM cmCount AS INTEGER
+        GET #ff%, metricsOffset& + 5, cmCount%
+        IF cmCount% < 1 THEN CLOSE #ff%: EXIT FUNCTION
+        ' Bytes: leftBearing, rightBearing, charWidth, ascent, descent (all biased by 0x80)
+        DIM cCharWidth AS _UNSIGNED _BYTE
+        DIM cAscent AS _UNSIGNED _BYTE
+        DIM cDescent AS _UNSIGNED _BYTE
+        GET #ff%, metricsOffset& + 9, cCharWidth  ' skip leftBearing(1) + rightBearing(1)
+        GET #ff%, metricsOffset& + 10, cAscent
+        GET #ff%, metricsOffset& + 11, cDescent
+        outW% = CInt(cCharWidth) - 128
+        outH% = (CInt(cAscent) - 128) + (CInt(cDescent) - 128)
+    ELSE
+        ' Uncompressed: 4-byte count, then 12-byte entries
+        DIM umCount AS LONG
+        GET #ff%, metricsOffset& + 5, umCount&
+        IF umCount& < 1 THEN CLOSE #ff%: EXIT FUNCTION
+        ' leftBearing(2), rightBearing(2), charWidth(2), ascent(2), descent(2), attrs(2)
+        DIM uCharWidth AS INTEGER
+        DIM uAscent AS INTEGER
+        DIM uDescent AS INTEGER
+        GET #ff%, metricsOffset& + 13, uCharWidth%
+        GET #ff%, metricsOffset& + 15, uAscent%
+        GET #ff%, metricsOffset& + 17, uDescent%
+        outW% = uCharWidth%
+        outH% = uAscent% + uDescent%
+    END IF
+
+    CLOSE #ff%
+    IF outW% >= 1 AND outW% <= 32 AND outH% >= 1 AND outH% <= 64 THEN
+        BITMAP_FONT_detect_pcf% = TRUE
+    END IF
+END FUNCTION
+
+
+''
+' Render a single glyph from a PCF font file.
+' PCF stores bitmaps in a table referenced via TOC.
+' @param fontPath$ Path to the font file
+' @param charIdx% Character index (0-255)
+' @param glyphW% Glyph width in pixels
+' @param glyphH% Glyph height in pixels
+' @param destImg& Output image handle
+'
+SUB BITMAP_FONT_render_glyph_pcf (fontPath$, charIdx%, glyphW%, glyphH%, destImg AS LONG)
+    destImg& = 0
+    IF charIdx% < 0 OR charIdx% > 255 THEN EXIT SUB
+    IF glyphW% < 1 OR glyphH% < 1 THEN EXIT SUB
+
+    DIM ff AS INTEGER
+    ff% = FREEFILE
+    OPEN fontPath$ FOR BINARY AS #ff%
+    IF LOF(ff%) < 16 THEN CLOSE #ff%: EXIT SUB
+
+    ' Verify magic
+    DIM rpm1 AS _UNSIGNED _BYTE, rpm2 AS _UNSIGNED _BYTE
+    DIM rpm3 AS _UNSIGNED _BYTE, rpm4 AS _UNSIGNED _BYTE
+    GET #ff%, 1, rpm1: GET #ff%, 2, rpm2: GET #ff%, 3, rpm3: GET #ff%, 4, rpm4
+    IF rpm1 <> &H01 OR rpm2 <> &H66 OR rpm3 <> &H63 OR rpm4 <> &H70 THEN
+        CLOSE #ff%: EXIT SUB
+    END IF
+
+    ' Read TOC
+    DIM pcfRTocCount AS LONG
+    GET #ff%, 5, pcfRTocCount&
+    IF pcfRTocCount& < 1 OR pcfRTocCount& > 256 THEN CLOSE #ff%: EXIT SUB
+
+    ' Find PCF_BITMAPS (type=8) and PCF_BDF_ENCODINGS (type=32) tables
+    DIM bitmapOffset AS LONG, bitmapFormat AS LONG
+    DIM encOffset AS LONG
+    DIM pti AS LONG
+    bitmapOffset& = 0: encOffset& = 0
+    FOR pti& = 0 TO pcfRTocCount& - 1
+        DIM ptBase AS LONG
+        ptBase& = 9 + pti& * 16
+        DIM rptType AS LONG, rptOff AS LONG
+        GET #ff%, ptBase&, rptType&
+        GET #ff%, ptBase& + 4, bitmapFormat&
+        GET #ff%, ptBase& + 12, rptOff&
+        IF rptType& = 8 THEN ' PCF_BITMAPS
+            bitmapOffset& = rptOff&
+        ELSEIF rptType& = 32 THEN ' PCF_BDF_ENCODINGS
+            encOffset& = rptOff&
+        END IF
+    NEXT pti&
+
+    IF bitmapOffset& = 0 THEN CLOSE #ff%: EXIT SUB
+
+    ' Map charIdx to glyph index via encoding table
+    DIM glyphIdx AS LONG
+    glyphIdx& = CLng(charIdx%)
+
+    IF encOffset& > 0 THEN
+        DIM encFmt AS LONG
+        GET #ff%, encOffset& + 1, encFmt&
+        DIM minChar2 AS INTEGER, maxChar2 AS INTEGER
+        GET #ff%, encOffset& + 5, minChar2%
+        GET #ff%, encOffset& + 7, maxChar2%
+        IF charIdx% >= minChar2% AND charIdx% <= maxChar2% THEN
+            DIM encIdx AS LONG
+            encIdx& = CLng(charIdx% - minChar2%)
+            DIM encVal AS INTEGER
+            GET #ff%, encOffset& + 15 + encIdx& * 2, encVal%
+            IF encVal% >= 0 THEN
+                glyphIdx& = CLng(encVal%)
+            ELSE
+                CLOSE #ff%: EXIT SUB
+            END IF
+        ELSE
+            CLOSE #ff%: EXIT SUB
+        END IF
+    END IF
+
+    ' Read bitmap table header
+    DIM bmpFmt AS LONG, bmpGlyphCount AS LONG
+    GET #ff%, bitmapOffset& + 1, bmpFmt&
+    GET #ff%, bitmapOffset& + 5, bmpGlyphCount&
+    IF glyphIdx& < 0 OR glyphIdx& >= bmpGlyphCount& THEN CLOSE #ff%: EXIT SUB
+
+    ' Read glyph bitmap offset
+    DIM glyphBmpOffset AS LONG
+    GET #ff%, bitmapOffset& + 9 + glyphIdx& * 4, glyphBmpOffset&
+
+    ' Bitmap data starts after header: format(4) + count(4) + offsets(count*4) + sizes(4*4)
+    DIM bmpDataStart AS LONG
+    bmpDataStart& = bitmapOffset& + 9 + bmpGlyphCount& * 4 + 16
+
+    ' Determine padding (bits 0-1 of format)
+    DIM padBits AS INTEGER
+    padBits% = bmpFmt& AND 3
+    DIM bytesPerRow AS INTEGER
+    bytesPerRow% = (glyphW% + 7) \ 8
+    IF padBits% = 1 THEN
+        bytesPerRow% = ((bytesPerRow% + 1) \ 2) * 2
+    ELSEIF padBits% >= 2 THEN
+        bytesPerRow% = ((bytesPerRow% + 3) \ 4) * 4
+    END IF
+
+    ' Create output image
+    destImg& = _NEWIMAGE(glyphW%, glyphH%, 32)
+    IF destImg& >= -1 THEN CLOSE #ff%: destImg& = 0: EXIT SUB
+
+    DIM oldDest AS LONG
+    oldDest& = _DEST
+    _DEST destImg&
+    CLS , _RGBA32(0, 0, 0, 0)
+    _DONTBLEND
+
+    DIM py AS INTEGER, bx AS INTEGER, px AS INTEGER
+    DIM rowByte AS _UNSIGNED _BYTE
+    FOR py% = 0 TO glyphH% - 1
+        FOR bx% = 0 TO bytesPerRow% - 1
+            DIM bmpAddr AS LONG
+            bmpAddr& = bmpDataStart& + glyphBmpOffset& + CLng(py%) * CLng(bytesPerRow%) + CLng(bx%)
+            IF bmpAddr& > 0 AND bmpAddr& <= LOF(ff%) THEN
+                GET #ff%, bmpAddr&, rowByte
+            ELSE
+                rowByte = 0
+            END IF
+            FOR px% = 0 TO 7
+                DIM pcfPixX AS INTEGER
+                pcfPixX% = bx% * 8 + px%
+                IF pcfPixX% < glyphW% THEN
+                    IF rowByte AND (128 \ (2 ^ px%)) THEN
+                        PSET (pcfPixX%, py%), _RGB32(255, 255, 255)
+                    END IF
+                END IF
+            NEXT px%
+        NEXT bx%
+    NEXT py%
+
+    _BLEND
+    _DEST oldDest&
     CLOSE #ff%
 END SUB
