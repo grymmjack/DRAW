@@ -1022,9 +1022,9 @@ Verify text placement respects grid snap settings.
 
 ---
 
-## [ ] MIXED FORMATTING
+## [x] MIXED FORMATTING
 
-### [ ] Per-Character Rich Formatting
+### [x] Per-Character Rich Formatting
 Verify mixed formatting within a single text layer.
 
 #### [x] Multiple fonts in one layer
@@ -1040,23 +1040,23 @@ Verify mixed formatting within a single text layer.
 3. [x] Type "small"
 4. [x] Verify "Big" is 24px and "small" is 8px
 
-#### [ ] Multiple colors in one layer
-1. [ ] Type "Red" in red FG color
-2. [ ] Change FG to blue
-3. [ ] Type "Blue"
-4. [ ] Verify "Red" is red and "Blue" is blue
+#### [x] Multiple colors in one layer
+1. [x] Type "Red" in red FG color
+2. [x] Change FG to blue
+3. [x] Type "Blue"
+4. [x] Verify "Red" is red and "Blue" is blue
 
-#### [ ] Bold + Italic + Underline combination
-1. [ ] Enable Bold, Italic, and Underline
-2. [ ] Type "All Styles"
-3. [ ] Verify text is bold, italic, and underlined simultaneously
+#### [x] Bold + Italic + Underline combination
+1. [x] Enable Bold, Italic, and Underline
+2. [x] Type "All Styles"
+3. [x] Verify text is bold, italic, and underlined simultaneously
 
-#### [ ] Mixed line: font, size, color, style all different per-word
-1. [ ] Type "Hello" in Arial 12px Bold Red
-2. [ ] Type " " (space)
-3. [ ] Change to Tiny5, 8px, Normal, Blue
-4. [ ] Type "World"
-5. [ ] Verify each segment renders with its own attributes
+#### [x] Mixed line: font, size, color, style all different per-word
+1. [x] Type "Hello" in Arial 12px Bold Red
+2. [x] Type " " (space)
+3. [x] Change to Tiny5, 8px, Normal, Blue
+4. [x] Type "World"
+5. [x] Verify each segment renders with its own attributes
 
 ---
 
