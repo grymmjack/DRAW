@@ -38,9 +38,9 @@ Verify the character map panel can be toggled via keyboard shortcut, menu, and c
 
 ---
 
-## [ ] PANEL DOCKING
+## [x] PANEL DOCKING
 
-### [ ] Docking Left and Right
+### [x] Docking Left and Right
 Verify the character map panel can be docked to either side of the workspace and that layout reflows correctly.
 
 #### [x] Dock Left via menu
@@ -49,27 +49,27 @@ Verify the character map panel can be docked to either side of the workspace and
 3. [x] Verify the panel moves to the left side of the canvas
 4. [x] Verify the canvas work area shrinks on the left to accommodate the panel
 
-#### [ ] Dock Right via menu
-1. [ ] With panel docked left, open View → Layout → "Character Map Right"
-2. [ ] Verify the panel moves to the right side
-3. [ ] Verify the canvas work area adjusts accordingly
+#### [x] Dock Right via menu
+1. [x] With panel docked left, open View → Layout → "Character Map Right"
+2. [x] Verify the panel moves to the right side
+3. [x] Verify the canvas work area adjusts accordingly
 
 #### [x] Quick dock toggle (Ctrl+Shift+Click)
 1. [x] Open character map
 2. [x] Ctrl+Shift+Left-Click on the character map panel
 3. [x] Verify the panel toggles from one side to the other
 
-#### [ ] Docking position persists in config
-1. [ ] Dock the character map to the LEFT
-2. [ ] Exit and restart DRAW
-3. [ ] Verify the panel is still docked LEFT (check `DRAW.cfg` for `CHARMAP_PANEL_DOCK_EDGE=LEFT`)
+#### [x] Docking position persists in config
+1. [x] Dock the character map to the LEFT
+2. [x] Exit and restart DRAW
+3. [x] Verify the panel is still docked LEFT (check `DRAW.cfg` for `CHARMAP_PANEL_DOCK_EDGE=LEFT`)
 
-#### [ ] Coexistence with other docked panels
-1. [ ] Dock character map LEFT, toolbox RIGHT, layer panel RIGHT
-2. [ ] Verify all three panels render without overlap
-3. [ ] Verify the canvas work area is correctly calculated between the panels
-4. [ ] Dock character map RIGHT alongside toolbox RIGHT
-5. [ ] Verify panels stack correctly (charmap inside editbar zone)
+#### [x] Coexistence with other docked panels
+1. [x] Dock character map LEFT, toolbox RIGHT, layer panel RIGHT
+2. [x] Verify all three panels render without overlap
+3. [x] Verify the canvas work area is correctly calculated between the panels
+4. [x] Dock character map RIGHT alongside toolbox RIGHT
+5. [x] Verify panels stack correctly (charmap inside editbar zone)
 
 ---
 
@@ -78,10 +78,10 @@ Verify the character map panel can be docked to either side of the workspace and
 ### [ ] Grid Display and Font Syncing
 Verify the 16×16 glyph grid renders correctly and syncs with the text tool's active font.
 
-#### [ ] Grid shows 256 cells
-1. [ ] Open character map
-2. [ ] Verify there are 16 columns × 16 rows = 256 cells
-3. [ ] Verify cells are numbered/indexed 0-255 (row 0: chars 0-15, row 1: chars 16-31, etc.)
+#### [x] Grid shows 256 cells
+1. [x] Open character map
+2. [x] Verify there are 16 columns × 16 rows = 256 cells
+3. [x] Verify cells are numbered/indexed 0-255 (row 0: chars 0-15, row 1: chars 16-31, etc.)
 
 #### [ ] Glyphs match current text font
 1. [ ] Select the Text tool (`T`)
@@ -90,6 +90,14 @@ Verify the 16×16 glyph grid renders correctly and syncs with the text tool's ac
 4. [ ] Verify glyphs in the grid match the font shown in the TEXT BAR
 5. [ ] Change font in TEXT BAR to a different font
 6. [ ] Verify the character map grid updates to show the new font's glyphs
+
+> **FAILED**: Cell width/height are not adjusting to the active font dimensions; appears to affect both height and width. — 2026-03-22
+
+> **FAILED**: Cells now resize, but can exceed panel bounds and some cells render behind the text bar background area. — 2026-03-22
+
+> **FAILED**: Cells are still breaking out past the edit bar area on the right edge. — 2026-03-22
+
+> **FAILED**: On startup, charmap initially overlaps (same right-edge overflow), then corrects after first mouse move/frame update. — 2026-03-22
 
 #### [ ] Cache rebuild on font change
 1. [ ] Open character map with one font active

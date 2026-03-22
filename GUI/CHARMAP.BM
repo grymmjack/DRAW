@@ -145,6 +145,10 @@ SUB CHARMAP_rebuild_cache ()
     DIM charW AS INTEGER
     DIM charH AS INTEGER
     DIM i AS INTEGER
+    DIM maxGlyphW AS INTEGER
+    DIM maxGlyphH AS INTEGER
+    DIM oldCellW AS INTEGER
+    DIM oldCellH AS INTEGER
 
     ' Use the current text bar font settings
     fIdx% = TEXT_BAR.selectedFontIdx%
@@ -154,6 +158,10 @@ SUB CHARMAP_rebuild_cache ()
 
     ' Free previous cache
     CHARMAP_free_cache
+    maxGlyphW% = 1
+    maxGlyphH% = 1
+    oldCellW% = CHARMAP.cellW%
+    oldCellH% = CHARMAP.cellH%
 
     ' Check if selected font is a bitmap font
     IF fIdx% >= 0 AND fIdx% < FONT_LIST_COUNT% THEN
@@ -189,6 +197,8 @@ SUB CHARMAP_rebuild_cache ()
 
         IF charW% < 1 THEN charW% = 1
         IF charH% < 1 THEN charH% = 1
+        IF charW% > maxGlyphW% THEN maxGlyphW% = charW%
+        IF charH% > maxGlyphH% THEN maxGlyphH% = charH%
 
         ' Render glyph to 32-bit RGBA image
         tmpImg& = _NEWIMAGE(charW%, charH%, 32)
@@ -218,6 +228,26 @@ SUB CHARMAP_rebuild_cache ()
     CHARMAP.cacheFontSize% = fSize%
     CHARMAP.cacheMono% = fMono%
     CHARMAP.cacheValid% = TRUE
+
+    ' Cell metrics: explicit config overrides auto sizing.
+    IF CFG.CHARMAP_CELL_W% > 0 THEN
+        CHARMAP.cellW% = CFG.CHARMAP_CELL_W%
+    ELSE
+        CHARMAP.cellW% = maxGlyphW%
+    END IF
+    IF CFG.CHARMAP_CELL_H% > 0 THEN
+        CHARMAP.cellH% = CFG.CHARMAP_CELL_H%
+    ELSE
+        CHARMAP.cellH% = maxGlyphH%
+    END IF
+    IF CHARMAP.cellW% < 6 THEN CHARMAP.cellW% = 6
+    IF CHARMAP.cellH% < 6 THEN CHARMAP.cellH% = 6
+
+    IF CHARMAP.cellW% <> oldCellW% OR CHARMAP.cellH% <> oldCellH% THEN
+        GUI_NEEDS_REDRAW% = TRUE
+        SCENE_DIRTY% = TRUE
+        FRAME_IDLE% = FALSE
+    END IF
     CHARMAP_NEEDS_REDRAW% = TRUE
 END SUB
 
@@ -231,11 +261,19 @@ SUB CHARMAP_rebuild_cache_bitmap (fIdx AS INTEGER)
     DIM gw AS INTEGER, gh AS INTEGER
     DIM i AS INTEGER
     DIM glyphImg AS LONG
+    DIM maxGlyphW AS INTEGER
+    DIM maxGlyphH AS INTEGER
+    DIM oldCellW AS INTEGER
+    DIM oldCellH AS INTEGER
 
     fontPath$ = RTRIM$(FONT_LIST(fIdx%).path)
     gw% = FONT_LIST(fIdx%).bitmapGlyphW
     gh% = FONT_LIST(fIdx%).bitmapGlyphH
     IF gw% < 1 OR gh% < 1 THEN EXIT SUB
+    maxGlyphW% = 1
+    maxGlyphH% = 1
+    oldCellW% = CHARMAP.cellW%
+    oldCellH% = CHARMAP.cellH%
 
     ' Determine format from extension
     DIM upperPath AS STRING
@@ -283,10 +321,14 @@ SUB CHARMAP_rebuild_cache_bitmap (fIdx AS INTEGER)
             CHARMAP_GLYPH(i%) = glyphImg&
             CHARMAP_GLYPH_W(i%) = _WIDTH(glyphImg&)
             CHARMAP_GLYPH_H(i%) = _HEIGHT(glyphImg&)
+            IF CHARMAP_GLYPH_W(i%) > maxGlyphW% THEN maxGlyphW% = CHARMAP_GLYPH_W(i%)
+            IF CHARMAP_GLYPH_H(i%) > maxGlyphH% THEN maxGlyphH% = CHARMAP_GLYPH_H(i%)
         ELSE
             CHARMAP_GLYPH(i%) = 0
             CHARMAP_GLYPH_W(i%) = gw%
             CHARMAP_GLYPH_H(i%) = gh%
+            IF gw% > maxGlyphW% THEN maxGlyphW% = gw%
+            IF gh% > maxGlyphH% THEN maxGlyphH% = gh%
         END IF
     NEXT i%
 
@@ -294,6 +336,26 @@ SUB CHARMAP_rebuild_cache_bitmap (fIdx AS INTEGER)
     CHARMAP.cacheFontSize% = gh% ' Use height as "size" for bitmap fonts
     CHARMAP.cacheMono% = TRUE
     CHARMAP.cacheValid% = TRUE
+
+    ' Cell metrics: explicit config overrides auto sizing.
+    IF CFG.CHARMAP_CELL_W% > 0 THEN
+        CHARMAP.cellW% = CFG.CHARMAP_CELL_W%
+    ELSE
+        CHARMAP.cellW% = maxGlyphW%
+    END IF
+    IF CFG.CHARMAP_CELL_H% > 0 THEN
+        CHARMAP.cellH% = CFG.CHARMAP_CELL_H%
+    ELSE
+        CHARMAP.cellH% = maxGlyphH%
+    END IF
+    IF CHARMAP.cellW% < 6 THEN CHARMAP.cellW% = 6
+    IF CHARMAP.cellH% < 6 THEN CHARMAP.cellH% = 6
+
+    IF CHARMAP.cellW% <> oldCellW% OR CHARMAP.cellH% <> oldCellH% THEN
+        GUI_NEEDS_REDRAW% = TRUE
+        SCENE_DIRTY% = TRUE
+        FRAME_IDLE% = FALSE
+    END IF
     CHARMAP_NEEDS_REDRAW% = TRUE
 END SUB
 
@@ -591,6 +653,10 @@ SUB CHARMAP_render ()
                 DIM px AS INTEGER, py AS INTEGER
                 DIM srcColor AS _UNSIGNED LONG
                 DIM srcA AS INTEGER
+                DIM clipX1 AS INTEGER, clipY1 AS INTEGER
+                DIM clipX2 AS INTEGER, clipY2 AS INTEGER
+                DIM srcX1 AS INTEGER, srcY1 AS INTEGER
+                DIM srcX2 AS INTEGER, srcY2 AS INTEGER
                 glyphDest& = _NEWIMAGE(gw%, gh%, 32)
                 IF glyphDest& < -1 THEN
                     DIM gdOld AS LONG
@@ -614,7 +680,24 @@ SUB CHARMAP_render ()
                     _BLEND
                     _DEST gdOld&
 
-                    _PUTIMAGE (gx%, gy%), glyphDest&, SCRN.GUI&
+                    ' Clip glyph blit to this cell so oversized glyphs cannot bleed
+                    ' into adjacent UI columns (e.g., edit bar on the right).
+                    clipX1% = cx%
+                    clipY1% = cy%
+                    clipX2% = cx% + cw% - 1
+                    clipY2% = cy% + ch% - 1
+
+                    srcX1% = 0: srcY1% = 0
+                    srcX2% = gw% - 1: srcY2% = gh% - 1
+
+                    IF gx% < clipX1% THEN srcX1% = clipX1% - gx%
+                    IF gy% < clipY1% THEN srcY1% = clipY1% - gy%
+                    IF gx% + gw% - 1 > clipX2% THEN srcX2% = clipX2% - gx%
+                    IF gy% + gh% - 1 > clipY2% THEN srcY2% = clipY2% - gy%
+
+                    IF srcX1% <= srcX2% AND srcY1% <= srcY2% THEN
+                        _PUTIMAGE (gx% + srcX1%, gy% + srcY1%)-(gx% + srcX2%, gy% + srcY2%), glyphDest&, SCRN.GUI&, (srcX1%, srcY1%)-(srcX2%, srcY2%)
+                    END IF
                     _FREEIMAGE glyphDest&
                 END IF
             END IF
