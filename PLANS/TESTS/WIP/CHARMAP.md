@@ -54,10 +54,10 @@ Verify the character map panel can be docked to either side of the workspace and
 2. [ ] Verify the panel moves to the right side
 3. [ ] Verify the canvas work area adjusts accordingly
 
-#### [ ] Quick dock toggle (Ctrl+Shift+Click)
-1. [ ] Open character map
-2. [ ] Ctrl+Shift+Left-Click on the character map panel
-3. [ ] Verify the panel toggles from one side to the other
+#### [x] Quick dock toggle (Ctrl+Shift+Click)
+1. [x] Open character map
+2. [x] Ctrl+Shift+Left-Click on the character map panel
+3. [x] Verify the panel toggles from one side to the other
 
 #### [ ] Docking position persists in config
 1. [ ] Dock the character map to the LEFT
