@@ -284,48 +284,48 @@ Verify text selection via Shift+arrow keys and other keyboard shortcuts.
 3. [x] Press `Shift+Down`
 4. [x] Verify selection extends from cursor down to Line 2
 
-#### [ ] Shift+Home selects to start of line
-1. [ ] Type "Hello World"
-2. [ ] Cursor at end
-3. [ ] Press `Shift+Home`
-4. [ ] Verify entire "Hello World" is selected
+#### [x] Shift+Home selects to start of line
+1. [x] Type "Hello World"
+2. [x] Cursor at end
+3. [x] Press `Shift+Home`
+4. [x] Verify entire "Hello World" is selected
 
-#### [ ] Shift+End selects to end of line
-1. [ ] Type "Hello World"
-2. [ ] Press `Home`
-3. [ ] Press `Shift+End`
-4. [ ] Verify entire "Hello World" is selected
+#### [x] Shift+End selects to end of line
+1. [x] Type "Hello World"
+2. [x] Press `Home`
+3. [x] Press `Shift+End`
+4. [x] Verify entire "Hello World" is selected
 
-#### [ ] Ctrl+Shift+Left selects to previous word
-1. [ ] Type "Hello World Test"
-2. [ ] Cursor at end
-3. [ ] Press `Ctrl+Shift+Left`
-4. [ ] Verify "Test" is selected
+#### [x] Ctrl+Shift+Left selects to previous word
+1. [x] Type "Hello World Test"
+2. [x] Cursor at end
+3. [x] Press `Ctrl+Shift+Left`
+4. [x] Verify "Test" is selected
 
-#### [ ] Ctrl+Shift+Right selects to next word
-1. [ ] Type "Hello World Test"
-2. [ ] Press `Home`
-3. [ ] Press `Ctrl+Shift+Right`
-4. [ ] Verify "Hello" (and trailing space) is selected
+#### [x] Ctrl+Shift+Right selects to next word
+1. [x] Type "Hello World Test"
+2. [x] Press `Home`
+3. [x] Press `Ctrl+Shift+Right`
+4. [x] Verify "Hello" (and trailing space) is selected
 
-#### [ ] Ctrl+A selects all text
-1. [ ] Type "Hello World" + Enter + "Line Two"
-2. [ ] Press `Ctrl+A`
-3. [ ] Verify all text across all lines is selected
+#### [x] Ctrl+A selects all text
+1. [x] Type "Hello World" + Enter + "Line Two"
+2. [x] Press `Ctrl+A`
+3. [x] Verify all text across all lines is selected
 
-#### [ ] Plain arrow key collapses selection
-1. [ ] Type "Hello"
-2. [ ] Press `Ctrl+A` to select all
-3. [ ] Press Right arrow (no Shift)
-4. [ ] Verify selection is cleared and cursor moves to right edge of former selection
-5. [ ] Repeat: select all, press Left arrow
-6. [ ] Verify selection is cleared and cursor moves to left edge of former selection
+#### [x] Plain arrow key collapses selection
+1. [x] Type "Hello"
+2. [x] Press `Ctrl+A` to select all
+3. [x] Press Right arrow (no Shift)
+4. [x] Verify selection is cleared and cursor moves to right edge of former selection
+5. [x] Repeat: select all, press Left arrow
+6. [x] Verify selection is cleared and cursor moves to left edge of former selection
 
-#### [ ] Typing replaces selection
-1. [ ] Type "Hello World"
-2. [ ] Select "World" using Shift+Left (5 times from end)
-3. [ ] Type "DRAW"
-4. [ ] Verify text reads "Hello DRAW" (selection deleted, new text inserted)
+#### [x] Typing replaces selection
+1. [x] Type "Hello World"
+2. [x] Select "World" using Shift+Left (5 times from end)
+3. [x] Type "DRAW"
+4. [x] Verify text reads "Hello DRAW" (selection deleted, new text inserted)
 
 #### [ ] Backspace deletes selection
 1. [ ] Type "Hello World"
