@@ -17,22 +17,24 @@ TB_H=100
 
 # -- Establish known state --
 info "=== UI Toolbar Toggle Test ==="
-key b
-wait_for 0.3 "Switch to brush tool"
-click $CANVAS_CX $CANVAS_CY
-wait_for 0.3 "Focus canvas"
+canvas_focus b
+wait_for 0.3 "Canvas focused, brush tool"
+key grave
+wait_for 0.1 "Pointer arrow hidden"
 
 # -- Snap toolbar region before --
+park_mouse
 BEFORE=$(snap_region $TB_X $TB_Y $TB_W $TB_H "toolbar-before")
 assert_no_crash
 
 # -- Toggle toolbar OFF: Tab --
 info "Hide toolbar (Tab)"
 key Tab
-wait_for 0.3 "Toolbar hidden"
+wait_for 0.5 "Toolbar hidden"
 assert_no_crash
 
 # -- Snap after hide --
+park_mouse
 HIDDEN=$(snap_region $TB_X $TB_Y $TB_W $TB_H "toolbar-hidden")
 assert_regions_differ "$BEFORE" "$HIDDEN" "Toolbar region should change when hidden"
 screenshot "toolbar-hidden"
@@ -40,10 +42,11 @@ screenshot "toolbar-hidden"
 # -- Toggle toolbar ON: Tab --
 info "Show toolbar (Tab)"
 key Tab
-wait_for 0.3 "Toolbar restored"
+wait_for 0.5 "Toolbar restored"
 assert_no_crash
 
 # -- Snap after restore --
+park_mouse
 RESTORED=$(snap_region $TB_X $TB_Y $TB_W $TB_H "toolbar-restored")
 assert_regions_differ "$HIDDEN" "$RESTORED" "Toolbar region should change when restored"
 screenshot "toolbar-restored"

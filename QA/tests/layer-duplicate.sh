@@ -13,12 +13,13 @@ LP_H=68
 
 # -- Establish known state --
 info "=== Layer Duplicate Test ==="
-key b
-wait_for 0.3 "Switch to brush tool"
-click $CANVAS_CX $CANVAS_CY
-wait_for 0.3 "Focus canvas"
+canvas_focus v
+wait_for 0.3 "Move tool ready"
+key grave
+wait_for 0.1 "Pointer arrow hidden"
 
 # -- Snap layer panel before --
+click $CANVAS_CX $CANVAS_CY
 BEFORE=$(snap_region $LP_X $LP_Y $LP_W $LP_H "layer-panel-before-dup")
 assert_no_crash
 
@@ -28,6 +29,7 @@ key ctrl+shift+d
 wait_for 0.8 "Wait for layer duplication"
 assert_no_crash
 
+click $CANVAS_CX $CANVAS_CY
 AFTER_DUP=$(snap_region $LP_X $LP_Y $LP_W $LP_H "layer-panel-after-dup")
 assert_regions_differ "$BEFORE" "$AFTER_DUP" "Duplicated layer should appear in panel"
 screenshot "after-duplicate-layer"
@@ -38,6 +40,7 @@ key ctrl+z
 wait_for 0.5 "Wait for undo"
 assert_no_crash
 
+click $CANVAS_CX $CANVAS_CY
 AFTER_UNDO=$(snap_region $LP_X $LP_Y $LP_W $LP_H "layer-panel-after-undo-dup")
 assert_regions_same "$BEFORE" "$AFTER_UNDO" "Undo should restore original layer state"
 screenshot "after-undo-duplicate"

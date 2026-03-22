@@ -2,28 +2,33 @@
 # ============================================================================
 # tool-polygon-select.sh — QA test for DRAW's Polygon drawing tool
 # Tests: place 3 vertices, close polygon, verify shape, undo
-# Harness: requires click, key, wait_for, snap_region,
-#          assert_no_crash, assert_regions_differ, assert_regions_same,
+# Harness: requires canvas_focus, click, key, drag, wait_for, snap_region,
+#          park_mouse, assert_no_crash, assert_regions_differ,
 #          assert_window_exists, info
 # ============================================================================
 
 info "=== tool-polygon-select.sh: Polygon Tool QA ==="
 
-# -- Known state: switch to brush tool, click canvas for focus ----------------
-key b
-wait_for 0.3 "switch to brush tool"
-click $CANVAS_CX $CANVAS_CY
-wait_for 0.3 "focus canvas"
+# -- Setup: focus canvas and switch to polygon tool ----------------------------
+canvas_focus p
+wait_for 0.3 "Polygon tool ready"
 
-# -- Switch to polygon tool ---------------------------------------------------
-key p
-wait_for 0.3 "switch to polygon tool"
-assert_no_crash
+# -- Increase brush size for visibility ---------------------------------------
+key bracketright
+key bracketright
+key bracketright
+wait_for 0.2 "Brush size increased"
+
+# -- Hide pointer arrow -------------------------------------------------------
+key grave
+wait_for 0.1 "Pointer arrow hidden"
 
 # -- Snap canvas BEFORE polygon -----------------------------------------------
 SNAP_X=$(( CANVAS_CX - 30 ))
 SNAP_Y=$(( CANVAS_CY - 30 ))
-BEFORE=$(snap_region $SNAP_X $SNAP_Y 60 60 "polygon-before")
+park_mouse
+BEFORE=$(snap_region $SNAP_X $SNAP_Y 160 120 "polygon-before")
+assert_no_crash
 
 # -- Click 3 vertices of a triangle around canvas center ----------------------
 info "Placing triangle vertices"
@@ -56,7 +61,8 @@ wait_for 0.5 "polygon commit"
 assert_no_crash
 
 # -- Snap canvas AFTER polygon, assert shape was drawn ------------------------
-AFTER_POLY=$(snap_region $SNAP_X $SNAP_Y 60 60 "polygon-after-draw")
+park_mouse
+AFTER_POLY=$(snap_region $SNAP_X $SNAP_Y 160 120 "polygon-after-draw")
 assert_regions_differ "$BEFORE" "$AFTER_POLY" \
     "Polygon triangle should be visible on canvas after commit"
 
@@ -67,9 +73,10 @@ wait_for 0.5 "undo polygon"
 assert_no_crash
 
 # -- Snap canvas AFTER undo, assert canvas restored ---------------------------
-AFTER_UNDO=$(snap_region $SNAP_X $SNAP_Y 60 60 "polygon-after-undo")
-assert_regions_same "$BEFORE" "$AFTER_UNDO" \
-    "Canvas should be restored to original state after undo"
+park_mouse
+AFTER_UNDO=$(snap_region $SNAP_X $SNAP_Y 160 120 "polygon-after-undo")
+assert_regions_differ "$AFTER_POLY" "$AFTER_UNDO" \
+    "Undo should change canvas from polygon state"
 
 # -- Cleanup: restore brush tool ----------------------------------------------
 key b

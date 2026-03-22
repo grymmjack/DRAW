@@ -8,11 +8,20 @@
 
 info "=== tool-marquee.sh: Marquee Selection Tool QA ==="
 
-# -- Known state: switch to brush tool, click canvas for focus ----------------
-key b
-wait_for 0.3 "switch to brush tool"
-click $CANVAS_CX $CANVAS_CY
-wait_for 0.3 "focus canvas"
+# -- Setup: focus canvas, draw visible content first --------------------------
+canvas_focus b
+wait_for 0.3 "Brush tool ready"
+key bracketright
+key bracketright
+key bracketright
+wait_for 0.2 "Brush size increased"
+key grave
+wait_for 0.1 "Pointer arrow hidden"
+
+# Draw a visible stroke so marching ants appear over content
+drag $CANVAS_CX $CANVAS_CY $(( CANVAS_CX + 30 )) $(( CANVAS_CY + 30 ))
+wait_for 0.3 "Drew visible stroke"
+assert_no_crash
 
 # -- Switch to marquee tool ---------------------------------------------------
 key m
@@ -20,9 +29,10 @@ wait_for 0.3 "switch to marquee tool"
 assert_no_crash
 
 # -- Snap canvas BEFORE selection ---------------------------------------------
-SNAP_X=$(( CANVAS_CX - 30 ))
-SNAP_Y=$(( CANVAS_CY - 30 ))
-BEFORE=$(snap_region $SNAP_X $SNAP_Y 60 60 "marquee-before")
+SNAP_X=$(( CANVAS_CX - 80 ))
+SNAP_Y=$(( CANVAS_CY - 60 ))
+park_mouse
+BEFORE=$(snap_region $SNAP_X $SNAP_Y 160 120 "marquee-before")
 
 # -- Drag a rectangular selection on canvas -----------------------------------
 DRAG_X1=$(( CANVAS_CX - 25 ))
@@ -34,7 +44,8 @@ wait_for 0.5 "marching ants should appear"
 assert_no_crash
 
 # -- Snap canvas AFTER selection, assert marching ants visible ----------------
-AFTER_DRAG=$(snap_region $SNAP_X $SNAP_Y 60 60 "marquee-after-drag")
+park_mouse
+AFTER_DRAG=$(snap_region $SNAP_X $SNAP_Y 160 120 "marquee-after-drag")
 assert_regions_differ "$BEFORE" "$AFTER_DRAG" \
     "Marching ants should be visible after marquee drag"
 
@@ -43,16 +54,18 @@ info "Testing Select All (Ctrl+A)"
 key ctrl+a
 wait_for 0.5 "select all"
 assert_no_crash
-AFTER_SELECTALL=$(snap_region $SNAP_X $SNAP_Y 60 60 "marquee-after-selectall")
+park_mouse
+AFTER_SELECTALL=$(snap_region $SNAP_X $SNAP_Y 160 120 "marquee-after-selectall")
 assert_regions_differ "$AFTER_DRAG" "$AFTER_SELECTALL" \
     "Select All should change selection from partial to full canvas"
 
-# -- Test Deselect (Escape) ---------------------------------------------------
-info "Testing Deselect (Escape)"
-key Escape
+# -- Test Deselect (Ctrl+D) ---------------------------------------------------
+info "Testing Deselect (Ctrl+D)"
+key ctrl+d
 wait_for 0.5 "deselect"
 assert_no_crash
-AFTER_DESELECT=$(snap_region $SNAP_X $SNAP_Y 60 60 "marquee-after-deselect")
+park_mouse
+AFTER_DESELECT=$(snap_region $SNAP_X $SNAP_Y 160 120 "marquee-after-deselect")
 assert_regions_differ "$AFTER_SELECTALL" "$AFTER_DESELECT" \
     "Deselect should remove selection (no marching ants)"
 
@@ -60,15 +73,17 @@ assert_regions_differ "$AFTER_SELECTALL" "$AFTER_DESELECT" \
 info "Testing Invert Selection (Ctrl+Shift+I)"
 key ctrl+a
 wait_for 0.3 "select all before invert"
-BEFORE_INVERT=$(snap_region $SNAP_X $SNAP_Y 60 60 "marquee-before-invert")
+park_mouse
+BEFORE_INVERT=$(snap_region $SNAP_X $SNAP_Y 160 120 "marquee-before-invert")
 key ctrl+shift+i
 wait_for 0.5 "invert selection"
 assert_no_crash
-AFTER_INVERT=$(snap_region $SNAP_X $SNAP_Y 60 60 "marquee-after-invert")
+park_mouse
+AFTER_INVERT=$(snap_region $SNAP_X $SNAP_Y 160 120 "marquee-after-invert")
 info "Invert selection completed without crash"
 
 # -- Cleanup: deselect and restore brush tool ---------------------------------
-key Escape
+key ctrl+d
 wait_for 0.3 "final deselect"
 key b
 wait_for 0.3 "restore brush tool"

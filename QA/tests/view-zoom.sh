@@ -7,12 +7,13 @@
 
 # -- Establish known state --
 info "=== View Zoom Test ==="
-key b
-wait_for 0.3 "Switch to brush tool"
-click $CANVAS_CX $CANVAS_CY
-wait_for 0.3 "Focus canvas"
+canvas_focus b
+wait_for 0.3 "Brush tool ready"
+key grave
+wait_for 0.1 "Pointer arrow hidden"
 
 # -- Snap full work area before zoom --
+park_mouse
 BEFORE_ZOOM=$(snap_region $WORK_LEFT $WORK_TOP $WORK_W $WORK_H "zoom-before")
 assert_no_crash
 
@@ -23,6 +24,7 @@ wait_for 0.3 "Zoom in applied"
 assert_no_crash
 
 # -- Snap after first zoom --
+park_mouse
 ZOOM_1=$(snap_region $WORK_LEFT $WORK_TOP $WORK_W $WORK_H "zoom-in-1")
 assert_regions_differ "$BEFORE_ZOOM" "$ZOOM_1" "Zoom in should change canvas appearance"
 screenshot "zoom-in-1"
@@ -41,6 +43,7 @@ wait_for 0.3 "Zoom reset"
 assert_no_crash
 
 # -- Snap after reset --
+park_mouse
 AFTER_RESET=$(snap_region $WORK_LEFT $WORK_TOP $WORK_W $WORK_H "zoom-reset")
 assert_regions_same "$BEFORE_ZOOM" "$AFTER_RESET" "Zoom reset should restore original view"
 screenshot "zoom-reset"

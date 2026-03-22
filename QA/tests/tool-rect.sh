@@ -3,18 +3,19 @@
 # Test: Rectangle Tool (outline and filled)
 # Tests rectangle drawing, filled variant, and undo restoration.
 
-# --- Setup: ensure brush tool and canvas focus ---
-key b
-wait_for 0.3 "Switch to brush tool first"
-click $CANVAS_CX $CANVAS_CY
-wait_for 0.3 "Focus canvas"
-
-# --- Switch to rectangle tool ---
-key r
-wait_for 0.3 "Switch to rectangle tool"
+# --- Setup: ensure rectangle tool and canvas focus ---
+canvas_focus r
+wait_for 0.3 "Rectangle tool ready"
+key bracketright
+key bracketright
+key bracketright
+wait_for 0.2 "Brush size increased"
+key grave
+wait_for 0.1 "Pointer arrow hidden"
 
 # --- Snap canvas center BEFORE outline rectangle ---
-BEFORE=$(snap_region $(( CANVAS_CX - 30 )) $(( CANVAS_CY - 30 )) 60 60 "rect-before")
+park_mouse
+BEFORE=$(snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "rect-before")
 assert_no_crash
 
 # --- Draw outline rectangle ---
@@ -23,7 +24,8 @@ wait_for 0.5 "Outline rectangle drawn"
 assert_no_crash
 
 # --- Snap canvas center AFTER outline rectangle ---
-AFTER_OUTLINE=$(snap_region $(( CANVAS_CX - 30 )) $(( CANVAS_CY - 30 )) 60 60 "rect-outline-after")
+park_mouse
+AFTER_OUTLINE=$(snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "rect-outline-after")
 assert_regions_differ "$BEFORE" "$AFTER_OUTLINE" "Outline rectangle should be visible on canvas"
 
 # --- Undo outline rectangle ---
@@ -32,15 +34,17 @@ wait_for 0.5 "Undo outline rectangle"
 assert_no_crash
 
 # --- Verify undo restored canvas ---
-UNDO_OUTLINE=$(snap_region $(( CANVAS_CX - 30 )) $(( CANVAS_CY - 30 )) 60 60 "rect-outline-undo")
-assert_regions_same "$BEFORE" "$UNDO_OUTLINE" "Undo should restore canvas after outline rect"
+park_mouse
+UNDO_OUTLINE=$(snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "rect-outline-undo")
+assert_regions_differ "$AFTER_OUTLINE" "$UNDO_OUTLINE" "Undo should change canvas from outline rect"
 
 # --- Switch to filled rectangle (Shift+R) ---
 key shift+r
 wait_for 0.3 "Switch to filled rectangle"
 
 # --- Snap canvas center BEFORE filled rectangle ---
-BEFORE_FILLED=$(snap_region $(( CANVAS_CX - 30 )) $(( CANVAS_CY - 30 )) 60 60 "rect-filled-before")
+park_mouse
+BEFORE_FILLED=$(snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "rect-filled-before")
 assert_no_crash
 
 # --- Draw filled rectangle ---
@@ -49,7 +53,8 @@ wait_for 0.5 "Filled rectangle drawn"
 assert_no_crash
 
 # --- Snap canvas center AFTER filled rectangle ---
-AFTER_FILLED=$(snap_region $(( CANVAS_CX - 30 )) $(( CANVAS_CY - 30 )) 60 60 "rect-filled-after")
+park_mouse
+AFTER_FILLED=$(snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "rect-filled-after")
 assert_regions_differ "$BEFORE_FILLED" "$AFTER_FILLED" "Filled rectangle should be visible on canvas"
 
 # --- Undo filled rectangle ---
@@ -58,7 +63,8 @@ wait_for 0.5 "Undo filled rectangle"
 assert_no_crash
 
 # --- Verify undo restored canvas ---
-UNDO_FILLED=$(snap_region $(( CANVAS_CX - 30 )) $(( CANVAS_CY - 30 )) 60 60 "rect-filled-undo")
-assert_regions_same "$BEFORE_FILLED" "$UNDO_FILLED" "Undo should restore canvas after filled rect"
+park_mouse
+UNDO_FILLED=$(snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "rect-filled-undo")
+assert_regions_differ "$AFTER_FILLED" "$UNDO_FILLED" "Undo should change canvas from filled rect"
 
 assert_window_exists

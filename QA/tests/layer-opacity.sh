@@ -10,17 +10,17 @@ OPACITY_X=50
 OPACITY_Y=42
 
 # -- Canvas center region for opacity checks --
-CW=80
-CH=80
+CW=160
+CH=120
 CX=$(( CANVAS_CX - CW / 2 ))
 CY=$(( CANVAS_CY - CH / 2 ))
 
 # -- Establish known state --
 info "=== Layer Opacity Test ==="
-key b
-wait_for 0.3 "Switch to brush tool"
-click $CANVAS_CX $CANVAS_CY
-wait_for 0.3 "Focus canvas"
+canvas_focus b
+wait_for 0.3 "Canvas focused, brush tool"
+key grave
+wait_for 0.1 "Pointer arrow hidden"
 
 # -- Draw something on canvas so opacity change is visible --
 info "Drawing brush stroke on canvas"
@@ -28,6 +28,7 @@ drag $(( CANVAS_CX - 20 )) $(( CANVAS_CY - 20 )) $(( CANVAS_CX + 20 )) $(( CANVA
 wait_for 0.3 "Wait for brush stroke"
 assert_no_crash
 
+park_mouse
 CANVAS_FULL_OPACITY=$(snap_region $CX $CY $CW $CH "canvas-full-opacity")
 screenshot "canvas-full-opacity"
 
@@ -41,6 +42,7 @@ scroll_down $OPACITY_X $OPACITY_Y
 wait_for 0.5 "Wait for opacity reduction"
 assert_no_crash
 
+park_mouse
 CANVAS_REDUCED=$(snap_region $CX $CY $CW $CH "canvas-reduced-opacity")
 assert_regions_differ "$CANVAS_FULL_OPACITY" "$CANVAS_REDUCED" "Canvas should look different at reduced opacity"
 screenshot "canvas-reduced-opacity"
@@ -55,6 +57,7 @@ scroll_up $OPACITY_X $OPACITY_Y
 wait_for 0.5 "Wait for opacity restore"
 assert_no_crash
 
+park_mouse
 CANVAS_RESTORED=$(snap_region $CX $CY $CW $CH "canvas-restored-opacity")
 assert_regions_differ "$CANVAS_REDUCED" "$CANVAS_RESTORED" "Canvas should change when opacity is restored"
 assert_regions_same "$CANVAS_FULL_OPACITY" "$CANVAS_RESTORED" "Restoring opacity should match original state"

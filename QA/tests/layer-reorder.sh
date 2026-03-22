@@ -13,10 +13,10 @@ LP_H=68
 
 # -- Establish known state --
 info "=== Layer Reorder Test ==="
-key b
-wait_for 0.3 "Switch to brush tool"
-click $CANVAS_CX $CANVAS_CY
-wait_for 0.3 "Focus canvas"
+canvas_focus v
+wait_for 0.3 "Move tool ready"
+key grave
+wait_for 0.1 "Pointer arrow hidden"
 
 # -- Add a new layer so we have 2+ to reorder --
 info "Adding new layer to enable reorder testing"
@@ -24,6 +24,7 @@ key ctrl+shift+n
 wait_for 0.8 "Wait for new layer"
 assert_no_crash
 
+click $CANVAS_CX $CANVAS_CY
 BEFORE_MOVE=$(snap_region $LP_X $LP_Y $LP_W $LP_H "layer-panel-before-move")
 
 # -- Move layer up: Ctrl+PageUp --
@@ -32,6 +33,7 @@ key ctrl+Page_Up
 wait_for 0.5 "Wait for layer move up"
 assert_no_crash
 
+click $CANVAS_CX $CANVAS_CY
 AFTER_UP=$(snap_region $LP_X $LP_Y $LP_W $LP_H "layer-panel-after-move-up")
 assert_regions_differ "$BEFORE_MOVE" "$AFTER_UP" "Layer order should change after move up"
 screenshot "after-layer-move-up"
@@ -42,6 +44,7 @@ key ctrl+Page_Down
 wait_for 0.5 "Wait for layer move down"
 assert_no_crash
 
+click $CANVAS_CX $CANVAS_CY
 AFTER_DOWN=$(snap_region $LP_X $LP_Y $LP_W $LP_H "layer-panel-after-move-down")
 assert_regions_differ "$AFTER_UP" "$AFTER_DOWN" "Layer order should change after move down"
 screenshot "after-layer-move-down"
@@ -56,6 +59,7 @@ key ctrl+z
 wait_for 0.5 "Undo new layer"
 assert_no_crash
 
+click $CANVAS_CX $CANVAS_CY
 AFTER_UNDO=$(snap_region $LP_X $LP_Y $LP_W $LP_H "layer-panel-after-undo")
 assert_regions_same "$BEFORE_MOVE" "$AFTER_UNDO" "Undo should restore original layer order"
 screenshot "after-undo-reorder"

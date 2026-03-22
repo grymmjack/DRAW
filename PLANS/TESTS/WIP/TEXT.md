@@ -266,23 +266,23 @@ Verify text selection via Shift+arrow keys and other keyboard shortcuts.
 4. [x] Verify "Hel" is highlighted/selected
 5. [x] Selected text should show a visible highlight overlay
 
-#### [ ] Shift+Left extends selection left
-1. [ ] Type "Hello"
-2. [ ] Cursor at end
-3. [ ] Press `Shift+Left` twice
-4. [ ] Verify "lo" is highlighted/selected
+#### [x] Shift+Left extends selection left
+1. [x] Type "Hello"
+2. [x] Cursor at end
+3. [x] Press `Shift+Left` twice
+4. [x] Verify "lo" is highlighted/selected
 
-#### [ ] Shift+Up extends selection up
-1. [ ] Type "Line 1" + Enter + "Line 2"
-2. [ ] Cursor at end of "Line 2"
-3. [ ] Press `Shift+Up`
-4. [ ] Verify selection extends from cursor up to Line 1
+#### [x] Shift+Up extends selection up
+1. [x] Type "Line 1" + Enter + "Line 2"
+2. [x] Cursor at end of "Line 2"
+3. [x] Press `Shift+Up`
+4. [x] Verify selection extends from cursor up to Line 1
 
-#### [ ] Shift+Down extends selection down
-1. [ ] Type "Line 1" + Enter + "Line 2"
-2. [ ] Move cursor to start of "Line 1"
-3. [ ] Press `Shift+Down`
-4. [ ] Verify selection extends from cursor down to Line 2
+#### [x] Shift+Down extends selection down
+1. [x] Type "Line 1" + Enter + "Line 2"
+2. [x] Move cursor to start of "Line 1"
+3. [x] Press `Shift+Down`
+4. [x] Verify selection extends from cursor down to Line 2
 
 #### [ ] Shift+Home selects to start of line
 1. [ ] Type "Hello World"

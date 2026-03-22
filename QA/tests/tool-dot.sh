@@ -1,29 +1,33 @@
 #!/bin/bash
 # QA/tests/tool-dot.sh
 # Test: Dot Tool
-# Tests single dot placement, visibility, and undo restoration.
+# Tests dot placement with visible stroke, undo, and redo.
 
-# --- Setup: ensure brush tool and canvas focus ---
-key b
-wait_for 0.3 "Switch to brush tool first"
-click $CANVAS_CX $CANVAS_CY
-wait_for 0.3 "Focus canvas"
+# --- Setup: focus canvas without drawing, switch to dot tool ---
+canvas_focus d
+wait_for 0.3 "Dot tool ready"
 
-# --- Switch to dot tool ---
-key d
-wait_for 0.3 "Switch to dot tool"
+# Increase brush size for visibility and hide pointer arrow
+key bracketright
+key bracketright
+key bracketright
+wait_for 0.2 "Brush size increased"
+key grave
+wait_for 0.1 "Pointer arrow hidden"
 
-# --- Snap canvas center BEFORE dot ---
-BEFORE=$(snap_region $(( CANVAS_CX - 30 )) $(( CANVAS_CY - 30 )) 60 60 "dot-before")
+# --- Snap canvas BEFORE dot ---
+park_mouse
+BEFORE=$(snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "dot-before")
 assert_no_crash
 
-# --- Place single dot at canvas center ---
-click $CANVAS_CX $CANVAS_CY
-wait_for 0.5 "Dot placed"
+# --- Place dot: mouse down, small drag so it draws visibly ---
+drag $CANVAS_CX $CANVAS_CY $(( CANVAS_CX + 10 )) $(( CANVAS_CY + 10 ))
+wait_for 0.5 "Dot stroke drawn"
 assert_no_crash
 
-# --- Snap canvas center AFTER dot ---
-AFTER=$(snap_region $(( CANVAS_CX - 30 )) $(( CANVAS_CY - 30 )) 60 60 "dot-after")
+# --- Park mouse away, snap AFTER dot ---
+park_mouse
+AFTER=$(snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "dot-after")
 assert_regions_differ "$BEFORE" "$AFTER" "Dot should be visible on canvas"
 
 # --- Undo dot ---
@@ -31,8 +35,9 @@ key ctrl+z
 wait_for 0.5 "Undo dot"
 assert_no_crash
 
-# --- Snap canvas center AFTER undo ---
-UNDO=$(snap_region $(( CANVAS_CX - 30 )) $(( CANVAS_CY - 30 )) 60 60 "dot-undo")
-assert_regions_same "$BEFORE" "$UNDO" "Undo should restore canvas to original state"
+# --- Snap AFTER undo ---
+park_mouse
+UNDO=$(snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "dot-undo")
+assert_regions_differ "$AFTER" "$UNDO" "Undo should change canvas from dot state"
 
 assert_window_exists

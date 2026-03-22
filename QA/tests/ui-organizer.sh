@@ -18,12 +18,19 @@ ORG_W=$TOOLBAR_W
 
 # -- Establish known state --
 info "=== UI Organizer Test ==="
-key b
-wait_for 0.3 "Switch to brush tool"
-click $CANVAS_CX $CANVAS_CY
-wait_for 0.3 "Focus canvas"
+canvas_focus b
+wait_for 0.3 "Brush tool ready"
+
+# Increase brush size for visibility and hide pointer arrow
+key bracketright
+key bracketright
+key bracketright
+wait_for 0.2 "Brush size increased"
+key grave
+wait_for 0.1 "Pointer arrow hidden"
 
 # -- Snap organizer region before --
+park_mouse
 BEFORE=$(snap_region $ORG_X $ORG_Y $ORG_W $ORG_H "organizer-before")
 assert_no_crash
 
@@ -34,6 +41,7 @@ wait_for 0.3 "Brush size increased"
 assert_no_crash
 
 # -- Snap after increase --
+park_mouse
 AFTER_INC=$(snap_region $ORG_X $ORG_Y $ORG_W $ORG_H "organizer-after-inc")
 assert_regions_differ "$BEFORE" "$AFTER_INC" "Organizer should update after brush size increase"
 screenshot "organizer-brush-inc"
@@ -45,6 +53,7 @@ wait_for 0.3 "Brush size decreased"
 assert_no_crash
 
 # -- Snap after decrease --
+park_mouse
 AFTER_DEC=$(snap_region $ORG_X $ORG_Y $ORG_W $ORG_H "organizer-after-dec")
 assert_regions_differ "$AFTER_INC" "$AFTER_DEC" "Organizer should update after brush size decrease"
 screenshot "organizer-brush-dec"

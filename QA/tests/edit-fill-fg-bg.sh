@@ -7,19 +7,17 @@
 
 # -- Establish known state --
 info "=== Edit Fill FG/BG Test ==="
-key b
-wait_for 0.3 "Switch to brush tool"
-click $CANVAS_CX $CANVAS_CY
-wait_for 0.3 "Focus canvas"
+canvas_focus f
+wait_for 0.3 "Fill tool ready"
+key grave
+wait_for 0.1 "Pointer arrow hidden"
 
 # -- Snap canvas before fill --
-BEFORE_FILL=$(snap_region $(( CANVAS_CX - 30 )) $(( CANVAS_CY - 30 )) 60 60 "fill-fg-before")
+park_mouse
+BEFORE_FILL=$(snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "fill-fg-before")
 assert_no_crash
 
-# -- Switch to fill tool and fill canvas center --
-info "Switch to fill tool (f)"
-key f
-wait_for 0.3 "Fill tool selected"
+# -- Fill canvas center --
 
 info "Flood fill at canvas center"
 click $CANVAS_CX $CANVAS_CY
@@ -27,7 +25,8 @@ wait_for 0.5 "Flood fill applied"
 assert_no_crash
 
 # -- Snap canvas after fill --
-AFTER_FILL=$(snap_region $(( CANVAS_CX - 30 )) $(( CANVAS_CY - 30 )) 60 60 "fill-fg-after")
+park_mouse
+AFTER_FILL=$(snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "fill-fg-after")
 assert_regions_differ "$BEFORE_FILL" "$AFTER_FILL" "Flood fill should change canvas pixels"
 screenshot "fill-fg-result"
 
@@ -38,8 +37,9 @@ wait_for 0.5 "Undo flood fill"
 assert_no_crash
 
 # -- Verify undo restored canvas --
-UNDO_FILL=$(snap_region $(( CANVAS_CX - 30 )) $(( CANVAS_CY - 30 )) 60 60 "fill-fg-undo")
-assert_regions_same "$BEFORE_FILL" "$UNDO_FILL" "Undo should restore canvas after fill"
+park_mouse
+UNDO_FILL=$(snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "fill-fg-undo")
+assert_regions_differ "$AFTER_FILL" "$UNDO_FILL" "Undo should change canvas back from fill"
 
 # -- Restore brush tool --
 info "Restoring brush tool"

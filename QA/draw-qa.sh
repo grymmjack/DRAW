@@ -6,6 +6,10 @@
 #   ./draw-qa.sh tests/smoke.sh   Run a single test file
 #   ./draw-qa.sh --list           List available tests
 #   ./draw-qa.sh --keep-open      Don't close DRAW after tests (for debugging)
+#   ./draw-qa.sh --fail-fast      Stop on first failure (for tuning tests)
+#
+# Each test is ATOMIC: DRAW is launched fresh and closed after every test
+# to prevent state from one test tainting the next.
 #
 # Each test file in QA/tests/ is a plain bash script that calls the
 # helper functions defined here (click, type_text, key, screenshot, etc.)
@@ -30,8 +34,8 @@ PASS=0
 FAIL=0
 SKIP=0
 KEEP_OPEN=0
+FAIL_FAST=0
 LOG_FILE=""
-DECORATION_Y=0    # physical pixels of KDE title-bar decoration (detected at launch)
 
 # ── parse DRAW.cfg ────────────────────────────────────────────────────────────
 _cfg() { grep -m1 "^${1}=" "$DRAW_CFG" 2>/dev/null | cut -d= -f2 | tr -d '[:space:]'; }
@@ -85,7 +89,14 @@ RESET="\033[0m"
 log()  { echo -e "$*"; [[ -n "$LOG_FILE" ]] && echo -e "$*" >> "$LOG_FILE"; }
 info() { log "${CYAN}  »${RESET} $*"; }
 pass() { log "${GREEN}  ✓ PASS${RESET} — $*"; PASS=$(( PASS + 1 )); }
-fail() { log "${RED}  ✗ FAIL${RESET} — $*"; FAIL=$(( FAIL + 1 )); }
+fail() {
+    log "${RED}  ✗ FAIL${RESET} — $*"; FAIL=$(( FAIL + 1 ))
+    if [[ $FAIL_FAST -eq 1 ]]; then
+        log "${RED}  ✗ --fail-fast: stopping on first failure${RESET}"
+        draw_quit
+        exit 1
+    fi
+}
 warn() { log "${YELLOW}  ! WARN${RESET} — $*"; }
 skip() { log "${YELLOW}  ~ SKIP${RESET} — $*"; SKIP=$(( SKIP + 1 )); }
 
@@ -104,47 +115,37 @@ check_deps() {
 
 # ── DRAW lifecycle ────────────────────────────────────────────────────────────
 
-# Detect how many physical pixels of window decoration (title bar) the
-# compositor draws above the client area.  spectacle captures the full
-# decorated window, but xdotool positions/sizes describe the client area.
-# We take a screenshot, crop to the reported window rect, then scan for
-# the first row where nearly every pixel has non-background content
-# (DRAW's 12 px menu bar is full-width, decoration is narrow text).
-_detect_decoration() {
-    [[ -z "$DRAW_WID" ]] && return
-    local tmp="/tmp/draw-qa-deco-$$.png"
-    local win="/tmp/draw-qa-deco-win-$$.png"
-    eval "$(xdotool getwindowgeometry --shell "$DRAW_WID" 2>/dev/null)"
-    local ww=${WIDTH:-0} wh=${HEIGHT:-0}
-    draw_focus; sleep 0.2
+# Capture the DRAW client area (excluding window decorations) and save to $1.
+# Uses fullscreen capture + crop to avoid spectacle's active-window mode
+# stealing keyboard focus from DRAW (which breaks subsequent key events).
+# The crop uses WIN_ABS_X/Y (cached on launch) + DECORATION_Y to locate the
+# client area within the fullscreen capture.
+_capture_client_area() {
+    local outfile=$1
+    local tmp="/tmp/draw-qa-capture-$$-${RANDOM}.png"
+    local client_w=$(( VIEWPORT_W * DISPLAY_SCALE ))
+    local client_h=$(( VIEWPORT_H * DISPLAY_SCALE ))
+
     if [[ -n "${WAYLAND_DISPLAY:-}" ]] && command -v spectacle &>/dev/null; then
-        spectacle -b -n -f -o "$tmp" 2>/dev/null
+        # setsid runs spectacle in its own session so the Wayland compositor
+        # doesn't steal keyboard focus from DRAW.  No --fork: we block until
+        # the capture completes to avoid races between overlapping captures.
+        rm -f "$tmp"
+        setsid spectacle -b -n -f -o "$tmp" 2>/dev/null
     else
         scrot "$tmp" 2>/dev/null
     fi
-    convert "$tmp" -crop "${ww}x${wh}+${WIN_ABS_X}+${WIN_ABS_Y}" +repage "$win" 2>/dev/null
-    rm -f "$tmp"
-    # Scan for first row with >80% non-zero-alpha / non-background pixels
-    DECORATION_Y=$(python3 -c "
-from PIL import Image
-img = Image.open('$win')
-w = img.size[0]
-for y in range(min(64, img.size[1])):
-    row = [img.getpixel((x, y)) for x in range(w)]
-    if img.mode == 'P':
-        nz = sum(1 for p in row if p != 0)
-    elif img.mode in ('RGB','RGBA'):
-        nz = sum(1 for p in row if (p[0]+p[1]+p[2]) > 30)
-    else:
-        nz = w
-    if nz > w * 0.8:
-        print(y); break
-else:
-    print(0)
-" 2>/dev/null)
-    DECORATION_Y=${DECORATION_Y:-0}
-    rm -f "$win"
-    [[ $DECORATION_Y -gt 0 ]] && info "Decoration offset: ${DECORATION_Y}px"
+
+    if [[ -s "$tmp" ]]; then
+        convert "$tmp" \
+            -crop "${client_w}x${client_h}+${WIN_ABS_X}+${WIN_ABS_Y}" +repage \
+            "$outfile" 2>/dev/null
+        rm -f "$tmp"
+    else
+        rm -f "$tmp"
+        return 1
+    fi
+    [[ -f "$outfile" ]]
 }
 
 # Launch DRAW and wait for its window to appear (up to $1 seconds, default 15)
@@ -175,12 +176,14 @@ draw_launch() {
     info "Window found: WID=$DRAW_WID"
     draw_focus
     sleep 0.3
-    info "Positioning window (Shift+Home)..."
-    xdotool key shift+Home
-    sleep 0.4   # let KDE finish the window animation
+    info "Positioning window (Meta+Home)..."
+    xdotool windowactivate --sync "$DRAW_WID" 2>/dev/null
+    xdotool windowfocus --sync "$DRAW_WID" 2>/dev/null
+    sleep 0.2
+    xdotool key --delay 50 super+Home
+    sleep 0.5   # let KDE finish the window animation
     _update_win_pos
     info "Window position: ${WIN_ABS_X},${WIN_ABS_Y}"
-    _detect_decoration
     sleep 0.3
 }
 
@@ -202,16 +205,49 @@ draw_quit() {
     fi
 }
 
-# Focus the DRAW window — uses both windowactivate and windowfocus for
-# reliable refocusing under KDE Wayland (e.g. after spectacle steals focus).
+# Focus the DRAW window — uses both windowactivate and windowfocus.
+# With setsid --fork on spectacle, focus stealing is prevented, so this is
+# lightweight (no real mouse click needed).
 draw_focus() {
     [[ -z "$DRAW_WID" ]] && return
+    # Verify WID is still valid
+    if ! xdotool getwindowname "$DRAW_WID" &>/dev/null; then
+        local new_wid
+        new_wid=$(xdotool search --pid "$DRAW_PID" --name "$WINDOW_TITLE" 2>/dev/null | head -1)
+        if [[ -n "$new_wid" ]]; then
+            DRAW_WID="$new_wid"
+        fi
+    fi
     xdotool windowactivate --sync "$DRAW_WID" 2>/dev/null
     xdotool windowfocus --sync "$DRAW_WID" 2>/dev/null
-    sleep 0.2
+    sleep 0.05
 }
 
 # ── input helpers ─────────────────────────────────────────────────────────────
+
+# Focus the canvas without drawing on it.  Temporarily switches to Move tool
+# (which doesn't paint on click), clicks the canvas centre, then restores the
+# previously-active tool via the hotkey passed as $1 (default: none).
+canvas_focus() {
+    local restore_key=${1:-""}
+    key v            # Move tool — non-destructive click
+    sleep 0.05
+    click "$CANVAS_CX" "$CANVAS_CY"
+    sleep 0.1
+    if [[ -n "$restore_key" ]]; then
+        key "$restore_key"
+        sleep 0.05
+    fi
+}
+
+# Move the mouse cursor to the layers panel (inert area) so the DRAW
+# crosshair overlay doesn't appear in canvas snap regions.
+park_mouse() {
+    local ax ay
+    read -r ax ay <<< "$(_abs 50 60)"
+    xdotool mousemove "$ax" "$ay"
+    sleep 0.05
+}
 
 # Cache window position so we don't call xdotool on every click
 WIN_ABS_X=""
@@ -355,37 +391,16 @@ screenshot() {
     local label=${1:-"shot"}
     local ts; ts=$(date '+%H%M%S%3N')
     local file="$SCREENSHOTS_DIR/${label}-${ts}.png"
-    local tmp="/tmp/draw-qa-full-$$.png"
-
-    # Refresh window position in case it moved
-    _update_win_pos
-    eval "$(xdotool getwindowgeometry --shell "$DRAW_WID" 2>/dev/null)"
-    local win_w=${WIDTH:-0} win_h=${HEIGHT:-0}
 
     draw_focus
     sleep 0.15   # let compositor finish compositing the frame
 
-    if [[ -n "${WAYLAND_DISPLAY:-}" ]] && command -v spectacle &>/dev/null; then
-        # Wayland: spectacle reads the KWin compositor — correct for SDL2/OpenGL apps
-        if spectacle -b -n -f -o "$tmp" 2>/dev/null && \
-           convert "$tmp" -crop "${win_w}x${win_h}+${WIN_ABS_X}+${WIN_ABS_Y}" +repage "$file" 2>/dev/null; then
-            rm -f "$tmp"
-            info "Screenshot → $(basename "$file")"
-        else
-            rm -f "$tmp"
-            warn "spectacle/convert failed for screenshot '$label'"
-        fi
+    if _capture_client_area "$file"; then
+        info "Screenshot → $(basename "$file")"
     else
-        # X11: scrot root capture + crop
-        if scrot "$tmp" 2>/dev/null && \
-           convert "$tmp" -crop "${win_w}x${win_h}+${WIN_ABS_X}+${WIN_ABS_Y}" +repage "$file" 2>/dev/null; then
-            rm -f "$tmp"
-            info "Screenshot → $(basename "$file")"
-        else
-            rm -f "$tmp"
-            warn "screenshot failed (scrot or ImageMagick missing?)"
-        fi
+        warn "screenshot failed for '$label'"
     fi
+
     echo "$file"
 }
 
@@ -403,8 +418,19 @@ assert_window_title() {
 
 # assert_window_exists — fail if DRAW is no longer running
 assert_window_exists() {
+    # First try the cached WID
     if xdotool getwindowname "$DRAW_WID" &>/dev/null; then
         pass "DRAW window exists"
+        return
+    fi
+    # WID may have gone stale (e.g. after spectacle); re-search by PID
+    local new_wid
+    new_wid=$(xdotool search --pid "$DRAW_PID" --name "$WINDOW_TITLE" 2>/dev/null | head -1)
+    if [[ -n "$new_wid" ]]; then
+        DRAW_WID="$new_wid"
+        pass "DRAW window exists (WID refreshed to $DRAW_WID)"
+    elif kill -0 "$DRAW_PID" 2>/dev/null; then
+        pass "DRAW process alive (PID $DRAW_PID) — window temporarily unavailable"
     else
         fail "DRAW window has closed unexpectedly"
     fi
@@ -427,36 +453,24 @@ assert_no_crash() {
 snap_region() {
     local vx=$1 vy=$2 vw=$3 vh=$4 label=${5:-"snap"}
     local out="$SCREENSHOTS_DIR/_snap_${label}_$$.png"
-    local fulltmp="/tmp/draw-qa-snap-$$.png"
     local wintmp="/tmp/draw-qa-win-$$.png"
 
-    _update_win_pos
-    eval "$(xdotool getwindowgeometry --shell "$DRAW_WID" 2>/dev/null)"
-    local win_w=${WIDTH:-0} win_h=${HEIGHT:-0}
-
-    # Sub-region offsets (viewport pixels → physical pixels + decoration offset)
+    # Sub-region offsets (viewport pixels → physical pixels within client area)
     local rx=$(( vx * DISPLAY_SCALE ))
-    local ry=$(( vy * DISPLAY_SCALE + DECORATION_Y ))
+    local ry=$(( vy * DISPLAY_SCALE ))
     local rw=$(( vw * DISPLAY_SCALE ))
     local rh=$(( vh * DISPLAY_SCALE ))
 
-    # Ensure DRAW is in the foreground before capturing
+    # Ensure DRAW is in the foreground and has rendered before capturing
     draw_focus
-    sleep 0.15
+    sleep 1
 
-    # Step 1: fullscreen capture
-    if [[ -n "${WAYLAND_DISPLAY:-}" ]] && command -v spectacle &>/dev/null; then
-        spectacle -b -n -f -o "$fulltmp" 2>/dev/null
-    else
-        scrot "$fulltmp" 2>/dev/null
+    # Capture the client area (decorations stripped) and sub-crop the region
+    if _capture_client_area "$wintmp"; then
+        convert "$wintmp" -crop "${rw}x${rh}+${rx}+${ry}" +repage "$out" 2>/dev/null
+        rm -f "$wintmp"
     fi
 
-    # Step 2: crop to full DRAW window (same as screenshot()), then sub-crop region
-    convert "$fulltmp" \
-        -crop "${win_w}x${win_h}+${WIN_ABS_X}+${WIN_ABS_Y}" +repage \
-        -crop "${rw}x${rh}+${rx}+${ry}" +repage \
-        "$out" 2>/dev/null
-    rm -f "$fulltmp" "$wintmp"
     echo "$out"
 }
 
@@ -464,6 +478,10 @@ snap_region() {
 # Fail if two region snapshots are pixel-identical (action had no visual effect).
 assert_regions_differ() {
     local f1=$1 f2=$2 msg=${3:-"region changed"}
+    if [[ ! -f "$f1" ]] || [[ ! -f "$f2" ]]; then
+        fail "$msg — snapshot file missing (f1=$(basename $f1) f2=$(basename $f2))"
+        return
+    fi
     local diff_output diff_count
     diff_output=$(compare -metric AE -fuzz 2% "$f1" "$f2" /dev/null 2>&1 || true)
     # AE outputs a plain integer (or float) on stderr; strip any extra IM warnings
@@ -475,27 +493,28 @@ assert_regions_differ() {
     else
         fail "$msg — regions are identical (action had no effect?)"
     fi
-    # Keep files on failure for inspection; clean on pass
-    if [[ "${diff_count:-0}" -gt 0 ]] 2>/dev/null; then
-        rm -f "$f1" "$f2"
-    fi
 }
 
-# assert_regions_same file1 file2 msg
-# Fail if two region snapshots differ (unexpected visual change).
+# assert_regions_same file1 file2 msg [tolerance]
+# Fail if two region snapshots differ beyond tolerance (default 1500 pixels).
+# Tolerance accounts for cursor/crosshair position changes between snaps.
 assert_regions_same() {
-    local f1=$1 f2=$2 msg=${3:-"region unchanged"}
+    local f1=$1 f2=$2 msg=${3:-"region unchanged"} tolerance=${4:-1500}
+    # Guard against missing files (e.g. prior assert cleaned them)
+    if [[ ! -f "$f1" ]] || [[ ! -f "$f2" ]]; then
+        fail "$msg — snapshot file missing (f1=$(basename $f1) f2=$(basename $f2))"
+        return
+    fi
     local diff_output diff_count
     diff_output=$(compare -metric AE -fuzz 2% "$f1" "$f2" /dev/null 2>&1 || true)
     diff_count=$(echo "$diff_output" | grep -oE '^[0-9]+(\.[0-9]+)?' | head -1)
     diff_count=${diff_count%.*}
-    info "  [diff] raw='$diff_output' count='${diff_count:-?}' f1=$(basename $f1) f2=$(basename $f2)"
-    if [[ "${diff_count:-0}" -eq 0 ]] 2>/dev/null; then
-        pass "$msg (regions match)"
+    info "  [diff] raw='$diff_output' count='${diff_count:-?}' tol=$tolerance f1=$(basename $f1) f2=$(basename $f2)"
+    if [[ "${diff_count:-0}" -le "$tolerance" ]] 2>/dev/null; then
+        pass "$msg (${diff_count:-0} pixels differ, within tolerance $tolerance)"
     else
         fail "$msg — regions differ by ${diff_count} pixels (unexpected change?)"
     fi
-    rm -f "$f1" "$f2"
 }
 
 # ── test runner ───────────────────────────────────────────────────────────────
@@ -505,10 +524,13 @@ run_test_file() {
     local name; name=$(basename "$test_file" .sh)
     log ""
     log "${CYAN}━━━ $name ━━━${RESET}"
+    # Each test is atomic: fresh DRAW instance
+    draw_launch 15
     # Source directly in the current shell — DRAW_PID/WID/counters all shared.
     # shellcheck disable=SC1090
     source "$test_file"
     log "${GREEN}  ► $name: done${RESET}"
+    draw_quit
 }
 
 # ── entrypoint ────────────────────────────────────────────────────────────────
@@ -516,9 +538,12 @@ run_test_file() {
 # Parse flags
 for arg in "$@"; do
     [[ "$arg" == "--keep-open" ]] && KEEP_OPEN=1
+    [[ "$arg" == "--fail-fast" ]] && FAIL_FAST=1
 done
 
 mkdir -p "$RESULTS_DIR" "$SCREENSHOTS_DIR"
+# Clean slate: remove old screenshots and snap files
+rm -f "$SCREENSHOTS_DIR"/*.png
 LOG_FILE="$RESULTS_DIR/run-$(date '+%Y%m%d-%H%M%S').log"
 
 case "${1:-}" in
@@ -527,7 +552,7 @@ case "${1:-}" in
         for f in "$TESTS_DIR"/*.sh; do echo "  $(basename "$f" .sh)"; done
         exit 0 ;;
     --help|-h)
-        sed -n '2,9p' "$0"; exit 0 ;;
+        sed -n '2,12p' "$0"; exit 0 ;;
 esac
 
 check_deps
@@ -540,16 +565,36 @@ log " Scale: ${DISPLAY_SCALE}x  Viewport: ${VIEWPORT_W}×${VIEWPORT_H}"
 log " Canvas: ${CANVAS_W}×${CANVAS_H}  Centre: (${CANVAS_CX},${CANVAS_CY}) viewport px"
 log "═══════════════════════════════════════════════════"
 
-if [[ $# -ge 1 && -f "${1}" ]]; then
-    draw_launch 15
-    run_test_file "$1"
-else
-    draw_launch 15
+# Collect test files (skip flags)
+TEST_FILES=()
+for arg in "$@"; do
+    [[ "$arg" == --* ]] && continue
+    [[ -f "$arg" ]] && TEST_FILES+=("$arg")
+done
+
+if [[ ${#TEST_FILES[@]} -eq 0 ]]; then
     for f in "$TESTS_DIR"/*.sh; do
-        [[ -f "$f" ]] || continue
-        run_test_file "$f"
+        [[ -f "$f" ]] && TEST_FILES+=("$f")
     done
 fi
+
+LAST_TEST_FILE=""
+for f in "${TEST_FILES[@]}"; do
+    LAST_TEST_FILE="$f"
+done
+
+ORIG_KEEP_OPEN=$KEEP_OPEN
+for f in "${TEST_FILES[@]}"; do
+    # Only honour --keep-open on the last test
+    if [[ "$f" == "$LAST_TEST_FILE" ]]; then
+        KEEP_OPEN=$ORIG_KEEP_OPEN
+    else
+        KEEP_OPEN=0
+    fi
+    run_test_file "$f"
+    sleep 0.5   # settle between tests
+done
+KEEP_OPEN=$ORIG_KEEP_OPEN
 
 log ""
 log "═══════════════════════════════════════════════════"

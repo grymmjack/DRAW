@@ -3,8 +3,11 @@
 #
 # Uses $CANVAS_CX / $CANVAS_CY from the harness (computed from DRAW.cfg).
 
-# Click canvas centre to ensure it has focus
-click $CANVAS_CX $CANVAS_CY
+# Focus canvas and hide pointer arrow
+canvas_focus b
+wait_for 0.3 "Brush tool ready"
+key grave
+wait_for 0.1 "Pointer arrow hidden"
 
 # ── Undo / Redo ──────────────────────────────────────────────────────────────
 info "Testing Ctrl+Z / Ctrl+Y"

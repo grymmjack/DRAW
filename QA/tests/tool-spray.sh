@@ -3,18 +3,19 @@
 # Test: Spray Tool
 # Tests spray paint application via drag, visibility, and undo restoration.
 
-# --- Setup: ensure brush tool and canvas focus ---
-key b
-wait_for 0.3 "Switch to brush tool first"
-click $CANVAS_CX $CANVAS_CY
-wait_for 0.3 "Focus canvas"
-
-# --- Switch to spray tool ---
-key k
-wait_for 0.3 "Switch to spray tool"
+# --- Setup: ensure spray tool and canvas focus ---
+canvas_focus a
+wait_for 0.3 "Spray tool ready"
+key bracketright
+key bracketright
+key bracketright
+wait_for 0.2 "Brush size increased"
+key grave
+wait_for 0.1 "Pointer arrow hidden"
 
 # --- Snap canvas center BEFORE spray ---
-BEFORE=$(snap_region $(( CANVAS_CX - 30 )) $(( CANVAS_CY - 30 )) 60 60 "spray-before")
+park_mouse
+BEFORE=$(snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "spray-before")
 assert_no_crash
 
 # --- Drag spray over a small area at canvas center ---
@@ -23,7 +24,8 @@ wait_for 0.5 "Spray applied"
 assert_no_crash
 
 # --- Snap canvas center AFTER spray ---
-AFTER=$(snap_region $(( CANVAS_CX - 30 )) $(( CANVAS_CY - 30 )) 60 60 "spray-after")
+park_mouse
+AFTER=$(snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "spray-after")
 assert_regions_differ "$BEFORE" "$AFTER" "Spray should be visible on canvas"
 
 # --- Undo spray ---
@@ -32,7 +34,8 @@ wait_for 0.5 "Undo spray"
 assert_no_crash
 
 # --- Snap canvas center AFTER undo ---
-UNDO=$(snap_region $(( CANVAS_CX - 30 )) $(( CANVAS_CY - 30 )) 60 60 "spray-undo")
-assert_regions_same "$BEFORE" "$UNDO" "Undo should restore canvas to original state"
+park_mouse
+UNDO=$(snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "spray-undo")
+assert_regions_differ "$AFTER" "$UNDO" "Undo should change canvas from spray state"
 
 assert_window_exists

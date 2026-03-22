@@ -4,13 +4,14 @@
 # Cycles through all tool hotkeys and verifies no crash + canvas unaffected.
 
 # --- Setup: brush tool, canvas focus ---
-key b
-wait_for 0.3 "Switch to brush tool"
-click $CANVAS_CX $CANVAS_CY
-wait_for 0.3 "Focus canvas"
+canvas_focus b
+wait_for 0.3 "Brush tool ready"
+key grave
+wait_for 0.1 "Pointer arrow hidden"
 
 # --- Snap canvas BEFORE cycling ---
-BEFORE=$(snap_region $(( CANVAS_CX - 40 )) $(( CANVAS_CY - 40 )) 80 80 "switch-before")
+park_mouse
+BEFORE=$(snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "switch-before")
 assert_no_crash
 
 # --- Cycle through all tool hotkeys ---
@@ -29,7 +30,8 @@ wait_for 0.15 "Filled ellipse"
 assert_no_crash "after shift variants"
 
 # --- Snap canvas AFTER cycling ---
-AFTER=$(snap_region $(( CANVAS_CX - 40 )) $(( CANVAS_CY - 40 )) 80 80 "switch-after")
+park_mouse
+AFTER=$(snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "switch-after")
 
 # Canvas should be unchanged — no tool drew anything
 assert_regions_same "$BEFORE" "$AFTER" "canvas unchanged after tool cycling"

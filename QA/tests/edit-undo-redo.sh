@@ -7,10 +7,14 @@
 
 # -- Establish known state --
 info "=== Edit Undo/Redo Test ==="
-key b
-wait_for 0.3 "Switch to brush tool"
-click $CANVAS_CX $CANVAS_CY
-wait_for 0.3 "Focus canvas"
+canvas_focus b
+wait_for 0.3 "Brush tool ready"
+key bracketright
+key bracketright
+key bracketright
+wait_for 0.2 "Brush size increased"
+key grave
+wait_for 0.1 "Pointer arrow hidden"
 
 # -- Draw 3 brush strokes at different positions --
 info "Drawing stroke 1"
@@ -29,7 +33,8 @@ wait_for 0.3 "Stroke 3 drawn"
 assert_no_crash
 
 # -- Snap canvas after all 3 strokes --
-ALL_STROKES=$(snap_region $(( CANVAS_CX - 30 )) $(( CANVAS_CY - 30 )) 60 60 "undo-redo-all-strokes")
+park_mouse
+ALL_STROKES=$(snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "undo-redo-all-strokes")
 screenshot "undo-redo-3-strokes"
 
 # -- Undo 3 times --
@@ -42,7 +47,8 @@ key ctrl+z
 wait_for 0.3 "Undo stroke 1"
 assert_no_crash
 
-AFTER_UNDO=$(snap_region $(( CANVAS_CX - 30 )) $(( CANVAS_CY - 30 )) 60 60 "undo-redo-after-undo")
+park_mouse
+AFTER_UNDO=$(snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "undo-redo-after-undo")
 assert_regions_differ "$ALL_STROKES" "$AFTER_UNDO" "Undo should remove all strokes"
 screenshot "undo-redo-after-undo"
 
@@ -56,7 +62,8 @@ key ctrl+y
 wait_for 0.3 "Redo stroke 3"
 assert_no_crash
 
-AFTER_REDO=$(snap_region $(( CANVAS_CX - 30 )) $(( CANVAS_CY - 30 )) 60 60 "undo-redo-after-redo")
+park_mouse
+AFTER_REDO=$(snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "undo-redo-after-redo")
 assert_regions_differ "$AFTER_UNDO" "$AFTER_REDO" "Redo should restore all strokes"
 screenshot "undo-redo-after-redo"
 

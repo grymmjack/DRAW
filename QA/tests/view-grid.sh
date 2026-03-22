@@ -7,13 +7,14 @@
 
 # -- Establish known state --
 info "=== View Grid Test ==="
-key b
-wait_for 0.3 "Switch to brush tool"
-click $CANVAS_CX $CANVAS_CY
-wait_for 0.3 "Focus canvas"
+canvas_focus b
+wait_for 0.3 "Brush tool ready"
+key grave
+wait_for 0.1 "Pointer arrow hidden"
 
 # -- Snap canvas area before grid --
-BEFORE_GRID=$(snap_region $(( CANVAS_CX - 30 )) $(( CANVAS_CY - 30 )) 60 60 "grid-before")
+park_mouse
+BEFORE_GRID=$(snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "grid-before")
 assert_no_crash
 
 # -- Toggle grid ON: key g --
@@ -23,7 +24,8 @@ wait_for 0.3 "Grid toggled on"
 assert_no_crash
 
 # -- Snap after grid on --
-GRID_ON=$(snap_region $(( CANVAS_CX - 30 )) $(( CANVAS_CY - 30 )) 60 60 "grid-on")
+park_mouse
+GRID_ON=$(snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "grid-on")
 assert_regions_differ "$BEFORE_GRID" "$GRID_ON" "Grid overlay should be visible on canvas"
 screenshot "grid-on"
 
@@ -34,7 +36,8 @@ wait_for 0.3 "Grid toggled off"
 assert_no_crash
 
 # -- Snap after grid off --
-GRID_OFF=$(snap_region $(( CANVAS_CX - 30 )) $(( CANVAS_CY - 30 )) 60 60 "grid-off")
+park_mouse
+GRID_OFF=$(snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "grid-off")
 assert_regions_same "$BEFORE_GRID" "$GRID_OFF" "Grid should be gone after toggling off"
 screenshot "grid-off"
 

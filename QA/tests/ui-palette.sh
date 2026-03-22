@@ -13,22 +13,24 @@ PAL_H=$(( STATUS_H + PALETTE_H ))
 
 # -- Establish known state --
 info "=== UI Palette Test ==="
-key b
-wait_for 0.3 "Switch to brush tool"
-click $CANVAS_CX $CANVAS_CY
-wait_for 0.3 "Focus canvas"
+canvas_focus b
+wait_for 0.3 "Canvas focused, brush tool"
+key grave
+wait_for 0.1 "Pointer arrow hidden"
 
 # -- Snap palette region before swap --
+park_mouse
 BEFORE_SWAP=$(snap_region $PAL_X $PAL_Y $PAL_W $PAL_H "palette-before-swap")
 assert_no_crash
 
 # -- Swap FG/BG colors: key x --
 info "Swap FG/BG (x)"
 key x
-wait_for 0.2 "Colors swapped"
+wait_for 0.3 "Colors swapped"
 assert_no_crash
 
 # -- Snap after swap --
+park_mouse
 AFTER_SWAP=$(snap_region $PAL_X $PAL_Y $PAL_W $PAL_H "palette-after-swap")
 assert_regions_differ "$BEFORE_SWAP" "$AFTER_SWAP" "FG/BG swap should change palette display"
 screenshot "palette-swapped"
@@ -36,10 +38,11 @@ screenshot "palette-swapped"
 # -- Swap back: key x --
 info "Swap back (x)"
 key x
-wait_for 0.2 "Colors swapped back"
+wait_for 0.3 "Colors swapped back"
 assert_no_crash
 
 # -- Snap after swap back --
+park_mouse
 AFTER_SWAP_BACK=$(snap_region $PAL_X $PAL_Y $PAL_W $PAL_H "palette-after-swap-back")
 assert_regions_same "$BEFORE_SWAP" "$AFTER_SWAP_BACK" "Swapping back should restore original colors"
 screenshot "palette-restored"

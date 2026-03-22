@@ -8,10 +8,14 @@
 
 # -- Establish known state --
 info "=== Edit Copy/Paste Test ==="
-key b
-wait_for 0.3 "Switch to brush tool"
-click $CANVAS_CX $CANVAS_CY
-wait_for 0.3 "Focus canvas"
+canvas_focus b
+wait_for 0.3 "Brush tool ready"
+key bracketright
+key bracketright
+key bracketright
+wait_for 0.2 "Brush size increased"
+key grave
+wait_for 0.1 "Pointer arrow hidden"
 
 # -- Draw a brush stroke to have content to copy --
 info "Drawing brush stroke for copy source"
@@ -38,7 +42,8 @@ wait_for 0.5 "New layer created"
 assert_no_crash
 
 # -- Snap canvas before paste --
-BEFORE_PASTE=$(snap_region $(( CANVAS_CX - 30 )) $(( CANVAS_CY - 30 )) 60 60 "copy-paste-before")
+park_mouse
+BEFORE_PASTE=$(snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "copy-paste-before")
 
 # -- Paste --
 info "Paste (Ctrl+V)"
@@ -47,7 +52,8 @@ wait_for 0.5 "Content pasted"
 assert_no_crash
 
 # -- Snap canvas after paste --
-AFTER_PASTE=$(snap_region $(( CANVAS_CX - 30 )) $(( CANVAS_CY - 30 )) 60 60 "copy-paste-after")
+park_mouse
+AFTER_PASTE=$(snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "copy-paste-after")
 assert_regions_differ "$BEFORE_PASTE" "$AFTER_PASTE" "Paste should place content on new layer"
 screenshot "copy-paste-result"
 
