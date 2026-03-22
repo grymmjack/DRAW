@@ -774,7 +774,7 @@ Verify the font list scan and filtering features.
 
 ---
 
-## [ ] COMMIT AND CANCEL
+## [x] COMMIT AND CANCEL
 
 ### [x] Escape Key Behavior
 Verify Escape commits text with content, or cancels (deletes) empty text layers.
@@ -799,226 +799,226 @@ Verify Escape commits text with content, or cancels (deletes) empty text layers.
 3. [x] Verify text is committed (layer preserved)
 4. [x] Switch back to text tool — verify text is still there and re-editable
 
-### [ ] Done Button
-Verify the DONE button in the TEXT BAR.
+### [x] ~~Done Button~~ N/A — DONE button removed from TEXT BAR
+~~Verify the DONE button in the TEXT BAR.~~
 
-#### [ ] Click DONE commits text and exits editing
-1. [ ] Start text entry, type "Done Test"
-2. [ ] Click the DONE button in the TEXT BAR
-3. [ ] Verify text editing exits and text is committed
-4. [ ] Verify cursor disappears
-5. [ ] Verify text layer preserved
+#### [x] ~~Click DONE commits text and exits editing~~ N/A
+1. [x] ~~Start text entry, type "Done Test"~~ N/A
+2. [x] ~~Click the DONE button in the TEXT BAR~~ N/A
+3. [x] ~~Verify text editing exits and text is committed~~ N/A
+4. [x] ~~Verify cursor disappears~~ N/A
+5. [x] ~~Verify text layer preserved~~ N/A
 
 ---
 
-## [ ] RASTERIZE
+## [x] RASTERIZE
 
-### [ ] Rasterize Text Layer
+### [x] Rasterize Text Layer
 Verify converting text layers to image layers.
 
-#### [ ] Rasterize current text layer (Action 713)
-1. [ ] Create text "Rasterize Me", commit (Esc)
-2. [ ] Ensure the text layer is selected in layer panel
-3. [ ] Open Layer menu → Rasterize Text Layer
-4. [ ] Verify confirmation dialog appears
-5. [ ] Click Yes
-6. [ ] Verify layer type changes from TEXT to IMAGE in layer panel
-7. [ ] Verify text is no longer editable (clicking it doesn't open text editor)
-8. [ ] Verify the text pixels look the same as before rasterization
+#### [x] Rasterize current text layer (Action 713)
+1. [x] Create text "Rasterize Me", commit (Esc)
+2. [x] Ensure the text layer is selected in layer panel
+3. [x] Open Layer menu → Rasterize Text Layer
+4. [x] Verify confirmation dialog appears
+5. [x] Click Yes
+6. [x] Verify layer type changes from TEXT to IMAGE in layer panel
+7. [x] Verify text is no longer editable (clicking it doesn't open text editor)
+8. [x] Verify the text pixels look the same as before rasterization
 
-#### [ ] Rasterize all text layers (Action 714)
-1. [ ] Create multiple text layers: "Text A", "Text B", "Text C"
-2. [ ] Commit all (Esc after each)
-3. [ ] Open Layer menu → Rasterize All Text Layers
-4. [ ] Verify confirmation dialog appears
-5. [ ] Click Yes
-6. [ ] Verify all 3 text layers convert to IMAGE type
-7. [ ] Verify no text layers remain in the layer panel
+#### [x] Rasterize all text layers (Action 714)
+1. [x] Create multiple text layers: "Text A", "Text B", "Text C"
+2. [x] Commit all (Esc after each)
+3. [x] Open Layer menu → Rasterize All Text Layers
+4. [x] Verify confirmation dialog appears
+5. [x] Click Yes
+6. [x] Verify all 3 text layers convert to IMAGE type
+7. [x] Verify no text layers remain in the layer panel
 
-#### [ ] Cancel rasterize dialog
-1. [ ] Create text, commit, select the text layer
-2. [ ] Layer menu → Rasterize Text Layer
-3. [ ] Click No/Cancel on the dialog
-4. [ ] Verify text layer remains as LAYER_TYPE_TEXT (unchanged)
+#### [x] Cancel rasterize dialog
+1. [x] Create text, commit, select the text layer
+2. [x] Layer menu → Rasterize Text Layer
+3. [x] Click No/Cancel on the dialog
+4. [x] Verify text layer remains as LAYER_TYPE_TEXT (unchanged)
 
-#### [ ] Rasterize while actively editing
-1. [ ] Start text entry, type "Active Edit"
-2. [ ] Open Layer menu → Rasterize Text Layer (or use Command Palette)
-3. [ ] Confirm rasterization
-4. [ ] Verify text is committed first, then rasterized to pixels
-5. [ ] Verify text editing mode exits cleanly
+#### [x] Rasterize while actively editing
+1. [x] Start text entry, type "Active Edit"
+2. [x] Open Layer menu → Rasterize Text Layer (or use Command Palette)
+3. [x] Confirm rasterization
+4. [x] Verify text is committed first, then rasterized to pixels
+5. [x] Verify text editing mode exits cleanly
 
 ---
 
 ## [ ] UNDO / REDO
 
-### [ ] History Integration
+### [x] History Integration
 Verify undo/redo interactions with text actions.
 
-#### [ ] Undo after rasterize restores text layer
-1. [ ] Create text "Undo Test", commit
-2. [ ] Rasterize the text layer
-3. [ ] Press Ctrl+Z (undo)
-4. [ ] Verify the layer returns to TEXT type and is re-editable
+#### [x] Undo after rasterize restores text layer
+1. [x] Create text "Undo Test", commit
+2. [x] Rasterize the text layer
+3. [x] Press Ctrl+Z (undo)
+4. [x] Verify the layer returns to TEXT type and is re-editable
 
-#### [ ] Redo after undo restores rasterized state
-1. [ ] After undoing a rasterize (previous test)
-2. [ ] Press Ctrl+Y (redo)
-3. [ ] Verify the layer is rasterized again (IMAGE type)
+#### [x] Redo after undo restores rasterized state
+1. [x] After undoing a rasterize (previous test)
+2. [x] Press Ctrl+Y (redo)
+3. [x] Verify the layer is rasterized again (IMAGE type)
 
-#### [ ] Text editing does not create history entries until rasterize
-1. [ ] Create text, type various characters, edit
-2. [ ] Commit text (Escape)
-3. [ ] Press Ctrl+Z
-4. [ ] Verify undo does NOT undo individual character additions
-5. [ ] Text layers are non-destructive — history only applies to rasterize
+#### [x] Text editing does not create history entries until rasterize
+1. [x] Create text, type various characters, edit
+2. [x] Commit text (Escape)
+3. [x] Press Ctrl+Z
+4. [x] Verify undo does NOT undo individual character additions
+5. [x] Text layers are non-destructive — history only applies to rasterize
 
 ---
 
-## [ ] MOUSE INTERACTIONS — EDGE CASES
+## [x] MOUSE INTERACTIONS — EDGE CASES
 
-### [ ] Click Outside Text Bounds
+### [x] Click Outside Text Bounds
 Verify behavior when clicking outside existing text.
 
-#### [ ] Click on empty canvas while editing starts new text
-1. [ ] Start text entry at position (50,50), type "First"
-2. [ ] Click on a distant empty area of canvas (e.g. 200, 150)
-3. [ ] Verify the first text is committed
-4. [ ] Verify a new text entry starts at the clicked position
+#### [x] Click on empty canvas while editing starts new text
+1. [x] Start text entry at position (50,50), type "First"
+2. [x] Click on a distant empty area of canvas (e.g. 200, 150)
+3. [x] Verify the first text is committed
+4. [x] Verify a new text entry starts at the clicked position
 
-#### [ ] Click on canvas near text boundary
-1. [ ] Create text "Edge" at the very edge of the canvas
-2. [ ] Click 1 pixel outside the text bounding box
-3. [ ] Verify a new text entry starts (not a re-edit of "Edge")
+#### [x] Click on canvas near text boundary
+1. [x] Create text "Edge" at the very edge of the canvas
+2. [x] Click 1 pixel outside the text bounding box
+3. [x] Verify a new text entry starts (not a re-edit of "Edge")
 
-### [ ] Drag Selection Edge Cases
+### [x] Drag Selection Edge Cases
 Verify mouse drag selection handles various scenarios.
 
-#### [ ] Drag past end of text
-1. [ ] Type "Short"
-2. [ ] Click at start, drag mouse far past the end of "Short"
-3. [ ] Verify selection extends to end of text (doesn't crash or overflow)
+#### [x] Drag past end of text
+1. [x] Type "Short"
+2. [x] Click at start, drag mouse far past the end of "Short"
+3. [x] Verify selection extends to end of text (doesn't crash or overflow)
 
-#### [ ] Drag across multiple lines
-1. [ ] Type "Line 1" + Enter + "Line 2" + Enter + "Line 3"
-2. [ ] Click at "L" in "Line 1", drag down to "3" in "Line 3"
-3. [ ] Verify selection spans all three lines
-4. [ ] Verify the highlight covers the correct character ranges
+#### [x] Drag across multiple lines
+1. [x] Type "Line 1" + Enter + "Line 2" + Enter + "Line 3"
+2. [x] Click at "L" in "Line 1", drag down to "3" in "Line 3"
+3. [x] Verify selection spans all three lines
+4. [x] Verify the highlight covers the correct character ranges
 
-### [ ] Space Bar Panning During Text Tool
+### [x] Space Bar Panning During Text Tool
 Verify spacebar panning behavior conflicts are handled.
 
-#### [ ] Space bar types space while editing (not pan)
-1. [ ] Activate text tool, start editing text
-2. [ ] Press Space bar
-3. [ ] Verify a space character is inserted (NOT canvas pan)
-4. [ ] Verify no inadvertent panning occurs
+#### [x] Space bar types space while editing (not pan)
+1. [x] Activate text tool, start editing text
+2. [x] Press Space bar
+3. [x] Verify a space character is inserted (NOT canvas pan)
+4. [x] Verify no inadvertent panning occurs
 
-#### [ ] Space bar pans when text tool idle
-1. [ ] Activate text tool (`T`) but don't click canvas (idle state)
-2. [ ] Hold Space + drag
-3. [ ] Verify canvas pans normally (text tool idle does not block panning)
+#### [x] Space bar pans when text tool idle
+1. [x] Activate text tool (`T`) but don't click canvas (idle state)
+2. [x] Hold Space + drag
+3. [x] Verify canvas pans normally (text tool idle does not block panning)
 
 ---
 
-## [ ] TEXT BAR — DROPDOWN INTERACTIONS
+## [x] TEXT BAR — DROPDOWN INTERACTIONS
 
-### [ ] Dropdown State Transitions
+### [x] Dropdown State Transitions
 Verify font/size dropdowns don't conflict.
 
-#### [ ] Opening font dropdown closes size dropdown
-1. [ ] Open size dropdown (click size button)
-2. [ ] Click font button
-3. [ ] Verify size dropdown closes and font dropdown opens
+#### [x] Opening font dropdown closes size dropdown
+1. [x] Open size dropdown (click size button)
+2. [x] Click font button
+3. [x] Verify size dropdown closes and font dropdown opens
 
-#### [ ] Opening size dropdown closes font dropdown
-1. [ ] Open font dropdown (click font button)
-2. [ ] Click size button
-3. [ ] Verify font dropdown closes and size dropdown opens
+#### [x] Opening size dropdown closes font dropdown
+1. [x] Open font dropdown (click font button)
+2. [x] Click size button
+3. [x] Verify font dropdown closes and size dropdown opens
 
-#### [ ] Click outside any dropdown closes it
-1. [ ] Open font dropdown
-2. [ ] Click on the canvas
-3. [ ] Verify font dropdown closes
+#### [x] Click outside any dropdown closes it
+1. [x] Open font dropdown
+2. [x] Click on the canvas
+3. [x] Verify font dropdown closes
 
 ---
 
 ## [ ] DESIGN CONSIDERATIONS
 
-### [ ] Multiple Zoom Levels
+### [x] Multiple Zoom Levels
 Verify text tool works correctly at various zoom levels.
 
-#### [ ] Text entry at 1x zoom
-1. [ ] Set zoom to 100% (Ctrl+0)
-2. [ ] Activate text tool, click canvas, type "Zoom 1x"
-3. [ ] Verify text renders clearly and cursor positions correctly
+#### [x] Text entry at 1x zoom
+1. [x] Set zoom to 100% (Ctrl+0)
+2. [x] Activate text tool, click canvas, type "Zoom 1x"
+3. [x] Verify text renders clearly and cursor positions correctly
 
-#### [ ] Text entry at 4x zoom
-1. [ ] Zoom to 400%
-2. [ ] Click canvas, type "Zoom 4x"
-3. [ ] Verify text renders correctly (enlarged)
-4. [ ] Verify cursor position tracks correctly at 4x magnification
-5. [ ] Verify click-to-position and selection work at this zoom
+#### [x] Text entry at 4x zoom
+1. [x] Zoom to 400%
+2. [x] Click canvas, type "Zoom 4x"
+3. [x] Verify text renders correctly (enlarged)
+4. [x] Verify cursor position tracks correctly at 4x magnification
+5. [x] Verify click-to-position and selection work at this zoom
 
-#### [ ] Text entry at 8x zoom
-1. [ ] Zoom to 800%
-2. [ ] Click canvas, type "Zoom 8x"
-3. [ ] Verify individual pixels of text glyphs are visible
-4. [ ] Verify cursor and selection work correctly
+#### [x] Text entry at 8x zoom
+1. [x] Zoom to 800%
+2. [x] Click canvas, type "Zoom 8x"
+3. [x] Verify individual pixels of text glyphs are visible
+4. [x] Verify cursor and selection work correctly
 
-#### [ ] Text entry at 25% zoom (zoomed out)
-1. [ ] Zoom to 25%
-2. [ ] Click canvas, type "Zoom 25"
-3. [ ] Verify text placement is correct despite small rendering
-4. [ ] Verify cursor appears at the correct position
+#### [x] Text entry at 25% zoom (zoomed out)
+1. [x] Zoom to 25%
+2. [x] Click canvas, type "Zoom 25"
+3. [x] Verify text placement is correct despite small rendering
+4. [x] Verify cursor appears at the correct position
 
-### [ ] Different Canvas Sizes
+### [x] Different Canvas Sizes
 Verify text tool on different canvas sizes.
 
-#### [ ] Small canvas (16x16)
-1. [ ] Create a 16x16 canvas
-2. [ ] Activate text tool, click canvas
-3. [ ] Type a few characters — verify overflow handling
-4. [ ] Verify bottom overflow flash fires quickly
+#### [x] Small canvas (16x16)
+1. [x] Create a 16x16 canvas
+2. [x] Activate text tool, click canvas
+3. [x] Type a few characters — verify overflow handling
+4. [x] Verify bottom overflow flash fires quickly
 
-#### [ ] Medium canvas (128x128)
-1. [ ] Create 128x128 canvas
-2. [ ] Type text — verify word-wrap and multi-line work
+#### [x] Medium canvas (128x128)
+1. [x] Create 128x128 canvas
+2. [x] Type text — verify word-wrap and multi-line work
 
-#### [ ] Large canvas (320x200)
-1. [ ] Create 320x200 canvas
-2. [ ] Type a long paragraph — verify wrapping, lines, and scrolling
+#### [x] Large canvas (320x200)
+1. [x] Create 320x200 canvas
+2. [x] Type a long paragraph — verify wrapping, lines, and scrolling
 
-### [ ] Text on Different Layers
+### [x] Text on Different Layers
 Verify text tool interaction with the layer system.
 
-#### [ ] Text on layer 1 (bottom)
-1. [ ] Ensure on layer 1
-2. [ ] Type text — verify it appears on layer 1
+#### [x] Text on layer 1 (bottom)
+1. [x] Ensure on layer 1
+2. [x] Type text — verify it appears on layer 1
 
-#### [ ] Text on middle layer with content above/below
-1. [ ] Create 3 layers, draw content on layers 1 and 3
-2. [ ] Select layer 2, type text
-3. [ ] Verify text appears between layer 1 and 3 content (correct stacking)
+#### [x] Text on middle layer with content above/below
+1. [x] Create 3 layers, draw content on layers 1 and 3
+2. [x] Select layer 2, type text
+3. [x] Verify text appears between layer 1 and 3 content (correct stacking)
 
-#### [ ] Text on locked layer (opacity lock)
-1. [ ] Create text on a layer
-2. [ ] Lock layer opacity in layer panel
-3. [ ] Attempt to re-edit or create new text
-4. [ ] Verify appropriate behavior (text may or may not be restricted)
+#### [x] Text on locked layer (opacity lock)
+1. [x] Create text on a layer
+2. [x] Lock layer opacity in layer panel
+3. [x] Attempt to re-edit or create new text
+4. [x] Verify appropriate behavior (text may or may not be restricted)
 
-### [ ] Grid Snap Interaction
+### [x] Grid Snap Interaction
 Verify text placement respects grid snap settings.
 
-#### [ ] Text start position snaps to grid when snap enabled
-1. [ ] Enable grid snap (`;`)
-2. [ ] Activate text tool, click on canvas
-3. [ ] Verify text start position aligns to nearest grid intersection
+#### [x] Text start position snaps to grid when snap enabled
+1. [x] Enable grid snap (`;`)
+2. [x] Activate text tool, click on canvas
+3. [x] Verify text start position aligns to nearest grid intersection
 
-#### [ ] Text start position is precise when snap disabled
-1. [ ] Disable grid snap
-2. [ ] Click at an arbitrary position
-3. [ ] Verify text starts at the exact clicked pixel
+#### [x] Text start position is precise when snap disabled
+1. [x] Disable grid snap
+2. [x] Click at an arbitrary position
+3. [x] Verify text starts at the exact clicked pixel
 
 ---
 

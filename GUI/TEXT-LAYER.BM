@@ -952,3 +952,113 @@ FUNCTION TEXT_LAYER_get_cursor_at_pos% (idx%, canvasX%, canvasY%)
 
     TEXT_LAYER_get_cursor_at_pos% = bestPos%
 END FUNCTION
+
+
+''
+' Serialize all text layer data for a pool slot into a binary string.
+' Used by history system to save text data before rasterization.
+' @param tdIdx% Pool index (1-based)
+' @return STRING Binary serialized text layer data
+'
+FUNCTION TEXT_LAYER_serialize$ (tdIdx%)
+    IF tdIdx% < 1 OR tdIdx% > TEXT_LAYER_POOL_SIZE THEN
+        TEXT_LAYER_serialize$ = ""
+        EXIT FUNCTION
+    END IF
+    IF NOT TEXT_LAYER_DATA(tdIdx%).used THEN
+        TEXT_LAYER_serialize$ = ""
+        EXIT FUNCTION
+    END IF
+
+    DIM d AS STRING
+    DIM cc AS INTEGER, lc AS INTEGER, c AS INTEGER, ln AS INTEGER
+
+    cc% = TEXT_LAYER_DATA(tdIdx%).charCount
+    lc% = TEXT_LAYER_DATA(tdIdx%).lineCount
+
+    ' Header: 9 INTEGER fields = 18 bytes
+    d$ = MKI$(cc%)
+    d$ = d$ + MKI$(lc%)
+    d$ = d$ + MKI$(TEXT_LAYER_DATA(tdIdx%).startX)
+    d$ = d$ + MKI$(TEXT_LAYER_DATA(tdIdx%).startY)
+    d$ = d$ + MKI$(TEXT_LAYER_DATA(tdIdx%).fontIdx)
+    d$ = d$ + MKI$(TEXT_LAYER_DATA(tdIdx%).fontSize)
+    d$ = d$ + MKI$(TEXT_LAYER_DATA(tdIdx%).defaultLeading)
+    d$ = d$ + MKI$(TEXT_LAYER_DATA(tdIdx%).cursorPos)
+    d$ = d$ + MKI$(TEXT_LAYER_DATA(tdIdx%).monospace)
+
+    ' Per-character data (25 bytes per char)
+    FOR c% = 0 TO cc% - 1
+        d$ = d$ + TL_CHAR(tdIdx%, c%)
+        d$ = d$ + MKL$(TL_FG(tdIdx%, c%))
+        d$ = d$ + MKL$(TL_BG(tdIdx%, c%))
+        d$ = d$ + MKI$(TL_FONT_IDX(tdIdx%, c%))
+        d$ = d$ + MKI$(TL_FONT_SIZE(tdIdx%, c%))
+        d$ = d$ + MKI$(TL_BOLD(tdIdx%, c%))
+        d$ = d$ + MKI$(TL_ITALIC(tdIdx%, c%))
+        d$ = d$ + MKI$(TL_UNDERLINE(tdIdx%, c%))
+        d$ = d$ + MKI$(TL_STRIKE(tdIdx%, c%))
+        d$ = d$ + MKI$(TL_KERN(tdIdx%, c%))
+        d$ = d$ + MKI$(TL_BASELINE(tdIdx%, c%))
+    NEXT c%
+
+    ' Per-line data (4 bytes per line)
+    FOR ln% = 0 TO lc% - 1
+        d$ = d$ + MKI$(TL_LINE_BREAK(tdIdx%, ln%))
+        d$ = d$ + MKI$(TL_LEADING(tdIdx%, ln%))
+    NEXT ln%
+
+    TEXT_LAYER_serialize$ = d$
+END FUNCTION
+
+
+''
+' Deserialize text layer data from a binary string into a pool slot.
+' Used by history system to restore text data on undo of rasterization.
+' The pool slot must already be allocated (used = TRUE).
+' @param tdIdx% Pool index (1-based)
+' @param d$ Binary serialized text layer data from TEXT_LAYER_serialize$
+'
+SUB TEXT_LAYER_deserialize (tdIdx%, d$)
+    IF tdIdx% < 1 OR tdIdx% > TEXT_LAYER_POOL_SIZE THEN EXIT SUB
+    IF LEN(d$) < 18 THEN EXIT SUB
+
+    DIM dPos AS LONG, cc AS INTEGER, lc AS INTEGER, c AS INTEGER, ln AS INTEGER
+
+    dPos& = 1
+    cc% = CVI(MID$(d$, dPos&, 2)): dPos& = dPos& + 2
+    lc% = CVI(MID$(d$, dPos&, 2)): dPos& = dPos& + 2
+
+    TEXT_LAYER_DATA(tdIdx%).used = TRUE
+    TEXT_LAYER_DATA(tdIdx%).charCount = cc%
+    TEXT_LAYER_DATA(tdIdx%).lineCount = lc%
+    TEXT_LAYER_DATA(tdIdx%).startX = CVI(MID$(d$, dPos&, 2)): dPos& = dPos& + 2
+    TEXT_LAYER_DATA(tdIdx%).startY = CVI(MID$(d$, dPos&, 2)): dPos& = dPos& + 2
+    TEXT_LAYER_DATA(tdIdx%).fontIdx = CVI(MID$(d$, dPos&, 2)): dPos& = dPos& + 2
+    TEXT_LAYER_DATA(tdIdx%).fontSize = CVI(MID$(d$, dPos&, 2)): dPos& = dPos& + 2
+    TEXT_LAYER_DATA(tdIdx%).defaultLeading = CVI(MID$(d$, dPos&, 2)): dPos& = dPos& + 2
+    TEXT_LAYER_DATA(tdIdx%).cursorPos = CVI(MID$(d$, dPos&, 2)): dPos& = dPos& + 2
+    TEXT_LAYER_DATA(tdIdx%).monospace = CVI(MID$(d$, dPos&, 2)): dPos& = dPos& + 2
+    TEXT_LAYER_DATA(tdIdx%).dirty = TRUE
+
+    ' Per-character data
+    FOR c% = 0 TO cc% - 1
+        TL_CHAR(tdIdx%, c%) = MID$(d$, dPos&, 1): dPos& = dPos& + 1
+        TL_FG(tdIdx%, c%) = _CV(_UNSIGNED LONG, MID$(d$, dPos&, 4)): dPos& = dPos& + 4
+        TL_BG(tdIdx%, c%) = _CV(_UNSIGNED LONG, MID$(d$, dPos&, 4)): dPos& = dPos& + 4
+        TL_FONT_IDX(tdIdx%, c%) = CVI(MID$(d$, dPos&, 2)): dPos& = dPos& + 2
+        TL_FONT_SIZE(tdIdx%, c%) = CVI(MID$(d$, dPos&, 2)): dPos& = dPos& + 2
+        TL_BOLD(tdIdx%, c%) = CVI(MID$(d$, dPos&, 2)): dPos& = dPos& + 2
+        TL_ITALIC(tdIdx%, c%) = CVI(MID$(d$, dPos&, 2)): dPos& = dPos& + 2
+        TL_UNDERLINE(tdIdx%, c%) = CVI(MID$(d$, dPos&, 2)): dPos& = dPos& + 2
+        TL_STRIKE(tdIdx%, c%) = CVI(MID$(d$, dPos&, 2)): dPos& = dPos& + 2
+        TL_KERN(tdIdx%, c%) = CVI(MID$(d$, dPos&, 2)): dPos& = dPos& + 2
+        TL_BASELINE(tdIdx%, c%) = CVI(MID$(d$, dPos&, 2)): dPos& = dPos& + 2
+    NEXT c%
+
+    ' Per-line data
+    FOR ln% = 0 TO lc% - 1
+        TL_LINE_BREAK(tdIdx%, ln%) = CVI(MID$(d$, dPos&, 2)): dPos& = dPos& + 2
+        TL_LEADING(tdIdx%, ln%) = CVI(MID$(d$, dPos&, 2)): dPos& = dPos& + 2
+    NEXT ln%
+END SUB

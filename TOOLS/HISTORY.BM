@@ -490,6 +490,16 @@ SUB HISTORY_capture_layer_payload (recordIndex AS INTEGER, layerSlot AS INTEGER)
     HISTORY_RECORDS(recordIndex%).oldVisible% = LAYERS(layerSlot%).visible%
     HISTORY_RECORDS(recordIndex%).oldOpacityLock% = LAYERS(layerSlot%).opacityLock%
     HISTORY_RECORDS(recordIndex%).oldBlendMode% = LAYERS(layerSlot%).blendMode%
+    HISTORY_RECORDS(recordIndex%).layerType% = LAYERS(layerSlot%).layerType%
+
+    ' Serialize text layer data if this is a text layer
+    IF LAYERS(layerSlot%).layerType% = LAYER_TYPE_TEXT THEN
+        DIM captTd AS INTEGER
+        captTd% = LAYERS(layerSlot%).textDataIdx%
+        IF captTd% >= 1 AND captTd% <= TEXT_LAYER_POOL_SIZE THEN
+            HISTORY_PAYLOADS(recordIndex%) = TEXT_LAYER_serialize$(captTd%)
+        END IF
+    END IF
 
     IF HISTORY_RECORDS(recordIndex%).img& < -1 THEN
         _FREEIMAGE HISTORY_RECORDS(recordIndex%).img&
@@ -601,6 +611,14 @@ SUB HISTORY_delete_layer_by_slot (layerIndex AS INTEGER)
     LAYERS(layerIndex%).opacityCacheImg& = 0
     LAYERS(layerIndex%).opacityCacheVal% = 0
     LAYERS(layerIndex%).contentDirty% = FALSE
+    ' Clean up text pool data if still present
+    IF LAYERS(layerIndex%).layerType% = LAYER_TYPE_TEXT THEN
+        IF LAYERS(layerIndex%).textDataIdx% >= 1 AND LAYERS(layerIndex%).textDataIdx% <= TEXT_LAYER_POOL_SIZE THEN
+            TEXT_LAYER_free LAYERS(layerIndex%).textDataIdx%
+        END IF
+    END IF
+    LAYERS(layerIndex%).layerType% = LAYER_TYPE_IMAGE
+    LAYERS(layerIndex%).textDataIdx% = 0
     LAYER_COUNT% = LAYER_COUNT% - 1
 
     FOR i% = 1 TO 64
@@ -950,6 +968,33 @@ SUB HISTORY_record_transform (layerId AS LONG, layerSlot AS INTEGER, flags AS LO
     HISTORY_RECORDS(idx%).slotIndex% = layerSlot%
     HISTORY_RECORDS(idx%).flags& = flags&
     HISTORY_RECORDS(idx%).img& = beforeImg&
+    HISTORY_store_after_image idx%, layerSlot%
+    HISTORY_commit_record idx%
+END SUB
+
+''
+' Records a text layer rasterization for undo/redo.
+' Stores before/after images and serialized text layer data in payload.
+' Must be called AFTER rasterization so the after-image captures rasterized pixels.
+' @param layerId LONG Stable history ID of the affected layer
+' @param layerSlot INTEGER Layer array index (1..64)
+' @param beforeImg LONG Image handle of layer state before rasterization (ownership transferred)
+' @param textPayload STRING Serialized text layer data from TEXT_LAYER_serialize$
+' @param label STRING Human-readable label for the record
+'
+SUB HISTORY_record_rasterize (layerId AS LONG, layerSlot AS INTEGER, beforeImg AS LONG, textPayload AS STRING, label AS STRING)
+    DIM idx AS INTEGER
+
+    idx% = HISTORY_begin_record%(HISTORY_KIND_RASTERIZE, HISTORY_EXPORT_RASTER, label$)
+    IF idx% = 0 THEN
+        IF beforeImg& < -1 THEN _FREEIMAGE beforeImg&
+        EXIT SUB
+    END IF
+
+    HISTORY_RECORDS(idx%).primaryLayerId& = layerId&
+    HISTORY_RECORDS(idx%).slotIndex% = layerSlot%
+    HISTORY_RECORDS(idx%).img& = beforeImg&
+    HISTORY_PAYLOADS(idx%) = textPayload$
     HISTORY_store_after_image idx%, layerSlot%
     HISTORY_commit_record idx%
 END SUB
@@ -1864,10 +1909,36 @@ SUB HISTORY_undo ()
         SELECT CASE HISTORY_RECORDS(idx%).kind%
             CASE HISTORY_KIND_LAYER_ADD
                 layerIndex% = HISTORY_find_layer_slot_by_id%(HISTORY_RECORDS(idx%).primaryLayerId&)
-                IF layerIndex% > 0 THEN HISTORY_delete_layer_by_slot layerIndex%
+                IF layerIndex% > 0 THEN
+                    ' Save text data before deleting text layer
+                    IF LAYERS(layerIndex%).layerType% = LAYER_TYPE_TEXT THEN
+                        DIM laUndoTd AS INTEGER
+                        laUndoTd% = LAYERS(layerIndex%).textDataIdx%
+                        IF laUndoTd% >= 1 AND laUndoTd% <= TEXT_LAYER_POOL_SIZE THEN
+                            HISTORY_PAYLOADS(idx%) = TEXT_LAYER_serialize$(laUndoTd%)
+                            HISTORY_RECORDS(idx%).layerType% = LAYER_TYPE_TEXT
+                            TEXT_LAYER_free laUndoTd%
+                            LAYERS(layerIndex%).textDataIdx% = 0
+                            LAYERS(layerIndex%).layerType% = LAYER_TYPE_IMAGE
+                        END IF
+                    END IF
+                    HISTORY_delete_layer_by_slot layerIndex%
+                END IF
             CASE HISTORY_KIND_LAYER_DELETE
                 newSlot% = HISTORY_create_layer_from_record%(idx%, HISTORY_RECORDS(idx%).oldZIndex%)
-                IF newSlot% > 0 THEN LAYERS_select newSlot%
+                IF newSlot% > 0 THEN
+                    ' Restore text layer data if this was a text layer
+                    IF HISTORY_RECORDS(idx%).layerType% = LAYER_TYPE_TEXT AND LEN(HISTORY_PAYLOADS(idx%)) >= 18 THEN
+                        DIM ldUndoTd AS INTEGER
+                        ldUndoTd% = TEXT_LAYER_alloc%
+                        IF ldUndoTd% >= 1 THEN
+                            TEXT_LAYER_deserialize ldUndoTd%, HISTORY_PAYLOADS(idx%)
+                            LAYERS(newSlot%).layerType% = LAYER_TYPE_TEXT
+                            LAYERS(newSlot%).textDataIdx% = ldUndoTd%
+                        END IF
+                    END IF
+                    LAYERS_select newSlot%
+                END IF
             CASE HISTORY_KIND_LAYER_REORDER
                 HISTORY_move_layer_to_z HISTORY_RECORDS(idx%).primaryLayerId&, HISTORY_RECORDS(idx%).oldZIndex%
             CASE HISTORY_KIND_LAYER_RENAME
@@ -1875,6 +1946,22 @@ SUB HISTORY_undo ()
                 IF layerIndex% > 0 THEN LAYERS(layerIndex%).name$ = HISTORY_RECORDS(idx%).oldName$
             CASE HISTORY_KIND_LINE, HISTORY_KIND_RECT, HISTORY_KIND_ELLIPSE, HISTORY_KIND_POLYLINE, HISTORY_KIND_FILL, HISTORY_KIND_BRUSH, HISTORY_KIND_TRANSFORM
                 HISTORY_apply_layer_snapshot HISTORY_RECORDS(idx%).primaryLayerId&, HISTORY_RECORDS(idx%).img&
+            CASE HISTORY_KIND_RASTERIZE
+                ' Undo rasterize: restore pre-rasterize image and text layer data
+                DIM rastUndoSlot AS INTEGER
+                rastUndoSlot% = HISTORY_find_layer_slot_by_id%(HISTORY_RECORDS(idx%).primaryLayerId&)
+                IF rastUndoSlot% > 0 THEN
+                    ' Restore pixel content from before-image
+                    HISTORY_apply_layer_snapshot HISTORY_RECORDS(idx%).primaryLayerId&, HISTORY_RECORDS(idx%).img&
+                    ' Allocate new text data pool slot and restore text data
+                    DIM rastUndoTd AS INTEGER
+                    rastUndoTd% = TEXT_LAYER_alloc%
+                    IF rastUndoTd% >= 1 AND LEN(HISTORY_PAYLOADS(idx%)) >= 18 THEN
+                        TEXT_LAYER_deserialize rastUndoTd%, HISTORY_PAYLOADS(idx%)
+                        LAYERS(rastUndoSlot%).layerType% = LAYER_TYPE_TEXT
+                        LAYERS(rastUndoSlot%).textDataIdx% = rastUndoTd%
+                    END IF
+                END IF
             CASE HISTORY_KIND_SELECTION_CHANGE
                 HISTORY_sel_exchange idx%
             CASE HISTORY_KIND_LAYER_MERGE
@@ -1993,10 +2080,35 @@ SUB HISTORY_redo ()
         SELECT CASE HISTORY_RECORDS(idx%).kind%
             CASE HISTORY_KIND_LAYER_ADD
                 newSlot% = HISTORY_create_layer_from_record%(idx%, HISTORY_RECORDS(idx%).newZIndex%)
-                IF newSlot% > 0 THEN LAYERS_select newSlot%
+                IF newSlot% > 0 THEN
+                    ' Restore text layer data if this was a text layer
+                    IF HISTORY_RECORDS(idx%).layerType% = LAYER_TYPE_TEXT AND LEN(HISTORY_PAYLOADS(idx%)) >= 18 THEN
+                        DIM laRedoTd AS INTEGER
+                        laRedoTd% = TEXT_LAYER_alloc%
+                        IF laRedoTd% >= 1 THEN
+                            TEXT_LAYER_deserialize laRedoTd%, HISTORY_PAYLOADS(idx%)
+                            LAYERS(newSlot%).layerType% = LAYER_TYPE_TEXT
+                            LAYERS(newSlot%).textDataIdx% = laRedoTd%
+                        END IF
+                    END IF
+                    LAYERS_select newSlot%
+                END IF
             CASE HISTORY_KIND_LAYER_DELETE
                 layerIndex% = HISTORY_find_layer_slot_by_id%(HISTORY_RECORDS(idx%).primaryLayerId&)
-                IF layerIndex% > 0 THEN HISTORY_delete_layer_by_slot layerIndex%
+                IF layerIndex% > 0 THEN
+                    ' Save text data before deleting text layer
+                    IF LAYERS(layerIndex%).layerType% = LAYER_TYPE_TEXT THEN
+                        DIM ldRedoTd AS INTEGER
+                        ldRedoTd% = LAYERS(layerIndex%).textDataIdx%
+                        IF ldRedoTd% >= 1 AND ldRedoTd% <= TEXT_LAYER_POOL_SIZE THEN
+                            HISTORY_PAYLOADS(idx%) = TEXT_LAYER_serialize$(ldRedoTd%)
+                            TEXT_LAYER_free ldRedoTd%
+                            LAYERS(layerIndex%).textDataIdx% = 0
+                            LAYERS(layerIndex%).layerType% = LAYER_TYPE_IMAGE
+                        END IF
+                    END IF
+                    HISTORY_delete_layer_by_slot layerIndex%
+                END IF
             CASE HISTORY_KIND_LAYER_REORDER
                 HISTORY_move_layer_to_z HISTORY_RECORDS(idx%).primaryLayerId&, HISTORY_RECORDS(idx%).newZIndex%
             CASE HISTORY_KIND_LAYER_RENAME
@@ -2004,6 +2116,21 @@ SUB HISTORY_redo ()
                 IF layerIndex% > 0 THEN LAYERS(layerIndex%).name$ = HISTORY_RECORDS(idx%).newName$
             CASE HISTORY_KIND_LINE, HISTORY_KIND_RECT, HISTORY_KIND_ELLIPSE, HISTORY_KIND_POLYLINE, HISTORY_KIND_FILL, HISTORY_KIND_BRUSH, HISTORY_KIND_TRANSFORM
                 HISTORY_apply_layer_snapshot HISTORY_RECORDS(idx%).primaryLayerId&, HISTORY_RECORDS(idx%).img2&
+            CASE HISTORY_KIND_RASTERIZE
+                ' Redo rasterize: apply after-image (rasterized pixels) and free text data
+                DIM rastRedoSlot AS INTEGER
+                rastRedoSlot% = HISTORY_find_layer_slot_by_id%(HISTORY_RECORDS(idx%).primaryLayerId&)
+                IF rastRedoSlot% > 0 THEN
+                    HISTORY_apply_layer_snapshot HISTORY_RECORDS(idx%).primaryLayerId&, HISTORY_RECORDS(idx%).img2&
+                    ' Free text data if it was restored by undo
+                    DIM rastRedoTd AS INTEGER
+                    rastRedoTd% = LAYERS(rastRedoSlot%).textDataIdx%
+                    IF rastRedoTd% >= 1 AND rastRedoTd% <= TEXT_LAYER_POOL_SIZE THEN
+                        TEXT_LAYER_free rastRedoTd%
+                    END IF
+                    LAYERS(rastRedoSlot%).layerType% = LAYER_TYPE_IMAGE
+                    LAYERS(rastRedoSlot%).textDataIdx% = 0
+                END IF
             CASE HISTORY_KIND_SELECTION_CHANGE
                 HISTORY_sel_exchange idx%
             CASE HISTORY_KIND_LAYER_MERGE
