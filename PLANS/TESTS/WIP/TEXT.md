@@ -1060,21 +1060,21 @@ Verify mixed formatting within a single text layer.
 
 ---
 
-## [ ] TEXT LAYER POOL
+## [x] TEXT LAYER POOL
 
-### [ ] Pool Allocation and Limits
+### [x] Pool Allocation and Limits
 Verify the text layer pool manages slots correctly.
 
-#### [ ] Create maximum text layers (up to 64)
-1. [ ] Create multiple text layers one at a time (type text, commit, create new layer)
-2. [ ] Continue until pool is full or layer limit is reached
-3. [ ] Verify each text layer is independently re-editable
+#### [x] Create maximum text layers (up to 64)
+1. [x] Create multiple text layers one at a time (type text, commit, create new layer)
+2. [x] Continue until pool is full or layer limit is reached
+3. [x] Verify each text layer is independently re-editable
 
-#### [ ] Delete text layer frees pool slot
-1. [ ] Create a text layer, commit
-2. [ ] Delete the layer (Ctrl+Shift+Delete)
-3. [ ] Create a new text layer
-4. [ ] Verify pool slot was freed and re-allocated
+#### [x] Delete text layer frees pool slot
+1. [x] Create a text layer, commit
+2. [x] Delete the layer (Ctrl+Shift+Delete)
+3. [x] Create a new text layer
+4. [x] Verify pool slot was freed and re-allocated
 
 ---
 
