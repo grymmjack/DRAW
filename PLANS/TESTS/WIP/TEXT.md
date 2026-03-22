@@ -254,9 +254,9 @@ Verify Ctrl+Left/Right jumps by word boundaries.
 
 ---
 
-## [ ] TEXT SELECTION
+## [x] TEXT SELECTION
 
-### [ ] Keyboard Selection
+### [x] Keyboard Selection
 Verify text selection via Shift+arrow keys and other keyboard shortcuts.
 
 #### [x] Shift+Right extends selection right
@@ -327,85 +327,85 @@ Verify text selection via Shift+arrow keys and other keyboard shortcuts.
 3. [x] Type "DRAW"
 4. [x] Verify text reads "Hello DRAW" (selection deleted, new text inserted)
 
-#### [ ] Backspace deletes selection
-1. [ ] Type "Hello World"
-2. [ ] Select "World" (Shift+Left 5 times)
-3. [ ] Press Backspace
-4. [ ] Verify text reads "Hello "
+#### [x] Backspace deletes selection
+1. [x] Type "Hello World"
+2. [x] Select "World" (Shift+Left 5 times)
+3. [x] Press Backspace
+4. [x] Verify text reads "Hello "
 
-#### [ ] Delete key deletes selection
-1. [ ] Type "Hello World"
-2. [ ] Select "Hello" (Home, then Shift+Right 5 times)
-3. [ ] Press Delete
-4. [ ] Verify text reads " World"
+#### [x] Delete key deletes selection
+1. [x] Type "Hello World"
+2. [x] Select "Hello" (Home, then Shift+Right 5 times)
+3. [x] Press Delete
+4. [x] Verify text reads " World"
 
-### [ ] Mouse Selection
+### [x] Mouse Selection
 Verify text can be selected by clicking and dragging.
 
-#### [ ] Click to position cursor
-1. [ ] Type "Hello World"
-2. [ ] Click between 'o' and ' ' (space) in "Hello World"
-3. [ ] Verify cursor moves to the clicked position
-4. [ ] Type "X"
-5. [ ] Verify text reads "HelloX World"
+#### [x] Click to position cursor
+1. [x] Type "Hello World"
+2. [x] Click between 'o' and ' ' (space) in "Hello World"
+3. [x] Verify cursor moves to the clicked position
+4. [x] Type "X"
+5. [x] Verify text reads "HelloX World"
 
-#### [ ] Shift+Click extends selection
-1. [ ] Type "Hello World"
-2. [ ] Click at start of "Hello" (no shift)
-3. [ ] Shift+Click at end of "World"
-4. [ ] Verify entire "Hello World" is selected
+#### [x] Shift+Click extends selection
+1. [x] Type "Hello World"
+2. [x] Click at start of "Hello" (no shift)
+3. [x] Shift+Click at end of "World"
+4. [x] Verify entire "Hello World" is selected
 
-#### [ ] Click and drag to select text
-1. [ ] Type "Hello World Test"
-2. [ ] Click on "W" in "World", hold mouse button and drag to "t" in "Test"
-3. [ ] Release mouse button
-4. [ ] Verify "World Test" (or approximate range) is selected/highlighted
+#### [x] Click and drag to select text
+1. [x] Type "Hello World Test"
+2. [x] Click on "W" in "World", hold mouse button and drag to "t" in "Test"
+3. [x] Release mouse button
+4. [x] Verify "World Test" (or approximate range) is selected/highlighted
 
 ---
 
-## [ ] CLIPBOARD OPERATIONS
+## [x] CLIPBOARD OPERATIONS
 
-### [ ] Copy, Cut, Paste with Rich Formatting
+### [x] Copy, Cut, Paste with Rich Formatting
 Verify clipboard operations preserve per-character formatting.
 
-#### [ ] Ctrl+C copies selected text
-1. [ ] Type "Hello", select all with Ctrl+A
-2. [ ] Press Ctrl+C
-3. [ ] Open another app (e.g. text editor), paste — verify "Hello" is in system clipboard
+#### [x] Ctrl+C copies selected text
+1. [x] Type "Hello", select all with Ctrl+A
+2. [x] Press Ctrl+C
+3. [x] Open another app (e.g. text editor), paste — verify "Hello" is in system clipboard
 
-#### [ ] Ctrl+V pastes text from clipboard
-1. [ ] Copy "Test paste" from an external text editor (Ctrl+C there)
-2. [ ] In DRAW, start text entry on canvas
-3. [ ] Press Ctrl+V
-4. [ ] Verify "Test paste" appears at cursor position
+#### [x] Ctrl+V pastes text from clipboard
+1. [x] Copy "Test paste" from an external text editor (Ctrl+C there)
+2. [x] In DRAW, start text entry on canvas
+3. [x] Press Ctrl+V
+4. [x] Verify "Test paste" appears at cursor position
 
-#### [ ] Ctrl+X cuts selected text
-1. [ ] Type "Hello World"
-2. [ ] Select "World" (Shift+Left 5 times from end)
-3. [ ] Press Ctrl+X
-4. [ ] Verify text reads "Hello " ("World" removed)
-5. [ ] Verify clipboard contains "World" (paste in external editor to confirm)
+#### [x] Ctrl+X cuts selected text
+1. [x] Type "Hello World"
+2. [x] Select "World" (Shift+Left 5 times from end)
+3. [x] Press Ctrl+X
+4. [x] Verify text reads "Hello " ("World" removed)
+5. [x] Verify clipboard contains "World" (paste in external editor to confirm)
 
-#### [ ] Rich clipboard preserves formatting (internal copy-paste)
-1. [ ] Type "Hello"
-2. [ ] Select "Hello"
-3. [ ] Toggle Bold (Ctrl+B), change font size, change FG color
-4. [ ] Select "Hello" again (Ctrl+A)
-5. [ ] Press Ctrl+C (copy with rich formatting)
-6. [ ] Click elsewhere on canvas to start new text
-7. [ ] Press Ctrl+V
-8. [ ] Verify pasted text retains bold, font size, and color of the original
+#### [x] Rich clipboard preserves formatting (internal copy-paste)
+1. [x] Type "Hello"
+2. [x] Select "Hello"
+3. [x] Toggle Bold (Ctrl+B), change font size, change FG color
+4. [x] Select "Hello" again (Ctrl+A)
+5. [x] Press Ctrl+C (copy with rich formatting)
+6. [x] Click elsewhere on canvas to start new text
+7. [x] Press Ctrl+V
+8. [x] Verify pasted text retains bold, font size, and color of the original
 
-#### [ ] External clipboard paste uses TEXT BAR defaults
-1. [ ] In an external editor, copy some plain text
-2. [ ] In DRAW, set TEXT BAR to Bold, 24px, red FG
-3. [ ] Start text entry, press Ctrl+V
-4. [ ] Verify pasted text uses the current TEXT BAR settings (bold, 24px, red)
+#### [x] External clipboard paste uses TEXT BAR defaults
+1. [x] In an external editor, copy some plain text
+2. [x] In DRAW, set TEXT BAR to Bold, 24px, red FG
+3. [x] Start text entry, press Ctrl+V
+4. [x] Verify pasted text uses the current TEXT BAR settings (bold, 24px, red)
 
-#### [ ] Paste multi-line text
-1. [ ] Copy multi-line text from external editor (e.g. "Line 1\nLine 2\nLine 3")
-2. [ ] In DRAW, start text entry, press Ctrl+V
-3. [ ] Verify 3 lines appear correctly, with newlines at correct positions
+#### [x] Paste multi-line text
+1. [x] Copy multi-line text from external editor (e.g. "Line 1\nLine 2\nLine 3")
+2. [x] In DRAW, start text entry, press Ctrl+V
+3. [x] Verify 3 lines appear correctly, with newlines at correct positions
 
 ---
 
@@ -414,25 +414,25 @@ Verify clipboard operations preserve per-character formatting.
 ### [ ] Font Dropdown
 Verify the font dropdown lists available fonts and applies selection.
 
-#### [ ] Open font dropdown
-1. [ ] Activate text tool, start editing text
-2. [ ] Click the font name area in the TEXT BAR
-3. [ ] Verify a dropdown list appears listing available fonts
-4. [ ] Verify favorites appear at top (if DRAW_FONT_FAVORITES.txt exists)
-5. [ ] Verify separator lines show between favorites/bundled/system sections
+#### [x] Open font dropdown
+1. [x] Activate text tool, start editing text
+2. [x] Click the font name area in the TEXT BAR
+3. [x] Verify a dropdown list appears listing available fonts
+4. [x] Verify favorites appear at top (if DRAW_FONT_FAVORITES.txt exists)
+5. [x] Verify separator lines show between favorites/bundled/system sections
 
-#### [ ] Select a font from dropdown
-1. [ ] Open font dropdown
-2. [ ] Click on a different font name
-3. [ ] Verify dropdown closes
-4. [ ] Type new text — verify it appears in the newly selected font
+#### [x] Select a font from dropdown
+1. [x] Open font dropdown
+2. [x] Click on a different font name
+3. [x] Verify dropdown closes
+4. [x] Type new text — verify it appears in the newly selected font
 
-#### [ ] Scroll font dropdown with mouse wheel
-1. [ ] Open font dropdown
-2. [ ] Scroll mouse wheel down
-3. [ ] Verify the list scrolls to show more fonts
-4. [ ] Scroll mouse wheel up
-5. [ ] Verify the list scrolls back up
+#### [x] Scroll font dropdown with mouse wheel
+1. [x] Open font dropdown
+2. [x] Scroll mouse wheel down
+3. [x] Verify the list scrolls to show more fonts
+4. [x] Scroll mouse wheel up
+5. [x] Verify the list scrolls back up
 
 #### [ ] Close font dropdown by clicking outside
 1. [ ] Open font dropdown
