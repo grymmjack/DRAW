@@ -43,7 +43,8 @@ assert_no_crash
 
 # -- Snap canvas before paste --
 park_mouse
-BEFORE_PASTE=$(snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "copy-paste-before")
+snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "copy-paste-before"
+BEFORE_PASTE="$SNAP_RESULT"
 
 # -- Paste --
 info "Paste (Ctrl+V)"
@@ -53,7 +54,8 @@ assert_no_crash
 
 # -- Snap canvas after paste --
 park_mouse
-AFTER_PASTE=$(snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "copy-paste-after")
+snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "copy-paste-after"
+AFTER_PASTE="$SNAP_RESULT"
 assert_regions_differ "$BEFORE_PASTE" "$AFTER_PASTE" "Paste should place content on new layer"
 screenshot "copy-paste-result"
 

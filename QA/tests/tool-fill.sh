@@ -24,7 +24,8 @@ wait_for 0.3 "Switch to fill tool"
 
 # --- Snap canvas center BEFORE fill ---
 park_mouse
-BEFORE_FILL=$(snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "fill-before")
+snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "fill-before"
+BEFORE_FILL="$SNAP_RESULT"
 assert_no_crash
 
 # --- Flood fill below the stroke ---
@@ -34,7 +35,8 @@ assert_no_crash
 
 # --- Snap canvas center AFTER fill ---
 park_mouse
-AFTER_FILL=$(snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "fill-after")
+snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "fill-after"
+AFTER_FILL="$SNAP_RESULT"
 assert_regions_differ "$BEFORE_FILL" "$AFTER_FILL" "Flood fill should change canvas pixels"
 
 # --- Undo fill ---
@@ -44,7 +46,8 @@ assert_no_crash
 
 # --- Verify fill undo restored canvas ---
 park_mouse
-UNDO_FILL=$(snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "fill-undo")
+snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "fill-undo"
+UNDO_FILL="$SNAP_RESULT"
 assert_regions_differ "$AFTER_FILL" "$UNDO_FILL" "Undo should change canvas back from fill"
 
 # --- Undo brush stroke to fully clean up ---

@@ -7,6 +7,7 @@
 #   ./draw-qa.sh --list           List available tests
 #   ./draw-qa.sh --keep-open      Don't close DRAW after tests (for debugging)
 #   ./draw-qa.sh --fail-fast      Stop on first failure (for tuning tests)
+#   ./draw-qa.sh --verbose        Show every mouse/key action for debugging
 #
 # Each test is ATOMIC: DRAW is launched fresh and closed after every test
 # to prevent state from one test tainting the next.
@@ -35,6 +36,7 @@ FAIL=0
 SKIP=0
 KEEP_OPEN=0
 FAIL_FAST=0
+VERBOSE=0
 LOG_FILE=""
 
 # ── parse DRAW.cfg ────────────────────────────────────────────────────────────
@@ -42,6 +44,24 @@ _cfg() { grep -m1 "^${1}=" "$DRAW_CFG" 2>/dev/null | cut -d= -f2 | tr -d '[:spac
 
 DISPLAY_SCALE=$(_cfg DISPLAY_SCALE)
 DISPLAY_SCALE=${DISPLAY_SCALE:-1}
+
+# Window decoration height (KDE title bar).  Detected from _NET_FRAME_EXTENTS
+# after window creation; override with DECORATION_H=22 ./draw-qa.sh
+DECORATION_H=${DECORATION_H:-0}
+_detect_decoration_height() {
+    local extents
+    extents=$(xprop _NET_FRAME_EXTENTS -id "$DRAW_WID" 2>/dev/null \
+              | grep -oP '\d+' | tr '\n' ' ')
+    [[ -z "$extents" ]] && { echo 0; return; }
+    local left right top bottom
+    read -r left right top bottom <<< "$extents"
+    # KDE Breeze: side extents are shadow-only; top = shadow + title bar.
+    # Visible title bar ≈ top - 3×side_shadow.
+    local visible=$(( top - left * 3 ))
+    [[ $visible -lt 0 ]] && visible=0
+    echo "$visible"
+}
+
 VIEWPORT_W=$(_cfg SCREEN_WIDTH);   VIEWPORT_W=${VIEWPORT_W:-904}
 VIEWPORT_H=$(_cfg SCREEN_HEIGHT);  VIEWPORT_H=${VIEWPORT_H:-510}
 LAYER_PANEL_W=$(_cfg LAYER_PANEL_WIDTH); LAYER_PANEL_W=${LAYER_PANEL_W:-100}
@@ -88,6 +108,7 @@ RESET="\033[0m"
 # ── logging ───────────────────────────────────────────────────────────────────
 log()  { echo -e "$*"; [[ -n "$LOG_FILE" ]] && echo -e "$*" >> "$LOG_FILE"; }
 info() { log "${CYAN}  »${RESET} $*"; }
+dbg()  { [[ $VERBOSE -eq 1 ]] && { echo -e "${YELLOW}  ◦${RESET} $*" >&2; [[ -n "$LOG_FILE" ]] && echo -e "${YELLOW}  ◦${RESET} $*" >> "$LOG_FILE"; }; }
 pass() { log "${GREEN}  ✓ PASS${RESET} — $*"; PASS=$(( PASS + 1 )); }
 fail() {
     log "${RED}  ✗ FAIL${RESET} — $*"; FAIL=$(( FAIL + 1 ))
@@ -125,6 +146,9 @@ _capture_client_area() {
     local tmp="/tmp/draw-qa-capture-$$-${RANDOM}.png"
     local client_w=$(( VIEWPORT_W * DISPLAY_SCALE ))
     local client_h=$(( VIEWPORT_H * DISPLAY_SCALE ))
+    local crop_y=$(( WIN_ABS_Y + DECORATION_H ))
+
+    dbg "capture: crop=${client_w}x${client_h}+${WIN_ABS_X}+${crop_y} deco=$DECORATION_H"
 
     if [[ -n "${WAYLAND_DISPLAY:-}" ]] && command -v spectacle &>/dev/null; then
         # setsid runs spectacle in its own session so the Wayland compositor
@@ -137,8 +161,9 @@ _capture_client_area() {
     fi
 
     if [[ -s "$tmp" ]]; then
+        dbg "capture: fullscreen=$(identify -format '%wx%h' "$tmp" 2>/dev/null)"
         convert "$tmp" \
-            -crop "${client_w}x${client_h}+${WIN_ABS_X}+${WIN_ABS_Y}" +repage \
+            -crop "${client_w}x${client_h}+${WIN_ABS_X}+${crop_y}" +repage \
             "$outfile" 2>/dev/null
         rm -f "$tmp"
     else
@@ -184,6 +209,10 @@ draw_launch() {
     sleep 0.5   # let KDE finish the window animation
     _update_win_pos
     info "Window position: ${WIN_ABS_X},${WIN_ABS_Y}"
+    if [[ "$DECORATION_H" -eq 0 ]]; then
+        DECORATION_H=$(_detect_decoration_height)
+    fi
+    info "Decoration height: ${DECORATION_H}px"
     sleep 0.3
 }
 
@@ -210,12 +239,14 @@ draw_quit() {
 # lightweight (no real mouse click needed).
 draw_focus() {
     [[ -z "$DRAW_WID" ]] && return
+    dbg "draw_focus WID=$DRAW_WID"
     # Verify WID is still valid
     if ! xdotool getwindowname "$DRAW_WID" &>/dev/null; then
         local new_wid
         new_wid=$(xdotool search --pid "$DRAW_PID" --name "$WINDOW_TITLE" 2>/dev/null | head -1)
         if [[ -n "$new_wid" ]]; then
             DRAW_WID="$new_wid"
+            dbg "draw_focus WID refreshed → $DRAW_WID"
         fi
     fi
     xdotool windowactivate --sync "$DRAW_WID" 2>/dev/null
@@ -230,6 +261,7 @@ draw_focus() {
 # previously-active tool via the hotkey passed as $1 (default: none).
 canvas_focus() {
     local restore_key=${1:-""}
+    dbg "canvas_focus → move tool, click canvas ($CANVAS_CX,$CANVAS_CY), restore='$restore_key'"
     key v            # Move tool — non-destructive click
     sleep 0.05
     click "$CANVAS_CX" "$CANVAS_CY"
@@ -245,6 +277,7 @@ canvas_focus() {
 park_mouse() {
     local ax ay
     read -r ax ay <<< "$(_abs 50 60)"
+    dbg "park_mouse → abs ($ax,$ay)"
     xdotool mousemove "$ax" "$ay"
     sleep 0.05
 }
@@ -261,22 +294,29 @@ _update_win_pos() {
 }
 
 # Convert viewport-pixel coords to absolute screen coords.
-# Test files use internal viewport pixels; multiply by DISPLAY_SCALE for real screen pixels.
+# DECORATION_H skips the KDE title bar so (0,0) maps to client area origin.
 _abs() {
     [[ -z "$WIN_ABS_X" ]] && _update_win_pos
-    echo $(( WIN_ABS_X + $1 * DISPLAY_SCALE )) $(( WIN_ABS_Y + $2 * DISPLAY_SCALE ))
+    echo $(( WIN_ABS_X + $1 * DISPLAY_SCALE )) $(( WIN_ABS_Y + DECORATION_H + $2 * DISPLAY_SCALE ))
 }
 
-# click X Y [button=1]  — window-relative coords
-# Uses real X11 pointer movement (not XSendEvent) so SDL2 sees the events.
+# click X Y [button=1]  — viewport-pixel coords
+# Implemented as a 1px drag (mousedown → move 1px → mouseup) because SDL2
+# reliably processes XTEST pointer events that include motion.
 click() {
     local x=$1 y=$2 btn=${3:-1}
     local ax ay
+    _update_win_pos
     read -r ax ay <<< "$(_abs "$x" "$y")"
+    dbg "click vp=($x,$y) abs=($ax,$ay) btn=$btn win=($WIN_ABS_X,$WIN_ABS_Y) deco=$DECORATION_H"
     draw_focus
     xdotool mousemove "$ax" "$ay"
+    sleep 0.08
+    xdotool mousedown "$btn"
     sleep 0.05
-    xdotool click "$btn"
+    xdotool mousemove $(( ax + 1 )) "$ay"
+    sleep 0.05
+    xdotool mouseup "$btn"
     sleep 0.1
 }
 
@@ -290,8 +330,12 @@ double_click() {
     draw_focus
     xdotool mousemove "$ax" "$ay"
     sleep 0.05
-    xdotool click --repeat 2 --delay 100 1
-    sleep 0.1
+    xdotool mousedown 1; sleep 0.05
+    xdotool mousemove $(( ax + 1 )) "$ay"; sleep 0.05
+    xdotool mouseup 1; sleep 0.1
+    xdotool mousedown 1; sleep 0.05
+    xdotool mousemove $(( ax + 2 )) "$ay"; sleep 0.05
+    xdotool mouseup 1; sleep 0.1
 }
 
 # drag from_x from_y to_x to_y [button=1]
@@ -300,6 +344,7 @@ drag() {
     local ax1 ay1 ax2 ay2
     read -r ax1 ay1 <<< "$(_abs "$x1" "$y1")"
     read -r ax2 ay2 <<< "$(_abs "$x2" "$y2")"
+    dbg "drag vp=($x1,$y1)→($x2,$y2) abs=($ax1,$ay1)→($ax2,$ay2) btn=$btn"
     draw_focus
     xdotool mousemove "$ax1" "$ay1"
     sleep 0.1
@@ -342,6 +387,7 @@ type_text() {
 # press/release cycle finishes before DRAW's next frame poll.
 key() {
     draw_focus
+    dbg "key $*"
     local combo
     for combo in "$@"; do
         if [[ "$combo" == *"+"* ]]; then
@@ -385,23 +431,21 @@ wait_for() {
 
 # screenshot "label"
 # Captures the compositor's view of the DRAW window.
-# On Wayland: uses spectacle (KDE) which reads the compositor buffer.
-# On X11: scrot root + ImageMagick crop (SDL2/OpenGL X11 buffer stays black).
+# Sets SNAP_RESULT to the saved PNG path.
 screenshot() {
     local label=${1:-"shot"}
     local ts; ts=$(date '+%H%M%S%3N')
-    local file="$SCREENSHOTS_DIR/${label}-${ts}.png"
+    SNAP_RESULT="$SCREENSHOTS_DIR/${label}-${ts}.png"
 
     draw_focus
     sleep 0.15   # let compositor finish compositing the frame
 
-    if _capture_client_area "$file"; then
-        info "Screenshot → $(basename "$file")"
+    if _capture_client_area "$SNAP_RESULT"; then
+        info "Screenshot → $(basename "$SNAP_RESULT")"
     else
         warn "screenshot failed for '$label'"
+        SNAP_RESULT=""
     fi
-
-    echo "$file"
 }
 
 # assert_window_title EXPECTED_SUBSTR
@@ -447,12 +491,11 @@ assert_no_crash() {
 
 # snap_region X Y W H label
 # Capture a specific viewport-pixel region of the DRAW window.
-# Two-step crop: fullscreen → window → sub-region. This eliminates any
-# decoration offset from xdotool coordinates.
-# Prints the path to the saved PNG. Use with assert_regions_differ / assert_regions_same.
+# Two-step crop: fullscreen → client area → sub-region.
+# Sets SNAP_RESULT to the saved PNG path. Use with assert_regions_differ / assert_regions_same.
 snap_region() {
     local vx=$1 vy=$2 vw=$3 vh=$4 label=${5:-"snap"}
-    local out="$SCREENSHOTS_DIR/_snap_${label}_$$.png"
+    SNAP_RESULT="$SCREENSHOTS_DIR/_snap_${label}_$$.png"
     local wintmp="/tmp/draw-qa-win-$$.png"
 
     # Sub-region offsets (viewport pixels → physical pixels within client area)
@@ -461,17 +504,21 @@ snap_region() {
     local rw=$(( vw * DISPLAY_SCALE ))
     local rh=$(( vh * DISPLAY_SCALE ))
 
+    dbg "snap_region vp=($vx,$vy ${vw}x${vh}) → px=($rx,$ry ${rw}x${rh}) label=$label"
+
     # Ensure DRAW is in the foreground and has rendered before capturing
     draw_focus
     sleep 1
 
     # Capture the client area (decorations stripped) and sub-crop the region
     if _capture_client_area "$wintmp"; then
-        convert "$wintmp" -crop "${rw}x${rh}+${rx}+${ry}" +repage "$out" 2>/dev/null
+        dbg "snap_region client_area=$(identify -format '%wx%h' "$wintmp" 2>/dev/null) sub-crop=${rw}x${rh}+${rx}+${ry}"
+        convert "$wintmp" -crop "${rw}x${rh}+${rx}+${ry}" +repage "$SNAP_RESULT" 2>/dev/null
         rm -f "$wintmp"
+    else
+        dbg "snap_region _capture_client_area FAILED"
+        SNAP_RESULT=""
     fi
-
-    echo "$out"
 }
 
 # assert_regions_differ file1 file2 msg
@@ -539,6 +586,7 @@ run_test_file() {
 for arg in "$@"; do
     [[ "$arg" == "--keep-open" ]] && KEEP_OPEN=1
     [[ "$arg" == "--fail-fast" ]] && FAIL_FAST=1
+    [[ "$arg" == "--verbose" ]]   && VERBOSE=1
 done
 
 mkdir -p "$RESULTS_DIR" "$SCREENSHOTS_DIR"

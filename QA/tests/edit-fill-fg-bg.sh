@@ -17,7 +17,8 @@ wait_for 0.1 "Pointer arrow hidden"
 
 # -- Snap canvas before fill --
 park_mouse
-BEFORE_FILL=$(snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "fill-fg-before")
+snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "fill-fg-before"
+BEFORE_FILL="$SNAP_RESULT"
 assert_no_crash
 
 # -- Fill away from center (avoid any artifacts from canvas_focus click) --
@@ -28,7 +29,8 @@ assert_no_crash
 
 # -- Snap canvas after fill --
 park_mouse
-AFTER_FILL=$(snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "fill-fg-after")
+snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "fill-fg-after"
+AFTER_FILL="$SNAP_RESULT"
 assert_regions_differ "$BEFORE_FILL" "$AFTER_FILL" "Flood fill should change canvas pixels"
 screenshot "fill-fg-result"
 
@@ -40,7 +42,8 @@ assert_no_crash
 
 # -- Verify undo restored canvas --
 park_mouse
-UNDO_FILL=$(snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "fill-fg-undo")
+snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "fill-fg-undo"
+UNDO_FILL="$SNAP_RESULT"
 assert_regions_differ "$AFTER_FILL" "$UNDO_FILL" "Undo should change canvas back from fill"
 
 # -- Restore brush tool --

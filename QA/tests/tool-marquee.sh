@@ -32,7 +32,8 @@ assert_no_crash
 SNAP_X=$(( CANVAS_CX - 80 ))
 SNAP_Y=$(( CANVAS_CY - 60 ))
 park_mouse
-BEFORE=$(snap_region $SNAP_X $SNAP_Y 160 120 "marquee-before")
+snap_region $SNAP_X $SNAP_Y 160 120 "marquee-before"
+BEFORE="$SNAP_RESULT"
 
 # -- Drag a rectangular selection on canvas -----------------------------------
 DRAG_X1=$(( CANVAS_CX - 25 ))
@@ -45,7 +46,8 @@ assert_no_crash
 
 # -- Snap canvas AFTER selection, assert marching ants visible ----------------
 park_mouse
-AFTER_DRAG=$(snap_region $SNAP_X $SNAP_Y 160 120 "marquee-after-drag")
+snap_region $SNAP_X $SNAP_Y 160 120 "marquee-after-drag"
+AFTER_DRAG="$SNAP_RESULT"
 assert_regions_differ "$BEFORE" "$AFTER_DRAG" \
     "Marching ants should be visible after marquee drag"
 
@@ -55,7 +57,8 @@ key ctrl+a
 wait_for 0.5 "select all"
 assert_no_crash
 park_mouse
-AFTER_SELECTALL=$(snap_region $SNAP_X $SNAP_Y 160 120 "marquee-after-selectall")
+snap_region $SNAP_X $SNAP_Y 160 120 "marquee-after-selectall"
+AFTER_SELECTALL="$SNAP_RESULT"
 assert_regions_differ "$AFTER_DRAG" "$AFTER_SELECTALL" \
     "Select All should change selection from partial to full canvas"
 
@@ -65,7 +68,8 @@ key ctrl+d
 wait_for 0.5 "deselect"
 assert_no_crash
 park_mouse
-AFTER_DESELECT=$(snap_region $SNAP_X $SNAP_Y 160 120 "marquee-after-deselect")
+snap_region $SNAP_X $SNAP_Y 160 120 "marquee-after-deselect"
+AFTER_DESELECT="$SNAP_RESULT"
 assert_regions_differ "$AFTER_SELECTALL" "$AFTER_DESELECT" \
     "Deselect should remove selection (no marching ants)"
 
@@ -74,12 +78,14 @@ info "Testing Invert Selection (Ctrl+Shift+I)"
 key ctrl+a
 wait_for 0.3 "select all before invert"
 park_mouse
-BEFORE_INVERT=$(snap_region $SNAP_X $SNAP_Y 160 120 "marquee-before-invert")
+snap_region $SNAP_X $SNAP_Y 160 120 "marquee-before-invert"
+BEFORE_INVERT="$SNAP_RESULT"
 key ctrl+shift+i
 wait_for 0.5 "invert selection"
 assert_no_crash
 park_mouse
-AFTER_INVERT=$(snap_region $SNAP_X $SNAP_Y 160 120 "marquee-after-invert")
+snap_region $SNAP_X $SNAP_Y 160 120 "marquee-after-invert"
+AFTER_INVERT="$SNAP_RESULT"
 info "Invert selection completed without crash"
 
 # -- Cleanup: deselect and restore brush tool ---------------------------------

@@ -31,7 +31,8 @@ wait_for 0.1 "Pointer arrow hidden"
 
 # -- Snap organizer region before --
 park_mouse
-BEFORE=$(snap_region $ORG_X $ORG_Y $ORG_W $ORG_H "organizer-before")
+snap_region $ORG_X $ORG_Y $ORG_W $ORG_H "organizer-before"
+BEFORE="$SNAP_RESULT"
 assert_no_crash
 
 # -- Increase brush size: ] --
@@ -42,7 +43,8 @@ assert_no_crash
 
 # -- Snap after increase --
 park_mouse
-AFTER_INC=$(snap_region $ORG_X $ORG_Y $ORG_W $ORG_H "organizer-after-inc")
+snap_region $ORG_X $ORG_Y $ORG_W $ORG_H "organizer-after-inc"
+AFTER_INC="$SNAP_RESULT"
 assert_regions_differ "$BEFORE" "$AFTER_INC" "Organizer should update after brush size increase"
 screenshot "organizer-brush-inc"
 
@@ -54,7 +56,8 @@ assert_no_crash
 
 # -- Snap after decrease --
 park_mouse
-AFTER_DEC=$(snap_region $ORG_X $ORG_Y $ORG_W $ORG_H "organizer-after-dec")
+snap_region $ORG_X $ORG_Y $ORG_W $ORG_H "organizer-after-dec"
+AFTER_DEC="$SNAP_RESULT"
 assert_regions_differ "$AFTER_INC" "$AFTER_DEC" "Organizer should update after brush size decrease"
 screenshot "organizer-brush-dec"
 

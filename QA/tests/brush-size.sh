@@ -21,7 +21,8 @@ ORG_W=$(( TOOLBOX_W - 4 ))
 ORG_H=30
 
 park_mouse
-BEFORE=$(snap_region $ORG_X $ORG_Y $ORG_W $ORG_H "bsize-before")
+snap_region $ORG_X $ORG_Y $ORG_W $ORG_H "bsize-before"
+BEFORE="$SNAP_RESULT"
 assert_no_crash
 
 # --- Increase brush size 3 times ---
@@ -34,7 +35,8 @@ wait_for 0.2 "Size +3"
 
 # --- Snap organizer AFTER increase ---
 park_mouse
-AFTER_INC=$(snap_region $ORG_X $ORG_Y $ORG_W $ORG_H "bsize-after-inc")
+snap_region $ORG_X $ORG_Y $ORG_W $ORG_H "bsize-after-inc"
+AFTER_INC="$SNAP_RESULT"
 assert_regions_differ "$BEFORE" "$AFTER_INC" "organizer changed after brush size increase"
 
 # --- Decrease brush size 3 times to restore ---
@@ -47,7 +49,8 @@ wait_for 0.2 "Size -3"
 
 # --- Snap organizer AFTER decrease (should match original) ---
 park_mouse
-AFTER_DEC=$(snap_region $ORG_X $ORG_Y $ORG_W $ORG_H "bsize-after-dec")
+snap_region $ORG_X $ORG_Y $ORG_W $ORG_H "bsize-after-dec"
+AFTER_DEC="$SNAP_RESULT"
 assert_regions_same "$BEFORE" "$AFTER_DEC" "organizer restored after brush size decrease"
 
 assert_window_exists

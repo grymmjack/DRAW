@@ -20,7 +20,8 @@ wait_for 0.1 "Pointer arrow hidden"
 
 # -- Snap palette region before swap --
 park_mouse
-BEFORE_SWAP=$(snap_region $PAL_X $PAL_Y $PAL_W $PAL_H "palette-before-swap")
+snap_region $PAL_X $PAL_Y $PAL_W $PAL_H "palette-before-swap"
+BEFORE_SWAP="$SNAP_RESULT"
 assert_no_crash
 
 # -- Swap FG/BG colors: key x --
@@ -31,7 +32,8 @@ assert_no_crash
 
 # -- Snap after swap --
 park_mouse
-AFTER_SWAP=$(snap_region $PAL_X $PAL_Y $PAL_W $PAL_H "palette-after-swap")
+snap_region $PAL_X $PAL_Y $PAL_W $PAL_H "palette-after-swap"
+AFTER_SWAP="$SNAP_RESULT"
 assert_regions_differ "$BEFORE_SWAP" "$AFTER_SWAP" "FG/BG swap should change palette display"
 screenshot "palette-swapped"
 
@@ -43,7 +45,8 @@ assert_no_crash
 
 # -- Snap after swap back --
 park_mouse
-AFTER_SWAP_BACK=$(snap_region $PAL_X $PAL_Y $PAL_W $PAL_H "palette-after-swap-back")
+snap_region $PAL_X $PAL_Y $PAL_W $PAL_H "palette-after-swap-back"
+AFTER_SWAP_BACK="$SNAP_RESULT"
 assert_regions_same "$BEFORE_SWAP" "$AFTER_SWAP_BACK" "Swapping back should restore original colors"
 screenshot "palette-restored"
 

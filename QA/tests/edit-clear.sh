@@ -24,7 +24,8 @@ assert_no_crash
 
 # -- Snap canvas after stroke --
 park_mouse
-WITH_STROKE=$(snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "clear-with-stroke")
+snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "clear-with-stroke"
+WITH_STROKE="$SNAP_RESULT"
 
 # -- Clear canvas: Delete key --
 info "Clear canvas (Delete)"
@@ -36,7 +37,8 @@ assert_no_crash
 
 # -- Snap canvas after clear --
 park_mouse
-AFTER_CLEAR=$(snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "clear-after-clear")
+snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "clear-after-clear"
+AFTER_CLEAR="$SNAP_RESULT"
 assert_regions_differ "$WITH_STROKE" "$AFTER_CLEAR" "Clear should remove all canvas content"
 screenshot "clear-after"
 
@@ -48,7 +50,8 @@ assert_no_crash
 
 # -- Verify undo restored the stroke (compare vs cleared state — content should return) --
 park_mouse
-AFTER_UNDO=$(snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "clear-after-undo")
+snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "clear-after-undo"
+AFTER_UNDO="$SNAP_RESULT"
 assert_regions_differ "$AFTER_CLEAR" "$AFTER_UNDO" "Undo should restore canvas after clear"
 screenshot "clear-after-undo"
 

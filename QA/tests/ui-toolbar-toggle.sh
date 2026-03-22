@@ -24,7 +24,8 @@ wait_for 0.1 "Pointer arrow hidden"
 
 # -- Snap toolbar region before --
 park_mouse
-BEFORE=$(snap_region $TB_X $TB_Y $TB_W $TB_H "toolbar-before")
+snap_region $TB_X $TB_Y $TB_W $TB_H "toolbar-before"
+BEFORE="$SNAP_RESULT"
 assert_no_crash
 
 # -- Toggle toolbar OFF: Tab --
@@ -35,7 +36,8 @@ assert_no_crash
 
 # -- Snap after hide --
 park_mouse
-HIDDEN=$(snap_region $TB_X $TB_Y $TB_W $TB_H "toolbar-hidden")
+snap_region $TB_X $TB_Y $TB_W $TB_H "toolbar-hidden"
+HIDDEN="$SNAP_RESULT"
 assert_regions_differ "$BEFORE" "$HIDDEN" "Toolbar region should change when hidden"
 screenshot "toolbar-hidden"
 
@@ -47,7 +49,8 @@ assert_no_crash
 
 # -- Snap after restore --
 park_mouse
-RESTORED=$(snap_region $TB_X $TB_Y $TB_W $TB_H "toolbar-restored")
+snap_region $TB_X $TB_Y $TB_W $TB_H "toolbar-restored"
+RESTORED="$SNAP_RESULT"
 assert_regions_differ "$HIDDEN" "$RESTORED" "Toolbar region should change when restored"
 screenshot "toolbar-restored"
 

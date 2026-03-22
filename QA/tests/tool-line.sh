@@ -19,7 +19,8 @@ wait_for 0.1 "Pointer arrow hidden"
 
 # --- Snap canvas center BEFORE line ---
 park_mouse
-BEFORE=$(snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "line-before")
+snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "line-before"
+BEFORE="$SNAP_RESULT"
 assert_no_crash
 
 # --- Draw line via drag ---
@@ -29,7 +30,8 @@ assert_no_crash
 
 # --- Snap canvas center AFTER line ---
 park_mouse
-AFTER=$(snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "line-after")
+snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "line-after"
+AFTER="$SNAP_RESULT"
 assert_regions_differ "$BEFORE" "$AFTER" "Line should be visible on canvas"
 
 # --- Undo line ---
@@ -39,7 +41,8 @@ assert_no_crash
 
 # --- Snap canvas center AFTER undo ---
 park_mouse
-UNDO=$(snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "line-undo")
+snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "line-undo"
+UNDO="$SNAP_RESULT"
 assert_regions_differ "$AFTER" "$UNDO" "Undo should change canvas from line state"
 
 assert_window_exists

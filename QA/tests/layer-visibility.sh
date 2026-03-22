@@ -29,7 +29,8 @@ wait_for 0.3 "Wait for brush stroke"
 assert_no_crash
 
 park_mouse
-CANVAS_WITH_CONTENT=$(snap_region $CX $CY $CW $CH "canvas-with-content")
+snap_region $CX $CY $CW $CH "canvas-with-content"
+CANVAS_WITH_CONTENT="$SNAP_RESULT"
 screenshot "canvas-with-brush-stroke"
 
 # -- Toggle visibility OFF: click eye icon --
@@ -39,7 +40,8 @@ wait_for 0.5 "Wait for visibility toggle off"
 assert_no_crash
 
 park_mouse
-CANVAS_HIDDEN=$(snap_region $CX $CY $CW $CH "canvas-layer-hidden")
+snap_region $CX $CY $CW $CH "canvas-layer-hidden"
+CANVAS_HIDDEN="$SNAP_RESULT"
 assert_regions_differ "$CANVAS_WITH_CONTENT" "$CANVAS_HIDDEN" "Canvas should change when layer is hidden"
 screenshot "canvas-layer-hidden"
 
@@ -50,7 +52,8 @@ wait_for 0.5 "Wait for visibility toggle on"
 assert_no_crash
 
 park_mouse
-CANVAS_VISIBLE=$(snap_region $CX $CY $CW $CH "canvas-layer-visible-again")
+snap_region $CX $CY $CW $CH "canvas-layer-visible-again"
+CANVAS_VISIBLE="$SNAP_RESULT"
 assert_regions_differ "$CANVAS_HIDDEN" "$CANVAS_VISIBLE" "Canvas should change when layer is shown again"
 screenshot "canvas-layer-visible-again"
 

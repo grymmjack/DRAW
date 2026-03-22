@@ -15,7 +15,8 @@ wait_for 0.1 "Pointer arrow hidden"
 
 # --- Snap canvas center BEFORE spray ---
 park_mouse
-BEFORE=$(snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "spray-before")
+snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "spray-before"
+BEFORE="$SNAP_RESULT"
 assert_no_crash
 
 # --- Drag spray over a small area at canvas center ---
@@ -25,7 +26,8 @@ assert_no_crash
 
 # --- Snap canvas center AFTER spray ---
 park_mouse
-AFTER=$(snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "spray-after")
+snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "spray-after"
+AFTER="$SNAP_RESULT"
 assert_regions_differ "$BEFORE" "$AFTER" "Spray should be visible on canvas"
 
 # --- Undo spray ---
@@ -35,7 +37,8 @@ assert_no_crash
 
 # --- Snap canvas center AFTER undo ---
 park_mouse
-UNDO=$(snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "spray-undo")
+snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "spray-undo"
+UNDO="$SNAP_RESULT"
 assert_regions_differ "$AFTER" "$UNDO" "Undo should change canvas from spray state"
 
 assert_window_exists

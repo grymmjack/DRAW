@@ -14,7 +14,8 @@ wait_for 0.1 "Pointer arrow hidden"
 
 # -- Snap full work area before zoom --
 park_mouse
-BEFORE_ZOOM=$(snap_region $WORK_LEFT $WORK_TOP $WORK_W $WORK_H "zoom-before")
+snap_region $WORK_LEFT $WORK_TOP $WORK_W $WORK_H "zoom-before"
+BEFORE_ZOOM="$SNAP_RESULT"
 assert_no_crash
 
 # -- Zoom in once: Ctrl+= --
@@ -25,7 +26,8 @@ assert_no_crash
 
 # -- Snap after first zoom --
 park_mouse
-ZOOM_1=$(snap_region $WORK_LEFT $WORK_TOP $WORK_W $WORK_H "zoom-in-1")
+snap_region $WORK_LEFT $WORK_TOP $WORK_W $WORK_H "zoom-in-1"
+ZOOM_1="$SNAP_RESULT"
 assert_regions_differ "$BEFORE_ZOOM" "$ZOOM_1" "Zoom in should change canvas appearance"
 screenshot "zoom-in-1"
 
@@ -44,7 +46,8 @@ assert_no_crash
 
 # -- Snap after reset --
 park_mouse
-AFTER_RESET=$(snap_region $WORK_LEFT $WORK_TOP $WORK_W $WORK_H "zoom-reset")
+snap_region $WORK_LEFT $WORK_TOP $WORK_W $WORK_H "zoom-reset"
+AFTER_RESET="$SNAP_RESULT"
 assert_regions_same "$BEFORE_ZOOM" "$AFTER_RESET" "Zoom reset should restore original view"
 screenshot "zoom-reset"
 

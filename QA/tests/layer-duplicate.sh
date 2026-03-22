@@ -20,7 +20,8 @@ wait_for 0.1 "Pointer arrow hidden"
 
 # -- Snap layer panel before --
 click $CANVAS_CX $CANVAS_CY
-BEFORE=$(snap_region $LP_X $LP_Y $LP_W $LP_H "layer-panel-before-dup")
+snap_region $LP_X $LP_Y $LP_W $LP_H "layer-panel-before-dup"
+BEFORE="$SNAP_RESULT"
 assert_no_crash
 
 # -- Duplicate current layer: Ctrl+Shift+D --
@@ -30,7 +31,8 @@ wait_for 0.8 "Wait for layer duplication"
 assert_no_crash
 
 click $CANVAS_CX $CANVAS_CY
-AFTER_DUP=$(snap_region $LP_X $LP_Y $LP_W $LP_H "layer-panel-after-dup")
+snap_region $LP_X $LP_Y $LP_W $LP_H "layer-panel-after-dup"
+AFTER_DUP="$SNAP_RESULT"
 assert_regions_differ "$BEFORE" "$AFTER_DUP" "Duplicated layer should appear in panel"
 screenshot "after-duplicate-layer"
 
@@ -41,7 +43,8 @@ wait_for 0.5 "Wait for undo"
 assert_no_crash
 
 click $CANVAS_CX $CANVAS_CY
-AFTER_UNDO=$(snap_region $LP_X $LP_Y $LP_W $LP_H "layer-panel-after-undo-dup")
+snap_region $LP_X $LP_Y $LP_W $LP_H "layer-panel-after-undo-dup"
+AFTER_UNDO="$SNAP_RESULT"
 assert_regions_same "$BEFORE" "$AFTER_UNDO" "Undo should restore original layer state"
 screenshot "after-undo-duplicate"
 

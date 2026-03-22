@@ -27,7 +27,8 @@ wait_for 0.1 "Pointer arrow hidden"
 SNAP_X=$(( CANVAS_CX - 30 ))
 SNAP_Y=$(( CANVAS_CY - 30 ))
 park_mouse
-BEFORE=$(snap_region $SNAP_X $SNAP_Y 160 120 "polygon-before")
+snap_region $SNAP_X $SNAP_Y 160 120 "polygon-before"
+BEFORE="$SNAP_RESULT"
 assert_no_crash
 
 # -- Click 3 vertices of a triangle around canvas center ----------------------
@@ -62,7 +63,8 @@ assert_no_crash
 
 # -- Snap canvas AFTER polygon, assert shape was drawn ------------------------
 park_mouse
-AFTER_POLY=$(snap_region $SNAP_X $SNAP_Y 160 120 "polygon-after-draw")
+snap_region $SNAP_X $SNAP_Y 160 120 "polygon-after-draw"
+AFTER_POLY="$SNAP_RESULT"
 assert_regions_differ "$BEFORE" "$AFTER_POLY" \
     "Polygon triangle should be visible on canvas after commit"
 
@@ -74,7 +76,8 @@ assert_no_crash
 
 # -- Snap canvas AFTER undo, assert canvas restored ---------------------------
 park_mouse
-AFTER_UNDO=$(snap_region $SNAP_X $SNAP_Y 160 120 "polygon-after-undo")
+snap_region $SNAP_X $SNAP_Y 160 120 "polygon-after-undo"
+AFTER_UNDO="$SNAP_RESULT"
 assert_regions_differ "$AFTER_POLY" "$AFTER_UNDO" \
     "Undo should change canvas from polygon state"
 

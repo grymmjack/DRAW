@@ -14,7 +14,8 @@ wait_for 0.1 "Pointer arrow hidden"
 
 # -- Snap work area before pan --
 park_mouse
-BEFORE_PAN=$(snap_region $WORK_LEFT $WORK_TOP $WORK_W $WORK_H "pan-before")
+snap_region $WORK_LEFT $WORK_TOP $WORK_W $WORK_H "pan-before"
+BEFORE_PAN="$SNAP_RESULT"
 assert_no_crash
 
 # -- Pan canvas: middle-click drag (button 2) --
@@ -25,7 +26,8 @@ assert_no_crash
 
 # -- Snap after pan --
 park_mouse
-AFTER_PAN=$(snap_region $WORK_LEFT $WORK_TOP $WORK_W $WORK_H "pan-after")
+snap_region $WORK_LEFT $WORK_TOP $WORK_W $WORK_H "pan-after"
+AFTER_PAN="$SNAP_RESULT"
 assert_regions_differ "$BEFORE_PAN" "$AFTER_PAN" "Panning should shift the canvas view"
 screenshot "pan-after"
 
@@ -37,7 +39,8 @@ assert_no_crash
 
 # -- Snap after reset --
 park_mouse
-AFTER_RESET=$(snap_region $WORK_LEFT $WORK_TOP $WORK_W $WORK_H "pan-reset")
+snap_region $WORK_LEFT $WORK_TOP $WORK_W $WORK_H "pan-reset"
+AFTER_RESET="$SNAP_RESULT"
 assert_regions_same "$BEFORE_PAN" "$AFTER_RESET" "View reset should restore original pan position"
 screenshot "pan-reset"
 

@@ -29,7 +29,8 @@ wait_for 0.3 "Wait for brush stroke"
 assert_no_crash
 
 park_mouse
-CANVAS_FULL_OPACITY=$(snap_region $CX $CY $CW $CH "canvas-full-opacity")
+snap_region $CX $CY $CW $CH "canvas-full-opacity"
+CANVAS_FULL_OPACITY="$SNAP_RESULT"
 screenshot "canvas-full-opacity"
 
 # -- Reduce opacity by scrolling down on opacity area --
@@ -43,7 +44,8 @@ wait_for 0.5 "Wait for opacity reduction"
 assert_no_crash
 
 park_mouse
-CANVAS_REDUCED=$(snap_region $CX $CY $CW $CH "canvas-reduced-opacity")
+snap_region $CX $CY $CW $CH "canvas-reduced-opacity"
+CANVAS_REDUCED="$SNAP_RESULT"
 assert_regions_differ "$CANVAS_FULL_OPACITY" "$CANVAS_REDUCED" "Canvas should look different at reduced opacity"
 screenshot "canvas-reduced-opacity"
 
@@ -58,7 +60,8 @@ wait_for 0.5 "Wait for opacity restore"
 assert_no_crash
 
 park_mouse
-CANVAS_RESTORED=$(snap_region $CX $CY $CW $CH "canvas-restored-opacity")
+snap_region $CX $CY $CW $CH "canvas-restored-opacity"
+CANVAS_RESTORED="$SNAP_RESULT"
 assert_regions_differ "$CANVAS_REDUCED" "$CANVAS_RESTORED" "Canvas should change when opacity is restored"
 assert_regions_same "$CANVAS_FULL_OPACITY" "$CANVAS_RESTORED" "Restoring opacity should match original state"
 screenshot "canvas-restored-opacity"

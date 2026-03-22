@@ -34,7 +34,8 @@ assert_no_crash
 
 # -- Snap canvas after all 3 strokes --
 park_mouse
-ALL_STROKES=$(snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "undo-redo-all-strokes")
+snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "undo-redo-all-strokes"
+ALL_STROKES="$SNAP_RESULT"
 screenshot "undo-redo-3-strokes"
 
 # -- Undo 3 times --
@@ -48,7 +49,8 @@ wait_for 0.3 "Undo stroke 1"
 assert_no_crash
 
 park_mouse
-AFTER_UNDO=$(snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "undo-redo-after-undo")
+snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "undo-redo-after-undo"
+AFTER_UNDO="$SNAP_RESULT"
 assert_regions_differ "$ALL_STROKES" "$AFTER_UNDO" "Undo should remove all strokes"
 screenshot "undo-redo-after-undo"
 
@@ -63,7 +65,8 @@ wait_for 0.3 "Redo stroke 3"
 assert_no_crash
 
 park_mouse
-AFTER_REDO=$(snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "undo-redo-after-redo")
+snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "undo-redo-after-redo"
+AFTER_REDO="$SNAP_RESULT"
 assert_regions_differ "$AFTER_UNDO" "$AFTER_REDO" "Redo should restore all strokes"
 screenshot "undo-redo-after-redo"
 

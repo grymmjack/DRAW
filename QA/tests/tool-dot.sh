@@ -17,7 +17,8 @@ wait_for 0.1 "Pointer arrow hidden"
 
 # --- Snap canvas BEFORE dot ---
 park_mouse
-BEFORE=$(snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "dot-before")
+snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "dot-before"
+BEFORE="$SNAP_RESULT"
 assert_no_crash
 
 # --- Place dot: mouse down, small drag so it draws visibly ---
@@ -27,7 +28,8 @@ assert_no_crash
 
 # --- Park mouse away, snap AFTER dot ---
 park_mouse
-AFTER=$(snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "dot-after")
+snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "dot-after"
+AFTER="$SNAP_RESULT"
 assert_regions_differ "$BEFORE" "$AFTER" "Dot should be visible on canvas"
 
 # --- Undo dot ---
@@ -37,7 +39,8 @@ assert_no_crash
 
 # --- Snap AFTER undo ---
 park_mouse
-UNDO=$(snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "dot-undo")
+snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "dot-undo"
+UNDO="$SNAP_RESULT"
 assert_regions_differ "$AFTER" "$UNDO" "Undo should change canvas from dot state"
 
 assert_window_exists

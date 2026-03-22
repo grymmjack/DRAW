@@ -14,7 +14,8 @@ wait_for 0.1 "Pointer arrow hidden"
 
 # -- Snap menubar + dropdown region before --
 park_mouse
-BEFORE=$(snap_region 100 0 200 150 "menubar-before")
+snap_region 100 0 200 150 "menubar-before"
+BEFORE="$SNAP_RESULT"
 assert_no_crash
 
 # -- Open FILE menu: tap Alt (press + release) --
@@ -25,7 +26,8 @@ assert_no_crash
 
 # -- Snap after menu open --
 park_mouse
-MENU_OPEN=$(snap_region 100 0 200 150 "menubar-open")
+snap_region 100 0 200 150 "menubar-open"
+MENU_OPEN="$SNAP_RESULT"
 assert_regions_differ "$BEFORE" "$MENU_OPEN" "FILE menu dropdown should be visible"
 screenshot "menubar-open"
 
@@ -37,7 +39,8 @@ assert_no_crash
 
 # -- Snap after menu close --
 park_mouse
-MENU_CLOSED=$(snap_region 100 0 200 150 "menubar-closed")
+snap_region 100 0 200 150 "menubar-closed"
+MENU_CLOSED="$SNAP_RESULT"
 assert_regions_differ "$MENU_OPEN" "$MENU_CLOSED" "Menu dropdown should disappear after Escape"
 assert_regions_same "$BEFORE" "$MENU_CLOSED" "Menu close should restore original state"
 screenshot "menubar-closed"

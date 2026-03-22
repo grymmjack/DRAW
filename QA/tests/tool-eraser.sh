@@ -20,7 +20,8 @@ assert_no_crash
 
 # --- Snap canvas center with the stroke visible (before erasing) ---
 park_mouse
-BEFORE_ERASE=$(snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "eraser-before")
+snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "eraser-before"
+BEFORE_ERASE="$SNAP_RESULT"
 
 # --- Switch to eraser tool ---
 key x
@@ -33,7 +34,8 @@ assert_no_crash
 
 # --- Snap canvas center AFTER erasing ---
 park_mouse
-AFTER_ERASE=$(snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "eraser-after")
+snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "eraser-after"
+AFTER_ERASE="$SNAP_RESULT"
 assert_regions_differ "$BEFORE_ERASE" "$AFTER_ERASE" "Eraser should change canvas pixels"
 
 # --- Undo eraser stroke ---
@@ -43,7 +45,8 @@ assert_no_crash
 
 # --- Verify eraser undo restored to drawn state ---
 park_mouse
-UNDO_ERASE=$(snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "eraser-undo")
+snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "eraser-undo"
+UNDO_ERASE="$SNAP_RESULT"
 assert_regions_differ "$AFTER_ERASE" "$UNDO_ERASE" "Undo should change canvas from erased state"
 
 # --- Undo brush stroke to fully clean up ---

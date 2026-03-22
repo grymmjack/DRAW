@@ -15,7 +15,8 @@ wait_for 0.1 "Pointer arrow hidden"
 
 # --- Snap canvas center BEFORE stroke ---
 park_mouse
-BEFORE=$(snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "brush-before")
+snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "brush-before"
+BEFORE="$SNAP_RESULT"
 assert_no_crash
 
 # --- Draw horizontal brush stroke across canvas center ---
@@ -25,7 +26,8 @@ assert_no_crash
 
 # --- Snap canvas center AFTER stroke ---
 park_mouse
-AFTER=$(snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "brush-after")
+snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "brush-after"
+AFTER="$SNAP_RESULT"
 assert_regions_differ "$BEFORE" "$AFTER" "Brush stroke should be visible on canvas"
 
 # --- Undo stroke ---
@@ -35,7 +37,8 @@ assert_no_crash
 
 # --- Snap canvas center AFTER undo ---
 park_mouse
-UNDO=$(snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "brush-undo")
+snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "brush-undo"
+UNDO="$SNAP_RESULT"
 assert_regions_differ "$AFTER" "$UNDO" "Undo should change canvas from brush stroke state"
 
 assert_window_exists

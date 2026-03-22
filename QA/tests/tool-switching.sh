@@ -11,7 +11,8 @@ wait_for 0.1 "Pointer arrow hidden"
 
 # --- Snap canvas BEFORE cycling ---
 park_mouse
-BEFORE=$(snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "switch-before")
+snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "switch-before"
+BEFORE="$SNAP_RESULT"
 assert_no_crash
 
 # --- Cycle through all tool hotkeys ---
@@ -31,7 +32,8 @@ assert_no_crash "after shift variants"
 
 # --- Snap canvas AFTER cycling ---
 park_mouse
-AFTER=$(snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "switch-after")
+snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "switch-after"
+AFTER="$SNAP_RESULT"
 
 # Canvas should be unchanged — no tool drew anything
 assert_regions_same "$BEFORE" "$AFTER" "canvas unchanged after tool cycling"

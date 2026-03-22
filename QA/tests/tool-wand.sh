@@ -32,7 +32,8 @@ assert_no_crash
 SNAP_X=$(( CANVAS_CX - 80 ))
 SNAP_Y=$(( CANVAS_CY - 60 ))
 park_mouse
-BEFORE=$(snap_region $SNAP_X $SNAP_Y 160 120 "wand-before")
+snap_region $SNAP_X $SNAP_Y 160 120 "wand-before"
+BEFORE="$SNAP_RESULT"
 
 # -- Click on the drawn area to wand-select ----------------------------------
 info "Clicking drawn area with magic wand"
@@ -42,7 +43,8 @@ assert_no_crash
 
 # -- Snap canvas AFTER wand selection, assert selection visible ---------------
 park_mouse
-AFTER_WAND=$(snap_region $SNAP_X $SNAP_Y 160 120 "wand-after-select")
+snap_region $SNAP_X $SNAP_Y 160 120 "wand-after-select"
+AFTER_WAND="$SNAP_RESULT"
 assert_regions_differ "$BEFORE" "$AFTER_WAND" \
     "Magic wand selection should produce visible marching ants"
 

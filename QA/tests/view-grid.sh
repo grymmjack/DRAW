@@ -14,7 +14,8 @@ wait_for 0.1 "Pointer arrow hidden"
 
 # -- Snap canvas area before grid --
 park_mouse
-BEFORE_GRID=$(snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "grid-before")
+snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "grid-before"
+BEFORE_GRID="$SNAP_RESULT"
 assert_no_crash
 
 # -- Toggle grid ON: key g --
@@ -25,7 +26,8 @@ assert_no_crash
 
 # -- Snap after grid on --
 park_mouse
-GRID_ON=$(snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "grid-on")
+snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "grid-on"
+GRID_ON="$SNAP_RESULT"
 assert_regions_differ "$BEFORE_GRID" "$GRID_ON" "Grid overlay should be visible on canvas"
 screenshot "grid-on"
 
@@ -37,7 +39,8 @@ assert_no_crash
 
 # -- Snap after grid off --
 park_mouse
-GRID_OFF=$(snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "grid-off")
+snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "grid-off"
+GRID_OFF="$SNAP_RESULT"
 assert_regions_same "$BEFORE_GRID" "$GRID_OFF" "Grid should be gone after toggling off"
 screenshot "grid-off"
 

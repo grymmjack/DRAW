@@ -25,7 +25,8 @@ wait_for 0.8 "Wait for new layer"
 assert_no_crash
 
 click $CANVAS_CX $CANVAS_CY
-BEFORE_MOVE=$(snap_region $LP_X $LP_Y $LP_W $LP_H "layer-panel-before-move")
+snap_region $LP_X $LP_Y $LP_W $LP_H "layer-panel-before-move"
+BEFORE_MOVE="$SNAP_RESULT"
 
 # -- Move layer up: Ctrl+PageUp --
 info "Moving layer up with Ctrl+Page_Up"
@@ -34,7 +35,8 @@ wait_for 0.5 "Wait for layer move up"
 assert_no_crash
 
 click $CANVAS_CX $CANVAS_CY
-AFTER_UP=$(snap_region $LP_X $LP_Y $LP_W $LP_H "layer-panel-after-move-up")
+snap_region $LP_X $LP_Y $LP_W $LP_H "layer-panel-after-move-up"
+AFTER_UP="$SNAP_RESULT"
 assert_regions_differ "$BEFORE_MOVE" "$AFTER_UP" "Layer order should change after move up"
 screenshot "after-layer-move-up"
 
@@ -45,7 +47,8 @@ wait_for 0.5 "Wait for layer move down"
 assert_no_crash
 
 click $CANVAS_CX $CANVAS_CY
-AFTER_DOWN=$(snap_region $LP_X $LP_Y $LP_W $LP_H "layer-panel-after-move-down")
+snap_region $LP_X $LP_Y $LP_W $LP_H "layer-panel-after-move-down"
+AFTER_DOWN="$SNAP_RESULT"
 assert_regions_differ "$AFTER_UP" "$AFTER_DOWN" "Layer order should change after move down"
 screenshot "after-layer-move-down"
 
@@ -60,7 +63,8 @@ wait_for 0.5 "Undo new layer"
 assert_no_crash
 
 click $CANVAS_CX $CANVAS_CY
-AFTER_UNDO=$(snap_region $LP_X $LP_Y $LP_W $LP_H "layer-panel-after-undo")
+snap_region $LP_X $LP_Y $LP_W $LP_H "layer-panel-after-undo"
+AFTER_UNDO="$SNAP_RESULT"
 assert_regions_same "$BEFORE_MOVE" "$AFTER_UNDO" "Undo should restore original layer order"
 screenshot "after-undo-reorder"
 
