@@ -421,8 +421,8 @@ PALETTE_SEP_CREATED_LBL$            = "-- USER : CREATED --"
 ' =============================================================================
 THEME.CHARMAP_BG~&                  = _RGB32(20, 20, 32)
 THEME.CHARMAP_FG~&                  = _RGB32(180, 180, 180)
-THEME.CHARMAP_SELECTED_FG~&         = _RGB32(255, 255, 255)
-THEME.CHARMAP_SELECTED_BG~&         = _RGB32(80, 80, 160)
+THEME.CHARMAP_SELECTED_FG~&         = _RGB32(0, 0, 0)
+THEME.CHARMAP_SELECTED_BG~&         = _RGB32(255, 255, 255)
 THEME.CHARMAP_HOVER_FG~&            = _RGB32(220, 220, 220)
 THEME.CHARMAP_HOVER_BG~&            = _RGB32(50, 50, 80)
 THEME.CHARMAP_GRID_FG~&             = _RGB32(40, 40, 60)
