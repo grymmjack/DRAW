@@ -101,6 +101,7 @@
 - [x] Cannot choose transparent as background color
   - Left-click FG/BG swatches opens palette picker; right-click toggles transparent
   - BG/FG color changes now sync to all existing characters in active text layer
+  - Choosing transparent BG from the picker now applies to currently selected text, including when BG was already transparent before opening the picker
   - Fixed _PRINTSTRING filling char cells with opaque black (_PRINTMODE _KEEPBACKGROUND)
   - Fixed _MEM clear for guaranteed transparent buffer before text render
 
