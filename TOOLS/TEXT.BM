@@ -219,26 +219,7 @@ END FUNCTION
 ' Current character-cell column for cursor in Character Mode.
 '
 FUNCTION TEXT_char_mode_cursor_col% ()
-    TEXT_char_mode_cursor_col% = 0
-    DIM tdIdx AS INTEGER
-    tdIdx% = TEXT_get_active_text_data_idx%
-    IF tdIdx% < 1 THEN EXIT FUNCTION
-    IF TEXT_LAYER_DATA(tdIdx%).lineCount < 1 THEN EXIT FUNCTION
-
-    DIM cPos AS INTEGER
-    DIM ln AS INTEGER
-    DIM lineStart AS INTEGER
-    cPos% = TEXT_LAYER_DATA(tdIdx%).cursorPos
-    IF cPos% < 0 THEN cPos% = 0
-    IF cPos% > TEXT_LAYER_DATA(tdIdx%).charCount THEN cPos% = TEXT_LAYER_DATA(tdIdx%).charCount
-    ln% = TEXT_LAYER_get_line_for_char%(tdIdx%, cPos%)
-    IF ln% < 0 THEN ln% = 0
-    IF ln% > TEXT_LAYER_DATA(tdIdx%).lineCount - 1 THEN ln% = TEXT_LAYER_DATA(tdIdx%).lineCount - 1
-    lineStart% = TL_LINE_BREAK(tdIdx%, ln%)
-    DIM result AS INTEGER
-    result% = cPos% - lineStart%
-    IF result% < 0 THEN result% = 0
-    TEXT_char_mode_cursor_col% = result%
+    TEXT_char_mode_cursor_col% = TEXT.cmVirtualCol
 END FUNCTION
 
 
@@ -246,19 +227,31 @@ END FUNCTION
 ' Current character-cell row for cursor in Character Mode.
 '
 FUNCTION TEXT_char_mode_cursor_row% ()
-    TEXT_char_mode_cursor_row% = 0
-    DIM tdIdx AS INTEGER
-    tdIdx% = TEXT_get_active_text_data_idx%
-    IF tdIdx% < 1 THEN EXIT FUNCTION
-    IF TEXT_LAYER_DATA(tdIdx%).lineCount < 1 THEN EXIT FUNCTION
-    IF TEXT_LAYER_DATA(tdIdx%).cursorPos < 0 THEN TEXT_LAYER_DATA(tdIdx%).cursorPos = 0
-    IF TEXT_LAYER_DATA(tdIdx%).cursorPos > TEXT_LAYER_DATA(tdIdx%).charCount THEN TEXT_LAYER_DATA(tdIdx%).cursorPos = TEXT_LAYER_DATA(tdIdx%).charCount
-    DIM result AS INTEGER
-    result% = TEXT_LAYER_get_line_for_char%(tdIdx%, TEXT_LAYER_DATA(tdIdx%).cursorPos)
-    IF result% < 0 THEN result% = 0
-    IF result% > TEXT_LAYER_DATA(tdIdx%).lineCount - 1 THEN result% = TEXT_LAYER_DATA(tdIdx%).lineCount - 1
-    TEXT_char_mode_cursor_row% = result%
+    TEXT_char_mode_cursor_row% = TEXT.cmVirtualRow
 END FUNCTION
+
+
+''
+' Sync virtual cursor position from the data cursor (for mouse click positioning).
+'
+SUB TEXT_char_mode_sync_virtual ()
+    IF NOT TEXT_char_mode_active% THEN EXIT SUB
+    DIM svTd AS INTEGER
+    svTd% = TEXT_get_active_text_data_idx%
+    IF svTd% < 1 THEN EXIT SUB
+
+    DIM svPos AS INTEGER, svLn AS INTEGER, svLineStart AS INTEGER
+    svPos% = TEXT_LAYER_DATA(svTd%).cursorPos
+    IF svPos% < 0 THEN svPos% = 0
+    IF svPos% > TEXT_LAYER_DATA(svTd%).charCount THEN svPos% = TEXT_LAYER_DATA(svTd%).charCount
+    svLn% = TEXT_LAYER_get_line_for_char%(svTd%, svPos%)
+    IF svLn% < 0 THEN svLn% = 0
+    IF svLn% > TEXT_LAYER_DATA(svTd%).lineCount - 1 THEN svLn% = TEXT_LAYER_DATA(svTd%).lineCount - 1
+    svLineStart% = TL_LINE_BREAK(svTd%, svLn%)
+    TEXT.cmVirtualCol = svPos% - svLineStart%
+    IF TEXT.cmVirtualCol < 0 THEN TEXT.cmVirtualCol = 0
+    TEXT.cmVirtualRow = svLn%
+END SUB
 
 
 ''
@@ -302,6 +295,93 @@ SUB TEXT_char_mode_set_cursor (col AS INTEGER, row AS INTEGER, expand AS INTEGER
 
     targetCol% = col%
     targetRow% = row%
+
+    ' ---------------------------------------------------------------
+    ' Virtual-only movement (expand=FALSE): just reposition the cursor
+    ' on the grid without creating any data.
+    ' ---------------------------------------------------------------
+    IF NOT expand% THEN
+        ' Handle negative coordinates by shifting the text layer origin
+        IF targetRow% < 0 THEN
+            DIM shiftRowsV AS INTEGER
+            shiftRowsV% = -targetRow%
+            DIM newStartYV AS INTEGER
+            newStartYV% = TEXT_LAYER_DATA(tdIdx%).startY - shiftRowsV% * ch%
+            IF newStartYV% >= 0 THEN
+                TEXT_LAYER_DATA(tdIdx%).startY = newStartYV%
+                TEXT.START_Y = newStartYV%
+                availH% = SCRN.canvasH& - newStartYV%
+                IF availH% < ch% THEN availH% = ch%
+                maxRows% = availH% \ ch%
+                IF maxRows% < 1 THEN maxRows% = 1
+                ' Prepend blank lines so existing content shifts down
+                DIM srV AS INTEGER
+                FOR srV% = 1 TO shiftRowsV%
+                    IF TEXT_LAYER_DATA(tdIdx%).lineCount >= TEXT_LAYER_MAX_LINES THEN EXIT FOR
+                    DIM savedPosV AS INTEGER
+                    savedPosV% = TEXT_LAYER_DATA(tdIdx%).cursorPos
+                    TEXT_LAYER_DATA(tdIdx%).cursorPos = 0
+                    TEXT_LAYER_newline tdIdx%
+                    TEXT_LAYER_DATA(tdIdx%).cursorPos = savedPosV% + 1
+                NEXT srV%
+            END IF
+            targetRow% = 0
+        END IF
+        IF targetCol% < 0 THEN
+            DIM shiftColsV AS INTEGER
+            shiftColsV% = -targetCol%
+            DIM newStartXV AS INTEGER
+            newStartXV% = TEXT_LAYER_DATA(tdIdx%).startX - shiftColsV% * cw%
+            IF newStartXV% >= 0 THEN
+                TEXT_LAYER_DATA(tdIdx%).startX = newStartXV%
+                TEXT.START_X = newStartXV%
+                availW% = SCRN.canvasW& - newStartXV%
+                IF availW% < cw% THEN availW% = cw%
+                maxCols% = availW% \ cw%
+                IF maxCols% < 1 THEN maxCols% = 1
+                ' Pad every existing line with leading spaces so content shifts right
+                DIM padLnV AS INTEGER
+                FOR padLnV% = 0 TO TEXT_LAYER_DATA(tdIdx%).lineCount - 1
+                    DIM padStartV AS INTEGER
+                    padStartV% = TL_LINE_BREAK(tdIdx%, padLnV%)
+                    DIM scV AS INTEGER
+                    FOR scV% = 1 TO shiftColsV%
+                        IF TEXT_LAYER_DATA(tdIdx%).charCount >= TEXT_LAYER_MAX_CHARS THEN EXIT FOR
+                        savedPosV% = TEXT_LAYER_DATA(tdIdx%).cursorPos
+                        TEXT_LAYER_DATA(tdIdx%).cursorPos = padStartV%
+                        TEXT_LAYER_add_char tdIdx%, " "
+                        TEXT_LAYER_DATA(tdIdx%).cursorPos = savedPosV% + 1
+                        padStartV% = padStartV% + 1
+                    NEXT scV%
+                NEXT padLnV%
+                targetCol% = 0
+            ELSE
+                targetCol% = 0
+            END IF
+        END IF
+        IF targetCol% > maxCols% - 1 THEN targetCol% = maxCols% - 1
+        IF targetRow% > maxRows% - 1 THEN targetRow% = maxRows% - 1
+        IF targetRow% > TEXT_LAYER_MAX_LINES - 1 THEN targetRow% = TEXT_LAYER_MAX_LINES - 1
+        IF targetCol% < 0 THEN targetCol% = 0
+        IF targetRow% < 0 THEN targetRow% = 0
+
+        ' Store virtual position and set rendering coordinates directly
+        TEXT.cmVirtualCol = targetCol%
+        TEXT.cmVirtualRow = targetRow%
+        TEXT.CURSOR_X = TEXT_LAYER_DATA(tdIdx%).startX + targetCol% * cw%
+        TEXT.CURSOR_Y = TEXT_LAYER_DATA(tdIdx%).startY + targetRow% * ch%
+        TEXT.CURSOR_BLINK = 1
+        TEXT.BLINK_TIMER = TIMER
+        TEXT.LINE_COUNT = TEXT_LAYER_DATA(tdIdx%).lineCount
+        FRAME_IDLE% = FALSE
+        SCENE_DIRTY% = TRUE
+        EXIT SUB
+    END IF
+
+    ' ---------------------------------------------------------------
+    ' Expanding movement (expand=TRUE): create newlines and padding
+    ' spaces in the data structure to reach the target position.
+    ' ---------------------------------------------------------------
 
     ' In char mode, allow moving above/left of the text layer origin by
     ' shifting startX/startY upward and prepending blank rows/cols.
@@ -369,15 +449,14 @@ SUB TEXT_char_mode_set_cursor (col AS INTEGER, row AS INTEGER, expand AS INTEGER
     IF targetRow% > maxRows% - 1 THEN targetRow% = maxRows% - 1
     IF targetRow% > TEXT_LAYER_MAX_LINES - 1 THEN targetRow% = TEXT_LAYER_MAX_LINES - 1
 
-    IF expand% THEN
-        DO WHILE TEXT_LAYER_DATA(tdIdx%).lineCount <= targetRow%
-            IF TEXT_LAYER_DATA(tdIdx%).lineCount >= TEXT_LAYER_MAX_LINES THEN EXIT DO
-            TEXT_LAYER_DATA(tdIdx%).cursorPos = TEXT_LAYER_DATA(tdIdx%).charCount
-            oldLineCount% = TEXT_LAYER_DATA(tdIdx%).lineCount
-            TEXT_LAYER_newline tdIdx%
-            IF TEXT_LAYER_DATA(tdIdx%).lineCount <= oldLineCount% THEN EXIT DO
-        LOOP
-    END IF
+    ' Add newlines to reach target row
+    DO WHILE TEXT_LAYER_DATA(tdIdx%).lineCount <= targetRow%
+        IF TEXT_LAYER_DATA(tdIdx%).lineCount >= TEXT_LAYER_MAX_LINES THEN EXIT DO
+        TEXT_LAYER_DATA(tdIdx%).cursorPos = TEXT_LAYER_DATA(tdIdx%).charCount
+        oldLineCount% = TEXT_LAYER_DATA(tdIdx%).lineCount
+        TEXT_LAYER_newline tdIdx%
+        IF TEXT_LAYER_DATA(tdIdx%).lineCount <= oldLineCount% THEN EXIT DO
+    LOOP
 
     IF targetRow% > TEXT_LAYER_DATA(tdIdx%).lineCount - 1 THEN targetRow% = TEXT_LAYER_DATA(tdIdx%).lineCount - 1
     IF targetRow% < 0 THEN targetRow% = 0
@@ -392,7 +471,8 @@ SUB TEXT_char_mode_set_cursor (col AS INTEGER, row AS INTEGER, expand AS INTEGER
     lineLen% = lineEnd% - lineStart%
     IF lineLen% < 0 THEN lineLen% = 0
 
-    IF expand% AND lineLen% < targetCol% THEN
+    ' Add transparent padding spaces to reach target column
+    IF lineLen% < targetCol% THEN
         TEXT_LAYER_DATA(tdIdx%).cursorPos = lineEnd%
         FOR i% = 1 TO targetCol% - lineLen%
             IF TEXT_LAYER_DATA(tdIdx%).charCount >= TEXT_LAYER_MAX_CHARS THEN EXIT FOR
@@ -418,6 +498,11 @@ SUB TEXT_char_mode_set_cursor (col AS INTEGER, row AS INTEGER, expand AS INTEGER
     cursorLine% = TEXT_LAYER_get_line_for_char%(tdIdx%, cursorPos%)
     IF cursorLine% < 0 THEN cursorLine% = 0
     IF cursorLine% > TEXT_LAYER_DATA(tdIdx%).lineCount - 1 THEN cursorLine% = TEXT_LAYER_DATA(tdIdx%).lineCount - 1
+
+    ' Update virtual position to match expanded position
+    TEXT.cmVirtualCol = targetCol%
+    TEXT.cmVirtualRow = targetRow%
+
     TEXT.CURSOR_X = TEXT_LAYER_get_char_x%(tdIdx%, cursorPos%)
     TEXT.CURSOR_Y = TEXT_LAYER_get_line_y%(tdIdx%, cursorLine%)
     TEXT.CURSOR_BLINK = 1
@@ -455,8 +540,9 @@ SUB TEXT_char_mode_add_char (ch AS STRING)
     tdIdx% = TEXT_get_active_text_data_idx%
     IF tdIdx% < 1 THEN EXIT SUB
 
-    row% = TEXT_char_mode_cursor_row%
-    col% = TEXT_char_mode_cursor_col%
+    ' Use virtual cursor position and expand data to reach it
+    col% = TEXT.cmVirtualCol
+    row% = TEXT.cmVirtualRow
     TEXT_char_mode_set_cursor col%, row%, TRUE
     row% = TEXT_char_mode_cursor_row%
 
@@ -485,9 +571,23 @@ SUB TEXT_char_mode_add_char (ch AS STRING)
             TEXT_LAYER_DATA(tdIdx%).dirty = TRUE
         ELSE
             TEXT_LAYER_add_char tdIdx%, ch$
+            ' Fix up BG color — TEXT_LAYER_add_char uses transparent padding
+            DIM justPlaced AS INTEGER
+            justPlaced% = TEXT_LAYER_DATA(tdIdx%).cursorPos - 1
+            IF justPlaced% >= 0 AND justPlaced% < TEXT_LAYER_MAX_CHARS THEN
+                TL_FG(tdIdx%, justPlaced%) = PAINT_COLOR~&
+                TL_BG(tdIdx%, justPlaced%) = PAINT_BG_COLOR~&
+            END IF
         END IF
     ELSE
         TEXT_LAYER_add_char tdIdx%, ch$
+        ' Fix up BG color — TEXT_LAYER_add_char uses transparent padding
+        DIM justPlaced2 AS INTEGER
+        justPlaced2% = TEXT_LAYER_DATA(tdIdx%).cursorPos - 1
+        IF justPlaced2% >= 0 AND justPlaced2% < TEXT_LAYER_MAX_CHARS THEN
+            TL_FG(tdIdx%, justPlaced2%) = PAINT_COLOR~&
+            TL_BG(tdIdx%, justPlaced2%) = PAINT_BG_COLOR~&
+        END IF
     END IF
 
     ' Keep cursor at the cell we just placed — TEXT_char_mode_move_cursor
@@ -518,8 +618,8 @@ SUB TEXT_char_mode_add_char (ch AS STRING)
 
     TEXT.LINE_COUNT = TEXT_LAYER_DATA(tdIdx%).lineCount
 
-    ' Advance one cell to the right (auto-grow line if needed)
-    TEXT_char_mode_move_cursor 1, 0, TRUE
+    ' Advance one cell to the right (virtual move, no expansion)
+    TEXT_char_mode_move_cursor 1, 0, FALSE
     TEXT_LAYER_DATA(tdIdx%).dirty = TRUE
     FRAME_IDLE% = FALSE
     SCENE_DIRTY% = TRUE
@@ -534,12 +634,12 @@ SUB TEXT_char_mode_backspace ()
     DIM tdIdx AS INTEGER
     DIM row AS INTEGER, col AS INTEGER
     DIM cellPos AS INTEGER
-    DIM cursorLine AS INTEGER
     tdIdx% = TEXT_get_active_text_data_idx%
     IF tdIdx% < 1 THEN EXIT SUB
 
-    row% = TEXT_char_mode_cursor_row%
-    col% = TEXT_char_mode_cursor_col%
+    ' Move virtual cursor left first
+    col% = TEXT.cmVirtualCol
+    row% = TEXT.cmVirtualRow
     IF col% > 0 THEN
         col% = col% - 1
     ELSEIF row% > 0 THEN
@@ -549,20 +649,31 @@ SUB TEXT_char_mode_backspace ()
         EXIT SUB
     END IF
 
-    TEXT_char_mode_set_cursor col%, row%, TRUE
-    cellPos% = TEXT_LAYER_DATA(tdIdx%).cursorPos
-    IF cellPos% < TEXT_LAYER_DATA(tdIdx%).charCount AND TL_CHAR(tdIdx%, cellPos%) <> CHR$(10) THEN
-        TL_CHAR(tdIdx%, cellPos%) = " "
-        TL_FG(tdIdx%, cellPos%) = PAINT_COLOR~&
-        TL_BG(tdIdx%, cellPos%) = PAINT_BG_COLOR~&
-        TEXT_LAYER_DATA(tdIdx%).dirty = TRUE
-        cursorLine% = TEXT_LAYER_get_line_for_char%(tdIdx%, TEXT_LAYER_DATA(tdIdx%).cursorPos)
-        IF cursorLine% < 0 THEN cursorLine% = 0
-        IF cursorLine% > TEXT_LAYER_DATA(tdIdx%).lineCount - 1 THEN cursorLine% = TEXT_LAYER_DATA(tdIdx%).lineCount - 1
-        TEXT.CURSOR_X = TEXT_LAYER_get_char_x%(tdIdx%, TEXT_LAYER_DATA(tdIdx%).cursorPos)
-        TEXT.CURSOR_Y = TEXT_LAYER_get_line_y%(tdIdx%, cursorLine%)
-        FRAME_IDLE% = FALSE
-        SCENE_DIRTY% = TRUE
+    ' Update virtual position (non-expanding)
+    TEXT_char_mode_set_cursor col%, row%, FALSE
+
+    ' If data exists at this position, expand and erase
+    IF row% < TEXT_LAYER_DATA(tdIdx%).lineCount THEN
+        DIM bsLineStart AS INTEGER, bsLineEnd AS INTEGER, bsLineLen AS INTEGER
+        bsLineStart% = TL_LINE_BREAK(tdIdx%, row%)
+        IF row% < TEXT_LAYER_DATA(tdIdx%).lineCount - 1 THEN
+            bsLineEnd% = TL_LINE_BREAK(tdIdx%, row% + 1) - 1
+        ELSE
+            bsLineEnd% = TEXT_LAYER_DATA(tdIdx%).charCount
+        END IF
+        bsLineLen% = bsLineEnd% - bsLineStart%
+        IF bsLineLen% < 0 THEN bsLineLen% = 0
+        IF col% < bsLineLen% THEN
+            cellPos% = bsLineStart% + col%
+            IF TL_CHAR(tdIdx%, cellPos%) <> CHR$(10) THEN
+                TL_CHAR(tdIdx%, cellPos%) = " "
+                TL_FG(tdIdx%, cellPos%) = _RGBA32(0, 0, 0, 0)
+                TL_BG(tdIdx%, cellPos%) = _RGBA32(0, 0, 0, 0)
+                TEXT_LAYER_DATA(tdIdx%).dirty = TRUE
+                FRAME_IDLE% = FALSE
+                SCENE_DIRTY% = TRUE
+            END IF
+        END IF
     END IF
 END SUB
 
@@ -574,22 +685,35 @@ SUB TEXT_char_mode_delete ()
     IF NOT TEXT_char_mode_active% THEN EXIT SUB
     DIM tdIdx AS INTEGER
     DIM cellPos AS INTEGER
-    DIM cursorLine AS INTEGER
+    DIM row AS INTEGER, col AS INTEGER
     tdIdx% = TEXT_get_active_text_data_idx%
     IF tdIdx% < 1 THEN EXIT SUB
-    cellPos% = TEXT_LAYER_DATA(tdIdx%).cursorPos
-    IF cellPos% < TEXT_LAYER_DATA(tdIdx%).charCount AND TL_CHAR(tdIdx%, cellPos%) <> CHR$(10) THEN
-        TL_CHAR(tdIdx%, cellPos%) = " "
-        TL_FG(tdIdx%, cellPos%) = PAINT_COLOR~&
-        TL_BG(tdIdx%, cellPos%) = PAINT_BG_COLOR~&
-        TEXT_LAYER_DATA(tdIdx%).dirty = TRUE
-        cursorLine% = TEXT_LAYER_get_line_for_char%(tdIdx%, TEXT_LAYER_DATA(tdIdx%).cursorPos)
-        IF cursorLine% < 0 THEN cursorLine% = 0
-        IF cursorLine% > TEXT_LAYER_DATA(tdIdx%).lineCount - 1 THEN cursorLine% = TEXT_LAYER_DATA(tdIdx%).lineCount - 1
-        TEXT.CURSOR_X = TEXT_LAYER_get_char_x%(tdIdx%, TEXT_LAYER_DATA(tdIdx%).cursorPos)
-        TEXT.CURSOR_Y = TEXT_LAYER_get_line_y%(tdIdx%, cursorLine%)
-        FRAME_IDLE% = FALSE
-        SCENE_DIRTY% = TRUE
+
+    col% = TEXT.cmVirtualCol
+    row% = TEXT.cmVirtualRow
+
+    ' Only erase if data exists at this virtual position
+    IF row% < TEXT_LAYER_DATA(tdIdx%).lineCount THEN
+        DIM delLineStart AS INTEGER, delLineEnd AS INTEGER, delLineLen AS INTEGER
+        delLineStart% = TL_LINE_BREAK(tdIdx%, row%)
+        IF row% < TEXT_LAYER_DATA(tdIdx%).lineCount - 1 THEN
+            delLineEnd% = TL_LINE_BREAK(tdIdx%, row% + 1) - 1
+        ELSE
+            delLineEnd% = TEXT_LAYER_DATA(tdIdx%).charCount
+        END IF
+        delLineLen% = delLineEnd% - delLineStart%
+        IF delLineLen% < 0 THEN delLineLen% = 0
+        IF col% < delLineLen% THEN
+            cellPos% = delLineStart% + col%
+            IF TL_CHAR(tdIdx%, cellPos%) <> CHR$(10) THEN
+                TL_CHAR(tdIdx%, cellPos%) = " "
+                TL_FG(tdIdx%, cellPos%) = _RGBA32(0, 0, 0, 0)
+                TL_BG(tdIdx%, cellPos%) = _RGBA32(0, 0, 0, 0)
+                TEXT_LAYER_DATA(tdIdx%).dirty = TRUE
+                FRAME_IDLE% = FALSE
+                SCENE_DIRTY% = TRUE
+            END IF
+        END IF
     END IF
 END SUB
 

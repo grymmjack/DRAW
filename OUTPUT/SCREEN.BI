@@ -46,6 +46,7 @@ TYPE SCREEN_OBJ
     ' Computed layout geometry — set by SCREEN_compute_layout() each render pass
     uiLeftEdge   AS INTEGER  ' Canvas work area left X (after all left panels)
     uiRightEdge  AS INTEGER  ' Canvas work area right X (before all right panels)
+    panelShiftX  AS INTEGER  ' Horizontal pixel offset to center canvas between panels
     layerPanelX  AS INTEGER  ' Left edge of layer panel (position varies by dock side)
     toolboxX     AS INTEGER  ' Left edge of toolbox stack background
     editBarX     AS INTEGER  ' Left edge of edit bar (position varies by dock side)

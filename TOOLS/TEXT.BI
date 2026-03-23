@@ -32,6 +32,8 @@ TYPE TEXT_OBJ
     selEnd       AS INTEGER  ' Selection end char index (-1 = no selection)
     selActive    AS INTEGER  ' TRUE when text selection is active
     OVERFLOW_FLASH AS INTEGER ' Countdown frames for overflow visual feedback
+    cmVirtualCol AS INTEGER   ' Char mode virtual cursor column (grid position)
+    cmVirtualRow AS INTEGER   ' Char mode virtual cursor row (grid position)
 END TYPE
 
 ' Text buffer declared in _COMMON.BI
@@ -77,6 +79,7 @@ DECLARE SUB TEXT_sync_bar_to_cursor ()
 DECLARE FUNCTION TEXT_char_mode_active% ()
 DECLARE FUNCTION TEXT_char_mode_cursor_col% ()
 DECLARE FUNCTION TEXT_char_mode_cursor_row% ()
+DECLARE SUB TEXT_char_mode_sync_virtual ()
 DECLARE SUB TEXT_char_mode_set_cursor (col AS INTEGER, row AS INTEGER, expand AS INTEGER)
 DECLARE SUB TEXT_char_mode_move_cursor (deltaCol AS INTEGER, deltaRow AS INTEGER, expand AS INTEGER)
 DECLARE SUB TEXT_char_mode_add_char (ch AS STRING)
