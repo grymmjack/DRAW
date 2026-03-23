@@ -303,6 +303,7 @@ The character map (`Ctrl+M`) is a dockable panel showing a 16×16 grid of all 25
 | `Ctrl+M` | Toggle character map visibility |
 | **Left-click cell** | Select glyph (click again to deselect) |
 | **CHAR button** (text bar) | Toggle Character Mode (auto-opens map if hidden) |
+| `Alt+U` | Pick up FG and BG colors from character under cursor |
 
 ### Character Mode
 
@@ -311,6 +312,23 @@ When **CHAR** is active in the text bar:
 - Clicking a glyph in the map inserts it into the active text layer
 - The selected glyph stays synced with keyboard input
 - Tab width uses the config-backed tab count (`CHARMAP_TAB_CHARS`)
+- Character Mode state is saved per-document in `.draw` files (DRW v19+), not global config
+
+### Virtual Cursor
+
+In Character Mode, arrow keys move a **virtual cursor** freely on the character grid without creating data. Characters materialize only when typed. This enables PabloDraw-style free grid navigation.
+
+### Font Stickiness
+
+When Character Mode is active, the selected font and size remain locked as you navigate between cells. Cursor movement and layer switches do not reset the font — only explicit changes in the Text Bar affect it.
+
+### Drawing Tools on Text Layers
+
+In Character Mode, drawing tools (**DOT**, **RECT**, **RECT FILLED**) work on text layers, filling cells with the currently selected charmap glyph using the active FG/BG colors.
+
+### Color Pickup (Alt+U)
+
+Press `Alt+U` to sample the FG and BG colors from the character at the virtual cursor position. Works with the virtual cursor location, not the text editing cursor.
 
 When **CHAR** is off or the text tool is not active:
 - Clicking a glyph copies it to the custom brush (with recolor mode enabled)
