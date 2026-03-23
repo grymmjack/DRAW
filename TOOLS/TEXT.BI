@@ -32,6 +32,8 @@ TYPE TEXT_OBJ
     selEnd       AS INTEGER  ' Selection end char index (-1 = no selection)
     selActive    AS INTEGER  ' TRUE when text selection is active
     OVERFLOW_FLASH AS INTEGER ' Countdown frames for overflow visual feedback
+    cmVirtualCol AS INTEGER   ' Char mode virtual cursor column (grid position)
+    cmVirtualRow AS INTEGER   ' Char mode virtual cursor row (grid position)
 END TYPE
 
 ' Text buffer declared in _COMMON.BI
@@ -60,6 +62,7 @@ DIM SHARED TEXT_CLIP_BASELINE(0 TO TEXT_LAYER_MAX_CHARS - 1) AS INTEGER
 DECLARE SUB TEXT_init ()
 DECLARE SUB TEXT_reset ()
 DECLARE SUB TEXT_start (x AS INTEGER, y AS INTEGER)
+DECLARE FUNCTION TEXT_get_active_text_data_idx% ()
 DECLARE SUB TEXT_add_char (ch AS STRING)
 DECLARE SUB TEXT_backspace ()
 DECLARE SUB TEXT_newline ()
@@ -73,3 +76,14 @@ DECLARE SUB TEXT_clear_selection ()
 DECLARE FUNCTION TEXT_has_selection% ()
 DECLARE SUB TEXT_delete_selection ()
 DECLARE SUB TEXT_sync_bar_to_cursor ()
+DECLARE FUNCTION TEXT_char_mode_active% ()
+DECLARE FUNCTION TEXT_char_mode_cursor_col% ()
+DECLARE FUNCTION TEXT_char_mode_cursor_row% ()
+DECLARE SUB TEXT_char_mode_sync_virtual ()
+DECLARE SUB TEXT_char_mode_set_cursor (col AS INTEGER, row AS INTEGER, expand AS INTEGER)
+DECLARE SUB TEXT_char_mode_move_cursor (deltaCol AS INTEGER, deltaRow AS INTEGER, expand AS INTEGER)
+DECLARE SUB TEXT_char_mode_add_char (ch AS STRING)
+DECLARE SUB TEXT_char_mode_backspace ()
+DECLARE SUB TEXT_char_mode_delete ()
+DECLARE FUNCTION TEXT_char_mode_on_text_layer% ()
+DECLARE SUB TEXT_char_mode_fill_cells (x1 AS INTEGER, y1 AS INTEGER, x2 AS INTEGER, y2 AS INTEGER, filled AS INTEGER)

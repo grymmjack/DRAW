@@ -437,6 +437,20 @@ TYPE DRAW_THEME
     LAYER_PANEL_TEXT_ACCENT    AS _UNSIGNED LONG  ' Accent color for [T] text layer rows
     TEXT_LAYER_HOVER_OUTLINE   AS _UNSIGNED LONG  ' Outline color when hovering editable text layer
     TEXT_LAYER_HOVER_OUTLINE_WIDTH AS INTEGER       ' Stroke width in pixels for hover outline
+    ' --- Character Map panel ---
+    CHARMAP_BG                 AS _UNSIGNED LONG  ' Panel background color
+    CHARMAP_FG                 AS _UNSIGNED LONG  ' Default glyph/text color
+    CHARMAP_SELECTED_FG        AS _UNSIGNED LONG  ' Selected cell glyph color
+    CHARMAP_SELECTED_BG        AS _UNSIGNED LONG  ' Selected cell background
+    CHARMAP_HOVER_FG           AS _UNSIGNED LONG  ' Hovered cell glyph color
+    CHARMAP_HOVER_BG           AS _UNSIGNED LONG  ' Hovered cell background
+    CHARMAP_GRID_FG            AS _UNSIGNED LONG  ' Grid line color between cells
+    CHARMAP_FLASH_FG           AS _UNSIGNED LONG  ' Typed character flash highlight color
+    CHARMAP_SCROLLBAR_BG       AS _UNSIGNED LONG  ' Character map scrollbar track color
+    CHARMAP_SCROLLBAR_FG       AS _UNSIGNED LONG  ' Character map scrollbar thumb color
+    CHARMAP_SCROLLBAR_OPACITY  AS INTEGER         ' Character map scrollbar opacity (0-255)
+    CHARMAP_SCROLLBAR_WIDTH    AS INTEGER         ' Character map scrollbar width in px (1-8)
+    CHAR_GRID_COLOR_FG         AS _UNSIGNED LONG  ' Character grid overlay color on canvas
 END TYPE
 
 ' Runtime theme loader — populates THEME from ASSETS/THEMES/{CFG.THEME$}/THEME.CFG

@@ -749,6 +749,7 @@ SUB SCREEN_init ()
     SCRN.showMenubar% = TRUE
     PREVIEW_init  ' Initialize preview window (must be after CONFIG_load and SCREEN dimensions set)
     EDITBAR_init  ' Initialize edit bar (must be after CONFIG_load and THEME_load)
+    CHARMAP_init  ' Initialize character map panel (must be after CONFIG_load)
     TEXT_BAR_init  ' Initialize text formatting bar
 
     ' Save config if this was a first-run (file didn't exist)
@@ -1106,6 +1107,14 @@ SUB RENDER_grids (dx AS INTEGER, dy AS INTEGER, zw AS LONG, zh AS LONG)
         _SOURCE GRID.imgHandle&
         _BLEND SCRN.CANVAS&
         _PUTIMAGE (dx%, dy%)-(dx% + zw& - 1, dy% + zh& - 1), GRID.imgHandle&, SCRN.CANVAS&
+    END IF
+    ' Character grid overlay (on top of regular grid)
+    IF CHARMAP.charGridShow% AND SCRN.zoom! >= 1.0 THEN
+        IF CHARMAP.charGridImg& < -1 THEN
+            _DEST SCRN.CANVAS&
+            _BLEND SCRN.CANVAS&
+            _PUTIMAGE (dx%, dy%)-(dx% + zw& - 1, dy% + zh& - 1), CHARMAP.charGridImg&, SCRN.CANVAS&
+        END IF
     END IF
     ' Pixel grid shows at 400%+ zoom if enabled (on top of regular grid)
     IF PIXEL_GRID.SHOW% AND SCRN.zoom! >= 4.0 THEN
@@ -1645,6 +1654,8 @@ SUB SCREEN_compute_layout ()
     DIM editBarW AS INTEGER
     DIM leftX AS INTEGER
     DIM rightX AS INTEGER
+    DIM textBarWillShow AS INTEGER
+    DIM charMapTopY AS INTEGER
 
     scale% = CFG.TOOLBAR_SCALE%
     IF scale% < 1 THEN scale% = 1
@@ -1654,6 +1665,16 @@ SUB SCREEN_compute_layout ()
 
     leftX% = 0
     rightX% = SCRN.w& - 1
+
+    ' Predict text bar visibility for top chrome geometry.
+    IF SCRN.textBarHiddenByToggleAll% THEN
+        textBarWillShow% = FALSE
+    ELSE
+        textBarWillShow% = (CURRENT_TOOL% = TOOL_TEXT) OR (TEXT_BAR.editingLayerIdx% > 0)
+    END IF
+    charMapTopY% = 0
+    IF SCRN.showMenubar% THEN charMapTopY% = charMapTopY% + MENU_BAR_HEIGHT
+    IF textBarWillShow% THEN charMapTopY% = charMapTopY% + TEXT_BAR_HEIGHT
 
     ' ---------- LEFT side: layers (outermost) > toolbox > editbar (innermost) ----------
     IF UCASE$(_TRIM$(CFG.LAYERS_PANEL_DOCK_EDGE)) = "LEFT" AND LAYER_PANEL.visible% THEN
@@ -1688,8 +1709,51 @@ SUB SCREEN_compute_layout ()
         SCRN.editBarX% = rightX% + 1
     END IF
 
+    ' Character Map panel docking (inside editbar)
+    IF SCRN.showCharMap% THEN
+        DIM charMapW AS INTEGER
+        DIM charMapBottomBars AS INTEGER
+
+        ' Ensure cache/cell metrics are current before computing panel width,
+        ' so first-frame layout is correct even when auto cell sizing is active.
+        IF NOT CHARMAP.cacheValid% OR _
+           CHARMAP.cacheFontIdx% <> TEXT_BAR.selectedFontIdx% OR _
+              CHARMAP.cacheFontSize% <> CHARMAP_effective_font_size% OR _
+           CHARMAP.cacheMono% <> TEXT_BAR.monoActive% THEN
+            CHARMAP_rebuild_cache
+        END IF
+
+        charMapW% = CHARMAP_panel_width%
+        IF CHARMAP.dockSide% = CHARMAP_DOCK_LEFT THEN
+            SCRN.charMapX% = leftX%
+            leftX% = leftX% + charMapW%
+        ELSE
+            rightX% = rightX% - charMapW%
+            SCRN.charMapX% = rightX% + 1
+        END IF
+        ' Update panel geometry for hit testing / rendering
+        CHARMAP.panelX1% = SCRN.charMapX%
+        CHARMAP.panelX2% = SCRN.charMapX% + charMapW% - 1
+        CHARMAP.panelY1% = charMapTopY%
+        charMapBottomBars% = 0
+        IF SCRN.showStatus% THEN
+            charMapBottomBars% = THEME.STATUS_height% + PALETTE_STRIP_get_height%
+        END IF
+        CHARMAP.panelY2% = SCRN.h& - charMapBottomBars% - 1
+        IF CHARMAP.panelY2% < CHARMAP.panelY1% THEN CHARMAP.panelY2% = CHARMAP.panelY1%
+        CHARMAP.panelW% = charMapW%
+        CHARMAP.gridX% = CHARMAP.panelX1% + 2
+        CHARMAP.gridY% = CHARMAP.panelY1% + 2
+    END IF
+
     SCRN.uiLeftEdge% = leftX%
     SCRN.uiRightEdge% = rightX%
+
+    ' Compute horizontal panel shift for centering canvas between side panels.
+    ' All canvas dx calculations use: (SCRN.w& - zw&) \ 2 + SCRN.offsetX% + SCRN.panelShiftX%
+    DIM availW AS INTEGER
+    availW% = rightX% - leftX% + 1
+    SCRN.panelShiftX% = leftX% + (availW% - SCRN.w&) \ 2
 
     ' Text formatting bar — sits below menu bar when text tool active or editing text layer
     ' Respect toggle-all (F11) — suppress visibility while hidden by toggle-all
@@ -1734,13 +1798,17 @@ SUB RENDER_gui_elements ()
             ORGANIZER_render org_tb_y2%
             DRAWER_render
         END IF
+        IF SCRN.showEditBar% THEN
+            EDITBAR_render
+        END IF
+
+        IF SCRN.showCharMap% THEN
+            CHARMAP_render
+        END IF
+
         IF SCRN.showStatus% THEN
             PALETTE_STRIP_render
             STATUS_render
-        END IF
-
-        IF SCRN.showEditBar% THEN
-            EDITBAR_render
         END IF
 
         IF LAYER_PANEL.visible% THEN
@@ -1796,13 +1864,19 @@ SUB SCREEN_render ()
             ORGANIZER_render org_ty2%
             DRAWER_render
         END IF
+        IF SCRN.showEditBar% THEN
+            EDITBAR_render
+        END IF
+
+        IF SCRN.showCharMap% THEN
+            CHARMAP_render
+        END IF
+
         IF SCRN.showStatus% THEN
             PALETTE_STRIP_render
             STATUS_render
         END IF
-        IF SCRN.showEditBar% THEN
-            EDITBAR_render
-        END IF
+
         IF LAYER_PANEL.visible% THEN
             LAYER_PANEL_render SCRN.h&
         END IF
@@ -2305,7 +2379,7 @@ SUB SCREEN_render ()
         totalZW& = SCRN.canvasW& * 3 * SCRN.zoom!
         totalZH& = SCRN.canvasH& * 3 * SCRN.zoom!
         DIM baseDX AS INTEGER, baseDY AS INTEGER
-        baseDX% = (SCRN.w& - totalZW&) \ 2 + SCRN.offsetX%
+        baseDX% = (SCRN.w& - totalZW&) \ 2 + SCRN.offsetX% + SCRN.panelShiftX%
         baseDY% = (SCRN.h& - totalZH&) \ 2 + SCRN.offsetY%
         ' Single-tile zoomed size
         zw& = SCRN.canvasW& * SCRN.zoom!
@@ -2316,7 +2390,7 @@ SUB SCREEN_render ()
     ELSE
         zw& = SCRN.canvasW& * SCRN.zoom!
         zh& = SCRN.canvasH& * SCRN.zoom!
-        dx% = (SCRN.w& - zw&) \ 2 + SCRN.offsetX%
+        dx% = (SCRN.w& - zw&) \ 2 + SCRN.offsetX% + SCRN.panelShiftX%
         dy% = (SCRN.h& - zh&) \ 2 + SCRN.offsetY%
     END IF
 
@@ -2538,7 +2612,7 @@ SUB SCREEN_render ()
             hovDX% = (SCRN.w& - hovZW& * 3) \ 2 + SCRN.offsetX% + hovZW&
             hovDY% = (SCRN.h& - hovZH& * 3) \ 2 + SCRN.offsetY% + hovZH&
         ELSE
-            hovDX% = (SCRN.w& - hovZW&) \ 2 + SCRN.offsetX%
+            hovDX% = (SCRN.w& - hovZW&) \ 2 + SCRN.offsetX% + SCRN.panelShiftX%
             hovDY% = (SCRN.h& - hovZH&) \ 2 + SCRN.offsetY%
         END IF
         DIM hovLi AS INTEGER

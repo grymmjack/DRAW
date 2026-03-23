@@ -298,6 +298,7 @@ A frame is "idle" when no input, mouse movement, GUI changes, or active tool ope
 | `GUI/TEXT-BAR.BI/BM`      | Text tool property bar (font, size, bold/italic/underline/strikethrough, colors, spacing) |
 | `GUI/TEXT-LAYER.BI/BM`    | Text layer data storage, serialization/deserialization, and rendering |
 | `GUI/FONT-LIST.BI/BM`     | Font registry (VGA, Tiny5, custom TTF/OTF) with size management |
+| `GUI/CHARMAP.BI/BM`       | Character map panel (16×16 glyph grid), Character Mode (useChars), virtual cursor, bitmap font rendering, char grid overlay |
 | `TOOLS/FILL-ADJ.BI/BM`   | Interactive Fill Adjustment overlay (F8) for custom brush and paint mode tiled fills; L-handle for independent X/Y scaling |
 | `GUI/CROSSHAIR.BI/BM`    | Crosshair assistant line rendering with configurable outline stroke |
 | `CFG/CONFIG.BI`           | Configuration structure                                             |

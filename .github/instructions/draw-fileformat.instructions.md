@@ -40,8 +40,13 @@ Extension changed from `.drw` to `.draw` in v0.7.4 (CorelDRAW conflict).
 | Extract Images Config | bgMode(2), namingMethod(2), startNumber(2), appendDims(2), mergeLayers(2), baseFilename(64), destDir(260) | v14+ |
 | Text Layer Data | textLayerCount(2), per-layer: layerIdx(2), startX(2), startY(2), charCount(2), lineCount(2), fontIdx(2), fontSize(2), defaultLeading(2), cursorPos(2), per-char: char(1)+fg(4)+bg(4)+bold(2)+italic(2)+underline(2)+strike(2)+fontIdx(2)+fontSize(2), per-line: lineBreakIdx(2) | v15+ |
 | Text Layer Monospace | monospace(2) flag per text layer | v16+ |
+| Text Bar State | selectedFontIdx(2), selectedSize(2), boldActive(2), italicActive(2), underlineActive(2), strikeActive(2), monoActive(2) | v17+ |
+| Character Grid State | charGridShow(2), charGridSnap(2), charGridW(2), charGridH(2) | v18+ |
+| Character Mode | useChars(2) | v19+ |
 
-Constants: `DRW_MAGIC$ = "DRW1"`, `DRW_VERSION% = 16`, `DRW_CHUNK_VERSION% = 1`
+Constants: `DRW_MAGIC$ = "DRW1"`, `DRW_VERSION% = 19`, `DRW_CHUNK_VERSION% = 1`
+
+**Per-document vs global config**: Character Mode (`useChars%`) is saved per-document in v19+ — it is NOT stored in `DRAW.cfg`. On fresh launch (no file loaded), `useChars%` defaults to FALSE. Character grid visibility/snap state is also per-document (v18+).
 
 ### Key Functions
 

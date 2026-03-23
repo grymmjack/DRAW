@@ -33,6 +33,7 @@ CONST TEXT_BTN_DONE       = 10  ' Commit text / exit editing
 CONST TEXT_BTN_MONO       = 11  ' Monospace toggle [M]
 CONST TEXT_BTN_LINE_HEIGHT = 12 ' Line height input
 CONST TEXT_BTN_AUTO_LH     = 13 ' Auto line-height toggle
+CONST TEXT_BTN_CHAR        = 14 ' Character Mode toggle [CHAR]
 
 TYPE TEXT_BAR_OBJ
     visible            AS INTEGER        ' TRUE when bar should be shown
@@ -93,6 +94,8 @@ TYPE TEXT_BAR_OBJ
     iconStrikeOff      AS LONG           ' Strikethrough icon dimmed copy
     iconMonoOff        AS LONG           ' Monospace icon dimmed copy
     iconLineHeightOff  AS LONG           ' Line height icon dimmed copy
+    charBtnX           AS INTEGER        ' CHAR button hit zone X
+    charBtnW           AS INTEGER        ' CHAR button hit zone width
 END TYPE
 
 DIM SHARED TEXT_BAR AS TEXT_BAR_OBJ
@@ -108,6 +111,9 @@ DECLARE SUB TEXT_BAR_render ()
 DECLARE SUB TEXT_BAR_render_font_dropdown ()
 DECLARE SUB TEXT_BAR_render_size_dropdown ()
 DECLARE FUNCTION TEXT_BAR_handle_click% (rawX AS INTEGER, rawY AS INTEGER)
+DECLARE FUNCTION TEXT_BAR_handle_wheel% (rawX AS INTEGER, rawY AS INTEGER, wheel_delta AS INTEGER)
+DECLARE FUNCTION TEXT_BAR_char_mode_font_is_safe% (fontIdx AS INTEGER)
+DECLARE SUB TEXT_BAR_ensure_char_mode_safe_font ()
 DECLARE SUB TEXT_BAR_handle_key (k AS LONG)
 DECLARE SUB TEXT_BAR_sync_paint_color ()
 DECLARE FUNCTION TEXT_BAR_in_bounds% (rawX AS INTEGER, rawY AS INTEGER)

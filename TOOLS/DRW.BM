@@ -365,6 +365,41 @@ SUB DRW_save_binary (filename AS STRING)
         END IF
     NEXT tlSi%
 
+    ' === TEXT BAR FONT STATE (v17+) ===
+    DIM tbFontName AS STRING * 64
+    IF TEXT_BAR.selectedFontIdx% >= 0 AND TEXT_BAR.selectedFontIdx% < FONT_LIST_COUNT% THEN
+        tbFontName$ = FONT_LIST(TEXT_BAR.selectedFontIdx%).displayName
+    ELSE
+        tbFontName$ = ""
+    END IF
+    PUT #fh%, , tbFontName$
+    tmpInt% = TEXT_BAR.selectedSize%
+    PUT #fh%, , tmpInt%
+    tmpInt% = TEXT_BAR.boldActive%
+    PUT #fh%, , tmpInt%
+    tmpInt% = TEXT_BAR.italicActive%
+    PUT #fh%, , tmpInt%
+    tmpInt% = TEXT_BAR.underlineActive%
+    PUT #fh%, , tmpInt%
+    tmpInt% = TEXT_BAR.strikeActive%
+    PUT #fh%, , tmpInt%
+    tmpInt% = TEXT_BAR.monoActive%
+    PUT #fh%, , tmpInt%
+
+    ' === CHARACTER GRID STATE (v18+) ===
+    tmpInt% = CHARMAP.charGridShow%
+    PUT #fh%, , tmpInt%
+    tmpInt% = CHARMAP.charGridSnap%
+    PUT #fh%, , tmpInt%
+    tmpInt% = CHARMAP.charGridW%
+    PUT #fh%, , tmpInt%
+    tmpInt% = CHARMAP.charGridH%
+    PUT #fh%, , tmpInt%
+
+    ' === CHARACTER MODE (v19+) ===
+    tmpInt% = CHARMAP.useChars%
+    PUT #fh%, , tmpInt%
+
     ' === UNIFIED HISTORY (v7+) ===
     HISTORY_save_binary fh%, SCRN.canvasW&, SCRN.canvasH&
 
@@ -942,6 +977,71 @@ SUB DRW_load_binary (filename AS STRING)
         NEXT tlLi%
     END IF
 
+    ' === TEXT BAR FONT STATE (v17+) ===
+    IF version% >= 17 THEN
+        DIM tbFontNameLoad AS STRING * 64
+        GET #fh%, , tbFontNameLoad$
+        DIM tbFontSize AS INTEGER
+        GET #fh%, , tbFontSize%
+        DIM tbBold AS INTEGER
+        GET #fh%, , tbBold%
+        DIM tbItal AS INTEGER
+        GET #fh%, , tbItal%
+        DIM tbUnd AS INTEGER
+        GET #fh%, , tbUnd%
+        DIM tbStr AS INTEGER
+        GET #fh%, , tbStr%
+        DIM tbMono AS INTEGER
+        GET #fh%, , tbMono%
+        ' Find font by display name
+        DIM tbFontName2 AS STRING
+        tbFontName2$ = RTRIM$(tbFontNameLoad$)
+        IF LEN(tbFontName2$) > 0 THEN
+            DIM tbFi AS INTEGER
+            FOR tbFi% = 0 TO FONT_LIST_COUNT% - 1
+                IF RTRIM$(FONT_LIST(tbFi%).displayName) = tbFontName2$ THEN
+                    TEXT_BAR.selectedFontIdx% = tbFi%
+                    EXIT FOR
+                END IF
+            NEXT tbFi%
+        END IF
+        IF tbFontSize% > 0 THEN TEXT_BAR.selectedSize% = tbFontSize%
+        TEXT_BAR.boldActive% = tbBold%
+        TEXT_BAR.italicActive% = tbItal%
+        TEXT_BAR.underlineActive% = tbUnd%
+        TEXT_BAR.strikeActive% = tbStr%
+        TEXT_BAR.monoActive% = tbMono%
+        ' Invalidate charmap and char grid so they rebuild with restored font
+        CHARMAP.cacheValid% = FALSE
+        CHARMAP.charGridW% = 0
+        CHARMAP.charGridH% = 0
+    END IF
+
+    ' === CHARACTER GRID STATE (v18+) ===
+    IF version% >= 18 THEN
+        DIM cgShowLoad AS INTEGER
+        DIM cgSnapLoad AS INTEGER
+        DIM cgWLoad AS INTEGER
+        DIM cgHLoad AS INTEGER
+        GET #fh%, , cgShowLoad%
+        GET #fh%, , cgSnapLoad%
+        GET #fh%, , cgWLoad%
+        GET #fh%, , cgHLoad%
+        CHARMAP.charGridShow% = cgShowLoad%
+        CHARMAP.charGridSnap% = cgSnapLoad%
+        CHARMAP.charGridW% = cgWLoad%
+        CHARMAP.charGridH% = cgHLoad%
+    END IF
+
+    ' === CHARACTER MODE (v19+) ===
+    IF version% >= 19 THEN
+        DIM cgUseCharsLoad AS INTEGER
+        GET #fh%, , cgUseCharsLoad%
+        CHARMAP.useChars% = cgUseCharsLoad%
+    ELSE
+        CHARMAP.useChars% = FALSE
+    END IF
+
     IF version% >= 7 THEN
         HISTORY_load_binary fh%, SCRN.canvasW&, SCRN.canvasH&, version%
     ELSE
@@ -988,6 +1088,7 @@ SUB DRW_load_binary (filename AS STRING)
     CROP_reset
     ERASER_reset
     PREVIEW_reset  ' Reset preview pan/zoom for new file
+    CHARMAP_reset  ' Reset character map transient state
 
     ' Reset layer panel state
     LAYER_PANEL.scrollOffset% = 0
@@ -1004,24 +1105,29 @@ SUB DRW_load_binary (filename AS STRING)
     ' Mark canvas as clean
     CANVAS_DIRTY% = FALSE
 
-    ' Auto-zoom to fit canvas in viewport
-    IF SCRN.canvasW& > SCRN.w& OR SCRN.canvasH& > SCRN.h& THEN
-        ' Canvas exceeds viewport — zoom out (fractional) to fit
+    ' Auto-zoom to fit canvas in available workspace (between UI panels)
+    DIM azAvailW AS LONG, azAvailH AS LONG
+    azAvailW& = SCRN.uiRightEdge% - SCRN.uiLeftEdge% + 1
+    azAvailH& = SCRN.h&
+    IF azAvailW& < 1 THEN azAvailW& = SCRN.w&
+
+    IF SCRN.canvasW& > azAvailW& OR SCRN.canvasH& > azAvailH& THEN
+        ' Canvas exceeds available area — zoom out (fractional) to fit
         DIM fitZoomW AS SINGLE, fitZoomH AS SINGLE, autoZoom AS SINGLE
-        fitZoomW! = SCRN.w& / SCRN.canvasW&
-        fitZoomH! = SCRN.h& / SCRN.canvasH&
+        fitZoomW! = azAvailW& / SCRN.canvasW&
+        fitZoomH! = azAvailH& / SCRN.canvasH&
         autoZoom! = fitZoomW!
         IF fitZoomH! < autoZoom! THEN autoZoom! = fitZoomH!
         IF autoZoom! < SCRN.zoomMin! THEN autoZoom! = SCRN.zoomMin!
         SCRN.zoom! = autoZoom!
         SCRN.offsetX% = 0
         SCRN.offsetY% = 0
-        _LOGINFO "DRW_load_binary: Auto-zoom OUT to" + STR$(SCRN.zoom!) + "x for" + STR$(SCRN.canvasW&) + "x" + STR$(SCRN.canvasH&) + " canvas in" + STR$(SCRN.w&) + "x" + STR$(SCRN.h&) + " viewport"
-    ELSEIF SCRN.canvasW& < SCRN.w& OR SCRN.canvasH& < SCRN.h& THEN
-        ' Canvas smaller than viewport — zoom in (integer for pixel-perfect)
+        _LOGINFO "DRW_load_binary: Auto-zoom OUT to" + STR$(SCRN.zoom!) + "x for" + STR$(SCRN.canvasW&) + "x" + STR$(SCRN.canvasH&) + " canvas in" + STR$(azAvailW&) + "x" + STR$(azAvailH&) + " available"
+    ELSEIF SCRN.canvasW& < azAvailW& OR SCRN.canvasH& < azAvailH& THEN
+        ' Canvas smaller than available area — zoom in (integer for pixel-perfect)
         DIM fitZoomW2 AS SINGLE, fitZoomH2 AS SINGLE, autoZoom2 AS SINGLE
-        fitZoomW2! = INT(SCRN.w& / SCRN.canvasW&)
-        fitZoomH2! = INT(SCRN.h& / SCRN.canvasH&)
+        fitZoomW2! = INT(azAvailW& / SCRN.canvasW&)
+        fitZoomH2! = INT(azAvailH& / SCRN.canvasH&)
         autoZoom2! = fitZoomW2!
         IF fitZoomH2! < autoZoom2! THEN autoZoom2! = fitZoomH2!
         IF autoZoom2! < 1.0 THEN autoZoom2! = 1.0
@@ -1029,7 +1135,7 @@ SUB DRW_load_binary (filename AS STRING)
         SCRN.zoom! = autoZoom2!
         SCRN.offsetX% = 0
         SCRN.offsetY% = 0
-        _LOGINFO "DRW_load_binary: Auto-zoom IN to" + STR$(SCRN.zoom!) + "x for" + STR$(SCRN.canvasW&) + "x" + STR$(SCRN.canvasH&) + " canvas in" + STR$(SCRN.w&) + "x" + STR$(SCRN.h&) + " viewport"
+        _LOGINFO "DRW_load_binary: Auto-zoom IN to" + STR$(SCRN.zoom!) + "x for" + STR$(SCRN.canvasW&) + "x" + STR$(SCRN.canvasH&) + " canvas in" + STR$(azAvailW&) + "x" + STR$(azAvailH&) + " available"
     ELSE
         SCRN.zoom! = 1.0
         SCRN.offsetX% = 0
@@ -1059,6 +1165,14 @@ SUB DRW_load_binary (filename AS STRING)
     GRID.gridWidth% = loadedGridW%
     GRID.gridHeight% = loadedGridH%
     GRID_draw  ' Redraw grid with restored settings
+    IF CHARMAP.charGridShow% OR CHARMAP.useChars% THEN
+        IF CHARMAP.useChars% THEN
+            CHARMAP.charGridShow% = TRUE
+            CHARMAP.charGridSnap% = TRUE
+        END IF
+        CHARMAP_char_grid_update_size
+        CHARMAP_char_grid_draw
+    END IF
     PIXEL_GRID_init
     SYMMETRY_init
 

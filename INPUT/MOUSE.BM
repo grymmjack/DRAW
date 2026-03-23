@@ -112,7 +112,7 @@ SUB MOUSE_drain_update_state (rawX AS INTEGER, rawY AS INTEGER, wheel_delta AS I
         zw& = SCRN.canvasW& * SCRN.zoom!
         zh& = SCRN.canvasH& * SCRN.zoom!
     END IF
-    dx% = (SCRN.w& - zw&) \ 2 + SCRN.offsetX%
+    dx% = (SCRN.w& - zw&) \ 2 + SCRN.offsetX% + SCRN.panelShiftX%
     dy% = (SCRN.h& - zh&) \ 2 + SCRN.offsetY%
 
     ' Convert screen coords to canvas coords
@@ -152,10 +152,14 @@ SUB MOUSE_drain_update_state (rawX AS INTEGER, rawY AS INTEGER, wheel_delta AS I
     IF MOUSE.UNSNAPPED_X% >= SCRN.canvasW& THEN MOUSE.UNSNAPPED_X% = SCRN.canvasW& - 1
     IF MOUSE.UNSNAPPED_Y% >= SCRN.canvasH& THEN MOUSE.UNSNAPPED_Y% = SCRN.canvasH& - 1
 
-    ' Apply snap-to-grid if enabled (handles rotated grid angle too)
-    ' Ctrl+Shift bypasses grid snap so user can start lines/shapes off-grid
+    ' Apply snapping (Ctrl+Shift bypasses all snapping).
+    ' Character-grid snap takes precedence so snaps don't stack.
     IF NOT MODIFIERS.ctrlShift% THEN
-        GRID_snap_xy MOUSE.X%, MOUSE.Y%
+        IF CHARMAP.charGridSnap% THEN
+            CHARMAP_char_grid_snap_xy MOUSE.X%, MOUSE.Y%
+        ELSE
+            GRID_snap_xy MOUSE.X%, MOUSE.Y%
+        END IF
     END IF
 
     ' Clamp to canvas bounds
@@ -318,7 +322,7 @@ FUNCTION MOUSE_handle_refimg_reposition% ()
     DIM zw AS LONG, zh AS LONG, dx AS INTEGER, dy AS INTEGER
     zw& = SCRN.canvasW& * SCRN.zoom!
     zh& = SCRN.canvasH& * SCRN.zoom!
-    dx% = (SCRN.w& - zw&) \ 2 + SCRN.offsetX%
+    dx% = (SCRN.w& - zw&) \ 2 + SCRN.offsetX% + SCRN.panelShiftX%
     dy% = (SCRN.h& - zh&) \ 2 + SCRN.offsetY%
     DIM canvasX AS INTEGER, canvasY AS INTEGER
     canvasX% = INT((rawX% - dx%) / SCRN.zoom!)
@@ -395,7 +399,7 @@ FUNCTION MOUSE_handle_image_import% ()
     ' Calculate zoomed canvas position on screen (canvas dimensions, centered in viewport)
     imp_zw& = SCRN.canvasW& * SCRN.zoom!
     imp_zh& = SCRN.canvasH& * SCRN.zoom!
-    imp_dx% = (SCRN.w& - imp_zw&) \ 2 + SCRN.offsetX%
+    imp_dx% = (SCRN.w& - imp_zw&) \ 2 + SCRN.offsetX% + SCRN.panelShiftX%
     imp_dy% = (SCRN.h& - imp_zh&) \ 2 + SCRN.offsetY%
 
     ' Convert screen coords to canvas coords
@@ -591,6 +595,7 @@ SUB MOUSE_autocommit_move_if_click_on_gui (rawX AS INTEGER, rawY AS INTEGER)
     IF SCRN.showToolbar% AND TOOLBAR_is_over_area%(rawX%, rawY%) THEN clickOnGUI% = TRUE
     IF SCRN.showToolbar% AND ORGANIZER_is_over_area%(rawX%, rawY%) THEN clickOnGUI% = TRUE
     IF SCRN.showEditBar% AND EDITBAR_is_over_area%(rawX%, rawY%) THEN clickOnGUI% = TRUE
+    IF SCRN.showCharMap% AND CHARMAP_is_over_area%(rawX%, rawY%) THEN clickOnGUI% = TRUE
     IF SCRN.showStatus% AND rawY% >= (SCRN.h& - 10) THEN clickOnGUI% = TRUE
     IF SCRN.showStatus% AND PALETTE_STRIP_in_bounds%(rawX%, rawY%) THEN clickOnGUI% = TRUE
     IF SCRN.showMenubar% AND MENU_BAR.visible% AND MENUBAR_in_bounds%(rawX%, rawY%) THEN clickOnGUI% = TRUE
@@ -822,6 +827,23 @@ SUB MOUSE_handle_toolbar_status_palette (rawX AS INTEGER, rawY AS INTEGER)
             MOUSE.UI_CHROME_CLICKED% = TRUE
             EXIT SUB
         END IF
+        ' Character map
+        IF SCRN.showCharMap% AND CHARMAP_is_over_area%(rawX%, rawY%) THEN
+            IF CHARMAP.dockSide% = CHARMAP_DOCK_LEFT THEN
+                CHARMAP.dockSide% = CHARMAP_DOCK_RIGHT
+                CFG.CHARMAP_PANEL_DOCK_EDGE$ = "RIGHT"
+            ELSE
+                CHARMAP.dockSide% = CHARMAP_DOCK_LEFT
+                CFG.CHARMAP_PANEL_DOCK_EDGE$ = "LEFT"
+            END IF
+            SOUND_play SND_DRAG_DROP
+            CONFIG_save
+            GUI_NEEDS_REDRAW% = TRUE
+            SCENE_DIRTY% = TRUE
+            FRAME_IDLE% = FALSE
+            MOUSE.UI_CHROME_CLICKED% = TRUE
+            EXIT SUB
+        END IF
         ' Edit bar
         IF SCRN.showEditBar% AND EDITBAR_is_over_area%(rawX%, rawY%) THEN
             IF EDIT_BAR.dockSide% = EDITBAR_DOCK_LEFT THEN
@@ -874,6 +896,11 @@ SUB MOUSE_handle_toolbar_status_palette (rawX AS INTEGER, rawY AS INTEGER)
             EDITBAR_handle_click rawX%, rawY%
             MOUSE.UI_CHROME_CLICKED% = TRUE
         END IF
+        ' Check if clicking on character map panel
+        IF SCRN.showCharMap% AND CHARMAP_is_over_area%(rawX%, rawY%) THEN
+            CHARMAP_handle_click rawX%, rawY%, 1
+            MOUSE.UI_CHROME_CLICKED% = TRUE
+        END IF
         ' Check if clicking on status bar area (bottom of screen)
         IF SCRN.showStatus% AND rawY% >= (SCRN.h& - 10) THEN
             STATUS_handle_click rawX%, rawY%
@@ -894,6 +921,11 @@ SUB MOUSE_handle_toolbar_status_palette (rawX AS INTEGER, rawY AS INTEGER)
         END IF
         IF SCRN.showStatus% AND PALETTE_STRIP_in_bounds%(rawX%, rawY%) THEN
             PALETTE_STRIP_handle_click rawX%, rawY%
+            MOUSE.UI_CHROME_CLICKED% = TRUE
+        END IF
+        ' Right-click on character map = copy glyph with BG color
+        IF SCRN.showCharMap% AND CHARMAP_is_over_area%(rawX%, rawY%) THEN
+            CHARMAP_handle_click rawX%, rawY%, 2
             MOUSE.UI_CHROME_CLICKED% = TRUE
         END IF
     END IF
@@ -1053,6 +1085,14 @@ SUB MOUSE_handle_ui_autohide_restore (rawX AS INTEGER, rawY AS INTEGER)
             GUI_NEEDS_REDRAW% = TRUE
             SCENE_DIRTY% = TRUE
         END IF
+        ' Auto-hide character map while drawing over it
+        IF SCRN.showCharMap% AND CHARMAP_is_over_area%(rawX%, rawY%) THEN
+            SCRN.showCharMap% = FALSE
+            CHARMAP.visible% = FALSE
+            SCRN.charMapManuallyHidden% = FALSE ' This is auto-hide, not manual
+            GUI_NEEDS_REDRAW% = TRUE
+            SCENE_DIRTY% = TRUE
+        END IF
     END IF
 
     ' Restore UI when mouse is released (only if auto-hidden, not manually hidden)
@@ -1092,6 +1132,12 @@ SUB MOUSE_handle_ui_autohide_restore (rawX AS INTEGER, rawY AS INTEGER)
         ' Restore edit bar if it was auto-hidden (not manually hidden by user)
         IF NOT SCRN.showEditBar% AND NOT SCRN.editBarManuallyHidden% THEN
             SCRN.showEditBar% = TRUE
+            uiRestored% = TRUE
+        END IF
+        ' Restore character map if it was auto-hidden (not manually hidden by user)
+        IF NOT SCRN.showCharMap% AND NOT SCRN.charMapManuallyHidden% THEN
+            SCRN.showCharMap% = TRUE
+            CHARMAP.visible% = TRUE
             uiRestored% = TRUE
         END IF
         IF uiRestored% THEN
@@ -1198,17 +1244,25 @@ SUB MOUSE_tool_fill ()
         STROKE_begin
         ' Set gradient context to full canvas for flood fill
         GRAD_CTX_set 0, 0, SCRN.canvasW& - 1, SCRN.canvasH& - 1
-        ' Grid cell fill mode: when enabled and grid visible, fill the grid cell
-        IF GRID.CELL_FILL% AND GRID.SHOW% THEN
+        ' Grid cell fill mode: when enabled and a grid is visible, fill that cell
+        IF GRID.CELL_FILL% AND (GRID.SHOW% OR CHARMAP.charGridShow%) THEN
             fill_history_label$ = "Fill Cell"
-            GRID_fill_cell MOUSE.UNSNAPPED_X%, MOUSE.UNSNAPPED_Y%, FILL.COLOR~&
+            IF CHARMAP.charGridShow% THEN
+                CHARMAP_char_grid_fill_cell MOUSE.UNSNAPPED_X%, MOUSE.UNSNAPPED_Y%, FILL.COLOR~&
+            ELSE
+                GRID_fill_cell MOUSE.UNSNAPPED_X%, MOUSE.UNSNAPPED_Y%, FILL.COLOR~&
+            END IF
             ' Also fill symmetry-mirrored cells
             IF SYMMETRY.MODE% > 0 THEN
                 DIM gfc_mx(7) AS INTEGER, gfc_my(7) AS INTEGER, gfc_count AS INTEGER
                 SYMMETRY_get_mirrored_points MOUSE.UNSNAPPED_X%, MOUSE.UNSNAPPED_Y%, gfc_mx%(), gfc_my%(), gfc_count%
                 DIM gfc_i AS INTEGER
                 FOR gfc_i% = 0 TO gfc_count% - 1
-                    GRID_fill_cell gfc_mx%(gfc_i%), gfc_my%(gfc_i%), FILL.COLOR~&
+                    IF CHARMAP.charGridShow% THEN
+                        CHARMAP_char_grid_fill_cell gfc_mx%(gfc_i%), gfc_my%(gfc_i%), FILL.COLOR~&
+                    ELSE
+                        GRID_fill_cell gfc_mx%(gfc_i%), gfc_my%(gfc_i%), FILL.COLOR~&
+                    END IF
                 NEXT gfc_i%
             END IF
         ELSE
@@ -1344,6 +1398,7 @@ SUB MOUSE_tool_text ()
                                     DIM dblLine AS INTEGER
                                     dblLine% = TEXT_LAYER_get_line_for_char%(dblTd%, dblPos%)
                                     TEXT.CURSOR_Y = TEXT_LAYER_get_line_y%(dblTd%, dblLine%)
+                                    TEXT_char_mode_sync_virtual
                                 END IF
                             END IF
                             TEXT_sync_bar_to_cursor
@@ -1360,11 +1415,10 @@ SUB MOUSE_tool_text ()
             ' If actively editing a text layer, try to move cursor within it
             DIM clickHandled AS INTEGER
             clickHandled% = FALSE
-            IF TEXT.ACTIVE AND TEXT.editingTextLayer% >= 1 THEN
-                IF TEXT.editingTextLayer% <= 64 THEN
-                    DIM eTdIdx AS INTEGER
-                    eTdIdx% = LAYERS(TEXT.editingTextLayer%).textDataIdx%
-                    IF eTdIdx% >= 1 THEN
+            IF TEXT.ACTIVE THEN
+                DIM eTdIdx AS INTEGER
+                eTdIdx% = TEXT_get_active_text_data_idx%
+                IF eTdIdx% >= 1 THEN
                         DIM hitPos AS INTEGER
                         hitPos% = TEXT_LAYER_get_cursor_at_pos%(eTdIdx%, MOUSE.X%, MOUSE.Y%)
                         IF hitPos% >= 0 THEN
@@ -1391,13 +1445,13 @@ SUB MOUSE_tool_text ()
                             DIM hitLine AS INTEGER
                             hitLine% = TEXT_LAYER_get_line_for_char%(eTdIdx%, hitPos%)
                             TEXT.CURSOR_Y = TEXT_LAYER_get_line_y%(eTdIdx%, hitLine%)
+                            TEXT_char_mode_sync_virtual
                             TEXT.CURSOR_BLINK = 1
                             TEXT.BLINK_TIMER = TIMER
                             FRAME_IDLE% = FALSE
                             GUI_NEEDS_REDRAW% = TRUE
                             clickHandled% = TRUE
                         END IF
-                    END IF
                 END IF
             END IF
             IF NOT clickHandled% THEN
@@ -1454,6 +1508,7 @@ SUB MOUSE_tool_text ()
                             DIM reClickLine AS INTEGER
                             reClickLine% = TEXT_LAYER_get_line_for_char%(reClickTd%, reClickPos%)
                             TEXT.CURSOR_Y = TEXT_LAYER_get_line_y%(reClickTd%, reClickLine%)
+                            TEXT_char_mode_sync_virtual
                         END IF
                     END IF
                     TEXT_sync_bar_to_cursor
@@ -1462,15 +1517,15 @@ SUB MOUSE_tool_text ()
             END IF
             IF NOT clickHandled% THEN
                 TEXT_start MOUSE.X%, MOUSE.Y%
+                TEXT_char_mode_sync_virtual
             END IF
         END IF
     ELSEIF MOUSE.B1% AND MOUSE.OLD_B1% THEN
         ' Mouse drag: extend selection while dragging
-        IF TEXT.ACTIVE AND TEXT.editingTextLayer% >= 1 THEN
-            IF TEXT.editingTextLayer% <= 64 THEN
-                DIM dragTdIdx AS INTEGER
-                dragTdIdx% = LAYERS(TEXT.editingTextLayer%).textDataIdx%
-                IF dragTdIdx% >= 1 THEN
+        IF TEXT.ACTIVE THEN
+            DIM dragTdIdx AS INTEGER
+            dragTdIdx% = TEXT_get_active_text_data_idx%
+            IF dragTdIdx% >= 1 THEN
                     DIM dragPos AS INTEGER
                     dragPos% = TEXT_LAYER_get_cursor_at_pos%(dragTdIdx%, MOUSE.X%, MOUSE.Y%)
                     IF dragPos% >= 0 THEN
@@ -1486,13 +1541,13 @@ SUB MOUSE_tool_text ()
                             DIM dragLine AS INTEGER
                             dragLine% = TEXT_LAYER_get_line_for_char%(dragTdIdx%, dragPos%)
                             TEXT.CURSOR_Y = TEXT_LAYER_get_line_y%(dragTdIdx%, dragLine%)
+                            TEXT_char_mode_sync_virtual
                             TEXT.CURSOR_BLINK = 1
                             TEXT.BLINK_TIMER = TIMER
                             FRAME_IDLE% = FALSE
                             SCENE_DIRTY% = TRUE
                         END IF
                     END IF
-                END IF
             END IF
         END IF
     END IF
@@ -2125,13 +2180,14 @@ SUB MOUSE_tool_dot ()
         MOUSE.OLD_Y% = MOUSE.Y%
         ' Initialize gradient context for single dot
         GRAD_CTX_set MOUSE.X%, MOUSE.Y%, MOUSE.X%, MOUSE.Y%
-        PAINT_on
+        ' Char mode on text layer: fill cell instead of pixel
+        IF TEXT_char_mode_on_text_layer% THEN
+            TEXT_char_mode_fill_cells MOUSE.X%, MOUSE.Y%, MOUSE.X%, MOUSE.Y%, TRUE
+        ELSE
+            PAINT_on
+        END IF
     END IF
 END SUB
-
-
-''
-' Tool handler: Spray.
 '
 SUB MOUSE_tool_spray ()
     ' Spray paint on left mouse button hold
@@ -2435,6 +2491,29 @@ END SUB
 SUB MOUSE_release_rect ()
     ' Draw the final rectangle on mouse release
     IF RECT_TOOL.DRAGGING THEN
+        ' --- Char mode on text layer: update cells instead of pixels ---
+        IF TEXT_char_mode_on_text_layer% THEN
+            DIM cm_rect_before AS LONG
+            DIM cm_rect_target AS LONG
+            DIM cm_rect_flags AS LONG
+            cm_rect_before& = 0
+            cm_rect_flags& = 0
+            cm_rect_target& = LAYER_current_image&
+            IF NOT HISTORY_IN_PROGRESS% AND LAYERS(CURRENT_LAYER%).historyId& > 0 AND cm_rect_target& < -1 THEN
+                cm_rect_before& = _COPYIMAGE(cm_rect_target&, 32)
+                IF RECT_TOOL.FILLED THEN cm_rect_flags& = cm_rect_flags& OR HISTORY_FLAG_FILLED
+            END IF
+            TEXT_char_mode_fill_cells RECT_TOOL.START_X, RECT_TOOL.START_Y, RECT_TOOL.END_X, RECT_TOOL.END_Y, RECT_TOOL.FILLED
+            RECT_TOOL.DRAGGING = FALSE
+            STROKE_commit
+            IF cm_rect_before& < -1 THEN
+                HISTORY_record_rect LAYERS(CURRENT_LAYER%).historyId&, CURRENT_LAYER%, RECT_TOOL.START_X, RECT_TOOL.START_Y, RECT_TOOL.END_X, RECT_TOOL.END_Y, PAINT_apply_opacity~&(DRAW_COLOR~&), cm_rect_flags&, cm_rect_before&, "Char Rect"
+                HISTORY_saved_this_frame% = TRUE
+            END IF
+            SOUND_play SND_DRAG_DROP
+            EXIT SUB
+        END IF
+
         DIM rect_history_before AS LONG
         DIM rect_history_flags AS LONG
         DIM rect_fsx(0 TO 7) AS INTEGER, rect_fsy(0 TO 7) AS INTEGER
@@ -2835,6 +2914,21 @@ END SUB
 ' Mouse release handler: Dot.
 '
 SUB MOUSE_release_dot ()
+    ' --- Char mode on text layer: cell was filled in MOUSE_tool_dot ---
+    IF TEXT_char_mode_on_text_layer% THEN
+        STROKE_commit
+        IF DOT.HISTORY_BEFORE_IMG < -1 THEN
+            DIM cm_dot_flags AS LONG
+            cm_dot_flags& = 0
+            HISTORY_record_brush LAYERS(CURRENT_LAYER%).historyId&, CURRENT_LAYER%, PAINT_apply_opacity~&(DOT.HISTORY_COLOR~&), cm_dot_flags&, DOT.HISTORY_BEFORE_IMG&, "Char Dot"
+            DOT.HISTORY_BEFORE_IMG = 0
+            HISTORY_saved_this_frame% = TRUE
+        END IF
+        DOT.LAST_X = MOUSE.X%
+        DOT.LAST_Y = MOUSE.Y%
+        DOT.HAS_LAST = TRUE
+        EXIT SUB
+    END IF
     ' DOT stamps single pixel - just finalize
     DIM dot_history_flags AS LONG
     DIM dot_recorded AS INTEGER
@@ -3242,6 +3336,10 @@ SUB MOUSE_handle_wheel (rawX AS INTEGER, rawY AS INTEGER, wheel_delta AS INTEGER
             DRAWER_handle_wheel rawX%, rawY%, MOUSE.SW%
             SOUND_play SND_ORGANIZER
             MOUSE.SW% = 0 ' Consume — drawer interaction doesn't zoom
+        ' Check if over charmap - scroll rows when the grid exceeds panel height
+        ELSEIF SCRN.showCharMap% AND CHARMAP_is_over_area%(rawX%, rawY%) THEN
+            CHARMAP_scroll MOUSE.SW%
+            MOUSE.SW% = 0 ' Consume — charmap scroll doesn't zoom
         ' Check if over status bar area (don't zoom when over status bar) - use RAW screen coords
         ELSEIF SCRN.showStatus% AND rawY% >= SCRN.h& - THEME.STATUS_height% - PALETTE_STRIP_get_height% THEN
             MOUSE.SW% = 0 ' Consume — ignored
@@ -3359,18 +3457,28 @@ SUB MOUSE_dispatch_tool_hold (rawX AS INTEGER, rawY AS INTEGER)
     ' --- Guard: block drawing tools on text layers ---
     IF CURRENT_LAYER% >= 1 AND CURRENT_LAYER% <= LAYER_COUNT% THEN
         IF LAYERS(CURRENT_LAYER%).layerType% = LAYER_TYPE_TEXT THEN
-            SELECT CASE CURRENT_TOOL%
-                CASE TOOL_BRUSH, TOOL_DOT, TOOL_SPRAY, TOOL_LINE, TOOL_RECT, TOOL_RECT_FILLED, TOOL_ELLIPSE, TOOL_ELLIPSE_FILLED, TOOL_ERASER, TOOL_FILL, TOOL_POLYGON, TOOL_POLYGON_FILLED
-                    IF (MOUSE.B1% AND NOT MOUSE.OLD_B1%) OR (MOUSE.B2% AND NOT MOUSE.OLD_B2%) THEN
-                        _MESSAGEBOX "Cannot Draw on Text Layer", _
-                            "Drawing is not allowed on text layers." + CHR$(10) + CHR$(10) + _
-                            "Use the Text tool (T) to edit text, or rasterize" + CHR$(10) + _
-                            "the layer first (Edit > Rasterize Text Layer).", "info"
-                        MOUSE_cleanup_after_dialog FALSE
-                    END IF
-                    MOUSE.UI_CHROME_CLICKED% = TRUE
-                    EXIT SUB
-            END SELECT
+            DIM cmToolAllowed AS INTEGER
+            cmToolAllowed% = FALSE
+            IF TEXT_char_mode_on_text_layer% THEN
+                SELECT CASE CURRENT_TOOL%
+                    CASE TOOL_DOT, TOOL_RECT, TOOL_RECT_FILLED
+                        cmToolAllowed% = TRUE
+                END SELECT
+            END IF
+            IF NOT cmToolAllowed% THEN
+                SELECT CASE CURRENT_TOOL%
+                    CASE TOOL_BRUSH, TOOL_DOT, TOOL_SPRAY, TOOL_LINE, TOOL_RECT, TOOL_RECT_FILLED, TOOL_ELLIPSE, TOOL_ELLIPSE_FILLED, TOOL_ERASER, TOOL_FILL, TOOL_POLYGON, TOOL_POLYGON_FILLED
+                        IF (MOUSE.B1% AND NOT MOUSE.OLD_B1%) OR (MOUSE.B2% AND NOT MOUSE.OLD_B2%) THEN
+                            _MESSAGEBOX "Cannot Draw on Text Layer", _
+                                "Drawing is not allowed on text layers." + CHR$(10) + CHR$(10) + _
+                                "Use the Text tool (T) to edit text, or rasterize" + CHR$(10) + _
+                                "the layer first (Edit > Rasterize Text Layer).", "info"
+                            MOUSE_cleanup_after_dialog FALSE
+                        END IF
+                        MOUSE.UI_CHROME_CLICKED% = TRUE
+                        EXIT SUB
+                END SELECT
+            END IF
         END IF
     END IF
 
@@ -3491,10 +3599,20 @@ SUB MOUSE_dispatch_tool_release (rawX AS INTEGER, rawY AS INTEGER)
     ' --- Guard: block drawing tools on text layers ---
     IF CURRENT_LAYER% >= 1 AND CURRENT_LAYER% <= LAYER_COUNT% THEN
         IF LAYERS(CURRENT_LAYER%).layerType% = LAYER_TYPE_TEXT THEN
-            SELECT CASE CURRENT_TOOL%
-                CASE TOOL_BRUSH, TOOL_DOT, TOOL_SPRAY, TOOL_LINE, TOOL_RECT, TOOL_RECT_FILLED, TOOL_ELLIPSE, TOOL_ELLIPSE_FILLED, TOOL_ERASER, TOOL_FILL, TOOL_POLYGON, TOOL_POLYGON_FILLED
-                    EXIT SUB
-            END SELECT
+            DIM cmRelAllowed AS INTEGER
+            cmRelAllowed% = FALSE
+            IF TEXT_char_mode_on_text_layer% THEN
+                SELECT CASE CURRENT_TOOL%
+                    CASE TOOL_DOT, TOOL_RECT, TOOL_RECT_FILLED
+                        cmRelAllowed% = TRUE
+                END SELECT
+            END IF
+            IF NOT cmRelAllowed% THEN
+                SELECT CASE CURRENT_TOOL%
+                    CASE TOOL_BRUSH, TOOL_DOT, TOOL_SPRAY, TOOL_LINE, TOOL_RECT, TOOL_RECT_FILLED, TOOL_ELLIPSE, TOOL_ELLIPSE_FILLED, TOOL_ERASER, TOOL_FILL, TOOL_POLYGON, TOOL_POLYGON_FILLED
+                        EXIT SUB
+                END SELECT
+            END IF
         END IF
     END IF
 
@@ -3955,6 +4073,12 @@ END FUNCTION
 ' @param wheel_delta INTEGER Mouse wheel scroll delta for this frame (may be zeroed if consumed)
 '
 SUB MOUSE_handle_gui_panels (rawX AS INTEGER, rawY AS INTEGER, wheel_delta AS INTEGER)
+    ' Update charmap hover during GUI routing so hover remains responsive even
+    ' on frames where later tool processing is skipped due to UI chrome clicks.
+    IF SCRN.showCharMap% THEN
+        CHARMAP_update_hover rawX%, rawY%
+    END IF
+
     ' Preview window (checked first — floats above all other panels)
     IF PREVIEW.visible% AND NOT PREVIEW.autoHidden% THEN
         PREVIEW_mouse_input
@@ -4006,6 +4130,7 @@ SUB MOUSE_post_process (rawX AS INTEGER, rawY AS INTEGER, wheel_delta AS INTEGER
     IF SCRN.showEditBar% THEN
         EDITBAR_update_hover rawX%, rawY%
     END IF
+
 END SUB
 
 
@@ -4034,18 +4159,14 @@ FUNCTION MOUSE_process_frame% (rawX AS INTEGER, rawY AS INTEGER, wheel_delta AS 
         EXIT FUNCTION
     END IF
 
-    ' Handle mousewheel scroll in text bar font dropdown
-    IF TEXT_BAR.visible% AND TEXT_BAR.fontDropdownOpen% AND wheel_delta% <> 0 THEN
-        TEXT_BAR.fontDropdownScroll% = TEXT_BAR.fontDropdownScroll% + wheel_delta% * 3
-        IF TEXT_BAR.fontDropdownScroll% < 0 THEN TEXT_BAR.fontDropdownScroll% = 0
-        DIM fddMaxScroll AS INTEGER
-        fddMaxScroll% = FONT_LIST_COUNT% - TEXT_BAR_font_dropdown_max_visible%
-        IF fddMaxScroll% < 0 THEN fddMaxScroll% = 0
-        IF TEXT_BAR.fontDropdownScroll% > fddMaxScroll% THEN TEXT_BAR.fontDropdownScroll% = fddMaxScroll%
-        GUI_NEEDS_REDRAW% = TRUE
-        FRAME_IDLE% = FALSE
-        MOUSE_process_frame% = FALSE
-        EXIT FUNCTION
+    ' Handle mousewheel interactions over text bar controls.
+    IF TEXT_BAR.visible% AND wheel_delta% <> 0 THEN
+        IF TEXT_BAR_handle_wheel%(rawX%, rawY%, wheel_delta%) THEN
+            GUI_NEEDS_REDRAW% = TRUE
+            FRAME_IDLE% = FALSE
+            MOUSE_process_frame% = FALSE
+            EXIT FUNCTION
+        END IF
     END IF
 
     ' CTRL+click sets symmetry center

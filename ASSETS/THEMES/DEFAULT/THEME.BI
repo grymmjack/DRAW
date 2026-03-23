@@ -417,6 +417,23 @@ PALETTE_SEP_LOSPEC_LBL$             = "-- USER : LOSPEC --"
 PALETTE_SEP_CREATED_LBL$            = "-- USER : CREATED --"
 
 ' =============================================================================
+' CHARACTER MAP - Dockable glyph grid panel
+' =============================================================================
+THEME.CHARMAP_BG~&                  = _RGB32(20, 20, 32)
+THEME.CHARMAP_FG~&                  = _RGB32(180, 180, 180)
+THEME.CHARMAP_SELECTED_FG~&         = _RGB32(0, 0, 0)
+THEME.CHARMAP_SELECTED_BG~&         = _RGB32(255, 255, 255)
+THEME.CHARMAP_HOVER_FG~&            = _RGB32(220, 220, 220)
+THEME.CHARMAP_HOVER_BG~&            = _RGB32(50, 50, 80)
+THEME.CHARMAP_GRID_FG~&             = _RGB32(40, 40, 60)
+THEME.CHARMAP_FLASH_FG~&            = _RGB32(255, 200, 60)
+THEME.CHARMAP_SCROLLBAR_BG~&        = _RGB32(40, 40, 60)
+THEME.CHARMAP_SCROLLBAR_FG~&        = _RGB32(255, 255, 255)
+THEME.CHARMAP_SCROLLBAR_OPACITY%    = 255
+THEME.CHARMAP_SCROLLBAR_WIDTH%      = 2
+THEME.CHAR_GRID_COLOR_FG~&          = _RGBA32(100, 100, 200, 80)
+
+' =============================================================================
 ' TEXT BAR - Rich text formatting bar (below menu bar when text tool active)
 ' =============================================================================
 THEME.TEXT_BAR_BG~&                  = _RGB32(28, 28, 42)
