@@ -456,6 +456,49 @@ THEME.TEXT_BAR_ICON_UNDERLINE$       = "IMAGES/TEXTBAR/tb-underline.png"
 THEME.TEXT_BAR_ICON_STRIKE$          = "IMAGES/TEXTBAR/tb-strikethrough.png"
 THEME.TEXT_BAR_ICON_MONO$            = "IMAGES/TEXTBAR/tb-monospace.png"
 THEME.TEXT_BAR_ICON_LINE_HEIGHT$     = "IMAGES/TEXTBAR/tb-line-height.png"
+' --- Text Bar: Layout ---
+THEME.TEXT_BAR_ROW1_ORDER$           = "FONT,SIZE,BIUS,COLORS,MONO,LH,CHAR"
+THEME.TEXT_BAR_ROW2_ORDER$           = "STYLE,ALIGN,SHADOW,OUTLINE,AA"
+' --- Text Bar: Geometry ---
+THEME.TEXT_BAR_ROW_HEIGHT%           = 14
+THEME.TEXT_BAR_PADDING_H%            = 4
+THEME.TEXT_BAR_PADDING_V%            = 2
+THEME.TEXT_BAR_GROUP_GAP%            = 6
+THEME.TEXT_BAR_BORDER_WIDTH%         = 1
+' --- Text Bar: Button Geometry ---
+THEME.TEXT_BAR_BTN_WIDTH%            = 12
+THEME.TEXT_BAR_BTN_GAP%              = 2
+THEME.TEXT_BAR_BTN_PADDING%          = 3
+' --- Text Bar: Icon Geometry ---
+THEME.TEXT_BAR_ICON_WIDTH%           = 10
+THEME.TEXT_BAR_ICON_HEIGHT%          = 10
+THEME.TEXT_BAR_ICON_OFFSET_X%        = 1
+THEME.TEXT_BAR_ICON_OFFSET_Y%        = 2
+' --- Text Bar: Swatch Geometry ---
+THEME.TEXT_BAR_SWATCH_WIDTH%         = 10
+THEME.TEXT_BAR_SWATCH_GAP%           = 4
+' --- Text Bar: Dropdown Geometry ---
+THEME.TEXT_BAR_DROPDOWN_ARROW_W%     = 6
+THEME.TEXT_BAR_DROPDOWN_ITEM_H%      = 12
+THEME.TEXT_BAR_DROPDOWN_PAD%         = 4
+THEME.TEXT_BAR_DROPDOWN_MIN_W%       = 40
+' --- Text Bar: Label ---
+THEME.TEXT_BAR_LABEL_OFFSET_Y%       = 3
+' --- Text Bar: Row 2 Icons ---
+THEME.TEXT_BAR_ICON_OUTLINE$         = "IMAGES/TEXTBAR/tb-outline.png"
+THEME.TEXT_BAR_ICON_SHADOW$          = "IMAGES/TEXTBAR/tb-shadow.png"
+THEME.TEXT_BAR_ICON_ALIGN_LEFT$      = "IMAGES/TEXTBAR/tb-align-left.png"
+THEME.TEXT_BAR_ICON_ALIGN_CENTER$    = "IMAGES/TEXTBAR/tb-align-center.png"
+THEME.TEXT_BAR_ICON_ALIGN_RIGHT$     = "IMAGES/TEXTBAR/tb-align-right.png"
+THEME.TEXT_BAR_ICON_STYLE_UPDATE$    = "IMAGES/TEXTBAR/tb-style-update.png"
+THEME.TEXT_BAR_ICON_STYLE_SAVE$      = "IMAGES/TEXTBAR/tb-style-save.png"
+THEME.TEXT_BAR_ICON_STYLE_DELETE$    = "IMAGES/TEXTBAR/tb-style-delete.png"
+THEME.TEXT_BAR_ICON_AUTO$            = "IMAGES/TEXTBAR/tb-auto.png"
+THEME.TEXT_BAR_ICON_CHAR$            = "IMAGES/TEXTBAR/tb-char.png"
+THEME.TEXT_BAR_ICON_AA$              = "IMAGES/TEXTBAR/tb-aa.png"
+' --- Text Bar: Transparency ---
+THEME.TEXT_BAR_TRANSPARENT_CHECK_DARK~&   = _RGBA32(192, 192, 192, 255)
+THEME.TEXT_BAR_TRANSPARENT_CHECK_LIGHT~&  = _RGBA32(255, 255, 255, 255)
 THEME.LAYER_PANEL_TEXT_ACCENT~&      = _RGB32(80, 120, 200)
 THEME.TEXT_LAYER_HOVER_OUTLINE~&     = _RGBA32(100, 200, 255, 180)
 THEME.TEXT_LAYER_HOVER_OUTLINE_WIDTH% = 2

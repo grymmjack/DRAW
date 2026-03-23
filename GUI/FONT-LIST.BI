@@ -52,6 +52,7 @@ DIM SHARED FONT_CACHE_SIZE(0 TO FONT_CACHE_MAX - 1)  AS INTEGER  ' Point size
 DIM SHARED FONT_CACHE_STYLE(0 TO FONT_CACHE_MAX - 1) AS STRING * 16 ' Style string
 DIM SHARED FONT_CACHE_HANDLE(0 TO FONT_CACHE_MAX - 1) AS LONG    ' Loaded handle
 DIM SHARED FONT_CACHE_MONO(0 TO FONT_CACHE_MAX - 1) AS INTEGER   ' Monospace flag
+DIM SHARED FONT_CACHE_AA(0 TO FONT_CACHE_MAX - 1) AS INTEGER     ' Antialias flag
 DIM SHARED FONT_CACHE_COUNT AS INTEGER
 
 ' Blacklist: fonts whose path/filename matches are excluded from the list
@@ -81,7 +82,7 @@ DECLARE SUB BITMAP_FONT_render_glyph_fxx (fontPath$, charIdx%, glyphH%, destImg 
 DECLARE SUB BITMAP_FONT_render_glyph_psf (fontPath$, charIdx%, glyphW%, glyphH%, destImg AS LONG)
 DECLARE SUB BITMAP_FONT_render_glyph_bdf (fontPath$, charIdx%, destImg AS LONG, outW AS INTEGER, outH AS INTEGER)
 DECLARE SUB BITMAP_FONT_render_glyph_pcf (fontPath$, charIdx%, glyphW%, glyphH%, destImg AS LONG)
-DECLARE FUNCTION FONT_LIST_get_handle& (fontIdx%, fontSize%, fontStyle$, mono%)
+DECLARE FUNCTION FONT_LIST_get_handle& (fontIdx%, fontSize%, fontStyle$, mono%, antialias%)
 DECLARE FUNCTION FONT_LIST_extract_name$ (fontPath$)
 DECLARE FUNCTION FONT_LIST_find_by_name% (displayName$)
 DECLARE SUB FONT_LIST_free_cache ()

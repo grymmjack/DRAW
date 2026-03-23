@@ -16,6 +16,11 @@ CONST TEXT_LAYER_MAX_CHARS = 4096  ' Max characters per text layer
 CONST TEXT_LAYER_MAX_LINES = 256   ' Max lines per text layer
 CONST TEXT_LAYER_POOL_SIZE = 64    ' One slot per possible layer
 
+' Text alignment constants
+CONST TEXT_ALIGN_LEFT = 0
+CONST TEXT_ALIGN_CENTER = 1
+CONST TEXT_ALIGN_RIGHT = 2
+
 TYPE TEXT_LAYER_OBJ
     used         AS INTEGER    ' TRUE if this pool slot is in use
     startX       AS INTEGER    ' Canvas X origin of text block
@@ -28,6 +33,10 @@ TYPE TEXT_LAYER_OBJ
     cursorPos    AS INTEGER    ' Cursor position (0-based char index)
     dirty        AS INTEGER    ' TRUE when text data changed, triggers re-render
     monospace    AS INTEGER    ' TRUE to load all fonts with MONOSPACE flag
+    alignment    AS INTEGER    ' 0=LEFT, 1=CENTER, 2=RIGHT (per-layer)
+    antialias    AS _BYTE      ' 0=OFF (crisp pixels), 1=ON (smooth). Default ON.
+    outlineCharCount AS INTEGER ' Pre-counted: chars with outline=1 (CPU: skip pass when 0)
+    shadowCharCount  AS INTEGER ' Pre-counted: chars with shadow=1 (CPU: skip pass when 0)
 END TYPE
 
 ' Pool of text layer data (indexed by DRAW_LAYER.textDataIdx)
@@ -50,13 +59,24 @@ DIM SHARED TL_STRIKE(1 TO TEXT_LAYER_POOL_SIZE, 0 TO TEXT_LAYER_MAX_CHARS - 1) A
 DIM SHARED TL_KERN(1 TO TEXT_LAYER_POOL_SIZE, 0 TO TEXT_LAYER_MAX_CHARS - 1) AS INTEGER
 DIM SHARED TL_BASELINE(1 TO TEXT_LAYER_POOL_SIZE, 0 TO TEXT_LAYER_MAX_CHARS - 1) AS INTEGER
 
+' Per-character outline attributes
+DIM SHARED TL_OUTLINE(1 TO TEXT_LAYER_POOL_SIZE, 0 TO TEXT_LAYER_MAX_CHARS - 1) AS _BYTE
+DIM SHARED TL_OUTLINE_COLOR(1 TO TEXT_LAYER_POOL_SIZE, 0 TO TEXT_LAYER_MAX_CHARS - 1) AS _UNSIGNED LONG
+DIM SHARED TL_OUTLINE_SIZE(1 TO TEXT_LAYER_POOL_SIZE, 0 TO TEXT_LAYER_MAX_CHARS - 1) AS _BYTE
+
+' Per-character shadow attributes
+DIM SHARED TL_SHADOW(1 TO TEXT_LAYER_POOL_SIZE, 0 TO TEXT_LAYER_MAX_CHARS - 1) AS _BYTE
+DIM SHARED TL_SHADOW_COLOR(1 TO TEXT_LAYER_POOL_SIZE, 0 TO TEXT_LAYER_MAX_CHARS - 1) AS _UNSIGNED LONG
+DIM SHARED TL_SHADOW_X(1 TO TEXT_LAYER_POOL_SIZE, 0 TO TEXT_LAYER_MAX_CHARS - 1) AS _BYTE
+DIM SHARED TL_SHADOW_Y(1 TO TEXT_LAYER_POOL_SIZE, 0 TO TEXT_LAYER_MAX_CHARS - 1) AS _BYTE
+
 ' Per-line leading (line spacing override per line)
 DIM SHARED TL_LEADING(1 TO TEXT_LAYER_POOL_SIZE, 0 TO TEXT_LAYER_MAX_LINES - 1) AS INTEGER
 
 ' Function declarations
 DECLARE FUNCTION TEXT_LAYER_alloc% ()
 DECLARE SUB TEXT_LAYER_free (idx AS INTEGER)
-DECLARE FUNCTION TEXT_LAYER_measure_char% (fontIdx AS INTEGER, fontSize AS INTEGER, fontStyle AS STRING, mono AS INTEGER, ch AS STRING, outW AS INTEGER, outH AS INTEGER, outHandle AS LONG)
+DECLARE FUNCTION TEXT_LAYER_measure_char% (fontIdx AS INTEGER, fontSize AS INTEGER, fontStyle AS STRING, mono AS INTEGER, antialias AS INTEGER, ch AS STRING, outW AS INTEGER, outH AS INTEGER, outHandle AS LONG)
 DECLARE SUB TEXT_LAYER_draw_bitmap_char (fontIdx AS INTEGER, ch AS STRING, drawX AS INTEGER, drawY AS INTEGER, fgColor AS _UNSIGNED LONG, destImg AS LONG)
 DECLARE SUB TEXT_LAYER_render (idx AS INTEGER, destImg AS LONG)
 DECLARE SUB TEXT_LAYER_add_char (idx AS INTEGER, ch AS STRING)

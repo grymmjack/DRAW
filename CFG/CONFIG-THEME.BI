@@ -433,6 +433,49 @@ TYPE DRAW_THEME
     TEXT_BAR_ICON_STRIKE         AS STRING * 64     ' Strikethrough button icon PNG filename
     TEXT_BAR_ICON_MONO           AS STRING * 64     ' Monospace button icon PNG filename
     TEXT_BAR_ICON_LINE_HEIGHT    AS STRING * 64     ' Line height button icon PNG filename
+    ' --- Text Formatting Bar: Layout ---
+    TEXT_BAR_ROW1_ORDER          AS STRING * 64     ' Row 1 group order (csv: FONT,SIZE,BIUS,COLORS,MONO,LH,CHAR)
+    TEXT_BAR_ROW2_ORDER          AS STRING * 64     ' Row 2 group order (csv: STYLE,ALIGN,SHADOW,OUTLINE,AA)
+    ' --- Text Formatting Bar: Geometry ---
+    TEXT_BAR_ROW_HEIGHT          AS INTEGER         ' Height of each row in px (default 14)
+    TEXT_BAR_PADDING_H           AS INTEGER         ' Horizontal padding from bar edges (default 4)
+    TEXT_BAR_PADDING_V           AS INTEGER         ' Vertical padding from row top (default 2)
+    TEXT_BAR_GROUP_GAP           AS INTEGER         ' Horizontal gap between groups (default 6)
+    TEXT_BAR_BORDER_WIDTH        AS INTEGER         ' Border stroke width (default 1)
+    ' --- Text Formatting Bar: Button Geometry ---
+    TEXT_BAR_BTN_WIDTH           AS INTEGER         ' Width of square toggle buttons (default 12)
+    TEXT_BAR_BTN_GAP             AS INTEGER         ' Gap between buttons within group (default 2)
+    TEXT_BAR_BTN_PADDING         AS INTEGER         ' Text/icon inset inside button (default 3)
+    ' --- Text Formatting Bar: Icon Geometry ---
+    TEXT_BAR_ICON_WIDTH          AS INTEGER         ' Icon image width (default 10)
+    TEXT_BAR_ICON_HEIGHT         AS INTEGER         ' Icon image height (default 10)
+    TEXT_BAR_ICON_OFFSET_X       AS INTEGER         ' X offset of icon within button (default 1)
+    TEXT_BAR_ICON_OFFSET_Y       AS INTEGER         ' Y offset of icon from row top (default 2)
+    ' --- Text Formatting Bar: Swatch Geometry ---
+    TEXT_BAR_SWATCH_WIDTH        AS INTEGER         ' Color swatch width (default 10)
+    TEXT_BAR_SWATCH_GAP          AS INTEGER         ' Gap between FG and BG swatches (default 4)
+    ' --- Text Formatting Bar: Dropdown Geometry ---
+    TEXT_BAR_DROPDOWN_ARROW_W    AS INTEGER         ' Width for dropdown arrow glyph (default 6)
+    TEXT_BAR_DROPDOWN_ITEM_H     AS INTEGER         ' Height of each dropdown list item (default 12)
+    TEXT_BAR_DROPDOWN_PAD        AS INTEGER         ' Inner padding of dropdown popup (default 4)
+    TEXT_BAR_DROPDOWN_MIN_W      AS INTEGER         ' Minimum dropdown popup width (default 40)
+    ' --- Text Formatting Bar: Label ---
+    TEXT_BAR_LABEL_OFFSET_Y      AS INTEGER         ' Y offset of text labels from row top (default 3)
+    ' --- Text Formatting Bar: Row 2 Icon Filenames ---
+    TEXT_BAR_ICON_OUTLINE        AS STRING * 64     ' Outline toggle icon PNG
+    TEXT_BAR_ICON_SHADOW         AS STRING * 64     ' Shadow toggle icon PNG
+    TEXT_BAR_ICON_ALIGN_LEFT     AS STRING * 64     ' Align left icon PNG
+    TEXT_BAR_ICON_ALIGN_CENTER   AS STRING * 64     ' Align center icon PNG
+    TEXT_BAR_ICON_ALIGN_RIGHT    AS STRING * 64     ' Align right icon PNG
+    TEXT_BAR_ICON_STYLE_UPDATE   AS STRING * 64     ' Style update icon PNG
+    TEXT_BAR_ICON_STYLE_SAVE     AS STRING * 64     ' Style save/export icon PNG
+    TEXT_BAR_ICON_STYLE_DELETE   AS STRING * 64     ' Style delete icon PNG
+    TEXT_BAR_ICON_AUTO           AS STRING * 64     ' Auto line-height icon PNG
+    TEXT_BAR_ICON_CHAR           AS STRING * 64     ' Char mode icon PNG
+    TEXT_BAR_ICON_AA             AS STRING * 64     ' Antialias toggle icon PNG
+    ' --- Text Formatting Bar: Transparency Indicator ---
+    TEXT_BAR_TRANSPARENT_CHECK_DARK  AS _UNSIGNED LONG ' Checkerboard dark square
+    TEXT_BAR_TRANSPARENT_CHECK_LIGHT AS _UNSIGNED LONG ' Checkerboard light square
     ' --- Text Layers ---
     LAYER_PANEL_TEXT_ACCENT    AS _UNSIGNED LONG  ' Accent color for [T] text layer rows
     TEXT_LAYER_HOVER_OUTLINE   AS _UNSIGNED LONG  ' Outline color when hovering editable text layer
