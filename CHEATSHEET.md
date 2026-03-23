@@ -326,6 +326,27 @@ When Character Mode is active, the selected font and size remain locked as you n
 
 In Character Mode, drawing tools (**DOT**, **RECT**, **RECT FILLED**) work on text layers, filling cells with the currently selected charmap glyph using the active FG/BG colors.
 
+### F-Key ANSI Block Characters
+
+When Character Mode is active and the text tool is selected, F1-F12 insert ANSI block drawing characters instead of their normal functions:
+
+| Key | Char | Code | Description |
+|-----|------|------|-------------|
+| `F1` | ░ | 176 | Light shade |
+| `F2` | ▒ | 177 | Medium shade |
+| `F3` | ▓ | 178 | Dark shade |
+| `F4` | █ | 219 | Full block |
+| `F5` | ▀ | 223 | Upper half block |
+| `F6` | ▄ | 220 | Lower half block |
+| `F7` | ▌ | 221 | Left half block |
+| `F8` | ▐ | 222 | Right half block |
+| `F9` | ■ | 254 | Small square |
+| `F10` | · | 250 | Middle dot |
+| `F11` | (space) | 32 | Space |
+| `F12` | (space) | 32 | Space |
+
+> **Note:** These override the normal F-key bindings (Drawer, Preview, Edit Bar, etc.) only while Character Mode is active with the text tool selected.
+
 ### Color Pickup (Alt+U)
 
 Press `Alt+U` to sample the FG and BG colors from the character at the virtual cursor position. Works with the virtual cursor location, not the text editing cursor.

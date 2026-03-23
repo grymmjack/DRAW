@@ -14,7 +14,7 @@ Root menus (indices 0–10): FILE(0), EDIT(1), VIEW(2), SELECT(3), TOOLS(4), BRU
 - **Keyboard nav (`kbActive%`)**: Arrow keys navigate items. When `kbActive% = TRUE`, mouse hover is ignored until mouse actually moves.
 - **Recent files submenu**: Cascading submenu for action ID 213. Right arrow opens, Left/Escape closes.
 - **Cascading submenus**: Any menu item marked as a submenu parent gets a `▶` indicator and spawns a child submenu on hover/right-arrow. Managed by `MENUBAR_cascading_submenu_*` helpers. Used by Recent Files (213), Layout (442), Transform (330), Preview Window (2012), and Preview Recent (2018).
-- **Layout submenu**: Under View → Layout; dock left/right actions for Toolbox (443/444), Layer Panel (445/446), Edit Bar (447/448).
+- **Layout submenu**: Under View → Layout; dock left/right actions for Toolbox (443/444), Layer Panel (445/446), Edit Bar (447/448), Character Map (2051/2052).
 - **Dynamic state sync**: `MENUBAR_update_checkboxes` syncs checkboxes from live state (grid, snap, tool visibility, undo/redo availability, recent files).
 - **Click dispatch**: `MENUBAR_handle_click` → `CMD_execute_action(item.actionId)`
 
@@ -49,6 +49,7 @@ Root menus (indices 0–10): FILE(0), EDIT(1), VIEW(2), SELECT(3), TOOLS(4), BRU
 | 1911–1914 | Drawer Sets  | Load, Save, Clear, Explore drawer-set folder |
 | 2001–2010 | Image Adj    | BrightnessContrast, HueSaturation, Levels, ColorBalance, Blur, Sharpen, Invert, Desaturate, Posterize, Pixelate |
 | 2012–2019 | Preview Win  | PreviewWindowSubmenu(2012), FollowMode(2013), FloatingImageMode(2014), BinQuickLook(2015), AllowColorPicking(2016), LoadImage(2017), RecentImages(2018), ClearRecentImages(2019) |
+| 2050–2054 | Character Map | ToggleCharMap(2050), DockLeft(2051), DockRight(2052), ToggleCharGrid(2053), ToggleSnapToCharGrid(2054) |
 
 ### Command Palette
 
