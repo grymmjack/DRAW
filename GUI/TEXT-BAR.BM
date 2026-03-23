@@ -84,6 +84,74 @@ END SUB
 
 
 ''
+' TRUE when the given font index is safe for Character Mode / CP437 glyph use.
+'
+FUNCTION TEXT_BAR_char_mode_font_is_safe% (fontIdx AS INTEGER)
+    TEXT_BAR_char_mode_font_is_safe% = FALSE
+    IF fontIdx% < 0 OR fontIdx% >= FONT_LIST_COUNT% THEN EXIT FUNCTION
+    IF FONT_LIST(fontIdx%).isBuiltIn OR FONT_LIST(fontIdx%).isBitmapFont THEN
+        TEXT_BAR_char_mode_font_is_safe% = TRUE
+    END IF
+END FUNCTION
+
+
+''
+' Character Mode relies on a full CP437-safe glyph set.
+' Force a built-in or bitmap font when the current text font is scalable.
+'
+SUB TEXT_BAR_ensure_char_mode_safe_font ()
+    DIM safeIdx AS INTEGER
+    DIM i AS INTEGER
+
+    IF NOT CHARMAP.useChars% THEN EXIT SUB
+    FONT_LIST_scan
+    IF FONT_LIST_COUNT% < 1 THEN EXIT SUB
+    IF TEXT_BAR_char_mode_font_is_safe%(TEXT_BAR.selectedFontIdx%) THEN EXIT SUB
+
+    safeIdx% = FONT_LIST_find_by_name%("QB64 8x16")
+    IF safeIdx% < 0 THEN safeIdx% = FONT_LIST_find_by_name%("QB64 8x8")
+
+    IF safeIdx% < 0 THEN
+        FOR i% = 0 TO FONT_LIST_COUNT% - 1
+            IF TEXT_BAR_char_mode_font_is_safe%(i%) THEN
+                safeIdx% = i%
+                EXIT FOR
+            END IF
+        NEXT i%
+    END IF
+
+    IF safeIdx% < 0 THEN EXIT SUB
+
+    TEXT_BAR.selectedFontIdx% = safeIdx%
+    IF FONT_LIST(safeIdx%).isBuiltIn THEN
+        TEXT_BAR.selectedSize% = FONT_LIST(safeIdx%).builtInHandle
+    ELSEIF FONT_LIST(safeIdx%).isBitmapFont THEN
+        TEXT_BAR.selectedSize% = FONT_LIST(safeIdx%).bitmapGlyphH
+    END IF
+
+    TEXT_BAR.monoActive% = TRUE
+    TEXT_BAR.autoLineHeight% = TRUE
+    CHARMAP.cacheValid% = FALSE
+
+    IF TEXT_BAR.editingLayerIdx% >= 1 THEN
+        DIM safeTd AS INTEGER
+        safeTd% = LAYERS(TEXT_BAR.editingLayerIdx%).textDataIdx%
+        IF safeTd% >= 1 THEN
+            TEXT_LAYER_DATA(safeTd%).fontIdx = TEXT_BAR.selectedFontIdx%
+            TEXT_LAYER_DATA(safeTd%).fontSize = TEXT_BAR.selectedSize%
+            TEXT_LAYER_DATA(safeTd%).monospace = TRUE
+            IF FONT_LIST(safeIdx%).isBuiltIn THEN
+                TEXT_LAYER_DATA(safeTd%).defaultLeading = FONT_LIST(safeIdx%).builtInHandle
+            ELSE
+                TEXT_LAYER_DATA(safeTd%).defaultLeading = FONT_LIST(safeIdx%).bitmapGlyphH
+            END IF
+            TEXT_LAYER_DATA(safeTd%).dirty = TRUE
+        END IF
+    END IF
+END SUB
+
+
+''
 ' Load text bar button icons from the theme directory.
 ' Called lazily on first render (THEME fields are empty at init time).
 '
@@ -670,6 +738,7 @@ FUNCTION TEXT_BAR_handle_click% (rawX%, rawY%)
                             TEXT_BAR.monoActive% = TRUE
                             TEXT_BAR.autoLineHeight% = TRUE
                         END IF
+                        TEXT_BAR_ensure_char_mode_safe_font
                         ' Apply font to selection if active
                         IF TEXT_has_selection% THEN
                             IF TEXT_BAR.editingLayerIdx% >= 1 THEN
@@ -827,6 +896,7 @@ FUNCTION TEXT_BAR_handle_click% (rawX%, rawY%)
         ' Toggle Character Mode (Use Chars)
         CHARMAP.useChars% = NOT CHARMAP.useChars%
         CFG.CHARMAP_USE_CHARS% = CHARMAP.useChars%
+        IF CHARMAP.useChars% THEN TEXT_BAR_ensure_char_mode_safe_font
         ' Auto-show Character Map panel when enabling Character Mode
         IF CHARMAP.useChars% AND NOT SCRN.showCharMap% THEN
             CHARMAP_toggle
@@ -867,6 +937,238 @@ FUNCTION TEXT_BAR_handle_click% (rawX%, rawY%)
     ELSE
         TEXT_BAR_close_dropdowns
     END IF
+END FUNCTION
+
+
+''
+' Handle mouse wheel interactions for text bar controls.
+' Returns TRUE when the wheel event is consumed by text bar UI.
+'
+' @param rawX% Screen X coordinate
+' @param rawY% Screen Y coordinate
+' @param wheel_delta% Wheel delta for this frame
+' @return INTEGER TRUE if wheel event was consumed
+'
+FUNCTION TEXT_BAR_handle_wheel% (rawX%, rawY%, wheel_delta%)
+    TEXT_BAR_handle_wheel% = FALSE
+    IF NOT TEXT_BAR.visible% THEN EXIT FUNCTION
+    IF wheel_delta% = 0 THEN EXIT FUNCTION
+
+    FONT_LIST_scan
+
+    ' Font dropdown open: scroll the list.
+    IF TEXT_BAR.fontDropdownOpen% THEN
+        TEXT_BAR.fontDropdownScroll% = TEXT_BAR.fontDropdownScroll% + wheel_delta% * 3
+        IF TEXT_BAR.fontDropdownScroll% < 0 THEN TEXT_BAR.fontDropdownScroll% = 0
+        DIM tbFddMaxScroll AS INTEGER
+        tbFddMaxScroll% = FONT_LIST_COUNT% - TEXT_BAR_font_dropdown_max_visible%
+        IF tbFddMaxScroll% < 0 THEN tbFddMaxScroll% = 0
+        IF TEXT_BAR.fontDropdownScroll% > tbFddMaxScroll% THEN TEXT_BAR.fontDropdownScroll% = tbFddMaxScroll%
+        FRAME_IDLE% = FALSE
+        TEXT_BAR_handle_wheel% = TRUE
+        EXIT FUNCTION
+    END IF
+
+    IF NOT TEXT_BAR_in_bounds%(rawX%, rawY%) THEN EXIT FUNCTION
+
+    ' Size dropdown open: step selection directly with wheel.
+    IF TEXT_BAR.sizeDropdownOpen% THEN
+        DIM tbCurSizeIdx AS INTEGER
+        DIM tbI AS INTEGER
+        tbCurSizeIdx% = -1
+        FOR tbI% = 0 TO TEXT_BAR_SIZE_COUNT - 1
+            IF TEXT_BAR_SIZES(tbI%) = TEXT_BAR.selectedSize% THEN
+                tbCurSizeIdx% = tbI%
+                EXIT FOR
+            END IF
+        NEXT tbI%
+        IF tbCurSizeIdx% < 0 THEN
+            IF wheel_delta% < 0 THEN
+                tbCurSizeIdx% = 0
+            ELSE
+                tbCurSizeIdx% = TEXT_BAR_SIZE_COUNT - 1
+            END IF
+        ELSE
+            IF wheel_delta% < 0 THEN
+                tbCurSizeIdx% = tbCurSizeIdx% + 1
+            ELSE
+                tbCurSizeIdx% = tbCurSizeIdx% - 1
+            END IF
+            IF tbCurSizeIdx% < 0 THEN tbCurSizeIdx% = 0
+            IF tbCurSizeIdx% > TEXT_BAR_SIZE_COUNT - 1 THEN tbCurSizeIdx% = TEXT_BAR_SIZE_COUNT - 1
+        END IF
+
+        IF TEXT_BAR.selectedSize% <> TEXT_BAR_SIZES(tbCurSizeIdx%) THEN
+            TEXT_BAR.selectedSize% = TEXT_BAR_SIZES(tbCurSizeIdx%)
+            IF TEXT_has_selection% THEN
+                IF TEXT_BAR.editingLayerIdx% >= 1 THEN
+                    DIM tbSzTd AS INTEGER
+                    tbSzTd% = LAYERS(TEXT_BAR.editingLayerIdx%).textDataIdx%
+                    IF tbSzTd% >= 1 THEN
+                        DIM tbSzMin AS INTEGER, tbSzMax AS INTEGER
+                        tbSzMin% = TEXT.selStart%: tbSzMax% = TEXT.selEnd%
+                        IF tbSzMin% > tbSzMax% THEN SWAP tbSzMin%, tbSzMax%
+                        TEXT_LAYER_set_selection_attr tbSzTd%, tbSzMin%, tbSzMax% - 1, "FONT_SIZE", TEXT_BAR.selectedSize%
+                        SCENE_DIRTY% = TRUE
+                    END IF
+                END IF
+            END IF
+            TEXT_BAR_auto_update_line_height
+            IF CHARMAP.charGridShow% THEN
+                CHARMAP_char_grid_update_size
+                CHARMAP_char_grid_draw
+                SCENE_DIRTY% = TRUE
+            END IF
+            FRAME_IDLE% = FALSE
+        END IF
+        TEXT_BAR_handle_wheel% = TRUE
+        EXIT FUNCTION
+    END IF
+
+    DIM tbBw AS INTEGER
+    tbBw% = TEXT_BAR.styleBtnW%
+
+    ' Wheel over font button: previous/next font.
+    IF rawX% >= TEXT_BAR.fontBtnX% AND rawX% < TEXT_BAR.fontBtnX% + TEXT_BAR.fontBtnW% THEN
+        IF FONT_LIST_COUNT% > 0 THEN
+            DIM tbNextFontIdx AS INTEGER
+            tbNextFontIdx% = TEXT_BAR.selectedFontIdx%
+            IF wheel_delta% < 0 THEN
+                IF tbNextFontIdx% < FONT_LIST_COUNT% - 1 THEN tbNextFontIdx% = tbNextFontIdx% + 1
+            ELSE
+                IF tbNextFontIdx% > 0 THEN tbNextFontIdx% = tbNextFontIdx% - 1
+            END IF
+
+            IF tbNextFontIdx% <> TEXT_BAR.selectedFontIdx% THEN
+                TEXT_BAR.selectedFontIdx% = tbNextFontIdx%
+                IF FONT_LIST(tbNextFontIdx%).isBuiltIn THEN
+                    TEXT_BAR.selectedSize% = FONT_LIST(tbNextFontIdx%).builtInHandle
+                ELSEIF FONT_LIST(tbNextFontIdx%).isBitmapFont THEN
+                    TEXT_BAR.selectedSize% = FONT_LIST(tbNextFontIdx%).bitmapGlyphH
+                    TEXT_BAR.monoActive% = TRUE
+                    TEXT_BAR.autoLineHeight% = TRUE
+                END IF
+                TEXT_BAR_ensure_char_mode_safe_font
+                IF TEXT_has_selection% THEN
+                    IF TEXT_BAR.editingLayerIdx% >= 1 THEN
+                        DIM tbFsTd AS INTEGER
+                        tbFsTd% = LAYERS(TEXT_BAR.editingLayerIdx%).textDataIdx%
+                        IF tbFsTd% >= 1 THEN
+                            DIM tbFsMin AS INTEGER, tbFsMax AS INTEGER
+                            tbFsMin% = TEXT.selStart%: tbFsMax% = TEXT.selEnd%
+                            IF tbFsMin% > tbFsMax% THEN SWAP tbFsMin%, tbFsMax%
+                            TEXT_LAYER_set_selection_attr tbFsTd%, tbFsMin%, tbFsMax% - 1, "FONT_IDX", tbNextFontIdx%
+                            SCENE_DIRTY% = TRUE
+                        END IF
+                    END IF
+                END IF
+                TEXT_BAR_auto_update_line_height
+                IF CHARMAP.charGridShow% THEN
+                    CHARMAP_char_grid_update_size
+                    CHARMAP_char_grid_draw
+                    SCENE_DIRTY% = TRUE
+                END IF
+                FRAME_IDLE% = FALSE
+            END IF
+        END IF
+        TEXT_BAR_handle_wheel% = TRUE
+        EXIT FUNCTION
+    END IF
+
+    ' Wheel over size button: step through size presets.
+    IF rawX% >= TEXT_BAR.sizeBtnX% AND rawX% < TEXT_BAR.sizeBtnX% + TEXT_BAR.sizeBtnW% THEN
+        DIM tbSizeIdx AS INTEGER
+        tbSizeIdx% = -1
+        FOR tbI% = 0 TO TEXT_BAR_SIZE_COUNT - 1
+            IF TEXT_BAR_SIZES(tbI%) = TEXT_BAR.selectedSize% THEN
+                tbSizeIdx% = tbI%
+                EXIT FOR
+            END IF
+        NEXT tbI%
+
+        IF tbSizeIdx% < 0 THEN
+            IF wheel_delta% < 0 THEN
+                tbSizeIdx% = 0
+            ELSE
+                tbSizeIdx% = TEXT_BAR_SIZE_COUNT - 1
+            END IF
+        ELSE
+            IF wheel_delta% < 0 THEN
+                tbSizeIdx% = tbSizeIdx% + 1
+            ELSE
+                tbSizeIdx% = tbSizeIdx% - 1
+            END IF
+            IF tbSizeIdx% < 0 THEN tbSizeIdx% = 0
+            IF tbSizeIdx% > TEXT_BAR_SIZE_COUNT - 1 THEN tbSizeIdx% = TEXT_BAR_SIZE_COUNT - 1
+        END IF
+
+        IF TEXT_BAR.selectedSize% <> TEXT_BAR_SIZES(tbSizeIdx%) THEN
+            TEXT_BAR.selectedSize% = TEXT_BAR_SIZES(tbSizeIdx%)
+            IF TEXT_has_selection% THEN
+                IF TEXT_BAR.editingLayerIdx% >= 1 THEN
+                    DIM tbSelTd AS INTEGER
+                    tbSelTd% = LAYERS(TEXT_BAR.editingLayerIdx%).textDataIdx%
+                    IF tbSelTd% >= 1 THEN
+                        DIM tbSelMin AS INTEGER, tbSelMax AS INTEGER
+                        tbSelMin% = TEXT.selStart%: tbSelMax% = TEXT.selEnd%
+                        IF tbSelMin% > tbSelMax% THEN SWAP tbSelMin%, tbSelMax%
+                        TEXT_LAYER_set_selection_attr tbSelTd%, tbSelMin%, tbSelMax% - 1, "FONT_SIZE", TEXT_BAR.selectedSize%
+                        SCENE_DIRTY% = TRUE
+                    END IF
+                END IF
+            END IF
+            TEXT_BAR_auto_update_line_height
+            IF CHARMAP.charGridShow% THEN
+                CHARMAP_char_grid_update_size
+                CHARMAP_char_grid_draw
+                SCENE_DIRTY% = TRUE
+            END IF
+            FRAME_IDLE% = FALSE
+        END IF
+        TEXT_BAR_handle_wheel% = TRUE
+        EXIT FUNCTION
+    END IF
+
+    ' Wheel over line-height button: adjust manual line-height by 1px.
+    IF rawX% >= TEXT_BAR.lineHeightBtnX% AND rawX% < TEXT_BAR.lineHeightBtnX% + TEXT_BAR.lineHeightBtnW% THEN
+        IF TEXT_BAR.editingLayerIdx% >= 1 THEN
+            DIM tbLhTd AS INTEGER
+            tbLhTd% = LAYERS(TEXT_BAR.editingLayerIdx%).textDataIdx%
+            IF tbLhTd% >= 1 THEN
+                DIM tbNewLh AS INTEGER
+                tbNewLh% = TEXT_BAR_get_line_height%
+                IF wheel_delta% < 0 THEN
+                    tbNewLh% = tbNewLh% + 1
+                ELSE
+                    tbNewLh% = tbNewLh% - 1
+                END IF
+                IF tbNewLh% < 1 THEN tbNewLh% = 1
+                IF tbNewLh% > 999 THEN tbNewLh% = 999
+                IF tbNewLh% <> TEXT_LAYER_DATA(tbLhTd%).defaultLeading THEN
+                    TEXT_LAYER_DATA(tbLhTd%).defaultLeading = tbNewLh%
+                    TEXT_LAYER_DATA(tbLhTd%).dirty = TRUE
+                    TEXT_BAR.autoLineHeight% = FALSE
+                    SCENE_DIRTY% = TRUE
+                    FRAME_IDLE% = FALSE
+                END IF
+            END IF
+        END IF
+        TEXT_BAR_handle_wheel% = TRUE
+        EXIT FUNCTION
+    END IF
+
+    ' Consume wheel for style/char controls to prevent canvas zoom while over text bar chrome.
+    IF rawX% >= TEXT_BAR.boldBtnX% AND rawX% < TEXT_BAR.boldBtnX% + tbBw% THEN TEXT_BAR_handle_wheel% = TRUE: EXIT FUNCTION
+    IF rawX% >= TEXT_BAR.italicBtnX% AND rawX% < TEXT_BAR.italicBtnX% + tbBw% THEN TEXT_BAR_handle_wheel% = TRUE: EXIT FUNCTION
+    IF rawX% >= TEXT_BAR.underlineBtnX% AND rawX% < TEXT_BAR.underlineBtnX% + tbBw% THEN TEXT_BAR_handle_wheel% = TRUE: EXIT FUNCTION
+    IF rawX% >= TEXT_BAR.strikeBtnX% AND rawX% < TEXT_BAR.strikeBtnX% + tbBw% THEN TEXT_BAR_handle_wheel% = TRUE: EXIT FUNCTION
+    IF rawX% >= TEXT_BAR.autoLHBtnX% AND rawX% < TEXT_BAR.autoLHBtnX% + TEXT_BAR.autoLHBtnW% THEN TEXT_BAR_handle_wheel% = TRUE: EXIT FUNCTION
+    IF rawX% >= TEXT_BAR.charBtnX% AND rawX% < TEXT_BAR.charBtnX% + TEXT_BAR.charBtnW% THEN TEXT_BAR_handle_wheel% = TRUE: EXIT FUNCTION
+    IF rawX% >= TEXT_BAR.fgSwatchX% AND rawX% < TEXT_BAR.fgSwatchX% + 10 THEN TEXT_BAR_handle_wheel% = TRUE: EXIT FUNCTION
+    IF rawX% >= TEXT_BAR.bgSwatchX% AND rawX% < TEXT_BAR.bgSwatchX% + 10 THEN TEXT_BAR_handle_wheel% = TRUE: EXIT FUNCTION
+    IF rawX% >= TEXT_BAR.monoBtnX% AND rawX% < TEXT_BAR.monoBtnX% + TEXT_BAR.monoBtnW% THEN TEXT_BAR_handle_wheel% = TRUE: EXIT FUNCTION
+
+    TEXT_BAR_handle_wheel% = TRUE
 END FUNCTION
 
 

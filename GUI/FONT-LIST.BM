@@ -554,14 +554,16 @@ FUNCTION FONT_LIST_is_blacklisted% (fontPath$)
     IF FONT_BLACKLIST_COUNT% = 0 THEN EXIT FUNCTION
 
     DIM upperPath AS STRING
+    DIM upperName AS STRING
     upperPath$ = UCASE$(fontPath$)
+    upperName$ = UCASE$(FONT_LIST_extract_name$(fontPath$))
 
     DIM bi AS INTEGER
     DIM blEntry AS STRING
     FOR bi% = 0 TO FONT_BLACKLIST_COUNT% - 1
         blEntry$ = UCASE$(RTRIM$(FONT_BLACKLIST(bi%)))
         IF LEN(blEntry$) > 0 THEN
-            IF INSTR(upperPath$, blEntry$) > 0 THEN
+            IF FONT_LIST_pattern_match%(blEntry$, upperPath$, TRUE) OR FONT_LIST_pattern_match%(blEntry$, upperName$, TRUE) THEN
                 FONT_LIST_is_blacklisted% = TRUE
                 EXIT FUNCTION
             END IF
@@ -606,41 +608,50 @@ SUB FONT_LIST_apply_favorites ()
     IF FONT_FAVORITES_COUNT% = 0 THEN EXIT SUB
     IF FONT_LIST_COUNT% < 1 THEN EXIT SUB
 
-    ' First, mark isFavorite on matching fonts
-    DIM fi AS INTEGER, li AS INTEGER
-    DIM favName AS STRING
+    ' First, clear existing favorite flags.
+    DIM li AS INTEGER
+    FOR li% = 0 TO FONT_LIST_COUNT% - 1
+        FONT_LIST(li%).isFavorite = FALSE
+    NEXT li%
+
+    ' Then mark isFavorite on matching fonts.
+    DIM fi AS INTEGER
+    DIM favPattern AS STRING
     FOR fi% = 0 TO FONT_FAVORITES_COUNT% - 1
-        favName$ = UCASE$(RTRIM$(FONT_FAVORITES(fi%)))
-        IF LEN(favName$) = 0 THEN _CONTINUE
+        favPattern$ = UCASE$(RTRIM$(FONT_FAVORITES(fi%)))
+        IF LEN(favPattern$) = 0 THEN _CONTINUE
         FOR li% = 0 TO FONT_LIST_COUNT% - 1
-            IF UCASE$(RTRIM$(FONT_LIST(li%).displayName)) = favName$ THEN
+            IF FONT_LIST_pattern_match%(favPattern$, UCASE$(RTRIM$(FONT_LIST(li%).displayName)), FALSE) OR _
+               FONT_LIST_pattern_match%(favPattern$, UCASE$(RTRIM$(FONT_LIST(li%).path)), FALSE) THEN
                 FONT_LIST(li%).isFavorite = TRUE
-                EXIT FOR
             END IF
         NEXT li%
     NEXT fi%
 
-    ' Build a reordered list: favorites first (in favorites-file order), then the rest
+    ' Build a reordered list: favorites first (in favorites-file order/pattern order), then the rest.
     DIM tmpList(0 TO FONT_LIST_MAX - 1) AS FONT_ENTRY
+    DIM alreadyAdded(0 TO FONT_LIST_MAX - 1) AS INTEGER
     DIM tmpCount AS INTEGER
     tmpCount% = 0
 
-    ' Add favorites in the order they appear in the favorites file
+    ' Add favorites in the order they appear in the favorites file.
     FOR fi% = 0 TO FONT_FAVORITES_COUNT% - 1
-        favName$ = UCASE$(RTRIM$(FONT_FAVORITES(fi%)))
-        IF LEN(favName$) = 0 THEN _CONTINUE
+        favPattern$ = UCASE$(RTRIM$(FONT_FAVORITES(fi%)))
+        IF LEN(favPattern$) = 0 THEN _CONTINUE
         FOR li% = 0 TO FONT_LIST_COUNT% - 1
-            IF UCASE$(RTRIM$(FONT_LIST(li%).displayName)) = favName$ THEN
+            IF alreadyAdded(li%) THEN _CONTINUE
+            IF FONT_LIST_pattern_match%(favPattern$, UCASE$(RTRIM$(FONT_LIST(li%).displayName)), FALSE) OR _
+               FONT_LIST_pattern_match%(favPattern$, UCASE$(RTRIM$(FONT_LIST(li%).path)), FALSE) THEN
                 tmpList(tmpCount%) = FONT_LIST(li%)
                 tmpCount% = tmpCount% + 1
-                EXIT FOR
+                alreadyAdded(li%) = TRUE
             END IF
         NEXT li%
     NEXT fi%
 
     ' Add non-favorites in their existing sort order
     FOR li% = 0 TO FONT_LIST_COUNT% - 1
-        IF NOT FONT_LIST(li%).isFavorite THEN
+        IF NOT FONT_LIST(li%).isFavorite OR NOT alreadyAdded(li%) THEN
             tmpList(tmpCount%) = FONT_LIST(li%)
             tmpCount% = tmpCount% + 1
         END IF
@@ -652,6 +663,95 @@ SUB FONT_LIST_apply_favorites ()
     NEXT li%
     FONT_LIST_COUNT% = tmpCount%
 END SUB
+
+
+''
+' Wildcard match helper supporting * (zero or more characters).
+' Comparison is case-sensitive; callers should normalize case if needed.
+'
+' @param pattern$ Pattern with optional * wildcards
+' @param text$ Text to match
+' @return INTEGER TRUE if pattern matches text
+'
+FUNCTION FONT_LIST_wildcard_match% (pattern$, text$)
+    DIM pLen AS INTEGER, tLen AS INTEGER
+    DIM p AS INTEGER, t AS INTEGER
+    DIM starPos AS INTEGER, matchPos AS INTEGER
+
+    pLen% = LEN(pattern$)
+    tLen% = LEN(text$)
+    p% = 1
+    t% = 1
+    starPos% = 0
+    matchPos% = 0
+
+    DO WHILE t% <= tLen%
+        IF p% <= pLen% THEN
+            DIM pCh AS STRING
+            pCh$ = MID$(pattern$, p%, 1)
+
+            IF pCh$ = MID$(text$, t%, 1) THEN
+                p% = p% + 1
+                t% = t% + 1
+            ELSEIF pCh$ = "*" THEN
+                starPos% = p%
+                matchPos% = t%
+                p% = p% + 1
+            ELSEIF starPos% > 0 THEN
+                p% = starPos% + 1
+                matchPos% = matchPos% + 1
+                t% = matchPos%
+            ELSE
+                FONT_LIST_wildcard_match% = FALSE
+                EXIT FUNCTION
+            END IF
+        ELSEIF starPos% > 0 THEN
+            p% = starPos% + 1
+            matchPos% = matchPos% + 1
+            t% = matchPos%
+        ELSE
+            FONT_LIST_wildcard_match% = FALSE
+            EXIT FUNCTION
+        END IF
+    LOOP
+
+    DO WHILE p% <= pLen% AND MID$(pattern$, p%, 1) = "*"
+        p% = p% + 1
+    LOOP
+
+    FONT_LIST_wildcard_match% = (p% > pLen%)
+END FUNCTION
+
+
+''
+' Pattern match wrapper with optional substring fallback when no wildcard is present.
+'
+' @param pattern$ Pattern string (optionally containing *)
+' @param text$ Candidate text
+' @param substringFallback% TRUE to use substring match if no wildcard exists
+' @return INTEGER TRUE when matched
+'
+FUNCTION FONT_LIST_pattern_match% (pattern$, text$, substringFallback AS INTEGER)
+    DIM p AS STRING
+    DIM t AS STRING
+    p$ = UCASE$(LTRIM$(RTRIM$(pattern$)))
+    t$ = UCASE$(LTRIM$(RTRIM$(text$)))
+
+    IF LEN(p$) = 0 OR LEN(t$) = 0 THEN
+        FONT_LIST_pattern_match% = FALSE
+        EXIT FUNCTION
+    END IF
+
+    IF INSTR(p$, "*") > 0 THEN
+        FONT_LIST_pattern_match% = FONT_LIST_wildcard_match%(p$, t$)
+    ELSE
+        IF substringFallback% THEN
+            FONT_LIST_pattern_match% = (INSTR(t$, p$) > 0)
+        ELSE
+            FONT_LIST_pattern_match% = (t$ = p$)
+        END IF
+    END IF
+END FUNCTION
 
 
 ''

@@ -448,6 +448,8 @@ TYPE DRAW_THEME
     CHARMAP_FLASH_FG           AS _UNSIGNED LONG  ' Typed character flash highlight color
     CHARMAP_SCROLLBAR_BG       AS _UNSIGNED LONG  ' Character map scrollbar track color
     CHARMAP_SCROLLBAR_FG       AS _UNSIGNED LONG  ' Character map scrollbar thumb color
+    CHARMAP_SCROLLBAR_OPACITY  AS INTEGER         ' Character map scrollbar opacity (0-255)
+    CHARMAP_SCROLLBAR_WIDTH    AS INTEGER         ' Character map scrollbar width in px (1-8)
     CHAR_GRID_COLOR_FG         AS _UNSIGNED LONG  ' Character grid overlay color on canvas
 END TYPE
 
