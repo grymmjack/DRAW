@@ -2180,13 +2180,14 @@ SUB MOUSE_tool_dot ()
         MOUSE.OLD_Y% = MOUSE.Y%
         ' Initialize gradient context for single dot
         GRAD_CTX_set MOUSE.X%, MOUSE.Y%, MOUSE.X%, MOUSE.Y%
-        PAINT_on
+        ' Char mode on text layer: fill cell instead of pixel
+        IF TEXT_char_mode_on_text_layer% THEN
+            TEXT_char_mode_fill_cells MOUSE.X%, MOUSE.Y%, MOUSE.X%, MOUSE.Y%, TRUE
+        ELSE
+            PAINT_on
+        END IF
     END IF
 END SUB
-
-
-''
-' Tool handler: Spray.
 '
 SUB MOUSE_tool_spray ()
     ' Spray paint on left mouse button hold
@@ -2490,6 +2491,29 @@ END SUB
 SUB MOUSE_release_rect ()
     ' Draw the final rectangle on mouse release
     IF RECT_TOOL.DRAGGING THEN
+        ' --- Char mode on text layer: update cells instead of pixels ---
+        IF TEXT_char_mode_on_text_layer% THEN
+            DIM cm_rect_before AS LONG
+            DIM cm_rect_target AS LONG
+            DIM cm_rect_flags AS LONG
+            cm_rect_before& = 0
+            cm_rect_flags& = 0
+            cm_rect_target& = LAYER_current_image&
+            IF NOT HISTORY_IN_PROGRESS% AND LAYERS(CURRENT_LAYER%).historyId& > 0 AND cm_rect_target& < -1 THEN
+                cm_rect_before& = _COPYIMAGE(cm_rect_target&, 32)
+                IF RECT_TOOL.FILLED THEN cm_rect_flags& = cm_rect_flags& OR HISTORY_FLAG_FILLED
+            END IF
+            TEXT_char_mode_fill_cells RECT_TOOL.START_X, RECT_TOOL.START_Y, RECT_TOOL.END_X, RECT_TOOL.END_Y, RECT_TOOL.FILLED
+            RECT_TOOL.DRAGGING = FALSE
+            STROKE_commit
+            IF cm_rect_before& < -1 THEN
+                HISTORY_record_rect LAYERS(CURRENT_LAYER%).historyId&, CURRENT_LAYER%, RECT_TOOL.START_X, RECT_TOOL.START_Y, RECT_TOOL.END_X, RECT_TOOL.END_Y, PAINT_apply_opacity~&(DRAW_COLOR~&), cm_rect_flags&, cm_rect_before&, "Char Rect"
+                HISTORY_saved_this_frame% = TRUE
+            END IF
+            SOUND_play SND_DRAG_DROP
+            EXIT SUB
+        END IF
+
         DIM rect_history_before AS LONG
         DIM rect_history_flags AS LONG
         DIM rect_fsx(0 TO 7) AS INTEGER, rect_fsy(0 TO 7) AS INTEGER
@@ -2890,6 +2914,21 @@ END SUB
 ' Mouse release handler: Dot.
 '
 SUB MOUSE_release_dot ()
+    ' --- Char mode on text layer: cell was filled in MOUSE_tool_dot ---
+    IF TEXT_char_mode_on_text_layer% THEN
+        STROKE_commit
+        IF DOT.HISTORY_BEFORE_IMG < -1 THEN
+            DIM cm_dot_flags AS LONG
+            cm_dot_flags& = 0
+            HISTORY_record_brush LAYERS(CURRENT_LAYER%).historyId&, CURRENT_LAYER%, PAINT_apply_opacity~&(DOT.HISTORY_COLOR~&), cm_dot_flags&, DOT.HISTORY_BEFORE_IMG&, "Char Dot"
+            DOT.HISTORY_BEFORE_IMG = 0
+            HISTORY_saved_this_frame% = TRUE
+        END IF
+        DOT.LAST_X = MOUSE.X%
+        DOT.LAST_Y = MOUSE.Y%
+        DOT.HAS_LAST = TRUE
+        EXIT SUB
+    END IF
     ' DOT stamps single pixel - just finalize
     DIM dot_history_flags AS LONG
     DIM dot_recorded AS INTEGER
@@ -3418,18 +3457,28 @@ SUB MOUSE_dispatch_tool_hold (rawX AS INTEGER, rawY AS INTEGER)
     ' --- Guard: block drawing tools on text layers ---
     IF CURRENT_LAYER% >= 1 AND CURRENT_LAYER% <= LAYER_COUNT% THEN
         IF LAYERS(CURRENT_LAYER%).layerType% = LAYER_TYPE_TEXT THEN
-            SELECT CASE CURRENT_TOOL%
-                CASE TOOL_BRUSH, TOOL_DOT, TOOL_SPRAY, TOOL_LINE, TOOL_RECT, TOOL_RECT_FILLED, TOOL_ELLIPSE, TOOL_ELLIPSE_FILLED, TOOL_ERASER, TOOL_FILL, TOOL_POLYGON, TOOL_POLYGON_FILLED
-                    IF (MOUSE.B1% AND NOT MOUSE.OLD_B1%) OR (MOUSE.B2% AND NOT MOUSE.OLD_B2%) THEN
-                        _MESSAGEBOX "Cannot Draw on Text Layer", _
-                            "Drawing is not allowed on text layers." + CHR$(10) + CHR$(10) + _
-                            "Use the Text tool (T) to edit text, or rasterize" + CHR$(10) + _
-                            "the layer first (Edit > Rasterize Text Layer).", "info"
-                        MOUSE_cleanup_after_dialog FALSE
-                    END IF
-                    MOUSE.UI_CHROME_CLICKED% = TRUE
-                    EXIT SUB
-            END SELECT
+            DIM cmToolAllowed AS INTEGER
+            cmToolAllowed% = FALSE
+            IF TEXT_char_mode_on_text_layer% THEN
+                SELECT CASE CURRENT_TOOL%
+                    CASE TOOL_DOT, TOOL_RECT, TOOL_RECT_FILLED
+                        cmToolAllowed% = TRUE
+                END SELECT
+            END IF
+            IF NOT cmToolAllowed% THEN
+                SELECT CASE CURRENT_TOOL%
+                    CASE TOOL_BRUSH, TOOL_DOT, TOOL_SPRAY, TOOL_LINE, TOOL_RECT, TOOL_RECT_FILLED, TOOL_ELLIPSE, TOOL_ELLIPSE_FILLED, TOOL_ERASER, TOOL_FILL, TOOL_POLYGON, TOOL_POLYGON_FILLED
+                        IF (MOUSE.B1% AND NOT MOUSE.OLD_B1%) OR (MOUSE.B2% AND NOT MOUSE.OLD_B2%) THEN
+                            _MESSAGEBOX "Cannot Draw on Text Layer", _
+                                "Drawing is not allowed on text layers." + CHR$(10) + CHR$(10) + _
+                                "Use the Text tool (T) to edit text, or rasterize" + CHR$(10) + _
+                                "the layer first (Edit > Rasterize Text Layer).", "info"
+                            MOUSE_cleanup_after_dialog FALSE
+                        END IF
+                        MOUSE.UI_CHROME_CLICKED% = TRUE
+                        EXIT SUB
+                END SELECT
+            END IF
         END IF
     END IF
 
@@ -3550,10 +3599,20 @@ SUB MOUSE_dispatch_tool_release (rawX AS INTEGER, rawY AS INTEGER)
     ' --- Guard: block drawing tools on text layers ---
     IF CURRENT_LAYER% >= 1 AND CURRENT_LAYER% <= LAYER_COUNT% THEN
         IF LAYERS(CURRENT_LAYER%).layerType% = LAYER_TYPE_TEXT THEN
-            SELECT CASE CURRENT_TOOL%
-                CASE TOOL_BRUSH, TOOL_DOT, TOOL_SPRAY, TOOL_LINE, TOOL_RECT, TOOL_RECT_FILLED, TOOL_ELLIPSE, TOOL_ELLIPSE_FILLED, TOOL_ERASER, TOOL_FILL, TOOL_POLYGON, TOOL_POLYGON_FILLED
-                    EXIT SUB
-            END SELECT
+            DIM cmRelAllowed AS INTEGER
+            cmRelAllowed% = FALSE
+            IF TEXT_char_mode_on_text_layer% THEN
+                SELECT CASE CURRENT_TOOL%
+                    CASE TOOL_DOT, TOOL_RECT, TOOL_RECT_FILLED
+                        cmRelAllowed% = TRUE
+                END SELECT
+            END IF
+            IF NOT cmRelAllowed% THEN
+                SELECT CASE CURRENT_TOOL%
+                    CASE TOOL_BRUSH, TOOL_DOT, TOOL_SPRAY, TOOL_LINE, TOOL_RECT, TOOL_RECT_FILLED, TOOL_ELLIPSE, TOOL_ELLIPSE_FILLED, TOOL_ERASER, TOOL_FILL, TOOL_POLYGON, TOOL_POLYGON_FILLED
+                        EXIT SUB
+                END SELECT
+            END IF
         END IF
     END IF
 

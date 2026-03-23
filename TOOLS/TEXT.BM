@@ -571,22 +571,26 @@ SUB TEXT_char_mode_add_char (ch AS STRING)
             TEXT_LAYER_DATA(tdIdx%).dirty = TRUE
         ELSE
             TEXT_LAYER_add_char tdIdx%, ch$
-            ' Fix up BG color — TEXT_LAYER_add_char uses transparent padding
+            ' Fix up attrs — TEXT_LAYER_add_char uses layer defaults
             DIM justPlaced AS INTEGER
             justPlaced% = TEXT_LAYER_DATA(tdIdx%).cursorPos - 1
             IF justPlaced% >= 0 AND justPlaced% < TEXT_LAYER_MAX_CHARS THEN
                 TL_FG(tdIdx%, justPlaced%) = PAINT_COLOR~&
                 TL_BG(tdIdx%, justPlaced%) = PAINT_BG_COLOR~&
+                TL_FONT_IDX(tdIdx%, justPlaced%) = TEXT_BAR.selectedFontIdx%
+                TL_FONT_SIZE(tdIdx%, justPlaced%) = TEXT_BAR.selectedSize%
             END IF
         END IF
     ELSE
         TEXT_LAYER_add_char tdIdx%, ch$
-        ' Fix up BG color — TEXT_LAYER_add_char uses transparent padding
+        ' Fix up attrs — TEXT_LAYER_add_char uses layer defaults
         DIM justPlaced2 AS INTEGER
         justPlaced2% = TEXT_LAYER_DATA(tdIdx%).cursorPos - 1
         IF justPlaced2% >= 0 AND justPlaced2% < TEXT_LAYER_MAX_CHARS THEN
             TL_FG(tdIdx%, justPlaced2%) = PAINT_COLOR~&
             TL_BG(tdIdx%, justPlaced2%) = PAINT_BG_COLOR~&
+            TL_FONT_IDX(tdIdx%, justPlaced2%) = TEXT_BAR.selectedFontIdx%
+            TL_FONT_SIZE(tdIdx%, justPlaced2%) = TEXT_BAR.selectedSize%
         END IF
     END IF
 
@@ -1184,8 +1188,11 @@ SUB TEXT_re_edit (layerIdx AS INTEGER)
 
     ' Wire up text bar
     TEXT_BAR.editingLayerIdx% = layerIdx%
-    TEXT_BAR.selectedFontIdx% = TEXT_LAYER_DATA(tdIdx%).fontIdx
-    TEXT_BAR.selectedSize% = TEXT_LAYER_DATA(tdIdx%).fontSize
+    ' In char mode keep the user's explicit font choice; otherwise sync from layer
+    IF NOT CHARMAP.useChars% THEN
+        TEXT_BAR.selectedFontIdx% = TEXT_LAYER_DATA(tdIdx%).fontIdx
+        TEXT_BAR.selectedSize% = TEXT_LAYER_DATA(tdIdx%).fontSize
+    END IF
     TEXT_BAR.lastPaintColor~& = PAINT_COLOR~&
     TEXT_BAR.lastPaintBgColor~& = PAINT_BG_COLOR~&
 
@@ -1234,8 +1241,12 @@ SUB TEXT_sync_bar_to_cursor ()
     TEXT_BAR.italicActive% = TL_ITALIC(tdIdx%, charIdx%)
     TEXT_BAR.underlineActive% = TL_UNDERLINE(tdIdx%, charIdx%)
     TEXT_BAR.strikeActive% = TL_STRIKE(tdIdx%, charIdx%)
-    TEXT_BAR.selectedFontIdx% = TL_FONT_IDX(tdIdx%, charIdx%)
-    TEXT_BAR.selectedSize% = TL_FONT_SIZE(tdIdx%, charIdx%)
+    ' In char mode keep the user's explicit font choice — don't let padding
+    ' cells (which inherit the layer default VGA font) override it
+    IF NOT CHARMAP.useChars% THEN
+        TEXT_BAR.selectedFontIdx% = TL_FONT_IDX(tdIdx%, charIdx%)
+        TEXT_BAR.selectedSize% = TL_FONT_SIZE(tdIdx%, charIdx%)
+    END IF
     TEXT_BAR.monoActive% = TEXT_LAYER_DATA(tdIdx%).monospace
 END SUB
 
@@ -1491,4 +1502,166 @@ SUB TEXT_delete_selection ()
     TEXT_LAYER_DATA(tdIdx%).dirty = TRUE
     FRAME_IDLE% = FALSE
     SCENE_DIRTY% = TRUE
+END SUB
+
+
+''
+' Check if char mode is active on the current text layer.
+' Unlike TEXT_char_mode_active%, this does NOT require the text tool to be active.
+'
+FUNCTION TEXT_char_mode_on_text_layer%
+    TEXT_char_mode_on_text_layer% = FALSE
+    IF NOT CHARMAP.useChars% THEN EXIT FUNCTION
+    IF CURRENT_LAYER% < 1 OR CURRENT_LAYER% > LAYER_COUNT% THEN EXIT FUNCTION
+    IF LAYERS(CURRENT_LAYER%).layerType% <> LAYER_TYPE_TEXT THEN EXIT FUNCTION
+    IF LAYERS(CURRENT_LAYER%).textDataIdx% < 1 THEN EXIT FUNCTION
+    TEXT_char_mode_on_text_layer% = TRUE
+END FUNCTION
+
+
+''
+' Fill text layer cells in a pixel rectangle with the selected charmap character.
+' For filled mode, fills all cells. For outline mode, fills only border cells.
+'
+SUB TEXT_char_mode_fill_cells (x1 AS INTEGER, y1 AS INTEGER, x2 AS INTEGER, y2 AS INTEGER, filled AS INTEGER)
+    IF NOT CHARMAP.useChars% THEN EXIT SUB
+    IF CHARMAP.charGridW% < 1 OR CHARMAP.charGridH% < 1 THEN EXIT SUB
+    IF CURRENT_LAYER% < 1 OR CURRENT_LAYER% > LAYER_COUNT% THEN EXIT SUB
+    IF LAYERS(CURRENT_LAYER%).layerType% <> LAYER_TYPE_TEXT THEN EXIT SUB
+    DIM fcTdIdx AS INTEGER
+    fcTdIdx% = LAYERS(CURRENT_LAYER%).textDataIdx%
+    IF fcTdIdx% < 1 THEN EXIT SUB
+
+    DIM fcCW AS INTEGER, fcCH AS INTEGER
+    fcCW% = CHARMAP.charGridW%
+    fcCH% = CHARMAP.charGridH%
+
+    ' If text layer has never been edited, initialize startX/startY to (0,0)
+    ' so that character grid cells align with the canvas grid
+    IF TEXT_LAYER_DATA(fcTdIdx%).charCount = 0 AND TEXT_LAYER_DATA(fcTdIdx%).lineCount <= 1 THEN
+        TEXT_LAYER_DATA(fcTdIdx%).startX = 0
+        TEXT_LAYER_DATA(fcTdIdx%).startY = 0
+    END IF
+
+    DIM fcStartX AS INTEGER, fcStartY AS INTEGER
+    fcStartX% = TEXT_LAYER_DATA(fcTdIdx%).startX
+    fcStartY% = TEXT_LAYER_DATA(fcTdIdx%).startY
+
+    ' Convert pixel rect to cell rect (using floor division for negative coords)
+    DIM fcNormX1 AS INTEGER, fcNormY1 AS INTEGER
+    DIM fcNormX2 AS INTEGER, fcNormY2 AS INTEGER
+    fcNormX1% = x1%: fcNormY1% = y1%
+    fcNormX2% = x2%: fcNormY2% = y2%
+    IF fcNormX1% > fcNormX2% THEN SWAP fcNormX1%, fcNormX2%
+    IF fcNormY1% > fcNormY2% THEN SWAP fcNormY1%, fcNormY2%
+
+    DIM fc1 AS INTEGER, fr1 AS INTEGER, fc2 AS INTEGER, fr2 AS INTEGER
+    fc1% = INT(CSNG(fcNormX1% - fcStartX%) / CSNG(fcCW%))
+    fr1% = INT(CSNG(fcNormY1% - fcStartY%) / CSNG(fcCH%))
+    fc2% = INT(CSNG(fcNormX2% - fcStartX%) / CSNG(fcCW%))
+    fr2% = INT(CSNG(fcNormY2% - fcStartY%) / CSNG(fcCH%))
+
+    ' Clamp negatives
+    IF fc1% < 0 THEN fc1% = 0
+    IF fr1% < 0 THEN fr1% = 0
+
+    _LOGINFO "fill_cells: startX=" + STR$(fcStartX%) + " startY=" + STR$(fcStartY%) + " cells(" + STR$(fc1%) + "," + STR$(fr1%) + ")-(" + STR$(fc2%) + "," + STR$(fr2%) + ") filled=" + STR$(filled%) + " charCount=" + STR$(TEXT_LAYER_DATA(fcTdIdx%).charCount) + " lineCount=" + STR$(TEXT_LAYER_DATA(fcTdIdx%).lineCount)
+
+    ' Get the character to place
+    DIM fcSelChar AS STRING
+    IF CHARMAP.selectedIdx% >= 0 AND CHARMAP.selectedIdx% <= 255 THEN
+        fcSelChar$ = CHR$(CHARMAP.selectedIdx%)
+    ELSE
+        fcSelChar$ = " "
+    END IF
+
+    DIM fcFG AS _UNSIGNED LONG
+    DIM fcBG AS _UNSIGNED LONG
+    fcFG~& = PAINT_COLOR~&
+    IF PAL_BG_IS_TRANSPARENT% THEN
+        fcBG~& = _RGBA32(0, 0, 0, 0)
+    ELSE
+        fcBG~& = PAINT_BG_COLOR~&
+    END IF
+
+    DIM fcR AS INTEGER, fcC AS INTEGER
+    FOR fcR% = fr1% TO fr2%
+        ' Ensure row exists
+        DO WHILE TEXT_LAYER_DATA(fcTdIdx%).lineCount <= fcR%
+            IF TEXT_LAYER_DATA(fcTdIdx%).lineCount >= TEXT_LAYER_MAX_LINES THEN EXIT DO
+            IF TEXT_LAYER_DATA(fcTdIdx%).charCount >= TEXT_LAYER_MAX_CHARS THEN EXIT DO
+            TEXT_LAYER_DATA(fcTdIdx%).cursorPos = TEXT_LAYER_DATA(fcTdIdx%).charCount
+            TEXT_LAYER_newline fcTdIdx%
+        LOOP
+        IF fcR% >= TEXT_LAYER_DATA(fcTdIdx%).lineCount THEN EXIT FOR
+
+        ' Get line boundaries
+        DIM fcLineStart AS INTEGER, fcLineEnd AS INTEGER, fcLineLen AS INTEGER
+        fcLineStart% = TL_LINE_BREAK(fcTdIdx%, fcR%)
+        IF fcR% < TEXT_LAYER_DATA(fcTdIdx%).lineCount - 1 THEN
+            fcLineEnd% = TL_LINE_BREAK(fcTdIdx%, fcR% + 1)
+        ELSE
+            fcLineEnd% = TEXT_LAYER_DATA(fcTdIdx%).charCount
+        END IF
+
+        ' Count visible chars (exclude trailing newline)
+        fcLineLen% = fcLineEnd% - fcLineStart%
+        IF fcLineLen% > 0 AND fcLineEnd% > 0 THEN
+            IF TL_CHAR(fcTdIdx%, fcLineEnd% - 1) = CHR$(10) THEN fcLineLen% = fcLineLen% - 1
+        END IF
+
+        ' Extend line if needed to reach fc2%
+        IF fcLineLen% <= fc2% THEN
+            DIM fcNeedPad AS INTEGER
+            fcNeedPad% = fc2% - fcLineLen% + 1
+            DIM fcInsertAt AS INTEGER
+            IF fcLineEnd% > fcLineStart% AND TL_CHAR(fcTdIdx%, fcLineEnd% - 1) = CHR$(10) THEN
+                fcInsertAt% = fcLineEnd% - 1
+            ELSE
+                fcInsertAt% = fcLineEnd%
+            END IF
+            TEXT_LAYER_DATA(fcTdIdx%).cursorPos = fcInsertAt%
+            DIM fcPad AS INTEGER
+            FOR fcPad% = 1 TO fcNeedPad%
+                IF TEXT_LAYER_DATA(fcTdIdx%).charCount >= TEXT_LAYER_MAX_CHARS THEN EXIT FOR
+                TEXT_LAYER_add_char fcTdIdx%, " "
+            NEXT fcPad%
+            ' Recalculate after expansion
+            fcLineStart% = TL_LINE_BREAK(fcTdIdx%, fcR%)
+            IF fcR% < TEXT_LAYER_DATA(fcTdIdx%).lineCount - 1 THEN
+                fcLineEnd% = TL_LINE_BREAK(fcTdIdx%, fcR% + 1)
+            ELSE
+                fcLineEnd% = TEXT_LAYER_DATA(fcTdIdx%).charCount
+            END IF
+        END IF
+
+        ' Fill cells in this row
+        FOR fcC% = fc1% TO fc2%
+            ' For outline mode, skip interior cells
+            IF NOT filled% THEN
+                IF fcR% > fr1% AND fcR% < fr2% AND fcC% > fc1% AND fcC% < fc2% THEN _CONTINUE
+            END IF
+
+            DIM fcCellPos AS INTEGER
+            fcCellPos% = fcLineStart% + fcC%
+            IF fcCellPos% >= 0 AND fcCellPos% < TEXT_LAYER_MAX_CHARS AND fcCellPos% < fcLineEnd% THEN
+                IF TL_CHAR(fcTdIdx%, fcCellPos%) <> CHR$(10) THEN
+                    TL_CHAR(fcTdIdx%, fcCellPos%) = fcSelChar$
+                    TL_FG(fcTdIdx%, fcCellPos%) = fcFG~&
+                    TL_BG(fcTdIdx%, fcCellPos%) = fcBG~&
+                    TL_FONT_IDX(fcTdIdx%, fcCellPos%) = TEXT_BAR.selectedFontIdx%
+                    TL_FONT_SIZE(fcTdIdx%, fcCellPos%) = TEXT_BAR.selectedSize%
+                    TL_BOLD(fcTdIdx%, fcCellPos%) = TEXT_BAR.boldActive%
+                    TL_ITALIC(fcTdIdx%, fcCellPos%) = TEXT_BAR.italicActive%
+                    TL_UNDERLINE(fcTdIdx%, fcCellPos%) = FALSE
+                    TL_STRIKE(fcTdIdx%, fcCellPos%) = FALSE
+                END IF
+            END IF
+        NEXT fcC%
+    NEXT fcR%
+
+    TEXT_LAYER_DATA(fcTdIdx%).dirty = TRUE
+    SCENE_DIRTY% = TRUE
+    FRAME_IDLE% = FALSE
+    CANVAS_DIRTY% = TRUE
 END SUB

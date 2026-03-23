@@ -85,3 +85,5 @@ DECLARE SUB TEXT_char_mode_move_cursor (deltaCol AS INTEGER, deltaRow AS INTEGER
 DECLARE SUB TEXT_char_mode_add_char (ch AS STRING)
 DECLARE SUB TEXT_char_mode_backspace ()
 DECLARE SUB TEXT_char_mode_delete ()
+DECLARE FUNCTION TEXT_char_mode_on_text_layer% ()
+DECLARE SUB TEXT_char_mode_fill_cells (x1 AS INTEGER, y1 AS INTEGER, x2 AS INTEGER, y2 AS INTEGER, filled AS INTEGER)
