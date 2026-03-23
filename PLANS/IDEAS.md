@@ -1,5 +1,28 @@
 # IDEAS
 
+## TEXT STYLES
+
+- [ ] Add text style dropdown with save/delete and name for text styles:
+  - Font
+  - Font size
+  - Font bold, italic, underline, strikethrough settings
+  - Font mono setting
+  - Font lineheight
+  - Font CHAR MODE setting
+  - Font BG color
+  - Font FG color
+- Dropdown should have a simple name
+- Layout like this:
+  ```
+  STYLE: [ Heading 1 ^ ] [U] [S] [X]
+  ```
+- Dropdown with the names of styles
+- [U] to Update selected dropdown style based on current setup
+- [S] to save new dropdown style based on current setup
+  - Show dialog for name
+- [X] to delete a style
+
+
 ## LOAD IMAGES INTO BINS
 - Add to right click on brush bin, pattern bin:
   - LOAD IMAGES
