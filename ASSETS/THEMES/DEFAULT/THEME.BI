@@ -427,6 +427,8 @@ THEME.CHARMAP_HOVER_FG~&            = _RGB32(220, 220, 220)
 THEME.CHARMAP_HOVER_BG~&            = _RGB32(50, 50, 80)
 THEME.CHARMAP_GRID_FG~&             = _RGB32(40, 40, 60)
 THEME.CHARMAP_FLASH_FG~&            = _RGB32(255, 200, 60)
+THEME.CHARMAP_SCROLLBAR_BG~&        = _RGB32(40, 40, 60)
+THEME.CHARMAP_SCROLLBAR_FG~&        = _RGB32(255, 255, 255)
 THEME.CHAR_GRID_COLOR_FG~&          = _RGBA32(100, 100, 200, 80)
 
 ' =============================================================================

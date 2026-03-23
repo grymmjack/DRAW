@@ -2,7 +2,7 @@
 ' DRAW - GUI/CHARMAP.BI
 ' =============================================================================
 ' Character Map — declarations, TYPE, and shared state.
-' A dockable panel showing a 16x16 grid of font glyphs (256 cells, 0-255).
+' A dockable panel showing a config-driven grid of font glyphs (256 cells, 0-255).
 ' Tracks the active text font, owns a glyph cache, and feeds selected glyphs
 ' to the text tool (editable placement) or custom brush pipeline (stamping).
 '
@@ -14,8 +14,8 @@ OPTION _EXPLICIT
 OPTION _EXPLICITARRAY
 
 ' --- Constants ---
-CONST CHARMAP_COLS         = 16    ' Grid columns (fixed 16x16 = 256 cells)
-CONST CHARMAP_ROWS         = 16    ' Grid rows
+CONST CHARMAP_MIN_CELLS_PER_ROW = 4
+CONST CHARMAP_MAX_CELLS_PER_ROW = 16
 CONST CHARMAP_CELL_COUNT   = 256   ' Total cells (0..255)
 CONST CHARMAP_DOCK_LEFT    = 0
 CONST CHARMAP_DOCK_RIGHT   = 1
@@ -29,6 +29,7 @@ TYPE CHARMAP_OBJ
     panelY1         AS INTEGER  ' Top (below menubar/text bar)
     panelY2         AS INTEGER  ' Bottom
     panelW          AS INTEGER  ' Total panel width (computed)
+    cellsPerRow     AS INTEGER  ' Grid columns per row (config-backed, 4..16)
     cellW           AS INTEGER  ' Glyph cell width in pixels (config-backed)
     cellH           AS INTEGER  ' Glyph cell height in pixels (config-backed)
     cellPadding     AS INTEGER  ' Padding between cells in pixels
@@ -85,7 +86,12 @@ DECLARE SUB CHARMAP_update_hover (rawX AS INTEGER, rawY AS INTEGER)
 DECLARE SUB CHARMAP_copy_glyph_to_custom_brush ()
 DECLARE SUB CHARMAP_copy_glyph_to_custom_brush_bg ()
 DECLARE FUNCTION CHARMAP_effective_font_size% ()
+DECLARE FUNCTION CHARMAP_cells_per_row% ()
+DECLARE FUNCTION CHARMAP_row_count% ()
 DECLARE FUNCTION CHARMAP_panel_width% ()
+DECLARE FUNCTION CHARMAP_max_visible_rows% ()
+DECLARE FUNCTION CHARMAP_max_scroll_y% ()
+DECLARE SUB CHARMAP_scroll (deltaRows AS INTEGER)
 DECLARE SUB CHARMAP_char_grid_draw ()
 DECLARE SUB CHARMAP_char_grid_toggle ()
 DECLARE SUB CHARMAP_char_grid_snap_toggle ()

@@ -83,13 +83,13 @@ Verify the 16×16 glyph grid renders correctly and syncs with the text tool's ac
 2. [x] Verify there are 16 columns × 16 rows = 256 cells
 3. [x] Verify cells are numbered/indexed 0-255 (row 0: chars 0-15, row 1: chars 16-31, etc.)
 
-#### [ ] Glyphs match current text font
-1. [ ] Select the Text tool (`T`)
-2. [ ] Choose a font from the TEXT BAR font dropdown (e.g., "Tiny5")
-3. [ ] Open character map
-4. [ ] Verify glyphs in the grid match the font shown in the TEXT BAR
-5. [ ] Change font in TEXT BAR to a different font
-6. [ ] Verify the character map grid updates to show the new font's glyphs
+#### [x] Glyphs match current text font
+1. [x] Select the Text tool (`T`)
+2. [x] Choose a font from the TEXT BAR font dropdown (e.g., "Tiny5")
+3. [x] Open character map
+4. [x] Verify glyphs in the grid match the font shown in the TEXT BAR
+5. [x] Change font in TEXT BAR to a different font
+6. [x] Verify the character map grid updates to show the new font's glyphs
 
 > **FAILED**: Cell width/height are not adjusting to the active font dimensions; appears to affect both height and width. — 2026-03-22
 
@@ -99,13 +99,13 @@ Verify the 16×16 glyph grid renders correctly and syncs with the text tool's ac
 
 > **FAILED**: On startup, charmap initially overlaps (same right-edge overflow), then corrects after first mouse move/frame update. — 2026-03-22
 
-#### [ ] Cache rebuild on font change
-1. [ ] Open character map with one font active
-2. [ ] Note the glyph appearance
-3. [ ] Switch font in TEXT BAR
-4. [ ] Verify cache rebuilds (glyphs visually change to new font)
-5. [ ] Switch font size
-6. [ ] Verify cache rebuilds again with new size
+#### [x] Cache rebuild on font change
+1. [x] Open character map with one font active
+2. [x] Note the glyph appearance
+3. [x] Switch font in TEXT BAR
+4. [x] Verify cache rebuilds (glyphs visually change to new font)
+5. [x] Switch font size
+6. [x] Verify cache rebuilds again with new size
 
 #### [ ] Cell padding and dimensions from config
 1. [ ] Check `DRAW.cfg` for `CHARMAP_CELL_W`, `CHARMAP_CELL_H`, `CHARMAP_CELL_PADDING`

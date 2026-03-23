@@ -287,6 +287,7 @@ TYPE DRAW_CONFIG
     ' Character Map panel settings
     CHARMAP_VISIBLE                AS INTEGER  ' TRUE = character map panel visible at startup
     CHARMAP_PANEL_DOCK_EDGE        AS STRING   ' "LEFT" or "RIGHT" (default: "LEFT")
+    CHARMAP_CELLS_PER_ROW          AS INTEGER  ' Glyph cells per row (4-16, default 16)
     CHARMAP_CELL_W                 AS INTEGER  ' Cell width in pixels (default 8)
     CHARMAP_CELL_H                 AS INTEGER  ' Cell height in pixels (default 8)
     CHARMAP_CELL_PADDING           AS INTEGER  ' Padding between cells (default 1)

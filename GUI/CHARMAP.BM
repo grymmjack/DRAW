@@ -2,7 +2,7 @@
 ' DRAW - GUI/CHARMAP.BM
 ' =============================================================================
 ' Character Map — implementation.
-' Dockable panel showing a 16x16 grid of font glyphs.
+' Dockable panel showing a config-driven grid of font glyphs.
 '
 ' @author Rick Christy <grymmjack@gmail.com>
 '
@@ -33,6 +33,8 @@ SUB CHARMAP_init ()
     CHARMAP.useChars% = FALSE
 
     ' Apply config
+    CHARMAP.cellsPerRow% = CFG.CHARMAP_CELLS_PER_ROW%
+    IF CHARMAP.cellsPerRow% < CHARMAP_MIN_CELLS_PER_ROW OR CHARMAP.cellsPerRow% > CHARMAP_MAX_CELLS_PER_ROW THEN CHARMAP.cellsPerRow% = CHARMAP_MAX_CELLS_PER_ROW
     CHARMAP.cellW% = CFG.CHARMAP_CELL_W%
     IF CHARMAP.cellW% < 6 THEN CHARMAP.cellW% = 8
     CHARMAP.cellH% = CFG.CHARMAP_CELL_H%
@@ -123,13 +125,112 @@ END FUNCTION
 
 
 ''
+' Resolve configured cells-per-row with safety clamping.
+'
+FUNCTION CHARMAP_cells_per_row% ()
+    DIM cols AS INTEGER
+    cols% = CHARMAP.cellsPerRow%
+    IF cols% < CHARMAP_MIN_CELLS_PER_ROW OR cols% > CHARMAP_MAX_CELLS_PER_ROW THEN
+        cols% = CHARMAP_MAX_CELLS_PER_ROW
+    END IF
+    CHARMAP_cells_per_row% = cols%
+END FUNCTION
+
+
+''
+' Compute number of rows needed for all 256 glyph cells.
+'
+FUNCTION CHARMAP_row_count% ()
+    DIM cols AS INTEGER
+    cols% = CHARMAP_cells_per_row%
+    CHARMAP_row_count% = (CHARMAP_CELL_COUNT + cols% - 1) \ cols%
+END FUNCTION
+
+
+''
 ' Compute panel width from cell metrics.
 '
 FUNCTION CHARMAP_panel_width% ()
     DIM pw AS INTEGER
-    pw% = CHARMAP_COLS * CHARMAP.cellW% + (CHARMAP_COLS - 1) * CHARMAP.cellPadding% + 4 ' +4 outer pad
+    DIM cols AS INTEGER
+    cols% = CHARMAP_cells_per_row%
+    pw% = cols% * CHARMAP.cellW% + (cols% - 1) * CHARMAP.cellPadding% + 4 ' +4 outer pad
     CHARMAP_panel_width% = pw%
 END FUNCTION
+
+
+''
+' Compute how many rows fit in the visible panel height.
+'
+FUNCTION CHARMAP_max_visible_rows% ()
+    DIM innerH AS INTEGER
+    DIM rowStep AS INTEGER
+    DIM maxRows AS INTEGER
+    DIM totalRows AS INTEGER
+
+    totalRows% = CHARMAP_row_count%
+    IF totalRows% < 1 THEN totalRows% = 1
+
+    innerH% = CHARMAP.panelY2% - CHARMAP.panelY1% + 1 - 4
+    IF innerH% < 1 THEN
+        CHARMAP_max_visible_rows% = totalRows%
+        EXIT FUNCTION
+    END IF
+
+    rowStep% = CHARMAP.cellH% + CHARMAP.cellPadding%
+    IF rowStep% < 1 THEN rowStep% = 1
+
+    maxRows% = (innerH% + CHARMAP.cellPadding%) \ rowStep%
+    IF maxRows% < 1 THEN maxRows% = 1
+    IF maxRows% > totalRows% THEN maxRows% = totalRows%
+    CHARMAP_max_visible_rows% = maxRows%
+END FUNCTION
+
+
+''
+' Compute maximum vertical scroll offset in pixels.
+'
+FUNCTION CHARMAP_max_scroll_y% ()
+    DIM totalRows AS INTEGER
+    DIM visibleRows AS INTEGER
+    DIM rowStep AS INTEGER
+
+    totalRows% = CHARMAP_row_count%
+    visibleRows% = CHARMAP_max_visible_rows%
+    rowStep% = CHARMAP.cellH% + CHARMAP.cellPadding%
+    IF rowStep% < 1 THEN rowStep% = 1
+
+    IF totalRows% <= visibleRows% THEN
+        CHARMAP_max_scroll_y% = 0
+    ELSE
+        CHARMAP_max_scroll_y% = (totalRows% - visibleRows%) * rowStep%
+    END IF
+END FUNCTION
+
+
+''
+' Scroll the charmap vertically by row increments.
+'
+SUB CHARMAP_scroll (deltaRows AS INTEGER)
+    DIM rowStep AS INTEGER
+    DIM maxScroll AS INTEGER
+    DIM newScroll AS INTEGER
+
+    rowStep% = CHARMAP.cellH% + CHARMAP.cellPadding%
+    IF rowStep% < 1 THEN rowStep% = 1
+    maxScroll% = CHARMAP_max_scroll_y%
+    newScroll% = CHARMAP.scrollY% + deltaRows% * rowStep%
+    IF newScroll% < 0 THEN newScroll% = 0
+    IF newScroll% > maxScroll% THEN newScroll% = maxScroll%
+
+    IF newScroll% <> CHARMAP.scrollY% THEN
+        CHARMAP.scrollY% = newScroll%
+        CHARMAP.hoverIdx% = -1
+        CHARMAP_NEEDS_REDRAW% = TRUE
+        GUI_NEEDS_REDRAW% = TRUE
+        FRAME_IDLE% = FALSE
+    END IF
+END SUB
 
 
 ''
@@ -414,6 +515,8 @@ SUB CHARMAP_flash_glyph (idx AS INTEGER)
         CHARMAP.flashIdx% = idx%
         CHARMAP.flashTimer! = TIMER
         CHARMAP_NEEDS_REDRAW% = TRUE
+        GUI_NEEDS_REDRAW% = TRUE
+        FRAME_IDLE% = FALSE
     END IF
 END SUB
 
@@ -441,6 +544,8 @@ FUNCTION CHARMAP_hit_test_cell% (mouseX AS INTEGER, mouseY AS INTEGER)
     DIM col AS INTEGER, row AS INTEGER
     DIM cellStepX AS INTEGER, cellStepY AS INTEGER
     DIM idx AS INTEGER
+    DIM cols AS INTEGER
+    DIM rows AS INTEGER
 
     CHARMAP_hit_test_cell% = -1
     IF NOT CHARMAP.visible% THEN EXIT FUNCTION
@@ -449,22 +554,25 @@ FUNCTION CHARMAP_hit_test_cell% (mouseX AS INTEGER, mouseY AS INTEGER)
     IF NOT CHARMAP_is_over_area%(mouseX%, mouseY%) THEN EXIT FUNCTION
 
     relX% = mouseX% - CHARMAP.gridX%
-    relY% = mouseY% - CHARMAP.gridY%
+    relY% = mouseY% - CHARMAP.gridY% + CHARMAP.scrollY%
     IF relX% < 0 OR relY% < 0 THEN EXIT FUNCTION
 
     cellStepX% = CHARMAP.cellW% + CHARMAP.cellPadding%
     cellStepY% = CHARMAP.cellH% + CHARMAP.cellPadding%
     IF cellStepX% < 1 OR cellStepY% < 1 THEN EXIT FUNCTION
 
+    cols% = CHARMAP_cells_per_row%
+    rows% = CHARMAP_row_count%
+
     col% = relX% \ cellStepX%
     row% = relY% \ cellStepY%
-    IF col% >= CHARMAP_COLS OR row% >= CHARMAP_ROWS THEN EXIT FUNCTION
+    IF col% >= cols% OR row% >= rows% THEN EXIT FUNCTION
 
     ' Check we're inside the cell, not in padding
     IF (relX% MOD cellStepX%) >= CHARMAP.cellW% THEN EXIT FUNCTION
     IF (relY% MOD cellStepY%) >= CHARMAP.cellH% THEN EXIT FUNCTION
 
-    idx% = row% * CHARMAP_COLS + col%
+    idx% = row% * cols% + col%
     IF idx% >= 0 AND idx% < CHARMAP_CELL_COUNT THEN
         CHARMAP_hit_test_cell% = idx%
     END IF
@@ -604,6 +712,12 @@ SUB CHARMAP_render ()
     DIM gridFg AS _UNSIGNED LONG
     DIM flashActive AS INTEGER
     DIM elapsed AS SINGLE
+    DIM cols AS INTEGER
+    DIM maxScroll AS INTEGER
+    DIM viewportTop AS INTEGER
+    DIM viewportBottom AS INTEGER
+    DIM bgTop AS INTEGER
+    DIM bgBottom AS INTEGER
 
     IF NOT CHARMAP.visible% THEN EXIT SUB
 
@@ -623,6 +737,7 @@ SUB CHARMAP_render ()
     cw% = CHARMAP.cellW%
     ch% = CHARMAP.cellH%
     cp% = CHARMAP.cellPadding%
+    cols% = CHARMAP_cells_per_row%
     x1% = CHARMAP.panelX1%
     y1% = CHARMAP.panelY1%
 
@@ -632,6 +747,12 @@ SUB CHARMAP_render ()
     ' Grid origin with 2px padding
     CHARMAP.gridX% = x1% + 2
     CHARMAP.gridY% = y1% + 2
+    viewportTop% = CHARMAP.gridY%
+    viewportBottom% = CHARMAP.panelY2% - 1
+    IF viewportBottom% < viewportTop% THEN viewportBottom% = viewportTop%
+    maxScroll% = CHARMAP_max_scroll_y%
+    IF CHARMAP.scrollY% > maxScroll% THEN CHARMAP.scrollY% = maxScroll%
+    IF CHARMAP.scrollY% < 0 THEN CHARMAP.scrollY% = 0
 
     ' Flash decay check
     flashActive% = FALSE
@@ -640,115 +761,170 @@ SUB CHARMAP_render ()
         IF elapsed! < 0 THEN elapsed! = elapsed! + 86400 ' Midnight wrap
         IF elapsed! < 0.3 THEN
             flashActive% = TRUE
+            GUI_NEEDS_REDRAW% = TRUE
+            FRAME_IDLE% = FALSE
         ELSE
             CHARMAP.flashIdx% = -1
+            CHARMAP_NEEDS_REDRAW% = TRUE
+            GUI_NEEDS_REDRAW% = TRUE
+            FRAME_IDLE% = FALSE
         END IF
     END IF
 
     ' Draw cells
-    FOR row% = 0 TO CHARMAP_ROWS - 1
-        FOR col% = 0 TO CHARMAP_COLS - 1
-            idx% = row% * CHARMAP_COLS + col%
-            cx% = CHARMAP.gridX% + col% * (cw% + cp%)
-            cy% = CHARMAP.gridY% + row% * (ch% + cp%)
+    FOR idx% = 0 TO CHARMAP_CELL_COUNT - 1
+        row% = idx% \ cols%
+        col% = idx% MOD cols%
+        cx% = CHARMAP.gridX% + col% * (cw% + cp%)
+        cy% = CHARMAP.gridY% + row% * (ch% + cp%) - CHARMAP.scrollY%
 
-            ' Determine cell colors
-            IF idx% = CHARMAP.selectedIdx% THEN
-                cellBg~& = THEME.CHARMAP_SELECTED_BG~&
-                cellFg~& = THEME.CHARMAP_SELECTED_FG~&
-            ELSEIF idx% = CHARMAP.hoverIdx% THEN
-                cellBg~& = THEME.CHARMAP_HOVER_BG~&
-                cellFg~& = THEME.CHARMAP_HOVER_FG~&
-            ELSE
-                cellBg~& = THEME.CHARMAP_BG~&
-                cellFg~& = THEME.CHARMAP_FG~&
-            END IF
+        IF cy% + ch% - 1 < viewportTop% THEN _CONTINUE
+        IF cy% > viewportBottom% THEN EXIT FOR
 
-            ' Flash override
-            IF flashActive% AND idx% = CHARMAP.flashIdx% THEN
-                cellFg~& = THEME.CHARMAP_FLASH_FG~&
-            END IF
+        bgTop% = cy%
+        IF bgTop% < viewportTop% THEN bgTop% = viewportTop%
+        bgBottom% = cy% + ch% - 1
+        IF bgBottom% > viewportBottom% THEN bgBottom% = viewportBottom%
+        IF bgBottom% < bgTop% THEN _CONTINUE
 
-            ' Cell background
-            LINE (cx%, cy%)-(cx% + cw% - 1, cy% + ch% - 1), cellBg~&, BF
+        ' Determine cell colors
+        IF idx% = CHARMAP.selectedIdx% THEN
+            cellBg~& = THEME.CHARMAP_SELECTED_BG~&
+            cellFg~& = THEME.CHARMAP_SELECTED_FG~&
+        ELSEIF idx% = CHARMAP.hoverIdx% THEN
+            cellBg~& = THEME.CHARMAP_HOVER_BG~&
+            cellFg~& = THEME.CHARMAP_HOVER_FG~&
+        ELSE
+            cellBg~& = THEME.CHARMAP_BG~&
+            cellFg~& = THEME.CHARMAP_FG~&
+        END IF
 
-            ' Draw glyph (centered in cell)
-            IF CHARMAP_GLYPH(idx%) < -1 THEN
-                DIM gw AS INTEGER, gh AS INTEGER
-                DIM gx AS INTEGER, gy AS INTEGER
-                gw% = CHARMAP_GLYPH_W(idx%)
-                gh% = CHARMAP_GLYPH_H(idx%)
-                gx% = cx% + (cw% - gw%) \ 2
-                gy% = cy% + (ch% - gh%) \ 2
-                IF gx% < cx% THEN gx% = cx%
-                IF gy% < cy% THEN gy% = cy%
+        ' Flash override
+        IF flashActive% AND idx% = CHARMAP.flashIdx% THEN
+            cellFg~& = THEME.CHARMAP_FLASH_FG~&
+        END IF
 
-                ' Tint glyph to cell foreground color using per-pixel recolor
-                DIM glyphDest AS LONG
-                DIM px AS INTEGER, py AS INTEGER
-                DIM srcColor AS _UNSIGNED LONG
-                DIM srcA AS INTEGER
-                DIM clipX1 AS INTEGER, clipY1 AS INTEGER
-                DIM clipX2 AS INTEGER, clipY2 AS INTEGER
-                DIM srcX1 AS INTEGER, srcY1 AS INTEGER
-                DIM srcX2 AS INTEGER, srcY2 AS INTEGER
-                glyphDest& = _NEWIMAGE(gw%, gh%, 32)
-                IF glyphDest& < -1 THEN
-                    DIM gdOld AS LONG
-                    gdOld& = _DEST
-                    _DEST glyphDest&
-                    CLS , _RGBA32(0, 0, 0, 0)
-                    _DONTBLEND
-                    DIM gdSrc AS LONG
-                    gdSrc& = _SOURCE
-                    _SOURCE CHARMAP_GLYPH(idx%)
-                    FOR py% = 0 TO gh% - 1
-                        FOR px% = 0 TO gw% - 1
-                            srcColor~& = POINT(px%, py%)
-                            srcA% = _ALPHA32(srcColor~&)
-                            IF srcA% > 0 THEN
-                                PSET (px%, py%), _RGBA32(_RED32(cellFg~&), _GREEN32(cellFg~&), _BLUE32(cellFg~&), srcA%)
-                            END IF
-                        NEXT px%
-                    NEXT py%
-                    _SOURCE gdSrc&
-                    _BLEND
-                    _DEST gdOld&
+        ' Cell background
+        LINE (cx%, bgTop%)-(cx% + cw% - 1, bgBottom%), cellBg~&, BF
 
-                    ' Clip glyph blit to this cell so oversized glyphs cannot bleed
-                    ' into adjacent UI columns (e.g., edit bar on the right).
-                    clipX1% = cx%
-                    clipY1% = cy%
-                    clipX2% = cx% + cw% - 1
-                    clipY2% = cy% + ch% - 1
+        ' Draw glyph (centered in cell)
+        IF CHARMAP_GLYPH(idx%) < -1 THEN
+            DIM gw AS INTEGER, gh AS INTEGER
+            DIM gx AS INTEGER, gy AS INTEGER
+            gw% = CHARMAP_GLYPH_W(idx%)
+            gh% = CHARMAP_GLYPH_H(idx%)
+            gx% = cx% + (cw% - gw%) \ 2
+            gy% = cy% + (ch% - gh%) \ 2
+            IF gx% < cx% THEN gx% = cx%
+            IF gy% < cy% THEN gy% = cy%
 
-                    srcX1% = 0: srcY1% = 0
-                    srcX2% = gw% - 1: srcY2% = gh% - 1
+            ' Tint glyph to cell foreground color using per-pixel recolor
+            DIM glyphDest AS LONG
+            DIM px AS INTEGER, py AS INTEGER
+            DIM srcColor AS _UNSIGNED LONG
+            DIM srcA AS INTEGER
+            DIM clipX1 AS INTEGER, clipY1 AS INTEGER
+            DIM clipX2 AS INTEGER, clipY2 AS INTEGER
+            DIM srcX1 AS INTEGER, srcY1 AS INTEGER
+            DIM srcX2 AS INTEGER, srcY2 AS INTEGER
+            glyphDest& = _NEWIMAGE(gw%, gh%, 32)
+            IF glyphDest& < -1 THEN
+                DIM gdOld AS LONG
+                gdOld& = _DEST
+                _DEST glyphDest&
+                CLS , _RGBA32(0, 0, 0, 0)
+                _DONTBLEND
+                DIM gdSrc AS LONG
+                gdSrc& = _SOURCE
+                _SOURCE CHARMAP_GLYPH(idx%)
+                FOR py% = 0 TO gh% - 1
+                    FOR px% = 0 TO gw% - 1
+                        srcColor~& = POINT(px%, py%)
+                        srcA% = _ALPHA32(srcColor~&)
+                        IF srcA% > 0 THEN
+                            PSET (px%, py%), _RGBA32(_RED32(cellFg~&), _GREEN32(cellFg~&), _BLUE32(cellFg~&), srcA%)
+                        END IF
+                    NEXT px%
+                NEXT py%
+                _SOURCE gdSrc&
+                _BLEND
+                _DEST gdOld&
 
-                    IF gx% < clipX1% THEN srcX1% = clipX1% - gx%
-                    IF gy% < clipY1% THEN srcY1% = clipY1% - gy%
-                    IF gx% + gw% - 1 > clipX2% THEN srcX2% = clipX2% - gx%
-                    IF gy% + gh% - 1 > clipY2% THEN srcY2% = clipY2% - gy%
+                ' Clip glyph blit to this cell so oversized glyphs cannot bleed
+                ' into adjacent UI columns (e.g., edit bar on the right).
+                clipX1% = cx%
+                clipY1% = bgTop%
+                clipX2% = cx% + cw% - 1
+                clipY2% = bgBottom%
 
-                    IF srcX1% <= srcX2% AND srcY1% <= srcY2% THEN
-                        _PUTIMAGE (gx% + srcX1%, gy% + srcY1%)-(gx% + srcX2%, gy% + srcY2%), glyphDest&, SCRN.GUI&, (srcX1%, srcY1%)-(srcX2%, srcY2%)
-                    END IF
-                    _FREEIMAGE glyphDest&
+                srcX1% = 0: srcY1% = 0
+                srcX2% = gw% - 1: srcY2% = gh% - 1
+
+                IF gx% < clipX1% THEN srcX1% = clipX1% - gx%
+                IF gy% < clipY1% THEN srcY1% = clipY1% - gy%
+                IF gx% + gw% - 1 > clipX2% THEN srcX2% = clipX2% - gx%
+                IF gy% + gh% - 1 > clipY2% THEN srcY2% = clipY2% - gy%
+
+                IF srcX1% <= srcX2% AND srcY1% <= srcY2% THEN
+                    _PUTIMAGE (gx% + srcX1%, gy% + srcY1%)-(gx% + srcX2%, gy% + srcY2%), glyphDest&, SCRN.GUI&, (srcX1%, srcY1%)-(srcX2%, srcY2%)
                 END IF
+                _FREEIMAGE glyphDest&
             END IF
+        END IF
 
-            ' Grid lines (right and bottom edges)
-            IF cp% > 0 THEN
-                gridFg~& = THEME.CHARMAP_GRID_FG~&
-                IF col% < CHARMAP_COLS - 1 THEN
-                    LINE (cx% + cw%, cy%)-(cx% + cw%, cy% + ch% - 1), gridFg~&
-                END IF
-                IF row% < CHARMAP_ROWS - 1 THEN
+        ' Grid lines (right and bottom edges)
+        IF cp% > 0 THEN
+            gridFg~& = THEME.CHARMAP_GRID_FG~&
+            IF col% < cols% - 1 AND idx% + 1 < CHARMAP_CELL_COUNT THEN
+                LINE (cx% + cw%, bgTop%)-(cx% + cw%, bgBottom%), gridFg~&
+            END IF
+            IF idx% + cols% < CHARMAP_CELL_COUNT THEN
+                IF cy% + ch% >= viewportTop% AND cy% + ch% <= viewportBottom% THEN
                     LINE (cx%, cy% + ch%)-(cx% + cw% - 1, cy% + ch%), gridFg~&
                 END IF
             END IF
-        NEXT col%
-    NEXT row%
+        END IF
+    NEXT idx%
+
+    ' Draw a slim scroll thumb when not all rows fit in the panel.
+    IF maxScroll% > 0 THEN
+        DIM trackX AS INTEGER
+        DIM trackY AS INTEGER
+        DIM trackH AS INTEGER
+        DIM thumbH AS INTEGER
+        DIM thumbY AS INTEGER
+        DIM thumbRange AS INTEGER
+        DIM scrollRatio AS SINGLE
+        DIM visibleRows AS INTEGER
+        DIM totalRows AS INTEGER
+
+        trackX% = CHARMAP.panelX2% - 2
+        trackY% = viewportTop%
+        trackH% = viewportBottom% - viewportTop% + 1
+        IF trackH% < 8 THEN trackH% = 8
+
+        totalRows% = CHARMAP_row_count%
+        visibleRows% = CHARMAP_max_visible_rows%
+        IF totalRows% < 1 THEN totalRows% = 1
+        IF visibleRows% < 1 THEN visibleRows% = 1
+
+        thumbH% = INT(trackH% * (visibleRows% / totalRows%))
+        IF thumbH% < 10 THEN thumbH% = 10
+        IF thumbH% > trackH% THEN thumbH% = trackH%
+
+        thumbRange% = trackH% - thumbH%
+        IF maxScroll% > 0 AND thumbRange% > 0 THEN
+            scrollRatio! = CHARMAP.scrollY% / maxScroll%
+            IF scrollRatio! < 0 THEN scrollRatio! = 0
+            IF scrollRatio! > 1 THEN scrollRatio! = 1
+            thumbY% = trackY% + INT(thumbRange% * scrollRatio!)
+        ELSE
+            thumbY% = trackY%
+        END IF
+
+        LINE (trackX%, trackY%)-(trackX%, trackY% + trackH% - 1), THEME.CHARMAP_SCROLLBAR_BG~&
+        LINE (trackX% - 1, thumbY%)-(trackX%, thumbY% + thumbH% - 1), THEME.CHARMAP_SCROLLBAR_FG~&, BF
+    END IF
 
     _DEST oldDest&
 END SUB

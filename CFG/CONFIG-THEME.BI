@@ -446,6 +446,8 @@ TYPE DRAW_THEME
     CHARMAP_HOVER_BG           AS _UNSIGNED LONG  ' Hovered cell background
     CHARMAP_GRID_FG            AS _UNSIGNED LONG  ' Grid line color between cells
     CHARMAP_FLASH_FG           AS _UNSIGNED LONG  ' Typed character flash highlight color
+    CHARMAP_SCROLLBAR_BG       AS _UNSIGNED LONG  ' Character map scrollbar track color
+    CHARMAP_SCROLLBAR_FG       AS _UNSIGNED LONG  ' Character map scrollbar thumb color
     CHAR_GRID_COLOR_FG         AS _UNSIGNED LONG  ' Character grid overlay color on canvas
 END TYPE
 
