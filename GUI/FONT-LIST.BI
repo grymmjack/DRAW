@@ -2,7 +2,7 @@
 ' DRAW - GUI/FONT-LIST.BI
 ' =============================================================================
 ' Font enumeration, caching, and handle management.
-' Discovers bundled + system TTF/OTF fonts, provides cached _LOADFONT handles.
+' Discovers bundled + system TTF/OTF/TTC fonts, provides cached _LOADFONT handles.
 '
 ' @author Rick Christy <grymmjack@gmail.com>
 '
