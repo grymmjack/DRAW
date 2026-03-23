@@ -92,6 +92,9 @@ SUB TEXT_BAR_init ()
     IF CFG.FONT_DEFAULT_SIZE% >= 4 AND CFG.FONT_DEFAULT_SIZE% <= 128 THEN
         TEXT_BAR.selectedSize% = CFG.FONT_DEFAULT_SIZE%
     END IF
+
+    ' Load saved text style presets
+    TEXT_STYLE_load
 END SUB
 
 
@@ -929,6 +932,7 @@ SUB TEXT_BAR_render ()
     ' Render open dropdowns on top
     IF TEXT_BAR.fontDropdownOpen% THEN TEXT_BAR_render_font_dropdown
     IF TEXT_BAR.sizeDropdownOpen% THEN TEXT_BAR_render_size_dropdown
+    IF TEXT_BAR.styleDropdownOpen% THEN TEXT_BAR_render_style_dropdown
 
     TEXT_BAR.needsRedraw% = FALSE
 
@@ -1012,6 +1016,50 @@ END SUB
 ''
 ' Render the size dropdown (preset sizes list).
 '
+SUB TEXT_BAR_render_style_dropdown ()
+    IF TEXT_STYLE_COUNT% = 0 THEN EXIT SUB
+
+    DIM ddX AS INTEGER, ddY AS INTEGER, ddW AS INTEGER, ddH AS INTEGER
+    DIM itemH AS INTEGER
+    DIM si AS INTEGER
+
+    DIM ddOldFont3 AS LONG
+    ddOldFont3& = _FONT
+    IF MENU_BAR.fontHandle& > 0 THEN _FONT MENU_BAR.fontHandle&
+
+    itemH% = 12
+    ddW% = 120
+    ddH% = TEXT_STYLE_COUNT% * itemH% + 2
+    ddX% = TEXT_BAR.styleDDBtnX%
+    ddY% = TEXT_BAR.barY% + THEME.TEXT_BAR_ROW_HEIGHT% * 2
+
+    ' Background + border
+    LINE (ddX%, ddY%)-(ddX% + ddW% - 1, ddY% + ddH% - 1), THEME.TEXT_BAR_DROPDOWN_BG~&, BF
+    LINE (ddX%, ddY%)-(ddX% + ddW% - 1, ddY% + ddH% - 1), THEME.TEXT_BAR_BORDER~&, B
+
+    DIM drawY AS INTEGER
+    drawY% = ddY% + 1
+
+    FOR si% = 1 TO TEXT_STYLE_COUNT%
+        IF NOT TEXT_STYLES(si%).used THEN
+            drawY% = drawY% + itemH%
+            _CONTINUE
+        END IF
+        IF si% = TEXT_STYLE_SELECTED% THEN
+            LINE (ddX% + 1, drawY%)-(ddX% + ddW% - 2, drawY% + itemH% - 1), THEME.TEXT_BAR_DROPDOWN_HIGHLIGHT~&, BF
+        END IF
+        COLOR THEME.TEXT_BAR_DROPDOWN_FG~&, _RGBA32(0, 0, 0, 0)
+        DIM sn AS STRING
+        sn$ = RTRIM$(TEXT_STYLES(si%).name)
+        IF LEN(sn$) = 0 THEN sn$ = "Style " + _TRIM$(STR$(si%))
+        _PRINTSTRING (ddX% + 4, drawY% + 2), sn$
+        drawY% = drawY% + itemH%
+    NEXT si%
+
+    _FONT ddOldFont3&
+END SUB
+
+
 SUB TEXT_BAR_render_size_dropdown ()
     DIM ddX AS INTEGER, ddY AS INTEGER, ddW AS INTEGER, ddH AS INTEGER
     DIM itemH AS INTEGER
@@ -1175,10 +1223,29 @@ FUNCTION TEXT_BAR_handle_click% (rawX%, rawY%)
         END IF
 
         IF TEXT_BAR.styleDropdownOpen% THEN
-            ' Style dropdown currently toggles style mode; treat click on the style button as inside.
+            DIM sdDdX AS INTEGER, sdDdY AS INTEGER, sdDdW AS INTEGER, sdDdH AS INTEGER
+            sdDdX% = TEXT_BAR.styleDDBtnX%
+            sdDdY% = TEXT_BAR.barY% + THEME.TEXT_BAR_ROW_HEIGHT% * 2
+            sdDdW% = 120
+            sdDdH% = TEXT_STYLE_COUNT% * 12 + 2
+            ' Allow clicking on the button itself (row 2) to close
             IF rawX% >= TEXT_BAR.styleDDBtnX% AND rawX% < TEXT_BAR.styleDDBtnX% + TEXT_BAR.styleDDBtnW% THEN
                 IF rawY% >= TEXT_BAR.barY% + THEME.TEXT_BAR_ROW_HEIGHT% AND rawY% < TEXT_BAR.barY% + THEME.TEXT_BAR_ROW_HEIGHT% * 2 THEN
                     inDropdown% = TRUE
+                END IF
+            END IF
+            ' Click inside the dropdown list
+            IF rawX% >= sdDdX% AND rawX% < sdDdX% + sdDdW% THEN
+                IF rawY% >= sdDdY% AND rawY% < sdDdY% + sdDdH% THEN
+                    inDropdown% = TRUE
+                    DIM sdClicked AS INTEGER
+                    sdClicked% = (rawY% - sdDdY% - 1) \ 12 + 1
+                    IF sdClicked% >= 1 AND sdClicked% <= TEXT_STYLE_COUNT% THEN
+                        IF TEXT_STYLES(sdClicked%).used THEN
+                            TEXT_STYLE_apply sdClicked%
+                        END IF
+                    END IF
+                    TEXT_BAR.styleDropdownOpen% = FALSE
                 END IF
             END IF
             IF NOT inDropdown% THEN TEXT_BAR.styleDropdownOpen% = FALSE
@@ -2257,6 +2324,41 @@ SUB TEXT_STYLE_apply (idx AS INTEGER)
         TEXT_BAR_apply_alignment
         TEXT_BAR_apply_aa
         TEXT_BAR_auto_update_line_height
+
+        ' If there is an active selection, push all style attributes to it
+        IF TEXT_has_selection% THEN
+            DIM stTd AS INTEGER
+            stTd% = LAYERS(TEXT_BAR.editingLayerIdx%).textDataIdx%
+            IF stTd% >= 1 THEN
+                DIM stMin AS INTEGER, stMax AS INTEGER
+                stMin% = TEXT.selStart%: stMax% = TEXT.selEnd%
+                IF stMin% > stMax% THEN SWAP stMin%, stMax%
+                DIM stLast AS INTEGER
+                stLast% = stMax% - 1
+
+                TEXT_LAYER_set_selection_attr stTd%, stMin%, stLast%, "FONT_IDX", fontIdx%
+                TEXT_LAYER_set_selection_attr stTd%, stMin%, stLast%, "FONT_SIZE", TEXT_STYLES(idx%).fontSize
+                TEXT_LAYER_set_selection_attr stTd%, stMin%, stLast%, "BOLD", TEXT_STYLES(idx%).bold
+                TEXT_LAYER_set_selection_attr stTd%, stMin%, stLast%, "ITALIC", TEXT_STYLES(idx%).italic
+                TEXT_LAYER_set_selection_attr stTd%, stMin%, stLast%, "UNDERLINE", TEXT_STYLES(idx%).underline
+                TEXT_LAYER_set_selection_attr stTd%, stMin%, stLast%, "STRIKE", TEXT_STYLES(idx%).strike
+                TEXT_LAYER_set_selection_attr stTd%, stMin%, stLast%, "OUTLINE", TEXT_STYLES(idx%).outline
+                TEXT_LAYER_set_selection_attr stTd%, stMin%, stLast%, "OUTLINE_COLOR", TEXT_STYLES(idx%).outColor
+                TEXT_LAYER_set_selection_attr stTd%, stMin%, stLast%, "OUTLINE_SIZE", TEXT_STYLES(idx%).outSize
+                TEXT_LAYER_set_selection_attr stTd%, stMin%, stLast%, "SHADOW", TEXT_STYLES(idx%).shadow
+                TEXT_LAYER_set_selection_attr stTd%, stMin%, stLast%, "SHADOW_COLOR", TEXT_STYLES(idx%).shdColor
+                TEXT_LAYER_set_selection_attr stTd%, stMin%, stLast%, "SHADOW_X", TEXT_STYLES(idx%).shdX
+                TEXT_LAYER_set_selection_attr stTd%, stMin%, stLast%, "SHADOW_Y", TEXT_STYLES(idx%).shdY
+                ' FG colour: apply the style colour to the selection
+                PAINT_COLOR~& = TEXT_STYLES(idx%).fgColor
+                TEXT_LAYER_set_selection_attr stTd%, stMin%, stLast%, "FG", TEXT_STYLES(idx%).fgColor
+
+                TEXT.CURSOR_X = TEXT_LAYER_get_char_x%(stTd%, TEXT_LAYER_DATA(stTd%).cursorPos)
+                TEXT_LAYER_DATA(stTd%).dirty = TRUE
+                SCENE_DIRTY% = TRUE
+                FRAME_IDLE% = FALSE
+            END IF
+        END IF
     END IF
 END SUB
 
