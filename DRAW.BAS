@@ -579,13 +579,106 @@ SUB MAIN_shutdown ()
     ' =====================================================================
     ' FREE ALL FONT HANDLES
     ' =====================================================================
-    IF TEXT.FONT_HANDLE& > 0 THEN _FREEFONT TEXT.FONT_HANDLE&
-    IF TEXT.CUSTOM_FONT_HANDLE& > 0 THEN _FREEFONT TEXT.CUSTOM_FONT_HANDLE&
-    IF CMD_FONT_HANDLE& > 0 THEN _FREEFONT CMD_FONT_HANDLE&
-    IF STATUS_FONT& > 0 THEN _FREEFONT STATUS_FONT&
-    IF PALETTE_STRIP_FONT& > 0 THEN _FREEFONT PALETTE_STRIP_FONT&
-    IF MENU_BAR.fontHandle& > 0 THEN _FREEFONT MENU_BAR.fontHandle&
-    IF LAYER_PANEL.fontHandle& > 0 THEN _FREEFONT LAYER_PANEL.fontHandle&
+    ' _LOADFONT may return shared handle IDs for identical font requests.
+    ' Free each loaded handle once to avoid double-free warnings on shutdown.
+    DIM freedFontCount AS INTEGER
+    DIM freedFontHandle(1 TO 32) AS LONG
+    DIM fi AS INTEGER
+    DIM fontHandle AS LONG
+    DIM alreadyFreed AS INTEGER
+
+    freedFontCount% = 0
+
+    fontHandle& = TEXT.FONT_HANDLE&
+    IF fontHandle& > 16 THEN
+        alreadyFreed% = FALSE
+        FOR fi% = 1 TO freedFontCount%
+            IF freedFontHandle(fi%) = fontHandle& THEN alreadyFreed% = TRUE: EXIT FOR
+        NEXT fi%
+        IF NOT alreadyFreed% THEN
+            _FREEFONT fontHandle&
+            freedFontCount% = freedFontCount% + 1
+            freedFontHandle(freedFontCount%) = fontHandle&
+        END IF
+    END IF
+
+    fontHandle& = TEXT.CUSTOM_FONT_HANDLE&
+    IF fontHandle& > 16 THEN
+        alreadyFreed% = FALSE
+        FOR fi% = 1 TO freedFontCount%
+            IF freedFontHandle(fi%) = fontHandle& THEN alreadyFreed% = TRUE: EXIT FOR
+        NEXT fi%
+        IF NOT alreadyFreed% THEN
+            _FREEFONT fontHandle&
+            freedFontCount% = freedFontCount% + 1
+            freedFontHandle(freedFontCount%) = fontHandle&
+        END IF
+    END IF
+
+    fontHandle& = CMD_FONT_HANDLE&
+    IF fontHandle& > 16 THEN
+        alreadyFreed% = FALSE
+        FOR fi% = 1 TO freedFontCount%
+            IF freedFontHandle(fi%) = fontHandle& THEN alreadyFreed% = TRUE: EXIT FOR
+        NEXT fi%
+        IF NOT alreadyFreed% THEN
+            _FREEFONT fontHandle&
+            freedFontCount% = freedFontCount% + 1
+            freedFontHandle(freedFontCount%) = fontHandle&
+        END IF
+    END IF
+
+    fontHandle& = STATUS_FONT&
+    IF fontHandle& > 16 THEN
+        alreadyFreed% = FALSE
+        FOR fi% = 1 TO freedFontCount%
+            IF freedFontHandle(fi%) = fontHandle& THEN alreadyFreed% = TRUE: EXIT FOR
+        NEXT fi%
+        IF NOT alreadyFreed% THEN
+            _FREEFONT fontHandle&
+            freedFontCount% = freedFontCount% + 1
+            freedFontHandle(freedFontCount%) = fontHandle&
+        END IF
+    END IF
+
+    fontHandle& = PALETTE_STRIP_FONT&
+    IF fontHandle& > 16 THEN
+        alreadyFreed% = FALSE
+        FOR fi% = 1 TO freedFontCount%
+            IF freedFontHandle(fi%) = fontHandle& THEN alreadyFreed% = TRUE: EXIT FOR
+        NEXT fi%
+        IF NOT alreadyFreed% THEN
+            _FREEFONT fontHandle&
+            freedFontCount% = freedFontCount% + 1
+            freedFontHandle(freedFontCount%) = fontHandle&
+        END IF
+    END IF
+
+    fontHandle& = MENU_BAR.fontHandle&
+    IF fontHandle& > 16 THEN
+        alreadyFreed% = FALSE
+        FOR fi% = 1 TO freedFontCount%
+            IF freedFontHandle(fi%) = fontHandle& THEN alreadyFreed% = TRUE: EXIT FOR
+        NEXT fi%
+        IF NOT alreadyFreed% THEN
+            _FREEFONT fontHandle&
+            freedFontCount% = freedFontCount% + 1
+            freedFontHandle(freedFontCount%) = fontHandle&
+        END IF
+    END IF
+
+    fontHandle& = LAYER_PANEL.fontHandle&
+    IF fontHandle& > 16 THEN
+        alreadyFreed% = FALSE
+        FOR fi% = 1 TO freedFontCount%
+            IF freedFontHandle(fi%) = fontHandle& THEN alreadyFreed% = TRUE: EXIT FOR
+        NEXT fi%
+        IF NOT alreadyFreed% THEN
+            _FREEFONT fontHandle&
+            freedFontCount% = freedFontCount% + 1
+            freedFontHandle(freedFontCount%) = fontHandle&
+        END IF
+    END IF
 
     ' =====================================================================
     ' FREE SOUND HANDLES

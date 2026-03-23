@@ -357,6 +357,8 @@ SUB CHARMAP_rebuild_cache ()
     DIM safeBlankW AS INTEGER
     DIM safeFontH AS INTEGER
     DIM prevFont AS LONG
+    DIM isBuiltInFont AS INTEGER
+    DIM skipCp437 AS INTEGER
 
     ' Use the current text bar font settings
     'TEXT_BAR_ensure_char_mode_safe_font ' REMOVED: let user keep their chosen font
@@ -382,6 +384,16 @@ SUB CHARMAP_rebuild_cache ()
     ' Get font handle (TTF/OTF/built-in path)
     fHandle& = FONT_LIST_get_handle&(fIdx%, fSize%, "", fMono%, FALSE)
     IF fHandle& < 1 THEN fHandle& = 16 ' Fallback to VGA 8x16
+
+    ' Detect if the active font is a QB64-PE built-in (8/14/16 etc.).
+    ' TTF/OTF fonts often lack glyphs for CP437 control-char Unicode mappings
+    ' (chars 1-31 + 127), which causes "Got glyph index zero" log errors.
+    isBuiltInFont% = FALSE
+    IF fIdx% >= 0 AND fIdx% < FONT_LIST_COUNT% THEN
+        isBuiltInFont% = FONT_LIST(fIdx%).isBuiltIn
+    ELSE
+        isBuiltInFont% = (fHandle& <= 16) ' heuristic fallback
+    END IF
 
     ' QB64-PE maps CHR$(1..31,127..255) through a CP437/Unicode path internally.
     ' All fonts — built-in, TTF, OTF — can render the full 256-char set via this
@@ -417,15 +429,26 @@ SUB CHARMAP_rebuild_cache ()
         END IF
 
         ' Measure glyph
+        ' For TTF/OTF fonts, CP437 non-ASCII bytes (1-31 and 127-255) map to
+        ' Unicode codepoints the font likely lacks (box-drawing, block shading,
+        ' special symbols) — skip _PRINTWIDTH/_PRINTSTRING to avoid
+        ' "Got glyph index zero" log errors; use safe blank dimensions instead.
+        ' i%=0 is always rendered as CHR$(32)/space so it is never skipped.
+        skipCp437% = NOT isBuiltInFont% AND i% > 0 AND (i% < 32 OR i% > 126)
         tmpImg& = _NEWIMAGE(1, 1, 32)
         oldDest& = _DEST
         _DEST tmpImg&
         prevFont& = _FONT
         _FONT fHandle&
-        _CONTROLCHR OFF
-        charW% = _PRINTWIDTH(ch$)
-        charH% = _FONTHEIGHT
-        _CONTROLCHR ON
+        IF skipCp437% THEN
+            charW% = safeBlankW%
+            charH% = safeFontH%
+        ELSE
+            _CONTROLCHR OFF
+            charW% = _PRINTWIDTH(ch$)
+            charH% = _FONTHEIGHT
+            _CONTROLCHR ON
+        END IF
         _FONT prevFont&
         _DEST oldDest&
         IF tmpImg& < -1 THEN _FREEIMAGE tmpImg&
@@ -448,9 +471,11 @@ SUB CHARMAP_rebuild_cache ()
         prevFont& = _FONT
         _FONT fHandle&
         COLOR _RGB32(255, 255, 255), _RGBA32(0, 0, 0, 0)
-        _CONTROLCHR OFF
-        _PRINTSTRING (0, 0), ch$
-        _CONTROLCHR ON
+        IF NOT skipCp437% THEN
+            _CONTROLCHR OFF
+            _PRINTSTRING (0, 0), ch$
+            _CONTROLCHR ON
+        END IF
         _FONT prevFont&
         _BLEND
         _DEST oldDest&

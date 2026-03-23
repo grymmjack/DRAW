@@ -599,7 +599,7 @@ SUB MOUSE_autocommit_move_if_click_on_gui (rawX AS INTEGER, rawY AS INTEGER)
     IF SCRN.showStatus% AND rawY% >= (SCRN.h& - 10) THEN clickOnGUI% = TRUE
     IF SCRN.showStatus% AND PALETTE_STRIP_in_bounds%(rawX%, rawY%) THEN clickOnGUI% = TRUE
     IF SCRN.showMenubar% AND MENU_BAR.visible% AND MENUBAR_in_bounds%(rawX%, rawY%) THEN clickOnGUI% = TRUE
-    IF TEXT_BAR.visible% AND TEXT_BAR_in_bounds%(rawX%, rawY%) THEN clickOnGUI% = TRUE
+    IF TEXT_BAR.visible% AND TEXT_BAR_ui_in_bounds%(rawX%, rawY%) THEN clickOnGUI% = TRUE
 
     IF clickOnGUI% THEN
         MOVE_apply_transform
@@ -1031,7 +1031,7 @@ SUB MOUSE_handle_ui_autohide_restore (rawX AS INTEGER, rawY AS INTEGER)
     DIM activelyDrawing AS INTEGER
     activelyDrawing% = ((MOUSE.B1% AND MOUSE.OLD_B1%) OR (MOUSE.B2% AND MOUSE.OLD_B2%)) OR shapeToolDrawing%
 
-    IF CURRENT_TOOL% <> TOOL_NULL AND activelyDrawing% AND NOT SCRN.panning% AND NOT MOUSE.UI_CHROME_CLICKED% THEN
+    IF CURRENT_TOOL% <> TOOL_NULL AND CURRENT_TOOL% <> TOOL_TEXT AND activelyDrawing% AND NOT SCRN.panning% AND NOT MOUSE.UI_CHROME_CLICKED% THEN
         ' Treat the organizer and drawer stack as part of the toolbar auto-hide region.
         IF SCRN.showToolbar% AND (TOOLBAR_is_over_button%(rawX%, rawY%) OR ORGANIZER_is_over_area%(rawX%, rawY%) OR DRAWER_is_over_area%(rawX%, rawY%)) THEN
             SCRN.showToolbar% = FALSE
@@ -3754,10 +3754,35 @@ SUB MOUSE_handle_alt_picker (rawX AS INTEGER, rawY AS INTEGER)
         overPreviewWindow% = PREVIEW_hit_window%(rawX%, rawY%)
     END IF
 
-    IF altJustPressed% AND isDrawingTool% AND NOT isCtrlHeld% AND NOT overMenuBar% THEN
+    ' Never activate temporary picker while interacting with text-bar UI/dropdowns.
+    DIM overTextBarUI%
+    overTextBarUI% = FALSE
+    IF TEXT_BAR.visible% THEN
+        overTextBarUI% = TEXT_BAR_ui_in_bounds%(rawX%, rawY%)
+    END IF
+
+    IF overTextBarUI% THEN
+        ' If picker was entered via ALT previously, restore tool while over text UI.
+        IF pickerFromAlt% THEN
+            IF CURRENT_TOOL% = TOOL_PICKER AND PREVIOUS_TOOL% <> TOOL_PICKER THEN
+                CURRENT_TOOL% = PREVIOUS_TOOL%
+                GUI_NEEDS_REDRAW% = TRUE
+                PICKER_deactivate
+                IF CURRENT_TOOL% = TOOL_FILL THEN
+                    FILL_activate
+                END IF
+            END IF
+            pickerFromAlt% = FALSE
+        END IF
+        altWasHeld% = altHeld%
+        EXIT SUB
+    END IF
+
+    IF altJustPressed% AND isDrawingTool% AND NOT isCtrlHeld% AND NOT overMenuBar% AND NOT MOUSE.UI_CHROME_CLICKED% THEN
         ' ALT just pressed with a drawing tool - enter picker mode.
         ' SHIFT may remain held so the crosshair overlay can coexist with the loupe.
         IF CURRENT_TOOL% <> TOOL_PICKER THEN
+            _LOGINFO "ALT picker enter: tool=" + STR$(CURRENT_TOOL%) + " prev=" + STR$(PREVIOUS_TOOL%) + " alt=" + STR$(altHeld%) + " ui=" + STR$(MOUSE.UI_CHROME_CLICKED%)
             PREVIOUS_TOOL% = CURRENT_TOOL%
             CURRENT_TOOL% = TOOL_PICKER
             GUI_NEEDS_REDRAW% = TRUE
@@ -3772,6 +3797,7 @@ SUB MOUSE_handle_alt_picker (rawX AS INTEGER, rawY AS INTEGER)
         IF NOT altHeld% OR isCtrlHeld% THEN
             ' Exit picker mode: ALT released or CTRL added
             IF CURRENT_TOOL% = TOOL_PICKER AND PREVIOUS_TOOL% <> TOOL_PICKER THEN
+                _LOGINFO "ALT picker exit: restore tool=" + STR$(PREVIOUS_TOOL%) + " alt=" + STR$(altHeld%) + " ctrl=" + STR$(isCtrlHeld%) + " ui=" + STR$(MOUSE.UI_CHROME_CLICKED%)
                 CURRENT_TOOL% = PREVIOUS_TOOL%
                 GUI_NEEDS_REDRAW% = TRUE
                 PICKER_deactivate
@@ -3966,6 +3992,8 @@ END SUB
 ' @return INTEGER - TRUE if a GUI element consumed the event and processing should stop
 '
 FUNCTION MOUSE_handle_gui_early% (rawX AS INTEGER, rawY AS INTEGER)
+    STATIC textBarDragCaptured AS INTEGER
+
     ' Auto-apply move transform when clicking GUI controls (without marquee selection)
     ' This ensures moving an entire layer is committed when user clicks elsewhere
     MOUSE_autocommit_move_if_click_on_gui rawX%, rawY%
@@ -3987,8 +4015,13 @@ FUNCTION MOUSE_handle_gui_early% (rawX AS INTEGER, rawY AS INTEGER)
 
     ' Handle text formatting bar clicks (below menu bar, before panels)
     IF TEXT_BAR.visible% AND (MOUSE.B1% AND NOT MOUSE.OLD_B1%) THEN
-        IF TEXT_BAR_in_bounds%(rawX%, rawY%) OR TEXT_BAR.fontDropdownOpen% OR TEXT_BAR.sizeDropdownOpen% THEN
+        IF TEXT_BAR_ui_in_bounds%(rawX%, rawY%) OR TEXT_BAR.fontDropdownOpen% OR TEXT_BAR.sizeDropdownOpen% OR TEXT_BAR.styleDropdownOpen% THEN
             IF TEXT_BAR_handle_click%(rawX%, rawY%) THEN
+                _LOGINFO "TEXTBAR press consumed: x=" + STR$(rawX%) + _
+                    " y=" + STR$(rawY%) + _
+                    " fontDD=" + STR$(TEXT_BAR.fontDropdownOpen%) + _
+                    " sizeDD=" + STR$(TEXT_BAR.sizeDropdownOpen%) + _
+                    " styleDD=" + STR$(TEXT_BAR.styleDropdownOpen%)
                 MOUSE.UI_CHROME_CLICKED% = TRUE
                 MOUSE.OLD_B1% = MOUSE.B1%
                 MOUSE.OLD_B2% = MOUSE.B2%
@@ -4049,13 +4082,30 @@ FUNCTION MOUSE_handle_gui_early% (rawX AS INTEGER, rawY AS INTEGER)
 
     ' Block ALL canvas interaction when mouse is over the text bar
     ' (catches hover, hold, and any clicks not consumed by specific handlers above)
-    IF TEXT_BAR.visible% AND TEXT_BAR_in_bounds%(rawX%, rawY%) THEN
-        IF (MOUSE.B1% AND NOT MOUSE.OLD_B1%) OR (MOUSE.B2% AND NOT MOUSE.OLD_B2%) THEN
+    IF TEXT_BAR.visible% AND TEXT_BAR_ui_in_bounds%(rawX%, rawY%) THEN
+        ' Treat click-and-drag over text-bar/dropdowns as UI chrome the whole time,
+        ' not only on press transitions, to avoid auto-hide side effects.
+        IF MOUSE.B1% OR MOUSE.B2% THEN
+            IF NOT textBarDragCaptured% THEN
+                _LOGINFO "TEXTBAR drag capture: x=" + STR$(rawX%) + _
+                    " y=" + STR$(rawY%) + _
+                    " b1=" + STR$(MOUSE.B1%) + _
+                    " old_b1=" + STR$(MOUSE.OLD_B1%) + _
+                    " ui=" + STR$(MOUSE.UI_CHROME_CLICKED%) + _
+                    " fontDD=" + STR$(TEXT_BAR.fontDropdownOpen%) + _
+                    " sizeDD=" + STR$(TEXT_BAR.sizeDropdownOpen%) + _
+                    " styleDD=" + STR$(TEXT_BAR.styleDropdownOpen%)
+                textBarDragCaptured% = TRUE
+            END IF
             MOUSE.UI_CHROME_CLICKED% = TRUE
+        ELSE
+            textBarDragCaptured% = FALSE
         END IF
         MOUSE_handle_gui_early% = TRUE
         EXIT FUNCTION
     END IF
+
+    textBarDragCaptured% = FALSE
 
     ' Close palette menu when clicking outside its bounds
     DIM paletteClosed AS INTEGER
