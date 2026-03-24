@@ -427,6 +427,8 @@ TYPE DRAW_THEME
     TEXT_BAR_DROPDOWN_BG       AS _UNSIGNED LONG  ' Dropdown background color
     TEXT_BAR_DROPDOWN_FG       AS _UNSIGNED LONG  ' Dropdown text color
     TEXT_BAR_DROPDOWN_HIGHLIGHT AS _UNSIGNED LONG ' Dropdown selected item highlight
+    TEXT_BAR_DROPDOWN_HOVER_BG  AS _UNSIGNED LONG  ' Dropdown hover item background
+    TEXT_BAR_DROPDOWN_HOVER_FG  AS _UNSIGNED LONG  ' Dropdown hover item text color
     TEXT_BAR_ICON_BOLD           AS STRING * 64     ' Bold button icon PNG filename
     TEXT_BAR_ICON_ITALIC         AS STRING * 64     ' Italic button icon PNG filename
     TEXT_BAR_ICON_UNDERLINE      AS STRING * 64     ' Underline button icon PNG filename

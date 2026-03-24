@@ -123,6 +123,9 @@ TYPE TEXT_BAR_OBJ
     aaActive           AS INTEGER        ' Antialias toggle state
     styleDropdownOpen  AS INTEGER        ' TRUE when style list is open
     styleDropdownScroll AS INTEGER       ' Scroll offset for style dropdown
+    fontDropdownHoverRow AS INTEGER      ' Hovered row in font dropdown (-1=none)
+    sizeDropdownHoverRow AS INTEGER      ' Hovered row in size dropdown (-1=none)
+    styleDropdownHoverRow AS INTEGER     ' Hovered row in style dropdown (-1=none)
     needsRedraw        AS INTEGER        ' Dirty flag — skip render when FALSE (CPU frugality)
     ' --- Row 2 hit zones ---
     outlineBtnX        AS INTEGER
@@ -227,6 +230,7 @@ DECLARE FUNCTION TEXT_BAR_get_line_height% ()
 DECLARE SUB TEXT_BAR_adjust_line_height ()
 DECLARE SUB TEXT_BAR_auto_update_line_height ()
 DECLARE FUNCTION TEXT_BAR_font_dropdown_max_visible% ()
+DECLARE SUB TEXT_BAR_update_dropdown_hover (rawX AS INTEGER, rawY AS INTEGER)
 DECLARE SUB TEXT_STYLE_load ()
 DECLARE SUB TEXT_STYLE_save_all ()
 DECLARE SUB TEXT_STYLE_apply_default ()
