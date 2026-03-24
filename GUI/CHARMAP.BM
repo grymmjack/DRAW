@@ -359,7 +359,6 @@ SUB CHARMAP_rebuild_cache ()
     DIM prevFont AS LONG
     DIM isBuiltInFont AS INTEGER
     DIM skipCp437 AS INTEGER
-
     ' Use the current text bar font settings
     'TEXT_BAR_ensure_char_mode_safe_font ' REMOVED: let user keep their chosen font
     fIdx% = TEXT_BAR.selectedFontIdx%
@@ -455,19 +454,28 @@ SUB CHARMAP_rebuild_cache ()
 
         IF charW% < 1 THEN charW% = 1
         IF charH% < 1 THEN charH% = 1
-        IF charW% > maxGlyphW% THEN maxGlyphW% = charW%
-        IF charH% > maxGlyphH% THEN maxGlyphH% = charH%
 
-        ' Render glyph to 32-bit RGBA image
-        tmpImg& = _NEWIMAGE(charW%, charH%, 32)
-        IF tmpImg& >= -1 THEN
+        ' Render glyph into a padded buffer, then ink-crop to the actual
+        ' visible bounding box.  Many TTF/OTF fonts include internal leading
+        ' (blank rows at the top of _FONTHEIGHT) that would otherwise waste
+        ' cell space and make glyphs look clipped or vertically offset.
+        DIM padH AS INTEGER
+        DIM renderImg AS LONG
+        DIM inkMinX AS INTEGER, inkMinY AS INTEGER
+        DIM inkMaxX AS INTEGER, inkMaxY AS INTEGER
+        DIM scanX AS INTEGER, scanY AS INTEGER
+        DIM scanC AS _UNSIGNED LONG
+        DIM inkW AS INTEGER, inkH AS INTEGER
+
+        padH% = 4 ' extra rows above + below to catch any overflow
+        renderImg& = _NEWIMAGE(charW% + 4, charH% + padH%, 32)
+        IF renderImg& >= -1 THEN
             CHARMAP_GLYPH(i%) = 0
             _CONTINUE
         END IF
         oldDest& = _DEST
-        _DEST tmpImg&
+        _DEST renderImg&
         CLS , _RGBA32(0, 0, 0, 0) ' Transparent background
-        _DONTBLEND
         prevFont& = _FONT
         _FONT fHandle&
         COLOR _RGB32(255, 255, 255), _RGBA32(0, 0, 0, 0)
@@ -477,12 +485,68 @@ SUB CHARMAP_rebuild_cache ()
             _CONTROLCHR ON
         END IF
         _FONT prevFont&
-        _BLEND
         _DEST oldDest&
 
+        ' Scan for ink bounding box
+        inkMinX% = _WIDTH(renderImg&)
+        inkMinY% = _HEIGHT(renderImg&)
+        inkMaxX% = -1
+        inkMaxY% = -1
+        DIM scanSrc AS LONG
+        scanSrc& = _SOURCE
+        _SOURCE renderImg&
+        FOR scanY% = 0 TO _HEIGHT(renderImg&) - 1
+            FOR scanX% = 0 TO _WIDTH(renderImg&) - 1
+                scanC~& = POINT(scanX%, scanY%)
+                IF _ALPHA32(scanC~&) > 0 THEN
+                    IF scanX% < inkMinX% THEN inkMinX% = scanX%
+                    IF scanX% > inkMaxX% THEN inkMaxX% = scanX%
+                    IF scanY% < inkMinY% THEN inkMinY% = scanY%
+                    IF scanY% > inkMaxY% THEN inkMaxY% = scanY%
+                END IF
+            NEXT scanX%
+        NEXT scanY%
+        _SOURCE scanSrc&
+
+        ' If no ink found (blank glyph), store a 1x1 transparent image
+        IF inkMaxX% < 0 THEN
+            tmpImg& = _NEWIMAGE(1, 1, 32)
+            IF tmpImg& < -1 THEN
+                DIM blankDest AS LONG
+                blankDest& = _DEST
+                _DEST tmpImg&
+                CLS , _RGBA32(0, 0, 0, 0)
+                _DEST blankDest&
+            END IF
+            _FREEIMAGE renderImg&
+            CHARMAP_GLYPH(i%) = tmpImg&
+            CHARMAP_GLYPH_W(i%) = 1
+            CHARMAP_GLYPH_H(i%) = 1
+            IF 1 > maxGlyphW% THEN maxGlyphW% = 1
+            IF 1 > maxGlyphH% THEN maxGlyphH% = 1
+            _CONTINUE
+        END IF
+
+        ' Crop to ink bounds
+        inkW% = inkMaxX% - inkMinX% + 1
+        inkH% = inkMaxY% - inkMinY% + 1
+        IF inkW% < 1 THEN inkW% = 1
+        IF inkH% < 1 THEN inkH% = 1
+
+        tmpImg& = _NEWIMAGE(inkW%, inkH%, 32)
+        IF tmpImg& >= -1 THEN
+            _FREEIMAGE renderImg&
+            CHARMAP_GLYPH(i%) = 0
+            _CONTINUE
+        END IF
+        _PUTIMAGE (0, 0)-(inkW% - 1, inkH% - 1), renderImg&, tmpImg&, (inkMinX%, inkMinY%)-(inkMaxX%, inkMaxY%)
+        _FREEIMAGE renderImg&
+
         CHARMAP_GLYPH(i%) = tmpImg&
-        CHARMAP_GLYPH_W(i%) = charW%
-        CHARMAP_GLYPH_H(i%) = charH%
+        CHARMAP_GLYPH_W(i%) = inkW%
+        CHARMAP_GLYPH_H(i%) = inkH%
+        IF inkW% > maxGlyphW% THEN maxGlyphW% = inkW%
+        IF inkH% > maxGlyphH% THEN maxGlyphH% = inkH%
     NEXT i%
 
     ' Mark cache valid with current settings
@@ -512,12 +576,6 @@ SUB CHARMAP_rebuild_cache ()
     END IF
     CHARMAP_NEEDS_REDRAW% = TRUE
 END SUB
-
-
-''
-' Rebuild glyph cache using raw bitmap font data (F??, PSF, BDF).
-' @param fIdx% Font list index of the bitmap font
-'
 SUB CHARMAP_rebuild_cache_bitmap (fIdx AS INTEGER)
     DIM fontPath AS STRING
     DIM gw AS INTEGER, gh AS INTEGER
