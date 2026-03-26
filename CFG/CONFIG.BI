@@ -304,6 +304,12 @@ TYPE DRAW_CONFIG
     CHAR_GRID_COLOR_FG             AS _UNSIGNED LONG  ' Character grid line color (hex RGB, 0=use theme)
     ' Tab width in Character Mode
     CHARMAP_TAB_CHARS              AS INTEGER  ' Number of characters per TAB (default 4)
+    ' Font source toggles (all TRUE by default)
+    FONTS_INCLUDE_OS_INSTALLED     AS INTEGER  ' TRUE = include OS system fonts
+    FONTS_INCLUDE_DRAW_BITMAP      AS INTEGER  ' TRUE = include ASSETS/FONTS/BITMAP fonts
+    FONTS_INCLUDE_DRAW_EXTRAS      AS INTEGER  ' TRUE = include extra ASSETS/FONTS TTFs (beyond required Tiny5/PICO-8)
+    FONTS_INCLUDE_USER             AS INTEGER  ' TRUE = include USER/FONTS TTF/OTF fonts
+    FONTS_INCLUDE_USER_BITMAP      AS INTEGER  ' TRUE = include USER/FONTS/BITMAP fonts
 END TYPE
 
 DIM SHARED CFG   AS DRAW_CONFIG
