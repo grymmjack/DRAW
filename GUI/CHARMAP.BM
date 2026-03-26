@@ -72,6 +72,17 @@ SUB CHARMAP_init ()
     ' Character grid cell size from config (0 = auto-detect from font)
     CHARMAP.charGridW% = CFG.CHAR_GRID_WIDTH%
     CHARMAP.charGridH% = CFG.CHAR_GRID_HEIGHT%
+
+    ' Unicode mode defaults
+    CHARMAP.unicodeMode% = FALSE
+    CHARMAP.unicodePage% = 0
+    CHARMAP.unicodePageCount% = 0
+    CHARMAP.unicodeScanDone% = FALSE
+    CHARMAP_FOUND_CP_COUNT& = 0
+    DIM cpInit AS INTEGER
+    FOR cpInit% = 0 TO CHARMAP_CELL_COUNT - 1
+        CHARMAP_CODEPOINT(cpInit%) = cpInit% ' Default: CP437 identity mapping
+    NEXT cpInit%
 END SUB
 
 
@@ -313,6 +324,7 @@ SUB CHARMAP_reset ()
     CHARMAP.hoverIdx% = -1
     CHARMAP.flashIdx% = -1
     CHARMAP.flashTimer! = 0
+    CHARMAP.unicodeScanDone% = FALSE
     CHARMAP_NEEDS_REDRAW% = TRUE
 END SUB
 
@@ -332,6 +344,276 @@ SUB CHARMAP_free_cache ()
     NEXT i%
     CHARMAP.cacheValid% = FALSE
 END SUB
+
+
+''
+' Scan a font for Unicode codepoints that have visible glyphs.
+' Uses _MAPUNICODE + _PRINTSTRING (NOT _UPRINTSTRING which cannot render PUA).
+' Filters .notdef placeholder glyphs via XOR hash comparison.
+' Populates CHARMAP_FOUND_CP() and CHARMAP_FOUND_CP_COUNT.
+'
+SUB CHARMAP_scan_unicode_glyphs (fHandle AS LONG)
+    DIM cp AS LONG
+    DIM scanImg AS LONG
+    DIM oldDest AS LONG
+    DIM scanMem AS _MEM
+    DIM byteOff AS LONG
+    DIM pixel AS _UNSIGNED LONG
+    DIM imgBytes AS LONG
+    DIM scanW AS INTEGER, scanH AS INTEGER
+    DIM charH AS INTEGER
+    DIM glyphHash AS LONG
+    DIM notdefHash AS LONG
+
+    CHARMAP_FOUND_CP_COUNT& = 0
+    IF fHandle& < 1 THEN EXIT SUB
+
+    ' Use font height to size the scan buffer
+    DIM tmpMeasure AS LONG
+    DIM oldD AS LONG
+    DIM prevF AS LONG
+    tmpMeasure& = _NEWIMAGE(1, 1, 32)
+    oldD& = _DEST: _DEST tmpMeasure&
+    prevF& = _FONT: _FONT fHandle&
+    charH% = _UFONTHEIGHT
+    _FONT prevF&: _DEST oldD&
+    IF tmpMeasure& < -1 THEN _FREEIMAGE tmpMeasure&
+
+    IF charH% < 8 THEN charH% = 8
+    scanW% = charH% * 2  ' Wide enough for most glyphs
+    scanH% = charH% + 4  ' Slight extra for descenders
+    IF scanW% > 128 THEN scanW% = 128
+    IF scanH% > 128 THEN scanH% = 128
+
+    scanImg& = _NEWIMAGE(scanW%, scanH%, 32)
+    IF scanImg& >= -1 THEN EXIT SUB
+    imgBytes& = CLng(scanW%) * CLng(scanH%) * 4&
+
+    ' CRITICAL: _FONT is per-destination — set icon font on scan buffer
+    oldDest& = _DEST: _DEST scanImg&: _FONT fHandle&: _DEST oldDest&
+
+    _LOGINFO "CHARMAP_scan_unicode_glyphs: scanning with _MAPUNICODE, buffer=" + STR$(scanW%) + "x" + STR$(scanH%)
+
+    ' Step 1: Compute .notdef hash — render U+FFFD (replacement character,
+    ' not defined in icon fonts) so we can recognise the placeholder glyph
+    ' that FreeType substitutes for missing codepoints.
+    _MAPUNICODE &HFFFD& TO 1
+    oldDest& = _DEST: _DEST scanImg&
+    CLS , _RGBA32(0, 0, 0, 0)
+    COLOR _RGB32(255, 255, 255), _RGBA32(0, 0, 0, 0)
+    _PRINTSTRING (0, 0), CHR$(1)
+    _DEST oldDest&
+    notdefHash& = 0
+    scanMem = _MEMIMAGE(scanImg&)
+    FOR byteOff& = 0 TO imgBytes& - 4& STEP 4
+        _MEMGET scanMem, scanMem.OFFSET + byteOff&, pixel~&
+        notdefHash& = notdefHash& XOR CLng(_ALPHA32(pixel~&))
+        notdefHash& = (notdefHash& * 31&) AND &H7FFFFFFF&
+    NEXT byteOff&
+    _MEMFREE scanMem
+
+    ' Step 2: Scan Unicode ranges — for each codepoint, map to ASCII slot 1,
+    ' render, hash, and compare against the .notdef hash.
+    ' PUA: U+E000..U+F8FF (where icon fonts live)
+    FOR cp& = &HE000& TO &HF8FF&
+        GOSUB testCodepoint
+        IF CHARMAP_FOUND_CP_COUNT& >= CHARMAP_MAX_UNICODE_CPS THEN GOTO scanDone
+    NEXT cp&
+    ' Basic Latin: U+0020..U+007F
+    FOR cp& = &H0020& TO &H007F&
+        GOSUB testCodepoint
+        IF CHARMAP_FOUND_CP_COUNT& >= CHARMAP_MAX_UNICODE_CPS THEN GOTO scanDone
+    NEXT cp&
+    ' Latin-1 Supplement: U+0080..U+00FF
+    FOR cp& = &H0080& TO &H00FF&
+        GOSUB testCodepoint
+        IF CHARMAP_FOUND_CP_COUNT& >= CHARMAP_MAX_UNICODE_CPS THEN GOTO scanDone
+    NEXT cp&
+    ' Latin Extended-A: U+0100..U+017F
+    FOR cp& = &H0100& TO &H017F&
+        GOSUB testCodepoint
+        IF CHARMAP_FOUND_CP_COUNT& >= CHARMAP_MAX_UNICODE_CPS THEN GOTO scanDone
+    NEXT cp&
+    ' General Punctuation: U+2000..U+206F
+    FOR cp& = &H2000& TO &H206F&
+        GOSUB testCodepoint
+        IF CHARMAP_FOUND_CP_COUNT& >= CHARMAP_MAX_UNICODE_CPS THEN GOTO scanDone
+    NEXT cp&
+    ' Currency Symbols: U+20A0..U+20CF
+    FOR cp& = &H20A0& TO &H20CF&
+        GOSUB testCodepoint
+        IF CHARMAP_FOUND_CP_COUNT& >= CHARMAP_MAX_UNICODE_CPS THEN GOTO scanDone
+    NEXT cp&
+    ' Arrows: U+2190..U+21FF
+    FOR cp& = &H2190& TO &H21FF&
+        GOSUB testCodepoint
+        IF CHARMAP_FOUND_CP_COUNT& >= CHARMAP_MAX_UNICODE_CPS THEN GOTO scanDone
+    NEXT cp&
+    ' Math Operators: U+2200..U+22FF
+    FOR cp& = &H2200& TO &H22FF&
+        GOSUB testCodepoint
+        IF CHARMAP_FOUND_CP_COUNT& >= CHARMAP_MAX_UNICODE_CPS THEN GOTO scanDone
+    NEXT cp&
+    ' Box Drawing: U+2500..U+257F
+    FOR cp& = &H2500& TO &H257F&
+        GOSUB testCodepoint
+        IF CHARMAP_FOUND_CP_COUNT& >= CHARMAP_MAX_UNICODE_CPS THEN GOTO scanDone
+    NEXT cp&
+    ' Block Elements: U+2580..U+259F
+    FOR cp& = &H2580& TO &H259F&
+        GOSUB testCodepoint
+        IF CHARMAP_FOUND_CP_COUNT& >= CHARMAP_MAX_UNICODE_CPS THEN GOTO scanDone
+    NEXT cp&
+    ' Geometric Shapes: U+25A0..U+25FF
+    FOR cp& = &H25A0& TO &H25FF&
+        GOSUB testCodepoint
+        IF CHARMAP_FOUND_CP_COUNT& >= CHARMAP_MAX_UNICODE_CPS THEN GOTO scanDone
+    NEXT cp&
+    ' Misc Symbols: U+2600..U+26FF
+    FOR cp& = &H2600& TO &H26FF&
+        GOSUB testCodepoint
+        IF CHARMAP_FOUND_CP_COUNT& >= CHARMAP_MAX_UNICODE_CPS THEN GOTO scanDone
+    NEXT cp&
+    ' Dingbats: U+2700..U+27BF
+    FOR cp& = &H2700& TO &H27BF&
+        GOSUB testCodepoint
+        IF CHARMAP_FOUND_CP_COUNT& >= CHARMAP_MAX_UNICODE_CPS THEN GOTO scanDone
+    NEXT cp&
+
+scanDone:
+    ' Restore ASCII slot 1 to its default Unicode mapping
+    _MAPUNICODE 1 TO 1
+
+    IF scanImg& < -1 THEN _FREEIMAGE scanImg&
+
+    ' Compute page count
+    IF CHARMAP_FOUND_CP_COUNT& > 0 THEN
+        CHARMAP.unicodePageCount% = INT((CHARMAP_FOUND_CP_COUNT& + CHARMAP_CELL_COUNT - 1) \ CHARMAP_CELL_COUNT)
+    ELSE
+        CHARMAP.unicodePageCount% = 0
+    END IF
+    CHARMAP.unicodeScanDone% = TRUE
+
+    _LOGINFO "CHARMAP_scan_unicode_glyphs: found" + STR$(CHARMAP_FOUND_CP_COUNT&) + " glyphs," + STR$(CHARMAP.unicodePageCount%) + " pages"
+    EXIT SUB
+
+testCodepoint:
+    ' Map the candidate codepoint to ASCII slot 1, render, hash, compare
+    _MAPUNICODE cp& TO 1
+    oldDest& = _DEST: _DEST scanImg&
+    CLS , _RGBA32(0, 0, 0, 0)
+    COLOR _RGB32(255, 255, 255), _RGBA32(0, 0, 0, 0)
+    _PRINTSTRING (0, 0), CHR$(1)
+    _DEST oldDest&
+    glyphHash& = 0
+    scanMem = _MEMIMAGE(scanImg&)
+    FOR byteOff& = 0 TO imgBytes& - 4& STEP 4
+        _MEMGET scanMem, scanMem.OFFSET + byteOff&, pixel~&
+        glyphHash& = glyphHash& XOR CLng(_ALPHA32(pixel~&))
+        glyphHash& = (glyphHash& * 31&) AND &H7FFFFFFF&
+    NEXT byteOff&
+    _MEMFREE scanMem
+    IF glyphHash& <> notdefHash& THEN
+        CHARMAP_FOUND_CP(CHARMAP_FOUND_CP_COUNT&) = cp&
+        CHARMAP_FOUND_CP_COUNT& = CHARMAP_FOUND_CP_COUNT& + 1
+    END IF
+    RETURN
+END SUB
+
+
+''
+' Set the current Unicode page and update the cell→codepoint mapping.
+'
+SUB CHARMAP_set_unicode_page (pg AS INTEGER)
+    DIM startIdx AS LONG
+    DIM i AS INTEGER
+    DIM cpIdx AS LONG
+
+    IF pg% < 0 THEN pg% = 0
+    IF pg% >= CHARMAP.unicodePageCount% THEN pg% = CHARMAP.unicodePageCount% - 1
+    IF pg% < 0 THEN pg% = 0
+    CHARMAP.unicodePage% = pg%
+
+    ' Map cells to discovered codepoints for this page
+    startIdx& = CLng(pg%) * CHARMAP_CELL_COUNT
+    FOR i% = 0 TO CHARMAP_CELL_COUNT - 1
+        cpIdx& = startIdx& + i%
+        IF cpIdx& < CHARMAP_FOUND_CP_COUNT& THEN
+            CHARMAP_CODEPOINT(i%) = CHARMAP_FOUND_CP(cpIdx&)
+        ELSE
+            CHARMAP_CODEPOINT(i%) = -1 ' Empty slot
+        END IF
+    NEXT i%
+
+    ' Invalidate cache so it rebuilds with the new codepoints
+    CHARMAP.cacheValid% = FALSE
+    CHARMAP.scrollY% = 0
+    CHARMAP_NEEDS_REDRAW% = TRUE
+    GUI_NEEDS_REDRAW% = TRUE
+    FRAME_IDLE% = FALSE
+END SUB
+
+
+''
+' Navigate to the next Unicode page.
+'
+SUB CHARMAP_next_page ()
+    IF CHARMAP.unicodePage% < CHARMAP.unicodePageCount% - 1 THEN
+        CHARMAP_set_unicode_page CHARMAP.unicodePage% + 1
+        CHARMAP_rebuild_cache
+    END IF
+END SUB
+
+
+''
+' Navigate to the previous Unicode page.
+'
+SUB CHARMAP_prev_page ()
+    IF CHARMAP.unicodePage% > 0 THEN
+        CHARMAP_set_unicode_page CHARMAP.unicodePage% - 1
+        CHARMAP_rebuild_cache
+    END IF
+END SUB
+
+
+''
+' Toggle between CP437 and Unicode modes.
+'
+SUB CHARMAP_toggle_unicode_mode ()
+    CHARMAP.unicodeMode% = NOT CHARMAP.unicodeMode%
+    IF CHARMAP.unicodeMode% THEN
+        ' Switching to Unicode mode — scan if not done yet
+        CHARMAP.unicodeScanDone% = FALSE ' Force rescan
+        CHARMAP.unicodePage% = 0
+        CHARMAP.cacheValid% = FALSE
+    ELSE
+        ' Switching back to CP437 mode — reset codepoint mapping
+        DIM cpRst AS INTEGER
+        FOR cpRst% = 0 TO CHARMAP_CELL_COUNT - 1
+            CHARMAP_CODEPOINT(cpRst%) = cpRst%
+        NEXT cpRst%
+        CHARMAP.cacheValid% = FALSE
+    END IF
+    CHARMAP.scrollY% = 0
+    CHARMAP.selectedIdx% = CHARMAP_NO_SELECTION
+    CHARMAP_NEEDS_REDRAW% = TRUE
+    GUI_NEEDS_REDRAW% = TRUE
+    FRAME_IDLE% = FALSE
+    IF CHARMAP.visible% THEN CHARMAP_rebuild_cache
+END SUB
+
+
+''
+' Return the Unicode codepoint for the currently selected cell.
+' Returns -1 if nothing is selected.
+'
+FUNCTION CHARMAP_selected_codepoint& ()
+    IF CHARMAP.selectedIdx% < 0 OR CHARMAP.selectedIdx% >= CHARMAP_CELL_COUNT THEN
+        CHARMAP_selected_codepoint& = -1
+    ELSE
+        CHARMAP_selected_codepoint& = CHARMAP_CODEPOINT(CHARMAP.selectedIdx%)
+    END IF
+END FUNCTION
 
 
 ''
@@ -368,11 +650,13 @@ SUB CHARMAP_rebuild_cache ()
     oldCellW% = CHARMAP.cellW%
     oldCellH% = CHARMAP.cellH%
 
-    ' Check if selected font is a bitmap font
-    IF fIdx% >= 0 AND fIdx% < FONT_LIST_COUNT% THEN
-        IF FONT_LIST(fIdx%).isBitmapFont THEN
-            CHARMAP_rebuild_cache_bitmap fIdx%
-            EXIT SUB
+    ' Check if selected font is a bitmap font (only in CP437 mode)
+    IF NOT CHARMAP.unicodeMode% THEN
+        IF fIdx% >= 0 AND fIdx% < FONT_LIST_COUNT% THEN
+            IF FONT_LIST(fIdx%).isBitmapFont THEN
+                CHARMAP_rebuild_cache_bitmap fIdx%
+                EXIT SUB
+            END IF
         END IF
     END IF
 
@@ -380,15 +664,65 @@ SUB CHARMAP_rebuild_cache ()
     fHandle& = FONT_LIST_get_handle&(fIdx%, fSize%, "", fMono%, FALSE)
     IF fHandle& < 1 THEN fHandle& = 16 ' Fallback to VGA 8x16
 
+    ' Unicode mode: scan for glyphs and set up page mapping
+    IF CHARMAP.unicodeMode% THEN
+        IF NOT CHARMAP.unicodeScanDone% THEN
+            CHARMAP_scan_unicode_glyphs fHandle&
+            IF CHARMAP_FOUND_CP_COUNT& = 0 THEN
+                ' No Unicode glyphs found — stay in Unicode mode but show empty
+                CHARMAP.unicodePageCount% = 0
+                CHARMAP.unicodePage% = 0
+                DIM emptyI AS INTEGER
+                FOR emptyI% = 0 TO CHARMAP_CELL_COUNT - 1
+                    CHARMAP_CODEPOINT(emptyI%) = -1
+                NEXT emptyI%
+            ELSE
+                CHARMAP_set_unicode_page CHARMAP.unicodePage%
+            END IF
+        END IF
+    END IF
+
+    DIM cellCount AS INTEGER
+    DIM cellCP AS LONG
+    DIM isUnicode AS INTEGER
+    isUnicode% = CHARMAP.unicodeMode%
+
+    ' Determine how many cells to render on this page
+    IF isUnicode% THEN
+        DIM pageStart AS LONG
+        pageStart& = CLng(CHARMAP.unicodePage%) * CHARMAP_CELL_COUNT
+        cellCount% = CHARMAP_FOUND_CP_COUNT& - pageStart&
+        IF cellCount% > CHARMAP_CELL_COUNT THEN cellCount% = CHARMAP_CELL_COUNT
+        IF cellCount% < 0 THEN cellCount% = 0
+    ELSE
+        cellCount% = CHARMAP_CELL_COUNT
+    END IF
+
     FOR i% = 0 TO CHARMAP_CELL_COUNT - 1
-        IF i% = 0 THEN
-            ch$ = CHR$(32) ' Render space for char 0 (NULL)
-        ELSE
-            ch$ = CHR$(i%)
+        cellCP& = CHARMAP_CODEPOINT(i%)
+
+        ' Skip empty slots (past end of discovered codepoints)
+        IF isUnicode% AND cellCP& < 0 THEN
+            CHARMAP_GLYPH(i%) = 0
+            CHARMAP_GLYPH_W(i%) = 0
+            CHARMAP_GLYPH_H(i%) = 0
+            _CONTINUE
         END IF
 
-        ' Measure glyph — render all 256 chars (0-255).  QB64-PE handles
-        ' CP437→Unicode mapping internally via _CONTROLCHR OFF.
+        ' Build the render string
+        IF isUnicode% THEN
+            ' _UPRINTSTRING cannot render PUA — use _MAPUNICODE + _PRINTSTRING
+            _MAPUNICODE cellCP& TO 1
+            ch$ = CHR$(1)
+        ELSE
+            IF i% = 0 THEN
+                ch$ = CHR$(32) ' Render space for char 0 (NULL)
+            ELSE
+                ch$ = CHR$(i%)
+            END IF
+        END IF
+
+        ' Measure glyph
         tmpImg& = _NEWIMAGE(1, 1, 32)
         oldDest& = _DEST
         _DEST tmpImg&
@@ -396,7 +730,7 @@ SUB CHARMAP_rebuild_cache ()
         _FONT fHandle&
         _CONTROLCHR OFF
         charW% = _PRINTWIDTH(ch$)
-        charH% = _FONTHEIGHT
+        charH% = _UFONTHEIGHT
         _CONTROLCHR ON
         _FONT prevFont&
         _DEST oldDest&
@@ -407,7 +741,7 @@ SUB CHARMAP_rebuild_cache ()
 
         ' Render glyph into a padded buffer, then ink-crop to the actual
         ' visible bounding box.  Many TTF/OTF fonts include internal leading
-        ' (blank rows at the top of _FONTHEIGHT) that would otherwise waste
+        ' (blank rows at the top of _UFONTHEIGHT) that would otherwise waste
         ' cell space and make glyphs look clipped or vertically offset.
         DIM padH AS INTEGER
         DIM renderImg AS LONG
@@ -430,7 +764,11 @@ SUB CHARMAP_rebuild_cache ()
         _FONT fHandle&
         COLOR _RGB32(255, 255, 255), _RGBA32(0, 0, 0, 0)
         _CONTROLCHR OFF
-        _PRINTSTRING (0, 0), ch$
+        IF isUnicode% THEN
+            _PRINTSTRING (0, 0), ch$
+        ELSE
+            _UPRINTSTRING (0, 0), ch$
+        END IF
         _CONTROLCHR ON
         _FONT prevFont&
         _DEST oldDest&
@@ -497,6 +835,9 @@ SUB CHARMAP_rebuild_cache ()
         IF inkH% > maxGlyphH% THEN maxGlyphH% = inkH%
     NEXT i%
 
+    ' Restore _MAPUNICODE slot 1 if we were in Unicode mode
+    IF isUnicode% THEN _MAPUNICODE 1 TO 1
+
     ' Mark cache valid with current settings
     CHARMAP.cacheFontIdx% = fIdx%
     CHARMAP.cacheFontSize% = fSize%
@@ -523,6 +864,42 @@ SUB CHARMAP_rebuild_cache ()
         FRAME_IDLE% = FALSE
     END IF
     CHARMAP_NEEDS_REDRAW% = TRUE
+
+    ' Auto-detect Unicode-only fonts: if most printable ASCII chars (32-126)
+    ' are blank (1x1 glyph), the font likely has glyphs only in Unicode
+    ' ranges. Auto-switch to Unicode mode.
+    IF NOT isUnicode% THEN
+        DIM blankCount AS INTEGER
+        DIM checkI AS INTEGER
+        blankCount% = 0
+        FOR checkI% = 32 TO 126
+            IF CHARMAP_GLYPH_W(checkI%) <= 1 AND CHARMAP_GLYPH_H(checkI%) <= 1 THEN
+                blankCount% = blankCount% + 1
+            END IF
+        NEXT checkI%
+        ' If >70% of printable ASCII is blank, auto-switch to Unicode
+        IF blankCount% > 66 THEN ' 66 out of 95 = ~70%
+            _LOGINFO "CHARMAP_rebuild_cache: auto-detected Unicode-only font (" + _TRIM$(STR$(blankCount%)) + "/95 ASCII blank), switching to Unicode mode"
+            CHARMAP.unicodeMode% = TRUE
+            CHARMAP.unicodePage% = 0
+            CHARMAP.unicodeScanDone% = FALSE
+            CHARMAP.cacheValid% = FALSE
+            CHARMAP_rebuild_cache ' Re-enter to build Unicode cache
+            ' If scan found nothing, revert to CP437 so charmap isn't stuck empty
+            IF CHARMAP_FOUND_CP_COUNT& = 0 THEN
+                _LOGWARN "CHARMAP_rebuild_cache: Unicode scan found 0 glyphs, reverting to CP437"
+                CHARMAP.unicodeMode% = FALSE
+                CHARMAP.unicodeScanDone% = FALSE
+                CHARMAP.cacheValid% = FALSE
+                DIM revertI AS INTEGER
+                FOR revertI% = 0 TO CHARMAP_CELL_COUNT - 1
+                    CHARMAP_CODEPOINT(revertI%) = revertI%
+                NEXT revertI%
+                CHARMAP_rebuild_cache
+            END IF
+            EXIT SUB
+        END IF
+    END IF
 END SUB
 SUB CHARMAP_rebuild_cache_bitmap (fIdx AS INTEGER)
     DIM fontPath AS STRING
@@ -744,8 +1121,31 @@ END SUB
 '
 SUB CHARMAP_handle_click (rawX AS INTEGER, rawY AS INTEGER, btn AS INTEGER)
     DIM cellIdx AS INTEGER
+
+    ' Check page nav bar click first (Unicode mode only)
+    IF CHARMAP.unicodeMode% AND CHARMAP.unicodePageCount% > 1 THEN
+        DIM navY1 AS INTEGER
+        navY1% = CHARMAP.panelY2% - CHARMAP_PAGE_INDICATOR_H + 1
+        IF rawY% >= navY1% AND rawY% <= CHARMAP.panelY2% THEN
+            IF rawX% >= CHARMAP.panelX1% AND rawX% <= CHARMAP.panelX2% THEN
+                DIM navMidX AS INTEGER
+                navMidX% = (CHARMAP.panelX1% + CHARMAP.panelX2%) \ 2
+                IF rawX% < navMidX% THEN
+                    CHARMAP_prev_page
+                ELSE
+                    CHARMAP_next_page
+                END IF
+                SOUND_play SND_MENU_HOVER
+                EXIT SUB
+            END IF
+        END IF
+    END IF
+
     cellIdx% = CHARMAP_hit_test_cell%(rawX%, rawY%)
     IF cellIdx% < 0 THEN EXIT SUB
+
+    ' In Unicode mode, skip empty slots
+    IF CHARMAP.unicodeMode% AND CHARMAP_CODEPOINT(cellIdx%) < 0 THEN EXIT SUB
 
     ' Left click = select/deselect glyph (foreground color)
     IF btn% = 1 THEN
@@ -755,7 +1155,10 @@ SUB CHARMAP_handle_click (rawX AS INTEGER, rawY AS INTEGER, btn AS INTEGER)
         ' If a glyph is now selected, route it based on context
         IF CHARMAP.selectedIdx% >= 0 THEN
             SOUND_play SND_FILL
-            IF CHARMAP.useChars% AND CURRENT_TOOL% = TOOL_TEXT AND TEXT.ACTIVE THEN
+            IF CHARMAP.unicodeMode% THEN
+                ' Unicode mode → always use custom brush path
+                CHARMAP_copy_glyph_to_custom_brush
+            ELSEIF CHARMAP.useChars% AND CURRENT_TOOL% = TOOL_TEXT AND TEXT.ACTIVE THEN
                 ' Text tool active + Character Mode → insert as text character
                 TEXT_add_char CHR$(CHARMAP.selectedIdx%)
             ELSE
@@ -768,6 +1171,9 @@ SUB CHARMAP_handle_click (rawX AS INTEGER, rawY AS INTEGER, btn AS INTEGER)
     ELSEIF btn% = 2 THEN
         CHARMAP_select_glyph cellIdx%
         CHARMAP_flash_glyph cellIdx%
+
+        ' In Unicode mode, skip empty slots
+        IF CHARMAP.unicodeMode% AND CHARMAP_CODEPOINT(cellIdx%) < 0 THEN EXIT SUB
 
         IF CHARMAP.selectedIdx% >= 0 THEN
             SOUND_play SND_FILL
@@ -874,6 +1280,16 @@ SUB CHARMAP_render ()
     IF CHARMAP.cacheFontIdx% <> TEXT_BAR.selectedFontIdx% OR _
          CHARMAP.cacheFontSize% <> CHARMAP_effective_font_size% OR _
        CHARMAP.cacheMono% <> TEXT_BAR.monoActive% THEN
+        ' Font changed — reset Unicode scan so new font gets scanned
+        IF CHARMAP.cacheFontIdx% <> TEXT_BAR.selectedFontIdx% THEN
+            CHARMAP.unicodeScanDone% = FALSE
+            CHARMAP.unicodeMode% = FALSE ' Reset to CP437; auto-detect will re-enable if needed
+            CHARMAP.unicodePage% = 0
+            DIM cpResetI AS INTEGER
+            FOR cpResetI% = 0 TO CHARMAP_CELL_COUNT - 1
+                CHARMAP_CODEPOINT(cpResetI%) = cpResetI%
+            NEXT cpResetI%
+        END IF
         CHARMAP_rebuild_cache
     END IF
 
@@ -902,6 +1318,10 @@ SUB CHARMAP_render ()
     CHARMAP.gridY% = y1% + 2
     viewportTop% = CHARMAP.gridY%
     viewportBottom% = CHARMAP.panelY2% - 1
+    ' Reserve space for Unicode page indicator bar
+    IF CHARMAP.unicodeMode% AND CHARMAP.unicodePageCount% > 0 THEN
+        viewportBottom% = viewportBottom% - CHARMAP_PAGE_INDICATOR_H
+    END IF
     IF viewportBottom% < viewportTop% THEN viewportBottom% = viewportTop%
     maxScroll% = CHARMAP_max_scroll_y%
     IF CHARMAP.scrollY% > maxScroll% THEN CHARMAP.scrollY% = maxScroll%
@@ -926,6 +1346,9 @@ SUB CHARMAP_render ()
 
     ' Draw cells
     FOR idx% = 0 TO CHARMAP_CELL_COUNT - 1
+        ' Skip empty Unicode slots
+        IF CHARMAP.unicodeMode% AND CHARMAP_CODEPOINT(idx%) < 0 THEN _CONTINUE
+
         row% = idx% \ cols%
         col% = idx% MOD cols%
         cx% = CHARMAP.gridX% + col% * (cw% + cp%)
@@ -1099,6 +1522,71 @@ SUB CHARMAP_render ()
         LINE (trackX%, thumbY%)-(trackX% + trackW% - 1, thumbY% + thumbH% - 1), thumbColor~&, BF
     END IF
 
+    ' Unicode page indicator bar
+    IF CHARMAP.unicodeMode% AND CHARMAP.unicodePageCount% > 0 THEN
+        DIM navBarY AS INTEGER
+        DIM navBarH AS INTEGER
+        DIM navLabel AS STRING
+        DIM navLabelW AS INTEGER
+        DIM navLabelX AS INTEGER
+        DIM navFg AS _UNSIGNED LONG
+        DIM navBg AS _UNSIGNED LONG
+        DIM navArrowColor AS _UNSIGNED LONG
+
+        navBarH% = CHARMAP_PAGE_INDICATOR_H
+        navBarY% = CHARMAP.panelY2% - navBarH% + 1
+
+        navBg~& = THEME.CHARMAP_GRID_FG~& ' Subtle bar background
+        navFg~& = THEME.CHARMAP_FG~&
+        navArrowColor~& = THEME.CHARMAP_SELECTED_BG~&
+
+        ' Bar background
+        LINE (CHARMAP.panelX1%, navBarY%)-(CHARMAP.panelX2%, CHARMAP.panelY2%), navBg~&, BF
+
+        ' Page label: "< 1/N >" or "U+XXXX" range
+        DIM firstCP AS LONG
+        DIM lastCP AS LONG
+        firstCP& = CHARMAP_CODEPOINT(0)
+        IF firstCP& < 0 THEN firstCP& = 0
+        ' Find last valid codepoint on this page
+        DIM lastI AS INTEGER
+        lastCP& = firstCP&
+        FOR lastI% = CHARMAP_CELL_COUNT - 1 TO 0 STEP -1
+            IF CHARMAP_CODEPOINT(lastI%) >= 0 THEN
+                lastCP& = CHARMAP_CODEPOINT(lastI%)
+                EXIT FOR
+            END IF
+        NEXT lastI%
+
+        navLabel$ = STR$(CHARMAP.unicodePage% + 1) + "/" + _TRIM$(STR$(CHARMAP.unicodePageCount%))
+
+        ' Draw prev/next arrows
+        DIM prevFont2 AS LONG
+        prevFont2& = _FONT
+        _FONT 8 ' Use small built-in font for nav
+        navLabelW% = _PRINTWIDTH(_TRIM$(navLabel$))
+        navLabelX% = CHARMAP.panelX1% + (CHARMAP.panelW% - navLabelW%) \ 2
+        IF navLabelX% < CHARMAP.panelX1% + 2 THEN navLabelX% = CHARMAP.panelX1% + 2
+
+        ' Left arrow "<"
+        IF CHARMAP.unicodePage% > 0 THEN
+            COLOR navArrowColor~&, navBg~&
+            _UPRINTSTRING (CHARMAP.panelX1% + 2, navBarY% + 3), CHR$(17)
+        END IF
+
+        ' Page label
+        COLOR navFg~&, navBg~&
+        _UPRINTSTRING (navLabelX%, navBarY% + 3), _TRIM$(navLabel$)
+
+        ' Right arrow ">"
+        IF CHARMAP.unicodePage% < CHARMAP.unicodePageCount% - 1 THEN
+            COLOR navArrowColor~&, navBg~&
+            _UPRINTSTRING (CHARMAP.panelX2% - 10, navBarY% + 3), CHR$(16)
+        END IF
+
+        _FONT prevFont2&
+    END IF
+
     _DEST oldDest&
 END SUB
 
@@ -1122,7 +1610,7 @@ SUB CHARMAP_char_grid_update_size ()
         ELSE
             ' For TTF/OTF, measure glyph width from font handle;
             ' use the active text layer's defaultLeading for cell height so the
-            ' grid matches actual rendered line spacing (not raw _FONTHEIGHT).
+            ' grid matches actual rendered line spacing (not raw _UFONTHEIGHT).
             DIM fHandle AS LONG
             DIM fSize AS INTEGER
             fSize% = CHARMAP_effective_font_size%
@@ -1138,7 +1626,7 @@ SUB CHARMAP_char_grid_update_size ()
                 _FONT fHandle&
                 _CONTROLCHR OFF
                 gw% = _PRINTWIDTH("M")
-                gh% = _FONTHEIGHT
+                gh% = _UFONTHEIGHT
                 _CONTROLCHR ON
                 _FONT prevF&
                 _DEST oldD&

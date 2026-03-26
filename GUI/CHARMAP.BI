@@ -16,10 +16,12 @@ OPTION _EXPLICITARRAY
 ' --- Constants ---
 CONST CHARMAP_MIN_CELLS_PER_ROW = 4
 CONST CHARMAP_MAX_CELLS_PER_ROW = 16
-CONST CHARMAP_CELL_COUNT   = 256   ' Total cells (0..255)
+CONST CHARMAP_CELL_COUNT   = 256   ' Total cells (0..255) per page
 CONST CHARMAP_DOCK_LEFT    = 0
 CONST CHARMAP_DOCK_RIGHT   = 1
 CONST CHARMAP_NO_SELECTION = -1    ' No glyph selected
+CONST CHARMAP_MAX_UNICODE_CPS = 16384 ' Max discoverable Unicode codepoints per font
+CONST CHARMAP_PAGE_INDICATOR_H = 14   ' Height of page nav bar in pixels
 
 TYPE CHARMAP_OBJ
     visible         AS INTEGER  ' TRUE when panel should render
@@ -55,6 +57,11 @@ TYPE CHARMAP_OBJ
     charGridW       AS INTEGER  ' Character grid cell width (pixels)
     charGridH       AS INTEGER  ' Character grid cell height (pixels)
     charGridImg     AS LONG     ' Pre-rendered character grid image handle
+    ' Unicode mode
+    unicodeMode     AS INTEGER  ' TRUE when showing Unicode codepoints (not CP437)
+    unicodePage     AS INTEGER  ' Current page index (0-based)
+    unicodePageCount AS INTEGER ' Total number of discovered pages
+    unicodeScanDone AS INTEGER  ' TRUE when font has been scanned for glyphs
 END TYPE
 
 DIM SHARED CHARMAP AS CHARMAP_OBJ
@@ -65,6 +72,14 @@ DIM SHARED CHARMAP AS CHARMAP_OBJ
 DIM SHARED CHARMAP_GLYPH(0 TO CHARMAP_CELL_COUNT - 1) AS LONG
 DIM SHARED CHARMAP_GLYPH_W(0 TO CHARMAP_CELL_COUNT - 1) AS INTEGER  ' Actual glyph width
 DIM SHARED CHARMAP_GLYPH_H(0 TO CHARMAP_CELL_COUNT - 1) AS INTEGER  ' Actual glyph height
+
+' Unicode codepoint mapping — maps cell index (0..255) to actual codepoint.
+' In CP437 mode: CHARMAP_CODEPOINT(i) = i.  In Unicode mode: actual Unicode CP.
+DIM SHARED CHARMAP_CODEPOINT(0 TO CHARMAP_CELL_COUNT - 1) AS LONG
+
+' Discovered Unicode codepoints for the current font (flat list, all pages).
+DIM SHARED CHARMAP_FOUND_CP(0 TO CHARMAP_MAX_UNICODE_CPS - 1) AS LONG
+DIM SHARED CHARMAP_FOUND_CP_COUNT AS LONG
 
 ' Per-widget dirty flag
 DIM SHARED CHARMAP_NEEDS_REDRAW AS INTEGER
@@ -98,3 +113,9 @@ DECLARE SUB CHARMAP_char_grid_snap_toggle ()
 DECLARE SUB CHARMAP_char_grid_snap_xy (snapX AS INTEGER, snapY AS INTEGER)
 DECLARE SUB CHARMAP_char_grid_update_size ()
 DECLARE SUB CHARMAP_char_grid_fill_cell (px AS INTEGER, py AS INTEGER, fillColor AS _UNSIGNED LONG)
+DECLARE SUB CHARMAP_scan_unicode_glyphs (fHandle AS LONG)
+DECLARE SUB CHARMAP_set_unicode_page (pg AS INTEGER)
+DECLARE SUB CHARMAP_next_page ()
+DECLARE SUB CHARMAP_prev_page ()
+DECLARE SUB CHARMAP_toggle_unicode_mode ()
+DECLARE FUNCTION CHARMAP_selected_codepoint& ()
