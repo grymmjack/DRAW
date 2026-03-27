@@ -75,6 +75,178 @@ SUB TEXT_init ()
 END SUB
 
 ''
+' Resets the text-local undo stack. Call when starting/ending a text edit session.
+'
+SUB TEXT_UNDO_reset ()
+    DIM i AS INTEGER
+    FOR i% = 0 TO TEXT_UNDO_MAX - 1
+        TEXT_UNDO_STACK(i%) = ""
+    NEXT i%
+    TEXT_UNDO_COUNT% = 0
+    TEXT_UNDO_POS% = -1
+END SUB
+
+''
+' Pushes the current text layer state onto the undo stack.
+' Call BEFORE each mutation (add_char, backspace, newline, delete, paste, style changes).
+'
+SUB TEXT_UNDO_push ()
+    IF NOT TEXT.ACTIVE THEN EXIT SUB
+    IF TEXT_UNDO_SUPPRESS% THEN EXIT SUB
+    DIM tdIdx AS INTEGER
+    tdIdx% = TEXT_get_active_text_data_idx%
+    IF tdIdx% < 1 THEN EXIT SUB
+
+    ' Serialize current state
+    DIM snapshot AS STRING
+    snapshot$ = TEXT_LAYER_serialize$(tdIdx%)
+    IF LEN(snapshot$) = 0 THEN EXIT SUB
+
+    ' If we're not at the top of the stack, discard redo states
+    DIM newPos AS INTEGER
+    newPos% = TEXT_UNDO_POS% + 1
+
+    ' If stack is full, shift everything down by one
+    IF newPos% >= TEXT_UNDO_MAX THEN
+        DIM shift AS INTEGER
+        FOR shift% = 0 TO TEXT_UNDO_MAX - 2
+            TEXT_UNDO_STACK(shift%) = TEXT_UNDO_STACK(shift% + 1)
+            TEXT_UNDO_CURSOR_X(shift%) = TEXT_UNDO_CURSOR_X(shift% + 1)
+            TEXT_UNDO_CURSOR_Y(shift%) = TEXT_UNDO_CURSOR_Y(shift% + 1)
+            TEXT_UNDO_SEL_START(shift%) = TEXT_UNDO_SEL_START(shift% + 1)
+            TEXT_UNDO_SEL_END(shift%) = TEXT_UNDO_SEL_END(shift% + 1)
+            TEXT_UNDO_SEL_ACTIVE(shift%) = TEXT_UNDO_SEL_ACTIVE(shift% + 1)
+            TEXT_UNDO_CM_COL(shift%) = TEXT_UNDO_CM_COL(shift% + 1)
+            TEXT_UNDO_CM_ROW(shift%) = TEXT_UNDO_CM_ROW(shift% + 1)
+        NEXT shift%
+        newPos% = TEXT_UNDO_MAX - 1
+    END IF
+
+    ' Store snapshot and cursor state
+    TEXT_UNDO_STACK(newPos%) = snapshot$
+    TEXT_UNDO_CURSOR_X(newPos%) = TEXT.CURSOR_X
+    TEXT_UNDO_CURSOR_Y(newPos%) = TEXT.CURSOR_Y
+    TEXT_UNDO_SEL_START(newPos%) = TEXT.selStart%
+    TEXT_UNDO_SEL_END(newPos%) = TEXT.selEnd%
+    TEXT_UNDO_SEL_ACTIVE(newPos%) = TEXT.selActive%
+    TEXT_UNDO_CM_COL(newPos%) = TEXT.cmVirtualCol
+    TEXT_UNDO_CM_ROW(newPos%) = TEXT.cmVirtualRow
+    TEXT_UNDO_POS% = newPos%
+    TEXT_UNDO_COUNT% = newPos% + 1
+
+    ' Clear any stale redo slots above
+    DIM j AS INTEGER
+    FOR j% = TEXT_UNDO_COUNT% TO TEXT_UNDO_MAX - 1
+        TEXT_UNDO_STACK(j%) = ""
+    NEXT j%
+END SUB
+
+''
+' Returns TRUE if text undo is possible.
+'
+FUNCTION TEXT_UNDO_can_undo% ()
+    TEXT_UNDO_can_undo% = (TEXT_UNDO_POS% >= 0)
+END FUNCTION
+
+''
+' Returns TRUE if text redo is possible.
+'
+FUNCTION TEXT_UNDO_can_redo% ()
+    TEXT_UNDO_can_redo% = (TEXT_UNDO_POS% < TEXT_UNDO_COUNT% - 1)
+END FUNCTION
+
+''
+' Restores the text layer to the state at TEXT_UNDO_POS and moves back one step.
+'
+SUB TEXT_UNDO_undo ()
+    IF NOT TEXT_UNDO_can_undo% THEN EXIT SUB
+    IF NOT TEXT.ACTIVE THEN EXIT SUB
+    DIM tdIdx AS INTEGER
+    tdIdx% = TEXT_get_active_text_data_idx%
+    IF tdIdx% < 1 THEN EXIT SUB
+
+    ' If we're at the top with no redo above, save current state as redo target
+    IF TEXT_UNDO_POS% = TEXT_UNDO_COUNT% - 1 THEN
+        DIM curSnap AS STRING
+        curSnap$ = TEXT_LAYER_serialize$(tdIdx%)
+        IF LEN(curSnap$) > 0 THEN
+            DIM redoSlot AS INTEGER
+            redoSlot% = TEXT_UNDO_POS% + 1
+            IF redoSlot% < TEXT_UNDO_MAX THEN
+                TEXT_UNDO_STACK(redoSlot%) = curSnap$
+                TEXT_UNDO_CURSOR_X(redoSlot%) = TEXT.CURSOR_X
+                TEXT_UNDO_CURSOR_Y(redoSlot%) = TEXT.CURSOR_Y
+                TEXT_UNDO_SEL_START(redoSlot%) = TEXT.selStart%
+                TEXT_UNDO_SEL_END(redoSlot%) = TEXT.selEnd%
+                TEXT_UNDO_SEL_ACTIVE(redoSlot%) = TEXT.selActive%
+                TEXT_UNDO_CM_COL(redoSlot%) = TEXT.cmVirtualCol
+                TEXT_UNDO_CM_ROW(redoSlot%) = TEXT.cmVirtualRow
+                TEXT_UNDO_COUNT% = redoSlot% + 1
+            END IF
+        END IF
+    END IF
+
+    ' Restore the state at current position
+    DIM uPos AS INTEGER
+    uPos% = TEXT_UNDO_POS%
+    TEXT_LAYER_deserialize tdIdx%, TEXT_UNDO_STACK(uPos%)
+
+    ' Restore cursor and selection state
+    TEXT.CURSOR_X = TEXT_UNDO_CURSOR_X(uPos%)
+    TEXT.CURSOR_Y = TEXT_UNDO_CURSOR_Y(uPos%)
+    TEXT.selStart% = TEXT_UNDO_SEL_START(uPos%)
+    TEXT.selEnd% = TEXT_UNDO_SEL_END(uPos%)
+    TEXT.selActive% = TEXT_UNDO_SEL_ACTIVE(uPos%)
+    TEXT.cmVirtualCol = TEXT_UNDO_CM_COL(uPos%)
+    TEXT.cmVirtualRow = TEXT_UNDO_CM_ROW(uPos%)
+
+    ' Move position back
+    TEXT_UNDO_POS% = TEXT_UNDO_POS% - 1
+
+    TEXT_LAYER_DATA(tdIdx%).dirty = TRUE
+    TEXT.CURSOR_BLINK = 1: TEXT.BLINK_TIMER = TIMER
+    FRAME_IDLE% = FALSE
+    SCENE_DIRTY% = TRUE
+    GUI_NEEDS_REDRAW% = TRUE
+END SUB
+
+''
+' Moves forward one step in the undo stack (redo).
+'
+SUB TEXT_UNDO_redo ()
+    IF NOT TEXT_UNDO_can_redo% THEN EXIT SUB
+    IF NOT TEXT.ACTIVE THEN EXIT SUB
+    DIM tdIdx AS INTEGER
+    tdIdx% = TEXT_get_active_text_data_idx%
+    IF tdIdx% < 1 THEN EXIT SUB
+
+    ' Move position forward
+    DIM rPos AS INTEGER
+    rPos% = TEXT_UNDO_POS% + 1
+    IF rPos% >= TEXT_UNDO_COUNT% THEN EXIT SUB
+
+    ' Restore the state
+    TEXT_LAYER_deserialize tdIdx%, TEXT_UNDO_STACK(rPos%)
+
+    ' Restore cursor and selection state
+    TEXT.CURSOR_X = TEXT_UNDO_CURSOR_X(rPos%)
+    TEXT.CURSOR_Y = TEXT_UNDO_CURSOR_Y(rPos%)
+    TEXT.selStart% = TEXT_UNDO_SEL_START(rPos%)
+    TEXT.selEnd% = TEXT_UNDO_SEL_END(rPos%)
+    TEXT.selActive% = TEXT_UNDO_SEL_ACTIVE(rPos%)
+    TEXT.cmVirtualCol = TEXT_UNDO_CM_COL(rPos%)
+    TEXT.cmVirtualRow = TEXT_UNDO_CM_ROW(rPos%)
+
+    TEXT_UNDO_POS% = rPos%
+
+    TEXT_LAYER_DATA(tdIdx%).dirty = TRUE
+    TEXT.CURSOR_BLINK = 1: TEXT.BLINK_TIMER = TIMER
+    FRAME_IDLE% = FALSE
+    SCENE_DIRTY% = TRUE
+    GUI_NEEDS_REDRAW% = TRUE
+END SUB
+
+''
 ' Resets the text tool, committing any active text layer editing.
 '
 SUB TEXT_reset ()
@@ -123,6 +295,9 @@ SUB TEXT_start (x AS INTEGER, y AS INTEGER)
     TEXT.selStart% = -1
     TEXT.selEnd% = -1
     TEXT.selActive% = FALSE
+
+    ' Reset text-local undo stack for the new session
+    TEXT_UNDO_reset
 
     ' Wire up text bar to this layer
     TEXT_BAR.editingLayerIdx% = newLayerIdx%
@@ -572,6 +747,8 @@ SUB TEXT_char_mode_add_char (ch AS STRING)
     IF NOT TEXT_char_mode_active% THEN EXIT SUB
     IF LEN(ch$) = 0 THEN EXIT SUB
 
+    TEXT_UNDO_push
+
     DIM tdIdx AS INTEGER
     DIM row AS INTEGER, col AS INTEGER
     DIM lineStart AS INTEGER, lineEnd AS INTEGER
@@ -704,6 +881,9 @@ END SUB
 '
 SUB TEXT_char_mode_backspace ()
     IF NOT TEXT_char_mode_active% THEN EXIT SUB
+
+    TEXT_UNDO_push
+
     DIM tdIdx AS INTEGER
     DIM row AS INTEGER, col AS INTEGER
     DIM cellPos AS INTEGER
@@ -785,6 +965,9 @@ END SUB
 SUB TEXT_char_mode_delete_selection ()
     IF NOT TEXT_char_mode_active% THEN EXIT SUB
     IF NOT TEXT_has_selection% THEN EXIT SUB
+
+    TEXT_UNDO_push
+
     DIM dsTdIdx AS INTEGER
     dsTdIdx% = TEXT_get_active_text_data_idx%
     IF dsTdIdx% < 1 THEN EXIT SUB
@@ -821,6 +1004,9 @@ END SUB
 '
 SUB TEXT_char_mode_delete ()
     IF NOT TEXT_char_mode_active% THEN EXIT SUB
+
+    TEXT_UNDO_push
+
     DIM tdIdx AS INTEGER
     DIM cellPos AS INTEGER
     DIM row AS INTEGER, col AS INTEGER
@@ -869,6 +1055,8 @@ SUB TEXT_add_char (ch AS STRING)
         TEXT_char_mode_add_char ch$
         EXIT SUB
     END IF
+
+    TEXT_UNDO_push
 
     ' Delete selection if active (replaces selected text with typed char)
     IF TEXT_has_selection% THEN TEXT_delete_selection
@@ -1047,6 +1235,8 @@ SUB TEXT_backspace ()
         EXIT SUB
     END IF
 
+    TEXT_UNDO_push
+
     ' If selection active, delete selection instead of single char
     IF TEXT_has_selection% THEN
         DIM selTdIdx AS INTEGER
@@ -1099,6 +1289,8 @@ SUB TEXT_newline ()
         EXIT SUB
     END IF
 
+    TEXT_UNDO_push
+
     ' Delete selection first if active
     IF TEXT_has_selection% THEN TEXT_delete_selection
 
@@ -1142,6 +1334,9 @@ END SUB
 '
 SUB TEXT_apply ()
     IF NOT TEXT.ACTIVE THEN EXIT SUB
+
+    ' Clear text-local undo stack
+    TEXT_UNDO_reset
 
     DIM layerIdx AS INTEGER
     layerIdx% = TEXT.editingTextLayer%
@@ -1210,6 +1405,9 @@ END SUB
 SUB TEXT_commit ()
     IF NOT TEXT.ACTIVE THEN EXIT SUB
 
+    ' Clear text-local undo stack
+    TEXT_UNDO_reset
+
     DIM layerIdx AS INTEGER
     layerIdx% = TEXT.editingTextLayer%
 
@@ -1265,6 +1463,9 @@ END SUB
 '
 SUB TEXT_cancel ()
     IF NOT TEXT.ACTIVE THEN EXIT SUB
+
+    ' Clear text-local undo stack
+    TEXT_UNDO_reset
 
     DIM layerIdx AS INTEGER
     layerIdx% = TEXT.editingTextLayer%
@@ -1346,6 +1547,9 @@ SUB TEXT_re_edit (layerIdx AS INTEGER)
 
     ' Mark dirty so TEXT_render_preview refreshes
     TEXT_LAYER_DATA(tdIdx%).dirty = TRUE
+
+    ' Reset text-local undo stack for the re-edit session
+    TEXT_UNDO_reset
 
     FRAME_IDLE% = FALSE
     SCENE_DIRTY% = TRUE
@@ -1635,6 +1839,136 @@ SUB TEXT_update_cursor ()
 END SUB
 
 ''
+' Selects the word around cursorPos (up to space, newline, or text boundary).
+'
+SUB TEXT_select_word (cursorPos AS INTEGER)
+    IF NOT TEXT.ACTIVE THEN EXIT SUB
+    DIM tdIdx AS INTEGER
+    tdIdx% = TEXT_get_active_text_data_idx%
+    IF tdIdx% < 1 THEN EXIT SUB
+    DIM cc AS INTEGER
+    cc% = TEXT_LAYER_DATA(tdIdx%).charCount
+    IF cc% < 1 THEN EXIT SUB
+
+    DIM cp AS INTEGER
+    cp% = cursorPos%
+    IF cp% >= cc% THEN cp% = cc% - 1
+    IF cp% < 0 THEN cp% = 0
+
+    ' Find word start — scan backwards to space/newline
+    DIM wStart AS INTEGER
+    wStart% = cp%
+    DO WHILE wStart% > 0
+        DIM prevCh AS STRING
+        prevCh$ = TL_CHAR(tdIdx%, wStart% - 1)
+        IF prevCh$ = " " OR prevCh$ = CHR$(10) OR prevCh$ = CHR$(13) THEN EXIT DO
+        wStart% = wStart% - 1
+    LOOP
+
+    ' Find word end — scan forwards to space/newline
+    DIM wordEnd AS INTEGER
+    wordEnd% = cp%
+    DO WHILE wordEnd% < cc%
+        DIM fwdCh AS STRING
+        fwdCh$ = TL_CHAR(tdIdx%, wordEnd%)
+        IF fwdCh$ = " " OR fwdCh$ = CHR$(10) OR fwdCh$ = CHR$(13) THEN EXIT DO
+        wordEnd% = wordEnd% + 1
+    LOOP
+
+    IF wStart% = wordEnd% THEN EXIT SUB
+
+    TEXT.selStart% = wStart%
+    TEXT.selEnd% = wordEnd%
+    TEXT.selActive% = TRUE
+
+    ' Move cursor to end of word
+    TEXT_LAYER_DATA(tdIdx%).cursorPos = wordEnd%
+    TEXT.CURSOR_X = TEXT_LAYER_get_char_x%(tdIdx%, wordEnd%)
+    DIM wLine AS INTEGER
+    wLine% = TEXT_LAYER_get_line_for_char%(tdIdx%, wordEnd%)
+    TEXT.CURSOR_Y = TEXT_LAYER_get_line_y%(tdIdx%, wLine%)
+    TEXT_char_mode_sync_virtual
+    TEXT.CURSOR_BLINK = 1: TEXT.BLINK_TIMER = TIMER
+    FRAME_IDLE% = FALSE: GUI_NEEDS_REDRAW% = TRUE
+END SUB
+
+''
+' Selects the line containing cursorPos (from line-break to next line-break).
+'
+SUB TEXT_select_line (cursorPos AS INTEGER)
+    IF NOT TEXT.ACTIVE THEN EXIT SUB
+    DIM tdIdx AS INTEGER
+    tdIdx% = TEXT_get_active_text_data_idx%
+    IF tdIdx% < 1 THEN EXIT SUB
+    DIM cc AS INTEGER
+    cc% = TEXT_LAYER_DATA(tdIdx%).charCount
+    IF cc% < 1 THEN EXIT SUB
+
+    DIM cp AS INTEGER
+    cp% = cursorPos%
+    IF cp% >= cc% THEN cp% = cc% - 1
+    IF cp% < 0 THEN cp% = 0
+
+    ' Find which line this character is on
+    DIM ln AS INTEGER
+    ln% = TEXT_LAYER_get_line_for_char%(tdIdx%, cp%)
+
+    ' Line start is TL_LINE_BREAK(tdIdx%, ln%)
+    DIM lStart AS INTEGER
+    lStart% = TL_LINE_BREAK(tdIdx%, ln%)
+
+    ' Line end is start of next line, or charCount
+    DIM lEnd AS INTEGER
+    IF ln% < TEXT_LAYER_DATA(tdIdx%).lineCount - 1 THEN
+        lEnd% = TL_LINE_BREAK(tdIdx%, ln% + 1)
+    ELSE
+        lEnd% = cc%
+    END IF
+
+    IF lStart% = lEnd% THEN EXIT SUB
+
+    TEXT.selStart% = lStart%
+    TEXT.selEnd% = lEnd%
+    TEXT.selActive% = TRUE
+
+    ' Move cursor to end of line
+    TEXT_LAYER_DATA(tdIdx%).cursorPos = lEnd%
+    TEXT.CURSOR_X = TEXT_LAYER_get_char_x%(tdIdx%, lEnd%)
+    TEXT.CURSOR_Y = TEXT_LAYER_get_line_y%(tdIdx%, ln%)
+    TEXT_char_mode_sync_virtual
+    TEXT.CURSOR_BLINK = 1: TEXT.BLINK_TIMER = TIMER
+    FRAME_IDLE% = FALSE: GUI_NEEDS_REDRAW% = TRUE
+END SUB
+
+''
+' Selects all text in the active text layer.
+'
+SUB TEXT_select_all ()
+    IF NOT TEXT.ACTIVE THEN EXIT SUB
+    DIM tdIdx AS INTEGER
+    tdIdx% = TEXT_get_active_text_data_idx%
+    IF tdIdx% < 1 THEN EXIT SUB
+    DIM cc AS INTEGER
+    cc% = TEXT_LAYER_DATA(tdIdx%).charCount
+    IF cc% < 1 THEN EXIT SUB
+
+    TEXT.selStart% = 0
+    TEXT.selEnd% = cc%
+    TEXT.selActive% = TRUE
+
+    ' Move cursor to end
+    TEXT_LAYER_DATA(tdIdx%).cursorPos = cc%
+    TEXT.CURSOR_X = TEXT_LAYER_get_char_x%(tdIdx%, cc%)
+    DIM lastLn AS INTEGER
+    lastLn% = TEXT_LAYER_DATA(tdIdx%).lineCount - 1
+    IF lastLn% < 0 THEN lastLn% = 0
+    TEXT.CURSOR_Y = TEXT_LAYER_get_line_y%(tdIdx%, lastLn%)
+    TEXT_char_mode_sync_virtual
+    TEXT.CURSOR_BLINK = 1: TEXT.BLINK_TIMER = TIMER
+    FRAME_IDLE% = FALSE: GUI_NEEDS_REDRAW% = TRUE
+END SUB
+
+''
 ' Clears the current text selection.
 '
 SUB TEXT_clear_selection ()
@@ -1662,6 +1996,8 @@ END FUNCTION
 SUB TEXT_delete_selection ()
     IF NOT TEXT_has_selection% THEN EXIT SUB
     IF NOT TEXT.ACTIVE THEN EXIT SUB
+
+    TEXT_UNDO_push
 
     DIM tdIdx AS INTEGER
     tdIdx% = TEXT_get_active_text_data_idx%
@@ -1724,6 +2060,8 @@ SUB TEXT_char_mode_fill_cells (x1 AS INTEGER, y1 AS INTEGER, x2 AS INTEGER, y2 A
     DIM fcTdIdx AS INTEGER
     fcTdIdx% = LAYERS(CURRENT_LAYER%).textDataIdx%
     IF fcTdIdx% < 1 THEN EXIT SUB
+
+    TEXT_UNDO_push
 
     DIM fcCW AS INTEGER, fcCH AS INTEGER
     fcCW% = CHARMAP.charGridW%
