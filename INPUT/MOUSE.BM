@@ -1350,159 +1350,179 @@ END SUB
 '
 SUB MOUSE_tool_text ()
     ' TEXT tool: Click to start or reposition text entry.
-    ' Double-click on an existing text layer to re-edit it.
+    ' Multi-click: double=word, triple=line, quadruple=all.
     ' Shift+click extends selection. Drag selects text.
-    IF NOT MOUSE.OLD_B1% THEN
+    STATIC mcClickCount AS INTEGER
+    STATIC mcLastTime AS DOUBLE
+    STATIC mcFirstX AS INTEGER, mcFirstY AS INTEGER  ' RAW screen position of first click in chain
+    STATIC mcCursorPos AS INTEGER   ' Cursor position from click 1 (stable for all multi-clicks)
+    STATIC mcSelLocked AS INTEGER   ' TRUE when multi-click selection must not be overridden by drag
+
+    IF MOUSE.B1% AND NOT MOUSE.OLD_B1% THEN
+        mcSelLocked% = FALSE  ' Reset drag lock on every fresh press
+        ' --- Multi-click detection with spatial tolerance (RAW screen pixels) ---
         DIM clickTime AS DOUBLE
         clickTime# = TIMER
-        DIM isDblClick AS INTEGER
-        isDblClick% = FALSE
-        IF clickTime# - MOUSE.B1_CLICK_TIME# < 0.3 THEN
-            ' Double-click detected — check for text layer under cursor
-            DIM li AS INTEGER
-            FOR li% = LAYER_COUNT% TO 1 STEP -1
-                IF LAYERS(li%).visible% AND LAYERS(li%).layerType% = LAYER_TYPE_TEXT THEN
-                    DIM tdI AS INTEGER
-                    tdI% = LAYERS(li%).textDataIdx%
-                    IF tdI% >= 1 AND TEXT_LAYER_DATA(tdI%).charCount > 0 THEN
-                        ' Approximate bounding box from text layer data
-                        DIM tlX AS INTEGER, tlY AS INTEGER
-                        tlX% = TEXT_LAYER_DATA(tdI%).startX
-                        tlY% = TEXT_LAYER_DATA(tdI%).startY
-                        DIM tlW AS INTEGER, tlH AS INTEGER
-                        TEXT_LAYER_get_bounds tdI%, tlW%, tlH%
-                        IF tlW% < 32 THEN tlW% = 32
-                        IF tlH% < 16 THEN tlH% = 16
-                        IF MOUSE.X% >= tlX% AND MOUSE.X% < tlX% + tlW% AND MOUSE.Y% >= tlY% AND MOUSE.Y% < tlY% + tlH% THEN
-                            TEXT_re_edit li%
-                            ' Position cursor at double-click location
-                            DIM dblTd AS INTEGER
-                            dblTd% = LAYERS(li%).textDataIdx%
-                            IF dblTd% >= 1 THEN
-                                DIM dblPos AS INTEGER
-                                dblPos% = TEXT_LAYER_get_cursor_at_pos%(dblTd%, MOUSE.X%, MOUSE.Y%)
-                                IF dblPos% >= 0 THEN
-                                    TEXT_LAYER_DATA(dblTd%).cursorPos = dblPos%
-                                    TEXT.CURSOR_X = TEXT_LAYER_get_char_x%(dblTd%, dblPos%)
-                                    DIM dblLine AS INTEGER
-                                    dblLine% = TEXT_LAYER_get_line_for_char%(dblTd%, dblPos%)
-                                    TEXT.CURSOR_Y = TEXT_LAYER_get_line_y%(dblTd%, dblLine%)
-                                    TEXT_char_mode_sync_virtual
-                                END IF
-                            END IF
-                            TEXT_sync_bar_to_cursor
-                            isDblClick% = TRUE
-                            MOUSE.B1_CLICK_TIME# = 0
-                            EXIT FOR
-                        END IF
-                    END IF
-                END IF
-            NEXT li%
+        DIM mcDist AS INTEGER
+        mcDist% = ABS(MOUSE.RAW_X% - mcFirstX%) + ABS(MOUSE.RAW_Y% - mcFirstY%)
+        IF clickTime# - mcLastTime# < 0.3 AND mcDist% <= 4 THEN
+            mcClickCount% = mcClickCount% + 1
+            IF mcClickCount% > 4 THEN mcClickCount% = 4
+        ELSE
+            mcClickCount% = 1
+            mcFirstX% = MOUSE.RAW_X%
+            mcFirstY% = MOUSE.RAW_Y%
         END IF
-        IF NOT isDblClick% THEN
-            MOUSE.B1_CLICK_TIME# = clickTime#
-            ' If actively editing a text layer, try to move cursor within it
-            DIM clickHandled AS INTEGER
-            clickHandled% = FALSE
-            IF TEXT.ACTIVE THEN
-                DIM eTdIdx AS INTEGER
-                eTdIdx% = TEXT_get_active_text_data_idx%
-                IF eTdIdx% >= 1 THEN
-                        DIM hitPos AS INTEGER
-                        hitPos% = TEXT_LAYER_get_cursor_at_pos%(eTdIdx%, MOUSE.X%, MOUSE.Y%)
-                        IF hitPos% >= 0 THEN
-                            IF MODIFIERS.shift% THEN
-                                ' Shift+click: extend selection from cursor to clicked pos
-                                IF TEXT.selStart% < 0 THEN
-                                    TEXT.selStart% = TEXT_LAYER_DATA(eTdIdx%).cursorPos
-                                END IF
-                                TEXT.selEnd% = hitPos%
-                                IF TEXT.selStart% <> TEXT.selEnd% THEN
-                                    TEXT.selActive% = TRUE
-                                ELSE
-                                    TEXT.selActive% = FALSE
-                                END IF
+        mcLastTime# = clickTime#
+        MOUSE.B1_CLICK_TIME# = clickTime#
+
+        ' --- For multi-clicks 2+, skip cursor repositioning (use first-click position) ---
+        DIM clickHandled AS INTEGER
+        clickHandled% = FALSE
+        IF TEXT.ACTIVE AND mcClickCount% >= 2 THEN
+            ' Just mark handled — selection applied below
+            clickHandled% = TRUE
+        END IF
+
+        ' --- Single-click: position cursor / re-edit / start new ---
+        IF NOT clickHandled% AND TEXT.ACTIVE THEN
+            DIM eTdIdx AS INTEGER
+            eTdIdx% = TEXT_get_active_text_data_idx%
+            IF eTdIdx% >= 1 THEN
+                    DIM hitPos AS INTEGER
+                    hitPos% = TEXT_LAYER_get_cursor_at_pos%(eTdIdx%, MOUSE.X%, MOUSE.Y%)
+                    IF hitPos% >= 0 THEN
+                        IF MODIFIERS.shift% THEN
+                            ' Shift+click: extend selection from cursor to clicked pos
+                            IF TEXT.selStart% < 0 THEN
+                                TEXT.selStart% = TEXT_LAYER_DATA(eTdIdx%).cursorPos
+                            END IF
+                            TEXT.selEnd% = hitPos%
+                            IF TEXT.selStart% <> TEXT.selEnd% THEN
+                                TEXT.selActive% = TRUE
                             ELSE
-                                ' Normal click: set anchor for potential drag, clear selection
-                                TEXT.selStart% = hitPos%
-                                TEXT.selEnd% = hitPos%
                                 TEXT.selActive% = FALSE
                             END IF
-                            ' Move cursor to clicked position
-                            TEXT_LAYER_DATA(eTdIdx%).cursorPos = hitPos%
-                            TEXT.CURSOR_X = TEXT_LAYER_get_char_x%(eTdIdx%, hitPos%)
-                            DIM hitLine AS INTEGER
-                            hitLine% = TEXT_LAYER_get_line_for_char%(eTdIdx%, hitPos%)
-                            TEXT.CURSOR_Y = TEXT_LAYER_get_line_y%(eTdIdx%, hitLine%)
-                            TEXT_char_mode_sync_virtual
-                            TEXT.CURSOR_BLINK = 1
-                            TEXT.BLINK_TIMER = TIMER
-                            FRAME_IDLE% = FALSE
-                            GUI_NEEDS_REDRAW% = TRUE
-                            clickHandled% = TRUE
+                        ELSE
+                            ' Normal click: set anchor for potential drag, clear selection
+                            TEXT.selStart% = hitPos%
+                            TEXT.selEnd% = hitPos%
+                            TEXT.selActive% = FALSE
                         END IF
-                END IF
+                        ' Move cursor to clicked position
+                        TEXT_LAYER_DATA(eTdIdx%).cursorPos = hitPos%
+                        TEXT.CURSOR_X = TEXT_LAYER_get_char_x%(eTdIdx%, hitPos%)
+                        DIM hitLine AS INTEGER
+                        hitLine% = TEXT_LAYER_get_line_for_char%(eTdIdx%, hitPos%)
+                        TEXT.CURSOR_Y = TEXT_LAYER_get_line_y%(eTdIdx%, hitLine%)
+                        TEXT_char_mode_sync_virtual
+                        TEXT.CURSOR_BLINK = 1
+                        TEXT.BLINK_TIMER = TIMER
+                        FRAME_IDLE% = FALSE
+                        GUI_NEEDS_REDRAW% = TRUE
+                        clickHandled% = TRUE
+                        mcCursorPos% = hitPos%  ' Store for multi-click use
+                    END IF
             END IF
-            IF NOT clickHandled% THEN
-                ' Single-click re-edit: check for committed text layer under cursor
-                DIM reEditLayer AS INTEGER
-                reEditLayer% = 0
-                DIM reLi AS INTEGER
-                FOR reLi% = LAYER_COUNT% TO 1 STEP -1
-                    IF LAYERS(reLi%).visible% THEN
-                        IF LAYERS(reLi%).layerType% = LAYER_TYPE_TEXT THEN
-                            DIM reTdI AS INTEGER
-                            reTdI% = LAYERS(reLi%).textDataIdx%
-                            IF reTdI% >= 1 THEN
-                                IF TEXT_LAYER_DATA(reTdI%).charCount > 0 THEN
-                                    ' Bounding box hit test
-                                    DIM reTlX AS INTEGER, reTlY AS INTEGER
-                                    reTlX% = TEXT_LAYER_DATA(reTdI%).startX
-                                    reTlY% = TEXT_LAYER_DATA(reTdI%).startY
-                                    DIM reTlW AS INTEGER, reTlH AS INTEGER
-                                    TEXT_LAYER_get_bounds reTdI%, reTlW%, reTlH%
-                                    IF reTlW% < 32 THEN reTlW% = 32
-                                    IF reTlH% < 16 THEN reTlH% = 16
-                                    IF MOUSE.X% >= reTlX% AND MOUSE.X% < reTlX% + reTlW% THEN
-                                        IF MOUSE.Y% >= reTlY% AND MOUSE.Y% < reTlY% + reTlH% THEN
-                                            reEditLayer% = reLi%
-                                            EXIT FOR
-                                        END IF
+        END IF
+        IF NOT clickHandled% THEN
+            ' Check for committed text layer under cursor for re-edit
+            DIM reEditLayer AS INTEGER
+            reEditLayer% = 0
+            DIM reLi AS INTEGER
+            FOR reLi% = LAYER_COUNT% TO 1 STEP -1
+                IF reLi% = TEXT.editingTextLayer% THEN _CONTINUE ' Skip active layer
+                IF LAYERS(reLi%).visible% THEN
+                    IF LAYERS(reLi%).layerType% = LAYER_TYPE_TEXT THEN
+                        DIM reTdI AS INTEGER
+                        reTdI% = LAYERS(reLi%).textDataIdx%
+                        IF reTdI% >= 1 THEN
+                            IF TEXT_LAYER_DATA(reTdI%).charCount > 0 THEN
+                                ' Bounding box hit test
+                                DIM reTlX AS INTEGER, reTlY AS INTEGER
+                                reTlX% = TEXT_LAYER_DATA(reTdI%).startX
+                                reTlY% = TEXT_LAYER_DATA(reTdI%).startY
+                                DIM reTlW AS INTEGER, reTlH AS INTEGER
+                                TEXT_LAYER_get_bounds reTdI%, reTlW%, reTlH%
+                                IF reTlW% < 32 THEN reTlW% = 32
+                                IF reTlH% < 16 THEN reTlH% = 16
+                                IF MOUSE.X% >= reTlX% AND MOUSE.X% < reTlX% + reTlW% THEN
+                                    IF MOUSE.Y% >= reTlY% AND MOUSE.Y% < reTlY% + reTlH% THEN
+                                        reEditLayer% = reLi%
+                                        EXIT FOR
                                     END IF
                                 END IF
                             END IF
                         END IF
                     END IF
-                NEXT reLi%
-                IF reEditLayer% > 0 THEN
-                    TEXT_re_edit reEditLayer%
-                    ' Position cursor at click point instead of end-of-text
-                    DIM reClickTd AS INTEGER
-                    reClickTd% = LAYERS(reEditLayer%).textDataIdx%
-                    IF reClickTd% >= 1 THEN
-                        DIM reClickPos AS INTEGER
-                        reClickPos% = TEXT_LAYER_get_cursor_at_pos%(reClickTd%, MOUSE.X%, MOUSE.Y%)
-                        IF reClickPos% >= 0 THEN
-                            TEXT_LAYER_DATA(reClickTd%).cursorPos = reClickPos%
-                            TEXT.CURSOR_X = TEXT_LAYER_get_char_x%(reClickTd%, reClickPos%)
-                            DIM reClickLine AS INTEGER
-                            reClickLine% = TEXT_LAYER_get_line_for_char%(reClickTd%, reClickPos%)
-                            TEXT.CURSOR_Y = TEXT_LAYER_get_line_y%(reClickTd%, reClickLine%)
-                            TEXT_char_mode_sync_virtual
-                        END IF
+                END IF
+            NEXT reLi%
+            IF reEditLayer% > 0 THEN
+                TEXT_re_edit reEditLayer%
+                ' Position cursor at click point instead of end-of-text
+                DIM reClickTd AS INTEGER
+                reClickTd% = LAYERS(reEditLayer%).textDataIdx%
+                IF reClickTd% >= 1 THEN
+                    DIM reClickPos AS INTEGER
+                    reClickPos% = TEXT_LAYER_get_cursor_at_pos%(reClickTd%, MOUSE.X%, MOUSE.Y%)
+                    IF reClickPos% >= 0 THEN
+                        TEXT_LAYER_DATA(reClickTd%).cursorPos = reClickPos%
+                        TEXT.CURSOR_X = TEXT_LAYER_get_char_x%(reClickTd%, reClickPos%)
+                        DIM reClickLine AS INTEGER
+                        reClickLine% = TEXT_LAYER_get_line_for_char%(reClickTd%, reClickPos%)
+                        TEXT.CURSOR_Y = TEXT_LAYER_get_line_y%(reClickTd%, reClickLine%)
+                        TEXT_char_mode_sync_virtual
+                        mcCursorPos% = reClickPos%  ' Store for multi-click use
                     END IF
-                    TEXT_sync_bar_to_cursor
-                    clickHandled% = TRUE
+                END IF
+                TEXT_sync_bar_to_cursor
+                clickHandled% = TRUE
+            END IF
+        END IF
+        IF NOT clickHandled% AND TEXT.ACTIVE THEN
+            ' Click missed active text — absorb if within broad bounds
+            DIM abTd AS INTEGER
+            abTd% = TEXT_get_active_text_data_idx%
+            IF abTd% >= 1 THEN
+                DIM abW AS INTEGER, abH AS INTEGER
+                TEXT_LAYER_get_bounds abTd%, abW%, abH%
+                IF abW% < 32 THEN abW% = 32
+                IF abH% < 16 THEN abH% = 16
+                DIM abSX AS INTEGER, abSY AS INTEGER
+                abSX% = TEXT_LAYER_DATA(abTd%).startX
+                abSY% = TEXT_LAYER_DATA(abTd%).startY
+                IF MOUSE.X% >= abSX% - 8 AND MOUSE.X% < abSX% + abW% + 8 THEN
+                    IF MOUSE.Y% >= abSY% - 8 AND MOUSE.Y% < abSY% + abH% + 8 THEN
+                        clickHandled% = TRUE
+                    END IF
                 END IF
             END IF
-            IF NOT clickHandled% THEN
-                TEXT_start MOUSE.X%, MOUSE.Y%
-                TEXT_char_mode_sync_virtual
+        END IF
+        IF NOT clickHandled% THEN
+            TEXT_start MOUSE.X%, MOUSE.Y%
+            TEXT_char_mode_sync_virtual
+            mcClickCount% = 1 ' Reset on new empty text start
+        END IF
+
+        ' --- Multi-click selection (word / line / all) ---
+        IF TEXT.ACTIVE AND mcClickCount% >= 2 THEN
+            DIM mcTd AS INTEGER
+            mcTd% = TEXT_get_active_text_data_idx%
+            IF mcTd% >= 1 AND TEXT_LAYER_DATA(mcTd%).charCount > 0 THEN
+                ' Use the stable click-1 cursor position, not the position
+                ' moved by a previous multi-click selection sub
+                SELECT CASE mcClickCount%
+                    CASE 2: TEXT_select_word mcCursorPos%
+                    CASE 3: TEXT_select_line mcCursorPos%
+                    CASE 4: TEXT_select_all
+                END SELECT
+                mcSelLocked% = TRUE   ' Prevent drag from overriding selection
+                TEXT_sync_bar_to_cursor
             END IF
         END IF
     ELSEIF MOUSE.B1% AND MOUSE.OLD_B1% THEN
-        ' Mouse drag: extend selection while dragging
-        IF TEXT.ACTIVE THEN
+        ' Mouse drag: extend selection while dragging (skip if multi-click locked)
+        IF TEXT.ACTIVE AND NOT mcSelLocked% THEN
             DIM dragTdIdx AS INTEGER
             dragTdIdx% = TEXT_get_active_text_data_idx%
             IF dragTdIdx% >= 1 THEN
