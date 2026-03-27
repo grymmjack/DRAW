@@ -26,6 +26,10 @@ FUNCTION TEXT_LAYER_alloc% ()
             TEXT_LAYER_DATA(i%).lineCount = 1
             TEXT_LAYER_DATA(i%).cursorPos = 0
             TEXT_LAYER_DATA(i%).dirty = TRUE
+            TEXT_LAYER_DATA(i%).alignment = TEXT_ALIGN_LEFT
+            TEXT_LAYER_DATA(i%).antialias = FALSE  ' OFF by default — user must opt in
+            TEXT_LAYER_DATA(i%).outlineCharCount = 0
+            TEXT_LAYER_DATA(i%).shadowCharCount = 0
             TL_LINE_BREAK(i%, 0) = 0  ' First line starts at char 0
             TEXT_LAYER_alloc% = i%
             EXIT FUNCTION
@@ -52,6 +56,10 @@ SUB TEXT_LAYER_free (idx%)
     TEXT_LAYER_DATA(idx%).defaultLeading = 0
     TEXT_LAYER_DATA(idx%).cursorPos = 0
     TEXT_LAYER_DATA(idx%).dirty = FALSE
+    TEXT_LAYER_DATA(idx%).alignment = TEXT_ALIGN_LEFT
+    TEXT_LAYER_DATA(idx%).antialias = FALSE
+    TEXT_LAYER_DATA(idx%).outlineCharCount = 0
+    TEXT_LAYER_DATA(idx%).shadowCharCount = 0
 
     ' Clear per-char arrays
     DIM c AS INTEGER
@@ -67,6 +75,13 @@ SUB TEXT_LAYER_free (idx%)
         TL_STRIKE(idx%, c%) = FALSE
         TL_KERN(idx%, c%) = 0
         TL_BASELINE(idx%, c%) = 0
+        TL_OUTLINE(idx%, c%) = 0
+        TL_OUTLINE_COLOR(idx%, c%) = 0
+        TL_OUTLINE_SIZE(idx%, c%) = 0
+        TL_SHADOW(idx%, c%) = 0
+        TL_SHADOW_COLOR(idx%, c%) = 0
+        TL_SHADOW_X(idx%, c%) = 0
+        TL_SHADOW_Y(idx%, c%) = 0
     NEXT c%
 
     ' Clear per-line arrays
@@ -79,10 +94,112 @@ END SUB
 
 
 ''
+' Measure the visible pixel height of a glyph by rendering to a temp image and
+' scanning for non-transparent rows. Returns the distance from the first to last
+' visible row, plus the Y offset from the top of the cell to the first visible row.
+' This gives the true visual extent, unlike _UFONTHEIGHT which includes the full
+' ascent+descent+leading cell.
+'
+FUNCTION TEXT_LAYER_measure_visible_height% (fontIdx%, fontSize%, fontStyle$, mono%, antialias%, outVisY AS INTEGER)
+    TEXT_LAYER_measure_visible_height% = 0
+    outVisY% = 0
+
+    IF fontIdx% < 0 OR fontIdx% >= FONT_LIST_COUNT% THEN EXIT FUNCTION
+
+    DIM visH AS INTEGER
+    visH% = 0
+
+    ' Bitmap fonts — visible height equals glyph height, no offset
+    IF FONT_LIST(fontIdx%).isBitmapFont THEN
+        visH% = FONT_LIST(fontIdx%).bitmapGlyphH
+        IF visH% < 1 THEN visH% = 16
+        TEXT_LAYER_measure_visible_height% = visH%
+        EXIT FUNCTION
+    END IF
+
+    ' Built-in fonts — height is the handle value, no offset
+    IF FONT_LIST(fontIdx%).isBuiltIn THEN
+        TEXT_LAYER_measure_visible_height% = FONT_LIST(fontIdx%).builtInHandle
+        EXIT FUNCTION
+    END IF
+
+    ' TTF: render a reference glyph and scan for visible rows
+    DIM fh AS LONG
+    fh& = FONT_LIST_get_handle&(fontIdx%, fontSize%, fontStyle$, mono%, antialias%)
+    IF fh& <= 0 THEN
+        TEXT_LAYER_measure_visible_height% = fontSize%
+        EXIT FUNCTION
+    END IF
+
+    DIM oldFont AS LONG
+    oldFont& = _FONT
+    _FONT fh&
+    DIM cellH AS INTEGER
+    cellH% = _UFONTHEIGHT
+    DIM cellW AS INTEGER
+    cellW% = _PRINTWIDTH("M")
+    IF cellW% < 2 THEN cellW% = fontSize%
+    IF cellH% < 2 THEN cellH% = fontSize%
+    _FONT oldFont&
+
+    ' Create temp image, render glyph, scan rows
+    DIM tmpImg AS LONG
+    tmpImg& = _NEWIMAGE(cellW% + 4, cellH% + 4, 32)
+    IF tmpImg& >= -1 THEN
+        TEXT_LAYER_measure_visible_height% = fontSize%
+        EXIT FUNCTION
+    END IF
+
+    DIM oldDest AS LONG
+    oldDest& = _DEST
+    _DEST tmpImg&
+    CLS , _RGBA32(0, 0, 0, 0)
+    _FONT fh&
+    COLOR _RGB32(255, 255, 255)
+    _PRINTMODE _KEEPBACKGROUND
+    _CONTROLCHR OFF
+    _UPRINTSTRING (0, 0), "M"
+    _CONTROLCHR ON
+
+    ' Scan for first and last visible row
+    DIM m AS _MEM
+    m = _MEMIMAGE(tmpImg&)
+    DIM imgW AS INTEGER
+    imgW% = _WIDTH(tmpImg&)
+    DIM firstRow AS INTEGER, lastRow AS INTEGER
+    firstRow% = -1
+    lastRow% = -1
+    DIM scanY AS INTEGER, scanX AS INTEGER
+    DIM px AS _UNSIGNED LONG
+    FOR scanY% = 0 TO _HEIGHT(tmpImg&) - 1
+        FOR scanX% = 0 TO imgW% - 1
+            _MEMGET m, m.OFFSET + (scanY% * imgW% + scanX%) * 4, px~&
+            IF _ALPHA32(px~&) > 0 THEN
+                IF firstRow% = -1 THEN firstRow% = scanY%
+                lastRow% = scanY%
+                EXIT FOR  ' Found visible pixel on this row, move to next row
+            END IF
+        NEXT scanX%
+    NEXT scanY%
+    _MEMFREE m
+
+    _DEST oldDest&
+    _FREEIMAGE tmpImg&
+
+    IF firstRow% >= 0 AND lastRow% >= firstRow% THEN
+        outVisY% = firstRow%
+        TEXT_LAYER_measure_visible_height% = lastRow% - firstRow% + 1
+    ELSE
+        TEXT_LAYER_measure_visible_height% = fontSize%
+    END IF
+END FUNCTION
+
+
+''
 ' Resolve character metrics for the current font entry.
 ' For raw bitmap fonts, uses native glyph dimensions instead of _LOADFONT.
 '
-FUNCTION TEXT_LAYER_measure_char% (fontIdx%, fontSize%, fontStyle$, mono%, ch$, outW AS INTEGER, outH AS INTEGER, outHandle AS LONG)
+FUNCTION TEXT_LAYER_measure_char% (fontIdx%, fontSize%, fontStyle$, mono%, antialias%, ch$, outW AS INTEGER, outH AS INTEGER, outHandle AS LONG)
     TEXT_LAYER_measure_char% = FALSE
     outW% = 0
     outH% = 0
@@ -99,7 +216,7 @@ FUNCTION TEXT_LAYER_measure_char% (fontIdx%, fontSize%, fontStyle$, mono%, ch$, 
         EXIT FUNCTION
     END IF
 
-    outHandle& = FONT_LIST_get_handle&(fontIdx%, fontSize%, fontStyle$, mono%)
+    outHandle& = FONT_LIST_get_handle&(fontIdx%, fontSize%, fontStyle$, mono%, antialias%)
     IF outHandle& <= 0 THEN EXIT FUNCTION
 
     DIM oldFont AS LONG
@@ -110,7 +227,7 @@ FUNCTION TEXT_LAYER_measure_char% (fontIdx%, fontSize%, fontStyle$, mono%, ch$, 
     _FONT outHandle&
     _CONTROLCHR OFF
     outW% = _PRINTWIDTH(measureCh$)
-    outH% = _FONTHEIGHT
+    outH% = _UFONTHEIGHT
     _CONTROLCHR ON
     _FONT oldFont&
 
@@ -151,6 +268,8 @@ SUB TEXT_LAYER_draw_bitmap_char (fontIdx%, ch$, drawX%, drawY%, fgColor~&, destI
         BITMAP_FONT_render_glyph_psf fontPath$, charIdx%, glyphW%, glyphH%, glyphImg&
     ELSEIF RIGHT$(upperPath$, 4) = ".PCF" THEN
         BITMAP_FONT_render_glyph_pcf fontPath$, charIdx%, glyphW%, glyphH%, glyphImg&
+    ELSEIF RIGHT$(upperPath$, 4) = ".FON" THEN
+        BITMAP_FONT_render_glyph_fon fontPath$, charIdx%, glyphW%, glyphH%, glyphImg&
     ELSE
         BITMAP_FONT_render_glyph_fxx fontPath$, charIdx%, glyphH%, glyphImg&
         glyphW% = 8
@@ -239,9 +358,85 @@ SUB TEXT_LAYER_render (idx%, destImg&)
     DIM charH AS INTEGER
     DIM leading AS INTEGER
 
+    ' --- Alignment pre-walk: compute per-line widths for L/C/R offset ---
+    DIM alignMode AS INTEGER
+    alignMode% = TEXT_LAYER_DATA(idx%).alignment
+    DIM lineWidths(0 TO TEXT_LAYER_MAX_LINES - 1) AS INTEGER
+    DIM lineHeights(0 TO TEXT_LAYER_MAX_LINES - 1) AS INTEGER
+    DIM maxLineWidth AS INTEGER
+    maxLineWidth% = 0
+
+    ' Pre-walk all chars to compute per-line widths and max heights.
+    ' Widths are used for center/right alignment; heights are used when
+    ' TL_LEADING is 0 so that the tallest glyph on a line sets the leading.
+    DIM preC AS INTEGER
+    DIM preLine AS INTEGER
+    DIM preW AS INTEGER
+    DIM preFStyle AS STRING
+    DIM preFHandle AS LONG
+    DIM preCW AS INTEGER, preCH AS INTEGER
+    DIM preFauxAdv AS INTEGER
+    preLine% = 0
+    preW% = 0
+
+    FOR preC% = 0 TO TEXT_LAYER_DATA(idx%).charCount - 1
+        ' Check for line break
+        IF preLine% < TEXT_LAYER_DATA(idx%).lineCount - 1 THEN
+            IF preC% = TL_LINE_BREAK(idx%, preLine% + 1) THEN
+                lineWidths(preLine%) = preW%
+                IF preW% > maxLineWidth% THEN maxLineWidth% = preW%
+                preLine% = preLine% + 1
+                preW% = 0
+            END IF
+        END IF
+        IF TL_CHAR(idx%, preC%) = CHR$(10) THEN _CONTINUE
+
+        preFStyle$ = FONT_STYLE_REGULAR$
+        IF TL_BOLD(idx%, preC%) AND TL_ITALIC(idx%, preC%) THEN
+            preFStyle$ = FONT_STYLE_BOLDITALIC$
+        ELSEIF TL_BOLD(idx%, preC%) THEN
+            preFStyle$ = FONT_STYLE_BOLD$
+        ELSEIF TL_ITALIC(idx%, preC%) THEN
+            preFStyle$ = FONT_STYLE_ITALIC$
+        END IF
+
+        preFauxAdv% = 0
+        IF TL_BOLD(idx%, preC%) THEN
+            IF TL_FONT_IDX(idx%, preC%) >= 0 AND TL_FONT_IDX(idx%, preC%) < FONT_LIST_COUNT% THEN
+                IF NOT FONT_LIST(TL_FONT_IDX(idx%, preC%)).hasBold THEN preFauxAdv% = 1
+            END IF
+        END IF
+
+        IF TEXT_LAYER_measure_char%(TL_FONT_IDX(idx%, preC%), TL_FONT_SIZE(idx%, preC%), preFStyle$, TEXT_LAYER_DATA(idx%).monospace, TEXT_LAYER_DATA(idx%).antialias, TL_CHAR(idx%, preC%), preCW%, preCH%, preFHandle&) THEN
+            preW% = preW% + preCW% + TL_KERN(idx%, preC%) + preFauxAdv%
+            IF preCH% > lineHeights(preLine%) THEN lineHeights(preLine%) = preCH%
+        ELSE
+            preW% = preW% + 8 + TL_KERN(idx%, preC%)
+        END IF
+    NEXT preC%
+    ' Final line
+    lineWidths(preLine%) = preW%
+    IF preW% > maxLineWidth% THEN maxLineWidth% = preW%
+
+    ' Flags for whether to attempt shadow/outline draws (CPU skip)
+    DIM doShadow AS INTEGER
+    DIM doOutline AS INTEGER
+    doShadow% = (TEXT_LAYER_DATA(idx%).shadowCharCount > 0)
+    doOutline% = (TEXT_LAYER_DATA(idx%).outlineCharCount > 0)
+
     curX% = TEXT_LAYER_DATA(idx%).startX
     curY% = TEXT_LAYER_DATA(idx%).startY
     curLine% = 0
+
+    ' Apply alignment offset for first line
+    DIM alignOff AS INTEGER
+    alignOff% = 0
+    IF alignMode% = TEXT_ALIGN_CENTER THEN
+        alignOff% = (maxLineWidth% - lineWidths(0)) \ 2
+    ELSEIF alignMode% = TEXT_ALIGN_RIGHT THEN
+        alignOff% = maxLineWidth% - lineWidths(0)
+    END IF
+    curX% = curX% + alignOff%
 
     FOR c% = 0 TO TEXT_LAYER_DATA(idx%).charCount - 1
         ' Check for line break
@@ -249,9 +444,16 @@ SUB TEXT_LAYER_render (idx%, destImg&)
             IF c% = TL_LINE_BREAK(idx%, curLine% + 1) THEN
                 curLine% = curLine% + 1
                 curX% = TEXT_LAYER_DATA(idx%).startX
+                ' Apply alignment offset for this new line
+                IF alignMode% = TEXT_ALIGN_CENTER THEN
+                    curX% = curX% + (maxLineWidth% - lineWidths(curLine%)) \ 2
+                ELSEIF alignMode% = TEXT_ALIGN_RIGHT THEN
+                    curX% = curX% + maxLineWidth% - lineWidths(curLine%)
+                END IF
                 ' Advance Y by leading for previous line
                 leading% = TL_LEADING(idx%, curLine% - 1)
                 IF leading% = 0 THEN leading% = TEXT_LAYER_DATA(idx%).defaultLeading
+                IF leading% = 0 THEN leading% = lineHeights(curLine% - 1)
                 curY% = curY% + leading%
             END IF
         END IF
@@ -274,12 +476,15 @@ SUB TEXT_LAYER_render (idx%, destImg&)
         END IF
 
         DIM isBitmapFont AS INTEGER
+        DIM isBuiltInFont AS INTEGER
         isBitmapFont% = FALSE
+        isBuiltInFont% = FALSE
         IF TL_FONT_IDX(idx%, c%) >= 0 AND TL_FONT_IDX(idx%, c%) < FONT_LIST_COUNT% THEN
             isBitmapFont% = FONT_LIST(TL_FONT_IDX(idx%, c%)).isBitmapFont
+            isBuiltInFont% = FONT_LIST(TL_FONT_IDX(idx%, c%)).isBuiltIn
         END IF
 
-        IF NOT TEXT_LAYER_measure_char%(TL_FONT_IDX(idx%, c%), TL_FONT_SIZE(idx%, c%), fontStyle$, TEXT_LAYER_DATA(idx%).monospace, ch$, charW%, charH%, fHandle&) THEN
+        IF NOT TEXT_LAYER_measure_char%(TL_FONT_IDX(idx%, c%), TL_FONT_SIZE(idx%, c%), fontStyle$, TEXT_LAYER_DATA(idx%).monospace, TEXT_LAYER_DATA(idx%).antialias, ch$, charW%, charH%, fHandle&) THEN
             ' Font unavailable — still advance cursor by estimated width
             curX% = curX% + 8 + TL_KERN(idx%, c%)
             _CONTINUE
@@ -307,6 +512,119 @@ SUB TEXT_LAYER_render (idx%, destImg&)
             LINE (drawX%, drawY%)-(drawX% + charW% - 1 + fauxBoldAdv%, drawY% + charH% - 1), bgColor~&, BF
         END IF
 
+        ' --- Shadow pass (drawn first, behind outline and glyph) ---
+        IF doShadow% AND TL_SHADOW(idx%, c%) THEN
+            DIM shdX AS INTEGER, shdY AS INTEGER
+            DIM shdColor AS _UNSIGNED LONG
+            shdX% = drawX% + TL_SHADOW_X(idx%, c%)
+            shdY% = drawY% + TL_SHADOW_Y(idx%, c%)
+            shdColor~& = TL_SHADOW_COLOR(idx%, c%)
+            IF isBitmapFont% THEN
+                TEXT_LAYER_draw_bitmap_char TL_FONT_IDX(idx%, c%), ch$, shdX%, shdY%, shdColor~&, destImg&
+                IF fauxBoldAdv% THEN TEXT_LAYER_draw_bitmap_char TL_FONT_IDX(idx%, c%), ch$, shdX% + 1, shdY%, shdColor~&, destImg&
+            ELSE
+                _FONT fHandle&
+                COLOR shdColor~&
+                _PRINTMODE _KEEPBACKGROUND
+                _CONTROLCHR OFF
+                IF isBuiltInFont% THEN
+                    _PRINTSTRING (shdX%, shdY%), ch$
+                    IF fauxBoldAdv% THEN _PRINTSTRING (shdX% + 1, shdY%), ch$
+                ELSE
+                    _UPRINTSTRING (shdX%, shdY%), ch$
+                    IF fauxBoldAdv% THEN _UPRINTSTRING (shdX% + 1, shdY%), ch$
+                END IF
+                _CONTROLCHR ON
+            END IF
+        END IF
+
+        ' --- Outline pass (drawn after shadow, before normal glyph) ---
+        IF doOutline% AND TL_OUTLINE(idx%, c%) THEN
+            DIM outColor AS _UNSIGNED LONG
+            DIM outSize AS INTEGER
+            DIM odx AS INTEGER, ody AS INTEGER
+            outColor~& = TL_OUTLINE_COLOR(idx%, c%)
+            outSize% = TL_OUTLINE_SIZE(idx%, c%)
+            IF outSize% < 1 THEN outSize% = 1
+
+            IF isBitmapFont% THEN
+                ' Bitmap outline: draw at offsets
+                IF outSize% = 1 THEN
+                    ' 4-way optimization for size 1
+                    TEXT_LAYER_draw_bitmap_char TL_FONT_IDX(idx%, c%), ch$, drawX% - 1, drawY%, outColor~&, destImg&
+                    TEXT_LAYER_draw_bitmap_char TL_FONT_IDX(idx%, c%), ch$, drawX% + 1, drawY%, outColor~&, destImg&
+                    TEXT_LAYER_draw_bitmap_char TL_FONT_IDX(idx%, c%), ch$, drawX%, drawY% - 1, outColor~&, destImg&
+                    TEXT_LAYER_draw_bitmap_char TL_FONT_IDX(idx%, c%), ch$, drawX%, drawY% + 1, outColor~&, destImg&
+                ELSE
+                    ' 8-directional for size 2+: perimeter offsets only
+                    FOR ody% = -outSize% TO outSize%
+                        FOR odx% = -outSize% TO outSize%
+                            IF ABS(odx%) = outSize% OR ABS(ody%) = outSize% THEN
+                                TEXT_LAYER_draw_bitmap_char TL_FONT_IDX(idx%, c%), ch$, drawX% + odx%, drawY% + ody%, outColor~&, destImg&
+                            END IF
+                        NEXT odx%
+                    NEXT ody%
+                END IF
+            ELSEIF isBuiltInFont% THEN
+                ' Built-in font outline: use _PRINTSTRING (native CP437)
+                _FONT fHandle&
+                COLOR outColor~&
+                _PRINTMODE _KEEPBACKGROUND
+                _CONTROLCHR OFF
+                IF outSize% = 1 THEN
+                    _PRINTSTRING (drawX% - 1, drawY%), ch$
+                    _PRINTSTRING (drawX% + 1, drawY%), ch$
+                    _PRINTSTRING (drawX%, drawY% - 1), ch$
+                    _PRINTSTRING (drawX%, drawY% + 1), ch$
+                    IF fauxBoldAdv% THEN
+                        _PRINTSTRING (drawX%, drawY%), ch$
+                        _PRINTSTRING (drawX% + 2, drawY%), ch$
+                        _PRINTSTRING (drawX% + 1, drawY% - 1), ch$
+                        _PRINTSTRING (drawX% + 1, drawY% + 1), ch$
+                    END IF
+                ELSE
+                    FOR ody% = -outSize% TO outSize%
+                        FOR odx% = -outSize% TO outSize%
+                            IF ABS(odx%) = outSize% OR ABS(ody%) = outSize% THEN
+                                _PRINTSTRING (drawX% + odx%, drawY% + ody%), ch$
+                                IF fauxBoldAdv% THEN _PRINTSTRING (drawX% + odx% + 1, drawY% + ody%), ch$
+                            END IF
+                        NEXT odx%
+                    NEXT ody%
+                END IF
+                _CONTROLCHR ON
+            ELSE
+                ' TTF/OTF outline: use _UPRINTSTRING (avoids clipping)
+                _FONT fHandle&
+                COLOR outColor~&
+                _PRINTMODE _KEEPBACKGROUND
+                _CONTROLCHR OFF
+                IF outSize% = 1 THEN
+                    _UPRINTSTRING (drawX% - 1, drawY%), ch$
+                    _UPRINTSTRING (drawX% + 1, drawY%), ch$
+                    _UPRINTSTRING (drawX%, drawY% - 1), ch$
+                    _UPRINTSTRING (drawX%, drawY% + 1), ch$
+                    IF fauxBoldAdv% THEN
+                        _UPRINTSTRING (drawX%, drawY%), ch$
+                        _UPRINTSTRING (drawX% + 2, drawY%), ch$
+                        _UPRINTSTRING (drawX% + 1, drawY% - 1), ch$
+                        _UPRINTSTRING (drawX% + 1, drawY% + 1), ch$
+                    END IF
+                ELSE
+                    FOR ody% = -outSize% TO outSize%
+                        FOR odx% = -outSize% TO outSize%
+                            IF ABS(odx%) = outSize% OR ABS(ody%) = outSize% THEN
+                                _UPRINTSTRING (drawX% + odx%, drawY% + ody%), ch$
+                                IF fauxBoldAdv% THEN _UPRINTSTRING (drawX% + odx% + 1, drawY% + ody%), ch$
+                            END IF
+                        NEXT odx%
+                    NEXT ody%
+                END IF
+                _CONTROLCHR ON
+            END IF
+        END IF
+
+        ' --- Normal glyph ---
         IF isBitmapFont% THEN
             TEXT_LAYER_draw_bitmap_char TL_FONT_IDX(idx%, c%), ch$, drawX%, drawY%, fgColor~&, destImg&
             IF fauxBoldAdv% THEN
@@ -320,15 +638,17 @@ SUB TEXT_LAYER_render (idx%, destImg&)
             IF fgTransparent% THEN _DONTBLEND destImg&
 
             ' Draw character — _CONTROLCHR OFF enables CP437 glyphs for codes 0-31
+            ' Built-in fonts use _PRINTSTRING (native CP437); TTF/OTF use _UPRINTSTRING
             _FONT fHandle&
             COLOR fgColor~&
             _PRINTMODE _KEEPBACKGROUND
             _CONTROLCHR OFF
-            _PRINTSTRING (drawX%, drawY%), ch$
-
-            ' Faux bold synthesis: draw again offset +1px
-            IF fauxBoldAdv% THEN
-                _PRINTSTRING (drawX% + 1, drawY%), ch$
+            IF isBuiltInFont% THEN
+                _PRINTSTRING (drawX%, drawY%), ch$
+                IF fauxBoldAdv% THEN _PRINTSTRING (drawX% + 1, drawY%), ch$
+            ELSE
+                _UPRINTSTRING (drawX%, drawY%), ch$
+                IF fauxBoldAdv% THEN _UPRINTSTRING (drawX% + 1, drawY%), ch$
             END IF
 
             _CONTROLCHR ON
@@ -383,6 +703,13 @@ SUB TEXT_LAYER_add_char (idx%, ch$)
             TL_STRIKE(idx%, i% + 1) = TL_STRIKE(idx%, i%)
             TL_KERN(idx%, i% + 1) = TL_KERN(idx%, i%)
             TL_BASELINE(idx%, i% + 1) = TL_BASELINE(idx%, i%)
+            TL_OUTLINE(idx%, i% + 1) = TL_OUTLINE(idx%, i%)
+            TL_OUTLINE_COLOR(idx%, i% + 1) = TL_OUTLINE_COLOR(idx%, i%)
+            TL_OUTLINE_SIZE(idx%, i% + 1) = TL_OUTLINE_SIZE(idx%, i%)
+            TL_SHADOW(idx%, i% + 1) = TL_SHADOW(idx%, i%)
+            TL_SHADOW_COLOR(idx%, i% + 1) = TL_SHADOW_COLOR(idx%, i%)
+            TL_SHADOW_X(idx%, i% + 1) = TL_SHADOW_X(idx%, i%)
+            TL_SHADOW_Y(idx%, i% + 1) = TL_SHADOW_Y(idx%, i%)
         NEXT i%
     END IF
 
@@ -392,12 +719,19 @@ SUB TEXT_LAYER_add_char (idx%, ch$)
     TL_BG(idx%, cpos%) = _RGBA32(0, 0, 0, 0)  ' Always transparent — callers set BG explicitly
     TL_FONT_IDX(idx%, cpos%) = TEXT_LAYER_DATA(idx%).fontIdx
     TL_FONT_SIZE(idx%, cpos%) = TEXT_LAYER_DATA(idx%).fontSize
-    TL_BOLD(idx%, cpos%) = FALSE
-    TL_ITALIC(idx%, cpos%) = FALSE
-    TL_UNDERLINE(idx%, cpos%) = FALSE
-    TL_STRIKE(idx%, cpos%) = FALSE
+    TL_BOLD(idx%, cpos%) = TEXT_BAR.boldActive%
+    TL_ITALIC(idx%, cpos%) = TEXT_BAR.italicActive%
+    TL_UNDERLINE(idx%, cpos%) = TEXT_BAR.underlineActive%
+    TL_STRIKE(idx%, cpos%) = TEXT_BAR.strikeActive%
     TL_KERN(idx%, cpos%) = 0
     TL_BASELINE(idx%, cpos%) = 0
+    TL_OUTLINE(idx%, cpos%) = TEXT_BAR.outlineActive%
+    TL_OUTLINE_COLOR(idx%, cpos%) = TEXT_BAR.outlineColor~&
+    TL_OUTLINE_SIZE(idx%, cpos%) = TEXT_BAR.outlineSize%
+    TL_SHADOW(idx%, cpos%) = TEXT_BAR.shadowActive%
+    TL_SHADOW_COLOR(idx%, cpos%) = TEXT_BAR.shadowColor~&
+    TL_SHADOW_X(idx%, cpos%) = TEXT_BAR.shadowOffsetX%
+    TL_SHADOW_Y(idx%, cpos%) = TEXT_BAR.shadowOffsetY%
 
     ' Update line breaks — shift any line breaks strictly after the insertion pos.
     ' Using > (not >=) so that inserting at the start of a line keeps that
@@ -411,6 +745,13 @@ SUB TEXT_LAYER_add_char (idx%, ch$)
 
     TEXT_LAYER_DATA(idx%).charCount = TEXT_LAYER_DATA(idx%).charCount + 1
     TEXT_LAYER_DATA(idx%).cursorPos = cpos% + 1
+    ' Maintain pre-counts so renderer doesn't skip shadow/outline passes
+    IF TL_OUTLINE(idx%, cpos%) THEN
+        TEXT_LAYER_DATA(idx%).outlineCharCount = TEXT_LAYER_DATA(idx%).outlineCharCount + 1
+    END IF
+    IF TL_SHADOW(idx%, cpos%) THEN
+        TEXT_LAYER_DATA(idx%).shadowCharCount = TEXT_LAYER_DATA(idx%).shadowCharCount + 1
+    END IF
     TEXT_LAYER_DATA(idx%).dirty = TRUE
 END SUB
 
@@ -429,6 +770,14 @@ SUB TEXT_LAYER_delete_char (idx%)
     DIM wasNewline AS INTEGER
     wasNewline% = (TL_CHAR(idx%, cpos%) = CHR$(10))
 
+    ' Decrement pre-counts if deleted char had outline/shadow
+    IF TL_OUTLINE(idx%, cpos%) THEN
+        TEXT_LAYER_DATA(idx%).outlineCharCount = TEXT_LAYER_DATA(idx%).outlineCharCount - 1
+    END IF
+    IF TL_SHADOW(idx%, cpos%) THEN
+        TEXT_LAYER_DATA(idx%).shadowCharCount = TEXT_LAYER_DATA(idx%).shadowCharCount - 1
+    END IF
+
     ' Shift characters left
     DIM i AS INTEGER
     FOR i% = cpos% TO TEXT_LAYER_DATA(idx%).charCount - 2
@@ -443,6 +792,13 @@ SUB TEXT_LAYER_delete_char (idx%)
         TL_STRIKE(idx%, i%) = TL_STRIKE(idx%, i% + 1)
         TL_KERN(idx%, i%) = TL_KERN(idx%, i% + 1)
         TL_BASELINE(idx%, i%) = TL_BASELINE(idx%, i% + 1)
+        TL_OUTLINE(idx%, i%) = TL_OUTLINE(idx%, i% + 1)
+        TL_OUTLINE_COLOR(idx%, i%) = TL_OUTLINE_COLOR(idx%, i% + 1)
+        TL_OUTLINE_SIZE(idx%, i%) = TL_OUTLINE_SIZE(idx%, i% + 1)
+        TL_SHADOW(idx%, i%) = TL_SHADOW(idx%, i% + 1)
+        TL_SHADOW_COLOR(idx%, i%) = TL_SHADOW_COLOR(idx%, i% + 1)
+        TL_SHADOW_X(idx%, i%) = TL_SHADOW_X(idx%, i% + 1)
+        TL_SHADOW_Y(idx%, i%) = TL_SHADOW_Y(idx%, i% + 1)
     NEXT i%
 
     TEXT_LAYER_DATA(idx%).charCount = TEXT_LAYER_DATA(idx%).charCount - 1
@@ -562,8 +918,33 @@ SUB TEXT_LAYER_set_selection_attr (idx%, startChar%, endChar%, attrName$, value&
                 TL_KERN(idx%, i%) = value&
             CASE "BASELINE"
                 TL_BASELINE(idx%, i%) = value&
+            CASE "OUTLINE"
+                TL_OUTLINE(idx%, i%) = value&
+            CASE "OUTLINE_COLOR"
+                TL_OUTLINE_COLOR(idx%, i%) = value&
+            CASE "OUTLINE_SIZE"
+                TL_OUTLINE_SIZE(idx%, i%) = value&
+            CASE "SHADOW"
+                TL_SHADOW(idx%, i%) = value&
+            CASE "SHADOW_COLOR"
+                TL_SHADOW_COLOR(idx%, i%) = value&
+            CASE "SHADOW_X"
+                TL_SHADOW_X(idx%, i%) = value&
+            CASE "SHADOW_Y"
+                TL_SHADOW_Y(idx%, i%) = value&
         END SELECT
     NEXT i%
+
+    ' Recount outline/shadow chars after attribute changes
+    DIM olCount AS INTEGER: olCount% = 0
+    DIM shCount AS INTEGER: shCount% = 0
+    DIM rc AS INTEGER
+    FOR rc% = 0 TO TEXT_LAYER_DATA(idx%).charCount - 1
+        IF TL_OUTLINE(idx%, rc%) THEN olCount% = olCount% + 1
+        IF TL_SHADOW(idx%, rc%) THEN shCount% = shCount% + 1
+    NEXT rc%
+    TEXT_LAYER_DATA(idx%).outlineCharCount = olCount%
+    TEXT_LAYER_DATA(idx%).shadowCharCount = shCount%
 
     TEXT_LAYER_DATA(idx%).dirty = TRUE
 END SUB
@@ -593,7 +974,7 @@ FUNCTION TEXT_LAYER_get_char_at_pos% (idx%, canvasX%, canvasY%)
     DIM charH AS INTEGER
     DIM leading AS INTEGER
 
-    curX% = TEXT_LAYER_DATA(idx%).startX
+    curX% = TEXT_LAYER_DATA(idx%).startX + TEXT_LAYER_get_align_offset%(idx%, 0)
     curY% = TEXT_LAYER_DATA(idx%).startY
     curLine% = 0
 
@@ -602,9 +983,10 @@ FUNCTION TEXT_LAYER_get_char_at_pos% (idx%, canvasX%, canvasY%)
         IF curLine% < TEXT_LAYER_DATA(idx%).lineCount - 1 THEN
             IF c% = TL_LINE_BREAK(idx%, curLine% + 1) THEN
                 curLine% = curLine% + 1
-                curX% = TEXT_LAYER_DATA(idx%).startX
+                curX% = TEXT_LAYER_DATA(idx%).startX + TEXT_LAYER_get_align_offset%(idx%, curLine%)
                 leading% = TL_LEADING(idx%, curLine% - 1)
                 IF leading% = 0 THEN leading% = TEXT_LAYER_DATA(idx%).defaultLeading
+                IF leading% = 0 THEN leading% = TEXT_LAYER_get_line_height%(idx%, curLine% - 1)
                 curY% = curY% + leading%
             END IF
         END IF
@@ -621,7 +1003,7 @@ FUNCTION TEXT_LAYER_get_char_at_pos% (idx%, canvasX%, canvasY%)
             fontStyle$ = FONT_STYLE_ITALIC$
         END IF
 
-        IF NOT TEXT_LAYER_measure_char%(TL_FONT_IDX(idx%, c%), TL_FONT_SIZE(idx%, c%), fontStyle$, TEXT_LAYER_DATA(idx%).monospace, TL_CHAR(idx%, c%), charW%, charH%, fHandle&) THEN _CONTINUE
+        IF NOT TEXT_LAYER_measure_char%(TL_FONT_IDX(idx%, c%), TL_FONT_SIZE(idx%, c%), fontStyle$, TEXT_LAYER_DATA(idx%).monospace, TEXT_LAYER_DATA(idx%).antialias, TL_CHAR(idx%, c%), charW%, charH%, fHandle&) THEN _CONTINUE
 
         DIM drawX AS INTEGER
         DIM drawY AS INTEGER
@@ -764,6 +1146,126 @@ END FUNCTION
 
 
 ''
+' Compute the alignment X offset for a given line.
+' Performs the same pre-walk as TEXT_LAYER_render to determine per-line widths.
+' @param idx% Pool index
+' @param lineNum% Line number (0-based)
+' @return INTEGER X offset to add to startX for alignment
+'
+FUNCTION TEXT_LAYER_get_align_offset% (idx%, lineNum%)
+    TEXT_LAYER_get_align_offset% = 0
+    IF idx% < 1 OR idx% > TEXT_LAYER_POOL_SIZE THEN EXIT FUNCTION
+    IF NOT TEXT_LAYER_DATA(idx%).used THEN EXIT FUNCTION
+
+    DIM aMode AS INTEGER
+    aMode% = TEXT_LAYER_DATA(idx%).alignment
+    IF aMode% = TEXT_ALIGN_LEFT THEN EXIT FUNCTION
+    IF TEXT_LAYER_DATA(idx%).charCount = 0 THEN EXIT FUNCTION
+
+    ' Pre-walk all chars to compute per-line widths (same as TEXT_LAYER_render)
+    DIM aLineWidths(0 TO TEXT_LAYER_MAX_LINES - 1) AS INTEGER
+    DIM aMaxW AS INTEGER
+    DIM aLine AS INTEGER
+    DIM aW AS INTEGER
+    DIM aC AS INTEGER
+    aMaxW% = 0: aLine% = 0: aW% = 0
+
+    FOR aC% = 0 TO TEXT_LAYER_DATA(idx%).charCount - 1
+        IF aLine% < TEXT_LAYER_DATA(idx%).lineCount - 1 THEN
+            IF aC% = TL_LINE_BREAK(idx%, aLine% + 1) THEN
+                aLineWidths(aLine%) = aW%
+                IF aW% > aMaxW% THEN aMaxW% = aW%
+                aLine% = aLine% + 1: aW% = 0
+            END IF
+        END IF
+        IF TL_CHAR(idx%, aC%) = CHR$(10) THEN _CONTINUE
+
+        DIM aFS AS STRING
+        aFS$ = FONT_STYLE_REGULAR$
+        IF TL_BOLD(idx%, aC%) AND TL_ITALIC(idx%, aC%) THEN
+            aFS$ = FONT_STYLE_BOLDITALIC$
+        ELSEIF TL_BOLD(idx%, aC%) THEN
+            aFS$ = FONT_STYLE_BOLD$
+        ELSEIF TL_ITALIC(idx%, aC%) THEN
+            aFS$ = FONT_STYLE_ITALIC$
+        END IF
+
+        DIM aFaux AS INTEGER
+        aFaux% = 0
+        IF TL_BOLD(idx%, aC%) THEN
+            IF TL_FONT_IDX(idx%, aC%) >= 0 AND TL_FONT_IDX(idx%, aC%) < FONT_LIST_COUNT% THEN
+                IF NOT FONT_LIST(TL_FONT_IDX(idx%, aC%)).hasBold THEN aFaux% = 1
+            END IF
+        END IF
+
+        DIM aCW AS INTEGER, aCH AS INTEGER, aFH AS LONG
+        IF TEXT_LAYER_measure_char%(TL_FONT_IDX(idx%, aC%), TL_FONT_SIZE(idx%, aC%), aFS$, TEXT_LAYER_DATA(idx%).monospace, TEXT_LAYER_DATA(idx%).antialias, TL_CHAR(idx%, aC%), aCW%, aCH%, aFH&) THEN
+            aW% = aW% + aCW% + TL_KERN(idx%, aC%) + aFaux%
+        ELSE
+            aW% = aW% + 8 + TL_KERN(idx%, aC%)
+        END IF
+    NEXT aC%
+    aLineWidths(aLine%) = aW%
+    IF aW% > aMaxW% THEN aMaxW% = aW%
+
+    IF lineNum% < 0 OR lineNum% > aLine% THEN EXIT FUNCTION
+
+    IF aMode% = TEXT_ALIGN_CENTER THEN
+        TEXT_LAYER_get_align_offset% = (aMaxW% - aLineWidths(lineNum%)) \ 2
+    ELSEIF aMode% = TEXT_ALIGN_RIGHT THEN
+        TEXT_LAYER_get_align_offset% = aMaxW% - aLineWidths(lineNum%)
+    END IF
+END FUNCTION
+
+
+''
+' Compute the max character height on a given line by measuring all chars.
+' Returns 0 if the line is empty or has no measurable characters.
+' @param idx% Pool index
+' @param lineNum% Line number (0-based)
+' @return INTEGER Max character height on the line
+'
+FUNCTION TEXT_LAYER_get_line_height% (idx%, lineNum%)
+    TEXT_LAYER_get_line_height% = 0
+    IF idx% < 1 OR idx% > TEXT_LAYER_POOL_SIZE THEN EXIT FUNCTION
+    IF NOT TEXT_LAYER_DATA(idx%).used THEN EXIT FUNCTION
+    IF lineNum% < 0 OR lineNum% >= TEXT_LAYER_DATA(idx%).lineCount THEN EXIT FUNCTION
+
+    DIM lhStart AS INTEGER, lhEnd AS INTEGER
+    lhStart% = TL_LINE_BREAK(idx%, lineNum%)
+    IF lineNum% < TEXT_LAYER_DATA(idx%).lineCount - 1 THEN
+        lhEnd% = TL_LINE_BREAK(idx%, lineNum% + 1) - 1
+    ELSE
+        lhEnd% = TEXT_LAYER_DATA(idx%).charCount - 1
+    END IF
+
+    DIM maxH AS INTEGER
+    maxH% = 0
+    DIM lhC AS INTEGER
+    FOR lhC% = lhStart% TO lhEnd%
+        IF TL_CHAR(idx%, lhC%) = CHR$(10) THEN _CONTINUE
+
+        DIM lhFS AS STRING
+        lhFS$ = FONT_STYLE_REGULAR$
+        IF TL_BOLD(idx%, lhC%) AND TL_ITALIC(idx%, lhC%) THEN
+            lhFS$ = FONT_STYLE_BOLDITALIC$
+        ELSEIF TL_BOLD(idx%, lhC%) THEN
+            lhFS$ = FONT_STYLE_BOLD$
+        ELSEIF TL_ITALIC(idx%, lhC%) THEN
+            lhFS$ = FONT_STYLE_ITALIC$
+        END IF
+
+        DIM lhCW AS INTEGER, lhCH AS INTEGER, lhFH AS LONG
+        IF TEXT_LAYER_measure_char%(TL_FONT_IDX(idx%, lhC%), TL_FONT_SIZE(idx%, lhC%), lhFS$, TEXT_LAYER_DATA(idx%).monospace, TEXT_LAYER_DATA(idx%).antialias, TL_CHAR(idx%, lhC%), lhCW%, lhCH%, lhFH&) THEN
+            IF lhCH% > maxH% THEN maxH% = lhCH%
+        END IF
+    NEXT lhC%
+
+    TEXT_LAYER_get_line_height% = maxH%
+END FUNCTION
+
+
+''
 ' Get the Y position for a given line number (accounts for leading).
 ' @param idx% Pool index
 ' @param lineNum% Line number (0-based)
@@ -782,6 +1284,7 @@ FUNCTION TEXT_LAYER_get_line_y% (idx%, lineNum%)
         DIM leading AS INTEGER
         leading% = TL_LEADING(idx%, ln%)
         IF leading% = 0 THEN leading% = TEXT_LAYER_DATA(idx%).defaultLeading
+        IF leading% = 0 THEN leading% = TEXT_LAYER_get_line_height%(idx%, ln%)
         y% = y% + leading%
     NEXT ln%
 
@@ -803,7 +1306,7 @@ FUNCTION TEXT_LAYER_get_char_x% (idx%, charIdx%)
     DIM curX AS INTEGER
     DIM curLine AS INTEGER
     DIM c AS INTEGER
-    curX% = TEXT_LAYER_DATA(idx%).startX
+    curX% = TEXT_LAYER_DATA(idx%).startX + TEXT_LAYER_get_align_offset%(idx%, 0)
     curLine% = 0
 
     FOR c% = 0 TO charIdx% - 1
@@ -813,7 +1316,7 @@ FUNCTION TEXT_LAYER_get_char_x% (idx%, charIdx%)
         IF curLine% < TEXT_LAYER_DATA(idx%).lineCount - 1 THEN
             IF c% = TL_LINE_BREAK(idx%, curLine% + 1) THEN
                 curLine% = curLine% + 1
-                curX% = TEXT_LAYER_DATA(idx%).startX
+                curX% = TEXT_LAYER_DATA(idx%).startX + TEXT_LAYER_get_align_offset%(idx%, curLine%)
             END IF
         END IF
 
@@ -832,7 +1335,7 @@ FUNCTION TEXT_LAYER_get_char_x% (idx%, charIdx%)
         DIM fHandle AS LONG
         DIM charW AS INTEGER
         DIM charH AS INTEGER
-        IF TEXT_LAYER_measure_char%(TL_FONT_IDX(idx%, c%), TL_FONT_SIZE(idx%, c%), fontStyle$, TEXT_LAYER_DATA(idx%).monospace, TL_CHAR(idx%, c%), charW%, charH%, fHandle&) THEN
+        IF TEXT_LAYER_measure_char%(TL_FONT_IDX(idx%, c%), TL_FONT_SIZE(idx%, c%), fontStyle$, TEXT_LAYER_DATA(idx%).monospace, TEXT_LAYER_DATA(idx%).antialias, TL_CHAR(idx%, c%), charW%, charH%, fHandle&) THEN
             ' Faux bold: +1px for synthesis glyph width
             DIM fauxBoldAdv AS INTEGER
             fauxBoldAdv% = 0
@@ -848,12 +1351,102 @@ FUNCTION TEXT_LAYER_get_char_x% (idx%, charIdx%)
     ' Check if charIdx% itself sits at a line break (cursor at start of new line)
     IF curLine% < TEXT_LAYER_DATA(idx%).lineCount - 1 THEN
         IF charIdx% = TL_LINE_BREAK(idx%, curLine% + 1) THEN
-            curX% = TEXT_LAYER_DATA(idx%).startX
+            curX% = TEXT_LAYER_DATA(idx%).startX + TEXT_LAYER_get_align_offset%(idx%, curLine% + 1)
         END IF
     END IF
 
     TEXT_LAYER_get_char_x% = curX%
 END FUNCTION
+
+
+''
+' Compute bounding box dimensions (width, height) for a text layer.
+' Width = max raw line width (without alignment offset) across all lines.
+' Height = sum of per-line leading + last line font height.
+' @param idx% Pool index
+' @param outW% OUTPUT: bounding box width in canvas pixels
+' @param outH% OUTPUT: bounding box height in canvas pixels
+'
+SUB TEXT_LAYER_get_bounds (idx%, outW%, outH%)
+    outW% = 0: outH% = 0
+    IF idx% < 1 OR idx% > TEXT_LAYER_POOL_SIZE THEN EXIT SUB
+    IF NOT TEXT_LAYER_DATA(idx%).used THEN EXIT SUB
+    IF TEXT_LAYER_DATA(idx%).charCount = 0 THEN EXIT SUB
+
+    DIM gbFS AS INTEGER, gbLC AS INTEGER
+    gbFS% = TEXT_LAYER_DATA(idx%).fontSize
+    IF gbFS% < 4 THEN gbFS% = 4
+    gbLC% = TEXT_LAYER_DATA(idx%).lineCount
+    IF gbLC% < 1 THEN gbLC% = 1
+
+    ' --- Width: walk all chars, compute raw per-line width (no alignment offset) ---
+    ' Use "visual width" that only advances past visible content, so trailing
+    ' transparent-BG padding spaces (from charmode expansion) are excluded.
+    DIM gbMaxW AS INTEGER, gbLine AS INTEGER, gbW AS INTEGER, gbC AS INTEGER
+    DIM gbVisW AS INTEGER
+    gbMaxW% = 0: gbLine% = 0: gbW% = 0: gbVisW% = 0
+    FOR gbC% = 0 TO TEXT_LAYER_DATA(idx%).charCount - 1
+        IF gbLine% < gbLC% - 1 THEN
+            IF gbC% = TL_LINE_BREAK(idx%, gbLine% + 1) THEN
+                IF gbVisW% > gbMaxW% THEN gbMaxW% = gbVisW%
+                gbLine% = gbLine% + 1: gbW% = 0: gbVisW% = 0
+            END IF
+        END IF
+        IF TL_CHAR(idx%, gbC%) = CHR$(10) THEN _CONTINUE
+
+        DIM gbStyle AS STRING
+        gbStyle$ = FONT_STYLE_REGULAR$
+        IF TL_BOLD(idx%, gbC%) AND TL_ITALIC(idx%, gbC%) THEN
+            gbStyle$ = FONT_STYLE_BOLDITALIC$
+        ELSEIF TL_BOLD(idx%, gbC%) THEN
+            gbStyle$ = FONT_STYLE_BOLD$
+        ELSEIF TL_ITALIC(idx%, gbC%) THEN
+            gbStyle$ = FONT_STYLE_ITALIC$
+        END IF
+
+        DIM gbFaux AS INTEGER
+        gbFaux% = 0
+        IF TL_BOLD(idx%, gbC%) THEN
+            IF TL_FONT_IDX(idx%, gbC%) >= 0 AND TL_FONT_IDX(idx%, gbC%) < FONT_LIST_COUNT% THEN
+                IF NOT FONT_LIST(TL_FONT_IDX(idx%, gbC%)).hasBold THEN gbFaux% = 1
+            END IF
+        END IF
+
+        DIM gbCW AS INTEGER, gbCH AS INTEGER, gbFH AS LONG
+        IF TEXT_LAYER_measure_char%(TL_FONT_IDX(idx%, gbC%), TL_FONT_SIZE(idx%, gbC%), gbStyle$, TEXT_LAYER_DATA(idx%).monospace, TEXT_LAYER_DATA(idx%).antialias, TL_CHAR(idx%, gbC%), gbCW%, gbCH%, gbFH&) THEN
+            gbW% = gbW% + gbCW% + TL_KERN(idx%, gbC%) + gbFaux%
+        ELSE
+            gbW% = gbW% + 8 + TL_KERN(idx%, gbC%)
+        END IF
+
+        ' Track visual width: advances past visible (non-padding) content
+        IF TL_CHAR(idx%, gbC%) <> " " OR _ALPHA32(TL_BG(idx%, gbC%)) > 0 THEN
+            gbVisW% = gbW%
+        END IF
+    NEXT gbC%
+    IF gbVisW% > gbMaxW% THEN gbMaxW% = gbVisW%
+    outW% = gbMaxW%
+    IF outW% < 8 THEN outW% = 8
+
+    ' --- Height: sum per-line leading + last line font height ---
+    DIM gbH AS INTEGER, gbLn AS INTEGER, gbLead AS INTEGER
+    gbH% = 0
+    FOR gbLn% = 0 TO gbLC% - 2
+        gbLead% = TL_LEADING(idx%, gbLn%)
+        IF gbLead% = 0 THEN gbLead% = TEXT_LAYER_DATA(idx%).defaultLeading
+        gbH% = gbH% + gbLead%
+    NEXT gbLn%
+    DIM gbLastFS AS INTEGER
+    IF TEXT_LAYER_DATA(idx%).charCount > 0 THEN
+        gbLastFS% = TL_FONT_SIZE(idx%, TEXT_LAYER_DATA(idx%).charCount - 1)
+    ELSE
+        gbLastFS% = gbFS%
+    END IF
+    IF gbLastFS% < gbFS% THEN gbLastFS% = gbFS%
+    gbH% = gbH% + gbLastFS%
+    outH% = gbH%
+    IF outH% < 8 THEN outH% = 8
+END SUB
 
 
 ''
@@ -904,6 +1497,13 @@ SUB TEXT_LAYER_copy_data (srcIdx%, destIdx%)
         TL_STRIKE(destIdx%, c%) = TL_STRIKE(srcIdx%, c%)
         TL_KERN(destIdx%, c%) = TL_KERN(srcIdx%, c%)
         TL_BASELINE(destIdx%, c%) = TL_BASELINE(srcIdx%, c%)
+        TL_OUTLINE(destIdx%, c%) = TL_OUTLINE(srcIdx%, c%)
+        TL_OUTLINE_COLOR(destIdx%, c%) = TL_OUTLINE_COLOR(srcIdx%, c%)
+        TL_OUTLINE_SIZE(destIdx%, c%) = TL_OUTLINE_SIZE(srcIdx%, c%)
+        TL_SHADOW(destIdx%, c%) = TL_SHADOW(srcIdx%, c%)
+        TL_SHADOW_COLOR(destIdx%, c%) = TL_SHADOW_COLOR(srcIdx%, c%)
+        TL_SHADOW_X(destIdx%, c%) = TL_SHADOW_X(srcIdx%, c%)
+        TL_SHADOW_Y(destIdx%, c%) = TL_SHADOW_Y(srcIdx%, c%)
     NEXT c%
 
     ' Copy per-line arrays
@@ -912,6 +1512,16 @@ SUB TEXT_LAYER_copy_data (srcIdx%, destIdx%)
         TL_LINE_BREAK(destIdx%, ln%) = TL_LINE_BREAK(srcIdx%, ln%)
         TL_LEADING(destIdx%, ln%) = TL_LEADING(srcIdx%, ln%)
     NEXT ln%
+
+    ' Recount outline/shadow chars from scratch
+    DIM olCount AS INTEGER: olCount% = 0
+    DIM shCount AS INTEGER: shCount% = 0
+    FOR c% = 0 TO TEXT_LAYER_DATA(destIdx%).charCount - 1
+        IF TL_OUTLINE(destIdx%, c%) THEN olCount% = olCount% + 1
+        IF TL_SHADOW(destIdx%, c%) THEN shCount% = shCount% + 1
+    NEXT c%
+    TEXT_LAYER_DATA(destIdx%).outlineCharCount = olCount%
+    TEXT_LAYER_DATA(destIdx%).shadowCharCount = shCount%
 
     TEXT_LAYER_DATA(destIdx%).dirty = TRUE
 END SUB
@@ -957,6 +1567,7 @@ FUNCTION TEXT_LAYER_get_cursor_at_pos% (idx%, canvasX%, canvasY%)
         DIM lnLead AS INTEGER
         lnLead% = TL_LEADING(idx%, ln%)
         IF lnLead% = 0 THEN lnLead% = defLead%
+        IF lnLead% = 0 THEN lnLead% = TEXT_LAYER_get_line_height%(idx%, ln%)
         totalH% = totalH% + lnLead%
     NEXT ln%
     IF totalH% < defLead% THEN totalH% = defLead%
@@ -995,6 +1606,7 @@ FUNCTION TEXT_LAYER_get_cursor_at_pos% (idx%, canvasX%, canvasY%)
     FOR ln% = 0 TO lc% - 1
         lnLead% = TL_LEADING(idx%, ln%)
         IF lnLead% = 0 THEN lnLead% = defLead%
+        IF lnLead% = 0 THEN lnLead% = TEXT_LAYER_get_line_height%(idx%, ln%)
         IF canvasY% >= lineY% AND canvasY% < lineY% + lnLead% THEN
             targetLine% = ln%
             EXIT FOR
@@ -1021,7 +1633,7 @@ FUNCTION TEXT_LAYER_get_cursor_at_pos% (idx%, canvasX%, canvasY%)
 
     ' Walk characters on this line to find nearest cursor position
     DIM curX AS INTEGER
-    curX% = startX%
+    curX% = startX% + TEXT_LAYER_get_align_offset%(idx%, targetLine%)
     DIM bestPos AS INTEGER
     bestPos% = lineStart%
     DIM bestDist AS INTEGER
@@ -1044,7 +1656,7 @@ FUNCTION TEXT_LAYER_get_cursor_at_pos% (idx%, canvasX%, canvasY%)
         DIM cFHandle AS LONG
         DIM cCharW AS INTEGER
         DIM cCharH AS INTEGER
-        IF TEXT_LAYER_measure_char%(TL_FONT_IDX(idx%, c%), TL_FONT_SIZE(idx%, c%), cFontStyle$, TEXT_LAYER_DATA(idx%).monospace, TL_CHAR(idx%, c%), cCharW%, cCharH%, cFHandle&) THEN
+        IF TEXT_LAYER_measure_char%(TL_FONT_IDX(idx%, c%), TL_FONT_SIZE(idx%, c%), cFontStyle$, TEXT_LAYER_DATA(idx%).monospace, TEXT_LAYER_DATA(idx%).antialias, TL_CHAR(idx%, c%), cCharW%, cCharH%, cFHandle&) THEN
             ' Faux bold: +1px for synthesis glyph width
             DIM cFauxBoldAdv AS INTEGER
             cFauxBoldAdv% = 0
@@ -1091,7 +1703,7 @@ FUNCTION TEXT_LAYER_serialize$ (tdIdx%)
     cc% = TEXT_LAYER_DATA(tdIdx%).charCount
     lc% = TEXT_LAYER_DATA(tdIdx%).lineCount
 
-    ' Header: 9 INTEGER fields = 18 bytes
+    ' Header: 9 INTEGER fields + 2 BYTE fields = 20 bytes
     d$ = MKI$(cc%)
     d$ = d$ + MKI$(lc%)
     d$ = d$ + MKI$(TEXT_LAYER_DATA(tdIdx%).startX)
@@ -1101,8 +1713,10 @@ FUNCTION TEXT_LAYER_serialize$ (tdIdx%)
     d$ = d$ + MKI$(TEXT_LAYER_DATA(tdIdx%).defaultLeading)
     d$ = d$ + MKI$(TEXT_LAYER_DATA(tdIdx%).cursorPos)
     d$ = d$ + MKI$(TEXT_LAYER_DATA(tdIdx%).monospace)
+    d$ = d$ + CHR$(TEXT_LAYER_DATA(tdIdx%).alignment)
+    d$ = d$ + CHR$(ABS(TEXT_LAYER_DATA(tdIdx%).antialias))
 
-    ' Per-character data (25 bytes per char)
+    ' Per-character data (25 + 13 = 38 bytes per char)
     FOR c% = 0 TO cc% - 1
         d$ = d$ + TL_CHAR(tdIdx%, c%)
         d$ = d$ + MKL$(TL_FG(tdIdx%, c%))
@@ -1115,6 +1729,13 @@ FUNCTION TEXT_LAYER_serialize$ (tdIdx%)
         d$ = d$ + MKI$(TL_STRIKE(tdIdx%, c%))
         d$ = d$ + MKI$(TL_KERN(tdIdx%, c%))
         d$ = d$ + MKI$(TL_BASELINE(tdIdx%, c%))
+        d$ = d$ + CHR$(TL_OUTLINE(tdIdx%, c%))
+        d$ = d$ + MKL$(TL_OUTLINE_COLOR(tdIdx%, c%))
+        d$ = d$ + CHR$(TL_OUTLINE_SIZE(tdIdx%, c%))
+        d$ = d$ + CHR$(TL_SHADOW(tdIdx%, c%))
+        d$ = d$ + MKL$(TL_SHADOW_COLOR(tdIdx%, c%))
+        d$ = d$ + CHR$(TL_SHADOW_X(tdIdx%, c%))
+        d$ = d$ + CHR$(TL_SHADOW_Y(tdIdx%, c%))
     NEXT c%
 
     ' Per-line data (4 bytes per line)
@@ -1154,9 +1775,29 @@ SUB TEXT_LAYER_deserialize (tdIdx%, d$)
     TEXT_LAYER_DATA(tdIdx%).defaultLeading = CVI(MID$(d$, dPos&, 2)): dPos& = dPos& + 2
     TEXT_LAYER_DATA(tdIdx%).cursorPos = CVI(MID$(d$, dPos&, 2)): dPos& = dPos& + 2
     TEXT_LAYER_DATA(tdIdx%).monospace = CVI(MID$(d$, dPos&, 2)): dPos& = dPos& + 2
+
+    ' New header fields: alignment + antialias (2 bytes)
+    ' Detect by checking total data size vs old format
+    DIM oldPerChar AS LONG, newPerChar AS LONG
+    oldPerChar& = 25: newPerChar& = 38
+    DIM headerBase AS LONG
+    headerBase& = 18  ' 9 INTEGER fields
+    DIM hasNewFields AS INTEGER
+    ' Check if data is long enough for new format: 20-byte header + 38*cc + 4*lc
+    hasNewFields% = (LEN(d$) >= 20 + newPerChar& * cc% + 4 * lc%)
+
+    IF hasNewFields% THEN
+        TEXT_LAYER_DATA(tdIdx%).alignment = ASC(MID$(d$, dPos&, 1)): dPos& = dPos& + 1
+        TEXT_LAYER_DATA(tdIdx%).antialias = ASC(MID$(d$, dPos&, 1)): dPos& = dPos& + 1
+    ELSE
+        TEXT_LAYER_DATA(tdIdx%).alignment = TEXT_ALIGN_LEFT
+        TEXT_LAYER_DATA(tdIdx%).antialias = FALSE
+    END IF
     TEXT_LAYER_DATA(tdIdx%).dirty = TRUE
 
     ' Per-character data
+    DIM olCount AS INTEGER, slCount AS INTEGER
+    olCount% = 0: slCount% = 0
     FOR c% = 0 TO cc% - 1
         TL_CHAR(tdIdx%, c%) = MID$(d$, dPos&, 1): dPos& = dPos& + 1
         TL_FG(tdIdx%, c%) = _CV(_UNSIGNED LONG, MID$(d$, dPos&, 4)): dPos& = dPos& + 4
@@ -1169,7 +1810,28 @@ SUB TEXT_LAYER_deserialize (tdIdx%, d$)
         TL_STRIKE(tdIdx%, c%) = CVI(MID$(d$, dPos&, 2)): dPos& = dPos& + 2
         TL_KERN(tdIdx%, c%) = CVI(MID$(d$, dPos&, 2)): dPos& = dPos& + 2
         TL_BASELINE(tdIdx%, c%) = CVI(MID$(d$, dPos&, 2)): dPos& = dPos& + 2
+        IF hasNewFields% THEN
+            TL_OUTLINE(tdIdx%, c%) = ASC(MID$(d$, dPos&, 1)): dPos& = dPos& + 1
+            TL_OUTLINE_COLOR(tdIdx%, c%) = _CV(_UNSIGNED LONG, MID$(d$, dPos&, 4)): dPos& = dPos& + 4
+            TL_OUTLINE_SIZE(tdIdx%, c%) = ASC(MID$(d$, dPos&, 1)): dPos& = dPos& + 1
+            TL_SHADOW(tdIdx%, c%) = ASC(MID$(d$, dPos&, 1)): dPos& = dPos& + 1
+            TL_SHADOW_COLOR(tdIdx%, c%) = _CV(_UNSIGNED LONG, MID$(d$, dPos&, 4)): dPos& = dPos& + 4
+            TL_SHADOW_X(tdIdx%, c%) = ASC(MID$(d$, dPos&, 1)): dPos& = dPos& + 1
+            TL_SHADOW_Y(tdIdx%, c%) = ASC(MID$(d$, dPos&, 1)): dPos& = dPos& + 1
+            IF TL_OUTLINE(tdIdx%, c%) THEN olCount% = olCount% + 1
+            IF TL_SHADOW(tdIdx%, c%) THEN slCount% = slCount% + 1
+        ELSE
+            TL_OUTLINE(tdIdx%, c%) = 0
+            TL_OUTLINE_COLOR(tdIdx%, c%) = _RGB32(0, 0, 0)
+            TL_OUTLINE_SIZE(tdIdx%, c%) = 1
+            TL_SHADOW(tdIdx%, c%) = 0
+            TL_SHADOW_COLOR(tdIdx%, c%) = _RGB32(0, 0, 0)
+            TL_SHADOW_X(tdIdx%, c%) = 2
+            TL_SHADOW_Y(tdIdx%, c%) = 2
+        END IF
     NEXT c%
+    TEXT_LAYER_DATA(tdIdx%).outlineCharCount = olCount%
+    TEXT_LAYER_DATA(tdIdx%).shadowCharCount = slCount%
 
     ' Per-line data
     FOR ln% = 0 TO lc% - 1

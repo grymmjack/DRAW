@@ -156,8 +156,7 @@ TYPE DRAW_CONFIG
     PALETTE_MAX_ROWS               AS INTEGER  ' Maximum palette strip rows (1-8)
     PALETTE_MIN_ROWS               AS INTEGER  ' Minimum palette strip rows always shown
     PALETTE_CHIPS_ROW_THRESHOLD    AS INTEGER  ' Start new row every N chips
-    PALETTE_DEFAULT_FG_COLOR_INDEX AS INTEGER  ' Default foreground palette index (0-based)
-    PALETTE_DEFAULT_BG_COLOR_INDEX AS INTEGER  ' Default background palette index (0-based)
+    PALETTE_DEFAULT_BG_TRANSPARENT AS INTEGER  ' TRUE = default BG is transparent
     PALETTE_PICKER_CHIP_SIZE       AS INTEGER  ' Chip size in palette picker dialog (8-48)
     PALETTE_PICKER_CHIP_PADDING    AS INTEGER  ' Padding between chips in palette picker
     PALETTE_PICKER_COLUMNS         AS INTEGER  ' Number of columns in palette picker grid
@@ -304,6 +303,12 @@ TYPE DRAW_CONFIG
     CHAR_GRID_COLOR_FG             AS _UNSIGNED LONG  ' Character grid line color (hex RGB, 0=use theme)
     ' Tab width in Character Mode
     CHARMAP_TAB_CHARS              AS INTEGER  ' Number of characters per TAB (default 4)
+    ' Font source toggles (all TRUE by default)
+    FONTS_INCLUDE_OS_INSTALLED     AS INTEGER  ' TRUE = include OS system fonts
+    FONTS_INCLUDE_DRAW_BITMAP      AS INTEGER  ' TRUE = include ASSETS/FONTS/BITMAP fonts
+    FONTS_INCLUDE_DRAW_EXTRAS      AS INTEGER  ' TRUE = include extra ASSETS/FONTS TTFs (beyond required Tiny5/PICO-8)
+    FONTS_INCLUDE_USER             AS INTEGER  ' TRUE = include USER/FONTS TTF/OTF fonts
+    FONTS_INCLUDE_USER_BITMAP      AS INTEGER  ' TRUE = include USER/FONTS/BITMAP fonts
 END TYPE
 
 DIM SHARED CFG   AS DRAW_CONFIG

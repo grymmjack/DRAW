@@ -1109,7 +1109,11 @@ SUB RENDER_grids (dx AS INTEGER, dy AS INTEGER, zw AS LONG, zh AS LONG)
         _PUTIMAGE (dx%, dy%)-(dx% + zw& - 1, dy% + zh& - 1), GRID.imgHandle&, SCRN.CANVAS&
     END IF
     ' Character grid overlay (on top of regular grid)
-    IF CHARMAP.charGridShow% AND SCRN.zoom! >= 1.0 THEN
+    ' Show char grid whenever cells are at least 2 screen-pixels wide/tall (visible at any zoom)
+    DIM cgMinVis AS INTEGER
+    cgMinVis% = (CHARMAP.charGridW% > 0 AND CHARMAP.charGridH% > 0 AND _
+                 SCRN.zoom! * CHARMAP.charGridW% >= 2 AND SCRN.zoom! * CHARMAP.charGridH% >= 2)
+    IF CHARMAP.charGridShow% AND cgMinVis% THEN
         IF CHARMAP.charGridImg& < -1 THEN
             _DEST SCRN.CANVAS&
             _BLEND SCRN.CANVAS&
@@ -1674,7 +1678,8 @@ SUB SCREEN_compute_layout ()
     END IF
     charMapTopY% = 0
     IF SCRN.showMenubar% THEN charMapTopY% = charMapTopY% + MENU_BAR_HEIGHT
-    IF textBarWillShow% THEN charMapTopY% = charMapTopY% + TEXT_BAR_HEIGHT
+    ' Note: charmap column is carved from rightX independently of the text bar,
+    ' so the charmap panel top does NOT need to include the text bar height.
 
     ' ---------- LEFT side: layers (outermost) > toolbox > editbar (innermost) ----------
     IF UCASE$(_TRIM$(CFG.LAYERS_PANEL_DOCK_EDGE)) = "LEFT" AND LAYER_PANEL.visible% THEN
@@ -1763,15 +1768,15 @@ SUB SCREEN_compute_layout ()
         TEXT_BAR.visible% = (CURRENT_TOOL% = TOOL_TEXT) OR (TEXT_BAR.editingLayerIdx% > 0)
     END IF
     IF TEXT_BAR.visible% AND SCRN.showMenubar% THEN
-        TEXT_BAR.barX% = SCRN.menuBarLeftEdge%
+        TEXT_BAR.barX% = SCRN.uiLeftEdge%
         TEXT_BAR.barY% = MENU_BAR_HEIGHT
-        TEXT_BAR.barW% = SCRN.menuBarRightEdge% - SCRN.menuBarLeftEdge% + 1
-        TEXT_BAR.barH% = TEXT_BAR_HEIGHT
+        TEXT_BAR.barW% = SCRN.uiRightEdge% - SCRN.uiLeftEdge% + 1
+        TEXT_BAR.barH% = THEME.TEXT_BAR_ROW_HEIGHT% * 2
     ELSEIF TEXT_BAR.visible% THEN
-        TEXT_BAR.barX% = SCRN.menuBarLeftEdge%
+        TEXT_BAR.barX% = SCRN.uiLeftEdge%
         TEXT_BAR.barY% = 0
-        TEXT_BAR.barW% = SCRN.menuBarRightEdge% - SCRN.menuBarLeftEdge% + 1
-        TEXT_BAR.barH% = TEXT_BAR_HEIGHT
+        TEXT_BAR.barW% = SCRN.uiRightEdge% - SCRN.uiLeftEdge% + 1
+        TEXT_BAR.barH% = THEME.TEXT_BAR_ROW_HEIGHT% * 2
     END IF
 END SUB
 
@@ -1817,6 +1822,7 @@ SUB RENDER_gui_elements ()
 
         ' Text formatting bar below menu bar
         IF TEXT_BAR.visible% THEN
+            TEXT_BAR.needsRedraw% = TRUE  ' GUI buffer cleared — always redraw
             TEXT_BAR_render
             TEXT_BAR_sync_paint_color
         END IF
@@ -1883,6 +1889,7 @@ SUB SCREEN_render ()
 
         ' Text formatting bar below menu bar
         IF TEXT_BAR.visible% THEN
+            TEXT_BAR.needsRedraw% = TRUE  ' GUI buffer cleared — always redraw
             TEXT_BAR_render
             TEXT_BAR_sync_paint_color
         END IF
@@ -2626,48 +2633,8 @@ SUB SCREEN_render ()
                             DIM hovCX AS INTEGER, hovCY AS INTEGER
                             hovCX% = TEXT_LAYER_DATA(hovTd%).startX
                             hovCY% = TEXT_LAYER_DATA(hovTd%).startY
-                            DIM hovFS AS INTEGER, hovLC AS INTEGER
-                            hovFS% = TEXT_LAYER_DATA(hovTd%).fontSize
-                            IF hovFS% < 4 THEN hovFS% = 4
-                            hovLC% = TEXT_LAYER_DATA(hovTd%).lineCount
-                            IF hovLC% < 1 THEN hovLC% = 1
-                            ' Compute max line width across ALL lines
-                            DIM hovW AS INTEGER
-                            hovW% = 0
-                            DIM hovLn AS INTEGER
-                            FOR hovLn% = 0 TO hovLC% - 1
-                                DIM hovLineEnd AS INTEGER
-                                IF hovLn% < hovLC% - 1 THEN
-                                    hovLineEnd% = TL_LINE_BREAK(hovTd%, hovLn% + 1)
-                                ELSE
-                                    hovLineEnd% = TEXT_LAYER_DATA(hovTd%).charCount
-                                END IF
-                                DIM hovLineW AS INTEGER
-                                hovLineW% = TEXT_LAYER_get_char_x%(hovTd%, hovLineEnd%) - hovCX%
-                                IF hovLineW% > hovW% THEN hovW% = hovLineW%
-                            NEXT hovLn%
-                            IF hovW% < 8 THEN hovW% = 8
-                            ' Height: leading for lines 0..N-2, plus font height for last line
-                            DIM hovH AS INTEGER
-                            DIM hovLead AS INTEGER
-                            hovH% = 0
-                            FOR hovLn% = 0 TO hovLC% - 2
-                                hovLead% = TL_LEADING(hovTd%, hovLn%)
-                                IF hovLead% = 0 THEN hovLead% = TEXT_LAYER_DATA(hovTd%).defaultLeading
-                                hovH% = hovH% + hovLead%
-                            NEXT hovLn%
-                            ' Add font height of last line (actual glyph height)
-                            DIM hovLastFS AS INTEGER
-                            IF TEXT_LAYER_DATA(hovTd%).charCount > 0 THEN
-                                DIM hovLastC AS INTEGER
-                                hovLastC% = TEXT_LAYER_DATA(hovTd%).charCount - 1
-                                hovLastFS% = TL_FONT_SIZE(hovTd%, hovLastC%)
-                            ELSE
-                                hovLastFS% = hovFS%
-                            END IF
-                            IF hovLastFS% < hovFS% THEN hovLastFS% = hovFS%
-                            hovH% = hovH% + hovLastFS%
-                            IF hovH% < 8 THEN hovH% = 8
+                            DIM hovW AS INTEGER, hovH AS INTEGER
+                            TEXT_LAYER_get_bounds hovTd%, hovW%, hovH%
                             ' Hit-test mouse in canvas coords (use unsnapped to avoid grid-snap shimmer)
                             IF MOUSE.UNSNAPPED_X% >= hovCX% AND MOUSE.UNSNAPPED_X% < hovCX% + hovW% AND MOUSE.UNSNAPPED_Y% >= hovCY% AND MOUSE.UNSNAPPED_Y% < hovCY% + hovH% THEN
                                 ' Convert canvas coords to screen coords

@@ -146,20 +146,28 @@ SUB TEXT_start (x AS INTEGER, y AS INTEGER)
     IF tdIdx% >= 1 THEN
         TEXT_LAYER_DATA(tdIdx%).fontIdx = TEXT_BAR.selectedFontIdx%
         TEXT_LAYER_DATA(tdIdx%).fontSize = TEXT_BAR.selectedSize%
-        ' Use actual font height for leading when built-in bitmap font
+        ' Use actual font cell height for leading so lines don't overlap
         DIM actualH AS INTEGER
         IF FONT_LIST(TEXT_BAR.selectedFontIdx%).isBuiltIn THEN
             actualH% = FONT_LIST(TEXT_BAR.selectedFontIdx%).builtInHandle
             TEXT_LAYER_DATA(tdIdx%).defaultLeading = actualH%
+        ELSEIF FONT_LIST(TEXT_BAR.selectedFontIdx%).isBitmapFont THEN
+            actualH% = FONT_LIST(TEXT_BAR.selectedFontIdx%).bitmapGlyphH
+            IF actualH% < 1 THEN actualH% = 16
+            TEXT_LAYER_DATA(tdIdx%).defaultLeading = actualH%
         ELSE
-            actualH% = TEXT_BAR.selectedSize%
-            TEXT_LAYER_DATA(tdIdx%).defaultLeading = actualH% + 1
+            ' For TTF fonts, measure actual cell height (_UFONTHEIGHT)
+            DIM initMW AS INTEGER, initMH AS INTEGER, initFH AS LONG
+            IF TEXT_LAYER_measure_char%(TEXT_BAR.selectedFontIdx%, TEXT_BAR.selectedSize%, FONT_STYLE_REGULAR$, TEXT_BAR.monoActive%, TEXT_BAR.aaActive%, "M", initMW%, initMH%, initFH&) THEN
+                actualH% = initMH%
+            ELSE
+                actualH% = TEXT_BAR.selectedSize%
+            END IF
+            TEXT_LAYER_DATA(tdIdx%).defaultLeading = actualH%
         END IF
         TEXT_LAYER_DATA(tdIdx%).monospace = TEXT_BAR.monoActive%
         IF CHARMAP.useChars% THEN
             CHARMAP_char_grid_update_size
-            TEXT_LAYER_DATA(tdIdx%).monospace = TRUE
-            TEXT_BAR.monoActive% = TRUE
             TEXT_LAYER_DATA(tdIdx%).defaultLeading = CHARMAP.charGridH%
             IF TEXT_LAYER_DATA(tdIdx%).defaultLeading < 1 THEN TEXT_LAYER_DATA(tdIdx%).defaultLeading = actualH%
         END IF
@@ -525,6 +533,38 @@ END SUB
 
 
 ''
+' Convert a charmode virtual grid position (col, row) to a linear char index.
+' Returns 0 if the row has no data, or clamps to line boundaries.
+' @param tdIdx% Text layer pool index
+' @param col% Virtual column (0-based)
+' @param row% Virtual row (0-based)
+' @return INTEGER Linear char index suitable for selection anchors
+'
+FUNCTION TEXT_char_mode_grid_to_pos% (tdIdx%, col%, row%)
+    TEXT_char_mode_grid_to_pos% = 0
+    IF tdIdx% < 1 OR tdIdx% > TEXT_LAYER_POOL_SIZE THEN EXIT FUNCTION
+    IF NOT TEXT_LAYER_DATA(tdIdx%).used THEN EXIT FUNCTION
+    IF row% < 0 THEN EXIT FUNCTION
+    IF row% >= TEXT_LAYER_DATA(tdIdx%).lineCount THEN
+        TEXT_char_mode_grid_to_pos% = TEXT_LAYER_DATA(tdIdx%).charCount
+        EXIT FUNCTION
+    END IF
+    DIM gLS AS INTEGER, gLE AS INTEGER
+    gLS% = TL_LINE_BREAK(tdIdx%, row%)
+    IF row% < TEXT_LAYER_DATA(tdIdx%).lineCount - 1 THEN
+        gLE% = TL_LINE_BREAK(tdIdx%, row% + 1)
+    ELSE
+        gLE% = TEXT_LAYER_DATA(tdIdx%).charCount
+    END IF
+    DIM gPos AS INTEGER
+    gPos% = gLS% + col%
+    IF gPos% > gLE% THEN gPos% = gLE%
+    IF gPos% < gLS% THEN gPos% = gLS%
+    TEXT_char_mode_grid_to_pos% = gPos%
+END FUNCTION
+
+
+''
 ' Add a character in Character Mode at the current cell.
 ' Replaces existing in-cell character; appends if cursor is at line end.
 '
@@ -566,6 +606,13 @@ SUB TEXT_char_mode_add_char (ch AS STRING)
             TL_ITALIC(tdIdx%, cellPos%) = TEXT_BAR.italicActive%
             TL_UNDERLINE(tdIdx%, cellPos%) = TEXT_BAR.underlineActive%
             TL_STRIKE(tdIdx%, cellPos%) = TEXT_BAR.strikeActive%
+            TL_OUTLINE(tdIdx%, cellPos%) = TEXT_BAR.outlineActive%
+            TL_OUTLINE_COLOR(tdIdx%, cellPos%) = TEXT_BAR.outlineColor~&
+            TL_OUTLINE_SIZE(tdIdx%, cellPos%) = TEXT_BAR.outlineSize%
+            TL_SHADOW(tdIdx%, cellPos%) = TEXT_BAR.shadowActive%
+            TL_SHADOW_COLOR(tdIdx%, cellPos%) = TEXT_BAR.shadowColor~&
+            TL_SHADOW_X(tdIdx%, cellPos%) = TEXT_BAR.shadowOffsetX%
+            TL_SHADOW_Y(tdIdx%, cellPos%) = TEXT_BAR.shadowOffsetY%
             TL_FG(tdIdx%, cellPos%) = PAINT_COLOR~&
             TL_BG(tdIdx%, cellPos%) = PAINT_BG_COLOR~&
             TEXT_LAYER_DATA(tdIdx%).dirty = TRUE
@@ -579,6 +626,17 @@ SUB TEXT_char_mode_add_char (ch AS STRING)
                 TL_BG(tdIdx%, justPlaced%) = PAINT_BG_COLOR~&
                 TL_FONT_IDX(tdIdx%, justPlaced%) = TEXT_BAR.selectedFontIdx%
                 TL_FONT_SIZE(tdIdx%, justPlaced%) = TEXT_BAR.selectedSize%
+                TL_BOLD(tdIdx%, justPlaced%) = TEXT_BAR.boldActive%
+                TL_ITALIC(tdIdx%, justPlaced%) = TEXT_BAR.italicActive%
+                TL_UNDERLINE(tdIdx%, justPlaced%) = TEXT_BAR.underlineActive%
+                TL_STRIKE(tdIdx%, justPlaced%) = TEXT_BAR.strikeActive%
+                TL_OUTLINE(tdIdx%, justPlaced%) = TEXT_BAR.outlineActive%
+                TL_OUTLINE_COLOR(tdIdx%, justPlaced%) = TEXT_BAR.outlineColor~&
+                TL_OUTLINE_SIZE(tdIdx%, justPlaced%) = TEXT_BAR.outlineSize%
+                TL_SHADOW(tdIdx%, justPlaced%) = TEXT_BAR.shadowActive%
+                TL_SHADOW_COLOR(tdIdx%, justPlaced%) = TEXT_BAR.shadowColor~&
+                TL_SHADOW_X(tdIdx%, justPlaced%) = TEXT_BAR.shadowOffsetX%
+                TL_SHADOW_Y(tdIdx%, justPlaced%) = TEXT_BAR.shadowOffsetY%
             END IF
         END IF
     ELSE
@@ -591,6 +649,17 @@ SUB TEXT_char_mode_add_char (ch AS STRING)
             TL_BG(tdIdx%, justPlaced2%) = PAINT_BG_COLOR~&
             TL_FONT_IDX(tdIdx%, justPlaced2%) = TEXT_BAR.selectedFontIdx%
             TL_FONT_SIZE(tdIdx%, justPlaced2%) = TEXT_BAR.selectedSize%
+            TL_BOLD(tdIdx%, justPlaced2%) = TEXT_BAR.boldActive%
+            TL_ITALIC(tdIdx%, justPlaced2%) = TEXT_BAR.italicActive%
+            TL_UNDERLINE(tdIdx%, justPlaced2%) = TEXT_BAR.underlineActive%
+            TL_STRIKE(tdIdx%, justPlaced2%) = TEXT_BAR.strikeActive%
+            TL_OUTLINE(tdIdx%, justPlaced2%) = TEXT_BAR.outlineActive%
+            TL_OUTLINE_COLOR(tdIdx%, justPlaced2%) = TEXT_BAR.outlineColor~&
+            TL_OUTLINE_SIZE(tdIdx%, justPlaced2%) = TEXT_BAR.outlineSize%
+            TL_SHADOW(tdIdx%, justPlaced2%) = TEXT_BAR.shadowActive%
+            TL_SHADOW_COLOR(tdIdx%, justPlaced2%) = TEXT_BAR.shadowColor~&
+            TL_SHADOW_X(tdIdx%, justPlaced2%) = TEXT_BAR.shadowOffsetX%
+            TL_SHADOW_Y(tdIdx%, justPlaced2%) = TEXT_BAR.shadowOffsetY%
         END IF
     END IF
 
@@ -641,22 +710,13 @@ SUB TEXT_char_mode_backspace ()
     tdIdx% = TEXT_get_active_text_data_idx%
     IF tdIdx% < 1 THEN EXIT SUB
 
-    ' Move virtual cursor left first
+    ' Always move virtual cursor left first (like left arrow)
+    TEXT_char_mode_move_cursor -1, 0, FALSE
+
     col% = TEXT.cmVirtualCol
     row% = TEXT.cmVirtualRow
-    IF col% > 0 THEN
-        col% = col% - 1
-    ELSEIF row% > 0 THEN
-        row% = row% - 1
-        col% = 0
-    ELSE
-        EXIT SUB
-    END IF
 
-    ' Update virtual position (non-expanding)
-    TEXT_char_mode_set_cursor col%, row%, FALSE
-
-    ' If data exists at this position, expand and erase
+    ' If data exists at this position, erase the cell
     IF row% < TEXT_LAYER_DATA(tdIdx%).lineCount THEN
         DIM bsLineStart AS INTEGER, bsLineEnd AS INTEGER, bsLineLen AS INTEGER
         bsLineStart% = TL_LINE_BREAK(tdIdx%, row%)
@@ -673,12 +733,86 @@ SUB TEXT_char_mode_backspace ()
                 TL_CHAR(tdIdx%, cellPos%) = " "
                 TL_FG(tdIdx%, cellPos%) = _RGBA32(0, 0, 0, 0)
                 TL_BG(tdIdx%, cellPos%) = _RGBA32(0, 0, 0, 0)
+                TEXT_char_mode_trim_trailing tdIdx%
                 TEXT_LAYER_DATA(tdIdx%).dirty = TRUE
-                FRAME_IDLE% = FALSE
-                SCENE_DIRTY% = TRUE
             END IF
         END IF
     END IF
+END SUB
+
+
+''
+' Trim trailing blank chars (transparent spaces and empty newlines) from a text
+' layer buffer in Character Mode. Reduces charCount and lineCount so that
+' Ctrl+A and selection don't cover invisible empty cells.
+'
+SUB TEXT_char_mode_trim_trailing (tdIdx AS INTEGER)
+    IF tdIdx% < 1 OR tdIdx% > TEXT_LAYER_POOL_SIZE THEN EXIT SUB
+    IF NOT TEXT_LAYER_DATA(tdIdx%).used THEN EXIT SUB
+
+    DO WHILE TEXT_LAYER_DATA(tdIdx%).charCount > 0
+        DIM ttLast AS INTEGER
+        ttLast% = TEXT_LAYER_DATA(tdIdx%).charCount - 1
+        DIM ttCh AS STRING
+        ttCh$ = TL_CHAR(tdIdx%, ttLast%)
+        IF ttCh$ = " " AND _ALPHA32(TL_FG(tdIdx%, ttLast%)) = 0 AND _ALPHA32(TL_BG(tdIdx%, ttLast%)) = 0 THEN
+            ' Trailing transparent space — remove it
+            TEXT_LAYER_DATA(tdIdx%).charCount = TEXT_LAYER_DATA(tdIdx%).charCount - 1
+        ELSEIF ttCh$ = CHR$(10) THEN
+            ' Trailing newline — remove it and decrement lineCount
+            TEXT_LAYER_DATA(tdIdx%).charCount = TEXT_LAYER_DATA(tdIdx%).charCount - 1
+            IF TEXT_LAYER_DATA(tdIdx%).lineCount > 1 THEN
+                TEXT_LAYER_DATA(tdIdx%).lineCount = TEXT_LAYER_DATA(tdIdx%).lineCount - 1
+            END IF
+        ELSE
+            EXIT DO
+        END IF
+    LOOP
+
+    ' Clamp cursor position
+    IF TEXT_LAYER_DATA(tdIdx%).cursorPos > TEXT_LAYER_DATA(tdIdx%).charCount THEN
+        TEXT_LAYER_DATA(tdIdx%).cursorPos = TEXT_LAYER_DATA(tdIdx%).charCount
+    END IF
+
+    ' Ensure at least 1 line
+    IF TEXT_LAYER_DATA(tdIdx%).lineCount < 1 THEN TEXT_LAYER_DATA(tdIdx%).lineCount = 1
+END SUB
+
+
+''
+' Erase all selected cells in Character Mode (replace with space + transparent).
+'
+SUB TEXT_char_mode_delete_selection ()
+    IF NOT TEXT_char_mode_active% THEN EXIT SUB
+    IF NOT TEXT_has_selection% THEN EXIT SUB
+    DIM dsTdIdx AS INTEGER
+    dsTdIdx% = TEXT_get_active_text_data_idx%
+    IF dsTdIdx% < 1 THEN EXIT SUB
+
+    DIM dsMin AS INTEGER, dsMax AS INTEGER
+    dsMin% = TEXT.selStart%
+    dsMax% = TEXT.selEnd%
+    IF dsMin% > dsMax% THEN SWAP dsMin%, dsMax%
+
+    ' Clamp to valid range
+    IF dsMin% < 0 THEN dsMin% = 0
+    IF dsMax% > TEXT_LAYER_DATA(dsTdIdx%).charCount THEN dsMax% = TEXT_LAYER_DATA(dsTdIdx%).charCount
+
+    ' Erase each cell (skip newlines)
+    DIM dsI AS INTEGER
+    FOR dsI% = dsMin% TO dsMax% - 1
+        IF TL_CHAR(dsTdIdx%, dsI%) <> CHR$(10) THEN
+            TL_CHAR(dsTdIdx%, dsI%) = " "
+            TL_FG(dsTdIdx%, dsI%) = _RGBA32(0, 0, 0, 0)
+            TL_BG(dsTdIdx%, dsI%) = _RGBA32(0, 0, 0, 0)
+        END IF
+    NEXT dsI%
+
+    TEXT_clear_selection
+    TEXT_char_mode_trim_trailing dsTdIdx%
+    TEXT_LAYER_DATA(dsTdIdx%).dirty = TRUE
+    FRAME_IDLE% = FALSE
+    SCENE_DIRTY% = TRUE
 END SUB
 
 
@@ -713,6 +847,7 @@ SUB TEXT_char_mode_delete ()
                 TL_CHAR(tdIdx%, cellPos%) = " "
                 TL_FG(tdIdx%, cellPos%) = _RGBA32(0, 0, 0, 0)
                 TL_BG(tdIdx%, cellPos%) = _RGBA32(0, 0, 0, 0)
+                TEXT_char_mode_trim_trailing tdIdx%
                 TEXT_LAYER_DATA(tdIdx%).dirty = TRUE
                 FRAME_IDLE% = FALSE
                 SCENE_DIRTY% = TRUE
@@ -755,6 +890,13 @@ SUB TEXT_add_char (ch AS STRING)
         TL_ITALIC(tdIdx%, charIdx%) = TEXT_BAR.italicActive%
         TL_UNDERLINE(tdIdx%, charIdx%) = TEXT_BAR.underlineActive%
         TL_STRIKE(tdIdx%, charIdx%) = TEXT_BAR.strikeActive%
+        TL_OUTLINE(tdIdx%, charIdx%) = TEXT_BAR.outlineActive%
+        TL_OUTLINE_COLOR(tdIdx%, charIdx%) = TEXT_BAR.outlineColor~&
+        TL_OUTLINE_SIZE(tdIdx%, charIdx%) = TEXT_BAR.outlineSize%
+        TL_SHADOW(tdIdx%, charIdx%) = TEXT_BAR.shadowActive%
+        TL_SHADOW_COLOR(tdIdx%, charIdx%) = TEXT_BAR.shadowColor~&
+        TL_SHADOW_X(tdIdx%, charIdx%) = TEXT_BAR.shadowOffsetX%
+        TL_SHADOW_Y(tdIdx%, charIdx%) = TEXT_BAR.shadowOffsetY%
         TL_FG(tdIdx%, charIdx%) = PAINT_COLOR~&
         TL_BG(tdIdx%, charIdx%) = PAINT_BG_COLOR~&
     END IF
@@ -1248,6 +1390,23 @@ SUB TEXT_sync_bar_to_cursor ()
         TEXT_BAR.selectedSize% = TL_FONT_SIZE(tdIdx%, charIdx%)
     END IF
     TEXT_BAR.monoActive% = TEXT_LAYER_DATA(tdIdx%).monospace
+
+    ' Sync outline attributes from character at cursor
+    TEXT_BAR.outlineActive% = TL_OUTLINE(tdIdx%, charIdx%)
+    TEXT_BAR.outlineColor~& = TL_OUTLINE_COLOR(tdIdx%, charIdx%)
+    TEXT_BAR.outlineSize% = TL_OUTLINE_SIZE(tdIdx%, charIdx%)
+
+    ' Sync shadow attributes from character at cursor
+    TEXT_BAR.shadowActive% = TL_SHADOW(tdIdx%, charIdx%)
+    TEXT_BAR.shadowColor~& = TL_SHADOW_COLOR(tdIdx%, charIdx%)
+    TEXT_BAR.shadowOffsetX% = TL_SHADOW_X(tdIdx%, charIdx%)
+    TEXT_BAR.shadowOffsetY% = TL_SHADOW_Y(tdIdx%, charIdx%)
+
+    ' Sync per-layer attributes
+    TEXT_BAR.alignMode% = TEXT_LAYER_DATA(tdIdx%).alignment
+    TEXT_BAR.aaActive% = TEXT_LAYER_DATA(tdIdx%).antialias
+
+    TEXT_BAR.needsRedraw% = TRUE
 END SUB
 
 ''
@@ -1315,8 +1474,32 @@ SUB TEXT_render_preview (dest AS LONG, dx AS INTEGER, dy AS INTEGER, zoom AS SIN
         selMin% = TEXT.selStart%: selMax% = TEXT.selEnd%
         IF selMin% > selMax% THEN SWAP selMin%, selMax%
 
+        ' Pre-compute last visible (non-padding) char index per line.
+        ' Trailing transparent-BG spaces from charmode expansion are skipped.
+        DIM selLC AS INTEGER
+        selLC% = TEXT_LAYER_DATA(tdIdx%).lineCount
+        IF selLC% < 1 THEN selLC% = 1
+        DIM lastVisChar(0 TO 255) AS INTEGER
+        DIM lvL AS INTEGER, lvStart AS INTEGER, lvEnd AS INTEGER, lvC AS INTEGER
+        FOR lvL% = 0 TO selLC% - 1
+            lvStart% = TL_LINE_BREAK(tdIdx%, lvL%)
+            IF lvL% < selLC% - 1 THEN
+                lvEnd% = TL_LINE_BREAK(tdIdx%, lvL% + 1) - 1
+            ELSE
+                lvEnd% = TEXT_LAYER_DATA(tdIdx%).charCount - 1
+            END IF
+            lastVisChar(lvL%) = lvStart% - 1 ' default: no visible chars
+            FOR lvC% = lvEnd% TO lvStart% STEP -1
+                IF TL_CHAR(tdIdx%, lvC%) <> " " OR _ALPHA32(TL_BG(tdIdx%, lvC%)) > 0 THEN
+                    lastVisChar(lvL%) = lvC%
+                    EXIT FOR
+                END IF
+                IF TL_CHAR(tdIdx%, lvC%) = CHR$(10) THEN _CONTINUE
+            NEXT lvC%
+        NEXT lvL%
+
         DIM selCurX AS INTEGER, selCurY AS INTEGER, selCurLine AS INTEGER
-        selCurX% = TEXT_LAYER_DATA(tdIdx%).startX
+        selCurX% = TEXT_LAYER_DATA(tdIdx%).startX + TEXT_LAYER_get_align_offset%(tdIdx%, 0)
         selCurY% = TEXT_LAYER_DATA(tdIdx%).startY
         selCurLine% = 0
 
@@ -1326,10 +1509,11 @@ SUB TEXT_render_preview (dest AS LONG, dx AS INTEGER, dy AS INTEGER, zoom AS SIN
             IF selCurLine% < TEXT_LAYER_DATA(tdIdx%).lineCount - 1 THEN
                 IF selC% = TL_LINE_BREAK(tdIdx%, selCurLine% + 1) THEN
                     selCurLine% = selCurLine% + 1
-                    selCurX% = TEXT_LAYER_DATA(tdIdx%).startX
+                    selCurX% = TEXT_LAYER_DATA(tdIdx%).startX + TEXT_LAYER_get_align_offset%(tdIdx%, selCurLine%)
                     DIM selLead AS INTEGER
                     selLead% = TL_LEADING(tdIdx%, selCurLine% - 1)
                     IF selLead% = 0 THEN selLead% = TEXT_LAYER_DATA(tdIdx%).defaultLeading
+                    IF selLead% = 0 THEN selLead% = TEXT_LAYER_get_line_height%(tdIdx%, selCurLine% - 1)
                     selCurY% = selCurY% + selLead%
                 END IF
             END IF
@@ -1349,56 +1533,65 @@ SUB TEXT_render_preview (dest AS LONG, dx AS INTEGER, dy AS INTEGER, zoom AS SIN
 
             DIM selFH AS LONG
             DIM selCW AS INTEGER, selCH AS INTEGER
-            IF TEXT_LAYER_measure_char%(TL_FONT_IDX(tdIdx%, selC%), TL_FONT_SIZE(tdIdx%, selC%), selFStyle$, TEXT_LAYER_DATA(tdIdx%).monospace, TL_CHAR(tdIdx%, selC%), selCW%, selCH%, selFH&) THEN
+            IF TEXT_LAYER_measure_char%(TL_FONT_IDX(tdIdx%, selC%), TL_FONT_SIZE(tdIdx%, selC%), selFStyle$, TEXT_LAYER_DATA(tdIdx%).monospace, TEXT_LAYER_DATA(tdIdx%).antialias, TL_CHAR(tdIdx%, selC%), selCW%, selCH%, selFH&) THEN
                 IF selCH% < 1 THEN selCH% = TL_FONT_SIZE(tdIdx%, selC%)
             ELSE
                 selCW% = 8
                 selCH% = TL_FONT_SIZE(tdIdx%, selC%)
             END IF
 
-            ' Draw highlight if in selection range
-            IF selC% >= selMin% AND selC% < selMax% THEN
+            ' Faux bold: +1px advance (same logic as TEXT_LAYER_get_char_x%)
+            DIM selFauxBoldAdv AS INTEGER
+            selFauxBoldAdv% = 0
+            IF TL_BOLD(tdIdx%, selC%) THEN
+                IF NOT FONT_LIST(TL_FONT_IDX(tdIdx%, selC%)).hasBold THEN selFauxBoldAdv% = 1
+            END IF
+
+            ' Draw highlight if in selection range (skip trailing padding)
+            IF selC% >= selMin% AND selC% < selMax% AND selC% <= lastVisChar(selCurLine%) THEN
                 DIM hlX AS INTEGER, hlY AS INTEGER, hlW AS INTEGER, hlH AS INTEGER
                 hlX% = dx% + INT(selCurX% * zoom!)
                 hlY% = dy% + INT(selCurY% * zoom!)
-                hlW% = INT(selCW% * zoom!)
+                hlW% = INT((selCW% + selFauxBoldAdv%) * zoom!)
                 hlH% = INT(selCH% * zoom!)
                 IF hlW% < 1 THEN hlW% = 1
                 IF hlH% < 1 THEN hlH% = 1
                 LINE (hlX%, hlY%)-(hlX% + hlW% - 1, hlY% + hlH% - 1), _RGBA32(80, 120, 200, 128), BF
             END IF
 
-            selCurX% = selCurX% + selCW% + TL_KERN(tdIdx%, selC%)
+            selCurX% = selCurX% + selCW% + TL_KERN(tdIdx%, selC%) + selFauxBoldAdv%
         NEXT selC%
     END IF
 
     ' Draw blinking cursor (blink state managed in DRAW.BAS main loop)
     DIM cx AS INTEGER, cy AS INTEGER
     DIM curLineH AS INTEGER
-    ' Cursor height matches the text size at the cursor position
+    DIM curVisY AS INTEGER   ' Y offset from top of font cell to first visible pixel row
+    ' Cursor height matches actual visible glyph height at the cursor position
     DIM curCharIdx AS INTEGER
     curCharIdx% = TEXT_LAYER_DATA(tdIdx%).cursorPos
     IF curCharIdx% > 0 THEN curCharIdx% = curCharIdx% - 1
     IF curCharIdx% >= TEXT_LAYER_DATA(tdIdx%).charCount THEN curCharIdx% = TEXT_LAYER_DATA(tdIdx%).charCount - 1
+    curVisY% = 0
     IF curCharIdx% >= 0 AND TEXT_LAYER_DATA(tdIdx%).charCount > 0 THEN
-        ' Use actual font height (handles built-in bitmap fonts correctly)
         DIM curFontIdx AS INTEGER
         curFontIdx% = TL_FONT_IDX(tdIdx%, curCharIdx%)
-        IF curFontIdx% >= 0 AND curFontIdx% < FONT_LIST_COUNT% THEN
-            IF FONT_LIST(curFontIdx%).isBuiltIn THEN
-                curLineH% = FONT_LIST(curFontIdx%).builtInHandle
-            ELSE
-                curLineH% = TL_FONT_SIZE(tdIdx%, curCharIdx%)
-            END IF
-        ELSE
-            curLineH% = TL_FONT_SIZE(tdIdx%, curCharIdx%)
+        DIM curFontStyle AS STRING
+        curFontStyle$ = FONT_STYLE_REGULAR$
+        IF TL_BOLD(tdIdx%, curCharIdx%) AND TL_ITALIC(tdIdx%, curCharIdx%) THEN
+            curFontStyle$ = FONT_STYLE_BOLDITALIC$
+        ELSEIF TL_BOLD(tdIdx%, curCharIdx%) THEN
+            curFontStyle$ = FONT_STYLE_BOLD$
+        ELSEIF TL_ITALIC(tdIdx%, curCharIdx%) THEN
+            curFontStyle$ = FONT_STYLE_ITALIC$
         END IF
+        curLineH% = TEXT_LAYER_measure_visible_height%(curFontIdx%, TL_FONT_SIZE(tdIdx%, curCharIdx%), curFontStyle$, TEXT_LAYER_DATA(tdIdx%).monospace, TEXT_LAYER_DATA(tdIdx%).antialias, curVisY%)
     ELSE
-        curLineH% = TEXT_BAR.selectedSize%
+        curLineH% = TEXT_LAYER_measure_visible_height%(TEXT_BAR.selectedFontIdx%, TEXT_BAR.selectedSize%, FONT_STYLE_REGULAR$, TEXT_LAYER_DATA(tdIdx%).monospace, TEXT_LAYER_DATA(tdIdx%).antialias, curVisY%)
     END IF
     IF curLineH% < 4 THEN curLineH% = 4
     cx% = dx% + INT(TEXT.CURSOR_X * zoom!)
-    cy% = dy% + INT(TEXT.CURSOR_Y * zoom!)
+    cy% = dy% + INT((TEXT.CURSOR_Y + curVisY%) * zoom!)
 
     IF TEXT.OVERFLOW_FLASH > 0 THEN
         ' Alternate between high-contrast inverted cursor colors each frame

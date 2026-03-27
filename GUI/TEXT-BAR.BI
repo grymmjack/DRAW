@@ -12,8 +12,8 @@ OPTION _EXPLICIT
 OPTION _EXPLICITARRAY
 '$DYNAMIC
 
-' Bar dimensions
-CONST TEXT_BAR_HEIGHT = 14  ' Slightly taller than 12px menu bar for controls
+' Bar dimensions — dynamic, computed from theme
+' (TEXT_BAR_HEIGHT CONST removed — use TEXT_BAR.barH% instead)
 
 ' Preset font sizes for the size dropdown
 CONST TEXT_BAR_SIZE_COUNT = 25
@@ -34,6 +34,21 @@ CONST TEXT_BTN_MONO       = 11  ' Monospace toggle [M]
 CONST TEXT_BTN_LINE_HEIGHT = 12 ' Line height input
 CONST TEXT_BTN_AUTO_LH     = 13 ' Auto line-height toggle
 CONST TEXT_BTN_CHAR        = 14 ' Character Mode toggle [CHAR]
+CONST TEXT_BTN_STYLE_DD    = 15 ' Style preset dropdown
+CONST TEXT_BTN_STYLE_UPDATE = 16 ' Style preset [U] update
+CONST TEXT_BTN_STYLE_SAVE  = 17 ' Style preset [S] save/export
+CONST TEXT_BTN_STYLE_DELETE = 18 ' Style preset [X] delete
+CONST TEXT_BTN_OUTLINE     = 19 ' Outline toggle
+CONST TEXT_BTN_OUTLINE_COLOR = 20 ' Outline color swatch
+CONST TEXT_BTN_OUTLINE_SIZE = 21 ' Outline size dropdown
+CONST TEXT_BTN_SHADOW      = 22 ' Shadow toggle
+CONST TEXT_BTN_SHADOW_COLOR = 23 ' Shadow color swatch
+CONST TEXT_BTN_SHADOW_X    = 24 ' Shadow X offset dropdown
+CONST TEXT_BTN_SHADOW_Y    = 25 ' Shadow Y offset dropdown
+CONST TEXT_BTN_ALIGN_L     = 26 ' Align left
+CONST TEXT_BTN_ALIGN_C     = 27 ' Align center
+CONST TEXT_BTN_ALIGN_R     = 28 ' Align right
+CONST TEXT_BTN_AA          = 29 ' Antialias toggle
 
 TYPE TEXT_BAR_OBJ
     visible            AS INTEGER        ' TRUE when bar should be shown
@@ -96,12 +111,102 @@ TYPE TEXT_BAR_OBJ
     iconLineHeightOff  AS LONG           ' Line height icon dimmed copy
     charBtnX           AS INTEGER        ' CHAR button hit zone X
     charBtnW           AS INTEGER        ' CHAR button hit zone width
+    ' --- Row 2: Outline/Shadow/Alignment/Style/AA state ---
+    outlineActive      AS INTEGER        ' Outline toggle state
+    outlineColor       AS _UNSIGNED LONG  ' Current outline color
+    outlineSize        AS INTEGER        ' Outline size (1-10)
+    shadowActive       AS INTEGER        ' Shadow toggle state
+    shadowColor        AS _UNSIGNED LONG  ' Current shadow color
+    shadowOffsetX      AS INTEGER        ' Shadow X offset (1-10)
+    shadowOffsetY      AS INTEGER        ' Shadow Y offset (1-10)
+    alignMode          AS INTEGER        ' 0=LEFT, 1=CENTER, 2=RIGHT
+    aaActive           AS INTEGER        ' Antialias toggle state
+    styleDropdownOpen  AS INTEGER        ' TRUE when style list is open
+    styleDropdownScroll AS INTEGER       ' Scroll offset for style dropdown
+    fontDropdownHoverRow AS INTEGER      ' Hovered row in font dropdown (-1=none)
+    sizeDropdownHoverRow AS INTEGER      ' Hovered row in size dropdown (-1=none)
+    styleDropdownHoverRow AS INTEGER     ' Hovered row in style dropdown (-1=none)
+    needsRedraw        AS INTEGER        ' Dirty flag — skip render when FALSE (CPU frugality)
+    ' --- Row 2 hit zones ---
+    outlineBtnX        AS INTEGER
+    outlineColorBtnX   AS INTEGER
+    outlineSizeBtnX    AS INTEGER
+    outlineSizeBtnW    AS INTEGER
+    shadowBtnX         AS INTEGER
+    shadowColorBtnX    AS INTEGER
+    shadowXBtnX        AS INTEGER
+    shadowXBtnW        AS INTEGER
+    shadowYBtnX        AS INTEGER
+    shadowYBtnW        AS INTEGER
+    alignLBtnX         AS INTEGER
+    alignCBtnX         AS INTEGER
+    alignRBtnX         AS INTEGER
+    aaBtnX             AS INTEGER
+    aaBtnW             AS INTEGER
+    styleDDBtnX        AS INTEGER
+    styleDDBtnW        AS INTEGER
+    styleUpdateBtnX    AS INTEGER
+    styleSaveBtnX      AS INTEGER
+    styleDeleteBtnX    AS INTEGER
+    styleBtnRowW       AS INTEGER        ' Width of style action buttons
+    ' --- Icon handles for row 2 ---
+    iconOutline        AS LONG
+    iconOutlineOff     AS LONG
+    iconShadow         AS LONG
+    iconShadowOff      AS LONG
+    iconAlignL         AS LONG
+    iconAlignLOff      AS LONG
+    iconAlignC         AS LONG
+    iconAlignCOff      AS LONG
+    iconAlignR         AS LONG
+    iconAlignROff      AS LONG
+    iconStyleU         AS LONG
+    iconStyleS         AS LONG
+    iconStyleX         AS LONG
+    iconAuto           AS LONG
+    iconAutoOff        AS LONG
+    iconChar           AS LONG
+    iconCharOff        AS LONG
+    iconAA             AS LONG
+    iconAAOff          AS LONG
 END TYPE
 
 DIM SHARED TEXT_BAR AS TEXT_BAR_OBJ
 
 ' Preset size values
 DIM SHARED TEXT_BAR_SIZES(0 TO TEXT_BAR_SIZE_COUNT - 1) AS INTEGER
+
+' --- Text Style Presets ---
+CONST TEXT_STYLE_MAX = 32
+
+TYPE TEXT_STYLE_OBJ
+    name       AS STRING * 32   ' Style name ("Heading 1", etc.)
+    used       AS INTEGER       ' TRUE if this slot is in use
+    fontName   AS STRING * 64   ' Font name (portable, not index)
+    fontSize   AS INTEGER
+    bold       AS INTEGER
+    italic     AS INTEGER
+    underline  AS INTEGER
+    strike     AS INTEGER
+    mono       AS INTEGER
+    lineHeight AS INTEGER
+    autoLH     AS INTEGER
+    charMode   AS INTEGER
+    fgColor    AS _UNSIGNED LONG
+    bgColor    AS _UNSIGNED LONG
+    outline    AS INTEGER
+    outColor   AS _UNSIGNED LONG
+    outSize    AS INTEGER
+    shadow     AS INTEGER
+    shdColor   AS _UNSIGNED LONG
+    shdX       AS INTEGER
+    shdY       AS INTEGER
+    antialias  AS INTEGER
+END TYPE
+
+DIM SHARED TEXT_STYLES(1 TO TEXT_STYLE_MAX) AS TEXT_STYLE_OBJ
+DIM SHARED TEXT_STYLE_COUNT AS INTEGER
+DIM SHARED TEXT_STYLE_SELECTED AS INTEGER
 
 ' Function declarations
 DECLARE SUB TEXT_BAR_init ()
@@ -110,6 +215,7 @@ DECLARE SUB TEXT_BAR_dim_icon (handle AS LONG, dimScale AS SINGLE)
 DECLARE SUB TEXT_BAR_render ()
 DECLARE SUB TEXT_BAR_render_font_dropdown ()
 DECLARE SUB TEXT_BAR_render_size_dropdown ()
+DECLARE SUB TEXT_BAR_render_style_dropdown ()
 DECLARE FUNCTION TEXT_BAR_handle_click% (rawX AS INTEGER, rawY AS INTEGER)
 DECLARE FUNCTION TEXT_BAR_handle_wheel% (rawX AS INTEGER, rawY AS INTEGER, wheel_delta AS INTEGER)
 DECLARE FUNCTION TEXT_BAR_char_mode_font_is_safe% (fontIdx AS INTEGER)
@@ -117,9 +223,19 @@ DECLARE SUB TEXT_BAR_ensure_char_mode_safe_font ()
 DECLARE SUB TEXT_BAR_handle_key (k AS LONG)
 DECLARE SUB TEXT_BAR_sync_paint_color ()
 DECLARE FUNCTION TEXT_BAR_in_bounds% (rawX AS INTEGER, rawY AS INTEGER)
+DECLARE FUNCTION TEXT_BAR_ui_in_bounds% (rawX AS INTEGER, rawY AS INTEGER)
 DECLARE SUB TEXT_BAR_close_dropdowns ()
 DECLARE SUB TEXT_BAR_apply_style_to_selection (attrName AS STRING)
 DECLARE FUNCTION TEXT_BAR_get_line_height% ()
 DECLARE SUB TEXT_BAR_adjust_line_height ()
 DECLARE SUB TEXT_BAR_auto_update_line_height ()
 DECLARE FUNCTION TEXT_BAR_font_dropdown_max_visible% ()
+DECLARE SUB TEXT_BAR_update_dropdown_hover (rawX AS INTEGER, rawY AS INTEGER)
+DECLARE SUB TEXT_STYLE_load ()
+DECLARE SUB TEXT_STYLE_save_all ()
+DECLARE SUB TEXT_STYLE_apply_default ()
+DECLARE SUB TEXT_STYLE_apply (idx AS INTEGER)
+DECLARE SUB TEXT_STYLE_capture_current (idx AS INTEGER)
+DECLARE SUB TEXT_STYLE_export (idx AS INTEGER, path AS STRING)
+DECLARE SUB TEXT_STYLE_export_all (path AS STRING)
+DECLARE SUB TEXT_STYLE_import (path AS STRING)

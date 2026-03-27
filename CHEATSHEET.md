@@ -1345,8 +1345,7 @@ DRAW stores settings in `DRAW.cfg` in the application directory. Settings are lo
 | `DEFAULT_LAYER_BG_COLOR` | Background color for new layers (hex AARRGGBB) | 00000000 (transparent) |
 | `DEFAULT_SAVE_DIR` | Default directory for save dialogs | (empty = current dir) |
 | `DEFAULT_OPEN_DIR` | Default directory for open dialogs | (empty = current dir) |
-| `PALETTE_DEFAULT_FG_COLOR_INDEX` | Initial foreground color index | 15 |
-| `PALETTE_DEFAULT_BG_COLOR_INDEX` | Initial background color index | 0 |
+| `PALETTE_DEFAULT_BG_TRANSPARENT` | Start with transparent background | TRUE |
 
 ### Tool Numbers
 
