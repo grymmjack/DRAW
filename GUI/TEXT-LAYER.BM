@@ -27,7 +27,7 @@ FUNCTION TEXT_LAYER_alloc% ()
             TEXT_LAYER_DATA(i%).cursorPos = 0
             TEXT_LAYER_DATA(i%).dirty = TRUE
             TEXT_LAYER_DATA(i%).alignment = TEXT_ALIGN_LEFT
-            TEXT_LAYER_DATA(i%).antialias = TRUE  ' ON by default
+            TEXT_LAYER_DATA(i%).antialias = FALSE  ' OFF by default — user must opt in
             TEXT_LAYER_DATA(i%).outlineCharCount = 0
             TEXT_LAYER_DATA(i%).shadowCharCount = 0
             TL_LINE_BREAK(i%, 0) = 0  ' First line starts at char 0
@@ -57,7 +57,7 @@ SUB TEXT_LAYER_free (idx%)
     TEXT_LAYER_DATA(idx%).cursorPos = 0
     TEXT_LAYER_DATA(idx%).dirty = FALSE
     TEXT_LAYER_DATA(idx%).alignment = TEXT_ALIGN_LEFT
-    TEXT_LAYER_DATA(idx%).antialias = TRUE
+    TEXT_LAYER_DATA(idx%).antialias = FALSE
     TEXT_LAYER_DATA(idx%).outlineCharCount = 0
     TEXT_LAYER_DATA(idx%).shadowCharCount = 0
 
@@ -1360,6 +1360,88 @@ END FUNCTION
 
 
 ''
+' Compute bounding box dimensions (width, height) for a text layer.
+' Width = max raw line width (without alignment offset) across all lines.
+' Height = sum of per-line leading + last line font height.
+' @param idx% Pool index
+' @param outW% OUTPUT: bounding box width in canvas pixels
+' @param outH% OUTPUT: bounding box height in canvas pixels
+'
+SUB TEXT_LAYER_get_bounds (idx%, outW%, outH%)
+    outW% = 0: outH% = 0
+    IF idx% < 1 OR idx% > TEXT_LAYER_POOL_SIZE THEN EXIT SUB
+    IF NOT TEXT_LAYER_DATA(idx%).used THEN EXIT SUB
+    IF TEXT_LAYER_DATA(idx%).charCount = 0 THEN EXIT SUB
+
+    DIM gbFS AS INTEGER, gbLC AS INTEGER
+    gbFS% = TEXT_LAYER_DATA(idx%).fontSize
+    IF gbFS% < 4 THEN gbFS% = 4
+    gbLC% = TEXT_LAYER_DATA(idx%).lineCount
+    IF gbLC% < 1 THEN gbLC% = 1
+
+    ' --- Width: walk all chars, compute raw per-line width (no alignment offset) ---
+    DIM gbMaxW AS INTEGER, gbLine AS INTEGER, gbW AS INTEGER, gbC AS INTEGER
+    gbMaxW% = 0: gbLine% = 0: gbW% = 0
+    FOR gbC% = 0 TO TEXT_LAYER_DATA(idx%).charCount - 1
+        IF gbLine% < gbLC% - 1 THEN
+            IF gbC% = TL_LINE_BREAK(idx%, gbLine% + 1) THEN
+                IF gbW% > gbMaxW% THEN gbMaxW% = gbW%
+                gbLine% = gbLine% + 1: gbW% = 0
+            END IF
+        END IF
+        IF TL_CHAR(idx%, gbC%) = CHR$(10) THEN _CONTINUE
+
+        DIM gbStyle AS STRING
+        gbStyle$ = FONT_STYLE_REGULAR$
+        IF TL_BOLD(idx%, gbC%) AND TL_ITALIC(idx%, gbC%) THEN
+            gbStyle$ = FONT_STYLE_BOLDITALIC$
+        ELSEIF TL_BOLD(idx%, gbC%) THEN
+            gbStyle$ = FONT_STYLE_BOLD$
+        ELSEIF TL_ITALIC(idx%, gbC%) THEN
+            gbStyle$ = FONT_STYLE_ITALIC$
+        END IF
+
+        DIM gbFaux AS INTEGER
+        gbFaux% = 0
+        IF TL_BOLD(idx%, gbC%) THEN
+            IF TL_FONT_IDX(idx%, gbC%) >= 0 AND TL_FONT_IDX(idx%, gbC%) < FONT_LIST_COUNT% THEN
+                IF NOT FONT_LIST(TL_FONT_IDX(idx%, gbC%)).hasBold THEN gbFaux% = 1
+            END IF
+        END IF
+
+        DIM gbCW AS INTEGER, gbCH AS INTEGER, gbFH AS LONG
+        IF TEXT_LAYER_measure_char%(TL_FONT_IDX(idx%, gbC%), TL_FONT_SIZE(idx%, gbC%), gbStyle$, TEXT_LAYER_DATA(idx%).monospace, TEXT_LAYER_DATA(idx%).antialias, TL_CHAR(idx%, gbC%), gbCW%, gbCH%, gbFH&) THEN
+            gbW% = gbW% + gbCW% + TL_KERN(idx%, gbC%) + gbFaux%
+        ELSE
+            gbW% = gbW% + 8 + TL_KERN(idx%, gbC%)
+        END IF
+    NEXT gbC%
+    IF gbW% > gbMaxW% THEN gbMaxW% = gbW%
+    outW% = gbMaxW%
+    IF outW% < 8 THEN outW% = 8
+
+    ' --- Height: sum per-line leading + last line font height ---
+    DIM gbH AS INTEGER, gbLn AS INTEGER, gbLead AS INTEGER
+    gbH% = 0
+    FOR gbLn% = 0 TO gbLC% - 2
+        gbLead% = TL_LEADING(idx%, gbLn%)
+        IF gbLead% = 0 THEN gbLead% = TEXT_LAYER_DATA(idx%).defaultLeading
+        gbH% = gbH% + gbLead%
+    NEXT gbLn%
+    DIM gbLastFS AS INTEGER
+    IF TEXT_LAYER_DATA(idx%).charCount > 0 THEN
+        gbLastFS% = TL_FONT_SIZE(idx%, TEXT_LAYER_DATA(idx%).charCount - 1)
+    ELSE
+        gbLastFS% = gbFS%
+    END IF
+    IF gbLastFS% < gbFS% THEN gbLastFS% = gbFS%
+    gbH% = gbH% + gbLastFS%
+    outH% = gbH%
+    IF outH% < 8 THEN outH% = 8
+END SUB
+
+
+''
 ' Get which line a character belongs to.
 ' @param idx% Pool index
 ' @param charIdx% Character index (0-based)
@@ -1701,7 +1783,7 @@ SUB TEXT_LAYER_deserialize (tdIdx%, d$)
         TEXT_LAYER_DATA(tdIdx%).antialias = ASC(MID$(d$, dPos&, 1)): dPos& = dPos& + 1
     ELSE
         TEXT_LAYER_DATA(tdIdx%).alignment = TEXT_ALIGN_LEFT
-        TEXT_LAYER_DATA(tdIdx%).antialias = TRUE
+        TEXT_LAYER_DATA(tdIdx%).antialias = FALSE
     END IF
     TEXT_LAYER_DATA(tdIdx%).dirty = TRUE
 

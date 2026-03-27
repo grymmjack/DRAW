@@ -535,6 +535,38 @@ END SUB
 
 
 ''
+' Convert a charmode virtual grid position (col, row) to a linear char index.
+' Returns 0 if the row has no data, or clamps to line boundaries.
+' @param tdIdx% Text layer pool index
+' @param col% Virtual column (0-based)
+' @param row% Virtual row (0-based)
+' @return INTEGER Linear char index suitable for selection anchors
+'
+FUNCTION TEXT_char_mode_grid_to_pos% (tdIdx%, col%, row%)
+    TEXT_char_mode_grid_to_pos% = 0
+    IF tdIdx% < 1 OR tdIdx% > TEXT_LAYER_POOL_SIZE THEN EXIT FUNCTION
+    IF NOT TEXT_LAYER_DATA(tdIdx%).used THEN EXIT FUNCTION
+    IF row% < 0 THEN EXIT FUNCTION
+    IF row% >= TEXT_LAYER_DATA(tdIdx%).lineCount THEN
+        TEXT_char_mode_grid_to_pos% = TEXT_LAYER_DATA(tdIdx%).charCount
+        EXIT FUNCTION
+    END IF
+    DIM gLS AS INTEGER, gLE AS INTEGER
+    gLS% = TL_LINE_BREAK(tdIdx%, row%)
+    IF row% < TEXT_LAYER_DATA(tdIdx%).lineCount - 1 THEN
+        gLE% = TL_LINE_BREAK(tdIdx%, row% + 1)
+    ELSE
+        gLE% = TEXT_LAYER_DATA(tdIdx%).charCount
+    END IF
+    DIM gPos AS INTEGER
+    gPos% = gLS% + col%
+    IF gPos% > gLE% THEN gPos% = gLE%
+    IF gPos% < gLS% THEN gPos% = gLS%
+    TEXT_char_mode_grid_to_pos% = gPos%
+END FUNCTION
+
+
+''
 ' Add a character in Character Mode at the current cell.
 ' Replaces existing in-cell character; appends if cursor is at line end.
 '
@@ -680,22 +712,13 @@ SUB TEXT_char_mode_backspace ()
     tdIdx% = TEXT_get_active_text_data_idx%
     IF tdIdx% < 1 THEN EXIT SUB
 
-    ' Move virtual cursor left first
+    ' Always move virtual cursor left first (like left arrow)
+    TEXT_char_mode_move_cursor -1, 0, FALSE
+
     col% = TEXT.cmVirtualCol
     row% = TEXT.cmVirtualRow
-    IF col% > 0 THEN
-        col% = col% - 1
-    ELSEIF row% > 0 THEN
-        row% = row% - 1
-        col% = 0
-    ELSE
-        EXIT SUB
-    END IF
 
-    ' Update virtual position (non-expanding)
-    TEXT_char_mode_set_cursor col%, row%, FALSE
-
-    ' If data exists at this position, expand and erase
+    ' If data exists at this position, erase the cell
     IF row% < TEXT_LAYER_DATA(tdIdx%).lineCount THEN
         DIM bsLineStart AS INTEGER, bsLineEnd AS INTEGER, bsLineLen AS INTEGER
         bsLineStart% = TL_LINE_BREAK(tdIdx%, row%)
@@ -712,12 +735,86 @@ SUB TEXT_char_mode_backspace ()
                 TL_CHAR(tdIdx%, cellPos%) = " "
                 TL_FG(tdIdx%, cellPos%) = _RGBA32(0, 0, 0, 0)
                 TL_BG(tdIdx%, cellPos%) = _RGBA32(0, 0, 0, 0)
+                TEXT_char_mode_trim_trailing tdIdx%
                 TEXT_LAYER_DATA(tdIdx%).dirty = TRUE
-                FRAME_IDLE% = FALSE
-                SCENE_DIRTY% = TRUE
             END IF
         END IF
     END IF
+END SUB
+
+
+''
+' Trim trailing blank chars (transparent spaces and empty newlines) from a text
+' layer buffer in Character Mode. Reduces charCount and lineCount so that
+' Ctrl+A and selection don't cover invisible empty cells.
+'
+SUB TEXT_char_mode_trim_trailing (tdIdx AS INTEGER)
+    IF tdIdx% < 1 OR tdIdx% > TEXT_LAYER_POOL_SIZE THEN EXIT SUB
+    IF NOT TEXT_LAYER_DATA(tdIdx%).used THEN EXIT SUB
+
+    DO WHILE TEXT_LAYER_DATA(tdIdx%).charCount > 0
+        DIM ttLast AS INTEGER
+        ttLast% = TEXT_LAYER_DATA(tdIdx%).charCount - 1
+        DIM ttCh AS STRING
+        ttCh$ = TL_CHAR(tdIdx%, ttLast%)
+        IF ttCh$ = " " AND _ALPHA32(TL_FG(tdIdx%, ttLast%)) = 0 AND _ALPHA32(TL_BG(tdIdx%, ttLast%)) = 0 THEN
+            ' Trailing transparent space — remove it
+            TEXT_LAYER_DATA(tdIdx%).charCount = TEXT_LAYER_DATA(tdIdx%).charCount - 1
+        ELSEIF ttCh$ = CHR$(10) THEN
+            ' Trailing newline — remove it and decrement lineCount
+            TEXT_LAYER_DATA(tdIdx%).charCount = TEXT_LAYER_DATA(tdIdx%).charCount - 1
+            IF TEXT_LAYER_DATA(tdIdx%).lineCount > 1 THEN
+                TEXT_LAYER_DATA(tdIdx%).lineCount = TEXT_LAYER_DATA(tdIdx%).lineCount - 1
+            END IF
+        ELSE
+            EXIT DO
+        END IF
+    LOOP
+
+    ' Clamp cursor position
+    IF TEXT_LAYER_DATA(tdIdx%).cursorPos > TEXT_LAYER_DATA(tdIdx%).charCount THEN
+        TEXT_LAYER_DATA(tdIdx%).cursorPos = TEXT_LAYER_DATA(tdIdx%).charCount
+    END IF
+
+    ' Ensure at least 1 line
+    IF TEXT_LAYER_DATA(tdIdx%).lineCount < 1 THEN TEXT_LAYER_DATA(tdIdx%).lineCount = 1
+END SUB
+
+
+''
+' Erase all selected cells in Character Mode (replace with space + transparent).
+'
+SUB TEXT_char_mode_delete_selection ()
+    IF NOT TEXT_char_mode_active% THEN EXIT SUB
+    IF NOT TEXT_has_selection% THEN EXIT SUB
+    DIM dsTdIdx AS INTEGER
+    dsTdIdx% = TEXT_get_active_text_data_idx%
+    IF dsTdIdx% < 1 THEN EXIT SUB
+
+    DIM dsMin AS INTEGER, dsMax AS INTEGER
+    dsMin% = TEXT.selStart%
+    dsMax% = TEXT.selEnd%
+    IF dsMin% > dsMax% THEN SWAP dsMin%, dsMax%
+
+    ' Clamp to valid range
+    IF dsMin% < 0 THEN dsMin% = 0
+    IF dsMax% > TEXT_LAYER_DATA(dsTdIdx%).charCount THEN dsMax% = TEXT_LAYER_DATA(dsTdIdx%).charCount
+
+    ' Erase each cell (skip newlines)
+    DIM dsI AS INTEGER
+    FOR dsI% = dsMin% TO dsMax% - 1
+        IF TL_CHAR(dsTdIdx%, dsI%) <> CHR$(10) THEN
+            TL_CHAR(dsTdIdx%, dsI%) = " "
+            TL_FG(dsTdIdx%, dsI%) = _RGBA32(0, 0, 0, 0)
+            TL_BG(dsTdIdx%, dsI%) = _RGBA32(0, 0, 0, 0)
+        END IF
+    NEXT dsI%
+
+    TEXT_clear_selection
+    TEXT_char_mode_trim_trailing dsTdIdx%
+    TEXT_LAYER_DATA(dsTdIdx%).dirty = TRUE
+    FRAME_IDLE% = FALSE
+    SCENE_DIRTY% = TRUE
 END SUB
 
 
@@ -752,6 +849,7 @@ SUB TEXT_char_mode_delete ()
                 TL_CHAR(tdIdx%, cellPos%) = " "
                 TL_FG(tdIdx%, cellPos%) = _RGBA32(0, 0, 0, 0)
                 TL_BG(tdIdx%, cellPos%) = _RGBA32(0, 0, 0, 0)
+                TEXT_char_mode_trim_trailing tdIdx%
                 TEXT_LAYER_DATA(tdIdx%).dirty = TRUE
                 FRAME_IDLE% = FALSE
                 SCENE_DIRTY% = TRUE

@@ -72,6 +72,7 @@ DIM SHARED CHARMAP AS CHARMAP_OBJ
 DIM SHARED CHARMAP_GLYPH(0 TO CHARMAP_CELL_COUNT - 1) AS LONG
 DIM SHARED CHARMAP_GLYPH_W(0 TO CHARMAP_CELL_COUNT - 1) AS INTEGER  ' Actual glyph width
 DIM SHARED CHARMAP_GLYPH_H(0 TO CHARMAP_CELL_COUNT - 1) AS INTEGER  ' Actual glyph height
+DIM SHARED CHARMAP_GLYPH_YOFF(0 TO CHARMAP_CELL_COUNT - 1) AS INTEGER ' Y offset from font top (inkMinY)
 
 ' Unicode codepoint mapping — maps cell index (0..255) to actual codepoint.
 ' In CP437 mode: CHARMAP_CODEPOINT(i) = i.  In Unicode mode: actual Unicode CP.
