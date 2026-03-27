@@ -146,14 +146,24 @@ SUB TEXT_start (x AS INTEGER, y AS INTEGER)
     IF tdIdx% >= 1 THEN
         TEXT_LAYER_DATA(tdIdx%).fontIdx = TEXT_BAR.selectedFontIdx%
         TEXT_LAYER_DATA(tdIdx%).fontSize = TEXT_BAR.selectedSize%
-        ' Use actual font height for leading when built-in bitmap font
+        ' Use actual font cell height for leading so lines don't overlap
         DIM actualH AS INTEGER
         IF FONT_LIST(TEXT_BAR.selectedFontIdx%).isBuiltIn THEN
             actualH% = FONT_LIST(TEXT_BAR.selectedFontIdx%).builtInHandle
             TEXT_LAYER_DATA(tdIdx%).defaultLeading = actualH%
+        ELSEIF FONT_LIST(TEXT_BAR.selectedFontIdx%).isBitmapFont THEN
+            actualH% = FONT_LIST(TEXT_BAR.selectedFontIdx%).bitmapGlyphH
+            IF actualH% < 1 THEN actualH% = 16
+            TEXT_LAYER_DATA(tdIdx%).defaultLeading = actualH%
         ELSE
-            actualH% = TEXT_BAR.selectedSize%
-            TEXT_LAYER_DATA(tdIdx%).defaultLeading = actualH% + 1
+            ' For TTF fonts, measure actual cell height (_UFONTHEIGHT)
+            DIM initMW AS INTEGER, initMH AS INTEGER, initFH AS LONG
+            IF TEXT_LAYER_measure_char%(TEXT_BAR.selectedFontIdx%, TEXT_BAR.selectedSize%, FONT_STYLE_REGULAR$, TEXT_BAR.monoActive%, TEXT_BAR.aaActive%, "M", initMW%, initMH%, initFH&) THEN
+                actualH% = initMH%
+            ELSE
+                actualH% = TEXT_BAR.selectedSize%
+            END IF
+            TEXT_LAYER_DATA(tdIdx%).defaultLeading = actualH%
         END IF
         TEXT_LAYER_DATA(tdIdx%).monospace = TEXT_BAR.monoActive%
         IF CHARMAP.useChars% THEN
@@ -1369,7 +1379,7 @@ SUB TEXT_render_preview (dest AS LONG, dx AS INTEGER, dy AS INTEGER, zoom AS SIN
         IF selMin% > selMax% THEN SWAP selMin%, selMax%
 
         DIM selCurX AS INTEGER, selCurY AS INTEGER, selCurLine AS INTEGER
-        selCurX% = TEXT_LAYER_DATA(tdIdx%).startX
+        selCurX% = TEXT_LAYER_DATA(tdIdx%).startX + TEXT_LAYER_get_align_offset%(tdIdx%, 0)
         selCurY% = TEXT_LAYER_DATA(tdIdx%).startY
         selCurLine% = 0
 
@@ -1379,10 +1389,11 @@ SUB TEXT_render_preview (dest AS LONG, dx AS INTEGER, dy AS INTEGER, zoom AS SIN
             IF selCurLine% < TEXT_LAYER_DATA(tdIdx%).lineCount - 1 THEN
                 IF selC% = TL_LINE_BREAK(tdIdx%, selCurLine% + 1) THEN
                     selCurLine% = selCurLine% + 1
-                    selCurX% = TEXT_LAYER_DATA(tdIdx%).startX
+                    selCurX% = TEXT_LAYER_DATA(tdIdx%).startX + TEXT_LAYER_get_align_offset%(tdIdx%, selCurLine%)
                     DIM selLead AS INTEGER
                     selLead% = TL_LEADING(tdIdx%, selCurLine% - 1)
                     IF selLead% = 0 THEN selLead% = TEXT_LAYER_DATA(tdIdx%).defaultLeading
+                    IF selLead% = 0 THEN selLead% = TEXT_LAYER_get_line_height%(tdIdx%, selCurLine% - 1)
                     selCurY% = selCurY% + selLead%
                 END IF
             END IF
@@ -1435,30 +1446,32 @@ SUB TEXT_render_preview (dest AS LONG, dx AS INTEGER, dy AS INTEGER, zoom AS SIN
     ' Draw blinking cursor (blink state managed in DRAW.BAS main loop)
     DIM cx AS INTEGER, cy AS INTEGER
     DIM curLineH AS INTEGER
-    ' Cursor height matches the text size at the cursor position
+    DIM curVisY AS INTEGER   ' Y offset from top of font cell to first visible pixel row
+    ' Cursor height matches actual visible glyph height at the cursor position
     DIM curCharIdx AS INTEGER
     curCharIdx% = TEXT_LAYER_DATA(tdIdx%).cursorPos
     IF curCharIdx% > 0 THEN curCharIdx% = curCharIdx% - 1
     IF curCharIdx% >= TEXT_LAYER_DATA(tdIdx%).charCount THEN curCharIdx% = TEXT_LAYER_DATA(tdIdx%).charCount - 1
+    curVisY% = 0
     IF curCharIdx% >= 0 AND TEXT_LAYER_DATA(tdIdx%).charCount > 0 THEN
-        ' Use actual font height (handles built-in bitmap fonts correctly)
         DIM curFontIdx AS INTEGER
         curFontIdx% = TL_FONT_IDX(tdIdx%, curCharIdx%)
-        IF curFontIdx% >= 0 AND curFontIdx% < FONT_LIST_COUNT% THEN
-            IF FONT_LIST(curFontIdx%).isBuiltIn THEN
-                curLineH% = FONT_LIST(curFontIdx%).builtInHandle
-            ELSE
-                curLineH% = TL_FONT_SIZE(tdIdx%, curCharIdx%)
-            END IF
-        ELSE
-            curLineH% = TL_FONT_SIZE(tdIdx%, curCharIdx%)
+        DIM curFontStyle AS STRING
+        curFontStyle$ = FONT_STYLE_REGULAR$
+        IF TL_BOLD(tdIdx%, curCharIdx%) AND TL_ITALIC(tdIdx%, curCharIdx%) THEN
+            curFontStyle$ = FONT_STYLE_BOLDITALIC$
+        ELSEIF TL_BOLD(tdIdx%, curCharIdx%) THEN
+            curFontStyle$ = FONT_STYLE_BOLD$
+        ELSEIF TL_ITALIC(tdIdx%, curCharIdx%) THEN
+            curFontStyle$ = FONT_STYLE_ITALIC$
         END IF
+        curLineH% = TEXT_LAYER_measure_visible_height%(curFontIdx%, TL_FONT_SIZE(tdIdx%, curCharIdx%), curFontStyle$, TEXT_LAYER_DATA(tdIdx%).monospace, TEXT_LAYER_DATA(tdIdx%).antialias, curVisY%)
     ELSE
-        curLineH% = TEXT_BAR.selectedSize%
+        curLineH% = TEXT_LAYER_measure_visible_height%(TEXT_BAR.selectedFontIdx%, TEXT_BAR.selectedSize%, FONT_STYLE_REGULAR$, TEXT_LAYER_DATA(tdIdx%).monospace, TEXT_LAYER_DATA(tdIdx%).antialias, curVisY%)
     END IF
     IF curLineH% < 4 THEN curLineH% = 4
     cx% = dx% + INT(TEXT.CURSOR_X * zoom!)
-    cy% = dy% + INT(TEXT.CURSOR_Y * zoom!)
+    cy% = dy% + INT((TEXT.CURSOR_Y + curVisY%) * zoom!)
 
     IF TEXT.OVERFLOW_FLASH > 0 THEN
         ' Alternate between high-contrast inverted cursor colors each frame

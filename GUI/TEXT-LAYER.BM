@@ -94,6 +94,108 @@ END SUB
 
 
 ''
+' Measure the visible pixel height of a glyph by rendering to a temp image and
+' scanning for non-transparent rows. Returns the distance from the first to last
+' visible row, plus the Y offset from the top of the cell to the first visible row.
+' This gives the true visual extent, unlike _UFONTHEIGHT which includes the full
+' ascent+descent+leading cell.
+'
+FUNCTION TEXT_LAYER_measure_visible_height% (fontIdx%, fontSize%, fontStyle$, mono%, antialias%, outVisY AS INTEGER)
+    TEXT_LAYER_measure_visible_height% = 0
+    outVisY% = 0
+
+    IF fontIdx% < 0 OR fontIdx% >= FONT_LIST_COUNT% THEN EXIT FUNCTION
+
+    DIM visH AS INTEGER
+    visH% = 0
+
+    ' Bitmap fonts — visible height equals glyph height, no offset
+    IF FONT_LIST(fontIdx%).isBitmapFont THEN
+        visH% = FONT_LIST(fontIdx%).bitmapGlyphH
+        IF visH% < 1 THEN visH% = 16
+        TEXT_LAYER_measure_visible_height% = visH%
+        EXIT FUNCTION
+    END IF
+
+    ' Built-in fonts — height is the handle value, no offset
+    IF FONT_LIST(fontIdx%).isBuiltIn THEN
+        TEXT_LAYER_measure_visible_height% = FONT_LIST(fontIdx%).builtInHandle
+        EXIT FUNCTION
+    END IF
+
+    ' TTF: render a reference glyph and scan for visible rows
+    DIM fh AS LONG
+    fh& = FONT_LIST_get_handle&(fontIdx%, fontSize%, fontStyle$, mono%, antialias%)
+    IF fh& <= 0 THEN
+        TEXT_LAYER_measure_visible_height% = fontSize%
+        EXIT FUNCTION
+    END IF
+
+    DIM oldFont AS LONG
+    oldFont& = _FONT
+    _FONT fh&
+    DIM cellH AS INTEGER
+    cellH% = _UFONTHEIGHT
+    DIM cellW AS INTEGER
+    cellW% = _PRINTWIDTH("M")
+    IF cellW% < 2 THEN cellW% = fontSize%
+    IF cellH% < 2 THEN cellH% = fontSize%
+    _FONT oldFont&
+
+    ' Create temp image, render glyph, scan rows
+    DIM tmpImg AS LONG
+    tmpImg& = _NEWIMAGE(cellW% + 4, cellH% + 4, 32)
+    IF tmpImg& >= -1 THEN
+        TEXT_LAYER_measure_visible_height% = fontSize%
+        EXIT FUNCTION
+    END IF
+
+    DIM oldDest AS LONG
+    oldDest& = _DEST
+    _DEST tmpImg&
+    CLS , _RGBA32(0, 0, 0, 0)
+    _FONT fh&
+    COLOR _RGB32(255, 255, 255)
+    _PRINTMODE _KEEPBACKGROUND
+    _CONTROLCHR OFF
+    _UPRINTSTRING (0, 0), "M"
+    _CONTROLCHR ON
+
+    ' Scan for first and last visible row
+    DIM m AS _MEM
+    m = _MEMIMAGE(tmpImg&)
+    DIM imgW AS INTEGER
+    imgW% = _WIDTH(tmpImg&)
+    DIM firstRow AS INTEGER, lastRow AS INTEGER
+    firstRow% = -1
+    lastRow% = -1
+    DIM scanY AS INTEGER, scanX AS INTEGER
+    DIM px AS _UNSIGNED LONG
+    FOR scanY% = 0 TO _HEIGHT(tmpImg&) - 1
+        FOR scanX% = 0 TO imgW% - 1
+            _MEMGET m, m.OFFSET + (scanY% * imgW% + scanX%) * 4, px~&
+            IF _ALPHA32(px~&) > 0 THEN
+                IF firstRow% = -1 THEN firstRow% = scanY%
+                lastRow% = scanY%
+                EXIT FOR  ' Found visible pixel on this row, move to next row
+            END IF
+        NEXT scanX%
+    NEXT scanY%
+    _MEMFREE m
+
+    _DEST oldDest&
+    _FREEIMAGE tmpImg&
+
+    IF firstRow% >= 0 AND lastRow% >= firstRow% THEN
+        outVisY% = firstRow%
+        TEXT_LAYER_measure_visible_height% = lastRow% - firstRow% + 1
+    ELSE
+        TEXT_LAYER_measure_visible_height% = fontSize%
+    END IF
+END FUNCTION
+
+
+''
 ' Resolve character metrics for the current font entry.
 ' For raw bitmap fonts, uses native glyph dimensions instead of _LOADFONT.
 '
@@ -166,6 +268,8 @@ SUB TEXT_LAYER_draw_bitmap_char (fontIdx%, ch$, drawX%, drawY%, fgColor~&, destI
         BITMAP_FONT_render_glyph_psf fontPath$, charIdx%, glyphW%, glyphH%, glyphImg&
     ELSEIF RIGHT$(upperPath$, 4) = ".PCF" THEN
         BITMAP_FONT_render_glyph_pcf fontPath$, charIdx%, glyphW%, glyphH%, glyphImg&
+    ELSEIF RIGHT$(upperPath$, 4) = ".FON" THEN
+        BITMAP_FONT_render_glyph_fon fontPath$, charIdx%, glyphW%, glyphH%, glyphImg&
     ELSE
         BITMAP_FONT_render_glyph_fxx fontPath$, charIdx%, glyphH%, glyphImg&
         glyphW% = 8
@@ -258,59 +362,61 @@ SUB TEXT_LAYER_render (idx%, destImg&)
     DIM alignMode AS INTEGER
     alignMode% = TEXT_LAYER_DATA(idx%).alignment
     DIM lineWidths(0 TO TEXT_LAYER_MAX_LINES - 1) AS INTEGER
+    DIM lineHeights(0 TO TEXT_LAYER_MAX_LINES - 1) AS INTEGER
     DIM maxLineWidth AS INTEGER
     maxLineWidth% = 0
 
-    IF alignMode% <> TEXT_ALIGN_LEFT THEN
-        ' Pre-walk all chars to compute per-line widths
-        DIM preC AS INTEGER
-        DIM preLine AS INTEGER
-        DIM preW AS INTEGER
-        DIM preFStyle AS STRING
-        DIM preFHandle AS LONG
-        DIM preCW AS INTEGER, preCH AS INTEGER
-        DIM preFauxAdv AS INTEGER
-        preLine% = 0
-        preW% = 0
+    ' Pre-walk all chars to compute per-line widths and max heights.
+    ' Widths are used for center/right alignment; heights are used when
+    ' TL_LEADING is 0 so that the tallest glyph on a line sets the leading.
+    DIM preC AS INTEGER
+    DIM preLine AS INTEGER
+    DIM preW AS INTEGER
+    DIM preFStyle AS STRING
+    DIM preFHandle AS LONG
+    DIM preCW AS INTEGER, preCH AS INTEGER
+    DIM preFauxAdv AS INTEGER
+    preLine% = 0
+    preW% = 0
 
-        FOR preC% = 0 TO TEXT_LAYER_DATA(idx%).charCount - 1
-            ' Check for line break
-            IF preLine% < TEXT_LAYER_DATA(idx%).lineCount - 1 THEN
-                IF preC% = TL_LINE_BREAK(idx%, preLine% + 1) THEN
-                    lineWidths(preLine%) = preW%
-                    IF preW% > maxLineWidth% THEN maxLineWidth% = preW%
-                    preLine% = preLine% + 1
-                    preW% = 0
-                END IF
+    FOR preC% = 0 TO TEXT_LAYER_DATA(idx%).charCount - 1
+        ' Check for line break
+        IF preLine% < TEXT_LAYER_DATA(idx%).lineCount - 1 THEN
+            IF preC% = TL_LINE_BREAK(idx%, preLine% + 1) THEN
+                lineWidths(preLine%) = preW%
+                IF preW% > maxLineWidth% THEN maxLineWidth% = preW%
+                preLine% = preLine% + 1
+                preW% = 0
             END IF
-            IF TL_CHAR(idx%, preC%) = CHR$(10) THEN _CONTINUE
+        END IF
+        IF TL_CHAR(idx%, preC%) = CHR$(10) THEN _CONTINUE
 
-            preFStyle$ = FONT_STYLE_REGULAR$
-            IF TL_BOLD(idx%, preC%) AND TL_ITALIC(idx%, preC%) THEN
-                preFStyle$ = FONT_STYLE_BOLDITALIC$
-            ELSEIF TL_BOLD(idx%, preC%) THEN
-                preFStyle$ = FONT_STYLE_BOLD$
-            ELSEIF TL_ITALIC(idx%, preC%) THEN
-                preFStyle$ = FONT_STYLE_ITALIC$
-            END IF
+        preFStyle$ = FONT_STYLE_REGULAR$
+        IF TL_BOLD(idx%, preC%) AND TL_ITALIC(idx%, preC%) THEN
+            preFStyle$ = FONT_STYLE_BOLDITALIC$
+        ELSEIF TL_BOLD(idx%, preC%) THEN
+            preFStyle$ = FONT_STYLE_BOLD$
+        ELSEIF TL_ITALIC(idx%, preC%) THEN
+            preFStyle$ = FONT_STYLE_ITALIC$
+        END IF
 
-            preFauxAdv% = 0
-            IF TL_BOLD(idx%, preC%) THEN
-                IF TL_FONT_IDX(idx%, preC%) >= 0 AND TL_FONT_IDX(idx%, preC%) < FONT_LIST_COUNT% THEN
-                    IF NOT FONT_LIST(TL_FONT_IDX(idx%, preC%)).hasBold THEN preFauxAdv% = 1
-                END IF
+        preFauxAdv% = 0
+        IF TL_BOLD(idx%, preC%) THEN
+            IF TL_FONT_IDX(idx%, preC%) >= 0 AND TL_FONT_IDX(idx%, preC%) < FONT_LIST_COUNT% THEN
+                IF NOT FONT_LIST(TL_FONT_IDX(idx%, preC%)).hasBold THEN preFauxAdv% = 1
             END IF
+        END IF
 
-            IF TEXT_LAYER_measure_char%(TL_FONT_IDX(idx%, preC%), TL_FONT_SIZE(idx%, preC%), preFStyle$, TEXT_LAYER_DATA(idx%).monospace, TEXT_LAYER_DATA(idx%).antialias, TL_CHAR(idx%, preC%), preCW%, preCH%, preFHandle&) THEN
-                preW% = preW% + preCW% + TL_KERN(idx%, preC%) + preFauxAdv%
-            ELSE
-                preW% = preW% + 8 + TL_KERN(idx%, preC%)
-            END IF
-        NEXT preC%
-        ' Final line
-        lineWidths(preLine%) = preW%
-        IF preW% > maxLineWidth% THEN maxLineWidth% = preW%
-    END IF
+        IF TEXT_LAYER_measure_char%(TL_FONT_IDX(idx%, preC%), TL_FONT_SIZE(idx%, preC%), preFStyle$, TEXT_LAYER_DATA(idx%).monospace, TEXT_LAYER_DATA(idx%).antialias, TL_CHAR(idx%, preC%), preCW%, preCH%, preFHandle&) THEN
+            preW% = preW% + preCW% + TL_KERN(idx%, preC%) + preFauxAdv%
+            IF preCH% > lineHeights(preLine%) THEN lineHeights(preLine%) = preCH%
+        ELSE
+            preW% = preW% + 8 + TL_KERN(idx%, preC%)
+        END IF
+    NEXT preC%
+    ' Final line
+    lineWidths(preLine%) = preW%
+    IF preW% > maxLineWidth% THEN maxLineWidth% = preW%
 
     ' Flags for whether to attempt shadow/outline draws (CPU skip)
     DIM doShadow AS INTEGER
@@ -347,6 +453,7 @@ SUB TEXT_LAYER_render (idx%, destImg&)
                 ' Advance Y by leading for previous line
                 leading% = TL_LEADING(idx%, curLine% - 1)
                 IF leading% = 0 THEN leading% = TEXT_LAYER_DATA(idx%).defaultLeading
+                IF leading% = 0 THEN leading% = lineHeights(curLine% - 1)
                 curY% = curY% + leading%
             END IF
         END IF
@@ -830,7 +937,7 @@ FUNCTION TEXT_LAYER_get_char_at_pos% (idx%, canvasX%, canvasY%)
     DIM charH AS INTEGER
     DIM leading AS INTEGER
 
-    curX% = TEXT_LAYER_DATA(idx%).startX
+    curX% = TEXT_LAYER_DATA(idx%).startX + TEXT_LAYER_get_align_offset%(idx%, 0)
     curY% = TEXT_LAYER_DATA(idx%).startY
     curLine% = 0
 
@@ -839,9 +946,10 @@ FUNCTION TEXT_LAYER_get_char_at_pos% (idx%, canvasX%, canvasY%)
         IF curLine% < TEXT_LAYER_DATA(idx%).lineCount - 1 THEN
             IF c% = TL_LINE_BREAK(idx%, curLine% + 1) THEN
                 curLine% = curLine% + 1
-                curX% = TEXT_LAYER_DATA(idx%).startX
+                curX% = TEXT_LAYER_DATA(idx%).startX + TEXT_LAYER_get_align_offset%(idx%, curLine%)
                 leading% = TL_LEADING(idx%, curLine% - 1)
                 IF leading% = 0 THEN leading% = TEXT_LAYER_DATA(idx%).defaultLeading
+                IF leading% = 0 THEN leading% = TEXT_LAYER_get_line_height%(idx%, curLine% - 1)
                 curY% = curY% + leading%
             END IF
         END IF
@@ -1001,6 +1109,126 @@ END FUNCTION
 
 
 ''
+' Compute the alignment X offset for a given line.
+' Performs the same pre-walk as TEXT_LAYER_render to determine per-line widths.
+' @param idx% Pool index
+' @param lineNum% Line number (0-based)
+' @return INTEGER X offset to add to startX for alignment
+'
+FUNCTION TEXT_LAYER_get_align_offset% (idx%, lineNum%)
+    TEXT_LAYER_get_align_offset% = 0
+    IF idx% < 1 OR idx% > TEXT_LAYER_POOL_SIZE THEN EXIT FUNCTION
+    IF NOT TEXT_LAYER_DATA(idx%).used THEN EXIT FUNCTION
+
+    DIM aMode AS INTEGER
+    aMode% = TEXT_LAYER_DATA(idx%).alignment
+    IF aMode% = TEXT_ALIGN_LEFT THEN EXIT FUNCTION
+    IF TEXT_LAYER_DATA(idx%).charCount = 0 THEN EXIT FUNCTION
+
+    ' Pre-walk all chars to compute per-line widths (same as TEXT_LAYER_render)
+    DIM aLineWidths(0 TO TEXT_LAYER_MAX_LINES - 1) AS INTEGER
+    DIM aMaxW AS INTEGER
+    DIM aLine AS INTEGER
+    DIM aW AS INTEGER
+    DIM aC AS INTEGER
+    aMaxW% = 0: aLine% = 0: aW% = 0
+
+    FOR aC% = 0 TO TEXT_LAYER_DATA(idx%).charCount - 1
+        IF aLine% < TEXT_LAYER_DATA(idx%).lineCount - 1 THEN
+            IF aC% = TL_LINE_BREAK(idx%, aLine% + 1) THEN
+                aLineWidths(aLine%) = aW%
+                IF aW% > aMaxW% THEN aMaxW% = aW%
+                aLine% = aLine% + 1: aW% = 0
+            END IF
+        END IF
+        IF TL_CHAR(idx%, aC%) = CHR$(10) THEN _CONTINUE
+
+        DIM aFS AS STRING
+        aFS$ = FONT_STYLE_REGULAR$
+        IF TL_BOLD(idx%, aC%) AND TL_ITALIC(idx%, aC%) THEN
+            aFS$ = FONT_STYLE_BOLDITALIC$
+        ELSEIF TL_BOLD(idx%, aC%) THEN
+            aFS$ = FONT_STYLE_BOLD$
+        ELSEIF TL_ITALIC(idx%, aC%) THEN
+            aFS$ = FONT_STYLE_ITALIC$
+        END IF
+
+        DIM aFaux AS INTEGER
+        aFaux% = 0
+        IF TL_BOLD(idx%, aC%) THEN
+            IF TL_FONT_IDX(idx%, aC%) >= 0 AND TL_FONT_IDX(idx%, aC%) < FONT_LIST_COUNT% THEN
+                IF NOT FONT_LIST(TL_FONT_IDX(idx%, aC%)).hasBold THEN aFaux% = 1
+            END IF
+        END IF
+
+        DIM aCW AS INTEGER, aCH AS INTEGER, aFH AS LONG
+        IF TEXT_LAYER_measure_char%(TL_FONT_IDX(idx%, aC%), TL_FONT_SIZE(idx%, aC%), aFS$, TEXT_LAYER_DATA(idx%).monospace, TEXT_LAYER_DATA(idx%).antialias, TL_CHAR(idx%, aC%), aCW%, aCH%, aFH&) THEN
+            aW% = aW% + aCW% + TL_KERN(idx%, aC%) + aFaux%
+        ELSE
+            aW% = aW% + 8 + TL_KERN(idx%, aC%)
+        END IF
+    NEXT aC%
+    aLineWidths(aLine%) = aW%
+    IF aW% > aMaxW% THEN aMaxW% = aW%
+
+    IF lineNum% < 0 OR lineNum% > aLine% THEN EXIT FUNCTION
+
+    IF aMode% = TEXT_ALIGN_CENTER THEN
+        TEXT_LAYER_get_align_offset% = (aMaxW% - aLineWidths(lineNum%)) \ 2
+    ELSEIF aMode% = TEXT_ALIGN_RIGHT THEN
+        TEXT_LAYER_get_align_offset% = aMaxW% - aLineWidths(lineNum%)
+    END IF
+END FUNCTION
+
+
+''
+' Compute the max character height on a given line by measuring all chars.
+' Returns 0 if the line is empty or has no measurable characters.
+' @param idx% Pool index
+' @param lineNum% Line number (0-based)
+' @return INTEGER Max character height on the line
+'
+FUNCTION TEXT_LAYER_get_line_height% (idx%, lineNum%)
+    TEXT_LAYER_get_line_height% = 0
+    IF idx% < 1 OR idx% > TEXT_LAYER_POOL_SIZE THEN EXIT FUNCTION
+    IF NOT TEXT_LAYER_DATA(idx%).used THEN EXIT FUNCTION
+    IF lineNum% < 0 OR lineNum% >= TEXT_LAYER_DATA(idx%).lineCount THEN EXIT FUNCTION
+
+    DIM lhStart AS INTEGER, lhEnd AS INTEGER
+    lhStart% = TL_LINE_BREAK(idx%, lineNum%)
+    IF lineNum% < TEXT_LAYER_DATA(idx%).lineCount - 1 THEN
+        lhEnd% = TL_LINE_BREAK(idx%, lineNum% + 1) - 1
+    ELSE
+        lhEnd% = TEXT_LAYER_DATA(idx%).charCount - 1
+    END IF
+
+    DIM maxH AS INTEGER
+    maxH% = 0
+    DIM lhC AS INTEGER
+    FOR lhC% = lhStart% TO lhEnd%
+        IF TL_CHAR(idx%, lhC%) = CHR$(10) THEN _CONTINUE
+
+        DIM lhFS AS STRING
+        lhFS$ = FONT_STYLE_REGULAR$
+        IF TL_BOLD(idx%, lhC%) AND TL_ITALIC(idx%, lhC%) THEN
+            lhFS$ = FONT_STYLE_BOLDITALIC$
+        ELSEIF TL_BOLD(idx%, lhC%) THEN
+            lhFS$ = FONT_STYLE_BOLD$
+        ELSEIF TL_ITALIC(idx%, lhC%) THEN
+            lhFS$ = FONT_STYLE_ITALIC$
+        END IF
+
+        DIM lhCW AS INTEGER, lhCH AS INTEGER, lhFH AS LONG
+        IF TEXT_LAYER_measure_char%(TL_FONT_IDX(idx%, lhC%), TL_FONT_SIZE(idx%, lhC%), lhFS$, TEXT_LAYER_DATA(idx%).monospace, TEXT_LAYER_DATA(idx%).antialias, TL_CHAR(idx%, lhC%), lhCW%, lhCH%, lhFH&) THEN
+            IF lhCH% > maxH% THEN maxH% = lhCH%
+        END IF
+    NEXT lhC%
+
+    TEXT_LAYER_get_line_height% = maxH%
+END FUNCTION
+
+
+''
 ' Get the Y position for a given line number (accounts for leading).
 ' @param idx% Pool index
 ' @param lineNum% Line number (0-based)
@@ -1019,6 +1247,7 @@ FUNCTION TEXT_LAYER_get_line_y% (idx%, lineNum%)
         DIM leading AS INTEGER
         leading% = TL_LEADING(idx%, ln%)
         IF leading% = 0 THEN leading% = TEXT_LAYER_DATA(idx%).defaultLeading
+        IF leading% = 0 THEN leading% = TEXT_LAYER_get_line_height%(idx%, ln%)
         y% = y% + leading%
     NEXT ln%
 
@@ -1040,7 +1269,7 @@ FUNCTION TEXT_LAYER_get_char_x% (idx%, charIdx%)
     DIM curX AS INTEGER
     DIM curLine AS INTEGER
     DIM c AS INTEGER
-    curX% = TEXT_LAYER_DATA(idx%).startX
+    curX% = TEXT_LAYER_DATA(idx%).startX + TEXT_LAYER_get_align_offset%(idx%, 0)
     curLine% = 0
 
     FOR c% = 0 TO charIdx% - 1
@@ -1050,7 +1279,7 @@ FUNCTION TEXT_LAYER_get_char_x% (idx%, charIdx%)
         IF curLine% < TEXT_LAYER_DATA(idx%).lineCount - 1 THEN
             IF c% = TL_LINE_BREAK(idx%, curLine% + 1) THEN
                 curLine% = curLine% + 1
-                curX% = TEXT_LAYER_DATA(idx%).startX
+                curX% = TEXT_LAYER_DATA(idx%).startX + TEXT_LAYER_get_align_offset%(idx%, curLine%)
             END IF
         END IF
 
@@ -1085,7 +1314,7 @@ FUNCTION TEXT_LAYER_get_char_x% (idx%, charIdx%)
     ' Check if charIdx% itself sits at a line break (cursor at start of new line)
     IF curLine% < TEXT_LAYER_DATA(idx%).lineCount - 1 THEN
         IF charIdx% = TL_LINE_BREAK(idx%, curLine% + 1) THEN
-            curX% = TEXT_LAYER_DATA(idx%).startX
+            curX% = TEXT_LAYER_DATA(idx%).startX + TEXT_LAYER_get_align_offset%(idx%, curLine% + 1)
         END IF
     END IF
 
@@ -1211,6 +1440,7 @@ FUNCTION TEXT_LAYER_get_cursor_at_pos% (idx%, canvasX%, canvasY%)
         DIM lnLead AS INTEGER
         lnLead% = TL_LEADING(idx%, ln%)
         IF lnLead% = 0 THEN lnLead% = defLead%
+        IF lnLead% = 0 THEN lnLead% = TEXT_LAYER_get_line_height%(idx%, ln%)
         totalH% = totalH% + lnLead%
     NEXT ln%
     IF totalH% < defLead% THEN totalH% = defLead%
@@ -1249,6 +1479,7 @@ FUNCTION TEXT_LAYER_get_cursor_at_pos% (idx%, canvasX%, canvasY%)
     FOR ln% = 0 TO lc% - 1
         lnLead% = TL_LEADING(idx%, ln%)
         IF lnLead% = 0 THEN lnLead% = defLead%
+        IF lnLead% = 0 THEN lnLead% = TEXT_LAYER_get_line_height%(idx%, ln%)
         IF canvasY% >= lineY% AND canvasY% < lineY% + lnLead% THEN
             targetLine% = ln%
             EXIT FOR
@@ -1275,7 +1506,7 @@ FUNCTION TEXT_LAYER_get_cursor_at_pos% (idx%, canvasX%, canvasY%)
 
     ' Walk characters on this line to find nearest cursor position
     DIM curX AS INTEGER
-    curX% = startX%
+    curX% = startX% + TEXT_LAYER_get_align_offset%(idx%, targetLine%)
     DIM bestPos AS INTEGER
     bestPos% = lineStart%
     DIM bestDist AS INTEGER

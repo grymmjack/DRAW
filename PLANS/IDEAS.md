@@ -1,5 +1,12 @@
 # IDEAS
 
+## FILE FORMATS IMPORT
+- ASEPRITE Using QB64_GJ_LIB/ASEPRITE
+- PSD
+- PCX
+- LBM
+
+
 ## LOAD IMAGES INTO BINS
 - Add to right click on brush bin, pattern bin:
   - LOAD IMAGES
@@ -95,7 +102,7 @@ cell alignment inside, borders, border widths, border colors, etc.
 
 #### TEXT STYLES
 
-- [ ] Add text style dropdown with save/delete and name for text styles:
+- [x] Add text style dropdown with save/delete and name for text styles:
   - Font
   - Font size
   - Font bold, italic, underline, strikethrough settings
@@ -115,7 +122,7 @@ cell alignment inside, borders, border widths, border colors, etc.
   - Show dialog for name
 - [X] to delete a style
 
-- [ ] When scrolling with the wheel of my mouse over the text dropdown when it is open i do not see a selected item color.
+- [x] When scrolling with the wheel of my mouse over the text dropdown when it is open i do not see a selected item color.
       - I want to be able to hover over a different font in the list to see a realtime preview of the font change
 
 - [ ] I would also like to be able to use my arrow keys on the keyboard to go up and down, to choose the font.

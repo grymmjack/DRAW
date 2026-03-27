@@ -156,8 +156,7 @@ TYPE DRAW_CONFIG
     PALETTE_MAX_ROWS               AS INTEGER  ' Maximum palette strip rows (1-8)
     PALETTE_MIN_ROWS               AS INTEGER  ' Minimum palette strip rows always shown
     PALETTE_CHIPS_ROW_THRESHOLD    AS INTEGER  ' Start new row every N chips
-    PALETTE_DEFAULT_FG_COLOR_INDEX AS INTEGER  ' Default foreground palette index (0-based)
-    PALETTE_DEFAULT_BG_COLOR_INDEX AS INTEGER  ' Default background palette index (0-based)
+    PALETTE_DEFAULT_BG_TRANSPARENT AS INTEGER  ' TRUE = default BG is transparent
     PALETTE_PICKER_CHIP_SIZE       AS INTEGER  ' Chip size in palette picker dialog (8-48)
     PALETTE_PICKER_CHIP_PADDING    AS INTEGER  ' Padding between chips in palette picker
     PALETTE_PICKER_COLUMNS         AS INTEGER  ' Number of columns in palette picker grid
