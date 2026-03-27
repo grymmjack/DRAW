@@ -136,13 +136,16 @@ FUNCTION TEXT_LAYER_measure_visible_height% (fontIdx%, fontSize%, fontStyle$, mo
     _FONT fh&
     DIM cellH AS INTEGER
     cellH% = _UFONTHEIGHT
+    ' Use reference string with ascenders AND descenders for full vertical extent
+    DIM refStr AS STRING
+    refStr$ = "Mgy"
     DIM cellW AS INTEGER
-    cellW% = _PRINTWIDTH("M")
+    cellW% = _PRINTWIDTH(refStr$)
     IF cellW% < 2 THEN cellW% = fontSize%
     IF cellH% < 2 THEN cellH% = fontSize%
     _FONT oldFont&
 
-    ' Create temp image, render glyph, scan rows
+    ' Create temp image, render glyphs, scan rows
     DIM tmpImg AS LONG
     tmpImg& = _NEWIMAGE(cellW% + 4, cellH% + 4, 32)
     IF tmpImg& >= -1 THEN
@@ -158,7 +161,7 @@ FUNCTION TEXT_LAYER_measure_visible_height% (fontIdx%, fontSize%, fontStyle$, mo
     COLOR _RGB32(255, 255, 255)
     _PRINTMODE _KEEPBACKGROUND
     _CONTROLCHR OFF
-    _UPRINTSTRING (0, 0), "M"
+    _UPRINTSTRING (0, 0), refStr$
     _CONTROLCHR ON
 
     ' Scan for first and last visible row
@@ -1428,7 +1431,7 @@ SUB TEXT_LAYER_get_bounds (idx%, outW%, outH%)
     outW% = gbMaxW%
     IF outW% < 8 THEN outW% = 8
 
-    ' --- Height: sum per-line leading + last line font height ---
+    ' --- Height: sum per-line leading + last line actual cell height ---
     DIM gbH AS INTEGER, gbLn AS INTEGER, gbLead AS INTEGER
     gbH% = 0
     FOR gbLn% = 0 TO gbLC% - 2
@@ -1436,14 +1439,12 @@ SUB TEXT_LAYER_get_bounds (idx%, outW%, outH%)
         IF gbLead% = 0 THEN gbLead% = TEXT_LAYER_DATA(idx%).defaultLeading
         gbH% = gbH% + gbLead%
     NEXT gbLn%
-    DIM gbLastFS AS INTEGER
-    IF TEXT_LAYER_DATA(idx%).charCount > 0 THEN
-        gbLastFS% = TL_FONT_SIZE(idx%, TEXT_LAYER_DATA(idx%).charCount - 1)
-    ELSE
-        gbLastFS% = gbFS%
-    END IF
-    IF gbLastFS% < gbFS% THEN gbLastFS% = gbFS%
-    gbH% = gbH% + gbLastFS%
+    ' Use actual rendered cell height for the last line (includes ascent+descent+leading)
+    ' rather than fontSize which underestimates the box for TTF fonts.
+    DIM gbLastH AS INTEGER
+    gbLastH% = TEXT_LAYER_get_line_height%(idx%, gbLC% - 1)
+    IF gbLastH% < gbFS% THEN gbLastH% = gbFS%
+    gbH% = gbH% + gbLastH%
     outH% = gbH%
     IF outH% < 8 THEN outH% = 8
 END SUB
@@ -1568,7 +1569,16 @@ FUNCTION TEXT_LAYER_get_cursor_at_pos% (idx%, canvasX%, canvasY%)
         lnLead% = TL_LEADING(idx%, ln%)
         IF lnLead% = 0 THEN lnLead% = defLead%
         IF lnLead% = 0 THEN lnLead% = TEXT_LAYER_get_line_height%(idx%, ln%)
-        totalH% = totalH% + lnLead%
+        IF ln% < lc% - 1 THEN
+            totalH% = totalH% + lnLead%
+        ELSE
+            ' Last line: use actual rendered cell height (not leading/advance)
+            ' so clicks in the descender area still hit-test correctly
+            DIM lastLineH AS INTEGER
+            lastLineH% = TEXT_LAYER_get_line_height%(idx%, ln%)
+            IF lastLineH% < lnLead% THEN lastLineH% = lnLead%
+            totalH% = totalH% + lastLineH%
+        END IF
     NEXT ln%
     IF totalH% < defLead% THEN totalH% = defLead%
 
@@ -1594,9 +1604,18 @@ FUNCTION TEXT_LAYER_get_cursor_at_pos% (idx%, canvasX%, canvasY%)
     margin% = fs%
     IF margin% < 8 THEN margin% = 8
 
+    ' DEBUG: Log hit-test values
+    _LOGINFO "HIT-TEST: canvasX=" + STR$(canvasX%) + " canvasY=" + STR$(canvasY%) + " startX=" + STR$(startX%) + " startY=" + STR$(startY%) + " maxW=" + STR$(maxW%) + " totalH=" + STR$(totalH%) + " defLead=" + STR$(defLead%) + " fs=" + STR$(fs%) + " margin=" + STR$(margin%) + " lc=" + STR$(lc%)
+
     ' Broad bounding box check
-    IF canvasX% < startX% - margin% OR canvasX% > startX% + maxW% + margin% THEN EXIT FUNCTION
-    IF canvasY% < startY% - margin% OR canvasY% > startY% + totalH% + margin% THEN EXIT FUNCTION
+    IF canvasX% < startX% - margin% OR canvasX% > startX% + maxW% + margin% THEN
+        _LOGINFO "HIT-TEST: FAILED broad X check"
+        EXIT FUNCTION
+    END IF
+    IF canvasY% < startY% - margin% OR canvasY% > startY% + totalH% + margin% THEN
+        _LOGINFO "HIT-TEST: FAILED broad Y check. canvasY=" + STR$(canvasY%) + " range=" + STR$(startY% - margin%) + " to" + STR$(startY% + totalH% + margin%)
+        EXIT FUNCTION
+    END IF
 
     ' Find which line the click is on
     DIM targetLine AS INTEGER
@@ -1607,7 +1626,16 @@ FUNCTION TEXT_LAYER_get_cursor_at_pos% (idx%, canvasX%, canvasY%)
         lnLead% = TL_LEADING(idx%, ln%)
         IF lnLead% = 0 THEN lnLead% = defLead%
         IF lnLead% = 0 THEN lnLead% = TEXT_LAYER_get_line_height%(idx%, ln%)
-        IF canvasY% >= lineY% AND canvasY% < lineY% + lnLead% THEN
+        ' For the last line, use actual cell height so clicks in the
+        ' descender area (below leading but within rendered glyphs) register
+        DIM lnTestH AS INTEGER
+        IF ln% = lc% - 1 THEN
+            lnTestH% = TEXT_LAYER_get_line_height%(idx%, ln%)
+            IF lnTestH% < lnLead% THEN lnTestH% = lnLead%
+        ELSE
+            lnTestH% = lnLead%
+        END IF
+        IF canvasY% >= lineY% AND canvasY% < lineY% + lnTestH% THEN
             targetLine% = ln%
             EXIT FOR
         END IF
@@ -1615,6 +1643,7 @@ FUNCTION TEXT_LAYER_get_cursor_at_pos% (idx%, canvasX%, canvasY%)
     NEXT ln%
     ' If below all lines, snap to last line
     IF targetLine% = -1 THEN targetLine% = lc% - 1
+    _LOGINFO "HIT-TEST: targetLine=" + STR$(targetLine%) + " lineY=" + STR$(lineY%)
 
     ' Get the char range for the target line
     DIM lineStart AS INTEGER, lineEndPos AS INTEGER
