@@ -504,6 +504,7 @@ Brush size and shape affect all drawing tools: Brush, Dot, Line, Rectangle, Elli
 | `Delete` | Edit > Clear (clears selection, or whole layer if none) |
 | `Backspace` | Fill with foreground color |
 | `Shift+Backspace` | Fill with background color |
+| `#` | Toggle canvas border visibility |
 
 ## View Controls
 
@@ -517,6 +518,10 @@ Brush size and shape affect all drawing tools: Brush, Dot, Line, Rectangle, Elli
 | `F10` | Toggle status bar visibility |
 | `F11` | Toggle all UI (toolbar, status bar, layer panel, menu bar) |
 | `Ctrl+F11` | Toggle menu bar visibility |
+| `Ctrl+Shift+Left` | Hide/show left side UI (edit bar, layers panel) |
+| `Ctrl+Shift+Right` | Hide/show right side UI (toolbar, organizer, drawer) |
+| `Ctrl+Shift+Up` | Hide/show menu bar (alternate binding for `Ctrl+F11`) |
+| `Ctrl+Shift+Down` | Hide/show status bar and color strip |
 | `Shift+Tab` | Toggle pattern tile mode |
 | `Shift` | Show crosshair (when held) |
 
@@ -992,6 +997,20 @@ Reference image state (position, scale, opacity, visibility, filename) is saved 
 | File → Exit | Exit DRAW (`Alt+X`) |
 
 **Note:** .draw files are PNG images with an embedded `drAw` chunk that preserves all layers, blend modes, palette colors, tool states, reference image configuration, and other project data. They can be previewed in any image viewer. Standard image saves flatten all visible layers to a single image.
+
+## Application
+
+| Key | Function |
+|-----|----------|
+| `Ctrl+,` | Open Settings dialog |
+
+## Music Controls
+
+| Key | Function |
+|-----|----------|
+| `}` | Next music track |
+| `{` | Previous music track |
+| `*` | Play a random music track |
 
 ## Undo/Redo
 

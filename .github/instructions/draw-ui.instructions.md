@@ -1,5 +1,5 @@
 ---
-applyTo: "**/MENUBAR.BM, **/COMMAND.BM, **/TOOLBAR.BM, **/TOOLBAR.BI, **/ORGANIZER.BM, **/ORGANIZER.BI, **/EDITBAR.BM, **/EDITBAR.BI"
+applyTo: "**/MENUBAR.BM, **/COMMAND.BM, **/TOOLBAR.BM, **/TOOLBAR.BI, **/ORGANIZER.BM, **/ORGANIZER.BI, **/EDITBAR.BM, **/EDITBAR.BI, **/SETTINGS.BM, **/SETTINGS.BI, **/SETTINGS-TABS.BM, **/SETTINGS-WIDGETS.BM"
 ---
 
 # DRAW — UI: Menus, Commands, Toolbar, Organizer, Edit Bar
@@ -177,3 +177,31 @@ END IF
 ### Auto-Hide Visibility Pattern
 
 `EDITBAR_init` follows the `PREVIEW_init` pattern for default-hidden panels: sets `showEditBar% = FALSE` + `editBarManuallyHidden% = TRUE`, only clearing `ManuallyHidden` when config says visible. Without this, the auto-hide restore logic makes the panel visible on the first frame.
+
+---
+
+## Settings Dialog (`GUI/SETTINGS.BI` / `GUI/SETTINGS.BM` / `GUI/SETTINGS-TABS.BM` / `GUI/SETTINGS-WIDGETS.BM`)
+
+GIMP-style tabbed settings dialog opened with `Ctrl+,` (action ID `ACTION_SETTINGS = 2100`). Modal dialog with left sidebar tabs and scrollable right content area.
+
+### 8 Tabs
+
+| Index | Constant | Tab |
+| ----- | -------- | --- |
+| 0 | `SETTINGS_TAB_GENERAL` | General |
+| 1 | `SETTINGS_TAB_GRID` | Grid & Guides |
+| 2 | `SETTINGS_TAB_PALETTE` | Palette |
+| 3 | `SETTINGS_TAB_PANELS` | Panels |
+| 4 | `SETTINGS_TAB_AUDIO` | Audio |
+| 5 | `SETTINGS_TAB_FONTS` | Fonts & Text |
+| 6 | `SETTINGS_TAB_APPEARANCE` | Appearance |
+| 7 | `SETTINGS_TAB_DIRS` | Directories |
+
+### Architecture
+
+- **Shadow config pattern**: On open, a shadow copy of `CFG` is created. All edits modify the shadow. OK/Apply writes the shadow back to `CFG`; Cancel discards it.
+- **Pending changes tracking**: `pendingChanges%` flag enables/disables the Apply button.
+- **Layout**: 600×380 unscaled dialog. Left sidebar for tab buttons, right area scrollable content.
+- **OK / Cancel / Apply** buttons along the bottom.
+- **Widget helpers**: `SETTINGS-WIDGETS.BM` provides reusable checkbox, slider, dropdown, and color-swatch widget rendering/hit-testing.
+- **Tab renderers**: `SETTINGS-TABS.BM` contains per-tab content rendering and input handling.
