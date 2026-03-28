@@ -1,0 +1,732 @@
+'$INCLUDEONCE
+
+' ============================================================================
+' CP-INPUT.BM — Input handling for QB64_GJ_COLOR_PICKER
+'
+' Mouse: SV square, hue bar, sliders, buttons, title drag, copy/paste
+' Keyboard: Tab, Enter, Escape
+'
+' (c) 2026 grymmjack — MIT License
+' ============================================================================
+
+' --------------------------------------------------------------------------
+' CP_INPUT_poll — Read mouse state (dialog-relative coordinates)
+' --------------------------------------------------------------------------
+SUB CP_INPUT_poll
+    CP_STATE.oldMouseB1 = CP_STATE.mouseB1
+    CP_STATE.mouseWheel = 0
+
+    DO WHILE _MOUSEINPUT
+        CP_STATE.mouseWheel = CP_STATE.mouseWheel + _MOUSEWHEEL
+    LOOP
+
+    CP_STATE.mouseX = _MOUSEX \ CP_STATE.scale - CP_STATE.dialogX
+    CP_STATE.mouseY = _MOUSEY \ CP_STATE.scale - CP_STATE.dialogY
+    CP_STATE.mouseB1 = _MOUSEBUTTON(1)
+END SUB
+
+' --------------------------------------------------------------------------
+' CP_INPUT_mouse — Process all mouse interactions
+' --------------------------------------------------------------------------
+SUB CP_INPUT_mouse
+    DIM lx AS INTEGER, ly AS INTEGER
+    lx = CP_STATE.mouseX
+    ly = CP_STATE.mouseY
+
+    DIM overDialog AS INTEGER
+    overDialog = (lx >= 0 AND lx < CP_STATE.dialogW AND ly >= 0 AND ly < CP_STATE.dialogH)
+
+    DIM justPressed AS INTEGER
+    justPressed = (CP_STATE.mouseB1 AND NOT CP_STATE.oldMouseB1)
+
+    ' =================================================================
+    ' Active drag handling (button held)
+    ' =================================================================
+    IF CP_STATE.dragging <> CP_DRAG_NONE THEN
+        IF CP_STATE.mouseB1 THEN
+            SELECT CASE CP_STATE.dragging
+                CASE CP_DRAG_TITLE_BAR
+                    DIM absX AS INTEGER, absY AS INTEGER
+                    absX = CP_STATE.mouseX + CP_STATE.dialogX
+                    absY = CP_STATE.mouseY + CP_STATE.dialogY
+                    CP_STATE.dialogX = CP_STATE.dragOrigX + (absX - CP_STATE.dragStartX)
+                    CP_STATE.dialogY = CP_STATE.dragOrigY + (absY - CP_STATE.dragStartY)
+                    DIM scrW AS INTEGER, scrH AS INTEGER
+                    scrW = _WIDTH(0) \ CP_STATE.scale
+                    scrH = _HEIGHT(0) \ CP_STATE.scale
+                    IF CP_STATE.dialogX < 0 THEN CP_STATE.dialogX = 0
+                    IF CP_STATE.dialogY < 0 THEN CP_STATE.dialogY = 0
+                    IF CP_STATE.dialogX + CP_STATE.dialogW > scrW THEN CP_STATE.dialogX = scrW - CP_STATE.dialogW
+                    IF CP_STATE.dialogY + CP_STATE.dialogH > scrH THEN CP_STATE.dialogY = scrH - CP_STATE.dialogH
+
+                CASE CP_DRAG_SV_SQUARE
+                    CP_INPUT_pick_sv lx, ly
+
+                CASE CP_DRAG_HUE_BAR
+                    CP_INPUT_pick_hue ly
+
+                CASE CP_DRAG_SLIDER_R
+                    CP_INPUT_pick_slider lx, CP_STATE.sliderY, CP_STATE.cR, 255
+                    CP_update_from_rgb
+
+                CASE CP_DRAG_SLIDER_G
+                    CP_INPUT_pick_slider lx, CP_STATE.sliderY + CP_SLIDER_H + CP_SLIDER_GAP, CP_STATE.cG, 255
+                    CP_update_from_rgb
+
+                CASE CP_DRAG_SLIDER_B
+                    CP_INPUT_pick_slider lx, CP_STATE.sliderY + (CP_SLIDER_H + CP_SLIDER_GAP) * 2, CP_STATE.cB, 255
+                    CP_update_from_rgb
+
+                CASE CP_DRAG_SLIDER_H
+                    DIM hslBase AS INTEGER
+                    hslBase = CP_STATE.sliderY + (CP_SLIDER_H + CP_SLIDER_GAP) * 3 + CP_SECTION_GAP
+                    DIM hVal AS INTEGER
+                    hVal = INT(CP_STATE.hslH)
+                    CP_INPUT_pick_slider lx, hslBase, hVal, 360
+                    CP_STATE.hslH = hVal
+                    CP_update_from_hsl
+
+                CASE CP_DRAG_SLIDER_S
+                    DIM sBase AS INTEGER
+                    sBase = CP_STATE.sliderY + (CP_SLIDER_H + CP_SLIDER_GAP) * 4 + CP_SECTION_GAP
+                    DIM sVal AS INTEGER
+                    sVal = INT(CP_STATE.hslS)
+                    CP_INPUT_pick_slider lx, sBase, sVal, 100
+                    CP_STATE.hslS = sVal
+                    CP_update_from_hsl
+
+                CASE CP_DRAG_SLIDER_L
+                    DIM lBase AS INTEGER
+                    lBase = CP_STATE.sliderY + (CP_SLIDER_H + CP_SLIDER_GAP) * 5 + CP_SECTION_GAP
+                    DIM lVal AS INTEGER
+                    lVal = INT(CP_STATE.hslL)
+                    CP_INPUT_pick_slider lx, lBase, lVal, 100
+                    CP_STATE.hslL = lVal
+                    CP_update_from_hsl
+            END SELECT
+            CP_STATE.dirty = -1
+        ELSE
+            ' Released
+            CP_STATE.dragging = CP_DRAG_NONE
+        END IF
+        EXIT SUB
+    END IF
+
+    ' =================================================================
+    ' Hover detection
+    ' =================================================================
+    DIM oldHover AS INTEGER
+    oldHover = CP_STATE.hoverButton
+    CP_STATE.hoverButton = -1
+
+    IF overDialog THEN
+        ' Close button
+        DIM closeX AS INTEGER
+        closeX = CP_STATE.dialogW - CP_TITLE_BAR_H
+        IF ly >= 0 AND ly < CP_TITLE_BAR_H AND lx >= closeX THEN
+            CP_STATE.hoverButton = -2
+        END IF
+
+        ' OK/Cancel buttons
+        IF CP_STATE.hoverButton = -1 THEN
+            DIM bi AS INTEGER
+            bi = CP_INPUT_hit_button%(lx, ly)
+            IF bi >= 0 THEN CP_STATE.hoverButton = bi
+        END IF
+
+        ' Copy/Paste buttons
+        IF CP_STATE.hoverButton = -1 THEN
+            DIM copyX AS INTEGER, pasteX AS INTEGER
+            copyX = CP_STATE.hexInputX + CP_STATE.hexInputW + 4
+            pasteX = copyX + CP_COPY_BTN_W + 4
+            IF ly >= CP_STATE.hexY AND ly < CP_STATE.hexY + CP_HEX_INPUT_H THEN
+                IF lx >= copyX AND lx < copyX + CP_COPY_BTN_W THEN
+                    CP_STATE.hoverButton = 2
+                ELSEIF lx >= pasteX AND lx < pasteX + CP_PASTE_BTN_W THEN
+                    CP_STATE.hoverButton = 3
+                END IF
+            END IF
+        END IF
+
+        ' Posterize chip hover
+        DIM oldPH AS INTEGER
+        oldPH = CP_STATE.hoverPosterize
+        CP_STATE.hoverPosterize = -1
+        IF ly >= CP_STATE.posterizeY AND ly < CP_STATE.posterizeY + CP_POSTERIZE_ROW_H THEN
+            CP_STATE.hoverPosterize = CP_INPUT_hit_posterize%(lx, ly)
+        END IF
+        IF CP_STATE.hoverPosterize <> oldPH THEN CP_STATE.dirty = -1
+    END IF
+
+    IF CP_STATE.hoverButton <> oldHover THEN CP_STATE.dirty = -1
+
+    ' =================================================================
+    ' Click handling
+    ' =================================================================
+    IF justPressed AND overDialog THEN
+        ' Close button
+        IF CP_STATE.hoverButton = -2 THEN
+            CP_STATE.result = CP_RESULT_NONE
+            CP_STATE.done = -1
+            EXIT SUB
+        END IF
+
+        ' Title bar drag
+        IF ly >= 0 AND ly < CP_TITLE_BAR_H AND lx < closeX THEN
+            CP_STATE.dragging = CP_DRAG_TITLE_BAR
+            CP_STATE.dragStartX = CP_STATE.mouseX + CP_STATE.dialogX
+            CP_STATE.dragStartY = CP_STATE.mouseY + CP_STATE.dialogY
+            CP_STATE.dragOrigX = CP_STATE.dialogX
+            CP_STATE.dragOrigY = CP_STATE.dialogY
+            EXIT SUB
+        END IF
+
+        ' SV square click
+        IF lx >= CP_STATE.svX AND lx < CP_STATE.svX + CP_STATE.svW THEN
+            IF ly >= CP_STATE.svY AND ly < CP_STATE.svY + CP_STATE.svH THEN
+                CP_STATE.dragging = CP_DRAG_SV_SQUARE
+                CP_INPUT_pick_sv lx, ly
+                CP_STATE.dirty = -1
+                EXIT SUB
+            END IF
+        END IF
+
+        ' Hue bar click
+        IF lx >= CP_STATE.hueBarX - 5 AND lx < CP_STATE.hueBarX + CP_STATE.hueBarW + 5 THEN
+            IF ly >= CP_STATE.hueBarY AND ly < CP_STATE.hueBarY + CP_STATE.hueBarH THEN
+                CP_STATE.dragging = CP_DRAG_HUE_BAR
+                CP_INPUT_pick_hue ly
+                CP_STATE.dirty = -1
+                EXIT SUB
+            END IF
+        END IF
+
+        ' RGB slider clicks
+        DIM sliderDrag AS INTEGER
+        sliderDrag = CP_INPUT_hit_slider%(lx, ly)
+        IF sliderDrag <> CP_DRAG_NONE THEN
+            CP_STATE.dragging = sliderDrag
+            ' Process initial click position
+            SELECT CASE sliderDrag
+                CASE CP_DRAG_SLIDER_R
+                    CP_INPUT_pick_slider lx, CP_STATE.sliderY, CP_STATE.cR, 255
+                    CP_update_from_rgb
+                CASE CP_DRAG_SLIDER_G
+                    CP_INPUT_pick_slider lx, CP_STATE.sliderY + CP_SLIDER_H + CP_SLIDER_GAP, CP_STATE.cG, 255
+                    CP_update_from_rgb
+                CASE CP_DRAG_SLIDER_B
+                    CP_INPUT_pick_slider lx, CP_STATE.sliderY + (CP_SLIDER_H + CP_SLIDER_GAP) * 2, CP_STATE.cB, 255
+                    CP_update_from_rgb
+                CASE CP_DRAG_SLIDER_H
+                    DIM hBase2 AS INTEGER
+                    hBase2 = CP_STATE.sliderY + (CP_SLIDER_H + CP_SLIDER_GAP) * 3 + CP_SECTION_GAP
+                    DIM hVal2 AS INTEGER
+                    hVal2 = INT(CP_STATE.hslH)
+                    CP_INPUT_pick_slider lx, hBase2, hVal2, 360
+                    CP_STATE.hslH = hVal2
+                    CP_update_from_hsl
+                CASE CP_DRAG_SLIDER_S
+                    DIM sBase2 AS INTEGER
+                    sBase2 = CP_STATE.sliderY + (CP_SLIDER_H + CP_SLIDER_GAP) * 4 + CP_SECTION_GAP
+                    DIM sVal2 AS INTEGER
+                    sVal2 = INT(CP_STATE.hslS)
+                    CP_INPUT_pick_slider lx, sBase2, sVal2, 100
+                    CP_STATE.hslS = sVal2
+                    CP_update_from_hsl
+                CASE CP_DRAG_SLIDER_L
+                    DIM lBase2 AS INTEGER
+                    lBase2 = CP_STATE.sliderY + (CP_SLIDER_H + CP_SLIDER_GAP) * 5 + CP_SECTION_GAP
+                    DIM lVal2 AS INTEGER
+                    lVal2 = INT(CP_STATE.hslL)
+                    CP_INPUT_pick_slider lx, lBase2, lVal2, 100
+                    CP_STATE.hslL = lVal2
+                    CP_update_from_hsl
+            END SELECT
+            CP_STATE.dirty = -1
+            EXIT SUB
+        END IF
+
+        ' OK button
+        IF CP_STATE.hoverButton = 0 THEN
+            CP_STATE.result = CP_RESULT_OK
+            CP_STATE.done = -1
+            EXIT SUB
+        END IF
+
+        ' Cancel button
+        IF CP_STATE.hoverButton = 1 THEN
+            CP_STATE.result = CP_RESULT_NONE
+            CP_STATE.done = -1
+            EXIT SUB
+        END IF
+
+        ' Copy button
+        IF CP_STATE.hoverButton = 2 THEN
+            _CLIPBOARD$ = CP_get_hex_string$
+            CP_STATE.dirty = -1
+            EXIT SUB
+        END IF
+
+        ' Paste button
+        IF CP_STATE.hoverButton = 3 THEN
+            CP_parse_hex_string _CLIPBOARD$
+            CP_STATE.dirty = -1
+            EXIT SUB
+        END IF
+
+        ' Posterize chip click
+        IF ly >= CP_STATE.posterizeY AND ly < CP_STATE.posterizeY + CP_POSTERIZE_ROW_H THEN
+            DIM chipIdx AS INTEGER
+            chipIdx = CP_INPUT_hit_posterize%(lx, ly)
+            IF chipIdx >= 0 THEN
+                DIM snapLevels AS INTEGER
+                ' Chip indices: 0=Off, 1=2, 2=3, 3=4, 4=6, 5=8, 6=12, 7=16
+                SELECT CASE chipIdx
+                    CASE 0: snapLevels = 0
+                    CASE 1: snapLevels = 2
+                    CASE 2: snapLevels = 3
+                    CASE 3: snapLevels = 4
+                    CASE 4: snapLevels = 6
+                    CASE 5: snapLevels = 8
+                    CASE 6: snapLevels = 12
+                    CASE 7: snapLevels = 16
+                END SELECT
+                CP_STATE.posterize = snapLevels
+                ' Re-snap current color and rebuild SV square
+                IF snapLevels > 0 THEN
+                    CP_STATE.cR = CP_posterize_value%(CP_STATE.cR, 255)
+                    CP_STATE.cG = CP_posterize_value%(CP_STATE.cG, 255)
+                    CP_STATE.cB = CP_posterize_value%(CP_STATE.cB, 255)
+                    CP_update_from_rgb
+                END IF
+                CP_STATE.svDirty = -1
+                CP_STATE.dirty = -1
+                EXIT SUB
+            END IF
+        END IF
+
+        ' Old color swatch click (revert to original)
+        IF lx >= CP_STATE.previewOldX AND lx < CP_STATE.previewOldX + CP_PREVIEW_W THEN
+            DIM swY AS INTEGER
+            swY = CP_STATE.previewY + 16
+            IF ly >= swY AND ly < swY + CP_PREVIEW_H THEN
+                CP_STATE.cR = _RED32(CP_STATE.origColor)
+                CP_STATE.cG = _GREEN32(CP_STATE.origColor)
+                CP_STATE.cB = _BLUE32(CP_STATE.origColor)
+                CP_update_from_rgb
+                CP_STATE.dirty = -1
+                EXIT SUB
+            END IF
+        END IF
+
+        ' Hex input field click
+        IF CP_STATE.tiHexId > 0 THEN
+            IF lx >= CP_STATE.hexInputX AND lx < CP_STATE.hexInputX + CP_STATE.hexInputW THEN
+                IF ly >= CP_STATE.hexY AND ly < CP_STATE.hexY + CP_HEX_INPUT_H THEN
+                    TI_process_mouse lx, ly, -1
+                    CP_STATE.dirty = -1
+                END IF
+            END IF
+        END IF
+    END IF
+
+    ' Click outside = cancel
+    IF justPressed AND NOT overDialog THEN
+        CP_STATE.result = CP_RESULT_NONE
+        CP_STATE.done = -1
+    END IF
+END SUB
+
+' --------------------------------------------------------------------------
+' CP_INPUT_keyboard — Keyboard handling
+' --------------------------------------------------------------------------
+SUB CP_INPUT_keyboard (k AS LONG)
+    IF k = 0 THEN EXIT SUB
+
+    ' Route to hex TI widget if it has focus
+    IF CP_STATE.tiHexId > 0 AND TI_focusedId > 0 THEN
+        DIM consumed AS INTEGER
+        consumed = TI_process_key%(k)
+
+        IF TI_inputs(CP_STATE.tiHexId).submitted THEN
+            ' Enter in hex field: parse value and update color
+            DIM hexText AS STRING
+            hexText = TI_get_text$(CP_STATE.tiHexId)
+            CP_parse_hex_string hexText
+            TI_clear_focus
+            CP_STATE.dirty = -1
+            EXIT SUB
+        END IF
+
+        IF TI_inputs(CP_STATE.tiHexId).escaped THEN
+            TI_clear_focus
+            CP_STATE.dirty = -1
+            EXIT SUB
+        END IF
+
+        IF TI_inputs(CP_STATE.tiHexId).tabbed THEN
+            TI_clear_focus
+            CP_STATE.dirty = -1
+        END IF
+
+        IF consumed THEN
+            CP_STATE.dirty = -1
+            EXIT SUB
+        END IF
+    END IF
+
+    SELECT CASE k
+        CASE 27 ' Escape
+            CP_STATE.result = CP_RESULT_NONE
+            CP_STATE.done = -1
+
+        CASE 13 ' Enter
+            CP_STATE.result = CP_RESULT_OK
+            CP_STATE.done = -1
+
+        CASE 9 ' Tab
+            IF CP_STATE.tiHexId > 0 AND TI_focusedId = 0 THEN
+                TI_set_focus CP_STATE.tiHexId
+                CP_STATE.dirty = -1
+            ENd IF
+    END SELECT
+END SUB
+
+' --------------------------------------------------------------------------
+' CP_INPUT_pick_sv — Set saturation/value from click in SV square
+' --------------------------------------------------------------------------
+SUB CP_INPUT_pick_sv (lx AS INTEGER, ly AS INTEGER)
+    DIM px AS INTEGER, py AS INTEGER
+    px = lx - CP_STATE.svX
+    py = ly - CP_STATE.svY
+    IF px < 0 THEN px = 0
+    IF px >= CP_STATE.svW THEN px = CP_STATE.svW - 1
+    IF py < 0 THEN py = 0
+    IF py >= CP_STATE.svH THEN py = CP_STATE.svH - 1
+
+    CP_STATE.sat = CSNG(px) / CSNG(CP_STATE.svW - 1)
+    CP_STATE.val = 1.0 - (CSNG(py) / CSNG(CP_STATE.svH - 1))
+
+    ' Apply posterize snapping to sat/val
+    IF CP_STATE.posterize > 0 THEN
+        DIM levels AS INTEGER
+        levels = CP_STATE.posterize - 1
+        IF levels < 1 THEN levels = 1
+        CP_STATE.sat = INT(CP_STATE.sat * CSNG(levels) + 0.5) / CSNG(levels)
+        CP_STATE.val = INT(CP_STATE.val * CSNG(levels) + 0.5) / CSNG(levels)
+    END IF
+
+    ' Update RGB and HSL from HSV
+    CP_hsv_to_rgb CP_STATE.hue, CP_STATE.sat, CP_STATE.val, CP_STATE.cR, CP_STATE.cG, CP_STATE.cB
+    CP_rgb_to_hsl CP_STATE.cR, CP_STATE.cG, CP_STATE.cB, CP_STATE.hslH, CP_STATE.hslS, CP_STATE.hslL
+    CP_sync_hex
+END SUB
+
+' --------------------------------------------------------------------------
+' CP_INPUT_pick_hue — Set hue from click on hue bar
+' --------------------------------------------------------------------------
+SUB CP_INPUT_pick_hue (ly AS INTEGER)
+    DIM py AS INTEGER
+    py = ly - CP_STATE.hueBarY
+    IF py < 0 THEN py = 0
+    IF py >= CP_STATE.hueBarH THEN py = CP_STATE.hueBarH - 1
+
+    CP_STATE.hue = (CSNG(py) / CSNG(CP_STATE.hueBarH - 1)) * 360.0
+
+    ' Apply posterize snapping to hue
+    IF CP_STATE.posterize > 0 THEN
+        DIM hueStep AS SINGLE
+        hueStep = 360.0 / CSNG(CP_STATE.posterize)
+        CP_STATE.hue = INT(CP_STATE.hue / hueStep + 0.5) * hueStep
+        IF CP_STATE.hue >= 360.0 THEN CP_STATE.hue = 0.0
+    END IF
+
+    CP_STATE.svDirty = -1
+
+    ' Update RGB and HSL from HSV
+    CP_hsv_to_rgb CP_STATE.hue, CP_STATE.sat, CP_STATE.val, CP_STATE.cR, CP_STATE.cG, CP_STATE.cB
+    CP_rgb_to_hsl CP_STATE.cR, CP_STATE.cG, CP_STATE.cB, CP_STATE.hslH, CP_STATE.hslS, CP_STATE.hslL
+    CP_sync_hex
+END SUB
+
+' --------------------------------------------------------------------------
+' CP_INPUT_pick_slider — Update value from slider track click
+' --------------------------------------------------------------------------
+SUB CP_INPUT_pick_slider (lx AS INTEGER, sliderYUnused AS INTEGER, curVal AS INTEGER, maxVal AS INTEGER)
+    DIM dummy AS INTEGER: dummy = sliderYUnused ' suppress unused warning
+    DIM tx AS INTEGER, tw AS INTEGER
+    tx = CP_STATE.sliderX + CP_LABEL_W
+    tw = CP_STATE.sliderW - CP_LABEL_W - CP_VALUE_W - 4
+
+    DIM px AS INTEGER
+    px = lx - tx
+    IF px < 0 THEN px = 0
+    IF px >= tw THEN px = tw - 1
+
+    curVal = INT(CSNG(px) / CSNG(tw - 1) * CSNG(maxVal) + 0.5)
+    IF curVal < 0 THEN curVal = 0
+    IF curVal > maxVal THEN curVal = maxVal
+
+    ' Apply posterize snapping
+    IF CP_STATE.posterize > 0 THEN
+        curVal = CP_posterize_value%(curVal, maxVal)
+    END IF
+END SUB
+
+' --------------------------------------------------------------------------
+' CP_INPUT_hit_slider% — Return CP_DRAG_SLIDER_* if click is on a slider
+' --------------------------------------------------------------------------
+FUNCTION CP_INPUT_hit_slider% (lx AS INTEGER, ly AS INTEGER)
+    CP_INPUT_hit_slider% = CP_DRAG_NONE
+
+    DIM tx AS INTEGER, tw AS INTEGER
+    tx = CP_STATE.sliderX
+    tw = CP_STATE.sliderW
+
+    IF lx < tx OR lx >= tx + tw THEN EXIT FUNCTION
+
+    DIM rowH AS INTEGER
+    rowH = CP_SLIDER_H + CP_SLIDER_GAP
+
+    ' RGB sliders (rows 0,1,2)
+    DIM ry AS INTEGER
+    ry = ly - CP_STATE.sliderY
+    IF ry >= 0 AND ry < CP_SLIDER_H THEN
+        CP_INPUT_hit_slider% = CP_DRAG_SLIDER_R
+        EXIT FUNCTION
+    END IF
+    IF ry >= rowH AND ry < rowH + CP_SLIDER_H THEN
+        CP_INPUT_hit_slider% = CP_DRAG_SLIDER_G
+        EXIT FUNCTION
+    END IF
+    IF ry >= rowH * 2 AND ry < rowH * 2 + CP_SLIDER_H THEN
+        CP_INPUT_hit_slider% = CP_DRAG_SLIDER_B
+        EXIT FUNCTION
+    END IF
+
+    ' HSL sliders (rows 3,4,5 with section gap)
+    DIM hslBaseY AS INTEGER
+    hslBaseY = CP_STATE.sliderY + rowH * 3 + CP_SECTION_GAP
+    ry = ly - hslBaseY
+    IF ry >= 0 AND ry < CP_SLIDER_H THEN
+        CP_INPUT_hit_slider% = CP_DRAG_SLIDER_H
+        EXIT FUNCTION
+    END IF
+    IF ry >= rowH AND ry < rowH + CP_SLIDER_H THEN
+        CP_INPUT_hit_slider% = CP_DRAG_SLIDER_S
+        EXIT FUNCTION
+    END IF
+    IF ry >= rowH * 2 AND ry < rowH * 2 + CP_SLIDER_H THEN
+        CP_INPUT_hit_slider% = CP_DRAG_SLIDER_L
+        EXIT FUNCTION
+    END IF
+END FUNCTION
+
+' --------------------------------------------------------------------------
+' CP_INPUT_hit_button% — Returns 0=OK, 1=Cancel, or -1 if not on a button
+' --------------------------------------------------------------------------
+FUNCTION CP_INPUT_hit_button% (lx AS INTEGER, ly AS INTEGER)
+    CP_INPUT_hit_button% = -1
+
+    DIM y1 AS INTEGER, by AS INTEGER
+    y1 = CP_STATE.buttonBarY
+    by = y1 + (CP_BUTTON_BAR_H - CP_BUTTON_H) \ 2
+
+    IF ly < by OR ly >= by + CP_BUTTON_H THEN EXIT FUNCTION
+
+    DIM totalW AS INTEGER, startX AS INTEGER
+    totalW = CP_BUTTON_W * 2 + CP_BUTTON_GAP
+    startX = CP_STATE.dialogW - CP_PADDING - totalW
+
+    IF lx >= startX AND lx < startX + CP_BUTTON_W THEN
+        CP_INPUT_hit_button% = 0  ' OK
+    ELSEIF lx >= startX + CP_BUTTON_W + CP_BUTTON_GAP AND lx < startX + totalW THEN
+        CP_INPUT_hit_button% = 1  ' Cancel
+    END IF
+END FUNCTION
+
+' --------------------------------------------------------------------------
+' CP_INPUT_wheel — Handle mouse wheel over sliders, SV square, hue bar
+' --------------------------------------------------------------------------
+SUB CP_INPUT_wheel
+    IF CP_STATE.mouseWheel = 0 THEN EXIT SUB
+
+    DIM lx AS INTEGER, ly AS INTEGER
+    lx = CP_STATE.mouseX
+    ly = CP_STATE.mouseY
+
+    DIM overDialog AS INTEGER
+    overDialog = (lx >= 0 AND lx < CP_STATE.dialogW AND ly >= 0 AND ly < CP_STATE.dialogH)
+    IF NOT overDialog THEN EXIT SUB
+
+    DIM delta AS INTEGER
+    delta = -CP_STATE.mouseWheel  ' Scroll up = increase
+
+    ' Shift held = 10x step multiplier
+    DIM shiftHeld AS INTEGER
+    shiftHeld = (_KEYDOWN(100303) OR _KEYDOWN(100304))
+    DIM mult AS INTEGER
+    IF shiftHeld THEN mult = 10 ELSE mult = 1
+
+    ' SV square — wheel adjusts value (brightness)
+    IF lx >= CP_STATE.svX AND lx < CP_STATE.svX + CP_STATE.svW THEN
+        IF ly >= CP_STATE.svY AND ly < CP_STATE.svY + CP_STATE.svH THEN
+            DIM vStep AS SINGLE
+            IF CP_STATE.posterize > 0 THEN
+                vStep = 1.0 / CSNG(CP_STATE.posterize - 1)
+                IF vStep < 0.01 THEN vStep = 0.01
+            ELSE
+                vStep = 1.0 / 100.0
+            END IF
+            CP_STATE.val = CP_STATE.val + CSNG(delta) * vStep * CSNG(mult)
+            IF CP_STATE.val < 0.0 THEN CP_STATE.val = 0.0
+            IF CP_STATE.val > 1.0 THEN CP_STATE.val = 1.0
+            CP_hsv_to_rgb CP_STATE.hue, CP_STATE.sat, CP_STATE.val, CP_STATE.cR, CP_STATE.cG, CP_STATE.cB
+            CP_rgb_to_hsl CP_STATE.cR, CP_STATE.cG, CP_STATE.cB, CP_STATE.hslH, CP_STATE.hslS, CP_STATE.hslL
+            CP_sync_hex
+            CP_STATE.dirty = -1
+            EXIT SUB
+        END IF
+    END IF
+
+    ' Hue bar — wheel adjusts hue
+    IF lx >= CP_STATE.hueBarX - 5 AND lx < CP_STATE.hueBarX + CP_STATE.hueBarW + 5 THEN
+        IF ly >= CP_STATE.hueBarY AND ly < CP_STATE.hueBarY + CP_STATE.hueBarH THEN
+            DIM hStep AS SINGLE
+            IF CP_STATE.posterize > 0 THEN
+                hStep = 360.0 / CSNG(CP_STATE.posterize)
+            ELSE
+                hStep = 1.0
+            END IF
+            CP_STATE.hue = CP_STATE.hue + CSNG(delta) * hStep * CSNG(mult)
+            IF CP_STATE.hue < 0.0 THEN CP_STATE.hue = CP_STATE.hue + 360.0
+            IF CP_STATE.hue >= 360.0 THEN CP_STATE.hue = CP_STATE.hue - 360.0
+            CP_STATE.svDirty = -1
+            CP_hsv_to_rgb CP_STATE.hue, CP_STATE.sat, CP_STATE.val, CP_STATE.cR, CP_STATE.cG, CP_STATE.cB
+            CP_rgb_to_hsl CP_STATE.cR, CP_STATE.cG, CP_STATE.cB, CP_STATE.hslH, CP_STATE.hslS, CP_STATE.hslL
+            CP_sync_hex
+            CP_STATE.dirty = -1
+            EXIT SUB
+        END IF
+    END IF
+
+    ' Slider area — wheel adjusts whichever slider mouse is over
+    DIM sliderHit AS INTEGER
+    sliderHit = CP_INPUT_hit_slider%(lx, ly)
+    IF sliderHit <> CP_DRAG_NONE THEN
+        DIM stepAmt AS INTEGER
+        SELECT CASE sliderHit
+            CASE CP_DRAG_SLIDER_R
+                IF CP_STATE.posterize > 0 THEN stepAmt = 255 \ (CP_STATE.posterize - 1) ELSE stepAmt = 1
+                IF stepAmt < 1 THEN stepAmt = 1
+                CP_STATE.cR = CP_STATE.cR + delta * stepAmt * mult
+                IF CP_STATE.cR < 0 THEN CP_STATE.cR = 0
+                IF CP_STATE.cR > 255 THEN CP_STATE.cR = 255
+                IF CP_STATE.posterize > 0 THEN CP_STATE.cR = CP_posterize_value%(CP_STATE.cR, 255)
+                CP_update_from_rgb
+
+            CASE CP_DRAG_SLIDER_G
+                IF CP_STATE.posterize > 0 THEN stepAmt = 255 \ (CP_STATE.posterize - 1) ELSE stepAmt = 1
+                IF stepAmt < 1 THEN stepAmt = 1
+                CP_STATE.cG = CP_STATE.cG + delta * stepAmt * mult
+                IF CP_STATE.cG < 0 THEN CP_STATE.cG = 0
+                IF CP_STATE.cG > 255 THEN CP_STATE.cG = 255
+                IF CP_STATE.posterize > 0 THEN CP_STATE.cG = CP_posterize_value%(CP_STATE.cG, 255)
+                CP_update_from_rgb
+
+            CASE CP_DRAG_SLIDER_B
+                IF CP_STATE.posterize > 0 THEN stepAmt = 255 \ (CP_STATE.posterize - 1) ELSE stepAmt = 1
+                IF stepAmt < 1 THEN stepAmt = 1
+                CP_STATE.cB = CP_STATE.cB + delta * stepAmt * mult
+                IF CP_STATE.cB < 0 THEN CP_STATE.cB = 0
+                IF CP_STATE.cB > 255 THEN CP_STATE.cB = 255
+                IF CP_STATE.posterize > 0 THEN CP_STATE.cB = CP_posterize_value%(CP_STATE.cB, 255)
+                CP_update_from_rgb
+
+            CASE CP_DRAG_SLIDER_H
+                IF CP_STATE.posterize > 0 THEN stepAmt = 360 \ CP_STATE.posterize ELSE stepAmt = 1
+                IF stepAmt < 1 THEN stepAmt = 1
+                CP_STATE.hslH = CP_STATE.hslH + CSNG(delta * stepAmt * mult)
+                IF CP_STATE.hslH < 0 THEN CP_STATE.hslH = CP_STATE.hslH + 360
+                IF CP_STATE.hslH >= 360 THEN CP_STATE.hslH = CP_STATE.hslH - 360
+                CP_update_from_hsl
+
+            CASE CP_DRAG_SLIDER_S
+                IF CP_STATE.posterize > 0 THEN stepAmt = 100 \ (CP_STATE.posterize - 1) ELSE stepAmt = 1
+                IF stepAmt < 1 THEN stepAmt = 1
+                CP_STATE.hslS = CP_STATE.hslS + CSNG(delta * stepAmt * mult)
+                IF CP_STATE.hslS < 0 THEN CP_STATE.hslS = 0
+                IF CP_STATE.hslS > 100 THEN CP_STATE.hslS = 100
+                IF CP_STATE.posterize > 0 THEN
+                    DIM sI AS INTEGER: sI = INT(CP_STATE.hslS)
+                    sI = CP_posterize_value%(sI, 100)
+                    CP_STATE.hslS = sI
+                END IF
+                CP_update_from_hsl
+
+            CASE CP_DRAG_SLIDER_L
+                IF CP_STATE.posterize > 0 THEN stepAmt = 100 \ (CP_STATE.posterize - 1) ELSE stepAmt = 1
+                IF stepAmt < 1 THEN stepAmt = 1
+                CP_STATE.hslL = CP_STATE.hslL + CSNG(delta * stepAmt * mult)
+                IF CP_STATE.hslL < 0 THEN CP_STATE.hslL = 0
+                IF CP_STATE.hslL > 100 THEN CP_STATE.hslL = 100
+                IF CP_STATE.posterize > 0 THEN
+                    DIM lI AS INTEGER: lI = INT(CP_STATE.hslL)
+                    lI = CP_posterize_value%(lI, 100)
+                    CP_STATE.hslL = lI
+                END IF
+                CP_update_from_hsl
+        END SELECT
+        CP_STATE.dirty = -1
+    END IF
+END SUB
+
+' --------------------------------------------------------------------------
+' CP_INPUT_hit_posterize% — Return chip index (0-7) at click pos, or -1
+' --------------------------------------------------------------------------
+FUNCTION CP_INPUT_hit_posterize% (lx AS INTEGER, ly AS INTEGER)
+    CP_INPUT_hit_posterize% = -1
+
+    IF ly < CP_STATE.posterizeY OR ly >= CP_STATE.posterizeY + CP_POSTERIZE_ROW_H THEN EXIT FUNCTION
+
+    ' "Snap:" label takes ~5 chars = 40px + 4 padding
+    DIM chipStartX AS INTEGER
+    chipStartX = CP_STATE.sliderX + 5 * CP_CHAR_W + 4
+
+    ' 8 chips: Off, 2, 3, 4, 6, 8, 12, 16
+    DIM ci AS INTEGER
+    DIM cx AS INTEGER
+    cx = chipStartX
+    FOR ci = 0 TO 7
+        DIM cw AS INTEGER
+        IF ci = 0 THEN cw = 3 * CP_CHAR_W + 4 ELSE cw = CP_SNAP_CHIP_W
+        IF lx >= cx AND lx < cx + cw THEN
+            CP_INPUT_hit_posterize% = ci
+            EXIT FUNCTION
+        END IF
+        cx = cx + cw + CP_SNAP_CHIP_GAP
+    NEXT ci
+END FUNCTION
+
+' --------------------------------------------------------------------------
+' CP_posterize_value% — Quantize a value to posterize levels
+' --------------------------------------------------------------------------
+FUNCTION CP_posterize_value% (v AS INTEGER, maxVal AS INTEGER)
+    IF CP_STATE.posterize <= 0 THEN
+        CP_posterize_value% = v
+        EXIT FUNCTION
+    END IF
+
+    DIM levels AS INTEGER
+    levels = CP_STATE.posterize - 1
+    IF levels < 1 THEN levels = 1
+
+    DIM stepSize AS SINGLE
+    stepSize = CSNG(maxVal) / CSNG(levels)
+
+    DIM quantized AS INTEGER
+    quantized = INT(INT(CSNG(v) / stepSize + 0.5) * stepSize + 0.5)
+    IF quantized < 0 THEN quantized = 0
+    IF quantized > maxVal THEN quantized = maxVal
+    CP_posterize_value% = quantized
+END FUNCTION

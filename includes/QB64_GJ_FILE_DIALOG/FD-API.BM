@@ -1,0 +1,796 @@
+'$INCLUDEONCE
+
+' ============================================================================
+' FD-API.BM — Public API and modal loop for QB64_GJ_FILE_DIALOG
+'
+' (c) 2026 grymmjack — MIT License
+' ============================================================================
+
+' --------------------------------------------------------------------------
+' FD_open_file$ — Show an Open File dialog. Returns selected path or "".
+' --------------------------------------------------------------------------
+FUNCTION FD_open_file$ (title AS STRING, startDir AS STRING, filters AS STRING, defaultFilter AS INTEGER)
+    FD_init FD_MODE_OPEN, title, "Open", startDir, filters, defaultFilter, ""
+    FD_modal_loop
+    DIM result AS STRING
+    IF FD_STATE.confirmed THEN
+        result = RTRIM$(FD_STATE.resultPath)
+    ELSE
+        result = ""
+    END IF
+    FD_cleanup
+    FD_open_file$ = result
+END FUNCTION
+
+' --------------------------------------------------------------------------
+' FD_save_file$ — Show a Save File dialog. Returns selected path or "".
+' --------------------------------------------------------------------------
+FUNCTION FD_save_file$ (title AS STRING, startDir AS STRING, filters AS STRING, defaultFilter AS INTEGER, defaultFileName AS STRING, defaultExt AS STRING)
+    FD_init FD_MODE_SAVE, title, "Save", startDir, filters, defaultFilter, defaultExt
+    IF LEN(defaultFileName) > 0 THEN
+        FD_STATE.fileNameInput = defaultFileName
+        FD_STATE.fileNameCursor = LEN(defaultFileName)
+        IF FD_STATE.tiFileNameId >= 1 THEN TI_set_text FD_STATE.tiFileNameId, defaultFileName
+    END IF
+    FD_modal_loop
+    DIM result AS STRING
+    IF FD_STATE.confirmed THEN
+        result = RTRIM$(FD_STATE.resultPath)
+    ELSE
+        result = ""
+    END IF
+    FD_cleanup
+    FD_save_file$ = result
+END FUNCTION
+
+' --------------------------------------------------------------------------
+' FD_save_as_file$ — Show a Save As dialog. Returns selected path or "".
+' --------------------------------------------------------------------------
+FUNCTION FD_save_as_file$ (title AS STRING, startDir AS STRING, filters AS STRING, defaultFilter AS INTEGER, defaultFileName AS STRING, defaultExt AS STRING)
+    FD_init FD_MODE_SAVE_AS, title, "Save As", startDir, filters, defaultFilter, defaultExt
+    IF LEN(defaultFileName) > 0 THEN
+        FD_STATE.fileNameInput = defaultFileName
+        FD_STATE.fileNameCursor = LEN(defaultFileName)
+        IF FD_STATE.tiFileNameId >= 1 THEN TI_set_text FD_STATE.tiFileNameId, defaultFileName
+    END IF
+    FD_modal_loop
+    DIM result AS STRING
+    IF FD_STATE.confirmed THEN
+        result = RTRIM$(FD_STATE.resultPath)
+    ELSE
+        result = ""
+    END IF
+    FD_cleanup
+    FD_save_as_file$ = result
+END FUNCTION
+
+' --------------------------------------------------------------------------
+' FD_choose_folder$ — Show a Choose Folder dialog. Returns selected path or "".
+' --------------------------------------------------------------------------
+FUNCTION FD_choose_folder$ (title AS STRING, startDir AS STRING)
+    FD_init FD_MODE_CHOOSE_FOLDER, title, "Select", startDir, "", 0, ""
+    FD_modal_loop
+    DIM result AS STRING
+    IF FD_STATE.confirmed THEN
+        result = RTRIM$(FD_STATE.resultPath)
+    ELSE
+        result = ""
+    END IF
+    FD_cleanup
+    FD_choose_folder$ = result
+END FUNCTION
+
+' --------------------------------------------------------------------------
+' FD_init — Initialize dialog state for a new dialog session
+' --------------------------------------------------------------------------
+SUB FD_init (mode AS INTEGER, title AS STRING, confirmLabel AS STRING, startDir AS STRING, filters AS STRING, defaultFilter AS INTEGER, defaultExt AS STRING)
+    ' Reset state
+    DIM emptyState AS FD_STATE_OBJ
+    FD_STATE = emptyState
+
+    ' Set operating parameters
+    FD_STATE.mode = mode
+    FD_STATE.title = title
+    FD_STATE.confirmLabel = confirmLabel
+    FD_STATE.defaultExt = defaultExt
+    FD_STATE.scale = CFG.TOOLBAR_SCALE%
+    IF FD_STATE.scale < 1 THEN FD_STATE.scale = 1
+
+    ' Handle image handles
+    FD_STATE.imgHandle = -1
+    FD_STATE.screenShot = -1
+    FD_STATE.previewImgHandle = -1
+    FD_STATE.selectedIndex = -1
+    FD_STATE.hoverIndex = -1
+    FD_STATE.lastClickIndex = -1
+    FD_STATE.colResizing = -1
+    FD_STATE.placesHover = -1
+    FD_STATE.focusPane = FD_FOCUS_CONTENT
+
+    ' Load config (or use defaults)
+    FD_load_config
+
+    ' Parse filters
+    FD_parse_filters filters
+    IF defaultFilter >= 0 AND defaultFilter < FD_STATE.filterCount THEN
+        FD_STATE.activeFilter = defaultFilter
+    ELSE
+        FD_STATE.activeFilter = 0
+    END IF
+
+    ' Determine start directory
+    DIM startPath AS STRING
+    startPath = startDir
+    IF LEN(startPath) = 0 THEN
+        startPath = FD_PLAT_get_home_dir$
+    END IF
+    IF NOT FD_PLAT_is_dir%(startPath) THEN
+        startPath = FD_PLAT_get_home_dir$
+    END IF
+    FD_STATE.currentPath = startPath
+    FD_STATE.pathInput = startPath
+
+    ' Copy config geometry to state
+    FD_STATE.dialogW = FD_CFG.dialogW
+    FD_STATE.dialogH = FD_CFG.dialogH
+    FD_STATE.placesW = FD_CFG.placesWidth
+    FD_STATE.previewW = FD_CFG.previewWidth
+
+    ' Center dialog on screen
+    DIM scrW AS INTEGER, scrH AS INTEGER
+    scrW = _WIDTH(0)
+    scrH = _HEIGHT(0)
+    FD_STATE.dialogX = (scrW - FD_STATE.dialogW) \ 2
+    FD_STATE.dialogY = (scrH - FD_STATE.dialogH) \ 2
+    IF FD_STATE.dialogX < 0 THEN FD_STATE.dialogX = 0
+    IF FD_STATE.dialogY < 0 THEN FD_STATE.dialogY = 0
+
+    ' Setup column definitions
+    FD_init_columns
+
+    ' Load favorites from disk
+    FD_load_favorites
+
+    ' Build places bar
+    FD_init_places
+
+    ' Create offscreen buffer
+    FD_STATE.imgHandle = _NEWIMAGE(FD_STATE.dialogW, FD_STATE.dialogH, 32)
+
+    ' Capture screen background
+    FD_STATE.screenShot = _COPYIMAGE(0)
+
+    ' Calculate layout geometry
+    FD_LAYOUT_calculate
+
+    ' Create text input widgets
+    DIM pathX AS INTEGER, pathW AS INTEGER
+    pathX = FD_PADDING + 28 + FD_PADDING   ' After up button
+    pathW = FD_STATE.dialogW - pathX - FD_PADDING
+    FD_STATE.tiPathId = TI_create%(pathX, FD_TITLE_BAR_H + 3, pathW, FD_PATH_BAR_H - 6)
+    TI_set_text FD_STATE.tiPathId, RTRIM$(FD_STATE.currentPath)
+    TI_inputs(FD_STATE.tiPathId).placeholder = "Enter path..."
+    TI_inputs(FD_STATE.tiPathId).theme.bgColor = FD_CLR_INPUT_BG~&
+    TI_inputs(FD_STATE.tiPathId).theme.focusBgColor = FD_CLR_INPUT_FOCUS_BG~&
+    TI_inputs(FD_STATE.tiPathId).theme.borderColor = FD_CLR_INPUT_BORDER~&
+    TI_inputs(FD_STATE.tiPathId).theme.focusBorderColor = FD_CLR_BORDER_FOCUS~&
+    TI_inputs(FD_STATE.tiPathId).theme.textColor = FD_CLR_TEXT~&
+    TI_inputs(FD_STATE.tiPathId).theme.cursorColor = FD_CLR_INPUT_CURSOR~&
+    TI_inputs(FD_STATE.tiPathId).theme.selectionColor = FD_CLR_SELECTED~&
+    TI_inputs(FD_STATE.tiPathId).theme.placeholderColor = FD_CLR_TEXT_DIM~&
+
+    ' Filename input (positioned later in LAYOUT_calculate, starts hidden)
+    FD_STATE.tiFileNameId = TI_create%(0, 0, 100, 22)
+    TI_inputs(FD_STATE.tiFileNameId).placeholder = "Filename..."
+    TI_inputs(FD_STATE.tiFileNameId).theme.bgColor = FD_CLR_INPUT_BG~&
+    TI_inputs(FD_STATE.tiFileNameId).theme.focusBgColor = FD_CLR_INPUT_FOCUS_BG~&
+    TI_inputs(FD_STATE.tiFileNameId).theme.borderColor = FD_CLR_INPUT_BORDER~&
+    TI_inputs(FD_STATE.tiFileNameId).theme.focusBorderColor = FD_CLR_BORDER_FOCUS~&
+    TI_inputs(FD_STATE.tiFileNameId).theme.textColor = FD_CLR_TEXT~&
+    TI_inputs(FD_STATE.tiFileNameId).theme.cursorColor = FD_CLR_INPUT_CURSOR~&
+    TI_inputs(FD_STATE.tiFileNameId).theme.selectionColor = FD_CLR_SELECTED~&
+    TI_inputs(FD_STATE.tiFileNameId).theme.placeholderColor = FD_CLR_TEXT_DIM~&
+    FD__update_text_input_geometry
+
+    ' Enumerate initial directory
+    FD_FS_refresh
+
+    ' Initialize thumbnails
+    FD_THUMB_init
+
+    FD_STATE.dirty = -1
+END SUB
+
+' --------------------------------------------------------------------------
+' FD_cleanup — Free resources after dialog closes
+' --------------------------------------------------------------------------
+SUB FD_cleanup
+    ' Save config
+    FD_save_config
+
+    ' Destroy text input widgets
+    IF FD_STATE.tiPathId >= 1 THEN TI_destroy FD_STATE.tiPathId
+    IF FD_STATE.tiFileNameId >= 1 THEN TI_destroy FD_STATE.tiFileNameId
+    FD_STATE.tiPathId = 0
+    FD_STATE.tiFileNameId = 0
+
+    ' Free images
+    IF FD_STATE.imgHandle < -1 THEN _FREEIMAGE FD_STATE.imgHandle
+    FD_STATE.imgHandle = -1
+    IF FD_STATE.screenShot < -1 THEN _FREEIMAGE FD_STATE.screenShot
+    FD_STATE.screenShot = -1
+    IF FD_STATE.previewImgHandle < -1 THEN _FREEIMAGE FD_STATE.previewImgHandle
+    FD_STATE.previewImgHandle = -1
+
+    ' Free thumbnail cache
+    FD_THUMB_cleanup
+
+    ' Restore auto-display
+    _AUTODISPLAY
+
+    ' Drain mouse input buffer
+    DO WHILE _MOUSEINPUT: LOOP
+    ' Clear keyboard buffer
+    DO WHILE _KEYHIT: LOOP
+END SUB
+
+' --------------------------------------------------------------------------
+' FD_modal_loop — Run the blocking modal dialog loop
+' --------------------------------------------------------------------------
+SUB FD_modal_loop
+    DIM k AS LONG
+    DIM wasAutodisplay AS INTEGER
+    wasAutodisplay = _AUTODISPLAY
+
+    ' Disable auto-display to prevent mid-frame screen updates causing ghost artifacts
+    _DISPLAY
+
+    DO UNTIL FD_STATE.done
+        ' Poll input
+        FD_INPUT_poll
+
+        ' Keyboard
+        k = _KEYHIT
+        IF k <> 0 THEN FD_INPUT_keyboard k
+
+        ' Mouse
+        FD_INPUT_mouse
+
+        ' Tick thumbnail loader (one per frame)
+        IF FD_CFG.viewMode = FD_VIEW_THUMBNAILS THEN
+            FD_THUMB_tick
+        END IF
+
+        ' Tick text input cursor blink
+        TI_tick
+
+        ' Render if dirty
+        IF FD_STATE.dirty THEN
+            FD_RENDER_all
+            FD_STATE.dirty = 0
+        END IF
+
+        ' Always blit (restore background + overlay dialog) then display
+        FD_RENDER_blit
+        _DISPLAY
+        _LIMIT 60
+    LOOP
+
+    ' Restore auto-display if it was on before dialog
+    IF wasAutodisplay THEN _AUTODISPLAY
+    _MOUSESHOW "DEFAULT"
+END SUB
+
+' --------------------------------------------------------------------------
+' FD_LAYOUT_calculate — Calculate pane geometry from dialog size and config
+' --------------------------------------------------------------------------
+SUB FD_LAYOUT_calculate
+    DIM y AS INTEGER
+
+    ' Fixed heights
+    FD_STATE.titleBarH = FD_TITLE_BAR_H
+    FD_STATE.pathBarH = FD_PATH_BAR_H
+    FD_STATE.toolBarH = FD_TOOLBAR_H
+    FD_STATE.statusBarH = FD_STATUS_BAR_H
+    FD_STATE.buttonBarH = FD_BUTTON_BAR_H
+    FD_STATE.rowHeight = FD_ROW_HEIGHT
+
+    ' Content Y start (below title, path, toolbar)
+    y = FD_TITLE_BAR_H + FD_PATH_BAR_H + FD_TOOLBAR_H
+    FD_STATE.contentY = y
+
+    ' Content area height
+    FD_STATE.contentH = FD_STATE.dialogH - y - FD_STATUS_BAR_H - FD_BUTTON_BAR_H
+
+    ' Places pane (left)
+    FD_STATE.placesX = 0
+    IF FD_STATE.placesW < 80 THEN FD_STATE.placesW = 80
+
+    ' Preview pane (right)
+    IF FD_CFG.showPreview THEN
+        IF FD_STATE.previewW < 100 THEN FD_STATE.previewW = 100
+        FD_STATE.previewX = FD_STATE.dialogW - FD_STATE.previewW
+    ELSE
+        FD_STATE.previewW = 0
+        FD_STATE.previewX = FD_STATE.dialogW
+    END IF
+
+    ' Content pane (center)
+    FD_STATE.contentX = FD_STATE.placesW + FD_SPLITTER_W
+    FD_STATE.contentW = FD_STATE.previewX - FD_STATE.contentX - FD_SPLITTER_W - FD_SCROLLBAR_W
+    IF FD_STATE.contentW < 100 THEN FD_STATE.contentW = 100
+
+    ' Recalculate scroll limits
+    FD_FS_recalc_scroll
+
+    ' Update text input widget positions
+    FD__update_text_input_geometry
+END SUB
+
+' --------------------------------------------------------------------------
+' FD__update_text_input_geometry — Sync TI widget positions after layout change
+' --------------------------------------------------------------------------
+SUB FD__update_text_input_geometry
+    IF FD_STATE.tiPathId < 1 THEN EXIT SUB
+
+    ' Path input — positioned after up button in path bar
+    DIM pathX AS INTEGER, pathW AS INTEGER
+    pathX = FD_PADDING + 28 + FD_PADDING
+    pathW = FD_STATE.dialogW - pathX - FD_PADDING
+    TI_set_geometry FD_STATE.tiPathId, pathX, FD_TITLE_BAR_H + 3, pathW, FD_PATH_BAR_H - 6
+
+    ' Filename input — in button bar (save modes only)
+    IF FD_STATE.tiFileNameId >= 1 THEN
+        DIM fnX AS INTEGER, fnW AS INTEGER
+        DIM btnBarY AS INTEGER
+        btnBarY = FD_STATE.dialogH - FD_BUTTON_BAR_H
+        fnX = FD_PADDING + 72  ' After "Filename:" label
+        fnW = FD_STATE.dialogW - fnX - FD_BUTTON_W * 2 - FD_PADDING * 4
+        IF fnW < 50 THEN fnW = 50
+        TI_set_geometry FD_STATE.tiFileNameId, fnX, btnBarY + 5, fnW, FD_BUTTON_BAR_H - 10
+    END IF
+END SUB
+
+' --------------------------------------------------------------------------
+' FD_init_columns — Initialize column definitions
+' --------------------------------------------------------------------------
+SUB FD_init_columns
+    ' Name column
+    FD_columns(0).label = "Name"
+    FD_columns(0).minWidth = 120
+    IF FD_CFG.colWidth0 > 0 THEN
+        FD_columns(0).width = FD_CFG.colWidth0
+    ELSE
+        FD_columns(0).width = 250
+    END IF
+    FD_columns(0).sortField = FD_SORT_NAME
+
+    ' Type column
+    FD_columns(1).label = "Type"
+    FD_columns(1).minWidth = 50
+    IF FD_CFG.colWidth1 > 0 THEN
+        FD_columns(1).width = FD_CFG.colWidth1
+    ELSE
+        FD_columns(1).width = 70
+    END IF
+    FD_columns(1).sortField = FD_SORT_TYPE
+
+    ' Size column
+    FD_columns(2).label = "Size"
+    FD_columns(2).minWidth = 60
+    IF FD_CFG.colWidth2 > 0 THEN
+        FD_columns(2).width = FD_CFG.colWidth2
+    ELSE
+        FD_columns(2).width = 80
+    END IF
+    FD_columns(2).sortField = FD_SORT_SIZE
+
+    ' Date column
+    FD_columns(3).label = "Modified"
+    FD_columns(3).minWidth = 80
+    IF FD_CFG.colWidth3 > 0 THEN
+        FD_columns(3).width = FD_CFG.colWidth3
+    ELSE
+        FD_columns(3).width = 130
+    END IF
+    FD_columns(3).sortField = FD_SORT_DATE
+END SUB
+
+' --------------------------------------------------------------------------
+' FD_init_places — Build the places bar entries
+' --------------------------------------------------------------------------
+SUB FD_init_places
+    DIM idx AS INTEGER
+    idx = 0
+
+    DIM sep AS STRING
+    sep = FD_PLAT_get_separator$
+
+    ' --- Drives (Windows) or root (Linux/macOS) ---
+    DIM driveCount AS INTEGER
+    driveCount = fd_get_drive_count%
+    IF driveCount > 0 THEN
+        DIM d AS INTEGER
+        FOR d = 0 TO driveCount - 1
+            DIM driveBuf AS STRING
+            driveBuf = SPACE$(4)
+            DIM driveResult AS INTEGER
+            driveResult = fd_get_drive%(d, driveBuf, 4)
+            DIM driveStr AS STRING
+            driveStr = RTRIM$(FD_PLAT_trim_cstr$(driveBuf))
+            IF LEN(driveStr) > 0 THEN
+                FD_places(idx).label = driveStr
+                FD_places(idx).path = driveStr
+                FD_places(idx).entryType = FD_PLACE_DRIVE
+                FD_places(idx).iconChar = 68  ' 'D' for drive
+                idx = idx + 1
+                IF idx >= FD_MAX_PLACES THEN GOTO fd_places_done
+            END IF
+        NEXT d
+    ELSE
+        ' Unix: show root
+        FD_places(idx).label = "/"
+        FD_places(idx).path = "/"
+        FD_places(idx).entryType = FD_PLACE_DRIVE
+        FD_places(idx).iconChar = 47  ' '/'
+        idx = idx + 1
+    END IF
+
+    ' Separator
+    FD_places(idx).entryType = FD_PLACE_SEPARATOR
+    idx = idx + 1
+    IF idx >= FD_MAX_PLACES THEN GOTO fd_places_done
+
+    ' --- XDG / System directories ---
+    DIM xdgHome AS STRING
+    xdgHome = FD_PLAT_get_home_dir$
+    IF LEN(xdgHome) > 0 THEN
+        FD_places(idx).label = "Home"
+        FD_places(idx).path = xdgHome
+        FD_places(idx).entryType = FD_PLACE_XDG
+        FD_places(idx).iconChar = 72  ' 'H'
+        idx = idx + 1
+        IF idx >= FD_MAX_PLACES THEN GOTO fd_places_done
+    END IF
+
+    ' Common XDG dirs (0=Desktop, 1=Documents, 2=Downloads, 3=Pictures, 4=Music, 5=Videos)
+    DIM xdgLabels(5) AS STRING
+    DIM xdgIcons(5) AS INTEGER
+    xdgLabels(0) = "Desktop": xdgIcons(0) = 126  ' '~'
+    xdgLabels(1) = "Documents": xdgIcons(1) = 100  ' 'd'
+    xdgLabels(2) = "Downloads": xdgIcons(2) = 118  ' 'v'
+    xdgLabels(3) = "Pictures": xdgIcons(3) = 112  ' 'p'
+    xdgLabels(4) = "Music": xdgIcons(4) = 109  ' 'm'
+    xdgLabels(5) = "Videos": xdgIcons(5) = 86  ' 'V'
+
+    DIM xi AS INTEGER
+    FOR xi = 0 TO 5
+        DIM xdir AS STRING
+        xdir = FD_PLAT_get_xdg$(xi)
+        IF LEN(xdir) > 0 AND FD_PLAT_is_dir%(xdir) THEN
+            FD_places(idx).label = xdgLabels(xi)
+            FD_places(idx).path = xdir
+            FD_places(idx).entryType = FD_PLACE_XDG
+            FD_places(idx).iconChar = xdgIcons(xi)
+            idx = idx + 1
+            IF idx >= FD_MAX_PLACES THEN GOTO fd_places_done
+        END IF
+    NEXT xi
+
+    ' Separator before favorites
+    IF FD_CFG.favCount > 0 THEN
+        FD_places(idx).entryType = FD_PLACE_SEPARATOR
+        idx = idx + 1
+        IF idx >= FD_MAX_PLACES THEN GOTO fd_places_done
+
+        DIM fi AS INTEGER
+        FOR fi = 0 TO FD_CFG.favCount - 1
+            IF FD_favorites(fi).exists THEN
+                FD_places(idx).label = RTRIM$(FD_favorites(fi).label)
+                FD_places(idx).path = RTRIM$(FD_favorites(fi).path)
+                FD_places(idx).entryType = FD_PLACE_FAVORITE
+                FD_places(idx).iconChar = 42  ' '*'
+                idx = idx + 1
+                IF idx >= FD_MAX_PLACES THEN GOTO fd_places_done
+            END IF
+        NEXT fi
+    END IF
+
+    fd_places_done:
+    FD_STATE.placesCount = idx
+END SUB
+
+' --------------------------------------------------------------------------
+' FD_parse_filters — Parse filter string into FD_filters array
+'   Format: "Label1|pattern1|Label2|pattern2|..."
+'   Example: "All Files|*.*|Image Files|*.png|*.bmp|*.jpg"
+' --------------------------------------------------------------------------
+SUB FD_parse_filters (filters AS STRING)
+    FD_STATE.filterCount = 0
+    IF LEN(filters) = 0 THEN
+        ' Default: all files
+        FD_filters(0).label = "All Files"
+        FD_filters(0).pattern = "*.*"
+        FD_STATE.filterCount = 1
+        EXIT SUB
+    END IF
+
+    DIM remaining AS STRING
+    remaining = filters
+    DIM idx AS INTEGER
+    idx = 0
+
+    DO WHILE LEN(remaining) > 0 AND idx < FD_MAX_FILTERS
+        ' Get label
+        DIM pipePos AS INTEGER
+        pipePos = INSTR(remaining, "|")
+        IF pipePos = 0 THEN EXIT DO
+
+        FD_filters(idx).label = LEFT$(remaining, pipePos - 1)
+        remaining = MID$(remaining, pipePos + 1)
+
+        ' Get pattern (everything until next label or end)
+        ' Look for next label|pattern pair
+        DIM nextPipe AS INTEGER
+        DIM foundNextLabel AS INTEGER
+        foundNextLabel = 0
+
+        ' Simple heuristic: if the text after next pipe contains *. it's still pattern data
+        ' Otherwise it's a label
+        DIM tempRemain AS STRING
+        tempRemain = remaining
+        DIM patternPart AS STRING
+        patternPart = ""
+
+        DO
+            pipePos = INSTR(tempRemain, "|")
+            IF pipePos = 0 THEN
+                ' Last part, all is pattern
+                patternPart = patternPart + tempRemain
+                tempRemain = ""
+                EXIT DO
+            END IF
+
+            DIM beforePipe AS STRING
+            beforePipe = LEFT$(tempRemain, pipePos - 1)
+
+            ' If this part contains *. it's a pattern extension
+            IF INSTR(beforePipe, "*.") > 0 THEN
+                IF LEN(patternPart) > 0 THEN patternPart = patternPart + "|"
+                patternPart = patternPart + beforePipe
+                tempRemain = MID$(tempRemain, pipePos + 1)
+            ELSE
+                ' This is the next label — we're done with patterns
+                IF LEN(patternPart) = 0 THEN
+                    patternPart = beforePipe
+                    tempRemain = MID$(tempRemain, pipePos + 1)
+                END IF
+                EXIT DO
+            END IF
+        LOOP
+
+        IF LEN(patternPart) = 0 THEN patternPart = "*.*"
+        FD_filters(idx).pattern = patternPart
+        remaining = tempRemain
+        idx = idx + 1
+    LOOP
+
+    FD_STATE.filterCount = idx
+    IF idx = 0 THEN
+        FD_filters(0).label = "All Files"
+        FD_filters(0).pattern = "*.*"
+        FD_STATE.filterCount = 1
+    END IF
+END SUB
+
+' --------------------------------------------------------------------------
+' FD_load_config — Load dialog configuration from file
+' --------------------------------------------------------------------------
+SUB FD_load_config
+    DIM cfgPath AS STRING
+    cfgPath = FD_PLAT_get_home_dir$ + FD_PLAT_get_separator$ + ".file-dialog.cfg"
+
+    ' Set defaults first
+    FD_CFG.viewMode = FD_VIEW_DETAILS
+    FD_CFG.sortField = FD_SORT_NAME
+    FD_CFG.sortAscending = -1
+    FD_CFG.showHidden = 0
+    FD_CFG.thumbSize = FD_THUMB_DEFAULT_SIZE
+    FD_CFG.dialogW = 800
+    FD_CFG.dialogH = 500
+    FD_CFG.colWidth0 = 250
+    FD_CFG.colWidth1 = 70
+    FD_CFG.colWidth2 = 80
+    FD_CFG.colWidth3 = 130
+    FD_CFG.placesWidth = FD_PLACES_DEFAULT_W
+    FD_CFG.previewWidth = FD_PREVIEW_DEFAULT_W
+    FD_CFG.showPreview = -1
+    FD_CFG.favCount = 0
+
+    IF NOT _FILEEXISTS(cfgPath) THEN EXIT SUB
+
+    DIM f AS INTEGER
+    f = FREEFILE
+    OPEN cfgPath FOR INPUT AS #f
+
+    DIM ln AS STRING
+    DIM eqPos AS INTEGER
+    DIM cfgKey AS STRING, cfgVal AS STRING
+    DO UNTIL EOF(f)
+        LINE INPUT #f, ln
+        ln = LTRIM$(RTRIM$(ln))
+        IF LEN(ln) = 0 THEN _CONTINUE
+        IF LEFT$(ln, 1) = "#" THEN _CONTINUE
+
+        eqPos = INSTR(ln, "=")
+        IF eqPos = 0 THEN _CONTINUE
+
+        cfgKey = UCASE$(LTRIM$(RTRIM$(LEFT$(ln, eqPos - 1))))
+        cfgVal = LTRIM$(RTRIM$(MID$(ln, eqPos + 1)))
+
+        SELECT CASE cfgKey
+            CASE "VIEWMODE": FD_CFG.viewMode = VAL(cfgVal)
+            CASE "SORTFIELD": FD_CFG.sortField = VAL(cfgVal)
+            CASE "SORTASCENDING": FD_CFG.sortAscending = VAL(cfgVal)
+            CASE "SHOWHIDDEN": FD_CFG.showHidden = VAL(cfgVal)
+            CASE "THUMBSIZE": FD_CFG.thumbSize = VAL(cfgVal)
+            CASE "DIALOGW": FD_CFG.dialogW = VAL(cfgVal)
+            CASE "DIALOGH": FD_CFG.dialogH = VAL(cfgVal)
+            CASE "COLWIDTH0": FD_CFG.colWidth0 = VAL(cfgVal)
+            CASE "COLWIDTH1": FD_CFG.colWidth1 = VAL(cfgVal)
+            CASE "COLWIDTH2": FD_CFG.colWidth2 = VAL(cfgVal)
+            CASE "COLWIDTH3": FD_CFG.colWidth3 = VAL(cfgVal)
+            CASE "PLACESWIDTH": FD_CFG.placesWidth = VAL(cfgVal)
+            CASE "PREVIEWWIDTH": FD_CFG.previewWidth = VAL(cfgVal)
+            CASE "SHOWPREVIEW": FD_CFG.showPreview = VAL(cfgVal)
+        END SELECT
+    LOOP
+
+    CLOSE #f
+
+    ' Validate
+    IF FD_CFG.dialogW < FD_MIN_DIALOG_W THEN FD_CFG.dialogW = FD_MIN_DIALOG_W
+    IF FD_CFG.dialogH < FD_MIN_DIALOG_H THEN FD_CFG.dialogH = FD_MIN_DIALOG_H
+    IF FD_CFG.thumbSize < 32 THEN FD_CFG.thumbSize = 32
+    IF FD_CFG.thumbSize > 256 THEN FD_CFG.thumbSize = 256
+END SUB
+
+' --------------------------------------------------------------------------
+' FD_save_config — Save dialog configuration to file
+' --------------------------------------------------------------------------
+SUB FD_save_config
+    ' Update config from state
+    FD_CFG.dialogW = FD_STATE.dialogW
+    FD_CFG.dialogH = FD_STATE.dialogH
+    FD_CFG.placesWidth = FD_STATE.placesW
+    FD_CFG.previewWidth = FD_STATE.previewW
+
+    ' Save column widths
+    FD_CFG.colWidth0 = FD_columns(0).width
+    FD_CFG.colWidth1 = FD_columns(1).width
+    FD_CFG.colWidth2 = FD_columns(2).width
+    FD_CFG.colWidth3 = FD_columns(3).width
+
+    DIM cfgPath AS STRING
+    cfgPath = FD_PLAT_get_home_dir$ + FD_PLAT_get_separator$ + ".file-dialog.cfg"
+
+    DIM f AS INTEGER
+    f = FREEFILE
+    OPEN cfgPath FOR OUTPUT AS #f
+
+    PRINT #f, "# QB64_GJ_FILE_DIALOG config"
+    PRINT #f, "viewMode=" + LTRIM$(STR$(FD_CFG.viewMode))
+    PRINT #f, "sortField=" + LTRIM$(STR$(FD_CFG.sortField))
+    PRINT #f, "sortAscending=" + LTRIM$(STR$(FD_CFG.sortAscending))
+    PRINT #f, "showHidden=" + LTRIM$(STR$(FD_CFG.showHidden))
+    PRINT #f, "thumbSize=" + LTRIM$(STR$(FD_CFG.thumbSize))
+    PRINT #f, "dialogW=" + LTRIM$(STR$(FD_CFG.dialogW))
+    PRINT #f, "dialogH=" + LTRIM$(STR$(FD_CFG.dialogH))
+    PRINT #f, "colWidth0=" + LTRIM$(STR$(FD_CFG.colWidth0))
+    PRINT #f, "colWidth1=" + LTRIM$(STR$(FD_CFG.colWidth1))
+    PRINT #f, "colWidth2=" + LTRIM$(STR$(FD_CFG.colWidth2))
+    PRINT #f, "colWidth3=" + LTRIM$(STR$(FD_CFG.colWidth3))
+    PRINT #f, "placesWidth=" + LTRIM$(STR$(FD_CFG.placesWidth))
+    PRINT #f, "previewWidth=" + LTRIM$(STR$(FD_CFG.previewWidth))
+    PRINT #f, "showPreview=" + LTRIM$(STR$(FD_CFG.showPreview))
+
+    CLOSE #f
+END SUB
+
+' --------------------------------------------------------------------------
+' FD_add_favorite — Add a directory to the favorites list (no duplicates)
+' --------------------------------------------------------------------------
+SUB FD_add_favorite (dirPath AS STRING)
+    IF FD_CFG.favCount >= FD_MAX_FAVORITES THEN EXIT SUB
+
+    ' Check for duplicate
+    DIM i AS INTEGER
+    FOR i = 0 TO FD_CFG.favCount - 1
+        IF RTRIM$(FD_favorites(i).path) = dirPath THEN EXIT SUB
+    NEXT i
+
+    FD_favorites(FD_CFG.favCount).path = dirPath
+    FD_favorites(FD_CFG.favCount).label = FD_PLAT_path_filename$(dirPath)
+    FD_favorites(FD_CFG.favCount).exists = -1
+    FD_CFG.favCount = FD_CFG.favCount + 1
+END SUB
+
+' --------------------------------------------------------------------------
+' FD_remove_favorite — Remove a directory from the favorites list by path
+' --------------------------------------------------------------------------
+SUB FD_remove_favorite (dirPath AS STRING)
+    DIM i AS INTEGER, j AS INTEGER
+    FOR i = 0 TO FD_CFG.favCount - 1
+        IF RTRIM$(FD_favorites(i).path) = dirPath THEN
+            ' Shift remaining entries down
+            FOR j = i TO FD_CFG.favCount - 2
+                FD_favorites(j) = FD_favorites(j + 1)
+            NEXT j
+            FD_CFG.favCount = FD_CFG.favCount - 1
+            EXIT SUB
+        END IF
+    NEXT i
+END SUB
+
+' --------------------------------------------------------------------------
+' FD_load_favorites — Load bookmarked folders from favorites file
+' --------------------------------------------------------------------------
+SUB FD_load_favorites
+    DIM favPath AS STRING
+    favPath = FD_PLAT_get_home_dir$ + FD_PLAT_get_separator$ + ".file-dialog-favorites"
+
+    FD_CFG.favCount = 0
+    IF NOT _FILEEXISTS(favPath) THEN EXIT SUB
+
+    DIM f AS INTEGER
+    f = FREEFILE
+    OPEN favPath FOR INPUT AS #f
+
+    DIM idx AS INTEGER
+    idx = 0
+    DIM ln AS STRING
+
+    DO UNTIL EOF(f) OR idx >= FD_MAX_FAVORITES
+        LINE INPUT #f, ln
+        ln = LTRIM$(RTRIM$(ln))
+        IF LEN(ln) = 0 THEN _CONTINUE
+        IF LEFT$(ln, 1) = "#" THEN _CONTINUE
+
+        ' Each line: path|label  or just path (auto-label from dirname)
+        DIM pipePos AS INTEGER
+        pipePos = INSTR(ln, "|")
+        IF pipePos > 0 THEN
+            FD_favorites(idx).path = LEFT$(ln, pipePos - 1)
+            FD_favorites(idx).label = MID$(ln, pipePos + 1)
+        ELSE
+            FD_favorites(idx).path = ln
+            FD_favorites(idx).label = FD_PLAT_path_filename$(ln)
+        END IF
+
+        FD_favorites(idx).exists = FD_PLAT_is_dir%(RTRIM$(FD_favorites(idx).path))
+        idx = idx + 1
+    LOOP
+
+    CLOSE #f
+    FD_CFG.favCount = idx
+END SUB
+
+' --------------------------------------------------------------------------
+' FD_save_favorites — Save bookmarked folders to favorites file
+' --------------------------------------------------------------------------
+SUB FD_save_favorites
+    DIM favPath AS STRING
+    favPath = FD_PLAT_get_home_dir$ + FD_PLAT_get_separator$ + ".file-dialog-favorites"
+
+    DIM f AS INTEGER
+    f = FREEFILE
+    OPEN favPath FOR OUTPUT AS #f
+
+    PRINT #f, "# QB64_GJ_FILE_DIALOG favorites"
+    DIM i AS INTEGER
+    FOR i = 0 TO FD_CFG.favCount - 1
+        PRINT #f, RTRIM$(FD_favorites(i).path) + "|" + RTRIM$(FD_favorites(i).label)
+    NEXT i
+
+    CLOSE #f
+END SUB

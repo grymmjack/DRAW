@@ -16,6 +16,23 @@ $INCLUDEONCE
 '$INCLUDE:'./CORE/IMAGE.BI'
 '$INCLUDE:'./CORE/SOUND.BI'
 
+' QB64_GJ COMPONENTS ----------------------------------------------------------
+' Include sub-files directly (NOT the leader files) to avoid QB64-PE
+' $INCLUDEONCE path-normalization issue with TEXT-INPUT cross-includes.
+'$INCLUDE:'./includes/QB64_GJ_TEXT_INPUT/TI-TYPES.BI'
+'$INCLUDE:'./includes/QB64_GJ_MSG_BOX/MB-TYPES.BI'
+'$INCLUDE:'./includes/QB64_GJ_MSG_BOX/MB-THEME.BI'
+'$INCLUDE:'./includes/QB64_GJ_COLOR_PICKER/CP-TYPES.BI'
+'$INCLUDE:'./includes/QB64_GJ_COLOR_PICKER/CP-THEME.BI'
+'$INCLUDE:'./includes/QB64_GJ_FILE_DIALOG/FD-TYPES.BI'
+'$INCLUDE:'./includes/QB64_GJ_FILE_DIALOG/FD-THEME.BI'
+'$INCLUDE:'./includes/QB64_GJ_FILE_DIALOG/FD-PLATFORM.BI'
+'$INCLUDE:'./includes/QB64_GJ_FILE_DIALOG/FD-THUMB.BI'
+DECLARE SUB FD_add_favorite (dirPath AS STRING)
+DECLARE SUB FD_remove_favorite (dirPath AS STRING)
+DECLARE SUB FD_save_favorites
+DECLARE SUB FD_init_places
+
 ' CONFIG ----------------------------------------------------------------------
 '$INCLUDE:'./CFG/CONFIG.BI'
 '$INCLUDE:'./CFG/CONFIG-THEME.BI'
@@ -63,6 +80,8 @@ $INCLUDEONCE
 '$INCLUDE:'./GUI/FILL-ADJ.BI'
 '$INCLUDE:'./GUI/CHARMAP.BI'
 '$INCLUDE:'./GUI/ABOUT.BI'
+'$INCLUDE:'./GUI/SETTINGS-WIDGETS.BI'
+'$INCLUDE:'./GUI/SETTINGS.BI'
 
 ' INPUT -----------------------------------------------------------------------
 '$INCLUDE:'./INPUT/MODIFIERS.BI'

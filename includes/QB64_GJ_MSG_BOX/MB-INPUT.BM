@@ -1,0 +1,279 @@
+'$INCLUDEONCE
+
+' ============================================================================
+' MB-INPUT.BM — Input handling for QB64_GJ_MSG_BOX
+'
+' Handles mouse (click, drag, hover) and keyboard (Tab, Enter, Escape, etc.)
+'
+' (c) 2026 grymmjack — MIT License
+' ============================================================================
+
+' --------------------------------------------------------------------------
+' MB_INPUT_poll — Read raw mouse/keyboard state into MB_STATE
+' --------------------------------------------------------------------------
+SUB MB_INPUT_poll
+    ' Save old button state for transition detection
+    MB_STATE.oldMouseB1 = MB_STATE.mouseB1
+
+    ' Drain all queued mouse events (we only care about final position)
+    DO WHILE _MOUSEINPUT
+    LOOP
+
+    ' Read current mouse state AFTER drain (gets hardware state, not event state)
+    ' Store as dialog-relative coordinates
+    MB_STATE.mouseX = _MOUSEX \ MB_STATE.scale - MB_STATE.dialogX
+    MB_STATE.mouseY = _MOUSEY \ MB_STATE.scale - MB_STATE.dialogY
+    MB_STATE.mouseB1 = _MOUSEBUTTON(1)
+END SUB
+
+' --------------------------------------------------------------------------
+' MB_INPUT_mouse — Process mouse interactions
+' --------------------------------------------------------------------------
+SUB MB_INPUT_mouse
+    ' Mouse coords are already dialog-relative from MB_INPUT_poll
+    DIM lx AS INTEGER, ly AS INTEGER
+    lx = MB_STATE.mouseX
+    ly = MB_STATE.mouseY
+
+    ' Is mouse over the dialog?
+    DIM overDialog AS INTEGER
+    overDialog = (lx >= 0 AND lx < MB_STATE.dialogW AND ly >= 0 AND ly < MB_STATE.dialogH)
+
+    ' --- Dragging title bar ---
+    IF MB_STATE.dragging THEN
+        IF MB_STATE.mouseB1 THEN
+            ' Update dialog position (use screen-absolute delta from dialog-relative + dialogX)
+            DIM absX AS INTEGER, absY AS INTEGER
+            absX = MB_STATE.mouseX + MB_STATE.dialogX
+            absY = MB_STATE.mouseY + MB_STATE.dialogY
+            MB_STATE.dialogX = MB_STATE.dragOrigX + (absX - MB_STATE.dragStartX)
+            MB_STATE.dialogY = MB_STATE.dragOrigY + (absY - MB_STATE.dragStartY)
+
+            ' Clamp to screen
+            DIM scrW AS INTEGER, scrH AS INTEGER
+            scrW = _WIDTH(0) \ MB_STATE.scale
+            scrH = _HEIGHT(0) \ MB_STATE.scale
+            IF MB_STATE.dialogX < 0 THEN MB_STATE.dialogX = 0
+            IF MB_STATE.dialogY < 0 THEN MB_STATE.dialogY = 0
+            IF MB_STATE.dialogX + MB_STATE.dialogW > scrW THEN MB_STATE.dialogX = scrW - MB_STATE.dialogW
+            IF MB_STATE.dialogY + MB_STATE.dialogH > scrH THEN MB_STATE.dialogY = scrH - MB_STATE.dialogH
+            MB_STATE.dirty = -1
+        ELSE
+            MB_STATE.dragging = 0
+        END IF
+        EXIT SUB
+    END IF
+
+    ' --- Hover detection ---
+    DIM oldHover AS INTEGER
+    oldHover = MB_STATE.hoverButton
+    MB_STATE.hoverButton = -1
+
+    IF overDialog THEN
+        ' Close button [X] hover
+        DIM closeX AS INTEGER
+        closeX = MB_STATE.dialogW - MB_TITLE_BAR_H
+        IF ly >= 0 AND ly < MB_TITLE_BAR_H AND lx >= closeX THEN
+            MB_STATE.hoverButton = -2  ' Special: close button
+        END IF
+
+        ' Button hover
+        IF MB_STATE.hoverButton = -1 THEN
+            DIM bi AS INTEGER
+            bi = MB_INPUT_hit_button%(lx, ly)
+            IF bi >= 0 THEN MB_STATE.hoverButton = bi
+        END IF
+    END IF
+
+    IF MB_STATE.hoverButton <> oldHover THEN MB_STATE.dirty = -1
+
+    ' --- Click handling ---
+    DIM justPressed AS INTEGER
+    justPressed = (MB_STATE.mouseB1 AND NOT MB_STATE.oldMouseB1)
+
+    IF justPressed AND overDialog THEN
+        ' Close button click
+        IF MB_STATE.hoverButton = -2 THEN
+            MB_STATE.result = MB_RESULT_NONE
+            MB_STATE.done = -1
+            EXIT SUB
+        END IF
+
+        ' Title bar drag
+        IF ly >= 0 AND ly < MB_TITLE_BAR_H AND lx < closeX THEN
+            MB_STATE.dragging = -1
+            ' Store screen-absolute start position for drag delta
+            MB_STATE.dragStartX = MB_STATE.mouseX + MB_STATE.dialogX
+            MB_STATE.dragStartY = MB_STATE.mouseY + MB_STATE.dialogY
+            MB_STATE.dragOrigX = MB_STATE.dialogX
+            MB_STATE.dragOrigY = MB_STATE.dialogY
+            EXIT SUB
+        END IF
+
+        ' Button click
+        IF MB_STATE.hoverButton >= 0 THEN
+            MB_STATE.focusedButton = MB_STATE.hoverButton
+            MB_STATE.result = MB_STATE.hoverButton
+            MB_STATE.done = -1
+            EXIT SUB
+        END IF
+
+        ' Input field click (route to TI widget with dialog-local coords)
+        IF MB_STATE.mode = MB_MODE_INPUT AND MB_STATE.tiInputId > 0 THEN
+            IF lx >= MB_STATE.inputX AND lx < MB_STATE.inputX + MB_STATE.inputW THEN
+                IF ly >= MB_STATE.inputY AND ly < MB_STATE.inputY + MB_STATE.inputH THEN
+                    TI_process_mouse lx, ly, -1
+                    MB_STATE.dirty = -1
+                END IF
+            END IF
+        END IF
+    END IF
+
+    ' --- Mouse release passthrough for TI selection dragging ---
+    IF NOT MB_STATE.mouseB1 AND MB_STATE.oldMouseB1 THEN
+        ' Nothing special needed on release for message box
+    END IF
+
+    ' --- Click outside dialog = cancel ---
+    IF justPressed AND NOT overDialog THEN
+        MB_STATE.result = MB_RESULT_NONE
+        MB_STATE.done = -1
+    END IF
+END SUB
+
+' --------------------------------------------------------------------------
+' MB_INPUT_keyboard — Process keyboard input
+' --------------------------------------------------------------------------
+SUB MB_INPUT_keyboard (k AS LONG)
+    IF k = 0 THEN EXIT SUB
+
+    ' Route to TI widget first if in input mode and TI has focus
+    IF MB_STATE.mode = MB_MODE_INPUT AND MB_STATE.tiInputId > 0 AND TI_focusedId > 0 THEN
+        DIM consumed AS INTEGER
+        consumed = TI_process_key%(k)
+
+        ' Check TI callback flags
+        IF TI_inputs(MB_STATE.tiInputId).submitted THEN
+            ' Enter in text field = confirm (first button)
+            MB_STATE.result = MB_RESULT_1
+            MB_STATE.done = -1
+            EXIT SUB
+        END IF
+
+        IF TI_inputs(MB_STATE.tiInputId).escaped THEN
+            ' Escape in text field = cancel
+            MB_STATE.result = MB_RESULT_NONE
+            MB_STATE.done = -1
+            EXIT SUB
+        END IF
+
+        IF TI_inputs(MB_STATE.tiInputId).tabbed THEN
+            ' Tab = move focus to buttons
+            TI_clear_focus
+            MB_STATE.dirty = -1
+        END IF
+
+        IF consumed THEN
+            MB_STATE.dirty = -1
+            EXIT SUB
+        END IF
+    END IF
+
+    ' Global keys
+    SELECT CASE k
+        CASE 27 ' Escape
+            ' Find cancel button, or just close
+            DIM ci AS INTEGER
+            FOR ci = 0 TO MB_STATE.buttonCount - 1
+                IF MB_buttons(ci).isCancel THEN
+                    MB_STATE.result = ci
+                    MB_STATE.done = -1
+                    EXIT SUB
+                END IF
+            NEXT ci
+            ' No cancel button? Close with no result
+            MB_STATE.result = MB_RESULT_NONE
+            MB_STATE.done = -1
+
+        CASE 13 ' Enter
+            ' Activate focused button
+            IF MB_STATE.focusedButton >= 0 AND MB_STATE.focusedButton < MB_STATE.buttonCount THEN
+                MB_STATE.result = MB_STATE.focusedButton
+                MB_STATE.done = -1
+            END IF
+
+        CASE 9 ' Tab
+            IF MB_STATE.mode = MB_MODE_INPUT AND MB_STATE.tiInputId > 0 THEN
+                ' If no TI focus, give it focus
+                IF TI_focusedId = 0 THEN
+                    TI_set_focus MB_STATE.tiInputId
+                    MB_STATE.dirty = -1
+                    EXIT SUB
+                END IF
+            END IF
+            ' Cycle button focus
+            MB_STATE.focusedButton = MB_STATE.focusedButton + 1
+            IF MB_STATE.focusedButton >= MB_STATE.buttonCount THEN
+                IF MB_STATE.mode = MB_MODE_INPUT AND MB_STATE.tiInputId > 0 THEN
+                    ' Wrap back to input field
+                    MB_STATE.focusedButton = 0
+                    TI_set_focus MB_STATE.tiInputId
+                ELSE
+                    MB_STATE.focusedButton = 0
+                END IF
+            END IF
+            MB_STATE.dirty = -1
+
+        CASE 32 ' Space
+            ' Activate focused button (like Enter)
+            IF TI_focusedId = 0 THEN
+                IF MB_STATE.focusedButton >= 0 AND MB_STATE.focusedButton < MB_STATE.buttonCount THEN
+                    MB_STATE.result = MB_STATE.focusedButton
+                    MB_STATE.done = -1
+                END IF
+            END IF
+
+        CASE 19200 ' Left arrow
+            IF TI_focusedId = 0 THEN
+                IF MB_STATE.focusedButton > 0 THEN
+                    MB_STATE.focusedButton = MB_STATE.focusedButton - 1
+                    MB_STATE.dirty = -1
+                END IF
+            END IF
+
+        CASE 19712 ' Right arrow
+            IF TI_focusedId = 0 THEN
+                IF MB_STATE.focusedButton < MB_STATE.buttonCount - 1 THEN
+                    MB_STATE.focusedButton = MB_STATE.focusedButton + 1
+                    MB_STATE.dirty = -1
+                END IF
+            END IF
+    END SELECT
+END SUB
+
+' --------------------------------------------------------------------------
+' MB_INPUT_hit_button% — Returns button index at local coords, or -1
+' --------------------------------------------------------------------------
+FUNCTION MB_INPUT_hit_button% (lx AS INTEGER, ly AS INTEGER)
+    MB_INPUT_hit_button% = -1
+
+    DIM y1 AS INTEGER, by AS INTEGER
+    y1 = MB_STATE.buttonBarY
+    by = y1 + (MB_BUTTON_BAR_H - MB_BUTTON_H) \ 2
+
+    IF ly < by OR ly >= by + MB_BUTTON_H THEN EXIT FUNCTION
+
+    DIM totalW AS INTEGER, startX AS INTEGER
+    DIM i AS INTEGER, bx AS INTEGER
+
+    totalW = MB_STATE.buttonCount * MB_BUTTON_W + (MB_STATE.buttonCount - 1) * MB_BUTTON_GAP
+    startX = MB_STATE.dialogW - MB_PADDING - totalW
+
+    FOR i = 0 TO MB_STATE.buttonCount - 1
+        bx = startX + i * (MB_BUTTON_W + MB_BUTTON_GAP)
+        IF lx >= bx AND lx < bx + MB_BUTTON_W THEN
+            MB_INPUT_hit_button% = i
+            EXIT FUNCTION
+        END IF
+    NEXT i
+END FUNCTION
