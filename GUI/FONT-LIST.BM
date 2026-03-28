@@ -49,12 +49,8 @@ SUB FONT_LIST_scan ()
     FONT_LIST_add_builtin "QB64 8x16", 16
 
     ' --- Bitmap fonts (bundled + user) ---
-    IF CFG.FONTS_INCLUDE_DRAW_BITMAP% THEN
-        FONT_LIST_scan_bitmap_dir "./ASSETS/FONTS/BITMAP", TRUE
-    END IF
-    IF CFG.FONTS_INCLUDE_USER_BITMAP% THEN
-        FONT_LIST_scan_bitmap_dir "./USER/FONTS/BITMAP", FALSE
-    END IF
+    ' Bitmap fonts in subfolders (BITMAP/, WINDOWS FON/) are now scanned by
+    ' scan_subfolders above. Only scan root-level bitmap fonts here.
 
     ' --- User TTF/OTF fonts ---
     IF CFG.FONTS_INCLUDE_USER% THEN
@@ -247,6 +243,7 @@ SUB FONT_LIST_add_font (fontPath$, isBundled%)
     FONT_LIST(idx%).path = fontPath$
     FONT_LIST(idx%).displayName = FONT_LIST_extract_name$(fontPath$)
     FONT_LIST(idx%).isBundled = isBundled%
+    FONT_LIST(idx%).folderName = ""
 
     ' Look for bold/italic variant files
     DIM basePath AS STRING
@@ -312,6 +309,7 @@ SUB FONT_LIST_add_builtin (displayName$, builtInHandle&)
     FONT_LIST(idx%).isBundled = TRUE
     FONT_LIST(idx%).isBuiltIn = TRUE
     FONT_LIST(idx%).builtInHandle = builtInHandle&
+    FONT_LIST(idx%).folderName = ""
     FONT_LIST(idx%).hasBold = FALSE
     FONT_LIST(idx%).hasItalic = FALSE
     FONT_LIST(idx%).hasBoldItalic = FALSE
@@ -782,17 +780,16 @@ SUB FONT_LIST_scan_subfolders (baseDir$, isBundled%)
     DIM dirPath AS STRING
     DIM startCountSF AS INTEGER
     DIM addedSF AS INTEGER
-    DIM folderIdx AS INTEGER
 
     DO WHILE NOT EOF(ff%)
         LINE INPUT #ff%, dirName$
         dirName$ = LTRIM$(RTRIM$(dirName$))
         IF LEN(dirName$) < 1 THEN _CONTINUE
 
-        ' Skip known non-TTF subdirectories
+        ' Skip known non-font subdirectories (color bitmap tables, not actual fonts)
         DIM upperDir AS STRING
         upperDir$ = UCASE$(dirName$)
-        IF upperDir$ = "BITMAP" OR upperDir$ = "COLOR_BITMAP" OR upperDir$ = "COLR" THEN _CONTINUE
+        IF upperDir$ = "COLOR_BITMAP" OR upperDir$ = "COLR" THEN _CONTINUE
 
         $IF WIN THEN
             dirPath$ = baseDir$ + "\" + dirName$
@@ -804,8 +801,14 @@ SUB FONT_LIST_scan_subfolders (baseDir$, isBundled%)
 
         startCountSF% = FONT_LIST_COUNT%
 
-        ' Scan fonts in this subfolder (non-recursive)
+        ' Scan TTF/OTF fonts in this subfolder (non-recursive)
         FONT_LIST_scan_dir dirPath$, 0, isBundled%
+
+        ' Scan bitmap fonts in this subfolder
+        FONT_LIST_scan_bitmap_dir dirPath$, isBundled%
+
+        ' Scan sub-subfolders (e.g. BITMAP/FONTRAPTION, WINDOWS FON/GRYMMJACK)
+        FONT_LIST_scan_nested_subfolders dirPath$, dirName$, isBundled%
 
         ' Tag newly added fonts with folder name
         addedSF% = FONT_LIST_COUNT% - startCountSF%
@@ -824,6 +827,62 @@ END SUB
 
 
 ''
+' Scan one level of nested sub-subfolders inside a parent subfolder.
+' E.g. BITMAP/FONTRAPTION, WINDOWS FON/GRYMMJACK.
+' Fonts are added to FONT_LIST but NOT tagged with folderName here —
+' the parent scan_subfolders loop tags them with the top-level folder name.
+' @param parentDir$ Full path to the parent subfolder
+' @param parentName$ Display name of the parent folder (for logging)
+' @param isBundled% TRUE if bundled with DRAW
+'
+SUB FONT_LIST_scan_nested_subfolders (parentDir$, parentName$, isBundled%)
+    IF NOT _DIREXISTS(parentDir$) THEN EXIT SUB
+
+    DIM tmpFile2 AS STRING
+    tmpFile2$ = "./draw_nested_scan.tmp"
+
+    $IF WIN THEN
+        SHELL "dir /b /ad " + CHR$(34) + parentDir$ + CHR$(34) + " > " + CHR$(34) + tmpFile2$ + CHR$(34) + " 2>nul"
+    $ELSE
+        SHELL "find " + CHR$(34) + parentDir$ + CHR$(34) + " -maxdepth 1 -mindepth 1 -type d -printf '%f\n' 2>/dev/null | sort > " + CHR$(34) + tmpFile2$ + CHR$(34)
+    $END IF
+
+    IF NOT _FILEEXISTS(tmpFile2$) THEN EXIT SUB
+
+    DIM ff2 AS INTEGER
+    ff2% = FREEFILE
+    OPEN tmpFile2$ FOR INPUT AS #ff2%
+
+    DIM subDirName AS STRING
+    DIM subDirPath AS STRING
+
+    DO WHILE NOT EOF(ff2%)
+        LINE INPUT #ff2%, subDirName$
+        subDirName$ = LTRIM$(RTRIM$(subDirName$))
+        IF LEN(subDirName$) < 1 THEN _CONTINUE
+
+        DIM upperSubDir AS STRING
+        upperSubDir$ = UCASE$(subDirName$)
+        IF upperSubDir$ = "COLOR_BITMAP" OR upperSubDir$ = "COLR" THEN _CONTINUE
+
+        $IF WIN THEN
+            subDirPath$ = parentDir$ + "\" + subDirName$
+        $ELSE
+            subDirPath$ = parentDir$ + "/" + subDirName$
+        $END IF
+
+        IF NOT _DIREXISTS(subDirPath$) THEN _CONTINUE
+
+        FONT_LIST_scan_dir subDirPath$, 0, isBundled%
+        FONT_LIST_scan_bitmap_dir subDirPath$, isBundled%
+    LOOP
+
+    CLOSE #ff2%
+    KILL tmpFile2$
+END SUB
+
+
+''
 ' Build the font dropdown display list from the sorted FONT_LIST.
 ' Root-level fonts (folderName="") appear as FONT_DD_FONT rows.
 ' The first font of each folder group inserts a FONT_DD_FOLDER row;
@@ -836,33 +895,44 @@ SUB FONT_LIST_build_display_list ()
     DIM i AS INTEGER
     DIM fn AS STRING
     DIM fi AS INTEGER
+    DIM nulPos AS INTEGER
 
+    ' Pass 1: Register all unique folder names (already sorted A-Z from scan)
     FOR i% = 0 TO FONT_LIST_COUNT% - 1
         fn$ = RTRIM$(FONT_LIST(i%).folderName)
+        nulPos% = INSTR(fn$, CHR$(0))
+        IF nulPos% > 0 THEN fn$ = LEFT$(fn$, nulPos% - 1)
+        fn$ = RTRIM$(fn$)
+        IF LEN(fn$) > 0 THEN
+            fi% = FONT_LIST_folder_index%(fn$)
+            IF fi% < 0 AND FONT_FOLDER_COUNT% < FONT_FOLDER_MAX THEN
+                FONT_FOLDER_NAME(FONT_FOLDER_COUNT%) = fn$
+                FONT_FOLDER_COUNT% = FONT_FOLDER_COUNT% + 1
+            END IF
+        END IF
+    NEXT i%
+
+    ' Pass 2: Add folder headers A-Z at top of display list
+    FOR fi% = 0 TO FONT_FOLDER_COUNT% - 1
+        IF FONT_DD_COUNT% < FONT_DD_MAX THEN
+            FONT_DD_TYPE(FONT_DD_COUNT%) = FONT_DD_FOLDER
+            FONT_DD_VALUE(FONT_DD_COUNT%) = fi%
+            FONT_DD_COUNT% = FONT_DD_COUNT% + 1
+        END IF
+    NEXT fi%
+
+    ' Pass 3: Add root-level fonts A-Z below folders
+    FOR i% = 0 TO FONT_LIST_COUNT% - 1
+        fn$ = RTRIM$(FONT_LIST(i%).folderName)
+        nulPos% = INSTR(fn$, CHR$(0))
+        IF nulPos% > 0 THEN fn$ = LEFT$(fn$, nulPos% - 1)
+        fn$ = RTRIM$(fn$)
         IF LEN(fn$) = 0 THEN
-            ' Root-level font — add directly
             IF FONT_DD_COUNT% < FONT_DD_MAX THEN
                 FONT_DD_TYPE(FONT_DD_COUNT%) = FONT_DD_FONT
                 FONT_DD_VALUE(FONT_DD_COUNT%) = i%
                 FONT_DD_COUNT% = FONT_DD_COUNT% + 1
             END IF
-        ELSE
-            ' Folder font — check if folder header already added
-            fi% = FONT_LIST_folder_index%(fn$)
-            IF fi% < 0 THEN
-                ' New folder — register it and add a folder header row
-                IF FONT_FOLDER_COUNT% < FONT_FOLDER_MAX THEN
-                    fi% = FONT_FOLDER_COUNT%
-                    FONT_FOLDER_NAME(fi%) = fn$
-                    FONT_FOLDER_COUNT% = FONT_FOLDER_COUNT% + 1
-                    IF FONT_DD_COUNT% < FONT_DD_MAX THEN
-                        FONT_DD_TYPE(FONT_DD_COUNT%) = FONT_DD_FOLDER
-                        FONT_DD_VALUE(FONT_DD_COUNT%) = fi%
-                        FONT_DD_COUNT% = FONT_DD_COUNT% + 1
-                    END IF
-                END IF
-            END IF
-            ' Font itself is not added to display list — it shows in the submenu
         END IF
     NEXT i%
 
@@ -1092,6 +1162,7 @@ SUB FONT_LIST_add_bitmap_font (fontPath$, isBundled%, glyphW%, glyphH%)
     FONT_LIST(idx%).isBundled = isBundled%
     FONT_LIST(idx%).isBuiltIn = FALSE
     FONT_LIST(idx%).isBitmapFont = TRUE
+    FONT_LIST(idx%).folderName = ""
     FONT_LIST(idx%).bitmapGlyphW = glyphW%
     FONT_LIST(idx%).bitmapGlyphH = glyphH%
     FONT_LIST(idx%).hasBold = FALSE

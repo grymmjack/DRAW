@@ -1794,8 +1794,24 @@ FUNCTION TEXT_BAR_handle_wheel% (rawX%, rawY%, wheel_delta%)
 
     ' Subfolder popup open: scroll its list.
     IF TEXT_BAR.fontSubOpen% AND TEXT_BAR.fontDropdownOpen% THEN
+        ' Count fonts in this subfolder for max scroll clamp
+        DIM sfwFolderName AS STRING
+        sfwFolderName$ = RTRIM$(FONT_FOLDER_NAME(TEXT_BAR.fontSubFolderIdx%))
+        DIM sfwCount AS INTEGER, sfwI AS INTEGER
+        sfwCount% = 0
+        FOR sfwI% = 0 TO FONT_LIST_COUNT% - 1
+            IF RTRIM$(FONT_LIST(sfwI%).folderName) = sfwFolderName$ THEN sfwCount% = sfwCount% + 1
+        NEXT sfwI%
+        DIM sfwMaxVis AS INTEGER
+        sfwMaxVis% = INT(SCRN.h& * 0.60) \ 12
+        IF sfwMaxVis% < 5 THEN sfwMaxVis% = 5
+        IF sfwCount% < sfwMaxVis% THEN sfwMaxVis% = sfwCount%
+        DIM sfwMaxScroll AS INTEGER
+        sfwMaxScroll% = sfwCount% - sfwMaxVis%
+        IF sfwMaxScroll% < 0 THEN sfwMaxScroll% = 0
         TEXT_BAR.fontSubScroll% = TEXT_BAR.fontSubScroll% + wheel_delta% * 3
         IF TEXT_BAR.fontSubScroll% < 0 THEN TEXT_BAR.fontSubScroll% = 0
+        IF TEXT_BAR.fontSubScroll% > sfwMaxScroll% THEN TEXT_BAR.fontSubScroll% = sfwMaxScroll%
         FRAME_IDLE% = FALSE
         TEXT_BAR_handle_wheel% = TRUE
         EXIT FUNCTION
@@ -1873,46 +1889,77 @@ FUNCTION TEXT_BAR_handle_wheel% (rawX%, rawY%, wheel_delta%)
     DIM tbBw AS INTEGER
     tbBw% = TEXT_BAR.styleBtnW%
 
-    ' Wheel over font button: previous/next font (skipping folder headers).
+    ' Wheel over font button: previous/next font following expanded display order.
+    ' Expanded order = root fonts from display list + subfolder fonts expanded
+    ' under their folder headers, matching the visual menu structure.
     IF rawX% >= TEXT_BAR.fontBtnX% AND rawX% < TEXT_BAR.fontBtnX% + TEXT_BAR.fontBtnW% THEN
         IF FONT_DD_COUNT% > 0 THEN
-            ' Find current position in display list
-            DIM tbDdPos AS INTEGER, tbDdI2 AS INTEGER
-            tbDdPos% = -1
-            FOR tbDdI2% = 0 TO FONT_DD_COUNT% - 1
-                IF FONT_DD_TYPE(tbDdI2%) = FONT_DD_FONT THEN
-                    IF FONT_DD_VALUE(tbDdI2%) = TEXT_BAR.selectedFontIdx% THEN
-                        tbDdPos% = tbDdI2%
-                        EXIT FOR
-                    END IF
+            ' Build expanded navigation: walk display list, expand folder entries
+            ' Pass 1: count total fonts and find current position
+            DIM navCurPos AS INTEGER, navTotal AS INTEGER
+            DIM navDdI AS INTEGER, navFi AS INTEGER
+            DIM navFolderName AS STRING
+            navCurPos% = -1
+            navTotal% = 0
+            FOR navDdI% = 0 TO FONT_DD_COUNT% - 1
+                IF FONT_DD_TYPE(navDdI%) = FONT_DD_FONT THEN
+                    IF FONT_DD_VALUE(navDdI%) = TEXT_BAR.selectedFontIdx% THEN navCurPos% = navTotal%
+                    navTotal% = navTotal% + 1
+                ELSEIF FONT_DD_TYPE(navDdI%) = FONT_DD_FOLDER THEN
+                    navFolderName$ = RTRIM$(FONT_FOLDER_NAME(FONT_DD_VALUE(navDdI%)))
+                    FOR navFi% = 0 TO FONT_LIST_COUNT% - 1
+                        IF RTRIM$(FONT_LIST(navFi%).folderName) = navFolderName$ THEN
+                            IF navFi% = TEXT_BAR.selectedFontIdx% THEN navCurPos% = navTotal%
+                            navTotal% = navTotal% + 1
+                        END IF
+                    NEXT navFi%
                 END IF
-            NEXT tbDdI2%
-            ' Step to next/previous font entry (skip folder headers)
-            DIM tbNextFontIdx AS INTEGER
-            tbNextFontIdx% = TEXT_BAR.selectedFontIdx%
-            DIM tbStep AS INTEGER
-            IF wheel_delta% < 0 THEN tbStep% = 1 ELSE tbStep% = -1
-            IF tbDdPos% >= 0 THEN
-                DIM tbScan AS INTEGER
-                tbScan% = tbDdPos% + tbStep%
-                DO WHILE tbScan% >= 0 AND tbScan% < FONT_DD_COUNT%
-                    IF FONT_DD_TYPE(tbScan%) = FONT_DD_FONT THEN
-                        tbNextFontIdx% = FONT_DD_VALUE(tbScan%)
-                        EXIT DO
-                    END IF
-                    tbScan% = tbScan% + tbStep%
-                LOOP
-            ELSEIF FONT_LIST_COUNT% > 0 THEN
-                ' Not in display list: fall back to direct index stepping
-                IF wheel_delta% < 0 THEN
-                    IF tbNextFontIdx% < FONT_LIST_COUNT% - 1 THEN tbNextFontIdx% = tbNextFontIdx% + 1
-                ELSE
-                    IF tbNextFontIdx% > 0 THEN tbNextFontIdx% = tbNextFontIdx% - 1
-                END IF
-            END IF
+            NEXT navDdI%
 
-            IF tbNextFontIdx% <> TEXT_BAR.selectedFontIdx% THEN
-                TEXT_BAR_select_font tbNextFontIdx%
+            ' Invert direction: scroll down (positive) = next font
+            DIM navStep AS INTEGER
+            IF wheel_delta% > 0 THEN navStep% = 1 ELSE navStep% = -1
+
+            DIM navTargetPos AS INTEGER
+            IF navCurPos% >= 0 THEN
+                navTargetPos% = navCurPos% + navStep%
+            ELSE
+                IF navStep% > 0 THEN navTargetPos% = 0 ELSE navTargetPos% = navTotal% - 1
+            END IF
+            IF navTargetPos% < 0 THEN navTargetPos% = 0
+            IF navTargetPos% >= navTotal% THEN navTargetPos% = navTotal% - 1
+
+            ' Pass 2: walk to target position and get font index
+            DIM navWalkPos AS INTEGER, navResultIdx AS INTEGER
+            DIM navFound AS INTEGER
+            navWalkPos% = 0
+            navResultIdx% = TEXT_BAR.selectedFontIdx%
+            navFound% = FALSE
+            FOR navDdI% = 0 TO FONT_DD_COUNT% - 1
+                IF navFound% THEN EXIT FOR
+                IF FONT_DD_TYPE(navDdI%) = FONT_DD_FONT THEN
+                    IF navWalkPos% = navTargetPos% THEN
+                        navResultIdx% = FONT_DD_VALUE(navDdI%)
+                        navFound% = TRUE
+                    END IF
+                    navWalkPos% = navWalkPos% + 1
+                ELSEIF FONT_DD_TYPE(navDdI%) = FONT_DD_FOLDER THEN
+                    navFolderName$ = RTRIM$(FONT_FOLDER_NAME(FONT_DD_VALUE(navDdI%)))
+                    FOR navFi% = 0 TO FONT_LIST_COUNT% - 1
+                        IF RTRIM$(FONT_LIST(navFi%).folderName) = navFolderName$ THEN
+                            IF navWalkPos% = navTargetPos% THEN
+                                navResultIdx% = navFi%
+                                navFound% = TRUE
+                                EXIT FOR
+                            END IF
+                            navWalkPos% = navWalkPos% + 1
+                        END IF
+                    NEXT navFi%
+                END IF
+            NEXT navDdI%
+
+            IF navResultIdx% <> TEXT_BAR.selectedFontIdx% THEN
+                TEXT_BAR_select_font navResultIdx%
                 FRAME_IDLE% = FALSE
             END IF
         END IF
@@ -2976,12 +3023,42 @@ SUB TEXT_BAR_update_dropdown_hover (rawX AS INTEGER, rawY AS INTEGER)
             sfhX% = TEXT_BAR.fontBtnX% + 160
             sfhW% = 180
             IF sfhX% + sfhW% > SCRN.w& THEN sfhX% = TEXT_BAR.fontBtnX% - sfhW%
-            IF rawX% >= sfhX% AND rawX% < sfhX% + sfhW% THEN
+
+            ' Compute actual subfolder popup Y (must match render/click)
+            DIM sfhY AS INTEGER, sfhH AS INTEGER
+            sfhY% = fdY%
+            DIM sfhFolderCount AS INTEGER, sfhFi AS INTEGER
+            sfhFolderCount% = 0
+            FOR sfhFi% = 0 TO FONT_LIST_COUNT% - 1
+                IF RTRIM$(FONT_LIST(sfhFi%).folderName) = RTRIM$(FONT_FOLDER_NAME(TEXT_BAR.fontSubFolderIdx%)) THEN
+                    sfhFolderCount% = sfhFolderCount% + 1
+                END IF
+            NEXT sfhFi%
+            DIM sfhMaxVis AS INTEGER
+            sfhMaxVis% = INT(SCRN.h& * 0.60) \ itemH%
+            IF sfhMaxVis% < 5 THEN sfhMaxVis% = 5
+            IF sfhFolderCount% < sfhMaxVis% THEN sfhMaxVis% = sfhFolderCount%
+            sfhH% = sfhMaxVis% * itemH% + 2
+
+            DIM sfhDdStart AS INTEGER
+            sfhDdStart% = TEXT_BAR.fontDropdownScroll%
+            IF sfhDdStart% < 0 THEN sfhDdStart% = 0
+            DIM sfhDdRow AS INTEGER
+            FOR sfhDdRow% = sfhDdStart% TO FONT_DD_COUNT% - 1
+                IF FONT_DD_TYPE(sfhDdRow%) = FONT_DD_FOLDER THEN
+                    IF FONT_DD_VALUE(sfhDdRow%) = TEXT_BAR.fontSubFolderIdx% THEN
+                        sfhY% = fdY% + 1 + (sfhDdRow% - sfhDdStart%) * itemH%
+                        EXIT FOR
+                    END IF
+                END IF
+            NEXT sfhDdRow%
+            IF sfhY% + sfhH% > SCRN.h& THEN sfhY% = SCRN.h& - sfhH%
+            IF sfhY% < 0 THEN sfhY% = 0
+
+            IF rawX% >= sfhX% AND rawX% < sfhX% + sfhW% AND rawY% >= sfhY% AND rawY% < sfhY% + sfhH% THEN
                 ' Inside subfolder popup: track hover row
                 DIM sfhRow AS INTEGER
-                DIM sfhYOff AS INTEGER
-                sfhYOff% = rawY% - fdY%
-                sfhRow% = (sfhYOff% - 1) \ itemH%
+                sfhRow% = (rawY% - sfhY% - 1) \ itemH%
                 DIM sfhActual AS INTEGER
                 sfhActual% = TEXT_BAR.fontSubScroll% + sfhRow%
                 IF sfhActual% <> TEXT_BAR.fontSubHoverRow% THEN
