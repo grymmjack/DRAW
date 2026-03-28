@@ -34,6 +34,7 @@ SUB FONT_LIST_scan ()
     ' --- Extra bundled fonts (ASSETS/FONTS/) ---
     IF CFG.FONTS_INCLUDE_DRAW_EXTRAS% THEN
         FONT_LIST_scan_dir "./ASSETS/FONTS", 0, TRUE
+        FONT_LIST_scan_subfolders "./ASSETS/FONTS", TRUE
     END IF
 
     ' --- Theme fonts (if theme directory has fonts) ---
@@ -59,6 +60,7 @@ SUB FONT_LIST_scan ()
     IF CFG.FONTS_INCLUDE_USER% THEN
         IF _DIREXISTS("./USER/FONTS") THEN
             FONT_LIST_scan_dir "./USER/FONTS", 0, FALSE
+            FONT_LIST_scan_subfolders "./USER/FONTS", FALSE
         END IF
     END IF
 
@@ -107,6 +109,9 @@ SUB FONT_LIST_scan ()
 
     ' Move favorites to the top of the list
     IF FONT_FAVORITES_COUNT% > 0 THEN FONT_LIST_apply_favorites
+
+    ' Build the display list (maps visible rows to fonts/folder headers)
+    FONT_LIST_build_display_list
 
     FONT_LIST_SCANNED% = TRUE
     _LOGINFO "FONT_LIST_scan: found" + STR$(FONT_LIST_COUNT%) + " fonts total"
@@ -744,6 +749,140 @@ SUB FONT_LIST_apply_favorites ()
     NEXT li%
     FONT_LIST_COUNT% = tmpCount%
 END SUB
+
+
+''
+' Scan subdirectories of a base font directory for TTF/OTF fonts.
+' Each subdirectory becomes a "folder" group in the dropdown.
+' Skips known non-font subdirectories (BITMAP, COLOR_BITMAP, COLR).
+'
+' @param baseDir$ Base font directory (e.g. "./ASSETS/FONTS")
+' @param isBundled% TRUE if bundled with DRAW
+'
+SUB FONT_LIST_scan_subfolders (baseDir$, isBundled%)
+    IF NOT _DIREXISTS(baseDir$) THEN EXIT SUB
+
+    DIM tmpFile AS STRING
+    tmpFile$ = "./draw_subfolder_scan.tmp"
+
+    ' List immediate subdirectories
+    $IF WIN THEN
+        SHELL "dir /b /ad " + CHR$(34) + baseDir$ + CHR$(34) + " > " + CHR$(34) + tmpFile$ + CHR$(34) + " 2>nul"
+    $ELSE
+        SHELL "find " + CHR$(34) + baseDir$ + CHR$(34) + " -maxdepth 1 -mindepth 1 -type d -printf '%f\n' 2>/dev/null | sort > " + CHR$(34) + tmpFile$ + CHR$(34)
+    $END IF
+
+    IF NOT _FILEEXISTS(tmpFile$) THEN EXIT SUB
+
+    DIM ff AS INTEGER
+    ff% = FREEFILE
+    OPEN tmpFile$ FOR INPUT AS #ff%
+
+    DIM dirName AS STRING
+    DIM dirPath AS STRING
+    DIM startCountSF AS INTEGER
+    DIM addedSF AS INTEGER
+    DIM folderIdx AS INTEGER
+
+    DO WHILE NOT EOF(ff%)
+        LINE INPUT #ff%, dirName$
+        dirName$ = LTRIM$(RTRIM$(dirName$))
+        IF LEN(dirName$) < 1 THEN _CONTINUE
+
+        ' Skip known non-TTF subdirectories
+        DIM upperDir AS STRING
+        upperDir$ = UCASE$(dirName$)
+        IF upperDir$ = "BITMAP" OR upperDir$ = "COLOR_BITMAP" OR upperDir$ = "COLR" THEN _CONTINUE
+
+        $IF WIN THEN
+            dirPath$ = baseDir$ + "\" + dirName$
+        $ELSE
+            dirPath$ = baseDir$ + "/" + dirName$
+        $END IF
+
+        IF NOT _DIREXISTS(dirPath$) THEN _CONTINUE
+
+        startCountSF% = FONT_LIST_COUNT%
+
+        ' Scan fonts in this subfolder (non-recursive)
+        FONT_LIST_scan_dir dirPath$, 0, isBundled%
+
+        ' Tag newly added fonts with folder name
+        addedSF% = FONT_LIST_COUNT% - startCountSF%
+        IF addedSF% > 0 THEN
+            DIM sf AS INTEGER
+            FOR sf% = startCountSF% TO FONT_LIST_COUNT% - 1
+                FONT_LIST(sf%).folderName = dirName$
+            NEXT sf%
+            _LOGINFO "FONT_LIST_scan_subfolders: folder " + dirName$ + " added" + STR$(addedSF%) + " fonts"
+        END IF
+    LOOP
+
+    CLOSE #ff%
+    KILL tmpFile$
+END SUB
+
+
+''
+' Build the font dropdown display list from the sorted FONT_LIST.
+' Root-level fonts (folderName="") appear as FONT_DD_FONT rows.
+' The first font of each folder group inserts a FONT_DD_FOLDER row;
+' subsequent fonts of the same folder are hidden (shown in submenu).
+'
+SUB FONT_LIST_build_display_list ()
+    FONT_DD_COUNT% = 0
+    FONT_FOLDER_COUNT% = 0
+
+    DIM i AS INTEGER
+    DIM fn AS STRING
+    DIM fi AS INTEGER
+
+    FOR i% = 0 TO FONT_LIST_COUNT% - 1
+        fn$ = RTRIM$(FONT_LIST(i%).folderName)
+        IF LEN(fn$) = 0 THEN
+            ' Root-level font — add directly
+            IF FONT_DD_COUNT% < FONT_DD_MAX THEN
+                FONT_DD_TYPE(FONT_DD_COUNT%) = FONT_DD_FONT
+                FONT_DD_VALUE(FONT_DD_COUNT%) = i%
+                FONT_DD_COUNT% = FONT_DD_COUNT% + 1
+            END IF
+        ELSE
+            ' Folder font — check if folder header already added
+            fi% = FONT_LIST_folder_index%(fn$)
+            IF fi% < 0 THEN
+                ' New folder — register it and add a folder header row
+                IF FONT_FOLDER_COUNT% < FONT_FOLDER_MAX THEN
+                    fi% = FONT_FOLDER_COUNT%
+                    FONT_FOLDER_NAME(fi%) = fn$
+                    FONT_FOLDER_COUNT% = FONT_FOLDER_COUNT% + 1
+                    IF FONT_DD_COUNT% < FONT_DD_MAX THEN
+                        FONT_DD_TYPE(FONT_DD_COUNT%) = FONT_DD_FOLDER
+                        FONT_DD_VALUE(FONT_DD_COUNT%) = fi%
+                        FONT_DD_COUNT% = FONT_DD_COUNT% + 1
+                    END IF
+                END IF
+            END IF
+            ' Font itself is not added to display list — it shows in the submenu
+        END IF
+    NEXT i%
+
+    _LOGINFO "FONT_LIST_build_display_list:" + STR$(FONT_DD_COUNT%) + " rows (" + STR$(FONT_FOLDER_COUNT%) + " folders)"
+END SUB
+
+
+''
+' Find the index of a folder name in FONT_FOLDER_NAME, or -1 if not found.
+'
+FUNCTION FONT_LIST_folder_index% (folderName$)
+    FONT_LIST_folder_index% = -1
+    DIM fi AS INTEGER
+    FOR fi% = 0 TO FONT_FOLDER_COUNT% - 1
+        IF UCASE$(RTRIM$(FONT_FOLDER_NAME(fi%))) = UCASE$(folderName$) THEN
+            FONT_LIST_folder_index% = fi%
+            EXIT FUNCTION
+        END IF
+    NEXT fi%
+END FUNCTION
 
 
 ''

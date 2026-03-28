@@ -39,6 +39,7 @@ TYPE FONT_ENTRY
     isBitmapFont  AS INTEGER       ' TRUE if raw bitmap font (F??, PSF, BDF, PCF)
     bitmapGlyphW  AS INTEGER       ' Glyph width for bitmap fonts (pixels)
     bitmapGlyphH  AS INTEGER       ' Glyph height for bitmap fonts (pixels)
+    folderName    AS STRING * 64   ' Subfolder name ("AMIGA", "RETRO", etc.) or empty for root
 END TYPE
 
 ' Font list (populated by FONT_LIST_scan)
@@ -67,6 +68,20 @@ CONST FONT_FAVORITES_MAX = 64
 DIM SHARED FONT_FAVORITES(0 TO FONT_FAVORITES_MAX - 1) AS STRING * 64
 DIM SHARED FONT_FAVORITES_COUNT AS INTEGER
 
+' Font dropdown display list — maps visible row to font or folder header.
+' Built after scan+sort by FONT_LIST_build_display_list.
+CONST FONT_DD_MAX = 576          ' FONT_LIST_MAX + FONT_FOLDER_MAX headroom
+CONST FONT_DD_FONT = 0           ' Row is a selectable font
+CONST FONT_DD_FOLDER = 1         ' Row is a folder header with submenu
+DIM SHARED FONT_DD_TYPE(0 TO FONT_DD_MAX - 1)  AS INTEGER  ' FONT_DD_FONT or FONT_DD_FOLDER
+DIM SHARED FONT_DD_VALUE(0 TO FONT_DD_MAX - 1) AS INTEGER  ' fontIdx or folderIdx
+DIM SHARED FONT_DD_COUNT AS INTEGER
+
+' Subfolder names (deduplicated, in order of first appearance after sort)
+CONST FONT_FOLDER_MAX = 64
+DIM SHARED FONT_FOLDER_NAME(0 TO FONT_FOLDER_MAX - 1) AS STRING * 64
+DIM SHARED FONT_FOLDER_COUNT AS INTEGER
+
 DECLARE SUB FONT_LIST_scan ()
 DECLARE SUB FONT_LIST_scan_dir (dir$, recursive%, isBundled%)
 DECLARE SUB FONT_LIST_scan_bitmap_dir (dir$, isBundled%)
@@ -93,5 +108,8 @@ DECLARE SUB FONT_LIST_load_blacklist ()
 DECLARE SUB FONT_LIST_load_favorites ()
 DECLARE FUNCTION FONT_LIST_is_blacklisted% (fontPath$)
 DECLARE SUB FONT_LIST_apply_favorites ()
+DECLARE SUB FONT_LIST_build_display_list ()
+DECLARE SUB FONT_LIST_scan_subfolders (baseDir$, isBundled%)
+DECLARE FUNCTION FONT_LIST_folder_index% (folderName$)
 DECLARE FUNCTION FONT_LIST_wildcard_match% (pattern$, text$)
 DECLARE FUNCTION FONT_LIST_pattern_match% (pattern$, text$, substringFallback AS INTEGER)
