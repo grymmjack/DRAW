@@ -63,6 +63,8 @@ $INCLUDEONCE
 '$INCLUDE:'./GUI/FILL-ADJ.BI'
 '$INCLUDE:'./GUI/CHARMAP.BI'
 '$INCLUDE:'./GUI/ABOUT.BI'
+'$INCLUDE:'./GUI/SETTINGS-WIDGETS.BI'
+'$INCLUDE:'./GUI/SETTINGS.BI'
 
 ' INPUT -----------------------------------------------------------------------
 '$INCLUDE:'./INPUT/MODIFIERS.BI'

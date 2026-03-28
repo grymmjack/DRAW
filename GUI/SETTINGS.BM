@@ -1,0 +1,455 @@
+''
+' DRAW - GUI/SETTINGS.BM
+' =============================================================================
+' Settings dialog implementation — GIMP-style tabbed dialog with left sidebar,
+' scrollable content area, and OK/Cancel/Apply button bar.
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+' --- Tab names ---------------------------------------------------------------
+DIM SHARED SETTINGS_TAB_NAMES(0 TO SETTINGS_TAB_COUNT - 1) AS STRING
+SETTINGS_TAB_NAMES(0) = "General"
+SETTINGS_TAB_NAMES(1) = "Grid & Guides"
+SETTINGS_TAB_NAMES(2) = "Palette"
+SETTINGS_TAB_NAMES(3) = "Panels"
+SETTINGS_TAB_NAMES(4) = "Audio"
+SETTINGS_TAB_NAMES(5) = "Fonts & Text"
+SETTINGS_TAB_NAMES(6) = "Appearance"
+SETTINGS_TAB_NAMES(7) = "Directories"
+
+
+''
+' Show the Settings dialog. Called from CMD_execute_action (ACTION_SETTINGS).
+'
+SUB SETTINGS_show_dialog ()
+    ' --- Init DIALOG_CTX infrastructure ---
+    DIALOG_init SETTINGS.ctx, SETTINGS_W, SETTINGS_H
+
+    ' --- Layout calculations ---
+    SETTINGS.contentX = SETTINGS_TAB_W + 1
+    SETTINGS.contentY = SETTINGS_TITLE_H + 1
+    SETTINGS.contentW = SETTINGS_W - SETTINGS_TAB_W - 2 - SETTINGS_SCROLL_W
+    SETTINGS.viewportH = SETTINGS_H - SETTINGS_TITLE_H - SETTINGS_BTN_BAR_H - 2
+
+    ' --- Reset tab state ---
+    SETTINGS.activeTab = SETTINGS_TAB_GENERAL
+    SETTINGS.hoverTab = -1
+    SETTINGS.scrollY = 0
+    SETTINGS.tabScrollY0 = 0 : SETTINGS.tabScrollY1 = 0
+    SETTINGS.tabScrollY2 = 0 : SETTINGS.tabScrollY3 = 0
+    SETTINGS.tabScrollY4 = 0 : SETTINGS.tabScrollY5 = 0
+    SETTINGS.tabScrollY6 = 0 : SETTINGS.tabScrollY7 = 0
+    SETTINGS.contentH = 0
+    SETTINGS.pendingChanges = FALSE
+    SETTINGS.needsRedraw = TRUE
+    SETTINGS.scrollDrag = FALSE
+
+    ' --- Init widget state ---
+    SW_init_state
+
+    ' --- Shadow copy of CFG ---
+    SETTINGS_load_shadow
+
+    ' --- Drain stale input ---
+    _KEYCLEAR
+    DO WHILE _MOUSEINPUT: LOOP
+
+    ' === Modal Loop ===
+    DO
+        ' ---- Input phase ----
+        DIALOG_poll_mouse SETTINGS.ctx
+        SETTINGS_handle_keyboard
+        SETTINGS_handle_tabs
+        SETTINGS_handle_scroll
+        SETTINGS_handle_content_input
+
+        ' ---- Render phase ----
+        _DEST SETTINGS.ctx.imgHandle
+        _FONT SETTINGS.ctx.fontH
+        _PRINTMODE _KEEPBACKGROUND
+
+        DIALOG_draw_frame SETTINGS.ctx, "Settings"
+
+        SETTINGS_draw_tabs
+        SETTINGS_draw_content
+        SETTINGS_draw_button_bar
+
+        DIALOG_blit SETTINGS.ctx
+    LOOP UNTIL SETTINGS.ctx.done
+
+    ' --- Apply if OK ---
+    IF SETTINGS.ctx.result THEN
+        SETTINGS_apply_shadow
+    END IF
+
+    DIALOG_cleanup SETTINGS.ctx
+END SUB
+
+
+' =============================================================================
+' SHADOW CFG (copy to/from)
+' =============================================================================
+
+''
+' Copy CFG fields into SETTINGS_CFG shadow for editing.
+'
+SUB SETTINGS_load_shadow ()
+    SETTINGS_CFG = CFG
+END SUB
+
+
+''
+' Apply shadow config back to CFG and save to disk.
+'
+SUB SETTINGS_apply_shadow ()
+    ' Save values that require refresh
+    DIM oldScale AS INTEGER : oldScale% = CFG.DISPLAY_SCALE
+    DIM oldTheme AS STRING : oldTheme$ = CFG.THEME
+
+    CFG = SETTINGS_CFG
+    CONFIG_save
+    CFG_validate
+
+    ' Trigger visual refreshes as needed
+    IF CFG.DISPLAY_SCALE <> oldScale% THEN
+        CFG.DISPLAY_SCALE_CHANGED = TRUE
+    END IF
+    IF CFG.THEME <> oldTheme$ THEN
+        _LOGINFO "Settings: theme changed to " + CFG.THEME
+    END IF
+
+    SCENE_DIRTY% = TRUE
+    FRAME_IDLE% = FALSE
+END SUB
+
+
+' =============================================================================
+' KEYBOARD
+' =============================================================================
+
+SUB SETTINGS_handle_keyboard ()
+    DIM k AS LONG : k& = _KEYHIT
+    IF k& = 0 THEN EXIT SUB
+
+    SELECT CASE k&
+        CASE 27 ' Escape
+            SETTINGS.ctx.done = TRUE
+            SETTINGS.ctx.result = FALSE
+        CASE 13 ' Enter
+            SETTINGS.ctx.done = TRUE
+            SETTINGS.ctx.result = TRUE
+    END SELECT
+END SUB
+
+
+' =============================================================================
+' TAB SIDEBAR
+' =============================================================================
+
+SUB SETTINGS_handle_tabs ()
+    DIM i AS INTEGER, ty AS INTEGER
+    SETTINGS.hoverTab = -1
+
+    ' Only respond if mouse is in the tab sidebar area
+    IF SETTINGS.ctx.mx < 0 OR SETTINGS.ctx.mx >= SETTINGS_TAB_W THEN EXIT SUB
+    IF SETTINGS.ctx.my <= SETTINGS_TITLE_H THEN EXIT SUB
+
+    FOR i% = 0 TO SETTINGS_TAB_COUNT - 1
+        ty% = SETTINGS_TITLE_H + 1 + i% * SETTINGS_TAB_H
+        IF SETTINGS.ctx.my >= ty% AND SETTINGS.ctx.my < ty% + SETTINGS_TAB_H THEN
+            SETTINGS.hoverTab = i%
+            IF SETTINGS.ctx.justClicked THEN
+                ' Save current tab scroll position
+                SETTINGS_save_tab_scroll SETTINGS.activeTab, SETTINGS.scrollY
+                ' Switch tab
+                SETTINGS.activeTab = i%
+                ' Restore new tab scroll position
+                SETTINGS.scrollY = SETTINGS_get_tab_scroll%(i%)
+                ' Close any open dropdown
+                SW_DD.openId = -1
+            END IF
+            EXIT FOR
+        END IF
+    NEXT i%
+END SUB
+
+
+SUB SETTINGS_draw_tabs ()
+    DIM i AS INTEGER, ty AS INTEGER, fontH AS INTEGER
+    fontH% = DIALOG_font_height%(SETTINGS.ctx)
+
+    ' Tab sidebar background
+    LINE (1, SETTINGS_TITLE_H + 1)-(SETTINGS_TAB_W - 1, SETTINGS.ctx.h - 2), _RGB32(42, 42, 52), BF
+
+    FOR i% = 0 TO SETTINGS_TAB_COUNT - 1
+        ty% = SETTINGS_TITLE_H + 1 + i% * SETTINGS_TAB_H
+
+        ' Tab button background
+        IF i% = SETTINGS.activeTab THEN
+            LINE (1, ty%)-(SETTINGS_TAB_W - 1, ty% + SETTINGS_TAB_H - 1), THEME.DIALOG_toggle_sel_bg~&, BF
+            COLOR THEME.DIALOG_toggle_sel_fg~&
+        ELSEIF i% = SETTINGS.hoverTab THEN
+            LINE (1, ty%)-(SETTINGS_TAB_W - 1, ty% + SETTINGS_TAB_H - 1), THEME.DIALOG_toggle_bg~&, BF
+            COLOR THEME.DIALOG_toggle_fg~&
+        ELSE
+            COLOR THEME.DIALOG_label_fg~&
+        END IF
+
+        _UPRINTSTRING (8, ty% + (SETTINGS_TAB_H - fontH%) \ 2), SETTINGS_TAB_NAMES(i%)
+
+        ' Bottom border
+        LINE (1, ty% + SETTINGS_TAB_H - 1)-(SETTINGS_TAB_W - 1, ty% + SETTINGS_TAB_H - 1), THEME.DIALOG_border_inner~&
+    NEXT i%
+
+    ' Vertical divider
+    LINE (SETTINGS_TAB_W, SETTINGS_TITLE_H + 1)-(SETTINGS_TAB_W, SETTINGS.ctx.h - SETTINGS_BTN_BAR_H - 1), THEME.DIALOG_border_inner~&
+END SUB
+
+
+' =============================================================================
+' CONTENT AREA — dispatch to active tab
+' =============================================================================
+
+SUB SETTINGS_draw_content ()
+    DIM cx AS INTEGER, cy AS INTEGER, cw AS INTEGER
+    cx% = SETTINGS.contentX + SETTINGS_PADDING
+    cy% = SETTINGS.contentY + SETTINGS_PADDING - SETTINGS.scrollY
+    cw% = SETTINGS.contentW - SETTINGS_PADDING * 2
+
+    ' Clip to content viewport
+    DIM clipX1 AS INTEGER, clipY1 AS INTEGER, clipX2 AS INTEGER, clipY2 AS INTEGER
+    clipX1% = SETTINGS.contentX
+    clipY1% = SETTINGS.contentY
+    clipX2% = SETTINGS.contentX + SETTINGS.contentW + SETTINGS_SCROLL_W
+    clipY2% = SETTINGS.contentY + SETTINGS.viewportH
+
+    ' Clear content area background
+    LINE (clipX1%, clipY1%)-(clipX2%, clipY2%), THEME.DIALOG_bg~&, BF
+
+    ' Set clipping with _CLIP (QB64-PE viewport approach: draw then clip via _PUTIMAGE)
+    ' Since QB64-PE doesn't have viewport clipping, we just render and rely on
+    ' the frame chrome to partially obscure overflow.
+    ' For proper clipping, we use a temporary clipping image.
+    DIM clipW AS INTEGER : clipW% = clipX2% - clipX1%
+    DIM clipH AS INTEGER : clipH% = clipY2% - clipY1%
+    DIM clipImg AS LONG
+    clipImg& = _NEWIMAGE(clipW%, clipH%, 32)
+    IF clipImg& >= -1 THEN
+        ' Fallback: draw directly without clipping
+        SETTINGS_draw_active_tab SETTINGS.ctx, cx%, cy%, cw%
+    ELSE
+        _DEST clipImg&
+        _FONT SETTINGS.ctx.fontH
+        _PRINTMODE _KEEPBACKGROUND
+        CLS , THEME.DIALOG_bg~&
+
+        ' Offset drawing into clip buffer
+        DIM adjCx AS INTEGER, adjCy AS INTEGER
+        adjCx% = SETTINGS_PADDING
+        adjCy% = SETTINGS_PADDING - SETTINGS.scrollY
+
+        SETTINGS_draw_active_tab SETTINGS.ctx, adjCx%, adjCy%, cw%
+
+        ' Blit clipped content back to dialog
+        _DEST SETTINGS.ctx.imgHandle
+        _PUTIMAGE (clipX1%, clipY1%)-(clipX2% - 1, clipY2% - 1), clipImg&
+        _FREEIMAGE clipImg&
+    END IF
+
+    ' Draw scrollbar if content overflows
+    IF SETTINGS.contentH > SETTINGS.viewportH THEN
+        SETTINGS_draw_scrollbar
+    END IF
+END SUB
+
+
+''
+' Dispatch to the active tab's content renderer.
+'
+SUB SETTINGS_draw_active_tab (ctx AS DIALOG_CTX, cx AS INTEGER, cy AS INTEGER, cw AS INTEGER)
+    DIM tabH AS INTEGER : tabH% = 0
+    SELECT CASE SETTINGS.activeTab
+        CASE SETTINGS_TAB_GENERAL:    SETTINGS_render_general ctx, cx%, cy%, cw%, tabH%
+        CASE SETTINGS_TAB_GRID:       SETTINGS_render_grid ctx, cx%, cy%, cw%, tabH%
+        CASE SETTINGS_TAB_PALETTE:    SETTINGS_render_palette ctx, cx%, cy%, cw%, tabH%
+        CASE SETTINGS_TAB_PANELS:     SETTINGS_render_panels ctx, cx%, cy%, cw%, tabH%
+        CASE SETTINGS_TAB_AUDIO:      SETTINGS_render_audio ctx, cx%, cy%, cw%, tabH%
+        CASE SETTINGS_TAB_FONTS:      SETTINGS_render_fonts ctx, cx%, cy%, cw%, tabH%
+        CASE SETTINGS_TAB_APPEARANCE: SETTINGS_render_appearance ctx, cx%, cy%, cw%, tabH%
+        CASE SETTINGS_TAB_DIRS:       SETTINGS_render_dirs ctx, cx%, cy%, cw%, tabH%
+    END SELECT
+    SETTINGS.contentH = tabH%
+END SUB
+
+
+' =============================================================================
+' CONTENT INPUT — dispatch widget input for active tab
+' =============================================================================
+
+SUB SETTINGS_handle_content_input ()
+    ' Only process if mouse is in the content area
+    IF SETTINGS.ctx.mx < SETTINGS.contentX THEN EXIT SUB
+    IF SETTINGS.ctx.mx > SETTINGS.contentX + SETTINGS.contentW + SETTINGS_SCROLL_W THEN EXIT SUB
+    IF SETTINGS.ctx.my < SETTINGS.contentY THEN EXIT SUB
+    IF SETTINGS.ctx.my > SETTINGS.contentY + SETTINGS.viewportH THEN EXIT SUB
+
+    ' Input is handled inline by the tab draw functions which call both
+    ' draw and input handlers on the widgets — matching the IMAGE-ADJ pattern
+    ' where slider_drag/slider_wheel are called alongside draw in the same loop.
+END SUB
+
+
+' =============================================================================
+' SCROLLBAR
+' =============================================================================
+
+SUB SETTINGS_handle_scroll ()
+    ' Only handle scroll in content area
+    IF SETTINGS.ctx.mx < SETTINGS.contentX THEN EXIT SUB
+    IF SETTINGS.ctx.my < SETTINGS.contentY OR SETTINGS.ctx.my > SETTINGS.contentY + SETTINGS.viewportH THEN EXIT SUB
+
+    DIM maxScroll AS INTEGER
+    maxScroll% = SETTINGS.contentH - SETTINGS.viewportH
+    IF maxScroll% < 0 THEN maxScroll% = 0
+
+    ' Mousewheel scrolling
+    IF SETTINGS.ctx.mwheel <> 0 THEN
+        ' Close any open dropdown when scrolling
+        SW_DD.openId = -1
+        SETTINGS.scrollY = SETTINGS.scrollY + SETTINGS.ctx.mwheel * SW_ROW_H
+        IF SETTINGS.scrollY < 0 THEN SETTINGS.scrollY = 0
+        IF SETTINGS.scrollY > maxScroll% THEN SETTINGS.scrollY = maxScroll%
+    END IF
+
+    ' Scrollbar thumb drag
+    DIM sbX AS INTEGER, sbY AS INTEGER, sbH AS INTEGER
+    sbX% = SETTINGS.contentX + SETTINGS.contentW
+    sbY% = SETTINGS.contentY
+    sbH% = SETTINGS.viewportH
+
+    IF SETTINGS.scrollDrag THEN
+        IF SETTINGS.ctx.mb1 THEN
+            DIM dragDelta AS INTEGER
+            dragDelta% = SETTINGS.ctx.my - SETTINGS.scrollDragY
+            IF sbH% > 0 AND SETTINGS.contentH > 0 THEN
+                SETTINGS.scrollY = SETTINGS.scrollDragOfs + dragDelta% * SETTINGS.contentH \ sbH%
+                IF SETTINGS.scrollY < 0 THEN SETTINGS.scrollY = 0
+                IF SETTINGS.scrollY > maxScroll% THEN SETTINGS.scrollY = maxScroll%
+            END IF
+        ELSE
+            SETTINGS.scrollDrag = FALSE
+        END IF
+    ELSEIF SETTINGS.ctx.justClicked THEN
+        IF SETTINGS.ctx.mx >= sbX% AND SETTINGS.ctx.mx <= sbX% + SETTINGS_SCROLL_W THEN
+            SETTINGS.scrollDrag = TRUE
+            SETTINGS.scrollDragY = SETTINGS.ctx.my
+            SETTINGS.scrollDragOfs = SETTINGS.scrollY
+        END IF
+    END IF
+END SUB
+
+
+SUB SETTINGS_draw_scrollbar ()
+    DIM sbX AS INTEGER, sbY AS INTEGER, sbH AS INTEGER
+    sbX% = SETTINGS.contentX + SETTINGS.contentW
+    sbY% = SETTINGS.contentY
+    sbH% = SETTINGS.viewportH
+
+    ' Track background
+    LINE (sbX%, sbY%)-(sbX% + SETTINGS_SCROLL_W - 1, sbY% + sbH% - 1), _RGB32(50, 50, 60), BF
+
+    ' Thumb
+    IF SETTINGS.contentH > 0 AND SETTINGS.contentH > SETTINGS.viewportH THEN
+        DIM thumbH AS INTEGER, thumbY AS INTEGER
+        thumbH% = SETTINGS.viewportH * SETTINGS.viewportH \ SETTINGS.contentH
+        IF thumbH% < 16 THEN thumbH% = 16
+        thumbY% = sbY% + SETTINGS.scrollY * (sbH% - thumbH%) \ (SETTINGS.contentH - SETTINGS.viewportH)
+        IF thumbY% < sbY% THEN thumbY% = sbY%
+        IF thumbY% + thumbH% > sbY% + sbH% THEN thumbY% = sbY% + sbH% - thumbH%
+
+        DIM thumbClr AS _UNSIGNED LONG
+        IF SETTINGS.scrollDrag THEN
+            thumbClr~& = THEME.DIALOG_toggle_sel_bg~&
+        ELSE
+            thumbClr~& = _RGB32(100, 100, 120)
+        END IF
+        LINE (sbX% + 1, thumbY%)-(sbX% + SETTINGS_SCROLL_W - 2, thumbY% + thumbH% - 1), thumbClr~&, BF
+    END IF
+END SUB
+
+
+' =============================================================================
+' BUTTON BAR (OK / Cancel / Apply)
+' =============================================================================
+
+SUB SETTINGS_draw_button_bar ()
+    DIM barY AS INTEGER
+    barY% = SETTINGS.ctx.h - SETTINGS_BTN_BAR_H
+
+    ' Divider
+    LINE (1, barY%)-(SETTINGS.ctx.w - 2, barY%), THEME.DIALOG_border_inner~&
+
+    ' Bar background
+    LINE (1, barY% + 1)-(SETTINGS.ctx.w - 2, SETTINGS.ctx.h - 2), THEME.DIALOG_bg~&, BF
+
+    ' Button positions (right-aligned)
+    DIM gap AS INTEGER : gap% = 6
+    DIM bY AS INTEGER : bY% = barY% + (SETTINGS_BTN_BAR_H - SETTINGS_BTN_H) \ 2
+    DIM cancelX AS INTEGER : cancelX% = SETTINGS.ctx.w - SETTINGS_PADDING - SETTINGS_BTN_W
+    DIM okX AS INTEGER : okX% = cancelX% - gap% - SETTINGS_BTN_W
+    DIM applyX AS INTEGER : applyX% = okX% - gap% - SETTINGS_BTN_W
+
+    ' Draw buttons
+    DIALOG_draw_button SETTINGS.ctx, okX%, bY%, SETTINGS_BTN_W, SETTINGS_BTN_H, "OK", THEME.DIALOG_toggle_bg~&, THEME.DIALOG_toggle_sel_bg~&, THEME.DIALOG_toggle_border~&
+    DIALOG_draw_button SETTINGS.ctx, cancelX%, bY%, SETTINGS_BTN_W, SETTINGS_BTN_H, "Cancel", THEME.DIALOG_toggle_bg~&, THEME.DIALOG_toggle_sel_bg~&, THEME.DIALOG_toggle_border~&
+    DIALOG_draw_button SETTINGS.ctx, applyX%, bY%, SETTINGS_BTN_W, SETTINGS_BTN_H, "Apply", THEME.DIALOG_toggle_bg~&, THEME.DIALOG_toggle_sel_bg~&, THEME.DIALOG_toggle_border~&
+
+    ' Handle clicks
+    IF DIALOG_hit%(SETTINGS.ctx, okX%, bY%, SETTINGS_BTN_W, SETTINGS_BTN_H) THEN
+        SETTINGS.ctx.result = TRUE
+        SETTINGS.ctx.done = TRUE
+    END IF
+    IF DIALOG_hit%(SETTINGS.ctx, cancelX%, bY%, SETTINGS_BTN_W, SETTINGS_BTN_H) THEN
+        SETTINGS.ctx.result = FALSE
+        SETTINGS.ctx.done = TRUE
+    END IF
+    IF DIALOG_hit%(SETTINGS.ctx, applyX%, bY%, SETTINGS_BTN_W, SETTINGS_BTN_H) THEN
+        SETTINGS_apply_shadow
+        SETTINGS.pendingChanges = FALSE
+    END IF
+END SUB
+
+
+' =============================================================================
+' TAB SCROLL POSITION HELPERS
+' =============================================================================
+
+SUB SETTINGS_save_tab_scroll (tabIdx AS INTEGER, scrollVal AS INTEGER)
+    SELECT CASE tabIdx
+        CASE 0: SETTINGS.tabScrollY0 = scrollVal
+        CASE 1: SETTINGS.tabScrollY1 = scrollVal
+        CASE 2: SETTINGS.tabScrollY2 = scrollVal
+        CASE 3: SETTINGS.tabScrollY3 = scrollVal
+        CASE 4: SETTINGS.tabScrollY4 = scrollVal
+        CASE 5: SETTINGS.tabScrollY5 = scrollVal
+        CASE 6: SETTINGS.tabScrollY6 = scrollVal
+        CASE 7: SETTINGS.tabScrollY7 = scrollVal
+    END SELECT
+END SUB
+
+
+FUNCTION SETTINGS_get_tab_scroll% (tabIdx AS INTEGER)
+    SELECT CASE tabIdx
+        CASE 0: SETTINGS_get_tab_scroll% = SETTINGS.tabScrollY0
+        CASE 1: SETTINGS_get_tab_scroll% = SETTINGS.tabScrollY1
+        CASE 2: SETTINGS_get_tab_scroll% = SETTINGS.tabScrollY2
+        CASE 3: SETTINGS_get_tab_scroll% = SETTINGS.tabScrollY3
+        CASE 4: SETTINGS_get_tab_scroll% = SETTINGS.tabScrollY4
+        CASE 5: SETTINGS_get_tab_scroll% = SETTINGS.tabScrollY5
+        CASE 6: SETTINGS_get_tab_scroll% = SETTINGS.tabScrollY6
+        CASE 7: SETTINGS_get_tab_scroll% = SETTINGS.tabScrollY7
+        CASE ELSE: SETTINGS_get_tab_scroll% = 0
+    END SELECT
+END FUNCTION
