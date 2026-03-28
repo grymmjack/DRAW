@@ -790,16 +790,56 @@ The stroke is applied to the current layer inside the selection bounds. Requires
 | **Shift+Home/End** | Select to start/end of line |
 | **Ctrl+Shift+Left/Right** | Select one word |
 | **Ctrl+A** | Select all text |
+| **Double-click** | Select word at cursor |
+| **Triple-click** | Select entire line |
+| **Quad-click** | Select all text |
+
+### Text Undo/Redo
+
+While editing a text layer, **Ctrl+Z** and **Ctrl+Y** perform text-local undo/redo that operates on the text content only (up to 128 states). These are separate from the global canvas undo history — they track character insertions, deletions, formatting changes, and selection state within the current text editing session. The text undo stack resets when you exit text editing.
+
+| Key | Function |
+|-----|----------|
+| **Ctrl+Z** | Undo last text edit (within text mode) |
+| **Ctrl+Y** | Redo last text edit (within text mode) |
 
 ### Text Bar (GUI Controls)
 
 When the text tool is active, a text property bar appears with:
-- **Font dropdown** — Choose from VGA, Tiny5, or custom loaded fonts
+- **Font dropdown** — Choose from VGA, Tiny5, bitmap, or custom loaded fonts (includes subfolder scanning)
 - **Font size dropdown** — Select character size
 - **Bold / Italic / Underline / Strikethrough** — Toggle formatting buttons (applied per-character)
+- **Outline** — Toggle text outline with configurable color and size
+- **Shadow** — Toggle drop shadow with configurable color and X/Y offset (1-10px)
 - **Line height** — Adjust vertical line spacing
 - **Letter spacing** — Adjust horizontal character spacing
 - **FG/BG color swatches** — Per-character foreground and background colors (uses current paint colors)
+- **Style presets** — Save, load, update, and delete named text style presets
+
+### Text Style Presets
+
+The text bar includes style preset management:
+
+| Control | Function |
+|---------|----------|
+| **Style dropdown** | Select a saved style preset to apply |
+| **[S] button** | Save current formatting as a new named preset |
+| **[U] button** | Update the selected preset with current formatting |
+| **[X] button** | Delete the selected preset |
+| **Default** | Reset to default formatting (in style dropdown) |
+
+Presets store: Bold, Italic, Underline, Strikethrough, Outline (on/off + color + size), Shadow (on/off + color + X/Y offset), Alignment, and Antialiasing.
+
+### Text Outline & Shadow
+
+| Control | Function |
+|---------|----------|
+| **Outline toggle** | Enable/disable text outline rendering |
+| **Outline color swatch** | Click to pick outline color |
+| **Outline size** | Click to cycle outline width in pixels |
+| **Shadow toggle** | Enable/disable drop shadow rendering |
+| **Shadow color swatch** | Click to pick shadow color |
+| **Shadow X/Y offset** | Click to cycle shadow offset (1-10px) |
 
 ### Re-editing Text Layers
 
@@ -1402,6 +1442,11 @@ DRAW stores settings in `DRAW.cfg` in the application directory. Settings are lo
 | `TRANSPARENCY_CHECK_SIZE_Y` | Checkerboard square height (0=use theme) |
 | `MAX_LAYERS` | Maximum number of layers (1-64) |
 | `LAYER_PANEL_WIDTH` | Width of layer panel in pixels |
+| `FONTS_INCLUDE_OS_INSTALLED` | Include system fonts from OS (TRUE/FALSE) |
+| `FONTS_INCLUDE_DRAW_BITMAP` | Include bitmap fonts from ASSETS/FONTS/BITMAP/ (TRUE/FALSE) |
+| `FONTS_INCLUDE_DRAW_EXTRAS` | Include extra TTF/OTF fonts from ASSETS/FONTS/ (TRUE/FALSE) |
+| `FONTS_INCLUDE_USER` | Include user TTF/OTF fonts from USER/FONTS/ (TRUE/FALSE) |
+| `FONTS_INCLUDE_USER_BITMAP` | Include user bitmap fonts from USER/FONTS/BITMAP/ (TRUE/FALSE) |
 
 ## Command Line
 

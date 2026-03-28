@@ -22,7 +22,7 @@ $END IF
 CONST KEY_CAPSLOCK& = 100301 ' Not supported on Linux/macOS
 
 ' Application version
-CONST APP_VERSION$ = "0.25.0"
+CONST APP_VERSION$ = "0.26.0"
 
 ' Title bar tracking (only update _TITLE when state changes)
 DIM SHARED AS INTEGER TITLE_PREV_DIRTY  ' Previous frame's dirty state
