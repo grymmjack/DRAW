@@ -91,7 +91,7 @@ DO WHILE CONFIG_cmdArgIdx% <= CONFIG_cmdArgCount%
             IF NOT _FILEEXISTS(CONFIG_FILE_PATH$) THEN
                 ' Prompt user: create it or exit?
                 DIM CONFIG_msgResult%
-                CONFIG_msgResult% = MB_message_box%("Config File Not Found", _
+                CONFIG_msgResult% = DRAW_message_box%("Config File Not Found", _
                     "Config file not found:" + CHR$(10) + CHR$(10) + _
                     _CWD$ + "/" + CONFIG_FILE_PATH$ + CHR$(10) + CHR$(10) + _
                     "Create it with default settings?", MB_BTN_YES_NO, MB_ICON_WARNING)
@@ -104,7 +104,7 @@ DO WHILE CONFIG_cmdArgIdx% <= CONFIG_cmdArgCount%
             END IF
         ELSE
             ' --config / -c without a value - show error and exit
-            MB_error "Missing Config Path", _
+            DRAW_error "Missing Config Path", _
                 "The --config / -c argument requires a file path." + CHR$(10) + CHR$(10) + _
                 "Usage: DRAW --config DRAW.macOS.cfg" + CHR$(10) + _
                 "       DRAW -c DRAW.linux.cfg"

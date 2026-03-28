@@ -1,15 +1,5 @@
 # IDEAS
 
-## Native DIalogs
-- Open
-- Save
-- Message Box
-- Input Box
-- Color Palette Mixer
-  - RGB
-  - HSL
-- DRAW Settings Configuration Dialog
-
 ## Color BITMAP fonts
 - See DEV/FONTS/COLOR_BITMAP
 - Lots of examples there
@@ -295,3 +285,13 @@ cell alignment inside, borders, border widths, border colors, etc.
   - Just the font name, not the whole filename obviously, should be in the dropdown.
   - Then a divider --- after them
 
+
+## Native DIalogs
+- [x] Open
+- [x] Save
+- [x] Message Box
+- [x] Input Box
+- [x] Color Palette Mixer
+  - [x] RGB
+  - [x] HSL
+- [x] DRAW Settings Configuration Dialog
