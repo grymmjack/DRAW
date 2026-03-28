@@ -1,0 +1,769 @@
+''
+' DRAW - GUI/ABOUT.BM
+' =============================================================================
+' About screen implementation — modal overlay with animated logo, checkers,
+' glint effect, and clickable GitHub hyperlink.
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+' ============================================================================
+'  Initialize about screen data (lazy — only on first call)
+' ============================================================================
+SUB ABOUT_init ()
+    IF ABOUT.initialized% THEN EXIT SUB
+
+    ' --- Build logo strings from DATA ---
+    DIM tmpCol(4) AS STRING
+    DIM rr%, cc%
+
+    RESTORE AboutCrayonLogoData
+    FOR rr% = 0 TO ABOUT_LOGO_ROWS - 1
+        FOR cc% = 0 TO 4
+            READ tmpCol$(cc%)
+        NEXT cc%
+        ABOUT_logoStr$(rr%) = tmpCol$(0) + " " + tmpCol$(1) + " " + tmpCol$(2) + " " + tmpCol$(3) + " " + tmpCol$(4)
+    NEXT rr%
+
+    RESTORE AboutCrayonBarData
+    FOR rr% = 0 TO ABOUT_BAR_ROWS - 1
+        FOR cc% = 0 TO 4
+            READ tmpCol$(cc%)
+        NEXT cc%
+        ABOUT_barStr$(rr%) = tmpCol$(0) + " " + tmpCol$(1) + " " + tmpCol$(2) + " " + tmpCol$(3) + " " + tmpCol$(4)
+    NEXT rr%
+
+    ' --- Checker palette ---
+    ABOUT_chkBright(0) = &HFF00FFFF  ' Cyan
+    ABOUT_chkBright(1) = &HFF60FF00  ' Green
+    ABOUT_chkBright(2) = &HFFFFFF00  ' Yellow
+    ABOUT_chkBright(3) = &HFFFF9030  ' Orange
+    ABOUT_chkBright(4) = &HFFFF0000  ' Red
+    ABOUT_chkBright(5) = &HFFFF00FF  ' Purple
+    ABOUT_chkBright(6) = &HFF8080FF  ' Lavender/Blue
+
+    ABOUT_chkDark(0) = &HFF006060   ' Dark Teal
+    ABOUT_chkDark(1) = &HFF006000   ' Dark Green
+    ABOUT_chkDark(2) = &HFF606000   ' Dark Yellow
+    ABOUT_chkDark(3) = &HFF906010   ' Dark Orange
+    ABOUT_chkDark(4) = &HFF600000   ' Dark Red
+    ABOUT_chkDark(5) = &HFF900090   ' Dark Purple
+    ABOUT_chkDark(6) = &HFF404080   ' Dark Blue
+
+    ABOUT.logoPixelW% = ABOUT_LOGO_COLS * ABOUT_LOGO_PX_W
+    ABOUT.initialized% = TRUE
+END SUB
+
+' ============================================================================
+'  Show the About DRAW screen (modal — blocks until ESC or close button)
+' ============================================================================
+SUB ABOUT_show ()
+    ABOUT_init
+
+    ' --- Save current screen state ---
+    DIM oldDest AS LONG: oldDest& = _DEST
+    DIM oldSource AS LONG: oldSource& = _SOURCE
+    DIM screenW AS LONG: screenW& = _WIDTH(0)
+    DIM screenH AS LONG: screenH& = _HEIGHT(0)
+
+    ' Hide custom tool cursor and force a render so the menu and cursor
+    ' are visually gone before we snapshot
+    POINTER.HIDDEN% = TRUE
+    SCREEN_render
+    _DISPLAY
+
+    ' Snapshot the current screen to show behind the dialog
+    DIM bgSnap AS LONG
+    bgSnap& = _COPYIMAGE(0)
+
+    ' --- 3D chiseled border width ---
+    DIM bw AS INTEGER: bw% = 4
+
+    ' Create the dialog surface
+    DIM aboutImg AS LONG
+    aboutImg& = _NEWIMAGE(ABOUT_SW, ABOUT_SH, 32)
+    DIM dlgW AS INTEGER: dlgW% = ABOUT_SW
+    DIM dlgH AS INTEGER: dlgH% = ABOUT_SH
+
+    ' --- Layout positions ---
+    DIM logoX%, logoY%, barY%
+    logoX% = (ABOUT_SW - ABOUT.logoPixelW%) \ 2
+    logoY% = 80
+    barY% = logoY% + ABOUT_LOGO_ROWS * ABOUT_LOGO_PX_H + 4
+
+    DIM linkText AS STRING
+    linkText$ = "github.com/grymmjack/DRAW"
+    DIM linkW%, linkX%, linkY%
+    linkW% = LEN(linkText$) * 8
+    linkX% = (ABOUT_SW - linkW%) \ 2
+    linkY% = 330
+
+    ' --- Display scale ---
+    DIM dScale AS INTEGER: dScale% = SCRN.displayScale%
+    IF dScale% < 1 THEN dScale% = 1
+
+    ' --- Blit position (centered on DRAW's screen, in logical coords) ---
+    DIM blitX%, blitY%
+    blitX% = ((screenW& \ dScale%) - dlgW%) \ 2
+    blitY% = ((screenH& \ dScale%) - dlgH%) \ 2
+    IF blitX% < 0 THEN blitX% = 0
+    IF blitY% < 0 THEN blitY% = 0
+
+    ' --- Animation state ---
+    DIM frame&
+    DIM glintX AS SINGLE
+    DIM glintOn AS INTEGER
+    DIM glintWait AS INTEGER
+    glintOn% = 0
+    glintWait% = 40
+
+    ' --- OK button layout ---
+    DIM okBtnW AS INTEGER: okBtnW% = 80
+    DIM okBtnH AS INTEGER: okBtnH% = 24
+    DIM okBtnX AS INTEGER: okBtnX% = (dlgW% - okBtnW%) \ 2
+    DIM okBtnY AS INTEGER: okBtnY% = dlgH% - okBtnH% - 12
+
+    ' --- Input state ---
+    DIM k&, prevMB%, mx%, my%, mb%
+    DIM linkHover%, prevHover%
+    DIM okHover%
+    DIM wantClose%
+
+    ' --- Drain input before entering loop ---
+    _KEYCLEAR
+    WHILE _MOUSEINPUT: WEND
+
+    ' Show system cursor for the about screen
+    _MOUSESHOW "DEFAULT"
+
+    ' === Modal event loop ===
+    DO
+        ' --- Draw to about surface ---
+        _DEST aboutImg&
+        CLS , ABOUT_BG~&
+        ABOUT_drawBgCheck frame&
+        _PRINTMODE _KEEPBACKGROUND
+
+        ' --- Mouse (translate to dialog-surface coords, accounting for scale) ---
+        WHILE _MOUSEINPUT: WEND
+        mx% = (_MOUSEX \ dScale%) - blitX%
+        my% = (_MOUSEY \ dScale%) - blitY%
+        mb% = _MOUSEBUTTON(1)
+
+        ' --- OK button hover/click ---
+        okHover% = 0
+        IF mx% >= okBtnX% AND mx% <= okBtnX% + okBtnW% THEN
+            IF my% >= okBtnY% AND my% <= okBtnY% + okBtnH% THEN
+                okHover% = -1
+            END IF
+        END IF
+        IF mb% AND NOT prevMB% AND okHover% THEN wantClose% = -1
+
+        ' --- Link hover detection ---
+        linkHover% = 0
+        IF mx% >= linkX% AND mx% <= linkX% + linkW% THEN
+            IF my% >= linkY% AND my% <= linkY% + 16 THEN
+                linkHover% = -1
+            END IF
+        END IF
+        IF linkHover% AND NOT prevHover% THEN
+            _MOUSESHOW "LINK"
+        ELSEIF NOT linkHover% AND prevHover% THEN
+            _MOUSESHOW "DEFAULT"
+        END IF
+        prevHover% = linkHover%
+
+        ' --- Link click ---
+        IF mb% AND NOT prevMB% AND linkHover% THEN
+            SHELL _DONTWAIT "xdg-open https://github.com/grymmjack/DRAW"
+        END IF
+        prevMB% = mb%
+
+        ' --- Glint animation ---
+        IF glintOn% THEN
+            glintX! = glintX! + 5.0
+            IF glintX! > logoX% + ABOUT.logoPixelW% + ABOUT_GLINT_WIDTH THEN
+                glintOn% = 0
+                glintWait% = ABOUT_GLINT_PAUSE
+            END IF
+        ELSE
+            glintWait% = glintWait% - 1
+            IF glintWait% <= 0 THEN
+                glintOn% = -1
+                glintX! = logoX% - ABOUT_GLINT_WIDTH
+            END IF
+        END IF
+
+        ' === RENDER 3D chiseled border ===
+        DIM bdrHi~&, bdrLo~&, bdrMid~&
+        bdrHi~& = _RGB32(130, 130, 180)   ' Light edge (top-left highlight)
+        bdrLo~& = _RGB32(20, 20, 50)      ' Dark edge (bottom-right shadow)
+        bdrMid~& = _RGB32(60, 60, 100)    ' Mid tone
+        DIM bi%
+        FOR bi% = 0 TO bw% - 1
+            DIM frac!
+            frac! = bi% / bw%
+            ' Top edge — bright to mid
+            DIM tC%: tC% = 130 - INT(frac! * 70)
+            LINE (bi%, bi%)-(dlgW% - 1 - bi%, bi%), _RGB32(tC%, tC%, tC% + 50)
+            ' Left edge — bright to mid
+            LINE (bi%, bi%)-(bi%, dlgH% - 1 - bi%), _RGB32(tC%, tC%, tC% + 50)
+            ' Bottom edge — dark to mid
+            DIM bC%: bC% = 20 + INT(frac! * 40)
+            LINE (bi%, dlgH% - 1 - bi%)-(dlgW% - 1 - bi%, dlgH% - 1 - bi%), _RGB32(bC%, bC%, bC% + 30)
+            ' Right edge — dark to mid
+            LINE (dlgW% - 1 - bi%, bi%)-(dlgW% - 1 - bi%, dlgH% - 1 - bi%), _RGB32(bC%, bC%, bC% + 30)
+        NEXT bi%
+
+        ' === RENDER content area ===
+
+        ' Top checker strip
+        ABOUT_drawCheckers 30, frame&, 1
+
+        ' Logo
+        ABOUT_drawLogo logoX%, logoY%, frame&, glintX!, glintOn%
+
+        ' Rainbow bars with glow
+        ABOUT_drawBars logoX%, barY%, frame&
+
+        ' Separator lines
+        DIM sepC AS _UNSIGNED LONG
+        sepC~& = _RGB32(40, 40, 120)
+        DIM sx1%, sx2%
+        sx1% = ABOUT_SW \ 2 - 180
+        sx2% = ABOUT_SW \ 2 + 180
+        LINE (sx1%, barY% + ABOUT_BAR_ROWS * ABOUT_LOGO_PX_H + 10)-(sx2%, barY% + ABOUT_BAR_ROWS * ABOUT_LOGO_PX_H + 10), sepC~&
+        LINE (sx1%, 318)-(sx2%, 318), sepC~&
+
+        ' Text and link
+        ABOUT_drawTextBlock linkX%, linkY%, linkText$, linkHover%, frame&, 0
+
+        ' Bottom checker strip
+        ABOUT_drawCheckers 400, frame&, -1
+
+        ' OK button
+        DIM okBg~&, okFg~&
+        IF okHover% THEN
+            okBg~& = _RGB32(70, 70, 120)
+            okFg~& = _RGB32(255, 255, 255)
+        ELSE
+            okBg~& = _RGB32(50, 50, 80)
+            okFg~& = _RGB32(200, 200, 220)
+        END IF
+        LINE (okBtnX%, okBtnY%)-(okBtnX% + okBtnW% - 1, okBtnY% + okBtnH% - 1), okBg~&, BF
+        LINE (okBtnX%, okBtnY%)-(okBtnX% + okBtnW% - 1, okBtnY% + okBtnH% - 1), _RGB32(100, 100, 140), B
+        ' Chiseled OK button edges
+        LINE (okBtnX%, okBtnY%)-(okBtnX% + okBtnW% - 2, okBtnY%), _RGB32(120, 120, 160)
+        LINE (okBtnX%, okBtnY%)-(okBtnX%, okBtnY% + okBtnH% - 2), _RGB32(120, 120, 160)
+        LINE (okBtnX% + okBtnW% - 1, okBtnY% + 1)-(okBtnX% + okBtnW% - 1, okBtnY% + okBtnH% - 1), _RGB32(30, 30, 60)
+        LINE (okBtnX% + 1, okBtnY% + okBtnH% - 1)-(okBtnX% + okBtnW% - 1, okBtnY% + okBtnH% - 1), _RGB32(30, 30, 60)
+        DIM okTxt$: okTxt$ = "OK"
+        COLOR okFg~&
+        _PRINTSTRING (okBtnX% + (okBtnW% - LEN(okTxt$) * 8) \ 2, okBtnY% + (okBtnH% - 16) \ 2), okTxt$
+
+        ' --- Blit dialog onto main screen (scaled) ---
+        _DEST 0
+        _PUTIMAGE , bgSnap&, 0
+        _PUTIMAGE (blitX% * dScale%, blitY% * dScale%)-((blitX% + dlgW%) * dScale% - 1, (blitY% + dlgH%) * dScale% - 1), aboutImg&, 0
+
+        _DISPLAY
+        _LIMIT 60
+        frame& = frame& + 1
+        k& = _KEYHIT
+    LOOP UNTIL k& = 27 OR wantClose% OR _EXIT
+
+    ' --- Cleanup ---
+    IF aboutImg& < -1 THEN _FREEIMAGE aboutImg&
+    IF bgSnap& < -1 THEN _FREEIMAGE bgSnap&
+    _KEYCLEAR
+    WHILE _MOUSEINPUT: WEND
+    _MOUSEHIDE
+
+    ' Restore custom tool cursor
+    POINTER.HIDDEN% = FALSE
+
+    ' Restore drawing context
+    _DEST oldDest&
+    _SOURCE oldSource&
+
+    ' Force a full redraw
+    SCENE_DIRTY% = TRUE
+    FRAME_IDLE% = FALSE
+END SUB
+
+' ============================================================================
+'  Resolve a crayon character to its base color (0 = transparent)
+' ============================================================================
+FUNCTION ABOUT_crayonColor~& (ch$)
+    SELECT CASE ch$
+        CASE "X": ABOUT_crayonColor~& = ABOUT_LOGO_WHITE~&
+        CASE ":": ABOUT_crayonColor~& = ABOUT_LOGO_SHADOW~&
+        CASE "G": ABOUT_crayonColor~& = &HFF60FF00
+        CASE "g": ABOUT_crayonColor~& = &HFF006000
+        CASE "Y": ABOUT_crayonColor~& = &HFFFFFF00
+        CASE "y": ABOUT_crayonColor~& = &HFF606000
+        CASE "O": ABOUT_crayonColor~& = &HFFFF9030
+        CASE "o": ABOUT_crayonColor~& = &HFF906010
+        CASE "R": ABOUT_crayonColor~& = &HFFFF0000
+        CASE "r": ABOUT_crayonColor~& = &HFF600000
+        CASE "P": ABOUT_crayonColor~& = &HFFFF00FF
+        CASE "p": ABOUT_crayonColor~& = &HFF900090
+        CASE ELSE: ABOUT_crayonColor~& = 0
+    END SELECT
+END FUNCTION
+
+' ============================================================================
+'  Subtle large diagonal-scrolling checkerboard on the blue background
+'  Wandering smooth flow — lerps between random target directions
+' ============================================================================
+SUB ABOUT_drawBgCheck (frame&)
+    CONST BG_CHK = 20          ' checker square size in pixels
+    CONST BG_ALPHA = 30        ' noticeable but not distracting
+    DIM bgDark~&, bgLight~&
+    DIM dummy&: dummy& = frame& ' keep param used
+    bgDark~& = _RGBA32(0, 0, 0, BG_ALPHA)
+    bgLight~& = _RGBA32(50, 50, 100, BG_ALPHA)
+
+    ' Smooth wandering direction via angle lerp
+    STATIC curAngle AS SINGLE       ' current movement angle in radians
+    STATIC tgtAngle AS SINGLE       ' target angle to lerp toward
+    STATIC dirTimer AS INTEGER      ' frames until new target picked
+    STATIC posX AS SINGLE           ' sub-pixel position
+    STATIC posY AS SINGLE
+    STATIC bgInited AS INTEGER
+
+    IF NOT bgInited% THEN
+        curAngle! = RND * 6.2832   ' random start angle (0..2*PI)
+        tgtAngle! = RND * 6.2832
+        dirTimer% = 120             ' ~4 sec at 30fps
+        posX! = 0: posY! = 0
+        bgInited% = TRUE
+    END IF
+
+    ' Pick new random target angle every ~10 seconds
+    dirTimer% = dirTimer% - 1
+    IF dirTimer% <= 0 THEN
+        tgtAngle! = RND * 6.2832
+        dirTimer% = 90 + INT(RND * 90)  ' 90-180 frames (~3-6 sec)
+    END IF
+
+    ' Lerp current angle toward target (shortest arc)
+    DIM diff!
+    diff! = tgtAngle! - curAngle!
+    ' Wrap to -PI..PI for shortest rotation
+    IF diff! > 3.14159 THEN diff! = diff! - 6.28318
+    IF diff! < -3.14159 THEN diff! = diff! + 6.28318
+    curAngle! = curAngle! + diff! * 0.02   ' smooth ease — 2% per frame
+
+    ' Keep angle in 0..2*PI range
+    IF curAngle! < 0 THEN curAngle! = curAngle! + 6.28318
+    IF curAngle! > 6.28318 THEN curAngle! = curAngle! - 6.28318
+
+    ' Advance position along current angle
+    posX! = posX! + COS(curAngle!) * 0.8
+    posY! = posY! + SIN(curAngle!) * 0.8
+
+    ' Sub-pixel offset within one tile (always 0..BG_CHK-1)
+    DIM offX!, offY!
+    offX! = posX! - INT(posX! / BG_CHK) * BG_CHK
+    IF offX! < 0 THEN offX! = offX! + BG_CHK
+    offY! = posY! - INT(posY! / BG_CHK) * BG_CHK
+    IF offY! < 0 THEN offY! = offY! + BG_CHK
+
+    ' World-space tile origin — keeps parity stable across wraps
+    DIM worldTileX&, worldTileY&
+    IF posX! >= 0 THEN
+        worldTileX& = INT(posX! / BG_CHK)
+    ELSE
+        worldTileX& = INT(posX! / BG_CHK) - 1
+    END IF
+    IF posY! >= 0 THEN
+        worldTileY& = INT(posY! / BG_CHK)
+    ELSE
+        worldTileY& = INT(posY! / BG_CHK) - 1
+    END IF
+
+    DIM gx%, gy%, tx%, ty%, wx&, wy&
+    FOR gy% = -1 TO ABOUT_SH \ BG_CHK
+        FOR gx% = -1 TO ABOUT_SW \ BG_CHK
+            tx% = gx% * BG_CHK + INT(offX!)
+            ty% = gy% * BG_CHK + INT(offY!)
+            ' Use world tile coords for parity so pattern never flips
+            wx& = worldTileX& + gx%
+            wy& = worldTileY& + gy%
+            IF ((wx& + wy&) AND 1) = 0 THEN
+                LINE (tx%, ty%)-(tx% + BG_CHK - 1, ty% + BG_CHK - 1), bgDark~&, BF
+            ELSE
+                LINE (tx%, ty%)-(tx% + BG_CHK - 1, ty% + BG_CHK - 1), bgLight~&, BF
+            END IF
+        NEXT gx%
+    NEXT gy%
+END SUB
+
+' ============================================================================
+'  Animated checkerboard strip — barber-pole with static blue gaps
+' ============================================================================
+SUB ABOUT_drawCheckers (stripY%, frame&, dir%)
+    DIM numCols%, cx%, cy%
+    DIM cellX%, cellY%
+    DIM colorIdx%, c~&, shift%
+    DIM clipL%, clipR%
+    clipL% = 4  ' border width
+    clipR% = ABOUT_SW - 5  ' border width - 1
+
+    numCols% = ABOUT_SW \ ABOUT_CHK_SIZE + 1
+    shift% = (frame& * dir%) \ 4
+
+    FOR cy% = 0 TO ABOUT_CHK_ROWS - 1
+        FOR cx% = 0 TO numCols% - 1
+            cellX% = cx% * ABOUT_CHK_SIZE
+            cellY% = stripY% + cy% * ABOUT_CHK_SIZE
+
+            ' Clip to inside border
+            DIM x1%, x2%
+            x1% = cellX%
+            x2% = cellX% + ABOUT_CHK_SIZE - 1
+            IF x2% < clipL% OR x1% > clipR% THEN _CONTINUE
+            IF x1% < clipL% THEN x1% = clipL%
+            IF x2% > clipR% THEN x2% = clipR%
+
+            IF ((cx% + cy%) MOD 2) = 0 THEN
+                colorIdx% = ((cx% \ 2 + cy% + shift%) MOD ABOUT_CHK_NUM_COLORS)
+                IF colorIdx% < 0 THEN colorIdx% = colorIdx% + ABOUT_CHK_NUM_COLORS
+                c~& = ABOUT_chkBright(colorIdx%)
+            ELSE
+                c~& = ABOUT_BG~&
+            END IF
+
+            LINE (x1%, cellY%)-(x2%, cellY% + ABOUT_CHK_SIZE - 1), c~&, BF
+        NEXT cx%
+    NEXT cy%
+END SUB
+
+' ============================================================================
+'  Render the DRAW{} logo from crayon strings with glint effect
+' ============================================================================
+SUB ABOUT_drawLogo (startX%, startY%, frame&, glintX!, glintOn%)
+    DIM rr%, ci%, px%, py%
+    DIM ch$
+    DIM baseC~&, pixC~&
+    DIM shadowC~&, outlineC~&
+    DIM glintDist!, glintFact!
+    DIM cr%, cg%, cb%, fr%, fg%, fb%
+
+    shadowC~& = _RGB32(0, 0, 40)
+    outlineC~& = _RGB32(15, 15, 70)
+
+    ' --- Pass 1: Shadow ---
+    FOR rr% = 0 TO ABOUT_LOGO_ROWS - 1
+        DIM sLen1%
+        sLen1% = LEN(ABOUT_logoStr$(rr%))
+        FOR ci% = 0 TO sLen1% - 1
+            ch$ = MID$(ABOUT_logoStr$(rr%), ci% + 1, 1)
+            IF ch$ = " " THEN _CONTINUE
+            baseC~& = ABOUT_crayonColor~&(ch$)
+            IF baseC~& = 0 THEN _CONTINUE
+            px% = startX% + ci% * ABOUT_LOGO_PX_W + 3
+            py% = startY% + rr% * ABOUT_LOGO_PX_H + 3
+            LINE (px%, py%)-(px% + ABOUT_LOGO_PX_W - 1, py% + ABOUT_LOGO_PX_H - 1), shadowC~&, BF
+        NEXT ci%
+    NEXT rr%
+
+    ' --- Pass 2: Outline ---
+    FOR rr% = 0 TO ABOUT_LOGO_ROWS - 1
+        DIM sLen2%
+        sLen2% = LEN(ABOUT_logoStr$(rr%))
+        FOR ci% = 0 TO sLen2% - 1
+            ch$ = MID$(ABOUT_logoStr$(rr%), ci% + 1, 1)
+            IF ch$ = " " THEN _CONTINUE
+            baseC~& = ABOUT_crayonColor~&(ch$)
+            IF baseC~& = 0 THEN _CONTINUE
+            px% = startX% + ci% * ABOUT_LOGO_PX_W
+            py% = startY% + rr% * ABOUT_LOGO_PX_H
+            LINE (px% - 1, py% - 1)-(px% + ABOUT_LOGO_PX_W, py% + ABOUT_LOGO_PX_H), outlineC~&, BF
+        NEXT ci%
+    NEXT rr%
+
+    ' --- Pass 3: Main pixels with glint ---
+    FOR rr% = 0 TO ABOUT_LOGO_ROWS - 1
+        DIM sLen3%
+        sLen3% = LEN(ABOUT_logoStr$(rr%))
+        FOR ci% = 0 TO sLen3% - 1
+            ch$ = MID$(ABOUT_logoStr$(rr%), ci% + 1, 1)
+            IF ch$ = " " THEN _CONTINUE
+            baseC~& = ABOUT_crayonColor~&(ch$)
+            IF baseC~& = 0 THEN _CONTINUE
+
+            px% = startX% + ci% * ABOUT_LOGO_PX_W
+            py% = startY% + rr% * ABOUT_LOGO_PX_H
+
+            cr% = _RED32(baseC~&)
+            cg% = _GREEN32(baseC~&)
+            cb% = _BLUE32(baseC~&)
+
+            glintFact! = 0
+            IF glintOn% THEN
+                glintDist! = ABS(px% + ABOUT_LOGO_PX_W \ 2 - glintX!)
+                IF glintDist! < ABOUT_GLINT_WIDTH THEN
+                    glintFact! = 1.0 - glintDist! / ABOUT_GLINT_WIDTH
+                    glintFact! = glintFact! * glintFact! * glintFact!
+                    glintFact! = glintFact! * 1.5
+                    IF glintFact! > 1 THEN glintFact! = 1
+                END IF
+            END IF
+
+            fr% = cr% + INT(glintFact! * (255 - cr%))
+            fg% = cg% + INT(glintFact! * (255 - cg%))
+            fb% = cb% + INT(glintFact! * (255 - cb%))
+            IF fr% > 255 THEN fr% = 255
+            IF fg% > 255 THEN fg% = 255
+            IF fb% > 255 THEN fb% = 255
+
+            pixC~& = _RGB32(fr%, fg%, fb%)
+            LINE (px%, py%)-(px% + ABOUT_LOGO_PX_W - 1, py% + ABOUT_LOGO_PX_H - 1), pixC~&, BF
+        NEXT ci%
+    NEXT rr%
+
+    ' --- Pass 4: Sparkle cross ---
+    IF glintOn% THEN
+        DIM sparkX%, sparkY%, sparkSz%
+        sparkX% = INT(glintX!)
+        sparkY% = startY% + (ABOUT_LOGO_ROWS * ABOUT_LOGO_PX_H) \ 2
+        sparkSz% = 6 + INT(SIN(frame& * 0.5) * 3)
+        IF sparkX% > startX% AND sparkX% < startX% + ABOUT.logoPixelW% THEN
+            DIM sc~&
+            sc~& = _RGB32(255, 255, 255)
+            LINE (sparkX% - sparkSz%, sparkY%)-(sparkX% + sparkSz%, sparkY%), sc~&
+            LINE (sparkX%, sparkY% - sparkSz%)-(sparkX%, sparkY% + sparkSz%), sc~&
+            DIM d2%
+            d2% = sparkSz% * 3 \ 4
+            LINE (sparkX% - d2%, sparkY% - d2%)-(sparkX% + d2%, sparkY% + d2%), sc~&
+            LINE (sparkX% - d2%, sparkY% + d2%)-(sparkX% + d2%, sparkY% - d2%), sc~&
+        END IF
+    END IF
+END SUB
+
+' ============================================================================
+'  Render the rainbow bars with random segment pops (Close Encounters style)
+'  Whole bar segments under each letter pop bright then fade
+' ============================================================================
+SUB ABOUT_drawBars (startX%, startY%, frame&)
+    DIM rr%, ci%, px%, py%
+    DIM ch$, c~&
+    DIM cr%, cg%, cb%
+    DIM gr%, gg%, gb%
+    DIM dummy&: dummy& = frame& ' keep param used
+
+    ' --- Build segment map on first call ---
+    ' A "segment" = one contiguous run of non-space chars in a bar row
+    ' e.g. "GGGGGGGG YYYYYYYY OOOOOOOO RRRRRRRRRR PPPP  PPPP" has 5 segments
+    CONST SEG_MAX = 20  ' max segments across both rows
+    STATIC segRow(SEG_MAX - 1) AS INTEGER
+    STATIC segStart(SEG_MAX - 1) AS INTEGER   ' start column index
+    STATIC segEnd(SEG_MAX - 1) AS INTEGER     ' end column index (inclusive)
+    STATIC segCount AS INTEGER
+    STATIC segInited AS INTEGER
+
+    IF NOT segInited% THEN
+        segCount% = 0
+        FOR rr% = 0 TO ABOUT_BAR_ROWS - 1
+            DIM bLen%
+            bLen% = LEN(ABOUT_barStr$(rr%))
+            DIM inSeg%
+            inSeg% = FALSE
+            FOR ci% = 0 TO bLen% - 1
+                ch$ = MID$(ABOUT_barStr$(rr%), ci% + 1, 1)
+                IF ch$ <> " " THEN
+                    IF NOT inSeg% THEN
+                        segRow%(segCount%) = rr%
+                        segStart%(segCount%) = ci%
+                        inSeg% = TRUE
+                    END IF
+                    segEnd%(segCount%) = ci%
+                ELSE
+                    IF inSeg% THEN
+                        segCount% = segCount% + 1
+                        inSeg% = FALSE
+                    END IF
+                END IF
+            NEXT ci%
+            IF inSeg% THEN segCount% = segCount% + 1
+        NEXT rr%
+        segInited% = TRUE
+    END IF
+
+    ' --- Pop system: up to 3 simultaneous segment pops ---
+    CONST POP_MAX = 3
+    CONST POP_FADE_SPEED! = 0.06
+    STATIC popSeg(POP_MAX - 1) AS INTEGER     ' which segment index
+    STATIC popBri(POP_MAX - 1) AS SINGLE      ' 0=idle, 1=full bright
+    STATIC popCooldown AS INTEGER
+    STATIC popInited AS INTEGER
+
+    IF NOT popInited% THEN
+        DIM pi%
+        FOR pi% = 0 TO POP_MAX - 1
+            popBri!(pi%) = 0
+            popSeg%(pi%) = -1
+        NEXT pi%
+        popCooldown% = 0
+        popInited% = TRUE
+    END IF
+
+    ' --- Trigger new pops ---
+    popCooldown% = popCooldown% - 1
+    IF popCooldown% <= 0 THEN
+        DIM slot%
+        slot% = -1
+        FOR pi% = 0 TO POP_MAX - 1
+            IF popBri!(pi%) <= 0 THEN slot% = pi%: EXIT FOR
+        NEXT pi%
+        IF slot% >= 0 AND segCount% > 0 THEN
+            popSeg%(slot%) = INT(RND * segCount%)
+            popBri!(slot%) = 1.0
+        END IF
+        popCooldown% = 3 + INT(RND * 6)  ' 3-8 frames between pops
+    END IF
+
+    ' --- Fade active pops ---
+    FOR pi% = 0 TO POP_MAX - 1
+        IF popBri!(pi%) > 0 THEN
+            popBri!(pi%) = popBri!(pi%) - POP_FADE_SPEED!
+            IF popBri!(pi%) < 0 THEN popBri!(pi%) = 0
+        END IF
+    NEXT pi%
+
+    ' --- Draw all bar cells ---
+    FOR rr% = 0 TO ABOUT_BAR_ROWS - 1
+        DIM rowLen%
+        rowLen% = LEN(ABOUT_barStr$(rr%))
+        FOR ci% = 0 TO rowLen% - 1
+            ch$ = MID$(ABOUT_barStr$(rr%), ci% + 1, 1)
+            IF ch$ = " " THEN _CONTINUE
+            c~& = ABOUT_crayonColor~&(ch$)
+            IF c~& = 0 THEN _CONTINUE
+            px% = startX% + ci% * ABOUT_LOGO_PX_W
+            py% = startY% + rr% * ABOUT_LOGO_PX_H
+
+            cr% = _RED32(c~&)
+            cg% = _GREEN32(c~&)
+            cb% = _BLUE32(c~&)
+
+            ' Check if this cell belongs to a popping segment
+            DIM boost!
+            boost! = 0
+            FOR pi% = 0 TO POP_MAX - 1
+                IF popBri!(pi%) > 0 AND popSeg%(pi%) >= 0 THEN
+                    DIM si%
+                    si% = popSeg%(pi%)
+                    IF segRow%(si%) = rr% AND ci% >= segStart%(si%) AND ci% <= segEnd%(si%) THEN
+                        IF popBri!(pi%) > boost! THEN boost! = popBri!(pi%)
+                    END IF
+                END IF
+            NEXT pi%
+
+            IF boost! > 0 THEN
+                ' Color dodge: multiply color intensity by boost
+                DIM mul!
+                mul! = 1.0 + boost! * 3.0
+                gr% = INT(cr% * mul!)
+                gg% = INT(cg% * mul!)
+                gb% = INT(cb% * mul!)
+                IF gr% > 255 THEN gr% = 255
+                IF gg% > 255 THEN gg% = 255
+                IF gb% > 255 THEN gb% = 255
+                LINE (px%, py%)-(px% + ABOUT_LOGO_PX_W - 1, py% + ABOUT_LOGO_PX_H - 1), _RGB32(gr%, gg%, gb%), BF
+            ELSE
+                LINE (px%, py%)-(px% + ABOUT_LOGO_PX_W - 1, py% + ABOUT_LOGO_PX_H - 1), c~&, BF
+            END IF
+        NEXT ci%
+    NEXT rr%
+
+    ' --- Draw hot white center stripe over popping segments ---
+    FOR pi% = 0 TO POP_MAX - 1
+        IF popBri!(pi%) > 0.4 AND popSeg%(pi%) >= 0 THEN
+            DIM sg%
+            sg% = popSeg%(pi%)
+            DIM sx1%, sx2%, sy%, scy%
+            sx1% = startX% + segStart%(sg%) * ABOUT_LOGO_PX_W
+            sx2% = startX% + (segEnd%(sg%) + 1) * ABOUT_LOGO_PX_W - 1
+            sy% = startY% + segRow%(sg%) * ABOUT_LOGO_PX_H
+            scy% = sy% + ABOUT_LOGO_PX_H \ 2
+            DIM ha%
+            ha% = INT((popBri!(pi%) - 0.4) / 0.6 * 200)
+            IF ha% > 200 THEN ha% = 200
+            IF ha% > 0 THEN
+                LINE (sx1%, scy% - 1)-(sx2%, scy% + 1), _RGB32(255, 255, 255, ha%), BF
+            END IF
+        END IF
+    NEXT pi%
+END SUB
+
+' ============================================================================
+'  Text info block with clickable GitHub link
+' ============================================================================
+SUB ABOUT_drawTextBlock (linkX%, linkY%, linkText$, linkHover%, frame&, contentTop%)
+    DIM textC~&, dimC~&, linkC~&
+    DIM txt$, tx%
+
+    _PRINTMODE _KEEPBACKGROUND
+
+    textC~& = _RGB32(220, 220, 255)
+    dimC~& = _RGB32(130, 130, 170)
+
+    ' Version
+    txt$ = "version " + APP_VERSION$
+    tx% = (ABOUT_SW - LEN(txt$) * 8) \ 2
+    COLOR textC~&
+    _PRINTSTRING (tx%, contentTop% + 190), txt$
+
+    ' Description
+    txt$ = "A pixel art editor"
+    tx% = (ABOUT_SW - LEN(txt$) * 8) \ 2
+    COLOR dimC~&
+    _PRINTSTRING (tx%, contentTop% + 255), txt$
+
+    ' Author
+    txt$ = "by grymmjack (Rick Christy)"
+    tx% = (ABOUT_SW - LEN(txt$) * 8) \ 2
+    _PRINTSTRING (tx%, contentTop% + 273), txt$
+
+    ' Engine
+    txt$ = "Written in QB64-PE"
+    tx% = (ABOUT_SW - LEN(txt$) * 8) \ 2
+    _PRINTSTRING (tx%, contentTop% + 291), txt$
+
+    ' --- GitHub Hyperlink ---
+    IF linkHover% THEN
+        DIM pulse%
+        pulse% = 180 + INT(SIN(frame& * 0.2) * 75)
+        IF pulse% > 255 THEN pulse% = 255
+        IF pulse% < 100 THEN pulse% = 100
+        linkC~& = _RGB32(pulse%, 255, 255)
+    ELSE
+        DIM idlePulse%
+        idlePulse% = 160 + INT(SIN(frame& * 0.04) * 30)
+        linkC~& = _RGB32(60, idlePulse%, 255)
+    END IF
+    COLOR linkC~&
+    _PRINTSTRING (linkX%, linkY%), linkText$
+
+    ' Underline
+    LINE (linkX%, linkY% + 15)-(linkX% + LEN(linkText$) * 8 - 1, linkY% + 15), linkC~&
+END SUB
+
+' ============================================================================
+'  LOGO.BM DATA — crayon strings
+' ============================================================================
+AboutCrayonLogoData:
+DATA "XXXXXX  ", "XXXXXXXX", "XXXXXXXX", "XX  XX  XX", "  XX  XX  "
+DATA "XX::::XX", "XX::::XX", "XX::::XX", "XX  XX  XX", "XX::  ::XX"
+DATA "XX    XX", "XX  XX::", "XXXX  XX", "XX  XX  XX", "XX      XX"
+DATA "XX    XX", "XX  ::XX", "XX::  XX", "XX  XX  XX", "XX      XX"
+DATA "XXXXXXXX", "XX    XX", "XX    XX", "XXXX::XXXX", "::XX  XX::"
+DATA "::::::::", "::    ::", "::    ::", "::::  ::::", "  ::  ::  "
+
+AboutCrayonBarData:
+DATA "GGGGGGGG", "YYYYYYYY", "OOOOOOOO", "RRRRRRRRRR", "PPPP  PPPP"
+DATA "gggggggg", "yyyyyyyy", "oooooooo", "rrrrrrrrrr", "pppp  pppp"

@@ -1,5 +1,34 @@
 # IDEAS
 
+## Native DIalogs
+- Open
+- Save
+- Message Box
+- Input Box
+- Color Palette Mixer
+  - RGB
+  - HSL
+- DRAW Settings Configuration Dialog
+
+## Color BITMAP fonts
+- See DEV/FONTS/COLOR_BITMAP
+- Lots of examples there
+
+## Image Browser (For drag/drop to brush and pattern slots)
+
+## Layer Groups
+- Move into
+- Move out of
+  - Group operations:
+    - Expand
+    - Collapse
+    - Move group
+    - Transform group
+    - Selection from group
+    - Merge group
+  - Distribute Layers in group
+
+
 ## FILE FORMATS IMPORT
 - ASEPRITE Using QB64_GJ_LIB/ASEPRITE
 - PSD
