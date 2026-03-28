@@ -1,0 +1,446 @@
+'$INCLUDEONCE
+
+' ============================================================================
+' MB-API.BM — Public API for QB64_GJ_MSG_BOX
+'
+' Entry points: MB_message_box%, MB_input_box$, MB_alert, MB_confirm%
+' Internal: MB_init, MB_modal_loop, MB_layout, MB_wrap_text, MB_setup_buttons
+'
+' (c) 2026 grymmjack — MIT License
+' ============================================================================
+
+' ==========================================================================
+' PUBLIC API
+' ==========================================================================
+
+' --------------------------------------------------------------------------
+' MB_message_box% — Show a message with customizable buttons and icon
+'
+' title$     — Title bar text
+' message$   — Message text (may contain CHR$(10) for line breaks)
+' buttons%   — MB_BTN_* preset constant
+' icon%      — MB_ICON_* constant
+'
+' Returns:   MB_RESULT_1 (first button), MB_RESULT_2, MB_RESULT_3, or
+'            MB_RESULT_NONE if closed via [X] or click outside
+' --------------------------------------------------------------------------
+FUNCTION MB_message_box% (title AS STRING, message AS STRING, buttons AS INTEGER, icon AS INTEGER)
+    MB_init MB_MODE_MESSAGE, title, message, buttons, icon, "", ""
+    MB_modal_loop
+    MB_cleanup
+    MB_message_box% = MB_STATE.result
+END FUNCTION
+
+' --------------------------------------------------------------------------
+' MB_input_box$ — Show a message with text input field
+'
+' title$       — Title bar text
+' message$     — Prompt message
+' defaultText$ — Initial text in input field
+' placeholder$ — Placeholder text shown when input is empty
+'
+' Returns:   Entered text, or "" if cancelled
+' --------------------------------------------------------------------------
+FUNCTION MB_input_box$ (title AS STRING, message AS STRING, defaultText AS STRING, placeholder AS STRING)
+    MB_init MB_MODE_INPUT, title, message, MB_BTN_OK_CANCEL, MB_ICON_NONE, defaultText, placeholder
+    MB_modal_loop
+    DIM result AS STRING
+    IF MB_STATE.result = MB_RESULT_1 AND MB_STATE.tiInputId > 0 THEN
+        result = TI_get_text$(MB_STATE.tiInputId)
+    ELSE
+        result = ""
+    END IF
+    MB_cleanup
+    MB_input_box$ = result
+END FUNCTION
+
+' --------------------------------------------------------------------------
+' MB_alert — Simple OK message box (convenience wrapper)
+' --------------------------------------------------------------------------
+SUB MB_alert (title AS STRING, message AS STRING)
+    DIM dummy AS INTEGER
+    dummy = MB_message_box%(title, message, MB_BTN_OK, MB_ICON_INFO)
+END SUB
+
+' --------------------------------------------------------------------------
+' MB_confirm% — Yes/No confirmation (convenience wrapper)
+' Returns:  TRUE if Yes, FALSE if No or cancelled
+' --------------------------------------------------------------------------
+FUNCTION MB_confirm% (title AS STRING, message AS STRING)
+    DIM r AS INTEGER
+    r = MB_message_box%(title, message, MB_BTN_YES_NO, MB_ICON_QUESTION)
+    MB_confirm% = (r = MB_RESULT_1)
+END FUNCTION
+
+' --------------------------------------------------------------------------
+' MB_warning% — OK/Cancel warning (convenience wrapper)
+' Returns:  TRUE if OK, FALSE if Cancel or closed
+' --------------------------------------------------------------------------
+FUNCTION MB_warning% (title AS STRING, message AS STRING)
+    DIM r AS INTEGER
+    r = MB_message_box%(title, message, MB_BTN_OK_CANCEL, MB_ICON_WARNING)
+    MB_warning% = (r = MB_RESULT_1)
+END FUNCTION
+
+' --------------------------------------------------------------------------
+' MB_error — Error alert with OK button (convenience wrapper)
+' --------------------------------------------------------------------------
+SUB MB_error (title AS STRING, message AS STRING)
+    DIM dummy AS INTEGER
+    dummy = MB_message_box%(title, message, MB_BTN_OK, MB_ICON_ERROR)
+END SUB
+
+' ==========================================================================
+' INTERNAL IMPLEMENTATION
+' ==========================================================================
+
+' --------------------------------------------------------------------------
+' MB_init — Reset state and prepare the dialog
+' --------------------------------------------------------------------------
+SUB MB_init (mode AS INTEGER, title AS STRING, message AS STRING, buttons AS INTEGER, icon AS INTEGER, defaultText AS STRING, placeholder AS STRING)
+    ' ---- Reset all state ----
+    DIM emptyState AS MB_STATE_OBJ
+    MB_STATE = emptyState
+    MB_STATE.imgHandle = -1
+    MB_STATE.screenShot = -1
+
+    ' ---- Basic settings ----
+    MB_STATE.mode = mode
+    MB_STATE.title = title
+    MB_STATE.icon = icon
+    MB_STATE.buttonPreset = buttons
+    MB_STATE.message = message
+    MB_STATE.result = MB_RESULT_NONE
+    MB_STATE.hoverButton = -1
+    MB_STATE.focusedButton = -1
+    MB_STATE.scale = 1
+
+    ' ---- Setup buttons ----
+    MB_setup_buttons buttons
+
+    ' ---- Wrap message text ----
+    MB_wrap_text message
+
+    ' ---- Calculate layout ----
+    MB_layout_calculate
+
+    ' ---- Create offscreen buffer ----
+    MB_STATE.imgHandle = _NEWIMAGE(MB_STATE.dialogW, MB_STATE.dialogH, 32)
+
+    ' ---- Capture screen background ----
+    MB_STATE.screenShot = _COPYIMAGE(0)
+
+    ' ---- Create TI input widget if input mode ----
+    IF mode = MB_MODE_INPUT THEN
+        MB_STATE.tiInputId = TI_create%(MB_STATE.inputX, MB_STATE.inputY, MB_STATE.inputW, MB_STATE.inputH)
+        IF MB_STATE.tiInputId > 0 THEN
+            IF LEN(defaultText) > 0 THEN TI_set_text MB_STATE.tiInputId, defaultText
+            IF LEN(placeholder) > 0 THEN
+                TI_inputs(MB_STATE.tiInputId).placeholder = placeholder
+            END IF
+            TI_set_focus MB_STATE.tiInputId
+        END IF
+    ELSE
+        ' Focus first default button in message mode
+        DIM bi AS INTEGER
+        FOR bi = 0 TO MB_STATE.buttonCount - 1
+            IF MB_buttons(bi).isDefault THEN
+                MB_STATE.focusedButton = bi
+                EXIT FOR
+            END IF
+        NEXT bi
+    END IF
+
+    MB_STATE.dirty = -1
+END SUB
+
+' --------------------------------------------------------------------------
+' MB_cleanup — Free resources
+' --------------------------------------------------------------------------
+SUB MB_cleanup
+    ' Destroy TI widget
+    IF MB_STATE.tiInputId > 0 THEN
+        TI_destroy MB_STATE.tiInputId
+        MB_STATE.tiInputId = 0
+    END IF
+
+    ' Free offscreen buffer
+    IF MB_STATE.imgHandle < -1 THEN
+        _FREEIMAGE MB_STATE.imgHandle
+        MB_STATE.imgHandle = -1
+    END IF
+
+    ' Free screenshot
+    IF MB_STATE.screenShot < -1 THEN
+        _FREEIMAGE MB_STATE.screenShot
+        MB_STATE.screenShot = -1
+    END IF
+
+    _MOUSESHOW "DEFAULT"
+END SUB
+
+' --------------------------------------------------------------------------
+' MB_modal_loop — Block until user makes a choice
+' --------------------------------------------------------------------------
+SUB MB_modal_loop
+    DIM k AS LONG
+
+    ' Disable auto-display to prevent ghost artifacts
+    _DISPLAY
+
+    ' Drain stale keyboard input (e.g., Enter from SLEEP or previous dialog)
+    DO WHILE _KEYHIT <> 0: LOOP
+
+    ' Drain stale mouse input so first frame starts clean
+    DO WHILE _MOUSEINPUT: LOOP
+    MB_STATE.mouseB1 = _MOUSEBUTTON(1)
+    MB_STATE.oldMouseB1 = MB_STATE.mouseB1
+
+    DO UNTIL MB_STATE.done
+        ' Poll input
+        MB_INPUT_poll
+
+        ' Keyboard
+        k = _KEYHIT
+        IF k <> 0 THEN MB_INPUT_keyboard k
+
+        ' Mouse
+        MB_INPUT_mouse
+
+        ' Tick text input cursor blink
+        IF MB_STATE.mode = MB_MODE_INPUT THEN TI_tick
+
+        ' Render if dirty
+        IF MB_STATE.dirty THEN
+            MB_RENDER_all
+            MB_STATE.dirty = 0
+        END IF
+
+        ' Always blit (restore background + overlay + dialog)
+        MB_RENDER_blit
+        _DISPLAY
+        _LIMIT 60
+    LOOP
+
+    _MOUSESHOW "DEFAULT"
+END SUB
+
+' --------------------------------------------------------------------------
+' MB_setup_buttons — Configure button labels from preset
+' --------------------------------------------------------------------------
+SUB MB_setup_buttons (btnPreset AS INTEGER)
+    DIM i AS INTEGER
+    FOR i = 0 TO MB_MAX_BUTTONS - 1
+        MB_buttons(i).label = ""
+        MB_buttons(i).hotkey = 0
+        MB_buttons(i).isDefault = 0
+        MB_buttons(i).isCancel = 0
+    NEXT i
+
+    SELECT CASE btnPreset
+        CASE MB_BTN_OK
+            MB_STATE.buttonCount = 1
+            MB_buttons(0).label = "OK"
+            MB_buttons(0).isDefault = -1
+            MB_buttons(0).isCancel = -1  ' Escape also triggers OK for single-button
+
+        CASE MB_BTN_OK_CANCEL
+            MB_STATE.buttonCount = 2
+            MB_buttons(0).label = "OK"
+            MB_buttons(0).isDefault = -1
+            MB_buttons(1).label = "Cancel"
+            MB_buttons(1).isCancel = -1
+
+        CASE MB_BTN_YES_NO
+            MB_STATE.buttonCount = 2
+            MB_buttons(0).label = "Yes"
+            MB_buttons(0).isDefault = -1
+            MB_buttons(1).label = "No"
+            MB_buttons(1).isCancel = -1
+
+        CASE MB_BTN_YES_NO_CANCEL
+            MB_STATE.buttonCount = 3
+            MB_buttons(0).label = "Yes"
+            MB_buttons(0).isDefault = -1
+            MB_buttons(1).label = "No"
+            MB_buttons(2).label = "Cancel"
+            MB_buttons(2).isCancel = -1
+
+        CASE MB_BTN_RETRY_CANCEL
+            MB_STATE.buttonCount = 2
+            MB_buttons(0).label = "Retry"
+            MB_buttons(0).isDefault = -1
+            MB_buttons(1).label = "Cancel"
+            MB_buttons(1).isCancel = -1
+
+        CASE ELSE
+            ' Custom — caller must set MB_buttons() manually
+            IF MB_STATE.buttonCount < 1 THEN MB_STATE.buttonCount = 1
+    END SELECT
+END SUB
+
+' --------------------------------------------------------------------------
+' MB_wrap_text — Word-wrap message text into MB_messageLines()
+' --------------------------------------------------------------------------
+SUB MB_wrap_text (message AS STRING)
+    DIM charsPerLine AS INTEGER
+
+    ' Determine content width for wrapping
+    DIM contentW AS INTEGER
+    contentW = MB_MAX_DIALOG_W - MB_PADDING * 2
+    IF MB_STATE.icon <> MB_ICON_NONE THEN
+        contentW = contentW - MB_ICON_SIZE - MB_ICON_GAP
+    END IF
+    charsPerLine = contentW \ MB_CHAR_W
+    IF charsPerLine < 20 THEN charsPerLine = 20
+
+    MB_STATE.messageLineCount = 0
+    MB_STATE.maxLineWidth = 0
+
+    DIM msg AS STRING
+    msg = message
+
+    ' Split on CHR$(10) first, then word-wrap each paragraph
+    DIM para AS STRING
+    DIM paraStart AS INTEGER, nlPos AS INTEGER
+    paraStart = 1
+
+    DO WHILE paraStart <= LEN(msg)
+        nlPos = INSTR(paraStart, msg, CHR$(10))
+        IF nlPos = 0 THEN nlPos = LEN(msg) + 1
+        para = MID$(msg, paraStart, nlPos - paraStart)
+        paraStart = nlPos + 1
+
+        ' Word-wrap this paragraph
+        IF LEN(para) = 0 THEN
+            ' Empty line
+            IF MB_STATE.messageLineCount < MB_MAX_MESSAGE_LINES THEN
+                MB_messageLines(MB_STATE.messageLineCount) = ""
+                MB_STATE.messageLineCount = MB_STATE.messageLineCount + 1
+            END IF
+        ELSE
+            MB_wrap_paragraph para, charsPerLine
+        END IF
+    LOOP
+END SUB
+
+' --------------------------------------------------------------------------
+' MB_wrap_paragraph — Word-wrap a single paragraph
+' --------------------------------------------------------------------------
+SUB MB_wrap_paragraph (para AS STRING, charsPerLine AS INTEGER)
+    DIM remaining AS STRING
+    DIM lineOut AS STRING
+    DIM spacePos AS INTEGER
+    DIM lineW AS INTEGER
+
+    remaining = para
+
+    DO WHILE LEN(remaining) > 0 AND MB_STATE.messageLineCount < MB_MAX_MESSAGE_LINES
+        IF LEN(remaining) <= charsPerLine THEN
+            ' Fits on one line
+            lineOut = remaining
+            remaining = ""
+        ELSE
+            ' Find last space within limit
+            lineOut = LEFT$(remaining, charsPerLine)
+            spacePos = 0
+            DIM si AS INTEGER
+            FOR si = LEN(lineOut) TO 1 STEP -1
+                IF MID$(lineOut, si, 1) = " " THEN
+                    spacePos = si
+                    EXIT FOR
+                END IF
+            NEXT si
+
+            IF spacePos > 0 THEN
+                lineOut = LEFT$(remaining, spacePos - 1)
+                remaining = LTRIM$(MID$(remaining, spacePos + 1))
+            ELSE
+                ' No space found — force break
+                lineOut = LEFT$(remaining, charsPerLine)
+                remaining = MID$(remaining, charsPerLine + 1)
+            END IF
+        END IF
+
+        MB_messageLines(MB_STATE.messageLineCount) = lineOut
+        lineW = LEN(lineOut) * MB_CHAR_W
+        IF lineW > MB_STATE.maxLineWidth THEN MB_STATE.maxLineWidth = lineW
+        MB_STATE.messageLineCount = MB_STATE.messageLineCount + 1
+    LOOP
+END SUB
+
+' --------------------------------------------------------------------------
+' MB_layout_calculate — Size and position the dialog based on content
+' --------------------------------------------------------------------------
+SUB MB_layout_calculate
+    DIM contentW AS INTEGER
+    DIM contentH AS INTEGER
+    DIM textW AS INTEGER
+    DIM textH AS INTEGER
+
+    ' ---- Text dimensions ----
+    textH = MB_STATE.messageLineCount * MB_LINE_HEIGHT
+    textW = MB_STATE.maxLineWidth
+    IF textW < 200 THEN textW = 200
+
+    ' ---- Content area width ----
+    contentW = textW
+    IF MB_STATE.icon <> MB_ICON_NONE THEN
+        contentW = contentW + MB_ICON_SIZE + MB_ICON_GAP
+    END IF
+
+    ' ---- Buttons minimum width ----
+    DIM buttonsW AS INTEGER
+    buttonsW = MB_STATE.buttonCount * MB_BUTTON_W + (MB_STATE.buttonCount - 1) * MB_BUTTON_GAP + MB_PADDING * 2
+    IF contentW + MB_PADDING * 2 < buttonsW THEN
+        contentW = buttonsW - MB_PADDING * 2
+    END IF
+
+    ' ---- Content area height ----
+    contentH = textH + MB_PADDING * 2
+    IF MB_STATE.mode = MB_MODE_INPUT THEN
+        contentH = contentH + MB_INPUT_GAP + MB_INPUT_H
+    END IF
+
+    ' ---- Dialog size ----
+    MB_STATE.dialogW = contentW + MB_PADDING * 2
+    IF MB_STATE.dialogW < MB_MIN_DIALOG_W THEN MB_STATE.dialogW = MB_MIN_DIALOG_W
+    IF MB_STATE.dialogW > MB_MAX_DIALOG_W THEN MB_STATE.dialogW = MB_MAX_DIALOG_W
+
+    MB_STATE.dialogH = MB_TITLE_BAR_H + contentH + MB_BUTTON_BAR_H
+    IF MB_STATE.dialogH < MB_MIN_DIALOG_H THEN MB_STATE.dialogH = MB_MIN_DIALOG_H
+
+    ' ---- Center on screen ----
+    DIM scrW AS INTEGER, scrH AS INTEGER
+    scrW = _WIDTH(0) \ MB_STATE.scale
+    scrH = _HEIGHT(0) \ MB_STATE.scale
+    MB_STATE.dialogX = (scrW - MB_STATE.dialogW) \ 2
+    MB_STATE.dialogY = (scrH - MB_STATE.dialogH) \ 2
+
+    ' ---- Layout zones ----
+    DIM cx AS INTEGER, cy AS INTEGER
+    cx = MB_PADDING
+    cy = MB_TITLE_BAR_H + MB_PADDING
+
+    ' Icon position
+    IF MB_STATE.icon <> MB_ICON_NONE THEN
+        MB_STATE.iconX = cx
+        MB_STATE.iconY = cy
+        cx = cx + MB_ICON_SIZE + MB_ICON_GAP
+    END IF
+
+    ' Message position
+    MB_STATE.messageX = cx
+    MB_STATE.messageY = cy
+
+    ' Input field position (below message)
+    IF MB_STATE.mode = MB_MODE_INPUT THEN
+        MB_STATE.inputX = MB_PADDING
+        MB_STATE.inputY = cy + textH + MB_INPUT_GAP
+        MB_STATE.inputW = MB_STATE.dialogW - MB_PADDING * 2
+        MB_STATE.inputH = MB_INPUT_H
+    END IF
+
+    ' Button bar Y
+    MB_STATE.buttonBarY = MB_STATE.dialogH - MB_BUTTON_BAR_H
+END SUB
