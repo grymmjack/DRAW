@@ -26,7 +26,7 @@ CONST SETTINGS_TAB_COUNT      = 8
 
 ' --- Layout Constants --------------------------------------------------------
 
-CONST SETTINGS_W        = 500   ' Dialog width (unscaled)
+CONST SETTINGS_W        = 600   ' Dialog width (unscaled)
 CONST SETTINGS_H        = 380   ' Dialog height (unscaled)
 CONST SETTINGS_TAB_W    = 100   ' Tab sidebar width
 CONST SETTINGS_TAB_H    = 22    ' Individual tab button height
