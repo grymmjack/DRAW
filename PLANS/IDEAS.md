@@ -100,6 +100,12 @@ cell alignment inside, borders, border widths, border colors, etc.
 
 
 
+---
+
+## COMPLETED
+
+### TEXT TOOL
+
 #### TEXT STYLES
 
 - [x] Add text style dropdown with save/delete and name for text styles:
@@ -125,14 +131,14 @@ cell alignment inside, borders, border widths, border colors, etc.
 - [x] When scrolling with the wheel of my mouse over the text dropdown when it is open i do not see a selected item color.
       - I want to be able to hover over a different font in the list to see a realtime preview of the font change
 
-- [ ] I would also like to be able to use my arrow keys on the keyboard to go up and down, to choose the font.
+- [x] I would also like to be able to use my arrow keys on the keyboard to go up and down, to choose the font.
     - In this way i can quickly preview fonts in realtime.
     - So if I open the picker, and go to a font with the wheel, then choose down arrow, or whatever, it loads that font but   
       keeps the picker open so i can quickly preview fonts for my text layer/selected text.
       - If the text has selection, just change the selected text, if not, the entire text
       - Keep the same other settings for bold, italic, strikethrough, underline, size, color, baseline, kerning, position, etc.
 
-- [ ] I would like to have the option to arrow through fonts in the dropdown menu to show a popup preview
+- [x] I would like to have the option to arrow through fonts in the dropdown menu to show a popup preview
       of the font
       - DRAW.cfg settings:
         - FONT_PREVIEW_FONT_SIZE        - DEFAULT: 16
@@ -147,17 +153,17 @@ cell alignment inside, borders, border widths, border colors, etc.
         - FONT_PREVIEW_OFFSET_Y         - DEFAULT: 4
       - The popup should use the DRAW.cfg and THEME.cfg settings
 
-- [ ] I would like to be able to Outline text in a separate color, and have a outline width setting for that color
+- [x] I would like to be able to Outline text in a separate color, and have a outline width setting for that color
   - This should live in the font property bar
   - Outline text should work as a per character / selected text attribute and only apply to selected text if it's on.
   - So a checkbox [x] Outline (__) (color chip - click to pick), [ 1->10px ] outline size dropdown
 
-- [ ] I would like to be able to have a Shadow text in a separate color, and a X/Y distance for that setting.
+- [x] I would like to be able to have a Shadow text in a separate color, and a X/Y distance for that setting.
   - This should live in the font property bar
   - Shadow text should work as a per character / selected text attribute
   - So a checkbox [x] Shadow (__) (color chip - click to pick), Offset: x:[ 1->10px ] (dropdown) y:[ 1->10px ] dropdown
 
-- [ ] I would like a text align in font property bar:
+- [x] I would like a text align in font property bar:
     - [ L | C | R ] (left, center, right)
     - The text should align to the entire body of the text.
     - So if I press L, all text new lines start Left justified same X position for all lines, flush left.
@@ -165,11 +171,7 @@ cell alignment inside, borders, border widths, border colors, etc.
     - So if I press R, all text is right justified to the edge of the longest line in the text layer,
       and the x position stays the same - spaces are used to position the text so it is flush right.
 
----
 
-## COMPLETED
-
-### TEXT TOOL
 
 - [x] Extended editing in text mode with word-processor-style navigation
   - Ctrl+Left / Ctrl+Right: jump to previous/next word boundary (via `TEXT_LAYER_prev_word_pos%` / `TEXT_LAYER_next_word_pos%`)
