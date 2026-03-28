@@ -73,6 +73,10 @@ DIM SHARED TL_SHADOW_Y(1 TO TEXT_LAYER_POOL_SIZE, 0 TO TEXT_LAYER_MAX_CHARS - 1)
 ' Per-line leading (line spacing override per line)
 DIM SHARED TL_LEADING(1 TO TEXT_LAYER_POOL_SIZE, 0 TO TEXT_LAYER_MAX_LINES - 1) AS INTEGER
 
+' Faux italic shear: set by TEXT_LAYER_render before calling draw_bitmap_char
+' When > 0, draw_bitmap_char applies horizontal shear for faux italic
+DIM SHARED TEXT_LAYER_FAUX_ITALIC_SHEAR AS INTEGER
+
 ' Function declarations
 DECLARE FUNCTION TEXT_LAYER_alloc% ()
 DECLARE SUB TEXT_LAYER_free (idx AS INTEGER)

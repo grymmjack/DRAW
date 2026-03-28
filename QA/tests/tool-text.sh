@@ -242,9 +242,36 @@ key ctrl+z
 wait_for 0.3 "Undo bold"
 
 # ---------------------------------------------------------------------------
-# Test 9: Italic toggle (Ctrl+I) — SKIPPED (not yet implemented)
+# Test 9: Italic toggle (Ctrl+I) changes text rendering
 # ---------------------------------------------------------------------------
-skip "Test 9: Italic not yet implemented"
+info "Test 9: Italic toggle (Ctrl+I)"
+
+# Snap canvas before italic
+park_mouse
+snap_region $SNAP_X $SNAP_Y $SNAP_W $SNAP_H "text-before-italic"
+BEFORE_ITALIC="$SNAP_RESULT"
+
+# Select all, apply italic
+key ctrl+a
+wait_for 0.3 "Selected all text"
+key ctrl+i
+wait_for 0.5 "Italic applied"
+assert_no_crash
+
+# Deselect
+key End
+wait_for 0.3 "Deselected"
+
+# Snap canvas AFTER italic
+park_mouse
+snap_region $SNAP_X $SNAP_Y $SNAP_W $SNAP_H "text-after-italic"
+AFTER_ITALIC="$SNAP_RESULT"
+assert_regions_differ "$BEFORE_ITALIC" "$AFTER_ITALIC" "Italic toggle should change text rendering"
+pass "Test 9: Italic changes text rendering"
+
+# Undo italic
+key ctrl+z
+wait_for 0.3 "Undo italic"
 
 # ---------------------------------------------------------------------------
 # Test 10: Font size increase (Ctrl+Shift+.) changes text rendering

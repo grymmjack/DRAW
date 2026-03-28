@@ -300,16 +300,23 @@ SUB TEXT_LAYER_draw_bitmap_char (fontIdx%, ch$, drawX%, drawY%, fgColor~&, destI
     _SOURCE glyphImg&
     IF fgTransparent% THEN _DONTBLEND
 
+    DIM shearX AS INTEGER
     FOR py% = 0 TO glyphH% - 1
+        ' Faux italic: horizontal shear per row (top rows shift right, bottom stays)
+        IF TEXT_LAYER_FAUX_ITALIC_SHEAR% > 0 AND glyphH% > 1 THEN
+            shearX% = (glyphH% - 1 - py%) * TEXT_LAYER_FAUX_ITALIC_SHEAR% \ (glyphH% - 1)
+        ELSE
+            shearX% = 0
+        END IF
         FOR px% = 0 TO glyphW% - 1
             srcColor~& = POINT(px%, py%)
             srcA% = _ALPHA32(srcColor~&)
             IF srcA% > 0 THEN
-                IF drawX% + px% >= 0 AND drawX% + px% < destW% AND drawY% + py% >= 0 AND drawY% + py% < destH% THEN
+                IF drawX% + px% + shearX% >= 0 AND drawX% + px% + shearX% < destW% AND drawY% + py% >= 0 AND drawY% + py% < destH% THEN
                     IF fgTransparent% THEN
-                        PSET (drawX% + px%, drawY% + py%), _RGBA32(0, 0, 0, 0)
+                        PSET (drawX% + px% + shearX%, drawY% + py%), _RGBA32(0, 0, 0, 0)
                     ELSE
-                        PSET (drawX% + px%, drawY% + py%), _RGBA32(_RED32(fgColor~&), _GREEN32(fgColor~&), _BLUE32(fgColor~&), srcA%)
+                        PSET (drawX% + px% + shearX%, drawY% + py%), _RGBA32(_RED32(fgColor~&), _GREEN32(fgColor~&), _BLUE32(fgColor~&), srcA%)
                     END IF
                 END IF
             END IF
@@ -510,6 +517,30 @@ SUB TEXT_LAYER_render (idx%, destImg&)
             END IF
         END IF
 
+        ' Faux italic detection: pixel shear for fonts without native italic variant
+        DIM fauxItalic AS INTEGER
+        DIM fauxItalicShear AS INTEGER
+        fauxItalic% = FALSE
+        fauxItalicShear% = 0
+        IF TL_ITALIC(idx%, c%) THEN
+            IF fontStyle$ = FONT_STYLE_ITALIC$ OR fontStyle$ = FONT_STYLE_BOLDITALIC$ THEN
+                IF isBitmapFont% OR isBuiltInFont% THEN
+                    fauxItalic% = TRUE
+                ELSE
+                    ' TTF without dedicated italic variant file
+                    DIM fiFI AS INTEGER: fiFI% = TL_FONT_IDX(idx%, c%)
+                    IF fiFI% >= 0 AND fiFI% < FONT_LIST_COUNT% THEN
+                        IF fontStyle$ = FONT_STYLE_ITALIC$ AND NOT FONT_LIST(fiFI%).hasItalic THEN fauxItalic% = TRUE
+                        IF fontStyle$ = FONT_STYLE_BOLDITALIC$ AND NOT FONT_LIST(fiFI%).hasBoldItalic THEN fauxItalic% = TRUE
+                    END IF
+                END IF
+                IF fauxItalic% THEN
+                    fauxItalicShear% = charH% \ 3
+                    IF fauxItalicShear% < 1 THEN fauxItalicShear% = 1
+                END IF
+            END IF
+        END IF
+
         ' Draw background color if not transparent — extend by 1px for faux bold
         IF _ALPHA32(bgColor~&) > 0 THEN
             LINE (drawX%, drawY%)-(drawX% + charW% - 1 + fauxBoldAdv%, drawY% + charH% - 1), bgColor~&, BF
@@ -523,8 +554,10 @@ SUB TEXT_LAYER_render (idx%, destImg&)
             shdY% = drawY% + TL_SHADOW_Y(idx%, c%)
             shdColor~& = TL_SHADOW_COLOR(idx%, c%)
             IF isBitmapFont% THEN
+                TEXT_LAYER_FAUX_ITALIC_SHEAR% = fauxItalicShear%
                 TEXT_LAYER_draw_bitmap_char TL_FONT_IDX(idx%, c%), ch$, shdX%, shdY%, shdColor~&, destImg&
                 IF fauxBoldAdv% THEN TEXT_LAYER_draw_bitmap_char TL_FONT_IDX(idx%, c%), ch$, shdX% + 1, shdY%, shdColor~&, destImg&
+                TEXT_LAYER_FAUX_ITALIC_SHEAR% = 0
             ELSE
                 _FONT fHandle&
                 COLOR shdColor~&
@@ -552,6 +585,7 @@ SUB TEXT_LAYER_render (idx%, destImg&)
 
             IF isBitmapFont% THEN
                 ' Bitmap outline: draw at offsets
+                TEXT_LAYER_FAUX_ITALIC_SHEAR% = fauxItalicShear%
                 IF outSize% = 1 THEN
                     ' 4-way optimization for size 1
                     TEXT_LAYER_draw_bitmap_char TL_FONT_IDX(idx%, c%), ch$, drawX% - 1, drawY%, outColor~&, destImg&
@@ -568,6 +602,7 @@ SUB TEXT_LAYER_render (idx%, destImg&)
                         NEXT odx%
                     NEXT ody%
                 END IF
+                TEXT_LAYER_FAUX_ITALIC_SHEAR% = 0
             ELSEIF isBuiltInFont% THEN
                 ' Built-in font outline: use _PRINTSTRING (native CP437)
                 _FONT fHandle&
@@ -629,9 +664,78 @@ SUB TEXT_LAYER_render (idx%, destImg&)
 
         ' --- Normal glyph ---
         IF isBitmapFont% THEN
+            TEXT_LAYER_FAUX_ITALIC_SHEAR% = fauxItalicShear%
             TEXT_LAYER_draw_bitmap_char TL_FONT_IDX(idx%, c%), ch$, drawX%, drawY%, fgColor~&, destImg&
             IF fauxBoldAdv% THEN
                 TEXT_LAYER_draw_bitmap_char TL_FONT_IDX(idx%, c%), ch$, drawX% + 1, drawY%, fgColor~&, destImg&
+            END IF
+            TEXT_LAYER_FAUX_ITALIC_SHEAR% = 0
+        ELSEIF fauxItalic% AND NOT isBitmapFont% THEN
+            ' Built-in/TTF faux italic: render to temp image, shear-copy row by row
+            DIM fiTmpW AS INTEGER, fiTmpH AS INTEGER
+            fiTmpW% = charW% + fauxItalicShear% + fauxBoldAdv% + 2
+            fiTmpH% = charH%
+            DIM fiTmp AS LONG
+            fiTmp& = _NEWIMAGE(fiTmpW%, fiTmpH%, 32)
+            IF fiTmp& < -1 THEN
+                ' Render character to temp image at offset for shear room
+                DIM fiSaveSrc AS LONG
+                fiSaveSrc& = _SOURCE
+                _DEST fiTmp&
+                CLS , _RGBA32(0, 0, 0, 0)
+                _FONT fHandle&
+                COLOR fgColor~&
+                _PRINTMODE _KEEPBACKGROUND
+                _CONTROLCHR OFF
+                IF isBuiltInFont% THEN
+                    _PRINTSTRING (fauxItalicShear%, 0), ch$
+                    IF fauxBoldAdv% THEN _PRINTSTRING (fauxItalicShear% + 1, 0), ch$
+                ELSE
+                    _UPRINTSTRING (fauxItalicShear%, 0), ch$
+                    IF fauxBoldAdv% THEN _UPRINTSTRING (fauxItalicShear% + 1, 0), ch$
+                END IF
+                _CONTROLCHR ON
+
+                ' Row-by-row shear copy to destination
+                DIM fiFgTrans AS INTEGER
+                fiFgTrans% = (_ALPHA32(fgColor~&) = 0)
+                _DEST destImg&
+                _SOURCE fiTmp&
+                IF fiFgTrans% THEN _DONTBLEND destImg&
+
+                DIM fiDW AS INTEGER, fiDH AS INTEGER
+                fiDW% = _WIDTH(destImg&)
+                fiDH% = _HEIGHT(destImg&)
+
+                DIM fiY AS INTEGER, fiCol AS INTEGER, fiSX AS INTEGER
+                DIM fiPC AS _UNSIGNED LONG
+                DIM fiFX AS INTEGER, fiFY AS INTEGER
+
+                FOR fiY% = 0 TO fiTmpH% - 1
+                    IF fiTmpH% > 1 THEN
+                        fiSX% = (fiTmpH% - 1 - fiY%) * fauxItalicShear% \ (fiTmpH% - 1)
+                    ELSE
+                        fiSX% = 0
+                    END IF
+                    FOR fiCol% = 0 TO fiTmpW% - 1
+                        fiPC~& = POINT(fiCol%, fiY%)
+                        IF _ALPHA32(fiPC~&) > 0 THEN
+                            fiFX% = drawX% + fiCol% - fauxItalicShear% + fiSX%
+                            fiFY% = drawY% + fiY%
+                            IF fiFX% >= 0 AND fiFX% < fiDW% AND fiFY% >= 0 AND fiFY% < fiDH% THEN
+                                IF fiFgTrans% THEN
+                                    PSET (fiFX%, fiFY%), _RGBA32(0, 0, 0, 0)
+                                ELSE
+                                    PSET (fiFX%, fiFY%), fiPC~&
+                                END IF
+                            END IF
+                        END IF
+                    NEXT fiCol%
+                NEXT fiY%
+
+                IF fiFgTrans% THEN _BLEND destImg&
+                _SOURCE fiSaveSrc&
+                _FREEIMAGE fiTmp&
             END IF
         ELSE
             ' When FG is transparent, use _DONTBLEND to write alpha=0 pixels directly
