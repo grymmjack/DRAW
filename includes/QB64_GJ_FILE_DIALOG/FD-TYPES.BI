@@ -17,7 +17,7 @@ CONST FD_MAX_FILENAME = 260          ' Max filename length
 CONST FD_MAX_FAVORITES = 32          ' Max bookmark entries
 CONST FD_MAX_FILTERS = 16            ' Max filter patterns
 CONST FD_MAX_COLUMNS = 4             ' Name, Type, Size, Modified
-CONST FD_MAX_THUMB_CACHE = 64        ' Thumbnail pool size
+CONST FD_MAX_THUMB_CACHE = 256       ' Thumbnail pool size
 CONST FD_MAX_PLACES = 24             ' Max places bar entries (drives + XDG + favorites)
 
 ' Dialog modes

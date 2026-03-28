@@ -21,12 +21,12 @@ SUB FD_RENDER_all
     ' Clear background
     CLS , FD_CLR_BG~&
 
-    ' Draw all components
+    ' Draw all components — content first, then chrome on top (for overdraw clipping)
+    FD_RENDER_content
     FD_RENDER_title_bar
     FD_RENDER_path_bar
     FD_RENDER_toolbar
     FD_RENDER_places
-    FD_RENDER_content
     FD_RENDER_preview
     FD_RENDER_status_bar
     FD_RENDER_button_bar
@@ -54,8 +54,13 @@ SUB FD_RENDER_blit
     oldDest = _DEST
     _DEST 0
 
-    ' Restore background
+    ' Clear screen to prevent ghost artifacts from stale backbuffer
+    CLS , _RGB32(0, 0, 0)
+
+    ' Restore background (full overwrite, no blending)
+    _DONTBLEND 0
     _PUTIMAGE , FD_STATE.screenShot, 0
+    _BLEND 0
 
     ' Blit dialog
     DIM sx AS INTEGER, sy AS INTEGER
@@ -567,8 +572,9 @@ SUB FD_RENDER_content_thumbs (x1 AS INTEGER, y1 AS INTEGER, w AS INTEGER, h AS I
         cellX = x1 + col * cellW
         cellY = y1 + row * cellH - FD_STATE.scrollOffset
 
-        IF cellY < y1 THEN _CONTINUE
-        IF cellY >= y1 + h THEN EXIT FOR
+        ' Allow 1 row overdraw above and below for smooth scroll clipping
+        IF cellY + cellH < y1 - cellH THEN _CONTINUE
+        IF cellY >= y1 + h + cellH THEN EXIT FOR
 
         entryIdx = FD_filtered(i)
 
@@ -588,18 +594,26 @@ SUB FD_RENDER_content_thumbs (x1 AS INTEGER, y1 AS INTEGER, w AS INTEGER, h AS I
             ' Folder icon (simple box)
             FD_RENDER_folder_icon thumbX, thumbY, FD_CFG.thumbSize
         ELSEIF FD_entries(entryIdx).thumbState = FD_THUMB_LOADED AND FD_entries(entryIdx).thumbHandle < -1 THEN
-            ' Draw thumbnail centered in cell
+            ' Validate handle is still valid (may have been evicted)
             DIM tw AS INTEGER, th AS INTEGER
             tw = _WIDTH(FD_entries(entryIdx).thumbHandle)
             th = _HEIGHT(FD_entries(entryIdx).thumbHandle)
-            DIM ox AS INTEGER, oy AS INTEGER
-            ox = thumbX + (FD_CFG.thumbSize - tw) \ 2
-            oy = thumbY + (FD_CFG.thumbSize - th) \ 2
+            IF tw <= 0 OR th <= 0 THEN
+                ' Handle was freed — reset to pending for reload
+                FD_entries(entryIdx).thumbHandle = -1
+                FD_entries(entryIdx).thumbState = FD_THUMB_PENDING
+                FD_RENDER_file_icon_large thumbX + (FD_CFG.thumbSize - 32) \ 2, thumbY + (FD_CFG.thumbSize - 32) \ 2, FD_entries(entryIdx)
+            ELSE
+                ' Draw thumbnail centered in cell
+                DIM ox AS INTEGER, oy AS INTEGER
+                ox = thumbX + (FD_CFG.thumbSize - tw) \ 2
+                oy = thumbY + (FD_CFG.thumbSize - th) \ 2
 
-            ' Checkerboard background for transparency
-            FD_RENDER_checkerboard ox, oy, tw, th
+                ' Checkerboard background for transparency
+                FD_RENDER_checkerboard ox, oy, tw, th
 
-            _PUTIMAGE (ox, oy)-(ox + tw - 1, oy + th - 1), FD_entries(entryIdx).thumbHandle
+                _PUTIMAGE (ox, oy)-(ox + tw - 1, oy + th - 1), FD_entries(entryIdx).thumbHandle
+            END IF
         ELSE
             ' File icon placeholder
             FD_RENDER_file_icon_large thumbX + (FD_CFG.thumbSize - 32) \ 2, thumbY + (FD_CFG.thumbSize - 32) \ 2, FD_entries(entryIdx)

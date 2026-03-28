@@ -8,7 +8,7 @@ OPTION _EXPLICITARRAY
 ' Proves the library works independently from DRAW.
 ' ============================================================================
 
-SCREEN _NEWIMAGE(1024, 768, 32)
+SCREEN _NEWIMAGE(1920, 1080, 32)
 _TITLE "File Dialog Test"
 
 '$INCLUDE:'FILE-DIALOG.BI'
