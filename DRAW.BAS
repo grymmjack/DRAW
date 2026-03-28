@@ -464,11 +464,12 @@ SUB MAIN_shutdown ()
     CONFIG_save
 
     IF CFG.DISPLAY_SCALE_CHANGED% THEN
-        DIM save_result AS LONG
+        DIM save_result AS INTEGER
         POINTER_hide_for_dialog
-        save_result& = _MESSAGEBOX("Save Configuration?", "Display scale changed to " + _TRIM$(STR$(SCRN.displayScale%)) + "x. Save configuration for next time?", "yesno", "question", 0)
+        save_result% = MB_confirm%("Save Configuration?", "Display scale changed to " + _TRIM$(STR$(SCRN.displayScale%)) + "x. Save configuration for next time?")
         POINTER_show_after_dialog
-        IF save_result& = 1 THEN
+        MOUSE_cleanup_after_dialog FALSE
+        IF save_result% THEN
             CFG.DISPLAY_SCALE% = SCRN.displayScale%
             CONFIG_save
         END IF
