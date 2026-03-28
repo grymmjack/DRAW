@@ -1,0 +1,255 @@
+'$INCLUDEONCE
+
+' ============================================================================
+' FD-THUMB.BM — Lazy thumbnail loading and cache management
+'
+' Loads ONE thumbnail per frame to avoid stutter.
+' Uses LRU eviction when the cache pool is full.
+'
+' (c) 2026 grymmjack — MIT License
+' ============================================================================
+
+' --------------------------------------------------------------------------
+' FD_THUMB_init — Initialize thumbnail cache
+' --------------------------------------------------------------------------
+SUB FD_THUMB_init
+    DIM i AS INTEGER
+    FOR i = 0 TO FD_MAX_THUMB_CACHE - 1
+        FD_thumbs(i).filePath = ""
+        FD_thumbs(i).imgHandle = -1
+        FD_thumbs(i).lastUsed = 0
+        FD_thumbs(i).inUse = 0
+    NEXT i
+    FD_THUMB_CACHE.loadQueue = 0
+    FD_THUMB_CACHE.loadActive = 0
+    FD_THUMB_CACHE.cacheHits = 0
+    FD_THUMB_CACHE.cacheMisses = 0
+END SUB
+
+' --------------------------------------------------------------------------
+' FD_THUMB_invalidate_all — Free all cached thumbnails (on directory change)
+' --------------------------------------------------------------------------
+SUB FD_THUMB_invalidate_all
+    DIM i AS INTEGER
+    FOR i = 0 TO FD_MAX_THUMB_CACHE - 1
+        IF FD_thumbs(i).inUse AND FD_thumbs(i).imgHandle < -1 THEN
+            _FREEIMAGE FD_thumbs(i).imgHandle
+        END IF
+        FD_thumbs(i).filePath = ""
+        FD_thumbs(i).imgHandle = -1
+        FD_thumbs(i).lastUsed = 0
+        FD_thumbs(i).inUse = 0
+    NEXT i
+    FD_THUMB_CACHE.loadQueue = 0
+END SUB
+
+' --------------------------------------------------------------------------
+' FD_THUMB_cleanup — Free all handles on dialog close
+' --------------------------------------------------------------------------
+SUB FD_THUMB_cleanup
+    FD_THUMB_invalidate_all
+END SUB
+
+' --------------------------------------------------------------------------
+' FD_THUMB_find_cached& — Look up file in cache, return image handle or -1
+' --------------------------------------------------------------------------
+FUNCTION FD_THUMB_find_cached& (fullPath AS STRING)
+    DIM i AS INTEGER
+    FOR i = 0 TO FD_MAX_THUMB_CACHE - 1
+        IF FD_thumbs(i).inUse THEN
+            IF RTRIM$(FD_thumbs(i).filePath) = fullPath THEN
+                FD_thumbs(i).lastUsed = TIMER(.001)
+                FD_THUMB_CACHE.cacheHits = FD_THUMB_CACHE.cacheHits + 1
+                FD_THUMB_find_cached& = FD_thumbs(i).imgHandle
+                EXIT FUNCTION
+            END IF
+        END IF
+    NEXT i
+    FD_THUMB_CACHE.cacheMisses = FD_THUMB_CACHE.cacheMisses + 1
+    FD_THUMB_find_cached& = -1
+END FUNCTION
+
+' --------------------------------------------------------------------------
+' FD_THUMB_evict_lru% — Find least-recently-used slot, free it, return index
+' --------------------------------------------------------------------------
+FUNCTION FD_THUMB_evict_lru%
+    DIM i AS INTEGER
+    DIM oldest AS INTEGER
+    DIM oldestTime AS DOUBLE
+
+    ' Try to find a free slot first
+    FOR i = 0 TO FD_MAX_THUMB_CACHE - 1
+        IF NOT FD_thumbs(i).inUse THEN
+            FD_THUMB_evict_lru% = i
+            EXIT FUNCTION
+        END IF
+    NEXT i
+
+    ' All slots occupied — evict LRU
+    oldest = 0
+    oldestTime = FD_thumbs(0).lastUsed
+    FOR i = 1 TO FD_MAX_THUMB_CACHE - 1
+        IF FD_thumbs(i).lastUsed < oldestTime THEN
+            oldestTime = FD_thumbs(i).lastUsed
+            oldest = i
+        END IF
+    NEXT i
+
+    ' Free the evicted handle
+    IF FD_thumbs(oldest).imgHandle < -1 THEN
+        _FREEIMAGE FD_thumbs(oldest).imgHandle
+    END IF
+    FD_thumbs(oldest).inUse = 0
+    FD_thumbs(oldest).imgHandle = -1
+
+    FD_THUMB_evict_lru% = oldest
+END FUNCTION
+
+' --------------------------------------------------------------------------
+' FD_THUMB_load_one — Load a single thumbnail and store in cache
+'   Returns the cached image handle, or -1 on failure
+' --------------------------------------------------------------------------
+FUNCTION FD_THUMB_load_one& (fullPath AS STRING, thumbSize AS INTEGER)
+    ' Check cache first
+    DIM cached AS LONG
+    cached = FD_THUMB_find_cached&(fullPath)
+    IF cached < -1 THEN
+        FD_THUMB_load_one& = cached
+        EXIT FUNCTION
+    END IF
+
+    ' Try to load the image
+    DIM rawImg AS LONG
+    rawImg = _LOADIMAGE(fullPath, 32)
+    IF rawImg = -1 OR rawImg >= 0 THEN
+        FD_THUMB_load_one& = -1
+        EXIT FUNCTION
+    END IF
+
+    ' Scale to thumbnail size maintaining aspect ratio
+    DIM srcW AS INTEGER, srcH AS INTEGER
+    DIM dstW AS INTEGER, dstH AS INTEGER
+    DIM scale AS SINGLE
+    srcW = _WIDTH(rawImg)
+    srcH = _HEIGHT(rawImg)
+    IF srcW <= 0 OR srcH <= 0 THEN
+        _FREEIMAGE rawImg
+        FD_THUMB_load_one& = -1
+        EXIT FUNCTION
+    END IF
+
+    IF srcW >= srcH THEN
+        scale = thumbSize / srcW
+    ELSE
+        scale = thumbSize / srcH
+    END IF
+    ' Allow upscaling so small images fill the cell
+
+    dstW = INT(srcW * scale)
+    dstH = INT(srcH * scale)
+    IF dstW < 1 THEN dstW = 1
+    IF dstH < 1 THEN dstH = 1
+
+    DIM thumbImg AS LONG
+    thumbImg = _NEWIMAGE(dstW, dstH, 32)
+    IF thumbImg = -1 OR thumbImg >= 0 THEN
+        _FREEIMAGE rawImg
+        FD_THUMB_load_one& = -1
+        EXIT FUNCTION
+    END IF
+
+    ' Nearest-neighbor scale using _MEM for crisp pixel edges
+    DIM srcMem AS _MEM, dstMem AS _MEM
+    srcMem = _MEMIMAGE(rawImg)
+    dstMem = _MEMIMAGE(thumbImg)
+    DIM dy AS INTEGER, dx AS INTEGER
+    DIM sy AS INTEGER, sx AS INTEGER
+    DIM pixel AS _UNSIGNED LONG
+    FOR dy = 0 TO dstH - 1
+        sy = INT(dy / scale)
+        IF sy >= srcH THEN sy = srcH - 1
+        FOR dx = 0 TO dstW - 1
+            sx = INT(dx / scale)
+            IF sx >= srcW THEN sx = srcW - 1
+            _MEMGET srcMem, srcMem.OFFSET + (sy * srcW + sx) * 4, pixel
+            _MEMPUT dstMem, dstMem.OFFSET + (dy * dstW + dx) * 4, pixel
+        NEXT dx
+    NEXT dy
+    _MEMFREE srcMem
+    _MEMFREE dstMem
+    _FREEIMAGE rawImg
+
+    ' Store in cache
+    DIM slot AS INTEGER
+    slot = FD_THUMB_evict_lru%
+    FD_thumbs(slot).filePath = fullPath
+    FD_thumbs(slot).imgHandle = thumbImg
+    FD_thumbs(slot).lastUsed = TIMER(.001)
+    FD_thumbs(slot).inUse = -1
+
+    FD_THUMB_load_one& = thumbImg
+END FUNCTION
+
+' --------------------------------------------------------------------------
+' FD_THUMB_tick — Load up to one thumbnail per frame for visible entries
+'   Call once per frame. Scans filtered entries near the scroll position.
+' --------------------------------------------------------------------------
+SUB FD_THUMB_tick
+    IF FD_STATE.visibleCount = 0 THEN EXIT SUB
+    IF FD_CFG.viewMode <> FD_VIEW_THUMBNAILS THEN EXIT SUB
+
+    ' Calculate visible range
+    DIM startRow AS INTEGER, endRow AS INTEGER
+    DIM cols AS INTEGER
+    cols = FD_STATE.contentW \ (FD_CFG.thumbSize + FD_PADDING * 2)
+    IF cols < 1 THEN cols = 1
+
+    startRow = FD_STATE.scrollOffset \ (FD_CFG.thumbSize + FD_PADDING * 2 + FD_ROW_HEIGHT)
+    DIM startIdx AS INTEGER
+    startIdx = startRow * cols
+    IF startIdx < 0 THEN startIdx = 0
+
+    DIM visibleItems AS INTEGER
+    DIM endIdx AS INTEGER
+    visibleItems = ((FD_STATE.contentH \ (FD_CFG.thumbSize + FD_PADDING * 2 + FD_ROW_HEIGHT)) + 2) * cols
+    endIdx = startIdx + visibleItems
+    IF endIdx > FD_STATE.visibleCount THEN endIdx = FD_STATE.visibleCount
+
+    ' Find first visible entry needing a thumbnail
+    DIM i AS INTEGER
+    DIM entryIdx AS INTEGER
+    DIM fullPath AS STRING
+    DIM sep AS STRING
+    sep = FD_PLAT_get_separator$
+
+    FOR i = startIdx TO endIdx - 1
+        entryIdx = FD_filtered(i)
+        IF FD_entries(entryIdx).isDirectory THEN _CONTINUE
+        IF FD_entries(entryIdx).thumbState <> FD_THUMB_PENDING THEN _CONTINUE
+
+        ' Check if this is an image file
+        IF NOT FD_FS_is_image_ext%(RTRIM$(FD_entries(entryIdx).extension)) THEN
+            FD_entries(entryIdx).thumbState = FD_THUMB_NOT_IMAGE
+            _CONTINUE
+        END IF
+
+        ' Build full path
+        DIM curPath AS STRING
+        curPath = RTRIM$(FD_STATE.currentPath)
+        fullPath = FD_PLAT_path_join$(curPath, RTRIM$(FD_entries(entryIdx).fileName))
+
+        ' Load it
+        FD_entries(entryIdx).thumbState = FD_THUMB_LOADING
+        DIM handle AS LONG
+        handle = FD_THUMB_load_one&(fullPath, FD_CFG.thumbSize)
+        IF handle < -1 THEN
+            FD_entries(entryIdx).thumbHandle = handle
+            FD_entries(entryIdx).thumbState = FD_THUMB_LOADED
+        ELSE
+            FD_entries(entryIdx).thumbState = FD_THUMB_FAILED
+        END IF
+
+        FD_STATE.dirty = -1
+        EXIT SUB  ' Only one per frame
+    NEXT i
+END SUB

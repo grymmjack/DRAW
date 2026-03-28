@@ -1,0 +1,351 @@
+'$INCLUDEONCE
+
+' ============================================================================
+' TI-RENDER.BM — Rendering routines for text input widget
+'
+' Draws to current _DEST. Caller sets _DEST before calling.
+' Uses 8x16 default QB64 font (_PRINTSTRING).
+'
+' (c) 2026 grymmjack — MIT License
+' ============================================================================
+
+' --------------------------------------------------------------------------
+' TI_render — Draw a single text input to the current _DEST
+'   Caller must have set _DEST already.
+'   offsetX, offsetY: screen offset (e.g. if drawing inside a dialog buffer)
+' --------------------------------------------------------------------------
+SUB TI_render (id AS INTEGER, offsetX AS INTEGER, offsetY AS INTEGER)
+    IF id < 1 OR id > TI_MAX_INPUTS THEN EXIT SUB
+    IF NOT TI_inputs(id).active THEN EXIT SUB
+
+    DIM x1 AS INTEGER, y1 AS INTEGER
+    DIM w AS INTEGER, h AS INTEGER
+    x1 = TI_inputs(id).x - offsetX
+    y1 = TI_inputs(id).y - offsetY
+    w = TI_inputs(id).w
+    h = TI_inputs(id).h
+
+    ' --- Resolve colors (instance override or defaults) ---
+    DIM bgClr AS _UNSIGNED LONG, borderClr AS _UNSIGNED LONG
+    DIM txtClr AS _UNSIGNED LONG, curClr AS _UNSIGNED LONG
+    DIM selClr AS _UNSIGNED LONG, phClr AS _UNSIGNED LONG
+
+    IF TI_inputs(id).focused THEN
+        bgClr = TI_inputs(id).theme.focusBgColor
+        IF bgClr = 0 THEN bgClr = TI_DEFAULT_FOCUS_BG~&
+        borderClr = TI_inputs(id).theme.focusBorderColor
+        IF borderClr = 0 THEN borderClr = TI_DEFAULT_FOCUS_BORDER~&
+    ELSE
+        IF TI_inputs(id).readOnly THEN
+            bgClr = TI_inputs(id).theme.readonlyBgColor
+            IF bgClr = 0 THEN bgClr = TI_DEFAULT_READONLY_BG~&
+        ELSE
+            bgClr = TI_inputs(id).theme.bgColor
+            IF bgClr = 0 THEN bgClr = TI_DEFAULT_BG~&
+        END IF
+        borderClr = TI_inputs(id).theme.borderColor
+        IF borderClr = 0 THEN borderClr = TI_DEFAULT_BORDER~&
+    END IF
+
+    txtClr = TI_inputs(id).theme.textColor
+    IF txtClr = 0 THEN txtClr = TI_DEFAULT_TEXT~&
+    curClr = TI_inputs(id).theme.cursorColor
+    IF curClr = 0 THEN curClr = TI_DEFAULT_CURSOR~&
+    selClr = TI_inputs(id).theme.selectionColor
+    IF selClr = 0 THEN selClr = TI_DEFAULT_SELECTION~&
+    phClr = TI_inputs(id).theme.placeholderColor
+    IF phClr = 0 THEN phClr = TI_DEFAULT_PLACEHOLDER~&
+
+    ' --- Background ---
+    LINE (x1, y1)-(x1 + w - 1, y1 + h - 1), bgClr, BF
+
+    ' --- Border ---
+    LINE (x1, y1)-(x1 + w - 1, y1 + h - 1), borderClr, B
+
+    ' --- Get display text ---
+    DIM t AS STRING
+    t = LEFT$(TI_inputs(id).text, TI_inputs(id).textLen)
+
+    ' --- Clip region ---
+    DIM textX AS INTEGER, textY AS INTEGER
+    DIM visibleW AS INTEGER
+    textX = x1 + TI_SCROLL_PADDING
+    textY = y1 + TI_SCROLL_PADDING
+    visibleW = w - TI_SCROLL_PADDING * 2
+
+    ' --- Branch: multiline vs single-line ---
+    IF TI_inputs(id).multiline THEN
+        TI__render_multiline id, x1, y1, w, h, t, txtClr, curClr, selClr, phClr, bgClr
+    ELSE
+        ' Single-line rendering (original path)
+        DIM singleTextY AS INTEGER
+        singleTextY = y1 + (h - 16) \ 2   ' Center 16px font vertically
+
+        ' --- Show placeholder if empty and unfocused ---
+        IF LEN(t) = 0 AND NOT TI_inputs(id).focused THEN
+            DIM ph AS STRING
+            ph = RTRIM$(TI_inputs(id).placeholder)
+            IF LEN(ph) > 0 THEN
+                DIM maxPH AS INTEGER
+                maxPH = visibleW \ 8
+                IF LEN(ph) > maxPH THEN ph = LEFT$(ph, maxPH)
+                COLOR phClr, _RGBA32(0, 0, 0, 0)
+                _PRINTSTRING (textX, singleTextY), ph
+            END IF
+            TI_inputs(id).dirty = 0
+            EXIT SUB
+        END IF
+
+        ' --- Password masking ---
+        DIM displayText AS STRING
+        IF TI_inputs(id).password THEN
+            displayText = STRING$(LEN(t), ASC("*"))
+        ELSE
+            displayText = t
+        END IF
+
+        ' --- Calculate visible portion ---
+        DIM scrollPx AS INTEGER
+        scrollPx = TI_inputs(id).scrollX
+        DIM startChar AS INTEGER, endChar AS INTEGER
+        startChar = scrollPx \ 8
+        IF startChar < 0 THEN startChar = 0
+        endChar = startChar + (visibleW \ 8) + 2
+        IF endChar > LEN(displayText) THEN endChar = LEN(displayText)
+
+        ' --- Draw selection highlight ---
+        IF TI_inputs(id).selStart >= 0 AND TI_inputs(id).selStart <> TI_inputs(id).selEnd THEN
+            DIM s1 AS INTEGER, s2 AS INTEGER
+            IF TI_inputs(id).selStart < TI_inputs(id).selEnd THEN
+                s1 = TI_inputs(id).selStart
+                s2 = TI_inputs(id).selEnd
+            ELSE
+                s1 = TI_inputs(id).selEnd
+                s2 = TI_inputs(id).selStart
+            END IF
+
+            DIM selX1 AS INTEGER, selX2 AS INTEGER
+            selX1 = textX + s1 * 8 - scrollPx
+            selX2 = textX + s2 * 8 - scrollPx
+
+            ' Clamp to visible area
+            IF selX1 < textX THEN selX1 = textX
+            IF selX2 > textX + visibleW THEN selX2 = textX + visibleW
+
+            IF selX2 > selX1 THEN
+                LINE (selX1, y1 + 2)-(selX2 - 1, y1 + h - 3), selClr, BF
+            END IF
+        END IF
+
+        ' --- Draw text character by character (clipped) ---
+        DIM ci AS INTEGER
+        COLOR txtClr, _RGBA32(0, 0, 0, 0)
+        FOR ci = startChar TO endChar - 1
+            DIM charX AS INTEGER
+            charX = textX + ci * 8 - scrollPx
+            IF charX >= textX - 8 AND charX < textX + visibleW THEN
+                _PRINTSTRING (charX, singleTextY), MID$(displayText, ci + 1, 1)
+            END IF
+        NEXT ci
+
+        ' --- Draw cursor ---
+        IF TI_inputs(id).focused AND TI_inputs(id).cursorBlink THEN
+            DIM curX AS INTEGER
+            curX = textX + TI_inputs(id).cursorPos * 8 - scrollPx
+            IF curX >= x1 AND curX < x1 + w THEN
+                LINE (curX, y1 + 3)-(curX, y1 + h - 4), curClr
+            END IF
+        END IF
+    END IF
+
+    TI_inputs(id).dirty = 0
+END SUB
+
+' --------------------------------------------------------------------------
+' TI__render_multiline — Internal: render a multiline text area
+' --------------------------------------------------------------------------
+SUB TI__render_multiline (id AS INTEGER, x1 AS INTEGER, y1 AS INTEGER, w AS INTEGER, h AS INTEGER, t AS STRING, txtClr AS _UNSIGNED LONG, curClr AS _UNSIGNED LONG, selClr AS _UNSIGNED LONG, phClr AS _UNSIGNED LONG, bgClr AS _UNSIGNED LONG)
+    DIM textX AS INTEGER, textY AS INTEGER
+    DIM visibleW AS INTEGER, visibleH AS INTEGER
+    textX = x1 + TI_SCROLL_PADDING
+    textY = y1 + TI_SCROLL_PADDING
+    visibleW = w - TI_SCROLL_PADDING * 2
+    visibleH = h - TI_SCROLL_PADDING * 2
+
+    DIM scrollPxX AS INTEGER, scrollPxY AS INTEGER
+    scrollPxX = TI_inputs(id).scrollX
+    scrollPxY = TI_inputs(id).scrollY
+
+    ' --- Show placeholder if empty and unfocused ---
+    IF LEN(t) = 0 AND NOT TI_inputs(id).focused THEN
+        DIM phStr AS STRING
+        phStr = RTRIM$(TI_inputs(id).placeholder)
+        IF LEN(phStr) > 0 THEN
+            DIM maxPHC AS INTEGER
+            maxPHC = visibleW \ 8
+            IF LEN(phStr) > maxPHC THEN phStr = LEFT$(phStr, maxPHC)
+            COLOR phClr, _RGBA32(0, 0, 0, 0)
+            _PRINTSTRING (textX, textY), phStr
+        END IF
+        EXIT SUB
+    END IF
+
+    ' --- Determine selection range ---
+    DIM hasSel AS INTEGER
+    DIM selMin AS INTEGER, selMax AS INTEGER
+    hasSel = (TI_inputs(id).selStart >= 0 AND TI_inputs(id).selStart <> TI_inputs(id).selEnd)
+    IF hasSel THEN
+        IF TI_inputs(id).selStart < TI_inputs(id).selEnd THEN
+            selMin = TI_inputs(id).selStart
+            selMax = TI_inputs(id).selEnd
+        ELSE
+            selMin = TI_inputs(id).selEnd
+            selMax = TI_inputs(id).selStart
+        END IF
+    END IF
+
+    ' --- Get cursor row/col for cursor drawing ---
+    DIM curRow AS INTEGER, curCol AS INTEGER
+    curRow = TI__cursor_row%(id)
+    curCol = TI__cursor_col%(id)
+
+    ' --- Calculate visible row range ---
+    DIM firstVisRow AS INTEGER, lastVisRow AS INTEGER
+    firstVisRow = scrollPxY \ 16
+    IF firstVisRow < 0 THEN firstVisRow = 0
+    lastVisRow = (scrollPxY + visibleH) \ 16 + 1
+
+    ' --- Draw lines ---
+    DIM lineRow AS INTEGER
+    DIM lineBegin AS INTEGER   ' flat offset of line start
+    DIM charIdx AS INTEGER     ' current flat char index
+    lineRow = 0
+    lineBegin = 0
+    charIdx = 0
+
+    ' Walk through the text, tracking line boundaries
+    DIM lineStr AS STRING
+    DIM textLen AS INTEGER
+    textLen = LEN(t)
+
+    DO
+        ' Find end of current line
+        DIM lineEnd AS INTEGER
+        lineEnd = charIdx
+        DO WHILE lineEnd < textLen
+            IF MID$(t, lineEnd + 1, 1) = CHR$(10) THEN EXIT DO
+            lineEnd = lineEnd + 1
+        LOOP
+
+        ' lineBegin..lineEnd is the current line (excluding newline)
+        lineStr = MID$(t, lineBegin + 1, lineEnd - lineBegin)
+
+        ' Only draw if within visible area
+        DIM rowPxY AS INTEGER
+        rowPxY = textY + lineRow * 16 - scrollPxY
+
+        IF rowPxY + 16 >= y1 AND rowPxY < y1 + h THEN
+            ' --- Draw selection highlight for this line ---
+            IF hasSel THEN
+                ' Calculate selection overlap with this line
+                DIM lineSelStart AS INTEGER, lineSelEnd AS INTEGER
+                lineSelStart = selMin - lineBegin
+                lineSelEnd = selMax - lineBegin
+                IF lineSelStart < 0 THEN lineSelStart = 0
+                IF lineSelEnd > LEN(lineStr) THEN lineSelEnd = LEN(lineStr)
+                ' If selection spans past this line's newline, extend to full line width
+                IF selMax > lineEnd AND selMin <= lineEnd THEN
+                    lineSelEnd = LEN(lineStr) + 1
+                END IF
+
+                IF lineSelEnd > lineSelStart AND selMax > lineBegin AND selMin <= lineEnd THEN
+                    DIM slX1 AS INTEGER, slX2 AS INTEGER
+                    slX1 = textX + lineSelStart * 8 - scrollPxX
+                    slX2 = textX + lineSelEnd * 8 - scrollPxX
+                    IF slX1 < textX THEN slX1 = textX
+                    IF slX2 > textX + visibleW THEN slX2 = textX + visibleW
+                    IF slX2 > slX1 AND rowPxY >= y1 AND rowPxY + 16 <= y1 + h THEN
+                        LINE (slX1, rowPxY)-(slX2 - 1, rowPxY + 15), selClr, BF
+                    END IF
+                END IF
+            END IF
+
+            ' --- Draw text ---
+            COLOR txtClr, _RGBA32(0, 0, 0, 0)
+            DIM ci AS INTEGER
+            DIM startC AS INTEGER, endC AS INTEGER
+            startC = scrollPxX \ 8
+            IF startC < 0 THEN startC = 0
+            endC = startC + (visibleW \ 8) + 2
+            IF endC > LEN(lineStr) THEN endC = LEN(lineStr)
+
+            FOR ci = startC TO endC - 1
+                DIM cxPos AS INTEGER
+                cxPos = textX + ci * 8 - scrollPxX
+                IF cxPos >= textX - 8 AND cxPos < textX + visibleW THEN
+                    IF rowPxY >= y1 AND rowPxY + 16 <= y1 + h THEN
+                        _PRINTSTRING (cxPos, rowPxY), MID$(lineStr, ci + 1, 1)
+                    END IF
+                END IF
+            NEXT ci
+
+            ' --- Draw cursor on this line ---
+            IF TI_inputs(id).focused AND TI_inputs(id).cursorBlink THEN
+                IF lineRow = curRow THEN
+                    DIM curXM AS INTEGER
+                    curXM = textX + curCol * 8 - scrollPxX
+                    IF curXM >= x1 AND curXM < x1 + w THEN
+                        IF rowPxY >= y1 AND rowPxY + 16 <= y1 + h THEN
+                            LINE (curXM, rowPxY + 1)-(curXM, rowPxY + 14), curClr
+                        END IF
+                    END IF
+                END IF
+            END IF
+        END IF
+
+        ' Advance to next line
+        lineRow = lineRow + 1
+        IF lineEnd < textLen THEN
+            charIdx = lineEnd + 1   ' skip the newline
+        ELSE
+            EXIT DO
+        END IF
+        lineBegin = charIdx
+
+        ' Stop if beyond visible area
+        IF lineRow * 16 - scrollPxY > visibleH + 16 THEN EXIT DO
+    LOOP
+
+    ' --- Draw scrollbar indicator (if content overflows) ---
+    DIM totalContentH AS INTEGER
+    totalContentH = TI__line_count%(id) * 16
+    IF totalContentH > visibleH THEN
+        DIM sbX AS INTEGER
+        sbX = x1 + w - 4
+        DIM sbTrackH AS INTEGER
+        sbTrackH = h - TI_SCROLL_PADDING * 2
+        DIM sbThumbH AS INTEGER
+        sbThumbH = (visibleH * sbTrackH) \ totalContentH
+        IF sbThumbH < 8 THEN sbThumbH = 8
+        DIM sbThumbY AS INTEGER
+        IF totalContentH - visibleH > 0 THEN
+            sbThumbY = textY + (scrollPxY * (sbTrackH - sbThumbH)) \ (totalContentH - visibleH)
+        ELSE
+            sbThumbY = textY
+        END IF
+        LINE (sbX, textY)-(sbX + 2, textY + sbTrackH - 1), bgClr, BF
+        LINE (sbX, sbThumbY)-(sbX + 2, sbThumbY + sbThumbH - 1), curClr, BF
+    END IF
+END SUB
+
+' --------------------------------------------------------------------------
+' TI_render_all — Draw all active text inputs (convenience)
+' --------------------------------------------------------------------------
+SUB TI_render_all (offsetX AS INTEGER, offsetY AS INTEGER)
+    DIM i AS INTEGER
+    FOR i = 1 TO TI_MAX_INPUTS
+        IF TI_inputs(i).active THEN
+            TI_render i, offsetX, offsetY
+        END IF
+    NEXT i
+END SUB
