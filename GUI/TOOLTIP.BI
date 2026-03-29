@@ -20,6 +20,7 @@ TYPE TOOLTIP_OBJ
     HOVER_SOURCE    AS INTEGER      ' Which UI area: TOOLTIP_SRC_* constant
     HOVER_START     AS DOUBLE       ' TIMER value when hover began
     FONT_HANDLE     AS LONG         ' Loaded font handle for tooltip text
+    NEEDS_REDRAW    AS INTEGER      ' One-shot: set on state change, cleared after render
 END TYPE
 
 DIM SHARED TOOLTIP AS TOOLTIP_OBJ
