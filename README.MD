@@ -14,9 +14,9 @@ DATA "::::::::", "::    ::", "::    ::", "::::  ::::", "  ::  ::  "
 
 DRAW is a pixel art editor written in QB64PE that can export images as sourcecode
 
-Current release: v0.26.0
+Current release: v0.27.0
 
-![DRAW GUI from v0.26.0](./GUI.png)
+![DRAW GUI from v0.27.0](./GUI.png)
 
 ## Features
 
@@ -73,6 +73,9 @@ Current release: v0.26.0
 - **Palette Strip** - Shows current palette colors with scroll arrows for large palettes
 - **Palette Dropdown** - Click palette name to switch between available palettes
 - **Palette Workflows** - Load downloadable palettes from Lospec, create palettes from images, remap artwork to the active palette, and optionally include downloaded/user-created palettes in the picker
+- **Palette Ops Mode** - Toggle via organizer button to manage palette directly on the strip: double-click to change color (replaces on canvas), right-click to mark, middle-click to delete (remaps to nearest neighbor), shift+middle to insert, drag to rearrange, single-click for magic wand select
+- **[DOCUMENT] Palette** - Auto-created when palette ops modifies colors; embedded in DRW files; switch back via palette dropdown
+- **Palette Import/Export** - Import and export palettes as GIMP Palette (.gpl) files via the Palette menu
 - **Left-click swatch** - Select foreground color
 - **Right-click swatch** - Select background color
 - **Mouse wheel on strip** - Scroll through palette colors
@@ -147,6 +150,9 @@ Current release: v0.26.0
 - Smooth zoom and pan
 - Help button opens searchable command palette
 - **Tooltips** - Hover hints for toolbar buttons, organizer widgets, and drawer mini palette; toggleable via Help menu → Show Tooltips
+- **Settings Dialog** - GIMP-style tabbed settings interface for configuring application preferences
+- **About Screen** - Animated splash screen with version info and clickable GitHub link
+- **Custom GUI Dialogs** - Built-in color picker, message box, and file dialogs (QB64_GJ_LIB based)
 
 ## Quick Start
 

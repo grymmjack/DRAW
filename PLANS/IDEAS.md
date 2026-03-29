@@ -1,34 +1,5 @@
 # IDEAS
 
-## Palette Ops
-
-### States
-- Tracked when it is active in global.
-- Turn off when: clicking any other tool, using any other menu option
-- When active show image: `THEMES/{theme}/IMAGES/DRAWER/canvas-ops-on.png`
-- When inactive show image: `THEMES/{theme}/IMAGES/DRAWER/canvas-ops-off.png`
-- When L-CLICK turn on
-- When L-CLICK while on, turn off
-
-### Palette Ops should do this:
-- L-CLICK on Palette Ops button: 
-  1. Automatically remap to the current palette like Palette -> Remap to Palette.
-    - Present no dialog
-
-#### Pallete Ops Mode (when on)
-- Double L-CLICK on any palette strip color = Change color using custom color dialog
-- When the color has changed, automatically change the old color that was used in the image to the new color
-- L-CLICK on any palette strip color marquee magic-wand select across entire image the color chosen
-  - After a 500ms delay
-  - Deselect to remove wand selection
-- Middle-CLICK on any palette strip color = Delete color (but not on disk this is temporary)
-  - Deleted color if used in image should remap to next nearest neighbor
-- R-CLICK on any palette strip color mark it
-  - Marked colors can be deleted with middle click
-- SHIFT+Middle Click on any palette strip color = Insert new blank color between currently clicked color and the one next to it.
-- DRAG on any palette strip color to rearrange it
-- ALL of these click options should block/guard against similar gestures/hotkeys/states
-
 
 ## Color BITMAP fonts
 - See DEV/FONTS/COLOR_BITMAP
@@ -325,3 +296,34 @@ cell alignment inside, borders, border widths, border colors, etc.
   - [x] RGB
   - [x] HSL
 - [x] DRAW Settings Configuration Dialog
+
+
+## - [x] Palette Ops
+
+### States
+- Tracked when it is active in global.
+- Turn off when: clicking any other tool, using any other menu option
+- When active show image: `THEMES/{theme}/IMAGES/DRAWER/canvas-ops-on.png`
+- When inactive show image: `THEMES/{theme}/IMAGES/DRAWER/canvas-ops-off.png`
+- When L-CLICK turn on
+- When L-CLICK while on, turn off
+
+### Palette Ops should do this:
+- L-CLICK on Palette Ops button: 
+  1. Automatically remap to the current palette like Palette -> Remap to Palette.
+    - Present no dialog
+
+#### Pallete Ops Mode (when on)
+- Double L-CLICK on any palette strip color = Change color using custom color dialog
+- When the color has changed, automatically change the old color that was used in the image to the new color
+- L-CLICK on any palette strip color marquee magic-wand select across entire image the color chosen
+  - After a 500ms delay
+  - Deselect to remove wand selection
+- Middle-CLICK on any palette strip color = Delete color (but not on disk this is temporary)
+  - Deleted color if used in image should remap to next nearest neighbor
+- R-CLICK on any palette strip color mark it
+  - Marked colors can be deleted with middle click
+- SHIFT+Middle Click on any palette strip color = Insert new blank color between currently clicked color and the one next to it.
+- DRAG on any palette strip color to rearrange it
+- ALL of these click options should block/guard against similar gestures/hotkeys/states
+

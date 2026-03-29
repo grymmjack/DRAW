@@ -301,6 +301,10 @@ A frame is "idle" when no input, mouse movement, GUI changes, or active tool ope
 | `GUI/CHARMAP.BI/BM`       | Character map panel (16×16 glyph grid), Character Mode (useChars), virtual cursor, bitmap font rendering, char grid overlay |
 | `TOOLS/FILL-ADJ.BI/BM`   | Interactive Fill Adjustment overlay (F8) for custom brush and paint mode tiled fills; L-handle for independent X/Y scaling |
 | `GUI/CROSSHAIR.BI/BM`    | Crosshair assistant line rendering with configurable outline stroke |
+| `GUI/PALETTE-OPS.BI/BM`  | Palette Ops mode (on-strip palette editing: change, delete, insert, rearrange, wand select) with [DOCUMENT] palette auto-creation and snapshot/restore |
+| `GUI/GJ-DIALOG-SCALE.BM` | Custom GUI dialog wrappers (`DRAW_pick_color&`, `DRAW_open_file$`, `DRAW_save_file$`, `DRAW_msg_box`) injecting `CFG.TOOLBAR_SCALE%` into QB64_GJ_LIB dialogs |
+| `GUI/SETTINGS.BI/BM`     | GIMP-style tabbed settings dialog (General, Grid, Palette, Panels, Audio, Fonts, Appearance, Directories) |
+| `GUI/ABOUT.BI/BM`        | About screen dialog with animated logo, version, credits, clickable GitHub link |
 | `CFG/CONFIG.BI`           | Configuration structure                                             |
 | `CORE/SOUND.BI/BM`        | Sound constants, loader, playback SUBs                              |
 | `CHEATSHEET.md`           | All keyboard shortcuts                                              |
