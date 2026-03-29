@@ -10,34 +10,40 @@ wait_for 0.3 "Brush tool ready"
 key grave
 wait_for 0.1 "Pointer arrow hidden"
 
-# -- Snap viewport before --
+# -- Get to known state: ensure editbar is visible (F5 shows it) --
+# Editbar defaults hidden. Press F5 to show it first, wait, then test toggling.
+info "Ensuring editbar is visible (F5 to show)"
+key F5
+wait_for 0.8 "Edit bar shown"
+
+# -- Snap viewport with editbar visible --
 park_mouse
-snap_region 0 0 $VP_W $VP_H "editbar-before"
-BEFORE="$SNAP_RESULT"
+snap_region 0 0 $VP_W $VP_H "editbar-visible"
+VISIBLE="$SNAP_RESULT"
 assert_no_crash
 
-# -- Toggle edit bar: F5 --
-info "Toggling edit bar (F5)"
+# -- Toggle edit bar OFF: F5 --
+info "Hiding edit bar (F5)"
 key F5
-wait_for 0.5 "Edit bar toggled"
+wait_for 0.8 "Edit bar hidden"
 assert_no_crash
 
 park_mouse
-snap_region 0 0 $VP_W $VP_H "editbar-toggled"
-TOGGLED="$SNAP_RESULT"
-assert_regions_differ "$BEFORE" "$TOGGLED" "Edit bar toggle should change viewport"
-screenshot "editbar-toggled"
+snap_region 0 0 $VP_W $VP_H "editbar-hidden"
+HIDDEN="$SNAP_RESULT"
+assert_regions_differ "$VISIBLE" "$HIDDEN" "Edit bar toggle should change viewport"
+screenshot "editbar-hidden"
 
-# -- Toggle back: F5 --
-info "Toggling edit bar back (F5)"
+# -- Toggle edit bar ON again: F5 --
+info "Showing edit bar again (F5)"
 key F5
-wait_for 0.5 "Edit bar restored"
+wait_for 0.8 "Edit bar restored"
 assert_no_crash
 
 park_mouse
 snap_region 0 0 $VP_W $VP_H "editbar-restored"
 RESTORED="$SNAP_RESULT"
-assert_regions_differ "$TOGGLED" "$RESTORED" "Second F5 should restore original state"
+assert_regions_differ "$HIDDEN" "$RESTORED" "Second F5 should restore editbar"
 
 assert_window_exists
 info "=== Edit Bar Toggle Test PASSED ==="

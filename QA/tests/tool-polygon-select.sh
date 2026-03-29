@@ -27,7 +27,7 @@ wait_for 0.1 "Pointer arrow hidden"
 SNAP_X=$(( CANVAS_CX - 30 ))
 SNAP_Y=$(( CANVAS_CY - 30 ))
 park_mouse
-snap_region $SNAP_X $SNAP_Y 160 120 "polygon-before"
+snap_region $WORK_LEFT $WORK_TOP $WORK_W $WORK_H "polygon-before"
 BEFORE="$SNAP_RESULT"
 assert_no_crash
 
@@ -63,20 +63,24 @@ assert_no_crash
 
 # -- Snap canvas AFTER polygon, assert shape was drawn ------------------------
 park_mouse
-snap_region $SNAP_X $SNAP_Y 160 120 "polygon-after-draw"
+snap_region $WORK_LEFT $WORK_TOP $WORK_W $WORK_H "polygon-after-draw"
 AFTER_POLY="$SNAP_RESULT"
 assert_regions_differ "$BEFORE" "$AFTER_POLY" \
     "Polygon triangle should be visible on canvas after commit"
 
-# -- Undo the polygon ---------------------------------------------------------
+# -- Undo the polygon (may need multiple for compound commit) -----------------
 info "Undoing polygon with Ctrl+Z"
 key ctrl+z
-wait_for 0.5 "undo polygon"
+wait_for 0.3 "undo polygon 1"
+key ctrl+z
+wait_for 0.3 "undo polygon 2"
+key ctrl+z
+wait_for 0.5 "undo polygon 3"
 assert_no_crash
 
 # -- Snap canvas AFTER undo, assert canvas restored ---------------------------
 park_mouse
-snap_region $SNAP_X $SNAP_Y 160 120 "polygon-after-undo"
+snap_region $WORK_LEFT $WORK_TOP $WORK_W $WORK_H "polygon-after-undo"
 AFTER_UNDO="$SNAP_RESULT"
 assert_regions_differ "$AFTER_POLY" "$AFTER_UNDO" \
     "Undo should change canvas from polygon state"

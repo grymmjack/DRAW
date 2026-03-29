@@ -57,7 +57,7 @@ info "Test 2: Click canvas to start text entry"
 
 # Snap canvas center BEFORE clicking
 park_mouse
-snap_region $SNAP_X $SNAP_Y $SNAP_W $SNAP_H "text-canvas-before-click"
+snap_region $WORK_LEFT $WORK_TOP $WORK_W $WORK_H "text-canvas-before-click"
 BEFORE_CLICK="$SNAP_RESULT"
 
 # Click canvas to start editing (creates new text layer, blinking cursor)
@@ -67,7 +67,7 @@ assert_no_crash
 
 # Snap canvas center AFTER clicking — cursor should be visible
 park_mouse
-snap_region $SNAP_X $SNAP_Y $SNAP_W $SNAP_H "text-canvas-after-click"
+snap_region $WORK_LEFT $WORK_TOP $WORK_W $WORK_H "text-canvas-after-click"
 AFTER_CLICK="$SNAP_RESULT"
 assert_regions_differ "$BEFORE_CLICK" "$AFTER_CLICK" "Cursor should appear on canvas after click"
 pass "Test 2: Click canvas starts text entry with cursor"
@@ -79,7 +79,7 @@ info "Test 3: Type text on canvas"
 
 # Snap canvas BEFORE typing
 park_mouse
-snap_region $SNAP_X $SNAP_Y $SNAP_W $SNAP_H "text-before-type"
+snap_region $WORK_LEFT $WORK_TOP $WORK_W $WORK_H "text-before-type"
 BEFORE_TYPE="$SNAP_RESULT"
 
 # Type some text
@@ -89,7 +89,7 @@ assert_no_crash
 
 # Snap canvas AFTER typing — text should be visible
 park_mouse
-snap_region $SNAP_X $SNAP_Y $SNAP_W $SNAP_H "text-after-type"
+snap_region $WORK_LEFT $WORK_TOP $WORK_W $WORK_H "text-after-type"
 AFTER_TYPE="$SNAP_RESULT"
 assert_regions_differ "$BEFORE_TYPE" "$AFTER_TYPE" "Typed text should be visible on canvas"
 pass "Test 3: Typed text appears on canvas"
@@ -101,7 +101,7 @@ info "Test 4: Text-local undo (Ctrl+Z)"
 
 # Snap canvas with "Hello World"
 park_mouse
-snap_region $SNAP_X $SNAP_Y $SNAP_W $SNAP_H "text-before-undo"
+snap_region $WORK_LEFT $WORK_TOP $WORK_W $WORK_H "text-before-undo"
 BEFORE_UNDO="$SNAP_RESULT"
 
 # Undo several characters
@@ -115,7 +115,7 @@ assert_no_crash
 
 # Snap canvas AFTER undo — should differ (fewer characters)
 park_mouse
-snap_region $SNAP_X $SNAP_Y $SNAP_W $SNAP_H "text-after-undo"
+snap_region $WORK_LEFT $WORK_TOP $WORK_W $WORK_H "text-after-undo"
 AFTER_UNDO="$SNAP_RESULT"
 assert_regions_differ "$BEFORE_UNDO" "$AFTER_UNDO" "Text-local undo should remove characters"
 pass "Test 4: Text-local undo removes characters"
@@ -127,7 +127,7 @@ info "Test 5: Text-local redo (Ctrl+Y)"
 
 # Snap canvas after undo
 park_mouse
-snap_region $SNAP_X $SNAP_Y $SNAP_W $SNAP_H "text-before-redo"
+snap_region $WORK_LEFT $WORK_TOP $WORK_W $WORK_H "text-before-redo"
 BEFORE_REDO="$SNAP_RESULT"
 
 # Redo the undone characters
@@ -141,7 +141,7 @@ assert_no_crash
 
 # Snap canvas AFTER redo — should differ (characters restored)
 park_mouse
-snap_region $SNAP_X $SNAP_Y $SNAP_W $SNAP_H "text-after-redo"
+snap_region $WORK_LEFT $WORK_TOP $WORK_W $WORK_H "text-after-redo"
 AFTER_REDO="$SNAP_RESULT"
 assert_regions_differ "$BEFORE_REDO" "$AFTER_REDO" "Text-local redo should restore characters"
 pass "Test 5: Text-local redo restores characters"
@@ -153,7 +153,7 @@ info "Test 6: Backspace deletes character"
 
 # Snap canvas with full text
 park_mouse
-snap_region $SNAP_X $SNAP_Y $SNAP_W $SNAP_H "text-before-backspace"
+snap_region $WORK_LEFT $WORK_TOP $WORK_W $WORK_H "text-before-backspace"
 BEFORE_BS="$SNAP_RESULT"
 
 # Delete a few characters with Backspace
@@ -165,7 +165,7 @@ assert_no_crash
 
 # Snap canvas AFTER backspace
 park_mouse
-snap_region $SNAP_X $SNAP_Y $SNAP_W $SNAP_H "text-after-backspace"
+snap_region $WORK_LEFT $WORK_TOP $WORK_W $WORK_H "text-after-backspace"
 AFTER_BS="$SNAP_RESULT"
 assert_regions_differ "$BEFORE_BS" "$AFTER_BS" "Backspace should remove characters from canvas"
 pass "Test 6: Backspace removes characters"
@@ -183,7 +183,7 @@ info "Test 7: Enter key creates new line"
 
 # Snap canvas before newline
 park_mouse
-snap_region $SNAP_X $SNAP_Y $SNAP_W $SNAP_H "text-before-newline"
+snap_region $WORK_LEFT $WORK_TOP $WORK_W $WORK_H "text-before-newline"
 BEFORE_NL="$SNAP_RESULT"
 
 # Press Enter and type a second line
@@ -194,7 +194,7 @@ assert_no_crash
 
 # Snap canvas after newline
 park_mouse
-snap_region $SNAP_X $SNAP_Y $SNAP_W $SNAP_H "text-after-newline"
+snap_region $WORK_LEFT $WORK_TOP $WORK_W $WORK_H "text-after-newline"
 AFTER_NL="$SNAP_RESULT"
 assert_regions_differ "$BEFORE_NL" "$AFTER_NL" "Enter should create visible second line"
 pass "Test 7: Enter creates new line"
@@ -216,7 +216,7 @@ info "Test 8: Bold toggle (Ctrl+B)"
 
 # Snap canvas with current text
 park_mouse
-snap_region $SNAP_X $SNAP_Y $SNAP_W $SNAP_H "text-before-bold"
+snap_region $WORK_LEFT $WORK_TOP $WORK_W $WORK_H "text-before-bold"
 BEFORE_BOLD="$SNAP_RESULT"
 
 # Select all text, apply bold
@@ -232,7 +232,7 @@ wait_for 0.3 "Moved to end"
 
 # Snap canvas AFTER bold
 park_mouse
-snap_region $SNAP_X $SNAP_Y $SNAP_W $SNAP_H "text-after-bold"
+snap_region $WORK_LEFT $WORK_TOP $WORK_W $WORK_H "text-after-bold"
 AFTER_BOLD="$SNAP_RESULT"
 assert_regions_differ "$BEFORE_BOLD" "$AFTER_BOLD" "Bold toggle should change text rendering"
 pass "Test 8: Bold changes text rendering"
@@ -248,7 +248,7 @@ info "Test 9: Italic toggle (Ctrl+I)"
 
 # Snap canvas before italic
 park_mouse
-snap_region $SNAP_X $SNAP_Y $SNAP_W $SNAP_H "text-before-italic"
+snap_region $WORK_LEFT $WORK_TOP $WORK_W $WORK_H "text-before-italic"
 BEFORE_ITALIC="$SNAP_RESULT"
 
 # Select all, apply italic
@@ -264,7 +264,7 @@ wait_for 0.3 "Deselected"
 
 # Snap canvas AFTER italic
 park_mouse
-snap_region $SNAP_X $SNAP_Y $SNAP_W $SNAP_H "text-after-italic"
+snap_region $WORK_LEFT $WORK_TOP $WORK_W $WORK_H "text-after-italic"
 AFTER_ITALIC="$SNAP_RESULT"
 assert_regions_differ "$BEFORE_ITALIC" "$AFTER_ITALIC" "Italic toggle should change text rendering"
 pass "Test 9: Italic changes text rendering"
@@ -280,7 +280,7 @@ info "Test 10: Font size increase (Ctrl+Shift+.)"
 
 # Snap before size change
 park_mouse
-snap_region $SNAP_X $SNAP_Y $SNAP_W $SNAP_H "text-before-size-up"
+snap_region $WORK_LEFT $WORK_TOP $WORK_W $WORK_H "text-before-size-up"
 BEFORE_SIZE="$SNAP_RESULT"
 
 # Select all, increase font size several steps
@@ -298,7 +298,7 @@ wait_for 0.3 "Deselected"
 
 # Snap after size change
 park_mouse
-snap_region $SNAP_X $SNAP_Y $SNAP_W $SNAP_H "text-after-size-up"
+snap_region $WORK_LEFT $WORK_TOP $WORK_W $WORK_H "text-after-size-up"
 AFTER_SIZE="$SNAP_RESULT"
 assert_regions_differ "$BEFORE_SIZE" "$AFTER_SIZE" "Font size increase should change text rendering"
 pass "Test 10: Font size increase changes rendering"
@@ -316,17 +316,17 @@ info "Test 11: Select all (Ctrl+A)"
 
 # Snap before selection
 park_mouse
-snap_region $SNAP_X $SNAP_Y $SNAP_W $SNAP_H "text-before-select-all"
+snap_region $WORK_LEFT $WORK_TOP $WORK_W $WORK_H "text-before-select-all"
 BEFORE_SEL="$SNAP_RESULT"
 
 # Select all
 key ctrl+a
-wait_for 0.5 "Select all applied"
+wait_for 1.0 "Select all applied"
 assert_no_crash
 
 # Snap after selection — selection highlight should be visible
-park_mouse
-snap_region $SNAP_X $SNAP_Y $SNAP_W $SNAP_H "text-after-select-all"
+# NOTE: don't park_mouse — snap immediately while selection is fresh
+snap_region $WORK_LEFT $WORK_TOP $WORK_W $WORK_H "text-after-select-all"
 AFTER_SEL="$SNAP_RESULT"
 assert_regions_differ "$BEFORE_SEL" "$AFTER_SEL" "Select All should show selection highlight"
 pass "Test 11: Select All highlights text"
@@ -354,7 +354,7 @@ wait_for 0.3 "Newline added"
 
 # Snap before paste
 park_mouse
-snap_region $SNAP_X $SNAP_Y $SNAP_W $SNAP_H "text-before-paste"
+snap_region $WORK_LEFT $WORK_TOP $WORK_W $WORK_H "text-before-paste"
 BEFORE_PASTE="$SNAP_RESULT"
 
 # Paste
@@ -364,7 +364,7 @@ assert_no_crash
 
 # Snap after paste
 park_mouse
-snap_region $SNAP_X $SNAP_Y $SNAP_W $SNAP_H "text-after-paste"
+snap_region $WORK_LEFT $WORK_TOP $WORK_W $WORK_H "text-after-paste"
 AFTER_PASTE="$SNAP_RESULT"
 assert_regions_differ "$BEFORE_PASTE" "$AFTER_PASTE" "Paste should add copied text below"
 pass "Test 12: Copy and Paste works"
@@ -381,7 +381,7 @@ info "Test 13: Cut (Ctrl+X) removes text"
 
 # Snap before cut
 park_mouse
-snap_region $SNAP_X $SNAP_Y $SNAP_W $SNAP_H "text-before-cut"
+snap_region $WORK_LEFT $WORK_TOP $WORK_W $WORK_H "text-before-cut"
 BEFORE_CUT="$SNAP_RESULT"
 
 # Select all and cut
@@ -393,7 +393,7 @@ assert_no_crash
 
 # Snap after cut — canvas should differ (text removed)
 park_mouse
-snap_region $SNAP_X $SNAP_Y $SNAP_W $SNAP_H "text-after-cut"
+snap_region $WORK_LEFT $WORK_TOP $WORK_W $WORK_H "text-after-cut"
 AFTER_CUT="$SNAP_RESULT"
 assert_regions_differ "$BEFORE_CUT" "$AFTER_CUT" "Cut should remove text from canvas"
 pass "Test 13: Cut removes selected text"
@@ -409,7 +409,7 @@ info "Test 14: Escape commits text layer"
 
 # Snap canvas with text visible
 park_mouse
-snap_region $SNAP_X $SNAP_Y $SNAP_W $SNAP_H "text-before-escape-commit"
+snap_region $WORK_LEFT $WORK_TOP $WORK_W $WORK_H "text-before-escape-commit"
 BEFORE_COMMIT="$SNAP_RESULT"
 
 # Press Escape to commit
@@ -419,7 +419,7 @@ assert_no_crash
 
 # Snap canvas after commit — text should still be visible (committed, not deleted)
 park_mouse
-snap_region $SNAP_X $SNAP_Y $SNAP_W $SNAP_H "text-after-escape-commit"
+snap_region $WORK_LEFT $WORK_TOP $WORK_W $WORK_H "text-after-escape-commit"
 AFTER_COMMIT="$SNAP_RESULT"
 # Note: regions may differ slightly due to cursor disappearing, but text stays.
 # The key check is that DRAW didn't crash and text remains.
@@ -432,7 +432,7 @@ info "Test 15: Re-edit committed text layer"
 
 # We're now in IDLE state (text tool still active). Click on the text to re-edit.
 park_mouse
-snap_region $SNAP_X $SNAP_Y $SNAP_W $SNAP_H "text-before-reedit"
+snap_region $WORK_LEFT $WORK_TOP $WORK_W $WORK_H "text-before-reedit"
 BEFORE_REEDIT="$SNAP_RESULT"
 
 # Click on the canvas where text was placed to re-enter editing
@@ -442,7 +442,7 @@ assert_no_crash
 
 # Snap after re-edit — cursor should appear again
 park_mouse
-snap_region $SNAP_X $SNAP_Y $SNAP_W $SNAP_H "text-after-reedit"
+snap_region $WORK_LEFT $WORK_TOP $WORK_W $WORK_H "text-after-reedit"
 AFTER_REEDIT="$SNAP_RESULT"
 assert_regions_differ "$BEFORE_REEDIT" "$AFTER_REEDIT" "Re-edit should show cursor on text"
 pass "Test 15: Re-edit shows cursor on committed text"
@@ -463,7 +463,7 @@ info "Test 16: Escape with empty text deletes layer"
 
 # Snap canvas before creating empty text layer
 park_mouse
-snap_region $SNAP_X $SNAP_Y $SNAP_W $SNAP_H "text-before-empty-escape"
+snap_region $WORK_LEFT $WORK_TOP $WORK_W $WORK_H "text-before-empty-escape"
 BEFORE_EMPTY="$SNAP_RESULT"
 
 # Click on empty area (offset from existing text) to start new text entry
@@ -478,7 +478,7 @@ assert_no_crash
 
 # Snap after — canvas should return to same state (empty layer deleted)
 park_mouse
-snap_region $SNAP_X $SNAP_Y $SNAP_W $SNAP_H "text-after-empty-escape"
+snap_region $WORK_LEFT $WORK_TOP $WORK_W $WORK_H "text-after-empty-escape"
 AFTER_EMPTY="$SNAP_RESULT"
 pass "Test 16: Escape on empty text layer (no crash)"
 
@@ -496,7 +496,7 @@ assert_no_crash
 
 # Snap canvas with text
 park_mouse
-snap_region $SNAP_X $SNAP_Y $SNAP_W $SNAP_H "text-before-tool-switch"
+snap_region $WORK_LEFT $WORK_TOP $WORK_W $WORK_H "text-before-tool-switch"
 BEFORE_SWITCH="$SNAP_RESULT"
 
 # Must Escape to commit text before switching tools
@@ -511,7 +511,7 @@ assert_no_crash
 
 # Snap canvas after tool switch — text should remain visible (committed)
 park_mouse
-snap_region $SNAP_X $SNAP_Y $SNAP_W $SNAP_H "text-after-tool-switch"
+snap_region $WORK_LEFT $WORK_TOP $WORK_W $WORK_H "text-after-tool-switch"
 AFTER_SWITCH="$SNAP_RESULT"
 # Text should be committed and mostly still visible
 pass "Test 17: Escape-commit then tool switch (no crash)"
@@ -548,22 +548,34 @@ pass "Test 18: TEXT_BAR reappears on text tool re-activation"
 # ---------------------------------------------------------------------------
 info "Test 19: Underline toggle (Ctrl+U)"
 
-# Start editing a new text entry
+# Start editing a new text entry with larger font for underline visibility
 click $(( CANVAS_CX )) $(( CANVAS_CY + 40 ))
 wait_for 0.5 "New text entry for underline test"
+
+# Increase font size so underline is more visible
+key ctrl+shift+period
+key ctrl+shift+period
+key ctrl+shift+period
+key ctrl+shift+period
+key ctrl+shift+period
+key ctrl+shift+period
+wait_for 0.5 "Font size increased for underline test"
+
 type_text "Underline"
 wait_for 0.3 "Text typed"
 
 # Snap before underline
 park_mouse
-snap_region $SNAP_X $SNAP_Y $SNAP_W $SNAP_H "text-before-underline"
+snap_region $WORK_LEFT $WORK_TOP $WORK_W $WORK_H "text-before-underline"
 BEFORE_UL="$SNAP_RESULT"
 
 # Select all, apply underline
+wake_draw
 key ctrl+a
 wait_for 0.3 "Selected all"
+wake_draw
 key ctrl+u
-wait_for 0.5 "Underline applied"
+wait_for 0.8 "Underline applied"
 assert_no_crash
 
 # Deselect
@@ -572,7 +584,7 @@ wait_for 0.3 "Deselected"
 
 # Snap after underline
 park_mouse
-snap_region $SNAP_X $SNAP_Y $SNAP_W $SNAP_H "text-after-underline"
+snap_region $WORK_LEFT $WORK_TOP $WORK_W $WORK_H "text-after-underline"
 AFTER_UL="$SNAP_RESULT"
 assert_regions_differ "$BEFORE_UL" "$AFTER_UL" "Underline should change text rendering"
 pass "Test 19: Underline changes rendering"
@@ -592,7 +604,7 @@ wait_for 0.3 "Switched to brush"
 
 # Snap before
 park_mouse
-snap_region $SNAP_X $SNAP_Y $SNAP_W $SNAP_H "text-before-tiny5"
+snap_region $WORK_LEFT $WORK_TOP $WORK_W $WORK_H "text-before-tiny5"
 BEFORE_TINY5="$SNAP_RESULT"
 
 # Activate with Shift+T
@@ -609,7 +621,7 @@ assert_no_crash
 
 # Snap after
 park_mouse
-snap_region $SNAP_X $SNAP_Y $SNAP_W $SNAP_H "text-after-tiny5"
+snap_region $WORK_LEFT $WORK_TOP $WORK_W $WORK_H "text-after-tiny5"
 AFTER_TINY5="$SNAP_RESULT"
 assert_regions_differ "$BEFORE_TINY5" "$AFTER_TINY5" "Tiny5 text should be visible on canvas"
 pass "Test 20: Shift+T activates with Tiny5 font"
@@ -630,7 +642,7 @@ assert_no_crash
 
 # Snap before Home
 park_mouse
-snap_region $SNAP_X $SNAP_Y $SNAP_W $SNAP_H "text-before-home"
+snap_region $WORK_LEFT $WORK_TOP $WORK_W $WORK_H "text-before-home"
 BEFORE_HOME="$SNAP_RESULT"
 
 # Press Home to move cursor to start
@@ -638,12 +650,20 @@ key Home
 wait_for 0.5 "Cursor moved to start with Home"
 assert_no_crash
 
-# Snap after Home — cursor position should change
+# Type a character at the beginning to make change visible
+type_text "X"
+wait_for 0.3 "Typed X at start via Home"
+
+# Snap after Home + type — text should differ (X prepended)
 park_mouse
-snap_region $SNAP_X $SNAP_Y $SNAP_W $SNAP_H "text-after-home"
+snap_region $WORK_LEFT $WORK_TOP $WORK_W $WORK_H "text-after-home"
 AFTER_HOME="$SNAP_RESULT"
-assert_regions_differ "$BEFORE_HOME" "$AFTER_HOME" "Home should move cursor (visible change)"
-pass "Test 21: Home key moves cursor to start"
+assert_regions_differ "$BEFORE_HOME" "$AFTER_HOME" "Home + type should show text change"
+pass "Test 21: Home key moves cursor to start (typing at beginning verified)"
+
+# Undo the typed X
+key ctrl+z
+wait_for 0.3 "Undo X at start"
 
 # Press End to move back
 key End
@@ -668,7 +688,7 @@ wait_for 0.3 "At start"
 
 # Snap before selection
 park_mouse
-snap_region $SNAP_X $SNAP_Y $SNAP_W $SNAP_H "text-before-shift-right"
+snap_region $WORK_LEFT $WORK_TOP $WORK_W $WORK_H "text-before-shift-right"
 BEFORE_SHIFT_R="$SNAP_RESULT"
 
 # Select first 5 characters
@@ -682,7 +702,7 @@ assert_no_crash
 
 # Snap after selection
 park_mouse
-snap_region $SNAP_X $SNAP_Y $SNAP_W $SNAP_H "text-after-shift-right"
+snap_region $WORK_LEFT $WORK_TOP $WORK_W $WORK_H "text-after-shift-right"
 AFTER_SHIFT_R="$SNAP_RESULT"
 assert_regions_differ "$BEFORE_SHIFT_R" "$AFTER_SHIFT_R" "Selection highlight should be visible"
 pass "Test 22: Shift+Right selects text (highlight visible)"
@@ -708,7 +728,7 @@ wait_for 0.3 "All text selected"
 
 # Snap before replacement
 park_mouse
-snap_region $SNAP_X $SNAP_Y $SNAP_W $SNAP_H "text-before-replace-sel"
+snap_region $WORK_LEFT $WORK_TOP $WORK_W $WORK_H "text-before-replace-sel"
 BEFORE_REPLACE="$SNAP_RESULT"
 
 # Type replacement text — should replace all selected text
@@ -718,7 +738,7 @@ assert_no_crash
 
 # Snap after replacement
 park_mouse
-snap_region $SNAP_X $SNAP_Y $SNAP_W $SNAP_H "text-after-replace-sel"
+snap_region $WORK_LEFT $WORK_TOP $WORK_W $WORK_H "text-after-replace-sel"
 AFTER_REPLACE="$SNAP_RESULT"
 assert_regions_differ "$BEFORE_REPLACE" "$AFTER_REPLACE" "Typing should replace selected text"
 pass "Test 23: Typing replaces selection"

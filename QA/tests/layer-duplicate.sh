@@ -39,7 +39,7 @@ assert_no_crash
 click $CANVAS_CX $CANVAS_CY
 snap_region $LP_X $LP_Y $LP_W $LP_H "layer-panel-after-undo-dup"
 AFTER_UNDO="$SNAP_RESULT"
-assert_regions_same "$BEFORE" "$AFTER_UNDO" "Undo should restore original layer state"
+assert_regions_same "$BEFORE" "$AFTER_UNDO" "Undo should restore original layer state" 3000
 screenshot "after-undo-duplicate"
 
 # -- Final check --

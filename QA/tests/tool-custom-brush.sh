@@ -21,32 +21,44 @@ drag $(( CANVAS_CX - 15 )) $(( CANVAS_CY - 15 )) $(( CANVAS_CX - 15 )) $(( CANVA
 wait_for 0.3 "Vertical line drawn (L-shape)"
 assert_no_crash
 
-# -- Switch to Marquee tool and select the L-shape --
-info "Selecting region with Marquee"
-key m
-wait_for 0.3 "Marquee tool active"
-drag $(( CANVAS_CX - 20 )) $(( CANVAS_CY - 20 )) $(( CANVAS_CX + 20 )) $(( CANVAS_CY + 20 ))
-wait_for 0.5 "Marquee selection made"
+# -- Select All and capture as custom brush --
+# XTEST drag doesn't reliably create marquee selections on XWayland,
+# so use Ctrl+A (Select All) which directly sets MARQUEE.ACTIVE/USER_CREATED.
+info "Selecting entire canvas with Ctrl+A"
+key Escape
+wait_for 0.2 "Clear any active state"
+wake_draw
+key ctrl+a
+wait_for 0.5 "Select All applied"
 assert_no_crash
 
 # -- Capture as custom brush: Ctrl+B --
+# Ctrl+B captures from marquee and auto-switches to brush tool
 info "Capturing custom brush (Ctrl+B)"
+wake_draw
 key ctrl+b
-wait_for 0.5 "Custom brush captured"
+wait_for 1.0 "Custom brush captured and brush tool activated"
 assert_no_crash
 
 # -- Stamp brush at a new location --
+# First snap the work area before stamping
 park_mouse
-snap_region $(( CANVAS_CX + 40 )) $(( CANVAS_CY - 30 )) 80 60 "cbr-before-stamp"
+snap_region $WORK_LEFT $WORK_TOP $WORK_W $WORK_H "cbr-before-stamp"
 BEFORE_STAMP="$SNAP_RESULT"
 
+# Stamp by clicking on canvas (brush tool with custom brush active)
 info "Stamping custom brush"
-click $(( CANVAS_CX + 60 )) $CANVAS_CY
-wait_for 0.5 "Custom brush stamped"
+local stamp_x stamp_y
+stamp_x=$(( CANVAS_CX + 40 ))
+stamp_y=$(( CANVAS_CY ))
+# Use drag (press+move+release) instead of click for more reliable stamp
+wake_draw
+drag $stamp_x $stamp_y $(( stamp_x + 2 )) $stamp_y
+wait_for 1.0 "Custom brush stamped"
 assert_no_crash
 
 park_mouse
-snap_region $(( CANVAS_CX + 40 )) $(( CANVAS_CY - 30 )) 80 60 "cbr-after-stamp"
+snap_region $WORK_LEFT $WORK_TOP $WORK_W $WORK_H "cbr-after-stamp"
 AFTER_STAMP="$SNAP_RESULT"
 assert_regions_differ "$BEFORE_STAMP" "$AFTER_STAMP" "Custom brush stamp should be visible"
 
@@ -64,6 +76,7 @@ assert_no_crash
 
 # -- Clear custom brush: Ctrl+B again --
 info "Clearing custom brush (Ctrl+B)"
+wake_draw
 key ctrl+b
 wait_for 0.5 "Custom brush cleared"
 assert_no_crash

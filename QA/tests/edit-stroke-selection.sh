@@ -1,7 +1,7 @@
 #!/bin/bash
 # =============================================================================
 # edit-stroke-selection.sh — QA test: Stroke selection outline
-# Tests: Marquee select → stroke selection draws outline on canvas
+# Tests: Select All → stroke selection draws outline on canvas
 # =============================================================================
 
 info "=== Stroke Selection Test ==="
@@ -31,45 +31,49 @@ drag $(( CANVAS_CX - 15 )) $(( CANVAS_CY + 15 )) $(( CANVAS_CX + 15 )) $(( CANVA
 wait_for 0.3 "Filled area drawn"
 assert_no_crash
 
-# -- Select a region with marquee --
-info "Selecting region with marquee"
-key m
-wait_for 0.3 "Marquee tool active"
-drag $(( CANVAS_CX - 20 )) $(( CANVAS_CY - 20 )) $(( CANVAS_CX + 20 )) $(( CANVAS_CY + 20 ))
-wait_for 0.5 "Selection made"
+# -- Select All via Ctrl+A (more reliable than drag-based marquee via XTEST) --
+info "Selecting entire canvas with Ctrl+A"
+key Escape
+wait_for 0.2 "Clear any active state"
+wake_draw
+key ctrl+a
+wait_for 0.5 "Select All applied"
 assert_no_crash
 
 # -- Snap before stroke selection --
 park_mouse
-snap_region $(( CANVAS_CX - 40 )) $(( CANVAS_CY - 40 )) 80 80 "stroke-sel-before"
+snap_region $WORK_LEFT $WORK_TOP $WORK_W $WORK_H "stroke-sel-before"
 BEFORE="$SNAP_RESULT"
 
-# -- Apply stroke selection via Edit menu --
-info "Applying Stroke Selection via Edit menu"
-key alt+e
-wait_for 0.5 "Edit menu opened"
-# Navigate to Stroke Selection
-key s
-wait_for 0.2
+# -- Apply stroke selection via Command Palette --
+info "Opening Command Palette and invoking Stroke Selection"
+key shift+slash
+wait_for 0.5 "Command palette opened"
+type_text "Stroke Selection"
+wait_for 0.5 "Typed stroke"
 key Return
-wait_for 0.8 "Stroke selection applied"
+wait_for 1.0 "Stroke dialog opened"
+# The stroke selection shows a modal dialog — press Enter to confirm defaults
+key Return
+wait_for 1.0 "Stroke selection applied"
 assert_no_crash
 
 park_mouse
-snap_region $(( CANVAS_CX - 40 )) $(( CANVAS_CY - 40 )) 80 80 "stroke-sel-after"
+snap_region $WORK_LEFT $WORK_TOP $WORK_W $WORK_H "stroke-sel-after"
 AFTER="$SNAP_RESULT"
 assert_regions_differ "$BEFORE" "$AFTER" "Stroke selection should draw outline on canvas"
 screenshot "after-stroke-selection"
 
-# -- Undo --
+# -- Undo stroke and deselect --
 info "Undoing stroke selection (Ctrl+Z)"
+wake_draw
 key ctrl+z
 wait_for 0.5 "Stroke undone"
+key Escape
+wait_for 0.2 "Deselect"
 assert_no_crash
 
-# -- Deselect and cleanup --
-key Escape
-wait_for 0.2
+# -- Cleanup undo history --
 key ctrl+z
 wait_for 0.2
 key ctrl+z

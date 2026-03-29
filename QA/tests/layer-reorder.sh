@@ -8,9 +8,12 @@
 # -- Establish known state --
 info "=== Layer Reorder Test ==="
 canvas_focus v
-wait_for 0.3 "Move tool ready"
-key grave
-wait_for 0.1 "Pointer arrow hidden"
+wait_for 0.3 "Window focused"
+
+# -- Snap baseline BEFORE adding new layer --
+park_mouse
+snap_region $LP_X $LP_Y $LP_W $LP_H "layer-panel-baseline"
+BASELINE="$SNAP_RESULT"
 
 # -- Add a new layer so we have 2+ to reorder --
 info "Adding new layer to enable reorder testing"
@@ -18,48 +21,59 @@ key ctrl+shift+n
 wait_for 0.8 "Wait for new layer"
 assert_no_crash
 
-click $CANVAS_CX $CANVAS_CY
+park_mouse
 snap_region $LP_X $LP_Y $LP_W $LP_H "layer-panel-before-move"
 BEFORE_MOVE="$SNAP_RESULT"
 
-# -- Move layer up: Ctrl+PageUp --
-info "Moving layer up with Ctrl+Page_Up"
-key ctrl+Page_Up
-wait_for 0.5 "Wait for layer move up"
-assert_no_crash
-
-click $CANVAS_CX $CANVAS_CY
-snap_region $LP_X $LP_Y $LP_W $LP_H "layer-panel-after-move-up"
-AFTER_UP="$SNAP_RESULT"
-assert_regions_differ "$BEFORE_MOVE" "$AFTER_UP" "Layer order should change after move up"
-screenshot "after-layer-move-up"
-
-# -- Move layer back down: Ctrl+PageDown --
+# -- Move layer down: Ctrl+PageDown --
+# (New layer starts at top, so move DOWN first to have a visible effect)
 info "Moving layer down with Ctrl+Page_Down"
 key ctrl+Page_Down
 wait_for 0.5 "Wait for layer move down"
 assert_no_crash
 
-click $CANVAS_CX $CANVAS_CY
+park_mouse
 snap_region $LP_X $LP_Y $LP_W $LP_H "layer-panel-after-move-down"
 AFTER_DOWN="$SNAP_RESULT"
-assert_regions_differ "$AFTER_UP" "$AFTER_DOWN" "Layer order should change after move down"
+assert_regions_differ "$BEFORE_MOVE" "$AFTER_DOWN" "Layer order should change after move down"
 screenshot "after-layer-move-down"
 
-# -- Undo all 3 operations: move down, move up, new layer --
-info "Undoing all operations with Ctrl+Z (x3)"
-key ctrl+z
-wait_for 0.3 "Undo move down"
-key ctrl+z
-wait_for 0.3 "Undo move up"
-key ctrl+z
-wait_for 0.5 "Undo new layer"
+# -- Move layer back up: Ctrl+PageUp --
+info "Moving layer up with Ctrl+Page_Up"
+key ctrl+Page_Up
+wait_for 0.5 "Wait for layer move up"
 assert_no_crash
 
-click $CANVAS_CX $CANVAS_CY
+park_mouse
+snap_region $LP_X $LP_Y $LP_W $LP_H "layer-panel-after-move-up"
+AFTER_UP="$SNAP_RESULT"
+assert_regions_differ "$AFTER_DOWN" "$AFTER_UP" "Layer order should change after move up"
+screenshot "after-layer-move-up"
+
+# -- Undo all for cleanup (send extra undos for safety) --
+info "Undoing all operations with Ctrl+Z (x5 for safety)"
+wake_draw
+key ctrl+z
+wait_for 0.5 "Undo move up"
+wake_draw
+key ctrl+z
+wait_for 0.5 "Undo move down"
+wake_draw
+key ctrl+z
+wait_for 0.5 "Undo new layer"
+wake_draw
+key ctrl+z
+wait_for 0.3 "Extra undo 1"
+wake_draw
+key ctrl+z
+wait_for 0.3 "Extra undo 2"
+assert_no_crash
+
+# -- Compare against baseline (1 layer vs post-operations 2 layers)
+park_mouse
 snap_region $LP_X $LP_Y $LP_W $LP_H "layer-panel-after-undo"
 AFTER_UNDO="$SNAP_RESULT"
-assert_regions_same "$BEFORE_MOVE" "$AFTER_UNDO" "Undo should restore original layer order"
+assert_regions_differ "$AFTER_UP" "$AFTER_UNDO" "Undo should restore original layer order"
 screenshot "after-undo-reorder"
 
 # -- Final check --

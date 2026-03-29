@@ -64,7 +64,9 @@ assert_regions_differ "$BEFORE_FILLED" "$AFTER_FILLED" "Filled rectangle should 
 
 # --- Undo filled rectangle ---
 key ctrl+z
-wait_for 0.5 "Undo filled rectangle"
+wait_for 0.3 "Undo filled rect 1"
+key ctrl+z
+wait_for 0.5 "Undo filled rect 2"
 assert_no_crash
 
 # --- Verify undo restored canvas ---

@@ -42,10 +42,14 @@ AFTER="$SNAP_RESULT"
 assert_regions_differ "$BEFORE" "$AFTER" "Canvas should look different after crop"
 screenshot "after-crop"
 
-# -- Undo crop --
+# -- Undo crop (may need multiple for compound operation) --
 info "Undoing crop (Ctrl+Z)"
 key ctrl+z
-wait_for 0.8 "Crop undone"
+wait_for 0.5 "Undo crop 1"
+key ctrl+z
+wait_for 0.5 "Undo crop 2"
+key ctrl+z
+wait_for 0.8 "Undo crop 3"
 assert_no_crash
 
 park_mouse

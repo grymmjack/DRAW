@@ -22,26 +22,22 @@ assert_no_crash
 
 # -- Snap before invert --
 park_mouse
-snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "invert-before"
+snap_region $WORK_LEFT $WORK_TOP $WORK_W $WORK_H "invert-before"
 BEFORE="$SNAP_RESULT"
 
-# -- Open Image menu and click Invert --
-# Navigate menu: Image menu is typically the 4th menu item
-info "Opening Image menu for Invert"
-key alt+i
-wait_for 0.5 "Image menu opened"
-assert_no_crash
-
-# Find and click Invert in the menu
-# Send 'i' to jump to Invert item, then Enter
-key i
-wait_for 0.2 "Navigated to Invert"
+# -- Invoke Invert via Command Palette (?  + type "invert" + Enter) --
+# Alt+letter menus are disabled in DRAW; use command palette instead
+info "Opening Command Palette and invoking Invert"
+key shift+slash
+wait_for 0.5 "Command palette opened"
+type_text "invert"
+wait_for 0.5 "Typed invert"
 key Return
-wait_for 0.8 "Invert applied"
+wait_for 1.0 "Invert applied"
 assert_no_crash
 
 park_mouse
-snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "invert-after"
+snap_region $WORK_LEFT $WORK_TOP $WORK_W $WORK_H "invert-after"
 AFTER="$SNAP_RESULT"
 assert_regions_differ "$BEFORE" "$AFTER" "Invert should change canvas colors"
 screenshot "after-invert"
@@ -53,7 +49,7 @@ wait_for 0.5 "Invert undone"
 assert_no_crash
 
 park_mouse
-snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "invert-undo"
+snap_region $WORK_LEFT $WORK_TOP $WORK_W $WORK_H "invert-undo"
 UNDO="$SNAP_RESULT"
 assert_regions_differ "$AFTER" "$UNDO" "Undo should restore original colors"
 

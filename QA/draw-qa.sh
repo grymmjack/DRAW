@@ -189,6 +189,10 @@ _capture_client_area() {
     local tmp="/tmp/draw-qa-capture-$$-${RANDOM}.png"
     local client_w=$(( VIEWPORT_W * DISPLAY_SCALE ))
     local client_h=$(( VIEWPORT_H * DISPLAY_SCALE ))
+
+    # Always refresh window position — KDE/Wayland may reposition the window
+    # after launch (e.g. spectacle capture, window activation, tiling).
+    _update_win_pos
     local crop_y=$(( WIN_ABS_Y + DECORATION_H ))
 
     dbg "capture: crop=${client_w}x${client_h}+${WIN_ABS_X}+${crop_y} deco=$DECORATION_H"
@@ -325,6 +329,30 @@ park_mouse() {
     sleep 0.05
 }
 
+# Wake DRAW from idle mode (13fps) to active mode (59fps) by jiggling
+# the mouse.  After snap_region's 1-second sleep, DRAW enters idle and
+# re-enters idle between the Ctrl-keydown and the base-key tap of a
+# modifier combo, causing some combos (Ctrl+Z, Ctrl+B, etc.) to be
+# missed.  A mouse movement generates mouseMoved% = TRUE which sets
+# FRAME_IDLE% = FALSE for the whole frame, keeping DRAW at 59fps long
+# enough for the subsequent key combo to register reliably.
+#
+# IMPORTANT: Call wake_draw immediately before `key` — no wait_for between.
+wake_draw() {
+    draw_focus
+    # Move to park position and jiggle ±1px to generate mouseMoved%
+    local ax ay
+    read -r ax ay <<< "$(_abs 50 60)"
+    xdotool mousemove "$ax" "$ay"
+    xdotool mousemove_relative -- 1 0
+    sleep 0.03
+    xdotool mousemove_relative -- -1 0
+    sleep 0.03
+    # Do NOT sleep long here — caller should invoke `key` immediately so
+    # the key event arrives while DRAW is still in the active-fps window.
+    dbg "wake_draw → mouse jiggled at park position"
+}
+
 # Cache window position so we don't call xdotool on every click
 WIN_ABS_X=""
 WIN_ABS_Y=""
@@ -444,12 +472,13 @@ key() {
             local m
             for m in "${mods[@]}"; do
                 xdotool keydown "$m"
-                sleep 0.04   # ~2 DRAW frames between each modifier
+                sleep 0.06   # hold each modifier ~3-4 frames at 59fps
             done
-            sleep 0.05   # let DRAW poll the full modifier state
+            sleep 0.06   # let DRAW poll the full modifier state
             # Press and release the base key while modifiers are held
+            # Hold 200ms so that even at 13fps idle (~77ms/frame) the key spans 2+ frames
             xdotool keydown "$base"
-            sleep 0.04
+            sleep 0.20   # hold base key 200ms — spans ~2.6 idle frames at 13fps
             xdotool keyup "$base"
             sleep 0.04
             # Release modifiers in reverse order
@@ -458,7 +487,11 @@ key() {
                 xdotool keyup "${mods[$i]}"
             done
         else
-            xdotool key "$combo"
+            # Use keydown/sleep/keyup instead of 'xdotool key' so that
+            # _KEYDOWN-polling in DRAW sees the key held for at least 2 idle frames
+            xdotool keydown "$combo"
+            sleep 0.10
+            xdotool keyup "$combo"
         fi
         sleep 0.05
     done

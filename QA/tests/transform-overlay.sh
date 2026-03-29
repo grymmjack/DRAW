@@ -25,22 +25,22 @@ assert_no_crash
 # -- Select all: Ctrl+A --
 info "Selecting all (Ctrl+A)"
 key ctrl+a
-wait_for 0.5 "Selection made"
+wait_for 0.8 "Selection made"
 assert_no_crash
 
-# -- Snap before transform --
+# -- Snap the full work area before transform (larger region captures handles) --
 park_mouse
-snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "xform-overlay-before"
+snap_region $WORK_LEFT $WORK_TOP $WORK_W $WORK_H "xform-overlay-before"
 BEFORE="$SNAP_RESULT"
 
 # -- Enter transform mode: Ctrl+T --
 info "Entering transform mode (Ctrl+T)"
 key ctrl+t
-wait_for 0.8 "Transform overlay active"
+wait_for 1.0 "Transform overlay active"
 assert_no_crash
 
 park_mouse
-snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "xform-overlay-active"
+snap_region $WORK_LEFT $WORK_TOP $WORK_W $WORK_H "xform-overlay-active"
 ACTIVE="$SNAP_RESULT"
 assert_regions_differ "$BEFORE" "$ACTIVE" "Transform overlay handles should be visible"
 screenshot "transform-overlay-active"
