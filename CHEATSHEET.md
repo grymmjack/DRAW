@@ -69,6 +69,24 @@ status bar as `OP:nn%` when below 100%.
 | **Click palette name** | Open dropdown to switch palettes |
 | **Letter keys (in picker)** | Jump to first palette starting with that letter |
 
+### Palette Ops Mode
+
+Toggle via the **Palette Ops** organizer button. When active, the palette strip becomes a palette management tool.
+
+| Action | Function |
+|--------|----------|
+| **L-Click organizer button** | Toggle Palette Ops mode on/off (auto-remaps on activation) |
+| **L-Click swatch** | Magic wand select matching pixels (500ms delay) |
+| **Double L-Click swatch** | Change color via color picker, replaces old color on canvas |
+| **R-Click swatch** | Toggle mark indicator on color |
+| **M-Click swatch** | Delete color (remaps to nearest neighbor, min 2 colors) |
+| **M-Click marked swatch** | Batch delete all marked colors |
+| **Shift + M-Click swatch** | Insert blank transparent color after position |
+| **Drag swatch** | Rearrange palette color order |
+| **Escape** | Deactivate Palette Ops mode |
+
+Color modifications automatically create a **[DOCUMENT]** palette saved with the DRW file, selectable from the palette dropdown to switch back.
+
 ### Status Bar Color Swatches
 | Action | Function |
 |--------|----------|
@@ -1320,7 +1338,7 @@ DRAW has an optional menu bar at the top of the screen providing access to all c
 | **Canvas** | Clear Canvas, Zoom In/Out, Reset Zoom |
 | **Tools** | All drawing tools (Dot, Brush, Line, etc.) |
 | **Layer** | New, Duplicate, Delete, Merge Down, Merge All, **Merge Selected** *(requires 2+ selected)*, Arrange, Align, Distribute |
-| **Palette** | Color Picker, Load Palette, Load from Lospec, Create from Image, Remap to Palette, Show Lospec Palettes, Swap Colors |
+| **Palette** | Color Picker, Import Palette, Export Palette, Random Palette, Load Palette, Load from Lospec, Create from Image, Remap to Palette, Show Lospec Palettes, Swap Colors |
 | **Image** | Resize, Crop, Brightness/Contrast, Hue/Saturation, Levels, Color Balance, Blur, Sharpen, Invert, Desaturate, Posterize, Pixelate |
 | **Help** | Command Palette, Cheatsheet |
 | **Audio** | Sound FX toggle, Music toggle, SFX/Music volume up/down, SFX/Music mute, Explore Music, Now Playing |

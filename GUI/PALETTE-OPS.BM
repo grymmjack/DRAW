@@ -1,0 +1,796 @@
+''
+' DRAW - GUI/PALETTE-OPS.BM
+' =============================================================================
+' Palette Ops mode implementation.
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+
+''
+' Initialize palette ops state.
+'
+SUB PALETTE_OPS_init ()
+    PALETTE_OPS.ACTIVE% = FALSE
+    PALETTE_OPS.DRAG_ACTIVE% = FALSE
+    PALETTE_OPS.DRAG_SRC_IDX% = -1
+    PALETTE_OPS.DRAG_DST_IDX% = -1
+    PALETTE_OPS.WAND_PENDING_IDX% = -1
+    PALETTE_OPS.WAND_SHOWING% = FALSE
+    PALETTE_OPS.DBLCLICK_TIME# = 0
+    PALETTE_OPS.DBLCLICK_IDX% = -1
+    DIM poi AS INTEGER
+    FOR poi% = 0 TO 255
+        PALETTE_OPS_MARKED(poi%) = FALSE
+    NEXT poi%
+END SUB
+
+
+''
+' Activate palette ops mode.
+' Auto-remaps canvas to current palette (no dialog).
+'
+SUB PALETTE_OPS_activate ()
+    IF PALETTE_OPS.ACTIVE% THEN EXIT SUB
+
+    PALETTE_OPS.ACTIVE% = TRUE
+    PALETTE_OPS.DRAG_ACTIVE% = FALSE
+    PALETTE_OPS.WAND_PENDING_IDX% = -1
+    PALETTE_OPS.WAND_SHOWING% = FALSE
+    PALETTE_OPS.DBLCLICK_TIME# = 0
+    PALETTE_OPS.DBLCLICK_IDX% = -1
+    DIM poi2 AS INTEGER
+    FOR poi2% = 0 TO 255
+        PALETTE_OPS_MARKED(poi2%) = FALSE
+    NEXT poi2%
+
+    ' Auto-remap canvas to current palette (no dither, no dialog)
+    PALETTE_LOADER_remap_to_palette
+
+    SOUND_play SND_ORGANIZER
+    GUI_NEEDS_REDRAW% = TRUE
+    SCENE_DIRTY% = TRUE
+    FRAME_IDLE% = FALSE
+    _LOGINFO "PALETTE_OPS: Activated (auto-remapped to palette)"
+END SUB
+
+
+''
+' Deactivate palette ops mode. Clears all state.
+'
+SUB PALETTE_OPS_deactivate ()
+    IF NOT PALETTE_OPS.ACTIVE% THEN EXIT SUB
+
+    ' Clear wand selection if showing
+    IF PALETTE_OPS.WAND_SHOWING% THEN
+        MAGIC_WAND_reset
+        MARQUEE.ACTIVE% = FALSE
+        PALETTE_OPS.WAND_SHOWING% = FALSE
+    END IF
+
+    PALETTE_OPS.ACTIVE% = FALSE
+    PALETTE_OPS.DRAG_ACTIVE% = FALSE
+    PALETTE_OPS.DRAG_SRC_IDX% = -1
+    PALETTE_OPS.WAND_PENDING_IDX% = -1
+    DIM poi3 AS INTEGER
+    FOR poi3% = 0 TO 255
+        PALETTE_OPS_MARKED(poi3%) = FALSE
+    NEXT poi3%
+
+    GUI_NEEDS_REDRAW% = TRUE
+    FRAME_IDLE% = FALSE
+    _LOGINFO "PALETTE_OPS: Deactivated"
+END SUB
+
+
+''
+' Toggle palette ops mode on/off.
+'
+SUB PALETTE_OPS_toggle ()
+    IF PALETTE_OPS.ACTIVE% THEN
+        PALETTE_OPS_deactivate
+    ELSE
+        PALETTE_OPS_activate
+    END IF
+END SUB
+
+
+''
+' Reset palette ops (alias for deactivate, used by DRW_load_binary).
+'
+SUB PALETTE_OPS_reset ()
+    PALETTE_OPS.ACTIVE% = FALSE
+    PALETTE_OPS.DRAG_ACTIVE% = FALSE
+    PALETTE_OPS.DRAG_SRC_IDX% = -1
+    PALETTE_OPS.WAND_PENDING_IDX% = -1
+    PALETTE_OPS.WAND_SHOWING% = FALSE
+    DIM poi4 AS INTEGER
+    FOR poi4% = 0 TO 255
+        PALETTE_OPS_MARKED(poi4%) = FALSE
+    NEXT poi4%
+    ' Document palette state is reset by DRW_load_binary after it
+    ' restores PALETTE_DOC_EXISTS% from the loaded file
+    PALETTE_DOC_EXISTS% = FALSE
+    PALETTE_DOC_COUNT% = 0
+END SUB
+
+
+''
+' Mark current palette as [DOCUMENT] and snapshot colors for switching back.
+' Called automatically when palette ops modifies colors.
+'
+SUB PALETTE_OPS_mark_document_palette ()
+    PALETTE_EMBEDDED_ACTIVE% = TRUE
+    PALETTE_EMBEDDED_NAME$ = "[DOCUMENT]"
+    PALETTE_DOC_EXISTS% = TRUE
+
+    ' Snapshot current PAL() into document palette backup
+    PALETTE_DOC_COUNT% = PAL_COLOR_COUNT%
+    DIM mdpi AS INTEGER
+    FOR mdpi% = 0 TO PAL_COLOR_COUNT% - 1
+        PALETTE_DOC_COLORS(mdpi%) = PAL(mdpi%).value~&
+    NEXT mdpi%
+    _LOGINFO "PALETTE_OPS: Marked as [DOCUMENT] palette (" + _TRIM$(STR$(PAL_COLOR_COUNT%)) + " colors)"
+END SUB
+
+
+''
+' Per-frame tick for palette ops (call from main loop or mouse handler).
+' Handles delayed wand selection after 500ms.
+'
+SUB PALETTE_OPS_tick ()
+    IF NOT PALETTE_OPS.ACTIVE% THEN EXIT SUB
+
+    ' Handle delayed wand selection
+    IF PALETTE_OPS.WAND_PENDING_IDX% >= 0 THEN
+        IF TIMER - PALETTE_OPS.WAND_TIMER# >= 0.5 THEN
+            DIM wandColor AS _UNSIGNED LONG
+            DIM wandIdx AS INTEGER
+            wandIdx% = PALETTE_OPS.WAND_PENDING_IDX%
+            PALETTE_OPS.WAND_PENDING_IDX% = -1
+
+            wandColor~& = PAL(wandIdx%).value~&
+
+            ' Find first pixel of this color on current layer
+            DIM wandImg AS LONG
+            wandImg& = LAYER_current_image&
+            IF wandImg& < -1 THEN
+                DIM wandW AS INTEGER, wandH AS INTEGER
+                wandW% = _WIDTH(wandImg&)
+                wandH% = _HEIGHT(wandImg&)
+                DIM wandMem AS _MEM
+                wandMem = _MEMIMAGE(wandImg&)
+                DIM wandFoundX AS INTEGER, wandFoundY AS INTEGER
+                DIM wandFound AS INTEGER
+                wandFoundX% = 0
+                wandFoundY% = 0
+                wandFound% = FALSE
+
+                DIM wandPx AS LONG, wandPy AS LONG
+                DIM wandOff AS _OFFSET
+                DIM wandPix AS _UNSIGNED LONG
+                FOR wandPy& = 0 TO wandH% - 1
+                    FOR wandPx& = 0 TO wandW% - 1
+                        wandOff = wandMem.OFFSET + (wandPy& * wandW% + wandPx&) * 4
+                        _MEMGET wandMem, wandOff, wandPix~&
+                        IF _ALPHA32(wandPix~&) > 0 THEN
+                            ' Compare RGB (ignore alpha differences)
+                            IF _RED32(wandPix~&) = _RED32(wandColor~&) AND _
+                               _GREEN32(wandPix~&) = _GREEN32(wandColor~&) AND _
+                               _BLUE32(wandPix~&) = _BLUE32(wandColor~&) THEN
+                                wandFoundX% = wandPx&
+                                wandFoundY% = wandPy&
+                                wandFound% = TRUE
+                                EXIT FOR
+                            END IF
+                        END IF
+                    NEXT wandPx&
+                    IF wandFound% THEN EXIT FOR
+                NEXT wandPy&
+                _MEMFREE wandMem
+
+                IF wandFound% THEN
+                    ' Select all matching pixels using magic wand
+                    MAGIC_WAND_select_all_color_merged wandFoundX%, wandFoundY%, SEL_MODE_REPLACE
+                    PALETTE_OPS.WAND_SHOWING% = TRUE
+                    MARQUEE.MAGIC_WAND_MODE = TRUE
+                    SOUND_play SND_SELECTION
+                    GUI_NEEDS_REDRAW% = TRUE
+                    FRAME_IDLE% = FALSE
+                    _LOGINFO "PALETTE_OPS: Wand selected color idx " + STR$(wandIdx%)
+                ELSE
+                    _LOGINFO "PALETTE_OPS: No pixels of color idx " + STR$(wandIdx%) + " found on current layer"
+                END IF
+            END IF
+        ELSE
+            ' Keep frame active while waiting for delay
+            FRAME_IDLE% = FALSE
+        END IF
+    END IF
+END SUB
+
+
+''
+' Calculate which palette index is at screen position (x, y) on the strip.
+' Returns -1 if position is not over a swatch.
+' Must match the layout math in PALETTE_STRIP_render / PALETTE_STRIP_handle_click.
+'
+FUNCTION PALETTE_OPS_calc_strip_index% (x AS INTEGER, y AS INTEGER)
+    PALETTE_OPS_calc_strip_index% = -1
+    IF NOT PALETTE_STRIP_VISIBLE% THEN EXIT FUNCTION
+
+    DIM pal_count AS INTEGER
+    pal_count% = PALETTE_LOADER_get_color_count%
+    IF pal_count% = 0 THEN EXIT FUNCTION
+
+    DIM sw AS INTEGER, sh AS INTEGER
+    sw% = CFG.PALETTE_CHIP_WIDTH%
+    sh% = CFG.PALETTE_CHIP_HEIGHT%
+    DIM row_height AS INTEGER
+    row_height% = sh% + 1
+
+    DIM name_width AS INTEGER
+    name_width% = 100
+
+    DIM available_width AS INTEGER
+    available_width% = SCRN.w& - (PALETTE_STRIP_ARROW_WIDTH * 2) - name_width% - 12
+    DIM swatches_per_row AS INTEGER
+    swatches_per_row% = available_width% \ (sw% + 1)
+    IF swatches_per_row% > CFG.PALETTE_MAX_CHIPS_PER_ROW% THEN
+        swatches_per_row% = CFG.PALETTE_MAX_CHIPS_PER_ROW%
+    END IF
+    IF swatches_per_row% < 1 THEN EXIT FUNCTION
+
+    DIM num_rows AS INTEGER
+    num_rows% = ((pal_count% - 1) \ swatches_per_row%) + 1
+    IF num_rows% < CFG.PALETTE_MIN_ROWS% THEN num_rows% = CFG.PALETTE_MIN_ROWS%
+    IF num_rows% > CFG.PALETTE_MAX_ROWS% THEN num_rows% = CFG.PALETTE_MAX_ROWS%
+
+    DIM max_swatches AS INTEGER
+    max_swatches% = swatches_per_row% * num_rows%
+    IF max_swatches% > pal_count% THEN max_swatches% = pal_count%
+    DIM visible_colors AS INTEGER
+    visible_colors% = max_swatches%
+
+    DIM arrow_left_x AS INTEGER
+    arrow_left_x% = 2
+    DIM swatches_start_x AS INTEGER
+    swatches_start_x% = arrow_left_x% + PALETTE_STRIP_ARROW_WIDTH + 2
+
+    DIM swatch_area_width AS INTEGER
+    swatch_area_width% = swatches_per_row% * (sw% + 1)
+
+    ' Check if within swatch grid area
+    IF x% < swatches_start_x% OR x% >= swatches_start_x% + swatch_area_width% THEN EXIT FUNCTION
+
+    DIM rel_y AS INTEGER
+    rel_y% = y% - PALETTE_STRIP_Y% - 2
+    DIM click_row AS INTEGER
+    click_row% = rel_y% \ row_height%
+    IF click_row% < 0 THEN click_row% = 0
+    IF click_row% >= num_rows% THEN click_row% = num_rows% - 1
+
+    DIM click_col AS INTEGER
+    click_col% = (x% - swatches_start_x%) \ (sw% + 1)
+
+    DIM clicked_idx AS INTEGER
+    clicked_idx% = (click_row% * swatches_per_row%) + click_col%
+
+    DIM pal_idx AS INTEGER
+    pal_idx% = (PALETTE_STRIP_SCROLL_OFFSET% + clicked_idx%) MOD pal_count%
+
+    IF pal_idx% >= 0 AND pal_idx% < pal_count% AND clicked_idx% < visible_colors% THEN
+        PALETTE_OPS_calc_strip_index% = pal_idx%
+    END IF
+END FUNCTION
+
+
+''
+' Handle click on palette strip while palette ops mode is active.
+' Dispatches to appropriate action based on button state.
+'
+SUB PALETTE_OPS_handle_strip_click (x AS INTEGER, y AS INTEGER)
+    IF NOT PALETTE_OPS.ACTIVE% THEN EXIT SUB
+
+    ' Let arrow buttons and palette name dropdown work normally
+    DIM arrow_left_x AS INTEGER, arrow_right_x AS INTEGER
+    DIM swatches_end_x AS INTEGER, pal_name_x AS INTEGER
+    DIM name_width AS INTEGER, sw2 AS INTEGER
+    name_width% = 100
+    sw2% = CFG.PALETTE_CHIP_WIDTH%
+    arrow_left_x% = 2
+    DIM available_w2 AS INTEGER
+    available_w2% = SCRN.w& - (PALETTE_STRIP_ARROW_WIDTH * 2) - name_width% - 12
+    DIM spr2 AS INTEGER
+    spr2% = available_w2% \ (sw2% + 1)
+    IF spr2% > CFG.PALETTE_MAX_CHIPS_PER_ROW% THEN spr2% = CFG.PALETTE_MAX_CHIPS_PER_ROW%
+    DIM swatches_start_x2 AS INTEGER
+    swatches_start_x2% = arrow_left_x% + PALETTE_STRIP_ARROW_WIDTH + 2
+    swatches_end_x% = swatches_start_x2% + (spr2% * (sw2% + 1))
+    arrow_right_x% = swatches_end_x% + 2
+    pal_name_x% = SCRN.w& - name_width%
+
+    ' Pass through to normal handler for arrows and palette dropdown
+    IF x% >= arrow_left_x% AND x% < arrow_left_x% + PALETTE_STRIP_ARROW_WIDTH THEN
+        PALETTE_STRIP_handle_click x%, y%
+        EXIT SUB
+    END IF
+    IF x% >= arrow_right_x% AND x% < arrow_right_x% + PALETTE_STRIP_ARROW_WIDTH THEN
+        PALETTE_STRIP_handle_click x%, y%
+        EXIT SUB
+    END IF
+    IF x% >= pal_name_x% AND x% < SCRN.w& - 4 THEN
+        PALETTE_STRIP_handle_click x%, y%
+        EXIT SUB
+    END IF
+
+    ' Calculate which palette index was clicked
+    DIM palIdx AS INTEGER
+    palIdx% = PALETTE_OPS_calc_strip_index%(x%, y%)
+    IF palIdx% < 0 THEN EXIT SUB
+
+    ' Dispatch by button state
+    IF MOUSE.B1% AND NOT MOUSE.B2% AND NOT MOUSE.B3% THEN
+        ' LEFT CLICK — check for double-click first
+        DIM clickTime AS DOUBLE
+        clickTime# = TIMER
+        IF palIdx% = PALETTE_OPS.DBLCLICK_IDX% AND _
+           (clickTime# - PALETTE_OPS.DBLCLICK_TIME#) < 0.3 THEN
+            ' DOUBLE-CLICK: Change color via OS dialog and replace on canvas
+            PALETTE_OPS.DBLCLICK_IDX% = -1
+            PALETTE_OPS.DBLCLICK_TIME# = 0
+            PALETTE_OPS.WAND_PENDING_IDX% = -1  ' Cancel any pending wand
+            PALETTE_OPS_change_color palIdx%
+        ELSE
+            ' SINGLE CLICK: Start delayed wand selection
+            PALETTE_OPS.DBLCLICK_TIME# = clickTime#
+            PALETTE_OPS.DBLCLICK_IDX% = palIdx%
+
+            ' Clear previous wand selection if showing
+            IF PALETTE_OPS.WAND_SHOWING% THEN
+                MAGIC_WAND_reset
+                MARQUEE.ACTIVE% = FALSE
+                PALETTE_OPS.WAND_SHOWING% = FALSE
+            END IF
+
+            ' Start the 500ms delay timer
+            PALETTE_OPS.WAND_PENDING_IDX% = palIdx%
+            PALETTE_OPS.WAND_TIMER# = clickTime#
+
+            ' Also start the drag tracking
+            PALETTE_OPS.DRAG_START_X% = x%
+            PALETTE_OPS.DRAG_START_Y% = y%
+            PALETTE_OPS.DRAG_SRC_IDX% = palIdx%
+        END IF
+        GUI_NEEDS_REDRAW% = TRUE
+
+    ELSEIF MOUSE.B2% AND NOT MOUSE.B1% THEN
+        ' RIGHT CLICK: Toggle mark on this color
+        PALETTE_OPS_MARKED(palIdx%) = NOT PALETTE_OPS_MARKED(palIdx%)
+        IF PALETTE_OPS_MARKED(palIdx%) THEN
+            _LOGINFO "PALETTE_OPS: Marked color " + STR$(palIdx%)
+        ELSE
+            _LOGINFO "PALETTE_OPS: Unmarked color " + STR$(palIdx%)
+        END IF
+        SOUND_play SND_TOOL_SELECT
+        GUI_NEEDS_REDRAW% = TRUE
+        FRAME_IDLE% = FALSE
+
+    ELSEIF MOUSE.B3% THEN
+        ' MIDDLE CLICK
+        IF MODIFIERS.shift% THEN
+            ' SHIFT + MIDDLE: Insert blank color
+            PALETTE_OPS_insert_color palIdx%
+        ELSE
+            ' MIDDLE: Delete color (or batch delete if marked)
+            IF PALETTE_OPS_MARKED(palIdx%) THEN
+                PALETTE_OPS_delete_marked
+            ELSE
+                PALETTE_OPS_delete_color palIdx%
+            END IF
+        END IF
+    END IF
+END SUB
+
+
+''
+' Handle mouse drag on palette strip (called during hold).
+' Starts drag-reorder when mouse moves beyond threshold.
+'
+SUB PALETTE_OPS_handle_strip_drag (x AS INTEGER, y AS INTEGER)
+    IF NOT PALETTE_OPS.ACTIVE% THEN EXIT SUB
+    IF NOT MOUSE.B1% THEN EXIT SUB
+    IF PALETTE_OPS.DRAG_SRC_IDX% < 0 THEN EXIT SUB
+
+    DIM dx AS INTEGER, dy AS INTEGER
+    dx% = ABS(x% - PALETTE_OPS.DRAG_START_X%)
+    dy% = ABS(y% - PALETTE_OPS.DRAG_START_Y%)
+
+    IF NOT PALETTE_OPS.DRAG_ACTIVE% THEN
+        ' Start drag if moved beyond 3px threshold
+        IF dx% > 3 OR dy% > 3 THEN
+            PALETTE_OPS.DRAG_ACTIVE% = TRUE
+            PALETTE_OPS.WAND_PENDING_IDX% = -1  ' Cancel pending wand
+            _LOGINFO "PALETTE_OPS: Drag started from idx " + STR$(PALETTE_OPS.DRAG_SRC_IDX%)
+        END IF
+    END IF
+
+    IF PALETTE_OPS.DRAG_ACTIVE% THEN
+        ' Update destination index based on current position
+        DIM dstIdx AS INTEGER
+        dstIdx% = PALETTE_OPS_calc_strip_index%(x%, y%)
+        IF dstIdx% >= 0 THEN
+            PALETTE_OPS.DRAG_DST_IDX% = dstIdx%
+        END IF
+        GUI_NEEDS_REDRAW% = TRUE
+        FRAME_IDLE% = FALSE
+    END IF
+END SUB
+
+
+''
+' Handle mouse release on palette strip (completes drag-reorder).
+'
+SUB PALETTE_OPS_handle_strip_release (x AS INTEGER, y AS INTEGER)
+    IF NOT PALETTE_OPS.ACTIVE% THEN EXIT SUB
+
+    IF PALETTE_OPS.DRAG_ACTIVE% THEN
+        DIM finalDst AS INTEGER
+        finalDst% = PALETTE_OPS_calc_strip_index%(x%, y%)
+        IF finalDst% < 0 THEN finalDst% = PALETTE_OPS.DRAG_DST_IDX%
+
+        IF finalDst% >= 0 AND finalDst% <> PALETTE_OPS.DRAG_SRC_IDX% THEN
+            PALETTE_OPS_rearrange PALETTE_OPS.DRAG_SRC_IDX%, finalDst%
+        END IF
+
+        PALETTE_OPS.DRAG_ACTIVE% = FALSE
+        PALETTE_OPS.DRAG_SRC_IDX% = -1
+        PALETTE_OPS.DRAG_DST_IDX% = -1
+        GUI_NEEDS_REDRAW% = TRUE
+        FRAME_IDLE% = FALSE
+    ELSE
+        PALETTE_OPS.DRAG_SRC_IDX% = -1
+    END IF
+END SUB
+
+
+''
+' Change a palette color via OS color dialog and replace old color on canvas.
+'
+SUB PALETTE_OPS_change_color (palIdx AS INTEGER)
+    DIM oldColor AS _UNSIGNED LONG
+    oldColor~& = PAL(palIdx%).value~&
+
+    CP_reset_options
+    DIM newColor AS _UNSIGNED LONG
+    newColor~& = DRAW_pick_color&("Change Palette Color #" + _TRIM$(STR$(palIdx%)), oldColor~&)
+    MOUSE_cleanup_after_dialog FALSE
+
+    IF CP_STATE.result <> CP_RESULT_OK THEN EXIT SUB
+    IF newColor~& = oldColor~& THEN EXIT SUB
+
+    ' Update palette entry
+    PAL(palIdx%).value~& = newColor~&
+
+    ' Replace old color with new color across all visible layers
+    PALETTE_OPS_replace_color_on_layers oldColor~&, newColor~&
+
+    ' Update FG/BG colors if they referenced this index
+    IF PAL_FG_IDX% = palIdx% THEN PAINT_COLOR~& = newColor~&
+    IF PAL_BG_IDX% = palIdx% THEN PAINT_BG_COLOR~& = newColor~&
+
+    PALETTE_OPS_mark_document_palette
+    CANVAS_DIRTY% = TRUE
+    SCENE_DIRTY% = TRUE
+    GUI_NEEDS_REDRAW% = TRUE
+    FRAME_IDLE% = FALSE
+    _LOGINFO "PALETTE_OPS: Changed color " + STR$(palIdx%) + " and replaced on canvas"
+END SUB
+
+
+''
+' Replace all pixels of oldColor with newColor across all visible layers.
+' Records history for undo support.
+'
+SUB PALETTE_OPS_replace_color_on_layers (oldColor AS _UNSIGNED LONG, newColor AS _UNSIGNED LONG)
+    DIM cW AS LONG, cH AS LONG
+    cW& = SCRN.canvasW&
+    cH& = SCRN.canvasH&
+
+    DIM usedGroup AS INTEGER
+    usedGroup% = FALSE
+    IF NOT HISTORY_IN_PROGRESS% THEN
+        HISTORY_begin_group
+        usedGroup% = HISTORY_GROUP_ACTIVE%
+    END IF
+
+    DIM li AS INTEGER
+    FOR li% = 1 TO LAYER_COUNT%
+        IF LAYERS(li%).imgHandle < -1 AND LAYERS(li%).visible THEN
+            ' Save before-image for undo
+            DIM repBefore AS LONG
+            repBefore& = 0
+            IF LAYERS(li%).historyId& > 0 THEN
+                repBefore& = _COPYIMAGE(LAYERS(li%).imgHandle&, 32)
+            END IF
+
+            DIM repMem AS _MEM
+            repMem = _MEMIMAGE(LAYERS(li%).imgHandle)
+            DIM rpx AS LONG, rpy AS LONG
+            DIM repOff AS _OFFSET
+            DIM repPix AS _UNSIGNED LONG
+            DIM repChanged AS INTEGER
+            repChanged% = FALSE
+
+            FOR rpy& = 0 TO cH& - 1
+                FOR rpx& = 0 TO cW& - 1
+                    repOff = repMem.OFFSET + (rpy& * cW& + rpx&) * 4
+                    _MEMGET repMem, repOff, repPix~&
+                    IF _ALPHA32(repPix~&) > 0 THEN
+                        IF _RED32(repPix~&) = _RED32(oldColor~&) AND _
+                           _GREEN32(repPix~&) = _GREEN32(oldColor~&) AND _
+                           _BLUE32(repPix~&) = _BLUE32(oldColor~&) THEN
+                            DIM repNew AS _UNSIGNED LONG
+                            repNew~& = _RGBA32(_RED32(newColor~&), _GREEN32(newColor~&), _BLUE32(newColor~&), _ALPHA32(repPix~&))
+                            _MEMPUT repMem, repOff, repNew~&
+                            repChanged% = TRUE
+                        END IF
+                    END IF
+                NEXT rpx&
+            NEXT rpy&
+            _MEMFREE repMem
+
+            IF repChanged% THEN
+                LAYERS(li%).contentDirty = TRUE
+                IF repBefore& < -1 THEN
+                    HISTORY_record_transform LAYERS(li%).historyId&, li%, 0, repBefore&, "Palette Ops Color Change"
+                END IF
+            ELSE
+                IF repBefore& < -1 THEN _FREEIMAGE repBefore&
+            END IF
+        END IF
+    NEXT li%
+
+    IF usedGroup% THEN HISTORY_end_group
+    HISTORY_saved_this_frame% = TRUE
+    BLEND_invalidate_cache
+END SUB
+
+
+''
+' Delete a palette color. Pixels using it are remapped to nearest neighbor.
+'
+SUB PALETTE_OPS_delete_color (palIdx AS INTEGER)
+    IF PAL_COLOR_COUNT% <= 2 THEN
+        _LOGWARN "PALETTE_OPS: Cannot delete — minimum 2 palette colors required"
+        SOUND_play SND_TOOL_SELECT
+        EXIT SUB
+    END IF
+
+    DIM deletedColor AS _UNSIGNED LONG
+    deletedColor~& = PAL(palIdx%).value~&
+
+    ' Find nearest neighbor (excluding the color being deleted)
+    DIM nearestIdx AS INTEGER
+    nearestIdx% = PAL_find_closest_excluding%(deletedColor~&, palIdx%)
+    DIM nearestColor AS _UNSIGNED LONG
+    nearestColor~& = PAL(nearestIdx%).value~&
+
+    ' Replace deleted color pixels with nearest neighbor
+    PALETTE_OPS_replace_color_on_layers deletedColor~&, nearestColor~&
+
+    ' Shift palette entries down
+    DIM pi AS INTEGER
+    FOR pi% = palIdx% TO PAL_COLOR_COUNT% - 2
+        PAL(pi%).value~& = PAL(pi% + 1).value~&
+        PAL(pi%).name$ = PAL(pi% + 1).name$
+        PALETTE_OPS_MARKED(pi%) = PALETTE_OPS_MARKED(pi% + 1)
+    NEXT pi%
+    PAL_COLOR_COUNT% = PAL_COLOR_COUNT% - 1
+    PALETTE_OPS_MARKED(PAL_COLOR_COUNT%) = FALSE
+
+    ' Adjust FG/BG indices
+    IF PAL_FG_IDX% = palIdx% THEN
+        IF nearestIdx% > palIdx% THEN nearestIdx% = nearestIdx% - 1
+        PAL_FG_IDX% = nearestIdx%
+        PAINT_COLOR~& = PAL(PAL_FG_IDX%).value~&
+    ELSEIF PAL_FG_IDX% > palIdx% THEN
+        PAL_FG_IDX% = PAL_FG_IDX% - 1
+    END IF
+    IF PAL_BG_IDX% = palIdx% THEN
+        IF nearestIdx% > palIdx% THEN nearestIdx% = nearestIdx% - 1
+        PAL_BG_IDX% = nearestIdx%
+        PAINT_BG_COLOR~& = PAL(PAL_BG_IDX%).value~&
+    ELSEIF PAL_BG_IDX% > palIdx% THEN
+        PAL_BG_IDX% = PAL_BG_IDX% - 1
+    END IF
+
+    PALETTE_OPS_mark_document_palette
+    SOUND_play SND_LAYER_OP
+    CANVAS_DIRTY% = TRUE
+    SCENE_DIRTY% = TRUE
+    GUI_NEEDS_REDRAW% = TRUE
+    FRAME_IDLE% = FALSE
+    _LOGINFO "PALETTE_OPS: Deleted color " + STR$(palIdx%) + ", remapped to idx " + STR$(nearestIdx%)
+END SUB
+
+
+''
+' Delete all marked palette colors. Processes from highest index to lowest
+' to avoid index shifting issues.
+'
+SUB PALETTE_OPS_delete_marked ()
+    DIM delIdx AS INTEGER
+    DIM delCount AS INTEGER
+    delCount% = 0
+
+    ' Count marked colors — don't delete all
+    DIM mi AS INTEGER
+    FOR mi% = 0 TO PAL_COLOR_COUNT% - 1
+        IF PALETTE_OPS_MARKED(mi%) THEN delCount% = delCount% + 1
+    NEXT mi%
+
+    IF delCount% = 0 THEN EXIT SUB
+    IF PAL_COLOR_COUNT% - delCount% < 2 THEN
+        _LOGWARN "PALETTE_OPS: Cannot delete — must keep at least 2 palette colors"
+        SOUND_play SND_TOOL_SELECT
+        EXIT SUB
+    END IF
+
+    ' Delete from highest index to lowest to preserve indices
+    FOR delIdx% = PAL_COLOR_COUNT% - 1 TO 0 STEP -1
+        IF PALETTE_OPS_MARKED(delIdx%) THEN
+            PALETTE_OPS_delete_color delIdx%
+        END IF
+    NEXT delIdx%
+
+    _LOGINFO "PALETTE_OPS: Deleted " + STR$(delCount%) + " marked colors"
+END SUB
+
+
+''
+' Insert a blank (transparent) color after the specified index.
+'
+SUB PALETTE_OPS_insert_color (palIdx AS INTEGER)
+    IF PAL_COLOR_COUNT% >= 256 THEN
+        _LOGWARN "PALETTE_OPS: Palette full (256 colors), cannot insert"
+        EXIT SUB
+    END IF
+
+    ' Shift palette entries up from the end
+    DIM ii AS INTEGER
+    FOR ii% = PAL_COLOR_COUNT% TO palIdx% + 2 STEP -1
+        PAL(ii%).value~& = PAL(ii% - 1).value~&
+        PAL(ii%).name$ = PAL(ii% - 1).name$
+        PALETTE_OPS_MARKED(ii%) = PALETTE_OPS_MARKED(ii% - 1)
+    NEXT ii%
+
+    ' Insert blank color at palIdx + 1
+    PAL(palIdx% + 1).value~& = _RGBA32(0, 0, 0, 0)
+    PAL(palIdx% + 1).name$ = ""
+    PALETTE_OPS_MARKED(palIdx% + 1) = FALSE
+    PAL_COLOR_COUNT% = PAL_COLOR_COUNT% + 1
+
+    ' Adjust FG/BG indices
+    IF PAL_FG_IDX% > palIdx% THEN PAL_FG_IDX% = PAL_FG_IDX% + 1
+    IF PAL_BG_IDX% > palIdx% THEN PAL_BG_IDX% = PAL_BG_IDX% + 1
+
+    PALETTE_OPS_mark_document_palette
+    SOUND_play SND_NEW_LAYER
+    GUI_NEEDS_REDRAW% = TRUE
+    FRAME_IDLE% = FALSE
+    _LOGINFO "PALETTE_OPS: Inserted blank color after idx " + STR$(palIdx%)
+END SUB
+
+
+''
+' Rearrange a palette color from srcIdx to dstIdx.
+' Shifts other entries to accommodate the move.
+'
+SUB PALETTE_OPS_rearrange (srcIdx AS INTEGER, dstIdx AS INTEGER)
+    IF srcIdx% = dstIdx% THEN EXIT SUB
+    IF srcIdx% < 0 OR srcIdx% >= PAL_COLOR_COUNT% THEN EXIT SUB
+    IF dstIdx% < 0 OR dstIdx% >= PAL_COLOR_COUNT% THEN EXIT SUB
+
+    ' Save the source color
+    DIM savedColor AS _UNSIGNED LONG
+    DIM savedName AS STRING
+    DIM savedMark AS INTEGER
+    savedColor~& = PAL(srcIdx%).value~&
+    savedName$ = PAL(srcIdx%).name$
+    savedMark% = PALETTE_OPS_MARKED(srcIdx%)
+
+    ' Shift entries
+    DIM si AS INTEGER
+    IF srcIdx% < dstIdx% THEN
+        ' Moving forward: shift entries left
+        FOR si% = srcIdx% TO dstIdx% - 1
+            PAL(si%).value~& = PAL(si% + 1).value~&
+            PAL(si%).name$ = PAL(si% + 1).name$
+            PALETTE_OPS_MARKED(si%) = PALETTE_OPS_MARKED(si% + 1)
+        NEXT si%
+    ELSE
+        ' Moving backward: shift entries right
+        FOR si% = srcIdx% TO dstIdx% + 1 STEP -1
+            PAL(si%).value~& = PAL(si% - 1).value~&
+            PAL(si%).name$ = PAL(si% - 1).name$
+            PALETTE_OPS_MARKED(si%) = PALETTE_OPS_MARKED(si% - 1)
+        NEXT si%
+    END IF
+
+    ' Place source at destination
+    PAL(dstIdx%).value~& = savedColor~&
+    PAL(dstIdx%).name$ = savedName$
+    PALETTE_OPS_MARKED(dstIdx%) = savedMark%
+
+    ' Adjust FG/BG indices to follow the moved color
+    IF PAL_FG_IDX% = srcIdx% THEN
+        PAL_FG_IDX% = dstIdx%
+    ELSEIF srcIdx% < dstIdx% THEN
+        IF PAL_FG_IDX% > srcIdx% AND PAL_FG_IDX% <= dstIdx% THEN
+            PAL_FG_IDX% = PAL_FG_IDX% - 1
+        END IF
+    ELSE
+        IF PAL_FG_IDX% >= dstIdx% AND PAL_FG_IDX% < srcIdx% THEN
+            PAL_FG_IDX% = PAL_FG_IDX% + 1
+        END IF
+    END IF
+
+    IF PAL_BG_IDX% = srcIdx% THEN
+        PAL_BG_IDX% = dstIdx%
+    ELSEIF srcIdx% < dstIdx% THEN
+        IF PAL_BG_IDX% > srcIdx% AND PAL_BG_IDX% <= dstIdx% THEN
+            PAL_BG_IDX% = PAL_BG_IDX% - 1
+        END IF
+    ELSE
+        IF PAL_BG_IDX% >= dstIdx% AND PAL_BG_IDX% < srcIdx% THEN
+            PAL_BG_IDX% = PAL_BG_IDX% + 1
+        END IF
+    END IF
+
+    PALETTE_OPS_mark_document_palette
+    SOUND_play SND_DRAG_DROP
+    GUI_NEEDS_REDRAW% = TRUE
+    FRAME_IDLE% = FALSE
+    _LOGINFO "PALETTE_OPS: Rearranged color " + STR$(srcIdx%) + " -> " + STR$(dstIdx%)
+END SUB
+
+
+''
+' Find closest palette color excluding a specific index.
+' Used for nearest-neighbor remapping when deleting a color.
+'
+FUNCTION PAL_find_closest_excluding% (c AS _UNSIGNED LONG, excludeIdx AS INTEGER)
+    DIM fi AS INTEGER
+    DIM fr AS INTEGER, fg AS INTEGER, fb AS INTEGER
+    DIM fpr AS INTEGER, fpg AS INTEGER, fpb AS INTEGER
+    DIM fdr AS INTEGER, fdg AS INTEGER, fdb AS INTEGER
+    DIM fdist AS LONG, fmin_dist AS LONG
+    DIM fclosest AS INTEGER
+
+    fr% = _RED32(c~&)
+    fg% = _GREEN32(c~&)
+    fb% = _BLUE32(c~&)
+
+    fclosest% = -1
+    fmin_dist& = 2147483647
+
+    FOR fi% = 0 TO PAL_COLOR_COUNT% - 1
+        IF fi% = excludeIdx% THEN _CONTINUE
+        fpr% = _RED32(PAL(fi%).value~&)
+        fpg% = _GREEN32(PAL(fi%).value~&)
+        fpb% = _BLUE32(PAL(fi%).value~&)
+        fdr% = fr% - fpr%
+        fdg% = fg% - fpg%
+        fdb% = fb% - fpb%
+        fdist& = fdr% * fdr% + fdg% * fdg% + fdb% * fdb%
+        IF fdist& < fmin_dist& THEN
+            fmin_dist& = fdist&
+            fclosest% = fi%
+        END IF
+    NEXT fi%
+
+    IF fclosest% < 0 THEN fclosest% = 0
+    PAL_find_closest_excluding% = fclosest%
+END FUNCTION

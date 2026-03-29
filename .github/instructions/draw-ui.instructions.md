@@ -42,7 +42,7 @@ Root menus (indices 0–10): FILE(0), EDIT(1), VIEW(2), SELECT(3), TOOLS(4), BRU
 | 1101–1112 | Custom Brush | Capture, Clear, Recolor, Outline, Flip, Scale, Export, Rotate |
 | 1201–1206 | Assistants   | Constrain, AngleSnap, Square/Circle, Center, Clone, TempPicker |
 | 1401–1414 | Selection    | SelectFromLayer, Nudge 1/10px, Expand/Contract, SelectFromSelectedLayers |
-| 1501–1517 | Palette/Ref  | RefImage, Palette Import/Export/Random, Color Picker, Swap FG/BG, Load from Lospec, Create from Image, Remap to Palette, Show Lospec Palettes |
+| 1501–1517 | Palette/Ref  | RefImage, GPL Import (1510), GPL Export (1511), Random, Color Picker, Swap FG/BG, Load from Lospec, Create from Image, Remap to Palette, Show Lospec Palettes |
 | 1601–1607 | Help         | About, CheatSheet, Manual, GitHub, Issues, Credits |
 | 1701–1704 | Tools (menu) | Zoom, Spray, CmdPalette, CodeExport |
 | 1801–1802 | Canvas       | Resize dialog (1801), Crop dialog (1802) |
@@ -98,6 +98,7 @@ Each variant maps to a distinct cursor via `POINTER_marquee_cursor_for_variant%`
 | Slot | ID                | Purpose        | Mousewheel Action |
 | ---- | ----------------- | -------------- | ----------------- |
 | 2    | ORG_BRUSH_SIZE    | Brush size     | Cycles 4 size presets |
+| 4    | ORG_PALETTE_OPS   | Palette ops    | Toggles palette ops mode on/off |
 | 7    | ORG_SYMMETRY_MODE | Symmetry       | Cycles 4 states (off + 3 modes) |
 | 8    | ORG_GRID_VIS      | Grid visibility| Cycles grid modes (must call `GRID_draw`) |
 | 9    | ORG_GRID_SNAP     | Grid snap      | Toggles snap + alignment |
