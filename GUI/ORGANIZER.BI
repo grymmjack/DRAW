@@ -99,10 +99,11 @@ ORG_WIDGETS(ORG_PATTERN_MODE).srcH%    = 11
 ORG_WIDGETS(ORG_PATTERN_MODE).tip$     = "Pattern Mode (F3)"
 
 ' ── Col 0, Row 1: Palette Ops ──
-ORG_WIDGETS(ORG_PALETTE_OPS).imgSrc$   = "palette-ops.png"
+ORG_WIDGETS(ORG_PALETTE_OPS).imgSrc$   = "palette-ops-off.png"
+ORG_WIDGETS(ORG_PALETTE_OPS).imgSrc2$  = "palette-ops-on.png"
 ORG_WIDGETS(ORG_PALETTE_OPS).srcW%     = 11
 ORG_WIDGETS(ORG_PALETTE_OPS).srcH%     = 10
-ORG_WIDGETS(ORG_PALETTE_OPS).tip$      = "Palette Ops (stub)"
+ORG_WIDGETS(ORG_PALETTE_OPS).tip$      = "Palette Ops: L=Toggle"
 
 ' ── Col 1, Row 1: Transform Ops ──
 ORG_WIDGETS(ORG_TRANSFORM_OPS).imgSrc$  = "transform-ops.png"

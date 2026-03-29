@@ -209,6 +209,7 @@ DO
     PERF_start PERF_MAIN_LOOP_TOTAL
     PERF_start PERF_MOUSE_INPUT
     MOUSE_input_handler
+    PALETTE_OPS_tick
     PERF_stop PERF_MOUSE_INPUT
     PERF_start PERF_KEYBOARD_INPUT
     KEYBOARD_input_handler
