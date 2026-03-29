@@ -24,7 +24,18 @@ $END IF
 
 ' Runtime config file path (set by command-line parsing below)
 DIM SHARED CONFIG_FILE_PATH$
-CONFIG_FILE_PATH$ = CONFIG_FILE_DEFAULT$
+' Start with native path; fall back to beside-exe if native doesn't exist yet
+' (pre-migration state). CONFIG_save will write to whichever path is set here.
+IF _FILEEXISTS(PATHS_config$(CONFIG_FILE_DEFAULT$)) THEN
+    CONFIG_FILE_PATH$ = PATHS_config$(CONFIG_FILE_DEFAULT$)
+ELSEIF _FILEEXISTS(CONFIG_FILE_DEFAULT$) THEN
+    ' Beside-exe config exists but hasn't been migrated yet — load from there.
+    ' PATHS_migrate (called later from DRAW.BAS) will copy it to native dir.
+    CONFIG_FILE_PATH$ = CONFIG_FILE_DEFAULT$
+ELSE
+    ' Neither exists — fresh install, use native path for initial save
+    CONFIG_FILE_PATH$ = PATHS_config$(CONFIG_FILE_DEFAULT$)
+END IF
 
 ' Flag: TRUE if --config / -c was used (so DRAW.BAS skips those args for file open)
 DIM SHARED CMDLINE_CONFIG_ARG_COUNT%
@@ -118,11 +129,14 @@ DO WHILE CONFIG_cmdArgIdx% <= CONFIG_cmdArgCount%
 LOOP
 
 ' OS-specific config auto-detection (only if --config was NOT explicitly passed)
-' Priority: --config arg > OS-specific file > DRAW.cfg
+' Priority: --config arg > OS-specific file in native dir > OS-specific beside exe > default
 IF CMDLINE_CONFIG_ARG_COUNT% = 0 OR (CMDLINE_CONFIG_UPGRADE% AND CMDLINE_CONFIG_ARG_COUNT% = 1) THEN
     ' No --config was specified — check for OS-specific config file
     IF CONFIG_FILE_OS_SPECIFIC$ <> "" THEN
-        IF _FILEEXISTS(CONFIG_FILE_OS_SPECIFIC$) THEN
+        IF _FILEEXISTS(PATHS_config$(CONFIG_FILE_OS_SPECIFIC$)) THEN
+            CONFIG_FILE_PATH$ = PATHS_config$(CONFIG_FILE_OS_SPECIFIC$)
+        ELSEIF _FILEEXISTS(CONFIG_FILE_OS_SPECIFIC$) THEN
+            ' Fallback: check beside executable (pre-migration)
             CONFIG_FILE_PATH$ = CONFIG_FILE_OS_SPECIFIC$
         END IF
     END IF

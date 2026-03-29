@@ -1,0 +1,371 @@
+''
+' DRAW - CORE/PATHS.BM
+' =============================================================================
+' Cross-platform OS-native path resolution implementation.
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+
+''
+' PATHS_init — Resolve OS-native directories for config, data, and cache.
+' Called at include time from PATHS.BI (before CONFIG.BI runs).
+' In portable mode, all paths point to the executable's directory.
+'
+SUB PATHS_init ()
+    IF PATHS_INITIALIZED% THEN EXIT SUB
+
+    DIM sep$
+    DIM homeDir$
+
+    $IF WIN THEN
+        sep$ = "\"
+    $ELSE
+        sep$ = "/"
+    $END IF
+
+    IF PATHS_PORTABLE% THEN
+        ' Portable mode: everything beside the executable
+        PATHS_CONFIG_DIR$ = _CWD$ + sep$
+        PATHS_DATA_DIR$ = _CWD$ + sep$ + "USER" + sep$
+        PATHS_CACHE_DIR$ = _CWD$ + sep$
+        PATHS_INITIALIZED% = TRUE
+        ' Ensure USER dir exists in portable mode
+        IF NOT _DIREXISTS(_CWD$ + sep$ + "USER") THEN
+            MKDIR _CWD$ + sep$ + "USER"
+        END IF
+        EXIT SUB
+    END IF
+
+    ' --- Native OS paths ---
+
+    $IF LINUX THEN
+        homeDir$ = ENVIRON$("HOME")
+        IF homeDir$ = "" THEN homeDir$ = "~"
+
+        ' Config: XDG_CONFIG_HOME or ~/.config
+        DIM xdgConfig$
+        xdgConfig$ = ENVIRON$("XDG_CONFIG_HOME")
+        IF xdgConfig$ = "" THEN xdgConfig$ = homeDir$ + "/.config"
+        PATHS_CONFIG_DIR$ = xdgConfig$ + "/" + PATHS_APP_NAME$ + "/"
+
+        ' Data: XDG_DATA_HOME or ~/.local/share
+        DIM xdgData$
+        xdgData$ = ENVIRON$("XDG_DATA_HOME")
+        IF xdgData$ = "" THEN xdgData$ = homeDir$ + "/.local/share"
+        PATHS_DATA_DIR$ = xdgData$ + "/" + PATHS_APP_NAME$ + "/"
+
+        ' Cache: XDG_CACHE_HOME or ~/.cache
+        DIM xdgCache$
+        xdgCache$ = ENVIRON$("XDG_CACHE_HOME")
+        IF xdgCache$ = "" THEN xdgCache$ = homeDir$ + "/.cache"
+        PATHS_CACHE_DIR$ = xdgCache$ + "/" + PATHS_APP_NAME$ + "/"
+
+    $ELSEIF MAC THEN
+        homeDir$ = ENVIRON$("HOME")
+        IF homeDir$ = "" THEN homeDir$ = "~"
+
+        ' macOS: config and data both in ~/Library/Application Support/
+        PATHS_CONFIG_DIR$ = homeDir$ + "/Library/Application Support/" + PATHS_APP_NAME$ + "/"
+        PATHS_DATA_DIR$ = homeDir$ + "/Library/Application Support/" + PATHS_APP_NAME$ + "/"
+        PATHS_CACHE_DIR$ = homeDir$ + "/Library/Caches/" + PATHS_APP_NAME$ + "/"
+
+    $ELSEIF WIN THEN
+        ' Windows: config and data in %APPDATA%, cache in %LOCALAPPDATA%
+        DIM appData$
+        appData$ = ENVIRON$("APPDATA")
+        IF appData$ = "" THEN appData$ = ENVIRON$("USERPROFILE") + "\AppData\Roaming"
+        PATHS_CONFIG_DIR$ = appData$ + "\" + PATHS_APP_NAME$ + "\"
+        PATHS_DATA_DIR$ = appData$ + "\" + PATHS_APP_NAME$ + "\"
+
+        DIM localAppData$
+        localAppData$ = ENVIRON$("LOCALAPPDATA")
+        IF localAppData$ = "" THEN localAppData$ = ENVIRON$("USERPROFILE") + "\AppData\Local"
+        PATHS_CACHE_DIR$ = localAppData$ + "\" + PATHS_APP_NAME$ + "\Cache\"
+
+    $ELSE
+        ' Unknown OS: fall back to portable behavior
+        PATHS_CONFIG_DIR$ = _CWD$ + sep$
+        PATHS_DATA_DIR$ = _CWD$ + sep$ + "USER" + sep$
+        PATHS_CACHE_DIR$ = _CWD$ + sep$
+    $END IF
+
+    ' Create all directories
+    PATHS_ensure_dir PATHS_CONFIG_DIR$
+    PATHS_ensure_dir PATHS_DATA_DIR$
+    PATHS_ensure_dir PATHS_CACHE_DIR$
+
+    ' Create data subdirectories
+    PATHS_ensure_dir PATHS_DATA_DIR$ + "DRAWER-SETS" + sep$
+    PATHS_ensure_dir PATHS_DATA_DIR$ + "PALETTES" + sep$
+    PATHS_ensure_dir PATHS_DATA_DIR$ + "PALETTES" + sep$ + "CREATED" + sep$
+
+    PATHS_INITIALIZED% = TRUE
+
+    _LOGINFO "PATHS: Config = " + PATHS_CONFIG_DIR$
+    _LOGINFO "PATHS: Data   = " + PATHS_DATA_DIR$
+    _LOGINFO "PATHS: Cache  = " + PATHS_CACHE_DIR$
+    IF PATHS_PORTABLE% THEN _LOGINFO "PATHS: Mode   = PORTABLE"
+END SUB
+
+
+''
+' Return full path for a config file.
+' @param filename$ STRING - Filename (e.g., "DRAW.cfg")
+' @return STRING - Full path
+'
+FUNCTION PATHS_config$ (filename$)
+    PATHS_config$ = PATHS_CONFIG_DIR$ + filename$
+END FUNCTION
+
+
+''
+' Return full path for a data file or subdirectory.
+' @param filename$ STRING - Filename or relative path (e.g., "DRAWER-SETS/")
+' @return STRING - Full path
+'
+FUNCTION PATHS_data$ (filename$)
+    PATHS_data$ = PATHS_DATA_DIR$ + filename$
+END FUNCTION
+
+
+''
+' Return full path for a cache/temp file.
+' @param filename$ STRING - Filename (e.g., "draw_font_scan.tmp")
+' @return STRING - Full path
+'
+FUNCTION PATHS_cache$ (filename$)
+    PATHS_cache$ = PATHS_CACHE_DIR$ + filename$
+END FUNCTION
+
+
+''
+' Ensure a directory exists, creating parent directories as needed.
+' @param dirPath$ STRING - Full directory path (with trailing separator)
+'
+SUB PATHS_ensure_dir (dirPath$)
+    IF dirPath$ = "" THEN EXIT SUB
+    IF _DIREXISTS(dirPath$) THEN EXIT SUB
+
+    DIM sep$
+    DIM cleaned$
+    DIM i AS INTEGER
+    DIM partial$
+
+    $IF WIN THEN
+        sep$ = "\"
+    $ELSE
+        sep$ = "/"
+    $END IF
+
+    ' Strip trailing separator for processing
+    cleaned$ = dirPath$
+    IF RIGHT$(cleaned$, 1) = sep$ THEN cleaned$ = LEFT$(cleaned$, LEN(cleaned$) - 1)
+
+    ' Walk path components and create each level
+    i% = 1
+    DO
+        i% = INSTR(i% + 1, cleaned$, sep$)
+        IF i% = 0 THEN
+            ' Last component
+            IF NOT _DIREXISTS(cleaned$) THEN MKDIR cleaned$
+            EXIT DO
+        END IF
+        partial$ = LEFT$(cleaned$, i% - 1)
+        ' Skip drive letter on Windows (e.g., "C:")
+        IF LEN(partial$) > 2 THEN
+            IF NOT _DIREXISTS(partial$) THEN MKDIR partial$
+        END IF
+    LOOP
+END SUB
+
+
+''
+' PATHS_migrate — One-time migration from old portable layout to OS-native dirs.
+' Shows a DRAW_message_box% dialog asking the user whether to migrate.
+' Must be called AFTER SCREEN_init (needs GUI) but before CONFIG_load.
+'
+' Old layout (beside exe):
+'   DRAW.cfg, DRAW.linux.cfg, etc.
+'   DRAW_FONT_BLACKLIST.txt, DRAW_FONT_FAVORITES.txt
+'   USER/DRAWER-SETS/, USER/PALETTES/, USER/DRAW_TEXT_STYLES.dstyle
+'
+SUB PATHS_migrate ()
+    ' Skip if in portable mode
+    IF PATHS_PORTABLE% THEN EXIT SUB
+
+    DIM sep$
+    $IF WIN THEN
+        sep$ = "\"
+    $ELSE
+        sep$ = "/"
+    $END IF
+
+    ' Check for migration marker — if present, we already handled this
+    DIM markerPath$
+    markerPath$ = _CWD$ + sep$ + "MIGRATED_TO_NATIVE.txt"
+    IF _FILEEXISTS(markerPath$) THEN EXIT SUB
+
+    ' Check if old files exist beside the executable
+    DIM hasOldConfig%
+    DIM hasOldUser%
+    hasOldConfig% = _FILEEXISTS(_CWD$ + sep$ + "DRAW.cfg")
+    hasOldUser% = _DIREXISTS(_CWD$ + sep$ + "USER")
+
+    ' Nothing to migrate?
+    IF NOT hasOldConfig% AND NOT hasOldUser% THEN EXIT SUB
+
+    ' Build the migration message
+    DIM msg$
+    msg$ = "DRAW now stores settings and user data in OS-native directories:" + CHR$(10) + CHR$(10)
+    msg$ = msg$ + "Config: " + PATHS_CONFIG_DIR$ + CHR$(10)
+    IF PATHS_DATA_DIR$ <> PATHS_CONFIG_DIR$ THEN
+        msg$ = msg$ + "Data:   " + PATHS_DATA_DIR$ + CHR$(10)
+    END IF
+    msg$ = msg$ + CHR$(10) + "Copy your existing files to the new location?" + CHR$(10)
+    msg$ = msg$ + "(Originals will be kept as backup)"
+
+    ' Show system arrow cursor for the dialog (cursor system not yet initialized)
+    _MOUSESHOW "DEFAULT"
+
+    DIM result%
+    result% = DRAW_message_box%("Migrate Settings", msg$, MB_BTN_YES_NO, MB_ICON_QUESTION)
+
+    ' Hide cursor again — CURSOR_load_all will set up proper cursors later
+    _MOUSEHIDE
+
+    ' Drain mouse/keyboard buffers so dialog clicks don't bleed through as draw actions
+    MOUSE_cleanup_after_dialog FALSE
+
+    IF result% = MB_RESULT_1 THEN
+        ' User chose YES — copy files
+        _LOGINFO "PATHS: Migration started"
+
+        ' Copy config files
+        PATHS_copy_file _CWD$ + sep$ + "DRAW.cfg", PATHS_CONFIG_DIR$ + "DRAW.cfg"
+
+        $IF LINUX THEN
+            PATHS_copy_file _CWD$ + sep$ + "DRAW.linux.cfg", PATHS_CONFIG_DIR$ + "DRAW.linux.cfg"
+        $ELSEIF MAC THEN
+            PATHS_copy_file _CWD$ + sep$ + "DRAW.macOS.cfg", PATHS_CONFIG_DIR$ + "DRAW.macOS.cfg"
+        $ELSEIF WIN THEN
+            PATHS_copy_file _CWD$ + sep$ + "DRAW.windows.cfg", PATHS_CONFIG_DIR$ + "DRAW.windows.cfg"
+        $END IF
+
+        PATHS_copy_file _CWD$ + sep$ + "DRAW_FONT_BLACKLIST.txt", PATHS_CONFIG_DIR$ + "DRAW_FONT_BLACKLIST.txt"
+        PATHS_copy_file _CWD$ + sep$ + "DRAW_FONT_FAVORITES.txt", PATHS_CONFIG_DIR$ + "DRAW_FONT_FAVORITES.txt"
+
+        ' Copy data directories (use platform shell for recursive copy)
+        DIM oldUserDir$
+        oldUserDir$ = _CWD$ + sep$ + "USER"
+
+        $IF WIN THEN
+            IF _DIREXISTS(oldUserDir$ + "\DRAWER-SETS") THEN
+                SHELL _HIDE "xcopy /E /I /Y " + CHR$(34) + oldUserDir$ + "\DRAWER-SETS" + CHR$(34) + " " + CHR$(34) + PATHS_DATA_DIR$ + "DRAWER-SETS" + CHR$(34) + " >NUL 2>NUL"
+            END IF
+            IF _DIREXISTS(oldUserDir$ + "\PALETTES") THEN
+                SHELL _HIDE "xcopy /E /I /Y " + CHR$(34) + oldUserDir$ + "\PALETTES" + CHR$(34) + " " + CHR$(34) + PATHS_DATA_DIR$ + "PALETTES" + CHR$(34) + " >NUL 2>NUL"
+            END IF
+            IF _DIREXISTS(oldUserDir$ + "\FONTS") THEN
+                SHELL _HIDE "xcopy /E /I /Y " + CHR$(34) + oldUserDir$ + "\FONTS" + CHR$(34) + " " + CHR$(34) + PATHS_DATA_DIR$ + "FONTS" + CHR$(34) + " >NUL 2>NUL"
+            END IF
+        $ELSE
+            IF _DIREXISTS(oldUserDir$ + "/DRAWER-SETS") THEN
+                SHELL _HIDE "cp -r " + CHR$(34) + oldUserDir$ + "/DRAWER-SETS/." + CHR$(34) + " " + CHR$(34) + PATHS_DATA_DIR$ + "DRAWER-SETS/" + CHR$(34) + " 2>/dev/null"
+            END IF
+            IF _DIREXISTS(oldUserDir$ + "/PALETTES") THEN
+                SHELL _HIDE "cp -r " + CHR$(34) + oldUserDir$ + "/PALETTES/." + CHR$(34) + " " + CHR$(34) + PATHS_DATA_DIR$ + "PALETTES/" + CHR$(34) + " 2>/dev/null"
+            END IF
+            IF _DIREXISTS(oldUserDir$ + "/FONTS") THEN
+                SHELL _HIDE "cp -r " + CHR$(34) + oldUserDir$ + "/FONTS/." + CHR$(34) + " " + CHR$(34) + PATHS_DATA_DIR$ + "FONTS/" + CHR$(34) + " 2>/dev/null"
+            END IF
+        $END IF
+
+        ' Copy text styles file
+        PATHS_copy_file oldUserDir$ + sep$ + "DRAW_TEXT_STYLES.dstyle", PATHS_DATA_DIR$ + "DRAW_TEXT_STYLES.dstyle"
+
+        ' Point CONFIG_FILE_PATH$ to native location and reload config
+        ' so the user's actual settings take effect (not defaults)
+        IF _FILEEXISTS(PATHS_CONFIG_DIR$ + "DRAW.cfg") THEN
+            CONFIG_FILE_PATH$ = PATHS_CONFIG_DIR$ + "DRAW.cfg"
+        END IF
+        ' Check for OS-specific config in newly copied native dir
+        IF CONFIG_FILE_OS_SPECIFIC$ <> "" THEN
+            IF _FILEEXISTS(PATHS_CONFIG_DIR$ + CONFIG_FILE_OS_SPECIFIC$) THEN
+                CONFIG_FILE_PATH$ = PATHS_CONFIG_DIR$ + CONFIG_FILE_OS_SPECIFIC$
+            END IF
+        END IF
+        ' Reload config from the migrated file
+        CONFIG_load
+
+        _LOGINFO "PATHS: Migration completed — config reloaded from " + CONFIG_FILE_PATH$
+    ELSE
+        ' User declined — still switch CONFIG_FILE_PATH$ to native so future
+        ' saves go to the right place (file will be created fresh)
+        CONFIG_FILE_PATH$ = PATHS_config$(CONFIG_FILE_DEFAULT$)
+        _LOGINFO "PATHS: Migration declined by user"
+    END IF
+
+    ' Write marker to prevent re-prompting (regardless of choice)
+    PATHS_write_migration_marker markerPath$
+END SUB
+
+
+''
+' Copy a single file from src to dst using binary read/write.
+' Silently skips if source does not exist.
+'
+SUB PATHS_copy_file (src$, dst$)
+    IF NOT _FILEEXISTS(src$) THEN EXIT SUB
+
+    DIM srcFh AS INTEGER
+    DIM dstFh AS INTEGER
+    DIM fileLen AS LONG
+    DIM chunk$
+
+    srcFh% = FREEFILE
+    OPEN src$ FOR BINARY AS #srcFh%
+    fileLen& = LOF(srcFh%)
+    IF fileLen& = 0 THEN
+        CLOSE #srcFh%
+        EXIT SUB
+    END IF
+
+    dstFh% = FREEFILE
+    OPEN dst$ FOR BINARY AS #dstFh%
+
+    ' Copy in 32KB chunks
+    DIM remaining AS LONG
+    DIM chunkSize AS INTEGER
+    remaining& = fileLen&
+    DO WHILE remaining& > 0
+        IF remaining& > 32000 THEN chunkSize% = 32000 ELSE chunkSize% = remaining&
+        chunk$ = SPACE$(chunkSize%)
+        GET #srcFh%, , chunk$
+        PUT #dstFh%, , chunk$
+        remaining& = remaining& - chunkSize%
+    LOOP
+
+    CLOSE #dstFh%
+    CLOSE #srcFh%
+    _LOGINFO "PATHS: Copied " + src$ + " -> " + dst$
+END SUB
+
+
+''
+' Write the migration marker file.
+'
+SUB PATHS_write_migration_marker (markerPath$)
+    DIM fh AS INTEGER
+    fh% = FREEFILE
+    OPEN markerPath$ FOR OUTPUT AS #fh%
+    PRINT #fh%, "Migrated to OS-native directories on " + DATE$ + " " + TIME$
+    PRINT #fh%, "Config: " + PATHS_CONFIG_DIR$
+    PRINT #fh%, "Data:   " + PATHS_DATA_DIR$
+    PRINT #fh%, "Cache:  " + PATHS_CACHE_DIR$
+    PRINT #fh%, ""
+    PRINT #fh%, "You may safely delete the old USER/ directory and config files"
+    PRINT #fh%, "beside the executable once you have confirmed everything works."
+    CLOSE #fh%
+END SUB

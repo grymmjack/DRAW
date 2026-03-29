@@ -25,7 +25,20 @@
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 DRAW_ROOT="$(dirname "$SCRIPT_DIR")"
 DRAW_BIN="$DRAW_ROOT/DRAW.run"
-DRAW_CFG="$DRAW_ROOT/DRAW.cfg"
+
+# Locate DRAW.cfg — check OS-native config dir first, fall back to beside exe.
+# Mirrors the XDG logic in CORE/PATHS.BI (Linux: ~/.config/DRAW/)
+_find_draw_cfg() {
+    local xdg_cfg="${XDG_CONFIG_HOME:-$HOME/.config}/DRAW/DRAW.cfg"
+    if [[ -f "$xdg_cfg" ]]; then
+        echo "$xdg_cfg"
+    elif [[ -f "$DRAW_ROOT/DRAW.cfg" ]]; then
+        echo "$DRAW_ROOT/DRAW.cfg"
+    else
+        echo ""
+    fi
+}
+DRAW_CFG="$(_find_draw_cfg)"
 RESULTS_DIR="$SCRIPT_DIR/results"
 SCREENSHOTS_DIR="$SCRIPT_DIR/screenshots"
 TESTS_DIR="$SCRIPT_DIR/tests"
@@ -44,7 +57,7 @@ LOG_FILE=""
 PASSED_CACHE="$RESULTS_DIR/passed.txt"
 
 # ── parse DRAW.cfg ────────────────────────────────────────────────────────────
-_cfg() { grep -m1 "^${1}=" "$DRAW_CFG" 2>/dev/null | cut -d= -f2 | tr -d '[:space:]'; }
+_cfg() { [[ -n "$DRAW_CFG" ]] && grep -m1 "^${1}=" "$DRAW_CFG" 2>/dev/null | cut -d= -f2 | tr -d '[:space:]'; }
 
 DISPLAY_SCALE=$(_cfg DISPLAY_SCALE)
 DISPLAY_SCALE=${DISPLAY_SCALE:-1}

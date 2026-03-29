@@ -14,6 +14,7 @@ $INCLUDEONCE
 '$INCLUDE:'./CORE/PERF.BI'
 '$INCLUDE:'./CORE/ERROR.BI'
 '$INCLUDE:'./CORE/IMAGE.BI'
+'$INCLUDE:'./CORE/PATHS.BI'
 '$INCLUDE:'./CORE/SOUND.BI'
 
 ' QB64_GJ COMPONENTS ----------------------------------------------------------
