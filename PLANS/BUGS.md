@@ -1,3 +1,52 @@
 # BUGS
 
+## FILE DIALOG
+- [x] Allow custom places between OS places, and user favorites:
+  - This will allow us to have DRAW specific directories included for convenience
+  - [x] Modify File DIALOG API to support
+    - [x] Place name, color, hotkey, icon, directory
+  - [x] `FD_add_custom_place` / `FD_clear_custom_places` API in FD-API.BM
+  - [x] `DRAW_FD_register_custom_places` in GJ-DIALOG-SCALE.BM injects: DRAW, Samples, User Data, Palettes, Brush Sets
+- [x] Font size is too small - make it configurable.
+  - [x] 9 per-element font scale fields in `FD_CONFIG_OBJ` (FD-TYPES.BI)
+  - [x] Rendering uses scales in FD-RENDER.BM, FD-API.BM layout
+  - [x] Dynamic row/bar heights in `FD_STATE_OBJ` replace old hardcoded constants
+  - [x] FD-INPUT.BM and FD-FS.BM converted to use dynamic heights
+  - [x] Persisted in `DRAW.cfg` as `FD_FONT_SCALE` (0=use TOOLBAR_SCALE, 1-4 explicit)
+  - [x] Injected via `DRAW_FD_apply_font_scale` in GJ-DIALOG-SCALE.BM before every dialog open
+  - [x] Clamped 1–4x, defaults to TOOLBAR_SCALE when 0
+  - Config keys: `titleFontScale`, `placesFontScale`, `pathFontScale`, `contentFontScale`, `previewFontScale`, `inputFontScale`, `filterFontScale`, `statusFontScale`, `sortFontScale`
 
+- [x] Use button images for file dialog functions:
+  - [x] Up directory (`FD_ICON_TB_UP`)
+  - [x] View Modes:
+    - [x] List (`FD_ICON_TB_LIST`)
+    - [x] Details (`FD_ICON_TB_DETAILS`)
+    - [x] Thumbnails (`FD_ICON_TB_THUMBS`)
+  - [x] Show hidden files (`FD_ICON_TB_HIDDEN`)
+
+- [x] Custom icons:
+  - [x] Places bar types:
+    - [x] Root (`FD_ICON_PLACE_ROOT`)
+    - [x] Home (`FD_ICON_PLACE_HOME`)
+    - [x] Desktop (`FD_ICON_PLACE_DESKTOP`)
+    - [x] Downloads (`FD_ICON_PLACE_DOWNLOADS`)
+    - [x] Pictures (`FD_ICON_PLACE_PICTURES`)
+    - [x] Music (`FD_ICON_PLACE_MUSIC`)
+    - [x] Videos (`FD_ICON_PLACE_VIDEOS`)
+  - [x] Content file types (case insensitive matching via `FD_ICONS_for_extension%`):
+    - [x] DRAW stuff:
+      - [x] DSETs (.dset) — `FD_ICON_DSET`
+      - [x] Palettes (.pal) — `FD_ICON_PALETTE`
+      - [x] Gradients (.grad) — `FD_ICON_GRADIENT`
+    - [x] Any other document — `FD_ICON_DOCUMENT`
+    - [x] Folder — `FD_ICON_FOLDER`
+    - [x] Fonts (.ttf, .otf, .psf, .f??, .fon) — `FD_ICON_FONT`
+    - [x] Images (.bmp, .drw, .gif, .jpg, .jpeg, .png, .webp, .qoi) — `FD_ICON_IMAGE`
+    - [x] Executables (.run, .sh, .exe, .bat, .ps1) — `FD_ICON_EXECUTABLE`
+    - [x] Text files (.txt, .md, .doc) — `FD_ICON_TEXT`
+    - [x] Text mode files (.ans, .asc, .xb, .xbin) — `FD_ICON_TEXTMODE`
+    - [x] Sounds (.wav, .mp3, .ogg, .sf2, .rad, .mod, .s3m, .xm, .it, .mid) — `FD_ICON_SOUND`
+    - [x] Config files (.cfg, .rc, .ini) — `FD_ICON_CONFIG`
+  - [x] 12 icon tint colors in FD-THEME.BI (`FD_CLR_ICON_*`)
+  - [x] Procedural rendering via `FD_ICONS_render` in FD-ICONS.BM (29 icon IDs, no PNG assets needed)
