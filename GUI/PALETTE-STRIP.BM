@@ -636,7 +636,11 @@ SUB PALETTE_MENU_render ()
     sel_bg~& = THEME.PALETTE_MENU_selected_bg~&
     
     visible_count% = PALETTE_LOADER_COUNT%
-    IF visible_count% > max_visible% THEN visible_count% = max_visible%
+    ' Reserve 1 row for [DOCUMENT] entry + separator when it exists
+    DIM doc_rows_reserved AS INTEGER
+    doc_rows_reserved% = 0
+    IF PALETTE_DOC_EXISTS% THEN doc_rows_reserved% = 1
+    IF visible_count% > max_visible% - doc_rows_reserved% THEN visible_count% = max_visible% - doc_rows_reserved%
     start_idx% = PALETTE_MENU_SCROLL%
     
     _DEST SCRN.GUI&
@@ -647,13 +651,43 @@ SUB PALETTE_MENU_render ()
     LINE (PALETTE_MENU_X% - 1, PALETTE_MENU_Y% - 1)-(PALETTE_MENU_X% + PALETTE_MENU_W%, PALETTE_MENU_Y% + PALETTE_MENU_H%), THEME.PALETTE_MENU_border~&, BF
     LINE (PALETTE_MENU_X%, PALETTE_MENU_Y%)-(PALETTE_MENU_X% + PALETTE_MENU_W% - 1, PALETTE_MENU_Y% + PALETTE_MENU_H% - 1), bg_color~&, BF
     
+    ' --- [DOCUMENT] palette entry at top of menu ---
+    DIM doc_offset AS INTEGER
+    doc_offset% = 0
+    IF PALETTE_DOC_EXISTS% THEN
+        DIM doc_y AS INTEGER
+        doc_y% = PALETTE_MENU_Y% + 2
+        DIM doc_is_current AS INTEGER
+        doc_is_current% = (PALETTE_EMBEDDED_ACTIVE% AND PALETTE_EMBEDDED_NAME$ = "[DOCUMENT]")
+        DIM doc_hover AS INTEGER
+        doc_hover% = (MOUSE.RAW_X% >= PALETTE_MENU_X% AND MOUSE.RAW_X% < PALETTE_MENU_X% + PALETTE_MENU_W% AND _
+                      MOUSE.RAW_Y% >= doc_y% AND MOUSE.RAW_Y% < doc_y% + menu_item_h%)
+        IF doc_hover% THEN
+            PALETTE_MENU_HOVER% = -2  ' Special sentinel for [DOCUMENT]
+            LINE (PALETTE_MENU_X% + 1, doc_y%)-(PALETTE_MENU_X% + PALETTE_MENU_W% - 2, doc_y% + menu_item_h% - 1), hover_bg~&, BF
+        ELSEIF doc_is_current% THEN
+            LINE (PALETTE_MENU_X% + 1, doc_y%)-(PALETTE_MENU_X% + PALETTE_MENU_W% - 2, doc_y% + menu_item_h% - 1), sel_bg~&, BF
+        END IF
+        IF doc_is_current% THEN
+            COLOR _RGB32(255, 255, 255), _RGBA32(0, 0, 0, 0)
+        ELSE
+            COLOR fg_color~&, _RGBA32(0, 0, 0, 0)
+        END IF
+        _UPRINTSTRING (PALETTE_MENU_X% + 4, doc_y% + 2), "[DOCUMENT]"
+        ' Separator line below [DOCUMENT]
+        DIM doc_sep_y AS INTEGER
+        doc_sep_y% = doc_y% + menu_item_h%
+        LINE (PALETTE_MENU_X% + 3, doc_sep_y%)-(PALETTE_MENU_X% + PALETTE_MENU_W% - 4, doc_sep_y%), THEME.PALETTE_MENU_SEP_fg~&
+        doc_offset% = menu_item_h% + 1  ' Extra vertical offset for all items below
+    END IF
+
     ' Draw menu items
     FOR i% = 0 TO visible_count% - 1
         DIM item_idx AS INTEGER
         item_idx% = start_idx% + i%
         IF item_idx% >= PALETTE_LOADER_COUNT% THEN EXIT FOR
         
-        y% = PALETTE_MENU_Y% + 2 + (i% * menu_item_h%)
+        y% = PALETTE_MENU_Y% + 2 + doc_offset% + (i% * menu_item_h%)
         
         ' Get palette name from list
         pal_name$ = PALETTE_LIST(item_idx%).pname
@@ -735,7 +769,7 @@ SUB PALETTE_MENU_render ()
     _FONT old_font&
 
     ' Play hover sound when menu item changes
-    IF PALETTE_MENU_HOVER% >= 0 AND PALETTE_MENU_HOVER% <> PALETTE_MENU_PREV_HOVER% THEN
+    IF (PALETTE_MENU_HOVER% >= 0 OR PALETTE_MENU_HOVER% = -2) AND PALETTE_MENU_HOVER% <> PALETTE_MENU_PREV_HOVER% THEN
         SOUND_play SND_MENU_HOVER
     END IF
     PALETTE_MENU_PREV_HOVER% = PALETTE_MENU_HOVER%
@@ -764,6 +798,35 @@ SUB PALETTE_MENU_handle_click (x AS INTEGER, y AS INTEGER)
     DIM rel_y AS INTEGER
     rel_y% = y% - PALETTE_MENU_Y% - 2
     IF rel_y% < 0 THEN EXIT SUB  ' Click above menu content
+
+    ' --- Check if [DOCUMENT] row was clicked ---
+    IF PALETTE_DOC_EXISTS% THEN
+        IF rel_y% < menu_item_h% THEN
+            ' Clicked on [DOCUMENT] entry — restore document palette
+            PAL_COLOR_COUNT% = PALETTE_DOC_COUNT%
+            DIM dri AS INTEGER
+            FOR dri% = 0 TO PALETTE_DOC_COUNT% - 1
+                PAL(dri%).value~& = PALETTE_DOC_COLORS(dri%)
+            NEXT dri%
+            PALETTE_EMBEDDED_ACTIVE% = TRUE
+            PALETTE_EMBEDDED_NAME$ = "[DOCUMENT]"
+            PAL_set_defaults_by_size
+            SOUND_play SND_TOOL_SELECT
+            IF PALETTE_OPS.ACTIVE% THEN PALETTE_OPS_deactivate
+            PALETTE_STRIP_SCROLL_OFFSET% = 0
+            PALETTE_MENU_hide
+            GUI_NEEDS_REDRAW% = TRUE
+            SCENE_DIRTY% = TRUE
+            FRAME_IDLE% = FALSE
+            BLEND_invalidate_cache
+            _LOGINFO "PALETTE_MENU: Restored [DOCUMENT] palette (" + _TRIM$(STR$(PALETTE_DOC_COUNT%)) + " colors)"
+            EXIT SUB
+        END IF
+        ' Adjust rel_y past the [DOCUMENT] row + separator
+        rel_y% = rel_y% - menu_item_h% - 1
+        IF rel_y% < 0 THEN EXIT SUB  ' Clicked on separator line
+    END IF
+
     clicked_idx% = PALETTE_MENU_SCROLL% + (rel_y% \ menu_item_h%)
     
     IF clicked_idx% >= 0 AND clicked_idx% < PALETTE_LOADER_COUNT% THEN

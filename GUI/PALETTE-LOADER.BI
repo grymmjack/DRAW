@@ -51,3 +51,4 @@ DECLARE SUB PALETTE_LOADER_remap_to_palette_ex (ditherMode AS INTEGER, ditherStr
 DECLARE SUB PALETTE_LOADER_remap_dialog ()
 DECLARE FUNCTION PALETTE_LOADER_remap_preview& (srcImg AS LONG, ditherMode AS INTEGER, ditherStrength AS SINGLE)
 DECLARE SUB PALETTE_LOADER_ensure_user_dirs ()
+DECLARE SUB PALETTE_LOADER_export_gpl (filepath AS STRING)

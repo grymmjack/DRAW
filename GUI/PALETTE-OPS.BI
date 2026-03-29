@@ -36,6 +36,13 @@ END TYPE
 DIM SHARED PALETTE_OPS AS PALETTE_OPS_OBJ
 DIM SHARED PALETTE_OPS_MARKED(0 TO 255) AS INTEGER  ' Per-color mark flags
 
+' Document palette state - snapshot of modified palette for switching back
+DIM SHARED PALETTE_DOC_EXISTS AS INTEGER             ' TRUE when document palette has been created
+DIM SHARED PALETTE_DOC_COLORS(0 TO 255) AS _UNSIGNED LONG ' Snapshot of PAL() colors
+DIM SHARED PALETTE_DOC_COUNT AS INTEGER               ' Color count in document palette
+PALETTE_DOC_EXISTS% = FALSE
+PALETTE_DOC_COUNT% = 0
+
 PALETTE_OPS.ACTIVE% = FALSE
 PALETTE_OPS.DRAG_ACTIVE% = FALSE
 PALETTE_OPS.WAND_PENDING_IDX% = -1
@@ -61,3 +68,4 @@ DECLARE SUB PALETTE_OPS_rearrange (srcIdx AS INTEGER, dstIdx AS INTEGER)
 DECLARE FUNCTION PALETTE_OPS_calc_strip_index% (x AS INTEGER, y AS INTEGER)
 DECLARE FUNCTION PAL_find_closest_excluding% (c AS _UNSIGNED LONG, excludeIdx AS INTEGER)
 DECLARE SUB PALETTE_OPS_replace_color_on_layers (oldColor AS _UNSIGNED LONG, newColor AS _UNSIGNED LONG)
+DECLARE SUB PALETTE_OPS_mark_document_palette ()
