@@ -22,7 +22,7 @@ THEME.STATUS_swatch_active_inner~& = _RGB32(255, 255, 255) ' Active transparent 
 THEME.CROSSHAIR_color_fg~&       = _RGB32(128, 128, 128)   ' Medium gray crosshair lines
 THEME.CROSSHAIR_opacity%         = 128                     ' 50% opacity (alpha 0-255)
 THEME.CROSSHAIR_font$            = ""                     ' Empty = use global font
-THEME.CROSSHAIR_font_size%       = 0                       ' 0 = use global font size
+THEME.CROSSHAIR_font_size%       = 8                       ' 0 = use global font size
 THEME.CROSSHAIR_font_fg~&        = _RGB32(255, 255, 255)   ' White coordinate text
 THEME.CROSSHAIR_font_stroke_fg~& = _RGB32(0, 0, 0)         ' Black coordinate outline
 THEME.CROSSHAIR_font_stroke_width% = 2                     ' Coordinate outline width

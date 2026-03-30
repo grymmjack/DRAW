@@ -42,6 +42,8 @@ $IF MAC THEN
                 macArgIdx% = macArgIdx% + 1 ' Skip flag only
             ELSEIF LCASE$(macArgVal$) = "--canvas-size" THEN
                 macArgIdx% = macArgIdx% + 2 ' Skip flag + value
+            ELSEIF LCASE$(macArgVal$) = "--portable" THEN
+                macArgIdx% = macArgIdx% + 1 ' Skip flag only
             ELSE
                 cmdArg$ = macArgVal$
                 EXIT DO
@@ -61,6 +63,8 @@ $ELSE
             argIdx% = argIdx% + 1 ' Skip flag only
         ELSEIF LCASE$(argVal$) = "--canvas-size" THEN
             argIdx% = argIdx% + 2 ' Skip flag + value
+        ELSEIF LCASE$(argVal$) = "--portable" THEN
+            argIdx% = argIdx% + 1 ' Skip flag only
         ELSE
             cmdArg$ = argVal$
             EXIT DO
@@ -80,6 +84,10 @@ IF cmdArg$ <> "" THEN
         CMDLINE_PENDING_FILE$ = cmdArg$
     END IF
 END IF
+
+' Migrate old portable files to OS-native directories (shows dialog)
+' Must be after SCREEN_init/THEME_load (needs GUI) but before CONFIG_apply
+PATHS_migrate
 
 ' Apply config startup defaults (tool, brush size, directories)
 ' Must be called after all modules are initialized via includes

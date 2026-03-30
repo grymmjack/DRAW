@@ -24,7 +24,18 @@ $END IF
 
 ' Runtime config file path (set by command-line parsing below)
 DIM SHARED CONFIG_FILE_PATH$
-CONFIG_FILE_PATH$ = CONFIG_FILE_DEFAULT$
+' Start with native path; fall back to beside-exe if native doesn't exist yet
+' (pre-migration state). CONFIG_save will write to whichever path is set here.
+IF _FILEEXISTS(PATHS_config$(CONFIG_FILE_DEFAULT$)) THEN
+    CONFIG_FILE_PATH$ = PATHS_config$(CONFIG_FILE_DEFAULT$)
+ELSEIF _FILEEXISTS(CONFIG_FILE_DEFAULT$) THEN
+    ' Beside-exe config exists but hasn't been migrated yet — load from there.
+    ' PATHS_migrate (called later from DRAW.BAS) will copy it to native dir.
+    CONFIG_FILE_PATH$ = CONFIG_FILE_DEFAULT$
+ELSE
+    ' Neither exists — fresh install, use native path for initial save
+    CONFIG_FILE_PATH$ = PATHS_config$(CONFIG_FILE_DEFAULT$)
+END IF
 
 ' Flag: TRUE if --config / -c was used (so DRAW.BAS skips those args for file open)
 DIM SHARED CMDLINE_CONFIG_ARG_COUNT%
@@ -118,11 +129,14 @@ DO WHILE CONFIG_cmdArgIdx% <= CONFIG_cmdArgCount%
 LOOP
 
 ' OS-specific config auto-detection (only if --config was NOT explicitly passed)
-' Priority: --config arg > OS-specific file > DRAW.cfg
+' Priority: --config arg > OS-specific file in native dir > OS-specific beside exe > default
 IF CMDLINE_CONFIG_ARG_COUNT% = 0 OR (CMDLINE_CONFIG_UPGRADE% AND CMDLINE_CONFIG_ARG_COUNT% = 1) THEN
     ' No --config was specified — check for OS-specific config file
     IF CONFIG_FILE_OS_SPECIFIC$ <> "" THEN
-        IF _FILEEXISTS(CONFIG_FILE_OS_SPECIFIC$) THEN
+        IF _FILEEXISTS(PATHS_config$(CONFIG_FILE_OS_SPECIFIC$)) THEN
+            CONFIG_FILE_PATH$ = PATHS_config$(CONFIG_FILE_OS_SPECIFIC$)
+        ELSEIF _FILEEXISTS(CONFIG_FILE_OS_SPECIFIC$) THEN
+            ' Fallback: check beside executable (pre-migration)
             CONFIG_FILE_PATH$ = CONFIG_FILE_OS_SPECIFIC$
         END IF
     END IF
@@ -135,6 +149,10 @@ TYPE DRAW_CONFIG
     DISPLAY_SCALE_MAX              AS INTEGER  ' Maximum allowed scale (default 8)
     DISPLAY_SCALE_CHANGED          AS INTEGER  ' Runtime flag: scale changed during session
     TOOLBAR_SCALE                  AS INTEGER  ' Toolbar icon scale multiplier (1-4, default 1)
+    FD_FONT_SCALE                  AS INTEGER  ' File dialog font scale multiplier (0=use TOOLBAR_SCALE, 1-4 explicit)
+    FD_FONT                        AS INTEGER  ' File dialog font (0=default 16, 8=8x8, 16=8x16)
+    FD_DIALOG_W                    AS INTEGER  ' File dialog width in logical pixels (0=auto 60% of screen)
+    FD_DIALOG_H                    AS INTEGER  ' File dialog height in logical pixels (0=auto 70% of screen)
     NUDGE_N                        AS INTEGER  ' Multi-pixel nudge distance (default 10)
     NUM_CUSTOM_BRUSHES             AS INTEGER  ' Number of custom brush slots (default 4)
     NUM_LAYERS                     AS INTEGER  ' Initial number of layers on new file
