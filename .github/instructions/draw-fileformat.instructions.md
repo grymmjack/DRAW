@@ -93,6 +93,7 @@ Config file: `DRAW.cfg` — plain text, one `key=value` per line. Loaded by `CON
 | Export   | `BAS_EXPORT_BG_COLOR~&`, `BAS_WIP_ENABLED%` |
 | Audio    | `SOUNDS_*`, `MUSIC_*` |
 | Cursor   | `SYSTEM_CURSORS_ENABLED%` — TRUE=OS native cursors for UI/canvas; FALSE=always custom PNG |
+| Dialogs  | `FD_FONT%` (8=compact, 16=standard), `FD_FONT_SCALE%` (1-4) — font settings for FILE_DIALOG, COLOR_PICKER, MSG_BOX |
 | Dirs     | `LAST_DIR_OPEN$`, `LAST_DIR_SAVE$`, `LAST_DIR_IMPORT$`, `LAST_DIR_EXPORT_BRUSH/LAYER$`, `LAST_DIR_PALETTE$`, `LAST_DIR_EXTRACT$` |
 
 Defaults: DOT tool, brush size 1, square shape, 60 FPS, 128×128 canvas, 4 layers.

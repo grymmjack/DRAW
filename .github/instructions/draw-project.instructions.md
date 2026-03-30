@@ -22,12 +22,12 @@ applyTo: "**"
 ### Include Order
 
 1. `_COMMON.BI` — core types and globals
-2. **CORE**: PERF, ERROR, IMAGE
+2. **CORE**: PERF, ERROR, IMAGE, PATHS
 3. **CFG**: CONFIG, CONFIG-THEME, CONFIG-KEYBOARD, CONFIG-MOUSE, CONFIG-STICK, BINDINGS-\*
 4. **GUI**: PALETTE, PALETTE-LOADER, PALETTE-STRIP, GUI, BRUSHES, CROSSHAIR, GRID, HELP, LAYERS, PALETTE-PICKER, PICKER, CURSOR, POINTER, STATUS, TOOLBAR, ORGANIZER, DITHER, DRAWER, PREVIEW, EDITBAR, TRANSPARENCY, COMMAND, MENUBAR, SCROLLBAR, DIALOG, IMGADJ, IMAGE-ADJ, POPUP-MENU, STROKE-SEL
 5. **INPUT**: MODIFIERS, KEYBOARD, MOUSE, STICK, FILE-BMP, FILE-BLOAD, FILE-PAL, API-LOSPEC
 6. **OUTPUT**: SCREEN, FILE-BAS, FILE-BMP, FILE-BSAVE
-7. **QB64_GJ_LIB**: DICT, STRINGS, VECT2D
+7. **QB64_GJ_LIB**: DICT, STRINGS, VECT2D, TEXT_INPUT, MSG_BOX, COLOR_PICKER, FILE_DIALOG
 8. **TOOLS**: 39 tool pairs (NULL, DOT, LINE, RECT, ELLIPSE, FILL, BRUSH, BRUSH-SIZE, BRUSH-FILL, BRUSH-FX-OUTLINE, BRUSH-TEXT, CUSTOM-BRUSH, POLY-LINE, POLY-FILL, MARQUEE, SELECTION, PAN, MOVE, MOVE-NUDGE, SAVE, LOAD, PICKER, PICKER-LOUPE, HISTORY, DRW, COLOR-FG, COLOR-BG, COLOR-INVERT, CROP, SPRAY, ZOOM, TEXT, SYMMETRY, RAY, IMAGE-IMPORT, REFIMG, ERASER, TRANSFORM, EXTRACT-IMAGES)
 9. **THEME**: `ASSETS/THEMES/DEFAULT/THEME.BI`
 
@@ -36,13 +36,13 @@ applyTo: "**"
 | Directory               | Purpose                                                              |
 | ----------------------- | -------------------------------------------------------------------- |
 | `CFG/`                  | Configuration types, keyboard/mouse/joystick bindings                |
-| `CORE/`                 | Performance counters, error handling, image utilities                |
+| `CORE/`                 | Performance counters, error handling, image utilities, OS-native path resolution |
 | `GUI/`                  | UI components (toolbar, status bar, palette, grid, layers, menubar, command palette, organizer, drawer panel, preview window, edit bar, text bar, popup menus, dithering helpers, tooltips) |
 | `INPUT/`                | Input handlers (mouse, keyboard, joystick), file loaders, Lospec API |
 | `OUTPUT/`               | Screen rendering (`SCREEN_render`), file export (BAS, BMP, BSAVE)   |
 | `TOOLS/`                | Drawing tools, history/undo system, DRW format, image import, extract images, text tool |
 | `ASSETS/`               | Fonts, icons, palettes (56 GPL files), themes                        |
-| `includes/QB64_GJ_LIB/` | External utility library (DICT, STRINGS, VECT2D)                     |
+| `includes/QB64_GJ_LIB/` | External utility library (DICT, STRINGS, VECT2D, FILE_DIALOG, COLOR_PICKER, MSG_BOX, TEXT_INPUT) |
 | `PLANS/diagrams/`       | Graphviz DOT state machine diagrams organized by category: `GLOBAL/`, `GUI/`, `TOOLS/`, `UTILITIES/`, `LAYER-OPS/`, `TRANSFORM-OPS/`, `IMAGE-OPS/`, `FILE-OPS/` |
 
 ### Singleton State Pattern
@@ -302,7 +302,7 @@ A frame is "idle" when no input, mouse movement, GUI changes, or active tool ope
 | `TOOLS/FILL-ADJ.BI/BM`   | Interactive Fill Adjustment overlay (F8) for custom brush and paint mode tiled fills; L-handle for independent X/Y scaling |
 | `GUI/CROSSHAIR.BI/BM`    | Crosshair assistant line rendering with configurable outline stroke |
 | `GUI/PALETTE-OPS.BI/BM`  | Palette Ops mode (on-strip palette editing: change, delete, insert, rearrange, wand select) with [DOCUMENT] palette auto-creation and snapshot/restore |
-| `GUI/GJ-DIALOG-SCALE.BM` | Custom GUI dialog wrappers (`DRAW_pick_color&`, `DRAW_open_file$`, `DRAW_save_file$`, `DRAW_msg_box`) injecting `CFG.TOOLBAR_SCALE%` into QB64_GJ_LIB dialogs |
+| `GUI/GJ-DIALOG-SCALE.BM` | Custom GUI dialog wrappers (`DRAW_pick_color&`, `DRAW_open_file$`, `DRAW_save_file$`, `DRAW_msg_box`, `DRAW_input_box$`, `DRAW_input_box_ex$`) injecting `CFG.TOOLBAR_SCALE%` into QB64_GJ_LIB dialogs |
 | `GUI/SETTINGS.BI/BM`     | GIMP-style tabbed settings dialog (General, Grid, Palette, Panels, Audio, Fonts, Appearance, Directories) |
 | `GUI/ABOUT.BI/BM`        | About screen dialog with animated logo, version, credits, clickable GitHub link |
 | `CFG/CONFIG.BI`           | Configuration structure                                             |

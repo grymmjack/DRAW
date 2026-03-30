@@ -14,9 +14,9 @@ DATA "::::::::", "::    ::", "::    ::", "::::  ::::", "  ::  ::  "
 
 DRAW is a pixel art editor written in QB64PE that can export images as sourcecode
 
-Current release: v0.27.0
+Current release: v0.28.0
 
-![DRAW GUI from v0.27.0](./GUI.png)
+![DRAW GUI from v0.28.0](./GUI.png)
 
 ## Features
 
