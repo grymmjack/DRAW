@@ -143,6 +143,10 @@ DECLARE SUB FD_init_places
 '$INCLUDE:'./TOOLS/TRANSFORM.BI'
 '$INCLUDE:'./TOOLS/ZOOM.BI'
 
+' PIXEL ART ANALYZER ENGINE --------------------------------------------------
+'$INCLUDE:'./PIXEL-COACH/COACH.BI'
+'$INCLUDE:'./GUI/PIXEL-ANALYZER.BI'
+
 ' THEME -----------------------------------------------------------------------
 ' NOTE: $INCLUDE is a compile-time directive and must reference a fixed path.
 ' This includes DEFAULT theme as the compile-time base values.

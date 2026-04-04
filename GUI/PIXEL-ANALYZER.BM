@@ -1,0 +1,743 @@
+'$INCLUDEONCE
+' GUI/PIXEL-ANALYZER.BM — Pixel Art Analyzer dialog — DRAW integration
+' Full-screen analysis overlay driven by the PIXEL-COACH engine.
+' Invoked from Help → PIXEL ART ANALYZER (action 1609).
+
+' ============================================================================
+' SUB: PIXEL_ANALYZER_show
+' Entry point called from CMD_execute_action(1609).
+' Grabs the current merged canvas, runs the analyzer UI loop,
+' returns control to DRAW on ESC.
+' ============================================================================
+SUB PIXEL_ANALYZER_show ()
+    ' ----- local constants -----
+    CONST PA_PANEL_W = 300
+    CONST PA_TITLE_H = 24
+    CONST PA_ISSUE_ROW_H = 48
+    CONST PA_BTN_H = 28
+    CONST PA_BTN_PAD = 6
+    CONST PA_CHK_SZ = 14
+    CONST PA_CHK_ROW_H = 18
+
+    CONST PA_BG~&       = &HF0282830 ' near-opaque dark bg
+    CONST PA_PANEL~&    = &HF01E1E26
+    CONST PA_TITLE~&    = &HF03A3A4A
+    CONST PA_TEXT~&     = &HFFE0E0E0
+    CONST PA_TEXTD~&    = &HFF9090A0
+    CONST PA_BTNBG~&    = &HFF444455
+    CONST PA_BTNACT~&   = &HFF6688AA
+    CONST PA_SEL~&      = &HFF446699
+    CONST PA_DIV~&      = &HFF444455
+    CONST PA_GREEN~&    = &HFF33CC66
+    CONST PA_ON~&       = &HFF4488FF
+    CONST PA_CHKBG~&    = &HFF555566
+
+    ' ----- screen dims -----
+    DIM sw AS INTEGER, sh AS INTEGER
+    sw = _WIDTH(0)
+    sh = _HEIGHT(0)
+    DIM canvW AS INTEGER
+    canvW = sw - PA_PANEL_W
+
+    ' ----- local state -----
+    DIM paViewX AS SINGLE, paViewY AS SINGLE, paViewZoom AS SINGLE
+    DIM paGrayImg AS LONG
+    DIM paHoverIssue AS INTEGER
+    DIM paHoverChk AS INTEGER
+    DIM paNeedRedraw AS INTEGER
+    DIM paStatusMsg AS STRING
+
+    ' chkJaggies..chkNoise are DIM SHARED in COACH.BI
+
+    paViewX = 0!: paViewY = 0!: paViewZoom = 1.0!
+    paHoverIssue = -1: paHoverChk = -1
+    paNeedRedraw = -1
+    paStatusMsg = "Analyzing current canvas..."
+
+    ' ----- flush mouse buffer -----
+    DO WHILE _MOUSEINPUT: LOOP
+
+    ' ----- grab current canvas (flatten visible layers) -----
+    POINTER_hide_for_dialog
+
+    ' Reset any prior analysis state
+    IF COACH.srcImg < -1 THEN _FREEIMAGE COACH.srcImg
+    IF COACH.overlayImg < -1 THEN _FREEIMAGE COACH.overlayImg
+    IF paGrayImg < -1 THEN _FREEIMAGE paGrayImg
+    COACH_init
+
+    ' Sync default checkbox states
+    chkJaggies = COACH.detectJaggies
+    chkIslands = COACH.detectIslands
+    chkBanding = COACH.detectBanding
+    chkFatPixels = COACH.detectFatPixels
+    chkDithering = COACH.detectDithering
+    chkContrast = COACH.detectContrast
+    chkValue = COACH.detectValue
+    chkNoise = 0
+
+    ' Flatten visible layers into COACH.srcImg
+    DIM flatImg AS LONG
+    flatImg = LAYERS_flatten&
+    IF flatImg < -1 THEN
+        COACH.srcImg = flatImg
+        COACH.imgW = _WIDTH(flatImg)
+        COACH.imgH = _HEIGHT(flatImg)
+
+        ' Build grayscale copy
+        paGrayImg = _NEWIMAGE(COACH.imgW, COACH.imgH, 32)
+        DIM pmem AS _MEM, pgmem AS _MEM
+        pmem = _MEMIMAGE(COACH.srcImg)
+        pgmem = _MEMIMAGE(paGrayImg)
+        DIM pi&, ptotal&, ppx AS _UNSIGNED LONG
+        DIM pA%, pR%, pG%, pB%, pGray%
+        DIM pxOut AS _UNSIGNED LONG
+        ptotal& = CLNG(COACH.imgW) * CLNG(COACH.imgH)
+        FOR pi& = 0 TO ptotal& - 1
+            _MEMGET pmem, pmem.OFFSET + pi& * 4, ppx
+            pA% = _ALPHA32(ppx)
+            pR% = _RED32(ppx)
+            pG% = _GREEN32(ppx)
+            pB% = _BLUE32(ppx)
+            pGray% = INT(0.299! * CSNG(pR%) + 0.587! * CSNG(pG%) + 0.114! * CSNG(pB%))
+            IF pGray% > 255 THEN pGray% = 255
+            pxOut = _RGBA32(pGray%, pGray%, pGray%, pA%)
+            _MEMPUT pgmem, pgmem.OFFSET + pi& * 4, pxOut
+        NEXT pi&
+        _MEMFREE pmem
+        _MEMFREE pgmem
+
+        ' Fit image to canvas area
+        DIM fitPadW%, fitPadH%
+        fitPadW% = canvW - 40
+        fitPadH% = sh - 40
+        DIM fitSX!, fitSY!
+        fitSX! = CSNG(fitPadW%) / CSNG(COACH.imgW)
+        fitSY! = CSNG(fitPadH%) / CSNG(COACH.imgH)
+        paViewZoom = fitSX!
+        IF fitSY! < paViewZoom THEN paViewZoom = fitSY!
+        IF paViewZoom > 16.0! THEN paViewZoom = 16.0!
+        IF paViewZoom < 0.25! THEN paViewZoom = 0.25!
+        paViewX = (CSNG(canvW) - CSNG(COACH.imgW) * paViewZoom) / 2.0!
+        paViewY = (CSNG(sh) - CSNG(COACH.imgH) * paViewZoom) / 2.0!
+
+        ' Auto-run analysis
+        COACH.detectJaggies = chkJaggies
+        COACH.detectIslands = chkIslands
+        COACH.detectBanding = chkBanding
+        COACH.detectFatPixels = chkFatPixels
+        COACH.detectDithering = chkDithering
+        COACH.detectContrast = chkContrast
+        COACH.detectValue = chkValue
+        COACH.detectNoise = chkNoise
+        COACH_run_analysis
+        COACH_build_overlay
+        paStatusMsg = "Found " + LTRIM$(STR$(COACH.issueCount)) + " issues"
+    ELSE
+        paStatusMsg = "No canvas to analyze"
+    END IF
+
+    ' Save/restore DRAW's active dest
+    DIM oldDest AS LONG
+    oldDest = _DEST
+    _DEST 0
+
+    ' ----- dialog loop -----
+    DIM paDragging AS INTEGER
+    DIM paDragSX AS SINGLE, paDragSY AS SINGLE
+    DIM paDragVX AS SINGLE, paDragVY AS SINGLE
+    DIM paPrevB1 AS INTEGER
+
+    DO
+        ' ---- mouse ----
+        DO WHILE _MOUSEINPUT
+            DIM paWheel%
+            paWheel% = _MOUSEWHEEL
+            IF paWheel% <> 0 THEN
+                IF _MOUSEX > canvW THEN
+                    ' Panel: scroll issue list
+                    COACH.scrollOffset = COACH.scrollOffset + paWheel%
+                    IF COACH.scrollOffset < 0 THEN COACH.scrollOffset = 0
+                    paNeedRedraw = -1
+                ELSE
+                    ' Canvas: zoom
+                    DIM paOldZ!
+                    paOldZ! = paViewZoom
+                    IF paWheel% < 0 THEN
+                        paViewZoom = paViewZoom * 1.2!
+                    ELSE
+                        paViewZoom = paViewZoom / 1.2!
+                    END IF
+                    IF paViewZoom > 32.0! THEN paViewZoom = 32.0!
+                    IF paViewZoom < 0.125! THEN paViewZoom = 0.125!
+                    DIM paMX!, paMY!
+                    paMX! = CSNG(_MOUSEX)
+                    paMY! = CSNG(_MOUSEY)
+                    paViewX = paMX! - (paMX! - paViewX) * (paViewZoom / paOldZ!)
+                    paViewY = paMY! - (paMY! - paViewY) * (paViewZoom / paOldZ!)
+                    paNeedRedraw = -1
+                END IF
+            END IF
+        LOOP
+
+        DIM pmx%, pmy%, pb1%, pb2%
+        pmx% = _MOUSEX: pmy% = _MOUSEY
+        pb1% = _MOUSEBUTTON(1): pb2% = _MOUSEBUTTON(2)
+        DIM paJustB1%
+        paJustB1% = pb1% AND NOT paPrevB1%
+
+        ' Right-drag to pan canvas
+        IF pb2% THEN
+            IF NOT paDragging THEN
+                paDragging = -1
+                paDragSX = CSNG(pmx%)
+                paDragSY = CSNG(pmy%)
+                paDragVX = paViewX
+                paDragVY = paViewY
+            ELSE
+                paViewX = paDragVX + (CSNG(pmx%) - paDragSX)
+                paViewY = paDragVY + (CSNG(pmy%) - paDragSY)
+                paNeedRedraw = -1
+            END IF
+        ELSE
+            paDragging = 0
+        END IF
+
+        ' Checkbox hover (for tooltips)
+        DIM paCbBaseY%
+        paCbBaseY% = PA_TITLE_H + PA_BTN_PAD + (PA_BTN_H + PA_BTN_PAD) * 2 + 4 + PA_CHK_ROW_H
+        IF pmx% > canvW THEN
+            DIM paCbHov%
+            paCbHov% = pmy% - paCbBaseY%
+            IF paCbHov% >= 0 AND paCbHov% < 8 * PA_CHK_ROW_H THEN
+                DIM paNewHov%
+                paNewHov% = paCbHov% \ PA_CHK_ROW_H
+                IF paNewHov% <> paHoverChk THEN
+                    paHoverChk = paNewHov%
+                    paNeedRedraw = -1
+                END IF
+            ELSE
+                IF paHoverChk >= 0 THEN paHoverChk = -1: paNeedRedraw = -1
+            END IF
+        ELSE
+            IF paHoverChk >= 0 THEN paHoverChk = -1: paNeedRedraw = -1
+        END IF
+
+        ' Checkbox click
+        IF paJustB1% AND pmx% >= canvW + PA_BTN_PAD AND pmx% <= sw - PA_BTN_PAD THEN
+            DIM paChkHit%
+            paChkHit% = pmy% - paCbBaseY%
+            IF paChkHit% >= 0 AND paChkHit% < 8 * PA_CHK_ROW_H THEN
+                SELECT CASE paChkHit% \ PA_CHK_ROW_H
+                    CASE 0: chkJaggies  = NOT chkJaggies
+                    CASE 1: chkIslands  = NOT chkIslands
+                    CASE 2: chkBanding  = NOT chkBanding
+                    CASE 3: chkFatPixels    = NOT chkFatPixels
+                    CASE 4: chkDithering   = NOT chkDithering
+                    CASE 5: chkContrast = NOT chkContrast
+                    CASE 6: chkValue    = NOT chkValue
+                    CASE 7: chkNoise    = NOT chkNoise
+                END SELECT
+                IF COACH.issueCount > 0 THEN COACH_build_overlay
+                paNeedRedraw = -1
+            END IF
+        END IF
+
+        ' Issue list hover / click
+        IF pmx% > canvW THEN
+            DIM paListBaseY%
+            paListBaseY% = PA_TITLE_H + (PA_BTN_H + PA_BTN_PAD) * 3 + PA_CHK_SZ * 10 + 20
+            DIM paRelY%
+            paRelY% = pmy% - paListBaseY%
+            IF paRelY% >= 0 THEN
+                DIM paNewHovIss%
+                paNewHovIss% = paRelY% \ PA_ISSUE_ROW_H + COACH.scrollOffset
+                IF paNewHovIss% <> paHoverIssue THEN
+                    paHoverIssue = paNewHovIss%
+                    paNeedRedraw = -1
+                END IF
+            END IF
+            IF pb1% THEN
+                IF paHoverIssue >= 0 AND paHoverIssue < COACH.issueCount THEN
+                    IF COACH.selectedIssue <> paHoverIssue THEN
+                        COACH.selectedIssue = paHoverIssue
+                        paNeedRedraw = -1
+                        DIM paCX!, paCY!
+                        paCX! = CSNG(COACH_ISSUES(paHoverIssue).x1 + COACH_ISSUES(paHoverIssue).x2) / 2.0!
+                        paCY! = CSNG(COACH_ISSUES(paHoverIssue).y1 + COACH_ISSUES(paHoverIssue).y2) / 2.0!
+                        paViewX = CSNG(canvW) / 2.0! - paCX! * paViewZoom
+                        paViewY = CSNG(sh) / 2.0! - paCY! * paViewZoom
+                    END IF
+                END IF
+            END IF
+        END IF
+
+        paPrevB1% = pb1%
+
+        ' ---- keyboard ----
+        DIM paK AS LONG
+        paK = _KEYHIT
+        SELECT CASE paK
+            CASE 27 ' ESC — close
+                EXIT DO
+
+            CASE 32 ' SPACE — toggle overlay
+                COACH.showOverlay = NOT COACH.showOverlay
+                paNeedRedraw = -1
+
+            CASE 103, 71 ' G — grayscale
+                COACH.showGrayscale = NOT COACH.showGrayscale
+                paNeedRedraw = -1
+
+            CASE 49: chkJaggies  = NOT chkJaggies:  IF COACH.issueCount > 0 THEN COACH_build_overlay: paNeedRedraw = -1
+            CASE 50: chkIslands  = NOT chkIslands:  IF COACH.issueCount > 0 THEN COACH_build_overlay: paNeedRedraw = -1
+            CASE 51: chkBanding  = NOT chkBanding:  IF COACH.issueCount > 0 THEN COACH_build_overlay: paNeedRedraw = -1
+            CASE 52: chkFatPixels    = NOT chkFatPixels:    IF COACH.issueCount > 0 THEN COACH_build_overlay: paNeedRedraw = -1
+            CASE 53: chkDithering   = NOT chkDithering:   IF COACH.issueCount > 0 THEN COACH_build_overlay: paNeedRedraw = -1
+            CASE 54: chkContrast = NOT chkContrast: IF COACH.issueCount > 0 THEN COACH_build_overlay: paNeedRedraw = -1
+            CASE 55: chkValue    = NOT chkValue:    IF COACH.issueCount > 0 THEN COACH_build_overlay: paNeedRedraw = -1
+            CASE 56: chkNoise    = NOT chkNoise:    IF COACH.issueCount > 0 THEN COACH_build_overlay: paNeedRedraw = -1
+
+            CASE 48 ' 0 — all on
+                chkJaggies=-1: chkIslands=-1: chkBanding=-1: chkFatPixels=-1
+                chkDithering=-1: chkContrast=-1: chkValue=-1: chkNoise=-1
+                IF COACH.issueCount > 0 THEN COACH_build_overlay
+                paNeedRedraw = -1
+
+            CASE 57 ' 9 — all off
+                chkJaggies=0: chkIslands=0: chkBanding=0: chkFatPixels=0
+                chkDithering=0: chkContrast=0: chkValue=0: chkNoise=0
+                IF COACH.issueCount > 0 THEN COACH_build_overlay
+                paNeedRedraw = -1
+
+            CASE 91 ' [ — lower confidence
+                COACH.confidenceThreshold = COACH.confidenceThreshold - 0.1!
+                IF COACH.confidenceThreshold < 0.1! THEN COACH.confidenceThreshold = 0.1!
+                COACH.scrollOffset = 0
+                IF COACH.issueCount > 0 THEN COACH_build_overlay
+                paStatusMsg = "Min confidence: " + LTRIM$(STR$(INT(COACH.confidenceThreshold * 100 + 0.5!))) + "%"
+                paNeedRedraw = -1
+
+            CASE 93 ' ] — raise confidence
+                COACH.confidenceThreshold = COACH.confidenceThreshold + 0.1!
+                IF COACH.confidenceThreshold > 0.9! THEN COACH.confidenceThreshold = 0.9!
+                COACH.scrollOffset = 0
+                IF COACH.issueCount > 0 THEN COACH_build_overlay
+                paStatusMsg = "Min confidence: " + LTRIM$(STR$(INT(COACH.confidenceThreshold * 100 + 0.5!))) + "%"
+                paNeedRedraw = -1
+
+            CASE 96 ' ` — 1:1
+                paViewZoom = 1.0!
+                paViewX = (CSNG(canvW) - CSNG(COACH.imgW)) / 2.0!
+                paViewY = (CSNG(sh) - CSNG(COACH.imgH)) / 2.0!
+                paNeedRedraw = -1
+
+            CASE 102, 70 ' F — fit
+                DIM fPadW%, fPadH%
+                fPadW% = canvW - 40: fPadH% = sh - 40
+                DIM fSX!, fSY!
+                fSX! = CSNG(fPadW%) / CSNG(COACH.imgW)
+                fSY! = CSNG(fPadH%) / CSNG(COACH.imgH)
+                paViewZoom = fSX!
+                IF fSY! < paViewZoom THEN paViewZoom = fSY!
+                IF paViewZoom > 16.0! THEN paViewZoom = 16.0!
+                IF paViewZoom < 0.25! THEN paViewZoom = 0.25!
+                paViewX = (CSNG(canvW) - CSNG(COACH.imgW) * paViewZoom) / 2.0!
+                paViewY = (CSNG(sh) - CSNG(COACH.imgH) * paViewZoom) / 2.0!
+                paNeedRedraw = -1
+
+            CASE 43, 61 ' +/= — zoom in
+                paViewZoom = paViewZoom * 1.25!
+                IF paViewZoom > 32.0! THEN paViewZoom = 32.0!
+                paNeedRedraw = -1
+
+            CASE 45 ' - — zoom out
+                paViewZoom = paViewZoom / 1.25!
+                IF paViewZoom < 0.125! THEN paViewZoom = 0.125!
+                paNeedRedraw = -1
+
+            CASE 18432 ' Up arrow
+                paViewY = paViewY + 20: paNeedRedraw = -1
+            CASE 20480 ' Down arrow
+                paViewY = paViewY - 20: paNeedRedraw = -1
+            CASE 19200 ' Left arrow
+                paViewX = paViewX + 20: paNeedRedraw = -1
+            CASE 19712 ' Right arrow
+                paViewX = paViewX - 20: paNeedRedraw = -1
+        END SELECT
+
+        ' ---- render ----
+        IF paNeedRedraw THEN
+            ' ---- canvas area ----
+            LINE (0, 0)-(canvW - 1, sh - 1), &HFF282830, BF
+
+            IF COACH.srcImg < -1 THEN
+                ' Checkerboard transparency bg
+                DIM paCKS%, paCX1%, paCY1%, paCX2%, paCY2%
+                paCKS% = 8
+                paCX1% = INT(paViewX): paCY1% = INT(paViewY)
+                paCX2% = paCX1% + INT(CSNG(COACH.imgW) * paViewZoom)
+                paCY2% = paCY1% + INT(CSNG(COACH.imgH) * paViewZoom)
+                DIM paClX1%, paClY1%, paClX2%, paClY2%
+                paClX1% = paCX1%: IF paClX1% < 0 THEN paClX1% = 0
+                paClY1% = paCY1%: IF paClY1% < 0 THEN paClY1% = 0
+                paClX2% = paCX2%: IF paClX2% > canvW - 1 THEN paClX2% = canvW - 1
+                paClY2% = paCY2%: IF paClY2% > sh - 1 THEN paClY2% = sh - 1
+                DIM paCKY%, paCKX%
+                FOR paCKY% = paClY1% TO paClY2% STEP paCKS%
+                    FOR paCKX% = paClX1% TO paClX2% STEP paCKS%
+                        IF ((paCKX% \ paCKS%) + (paCKY% \ paCKS%)) MOD 2 = 0 THEN
+                            LINE (paCKX%, paCKY%)-(paCKX% + paCKS% - 1, paCKY% + paCKS% - 1), _RGB32(200, 200, 200), BF
+                        ELSE
+                            LINE (paCKX%, paCKY%)-(paCKX% + paCKS% - 1, paCKY% + paCKS% - 1), _RGB32(160, 160, 160), BF
+                        END IF
+                    NEXT paCKX%
+                NEXT paCKY%
+
+                DIM paDispImg AS LONG
+                IF COACH.showGrayscale AND paGrayImg < -1 THEN
+                    paDispImg = paGrayImg
+                ELSE
+                    paDispImg = COACH.srcImg
+                END IF
+                _PUTIMAGE (paCX1%, paCY1%)-(paCX2% - 1, paCY2% - 1), paDispImg
+
+                IF COACH.showOverlay AND COACH.overlayImg < -1 THEN
+                    _PUTIMAGE (paCX1%, paCY1%)-(paCX2% - 1, paCY2% - 1), COACH.overlayImg
+                END IF
+
+                ' Selected issue bounding box
+                IF COACH.selectedIssue >= 0 AND COACH.selectedIssue < COACH.issueCount THEN
+                    DIM paIsX1%, paIsY1%, paIsX2%, paIsY2%
+                    paIsX1% = INT(paViewX + CSNG(COACH_ISSUES(COACH.selectedIssue).x1) * paViewZoom)
+                    paIsY1% = INT(paViewY + CSNG(COACH_ISSUES(COACH.selectedIssue).y1) * paViewZoom)
+                    paIsX2% = INT(paViewX + CSNG(COACH_ISSUES(COACH.selectedIssue).x2) * paViewZoom)
+                    paIsY2% = INT(paViewY + CSNG(COACH_ISSUES(COACH.selectedIssue).y2) * paViewZoom)
+                    LINE (paIsX1%, paIsY1%)-(paIsX2%, paIsY2%), _RGB32(255, 255, 0), B
+                END IF
+            ELSE
+                COLOR PA_TEXTD~&, &HFF282830
+                _PRINTSTRING (canvW \ 2 - 80, sh \ 2), "No canvas image available"
+            END IF
+
+            ' ---- right panel ----
+            LINE (canvW, 0)-(sw - 1, sh - 1), PA_PANEL~&, BF
+
+            ' Panel title bar
+            LINE (canvW, 0)-(sw - 1, PA_TITLE_H - 1), PA_TITLE~&, BF
+            COLOR PA_TEXT~&, PA_TITLE~&
+            _PRINTSTRING (canvW + 8, 4), "PIXEL ART ANALYZER"
+            COLOR PA_TEXTD~&, PA_TITLE~&
+            _PRINTSTRING (sw - 48, 4), "[ESC]"
+
+            ' Visit counts per type (above confidence threshold)
+            DIM paTc(1 TO 10) AS INTEGER
+            IF COACH.issueCount > 0 THEN
+                DIM paVisCount%, paVi%
+                paVisCount% = 0
+                FOR paVi% = 0 TO COACH.issueCount - 1
+                    IF COACH_ISSUES(paVi%).confidence >= COACH.confidenceThreshold THEN
+                        DIM paVt%
+                        paVt% = COACH_ISSUES(paVi%).issueType
+                        IF paVt% >= 1 AND paVt% <= 10 THEN paTc(paVt%) = paTc(paVt%) + 1
+                        DIM paVShow%
+                        paVShow% = 0
+                        SELECT CASE paVt%
+                            CASE COACH_JAGGY:       paVShow% = chkJaggies
+                            CASE COACH_ISLAND:      paVShow% = chkIslands
+                            CASE COACH_BANDING:     paVShow% = chkBanding
+                            CASE COACH_FAT_PIXEL:   paVShow% = chkFatPixels
+                            CASE COACH_OVER_DITHER: paVShow% = chkDithering
+                            CASE COACH_CONTRAST:    paVShow% = chkContrast
+                            CASE COACH_VALUE:       paVShow% = chkValue
+                            CASE COACH_NOISE:       paVShow% = chkNoise
+                        END SELECT
+                        IF paVShow% THEN paVisCount% = paVisCount% + 1
+                    END IF
+                NEXT paVi%
+                DIM paCntStr$
+                paCntStr$ = LTRIM$(STR$(paVisCount%)) + "/" + LTRIM$(STR$(COACH.issueCount))
+                COLOR PA_TEXTD~&, PA_TITLE~&
+                _PRINTSTRING (sw - LEN(paCntStr$) * 8 - 56, 4), paCntStr$
+            END IF
+
+            DIM paPX%, paPY%
+            paPX% = canvW + PA_BTN_PAD
+            paPY% = PA_TITLE_H + PA_BTN_PAD
+
+            ' Re-analyze button
+            PA_draw_button paPX%, paPY%, PA_PANEL_W - PA_BTN_PAD * 2, PA_BTN_H, "[A] RE-ANALYZE", PA_GREEN~&
+            paPY% = paPY% + PA_BTN_H + PA_BTN_PAD
+
+            ' Toggle row
+            DIM paHW%
+            paHW% = (PA_PANEL_W - PA_BTN_PAD * 3) \ 2
+            IF COACH.showOverlay THEN
+                PA_draw_button paPX%, paPY%, paHW%, PA_BTN_H, "[SPC] Overlay ON", PA_BTNACT~&
+            ELSE
+                PA_draw_button paPX%, paPY%, paHW%, PA_BTN_H, "[SPC] Overlay OFF", PA_BTNBG~&
+            END IF
+            IF COACH.showGrayscale THEN
+                PA_draw_button paPX% + paHW% + PA_BTN_PAD, paPY%, paHW%, PA_BTN_H, "[G] Gray ON", PA_BTNACT~&
+            ELSE
+                PA_draw_button paPX% + paHW% + PA_BTN_PAD, paPY%, paHW%, PA_BTN_H, "[G] Gray OFF", PA_BTNBG~&
+            END IF
+            paPY% = paPY% + PA_BTN_H + PA_BTN_PAD
+
+            ' Divider
+            LINE (canvW, paPY%)-(sw - 1, paPY%), PA_DIV~&
+            paPY% = paPY% + 4
+
+            ' Detector checkboxes section header
+            COLOR PA_TEXTD~&, PA_PANEL~&
+            _PRINTSTRING (paPX%, paPY%), "Detectors:"
+            paPY% = paPY% + PA_CHK_ROW_H
+
+            PA_draw_checkbox paPX%, paPY%, "Jaggies  [1]" + STR$(paTc(COACH_JAGGY)), chkJaggies:  paPY% = paPY% + PA_CHK_ROW_H
+            PA_draw_checkbox paPX%, paPY%, "Islands  [2]" + STR$(paTc(COACH_ISLAND)), chkIslands: paPY% = paPY% + PA_CHK_ROW_H
+            PA_draw_checkbox paPX%, paPY%, "Banding  [3]" + STR$(paTc(COACH_BANDING)), chkBanding: paPY% = paPY% + PA_CHK_ROW_H
+            PA_draw_checkbox paPX%, paPY%, "Fat Px   [4]" + STR$(paTc(COACH_FAT_PIXEL)), chkFatPixels: paPY% = paPY% + PA_CHK_ROW_H
+            PA_draw_checkbox paPX%, paPY%, "Dither   [5]" + STR$(paTc(COACH_OVER_DITHER)), chkDithering: paPY% = paPY% + PA_CHK_ROW_H
+            PA_draw_checkbox paPX%, paPY%, "Contrast [6]" + STR$(paTc(COACH_CONTRAST)), chkContrast: paPY% = paPY% + PA_CHK_ROW_H
+            PA_draw_checkbox paPX%, paPY%, "Value    [7]" + STR$(paTc(COACH_VALUE)), chkValue: paPY% = paPY% + PA_CHK_ROW_H
+            PA_draw_checkbox paPX%, paPY%, "Noise    [8]" + STR$(paTc(COACH_NOISE)), chkNoise: paPY% = paPY% + PA_CHK_ROW_H
+
+            ' Confidence threshold
+            COLOR PA_TEXTD~&, PA_PANEL~&
+            DIM paThPct%
+            paThPct% = INT(COACH.confidenceThreshold * 100 + 0.5!)
+            _PRINTSTRING (paPX%, paPY%), "Conf >=" + STR$(paThPct%) + "%  [ / ]": paPY% = paPY% + PA_CHK_ROW_H
+
+            LINE (canvW, paPY%)-(sw - 1, paPY%), PA_DIV~&
+            paPY% = paPY% + 4
+
+            ' Issue list
+            COLOR PA_TEXTD~&, PA_PANEL~&
+            IF COACH.issueCount = 0 THEN
+                _PRINTSTRING (paPX%, paPY%), "No issues found. Press A to re-analyze."
+            ELSE
+                ' Build filtered list
+                DIM paVisIdx(0 TO COACH_MAX_ISSUES - 1) AS INTEGER
+                DIM paVisTotal%
+                paVisTotal% = 0
+                DIM paFVi%
+                FOR paFVi% = 0 TO COACH.issueCount - 1
+                    IF COACH_ISSUES(paFVi%).confidence >= COACH.confidenceThreshold THEN
+                        DIM paFT%
+                        paFT% = COACH_ISSUES(paFVi%).issueType
+                        DIM paFShow%
+                        paFShow% = 0
+                        SELECT CASE paFT%
+                            CASE COACH_JAGGY:       paFShow% = chkJaggies
+                            CASE COACH_ISLAND:      paFShow% = chkIslands
+                            CASE COACH_BANDING:     paFShow% = chkBanding
+                            CASE COACH_FAT_PIXEL:   paFShow% = chkFatPixels
+                            CASE COACH_OVER_DITHER: paFShow% = chkDithering
+                            CASE COACH_CONTRAST:    paFShow% = chkContrast
+                            CASE COACH_VALUE:       paFShow% = chkValue
+                            CASE COACH_NOISE:       paFShow% = chkNoise
+                        END SELECT
+                        IF paFShow% THEN
+                            paVisIdx(paVisTotal%) = paFVi%
+                            paVisTotal% = paVisTotal% + 1
+                        END IF
+                    END IF
+                NEXT paFVi%
+
+                IF paVisTotal% = 0 THEN
+                    _PRINTSTRING (paPX%, paPY%), "All types hidden (0/9 to toggle)"
+                ELSE
+                    DIM paMaxVis%
+                    paMaxVis% = (sh - paPY%) \ PA_ISSUE_ROW_H
+                    IF COACH.scrollOffset > paVisTotal% - paMaxVis% THEN
+                        COACH.scrollOffset = paVisTotal% - paMaxVis%
+                    END IF
+                    IF COACH.scrollOffset < 0 THEN COACH.scrollOffset = 0
+
+                    DIM paLi%, paListY%, paIssIdx%
+                    FOR paLi% = 0 TO paMaxVis% - 1
+                        DIM paScrIdx%
+                        paScrIdx% = paLi% + COACH.scrollOffset
+                        IF paScrIdx% >= paVisTotal% THEN EXIT FOR
+                        paIssIdx% = paVisIdx(paScrIdx%)
+                        paListY% = paPY% + paLi% * PA_ISSUE_ROW_H
+
+                        ' Row bg
+                        IF paIssIdx% = COACH.selectedIssue THEN
+                            LINE (canvW + 2, paListY%)-(sw - 3, paListY% + PA_ISSUE_ROW_H - 2), PA_SEL~&, BF
+                        ELSEIF paIssIdx% = paHoverIssue THEN
+                            LINE (canvW + 2, paListY%)-(sw - 3, paListY% + PA_ISSUE_ROW_H - 2), _RGBA32(80, 80, 100, 60), BF
+                        END IF
+
+                        ' Type color bar
+                        DIM paTypCol AS _UNSIGNED LONG
+                        paTypCol = COACH_issue_color~&(COACH_ISSUES(paIssIdx%).issueType)
+                        LINE (canvW + 2, paListY% + 2)-(canvW + 6, paListY% + PA_ISSUE_ROW_H - 4), paTypCol, BF
+
+                        ' Type name + confidence
+                        COLOR PA_TEXT~&, PA_PANEL~&
+                        DIM paTypNm$, paConfStr$
+                        paTypNm$ = COACH_issue_type_name$(COACH_ISSUES(paIssIdx%).issueType)
+                        paConfStr$ = LTRIM$(STR$(INT(COACH_ISSUES(paIssIdx%).confidence * 100))) + "%"
+                        _PRINTSTRING (canvW + 12, paListY% + 4), paTypNm$ + " (" + paConfStr$ + ")"
+
+                        ' Message
+                        COLOR PA_TEXTD~&, PA_PANEL~&
+                        DIM paMsgStr$
+                        paMsgStr$ = RTRIM$(COACH_ISSUES(paIssIdx%).message)
+                        IF LEN(paMsgStr$) > 34 THEN paMsgStr$ = LEFT$(paMsgStr$, 31) + "..."
+                        _PRINTSTRING (canvW + 12, paListY% + 20), paMsgStr$
+
+                        ' Location
+                        DIM paLocStr$
+                        paLocStr$ = "(" + LTRIM$(STR$(COACH_ISSUES(paIssIdx%).x1)) + "," + _
+                                    LTRIM$(STR$(COACH_ISSUES(paIssIdx%).y1)) + ")"
+                        _PRINTSTRING (canvW + 12, paListY% + 34), paLocStr$
+
+                        LINE (canvW + 8, paListY% + PA_ISSUE_ROW_H - 1)-(sw - 8, paListY% + PA_ISSUE_ROW_H - 1), PA_DIV~&
+                    NEXT paLi%
+                END IF
+            END IF
+
+            ' Status bar
+            LINE (0, sh - 20)-(canvW - 1, sh - 1), PA_TITLE~&, BF
+            COLOR PA_TEXT~&, PA_TITLE~&
+            _PRINTSTRING (8, sh - 16), paStatusMsg
+            DIM paZStr$
+            paZStr$ = LTRIM$(STR$(INT(paViewZoom * 100))) + "%"
+            _PRINTSTRING (canvW - LEN(paZStr$) * 8 - 8, sh - 16), paZStr$
+
+            ' Tooltip for hovered checkbox
+            IF paHoverChk >= 0 THEN
+                PA_draw_tooltip pmy%, paHoverChk, canvW
+            END IF
+
+            ' Panel divider line
+            LINE (canvW, 0)-(canvW, sh - 1), PA_DIV~&
+
+            _DISPLAY
+            paNeedRedraw = 0
+        END IF
+
+        ' Re-analyze on A key (after initial render)
+        IF paK = 97 OR paK = 65 THEN
+            COACH.detectJaggies = chkJaggies
+            COACH.detectIslands = chkIslands
+            COACH.detectBanding = chkBanding
+            COACH.detectFatPixels = chkFatPixels
+            COACH.detectDithering = chkDithering
+            COACH.detectContrast = chkContrast
+            COACH.detectValue = chkValue
+            COACH.detectNoise = chkNoise
+            COACH_clear_issues
+            COACH_run_analysis
+            COACH_build_overlay
+            paStatusMsg = "Found " + LTRIM$(STR$(COACH.issueCount)) + " issues"
+            paNeedRedraw = -1
+        END IF
+
+        _LIMIT 30
+    LOOP
+
+    ' ---- cleanup ----
+    _DEST oldDest
+    IF COACH.srcImg < -1 THEN _FREEIMAGE COACH.srcImg
+    IF COACH.overlayImg < -1 THEN _FREEIMAGE COACH.overlayImg
+    IF paGrayImg < -1 THEN _FREEIMAGE paGrayImg
+    COACH_init ' reset state
+
+    POINTER_show_after_dialog
+    MOUSE_cleanup_after_dialog FALSE
+
+    SCENE_DIRTY% = TRUE
+    FRAME_IDLE% = FALSE
+END SUB
+
+' ============================================================================
+' Helper: Draw a button (local to analyzer)
+' ============================================================================
+SUB PA_draw_button (x%, y%, w%, h%, label$, bgCol~&)
+    LINE (x%, y%)-(x% + w% - 1, y% + h% - 1), bgCol~&, BF
+    LINE (x%, y%)-(x% + w% - 1, y% + h% - 1), _RGB32(80, 80, 90), B
+    COLOR &HFFE0E0E0, bgCol~&
+    DIM tx%
+    tx% = x% + (w% - LEN(label$) * 8) \ 2
+    _PRINTSTRING (tx%, y% + (h% - 16) \ 2), label$
+END SUB
+
+' ============================================================================
+' Helper: Draw a checkbox (local to analyzer)
+' ============================================================================
+SUB PA_draw_checkbox (x%, y%, label$, state%)
+    CONST PA_CHK_SZ2 = 14
+    CONST PA_ON2~& = &HFF4488FF
+    CONST PA_CHKBG2~& = &HFF555566
+    CONST PA_PANEL2~& = &HF01E1E26
+    IF state% THEN
+        LINE (x%, y%)-(x% + PA_CHK_SZ2 - 1, y% + PA_CHK_SZ2 - 1), PA_ON2~&, BF
+        COLOR &HFFE0E0E0, PA_ON2~&
+        _PRINTSTRING (x% + 2, y% - 1), CHR$(251)
+    ELSE
+        LINE (x%, y%)-(x% + PA_CHK_SZ2 - 1, y% + PA_CHK_SZ2 - 1), PA_CHKBG2~&, BF
+    END IF
+    LINE (x%, y%)-(x% + PA_CHK_SZ2 - 1, y% + PA_CHK_SZ2 - 1), _RGB32(100, 100, 110), B
+    COLOR &HFFE0E0E0, PA_PANEL2~&
+    _PRINTSTRING (x% + PA_CHK_SZ2 + 6, y%), label$
+END SUB
+
+' ============================================================================
+' Helper: Draw detector tooltip
+' ============================================================================
+SUB PA_draw_tooltip (my%, idx%, canvW%)
+    DIM line1$, line2$, line3$
+    SELECT CASE idx%
+        CASE 0
+            line1$ = "Jaggies - Diagonal stairstepping"
+            line2$ = "Uneven pixel steps on diagonal"
+            line3$ = "lines, creating rough/wobbly edges"
+        CASE 1
+            line1$ = "Islands - Isolated pixel clusters"
+            line2$ = "1-2px groups disconnected from"
+            line3$ = "nearby shapes (stray specks)"
+        CASE 2
+            line1$ = "Banding - Parallel repeated edges"
+            line2$ = "Striped pattern from aligned"
+            line3$ = "outline or shading repetition"
+        CASE 3
+            line1$ = "Fat Pixels - 2x2 solid blocks"
+            line2$ = "Double-width lines or filled"
+            line3$ = "squares instead of single-px lines"
+        CASE 4
+            line1$ = "Dithering - Over-dithered areas"
+            line2$ = "Excessive checkerboard patterns"
+            line3$ = "where solid color would look better"
+        CASE 5
+            line1$ = "Contrast - Low value contrast"
+            line2$ = "Insufficient light/dark difference"
+            line3$ = "between adjacent color regions"
+        CASE 6
+            line1$ = "Value - Poor tonal range"
+            line2$ = "Flat values; missing highlights"
+            line3$ = "or deep shadows in the image"
+        CASE 7
+            line1$ = "Noise - Pixel noise & clutter"
+            line2$ = "Dense single-pixel clusters that"
+            line3$ = "add visual static or speckles"
+        CASE ELSE
+            EXIT SUB
+    END SELECT
+
+    DIM tw%, th%, tx%, ty%
+    tw% = 276: th% = 62
+    tx% = canvW% + 8
+    ty% = my% + 22
+    IF ty% + th% > _HEIGHT(0) - 24 THEN ty% = my% - th% - 6
+
+    LINE (tx%, ty%)-(tx% + tw% - 1, ty% + th% - 1), _RGBA32(20, 20, 35, 230), BF
+    LINE (tx%, ty%)-(tx% + tw% - 1, ty% + th% - 1), _RGBA32(120, 150, 220, 200), B
+    COLOR _RGBA32(255, 210, 80, 255), _RGBA32(20, 20, 35, 230)
+    _PRINTSTRING (tx% + 6, ty% + 4), line1$
+    COLOR &HFFE0E0E0, _RGBA32(20, 20, 35, 230)
+    _PRINTSTRING (tx% + 6, ty% + 22), line2$
+    _PRINTSTRING (tx% + 6, ty% + 38), line3$
+END SUB
