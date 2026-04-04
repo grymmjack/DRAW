@@ -157,10 +157,28 @@ SUB PIXEL_ANALYZER_show ()
     ' scrollbar dims
     DIM sbX AS INTEGER, sbTrackY1 AS INTEGER, sbTrackY2 AS INTEGER
     DIM sbRange AS INTEGER, sbThumbH AS INTEGER, sbThumbY AS INTEGER
+    ' overlay clip dims
+    DIM ovlClipDX1 AS INTEGER, ovlClipDY1 AS INTEGER
+    DIM ovlClipDX2 AS INTEGER, ovlClipDY2 AS INTEGER
+    DIM ovlClipSX1 AS INTEGER, ovlClipSY1 AS INTEGER
+    DIM ovlClipSX2 AS INTEGER, ovlClipSY2 AS INTEGER
     ' grayscale pass dims
     DIM gsMem AS _MEM, gsTotal AS LONG, gsI AS LONG
     DIM gsPx AS _UNSIGNED LONG
     DIM gsR AS INTEGER, gsG AS INTEGER, gsB AS INTEGER, gsA AS INTEGER, gsV AS INTEGER
+    ' zoom/pan in-dialog dims
+    DIM paViewChanged AS INTEGER
+    DIM paB3 AS INTEGER, paOldB3 AS INTEGER
+    DIM paPanRawStartX AS INTEGER, paPanRawStartY AS INTEGER
+    DIM paPanOrigOffX AS INTEGER, paPanOrigOffY AS INTEGER
+    DIM paZoomOld AS SINGLE
+    DIM paZoomMSX AS INTEGER, paZoomMSY AS INTEGER
+    DIM paZoomOldZW AS LONG, paZoomOldZH AS LONG
+    DIM paZoomOldCX AS INTEGER, paZoomOldCY AS INTEGER
+    DIM paZoomNewZW AS LONG, paZoomNewZH AS LONG
+    DIM paZoomNewCX AS INTEGER, paZoomNewCY AS INTEGER
+    DIM paZoomCX AS SINGLE, paZoomCY AS SINGLE
+    DIM paChrome AS LONG  ' GUI chrome captured at dialog open (no _DISPLAY needed on zoom)
 
     paHoverChk   = -1
     paHoverIssue = -1
@@ -180,6 +198,8 @@ SUB PIXEL_ANALYZER_show ()
 
     ' Snapshot the LOGICAL canvas (same coordinate space as overlay blit)
     rawSnap& = _COPYIMAGE(SCRN.CANVAS&)
+    ' Capture GUI chrome for flicker-free zoom rebuilds
+    paChrome& = _COPYIMAGE(SCRN.GUI&)
     ovlCanvas& = 0
     paOvlDirty% = -1  ' force build on first render
 
@@ -195,9 +215,45 @@ SUB PIXEL_ANALYZER_show ()
             IF paWheel% <> 0 THEN
                 paMXL% = _MOUSEX \ dScale%
                 IF paMXL% >= panelX% THEN
+                    ' Wheel in panel: scroll issues list
                     COACH.scrollOffset = COACH.scrollOffset + paWheel%
                     IF COACH.scrollOffset < 0 THEN COACH.scrollOffset = 0
                     paNeedRedraw = -1
+                ELSE
+                    ' Wheel on canvas: zoom (centered on cursor)
+                    paZoomOld! = SCRN.zoom!
+                    paZoomMSX% = _MOUSEX \ dScale%
+                    paZoomMSY% = _MOUSEY \ dScale%
+                    IF paWheel% < 0 THEN
+                        IF SCRN.zoom! < 1.0 THEN
+                            SCRN.zoom! = 1.0
+                        ELSE
+                            SCRN.zoom! = INT(SCRN.zoom!) + 1.0
+                        END IF
+                        IF SCRN.zoom! > SCRN.zoomMax! THEN SCRN.zoom! = SCRN.zoomMax!
+                    ELSE
+                        IF SCRN.zoom! > 1.0 THEN
+                            SCRN.zoom! = INT(SCRN.zoom!) - 1.0
+                        ELSE
+                            SCRN.zoom! = SCRN.zoom! - 0.25
+                        END IF
+                        IF SCRN.zoom! < SCRN.zoomMin! THEN SCRN.zoom! = SCRN.zoomMin!
+                    END IF
+                    IF SCRN.zoom! <> paZoomOld! THEN
+                        paZoomOldZW& = CLNG(SCRN.canvasW& * paZoomOld!)
+                        paZoomOldZH& = CLNG(SCRN.canvasH& * paZoomOld!)
+                        paZoomOldCX% = (SCRN.w& - paZoomOldZW&) \ 2
+                        paZoomOldCY% = (SCRN.h& - paZoomOldZH&) \ 2
+                        paZoomCX! = (paZoomMSX% - paZoomOldCX% - SCRN.offsetX%) / paZoomOld!
+                        paZoomCY! = (paZoomMSY% - paZoomOldCY% - SCRN.offsetY%) / paZoomOld!
+                        paZoomNewZW& = CLNG(SCRN.canvasW& * SCRN.zoom!)
+                        paZoomNewZH& = CLNG(SCRN.canvasH& * SCRN.zoom!)
+                        paZoomNewCX% = (SCRN.w& - paZoomNewZW&) \ 2
+                        paZoomNewCY% = (SCRN.h& - paZoomNewZH&) \ 2
+                        SCRN.offsetX% = paZoomMSX% - paZoomNewCX% - CLNG(paZoomCX! * SCRN.zoom!)
+                        SCRN.offsetY% = paZoomMSY% - paZoomNewCY% - CLNG(paZoomCY! * SCRN.zoom!)
+                        paViewChanged% = -1
+                    END IF
                 END IF
             END IF
         LOOP
@@ -268,6 +324,26 @@ SUB PIXEL_ANALYZER_show ()
 
         paPrevB1% = pb1%
 
+        ' Middle mouse pan (canvas area only)
+        IF pmx% < panelX% THEN
+            paB3% = _MOUSEBUTTON(3)
+            IF paB3% THEN
+                IF NOT paOldB3% THEN
+                    paPanRawStartX% = _MOUSEX
+                    paPanRawStartY% = _MOUSEY
+                    paPanOrigOffX% = SCRN.offsetX%
+                    paPanOrigOffY% = SCRN.offsetY%
+                ELSE
+                    SCRN.offsetX% = paPanOrigOffX% + (_MOUSEX - paPanRawStartX%) \ dScale%
+                    SCRN.offsetY% = paPanOrigOffY% + (_MOUSEY - paPanRawStartY%) \ dScale%
+                    paViewChanged% = -1
+                END IF
+            END IF
+            paOldB3% = paB3%
+        ELSE
+            paOldB3% = 0
+        END IF
+
         ' ---- keyboard ----
         paK& = _KEYHIT
         SELECT CASE paK&
@@ -327,6 +403,78 @@ SUB PIXEL_ANALYZER_show ()
             paNeedRedraw = -1
         END IF
 
+        ' Keyboard zoom (Ctrl+= zoom in / Ctrl+- zoom out / Ctrl+0 reset)
+        STATIC paKbdZoomIn AS INTEGER
+        IF MODIFIERS.ctrl% AND NOT MODIFIERS.alt% AND (_KEYDOWN(61) OR _KEYDOWN(43)) THEN
+            IF NOT paKbdZoomIn% THEN
+                IF SCRN.zoom! < 1.0 THEN
+                    SCRN.zoom! = 1.0
+                ELSE
+                    SCRN.zoom! = INT(SCRN.zoom!) + 1.0
+                END IF
+                IF SCRN.zoom! > SCRN.zoomMax! THEN SCRN.zoom! = SCRN.zoomMax!
+                paViewChanged% = -1
+                paKbdZoomIn% = TRUE
+            END IF
+        ELSEIF NOT _KEYDOWN(61) AND NOT _KEYDOWN(43) THEN
+            paKbdZoomIn% = FALSE
+        END IF
+
+        STATIC paKbdZoomOut AS INTEGER
+        IF MODIFIERS.ctrl% AND NOT MODIFIERS.alt% AND (_KEYDOWN(45) OR _KEYDOWN(95)) THEN
+            IF NOT paKbdZoomOut% THEN
+                IF SCRN.zoom! > 1.0 THEN
+                    SCRN.zoom! = INT(SCRN.zoom!) - 1.0
+                ELSE
+                    SCRN.zoom! = SCRN.zoom! - 0.25
+                END IF
+                IF SCRN.zoom! < SCRN.zoomMin! THEN SCRN.zoom! = SCRN.zoomMin!
+                paViewChanged% = -1
+                paKbdZoomOut% = TRUE
+            END IF
+        ELSEIF NOT _KEYDOWN(45) AND NOT _KEYDOWN(95) THEN
+            paKbdZoomOut% = FALSE
+        END IF
+
+        STATIC paKbdZoomReset AS INTEGER
+        IF MODIFIERS.ctrl% AND NOT MODIFIERS.alt% AND _KEYDOWN(48) THEN
+            IF NOT paKbdZoomReset% THEN
+                SCRN.zoom! = 1.0
+                SCRN.offsetX% = 0
+                SCRN.offsetY% = 0
+                paViewChanged% = -1
+                paKbdZoomReset% = TRUE
+            END IF
+        ELSEIF NOT _KEYDOWN(48) THEN
+            paKbdZoomReset% = FALSE
+        END IF
+
+        ' Re-render scene + re-snapshot rawSnap if zoom/pan changed
+        IF paViewChanged% THEN
+            ' Rebuild ovl dims at new zoom/pan
+            ovlZW& = CLNG(CSNG(COACH.imgW) * SCRN.zoom!)
+            ovlZH& = CLNG(CSNG(COACH.imgH) * SCRN.zoom!)
+            IF ovlZW& < 1 THEN ovlZW& = 1
+            IF ovlZH& < 1 THEN ovlZH& = 1
+            ovlDX% = (SCRN.w& - ovlZW&) \ 2 + SCRN.offsetX% + SCRN.panelShiftX%
+            ovlDY% = (SCRN.h& - ovlZH&) \ 2 + SCRN.offsetY%
+            ' Build rawSnap directly -- avoids SCREEN_render calling _DISPLAY
+            ' without the panel present (which causes the panel to flicker).
+            ' Composite: apron fill + scaled canvas + GUI chrome overlay.
+            IF rawSnap& < -1 THEN _FREEIMAGE rawSnap&
+            rawSnap& = _NEWIMAGE(logW%, logH%, 32)
+            _DEST rawSnap&
+            _DONTBLEND rawSnap&
+            LINE (0, 0)-(logW% - 1, logH% - 1), CFG.CANVAS_APRON_COLOR~&, BF
+            _BLEND rawSnap&
+            _PUTIMAGE (ovlDX%, ovlDY%)-(ovlDX% + ovlZW& - 1, ovlDY% + ovlZH& - 1), COACH.srcImg
+            _DEST 0
+            paOvlDirty% = -1
+            paNeedRedraw = -1
+            SCENE_DIRTY% = TRUE  ' Ensure SCREEN_render re-composites after dialog closes
+            paViewChanged% = 0
+        END IF
+
         ' ==============================================================
         '  RENDER
         ' ==============================================================
@@ -340,7 +488,20 @@ SUB PIXEL_ANALYZER_show ()
                 IF COACH.showOverlay AND COACH.overlayImg < -1 AND COACH.issueCount > 0 THEN
                     _DEST ovlCanvas&
                     _BLEND ovlCanvas&
-                    _PUTIMAGE (ovlDX%, ovlDY%)-(ovlDX% + ovlZW& - 1, ovlDY% + ovlZH& - 1), COACH.overlayImg
+                    ' Clip overlay blit to canvas viewport — prevent drawing over chrome
+                    ovlClipDX1% = ovlDX%: IF ovlClipDX1% < SCRN.panelShiftX% THEN ovlClipDX1% = SCRN.panelShiftX%
+                    ovlClipDY1% = ovlDY%: IF ovlClipDY1% < 0 THEN ovlClipDY1% = 0
+                    ovlClipDX2% = ovlDX% + ovlZW& - 1: IF ovlClipDX2% > panelX% - 1 THEN ovlClipDX2% = panelX% - 1
+                    ovlClipDY2% = ovlDY% + ovlZH& - 1: IF ovlClipDY2% > logH% - 1 THEN ovlClipDY2% = logH% - 1
+                    IF ovlClipDX1% <= ovlClipDX2% AND ovlClipDY1% <= ovlClipDY2% THEN
+                        ovlClipSX1% = INT(CSNG(ovlClipDX1% - ovlDX%) / CSNG(ovlZW&) * CSNG(COACH.imgW))
+                        ovlClipSY1% = INT(CSNG(ovlClipDY1% - ovlDY%) / CSNG(ovlZH&) * CSNG(COACH.imgH))
+                        ovlClipSX2% = INT(CSNG(ovlClipDX2% - ovlDX% + 1) / CSNG(ovlZW&) * CSNG(COACH.imgW)) - 1
+                        ovlClipSY2% = INT(CSNG(ovlClipDY2% - ovlDY% + 1) / CSNG(ovlZH&) * CSNG(COACH.imgH)) - 1
+                        IF ovlClipSX2% >= COACH.imgW - 1 THEN ovlClipSX2% = COACH.imgW - 1
+                        IF ovlClipSY2% >= COACH.imgH - 1 THEN ovlClipSY2% = COACH.imgH - 1
+                        _PUTIMAGE (ovlClipDX1%, ovlClipDY1%)-(ovlClipDX2%, ovlClipDY2%), COACH.overlayImg, ovlCanvas&, (ovlClipSX1%, ovlClipSY1%)-(ovlClipSX2%, ovlClipSY2%)
+                    END IF
                 END IF
                 ' Apply grayscale pass if enabled
                 IF COACH.showGrayscale AND ovlCanvas& < -1 THEN
@@ -367,6 +528,12 @@ SUB PIXEL_ANALYZER_show ()
                 _PUTIMAGE (0, 0)-(screenW& - 1, screenH& - 1), ovlCanvas&
             ELSEIF bgSnap& < -1 THEN
                 _PUTIMAGE (0, 0)-(screenW& - 1, screenH& - 1), bgSnap&
+            END IF
+            ' Restore chrome on top (toolbar, layer panel, palette strip) --
+            ' avoids overlay blits covering the chrome that was baked into rawSnap&.
+            IF paChrome& < -1 THEN
+                _BLEND
+                _PUTIMAGE (0, 0)-(screenW& - 1, screenH& - 1), paChrome&
             END IF
 
             ' Render panel onto offscreen image
@@ -586,6 +753,7 @@ SUB PIXEL_ANALYZER_show ()
     IF bgSnap& < -1 THEN _FREEIMAGE bgSnap&
     IF rawSnap& < -1 THEN _FREEIMAGE rawSnap&
     IF ovlCanvas& < -1 THEN _FREEIMAGE ovlCanvas&
+    IF paChrome& < -1 THEN _FREEIMAGE paChrome&
     IF COACH.srcImg < -1 THEN _FREEIMAGE COACH.srcImg
     IF COACH.overlayImg < -1 THEN _FREEIMAGE COACH.overlayImg
     IF paGrayImg& < -1 THEN _FREEIMAGE paGrayImg&
