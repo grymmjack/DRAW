@@ -34,6 +34,7 @@ DECLARE SUB FD_add_favorite (dirPath AS STRING)
 DECLARE SUB FD_remove_favorite (dirPath AS STRING)
 DECLARE SUB FD_save_favorites
 DECLARE SUB FD_init_places
+'$INCLUDE:'./includes/QB64_GJ_LIB/ASEPRITE/ASEPRITE.BI'
 
 ' CONFIG ----------------------------------------------------------------------
 '$INCLUDE:'./CFG/CONFIG.BI'
@@ -94,6 +95,7 @@ DECLARE SUB FD_init_places
 '$INCLUDE:'./INPUT/FILE-BMP.BI'
 '$INCLUDE:'./INPUT/FILE-BLOAD.BI'
 '$INCLUDE:'./INPUT/FILE-PAL.BI'
+'$INCLUDE:'./INPUT/FILE-ASE.BI'
 '$INCLUDE:'./INPUT/API-LOSPEC.BI'
 
 ' OUTPUT ----------------------------------------------------------------------
