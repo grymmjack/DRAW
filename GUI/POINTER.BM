@@ -53,6 +53,11 @@ FUNCTION POINTER_system_cursor_string$ (cursorID AS INTEGER, cursorFlip AS INTEG
             ELSE
                 POINTER_system_cursor_string$ = "TOPLEFT_BOTTOMRIGHT"
             END IF
+        CASE CURSOR_BRUSH, CURSOR_SPRAY
+            ' Use OS crosshair for brush/spray tools so the pointing cursor
+            ' moves at hardware speed. The brush preview circle still draws
+            ' in software as a visual aid (slight lag is acceptable for a helper).
+            POINTER_system_cursor_string$ = "CROSSHAIR"
     END SELECT
 END FUNCTION
 
@@ -86,10 +91,18 @@ SUB POINTER_render ()
         END IF
     END IF
     IF sysCur$ <> "" THEN
-        _MOUSESHOW sysCur$
+        ' Only call _MOUSESHOW when cursor type actually changed (SDL2 call)
+        IF _TRIM$(POINTER.PREV_SYS_CURSOR$) <> sysCur$ THEN
+            _MOUSESHOW sysCur$
+            POINTER.PREV_SYS_CURSOR$ = sysCur$
+        END IF
         POINTER.USING_SYSTEM_CURSOR% = TRUE
     ELSE
-        _MOUSEHIDE
+        ' Only call _MOUSEHIDE when transitioning from visible to hidden
+        IF _TRIM$(POINTER.PREV_SYS_CURSOR$) <> "" THEN
+            _MOUSEHIDE
+            POINTER.PREV_SYS_CURSOR$ = ""
+        END IF
         POINTER.USING_SYSTEM_CURSOR% = FALSE
     END IF
     POINTER_draw
@@ -109,6 +122,7 @@ SUB POINTER_hide_for_dialog ()
     ' the OS dialog steals focus and backgrounds QB64PE
     _DELAY 0.15
     _MOUSESHOW
+    POINTER.PREV_SYS_CURSOR$ = "DEFAULT"  ' Track that OS cursor is now visible
 END SUB
 
 
@@ -118,6 +132,7 @@ END SUB
 '
 SUB POINTER_show_after_dialog ()
     _MOUSEHIDE
+    POINTER.PREV_SYS_CURSOR$ = ""  ' Track that OS cursor is now hidden
     POINTER.HIDDEN = FALSE
     ' Reset to null (arrow) cursor after dialog so the tool-specific
     ' cursor doesn't flash before the user moves the mouse
@@ -349,7 +364,7 @@ SUB POINTER_build ()
     DIM allowSpacePanCursor AS INTEGER
     allowSpacePanCursor% = NOT (CURRENT_TOOL% = TOOL_TEXT AND TEXT.ACTIVE)
     
-    IF (_KEYDOWN(32) AND allowSpacePanCursor%) OR _MOUSEBUTTON(3) THEN ' Spacebar or MMB - pan mode
+    IF (_KEYDOWN(32) AND allowSpacePanCursor%) OR MOUSE.B3% THEN ' Spacebar or MMB - pan mode
         POINTER.CURSOR_ID% = CURSOR_HAND
         EXIT SUB
     END IF
@@ -791,7 +806,7 @@ SUB POINTER_draw_brush_preview (mx AS INTEGER, my AS INTEGER, is_painting AS INT
     IF pixel_size% < 1 THEN pixel_size% = 1
     isTransparent% = (_ALPHA32(PAINT_COLOR~&) = 0)
 
-    IF BRUSH_SIZE.PREVIEW THEN
+    if BRUSH_SIZE.PREVIEW THEN
         IF BRUSH_SIZE.SHAPE = 0 THEN
             radius% = pixel_size% \ 2
             IF isTransparent% THEN
@@ -801,21 +816,25 @@ SUB POINTER_draw_brush_preview (mx AS INTEGER, my AS INTEGER, is_painting AS INT
                 CIRCLE (mx%, my%), radius% + 1, _RGBA32(32, 32, 32, 84)
                 CIRCLE (mx%, my%), radius%, _RGBA32(255, 255, 255, 84)
 
-                r% = _RED32(PAINT_COLOR~&)
-                g% = _GREEN32(PAINT_COLOR~&)
-                b% = _BLUE32(PAINT_COLOR~&)
-                DIM fill_c AS _UNSIGNED LONG
-                fill_c~& = _RGBA32(r%, g%, b%, 120)
-                ' Scanline circle fill: O(n) LINEs instead of O(n^2) PSETs
-                r_sq! = (radius% - 0.5) * (radius% - 0.5)
-                FOR cy% = my% - radius% TO my% + radius%
-                    DIM dy_sq AS SINGLE
-                    DIM scan_w AS INTEGER
-                    dy_sq! = (cy% - my%) * (cy% - my%)
-                    IF dy_sq! > r_sq! THEN _CONTINUE
-                    scan_w% = INT(SQR(r_sq! - dy_sq!))
-                    LINE (mx% - scan_w%, cy%)-(mx% + scan_w%, cy%), fill_c~&
-                NEXT cy%
+                ' Only fill the circle when actively painting — outline is
+                ' sufficient for hover and avoids expensive scanline fill
+                ' at large brush sizes every cursor-move frame.
+                IF is_painting% THEN
+                    r% = _RED32(PAINT_COLOR~&)
+                    g% = _GREEN32(PAINT_COLOR~&)
+                    b% = _BLUE32(PAINT_COLOR~&)
+                    DIM fill_c AS _UNSIGNED LONG
+                    fill_c~& = _RGBA32(r%, g%, b%, 120)
+                    r_sq! = (radius% - 0.5) * (radius% - 0.5)
+                    FOR cy% = my% - radius% TO my% + radius%
+                        DIM dy_sq AS SINGLE
+                        DIM scan_w AS INTEGER
+                        dy_sq! = (cy% - my%) * (cy% - my%)
+                        IF dy_sq! > r_sq! THEN _CONTINUE
+                        scan_w% = INT(SQR(r_sq! - dy_sq!))
+                        LINE (mx% - scan_w%, cy%)-(mx% + scan_w%, cy%), fill_c~&
+                    NEXT cy%
+                END IF
             END IF
         ELSE
             half% = pixel_size% \ 2
@@ -826,10 +845,12 @@ SUB POINTER_draw_brush_preview (mx AS INTEGER, my AS INTEGER, is_painting AS INT
                 LINE (mx% - half% - 1, my% - half% - 1)-(mx% + half% + 1, my% + half% + 1), _RGBA32(32, 32, 32, 84), B
                 LINE (mx% - half%, my% - half%)-(mx% + half%, my% + half%), _RGBA32(255, 255, 255, 84), B
 
-                r% = _RED32(PAINT_COLOR~&)
-                g% = _GREEN32(PAINT_COLOR~&)
-                b% = _BLUE32(PAINT_COLOR~&)
-                LINE (mx% - half%, my% - half%)-(mx% + half%, my% + half%), _RGBA32(r%, g%, b%, 120), BF
+                IF is_painting% THEN
+                    r% = _RED32(PAINT_COLOR~&)
+                    g% = _GREEN32(PAINT_COLOR~&)
+                    b% = _BLUE32(PAINT_COLOR~&)
+                    LINE (mx% - half%, my% - half%)-(mx% + half%, my% + half%), _RGBA32(r%, g%, b%, 120), BF
+                END IF
             END IF
         END IF
 
@@ -879,42 +900,14 @@ END SUB
 '
 SUB POINTER_draw_spray_preview (mx AS INTEGER, my AS INTEGER, is_painting AS INTEGER)
     DIM spray_radius AS INTEGER
-    DIM spray_r AS INTEGER, spray_g AS INTEGER, spray_b AS INTEGER
-    DIM spray_cx AS INTEGER, spray_cy AS INTEGER
-    DIM spray_dist_sq AS SINGLE, spray_r_sq AS SINGLE
-    DIM spray_density AS INTEGER
 
     ' Get radius from brush size system (matches SPRAY_on formula)
     spray_radius% = INT((BRUSH_PIXEL_SIZES(BRUSH_SIZE.CURRENT) * 2 + 2) * SCRN.zoom!)
     IF spray_radius% < 4 THEN spray_radius% = 4
 
-    ' Draw circle outline (dark + light for visibility)
+    ' Draw circle outline only (no fill dots) — lightweight and sufficient
     CIRCLE (mx%, my%), spray_radius% + 1, _RGBA32(32, 32, 32, 84)
     CIRCLE (mx%, my%), spray_radius%, _RGBA32(255, 255, 255, 84)
-
-    ' Draw preview dot pattern inside the circle using FG color
-    spray_r% = _RED32(PAINT_COLOR~&)
-    spray_g% = _GREEN32(PAINT_COLOR~&)
-    spray_b% = _BLUE32(PAINT_COLOR~&)
-
-    ' Static dot pattern preview (fixed seed for stable appearance)
-    spray_density% = INT(spray_radius% * spray_radius% * 0.15) + 3
-    IF spray_density% > 50 THEN spray_density% = 50
-
-    ' Use a deterministic pattern based on position so preview doesn't flicker
-    spray_r_sq! = (spray_radius% - 0.5) * (spray_radius% - 0.5)
-    DIM spray_step AS INTEGER
-    spray_step% = INT(SQR(3.14159 * spray_r_sq! / spray_density%))
-    IF spray_step% < 1 THEN spray_step% = 1
-
-    FOR spray_cy% = my% - spray_radius% TO my% + spray_radius% STEP spray_step%
-        FOR spray_cx% = mx% - spray_radius% TO mx% + spray_radius% STEP spray_step%
-            spray_dist_sq! = (spray_cx% - mx%) * (spray_cx% - mx%) + (spray_cy% - my%) * (spray_cy% - my%)
-            IF spray_dist_sq! <= spray_r_sq! THEN
-                PSET (spray_cx%, spray_cy%), _RGBA32(spray_r%, spray_g%, spray_b%, 120)
-            END IF
-        NEXT spray_cx%
-    NEXT spray_cy%
 
     ' Draw center crosshair when not painting
     IF NOT is_painting% THEN
@@ -1070,6 +1063,10 @@ END SUB
 ' @param is_painting INTEGER TRUE when actively painting; suppresses arrow for brush/dot/eraser/spray tools
 '
 SUB POINTER_draw_arrow_overlay (mx AS INTEGER, my AS INTEGER, is_painting AS INTEGER)
+    ' OS cursor already provides position indicator — skip software arrow to
+    ' avoid a duplicate cursor that lags 1 frame behind the hardware one.
+    IF POINTER.USING_SYSTEM_CURSOR% THEN EXIT SUB
+
     DIM show_arrow AS INTEGER
     show_arrow% = FALSE
 
@@ -1198,7 +1195,7 @@ SUB POINTER_draw ()
     END IF
 
     ' --- Tool-specific cursor rendering ---
-    is_painting% = (_MOUSEBUTTON(1) <> 0)
+    is_painting% = MOUSE.B1%
 
     SELECT CASE CURRENT_TOOL%
         CASE TOOL_LINE, TOOL_POLYGON, TOOL_POLYGON_FILLED, TOOL_RECT, TOOL_RECT_FILLED, TOOL_ELLIPSE, TOOL_ELLIPSE_FILLED

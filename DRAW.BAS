@@ -394,6 +394,22 @@ DO
     ' reading mouse input and displaying the result on screen.
     ' (_LIMIT before render would add a full frame delay to the pointer)
     
+    ' Late mouse drain: re-read cursor position just before render to pick
+    ' up any movement that arrived during keyboard/idle-detection processing.
+    ' Only updates RAW_X/Y (screen coords for cursor drawing) — button/wheel
+    ' state was already processed by MOUSE_input_handler above.
+    IF NOT FRAME_IDLE% THEN
+        DIM lateDrained AS INTEGER
+        lateDrained% = FALSE
+        DO WHILE _MOUSEINPUT
+            lateDrained% = TRUE
+        LOOP
+        IF lateDrained% THEN
+            MOUSE.RAW_X% = _MOUSEX \ SCRN.displayScale%
+            MOUSE.RAW_Y% = _MOUSEY \ SCRN.displayScale%
+        END IF
+    END IF
+    
     ' Skip full render when idle — previous frame remains on display
     IF NOT FRAME_IDLE% THEN
         SCREEN_render
@@ -403,12 +419,9 @@ DO
     '  sets the window to the correct size immediately; no retry needed.)
     
     ' Apply frame rate limit AFTER render+display (reduced when idle).
-    ' Cursor-only movement (mouse moved, no scene changes, no buttons held) is throttled
-    ' to CFG.FPS_CURSOR% (20 FPS default), regardless of zoom level.
-    '   - At HIGH zoom:  canvasCoordChanged% is rare   → was already relying on this
-    '   - At LOW zoom:   canvasCoordChanged% fires every frame (1 raw px = 44+ canvas px)
-    '                    → old check "AND NOT canvasCoordChanged%" prevented throttle
-    ' Removing canvasCoordChanged% from the guard fixes the low-zoom CPU spike.
+    ' Cursor-only movement uses CFG.FPS_CURSOR% (default 240) — the
+    ' STATUS-ONLY and dirty-rect paths are ultra-lightweight partial
+    ' blits, so high FPS is cheap and makes the cursor responsive.
     DIM cursorOnlyMove AS INTEGER
     cursorOnlyMove% = (mouseMoved% AND NOT SCENE_CHANGED% _
                        AND NOT MOUSE.B1% AND NOT MOUSE.B2% AND NOT MOUSE.B3%)

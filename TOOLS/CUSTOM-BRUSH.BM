@@ -24,6 +24,10 @@ SUB CUSTOM_BRUSH_init ()
     CUSTOM_BRUSH.SCALE! = 1.0
     CUSTOM_BRUSH.RECOLOR_MODE% = FALSE
     CUSTOM_BRUSH.SHOW_OUTLINE% = TRUE
+    CUSTOM_BRUSH.PREVIEW_CACHE& = 0
+    CUSTOM_BRUSH.PREVIEW_CACHE_COLOR~& = 0
+    CUSTOM_BRUSH.PREVIEW_CACHE_OPACITY% = -1
+    CUSTOM_BRUSH.PREVIEW_CACHE_RECOLOR% = FALSE
 END SUB
 
 
@@ -36,6 +40,10 @@ SUB CUSTOM_BRUSH_reset ()
     IF CUSTOM_BRUSH.IMAGE& < -1 THEN
         _FREEIMAGE CUSTOM_BRUSH.IMAGE&
         CUSTOM_BRUSH.IMAGE& = 0
+    END IF
+    IF CUSTOM_BRUSH.PREVIEW_CACHE& < -1 THEN
+        _FREEIMAGE CUSTOM_BRUSH.PREVIEW_CACHE&
+        CUSTOM_BRUSH.PREVIEW_CACHE& = 0
     END IF
     
     CUSTOM_BRUSH.ACTIVE% = FALSE
@@ -50,6 +58,8 @@ SUB CUSTOM_BRUSH_reset ()
     CUSTOM_BRUSH.SCALE! = 1.0
     CUSTOM_BRUSH.RECOLOR_MODE% = FALSE
     CUSTOM_BRUSH.SHOW_OUTLINE% = TRUE
+    CUSTOM_BRUSH.PREVIEW_CACHE_OPACITY% = -1
+    CUSTOM_BRUSH.PREVIEW_CACHE_RECOLOR% = FALSE
 END SUB
 
 
@@ -594,70 +604,57 @@ SUB CUSTOM_BRUSH_render_scaled (x AS INTEGER, y AS INTEGER, dest AS LONG, zoom A
         src_y2% = CUSTOM_BRUSH.ORIG_HEIGHT% - 1
     END IF
     
-    ' If recolor mode is active, create temporary recolored brush
-    IF CUSTOM_BRUSH.RECOLOR_MODE% THEN
-        DIM temp_brush AS LONG
-        temp_brush& = _NEWIMAGE(CUSTOM_BRUSH.ORIG_WIDTH%, CUSTOM_BRUSH.ORIG_HEIGHT%, 32)
-        
-        DIM old_dest2 AS LONG
-        old_dest2& = _DEST
-        _DEST temp_brush&
-        CLS , _RGBA32(0, 0, 0, 0) ' Clear with full transparency
-        
-        ' Render recolored brush to temp image
-        DIM px AS INTEGER, py AS INTEGER
-        DIM pixel_color AS _UNSIGNED LONG
-        DIM alpha_value AS INTEGER
-        
-        _SOURCE CUSTOM_BRUSH.IMAGE&
-        FOR py% = 0 TO CUSTOM_BRUSH.ORIG_HEIGHT% - 1
-            FOR px% = 0 TO CUSTOM_BRUSH.ORIG_WIDTH% - 1
-                pixel_color~& = POINT(px%, py%)
-                alpha_value% = _ALPHA32(pixel_color~&)
-                
-                ' Only draw non-transparent pixels, scaling alpha by current paint opacity
-                IF alpha_value% > 0 THEN
-                    PSET (px%, py%), _RGBA32(_RED32(PAINT_COLOR~&), _GREEN32(PAINT_COLOR~&), _BLUE32(PAINT_COLOR~&), (alpha_value% * PAINT_OPACITY%) \ 100)
-                END IF
-            NEXT px%
-        NEXT py%
-        
-        _DEST old_dest2&
-        
-        ' Now use _PUTIMAGE with the recolored temp brush
-        _PUTIMAGE (x%, y%)-(x% + scaled_w% - 1, y% + scaled_h% - 1), temp_brush&, dest&, (src_x1%, src_y1%)-(src_x2%, src_y2%)
-        
-        IF temp_brush& < -1 THEN _FREEIMAGE temp_brush&
-    ELSE
-        ' Normal (no recolor): render at current paint opacity.
-        ' At full opacity just PUTIMAGE directly (fast path).
-        ' Below 100% build a temp copy with alpha scaled per-pixel, same as recolor path.
-        IF PAINT_OPACITY% >= 100 THEN
-            _PUTIMAGE (x%, y%)-(x% + scaled_w% - 1, y% + scaled_h% - 1), CUSTOM_BRUSH.IMAGE&, dest&, (src_x1%, src_y1%)-(src_x2%, src_y2%)
-        ELSE
-            DIM temp_brush2 AS LONG
-            temp_brush2& = _NEWIMAGE(CUSTOM_BRUSH.ORIG_WIDTH%, CUSTOM_BRUSH.ORIG_HEIGHT%, 32)
-            DIM old_dest3 AS LONG
-            old_dest3& = _DEST
-            _DEST temp_brush2&
-            CLS , _RGBA32(0, 0, 0, 0)
-            _SOURCE CUSTOM_BRUSH.IMAGE&
-            DIM px2 AS INTEGER, py2 AS INTEGER
-            DIM pix2 AS _UNSIGNED LONG
-            DIM alp2 AS INTEGER
-            FOR py2% = 0 TO CUSTOM_BRUSH.ORIG_HEIGHT% - 1
-                FOR px2% = 0 TO CUSTOM_BRUSH.ORIG_WIDTH% - 1
-                    pix2~& = POINT(px2%, py2%)
-                    alp2% = _ALPHA32(pix2~&)
-                    IF alp2% > 0 THEN
-                        PSET (px2%, py2%), _RGBA32(_RED32(pix2~&), _GREEN32(pix2~&), _BLUE32(pix2~&), (alp2% * PAINT_OPACITY%) \ 100)
-                    END IF
-                NEXT px2%
-            NEXT py2%
-            _DEST old_dest3&
-            _PUTIMAGE (x%, y%)-(x% + scaled_w% - 1, y% + scaled_h% - 1), temp_brush2&, dest&, (src_x1%, src_y1%)-(src_x2%, src_y2%)
-            IF temp_brush2& < -1 THEN _FREEIMAGE temp_brush2&
+    ' If recolor mode or opacity < 100%, use cached preview image.
+    ' Rebuild cache only when paint color, opacity, or recolor mode changes.
+    IF CUSTOM_BRUSH.RECOLOR_MODE% OR PAINT_OPACITY% < 100 THEN
+        ' Check if cache needs rebuilding
+        DIM need_rebuild AS INTEGER
+        need_rebuild% = (CUSTOM_BRUSH.PREVIEW_CACHE& = 0)
+        IF NOT need_rebuild% THEN
+            IF CUSTOM_BRUSH.RECOLOR_MODE% THEN
+                need_rebuild% = (CUSTOM_BRUSH.PREVIEW_CACHE_COLOR~& <> PAINT_COLOR~& _
+                    OR CUSTOM_BRUSH.PREVIEW_CACHE_OPACITY% <> PAINT_OPACITY% _
+                    OR CUSTOM_BRUSH.PREVIEW_CACHE_RECOLOR% <> CUSTOM_BRUSH.RECOLOR_MODE%)
+            ELSE
+                need_rebuild% = (CUSTOM_BRUSH.PREVIEW_CACHE_OPACITY% <> PAINT_OPACITY% _
+                    OR CUSTOM_BRUSH.PREVIEW_CACHE_RECOLOR% <> CUSTOM_BRUSH.RECOLOR_MODE%)
+            END IF
         END IF
+
+        IF need_rebuild% THEN
+            IF CUSTOM_BRUSH.PREVIEW_CACHE& < -1 THEN _FREEIMAGE CUSTOM_BRUSH.PREVIEW_CACHE&
+            CUSTOM_BRUSH.PREVIEW_CACHE& = _NEWIMAGE(CUSTOM_BRUSH.ORIG_WIDTH%, CUSTOM_BRUSH.ORIG_HEIGHT%, 32)
+            DIM old_dest2 AS LONG
+            old_dest2& = _DEST
+            _DEST CUSTOM_BRUSH.PREVIEW_CACHE&
+            CLS , _RGBA32(0, 0, 0, 0)
+            DIM px AS INTEGER, py AS INTEGER
+            DIM pixel_color AS _UNSIGNED LONG
+            DIM alpha_value AS INTEGER
+            _SOURCE CUSTOM_BRUSH.IMAGE&
+            FOR py% = 0 TO CUSTOM_BRUSH.ORIG_HEIGHT% - 1
+                FOR px% = 0 TO CUSTOM_BRUSH.ORIG_WIDTH% - 1
+                    pixel_color~& = POINT(px%, py%)
+                    alpha_value% = _ALPHA32(pixel_color~&)
+                    IF alpha_value% > 0 THEN
+                        IF CUSTOM_BRUSH.RECOLOR_MODE% THEN
+                            PSET (px%, py%), _RGBA32(_RED32(PAINT_COLOR~&), _GREEN32(PAINT_COLOR~&), _BLUE32(PAINT_COLOR~&), (alpha_value% * PAINT_OPACITY%) \ 100)
+                        ELSE
+                            PSET (px%, py%), _RGBA32(_RED32(pixel_color~&), _GREEN32(pixel_color~&), _BLUE32(pixel_color~&), (alpha_value% * PAINT_OPACITY%) \ 100)
+                        END IF
+                    END IF
+                NEXT px%
+            NEXT py%
+            _DEST old_dest2&
+            CUSTOM_BRUSH.PREVIEW_CACHE_COLOR~& = PAINT_COLOR~&
+            CUSTOM_BRUSH.PREVIEW_CACHE_OPACITY% = PAINT_OPACITY%
+            CUSTOM_BRUSH.PREVIEW_CACHE_RECOLOR% = CUSTOM_BRUSH.RECOLOR_MODE%
+        END IF
+
+        _PUTIMAGE (x%, y%)-(x% + scaled_w% - 1, y% + scaled_h% - 1), CUSTOM_BRUSH.PREVIEW_CACHE&, dest&, (src_x1%, src_y1%)-(src_x2%, src_y2%)
+    ELSE
+        ' Normal full-opacity, no recolor: PUTIMAGE directly (fast path)
+        _PUTIMAGE (x%, y%)-(x% + scaled_w% - 1, y% + scaled_h% - 1), CUSTOM_BRUSH.IMAGE&, dest&, (src_x1%, src_y1%)-(src_x2%, src_y2%)
     END IF
     
     _SOURCE old_source&

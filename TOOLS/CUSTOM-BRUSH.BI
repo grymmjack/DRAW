@@ -29,6 +29,10 @@ TYPE CUSTOM_BRUSH_OBJ
     SCALE       AS SINGLE           ' Current scale factor (1.0 = 100%)
     RECOLOR_MODE AS INTEGER         ' Whether to recolor non-transparent pixels to FG color
     SHOW_OUTLINE AS INTEGER         ' Whether to show outline in cursor preview
+    PREVIEW_CACHE AS LONG           ' Cached recolored/opacity-adjusted image for cursor preview
+    PREVIEW_CACHE_COLOR AS _UNSIGNED LONG ' Paint color when cache was built
+    PREVIEW_CACHE_OPACITY AS INTEGER      ' Paint opacity when cache was built
+    PREVIEW_CACHE_RECOLOR AS INTEGER      ' Recolor mode when cache was built
 END TYPE
 
 DIM SHARED CUSTOM_BRUSH AS CUSTOM_BRUSH_OBJ
