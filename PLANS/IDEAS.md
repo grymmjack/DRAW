@@ -1,25 +1,5 @@
 # IDEAS
 
-## PIXEL ART COACH
-
-- Analyze artwork for:
-  - [ ] Pixel Perfect Deviations - Jaggies
-  - [ ] Clusters
-  - [ ] Islands
-  - [ ] Readability
-  - [ ] Pillow Shading
-  - [ ] Over Dithering
-  - [ ] Banding
-  - [ ] Fat Pixels
-  - [ ] Light Source Inconsistencies
-  - [ ] Contrast Issues
-  - [ ] Value Issues
-  - [ ] Noise
-
-> A coach to make good pixel art
-
-
-
 ## Color BITMAP fonts
 - See DEV/FONTS/COLOR_BITMAP
 - Lots of examples there
@@ -345,4 +325,24 @@ cell alignment inside, borders, border widths, border colors, etc.
 - SHIFT+Middle Click on any palette strip color = Insert new blank color between currently clicked color and the one next to it.
 - DRAG on any palette strip color to rearrange it
 - ALL of these click options should block/guard against similar gestures/hotkeys/states
+
+## PIXEL ART COACH
+
+- Analyze artwork for:
+  - [x] Pixel Perfect Deviations - Jaggies
+  - [x] Clusters
+  - [x] Islands
+  - [x] Readability
+  - [x] Pillow Shading
+  - [x] Over Dithering
+  - [x] Banding
+  - [x] Fat Pixels
+  - [x] Light Source Inconsistencies
+  - [x] Contrast Issues
+  - [x] Value Issues
+  - [x] Noise
+
+> A coach to make good pixel art
+
+
 
