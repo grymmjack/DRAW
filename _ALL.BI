@@ -25,6 +25,8 @@ $INCLUDEONCE
 '$INCLUDE:'./includes/QB64_GJ_LIB/MSG_BOX/MB-THEME.BI'
 '$INCLUDE:'./includes/QB64_GJ_LIB/COLOR_PICKER/CP-TYPES.BI'
 '$INCLUDE:'./includes/QB64_GJ_LIB/COLOR_PICKER/CP-THEME.BI'
+'$INCLUDE:'./includes/QB64_GJ_LIB/ASEPRITE/ASEPRITE.BI'
+'$INCLUDE:'./includes/QB64_GJ_LIB/PSD/PSD.BI'
 '$INCLUDE:'./includes/QB64_GJ_LIB/FILE_DIALOG/FD-TYPES.BI'
 '$INCLUDE:'./includes/QB64_GJ_LIB/FILE_DIALOG/FD-THEME.BI'
 '$INCLUDE:'./includes/QB64_GJ_LIB/FILE_DIALOG/FD-ICONS.BI'
@@ -34,7 +36,6 @@ DECLARE SUB FD_add_favorite (dirPath AS STRING)
 DECLARE SUB FD_remove_favorite (dirPath AS STRING)
 DECLARE SUB FD_save_favorites
 DECLARE SUB FD_init_places
-'$INCLUDE:'./includes/QB64_GJ_LIB/ASEPRITE/ASEPRITE.BI'
 
 ' CONFIG ----------------------------------------------------------------------
 '$INCLUDE:'./CFG/CONFIG.BI'
@@ -96,6 +97,7 @@ DECLARE SUB FD_init_places
 '$INCLUDE:'./INPUT/FILE-BLOAD.BI'
 '$INCLUDE:'./INPUT/FILE-PAL.BI'
 '$INCLUDE:'./INPUT/FILE-ASE.BI'
+'$INCLUDE:'./INPUT/FILE-PSD.BI'
 '$INCLUDE:'./INPUT/API-LOSPEC.BI'
 
 ' OUTPUT ----------------------------------------------------------------------

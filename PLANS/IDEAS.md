@@ -19,12 +19,6 @@
   - Distribute Layers in group
 
 
-## FILE FORMATS IMPORT
-- ASEPRITE Using QB64_GJ_LIB/ASEPRITE
-- PSD
-- PCX
-- LBM
-
 
 ## LOAD IMAGES INTO BINS
 - Add to right click on brush bin, pattern bin:
@@ -75,6 +69,8 @@ cell alignment inside, borders, border widths, border colors, etc.
 - Export table
 - Convert table to GUIDE layer
 - DIVIDE EVENLY (visually)
+
+
 
 ## GUIDE LAYERS
 - Any opaque line becomes a guide, which can be snapped to
@@ -343,6 +339,13 @@ cell alignment inside, borders, border widths, border colors, etc.
   - [x] Noise
 
 > A coach to make good pixel art
+
+
+
+## FILE FORMATS IMPORT
+- [x] ASEPRITE Using QB64_GJ_LIB/ASEPRITE
+- [x] PSD
+- [x] PCX (built into LOADIMAGE)
 
 
 

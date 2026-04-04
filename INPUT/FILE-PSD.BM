@@ -1,0 +1,540 @@
+''
+' DRAW - INPUT/FILE-PSD.BM
+' =============================================================================
+' Adobe Photoshop PSD file loading with full layer support.
+' Loads PSD files as multi-layer DRAW projects with opacity, blend modes,
+' and visibility preserved. Uses the QB64_GJ_LIB PSD library for parsing.
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+
+''
+' Check if a filename has a PSD file extension.
+'
+' @param filename$ Path to check
+' @return TRUE if the file has a .psd extension
+'
+FUNCTION FILE_PSD_is_psd_file% (filename AS STRING)
+    DIM ext AS STRING
+    DIM dotPos AS INTEGER
+
+    dotPos% = _INSTRREV(filename$, ".")
+    IF dotPos% < 1 THEN
+        FILE_PSD_is_psd_file% = FALSE
+        EXIT FUNCTION
+    END IF
+
+    ext$ = LCASE$(MID$(filename$, dotPos%))
+    IF ext$ = ".psd" THEN
+        FILE_PSD_is_psd_file% = TRUE
+    ELSE
+        FILE_PSD_is_psd_file% = FALSE
+    END IF
+END FUNCTION
+
+
+''
+' Load a PSD file as a multi-layer DRAW project.
+' Replaces the current canvas and all layers. Canvas resizes to match
+' the PSD image dimensions. Layer properties are preserved.
+'
+' @param filename$ Path to the .psd file
+'
+SUB FILE_PSD_load (filename AS STRING)
+    DIM i AS INTEGER
+    DIM layerIdx AS INTEGER
+    DIM layerImg AS LONG
+    DIM layerName AS STRING
+    DIM drawLayerIdx AS INTEGER
+    DIM oldDest AS LONG
+    DIM imageLayerCount AS INTEGER
+
+    IF NOT _FILEEXISTS(filename$) THEN
+        _LOGWARN "FILE_PSD_load: File not found: " + filename$
+        POINTER_hide_for_dialog
+        DRAW_error "Load Error", "File not found: " + filename$
+        POINTER_show_after_dialog
+        MOUSE_cleanup_after_dialog FALSE
+        EXIT SUB
+    END IF
+
+    ' Parse the PSD file structure (metadata only, no pixel data yet)
+    _LOGINFO "FILE_PSD_load: Loading " + filename$
+    DIM parseOk AS INTEGER
+    parseOk% = PSD_load%(filename$)
+
+    IF NOT parseOk% THEN
+        _LOGWARN "FILE_PSD_load: Parse failed: " + RTRIM$(PSD_IMG.error_message)
+        POINTER_hide_for_dialog
+        DRAW_error "Load Error", "Not a valid PSD file: " + RTRIM$(PSD_IMG.error_message)
+        POINTER_show_after_dialog
+        MOUSE_cleanup_after_dialog FALSE
+        EXIT SUB
+    END IF
+
+    DIM spriteW AS LONG, spriteH AS LONG
+    spriteW& = PSD_IMG.header.width
+    spriteH& = PSD_IMG.header.height
+
+    IF spriteW& < 1 OR spriteH& < 1 THEN
+        _LOGWARN "FILE_PSD_load: Invalid dimensions:" + STR$(spriteW&) + "x" + STR$(spriteH&)
+        POINTER_hide_for_dialog
+        DRAW_error "Load Error", "PSD file has invalid dimensions"
+        POINTER_show_after_dialog
+        MOUSE_cleanup_after_dialog FALSE
+        EXIT SUB
+    END IF
+
+    ' Count image layers (skip group markers)
+    imageLayerCount% = 0
+    FOR i% = 1 TO PSD_IMG.layer_count
+        IF NOT PSD_LAYERS(i%).is_group AND NOT PSD_LAYERS(i%).is_group_end THEN
+            imageLayerCount% = imageLayerCount% + 1
+        END IF
+    NEXT i%
+
+    IF PSD_IMG.layer_count = 0 OR imageLayerCount% = 0 THEN
+        ' No layer data — try loading as flat image via _LOADIMAGE
+        _LOGINFO "FILE_PSD_load: No layers found, loading as flat image"
+        DIM flatImg AS LONG
+        flatImg& = _LOADIMAGE(filename$, 32)
+        IF flatImg& < -1 THEN
+            ' === CANCEL ACTIVE TOOLS ===
+            IF TEXT.ACTIVE THEN TEXT_cancel
+            IF TRANSFORM.ACTIVE THEN TRANSFORM_cancel
+
+            ' === RESET TEXT STATE ===
+            DIM tlReset0 AS INTEGER
+            FOR tlReset0% = 1 TO TEXT_LAYER_POOL_SIZE
+                TEXT_LAYER_DATA(tlReset0%).used = FALSE
+                TEXT_LAYER_DATA(tlReset0%).charCount = 0
+                TEXT_LAYER_DATA(tlReset0%).lineCount = 0
+                TEXT_LAYER_DATA(tlReset0%).dirty = FALSE
+            NEXT tlReset0%
+            TEXT.editingTextLayer% = 0
+            TEXT_BAR.editingLayerIdx% = 0
+
+            SCRN.canvasW& = _WIDTH(flatImg&)
+            SCRN.canvasH& = _HEIGHT(flatImg&)
+
+            ' Resize PAINTING buffer
+            IF SCRN.PAINTING& < -1 THEN _FREEIMAGE SCRN.PAINTING&
+            SCRN.PAINTING& = _NEWIMAGE(SCRN.canvasW&, SCRN.canvasH&, 32)
+            oldDest& = _DEST
+            _DEST SCRN.PAINTING&
+            CLS , _RGBA32(0, 0, 0, 0)
+            _DEST oldDest&
+
+            ' Clear composite caches
+            IF SCENE_CACHE& < -1 THEN _FREEIMAGE SCENE_CACHE&: SCENE_CACHE& = 0
+            IF PG_CACHE_IMG& < -1 THEN _FREEIMAGE PG_CACHE_IMG&: PG_CACHE_IMG& = 0
+            IF COMPOSITE_BUFFER& < -1 THEN _FREEIMAGE COMPOSITE_BUFFER&: COMPOSITE_BUFFER& = 0
+            IF COMPOSITE_BELOW_CACHE& < -1 THEN _FREEIMAGE COMPOSITE_BELOW_CACHE&: COMPOSITE_BELOW_CACHE& = 0
+            COMPOSITE_BELOW_VALID% = FALSE
+
+            ' Clear and create single layer
+            DIM ci AS INTEGER
+            FOR ci% = 1 TO 64
+                IF LAYERS(ci%).imgHandle& < -1 THEN
+                    _FREEIMAGE LAYERS(ci%).imgHandle&
+                    LAYERS(ci%).imgHandle& = 0
+                END IF
+                IF LAYERS(ci%).opacityCacheImg& < -1 THEN
+                    _FREEIMAGE LAYERS(ci%).opacityCacheImg&
+                    LAYERS(ci%).opacityCacheImg& = 0
+                END IF
+                LAYERS(ci%).name = ""
+                LAYERS(ci%).visible% = FALSE
+                LAYERS(ci%).opacity% = 255
+                LAYERS(ci%).zIndex% = 0
+                LAYERS(ci%).isSelected% = FALSE
+                LAYERS(ci%).blendMode% = BLEND_NORMAL
+                LAYERS(ci%).opacityLock% = FALSE
+                LAYERS(ci%).opacityCacheVal% = 0
+                LAYERS(ci%).contentDirty% = TRUE
+                LAYERS(ci%).layerType% = 0
+                LAYERS(ci%).textDataIdx% = 0
+            NEXT ci%
+            LAYER_COUNT% = 1
+
+            LAYERS(1).imgHandle& = _NEWIMAGE(SCRN.canvasW&, SCRN.canvasH&, 32)
+            LAYERS(1).imgWidth% = SCRN.canvasW&
+            LAYERS(1).imgHeight% = SCRN.canvasH&
+            oldDest& = _DEST
+            _DEST LAYERS(1).imgHandle&
+            CLS , _RGBA32(0, 0, 0, 0)
+            _PUTIMAGE (0, 0), flatImg&, LAYERS(1).imgHandle&
+            _DEST oldDest&
+            _FREEIMAGE flatImg&
+
+            LAYERS(1).name = "Background"
+            LAYERS(1).visible% = TRUE
+            LAYERS(1).opacity% = 255
+            LAYERS(1).zIndex% = 1
+            LAYERS(1).blendMode% = BLEND_NORMAL
+            LAYERS(1).historyId& = LAYERS_alloc_history_id&
+            LAYERS(1).contentDirty% = TRUE
+
+            CURRENT_LAYER% = 1
+            LAYERS(1).isSelected% = TRUE
+
+            ' Post-load state reset
+            HISTORY_clear
+            CURRENT_TOOL% = TOOL_NULL
+            MARQUEE_reset
+            MOVE_init
+            SCRN.offsetX% = 0
+            SCRN.offsetY% = 0
+            GRID_init
+            GRID_draw
+            PIXEL_GRID_init
+            SCENE_DIRTY% = TRUE
+            RENDER_ORDER_DIRTY% = TRUE
+            GUI_NEEDS_REDRAW% = TRUE
+            FRAME_IDLE% = FALSE
+            BLEND_invalidate_cache
+            CANVAS_DIRTY% = FALSE
+
+            _LOGINFO "FILE_PSD_load: Loaded flat PSD as single layer"
+        ELSE
+            _LOGWARN "FILE_PSD_load: Could not load flat PSD image"
+            POINTER_hide_for_dialog
+            DRAW_error "Load Error", "Could not load PSD file"
+            POINTER_show_after_dialog
+            MOUSE_cleanup_after_dialog FALSE
+        END IF
+        EXIT SUB
+    END IF
+
+    IF imageLayerCount% > 64 THEN
+        _LOGWARN "FILE_PSD_load: PSD has" + STR$(imageLayerCount%) + " image layers, max 64. Extra layers will be skipped."
+        imageLayerCount% = 64
+    END IF
+
+    _LOGINFO "FILE_PSD_load: PSD" + STR$(spriteW&) + "x" + STR$(spriteH&) + "," + STR$(imageLayerCount%) + " image layers"
+
+    ' === CANCEL ACTIVE TOOLS ===
+    IF TEXT.ACTIVE THEN TEXT_cancel
+    IF TRANSFORM.ACTIVE THEN TRANSFORM_cancel
+
+    ' === RESET TEXT STATE ===
+    DIM tlReset AS INTEGER
+    FOR tlReset% = 1 TO TEXT_LAYER_POOL_SIZE
+        TEXT_LAYER_DATA(tlReset%).used = FALSE
+        TEXT_LAYER_DATA(tlReset%).charCount = 0
+        TEXT_LAYER_DATA(tlReset%).lineCount = 0
+        TEXT_LAYER_DATA(tlReset%).dirty = FALSE
+    NEXT tlReset%
+    TEXT.editingTextLayer% = 0
+    TEXT_BAR.editingLayerIdx% = 0
+
+    ' === RESIZE CANVAS ===
+    DIM oldCanvasW AS LONG, oldCanvasH AS LONG
+    oldCanvasW& = SCRN.canvasW&
+    oldCanvasH& = SCRN.canvasH&
+    SCRN.canvasW& = spriteW&
+    SCRN.canvasH& = spriteH&
+
+    ' Determine viewport size
+    DIM needScreenW AS LONG, needScreenH AS LONG
+    IF CFG.SCREEN_WIDTH% > 0 THEN
+        needScreenW& = CFG.SCREEN_WIDTH%
+    ELSE
+        needScreenW& = SCRN.w&
+    END IF
+    IF CFG.SCREEN_HEIGHT% > 0 THEN
+        needScreenH& = CFG.SCREEN_HEIGHT%
+    ELSE
+        needScreenH& = SCRN.h&
+    END IF
+    IF CFG.WIN_MIN_WIDTH% > 0 AND needScreenW& < CFG.WIN_MIN_WIDTH% THEN
+        needScreenW& = CFG.WIN_MIN_WIDTH%
+    END IF
+    IF CFG.WIN_MIN_HEIGHT% > 0 AND needScreenH& < CFG.WIN_MIN_HEIGHT% THEN
+        needScreenH& = CFG.WIN_MIN_HEIGHT%
+    END IF
+    DIM effMaxW AS LONG, effMaxH AS LONG
+    effMaxW& = SCREEN_effective_max_w&
+    effMaxH& = SCREEN_effective_max_h&
+    IF needScreenW& > effMaxW& THEN needScreenW& = effMaxW&
+    IF needScreenH& > effMaxH& THEN needScreenH& = effMaxH&
+
+    ' Resize screen buffers if viewport dimensions changed
+    IF needScreenW& <> SCRN.w& OR needScreenH& <> SCRN.h& THEN
+        SCRN.w& = needScreenW&
+        SCRN.h& = needScreenH&
+        SCREEN 0
+        IF SCRN.CANVAS& < -1 THEN _FREEIMAGE SCRN.CANVAS&
+        IF SCRN.PAINTING& < -1 THEN _FREEIMAGE SCRN.PAINTING&
+        IF SCRN.GUI& < -1 THEN _FREEIMAGE SCRN.GUI&
+        SCRN.CANVAS&   = _NEWIMAGE(SCRN.w&, SCRN.h&, 32)
+        SCRN.PAINTING& = _NEWIMAGE(SCRN.canvasW&, SCRN.canvasH&, 32)
+        SCRN.GUI&      = _NEWIMAGE(SCRN.w&, SCRN.h&, 32)
+        _DEST SCRN.PAINTING&
+        CLS , _RGBA32(0, 0, 0, 0)
+        _DEST SCRN.CANVAS&
+        IF SCENE_CACHE& < -1 THEN _FREEIMAGE SCENE_CACHE&: SCENE_CACHE& = 0
+        IF PG_CACHE_IMG& < -1 THEN _FREEIMAGE PG_CACHE_IMG&: PG_CACHE_IMG& = 0
+        IF COMPOSITE_BUFFER& < -1 THEN _FREEIMAGE COMPOSITE_BUFFER&: COMPOSITE_BUFFER& = 0
+        IF COMPOSITE_BELOW_CACHE& < -1 THEN _FREEIMAGE COMPOSITE_BELOW_CACHE&: COMPOSITE_BELOW_CACHE& = 0
+        COMPOSITE_BELOW_VALID% = FALSE
+        DIM dsMaxFitW AS INTEGER, dsMaxFitH AS INTEGER, dsClampedScale AS INTEGER
+        dsClampedScale% = SCRN.displayScale%
+        dsMaxFitW% = (_DESKTOPWIDTH - 100) \ SCRN.w&
+        dsMaxFitH% = (_DESKTOPHEIGHT - 100) \ SCRN.h&
+        IF dsClampedScale% > dsMaxFitW% THEN dsClampedScale% = dsMaxFitW%
+        IF dsClampedScale% > dsMaxFitH% THEN dsClampedScale% = dsMaxFitH%
+        IF dsClampedScale% < 1 THEN dsClampedScale% = 1
+        SCRN.displayScale% = dsClampedScale%
+        DIM newWinW AS LONG, newWinH AS LONG
+        newWinW& = SCRN.w& * SCRN.displayScale%
+        newWinH& = SCRN.h& * SCRN.displayScale%
+        SCREEN _NEWIMAGE(newWinW&, newWinH&, 32)
+        _DEST SCRN.CANVAS&
+    ELSE
+        IF SCRN.canvasW& <> oldCanvasW& OR SCRN.canvasH& <> oldCanvasH& THEN
+            IF SCRN.PAINTING& < -1 THEN _FREEIMAGE SCRN.PAINTING&
+            SCRN.PAINTING& = _NEWIMAGE(SCRN.canvasW&, SCRN.canvasH&, 32)
+            oldDest& = _DEST
+            _DEST SCRN.PAINTING&
+            CLS , _RGBA32(0, 0, 0, 0)
+            _DEST oldDest&
+        END IF
+        IF SCENE_CACHE& < -1 THEN _FREEIMAGE SCENE_CACHE&: SCENE_CACHE& = 0
+        IF PG_CACHE_IMG& < -1 THEN _FREEIMAGE PG_CACHE_IMG&: PG_CACHE_IMG& = 0
+        IF COMPOSITE_BUFFER& < -1 THEN _FREEIMAGE COMPOSITE_BUFFER&: COMPOSITE_BUFFER& = 0
+        IF COMPOSITE_BELOW_CACHE& < -1 THEN _FREEIMAGE COMPOSITE_BELOW_CACHE&: COMPOSITE_BELOW_CACHE& = 0
+        COMPOSITE_BELOW_VALID% = FALSE
+    END IF
+
+    ' === CLEAR EXISTING LAYERS ===
+    FOR i% = 1 TO 64
+        IF LAYERS(i%).imgHandle& < -1 THEN
+            _FREEIMAGE LAYERS(i%).imgHandle&
+            LAYERS(i%).imgHandle& = 0
+        END IF
+        IF LAYERS(i%).opacityCacheImg& < -1 THEN
+            _FREEIMAGE LAYERS(i%).opacityCacheImg&
+            LAYERS(i%).opacityCacheImg& = 0
+        END IF
+        LAYERS(i%).name = ""
+        LAYERS(i%).visible% = FALSE
+        LAYERS(i%).opacity% = 255
+        LAYERS(i%).zIndex% = 0
+        LAYERS(i%).isSelected% = FALSE
+        LAYERS(i%).blendMode% = BLEND_NORMAL
+        LAYERS(i%).opacityLock% = FALSE
+        LAYERS(i%).opacityCacheVal% = 0
+        LAYERS(i%).contentDirty% = TRUE
+        LAYERS(i%).layerType% = 0
+        LAYERS(i%).textDataIdx% = 0
+    NEXT i%
+    LAYER_COUNT% = 0
+
+    ' === CREATE LAYERS FROM PSD DATA ===
+    drawLayerIdx% = 0
+
+    FOR i% = 1 TO PSD_IMG.layer_count
+        ' Skip group markers (no pixel data)
+        IF PSD_LAYERS(i%).is_group OR PSD_LAYERS(i%).is_group_end THEN
+            _LOGINFO "FILE_PSD_load: Skipping group layer" + STR$(i%)
+            _CONTINUE
+        END IF
+
+        ' Enforce 64-layer cap
+        IF drawLayerIdx% >= 64 THEN EXIT FOR
+
+        drawLayerIdx% = drawLayerIdx% + 1
+        layerIdx% = drawLayerIdx%
+
+        ' Extract layer image from PSD
+        layerImg& = PSD_get_layer_image&(filename$, i%)
+
+        ' Create DRAW layer image at full canvas dimensions
+        LAYERS(layerIdx%).imgHandle& = _NEWIMAGE(SCRN.canvasW&, SCRN.canvasH&, 32)
+        LAYERS(layerIdx%).imgWidth% = SCRN.canvasW&
+        LAYERS(layerIdx%).imgHeight% = SCRN.canvasH&
+
+        ' Clear to transparent
+        oldDest& = _DEST
+        _DEST LAYERS(layerIdx%).imgHandle&
+        CLS , _RGBA32(0, 0, 0, 0)
+
+        ' Place layer image at its PSD position
+        IF layerImg& < -1 THEN
+            _PUTIMAGE (PSD_LAYERS(i%).left, PSD_LAYERS(i%).top), layerImg&, LAYERS(layerIdx%).imgHandle&
+            _FREEIMAGE layerImg&
+        ELSE
+            _LOGWARN "FILE_PSD_load: No pixel data for layer" + STR$(i%)
+        END IF
+        _DEST oldDest&
+
+        ' Set layer name
+        layerName$ = LEFT$(PSD_LAYERS(i%).name, PSD_LAYERS(i%).name_len)
+        IF LEN(layerName$) > 64 THEN layerName$ = LEFT$(layerName$, 64)
+        IF LEN(layerName$) = 0 THEN layerName$ = "Layer " + _TRIM$(STR$(drawLayerIdx%))
+        LAYERS(layerIdx%).name = layerName$
+
+        ' Visibility
+        LAYERS(layerIdx%).visible% = PSD_LAYERS(i%).visible
+
+        ' Opacity (PSD uses 0-255 same as DRAW)
+        LAYERS(layerIdx%).opacity% = PSD_LAYERS(i%).opacity
+
+        ' Blend mode
+        LAYERS(layerIdx%).blendMode% = PSD_map_blend_mode%(PSD_LAYERS(i%).blend_mode)
+
+        ' Z-index (PSD layers are bottom-first like DRAW)
+        LAYERS(layerIdx%).zIndex% = drawLayerIdx%
+
+        ' History ID
+        LAYERS(layerIdx%).historyId& = LAYERS_alloc_history_id&
+
+        ' Mark content dirty for opacity cache rebuild
+        LAYERS(layerIdx%).contentDirty% = TRUE
+
+        LAYER_COUNT% = LAYER_COUNT% + 1
+
+        _LOGINFO "FILE_PSD_load: Created DRAW layer" + STR$(layerIdx%) + ": " + CHR$(34) + layerName$ + CHR$(34)
+    NEXT i%
+
+    IF LAYER_COUNT% < 1 THEN
+        ' Somehow no layers were created — create a blank one
+        LAYER_COUNT% = 1
+        LAYERS(1).imgHandle& = _NEWIMAGE(SCRN.canvasW&, SCRN.canvasH&, 32)
+        LAYERS(1).imgWidth% = SCRN.canvasW&
+        LAYERS(1).imgHeight% = SCRN.canvasH&
+        oldDest& = _DEST
+        _DEST LAYERS(1).imgHandle&
+        CLS , _RGBA32(0, 0, 0, 0)
+        _DEST oldDest&
+        LAYERS(1).name = "Background"
+        LAYERS(1).visible% = TRUE
+        LAYERS(1).opacity% = 255
+        LAYERS(1).zIndex% = 1
+        LAYERS(1).blendMode% = BLEND_NORMAL
+        LAYERS(1).historyId& = LAYERS_alloc_history_id&
+        LAYERS(1).contentDirty% = TRUE
+    END IF
+
+    ' === POST-LOAD STATE RESET ===
+    ' Select top layer
+    IF LAYER_COUNT% >= 1 THEN
+        LAYERS_select 1
+    END IF
+
+    HISTORY_clear
+    NEXT_LAYER_HISTORY_ID& = LAYER_COUNT% + 1
+    IF NEXT_LAYER_HISTORY_ID& < 1 THEN NEXT_LAYER_HISTORY_ID& = 1
+
+    ' Reset tool and UI state
+    CURRENT_TOOL% = TOOL_NULL
+    MARQUEE_reset
+    MOVE_init
+    MAGIC_WAND_reset
+    CROP_reset
+    ERASER_reset
+    PREVIEW_reset
+    CHARMAP_reset
+    PALETTE_OPS_reset
+
+    ' Reset layer panel state
+    LAYER_PANEL.scrollOffset% = 0
+    LAYER_PANEL.soloLayer% = 0
+    LAYER_PANEL.visSwiping% = FALSE
+    LAYER_PANEL.dragPending% = FALSE
+    LAYER_PANEL.isDragging% = FALSE
+    LAYER_PANEL.dragLayerIdx% = 0
+    LAYER_PANEL.opacityDrag% = FALSE
+
+    ' Recount and mark clean
+    LAYER_COUNT% = LAYERS_recount%
+    CANVAS_DIRTY% = FALSE
+
+    ' Store current filename
+    CURRENT_FILENAME$ = filename$
+    CURRENT_DRW_FILENAME$ = ""
+
+    ' Auto-zoom
+    DIM azAvailW AS LONG, azAvailH AS LONG
+    azAvailW& = SCRN.uiRightEdge% - SCRN.uiLeftEdge% + 1
+    azAvailH& = SCRN.h&
+    IF azAvailW& < 1 THEN azAvailW& = SCRN.w&
+
+    IF SCRN.canvasW& > azAvailW& OR SCRN.canvasH& > azAvailH& THEN
+        DIM fitZoomW AS SINGLE, fitZoomH AS SINGLE, autoZoom AS SINGLE
+        fitZoomW! = azAvailW& / SCRN.canvasW&
+        fitZoomH! = azAvailH& / SCRN.canvasH&
+        autoZoom! = fitZoomW!
+        IF fitZoomH! < autoZoom! THEN autoZoom! = fitZoomH!
+        IF autoZoom! < SCRN.zoomMin! THEN autoZoom! = SCRN.zoomMin!
+        SCRN.zoom! = autoZoom!
+    ELSEIF SCRN.canvasW& < azAvailW& OR SCRN.canvasH& < azAvailH& THEN
+        DIM fitZoomW2 AS SINGLE, fitZoomH2 AS SINGLE, autoZoom2 AS SINGLE
+        fitZoomW2! = INT(azAvailW& / SCRN.canvasW&)
+        fitZoomH2! = INT(azAvailH& / SCRN.canvasH&)
+        autoZoom2! = fitZoomW2!
+        IF fitZoomH2! < autoZoom2! THEN autoZoom2! = fitZoomH2!
+        IF autoZoom2! < 1.0 THEN autoZoom2! = 1.0
+        IF autoZoom2! > SCRN.zoomMax! THEN autoZoom2! = SCRN.zoomMax!
+        SCRN.zoom! = autoZoom2!
+    ELSE
+        SCRN.zoom! = 1.0
+    END IF
+    SCRN.offsetX% = 0
+    SCRN.offsetY% = 0
+
+    ' Reinitialize grid and symmetry
+    GRID_init
+    GRID_draw
+    PIXEL_GRID_init
+    SYMMETRY_init
+
+    ' Force full redraw
+    SCENE_DIRTY% = TRUE
+    RENDER_ORDER_DIRTY% = TRUE
+    GUI_NEEDS_REDRAW% = TRUE
+    FRAME_IDLE% = FALSE
+    BLEND_invalidate_cache
+
+    _LOGINFO "FILE_PSD_load: Loaded" + STR$(LAYER_COUNT%) + " layers from PSD"
+END SUB
+
+
+''
+' Show a file dialog to open a PSD file.
+'
+SUB FILE_PSD_open_dialog ()
+    DIM filename AS STRING
+    DIM default_path AS STRING
+
+    IF CFG.LAST_DIR_OPEN$ <> "" THEN
+        default_path$ = CFG.LAST_DIR_OPEN$ + "/"
+    ELSEIF LAST_DIRECTORY$ <> "" THEN
+        default_path$ = LAST_DIRECTORY$ + "/"
+    ELSEIF CFG.DEFAULT_OPEN_DIR$ <> "" THEN
+        default_path$ = CFG.DEFAULT_OPEN_DIR$ + "/"
+    ELSE
+        default_path$ = ""
+    END IF
+
+    POINTER_hide_for_dialog
+    filename$ = DRAW_open_file$("Open Photoshop PSD", default_path$, "Photoshop PSD|*.psd|All Files|*.*", 0)
+    POINTER_show_after_dialog
+    MOUSE_cleanup_after_dialog TRUE
+
+    IF filename$ <> "" THEN
+        CFG.LAST_DIR_OPEN$ = CONFIG_extract_dir$(filename$)
+        LAST_DIRECTORY$ = CFG.LAST_DIR_OPEN$
+        CONFIG_save
+
+        FILE_PSD_load filename$
+        SOUND_play SND_NEW_FILE
+
+        RECENT_add_file filename$
+
+        MOUSE_cleanup_after_dialog TRUE
+    END IF
+END SUB
