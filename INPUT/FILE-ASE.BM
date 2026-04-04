@@ -1,0 +1,644 @@
+''
+' DRAW - INPUT/FILE-ASE.BM
+' =============================================================================
+' Aseprite (.ase/.aseprite) file loading.
+' Loads Aseprite files as multi-layer DRAW projects with palette import.
+' Uses the QB64_GJ_LIB ASEPRITE library for file parsing.
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+
+''
+' Check if a filename has an Aseprite file extension (.ase or .aseprite)
+'
+' @param filename$ Path to check
+' @return TRUE if the file has an Aseprite extension
+'
+FUNCTION FILE_ASE_is_aseprite_file% (filename AS STRING)
+    DIM ext AS STRING
+    DIM dotPos AS INTEGER
+
+    dotPos% = _INSTRREV(filename$, ".")
+    IF dotPos% < 1 THEN
+        FILE_ASE_is_aseprite_file% = FALSE
+        EXIT FUNCTION
+    END IF
+
+    ext$ = LCASE$(MID$(filename$, dotPos%))
+    IF ext$ = ".ase" OR ext$ = ".aseprite" THEN
+        FILE_ASE_is_aseprite_file% = TRUE
+    ELSE
+        FILE_ASE_is_aseprite_file% = FALSE
+    END IF
+END FUNCTION
+
+
+''
+' Map Aseprite blend mode constants to DRAW blend mode constants.
+' Aseprite and DRAW have different numeric values for some shared modes.
+' Modes without a DRAW equivalent fall back to BLEND_NORMAL.
+'
+' @param aseBlendMode% Aseprite blend mode value (ASEPRITE_BLEND_* constant)
+' @return DRAW blend mode value (BLEND_* constant)
+'
+FUNCTION FILE_ASE_map_blend_mode% (aseBlendMode AS INTEGER)
+    SELECT CASE aseBlendMode%
+        CASE ASEPRITE_BLEND_NORMAL:      FILE_ASE_map_blend_mode% = BLEND_NORMAL
+        CASE ASEPRITE_BLEND_MULTIPLY:    FILE_ASE_map_blend_mode% = BLEND_MULTIPLY
+        CASE ASEPRITE_BLEND_SCREEN:      FILE_ASE_map_blend_mode% = BLEND_SCREEN
+        CASE ASEPRITE_BLEND_OVERLAY:     FILE_ASE_map_blend_mode% = BLEND_OVERLAY
+        CASE ASEPRITE_BLEND_DARKEN:      FILE_ASE_map_blend_mode% = BLEND_DARKEN
+        CASE ASEPRITE_BLEND_LIGHTEN:     FILE_ASE_map_blend_mode% = BLEND_LIGHTEN
+        CASE ASEPRITE_BLEND_COLOR_DODGE: FILE_ASE_map_blend_mode% = BLEND_COLOR_DODGE
+        CASE ASEPRITE_BLEND_COLOR_BURN:  FILE_ASE_map_blend_mode% = BLEND_COLOR_BURN
+        CASE ASEPRITE_BLEND_HARD_LIGHT:  FILE_ASE_map_blend_mode% = BLEND_HARD_LIGHT
+        CASE ASEPRITE_BLEND_SOFT_LIGHT:  FILE_ASE_map_blend_mode% = BLEND_SOFT_LIGHT
+        CASE ASEPRITE_BLEND_DIFFERENCE:  FILE_ASE_map_blend_mode% = BLEND_DIFFERENCE
+        CASE ASEPRITE_BLEND_EXCLUSION:   FILE_ASE_map_blend_mode% = BLEND_EXCLUSION
+        CASE ASEPRITE_BLEND_COLOR:       FILE_ASE_map_blend_mode% = BLEND_COLOR
+        CASE ASEPRITE_BLEND_LUMINOSITY:  FILE_ASE_map_blend_mode% = BLEND_LUMINOSITY
+        CASE ASEPRITE_BLEND_ADDITION:    FILE_ASE_map_blend_mode% = BLEND_ADD
+        CASE ASEPRITE_BLEND_SUBTRACT:    FILE_ASE_map_blend_mode% = BLEND_SUBTRACT
+        CASE ASEPRITE_BLEND_HUE
+            _LOGWARN "FILE_ASE: Aseprite Hue blend mode has no DRAW equivalent, using Normal"
+            FILE_ASE_map_blend_mode% = BLEND_NORMAL
+        CASE ASEPRITE_BLEND_SATURATION
+            _LOGWARN "FILE_ASE: Aseprite Saturation blend mode has no DRAW equivalent, using Normal"
+            FILE_ASE_map_blend_mode% = BLEND_NORMAL
+        CASE ASEPRITE_BLEND_DIVIDE
+            _LOGWARN "FILE_ASE: Aseprite Divide blend mode has no DRAW equivalent, using Normal"
+            FILE_ASE_map_blend_mode% = BLEND_NORMAL
+        CASE ELSE
+            FILE_ASE_map_blend_mode% = BLEND_NORMAL
+    END SELECT
+END FUNCTION
+
+
+''
+' Load an Aseprite file as a multi-layer DRAW project.
+' Replaces the current canvas and all layers. Canvas resizes to match
+' the Aseprite sprite dimensions. Palette is imported.
+'
+' @param filename$ Path to the .ase or .aseprite file
+'
+SUB FILE_ASE_load (filename AS STRING)
+    DIM aseImg AS ASEPRITE_ENHANCED_IMAGE
+    DIM i AS INTEGER
+    DIM layerIdx AS INTEGER
+    DIM layerImg AS LONG
+    DIM layerName AS STRING
+    DIM aseLayerCount AS INTEGER
+    DIM drawLayerIdx AS INTEGER
+    DIM oldDest AS LONG
+
+    IF NOT _FILEEXISTS(filename$) THEN
+        _LOGWARN "FILE_ASE_load: File not found: " + filename$
+        POINTER_hide_for_dialog
+        DRAW_error "Load Error", "File not found: " + filename$
+        POINTER_show_after_dialog
+        MOUSE_cleanup_after_dialog FALSE
+        EXIT SUB
+    END IF
+
+    ' Parse the Aseprite file using the enhanced loader (gets layers + frames)
+    _LOGINFO "FILE_ASE_load: Loading " + filename$
+    load_aseprite_enhanced filename$, aseImg
+
+    IF aseImg.base_image.is_valid = FALSE THEN
+        _LOGWARN "FILE_ASE_load: Invalid Aseprite file: " + aseImg.base_image.error_message
+        POINTER_hide_for_dialog
+        DRAW_error "Load Error", "Not a valid Aseprite file: " + aseImg.base_image.error_message
+        POINTER_show_after_dialog
+        MOUSE_cleanup_after_dialog FALSE
+        EXIT SUB
+    END IF
+
+    DIM spriteW AS LONG, spriteH AS LONG
+    spriteW& = aseImg.base_image.header.width
+    spriteH& = aseImg.base_image.header.height
+
+    IF spriteW& < 1 OR spriteH& < 1 THEN
+        _LOGWARN "FILE_ASE_load: Invalid dimensions:" + STR$(spriteW&) + "x" + STR$(spriteH&)
+        POINTER_hide_for_dialog
+        DRAW_error "Load Error", "Aseprite file has invalid dimensions"
+        POINTER_show_after_dialog
+        MOUSE_cleanup_after_dialog FALSE
+        EXIT SUB
+    END IF
+
+    _LOGINFO "FILE_ASE_load: Sprite" + STR$(spriteW&) + "x" + STR$(spriteH&) + "," + STR$(aseImg.num_layers) + " layers," + STR$(aseImg.base_image.header.num_frames) + " frames"
+
+    ' Count image layers (skip group layers which have no pixel data)
+    aseLayerCount% = 0
+    DIM aseLayerTypes AS STRING
+    DIM fh AS INTEGER
+    DIM frame_header AS ASEPRITE_FRAME_HEADER
+    DIM chunk_header AS ASEPRITE_CHUNK_HEADER
+    DIM layer_chunk AS ASEPRITE_LAYER_CHUNK
+    DIM layer_name_len AS _UNSIGNED INTEGER
+
+    ' Re-read the file to get per-layer type info (the enhanced parser serializes
+    ' names into a string but we need the layer_type for each to skip groups)
+    fh% = FREEFILE
+    OPEN filename$ FOR BINARY AS #fh%
+    SEEK #fh%, 129 ' Skip 128-byte header
+    GET #fh%, , frame_header
+    DIM num_chunks AS LONG
+    IF frame_header.new_chunks > 0 THEN
+        num_chunks& = frame_header.new_chunks
+    ELSE
+        num_chunks& = frame_header.old_chunks
+    END IF
+
+    ' Collect layer type info
+    aseLayerTypes$ = ""
+    DIM chunkIdx AS LONG
+    FOR chunkIdx& = 1 TO num_chunks&
+        DIM chunk_start AS LONG
+        chunk_start& = SEEK(fh%)
+        GET #fh%, , chunk_header
+
+        IF chunk_header.chunk_type = ASEPRITE_CHUNK_LAYER THEN
+            GET #fh%, , layer_chunk
+            ' Store layer type as a character
+            aseLayerTypes$ = aseLayerTypes$ + CHR$(layer_chunk.layer_type)
+            ' Skip layer name string
+            GET #fh%, , layer_name_len
+            IF layer_name_len > 0 THEN
+                SEEK #fh%, SEEK(fh%) + layer_name_len
+            END IF
+            ' Skip any remaining chunk data (tileset index, UUID, etc.)
+            SEEK #fh%, chunk_start& + chunk_header.chunk_size
+        ELSE
+            ' Skip non-layer chunks
+            SEEK #fh%, chunk_start& + chunk_header.chunk_size
+        END IF
+    NEXT chunkIdx&
+    CLOSE #fh%
+
+    ' Count non-group layers
+    FOR i% = 0 TO aseImg.num_layers - 1
+        IF i% < LEN(aseLayerTypes$) THEN
+            IF ASC(MID$(aseLayerTypes$, i% + 1, 1)) <> ASEPRITE_LAYER_GROUP THEN
+                aseLayerCount% = aseLayerCount% + 1
+            END IF
+        ELSE
+            aseLayerCount% = aseLayerCount% + 1
+        END IF
+    NEXT i%
+
+    IF aseLayerCount% < 1 THEN
+        _LOGWARN "FILE_ASE_load: No image layers found"
+        POINTER_hide_for_dialog
+        DRAW_error "Load Error", "No image layers found in Aseprite file"
+        POINTER_show_after_dialog
+        MOUSE_cleanup_after_dialog FALSE
+        EXIT SUB
+    END IF
+
+    IF aseLayerCount% > 64 THEN
+        _LOGWARN "FILE_ASE_load: Aseprite file has" + STR$(aseLayerCount%) + " image layers, DRAW supports max 64. Extra layers will be skipped."
+        aseLayerCount% = 64
+    END IF
+
+    ' === CANCEL ACTIVE TOOLS ===
+    IF TEXT.ACTIVE THEN TEXT_cancel
+    IF TRANSFORM.ACTIVE THEN TRANSFORM_cancel
+
+    ' === RESET TEXT STATE ===
+    DIM tlReset AS INTEGER
+    FOR tlReset% = 1 TO TEXT_LAYER_POOL_SIZE
+        TEXT_LAYER_DATA(tlReset%).used = FALSE
+        TEXT_LAYER_DATA(tlReset%).charCount = 0
+        TEXT_LAYER_DATA(tlReset%).lineCount = 0
+        TEXT_LAYER_DATA(tlReset%).dirty = FALSE
+    NEXT tlReset%
+    TEXT.editingTextLayer% = 0
+    TEXT_BAR.editingLayerIdx% = 0
+
+    ' === RESIZE CANVAS ===
+    DIM oldCanvasW AS LONG, oldCanvasH AS LONG
+    oldCanvasW& = SCRN.canvasW&
+    oldCanvasH& = SCRN.canvasH&
+    SCRN.canvasW& = spriteW&
+    SCRN.canvasH& = spriteH&
+
+    ' Determine viewport size — keep current or use config
+    DIM needScreenW AS LONG, needScreenH AS LONG
+    IF CFG.SCREEN_WIDTH% > 0 THEN
+        needScreenW& = CFG.SCREEN_WIDTH%
+    ELSE
+        needScreenW& = SCRN.w&
+    END IF
+    IF CFG.SCREEN_HEIGHT% > 0 THEN
+        needScreenH& = CFG.SCREEN_HEIGHT%
+    ELSE
+        needScreenH& = SCRN.h&
+    END IF
+    IF CFG.WIN_MIN_WIDTH% > 0 AND needScreenW& < CFG.WIN_MIN_WIDTH% THEN
+        needScreenW& = CFG.WIN_MIN_WIDTH%
+    END IF
+    IF CFG.WIN_MIN_HEIGHT% > 0 AND needScreenH& < CFG.WIN_MIN_HEIGHT% THEN
+        needScreenH& = CFG.WIN_MIN_HEIGHT%
+    END IF
+    DIM effMaxW AS LONG, effMaxH AS LONG
+    effMaxW& = SCREEN_effective_max_w&
+    effMaxH& = SCREEN_effective_max_h&
+    IF needScreenW& > effMaxW& THEN needScreenW& = effMaxW&
+    IF needScreenH& > effMaxH& THEN needScreenH& = effMaxH&
+
+    ' Resize screen buffers if viewport dimensions changed
+    IF needScreenW& <> SCRN.w& OR needScreenH& <> SCRN.h& THEN
+        SCRN.w& = needScreenW&
+        SCRN.h& = needScreenH&
+        SCREEN 0
+        IF SCRN.CANVAS& < -1 THEN _FREEIMAGE SCRN.CANVAS&
+        IF SCRN.PAINTING& < -1 THEN _FREEIMAGE SCRN.PAINTING&
+        IF SCRN.GUI& < -1 THEN _FREEIMAGE SCRN.GUI&
+        SCRN.CANVAS&   = _NEWIMAGE(SCRN.w&, SCRN.h&, 32)
+        SCRN.PAINTING& = _NEWIMAGE(SCRN.canvasW&, SCRN.canvasH&, 32)
+        SCRN.GUI&      = _NEWIMAGE(SCRN.w&, SCRN.h&, 32)
+        _DEST SCRN.PAINTING&
+        CLS , _RGBA32(0, 0, 0, 0)
+        _DEST SCRN.CANVAS&
+        IF SCENE_CACHE& < -1 THEN _FREEIMAGE SCENE_CACHE&: SCENE_CACHE& = 0
+        IF PG_CACHE_IMG& < -1 THEN _FREEIMAGE PG_CACHE_IMG&: PG_CACHE_IMG& = 0
+        IF COMPOSITE_BUFFER& < -1 THEN _FREEIMAGE COMPOSITE_BUFFER&: COMPOSITE_BUFFER& = 0
+        IF COMPOSITE_BELOW_CACHE& < -1 THEN _FREEIMAGE COMPOSITE_BELOW_CACHE&: COMPOSITE_BELOW_CACHE& = 0
+        COMPOSITE_BELOW_VALID% = FALSE
+        DIM dsMaxFitW AS INTEGER, dsMaxFitH AS INTEGER, dsClampedScale AS INTEGER
+        dsClampedScale% = SCRN.displayScale%
+        dsMaxFitW% = (_DESKTOPWIDTH - 100) \ SCRN.w&
+        dsMaxFitH% = (_DESKTOPHEIGHT - 100) \ SCRN.h&
+        IF dsClampedScale% > dsMaxFitW% THEN dsClampedScale% = dsMaxFitW%
+        IF dsClampedScale% > dsMaxFitH% THEN dsClampedScale% = dsMaxFitH%
+        IF dsClampedScale% < 1 THEN dsClampedScale% = 1
+        SCRN.displayScale% = dsClampedScale%
+        DIM newWinW AS LONG, newWinH AS LONG
+        newWinW& = SCRN.w& * SCRN.displayScale%
+        newWinH& = SCRN.h& * SCRN.displayScale%
+        SCREEN _NEWIMAGE(newWinW&, newWinH&, 32)
+        _DEST SCRN.CANVAS&
+    ELSE
+        IF SCRN.canvasW& <> oldCanvasW& OR SCRN.canvasH& <> oldCanvasH& THEN
+            IF SCRN.PAINTING& < -1 THEN _FREEIMAGE SCRN.PAINTING&
+            SCRN.PAINTING& = _NEWIMAGE(SCRN.canvasW&, SCRN.canvasH&, 32)
+            oldDest& = _DEST
+            _DEST SCRN.PAINTING&
+            CLS , _RGBA32(0, 0, 0, 0)
+            _DEST oldDest&
+        END IF
+        IF SCENE_CACHE& < -1 THEN _FREEIMAGE SCENE_CACHE&: SCENE_CACHE& = 0
+        IF PG_CACHE_IMG& < -1 THEN _FREEIMAGE PG_CACHE_IMG&: PG_CACHE_IMG& = 0
+        IF COMPOSITE_BUFFER& < -1 THEN _FREEIMAGE COMPOSITE_BUFFER&: COMPOSITE_BUFFER& = 0
+        IF COMPOSITE_BELOW_CACHE& < -1 THEN _FREEIMAGE COMPOSITE_BELOW_CACHE&: COMPOSITE_BELOW_CACHE& = 0
+        COMPOSITE_BELOW_VALID% = FALSE
+    END IF
+
+    ' === CLEAR EXISTING LAYERS ===
+    FOR i% = 1 TO 64
+        IF LAYERS(i%).imgHandle& < -1 THEN
+            _FREEIMAGE LAYERS(i%).imgHandle&
+            LAYERS(i%).imgHandle& = 0
+        END IF
+        IF LAYERS(i%).opacityCacheImg& < -1 THEN
+            _FREEIMAGE LAYERS(i%).opacityCacheImg&
+            LAYERS(i%).opacityCacheImg& = 0
+        END IF
+        LAYERS(i%).name = ""
+        LAYERS(i%).visible% = FALSE
+        LAYERS(i%).opacity% = 255
+        LAYERS(i%).zIndex% = 0
+        LAYERS(i%).isSelected% = FALSE
+        LAYERS(i%).blendMode% = BLEND_NORMAL
+        LAYERS(i%).opacityLock% = FALSE
+        LAYERS(i%).opacityCacheVal% = 0
+        LAYERS(i%).contentDirty% = TRUE
+        LAYERS(i%).layerType% = 0
+        LAYERS(i%).textDataIdx% = 0
+    NEXT i%
+    LAYER_COUNT% = 0
+
+    ' === CREATE LAYERS FROM ASEPRITE DATA ===
+    drawLayerIdx% = 0
+    DIM aseLayerIdx AS INTEGER
+    aseLayerIdx% = 0
+
+    FOR i% = 0 TO aseImg.num_layers - 1
+        ' Skip group layers (no pixel data)
+        IF i% < LEN(aseLayerTypes$) THEN
+            IF ASC(MID$(aseLayerTypes$, i% + 1, 1)) = ASEPRITE_LAYER_GROUP THEN
+                _LOGINFO "FILE_ASE_load: Skipping group layer " + STR$(i%)
+                _CONTINUE
+            END IF
+        END IF
+
+        ' Enforce 64-layer cap
+        IF drawLayerIdx% >= 64 THEN EXIT FOR
+
+        drawLayerIdx% = drawLayerIdx% + 1
+        layerIdx% = drawLayerIdx%
+
+        ' Extract layer image for frame 0 (first frame only)
+        layerImg& = load_specific_layer_image&(aseImg.base_image, i%)
+
+        ' Create DRAW layer image at canvas dimensions
+        LAYERS(layerIdx%).imgHandle& = _NEWIMAGE(SCRN.canvasW&, SCRN.canvasH&, 32)
+        LAYERS(layerIdx%).imgWidth% = SCRN.canvasW&
+        LAYERS(layerIdx%).imgHeight% = SCRN.canvasH&
+
+        ' Clear to transparent
+        oldDest& = _DEST
+        _DEST LAYERS(layerIdx%).imgHandle&
+        CLS , _RGBA32(0, 0, 0, 0)
+
+        ' Copy Aseprite layer pixels onto DRAW layer
+        IF layerImg& < -1 THEN
+            _PUTIMAGE (0, 0), layerImg&, LAYERS(layerIdx%).imgHandle&
+            _FREEIMAGE layerImg&
+        ELSE
+            _LOGWARN "FILE_ASE_load: No pixel data for layer " + STR$(i%)
+        END IF
+        _DEST oldDest&
+
+        ' Set layer properties
+        layerName$ = get_layer_name$(aseImg, i%)
+        IF LEN(layerName$) > 64 THEN layerName$ = LEFT$(layerName$, 64)
+        IF LEN(layerName$) = 0 THEN layerName$ = "Layer " + _TRIM$(STR$(drawLayerIdx%))
+        LAYERS(layerIdx%).name = layerName$
+
+        ' Visibility from Aseprite layer flags
+        LAYERS(layerIdx%).visible% = is_layer_visible%(aseImg, i%)
+
+        ' Opacity — re-read from the layer chunk data
+        ' The enhanced parser stores opacity per-layer in the type,
+        ' but we need the raw value. Re-parse from file for this layer.
+        ' For now use 255 (the parse_layer_chunks stores it but doesn't expose it per-layer)
+        ' We'll extract it from a second pass below.
+        LAYERS(layerIdx%).opacity% = 255
+
+        ' Blend mode
+        LAYERS(layerIdx%).blendMode% = BLEND_NORMAL
+
+        ' Z-index (Aseprite bottom-first, DRAW also bottom-first: zIndex 1 = bottom)
+        LAYERS(layerIdx%).zIndex% = drawLayerIdx%
+
+        ' History ID
+        LAYERS(layerIdx%).historyId& = LAYERS_alloc_history_id&
+
+        ' Mark content dirty for opacity cache rebuild
+        LAYERS(layerIdx%).contentDirty% = TRUE
+
+        LAYER_COUNT% = LAYER_COUNT% + 1
+    NEXT i%
+
+    ' === SECOND PASS: Extract per-layer opacity and blend mode ===
+    ' The enhanced parser doesn't expose per-layer opacity/blendMode directly,
+    ' so re-read the layer chunks from the file to get these values.
+    fh% = FREEFILE
+    OPEN filename$ FOR BINARY AS #fh%
+    SEEK #fh%, 129
+    GET #fh%, , frame_header
+    IF frame_header.new_chunks > 0 THEN
+        num_chunks& = frame_header.new_chunks
+    ELSE
+        num_chunks& = frame_header.old_chunks
+    END IF
+
+    DIM drawIdx AS INTEGER
+    drawIdx% = 0
+    FOR chunkIdx& = 1 TO num_chunks&
+        chunk_start& = SEEK(fh%)
+        GET #fh%, , chunk_header
+
+        IF chunk_header.chunk_type = ASEPRITE_CHUNK_LAYER THEN
+            DIM lc AS ASEPRITE_LAYER_CHUNK
+            GET #fh%, , lc
+
+            ' Skip group layers (same logic as layer creation above)
+            IF lc.layer_type <> ASEPRITE_LAYER_GROUP THEN
+                drawIdx% = drawIdx% + 1
+                IF drawIdx% >= 1 AND drawIdx% <= LAYER_COUNT% THEN
+                    LAYERS(drawIdx%).opacity% = lc.opacity
+                    LAYERS(drawIdx%).blendMode% = FILE_ASE_map_blend_mode%(lc.blend_mode)
+                END IF
+            END IF
+
+            ' Skip to next chunk
+            SEEK #fh%, chunk_start& + chunk_header.chunk_size
+        ELSE
+            SEEK #fh%, chunk_start& + chunk_header.chunk_size
+        END IF
+    NEXT chunkIdx&
+
+    ' === PALETTE IMPORT ===
+    ' Re-read the file to extract palette data from ASEPRITE_CHUNK_PALETTE (0x2019)
+    SEEK #fh%, 129
+    GET #fh%, , frame_header
+    IF frame_header.new_chunks > 0 THEN
+        num_chunks& = frame_header.new_chunks
+    ELSE
+        num_chunks& = frame_header.old_chunks
+    END IF
+
+    DIM palFound AS INTEGER
+    palFound% = FALSE
+    FOR chunkIdx& = 1 TO num_chunks&
+        chunk_start& = SEEK(fh%)
+        GET #fh%, , chunk_header
+
+        IF chunk_header.chunk_type = ASEPRITE_CHUNK_PALETTE THEN
+            ' Read palette chunk header
+            DIM palChunk AS ASEPRITE_PALETTE_CHUNK
+            GET #fh%, , palChunk
+
+            DIM palSize AS LONG
+            palSize& = palChunk.palette_size
+            IF palSize& > 256 THEN palSize& = 256
+            IF palSize& < 1 THEN palSize& = 0
+
+            DIM firstIdx AS LONG, lastIdx AS LONG
+            firstIdx& = palChunk.first_index
+            lastIdx& = palChunk.last_index
+            IF lastIdx& >= palSize& THEN lastIdx& = palSize& - 1
+
+            ' Read palette entries
+            DIM palIdx AS LONG
+            FOR palIdx& = firstIdx& TO lastIdx&
+                DIM entryFlags AS _UNSIGNED INTEGER
+                DIM pr AS _UNSIGNED _BYTE, pg AS _UNSIGNED _BYTE
+                DIM pb AS _UNSIGNED _BYTE, pa AS _UNSIGNED _BYTE
+                GET #fh%, , entryFlags
+                GET #fh%, , pr
+                GET #fh%, , pg
+                GET #fh%, , pb
+                GET #fh%, , pa
+
+                IF palIdx& <= 255 THEN
+                    PAL(palIdx&).value~& = _RGBA32(pr, pg, pb, pa)
+                    PAL(palIdx&).name = ""
+                END IF
+
+                ' Skip color name if present
+                IF entryFlags AND 1 THEN
+                    DIM colorNameLen AS _UNSIGNED INTEGER
+                    GET #fh%, , colorNameLen
+                    IF colorNameLen > 0 THEN
+                        SEEK #fh%, SEEK(fh%) + colorNameLen
+                    END IF
+                END IF
+            NEXT palIdx&
+
+            PAL_COLOR_COUNT% = palSize&
+            palFound% = TRUE
+            _LOGINFO "FILE_ASE_load: Imported" + STR$(palSize&) + " palette colors"
+            EXIT FOR  ' Use first palette chunk found
+        ELSE
+            SEEK #fh%, chunk_start& + chunk_header.chunk_size
+        END IF
+    NEXT chunkIdx&
+    CLOSE #fh%
+
+    IF palFound% THEN
+        ' Update paint colors from palette
+        IF PAL_FG_IDX% >= 0 AND PAL_FG_IDX% < PAL_COLOR_COUNT% THEN
+            PAINT_COLOR~& = PAL(PAL_FG_IDX%).value~&
+        END IF
+        IF PAL_BG_IDX% >= 0 AND PAL_BG_IDX% < PAL_COLOR_COUNT% THEN
+            PAINT_BG_COLOR~& = PAL(PAL_BG_IDX%).value~&
+        END IF
+
+        ' Mark as embedded palette from Aseprite
+        PALETTE_EMBEDDED_NAME$ = "(Aseprite)"
+        PALETTE_EMBEDDED_ACTIVE% = TRUE
+
+        ' Reset palette strip scroll
+        PALETTE_STRIP_SCROLL_OFFSET% = 0
+    END IF
+
+    ' === SELECT LAYER ===
+    IF LAYER_COUNT% >= 1 THEN
+        LAYERS_select 1
+    END IF
+
+    ' === CLEAR HISTORY ===
+    HISTORY_clear
+    NEXT_LAYER_HISTORY_ID& = LAYER_COUNT% + 1
+    IF NEXT_LAYER_HISTORY_ID& < 1 THEN NEXT_LAYER_HISTORY_ID& = 1
+
+    ' === RESET TOOL AND UI STATE ===
+    CURRENT_TOOL% = TOOL_NULL
+    MARQUEE_reset
+    MOVE_init
+    MAGIC_WAND_reset
+    CROP_reset
+    ERASER_reset
+    PREVIEW_reset
+    CHARMAP_reset
+    PALETTE_OPS_reset
+
+    ' Reset layer panel state
+    LAYER_PANEL.scrollOffset% = 0
+    LAYER_PANEL.soloLayer% = 0
+    LAYER_PANEL.visSwiping% = FALSE
+    LAYER_PANEL.dragPending% = FALSE
+    LAYER_PANEL.isDragging% = FALSE
+    LAYER_PANEL.dragLayerIdx% = 0
+    LAYER_PANEL.opacityDrag% = FALSE
+
+    ' Safety net: recount layers
+    LAYER_COUNT% = LAYERS_recount%
+
+    ' Mark canvas as clean
+    CANVAS_DIRTY% = FALSE
+
+    ' Update filenames
+    CURRENT_DRW_FILENAME$ = ""
+    CURRENT_FILENAME$ = filename$
+
+    ' === AUTO-ZOOM ===
+    DIM azAvailW AS LONG, azAvailH AS LONG
+    azAvailW& = SCRN.uiRightEdge% - SCRN.uiLeftEdge% + 1
+    azAvailH& = SCRN.h&
+    IF azAvailW& < 1 THEN azAvailW& = SCRN.w&
+
+    IF SCRN.canvasW& > azAvailW& OR SCRN.canvasH& > azAvailH& THEN
+        DIM fitZoomW AS SINGLE, fitZoomH AS SINGLE, autoZoom AS SINGLE
+        fitZoomW! = azAvailW& / SCRN.canvasW&
+        fitZoomH! = azAvailH& / SCRN.canvasH&
+        autoZoom! = fitZoomW!
+        IF fitZoomH! < autoZoom! THEN autoZoom! = fitZoomH!
+        IF autoZoom! < SCRN.zoomMin! THEN autoZoom! = SCRN.zoomMin!
+        SCRN.zoom! = autoZoom!
+    ELSEIF SCRN.canvasW& < azAvailW& OR SCRN.canvasH& < azAvailH& THEN
+        DIM fitZoomW2 AS SINGLE, fitZoomH2 AS SINGLE, autoZoom2 AS SINGLE
+        fitZoomW2! = INT(azAvailW& / SCRN.canvasW&)
+        fitZoomH2! = INT(azAvailH& / SCRN.canvasH&)
+        autoZoom2! = fitZoomW2!
+        IF fitZoomH2! < autoZoom2! THEN autoZoom2! = fitZoomH2!
+        IF autoZoom2! < 1.0 THEN autoZoom2! = 1.0
+        IF autoZoom2! > SCRN.zoomMax! THEN autoZoom2! = SCRN.zoomMax!
+        SCRN.zoom! = autoZoom2!
+    ELSE
+        SCRN.zoom! = 1.0
+    END IF
+    SCRN.offsetX% = 0
+    SCRN.offsetY% = 0
+
+    ' === REINITIALIZE GRID AND SYMMETRY ===
+    GRID_init
+    GRID_draw
+    PIXEL_GRID_init
+    SYMMETRY_init
+
+    ' === FORCE FULL REDRAW ===
+    SCENE_DIRTY% = TRUE
+    RENDER_ORDER_DIRTY% = TRUE
+    GUI_NEEDS_REDRAW% = TRUE
+    FRAME_IDLE% = FALSE
+    BLEND_invalidate_cache
+
+    ' Free the enhanced image composite display if allocated
+    IF aseImg.current_display < -1 THEN _FREEIMAGE aseImg.current_display
+
+    _LOGINFO "FILE_ASE_load: Loaded" + STR$(LAYER_COUNT%) + " layers from " + filename$
+END SUB
+
+
+''
+' Open file dialog filtered for Aseprite files, then load the selected file.
+'
+SUB FILE_ASE_open_dialog ()
+    DIM filename AS STRING
+    DIM default_path AS STRING
+
+    IF CFG.LAST_DIR_OPEN$ <> "" THEN
+        default_path$ = CFG.LAST_DIR_OPEN$ + "/"
+    ELSEIF LAST_DIRECTORY$ <> "" THEN
+        default_path$ = LAST_DIRECTORY$ + "/"
+    ELSEIF CFG.DEFAULT_OPEN_DIR$ <> "" THEN
+        default_path$ = CFG.DEFAULT_OPEN_DIR$ + "/"
+    ELSE
+        default_path$ = ""
+    END IF
+
+    POINTER_hide_for_dialog
+    filename$ = DRAW_open_file$("Open Aseprite File", default_path$, "Aseprite|*.ase|*.aseprite|All Files|*.*", 0)
+    POINTER_show_after_dialog
+    MOUSE_cleanup_after_dialog TRUE
+
+    IF filename$ <> "" THEN
+        CFG.LAST_DIR_OPEN$ = CONFIG_extract_dir$(filename$)
+        LAST_DIRECTORY$ = CFG.LAST_DIR_OPEN$
+        CONFIG_save
+
+        FILE_ASE_load filename$
+        SOUND_play SND_NEW_FILE
+
+        RECENT_add_file filename$
+
+        MOUSE_cleanup_after_dialog TRUE
+    END IF
+END SUB
