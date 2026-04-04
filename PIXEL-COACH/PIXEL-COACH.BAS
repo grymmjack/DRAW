@@ -70,15 +70,7 @@ DIM SHARED uiScale AS INTEGER        ' Display scale multiplier: 1, 2, or 3
 DIM SHARED renderBuf AS LONG         ' Offscreen render buffer (always SCREEN_W x SCREEN_H)
 DIM SHARED screenHandle AS LONG      ' Current screen image handle
 
-' Checkbox states for detector toggles (mirrors COACH.detect* flags)
-DIM SHARED chkJaggies AS INTEGER
-DIM SHARED chkIslands AS INTEGER
-DIM SHARED chkBanding AS INTEGER
-DIM SHARED chkFatPixels AS INTEGER
-DIM SHARED chkDithering AS INTEGER
-DIM SHARED chkContrast AS INTEGER
-DIM SHARED chkValue AS INTEGER
-DIM SHARED chkNoise AS INTEGER
+' (chk* visibility flags are declared in COACH.BI)
 
 ' ============================================================================
 ' Initialize

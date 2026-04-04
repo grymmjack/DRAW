@@ -98,6 +98,16 @@ END TYPE
 DIM SHARED COACH AS COACH_STATE_T
 DIM SHARED COACH_ISSUES(0 TO COACH_MAX_ISSUES - 1) AS COACH_ISSUE_T
 
+' Per-type overlay visibility toggles (shared between analyzer UI and overlay builder)
+DIM SHARED chkJaggies AS INTEGER
+DIM SHARED chkIslands AS INTEGER
+DIM SHARED chkBanding AS INTEGER
+DIM SHARED chkFatPixels AS INTEGER
+DIM SHARED chkDithering AS INTEGER
+DIM SHARED chkContrast AS INTEGER
+DIM SHARED chkValue AS INTEGER
+DIM SHARED chkNoise AS INTEGER
+
 ' Precompute arrays — REDIM'd when image is loaded
 REDIM SHARED COACH_LABELS(0) AS LONG '          Component label per pixel (w*h)
 REDIM SHARED COACH_BOUNDARY(0) AS INTEGER '      1 = boundary pixel
