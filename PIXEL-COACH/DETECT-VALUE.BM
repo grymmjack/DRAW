@@ -1,0 +1,252 @@
+'$INCLUDEONCE
+' PIXEL-COACH/DETECT-VALUE.BM — Contrast and Value issue detectors
+' Analyzes palette luminance range, local contrast, and ramp consistency
+
+' ============================================================================
+' Contrast detector: checks local and global contrast
+' ============================================================================
+SUB COACH_detect_contrast
+    IF COACH.srcImg >= -1 THEN EXIT SUB
+    IF COACH.componentCount <= 0 THEN EXIT SUB
+
+    ' --- Global contrast check ---
+    ' Find min and max luminance across all opaque pixels
+    DIM totalPx&, i&
+    totalPx& = CLNG(COACH.imgW) * CLNG(COACH.imgH)
+
+    DIM minLum!, maxLum!
+    DIM lumRange!
+    DIM conf!
+    DIM w%
+    DIM x%, y%, idx&, label1&, label2&
+    DIM h%
+    DIM pairsChecked%
+    DIM rIdx&
+    DIM bIdx&
+    DIM lumDelta!
+    DIM lum1!, lum2!
+    DIM ox1%, oy1%, ox2%, oy2%
+
+    minLum! = 999
+    maxLum! = -1
+
+    FOR i& = 0 TO totalPx& - 1
+        IF COACH_LUMINANCE(i&) >= 0 THEN
+            IF COACH_LUMINANCE(i&) < minLum! THEN minLum! = COACH_LUMINANCE(i&)
+            IF COACH_LUMINANCE(i&) > maxLum! THEN maxLum! = COACH_LUMINANCE(i&)
+        END IF
+    NEXT i&
+
+    IF maxLum! < 0 THEN EXIT SUB ' No opaque pixels
+
+    lumRange! = maxLum! - minLum!
+
+    ' Flag if global luminance range is too narrow (<40% of 0-255 span)
+    IF lumRange! < 102 THEN ' 40% of 255
+        conf! = 1.0! - (lumRange! / 102.0!)
+        IF conf! < 0.3! THEN conf! = 0.3!
+        IF conf! > 0.95! THEN conf! = 0.95!
+
+        COACH_add_issue COACH_CONTRAST, conf!, _
+            0, 0, COACH.imgW - 1, COACH.imgH - 1, 0, _
+            "Low global contrast: luminance range is only" + STR$(INT(lumRange!)) + " (of 255)", _
+            "Consider adding brighter highlights or darker shadows"
+    END IF
+
+    ' --- Local contrast between adjacent components ---
+    ' Check each pair of neighboring components for insufficient value separation
+    w% = COACH.imgW
+
+    ' Build simple adjacency by checking boundary pixels
+    ' For each boundary pixel, check if its 4-neighbors belong to a different component
+    x% = 0: y% = 0: idx& = 0: label1& = 0: label2& = 0
+    h% = COACH.imgH
+
+    ' Track checked pairs to avoid duplicate reports
+    ' Use a simple approach: only report if label1 < label2
+    pairsChecked% = 0
+    CONST MAX_PAIRS = 200
+
+    FOR y% = 0 TO h% - 1
+        FOR x% = 0 TO w% - 1
+            IF pairsChecked% >= MAX_PAIRS THEN GOTO contrastDone
+            idx& = CLNG(y%) * w% + x%
+            IF NOT COACH_BOUNDARY(idx&) THEN _CONTINUE
+            label1& = COACH_LABELS(idx&)
+            IF label1& < 0 THEN _CONTINUE
+
+            ' Check right neighbor
+            IF x% < w% - 1 THEN
+                rIdx& = idx& + 1
+                label2& = COACH_LABELS(rIdx&)
+                IF label2& >= 0 AND label2& <> label1& THEN
+                    IF label1& < label2& THEN GOSUB checkPairContrast
+                END IF
+            END IF
+
+            ' Check bottom neighbor
+            IF y% < h% - 1 THEN
+                bIdx& = idx& + w%
+                label2& = COACH_LABELS(bIdx&)
+                IF label2& >= 0 AND label2& <> label1& THEN
+                    IF label1& < label2& THEN GOSUB checkPairContrast
+                END IF
+            END IF
+        NEXT x%
+    NEXT y%
+
+    contrastDone:
+    EXIT SUB
+
+    checkPairContrast:
+    ' Skip if either component is very small (likely AA or detail)
+    IF label1& >= COACH.componentCount OR label2& >= COACH.componentCount THEN RETURN
+    IF COACH_COMPONENTS(label1&).area < 4 THEN RETURN
+    IF COACH_COMPONENTS(label2&).area < 4 THEN RETURN
+
+    lumDelta! = ABS(COACH_COMPONENTS(label1&).avgLum - COACH_COMPONENTS(label2&).avgLum)
+
+    ' Flag if adjacent components have very similar luminance (< 15)
+    ' and both are midtone (not near black or white)
+    IF lumDelta! < 15 THEN
+        lum1! = COACH_COMPONENTS(label1&).avgLum
+        lum2! = COACH_COMPONENTS(label2&).avgLum
+
+        ' Only flag midtone pairs (both between 40-215)
+        IF lum1! > 40 AND lum1! < 215 AND lum2! > 40 AND lum2! < 215 THEN
+            conf! = 0.6! + (15.0! - lumDelta!) * 0.02!
+            IF conf! > 0.9! THEN conf! = 0.9!
+
+            ' Use the overlap area of their bounding boxes
+            ox1% = COACH_COMPONENTS(label1&).bboxX1
+            IF COACH_COMPONENTS(label2&).bboxX1 > ox1% THEN ox1% = COACH_COMPONENTS(label2&).bboxX1
+            oy1% = COACH_COMPONENTS(label1&).bboxY1
+            IF COACH_COMPONENTS(label2&).bboxY1 > oy1% THEN oy1% = COACH_COMPONENTS(label2&).bboxY1
+            ox2% = COACH_COMPONENTS(label1&).bboxX2
+            IF COACH_COMPONENTS(label2&).bboxX2 < ox2% THEN ox2% = COACH_COMPONENTS(label2&).bboxX2
+            oy2% = COACH_COMPONENTS(label1&).bboxY2
+            IF COACH_COMPONENTS(label2&).bboxY2 < oy2% THEN oy2% = COACH_COMPONENTS(label2&).bboxY2
+
+            COACH_add_issue COACH_CONTRAST, conf!, _
+                ox1%, oy1%, ox2%, oy2%, 0, _
+                "Weak local contrast: adjacent regions differ by only" + STR$(INT(lumDelta!)) + " luminance", _
+                "Increase value separation for better readability"
+
+            pairsChecked% = pairsChecked% + 1
+        END IF
+    END IF
+    RETURN
+END SUB
+
+' ============================================================================
+' Value detector: checks palette ramp quality and distribution
+' ============================================================================
+SUB COACH_detect_value
+    IF COACH.srcImg >= -1 THEN EXIT SUB
+
+    ' Build a unique color table from the image
+    CONST MAX_COLORS = 256
+    DIM usedColors(0 TO MAX_COLORS - 1) AS _UNSIGNED LONG
+    DIM usedLum(0 TO MAX_COLORS - 1) AS SINGLE
+    DIM colorCount%
+    colorCount% = 0
+
+    DIM totalPx&, i&
+    totalPx& = CLNG(COACH.imgW) * CLNG(COACH.imgH)
+
+    DIM c~&
+    DIM found%, ci%
+    DIM gap!
+    DIM bandEnd%, bc%
+
+    FOR i& = 0 TO totalPx& - 1
+        c~& = COACH_PIXELS(i&)
+        IF _ALPHA32(c~&) = 0 THEN _CONTINUE
+
+        ' Check if already in table
+        found% = 0
+        FOR ci% = 0 TO colorCount% - 1
+            IF usedColors(ci%) = c~& THEN
+                found% = -1
+                EXIT FOR
+            END IF
+        NEXT ci%
+
+        IF NOT found% AND colorCount% < MAX_COLORS THEN
+            usedColors(colorCount%) = c~&
+            usedLum(colorCount%) = COACH_pixel_luminance!(c~&)
+            colorCount% = colorCount% + 1
+        END IF
+    NEXT i&
+
+    IF colorCount% < 2 THEN EXIT SUB
+
+    ' Sort by luminance
+    DIM s1%, s2%
+    DIM tmpC AS _UNSIGNED LONG, tmpL AS SINGLE
+    FOR s1% = 0 TO colorCount% - 2
+        FOR s2% = s1% + 1 TO colorCount% - 1
+            IF usedLum(s2%) < usedLum(s1%) THEN
+                tmpC = usedColors(s1%): usedColors(s1%) = usedColors(s2%): usedColors(s2%) = tmpC
+                tmpL = usedLum(s1%): usedLum(s1%) = usedLum(s2%): usedLum(s2%) = tmpL
+            END IF
+        NEXT s2%
+    NEXT s1%
+
+    ' Check for large luminance gaps in the ramp
+    DIM maxGap!, maxGapIdx%
+    maxGap! = 0
+    maxGapIdx% = 0
+    FOR ci% = 0 TO colorCount% - 2
+        gap! = usedLum(ci% + 1) - usedLum(ci%)
+        IF gap! > maxGap! THEN
+            maxGap! = gap!
+            maxGapIdx% = ci%
+        END IF
+    NEXT ci%
+
+    ' Flag if there's a very large gap in the value ramp (>80 luminance units)
+    IF maxGap! > 80 AND colorCount% >= 4 THEN
+        DIM conf!
+        conf! = 0.4! + (maxGap! - 80.0!) / 175.0!
+        IF conf! > 0.9! THEN conf! = 0.9!
+
+        COACH_add_issue COACH_VALUE, conf!, _
+            0, 0, COACH.imgW - 1, COACH.imgH - 1, 0, _
+            "Large value gap in palette: " + LTRIM$(STR$(INT(maxGap!))) + " units between" + _
+            " adjacent ramp entries", _
+            "Add an intermediate value to smooth the ramp"
+    END IF
+
+    ' Check for clumped values (too many colors in a narrow luminance band)
+    ' If >60% of colors are within a 40-unit luminance band, flag it
+    DIM bestBandCount%, bandStart%
+    bestBandCount% = 0
+    bandStart% = 0
+
+    FOR ci% = 0 TO colorCount% - 1
+        bc% = 0
+        FOR bandEnd% = ci% TO colorCount% - 1
+            IF usedLum(bandEnd%) - usedLum(ci%) <= 40 THEN
+                bc% = bc% + 1
+            ELSE
+                EXIT FOR
+            END IF
+        NEXT bandEnd%
+        IF bc% > bestBandCount% THEN
+            bestBandCount% = bc%
+            bandStart% = ci%
+        END IF
+    NEXT ci%
+
+    IF colorCount% >= 6 AND bestBandCount% > colorCount% * 0.6 THEN
+        conf! = 0.5! + CSNG(bestBandCount%) / CSNG(colorCount%) * 0.3!
+        IF conf! > 0.9! THEN conf! = 0.9!
+
+        COACH_add_issue COACH_VALUE, conf!, _
+            0, 0, COACH.imgW - 1, COACH.imgH - 1, 0, _
+            "Palette value clumping:" + STR$(bestBandCount%) + " of" + STR$(colorCount%) + _
+            " colors within 40 luminance units", _
+            "Spread values more evenly across the light-to-dark range"
+    END IF
+END SUB

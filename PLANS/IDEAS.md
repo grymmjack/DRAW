@@ -1,5 +1,24 @@
 # IDEAS
 
+## PIXEL ART COACH
+
+- Analyze artwork for:
+  - [ ] Pixel Perfect Deviations - Jaggies
+  - [ ] Clusters
+  - [ ] Islands
+  - [ ] Readability
+  - [ ] Pillow Shading
+  - [ ] Over Dithering
+  - [ ] Banding
+  - [ ] Fat Pixels
+  - [ ] Light Source Inconsistencies
+  - [ ] Contrast Issues
+  - [ ] Value Issues
+  - [ ] Noise
+
+> A coach to make good pixel art
+
+
 
 ## Color BITMAP fonts
 - See DEV/FONTS/COLOR_BITMAP

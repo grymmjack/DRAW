@@ -1,0 +1,168 @@
+'$INCLUDEONCE
+' PIXEL-COACH/DETECT-ISLAND.BM — Island and Noise detectors
+' Finds isolated micro-clusters that likely read as noise
+
+SUB COACH_detect_islands
+    IF COACH.componentCount <= 0 THEN EXIT SUB
+
+    DIM c&, area&, lum!, conf!
+    DIM px%, py%, idx&, w%
+    DIM isAA%
+    DIM leftIdx&, rightIdx&
+    DIM leftLum!, rightLum!
+    DIM lumRange!
+    DIM upIdx&, dnIdx&
+    DIM upLum!, dnLum!
+    DIM vLumRange!
+
+    FOR c& = 0 TO COACH.componentCount - 1
+        area& = COACH_COMPONENTS(c&).area
+
+        ' Only flag very small clusters (1-2 pixels)
+        IF area& > 2 THEN _CONTINUE
+        IF area& <= 0 THEN _CONTINUE
+
+        lum! = COACH_COMPONENTS(c&).avgLum
+
+        ' --- False positive filters ---
+
+        ' Skip very bright pixels — likely specular highlights
+        IF lum! > 240 THEN _CONTINUE
+
+        ' Skip very dark pixels — likely deliberate detail shadows
+        IF lum! < 15 THEN _CONTINUE
+
+        ' Skip if pixel is on image edge (likely part of border)
+        IF COACH_COMPONENTS(c&).isBoundary THEN _CONTINUE
+
+        ' Check if this could be AA: is its luminance between adjacent components?
+        ' Look at the pixel's neighbors to see if it acts as a luminance bridge
+        w% = COACH.imgW
+        px% = COACH_COMPONENTS(c&).bboxX1
+        py% = COACH_COMPONENTS(c&).bboxY1
+        idx& = CLNG(py%) * w% + px%
+
+        isAA% = 0
+
+        IF px% > 0 AND px% < w% - 1 THEN
+            leftIdx& = idx& - 1
+            rightIdx& = idx& + 1
+            leftLum! = COACH_LUMINANCE(leftIdx&)
+            rightLum! = COACH_LUMINANCE(rightIdx&)
+
+            ' If this pixel's luminance is between its horizontal neighbors, likely AA
+            IF leftLum! >= 0 AND rightLum! >= 0 THEN
+                IF (lum! > leftLum! AND lum! < rightLum!) OR _
+                   (lum! < leftLum! AND lum! > rightLum!) THEN
+                    lumRange! = ABS(leftLum! - rightLum!)
+                    IF lumRange! > 20 THEN isAA% = -1
+                END IF
+            END IF
+        END IF
+
+        IF py% > 0 AND py% < COACH.imgH - 1 THEN
+            upIdx& = idx& - w%
+            dnIdx& = idx& + w%
+            upLum! = COACH_LUMINANCE(upIdx&)
+            dnLum! = COACH_LUMINANCE(dnIdx&)
+
+            IF upLum! >= 0 AND dnLum! >= 0 THEN
+                IF (lum! > upLum! AND lum! < dnLum!) OR _
+                   (lum! < upLum! AND lum! > dnLum!) THEN
+                    vLumRange! = ABS(upLum! - dnLum!)
+                    IF vLumRange! > 20 THEN isAA% = -1
+                END IF
+            END IF
+        END IF
+
+        IF isAA% THEN _CONTINUE
+
+        ' Compute confidence based on area and luminance position
+        IF area& = 1 THEN
+            conf! = 0.85!
+        ELSE
+            conf! = 0.65! ' 2-pixel clusters are less suspicious
+        END IF
+
+        ' Mid-tone isolates are more suspicious
+        IF lum! > 60 AND lum! < 200 THEN
+            conf! = conf! + 0.1!
+        END IF
+        IF conf! > 1.0! THEN conf! = 1.0!
+
+        COACH_add_issue COACH_ISLAND, conf!, _
+            COACH_COMPONENTS(c&).bboxX1, COACH_COMPONENTS(c&).bboxY1, _
+            COACH_COMPONENTS(c&).bboxX2, COACH_COMPONENTS(c&).bboxY2, _
+            CINT(area&), _
+            "Possible island: " + LTRIM$(STR$(area&)) + "px cluster may read as noise", _
+            "Consider removing or connecting to a nearby form"
+    NEXT c&
+END SUB
+
+' ============================================================================
+' Noise detector — slightly different from islands
+' Flags areas with high density of single-pixel color changes
+' ============================================================================
+SUB COACH_detect_noise
+    IF COACH.srcImg >= -1 THEN EXIT SUB
+    DIM w%, h%
+    w% = COACH.imgW
+    h% = COACH.imgH
+
+    ' Scan in 8x8 blocks. Count unique colors and single-pixel components
+    DIM bx%, by%, bx2%, by2%, blockW%, blockH%
+    DIM BLOCK_SIZE AS INTEGER
+    DIM blockPixels%
+    DIM singleCount%, opaqueCount%
+    DIM lx%, ly%, lIdx&, lLabel&
+    DIM noiseRatio!
+    DIM conf!
+    BLOCK_SIZE = 8
+
+    FOR by% = 0 TO h% - 1 STEP BLOCK_SIZE
+        FOR bx% = 0 TO w% - 1 STEP BLOCK_SIZE
+            bx2% = bx% + BLOCK_SIZE - 1
+            by2% = by% + BLOCK_SIZE - 1
+            IF bx2% >= w% THEN bx2% = w% - 1
+            IF by2% >= h% THEN by2% = h% - 1
+            blockW% = bx2% - bx% + 1
+            blockH% = by2% - by% + 1
+
+            blockPixels% = blockW% * blockH%
+            IF blockPixels% < 4 THEN _CONTINUE
+
+            ' Count single-pixel components in this block
+            singleCount% = 0
+            opaqueCount% = 0
+
+            FOR ly% = by% TO by2%
+                FOR lx% = bx% TO bx2%
+                    lIdx& = CLNG(ly%) * w% + lx%
+                    IF _ALPHA32(COACH_PIXELS(lIdx&)) = 0 THEN _CONTINUE
+                    opaqueCount% = opaqueCount% + 1
+                    lLabel& = COACH_LABELS(lIdx&)
+                    IF lLabel& >= 0 AND lLabel& < COACH.componentCount THEN
+                        IF COACH_COMPONENTS(lLabel&).area = 1 THEN
+                            singleCount% = singleCount% + 1
+                        END IF
+                    END IF
+                NEXT lx%
+            NEXT ly%
+
+            IF opaqueCount% < 4 THEN _CONTINUE
+
+            ' If >40% of opaque pixels in this block are single-pixel clusters, flag as noisy
+            noiseRatio! = CSNG(singleCount%) / CSNG(opaqueCount%)
+
+            IF noiseRatio! > 0.4! AND singleCount% >= 3 THEN
+                conf! = noiseRatio!
+                IF conf! > 1.0! THEN conf! = 1.0!
+
+                COACH_add_issue COACH_NOISE, conf!, _
+                    bx%, by%, bx2%, by2%, singleCount%, _
+                    "Noisy region:" + STR$(singleCount%) + " isolated pixels in " + LTRIM$(STR$(BLOCK_SIZE)) + "x" + LTRIM$(STR$(BLOCK_SIZE)) + " area", _
+                    "Isolated pixels often read as noise; consider grouping into clusters"
+            END IF
+        NEXT bx%
+    NEXT by%
+END SUB

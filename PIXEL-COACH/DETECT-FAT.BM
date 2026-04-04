@@ -1,0 +1,150 @@
+'$INCLUDEONCE
+' PIXEL-COACH/DETECT-FAT.BM — Fat pixel detector
+' Finds 2x2 blocks and double-width segments in thin outlines
+
+SUB COACH_detect_fat_pixels
+    IF COACH.srcImg >= -1 THEN EXIT SUB
+
+    DIM w%, h%
+    w% = COACH.imgW
+    h% = COACH.imgH
+
+    ' Scan for 2x2 same-color blocks that sit on boundary contours
+    DIM x%, y%, idx&
+    DIM c~&
+    DIM idx10&, idx01&, idx11&
+    DIM boundCount%
+    DIM isThinContext%
+    DIM aboveL&, aboveR&
+    DIM belowL&, belowR&
+    DIM conf!
+    DIM runStart%, runLen%, runActive%
+    DIM idx2&
+    DIM conf2!
+
+    ' Track which pixels we've already reported to avoid duplicate issues
+    DIM totalPx&
+    totalPx& = CLNG(w%) * CLNG(h%)
+    REDIM reported(0 TO totalPx& - 1) AS INTEGER
+
+    FOR y% = 0 TO h% - 2
+        FOR x% = 0 TO w% - 2
+            idx& = CLNG(y%) * w% + x%
+
+            ' Check if this pixel is a boundary pixel
+            IF NOT COACH_BOUNDARY(idx&) THEN _CONTINUE
+            IF reported(idx&) THEN _CONTINUE
+
+            c~& = COACH_PIXELS(idx&)
+            IF _ALPHA32(c~&) = 0 THEN _CONTINUE
+
+            ' Check for 2x2 block of same color
+            idx10& = idx& + 1
+            idx01& = idx& + w%
+            idx11& = idx& + w% + 1
+
+            IF COACH_PIXELS(idx10&) = c~& AND _
+               COACH_PIXELS(idx01&) = c~& AND _
+               COACH_PIXELS(idx11&) = c~& THEN
+
+                ' Verify at least 2 of the 4 pixels are boundary pixels
+                ' (otherwise this is interior fill, not a fat outline)
+                boundCount% = 0
+                IF COACH_BOUNDARY(idx&) THEN boundCount% = boundCount% + 1
+                IF COACH_BOUNDARY(idx10&) THEN boundCount% = boundCount% + 1
+                IF COACH_BOUNDARY(idx01&) THEN boundCount% = boundCount% + 1
+                IF COACH_BOUNDARY(idx11&) THEN boundCount% = boundCount% + 1
+
+                IF boundCount% >= 2 THEN
+                    ' Check surrounding context: is this 2x2 block embedded in a
+                    ' contour that's otherwise 1px thick?
+                    ' Sample pixels around the 2x2 block to check thickness
+                    isThinContext% = 0
+
+                    ' Check if the region above or below the block is NOT this color
+                    ' (indicating the surrounding contour is thinner)
+                    IF y% > 0 THEN
+                        aboveL& = CLNG(y% - 1) * w% + x%
+                        aboveR& = CLNG(y% - 1) * w% + x% + 1
+                        IF COACH_PIXELS(aboveL&) <> c~& OR COACH_PIXELS(aboveR&) <> c~& THEN
+                            isThinContext% = -1
+                        END IF
+                    END IF
+                    IF y% + 2 < h% THEN
+                        belowL& = CLNG(y% + 2) * w% + x%
+                        belowR& = CLNG(y% + 2) * w% + x% + 1
+                        IF COACH_PIXELS(belowL&) <> c~& OR COACH_PIXELS(belowR&) <> c~& THEN
+                            isThinContext% = -1
+                        END IF
+                    END IF
+
+                    IF isThinContext% THEN
+                        conf! = 0.75!
+                        IF boundCount% >= 3 THEN conf! = 0.85!
+
+                        COACH_add_issue COACH_FAT_PIXEL, conf!, _
+                            x%, y%, x% + 1, y% + 1, 4, _
+                            "Fat pixel: 2x2 block at (" + LTRIM$(STR$(x%)) + "," + LTRIM$(STR$(y%)) + ")", _
+                            "Reduce to 1px width to keep the contour thin"
+
+                        reported(idx&) = -1
+                        reported(idx10&) = -1
+                        reported(idx01&) = -1
+                        reported(idx11&) = -1
+                    END IF
+                END IF
+            END IF
+        NEXT x%
+    NEXT y%
+
+    ' --- Also detect double-width horizontal lines ---
+    ' Two adjacent rows of same color boundary pixels
+    FOR y% = 0 TO h% - 2
+        runActive% = 0
+        runStart% = 0
+        runLen% = 0
+
+        FOR x% = 0 TO w% - 1
+            idx& = CLNG(y%) * w% + x%
+            idx2& = CLNG(y% + 1) * w% + x%
+
+            IF COACH_BOUNDARY(idx&) AND COACH_BOUNDARY(idx2&) THEN
+                IF COACH_PIXELS(idx&) = COACH_PIXELS(idx2&) THEN
+                    IF NOT reported(idx&) AND NOT reported(idx2&) THEN
+                        IF NOT runActive% THEN
+                            runActive% = -1
+                            runStart% = x%
+                            runLen% = 1
+                        ELSE
+                            runLen% = runLen% + 1
+                        END IF
+                        _CONTINUE
+                    END IF
+                END IF
+            END IF
+
+            ' End of run
+            IF runActive% AND runLen% >= 3 THEN
+                conf2! = 0.55! + CSNG(runLen%) * 0.05!
+                IF conf2! > 0.9! THEN conf2! = 0.9!
+
+                COACH_add_issue COACH_FAT_PIXEL, conf2!, _
+                    runStart%, y%, runStart% + runLen% - 1, y% + 1, runLen% * 2, _
+                    "Fat line: double-width run of" + STR$(runLen%) + " pixels", _
+                    "Thin this to a 1px line"
+            END IF
+            runActive% = 0
+            runLen% = 0
+        NEXT x%
+
+        IF runActive% AND runLen% >= 3 THEN
+            conf2! = 0.55! + CSNG(runLen%) * 0.05!
+            IF conf2! > 0.9! THEN conf2! = 0.9!
+
+            COACH_add_issue COACH_FAT_PIXEL, conf2!, _
+                runStart%, y%, runStart% + runLen% - 1, y% + 1, runLen% * 2, _
+                "Fat line: double-width run of" + STR$(runLen%) + " pixels", _
+                "Thin this to a 1px line"
+        END IF
+    NEXT y%
+END SUB

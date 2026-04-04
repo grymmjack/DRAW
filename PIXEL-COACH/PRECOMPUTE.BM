@@ -1,0 +1,502 @@
+'$INCLUDEONCE
+' PIXEL-COACH/PRECOMPUTE.BM — Precompute engine
+' Builds pixel cache, connected components, boundary map, luminance cache
+
+' ============================================================================
+' Utility: pixel luminance (ITU-R BT.601)
+' ============================================================================
+FUNCTION COACH_pixel_luminance! (c~&)
+    DIM r%, g%, b%
+    r% = _RED32(c~&)
+    g% = _GREEN32(c~&)
+    b% = _BLUE32(c~&)
+    COACH_pixel_luminance! = 0.299! * CSNG(r%) + 0.587! * CSNG(g%) + 0.114! * CSNG(b%)
+END FUNCTION
+
+' ============================================================================
+' Issue type name for display
+' ============================================================================
+FUNCTION COACH_issue_type_name$ (t%)
+    SELECT CASE t%
+        CASE COACH_JAGGY: COACH_issue_type_name$ = "Jaggy"
+        CASE COACH_ISLAND: COACH_issue_type_name$ = "Island"
+        CASE COACH_BANDING: COACH_issue_type_name$ = "Banding"
+        CASE COACH_FAT_PIXEL: COACH_issue_type_name$ = "Fat Pixel"
+        CASE COACH_OVER_DITHER: COACH_issue_type_name$ = "Over-Dither"
+        CASE COACH_CONTRAST: COACH_issue_type_name$ = "Contrast"
+        CASE COACH_VALUE: COACH_issue_type_name$ = "Value"
+        CASE COACH_PILLOW: COACH_issue_type_name$ = "Pillow Shading"
+        CASE COACH_LIGHT: COACH_issue_type_name$ = "Light"
+        CASE COACH_NOISE: COACH_issue_type_name$ = "Noise"
+        CASE ELSE: COACH_issue_type_name$ = "Unknown"
+    END SELECT
+END FUNCTION
+
+' ============================================================================
+' Issue overlay color
+' ============================================================================
+FUNCTION COACH_issue_color~& (t%)
+    SELECT CASE t%
+        CASE COACH_JAGGY: COACH_issue_color~& = COACH_COLOR_JAGGY~&
+        CASE COACH_ISLAND: COACH_issue_color~& = COACH_COLOR_ISLAND~&
+        CASE COACH_BANDING: COACH_issue_color~& = COACH_COLOR_BANDING~&
+        CASE COACH_FAT_PIXEL: COACH_issue_color~& = COACH_COLOR_FAT~&
+        CASE COACH_OVER_DITHER: COACH_issue_color~& = COACH_COLOR_DITHER~&
+        CASE COACH_CONTRAST: COACH_issue_color~& = COACH_COLOR_VALUE~&
+        CASE COACH_VALUE: COACH_issue_color~& = COACH_COLOR_VALUE~&
+        CASE COACH_NOISE: COACH_issue_color~& = COACH_COLOR_NOISE~&
+        CASE COACH_PILLOW: COACH_issue_color~& = COACH_COLOR_PILLOW~&
+        CASE COACH_LIGHT: COACH_issue_color~& = COACH_COLOR_LIGHT~&
+        CASE ELSE: COACH_issue_color~& = &HCCFFFFFF
+    END SELECT
+END FUNCTION
+
+' ============================================================================
+' Init: set defaults
+' ============================================================================
+SUB COACH_init
+    COACH.imgW = 0
+    COACH.imgH = 0
+    COACH.srcImg = 0
+    COACH.overlayImg = 0
+    COACH.issueCount = 0
+    COACH.componentCount = 0
+    COACH.analyzing = 0
+
+    ' Enable all v1 detectors by default
+    COACH.detectJaggies = -1
+    COACH.detectIslands = -1
+    COACH.detectBanding = -1
+    COACH.detectFatPixels = -1
+    COACH.detectDithering = -1
+    COACH.detectContrast = -1
+    COACH.detectValue = -1
+    COACH.detectPillow = 0 '  v2 — off by default
+    COACH.detectNoise = -1
+
+    COACH.activeFilter = 0
+    COACH.confidenceThreshold = 0.3!
+    COACH.selectedIssue = -1
+    COACH.scrollOffset = 0
+    COACH.showOverlay = -1
+    COACH.showGrayscale = 0
+END SUB
+
+' ============================================================================
+' Clear all issues
+' ============================================================================
+SUB COACH_clear_issues
+    DIM i%
+    FOR i% = 0 TO COACH_MAX_ISSUES - 1
+        COACH_ISSUES(i%).issueType = 0
+        COACH_ISSUES(i%).confidence = 0
+        COACH_ISSUES(i%).pixelCount = 0
+        COACH_ISSUES(i%).suppressed = 0
+    NEXT i%
+    COACH.issueCount = 0
+END SUB
+
+' ============================================================================
+' Add an issue to the list
+' ============================================================================
+SUB COACH_add_issue (issueType%, confidence!, x1%, y1%, x2%, y2%, pixCount%, msg$, hint$)
+    IF COACH.issueCount >= COACH_MAX_ISSUES THEN EXIT SUB
+    DIM idx%
+    idx% = COACH.issueCount
+    COACH_ISSUES(idx%).issueType = issueType%
+    COACH_ISSUES(idx%).confidence = confidence!
+    COACH_ISSUES(idx%).x1 = x1%
+    COACH_ISSUES(idx%).y1 = y1%
+    COACH_ISSUES(idx%).x2 = x2%
+    COACH_ISSUES(idx%).y2 = y2%
+    COACH_ISSUES(idx%).pixelCount = pixCount%
+    COACH_ISSUES(idx%).message = msg$
+    COACH_ISSUES(idx%).hint = hint$
+    COACH_ISSUES(idx%).suppressed = 0
+    COACH.issueCount = COACH.issueCount + 1
+END SUB
+
+' ============================================================================
+' Load image from file
+' ============================================================================
+SUB COACH_load_image (filepath$)
+    ' Free previous
+    IF COACH.srcImg < -1 THEN _FREEIMAGE COACH.srcImg
+    IF COACH.overlayImg < -1 THEN _FREEIMAGE COACH.overlayImg
+
+    COACH.srcImg = _LOADIMAGE(filepath$, 32)
+    IF COACH.srcImg >= -1 THEN
+        _LOGWARN "COACH: Failed to load image: " + filepath$
+        COACH.srcImg = 0
+        COACH.imgW = 0
+        COACH.imgH = 0
+        EXIT SUB
+    END IF
+
+    COACH.imgW = _WIDTH(COACH.srcImg)
+    COACH.imgH = _HEIGHT(COACH.srcImg)
+
+    ' Create overlay image (same size, 32-bit with transparency)
+    COACH.overlayImg = _NEWIMAGE(COACH.imgW, COACH.imgH, 32)
+
+    _LOGINFO "COACH: Loaded " + filepath$ + " (" + LTRIM$(STR$(COACH.imgW)) + "x" + LTRIM$(STR$(COACH.imgH)) + ")"
+END SUB
+
+' ============================================================================
+' Precompute pixel cache (flat array)
+' ============================================================================
+SUB COACH_precompute_pixels
+    IF COACH.srcImg >= -1 THEN EXIT SUB
+    DIM w%, h%, totalPx&
+    w% = COACH.imgW
+    h% = COACH.imgH
+    totalPx& = CLNG(w%) * CLNG(h%)
+
+    REDIM COACH_PIXELS(0 TO totalPx& - 1) AS _UNSIGNED LONG
+
+    DIM mem AS _MEM
+    mem = _MEMIMAGE(COACH.srcImg)
+
+    DIM i&, px AS _UNSIGNED LONG
+    FOR i& = 0 TO totalPx& - 1
+        _MEMGET mem, mem.OFFSET + i& * 4, px
+        COACH_PIXELS(i&) = px
+    NEXT i&
+
+    _MEMFREE mem
+END SUB
+
+' ============================================================================
+' Precompute luminance per pixel
+' ============================================================================
+SUB COACH_precompute_luminance
+    DIM totalPx&
+    totalPx& = CLNG(COACH.imgW) * CLNG(COACH.imgH)
+    REDIM COACH_LUMINANCE(0 TO totalPx& - 1) AS SINGLE
+
+    DIM i&
+    FOR i& = 0 TO totalPx& - 1
+        IF _ALPHA32(COACH_PIXELS(i&)) > 0 THEN
+            COACH_LUMINANCE(i&) = COACH_pixel_luminance!(COACH_PIXELS(i&))
+        ELSE
+            COACH_LUMINANCE(i&) = -1! ' Mark transparent
+        END IF
+    NEXT i&
+END SUB
+
+' ============================================================================
+' Precompute boundary map (pixel differs from any 4-neighbor)
+' ============================================================================
+SUB COACH_precompute_boundary
+    DIM w%, h%, totalPx&
+    w% = COACH.imgW
+    h% = COACH.imgH
+    totalPx& = CLNG(w%) * CLNG(h%)
+    REDIM COACH_BOUNDARY(0 TO totalPx& - 1) AS INTEGER
+
+    DIM x%, y%, idx&, c~&
+    DIM nUp~&, nDn~&, nLt~&, nRt~&
+    DIM isBound%
+    FOR y% = 0 TO h% - 1
+        FOR x% = 0 TO w% - 1
+            idx& = CLNG(y%) * w% + x%
+            c~& = COACH_PIXELS(idx&)
+
+            ' Skip transparent pixels
+            IF _ALPHA32(c~&) = 0 THEN
+                COACH_BOUNDARY(idx&) = 0
+            ELSE
+                isBound% = 0
+
+                ' Check 4-neighbors
+                IF y% > 0 THEN
+                    nUp~& = COACH_PIXELS(idx& - w%)
+                    IF nUp~& <> c~& THEN isBound% = -1
+                ELSE
+                    isBound% = -1 ' Edge of image = boundary
+                END IF
+
+                IF (NOT isBound%) AND y% < h% - 1 THEN
+                    nDn~& = COACH_PIXELS(idx& + w%)
+                    IF nDn~& <> c~& THEN isBound% = -1
+                END IF
+
+                IF (NOT isBound%) AND x% > 0 THEN
+                    nLt~& = COACH_PIXELS(idx& - 1)
+                    IF nLt~& <> c~& THEN isBound% = -1
+                END IF
+
+                IF (NOT isBound%) AND x% < w% - 1 THEN
+                    nRt~& = COACH_PIXELS(idx& + 1)
+                    IF nRt~& <> c~& THEN isBound% = -1
+                END IF
+
+                COACH_BOUNDARY(idx&) = isBound%
+            END IF
+        NEXT x%
+    NEXT y%
+END SUB
+
+' ============================================================================
+' Precompute connected components (8-connected, flood fill labeling)
+' ============================================================================
+SUB COACH_precompute_labels
+    DIM w%, h%, totalPx&
+    w% = COACH.imgW
+    h% = COACH.imgH
+    totalPx& = CLNG(w%) * CLNG(h%)
+
+    REDIM COACH_LABELS(0 TO totalPx& - 1) AS LONG
+
+    ' Initialize all labels to -1 (unlabeled)
+    DIM i&
+    FOR i& = 0 TO totalPx& - 1
+        COACH_LABELS(i&) = -1
+    NEXT i&
+
+    ' Stack for flood fill
+    DIM stackSize&
+    stackSize& = 256
+    REDIM stackX(0 TO stackSize& - 1) AS INTEGER
+    REDIM stackY(0 TO stackSize& - 1) AS INTEGER
+
+    DIM currentLabel&
+    currentLabel& = 0
+
+    DIM x%, y%, sx%, sy%, nx%, ny%, sp&, dx%, dy%
+    DIM targetColor AS _UNSIGNED LONG
+    DIM idx&, nIdx&
+
+    FOR y% = 0 TO h% - 1
+        FOR x% = 0 TO w% - 1
+            idx& = CLNG(y%) * w% + x%
+
+            ' Skip already labeled or transparent
+            IF COACH_LABELS(idx&) >= 0 THEN _CONTINUE
+            IF _ALPHA32(COACH_PIXELS(idx&)) = 0 THEN
+                COACH_LABELS(idx&) = -2 ' Mark transparent as special
+                _CONTINUE
+            END IF
+
+            ' Start new component
+            targetColor = COACH_PIXELS(idx&)
+
+            ' Push seed
+            sp& = 0
+            stackX(0) = x%
+            stackY(0) = y%
+            sp& = 1
+            COACH_LABELS(idx&) = currentLabel&
+
+            DO WHILE sp& > 0
+                sp& = sp& - 1
+                sx% = stackX(sp&)
+                sy% = stackY(sp&)
+
+                ' Check 8 neighbors
+                FOR dy% = -1 TO 1
+                    FOR dx% = -1 TO 1
+                        IF dx% = 0 AND dy% = 0 THEN _CONTINUE
+                        nx% = sx% + dx%
+                        ny% = sy% + dy%
+                        IF nx% < 0 OR nx% >= w% OR ny% < 0 OR ny% >= h% THEN _CONTINUE
+
+                        nIdx& = CLNG(ny%) * w% + nx%
+                        IF COACH_LABELS(nIdx&) >= 0 THEN _CONTINUE
+                        IF COACH_PIXELS(nIdx&) <> targetColor THEN _CONTINUE
+
+                        COACH_LABELS(nIdx&) = currentLabel&
+
+                        ' Push neighbor
+                        IF sp& >= stackSize& THEN
+                            stackSize& = stackSize& * 2
+                            REDIM _PRESERVE stackX(0 TO stackSize& - 1) AS INTEGER
+                            REDIM _PRESERVE stackY(0 TO stackSize& - 1) AS INTEGER
+                        END IF
+                        stackX(sp&) = nx%
+                        stackY(sp&) = ny%
+                        sp& = sp& + 1
+                    NEXT dx%
+                NEXT dy%
+            LOOP
+
+            currentLabel& = currentLabel& + 1
+            IF currentLabel& >= COACH_MAX_COMPONENTS THEN
+                _LOGWARN "COACH: Component limit reached (" + STR$(COACH_MAX_COMPONENTS) + ")"
+                GOTO labelsDone
+            END IF
+        NEXT x%
+    NEXT y%
+
+    labelsDone:
+    COACH.componentCount = currentLabel&
+    _LOGINFO "COACH: Found" + STR$(COACH.componentCount) + " components"
+END SUB
+
+' ============================================================================
+' Precompute component stats
+' ============================================================================
+SUB COACH_precompute_components
+    IF COACH.componentCount <= 0 THEN EXIT SUB
+
+    REDIM COACH_COMPONENTS(0 TO COACH.componentCount - 1) AS COACH_COMPONENT_T
+
+    ' Initialize bboxes
+    DIM c&
+    FOR c& = 0 TO COACH.componentCount - 1
+        COACH_COMPONENTS(c&).area = 0
+        COACH_COMPONENTS(c&).bboxX1 = COACH.imgW
+        COACH_COMPONENTS(c&).bboxY1 = COACH.imgH
+        COACH_COMPONENTS(c&).bboxX2 = 0
+        COACH_COMPONENTS(c&).bboxY2 = 0
+        COACH_COMPONENTS(c&).avgLum = 0
+        COACH_COMPONENTS(c&).perimeterLen = 0
+    NEXT c&
+
+    ' Scan all pixels to build stats
+    DIM w%, h%, x%, y%, idx&, label&
+    w% = COACH.imgW
+    h% = COACH.imgH
+
+    FOR y% = 0 TO h% - 1
+        FOR x% = 0 TO w% - 1
+            idx& = CLNG(y%) * w% + x%
+            label& = COACH_LABELS(idx&)
+            IF label& < 0 OR label& >= COACH.componentCount THEN _CONTINUE
+
+            COACH_COMPONENTS(label&).area = COACH_COMPONENTS(label&).area + 1
+
+            ' Update bounding box
+            IF x% < COACH_COMPONENTS(label&).bboxX1 THEN COACH_COMPONENTS(label&).bboxX1 = x%
+            IF x% > COACH_COMPONENTS(label&).bboxX2 THEN COACH_COMPONENTS(label&).bboxX2 = x%
+            IF y% < COACH_COMPONENTS(label&).bboxY1 THEN COACH_COMPONENTS(label&).bboxY1 = y%
+            IF y% > COACH_COMPONENTS(label&).bboxY2 THEN COACH_COMPONENTS(label&).bboxY2 = y%
+
+            ' Accumulate luminance for average
+            IF COACH_LUMINANCE(idx&) >= 0 THEN
+                COACH_COMPONENTS(label&).avgLum = COACH_COMPONENTS(label&).avgLum + COACH_LUMINANCE(idx&)
+            END IF
+
+            ' Set color from first pixel found
+            IF COACH_COMPONENTS(label&).area = 1 THEN
+                COACH_COMPONENTS(label&).color = COACH_PIXELS(idx&)
+            END IF
+
+            ' Count boundary pixels
+            IF COACH_BOUNDARY(idx&) THEN
+                COACH_COMPONENTS(label&).perimeterLen = COACH_COMPONENTS(label&).perimeterLen + 1
+            END IF
+
+            ' Check if touches image edge
+            IF x% = 0 OR x% = w% - 1 OR y% = 0 OR y% = h% - 1 THEN
+                COACH_COMPONENTS(label&).isBoundary = -1
+            END IF
+        NEXT x%
+    NEXT y%
+
+    ' Finalize averages
+    FOR c& = 0 TO COACH.componentCount - 1
+        IF COACH_COMPONENTS(c&).area > 0 THEN
+            COACH_COMPONENTS(c&).avgLum = COACH_COMPONENTS(c&).avgLum / CSNG(COACH_COMPONENTS(c&).area)
+        END IF
+    NEXT c&
+END SUB
+
+' ============================================================================
+' Master precompute entry point
+' ============================================================================
+SUB COACH_precompute
+    IF COACH.srcImg >= -1 THEN EXIT SUB
+    _LOGINFO "COACH: Precomputing structure..."
+
+    COACH_precompute_pixels
+    COACH_precompute_luminance
+    COACH_precompute_boundary
+    COACH_precompute_labels
+    COACH_precompute_components
+
+    _LOGINFO "COACH: Precompute complete"
+END SUB
+
+' ============================================================================
+' Build overlay image from issues
+' ============================================================================
+SUB COACH_build_overlay
+    IF COACH.overlayImg >= -1 THEN EXIT SUB
+
+    DIM oldDest AS LONG
+    oldDest = _DEST
+    _DEST COACH.overlayImg
+
+    ' Clear overlay to fully transparent
+    CLS , _RGBA32(0, 0, 0, 0)
+
+    DIM i%, x%, y%, w%, idx&
+    DIM issueCol AS _UNSIGNED LONG
+    w% = COACH.imgW
+
+    FOR i% = 0 TO COACH.issueCount - 1
+        IF COACH_ISSUES(i%).suppressed THEN _CONTINUE
+        IF COACH_ISSUES(i%).confidence < COACH.confidenceThreshold THEN _CONTINUE
+        ' Per-type visibility filter (driven by chk* flags from main program)
+        SELECT CASE COACH_ISSUES(i%).issueType
+            CASE COACH_JAGGY:      IF NOT chkJaggies   THEN _CONTINUE
+            CASE COACH_ISLAND:     IF NOT chkIslands    THEN _CONTINUE
+            CASE COACH_BANDING:    IF NOT chkBanding    THEN _CONTINUE
+            CASE COACH_FAT_PIXEL:  IF NOT chkFatPixels  THEN _CONTINUE
+            CASE COACH_OVER_DITHER: IF NOT chkDithering THEN _CONTINUE
+            CASE COACH_CONTRAST:   IF NOT chkContrast   THEN _CONTINUE
+            CASE COACH_VALUE:      IF NOT chkValue      THEN _CONTINUE
+            CASE COACH_NOISE:      IF NOT chkNoise      THEN _CONTINUE
+        END SELECT
+
+        issueCol = COACH_issue_color~&(COACH_ISSUES(i%).issueType)
+
+        ' Fill bounding box pixels that are boundary pixels with overlay color
+        FOR y% = COACH_ISSUES(i%).y1 TO COACH_ISSUES(i%).y2
+            FOR x% = COACH_ISSUES(i%).x1 TO COACH_ISSUES(i%).x2
+                IF x% >= 0 AND x% < COACH.imgW AND y% >= 0 AND y% < COACH.imgH THEN
+                    idx& = CLNG(y%) * w% + x%
+                    IF COACH_BOUNDARY(idx&) THEN
+                        PSET (x%, y%), issueCol
+                    END IF
+                END IF
+            NEXT x%
+        NEXT y%
+    NEXT i%
+
+    _DEST oldDest
+END SUB
+
+' ============================================================================
+' Run full analysis pipeline
+' ============================================================================
+SUB COACH_run_analysis
+    IF COACH.srcImg >= -1 THEN EXIT SUB
+    COACH.analyzing = -1
+
+    _LOGINFO "COACH: Starting analysis..."
+
+    ' Clear previous results
+    COACH_clear_issues
+
+    ' Precompute structural data
+    COACH_precompute
+
+    ' Run enabled detectors
+    IF COACH.detectIslands THEN COACH_detect_islands
+    IF COACH.detectNoise THEN COACH_detect_noise
+    IF COACH.detectJaggies THEN COACH_detect_jaggies
+    IF COACH.detectBanding THEN COACH_detect_banding
+    IF COACH.detectFatPixels THEN COACH_detect_fat_pixels
+    IF COACH.detectDithering THEN COACH_detect_over_dithering
+    IF COACH.detectContrast THEN COACH_detect_contrast
+    IF COACH.detectValue THEN COACH_detect_value
+
+    ' Build overlay
+    COACH_build_overlay
+
+    COACH.analyzing = 0
+
+    _LOGINFO "COACH: Analysis complete." + STR$(COACH.issueCount) + " issues found"
+END SUB

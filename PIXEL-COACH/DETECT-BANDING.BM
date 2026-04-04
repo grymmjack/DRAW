@@ -1,0 +1,153 @@
+'$INCLUDEONCE
+' PIXEL-COACH/DETECT-BANDING.BM — Banding detector
+' Detects parallel contour alignment, hugging, staircase banding
+
+SUB COACH_detect_banding
+    IF COACH.srcImg >= -1 THEN EXIT SUB
+
+    DIM w%, h%
+    w% = COACH.imgW
+    h% = COACH.imgH
+
+    ' --- Horizontal banding ---
+    ' Scan for runs of boundary pixels that span the same horizontal extent
+    ' across adjacent rows (parallel edges = banding)
+    DIM y%, x%, idx&
+    DIM colBandStart%, colBandLen%, colBandActive%
+    DIM nextIdx&
+    DIM conf!
+    DIM hBandStart%, hBandLen%, hBandActive%
+    DIM stairLen%
+    DIM sx%, sy%, sIdx&, sLabel&
+
+    ' For each row, find boundary pixel runs
+    ' Compare adjacent row runs for parallel alignment
+    CONST MIN_PARALLEL_LEN = 4
+
+    FOR x% = 0 TO w% - 1
+
+        ' Scan this column top to bottom looking for adjacent boundary rows
+        colBandActive% = 0
+        colBandStart% = 0
+        colBandLen% = 0
+
+        FOR y% = 0 TO h% - 2
+            idx& = CLNG(y%) * w% + x%
+            nextIdx& = CLNG(y% + 1) * w% + x%
+
+            ' Check if this pixel and the one below are both boundary pixels
+            ' of DIFFERENT components (two edges running parallel)
+            IF COACH_BOUNDARY(idx&) AND COACH_BOUNDARY(nextIdx&) THEN
+                IF COACH_LABELS(idx&) <> COACH_LABELS(nextIdx&) THEN
+                    IF NOT colBandActive% THEN
+                        colBandActive% = -1
+                        colBandStart% = y%
+                        colBandLen% = 1
+                    ELSE
+                        colBandLen% = colBandLen% + 1
+                    END IF
+                ELSE
+                    IF colBandActive% AND colBandLen% >= MIN_PARALLEL_LEN THEN
+                        conf! = 0.5! + CSNG(colBandLen%) * 0.05!
+                        IF conf! > 0.95! THEN conf! = 0.95!
+
+                        COACH_add_issue COACH_BANDING, conf!, _
+                            x%, colBandStart%, x%, colBandStart% + colBandLen%, colBandLen%, _
+                            "Possible banding: parallel edges run for" + STR$(colBandLen%) + " pixels vertically", _
+                            "Offset one edge to break the parallel alignment"
+                    END IF
+                    colBandActive% = 0
+                END IF
+            ELSE
+                IF colBandActive% AND colBandLen% >= MIN_PARALLEL_LEN THEN
+                    conf! = 0.5! + CSNG(colBandLen%) * 0.05!
+                    IF conf! > 0.95! THEN conf! = 0.95!
+
+                    COACH_add_issue COACH_BANDING, conf!, _
+                        x%, colBandStart%, x%, colBandStart% + colBandLen%, colBandLen%, _
+                        "Possible banding: parallel edges run for" + STR$(colBandLen%) + " pixels vertically", _
+                        "Offset one edge to break the parallel alignment"
+                END IF
+                colBandActive% = 0
+            END IF
+        NEXT y%
+    NEXT x%
+
+    ' --- Horizontal scan (row-wise parallel edges) ---
+    FOR y% = 0 TO h% - 2
+        hBandActive% = 0
+
+        FOR x% = 0 TO w% - 1
+            idx& = CLNG(y%) * w% + x%
+            nextIdx& = CLNG(y% + 1) * w% + x%
+
+            IF COACH_BOUNDARY(idx&) AND COACH_BOUNDARY(nextIdx&) THEN
+                IF COACH_LABELS(idx&) <> COACH_LABELS(nextIdx&) THEN
+                    IF NOT hBandActive% THEN
+                        hBandActive% = -1
+                        hBandStart% = x%
+                        hBandLen% = 1
+                    ELSE
+                        hBandLen% = hBandLen% + 1
+                    END IF
+                ELSE
+                    GOSUB checkHBand
+                    hBandActive% = 0
+                END IF
+            ELSE
+                GOSUB checkHBand
+                hBandActive% = 0
+            END IF
+        NEXT x%
+        GOSUB checkHBand
+        hBandActive% = 0
+    NEXT y%
+
+    ' --- Staircase banding: detect repeated diagonal step patterns ---
+    ' Look for sequences of boundary pixels forming a staircase
+    ' A staircase is repeated (1,1) direction runs that make a 45-degree line
+    FOR y% = 0 TO h% - 3
+        FOR x% = 0 TO w% - 3
+            idx& = CLNG(y%) * w% + x%
+            IF NOT COACH_BOUNDARY(idx&) THEN _CONTINUE
+
+            ' Check for staircase pattern going down-right
+            stairLen% = 0
+            sLabel& = COACH_LABELS(idx&)
+
+            FOR stairLen% = 1 TO 8
+                sx% = x% + stairLen%
+                sy% = y% + stairLen%
+                IF sx% >= w% OR sy% >= h% THEN EXIT FOR
+                sIdx& = CLNG(sy%) * w% + sx%
+                IF NOT COACH_BOUNDARY(sIdx&) THEN EXIT FOR
+                IF COACH_LABELS(sIdx&) <> sLabel& THEN EXIT FOR
+            NEXT stairLen%
+
+            IF stairLen% >= 4 THEN
+                conf! = 0.4! + CSNG(stairLen%) * 0.07!
+                IF conf! > 0.9! THEN conf! = 0.9!
+
+                COACH_add_issue COACH_BANDING, conf!, _
+                    x%, y%, x% + stairLen%, y% + stairLen%, stairLen%, _
+                    "Possible staircase banding:" + STR$(stairLen%) + " pixel diagonal step", _
+                    "Break the staircase pattern to make the grid less apparent"
+            END IF
+        NEXT x%
+    NEXT y%
+
+    EXIT SUB
+
+    ' --- Gosub for horizontal band check ---
+    checkHBand:
+    IF hBandActive% AND hBandLen% >= MIN_PARALLEL_LEN THEN
+        conf! = 0.5! + CSNG(hBandLen%) * 0.05!
+        IF conf! > 0.95! THEN conf! = 0.95!
+
+        COACH_add_issue COACH_BANDING, conf!, _
+            hBandStart%, y%, hBandStart% + hBandLen%, y% + 1, hBandLen%, _
+            "Possible banding: parallel edges run for" + STR$(hBandLen%) + " pixels horizontally", _
+            "Offset one edge to break the parallel alignment"
+    END IF
+    RETURN
+END SUB

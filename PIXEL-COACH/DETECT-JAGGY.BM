@@ -1,0 +1,178 @@
+'$INCLUDEONCE
+' PIXEL-COACH/DETECT-JAGGY.BM — Jaggy detector
+' Traces boundary contours and analyzes run-length rhythm for irregularities
+
+SUB COACH_detect_jaggies
+    IF COACH.srcImg >= -1 THEN EXIT SUB
+    DIM w%, h%
+    w% = COACH.imgW
+    h% = COACH.imgH
+
+    ' For each boundary pixel, trace a contour and check run-length consistency
+    ' We track which boundary pixels have been visited to avoid double-processing
+    DIM totalPx&
+    totalPx& = CLNG(w%) * CLNG(h%)
+    REDIM visited(0 TO totalPx& - 1) AS INTEGER
+
+    DIM x%, y%, idx&
+    DIM contourLen%
+    DIM runCount%
+    DIM cx%, cy%, px%, py%, cIdx&, steps%
+    DIM lastDX%, lastDY%, curRun%
+    DIM bestX%, bestY%, found%
+    DIM dx%, dy%
+    DIM tryX%, tryY%, tryIdx&
+    DIM newDX%, newDY%
+    DIM r%
+    DIM runWindow(0 TO 4) AS INTEGER
+    DIM wi%
+    DIM s1%, s2%, tmp%
+    DIM median%
+    DIM centerRun%
+    DIM deviation!
+    DIM conf!
+
+    FOR y% = 1 TO h% - 2
+        FOR x% = 1 TO w% - 2
+            idx& = CLNG(y%) * w% + x%
+            IF NOT COACH_BOUNDARY(idx&) THEN _CONTINUE
+            IF visited(idx&) THEN _CONTINUE
+
+            ' Trace contour from this seed pixel
+            contourLen% = 0
+
+            ' Simple contour trace: follow boundary pixels, recording direction changes
+            ' Store run-lengths of each direction segment
+            CONST MAX_CONTOUR = 512
+            REDIM runLens(0 TO MAX_CONTOUR - 1) AS INTEGER
+            runCount% = 0
+
+            cx% = x%: cy% = y%
+            px% = -1: py% = -1 ' Previous position
+
+            lastDX% = 0: lastDY% = 0: curRun% = 0
+
+            ' Follow boundary chain (max MAX_CONTOUR steps)
+            FOR steps% = 0 TO MAX_CONTOUR - 1
+                cIdx& = CLNG(cy%) * w% + cx%
+                IF visited(cIdx&) AND steps% > 2 THEN EXIT FOR
+                visited(cIdx&) = -1
+                contourLen% = contourLen% + 1
+
+                ' Find next unvisited boundary neighbor (8-connected, prefer continuing direction)
+                found% = 0
+                bestX% = cx%: bestY% = cy%
+
+                ' First try: continue in same direction
+                IF lastDX% <> 0 OR lastDY% <> 0 THEN
+                    tryX% = cx% + lastDX%
+                    tryY% = cy% + lastDY%
+                    IF tryX% >= 0 AND tryX% < w% AND tryY% >= 0 AND tryY% < h% THEN
+                        tryIdx& = CLNG(tryY%) * w% + tryX%
+                        IF COACH_BOUNDARY(tryIdx&) AND NOT visited(tryIdx&) THEN
+                            IF COACH_LABELS(tryIdx&) = COACH_LABELS(cIdx&) THEN
+                                bestX% = tryX%: bestY% = tryY%
+                                found% = -1
+                            END IF
+                        END IF
+                    END IF
+                END IF
+
+                ' If can't continue, scan 8-neighbors
+                IF NOT found% THEN
+                    FOR dy% = -1 TO 1
+                        FOR dx% = -1 TO 1
+                            IF dx% = 0 AND dy% = 0 THEN _CONTINUE
+                            tryX% = cx% + dx%
+                            tryY% = cy% + dy%
+                            IF tryX% < 0 OR tryX% >= w% OR tryY% < 0 OR tryY% >= h% THEN _CONTINUE
+                            tryIdx& = CLNG(tryY%) * w% + tryX%
+                            IF NOT COACH_BOUNDARY(tryIdx&) THEN _CONTINUE
+                            IF visited(tryIdx&) THEN _CONTINUE
+                            IF COACH_LABELS(tryIdx&) <> COACH_LABELS(cIdx&) THEN _CONTINUE
+                            bestX% = tryX%: bestY% = tryY%
+                            found% = -1
+                            EXIT FOR
+                        NEXT dx%
+                        IF found% THEN EXIT FOR
+                    NEXT dy%
+                END IF
+
+                IF NOT found% THEN EXIT FOR
+
+                ' Record direction
+                newDX% = bestX% - cx%
+                newDY% = bestY% - cy%
+
+                IF newDX% = lastDX% AND newDY% = lastDY% THEN
+                    ' Same direction — extend run
+                    curRun% = curRun% + 1
+                ELSE
+                    ' Direction changed — save previous run
+                    IF curRun% > 0 AND runCount% < MAX_CONTOUR THEN
+                        runLens(runCount%) = curRun%
+                        runCount% = runCount% + 1
+                    END IF
+                    curRun% = 1
+                    lastDX% = newDX%
+                    lastDY% = newDY%
+                END IF
+
+                px% = cx%: py% = cy%
+                cx% = bestX%: cy% = bestY%
+            NEXT steps%
+
+            ' Save final run
+            IF curRun% > 0 AND runCount% < MAX_CONTOUR THEN
+                runLens(runCount%) = curRun%
+                runCount% = runCount% + 1
+            END IF
+
+            ' Analyze run-length rhythm for jaggies
+            ' Need at least 5 runs to detect rhythm breaks
+            IF runCount% >= 5 THEN
+                ' Compute local median run length (sliding window of 5)
+                FOR r% = 2 TO runCount% - 3
+                    ' Get 5 runs centered on r%
+                    FOR wi% = 0 TO 4
+                        runWindow(wi%) = runLens(r% - 2 + wi%)
+                    NEXT wi%
+
+                    ' Simple sort for median
+                    FOR s1% = 0 TO 3
+                        FOR s2% = s1% + 1 TO 4
+                            IF runWindow(s2%) < runWindow(s1%) THEN
+                                tmp% = runWindow(s1%)
+                                runWindow(s1%) = runWindow(s2%)
+                                runWindow(s2%) = tmp%
+                            END IF
+                        NEXT s2%
+                    NEXT s1%
+                    median% = runWindow(2)
+
+                    ' Check if center run is an outlier
+                    centerRun% = runLens(r%)
+
+                    IF median% >= 2 THEN
+                        deviation! = ABS(CSNG(centerRun%) - CSNG(median%)) / CSNG(median%)
+
+                        ' Flag if run deviates >50% from local median
+                        IF deviation! > 0.5! AND ABS(centerRun% - median%) >= 2 THEN
+                            conf! = deviation!
+                            IF conf! > 1.0! THEN conf! = 1.0!
+                            conf! = conf! * 0.85! ' Scale to avoid over-confidence
+
+                            ' Approximate location: walk the contour to find where this run is
+                            ' (We use the seed pixel + offset as rough bbox)
+                            COACH_add_issue COACH_JAGGY, conf!, _
+                                x% - 2, y% - 2, x% + 2, y% + 2, 1, _
+                                "Likely jaggy: run of" + STR$(centerRun%) + " breaks local rhythm of" + STR$(median%), _
+                                "Try smoothing to a consistent run length"
+                        END IF
+                    END IF
+                NEXT r%
+            END IF
+
+        NEXT x%
+    NEXT y%
+END SUB
