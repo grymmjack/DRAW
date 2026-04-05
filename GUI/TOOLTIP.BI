@@ -13,6 +13,8 @@ CONST TOOLTIP_SRC_TOOLBAR   = 1
 CONST TOOLTIP_SRC_ORGANIZER = 2
 CONST TOOLTIP_SRC_MINI_PAL  = 3
 CONST TOOLTIP_SRC_DOCK_SWAP = 4
+CONST TOOLTIP_SRC_EDITBAR   = 5
+CONST TOOLTIP_SRC_ADVBAR    = 6
 
 TYPE TOOLTIP_OBJ
     ACTIVE          AS INTEGER      ' TRUE when a tooltip is currently visible
@@ -158,3 +160,163 @@ DECLARE FUNCTION TOOLTIP_get_hovered_btn_idx% (mouseX%, mouseY%)
 DECLARE FUNCTION TOOLTIP_get_hovered_org_idx% (mouseX%, mouseY%)
 DECLARE FUNCTION TOOLTIP_get_hovered_mini_pal% (mouseX%, mouseY%)
 DECLARE FUNCTION TOOLTIP_get_hovered_dock_area% (mouseX%, mouseY%)
+DECLARE FUNCTION TOOLTIP_get_hovered_editbar_idx% (mouseX%, mouseY%)
+DECLARE FUNCTION TOOLTIP_get_hovered_advbar_idx% (mouseX%, mouseY%)
+
+' --- Edit Bar tooltip text arrays (indexed by EDITBAR slot 0..24) ---
+DIM SHARED TOOLTIP_EB_LINE1$(0 TO 24)
+DIM SHARED TOOLTIP_EB_LINE2$(0 TO 24)
+
+' Slot 0: Undo
+TOOLTIP_EB_LINE1$(0)  = "CTRL+z - Undo"
+TOOLTIP_EB_LINE2$(0)  = "L-CLICK undo last action."
+' Slot 1: Redo
+TOOLTIP_EB_LINE1$(1)  = "CTRL+y - Redo"
+TOOLTIP_EB_LINE2$(1)  = "L-CLICK redo last undone action."
+' Slot 2: divider
+' Slot 3: Cut
+TOOLTIP_EB_LINE1$(3)  = "CTRL+x - Cut"
+TOOLTIP_EB_LINE2$(3)  = "L-CLICK cut selection to clipboard."
+' Slot 4: Copy
+TOOLTIP_EB_LINE1$(4)  = "CTRL+c - Copy"
+TOOLTIP_EB_LINE2$(4)  = "L-CLICK copy selection to clipboard."
+' Slot 5: Copy Merged
+TOOLTIP_EB_LINE1$(5)  = "CTRL+SHIFT+c - Copy Merged"
+TOOLTIP_EB_LINE2$(5)  = "L-CLICK copy merged (all visible layers) to clipboard."
+' Slot 6: Paste
+TOOLTIP_EB_LINE1$(6)  = "CTRL+v - Paste"
+TOOLTIP_EB_LINE2$(6)  = "L-CLICK paste clipboard contents at cursor."
+' Slot 7: Paste in Place
+TOOLTIP_EB_LINE1$(7)  = "CTRL+SHIFT+v - Paste in Place"
+TOOLTIP_EB_LINE2$(7)  = "L-CLICK paste clipboard contents at original position."
+' Slot 8: divider
+' Slot 9: Cut to New Layer
+TOOLTIP_EB_LINE1$(9)  = "Cut to New Layer"
+TOOLTIP_EB_LINE2$(9)  = "L-CLICK cut selection to a new layer."
+' Slot 10: Copy to New Layer
+TOOLTIP_EB_LINE1$(10) = "Copy to New Layer"
+TOOLTIP_EB_LINE2$(10) = "L-CLICK copy selection to a new layer."
+' Slot 11: divider
+' Slot 12: Clear
+TOOLTIP_EB_LINE1$(12) = "DEL - Clear"
+TOOLTIP_EB_LINE2$(12) = "L-CLICK clear selection or layer."
+' Slot 13: divider
+' Slot 14: Fill with FG
+TOOLTIP_EB_LINE1$(14) = "Fill with Foreground Color"
+TOOLTIP_EB_LINE2$(14) = "L-CLICK fill selection or layer with FG color."
+' Slot 15: Fill with BG
+TOOLTIP_EB_LINE1$(15) = "Fill with Background Color"
+TOOLTIP_EB_LINE2$(15) = "L-CLICK fill selection or layer with BG color."
+' Slot 16: Stroke Selection
+TOOLTIP_EB_LINE1$(16) = "Stroke Selection"
+TOOLTIP_EB_LINE2$(16) = "L-CLICK stroke the selection outline with FG color."
+' Slot 17: divider
+' Slot 18: Flip Horizontal
+TOOLTIP_EB_LINE1$(18) = "Flip Horizontal"
+TOOLTIP_EB_LINE2$(18) = "L-CLICK flip layer or selection horizontally."
+' Slot 19: Flip Vertical
+TOOLTIP_EB_LINE1$(19) = "Flip Vertical"
+TOOLTIP_EB_LINE2$(19) = "L-CLICK flip layer or selection vertically."
+' Slot 20: Scale Down
+TOOLTIP_EB_LINE1$(20) = "Scale Down 50%"
+TOOLTIP_EB_LINE2$(20) = "L-CLICK shrink layer or selection by half."
+' Slot 21: Scale Up
+TOOLTIP_EB_LINE1$(21) = "Scale Up 200%"
+TOOLTIP_EB_LINE2$(21) = "L-CLICK enlarge layer or selection by double."
+' Slot 22: Rotate CW
+TOOLTIP_EB_LINE1$(22) = "Rotate 90 CW"
+TOOLTIP_EB_LINE2$(22) = "L-CLICK rotate layer or selection 90 degrees clockwise."
+' Slot 23: Rotate CCW
+TOOLTIP_EB_LINE1$(23) = "Rotate 90 CCW"
+TOOLTIP_EB_LINE2$(23) = "L-CLICK rotate layer or selection 90 degrees counter-clockwise."
+' Slot 24: divider (reserved)
+
+' --- Advanced Bar tooltip text arrays (indexed by ADVBAR slot 0..32) ---
+DIM SHARED TOOLTIP_AB_LINE1$(0 TO 32)
+DIM SHARED TOOLTIP_AB_LINE2$(0 TO 32)
+
+' Slot 0: Preview Window
+TOOLTIP_AB_LINE1$(0)  = "Preview Window / Floating Image Window"
+TOOLTIP_AB_LINE2$(0)  = "L-CLICK Toggle Preview Window ON / OFF"
+' Slot 1: Edit Bar
+TOOLTIP_AB_LINE1$(1)  = "Edit Bar"
+TOOLTIP_AB_LINE2$(1)  = "L-CLICK Toggle Edit Bar ON / OFF"
+' Slot 2: divider
+' Slot 3: Character Map
+TOOLTIP_AB_LINE1$(3)  = "Character Map"
+TOOLTIP_AB_LINE2$(3)  = "L-CLICK Toggle Character Map ON / OFF"
+' Slot 4: Character Grid
+TOOLTIP_AB_LINE1$(4)  = "Character Grid"
+TOOLTIP_AB_LINE2$(4)  = "L-CLICK Toggle Character Grid ON / OFF"
+' Slot 5: Snap to Character Grid
+TOOLTIP_AB_LINE1$(5)  = "Character Grid Snap"
+TOOLTIP_AB_LINE2$(5)  = "L-CLICK Toggle Snap to Character Grid ON / OFF"
+' Slot 6: divider
+' Slot 7: Tile Preview Mode
+TOOLTIP_AB_LINE1$(7)  = "Tile Preview Mode"
+TOOLTIP_AB_LINE2$(7)  = "L-CLICK Toggle Tile Preview Mode ON / OFF"
+' Slot 8: Grid Cell Fill Mode
+TOOLTIP_AB_LINE1$(8)  = "Fill Grid Cell Mode"
+TOOLTIP_AB_LINE2$(8)  = "L-CLICK Toggle Fill Grid Cell Mode ON / OFF"
+' Slot 9: Resize Grid to Brush Size
+TOOLTIP_AB_LINE1$(9)  = "Resize Grid to Brush Size"
+TOOLTIP_AB_LINE2$(9)  = "L-CLICK Resize Grid to Brush Size"
+' Slot 10: Fill Adjustment Mode
+TOOLTIP_AB_LINE1$(10) = "Fill Adjustment Mode"
+TOOLTIP_AB_LINE2$(10) = "L-CLICK Toggle Fill Adjustment Mode ON / OFF"
+' Slot 11: divider
+' Slot 12: Brush Edges
+TOOLTIP_AB_LINE1$(12) = "Brush Edges"
+TOOLTIP_AB_LINE2$(12) = "L-CLICK Toggle Brush Edges ON / OFF"
+' Slot 13: Angle Snap
+TOOLTIP_AB_LINE1$(13) = "Angle Snap"
+TOOLTIP_AB_LINE2$(13) = "L-CLICK Toggle Snap to Angles ON / OFF"
+' Slot 14: Grayscale Preview
+TOOLTIP_AB_LINE1$(14) = "Gray Scale Preview"
+TOOLTIP_AB_LINE2$(14) = "L-CLICK Toggle Gray Scale Preview ON / OFF"
+' Slot 15: divider
+' Slot 16: Reference Image
+TOOLTIP_AB_LINE1$(16) = "CTRL+r - Reference Image - Use CTRL+SHIFT+M-WHEEL to adjust opacity."
+TOOLTIP_AB_LINE2$(16) = "L-CLICK Toggle Reference Image ON / OFF"
+' Slot 17: Load Reference Image
+TOOLTIP_AB_LINE1$(17) = "Load Reference Image"
+TOOLTIP_AB_LINE2$(17) = "L-CLICK Load a Reference Image"
+' Slot 18: Clear Reference Image
+TOOLTIP_AB_LINE1$(18) = "Clear Reference Image"
+TOOLTIP_AB_LINE2$(18) = "L-CLICK Clear Reference Image"
+' Slot 19: Adjust Reference Image
+TOOLTIP_AB_LINE1$(19) = "Adjust Reference Image - Reposition, Zoom, Change Opacity"
+TOOLTIP_AB_LINE2$(19) = "L-CLICK Adjust Reference Image"
+' Slot 20: divider
+' Slot 21: Align Left
+TOOLTIP_AB_LINE1$(21) = "Align Selected Layers to Left"
+TOOLTIP_AB_LINE2$(21) = "L-CLICK Align Selected Layers to Left"
+' Slot 22: Align Center
+TOOLTIP_AB_LINE1$(22) = "Align Selected Layers to Center"
+TOOLTIP_AB_LINE2$(22) = "L-CLICK Align Selected Layers to Center"
+' Slot 23: Align Right
+TOOLTIP_AB_LINE1$(23) = "Align Selected Layers to Right"
+TOOLTIP_AB_LINE2$(23) = "L-CLICK Align Selected Layers to Right"
+' Slot 24: Align Top
+TOOLTIP_AB_LINE1$(24) = "Align Selected Layers to Top"
+TOOLTIP_AB_LINE2$(24) = "L-CLICK Align Selected Layers to Top"
+' Slot 25: Align Middle
+TOOLTIP_AB_LINE1$(25) = "Align Selected Layers to Middle"
+TOOLTIP_AB_LINE2$(25) = "L-CLICK Align Selected Layers to Middle"
+' Slot 26: Align Bottom
+TOOLTIP_AB_LINE1$(26) = "Align Selected Layers to Bottom"
+TOOLTIP_AB_LINE2$(26) = "L-CLICK Align Selected Layers to Bottom"
+' Slot 27: divider
+' Slot 28: Distribute Horizontal
+TOOLTIP_AB_LINE1$(28) = "Distribute Selected Layers Equally Horizontally"
+TOOLTIP_AB_LINE2$(28) = "L-CLICK Distribute Selected Layers Equally Horizontally"
+' Slot 29: Distribute Vertical
+TOOLTIP_AB_LINE1$(29) = "Distribute Selected Layers Equally Vertically"
+TOOLTIP_AB_LINE2$(29) = "L-CLICK Distribute Selected Layers Equally Vertically"
+' Slot 30: divider
+' Slot 31: Flip Canvas Horizontal
+TOOLTIP_AB_LINE1$(31) = "Flip Canvas Horizontally"
+TOOLTIP_AB_LINE2$(31) = "L-CLICK Flip Canvas Horizontally"
+' Slot 32: Flip Canvas Vertical
+TOOLTIP_AB_LINE1$(32) = "Flip Canvas Vertically"
+TOOLTIP_AB_LINE2$(32) = "L-CLICK Flip Canvas Vertically"

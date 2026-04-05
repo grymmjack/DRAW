@@ -285,6 +285,8 @@ TYPE DRAW_CONFIG
     PREVIEW_FLOAT_LAST_DIR         AS STRING   ' Last directory used for Load Image dialog
     EDIT_BAR_VISIBLE               AS INTEGER  ' TRUE = edit bar visible at startup
     EDIT_BAR_DOCK_POSITION         AS STRING  ' "LEFT" or "RIGHT"
+    ADV_BAR_VISIBLE                AS INTEGER  ' TRUE = advanced bar visible at startup
+    ADV_BAR_DOCK_POSITION          AS STRING  ' "LEFT" or "RIGHT"
     ' Default drawer set files (path to .dset, empty = use built-in samples)
     DEFAULT_DSET_BRUSHES_FILE      AS STRING   ' Default brush drawer set (.dset)
     DEFAULT_DSET_PATTERNS_FILE     AS STRING   ' Default pattern drawer set (.dset)
