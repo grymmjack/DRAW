@@ -105,6 +105,7 @@ DECLARE SUB FD_init_places
 '$INCLUDE:'./OUTPUT/FILE-BAS.BI'
 '$INCLUDE:'./OUTPUT/FILE-BMP.BI'
 '$INCLUDE:'./OUTPUT/FILE-BSAVE.BI'
+'$INCLUDE:'./OUTPUT/FILE-EXPORT.BI'
 
 ' TOOLS -----------------------------------------------------------------------
 '$INCLUDE:'./TOOLS/BRUSH.BI'
