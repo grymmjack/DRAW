@@ -26,6 +26,7 @@ CONST FILL_ADJ_DRAG_PAN = 1        ' Dragging background = pan origin
 CONST FILL_ADJ_DRAG_UNIFORM = 2    ' Dragging corner handle = uniform scale
 CONST FILL_ADJ_DRAG_SCALE_X = 3    ' Dragging horizontal arm = scale X only
 CONST FILL_ADJ_DRAG_SCALE_Y = 4    ' Dragging vertical arm = scale Y only
+CONST FILL_ADJ_DRAG_ROTATE = 5     ' Dragging rotation handle = rotate tile
 
 TYPE FILL_ADJ_OBJ
     ENABLED         AS INTEGER      ' Toggle: F8 latches this on/off
@@ -56,6 +57,7 @@ TYPE FILL_ADJ_OBJ
     TILE_H          AS SINGLE       ' Current tile height (starts at brush height)
     ORIGIN_X        AS SINGLE       ' Tile origin X offset (canvas pixels)
     ORIGIN_Y        AS SINGLE       ' Tile origin Y offset (canvas pixels)
+    ROTATION        AS SINGLE       ' Tile rotation in degrees (0 = no rotation)
     ' Undo/restore images
     REDRAW_IMG      AS LONG         ' Layer state to restore before each re-render
     CANCEL_IMG      AS LONG         ' Layer state for full cancel (pre-shape)
@@ -72,6 +74,8 @@ TYPE FILL_ADJ_OBJ
     START_ORIGIN_Y  AS SINGLE       ' Origin Y at drag start
     START_TILE_W    AS SINGLE       ' Tile W at drag start (for scale drags)
     START_TILE_H    AS SINGLE       ' Tile H at drag start (for scale drags)
+    START_ROTATION  AS SINGLE       ' Rotation at drag start (for rotate drags)
+    START_ANGLE     AS SINGLE       ' Mouse angle at drag start (radians)
 END TYPE
 
 DIM SHARED FILL_ADJ AS FILL_ADJ_OBJ
@@ -98,4 +102,5 @@ DECLARE SUB FILL_ADJ_render_paint_mode ()
 DECLARE SUB FILL_ADJ_detect_paint_mode ()
 DECLARE SUB FILL_ADJ_compute_shape_tile_size (outW AS SINGLE, outH AS SINGLE)
 DECLARE SUB FILL_ADJ_toggle_enabled ()
+DECLARE SUB FILL_ADJ_rotate_coords (inX AS SINGLE, inY AS SINGLE, angleDeg AS SINGLE, outX AS SINGLE, outY AS SINGLE)
 DECLARE FUNCTION FILL_ADJ_is_active% ()

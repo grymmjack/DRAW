@@ -193,6 +193,9 @@ THEME.FILL_ADJ_INFO_FG_COLOR~&       = _RGBA32(255, 255, 255, 255)  ' Info text 
 THEME.FILL_ADJ_HANDLE_SIZE%          = 7                            ' Corner half-size (px)
 THEME.FILL_ADJ_ARM_LENGTH%           = 40                           ' Arm length (px)
 THEME.FILL_ADJ_ARM_THICKNESS%        = 5                            ' Arm half-thickness (px)
+THEME.FILL_ADJ_ROTATE_COLOR~&        = _RGBA32(100, 160, 255, 255)   ' Rotation handle (blue)
+THEME.FILL_ADJ_ROTATE_ACTIVE_COLOR~& = _RGBA32(160, 210, 255, 255)  ' Rotation handle active (bright blue)
+THEME.FILL_ADJ_ROTATE_RADIUS%        = 28                           ' Rotation arc radius (px)
 THEME.FILL_ADJ_ICON_FILE$            = ""                            ' PNG widget (empty=procedural)
 
 ' --- Dialog chrome ---

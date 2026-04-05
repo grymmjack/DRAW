@@ -199,6 +199,9 @@ TYPE DRAW_THEME
     FILL_ADJ_HANDLE_SIZE         AS INTEGER         ' Corner box half-size in screen px (default 7)
     FILL_ADJ_ARM_LENGTH          AS INTEGER         ' Arm length in screen px (default 40)
     FILL_ADJ_ARM_THICKNESS       AS INTEGER         ' Arm half-thickness in screen px (default 5)
+    FILL_ADJ_ROTATE_COLOR        AS _UNSIGNED LONG  ' Rotation handle color (RGBA)
+    FILL_ADJ_ROTATE_ACTIVE_COLOR AS _UNSIGNED LONG  ' Rotation handle active/drag (RGBA)
+    FILL_ADJ_ROTATE_RADIUS       AS INTEGER         ' Rotation arc radius in screen px (default 28)
     FILL_ADJ_ICON_FILE           AS STRING * 64     ' PNG widget for L-handle (empty = procedural)
     ' --- Dialog chrome ---
     DIALOG_bg                 AS _UNSIGNED LONG  ' Dialog background fill

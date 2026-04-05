@@ -385,6 +385,7 @@ SUB FILL_ADJ_reset ()
     FILL_ADJ.TILE_H! = 0
     FILL_ADJ.ORIGIN_X! = 0
     FILL_ADJ.ORIGIN_Y! = 0
+    FILL_ADJ.ROTATION! = 0
     FILL_ADJ.REDRAW_IMG& = 0
     FILL_ADJ.CANCEL_IMG& = 0
     FILL_ADJ.FILL_MASK& = 0
@@ -489,6 +490,21 @@ FUNCTION FILL_ADJ_hit_test% (rawX AS INTEGER, rawY AS INTEGER)
         EXIT FUNCTION
     END IF
 
+    ' Test rotation handle (arc area above-right of corner box)
+    DIM rotRadius AS INTEGER
+    DIM rdx AS SINGLE, rdy AS SINGLE, rdist AS SINGLE
+    rotRadius% = THEME.FILL_ADJ_ROTATE_RADIUS%
+    rdx! = rawX% - ox%
+    rdy! = rawY% - oy%
+    rdist! = SQR(rdx! * rdx! + rdy! * rdy!)
+    IF rdist! >= rotRadius% - 6 AND rdist! <= rotRadius% + 6 THEN
+        ' Only hit in the upper-right quadrant arc region (roughly 315-45 degrees from handle)
+        IF rdx! > 0 AND rdy! < 0 THEN
+            FILL_ADJ_hit_test% = FILL_ADJ_DRAG_ROTATE
+            EXIT FUNCTION
+        END IF
+    END IF
+
     ' Miss — pan mode
     FILL_ADJ_hit_test% = FILL_ADJ_DRAG_PAN
 END FUNCTION
@@ -514,6 +530,44 @@ SUB FILL_ADJ_handle_mouse_press (cx AS INTEGER, cy AS INTEGER, rawX AS INTEGER, 
     FILL_ADJ.START_ORIGIN_Y! = FILL_ADJ.ORIGIN_Y!
     FILL_ADJ.START_TILE_W! = FILL_ADJ.TILE_W!
     FILL_ADJ.START_TILE_H! = FILL_ADJ.TILE_H!
+    FILL_ADJ.START_ROTATION! = FILL_ADJ.ROTATION!
+
+    ' For rotation drag, compute the starting mouse angle relative to the L-handle origin
+    IF FILL_ADJ.DRAG_MODE% = FILL_ADJ_DRAG_ROTATE THEN
+        DIM shMinX AS INTEGER, shMinY AS INTEGER
+        SELECT CASE FILL_ADJ.SHAPE_TYPE%
+            CASE FILL_ADJ_SHAPE_RECT
+                shMinX% = FILL_ADJ.RECT_X1%: shMinY% = FILL_ADJ.RECT_Y1%
+                IF FILL_ADJ.RECT_X2% < shMinX% THEN shMinX% = FILL_ADJ.RECT_X2%
+                IF FILL_ADJ.RECT_Y2% < shMinY% THEN shMinY% = FILL_ADJ.RECT_Y2%
+            CASE FILL_ADJ_SHAPE_ELLIPSE
+                shMinX% = FILL_ADJ.ELL_CX% - INT(FILL_ADJ.ELL_RX! + 0.5)
+                shMinY% = FILL_ADJ.ELL_CY% - INT(FILL_ADJ.ELL_RY! + 0.5)
+            CASE FILL_ADJ_SHAPE_POLYGON
+                DIM mpi AS INTEGER
+                shMinX% = FILL_ADJ_POLY_X%(0): shMinY% = FILL_ADJ_POLY_Y%(0)
+                FOR mpi% = 1 TO FILL_ADJ.POLY_COUNT% - 1
+                    IF FILL_ADJ_POLY_X%(mpi%) < shMinX% THEN shMinX% = FILL_ADJ_POLY_X%(mpi%)
+                    IF FILL_ADJ_POLY_Y%(mpi%) < shMinY% THEN shMinY% = FILL_ADJ_POLY_Y%(mpi%)
+                NEXT mpi%
+            CASE FILL_ADJ_SHAPE_FLOOD
+                shMinX% = FILL_ADJ.FLOOD_X1%: shMinY% = FILL_ADJ.FLOOD_Y1%
+        END SELECT
+
+        DIM prZw AS LONG, prZh AS LONG, prScrDX AS INTEGER, prScrDY AS INTEGER
+        DIM prOx AS INTEGER, prOy AS INTEGER
+        prZw& = INT(SCRN.canvasW& * SCRN.zoom!)
+        prZh& = INT(SCRN.canvasH& * SCRN.zoom!)
+        prScrDX% = (SCRN.w& - prZw&) \ 2 + SCRN.offsetX% + SCRN.panelShiftX%
+        prScrDY% = (SCRN.h& - prZh&) \ 2 + SCRN.offsetY%
+        prOx% = INT((shMinX% + FILL_ADJ.ORIGIN_X!) * SCRN.zoom!) + prScrDX%
+        prOy% = INT((shMinY% + FILL_ADJ.ORIGIN_Y!) * SCRN.zoom!) + prScrDY%
+
+        DIM mdx AS SINGLE, mdy AS SINGLE
+        mdx! = rawX% - prOx%
+        mdy! = rawY% - prOy%
+        FILL_ADJ.START_ANGLE! = _ATAN2(mdy!, mdx!)
+    END IF
 END SUB
 
 
@@ -572,6 +626,48 @@ SUB FILL_ADJ_handle_mouse_drag (cx AS INTEGER, cy AS INTEGER, rawX AS INTEGER, r
             FILL_ADJ.TILE_H! = FILL_ADJ.START_TILE_H! * scale!
             IF FILL_ADJ.TILE_H! < 1.0 THEN FILL_ADJ.TILE_H! = 1.0
             IF FILL_ADJ.TILE_H! > 9999 THEN FILL_ADJ.TILE_H! = 9999
+
+        CASE FILL_ADJ_DRAG_ROTATE
+            ' Rotation: compute angle from L-handle origin to current mouse position
+            DIM drShMinX AS INTEGER, drShMinY AS INTEGER
+            SELECT CASE FILL_ADJ.SHAPE_TYPE%
+                CASE FILL_ADJ_SHAPE_RECT
+                    drShMinX% = FILL_ADJ.RECT_X1%: drShMinY% = FILL_ADJ.RECT_Y1%
+                    IF FILL_ADJ.RECT_X2% < drShMinX% THEN drShMinX% = FILL_ADJ.RECT_X2%
+                    IF FILL_ADJ.RECT_Y2% < drShMinY% THEN drShMinY% = FILL_ADJ.RECT_Y2%
+                CASE FILL_ADJ_SHAPE_ELLIPSE
+                    drShMinX% = FILL_ADJ.ELL_CX% - INT(FILL_ADJ.ELL_RX! + 0.5)
+                    drShMinY% = FILL_ADJ.ELL_CY% - INT(FILL_ADJ.ELL_RY! + 0.5)
+                CASE FILL_ADJ_SHAPE_POLYGON
+                    DIM drpi AS INTEGER
+                    drShMinX% = FILL_ADJ_POLY_X%(0): drShMinY% = FILL_ADJ_POLY_Y%(0)
+                    FOR drpi% = 1 TO FILL_ADJ.POLY_COUNT% - 1
+                        IF FILL_ADJ_POLY_X%(drpi%) < drShMinX% THEN drShMinX% = FILL_ADJ_POLY_X%(drpi%)
+                        IF FILL_ADJ_POLY_Y%(drpi%) < drShMinY% THEN drShMinY% = FILL_ADJ_POLY_Y%(drpi%)
+                    NEXT drpi%
+                CASE FILL_ADJ_SHAPE_FLOOD
+                    drShMinX% = FILL_ADJ.FLOOD_X1%: drShMinY% = FILL_ADJ.FLOOD_Y1%
+            END SELECT
+
+            DIM drZw AS LONG, drZh AS LONG, drScrDX AS INTEGER, drScrDY AS INTEGER
+            DIM drOx AS INTEGER, drOy AS INTEGER
+            drZw& = INT(SCRN.canvasW& * SCRN.zoom!)
+            drZh& = INT(SCRN.canvasH& * SCRN.zoom!)
+            drScrDX% = (SCRN.w& - drZw&) \ 2 + SCRN.offsetX% + SCRN.panelShiftX%
+            drScrDY% = (SCRN.h& - drZh&) \ 2 + SCRN.offsetY%
+            drOx% = INT((drShMinX% + FILL_ADJ.ORIGIN_X!) * SCRN.zoom!) + drScrDX%
+            drOy% = INT((drShMinY% + FILL_ADJ.ORIGIN_Y!) * SCRN.zoom!) + drScrDY%
+
+            DIM curAngle AS SINGLE, angleDiff AS SINGLE
+            DIM drdx AS SINGLE, drdy AS SINGLE
+            drdx! = rawX% - drOx%
+            drdy! = rawY% - drOy%
+            curAngle! = _ATAN2(drdy!, drdx!)
+            angleDiff! = (curAngle! - FILL_ADJ.START_ANGLE!) * 180.0 / 3.14159265!
+            FILL_ADJ.ROTATION! = FILL_ADJ.START_ROTATION! + angleDiff!
+            ' Normalize to -180..180
+            DO WHILE FILL_ADJ.ROTATION! > 180: FILL_ADJ.ROTATION! = FILL_ADJ.ROTATION! - 360: LOOP
+            DO WHILE FILL_ADJ.ROTATION! < -180: FILL_ADJ.ROTATION! = FILL_ADJ.ROTATION! + 360: LOOP
     END SELECT
 
     FILL_ADJ_update
@@ -629,9 +725,18 @@ SUB FILL_ADJ_render_mask_brush ()
             IF NOT SELECTION_is_point_inside%(px%, py%) THEN _CONTINUE
             IF NOT OPACITY_LOCK_allows_draw%(px%, py%) THEN _CONTINUE
 
-            ' Map pixel to tiled brush coordinate
-            bx% = ((px% - FILL_ADJ.FLOOD_X1% - INT(FILL_ADJ.ORIGIN_X!)) MOD bw% + bw%) MOD bw%
-            by% = ((py% - FILL_ADJ.FLOOD_Y1% - INT(FILL_ADJ.ORIGIN_Y!)) MOD bh% + bh%) MOD bh%
+            ' Map pixel to tiled brush coordinate with rotation
+            DIM mbTileInX AS SINGLE, mbTileInY AS SINGLE
+            mbTileInX! = px% - FILL_ADJ.FLOOD_X1% - FILL_ADJ.ORIGIN_X!
+            mbTileInY! = py% - FILL_ADJ.FLOOD_Y1% - FILL_ADJ.ORIGIN_Y!
+            IF FILL_ADJ.ROTATION! <> 0 THEN
+                DIM mbRotX AS SINGLE, mbRotY AS SINGLE
+                FILL_ADJ_rotate_coords mbTileInX!, mbTileInY!, -FILL_ADJ.ROTATION!, mbRotX!, mbRotY!
+                mbTileInX! = mbRotX!
+                mbTileInY! = mbRotY!
+            END IF
+            bx% = (INT(mbTileInX!) MOD bw% + bw%) MOD bw%
+            by% = (INT(mbTileInY!) MOD bh% + bh%) MOD bh%
 
             IF CUSTOM_BRUSH.FLIP_H% THEN
                 src_px% = CUSTOM_BRUSH.ORIG_WIDTH% - 1 - INT(bx% * CUSTOM_BRUSH.ORIG_WIDTH% / bw%)
@@ -767,10 +872,19 @@ SUB FILL_ADJ_render_paint_mode ()
 
             ' Resolve paint color based on mode
             IF FILL_ADJ.PAINT_MODE% = FILL_ADJ_PAINT_PATTERN THEN
-                ' Tiled pattern with adjustable origin and scale
+                ' Tiled pattern with adjustable origin, scale, and rotation
                 DIM bx AS INTEGER, by AS INTEGER
-                bx% = ((px% - minX% - INT(FILL_ADJ.ORIGIN_X!)) MOD bw% + bw%) MOD bw%
-                by% = ((py% - minY% - INT(FILL_ADJ.ORIGIN_Y!)) MOD bh% + bh%) MOD bh%
+                DIM tileInX AS SINGLE, tileInY AS SINGLE
+                tileInX! = px% - minX% - FILL_ADJ.ORIGIN_X!
+                tileInY! = py% - minY% - FILL_ADJ.ORIGIN_Y!
+                IF FILL_ADJ.ROTATION! <> 0 THEN
+                    DIM rotOutX AS SINGLE, rotOutY AS SINGLE
+                    FILL_ADJ_rotate_coords tileInX!, tileInY!, -FILL_ADJ.ROTATION!, rotOutX!, rotOutY!
+                    tileInX! = rotOutX!
+                    tileInY! = rotOutY!
+                END IF
+                bx% = (INT(tileInX!) MOD bw% + bw%) MOD bw%
+                by% = (INT(tileInY!) MOD bh% + bh%) MOD bh%
                 srcX% = INT(bx% * imgW% / bw%)
                 srcY% = INT(by% * imgH% / bh%)
                 IF srcX% >= imgW% THEN srcX% = imgW% - 1
@@ -947,6 +1061,44 @@ SUB FILL_ADJ_render_overlay ()
     ' Diagonal arrows icon inside corner box
     LINE (ox% - 3, oy% - 3)-(ox% + 3, oy% + 3), THEME.FILL_ADJ_DASH_COLOR2~&
     LINE (ox% + 3, oy% - 3)-(ox% - 3, oy% + 3), THEME.FILL_ADJ_DASH_COLOR2~&
+
+    ' Rotation arc handle (upper-right quadrant arc from corner)
+    DIM rotColor AS _UNSIGNED LONG
+    DIM rotRadius AS INTEGER
+    IF FILL_ADJ.DRAG_MODE% = FILL_ADJ_DRAG_ROTATE THEN
+        rotColor~& = THEME.FILL_ADJ_ROTATE_ACTIVE_COLOR~&
+    ELSE
+        rotColor~& = THEME.FILL_ADJ_ROTATE_COLOR~&
+    END IF
+    rotRadius% = THEME.FILL_ADJ_ROTATE_RADIUS%
+    ' Draw arc as series of short line segments in upper-right quadrant
+    DIM arcA AS SINGLE, arcPrevAX AS INTEGER, arcPrevAY AS INTEGER
+    DIM arcSteps AS INTEGER, arcStep AS INTEGER
+    arcSteps% = 16
+    FOR arcStep% = 0 TO arcSteps%
+        arcA! = -1.5707963! + arcStep% * 1.5707963! / arcSteps%  ' -PI/2 to 0
+        DIM arcAX AS INTEGER, arcAY AS INTEGER
+        arcAX% = ox% + INT(COS(arcA!) * rotRadius%)
+        arcAY% = oy% + INT(SIN(arcA!) * rotRadius%)
+        IF arcStep% > 0 THEN
+            LINE (arcPrevAX%, arcPrevAY%)-(arcAX%, arcAY%), rotColor~&
+            ' Draw thick by offsetting
+            LINE (arcPrevAX% + 1, arcPrevAY%)-(arcAX% + 1, arcAY%), rotColor~&
+            LINE (arcPrevAX%, arcPrevAY% + 1)-(arcAX%, arcAY% + 1), rotColor~&
+        END IF
+        arcPrevAX% = arcAX%
+        arcPrevAY% = arcAY%
+    NEXT arcStep%
+    ' Small circle at the end of the arc (rotation grab handle)
+    DIM arcEndX AS INTEGER, arcEndY AS INTEGER
+    arcEndX% = ox% + rotRadius%
+    arcEndY% = oy%
+    CIRCLE (arcEndX%, arcEndY%), 4, rotColor~&
+    CIRCLE (arcEndX%, arcEndY%), 3, rotColor~&
+    ' Arrow tip at arc end pointing clockwise
+    LINE (arcEndX% + 2, arcEndY% - 5)-(arcEndX%, arcEndY%), rotColor~&
+    LINE (arcEndX% + 6, arcEndY% + 1)-(arcEndX%, arcEndY%), rotColor~&
+
     END IF ' END procedural vs PNG icon
 
     ' ---- Dashed bounding box ----
@@ -986,9 +1138,18 @@ SUB FILL_ADJ_render_overlay ()
         CASE FILL_ADJ_DRAG_UNIFORM: modeStr$ = " [Uniform]"
         CASE FILL_ADJ_DRAG_SCALE_X: modeStr$ = " [X only]"
         CASE FILL_ADJ_DRAG_SCALE_Y: modeStr$ = " [Y only]"
+        CASE FILL_ADJ_DRAG_ROTATE: modeStr$ = " [Rotate]"
         CASE ELSE: modeStr$ = ""
     END SELECT
-    info$ = "Tile: " + LTRIM$(STR$(INT(FILL_ADJ.TILE_W! + 0.5))) + "x" + LTRIM$(STR$(INT(FILL_ADJ.TILE_H! + 0.5))) + modeStr$ + "  Wheel=Scale  L-Handle=Resize  Drag=Pan  Enter/Esc"
+    DIM rotStr AS STRING
+    IF FILL_ADJ.ROTATION! <> 0 THEN
+        DIM rotDeg AS INTEGER
+        rotDeg% = INT(FILL_ADJ.ROTATION! + 0.5)
+        rotStr$ = "  Rot: " + LTRIM$(STR$(rotDeg%)) + CHR$(248)
+    ELSE
+        rotStr$ = ""
+    END IF
+    info$ = "Tile: " + LTRIM$(STR$(INT(FILL_ADJ.TILE_W! + 0.5))) + "x" + LTRIM$(STR$(INT(FILL_ADJ.TILE_H! + 0.5))) + rotStr$ + modeStr$ + "  Wheel=Scale  Arc=Rotate  Drag=Pan  Enter/Esc"
     DIM textX AS INTEGER, textY AS INTEGER
     DIM textW AS INTEGER
     textW% = _PRINTWIDTH(info$)
@@ -1002,4 +1163,23 @@ SUB FILL_ADJ_render_overlay ()
     _UPRINTSTRING (textX%, textY%), info$
 
     _DEST old_dest&
+END SUB
+
+
+''
+' Rotate a 2D point by angleDeg degrees around the origin (0,0).
+' Used by tile coordinate computation to apply rotation to the fill pattern.
+' @param inX SINGLE Input X coordinate
+' @param inY SINGLE Input Y coordinate
+' @param angleDeg SINGLE Rotation angle in degrees
+' @param outX SINGLE Output rotated X coordinate
+' @param outY SINGLE Output rotated Y coordinate
+'
+SUB FILL_ADJ_rotate_coords (inX AS SINGLE, inY AS SINGLE, angleDeg AS SINGLE, outX AS SINGLE, outY AS SINGLE)
+    DIM rad AS SINGLE, cosA AS SINGLE, sinA AS SINGLE
+    rad! = angleDeg! * 3.14159265! / 180.0
+    cosA! = COS(rad!)
+    sinA! = SIN(rad!)
+    outX! = cosA! * inX! + sinA! * inY!
+    outY! = -sinA! * inX! + cosA! * inY!
 END SUB
