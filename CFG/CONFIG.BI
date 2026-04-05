@@ -283,6 +283,7 @@ TYPE DRAW_CONFIG
     PREVIEW_BIN_QUICK_LOOK         AS INTEGER  ' TRUE = enable Bin Quick Look hover preview
     PREVIEW_FLOAT_IMAGE_PATH       AS STRING   ' Last loaded floating image path
     PREVIEW_FLOAT_LAST_DIR         AS STRING   ' Last directory used for Load Image dialog
+    PIXEL_ANALYZER_CONFIDENCE      AS INTEGER  ' Pixel analyzer confidence threshold percent (10-90)
     EDIT_BAR_VISIBLE               AS INTEGER  ' TRUE = edit bar visible at startup
     EDIT_BAR_DOCK_POSITION         AS STRING  ' "LEFT" or "RIGHT"
     ADV_BAR_VISIBLE                AS INTEGER  ' TRUE = advanced bar visible at startup
