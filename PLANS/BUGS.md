@@ -1,5 +1,24 @@
 # BUGS
 
+## VIEW -> EDIT MENU ITEMS
+
+> Move anything not related to "viewing" out of the view menu.
+> Move these just above the divider for Edit -> Flip Horizontal
+
+- [x] --- DIVIDER ---
+- [x] Snap to Grid
+- [x] Snap to Character Grid
+- [x] Angle Snap 45
+- [x] Angle Snap: Pixel Art
+- [x] --- DIVIDER ---
+- [x] Grid Tile Mode
+- [x] Grid Cell Fill
+- [x] --- DIVIDER ---
+- [x] Fill Adjustment Mode
+- [x] Pattern Tile Mode
+- [x] ... edit -> divider just above flip horizontal
+
+
 ## PAINT ON APRON
 - [x] Should not be able to click on apron which would draw on canvas
 
