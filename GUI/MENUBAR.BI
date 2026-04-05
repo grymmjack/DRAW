@@ -114,6 +114,14 @@ TYPE MENU_BAR_OBJ
     pvwRecentW     AS INTEGER      ' Recent preview submenu width
     pvwRecentH     AS INTEGER      ' Recent preview submenu height
     pvwRecentItemIdx AS INTEGER    ' Child index of "RECENT" item in pvw submenu
+    ' Export As submenu state
+    exportOpen     AS INTEGER      ' TRUE when Export As submenu is showing
+    exportHover    AS INTEGER      ' Hovered item (-1 = none)
+    exportX        AS INTEGER      ' Export submenu X position
+    exportY        AS INTEGER      ' Export submenu Y position
+    exportW        AS INTEGER      ' Export submenu width
+    exportH        AS INTEGER      ' Export submenu height
+    exportItemIdx  AS INTEGER      ' Child index of "EXPORT AS..." item in parent dropdown
 END TYPE
 
 DIM SHARED MENU_BAR AS MENU_BAR_OBJ
@@ -173,4 +181,7 @@ DECLARE FUNCTION MENUBAR_pvw_in_bounds% (rawX AS INTEGER, rawY AS INTEGER)
 DECLARE SUB MENUBAR_render_pvw_recent_submenu ()
 DECLARE SUB MENUBAR_handle_pvw_recent_click (rawX AS INTEGER, rawY AS INTEGER)
 DECLARE FUNCTION MENUBAR_pvw_recent_in_bounds% (rawX AS INTEGER, rawY AS INTEGER)
+DECLARE SUB MENUBAR_render_export_submenu ()
+DECLARE SUB MENUBAR_handle_export_click (rawX AS INTEGER, rawY AS INTEGER)
+DECLARE FUNCTION MENUBAR_export_in_bounds% (rawX AS INTEGER, rawY AS INTEGER)
 

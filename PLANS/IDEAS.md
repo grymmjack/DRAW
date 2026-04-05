@@ -349,3 +349,18 @@ cell alignment inside, borders, border widths, border colors, etc.
 
 
 
+## ADD FILE -> EXPORT
+
+> Create new File submenu with all these options to export flattened image:
+
+- [x] PNG (DRAW NATIVE)
+- [x] PNG
+- [x] GIF
+- [x] JPG
+- [x] TGA
+- [x] BMP
+- [x] HDR
+- [x] ICO
+- [x] QOI
+
+
