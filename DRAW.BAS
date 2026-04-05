@@ -288,6 +288,12 @@ DO
         IF NOT mouseOverCanvas% THEN
             GUI_NEEDS_REDRAW% = TRUE                              ' Update hover highlights in toolbar/organizer/drawer/editbar/layerpanel
         END IF
+        ' Force full render path on canvas hover — the dirty-rect/STATUS-ONLY fast
+        ' paths cause visible cursor lag due to partial compositing overhead.
+        ' The full path (CLS → GUI → composite → scene cache → present) is actually
+        ' smoother because COMPOSITE_RESULT_VALID% caches the expensive layer merge
+        ' and the single full-frame window blit has less driver overhead.
+        IF mouseOverCanvas% THEN SCENE_CHANGED% = TRUE
     END IF
     IF GUI_NEEDS_REDRAW% THEN FRAME_IDLE% = FALSE   ' GUI-only updates should stay on the cached-scene path unless something else dirtied the scene
     IF STATUS_NEEDS_REDRAW% THEN FRAME_IDLE% = FALSE
