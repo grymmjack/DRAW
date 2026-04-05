@@ -404,6 +404,43 @@ TYPE DRAW_THEME
     EDIT_BAR_ICON_SCALE_UP      AS STRING * 64 ' Scale up icon PNG filename
     EDIT_BAR_ICON_ROTATE_CW     AS STRING * 64 ' Rotate clockwise icon PNG filename
     EDIT_BAR_ICON_ROTATE_CCW    AS STRING * 64 ' Rotate counter-clockwise icon PNG filename
+    ' --- Advanced Bar ---
+    ADV_BAR_LEFT_BORDER_COLOR   AS _UNSIGNED LONG  ' Advanced bar left border color
+    ADV_BAR_RIGHT_BORDER_COLOR  AS _UNSIGNED LONG  ' Advanced bar right border color
+    ADV_BAR_LEFT_BORDER_WIDTH   AS INTEGER         ' Advanced bar left border width (pixels)
+    ADV_BAR_RIGHT_BORDER_WIDTH  AS INTEGER         ' Advanced bar right border width (pixels)
+    ADV_BAR_WIDTH               AS INTEGER         ' Advanced bar content width (pixels)
+    ADV_BAR_ICON_PADDING        AS INTEGER         ' Advanced bar vertical icon spacing (pixels)
+    ADV_BAR_BG_COLOR            AS _UNSIGNED LONG  ' Advanced bar background fill
+    ADV_BAR_ICON_MOUSE_OUTLINE_COLOR AS _UNSIGNED LONG ' Advanced bar hover outline color
+    ADV_BAR_ICON_DISABLED_ALPHA AS INTEGER         ' Disabled icon dim (0-255)
+    ADV_BAR_DIVIDER_VERT_MARGIN AS INTEGER         ' Divider spacing (pixels)
+    ADV_BAR_ICON_PREVIEW_WINDOW AS STRING * 64     ' Preview Window icon
+    ADV_BAR_ICON_EDIT_BAR       AS STRING * 64     ' Edit Bar icon
+    ADV_BAR_ICON_CHAR_MAP       AS STRING * 64     ' Character Map icon
+    ADV_BAR_ICON_CHAR_GRID      AS STRING * 64     ' Character Grid icon
+    ADV_BAR_ICON_CHAR_GRID_SNAP AS STRING * 64     ' Char Grid Snap icon
+    ADV_BAR_ICON_TILE_MODE      AS STRING * 64     ' Tile Preview Mode icon
+    ADV_BAR_ICON_FILL_GRID_MODE AS STRING * 64     ' Grid Cell Fill icon
+    ADV_BAR_ICON_GRID_BRUSH_SIZE AS STRING * 64    ' Resize Grid to Brush Size icon
+    ADV_BAR_ICON_FILL_ADJUST    AS STRING * 64     ' Fill Adjustment Mode icon
+    ADV_BAR_ICON_BRUSH_EDGES    AS STRING * 64     ' Brush Edges icon
+    ADV_BAR_ICON_ANGLE_SNAP     AS STRING * 64     ' Angle Snap icon
+    ADV_BAR_ICON_GRAYSCALE      AS STRING * 64     ' Grayscale icon
+    ADV_BAR_ICON_REF_ON         AS STRING * 64     ' Reference Image toggle icon
+    ADV_BAR_ICON_REF_LOAD       AS STRING * 64     ' Load Reference Image icon
+    ADV_BAR_ICON_REF_CLEAR      AS STRING * 64     ' Clear Reference Image icon
+    ADV_BAR_ICON_REF_ADJUST     AS STRING * 64     ' Adjust Reference Image icon
+    ADV_BAR_ICON_ALIGN_LEFT     AS STRING * 64     ' Align Left icon
+    ADV_BAR_ICON_ALIGN_CENTER   AS STRING * 64     ' Align Center icon
+    ADV_BAR_ICON_ALIGN_RIGHT    AS STRING * 64     ' Align Right icon
+    ADV_BAR_ICON_ALIGN_TOP      AS STRING * 64     ' Align Top icon
+    ADV_BAR_ICON_ALIGN_MIDDLE   AS STRING * 64     ' Align Middle icon
+    ADV_BAR_ICON_ALIGN_BOTTOM   AS STRING * 64     ' Align Bottom icon
+    ADV_BAR_ICON_DIST_H         AS STRING * 64     ' Distribute Horizontal icon
+    ADV_BAR_ICON_DIST_V         AS STRING * 64     ' Distribute Vertical icon
+    ADV_BAR_ICON_FLIP_CANVAS_H  AS STRING * 64     ' Flip Canvas Horizontal icon
+    ADV_BAR_ICON_FLIP_CANVAS_V  AS STRING * 64     ' Flip Canvas Vertical icon
     ' --- Tooltips ---
     TOOLTIP_FONT               AS STRING          ' Tooltip font filename (empty = use global font)
     TOOLTIP_FONT_SIZE          AS INTEGER         ' Tooltip font size in pixels (default 8)

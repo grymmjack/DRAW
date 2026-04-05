@@ -57,6 +57,12 @@ TYPE SCREEN_OBJ
     toolbarHiddenByToggleRight     AS INTEGER
     editBarHiddenByToggleRight     AS INTEGER
     editBarHiddenByToggleLeft      AS INTEGER
+    showAdvBar                AS INTEGER   ' TRUE when advanced bar is visible
+    advBarManuallyHidden      AS INTEGER   ' TRUE when user explicitly hid advanced bar
+    advBarHiddenByToggleAll   AS INTEGER   ' TRUE only when toggle-all (F11) hid adv bar
+    advBarX                   AS INTEGER   ' Left edge of advanced bar (varies by dock side)
+    advBarHiddenByToggleRight AS INTEGER
+    advBarHiddenByToggleLeft  AS INTEGER
     layerPanelHiddenByToggleLeft   AS INTEGER
     layerPanelHiddenByToggleRight  AS INTEGER
     menubarHiddenByToggleTop       AS INTEGER
@@ -93,6 +99,7 @@ DIM SHARED TOOLBAR_NEEDS_REDRAW AS INTEGER
 DIM SHARED ORGANIZER_NEEDS_REDRAW AS INTEGER
 DIM SHARED DRAWER_NEEDS_REDRAW AS INTEGER
 DIM SHARED EDITBAR_NEEDS_REDRAW AS INTEGER
+DIM SHARED ADVBAR_NEEDS_REDRAW AS INTEGER
 DIM SHARED MENUBAR_NEEDS_REDRAW AS INTEGER
 DIM SHARED LAYER_PANEL_NEEDS_REDRAW AS INTEGER
 DIM SHARED PALETTE_STRIP_NEEDS_REDRAW AS INTEGER

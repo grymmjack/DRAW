@@ -413,6 +413,46 @@ THEME.EDIT_BAR_ICON_SCALE_UP$       = "eb-scale-up.png"
 THEME.EDIT_BAR_ICON_ROTATE_CW$      = "eb-rotate-cw.png"
 THEME.EDIT_BAR_ICON_ROTATE_CCW$     = "eb-rotate-ccw.png"
 
+' =============================================================================
+' ADVANCED BAR - Dockable vertical icon bar for advanced features
+' =============================================================================
+THEME.ADV_BAR_LEFT_BORDER_COLOR~&   = _RGB32(64, 64, 64)
+THEME.ADV_BAR_RIGHT_BORDER_COLOR~&  = _RGB32(64, 64, 64)
+THEME.ADV_BAR_LEFT_BORDER_WIDTH%    = 1
+THEME.ADV_BAR_RIGHT_BORDER_WIDTH%   = 1
+THEME.ADV_BAR_WIDTH%                = 18
+THEME.ADV_BAR_ICON_PADDING%         = 0
+THEME.ADV_BAR_BG_COLOR~&            = _RGBA32(0, 0, 0, 255)
+THEME.ADV_BAR_ICON_MOUSE_OUTLINE_COLOR~& = _RGBA32(255, 255, 255, 200)
+THEME.ADV_BAR_ICON_DISABLED_ALPHA%  = 160
+THEME.ADV_BAR_DIVIDER_VERT_MARGIN%  = 4
+THEME.ADV_BAR_ICON_PREVIEW_WINDOW$  = "preview-window.png"
+THEME.ADV_BAR_ICON_EDIT_BAR$        = "edit-bar.png"
+THEME.ADV_BAR_ICON_CHAR_MAP$        = "char-map.png"
+THEME.ADV_BAR_ICON_CHAR_GRID$       = "char-grid.png"
+THEME.ADV_BAR_ICON_CHAR_GRID_SNAP$  = "char-grid-snap.png"
+THEME.ADV_BAR_ICON_TILE_MODE$       = "tile-mode.png"
+THEME.ADV_BAR_ICON_FILL_GRID_MODE$  = "fill-grid-mode.png"
+THEME.ADV_BAR_ICON_GRID_BRUSH_SIZE$ = "grid-tile-mode.png"
+THEME.ADV_BAR_ICON_FILL_ADJUST$     = "fill-adjust.png"
+THEME.ADV_BAR_ICON_BRUSH_EDGES$     = "brush-grid-size.png"
+THEME.ADV_BAR_ICON_ANGLE_SNAP$      = "angle-snap.png"
+THEME.ADV_BAR_ICON_GRAYSCALE$       = "grayscale.png"
+THEME.ADV_BAR_ICON_REF_ON$          = "reference-on.png"
+THEME.ADV_BAR_ICON_REF_LOAD$        = "reference-load.png"
+THEME.ADV_BAR_ICON_REF_CLEAR$       = "reference-clear.png"
+THEME.ADV_BAR_ICON_REF_ADJUST$      = "reference-adjust.png"
+THEME.ADV_BAR_ICON_ALIGN_LEFT$      = "align-left.png"
+THEME.ADV_BAR_ICON_ALIGN_CENTER$    = "align-center.png"
+THEME.ADV_BAR_ICON_ALIGN_RIGHT$     = "align-right.png"
+THEME.ADV_BAR_ICON_ALIGN_TOP$       = "align-top.png"
+THEME.ADV_BAR_ICON_ALIGN_MIDDLE$    = "align-middle.png"
+THEME.ADV_BAR_ICON_ALIGN_BOTTOM$    = "align-bottom.png"
+THEME.ADV_BAR_ICON_DIST_H$          = "distribute-horizontal.png"
+THEME.ADV_BAR_ICON_DIST_V$          = "distribute-vertical.png"
+THEME.ADV_BAR_ICON_FLIP_CANVAS_H$   = "flip-canvas-horizontal.png"
+THEME.ADV_BAR_ICON_FLIP_CANVAS_V$   = "flip-canvas-vertical.png"
+
 PALETTE_SEP_LOSPEC_LBL$             = "-- USER : LOSPEC --"
 PALETTE_SEP_CREATED_LBL$            = "-- USER : CREATED --"
 
