@@ -1,5 +1,5 @@
 ---
-applyTo: "**/SCREEN.BM, **/SCREEN.BI, **/TOOLBAR.BI, **/TOOLBAR.BM, **/ORGANIZER.BI, **/ORGANIZER.BM, **/DRAWER.BI, **/DRAWER.BM, **/MENUBAR.BI, **/STATUS.BI, **/PALETTE-STRIP.BI, **/PALETTE-STRIP.BM, **/LAYERS.BI, **/EDITBAR.BI, **/EDITBAR.BM, **/PREVIEW.BI, **/SCROLLBAR.BI, **/CONFIG-THEME.BI"
+applyTo: "**/SCREEN.BM, **/SCREEN.BI, **/TOOLBAR.BI, **/TOOLBAR.BM, **/ORGANIZER.BI, **/ORGANIZER.BM, **/DRAWER.BI, **/DRAWER.BM, **/MENUBAR.BI, **/STATUS.BI, **/PALETTE-STRIP.BI, **/PALETTE-STRIP.BM, **/LAYERS.BI, **/EDITBAR.BI, **/EDITBAR.BM, **/ADVANCEDBAR.BI, **/ADVANCEDBAR.BM, **/PREVIEW.BI, **/SCROLLBAR.BI, **/CONFIG-THEME.BI"
 ---
 
 # DRAW UI Chrome Geometry Reference
@@ -264,6 +264,22 @@ Full viewport height (minus menu bar and status/palette strip areas).
 **Total width:** `EDIT_BAR_WIDTH + LEFT_BORDER + RIGHT_BORDER = 18 + 1 + 1 = 20px`
 
 Hidden by default (`SCRN.showEditBar% = FALSE`).
+
+---
+
+## Advanced Bar — `GUI/ADVANCEDBAR.BI`
+
+| Constant / Source                      | Default | Description          |
+|----------------------------------------|---------|----------------------|
+| `THEME.ADV_BAR_WIDTH%`                | 18      | Bar content width    |
+| `THEME.ADV_BAR_LEFT_BORDER_WIDTH%`    | 1       | Left border width    |
+| `THEME.ADV_BAR_RIGHT_BORDER_WIDTH%`   | 1       | Right border width   |
+| `ADVBAR_DOCK_LEFT`                    | 0       | Dock side constant   |
+| `ADVBAR_DOCK_RIGHT`                   | 1       | Dock side constant   |
+
+**Total width:** `ADV_BAR_WIDTH + LEFT_BORDER + RIGHT_BORDER = 18 + 1 + 1 = 20px`
+
+Hidden by default (`SCRN.showAdvBar% = FALSE`). Docks independently from EditBar.
 
 ---
 

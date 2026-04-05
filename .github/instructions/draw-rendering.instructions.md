@@ -44,6 +44,8 @@ When only the cursor moved, `SCENE_DIRTY%` stays FALSE. The renderer copies the 
 
 **What sets `FRAME_IDLE% = FALSE` but NOT `SCENE_DIRTY%`**: Mouse movement alone (cursor-only fast path), active selections (marching ants animate after `SkipToPointer:`).
 
+**Cursor lag fix (v0.29.0)**: `DRAW.BAS` now sets `SCENE_CHANGED% = TRUE` when the mouse moves over the canvas. This forces the full render path (with `COMPOSITE_RESULT_VALID%` caching) instead of the STATUS-ONLY / dirty-rect partial-present fast paths, which caused visible PNG cursor lag.
+
 **Rule**: Per-frame animations MUST render after `SkipToPointer:`. Placing them before forces `SCENE_DIRTY% = TRUE` every frame, defeating the cache.
 
 **Overlay rule**: Any overlay that must remain visible above the recomposited GUI layer belongs after the second GUI composite. The picker loupe and final popup overlays are the current examples. The preview window is the counterexample: it renders before the second GUI composite so menus, status overlays, and pickers can remain on top of it.

@@ -480,7 +480,8 @@ Brush size and shape affect all drawing tools: Brush, Dot, Line, Rectangle, Elli
 | `Ctrl+B` (with brush active) | Clear/deactivate custom brush |
 | `F9` | Toggle recolor mode (paint brush in FG color) |
 | `Shift+O` | Apply 1px outline using BG color (turns off recolor mode) |
-| `` ` `` (backtick) | Toggle custom brush outline visibility |
+| `` ` `` (backtick) | Toggle brush cursor visibility (or custom brush outline when custom brush active) |
+| `\` (backslash) | Toggle brush cursor shape (crosshair / circle) |
 | `F12` | Export active custom brush as PNG file |
 | `Home` | Flip custom brush horizontally |
 | `End` | Flip custom brush vertically |
@@ -532,7 +533,9 @@ Brush size and shape affect all drawing tools: Brush, Dot, Line, Rectangle, Elli
 | `Ctrl+L` | Toggle layer panel visibility |
 | `F4` | Toggle preview window |
 | `F5` | Toggle edit bar |
+| `Shift+F5` | Toggle advanced bar |
 | `Ctrl+M` | Toggle character map panel |
+| `Ctrl+Alt+Shift+G` | Toggle grayscale preview |
 | `F10` | Toggle status bar visibility |
 | `F11` | Toggle all UI (toolbar, status bar, layer panel, menu bar) |
 | `Ctrl+F11` | Toggle menu bar visibility |
@@ -1010,6 +1013,9 @@ Reference image state (position, scale, opacity, visibility, filename) is saved 
 | File → Import Image | Open/import image file |
 | File → Save | Save (silently if previously saved, dialog if new) |
 | File → Save As... | Save with a new filename (always prompts) |
+| File → Open Aseprite | Open Aseprite (.ase/.aseprite) file |
+| File → Open PSD | Open Photoshop (.psd) file |
+| File → Export As | Export flattened image (PNG, GIF, JPEG, TGA, BMP, HDR, ICO, QOI) |
 | File → Export Layer | Export current layer as PNG |
 | File → Export Brush | Export active custom brush as PNG |
 | File → Exit | Exit DRAW (`Alt+X`) |
@@ -1331,15 +1337,16 @@ DRAW has an optional menu bar at the top of the screen providing access to all c
 
 | Menu | Contents |
 |------|----------|
-| **File** | New, Open, Import Image, Save, Save As, Export Layer, Export Brush, Exit |
+| **File** | New, Open, Open Aseprite, Open PSD, Import Image, Save, Save As, Export As, Export Layer, Export Brush, Exit |
 | **Edit** | Undo, Redo, Cut, Copy, Paste, Select All, Deselect, Invert Selection, Flip H/V, Scale, Rotate 90° CW/CCW, Canvas Resize, Canvas Crop |
-| **View** | Toolbar, Status Bar, Layer Panel, Menu Bar, Cursors, Grid, Pixel Grid, Snap, Crosshair, Reference Image (toggle/load/clear/reposition), Preview Window (Follow/Float modes, Bin Quick Look, Color Pick, Load Image, Recent Images), Layout docking |
+| **View** | Toolbar, Status Bar, Layer Panel, Menu Bar, Advanced Bar, Cursors, Grid, Pixel Grid, Snap, Crosshair, Grayscale Preview, Reference Image (toggle/load/clear/reposition), Preview Window (Follow/Float modes, Bin Quick Look, Color Pick, Load Image, Recent Images), Layout docking |
 | **Select** | All, None, Invert, Expand, Contract, From Current Layer, **From Selected Layers** *(requires 2+ selected)* |
 | **Canvas** | Clear Canvas, Zoom In/Out, Reset Zoom |
 | **Tools** | All drawing tools (Dot, Brush, Line, etc.) |
 | **Layer** | New, Duplicate, Delete, Merge Down, Merge All, **Merge Selected** *(requires 2+ selected)*, Arrange, Align, Distribute |
 | **Palette** | Color Picker, Import Palette, Export Palette, Random Palette, Load Palette, Load from Lospec, Create from Image, Remap to Palette, Show Lospec Palettes, Swap Colors |
-| **Image** | Resize, Crop, Brightness/Contrast, Hue/Saturation, Levels, Color Balance, Blur, Sharpen, Invert, Desaturate, Posterize, Pixelate |
+| **Image** | Resize, Crop, Flip Canvas H/V, Brightness/Contrast, Hue/Saturation, Levels, Color Balance, Blur, Sharpen, Invert, Desaturate, Posterize, Pixelate |
+| **Tools** | All drawing tools (Dot, Brush, Line, etc.), Pixel Art Analyzer |
 | **Help** | Command Palette, Cheatsheet |
 | **Audio** | Sound FX toggle, Music toggle, SFX/Music volume up/down, SFX/Music mute, Explore Music, Now Playing |
 

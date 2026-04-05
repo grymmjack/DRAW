@@ -1,5 +1,5 @@
 ---
-applyTo: "**/MENUBAR.BM, **/COMMAND.BM, **/TOOLBAR.BM, **/TOOLBAR.BI, **/ORGANIZER.BM, **/ORGANIZER.BI, **/EDITBAR.BM, **/EDITBAR.BI, **/SETTINGS.BM, **/SETTINGS.BI, **/SETTINGS-TABS.BM, **/SETTINGS-WIDGETS.BM"
+applyTo: "**/MENUBAR.BM, **/COMMAND.BM, **/TOOLBAR.BM, **/TOOLBAR.BI, **/ORGANIZER.BM, **/ORGANIZER.BI, **/EDITBAR.BM, **/EDITBAR.BI, **/ADVANCEDBAR.BM, **/ADVANCEDBAR.BI, **/TOOLTIP.BM, **/TOOLTIP.BI, **/SETTINGS.BM, **/SETTINGS.BI, **/SETTINGS-TABS.BM, **/SETTINGS-WIDGETS.BM"
 ---
 
 # DRAW — UI: Menus, Commands, Toolbar, Organizer, Edit Bar
@@ -29,10 +29,10 @@ Root menus (indices 0–10): FILE(0), EDIT(1), VIEW(2), SELECT(3), TOOLS(4), BRU
 | Range     | Category     | Key Actions |
 | --------- | ------------ | ----------- |
 | 101–118   | Tools        | Brush, Dot, Fill, Picker, Line, Polygon, Rect, Ellipse, Marquee, Move, Text, MagicWand, Eraser |
-| 201–214   | File         | Open, Save, SaveAs, Export, ExportSelection, Import, New, Template, Revert, Recent, Exit, ExtractImages(214) |
+| 201–217   | File         | Open, Save, SaveAs, Export, ExportSelection, Import, New, Template, Revert, Recent, Exit, ExtractImages(214), OpenAseprite(215), OpenPSD(216), ExportAsFlyout(217) |
 | 301–324   | Edit         | Undo, Redo, Copy, Cut, Paste, Clear, SelectAll, Fill FG/BG, Flip, Scale, Rotate, CopyToNewLayer, StrokeSelection |
 | 325–330   | Transform    | Overlay modes: Scale(325), Distort(326), Perspective(327), Rotate(328), Shear(329); 330=TRANSFORM_ACT_FLYOUT (opens the TRANSFORM... submenu) |
-| 401–448   | View/Audio   | Toolbar, StatusBar, LayerPanel, MenuBar, Zoom, DisplayScale (408=Up/409=Down/416=Reset), Preview Window (434=toggle), Edit Bar (435=toggle), Left/Right Side UI (436/437), Pattern Tile Mode (440=toggle), Canvas Border (441), Layout Submenu (442 parent, 443–448 dock left/right for Toolbox/LayerPanel/EditBar), SFX/Music controls (427=NextTrack, 428=PrevTrack, 429=RandomMOD, 430=RandomIT, 431=RandomXM, 432=RandomRAD, 433=RandomAny) |
+| 401–451   | View/Audio   | Toolbar, StatusBar, LayerPanel, MenuBar, Zoom, DisplayScale (408=Up/409=Down/416=Reset), BrushCursorToggle(412), Preview Window (434=toggle), Edit Bar (435=toggle), Left/Right Side UI (436/437), Pattern Tile Mode (440=toggle), Canvas Border (441), Layout Submenu (442 parent, 443–448 dock left/right for Toolbox/LayerPanel/EditBar), Advanced Bar (449=toggle, 450/451 dock left/right), SFX/Music controls (427=NextTrack, 428=PrevTrack, 429=RandomMOD, 430=RandomIT, 431=RandomXM, 432=RandomRAD, 433=RandomAny) |
 | 501–517   | Color        | Opacity presets (10–100%), Swap FG/BG |
 | 601–609   | Brush        | Size dec/inc, presets, preview, shape, pixel perfect |
 | 701–714   | Layer        | New, Delete, MoveUp/Down, MergeDown, MergeVisible, Duplicate, ArrangeTop/Bottom, ExportLayerPNG, MergeSelected, NewTextLayer(712), RasterizeText(713), RasterizeAllText(714) |
@@ -43,13 +43,14 @@ Root menus (indices 0–10): FILE(0), EDIT(1), VIEW(2), SELECT(3), TOOLS(4), BRU
 | 1201–1206 | Assistants   | Constrain, AngleSnap, Square/Circle, Center, Clone, TempPicker |
 | 1401–1414 | Selection    | SelectFromLayer, Nudge 1/10px, Expand/Contract, SelectFromSelectedLayers |
 | 1501–1517 | Palette/Ref  | RefImage, GPL Import (1510), GPL Export (1511), Random, Color Picker, Swap FG/BG, Load from Lospec, Create from Image, Remap to Palette, Show Lospec Palettes |
-| 1601–1607 | Help         | About, CheatSheet, Manual, GitHub, Issues, Credits |
+| 1601–1609 | Help/Tools   | About, CheatSheet, Manual, GitHub, Issues, Credits, PixelArtAnalyzer(1609) |
 | 1701–1704 | Tools (menu) | Zoom, Spray, CmdPalette, CodeExport |
-| 1801–1802 | Canvas       | Resize dialog (1801), Crop dialog (1802) |
+| 1801–1804 | Canvas       | Resize dialog (1801), Crop dialog (1802), FlipCanvasH(1803), FlipCanvasV(1804) |
 | 1911–1914 | Drawer Sets  | Load, Save, Clear, Explore drawer-set folder |
 | 2001–2010 | Image Adj    | BrightnessContrast, HueSaturation, Levels, ColorBalance, Blur, Sharpen, Invert, Desaturate, Posterize, Pixelate |
-| 2012–2019 | Preview Win  | PreviewWindowSubmenu(2012), FollowMode(2013), FloatingImageMode(2014), BinQuickLook(2015), AllowColorPicking(2016), LoadImage(2017), RecentImages(2018), ClearRecentImages(2019) |
+| 2012–2020 | Preview Win  | PreviewWindowSubmenu(2012), FollowMode(2013), FloatingImageMode(2014), BinQuickLook(2015), AllowColorPicking(2016), LoadImage(2017), RecentImages(2018), ClearRecentImages(2019), GrayscalePreview(2020) |
 | 2050–2054 | Character Map | ToggleCharMap(2050), DockLeft(2051), DockRight(2052), ToggleCharGrid(2053), ToggleSnapToCharGrid(2054) |
+| 2201–2216 | Export As    | ExportPNGNative(2201), ExportPNG(2204), ExportGIF(2205), ExportJPG(2206), ExportTGA(2208), ExportBMP(2209), ExportHDR(2210), ExportICO(2211), ExportQOI(2216) |
 
 ### Command Palette
 
@@ -178,6 +179,21 @@ END IF
 ### Auto-Hide Visibility Pattern
 
 `EDITBAR_init` follows the `PREVIEW_init` pattern for default-hidden panels: sets `showEditBar% = FALSE` + `editBarManuallyHidden% = TRUE`, only clearing `ManuallyHidden` when config says visible. Without this, the auto-hide restore logic makes the panel visible on the first frame.
+
+---
+
+## Advanced Bar (`GUI/ADVANCEDBAR.BI` / `GUI/ADVANCEDBAR.BM`)
+
+Vertical icon bar with 26+ quick-access toggle buttons for view options, tool toggles, and feature controls. Dockable LEFT or RIGHT (independently from EditBar). Toggle with Shift+F5 or action ID 449.
+
+- **26+ slots**: Toggle icons with dividers, organized by category (View, Grid, Brush, Reference, Layer Distribution, etc.)
+- **Buttons include**: Char Map, Char Grid, Char Snap, Preview, EditBar, Tile Preview, Grid Cell Fill, Grid Show, Fill Adjust, Brush Edges, Angle Snap, Grayscale Preview, Ref Image controls, Distribute Layers, Crosshair, and more
+- **Config**: `ADVANCEDBAR_VISIBLE%`, `ADVANCEDBAR_DOCK_POSITION$` ("LEFT"/"RIGHT")
+- **Theme fields**: `ADV_BAR_WIDTH%`, `ADV_BAR_*_BORDER_WIDTH%`, `ADV_BAR_ICON_PADDING%`, plus 26 `ADV_BAR_ICON_*$` filename strings and color fields (`ADV_BAR_BG~&`, `ADV_BAR_HOVER~&`, `ADV_BAR_BORDER*~&`)
+- **Icon dir**: `ASSETS/THEMES/DEFAULT/IMAGES/ADVANCEDBAR/*.png`
+- **Disabled dimming**: Unavailable toggles render with reduced alpha and are unclickable
+- **Lazy icon loading**: Same pattern as EditBar — `ADVBAR_load_icons` on first render, not init
+- **Auto-hide visibility**: Same `PREVIEW_init` pattern as EditBar — `showAdvBar% = FALSE` + `advBarManuallyHidden% = TRUE` by default
 
 ---
 
