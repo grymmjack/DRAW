@@ -3006,6 +3006,8 @@ END FUNCTION
 ' @param actionValue INTEGER DRAWER_CONTEXT_* action constant to execute
 '
 SUB DRAWER_context_menu_activate (actionValue AS INTEGER)
+    DIM savedSlot AS INTEGER
+    savedSlot% = DRAWER.contextMenuSlot%
     DRAWER_context_menu_close
     SELECT CASE actionValue%
         CASE DRAWER_CONTEXT_LOAD_SET
@@ -3018,6 +3020,8 @@ SUB DRAWER_context_menu_activate (actionValue AS INTEGER)
             DRAWER_explore_context_folder
         CASE DRAWER_CONTEXT_EDIT_GRADIENT
             GRADIENT_editor_dialog
+        CASE DRAWER_CONTEXT_LOAD_IMAGES
+            DRAWER_load_images_into_slots savedSlot%
     END SELECT
 END SUB
 
@@ -3091,6 +3095,12 @@ SUB DRAWER_context_menu_build (itemCount AS INTEGER)
 
     POPUP_MENU_set_item itemCount%, "", "", -1, POPUP_MENU_FLAG_DIVIDER
     itemCount% = itemCount% + 1
+
+    ' Load images from files into slots (brush and pattern modes only)
+    IF DRAWER.mode% = DRAWER_MODE_BRUSH OR DRAWER.mode% = DRAWER_MODE_PATTERN THEN
+        POPUP_MENU_set_item itemCount%, "LOAD IMAGES...", "", DRAWER_CONTEXT_LOAD_IMAGES, 0
+        itemCount% = itemCount% + 1
+    END IF
 
     POPUP_MENU_set_item itemCount%, "LOAD DRAWER SET (.dset)", "", DRAWER_CONTEXT_LOAD_SET, 0
     itemCount% = itemCount% + 1
@@ -3871,6 +3881,110 @@ SUB DRAWER_import_set_dialog ()
     DRAWER_GRADIENT_LAST_BG~& = PAINT_BG_COLOR~&
     GUI_NEEDS_REDRAW% = TRUE
     FRAME_IDLE% = FALSE
+END SUB
+
+
+''
+' Show a multi-select file dialog and load images into consecutive drawer slots.
+' Works for brush and pattern modes. Images are loaded starting from the
+' specified startSlot, filling forward and wrapping at DRAWER_SLOT_COUNT.
+' @param startSlot INTEGER Slot index to begin loading into (1-based)
+'
+SUB DRAWER_load_images_into_slots (startSlot AS INTEGER)
+    DIM defaultPath AS STRING
+    DIM dialogTitle AS STRING
+    DIM loadedImg AS LONG
+    DIM fileCount AS INTEGER
+    DIM loadCount AS INTEGER
+    DIM slotIdx AS INTEGER
+    DIM filePath AS STRING
+
+    IF DRAWER.mode% <> DRAWER_MODE_BRUSH AND DRAWER.mode% <> DRAWER_MODE_PATTERN THEN EXIT SUB
+
+    ' Build default path from last import directory
+    IF CFG.LAST_DIR_IMPORT$ <> "" THEN
+        defaultPath$ = CFG.LAST_DIR_IMPORT$ + "/"
+    ELSEIF LAST_DIRECTORY$ <> "" THEN
+        defaultPath$ = LAST_DIRECTORY$ + "/"
+    ELSEIF CFG.DEFAULT_OPEN_DIR$ <> "" THEN
+        defaultPath$ = CFG.DEFAULT_OPEN_DIR$ + "/"
+    ELSE
+        defaultPath$ = ""
+    END IF
+
+    IF DRAWER.mode% = DRAWER_MODE_BRUSH THEN
+        dialogTitle$ = "Load Images into Brush Slots"
+    ELSE
+        dialogTitle$ = "Load Images into Pattern Slots"
+    END IF
+
+    ' Multi-select file dialog via library
+    POINTER_hide_for_dialog
+    fileCount% = DRAW_open_files%(dialogTitle$, defaultPath$, "Image files|*.png|*.bmp|*.jpg|*.jpeg|*.gif|*.psd|*.tga|*.qoi|*.hdr", 0)
+    POINTER_show_after_dialog
+    MOUSE_cleanup_after_dialog TRUE
+
+    IF fileCount% < 1 THEN EXIT SUB
+
+    ' Start loading from the specified slot
+    slotIdx% = startSlot%
+    IF slotIdx% < 1 OR slotIdx% > DRAWER_SLOT_COUNT THEN slotIdx% = 1
+
+    loadCount% = 0
+
+    ' Load each selected file into consecutive slots
+    DIM fi AS INTEGER
+    FOR fi% = 0 TO fileCount% - 1
+        IF loadCount% >= DRAWER_SLOT_COUNT THEN EXIT FOR
+
+        filePath$ = RTRIM$(FD_multiResults(fi%))
+        IF LEN(filePath$) = 0 THEN _CONTINUE
+
+        loadedImg& = _LOADIMAGE(filePath$, 32)
+        IF loadedImg& >= -1 THEN _CONTINUE
+
+        ' Store into the current slot
+        SELECT CASE DRAWER.mode%
+            CASE DRAWER_MODE_BRUSH
+                IF DRAWER_BRUSH_SLOTS(slotIdx%).IMG < -1 THEN _FREEIMAGE DRAWER_BRUSH_SLOTS(slotIdx%).IMG
+                DRAWER_BRUSH_SLOTS(slotIdx%).IMG = loadedImg&
+                DRAWER_BRUSH_SLOTS(slotIdx%).W = _WIDTH(loadedImg&)
+                DRAWER_BRUSH_SLOTS(slotIdx%).H = _HEIGHT(loadedImg&)
+            CASE DRAWER_MODE_PATTERN
+                IF DRAWER_PATTERN_SLOTS(slotIdx%) < -1 THEN _FREEIMAGE DRAWER_PATTERN_SLOTS(slotIdx%)
+                DRAWER_PATTERN_SLOTS(slotIdx%) = loadedImg&
+                DRAWER_PATTERN_HAS(slotIdx%) = TRUE
+                DRAWER_analyze_1bit slotIdx%
+        END SELECT
+
+        loadCount% = loadCount% + 1
+
+        ' Advance to next slot, stop if we've filled all slots
+        slotIdx% = slotIdx% + 1
+        IF slotIdx% > DRAWER_SLOT_COUNT THEN slotIdx% = 1
+    NEXT fi%
+
+    IF loadCount% > 0 THEN
+        ' Update last import directory from first file
+        filePath$ = RTRIM$(FD_multiResults(0))
+        CFG.LAST_DIR_IMPORT$ = CONFIG_extract_dir$(filePath$)
+        LAST_DIRECTORY$ = CFG.LAST_DIR_IMPORT$
+        CONFIG_save
+
+        ' Select the first loaded slot
+        DIM firstSlot AS INTEGER
+        firstSlot% = startSlot%
+        IF firstSlot% < 1 OR firstSlot% > DRAWER_SLOT_COUNT THEN firstSlot% = 1
+        IF DRAWER.mode% = DRAWER_MODE_BRUSH THEN
+            DRAWER.brushSelected% = firstSlot%
+            IF DRAWER_BRUSH_SLOTS(firstSlot%).IMG < -1 THEN DRAWER_load_brush_slot_to_custom firstSlot%
+        ELSE
+            DRAWER.patternSelected% = firstSlot%
+        END IF
+
+        GUI_NEEDS_REDRAW% = TRUE
+        FRAME_IDLE% = FALSE
+    END IF
 END SUB
 
 

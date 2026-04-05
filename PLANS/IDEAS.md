@@ -4,7 +4,11 @@
 - See DEV/FONTS/COLOR_BITMAP
 - Lots of examples there
 
+
+
 ## Image Browser (For drag/drop to brush and pattern slots)
+
+
 
 ## Layer Groups
 - Move into
@@ -19,22 +23,12 @@
   - Distribute Layers in group
 
 
-
-## LOAD IMAGES INTO BINS
-- Add to right click on brush bin, pattern bin:
-  - LOAD IMAGES
-  - Show FILE OPEN DIALOG
-  - Allow multiple files to be selected and loaded into the bins in whatever mode
-    - Honor the DRAWING MODE
-
-
-
 ## SMART GUIDES
 
 Automatically snap to layer candidates when near X/Y/W/H bounds of neighbors
 
 - When hovering over canvas draw horizontal line for horizontal snaps to neighbor bounds
-- When hovering over canvas darw vertical line for vertical snaps to neighbor bounds
+- When hovering over canvas draw vertical line for vertical snaps to neighbor bounds
 
 ### MENU CHANGES
 - View -> Smart Guides
@@ -74,6 +68,7 @@ cell alignment inside, borders, border widths, border colors, etc.
 
 ## GUIDE LAYERS
 - Any opaque line becomes a guide, which can be snapped to
+
 
 
 ## DRAW KITS
@@ -415,3 +410,15 @@ cell alignment inside, borders, border widths, border colors, etc.
     - [x] Config files (.cfg, .rc, .ini) — `FD_ICON_CONFIG`
   - [x] 12 icon tint colors in FD-THEME.BI (`FD_CLR_ICON_*`)
   - [x] Procedural rendering via `FD_ICONS_render` in FD-ICONS.BM (29 icon IDs, no PNG assets needed)
+
+
+
+## [x] LOAD IMAGES INTO BINS
+- [x] Add to right click on brush bin, pattern bin:
+  - [x] LOAD IMAGES
+  - [x] Show FILE OPEN DIALOG
+  - [x] Allow multiple files to be selected and loaded into the bins in whatever mode
+    - Honor the DRAWING MODE
+
+
+
