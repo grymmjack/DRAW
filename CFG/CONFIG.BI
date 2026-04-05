@@ -329,6 +329,12 @@ TYPE DRAW_CONFIG
     FONTS_INCLUDE_DRAW_EXTRAS      AS INTEGER  ' TRUE = include extra ASSETS/FONTS TTFs (beyond required Tiny5/PICO-8)
     FONTS_INCLUDE_USER             AS INTEGER  ' TRUE = include USER/FONTS TTF/OTF fonts
     FONTS_INCLUDE_USER_BITMAP      AS INTEGER  ' TRUE = include USER/FONTS/BITMAP fonts
+    ' Smart Guides (persisted toggles)
+    SMART_GUIDES_ENABLED           AS INTEGER  ' Toggle smart guide display
+    SMART_GUIDES_SNAP              AS INTEGER  ' Toggle snap-to-smart-guides
+    SMART_GUIDES_DISTANCE          AS INTEGER  ' Detection distance override (0=use theme)
+    SMART_GUIDES_COLOR_FG          AS _UNSIGNED LONG  ' Guide line color override (0=use theme)
+    SMART_GUIDES_OPACITY           AS INTEGER  ' Opacity override (0=use theme)
 END TYPE
 
 DIM SHARED CFG   AS DRAW_CONFIG

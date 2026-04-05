@@ -536,6 +536,14 @@ TYPE DRAW_THEME
     CHARMAP_SCROLLBAR_OPACITY  AS INTEGER         ' Character map scrollbar opacity (0-255)
     CHARMAP_SCROLLBAR_WIDTH    AS INTEGER         ' Character map scrollbar width in px (1-8)
     CHAR_GRID_COLOR_FG         AS _UNSIGNED LONG  ' Character grid overlay color on canvas
+    ' --- Smart Guides ---
+    SMART_GUIDES_color_fg      AS _UNSIGNED LONG  ' Guide line color (default magenta)
+    SMART_GUIDES_opacity       AS INTEGER         ' Guide line opacity 0-255 (default 180)
+    SMART_GUIDES_outline_fg    AS _UNSIGNED LONG  ' Guide line outline color (default black)
+    SMART_GUIDES_outline_opacity AS INTEGER       ' Outline opacity 0-255 (default 120)
+    SMART_GUIDES_outline_width AS INTEGER         ' Outline width in px (0=none, default 1)
+    SMART_GUIDES_pattern       AS INTEGER         ' 16-bit LINE pattern (default &B1111000011110000)
+    SMART_GUIDES_distance      AS INTEGER         ' Detection distance in canvas px (default 4)
 END TYPE
 
 ' Runtime theme loader — populates THEME from ASSETS/THEMES/{CFG.THEME$}/THEME.CFG

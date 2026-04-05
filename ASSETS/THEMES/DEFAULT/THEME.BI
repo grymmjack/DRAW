@@ -128,6 +128,15 @@ THEME.CROSSHAIR_angle!           = 0.0                      ' No crosshair rotat
 THEME.SYMMETRY_guide_fg~&        = _RGBA32(0, 255, 255, 128) ' Cyan guide lines at 50% opacity
 THEME.SYMMETRY_center_fg~&       = _RGBA32(255, 255, 0, 128)  ' Yellow center crosshair at 50% opacity
 
+' Smart guides defaults
+THEME.SMART_GUIDES_color_fg~&    = _RGBA32(255, 0, 255, 180)  ' Magenta guide lines at 70% opacity
+THEME.SMART_GUIDES_opacity%      = 180                        ' 70% opacity
+THEME.SMART_GUIDES_outline_fg~&  = _RGBA32(0, 0, 0, 120)      ' Black outline at 47% opacity
+THEME.SMART_GUIDES_outline_opacity% = 120
+THEME.SMART_GUIDES_outline_width% = 1                         ' 1px outline
+THEME.SMART_GUIDES_pattern%      = &B1111000011110000         ' Long dash pattern
+THEME.SMART_GUIDES_distance%     = 4                          ' 4px detection distance
+
 ' Menu bar colors
 THEME.MENU_BAR_bg~&              = _RGB32(121, 121, 121)     ' #797979 - medium gray bar
 THEME.MENU_BAR_fg~&              = _RGB32(0, 0, 0)           ' Black text
