@@ -129,7 +129,7 @@ THEME.SYMMETRY_guide_fg~&        = _RGBA32(0, 255, 255, 128) ' Cyan guide lines 
 THEME.SYMMETRY_center_fg~&       = _RGBA32(255, 255, 0, 128)  ' Yellow center crosshair at 50% opacity
 
 ' Smart guides defaults
-THEME.SMART_GUIDES_color_fg~&    = _RGBA32(255, 0, 255, 180)  ' Magenta guide lines at 70% opacity
+THEME.SMART_GUIDES_color_fg~&    = _RGBA32(255, 0, 155, 180)  ' Magenta guide lines at 70% opacity
 THEME.SMART_GUIDES_opacity%      = 180                        ' 70% opacity
 THEME.SMART_GUIDES_outline_fg~&  = _RGBA32(0, 0, 0, 120)      ' Black outline at 47% opacity
 THEME.SMART_GUIDES_outline_opacity% = 120
@@ -424,6 +424,8 @@ THEME.EDIT_BAR_ICON_SCALE_DOWN$     = "eb-scale-down.png"
 THEME.EDIT_BAR_ICON_SCALE_UP$       = "eb-scale-up.png"
 THEME.EDIT_BAR_ICON_ROTATE_CW$      = "eb-rotate-cw.png"
 THEME.EDIT_BAR_ICON_ROTATE_CCW$     = "eb-rotate-ccw.png"
+THEME.EDIT_BAR_ICON_SMART_GUIDES$   = "eb-smart-guides.png"
+THEME.EDIT_BAR_ICON_SMART_GUIDES_SNAP$ = "eb-smart-guides-snap.png"
 
 ' =============================================================================
 ' ADVANCED BAR - Dockable vertical icon bar for advanced features

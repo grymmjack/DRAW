@@ -407,6 +407,8 @@ TYPE DRAW_THEME
     EDIT_BAR_ICON_SCALE_UP      AS STRING * 64 ' Scale up icon PNG filename
     EDIT_BAR_ICON_ROTATE_CW     AS STRING * 64 ' Rotate clockwise icon PNG filename
     EDIT_BAR_ICON_ROTATE_CCW    AS STRING * 64 ' Rotate counter-clockwise icon PNG filename
+    EDIT_BAR_ICON_SMART_GUIDES  AS STRING * 64 ' Smart Guides toggle icon PNG filename
+    EDIT_BAR_ICON_SMART_GUIDES_SNAP AS STRING * 64 ' Snap Smart Guides toggle icon PNG filename
     ' --- Advanced Bar ---
     ADV_BAR_LEFT_BORDER_COLOR   AS _UNSIGNED LONG  ' Advanced bar left border color
     ADV_BAR_RIGHT_BORDER_COLOR  AS _UNSIGNED LONG  ' Advanced bar right border color

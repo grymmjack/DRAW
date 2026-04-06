@@ -163,9 +163,9 @@ DECLARE FUNCTION TOOLTIP_get_hovered_dock_area% (mouseX%, mouseY%)
 DECLARE FUNCTION TOOLTIP_get_hovered_editbar_idx% (mouseX%, mouseY%)
 DECLARE FUNCTION TOOLTIP_get_hovered_advbar_idx% (mouseX%, mouseY%)
 
-' --- Edit Bar tooltip text arrays (indexed by EDITBAR slot 0..24) ---
-DIM SHARED TOOLTIP_EB_LINE1$(0 TO 24)
-DIM SHARED TOOLTIP_EB_LINE2$(0 TO 24)
+' --- Edit Bar tooltip text arrays (indexed by EDITBAR slot 0..26) ---
+DIM SHARED TOOLTIP_EB_LINE1$(0 TO 26)
+DIM SHARED TOOLTIP_EB_LINE2$(0 TO 26)
 
 ' Slot 0: Undo
 TOOLTIP_EB_LINE1$(0)  = "CTRL+z - Undo"
@@ -229,7 +229,13 @@ TOOLTIP_EB_LINE2$(22) = "L-CLICK rotate layer or selection 90 degrees clockwise.
 ' Slot 23: Rotate CCW
 TOOLTIP_EB_LINE1$(23) = "Rotate 90 CCW"
 TOOLTIP_EB_LINE2$(23) = "L-CLICK rotate layer or selection 90 degrees counter-clockwise."
-' Slot 24: divider (reserved)
+' Slot 24: divider
+' Slot 25: Smart Guides
+TOOLTIP_EB_LINE1$(25) = "Smart Guides ON/OFF"
+TOOLTIP_EB_LINE2$(25) = "Dynamically show guides related to geometric boundaries of neighboring layers."
+' Slot 26: Snap Smart Guides
+TOOLTIP_EB_LINE1$(26) = "Snap to Smart Guides ON/OFF"
+TOOLTIP_EB_LINE2$(26) = "Snap to Smart Guides related to geometric boundaries of neighboring layers."
 
 ' --- Advanced Bar tooltip text arrays (indexed by ADVBAR slot 0..32) ---
 DIM SHARED TOOLTIP_AB_LINE1$(0 TO 32)
