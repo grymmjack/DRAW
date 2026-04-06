@@ -3,7 +3,7 @@
 ' =============================================================================
 ' Advanced Bar — declarations, TYPE, and shared state.
 ' A vertical icon bar with advanced feature toggles and quick actions:
-'   Panels | Char tools | Grid/Fill | Assists | Reference | Align | Flip Canvas
+'   Panels | Char tools | Grid/Fill | Assists | Reference | Align | Distribute
 ' Dockable LEFT or RIGHT (independent of Edit Bar).
 ' Toggle with Shift+F5. State persists to DRAW.cfg.
 '
@@ -15,8 +15,8 @@ OPTION _EXPLICIT
 OPTION _EXPLICITARRAY
 
 ' --- Constants ---
-CONST ADVBAR_TOTAL_SLOTS  = 33   ' 26 action items + 7 dividers
-CONST ADVBAR_ACTION_SLOTS = 26   ' Number of clickable icons
+CONST ADVBAR_TOTAL_SLOTS  = 30   ' 24 action items + 6 dividers
+CONST ADVBAR_ACTION_SLOTS = 24   ' Number of clickable icons
 CONST ADVBAR_DOCK_LEFT  = 0
 CONST ADVBAR_DOCK_RIGHT = 1
 
