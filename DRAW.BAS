@@ -462,6 +462,8 @@ SUB LOOP_start ()
     HISTORY_saved_this_frame% = FALSE
     ' Reset composite dirty rect for this frame
     COMP_DIRTY_VALID% = FALSE
+    ' Clear smart guides each frame (re-populated during active move drag)
+    IF SMART_GUIDES.hCount% > 0 OR SMART_GUIDES.vCount% > 0 THEN SMART_GUIDES_clear
     ' Don't update MARQUEE here - let mouse handler control it
     
     ' Update title bar when dirty/filename state changes

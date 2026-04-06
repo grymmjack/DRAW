@@ -14,9 +14,9 @@ DATA "::::::::", "::    ::", "::    ::", "::::  ::::", "  ::  ::  "
 
 DRAW is a pixel art editor written in QB64PE that can export images as sourcecode
 
-Current release: v0.29.0
+Current release: v0.30.0
 
-![DRAW GUI from v0.29.0](./GUI.png)
+![DRAW GUI from v0.30.0](./GUI.png)
 
 ## Features
 
@@ -27,7 +27,7 @@ Current release: v0.29.0
 - **Rectangle** - Draw outlined or filled rectangles with brush size/shape; filled mode supports custom brush tiled fill and drawer paint modes with interactive Fill Adjustment (`F8`)
 - **Ellipse** - Draw outlined or filled ellipses/circles with brush size/shape; filled mode supports custom brush tiled fill and drawer paint modes with interactive Fill Adjustment (`F8`)
 - **Polygon** - Draw outlined or filled multi-point polygons with brush size/shape, angle snapping; filled mode supports custom brush tiled fill and drawer paint modes with interactive Fill Adjustment (`F8`)
-- **Fill** - Flood fill tool; hold **Shift** to sample from merged visible canvas while painting onto the current layer; supports custom brush tiled fills and drawer paint mode fills with interactive Fill Adjustment overlay (`F8`)
+- **Fill** - Flood fill tool; hold **Shift** to sample from merged visible canvas while painting onto the current layer; supports custom brush tiled fills and drawer paint mode fills with interactive Fill Adjustment overlay (`F8`) featuring drag-to-offset, scale, and rotation controls
 - **Spray** - Spray paint with brush-shaped nozzle tips, radius doubles per brush size level, custom brush stamp support, SHIFT axis constraint, circle preview
 - **Picker** - Color sampling/eyedropper with a cursor-adjacent loupe overlay that shows RGB and hex values; hold ALT with any tool for temporary picker; ALT+left picks FG, ALT+right picks BG
 - **Marquee** - Selection tools: Rectangle, Freehand, Polygon, Ellipse — each with a distinct crosshair cursor
@@ -71,6 +71,7 @@ Current release: v0.29.0
 - Configurable grid/pixel grid/crosshair color, opacity, and angle via DRAW.cfg
 - Crosshair assistant lines with configurable outline stroke (color, opacity, width) for improved visibility against any background
 - Configurable transparency checkerboard colors and size
+- **Smart Guides** - Alignment guide lines that appear when moving layers to snap to canvas edges, centers, and other layer edges; toggle enable with `Ctrl+Shift+;` and snap with `Ctrl+;`; fully themeable guide colors and opacity
 - Status bar indicator shows grid size, mode, and snap state
 
 ### Color System
@@ -139,12 +140,12 @@ Current release: v0.29.0
 - All audio state persisted in `DRAW.cfg` (`SOUNDS_ENABLED`, `SOUNDS_VOLUME`, `SOUNDS_MUTED`, `MUSIC_ENABLED`, `MUSIC_VOLUME`, `MUSIC_MUTED`)
 
 ### User Interface
-- **Drawer panel** - A 30-slot drawer beneath the organizer for brush, gradient, and pattern sets (including 1-bit patterns with opaque background support); `F1`/`F2`/`F3` switch modes, left-click selects, `Shift+Left Click` stores, right-click opens a context menu, middle-click cycles modes, `Shift+Middle Click` clears a slot, `Shift+Right Click` imports into a slot, and drag-and-drop to reorder bins
+- **Drawer panel** - A 30-slot drawer beneath the organizer for brush, gradient, and pattern sets (including 1-bit patterns with opaque background support); `F1`/`F2`/`F3` switch modes, left-click selects, `Shift+Left Click` stores, right-click opens a context menu (including Load Images to batch-import images into slots), middle-click cycles modes, `Shift+Middle Click` clears a slot, `Shift+Right Click` imports into a slot, and drag-and-drop to reorder bins
 - **Character map panel** - Dockable left/right 16×16 glyph grid with dynamic cell count (4-16 per row), mouse wheel scrolling, configurable theme colors, and bitmap font rendering
 - **Preview window** - A floating preview panel with two modes: **Follow** (canvas magnifier following the pointer) and **Floating Image** (display a loaded reference image); supports **Bin Quick Look** (hover drawer slots to preview brush/pattern/gradient), **Color Picking** (Alt+Click to sample colors from preview), and **Recent Preview Images** (up to 10 recently loaded images); pan/zoom, minimize/close buttons, and work-area clamping
-- **Edit bar** - A dockable vertical strip of edit-action icons on the left or right side of the workspace (`F5`)
-- **Advanced bar** - A dockable vertical strip of quick-access toggle buttons for char map, char grid, char snap, preview, edit bar, tile preview, grid cell fill, grid show, fill adjust, brush edges, angle snap, grayscale preview, reference image controls, distribute layers, crosshair, and more (`Shift+F5`)
-- **Layout docking** - Toolbox, layer panel, and edit bar can each be docked to the left or right side of the workspace via View → Layout menu or `Ctrl+Shift+Click` on the panel
+- **Edit bar** - A dockable vertical strip of edit-action icons on the left or right side of the workspace (`F5`); includes Smart Guides toggle, Pixel Perfect toggle, and Flip Canvas H/V buttons
+- **Advanced bar** - A dockable vertical strip of quick-access toggle buttons for char map, char grid, char snap, preview, edit bar, tile preview, grid cell fill, grid show, fill adjust, brush edges, angle snap, grayscale preview, reference image controls, distribute layers, crosshair, smart guides, and more (`Shift+F5`)
+- **Layout docking** - Toolbox, layer panel, edit bar, character map, and advanced bar can each be docked to the left or right side of the workspace via View → Layout menu or `Ctrl+Shift+Click` on the panel
 - **System cursors** - Automatically uses OS native cursors for UI areas (arrow in toolbar/panels), canvas work (crosshair for drawing tools, I-beam for text, resize arrows for handles) and move tool (move pointer); falls back to custom PNG cursors for tools that need them (brush, fill, picker loupe, spray, marquee); configurable via `SYSTEM_CURSORS` in `DRAW.cfg`
 - Themeable PNG icon toolbar (28 buttons in **4×7 grid**)
 - PNG cursors with theme-configurable hotspots and alpha transparency

@@ -407,6 +407,11 @@ TYPE DRAW_THEME
     EDIT_BAR_ICON_SCALE_UP      AS STRING * 64 ' Scale up icon PNG filename
     EDIT_BAR_ICON_ROTATE_CW     AS STRING * 64 ' Rotate clockwise icon PNG filename
     EDIT_BAR_ICON_ROTATE_CCW    AS STRING * 64 ' Rotate counter-clockwise icon PNG filename
+    EDIT_BAR_ICON_SMART_GUIDES  AS STRING * 64 ' Smart Guides toggle icon PNG filename
+    EDIT_BAR_ICON_SMART_GUIDES_SNAP AS STRING * 64 ' Snap Smart Guides toggle icon PNG filename
+    EDIT_BAR_ICON_PIXEL_PERFECT AS STRING * 64 ' Pixel Perfect toggle icon PNG filename
+    EDIT_BAR_ICON_FLIP_CANVAS_H AS STRING * 64 ' Flip Canvas Horizontal icon PNG filename
+    EDIT_BAR_ICON_FLIP_CANVAS_V AS STRING * 64 ' Flip Canvas Vertical icon PNG filename
     ' --- Advanced Bar ---
     ADV_BAR_LEFT_BORDER_COLOR   AS _UNSIGNED LONG  ' Advanced bar left border color
     ADV_BAR_RIGHT_BORDER_COLOR  AS _UNSIGNED LONG  ' Advanced bar right border color
@@ -536,6 +541,14 @@ TYPE DRAW_THEME
     CHARMAP_SCROLLBAR_OPACITY  AS INTEGER         ' Character map scrollbar opacity (0-255)
     CHARMAP_SCROLLBAR_WIDTH    AS INTEGER         ' Character map scrollbar width in px (1-8)
     CHAR_GRID_COLOR_FG         AS _UNSIGNED LONG  ' Character grid overlay color on canvas
+    ' --- Smart Guides ---
+    SMART_GUIDES_color_fg      AS _UNSIGNED LONG  ' Guide line color (default magenta)
+    SMART_GUIDES_opacity       AS INTEGER         ' Guide line opacity 0-255 (default 180)
+    SMART_GUIDES_outline_fg    AS _UNSIGNED LONG  ' Guide line outline color (default black)
+    SMART_GUIDES_outline_opacity AS INTEGER       ' Outline opacity 0-255 (default 120)
+    SMART_GUIDES_outline_width AS INTEGER         ' Outline width in px (0=none, default 1)
+    SMART_GUIDES_pattern       AS INTEGER         ' 16-bit LINE pattern (default &B1111000011110000)
+    SMART_GUIDES_distance      AS INTEGER         ' Detection distance in canvas px (default 4)
 END TYPE
 
 ' Runtime theme loader — populates THEME from ASSETS/THEMES/{CFG.THEME$}/THEME.CFG

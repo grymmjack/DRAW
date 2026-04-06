@@ -1,13 +1,17 @@
 # IDEAS
 
+## DRAWER SET WHEEL LOAD FROM DISK
+- [ ] Using mousewheel over the bins of the drawers for each mode ...
+  - [ ] Load the next dset available on disk with mousewheel down
+  - [ ] Load the previous dset available on disk with mousewheel up
+
+
 ## Color BITMAP fonts
 - See DEV/FONTS/COLOR_BITMAP
 - Lots of examples there
 
 
-
 ## Image Browser (For drag/drop to brush and pattern slots)
-
 
 
 ## Layer Groups
@@ -21,18 +25,6 @@
     - Selection from group
     - Merge group
   - Distribute Layers in group
-
-
-## SMART GUIDES
-
-Automatically snap to layer candidates when near X/Y/W/H bounds of neighbors
-
-- When hovering over canvas draw horizontal line for horizontal snaps to neighbor bounds
-- When hovering over canvas draw vertical line for vertical snaps to neighbor bounds
-
-### MENU CHANGES
-- View -> Smart Guides
-- View -> Snap Smart Guides
 
 
 
@@ -66,8 +58,6 @@ cell alignment inside, borders, border widths, border colors, etc.
 
 
 
-## GUIDE LAYERS
-- Any opaque line becomes a guide, which can be snapped to
 
 
 
@@ -422,3 +412,17 @@ cell alignment inside, borders, border widths, border colors, etc.
 
 
 
+
+
+## - [x] SMART GUIDES
+Automatically snap to layer candidates when near X/Y/W/H bounds of neighbors
+- [x] When hovering over canvas draw horizontal line for horizontal snaps to neighbor bounds
+- [x] When hovering over canvas draw vertical line for vertical snaps to neighbor bounds
+
+### MENU CHANGES
+- [x] View -> Smart Guides
+- [x] Edit -> Snap Smart Guides
+
+## GUIDE LAYERS
+- [x] Already completed through smart guides ;) 
+  - Any opaque line becomes a guide, which can be snapped to

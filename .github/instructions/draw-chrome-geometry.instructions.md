@@ -256,8 +256,8 @@ Full viewport height (minus menu bar and status/palette strip areas).
 | `THEME.EDIT_BAR_WIDTH%`               | 18      | Bar content width    |
 | `THEME.EDIT_BAR_LEFT_BORDER_WIDTH%`   | 1       | Left border width    |
 | `THEME.EDIT_BAR_RIGHT_BORDER_WIDTH%`  | 1       | Right border width   |
-| `EDITBAR_TOTAL_SLOTS`                 | 25      | Slots (20 + 5 divs) |
-| `EDITBAR_ACTION_SLOTS`                | 20      | Clickable icons      |
+| `EDITBAR_TOTAL_SLOTS`                 | 32      | Slots (25 + 7 divs) |
+| `EDITBAR_ACTION_SLOTS`                | 25      | Clickable icons      |
 | `EDITBAR_DOCK_LEFT`                   | 0       | Dock side constant   |
 | `EDITBAR_DOCK_RIGHT`                  | 1       | Dock side constant   |
 
@@ -279,7 +279,7 @@ Hidden by default (`SCRN.showEditBar% = FALSE`).
 
 **Total width:** `ADV_BAR_WIDTH + LEFT_BORDER + RIGHT_BORDER = 18 + 1 + 1 = 20px`
 
-Hidden by default (`SCRN.showAdvBar% = FALSE`). Docks independently from EditBar.
+Hidden by default (`SCRN.showAdvBar% = FALSE`). Defaults to LEFT dock. Docks independently from EditBar.
 
 ---
 

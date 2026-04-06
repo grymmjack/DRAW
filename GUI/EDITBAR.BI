@@ -14,8 +14,8 @@ OPTION _EXPLICIT
 OPTION _EXPLICITARRAY
 
 ' --- Constants ---
-CONST EDITBAR_TOTAL_SLOTS = 25   ' 20 action items + 5 dividers
-CONST EDITBAR_ACTION_SLOTS = 20  ' Number of clickable icons
+CONST EDITBAR_TOTAL_SLOTS = 32   ' 25 action items + 7 dividers
+CONST EDITBAR_ACTION_SLOTS = 25  ' Number of clickable icons
 CONST EDITBAR_DOCK_LEFT  = 0
 CONST EDITBAR_DOCK_RIGHT = 1
 
