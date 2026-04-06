@@ -32,7 +32,7 @@ THEME.CROSSHAIR_pattern%         = &B1010101010101010      ' - - - - - - - -
 THEME.CROSSHAIR_outline_fg~&     = _RGB32(0, 0, 0)         ' Black outline stroke
 THEME.CROSSHAIR_outline_opacity% = 200                     ' Outline stroke opacity
 THEME.CROSSHAIR_outline_width%   = 1                       ' Outline stroke width in pixels
-THEME.PICKER_LOUPE_zoom_level%   = 8                       ' Loupe zoom factor
+THEME.PICKER_LOUPE_zoom_level%   = 3                       ' Loupe zoom factor
 THEME.PICKER_LOUPE_rect_x_offset% = 24                     ' Loupe X offset from mouse
 THEME.PICKER_LOUPE_rect_y_offset% = -24                    ' Loupe Y offset from mouse
 THEME.PICKER_LOUPE_rect_width%   = 96                      ' Loupe rectangle width
@@ -40,7 +40,7 @@ THEME.PICKER_LOUPE_rect_height%  = 96                      ' Loupe rectangle hei
 THEME.PICKER_LOUPE_rgba_x%       = 108                     ' RGB label X offset inside loupe
 THEME.PICKER_LOUPE_rgba_y%       = 6                       ' RGB label Y offset inside loupe
 THEME.PICKER_LOUPE_font$         = ""                     ' Empty = use global font
-THEME.PICKER_LOUPE_font_size%    = 16                      ' Loupe font size
+THEME.PICKER_LOUPE_font_size%    = 8                       ' Loupe font size
 THEME.PICKER_LOUPE_font_fg~&     = _RGB32(255, 255, 255)   ' Loupe label text
 THEME.PICKER_LOUPE_font_bg~&     = _RGB32(0, 0, 0)         ' Loupe panel / label background
 THEME.PICKER_LOUPE_font_stroke_fg~& = _RGB32(0, 0, 0)      ' Loupe label outline color
@@ -131,7 +131,7 @@ THEME.SYMMETRY_center_fg~&       = _RGBA32(255, 255, 0, 128)  ' Yellow center cr
 ' Smart guides defaults
 THEME.SMART_GUIDES_color_fg~&    = _RGBA32(255, 0, 155, 180)  ' Magenta guide lines at 70% opacity
 THEME.SMART_GUIDES_opacity%      = 180                        ' 70% opacity
-THEME.SMART_GUIDES_outline_fg~&  = _RGBA32(0, 0, 0, 120)      ' Black outline at 47% opacity
+THEME.SMART_GUIDES_outline_fg~&  = _RGBA32(0, 0, 0, 0)      ' Black outline at 47% opacity
 THEME.SMART_GUIDES_outline_opacity% = 120
 THEME.SMART_GUIDES_outline_width% = 1                         ' 1px outline
 THEME.SMART_GUIDES_pattern%      = &B1111000011110000         ' Long dash pattern
