@@ -163,9 +163,9 @@ DECLARE FUNCTION TOOLTIP_get_hovered_dock_area% (mouseX%, mouseY%)
 DECLARE FUNCTION TOOLTIP_get_hovered_editbar_idx% (mouseX%, mouseY%)
 DECLARE FUNCTION TOOLTIP_get_hovered_advbar_idx% (mouseX%, mouseY%)
 
-' --- Edit Bar tooltip text arrays (indexed by EDITBAR slot 0..26) ---
-DIM SHARED TOOLTIP_EB_LINE1$(0 TO 26)
-DIM SHARED TOOLTIP_EB_LINE2$(0 TO 26)
+' --- Edit Bar tooltip text arrays (indexed by EDITBAR slot 0..31) ---
+DIM SHARED TOOLTIP_EB_LINE1$(0 TO 31)
+DIM SHARED TOOLTIP_EB_LINE2$(0 TO 31)
 
 ' Slot 0: Undo
 TOOLTIP_EB_LINE1$(0)  = "CTRL+z - Undo"
@@ -236,6 +236,17 @@ TOOLTIP_EB_LINE2$(25) = "Dynamically show guides related to geometric boundaries
 ' Slot 26: Snap Smart Guides
 TOOLTIP_EB_LINE1$(26) = "Snap to Smart Guides ON/OFF"
 TOOLTIP_EB_LINE2$(26) = "Snap to Smart Guides related to geometric boundaries of neighboring layers."
+' Slot 27: divider
+' Slot 28: Pixel Perfect
+TOOLTIP_EB_LINE1$(28) = "F6 - Pixel Perfect ON/OFF"
+TOOLTIP_EB_LINE2$(28) = "Remove corner pixels from brush strokes for clean pixel art lines."
+' Slot 29: divider
+' Slot 30: Flip Canvas Horizontal
+TOOLTIP_EB_LINE1$(30) = "Flip Canvas Horizontal"
+TOOLTIP_EB_LINE2$(30) = "L-CLICK flip all layers horizontally."
+' Slot 31: Flip Canvas Vertical
+TOOLTIP_EB_LINE1$(31) = "Flip Canvas Vertical"
+TOOLTIP_EB_LINE2$(31) = "L-CLICK flip all layers vertically."
 
 ' --- Advanced Bar tooltip text arrays (indexed by ADVBAR slot 0..32) ---
 DIM SHARED TOOLTIP_AB_LINE1$(0 TO 32)

@@ -426,6 +426,9 @@ THEME.EDIT_BAR_ICON_ROTATE_CW$      = "eb-rotate-cw.png"
 THEME.EDIT_BAR_ICON_ROTATE_CCW$     = "eb-rotate-ccw.png"
 THEME.EDIT_BAR_ICON_SMART_GUIDES$   = "eb-smart-guides.png"
 THEME.EDIT_BAR_ICON_SMART_GUIDES_SNAP$ = "eb-smart-guides-snap.png"
+THEME.EDIT_BAR_ICON_PIXEL_PERFECT$   = "eb-pixel-perfect.png"
+THEME.EDIT_BAR_ICON_FLIP_CANVAS_H$  = "eb-flip-canvas-horizontal.png"
+THEME.EDIT_BAR_ICON_FLIP_CANVAS_V$  = "eb-flip-canvas-vertical.png"
 
 ' =============================================================================
 ' ADVANCED BAR - Dockable vertical icon bar for advanced features

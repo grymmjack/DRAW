@@ -23,17 +23,6 @@
   - Distribute Layers in group
 
 
-## SMART GUIDES
-
-Automatically snap to layer candidates when near X/Y/W/H bounds of neighbors
-
-- When hovering over canvas draw horizontal line for horizontal snaps to neighbor bounds
-- When hovering over canvas draw vertical line for vertical snaps to neighbor bounds
-
-### MENU CHANGES
-- View -> Smart Guides
-- View -> Snap Smart Guides
-
 
 
 ## ADDITIONAL TABLE LAYOUT MODE
@@ -422,3 +411,13 @@ cell alignment inside, borders, border widths, border colors, etc.
 
 
 
+
+
+## - [x] SMART GUIDES
+Automatically snap to layer candidates when near X/Y/W/H bounds of neighbors
+- [x] When hovering over canvas draw horizontal line for horizontal snaps to neighbor bounds
+- [x] When hovering over canvas draw vertical line for vertical snaps to neighbor bounds
+
+### MENU CHANGES
+- [x] View -> Smart Guides
+- [x] Edit -> Snap Smart Guides
