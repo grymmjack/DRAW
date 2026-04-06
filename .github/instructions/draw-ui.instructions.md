@@ -14,7 +14,7 @@ Root menus (indices 0–10): FILE(0), EDIT(1), VIEW(2), SELECT(3), TOOLS(4), BRU
 - **Keyboard nav (`kbActive%`)**: Arrow keys navigate items. When `kbActive% = TRUE`, mouse hover is ignored until mouse actually moves.
 - **Recent files submenu**: Cascading submenu for action ID 213. Right arrow opens, Left/Escape closes.
 - **Cascading submenus**: Any menu item marked as a submenu parent gets a `▶` indicator and spawns a child submenu on hover/right-arrow. Managed by `MENUBAR_cascading_submenu_*` helpers. Used by Recent Files (213), Layout (442), Transform (330), Preview Window (2012), and Preview Recent (2018).
-- **Layout submenu**: Under View → Layout; dock left/right actions for Toolbox (443/444), Layer Panel (445/446), Edit Bar (447/448), Character Map (2051/2052).
+- **Layout submenu**: Under View → Layout; 10 items — dock left/right actions for Toolbox (443/444), Layer Panel (445/446), Edit Bar (447/448), Character Map (2051/2052), Advanced Bar (450/451).
 - **Dynamic state sync**: `MENUBAR_update_checkboxes` syncs checkboxes from live state (grid, snap, tool visibility, undo/redo availability, recent files).
 - **Click dispatch**: `MENUBAR_handle_click` → `CMD_execute_action(item.actionId)`
 
@@ -37,7 +37,7 @@ Root menus (indices 0–10): FILE(0), EDIT(1), VIEW(2), SELECT(3), TOOLS(4), BRU
 | 601–609   | Brush        | Size dec/inc, presets, preview, shape, pixel perfect |
 | 701–714   | Layer        | New, Delete, MoveUp/Down, MergeDown, MergeVisible, Duplicate, ArrangeTop/Bottom, ExportLayerPNG, MergeSelected, NewTextLayer(712), RasterizeText(713), RasterizeAllText(714) |
 | 801–802   | Canvas       | Pan, Reset Pan |
-| 901–909   | Grid/Fill    | Toggle, Pixel Grid, Snap, Size, AlignMode, MatchBrush, CellFill, Fill Adjustment Mode (909) |
+| 901–911   | Grid/Fill    | Toggle, Pixel Grid, Snap, Size, AlignMode, MatchBrush, CellFill, Fill Adjustment Mode (909), Smart Guides Enable (910), Smart Guides Snap (911) |
 | 1001–1003 | Symmetry     | Cycle, Clear, Set Center |
 | 1101–1112 | Custom Brush | Capture, Clear, Recolor, Outline, Flip, Scale, Export, Rotate |
 | 1201–1206 | Assistants   | Constrain, AngleSnap, Square/Circle, Center, Clone, TempPicker |
@@ -130,7 +130,7 @@ Each widget has up to 4 state images loaded from the theme directory. Icon filen
 
 Brush drawer slots load into the custom brush pipeline. Pattern and gradient drawers switch `DRAWER.paintMode%` for the active drawing tools.
 
-The drawer context menu uses `POPUP_MENU_*` helpers and exposes mode-specific actions plus drawer-set management: load `.dset`, save `.dset`, clear active set, explore folder, and gradient editing when in gradient mode.
+The drawer context menu uses `POPUP_MENU_*` helpers and exposes mode-specific actions plus drawer-set management: load `.dset`, save `.dset`, clear active set, explore folder, **Load Images** (batch-import images into consecutive slots), and gradient editing when in gradient mode.
 
 ## Preview Window (`GUI/PREVIEW.BI` / `GUI/PREVIEW.BM`)
 
@@ -154,8 +154,8 @@ Floating live preview panel toggled with `F4` / action ID `434`.
 
 Vertical icon bar that mirrors Edit menu actions as clickable icon buttons. Dockable LEFT (adjacent to layers panel) or RIGHT (adjacent to toolbox/drawer). Toggle with F5 or action ID 435.
 
-- **25 slots**: 20 action icons + 5 dividers
-- **Groups**: History (Undo/Redo) | Clipboard (Cut/Copy/CopyMerged/Paste/PasteInPlace) | Layer ops (CutToLayer/CopyToLayer) | Clear | Fill/Stroke (FillFG/FillBG/StrokeSelection) | Quick transforms (FlipH/FlipV/Scale-/Scale+/RotateCW/RotateCCW)
+- **32 slots**: 25 action icons + 7 dividers
+- **Groups**: History (Undo/Redo) | Clipboard (Cut/Copy/CopyMerged/Paste/PasteInPlace) | Layer ops (CutToLayer/CopyToLayer) | Clear | Fill/Stroke (FillFG/FillBG/StrokeSelection) | Quick transforms (FlipH/FlipV/Scale-/Scale+/RotateCW/RotateCCW) | Smart Guides (Enable/Snap) | Pixel Perfect | Flip Canvas (H/V)
 - **Config**: `EDIT_BAR_VISIBLE%`, `EDIT_BAR_DOCK_POSITION$` ("LEFT"/"RIGHT")
 - **Theme fields**: `EDIT_BAR_WIDTH%`, `EDIT_BAR_*_BORDER_WIDTH%`, `EDIT_BAR_ICON_PADDING%`, `EDIT_BAR_DISABLED_ALPHA%`, plus 20 `EDIT_BAR_ICON_*$` filename strings and color fields (`EDIT_BAR_BG~&`, `EDIT_BAR_HOVER~&`, `EDIT_BAR_BORDER*~&`)
 - **Icon dir**: `ASSETS/THEMES/DEFAULT/IMAGES/EDITBAR/*.png`
@@ -184,10 +184,10 @@ END IF
 
 ## Advanced Bar (`GUI/ADVANCEDBAR.BI` / `GUI/ADVANCEDBAR.BM`)
 
-Vertical icon bar with 26+ quick-access toggle buttons for view options, tool toggles, and feature controls. Dockable LEFT or RIGHT (independently from EditBar). Toggle with Shift+F5 or action ID 449.
+Vertical icon bar with 26+ quick-access toggle buttons for view options, tool toggles, and feature controls. Dockable LEFT or RIGHT (independently from EditBar). Defaults to LEFT dock. Toggle with Shift+F5 or action ID 449.
 
-- **26+ slots**: Toggle icons with dividers, organized by category (View, Grid, Brush, Reference, Layer Distribution, etc.)
-- **Buttons include**: Char Map, Char Grid, Char Snap, Preview, EditBar, Tile Preview, Grid Cell Fill, Grid Show, Fill Adjust, Brush Edges, Angle Snap, Grayscale Preview, Ref Image controls, Distribute Layers, Crosshair, and more
+- **33 slots**: 26 action icons + 7 dividers, organized by category (View, Grid, Brush, Reference, Layer Distribution, Flip Canvas, etc.)
+- **Buttons include**: Char Map, Char Grid, Char Snap, Preview, EditBar, Tile Preview, Grid Cell Fill, Grid Show, Fill Adjust, Brush Edges, Angle Snap, Grayscale Preview, Ref Image controls, Distribute Layers, Crosshair, Smart Guides, and more
 - **Config**: `ADVANCEDBAR_VISIBLE%`, `ADVANCEDBAR_DOCK_POSITION$` ("LEFT"/"RIGHT")
 - **Theme fields**: `ADV_BAR_WIDTH%`, `ADV_BAR_*_BORDER_WIDTH%`, `ADV_BAR_ICON_PADDING%`, plus 26 `ADV_BAR_ICON_*$` filename strings and color fields (`ADV_BAR_BG~&`, `ADV_BAR_HOVER~&`, `ADV_BAR_BORDER*~&`)
 - **Icon dir**: `ASSETS/THEMES/DEFAULT/IMAGES/ADVANCEDBAR/*.png`

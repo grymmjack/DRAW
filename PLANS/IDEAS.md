@@ -1,5 +1,11 @@
 # IDEAS
 
+## DRAWER SET WHEEL LOAD FROM DISK
+- [ ] Using mousewheel over the bins of the drawers for each mode ...
+  - [ ] Load the next dset available on disk with mousewheel down
+  - [ ] Load the previous dset available on disk with mousewheel up
+
+
 ## Color BITMAP fonts
 - See DEV/FONTS/COLOR_BITMAP
 - Lots of examples there

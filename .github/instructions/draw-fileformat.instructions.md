@@ -43,8 +43,12 @@ Extension changed from `.drw` to `.draw` in v0.7.4 (CorelDRAW conflict).
 | Text Bar State | selectedFontIdx(2), selectedSize(2), boldActive(2), italicActive(2), underlineActive(2), strikeActive(2), monoActive(2) | v17+ |
 | Character Grid State | charGridShow(2), charGridSnap(2), charGridW(2), charGridH(2) | v18+ |
 | Character Mode | useChars(2) | v19+ |
+| Text Layer Outline/Shadow | alignment(1), antialias(1), per-char: outline(1)+outlineColor(4)+outlineSize(1)+shadow(1)+shadowColor(4)+shadowX(1)+shadowY(1) | v20+ |
+| Grid Height | gridHeight(2) — allows non-square grids | v21+ |
+| Pixel Grid Visibility | show(2) | v22+ |
+| Grid Config | gridColorFG(4), gridOpacity(2), pixelgridColorFG(4), pixelgridOpacity(2), gridAngle(4), charGridWidth(2), charGridHeight(2), charGridOpacity(2), charGridColorFG(4) | v23+ |
 
-Constants: `DRW_MAGIC$ = "DRW1"`, `DRW_VERSION% = 19`, `DRW_CHUNK_VERSION% = 1`
+Constants: `DRW_MAGIC$ = "DRW1"`, `DRW_VERSION% = 23`, `DRW_CHUNK_VERSION% = 1`
 
 **Per-document vs global config**: Character Mode (`useChars%`) is saved per-document in v19+ — it is NOT stored in `DRAW.cfg`. On fresh launch (no file loaded), `useChars%` defaults to FALSE. Character grid visibility/snap state is also per-document (v18+).
 
@@ -83,11 +87,11 @@ Config file: `DRAW.cfg` — plain text, one `key=value` per line. Loaded by `CON
 | Canvas   | `SCREEN_WIDTH%`, `SCREEN_HEIGHT%` |
 | Palette  | `DEFAULT_PALETTE$`, `PALETTE_CHIP_WIDTH/HEIGHT%`, `PALETTE_MIN/MAX_ROWS%` |
 | Brush    | `DEFAULT_TOOL%`, `DEFAULT_BRUSH_SIZE%`, `DEFAULT_BRUSH_SHAPE%`, `DEFAULT_DRAW_MODE%`, `DEFAULT_BIN_MODE%` |
-| Grid     | `GRID_MODE%`, `GRID_SIZE_X/Y%`, `GRID_CELL_FILL%` |
+| Grid     | `GRID_MODE%`, `GRID_SIZE_X/Y%`, `GRID_CELL_FILL%`, `SMART_GUIDES_ENABLED%`, `SMART_GUIDES_SNAP%` |
 | Crosshair | `CROSSHAIR_OUTLINE_FG$`, `CROSSHAIR_OUTLINE_OPACITY%`, `CROSSHAIR_OUTLINE_WIDTH%` |
 | Undo     | `HISTORY_MAX_RECORDS` (1024)                            |
 | Picker   | `PICKER_LOUPE_*` overlay layout, font, and colors |
-| Preview / Panels | `PREVIEW_*` (incl. `PREVIEW_MODE%`, `PREVIEW_COLOR_PICK%`, `PREVIEW_BIN_QUICK_LOOK%`, `PREVIEW_FLOAT_IMAGE_PATH$`, `PREVIEW_FLOAT_LAST_DIR$`), `EDIT_BAR_VISIBLE%`, `EDIT_BAR_DOCK_POSITION$`, `LAYER_PANEL_WIDTH%`, `LAYERS_PANEL_DOCK_EDGE$`, `TOOLBOX_DOCK_EDGE$` |
+| Preview / Panels | `PREVIEW_*` (incl. `PREVIEW_MODE%`, `PREVIEW_COLOR_PICK%`, `PREVIEW_BIN_QUICK_LOOK%`, `PREVIEW_FLOAT_IMAGE_PATH$`, `PREVIEW_FLOAT_LAST_DIR$`), `EDIT_BAR_VISIBLE%`, `EDIT_BAR_DOCK_POSITION$`, `LAYER_PANEL_WIDTH%`, `LAYERS_PANEL_DOCK_EDGE$`, `TOOLBOX_DOCK_EDGE$`, `ADV_BAR_DOCK_POSITION$`, `ADV_BAR_VISIBLE%` |
 | Palette UI | `PALETTE_SHOW_LOSPEC%`, `PALETTE_SHOW_CREATED%`, `PALETTE_CREATE_MAX_COLORS%` |
 | Drawer / Templates | `DEFAULT_DSET_*_FILE$`, `TEMPLATE_DIR$` |
 | Export   | `BAS_EXPORT_BG_COLOR~&`, `BAS_WIP_ENABLED%` |

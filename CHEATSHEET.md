@@ -108,6 +108,7 @@ The drawer panel sits beneath the organizer and provides 30 reusable slots for b
 | **Middle Click slot** | Cycle drawer mode (Brush → Pattern → Gradient) |
 | **Shift + Middle Click slot** | Clear the clicked slot |
 | **Shift + Right Click slot** | Import into the clicked slot |
+| **Right Click slot → Load Images** | Load PNG/BMP files into consecutive drawer slots |
 | **Left Click mini palette** | Set foreground color |
 | **Right Click mini palette** | Set background color |
 
@@ -238,6 +239,23 @@ DRAW supports real-time symmetrical drawing with three modes: Vertical (|), Cros
 - Press `F8` for instant disable when you need to draw without symmetry
 - Combine with grid snap for precise symmetrical patterns
 
+## Smart Guides
+
+Smart Guides provide automatic alignment feedback when moving layers. When enabled, guide lines appear when the moving content aligns with neighboring layer edges, centers, or canvas bounds.
+
+### Toggle
+
+| Shortcut | Function |
+|----------|----------|
+| View → Smart Guides | Toggle guide line visibility |
+| Edit → Snap Smart Guides | Toggle snap-to-guide behaviour |
+
+### Behaviour
+
+- Guide lines appear when moving content edges/center align with neighbor layers or canvas edges/center
+- When snap is enabled, moving content snaps to the nearest guide within the configured distance
+- Guides render as dashed lines with configurable color, opacity, and outline via theme settings
+
 ## Fill Adjustment Mode
 
 When a **custom brush** or **drawer paint mode** (pattern/gradient) is active, `F8` enters Fill Adjustment Mode instead of disabling symmetry. This mode provides an interactive overlay for adjusting tiled fill parameters before committing.
@@ -258,6 +276,7 @@ When a **custom brush** or **drawer paint mode** (pattern/gradient) is active, `
 | **L-handle (corner)** | Drag to scale X and Y independently |
 | **L-handle horizontal arm** | Drag to scale X only |
 | **L-handle vertical arm** | Drag to scale Y only |
+| **Rotation handle (arc near corner)** | Drag to rotate fill pattern |
 | **Enter / Left Click outside** | Apply the fill |
 | **Escape / Right Click** | Cancel and revert |
 
@@ -384,6 +403,7 @@ Panels can be docked to the left or right side of the workspace.
 | Toolbox | Right | View → Layout → Toolbox Dock Left / Right |
 | Layer Panel | Right | View → Layout → Layer Panel Dock Left / Right |
 | Edit Bar | Left | View → Layout → Edit Bar Dock Left / Right |
+| Advanced Bar | Left | View → Layout → Advanced Bar Left / Right |
 | Character Map | Right | View → Layout → Character Map Left / Right |
 
 ### Quick Dock Toggle
