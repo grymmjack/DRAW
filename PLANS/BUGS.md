@@ -24,7 +24,7 @@
 
 
 ## PIXEL ART ANALYZER
-- [x] Zooming while analyzing is consistent and renders canvas correctly with overlays
+- [ ] Zooming while analyzing is consistent and renders canvas correctly with overlays
     - Shows gray background and overlay highlights, but it isn't rendering the canvas properly
 - [x] The button text is centered
 - [x] Detector checkboxes now use Settings dialog checkbox styling

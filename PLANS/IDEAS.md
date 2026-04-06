@@ -5,9 +5,7 @@
 - Lots of examples there
 
 
-
 ## Image Browser (For drag/drop to brush and pattern slots)
-
 
 
 ## Layer Groups
@@ -21,7 +19,6 @@
     - Selection from group
     - Merge group
   - Distribute Layers in group
-
 
 
 
@@ -55,8 +52,6 @@ cell alignment inside, borders, border widths, border colors, etc.
 
 
 
-## GUIDE LAYERS
-- Any opaque line becomes a guide, which can be snapped to
 
 
 
@@ -421,3 +416,7 @@ Automatically snap to layer candidates when near X/Y/W/H bounds of neighbors
 ### MENU CHANGES
 - [x] View -> Smart Guides
 - [x] Edit -> Snap Smart Guides
+
+## GUIDE LAYERS
+- [x] Already completed through smart guides ;) 
+  - Any opaque line becomes a guide, which can be snapped to
