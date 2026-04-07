@@ -227,6 +227,7 @@ TYPE DRAW_CONFIG
     GRID_ANGLE                     AS SINGLE   ' Grid rotation angle in degrees (0=use theme)
     GRID_MODE                      AS INTEGER  ' Grid geometry mode (0=square,1=diagonal,2=iso,3=hex)
     GRID_CELL_FILL                 AS INTEGER  ' Grid cell fill mode (0=off, 1=on)
+    GRID_ON_TOP                    AS INTEGER  ' Grid renders on top of art (1=on top, 0=behind art)
     ' Transparency checkerboard settings
     TRANSPARENCY_CHECK_COLOR1      AS _UNSIGNED LONG  ' Light checkerboard color
     TRANSPARENCY_CHECK_COLOR2      AS _UNSIGNED LONG  ' Dark checkerboard color
