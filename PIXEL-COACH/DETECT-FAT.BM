@@ -1,6 +1,8 @@
 '$INCLUDEONCE
 ' PIXEL-COACH/DETECT-FAT.BM — Fat pixel detector
-' Finds 2x2 blocks and double-width segments in thin outlines
+' Detects INCONSISTENT line thickness: spots where a contour that is normally
+' 1px wide momentarily becomes 2px wide. Intentionally thick lines (2px or
+' more everywhere) are NOT flagged — only thickness transitions matter.
 
 SUB COACH_detect_fat_pixels
     IF COACH.srcImg >= -1 THEN EXIT SUB
@@ -9,142 +11,341 @@ SUB COACH_detect_fat_pixels
     w% = COACH.imgW
     h% = COACH.imgH
 
-    ' Scan for 2x2 same-color blocks that sit on boundary contours
-    DIM x%, y%, idx&
-    DIM c~&
-    DIM idx10&, idx01&, idx11&
-    DIM boundCount%
-    DIM isThinContext%
-    DIM aboveL&, aboveR&
-    DIM belowL&, belowR&
+    ' Color similarity threshold (squared RGB distance)
+    CONST FAT_COLOR_DIST_SQ = 900 ' ~30 per channel
+
+    ' How far to look ahead/behind for 1px-thick proof of inconsistency
+    CONST FAT_PROBE_DIST = 8
+
+    ' Minimum run length of 2px-thick to be worth flagging
+    CONST FAT_MIN_RUN = 3
+
+    ' Max perpendicular depth before we consider it fill, not a line
+    CONST FAT_MAX_DEPTH = 3
+
+    DIM x%, y%, idx&, idx2&
+    DIM c1~&, c2~&
     DIM conf!
     DIM runStart%, runLen%, runActive%
-    DIM idx2&
-    DIM conf2!
+    DIM runColor~&
 
-    ' Track which pixels we've already reported to avoid duplicate issues
-    DIM totalPx&
-    totalPx& = CLNG(w%) * CLNG(h%)
-    REDIM reported(0 TO totalPx& - 1) AS INTEGER
-
-    FOR y% = 0 TO h% - 2
-        FOR x% = 0 TO w% - 2
-            idx& = CLNG(y%) * w% + x%
-
-            ' Check if this pixel is a boundary pixel
-            IF NOT COACH_BOUNDARY(idx&) THEN _CONTINUE
-            IF reported(idx&) THEN _CONTINUE
-
-            c~& = COACH_PIXELS(idx&)
-            IF _ALPHA32(c~&) = 0 THEN _CONTINUE
-
-            ' Check for 2x2 block of same color
-            idx10& = idx& + 1
-            idx01& = idx& + w%
-            idx11& = idx& + w% + 1
-
-            IF COACH_PIXELS(idx10&) = c~& AND _
-               COACH_PIXELS(idx01&) = c~& AND _
-               COACH_PIXELS(idx11&) = c~& THEN
-
-                ' Verify at least 2 of the 4 pixels are boundary pixels
-                ' (otherwise this is interior fill, not a fat outline)
-                boundCount% = 0
-                IF COACH_BOUNDARY(idx&) THEN boundCount% = boundCount% + 1
-                IF COACH_BOUNDARY(idx10&) THEN boundCount% = boundCount% + 1
-                IF COACH_BOUNDARY(idx01&) THEN boundCount% = boundCount% + 1
-                IF COACH_BOUNDARY(idx11&) THEN boundCount% = boundCount% + 1
-
-                IF boundCount% >= 2 THEN
-                    ' Check surrounding context: is this 2x2 block embedded in a
-                    ' contour that's otherwise 1px thick?
-                    ' Sample pixels around the 2x2 block to check thickness
-                    isThinContext% = 0
-
-                    ' Check if the region above or below the block is NOT this color
-                    ' (indicating the surrounding contour is thinner)
-                    IF y% > 0 THEN
-                        aboveL& = CLNG(y% - 1) * w% + x%
-                        aboveR& = CLNG(y% - 1) * w% + x% + 1
-                        IF COACH_PIXELS(aboveL&) <> c~& OR COACH_PIXELS(aboveR&) <> c~& THEN
-                            isThinContext% = -1
-                        END IF
-                    END IF
-                    IF y% + 2 < h% THEN
-                        belowL& = CLNG(y% + 2) * w% + x%
-                        belowR& = CLNG(y% + 2) * w% + x% + 1
-                        IF COACH_PIXELS(belowL&) <> c~& OR COACH_PIXELS(belowR&) <> c~& THEN
-                            isThinContext% = -1
-                        END IF
-                    END IF
-
-                    IF isThinContext% THEN
-                        conf! = 0.75!
-                        IF boundCount% >= 3 THEN conf! = 0.85!
-
-                        COACH_add_issue COACH_FAT_PIXEL, conf!, _
-                            x%, y%, x% + 1, y% + 1, 4, _
-                            "Fat pixel: 2x2 block at (" + LTRIM$(STR$(x%)) + "," + LTRIM$(STR$(y%)) + ")", _
-                            "Reduce to 1px width to keep the contour thin"
-
-                        reported(idx&) = -1
-                        reported(idx10&) = -1
-                        reported(idx01&) = -1
-                        reported(idx11&) = -1
-                    END IF
-                END IF
-            END IF
-        NEXT x%
-    NEXT y%
-
-    ' --- Also detect double-width horizontal lines ---
-    ' Two adjacent rows of same color boundary pixels
+    ' ---------------------------------------------------------------
+    ' Horizontal fat lines: scan adjacent row pairs for 2px-thick runs
+    ' that are flanked by 1px-thick contour on at least one side
+    ' ---------------------------------------------------------------
     FOR y% = 0 TO h% - 2
         runActive% = 0
         runStart% = 0
         runLen% = 0
+        runColor~& = 0
 
         FOR x% = 0 TO w% - 1
             idx& = CLNG(y%) * w% + x%
             idx2& = CLNG(y% + 1) * w% + x%
 
-            IF COACH_BOUNDARY(idx&) AND COACH_BOUNDARY(idx2&) THEN
-                IF COACH_PIXELS(idx&) = COACH_PIXELS(idx2&) THEN
-                    IF NOT reported(idx&) AND NOT reported(idx2&) THEN
-                        IF NOT runActive% THEN
-                            runActive% = -1
-                            runStart% = x%
-                            runLen% = 1
-                        ELSE
-                            runLen% = runLen% + 1
+            c1~& = COACH_PIXELS(idx&)
+            c2~& = COACH_PIXELS(idx2&)
+
+            ' Both pixels same/similar color AND both are contour (not fill)?
+            DIM isDouble%
+            isDouble% = 0
+
+            IF _ALPHA32(c1~&) > 0 AND _ALPHA32(c2~&) > 0 THEN
+                IF COACH_colors_similar%(c1~&, c2~&, FAT_COLOR_DIST_SQ) THEN
+                    ' BOTH sides (above AND below) must differ — no image-edge shortcut
+                    DIM hAboveDiff%, hBelowDiff%
+                    hAboveDiff% = 0: hBelowDiff% = 0
+
+                    IF y% > 0 THEN
+                        IF NOT COACH_colors_similar%(COACH_PIXELS(CLNG(y% - 1) * w% + x%), c1~&, FAT_COLOR_DIST_SQ) THEN
+                            hAboveDiff% = -1
                         END IF
-                        _CONTINUE
+                    END IF
+
+                    IF y% + 2 < h% THEN
+                        IF NOT COACH_colors_similar%(COACH_PIXELS(CLNG(y% + 2) * w% + x%), c2~&, FAT_COLOR_DIST_SQ) THEN
+                            hBelowDiff% = -1
+                        END IF
+                    END IF
+
+                    IF hAboveDiff% AND hBelowDiff% THEN
+                        isDouble% = -1
                     END IF
                 END IF
             END IF
 
-            ' End of run
-            IF runActive% AND runLen% >= 3 THEN
-                conf2! = 0.55! + CSNG(runLen%) * 0.05!
-                IF conf2! > 0.9! THEN conf2! = 0.9!
-
-                COACH_add_issue COACH_FAT_PIXEL, conf2!, _
-                    runStart%, y%, runStart% + runLen% - 1, y% + 1, runLen% * 2, _
-                    "Fat line: double-width run of" + STR$(runLen%) + " pixels", _
-                    "Thin this to a 1px line"
+            IF isDouble% THEN
+                IF NOT runActive% THEN
+                    runActive% = -1
+                    runStart% = x%
+                    runLen% = 1
+                    runColor~& = c1~&
+                ELSE
+                    runLen% = runLen% + 1
+                END IF
+            ELSE
+                GOSUB flushHRun
             END IF
-            runActive% = 0
-            runLen% = 0
         NEXT x%
-
-        IF runActive% AND runLen% >= 3 THEN
-            conf2! = 0.55! + CSNG(runLen%) * 0.05!
-            IF conf2! > 0.9! THEN conf2! = 0.9!
-
-            COACH_add_issue COACH_FAT_PIXEL, conf2!, _
-                runStart%, y%, runStart% + runLen% - 1, y% + 1, runLen% * 2, _
-                "Fat line: double-width run of" + STR$(runLen%) + " pixels", _
-                "Thin this to a 1px line"
-        END IF
+        GOSUB flushHRun
     NEXT y%
+
+    ' ---------------------------------------------------------------
+    ' Vertical fat lines: scan adjacent column pairs
+    ' ---------------------------------------------------------------
+    FOR x% = 0 TO w% - 2
+        runActive% = 0
+        runStart% = 0
+        runLen% = 0
+        runColor~& = 0
+
+        FOR y% = 0 TO h% - 1
+            idx& = CLNG(y%) * w% + x%
+            idx2& = idx& + 1
+
+            c1~& = COACH_PIXELS(idx&)
+            c2~& = COACH_PIXELS(idx2&)
+
+            DIM isVDouble%
+            isVDouble% = 0
+
+            IF _ALPHA32(c1~&) > 0 AND _ALPHA32(c2~&) > 0 THEN
+                IF COACH_colors_similar%(c1~&, c2~&, FAT_COLOR_DIST_SQ) THEN
+                    DIM vLeftDiff%, vRightDiff%
+                    vLeftDiff% = 0: vRightDiff% = 0
+
+                    ' BOTH sides (left AND right) must differ — no image-edge shortcut
+                    IF x% > 0 THEN
+                        IF NOT COACH_colors_similar%(COACH_PIXELS(CLNG(y%) * w% + x% - 1), c1~&, FAT_COLOR_DIST_SQ) THEN
+                            vLeftDiff% = -1
+                        END IF
+                    END IF
+
+                    IF x% + 2 < w% THEN
+                        IF NOT COACH_colors_similar%(COACH_PIXELS(CLNG(y%) * w% + x% + 2), c2~&, FAT_COLOR_DIST_SQ) THEN
+                            vRightDiff% = -1
+                        END IF
+                    END IF
+
+                    IF vLeftDiff% AND vRightDiff% THEN
+                        isVDouble% = -1
+                    END IF
+                END IF
+            END IF
+
+            IF isVDouble% THEN
+                IF NOT runActive% THEN
+                    runActive% = -1
+                    runStart% = y%
+                    runLen% = 1
+                    runColor~& = c1~&
+                ELSE
+                    runLen% = runLen% + 1
+                END IF
+            ELSE
+                GOSUB flushVRun
+            END IF
+        NEXT y%
+        GOSUB flushVRun
+    NEXT x%
+
+    EXIT SUB
+
+    ' --- Gosub: flush horizontal run ---
+    ' Only flag if the contour is 1px-thick on at least one side of the run
+    ' (proving the thickness is inconsistent, not intentionally 2px)
+    flushHRun:
+    IF runActive% AND runLen% >= FAT_MIN_RUN THEN
+        ' --- Fill-area rejection: measure perpendicular depth at midpoint ---
+        ' If same-color region extends > FAT_MAX_DEPTH px above or below
+        ' the 2-row band, it's a fill area, not a line.
+        DIM hMidX%
+        hMidX% = runStart% + runLen% \ 2
+        DIM hDepthAbove%, hDepthBelow%
+        hDepthAbove% = 0: hDepthBelow% = 0
+
+        DIM hdy%
+        FOR hdy% = 1 TO FAT_MAX_DEPTH
+            IF y% - hdy% >= 0 THEN
+                IF COACH_colors_similar%(COACH_PIXELS(CLNG(y% - hdy%) * w% + hMidX%), runColor~&, FAT_COLOR_DIST_SQ) THEN
+                    hDepthAbove% = hDepthAbove% + 1
+                ELSE
+                    EXIT FOR
+                END IF
+            ELSE
+                EXIT FOR
+            END IF
+        NEXT hdy%
+        FOR hdy% = 2 TO FAT_MAX_DEPTH
+            IF y% + hdy% < h% THEN
+                IF COACH_colors_similar%(COACH_PIXELS(CLNG(y% + hdy%) * w% + hMidX%), runColor~&, FAT_COLOR_DIST_SQ) THEN
+                    hDepthBelow% = hDepthBelow% + 1
+                ELSE
+                    EXIT FOR
+                END IF
+            ELSE
+                EXIT FOR
+            END IF
+        NEXT hdy%
+
+        ' Total perpendicular depth = 2 (the run rows) + extensions
+        ' If either side extends, it's fill, not a thin line
+        IF hDepthAbove% > 0 OR hDepthBelow% > 0 THEN
+            ' This is part of a fill area, skip it
+            runActive% = 0: runLen% = 0
+            RETURN
+        END IF
+
+        DIM hHas1px%
+        hHas1px% = 0
+
+        ' Probe left of run: is the contour 1px thick there?
+        DIM hpx%
+        FOR hpx% = runStart% - 1 TO runStart% - FAT_PROBE_DIST STEP -1
+            IF hpx% < 0 THEN EXIT FOR
+            DIM hpIdx&
+            hpIdx& = CLNG(y%) * w% + hpx%
+            ' Check if top row has the contour color but bottom row does NOT
+            IF COACH_colors_similar%(COACH_PIXELS(hpIdx&), runColor~&, FAT_COLOR_DIST_SQ) THEN
+                IF NOT COACH_colors_similar%(COACH_PIXELS(CLNG(y% + 1) * w% + hpx%), runColor~&, FAT_COLOR_DIST_SQ) THEN
+                    hHas1px% = -1: EXIT FOR
+                END IF
+            ' Or bottom row has it but top row does NOT
+            ELSEIF COACH_colors_similar%(COACH_PIXELS(CLNG(y% + 1) * w% + hpx%), runColor~&, FAT_COLOR_DIST_SQ) THEN
+                hHas1px% = -1: EXIT FOR
+            ELSE
+                EXIT FOR ' contour ended, stop probing
+            END IF
+        NEXT hpx%
+
+        ' Probe right of run
+        IF NOT hHas1px% THEN
+            FOR hpx% = runStart% + runLen% TO runStart% + runLen% + FAT_PROBE_DIST - 1
+                IF hpx% >= w% THEN EXIT FOR
+                hpIdx& = CLNG(y%) * w% + hpx%
+                IF COACH_colors_similar%(COACH_PIXELS(hpIdx&), runColor~&, FAT_COLOR_DIST_SQ) THEN
+                    IF NOT COACH_colors_similar%(COACH_PIXELS(CLNG(y% + 1) * w% + hpx%), runColor~&, FAT_COLOR_DIST_SQ) THEN
+                        hHas1px% = -1: EXIT FOR
+                    END IF
+                ELSEIF COACH_colors_similar%(COACH_PIXELS(CLNG(y% + 1) * w% + hpx%), runColor~&, FAT_COLOR_DIST_SQ) THEN
+                    hHas1px% = -1: EXIT FOR
+                ELSE
+                    EXIT FOR
+                END IF
+            NEXT hpx%
+        END IF
+
+        IF hHas1px% THEN
+            conf! = 0.65! + CSNG(runLen%) * 0.02!
+            IF conf! > 0.90! THEN conf! = 0.90!
+
+            COACH_add_issue COACH_FAT_PIXEL, conf!, _
+                runStart%, y%, runStart% + runLen% - 1, y% + 1, runLen% * 2, _
+                "Fat line: 2px-thick horizontal segment (" + LTRIM$(STR$(runLen%)) + " px) in 1px contour", _
+                "Thin this segment to match the surrounding 1px contour"
+        END IF
+    END IF
+    runActive% = 0: runLen% = 0
+    RETURN
+
+    ' --- Gosub: flush vertical run ---
+    flushVRun:
+    IF runActive% AND runLen% >= FAT_MIN_RUN THEN
+        ' --- Fill-area rejection: measure perpendicular depth at midpoint ---
+        DIM vMidY%
+        vMidY% = runStart% + runLen% \ 2
+        DIM vDepthLeft%, vDepthRight%
+        vDepthLeft% = 0: vDepthRight% = 0
+
+        DIM vdx%
+        FOR vdx% = 1 TO FAT_MAX_DEPTH
+            IF x% - vdx% >= 0 THEN
+                IF COACH_colors_similar%(COACH_PIXELS(CLNG(vMidY%) * w% + x% - vdx%), runColor~&, FAT_COLOR_DIST_SQ) THEN
+                    vDepthLeft% = vDepthLeft% + 1
+                ELSE
+                    EXIT FOR
+                END IF
+            ELSE
+                EXIT FOR
+            END IF
+        NEXT vdx%
+        FOR vdx% = 2 TO FAT_MAX_DEPTH
+            IF x% + vdx% < w% THEN
+                IF COACH_colors_similar%(COACH_PIXELS(CLNG(vMidY%) * w% + x% + vdx%), runColor~&, FAT_COLOR_DIST_SQ) THEN
+                    vDepthRight% = vDepthRight% + 1
+                ELSE
+                    EXIT FOR
+                END IF
+            ELSE
+                EXIT FOR
+            END IF
+        NEXT vdx%
+
+        IF vDepthLeft% > 0 OR vDepthRight% > 0 THEN
+            runActive% = 0: runLen% = 0
+            RETURN
+        END IF
+
+        DIM vHas1px%
+        vHas1px% = 0
+
+        ' Probe above the run
+        DIM vpx%
+        FOR vpx% = runStart% - 1 TO runStart% - FAT_PROBE_DIST STEP -1
+            IF vpx% < 0 THEN EXIT FOR
+            DIM vpIdx&
+            vpIdx& = CLNG(vpx%) * w% + x%
+            IF COACH_colors_similar%(COACH_PIXELS(vpIdx&), runColor~&, FAT_COLOR_DIST_SQ) THEN
+                IF NOT COACH_colors_similar%(COACH_PIXELS(CLNG(vpx%) * w% + x% + 1), runColor~&, FAT_COLOR_DIST_SQ) THEN
+                    vHas1px% = -1: EXIT FOR
+                END IF
+            ELSEIF COACH_colors_similar%(COACH_PIXELS(CLNG(vpx%) * w% + x% + 1), runColor~&, FAT_COLOR_DIST_SQ) THEN
+                vHas1px% = -1: EXIT FOR
+            ELSE
+                EXIT FOR
+            END IF
+        NEXT vpx%
+
+        ' Probe below the run
+        IF NOT vHas1px% THEN
+            FOR vpx% = runStart% + runLen% TO runStart% + runLen% + FAT_PROBE_DIST - 1
+                IF vpx% >= h% THEN EXIT FOR
+                vpIdx& = CLNG(vpx%) * w% + x%
+                IF COACH_colors_similar%(COACH_PIXELS(vpIdx&), runColor~&, FAT_COLOR_DIST_SQ) THEN
+                    IF NOT COACH_colors_similar%(COACH_PIXELS(CLNG(vpx%) * w% + x% + 1), runColor~&, FAT_COLOR_DIST_SQ) THEN
+                        vHas1px% = -1: EXIT FOR
+                    END IF
+                ELSEIF COACH_colors_similar%(COACH_PIXELS(CLNG(vpx%) * w% + x% + 1), runColor~&, FAT_COLOR_DIST_SQ) THEN
+                    vHas1px% = -1: EXIT FOR
+                ELSE
+                    EXIT FOR
+                END IF
+            NEXT vpx%
+        END IF
+
+        IF vHas1px% THEN
+            conf! = 0.65! + CSNG(runLen%) * 0.02!
+            IF conf! > 0.90! THEN conf! = 0.90!
+
+            COACH_add_issue COACH_FAT_PIXEL, conf!, _
+                x%, runStart%, x% + 1, runStart% + runLen% - 1, runLen% * 2, _
+                "Fat line: 2px-thick vertical segment (" + LTRIM$(STR$(runLen%)) + " px) in 1px contour", _
+                "Thin this segment to match the surrounding 1px contour"
+        END IF
+    END IF
+    runActive% = 0: runLen% = 0
+    RETURN
 END SUB
+
+' ============================================================================
+' Helper: Check if two colors are perceptually similar
+' Returns TRUE if squared RGB distance < threshold
+' ============================================================================
+FUNCTION COACH_colors_similar% (c1~&, c2~&, thresholdSq&)
+    IF c1~& = c2~& THEN COACH_colors_similar% = -1: EXIT FUNCTION
+    DIM dr&, dg&, db&
+    dr& = CLNG(_RED32(c1~&)) - CLNG(_RED32(c2~&))
+    dg& = CLNG(_GREEN32(c1~&)) - CLNG(_GREEN32(c2~&))
+    db& = CLNG(_BLUE32(c1~&)) - CLNG(_BLUE32(c2~&))
+    COACH_colors_similar% = (dr& * dr& + dg& * dg& + db& * db&) < thresholdSq&
+END FUNCTION

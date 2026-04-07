@@ -709,14 +709,14 @@ SUB UI_render
     _PRINTSTRING (panelX%, panelY%), "Detectors:"
     panelY% = panelY% + 18
 
-    UI_draw_checkbox panelX%, panelY%, "Jaggies  [1]" + STR$(tc(COACH_JAGGY)), chkJaggies: panelY% = panelY% + 18
-    UI_draw_checkbox panelX%, panelY%, "Islands  [2]" + STR$(tc(COACH_ISLAND)), chkIslands: panelY% = panelY% + 18
-    UI_draw_checkbox panelX%, panelY%, "Banding  [3]" + STR$(tc(COACH_BANDING)), chkBanding: panelY% = panelY% + 18
-    UI_draw_checkbox panelX%, panelY%, "Fat Px   [4]" + STR$(tc(COACH_FAT_PIXEL)), chkFatPixels: panelY% = panelY% + 18
-    UI_draw_checkbox panelX%, panelY%, "Dither   [5]" + STR$(tc(COACH_OVER_DITHER)), chkDithering: panelY% = panelY% + 18
-    UI_draw_checkbox panelX%, panelY%, "Contrast [6]" + STR$(tc(COACH_CONTRAST)), chkContrast: panelY% = panelY% + 18
-    UI_draw_checkbox panelX%, panelY%, "Value    [7]" + STR$(tc(COACH_VALUE)), chkValue: panelY% = panelY% + 18
-    UI_draw_checkbox panelX%, panelY%, "Noise    [8]" + STR$(tc(COACH_NOISE)), chkNoise: panelY% = panelY% + 18
+    UI_draw_checkbox_colored panelX%, panelY%, "Jaggies  [1]" + STR$(tc(COACH_JAGGY)), chkJaggies, COACH_COLOR_JAGGY~&: panelY% = panelY% + 18
+    UI_draw_checkbox_colored panelX%, panelY%, "Islands  [2]" + STR$(tc(COACH_ISLAND)), chkIslands, COACH_COLOR_ISLAND~&: panelY% = panelY% + 18
+    UI_draw_checkbox_colored panelX%, panelY%, "Banding  [3]" + STR$(tc(COACH_BANDING)), chkBanding, COACH_COLOR_BANDING~&: panelY% = panelY% + 18
+    UI_draw_checkbox_colored panelX%, panelY%, "Fat Px   [4]" + STR$(tc(COACH_FAT_PIXEL)), chkFatPixels, COACH_COLOR_FAT~&: panelY% = panelY% + 18
+    UI_draw_checkbox_colored panelX%, panelY%, "Dither   [5]" + STR$(tc(COACH_OVER_DITHER)), chkDithering, COACH_COLOR_DITHER~&: panelY% = panelY% + 18
+    UI_draw_checkbox_colored panelX%, panelY%, "Contrast [6]" + STR$(tc(COACH_CONTRAST)), chkContrast, COACH_COLOR_CONTRAST~&: panelY% = panelY% + 18
+    UI_draw_checkbox_colored panelX%, panelY%, "Value    [7]" + STR$(tc(COACH_VALUE)), chkValue, COACH_COLOR_VALUE~&: panelY% = panelY% + 18
+    UI_draw_checkbox_colored panelX%, panelY%, "Noise    [8]" + STR$(tc(COACH_NOISE)), chkNoise, COACH_COLOR_NOISE~&: panelY% = panelY% + 18
 
     ' Confidence threshold
     COLOR UI_TEXT_DIM~&, UI_PANEL_BG~&
@@ -871,6 +871,34 @@ SUB UI_draw_checkbox (x%, y%, label$, state%)
     ' Label
     COLOR UI_TEXT~&, UI_PANEL_BG~&
     _PRINTSTRING (x% + CHECKBOX_SIZE + 6, y%), label$
+END SUB
+
+' ============================================================================
+' SUB: Draw a checkbox with a colored indicator square
+' ============================================================================
+SUB UI_draw_checkbox_colored (x%, y%, label$, state%, indicatorColor~&)
+    ' Checkbox box
+    IF state% THEN
+        LINE (x%, y%)-(x% + CHECKBOX_SIZE - 1, y% + CHECKBOX_SIZE - 1), UI_CHECK_ON~&, BF
+        COLOR UI_TEXT~&, UI_CHECK_ON~&
+        _PRINTSTRING (x% + 2, y% - 1), CHR$(251) ' checkmark
+    ELSE
+        LINE (x%, y%)-(x% + CHECKBOX_SIZE - 1, y% + CHECKBOX_SIZE - 1), UI_CHECK_BG~&, BF
+    END IF
+    LINE (x%, y%)-(x% + CHECKBOX_SIZE - 1, y% + CHECKBOX_SIZE - 1), _RGB32(100, 100, 110), B
+
+    ' Color indicator square (opaque version of the overlay color)
+    DIM sq%, sqSz%
+    sq% = x% + CHECKBOX_SIZE + 4
+    sqSz% = 10
+    DIM opaqueColor~&
+    opaqueColor~& = _RGB32(_RED32(indicatorColor~&), _GREEN32(indicatorColor~&), _BLUE32(indicatorColor~&))
+    LINE (sq%, y% + 2)-(sq% + sqSz% - 1, y% + sqSz% + 1), opaqueColor~&, BF
+    LINE (sq%, y% + 2)-(sq% + sqSz% - 1, y% + sqSz% + 1), _RGB32(40, 40, 50), B
+
+    ' Label (shifted right to accommodate color square)
+    COLOR UI_TEXT~&, UI_PANEL_BG~&
+    _PRINTSTRING (sq% + sqSz% + 4, y%), label$
 END SUB
 
 ' ============================================================================

@@ -20,19 +20,20 @@ CONST COACH_PILLOW = 8
 CONST COACH_LIGHT = 9
 CONST COACH_NOISE = 10
 
-CONST COACH_MAX_ISSUES = 512
+CONST COACH_MAX_ISSUES = 4096
 CONST COACH_MAX_COMPONENTS = 4096
 
-' Overlay colors per issue type (semi-transparent)
-CONST COACH_COLOR_JAGGY~& = &HCCFF3333 ' red
-CONST COACH_COLOR_ISLAND~& = &HCCFFFF00 ' yellow
-CONST COACH_COLOR_BANDING~& = &HCC3399FF ' blue
-CONST COACH_COLOR_FAT~& = &HCCFF33FF ' magenta
-CONST COACH_COLOR_DITHER~& = &HCC00FFFF ' cyan
-CONST COACH_COLOR_VALUE~& = &HCCFF9933 ' orange
-CONST COACH_COLOR_NOISE~& = &HCCFFFF00 ' yellow (same as island)
-CONST COACH_COLOR_PILLOW~& = &HCC9933FF ' purple
-CONST COACH_COLOR_LIGHT~& = &HCCFF6699 ' pink
+' Overlay colors per issue type (semi-transparent) — each MUST be unique
+CONST COACH_COLOR_JAGGY~& = &HCCFF3333 '    red
+CONST COACH_COLOR_ISLAND~& = &HCCFFFF00 '   yellow
+CONST COACH_COLOR_BANDING~& = &HCC3399FF '  blue
+CONST COACH_COLOR_FAT~& = &HCCFF33FF '      magenta
+CONST COACH_COLOR_DITHER~& = &HCC00FFFF '   cyan
+CONST COACH_COLOR_CONTRAST~& = &HCC66FF33 ' lime green
+CONST COACH_COLOR_VALUE~& = &HCCFF9933 '    orange
+CONST COACH_COLOR_NOISE~& = &HCCCCCCCC '    light gray
+CONST COACH_COLOR_PILLOW~& = &HCC9933FF '   purple
+CONST COACH_COLOR_LIGHT~& = &HCCFF6699 '    pink
 
 ' ============================================================================
 ' Issue data type
@@ -136,6 +137,7 @@ DECLARE SUB COACH_detect_jaggies ()
 DECLARE SUB COACH_detect_islands ()
 DECLARE SUB COACH_detect_banding ()
 DECLARE SUB COACH_detect_fat_pixels ()
+DECLARE FUNCTION COACH_colors_similar% (c1~&, c2~&, thresholdSq&)
 DECLARE SUB COACH_detect_over_dithering ()
 DECLARE SUB COACH_detect_contrast ()
 DECLARE SUB COACH_detect_value ()
