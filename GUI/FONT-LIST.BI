@@ -37,6 +37,7 @@ TYPE FONT_ENTRY
     boldItalicPath AS STRING * 260 ' Path to bold-italic variant (if found)
     isFavorite    AS INTEGER       ' TRUE if font is in DRAW_FONT_FAVORITES.txt
     isBitmapFont  AS INTEGER       ' TRUE if raw bitmap font (F??, PSF, BDF, PCF)
+    isColorBitmapFont AS INTEGER   ' TRUE if color bitmap spritesheet font (.BMP)
     bitmapGlyphW  AS INTEGER       ' Glyph width for bitmap fonts (pixels)
     bitmapGlyphH  AS INTEGER       ' Glyph height for bitmap fonts (pixels)
     folderName    AS STRING * 64   ' Subfolder name ("AMIGA", "RETRO", etc.) or empty for root
@@ -84,6 +85,21 @@ CONST FONT_FOLDER_MAX = 64
 DIM SHARED FONT_FOLDER_NAME(0 TO FONT_FOLDER_MAX - 1) AS STRING * 64
 DIM SHARED FONT_FOLDER_COUNT AS INTEGER
 
+' Color Bitmap Font (CBF) spritesheet cache — DPaint-style .BMP fonts
+CONST CBF_CACHE_MAX = 8
+CONST CBF_GLYPH_MAX = 128
+
+DIM SHARED CBF_CACHE_PATH(0 TO CBF_CACHE_MAX - 1) AS STRING * 260
+DIM SHARED CBF_CACHE_SHEET(0 TO CBF_CACHE_MAX - 1) AS LONG
+DIM SHARED CBF_CACHE_GLYPH_X(0 TO CBF_CACHE_MAX - 1, 0 TO CBF_GLYPH_MAX - 1) AS INTEGER
+DIM SHARED CBF_CACHE_GLYPH_W(0 TO CBF_CACHE_MAX - 1, 0 TO CBF_GLYPH_MAX - 1) AS INTEGER
+DIM SHARED CBF_CACHE_CHAR_MAP(0 TO CBF_CACHE_MAX - 1, 0 TO 255) AS INTEGER
+DIM SHARED CBF_CACHE_GLYPH_CNT(0 TO CBF_CACHE_MAX - 1) AS INTEGER
+DIM SHARED CBF_CACHE_HEIGHT(0 TO CBF_CACHE_MAX - 1) AS INTEGER
+DIM SHARED CBF_CACHE_SPACE_W(0 TO CBF_CACHE_MAX - 1) AS INTEGER
+DIM SHARED CBF_CACHE_BG_CLR(0 TO CBF_CACHE_MAX - 1) AS _UNSIGNED LONG
+DIM SHARED CBF_CACHE_COUNT AS INTEGER
+
 DECLARE SUB FONT_LIST_scan ()
 DECLARE SUB FONT_LIST_scan_dir (dir$, recursive%, isBundled%)
 DECLARE SUB FONT_LIST_scan_bitmap_dir (dir$, isBundled%)
@@ -116,3 +132,9 @@ DECLARE SUB FONT_LIST_scan_nested_subfolders (parentDir$, parentName$, isBundled
 DECLARE FUNCTION FONT_LIST_folder_index% (folderName$)
 DECLARE FUNCTION FONT_LIST_wildcard_match% (pattern$, text$)
 DECLARE FUNCTION FONT_LIST_pattern_match% (pattern$, text$, substringFallback AS INTEGER)
+DECLARE FUNCTION CBF_detect% (fontPath$, outAvgW AS INTEGER, outH AS INTEGER)
+DECLARE SUB CBF_load_cache (fontPath$)
+DECLARE SUB CBF_render_glyph (fontPath$, charIdx%, destImg AS LONG)
+DECLARE FUNCTION CBF_glyph_width% (fontPath$, charIdx%)
+DECLARE SUB CBF_free_cache ()
+DECLARE SUB FONT_LIST_add_cbf_font (fontPath$, isBundled%, avgW%, glyphH%)

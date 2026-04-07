@@ -77,6 +77,10 @@ DIM SHARED TL_LEADING(1 TO TEXT_LAYER_POOL_SIZE, 0 TO TEXT_LAYER_MAX_LINES - 1) 
 ' When > 0, draw_bitmap_char applies horizontal shear for faux italic
 DIM SHARED TEXT_LAYER_FAUX_ITALIC_SHEAR AS INTEGER
 
+' Force tint mode: when TRUE, CBF fonts use fgColor tinting instead of original colors.
+' Set by shadow/outline passes to ensure they render in the chosen shadow/outline color.
+DIM SHARED TEXT_LAYER_FORCE_TINT AS INTEGER
+
 ' Function declarations
 DECLARE FUNCTION TEXT_LAYER_alloc% ()
 DECLARE SUB TEXT_LAYER_free (idx AS INTEGER)

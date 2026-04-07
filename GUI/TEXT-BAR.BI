@@ -121,6 +121,7 @@ TYPE TEXT_BAR_OBJ
     shadowOffsetY      AS INTEGER        ' Shadow Y offset (1-10)
     alignMode          AS INTEGER        ' 0=LEFT, 1=CENTER, 2=RIGHT
     aaActive           AS INTEGER        ' Antialias toggle state
+    defaultKern        AS INTEGER        ' Default kern for newly typed characters
     styleDropdownOpen  AS INTEGER        ' TRUE when style list is open
     styleDropdownScroll AS INTEGER       ' Scroll offset for style dropdown
     fontDropdownHoverRow AS INTEGER      ' Hovered row in font dropdown (-1=none)
@@ -206,6 +207,7 @@ TYPE TEXT_STYLE_OBJ
     shdX       AS INTEGER
     shdY       AS INTEGER
     antialias  AS INTEGER
+    kern       AS INTEGER
 END TYPE
 
 DIM SHARED TEXT_STYLES(1 TO TEXT_STYLE_MAX) AS TEXT_STYLE_OBJ

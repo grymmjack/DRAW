@@ -808,10 +808,10 @@ SUB FONT_LIST_scan_subfolders (baseDir$, isBundled%)
         dirName$ = LTRIM$(RTRIM$(dirName$))
         IF LEN(dirName$) < 1 THEN _CONTINUE
 
-        ' Skip known non-font subdirectories (color bitmap tables, not actual fonts)
+        ' Skip known non-font subdirectories
         DIM upperDir AS STRING
         upperDir$ = UCASE$(dirName$)
-        IF upperDir$ = "COLOR_BITMAP" OR upperDir$ = "COLR" THEN _CONTINUE
+        IF upperDir$ = "COLR" THEN _CONTINUE
 
         $IF WIN THEN
             dirPath$ = baseDir$ + "\" + dirName$
@@ -885,7 +885,7 @@ SUB FONT_LIST_scan_nested_subfolders (parentDir$, parentName$, isBundled%)
 
         DIM upperSubDir AS STRING
         upperSubDir$ = UCASE$(subDirName$)
-        IF upperSubDir$ = "COLOR_BITMAP" OR upperSubDir$ = "COLR" THEN _CONTINUE
+        IF upperSubDir$ = "COLR" THEN _CONTINUE
 
         $IF WIN THEN
             subDirPath$ = parentDir$ + "\" + subDirName$
@@ -1108,6 +1108,7 @@ SUB FONT_LIST_scan_bitmap_dir (dir$, isBundled%)
         IF RIGHT$(upperLine$, 4) = ".BDF" THEN isBitmapExt% = TRUE
         IF RIGHT$(upperLine$, 4) = ".PCF" THEN isBitmapExt% = TRUE
         IF RIGHT$(upperLine$, 4) = ".FON" THEN isBitmapExt% = TRUE
+        IF RIGHT$(upperLine$, 4) = ".BMP" THEN isBitmapExt% = TRUE
         ' Match .F?? extensions (F06, F08, F12, F14, F16, F19, F24, F32)
         IF LEN(upperLine$) > 4 THEN
             DIM extCheck AS STRING
@@ -1146,6 +1147,8 @@ SUB FONT_LIST_scan_bitmap_dir (dir$, isBundled%)
             FONT_LIST_add_bitmap_font fullPath$, isBundled%, gw%, gh%
         ELSEIF BITMAP_FONT_detect_fon%(fullPath$, gw%, gh%) THEN
             FONT_LIST_add_bitmap_font fullPath$, isBundled%, gw%, gh%
+        ELSEIF CBF_detect%(fullPath$, gw%, gh%) THEN
+            FONT_LIST_add_cbf_font fullPath$, isBundled%, gw%, gh%
         ELSE
             _LOGWARN "FONT_LIST_scan_bitmap_dir: unrecognized format: " + fullPath$
         END IF
@@ -2150,4 +2153,445 @@ SUB BITMAP_FONT_render_glyph_fon (fontPath$, charIdx%, glyphW%, glyphH%, destImg
     _BLEND
     _DEST oldDest&
     CLOSE #ff%
+END SUB
+
+
+''
+' Add a color bitmap font (CBF) spritesheet to the font list.
+' @param fontPath$ Full path to the .BMP spritesheet
+' @param isBundled% TRUE if bundled with DRAW
+' @param avgW% Average glyph width in pixels (for layout estimates)
+' @param glyphH% Glyph height in pixels (spritesheet height - 1)
+'
+SUB FONT_LIST_add_cbf_font (fontPath$, isBundled%, avgW%, glyphH%)
+    IF FONT_LIST_COUNT% >= FONT_LIST_MAX THEN EXIT SUB
+    IF FONT_LIST_is_blacklisted%(fontPath$) THEN EXIT SUB
+
+    ' Check for duplicates
+    DIM i AS INTEGER
+    DIM newName AS STRING
+    newName$ = FONT_LIST_extract_name$(fontPath$)
+    FOR i% = 0 TO FONT_LIST_COUNT% - 1
+        IF RTRIM$(FONT_LIST(i%).path) = fontPath$ THEN EXIT SUB
+    NEXT i%
+
+    DIM idx AS INTEGER
+    idx% = FONT_LIST_COUNT%
+
+    FONT_LIST(idx%).path = fontPath$
+    FONT_LIST(idx%).displayName = newName$
+    FONT_LIST(idx%).isBundled = isBundled%
+    FONT_LIST(idx%).isBuiltIn = FALSE
+    FONT_LIST(idx%).isBitmapFont = TRUE
+    FONT_LIST(idx%).isColorBitmapFont = TRUE
+    FONT_LIST(idx%).folderName = ""
+    FONT_LIST(idx%).bitmapGlyphW = avgW%
+    FONT_LIST(idx%).bitmapGlyphH = glyphH%
+    FONT_LIST(idx%).hasBold = FALSE
+    FONT_LIST(idx%).hasItalic = FALSE
+    FONT_LIST(idx%).hasBoldItalic = FALSE
+
+    FONT_LIST_COUNT% = FONT_LIST_COUNT% + 1
+    _LOGINFO "FONT_LIST_add_cbf_font: " + newName$ + " (" + _TRIM$(STR$(glyphH%)) + "px)"
+END SUB
+
+
+''
+' Detect if a .BMP file is a valid color bitmap font spritesheet (DPaint-style).
+' Checks for marker row at y=0 with at least 2 distinct colors and multiple glyphs.
+'
+' @param fontPath$ Full path to the .BMP file
+' @param outAvgW Average glyph width (output)
+' @param outH Glyph height = spritesheet height - 1 (output)
+' @return TRUE if valid CBF spritesheet
+'
+FUNCTION CBF_detect% (fontPath$, outAvgW AS INTEGER, outH AS INTEGER)
+    CBF_detect% = FALSE
+    outAvgW% = 0
+    outH% = 0
+
+    IF NOT _FILEEXISTS(fontPath$) THEN EXIT FUNCTION
+
+    DIM img AS LONG
+    img& = _LOADIMAGE(fontPath$, 32)
+    IF img& >= -1 THEN EXIT FUNCTION
+
+    DIM w AS INTEGER, h AS INTEGER
+    w% = _WIDTH(img&)
+    h% = _HEIGHT(img&)
+
+    ' Minimum size: at least 10 pixels wide and 3 rows (marker + 2px glyph)
+    IF w% < 10 OR h% < 3 THEN
+        _FREEIMAGE img&
+        EXIT FUNCTION
+    END IF
+
+    ' Scan row 0: color frequency analysis
+    DIM oldSrc AS LONG
+    oldSrc& = _SOURCE
+    _SOURCE img&
+
+    DIM uClr(0 TO 511) AS _UNSIGNED LONG
+    DIM uCnt(0 TO 511) AS LONG
+    DIM uNum AS INTEGER
+    DIM x AS INTEGER, j AS INTEGER
+    DIM c AS _UNSIGNED LONG
+    DIM found AS INTEGER
+
+    uNum% = 0
+    FOR x% = 0 TO w% - 1
+        c~& = POINT(x%, 0)
+        found% = 0
+        FOR j% = 0 TO uNum% - 1
+            IF uClr(j%) = c~& THEN
+                uCnt(j%) = uCnt(j%) + 1
+                found% = -1
+                EXIT FOR
+            END IF
+        NEXT j%
+        IF NOT found% AND uNum% < 512 THEN
+            uClr(uNum%) = c~&
+            uCnt(uNum%) = 1
+            uNum% = uNum% + 1
+        END IF
+    NEXT x%
+
+    ' Need at least 2 distinct colors (background + marker)
+    IF uNum% < 2 THEN
+        _SOURCE oldSrc&
+        _FREEIMAGE img&
+        EXIT FUNCTION
+    END IF
+
+    ' Most frequent = background
+    DIM maxCnt AS LONG, maxIdx AS INTEGER
+    maxCnt& = 0: maxIdx% = 0
+    FOR j% = 0 TO uNum% - 1
+        IF uCnt(j%) > maxCnt& THEN
+            maxCnt& = uCnt(j%)
+            maxIdx% = j%
+        END IF
+    NEXT j%
+    DIM detBg AS _UNSIGNED LONG
+    detBg~& = uClr(maxIdx%)
+
+    ' Count glyph boundaries (bg->non-bg transitions at y=0)
+    DIM glyphCnt AS INTEGER
+    DIM prevIsBg AS INTEGER
+    glyphCnt% = 0
+    prevIsBg% = -1
+    FOR x% = 0 TO w% - 1
+        c~& = POINT(x%, 0)
+        IF c~& <> detBg~& THEN
+            IF prevIsBg% THEN glyphCnt% = glyphCnt% + 1
+            prevIsBg% = 0
+        ELSE
+            prevIsBg% = -1
+        END IF
+    NEXT x%
+
+    _SOURCE oldSrc&
+    _FREEIMAGE img&
+
+    ' Require at least 2 glyphs to be a valid font spritesheet
+    IF glyphCnt% < 2 THEN EXIT FUNCTION
+
+    outH% = h% - 1
+    outAvgW% = w% \ glyphCnt%
+    IF outAvgW% < 1 THEN outAvgW% = 8
+
+    CBF_detect% = TRUE
+END FUNCTION
+
+
+''
+' Find or create a CBF cache slot for the given font path.
+' Loads the spritesheet, detects markers, and stores glyph boundaries.
+'
+' @param fontPath$ Full path to the .BMP spritesheet
+'
+SUB CBF_load_cache (fontPath$)
+    DIM ci AS INTEGER
+
+    ' Check if already cached
+    FOR ci% = 0 TO CBF_CACHE_COUNT% - 1
+        IF RTRIM$(CBF_CACHE_PATH(ci%)) = fontPath$ THEN EXIT SUB
+    NEXT ci%
+
+    ' Evict oldest if full
+    IF CBF_CACHE_COUNT% >= CBF_CACHE_MAX THEN
+        IF CBF_CACHE_SHEET(0) < -1 THEN _FREEIMAGE CBF_CACHE_SHEET(0)
+        DIM mv AS INTEGER
+        FOR mv% = 0 TO CBF_CACHE_MAX - 2
+            CBF_CACHE_PATH(mv%) = CBF_CACHE_PATH(mv% + 1)
+            CBF_CACHE_SHEET(mv%) = CBF_CACHE_SHEET(mv% + 1)
+            CBF_CACHE_GLYPH_CNT(mv%) = CBF_CACHE_GLYPH_CNT(mv% + 1)
+            CBF_CACHE_HEIGHT(mv%) = CBF_CACHE_HEIGHT(mv% + 1)
+            CBF_CACHE_SPACE_W(mv%) = CBF_CACHE_SPACE_W(mv% + 1)
+            CBF_CACHE_BG_CLR(mv%) = CBF_CACHE_BG_CLR(mv% + 1)
+            DIM mg AS INTEGER
+            FOR mg% = 0 TO CBF_GLYPH_MAX - 1
+                CBF_CACHE_GLYPH_X(mv%, mg%) = CBF_CACHE_GLYPH_X(mv% + 1, mg%)
+                CBF_CACHE_GLYPH_W(mv%, mg%) = CBF_CACHE_GLYPH_W(mv% + 1, mg%)
+            NEXT mg%
+            DIM mc AS INTEGER
+            FOR mc% = 0 TO 255
+                CBF_CACHE_CHAR_MAP(mv%, mc%) = CBF_CACHE_CHAR_MAP(mv% + 1, mc%)
+            NEXT mc%
+        NEXT mv%
+        CBF_CACHE_COUNT% = CBF_CACHE_MAX - 1
+    END IF
+
+    DIM slot AS INTEGER
+    slot% = CBF_CACHE_COUNT%
+
+    ' Load spritesheet
+    DIM img AS LONG
+    img& = _LOADIMAGE(fontPath$, 32)
+    IF img& >= -1 THEN
+        _LOGWARN "CBF_load_cache: failed to load " + fontPath$
+        EXIT SUB
+    END IF
+
+    CBF_CACHE_PATH(slot%) = fontPath$
+    CBF_CACHE_SHEET(slot%) = img&
+    CBF_CACHE_HEIGHT(slot%) = _HEIGHT(img&) - 1
+
+    DIM w AS INTEGER
+    w% = _WIDTH(img&)
+
+    ' Color frequency analysis at y=0
+    DIM oldSrc AS LONG
+    oldSrc& = _SOURCE
+    _SOURCE img&
+
+    DIM uClr(0 TO 511) AS _UNSIGNED LONG
+    DIM uCnt(0 TO 511) AS LONG
+    DIM uNum AS INTEGER
+    DIM x AS INTEGER, j AS INTEGER
+    DIM c AS _UNSIGNED LONG
+    DIM found AS INTEGER
+
+    uNum% = 0
+    FOR x% = 0 TO w% - 1
+        c~& = POINT(x%, 0)
+        found% = 0
+        FOR j% = 0 TO uNum% - 1
+            IF uClr(j%) = c~& THEN
+                uCnt(j%) = uCnt(j%) + 1
+                found% = -1
+                EXIT FOR
+            END IF
+        NEXT j%
+        IF NOT found% AND uNum% < 512 THEN
+            uClr(uNum%) = c~&
+            uCnt(uNum%) = 1
+            uNum% = uNum% + 1
+        END IF
+    NEXT x%
+
+    ' Most frequent at y=0 = background
+    DIM maxCnt AS LONG, maxIdx AS INTEGER
+    maxCnt& = 0: maxIdx% = 0
+    FOR j% = 0 TO uNum% - 1
+        IF uCnt(j%) > maxCnt& THEN
+            maxCnt& = uCnt(j%)
+            maxIdx% = j%
+        END IF
+    NEXT j%
+    CBF_CACHE_BG_CLR(slot%) = uClr(maxIdx%)
+
+    ' Find glyph boundaries (bg->non-bg transitions at y=0)
+    DIM glyCnt AS INTEGER
+    DIM prevIsBg AS INTEGER
+    glyCnt% = 0
+    prevIsBg% = -1
+    FOR x% = 0 TO w% - 1
+        c~& = POINT(x%, 0)
+        IF c~& <> CBF_CACHE_BG_CLR(slot%) THEN
+            IF prevIsBg% THEN
+                IF glyCnt% < CBF_GLYPH_MAX THEN
+                    CBF_CACHE_GLYPH_X(slot%, glyCnt%) = x%
+                    glyCnt% = glyCnt% + 1
+                END IF
+            END IF
+            prevIsBg% = 0
+        ELSE
+            prevIsBg% = -1
+        END IF
+    NEXT x%
+    CBF_CACHE_GLYPH_CNT(slot%) = glyCnt%
+
+    ' Calculate glyph widths
+    FOR j% = 0 TO glyCnt% - 1
+        IF j% < glyCnt% - 1 THEN
+            CBF_CACHE_GLYPH_W(slot%, j%) = CBF_CACHE_GLYPH_X(slot%, j% + 1) - CBF_CACHE_GLYPH_X(slot%, j%)
+        ELSE
+            CBF_CACHE_GLYPH_W(slot%, j%) = w% - CBF_CACHE_GLYPH_X(slot%, j%)
+        END IF
+    NEXT j%
+
+    _SOURCE oldSrc&
+
+    ' Build character mapping (ASCII 33 through 33+glyphCount-1)
+    DIM k AS INTEGER
+    FOR k% = 0 TO 255
+        CBF_CACHE_CHAR_MAP(slot%, k%) = -1
+    NEXT k%
+
+    DIM ch AS INTEGER
+    DIM gi AS INTEGER
+    gi% = 0
+    FOR ch% = 33 TO 33 + glyCnt% - 1
+        IF ch% > 126 THEN EXIT FOR
+        IF gi% < glyCnt% THEN
+            CBF_CACHE_CHAR_MAP(slot%, ch%) = gi%
+            ' Map lowercase to uppercase
+            IF ch% >= 65 AND ch% <= 90 THEN
+                CBF_CACHE_CHAR_MAP(slot%, ch% + 32) = gi%
+            END IF
+            gi% = gi% + 1
+        END IF
+    NEXT ch%
+
+    ' Space width = average glyph width
+    DIM totalW AS LONG
+    totalW& = 0
+    FOR j% = 0 TO glyCnt% - 1
+        totalW& = totalW& + CBF_CACHE_GLYPH_W(slot%, j%)
+    NEXT j%
+    IF glyCnt% > 0 THEN
+        CBF_CACHE_SPACE_W(slot%) = totalW& \ glyCnt%
+    ELSE
+        CBF_CACHE_SPACE_W(slot%) = 8
+    END IF
+
+    CBF_CACHE_COUNT% = CBF_CACHE_COUNT% + 1
+    _LOGINFO "CBF_load_cache: loaded " + fontPath$ + " (" + _TRIM$(STR$(glyCnt%)) + " glyphs, h=" + _TRIM$(STR$(CBF_CACHE_HEIGHT(slot%))) + ")"
+END SUB
+
+
+''
+' Render a single CBF glyph by character index.
+' Extracts the glyph from the cached spritesheet with background replaced by transparent.
+'
+' @param fontPath$ Full path to the .BMP spritesheet
+' @param charIdx% ASCII code of the character to render
+' @param destImg Return: glyph image handle (caller must free), or 0 if unmapped
+'
+SUB CBF_render_glyph (fontPath$, charIdx%, destImg AS LONG)
+    destImg& = 0
+
+    ' Find cache slot
+    CBF_load_cache fontPath$
+    DIM slot AS INTEGER
+    DIM cbfFound AS INTEGER
+    cbfFound% = FALSE
+    FOR slot% = 0 TO CBF_CACHE_COUNT% - 1
+        IF RTRIM$(CBF_CACHE_PATH(slot%)) = fontPath$ THEN
+            cbfFound% = TRUE
+            EXIT FOR
+        END IF
+    NEXT slot%
+    IF NOT cbfFound% THEN EXIT SUB
+
+    ' Look up character -> glyph
+    IF charIdx% < 0 OR charIdx% > 255 THEN EXIT SUB
+    DIM gi AS INTEGER
+    gi% = CBF_CACHE_CHAR_MAP(slot%, charIdx%)
+    IF gi% < 0 OR gi% >= CBF_CACHE_GLYPH_CNT(slot%) THEN EXIT SUB
+
+    ' Extract glyph pixels from spritesheet
+    DIM gx AS INTEGER, gw AS INTEGER, gh AS INTEGER
+    gx% = CBF_CACHE_GLYPH_X(slot%, gi%)
+    gw% = CBF_CACHE_GLYPH_W(slot%, gi%)
+    gh% = CBF_CACHE_HEIGHT(slot%)
+    IF gw% < 1 OR gh% < 1 THEN EXIT SUB
+
+    destImg& = _NEWIMAGE(gw%, gh%, 32)
+    IF destImg& >= -1 THEN
+        destImg& = 0
+        EXIT SUB
+    END IF
+
+    DIM oldSrc AS LONG, oldDest AS LONG
+    DIM x AS INTEGER, y AS INTEGER
+    DIM srcC AS _UNSIGNED LONG
+
+    oldSrc& = _SOURCE
+    oldDest& = _DEST
+    _SOURCE CBF_CACHE_SHEET(slot%)
+    _DEST destImg&
+    CLS , _RGBA32(0, 0, 0, 0)
+
+    ' Copy pixels, replacing background with transparent
+    FOR y% = 0 TO gh% - 1
+        FOR x% = 0 TO gw% - 1
+            srcC~& = POINT(gx% + x%, y% + 1) ' +1 skips marker row
+            IF srcC~& <> CBF_CACHE_BG_CLR(slot%) THEN
+                PSET (x%, y%), srcC~&
+            END IF
+        NEXT x%
+    NEXT y%
+
+    _SOURCE oldSrc&
+    _DEST oldDest&
+END SUB
+
+
+''
+' Get the width of a specific character glyph in a CBF font.
+' Returns 0 if unmapped, space width for space character.
+'
+FUNCTION CBF_glyph_width% (fontPath$, charIdx%)
+    CBF_glyph_width% = 0
+
+    ' Space character
+    IF charIdx% = 32 THEN
+        CBF_load_cache fontPath$
+        DIM si AS INTEGER
+        FOR si% = 0 TO CBF_CACHE_COUNT% - 1
+            IF RTRIM$(CBF_CACHE_PATH(si%)) = fontPath$ THEN
+                CBF_glyph_width% = CBF_CACHE_SPACE_W(si%)
+                EXIT FUNCTION
+            END IF
+        NEXT si%
+        EXIT FUNCTION
+    END IF
+
+    IF charIdx% < 0 OR charIdx% > 255 THEN EXIT FUNCTION
+
+    CBF_load_cache fontPath$
+    DIM slot AS INTEGER
+    DIM cwFound AS INTEGER
+    cwFound% = FALSE
+    FOR slot% = 0 TO CBF_CACHE_COUNT% - 1
+        IF RTRIM$(CBF_CACHE_PATH(slot%)) = fontPath$ THEN
+            cwFound% = TRUE
+            EXIT FOR
+        END IF
+    NEXT slot%
+    IF NOT cwFound% THEN EXIT FUNCTION
+
+    DIM gi AS INTEGER
+    gi% = CBF_CACHE_CHAR_MAP(slot%, charIdx%)
+    IF gi% < 0 OR gi% >= CBF_CACHE_GLYPH_CNT(slot%) THEN EXIT FUNCTION
+
+    CBF_glyph_width% = CBF_CACHE_GLYPH_W(slot%, gi%)
+END FUNCTION
+
+
+''
+' Free all cached CBF spritesheets.
+'
+SUB CBF_free_cache ()
+    DIM i AS INTEGER
+    FOR i% = 0 TO CBF_CACHE_COUNT% - 1
+        IF CBF_CACHE_SHEET(i%) < -1 THEN
+            _FREEIMAGE CBF_CACHE_SHEET(i%)
+            CBF_CACHE_SHEET(i%) = 0
+        END IF
+        CBF_CACHE_PATH(i%) = ""
+    NEXT i%
+    CBF_CACHE_COUNT% = 0
 END SUB
