@@ -98,7 +98,22 @@ TYPE DRAWER_STATE
     dragTargetSlot      AS INTEGER   ' Current drop target slot (0 = none)
     dragStartX          AS INTEGER   ' Raw X when drag started
     dragStartY          AS INTEGER   ' Raw Y when drag started
+    ' Per-mode dirty tracking (TRUE when set has been modified since last load/save)
+    brushSetDirty       AS INTEGER
+    patternSetDirty     AS INTEGER
+    gradientSetDirty    AS INTEGER
+    ' Wheel tooltip state
+    wheelTooltipActive  AS INTEGER
+    wheelTooltipTimer   AS DOUBLE
 END TYPE
+
+' Per-mode path of currently loaded .dset file (empty = no file loaded / theme defaults)
+DIM SHARED DRAWER_BRUSH_SET_PATH AS STRING
+DIM SHARED DRAWER_PATTERN_SET_PATH AS STRING
+DIM SHARED DRAWER_GRADIENT_SET_PATH AS STRING
+
+' Wheel tooltip text (stripped filename, no path/extension)
+DIM SHARED DRAWER_WHEEL_TOOLTIP_TEXT AS STRING
 
 DIM SHARED DRAWER AS DRAWER_STATE
 DIM SHARED DRAWER_BRUSH_SLOTS(1 TO DRAWER_SLOT_COUNT) AS DRAW_BRUSH
@@ -112,6 +127,12 @@ DIM SHARED DRAWER_GRADIENT_HAS(1 TO DRAWER_SLOT_COUNT) AS INTEGER
 DIM SHARED DRAWER_GRADIENT_CUSTOM(1 TO DRAWER_SLOT_COUNT) AS INTEGER
 DIM SHARED DRAWER_DEFERRED_IMPORT_SLOT AS INTEGER
 DIM SHARED DRAWER_DEFERRED_IMPORT_MODE AS INTEGER
+
+' Dset file list cache for wheel cycling
+CONST DRAWER_MAX_DSET_FILES = 200
+DIM SHARED DRAWER_DSET_LIST(1 TO DRAWER_MAX_DSET_FILES) AS STRING
+DIM SHARED DRAWER_DSET_COUNT AS INTEGER
+DIM SHARED DRAWER_DSET_CACHE_MODE AS INTEGER   ' mode the cache was built for (0 = invalid)
 
 ' Gradient definition arrays — parallel to DRAWER_GRADIENT_SLOTS
 DIM SHARED GRAD_DEFS(1 TO DRAWER_SLOT_COUNT) AS GRADIENT_DEF
@@ -219,6 +240,17 @@ DECLARE SUB DRAWER_explore_context_folder ()
 DECLARE FUNCTION DRAWER_sets_dir$ ()
 DECLARE SUB DRAWER_ensure_sets_dir ()
 DECLARE FUNCTION DRAWER_load_dset_file% (filename AS STRING, targetMode AS INTEGER)
+DECLARE SUB DRAWER_mark_set_dirty ()
+DECLARE SUB DRAWER_clear_set_dirty (mode AS INTEGER)
+DECLARE FUNCTION DRAWER_is_set_dirty% ()
+DECLARE SUB DRAWER_set_current_path (mode AS INTEGER, path AS STRING)
+DECLARE FUNCTION DRAWER_get_current_path$ ()
+DECLARE SUB DRAWER_scan_dset_files ()
+DECLARE FUNCTION DRAWER_find_current_index% ()
+DECLARE SUB DRAWER_invalidate_dset_cache ()
+DECLARE SUB DRAWER_wheel_tooltip_show (filename AS STRING)
+DECLARE SUB DRAWER_wheel_tooltip_render (target AS LONG)
+DECLARE SUB DRAWER_reset_all_dirty_state ()
 
 ' Palette/gradient rendering state (lazily initialized)
 DIM SHARED DRAWER_PALETTE_IMG AS LONG

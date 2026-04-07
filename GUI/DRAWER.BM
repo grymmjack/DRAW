@@ -33,6 +33,16 @@ SUB DRAWER_init ()
     DRAWER.contextMenuHover% = -1
     DRAWER.samplesLoaded% = FALSE
     DRAWER.loadedTheme = ""
+    DRAWER.brushSetDirty% = FALSE
+    DRAWER.patternSetDirty% = FALSE
+    DRAWER.gradientSetDirty% = FALSE
+    DRAWER.wheelTooltipActive% = FALSE
+    DRAWER_WHEEL_TOOLTIP_TEXT$ = ""
+    DRAWER_BRUSH_SET_PATH$ = ""
+    DRAWER_PATTERN_SET_PATH$ = ""
+    DRAWER_GRADIENT_SET_PATH$ = ""
+    DRAWER_DSET_CACHE_MODE% = 0
+    DRAWER_DSET_COUNT% = 0
     DRAWER_DEFERRED_IMPORT_SLOT% = 0
     DRAWER_DEFERRED_IMPORT_MODE% = DRAWER_MODE_NONE
     GRAD_CTX_clear
@@ -1235,6 +1245,7 @@ SUB DRAWER_set_mode (mode AS INTEGER)
 
     DRAWER.paintMode% = targetPaintMode%
 
+    DRAWER_invalidate_dset_cache
     GUI_NEEDS_REDRAW% = TRUE
     FRAME_IDLE% = FALSE
 END SUB
@@ -2319,6 +2330,7 @@ SUB DRAWER_store_to_slot (slotIndex AS INTEGER)
             DRAWER.gradientSelected% = slotIndex%
     END SELECT
 
+    DRAWER_mark_set_dirty
     SOUND_play SND_FILL
     GUI_NEEDS_REDRAW% = TRUE
     FRAME_IDLE% = FALSE
@@ -2637,6 +2649,7 @@ SUB DRAWER_handle_drop ()
             CASE DRAWER_MODE_GRADIENT
                 IF DRAWER.gradientSelected% = src% THEN DRAWER.gradientSelected% = dst%
         END SELECT
+        DRAWER_mark_set_dirty
         SOUND_play SND_DRAG_DROP
     END IF
 
@@ -2902,6 +2915,7 @@ FUNCTION DRAWER_handle_middle_click% (mouseX AS INTEGER, mouseY AS INTEGER)
         IF MODIFIERS.shift% THEN
             ' CLEAR: Shift+Middle Click - clear the single slot
             DRAWER_clear_slot mcSlot%
+            DRAWER_mark_set_dirty
         ELSE
             DRAWER_cycle_mode
         END IF
@@ -2913,14 +2927,72 @@ END FUNCTION
 
 ''
 ' Handle mouse wheel events over the drawer panel.
-' Currently a no-op placeholder for future scrolling support.
+' Cycles through .dset files on disk for the current drawer mode.
+' Wheel down = next file, wheel up = previous, with circular wrap.
+' Prompts to save if the current set has been modified before switching.
 ' @param mouseX INTEGER Raw screen X coordinate
 ' @param mouseY INTEGER Raw screen Y coordinate
 ' @param wheelDelta INTEGER Scroll wheel delta (positive=up, negative=down)
 '
 SUB DRAWER_handle_wheel (mouseX AS INTEGER, mouseY AS INTEGER, wheelDelta AS INTEGER)
-    IF NOT DRAWER_is_over_area%(mouseX%, mouseY%) THEN EXIT SUB
+    DIM curIdx AS INTEGER
+    DIM newIdx AS INTEGER
+    DIM msgResult AS INTEGER
+
+    IF NOT DRAWER_is_over_slot%(mouseX%, mouseY%) THEN EXIT SUB
     IF wheelDelta% = 0 THEN EXIT SUB
+    IF DRAWER.contextMenuOpen% THEN EXIT SUB
+
+    ' --- Prompt to save if current set is dirty ---
+    IF DRAWER_is_set_dirty% THEN
+        POINTER_hide_for_dialog
+        msgResult% = DRAW_message_box%("Drawer Set Modified", _
+            "Current drawer set has been modified." + CHR$(10) + _
+            "Save before switching?", _
+            MB_BTN_YES_NO_CANCEL, MB_ICON_WARNING)
+        POINTER_show_after_dialog
+        MOUSE_cleanup_after_dialog FALSE
+        SELECT CASE msgResult%
+            CASE MB_RESULT_1 ' Yes — save first
+                DRAWER_export_set_dialog
+            CASE MB_RESULT_3, MB_RESULT_NONE ' Cancel or X — abort wheel
+                EXIT SUB
+            ' MB_RESULT_2 = No — discard and continue
+        END SELECT
+    END IF
+
+    ' --- Scan / use cached file list ---
+    DRAWER_scan_dset_files
+    IF DRAWER_DSET_COUNT% = 0 THEN EXIT SUB
+
+    ' --- Calculate new index with circular wrap ---
+    curIdx% = DRAWER_find_current_index%
+    IF wheelDelta% > 0 THEN
+        ' Wheel up = previous file
+        IF curIdx% = 0 THEN
+            newIdx% = DRAWER_DSET_COUNT%
+        ELSE
+            newIdx% = curIdx% - 1
+            IF newIdx% < 1 THEN newIdx% = DRAWER_DSET_COUNT%
+        END IF
+    ELSE
+        ' Wheel down = next file
+        IF curIdx% = 0 THEN
+            newIdx% = 1
+        ELSE
+            newIdx% = curIdx% + 1
+            IF newIdx% > DRAWER_DSET_COUNT% THEN newIdx% = 1
+        END IF
+    END IF
+
+    ' --- Load the new dset file ---
+    IF DRAWER_load_dset_file%(DRAWER_DSET_LIST$(newIdx%), 0) THEN
+        DRAWER_wheel_tooltip_show DRAWER_DSET_LIST$(newIdx%)
+        SOUND_play SND_ORGANIZER
+    END IF
+
+    GUI_NEEDS_REDRAW% = TRUE
+    FRAME_IDLE% = FALSE
 END SUB
 
 ''
@@ -3149,6 +3221,7 @@ SUB DRAWER_explore_sets_folder ()
     $ELSE
         SHELL _DONTWAIT "open " + CHR$(34) + setsDir$ + CHR$(34)
     $END IF
+    DRAWER_invalidate_dset_cache
 END SUB
 
 ''
@@ -3383,8 +3456,345 @@ FUNCTION DRAWER_load_dset_file% (filename AS STRING, targetMode AS INTEGER)
     END SELECT
     CLOSE #fh%
 
+    DRAWER_clear_set_dirty fileMode%
+    DRAWER_set_current_path fileMode%, resolvedPath$
     DRAWER_load_dset_file% = TRUE
 END FUNCTION
+
+''
+' Mark the current drawer mode's set as dirty (modified since last load/save).
+'
+SUB DRAWER_mark_set_dirty ()
+    SELECT CASE DRAWER.mode%
+        CASE DRAWER_MODE_BRUSH: DRAWER.brushSetDirty% = TRUE
+        CASE DRAWER_MODE_PATTERN: DRAWER.patternSetDirty% = TRUE
+        CASE DRAWER_MODE_GRADIENT: DRAWER.gradientSetDirty% = TRUE
+    END SELECT
+END SUB
+
+''
+' Clear the dirty flag for a specific drawer mode.
+' @param mode INTEGER DRAWER_MODE_BRUSH/PATTERN/GRADIENT
+'
+SUB DRAWER_clear_set_dirty (mode AS INTEGER)
+    SELECT CASE mode%
+        CASE DRAWER_MODE_BRUSH: DRAWER.brushSetDirty% = FALSE
+        CASE DRAWER_MODE_PATTERN: DRAWER.patternSetDirty% = FALSE
+        CASE DRAWER_MODE_GRADIENT: DRAWER.gradientSetDirty% = FALSE
+    END SELECT
+END SUB
+
+''
+' Check if the current drawer mode's set has been modified.
+' @return INTEGER TRUE if the current mode's set is dirty
+'
+FUNCTION DRAWER_is_set_dirty% ()
+    SELECT CASE DRAWER.mode%
+        CASE DRAWER_MODE_BRUSH: DRAWER_is_set_dirty% = DRAWER.brushSetDirty%
+        CASE DRAWER_MODE_PATTERN: DRAWER_is_set_dirty% = DRAWER.patternSetDirty%
+        CASE DRAWER_MODE_GRADIENT: DRAWER_is_set_dirty% = DRAWER.gradientSetDirty%
+        CASE ELSE: DRAWER_is_set_dirty% = FALSE
+    END SELECT
+END FUNCTION
+
+''
+' Set the currently loaded dset file path for a specific mode.
+' @param mode INTEGER DRAWER_MODE_BRUSH/PATTERN/GRADIENT
+' @param path STRING Full path to the .dset file
+'
+SUB DRAWER_set_current_path (mode AS INTEGER, path AS STRING)
+    SELECT CASE mode%
+        CASE DRAWER_MODE_BRUSH: DRAWER_BRUSH_SET_PATH$ = path$
+        CASE DRAWER_MODE_PATTERN: DRAWER_PATTERN_SET_PATH$ = path$
+        CASE DRAWER_MODE_GRADIENT: DRAWER_GRADIENT_SET_PATH$ = path$
+    END SELECT
+END SUB
+
+''
+' Get the currently loaded dset file path for the active mode.
+' @return STRING Full path to the current .dset file (empty if none loaded)
+'
+FUNCTION DRAWER_get_current_path$ ()
+    SELECT CASE DRAWER.mode%
+        CASE DRAWER_MODE_BRUSH: DRAWER_get_current_path$ = DRAWER_BRUSH_SET_PATH$
+        CASE DRAWER_MODE_PATTERN: DRAWER_get_current_path$ = DRAWER_PATTERN_SET_PATH$
+        CASE DRAWER_MODE_GRADIENT: DRAWER_get_current_path$ = DRAWER_GRADIENT_SET_PATH$
+        CASE ELSE: DRAWER_get_current_path$ = ""
+    END SELECT
+END FUNCTION
+
+''
+' Reset all dirty flags, current paths, and invalidate the dset cache.
+' Called when loading a DRW project or creating a new canvas.
+'
+SUB DRAWER_reset_all_dirty_state ()
+    DRAWER.brushSetDirty% = FALSE
+    DRAWER.patternSetDirty% = FALSE
+    DRAWER.gradientSetDirty% = FALSE
+    DRAWER_BRUSH_SET_PATH$ = ""
+    DRAWER_PATTERN_SET_PATH$ = ""
+    DRAWER_GRADIENT_SET_PATH$ = ""
+    DRAWER.wheelTooltipActive% = FALSE
+    DRAWER_WHEEL_TOOLTIP_TEXT$ = ""
+    DRAWER_invalidate_dset_cache
+END SUB
+
+''
+' Invalidate the cached dset file list, forcing a rescan on next wheel event.
+'
+SUB DRAWER_invalidate_dset_cache ()
+    DRAWER_DSET_CACHE_MODE% = 0
+    DRAWER_DSET_COUNT% = 0
+END SUB
+
+''
+' Scan disk for .dset files matching the current drawer mode.
+' Results are cached — subsequent calls for the same mode return immediately.
+' Scans both ASSETS/DSETS/{mode}/ and USER/DRAWER-SETS/ directories.
+'
+SUB DRAWER_scan_dset_files ()
+    DIM modeSub AS STRING
+    DIM assetsDir AS STRING
+    DIM userDir AS STRING
+    DIM entry AS STRING
+    DIM fullPath AS STRING
+    DIM fh AS INTEGER
+    DIM magic AS STRING * 4
+    DIM version AS INTEGER
+    DIM fileMode AS INTEGER
+    DIM i AS INTEGER, j AS INTEGER
+    DIM tmpStr AS STRING
+
+    ' Cache hit — same mode, already scanned
+    IF DRAWER_DSET_CACHE_MODE% = DRAWER.mode% AND DRAWER_DSET_COUNT% > 0 THEN EXIT SUB
+
+    DRAWER_DSET_COUNT% = 0
+
+    SELECT CASE DRAWER.mode%
+        CASE DRAWER_MODE_BRUSH: modeSub$ = "BRUSHES"
+        CASE DRAWER_MODE_PATTERN: modeSub$ = "PATTERNS"
+        CASE DRAWER_MODE_GRADIENT: modeSub$ = "GRADIENTS"
+        CASE ELSE: DRAWER_DSET_CACHE_MODE% = DRAWER.mode%: EXIT SUB
+    END SELECT
+
+    ' --- Scan ASSETS/DSETS/{mode}/ ---
+    assetsDir$ = _CWD$ + "/ASSETS/DSETS/" + modeSub$
+    IF _DIREXISTS(assetsDir$) THEN
+        entry$ = _FILES$(assetsDir$ + "/*.dset")
+        DO WHILE entry$ <> "" AND DRAWER_DSET_COUNT% < DRAWER_MAX_DSET_FILES
+            fullPath$ = assetsDir$ + "/" + entry$
+            DRAWER_DSET_COUNT% = DRAWER_DSET_COUNT% + 1
+            DRAWER_DSET_LIST(DRAWER_DSET_COUNT%) = fullPath$
+            entry$ = _FILES$
+        LOOP
+    END IF
+
+    ' --- Scan USER/DRAWER-SETS/ (flat dir — peek mode byte from header) ---
+    DRAWER_ensure_sets_dir
+    userDir$ = DRAWER_sets_dir$
+    IF _DIREXISTS(userDir$) THEN
+        entry$ = _FILES$(userDir$ + "/*.dset")
+        DO WHILE entry$ <> "" AND DRAWER_DSET_COUNT% < DRAWER_MAX_DSET_FILES
+            fullPath$ = userDir$ + "/" + entry$
+            ' Peek mode from dset header to filter by current mode
+            IF _FILEEXISTS(fullPath$) THEN
+                fh% = FREEFILE
+                OPEN fullPath$ FOR BINARY AS #fh%
+                IF LOF(fh%) >= 10 THEN
+                    GET #fh%, , magic$
+                    GET #fh%, , version%
+                    GET #fh%, , fileMode%
+                    IF magic$ = "DST1" AND fileMode% = DRAWER.mode% THEN
+                        ' Check it's not a duplicate of an ASSETS file
+                        DIM isDupe AS INTEGER
+                        isDupe% = FALSE
+                        FOR i% = 1 TO DRAWER_DSET_COUNT%
+                            IF DRAWER_DSET_LIST(i%) = fullPath$ THEN isDupe% = TRUE: EXIT FOR
+                        NEXT i%
+                        IF NOT isDupe% THEN
+                            DRAWER_DSET_COUNT% = DRAWER_DSET_COUNT% + 1
+                            DRAWER_DSET_LIST(DRAWER_DSET_COUNT%) = fullPath$
+                        END IF
+                    END IF
+                END IF
+                CLOSE #fh%
+            END IF
+            entry$ = _FILES$
+        LOOP
+    END IF
+
+    ' --- Sort alphabetically by filename (not full path) ---
+    DIM nameA AS STRING, nameB AS STRING
+    DIM posA AS INTEGER, posB AS INTEGER
+    FOR i% = 1 TO DRAWER_DSET_COUNT% - 1
+        FOR j% = i% + 1 TO DRAWER_DSET_COUNT%
+            ' Extract filename from full path for comparison
+            posA% = _INSTRREV(DRAWER_DSET_LIST(i%), "/")
+            IF posA% > 0 THEN nameA$ = MID$(DRAWER_DSET_LIST(i%), posA% + 1) ELSE nameA$ = DRAWER_DSET_LIST(i%)
+            posB% = _INSTRREV(DRAWER_DSET_LIST(j%), "/")
+            IF posB% > 0 THEN nameB$ = MID$(DRAWER_DSET_LIST(j%), posB% + 1) ELSE nameB$ = DRAWER_DSET_LIST(j%)
+            IF UCASE$(nameA$) > UCASE$(nameB$) THEN
+                tmpStr$ = DRAWER_DSET_LIST(i%)
+                DRAWER_DSET_LIST(i%) = DRAWER_DSET_LIST(j%)
+                DRAWER_DSET_LIST(j%) = tmpStr$
+            END IF
+        NEXT j%
+    NEXT i%
+
+    DRAWER_DSET_CACHE_MODE% = DRAWER.mode%
+END SUB
+
+''
+' Find the index of the currently loaded dset file in the cached list.
+' @return INTEGER 1-based index, or 0 if not found / no file loaded
+'
+FUNCTION DRAWER_find_current_index% ()
+    DIM curPath AS STRING
+    DIM i AS INTEGER
+    curPath$ = DRAWER_get_current_path$
+    DRAWER_find_current_index% = 0
+    IF curPath$ = "" THEN EXIT FUNCTION
+    FOR i% = 1 TO DRAWER_DSET_COUNT%
+        IF DRAWER_DSET_LIST(i%) = curPath$ THEN
+            DRAWER_find_current_index% = i%
+            EXIT FUNCTION
+        END IF
+    NEXT i%
+END FUNCTION
+
+''
+' Show a wheel tooltip with the loaded dset filename near the drawer panel.
+' @param filename STRING Full path to the loaded .dset file
+'
+SUB DRAWER_wheel_tooltip_show (filename AS STRING)
+    DIM baseName AS STRING
+    DIM dotPos AS INTEGER
+    DIM slashPos AS INTEGER
+
+    ' Extract filename from path
+    slashPos% = _INSTRREV(filename$, "/")
+    IF slashPos% > 0 THEN baseName$ = MID$(filename$, slashPos% + 1) ELSE baseName$ = filename$
+    ' Strip .dset extension
+    dotPos% = _INSTRREV(baseName$, ".dset")
+    IF dotPos% > 0 THEN baseName$ = LEFT$(baseName$, dotPos% - 1)
+
+    DRAWER_WHEEL_TOOLTIP_TEXT$ = baseName$
+    DRAWER.wheelTooltipTimer# = TIMER
+    DRAWER.wheelTooltipActive% = TRUE
+END SUB
+
+''
+' Render the wheel tooltip above the drawer panel onto the final canvas.
+' Auto-hides after 2 seconds. Uses the same style as TOOLTIP_render.
+' @param target LONG Destination image handle to draw onto
+'
+SUB DRAWER_wheel_tooltip_render (target AS LONG)
+    IF NOT DRAWER.wheelTooltipActive% THEN EXIT SUB
+
+    DIM elapsed AS DOUBLE
+    elapsed# = TIMER - DRAWER.wheelTooltipTimer#
+    ' Handle midnight wraparound
+    IF elapsed# < 0 THEN elapsed# = elapsed# + 86400#
+    IF elapsed# > 2.0 THEN
+        DRAWER.wheelTooltipActive% = FALSE
+        EXIT SUB
+    END IF
+
+    DIM ttText AS STRING
+    ttText$ = DRAWER_WHEEL_TOOLTIP_TEXT$
+    IF LEN(ttText$) = 0 THEN EXIT SUB
+
+    DIM oldDest AS LONG
+    oldDest& = _DEST
+    _DEST target&
+
+    ' Use the shared tooltip font (lazy-loaded by TOOLTIP_render)
+    ' If tooltip font hasn't loaded yet, load it now
+    IF TOOLTIP.FONT_HANDLE& = 0 THEN
+        DIM ttFontFile AS STRING
+        IF LEN(THEME.TOOLTIP_FONT$) > 0 THEN
+            ttFontFile$ = THEME_font_path$(_TRIM$(THEME.TOOLTIP_FONT$))
+        ELSE
+            ttFontFile$ = THEME_font_path$(THEME.GLOBAL_FONT_FILE$)
+        END IF
+        DIM ttFontSize AS INTEGER
+        ttFontSize% = THEME.TOOLTIP_FONT_SIZE%
+        IF ttFontSize% < 4 THEN ttFontSize% = 8
+        IF LEN(ttFontFile$) > 0 THEN
+            TOOLTIP.FONT_HANDLE& = _LOADFONT(ttFontFile$, ttFontSize%, "DONTBLEND")
+            IF TOOLTIP.FONT_HANDLE& <= 0 THEN TOOLTIP.FONT_HANDLE& = 0
+        END IF
+    END IF
+
+    DIM oldFont AS LONG
+    oldFont& = _FONT
+    IF TOOLTIP.FONT_HANDLE& > 0 THEN
+        _FONT TOOLTIP.FONT_HANDLE&
+    ELSE
+        ' No font available — fall back to current font
+    END IF
+
+    ' Resolve THEME values with same fallbacks as TOOLTIP_render
+    DIM pad AS INTEGER, bw AS INTEGER
+    pad% = THEME.TOOLTIP_PADDING%
+    IF pad% < 1 THEN pad% = 3
+    bw% = THEME.TOOLTIP_BORDER_WIDTH%
+    IF bw% < 0 THEN bw% = 1
+
+    DIM fontH AS INTEGER
+    fontH% = _UFONTHEIGHT
+
+    DIM ttW AS INTEGER, ttH AS INTEGER
+    ttW% = _UPRINTWIDTH(ttText$) + pad% * 2 + bw% * 2
+    ttH% = fontH% + pad% * 2 + bw% * 2
+
+    ' Position: centered horizontally on drawer panel, above the top edge
+    DIM ttX AS INTEGER, ttY AS INTEGER
+    DIM scrW AS INTEGER, scrH AS INTEGER
+    scrW% = _WIDTH(target&)
+    scrH% = _HEIGHT(target&)
+    ' Position: bottom-right, just above the status bar
+    DIM statusTop AS INTEGER
+    IF SCRN.showStatus% THEN
+        statusTop% = scrH% - THEME.STATUS_height% - PALETTE_STRIP_get_height%
+    ELSE
+        statusTop% = scrH%
+    END IF
+    ttX% = scrW% - ttW% - 4
+    ttY% = statusTop% - ttH% - 2
+    IF ttX% < 2 THEN ttX% = 2
+    IF ttY% < 2 THEN ttY% = 2
+
+    ' Resolve colors with same fallbacks as TOOLTIP_render
+    DIM bgColor AS _UNSIGNED LONG, borderColor AS _UNSIGNED LONG
+    DIM fgColor AS _UNSIGNED LONG
+    bgColor~& = THEME.TOOLTIP_BG_COLOR~&
+    IF bgColor~& = 0 THEN bgColor~& = _RGBA32(40, 40, 50, 240)
+    borderColor~& = THEME.TOOLTIP_BORDER_COLOR~&
+    IF borderColor~& = 0 THEN borderColor~& = _RGBA32(100, 100, 120, 255)
+    fgColor~& = THEME.TOOLTIP_BOLD_FG_COLOR~&
+    IF fgColor~& = 0 THEN fgColor~& = _RGBA32(255, 255, 100, 255)
+
+    ' Fill background
+    LINE (ttX%, ttY%)-(ttX% + ttW% - 1, ttY% + ttH% - 1), bgColor~&, BF
+
+    ' Draw border
+    IF bw% > 0 THEN
+        DIM bIdx AS INTEGER
+        FOR bIdx% = 0 TO bw% - 1
+            LINE (ttX% + bIdx%, ttY% + bIdx%)-(ttX% + ttW% - 1 - bIdx%, ttY% + ttH% - 1 - bIdx%), borderColor~&, B
+        NEXT bIdx%
+    END IF
+
+    ' Draw text with transparent background
+    _PRINTMODE _KEEPBACKGROUND
+    COLOR fgColor~&
+    _UPRINTSTRING (ttX% + pad% + bw%, ttY% + pad% + bw%), ttText$
+
+    ' Restore font and dest
+    IF oldFont& > 0 THEN _FONT oldFont&
+    _DEST oldDest&
+END SUB
 
 ''
 ' Save the complete drawer state to a binary file (DRW project format).
@@ -3620,6 +4030,9 @@ SUB DRAWER_clear_active_set ()
             DRAWER.gradientSelected% = 1
     END SELECT
 
+    DRAWER_clear_set_dirty DRAWER.mode%
+    DRAWER_set_current_path DRAWER.mode%, ""
+    DRAWER_invalidate_dset_cache
     SOUND_play SND_LAYER_OP
     GUI_NEEDS_REDRAW% = TRUE
     FRAME_IDLE% = FALSE
@@ -3730,6 +4143,10 @@ SUB DRAWER_export_set_dialog ()
         NEXT i%
     END IF
     CLOSE #fh%
+
+    DRAWER_clear_set_dirty DRAWER.mode%
+    DRAWER_set_current_path DRAWER.mode%, filename$
+    DRAWER_invalidate_dset_cache
 END SUB
 
 ''
@@ -3879,6 +4296,9 @@ SUB DRAWER_import_set_dialog ()
     DRAWER.loadedTheme = _TRIM$(CFG.THEME$)
     DRAWER_GRADIENT_LAST_FG~& = PAINT_COLOR~&
     DRAWER_GRADIENT_LAST_BG~& = PAINT_BG_COLOR~&
+    DRAWER_clear_set_dirty fileMode%
+    DRAWER_set_current_path fileMode%, filename$
+    DRAWER_invalidate_dset_cache
     GUI_NEEDS_REDRAW% = TRUE
     FRAME_IDLE% = FALSE
 END SUB
@@ -3965,6 +4385,9 @@ SUB DRAWER_load_images_into_slots (startSlot AS INTEGER)
     NEXT fi%
 
     IF loadCount% > 0 THEN
+        DRAWER_mark_set_dirty
+        DRAWER_invalidate_dset_cache
+
         ' Update last import directory from first file
         filePath$ = RTRIM$(FD_multiResults(0))
         CFG.LAST_DIR_IMPORT$ = CONFIG_extract_dir$(filePath$)
@@ -4545,6 +4968,7 @@ SUB GRADIENT_editor_dialog ()
     IF ctx.result% THEN
         ' Keep changes, rebuild the slot preview
         GRAD_DEF_rebuild_preview slotIdx%
+        DRAWER_mark_set_dirty
     ELSE
         ' Restore snapshot
         GRAD_DEFS(slotIdx%) = savedDef

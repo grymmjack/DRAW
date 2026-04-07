@@ -15,6 +15,7 @@ CONST TOOLTIP_SRC_MINI_PAL  = 3
 CONST TOOLTIP_SRC_DOCK_SWAP = 4
 CONST TOOLTIP_SRC_EDITBAR   = 5
 CONST TOOLTIP_SRC_ADVBAR    = 6
+CONST TOOLTIP_SRC_BINS      = 7
 
 TYPE TOOLTIP_OBJ
     ACTIVE          AS INTEGER      ' TRUE when a tooltip is currently visible
@@ -152,6 +153,11 @@ DIM SHARED TOOLTIP_DOCK_LINE1$
 DIM SHARED TOOLTIP_DOCK_LINE2$
 TOOLTIP_DOCK_LINE1$ = "CTRL+SHIFT+L-CLICK LAYOUT DOCK EDGE"
 TOOLTIP_DOCK_LINE2$ = "Click once while holding SHIFT and CTRL to swap this panel to dock on other side of window."
+
+DIM SHARED TOOLTIP_BINS_LINE1$
+DIM SHARED TOOLTIP_BINS_LINE2$
+TOOLTIP_BINS_LINE1$ = "BIN - L-CLICK Select/Use. SHIFT+L-CLICK Store into bin. R-CLICK for Menu."
+TOOLTIP_BINS_LINE2$ = "Use M-WHEEL UP and M-WHEEL DOWN to navigate through drawer sets for current drawing mode."
 
 DECLARE SUB TOOLTIP_update ()
 DECLARE SUB TOOLTIP_render (target&)
