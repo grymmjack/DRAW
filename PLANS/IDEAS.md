@@ -1,9 +1,5 @@
 # IDEAS
 
-## DRAWER SET WHEEL LOAD FROM DISK
-- [ ] Using mousewheel over the bins of the drawers for each mode ...
-  - [ ] Load the next dset available on disk with mousewheel down
-  - [ ] Load the previous dset available on disk with mousewheel up
 
 
 ## Color BITMAP fonts
@@ -426,3 +422,10 @@ Automatically snap to layer candidates when near X/Y/W/H bounds of neighbors
 ## GUIDE LAYERS
 - [x] Already completed through smart guides ;) 
   - Any opaque line becomes a guide, which can be snapped to
+
+
+
+## DRAWER SET WHEEL LOAD FROM DISK
+- [x] Using mousewheel over the bins of the drawers for each mode ...
+  - [x] Load the next dset available on disk with mousewheel down
+  - [x] Load the previous dset available on disk with mousewheel up
