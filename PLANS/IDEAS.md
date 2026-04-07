@@ -1,12 +1,6 @@
 # IDEAS
 
 
-
-## Color BITMAP fonts
-- See DEV/FONTS/COLOR_BITMAP
-- Lots of examples there
-
-
 ## Image Browser (For drag/drop to brush and pattern slots)
 
 
@@ -21,7 +15,6 @@
     - Selection from group
     - Merge group
   - Distribute Layers in group
-
 
 
 ## ADDITIONAL TABLE LAYOUT MODE
@@ -429,3 +422,8 @@ Automatically snap to layer candidates when near X/Y/W/H bounds of neighbors
 - [x] Using mousewheel over the bins of the drawers for each mode ...
   - [x] Load the next dset available on disk with mousewheel down
   - [x] Load the previous dset available on disk with mousewheel up
+
+
+## - [x] Color BITMAP fonts
+- [x] See DEV/FONTS/COLOR_BITMAP
+- [x] Lots of examples there
