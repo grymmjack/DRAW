@@ -795,13 +795,12 @@ SUB LAYERS_move_up (layerIndex AS INTEGER)
     currentZ% = LAYERS(layerIndex%).zIndex%
     IF currentZ% >= LAYER_COUNT% THEN EXIT SUB  ' Already at top
 
-    ' For group headers: move entire block (header + children)
+    ' For group headers: move entire block (header + children) up by swapping with layer above header
     IF LAYERS(layerIndex%).layerType% = LAYER_TYPE_GROUP THEN
-        ' Find the z above the header
         DIM grpAboveZ AS INTEGER
         grpAboveZ% = currentZ% + 1
         IF grpAboveZ% > LAYER_COUNT% THEN EXIT SUB
-        ' Find layer at that z and swap
+        ' Find layer at that z and swap it below the group's lowest child
         targetIndex% = 0
         FOR i% = 1 TO MAX_LAYERS
             IF LAYERS(i%).imgHandle& <> 0 AND LAYERS(i%).zIndex% = grpAboveZ% THEN
@@ -810,9 +809,18 @@ SUB LAYERS_move_up (layerIndex AS INTEGER)
             END IF
         NEXT i%
         IF targetIndex% > 0 THEN
-            ' Shift all group members (header + children) up by 1, shift target down by 1
-            LAYERS(targetIndex%).zIndex% = currentZ%
-            ' Move all children up by 1
+            ' Find lowest child z of this group
+            DIM muGrpLow AS INTEGER
+            muGrpLow% = currentZ%  ' default = header if no children
+            FOR i% = 1 TO MAX_LAYERS
+                IF LAYERS(i%).imgHandle& <> 0 THEN
+                    IF LAYERS(i%).parentGroupIdx% = layerIndex% THEN
+                        IF LAYERS(i%).zIndex% < muGrpLow% THEN muGrpLow% = LAYERS(i%).zIndex%
+                    END IF
+                END IF
+            NEXT i%
+            ' Move target to lowest child's old position, shift all group members up by 1
+            LAYERS(targetIndex%).zIndex% = muGrpLow%
             FOR i% = 1 TO MAX_LAYERS
                 IF LAYERS(i%).imgHandle& <> 0 THEN
                     IF LAYERS(i%).parentGroupIdx% = layerIndex% THEN
@@ -831,27 +839,43 @@ SUB LAYERS_move_up (layerIndex AS INTEGER)
         EXIT SUB
     END IF
 
-    ' For child layers inside a group: move within group (swap with sibling)
+    ' For child layers inside a group: swap with sibling, or escape group at boundary
     IF LAYERS(layerIndex%).parentGroupIdx% > 0 THEN
         DIM muParent AS INTEGER
         muParent% = LAYERS(layerIndex%).parentGroupIdx%
         DIM muHeaderZ AS INTEGER
         muHeaderZ% = LAYERS(muParent%).zIndex%
-        ' If already just below header, can't move up further within group
-        IF currentZ% + 1 >= muHeaderZ% THEN EXIT SUB
-        ' Swap with the layer above
-        targetIndex% = 0
-        FOR i% = 1 TO MAX_LAYERS
-            IF LAYERS(i%).imgHandle& <> 0 AND LAYERS(i%).zIndex% = currentZ% + 1 THEN
-                targetIndex% = i%
-                EXIT FOR
-            END IF
-        NEXT i%
-        IF targetIndex% > 0 THEN
-            LAYERS(layerIndex%).zIndex% = currentZ% + 1
-            LAYERS(targetIndex%).zIndex% = currentZ%
+        IF currentZ% + 1 >= muHeaderZ% THEN
+            ' At top of group — escape: remove from group and place above header
+            LAYERS(layerIndex%).parentGroupIdx% = 0
+            ' Swap with header: header goes down, child goes to header's z
+            LAYERS(muParent%).zIndex% = currentZ%
+            LAYERS(layerIndex%).zIndex% = muHeaderZ%
+            LAYERS_enforce_group_contiguity
             IF NOT HISTORY_IN_PROGRESS% THEN
-                HISTORY_record_layer_reorder LAYERS(layerIndex%).historyId&, layerIndex%, currentZ%, currentZ% + 1, "Layer Reorder"
+                HISTORY_record_group_reparent LAYERS(layerIndex%).historyId&, layerIndex%, muParent%, 0, currentZ%, muHeaderZ%, "Move Out of Group"
+            END IF
+            ' Auto-remove empty group
+            IF LAYERS_group_child_count%(muParent%) = 0 THEN
+                LAYERS_delete muParent%
+                ' If we were on the deleted group's layer, select the escaped layer
+                IF CURRENT_LAYER% = muParent% THEN LAYERS_select layerIndex%
+            END IF
+        ELSE
+            ' Swap with the layer above within group
+            targetIndex% = 0
+            FOR i% = 1 TO MAX_LAYERS
+                IF LAYERS(i%).imgHandle& <> 0 AND LAYERS(i%).zIndex% = currentZ% + 1 THEN
+                    targetIndex% = i%
+                    EXIT FOR
+                END IF
+            NEXT i%
+            IF targetIndex% > 0 THEN
+                LAYERS(layerIndex%).zIndex% = currentZ% + 1
+                LAYERS(targetIndex%).zIndex% = currentZ%
+                IF NOT HISTORY_IN_PROGRESS% THEN
+                    HISTORY_record_layer_reorder LAYERS(layerIndex%).historyId&, layerIndex%, currentZ%, currentZ% + 1, "Layer Reorder"
+                END IF
             END IF
         END IF
         BLEND_invalidate_cache
@@ -862,7 +886,7 @@ SUB LAYERS_move_up (layerIndex AS INTEGER)
     ' Non-grouped layer: skip over entire group blocks when moving up
     DIM newTargetZ AS INTEGER
     newTargetZ% = currentZ% + 1
-    ' Check if the layer at newTargetZ is a group child — if so, skip to above the group header
+    ' Check if the layer at newTargetZ is part of a group — skip the entire group
     targetIndex% = 0
     FOR i% = 1 TO MAX_LAYERS
         IF LAYERS(i%).imgHandle& <> 0 AND LAYERS(i%).zIndex% = newTargetZ% THEN
@@ -872,19 +896,19 @@ SUB LAYERS_move_up (layerIndex AS INTEGER)
     NEXT i%
     IF targetIndex% > 0 THEN
         IF LAYERS(targetIndex%).parentGroupIdx% > 0 THEN
-            ' Target is a group child — skip to above the group header
+            ' Target is a group child — skip to header position
             DIM skipGrpIdx AS INTEGER
             skipGrpIdx% = LAYERS(targetIndex%).parentGroupIdx%
             IF skipGrpIdx% > 0 THEN
                 IF skipGrpIdx% <= MAX_LAYERS THEN
                     IF LAYERS(skipGrpIdx%).imgHandle& <> 0 THEN
-                        newTargetZ% = LAYERS(skipGrpIdx%).zIndex% + 1
+                        newTargetZ% = LAYERS(skipGrpIdx%).zIndex%
                     END IF
                 END IF
             END IF
         ELSEIF LAYERS(targetIndex%).layerType% = LAYER_TYPE_GROUP THEN
-            ' Target is a group header — find the lowest child z and skip to above header
-            newTargetZ% = LAYERS(targetIndex%).zIndex% + 1
+            ' Target is a group header with no children below — just swap
+            newTargetZ% = LAYERS(targetIndex%).zIndex%
         END IF
     END IF
     IF newTargetZ% > LAYER_COUNT% THEN newTargetZ% = LAYER_COUNT%
@@ -971,7 +995,7 @@ SUB LAYERS_move_down (layerIndex AS INTEGER)
         EXIT SUB
     END IF
 
-    ' For child layers inside a group: move within group (swap with sibling)
+    ' For child layers inside a group: swap with sibling, or escape group at boundary
     IF LAYERS(layerIndex%).parentGroupIdx% > 0 THEN
         DIM mdParent AS INTEGER
         mdParent% = LAYERS(layerIndex%).parentGroupIdx%
@@ -987,21 +1011,55 @@ SUB LAYERS_move_down (layerIndex AS INTEGER)
                 END IF
             END IF
         NEXT i%
-        ' If already the lowest child, can't move down further within group
-        IF currentZ% <= mdLowestZ% THEN EXIT SUB
-        ' Swap with the layer below
-        targetIndex% = 0
-        FOR i% = 1 TO MAX_LAYERS
-            IF LAYERS(i%).imgHandle& <> 0 AND LAYERS(i%).zIndex% = currentZ% - 1 THEN
-                targetIndex% = i%
-                EXIT FOR
+        IF currentZ% <= mdLowestZ% THEN
+            ' At bottom of group — escape: remove from group and place below lowest child
+            LAYERS(layerIndex%).parentGroupIdx% = 0
+            DIM mdBelowZ AS INTEGER
+            mdBelowZ% = currentZ% - 1
+            IF mdBelowZ% < 1 THEN
+                ' Already at bottom of stack — just remove from group
+                LAYERS_enforce_group_contiguity
+                IF NOT HISTORY_IN_PROGRESS% THEN
+                    HISTORY_record_group_reparent LAYERS(layerIndex%).historyId&, layerIndex%, mdParent%, 0, currentZ%, currentZ%, "Move Out of Group"
+                END IF
+            ELSE
+                ' Swap with layer below
+                targetIndex% = 0
+                FOR i% = 1 TO MAX_LAYERS
+                    IF LAYERS(i%).imgHandle& <> 0 AND LAYERS(i%).zIndex% = mdBelowZ% THEN
+                        targetIndex% = i%
+                        EXIT FOR
+                    END IF
+                NEXT i%
+                IF targetIndex% > 0 THEN
+                    LAYERS(layerIndex%).zIndex% = mdBelowZ%
+                    LAYERS(targetIndex%).zIndex% = currentZ%
+                END IF
+                LAYERS_enforce_group_contiguity
+                IF NOT HISTORY_IN_PROGRESS% THEN
+                    HISTORY_record_group_reparent LAYERS(layerIndex%).historyId&, layerIndex%, mdParent%, 0, currentZ%, mdBelowZ%, "Move Out of Group"
+                END IF
             END IF
-        NEXT i%
-        IF targetIndex% > 0 THEN
-            LAYERS(layerIndex%).zIndex% = currentZ% - 1
-            LAYERS(targetIndex%).zIndex% = currentZ%
-            IF NOT HISTORY_IN_PROGRESS% THEN
-                HISTORY_record_layer_reorder LAYERS(layerIndex%).historyId&, layerIndex%, currentZ%, currentZ% - 1, "Layer Reorder"
+            ' Auto-remove empty group
+            IF LAYERS_group_child_count%(mdParent%) = 0 THEN
+                LAYERS_delete mdParent%
+                IF CURRENT_LAYER% = mdParent% THEN LAYERS_select layerIndex%
+            END IF
+        ELSE
+            ' Swap with the layer below within group
+            targetIndex% = 0
+            FOR i% = 1 TO MAX_LAYERS
+                IF LAYERS(i%).imgHandle& <> 0 AND LAYERS(i%).zIndex% = currentZ% - 1 THEN
+                    targetIndex% = i%
+                    EXIT FOR
+                END IF
+            NEXT i%
+            IF targetIndex% > 0 THEN
+                LAYERS(layerIndex%).zIndex% = currentZ% - 1
+                LAYERS(targetIndex%).zIndex% = currentZ%
+                IF NOT HISTORY_IN_PROGRESS% THEN
+                    HISTORY_record_layer_reorder LAYERS(layerIndex%).historyId&, layerIndex%, currentZ%, currentZ% - 1, "Layer Reorder"
+                END IF
             END IF
         END IF
         BLEND_invalidate_cache
@@ -1012,7 +1070,7 @@ SUB LAYERS_move_down (layerIndex AS INTEGER)
     ' Non-grouped layer: skip over entire group blocks when moving down
     DIM newTargetZ AS INTEGER
     newTargetZ% = currentZ% - 1
-    ' Check if the layer at newTargetZ is a group header — if so, skip to below its lowest child
+    ' Check if the layer at newTargetZ is part of a group — skip the entire group
     targetIndex% = 0
     FOR i% = 1 TO MAX_LAYERS
         IF LAYERS(i%).imgHandle& <> 0 AND LAYERS(i%).zIndex% = newTargetZ% THEN
@@ -1022,7 +1080,7 @@ SUB LAYERS_move_down (layerIndex AS INTEGER)
     NEXT i%
     IF targetIndex% > 0 THEN
         IF LAYERS(targetIndex%).layerType% = LAYER_TYPE_GROUP THEN
-            ' Target is a group header — skip to below the group's lowest child
+            ' Target is a group header — find lowest child and skip to that z
             DIM skipGrpLowest AS INTEGER
             skipGrpLowest% = LAYERS(targetIndex%).zIndex%
             FOR i% = 1 TO MAX_LAYERS
@@ -1034,9 +1092,9 @@ SUB LAYERS_move_down (layerIndex AS INTEGER)
                     END IF
                 END IF
             NEXT i%
-            newTargetZ% = skipGrpLowest% - 1
+            newTargetZ% = skipGrpLowest%
         ELSEIF LAYERS(targetIndex%).parentGroupIdx% > 0 THEN
-            ' Target is a group child — skip to below the group's lowest child
+            ' Target is a group child — skip to lowest child z of that group
             DIM skipGrpIdx2 AS INTEGER
             skipGrpIdx2% = LAYERS(targetIndex%).parentGroupIdx%
             IF skipGrpIdx2% > 0 THEN
@@ -1053,7 +1111,7 @@ SUB LAYERS_move_down (layerIndex AS INTEGER)
                                 END IF
                             END IF
                         NEXT i%
-                        newTargetZ% = skipGrpLowest2% - 1
+                        newTargetZ% = skipGrpLowest2%
                     END IF
                 END IF
             END IF
@@ -2440,21 +2498,17 @@ FUNCTION LAYER_PANEL_handle_click% (rawX AS INTEGER, rawY AS INTEGER, button AS 
                             ' Toggle this layer in/out of multi-select without changing CURRENT_LAYER%
                             MULTI_SELECT_toggle layerIdx%
                         ELSE
-                            ' Double-click: rename layer (or toggle group collapse)
+                            ' Double-click: rename layer (triangle already handles group collapse)
                             IF TIMER - MOUSE.B1_CLICK_TIME# < 0.3 THEN
                                 MOUSE.B1_CLICK_TIME# = 0  ' Prevent triple-fire
-                                IF LAYERS(layerIdx%).layerType% = LAYER_TYPE_GROUP THEN
-                                    ' Toggle collapse on double-click for group headers
-                                    LAYERS(layerIdx%).collapsed% = NOT LAYERS(layerIdx%).collapsed%
-                                    GUI_NEEDS_REDRAW% = TRUE
-                                    FRAME_IDLE% = FALSE
-                                ELSE
-                                    LAYERS_select layerIdx%
-                                    LAYERS_rename layerIdx%
-                                END IF
+                                IF MOVE.ACTIVE THEN MOVE_reset
+                                LAYERS_select layerIdx%
+                                LAYERS_rename layerIdx%
                             ELSE
                                 ' Single click: select and start pending drag
                                 MOUSE.B1_CLICK_TIME# = TIMER
+                                ' Reset active move tool before switching layers to prevent segfault
+                                IF MOVE.ACTIVE THEN MOVE_reset
                                 LAYERS_select layerIdx%
                                 ' Start PENDING drag - will only become active after moving 10+ pixels
                                 LAYER_PANEL.dragPending% = TRUE

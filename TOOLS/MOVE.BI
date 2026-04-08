@@ -36,6 +36,7 @@ TYPE MOVE_OBJ
     ORIGINAL_IMG_W AS INTEGER ' Width of original image
     ORIGINAL_IMG_H AS INTEGER ' Height of original image
     SCALE_FACTOR   AS SINGLE ' Cumulative scale factor (1.0 = original)
+    GROUP_ORIGIN   AS INTEGER ' Group header index that triggered auto-select (0 = not a group move)
 END TYPE
 
 DIM SHARED MOVE AS MOVE_OBJ
