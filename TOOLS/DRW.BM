@@ -132,7 +132,7 @@ SUB DRW_save_binary (filename AS STRING)
     ' === LAYERS ===
     ' Count active layers
     layerCount% = 0
-    FOR i% = 1 TO 64
+    FOR i% = 1 TO MAX_LAYERS
         IF LAYERS(i%).imgHandle& < -1 THEN
             layerCount% = layerCount% + 1
         END IF
@@ -142,7 +142,7 @@ SUB DRW_save_binary (filename AS STRING)
     PUT #fh%, , CURRENT_LAYER%
 
     ' Save each layer
-    FOR i% = 1 TO 64
+    FOR i% = 1 TO MAX_LAYERS
         IF LAYERS(i%).imgHandle& < -1 THEN
             ' Layer properties
             nameFixed$ = LAYERS(i%).name
@@ -162,16 +162,28 @@ SUB DRW_save_binary (filename AS STRING)
                 PUT #fh%, , tmpLong&
             END IF
 
-            ' Pixel data
-            oldSrc& = _SOURCE
-            _SOURCE LAYERS(i%).imgHandle&
-            FOR y% = 0 TO SCRN.canvasH& - 1
-                FOR x% = 0 TO SCRN.canvasW& - 1
-                    c~& = POINT(x%, y%)
-                    PUT #fh%, , c~&
-                NEXT x%
-            NEXT y%
-            _SOURCE oldSrc&
+            ' v24: Group fields
+            tmpInt% = LAYERS(i%).layerType%
+            PUT #fh%, , tmpInt%
+            tmpInt% = LAYERS(i%).parentGroupIdx%
+            PUT #fh%, , tmpInt%
+            tmpInt% = LAYERS(i%).collapsed%
+            PUT #fh%, , tmpInt%
+            tmpInt% = LAYERS(i%).passThrough%
+            PUT #fh%, , tmpInt%
+
+            ' Pixel data (skip for group layers — they have no pixel data)
+            IF LAYERS(i%).layerType% <> LAYER_TYPE_GROUP THEN
+                oldSrc& = _SOURCE
+                _SOURCE LAYERS(i%).imgHandle&
+                FOR y% = 0 TO SCRN.canvasH& - 1
+                    FOR x% = 0 TO SCRN.canvasW& - 1
+                        c~& = POINT(x%, y%)
+                        PUT #fh%, , c~&
+                    NEXT x%
+                NEXT y%
+                _SOURCE oldSrc&
+            END IF
         END IF
     NEXT i%
 
@@ -689,7 +701,7 @@ SUB DRW_load_binary (filename AS STRING)
 
     ' === LAYERS ===
     ' Clear existing layers first
-    FOR i% = 1 TO 64
+    FOR i% = 1 TO MAX_LAYERS
         IF LAYERS(i%).imgHandle& < -1 THEN
             _FREEIMAGE LAYERS(i%).imgHandle&
             LAYERS(i%).imgHandle& = 0
@@ -709,6 +721,9 @@ SUB DRW_load_binary (filename AS STRING)
         LAYERS(i%).contentDirty% = TRUE
         LAYERS(i%).layerType% = 0
         LAYERS(i%).textDataIdx% = 0
+        LAYERS(i%).parentGroupIdx% = 0
+        LAYERS(i%).collapsed% = FALSE
+        LAYERS(i%).passThrough% = FALSE
     NEXT i%
     LAYER_COUNT% = 0
 
@@ -752,21 +767,53 @@ SUB DRW_load_binary (filename AS STRING)
             IF LAYERS(layerIdx%).historyId& > maxLoadedHistoryId& THEN maxLoadedHistoryId& = LAYERS(layerIdx%).historyId&
         END IF
 
-        ' Create layer image at canvas dimensions (not viewport)
-        LAYERS(layerIdx%).imgHandle& = _NEWIMAGE(SCRN.canvasW&, SCRN.canvasH&, 32)
-        LAYERS(layerIdx%).imgWidth% = SCRN.canvasW&
-        LAYERS(layerIdx%).imgHeight% = SCRN.canvasH&
+        ' v24: Group fields (layerType, parentGroupIdx, collapsed, passThrough)
+        IF version% >= 24 THEN
+            DIM loadLayerType AS INTEGER
+            DIM loadParentGroupIdx AS INTEGER
+            DIM loadCollapsed AS INTEGER
+            DIM loadPassThrough AS INTEGER
+            GET #fh%, , loadLayerType%
+            GET #fh%, , loadParentGroupIdx%
+            GET #fh%, , loadCollapsed%
+            GET #fh%, , loadPassThrough%
+            LAYERS(layerIdx%).layerType% = loadLayerType%
+            LAYERS(layerIdx%).parentGroupIdx% = loadParentGroupIdx%
+            LAYERS(layerIdx%).collapsed% = loadCollapsed%
+            LAYERS(layerIdx%).passThrough% = loadPassThrough%
+        ELSE
+            LAYERS(layerIdx%).layerType% = LAYER_TYPE_IMAGE
+            LAYERS(layerIdx%).parentGroupIdx% = 0
+            LAYERS(layerIdx%).collapsed% = FALSE
+            LAYERS(layerIdx%).passThrough% = FALSE
+        END IF
 
-        ' Load pixel data
-        oldDest& = _DEST
-        _DEST LAYERS(layerIdx%).imgHandle&
-        FOR y% = 0 TO SCRN.canvasH& - 1
-            FOR x% = 0 TO SCRN.canvasW& - 1
-                GET #fh%, , c~&
-                PSET (x%, y%), c~&
-            NEXT x%
-        NEXT y%
-        _DEST oldDest&
+        ' Create layer image (group layers get 1x1 sentinel, others get canvas size)
+        IF LAYERS(layerIdx%).layerType% = LAYER_TYPE_GROUP THEN
+            LAYERS(layerIdx%).imgHandle& = _NEWIMAGE(1, 1, 32)
+            LAYERS(layerIdx%).imgWidth% = 1
+            LAYERS(layerIdx%).imgHeight% = 1
+            oldDest& = _DEST
+            _DEST LAYERS(layerIdx%).imgHandle&
+            CLS , _RGBA32(0, 0, 0, 0)
+            _DEST oldDest&
+        ELSE
+            ' Create layer image at canvas dimensions (not viewport)
+            LAYERS(layerIdx%).imgHandle& = _NEWIMAGE(SCRN.canvasW&, SCRN.canvasH&, 32)
+            LAYERS(layerIdx%).imgWidth% = SCRN.canvasW&
+            LAYERS(layerIdx%).imgHeight% = SCRN.canvasH&
+
+            ' Load pixel data
+            oldDest& = _DEST
+            _DEST LAYERS(layerIdx%).imgHandle&
+            FOR y% = 0 TO SCRN.canvasH& - 1
+                FOR x% = 0 TO SCRN.canvasW& - 1
+                    GET #fh%, , c~&
+                    PSET (x%, y%), c~&
+                NEXT x%
+            NEXT y%
+            _DEST oldDest&
+        END IF
 
         LAYER_COUNT% = LAYER_COUNT% + 1
     NEXT i%
@@ -987,7 +1034,7 @@ SUB DRW_load_binary (filename AS STRING)
         FOR tlLi% = 1 TO tlLoadCount%
             DIM tlLayerIdx AS INTEGER
             GET #fh%, , tlLayerIdx%
-            IF tlLayerIdx% < 1 OR tlLayerIdx% > 64 THEN _CONTINUE
+            IF tlLayerIdx% < 1 OR tlLayerIdx% > MAX_LAYERS THEN _CONTINUE
             ' Allocate a pool slot
             DIM tlLPool AS INTEGER
             tlLPool% = 0
@@ -1458,7 +1505,7 @@ SUB DRW_save (filename AS STRING)
 
     ' Count active layers for log message
     layerCount% = 0
-    FOR i% = 1 TO 64
+    FOR i% = 1 TO MAX_LAYERS
         IF LAYERS(i%).imgHandle& < -1 THEN layerCount% = layerCount% + 1
     NEXT i%
 
@@ -1713,7 +1760,7 @@ SUB DRW_load_from_png (filename AS STRING)
 
             ' Clear all layers
             DIM li AS INTEGER
-            FOR li% = 1 TO 64
+            FOR li% = 1 TO MAX_LAYERS
                 IF LAYERS(li%).imgHandle& < -1 THEN
                     _FREEIMAGE LAYERS(li%).imgHandle&
                     LAYERS(li%).imgHandle& = 0
@@ -2017,7 +2064,7 @@ SUB DRW_new_canvas ()
 
     ' === CLEAR ALL LAYERS ===
     DIM i AS INTEGER
-    FOR i% = 1 TO 64
+    FOR i% = 1 TO MAX_LAYERS
         IF LAYERS(i%).imgHandle& < -1 THEN
             _FREEIMAGE LAYERS(i%).imgHandle&
             LAYERS(i%).imgHandle& = 0

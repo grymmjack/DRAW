@@ -894,10 +894,117 @@ SUB RENDER_layers (dx AS INTEGER, dy AS INTEGER, zw AS LONG, zh AS LONG)
             END IF
         END IF
 
+        ' === Group compositing state ===
+        DIM groupCompositing AS INTEGER
+        DIM activeGroupIdx AS INTEGER
+        DIM compositeTarget AS LONG
+        groupCompositing% = FALSE
+        activeGroupIdx% = 0
+        compositeTarget& = compositeImg&
+
+        ' Allocate/resize GROUP_COMPOSITE_BUFFER if isolated groups exist
+        IF BLEND_HAS_ISOLATED_GROUPS% AND useComposite% THEN
+            IF GROUP_COMPOSITE_BUFFER& = 0 OR _
+               GROUP_COMPOSITE_BUFFER_W& <> SCRN.canvasW& OR _
+               GROUP_COMPOSITE_BUFFER_H& <> SCRN.canvasH& THEN
+                IF GROUP_COMPOSITE_BUFFER& < -1 THEN _FREEIMAGE GROUP_COMPOSITE_BUFFER&
+                GROUP_COMPOSITE_BUFFER& = _NEWIMAGE(SCRN.canvasW&, SCRN.canvasH&, 32)
+                GROUP_COMPOSITE_BUFFER_W& = SCRN.canvasW&
+                GROUP_COMPOSITE_BUFFER_H& = SCRN.canvasH&
+            END IF
+        END IF
+
         FOR layerI% = compositeStartIdx% TO RENDER_ORDER_COUNT%
             layerFound% = RENDER_ORDER%(layerI%)
 
             IF layerFound% > 0 THEN
+                ' === Group header layer: flush group buffer & skip ===
+                IF LAYERS(layerFound%).layerType% = LAYER_TYPE_GROUP THEN
+                    IF groupCompositing% AND activeGroupIdx% = layerFound% AND useComposite% THEN
+                        ' Flush GROUP_COMPOSITE_BUFFER onto compositeImg with group opacity/blend
+                        DIM grpOpacity AS INTEGER
+                        DIM grpBlend AS INTEGER
+                        grpOpacity% = LAYERS(layerFound%).opacity%
+                        grpBlend% = LAYERS(layerFound%).blendMode%
+                        IF grpBlend% = BLEND_NORMAL AND grpOpacity% = 255 THEN
+                            ' Simple alpha-composite
+                            DIM gfOD AS LONG: gfOD& = _DEST
+                            _DEST compositeImg&
+                            _PUTIMAGE , GROUP_COMPOSITE_BUFFER&, compositeImg&
+                            _DEST gfOD&
+                        ELSEIF grpBlend% = BLEND_NORMAL THEN
+                            ' Apply group opacity to buffer, then composite
+                            DIM gcMem AS _MEM
+                            DIM gcOff AS _OFFSET
+                            DIM gcPix AS _UNSIGNED LONG
+                            DIM gcAlpha AS _UNSIGNED _BYTE
+                            DIM gcNewA AS INTEGER
+                            gcMem = _MEMIMAGE(GROUP_COMPOSITE_BUFFER&)
+                            FOR gcOff = gcMem.OFFSET TO gcMem.OFFSET + gcMem.SIZE - 4 STEP 4
+                                _MEMGET gcMem, gcOff, gcPix~&
+                                gcAlpha~%% = _ALPHA32(gcPix~&)
+                                IF gcAlpha~%% > 0 THEN
+                                    gcNewA% = (gcAlpha~%% * grpOpacity%) \ 255
+                                    _MEMPUT gcMem, gcOff + 3, gcNewA% AS _UNSIGNED _BYTE
+                                END IF
+                            NEXT gcOff
+                            _MEMFREE gcMem
+                            gfOD& = _DEST
+                            _DEST compositeImg&
+                            _PUTIMAGE , GROUP_COMPOSITE_BUFFER&, compositeImg&
+                            _DEST gfOD&
+                        ELSE
+                            ' Non-Normal group blend mode
+                            LAYER_blend_composite compositeImg&, GROUP_COMPOSITE_BUFFER&, grpBlend%, grpOpacity%
+                        END IF
+                        groupCompositing% = FALSE
+                        activeGroupIdx% = 0
+                        compositeTarget& = compositeImg&
+                    END IF
+                    ' Skip rendering the 1x1 sentinel image
+                    _CONTINUE
+                END IF
+
+                ' === Group child detection: redirect composite target ===
+                IF useComposite% AND BLEND_HAS_ISOLATED_GROUPS% THEN
+                    DIM parentGrp AS INTEGER
+                    parentGrp% = LAYERS(layerFound%).parentGroupIdx%
+                    DIM isIsolatedGroupChild AS INTEGER
+                    isIsolatedGroupChild% = FALSE
+                    IF parentGrp% > 0 THEN
+                        IF parentGrp% <= MAX_LAYERS THEN
+                            IF LAYERS(parentGrp%).imgHandle& <> 0 THEN
+                                IF LAYERS(parentGrp%).layerType% = LAYER_TYPE_GROUP THEN
+                                    IF NOT LAYERS(parentGrp%).passThrough% THEN
+                                        IF LAYERS(parentGrp%).visible% THEN
+                                            isIsolatedGroupChild% = TRUE
+                                        END IF
+                                    END IF
+                                END IF
+                            END IF
+                        END IF
+                    END IF
+                    IF isIsolatedGroupChild% THEN
+                        ' Start new group composite if switching groups
+                        IF NOT groupCompositing% OR activeGroupIdx% <> parentGrp% THEN
+                            groupCompositing% = TRUE
+                            activeGroupIdx% = parentGrp%
+                            ' Clear group buffer
+                            DIM gcInitOD AS LONG: gcInitOD& = _DEST
+                            _DEST GROUP_COMPOSITE_BUFFER&
+                            _DONTBLEND GROUP_COMPOSITE_BUFFER&
+                            CLS , _RGBA32(0, 0, 0, 0)
+                            _BLEND GROUP_COMPOSITE_BUFFER&
+                            _DEST gcInitOD&
+                        END IF
+                        compositeTarget& = GROUP_COMPOSITE_BUFFER&
+                    ELSE
+                        compositeTarget& = compositeImg&
+                    END IF
+                ELSE
+                    compositeTarget& = compositeImg&
+                END IF
+
                 IF LAYERS(layerFound%).visible% THEN
                 ' Render dirty text layers into their imgHandle before compositing
                 IF LAYERS(layerFound%).layerType% = LAYER_TYPE_TEXT THEN
@@ -1008,26 +1115,27 @@ SUB RENDER_layers (dx AS INTEGER, dy AS INTEGER, zw AS LONG, zh AS LONG)
                 END IF
 
                 IF useComposite% THEN
-                    IF useRegionComposite% THEN
+                    IF useRegionComposite% AND compositeTarget& = compositeImg& THEN
                         ' --- Region composite path: only update dirty rect ---
+                        ' (Region path only applies to main composite, not group buffers)
                         IF LAYERS(layerFound%).blendMode% = BLEND_NORMAL THEN
                             ' Blit only the dirty region from this layer
-                            _DEST compositeImg&
-                            _PUTIMAGE (rcX1%, rcY1%)-(rcX2%, rcY2%), renderImg&, compositeImg&, (rcX1%, rcY1%)-(rcX2%, rcY2%)
+                            _DEST compositeTarget&
+                            _PUTIMAGE (rcX1%, rcY1%)-(rcX2%, rcY2%), renderImg&, compositeTarget&, (rcX1%, rcY1%)-(rcX2%, rcY2%)
                             _DEST SCRN.CANVAS&
                         ELSE
                             ' Region-based blend: only process dirty rect pixels
-                            LAYER_blend_composite_region compositeImg&, layerRenderSource&, LAYERS(layerFound%).blendMode%, LAYERS(layerFound%).opacity%, rcX1%, rcY1%, rcX2%, rcY2%
+                            LAYER_blend_composite_region compositeTarget&, layerRenderSource&, LAYERS(layerFound%).blendMode%, LAYERS(layerFound%).opacity%, rcX1%, rcY1%, rcX2%, rcY2%
                         END IF
                     ELSE
                         ' --- Full composite buffer path (blend modes) ---
                         IF LAYERS(layerFound%).blendMode% = BLEND_NORMAL THEN
-                            _DEST compositeImg&
+                            _DEST compositeTarget&
                             _PUTIMAGE , renderImg&
                             _DEST SCRN.CANVAS&
                         ELSE
                             ' Non-Normal blend: pass ORIGINAL image — blend function handles opacity
-                            LAYER_blend_composite compositeImg&, layerRenderSource&, LAYERS(layerFound%).blendMode%, LAYERS(layerFound%).opacity%
+                            LAYER_blend_composite compositeTarget&, layerRenderSource&, LAYERS(layerFound%).blendMode%, LAYERS(layerFound%).opacity%
                         END IF
                     END IF
                 ELSE
@@ -1043,7 +1151,9 @@ SUB RENDER_layers (dx AS INTEGER, dy AS INTEGER, zw AS LONG, zh AS LONG)
             END IF  ' layerFound% > 0
 
             ' Save partial composite cache at boundary just below current layer
-            IF NOT useRegionComposite% AND savePartialCache% AND layerI% = currentRenderIdx% - 1 THEN
+            ' Skip when isolated groups are active (cache doesn't account for group buffer)
+            IF NOT useRegionComposite% AND NOT BLEND_HAS_ISOLATED_GROUPS% _
+               AND savePartialCache% AND layerI% = currentRenderIdx% - 1 THEN
                 IF COMPOSITE_BELOW_CACHE& = 0 OR _
                    _WIDTH(COMPOSITE_BELOW_CACHE&) <> SCRN.canvasW& OR _
                    _HEIGHT(COMPOSITE_BELOW_CACHE&) <> SCRN.canvasH& THEN
@@ -2687,7 +2797,7 @@ SUB SCREEN_render ()
             hovDY% = (SCRN.h& - hovZH&) \ 2 + SCRN.offsetY%
         END IF
         DIM hovLi AS INTEGER
-        FOR hovLi% = 64 TO 1 STEP -1
+        FOR hovLi% = MAX_LAYERS TO 1 STEP -1
             IF LAYERS(hovLi%).imgHandle& < -1 AND LAYERS(hovLi%).layerType% = LAYER_TYPE_TEXT THEN
                 IF LAYERS(hovLi%).visible% THEN
                     DIM hovTd AS INTEGER

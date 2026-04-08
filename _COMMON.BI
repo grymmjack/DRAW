@@ -24,6 +24,9 @@ CONST KEY_CAPSLOCK& = 100301 ' Not supported on Linux/macOS
 ' Application version
 CONST APP_VERSION$ = "0.30.0"
 
+' Maximum number of layer slots (increased from 64 to support groups)
+CONST MAX_LAYERS = 128
+
 ' Title bar tracking (only update _TITLE when state changes)
 DIM SHARED AS INTEGER TITLE_PREV_DIRTY  ' Previous frame's dirty state
 DIM SHARED TITLE_PREV_FILENAME$          ' Previous frame's filename

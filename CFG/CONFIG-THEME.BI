@@ -180,6 +180,10 @@ TYPE DRAW_THEME
     LAYER_PANEL_row_master_accent AS _UNSIGNED LONG  ' Left-edge accent bar color for master row
     LAYER_PANEL_btn_drag_delete   AS _UNSIGNED LONG  ' Drag-over Delete button highlight (RGBA)
     LAYER_PANEL_btn_drag_new      AS _UNSIGNED LONG  ' Drag-over New Layer button highlight (RGBA)
+    LAYER_PANEL_group_header_bg  AS _UNSIGNED LONG  ' Group header row background
+    LAYER_PANEL_group_header_fg  AS _UNSIGNED LONG  ' Group header name text
+    LAYER_PANEL_group_indent     AS INTEGER         ' Child indentation in pixels (per level)
+    LAYER_PANEL_group_collapse_fg AS _UNSIGNED LONG ' Collapse triangle color
     ' --- Transform overlay frame ---
     TRANSFORM_FRAME_COLOR        AS _UNSIGNED LONG  ' Quad outline color (RGBA)
     TRANSFORM_FRAME_HANDLE_COLOR AS _UNSIGNED LONG  ' Unselected handle fill color (RGBA)
