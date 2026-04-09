@@ -894,23 +894,22 @@ SUB RENDER_layers (dx AS INTEGER, dy AS INTEGER, zw AS LONG, zh AS LONG)
             END IF
         END IF
 
-        ' === Group compositing state ===
-        DIM groupCompositing AS INTEGER
-        DIM activeGroupIdx AS INTEGER
+        ' === Group compositing state — stack for nested isolated groups ===
         DIM compositeTarget AS LONG
-        groupCompositing% = FALSE
-        activeGroupIdx% = 0
         compositeTarget& = compositeImg&
+        GROUP_COMP_STACK_TOP% = 0
 
-        ' Allocate/resize GROUP_COMPOSITE_BUFFER if isolated groups exist
+        ' Allocate/resize group composite stack buffers if isolated groups exist
         IF BLEND_HAS_ISOLATED_GROUPS% AND useComposite% THEN
-            IF GROUP_COMPOSITE_BUFFER& = 0 OR _
-               GROUP_COMPOSITE_BUFFER_W& <> SCRN.canvasW& OR _
-               GROUP_COMPOSITE_BUFFER_H& <> SCRN.canvasH& THEN
-                IF GROUP_COMPOSITE_BUFFER& < -1 THEN _FREEIMAGE GROUP_COMPOSITE_BUFFER&
-                GROUP_COMPOSITE_BUFFER& = _NEWIMAGE(SCRN.canvasW&, SCRN.canvasH&, 32)
-                GROUP_COMPOSITE_BUFFER_W& = SCRN.canvasW&
-                GROUP_COMPOSITE_BUFFER_H& = SCRN.canvasH&
+            IF GROUP_COMP_STACK_W& <> SCRN.canvasW& OR _
+               GROUP_COMP_STACK_H& <> SCRN.canvasH& THEN
+                DIM gcAllocI AS INTEGER
+                FOR gcAllocI% = 1 TO MAX_GROUP_NESTING
+                    IF GROUP_COMP_STACK(gcAllocI%) < -1 THEN _FREEIMAGE GROUP_COMP_STACK(gcAllocI%)
+                    GROUP_COMP_STACK(gcAllocI%) = _NEWIMAGE(SCRN.canvasW&, SCRN.canvasH&, 32)
+                NEXT gcAllocI%
+                GROUP_COMP_STACK_W& = SCRN.canvasW&
+                GROUP_COMP_STACK_H& = SCRN.canvasH&
             END IF
         END IF
 
@@ -918,54 +917,73 @@ SUB RENDER_layers (dx AS INTEGER, dy AS INTEGER, zw AS LONG, zh AS LONG)
             layerFound% = RENDER_ORDER%(layerI%)
 
             IF layerFound% > 0 THEN
-                ' === Group header layer: flush group buffer & skip ===
+                ' === Group header layer: flush this group's buffer & skip ===
                 IF LAYERS(layerFound%).layerType% = LAYER_TYPE_GROUP THEN
-                    IF groupCompositing% AND activeGroupIdx% = layerFound% AND useComposite% THEN
-                        ' Flush GROUP_COMPOSITE_BUFFER onto compositeImg with group opacity/blend
-                        DIM grpOpacity AS INTEGER
-                        DIM grpBlend AS INTEGER
-                        grpOpacity% = LAYERS(layerFound%).opacity%
-                        grpBlend% = LAYERS(layerFound%).blendMode%
-                        IF grpBlend% = BLEND_NORMAL AND grpOpacity% = 255 THEN
-                            ' Simple alpha-composite
-                            DIM gfOD AS LONG: gfOD& = _DEST
-                            _DEST compositeImg&
-                            _PUTIMAGE , GROUP_COMPOSITE_BUFFER&, compositeImg&
-                            _DEST gfOD&
-                        ELSEIF grpBlend% = BLEND_NORMAL THEN
-                            ' Apply group opacity to buffer, then composite
-                            DIM gcMem AS _MEM
-                            DIM gcOff AS _OFFSET
-                            DIM gcPix AS _UNSIGNED LONG
-                            DIM gcAlpha AS _UNSIGNED _BYTE
-                            DIM gcNewA AS INTEGER
-                            gcMem = _MEMIMAGE(GROUP_COMPOSITE_BUFFER&)
-                            FOR gcOff = gcMem.OFFSET TO gcMem.OFFSET + gcMem.SIZE - 4 STEP 4
-                                _MEMGET gcMem, gcOff, gcPix~&
-                                gcAlpha~%% = _ALPHA32(gcPix~&)
-                                IF gcAlpha~%% > 0 THEN
-                                    gcNewA% = (gcAlpha~%% * grpOpacity%) \ 255
-                                    _MEMPUT gcMem, gcOff + 3, gcNewA% AS _UNSIGNED _BYTE
-                                END IF
-                            NEXT gcOff
-                            _MEMFREE gcMem
-                            gfOD& = _DEST
-                            _DEST compositeImg&
-                            _PUTIMAGE , GROUP_COMPOSITE_BUFFER&, compositeImg&
-                            _DEST gfOD&
-                        ELSE
-                            ' Non-Normal group blend mode
-                            LAYER_blend_composite compositeImg&, GROUP_COMPOSITE_BUFFER&, grpBlend%, grpOpacity%
+                    ' Check if this group header is the top of the isolation stack
+                    IF GROUP_COMP_STACK_TOP% > 0 AND useComposite% THEN
+                        IF GROUP_COMP_STACK_IDX(GROUP_COMP_STACK_TOP%) = layerFound% THEN
+                            ' Flush this group's buffer onto the target below it
+                            DIM grpFlushBuf AS LONG
+                            DIM grpFlushTarget AS LONG
+                            DIM grpOpacity AS INTEGER
+                            DIM grpBlend AS INTEGER
+                            grpFlushBuf& = GROUP_COMP_STACK(GROUP_COMP_STACK_TOP%)
+                            grpOpacity% = LAYERS(layerFound%).opacity%
+                            grpBlend% = LAYERS(layerFound%).blendMode%
+
+                            ' Determine target: parent stack level, or compositeImg if at bottom
+                            IF GROUP_COMP_STACK_TOP% > 1 THEN
+                                grpFlushTarget& = GROUP_COMP_STACK(GROUP_COMP_STACK_TOP% - 1)
+                            ELSE
+                                grpFlushTarget& = compositeImg&
+                            END IF
+
+                            IF grpBlend% = BLEND_NORMAL AND grpOpacity% = 255 THEN
+                                DIM gfOD AS LONG: gfOD& = _DEST
+                                _DEST grpFlushTarget&
+                                _PUTIMAGE , grpFlushBuf&, grpFlushTarget&
+                                _DEST gfOD&
+                            ELSEIF grpBlend% = BLEND_NORMAL THEN
+                                DIM gcMem AS _MEM
+                                DIM gcOff AS _OFFSET
+                                DIM gcPix AS _UNSIGNED LONG
+                                DIM gcAlpha AS _UNSIGNED _BYTE
+                                DIM gcNewA AS INTEGER
+                                gcMem = _MEMIMAGE(grpFlushBuf&)
+                                FOR gcOff = gcMem.OFFSET TO gcMem.OFFSET + gcMem.SIZE - 4 STEP 4
+                                    _MEMGET gcMem, gcOff, gcPix~&
+                                    gcAlpha~%% = _ALPHA32(gcPix~&)
+                                    IF gcAlpha~%% > 0 THEN
+                                        gcNewA% = (gcAlpha~%% * grpOpacity%) \ 255
+                                        _MEMPUT gcMem, gcOff + 3, gcNewA% AS _UNSIGNED _BYTE
+                                    END IF
+                                NEXT gcOff
+                                _MEMFREE gcMem
+                                gfOD& = _DEST
+                                _DEST grpFlushTarget&
+                                _PUTIMAGE , grpFlushBuf&, grpFlushTarget&
+                                _DEST gfOD&
+                            ELSE
+                                LAYER_blend_composite grpFlushTarget&, grpFlushBuf&, grpBlend%, grpOpacity%
+                            END IF
+
+                            ' Pop stack
+                            GROUP_COMP_STACK_IDX(GROUP_COMP_STACK_TOP%) = 0
+                            GROUP_COMP_STACK_TOP% = GROUP_COMP_STACK_TOP% - 1
+
+                            ' Update composite target
+                            IF GROUP_COMP_STACK_TOP% > 0 THEN
+                                compositeTarget& = GROUP_COMP_STACK(GROUP_COMP_STACK_TOP%)
+                            ELSE
+                                compositeTarget& = compositeImg&
+                            END IF
                         END IF
-                        groupCompositing% = FALSE
-                        activeGroupIdx% = 0
-                        compositeTarget& = compositeImg&
                     END IF
                     ' Skip rendering the 1x1 sentinel image
                     _CONTINUE
                 END IF
 
-                ' === Group child detection: redirect composite target ===
+                ' === Group child detection: push isolated group onto stack ===
                 IF useComposite% AND BLEND_HAS_ISOLATED_GROUPS% THEN
                     DIM parentGrp AS INTEGER
                     parentGrp% = LAYERS(layerFound%).parentGroupIdx%
@@ -985,38 +1003,70 @@ SUB RENDER_layers (dx AS INTEGER, dy AS INTEGER, zw AS LONG, zh AS LONG)
                         END IF
                     END IF
                     IF isIsolatedGroupChild% THEN
-                        ' Start new group composite if switching groups
-                        IF NOT groupCompositing% OR activeGroupIdx% <> parentGrp% THEN
-                            groupCompositing% = TRUE
-                            activeGroupIdx% = parentGrp%
-                            ' Clear group buffer
+                        ' Push new group onto stack if not already the active one
+                        DIM needPush AS INTEGER
+                        needPush% = TRUE
+                        IF GROUP_COMP_STACK_TOP% > 0 THEN
+                            IF GROUP_COMP_STACK_IDX(GROUP_COMP_STACK_TOP%) = parentGrp% THEN
+                                needPush% = FALSE  ' Already compositing into this group
+                            END IF
+                        END IF
+                        IF needPush% AND GROUP_COMP_STACK_TOP% < MAX_GROUP_NESTING THEN
+                            GROUP_COMP_STACK_TOP% = GROUP_COMP_STACK_TOP% + 1
+                            GROUP_COMP_STACK_IDX(GROUP_COMP_STACK_TOP%) = parentGrp%
+                            ' Clear buffer
                             DIM gcInitOD AS LONG: gcInitOD& = _DEST
-                            _DEST GROUP_COMPOSITE_BUFFER&
-                            _DONTBLEND GROUP_COMPOSITE_BUFFER&
+                            _DEST GROUP_COMP_STACK(GROUP_COMP_STACK_TOP%)
+                            _DONTBLEND GROUP_COMP_STACK(GROUP_COMP_STACK_TOP%)
                             CLS , _RGBA32(0, 0, 0, 0)
-                            _BLEND GROUP_COMPOSITE_BUFFER&
+                            _BLEND GROUP_COMP_STACK(GROUP_COMP_STACK_TOP%)
                             _DEST gcInitOD&
                         END IF
-                        compositeTarget& = GROUP_COMPOSITE_BUFFER&
+                        IF GROUP_COMP_STACK_TOP% > 0 THEN
+                            compositeTarget& = GROUP_COMP_STACK(GROUP_COMP_STACK_TOP%)
+                        END IF
                     ELSE
-                        compositeTarget& = compositeImg&
+                        ' Not in an isolated group — use parent stack level or compositeImg
+                        IF GROUP_COMP_STACK_TOP% > 0 THEN
+                            ' Check if our parent is one of the stacked groups
+                            DIM foundInStack AS INTEGER
+                            DIM stackScan AS INTEGER
+                            foundInStack% = FALSE
+                            FOR stackScan% = GROUP_COMP_STACK_TOP% TO 1 STEP -1
+                                IF GROUP_COMP_STACK_IDX(stackScan%) = parentGrp% THEN
+                                    compositeTarget& = GROUP_COMP_STACK(stackScan%)
+                                    foundInStack% = TRUE
+                                    EXIT FOR
+                                END IF
+                            NEXT stackScan%
+                            IF NOT foundInStack% THEN compositeTarget& = compositeImg&
+                        ELSE
+                            compositeTarget& = compositeImg&
+                        END IF
                     END IF
                 ELSE
                     compositeTarget& = compositeImg&
                 END IF
 
-                ' Skip children of invisible groups (Photoshop-like behavior)
+                ' Skip children of invisible groups (Photoshop-like: walk up parent chain)
                 DIM skipParGrp AS INTEGER
+                DIM skipLayer AS INTEGER
+                skipLayer% = FALSE
                 skipParGrp% = LAYERS(layerFound%).parentGroupIdx%
-                IF skipParGrp% > 0 THEN
+                DO WHILE skipParGrp% > 0
                     IF skipParGrp% <= MAX_LAYERS THEN
                         IF LAYERS(skipParGrp%).imgHandle& <> 0 THEN
                             IF NOT LAYERS(skipParGrp%).visible% THEN
-                                _CONTINUE
+                                skipLayer% = TRUE
+                                EXIT DO
                             END IF
                         END IF
+                        skipParGrp% = LAYERS(skipParGrp%).parentGroupIdx%
+                    ELSE
+                        EXIT DO
                     END IF
-                END IF
+                LOOP
+                IF skipLayer% THEN _CONTINUE
 
                 IF LAYERS(layerFound%).visible% THEN
                 ' Render dirty text layers into their imgHandle before compositing

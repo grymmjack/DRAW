@@ -181,14 +181,11 @@ SUB FILE_ASE_load (filename AS STRING)
     NEXT chunkIdx&
     CLOSE #fh%
 
-    ' Count layers (including top-level groups, skip nested groups and tilemaps)
+    ' Count layers (including all groups at any nesting level, skip tilemaps)
     FOR i% = 0 TO aseImg.num_layers - 1
-        IF i% < LEN(aseLayerTypes$) AND i% < LEN(aseChildLevels$) THEN
-            DIM cntType AS INTEGER, cntChildLvl AS INTEGER
+        IF i% < LEN(aseLayerTypes$) THEN
+            DIM cntType AS INTEGER
             cntType% = ASC(MID$(aseLayerTypes$, i% + 1, 1))
-            cntChildLvl% = ASC(MID$(aseChildLevels$, i% + 1, 1))
-            ' Skip nested groups (child_level > 0 AND type = GROUP)
-            IF cntType% = ASEPRITE_LAYER_GROUP AND cntChildLvl% > 0 THEN _CONTINUE
             ' Skip tilemap layers
             IF cntType% = ASEPRITE_LAYER_TILEMAP THEN _CONTINUE
             aseLayerCount% = aseLayerCount% + 1
@@ -333,17 +330,19 @@ SUB FILE_ASE_load (filename AS STRING)
     ' Aseprite stores group headers BEFORE their children (lower index),
     ' but DRAW expects group headers AFTER children (higher layer index).
     ' So we defer group header creation until all children are processed.
+    ' Use a stack of pending groups to support nested groups.
     drawLayerIdx% = 0
     DIM aseLayerIdx AS INTEGER
     aseLayerIdx% = 0
 
-    ' Pending group state — buffer group info until children are done
-    DIM pendingGroup AS INTEGER
-    DIM pendingGroupName AS STRING
-    DIM pendingGroupVisible AS INTEGER
-    DIM pendingGroupAseIdx AS INTEGER
-    DIM pendingGroupChildStart AS INTEGER
-    pendingGroup% = FALSE
+    ' Pending group stack — each level tracks a deferred group header
+    DIM pgName(1 TO MAX_GROUP_NESTING) AS STRING
+    DIM pgVisible(1 TO MAX_GROUP_NESTING) AS INTEGER
+    DIM pgAseIdx(1 TO MAX_GROUP_NESTING) AS INTEGER
+    DIM pgChildStart(1 TO MAX_GROUP_NESTING) AS INTEGER
+    DIM pgChildLevel(1 TO MAX_GROUP_NESTING) AS INTEGER ' child_level of the children
+    DIM pgTop AS INTEGER
+    pgTop% = 0
 
     FOR i% = 0 TO aseImg.num_layers - 1
         DIM aseType AS INTEGER, aseChildLvl AS INTEGER
@@ -356,22 +355,17 @@ SUB FILE_ASE_load (filename AS STRING)
             aseChildLvl% = ASC(MID$(aseChildLevels$, i% + 1, 1))
         END IF
 
-        ' Skip nested groups (child_level > 0 AND type = GROUP) - can't represent in DRAW
-        IF aseType% = ASEPRITE_LAYER_GROUP AND aseChildLvl% > 0 THEN
-            _LOGINFO "FILE_ASE_load: Skipping nested group layer " + STR$(i%)
-            _CONTINUE
-        END IF
-
         ' Skip tilemap layers
         IF aseType% = ASEPRITE_LAYER_TILEMAP THEN
             _LOGINFO "FILE_ASE_load: Skipping tilemap layer " + STR$(i%)
             _CONTINUE
         END IF
 
-        ' When we encounter a top-level non-group layer with child_level=0 and
-        ' a pending group exists, flush the group header first.
-        IF pendingGroup% AND aseChildLvl% = 0 AND aseType% <> ASEPRITE_LAYER_GROUP THEN
-            ' Create the deferred group header NOW (after all its children)
+        ' Flush pending groups whose scope has ended (child_level dropped below
+        ' the expected children level). Flush from innermost to outermost.
+        DO WHILE pgTop% > 0
+            IF aseChildLvl% >= pgChildLevel%(pgTop%) THEN EXIT DO
+            ' Create the deferred group header for the innermost pending scope
             IF drawLayerIdx% < MAX_LAYERS THEN
                 drawLayerIdx% = drawLayerIdx% + 1
                 DIM grpLayerIdx AS INTEGER
@@ -383,8 +377,8 @@ SUB FILE_ASE_load (filename AS STRING)
                 LAYERS(grpLayerIdx%).parentGroupIdx% = 0
                 LAYERS(grpLayerIdx%).collapsed% = FALSE
                 LAYERS(grpLayerIdx%).passThrough% = FALSE
-                LAYERS(grpLayerIdx%).name = pendingGroupName$
-                LAYERS(grpLayerIdx%).visible% = pendingGroupVisible%
+                LAYERS(grpLayerIdx%).name = pgName$(pgTop%)
+                LAYERS(grpLayerIdx%).visible% = pgVisible%(pgTop%)
                 LAYERS(grpLayerIdx%).opacity% = 255
                 LAYERS(grpLayerIdx%).blendMode% = BLEND_NORMAL
                 LAYERS(grpLayerIdx%).zIndex% = drawLayerIdx%
@@ -394,31 +388,38 @@ SUB FILE_ASE_load (filename AS STRING)
                 LAYERS(grpLayerIdx%).opacityLock% = FALSE
                 LAYER_COUNT% = LAYER_COUNT% + 1
 
-                ' Assign pending children to this group
+                ' Assign direct children (those with parentGroupIdx still 0)
                 DIM assignIdx AS INTEGER
-                FOR assignIdx% = pendingGroupChildStart% TO grpLayerIdx% - 1
-                    LAYERS(assignIdx%).parentGroupIdx% = grpLayerIdx%
+                FOR assignIdx% = pgChildStart%(pgTop%) TO grpLayerIdx% - 1
+                    IF LAYERS(assignIdx%).parentGroupIdx% = 0 THEN
+                        LAYERS(assignIdx%).parentGroupIdx% = grpLayerIdx%
+                    END IF
                 NEXT assignIdx%
 
-                _LOGINFO "FILE_ASE_load: Created group '" + pendingGroupName$ + "' at DRAW idx" + STR$(grpLayerIdx%) + " with" + STR$(grpLayerIdx% - pendingGroupChildStart%) + " children"
+                _LOGINFO "FILE_ASE_load: Created group '" + pgName$(pgTop%) + "' at DRAW idx" + STR$(grpLayerIdx%)
             END IF
-            pendingGroup% = FALSE
-        END IF
+            pgTop% = pgTop% - 1
+        LOOP
 
         ' Enforce layer cap
         IF drawLayerIdx% >= MAX_LAYERS THEN EXIT FOR
 
         IF aseType% = ASEPRITE_LAYER_GROUP THEN
-            ' === TOP-LEVEL GROUP — defer creation ===
-            pendingGroup% = TRUE
-            pendingGroupAseIdx% = i%
-            pendingGroupChildStart% = drawLayerIdx% + 1
-            layerName$ = get_layer_name$(aseImg, i%)
-            IF LEN(layerName$) > 64 THEN layerName$ = LEFT$(layerName$, 64)
-            IF LEN(layerName$) = 0 THEN layerName$ = "Group"
-            pendingGroupName$ = layerName$
-            pendingGroupVisible% = is_layer_visible%(aseImg, i%)
-            _LOGINFO "FILE_ASE_load: Deferring group '" + pendingGroupName$ + "' (ASE idx" + STR$(i%) + ")"
+            ' === GROUP — push onto pending stack ===
+            IF pgTop% < MAX_GROUP_NESTING THEN
+                pgTop% = pgTop% + 1
+                pgAseIdx%(pgTop%) = i%
+                pgChildStart%(pgTop%) = drawLayerIdx% + 1
+                pgChildLevel%(pgTop%) = aseChildLvl% + 1
+                layerName$ = get_layer_name$(aseImg, i%)
+                IF LEN(layerName$) > 64 THEN layerName$ = LEFT$(layerName$, 64)
+                IF LEN(layerName$) = 0 THEN layerName$ = "Group"
+                pgName$(pgTop%) = layerName$
+                pgVisible%(pgTop%) = is_layer_visible%(aseImg, i%)
+                _LOGINFO "FILE_ASE_load: Deferring group '" + pgName$(pgTop%) + "' (ASE idx" + STR$(i%) + ", child_level=" + STR$(aseChildLvl%) + ")"
+            ELSE
+                _LOGWARN "FILE_ASE_load: Max group nesting exceeded at ASE layer " + STR$(i%)
+            END IF
         ELSE
             ' === NORMAL IMAGE LAYER ===
             drawLayerIdx% = drawLayerIdx% + 1
@@ -465,8 +466,8 @@ SUB FILE_ASE_load (filename AS STRING)
         END IF
     NEXT i%
 
-    ' Flush any remaining pending group (group was last in the file)
-    IF pendingGroup% THEN
+    ' Flush all remaining pending groups (outermost group was last in the file)
+    DO WHILE pgTop% > 0
         IF drawLayerIdx% < MAX_LAYERS THEN
             drawLayerIdx% = drawLayerIdx% + 1
             grpLayerIdx% = drawLayerIdx%
@@ -477,8 +478,8 @@ SUB FILE_ASE_load (filename AS STRING)
             LAYERS(grpLayerIdx%).parentGroupIdx% = 0
             LAYERS(grpLayerIdx%).collapsed% = FALSE
             LAYERS(grpLayerIdx%).passThrough% = FALSE
-            LAYERS(grpLayerIdx%).name = pendingGroupName$
-            LAYERS(grpLayerIdx%).visible% = pendingGroupVisible%
+            LAYERS(grpLayerIdx%).name = pgName$(pgTop%)
+            LAYERS(grpLayerIdx%).visible% = pgVisible%(pgTop%)
             LAYERS(grpLayerIdx%).opacity% = 255
             LAYERS(grpLayerIdx%).blendMode% = BLEND_NORMAL
             LAYERS(grpLayerIdx%).zIndex% = drawLayerIdx%
@@ -488,14 +489,16 @@ SUB FILE_ASE_load (filename AS STRING)
             LAYERS(grpLayerIdx%).opacityLock% = FALSE
             LAYER_COUNT% = LAYER_COUNT% + 1
 
-            FOR assignIdx% = pendingGroupChildStart% TO grpLayerIdx% - 1
-                LAYERS(assignIdx%).parentGroupIdx% = grpLayerIdx%
+            FOR assignIdx% = pgChildStart%(pgTop%) TO grpLayerIdx% - 1
+                IF LAYERS(assignIdx%).parentGroupIdx% = 0 THEN
+                    LAYERS(assignIdx%).parentGroupIdx% = grpLayerIdx%
+                END IF
             NEXT assignIdx%
 
-            _LOGINFO "FILE_ASE_load: Created final group '" + pendingGroupName$ + "' at DRAW idx" + STR$(grpLayerIdx%) + " with" + STR$(grpLayerIdx% - pendingGroupChildStart%) + " children"
+            _LOGINFO "FILE_ASE_load: Created final group '" + pgName$(pgTop%) + "' at DRAW idx" + STR$(grpLayerIdx%)
         END IF
-        pendingGroup% = FALSE
-    END IF
+        pgTop% = pgTop% - 1
+    LOOP
 
     ' === SECOND PASS: Extract per-layer opacity and blend mode ===
     ' The enhanced parser doesn't expose per-layer opacity/blendMode directly,
@@ -512,12 +515,13 @@ SUB FILE_ASE_load (filename AS STRING)
 
     DIM drawIdx AS INTEGER
     drawIdx% = 0
-    ' Deferred group state for second pass (mirrors first pass ordering)
-    DIM sp_pendingGroup AS INTEGER
-    DIM sp_pendingOpacity AS INTEGER
-    DIM sp_pendingBlend AS INTEGER
-    DIM sp_pendingCollapsed AS INTEGER
-    sp_pendingGroup% = FALSE
+    ' Deferred group stack for second pass (mirrors first pass ordering)
+    DIM sp_pgOpacity(1 TO MAX_GROUP_NESTING) AS INTEGER
+    DIM sp_pgBlend(1 TO MAX_GROUP_NESTING) AS INTEGER
+    DIM sp_pgCollapsed(1 TO MAX_GROUP_NESTING) AS INTEGER
+    DIM sp_pgChildLevel(1 TO MAX_GROUP_NESTING) AS INTEGER
+    DIM sp_pgTop AS INTEGER
+    sp_pgTop% = 0
 
     FOR chunkIdx& = 1 TO num_chunks&
         chunk_start& = SEEK(fh%)
@@ -527,57 +531,50 @@ SUB FILE_ASE_load (filename AS STRING)
             DIM lc AS ASEPRITE_LAYER_CHUNK
             GET #fh%, , lc
 
-            ' Determine if this ASE layer was included in DRAW (same skip logic as creation)
             DIM lcChildLvl AS INTEGER
             lcChildLvl% = lc.child_level AND 255
-            DIM skipThisLayer AS INTEGER
-            skipThisLayer% = FALSE
-            ' Skip nested groups (QB64 AND is bitwise — use nested IF for guard)
-            IF lc.layer_type = ASEPRITE_LAYER_GROUP THEN
-                IF lcChildLvl% > 0 THEN skipThisLayer% = TRUE
-            END IF
-            ' Skip tilemaps
-            IF lc.layer_type = ASEPRITE_LAYER_TILEMAP THEN skipThisLayer% = TRUE
 
-            IF NOT skipThisLayer% THEN
-                ' Flush pending group when we hit a top-level non-group layer
-                ' (mirrors first pass deferred group creation ordering)
-                IF sp_pendingGroup% THEN
-                    IF lcChildLvl% = 0 THEN
-                        IF lc.layer_type <> ASEPRITE_LAYER_GROUP THEN
-                            drawIdx% = drawIdx% + 1
-                            IF drawIdx% >= 1 THEN
-                                IF drawIdx% <= LAYER_COUNT% THEN
-                                    LAYERS(drawIdx%).opacity% = sp_pendingOpacity%
-                                    LAYERS(drawIdx%).blendMode% = sp_pendingBlend%
-                                    LAYERS(drawIdx%).collapsed% = sp_pendingCollapsed%
-                                END IF
-                            END IF
-                            sp_pendingGroup% = FALSE
-                        END IF
+            ' Skip tilemaps (same as first pass)
+            IF lc.layer_type = ASEPRITE_LAYER_TILEMAP THEN
+                SEEK #fh%, chunk_start& + chunk_header.chunk_size
+                _CONTINUE
+            END IF
+
+            ' Flush pending group scopes whose children are done
+            DO WHILE sp_pgTop% > 0
+                IF lcChildLvl% >= sp_pgChildLevel%(sp_pgTop%) THEN EXIT DO
+                ' Pop and apply properties to group header
+                drawIdx% = drawIdx% + 1
+                IF drawIdx% >= 1 THEN
+                    IF drawIdx% <= LAYER_COUNT% THEN
+                        LAYERS(drawIdx%).opacity% = sp_pgOpacity%(sp_pgTop%)
+                        LAYERS(drawIdx%).blendMode% = sp_pgBlend%(sp_pgTop%)
+                        LAYERS(drawIdx%).collapsed% = sp_pgCollapsed%(sp_pgTop%)
                     END IF
                 END IF
+                sp_pgTop% = sp_pgTop% - 1
+            LOOP
 
-                IF lc.layer_type = ASEPRITE_LAYER_GROUP THEN
-                    IF lcChildLvl% = 0 THEN
-                        ' Defer group header — save properties, don't increment drawIdx%
-                        sp_pendingGroup% = TRUE
-                        sp_pendingOpacity% = lc.opacity
-                        sp_pendingBlend% = FILE_ASE_map_blend_mode%(lc.blend_mode)
-                        IF lc.flags AND ASEPRITE_LAYER_COLLAPSED THEN
-                            sp_pendingCollapsed% = TRUE
-                        ELSE
-                            sp_pendingCollapsed% = FALSE
-                        END IF
+            IF lc.layer_type = ASEPRITE_LAYER_GROUP THEN
+                ' Push deferred group — save properties, don't increment drawIdx
+                IF sp_pgTop% < MAX_GROUP_NESTING THEN
+                    sp_pgTop% = sp_pgTop% + 1
+                    sp_pgOpacity%(sp_pgTop%) = lc.opacity
+                    sp_pgBlend%(sp_pgTop%) = FILE_ASE_map_blend_mode%(lc.blend_mode)
+                    sp_pgChildLevel%(sp_pgTop%) = lcChildLvl% + 1
+                    IF lc.flags AND ASEPRITE_LAYER_COLLAPSED THEN
+                        sp_pgCollapsed%(sp_pgTop%) = TRUE
+                    ELSE
+                        sp_pgCollapsed%(sp_pgTop%) = FALSE
                     END IF
-                ELSE
-                    ' Normal/child layer — apply properties directly
-                    drawIdx% = drawIdx% + 1
-                    IF drawIdx% >= 1 THEN
-                        IF drawIdx% <= LAYER_COUNT% THEN
-                            LAYERS(drawIdx%).opacity% = lc.opacity
-                            LAYERS(drawIdx%).blendMode% = FILE_ASE_map_blend_mode%(lc.blend_mode)
-                        END IF
+                END IF
+            ELSE
+                ' Normal/child layer — apply properties directly
+                drawIdx% = drawIdx% + 1
+                IF drawIdx% >= 1 THEN
+                    IF drawIdx% <= LAYER_COUNT% THEN
+                        LAYERS(drawIdx%).opacity% = lc.opacity
+                        LAYERS(drawIdx%).blendMode% = FILE_ASE_map_blend_mode%(lc.blend_mode)
                     END IF
                 END IF
             END IF
@@ -588,18 +585,18 @@ SUB FILE_ASE_load (filename AS STRING)
         END IF
     NEXT chunkIdx&
 
-    ' Flush final pending group (group was last in the file)
-    IF sp_pendingGroup% THEN
+    ' Flush all remaining pending groups
+    DO WHILE sp_pgTop% > 0
         drawIdx% = drawIdx% + 1
         IF drawIdx% >= 1 THEN
             IF drawIdx% <= LAYER_COUNT% THEN
-                LAYERS(drawIdx%).opacity% = sp_pendingOpacity%
-                LAYERS(drawIdx%).blendMode% = sp_pendingBlend%
-                LAYERS(drawIdx%).collapsed% = sp_pendingCollapsed%
+                LAYERS(drawIdx%).opacity% = sp_pgOpacity%(sp_pgTop%)
+                LAYERS(drawIdx%).blendMode% = sp_pgBlend%(sp_pgTop%)
+                LAYERS(drawIdx%).collapsed% = sp_pgCollapsed%(sp_pgTop%)
             END IF
         END IF
-        sp_pendingGroup% = FALSE
-    END IF
+        sp_pgTop% = sp_pgTop% - 1
+    LOOP
 
     ' === PALETTE IMPORT ===
     ' Re-read the file to extract palette data from ASEPRITE_CHUNK_PALETTE (0x2019)

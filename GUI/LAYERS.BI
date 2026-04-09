@@ -248,11 +248,23 @@ DECLARE SUB LAYERS_select_group (groupIdx AS INTEGER)
 DECLARE SUB LAYERS_delete_group (groupIdx AS INTEGER)
 DECLARE SUB LAYERS_toggle_group_visibility (groupIdx AS INTEGER)
 
-' Group compositing buffer (persistent, reused across frames)
+' Group compositing — stack of buffers for nested isolated groups
+' Each nesting level of isolated groups needs its own composite buffer.
+CONST MAX_GROUP_NESTING = 8  ' Maximum supported group nesting depth
+DIM SHARED GROUP_COMP_STACK(1 TO MAX_GROUP_NESTING) AS LONG    ' Image handles
+DIM SHARED GROUP_COMP_STACK_IDX(1 TO MAX_GROUP_NESTING) AS INTEGER ' Group layer indices
+DIM SHARED GROUP_COMP_STACK_TOP AS INTEGER                      ' Current stack depth (0 = empty)
+DIM SHARED GROUP_COMP_STACK_W AS LONG                           ' Width of allocated buffers
+DIM SHARED GROUP_COMP_STACK_H AS LONG                           ' Height of allocated buffers
+DIM SHARED BLEND_HAS_ISOLATED_GROUPS AS INTEGER  ' TRUE when isolated groups exist (cached)
+
+' Legacy single-buffer aliases (kept for compatibility during transition)
 DIM SHARED GROUP_COMPOSITE_BUFFER AS LONG
 DIM SHARED GROUP_COMPOSITE_BUFFER_W AS LONG
 DIM SHARED GROUP_COMPOSITE_BUFFER_H AS LONG
-DIM SHARED BLEND_HAS_ISOLATED_GROUPS AS INTEGER  ' TRUE when isolated groups exist (cached)
+
+' Helper: get nesting depth of a layer (0 = top-level)
+DECLARE FUNCTION LAYERS_nesting_depth% (layerIdx AS INTEGER)
 
 ' Note: LAYERS_init is called from SCREEN_init after CONFIG_load
 ' LAYER_PANEL_load_icons is called from DRAW.BAS after CONFIG_apply_startup_defaults

@@ -338,35 +338,34 @@ SUB FILE_PSD_load (filename AS STRING)
 
     ' Group tracking: PSD order is bottom-to-top, groups are:
     '   is_group_end (bottom marker) → children → is_group (header at top)
-    ' Use a depth counter to handle nested groups — flatten to single level.
-    DIM psdGroupDepth AS INTEGER
-    DIM psdGroupChildren(1 TO MAX_LAYERS) AS INTEGER
-    DIM psdGroupChildCount AS INTEGER
-    psdGroupDepth% = 0
-    psdGroupChildCount% = 0
+    ' Use a parent stack to support nested groups. Each group_end pushes a scope,
+    ' each group header pops and creates the group with its collected children.
+    DIM psdGrpStack(1 TO MAX_GROUP_NESTING) AS INTEGER  ' Stack of DRAW group indices (0 = not yet created)
+    DIM psdGrpChildStart(1 TO MAX_GROUP_NESTING) AS INTEGER ' drawLayerIdx at start of scope
+    DIM psdGrpDepth AS INTEGER
+    psdGrpDepth% = 0
 
     FOR i% = 1 TO PSD_IMG.layer_count
         ' Group end marker = bottom boundary of a group scope
         IF PSD_LAYERS(i%).is_group_end THEN
-            IF psdGroupDepth% = 0 THEN
-                ' Entering outermost group — start collecting children
-                psdGroupChildCount% = 0
+            IF psdGrpDepth% < MAX_GROUP_NESTING THEN
+                psdGrpDepth% = psdGrpDepth% + 1
+                psdGrpStack%(psdGrpDepth%) = 0  ' Will be assigned when header is found
+                psdGrpChildStart%(psdGrpDepth%) = drawLayerIdx% + 1
             END IF
-            psdGroupDepth% = psdGroupDepth% + 1
-            _LOGINFO "FILE_PSD_load: Group scope depth =" + STR$(psdGroupDepth%) + " at PSD layer" + STR$(i%)
+            _LOGINFO "FILE_PSD_load: Group scope push, depth =" + STR$(psdGrpDepth%) + " at PSD layer" + STR$(i%)
             _CONTINUE
         END IF
 
-        ' Group header = top boundary
+        ' Group header = top boundary — pop scope and create group
         IF PSD_LAYERS(i%).is_group THEN
-            psdGroupDepth% = psdGroupDepth% - 1
-            IF psdGroupDepth% < 0 THEN psdGroupDepth% = 0
+            IF psdGrpDepth% > 0 THEN
+                DIM psdChildStart AS INTEGER
+                psdChildStart% = psdGrpChildStart%(psdGrpDepth%)
+                psdGrpDepth% = psdGrpDepth% - 1
 
-            ' Only create DRAW group when we close the outermost scope
-            IF psdGroupDepth% = 0 AND psdGroupChildCount% > 0 THEN
-                ' Enforce layer cap
+                ' Create DRAW group layer for this scope
                 IF drawLayerIdx% < MAX_LAYERS THEN
-                    ' Create group layer
                     drawLayerIdx% = drawLayerIdx% + 1
                     DIM grpIdx AS INTEGER
                     grpIdx% = drawLayerIdx%
@@ -390,23 +389,35 @@ SUB FILE_PSD_load (filename AS STRING)
                     LAYERS(grpIdx%).blendMode% = PSD_map_blend_mode%(PSD_LAYERS(i%).blend_mode)
                     LAYERS(grpIdx%).zIndex% = drawLayerIdx%
                     LAYERS(grpIdx%).historyId& = LAYERS_alloc_history_id&
-                    LAYERS(grpIdx%).parentGroupIdx% = 0
                     LAYERS(grpIdx%).collapsed% = FALSE
                     LAYERS(grpIdx%).passThrough% = FALSE
                     LAYER_COUNT% = LAYER_COUNT% + 1
 
-                    ' Assign children to this group
+                    ' Parent = enclosing group on stack (if any)
+                    ' At this point psdGrpDepth was already decremented, so if > 0
+                    ' there's a parent scope. But parent group may not be created yet
+                    ' (PSD creates headers top-down). We'll do a second pass to fix.
+                    LAYERS(grpIdx%).parentGroupIdx% = 0
+
+                    ' Assign direct children: layers created between psdChildStart and now
+                    ' Direct children = those whose parentGroupIdx is still 0
+                    ' (nested group headers already got assigned in their own scope)
                     DIM gc AS INTEGER
-                    FOR gc% = 1 TO psdGroupChildCount%
-                        LAYERS(psdGroupChildren%(gc%)).parentGroupIdx% = grpIdx%
+                    DIM psdChildCount AS INTEGER
+                    psdChildCount% = 0
+                    FOR gc% = psdChildStart% TO grpIdx% - 1
+                        IF LAYERS(gc%).imgHandle& <> 0 THEN
+                            IF LAYERS(gc%).parentGroupIdx% = 0 THEN
+                                LAYERS(gc%).parentGroupIdx% = grpIdx%
+                                psdChildCount% = psdChildCount% + 1
+                            END IF
+                        END IF
                     NEXT gc%
 
-                    _LOGINFO "FILE_PSD_load: Created group " + CHR$(34) + grpName$ + CHR$(34) + " with" + STR$(psdGroupChildCount%) + " children"
+                    _LOGINFO "FILE_PSD_load: Created group " + CHR$(34) + grpName$ + CHR$(34) + " at idx" + STR$(grpIdx%) + " with" + STR$(psdChildCount%) + " direct children"
                 END IF
-                psdGroupChildCount% = 0
             ELSE
-                ' Inner group header — skip it (flattened into outer group)
-                _LOGINFO "FILE_PSD_load: Skipping inner group header at PSD layer" + STR$(i%) + " (depth=" + STR$(psdGroupDepth%) + ")"
+                _LOGWARN "FILE_PSD_load: Group header without matching group_end at PSD layer" + STR$(i%)
             END IF
             _CONTINUE
         END IF
@@ -463,15 +474,10 @@ SUB FILE_PSD_load (filename AS STRING)
         ' Mark content dirty for opacity cache rebuild
         LAYERS(layerIdx%).contentDirty% = TRUE
 
-        LAYER_COUNT% = LAYER_COUNT% + 1
+        ' parentGroupIdx starts at 0 — will be assigned when group header is created
+        LAYERS(layerIdx%).parentGroupIdx% = 0
 
-        ' Track as group child if inside a group scope (any depth)
-        IF psdGroupDepth% > 0 THEN
-            psdGroupChildCount% = psdGroupChildCount% + 1
-            IF psdGroupChildCount% <= MAX_LAYERS THEN
-                psdGroupChildren%(psdGroupChildCount%) = layerIdx%
-            END IF
-        END IF
+        LAYER_COUNT% = LAYER_COUNT% + 1
 
         _LOGINFO "FILE_PSD_load: Created DRAW layer" + STR$(layerIdx%) + ": " + CHR$(34) + layerName$ + CHR$(34)
     NEXT i%
