@@ -4843,6 +4843,68 @@ END FUNCTION
 
 
 ''
+' Get ALL descendants of a group recursively, sorted by zIndex ascending.
+' Includes children, grandchildren, etc. — every layer whose ancestor chain
+' passes through groupIdx%. Does NOT include groupIdx% itself.
+' @param groupIdx% Group layer index (root of subtree)
+' @param outArray%() Pre-allocated array (1 TO MAX_LAYERS) to receive descendant indices
+' @param outCount% Returns the number of descendants found
+'
+SUB LAYERS_group_descendants (groupIdx AS INTEGER, outArray() AS INTEGER, outCount AS INTEGER)
+    DIM gdI AS INTEGER
+    DIM gdJ AS INTEGER
+    DIM gdTmp AS INTEGER
+    outCount% = 0
+
+    IF groupIdx% < 1 OR groupIdx% > MAX_LAYERS THEN EXIT SUB
+
+    ' Collect all layers whose ancestor chain includes groupIdx%
+    FOR gdI% = 1 TO MAX_LAYERS
+        IF LAYERS(gdI%).imgHandle& <> 0 AND gdI% <> groupIdx% THEN
+            ' Walk up parent chain to see if this layer descends from groupIdx%
+            DIM gdWalk AS INTEGER
+            gdWalk% = LAYERS(gdI%).parentGroupIdx%
+            DIM gdFound AS INTEGER
+            gdFound% = FALSE
+            DIM gdSafe AS INTEGER
+            gdSafe% = 0
+            DO WHILE gdWalk% > 0 AND gdSafe% < MAX_GROUP_NESTING
+                IF gdWalk% = groupIdx% THEN
+                    gdFound% = TRUE
+                    EXIT DO
+                END IF
+                IF gdWalk% < 1 OR gdWalk% > MAX_LAYERS THEN EXIT DO
+                IF LAYERS(gdWalk%).imgHandle& = 0 THEN EXIT DO
+                gdWalk% = LAYERS(gdWalk%).parentGroupIdx%
+                gdSafe% = gdSafe% + 1
+            LOOP
+            IF gdFound% THEN
+                outCount% = outCount% + 1
+                outArray%(outCount%) = gdI%
+            END IF
+        END IF
+    NEXT gdI%
+
+    ' Sort by zIndex ascending (insertion sort)
+    DIM gdSortCont AS INTEGER
+    FOR gdI% = 2 TO outCount%
+        gdTmp% = outArray%(gdI%)
+        gdJ% = gdI% - 1
+        gdSortCont% = TRUE
+        DO WHILE gdJ% >= 1 AND gdSortCont%
+            IF LAYERS(outArray%(gdJ%)).zIndex% > LAYERS(gdTmp%).zIndex% THEN
+                outArray%(gdJ% + 1) = outArray%(gdJ%)
+                gdJ% = gdJ% - 1
+            ELSE
+                gdSortCont% = FALSE
+            END IF
+        LOOP
+        outArray%(gdJ% + 1) = gdTmp%
+    NEXT gdI%
+END SUB
+
+
+''
 ' Get sorted list of child layer indices for a group (sorted by zIndex ascending).
 ' @param groupIdx% Group layer index
 ' @param outArray%() Pre-allocated array (1 TO MAX_LAYERS) to receive child indices
@@ -5067,16 +5129,24 @@ SUB LAYERS_merge_group (groupIdx AS INTEGER)
     DIM childBuf(1 TO MAX_LAYERS) AS INTEGER
     DIM childCount AS INTEGER
 
-    ' Validate
-    IF groupIdx% < 1 OR groupIdx% > MAX_LAYERS THEN EXIT SUB
-    IF LAYERS(groupIdx%).imgHandle& = 0 THEN EXIT SUB
-    IF LAYERS(groupIdx%).layerType% <> LAYER_TYPE_GROUP THEN EXIT SUB
+    ' CRITICAL: Copy parameter to local variable immediately.
+    ' groupIdx% is passed by reference (QB64 default).  Callers pass
+    ' CURRENT_LAYER%, which LAYERS_select (called inside LAYERS_new%)
+    ' can change mid-function, corrupting our reference.
+    DIM grpSlot AS INTEGER
+    grpSlot% = groupIdx%
 
-    ' Get children sorted by zIndex (ascending = bottom to top)
-    LAYERS_group_children groupIdx%, childBuf%(), childCount%
+    ' Validate
+    IF grpSlot% < 1 OR grpSlot% > MAX_LAYERS THEN EXIT SUB
+    IF LAYERS(grpSlot%).imgHandle& = 0 THEN EXIT SUB
+    IF LAYERS(grpSlot%).layerType% <> LAYER_TYPE_GROUP THEN EXIT SUB
+
+    ' Get ALL descendants (recursive), sorted by zIndex ascending (bottom to top)
+    childCount% = 0
+    LAYERS_group_descendants grpSlot%, childBuf%(), childCount%
     IF childCount% = 0 THEN
         ' Empty group — just delete the group header
-        LAYERS_delete groupIdx%
+        LAYERS_delete grpSlot%
         EXIT SUB
     END IF
 
@@ -5093,10 +5163,11 @@ SUB LAYERS_merge_group (groupIdx AS INTEGER)
     CLS , _RGBA32(0, 0, 0, 0)
     _DEST oldDest&
 
-    ' Composite children bottom-to-top
+    ' Composite non-group children bottom-to-top (skip group headers — they're 1x1 sentinels)
     FOR i% = 1 TO childCount%
         DIM cIdx AS INTEGER
         cIdx% = childBuf%(i%)
+        IF LAYERS(cIdx%).layerType% = LAYER_TYPE_GROUP THEN _CONTINUE
         IF LAYERS(cIdx%).imgHandle& < -1 AND LAYERS(cIdx%).visible% THEN
             IF LAYERS(cIdx%).layerType% = LAYER_TYPE_TEXT AND LAYERS(cIdx%).textDataIdx% > 0 THEN
                 TEXT_LAYER_render cIdx%, LAYERS(cIdx%).imgHandle&
@@ -5137,29 +5208,38 @@ SUB LAYERS_merge_group (groupIdx AS INTEGER)
         END IF
     NEXT i%
 
-    ' Delete all children (suppress history for each — we batched it)
+    ' Delete all descendants (suppress history for each — we batched it)
+    ' Delete in reverse z-order; delete sub-group headers' children first
     HISTORY_IN_PROGRESS% = TRUE
     FOR i% = childCount% TO 1 STEP -1
-        LAYERS_delete childBuf%(i%)
+        IF LAYERS(childBuf%(i%)).imgHandle& <> 0 THEN
+            LAYERS_delete childBuf%(i%)
+        END IF
     NEXT i%
-    ' Delete the group header
-    LAYERS_delete groupIdx%
-    HISTORY_IN_PROGRESS% = FALSE
 
-    ' Create a new image layer at the same z-position
+    ' Create a new image layer BEFORE deleting the group header.
+    ' LAYERS_delete refuses to delete the last layer (LAYER_COUNT <= 1),
+    ' so we must ensure another layer exists first.
     DIM newIdx AS INTEGER
     newIdx% = LAYERS_new%
     IF newIdx% > 0 THEN
-        ' Replace the auto-created image with our composite
         IF LAYERS(newIdx%).imgHandle& < -1 THEN _FREEIMAGE LAYERS(newIdx%).imgHandle&
         LAYERS(newIdx%).imgHandle& = tempImg&
         LAYERS(newIdx%).imgWidth% = _WIDTH(tempImg&)
         LAYERS(newIdx%).imgHeight% = _HEIGHT(tempImg&)
         LAYERS(newIdx%).name = "Merged Group"
         LAYERS(newIdx%).contentDirty% = TRUE
+        ' Ensure merged layer is NOT inside the group we're about to delete
+        LAYERS(newIdx%).parentGroupIdx% = LAYERS(grpSlot%).parentGroupIdx%
     ELSE
         IF tempImg& < -1 THEN _FREEIMAGE tempImg&
     END IF
+
+    ' Now delete the group header (LAYER_COUNT > 1 since we just added the merged layer)
+    IF LAYERS(grpSlot%).imgHandle& <> 0 THEN
+        LAYERS_delete grpSlot%
+    END IF
+    HISTORY_IN_PROGRESS% = FALSE
 
     HISTORY_end_group
 
