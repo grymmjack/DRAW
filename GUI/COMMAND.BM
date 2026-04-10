@@ -1720,6 +1720,29 @@ SUB CMD_execute_action (action_id AS INTEGER)
                 IF sel727_grp% > 0 THEN
                     ' Select all in group then do union select
                     LAYERS_select_group sel727_grp%
+                    ' Remove all group headers from MULTI_SELECT — their 1x1 sentinel
+                    ' images corrupt the pixel-based bounding box in union select (1414).
+                    DIM sel727_i AS INTEGER
+                    DIM sel727_topChild AS INTEGER, sel727_topZ AS INTEGER
+                    sel727_topChild% = 0
+                    sel727_topZ% = 0
+                    FOR sel727_i% = 1 TO MAX_LAYERS
+                        IF MULTI_SELECT_LAYERS(sel727_i%) THEN
+                            IF LAYERS(sel727_i%).layerType% = LAYER_TYPE_GROUP THEN
+                                MULTI_SELECT_LAYERS(sel727_i%) = FALSE
+                                MULTI_SELECT_COUNT% = MULTI_SELECT_COUNT% - 1
+                            ELSE
+                                IF LAYERS(sel727_i%).zIndex% > sel727_topZ% THEN
+                                    sel727_topZ% = LAYERS(sel727_i%).zIndex%
+                                    sel727_topChild% = sel727_i%
+                                END IF
+                            END IF
+                        END IF
+                    NEXT sel727_i%
+                    ' Switch CURRENT_LAYER from group header to a real image layer
+                    IF sel727_topChild% > 0 THEN
+                        CURRENT_LAYER% = sel727_topChild%
+                    END IF
                     IF MULTI_SELECT_COUNT% >= 2 THEN
                         CMD_execute_action 1414
                     ELSEIF MULTI_SELECT_COUNT% = 1 THEN
@@ -4055,31 +4078,43 @@ FUNCTION CMD_group_expand_for_op% ()
     IF LAYERS(CURRENT_LAYER%).layerType% <> LAYER_TYPE_GROUP THEN EXIT FUNCTION
     DIM cge_grpIdx AS INTEGER
     cge_grpIdx% = CURRENT_LAYER%
-    ' Select all children into MULTI_SELECT and switch to topmost child
+    ' Select all descendants (recursive) into MULTI_SELECT and switch to topmost child
     DIM cge_topChild AS INTEGER, cge_topZ AS INTEGER
+    DIM cge_walk AS INTEGER, cge_found AS INTEGER, cge_safe AS INTEGER
     cge_topChild% = 0
     cge_topZ% = 0
     MULTI_SELECT_clear
     FOR cge_i% = 1 TO MAX_LAYERS
-        IF LAYERS(cge_i%).imgHandle& <> 0 THEN
-            IF LAYERS(cge_i%).parentGroupIdx% = cge_grpIdx% THEN
-                MULTI_SELECT_LAYERS(cge_i%) = TRUE
-                MULTI_SELECT_COUNT% = MULTI_SELECT_COUNT% + 1
-                IF LAYERS(cge_i%).zIndex% > cge_topZ% THEN
-                    cge_topZ% = LAYERS(cge_i%).zIndex%
-                    cge_topChild% = cge_i%
+        IF LAYERS(cge_i%).imgHandle& <> 0 AND cge_i% <> cge_grpIdx% THEN
+            ' Walk parent chain to find ALL descendants (not just direct children)
+            cge_walk% = LAYERS(cge_i%).parentGroupIdx%
+            cge_found% = FALSE
+            cge_safe% = 0
+            DO WHILE cge_walk% > 0 AND cge_safe% < MAX_GROUP_NESTING
+                IF cge_walk% = cge_grpIdx% THEN
+                    cge_found% = TRUE
+                    EXIT DO
+                END IF
+                IF cge_walk% < 1 OR cge_walk% > MAX_LAYERS THEN EXIT DO
+                IF LAYERS(cge_walk%).imgHandle& = 0 THEN EXIT DO
+                cge_walk% = LAYERS(cge_walk%).parentGroupIdx%
+                cge_safe% = cge_safe% + 1
+            LOOP
+            IF cge_found% THEN
+                ' Skip ALL group headers — their 1x1 sentinel images corrupt
+                ' dimension calculations in transforms and Select From Layer (1414).
+                IF LAYERS(cge_i%).layerType% <> LAYER_TYPE_GROUP THEN
+                    MULTI_SELECT_LAYERS(cge_i%) = TRUE
+                    MULTI_SELECT_COUNT% = MULTI_SELECT_COUNT% + 1
+                    IF LAYERS(cge_i%).zIndex% > cge_topZ% THEN
+                        cge_topZ% = LAYERS(cge_i%).zIndex%
+                        cge_topChild% = cge_i%
+                    END IF
                 END IF
             END IF
         END IF
     NEXT cge_i%
     IF cge_topChild% > 0 THEN
-        ' Remove group header from MULTI_SELECT — MULTI_SELECT_clear auto-added it
-        ' via CURRENT_LAYER%, but group headers have a 1x1 sentinel image that would
-        ' corrupt dimension calculations in operations like Select From Layer (1414).
-        IF MULTI_SELECT_LAYERS(cge_grpIdx%) THEN
-            MULTI_SELECT_LAYERS(cge_grpIdx%) = FALSE
-            MULTI_SELECT_COUNT% = MULTI_SELECT_COUNT% - 1
-        END IF
         CURRENT_LAYER% = cge_topChild%
         CMD_group_expand_for_op% = cge_grpIdx%
     END IF
