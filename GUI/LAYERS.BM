@@ -1817,6 +1817,8 @@ SUB LAYER_PANEL_render (canvasHeight AS INTEGER)
                 IF isGroupHeader% THEN
                     IF layerIdx% = CURRENT_LAYER% THEN
                         rowBg~& = THEME.LAYER_PANEL_row_master_bg~&
+                    ELSEIF MULTI_SELECT_LAYERS(layerIdx%) THEN
+                        rowBg~& = THEME.LAYER_PANEL_row_multi_sel_bg~&
                     ELSE
                         rowBg~& = THEME.LAYER_PANEL_group_header_bg~&
                     END IF
@@ -2484,9 +2486,16 @@ FUNCTION LAYER_PANEL_handle_click% (rawX AS INTEGER, rawY AS INTEGER, button AS 
                 localX% = localX% - clickIndent%
 
                 IF button% = 1 THEN
-                    ' For group headers: triangle zone (0-12), eye zone (13-23)
-                    ' For normal layers: eye zone (0-13), lock zone (14-23)
-                    IF LAYERS(layerIdx%).layerType% = LAYER_TYPE_GROUP AND localX% < 13 THEN
+                    ' Check for Ctrl+click or Shift+click FIRST — always multi-select
+                    ' regardless of which zone (triangle, eye, body) the click lands on
+                    DIM ctrlHeld AS INTEGER
+                    DIM shiftHeld AS INTEGER
+                    ctrlHeld% = (_KEYDOWN(KEY_LCTRL&) OR _KEYDOWN(KEY_RCTRL&))
+                    shiftHeld% = (_KEYDOWN(KEY_LSHIFT&) OR _KEYDOWN(KEY_RSHIFT&))
+                    IF ctrlHeld% OR shiftHeld% THEN
+                        ' Toggle this layer in/out of multi-select without changing CURRENT_LAYER%
+                        MULTI_SELECT_toggle layerIdx%
+                    ELSEIF LAYERS(layerIdx%).layerType% = LAYER_TYPE_GROUP AND localX% < 13 THEN
                         ' Collapse/expand triangle click
                         LAYERS(layerIdx%).collapsed% = NOT LAYERS(layerIdx%).collapsed%
                         GUI_NEEDS_REDRAW% = TRUE
@@ -2615,44 +2624,40 @@ FUNCTION LAYER_PANEL_handle_click% (rawX AS INTEGER, rawY AS INTEGER, button AS 
                         IF initBarY% > 14 THEN initBarY% = 14
                         LAYERS_set_opacity layerIdx%, 255 - INT((initBarY% / 14.0) * 255)
                     ELSE
-                        ' Ctrl+click or Shift+click on body: toggle this layer in multi-select
-                        ' Plain click: make this the current layer and start drag if eligible
-                        DIM ctrlHeld AS INTEGER
-                        DIM shiftHeld AS INTEGER
-                        ctrlHeld% = (_KEYDOWN(KEY_LCTRL&) OR _KEYDOWN(KEY_RCTRL&))
-                        shiftHeld% = (_KEYDOWN(KEY_LSHIFT&) OR _KEYDOWN(KEY_RSHIFT&))
-                        IF ctrlHeld% OR shiftHeld% THEN
-                            ' Toggle this layer in/out of multi-select without changing CURRENT_LAYER%
-                            MULTI_SELECT_toggle layerIdx%
+                        ' Plain click on body: make this the current layer and start drag if eligible
+                        ' Double-click: rename layer (triangle already handles group collapse)
+                        IF TIMER - MOUSE.B1_CLICK_TIME# < 0.3 THEN
+                            MOUSE.B1_CLICK_TIME# = 0  ' Prevent triple-fire
+                            IF MOVE.ACTIVE THEN MOVE_reset
+                            LAYERS_select layerIdx%
+                            LAYERS_rename layerIdx%
                         ELSE
-                            ' Double-click: rename layer (triangle already handles group collapse)
-                            IF TIMER - MOUSE.B1_CLICK_TIME# < 0.3 THEN
-                                MOUSE.B1_CLICK_TIME# = 0  ' Prevent triple-fire
-                                IF MOVE.ACTIVE THEN MOVE_reset
-                                LAYERS_select layerIdx%
-                                LAYERS_rename layerIdx%
-                            ELSE
-                                ' Single click: select and start pending drag
-                                MOUSE.B1_CLICK_TIME# = TIMER
-                                ' Reset active move tool before switching layers to prevent segfault
-                                IF MOVE.ACTIVE THEN MOVE_reset
-                                LAYERS_select layerIdx%
-                                ' Start PENDING drag - will only become active after moving 10+ pixels
-                                LAYER_PANEL.dragPending% = TRUE
-                                LAYER_PANEL.isDragging% = FALSE
-                                LAYER_PANEL.dragLayerIdx% = layerIdx%
-                                LAYER_PANEL.dropTargetZIndex% = LAYERS(layerIdx%).zIndex%
-                                LAYER_PANEL.dragStartX% = rawX%
-                                LAYER_PANEL.dragStartY% = rawY%
-                                LAYER_PANEL.dragOffsetY% = clickY% - rowY%  ' Offset within row
-                                LAYER_PANEL.dragPreviewY% = rawY%
-                                LAYER_PANEL.autoScrollTimer! = TIMER
-                            END IF
+                            ' Single click: select and start pending drag
+                            MOUSE.B1_CLICK_TIME# = TIMER
+                            ' Reset active move tool before switching layers to prevent segfault
+                            IF MOVE.ACTIVE THEN MOVE_reset
+                            LAYERS_select layerIdx%
+                            ' Start PENDING drag - will only become active after moving 10+ pixels
+                            LAYER_PANEL.dragPending% = TRUE
+                            LAYER_PANEL.isDragging% = FALSE
+                            LAYER_PANEL.dragLayerIdx% = layerIdx%
+                            LAYER_PANEL.dropTargetZIndex% = LAYERS(layerIdx%).zIndex%
+                            LAYER_PANEL.dragStartX% = rawX%
+                            LAYER_PANEL.dragStartY% = rawY%
+                            LAYER_PANEL.dragOffsetY% = clickY% - rowY%  ' Offset within row
+                            LAYER_PANEL.dragPreviewY% = rawY%
+                            LAYER_PANEL.autoScrollTimer! = TIMER
                         END IF
                     END IF
                 ELSEIF button% = 2 THEN
                     ' Right-click: show layer context menu
-                    LAYERS_select layerIdx%
+                    ' Preserve multi-selection if the right-clicked layer is part of it
+                    IF NOT MULTI_SELECT_LAYERS(layerIdx%) THEN
+                        LAYERS_select layerIdx%
+                    ELSE
+                        ' Switch current layer without clearing multi-select
+                        CURRENT_LAYER% = layerIdx%
+                    END IF
                     LAYER_PANEL_ctx_menu_show layerIdx%, rawX%, rawY%
                     GUI_NEEDS_REDRAW% = TRUE
                     FRAME_IDLE% = FALSE
@@ -4483,9 +4488,32 @@ FUNCTION LAYERS_group_from_selection% ()
         savedSel%(i%) = MULTI_SELECT_LAYERS(i%)
     NEXT i%
 
+    ' Expand selection: if a group is selected, also select all its descendants
+    ' so they move into the new group together with their parent group
+    DIM expandChanged AS INTEGER
+    DO
+        expandChanged% = FALSE
+        FOR i% = 1 TO MAX_LAYERS
+            IF LAYERS(i%).imgHandle& <> 0 AND NOT savedSel%(i%) THEN
+                ' If this layer's parent is selected, include it too
+                DIM walkPar AS INTEGER
+                walkPar% = LAYERS(i%).parentGroupIdx%
+                DO WHILE walkPar% > 0 AND walkPar% <= MAX_LAYERS
+                    IF savedSel%(walkPar%) THEN
+                        savedSel%(i%) = TRUE
+                        expandChanged% = TRUE
+                        EXIT DO
+                    END IF
+                    walkPar% = LAYERS(walkPar%).parentGroupIdx%
+                LOOP
+            END IF
+        NEXT i%
+    LOOP WHILE expandChanged%
+
     ' Count selected layers, find the topmost zIndex, and determine common parent
+    ' Only count top-level selected layers (those whose parent is NOT also selected)
+    ' for the common-parent calculation
     DIM commonParent AS INTEGER
-    DIM gfsFirstParent AS INTEGER
     DIM gfsParentsMatch AS INTEGER
     selCount% = 0
     topZ% = 0
@@ -4493,15 +4521,23 @@ FUNCTION LAYERS_group_from_selection% ()
     gfsParentsMatch% = TRUE
     FOR i% = 1 TO MAX_LAYERS
         IF LAYERS(i%).imgHandle& <> 0 AND savedSel%(i%) THEN
-            ' Don't group group layers
-            IF LAYERS(i%).layerType% = LAYER_TYPE_GROUP THEN _CONTINUE
             selCount% = selCount% + 1
             IF LAYERS(i%).zIndex% > topZ% THEN topZ% = LAYERS(i%).zIndex%
-            ' Track common parent for nesting
-            IF commonParent% = -1 THEN
-                commonParent% = LAYERS(i%).parentGroupIdx%
-            ELSEIF LAYERS(i%).parentGroupIdx% <> commonParent% THEN
-                gfsParentsMatch% = FALSE
+            ' For common parent: only consider layers whose immediate parent is NOT selected
+            ' (these are the "roots" of the selection)
+            DIM gfsIsRoot AS INTEGER
+            gfsIsRoot% = FALSE
+            IF LAYERS(i%).parentGroupIdx% = 0 THEN
+                gfsIsRoot% = TRUE
+            ELSEIF NOT savedSel%(LAYERS(i%).parentGroupIdx%) THEN
+                gfsIsRoot% = TRUE
+            END IF
+            IF gfsIsRoot% THEN
+                IF commonParent% = -1 THEN
+                    commonParent% = LAYERS(i%).parentGroupIdx%
+                ELSEIF LAYERS(i%).parentGroupIdx% <> commonParent% THEN
+                    gfsParentsMatch% = FALSE
+                END IF
             END IF
         END IF
     NEXT i%
@@ -4509,7 +4545,19 @@ FUNCTION LAYERS_group_from_selection% ()
     ' Need at least 1 layer to group
     IF selCount% < 1 THEN EXIT FUNCTION
 
-    ' If all selected layers share the same parent, the new group inherits it
+    ' Check nesting depth — creating a new parent group adds 1 level to all descendants
+    DIM maxDepth AS INTEGER
+    maxDepth% = 0
+    FOR i% = 1 TO MAX_LAYERS
+        IF LAYERS(i%).imgHandle& <> 0 AND savedSel%(i%) THEN
+            DIM gfsDepth AS INTEGER
+            gfsDepth% = LAYERS_nesting_depth%(i%)
+            IF gfsDepth% > maxDepth% THEN maxDepth% = gfsDepth%
+        END IF
+    NEXT i%
+    IF maxDepth% + 1 > MAX_GROUP_NESTING THEN EXIT FUNCTION
+
+    ' If all selected root layers share the same parent, the new group inherits it
     ' Otherwise default to top-level (0)
     IF commonParent% = -1 OR NOT gfsParentsMatch% THEN commonParent% = 0
 
@@ -4539,21 +4587,19 @@ FUNCTION LAYERS_group_from_selection% ()
     END IF
 
     ' Move selected layers into the group
-    ' Assign contiguous zIndices below the group header
+    ' Only reparent "root" selected layers (those whose parent is NOT selected);
+    ' children of selected groups keep their existing parent.
     DIM groupZ AS INTEGER
     groupZ% = LAYERS(groupIdx%).zIndex%
 
-    ' Build sorted list of selected layers by zIndex (ascending)
-    ' Use savedSel% since LAYERS_new_group cleared MULTI_SELECT_LAYERS
+    ' Build sorted list of ALL selected layers by zIndex (ascending)
     DIM sortBuf(1 TO MAX_LAYERS) AS INTEGER
     DIM sortN AS INTEGER
     sortN% = 0
     FOR i% = 1 TO MAX_LAYERS
         IF LAYERS(i%).imgHandle& <> 0 AND i% <> groupIdx% AND savedSel%(i%) THEN
-            IF LAYERS(i%).layerType% <> LAYER_TYPE_GROUP THEN
-                sortN% = sortN% + 1
-                sortBuf%(sortN%) = i%
-            END IF
+            sortN% = sortN% + 1
+            sortBuf%(sortN%) = i%
         END IF
     NEXT i%
     ' Simple insertion sort by zIndex
@@ -4574,12 +4620,23 @@ FUNCTION LAYERS_group_from_selection% ()
         sortBuf%(j% + 1) = tmpSort%
     NEXT i%
 
-    ' Set parentGroupIdx for all children and record history
+    ' Reparent root selected layers to the new group; leave descendants' parents intact
     FOR i% = 1 TO sortN%
-        DIM gfsOldZ AS INTEGER: gfsOldZ% = LAYERS(sortBuf%(i%)).zIndex%
-        DIM gfsOldParent AS INTEGER: gfsOldParent% = LAYERS(sortBuf%(i%)).parentGroupIdx%
-        HISTORY_record_group_reparent LAYERS(sortBuf%(i%)).historyId&, sortBuf%(i%), gfsOldParent%, groupIdx%, gfsOldZ%, gfsOldZ%, "Group Child"
-        LAYERS(sortBuf%(i%)).parentGroupIdx% = groupIdx%
+        DIM gfsLayerIdx AS INTEGER: gfsLayerIdx% = sortBuf%(i%)
+        DIM gfsOldParent AS INTEGER: gfsOldParent% = LAYERS(gfsLayerIdx%).parentGroupIdx%
+        ' Only reparent if this layer's current parent is NOT in the selection
+        ' (i.e., it's a "root" of the selected subtree)
+        DIM gfsDoReparent AS INTEGER
+        gfsDoReparent% = FALSE
+        IF gfsOldParent% = 0 THEN
+            gfsDoReparent% = TRUE
+        ELSEIF NOT savedSel%(gfsOldParent%) THEN
+            gfsDoReparent% = TRUE
+        END IF
+        IF gfsDoReparent% THEN
+            HISTORY_record_group_reparent LAYERS(gfsLayerIdx%).historyId&, gfsLayerIdx%, gfsOldParent%, groupIdx%, LAYERS(gfsLayerIdx%).zIndex%, LAYERS(gfsLayerIdx%).zIndex%, "Group Child"
+            LAYERS(gfsLayerIdx%).parentGroupIdx% = groupIdx%
+        END IF
     NEXT i%
 
     ' Enforce contiguity — children below group header in zIndex order
