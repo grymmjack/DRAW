@@ -319,36 +319,41 @@ SUB LAYERS_delete (layerIndex AS INTEGER)
     DIM i AS INTEGER
     DIM deletedZ AS INTEGER
     DIM deletedHistoryId AS LONG
+
+    ' CRITICAL: Copy parameter to local immediately — QB64 passes by reference.
+    ' Callers pass CURRENT_LAYER% which LAYERS_select changes mid-function.
+    DIM delSlot AS INTEGER
+    delSlot% = layerIndex%
     
     ' Can't delete if only one layer
     IF LAYER_COUNT% <= 1 THEN EXIT SUB
     
     ' Validate index
-    IF layerIndex% < 1 OR layerIndex% > MAX_LAYERS THEN EXIT SUB
-    IF LAYERS(layerIndex%).imgHandle& = 0 THEN EXIT SUB
+    IF delSlot% < 1 OR delSlot% > MAX_LAYERS THEN EXIT SUB
+    IF LAYERS(delSlot%).imgHandle& = 0 THEN EXIT SUB
     
     ' Cancel any pending/active drag that refers to this layer
-    IF LAYER_PANEL.dragLayerIdx% = layerIndex% THEN
+    IF LAYER_PANEL.dragLayerIdx% = delSlot% THEN
         LAYER_PANEL_drag_cancel
     END IF
     
     ' Store zIndex before deleting
-    deletedZ% = LAYERS(layerIndex%).zIndex%
-    deletedHistoryId& = LAYERS(layerIndex%).historyId&
+    deletedZ% = LAYERS(delSlot%).zIndex%
+    deletedHistoryId& = LAYERS(delSlot%).historyId&
     
     IF NOT HISTORY_IN_PROGRESS% THEN
-        HISTORY_record_layer_delete deletedHistoryId&, layerIndex%, deletedZ%, "Layer Delete"
+        HISTORY_record_layer_delete deletedHistoryId&, delSlot%, deletedZ%, "Layer Delete"
     END IF
 
     ' Free text layer data if this is a text layer
-    IF LAYERS(layerIndex%).layerType% = LAYER_TYPE_TEXT THEN
-        IF LAYERS(layerIndex%).textDataIdx% > 0 THEN
-            TEXT_LAYER_free LAYERS(layerIndex%).textDataIdx%
+    IF LAYERS(delSlot%).layerType% = LAYER_TYPE_TEXT THEN
+        IF LAYERS(delSlot%).textDataIdx% > 0 THEN
+            TEXT_LAYER_free LAYERS(delSlot%).textDataIdx%
         END IF
     END IF
 
     ' If this layer was being actively edited, cancel text editing
-    IF TEXT.editingTextLayer% = layerIndex% THEN
+    IF TEXT.editingTextLayer% = delSlot% THEN
         TEXT.ACTIVE = FALSE
         TEXT.editingTextLayer% = 0
         TEXT_BAR.editingLayerIdx% = 0
@@ -357,44 +362,44 @@ SUB LAYERS_delete (layerIndex AS INTEGER)
     END IF
 
     ' If this is a group, orphan direct children to grandparent (or top-level)
-    IF LAYERS(layerIndex%).layerType% = LAYER_TYPE_GROUP THEN
+    IF LAYERS(delSlot%).layerType% = LAYER_TYPE_GROUP THEN
         DIM delGrandparent AS INTEGER
-        delGrandparent% = LAYERS(layerIndex%).parentGroupIdx%
+        delGrandparent% = LAYERS(delSlot%).parentGroupIdx%
         FOR i% = 1 TO MAX_LAYERS
-            IF LAYERS(i%).imgHandle& <> 0 AND LAYERS(i%).parentGroupIdx% = layerIndex% THEN
+            IF LAYERS(i%).imgHandle& <> 0 AND LAYERS(i%).parentGroupIdx% = delSlot% THEN
                 LAYERS(i%).parentGroupIdx% = delGrandparent%
             END IF
         NEXT i%
     END IF
 
     ' Free the image
-    IF LAYERS(layerIndex%).imgHandle& < -1 THEN
-        _FREEIMAGE LAYERS(layerIndex%).imgHandle&
+    IF LAYERS(delSlot%).imgHandle& < -1 THEN
+        _FREEIMAGE LAYERS(delSlot%).imgHandle&
     END IF
     ' Free opacity cache image
-    IF LAYERS(layerIndex%).opacityCacheImg& < -1 THEN
-        _FREEIMAGE LAYERS(layerIndex%).opacityCacheImg&
+    IF LAYERS(delSlot%).opacityCacheImg& < -1 THEN
+        _FREEIMAGE LAYERS(delSlot%).opacityCacheImg&
     END IF
     
     ' Clear the slot
-    LAYERS(layerIndex%).historyId& = 0
-    LAYERS(layerIndex%).imgHandle& = 0
-    LAYERS(layerIndex%).imgWidth%  = 0
-    LAYERS(layerIndex%).imgHeight% = 0
-    LAYERS(layerIndex%).zIndex%    = 0
-    LAYERS(layerIndex%).visible%   = FALSE
-    LAYERS(layerIndex%).isSelected% = FALSE
-    LAYERS(layerIndex%).name       = ""
-    LAYERS(layerIndex%).opacity%   = 255
-    LAYERS(layerIndex%).opacityLock% = FALSE
-    LAYERS(layerIndex%).opacityCacheImg& = 0
-    LAYERS(layerIndex%).opacityCacheVal% = 0
-    LAYERS(layerIndex%).contentDirty% = FALSE
-    LAYERS(layerIndex%).layerType% = LAYER_TYPE_IMAGE
-    LAYERS(layerIndex%).textDataIdx% = 0
-    LAYERS(layerIndex%).parentGroupIdx% = 0
-    LAYERS(layerIndex%).collapsed% = FALSE
-    LAYERS(layerIndex%).passThrough% = FALSE
+    LAYERS(delSlot%).historyId& = 0
+    LAYERS(delSlot%).imgHandle& = 0
+    LAYERS(delSlot%).imgWidth%  = 0
+    LAYERS(delSlot%).imgHeight% = 0
+    LAYERS(delSlot%).zIndex%    = 0
+    LAYERS(delSlot%).visible%   = FALSE
+    LAYERS(delSlot%).isSelected% = FALSE
+    LAYERS(delSlot%).name       = ""
+    LAYERS(delSlot%).opacity%   = 255
+    LAYERS(delSlot%).opacityLock% = FALSE
+    LAYERS(delSlot%).opacityCacheImg& = 0
+    LAYERS(delSlot%).opacityCacheVal% = 0
+    LAYERS(delSlot%).contentDirty% = FALSE
+    LAYERS(delSlot%).layerType% = LAYER_TYPE_IMAGE
+    LAYERS(delSlot%).textDataIdx% = 0
+    LAYERS(delSlot%).parentGroupIdx% = 0
+    LAYERS(delSlot%).collapsed% = FALSE
+    LAYERS(delSlot%).passThrough% = FALSE
     
     LAYER_COUNT% = LAYER_COUNT% - 1
     ' Adjust zIndex of layers above the deleted one
@@ -405,7 +410,7 @@ SUB LAYERS_delete (layerIndex AS INTEGER)
     NEXT i%
     
     ' Select another layer if the deleted one was selected
-    IF CURRENT_LAYER% = layerIndex% THEN
+    IF CURRENT_LAYER% = delSlot% THEN
         ' Find the layer that is now at the position below where deleted layer was
         ' (which now has zIndex = deletedZ% - 1 after the adjustment above)
         DIM targetZ AS INTEGER
@@ -794,17 +799,21 @@ SUB LAYERS_move_up (layerIndex AS INTEGER)
     DIM i AS INTEGER
     DIM currentZ AS INTEGER
     DIM targetIndex AS INTEGER
+
+    ' CRITICAL: Copy parameter to local — QB64 passes by reference.
+    DIM mvSlot AS INTEGER
+    mvSlot% = layerIndex%
     
     ' Validate
-    IF layerIndex% < 1 OR layerIndex% > MAX_LAYERS THEN EXIT SUB
-    IF LAYERS(layerIndex%).imgHandle& = 0 THEN EXIT SUB
+    IF mvSlot% < 1 OR mvSlot% > MAX_LAYERS THEN EXIT SUB
+    IF LAYERS(mvSlot%).imgHandle& = 0 THEN EXIT SUB
     
-    currentZ% = LAYERS(layerIndex%).zIndex%
+    currentZ% = LAYERS(mvSlot%).zIndex%
     IF currentZ% >= LAYER_COUNT% THEN EXIT SUB  ' Already at top
 
     ' For group headers: move entire block (header + children) up by swapping
     ' with the block above. If the block above is another group, skip over it entirely.
-    IF LAYERS(layerIndex%).layerType% = LAYER_TYPE_GROUP THEN
+    IF LAYERS(mvSlot%).layerType% = LAYER_TYPE_GROUP THEN
         DIM grpAboveZ AS INTEGER
         grpAboveZ% = currentZ% + 1
         IF grpAboveZ% > LAYER_COUNT% THEN EXIT SUB
@@ -844,7 +853,7 @@ SUB LAYERS_move_up (layerIndex AS INTEGER)
             muGrpLow% = currentZ%  ' default = header if no children
             FOR i% = 1 TO MAX_LAYERS
                 IF LAYERS(i%).imgHandle& <> 0 THEN
-                    IF LAYERS(i%).parentGroupIdx% = layerIndex% THEN
+                    IF LAYERS(i%).parentGroupIdx% = mvSlot% THEN
                         IF LAYERS(i%).zIndex% < muGrpLow% THEN muGrpLow% = LAYERS(i%).zIndex%
                     END IF
                 END IF
@@ -857,19 +866,19 @@ SUB LAYERS_move_up (layerIndex AS INTEGER)
             ' Shift: everything between currentZ+1..muJumpTopZ goes down by muBlockSize
             ' Our group block (muGrpLow..currentZ) goes up by muJumpSize
             FOR i% = 1 TO MAX_LAYERS
-                IF LAYERS(i%).imgHandle& <> 0 AND i% <> layerIndex% THEN
+                IF LAYERS(i%).imgHandle& <> 0 AND i% <> mvSlot% THEN
                     IF LAYERS(i%).zIndex% > currentZ% AND LAYERS(i%).zIndex% <= muJumpTopZ% THEN
                         LAYERS(i%).zIndex% = LAYERS(i%).zIndex% - muBlockSize%
-                    ELSEIF LAYERS(i%).parentGroupIdx% = layerIndex% THEN
+                    ELSEIF LAYERS(i%).parentGroupIdx% = mvSlot% THEN
                         LAYERS(i%).zIndex% = LAYERS(i%).zIndex% + muJumpSize%
                     END IF
                 END IF
             NEXT i%
-            LAYERS(layerIndex%).zIndex% = currentZ% + muJumpSize%
+            LAYERS(mvSlot%).zIndex% = currentZ% + muJumpSize%
 
             LAYERS_enforce_group_contiguity
             IF NOT HISTORY_IN_PROGRESS% THEN
-                HISTORY_record_layer_reorder LAYERS(layerIndex%).historyId&, layerIndex%, currentZ%, LAYERS(layerIndex%).zIndex%, "Layer Reorder"
+                HISTORY_record_layer_reorder LAYERS(mvSlot%).historyId&, mvSlot%, currentZ%, LAYERS(mvSlot%).zIndex%, "Layer Reorder"
             END IF
         END IF
         BLEND_invalidate_cache
@@ -878,28 +887,28 @@ SUB LAYERS_move_up (layerIndex AS INTEGER)
     END IF
 
     ' For child layers inside a group: swap with sibling, or escape group at boundary
-    IF LAYERS(layerIndex%).parentGroupIdx% > 0 THEN
+    IF LAYERS(mvSlot%).parentGroupIdx% > 0 THEN
         DIM muParent AS INTEGER
-        muParent% = LAYERS(layerIndex%).parentGroupIdx%
+        muParent% = LAYERS(mvSlot%).parentGroupIdx%
         DIM muHeaderZ AS INTEGER
         muHeaderZ% = LAYERS(muParent%).zIndex%
         IF currentZ% + 1 >= muHeaderZ% THEN
             ' At top of group — escape to parent group (or top-level)
             DIM muGrandparent AS INTEGER
             muGrandparent% = LAYERS(muParent%).parentGroupIdx%
-            LAYERS(layerIndex%).parentGroupIdx% = muGrandparent%
+            LAYERS(mvSlot%).parentGroupIdx% = muGrandparent%
             ' Swap with header: header goes down, child goes to header's z
             LAYERS(muParent%).zIndex% = currentZ%
-            LAYERS(layerIndex%).zIndex% = muHeaderZ%
+            LAYERS(mvSlot%).zIndex% = muHeaderZ%
             LAYERS_enforce_group_contiguity
             IF NOT HISTORY_IN_PROGRESS% THEN
-                HISTORY_record_group_reparent LAYERS(layerIndex%).historyId&, layerIndex%, muParent%, muGrandparent%, currentZ%, muHeaderZ%, "Move Out of Group"
+                HISTORY_record_group_reparent LAYERS(mvSlot%).historyId&, mvSlot%, muParent%, muGrandparent%, currentZ%, muHeaderZ%, "Move Out of Group"
             END IF
             ' Auto-remove empty group
             IF LAYERS_group_child_count%(muParent%) = 0 THEN
                 LAYERS_delete muParent%
                 ' If we were on the deleted group's layer, select the escaped layer
-                IF CURRENT_LAYER% = muParent% THEN LAYERS_select layerIndex%
+                IF CURRENT_LAYER% = muParent% THEN LAYERS_select mvSlot%
             END IF
         ELSE
             ' Swap with the layer above within group
@@ -911,10 +920,10 @@ SUB LAYERS_move_up (layerIndex AS INTEGER)
                 END IF
             NEXT i%
             IF targetIndex% > 0 THEN
-                LAYERS(layerIndex%).zIndex% = currentZ% + 1
+                LAYERS(mvSlot%).zIndex% = currentZ% + 1
                 LAYERS(targetIndex%).zIndex% = currentZ%
                 IF NOT HISTORY_IN_PROGRESS% THEN
-                    HISTORY_record_layer_reorder LAYERS(layerIndex%).historyId&, layerIndex%, currentZ%, currentZ% + 1, "Layer Reorder"
+                    HISTORY_record_layer_reorder LAYERS(mvSlot%).historyId&, mvSlot%, currentZ%, currentZ% + 1, "Layer Reorder"
                 END IF
             END IF
         END IF
@@ -956,16 +965,16 @@ SUB LAYERS_move_up (layerIndex AS INTEGER)
 
     ' Shift layers between old and new position down by 1
     FOR i% = 1 TO MAX_LAYERS
-        IF LAYERS(i%).imgHandle& <> 0 AND i% <> layerIndex% THEN
+        IF LAYERS(i%).imgHandle& <> 0 AND i% <> mvSlot% THEN
             IF LAYERS(i%).zIndex% > currentZ% AND LAYERS(i%).zIndex% <= newTargetZ% THEN
                 LAYERS(i%).zIndex% = LAYERS(i%).zIndex% - 1
             END IF
         END IF
     NEXT i%
-    LAYERS(layerIndex%).zIndex% = newTargetZ%
+    LAYERS(mvSlot%).zIndex% = newTargetZ%
     
     IF NOT HISTORY_IN_PROGRESS% THEN
-        HISTORY_record_layer_reorder LAYERS(layerIndex%).historyId&, layerIndex%, currentZ%, newTargetZ%, "Layer Reorder"
+        HISTORY_record_layer_reorder LAYERS(mvSlot%).historyId&, mvSlot%, currentZ%, newTargetZ%, "Layer Reorder"
     END IF
     
     BLEND_invalidate_cache
@@ -981,23 +990,27 @@ SUB LAYERS_move_down (layerIndex AS INTEGER)
     DIM i AS INTEGER
     DIM currentZ AS INTEGER
     DIM targetIndex AS INTEGER
+
+    ' CRITICAL: Copy parameter to local — QB64 passes by reference.
+    DIM mdSlot AS INTEGER
+    mdSlot% = layerIndex%
     
     ' Validate
-    IF layerIndex% < 1 OR layerIndex% > MAX_LAYERS THEN EXIT SUB
-    IF LAYERS(layerIndex%).imgHandle& = 0 THEN EXIT SUB
+    IF mdSlot% < 1 OR mdSlot% > MAX_LAYERS THEN EXIT SUB
+    IF LAYERS(mdSlot%).imgHandle& = 0 THEN EXIT SUB
     
-    currentZ% = LAYERS(layerIndex%).zIndex%
+    currentZ% = LAYERS(mdSlot%).zIndex%
     IF currentZ% <= 1 THEN EXIT SUB  ' Already at bottom
 
     ' For group headers: move entire block (header + children) down.
     ' If the block below is another group, skip over it entirely.
-    IF LAYERS(layerIndex%).layerType% = LAYER_TYPE_GROUP THEN
+    IF LAYERS(mdSlot%).layerType% = LAYER_TYPE_GROUP THEN
         ' Find the lowest child z of this group
         DIM grpLowestZ AS INTEGER
         grpLowestZ% = currentZ%  ' Default: header z if no children
         FOR i% = 1 TO MAX_LAYERS
             IF LAYERS(i%).imgHandle& <> 0 THEN
-                IF LAYERS(i%).parentGroupIdx% = layerIndex% THEN
+                IF LAYERS(i%).parentGroupIdx% = mdSlot% THEN
                     IF LAYERS(i%).zIndex% < grpLowestZ% THEN
                         grpLowestZ% = LAYERS(i%).zIndex%
                     END IF
@@ -1065,19 +1078,19 @@ SUB LAYERS_move_down (layerIndex AS INTEGER)
             ' Shift: everything between mdJumpBotZ..grpLowestZ-1 goes up by mdBlockSize
             ' Our group block (grpLowestZ..currentZ) goes down by mdJumpSize
             FOR i% = 1 TO MAX_LAYERS
-                IF LAYERS(i%).imgHandle& <> 0 AND i% <> layerIndex% THEN
+                IF LAYERS(i%).imgHandle& <> 0 AND i% <> mdSlot% THEN
                     IF LAYERS(i%).zIndex% >= mdJumpBotZ% AND LAYERS(i%).zIndex% < grpLowestZ% THEN
                         LAYERS(i%).zIndex% = LAYERS(i%).zIndex% + mdBlockSize%
-                    ELSEIF LAYERS(i%).parentGroupIdx% = layerIndex% THEN
+                    ELSEIF LAYERS(i%).parentGroupIdx% = mdSlot% THEN
                         LAYERS(i%).zIndex% = LAYERS(i%).zIndex% - mdJumpSize%
                     END IF
                 END IF
             NEXT i%
-            LAYERS(layerIndex%).zIndex% = currentZ% - mdJumpSize%
+            LAYERS(mdSlot%).zIndex% = currentZ% - mdJumpSize%
 
             LAYERS_enforce_group_contiguity
             IF NOT HISTORY_IN_PROGRESS% THEN
-                HISTORY_record_layer_reorder LAYERS(layerIndex%).historyId&, layerIndex%, currentZ%, LAYERS(layerIndex%).zIndex%, "Layer Reorder"
+                HISTORY_record_layer_reorder LAYERS(mdSlot%).historyId&, mdSlot%, currentZ%, LAYERS(mdSlot%).zIndex%, "Layer Reorder"
             END IF
         END IF
         BLEND_invalidate_cache
@@ -1086,9 +1099,9 @@ SUB LAYERS_move_down (layerIndex AS INTEGER)
     END IF
 
     ' For child layers inside a group: swap with sibling, or escape group at boundary
-    IF LAYERS(layerIndex%).parentGroupIdx% > 0 THEN
+    IF LAYERS(mdSlot%).parentGroupIdx% > 0 THEN
         DIM mdParent AS INTEGER
-        mdParent% = LAYERS(layerIndex%).parentGroupIdx%
+        mdParent% = LAYERS(mdSlot%).parentGroupIdx%
         ' Find lowest child z in this group
         DIM mdLowestZ AS INTEGER
         mdLowestZ% = currentZ%
@@ -1105,14 +1118,14 @@ SUB LAYERS_move_down (layerIndex AS INTEGER)
             ' At bottom of group — escape to parent group (or top-level)
             DIM mdGrandparent AS INTEGER
             mdGrandparent% = LAYERS(mdParent%).parentGroupIdx%
-            LAYERS(layerIndex%).parentGroupIdx% = mdGrandparent%
+            LAYERS(mdSlot%).parentGroupIdx% = mdGrandparent%
             DIM mdBelowZ AS INTEGER
             mdBelowZ% = currentZ% - 1
             IF mdBelowZ% < 1 THEN
                 ' Already at bottom of stack — just reparent
                 LAYERS_enforce_group_contiguity
                 IF NOT HISTORY_IN_PROGRESS% THEN
-                    HISTORY_record_group_reparent LAYERS(layerIndex%).historyId&, layerIndex%, mdParent%, mdGrandparent%, currentZ%, currentZ%, "Move Out of Group"
+                    HISTORY_record_group_reparent LAYERS(mdSlot%).historyId&, mdSlot%, mdParent%, mdGrandparent%, currentZ%, currentZ%, "Move Out of Group"
                 END IF
             ELSE
                 ' Swap with layer below
@@ -1124,18 +1137,18 @@ SUB LAYERS_move_down (layerIndex AS INTEGER)
                     END IF
                 NEXT i%
                 IF targetIndex% > 0 THEN
-                    LAYERS(layerIndex%).zIndex% = mdBelowZ%
+                    LAYERS(mdSlot%).zIndex% = mdBelowZ%
                     LAYERS(targetIndex%).zIndex% = currentZ%
                 END IF
                 LAYERS_enforce_group_contiguity
                 IF NOT HISTORY_IN_PROGRESS% THEN
-                    HISTORY_record_group_reparent LAYERS(layerIndex%).historyId&, layerIndex%, mdParent%, mdGrandparent%, currentZ%, mdBelowZ%, "Move Out of Group"
+                    HISTORY_record_group_reparent LAYERS(mdSlot%).historyId&, mdSlot%, mdParent%, mdGrandparent%, currentZ%, mdBelowZ%, "Move Out of Group"
                 END IF
             END IF
             ' Auto-remove empty group
             IF LAYERS_group_child_count%(mdParent%) = 0 THEN
                 LAYERS_delete mdParent%
-                IF CURRENT_LAYER% = mdParent% THEN LAYERS_select layerIndex%
+                IF CURRENT_LAYER% = mdParent% THEN LAYERS_select mdSlot%
             END IF
         ELSE
             ' Swap with the layer below within group
@@ -1147,10 +1160,10 @@ SUB LAYERS_move_down (layerIndex AS INTEGER)
                 END IF
             NEXT i%
             IF targetIndex% > 0 THEN
-                LAYERS(layerIndex%).zIndex% = currentZ% - 1
+                LAYERS(mdSlot%).zIndex% = currentZ% - 1
                 LAYERS(targetIndex%).zIndex% = currentZ%
                 IF NOT HISTORY_IN_PROGRESS% THEN
-                    HISTORY_record_layer_reorder LAYERS(layerIndex%).historyId&, layerIndex%, currentZ%, currentZ% - 1, "Layer Reorder"
+                    HISTORY_record_layer_reorder LAYERS(mdSlot%).historyId&, mdSlot%, currentZ%, currentZ% - 1, "Layer Reorder"
                 END IF
             END IF
         END IF
@@ -1214,16 +1227,16 @@ SUB LAYERS_move_down (layerIndex AS INTEGER)
 
     ' Shift layers between new and old position up by 1
     FOR i% = 1 TO MAX_LAYERS
-        IF LAYERS(i%).imgHandle& <> 0 AND i% <> layerIndex% THEN
+        IF LAYERS(i%).imgHandle& <> 0 AND i% <> mdSlot% THEN
             IF LAYERS(i%).zIndex% >= newTargetZ% AND LAYERS(i%).zIndex% < currentZ% THEN
                 LAYERS(i%).zIndex% = LAYERS(i%).zIndex% + 1
             END IF
         END IF
     NEXT i%
-    LAYERS(layerIndex%).zIndex% = newTargetZ%
+    LAYERS(mdSlot%).zIndex% = newTargetZ%
     
     IF NOT HISTORY_IN_PROGRESS% THEN
-        HISTORY_record_layer_reorder LAYERS(layerIndex%).historyId&, layerIndex%, currentZ%, newTargetZ%, "Layer Reorder"
+        HISTORY_record_layer_reorder LAYERS(mdSlot%).historyId&, mdSlot%, currentZ%, newTargetZ%, "Layer Reorder"
     END IF
     
     BLEND_invalidate_cache
@@ -1359,12 +1372,16 @@ SUB LAYERS_merge_down (layerIndex AS INTEGER)
     DIM targetIndex AS INTEGER
     DIM oldDest AS LONG
     DIM tempImg AS LONG
+
+    ' CRITICAL: Copy parameter to local — QB64 passes by reference.
+    DIM mrgSlot AS INTEGER
+    mrgSlot% = layerIndex%
     
     ' Validate
-    IF layerIndex% < 1 OR layerIndex% > MAX_LAYERS THEN EXIT SUB
-    IF LAYERS(layerIndex%).imgHandle& = 0 THEN EXIT SUB
+    IF mrgSlot% < 1 OR mrgSlot% > MAX_LAYERS THEN EXIT SUB
+    IF LAYERS(mrgSlot%).imgHandle& = 0 THEN EXIT SUB
     
-    currentZ% = LAYERS(layerIndex%).zIndex%
+    currentZ% = LAYERS(mrgSlot%).zIndex%
     IF currentZ% <= 1 THEN EXIT SUB  ' No layer below to merge into
     
     ' Find layer below (zIndex = currentZ - 1)
@@ -1379,21 +1396,21 @@ SUB LAYERS_merge_down (layerIndex AS INTEGER)
     IF targetIndex% = 0 THEN EXIT SUB
     
     ' Record in unified history BEFORE merge (captures both layers' before-state)
-    HISTORY_record_layer_merge layerIndex%, targetIndex%
+    HISTORY_record_layer_merge mrgSlot%, targetIndex%
     
     ' Merge: composite current layer onto target respecting blend mode and opacity
     oldDest& = _DEST
     
-    IF LAYERS(layerIndex%).blendMode% <> BLEND_NORMAL THEN
+    IF LAYERS(mrgSlot%).blendMode% <> BLEND_NORMAL THEN
         ' Non-Normal blend mode: use per-pixel blend composite (handles opacity internally)
-        LAYER_blend_composite LAYERS(targetIndex%).imgHandle&, LAYERS(layerIndex%).imgHandle&, LAYERS(layerIndex%).blendMode%, LAYERS(layerIndex%).opacity%
-    ELSEIF LAYERS(layerIndex%).opacity% < 255 THEN
+        LAYER_blend_composite LAYERS(targetIndex%).imgHandle&, LAYERS(mrgSlot%).imgHandle&, LAYERS(mrgSlot%).blendMode%, LAYERS(mrgSlot%).opacity%
+    ELSEIF LAYERS(mrgSlot%).opacity% < 255 THEN
         ' Normal blend with partial opacity: scale alpha per-pixel
         ' _SETALPHA must NOT be used here — it overwrites ALL pixels' alpha including
         ' transparent ones, turning empty pixels into semi-transparent black.
         ' Instead, scale each non-transparent pixel's alpha by (origAlpha * opacity / 255),
         ' matching the same logic used by the renderer's opacity cache.
-        tempImg& = _COPYIMAGE(LAYERS(layerIndex%).imgHandle&, 32)
+        tempImg& = _COPYIMAGE(LAYERS(mrgSlot%).imgHandle&, 32)
         DIM mergeMem AS _MEM
         DIM mergeOffset AS _OFFSET
         DIM mergePixVal AS _UNSIGNED LONG
@@ -1404,7 +1421,7 @@ SUB LAYERS_merge_down (layerIndex AS INTEGER)
             _MEMGET mergeMem, mergeOffset, mergePixVal~&
             mergeAlpha~%% = _ALPHA32(mergePixVal~&)
             IF mergeAlpha~%% > 0 THEN
-                mergeNewAlpha% = (mergeAlpha~%% * LAYERS(layerIndex%).opacity%) \ 255
+                mergeNewAlpha% = (mergeAlpha~%% * LAYERS(mrgSlot%).opacity%) \ 255
                 _MEMPUT mergeMem, mergeOffset + 3, mergeNewAlpha% AS _UNSIGNED _BYTE
             END IF
         NEXT mergeOffset
@@ -1417,7 +1434,7 @@ SUB LAYERS_merge_down (layerIndex AS INTEGER)
         ' Normal blend at full opacity
         _DEST LAYERS(targetIndex%).imgHandle&
         _BLEND LAYERS(targetIndex%).imgHandle&
-        _PUTIMAGE , LAYERS(layerIndex%).imgHandle&
+        _PUTIMAGE , LAYERS(mrgSlot%).imgHandle&
     END IF
     
     _DEST oldDest&
@@ -1427,7 +1444,7 @@ SUB LAYERS_merge_down (layerIndex AS INTEGER)
     
     ' Delete the merged layer (suppress undo save since we already recorded merge state)
     HISTORY_IN_PROGRESS% = TRUE
-    LAYERS_delete layerIndex%
+    LAYERS_delete mrgSlot%
     HISTORY_IN_PROGRESS% = FALSE
     
     ' Select the target layer
@@ -4677,26 +4694,30 @@ END FUNCTION
 SUB LAYERS_ungroup (groupIdx AS INTEGER)
     DIM i AS INTEGER
 
+    ' CRITICAL: Copy parameter to local — QB64 passes by reference.
+    DIM ugSlot AS INTEGER
+    ugSlot% = groupIdx%
+
     ' Validate
-    IF groupIdx% < 1 OR groupIdx% > MAX_LAYERS THEN EXIT SUB
-    IF LAYERS(groupIdx%).imgHandle& = 0 THEN EXIT SUB
-    IF LAYERS(groupIdx%).layerType% <> LAYER_TYPE_GROUP THEN EXIT SUB
+    IF ugSlot% < 1 OR ugSlot% > MAX_LAYERS THEN EXIT SUB
+    IF LAYERS(ugSlot%).imgHandle& = 0 THEN EXIT SUB
+    IF LAYERS(ugSlot%).layerType% <> LAYER_TYPE_GROUP THEN EXIT SUB
 
     HISTORY_begin_group
 
     ' Promote direct children to this group's parent (grandparent or 0)
     DIM ugNewParent AS INTEGER
-    ugNewParent% = LAYERS(groupIdx%).parentGroupIdx%
+    ugNewParent% = LAYERS(ugSlot%).parentGroupIdx%
     FOR i% = 1 TO MAX_LAYERS
-        IF LAYERS(i%).imgHandle& <> 0 AND LAYERS(i%).parentGroupIdx% = groupIdx% THEN
+        IF LAYERS(i%).imgHandle& <> 0 AND LAYERS(i%).parentGroupIdx% = ugSlot% THEN
             DIM ugOldZ AS INTEGER: ugOldZ% = LAYERS(i%).zIndex%
-            HISTORY_record_group_reparent LAYERS(i%).historyId&, i%, groupIdx%, ugNewParent%, ugOldZ%, ugOldZ%, "Ungroup Child"
+            HISTORY_record_group_reparent LAYERS(i%).historyId&, i%, ugSlot%, ugNewParent%, ugOldZ%, ugOldZ%, "Ungroup Child"
             LAYERS(i%).parentGroupIdx% = ugNewParent%
         END IF
     NEXT i%
 
     ' Delete the group header
-    LAYERS_delete groupIdx%
+    LAYERS_delete ugSlot%
 
     HISTORY_end_group
 
@@ -5136,6 +5157,10 @@ SUB LAYERS_merge_group (groupIdx AS INTEGER)
     DIM grpSlot AS INTEGER
     grpSlot% = groupIdx%
 
+    ' Save group name before any deletions
+    DIM grpName AS STRING
+    grpName$ = LAYERS(grpSlot%).name
+
     ' Validate
     IF grpSlot% < 1 OR grpSlot% > MAX_LAYERS THEN EXIT SUB
     IF LAYERS(grpSlot%).imgHandle& = 0 THEN EXIT SUB
@@ -5227,7 +5252,7 @@ SUB LAYERS_merge_group (groupIdx AS INTEGER)
         LAYERS(newIdx%).imgHandle& = tempImg&
         LAYERS(newIdx%).imgWidth% = _WIDTH(tempImg&)
         LAYERS(newIdx%).imgHeight% = _HEIGHT(tempImg&)
-        LAYERS(newIdx%).name = "Merged Group"
+        LAYERS(newIdx%).name = grpName$
         LAYERS(newIdx%).contentDirty% = TRUE
         ' Ensure merged layer is NOT inside the group we're about to delete
         LAYERS(newIdx%).parentGroupIdx% = LAYERS(grpSlot%).parentGroupIdx%
@@ -5256,21 +5281,25 @@ END SUB
 SUB LAYERS_select_group (groupIdx AS INTEGER)
     DIM i AS INTEGER
 
-    IF groupIdx% < 1 OR groupIdx% > MAX_LAYERS THEN EXIT SUB
-    IF LAYERS(groupIdx%).imgHandle& = 0 THEN EXIT SUB
-    IF LAYERS(groupIdx%).layerType% <> LAYER_TYPE_GROUP THEN EXIT SUB
+    ' CRITICAL: Copy parameter to local — QB64 passes by reference.
+    DIM sgSlot AS INTEGER
+    sgSlot% = groupIdx%
+
+    IF sgSlot% < 1 OR sgSlot% > MAX_LAYERS THEN EXIT SUB
+    IF LAYERS(sgSlot%).imgHandle& = 0 THEN EXIT SUB
+    IF LAYERS(sgSlot%).layerType% <> LAYER_TYPE_GROUP THEN EXIT SUB
 
     ' Select the group header first
-    LAYERS_select groupIdx%
+    LAYERS_select sgSlot%
     MULTI_SELECT_clear
 
     ' Add all descendants to multi-select (walk parent chain for each layer)
     FOR i% = 1 TO MAX_LAYERS
-        IF LAYERS(i%).imgHandle& <> 0 AND i% <> groupIdx% THEN
+        IF LAYERS(i%).imgHandle& <> 0 AND i% <> sgSlot% THEN
             DIM sgWalk AS INTEGER
             sgWalk% = LAYERS(i%).parentGroupIdx%
             DO WHILE sgWalk% > 0
-                IF sgWalk% = groupIdx% THEN
+                IF sgWalk% = sgSlot% THEN
                     MULTI_SELECT_LAYERS(i%) = TRUE
                     MULTI_SELECT_COUNT% = MULTI_SELECT_COUNT% + 1
                     EXIT DO
@@ -5294,15 +5323,19 @@ SUB LAYERS_delete_group (groupIdx AS INTEGER)
     DIM childCount AS INTEGER
     DIM result AS INTEGER
 
-    IF groupIdx% < 1 OR groupIdx% > MAX_LAYERS THEN EXIT SUB
-    IF LAYERS(groupIdx%).imgHandle& = 0 THEN EXIT SUB
-    IF LAYERS(groupIdx%).layerType% <> LAYER_TYPE_GROUP THEN EXIT SUB
+    ' CRITICAL: Copy parameter to local — QB64 passes by reference.
+    DIM dgSlot AS INTEGER
+    dgSlot% = groupIdx%
 
-    childCount% = LAYERS_group_child_count%(groupIdx%)
+    IF dgSlot% < 1 OR dgSlot% > MAX_LAYERS THEN EXIT SUB
+    IF LAYERS(dgSlot%).imgHandle& = 0 THEN EXIT SUB
+    IF LAYERS(dgSlot%).layerType% <> LAYER_TYPE_GROUP THEN EXIT SUB
+
+    childCount% = LAYERS_group_child_count%(dgSlot%)
 
     IF childCount% = 0 THEN
         ' Empty group — just delete
-        LAYERS_delete groupIdx%
+        LAYERS_delete dgSlot%
         EXIT SUB
     END IF
 
@@ -5320,13 +5353,13 @@ SUB LAYERS_delete_group (groupIdx AS INTEGER)
         FOR dgPass% = MAX_GROUP_NESTING TO 1 STEP -1
             FOR i% = 1 TO MAX_LAYERS
                 IF LAYERS(i%).imgHandle& <> 0 AND LAYERS(i%).parentGroupIdx% <> 0 THEN
-                    ' Check if this is a descendant of groupIdx at any depth
+                    ' Check if this is a descendant of dgSlot at any depth
                     DIM dgWalk AS INTEGER
                     dgWalk% = LAYERS(i%).parentGroupIdx%
                     DIM dgIsDesc AS INTEGER
                     dgIsDesc% = FALSE
                     DO WHILE dgWalk% > 0
-                        IF dgWalk% = groupIdx% THEN dgIsDesc% = TRUE: EXIT DO
+                        IF dgWalk% = dgSlot% THEN dgIsDesc% = TRUE: EXIT DO
                         IF dgWalk% < 1 OR dgWalk% > MAX_LAYERS THEN EXIT DO
                         IF LAYERS(dgWalk%).imgHandle& = 0 THEN EXIT DO
                         dgWalk% = LAYERS(dgWalk%).parentGroupIdx%
@@ -5341,18 +5374,18 @@ SUB LAYERS_delete_group (groupIdx AS INTEGER)
         NEXT dgPass%
         ' Delete remaining direct children and the group header itself
         FOR i% = 1 TO MAX_LAYERS
-            IF LAYERS(i%).imgHandle& <> 0 AND LAYERS(i%).parentGroupIdx% = groupIdx% THEN
+            IF LAYERS(i%).imgHandle& <> 0 AND LAYERS(i%).parentGroupIdx% = dgSlot% THEN
                 LAYERS_delete i%
             END IF
         NEXT i%
-        LAYERS_delete groupIdx%
+        LAYERS_delete dgSlot%
         HISTORY_IN_PROGRESS% = FALSE
         HISTORY_end_group
         BLEND_invalidate_cache
         INVALIDATE_scene
     ELSEIF result% = 0 THEN
         ' Ungroup
-        LAYERS_ungroup groupIdx%
+        LAYERS_ungroup dgSlot%
     END IF
     ' Cancel = do nothing
 END SUB
