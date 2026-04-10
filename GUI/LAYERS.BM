@@ -200,7 +200,12 @@ FUNCTION LAYERS_new% ()
     LAYERS(newIndex%).blendMode%   = BLEND_NORMAL
     LAYERS(newIndex%).layerType%   = LAYER_TYPE_IMAGE
     LAYERS(newIndex%).textDataIdx% = 0
-    LAYERS(newIndex%).parentGroupIdx% = 0
+    ' Inherit parent group from the current layer so new layers inside groups stay nested
+    IF hasCurrentLayer% THEN
+        LAYERS(newIndex%).parentGroupIdx% = LAYERS(CURRENT_LAYER%).parentGroupIdx%
+    ELSE
+        LAYERS(newIndex%).parentGroupIdx% = 0
+    END IF
     LAYERS(newIndex%).collapsed%     = FALSE
     LAYERS(newIndex%).passThrough%   = FALSE
 
@@ -1783,8 +1788,14 @@ SUB LAYER_PANEL_render (canvasHeight AS INTEGER)
             ' Calculate indentation based on nesting depth
             DIM rowIndent AS INTEGER
             DIM lpNestDepth AS INTEGER
+            DIM lpIndentPx AS INTEGER
             lpNestDepth% = LAYERS_nesting_depth%(layerIdx%)
-            rowIndent% = lpNestDepth% * THEME.LAYER_PANEL_group_indent%
+            IF CFG.LAYER_GROUP_INDENT% > 0 THEN
+                lpIndentPx% = CFG.LAYER_GROUP_INDENT%
+            ELSE
+                lpIndentPx% = THEME.LAYER_PANEL_group_indent%
+            END IF
+            rowIndent% = lpNestDepth% * lpIndentPx%
 
             DIM drawY AS INTEGER
             drawY% = rowY% - LAYER_PANEL.scrollOffset%
@@ -2463,7 +2474,13 @@ FUNCTION LAYER_PANEL_handle_click% (rawX AS INTEGER, rawY AS INTEGER, button AS 
                 localX% = rawX% - LAYER_PANEL.panelX1%
                 ' Offset for child indent so click zones match rendered icon positions
                 DIM clickIndent AS INTEGER
-                clickIndent% = LAYERS_nesting_depth%(layerIdx%) * THEME.LAYER_PANEL_group_indent%
+                DIM clickIndentPx AS INTEGER
+                IF CFG.LAYER_GROUP_INDENT% > 0 THEN
+                    clickIndentPx% = CFG.LAYER_GROUP_INDENT%
+                ELSE
+                    clickIndentPx% = THEME.LAYER_PANEL_group_indent%
+                END IF
+                clickIndent% = LAYERS_nesting_depth%(layerIdx%) * clickIndentPx%
                 localX% = localX% - clickIndent%
 
                 IF button% = 1 THEN
@@ -4424,7 +4441,12 @@ FUNCTION LAYERS_new_group% ()
     LAYERS(newIndex%).blendMode%      = BLEND_NORMAL
     LAYERS(newIndex%).layerType%      = LAYER_TYPE_GROUP
     LAYERS(newIndex%).textDataIdx%    = 0
-    LAYERS(newIndex%).parentGroupIdx% = 0
+    ' Inherit parent group from the current layer so new groups inside groups stay nested
+    IF hasCurrentLayer% THEN
+        LAYERS(newIndex%).parentGroupIdx% = LAYERS(CURRENT_LAYER%).parentGroupIdx%
+    ELSE
+        LAYERS(newIndex%).parentGroupIdx% = 0
+    END IF
     LAYERS(newIndex%).collapsed%      = FALSE
     LAYERS(newIndex%).passThrough%    = FALSE
 
@@ -4459,20 +4481,35 @@ FUNCTION LAYERS_group_from_selection% ()
         savedSel%(i%) = MULTI_SELECT_LAYERS(i%)
     NEXT i%
 
-    ' Count selected layers and find the topmost zIndex
+    ' Count selected layers, find the topmost zIndex, and determine common parent
+    DIM commonParent AS INTEGER
+    DIM gfsFirstParent AS INTEGER
+    DIM gfsParentsMatch AS INTEGER
     selCount% = 0
     topZ% = 0
+    commonParent% = -1
+    gfsParentsMatch% = TRUE
     FOR i% = 1 TO MAX_LAYERS
         IF LAYERS(i%).imgHandle& <> 0 AND savedSel%(i%) THEN
             ' Don't group group layers
             IF LAYERS(i%).layerType% = LAYER_TYPE_GROUP THEN _CONTINUE
             selCount% = selCount% + 1
             IF LAYERS(i%).zIndex% > topZ% THEN topZ% = LAYERS(i%).zIndex%
+            ' Track common parent for nesting
+            IF commonParent% = -1 THEN
+                commonParent% = LAYERS(i%).parentGroupIdx%
+            ELSEIF LAYERS(i%).parentGroupIdx% <> commonParent% THEN
+                gfsParentsMatch% = FALSE
+            END IF
         END IF
     NEXT i%
 
     ' Need at least 1 layer to group
     IF selCount% < 1 THEN EXIT FUNCTION
+
+    ' If all selected layers share the same parent, the new group inherits it
+    ' Otherwise default to top-level (0)
+    IF commonParent% = -1 OR NOT gfsParentsMatch% THEN commonParent% = 0
 
     ' Create the group header — temporarily select the topmost selected layer
     ' so LAYERS_new_group% inserts above it
@@ -4491,6 +4528,12 @@ FUNCTION LAYERS_group_from_selection% ()
     IF groupIdx% = 0 THEN
         HISTORY_end_group
         EXIT FUNCTION
+    END IF
+
+    ' Parent the new group to the common parent of selected layers
+    IF commonParent% > 0 THEN
+        LAYERS(groupIdx%).parentGroupIdx% = commonParent%
+        HISTORY_record_group_reparent LAYERS(groupIdx%).historyId&, groupIdx%, 0, commonParent%, LAYERS(groupIdx%).zIndex%, LAYERS(groupIdx%).zIndex%, "Group Nest"
     END IF
 
     ' Move selected layers into the group
@@ -4532,7 +4575,8 @@ FUNCTION LAYERS_group_from_selection% ()
     ' Set parentGroupIdx for all children and record history
     FOR i% = 1 TO sortN%
         DIM gfsOldZ AS INTEGER: gfsOldZ% = LAYERS(sortBuf%(i%)).zIndex%
-        HISTORY_record_group_reparent LAYERS(sortBuf%(i%)).historyId&, sortBuf%(i%), 0, groupIdx%, gfsOldZ%, gfsOldZ%, "Group Child"
+        DIM gfsOldParent AS INTEGER: gfsOldParent% = LAYERS(sortBuf%(i%)).parentGroupIdx%
+        HISTORY_record_group_reparent LAYERS(sortBuf%(i%)).historyId&, sortBuf%(i%), gfsOldParent%, groupIdx%, gfsOldZ%, gfsOldZ%, "Group Child"
         LAYERS(sortBuf%(i%)).parentGroupIdx% = groupIdx%
     NEXT i%
 
