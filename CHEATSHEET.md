@@ -581,15 +581,7 @@ Brush size and shape affect all drawing tools: Brush, Dot, Line, Rectangle, Elli
 
 ### Display Scale (Window Size)
 
-| Key | Function |
-|-----|----------|
-| `Ctrl+PgUp` | Increase display scale (1x→2x→3x→4x) |
-| `Ctrl+PgDn` | Decrease display scale (4x→3x→2x→1x) |
-| `Ctrl+Alt+PgDn` | Reset display scale to configured default |
-
-**Notes:**
-- Display scale changes window size, not canvas zoom
-- Changed scale is remembered if you save config on exit
+Display scale is configured via the **Settings** dialog (Ctrl+Comma → Appearance tab).
 
 ## Audio Controls
 
