@@ -113,6 +113,14 @@ TYPE LAYER_PANEL_OBJ
     blendPopupX       AS INTEGER    ' Popup screen X (top-left)
     blendPopupY       AS INTEGER    ' Popup screen Y (top-left)
     blendPopupHover   AS INTEGER    ' Currently hovered item index (-1 = none, 0=Normal, 2..19=mode idx+1 for divider)
+    ' Layer context menu state (right-click on row)
+    ctxMenuOpen       AS INTEGER    ' TRUE while context menu is showing
+    ctxMenuLayer      AS INTEGER    ' Layer index the context menu was invoked on
+    ctxMenuX          AS INTEGER    ' Popup screen X (top-left)
+    ctxMenuY          AS INTEGER    ' Popup screen Y (top-left)
+    ctxMenuW          AS INTEGER    ' Popup width in pixels
+    ctxMenuHover      AS INTEGER    ' Currently hovered row (-1 = none)
+    ctxMenuItems      AS INTEGER    ' Number of items in current menu
     ' Opacity drag anchor
     opacityDragRowY   AS INTEGER    ' Rendered Y (drawY%) of row top when vertical opacity drag started
     ' Stored panel bounds (set each render, used for hit-testing next frame)
@@ -178,6 +186,16 @@ DECLARE SUB LAYER_PANEL_blend_popup_close ()
 DECLARE SUB LAYER_PANEL_blend_popup_render ()
 DECLARE FUNCTION LAYER_PANEL_blend_popup_hit% (rawX AS INTEGER, rawY AS INTEGER)
 DECLARE SUB LAYER_PANEL_blend_popup_hover (rawX AS INTEGER, rawY AS INTEGER)
+
+' Layer context menu (right-click on row)
+CONST LAYER_CTX_ITEM_H = 12
+DECLARE SUB LAYER_PANEL_ctx_menu_build (layerIdx AS INTEGER, itemCount AS INTEGER)
+DECLARE SUB LAYER_PANEL_ctx_menu_show (layerIdx AS INTEGER, x AS INTEGER, y AS INTEGER)
+DECLARE SUB LAYER_PANEL_ctx_menu_close ()
+DECLARE SUB LAYER_PANEL_ctx_menu_render ()
+DECLARE FUNCTION LAYER_PANEL_ctx_menu_hit% (rawX AS INTEGER, rawY AS INTEGER)
+DECLARE SUB LAYER_PANEL_ctx_menu_hover (rawX AS INTEGER, rawY AS INTEGER)
+DECLARE SUB LAYER_PANEL_ctx_menu_activate (actionValue AS INTEGER)
 
 ' Blend mode functions
 DECLARE FUNCTION BLEND_mode_name$ (mode AS INTEGER)

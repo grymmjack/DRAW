@@ -2651,9 +2651,9 @@ FUNCTION LAYER_PANEL_handle_click% (rawX AS INTEGER, rawY AS INTEGER, button AS 
                         END IF
                     END IF
                 ELSEIF button% = 2 THEN
-                    ' Right-click: show blend mode popup
+                    ' Right-click: show layer context menu
                     LAYERS_select layerIdx%
-                    LAYER_PANEL_blend_popup_show layerIdx%, rawX%, rawY%
+                    LAYER_PANEL_ctx_menu_show layerIdx%, rawX%, rawY%
                     GUI_NEEDS_REDRAW% = TRUE
                     FRAME_IDLE% = FALSE
                 END IF
@@ -4265,6 +4265,8 @@ END SUB
 '
 SUB LAYER_PANEL_blend_popup_show (layerIdx AS INTEGER, x AS INTEGER, y AS INTEGER)
     DIM popH AS INTEGER
+    ' Close context menu if open
+    IF LAYER_PANEL.ctxMenuOpen% THEN LAYER_PANEL_ctx_menu_close
     LAYER_PANEL_blend_popup_build
     POPUP_MENU_place x%, y%, 90, BLEND_MODE_COUNT + 1, 10, LAYER_PANEL.blendPopupX%, LAYER_PANEL.blendPopupY%, popH%
     LAYER_PANEL.blendPopupOpen% = TRUE
@@ -5297,3 +5299,259 @@ FUNCTION LAYERS_nesting_depth% (layerIdx AS INTEGER)
     LOOP
     LAYERS_nesting_depth% = depth%
 END FUNCTION
+
+
+' =============================================================================
+' Layer Panel Context Menu (right-click on layer row)
+' =============================================================================
+
+''
+' Build the context menu items for the given layer.
+' @param layerIdx INTEGER Layer the context menu was invoked on
+' @param itemCount INTEGER [out] Total number of menu items built
+'
+SUB LAYER_PANEL_ctx_menu_build (layerIdx AS INTEGER, itemCount AS INTEGER)
+    DIM flags AS INTEGER
+    DIM isGroup AS INTEGER
+    DIM isTextLayer AS INTEGER
+    DIM inGroup AS INTEGER
+    DIM hasMultiSel AS INTEGER
+    DIM modeIdx AS INTEGER
+
+    POPUP_MENU_clear_items
+    itemCount% = 0
+
+    IF layerIdx% < 1 OR layerIdx% > MAX_LAYERS THEN EXIT SUB
+    IF LAYERS(layerIdx%).imgHandle& = 0 THEN EXIT SUB
+
+    isGroup% = (LAYERS(layerIdx%).layerType% = LAYER_TYPE_GROUP)
+    isTextLayer% = (LAYERS(layerIdx%).layerType% = LAYER_TYPE_TEXT)
+    inGroup% = (LAYERS(layerIdx%).parentGroupIdx% > 0)
+    hasMultiSel% = (MULTI_SELECT_COUNT% >= 2)
+
+    ' --- Blend modes (same layout as standalone blend popup) ---
+    POPUP_MENU_set_item itemCount%, BLEND_mode_name$(BLEND_NORMAL), "", BLEND_NORMAL, 0
+    itemCount% = itemCount% + 1
+
+    POPUP_MENU_set_item itemCount%, "", "", -1, POPUP_MENU_FLAG_DIVIDER
+    itemCount% = itemCount% + 1
+
+    FOR modeIdx% = 1 TO BLEND_MODE_COUNT - 1
+        POPUP_MENU_set_item itemCount%, BLEND_mode_name$(modeIdx%), "", modeIdx%, 0
+        itemCount% = itemCount% + 1
+    NEXT modeIdx%
+
+    POPUP_MENU_set_item itemCount%, "", "", -1, POPUP_MENU_FLAG_DIVIDER
+    itemCount% = itemCount% + 1
+
+    ' --- Layer operations ---
+    POPUP_MENU_set_item itemCount%, "RENAME LAYER", "D-Click", 726, 0
+    itemCount% = itemCount% + 1
+
+    POPUP_MENU_set_item itemCount%, "DUPLICATE", "Ctrl+Shift+D", 707, 0
+    itemCount% = itemCount% + 1
+
+    POPUP_MENU_set_item itemCount%, "DELETE", "Ctrl+Shift+Del", 702, 0
+    itemCount% = itemCount% + 1
+
+    ' Merge Down — disabled for groups or bottom layer
+    flags% = 0
+    IF isGroup% THEN flags% = POPUP_MENU_FLAG_DISABLED
+    POPUP_MENU_set_item itemCount%, "MERGE DOWN", "Ctrl+Alt+E", 705, flags%
+    itemCount% = itemCount% + 1
+
+    ' Merge Selected — disabled if no multi-select
+    flags% = 0
+    IF NOT hasMultiSel% THEN flags% = POPUP_MENU_FLAG_DISABLED
+    POPUP_MENU_set_item itemCount%, "MERGE SELECTED", "Ctrl+Alt+Shift+E", 706, flags%
+    itemCount% = itemCount% + 1
+
+    ' Rasterize Text Layer — only enabled for text layers
+    flags% = 0
+    IF NOT isTextLayer% THEN flags% = POPUP_MENU_FLAG_DISABLED
+    POPUP_MENU_set_item itemCount%, "RASTERIZE TEXT", "", 713, flags%
+    itemCount% = itemCount% + 1
+
+    POPUP_MENU_set_item itemCount%, "", "", -1, POPUP_MENU_FLAG_DIVIDER
+    itemCount% = itemCount% + 1
+
+    ' --- Group operations ---
+    POPUP_MENU_set_item itemCount%, "NEW GROUP", "Ctrl+G", 720, 0
+    itemCount% = itemCount% + 1
+
+    ' Group from Selection — disabled if no multi-select
+    flags% = 0
+    IF NOT hasMultiSel% THEN flags% = POPUP_MENU_FLAG_DISABLED
+    POPUP_MENU_set_item itemCount%, "GROUP FROM SELECTION", "Ctrl+Shift+G", 721, flags%
+    itemCount% = itemCount% + 1
+
+    ' Ungroup — only enabled for group headers
+    flags% = 0
+    IF NOT isGroup% THEN flags% = POPUP_MENU_FLAG_DISABLED
+    POPUP_MENU_set_item itemCount%, "UNGROUP", "Ctrl+Shift+U", 722, flags%
+    itemCount% = itemCount% + 1
+
+    ' Merge Group — only enabled for group headers
+    flags% = 0
+    IF NOT isGroup% THEN flags% = POPUP_MENU_FLAG_DISABLED
+    POPUP_MENU_set_item itemCount%, "MERGE GROUP", "", 723, flags%
+    itemCount% = itemCount% + 1
+
+    ' Select All in Group — enabled if this is a group or a group child
+    flags% = 0
+    IF NOT isGroup% AND NOT inGroup% THEN flags% = POPUP_MENU_FLAG_DISABLED
+    POPUP_MENU_set_item itemCount%, "SELECT ALL IN GROUP", "", 725, flags%
+    itemCount% = itemCount% + 1
+
+    POPUP_MENU_set_item itemCount%, "", "", -1, POPUP_MENU_FLAG_DIVIDER
+    itemCount% = itemCount% + 1
+
+    ' Selection from Layer Group — enabled if group or inside a group
+    flags% = 0
+    IF NOT isGroup% AND NOT inGroup% THEN flags% = POPUP_MENU_FLAG_DISABLED
+    POPUP_MENU_set_item itemCount%, "SELECTION FROM GROUP", "", 727, flags%
+    itemCount% = itemCount% + 1
+
+    ' Selection from Layer — enabled for non-group layers
+    flags% = 0
+    IF isGroup% THEN flags% = POPUP_MENU_FLAG_DISABLED
+    POPUP_MENU_set_item itemCount%, "SELECTION FROM LAYER", "", 728, flags%
+    itemCount% = itemCount% + 1
+END SUB
+
+
+''
+' Show the layer context menu anchored near (x, y) on screen.
+' @param layerIdx INTEGER Layer index the context menu was invoked on
+' @param x INTEGER Screen X coordinate to anchor the popup near
+' @param y INTEGER Screen Y coordinate to anchor the popup near
+'
+SUB LAYER_PANEL_ctx_menu_show (layerIdx AS INTEGER, x AS INTEGER, y AS INTEGER)
+    DIM popH AS INTEGER
+    DIM popupFont AS LONG
+
+    ' Close blend popup if open
+    IF LAYER_PANEL.blendPopupOpen% THEN LAYER_PANEL_blend_popup_close
+
+    LAYER_PANEL_ctx_menu_build layerIdx%, LAYER_PANEL.ctxMenuItems%
+
+    IF MENU_BAR.fontHandle& > 0 THEN
+        popupFont& = MENU_BAR.fontHandle&
+    ELSEIF LAYER_PANEL.fontHandle& > 0 THEN
+        popupFont& = LAYER_PANEL.fontHandle&
+    ELSE
+        popupFont& = 0
+    END IF
+
+    LAYER_PANEL.ctxMenuW% = POPUP_MENU_measure_width%(LAYER_PANEL.ctxMenuItems%, popupFont&)
+    POPUP_MENU_place x%, y%, LAYER_PANEL.ctxMenuW%, LAYER_PANEL.ctxMenuItems%, LAYER_CTX_ITEM_H, LAYER_PANEL.ctxMenuX%, LAYER_PANEL.ctxMenuY%, popH%
+    LAYER_PANEL.ctxMenuOpen% = TRUE
+    LAYER_PANEL.ctxMenuLayer% = layerIdx%
+    LAYER_PANEL.ctxMenuHover% = -1
+    GUI_NEEDS_REDRAW% = TRUE
+    FRAME_IDLE% = FALSE
+END SUB
+
+
+''
+' Close the layer context menu and reset its state.
+'
+SUB LAYER_PANEL_ctx_menu_close ()
+    LAYER_PANEL.ctxMenuOpen% = FALSE
+    LAYER_PANEL.ctxMenuLayer% = 0
+    LAYER_PANEL.ctxMenuHover% = -1
+    GUI_NEEDS_REDRAW% = TRUE
+    FRAME_IDLE% = FALSE
+END SUB
+
+
+''
+' Render the layer context menu onto SCRN.CANVAS&.
+'
+SUB LAYER_PANEL_ctx_menu_render ()
+    DIM popupFont AS LONG
+    DIM currentMode AS INTEGER
+    DIM checkedRow AS INTEGER
+    DIM ctxLayer AS INTEGER
+
+    IF NOT LAYER_PANEL.ctxMenuOpen% THEN EXIT SUB
+
+    ctxLayer% = LAYER_PANEL.ctxMenuLayer%
+    LAYER_PANEL_ctx_menu_build ctxLayer%, LAYER_PANEL.ctxMenuItems%
+
+    ' Mark the active blend mode row with a checkmark
+    IF ctxLayer% >= 1 AND ctxLayer% <= MAX_LAYERS THEN
+        currentMode% = LAYERS(ctxLayer%).blendMode%
+    ELSE
+        currentMode% = BLEND_NORMAL
+    END IF
+    IF currentMode% = BLEND_NORMAL THEN
+        checkedRow% = 0
+    ELSE
+        checkedRow% = currentMode% + 1  ' +1 for divider row after Normal
+    END IF
+    POPUP_MENU_FLAGS(checkedRow%) = POPUP_MENU_FLAGS(checkedRow%) OR POPUP_MENU_FLAG_CHECKED
+
+    IF MENU_BAR.fontHandle& > 0 THEN
+        popupFont& = MENU_BAR.fontHandle&
+    ELSEIF LAYER_PANEL.fontHandle& > 0 THEN
+        popupFont& = LAYER_PANEL.fontHandle&
+    ELSE
+        popupFont& = 0
+    END IF
+
+    POPUP_MENU_render SCRN.CANVAS&, LAYER_PANEL.ctxMenuX%, LAYER_PANEL.ctxMenuY%, LAYER_PANEL.ctxMenuW%, LAYER_PANEL.ctxMenuItems%, LAYER_CTX_ITEM_H, LAYER_PANEL.ctxMenuHover%, popupFont&
+END SUB
+
+
+''
+' Hit-test the layer context menu.
+' Returns: action value if an enabled item was clicked,
+'          -1 if inside popup but on non-clickable area,
+'          -2 if outside popup.
+' @param rawX INTEGER Raw screen X coordinate to test
+' @param rawY INTEGER Raw screen Y coordinate to test
+' @return INTEGER - Action value, -1 for non-clickable, -2 for outside
+'
+FUNCTION LAYER_PANEL_ctx_menu_hit% (rawX AS INTEGER, rawY AS INTEGER)
+    IF NOT LAYER_PANEL.ctxMenuOpen% THEN
+        LAYER_PANEL_ctx_menu_hit% = -2
+        EXIT FUNCTION
+    END IF
+    LAYER_PANEL_ctx_menu_hit% = POPUP_MENU_hit_value%(LAYER_PANEL.ctxMenuX%, LAYER_PANEL.ctxMenuY%, LAYER_PANEL.ctxMenuW%, LAYER_PANEL.ctxMenuItems%, LAYER_CTX_ITEM_H, rawX%, rawY%)
+END FUNCTION
+
+
+''
+' Update context menu hover state from current mouse position.
+' @param rawX INTEGER Raw screen X coordinate of the mouse
+' @param rawY INTEGER Raw screen Y coordinate of the mouse
+'
+SUB LAYER_PANEL_ctx_menu_hover (rawX AS INTEGER, rawY AS INTEGER)
+    DIM prevHover AS INTEGER
+
+    IF NOT LAYER_PANEL.ctxMenuOpen% THEN EXIT SUB
+
+    prevHover% = LAYER_PANEL.ctxMenuHover%
+    LAYER_PANEL.ctxMenuHover% = POPUP_MENU_hover_row%(LAYER_PANEL.ctxMenuX%, LAYER_PANEL.ctxMenuY%, LAYER_PANEL.ctxMenuW%, LAYER_PANEL.ctxMenuItems%, LAYER_CTX_ITEM_H, rawX%, rawY%)
+    IF LAYER_PANEL.ctxMenuHover% <> prevHover% AND LAYER_PANEL.ctxMenuHover% >= 0 THEN
+        SOUND_play SND_MENU_HOVER
+        GUI_NEEDS_REDRAW% = TRUE
+        FRAME_IDLE% = FALSE
+    ELSEIF LAYER_PANEL.ctxMenuHover% <> prevHover% THEN
+        GUI_NEEDS_REDRAW% = TRUE
+        FRAME_IDLE% = FALSE
+    END IF
+END SUB
+
+
+''
+' Execute a layer context menu action.
+' @param actionValue INTEGER Action ID to execute
+'
+SUB LAYER_PANEL_ctx_menu_activate (actionValue AS INTEGER)
+    LAYER_PANEL_ctx_menu_close
+    IF actionValue% > 0 THEN
+        CMD_execute_action actionValue%
+    END IF
+END SUB
