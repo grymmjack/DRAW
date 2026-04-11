@@ -468,6 +468,167 @@ SUB LAYERS_duplicate (layerIndex AS INTEGER)
     IF layerIndex% < 1 OR layerIndex% > MAX_LAYERS THEN EXIT SUB
     IF LAYERS(layerIndex%).imgHandle& = 0 THEN EXIT SUB
     
+    ' ---------------------------------------------------------------
+    ' GROUP DUPLICATION: duplicate group header + all descendants
+    ' ---------------------------------------------------------------
+    IF LAYERS(layerIndex%).layerType% = LAYER_TYPE_GROUP THEN
+        ' Collect all descendants (sorted by zIndex ascending)
+        DIM descBuf(1 TO MAX_LAYERS) AS INTEGER
+        DIM descCount AS INTEGER
+        descCount% = 0
+        LAYERS_group_descendants layerIndex%, descBuf%(), descCount%
+
+        ' Total layers to duplicate = descendants + the group header itself
+        DIM totalToDup AS INTEGER
+        totalToDup% = descCount% + 1
+        IF LAYER_COUNT% + totalToDup% > CFG.NUM_LAYERS% THEN EXIT SUB
+
+        ' Build ordered list: descendants (low z to high z), then group header last
+        ' This mirrors the contiguous z layout: children below header
+        DIM dupSrc(1 TO MAX_LAYERS) AS INTEGER  ' source slot indices
+        DIM dupDst(1 TO MAX_LAYERS) AS INTEGER  ' destination slot indices
+        DIM dupI AS INTEGER
+        FOR dupI% = 1 TO descCount%
+            dupSrc%(dupI%) = descBuf%(dupI%)
+        NEXT dupI%
+        dupSrc%(totalToDup%) = layerIndex%  ' group header last
+
+        ' Find empty slots for all new layers
+        DIM slotSearch AS INTEGER, slotsFound AS INTEGER
+        slotsFound% = 0
+        FOR slotSearch% = 1 TO MAX_LAYERS
+            IF LAYERS(slotSearch%).imgHandle& = 0 THEN
+                slotsFound% = slotsFound% + 1
+                dupDst%(slotsFound%) = slotSearch%
+                IF slotsFound% = totalToDup% THEN EXIT FOR
+            END IF
+        NEXT slotSearch%
+        IF slotsFound% < totalToDup% THEN EXIT SUB  ' Not enough empty slots
+
+        ' Build a mapping from old slot -> new slot for parent pointer remapping
+        ' We'll use a simple lookup: for each dup pair, map src -> dst
+        DIM parentMap(1 TO MAX_LAYERS) AS INTEGER  ' parentMap(oldSlot) = newSlot
+        FOR dupI% = 1 TO totalToDup%
+            parentMap%(dupSrc%(dupI%)) = dupDst%(dupI%)
+        NEXT dupI%
+
+        ' Determine z insertion point: above the group header
+        DIM groupTopZ AS INTEGER
+        groupTopZ% = LAYERS(layerIndex%).zIndex%
+        ' Shift all layers above the group to make room
+        DIM shiftI AS INTEGER
+        FOR shiftI% = 1 TO MAX_LAYERS
+            IF LAYERS(shiftI%).imgHandle& <> 0 AND LAYERS(shiftI%).zIndex% > groupTopZ% THEN
+                LAYERS(shiftI%).zIndex% = LAYERS(shiftI%).zIndex% + totalToDup%
+            END IF
+        NEXT shiftI%
+
+        ' Begin history group for the entire operation
+        IF NOT HISTORY_IN_PROGRESS% THEN HISTORY_begin_group
+
+        ' Duplicate each layer in order
+        DIM newZ AS INTEGER
+        FOR dupI% = 1 TO totalToDup%
+            DIM dSrc AS INTEGER, dDst AS INTEGER
+            dSrc% = dupSrc%(dupI%)
+            dDst% = dupDst%(dupI%)
+
+            ' Copy image
+            LAYERS(dDst%).imgHandle& = _COPYIMAGE(LAYERS(dSrc%).imgHandle&, 32)
+            IF LAYERS(dDst%).imgHandle& >= -1 THEN
+                _LOGERROR "LAYERS_duplicate: _COPYIMAGE failed for group child src=" + STR$(dSrc%) + " dst=" + STR$(dDst%)
+                LAYERS(dDst%).imgHandle& = 0
+                ' Rollback: free any already-duplicated layers
+                DIM rollI AS INTEGER
+                FOR rollI% = 1 TO dupI% - 1
+                    IF LAYERS(dupDst%(rollI%)).imgHandle& < -1 THEN
+                        _FREEIMAGE LAYERS(dupDst%(rollI%)).imgHandle&
+                    END IF
+                    LAYERS(dupDst%(rollI%)).imgHandle& = 0
+                    LAYER_COUNT% = LAYER_COUNT% - 1
+                NEXT rollI%
+                IF NOT HISTORY_IN_PROGRESS% THEN HISTORY_end_group
+                EXIT SUB
+            END IF
+
+            ' Assign z-index: contiguous block above the original group
+            newZ% = groupTopZ% + dupI%
+            
+            ' Copy properties
+            LAYER_COUNT% = LAYER_COUNT% + 1
+            LAYERS(dDst%).historyId&     = LAYERS_alloc_history_id&
+            LAYERS(dDst%).imgWidth%      = _WIDTH(LAYERS(dDst%).imgHandle&)
+            LAYERS(dDst%).imgHeight%     = _HEIGHT(LAYERS(dDst%).imgHandle&)
+            LAYERS(dDst%).zIndex%        = newZ%
+            LAYERS(dDst%).visible%       = LAYERS(dSrc%).visible%
+            LAYERS(dDst%).isSelected%    = FALSE
+            LAYERS(dDst%).lastSelected%  = FALSE
+            LAYERS(dDst%).opacity%       = LAYERS(dSrc%).opacity%
+            LAYERS(dDst%).opacityLock%   = LAYERS(dSrc%).opacityLock%
+            LAYERS(dDst%).blendMode%     = LAYERS(dSrc%).blendMode%
+            LAYERS(dDst%).contentDirty%  = TRUE
+            LAYERS(dDst%).layerType%     = LAYERS(dSrc%).layerType%
+            LAYERS(dDst%).collapsed%     = LAYERS(dSrc%).collapsed%
+            LAYERS(dDst%).passThrough%   = LAYERS(dSrc%).passThrough%
+            LAYERS(dDst%).textDataIdx%   = 0
+
+            ' Remap parent pointer: if original parent is in the duplication set, point to new copy
+            IF LAYERS(dSrc%).parentGroupIdx% > 0 AND LAYERS(dSrc%).parentGroupIdx% <= MAX_LAYERS THEN
+                IF parentMap%(LAYERS(dSrc%).parentGroupIdx%) > 0 THEN
+                    LAYERS(dDst%).parentGroupIdx% = parentMap%(LAYERS(dSrc%).parentGroupIdx%)
+                ELSE
+                    ' Parent is outside the duplication set (shouldn't happen for well-formed groups)
+                    LAYERS(dDst%).parentGroupIdx% = LAYERS(dSrc%).parentGroupIdx%
+                END IF
+            ELSE
+                ' Top-level group header: inherit source's parent (could be nested in another group)
+                LAYERS(dDst%).parentGroupIdx% = LAYERS(dSrc%).parentGroupIdx%
+            END IF
+
+            ' Name: append " copy" only to the group header, keep child names as-is
+            IF dupI% = totalToDup% THEN
+                LAYERS(dDst%).name = _TRIM$(LAYERS(dSrc%).name) + " copy"
+                NEXT_GROUP_NUM% = NEXT_GROUP_NUM% + 1
+            ELSE
+                LAYERS(dDst%).name = LAYERS(dSrc%).name
+            END IF
+
+            ' Duplicate text layer data if applicable
+            IF LAYERS(dSrc%).layerType% = LAYER_TYPE_TEXT THEN
+                IF LAYERS(dSrc%).textDataIdx% > 0 THEN
+                    DIM dgNewTextIdx AS INTEGER
+                    dgNewTextIdx% = TEXT_LAYER_alloc%
+                    IF dgNewTextIdx% > 0 THEN
+                        TEXT_LAYER_copy_data LAYERS(dSrc%).textDataIdx%, dgNewTextIdx%
+                        LAYERS(dDst%).textDataIdx% = dgNewTextIdx%
+                    ELSE
+                        LAYERS(dDst%).layerType% = LAYER_TYPE_IMAGE
+                    END IF
+                END IF
+            END IF
+
+            IF NOT HISTORY_IN_PROGRESS% THEN
+                HISTORY_record_layer_add LAYERS(dDst%).historyId&, dDst%, newZ%, "Dup Group Child"
+            END IF
+        NEXT dupI%
+
+        IF NOT HISTORY_IN_PROGRESS% THEN HISTORY_end_group
+
+        ' Fix z-ordering to ensure proper contiguity
+        LAYERS_enforce_group_contiguity
+
+        ' Select the new group header (last in dupDst)
+        LAYERS_select dupDst%(totalToDup%)
+
+        BLEND_invalidate_cache
+        INVALIDATE_scene
+        EXIT SUB
+    END IF
+
+    ' ---------------------------------------------------------------
+    ' SINGLE LAYER DUPLICATION (non-group, original logic)
+    ' ---------------------------------------------------------------
+
     ' Check if we've hit the max layers
     IF LAYER_COUNT% >= CFG.NUM_LAYERS% THEN EXIT SUB
     
@@ -2608,8 +2769,13 @@ FUNCTION LAYER_PANEL_handle_click% (rawX AS INTEGER, rawY AS INTEGER, button AS 
                     ctrlHeld% = (_KEYDOWN(KEY_LCTRL&) OR _KEYDOWN(KEY_RCTRL&))
                     shiftHeld% = (_KEYDOWN(KEY_LSHIFT&) OR _KEYDOWN(KEY_RSHIFT&))
                     IF ctrlHeld% OR shiftHeld% THEN
-                        ' Toggle this layer in/out of multi-select without changing CURRENT_LAYER%
-                        MULTI_SELECT_toggle layerIdx%
+                        IF ctrlHeld% AND LAYERS(layerIdx%).layerType% = LAYER_TYPE_GROUP THEN
+                            ' Ctrl+Click on group header: Select All in Group
+                            LAYERS_select_group layerIdx%
+                        ELSE
+                            ' Toggle this layer in/out of multi-select without changing CURRENT_LAYER%
+                            MULTI_SELECT_toggle layerIdx%
+                        END IF
                     ELSEIF LAYERS(layerIdx%).layerType% = LAYER_TYPE_GROUP AND localX% < 13 THEN
                         ' Collapse/expand triangle click
                         LAYERS(layerIdx%).collapsed% = NOT LAYERS(layerIdx%).collapsed%

@@ -689,48 +689,48 @@ Drawing tools should NOT operate on the 1×1 group sentinel.
 
 ---
 
-## [ ] GROUP SAVE / LOAD (DRW FORMAT)
+## [x] GROUP SAVE / LOAD (DRW FORMAT)
 
-### [ ] Save and Load Preserves Group Structure
+### [x] Save and Load Preserves Group Structure
 DRW v24+ format saves group fields.
 
-#### [ ] Save and reload single group
-1. [ ] Create a group with 3 child layers, each with distinct content
-2. [ ] Save as .draw file
-3. [ ] Close and reopen the file
-4. [ ] Verify the group header exists
-5. [ ] Verify all 3 children are inside the group
-6. [ ] Verify child content is intact
+#### [x] Save and reload single group
+1. [x] Create a group with 3 child layers, each with distinct content
+2. [x] Save as .draw file
+3. [x] Close and reopen the file
+4. [x] Verify the group header exists
+5. [x] Verify all 3 children are inside the group
+6. [x] Verify child content is intact
 
-#### [ ] Save and reload nested groups
-1. [ ] Create GroupA containing GroupB containing Layer1
-2. [ ] Save as .draw
-3. [ ] Reopen
-4. [ ] Verify nesting structure: GroupA → GroupB → Layer1
+#### [x] Save and reload nested groups
+1. [x] Create GroupA containing GroupB containing Layer1
+2. [x] Save as .draw
+3. [x] Reopen
+4. [x] Verify nesting structure: GroupA → GroupB → Layer1
 
-#### [ ] Save and reload group properties
-1. [ ] Create a group, set it to isolated mode, set opacity to 128, collapse it
-2. [ ] Save as .draw
-3. [ ] Reopen
-4. [ ] Verify passThrough is FALSE (isolated)
-5. [ ] Verify opacity is 128
-6. [ ] Verify collapsed is TRUE
+#### [x] Save and reload group properties
+1. [x] Create a group, set it to isolated mode, set opacity to 128, collapse it
+2. [x] Save as .draw
+3. [x] Reopen
+4. [x] Verify passThrough is FALSE (isolated)
+5. [x] Verify opacity is 128
+6. [x] Verify collapsed is TRUE
 
-#### [ ] Save and reload parentGroupIdx mapping
-1. [ ] Create complex nested structure: GroupA with Layer1, GroupB with Layer2 and Layer3
-2. [ ] Save and reopen
-3. [ ] Verify all parentGroupIdx references are correct (layers are in their correct groups)
+#### [x] Save and reload parentGroupIdx mapping
+1. [x] Create complex nested structure: GroupA with Layer1, GroupB with Layer2 and Layer3
+2. [x] Save and reopen
+3. [x] Verify all parentGroupIdx references are correct (layers are in their correct groups)
 
-#### [ ] Load pre-v24 DRW file (no groups)
-1. [ ] Open a .draw file saved before v24 (no group data)
-2. [ ] Verify all layers load as LAYER_TYPE_IMAGE with parentGroupIdx = 0
-3. [ ] Verify the application does not crash
+#### [x] Load pre-v24 DRW file (no groups)
+1. [x] Open a .draw file saved before v24 (no group data)
+2. [x] Verify all layers load as LAYER_TYPE_IMAGE with parentGroupIdx = 0
+3. [x] Verify the application does not crash
 
-#### [ ] Group layers skip pixel data in DRW
-1. [ ] Create a group (1×1 sentinel) and several image layers
-2. [ ] Save as .draw
-3. [ ] Verify file size is reasonable (group doesn't bloat the file)
-4. [ ] Reopen and verify group header has a 1×1 image handle
+#### [x] Group layers skip pixel data in DRW
+1. [x] Create a group (1×1 sentinel) and several image layers
+2. [x] Save as .draw
+3. [x] Verify file size is reasonable (group doesn't bloat the file)
+4. [x] Reopen and verify group header has a 1×1 image handle
 
 ---
 
@@ -738,14 +738,14 @@ DRW v24+ format saves group fields.
 
 ### [ ] Multi-Select and Groups
 
-#### [ ] Ctrl+Click to add group children to multi-select
-1. [ ] Create a group with 3 children
-2. [ ] Click one child, then Ctrl+Click another child
-3. [ ] Verify multi-select works normally within the group
+#### [x] Ctrl+Click to add group children to multi-select
+1. [x] Create a group with 3 children
+2. [x] Click one child, then Ctrl+Click another child
+3. [x] Verify multi-select works normally within the group
 
-#### [ ] Ctrl+Click group header adds all descendants
-1. [ ] Create a group, Ctrl+click the group header
-2. [ ] Verify all descendants are added to multi-select (Select All in Group behavior)
+#### [x] Ctrl+Click group header adds all descendants
+1. [x] Create a group, Ctrl+click the group header
+2. [x] Verify all descendants are added to multi-select (Select All in Group behavior)
 
 #### [ ] Multi-select across groups
 1. [ ] Create two groups
