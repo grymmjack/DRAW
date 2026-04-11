@@ -380,33 +380,33 @@ Multi-select all descendants of a group.
 1. [x] Select a top-level layer that is not in any group
 2. [x] Verify "Select All in Group" is greyed out
 
-### [ ] Selection from Group (Action 727)
+### [x] Selection from Group (Action 727)
 Create a pixel-accurate marquee selection from group contents.
 
-#### [ ] Selection from group creates marquee matching pixel bounds
-1. [ ] Create a group with 2 child layers, each with distinct pixel content at different positions
-2. [ ] Execute "Selection from Group" from context menu or Select menu
-3. [ ] Verify a marquee selection appears that encompasses all non-transparent pixels
-4. [ ] Verify the marquee box tightly fits the combined pixel content (not the full canvas)
+#### [x] Selection from group creates marquee matching pixel bounds
+1. [x] Create a group with 2 child layers, each with distinct pixel content at different positions
+2. [x] Execute "Selection from Group" from context menu or Select menu
+3. [x] Verify a marquee selection appears that encompasses all non-transparent pixels
+4. [x] Verify the marquee box tightly fits the combined pixel content (not the full canvas)
 
-#### [ ] Selection from group with nested sub-groups
-1. [ ] Create a group with a sub-group, both containing pixel data
-2. [ ] Execute "Selection from Group"
-3. [ ] Verify the marquee includes pixels from ALL nested layers (not just direct children)
+#### [x] Selection from group with nested sub-groups
+1. [x] Create a group with a sub-group, both containing pixel data
+2. [x] Execute "Selection from Group"
+3. [x] Verify the marquee includes pixels from ALL nested layers (not just direct children)
 
-#### [ ] Selection from group excludes hidden layers
-1. [ ] Create a group with 3 children, hide one
-2. [ ] Execute "Selection from Group"
-3. [ ] Verify hidden layers' pixels do NOT contribute to the selection bounds
+#### [x] Selection from group excludes hidden layers
+1. [x] Create a group with 3 children, hide one
+2. [x] Execute "Selection from Group"
+3. [x] Verify hidden layers' pixels do NOT contribute to the selection bounds
 
-#### [ ] Selection from group with single child
-1. [ ] Create a group with only 1 child layer
-2. [ ] Execute "Selection from Group"
-3. [ ] Verify the selection matches the single child's non-transparent pixels
+#### [x] Selection from group with single child
+1. [x] Create a group with only 1 child layer
+2. [x] Execute "Selection from Group"
+3. [x] Verify the selection matches the single child's non-transparent pixels
 
-#### [ ] Selection from group disabled when no group context
-1. [ ] Select a standalone top-level layer not in any group
-2. [ ] Verify "Selection from Group" is greyed out
+#### [x] Selection from group disabled when no group context
+1. [x] Select a standalone top-level layer not in any group
+2. [x] Verify "Selection from Group" is greyed out
 
 ### [ ] Delete Group (Action via context menu)
 Delete a group and all its children.
