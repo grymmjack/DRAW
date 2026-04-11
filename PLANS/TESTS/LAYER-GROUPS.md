@@ -747,55 +747,55 @@ DRW v24+ format saves group fields.
 1. [x] Create a group, Ctrl+click the group header
 2. [x] Verify all descendants are added to multi-select (Select All in Group behavior)
 
-#### [ ] Multi-select across groups
-1. [ ] Create two groups
-2. [ ] Ctrl+Click layers from both groups
-3. [ ] Verify multi-select spans both groups
+#### [x] Multi-select across groups
+1. [x] Create two groups
+2. [x] Ctrl+Click layers from both groups
+3. [x] Verify multi-select spans both groups
 
-### [ ] Align and Distribute with Groups
+### [x] Align and Distribute with Groups
 
-#### [ ] Align selected group children
-1. [ ] Multi-select children of a group
-2. [ ] Use Edit → Align Left (or other align commands)
-3. [ ] Verify alignment operates on the selected children
+#### [x] Align selected group children
+1. [x] Multi-select children of a group
+2. [x] Use Edit → Align Left (or other align commands)
+3. [x] Verify alignment operates on the selected children
 
-#### [ ] Align when group header is selected
-1. [ ] Select a group header
-2. [ ] Use an align command
-3. [ ] Verify all group descendants are aligned (group expands for operation)
+#### [x] Align when group header is selected
+1. [x] Select a group header
+2. [x] Use an align command
+3. [x] Verify all group descendants are aligned (group expands for operation)
 
-### [ ] Layer Operations on Group Children
+### [x] Layer Operations on Group Children
 
-#### [ ] Duplicate child layer stays in group
-1. [ ] Select a child layer inside a group
-2. [ ] Press Ctrl+Shift+D to duplicate
-3. [ ] Verify the duplicate is also inside the same group
+#### [x] Duplicate child layer stays in group
+1. [x] Select a child layer inside a group
+2. [x] Press Ctrl+Shift+D to duplicate
+3. [x] Verify the duplicate is also inside the same group
 
-#### [ ] Delete child layer from group
-1. [ ] Create a group with 3 children
-2. [ ] Select one child and press Ctrl+Shift+Delete
-3. [ ] Verify only that child is deleted
-4. [ ] Verify the group still contains the other 2 children
+#### [x] Delete child layer from group
+1. [x] Create a group with 3 children
+2. [x] Select one child and press Ctrl+Shift+Delete
+3. [x] Verify only that child is deleted
+4. [x] Verify the group still contains the other 2 children
 
-#### [ ] Merge down within group
-1. [ ] Create a group with layers A (top) and B (bottom)
-2. [ ] Select A and press Ctrl+Alt+E (Merge Down)
-3. [ ] Verify A merges into B within the group
-4. [ ] Verify the result stays inside the group
+#### [x] Merge down within group
+1. [x] Create a group with layers A (top) and B (bottom)
+2. [x] Select A and press Ctrl+Alt+E (Merge Down)
+3. [x] Verify A merges into B within the group
+4. [x] Verify the result stays inside the group
 
-### [ ] Rename Group
+### [x] Rename Group
 
-#### [ ] Double-click to rename group header
-1. [ ] Double-click the group header name in the layers panel
-2. [ ] Type a new name and press Enter
-3. [ ] Verify the group is renamed
+#### [x] Double-click to rename group header
+1. [x] Double-click the group header name in the layers panel
+2. [x] Type a new name and press Enter
+3. [x] Verify the group is renamed
 
-#### [ ] Undo/Redo rename
-1. [ ] Rename a group
-2. [ ] Ctrl+Z to undo
-3. [ ] Verify the old name is restored
-4. [ ] Ctrl+Y to redo
-5. [ ] Verify the new name reappears
+#### [x] Undo/Redo rename
+1. [x] Rename a group
+2. [x] Ctrl+Z to undo
+3. [x] Verify the old name is restored
+4. [x] Ctrl+Y to redo
+5. [x] Verify the new name reappears
 
 ### [ ] Opacity and Blend Mode on Group Header
 
