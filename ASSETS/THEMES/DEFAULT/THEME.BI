@@ -181,6 +181,10 @@ THEME.LAYER_PANEL_row_multi_sel_bg~& = _RGB32(50, 75, 110)         ' Multi-selec
 THEME.LAYER_PANEL_row_master_accent~& = _RGB32(100, 180, 255)      ' Left-edge accent bar on master row
 THEME.LAYER_PANEL_btn_drag_delete~&  = _RGBA32(200, 80, 80, 220)   ' Drag-over Delete button highlight
 THEME.LAYER_PANEL_btn_drag_new~&     = _RGBA32(80, 200, 80, 220)   ' Drag-over New Layer button highlight
+THEME.LAYER_PANEL_group_header_bg~&  = _RGB32(55, 55, 65)          ' Group header row background
+THEME.LAYER_PANEL_group_header_fg~&  = _RGB32(180, 200, 220)       ' Group header name text
+THEME.LAYER_PANEL_group_indent%      = 12                          ' Child indent pixels
+THEME.LAYER_PANEL_group_collapse_fg~& = _RGB32(160, 180, 200)      ' Collapse triangle color
 
 ' --- Transform overlay frame ---
 THEME.TRANSFORM_FRAME_COLOR~&        = _RGB32(180, 220, 255)       ' Quad outline

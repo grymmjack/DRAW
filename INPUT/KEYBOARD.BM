@@ -263,8 +263,8 @@ SUB KEYBOARD_tools (keypress AS STRING)
                 ' Keep tool selected so user can draw more polygons
                 GUI_NEEDS_REDRAW% = TRUE
             ELSEIF CURRENT_TOOL% = TOOL_MOVE AND MOVE.ACTIVE THEN
-                MOVE_apply_transform
-                ' After applying, clear move state and return to marquee tool
+                ' Commit and clear move state, then return to marquee tool
+                ' MOVE_reset calls MOVE_apply_transform internally
                 MOVE_reset
                 CURRENT_TOOL% = TOOL_MARQUEE
                 ' Clear marquee selection
@@ -2434,43 +2434,7 @@ SUB KEYBOARD_handle_ui_toggles ()
         ctrlAltRPressed% = FALSE
     END IF
 
-    ' Handle Ctrl+PgUp  = display scale up
-    ' Handle Ctrl+PgDn  = display scale down
-    ' Handle Ctrl+Alt+PgDn = display scale reset
-    IF NOT CFG.FULLSCREEN% THEN
-        STATIC scaleUpPressed AS INTEGER
-        IF MODIFIERS.ctrl% AND NOT MODIFIERS.alt% AND _KEYDOWN(KEY_PGUP&) THEN
-            IF NOT scaleUpPressed% THEN
-                CMD_execute_action 408
-                FRAME_IDLE% = FALSE
-                scaleUpPressed% = TRUE
-            END IF
-        ELSEIF NOT _KEYDOWN(KEY_PGUP&) THEN
-            scaleUpPressed% = FALSE
-        END IF
-
-        STATIC scaleDownPressed AS INTEGER
-        IF MODIFIERS.ctrl% AND NOT MODIFIERS.alt% AND _KEYDOWN(KEY_PGDN&) THEN
-            IF NOT scaleDownPressed% THEN
-                CMD_execute_action 409
-                FRAME_IDLE% = FALSE
-                scaleDownPressed% = TRUE
-            END IF
-        ELSEIF NOT _KEYDOWN(KEY_PGDN&) THEN
-            scaleDownPressed% = FALSE
-        END IF
-
-        STATIC scaleResetPressed AS INTEGER
-        IF MODIFIERS.ctrlAlt% AND _KEYDOWN(KEY_PGDN&) THEN
-            IF NOT scaleResetPressed% THEN
-                CMD_execute_action 416
-                FRAME_IDLE% = FALSE
-                scaleResetPressed% = TRUE
-            END IF
-        ELSEIF NOT _KEYDOWN(KEY_PGDN&) THEN
-            scaleResetPressed% = FALSE
-        END IF
-    END IF
+    ' Display scale shortcuts removed — use Settings dialog instead
 
     ' Ctrl+Alt+Shift+G = Toggle Grayscale Preview (action 2020)
     STATIC grayPreviewPressed AS INTEGER
@@ -2924,8 +2888,19 @@ SUB KEYBOARD_handle_move_keys ()
         MOVE_KEY_RIGHT_LAST% = keyRightNow%
         EXIT SUB
     END IF
-    IF NOT (CURRENT_TOOL% = TOOL_MOVE AND MOVE.ACTIVE) THEN
-        ' Not in active move mode and no CTRL held — clear key state and exit
+    IF CURRENT_TOOL% <> TOOL_MOVE THEN
+        ' Not in move tool at all and no CTRL held — clear key state and exit
+        MOVE_KEY_UP_LAST% = keyUpNow%
+        MOVE_KEY_DOWN_LAST% = keyDownNow%
+        MOVE_KEY_LEFT_LAST% = keyLeftNow%
+        MOVE_KEY_RIGHT_LAST% = keyRightNow%
+        EXIT SUB
+    END IF
+    ' Move tool selected but not active — auto-capture on arrow press
+    IF NOT MOVE.ACTIVE AND anyArrow% THEN
+        MOVE_capture_selection
+    END IF
+    IF NOT MOVE.ACTIVE THEN
         MOVE_KEY_UP_LAST% = keyUpNow%
         MOVE_KEY_DOWN_LAST% = keyDownNow%
         MOVE_KEY_LEFT_LAST% = keyLeftNow%
@@ -3629,8 +3604,14 @@ SUB KEYBOARD_handle_recent_files ()
                                 END IF
                             END IF
                         END IF
-                        DRW_load rfPath$
-                        CURRENT_DRW_FILENAME$ = rfPath$
+                        IF FILE_ASE_is_aseprite_file%(rfPath$) THEN
+                            FILE_ASE_load rfPath$
+                        ELSEIF FILE_PSD_is_psd_file%(rfPath$) THEN
+                            FILE_PSD_load rfPath$
+                        ELSE
+                            DRW_load rfPath$
+                            CURRENT_DRW_FILENAME$ = rfPath$
+                        END IF
                         CURRENT_FILENAME$ = rfPath$
                         RECENT_add_file rfPath$
                         CFG.LAST_DIR_OPEN$ = CONFIG_extract_dir$(rfPath$)
@@ -3705,6 +3686,9 @@ SUB KEYBOARD_layers ()
     STATIC layerCtrlShiftBracketLPressed AS INTEGER
     STATIC layerCtrlShiftBracketRPressed AS INTEGER
     STATIC layerCtrlShiftDelPressed AS INTEGER
+    STATIC layerCtrlGPressed AS INTEGER
+    STATIC layerCtrlShiftGPressed AS INTEGER
+    STATIC layerCtrlShiftUPressed AS INTEGER
     
     isCtrl% = MODIFIERS.ctrl%
     isShift% = MODIFIERS.shift%
@@ -3722,8 +3706,25 @@ SUB KEYBOARD_layers ()
         layerCtrlTabPressed% = FALSE
     END IF
     
+    ' Cross-fire prevention for Ctrl+Shift+LETTER handlers:
+    ' SDL2 can report stale _KEYDOWN state for a previously-pressed letter key,
+    ' causing multiple handlers to fire when only one key is physically pressed.
+    ' (Confirmed: Ctrl+Shift+N was triggering Ctrl+Shift+R rename dialog.)
+    ' Solution: count how many Ctrl+Shift letter keys report as down. If more
+    ' than one, skip all letter-key handlers for that frame.
+    DIM csKeyN AS INTEGER, csKeyD AS INTEGER, csKeyR AS INTEGER
+    DIM csKeyG AS INTEGER, csKeyU AS INTEGER, csKeyCount AS INTEGER
+    csKeyCount% = 0
+    IF isCtrl% AND isShift% THEN
+        csKeyN% = (_KEYDOWN(110) OR _KEYDOWN(78)):  IF csKeyN% THEN csKeyCount% = csKeyCount% + 1
+        csKeyD% = (_KEYDOWN(100) OR _KEYDOWN(68)):  IF csKeyD% THEN csKeyCount% = csKeyCount% + 1
+        csKeyR% = (_KEYDOWN(114) OR _KEYDOWN(82)):  IF csKeyR% THEN csKeyCount% = csKeyCount% + 1
+        csKeyG% = (_KEYDOWN(103) OR _KEYDOWN(71)):  IF csKeyG% THEN csKeyCount% = csKeyCount% + 1
+        csKeyU% = (_KEYDOWN(117) OR _KEYDOWN(85)):  IF csKeyU% THEN csKeyCount% = csKeyCount% + 1
+    END IF
+
     ' CTRL+SHIFT+N: New layer
-    IF isCtrl% AND isShift% AND (_KEYDOWN(110) OR _KEYDOWN(78)) THEN
+    IF isCtrl% AND isShift% AND csKeyN% AND csKeyCount% = 1 THEN
         IF NOT layerCtrlShiftNPressed% THEN
             DIM newLayerIdx AS INTEGER
             newLayerIdx% = LAYERS_new%
@@ -3744,7 +3745,7 @@ SUB KEYBOARD_layers ()
     END IF
     
     ' CTRL+SHIFT+D: Duplicate layer
-    IF isCtrl% AND isShift% AND (_KEYDOWN(100) OR _KEYDOWN(68)) THEN
+    IF isCtrl% AND isShift% AND csKeyD% AND csKeyCount% = 1 THEN
         IF NOT layerCtrlDPressed% THEN
             LAYERS_duplicate CURRENT_LAYER%
             layerCtrlDPressed% = TRUE
@@ -3754,7 +3755,7 @@ SUB KEYBOARD_layers ()
     END IF
     
     ' CTRL+SHIFT+R: Rename layer
-    IF isCtrl% AND isShift% AND (_KEYDOWN(114) OR _KEYDOWN(82)) THEN
+    IF isCtrl% AND isShift% AND csKeyR% AND csKeyCount% = 1 THEN
         IF NOT layerCtrlShiftRPressed% THEN
             LAYERS_rename CURRENT_LAYER%
             layerCtrlShiftRPressed% = TRUE
@@ -3850,6 +3851,39 @@ SUB KEYBOARD_layers ()
         END IF
     ELSEIF NOT (_KEYDOWN(69) OR _KEYDOWN(101)) THEN
         layerCtrlAltShiftEPressed% = FALSE
+    END IF
+
+    ' CTRL+G: New Group
+    IF isCtrl% AND NOT isShift% AND NOT isAlt% AND (_KEYDOWN(103) OR _KEYDOWN(71)) THEN
+        IF NOT layerCtrlGPressed% THEN
+            CMD_execute_action 720
+            FRAME_IDLE% = FALSE
+            layerCtrlGPressed% = TRUE
+        END IF
+    ELSEIF NOT _KEYDOWN(103) AND NOT _KEYDOWN(71) THEN
+        layerCtrlGPressed% = FALSE
+    END IF
+
+    ' CTRL+SHIFT+G: Group from Selection
+    IF isCtrl% AND isShift% AND NOT isAlt% AND csKeyG% AND csKeyCount% = 1 THEN
+        IF NOT layerCtrlShiftGPressed% THEN
+            CMD_execute_action 721
+            FRAME_IDLE% = FALSE
+            layerCtrlShiftGPressed% = TRUE
+        END IF
+    ELSEIF NOT _KEYDOWN(103) AND NOT _KEYDOWN(71) THEN
+        layerCtrlShiftGPressed% = FALSE
+    END IF
+
+    ' CTRL+SHIFT+U: Ungroup
+    IF isCtrl% AND isShift% AND NOT isAlt% AND csKeyU% AND csKeyCount% = 1 THEN
+        IF NOT layerCtrlShiftUPressed% THEN
+            CMD_execute_action 722
+            FRAME_IDLE% = FALSE
+            layerCtrlShiftUPressed% = TRUE
+        END IF
+    ELSEIF NOT _KEYDOWN(117) AND NOT _KEYDOWN(85) THEN
+        layerCtrlShiftUPressed% = FALSE
     END IF
 END SUB
 

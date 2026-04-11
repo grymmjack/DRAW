@@ -5,16 +5,16 @@
 
 
 ## Layer Groups
-- Move into
-- Move out of
-  - Group operations:
-    - Expand
-    - Collapse
-    - Move group
-    - Transform group
-    - Selection from group
-    - Merge group
-  - Distribute Layers in group
+- Move layer into
+- Move layer out of
+- Group operations:
+  - Expand
+  - Collapse
+  - Move group
+  - Transform group
+  - Selection from group
+  - Merge group
+- Align/Distribute Layers in group
 
 
 ## ADDITIONAL TABLE LAYOUT MODE

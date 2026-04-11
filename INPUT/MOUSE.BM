@@ -616,8 +616,7 @@ SUB MOUSE_autocommit_move_if_click_on_gui (rawX AS INTEGER, rawY AS INTEGER)
     IF TEXT_BAR.visible% AND TEXT_BAR_ui_in_bounds%(rawX%, rawY%) THEN clickOnGUI% = TRUE
 
     IF clickOnGUI% THEN
-        MOVE_apply_transform
-        MOVE_reset
+        MOVE_reset  ' MOVE_reset calls MOVE_apply_transform internally
     END IF
 END SUB
 
@@ -660,21 +659,77 @@ SUB MOUSE_handle_layer_panel (rawX AS INTEGER, rawY AS INTEGER, wheel_delta AS I
         LAYER_PANEL_blend_popup_hover rawX%, rawY%
     END IF
 
+    ' Layer context menu hover (always, popup may extend beyond panel bounds)
+    IF LAYER_PANEL.ctxMenuOpen% THEN
+        LAYER_PANEL_ctx_menu_hover rawX%, rawY%
+    END IF
+
     ' Blend popup click intercept - handle before panel bounds check
     ' so clicks anywhere (inside or outside panel) can close/select in the popup
     IF LAYER_PANEL.blendPopupOpen% THEN
         IF (MOUSE.B1% AND NOT MOUSE.OLD_B1%) OR (MOUSE.B2% AND NOT MOUSE.OLD_B2%) THEN
             DIM bpHit AS INTEGER
             bpHit% = LAYER_PANEL_blend_popup_hit%(rawX%, rawY%)
-            IF bpHit% >= 0 THEN
+            IF bpHit% = BLEND_PASS_THROUGH_POPUP_VALUE THEN
+                ' Pass Through selected — group-only, children composite as if no group
+                DIM bpLayerPT AS INTEGER: bpLayerPT% = LAYER_PANEL.blendPopupLayer%
+                IF bpLayerPT% >= 1 AND bpLayerPT% <= MAX_LAYERS THEN
+                    LAYERS(bpLayerPT%).passThrough% = TRUE
+                    LAYERS(bpLayerPT%).blendMode% = BLEND_NORMAL
+                    BLEND_invalidate_visibility bpLayerPT%
+                    GUI_NEEDS_REDRAW% = TRUE
+                END IF
+            ELSEIF bpHit% >= 0 THEN
                 DIM bpLayer AS INTEGER: bpLayer% = LAYER_PANEL.blendPopupLayer%
-                IF bpLayer% >= 1 AND bpLayer% <= 64 THEN
+                IF bpLayer% >= 1 AND bpLayer% <= MAX_LAYERS THEN
                     LAYERS(bpLayer%).blendMode% = bpHit%
+                    ' Switching to a real blend mode makes group isolated
+                    LAYERS(bpLayer%).passThrough% = FALSE
                     BLEND_invalidate_visibility bpLayer%
                     GUI_NEEDS_REDRAW% = TRUE
                 END IF
             END IF
             LAYER_PANEL_blend_popup_close
+            MOUSE.UI_CHROME_CLICKED% = TRUE
+            EXIT SUB
+        END IF
+    END IF
+
+    ' Layer context menu click intercept
+    IF LAYER_PANEL.ctxMenuOpen% THEN
+        IF (MOUSE.B1% AND NOT MOUSE.OLD_B1%) OR (MOUSE.B2% AND NOT MOUSE.OLD_B2%) THEN
+            DIM ctxHit AS INTEGER
+            ctxHit% = LAYER_PANEL_ctx_menu_hit%(rawX%, rawY%)
+            IF ctxHit% = -2 THEN
+                ' Click outside popup — close
+                LAYER_PANEL_ctx_menu_close
+            ELSEIF ctxHit% = BLEND_PASS_THROUGH_POPUP_VALUE THEN
+                ' Pass Through — group-only
+                DIM ctxLayerPT AS INTEGER: ctxLayerPT% = LAYER_PANEL.ctxMenuLayer%
+                IF ctxLayerPT% >= 1 AND ctxLayerPT% <= MAX_LAYERS THEN
+                    LAYERS(ctxLayerPT%).passThrough% = TRUE
+                    LAYERS(ctxLayerPT%).blendMode% = BLEND_NORMAL
+                    BLEND_invalidate_visibility ctxLayerPT%
+                    GUI_NEEDS_REDRAW% = TRUE
+                END IF
+                LAYER_PANEL_ctx_menu_close
+            ELSEIF ctxHit% >= 0 AND ctxHit% <= BLEND_MODE_COUNT - 1 THEN
+                ' Blend mode value (0-18) — apply to the target layer
+                DIM ctxLayer AS INTEGER: ctxLayer% = LAYER_PANEL.ctxMenuLayer%
+                IF ctxLayer% >= 1 AND ctxLayer% <= MAX_LAYERS THEN
+                    LAYERS(ctxLayer%).blendMode% = ctxHit%
+                    LAYERS(ctxLayer%).passThrough% = FALSE
+                    BLEND_invalidate_visibility ctxLayer%
+                    GUI_NEEDS_REDRAW% = TRUE
+                END IF
+                LAYER_PANEL_ctx_menu_close
+            ELSEIF ctxHit% >= 700 THEN
+                ' Command action — dispatch
+                LAYER_PANEL_ctx_menu_activate ctxHit%
+            ELSE
+                ' Divider or disabled — close
+                LAYER_PANEL_ctx_menu_close
+            END IF
             MOUSE.UI_CHROME_CLICKED% = TRUE
             EXIT SUB
         END IF
@@ -1852,8 +1907,7 @@ SUB MOUSE_tool_move ()
     ' reveal it, then fall through so the move starts on that layer.
     IF MODIFIERS.shiftOnly% AND NOT MOUSE.OLD_B1% THEN
         ' Commit any in-progress move first
-        IF MOVE.ACTIVE AND MOVE.SELECTION_IMAGE < -1 THEN
-            MOVE_apply_transform
+        IF MOVE.ACTIVE THEN
             MOVE_reset
         END IF
         DIM shiftTopLayer AS INTEGER
@@ -1902,7 +1956,6 @@ SUB MOUSE_tool_move ()
                 ' Clicking outside the selection commits the move (standard UX pattern
                 ' matching Photoshop, GIMP, Krita). Without this, the transform stays
                 ' floating indefinitely and no undo state is created until tool switch.
-                MOVE_apply_transform
                 MOVE_reset
                 ' Now start a fresh capture at the clicked position so user can
                 ' immediately begin a new move operation
@@ -2958,7 +3011,7 @@ SUB MOUSE_release_brush ()
     DIM k AS INTEGER
     DIM smartDirtyAny AS INTEGER
     smartDirtyAny% = FALSE
-    FOR k% = 1 TO 64
+    FOR k% = 1 TO MAX_LAYERS
         IF ERASER_SMART_DIRTY(k%) THEN
             smartDirtyAny% = TRUE
             EXIT FOR
@@ -2966,7 +3019,7 @@ SUB MOUSE_release_brush ()
     NEXT k%
     IF smartDirtyAny% THEN
         HISTORY_begin_group
-        FOR k% = 1 TO 64
+        FOR k% = 1 TO MAX_LAYERS
             IF ERASER_SMART_DIRTY(k%) THEN
                 IF ERASER_SMART_BEFORE_IMG(k%) < -1 AND ERASER_SMART_LAYER_ID(k%) > 0 THEN
                     HISTORY_record_brush ERASER_SMART_LAYER_ID(k%), k%, PAINT_apply_opacity~&(BRUSH_HISTORY_COLOR~&), BRUSH_HISTORY_FLAGS&, ERASER_SMART_BEFORE_IMG(k%), "Smart Eraser"
@@ -4100,6 +4153,21 @@ END SUB
 FUNCTION MOUSE_handle_gui_early% (rawX AS INTEGER, rawY AS INTEGER)
     STATIC textBarDragCaptured AS INTEGER
 
+    ' --- Layer context menu: close on any click outside the popup ---
+    IF LAYER_PANEL.ctxMenuOpen% THEN
+        IF (MOUSE.B1% AND NOT MOUSE.OLD_B1%) OR (MOUSE.B2% AND NOT MOUSE.OLD_B2%) THEN
+            DIM earlyCtxHit AS INTEGER
+            earlyCtxHit% = LAYER_PANEL_ctx_menu_hit%(rawX%, rawY%)
+            IF earlyCtxHit% = -2 THEN
+                ' Click outside popup — close immediately, consume click
+                LAYER_PANEL_ctx_menu_close
+                MOUSE.UI_CHROME_CLICKED% = TRUE
+                MOUSE_handle_gui_early% = TRUE
+                EXIT FUNCTION
+            END IF
+        END IF
+    END IF
+
     ' Auto-apply move transform when clicking GUI controls (without marquee selection)
     ' This ensures moving an entire layer is committed when user clicks elsewhere
     MOUSE_autocommit_move_if_click_on_gui rawX%, rawY%
@@ -4111,7 +4179,10 @@ FUNCTION MOUSE_handle_gui_early% (rawX AS INTEGER, rawY AS INTEGER)
     END IF
 
     ' Handle menu bar mouse move (hover tracking with menu switching)
-    MOUSE_handle_menubar_mouse_move rawX%, rawY%
+    ' Skip when layer panel popups are open to prevent hover bleed-through
+    IF NOT LAYER_PANEL.blendPopupOpen% AND NOT LAYER_PANEL.ctxMenuOpen% THEN
+        MOUSE_handle_menubar_mouse_move rawX%, rawY%
+    END IF
 
     ' Handle menu bar clicks (after command palette, before other GUI)
     IF MOUSE_handle_menubar_click%(rawX%, rawY%) THEN

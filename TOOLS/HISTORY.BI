@@ -29,6 +29,8 @@ CONST HISTORY_KIND_POLYLINE = 12
 CONST HISTORY_KIND_LAYER_MERGE = 13
 CONST HISTORY_KIND_LAYER_MERGE_VISIBLE = 14
 CONST HISTORY_KIND_RASTERIZE = 15
+CONST HISTORY_KIND_GROUP_REPARENT = 16
+CONST HISTORY_KIND_MERGE_GROUP = 17
 
 CONST HISTORY_FLAG_FILLED = 1
 CONST HISTORY_FLAG_CUSTOM_BRUSH = 2
@@ -121,15 +123,19 @@ DIM SHARED HISTORY_SEL_DATA(1 TO HISTORY_MAX_RECORDS) AS HISTORY_SEL_SNAP
 CONST HISTORY_MAX_MV_SLOTS = 64
 
 TYPE HISTORY_MV_ENTRY
-    slotIndex   AS INTEGER
-    layerId     AS LONG
-    zIndex      AS INTEGER
-    opacity     AS INTEGER
-    visible     AS INTEGER
-    opacityLock AS INTEGER
-    blendMode   AS INTEGER
-    img         AS LONG
-    name        AS STRING * 64
+    slotIndex      AS INTEGER
+    layerId        AS LONG
+    zIndex         AS INTEGER
+    opacity        AS INTEGER
+    visible        AS INTEGER
+    opacityLock    AS INTEGER
+    blendMode      AS INTEGER
+    img            AS LONG
+    name           AS STRING * 64
+    parentGroupIdx AS INTEGER
+    layerType      AS INTEGER
+    passThrough    AS INTEGER
+    collapsed      AS INTEGER
 END TYPE
 
 ' HISTORY_MV_DATA(mvSlot, layerEntry) — first dim is the MV slot (1..HISTORY_MAX_MV_SLOTS),
@@ -137,7 +143,7 @@ END TYPE
 ' HISTORY_MV_SLOT(recordIdx) maps a history record index to its MV slot.
 ' HISTORY_MV_COUNT(mvSlot) tracks how many layers are stored in that slot.
 DIM SHARED HISTORY_MV_COUNT(1 TO HISTORY_MAX_MV_SLOTS) AS INTEGER
-DIM SHARED HISTORY_MV_DATA(1 TO HISTORY_MAX_MV_SLOTS, 1 TO 64) AS HISTORY_MV_ENTRY
+DIM SHARED HISTORY_MV_DATA(1 TO HISTORY_MAX_MV_SLOTS, 1 TO MAX_LAYERS) AS HISTORY_MV_ENTRY
 DIM SHARED HISTORY_MV_SLOT(1 TO HISTORY_MAX_RECORDS) AS INTEGER
 
 ' ---- Staged selection pending commit ----
@@ -171,12 +177,15 @@ DECLARE SUB HISTORY_record_brush (layerId AS LONG, layerSlot AS INTEGER, drawCol
 DECLARE SUB HISTORY_record_transform (layerId AS LONG, layerSlot AS INTEGER, flags AS LONG, beforeImg AS LONG, label AS STRING)
 DECLARE SUB HISTORY_record_layer_merge (topIndex AS INTEGER, bottomIndex AS INTEGER)
 DECLARE SUB HISTORY_record_layer_merge_visible (sortedLayers() AS INTEGER, sortCount AS INTEGER, mergedResultSlot AS INTEGER)
+DECLARE SUB HISTORY_record_merge_group (groupIdx AS INTEGER, childBuf() AS INTEGER, childCount AS INTEGER)
+DECLARE SUB HISTORY_merge_group_update_result (resultLayerId AS LONG, resultSlot AS INTEGER)
 DECLARE SUB HISTORY_selection_stage ()
 DECLARE SUB HISTORY_selection_commit ()
 DECLARE FUNCTION HISTORY_MV_alloc_slot% ()
 DECLARE SUB HISTORY_MV_free_slot (mvSlot AS INTEGER)
 DECLARE FUNCTION HISTORY_create_layer_at_slot% (slotIndex AS INTEGER, targetZ AS INTEGER)
 DECLARE SUB HISTORY_refresh_layer_add_snapshot (layerId AS LONG)
+DECLARE SUB HISTORY_record_group_reparent (layerId AS LONG, layerSlot AS INTEGER, oldParent AS INTEGER, newParent AS INTEGER, oldZ AS INTEGER, newZ AS INTEGER, label AS STRING)
 DECLARE SUB HISTORY_save_binary (fh AS INTEGER, canvasW AS LONG, canvasH AS LONG)
 DECLARE SUB HISTORY_load_binary (fh AS INTEGER, canvasW AS LONG, canvasH AS LONG, formatVersion AS INTEGER)
 DECLARE SUB HISTORY_undo ()

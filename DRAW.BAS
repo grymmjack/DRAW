@@ -538,7 +538,7 @@ SUB MAIN_shutdown ()
     ' FREE LAYER IMAGES (pixel data + opacity cache)
     ' =====================================================================
     DIM li AS INTEGER
-    FOR li% = 1 TO 64
+    FOR li% = 1 TO MAX_LAYERS
         IF LAYERS(li%).imgHandle& < -1 THEN _FREEIMAGE LAYERS(li%).imgHandle&
         IF LAYERS(li%).opacityCacheImg& < -1 THEN _FREEIMAGE LAYERS(li%).opacityCacheImg&
     NEXT li%

@@ -96,6 +96,356 @@ END SUB
 
 
 ''
+' Apply a spatial adjustment (blur) whose output already has correct RGBA.
+' Same as IMAGE_ADJ_apply_to_layer but does NOT restore the original alpha,
+' because blur should soften edges into transparency.
+'
+' @param adjResult    LONG    New image handle from a blur function
+' @param historyLabel STRING  Label used for unified history recording
+'
+SUB IMAGE_ADJ_apply_spatial (adjResult AS LONG, historyLabel AS STRING)
+    IF adjResult& < -1 THEN
+        DIM asLayerImg AS LONG
+        asLayerImg& = LAYERS(CURRENT_LAYER%).imgHandle&
+
+        DIM asOrigSnap AS LONG
+        asOrigSnap& = _COPYIMAGE(asLayerImg&, 32)
+
+        DIM asOldDest AS LONG : asOldDest& = _DEST
+        _DEST asLayerImg&
+        _DONTBLEND asLayerImg&
+        CLS , _RGBA32(0, 0, 0, 0)
+        _PUTIMAGE , adjResult&
+        _BLEND asLayerImg&
+        _DEST asOldDest&
+        _FREEIMAGE adjResult&
+
+        ' No alpha restoration -- blur produces correct blurred RGBA output.
+
+        IF asOrigSnap& < -1 THEN
+            HISTORY_record_transform LAYERS(CURRENT_LAYER%).historyId&, CURRENT_LAYER%, 0, asOrigSnap&, historyLabel$
+        END IF
+
+        HISTORY_saved_this_frame% = TRUE
+
+        LAYERS(CURRENT_LAYER%).contentDirty% = TRUE
+        INVALIDATE_layers
+    END IF
+END SUB
+
+
+''
+' Premultiplied-alpha box blur: blurs all 4 channels (R, G, B, A).
+' Uses premultiplied alpha to avoid dark fringe at edges:
+'   1. Convert source to premultiplied alpha  (R*=R*A/255 etc.)
+'   2. Box-blur all 4 premultiplied channels
+'   3. Un-premultiply the result  (R=R'*255/A)
+'
+' This produces correct soft-edge blur into transparency -- edges become
+' semi-transparent and colours stay true.
+'
+' @param sourceImg LONG     Source image handle
+' @param radius    INTEGER  Blur radius (kernel is (2*radius+1)^2)
+' @return LONG  New blurred image handle with correct RGBA, or 0 on error
+'
+FUNCTION IMAGE_ADJ_blur_premul_rgba& (sourceImg AS LONG, radius AS INTEGER)
+    IF NOT (sourceImg& < -1) THEN
+        IMAGE_ADJ_blur_premul_rgba& = 0
+        EXIT FUNCTION
+    END IF
+
+    DIM bprW AS LONG, bprH AS LONG
+    bprW& = _WIDTH(sourceImg&) : bprH& = _HEIGHT(sourceImg&)
+
+    IF radius% <= 0 THEN
+        IMAGE_ADJ_blur_premul_rgba& = _COPYIMAGE(sourceImg&, 32)
+        EXIT FUNCTION
+    END IF
+
+    ' --- Step 1: create premultiplied-alpha copy ---
+    DIM bprPremul AS LONG
+    bprPremul& = _NEWIMAGE(bprW&, bprH&, 32)
+    DIM bprSrcM AS _MEM, bprPMM AS _MEM
+    bprSrcM = _MEMIMAGE(sourceImg&)
+    bprPMM = _MEMIMAGE(bprPremul&)
+
+    DIM bprOff AS _OFFSET
+    DIM bprPx AS _UNSIGNED LONG
+    DIM bprR AS INTEGER, bprG AS INTEGER, bprB AS INTEGER, bprA AS INTEGER
+
+    FOR bprOff = 0 TO bprSrcM.SIZE - 4 STEP 4
+        _MEMGET bprSrcM, bprSrcM.OFFSET + bprOff, bprPx~&
+        bprA% = _ALPHA32(bprPx~&)
+        IF bprA% > 0 THEN
+            bprR% = _RED32(bprPx~&) * bprA% \ 255
+            bprG% = _GREEN32(bprPx~&) * bprA% \ 255
+            bprB% = _BLUE32(bprPx~&) * bprA% \ 255
+        ELSE
+            bprR% = 0 : bprG% = 0 : bprB% = 0
+        END IF
+        DIM bprPMPx AS _UNSIGNED LONG
+        bprPMPx~& = _RGBA32(bprR%, bprG%, bprB%, bprA%)
+        _MEMPUT bprPMM, bprPMM.OFFSET + bprOff, bprPMPx~& AS _UNSIGNED LONG
+    NEXT bprOff
+    _MEMFREE bprSrcM
+
+    ' --- Step 2: box-blur all 4 premultiplied channels ---
+    DIM bprResult AS LONG
+    bprResult& = _NEWIMAGE(bprW&, bprH&, 32)
+    DIM bprResM AS _MEM
+    bprResM = _MEMIMAGE(bprResult&)
+
+    DIM bprX AS LONG, bprY AS LONG, bprDX AS INTEGER, bprDY AS INTEGER
+    DIM bprSX AS LONG, bprSY AS LONG
+    DIM bprSumR AS LONG, bprSumG AS LONG, bprSumB AS LONG, bprSumA AS LONG
+    DIM bprCnt AS LONG
+    DIM bprSample AS _UNSIGNED LONG
+
+    FOR bprY& = 0 TO bprH& - 1
+        FOR bprX& = 0 TO bprW& - 1
+            bprSumR& = 0 : bprSumG& = 0 : bprSumB& = 0 : bprSumA& = 0 : bprCnt& = 0
+            FOR bprDY% = -radius% TO radius%
+                bprSY& = bprY& + bprDY%
+                IF bprSY& >= 0 THEN
+                    IF bprSY& < bprH& THEN
+                        FOR bprDX% = -radius% TO radius%
+                            bprSX& = bprX& + bprDX%
+                            IF bprSX& >= 0 THEN
+                                IF bprSX& < bprW& THEN
+                                    bprSample~& = _MEMGET(bprPMM, bprPMM.OFFSET + (bprSY& * bprW& + bprSX&) * 4, _UNSIGNED LONG)
+                                    bprSumR& = bprSumR& + _RED32(bprSample~&)
+                                    bprSumG& = bprSumG& + _GREEN32(bprSample~&)
+                                    bprSumB& = bprSumB& + _BLUE32(bprSample~&)
+                                    bprSumA& = bprSumA& + _ALPHA32(bprSample~&)
+                                    bprCnt& = bprCnt& + 1
+                                END IF
+                            END IF
+                        NEXT bprDX%
+                    END IF
+                END IF
+            NEXT bprDY%
+
+            IF bprCnt& > 0 THEN
+                ' --- Step 3: un-premultiply ---
+                DIM bprBlurA AS INTEGER
+                bprBlurA% = bprSumA& \ bprCnt&
+                IF bprBlurA% > 0 THEN
+                    DIM bprFR AS INTEGER, bprFG AS INTEGER, bprFB AS INTEGER
+                    bprFR% = (bprSumR& \ bprCnt&) * 255 \ bprBlurA%
+                    bprFG% = (bprSumG& \ bprCnt&) * 255 \ bprBlurA%
+                    bprFB% = (bprSumB& \ bprCnt&) * 255 \ bprBlurA%
+                    IF bprFR% > 255 THEN bprFR% = 255
+                    IF bprFG% > 255 THEN bprFG% = 255
+                    IF bprFB% > 255 THEN bprFB% = 255
+                    DIM bprOutPx AS _UNSIGNED LONG
+                    bprOutPx~& = _RGBA32(bprFR%, bprFG%, bprFB%, bprBlurA%)
+                    _MEMPUT bprResM, bprResM.OFFSET + (bprY& * bprW& + bprX&) * 4, bprOutPx~& AS _UNSIGNED LONG
+                ELSE
+                    _MEMPUT bprResM, bprResM.OFFSET + (bprY& * bprW& + bprX&) * 4, _RGBA32(0, 0, 0, 0) AS _UNSIGNED LONG
+                END IF
+            END IF
+        NEXT bprX&
+    NEXT bprY&
+
+    _MEMFREE bprPMM
+    _MEMFREE bprResM
+    _FREEIMAGE bprPremul&
+    IMAGE_ADJ_blur_premul_rgba& = bprResult&
+END FUNCTION
+
+
+''
+' Collect target layer indices for image adjustments.
+' If multi-select is active, returns all non-group selected layers.
+' Otherwise, returns just CURRENT_LAYER% (if it is not a group).
+'
+' @param targets() INTEGER  Output array (1..MAX_LAYERS) filled with layer indices
+' @param tgtCount  INTEGER  Output count of targets written
+'
+SUB IMAGE_ADJ_collect_targets (targets() AS INTEGER, tgtCount AS INTEGER)
+    tgtCount% = 0
+    IF MULTI_SELECT_has_any% THEN
+        DIM iatI AS INTEGER
+        FOR iatI% = 1 TO MAX_LAYERS
+            IF MULTI_SELECT_LAYERS(iatI%) THEN
+                IF LAYERS(iatI%).imgHandle& < -1 THEN
+                    IF LAYERS(iatI%).layerType% <> LAYER_TYPE_GROUP THEN
+                        tgtCount% = tgtCount% + 1
+                        targets(tgtCount%) = iatI%
+                    END IF
+                END IF
+            END IF
+        NEXT iatI%
+    END IF
+    IF tgtCount% = 0 THEN
+        IF CURRENT_LAYER% >= 1 THEN
+            IF CURRENT_LAYER% <= MAX_LAYERS THEN
+                IF LAYERS(CURRENT_LAYER%).layerType% <> LAYER_TYPE_GROUP THEN
+                    tgtCount% = 1
+                    targets(1) = CURRENT_LAYER%
+                END IF
+            END IF
+        END IF
+    END IF
+END SUB
+
+
+''
+' Alpha-aware box blur that only averages non-transparent pixels, weighted
+' by alpha.  Prevents black (RGB 0,0,0) from transparent areas bleeding
+' into opaque content during spatial averaging.
+' Output pixels use _RGB32 (alpha=255) so IMAGE_ADJ_apply_to_layer can
+' restore original alpha normally.
+'
+' @param sourceImg LONG     Source image handle
+' @param radius    INTEGER  Blur radius (kernel is (2*radius+1)^2)
+' @return LONG  New blurred image handle, or 0 on error
+'
+FUNCTION IMAGE_ADJ_blur_alpha_aware& (sourceImg AS LONG, radius AS INTEGER)
+    IF NOT (sourceImg& < -1) THEN
+        IMAGE_ADJ_blur_alpha_aware& = 0
+        EXIT FUNCTION
+    END IF
+
+    DIM baaResult AS LONG
+    baaResult& = _COPYIMAGE(sourceImg&, 32)
+    IF radius% <= 0 THEN
+        IMAGE_ADJ_blur_alpha_aware& = baaResult&
+        EXIT FUNCTION
+    END IF
+
+    DIM baaSrc AS _MEM, baaRes AS _MEM
+    baaSrc = _MEMIMAGE(sourceImg&)
+    baaRes = _MEMIMAGE(baaResult&)
+
+    DIM baaW AS LONG, baaH AS LONG
+    baaW& = _WIDTH(sourceImg&) : baaH& = _HEIGHT(sourceImg&)
+
+    DIM baaX AS LONG, baaY AS LONG, baaDX AS INTEGER, baaDY AS INTEGER
+    DIM baaSX AS LONG, baaSY AS LONG
+    DIM baaSumR AS LONG, baaSumG AS LONG, baaSumB AS LONG, baaSumW AS LONG
+    DIM baaPx AS _UNSIGNED LONG, baaA AS INTEGER
+    DIM baaCurPx AS _UNSIGNED LONG
+    DIM baaOutPx AS _UNSIGNED LONG
+
+    FOR baaY& = 0 TO baaH& - 1
+        FOR baaX& = 0 TO baaW& - 1
+            baaCurPx~& = _MEMGET(baaSrc, baaSrc.OFFSET + (baaY& * baaW& + baaX&) * 4, _UNSIGNED LONG)
+            IF _ALPHA32(baaCurPx~&) > 0 THEN
+                baaSumR& = 0 : baaSumG& = 0 : baaSumB& = 0 : baaSumW& = 0
+                FOR baaDY% = -radius% TO radius%
+                    baaSY& = baaY& + baaDY%
+                    IF baaSY& >= 0 AND baaSY& < baaH& THEN
+                        FOR baaDX% = -radius% TO radius%
+                            baaSX& = baaX& + baaDX%
+                            IF baaSX& >= 0 AND baaSX& < baaW& THEN
+                                baaPx~& = _MEMGET(baaSrc, baaSrc.OFFSET + (baaSY& * baaW& + baaSX&) * 4, _UNSIGNED LONG)
+                                baaA% = _ALPHA32(baaPx~&)
+                                IF baaA% > 0 THEN
+                                    baaSumR& = baaSumR& + _RED32(baaPx~&)
+                                    baaSumG& = baaSumG& + _GREEN32(baaPx~&)
+                                    baaSumB& = baaSumB& + _BLUE32(baaPx~&)
+                                    baaSumW& = baaSumW& + 1
+                                END IF
+                            END IF
+                        NEXT baaDX%
+                    END IF
+                NEXT baaDY%
+                IF baaSumW& > 0 THEN
+                    baaOutPx~& = _RGB32(baaSumR& \ baaSumW&, baaSumG& \ baaSumW&, baaSumB& \ baaSumW&)
+                    _MEMPUT baaRes, baaRes.OFFSET + (baaY& * baaW& + baaX&) * 4, baaOutPx~& AS _UNSIGNED LONG
+                END IF
+            ELSE
+                ' Transparent pixel — write RGB32(0,0,0) so apply_to_layer
+                ' overwrites cleanly; alpha restore will set alpha back to 0.
+                baaOutPx~& = _RGB32(0, 0, 0)
+                _MEMPUT baaRes, baaRes.OFFSET + (baaY& * baaW& + baaX&) * 4, baaOutPx~& AS _UNSIGNED LONG
+            END IF
+        NEXT baaX&
+    NEXT baaY&
+
+    _MEMFREE baaSrc
+    _MEMFREE baaRes
+    IMAGE_ADJ_blur_alpha_aware& = baaResult&
+END FUNCTION
+
+
+''
+' Alpha-aware pixelate that only averages non-transparent pixels within
+' each block.  Prevents black from transparent areas darkening blocks.
+' Output pixels use _RGB32 (alpha=255); transparent blocks are left as-is.
+'
+' @param sourceImg LONG     Source image handle
+' @param pixelSize INTEGER  Block size in pixels
+' @return LONG  New pixelated image handle, or 0 on error
+'
+FUNCTION IMAGE_ADJ_pixelate_alpha_aware& (sourceImg AS LONG, pixelSize AS INTEGER)
+    IF NOT (sourceImg& < -1) THEN
+        IMAGE_ADJ_pixelate_alpha_aware& = 0
+        EXIT FUNCTION
+    END IF
+
+    DIM paaBlockSize AS INTEGER
+    paaBlockSize% = pixelSize%
+    IF paaBlockSize% < 1 THEN paaBlockSize% = 1
+    IF paaBlockSize% > 50 THEN paaBlockSize% = 50
+
+    DIM paaW AS LONG, paaH AS LONG
+    paaW& = _WIDTH(sourceImg&) : paaH& = _HEIGHT(sourceImg&)
+
+    DIM paaResult AS LONG
+    paaResult& = _COPYIMAGE(sourceImg&, 32)
+
+    DIM paaSrc AS _MEM, paaRes AS _MEM
+    paaSrc = _MEMIMAGE(sourceImg&)
+    paaRes = _MEMIMAGE(paaResult&)
+
+    DIM paaBlockX AS LONG, paaBlockY AS LONG
+    DIM paaX AS LONG, paaY AS LONG
+    DIM paaSumR AS LONG, paaSumG AS LONG, paaSumB AS LONG, paaSumW AS LONG
+    DIM paaPx AS _UNSIGNED LONG, paaA AS INTEGER
+    DIM paaAvgColor AS _UNSIGNED LONG
+    DIM paaEndX AS LONG, paaEndY AS LONG
+
+    FOR paaBlockY& = 0 TO paaH& - 1 STEP paaBlockSize%
+        FOR paaBlockX& = 0 TO paaW& - 1 STEP paaBlockSize%
+            paaSumR& = 0 : paaSumG& = 0 : paaSumB& = 0 : paaSumW& = 0
+            paaEndY& = paaBlockY& + paaBlockSize% - 1
+            IF paaEndY& > paaH& - 1 THEN paaEndY& = paaH& - 1
+            paaEndX& = paaBlockX& + paaBlockSize% - 1
+            IF paaEndX& > paaW& - 1 THEN paaEndX& = paaW& - 1
+
+            FOR paaY& = paaBlockY& TO paaEndY&
+                FOR paaX& = paaBlockX& TO paaEndX&
+                    _MEMGET paaSrc, paaSrc.OFFSET + (paaY& * paaW& + paaX&) * 4, paaPx~&
+                    paaA% = _ALPHA32(paaPx~&)
+                    IF paaA% > 0 THEN
+                        paaSumR& = paaSumR& + _RED32(paaPx~&)
+                        paaSumG& = paaSumG& + _GREEN32(paaPx~&)
+                        paaSumB& = paaSumB& + _BLUE32(paaPx~&)
+                        paaSumW& = paaSumW& + 1
+                    END IF
+                NEXT paaX&
+            NEXT paaY&
+
+            IF paaSumW& > 0 THEN
+                paaAvgColor~& = _RGB32(paaSumR& \ paaSumW&, paaSumG& \ paaSumW&, paaSumB& \ paaSumW&)
+                FOR paaY& = paaBlockY& TO paaEndY&
+                    FOR paaX& = paaBlockX& TO paaEndX&
+                        _MEMPUT paaRes, paaRes.OFFSET + (paaY& * paaW& + paaX&) * 4, paaAvgColor~& AS _UNSIGNED LONG
+                    NEXT paaX&
+                NEXT paaY&
+            END IF
+        NEXT paaBlockX&
+    NEXT paaBlockY&
+
+    _MEMFREE paaSrc
+    _MEMFREE paaRes
+    IMAGE_ADJ_pixelate_alpha_aware& = paaResult&
+END FUNCTION
+
+
+''
 ' Build an unsharp-mask sharpened copy of sourceImg.
 ' Returns a new image handle (caller must _FREEIMAGE when done).
 '
@@ -105,7 +455,7 @@ END SUB
 '
 FUNCTION IMAGE_ADJ_apply_sharpen& (sourceImg AS LONG, amt AS INTEGER)
     DIM blurred AS LONG
-    blurred& = GJ_IMGADJ_Blur(sourceImg, 1)
+    blurred& = IMAGE_ADJ_blur_alpha_aware&(sourceImg, 1)
     IF blurred& < -1 THEN
         DIM result AS LONG
         result& = GJ_IMGADJ_CloneImage(sourceImg)
@@ -170,9 +520,20 @@ END FUNCTION
 '
 SUB IMAGE_ADJ_invert ()
     IF CURRENT_LAYER% < 1 THEN EXIT SUB
+    DIM iatTargets(1 TO MAX_LAYERS) AS INTEGER, iatTgtCount AS INTEGER, iatT AS INTEGER
+    DIM iatSaveCL AS INTEGER
+    IMAGE_ADJ_collect_targets iatTargets%(), iatTgtCount%
+    IF iatTgtCount% = 0 THEN EXIT SUB
+    iatSaveCL% = CURRENT_LAYER%
+    IF iatTgtCount% > 1 THEN HISTORY_begin_group
     DIM adjR AS LONG
-    adjR& = GJ_IMGADJ_Invert(LAYERS(CURRENT_LAYER%).imgHandle&)
-    IMAGE_ADJ_apply_to_layer adjR&, "Invert"
+    FOR iatT% = 1 TO iatTgtCount%
+        CURRENT_LAYER% = iatTargets%(iatT%)
+        adjR& = GJ_IMGADJ_Invert(LAYERS(CURRENT_LAYER%).imgHandle&)
+        IMAGE_ADJ_apply_to_layer adjR&, "Invert"
+    NEXT iatT%
+    IF iatTgtCount% > 1 THEN HISTORY_end_group
+    CURRENT_LAYER% = iatSaveCL%
 END SUB
 
 
@@ -181,9 +542,20 @@ END SUB
 '
 SUB IMAGE_ADJ_desaturate ()
     IF CURRENT_LAYER% < 1 THEN EXIT SUB
+    DIM iatTargets(1 TO MAX_LAYERS) AS INTEGER, iatTgtCount AS INTEGER, iatT AS INTEGER
+    DIM iatSaveCL AS INTEGER
+    IMAGE_ADJ_collect_targets iatTargets%(), iatTgtCount%
+    IF iatTgtCount% = 0 THEN EXIT SUB
+    iatSaveCL% = CURRENT_LAYER%
+    IF iatTgtCount% > 1 THEN HISTORY_begin_group
     DIM adjR AS LONG
-    adjR& = GJ_IMGADJ_Desaturate(LAYERS(CURRENT_LAYER%).imgHandle&, GJ_IMGADJ_DESATURATE_LUMINANCE)
-    IMAGE_ADJ_apply_to_layer adjR&, "Desaturate"
+    FOR iatT% = 1 TO iatTgtCount%
+        CURRENT_LAYER% = iatTargets%(iatT%)
+        adjR& = GJ_IMGADJ_Desaturate(LAYERS(CURRENT_LAYER%).imgHandle&, GJ_IMGADJ_DESATURATE_LUMINANCE)
+        IMAGE_ADJ_apply_to_layer adjR&, "Desaturate"
+    NEXT iatT%
+    IF iatTgtCount% > 1 THEN HISTORY_end_group
+    CURRENT_LAYER% = iatSaveCL%
 END SUB
 
 
@@ -312,36 +684,72 @@ SUB IMAGE_ADJ_update_loupe (ctx AS DIALOG_CTX)
     _PUTIMAGE (0, 0)-(tw - 1, th - 1), SCRN.CANVAS&, ctx.origThumb, (px0, py0)-(px1, py1)
     _BLEND ctx.origThumb
 
-    ' Capture the current layer's rendered pixels at the same screen region.
+    ' Capture target layer(s) rendered pixels at the same screen region.
     ' This provides the alpha mask so previews only show adjustments on
     ' non-transparent layer pixels — matching the final apply behaviour.
+    ' For multi-select (group expand), composite ALL selected layers into mask.
     IF IMGADJ_LAYER_MASK& < -1 THEN _FREEIMAGE IMGADJ_LAYER_MASK&
-    DIM loupeLayerImg AS LONG
-    loupeLayerImg& = LAYERS(CURRENT_LAYER%).imgHandle&
-    IF loupeLayerImg& < -1 THEN
-        ' Render the layer at zoom/pan into a temp surface, then crop the loupe region
-        DIM loupeZW AS LONG, loupeZH AS LONG, loupeDX AS INTEGER, loupeDY AS INTEGER
-        loupeZW& = SCRN.canvasW& * SCRN.zoom!
-        loupeZH& = SCRN.canvasH& * SCRN.zoom!
-        loupeDX% = (SCRN.w& - loupeZW&) \ 2 + SCRN.offsetX% + SCRN.panelShiftX%
-        loupeDY% = (SCRN.h& - loupeZH&) \ 2 + SCRN.offsetY%
-        DIM loupeFull AS LONG
-        loupeFull& = _NEWIMAGE(SCRN.w&, SCRN.h&, 32)
-        DIM loupeOldD AS LONG : loupeOldD& = _DEST
-        _DEST loupeFull&
-        CLS , _RGBA32(0, 0, 0, 0)
-        _DONTBLEND loupeFull&
-        _PUTIMAGE (loupeDX%, loupeDY%)-(loupeDX% + loupeZW& - 1, loupeDY% + loupeZH& - 1), loupeLayerImg&, loupeFull&
-        _BLEND loupeFull&
-        _DEST loupeOldD&
+    DIM loupeZW AS LONG, loupeZH AS LONG, loupeDX AS INTEGER, loupeDY AS INTEGER
+    loupeZW& = SCRN.canvasW& * SCRN.zoom!
+    loupeZH& = SCRN.canvasH& * SCRN.zoom!
+    loupeDX% = (SCRN.w& - loupeZW&) \ 2 + SCRN.offsetX% + SCRN.panelShiftX%
+    loupeDY% = (SCRN.h& - loupeZH&) \ 2 + SCRN.offsetY%
+    DIM loupeFull AS LONG
+    loupeFull& = _NEWIMAGE(SCRN.w&, SCRN.h&, 32)
+    DIM loupeOldD AS LONG : loupeOldD& = _DEST
+    _DEST loupeFull&
+    CLS , _RGBA32(0, 0, 0, 0)
+
+    DIM loupeMulti AS INTEGER
+    loupeMulti% = MULTI_SELECT_has_any%
+    IF loupeMulti% THEN
+        ' Composite all multi-selected layers into the mask surface (union of alpha)
+        DIM loupeMSI AS INTEGER
+        FOR loupeMSI% = 1 TO MAX_LAYERS
+            IF MULTI_SELECT_LAYERS(loupeMSI%) THEN
+                IF LAYERS(loupeMSI%).imgHandle& < -1 THEN
+                    IF LAYERS(loupeMSI%).layerType% <> LAYER_TYPE_GROUP THEN
+                        _PUTIMAGE (loupeDX%, loupeDY%)-(loupeDX% + loupeZW& - 1, loupeDY% + loupeZH& - 1), LAYERS(loupeMSI%).imgHandle&, loupeFull&
+                    END IF
+                END IF
+            END IF
+        NEXT loupeMSI%
+    ELSE
+        DIM loupeLayerImg AS LONG
+        loupeLayerImg& = LAYERS(CURRENT_LAYER%).imgHandle&
+        IF loupeLayerImg& < -1 THEN
+            _DONTBLEND loupeFull&
+            _PUTIMAGE (loupeDX%, loupeDY%)-(loupeDX% + loupeZW& - 1, loupeDY% + loupeZH& - 1), loupeLayerImg&, loupeFull&
+            _BLEND loupeFull&
+        END IF
+    END IF
+    _DEST loupeOldD&
+
+    ' Check if loupeFull has any non-transparent pixels in the crop region
+    DIM loupeHasContent AS INTEGER
+    loupeHasContent% = FALSE
+    DIM loupeCheckMem AS _MEM
+    loupeCheckMem = _MEMIMAGE(loupeFull&)
+    DIM loupeCheckOff AS _OFFSET
+    DIM loupeCheckA AS _UNSIGNED _BYTE
+    FOR loupeCheckOff = 0 TO loupeCheckMem.SIZE - 4 STEP 4
+        _MEMGET loupeCheckMem, loupeCheckMem.OFFSET + loupeCheckOff + 3, loupeCheckA~%%
+        IF loupeCheckA~%% > 0 THEN
+            loupeHasContent% = TRUE
+            EXIT FOR
+        END IF
+    NEXT loupeCheckOff
+    _MEMFREE loupeCheckMem
+
+    IF loupeHasContent% THEN
         IMGADJ_LAYER_MASK& = _NEWIMAGE(tw, th, 32)
         _DONTBLEND IMGADJ_LAYER_MASK&
         _PUTIMAGE (0, 0)-(tw - 1, th - 1), loupeFull&, IMGADJ_LAYER_MASK&, (px0, py0)-(px1, py1)
         _BLEND IMGADJ_LAYER_MASK&
-        IF loupeFull& < -1 THEN _FREEIMAGE loupeFull&
     ELSE
         IMGADJ_LAYER_MASK& = 0
     END IF
+    IF loupeFull& < -1 THEN _FREEIMAGE loupeFull&
 
     ' Invalidate preview thumb — dialog loop will recompute it via previewDirty
     IF ctx.previewThumb < -1 THEN _FREEIMAGE ctx.previewThumb
@@ -452,24 +860,34 @@ SUB IMAGE_ADJ_brightness_contrast_dialog ()
     LOOP UNTIL ctx.done%
 
     IF ctx.result% THEN
-        DIM src AS LONG : src& = LAYERS(CURRENT_LAYER%).imgHandle&
-        DIM tmp AS LONG, adjR AS LONG
-        IF brightness% > 0 THEN
-            tmp& = GJ_IMGADJ_Brightness(src&, "+", (brightness% * 255) \ 100)
-        ELSEIF brightness% < 0 THEN
-            tmp& = GJ_IMGADJ_Brightness(src&, "-", ((-brightness%) * 255) \ 100)
-        ELSE
-            tmp& = GJ_IMGADJ_CloneImage(src&)
-        END IF
-        IF contrast% > 0 THEN
-            adjR& = GJ_IMGADJ_Contrast(tmp&, "+", contrast%)
-        ELSEIF contrast% < 0 THEN
-            adjR& = GJ_IMGADJ_Contrast(tmp&, "-", -contrast%)
-        ELSE
-            adjR& = GJ_IMGADJ_CloneImage(tmp&)
-        END IF
-        IF tmp& < -1 AND tmp& <> src& THEN _FREEIMAGE tmp&
-        IMAGE_ADJ_apply_to_layer adjR&, "Brightness / Contrast"
+        DIM bcTargets(1 TO MAX_LAYERS) AS INTEGER, bcTgtCount AS INTEGER, bcT AS INTEGER
+        DIM bcSaveCL AS INTEGER
+        IMAGE_ADJ_collect_targets bcTargets%(), bcTgtCount%
+        bcSaveCL% = CURRENT_LAYER%
+        IF bcTgtCount% > 1 THEN HISTORY_begin_group
+        DIM src AS LONG, tmp AS LONG, adjR AS LONG
+        FOR bcT% = 1 TO bcTgtCount%
+            CURRENT_LAYER% = bcTargets%(bcT%)
+            src& = LAYERS(CURRENT_LAYER%).imgHandle&
+            IF brightness% > 0 THEN
+                tmp& = GJ_IMGADJ_Brightness(src&, "+", (brightness% * 255) \ 100)
+            ELSEIF brightness% < 0 THEN
+                tmp& = GJ_IMGADJ_Brightness(src&, "-", ((-brightness%) * 255) \ 100)
+            ELSE
+                tmp& = GJ_IMGADJ_CloneImage(src&)
+            END IF
+            IF contrast% > 0 THEN
+                adjR& = GJ_IMGADJ_Contrast(tmp&, "+", contrast%)
+            ELSEIF contrast% < 0 THEN
+                adjR& = GJ_IMGADJ_Contrast(tmp&, "-", -contrast%)
+            ELSE
+                adjR& = GJ_IMGADJ_CloneImage(tmp&)
+            END IF
+            IF tmp& < -1 AND tmp& <> src& THEN _FREEIMAGE tmp&
+            IMAGE_ADJ_apply_to_layer adjR&, "Brightness / Contrast"
+        NEXT bcT%
+        IF bcTgtCount% > 1 THEN HISTORY_end_group
+        CURRENT_LAYER% = bcSaveCL%
     END IF
 
     DIALOG_cleanup ctx
@@ -545,24 +963,34 @@ SUB IMAGE_ADJ_hue_saturation_dialog ()
     LOOP UNTIL ctx.done%
 
     IF ctx.result% THEN
-        DIM src AS LONG : src& = LAYERS(CURRENT_LAYER%).imgHandle&
-        DIM tmp AS LONG, adjR AS LONG
-        IF hueShift% > 0 THEN
-            tmp& = GJ_IMGADJ_Hue(src&, "+", hueShift%)
-        ELSEIF hueShift% < 0 THEN
-            tmp& = GJ_IMGADJ_Hue(src&, "-", -hueShift%)
-        ELSE
-            tmp& = GJ_IMGADJ_CloneImage(src&)
-        END IF
-        IF satShift% > 0 THEN
-            adjR& = GJ_IMGADJ_Saturation(tmp&, "+", satShift%)
-        ELSEIF satShift% < 0 THEN
-            adjR& = GJ_IMGADJ_Saturation(tmp&, "-", -satShift%)
-        ELSE
-            adjR& = GJ_IMGADJ_CloneImage(tmp&)
-        END IF
-        IF tmp& < -1 AND tmp& <> src& THEN _FREEIMAGE tmp&
-        IMAGE_ADJ_apply_to_layer adjR&, "Hue / Saturation"
+        DIM hsTargets(1 TO MAX_LAYERS) AS INTEGER, hsTgtCount AS INTEGER, hsT AS INTEGER
+        DIM hsSaveCL AS INTEGER
+        IMAGE_ADJ_collect_targets hsTargets%(), hsTgtCount%
+        hsSaveCL% = CURRENT_LAYER%
+        IF hsTgtCount% > 1 THEN HISTORY_begin_group
+        DIM src AS LONG, tmp AS LONG, adjR AS LONG
+        FOR hsT% = 1 TO hsTgtCount%
+            CURRENT_LAYER% = hsTargets%(hsT%)
+            src& = LAYERS(CURRENT_LAYER%).imgHandle&
+            IF hueShift% > 0 THEN
+                tmp& = GJ_IMGADJ_Hue(src&, "+", hueShift%)
+            ELSEIF hueShift% < 0 THEN
+                tmp& = GJ_IMGADJ_Hue(src&, "-", -hueShift%)
+            ELSE
+                tmp& = GJ_IMGADJ_CloneImage(src&)
+            END IF
+            IF satShift% > 0 THEN
+                adjR& = GJ_IMGADJ_Saturation(tmp&, "+", satShift%)
+            ELSEIF satShift% < 0 THEN
+                adjR& = GJ_IMGADJ_Saturation(tmp&, "-", -satShift%)
+            ELSE
+                adjR& = GJ_IMGADJ_CloneImage(tmp&)
+            END IF
+            IF tmp& < -1 AND tmp& <> src& THEN _FREEIMAGE tmp&
+            IMAGE_ADJ_apply_to_layer adjR&, "Hue / Saturation"
+        NEXT hsT%
+        IF hsTgtCount% > 1 THEN HISTORY_end_group
+        CURRENT_LAYER% = hsSaveCL%
     END IF
 
     DIALOG_cleanup ctx
@@ -631,9 +1059,19 @@ SUB IMAGE_ADJ_levels_dialog ()
     LOOP UNTIL ctx.done%
 
     IF ctx.result% THEN
+        DIM lvTargets(1 TO MAX_LAYERS) AS INTEGER, lvTgtCount AS INTEGER, lvT AS INTEGER
+        DIM lvSaveCL AS INTEGER
+        IMAGE_ADJ_collect_targets lvTargets%(), lvTgtCount%
+        lvSaveCL% = CURRENT_LAYER%
+        IF lvTgtCount% > 1 THEN HISTORY_begin_group
         DIM adjR AS LONG
-        adjR& = GJ_IMGADJ_Levels(LAYERS(CURRENT_LAYER%).imgHandle&, inMin%, inMax%, outMin%, outMax%)
-        IMAGE_ADJ_apply_to_layer adjR&, "Levels"
+        FOR lvT% = 1 TO lvTgtCount%
+            CURRENT_LAYER% = lvTargets%(lvT%)
+            adjR& = GJ_IMGADJ_Levels(LAYERS(CURRENT_LAYER%).imgHandle&, inMin%, inMax%, outMin%, outMax%)
+            IMAGE_ADJ_apply_to_layer adjR&, "Levels"
+        NEXT lvT%
+        IF lvTgtCount% > 1 THEN HISTORY_end_group
+        CURRENT_LAYER% = lvSaveCL%
     END IF
 
     DIALOG_cleanup ctx
@@ -697,9 +1135,19 @@ SUB IMAGE_ADJ_color_balance_dialog ()
     LOOP UNTIL ctx.done%
 
     IF ctx.result% THEN
+        DIM cbTargets(1 TO MAX_LAYERS) AS INTEGER, cbTgtCount AS INTEGER, cbT AS INTEGER
+        DIM cbSaveCL AS INTEGER
+        IMAGE_ADJ_collect_targets cbTargets%(), cbTgtCount%
+        cbSaveCL% = CURRENT_LAYER%
+        IF cbTgtCount% > 1 THEN HISTORY_begin_group
         DIM adjR AS LONG
-        adjR& = GJ_IMGADJ_ColorBalance(LAYERS(CURRENT_LAYER%).imgHandle&, redShift%, greenShift%, blueShift%)
-        IMAGE_ADJ_apply_to_layer adjR&, "Color Balance"
+        FOR cbT% = 1 TO cbTgtCount%
+            CURRENT_LAYER% = cbTargets%(cbT%)
+            adjR& = GJ_IMGADJ_ColorBalance(LAYERS(CURRENT_LAYER%).imgHandle&, redShift%, greenShift%, blueShift%)
+            IMAGE_ADJ_apply_to_layer adjR&, "Color Balance"
+        NEXT cbT%
+        IF cbTgtCount% > 1 THEN HISTORY_end_group
+        CURRENT_LAYER% = cbSaveCL%
     END IF
 
     DIALOG_cleanup ctx
@@ -754,9 +1202,19 @@ SUB IMAGE_ADJ_blur_dialog ()
     LOOP UNTIL ctx.done%
 
     IF ctx.result% THEN
+        DIM blTargets(1 TO MAX_LAYERS) AS INTEGER, blTgtCount AS INTEGER, blT AS INTEGER
+        DIM blSaveCL AS INTEGER
+        IMAGE_ADJ_collect_targets blTargets%(), blTgtCount%
+        blSaveCL% = CURRENT_LAYER%
+        IF blTgtCount% > 1 THEN HISTORY_begin_group
         DIM adjR AS LONG
-        adjR& = GJ_IMGADJ_Blur(LAYERS(CURRENT_LAYER%).imgHandle&, radius%)
-        IMAGE_ADJ_apply_to_layer adjR&, "Blur"
+        FOR blT% = 1 TO blTgtCount%
+            CURRENT_LAYER% = blTargets%(blT%)
+            adjR& = IMAGE_ADJ_blur_premul_rgba&(LAYERS(CURRENT_LAYER%).imgHandle&, radius%)
+            IMAGE_ADJ_apply_spatial adjR&, "Blur"
+        NEXT blT%
+        IF blTgtCount% > 1 THEN HISTORY_end_group
+        CURRENT_LAYER% = blSaveCL%
     END IF
 
     DIALOG_cleanup ctx
@@ -811,9 +1269,19 @@ SUB IMAGE_ADJ_sharpen_dialog ()
     LOOP UNTIL ctx.done%
 
     IF ctx.result% THEN
+        DIM shTargets(1 TO MAX_LAYERS) AS INTEGER, shTgtCount AS INTEGER, shT AS INTEGER
+        DIM shSaveCL AS INTEGER
+        IMAGE_ADJ_collect_targets shTargets%(), shTgtCount%
+        shSaveCL% = CURRENT_LAYER%
+        IF shTgtCount% > 1 THEN HISTORY_begin_group
         DIM adjR AS LONG
-        adjR& = IMAGE_ADJ_apply_sharpen&(LAYERS(CURRENT_LAYER%).imgHandle&, strength%)
-        IMAGE_ADJ_apply_to_layer adjR&, "Sharpen"
+        FOR shT% = 1 TO shTgtCount%
+            CURRENT_LAYER% = shTargets%(shT%)
+            adjR& = IMAGE_ADJ_apply_sharpen&(LAYERS(CURRENT_LAYER%).imgHandle&, strength%)
+            IMAGE_ADJ_apply_to_layer adjR&, "Sharpen"
+        NEXT shT%
+        IF shTgtCount% > 1 THEN HISTORY_end_group
+        CURRENT_LAYER% = shSaveCL%
     END IF
 
     DIALOG_cleanup ctx
@@ -921,17 +1389,27 @@ SUB IMAGE_ADJ_posterize_dialog ()
     LOOP UNTIL ctx.done%
 
     IF ctx.result% THEN
+        DIM pdTargets(1 TO MAX_LAYERS) AS INTEGER, pdTgtCount AS INTEGER, pdT AS INTEGER
+        DIM pdSaveCL AS INTEGER
+        IMAGE_ADJ_collect_targets pdTargets%(), pdTgtCount%
+        pdSaveCL% = CURRENT_LAYER%
+        IF pdTgtCount% > 1 THEN HISTORY_begin_group
         DIM adjR AS LONG
-        adjR& = GJ_IMGADJ_Posterize(LAYERS(CURRENT_LAYER%).imgHandle&, levels%)
-        IF pdDither% <> DITHER_NONE AND adjR& < -1 THEN
-            DIM adjD AS LONG
-            adjD& = DITHER_apply_to_image&(adjR&, pdDither%, pdStrength% / 100!)
-            IF adjD& < -1 THEN
-                _FREEIMAGE adjR&
-                adjR& = adjD&
+        FOR pdT% = 1 TO pdTgtCount%
+            CURRENT_LAYER% = pdTargets%(pdT%)
+            adjR& = GJ_IMGADJ_Posterize(LAYERS(CURRENT_LAYER%).imgHandle&, levels%)
+            IF pdDither% <> DITHER_NONE AND adjR& < -1 THEN
+                DIM adjD AS LONG
+                adjD& = DITHER_apply_to_image&(adjR&, pdDither%, pdStrength% / 100!)
+                IF adjD& < -1 THEN
+                    _FREEIMAGE adjR&
+                    adjR& = adjD&
+                END IF
             END IF
-        END IF
-        IMAGE_ADJ_apply_to_layer adjR&, "Posterize"
+            IMAGE_ADJ_apply_to_layer adjR&, "Posterize"
+        NEXT pdT%
+        IF pdTgtCount% > 1 THEN HISTORY_end_group
+        CURRENT_LAYER% = pdSaveCL%
     END IF
 
     DIALOG_cleanup ctx
@@ -986,9 +1464,19 @@ SUB IMAGE_ADJ_pixelate_dialog ()
     LOOP UNTIL ctx.done%
 
     IF ctx.result% THEN
+        DIM pxTargets(1 TO MAX_LAYERS) AS INTEGER, pxTgtCount AS INTEGER, pxT AS INTEGER
+        DIM pxSaveCL AS INTEGER
+        IMAGE_ADJ_collect_targets pxTargets%(), pxTgtCount%
+        pxSaveCL% = CURRENT_LAYER%
+        IF pxTgtCount% > 1 THEN HISTORY_begin_group
         DIM adjR AS LONG
-        adjR& = GJ_IMGADJ_Pixelate(LAYERS(CURRENT_LAYER%).imgHandle&, pixSize%)
-        IMAGE_ADJ_apply_to_layer adjR&, "Pixelate"
+        FOR pxT% = 1 TO pxTgtCount%
+            CURRENT_LAYER% = pxTargets%(pxT%)
+            adjR& = IMAGE_ADJ_pixelate_alpha_aware&(LAYERS(CURRENT_LAYER%).imgHandle&, pixSize%)
+            IMAGE_ADJ_apply_to_layer adjR&, "Pixelate"
+        NEXT pxT%
+        IF pxTgtCount% > 1 THEN HISTORY_end_group
+        CURRENT_LAYER% = pxSaveCL%
     END IF
 
     DIALOG_cleanup ctx
@@ -1249,48 +1737,58 @@ SUB IMAGE_ADJ_remove_background_dialog ()
 
     ' ---- Apply (custom — intentionally modifies alpha) ----
     IF ctx.result% THEN
-        DIM applyLayerImg AS LONG
-        applyLayerImg& = LAYERS(CURRENT_LAYER%).imgHandle&
+        DIM rbTargets(1 TO MAX_LAYERS) AS INTEGER, rbTgtCount AS INTEGER, rbT AS INTEGER
+        DIM rbSaveCL AS INTEGER
+        IMAGE_ADJ_collect_targets rbTargets%(), rbTgtCount%
+        rbSaveCL% = CURRENT_LAYER%
+        IF rbTgtCount% > 1 THEN HISTORY_begin_group
+        FOR rbT% = 1 TO rbTgtCount%
+            CURRENT_LAYER% = rbTargets%(rbT%)
+            DIM applyLayerImg AS LONG
+            applyLayerImg& = LAYERS(CURRENT_LAYER%).imgHandle&
 
-        ' Snapshot original for undo
-        DIM applySnap AS LONG
-        applySnap& = _COPYIMAGE(applyLayerImg&, 32)
+            ' Snapshot original for undo
+            DIM applySnap AS LONG
+            applySnap& = _COPYIMAGE(applyLayerImg&, 32)
 
-        ' Map threshold and run algorithm on the full layer image
-        DIM applyThresh AS INTEGER
-        applyThresh% = INT(threshold% * 4.41 + 0.5)
-        IF applyThresh% > 441 THEN applyThresh% = 441
+            ' Map threshold and run algorithm on the full layer image
+            DIM applyThresh AS INTEGER
+            applyThresh% = INT(threshold% * 4.41 + 0.5)
+            IF applyThresh% > 441 THEN applyThresh% = 441
 
-        DIM applyResult AS LONG
-        IF contiguous% THEN
-            applyResult& = GJ_IMGADJ_RemoveBackgroundContiguous(applyLayerImg&, targetColor~&, applyThresh%)
-        ELSE
-            applyResult& = GJ_IMGADJ_RemoveBackground(applyLayerImg&, targetColor~&, applyThresh%)
-        END IF
-
-        IF applyResult& < -1 THEN
-            ' Blit with _DONTBLEND to overwrite alpha channel
-            DIM applyOldD AS LONG : applyOldD& = _DEST
-            _DEST applyLayerImg&
-            _DONTBLEND applyLayerImg&
-            CLS , _RGBA32(0, 0, 0, 0)
-            _PUTIMAGE , applyResult&
-            _BLEND applyLayerImg&
-            _DEST applyOldD&
-            _FREEIMAGE applyResult&
-
-            ' Record undo
-            IF applySnap& < -1 THEN
-                HISTORY_record_transform LAYERS(CURRENT_LAYER%).historyId&, CURRENT_LAYER%, 0, applySnap&, "Remove Background"
-                HISTORY_saved_this_frame% = TRUE
+            DIM applyResult AS LONG
+            IF contiguous% THEN
+                applyResult& = GJ_IMGADJ_RemoveBackgroundContiguous(applyLayerImg&, targetColor~&, applyThresh%)
+            ELSE
+                applyResult& = GJ_IMGADJ_RemoveBackground(applyLayerImg&, targetColor~&, applyThresh%)
             END IF
 
-            LAYERS(CURRENT_LAYER%).contentDirty% = TRUE
-            INVALIDATE_layers
-        ELSE
-            ' Algorithm failed — free the snapshot
-            IF applySnap& < -1 THEN _FREEIMAGE applySnap&
-        END IF
+            IF applyResult& < -1 THEN
+                ' Blit with _DONTBLEND to overwrite alpha channel
+                DIM applyOldD AS LONG : applyOldD& = _DEST
+                _DEST applyLayerImg&
+                _DONTBLEND applyLayerImg&
+                CLS , _RGBA32(0, 0, 0, 0)
+                _PUTIMAGE , applyResult&
+                _BLEND applyLayerImg&
+                _DEST applyOldD&
+                _FREEIMAGE applyResult&
+
+                ' Record undo
+                IF applySnap& < -1 THEN
+                    HISTORY_record_transform LAYERS(CURRENT_LAYER%).historyId&, CURRENT_LAYER%, 0, applySnap&, "Remove Background"
+                    HISTORY_saved_this_frame% = TRUE
+                END IF
+
+                LAYERS(CURRENT_LAYER%).contentDirty% = TRUE
+                INVALIDATE_layers
+            ELSE
+                ' Algorithm failed — free the snapshot
+                IF applySnap& < -1 THEN _FREEIMAGE applySnap&
+            END IF
+        NEXT rbT%
+        IF rbTgtCount% > 1 THEN HISTORY_end_group
+        CURRENT_LAYER% = rbSaveCL%
     END IF
 
     ' ---- Cleanup ----

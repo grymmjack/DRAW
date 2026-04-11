@@ -18,7 +18,7 @@ SUB LAYERS_init ()
     DIM uiFontSize AS INTEGER
     
     ' Initialize all layer slots to empty
-    FOR i% = 1 TO 64
+    FOR i% = 1 TO MAX_LAYERS
         LAYERS(i%).historyId&    = 0
         LAYERS(i%).zIndex%       = 0
         LAYERS(i%).imgWidth%     = 0
@@ -33,6 +33,11 @@ SUB LAYERS_init ()
         LAYERS(i%).opacityCacheImg& = 0
         LAYERS(i%).opacityCacheVal% = 0
         LAYERS(i%).contentDirty%    = FALSE
+        LAYERS(i%).layerType%       = LAYER_TYPE_IMAGE
+        LAYERS(i%).textDataIdx%     = 0
+        LAYERS(i%).parentGroupIdx%  = 0
+        LAYERS(i%).collapsed%       = FALSE
+        LAYERS(i%).passThrough%     = FALSE
     NEXT i%
     
     ' Initialize panel state
@@ -58,10 +63,11 @@ SUB LAYERS_init ()
     LAYER_COUNT% = 0
     CURRENT_LAYER% = 0
     NEXT_LAYER_HISTORY_ID& = 1
+    NEXT_GROUP_NUM% = 0
     
     ' Initialize multi-select state (will be properly set once first layer is created)
     DIM msInit AS INTEGER
-    FOR msInit% = 1 TO 64
+    FOR msInit% = 1 TO MAX_LAYERS
         MULTI_SELECT_LAYERS(msInit%) = FALSE
     NEXT msInit%
     MULTI_SELECT_COUNT% = 0
@@ -102,7 +108,7 @@ END FUNCTION
 FUNCTION LAYERS_recount% ()
     DIM lrc_i AS INTEGER, lrc_c AS INTEGER
     lrc_c% = 0
-    FOR lrc_i% = 1 TO 64
+    FOR lrc_i% = 1 TO MAX_LAYERS
         IF LAYERS(lrc_i%).imgHandle& <> 0 THEN lrc_c% = lrc_c% + 1
     NEXT lrc_i%
     LAYERS_recount% = lrc_c%
@@ -127,7 +133,7 @@ FUNCTION LAYERS_new% ()
     
     ' Find first empty slot
     newIndex% = 0
-    FOR i% = 1 TO 64
+    FOR i% = 1 TO MAX_LAYERS
         IF LAYERS(i%).imgHandle& = 0 THEN
             newIndex% = i%
             EXIT FOR
@@ -143,7 +149,7 @@ FUNCTION LAYERS_new% ()
     ' New layer will be inserted directly above it
     DIM hasCurrentLayer AS INTEGER
     hasCurrentLayer% = FALSE
-    IF CURRENT_LAYER% > 0 AND CURRENT_LAYER% <= 64 THEN
+    IF CURRENT_LAYER% > 0 AND CURRENT_LAYER% <= MAX_LAYERS THEN
         IF LAYERS(CURRENT_LAYER%).imgHandle& <> 0 THEN
             hasCurrentLayer% = TRUE
         END IF
@@ -154,7 +160,7 @@ FUNCTION LAYERS_new% ()
         newZ% = currentZ% + 1
         
         ' Shift all layers with zIndex > currentZ up by 1 to make room
-        FOR i% = 1 TO 64
+        FOR i% = 1 TO MAX_LAYERS
             IF LAYERS(i%).imgHandle& <> 0 AND LAYERS(i%).zIndex% > currentZ% THEN
                 LAYERS(i%).zIndex% = LAYERS(i%).zIndex% + 1
             END IF
@@ -193,6 +199,16 @@ FUNCTION LAYERS_new% ()
     LAYERS(newIndex%).opacity%     = 255
     LAYERS(newIndex%).opacityLock% = FALSE
     LAYERS(newIndex%).blendMode%   = BLEND_NORMAL
+    LAYERS(newIndex%).layerType%   = LAYER_TYPE_IMAGE
+    LAYERS(newIndex%).textDataIdx% = 0
+    ' Inherit parent group from the current layer so new layers inside groups stay nested
+    IF hasCurrentLayer% THEN
+        LAYERS(newIndex%).parentGroupIdx% = LAYERS(CURRENT_LAYER%).parentGroupIdx%
+    ELSE
+        LAYERS(newIndex%).parentGroupIdx% = 0
+    END IF
+    LAYERS(newIndex%).collapsed%     = FALSE
+    LAYERS(newIndex%).passThrough%   = FALSE
 
     IF NOT HISTORY_IN_PROGRESS% THEN
         HISTORY_record_layer_add LAYERS(newIndex%).historyId&, newIndex%, newZ%, "Layer Add"
@@ -219,7 +235,7 @@ FUNCTION LAYERS_new_at_top% ()
     ' Find the layer with the highest zIndex (the current topmost layer)
     topIdx% = 0
     topZ% = 0
-    FOR i% = 1 TO 64
+    FOR i% = 1 TO MAX_LAYERS
         IF LAYERS(i%).imgHandle& <> 0 THEN
             IF LAYERS(i%).zIndex% > topZ% THEN
                 topZ% = LAYERS(i%).zIndex%
@@ -304,36 +320,41 @@ SUB LAYERS_delete (layerIndex AS INTEGER)
     DIM i AS INTEGER
     DIM deletedZ AS INTEGER
     DIM deletedHistoryId AS LONG
+
+    ' CRITICAL: Copy parameter to local immediately — QB64 passes by reference.
+    ' Callers pass CURRENT_LAYER% which LAYERS_select changes mid-function.
+    DIM delSlot AS INTEGER
+    delSlot% = layerIndex%
     
     ' Can't delete if only one layer
     IF LAYER_COUNT% <= 1 THEN EXIT SUB
     
     ' Validate index
-    IF layerIndex% < 1 OR layerIndex% > 64 THEN EXIT SUB
-    IF LAYERS(layerIndex%).imgHandle& = 0 THEN EXIT SUB
+    IF delSlot% < 1 OR delSlot% > MAX_LAYERS THEN EXIT SUB
+    IF LAYERS(delSlot%).imgHandle& = 0 THEN EXIT SUB
     
     ' Cancel any pending/active drag that refers to this layer
-    IF LAYER_PANEL.dragLayerIdx% = layerIndex% THEN
+    IF LAYER_PANEL.dragLayerIdx% = delSlot% THEN
         LAYER_PANEL_drag_cancel
     END IF
     
     ' Store zIndex before deleting
-    deletedZ% = LAYERS(layerIndex%).zIndex%
-    deletedHistoryId& = LAYERS(layerIndex%).historyId&
+    deletedZ% = LAYERS(delSlot%).zIndex%
+    deletedHistoryId& = LAYERS(delSlot%).historyId&
     
     IF NOT HISTORY_IN_PROGRESS% THEN
-        HISTORY_record_layer_delete deletedHistoryId&, layerIndex%, deletedZ%, "Layer Delete"
+        HISTORY_record_layer_delete deletedHistoryId&, delSlot%, deletedZ%, "Layer Delete"
     END IF
 
     ' Free text layer data if this is a text layer
-    IF LAYERS(layerIndex%).layerType% = LAYER_TYPE_TEXT THEN
-        IF LAYERS(layerIndex%).textDataIdx% > 0 THEN
-            TEXT_LAYER_free LAYERS(layerIndex%).textDataIdx%
+    IF LAYERS(delSlot%).layerType% = LAYER_TYPE_TEXT THEN
+        IF LAYERS(delSlot%).textDataIdx% > 0 THEN
+            TEXT_LAYER_free LAYERS(delSlot%).textDataIdx%
         END IF
     END IF
 
     ' If this layer was being actively edited, cancel text editing
-    IF TEXT.editingTextLayer% = layerIndex% THEN
+    IF TEXT.editingTextLayer% = delSlot% THEN
         TEXT.ACTIVE = FALSE
         TEXT.editingTextLayer% = 0
         TEXT_BAR.editingLayerIdx% = 0
@@ -341,42 +362,56 @@ SUB LAYERS_delete (layerIndex AS INTEGER)
         GUI_NEEDS_REDRAW% = TRUE
     END IF
 
+    ' If this is a group, orphan direct children to grandparent (or top-level)
+    IF LAYERS(delSlot%).layerType% = LAYER_TYPE_GROUP THEN
+        DIM delGrandparent AS INTEGER
+        delGrandparent% = LAYERS(delSlot%).parentGroupIdx%
+        FOR i% = 1 TO MAX_LAYERS
+            IF LAYERS(i%).imgHandle& <> 0 AND LAYERS(i%).parentGroupIdx% = delSlot% THEN
+                LAYERS(i%).parentGroupIdx% = delGrandparent%
+            END IF
+        NEXT i%
+    END IF
+
     ' Free the image
-    IF LAYERS(layerIndex%).imgHandle& < -1 THEN
-        _FREEIMAGE LAYERS(layerIndex%).imgHandle&
+    IF LAYERS(delSlot%).imgHandle& < -1 THEN
+        _FREEIMAGE LAYERS(delSlot%).imgHandle&
     END IF
     ' Free opacity cache image
-    IF LAYERS(layerIndex%).opacityCacheImg& < -1 THEN
-        _FREEIMAGE LAYERS(layerIndex%).opacityCacheImg&
+    IF LAYERS(delSlot%).opacityCacheImg& < -1 THEN
+        _FREEIMAGE LAYERS(delSlot%).opacityCacheImg&
     END IF
     
     ' Clear the slot
-    LAYERS(layerIndex%).historyId& = 0
-    LAYERS(layerIndex%).imgHandle& = 0
-    LAYERS(layerIndex%).imgWidth%  = 0
-    LAYERS(layerIndex%).imgHeight% = 0
-    LAYERS(layerIndex%).zIndex%    = 0
-    LAYERS(layerIndex%).visible%   = FALSE
-    LAYERS(layerIndex%).isSelected% = FALSE
-    LAYERS(layerIndex%).name       = ""
-    LAYERS(layerIndex%).opacity%   = 255
-    LAYERS(layerIndex%).opacityLock% = FALSE
-    LAYERS(layerIndex%).opacityCacheImg& = 0
-    LAYERS(layerIndex%).opacityCacheVal% = 0
-    LAYERS(layerIndex%).contentDirty% = FALSE
-    LAYERS(layerIndex%).layerType% = LAYER_TYPE_IMAGE
-    LAYERS(layerIndex%).textDataIdx% = 0
+    LAYERS(delSlot%).historyId& = 0
+    LAYERS(delSlot%).imgHandle& = 0
+    LAYERS(delSlot%).imgWidth%  = 0
+    LAYERS(delSlot%).imgHeight% = 0
+    LAYERS(delSlot%).zIndex%    = 0
+    LAYERS(delSlot%).visible%   = FALSE
+    LAYERS(delSlot%).isSelected% = FALSE
+    LAYERS(delSlot%).name       = ""
+    LAYERS(delSlot%).opacity%   = 255
+    LAYERS(delSlot%).opacityLock% = FALSE
+    LAYERS(delSlot%).opacityCacheImg& = 0
+    LAYERS(delSlot%).opacityCacheVal% = 0
+    LAYERS(delSlot%).contentDirty% = FALSE
+    LAYERS(delSlot%).layerType% = LAYER_TYPE_IMAGE
+    LAYERS(delSlot%).textDataIdx% = 0
+    LAYERS(delSlot%).parentGroupIdx% = 0
+    LAYERS(delSlot%).collapsed% = FALSE
+    LAYERS(delSlot%).passThrough% = FALSE
     
     LAYER_COUNT% = LAYER_COUNT% - 1
     ' Adjust zIndex of layers above the deleted one
-    FOR i% = 1 TO 64
+    FOR i% = 1 TO MAX_LAYERS
         IF LAYERS(i%).imgHandle& <> 0 AND LAYERS(i%).zIndex% > deletedZ% THEN
             LAYERS(i%).zIndex% = LAYERS(i%).zIndex% - 1
         END IF
     NEXT i%
     
     ' Select another layer if the deleted one was selected
-    IF CURRENT_LAYER% = layerIndex% THEN
+    IF CURRENT_LAYER% = delSlot% THEN
         ' Find the layer that is now at the position below where deleted layer was
         ' (which now has zIndex = deletedZ% - 1 after the adjustment above)
         DIM targetZ AS INTEGER
@@ -386,7 +421,7 @@ SUB LAYERS_delete (layerIndex AS INTEGER)
         ' First try to select the layer that was below (zIndex = deletedZ% - 1)
         targetZ% = deletedZ% - 1
         IF targetZ% >= 1 THEN
-            FOR i% = 1 TO 64
+            FOR i% = 1 TO MAX_LAYERS
                 IF LAYERS(i%).imgHandle& <> 0 AND LAYERS(i%).zIndex% = targetZ% THEN
                     foundLayer% = i%
                     EXIT FOR
@@ -396,7 +431,7 @@ SUB LAYERS_delete (layerIndex AS INTEGER)
         
         ' If no layer below, try the layer that was above (now at deletedZ% after adjustment)
         IF foundLayer% = 0 THEN
-            FOR i% = 1 TO 64
+            FOR i% = 1 TO MAX_LAYERS
                 IF LAYERS(i%).imgHandle& <> 0 AND LAYERS(i%).zIndex% = deletedZ% THEN
                     foundLayer% = i%
                     EXIT FOR
@@ -406,7 +441,7 @@ SUB LAYERS_delete (layerIndex AS INTEGER)
         
         ' Fallback: select any valid layer
         IF foundLayer% = 0 THEN
-            FOR i% = 1 TO 64
+            FOR i% = 1 TO MAX_LAYERS
                 IF LAYERS(i%).imgHandle& <> 0 THEN
                     foundLayer% = i%
                     EXIT FOR
@@ -431,16 +466,177 @@ SUB LAYERS_duplicate (layerIndex AS INTEGER)
     DIM srcImg AS LONG
     
     ' Validate
-    IF layerIndex% < 1 OR layerIndex% > 64 THEN EXIT SUB
+    IF layerIndex% < 1 OR layerIndex% > MAX_LAYERS THEN EXIT SUB
     IF LAYERS(layerIndex%).imgHandle& = 0 THEN EXIT SUB
     
+    ' ---------------------------------------------------------------
+    ' GROUP DUPLICATION: duplicate group header + all descendants
+    ' ---------------------------------------------------------------
+    IF LAYERS(layerIndex%).layerType% = LAYER_TYPE_GROUP THEN
+        ' Collect all descendants (sorted by zIndex ascending)
+        DIM descBuf(1 TO MAX_LAYERS) AS INTEGER
+        DIM descCount AS INTEGER
+        descCount% = 0
+        LAYERS_group_descendants layerIndex%, descBuf%(), descCount%
+
+        ' Total layers to duplicate = descendants + the group header itself
+        DIM totalToDup AS INTEGER
+        totalToDup% = descCount% + 1
+        IF LAYER_COUNT% + totalToDup% > CFG.NUM_LAYERS% THEN EXIT SUB
+
+        ' Build ordered list: descendants (low z to high z), then group header last
+        ' This mirrors the contiguous z layout: children below header
+        DIM dupSrc(1 TO MAX_LAYERS) AS INTEGER  ' source slot indices
+        DIM dupDst(1 TO MAX_LAYERS) AS INTEGER  ' destination slot indices
+        DIM dupI AS INTEGER
+        FOR dupI% = 1 TO descCount%
+            dupSrc%(dupI%) = descBuf%(dupI%)
+        NEXT dupI%
+        dupSrc%(totalToDup%) = layerIndex%  ' group header last
+
+        ' Find empty slots for all new layers
+        DIM slotSearch AS INTEGER, slotsFound AS INTEGER
+        slotsFound% = 0
+        FOR slotSearch% = 1 TO MAX_LAYERS
+            IF LAYERS(slotSearch%).imgHandle& = 0 THEN
+                slotsFound% = slotsFound% + 1
+                dupDst%(slotsFound%) = slotSearch%
+                IF slotsFound% = totalToDup% THEN EXIT FOR
+            END IF
+        NEXT slotSearch%
+        IF slotsFound% < totalToDup% THEN EXIT SUB  ' Not enough empty slots
+
+        ' Build a mapping from old slot -> new slot for parent pointer remapping
+        ' We'll use a simple lookup: for each dup pair, map src -> dst
+        DIM parentMap(1 TO MAX_LAYERS) AS INTEGER  ' parentMap(oldSlot) = newSlot
+        FOR dupI% = 1 TO totalToDup%
+            parentMap%(dupSrc%(dupI%)) = dupDst%(dupI%)
+        NEXT dupI%
+
+        ' Determine z insertion point: above the group header
+        DIM groupTopZ AS INTEGER
+        groupTopZ% = LAYERS(layerIndex%).zIndex%
+        ' Shift all layers above the group to make room
+        DIM shiftI AS INTEGER
+        FOR shiftI% = 1 TO MAX_LAYERS
+            IF LAYERS(shiftI%).imgHandle& <> 0 AND LAYERS(shiftI%).zIndex% > groupTopZ% THEN
+                LAYERS(shiftI%).zIndex% = LAYERS(shiftI%).zIndex% + totalToDup%
+            END IF
+        NEXT shiftI%
+
+        ' Begin history group for the entire operation
+        IF NOT HISTORY_IN_PROGRESS% THEN HISTORY_begin_group
+
+        ' Duplicate each layer in order
+        DIM newZ AS INTEGER
+        FOR dupI% = 1 TO totalToDup%
+            DIM dSrc AS INTEGER, dDst AS INTEGER
+            dSrc% = dupSrc%(dupI%)
+            dDst% = dupDst%(dupI%)
+
+            ' Copy image
+            LAYERS(dDst%).imgHandle& = _COPYIMAGE(LAYERS(dSrc%).imgHandle&, 32)
+            IF LAYERS(dDst%).imgHandle& >= -1 THEN
+                _LOGERROR "LAYERS_duplicate: _COPYIMAGE failed for group child src=" + STR$(dSrc%) + " dst=" + STR$(dDst%)
+                LAYERS(dDst%).imgHandle& = 0
+                ' Rollback: free any already-duplicated layers
+                DIM rollI AS INTEGER
+                FOR rollI% = 1 TO dupI% - 1
+                    IF LAYERS(dupDst%(rollI%)).imgHandle& < -1 THEN
+                        _FREEIMAGE LAYERS(dupDst%(rollI%)).imgHandle&
+                    END IF
+                    LAYERS(dupDst%(rollI%)).imgHandle& = 0
+                    LAYER_COUNT% = LAYER_COUNT% - 1
+                NEXT rollI%
+                IF NOT HISTORY_IN_PROGRESS% THEN HISTORY_end_group
+                EXIT SUB
+            END IF
+
+            ' Assign z-index: contiguous block above the original group
+            newZ% = groupTopZ% + dupI%
+            
+            ' Copy properties
+            LAYER_COUNT% = LAYER_COUNT% + 1
+            LAYERS(dDst%).historyId&     = LAYERS_alloc_history_id&
+            LAYERS(dDst%).imgWidth%      = _WIDTH(LAYERS(dDst%).imgHandle&)
+            LAYERS(dDst%).imgHeight%     = _HEIGHT(LAYERS(dDst%).imgHandle&)
+            LAYERS(dDst%).zIndex%        = newZ%
+            LAYERS(dDst%).visible%       = LAYERS(dSrc%).visible%
+            LAYERS(dDst%).isSelected%    = FALSE
+            LAYERS(dDst%).lastSelected%  = FALSE
+            LAYERS(dDst%).opacity%       = LAYERS(dSrc%).opacity%
+            LAYERS(dDst%).opacityLock%   = LAYERS(dSrc%).opacityLock%
+            LAYERS(dDst%).blendMode%     = LAYERS(dSrc%).blendMode%
+            LAYERS(dDst%).contentDirty%  = TRUE
+            LAYERS(dDst%).layerType%     = LAYERS(dSrc%).layerType%
+            LAYERS(dDst%).collapsed%     = LAYERS(dSrc%).collapsed%
+            LAYERS(dDst%).passThrough%   = LAYERS(dSrc%).passThrough%
+            LAYERS(dDst%).textDataIdx%   = 0
+
+            ' Remap parent pointer: if original parent is in the duplication set, point to new copy
+            IF LAYERS(dSrc%).parentGroupIdx% > 0 AND LAYERS(dSrc%).parentGroupIdx% <= MAX_LAYERS THEN
+                IF parentMap%(LAYERS(dSrc%).parentGroupIdx%) > 0 THEN
+                    LAYERS(dDst%).parentGroupIdx% = parentMap%(LAYERS(dSrc%).parentGroupIdx%)
+                ELSE
+                    ' Parent is outside the duplication set (shouldn't happen for well-formed groups)
+                    LAYERS(dDst%).parentGroupIdx% = LAYERS(dSrc%).parentGroupIdx%
+                END IF
+            ELSE
+                ' Top-level group header: inherit source's parent (could be nested in another group)
+                LAYERS(dDst%).parentGroupIdx% = LAYERS(dSrc%).parentGroupIdx%
+            END IF
+
+            ' Name: append " copy" only to the group header, keep child names as-is
+            IF dupI% = totalToDup% THEN
+                LAYERS(dDst%).name = _TRIM$(LAYERS(dSrc%).name) + " copy"
+                NEXT_GROUP_NUM% = NEXT_GROUP_NUM% + 1
+            ELSE
+                LAYERS(dDst%).name = LAYERS(dSrc%).name
+            END IF
+
+            ' Duplicate text layer data if applicable
+            IF LAYERS(dSrc%).layerType% = LAYER_TYPE_TEXT THEN
+                IF LAYERS(dSrc%).textDataIdx% > 0 THEN
+                    DIM dgNewTextIdx AS INTEGER
+                    dgNewTextIdx% = TEXT_LAYER_alloc%
+                    IF dgNewTextIdx% > 0 THEN
+                        TEXT_LAYER_copy_data LAYERS(dSrc%).textDataIdx%, dgNewTextIdx%
+                        LAYERS(dDst%).textDataIdx% = dgNewTextIdx%
+                    ELSE
+                        LAYERS(dDst%).layerType% = LAYER_TYPE_IMAGE
+                    END IF
+                END IF
+            END IF
+
+            IF NOT HISTORY_IN_PROGRESS% THEN
+                HISTORY_record_layer_add LAYERS(dDst%).historyId&, dDst%, newZ%, "Dup Group Child"
+            END IF
+        NEXT dupI%
+
+        IF NOT HISTORY_IN_PROGRESS% THEN HISTORY_end_group
+
+        ' Fix z-ordering to ensure proper contiguity
+        LAYERS_enforce_group_contiguity
+
+        ' Select the new group header (last in dupDst)
+        LAYERS_select dupDst%(totalToDup%)
+
+        BLEND_invalidate_cache
+        INVALIDATE_scene
+        EXIT SUB
+    END IF
+
+    ' ---------------------------------------------------------------
+    ' SINGLE LAYER DUPLICATION (non-group, original logic)
+    ' ---------------------------------------------------------------
+
     ' Check if we've hit the max layers
     IF LAYER_COUNT% >= CFG.NUM_LAYERS% THEN EXIT SUB
     
     ' Find first empty slot
     newIndex% = 0
     DIM i AS INTEGER
-    FOR i% = 1 TO 64
+    FOR i% = 1 TO MAX_LAYERS
         IF LAYERS(i%).imgHandle& = 0 THEN
             newIndex% = i%
             EXIT FOR
@@ -457,12 +653,22 @@ SUB LAYERS_duplicate (layerIndex AS INTEGER)
         EXIT SUB
     END IF
     
+    ' Insert duplicate just above the source layer in z-order
+    DIM dupSrcZ AS INTEGER
+    DIM dupShift AS INTEGER
+    dupSrcZ% = LAYERS(layerIndex%).zIndex%
+    FOR dupShift% = 1 TO MAX_LAYERS
+        IF LAYERS(dupShift%).imgHandle& <> 0 AND LAYERS(dupShift%).zIndex% > dupSrcZ% THEN
+            LAYERS(dupShift%).zIndex% = LAYERS(dupShift%).zIndex% + 1
+        END IF
+    NEXT dupShift%
+
     ' Set layer properties
     LAYER_COUNT% = LAYER_COUNT% + 1
     LAYERS(newIndex%).historyId&    = LAYERS_alloc_history_id&
     LAYERS(newIndex%).imgWidth%    = _WIDTH(LAYERS(newIndex%).imgHandle&)
     LAYERS(newIndex%).imgHeight%   = _HEIGHT(LAYERS(newIndex%).imgHandle&)
-    LAYERS(newIndex%).zIndex%      = LAYER_COUNT%
+    LAYERS(newIndex%).zIndex%      = dupSrcZ% + 1
     LAYERS(newIndex%).visible%     = LAYERS(layerIndex%).visible%
     LAYERS(newIndex%).isSelected%  = FALSE
     LAYERS(newIndex%).lastSelected% = FALSE
@@ -472,6 +678,7 @@ SUB LAYERS_duplicate (layerIndex AS INTEGER)
     LAYERS(newIndex%).blendMode%   = LAYERS(layerIndex%).blendMode%
     LAYERS(newIndex%).contentDirty% = TRUE  ' New pixel data needs opacity cache build
     LAYERS(newIndex%).layerType% = LAYERS(layerIndex%).layerType%
+    LAYERS(newIndex%).parentGroupIdx% = LAYERS(layerIndex%).parentGroupIdx%
 
     ' Duplicate text layer data if source is a text layer
     IF LAYERS(layerIndex%).layerType% = LAYER_TYPE_TEXT THEN
@@ -513,7 +720,7 @@ SUB LAYERS_clear (layerIndex AS INTEGER)
     DIM clearRecorded AS INTEGER
     
     ' Validate
-    IF layerIndex% < 1 OR layerIndex% > 64 THEN EXIT SUB
+    IF layerIndex% < 1 OR layerIndex% > MAX_LAYERS THEN EXIT SUB
     IF LAYERS(layerIndex%).imgHandle& = 0 THEN EXIT SUB
 
     clearBefore& = 0
@@ -546,7 +753,7 @@ SUB LAYERS_rename (layerIndex AS INTEGER)
     DIM newName AS STRING
     
     ' Validate
-    IF layerIndex% < 1 OR layerIndex% > 64 THEN EXIT SUB
+    IF layerIndex% < 1 OR layerIndex% > MAX_LAYERS THEN EXIT SUB
     IF LAYERS(layerIndex%).imgHandle& = 0 THEN EXIT SUB
     
     POINTER_hide_for_dialog
@@ -581,7 +788,7 @@ SUB LAYERS_select (layerIndex AS INTEGER)
     DIM i AS INTEGER
     
     ' Validate
-    IF layerIndex% < 1 OR layerIndex% > 64 THEN EXIT SUB
+    IF layerIndex% < 1 OR layerIndex% > MAX_LAYERS THEN EXIT SUB
     IF LAYERS(layerIndex%).imgHandle& = 0 THEN EXIT SUB
     
     ' If MOVE tool is active on a different layer, commit and reset before switching
@@ -590,7 +797,7 @@ SUB LAYERS_select (layerIndex AS INTEGER)
     END IF
     
     ' Deselect all layers
-    FOR i% = 1 TO 64
+    FOR i% = 1 TO MAX_LAYERS
         LAYERS(i%).lastSelected% = LAYERS(i%).isSelected%
         LAYERS(i%).isSelected% = FALSE
     NEXT i%
@@ -612,10 +819,10 @@ END SUB
 '
 SUB MULTI_SELECT_clear ()
     DIM i AS INTEGER
-    FOR i% = 1 TO 64
+    FOR i% = 1 TO MAX_LAYERS
         MULTI_SELECT_LAYERS(i%) = FALSE
     NEXT i%
-    IF CURRENT_LAYER% >= 1 AND CURRENT_LAYER% <= 64 THEN
+    IF CURRENT_LAYER% >= 1 AND CURRENT_LAYER% <= MAX_LAYERS THEN
         MULTI_SELECT_LAYERS(CURRENT_LAYER%) = TRUE
     END IF
     MULTI_SELECT_COUNT% = 1
@@ -637,7 +844,7 @@ END FUNCTION
 ' @param layerIndex INTEGER Index of the layer to toggle (1-64)
 '
 SUB MULTI_SELECT_toggle (layerIndex AS INTEGER)
-    IF layerIndex% < 1 OR layerIndex% > 64 THEN EXIT SUB
+    IF layerIndex% < 1 OR layerIndex% > MAX_LAYERS THEN EXIT SUB
     IF LAYERS(layerIndex%).imgHandle& = 0 THEN EXIT SUB
     ' Guard: never deselect if it is the only selected layer
     IF MULTI_SELECT_LAYERS(layerIndex%) AND MULTI_SELECT_COUNT% <= 1 THEN EXIT SUB
@@ -663,7 +870,7 @@ END SUB
 '
 SUB LAYER_get_content_bounds (layerIndex AS INTEGER, bx AS INTEGER, by AS INTEGER, bw AS INTEGER, bh AS INTEGER)
     bx% = 0: by% = 0: bw% = 0: bh% = 0
-    IF layerIndex% < 1 OR layerIndex% > 64 THEN EXIT SUB
+    IF layerIndex% < 1 OR layerIndex% > MAX_LAYERS THEN EXIT SUB
     DIM img AS LONG
     img& = LAYERS(layerIndex%).imgHandle&
     IF img& >= -1 THEN EXIT SUB
@@ -716,7 +923,7 @@ END SUB
 ' @param dy INTEGER Vertical offset in pixels (positive = down)
 '
 SUB LAYER_translate_content (layerIndex AS INTEGER, dx AS INTEGER, dy AS INTEGER)
-    IF layerIndex% < 1 OR layerIndex% > 64 THEN EXIT SUB
+    IF layerIndex% < 1 OR layerIndex% > MAX_LAYERS THEN EXIT SUB
     IF dx% = 0 AND dy% = 0 THEN EXIT SUB
     DIM img AS LONG
     img& = LAYERS(layerIndex%).imgHandle&
@@ -765,30 +972,219 @@ SUB LAYERS_move_up (layerIndex AS INTEGER)
     DIM i AS INTEGER
     DIM currentZ AS INTEGER
     DIM targetIndex AS INTEGER
+
+    ' CRITICAL: Copy parameter to local — QB64 passes by reference.
+    DIM mvSlot AS INTEGER
+    mvSlot% = layerIndex%
     
     ' Validate
-    IF layerIndex% < 1 OR layerIndex% > 64 THEN EXIT SUB
-    IF LAYERS(layerIndex%).imgHandle& = 0 THEN EXIT SUB
+    IF mvSlot% < 1 OR mvSlot% > MAX_LAYERS THEN EXIT SUB
+    IF LAYERS(mvSlot%).imgHandle& = 0 THEN EXIT SUB
     
-    currentZ% = LAYERS(layerIndex%).zIndex%
+    currentZ% = LAYERS(mvSlot%).zIndex%
     IF currentZ% >= LAYER_COUNT% THEN EXIT SUB  ' Already at top
-    
-    ' Find layer with zIndex = currentZ + 1
+
+    ' For group headers: move entire block (header + children) up by swapping
+    ' with the block above. If the block above is another group, skip over it entirely.
+    IF LAYERS(mvSlot%).layerType% = LAYER_TYPE_GROUP THEN
+
+        ' If this group is nested inside another group, check for boundary escape
+        IF LAYERS(mvSlot%).parentGroupIdx% > 0 THEN
+            DIM muEscParent AS INTEGER
+            muEscParent% = LAYERS(mvSlot%).parentGroupIdx%
+            IF muEscParent% >= 1 THEN
+                IF muEscParent% <= MAX_LAYERS THEN
+                    IF LAYERS(muEscParent%).imgHandle& <> 0 THEN
+                        DIM muEscParentZ AS INTEGER
+                        muEscParentZ% = LAYERS(muEscParent%).zIndex%
+                        IF currentZ% + 1 >= muEscParentZ% THEN
+                            ' At top of parent group — escape sub-group block to grandparent
+                            DIM muEscGP AS INTEGER
+                            muEscGP% = LAYERS(muEscParent%).parentGroupIdx%
+                            ' Reparent this sub-group to grandparent
+                            LAYERS(mvSlot%).parentGroupIdx% = muEscGP%
+                            ' Give the sub-group header a z above the parent header
+                            ' so enforce_contiguity places it correctly
+                            LAYERS(mvSlot%).zIndex% = muEscParentZ% + 1
+                            LAYERS_enforce_group_contiguity
+                            IF NOT HISTORY_IN_PROGRESS% THEN
+                                HISTORY_record_group_reparent LAYERS(mvSlot%).historyId&, mvSlot%, muEscParent%, muEscGP%, currentZ%, LAYERS(mvSlot%).zIndex%, "Move Group Out"
+                            END IF
+                            ' Auto-remove empty parent group
+                            IF LAYERS_group_child_count%(muEscParent%) = 0 THEN
+                                LAYERS_delete muEscParent%
+                                IF CURRENT_LAYER% = muEscParent% THEN LAYERS_select mvSlot%
+                            END IF
+                            BLEND_invalidate_cache
+                            GUI_NEEDS_REDRAW% = TRUE
+                            EXIT SUB
+                        END IF
+                    END IF
+                END IF
+            END IF
+        END IF
+
+        DIM grpAboveZ AS INTEGER
+        grpAboveZ% = currentZ% + 1
+        IF grpAboveZ% > LAYER_COUNT% THEN EXIT SUB
+        ' Find layer at z above the header
+        targetIndex% = 0
+        FOR i% = 1 TO MAX_LAYERS
+            IF LAYERS(i%).imgHandle& <> 0 AND LAYERS(i%).zIndex% = grpAboveZ% THEN
+                targetIndex% = i%
+                EXIT FOR
+            END IF
+        NEXT i%
+        IF targetIndex% > 0 THEN
+            ' Determine the top z we need to jump over
+            DIM muJumpTopZ AS INTEGER
+            muJumpTopZ% = grpAboveZ%
+            IF LAYERS(targetIndex%).parentGroupIdx% > 0 THEN
+                ' Target is a child of another group — find that group's header z
+                DIM muAboveGrp AS INTEGER
+                muAboveGrp% = LAYERS(targetIndex%).parentGroupIdx%
+                IF muAboveGrp% > 0 THEN
+                    IF muAboveGrp% <= MAX_LAYERS THEN
+                        IF LAYERS(muAboveGrp%).imgHandle& <> 0 THEN
+                            muJumpTopZ% = LAYERS(muAboveGrp%).zIndex%
+                        END IF
+                    END IF
+                END IF
+            ELSEIF LAYERS(targetIndex%).layerType% = LAYER_TYPE_GROUP THEN
+                ' Target IS a group header — its header z is already grpAboveZ
+                ' But that group may have children above. Actually, group header is
+                ' always above its children in z-order, so grpAboveZ is the top.
+                muJumpTopZ% = grpAboveZ%
+            END IF
+
+            ' Count how many z-slots we're jumping
+            DIM muBlockSize AS INTEGER
+            DIM muGrpLow AS INTEGER
+            muGrpLow% = currentZ%  ' default = header if no children
+            FOR i% = 1 TO MAX_LAYERS
+                IF LAYERS(i%).imgHandle& <> 0 THEN
+                    IF LAYERS(i%).parentGroupIdx% = mvSlot% THEN
+                        IF LAYERS(i%).zIndex% < muGrpLow% THEN muGrpLow% = LAYERS(i%).zIndex%
+                    END IF
+                END IF
+            NEXT i%
+            muBlockSize% = currentZ% - muGrpLow% + 1  ' our group block size
+
+            DIM muJumpSize AS INTEGER
+            muJumpSize% = muJumpTopZ% - currentZ%  ' how many slots to jump above
+
+            ' Shift: everything between currentZ+1..muJumpTopZ goes down by muBlockSize
+            ' Our group block (muGrpLow..currentZ) goes up by muJumpSize
+            FOR i% = 1 TO MAX_LAYERS
+                IF LAYERS(i%).imgHandle& <> 0 AND i% <> mvSlot% THEN
+                    IF LAYERS(i%).zIndex% > currentZ% AND LAYERS(i%).zIndex% <= muJumpTopZ% THEN
+                        LAYERS(i%).zIndex% = LAYERS(i%).zIndex% - muBlockSize%
+                    ELSEIF LAYERS(i%).parentGroupIdx% = mvSlot% THEN
+                        LAYERS(i%).zIndex% = LAYERS(i%).zIndex% + muJumpSize%
+                    END IF
+                END IF
+            NEXT i%
+            LAYERS(mvSlot%).zIndex% = currentZ% + muJumpSize%
+
+            LAYERS_enforce_group_contiguity
+            IF NOT HISTORY_IN_PROGRESS% THEN
+                HISTORY_record_layer_reorder LAYERS(mvSlot%).historyId&, mvSlot%, currentZ%, LAYERS(mvSlot%).zIndex%, "Layer Reorder"
+            END IF
+        END IF
+        BLEND_invalidate_cache
+        GUI_NEEDS_REDRAW% = TRUE
+        EXIT SUB
+    END IF
+
+    ' For child layers inside a group: swap with sibling, or escape group at boundary
+    IF LAYERS(mvSlot%).parentGroupIdx% > 0 THEN
+        DIM muParent AS INTEGER
+        muParent% = LAYERS(mvSlot%).parentGroupIdx%
+        DIM muHeaderZ AS INTEGER
+        muHeaderZ% = LAYERS(muParent%).zIndex%
+        IF currentZ% + 1 >= muHeaderZ% THEN
+            ' At top of group — escape to parent group (or top-level)
+            DIM muGrandparent AS INTEGER
+            muGrandparent% = LAYERS(muParent%).parentGroupIdx%
+            LAYERS(mvSlot%).parentGroupIdx% = muGrandparent%
+            ' Swap with header: header goes down, child goes to header's z
+            LAYERS(muParent%).zIndex% = currentZ%
+            LAYERS(mvSlot%).zIndex% = muHeaderZ%
+            LAYERS_enforce_group_contiguity
+            IF NOT HISTORY_IN_PROGRESS% THEN
+                HISTORY_record_group_reparent LAYERS(mvSlot%).historyId&, mvSlot%, muParent%, muGrandparent%, currentZ%, muHeaderZ%, "Move Out of Group"
+            END IF
+            ' Auto-remove empty group
+            IF LAYERS_group_child_count%(muParent%) = 0 THEN
+                LAYERS_delete muParent%
+                ' If we were on the deleted group's layer, select the escaped layer
+                IF CURRENT_LAYER% = muParent% THEN LAYERS_select mvSlot%
+            END IF
+        ELSE
+            ' Swap with the layer above within group
+            targetIndex% = 0
+            FOR i% = 1 TO MAX_LAYERS
+                IF LAYERS(i%).imgHandle& <> 0 AND LAYERS(i%).zIndex% = currentZ% + 1 THEN
+                    targetIndex% = i%
+                    EXIT FOR
+                END IF
+            NEXT i%
+            IF targetIndex% > 0 THEN
+                LAYERS(mvSlot%).zIndex% = currentZ% + 1
+                LAYERS(targetIndex%).zIndex% = currentZ%
+                IF NOT HISTORY_IN_PROGRESS% THEN
+                    HISTORY_record_layer_reorder LAYERS(mvSlot%).historyId&, mvSlot%, currentZ%, currentZ% + 1, "Layer Reorder"
+                END IF
+            END IF
+        END IF
+        BLEND_invalidate_cache
+        GUI_NEEDS_REDRAW% = TRUE
+        EXIT SUB
+    END IF
+
+    ' Non-grouped layer: skip over entire group blocks when moving up
+    DIM newTargetZ AS INTEGER
+    newTargetZ% = currentZ% + 1
+    ' Check if the layer at newTargetZ is part of a group — skip the entire group
     targetIndex% = 0
-    FOR i% = 1 TO 64
-        IF LAYERS(i%).imgHandle& <> 0 AND LAYERS(i%).zIndex% = currentZ% + 1 THEN
+    FOR i% = 1 TO MAX_LAYERS
+        IF LAYERS(i%).imgHandle& <> 0 AND LAYERS(i%).zIndex% = newTargetZ% THEN
             targetIndex% = i%
             EXIT FOR
         END IF
     NEXT i%
-    
     IF targetIndex% > 0 THEN
-        ' Swap zIndex values
-        LAYERS(layerIndex%).zIndex% = currentZ% + 1
-        LAYERS(targetIndex%).zIndex% = currentZ%
-        IF NOT HISTORY_IN_PROGRESS% THEN
-            HISTORY_record_layer_reorder LAYERS(layerIndex%).historyId&, layerIndex%, currentZ%, currentZ% + 1, "Layer Reorder"
+        IF LAYERS(targetIndex%).parentGroupIdx% > 0 THEN
+            ' Target is a group child — skip to header position
+            DIM skipGrpIdx AS INTEGER
+            skipGrpIdx% = LAYERS(targetIndex%).parentGroupIdx%
+            IF skipGrpIdx% > 0 THEN
+                IF skipGrpIdx% <= MAX_LAYERS THEN
+                    IF LAYERS(skipGrpIdx%).imgHandle& <> 0 THEN
+                        newTargetZ% = LAYERS(skipGrpIdx%).zIndex%
+                    END IF
+                END IF
+            END IF
+        ELSEIF LAYERS(targetIndex%).layerType% = LAYER_TYPE_GROUP THEN
+            ' Target is a group header with no children below — just swap
+            newTargetZ% = LAYERS(targetIndex%).zIndex%
         END IF
+    END IF
+    IF newTargetZ% > LAYER_COUNT% THEN newTargetZ% = LAYER_COUNT%
+    IF newTargetZ% = currentZ% THEN EXIT SUB
+
+    ' Shift layers between old and new position down by 1
+    FOR i% = 1 TO MAX_LAYERS
+        IF LAYERS(i%).imgHandle& <> 0 AND i% <> mvSlot% THEN
+            IF LAYERS(i%).zIndex% > currentZ% AND LAYERS(i%).zIndex% <= newTargetZ% THEN
+                LAYERS(i%).zIndex% = LAYERS(i%).zIndex% - 1
+            END IF
+        END IF
+    NEXT i%
+    LAYERS(mvSlot%).zIndex% = newTargetZ%
+    
+    IF NOT HISTORY_IN_PROGRESS% THEN
+        HISTORY_record_layer_reorder LAYERS(mvSlot%).historyId&, mvSlot%, currentZ%, newTargetZ%, "Layer Reorder"
     END IF
     
     BLEND_invalidate_cache
@@ -804,30 +1200,303 @@ SUB LAYERS_move_down (layerIndex AS INTEGER)
     DIM i AS INTEGER
     DIM currentZ AS INTEGER
     DIM targetIndex AS INTEGER
+
+    ' CRITICAL: Copy parameter to local — QB64 passes by reference.
+    DIM mdSlot AS INTEGER
+    mdSlot% = layerIndex%
     
     ' Validate
-    IF layerIndex% < 1 OR layerIndex% > 64 THEN EXIT SUB
-    IF LAYERS(layerIndex%).imgHandle& = 0 THEN EXIT SUB
+    IF mdSlot% < 1 OR mdSlot% > MAX_LAYERS THEN EXIT SUB
+    IF LAYERS(mdSlot%).imgHandle& = 0 THEN EXIT SUB
     
-    currentZ% = LAYERS(layerIndex%).zIndex%
+    currentZ% = LAYERS(mdSlot%).zIndex%
     IF currentZ% <= 1 THEN EXIT SUB  ' Already at bottom
-    
-    ' Find layer with zIndex = currentZ - 1
+
+    ' For group headers: move entire block (header + children) down.
+    ' If the block below is another group, skip over it entirely.
+    IF LAYERS(mdSlot%).layerType% = LAYER_TYPE_GROUP THEN
+        ' Find the lowest child z of this group
+        DIM grpLowestZ AS INTEGER
+        grpLowestZ% = currentZ%  ' Default: header z if no children
+        FOR i% = 1 TO MAX_LAYERS
+            IF LAYERS(i%).imgHandle& <> 0 THEN
+                IF LAYERS(i%).parentGroupIdx% = mdSlot% THEN
+                    IF LAYERS(i%).zIndex% < grpLowestZ% THEN
+                        grpLowestZ% = LAYERS(i%).zIndex%
+                    END IF
+                END IF
+            END IF
+        NEXT i%
+        DIM grpBelowZ AS INTEGER
+        grpBelowZ% = grpLowestZ% - 1
+
+        ' If this group is nested inside another group, check for boundary escape
+        IF LAYERS(mdSlot%).parentGroupIdx% > 0 THEN
+            DIM mdEscParent AS INTEGER
+            mdEscParent% = LAYERS(mdSlot%).parentGroupIdx%
+            IF mdEscParent% >= 1 THEN
+                IF mdEscParent% <= MAX_LAYERS THEN
+                    IF LAYERS(mdEscParent%).imgHandle& <> 0 THEN
+                        ' Check if there are any siblings below us in parent
+                        DIM mdHasSibBelow AS INTEGER
+                        mdHasSibBelow% = FALSE
+                        FOR i% = 1 TO MAX_LAYERS
+                            IF LAYERS(i%).imgHandle& <> 0 AND i% <> mdSlot% THEN
+                                IF LAYERS(i%).parentGroupIdx% = mdEscParent% THEN
+                                    IF LAYERS(i%).zIndex% < grpLowestZ% THEN
+                                        mdHasSibBelow% = TRUE
+                                        EXIT FOR
+                                    END IF
+                                END IF
+                            END IF
+                        NEXT i%
+                        IF NOT mdHasSibBelow% THEN
+                            ' At bottom of parent group — escape to grandparent
+                            DIM mdEscGP AS INTEGER
+                            mdEscGP% = LAYERS(mdEscParent%).parentGroupIdx%
+                            ' Reparent this sub-group to grandparent
+                            LAYERS(mdSlot%).parentGroupIdx% = mdEscGP%
+                            ' Give header a z below parents lowest extent so
+                            ' enforce_contiguity places it just below parent
+                            IF grpBelowZ% >= 1 THEN
+                                LAYERS(mdSlot%).zIndex% = grpBelowZ%
+                            END IF
+                            LAYERS_enforce_group_contiguity
+                            IF NOT HISTORY_IN_PROGRESS% THEN
+                                HISTORY_record_group_reparent LAYERS(mdSlot%).historyId&, mdSlot%, mdEscParent%, mdEscGP%, currentZ%, LAYERS(mdSlot%).zIndex%, "Move Group Out"
+                            END IF
+                            ' Auto-remove empty parent group
+                            IF LAYERS_group_child_count%(mdEscParent%) = 0 THEN
+                                LAYERS_delete mdEscParent%
+                                IF CURRENT_LAYER% = mdEscParent% THEN LAYERS_select mdSlot%
+                            END IF
+                            BLEND_invalidate_cache
+                            GUI_NEEDS_REDRAW% = TRUE
+                            EXIT SUB
+                        END IF
+                    END IF
+                END IF
+            END IF
+        END IF
+
+        IF grpBelowZ% < 1 THEN EXIT SUB
+        ' Find layer at that z
+        targetIndex% = 0
+        FOR i% = 1 TO MAX_LAYERS
+            IF LAYERS(i%).imgHandle& <> 0 AND LAYERS(i%).zIndex% = grpBelowZ% THEN
+                targetIndex% = i%
+                EXIT FOR
+            END IF
+        NEXT i%
+        IF targetIndex% > 0 THEN
+            ' Determine the bottom z we need to jump over
+            DIM mdJumpBotZ AS INTEGER
+            mdJumpBotZ% = grpBelowZ%
+            IF LAYERS(targetIndex%).layerType% = LAYER_TYPE_GROUP THEN
+                ' Target IS a group header — find its lowest child
+                DIM mdLowestChild AS INTEGER
+                mdLowestChild% = LAYERS(targetIndex%).zIndex%
+                FOR i% = 1 TO MAX_LAYERS
+                    IF LAYERS(i%).imgHandle& <> 0 THEN
+                        IF LAYERS(i%).parentGroupIdx% = targetIndex% THEN
+                            IF LAYERS(i%).zIndex% < mdLowestChild% THEN
+                                mdLowestChild% = LAYERS(i%).zIndex%
+                            END IF
+                        END IF
+                    END IF
+                NEXT i%
+                mdJumpBotZ% = mdLowestChild%
+            ELSEIF LAYERS(targetIndex%).parentGroupIdx% > 0 THEN
+                ' Target is a child of another group — find that group's lowest child
+                DIM mdBelowGrp AS INTEGER
+                mdBelowGrp% = LAYERS(targetIndex%).parentGroupIdx%
+                IF mdBelowGrp% > 0 THEN
+                    IF mdBelowGrp% <= MAX_LAYERS THEN
+                        IF LAYERS(mdBelowGrp%).imgHandle& <> 0 THEN
+                            DIM mdBGLow AS INTEGER
+                            mdBGLow% = LAYERS(mdBelowGrp%).zIndex%
+                            FOR i% = 1 TO MAX_LAYERS
+                                IF LAYERS(i%).imgHandle& <> 0 THEN
+                                    IF LAYERS(i%).parentGroupIdx% = mdBelowGrp% THEN
+                                        IF LAYERS(i%).zIndex% < mdBGLow% THEN mdBGLow% = LAYERS(i%).zIndex%
+                                    END IF
+                                END IF
+                            NEXT i%
+                            mdJumpBotZ% = mdBGLow%
+                        END IF
+                    END IF
+                END IF
+            END IF
+
+            ' Count block sizes
+            DIM mdBlockSize AS INTEGER
+            mdBlockSize% = currentZ% - grpLowestZ% + 1  ' our group block size
+
+            DIM mdJumpSize AS INTEGER
+            mdJumpSize% = grpLowestZ% - mdJumpBotZ%  ' how many slots to jump below
+
+            ' Shift: everything between mdJumpBotZ..grpLowestZ-1 goes up by mdBlockSize
+            ' Our group block (grpLowestZ..currentZ) goes down by mdJumpSize
+            FOR i% = 1 TO MAX_LAYERS
+                IF LAYERS(i%).imgHandle& <> 0 AND i% <> mdSlot% THEN
+                    IF LAYERS(i%).zIndex% >= mdJumpBotZ% AND LAYERS(i%).zIndex% < grpLowestZ% THEN
+                        LAYERS(i%).zIndex% = LAYERS(i%).zIndex% + mdBlockSize%
+                    ELSEIF LAYERS(i%).parentGroupIdx% = mdSlot% THEN
+                        LAYERS(i%).zIndex% = LAYERS(i%).zIndex% - mdJumpSize%
+                    END IF
+                END IF
+            NEXT i%
+            LAYERS(mdSlot%).zIndex% = currentZ% - mdJumpSize%
+
+            LAYERS_enforce_group_contiguity
+            IF NOT HISTORY_IN_PROGRESS% THEN
+                HISTORY_record_layer_reorder LAYERS(mdSlot%).historyId&, mdSlot%, currentZ%, LAYERS(mdSlot%).zIndex%, "Layer Reorder"
+            END IF
+        END IF
+        BLEND_invalidate_cache
+        GUI_NEEDS_REDRAW% = TRUE
+        EXIT SUB
+    END IF
+
+    ' For child layers inside a group: swap with sibling, or escape group at boundary
+    IF LAYERS(mdSlot%).parentGroupIdx% > 0 THEN
+        DIM mdParent AS INTEGER
+        mdParent% = LAYERS(mdSlot%).parentGroupIdx%
+        ' Find lowest child z in this group
+        DIM mdLowestZ AS INTEGER
+        mdLowestZ% = currentZ%
+        FOR i% = 1 TO MAX_LAYERS
+            IF LAYERS(i%).imgHandle& <> 0 THEN
+                IF LAYERS(i%).parentGroupIdx% = mdParent% THEN
+                    IF LAYERS(i%).zIndex% < mdLowestZ% THEN
+                        mdLowestZ% = LAYERS(i%).zIndex%
+                    END IF
+                END IF
+            END IF
+        NEXT i%
+        IF currentZ% <= mdLowestZ% THEN
+            ' At bottom of group — escape to parent group (or top-level)
+            DIM mdGrandparent AS INTEGER
+            mdGrandparent% = LAYERS(mdParent%).parentGroupIdx%
+            LAYERS(mdSlot%).parentGroupIdx% = mdGrandparent%
+            DIM mdBelowZ AS INTEGER
+            mdBelowZ% = currentZ% - 1
+            IF mdBelowZ% < 1 THEN
+                ' Already at bottom of stack — just reparent
+                LAYERS_enforce_group_contiguity
+                IF NOT HISTORY_IN_PROGRESS% THEN
+                    HISTORY_record_group_reparent LAYERS(mdSlot%).historyId&, mdSlot%, mdParent%, mdGrandparent%, currentZ%, currentZ%, "Move Out of Group"
+                END IF
+            ELSE
+                ' Swap with layer below
+                targetIndex% = 0
+                FOR i% = 1 TO MAX_LAYERS
+                    IF LAYERS(i%).imgHandle& <> 0 AND LAYERS(i%).zIndex% = mdBelowZ% THEN
+                        targetIndex% = i%
+                        EXIT FOR
+                    END IF
+                NEXT i%
+                IF targetIndex% > 0 THEN
+                    LAYERS(mdSlot%).zIndex% = mdBelowZ%
+                    LAYERS(targetIndex%).zIndex% = currentZ%
+                END IF
+                LAYERS_enforce_group_contiguity
+                IF NOT HISTORY_IN_PROGRESS% THEN
+                    HISTORY_record_group_reparent LAYERS(mdSlot%).historyId&, mdSlot%, mdParent%, mdGrandparent%, currentZ%, mdBelowZ%, "Move Out of Group"
+                END IF
+            END IF
+            ' Auto-remove empty group
+            IF LAYERS_group_child_count%(mdParent%) = 0 THEN
+                LAYERS_delete mdParent%
+                IF CURRENT_LAYER% = mdParent% THEN LAYERS_select mdSlot%
+            END IF
+        ELSE
+            ' Swap with the layer below within group
+            targetIndex% = 0
+            FOR i% = 1 TO MAX_LAYERS
+                IF LAYERS(i%).imgHandle& <> 0 AND LAYERS(i%).zIndex% = currentZ% - 1 THEN
+                    targetIndex% = i%
+                    EXIT FOR
+                END IF
+            NEXT i%
+            IF targetIndex% > 0 THEN
+                LAYERS(mdSlot%).zIndex% = currentZ% - 1
+                LAYERS(targetIndex%).zIndex% = currentZ%
+                IF NOT HISTORY_IN_PROGRESS% THEN
+                    HISTORY_record_layer_reorder LAYERS(mdSlot%).historyId&, mdSlot%, currentZ%, currentZ% - 1, "Layer Reorder"
+                END IF
+            END IF
+        END IF
+        BLEND_invalidate_cache
+        GUI_NEEDS_REDRAW% = TRUE
+        EXIT SUB
+    END IF
+
+    ' Non-grouped layer: skip over entire group blocks when moving down
+    DIM newTargetZ AS INTEGER
+    newTargetZ% = currentZ% - 1
+    ' Check if the layer at newTargetZ is part of a group — skip the entire group
     targetIndex% = 0
-    FOR i% = 1 TO 64
-        IF LAYERS(i%).imgHandle& <> 0 AND LAYERS(i%).zIndex% = currentZ% - 1 THEN
+    FOR i% = 1 TO MAX_LAYERS
+        IF LAYERS(i%).imgHandle& <> 0 AND LAYERS(i%).zIndex% = newTargetZ% THEN
             targetIndex% = i%
             EXIT FOR
         END IF
     NEXT i%
-    
     IF targetIndex% > 0 THEN
-        ' Swap zIndex values
-        LAYERS(layerIndex%).zIndex% = currentZ% - 1
-        LAYERS(targetIndex%).zIndex% = currentZ%
-        IF NOT HISTORY_IN_PROGRESS% THEN
-            HISTORY_record_layer_reorder LAYERS(layerIndex%).historyId&, layerIndex%, currentZ%, currentZ% - 1, "Layer Reorder"
+        IF LAYERS(targetIndex%).layerType% = LAYER_TYPE_GROUP THEN
+            ' Target is a group header — find lowest child and skip to that z
+            DIM skipGrpLowest AS INTEGER
+            skipGrpLowest% = LAYERS(targetIndex%).zIndex%
+            FOR i% = 1 TO MAX_LAYERS
+                IF LAYERS(i%).imgHandle& <> 0 THEN
+                    IF LAYERS(i%).parentGroupIdx% = targetIndex% THEN
+                        IF LAYERS(i%).zIndex% < skipGrpLowest% THEN
+                            skipGrpLowest% = LAYERS(i%).zIndex%
+                        END IF
+                    END IF
+                END IF
+            NEXT i%
+            newTargetZ% = skipGrpLowest%
+        ELSEIF LAYERS(targetIndex%).parentGroupIdx% > 0 THEN
+            ' Target is a group child — skip to lowest child z of that group
+            DIM skipGrpIdx2 AS INTEGER
+            skipGrpIdx2% = LAYERS(targetIndex%).parentGroupIdx%
+            IF skipGrpIdx2% > 0 THEN
+                IF skipGrpIdx2% <= MAX_LAYERS THEN
+                    IF LAYERS(skipGrpIdx2%).imgHandle& <> 0 THEN
+                        DIM skipGrpLowest2 AS INTEGER
+                        skipGrpLowest2% = LAYERS(skipGrpIdx2%).zIndex%
+                        FOR i% = 1 TO MAX_LAYERS
+                            IF LAYERS(i%).imgHandle& <> 0 THEN
+                                IF LAYERS(i%).parentGroupIdx% = skipGrpIdx2% THEN
+                                    IF LAYERS(i%).zIndex% < skipGrpLowest2% THEN
+                                        skipGrpLowest2% = LAYERS(i%).zIndex%
+                                    END IF
+                                END IF
+                            END IF
+                        NEXT i%
+                        newTargetZ% = skipGrpLowest2%
+                    END IF
+                END IF
+            END IF
         END IF
+    END IF
+    IF newTargetZ% < 1 THEN newTargetZ% = 1
+    IF newTargetZ% = currentZ% THEN EXIT SUB
+
+    ' Shift layers between new and old position up by 1
+    FOR i% = 1 TO MAX_LAYERS
+        IF LAYERS(i%).imgHandle& <> 0 AND i% <> mdSlot% THEN
+            IF LAYERS(i%).zIndex% >= newTargetZ% AND LAYERS(i%).zIndex% < currentZ% THEN
+                LAYERS(i%).zIndex% = LAYERS(i%).zIndex% + 1
+            END IF
+        END IF
+    NEXT i%
+    LAYERS(mdSlot%).zIndex% = newTargetZ%
+    
+    IF NOT HISTORY_IN_PROGRESS% THEN
+        HISTORY_record_layer_reorder LAYERS(mdSlot%).historyId&, mdSlot%, currentZ%, newTargetZ%, "Layer Reorder"
     END IF
     
     BLEND_invalidate_cache
@@ -844,13 +1513,13 @@ SUB LAYERS_to_top (layerIndex AS INTEGER)
     DIM currentZ AS INTEGER
     
     ' Validate
-    IF layerIndex% < 1 OR layerIndex% > 64 THEN EXIT SUB
+    IF layerIndex% < 1 OR layerIndex% > MAX_LAYERS THEN EXIT SUB
     IF LAYERS(layerIndex%).imgHandle& = 0 THEN EXIT SUB
     
     currentZ% = LAYERS(layerIndex%).zIndex%
     IF currentZ% = LAYER_COUNT% THEN EXIT SUB  ' Already at top
     ' Decrease zIndex of all layers above this one
-    FOR i% = 1 TO 64
+    FOR i% = 1 TO MAX_LAYERS
         IF LAYERS(i%).imgHandle& <> 0 AND LAYERS(i%).zIndex% > currentZ% THEN
             LAYERS(i%).zIndex% = LAYERS(i%).zIndex% - 1
         END IF
@@ -876,13 +1545,13 @@ SUB LAYERS_to_bottom (layerIndex AS INTEGER)
     DIM currentZ AS INTEGER
     
     ' Validate
-    IF layerIndex% < 1 OR layerIndex% > 64 THEN EXIT SUB
+    IF layerIndex% < 1 OR layerIndex% > MAX_LAYERS THEN EXIT SUB
     IF LAYERS(layerIndex%).imgHandle& = 0 THEN EXIT SUB
     
     currentZ% = LAYERS(layerIndex%).zIndex%
     IF currentZ% = 1 THEN EXIT SUB  ' Already at bottom
     ' Increase zIndex of all layers below this one
-    FOR i% = 1 TO 64
+    FOR i% = 1 TO MAX_LAYERS
         IF LAYERS(i%).imgHandle& <> 0 AND LAYERS(i%).zIndex% < currentZ% THEN
             LAYERS(i%).zIndex% = LAYERS(i%).zIndex% + 1
         END IF
@@ -905,7 +1574,7 @@ END SUB
 '
 SUB LAYERS_toggle_visibility (layerIndex AS INTEGER)
     ' Validate
-    IF layerIndex% < 1 OR layerIndex% > 64 THEN EXIT SUB
+    IF layerIndex% < 1 OR layerIndex% > MAX_LAYERS THEN EXIT SUB
     IF LAYERS(layerIndex%).imgHandle& = 0 THEN EXIT SUB
     
     LAYERS(layerIndex%).visible% = NOT LAYERS(layerIndex%).visible%
@@ -923,7 +1592,7 @@ SUB LAYERS_set_opacity (layerIndex AS INTEGER, opacity AS INTEGER)
     DIM clampedOpacity AS INTEGER
     
     ' Validate
-    IF layerIndex% < 1 OR layerIndex% > 64 THEN EXIT SUB
+    IF layerIndex% < 1 OR layerIndex% > MAX_LAYERS THEN EXIT SUB
     IF LAYERS(layerIndex%).imgHandle& = 0 THEN EXIT SUB
     
     ' Clamp opacity to valid range
@@ -945,7 +1614,7 @@ END SUB
 '
 SUB LAYERS_toggle_opacity_lock (layerIndex AS INTEGER)
     ' Validate
-    IF layerIndex% < 1 OR layerIndex% > 64 THEN EXIT SUB
+    IF layerIndex% < 1 OR layerIndex% > MAX_LAYERS THEN EXIT SUB
     IF LAYERS(layerIndex%).imgHandle& = 0 THEN EXIT SUB
     
     LAYERS(layerIndex%).opacityLock% = NOT LAYERS(layerIndex%).opacityLock%
@@ -963,17 +1632,21 @@ SUB LAYERS_merge_down (layerIndex AS INTEGER)
     DIM targetIndex AS INTEGER
     DIM oldDest AS LONG
     DIM tempImg AS LONG
+
+    ' CRITICAL: Copy parameter to local — QB64 passes by reference.
+    DIM mrgSlot AS INTEGER
+    mrgSlot% = layerIndex%
     
     ' Validate
-    IF layerIndex% < 1 OR layerIndex% > 64 THEN EXIT SUB
-    IF LAYERS(layerIndex%).imgHandle& = 0 THEN EXIT SUB
+    IF mrgSlot% < 1 OR mrgSlot% > MAX_LAYERS THEN EXIT SUB
+    IF LAYERS(mrgSlot%).imgHandle& = 0 THEN EXIT SUB
     
-    currentZ% = LAYERS(layerIndex%).zIndex%
+    currentZ% = LAYERS(mrgSlot%).zIndex%
     IF currentZ% <= 1 THEN EXIT SUB  ' No layer below to merge into
     
     ' Find layer below (zIndex = currentZ - 1)
     targetIndex% = 0
-    FOR i% = 1 TO 64
+    FOR i% = 1 TO MAX_LAYERS
         IF LAYERS(i%).imgHandle& <> 0 AND LAYERS(i%).zIndex% = currentZ% - 1 THEN
             targetIndex% = i%
             EXIT FOR
@@ -983,21 +1656,21 @@ SUB LAYERS_merge_down (layerIndex AS INTEGER)
     IF targetIndex% = 0 THEN EXIT SUB
     
     ' Record in unified history BEFORE merge (captures both layers' before-state)
-    HISTORY_record_layer_merge layerIndex%, targetIndex%
+    HISTORY_record_layer_merge mrgSlot%, targetIndex%
     
     ' Merge: composite current layer onto target respecting blend mode and opacity
     oldDest& = _DEST
     
-    IF LAYERS(layerIndex%).blendMode% <> BLEND_NORMAL THEN
+    IF LAYERS(mrgSlot%).blendMode% <> BLEND_NORMAL THEN
         ' Non-Normal blend mode: use per-pixel blend composite (handles opacity internally)
-        LAYER_blend_composite LAYERS(targetIndex%).imgHandle&, LAYERS(layerIndex%).imgHandle&, LAYERS(layerIndex%).blendMode%, LAYERS(layerIndex%).opacity%
-    ELSEIF LAYERS(layerIndex%).opacity% < 255 THEN
+        LAYER_blend_composite LAYERS(targetIndex%).imgHandle&, LAYERS(mrgSlot%).imgHandle&, LAYERS(mrgSlot%).blendMode%, LAYERS(mrgSlot%).opacity%
+    ELSEIF LAYERS(mrgSlot%).opacity% < 255 THEN
         ' Normal blend with partial opacity: scale alpha per-pixel
         ' _SETALPHA must NOT be used here — it overwrites ALL pixels' alpha including
         ' transparent ones, turning empty pixels into semi-transparent black.
         ' Instead, scale each non-transparent pixel's alpha by (origAlpha * opacity / 255),
         ' matching the same logic used by the renderer's opacity cache.
-        tempImg& = _COPYIMAGE(LAYERS(layerIndex%).imgHandle&, 32)
+        tempImg& = _COPYIMAGE(LAYERS(mrgSlot%).imgHandle&, 32)
         DIM mergeMem AS _MEM
         DIM mergeOffset AS _OFFSET
         DIM mergePixVal AS _UNSIGNED LONG
@@ -1008,7 +1681,7 @@ SUB LAYERS_merge_down (layerIndex AS INTEGER)
             _MEMGET mergeMem, mergeOffset, mergePixVal~&
             mergeAlpha~%% = _ALPHA32(mergePixVal~&)
             IF mergeAlpha~%% > 0 THEN
-                mergeNewAlpha% = (mergeAlpha~%% * LAYERS(layerIndex%).opacity%) \ 255
+                mergeNewAlpha% = (mergeAlpha~%% * LAYERS(mrgSlot%).opacity%) \ 255
                 _MEMPUT mergeMem, mergeOffset + 3, mergeNewAlpha% AS _UNSIGNED _BYTE
             END IF
         NEXT mergeOffset
@@ -1021,7 +1694,7 @@ SUB LAYERS_merge_down (layerIndex AS INTEGER)
         ' Normal blend at full opacity
         _DEST LAYERS(targetIndex%).imgHandle&
         _BLEND LAYERS(targetIndex%).imgHandle&
-        _PUTIMAGE , LAYERS(layerIndex%).imgHandle&
+        _PUTIMAGE , LAYERS(mrgSlot%).imgHandle&
     END IF
     
     _DEST oldDest&
@@ -1031,7 +1704,7 @@ SUB LAYERS_merge_down (layerIndex AS INTEGER)
     
     ' Delete the merged layer (suppress undo save since we already recorded merge state)
     HISTORY_IN_PROGRESS% = TRUE
-    LAYERS_delete layerIndex%
+    LAYERS_delete mrgSlot%
     HISTORY_IN_PROGRESS% = FALSE
     
     ' Select the target layer
@@ -1049,13 +1722,13 @@ SUB LAYERS_merge_visible ()
     DIM i AS INTEGER, z AS INTEGER
     DIM oldDest AS LONG
     DIM tempImg AS LONG
-    DIM sortedLayers(1 TO 64) AS INTEGER
+    DIM sortedLayers(1 TO MAX_LAYERS) AS INTEGER
     DIM sortCount AS INTEGER
     
     ' Build sorted list of visible layers by zIndex
     sortCount% = 0
     FOR z% = 1 TO LAYER_COUNT%
-        FOR i% = 1 TO 64
+        FOR i% = 1 TO MAX_LAYERS
             IF LAYERS(i%).imgHandle& <> 0 AND LAYERS(i%).visible% AND LAYERS(i%).zIndex% = z% THEN
                 sortCount% = sortCount% + 1
                 sortedLayers%(sortCount%) = i%
@@ -1179,7 +1852,7 @@ FUNCTION LAYERS_flatten& ()
     
     ' Composite visible layers bottom-to-top by zIndex
     FOR z% = 1 TO LAYER_COUNT%
-        FOR i% = 1 TO 64
+        FOR i% = 1 TO MAX_LAYERS
             IF LAYERS(i%).imgHandle& <> 0 AND LAYERS(i%).visible% AND LAYERS(i%).zIndex% = z% THEN
                 IF LAYERS(i%).blendMode% <> BLEND_NORMAL THEN
                     ' Non-Normal blend: use per-pixel blend composite
@@ -1227,7 +1900,7 @@ END FUNCTION
 ' @return LONG - Image handle of the current layer, or SCRN.PAINTING& as fallback
 ' 
 FUNCTION LAYER_current_image& ()
-    IF CURRENT_LAYER% >= 1 AND CURRENT_LAYER% <= 64 THEN
+    IF CURRENT_LAYER% >= 1 AND CURRENT_LAYER% <= MAX_LAYERS THEN
         IF LAYERS(CURRENT_LAYER%).imgHandle& <> 0 THEN
             LAYER_current_image& = LAYERS(CURRENT_LAYER%).imgHandle&
             EXIT FUNCTION
@@ -1287,8 +1960,33 @@ SUB LAYER_PANEL_render (canvasHeight AS INTEGER)
     listBottom% = panelH% - BUTTON_AREA_HEIGHT
     listHeight% = listBottom% - listTop%
     
-    ' Calculate total content height
-    totalContentHeight% = LAYER_COUNT% * LAYER_ROW_HEIGHT
+    ' Calculate total content height (excluding collapsed group children)
+    DIM visibleRowCount AS INTEGER
+    DIM vri AS INTEGER, vrIdx AS INTEGER
+    visibleRowCount% = 0
+    FOR vri% = LAYER_COUNT% TO 1 STEP -1
+        FOR vrIdx% = 1 TO MAX_LAYERS
+            IF LAYERS(vrIdx%).imgHandle& <> 0 AND LAYERS(vrIdx%).zIndex% = vri% THEN
+                ' Skip children of collapsed groups
+                DIM vrParent AS INTEGER
+                vrParent% = LAYERS(vrIdx%).parentGroupIdx%
+                DIM vrSkip AS INTEGER
+                vrSkip% = FALSE
+                IF vrParent% > 0 THEN
+                    IF vrParent% <= MAX_LAYERS THEN
+                        IF LAYERS(vrParent%).imgHandle& <> 0 THEN
+                            IF LAYERS(vrParent%).collapsed% THEN vrSkip% = TRUE
+                        END IF
+                    END IF
+                END IF
+                IF NOT vrSkip% THEN
+                    visibleRowCount% = visibleRowCount% + 1
+                END IF
+                EXIT FOR
+            END IF
+        NEXT vrIdx%
+    NEXT vri%
+    totalContentHeight% = visibleRowCount% * LAYER_ROW_HEIGHT
     
     ' Calculate max scroll offset
     maxScroll% = totalContentHeight% - listHeight%
@@ -1334,7 +2032,7 @@ SUB LAYER_PANEL_render (canvasHeight AS INTEGER)
     FOR z% = LAYER_COUNT% TO 1 STEP -1
         ' Find layer with this zIndex
         layerIdx% = 0
-        FOR i% = 1 TO 64
+        FOR i% = 1 TO MAX_LAYERS
             IF LAYERS(i%).imgHandle& <> 0 AND LAYERS(i%).zIndex% = z% THEN
                 layerIdx% = i%
                 EXIT FOR
@@ -1342,6 +2040,40 @@ SUB LAYER_PANEL_render (canvasHeight AS INTEGER)
         NEXT i%
         
         IF layerIdx% > 0 THEN
+            ' Skip children of collapsed groups (walk entire ancestor chain)
+            DIM lpParent AS INTEGER
+            DIM lpAncestorCollapsed AS INTEGER
+            lpParent% = LAYERS(layerIdx%).parentGroupIdx%
+            lpAncestorCollapsed% = FALSE
+            DIM lpWalkPar AS INTEGER
+            lpWalkPar% = lpParent%
+            DO WHILE lpWalkPar% > 0
+                IF lpWalkPar% <= MAX_LAYERS THEN
+                    IF LAYERS(lpWalkPar%).imgHandle& <> 0 THEN
+                        IF LAYERS(lpWalkPar%).collapsed% THEN
+                            lpAncestorCollapsed% = TRUE
+                            EXIT DO
+                        END IF
+                    END IF
+                    lpWalkPar% = LAYERS(lpWalkPar%).parentGroupIdx%
+                ELSE
+                    EXIT DO
+                END IF
+            LOOP
+            IF lpAncestorCollapsed% THEN _CONTINUE
+
+            ' Calculate indentation based on nesting depth
+            DIM rowIndent AS INTEGER
+            DIM lpNestDepth AS INTEGER
+            DIM lpIndentPx AS INTEGER
+            lpNestDepth% = LAYERS_nesting_depth%(layerIdx%)
+            IF CFG.LAYER_GROUP_INDENT% > 0 THEN
+                lpIndentPx% = CFG.LAYER_GROUP_INDENT%
+            ELSE
+                lpIndentPx% = THEME.LAYER_PANEL_group_indent%
+            END IF
+            rowIndent% = lpNestDepth% * lpIndentPx%
+
             DIM drawY AS INTEGER
             drawY% = rowY% - LAYER_PANEL.scrollOffset%
             
@@ -1354,9 +2086,20 @@ SUB LAYER_PANEL_render (canvasHeight AS INTEGER)
                 clipBottom% = drawY% + LAYER_ROW_HEIGHT - 1
                 IF clipBottom% >= listBottom% THEN clipBottom% = listBottom% - 1
                 
-                ' Row background — master (CURRENT) layer gets master tint + accent bar;
-                '   secondary multi-selected layers get dimmer tint; others normal/hover.
-                IF layerIdx% = CURRENT_LAYER% THEN
+                ' Group headers get their own background color
+                DIM isGroupHeader AS INTEGER
+                isGroupHeader% = (LAYERS(layerIdx%).layerType% = LAYER_TYPE_GROUP)
+                ' Row background — group headers get special bg; master gets accent;
+                '   secondary multi-selected get dimmer tint; others normal/hover.
+                IF isGroupHeader% THEN
+                    IF layerIdx% = CURRENT_LAYER% THEN
+                        rowBg~& = THEME.LAYER_PANEL_row_master_bg~&
+                    ELSEIF MULTI_SELECT_LAYERS(layerIdx%) THEN
+                        rowBg~& = THEME.LAYER_PANEL_row_multi_sel_bg~&
+                    ELSE
+                        rowBg~& = THEME.LAYER_PANEL_group_header_bg~&
+                    END IF
+                ELSEIF layerIdx% = CURRENT_LAYER% THEN
                     rowBg~& = THEME.LAYER_PANEL_row_master_bg~&
                 ELSEIF MULTI_SELECT_LAYERS(layerIdx%) THEN
                     rowBg~& = THEME.LAYER_PANEL_row_multi_sel_bg~&
@@ -1365,14 +2108,71 @@ SUB LAYER_PANEL_render (canvasHeight AS INTEGER)
                 ELSE
                     rowBg~& = THEME.LAYER_PANEL_row_bg~&
                 END IF
-                LINE (panelX% + 2, clipTop%)-(panelX% + panelW% - 12, clipBottom%), rowBg~&, BF
+                LINE (panelX% + 2 + rowIndent%, clipTop%)-(panelX% + panelW% - 12, clipBottom%), rowBg~&, BF
                 ' 2px left-edge accent bar to distinguish master (current) layer
                 IF layerIdx% = CURRENT_LAYER% THEN
-                    LINE (panelX% + 2, clipTop%)-(panelX% + 3, clipBottom%), THEME.LAYER_PANEL_row_master_accent~&, BF
+                    LINE (panelX% + 2 + rowIndent%, clipTop%)-(panelX% + 3 + rowIndent%, clipBottom%), THEME.LAYER_PANEL_row_master_accent~&, BF
                 END IF
                 
                 ' Only draw text if fully visible
                 IF drawY% >= listTop% AND drawY% + LAYER_ROW_HEIGHT <= listBottom% THEN
+                    ' Row content X offset (includes indent for children)
+                    DIM rowX AS INTEGER
+                    rowX% = panelX% + 3 + rowIndent%
+
+                    IF isGroupHeader% THEN
+                        ' === GROUP HEADER ROW ===
+                        ' Collapse triangle: right-pointing when collapsed, down when expanded
+                        DIM triX AS INTEGER, triY AS INTEGER
+                        triX% = rowX%
+                        triY% = drawY% + (LAYER_ROW_HEIGHT \ 2)
+                        COLOR THEME.LAYER_PANEL_group_collapse_fg~&, _RGBA32(0, 0, 0, 0)
+                        IF LAYERS(layerIdx%).collapsed% THEN
+                            ' Right-pointing triangle (collapsed)
+                            LINE (triX%, triY% - 4)-(triX%, triY% + 4), THEME.LAYER_PANEL_group_collapse_fg~&
+                            LINE (triX%, triY% - 4)-(triX% + 4, triY%), THEME.LAYER_PANEL_group_collapse_fg~&
+                            LINE (triX%, triY% + 4)-(triX% + 4, triY%), THEME.LAYER_PANEL_group_collapse_fg~&
+                        ELSE
+                            ' Down-pointing triangle (expanded)
+                            LINE (triX%, triY% - 2)-(triX% + 8, triY% - 2), THEME.LAYER_PANEL_group_collapse_fg~&
+                            LINE (triX%, triY% - 2)-(triX% + 4, triY% + 2), THEME.LAYER_PANEL_group_collapse_fg~&
+                            LINE (triX% + 8, triY% - 2)-(triX% + 4, triY% + 2), THEME.LAYER_PANEL_group_collapse_fg~&
+                        END IF
+
+                        ' Visibility toggle (same as normal layers)
+                        DIM gVisIcon AS LONG
+                        IF LAYERS(layerIdx%).visible% THEN
+                            gVisIcon& = LAYER_PANEL.iconVisOn&
+                        ELSE
+                            gVisIcon& = LAYER_PANEL.iconVisOff&
+                        END IF
+                        IF gVisIcon& < -1 THEN
+                            DIM gviW AS INTEGER, gviH AS INTEGER
+                            gviW% = _WIDTH(gVisIcon&)
+                            gviH% = _HEIGHT(gVisIcon&)
+                            _PUTIMAGE (rowX% + 10, drawY% + (LAYER_ROW_HEIGHT - gviH%) \ 2)-(rowX% + 10 + gviW% - 1, drawY% + (LAYER_ROW_HEIGHT - gviH%) \ 2 + gviH% - 1), gVisIcon&, SCRN.GUI&
+                        END IF
+
+                        ' Group name
+                        DIM grpName AS STRING
+                        grpName$ = _TRIM$(LAYERS(layerIdx%).name)
+                        DIM grpAvailW AS INTEGER
+                        grpAvailW% = panelW% - rowIndent% - 24 - 14
+                        DO WHILE LEN(grpName$) > 0 AND _PRINTWIDTH(grpName$) > grpAvailW%
+                            grpName$ = LEFT$(grpName$, LEN(grpName$) - 1)
+                        LOOP
+                        COLOR THEME.LAYER_PANEL_group_header_fg~&, _RGBA32(0, 0, 0, 0)
+                        _UPRINTSTRING (rowX% + 22, drawY% + 4), grpName$
+
+                        ' Group child count indicator
+                        DIM grpChildCnt AS INTEGER
+                        grpChildCnt% = LAYERS_group_child_count%(layerIdx%)
+                        IF grpChildCnt% > 0 AND panelW% >= 80 THEN
+                            COLOR THEME.LAYER_PANEL_header_fg_dim~&, _RGBA32(0, 0, 0, 0)
+                            _UPRINTSTRING (rowX% + 22, drawY% + 12), "(" + _TRIM$(STR$(grpChildCnt%)) + ")"
+                        END IF
+                    ELSE
+                        ' === NORMAL / TEXT LAYER ROW ===
                     ' Visibility toggle (eye icon) - PNG with text fallback
                     DIM visIcon AS LONG
                     IF LAYERS(layerIdx%).visible% THEN
@@ -1389,11 +2189,11 @@ SUB LAYER_PANEL_render (canvasHeight AS INTEGER)
                         DIM viW AS INTEGER, viH AS INTEGER
                         viW% = _WIDTH(visIcon&)
                         viH% = _HEIGHT(visIcon&)
-                        _PUTIMAGE (panelX% + 3, drawY% + (LAYER_ROW_HEIGHT - viH%) \ 2)-(panelX% + 3 + viW% - 1, drawY% + (LAYER_ROW_HEIGHT - viH%) \ 2 + viH% - 1), visIcon&, SCRN.GUI&
+                        _PUTIMAGE (rowX%, drawY% + (LAYER_ROW_HEIGHT - viH%) \ 2)-(rowX% + viW% - 1, drawY% + (LAYER_ROW_HEIGHT - viH%) \ 2 + viH% - 1), visIcon&, SCRN.GUI&
                     ELSE
                         ' Fallback to text
                         COLOR fgColor~&, _RGBA32(0, 0, 0, 0)
-                        _UPRINTSTRING (panelX% + 4, drawY% + 4), visibleIcon$
+                        _UPRINTSTRING (rowX% + 1, drawY% + 4), visibleIcon$
                     END IF
                     
                     ' Opacity lock icon - PNG with text fallback
@@ -1408,13 +2208,13 @@ SUB LAYER_PANEL_render (canvasHeight AS INTEGER)
                         DIM lkW AS INTEGER, lkH AS INTEGER
                         lkW% = _WIDTH(lkIcon&)
                         lkH% = _HEIGHT(lkIcon&)
-                        _PUTIMAGE (panelX% + 14, drawY% + (LAYER_ROW_HEIGHT - lkH%) \ 2)-(panelX% + 14 + lkW% - 1, drawY% + (LAYER_ROW_HEIGHT - lkH%) \ 2 + lkH% - 1), lkIcon&, SCRN.GUI&
+                        _PUTIMAGE (rowX% + 11, drawY% + (LAYER_ROW_HEIGHT - lkH%) \ 2)-(rowX% + 11 + lkW% - 1, drawY% + (LAYER_ROW_HEIGHT - lkH%) \ 2 + lkH% - 1), lkIcon&, SCRN.GUI&
                     ELSE
                         ' Fallback to text (only show when locked)
                         IF LAYERS(layerIdx%).opacityLock% THEN
                             lockIcon$ = "L"
                             COLOR _RGB32(255, 180, 0), _RGBA32(0, 0, 0, 0)
-                            _UPRINTSTRING (panelX% + 14, drawY% + 4), lockIcon$
+                            _UPRINTSTRING (rowX% + 11, drawY% + 4), lockIcon$
                         END IF
                     END IF
                     
@@ -1425,24 +2225,36 @@ SUB LAYER_PANEL_render (canvasHeight AS INTEGER)
                     IF LAYERS(layerIdx%).layerType% = LAYER_TYPE_TEXT THEN
                         layerName$ = "[T] " + layerName$
                     END IF
-                    availW% = panelW% - 24 - 14  ' left icons offset - scrollbar/right padding
+                    availW% = panelW% - rowIndent% - 24 - 14
                     ' Trim from end until it fits the available pixel width
                     DO WHILE LEN(layerName$) > 0 AND _PRINTWIDTH(layerName$) > availW%
                         layerName$ = LEFT$(layerName$, LEN(layerName$) - 1)
                     LOOP
                     COLOR THEME.LAYER_PANEL_row_fg~&, _RGBA32(0, 0, 0, 0)
-                    _UPRINTSTRING (panelX% + 24, drawY% + 4), layerName$
+                    _UPRINTSTRING (rowX% + 21, drawY% + 4), layerName$
                     
-                    ' Blend mode indicator (show short name if not Normal)
+                    ' Blend mode indicator (show short name if not Normal/default)
                     ' Only show when panel is wide enough (>=80px)
                     IF panelW% >= 80 THEN
-                        IF LAYERS(layerIdx%).blendMode% <> BLEND_NORMAL THEN
+                        DIM showBlendInd AS INTEGER
+                        showBlendInd% = FALSE
+                        IF LAYERS(layerIdx%).layerType% = LAYER_TYPE_GROUP AND LAYERS(layerIdx%).passThrough% THEN
+                            showBlendInd% = TRUE
+                        ELSEIF LAYERS(layerIdx%).blendMode% <> BLEND_NORMAL THEN
+                            showBlendInd% = TRUE
+                        END IF
+                        IF showBlendInd% THEN
                             DIM blendShort AS STRING
-                            blendShort$ = BLEND_mode_short$(LAYERS(layerIdx%).blendMode%)
+                            IF LAYERS(layerIdx%).layerType% = LAYER_TYPE_GROUP AND LAYERS(layerIdx%).passThrough% THEN
+                                blendShort$ = BLEND_mode_short$(BLEND_PASS_THROUGH)
+                            ELSE
+                                blendShort$ = BLEND_mode_short$(LAYERS(layerIdx%).blendMode%)
+                            END IF
                             COLOR THEME.LAYER_PANEL_row_fg_blend~&, _RGBA32(0, 0, 0, 0)
-                            _UPRINTSTRING (panelX% + 24, drawY% + 12), blendShort$
+                            _UPRINTSTRING (rowX% + 21, drawY% + 12), blendShort$
                         END IF
                     END IF
+                    END IF ' isGroupHeader% ELSE
                     
                     ' Opacity bar — vertical bar on right edge of each row
                     ' Fills bottom-to-top: top (drawY%+2) = fully opaque, bottom (drawY%+16) = transparent
@@ -1473,16 +2285,42 @@ SUB LAYER_PANEL_render (canvasHeight AS INTEGER)
         
         ' Draw indicator (dropTargetZIndex is already validated, -1 means no valid target)
         ' Calculate Y position for drop indicator
-        ' dropTargetZIndex is the final zIndex position the layer will have
-        ' For visual, we draw the line ABOVE that position
-        ' If moving up (target > current), line goes above the target position
-        ' If moving down (target < current), line goes below the position above target
+        ' Count visible rows from top (highest z) down to the target zIndex
+        ' This accounts for collapsed group children that skip rows
+        DIM dropVisRow AS INTEGER
+        DIM dropScanZ AS INTEGER, dropScanI AS INTEGER, dropScanIdx AS INTEGER
+        dropVisRow% = 0
+        FOR dropScanZ% = LAYER_COUNT% TO 1 STEP -1
+            FOR dropScanI% = 1 TO MAX_LAYERS
+                IF LAYERS(dropScanI%).imgHandle& <> 0 AND LAYERS(dropScanI%).zIndex% = dropScanZ% THEN
+                    dropScanIdx% = dropScanI%
+                    ' Skip children of collapsed groups
+                    IF LAYERS(dropScanIdx%).parentGroupIdx% > 0 THEN
+                        DIM dropScanP AS INTEGER
+                        dropScanP% = LAYERS(dropScanIdx%).parentGroupIdx%
+                        DIM dropScanCollapsed AS INTEGER
+                        dropScanCollapsed% = FALSE
+                        IF dropScanP% > 0 THEN
+                            IF dropScanP% <= MAX_LAYERS THEN
+                                IF LAYERS(dropScanP%).imgHandle& <> 0 THEN
+                                    IF LAYERS(dropScanP%).collapsed% THEN dropScanCollapsed% = TRUE
+                                END IF
+                            END IF
+                        END IF
+                        IF dropScanCollapsed% THEN EXIT FOR
+                    END IF
+                    IF dropScanZ% = LAYER_PANEL.dropTargetZIndex% THEN GOTO DropIndicatorFound
+                    dropVisRow% = dropVisRow% + 1
+                    EXIT FOR
+                END IF
+            NEXT dropScanI%
+        NEXT dropScanZ%
+        DropIndicatorFound:
+
         IF LAYER_PANEL.dropTargetZIndex% > draggedZ% THEN
-            ' Moving up - draw line above the layer currently at target zIndex
-            dropRowFromTop% = LAYER_COUNT% - LAYER_PANEL.dropTargetZIndex%
+            dropRowFromTop% = dropVisRow%
         ELSE
-            ' Moving down - draw line below the layer currently above target zIndex
-            dropRowFromTop% = LAYER_COUNT% - LAYER_PANEL.dropTargetZIndex% + 1
+            dropRowFromTop% = dropVisRow% + 1
         END IF
         dropY% = listTop% + (dropRowFromTop% * LAYER_ROW_HEIGHT) - LAYER_PANEL.scrollOffset%
         
@@ -1716,6 +2554,13 @@ FUNCTION LAYER_PANEL_handle_click% (rawX AS INTEGER, rawY AS INTEGER, button AS 
         LAYER_PANEL_handle_click% = FALSE
         EXIT FUNCTION
     END IF
+
+    ' Commit active text editing when clicking in the layer panel.
+    ' Without this, TEXT.ACTIVE stays TRUE and blocks KEYBOARD_layers from
+    ' processing Ctrl+Shift+G (Group from Selection) and other layer hotkeys.
+    IF TEXT.ACTIVE AND CURRENT_TOOL% = TOOL_TEXT THEN
+        TEXT_commit
+    END IF
     
     ' Calculate panel height (stops above bottom bars only if visible)
     IF SCRN.showStatus% THEN
@@ -1740,7 +2585,7 @@ FUNCTION LAYER_PANEL_handle_click% (rawX AS INTEGER, rawY AS INTEGER, button AS 
     DIM sbListTop2 AS INTEGER: sbListTop2% = THEME.LAYER_PANEL_header_height%
     DIM sbListBot2 AS INTEGER: sbListBot2% = panelH% - THEME.LAYER_PANEL_btn_bar_height%
     DIM sbListH2 AS INTEGER: sbListH2% = sbListBot2% - sbListTop2%
-    DIM sbTotalH2 AS INTEGER: sbTotalH2% = LAYER_COUNT% * LAYER_ROW_HEIGHT
+    DIM sbTotalH2 AS INTEGER: sbTotalH2% = LAYER_PANEL_visible_row_count% * LAYER_ROW_HEIGHT
     IF sbTotalH2% > sbListH2% THEN
         DIM sbSX2 AS INTEGER: sbSX2% = panelW% - 10
         IF localRawX% >= sbSX2% AND localRawX% <= sbSX2% + 7 AND rawY% >= sbListTop2% AND rawY% < sbListBot2% THEN
@@ -1883,7 +2728,7 @@ FUNCTION LAYER_PANEL_handle_click% (rawX AS INTEGER, rawY AS INTEGER, button AS 
     FOR z% = LAYER_COUNT% TO 1 STEP -1
         ' Find layer with this zIndex
         layerIdx% = 0
-        FOR i% = 1 TO 64
+        FOR i% = 1 TO MAX_LAYERS
             IF LAYERS(i%).imgHandle& <> 0 AND LAYERS(i%).zIndex% = z% THEN
                 layerIdx% = i%
                 EXIT FOR
@@ -1891,14 +2736,90 @@ FUNCTION LAYER_PANEL_handle_click% (rawX AS INTEGER, rawY AS INTEGER, button AS 
         NEXT i%
         
         IF layerIdx% > 0 THEN
+            ' Skip children of collapsed groups (walk ancestor chain — must match render loop)
+            DIM clickParent AS INTEGER
+            DIM clickAncCollapsed AS INTEGER
+            clickAncCollapsed% = FALSE
+            clickParent% = LAYERS(layerIdx%).parentGroupIdx%
+            DIM clickWalkPar AS INTEGER
+            clickWalkPar% = clickParent%
+            DO WHILE clickWalkPar% > 0
+                IF clickWalkPar% <= MAX_LAYERS THEN
+                    IF LAYERS(clickWalkPar%).imgHandle& <> 0 THEN
+                        IF LAYERS(clickWalkPar%).collapsed% THEN
+                            clickAncCollapsed% = TRUE
+                            EXIT DO
+                        END IF
+                    END IF
+                    clickWalkPar% = LAYERS(clickWalkPar%).parentGroupIdx%
+                ELSE
+                    EXIT DO
+                END IF
+            LOOP
+            IF clickAncCollapsed% THEN _CONTINUE
+
             IF clickY% >= rowY% AND clickY% < rowY% + LAYER_ROW_HEIGHT THEN
                 ' Clicked on this layer row
                 DIM localX AS INTEGER
                 localX% = rawX% - LAYER_PANEL.panelX1%
+                ' Offset for child indent so click zones match rendered icon positions
+                DIM clickIndent AS INTEGER
+                DIM clickIndentPx AS INTEGER
+                IF CFG.LAYER_GROUP_INDENT% > 0 THEN
+                    clickIndentPx% = CFG.LAYER_GROUP_INDENT%
+                ELSE
+                    clickIndentPx% = THEME.LAYER_PANEL_group_indent%
+                END IF
+                clickIndent% = LAYERS_nesting_depth%(layerIdx%) * clickIndentPx%
+                localX% = localX% - clickIndent%
 
                 IF button% = 1 THEN
-                    ' Check if clicking visibility toggle (first 12 pixels)
-                    IF localX% < 14 THEN
+                    ' Check for Ctrl+click or Shift+click FIRST — always multi-select
+                    ' regardless of which zone (triangle, eye, body) the click lands on
+                    DIM ctrlHeld AS INTEGER
+                    DIM shiftHeld AS INTEGER
+                    ctrlHeld% = (_KEYDOWN(KEY_LCTRL&) OR _KEYDOWN(KEY_RCTRL&))
+                    shiftHeld% = (_KEYDOWN(KEY_LSHIFT&) OR _KEYDOWN(KEY_RSHIFT&))
+                    IF ctrlHeld% OR shiftHeld% THEN
+                        IF ctrlHeld% AND LAYERS(layerIdx%).layerType% = LAYER_TYPE_GROUP THEN
+                            ' Ctrl+Click on group header: add group + all descendants to multi-select
+                            ' (Does NOT clear existing multi-select so cross-group selection works)
+                            IF NOT MULTI_SELECT_LAYERS(layerIdx%) THEN
+                                MULTI_SELECT_LAYERS(layerIdx%) = TRUE
+                                MULTI_SELECT_COUNT% = MULTI_SELECT_COUNT% + 1
+                            END IF
+                            DIM msGrpI AS INTEGER
+                            FOR msGrpI% = 1 TO MAX_LAYERS
+                                IF LAYERS(msGrpI%).imgHandle& <> 0 AND msGrpI% <> layerIdx% THEN
+                                    DIM msWalk AS INTEGER
+                                    msWalk% = LAYERS(msGrpI%).parentGroupIdx%
+                                    DO WHILE msWalk% > 0
+                                        IF msWalk% = layerIdx% THEN
+                                            IF NOT MULTI_SELECT_LAYERS(msGrpI%) THEN
+                                                MULTI_SELECT_LAYERS(msGrpI%) = TRUE
+                                                MULTI_SELECT_COUNT% = MULTI_SELECT_COUNT% + 1
+                                            END IF
+                                            EXIT DO
+                                        END IF
+                                        IF msWalk% < 1 OR msWalk% > MAX_LAYERS THEN EXIT DO
+                                        IF LAYERS(msWalk%).imgHandle& = 0 THEN EXIT DO
+                                        msWalk% = LAYERS(msWalk%).parentGroupIdx%
+                                    LOOP
+                                END IF
+                            NEXT msGrpI%
+                            GUI_NEEDS_REDRAW% = TRUE
+                        ELSE
+                            ' Toggle this layer in/out of multi-select without changing CURRENT_LAYER%
+                            MULTI_SELECT_toggle layerIdx%
+                        END IF
+                    ELSEIF LAYERS(layerIdx%).layerType% = LAYER_TYPE_GROUP AND localX% < 13 THEN
+                        ' Collapse/expand triangle click
+                        LAYERS(layerIdx%).collapsed% = NOT LAYERS(layerIdx%).collapsed%
+                        GUI_NEEDS_REDRAW% = TRUE
+                        FRAME_IDLE% = FALSE
+                        SOUND_play SND_LAYER_OP
+                    ELSEIF LAYERS(layerIdx%).layerType% = LAYER_TYPE_GROUP AND localX% < 24 THEN
+                        ' Group header: eye/visibility zone (13-23)
                         DIM altHeld AS INTEGER
                         $IF MAC THEN
                             altHeld% = MAC_ALT_HELD%
@@ -1910,7 +2831,7 @@ FUNCTION LAYER_PANEL_handle_click% (rawX AS INTEGER, rawY AS INTEGER, button AS 
                             IF LAYER_PANEL.soloLayer% = layerIdx% THEN
                                 ' Unsolo: restore all saved visibility states
                                 DIM ri AS INTEGER
-                                FOR ri% = 1 TO 64
+                                FOR ri% = 1 TO MAX_LAYERS
                                     IF LAYERS(ri%).imgHandle& <> 0 THEN
                                         LAYERS(ri%).visible% = ASC(MID$(LAYER_PANEL.savedVisibility, ri%, 1))
                                     END IF
@@ -1920,7 +2841,7 @@ FUNCTION LAYER_PANEL_handle_click% (rawX AS INTEGER, rawY AS INTEGER, button AS 
                             ELSE
                                 ' Solo: save all states, hide all except clicked
                                 DIM si AS INTEGER
-                                FOR si% = 1 TO 64
+                                FOR si% = 1 TO MAX_LAYERS
                                     IF LAYERS(si%).imgHandle& <> 0 THEN
                                         IF LAYERS(si%).visible% THEN
                                             MID$(LAYER_PANEL.savedVisibility, si%, 1) = CHR$(1)
@@ -1949,9 +2870,56 @@ FUNCTION LAYER_PANEL_handle_click% (rawX AS INTEGER, rawY AS INTEGER, button AS 
                             LAYER_PANEL.visSwipedLayers = STRING$(64, CHR$(0))
                             MID$(LAYER_PANEL.visSwipedLayers, layerIdx%, 1) = CHR$(1)
                         END IF
-                    ' Check if clicking lock toggle (next area)
-                    ' Ctrl+click on lock zone: create selection from layer non-transparent pixels
+                    ELSEIF localX% < 14 THEN
+                        ' Non-group layers: eye/visibility zone (0-13)
+                        DIM altHeld2 AS INTEGER
+                        $IF MAC THEN
+                            altHeld2% = MAC_ALT_HELD%
+                        $ELSE
+                            altHeld2% = (_KEYDOWN(KEY_LALT&) OR _KEYDOWN(KEY_RALT&))
+                        $END IF
+                        IF altHeld2% THEN
+                            ' Alt+click: solo/unsolo layer
+                            IF LAYER_PANEL.soloLayer% = layerIdx% THEN
+                                DIM ri2 AS INTEGER
+                                FOR ri2% = 1 TO MAX_LAYERS
+                                    IF LAYERS(ri2%).imgHandle& <> 0 THEN
+                                        LAYERS(ri2%).visible% = ASC(MID$(LAYER_PANEL.savedVisibility, ri2%, 1))
+                                    END IF
+                                NEXT ri2%
+                                LAYER_PANEL.soloLayer% = 0
+                                BLEND_invalidate_visibility 0
+                            ELSE
+                                DIM si2 AS INTEGER
+                                FOR si2% = 1 TO MAX_LAYERS
+                                    IF LAYERS(si2%).imgHandle& <> 0 THEN
+                                        IF LAYERS(si2%).visible% THEN
+                                            MID$(LAYER_PANEL.savedVisibility, si2%, 1) = CHR$(1)
+                                        ELSE
+                                            MID$(LAYER_PANEL.savedVisibility, si2%, 1) = CHR$(0)
+                                        END IF
+                                        IF si2% = layerIdx% THEN
+                                            LAYERS(si2%).visible% = TRUE
+                                        ELSE
+                                            LAYERS(si2%).visible% = FALSE
+                                        END IF
+                                    END IF
+                                NEXT si2%
+                                LAYER_PANEL.soloLayer% = layerIdx%
+                                BLEND_invalidate_visibility 0
+                            END IF
+                            GUI_NEEDS_REDRAW% = TRUE
+                        ELSE
+                            ' Normal click: toggle visibility and start swipe
+                            LAYERS_toggle_visibility layerIdx%
+                            LAYER_PANEL.soloLayer% = 0
+                            LAYER_PANEL.visSwiping% = TRUE
+                            LAYER_PANEL.visSwipeAction% = LAYERS(layerIdx%).visible%
+                            LAYER_PANEL.visSwipedLayers = STRING$(64, CHR$(0))
+                            MID$(LAYER_PANEL.visSwipedLayers, layerIdx%, 1) = CHR$(1)
+                        END IF
                     ELSEIF localX% < 24 THEN
+                        ' Lock zone for non-group layers (14-23)
                         DIM ctrlHeldLk AS INTEGER
                         ctrlHeldLk% = (_KEYDOWN(KEY_LCTRL&) OR _KEYDOWN(KEY_RCTRL&))
                         IF ctrlHeldLk% THEN
@@ -1973,42 +2941,41 @@ FUNCTION LAYER_PANEL_handle_click% (rawX AS INTEGER, rawY AS INTEGER, button AS 
                         IF initBarY% > 14 THEN initBarY% = 14
                         LAYERS_set_opacity layerIdx%, 255 - INT((initBarY% / 14.0) * 255)
                     ELSE
-                        ' Ctrl+click or Shift+click on body: toggle this layer in multi-select
-                        ' Plain click: make this the current layer and start drag if eligible
-                        DIM ctrlHeld AS INTEGER
-                        DIM shiftHeld AS INTEGER
-                        ctrlHeld% = (_KEYDOWN(KEY_LCTRL&) OR _KEYDOWN(KEY_RCTRL&))
-                        shiftHeld% = (_KEYDOWN(KEY_LSHIFT&) OR _KEYDOWN(KEY_RSHIFT&))
-                        IF ctrlHeld% OR shiftHeld% THEN
-                            ' Toggle this layer in/out of multi-select without changing CURRENT_LAYER%
-                            MULTI_SELECT_toggle layerIdx%
+                        ' Plain click on body: make this the current layer and start drag if eligible
+                        ' Double-click: rename layer (triangle already handles group collapse)
+                        IF TIMER - MOUSE.B1_CLICK_TIME# < 0.3 THEN
+                            MOUSE.B1_CLICK_TIME# = 0  ' Prevent triple-fire
+                            IF MOVE.ACTIVE THEN MOVE_reset
+                            LAYERS_select layerIdx%
+                            LAYERS_rename layerIdx%
                         ELSE
-                            ' Double-click: rename layer
-                            IF TIMER - MOUSE.B1_CLICK_TIME# < 0.3 THEN
-                                MOUSE.B1_CLICK_TIME# = 0  ' Prevent triple-fire
-                                LAYERS_select layerIdx%
-                                LAYERS_rename layerIdx%
-                            ELSE
-                                ' Single click: select and start pending drag
-                                MOUSE.B1_CLICK_TIME# = TIMER
-                                LAYERS_select layerIdx%
-                                ' Start PENDING drag - will only become active after moving 10+ pixels
-                                LAYER_PANEL.dragPending% = TRUE
-                                LAYER_PANEL.isDragging% = FALSE
-                                LAYER_PANEL.dragLayerIdx% = layerIdx%
-                                LAYER_PANEL.dropTargetZIndex% = LAYERS(layerIdx%).zIndex%
-                                LAYER_PANEL.dragStartX% = rawX%
-                                LAYER_PANEL.dragStartY% = rawY%
-                                LAYER_PANEL.dragOffsetY% = clickY% - rowY%  ' Offset within row
-                                LAYER_PANEL.dragPreviewY% = rawY%
-                                LAYER_PANEL.autoScrollTimer! = TIMER
-                            END IF
+                            ' Single click: select and start pending drag
+                            MOUSE.B1_CLICK_TIME# = TIMER
+                            ' Reset active move tool before switching layers to prevent segfault
+                            IF MOVE.ACTIVE THEN MOVE_reset
+                            LAYERS_select layerIdx%
+                            ' Start PENDING drag - will only become active after moving 10+ pixels
+                            LAYER_PANEL.dragPending% = TRUE
+                            LAYER_PANEL.isDragging% = FALSE
+                            LAYER_PANEL.dragLayerIdx% = layerIdx%
+                            LAYER_PANEL.dropTargetZIndex% = LAYERS(layerIdx%).zIndex%
+                            LAYER_PANEL.dragStartX% = rawX%
+                            LAYER_PANEL.dragStartY% = rawY%
+                            LAYER_PANEL.dragOffsetY% = clickY% - rowY%  ' Offset within row
+                            LAYER_PANEL.dragPreviewY% = rawY%
+                            LAYER_PANEL.autoScrollTimer! = TIMER
                         END IF
                     END IF
                 ELSEIF button% = 2 THEN
-                    ' Right-click: show blend mode popup
-                    LAYERS_select layerIdx%
-                    LAYER_PANEL_blend_popup_show layerIdx%, rawX%, rawY%
+                    ' Right-click: show layer context menu
+                    ' Preserve multi-selection if the right-clicked layer is part of it
+                    IF NOT MULTI_SELECT_LAYERS(layerIdx%) THEN
+                        LAYERS_select layerIdx%
+                    ELSE
+                        ' Switch current layer without clearing multi-select
+                        CURRENT_LAYER% = layerIdx%
+                    END IF
+                    LAYER_PANEL_ctx_menu_show layerIdx%, rawX%, rawY%
                     GUI_NEEDS_REDRAW% = TRUE
                     FRAME_IDLE% = FALSE
                 END IF
@@ -2044,7 +3011,7 @@ SUB LAYER_PANEL_handle_scroll_drag (rawY AS INTEGER)
     DIM sbListTop AS INTEGER: sbListTop% = THEME.LAYER_PANEL_header_height%
     DIM sbListBot AS INTEGER: sbListBot% = sbPanelH% - THEME.LAYER_PANEL_btn_bar_height%
     DIM sbListH AS INTEGER: sbListH% = sbListBot% - sbListTop%
-    DIM sbTotalH AS INTEGER: sbTotalH% = LAYER_COUNT% * LAYER_ROW_HEIGHT
+    DIM sbTotalH AS INTEGER: sbTotalH% = LAYER_PANEL_visible_row_count% * LAYER_ROW_HEIGHT
     DIM sbMaxScr AS INTEGER: sbMaxScr% = sbTotalH% - sbListH%
     IF sbMaxScr% < 0 THEN sbMaxScr% = 0
 
@@ -2088,7 +3055,7 @@ SUB LAYER_PANEL_handle_opacity_drag (rawX AS INTEGER, rawY AS INTEGER)
     IF NOT LAYER_PANEL.opacityDrag% THEN EXIT SUB
     DIM layerIdx AS INTEGER
     layerIdx% = LAYER_PANEL.opacityDragLayer%
-    IF layerIdx% < 1 OR layerIdx% > 64 THEN EXIT SUB
+    IF layerIdx% < 1 OR layerIdx% > MAX_LAYERS THEN EXIT SUB
     IF LAYERS(layerIdx%).imgHandle& >= -1 THEN EXIT SUB
     ' Vertical bar: top = fully opaque (255), bottom = transparent (0)
     DIM barY AS INTEGER
@@ -2141,7 +3108,7 @@ SUB LAYER_PANEL_handle_wheel (rawX AS INTEGER, rawY AS INTEGER, delta AS INTEGER
         rowY% = listTop%
         FOR z% = LAYER_COUNT% TO 1 STEP -1
             layerIdx% = 0
-            FOR i% = 1 TO 64
+            FOR i% = 1 TO MAX_LAYERS
                 IF LAYERS(i%).imgHandle& <> 0 AND LAYERS(i%).zIndex% = z% THEN
                     layerIdx% = i%
                     EXIT FOR
@@ -2149,6 +3116,17 @@ SUB LAYER_PANEL_handle_wheel (rawX AS INTEGER, rawY AS INTEGER, delta AS INTEGER
             NEXT i%
             
             IF layerIdx% > 0 THEN
+                ' Skip children of collapsed groups
+                DIM whlParent AS INTEGER
+                whlParent% = LAYERS(layerIdx%).parentGroupIdx%
+                IF whlParent% > 0 THEN
+                    IF whlParent% <= MAX_LAYERS THEN
+                        IF LAYERS(whlParent%).imgHandle& <> 0 THEN
+                            IF LAYERS(whlParent%).collapsed% THEN _CONTINUE
+                        END IF
+                    END IF
+                END IF
+
                 DIM drawY AS INTEGER
                 drawY% = rowY% - LAYER_PANEL.scrollOffset%
                 
@@ -2181,7 +3159,7 @@ SUB LAYER_PANEL_handle_wheel (rawX AS INTEGER, rawY AS INTEGER, delta AS INTEGER
     DIM maxScroll AS INTEGER
     DIM listHeight AS INTEGER
     listHeight% = listBottom% - listTop%
-    maxScroll% = (LAYER_COUNT% * LAYER_ROW_HEIGHT) - listHeight%
+    maxScroll% = (LAYER_PANEL_visible_row_count% * LAYER_ROW_HEIGHT) - listHeight%
     IF maxScroll% < 0 THEN maxScroll% = 0
     IF LAYER_PANEL.scrollOffset% > maxScroll% THEN LAYER_PANEL.scrollOffset% = maxScroll%
     
@@ -2194,7 +3172,7 @@ END SUB
 ' @param layerIdx INTEGER Index of the layer to scroll into view (1-64)
 '
 SUB LAYER_PANEL_scroll_to_layer (layerIdx AS INTEGER)
-    IF layerIdx% < 1 OR layerIdx% > 64 THEN EXIT SUB
+    IF layerIdx% < 1 OR layerIdx% > MAX_LAYERS THEN EXIT SUB
     IF NOT LAYER_PANEL.visible% THEN EXIT SUB
     DIM lpBottomBars AS INTEGER
     IF SCRN.showStatus% THEN
@@ -2207,7 +3185,7 @@ SUB LAYER_PANEL_scroll_to_layer (layerIdx AS INTEGER)
     DIM lpListH AS INTEGER: lpListH% = lpListBottom% - lpListTop%
     IF lpListH% <= 0 THEN EXIT SUB
     DIM lpMaxScroll AS INTEGER
-    lpMaxScroll% = (LAYER_COUNT% * LAYER_ROW_HEIGHT) - lpListH%
+    lpMaxScroll% = (LAYER_PANEL_visible_row_count% * LAYER_ROW_HEIGHT) - lpListH%
     IF lpMaxScroll% < 0 THEN lpMaxScroll% = 0
     ' Row position is based on zIndex (highest zIndex = top row in panel)
     DIM lpRowY AS INTEGER: lpRowY% = (LAYER_COUNT% - LAYERS(layerIdx%).zIndex%) * LAYER_ROW_HEIGHT
@@ -2273,7 +3251,7 @@ SUB LAYER_PANEL_handle_vis_swipe (rawX AS INTEGER, rawY AS INTEGER)
 
     FOR z% = LAYER_COUNT% TO 1 STEP -1
         layerIdx% = 0
-        FOR i% = 1 TO 64
+        FOR i% = 1 TO MAX_LAYERS
             IF LAYERS(i%).imgHandle& <> 0 AND LAYERS(i%).zIndex% = z% THEN
                 layerIdx% = i%
                 EXIT FOR
@@ -2281,6 +3259,17 @@ SUB LAYER_PANEL_handle_vis_swipe (rawX AS INTEGER, rawY AS INTEGER)
         NEXT i%
 
         IF layerIdx% > 0 THEN
+            ' Skip children of collapsed groups (must match render loop)
+            DIM swipeParent AS INTEGER
+            swipeParent% = LAYERS(layerIdx%).parentGroupIdx%
+            IF swipeParent% > 0 THEN
+                IF swipeParent% <= MAX_LAYERS THEN
+                    IF LAYERS(swipeParent%).imgHandle& <> 0 THEN
+                        IF LAYERS(swipeParent%).collapsed% THEN _CONTINUE
+                    END IF
+                END IF
+            END IF
+
             DIM drawY AS INTEGER
             drawY% = rowY% - LAYER_PANEL.scrollOffset%
 
@@ -2313,6 +3302,46 @@ END SUB
 SUB LAYER_PANEL_end_vis_swipe ()
     LAYER_PANEL.visSwiping% = FALSE
 END SUB
+
+
+''
+' Count the number of visible rows in the layer panel.
+' Excludes children of collapsed groups.
+' @return INTEGER  Number of visible layer rows
+'
+FUNCTION LAYER_PANEL_visible_row_count% ()
+    DIM vrc AS INTEGER, vrcZ AS INTEGER, vrcI AS INTEGER, vrcIdx AS INTEGER
+    vrc% = 0
+    FOR vrcZ% = LAYER_COUNT% TO 1 STEP -1
+        FOR vrcI% = 1 TO MAX_LAYERS
+            IF LAYERS(vrcI%).imgHandle& <> 0 AND LAYERS(vrcI%).zIndex% = vrcZ% THEN
+                vrcIdx% = vrcI%
+                ' Walk ancestor chain to check for any collapsed ancestor
+                DIM vrcCollapsed AS INTEGER
+                vrcCollapsed% = FALSE
+                DIM vrcWalk AS INTEGER
+                vrcWalk% = LAYERS(vrcIdx%).parentGroupIdx%
+                DO WHILE vrcWalk% > 0
+                    IF vrcWalk% <= MAX_LAYERS THEN
+                        IF LAYERS(vrcWalk%).imgHandle& <> 0 THEN
+                            IF LAYERS(vrcWalk%).collapsed% THEN
+                                vrcCollapsed% = TRUE
+                                EXIT DO
+                            END IF
+                        END IF
+                        vrcWalk% = LAYERS(vrcWalk%).parentGroupIdx%
+                    ELSE
+                        EXIT DO
+                    END IF
+                LOOP
+                IF vrcCollapsed% THEN EXIT FOR
+                vrc% = vrc% + 1
+                EXIT FOR
+            END IF
+        NEXT vrcI%
+    NEXT vrcZ%
+    LAYER_PANEL_visible_row_count% = vrc%
+END FUNCTION
 
 
 ''
@@ -2389,7 +3418,9 @@ SUB LAYER_PANEL_handle_drag (rawX AS INTEGER, rawY AS INTEGER)
     LAYER_PANEL.dragPreviewY% = rawY%
     
     ' --- Auto-scroll logic ---
-    maxScroll% = (LAYER_COUNT% * LAYER_ROW_HEIGHT) - listHeight%
+    DIM dragVisCount AS INTEGER
+    dragVisCount% = LAYER_PANEL_visible_row_count%
+    maxScroll% = (dragVisCount% * LAYER_ROW_HEIGHT) - listHeight%
     IF maxScroll% < 0 THEN maxScroll% = 0
     
     IF rawY% < listTop% + AUTO_SCROLL_ZONE AND rawY% >= 0 THEN
@@ -2430,15 +3461,46 @@ SUB LAYER_PANEL_handle_drag (rawX AS INTEGER, rawY AS INTEGER)
     DIM closestGap AS INTEGER
     closestGap% = INT((contentY% + (LAYER_ROW_HEIGHT \ 2)) / LAYER_ROW_HEIGHT)
     
-    ' Clamp gap to valid range (0 to LAYER_COUNT)
+    ' Clamp gap to valid range (0 to visible row count)
     IF closestGap% < 0 THEN closestGap% = 0
-    IF closestGap% > LAYER_COUNT% THEN closestGap% = LAYER_COUNT%
+    IF closestGap% > dragVisCount% THEN closestGap% = dragVisCount%
     
-    ' Convert gap to target zIndex position
-    ' Gap 0 = will become zIndex LAYER_COUNT (top position)
-    ' Gap LAYER_COUNT = will become zIndex 1 (bottom position)
-    ' The targetZIndex represents WHERE the layer will END UP after the move
-    targetZIndex% = LAYER_COUNT% - closestGap%
+    ' Convert gap to target zIndex position by iterating visible rows
+    ' Gap 0 = above topmost visible layer, Gap N = below bottommost visible layer
+    ' Build mapping from visual position to actual zIndex
+    DIM dragGapZ AS INTEGER, dragGapI AS INTEGER, dragGapIdx AS INTEGER
+    DIM dragVisRow AS INTEGER
+    dragVisRow% = 0
+    targetZIndex% = 1  ' Default: bottom
+    FOR dragGapZ% = LAYER_COUNT% TO 1 STEP -1
+        FOR dragGapI% = 1 TO MAX_LAYERS
+            IF LAYERS(dragGapI%).imgHandle& <> 0 AND LAYERS(dragGapI%).zIndex% = dragGapZ% THEN
+                dragGapIdx% = dragGapI%
+                ' Skip children of collapsed groups
+                IF LAYERS(dragGapIdx%).parentGroupIdx% > 0 THEN
+                    DIM dragGapP AS INTEGER
+                    dragGapP% = LAYERS(dragGapIdx%).parentGroupIdx%
+                    DIM dragGapCollapsed AS INTEGER
+                    dragGapCollapsed% = FALSE
+                    IF dragGapP% > 0 THEN
+                        IF dragGapP% <= MAX_LAYERS THEN
+                            IF LAYERS(dragGapP%).imgHandle& <> 0 THEN
+                                IF LAYERS(dragGapP%).collapsed% THEN dragGapCollapsed% = TRUE
+                            END IF
+                        END IF
+                    END IF
+                    IF dragGapCollapsed% THEN EXIT FOR
+                END IF
+                IF dragVisRow% >= closestGap% THEN
+                    targetZIndex% = LAYERS(dragGapIdx%).zIndex%
+                    GOTO DragGapFound
+                END IF
+                dragVisRow% = dragVisRow% + 1
+                EXIT FOR
+            END IF
+        NEXT dragGapI%
+    NEXT dragGapZ%
+    DragGapFound:
     
     ' Clamp to valid final position range (1 to LAYER_COUNT)
     IF targetZIndex% < 1 THEN targetZIndex% = 1
@@ -2543,31 +3605,253 @@ SUB LAYER_PANEL_handle_drop ()
         EXIT SUB
     END IF
     
+    ' --- Handle drag onto group header: move into group ---
+    IF targetZ% >= 1 AND targetZ% <= LAYER_COUNT% AND targetZ% <> draggedZ% THEN
+        DIM dropTargetIdx AS INTEGER
+        dropTargetIdx% = 0
+        DIM dti AS INTEGER
+        FOR dti% = 1 TO MAX_LAYERS
+            IF LAYERS(dti%).imgHandle& <> 0 AND LAYERS(dti%).zIndex% = targetZ% THEN
+                dropTargetIdx% = dti%
+                EXIT FOR
+            END IF
+        NEXT dti%
+        IF dropTargetIdx% > 0 THEN
+            ' Determine the group to move into:
+            ' If target IS a group header, use it directly.
+            ' If target is a child of a group, use its parent group.
+            DIM dropGroupIdx AS INTEGER
+            dropGroupIdx% = 0
+            IF LAYERS(dropTargetIdx%).layerType% = LAYER_TYPE_GROUP THEN
+                dropGroupIdx% = dropTargetIdx%
+            ELSEIF LAYERS(dropTargetIdx%).parentGroupIdx% > 0 THEN
+                DIM dtpg AS INTEGER
+                dtpg% = LAYERS(dropTargetIdx%).parentGroupIdx%
+                IF dtpg% >= 1 AND dtpg% <= MAX_LAYERS THEN
+                    IF LAYERS(dtpg%).imgHandle& <> 0 THEN
+                        IF LAYERS(dtpg%).layerType% = LAYER_TYPE_GROUP THEN
+                            dropGroupIdx% = dtpg%
+                        END IF
+                    END IF
+                END IF
+            END IF
+            IF dropGroupIdx% > 0 THEN
+                IF LAYERS(draggedIdx%).parentGroupIdx% <> dropGroupIdx% THEN
+                    IF draggedIdx% <> dropGroupIdx% THEN
+                        ' Move layer (or group) into this group
+                        LAYERS_move_into_group draggedIdx%, dropGroupIdx%
+                        SOUND_play SND_DRAG_DROP
+                        LAYER_PANEL_drag_cancel
+                        EXIT SUB
+                    END IF
+                END IF
+            END IF
+        END IF
+    END IF
+
+    ' --- Handle drag out of group: if layer is in a group and dropped outside it ---
+    IF LAYERS(draggedIdx%).parentGroupIdx% > 0 THEN
+        IF targetZ% >= 1 AND targetZ% <= LAYER_COUNT% AND targetZ% <> draggedZ% THEN
+            ' Check if drop target is outside the current group
+            DIM dropOutTarget AS INTEGER
+            dropOutTarget% = 0
+            DIM doi AS INTEGER
+            FOR doi% = 1 TO MAX_LAYERS
+                IF LAYERS(doi%).imgHandle& <> 0 AND LAYERS(doi%).zIndex% = targetZ% THEN
+                    dropOutTarget% = doi%
+                    EXIT FOR
+                END IF
+            NEXT doi%
+            DIM outsideGroup AS INTEGER
+            outsideGroup% = TRUE
+            IF dropOutTarget% > 0 THEN
+                ' If target is the group header itself or another child of the same group, stay in group
+                IF dropOutTarget% = LAYERS(draggedIdx%).parentGroupIdx% THEN outsideGroup% = FALSE
+                IF LAYERS(dropOutTarget%).parentGroupIdx% = LAYERS(draggedIdx%).parentGroupIdx% THEN outsideGroup% = FALSE
+            END IF
+            IF outsideGroup% THEN
+                LAYERS_move_out_of_group draggedIdx%
+                ' Now also reorder to the user's actual target position
+                ' (move_out_of_group places above group header, but user may want elsewhere)
+                DIM moogNewZ AS INTEGER
+                moogNewZ% = LAYERS(draggedIdx%).zIndex%
+                IF targetZ% <> moogNewZ% AND targetZ% >= 1 AND targetZ% <= LAYER_COUNT% THEN
+                    IF targetZ% > moogNewZ% THEN
+                        FOR i% = 1 TO MAX_LAYERS
+                            IF LAYERS(i%).imgHandle& <> 0 AND i% <> draggedIdx% THEN
+                                IF LAYERS(i%).zIndex% > moogNewZ% AND LAYERS(i%).zIndex% <= targetZ% THEN
+                                    LAYERS(i%).zIndex% = LAYERS(i%).zIndex% - 1
+                                END IF
+                            END IF
+                        NEXT i%
+                        LAYERS(draggedIdx%).zIndex% = targetZ%
+                    ELSE
+                        FOR i% = 1 TO MAX_LAYERS
+                            IF LAYERS(i%).imgHandle& <> 0 AND i% <> draggedIdx% THEN
+                                IF LAYERS(i%).zIndex% >= targetZ% AND LAYERS(i%).zIndex% < moogNewZ% THEN
+                                    LAYERS(i%).zIndex% = LAYERS(i%).zIndex% + 1
+                                END IF
+                            END IF
+                        NEXT i%
+                        LAYERS(draggedIdx%).zIndex% = targetZ%
+                    END IF
+                    LAYERS_enforce_group_contiguity
+                END IF
+                SOUND_play SND_DRAG_DROP
+                LAYER_PANEL_drag_cancel
+                EXIT SUB
+            END IF
+        END IF
+    END IF
+
     ' Only move if we have a valid target and it's different from current position
     IF targetZ% >= 1 AND targetZ% <= LAYER_COUNT% AND targetZ% <> draggedZ% THEN
-        ' Shift other layers to make room
-        IF targetZ% > draggedZ% THEN
-            ' Moving up (towards higher zIndex / top of list)
-            ' Shift layers between old and new position DOWN by 1
-            FOR i% = 1 TO 64
-                IF LAYERS(i%).imgHandle& <> 0 AND i% <> draggedIdx% THEN
-                    IF LAYERS(i%).zIndex% > draggedZ% AND LAYERS(i%).zIndex% <= targetZ% THEN
-                        LAYERS(i%).zIndex% = LAYERS(i%).zIndex% - 1
+        ' Check if dragging a group header — need to move the whole block
+        DIM isDragGroup AS INTEGER
+        isDragGroup% = (LAYERS(draggedIdx%).layerType% = LAYER_TYPE_GROUP)
+
+        IF isDragGroup% THEN
+            ' Group drag: collect children, compute block size
+            DIM grpChildCount AS INTEGER
+            grpChildCount% = 0
+            DIM gci AS INTEGER
+            FOR gci% = 1 TO MAX_LAYERS
+                IF LAYERS(gci%).imgHandle& <> 0 THEN
+                    IF LAYERS(gci%).parentGroupIdx% = draggedIdx% THEN
+                        grpChildCount% = grpChildCount% + 1
+                    END IF
+                END IF
+            NEXT gci%
+            DIM blockSize AS INTEGER
+            blockSize% = 1 + grpChildCount%
+            ' The block occupies draggedZ%-grpChildCount% .. draggedZ%
+            ' (children below header, contiguous from enforce_group_contiguity)
+            DIM blockLow AS INTEGER
+            blockLow% = draggedZ% - grpChildCount%
+
+            ' Determine effective target: where the header should end up
+            ' If moving up, the header goes to targetZ%
+            ' If moving down, the header goes to targetZ% + grpChildCount%
+            ' (because children will be placed below the header)
+            DIM effectiveTarget AS INTEGER
+            IF targetZ% > draggedZ% THEN
+                effectiveTarget% = targetZ%
+            ELSE
+                effectiveTarget% = targetZ% + grpChildCount%
+            END IF
+            IF effectiveTarget% < blockSize% THEN effectiveTarget% = blockSize%
+            IF effectiveTarget% > LAYER_COUNT% THEN effectiveTarget% = LAYER_COUNT%
+
+            ' Remove the block from z-order: shift other layers to fill the gap
+            FOR i% = 1 TO MAX_LAYERS
+                IF LAYERS(i%).imgHandle& <> 0 THEN
+                    IF LAYERS(i%).parentGroupIdx% <> draggedIdx% AND i% <> draggedIdx% THEN
+                        IF LAYERS(i%).zIndex% > draggedZ% THEN
+                            LAYERS(i%).zIndex% = LAYERS(i%).zIndex% - blockSize%
+                        END IF
                     END IF
                 END IF
             NEXT i%
-            LAYERS(draggedIdx%).zIndex% = targetZ%
+
+            ' Now the non-block layers occupy 1..(LAYER_COUNT%-blockSize%)
+            ' Make room at the target position for the block
+            DIM insertAt AS INTEGER
+            insertAt% = effectiveTarget% - blockSize% + 1
+            ' Adjust insertAt for the compacted range
+            DIM compactMax AS INTEGER
+            compactMax% = LAYER_COUNT% - blockSize%
+            IF insertAt% > compactMax% + 1 THEN insertAt% = compactMax% + 1
+            IF insertAt% < 1 THEN insertAt% = 1
+
+            FOR i% = 1 TO MAX_LAYERS
+                IF LAYERS(i%).imgHandle& <> 0 THEN
+                    IF LAYERS(i%).parentGroupIdx% <> draggedIdx% AND i% <> draggedIdx% THEN
+                        IF LAYERS(i%).zIndex% >= insertAt% THEN
+                            LAYERS(i%).zIndex% = LAYERS(i%).zIndex% + blockSize%
+                        END IF
+                    END IF
+                END IF
+            NEXT i%
+
+            ' Place the header at the top of the block
+            LAYERS(draggedIdx%).zIndex% = insertAt% + grpChildCount%
+
+            ' Let enforce_group_contiguity place children correctly
+            LAYERS_enforce_group_contiguity
         ELSE
-            ' Moving down (towards lower zIndex / bottom of list)
-            ' Shift layers between new and old position UP by 1
-            FOR i% = 1 TO 64
-                IF LAYERS(i%).imgHandle& <> 0 AND i% <> draggedIdx% THEN
-                    IF LAYERS(i%).zIndex% >= targetZ% AND LAYERS(i%).zIndex% < draggedZ% THEN
-                        LAYERS(i%).zIndex% = LAYERS(i%).zIndex% + 1
+            ' Single layer move (non-group)
+            IF targetZ% > draggedZ% THEN
+                ' Moving up (towards higher zIndex / top of list)
+                ' Shift layers between old and new position DOWN by 1
+                FOR i% = 1 TO MAX_LAYERS
+                    IF LAYERS(i%).imgHandle& <> 0 AND i% <> draggedIdx% THEN
+                        IF LAYERS(i%).zIndex% > draggedZ% AND LAYERS(i%).zIndex% <= targetZ% THEN
+                            LAYERS(i%).zIndex% = LAYERS(i%).zIndex% - 1
+                        END IF
+                    END IF
+                NEXT i%
+                LAYERS(draggedIdx%).zIndex% = targetZ%
+            ELSE
+                ' Moving down (towards lower zIndex / bottom of list)
+                ' Shift layers between new and old position UP by 1
+                FOR i% = 1 TO MAX_LAYERS
+                    IF LAYERS(i%).imgHandle& <> 0 AND i% <> draggedIdx% THEN
+                        IF LAYERS(i%).zIndex% >= targetZ% AND LAYERS(i%).zIndex% < draggedZ% THEN
+                            LAYERS(i%).zIndex% = LAYERS(i%).zIndex% + 1
+                        END IF
+                    END IF
+                NEXT i%
+                LAYERS(draggedIdx%).zIndex% = targetZ%
+            END IF
+
+            ' Auto-grouping: if the layer landed in a group's child z-range, adopt it
+            ' If the layer was in a group but now outside, remove from group
+            DIM autoGrpIdx AS INTEGER
+            autoGrpIdx% = 0
+            DIM agZ AS INTEGER
+            agZ% = LAYERS(draggedIdx%).zIndex%
+            ' Check each group: children occupy z-indices just below the header
+            DIM agI AS INTEGER
+            FOR agI% = 1 TO MAX_LAYERS
+                IF LAYERS(agI%).imgHandle& <> 0 THEN
+                    IF LAYERS(agI%).layerType% = LAYER_TYPE_GROUP AND agI% <> draggedIdx% THEN
+                        DIM agHeaderZ AS INTEGER
+                        agHeaderZ% = LAYERS(agI%).zIndex%
+                        ' Find the lowest child z of this group
+                        DIM agLowestZ AS INTEGER
+                        agLowestZ% = agHeaderZ%  ' Default: no children yet
+                        DIM agJ AS INTEGER
+                        FOR agJ% = 1 TO MAX_LAYERS
+                            IF LAYERS(agJ%).imgHandle& <> 0 AND agJ% <> draggedIdx% THEN
+                                IF LAYERS(agJ%).parentGroupIdx% = agI% THEN
+                                    IF LAYERS(agJ%).zIndex% < agLowestZ% THEN
+                                        agLowestZ% = LAYERS(agJ%).zIndex%
+                                    END IF
+                                END IF
+                            END IF
+                        NEXT agJ%
+                        ' Layer is in group range if its z is between lowestChild and header-1
+                        IF agZ% >= agLowestZ% AND agZ% < agHeaderZ% THEN
+                            autoGrpIdx% = agI%
+                            EXIT FOR
+                        END IF
                     END IF
                 END IF
-            NEXT i%
-            LAYERS(draggedIdx%).zIndex% = targetZ%
+            NEXT agI%
+
+            IF autoGrpIdx% > 0 THEN
+                ' Layer landed inside a group — adopt it
+                IF LAYERS(draggedIdx%).parentGroupIdx% <> autoGrpIdx% THEN
+                    LAYERS(draggedIdx%).parentGroupIdx% = autoGrpIdx%
+                    LAYERS_enforce_group_contiguity
+                END IF
+            ELSE
+                ' Layer landed outside any group — clear parent if it had one
+                IF LAYERS(draggedIdx%).parentGroupIdx% > 0 THEN
+                    LAYERS(draggedIdx%).parentGroupIdx% = 0
+                    LAYERS_enforce_group_contiguity
+                END IF
+            END IF
         END IF
     END IF
     
@@ -2656,7 +3940,7 @@ SUB LAYER_select_non_transparent (layerIdx AS INTEGER)
     DIM found_any AS INTEGER
     
     ' Validate layer
-    IF layerIdx% < 1 OR layerIdx% > 64 THEN EXIT SUB
+    IF layerIdx% < 1 OR layerIdx% > MAX_LAYERS THEN EXIT SUB
     imgHandle& = LAYERS(layerIdx%).imgHandle&
     IF imgHandle& = 0 THEN EXIT SUB
     
@@ -2762,6 +4046,7 @@ END SUB
 '
 FUNCTION BLEND_mode_name$ (mode AS INTEGER)
     SELECT CASE mode%
+        CASE BLEND_PASS_THROUGH: BLEND_mode_name$ = "PASS THROUGH"
         CASE BLEND_NORMAL:       BLEND_mode_name$ = "NORMAL"
         CASE BLEND_MULTIPLY:     BLEND_mode_name$ = "MULTIPLY"
         CASE BLEND_SCREEN:       BLEND_mode_name$ = "SCREEN"
@@ -2793,6 +4078,7 @@ END FUNCTION
 '
 FUNCTION BLEND_mode_short$ (mode AS INTEGER)
     SELECT CASE mode%
+        CASE BLEND_PASS_THROUGH: BLEND_mode_short$ = "PT"
         CASE BLEND_NORMAL:       BLEND_mode_short$ = "NRM"
         CASE BLEND_MULTIPLY:     BLEND_mode_short$ = "MUL"
         CASE BLEND_SCREEN:       BLEND_mode_short$ = "SCR"
@@ -2829,19 +4115,30 @@ FUNCTION BLEND_needs_composite% ()
         EXIT FUNCTION
     END IF
 
+    BLEND_HAS_ISOLATED_GROUPS% = FALSE
+    DIM blcNeedsComposite AS INTEGER
+    blcNeedsComposite% = FALSE
     DIM i AS INTEGER
-    FOR i% = 1 TO 64
+    FOR i% = 1 TO MAX_LAYERS
         IF LAYERS(i%).imgHandle& <> 0 THEN
             IF LAYERS(i%).visible% THEN
                 IF LAYERS(i%).blendMode% <> BLEND_NORMAL THEN
-                    BLEND_COMPOSITE_CACHED% = TRUE
-                    BLEND_COMPOSITE_DIRTY% = FALSE
-                    BLEND_needs_composite% = TRUE
-                    EXIT FUNCTION
+                    blcNeedsComposite% = TRUE
+                END IF
+                ' Isolated groups require composite path
+                IF LAYERS(i%).layerType% = LAYER_TYPE_GROUP AND NOT LAYERS(i%).passThrough% THEN
+                    BLEND_HAS_ISOLATED_GROUPS% = TRUE
+                    blcNeedsComposite% = TRUE
                 END IF
             END IF
         END IF
     NEXT i%
+    IF blcNeedsComposite% THEN
+        BLEND_COMPOSITE_CACHED% = TRUE
+        BLEND_COMPOSITE_DIRTY% = FALSE
+        BLEND_needs_composite% = TRUE
+        EXIT FUNCTION
+    END IF
     BLEND_COMPOSITE_CACHED% = FALSE
     BLEND_COMPOSITE_DIRTY% = FALSE
     BLEND_needs_composite% = FALSE
@@ -2879,7 +4176,7 @@ SUB BLEND_invalidate_visibility (changedLayer AS INTEGER)
     SCENE_DIRTY% = TRUE
     COMPOSITE_RESULT_VALID% = FALSE
     IF COMPOSITE_BELOW_VALID% THEN
-        IF changedLayer% < 1 OR changedLayer% > 64 OR CURRENT_LAYER% < 1 OR CURRENT_LAYER% > 64 THEN
+        IF changedLayer% < 1 OR changedLayer% > MAX_LAYERS OR CURRENT_LAYER% < 1 OR CURRENT_LAYER% > MAX_LAYERS THEN
             COMPOSITE_BELOW_VALID% = FALSE
         ELSEIF LAYERS(changedLayer%).zIndex% < LAYERS(CURRENT_LAYER%).zIndex% THEN
             COMPOSITE_BELOW_VALID% = FALSE
@@ -2897,7 +4194,7 @@ SUB RENDER_ORDER_rebuild ()
     DIM rz AS INTEGER, ri AS INTEGER, rc AS INTEGER
     rc% = 0
     FOR rz% = 1 TO LAYER_COUNT%
-        FOR ri% = 1 TO 64
+        FOR ri% = 1 TO MAX_LAYERS
             IF LAYERS(ri%).imgHandle& <> 0 AND LAYERS(ri%).zIndex% = rz% THEN
                 rc% = rc% + 1
                 RENDER_ORDER%(rc%) = ri%
@@ -3310,8 +4607,25 @@ END SUB
 '
 SUB LAYER_PANEL_blend_popup_show (layerIdx AS INTEGER, x AS INTEGER, y AS INTEGER)
     DIM popH AS INTEGER
-    LAYER_PANEL_blend_popup_build
-    POPUP_MENU_place x%, y%, 90, BLEND_MODE_COUNT + 1, 10, LAYER_PANEL.blendPopupX%, LAYER_PANEL.blendPopupY%, popH%
+    DIM bpsItemCount AS INTEGER
+    ' Close context menu if open
+    IF LAYER_PANEL.ctxMenuOpen% THEN LAYER_PANEL_ctx_menu_close
+    LAYER_PANEL_blend_popup_build layerIdx%
+    ' Groups have 2 extra rows (Pass Through + divider)
+    IF layerIdx% >= 1 THEN
+        IF layerIdx% <= MAX_LAYERS THEN
+            IF LAYERS(layerIdx%).layerType% = LAYER_TYPE_GROUP THEN
+                bpsItemCount% = BLEND_MODE_COUNT + 3
+            ELSE
+                bpsItemCount% = BLEND_MODE_COUNT + 1
+            END IF
+        ELSE
+            bpsItemCount% = BLEND_MODE_COUNT + 1
+        END IF
+    ELSE
+        bpsItemCount% = BLEND_MODE_COUNT + 1
+    END IF
+    POPUP_MENU_place x%, y%, 90, bpsItemCount%, 10, LAYER_PANEL.blendPopupX%, LAYER_PANEL.blendPopupY%, popH%
     LAYER_PANEL.blendPopupOpen% = TRUE
     LAYER_PANEL.blendPopupLayer% = layerIdx%
     LAYER_PANEL.blendPopupHover% = -1
@@ -3329,44 +4643,71 @@ END SUB
 
 ''
 ' Render the blend mode popup to SCRN.GUI& (called from SCREEN_render after SkipToPointer).
-' Layout: Normal (row 0), divider (row 1), Multiply..Luminosity (rows 2-19).
+' Layout for groups: Pass Through (0), divider (1), Normal (2), divider (3), Multiply..Luminosity (4-21).
+' Layout for images: Normal (0), divider (1), Multiply..Luminosity (2-19).
 '
 SUB LAYER_PANEL_blend_popup_render ()
     IF NOT LAYER_PANEL.blendPopupOpen% THEN EXIT SUB
     DIM layerIdx AS INTEGER: layerIdx% = LAYER_PANEL.blendPopupLayer%
     DIM currentMode AS INTEGER
     DIM checkedRow AS INTEGER
-    IF layerIdx% >= 1 AND layerIdx% <= 64 THEN
+    DIM bprIsGroup AS INTEGER
+    DIM bprItemCount AS INTEGER
+    bprIsGroup% = FALSE
+    IF layerIdx% >= 1 AND layerIdx% <= MAX_LAYERS THEN
         currentMode% = LAYERS(layerIdx%).blendMode%
+        IF LAYERS(layerIdx%).layerType% = LAYER_TYPE_GROUP THEN bprIsGroup% = TRUE
     ELSE
         currentMode% = BLEND_NORMAL
     END IF
-    LAYER_PANEL_blend_popup_build
-    IF currentMode% = BLEND_NORMAL THEN
-        checkedRow% = 0
+    LAYER_PANEL_blend_popup_build layerIdx%
+    IF bprIsGroup% THEN
+        bprItemCount% = BLEND_MODE_COUNT + 3
+        IF LAYERS(layerIdx%).passThrough% THEN
+            checkedRow% = 0 ' Pass Through row (value = BLEND_PASS_THROUGH_POPUP_VALUE)
+        ELSEIF currentMode% = BLEND_NORMAL THEN
+            checkedRow% = 2 ' Normal row (after PT + divider)
+        ELSE
+            checkedRow% = currentMode% + 3 ' mode rows shifted by 2 extra rows
+        END IF
     ELSE
-        checkedRow% = currentMode% + 1
+        bprItemCount% = BLEND_MODE_COUNT + 1
+        IF currentMode% = BLEND_NORMAL THEN
+            checkedRow% = 0
+        ELSE
+            checkedRow% = currentMode% + 1
+        END IF
     END IF
     POPUP_MENU_FLAGS(checkedRow%) = POPUP_MENU_FLAGS(checkedRow%) OR POPUP_MENU_FLAG_CHECKED
-    POPUP_MENU_render SCRN.CANVAS&, LAYER_PANEL.blendPopupX%, LAYER_PANEL.blendPopupY%, 90, BLEND_MODE_COUNT + 1, 10, LAYER_PANEL.blendPopupHover%, LAYER_PANEL.fontHandle&
+    POPUP_MENU_render SCRN.CANVAS&, LAYER_PANEL.blendPopupX%, LAYER_PANEL.blendPopupY%, 90, bprItemCount%, 10, LAYER_PANEL.blendPopupHover%, LAYER_PANEL.fontHandle&
 END SUB
 
 ''
 ' Hit-test the blend mode popup.
-' Returns: mode index 0-18 if a mode item was clicked,
+' Returns: mode index 0-18 if a mode item was clicked, BLEND_PASS_THROUGH (-1) for pass-through,
 '          -1 if inside popup but on non-clickable area (divider, padding),
 '          -2 if outside popup.
 ' @param rawX INTEGER Raw screen X coordinate to test
 ' @param rawY INTEGER Raw screen Y coordinate to test
-' @return INTEGER - Blend mode index (0-18), -1 for non-clickable area, -2 for outside
+' @return INTEGER - Blend mode index (0-18 or BLEND_PASS_THROUGH), -1 for non-clickable area, -2 for outside
 '
 FUNCTION LAYER_PANEL_blend_popup_hit% (rawX AS INTEGER, rawY AS INTEGER)
+    DIM bphItemCount AS INTEGER
+    DIM bphLayer AS INTEGER
     IF NOT LAYER_PANEL.blendPopupOpen% THEN
         LAYER_PANEL_blend_popup_hit% = -2
         EXIT FUNCTION
     END IF
-    ' Items built in _show and rebuilt in _render; reused here
-    LAYER_PANEL_blend_popup_hit% = POPUP_MENU_hit_value%(LAYER_PANEL.blendPopupX%, LAYER_PANEL.blendPopupY%, 90, BLEND_MODE_COUNT + 1, 10, rawX%, rawY%)
+    bphLayer% = LAYER_PANEL.blendPopupLayer%
+    bphItemCount% = BLEND_MODE_COUNT + 1
+    IF bphLayer% >= 1 THEN
+        IF bphLayer% <= MAX_LAYERS THEN
+            IF LAYERS(bphLayer%).layerType% = LAYER_TYPE_GROUP THEN
+                bphItemCount% = BLEND_MODE_COUNT + 3
+            END IF
+        END IF
+    END IF
+    LAYER_PANEL_blend_popup_hit% = POPUP_MENU_hit_value%(LAYER_PANEL.blendPopupX%, LAYER_PANEL.blendPopupY%, 90, bphItemCount%, 10, rawX%, rawY%)
 END FUNCTION
 
 ''
@@ -3378,8 +4719,16 @@ END FUNCTION
 SUB LAYER_PANEL_blend_popup_hover (rawX AS INTEGER, rawY AS INTEGER)
     IF NOT LAYER_PANEL.blendPopupOpen% THEN EXIT SUB
     DIM prevHover AS INTEGER: prevHover% = LAYER_PANEL.blendPopupHover%
-    ' Items built once in _show and rebuilt in _render; reused here (only one popup open at a time)
-    LAYER_PANEL.blendPopupHover% = POPUP_MENU_hover_row%(LAYER_PANEL.blendPopupX%, LAYER_PANEL.blendPopupY%, 90, BLEND_MODE_COUNT + 1, 10, rawX%, rawY%)
+    DIM bphvLayer AS INTEGER: bphvLayer% = LAYER_PANEL.blendPopupLayer%
+    DIM bphvItemCount AS INTEGER: bphvItemCount% = BLEND_MODE_COUNT + 1
+    IF bphvLayer% >= 1 THEN
+        IF bphvLayer% <= MAX_LAYERS THEN
+            IF LAYERS(bphvLayer%).layerType% = LAYER_TYPE_GROUP THEN
+                bphvItemCount% = BLEND_MODE_COUNT + 3
+            END IF
+        END IF
+    END IF
+    LAYER_PANEL.blendPopupHover% = POPUP_MENU_hover_row%(LAYER_PANEL.blendPopupX%, LAYER_PANEL.blendPopupY%, 90, bphvItemCount%, 10, rawX%, rawY%)
     IF LAYER_PANEL.blendPopupHover% <> prevHover% THEN
         GUI_NEEDS_REDRAW% = TRUE
         FRAME_IDLE% = FALSE
@@ -3389,18 +4738,1422 @@ END SUB
 ''
 ' Build the blend mode popup menu items.
 ' Populates the shared POPUP_MENU system with all available blend modes
-' (Normal + divider + remaining modes) for display in the layer panel.
+' for display in the layer panel.
+' Groups: Pass Through (row 0), divider (1), Normal (2), divider (3), modes (4-21).
+' Images: Normal (row 0), divider (1), modes (2-19).
 '
-SUB LAYER_PANEL_blend_popup_build ()
+SUB LAYER_PANEL_blend_popup_build (layerIdx AS INTEGER)
     DIM itemRow AS INTEGER
+    DIM modeIdx AS INTEGER
+    DIM bpbIsGroup AS INTEGER
+
+    POPUP_MENU_clear_items
+
+    bpbIsGroup% = FALSE
+    IF layerIdx% >= 1 THEN
+        IF layerIdx% <= MAX_LAYERS THEN
+            IF LAYERS(layerIdx%).layerType% = LAYER_TYPE_GROUP THEN bpbIsGroup% = TRUE
+        END IF
+    END IF
+
+    IF bpbIsGroup% THEN
+        ' Groups get Pass Through at top, then divider, then Normal, divider, rest
+        POPUP_MENU_set_item 0, BLEND_mode_name$(BLEND_PASS_THROUGH), "", BLEND_PASS_THROUGH_POPUP_VALUE, 0
+        POPUP_MENU_set_item 1, "", "", -99, POPUP_MENU_FLAG_DIVIDER
+        POPUP_MENU_set_item 2, BLEND_mode_name$(BLEND_NORMAL), "", BLEND_NORMAL, 0
+        POPUP_MENU_set_item 3, "", "", -99, POPUP_MENU_FLAG_DIVIDER
+        FOR itemRow% = 4 TO BLEND_MODE_COUNT + 2
+            modeIdx% = itemRow% - 3
+            POPUP_MENU_set_item itemRow%, BLEND_mode_name$(modeIdx%), "", modeIdx%, 0
+        NEXT itemRow%
+    ELSE
+        POPUP_MENU_set_item 0, BLEND_mode_name$(BLEND_NORMAL), "", BLEND_NORMAL, 0
+        POPUP_MENU_set_item 1, "", "", -99, POPUP_MENU_FLAG_DIVIDER
+        FOR itemRow% = 2 TO BLEND_MODE_COUNT
+            modeIdx% = itemRow% - 1
+            POPUP_MENU_set_item itemRow%, BLEND_mode_name$(modeIdx%), "", modeIdx%, 0
+        NEXT itemRow%
+    END IF
+END SUB
+
+
+' ============================================================================
+' GROUP LAYER OPERATIONS
+' ============================================================================
+
+''
+' Create a new group layer above the current layer.
+' Group layers use a 1x1 sentinel image (no real pixel data) and have
+' layerType% = LAYER_TYPE_GROUP. They organize children via parentGroupIdx.
+' @return INTEGER - Layer index of the new group, or 0 on failure
+'
+FUNCTION LAYERS_new_group% ()
+    DIM newIndex AS INTEGER
+    DIM i AS INTEGER
+    DIM currentZ AS INTEGER
+    DIM newZ AS INTEGER
+
+    LAYERS_new_group% = 0
+
+    ' Check if we've hit the max
+    IF LAYER_COUNT% >= CFG.NUM_LAYERS% THEN EXIT FUNCTION
+
+    ' Find first empty slot
+    newIndex% = 0
+    FOR i% = 1 TO MAX_LAYERS
+        IF LAYERS(i%).imgHandle& = 0 THEN
+            newIndex% = i%
+            EXIT FOR
+        END IF
+    NEXT i%
+    IF newIndex% = 0 THEN EXIT FUNCTION
+
+    ' Insert above current layer (same logic as LAYERS_new%)
+    DIM hasCurrentLayer AS INTEGER
+    hasCurrentLayer% = FALSE
+    IF CURRENT_LAYER% > 0 AND CURRENT_LAYER% <= MAX_LAYERS THEN
+        IF LAYERS(CURRENT_LAYER%).imgHandle& <> 0 THEN
+            hasCurrentLayer% = TRUE
+        END IF
+    END IF
+
+    IF hasCurrentLayer% THEN
+        currentZ% = LAYERS(CURRENT_LAYER%).zIndex%
+        newZ% = currentZ% + 1
+        FOR i% = 1 TO MAX_LAYERS
+            IF LAYERS(i%).imgHandle& <> 0 AND LAYERS(i%).zIndex% > currentZ% THEN
+                LAYERS(i%).zIndex% = LAYERS(i%).zIndex% + 1
+            END IF
+        NEXT i%
+    ELSE
+        newZ% = LAYER_COUNT% + 1
+    END IF
+
+    ' Create 1x1 sentinel image (groups have no real pixel data)
+    LAYERS(newIndex%).imgHandle& = _NEWIMAGE(1, 1, 32)
+    IF LAYERS(newIndex%).imgHandle& >= -1 THEN
+        LAYERS(newIndex%).imgHandle& = 0
+        EXIT FUNCTION
+    END IF
+    DIM oldDest AS LONG
+    oldDest& = _DEST
+    _DEST LAYERS(newIndex%).imgHandle&
+    CLS , _RGBA32(0, 0, 0, 0)
+    _DEST oldDest&
+
+    ' Set group properties
+    LAYER_COUNT% = LAYER_COUNT% + 1
+    NEXT_GROUP_NUM% = NEXT_GROUP_NUM% + 1
+    LAYERS(newIndex%).historyId&      = LAYERS_alloc_history_id&
+    LAYERS(newIndex%).imgWidth%       = 1
+    LAYERS(newIndex%).imgHeight%      = 1
+    LAYERS(newIndex%).zIndex%         = newZ%
+    LAYERS(newIndex%).visible%        = TRUE
+    LAYERS(newIndex%).isSelected%     = FALSE
+    LAYERS(newIndex%).lastSelected%   = FALSE
+    LAYERS(newIndex%).name            = "Group " + _TRIM$(STR$(NEXT_GROUP_NUM%))
+    LAYERS(newIndex%).opacity%        = 255
+    LAYERS(newIndex%).opacityLock%    = FALSE
+    LAYERS(newIndex%).blendMode%      = BLEND_NORMAL
+    LAYERS(newIndex%).layerType%      = LAYER_TYPE_GROUP
+    LAYERS(newIndex%).textDataIdx%    = 0
+    ' Inherit parent group from the current layer so new groups inside groups stay nested
+    IF hasCurrentLayer% THEN
+        LAYERS(newIndex%).parentGroupIdx% = LAYERS(CURRENT_LAYER%).parentGroupIdx%
+    ELSE
+        LAYERS(newIndex%).parentGroupIdx% = 0
+    END IF
+    LAYERS(newIndex%).collapsed%      = FALSE
+    LAYERS(newIndex%).passThrough%    = TRUE
+
+    IF NOT HISTORY_IN_PROGRESS% THEN
+        HISTORY_record_layer_add LAYERS(newIndex%).historyId&, newIndex%, newZ%, "Group Add"
+    END IF
+
+    LAYERS_select newIndex%
+    BLEND_invalidate_cache
+    INVALIDATE_scene
+    LAYERS_new_group% = newIndex%
+END FUNCTION
+
+
+''
+' Create a group from the current multi-selection.
+' Multi-selected layers are moved into the new group. The group header is
+' placed at the topmost selected layer's zIndex position.
+' @return INTEGER - Layer index of the new group, or 0 on failure
+'
+FUNCTION LAYERS_group_from_selection% ()
+    DIM i AS INTEGER
+    DIM topZ AS INTEGER
+    DIM selCount AS INTEGER
+    DIM groupIdx AS INTEGER
+
+    LAYERS_group_from_selection% = 0
+
+    ' Save multi-selection state BEFORE any operation that might clear it
+    DIM savedSel(1 TO MAX_LAYERS) AS INTEGER
+    FOR i% = 1 TO MAX_LAYERS
+        savedSel%(i%) = MULTI_SELECT_LAYERS(i%)
+    NEXT i%
+
+    ' Expand selection: if a group is selected, also select all its descendants
+    ' so they move into the new group together with their parent group
+    DIM expandChanged AS INTEGER
+    DO
+        expandChanged% = FALSE
+        FOR i% = 1 TO MAX_LAYERS
+            IF LAYERS(i%).imgHandle& <> 0 AND NOT savedSel%(i%) THEN
+                ' If this layer's parent is selected, include it too
+                DIM walkPar AS INTEGER
+                walkPar% = LAYERS(i%).parentGroupIdx%
+                DO WHILE walkPar% > 0 AND walkPar% <= MAX_LAYERS
+                    IF savedSel%(walkPar%) THEN
+                        savedSel%(i%) = TRUE
+                        expandChanged% = TRUE
+                        EXIT DO
+                    END IF
+                    walkPar% = LAYERS(walkPar%).parentGroupIdx%
+                LOOP
+            END IF
+        NEXT i%
+    LOOP WHILE expandChanged%
+
+    ' Count selected layers, find the topmost zIndex, and determine common parent
+    ' Only count top-level selected layers (those whose parent is NOT also selected)
+    ' for the common-parent calculation
+    DIM commonParent AS INTEGER
+    DIM gfsParentsMatch AS INTEGER
+    selCount% = 0
+    topZ% = 0
+    commonParent% = -1
+    gfsParentsMatch% = TRUE
+    FOR i% = 1 TO MAX_LAYERS
+        IF LAYERS(i%).imgHandle& <> 0 AND savedSel%(i%) THEN
+            selCount% = selCount% + 1
+            IF LAYERS(i%).zIndex% > topZ% THEN topZ% = LAYERS(i%).zIndex%
+            ' For common parent: only consider layers whose immediate parent is NOT selected
+            ' (these are the "roots" of the selection)
+            DIM gfsIsRoot AS INTEGER
+            gfsIsRoot% = FALSE
+            IF LAYERS(i%).parentGroupIdx% = 0 THEN
+                gfsIsRoot% = TRUE
+            ELSEIF NOT savedSel%(LAYERS(i%).parentGroupIdx%) THEN
+                gfsIsRoot% = TRUE
+            END IF
+            IF gfsIsRoot% THEN
+                IF commonParent% = -1 THEN
+                    commonParent% = LAYERS(i%).parentGroupIdx%
+                ELSEIF LAYERS(i%).parentGroupIdx% <> commonParent% THEN
+                    gfsParentsMatch% = FALSE
+                END IF
+            END IF
+        END IF
+    NEXT i%
+
+    ' Need at least 1 layer to group
+    IF selCount% < 1 THEN EXIT FUNCTION
+
+    ' Check nesting depth — creating a new parent group adds 1 level to all descendants
+    DIM maxDepth AS INTEGER
+    maxDepth% = 0
+    FOR i% = 1 TO MAX_LAYERS
+        IF LAYERS(i%).imgHandle& <> 0 AND savedSel%(i%) THEN
+            DIM gfsDepth AS INTEGER
+            gfsDepth% = LAYERS_nesting_depth%(i%)
+            IF gfsDepth% > maxDepth% THEN maxDepth% = gfsDepth%
+        END IF
+    NEXT i%
+    IF maxDepth% + 1 > MAX_GROUP_NESTING THEN EXIT FUNCTION
+
+    ' If all selected root layers share the same parent, the new group inherits it
+    ' Otherwise default to top-level (0)
+    IF commonParent% = -1 OR NOT gfsParentsMatch% THEN commonParent% = 0
+
+    ' Create the group header — temporarily select the topmost selected layer
+    ' so LAYERS_new_group% inserts above it
+    DIM prevLayer AS INTEGER
+    prevLayer% = CURRENT_LAYER%
+    FOR i% = 1 TO MAX_LAYERS
+        IF LAYERS(i%).imgHandle& <> 0 AND LAYERS(i%).zIndex% = topZ% THEN
+            LAYERS_select i%
+            EXIT FOR
+        END IF
+    NEXT i%
+
+    HISTORY_begin_group
+
+    groupIdx% = LAYERS_new_group%
+    IF groupIdx% = 0 THEN
+        HISTORY_end_group
+        EXIT FUNCTION
+    END IF
+
+    ' Parent the new group to the common parent of selected layers
+    ' LAYERS_new_group% inherits parentGroupIdx from CURRENT_LAYER%, which may
+    ' be wrong when selected layers span different groups (common parent = root).
+    DIM gfsOldGroupParent AS INTEGER
+    gfsOldGroupParent% = LAYERS(groupIdx%).parentGroupIdx%
+    IF gfsOldGroupParent% <> commonParent% THEN
+        LAYERS(groupIdx%).parentGroupIdx% = commonParent%
+        HISTORY_record_group_reparent LAYERS(groupIdx%).historyId&, groupIdx%, gfsOldGroupParent%, commonParent%, LAYERS(groupIdx%).zIndex%, LAYERS(groupIdx%).zIndex%, "Group Nest"
+    END IF
+
+    ' Move selected layers into the group
+    ' Only reparent "root" selected layers (those whose parent is NOT selected);
+    ' children of selected groups keep their existing parent.
+    DIM groupZ AS INTEGER
+    groupZ% = LAYERS(groupIdx%).zIndex%
+
+    ' Build sorted list of ALL selected layers by zIndex (ascending)
+    DIM sortBuf(1 TO MAX_LAYERS) AS INTEGER
+    DIM sortN AS INTEGER
+    sortN% = 0
+    FOR i% = 1 TO MAX_LAYERS
+        IF LAYERS(i%).imgHandle& <> 0 AND i% <> groupIdx% AND savedSel%(i%) THEN
+            sortN% = sortN% + 1
+            sortBuf%(sortN%) = i%
+        END IF
+    NEXT i%
+    ' Simple insertion sort by zIndex
+    DIM j AS INTEGER, tmpSort AS INTEGER
+    DIM gfsSortCont AS INTEGER
+    FOR i% = 2 TO sortN%
+        tmpSort% = sortBuf%(i%)
+        j% = i% - 1
+        gfsSortCont% = TRUE
+        DO WHILE j% >= 1 AND gfsSortCont%
+            IF LAYERS(sortBuf%(j%)).zIndex% > LAYERS(tmpSort%).zIndex% THEN
+                sortBuf%(j% + 1) = sortBuf%(j%)
+                j% = j% - 1
+            ELSE
+                gfsSortCont% = FALSE
+            END IF
+        LOOP
+        sortBuf%(j% + 1) = tmpSort%
+    NEXT i%
+
+    ' Reparent root selected layers to the new group; leave descendants' parents intact
+    FOR i% = 1 TO sortN%
+        DIM gfsLayerIdx AS INTEGER: gfsLayerIdx% = sortBuf%(i%)
+        DIM gfsOldParent AS INTEGER: gfsOldParent% = LAYERS(gfsLayerIdx%).parentGroupIdx%
+        ' Only reparent if this layer's current parent is NOT in the selection
+        ' (i.e., it's a "root" of the selected subtree)
+        DIM gfsDoReparent AS INTEGER
+        gfsDoReparent% = FALSE
+        IF gfsOldParent% = 0 THEN
+            gfsDoReparent% = TRUE
+        ELSEIF NOT savedSel%(gfsOldParent%) THEN
+            gfsDoReparent% = TRUE
+        END IF
+        IF gfsDoReparent% THEN
+            HISTORY_record_group_reparent LAYERS(gfsLayerIdx%).historyId&, gfsLayerIdx%, gfsOldParent%, groupIdx%, LAYERS(gfsLayerIdx%).zIndex%, LAYERS(gfsLayerIdx%).zIndex%, "Group Child"
+            LAYERS(gfsLayerIdx%).parentGroupIdx% = groupIdx%
+        END IF
+    NEXT i%
+
+    ' Enforce contiguity — children below group header in zIndex order
+    LAYERS_enforce_group_contiguity
+
+    HISTORY_end_group
+
+    LAYERS_select groupIdx%
+    BLEND_invalidate_cache
+    INVALIDATE_scene
+    LAYERS_group_from_selection% = groupIdx%
+END FUNCTION
+
+
+''
+' Remove a group container, promoting direct children to the parent group (or top-level).
+' Children keep their relative zIndex order. The group layer is deleted.
+' @param groupIdx% Layer index of the group to ungroup
+'
+SUB LAYERS_ungroup (groupIdx AS INTEGER)
+    DIM i AS INTEGER
+
+    ' CRITICAL: Copy parameter to local — QB64 passes by reference.
+    DIM ugSlot AS INTEGER
+    ugSlot% = groupIdx%
+
+    ' Validate
+    IF ugSlot% < 1 OR ugSlot% > MAX_LAYERS THEN EXIT SUB
+    IF LAYERS(ugSlot%).imgHandle& = 0 THEN EXIT SUB
+    IF LAYERS(ugSlot%).layerType% <> LAYER_TYPE_GROUP THEN EXIT SUB
+
+    HISTORY_begin_group
+
+    ' Promote direct children to this group's parent (grandparent or 0)
+    DIM ugNewParent AS INTEGER
+    ugNewParent% = LAYERS(ugSlot%).parentGroupIdx%
+    FOR i% = 1 TO MAX_LAYERS
+        IF LAYERS(i%).imgHandle& <> 0 AND LAYERS(i%).parentGroupIdx% = ugSlot% THEN
+            DIM ugOldZ AS INTEGER: ugOldZ% = LAYERS(i%).zIndex%
+            HISTORY_record_group_reparent LAYERS(i%).historyId&, i%, ugSlot%, ugNewParent%, ugOldZ%, ugOldZ%, "Ungroup Child"
+            LAYERS(i%).parentGroupIdx% = ugNewParent%
+        END IF
+    NEXT i%
+
+    ' Delete the group header
+    LAYERS_delete ugSlot%
+
+    HISTORY_end_group
+
+    BLEND_invalidate_cache
+    INVALIDATE_scene
+END SUB
+
+
+''
+' Move a layer into a group. Sets parentGroupIdx and adjusts zIndex
+' so the layer is contiguous within the group's range.
+' @param layerIdx% Layer to move into the group
+' @param groupIdx% Target group layer index
+'
+SUB LAYERS_move_into_group (layerIdx AS INTEGER, groupIdx AS INTEGER)
+    ' Validate both indices
+    IF layerIdx% < 1 OR layerIdx% > MAX_LAYERS THEN EXIT SUB
+    IF groupIdx% < 1 OR groupIdx% > MAX_LAYERS THEN EXIT SUB
+    IF LAYERS(layerIdx%).imgHandle& = 0 THEN EXIT SUB
+    IF LAYERS(groupIdx%).imgHandle& = 0 THEN EXIT SUB
+    IF LAYERS(groupIdx%).layerType% <> LAYER_TYPE_GROUP THEN EXIT SUB
+
+    ' Prevent circular nesting: can't move a group into itself or any descendant
+    IF layerIdx% = groupIdx% THEN EXIT SUB
+    IF LAYERS(layerIdx%).layerType% = LAYER_TYPE_GROUP THEN
+        ' Walk up from groupIdx to make sure layerIdx is not an ancestor
+        DIM migCheckParent AS INTEGER
+        migCheckParent% = LAYERS(groupIdx%).parentGroupIdx%
+        DO WHILE migCheckParent% > 0
+            IF migCheckParent% = layerIdx% THEN EXIT SUB  ' Would create cycle
+            IF migCheckParent% < 1 OR migCheckParent% > MAX_LAYERS THEN EXIT DO
+            IF LAYERS(migCheckParent%).imgHandle& = 0 THEN EXIT DO
+            migCheckParent% = LAYERS(migCheckParent%).parentGroupIdx%
+        LOOP
+    END IF
+
+    ' Enforce max nesting depth
+    DIM migTargetDepth AS INTEGER
+    migTargetDepth% = LAYERS_nesting_depth%(groupIdx%) + 1
+    IF LAYERS(layerIdx%).layerType% = LAYER_TYPE_GROUP THEN
+        ' A group being nested adds its own max-child depth
+        DIM migMaxChildDepth AS INTEGER
+        DIM migScanChild AS INTEGER
+        migMaxChildDepth% = 0
+        FOR migScanChild% = 1 TO MAX_LAYERS
+            IF LAYERS(migScanChild%).imgHandle& <> 0 THEN
+                IF LAYERS(migScanChild%).parentGroupIdx% = layerIdx% THEN
+                    DIM migChildD AS INTEGER
+                    migChildD% = LAYERS_nesting_depth%(migScanChild%) - LAYERS_nesting_depth%(layerIdx%)
+                    IF migChildD% > migMaxChildDepth% THEN migMaxChildDepth% = migChildD%
+                END IF
+            END IF
+        NEXT migScanChild%
+        IF migTargetDepth% + migMaxChildDepth% > MAX_GROUP_NESTING THEN EXIT SUB
+    ELSE
+        IF migTargetDepth% > MAX_GROUP_NESTING THEN EXIT SUB
+    END IF
+
+    ' Already in this group?
+    IF LAYERS(layerIdx%).parentGroupIdx% = groupIdx% THEN EXIT SUB
+
+    DIM migOldParent AS INTEGER: migOldParent% = LAYERS(layerIdx%).parentGroupIdx%
+    DIM migOldZ AS INTEGER: migOldZ% = LAYERS(layerIdx%).zIndex%
+
+    LAYERS(layerIdx%).parentGroupIdx% = groupIdx%
+    LAYERS_enforce_group_contiguity
+
+    IF NOT HISTORY_IN_PROGRESS% THEN
+        HISTORY_record_group_reparent LAYERS(layerIdx%).historyId&, layerIdx%, migOldParent%, groupIdx%, migOldZ%, LAYERS(layerIdx%).zIndex%, "Move to Group"
+    END IF
+
+    BLEND_invalidate_cache
+    INVALIDATE_scene
+    GUI_NEEDS_REDRAW% = TRUE
+END SUB
+
+
+''
+' Move a layer out of its group to the parent group (or top-level if none).
+' The layer is placed just above the group header in zIndex order.
+' @param layerIdx% Layer to remove from its group
+'
+SUB LAYERS_move_out_of_group (layerIdx AS INTEGER)
+    DIM groupIdx AS INTEGER
+
+    IF layerIdx% < 1 OR layerIdx% > MAX_LAYERS THEN EXIT SUB
+    IF LAYERS(layerIdx%).imgHandle& = 0 THEN EXIT SUB
+
+    groupIdx% = LAYERS(layerIdx%).parentGroupIdx%
+    IF groupIdx% = 0 THEN EXIT SUB  ' Not in a group
+
+    DIM mogOldParent AS INTEGER: mogOldParent% = groupIdx%
+    DIM mogOldZ AS INTEGER: mogOldZ% = LAYERS(layerIdx%).zIndex%
+
+    ' Reparent to grandparent (or 0 for top-level)
+    DIM mogNewParent AS INTEGER
+    mogNewParent% = LAYERS(groupIdx%).parentGroupIdx%
+    LAYERS(layerIdx%).parentGroupIdx% = mogNewParent%
+
+    ' Place layer just above the group header
+    DIM groupZ AS INTEGER
+    groupZ% = LAYERS(groupIdx%).zIndex%
+    DIM i AS INTEGER
+    ' Shift everything above group header up by 1 to make room
+    FOR i% = 1 TO MAX_LAYERS
+        IF LAYERS(i%).imgHandle& <> 0 AND LAYERS(i%).zIndex% > groupZ% THEN
+            LAYERS(i%).zIndex% = LAYERS(i%).zIndex% + 1
+        END IF
+    NEXT i%
+    LAYERS(layerIdx%).zIndex% = groupZ% + 1
+
+    LAYERS_enforce_group_contiguity
+
+    IF NOT HISTORY_IN_PROGRESS% THEN
+        HISTORY_record_group_reparent LAYERS(layerIdx%).historyId&, layerIdx%, mogOldParent%, mogNewParent%, mogOldZ%, LAYERS(layerIdx%).zIndex%, "Move from Group"
+    END IF
+
+    BLEND_invalidate_cache
+    INVALIDATE_scene
+    GUI_NEEDS_REDRAW% = TRUE
+END SUB
+
+
+''
+' Count children in a group.
+' @param groupIdx% Group layer index
+' @return INTEGER Number of children whose parentGroupIdx matches
+'
+FUNCTION LAYERS_group_child_count% (groupIdx AS INTEGER)
+    DIM i AS INTEGER
+    DIM cnt AS INTEGER
+    cnt% = 0
+    IF groupIdx% < 1 OR groupIdx% > MAX_LAYERS THEN
+        LAYERS_group_child_count% = 0
+        EXIT FUNCTION
+    END IF
+    FOR i% = 1 TO MAX_LAYERS
+        IF LAYERS(i%).imgHandle& <> 0 AND LAYERS(i%).parentGroupIdx% = groupIdx% THEN
+            cnt% = cnt% + 1
+        END IF
+    NEXT i%
+    LAYERS_group_child_count% = cnt%
+END FUNCTION
+
+
+''
+' Get ALL descendants of a group recursively, sorted by zIndex ascending.
+' Includes children, grandchildren, etc. — every layer whose ancestor chain
+' passes through groupIdx%. Does NOT include groupIdx% itself.
+' @param groupIdx% Group layer index (root of subtree)
+' @param outArray%() Pre-allocated array (1 TO MAX_LAYERS) to receive descendant indices
+' @param outCount% Returns the number of descendants found
+'
+SUB LAYERS_group_descendants (groupIdx AS INTEGER, outArray() AS INTEGER, outCount AS INTEGER)
+    DIM gdI AS INTEGER
+    DIM gdJ AS INTEGER
+    DIM gdTmp AS INTEGER
+    outCount% = 0
+
+    IF groupIdx% < 1 OR groupIdx% > MAX_LAYERS THEN EXIT SUB
+
+    ' Collect all layers whose ancestor chain includes groupIdx%
+    FOR gdI% = 1 TO MAX_LAYERS
+        IF LAYERS(gdI%).imgHandle& <> 0 AND gdI% <> groupIdx% THEN
+            ' Walk up parent chain to see if this layer descends from groupIdx%
+            DIM gdWalk AS INTEGER
+            gdWalk% = LAYERS(gdI%).parentGroupIdx%
+            DIM gdFound AS INTEGER
+            gdFound% = FALSE
+            DIM gdSafe AS INTEGER
+            gdSafe% = 0
+            DO WHILE gdWalk% > 0 AND gdSafe% < MAX_GROUP_NESTING
+                IF gdWalk% = groupIdx% THEN
+                    gdFound% = TRUE
+                    EXIT DO
+                END IF
+                IF gdWalk% < 1 OR gdWalk% > MAX_LAYERS THEN EXIT DO
+                IF LAYERS(gdWalk%).imgHandle& = 0 THEN EXIT DO
+                gdWalk% = LAYERS(gdWalk%).parentGroupIdx%
+                gdSafe% = gdSafe% + 1
+            LOOP
+            IF gdFound% THEN
+                outCount% = outCount% + 1
+                outArray%(outCount%) = gdI%
+            END IF
+        END IF
+    NEXT gdI%
+
+    ' Sort by zIndex ascending (insertion sort)
+    DIM gdSortCont AS INTEGER
+    FOR gdI% = 2 TO outCount%
+        gdTmp% = outArray%(gdI%)
+        gdJ% = gdI% - 1
+        gdSortCont% = TRUE
+        DO WHILE gdJ% >= 1 AND gdSortCont%
+            IF LAYERS(outArray%(gdJ%)).zIndex% > LAYERS(gdTmp%).zIndex% THEN
+                outArray%(gdJ% + 1) = outArray%(gdJ%)
+                gdJ% = gdJ% - 1
+            ELSE
+                gdSortCont% = FALSE
+            END IF
+        LOOP
+        outArray%(gdJ% + 1) = gdTmp%
+    NEXT gdI%
+END SUB
+
+
+''
+' Get sorted list of child layer indices for a group (sorted by zIndex ascending).
+' @param groupIdx% Group layer index
+' @param outArray%() Pre-allocated array (1 TO MAX_LAYERS) to receive child indices
+' @param outCount% Returns the number of children found
+'
+SUB LAYERS_group_children (groupIdx AS INTEGER, outArray() AS INTEGER, outCount AS INTEGER)
+    DIM i AS INTEGER
+    DIM j AS INTEGER
+    DIM tmpSwap AS INTEGER
+    outCount% = 0
+
+    IF groupIdx% < 1 OR groupIdx% > MAX_LAYERS THEN EXIT SUB
+
+    ' Collect children
+    FOR i% = 1 TO MAX_LAYERS
+        IF LAYERS(i%).imgHandle& <> 0 AND LAYERS(i%).parentGroupIdx% = groupIdx% THEN
+            outCount% = outCount% + 1
+            outArray%(outCount%) = i%
+        END IF
+    NEXT i%
+
+    ' Sort by zIndex ascending (insertion sort)
+    DIM gcSortCont AS INTEGER
+    FOR i% = 2 TO outCount%
+        tmpSwap% = outArray%(i%)
+        j% = i% - 1
+        gcSortCont% = TRUE
+        DO WHILE j% >= 1 AND gcSortCont%
+            IF LAYERS(outArray%(j%)).zIndex% > LAYERS(tmpSwap%).zIndex% THEN
+                outArray%(j% + 1) = outArray%(j%)
+                j% = j% - 1
+            ELSE
+                gcSortCont% = FALSE
+            END IF
+        LOOP
+        outArray%(j% + 1) = tmpSwap%
+    NEXT i%
+END SUB
+
+
+''
+' Get the zIndex range for a group (including group header and all children).
+' @param groupIdx% Group layer index
+' @param outMinZ% Returns the minimum zIndex in the group
+' @param outMaxZ% Returns the maximum zIndex in the group
+'
+SUB LAYERS_group_zIndex_range (groupIdx AS INTEGER, outMinZ AS INTEGER, outMaxZ AS INTEGER)
+    DIM i AS INTEGER
+    outMinZ% = 9999
+    outMaxZ% = 0
+
+    IF groupIdx% < 1 OR groupIdx% > MAX_LAYERS THEN EXIT SUB
+    IF LAYERS(groupIdx%).imgHandle& = 0 THEN EXIT SUB
+
+    ' Include the group header itself
+    outMinZ% = LAYERS(groupIdx%).zIndex%
+    outMaxZ% = LAYERS(groupIdx%).zIndex%
+
+    ' Scan children
+    FOR i% = 1 TO MAX_LAYERS
+        IF LAYERS(i%).imgHandle& <> 0 AND LAYERS(i%).parentGroupIdx% = groupIdx% THEN
+            IF LAYERS(i%).zIndex% < outMinZ% THEN outMinZ% = LAYERS(i%).zIndex%
+            IF LAYERS(i%).zIndex% > outMaxZ% THEN outMaxZ% = LAYERS(i%).zIndex%
+        END IF
+    NEXT i%
+END SUB
+
+
+''
+' Enforce that all children of each group have contiguous zIndices
+' with the group header at the top of its children's range.
+' Supports nested groups: child groups are recursively expanded so their
+' sub-children appear contiguously below them, before the parent group header.
+' Called after any reorder/add/delete that might break contiguity.
+'
+SUB LAYERS_enforce_group_contiguity ()
+    ' Rebuild all zIndex values so that:
+    ' 1. Non-grouped layers and group headers maintain their relative order
+    ' 2. Group children (recursively) are placed contiguously just below group header
+    ' 3. No duplicate zIndex values exist
+
+    DIM i AS INTEGER
+    DIM j AS INTEGER
+    DIM n AS INTEGER
+
+    ' --- Helper: sort a sub-range of a buffer by zIndex ascending (insertion sort) ---
+    ' We'll use shared local arrays and inline the sort since QB64 doesn't have closures.
+
+    ' --- Step 1: Collect top-level layers (parentGroupIdx = 0), sorted by zIndex ---
+    DIM topBuf(1 TO MAX_LAYERS) AS INTEGER
+    DIM topCount AS INTEGER
+    topCount% = 0
+    FOR i% = 1 TO MAX_LAYERS
+        IF LAYERS(i%).imgHandle& = 0 THEN _CONTINUE
+        IF LAYERS(i%).parentGroupIdx% > 0 THEN _CONTINUE
+        topCount% = topCount% + 1
+        topBuf%(topCount%) = i%
+    NEXT i%
+
+    ' Sort topBuf by zIndex ascending
+    DIM tmpSwap AS INTEGER
+    DIM sortCont AS INTEGER
+    FOR i% = 2 TO topCount%
+        tmpSwap% = topBuf%(i%)
+        j% = i% - 1
+        sortCont% = TRUE
+        DO WHILE j% >= 1 AND sortCont%
+            IF LAYERS(topBuf%(j%)).zIndex% > LAYERS(tmpSwap%).zIndex% THEN
+                topBuf%(j% + 1) = topBuf%(j%)
+                j% = j% - 1
+            ELSE
+                sortCont% = FALSE
+            END IF
+        LOOP
+        topBuf%(j% + 1) = tmpSwap%
+    NEXT i%
+
+    ' --- Step 2: Build final z-order using iterative DFS with manual stack ---
+    ' For each top-level item: if it's a group, recursively emit its children
+    ' (depth-first), then emit the group header itself. Child groups within
+    ' are handled the same way — their sub-children come first, then the child
+    ' group header, all before the parent group header.
+    DIM finalOrder(1 TO MAX_LAYERS) AS INTEGER
+    DIM finalCount AS INTEGER
+    finalCount% = 0
+
+    ' DFS stack: each entry is a layer index to process.
+    ' We push items in reverse order so they come out in forward order.
+    DIM dfsStack(1 TO MAX_LAYERS) AS INTEGER
+    DIM dfsTop AS INTEGER
+    dfsTop% = 0
+
+    ' Temp buffer for gathering + sorting children of a group
+    DIM childBuf(1 TO MAX_LAYERS) AS INTEGER
+    DIM childCount AS INTEGER
+
+    ' Push top-level items in REVERSE order (so first pops first)
+    FOR i% = topCount% TO 1 STEP -1
+        dfsTop% = dfsTop% + 1
+        dfsStack%(dfsTop%) = topBuf%(i%)
+    NEXT i%
+
+    DO WHILE dfsTop% > 0
+        DIM stackVal AS INTEGER
+        stackVal% = dfsStack%(dfsTop%)
+        dfsTop% = dfsTop% - 1
+
+        IF stackVal% < 0 THEN
+            ' Negative = group header emit pass, just add to output
+            finalCount% = finalCount% + 1
+            finalOrder%(finalCount%) = -stackVal%
+        ELSE
+            DIM curIdx AS INTEGER
+            curIdx% = stackVal%
+            IF LAYERS(curIdx%).layerType% = LAYER_TYPE_GROUP THEN
+                ' Gather direct children of this group
+                childCount% = 0
+                FOR i% = 1 TO MAX_LAYERS
+                    IF LAYERS(i%).imgHandle& <> 0 THEN
+                        IF LAYERS(i%).parentGroupIdx% = curIdx% THEN
+                            childCount% = childCount% + 1
+                            childBuf%(childCount%) = i%
+                        END IF
+                    END IF
+                NEXT i%
+
+                ' Sort children by zIndex ascending
+                FOR i% = 2 TO childCount%
+                    tmpSwap% = childBuf%(i%)
+                    j% = i% - 1
+                    sortCont% = TRUE
+                    DO WHILE j% >= 1 AND sortCont%
+                        IF LAYERS(childBuf%(j%)).zIndex% > LAYERS(tmpSwap%).zIndex% THEN
+                            childBuf%(j% + 1) = childBuf%(j%)
+                            j% = j% - 1
+                        ELSE
+                            sortCont% = FALSE
+                        END IF
+                    LOOP
+                    childBuf%(j% + 1) = tmpSwap%
+                NEXT i%
+
+                ' Push group header (negative = emit directly), then children reversed
+                dfsTop% = dfsTop% + 1
+                dfsStack%(dfsTop%) = -curIdx%
+                FOR i% = childCount% TO 1 STEP -1
+                    dfsTop% = dfsTop% + 1
+                    dfsStack%(dfsTop%) = childBuf%(i%)
+                NEXT i%
+            ELSE
+                ' Non-group layer — emit directly
+                finalCount% = finalCount% + 1
+                finalOrder%(finalCount%) = curIdx%
+            END IF
+        END IF
+    LOOP
+
+    ' --- Step 3: Assign contiguous zIndex 1..finalCount ---
+    FOR i% = 1 TO finalCount%
+        LAYERS(finalOrder%(i%)).zIndex% = i%
+    NEXT i%
+
+    ' Update LAYER_COUNT if needed
+    IF finalCount% > 0 AND finalCount% <> LAYER_COUNT% THEN
+        LAYER_COUNT% = finalCount%
+    END IF
+
+    ' Rebuild render order after contiguity fix
+    RENDER_ORDER_DIRTY% = TRUE
+END SUB
+
+
+''
+' Merge all children of a group into a single image layer.
+' The group container and all children are deleted; replaced by one image layer.
+' @param groupIdx% Group layer index to merge
+'
+SUB LAYERS_merge_group (groupIdx AS INTEGER)
+    DIM i AS INTEGER
+    DIM oldDest AS LONG
+    DIM tempImg AS LONG
+    DIM childBuf(1 TO MAX_LAYERS) AS INTEGER
+    DIM childCount AS INTEGER
+
+    ' CRITICAL: Copy parameter to local variable immediately.
+    ' groupIdx% is passed by reference (QB64 default).  Callers pass
+    ' CURRENT_LAYER%, which LAYERS_select (called inside LAYERS_new%)
+    ' can change mid-function, corrupting our reference.
+    DIM grpSlot AS INTEGER
+    grpSlot% = groupIdx%
+
+    ' Save group name before any deletions
+    DIM grpName AS STRING
+    grpName$ = LAYERS(grpSlot%).name
+
+    ' Save group's blend mode and opacity so the merged result inherits them
+    DIM grpBlendMode AS INTEGER
+    DIM grpOpacity AS INTEGER
+    grpBlendMode% = LAYERS(grpSlot%).blendMode%
+    grpOpacity% = LAYERS(grpSlot%).opacity%
+
+    ' Validate
+    IF grpSlot% < 1 OR grpSlot% > MAX_LAYERS THEN EXIT SUB
+    IF LAYERS(grpSlot%).imgHandle& = 0 THEN EXIT SUB
+    IF LAYERS(grpSlot%).layerType% <> LAYER_TYPE_GROUP THEN EXIT SUB
+
+    ' Get ALL descendants (recursive), sorted by zIndex ascending (bottom to top)
+    childCount% = 0
+    LAYERS_group_descendants grpSlot%, childBuf%(), childCount%
+    IF childCount% = 0 THEN
+        ' Empty group — just delete the group header
+        LAYERS_delete grpSlot%
+        EXIT SUB
+    END IF
+
+    ' Record history BEFORE performing the merge (snapshot all children + group header)
+    IF NOT HISTORY_IN_PROGRESS% THEN
+        HISTORY_record_merge_group grpSlot%, childBuf%(), childCount%
+    END IF
+
+    ' Create a temporary composite image
+    tempImg& = _NEWIMAGE(SCRN.canvasW&, SCRN.canvasH&, 32)
+    IF tempImg& >= -1 THEN EXIT SUB
+    oldDest& = _DEST
+    _DEST tempImg&
+    CLS , _RGBA32(0, 0, 0, 0)
+    _DEST oldDest&
+
+    ' Composite non-group children bottom-to-top (skip group headers — they're 1x1 sentinels)
+    FOR i% = 1 TO childCount%
+        DIM cIdx AS INTEGER
+        cIdx% = childBuf%(i%)
+        IF LAYERS(cIdx%).layerType% = LAYER_TYPE_GROUP THEN _CONTINUE
+        IF LAYERS(cIdx%).imgHandle& < -1 AND LAYERS(cIdx%).visible% THEN
+            IF LAYERS(cIdx%).layerType% = LAYER_TYPE_TEXT AND LAYERS(cIdx%).textDataIdx% > 0 THEN
+                TEXT_LAYER_render cIdx%, LAYERS(cIdx%).imgHandle&
+            END IF
+            IF LAYERS(cIdx%).blendMode% <> BLEND_NORMAL THEN
+                LAYER_blend_composite tempImg&, LAYERS(cIdx%).imgHandle&, LAYERS(cIdx%).blendMode%, LAYERS(cIdx%).opacity%
+            ELSEIF LAYERS(cIdx%).opacity% < 255 THEN
+                DIM tempChild AS LONG
+                tempChild& = _COPYIMAGE(LAYERS(cIdx%).imgHandle&, 32)
+                DIM mrgMem AS _MEM
+                DIM mrgOff AS _OFFSET
+                DIM mrgPix AS _UNSIGNED LONG
+                DIM mrgA AS _UNSIGNED _BYTE
+                DIM mrgNA AS INTEGER
+                mrgMem = _MEMIMAGE(tempChild&)
+                FOR mrgOff = mrgMem.OFFSET TO mrgMem.OFFSET + mrgMem.SIZE - 4 STEP 4
+                    _MEMGET mrgMem, mrgOff, mrgPix~&
+                    mrgA~%% = _ALPHA32(mrgPix~&)
+                    IF mrgA~%% > 0 THEN
+                        mrgNA% = (mrgA~%% * LAYERS(cIdx%).opacity%) \ 255
+                        _MEMPUT mrgMem, mrgOff + 3, mrgNA% AS _UNSIGNED _BYTE
+                    END IF
+                NEXT mrgOff
+                _MEMFREE mrgMem
+                oldDest& = _DEST
+                _DEST tempImg&
+                _BLEND tempImg&
+                _PUTIMAGE , tempChild&
+                _DEST oldDest&
+                IF tempChild& < -1 THEN _FREEIMAGE tempChild&
+            ELSE
+                oldDest& = _DEST
+                _DEST tempImg&
+                _BLEND tempImg&
+                _PUTIMAGE , LAYERS(cIdx%).imgHandle&
+                _DEST oldDest&
+            END IF
+        END IF
+    NEXT i%
+
+    ' Delete all descendants (suppress history for each — we recorded above)
+    DIM mgWasInProgress AS INTEGER
+    mgWasInProgress% = HISTORY_IN_PROGRESS%
+    HISTORY_IN_PROGRESS% = TRUE
+    FOR i% = childCount% TO 1 STEP -1
+        IF LAYERS(childBuf%(i%)).imgHandle& <> 0 THEN
+            LAYERS_delete childBuf%(i%)
+        END IF
+    NEXT i%
+
+    ' Create a new image layer BEFORE deleting the group header.
+    ' LAYERS_delete refuses to delete the last layer (LAYER_COUNT <= 1),
+    ' so we must ensure another layer exists first.
+    ' Select the group header so LAYERS_new% inserts at the correct z-position
+    ' (child deletions above may have moved CURRENT_LAYER% elsewhere).
+    LAYERS_select grpSlot%
+    DIM newIdx AS INTEGER
+    newIdx% = LAYERS_new%
+    IF newIdx% > 0 THEN
+        IF LAYERS(newIdx%).imgHandle& < -1 THEN _FREEIMAGE LAYERS(newIdx%).imgHandle&
+        LAYERS(newIdx%).imgHandle& = tempImg&
+        LAYERS(newIdx%).imgWidth% = _WIDTH(tempImg&)
+        LAYERS(newIdx%).imgHeight% = _HEIGHT(tempImg&)
+        LAYERS(newIdx%).name = grpName$
+        LAYERS(newIdx%).contentDirty% = TRUE
+        ' Inherit group's blend mode and opacity
+        LAYERS(newIdx%).blendMode% = grpBlendMode%
+        LAYERS(newIdx%).opacity% = grpOpacity%
+        ' Ensure merged layer is NOT inside the group we're about to delete
+        LAYERS(newIdx%).parentGroupIdx% = LAYERS(grpSlot%).parentGroupIdx%
+    ELSE
+        IF tempImg& < -1 THEN _FREEIMAGE tempImg&
+    END IF
+
+    ' Now delete the group header (LAYER_COUNT > 1 since we just added the merged layer)
+    IF LAYERS(grpSlot%).imgHandle& <> 0 THEN
+        LAYERS_delete grpSlot%
+    END IF
+    HISTORY_IN_PROGRESS% = mgWasInProgress%
+
+    ' Update the history record with the merged result layer's ID and slot
+    IF NOT mgWasInProgress% AND newIdx% > 0 THEN
+        HISTORY_merge_group_update_result LAYERS(newIdx%).historyId&, newIdx%
+    END IF
+
+    IF newIdx% > 0 THEN LAYERS_select newIdx%
+    BLEND_invalidate_cache
+    INVALIDATE_scene
+END SUB
+
+
+''
+' Select all descendants + the group header via multi-select (recursive).
+' @param groupIdx% Group layer index
+'
+SUB LAYERS_select_group (groupIdx AS INTEGER)
+    DIM i AS INTEGER
+
+    ' CRITICAL: Copy parameter to local — QB64 passes by reference.
+    DIM sgSlot AS INTEGER
+    sgSlot% = groupIdx%
+
+    IF sgSlot% < 1 OR sgSlot% > MAX_LAYERS THEN EXIT SUB
+    IF LAYERS(sgSlot%).imgHandle& = 0 THEN EXIT SUB
+    IF LAYERS(sgSlot%).layerType% <> LAYER_TYPE_GROUP THEN EXIT SUB
+
+    ' Select the group header first
+    LAYERS_select sgSlot%
+    MULTI_SELECT_clear
+
+    ' Add all descendants to multi-select (walk parent chain for each layer)
+    FOR i% = 1 TO MAX_LAYERS
+        IF LAYERS(i%).imgHandle& <> 0 AND i% <> sgSlot% THEN
+            DIM sgWalk AS INTEGER
+            sgWalk% = LAYERS(i%).parentGroupIdx%
+            DO WHILE sgWalk% > 0
+                IF sgWalk% = sgSlot% THEN
+                    MULTI_SELECT_LAYERS(i%) = TRUE
+                    MULTI_SELECT_COUNT% = MULTI_SELECT_COUNT% + 1
+                    EXIT DO
+                END IF
+                IF sgWalk% < 1 OR sgWalk% > MAX_LAYERS THEN EXIT DO
+                IF LAYERS(sgWalk%).imgHandle& = 0 THEN EXIT DO
+                sgWalk% = LAYERS(sgWalk%).parentGroupIdx%
+            LOOP
+        END IF
+    NEXT i%
+
+    GUI_NEEDS_REDRAW% = TRUE
+END SUB
+
+
+''
+' Delete a group — asks the user whether to delete contents or ungroup.
+' @param groupIdx% Group layer index
+'
+SUB LAYERS_delete_group (groupIdx AS INTEGER)
+    DIM childCount AS INTEGER
+    DIM result AS INTEGER
+
+    ' CRITICAL: Copy parameter to local — QB64 passes by reference.
+    DIM dgSlot AS INTEGER
+    dgSlot% = groupIdx%
+
+    IF dgSlot% < 1 OR dgSlot% > MAX_LAYERS THEN EXIT SUB
+    IF LAYERS(dgSlot%).imgHandle& = 0 THEN EXIT SUB
+    IF LAYERS(dgSlot%).layerType% <> LAYER_TYPE_GROUP THEN EXIT SUB
+
+    childCount% = LAYERS_group_child_count%(dgSlot%)
+
+    IF childCount% = 0 THEN
+        ' Empty group — just delete
+        LAYERS_delete dgSlot%
+        EXIT SUB
+    END IF
+
+    ' Ask user via DRAW's own message box
+    result% = DRAW_message_box%("Delete Group", "Group has" + STR$(childCount%) + " layer(s)." + CHR$(10) + CHR$(10) + "Yes = Delete group and all contents" + CHR$(10) + "No = Ungroup (keep layers)" + CHR$(10) + "Cancel = Do nothing", MB_BTN_YES_NO_CANCEL, MB_ICON_QUESTION)
+
+    IF result% = MB_RESULT_1 THEN
+        ' Yes: Delete all descendants recursively
+        HISTORY_begin_group
+        DIM i AS INTEGER
+        DIM dgPass AS INTEGER
+        ' Delete in multiple passes: leaf layers first, then sub-groups, then header
+        ' (deleting a group orphans its children, so we delete bottom-up by depth)
+        FOR dgPass% = MAX_GROUP_NESTING TO 1 STEP -1
+            FOR i% = 1 TO MAX_LAYERS
+                IF LAYERS(i%).imgHandle& <> 0 AND LAYERS(i%).parentGroupIdx% <> 0 THEN
+                    ' Check if this is a descendant of dgSlot at any depth
+                    DIM dgWalk AS INTEGER
+                    dgWalk% = LAYERS(i%).parentGroupIdx%
+                    DIM dgIsDesc AS INTEGER
+                    dgIsDesc% = FALSE
+                    DO WHILE dgWalk% > 0
+                        IF dgWalk% = dgSlot% THEN dgIsDesc% = TRUE: EXIT DO
+                        IF dgWalk% < 1 OR dgWalk% > MAX_LAYERS THEN EXIT DO
+                        IF LAYERS(dgWalk%).imgHandle& = 0 THEN EXIT DO
+                        dgWalk% = LAYERS(dgWalk%).parentGroupIdx%
+                    LOOP
+                    IF dgIsDesc% THEN
+                        IF LAYERS_nesting_depth%(i%) >= dgPass% THEN
+                            LAYERS_delete i%
+                        END IF
+                    END IF
+                END IF
+            NEXT i%
+        NEXT dgPass%
+        ' Delete remaining direct children and the group header itself
+        FOR i% = 1 TO MAX_LAYERS
+            IF LAYERS(i%).imgHandle& <> 0 AND LAYERS(i%).parentGroupIdx% = dgSlot% THEN
+                LAYERS_delete i%
+            END IF
+        NEXT i%
+        LAYERS_delete dgSlot%
+        HISTORY_end_group
+        BLEND_invalidate_cache
+        INVALIDATE_scene
+    ELSEIF result% = MB_RESULT_2 THEN
+        ' No: Ungroup (keep layers)
+        LAYERS_ungroup dgSlot%
+    END IF
+    ' Cancel / X close = do nothing
+END SUB
+
+
+''
+' Toggle visibility of a group and all its descendants (recursive).
+' When hiding: saves each descendant's current visibility state.
+' When showing: restores saved visibility states.
+' @param groupIdx% Group layer index
+'
+SUB LAYERS_toggle_group_visibility (groupIdx AS INTEGER)
+    DIM i AS INTEGER
+
+    IF groupIdx% < 1 OR groupIdx% > MAX_LAYERS THEN EXIT SUB
+    IF LAYERS(groupIdx%).imgHandle& = 0 THEN EXIT SUB
+    IF LAYERS(groupIdx%).layerType% <> LAYER_TYPE_GROUP THEN EXIT SUB
+
+    DIM newVis AS INTEGER
+    newVis% = NOT LAYERS(groupIdx%).visible%
+    LAYERS(groupIdx%).visible% = newVis%
+
+    IF newVis% THEN
+        ' Restore saved visibility states for all descendants
+        FOR i% = 1 TO MAX_LAYERS
+            IF LAYERS(i%).imgHandle& <> 0 AND i% <> groupIdx% THEN
+                ' Walk parent chain to see if descendant of groupIdx
+                DIM tgvWalk AS INTEGER
+                DIM tgvIsDesc AS INTEGER
+                tgvIsDesc% = FALSE
+                tgvWalk% = LAYERS(i%).parentGroupIdx%
+                DO WHILE tgvWalk% > 0
+                    IF tgvWalk% = groupIdx% THEN tgvIsDesc% = TRUE: EXIT DO
+                    IF tgvWalk% < 1 OR tgvWalk% > MAX_LAYERS THEN EXIT DO
+                    IF LAYERS(tgvWalk%).imgHandle& = 0 THEN EXIT DO
+                    tgvWalk% = LAYERS(tgvWalk%).parentGroupIdx%
+                LOOP
+                IF tgvIsDesc% THEN
+                    IF i% <= LEN(LAYER_PANEL.savedVisibility$) THEN
+                        LAYERS(i%).visible% = (ASC(MID$(LAYER_PANEL.savedVisibility$, i%, 1)) <> 0)
+                    ELSE
+                        LAYERS(i%).visible% = TRUE
+                    END IF
+                END IF
+            END IF
+        NEXT i%
+    ELSE
+        ' Save current visibility states before hiding all descendants
+        IF LEN(LAYER_PANEL.savedVisibility$) < MAX_LAYERS THEN
+            LAYER_PANEL.savedVisibility$ = LAYER_PANEL.savedVisibility$ + STRING$(MAX_LAYERS - LEN(LAYER_PANEL.savedVisibility$), CHR$(0))
+        END IF
+        FOR i% = 1 TO MAX_LAYERS
+            IF LAYERS(i%).imgHandle& <> 0 AND i% <> groupIdx% THEN
+                DIM tgvWalk2 AS INTEGER
+                DIM tgvIsDesc2 AS INTEGER
+                tgvIsDesc2% = FALSE
+                tgvWalk2% = LAYERS(i%).parentGroupIdx%
+                DO WHILE tgvWalk2% > 0
+                    IF tgvWalk2% = groupIdx% THEN tgvIsDesc2% = TRUE: EXIT DO
+                    IF tgvWalk2% < 1 OR tgvWalk2% > MAX_LAYERS THEN EXIT DO
+                    IF LAYERS(tgvWalk2%).imgHandle& = 0 THEN EXIT DO
+                    tgvWalk2% = LAYERS(tgvWalk2%).parentGroupIdx%
+                LOOP
+                IF tgvIsDesc2% THEN
+                    MID$(LAYER_PANEL.savedVisibility$, i%, 1) = CHR$(ABS(LAYERS(i%).visible%))
+                    LAYERS(i%).visible% = FALSE
+                END IF
+            END IF
+        NEXT i%
+    END IF
+
+    BLEND_invalidate_cache
+    INVALIDATE_scene
+    GUI_NEEDS_REDRAW% = TRUE
+END SUB
+
+
+''
+' Get the nesting depth of a layer (0 = top-level, 1 = inside one group, etc.)
+' Follows parentGroupIdx chain up to the root. Caps at MAX_GROUP_NESTING to
+' prevent infinite loops from corrupt data.
+' @param layerIdx% Layer index
+' @return INTEGER Nesting depth (0 = top-level)
+'
+FUNCTION LAYERS_nesting_depth% (layerIdx AS INTEGER)
+    DIM depth AS INTEGER
+    DIM cur AS INTEGER
+    depth% = 0
+    IF layerIdx% < 1 OR layerIdx% > MAX_LAYERS THEN
+        LAYERS_nesting_depth% = 0
+        EXIT FUNCTION
+    END IF
+    cur% = LAYERS(layerIdx%).parentGroupIdx%
+    DO WHILE cur% > 0 AND depth% < MAX_GROUP_NESTING
+        depth% = depth% + 1
+        IF cur% < 1 OR cur% > MAX_LAYERS THEN EXIT DO
+        IF LAYERS(cur%).imgHandle& = 0 THEN EXIT DO
+        cur% = LAYERS(cur%).parentGroupIdx%
+    LOOP
+    LAYERS_nesting_depth% = depth%
+END FUNCTION
+
+
+' =============================================================================
+' Layer Panel Context Menu (right-click on layer row)
+' =============================================================================
+
+''
+' Build the context menu items for the given layer.
+' @param layerIdx INTEGER Layer the context menu was invoked on
+' @param itemCount INTEGER [out] Total number of menu items built
+'
+SUB LAYER_PANEL_ctx_menu_build (layerIdx AS INTEGER, itemCount AS INTEGER)
+    DIM flags AS INTEGER
+    DIM isGroup AS INTEGER
+    DIM isTextLayer AS INTEGER
+    DIM inGroup AS INTEGER
+    DIM hasMultiSel AS INTEGER
     DIM modeIdx AS INTEGER
 
     POPUP_MENU_clear_items
-    POPUP_MENU_set_item 0, BLEND_mode_name$(BLEND_NORMAL), "", BLEND_NORMAL, 0
-    POPUP_MENU_set_item 1, "", "", -1, POPUP_MENU_FLAG_DIVIDER
+    itemCount% = 0
 
-    FOR itemRow% = 2 TO BLEND_MODE_COUNT
-        modeIdx% = itemRow% - 1
-        POPUP_MENU_set_item itemRow%, BLEND_mode_name$(modeIdx%), "", modeIdx%, 0
-    NEXT itemRow%
+    IF layerIdx% < 1 OR layerIdx% > MAX_LAYERS THEN EXIT SUB
+    IF LAYERS(layerIdx%).imgHandle& = 0 THEN EXIT SUB
+
+    isGroup% = (LAYERS(layerIdx%).layerType% = LAYER_TYPE_GROUP)
+    isTextLayer% = (LAYERS(layerIdx%).layerType% = LAYER_TYPE_TEXT)
+    inGroup% = (LAYERS(layerIdx%).parentGroupIdx% > 0)
+    hasMultiSel% = (MULTI_SELECT_COUNT% >= 2)
+
+    ' --- Blend modes (Pass Through first for groups, then Normal, divider, rest) ---
+    IF isGroup% THEN
+        POPUP_MENU_set_item itemCount%, BLEND_mode_name$(BLEND_PASS_THROUGH), "", BLEND_PASS_THROUGH_POPUP_VALUE, 0
+        itemCount% = itemCount% + 1
+
+        POPUP_MENU_set_item itemCount%, "", "", -99, POPUP_MENU_FLAG_DIVIDER
+        itemCount% = itemCount% + 1
+    END IF
+
+    POPUP_MENU_set_item itemCount%, BLEND_mode_name$(BLEND_NORMAL), "", BLEND_NORMAL, 0
+    itemCount% = itemCount% + 1
+
+    POPUP_MENU_set_item itemCount%, "", "", -99, POPUP_MENU_FLAG_DIVIDER
+    itemCount% = itemCount% + 1
+
+    FOR modeIdx% = 1 TO BLEND_MODE_COUNT - 1
+        POPUP_MENU_set_item itemCount%, BLEND_mode_name$(modeIdx%), "", modeIdx%, 0
+        itemCount% = itemCount% + 1
+    NEXT modeIdx%
+
+    POPUP_MENU_set_item itemCount%, "", "", -1, POPUP_MENU_FLAG_DIVIDER
+    itemCount% = itemCount% + 1
+
+    ' --- Layer operations ---
+    POPUP_MENU_set_item itemCount%, "RENAME LAYER", "D-Click", 726, 0
+    itemCount% = itemCount% + 1
+
+    POPUP_MENU_set_item itemCount%, "DUPLICATE", "Ctrl+Shift+D", 707, 0
+    itemCount% = itemCount% + 1
+
+    POPUP_MENU_set_item itemCount%, "DELETE", "Ctrl+Shift+Del", 702, 0
+    itemCount% = itemCount% + 1
+
+    ' Merge Down — disabled for groups or bottom layer
+    flags% = 0
+    IF isGroup% THEN flags% = POPUP_MENU_FLAG_DISABLED
+    POPUP_MENU_set_item itemCount%, "MERGE DOWN", "Ctrl+Alt+E", 705, flags%
+    itemCount% = itemCount% + 1
+
+    ' Merge Selected — disabled if no multi-select
+    flags% = 0
+    IF NOT hasMultiSel% THEN flags% = POPUP_MENU_FLAG_DISABLED
+    POPUP_MENU_set_item itemCount%, "MERGE SELECTED", "Ctrl+Alt+Shift+E", 706, flags%
+    itemCount% = itemCount% + 1
+
+    ' Rasterize Text Layer — only enabled for text layers
+    flags% = 0
+    IF NOT isTextLayer% THEN flags% = POPUP_MENU_FLAG_DISABLED
+    POPUP_MENU_set_item itemCount%, "RASTERIZE TEXT", "", 713, flags%
+    itemCount% = itemCount% + 1
+
+    POPUP_MENU_set_item itemCount%, "", "", -1, POPUP_MENU_FLAG_DIVIDER
+    itemCount% = itemCount% + 1
+
+    ' --- Group operations ---
+    POPUP_MENU_set_item itemCount%, "NEW GROUP", "Ctrl+G", 720, 0
+    itemCount% = itemCount% + 1
+
+    ' Group from Selection — disabled if no multi-select
+    flags% = 0
+    IF NOT hasMultiSel% THEN flags% = POPUP_MENU_FLAG_DISABLED
+    POPUP_MENU_set_item itemCount%, "GROUP FROM SELECTION", "Ctrl+Shift+G", 721, flags%
+    itemCount% = itemCount% + 1
+
+    ' Ungroup — only enabled for group headers
+    flags% = 0
+    IF NOT isGroup% THEN flags% = POPUP_MENU_FLAG_DISABLED
+    POPUP_MENU_set_item itemCount%, "UNGROUP", "Ctrl+Shift+U", 722, flags%
+    itemCount% = itemCount% + 1
+
+    ' Merge Group — only enabled for group headers
+    flags% = 0
+    IF NOT isGroup% THEN flags% = POPUP_MENU_FLAG_DISABLED
+    POPUP_MENU_set_item itemCount%, "MERGE GROUP", "", 723, flags%
+    itemCount% = itemCount% + 1
+
+    ' Select All in Group — enabled if this is a group or a group child
+    flags% = 0
+    IF NOT isGroup% AND NOT inGroup% THEN flags% = POPUP_MENU_FLAG_DISABLED
+    POPUP_MENU_set_item itemCount%, "SELECT ALL IN GROUP", "", 725, flags%
+    itemCount% = itemCount% + 1
+
+    POPUP_MENU_set_item itemCount%, "", "", -1, POPUP_MENU_FLAG_DIVIDER
+    itemCount% = itemCount% + 1
+
+    ' Selection from Layer Group — enabled if group or inside a group
+    flags% = 0
+    IF NOT isGroup% AND NOT inGroup% THEN flags% = POPUP_MENU_FLAG_DISABLED
+    POPUP_MENU_set_item itemCount%, "SELECTION FROM GROUP", "", 727, flags%
+    itemCount% = itemCount% + 1
+
+    ' Selection from Layer — enabled for non-group layers
+    flags% = 0
+    IF isGroup% THEN flags% = POPUP_MENU_FLAG_DISABLED
+    POPUP_MENU_set_item itemCount%, "SELECTION FROM LAYER", "", 728, flags%
+    itemCount% = itemCount% + 1
+END SUB
+
+
+''
+' Show the layer context menu anchored near (x, y) on screen.
+' @param layerIdx INTEGER Layer index the context menu was invoked on
+' @param x INTEGER Screen X coordinate to anchor the popup near
+' @param y INTEGER Screen Y coordinate to anchor the popup near
+'
+SUB LAYER_PANEL_ctx_menu_show (layerIdx AS INTEGER, x AS INTEGER, y AS INTEGER)
+    DIM popH AS INTEGER
+    DIM popupFont AS LONG
+
+    ' Close blend popup if open
+    IF LAYER_PANEL.blendPopupOpen% THEN LAYER_PANEL_blend_popup_close
+
+    LAYER_PANEL_ctx_menu_build layerIdx%, LAYER_PANEL.ctxMenuItems%
+
+    IF MENU_BAR.fontHandle& > 0 THEN
+        popupFont& = MENU_BAR.fontHandle&
+    ELSEIF LAYER_PANEL.fontHandle& > 0 THEN
+        popupFont& = LAYER_PANEL.fontHandle&
+    ELSE
+        popupFont& = 0
+    END IF
+
+    LAYER_PANEL.ctxMenuW% = POPUP_MENU_measure_width%(LAYER_PANEL.ctxMenuItems%, popupFont&)
+    POPUP_MENU_place x%, y%, LAYER_PANEL.ctxMenuW%, LAYER_PANEL.ctxMenuItems%, LAYER_CTX_ITEM_H, LAYER_PANEL.ctxMenuX%, LAYER_PANEL.ctxMenuY%, popH%
+    LAYER_PANEL.ctxMenuOpen% = TRUE
+    LAYER_PANEL.ctxMenuLayer% = layerIdx%
+    LAYER_PANEL.ctxMenuHover% = -1
+    GUI_NEEDS_REDRAW% = TRUE
+    FRAME_IDLE% = FALSE
+END SUB
+
+
+''
+' Close the layer context menu and reset its state.
+'
+SUB LAYER_PANEL_ctx_menu_close ()
+    LAYER_PANEL.ctxMenuOpen% = FALSE
+    LAYER_PANEL.ctxMenuLayer% = 0
+    LAYER_PANEL.ctxMenuHover% = -1
+    GUI_NEEDS_REDRAW% = TRUE
+    FRAME_IDLE% = FALSE
+END SUB
+
+
+''
+' Render the layer context menu onto SCRN.CANVAS&.
+'
+SUB LAYER_PANEL_ctx_menu_render ()
+    DIM popupFont AS LONG
+    DIM currentMode AS INTEGER
+    DIM checkedRow AS INTEGER
+    DIM ctxLayer AS INTEGER
+
+    IF NOT LAYER_PANEL.ctxMenuOpen% THEN EXIT SUB
+
+    ctxLayer% = LAYER_PANEL.ctxMenuLayer%
+    LAYER_PANEL_ctx_menu_build ctxLayer%, LAYER_PANEL.ctxMenuItems%
+
+    ' Mark the active blend mode row with a checkmark
+    DIM ctxIsGroup AS INTEGER
+    ctxIsGroup% = FALSE
+    IF ctxLayer% >= 1 AND ctxLayer% <= MAX_LAYERS THEN
+        currentMode% = LAYERS(ctxLayer%).blendMode%
+        IF LAYERS(ctxLayer%).layerType% = LAYER_TYPE_GROUP THEN ctxIsGroup% = TRUE
+    ELSE
+        currentMode% = BLEND_NORMAL
+    END IF
+    IF ctxIsGroup% THEN
+        ' Groups: PT(0), div(1), Normal(2), div(3), modes(4+)
+        IF LAYERS(ctxLayer%).passThrough% THEN
+            checkedRow% = 0 ' Pass Through row
+        ELSEIF currentMode% = BLEND_NORMAL THEN
+            checkedRow% = 2 ' Normal row
+        ELSE
+            checkedRow% = currentMode% + 3 ' modes shifted by 2 extra rows
+        END IF
+    ELSE
+        IF currentMode% = BLEND_NORMAL THEN
+            checkedRow% = 0
+        ELSE
+            checkedRow% = currentMode% + 1  ' +1 for divider row after Normal
+        END IF
+    END IF
+    POPUP_MENU_FLAGS(checkedRow%) = POPUP_MENU_FLAGS(checkedRow%) OR POPUP_MENU_FLAG_CHECKED
+
+    IF MENU_BAR.fontHandle& > 0 THEN
+        popupFont& = MENU_BAR.fontHandle&
+    ELSEIF LAYER_PANEL.fontHandle& > 0 THEN
+        popupFont& = LAYER_PANEL.fontHandle&
+    ELSE
+        popupFont& = 0
+    END IF
+
+    POPUP_MENU_render SCRN.CANVAS&, LAYER_PANEL.ctxMenuX%, LAYER_PANEL.ctxMenuY%, LAYER_PANEL.ctxMenuW%, LAYER_PANEL.ctxMenuItems%, LAYER_CTX_ITEM_H, LAYER_PANEL.ctxMenuHover%, popupFont&
+END SUB
+
+
+''
+' Hit-test the layer context menu.
+' Returns: action value if an enabled item was clicked,
+'          -1 if inside popup but on non-clickable area,
+'          -2 if outside popup.
+' @param rawX INTEGER Raw screen X coordinate to test
+' @param rawY INTEGER Raw screen Y coordinate to test
+' @return INTEGER - Action value, -1 for non-clickable, -2 for outside
+'
+FUNCTION LAYER_PANEL_ctx_menu_hit% (rawX AS INTEGER, rawY AS INTEGER)
+    IF NOT LAYER_PANEL.ctxMenuOpen% THEN
+        LAYER_PANEL_ctx_menu_hit% = -2
+        EXIT FUNCTION
+    END IF
+    LAYER_PANEL_ctx_menu_hit% = POPUP_MENU_hit_value%(LAYER_PANEL.ctxMenuX%, LAYER_PANEL.ctxMenuY%, LAYER_PANEL.ctxMenuW%, LAYER_PANEL.ctxMenuItems%, LAYER_CTX_ITEM_H, rawX%, rawY%)
+END FUNCTION
+
+
+''
+' Update context menu hover state from current mouse position.
+' @param rawX INTEGER Raw screen X coordinate of the mouse
+' @param rawY INTEGER Raw screen Y coordinate of the mouse
+'
+SUB LAYER_PANEL_ctx_menu_hover (rawX AS INTEGER, rawY AS INTEGER)
+    DIM prevHover AS INTEGER
+
+    IF NOT LAYER_PANEL.ctxMenuOpen% THEN EXIT SUB
+
+    prevHover% = LAYER_PANEL.ctxMenuHover%
+    LAYER_PANEL.ctxMenuHover% = POPUP_MENU_hover_row%(LAYER_PANEL.ctxMenuX%, LAYER_PANEL.ctxMenuY%, LAYER_PANEL.ctxMenuW%, LAYER_PANEL.ctxMenuItems%, LAYER_CTX_ITEM_H, rawX%, rawY%)
+    IF LAYER_PANEL.ctxMenuHover% <> prevHover% AND LAYER_PANEL.ctxMenuHover% >= 0 THEN
+        SOUND_play SND_MENU_HOVER
+        GUI_NEEDS_REDRAW% = TRUE
+        FRAME_IDLE% = FALSE
+    ELSEIF LAYER_PANEL.ctxMenuHover% <> prevHover% THEN
+        GUI_NEEDS_REDRAW% = TRUE
+        FRAME_IDLE% = FALSE
+    END IF
+END SUB
+
+
+''
+' Execute a layer context menu action.
+' @param actionValue INTEGER Action ID to execute
+'
+SUB LAYER_PANEL_ctx_menu_activate (actionValue AS INTEGER)
+    LAYER_PANEL_ctx_menu_close
+    IF actionValue% > 0 THEN
+        CMD_execute_action actionValue%
+    END IF
 END SUB

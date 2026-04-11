@@ -87,10 +87,10 @@ SUB FILE_PSD_load (filename AS STRING)
         EXIT SUB
     END IF
 
-    ' Count image layers (skip group markers)
+    ' Count total DRAW layers needed (image layers + group headers, skip group_end markers)
     imageLayerCount% = 0
     FOR i% = 1 TO PSD_IMG.layer_count
-        IF NOT PSD_LAYERS(i%).is_group AND NOT PSD_LAYERS(i%).is_group_end THEN
+        IF NOT PSD_LAYERS(i%).is_group_end THEN
             imageLayerCount% = imageLayerCount% + 1
         END IF
     NEXT i%
@@ -136,7 +136,7 @@ SUB FILE_PSD_load (filename AS STRING)
 
             ' Clear and create single layer
             DIM ci AS INTEGER
-            FOR ci% = 1 TO 64
+            FOR ci% = 1 TO MAX_LAYERS
                 IF LAYERS(ci%).imgHandle& < -1 THEN
                     _FREEIMAGE LAYERS(ci%).imgHandle&
                     LAYERS(ci%).imgHandle& = 0
@@ -208,9 +208,9 @@ SUB FILE_PSD_load (filename AS STRING)
         EXIT SUB
     END IF
 
-    IF imageLayerCount% > 64 THEN
-        _LOGWARN "FILE_PSD_load: PSD has" + STR$(imageLayerCount%) + " image layers, max 64. Extra layers will be skipped."
-        imageLayerCount% = 64
+    IF imageLayerCount% > MAX_LAYERS THEN
+        _LOGWARN "FILE_PSD_load: PSD has" + STR$(imageLayerCount%) + " image layers, max" + STR$(MAX_LAYERS) + ". Extra layers will be skipped."
+        imageLayerCount% = MAX_LAYERS
     END IF
 
     _LOGINFO "FILE_PSD_load: PSD" + STR$(spriteW&) + "x" + STR$(spriteH&) + "," + STR$(imageLayerCount%) + " image layers"
@@ -310,7 +310,7 @@ SUB FILE_PSD_load (filename AS STRING)
     END IF
 
     ' === CLEAR EXISTING LAYERS ===
-    FOR i% = 1 TO 64
+    FOR i% = 1 TO MAX_LAYERS
         IF LAYERS(i%).imgHandle& < -1 THEN
             _FREEIMAGE LAYERS(i%).imgHandle&
             LAYERS(i%).imgHandle& = 0
@@ -336,15 +336,94 @@ SUB FILE_PSD_load (filename AS STRING)
     ' === CREATE LAYERS FROM PSD DATA ===
     drawLayerIdx% = 0
 
+    ' Group tracking: PSD order is bottom-to-top, groups are:
+    '   is_group_end (bottom marker) → children → is_group (header at top)
+    ' Use a parent stack to support nested groups. Each group_end pushes a scope,
+    ' each group header pops and creates the group with its collected children.
+    DIM psdGrpStack(1 TO MAX_GROUP_NESTING) AS INTEGER  ' Stack of DRAW group indices (0 = not yet created)
+    DIM psdGrpChildStart(1 TO MAX_GROUP_NESTING) AS INTEGER ' drawLayerIdx at start of scope
+    DIM psdGrpDepth AS INTEGER
+    psdGrpDepth% = 0
+
     FOR i% = 1 TO PSD_IMG.layer_count
-        ' Skip group markers (no pixel data)
-        IF PSD_LAYERS(i%).is_group OR PSD_LAYERS(i%).is_group_end THEN
-            _LOGINFO "FILE_PSD_load: Skipping group layer" + STR$(i%)
+        ' Group end marker = bottom boundary of a group scope
+        IF PSD_LAYERS(i%).is_group_end THEN
+            IF psdGrpDepth% < MAX_GROUP_NESTING THEN
+                psdGrpDepth% = psdGrpDepth% + 1
+                psdGrpStack%(psdGrpDepth%) = 0  ' Will be assigned when header is found
+                psdGrpChildStart%(psdGrpDepth%) = drawLayerIdx% + 1
+            END IF
+            _LOGINFO "FILE_PSD_load: Group scope push, depth =" + STR$(psdGrpDepth%) + " at PSD layer" + STR$(i%)
             _CONTINUE
         END IF
 
-        ' Enforce 64-layer cap
-        IF drawLayerIdx% >= 64 THEN EXIT FOR
+        ' Group header = top boundary — pop scope and create group
+        IF PSD_LAYERS(i%).is_group THEN
+            IF psdGrpDepth% > 0 THEN
+                DIM psdChildStart AS INTEGER
+                psdChildStart% = psdGrpChildStart%(psdGrpDepth%)
+                psdGrpDepth% = psdGrpDepth% - 1
+
+                ' Create DRAW group layer for this scope
+                IF drawLayerIdx% < MAX_LAYERS THEN
+                    drawLayerIdx% = drawLayerIdx% + 1
+                    DIM grpIdx AS INTEGER
+                    grpIdx% = drawLayerIdx%
+
+                    LAYERS(grpIdx%).imgHandle& = _NEWIMAGE(1, 1, 32)
+                    LAYERS(grpIdx%).imgWidth% = 1
+                    LAYERS(grpIdx%).imgHeight% = 1
+                    oldDest& = _DEST
+                    _DEST LAYERS(grpIdx%).imgHandle&
+                    CLS , _RGBA32(0, 0, 0, 0)
+                    _DEST oldDest&
+
+                    ' Group properties
+                    DIM grpName AS STRING
+                    grpName$ = LEFT$(PSD_LAYERS(i%).name, PSD_LAYERS(i%).name_len)
+                    IF LEN(grpName$) = 0 THEN grpName$ = "Group"
+                    LAYERS(grpIdx%).name = grpName$
+                    LAYERS(grpIdx%).layerType% = LAYER_TYPE_GROUP
+                    LAYERS(grpIdx%).visible% = PSD_LAYERS(i%).visible
+                    LAYERS(grpIdx%).opacity% = PSD_LAYERS(i%).opacity
+                    LAYERS(grpIdx%).blendMode% = PSD_map_blend_mode%(PSD_LAYERS(i%).blend_mode)
+                    LAYERS(grpIdx%).zIndex% = drawLayerIdx%
+                    LAYERS(grpIdx%).historyId& = LAYERS_alloc_history_id&
+                    LAYERS(grpIdx%).collapsed% = FALSE
+                    LAYERS(grpIdx%).passThrough% = FALSE
+                    LAYER_COUNT% = LAYER_COUNT% + 1
+
+                    ' Parent = enclosing group on stack (if any)
+                    ' At this point psdGrpDepth was already decremented, so if > 0
+                    ' there's a parent scope. But parent group may not be created yet
+                    ' (PSD creates headers top-down). We'll do a second pass to fix.
+                    LAYERS(grpIdx%).parentGroupIdx% = 0
+
+                    ' Assign direct children: layers created between psdChildStart and now
+                    ' Direct children = those whose parentGroupIdx is still 0
+                    ' (nested group headers already got assigned in their own scope)
+                    DIM gc AS INTEGER
+                    DIM psdChildCount AS INTEGER
+                    psdChildCount% = 0
+                    FOR gc% = psdChildStart% TO grpIdx% - 1
+                        IF LAYERS(gc%).imgHandle& <> 0 THEN
+                            IF LAYERS(gc%).parentGroupIdx% = 0 THEN
+                                LAYERS(gc%).parentGroupIdx% = grpIdx%
+                                psdChildCount% = psdChildCount% + 1
+                            END IF
+                        END IF
+                    NEXT gc%
+
+                    _LOGINFO "FILE_PSD_load: Created group " + CHR$(34) + grpName$ + CHR$(34) + " at idx" + STR$(grpIdx%) + " with" + STR$(psdChildCount%) + " direct children"
+                END IF
+            ELSE
+                _LOGWARN "FILE_PSD_load: Group header without matching group_end at PSD layer" + STR$(i%)
+            END IF
+            _CONTINUE
+        END IF
+
+        ' Enforce layer cap
+        IF drawLayerIdx% >= MAX_LAYERS THEN EXIT FOR
 
         drawLayerIdx% = drawLayerIdx% + 1
         layerIdx% = drawLayerIdx%
@@ -373,7 +452,7 @@ SUB FILE_PSD_load (filename AS STRING)
 
         ' Set layer name
         layerName$ = LEFT$(PSD_LAYERS(i%).name, PSD_LAYERS(i%).name_len)
-        IF LEN(layerName$) > 64 THEN layerName$ = LEFT$(layerName$, 64)
+        IF LEN(layerName$) > MAX_LAYERS THEN layerName$ = LEFT$(layerName$, 64)
         IF LEN(layerName$) = 0 THEN layerName$ = "Layer " + _TRIM$(STR$(drawLayerIdx%))
         LAYERS(layerIdx%).name = layerName$
 
@@ -394,6 +473,9 @@ SUB FILE_PSD_load (filename AS STRING)
 
         ' Mark content dirty for opacity cache rebuild
         LAYERS(layerIdx%).contentDirty% = TRUE
+
+        ' parentGroupIdx starts at 0 — will be assigned when group header is created
+        LAYERS(layerIdx%).parentGroupIdx% = 0
 
         LAYER_COUNT% = LAYER_COUNT% + 1
 

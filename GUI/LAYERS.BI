@@ -17,6 +17,8 @@ CONST LAYER_ROW_HEIGHT = 20
 CONST LAYER_BTN_SIZE = 12
 
 ' Layer blend mode constants
+CONST BLEND_PASS_THROUGH = -1 ' Group-only: children composite as if no group exists
+CONST BLEND_PASS_THROUGH_POPUP_VALUE = 100 ' Popup menu sentinel (avoids -1 collision with POPUP_MENU_hit_value%)
 CONST BLEND_NORMAL       = 0
 CONST BLEND_MULTIPLY     = 1
 CONST BLEND_SCREEN       = 2
@@ -41,6 +43,7 @@ CONST BLEND_MODE_COUNT   = 19 ' Total number of blend modes
 ' Layer type constants
 CONST LAYER_TYPE_IMAGE = 0   ' Standard pixel/image layer (default)
 CONST LAYER_TYPE_TEXT  = 1   ' Non-destructive text layer
+CONST LAYER_TYPE_GROUP = 2   ' Group container (no pixel data, organizational only)
 
 TYPE DRAW_LAYER
     historyId    AS LONG        ' Stable runtime identity for unified history
@@ -59,8 +62,12 @@ TYPE DRAW_LAYER
     opacityCacheImg AS LONG     ' Cached opacity-adjusted image (0 = not cached)
     opacityCacheVal AS INTEGER  ' Opacity value when cache was built
     contentDirty    AS INTEGER  ' TRUE = layer content changed, invalidate opacity cache
-    layerType       AS INTEGER  ' LAYER_TYPE_IMAGE (0) or LAYER_TYPE_TEXT (1)
+    layerType       AS INTEGER  ' LAYER_TYPE_IMAGE (0), LAYER_TYPE_TEXT (1), or LAYER_TYPE_GROUP (2)
     textDataIdx     AS INTEGER  ' Index into TEXT_LAYER_DATA() pool (0 = not a text layer)
+    ' Group support fields
+    parentGroupIdx  AS INTEGER  ' Index into LAYERS() of parent group (0 = top-level / no group)
+    collapsed       AS INTEGER  ' TRUE if group is collapsed in panel (LAYER_TYPE_GROUP only)
+    passThrough     AS INTEGER  ' TRUE = pass-through blend (children composite directly); FALSE = isolated group blend
 END TYPE
 
 TYPE LAYER_PANEL_OBJ
@@ -94,11 +101,11 @@ TYPE LAYER_PANEL_OBJ
     iconBtnAdd        AS LONG      ' New layer button icon
     ' Solo mode state (alt+click on eye icon)
     soloLayer         AS INTEGER    ' Layer index currently soloed (0 = none)
-    savedVisibility   AS STRING * 64 ' Saved visibility states before solo
+    savedVisibility   AS STRING * 128 ' Saved visibility states before solo
     ' Visibility swipe state (click+drag on eye icons)
     visSwiping        AS INTEGER    ' TRUE while swiping visibility
     visSwipeAction    AS INTEGER    ' 1 = show, 0 = hide (action applied during swipe)
-    visSwipedLayers   AS STRING * 64 ' Track which layers were already swiped (CHR$(1) = swiped)
+    visSwipedLayers   AS STRING * 128 ' Track which layers were already swiped (CHR$(1) = swiped)
     ' Scrollbar drag state
     scrollDragging    AS INTEGER    ' TRUE while dragging the scroll thumb
     scrollDragOffset  AS INTEGER    ' Y offset from thumb top where drag started
@@ -108,6 +115,14 @@ TYPE LAYER_PANEL_OBJ
     blendPopupX       AS INTEGER    ' Popup screen X (top-left)
     blendPopupY       AS INTEGER    ' Popup screen Y (top-left)
     blendPopupHover   AS INTEGER    ' Currently hovered item index (-1 = none, 0=Normal, 2..19=mode idx+1 for divider)
+    ' Layer context menu state (right-click on row)
+    ctxMenuOpen       AS INTEGER    ' TRUE while context menu is showing
+    ctxMenuLayer      AS INTEGER    ' Layer index the context menu was invoked on
+    ctxMenuX          AS INTEGER    ' Popup screen X (top-left)
+    ctxMenuY          AS INTEGER    ' Popup screen Y (top-left)
+    ctxMenuW          AS INTEGER    ' Popup width in pixels
+    ctxMenuHover      AS INTEGER    ' Currently hovered row (-1 = none)
+    ctxMenuItems      AS INTEGER    ' Number of items in current menu
     ' Opacity drag anchor
     opacityDragRowY   AS INTEGER    ' Rendered Y (drawY%) of row top when vertical opacity drag started
     ' Stored panel bounds (set each render, used for hit-testing next frame)
@@ -117,7 +132,7 @@ TYPE LAYER_PANEL_OBJ
 END TYPE
 
 ' Global layer state
-DIM SHARED LAYERS(1 TO 64) AS DRAW_LAYER  ' Fixed array, actual count in LAYER_COUNT%
+DIM SHARED LAYERS(1 TO MAX_LAYERS) AS DRAW_LAYER  ' Fixed array, actual count in LAYER_COUNT%
 DIM SHARED LAYER_PANEL AS LAYER_PANEL_OBJ
 DIM SHARED CURRENT_LAYER AS INTEGER       ' Currently active layer index (1-based)
 DIM SHARED LAYER_COUNT AS INTEGER         ' Number of layers currently in use
@@ -160,6 +175,7 @@ DECLARE FUNCTION LAYER_PANEL_is_dragging% ()
 DECLARE SUB LAYER_PANEL_handle_vis_swipe (rawX AS INTEGER, rawY AS INTEGER)
 DECLARE SUB LAYER_PANEL_end_vis_swipe ()
 DECLARE SUB LAYER_PANEL_handle_scroll_drag (rawY AS INTEGER)
+DECLARE FUNCTION LAYER_PANEL_visible_row_count% ()
 
 DECLARE SUB LAYER_PANEL_load_icons ()
 DECLARE SUB LAYER_PANEL_cleanup_icons ()
@@ -173,6 +189,16 @@ DECLARE SUB LAYER_PANEL_blend_popup_render ()
 DECLARE FUNCTION LAYER_PANEL_blend_popup_hit% (rawX AS INTEGER, rawY AS INTEGER)
 DECLARE SUB LAYER_PANEL_blend_popup_hover (rawX AS INTEGER, rawY AS INTEGER)
 
+' Layer context menu (right-click on row)
+CONST LAYER_CTX_ITEM_H = 12
+DECLARE SUB LAYER_PANEL_ctx_menu_build (layerIdx AS INTEGER, itemCount AS INTEGER)
+DECLARE SUB LAYER_PANEL_ctx_menu_show (layerIdx AS INTEGER, x AS INTEGER, y AS INTEGER)
+DECLARE SUB LAYER_PANEL_ctx_menu_close ()
+DECLARE SUB LAYER_PANEL_ctx_menu_render ()
+DECLARE FUNCTION LAYER_PANEL_ctx_menu_hit% (rawX AS INTEGER, rawY AS INTEGER)
+DECLARE SUB LAYER_PANEL_ctx_menu_hover (rawX AS INTEGER, rawY AS INTEGER)
+DECLARE SUB LAYER_PANEL_ctx_menu_activate (actionValue AS INTEGER)
+
 ' Blend mode functions
 DECLARE FUNCTION BLEND_mode_name$ (mode AS INTEGER)
 DECLARE FUNCTION BLEND_mode_short$ (mode AS INTEGER)
@@ -185,7 +211,7 @@ DECLARE SUB RENDER_ORDER_rebuild ()
 
 ' Layer render order — pre-sorted array avoids O(n×64) lookup per frame
 ' RENDER_ORDER%(i) = layer index for z-level i, rebuilt when layer order changes
-DIM SHARED RENDER_ORDER(1 TO 64) AS INTEGER
+DIM SHARED RENDER_ORDER(1 TO MAX_LAYERS) AS INTEGER
 DIM SHARED RENDER_ORDER_COUNT AS INTEGER
 DIM SHARED RENDER_ORDER_DIRTY AS INTEGER       ' TRUE = must rebuild
 RENDER_ORDER_DIRTY% = TRUE                     ' Start dirty
@@ -216,7 +242,7 @@ COMPOSITE_RESULT_VALID% = FALSE
 ' Multi-layer selection — allows selecting multiple layers at once for bulk operations
 ' MULTI_SELECT_LAYERS(i): TRUE if layer i is selected (1-based, matches LAYERS array)
 ' MULTI_SELECT_COUNT: number of selected layers (invariant: always >= 1)
-DIM SHARED MULTI_SELECT_LAYERS(1 TO 64) AS INTEGER
+DIM SHARED MULTI_SELECT_LAYERS(1 TO MAX_LAYERS) AS INTEGER
 DIM SHARED MULTI_SELECT_COUNT AS INTEGER
 MULTI_SELECT_COUNT% = 0
 
@@ -225,6 +251,41 @@ DECLARE FUNCTION MULTI_SELECT_has_any% ()
 DECLARE SUB MULTI_SELECT_toggle (layerIndex AS INTEGER)
 DECLARE SUB LAYER_get_content_bounds (layerIndex AS INTEGER, bx AS INTEGER, by AS INTEGER, bw AS INTEGER, bh AS INTEGER)
 DECLARE SUB LAYER_translate_content (layerIndex AS INTEGER, dx AS INTEGER, dy AS INTEGER)
+
+' Group layer management functions
+DIM SHARED NEXT_GROUP_NUM AS INTEGER  ' Auto-incrementing counter for group naming
+DECLARE FUNCTION LAYERS_new_group% ()
+DECLARE FUNCTION LAYERS_group_from_selection% ()
+DECLARE SUB LAYERS_ungroup (groupIdx AS INTEGER)
+DECLARE SUB LAYERS_move_into_group (layerIdx AS INTEGER, groupIdx AS INTEGER)
+DECLARE SUB LAYERS_move_out_of_group (layerIdx AS INTEGER)
+DECLARE FUNCTION LAYERS_group_child_count% (groupIdx AS INTEGER)
+DECLARE SUB LAYERS_group_descendants (groupIdx AS INTEGER, outArray() AS INTEGER, outCount AS INTEGER)
+DECLARE SUB LAYERS_group_children (groupIdx AS INTEGER, outArray() AS INTEGER, outCount AS INTEGER)
+DECLARE SUB LAYERS_group_zIndex_range (groupIdx AS INTEGER, outMinZ AS INTEGER, outMaxZ AS INTEGER)
+DECLARE SUB LAYERS_enforce_group_contiguity ()
+DECLARE SUB LAYERS_merge_group (groupIdx AS INTEGER)
+DECLARE SUB LAYERS_select_group (groupIdx AS INTEGER)
+DECLARE SUB LAYERS_delete_group (groupIdx AS INTEGER)
+DECLARE SUB LAYERS_toggle_group_visibility (groupIdx AS INTEGER)
+
+' Group compositing — stack of buffers for nested isolated groups
+' Each nesting level of isolated groups needs its own composite buffer.
+CONST MAX_GROUP_NESTING = 8  ' Maximum supported group nesting depth
+DIM SHARED GROUP_COMP_STACK(1 TO MAX_GROUP_NESTING) AS LONG    ' Image handles
+DIM SHARED GROUP_COMP_STACK_IDX(1 TO MAX_GROUP_NESTING) AS INTEGER ' Group layer indices
+DIM SHARED GROUP_COMP_STACK_TOP AS INTEGER                      ' Current stack depth (0 = empty)
+DIM SHARED GROUP_COMP_STACK_W AS LONG                           ' Width of allocated buffers
+DIM SHARED GROUP_COMP_STACK_H AS LONG                           ' Height of allocated buffers
+DIM SHARED BLEND_HAS_ISOLATED_GROUPS AS INTEGER  ' TRUE when isolated groups exist (cached)
+
+' Legacy single-buffer aliases (kept for compatibility during transition)
+DIM SHARED GROUP_COMPOSITE_BUFFER AS LONG
+DIM SHARED GROUP_COMPOSITE_BUFFER_W AS LONG
+DIM SHARED GROUP_COMPOSITE_BUFFER_H AS LONG
+
+' Helper: get nesting depth of a layer (0 = top-level)
+DECLARE FUNCTION LAYERS_nesting_depth% (layerIdx AS INTEGER)
 
 ' Note: LAYERS_init is called from SCREEN_init after CONFIG_load
 ' LAYER_PANEL_load_icons is called from DRAW.BAS after CONFIG_apply_startup_defaults
