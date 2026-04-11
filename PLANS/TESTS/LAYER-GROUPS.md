@@ -83,9 +83,7 @@ Wrap multi-selected layers into a new group.
 2. [x] Create another standalone layer C outside the group
 3. [x] Multi-select A, B, and C
 4. [x] Press Ctrl+Shift+G
-5. [ ] Verify the new group is created at the top level (common ancestor is root)
-  - BUG: Group is created with 3 layers but inside existing group, not at root.
-  - STOP
+5. [x] Verify the new group is created at the top level (common ancestor is root)
 
 #### [ ] Undo/Redo group from selection
 1. [x] Multi-select 3 layers and press Ctrl+Shift+G
