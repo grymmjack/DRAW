@@ -2,101 +2,99 @@
 
 ## [ ] GROUP CREATION
 
-### [ ] New Group (Ctrl+G / Action 720)
+### [x] New Group (Ctrl+G / Action 720)
 Create an empty group layer above the current layer.
 
-#### [ ] Create group via keyboard shortcut
-1. [ ] Select any layer in the layers panel
-2. [ ] Press Ctrl+G
-3. [ ] Verify a new "Group N" layer appears above the selected layer in the panel
-4. [ ] Verify the group header row has a collapse triangle (▶/▼) and distinct header styling
-5. [ ] Verify the group header shows the folder/group icon
-6. [ ] Verify CURRENT_LAYER% switches to the new group header
+#### [x] Create group via keyboard shortcut
+1. [x] Select any layer in the layers panel
+2. [x] Press Ctrl+G
+3. [x] Verify a new "Group N" layer appears above the selected layer in the panel
+4. [x] Verify the group header row has a collapse triangle (▶/▼) and distinct header styling
+5. [x] Verify the group header shows the folder/group icon
+6. [x] Verify CURRENT_LAYER% switches to the new group header
 
-#### [ ] Create group via Layer menu
-1. [ ] Open Layer menu in the menu bar
-2. [ ] Click "New Group"
-3. [ ] Verify a new group is created above the current layer
+#### [x] Create group via Layer menu
+1. [x] Open Layer menu in the menu bar
+2. [x] Click "New Group"
+3. [x] Verify a new group is created above the current layer
 
-#### [ ] Create group via context menu
-1. [ ] Right-click any layer row in the layers panel
-2. [ ] Click "New Group" in the context menu
-3. [ ] Verify a new group is created above the right-clicked layer
+#### [x] Create group via context menu
+1. [x] Right-click any layer row in the layers panel
+2. [x] Click "New Group" in the context menu
+3. [x] Verify a new group is created above the right-clicked layer
 
-#### [ ] Create group via Command Palette
-1. [ ] Press ? to open the Command Palette
-2. [ ] Type "new group"
-3. [ ] Select the matching command
-4. [ ] Verify a new group is created
+#### [x] Create group via Command Palette
+1. [x] Press ? to open the Command Palette
+2. [x] Type "new group"
+3. [x] Select the matching command
+4. [x] Verify a new group is created
 
-#### [ ] Create group inside another group (nested)
-1. [ ] Create a group (Ctrl+G)
-2. [ ] Select a child layer inside that group
-3. [ ] Press Ctrl+G again
-4. [ ] Verify a sub-group is created inside the parent group
-5. [ ] Verify the sub-group is indented one level deeper in the panel
+#### [x] Create group inside another group (nested)
+1. [x] Create a group (Ctrl+G)
+2. [x] Select a child layer inside that group
+3. [x] Press Ctrl+G again
+4. [x] Verify a sub-group is created inside the parent group
+5. [x] Verify the sub-group is indented one level deeper in the panel
 
-#### [ ] Create group respects MAX_GROUP_NESTING (8 levels)
-1. [ ] Create nested groups 8 levels deep
-2. [ ] Try to create a 9th nested group inside the deepest one
-3. [ ] Verify the operation is prevented or the group is created at the allowed depth
+#### [x] Create group respects MAX_GROUP_NESTING (8 levels)
+1. [x] Create nested groups 8 levels deep
+2. [x] Try to create a 9th nested group inside the deepest one
+3. [x] Verify the operation is prevented or the group is created at the allowed depth
 
-#### [ ] Create group auto-naming increments
-1. [ ] Create a group — should be "Group 1"
-2. [ ] Create another group — should be "Group 2"
-3. [ ] Delete "Group 1"
-4. [ ] Create another group — should be "Group 3" (counter doesn't reuse)
+#### [x] Create group auto-naming increments
+1. [x] Create a group — should be "Group 1"
+2. [x] Create another group — should be "Group 2"
+3. [x] Delete "Group 1"
+4. [x] Create another group — should be "Group 3" (counter doesn't reuse)
 
-#### [ ] Undo/Redo new group
-1. [ ] Create a new group (Ctrl+G)
-2. [ ] Press Ctrl+Z to undo
-3. [ ] Verify the group is removed
-4. [ ] Press Ctrl+Y to redo
-5. [ ] Verify the group reappears
+#### [x] Undo/Redo new group
+1. [x] Create a new group (Ctrl+G)
+2. [x] Press Ctrl+Z to undo
+3. [x] Verify the group is removed
+4. [x] Press Ctrl+Y to redo
+5. [x] Verify the group reappears
 
 ### [ ] Group from Selection (Ctrl+Shift+G / Action 721)
 Wrap multi-selected layers into a new group.
 
-#### [ ] Group from multi-selected layers
-1. [ ] Create 3 layers with distinct content
-2. [ ] Ctrl+Click to multi-select all 3 layers in the panel
-3. [ ] Press Ctrl+Shift+G
-4. [ ] Verify all 3 layers are now children of a new group
-5. [ ] Verify the group header appears above the topmost selected layer
-6. [ ] Verify the child layers are indented under the group
+#### [x] Group from multi-selected layers
+1. [x] Create 3 layers with distinct content
+2. [x] Ctrl+Click to multi-select all 3 layers in the panel
+3. [x] Press Ctrl+Shift+G
+4. [x] Verify all 3 layers are now children of a new group
+5. [x] Verify the group header appears above the topmost selected layer
+6. [x] Verify the child layers are indented under the group
 
-#### [ ] Group from selection includes sub-group descendants
-1. [ ] Create a group with 2 child layers
-2. [ ] Multi-select the group header and another standalone layer
-3. [ ] Press Ctrl+Shift+G
-4. [ ] Verify the sub-group and its children are all inside the new parent group
-5. [ ] Verify nesting structure is preserved (sub-group stays a group)
+#### [x] Group from selection includes sub-group descendants
+1. [x] Create a group with 2 child layers
+2. [x] Multi-select the group header and another standalone layer
+3. [x] Press Ctrl+Shift+G
+4. [x] Verify the sub-group and its children are all inside the new parent group
+5. [x] Verify nesting structure is preserved (sub-group stays a group)
 
-#### [ ] Group from selection disabled with < 2 layers
-1. [ ] Select only a single layer (no multi-select)
-2. [ ] Open Layer menu
-3. [ ] Verify "Group from Selection" is greyed out / disabled
-4. [ ] Open context menu on the layer
-5. [ ] Verify "Group from Selection" is greyed out / disabled
-
-#### [ ] Group from selection respects nesting depth limit
-1. [ ] Create groups nested to depth 7
-2. [ ] Multi-select two layers at the deepest level
-3. [ ] Try Ctrl+Shift+G
-4. [ ] Verify a warning or prevention if the result would exceed MAX_GROUP_NESTING (8)
+#### [x] Group from selection respects nesting depth limit
+1. [x] Create groups nested to depth 7
+2. [x] Multi-select two layers at the deepest level
+3. [x] Try Ctrl+Shift+G
+4. [x] Verify a warning or prevention if the result would exceed MAX_GROUP_NESTING (8)
 
 #### [ ] Group from selection finds common parent
-1. [ ] Create a group with layers A and B
-2. [ ] Create another standalone layer C outside the group
-3. [ ] Multi-select A, B, and C
-4. [ ] Press Ctrl+Shift+G
+1. [x] Create a group with layers A and B
+2. [x] Create another standalone layer C outside the group
+3. [x] Multi-select A, B, and C
+4. [x] Press Ctrl+Shift+G
 5. [ ] Verify the new group is created at the top level (common ancestor is root)
+  - BUG: Group is created with 3 layers but inside existing group, not at root.
+  - STOP
 
 #### [ ] Undo/Redo group from selection
-1. [ ] Multi-select 3 layers and press Ctrl+Shift+G
-2. [ ] Ctrl+Z to undo
-3. [ ] Verify all 3 layers return to their original un-grouped positions
+1. [x] Multi-select 3 layers and press Ctrl+Shift+G
+2. [x] Ctrl+Z to undo
+3. [x] Verify all 3 layers return to their original un-grouped positions
 4. [ ] Ctrl+Y to redo
+  - BUG: Group is removed, but children are still indented groupless
+  - BUG: A layer is missing (only 2 exist after redo)
+  - STOP
 5. [ ] Verify the group is recreated with the same structure
 
 ---
