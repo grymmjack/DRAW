@@ -32,10 +32,6 @@ $INCLUDEONCE
 '$INCLUDE:'./includes/QB64_GJ_LIB/FILE_DIALOG/FD-ICONS.BI'
 '$INCLUDE:'./includes/QB64_GJ_LIB/FILE_DIALOG/FD-PLATFORM.BI'
 '$INCLUDE:'./includes/QB64_GJ_LIB/FILE_DIALOG/FD-THUMB.BI'
-DECLARE SUB FD_add_favorite (dirPath AS STRING)
-DECLARE SUB FD_remove_favorite (dirPath AS STRING)
-DECLARE SUB FD_save_favorites
-DECLARE SUB FD_init_places
 
 ' CONFIG ----------------------------------------------------------------------
 '$INCLUDE:'./CFG/CONFIG.BI'

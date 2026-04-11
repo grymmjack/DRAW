@@ -14,9 +14,9 @@ DATA "::::::::", "::    ::", "::    ::", "::::  ::::", "  ::  ::  "
 
 DRAW is a pixel art editor written in QB64PE that can export images as sourcecode
 
-Current release: v0.30.0
+Current release: v0.31.0
 
-![DRAW GUI from v0.30.0](./GUI.png)
+![DRAW GUI from v0.31.0](./GUI.png)
 
 ## Features
 
@@ -37,7 +37,7 @@ Current release: v0.30.0
 - **Pan** - Dedicated canvas panning tool (hand)
 - **Zoom** - Click to zoom in, Alt+click to zoom out, drag to zoom region
 - **Clipboard** - Copy/Cut/Paste selections (Ctrl+C/X/V), Merged copy (Ctrl+Shift+C), Clear selection (Ctrl+E); mask-aware operations for magic wand and non-rectangular selections
-- **Text** - Text entry tool with text layers, font properties bar (VGA/Tiny5/custom TTF/OTF/bitmap), rich per-character formatting (bold/italic/underline/strikethrough/outline/shadow), per-character FG/BG colors, cursor navigation, selection (including double/triple/quad-click for word/line/all), clipboard, auto-wrap, and sound feedback; **text-local undo/redo** (Ctrl+Z/Y within text mode, up to 128 states); **style presets** (save/load/update/delete named text styles); text layers persist in DRW files with full undo/redo support; click existing text layers to re-edit; **Character Mode** for ANSI/ASCII art with PabloDraw-style virtual cursor navigation, F1-F12 block character shortcuts, and font stickiness
+- **Text** - Text entry tool with text layers, font properties bar (VGA/Tiny5/custom TTF/OTF/bitmap/**color bitmap fonts**), rich per-character formatting (bold/italic/underline/strikethrough/outline/shadow), per-character FG/BG colors, cursor navigation, selection (including double/triple/quad-click for word/line/all), clipboard, auto-wrap, and sound feedback; **text-local undo/redo** (Ctrl+Z/Y within text mode, up to 128 states); **style presets** (save/load/update/delete named text styles); text layers persist in DRW files with full undo/redo support; click existing text layers to re-edit; **Character Mode** for ANSI/ASCII art with PabloDraw-style virtual cursor navigation, F1-F12 block character shortcuts, and font stickiness; **Color Bitmap Fonts (CBF)** — DPaint-style `.bmp` spritesheet fonts that preserve original pixel colors (24 bundled fonts)
 - **Character Map** - Dockable 16×16 glyph panel (`Ctrl+M`) showing all 256 font characters with hover/select/flash states; supports bitmap font rendering (Fontaption, PSF, BDF formats); click glyphs to insert or stamp as custom brush; Alt+U picks FG/BG colors from character under cursor; character grid overlay with snap-to-grid for precise text art alignment
 - **Eraser** - Dedicated eraser tool that paints transparent; shares brush size preview and custom brush support. **Smart Erase** (hold `Shift` while erasing) erases on every visible non-opacity-locked layer simultaneously
 - **Stroke Selection** - Apply a configurable stroke (inside/outside/center, adjustable width) around the active selection boundary via Edit → Stroke Selection
@@ -113,10 +113,11 @@ Current release: v0.30.0
 
 ### Layer System
 - Up to 64 layers with per-layer opacity, visibility, and blend mode
-- **19 blend modes**: Normal, Multiply, Screen, Overlay, Add, Subtract, Difference, Darken, Lighten, Color Dodge, Color Burn, Hard Light, Soft Light, Exclusion, Vivid Light, Linear Light, Pin Light, Color, Luminosity
+- **19 blend modes**: Normal, Multiply, Screen, Overlay, Add, Subtract, Difference, Darken, Lighten, Color Dodge, Color Burn, Hard Light, Soft Light, Exclusion, Vivid Light, Linear Light, Pin Light, Color, Luminosity; plus **Pass Through** for layer groups
 - Solo layer (Alt+click eye icon) and visibility swipe (drag across eye icons)
 - Drag-and-drop layer reordering with visual feedback
 - Opacity lock prevents drawing on transparent pixels (enforced by all drawing tools including shape tools)
+- **Layer Groups** — Organize layers into collapsible groups (`Ctrl+G` new group, `Ctrl+Shift+G` group from selection, `Ctrl+Shift+U` ungroup); groups have independent opacity and blend mode; **Pass Through** blend mode lets children blend directly into the canvas; supports arbitrary nesting, drag-and-drop into groups, merge group, and context menu operations
 - Select from current layer: Ctrl+Click a layer row to create a selection mask from its non-transparent pixels
 - Merge down, merge visible, **merge selected** (composites all multi-selected layers into one), duplicate layers
 - **Multi-layer select**: Ctrl+Click or Shift+Click layer rows to add/remove layers from the selection; Edit menu operations (clear, fill FG/BG, flip H/V, scale ±50%, rotate CW/CCW) apply to all selected layers simultaneously

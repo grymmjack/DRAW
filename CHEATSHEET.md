@@ -883,6 +883,19 @@ Presets store: Bold, Italic, Underline, Strikethrough, Outline (on/off + color +
 
 Click on an existing text layer (in text tool mode) to re-enter editing. All formatting, font, and color properties are preserved.
 
+### Color Bitmap Fonts (CBF)
+
+CBF fonts are DPaint-style spritesheet fonts (`.bmp`) that preserve their original pixel colors instead of being tinted to the foreground color. 24 bundled CBF fonts ship in `ASSETS/FONTS/COLOR_BITMAP/`.
+
+| Aspect | Behaviour |
+|--------|-----------|
+| **Selection** | Choose from the font dropdown like any other font (grouped under COLOR_BITMAP) |
+| **Size** | Fixed to native glyph height — not user-adjustable |
+| **Color** | Original pixel colors from the spritesheet are preserved |
+| **Shadow/Outline** | Use their designated colors (force-tinted) |
+| **Charmap** | Displays glyphs in original colors |
+| **Config** | `FONTS_INCLUDE_DRAW_BITMAP` / `FONTS_INCLUDE_USER_BITMAP` in DRAW.cfg |
+
 ### Custom Font Loading
 
 | Action | Function |
@@ -1073,6 +1086,45 @@ The layer panel is displayed on the left side of the screen and can be toggled w
 | `Ctrl+PgDn` | Move layer down in stack |
 | `Ctrl+Alt+E` | Merge current layer down |
 | `Ctrl+Alt+Shift+E` | Merge all visible layers |
+| `Ctrl+G` | Create new empty layer group |
+| `Ctrl+Shift+G` | Group from selection (requires 2+ selected layers) |
+| `Ctrl+Shift+U` | Ungroup (dissolves group, keeps children) |
+
+### Layer Groups
+
+Layers can be organized into collapsible groups for structure and non-destructive compositing.
+
+| Action | Function |
+|--------|----------|
+| `Ctrl+G` | Create new empty group above current layer |
+| `Ctrl+Shift+G` | Group from selection (wraps 2+ selected layers into a new group) |
+| `Ctrl+Shift+U` | Ungroup (dissolves group header, children become top-level) |
+| **Click group row triangle** | Collapse/expand group contents |
+| **Drag layer onto group** | Move layer into group via drag-and-drop |
+
+**Group Features:**
+- Groups have their own **opacity** and **blend mode** (applied to composited children)
+- **Pass Through** blend mode (default for groups): children blend directly into the canvas as if ungrouped, but group opacity still applies
+- Groups can **nest** inside other groups (arbitrary depth)
+- **Merge Group** composites all children into a single layer
+- **Select All in Group** selects all descendant layers
+- **Selection from Group** creates a marquee mask from non-transparent pixels in all group descendants
+- Hidden layers and their ancestors are excluded from multi-selection
+- Deleting a group prompts for confirmation (deletes all children)
+
+### Layer Context Menu
+
+Right-click a layer row or use the context menu for group-specific operations:
+
+| Menu Item | Enabled When |
+|-----------|-------------|
+| **New Group** | Always |
+| **Group from Selection** | 2+ layers selected |
+| **Ungroup** | Layer is a group header |
+| **Merge Group** | Layer is a group header |
+| **Select All in Group** | Layer is a group or group child |
+| **Selection from Group** | Layer is a group or group child |
+| **Selection from Layer** | Layer is not a group |
 
 ### Multi-Layer Select
 
@@ -1176,6 +1228,7 @@ Each layer can use one of 19 blend modes. **Shift+Right-click** a layer row to c
 
 | Mode | Abbr | Description |
 |------|------|-------------|
+| Pass Through | PT | Group blend mode: children blend directly into canvas (group opacity still applies) |
 | Normal | Nrm | Standard alpha compositing (default) |
 | Multiply | Mul | Darkens by multiplying colors — great for shadows |
 | Screen | Scr | Lightens by inverting, multiplying, inverting — great for glows |

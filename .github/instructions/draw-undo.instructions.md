@@ -30,6 +30,9 @@ DRAW uses a **unified history system** (`TOOLS/HISTORY.BI` / `HISTORY.BM`) for a
 | `HISTORY_KIND_LAYER_RENAME` | 11 | Layer renamed |
 | `HISTORY_KIND_LAYER_MERGE` | 13 | Merge down |
 | `HISTORY_KIND_LAYER_MERGE_VISIBLE` | 14 | Merge all visible |
+| `HISTORY_KIND_RASTERIZE` | 15 | Text layer rasterization |
+| `HISTORY_KIND_GROUP_REPARENT` | 16 | Layer moved into/out of group |
+| `HISTORY_KIND_MERGE_GROUP` | 17 | All group children merged into one layer |
 
 ### Key Types
 
@@ -56,6 +59,8 @@ DRAW uses a **unified history system** (`TOOLS/HISTORY.BI` / `HISTORY.BM`) for a
 | `HISTORY_record_layer_add/delete/reorder/rename` | Structural layer ops |
 | `HISTORY_record_layer_merge` | Merge down |
 | `HISTORY_record_layer_merge_visible` | Merge visible (backs up all source layers) |
+| `HISTORY_record_group_reparent` | Record group parent change |
+| `HISTORY_record_merge_group` | Record group merge |
 | `HISTORY_selection_stage` | Snapshot selection state before mutation |
 | `HISTORY_selection_commit` | Save selection change if state differs from snapshot |
 | `HISTORY_begin_group` / `HISTORY_end_group` | Group multiple records as one undo step |
@@ -119,6 +124,8 @@ Special case: Active polygon in-progress is cancelled instead of undoing.
 - `LAYERS_new%`, `LAYERS_duplicate`, `LAYERS_delete`, `LAYERS_rename`
 - `LAYERS_move_up`, `LAYERS_move_down`
 - `LAYERS_merge_down`, `LAYERS_merge_visible`
+- `LAYERS_new_group%`, `LAYERS_group_from_selection%`, `LAYERS_ungroup`, `LAYERS_merge_group`
+- `LAYERS_move_into_group`, `LAYERS_move_out_of_group` (reparent operations)
 
 ---
 

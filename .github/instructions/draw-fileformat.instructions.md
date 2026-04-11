@@ -47,8 +47,9 @@ Extension changed from `.drw` to `.draw` in v0.7.4 (CorelDRAW conflict).
 | Grid Height | gridHeight(2) — allows non-square grids | v21+ |
 | Pixel Grid Visibility | show(2) | v22+ |
 | Grid Config | gridColorFG(4), gridOpacity(2), pixelgridColorFG(4), pixelgridOpacity(2), gridAngle(4), charGridWidth(2), charGridHeight(2), charGridOpacity(2), charGridColorFG(4) | v23+ |
+| Layer Groups | per-layer: layerType(2), parentGroupIdx(2), collapsed(2), passThrough(2); group layers skip pixel data write (no imgHandle) | v24+ |
 
-Constants: `DRW_MAGIC$ = "DRW1"`, `DRW_VERSION% = 23`, `DRW_CHUNK_VERSION% = 1`
+Constants: `DRW_MAGIC$ = "DRW1"`, `DRW_VERSION% = 24`, `DRW_CHUNK_VERSION% = 1`
 
 **Per-document vs global config**: Character Mode (`useChars%`) is saved per-document in v19+ — it is NOT stored in `DRAW.cfg`. On fresh launch (no file loaded), `useChars%` defaults to FALSE. Character grid visibility/snap state is also per-document (v18+).
 
@@ -65,6 +66,8 @@ IF TEXT.ACTIVE THEN TEXT_cancel
 TEXT_LAYER_DATA pool clear: TEXT.editingTextLayer% = 0: TEXT_BAR.editingLayerIdx% = 0
 HISTORY_clear: MARQUEE_reset: MOVE_init: MAGIC_WAND_reset: ERASER_reset
 DRAWER_reset: PREVIEW_reset: EXTRACT_reset_saved_config
+NEXT_GROUP_NUM% = 0
+' Per-layer: layerType% = 0, parentGroupIdx% = 0, collapsed% = FALSE, passThrough% = FALSE
 LAYER_PANEL.scrollOffset% = 0: LAYER_PANEL.soloLayer% = 0
 LAYER_PANEL.visSwiping% = FALSE: LAYER_PANEL.dragPending% = FALSE
 LAYER_PANEL.isDragging% = FALSE: LAYER_PANEL.dragLayerIdx% = 0

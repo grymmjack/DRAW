@@ -14,6 +14,7 @@ Composited back-to-front onto `SCRN.CANVAS&`, then GPU-scaled to window via `_PU
 2. Layer compositing (by zIndex, bottom-to-top)
    - Normal blend: direct `_PUTIMAGE` (fast path)
    - Non-Normal blend: per-pixel composite via `COMPOSITE_BUFFER&` using `_MEM` access
+   - **Group compositing**: Groups use isolated compositing via `GROUP_COMP_STACK` (up to `MAX_GROUP_NESTING = 8` levels). Non-pass-through groups composite children into a temporary buffer, then blend the result with group opacity/blend mode. Pass-through groups skip isolation — children blend directly into the main composite. `BLEND_HAS_ISOLATED_GROUPS%` is a cached flag to skip group stack allocation when unnecessary.
    - Partial composite cache: layers below current layer cached in `COMPOSITE_BELOW_CACHE&`
    - Opacity adjustment: cached per-layer in `opacityCacheImg&` (invalidated by `contentDirty%`)
 3. Grid overlay
@@ -79,8 +80,12 @@ When only the cursor moved, `SCENE_DIRTY%` stays FALSE. The renderer copies the 
 | blendMode        | INTEGER    | One of 19 blend modes                                   |
 | contentDirty%    | INTEGER    | Pixel content changed — invalidates opacity cache       |
 | opacityCacheImg& | LONG       | Cached opacity-adjusted image                           |
+| layerType        | INTEGER    | `LAYER_TYPE_IMAGE` (0), `LAYER_TYPE_TEXT` (1), or `LAYER_TYPE_GROUP` (2) |
+| parentGroupIdx   | INTEGER    | Index of parent group in `LAYERS()` (0 = top-level)    |
+| collapsed        | INTEGER    | TRUE if group is collapsed in layer panel               |
+| passThrough      | INTEGER    | TRUE = pass-through blend; FALSE = isolated group blend |
 
-Max 64 layers. 19 blend modes (Normal through Divide).
+Max 64 layers. 19 blend modes (Normal through Divide) plus Pass Through (`BLEND_PASS_THROUGH = -1`, group-only).
 
 `LAYER_current_image&`: Returns `LAYERS(CURRENT_LAYER%).imgHandle&` or falls back to `SCRN.PAINTING&`.
 
@@ -116,6 +121,10 @@ Helpers: `MULTI_SELECT_clear`, `MULTI_SELECT_toggle layerIndex%`
 - Visibility toggled, opacity changed, blend mode changed
 - Current layer selection changed
 - File loaded (`DRW_load`)
+- Group created, deleted, ungrouped, or collapsed/expanded
+- Pass-through mode toggled on a group
+
+**Note**: Group layers (`LAYER_TYPE_GROUP`) have no pixel data — their `contentDirty%` should never be set.
 
 ### Scene cache boundary summary:
 - Rendered **before** step 12: cached → only redrawn when `SCENE_DIRTY%`

@@ -42,7 +42,7 @@ MOUSE_input_handler()
 │   ├── MOUSE_handle_symmetry_ctrl_click()
 │   ├── MOUSE_update_draw_color()
 │   ├── MOUSE_handle_gui_panels()
-│   │   ├── MOUSE_handle_layer_panel()
+│   │   ├── MOUSE_handle_layer_panel()        ← includes context menu hover/click intercept for layer groups
 │   │   ├── MOUSE_handle_toolbar_status_palette()  ← sets UI_CHROME_CLICKED% on GUI clicks
 │   │   └── Ctrl+Shift+Click on panels → toggle dock side (left ↔ right)
 │   ├── MOUSE_handle_alt_picker()

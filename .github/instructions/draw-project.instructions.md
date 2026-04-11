@@ -56,7 +56,7 @@ END TYPE
 DIM SHARED TOOL AS TOOL_OBJ
 ```
 
-Key globals: `SCRN`, `MOUSE`, `CFG`, `THEME`, `CURRENT_TOOL%`, `PAINT_COLOR~&`, `PAINT_BG_COLOR~&`, `DRAW_COLOR~&`, `CANVAS_DIRTY%`
+Key globals: `SCRN`, `MOUSE`, `CFG`, `THEME`, `CURRENT_TOOL%`, `PAINT_COLOR~&`, `PAINT_BG_COLOR~&`, `DRAW_COLOR~&`, `CANVAS_DIRTY%`, `NEXT_GROUP_NUM%`, `BLEND_HAS_ISOLATED_GROUPS%`
 
 `POINTER_OBJ` key fields: `CURSOR_ID%`, `CURSOR_FLIP%`, `HIDDEN%`, `PREV_DRAW_X/Y%`, `USING_SYSTEM_CURSOR%` (TRUE when OS `_MOUSESHOW` is active this frame — skip custom PNG draw for that cursor type)
 
@@ -224,6 +224,18 @@ Key physical codes: `KEY_PGUP& = 18688`, `KEY_PGDN& = 20736`, `.` = 46, `,` = 44
 
 `CUSTOM_BRUSH_render()` bypasses `PAINT_pset_with_symmetry()` — it uses `_PUTIMAGE` with `_BLEND`, which silently drops transparent pixels. When adding new rendering paths through custom brush, always check `PAL_FG_IS_TRANSPARENT%` and use `_DONTBLEND` + per-pixel PSET of `_RGBA32(0,0,0,0)` for eraser mode, matching the pattern in `PAINT_pset_with_symmetry()`.
 
+### 22. QB64 Passes SUB/FUNCTION Params by Reference
+
+`BYVAL` only works with `DECLARE LIBRARY`, not regular SUBs. If a SUB receives a shared variable (e.g., `LAYERS_merge_group CURRENT_LAYER%`), the parameter becomes an alias. If the function body calls anything that modifies `CURRENT_LAYER%`, the parameter is silently corrupted. **Always copy shared-variable params to a local `DIM` at function entry.**
+
+```qb64
+SUB LAYERS_merge_group (groupIdx AS INTEGER)
+    DIM localGroupIdx AS INTEGER
+    localGroupIdx% = groupIdx%
+    ' ... use localGroupIdx% throughout, never groupIdx% ...
+END SUB
+```
+
 ---
 
 ## Main Loop Structure (DRAW.BAS)
@@ -282,7 +294,8 @@ A frame is "idle" when no input, mouse movement, GUI changes, or active tool ope
 | `INPUT/KEYBOARD.BM`       | Keyboard shortcuts and handler                                      |
 
 | `OUTPUT/SCREEN.BM`        | Render pipeline (`SCREEN_render`)                                   |
-| `GUI/LAYERS.BM`           | Layer management (~2305 lines)                                      |
+| `GUI/LAYERS.BM`           | Layer management, layer groups, context menu, group compositing (~5900+ lines) |
+| `GUI/LAYERS.BI`           | Layer type constants (`LAYER_TYPE_*`), `DRAW_LAYER` type with group fields (`parentGroupIdx`, `collapsed`, `passThrough`), `BLEND_PASS_THROUGH` |
 | `GUI/MENUBAR.BM`          | Menu bar with keyboard navigation and cascading submenu support     |
 | `GUI/TOOLBAR.BI`          | Layout constants (`TB_COLS`, `TB_ROWS`), button-to-tool mapping     |
 | `GUI/TOOLBAR.BM`          | Toolbar rendering, click handling, active indicator                 |
