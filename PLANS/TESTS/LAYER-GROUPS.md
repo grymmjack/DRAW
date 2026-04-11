@@ -1,6 +1,6 @@
 # [ ] LAYER GROUPS TESTING
 
-## [ ] GROUP CREATION
+## [x] GROUP CREATION
 
 ### [x] New Group (Ctrl+G / Action 720)
 Create an empty group layer above the current layer.
@@ -78,7 +78,7 @@ Wrap multi-selected layers into a new group.
 3. [x] Try Ctrl+Shift+G
 4. [x] Verify a warning or prevention if the result would exceed MAX_GROUP_NESTING (8)
 
-#### [ ] Group from selection finds common parent
+#### [x] Group from selection finds common parent
 1. [x] Create a group with layers A and B
 2. [x] Create another standalone layer C outside the group
 3. [x] Multi-select A, B, and C
@@ -90,242 +90,239 @@ Wrap multi-selected layers into a new group.
 2. [x] Ctrl+Z to undo
 3. [x] Verify all 3 layers return to their original un-grouped positions
 4. [ ] Ctrl+Y to redo
-  - BUG: Group is removed, but children are still indented groupless
-  - BUG: A layer is missing (only 2 exist after redo)
-  - STOP
-5. [ ] Verify the group is recreated with the same structure
+5. [x] Verify the group is recreated with the same structure
 
 ---
 
 ## [ ] GROUP PANEL INTERACTIONS
 
-### [ ] Collapse/Expand
+### [x] Collapse/Expand
 Toggle group collapse state in the layers panel.
 
-#### [ ] Click collapse triangle to collapse
-1. [ ] Create a group with 3 child layers
-2. [ ] Click the collapse triangle (▶/▼) on the group header
-3. [ ] Verify child layers are hidden from the panel view
-4. [ ] Verify the triangle changes orientation (▶ for collapsed)
+#### [x] Click collapse triangle to collapse
+1. [x] Create a group with 3 child layers
+2. [x] Click the collapse triangle (▶/▼) on the group header
+3. [x] Verify child layers are hidden from the panel view
+4. [x] Verify the triangle changes orientation (▶ for collapsed)
 
-#### [ ] Click collapse triangle to expand
-1. [ ] With a collapsed group, click the triangle again
-2. [ ] Verify child layers reappear in the panel
-3. [ ] Verify the triangle changes back (▼ for expanded)
+#### [x] Click collapse triangle to expand
+1. [x] With a collapsed group, click the triangle again
+2. [x] Verify child layers reappear in the panel
+3. [x] Verify the triangle changes back (▼ for expanded)
 
-#### [ ] Collapsed group hides nested sub-groups
-1. [ ] Create a group with a sub-group containing child layers
-2. [ ] Collapse the parent group
-3. [ ] Verify the sub-group and all its children are hidden from the panel
+#### [x] Collapsed group hides nested sub-groups
+1. [x] Create a group with a sub-group containing child layers
+2. [x] Collapse the parent group
+3. [x] Verify the sub-group and all its children are hidden from the panel
 
-#### [ ] Collapsed state persists across save/load
-1. [ ] Collapse a group
-2. [ ] Save the project as .draw
-3. [ ] Close and reopen the project
-4. [ ] Verify the group is still collapsed in the panel
+#### [x] Collapsed state persists across save/load
+1. [x] Collapse a group
+2. [x] Save the project as .draw
+3. [x] Close and reopen the project
+4. [x] Verify the group is still collapsed in the panel
 
-### [ ] Select Layer in Group
+### [x] Select Layer in Group
 Click to select layers within groups.
 
-#### [ ] Click group header to select it
-1. [ ] Click on a group header row (not on the eye icon or triangle)
-2. [ ] Verify CURRENT_LAYER% is the group header
-3. [ ] Verify the group header row is highlighted as selected
+#### [x] Click group header to select it
+1. [x] Click on a group header row (not on the eye icon or triangle)
+2. [x] Verify CURRENT_LAYER% is the group header
+3. [x] Verify the group header row is highlighted as selected
 
-#### [ ] Click child layer to select it
-1. [ ] Click on a child layer inside a group
-2. [ ] Verify CURRENT_LAYER% is the child layer
-3. [ ] Verify the child row is highlighted as selected
+#### [x] Click child layer to select it
+1. [x] Click on a child layer inside a group
+2. [x] Verify CURRENT_LAYER% is the child layer
+3. [x] Verify the child row is highlighted as selected
 
-#### [ ] Select collapsed group header
-1. [ ] Collapse a group
-2. [ ] Click the collapsed group header
-3. [ ] Verify the group header is selected even when collapsed
+#### [x] Select collapsed group header
+1. [x] Collapse a group
+2. [x] Click the collapsed group header
+3. [x] Verify the group header is selected even when collapsed
 
-### [ ] Group Indentation
+### [x] Group Indentation
 Verify visual hierarchy in the layers panel.
 
-#### [ ] Direct children are indented one level
-1. [ ] Create a group with 2 child layers
-2. [ ] Verify child layers are indented by THEME.LAYER_PANEL_group_indent% pixels
+#### [x] Direct children are indented one level
+1. [x] Create a group with 2 child layers
+2. [x] Verify child layers are indented by THEME.LAYER_PANEL_group_indent% pixels
 
-#### [ ] Nested groups show increasing indentation
-1. [ ] Create a group containing a sub-group with children
-2. [ ] Verify the sub-group header is indented 1 level from the parent group
-3. [ ] Verify the sub-group's children are indented 2 levels from the parent group
+#### [x] Nested groups show increasing indentation
+1. [x] Create a group containing a sub-group with children
+2. [x] Verify the sub-group header is indented 1 level from the parent group
+3. [x] Verify the sub-group's children are indented 2 levels from the parent group
 
-#### [ ] Deep nesting up to 8 levels shows progressive indent
-1. [ ] Create groups nested 4 levels deep with a leaf layer
-2. [ ] Verify each level shows increasing indentation
-3. [ ] Verify the leaf layer is correctly indented at the deepest level
+#### [x] Deep nesting up to 8 levels shows progressive indent
+1. [x] Create groups nested 4 levels deep with a leaf layer
+2. [x] Verify each level shows increasing indentation
+3. [x] Verify the leaf layer is correctly indented at the deepest level
 
-### [ ] Group Header Styling
+### [x] Group Header Styling
 Verify group headers have distinct visual treatment.
 
-#### [ ] Group header background color
-1. [ ] Create a group
-2. [ ] Verify the group header row uses THEME.LAYER_PANEL_group_header_bg color
+#### [x] Group header background color
+1. [x] Create a group
+2. [x] Verify the group header row uses THEME.LAYER_PANEL_group_header_bg color
 
-#### [ ] Group header text color
-1. [ ] Create a group
-2. [ ] Verify the group name text uses THEME.LAYER_PANEL_group_header_fg color
+#### [x] Group header text color
+1. [x] Create a group
+2. [x] Verify the group name text uses THEME.LAYER_PANEL_group_header_fg color
 
-#### [ ] Collapse triangle uses theme color
-1. [ ] Create a group
-2. [ ] Verify the collapse triangle uses THEME.LAYER_PANEL_group_collapse_fg color
+#### [x] Collapse triangle uses theme color
+1. [x] Create a group
+2. [x] Verify the collapse triangle uses THEME.LAYER_PANEL_group_collapse_fg color
 
 ---
 
-## [ ] GROUP VISIBILITY
+## [x] GROUP VISIBILITY
 
-### [ ] Toggle Group Visibility (Eye Icon)
+### [x] Toggle Group Visibility (Eye Icon)
 Clicking the eye icon on a group header toggles all children.
 
-#### [ ] Hide group hides all children
-1. [ ] Create a group with 3 visible child layers, each with distinct content
-2. [ ] Click the eye icon on the group header
-3. [ ] Verify the group header eye shows "off"
-4. [ ] Verify all 3 child layers become hidden (eye icons off)
-5. [ ] Verify the canvas no longer shows any of the 3 children's content
+#### [x] Hide group hides all children
+1. [x] Create a group with 3 visible child layers, each with distinct content
+2. [x] Click the eye icon on the group header
+3. [x] Verify the group header eye shows "off"
+4. [x] Verify all 3 child layers become hidden (eye icons off)
+5. [x] Verify the canvas no longer shows any of the 3 children's content
 
-#### [ ] Show group restores individual child visibility
-1. [ ] Create a group with 3 child layers
-2. [ ] Hide one child layer individually (click its eye icon)
-3. [ ] Hide the group (click group header eye icon)
-4. [ ] Show the group again (click group header eye icon)
-5. [ ] Verify the previously-hidden child remains hidden (its state is restored)
-6. [ ] Verify the 2 previously-visible children are visible again
+#### [x] Show group restores individual child visibility
+1. [x] Create a group with 3 child layers
+2. [x] Hide one child layer individually (click its eye icon)
+3. [x] Hide the group (click group header eye icon)
+4. [x] Show the group again (click group header eye icon)
+5. [x] Verify the previously-hidden child remains hidden (its state is restored)
+6. [x] Verify the 2 previously-visible children are visible again
 
-#### [ ] Nested group visibility cascade
-1. [ ] Create a parent group containing a sub-group with children
-2. [ ] Hide the parent group
-3. [ ] Verify the sub-group and all its children are hidden
-4. [ ] Show the parent group
-5. [ ] Verify visibility is restored to pre-hide states
+#### [x] Nested group visibility cascade
+1. [x] Create a parent group containing a sub-group with children
+2. [x] Hide the parent group
+3. [x] Verify the sub-group and all its children are hidden
+4. [x] Show the parent group
+5. [x] Verify visibility is restored to pre-hide states
 
-#### [ ] Visibility swipe across group members
-1. [ ] Create a group with 5 child layers, all visible
-2. [ ] Click and drag across the eye icons of the child layers
-3. [ ] Verify the visibility swipe toggles each crossed layer
+#### [x] Visibility swipe across group members
+1. [x] Create a group with 5 child layers, all visible
+2. [x] Click and drag across the eye icons of the child layers
+3. [x] Verify the visibility swipe toggles each crossed layer
 
 ---
 
-## [ ] GROUP DRAG AND DROP
+## [x] GROUP DRAG AND DROP
 
-### [ ] Drag Layer Into Group
+### [x] Drag Layer Into Group
 Reorder layers into groups via drag-and-drop in the panel.
 
-#### [ ] Drag standalone layer onto group header
-1. [ ] Create a standalone layer and a group
-2. [ ] Drag the standalone layer and drop it onto the group header row
-3. [ ] Verify the layer becomes a child of the group
-4. [ ] Verify the layer is now indented under the group
+#### [x] Drag standalone layer onto group header
+1. [x] Create a standalone layer and a group
+2. [x] Drag the standalone layer and drop it onto the group header row
+3. [x] Verify the layer becomes a child of the group
+4. [x] Verify the layer is now indented under the group
 
-#### [ ] Drag standalone layer onto group child
-1. [ ] Create a standalone layer and a group with existing children
-2. [ ] Drag the standalone layer onto one of the group's child layers
-3. [ ] Verify the layer is inserted into that group
-4. [ ] Verify z-order reflects the drop position
+#### [x] Drag standalone layer onto group child
+1. [x] Create a standalone layer and a group with existing children
+2. [x] Drag the standalone layer onto one of the group's child layers
+3. [x] Verify the layer is inserted into that group
+4. [x] Verify z-order reflects the drop position
 
-#### [ ] Drag layer out of group
-1. [ ] Create a group with 2 child layers
-2. [ ] Drag one child layer and drop it outside/above the group header
-3. [ ] Verify the layer is removed from the group
-4. [ ] Verify the layer is now at the top level
+#### [x] Drag layer out of group
+1. [x] Create a group with 2 child layers
+2. [x] Drag one child layer and drop it outside/above the group header
+3. [x] Verify the layer is removed from the group
+4. [x] Verify the layer is now at the top level
 
-#### [ ] Drag group into another group (nesting)
-1. [ ] Create two groups (GroupA and GroupB)
-2. [ ] Drag GroupB onto GroupA's header
-3. [ ] Verify GroupB becomes a sub-group of GroupA
-4. [ ] Verify GroupB's children remain intact inside GroupB
+#### [x] Drag group into another group (nesting)
+1. [x] Create two groups (GroupA and GroupB)
+2. [x] Drag GroupB onto GroupA's header
+3. [x] Verify GroupB becomes a sub-group of GroupA
+4. [x] Verify GroupB's children remain intact inside GroupB
 
-#### [ ] Drag prevents circular nesting
-1. [ ] Create GroupA containing GroupB
-2. [ ] Try to drag GroupA onto GroupB (or onto a child of GroupB)
-3. [ ] Verify the operation is prevented (cannot nest a group inside its own descendant)
+#### [x] Drag prevents circular nesting
+1. [x] Create GroupA containing GroupB
+2. [x] Try to drag GroupA onto GroupB (or onto a child of GroupB)
+3. [x] Verify the operation is prevented (cannot nest a group inside its own descendant)
 
-#### [ ] Drag respects MAX_GROUP_NESTING
-1. [ ] Create groups nested to depth 7
-2. [ ] Try to drag a group (depth 1) into the deepest group
-3. [ ] Verify the operation is prevented if it would exceed depth 8
+#### [x] Drag respects MAX_GROUP_NESTING
+1. [x] Create groups nested to depth 7
+2. [x] Try to drag a group (depth 1) into the deepest group
+3. [x] Verify the operation is prevented if it would exceed depth 8
 
-#### [ ] Undo/Redo drag into group
-1. [ ] Drag a layer into a group
-2. [ ] Ctrl+Z to undo
-3. [ ] Verify the layer is back to its original position
-4. [ ] Ctrl+Y to redo
-5. [ ] Verify the layer is back inside the group
+#### [x] Undo/Redo drag into group
+1. [x] Drag a layer into a group
+2. [x] Ctrl+Z to undo
+3. [x] Verify the layer is back to its original position
+4. [x] Ctrl+Y to redo
+5. [x] Verify the layer is back inside the group
 
-#### [ ] Drag layer onto Delete button
-1. [ ] Create a group with 3 child layers
-2. [ ] Drag a child layer onto the Delete button at the bottom of the panel
-3. [ ] Verify the layer is deleted from the group
+#### [x] Drag layer onto Delete button
+1. [x] Create a group with 3 child layers
+2. [x] Drag a child layer onto the Delete button at the bottom of the panel
+3. [x] Verify the layer is deleted from the group
 
-#### [ ] Drag layer onto New Layer button
-1. [ ] Create a group with a child layer
-2. [ ] Drag the child layer onto the New Layer (+) button
-3. [ ] Verify expected behavior (duplicate or create new adjacent layer)
+#### [x] Drag layer onto New Layer button
+1. [x] Create a group with a child layer
+2. [x] Drag the child layer onto the New Layer (+) button
+3. [x] Verify expected behavior (duplicate or create new adjacent layer)
 
 ---
 
 ## [ ] GROUP OPERATIONS
 
-### [ ] Ungroup (Ctrl+Shift+U / Action 722)
+### [x] Ungroup (Ctrl+Shift+U / Action 722)
 Dissolve a group, reparenting children to the grandparent.
 
-#### [ ] Ungroup a top-level group
-1. [ ] Create a group with 3 child layers
-2. [ ] Select the group header
-3. [ ] Press Ctrl+Shift+U
-4. [ ] Verify the group header is deleted
-5. [ ] Verify the 3 children become top-level layers
-6. [ ] Verify the children retain their z-order relative to each other
+#### [x] Ungroup a top-level group
+1. [x] Create a group with 3 child layers
+2. [x] Select the group header
+3. [x] Press Ctrl+Shift+U
+4. [x] Verify the group header is deleted
+5. [x] Verify the 3 children become top-level layers
+6. [x] Verify the children retain their z-order relative to each other
 
-#### [ ] Ungroup a nested sub-group
-1. [ ] Create GroupA containing GroupB (with 2 children)
-2. [ ] Select GroupB's header
-3. [ ] Press Ctrl+Shift+U
-4. [ ] Verify GroupB is dissolved
-5. [ ] Verify GroupB's children become direct children of GroupA
-6. [ ] Verify GroupA still exists with its other children intact
+#### [x] Ungroup a nested sub-group
+1. [x] Create GroupA containing GroupB (with 2 children)
+2. [x] Select GroupB's header
+3. [x] Press Ctrl+Shift+U
+4. [x] Verify GroupB is dissolved
+5. [x] Verify GroupB's children become direct children of GroupA
+6. [x] Verify GroupA still exists with its other children intact
 
-#### [ ] Ungroup via Layer menu
-1. [ ] Select a group header
-2. [ ] Open Layer menu → click "Ungroup"
-3. [ ] Verify the group is dissolved
+#### [x] Ungroup via Layer menu
+1. [x] Select a group header
+2. [x] Open Layer menu → click "Ungroup"
+3. [x] Verify the group is dissolved
 
-#### [ ] Ungroup via context menu
-1. [ ] Right-click a group header
-2. [ ] Click "Ungroup" in the context menu
-3. [ ] Verify the group is dissolved
+#### [x] Ungroup via context menu
+1. [x] Right-click a group header
+2. [x] Click "Ungroup" in the context menu
+3. [x] Verify the group is dissolved
 
-#### [ ] Ungroup disabled when not a group
-1. [ ] Select a regular image layer
-2. [ ] Open Layer menu
-3. [ ] Verify "Ungroup" is greyed out / disabled
+#### [x] Ungroup disabled when not a group
+1. [x] Select a regular image layer
+2. [x] Open Layer menu
+3. [x] Verify "Ungroup" is greyed out / disabled
 
-#### [ ] Undo/Redo ungroup
-1. [ ] Create a group with children, then ungroup it
-2. [ ] Ctrl+Z to undo
-3. [ ] Verify the group is recreated with the same children and structure
-4. [ ] Ctrl+Y to redo
-5. [ ] Verify the group is dissolved again
+#### [x] Undo/Redo ungroup
+1. [x] Create a group with children, then ungroup it
+2. [x] Ctrl+Z to undo
+3. [x] Verify the group is recreated with the same children and structure
+4. [x] Ctrl+Y to redo
+5. [x] Verify the group is dissolved again
 
 ### [ ] Merge Group (Action 723)
 Flatten all group children into a single image layer.
 
-#### [ ] Merge group with image layers
-1. [ ] Create a group with 3 child layers, each with distinct pixel content
-2. [ ] Select the group header
-3. [ ] Execute Merge Group from the Layer menu or context menu
-4. [ ] Verify a single merged layer replaces the group
-5. [ ] Verify the merged layer's pixels are the correct composite of all children
-6. [ ] Verify the merged layer inherits the group's name
-
-#### [ ] Merge group with different blend modes
-1. [ ] Create a group with 2 child layers using different blend modes (e.g., Multiply, Screen)
-2. [ ] Merge the group
-3. [ ] Verify the merged result correctly composites the blend modes
+#### [x] Merge group with image layers
+1. [x] Create a group with 3 child layers, each with distinct pixel content
+2. [x] Select the group header
+3. [x] Execute Merge Group from the Layer menu or context menu
+4. [x] Verify a single merged layer replaces the group
+5. [x] Verify the merged layer's pixels are the correct composite of all children
+6. [x] Verify the merged layer inherits the group's name
+ 
+#### [x] Merge group with different blend modes
+1. [x] Create a group with 2 child layers using different blend modes (e.g., Multiply, Screen)
+2. [x] Merge the group
+3. [x] Verify the merged result correctly composites the blend modes
 
 #### [ ] Merge group with varying opacities
 1. [ ] Create a group with children at different opacity levels (e.g., 128, 64, 255)

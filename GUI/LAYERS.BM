@@ -2060,12 +2060,23 @@ SUB LAYER_PANEL_render (canvasHeight AS INTEGER)
                     COLOR THEME.LAYER_PANEL_row_fg~&, _RGBA32(0, 0, 0, 0)
                     _UPRINTSTRING (rowX% + 21, drawY% + 4), layerName$
                     
-                    ' Blend mode indicator (show short name if not Normal)
+                    ' Blend mode indicator (show short name if not Normal/default)
                     ' Only show when panel is wide enough (>=80px)
                     IF panelW% >= 80 THEN
-                        IF LAYERS(layerIdx%).blendMode% <> BLEND_NORMAL THEN
+                        DIM showBlendInd AS INTEGER
+                        showBlendInd% = FALSE
+                        IF LAYERS(layerIdx%).layerType% = LAYER_TYPE_GROUP AND LAYERS(layerIdx%).passThrough% THEN
+                            showBlendInd% = TRUE
+                        ELSEIF LAYERS(layerIdx%).blendMode% <> BLEND_NORMAL THEN
+                            showBlendInd% = TRUE
+                        END IF
+                        IF showBlendInd% THEN
                             DIM blendShort AS STRING
-                            blendShort$ = BLEND_mode_short$(LAYERS(layerIdx%).blendMode%)
+                            IF LAYERS(layerIdx%).layerType% = LAYER_TYPE_GROUP AND LAYERS(layerIdx%).passThrough% THEN
+                                blendShort$ = BLEND_mode_short$(BLEND_PASS_THROUGH)
+                            ELSE
+                                blendShort$ = BLEND_mode_short$(LAYERS(layerIdx%).blendMode%)
+                            END IF
                             COLOR THEME.LAYER_PANEL_row_fg_blend~&, _RGBA32(0, 0, 0, 0)
                             _UPRINTSTRING (rowX% + 21, drawY% + 12), blendShort$
                         END IF
@@ -3833,6 +3844,7 @@ END SUB
 '
 FUNCTION BLEND_mode_name$ (mode AS INTEGER)
     SELECT CASE mode%
+        CASE BLEND_PASS_THROUGH: BLEND_mode_name$ = "PASS THROUGH"
         CASE BLEND_NORMAL:       BLEND_mode_name$ = "NORMAL"
         CASE BLEND_MULTIPLY:     BLEND_mode_name$ = "MULTIPLY"
         CASE BLEND_SCREEN:       BLEND_mode_name$ = "SCREEN"
@@ -3864,6 +3876,7 @@ END FUNCTION
 '
 FUNCTION BLEND_mode_short$ (mode AS INTEGER)
     SELECT CASE mode%
+        CASE BLEND_PASS_THROUGH: BLEND_mode_short$ = "PT"
         CASE BLEND_NORMAL:       BLEND_mode_short$ = "NRM"
         CASE BLEND_MULTIPLY:     BLEND_mode_short$ = "MUL"
         CASE BLEND_SCREEN:       BLEND_mode_short$ = "SCR"
@@ -3901,24 +3914,24 @@ FUNCTION BLEND_needs_composite% ()
     END IF
 
     BLEND_HAS_ISOLATED_GROUPS% = FALSE
+    DIM blcNeedsComposite AS INTEGER
+    blcNeedsComposite% = FALSE
     DIM i AS INTEGER
     FOR i% = 1 TO MAX_LAYERS
         IF LAYERS(i%).imgHandle& <> 0 THEN
             IF LAYERS(i%).visible% THEN
                 IF LAYERS(i%).blendMode% <> BLEND_NORMAL THEN
-                    BLEND_COMPOSITE_CACHED% = TRUE
-                    BLEND_COMPOSITE_DIRTY% = FALSE
-                    BLEND_needs_composite% = TRUE
-                    EXIT FUNCTION
+                    blcNeedsComposite% = TRUE
                 END IF
                 ' Isolated groups require composite path
                 IF LAYERS(i%).layerType% = LAYER_TYPE_GROUP AND NOT LAYERS(i%).passThrough% THEN
                     BLEND_HAS_ISOLATED_GROUPS% = TRUE
+                    blcNeedsComposite% = TRUE
                 END IF
             END IF
         END IF
     NEXT i%
-    IF BLEND_HAS_ISOLATED_GROUPS% THEN
+    IF blcNeedsComposite% THEN
         BLEND_COMPOSITE_CACHED% = TRUE
         BLEND_COMPOSITE_DIRTY% = FALSE
         BLEND_needs_composite% = TRUE
@@ -4392,10 +4405,25 @@ END SUB
 '
 SUB LAYER_PANEL_blend_popup_show (layerIdx AS INTEGER, x AS INTEGER, y AS INTEGER)
     DIM popH AS INTEGER
+    DIM bpsItemCount AS INTEGER
     ' Close context menu if open
     IF LAYER_PANEL.ctxMenuOpen% THEN LAYER_PANEL_ctx_menu_close
-    LAYER_PANEL_blend_popup_build
-    POPUP_MENU_place x%, y%, 90, BLEND_MODE_COUNT + 1, 10, LAYER_PANEL.blendPopupX%, LAYER_PANEL.blendPopupY%, popH%
+    LAYER_PANEL_blend_popup_build layerIdx%
+    ' Groups have 2 extra rows (Pass Through + divider)
+    IF layerIdx% >= 1 THEN
+        IF layerIdx% <= MAX_LAYERS THEN
+            IF LAYERS(layerIdx%).layerType% = LAYER_TYPE_GROUP THEN
+                bpsItemCount% = BLEND_MODE_COUNT + 3
+            ELSE
+                bpsItemCount% = BLEND_MODE_COUNT + 1
+            END IF
+        ELSE
+            bpsItemCount% = BLEND_MODE_COUNT + 1
+        END IF
+    ELSE
+        bpsItemCount% = BLEND_MODE_COUNT + 1
+    END IF
+    POPUP_MENU_place x%, y%, 90, bpsItemCount%, 10, LAYER_PANEL.blendPopupX%, LAYER_PANEL.blendPopupY%, popH%
     LAYER_PANEL.blendPopupOpen% = TRUE
     LAYER_PANEL.blendPopupLayer% = layerIdx%
     LAYER_PANEL.blendPopupHover% = -1
@@ -4413,44 +4441,71 @@ END SUB
 
 ''
 ' Render the blend mode popup to SCRN.GUI& (called from SCREEN_render after SkipToPointer).
-' Layout: Normal (row 0), divider (row 1), Multiply..Luminosity (rows 2-19).
+' Layout for groups: Pass Through (0), divider (1), Normal (2), divider (3), Multiply..Luminosity (4-21).
+' Layout for images: Normal (0), divider (1), Multiply..Luminosity (2-19).
 '
 SUB LAYER_PANEL_blend_popup_render ()
     IF NOT LAYER_PANEL.blendPopupOpen% THEN EXIT SUB
     DIM layerIdx AS INTEGER: layerIdx% = LAYER_PANEL.blendPopupLayer%
     DIM currentMode AS INTEGER
     DIM checkedRow AS INTEGER
+    DIM bprIsGroup AS INTEGER
+    DIM bprItemCount AS INTEGER
+    bprIsGroup% = FALSE
     IF layerIdx% >= 1 AND layerIdx% <= MAX_LAYERS THEN
         currentMode% = LAYERS(layerIdx%).blendMode%
+        IF LAYERS(layerIdx%).layerType% = LAYER_TYPE_GROUP THEN bprIsGroup% = TRUE
     ELSE
         currentMode% = BLEND_NORMAL
     END IF
-    LAYER_PANEL_blend_popup_build
-    IF currentMode% = BLEND_NORMAL THEN
-        checkedRow% = 0
+    LAYER_PANEL_blend_popup_build layerIdx%
+    IF bprIsGroup% THEN
+        bprItemCount% = BLEND_MODE_COUNT + 3
+        IF LAYERS(layerIdx%).passThrough% THEN
+            checkedRow% = 0 ' Pass Through row (value = BLEND_PASS_THROUGH_POPUP_VALUE)
+        ELSEIF currentMode% = BLEND_NORMAL THEN
+            checkedRow% = 2 ' Normal row (after PT + divider)
+        ELSE
+            checkedRow% = currentMode% + 3 ' mode rows shifted by 2 extra rows
+        END IF
     ELSE
-        checkedRow% = currentMode% + 1
+        bprItemCount% = BLEND_MODE_COUNT + 1
+        IF currentMode% = BLEND_NORMAL THEN
+            checkedRow% = 0
+        ELSE
+            checkedRow% = currentMode% + 1
+        END IF
     END IF
     POPUP_MENU_FLAGS(checkedRow%) = POPUP_MENU_FLAGS(checkedRow%) OR POPUP_MENU_FLAG_CHECKED
-    POPUP_MENU_render SCRN.CANVAS&, LAYER_PANEL.blendPopupX%, LAYER_PANEL.blendPopupY%, 90, BLEND_MODE_COUNT + 1, 10, LAYER_PANEL.blendPopupHover%, LAYER_PANEL.fontHandle&
+    POPUP_MENU_render SCRN.CANVAS&, LAYER_PANEL.blendPopupX%, LAYER_PANEL.blendPopupY%, 90, bprItemCount%, 10, LAYER_PANEL.blendPopupHover%, LAYER_PANEL.fontHandle&
 END SUB
 
 ''
 ' Hit-test the blend mode popup.
-' Returns: mode index 0-18 if a mode item was clicked,
+' Returns: mode index 0-18 if a mode item was clicked, BLEND_PASS_THROUGH (-1) for pass-through,
 '          -1 if inside popup but on non-clickable area (divider, padding),
 '          -2 if outside popup.
 ' @param rawX INTEGER Raw screen X coordinate to test
 ' @param rawY INTEGER Raw screen Y coordinate to test
-' @return INTEGER - Blend mode index (0-18), -1 for non-clickable area, -2 for outside
+' @return INTEGER - Blend mode index (0-18 or BLEND_PASS_THROUGH), -1 for non-clickable area, -2 for outside
 '
 FUNCTION LAYER_PANEL_blend_popup_hit% (rawX AS INTEGER, rawY AS INTEGER)
+    DIM bphItemCount AS INTEGER
+    DIM bphLayer AS INTEGER
     IF NOT LAYER_PANEL.blendPopupOpen% THEN
         LAYER_PANEL_blend_popup_hit% = -2
         EXIT FUNCTION
     END IF
-    ' Items built in _show and rebuilt in _render; reused here
-    LAYER_PANEL_blend_popup_hit% = POPUP_MENU_hit_value%(LAYER_PANEL.blendPopupX%, LAYER_PANEL.blendPopupY%, 90, BLEND_MODE_COUNT + 1, 10, rawX%, rawY%)
+    bphLayer% = LAYER_PANEL.blendPopupLayer%
+    bphItemCount% = BLEND_MODE_COUNT + 1
+    IF bphLayer% >= 1 THEN
+        IF bphLayer% <= MAX_LAYERS THEN
+            IF LAYERS(bphLayer%).layerType% = LAYER_TYPE_GROUP THEN
+                bphItemCount% = BLEND_MODE_COUNT + 3
+            END IF
+        END IF
+    END IF
+    LAYER_PANEL_blend_popup_hit% = POPUP_MENU_hit_value%(LAYER_PANEL.blendPopupX%, LAYER_PANEL.blendPopupY%, 90, bphItemCount%, 10, rawX%, rawY%)
 END FUNCTION
 
 ''
@@ -4462,8 +4517,16 @@ END FUNCTION
 SUB LAYER_PANEL_blend_popup_hover (rawX AS INTEGER, rawY AS INTEGER)
     IF NOT LAYER_PANEL.blendPopupOpen% THEN EXIT SUB
     DIM prevHover AS INTEGER: prevHover% = LAYER_PANEL.blendPopupHover%
-    ' Items built once in _show and rebuilt in _render; reused here (only one popup open at a time)
-    LAYER_PANEL.blendPopupHover% = POPUP_MENU_hover_row%(LAYER_PANEL.blendPopupX%, LAYER_PANEL.blendPopupY%, 90, BLEND_MODE_COUNT + 1, 10, rawX%, rawY%)
+    DIM bphvLayer AS INTEGER: bphvLayer% = LAYER_PANEL.blendPopupLayer%
+    DIM bphvItemCount AS INTEGER: bphvItemCount% = BLEND_MODE_COUNT + 1
+    IF bphvLayer% >= 1 THEN
+        IF bphvLayer% <= MAX_LAYERS THEN
+            IF LAYERS(bphvLayer%).layerType% = LAYER_TYPE_GROUP THEN
+                bphvItemCount% = BLEND_MODE_COUNT + 3
+            END IF
+        END IF
+    END IF
+    LAYER_PANEL.blendPopupHover% = POPUP_MENU_hover_row%(LAYER_PANEL.blendPopupX%, LAYER_PANEL.blendPopupY%, 90, bphvItemCount%, 10, rawX%, rawY%)
     IF LAYER_PANEL.blendPopupHover% <> prevHover% THEN
         GUI_NEEDS_REDRAW% = TRUE
         FRAME_IDLE% = FALSE
@@ -4473,20 +4536,42 @@ END SUB
 ''
 ' Build the blend mode popup menu items.
 ' Populates the shared POPUP_MENU system with all available blend modes
-' (Normal + divider + remaining modes) for display in the layer panel.
+' for display in the layer panel.
+' Groups: Pass Through (row 0), divider (1), Normal (2), divider (3), modes (4-21).
+' Images: Normal (row 0), divider (1), modes (2-19).
 '
-SUB LAYER_PANEL_blend_popup_build ()
+SUB LAYER_PANEL_blend_popup_build (layerIdx AS INTEGER)
     DIM itemRow AS INTEGER
     DIM modeIdx AS INTEGER
+    DIM bpbIsGroup AS INTEGER
 
     POPUP_MENU_clear_items
-    POPUP_MENU_set_item 0, BLEND_mode_name$(BLEND_NORMAL), "", BLEND_NORMAL, 0
-    POPUP_MENU_set_item 1, "", "", -1, POPUP_MENU_FLAG_DIVIDER
 
-    FOR itemRow% = 2 TO BLEND_MODE_COUNT
-        modeIdx% = itemRow% - 1
-        POPUP_MENU_set_item itemRow%, BLEND_mode_name$(modeIdx%), "", modeIdx%, 0
-    NEXT itemRow%
+    bpbIsGroup% = FALSE
+    IF layerIdx% >= 1 THEN
+        IF layerIdx% <= MAX_LAYERS THEN
+            IF LAYERS(layerIdx%).layerType% = LAYER_TYPE_GROUP THEN bpbIsGroup% = TRUE
+        END IF
+    END IF
+
+    IF bpbIsGroup% THEN
+        ' Groups get Pass Through at top, then divider, then Normal, divider, rest
+        POPUP_MENU_set_item 0, BLEND_mode_name$(BLEND_PASS_THROUGH), "", BLEND_PASS_THROUGH_POPUP_VALUE, 0
+        POPUP_MENU_set_item 1, "", "", -99, POPUP_MENU_FLAG_DIVIDER
+        POPUP_MENU_set_item 2, BLEND_mode_name$(BLEND_NORMAL), "", BLEND_NORMAL, 0
+        POPUP_MENU_set_item 3, "", "", -99, POPUP_MENU_FLAG_DIVIDER
+        FOR itemRow% = 4 TO BLEND_MODE_COUNT + 2
+            modeIdx% = itemRow% - 3
+            POPUP_MENU_set_item itemRow%, BLEND_mode_name$(modeIdx%), "", modeIdx%, 0
+        NEXT itemRow%
+    ELSE
+        POPUP_MENU_set_item 0, BLEND_mode_name$(BLEND_NORMAL), "", BLEND_NORMAL, 0
+        POPUP_MENU_set_item 1, "", "", -99, POPUP_MENU_FLAG_DIVIDER
+        FOR itemRow% = 2 TO BLEND_MODE_COUNT
+            modeIdx% = itemRow% - 1
+            POPUP_MENU_set_item itemRow%, BLEND_mode_name$(modeIdx%), "", modeIdx%, 0
+        NEXT itemRow%
+    END IF
 END SUB
 
 
@@ -4577,7 +4662,7 @@ FUNCTION LAYERS_new_group% ()
         LAYERS(newIndex%).parentGroupIdx% = 0
     END IF
     LAYERS(newIndex%).collapsed%      = FALSE
-    LAYERS(newIndex%).passThrough%    = FALSE
+    LAYERS(newIndex%).passThrough%    = TRUE
 
     IF NOT HISTORY_IN_PROGRESS% THEN
         HISTORY_record_layer_add LAYERS(newIndex%).historyId&, newIndex%, newZ%, "Group Add"
@@ -5336,6 +5421,9 @@ SUB LAYERS_merge_group (groupIdx AS INTEGER)
     ' Create a new image layer BEFORE deleting the group header.
     ' LAYERS_delete refuses to delete the last layer (LAYER_COUNT <= 1),
     ' so we must ensure another layer exists first.
+    ' Select the group header so LAYERS_new% inserts at the correct z-position
+    ' (child deletions above may have moved CURRENT_LAYER% elsewhere).
+    LAYERS_select grpSlot%
     DIM newIdx AS INTEGER
     newIdx% = LAYERS_new%
     IF newIdx% > 0 THEN
@@ -5608,11 +5696,19 @@ SUB LAYER_PANEL_ctx_menu_build (layerIdx AS INTEGER, itemCount AS INTEGER)
     inGroup% = (LAYERS(layerIdx%).parentGroupIdx% > 0)
     hasMultiSel% = (MULTI_SELECT_COUNT% >= 2)
 
-    ' --- Blend modes (same layout as standalone blend popup) ---
+    ' --- Blend modes (Pass Through first for groups, then Normal, divider, rest) ---
+    IF isGroup% THEN
+        POPUP_MENU_set_item itemCount%, BLEND_mode_name$(BLEND_PASS_THROUGH), "", BLEND_PASS_THROUGH_POPUP_VALUE, 0
+        itemCount% = itemCount% + 1
+
+        POPUP_MENU_set_item itemCount%, "", "", -99, POPUP_MENU_FLAG_DIVIDER
+        itemCount% = itemCount% + 1
+    END IF
+
     POPUP_MENU_set_item itemCount%, BLEND_mode_name$(BLEND_NORMAL), "", BLEND_NORMAL, 0
     itemCount% = itemCount% + 1
 
-    POPUP_MENU_set_item itemCount%, "", "", -1, POPUP_MENU_FLAG_DIVIDER
+    POPUP_MENU_set_item itemCount%, "", "", -99, POPUP_MENU_FLAG_DIVIDER
     itemCount% = itemCount% + 1
 
     FOR modeIdx% = 1 TO BLEND_MODE_COUNT - 1
@@ -5759,15 +5855,29 @@ SUB LAYER_PANEL_ctx_menu_render ()
     LAYER_PANEL_ctx_menu_build ctxLayer%, LAYER_PANEL.ctxMenuItems%
 
     ' Mark the active blend mode row with a checkmark
+    DIM ctxIsGroup AS INTEGER
+    ctxIsGroup% = FALSE
     IF ctxLayer% >= 1 AND ctxLayer% <= MAX_LAYERS THEN
         currentMode% = LAYERS(ctxLayer%).blendMode%
+        IF LAYERS(ctxLayer%).layerType% = LAYER_TYPE_GROUP THEN ctxIsGroup% = TRUE
     ELSE
         currentMode% = BLEND_NORMAL
     END IF
-    IF currentMode% = BLEND_NORMAL THEN
-        checkedRow% = 0
+    IF ctxIsGroup% THEN
+        ' Groups: PT(0), div(1), Normal(2), div(3), modes(4+)
+        IF LAYERS(ctxLayer%).passThrough% THEN
+            checkedRow% = 0 ' Pass Through row
+        ELSEIF currentMode% = BLEND_NORMAL THEN
+            checkedRow% = 2 ' Normal row
+        ELSE
+            checkedRow% = currentMode% + 3 ' modes shifted by 2 extra rows
+        END IF
     ELSE
-        checkedRow% = currentMode% + 1  ' +1 for divider row after Normal
+        IF currentMode% = BLEND_NORMAL THEN
+            checkedRow% = 0
+        ELSE
+            checkedRow% = currentMode% + 1  ' +1 for divider row after Normal
+        END IF
     END IF
     POPUP_MENU_FLAGS(checkedRow%) = POPUP_MENU_FLAGS(checkedRow%) OR POPUP_MENU_FLAG_CHECKED
 

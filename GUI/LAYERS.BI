@@ -17,6 +17,8 @@ CONST LAYER_ROW_HEIGHT = 20
 CONST LAYER_BTN_SIZE = 12
 
 ' Layer blend mode constants
+CONST BLEND_PASS_THROUGH = -1 ' Group-only: children composite as if no group exists
+CONST BLEND_PASS_THROUGH_POPUP_VALUE = 100 ' Popup menu sentinel (avoids -1 collision with POPUP_MENU_hit_value%)
 CONST BLEND_NORMAL       = 0
 CONST BLEND_MULTIPLY     = 1
 CONST BLEND_SCREEN       = 2
