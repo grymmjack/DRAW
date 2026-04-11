@@ -442,171 +442,171 @@ Delete a group and all its children.
 
 ---
 
-## [ ] GROUP ARRANGE / MOVE
+## [x] GROUP ARRANGE / MOVE
 
-### [ ] Move Group Up/Down (Keyboard)
+### [x] Move Group Up/Down (Keyboard)
 Move entire group blocks with keyboard shortcuts.
 
-#### [ ] Move group up (Ctrl+PgUp)
-1. [ ] Create 2 groups (GroupA below GroupB)
-2. [ ] Select GroupA's header
-3. [ ] Press Ctrl+PgUp
-4. [ ] Verify GroupA (with all children) moves above GroupB in z-order
+#### [x] Move group up (Ctrl+PgUp)
+1. [x] Create 2 groups (GroupA below GroupB)
+2. [x] Select GroupA's header
+3. [x] Press Ctrl+PgUp
+4. [x] Verify GroupA (with all children) moves above GroupB in z-order
 
-#### [ ] Move group down (Ctrl+PgDn)
-1. [ ] Create 2 groups (GroupA above GroupB)
-2. [ ] Select GroupA's header
-3. [ ] Press Ctrl+PgDn
-4. [ ] Verify GroupA (with all children) moves below GroupB in z-order
+#### [x] Move group down (Ctrl+PgDn)
+1. [x] Create 2 groups (GroupA above GroupB)
+2. [x] Select GroupA's header
+3. [x] Press Ctrl+PgDn
+4. [x] Verify GroupA (with all children) moves below GroupB in z-order
 
-#### [ ] Move group skips over adjacent groups
-1. [ ] Create GroupA, then Layer1, then GroupB (each with children)
-2. [ ] Select GroupA and move it up repeatedly
-3. [ ] Verify the entire block (header + children) moves as a unit, skipping over GroupB entirely
+#### [x] Move group skips over adjacent groups
+1. [x] Create GroupA, then Layer1, then GroupB (each with children)
+2. [x] Select GroupA and move it up repeatedly
+3. [x] Verify the entire block (header + children) moves as a unit, skipping over GroupB entirely
 
-#### [ ] Move child layer within group
-1. [ ] Create a group with 3 child layers (A, B, C from top to bottom)
-2. [ ] Select child B
-3. [ ] Press Ctrl+PgUp
-4. [ ] Verify B moves above A within the group
+#### [x] Move child layer within group
+1. [x] Create a group with 3 child layers (A, B, C from top to bottom)
+2. [x] Select child B
+3. [x] Press Ctrl+PgUp
+4. [x] Verify B moves above A within the group
 
-#### [ ] Move child layer escapes group (upward)
-1. [ ] Create a group with layer A at the top
-2. [ ] Select layer A
-3. [ ] Press Ctrl+PgUp when A is already at the top of the group
-4. [ ] Verify A escapes the group and becomes a layer above the group header
+#### [x] Move child layer escapes group (upward)
+1. [x] Create a group with layer A at the top
+2. [x] Select layer A
+3. [x] Press Ctrl+PgUp when A is already at the top of the group
+4. [x] Verify A escapes the group and becomes a layer above the group header
 
-#### [ ] Move child layer escapes group (downward)
-1. [ ] Create a group with layer A at the bottom
-2. [ ] Select layer A
-3. [ ] Press Ctrl+PgDn when A is already at the bottom of the group
-4. [ ] Verify A escapes the group and becomes a layer below the group's lowest extent
+#### [x] Move child layer escapes group (downward)
+1. [x] Create a group with layer A at the bottom
+2. [x] Select layer A
+3. [x] Press Ctrl+PgDn when A is already at the bottom of the group
+4. [x] Verify A escapes the group and becomes a layer below the group's lowest extent
 
-#### [ ] Move sub-group escapes parent group (upward)
-1. [ ] Create a parent group containing a sub-group
-2. [ ] Select the sub-group header
-3. [ ] Press Ctrl+PgUp until the sub-group is at the top of the parent
-4. [ ] Press Ctrl+PgUp once more
-5. [ ] Verify the sub-group (with its children) escapes the parent group
+#### [x] Move sub-group escapes parent group (upward)
+1. [x] Create a parent group containing a sub-group
+2. [x] Select the sub-group header
+3. [x] Press Ctrl+PgUp until the sub-group is at the top of the parent
+4. [x] Press Ctrl+PgUp once more
+5. [x] Verify the sub-group (with its children) escapes the parent group
 
-#### [ ] Move sub-group escapes parent group (downward)
-1. [ ] Create a parent group containing a sub-group at the bottom
-2. [ ] Select the sub-group header
-3. [ ] Press Ctrl+PgDn
-4. [ ] Verify the sub-group (with its children) escapes the parent group downward
+#### [x] Move sub-group escapes parent group (downward)
+1. [x] Create a parent group containing a sub-group at the bottom
+2. [x] Select the sub-group header
+3. [x] Press Ctrl+PgDn
+4. [x] Verify the sub-group (with its children) escapes the parent group downward
 
-#### [ ] Auto-delete empty parent after last child escapes
-1. [ ] Create a group with exactly 1 child layer
-2. [ ] Move the child out of the group (Ctrl+PgUp past the group header)
-3. [ ] Verify the now-empty group is automatically deleted
+#### [x] Auto-delete empty parent after last child escapes
+1. [x] Create a group with exactly 1 child layer
+2. [x] Move the child out of the group (Ctrl+PgUp past the group header)
+3. [x] Verify the now-empty group is automatically deleted
 
-#### [ ] Undo/Redo move group
-1. [ ] Move a group up
-2. [ ] Ctrl+Z to undo
-3. [ ] Verify the group returns to its original position
-4. [ ] Ctrl+Y to redo
-5. [ ] Verify the move is re-applied
+#### [x] Undo/Redo move group
+1. [x] Move a group up
+2. [x] Ctrl+Z to undo
+3. [x] Verify the group returns to its original position
+4. [x] Ctrl+Y to redo
+5. [x] Verify the move is re-applied
 
 ---
 
-## [ ] GROUP TRANSFORMS (Quick Transforms)
+## [x] GROUP TRANSFORMS (Quick Transforms)
 
-### [ ] Transforms Applied to Group
+### [x] Transforms Applied to Group
 When a group is selected, transforms (flip, rotate, scale) apply to ALL descendants.
 
-#### [ ] Flip Horizontal on group (H key)
-1. [ ] Create a group with 2 child layers, each with asymmetric content
-2. [ ] Select the group header
-3. [ ] Press H to flip horizontally
-4. [ ] Verify BOTH child layers are flipped horizontally
-5. [ ] Verify the canvas shows all children flipped
+#### [x] Flip Horizontal on group (H key)
+1. [x] Create a group with 2 child layers, each with asymmetric content
+2. [x] Select the group header
+3. [x] Press H to flip horizontally
+4. [x] Verify BOTH child layers are flipped horizontally
+5. [x] Verify the canvas shows all children flipped
 
-#### [ ] Flip Vertical on group (Ctrl+Shift+H)
-1. [ ] Create a group with 2 child layers
-2. [ ] Select the group header
-3. [ ] Press Ctrl+Shift+H
-4. [ ] Verify BOTH child layers are flipped vertically
+#### [x] Flip Vertical on group (Ctrl+Shift+H)
+1. [x] Create a group with 2 child layers
+2. [x] Select the group header
+3. [x] Press Ctrl+Shift+H
+4. [x] Verify BOTH child layers are flipped vertically
 
-#### [ ] Rotate 90° CW on group (> key)
-1. [ ] Create a group with 2 child layers
-2. [ ] Select the group header
-3. [ ] Press > to rotate 90° clockwise
-4. [ ] Verify BOTH child layers are rotated 90° CW
+#### [x] Rotate 90° CW on group (> key)
+1. [x] Create a group with 2 child layers
+2. [x] Select the group header
+3. [x] Press > to rotate 90° clockwise
+4. [x] Verify BOTH child layers are rotated 90° CW
 
-#### [ ] Rotate 90° CCW on group (< key)
-1. [ ] Create a group with 2 child layers
-2. [ ] Select the group header
-3. [ ] Press < to rotate 90° counter-clockwise
-4. [ ] Verify BOTH child layers are rotated 90° CCW
+#### [x] Rotate 90° CCW on group (< key)
+1. [x] Create a group with 2 child layers
+2. [x] Select the group header
+3. [x] Press < to rotate 90° counter-clockwise
+4. [x] Verify BOTH child layers are rotated 90° CCW
 
-#### [ ] Scale +50% on group (Ctrl+Shift+=)
-1. [ ] Create a group with 2 child layers
-2. [ ] Select the group header
-3. [ ] Press Ctrl+Shift+=
-4. [ ] Verify BOTH child layers are scaled up 50%
+#### [x] Scale +50% on group (Ctrl+Shift+=)
+1. [x] Create a group with 2 child layers
+2. [x] Select the group header
+3. [x] Press Ctrl+Shift+=
+4. [x] Verify BOTH child layers are scaled up 50%
 
-#### [ ] Scale -50% on group (Ctrl+Shift+-)
-1. [ ] Create a group with 2 child layers
-2. [ ] Select the group header
-3. [ ] Press Ctrl+Shift+-
-4. [ ] Verify BOTH child layers are scaled down 50%
+#### [x] Scale -50% on group (Ctrl+Shift+-)
+1. [x] Create a group with 2 child layers
+2. [x] Select the group header
+3. [x] Press Ctrl+Shift+-
+4. [x] Verify BOTH child layers are scaled down 50%
 
-#### [ ] Transform on group with nested sub-groups
-1. [ ] Create GroupA containing GroupB (with children), GroupA also has direct children
-2. [ ] Select GroupA's header
-3. [ ] Press H (Flip Horizontal)
-4. [ ] Verify ALL descendants are flipped — including GroupB's nested children
-5. [ ] Verify sub-group headers (1×1 sentinels) are NOT included in the transform
+#### [x] Transform on group with nested sub-groups
+1. [x] Create GroupA containing GroupB (with children), GroupA also has direct children
+2. [x] Select GroupA's header
+3. [x] Press H (Flip Horizontal)
+4. [x] Verify ALL descendants are flipped — including GroupB's nested children
+5. [x] Verify sub-group headers (1×1 sentinels) are NOT included in the transform
 
-#### [ ] Transform on group with hidden layers
-1. [ ] Create a group with 3 children, hide one
-2. [ ] Select the group header and press H
-3. [ ] Verify ALL children (including hidden ones) are flipped
+#### [x] Transform on group with hidden layers
+1. [x] Create a group with 3 children, hide one
+2. [x] Select the group header and press H
+3. [x] Verify ALL children (including hidden ones) are flipped
 
-#### [ ] Undo/Redo group transform
-1. [ ] Select a group and flip it horizontally
-2. [ ] Ctrl+Z to undo
-3. [ ] Verify all child layers are restored to pre-flip state
-4. [ ] Ctrl+Y to redo
-5. [ ] Verify all child layers are flipped again
+#### [x] Undo/Redo group transform
+1. [x] Select a group and flip it horizontally
+2. [x] Ctrl+Z to undo
+3. [x] Verify all child layers are restored to pre-flip state
+4. [x] Ctrl+Y to redo
+5. [x] Verify all child layers are flipped again
 
 ---
 
-## [ ] GROUP COMPOSITING / RENDERING
+## [x] GROUP COMPOSITING / RENDERING
 
-### [ ] Pass-Through vs Isolated Blend Mode
+### [x] Pass-Through vs Isolated Blend Mode
 Groups support pass-through (default) and isolated compositing.
 
-#### [ ] Pass-through group composites children directly
-1. [ ] Create a group with children using various blend modes (Multiply, Screen)
-2. [ ] Set the group to pass-through mode
-3. [ ] Verify children blend directly with layers below the group (as if the group doesn't exist)
+#### [x] Pass-through group composites children directly
+1. [x] Create a group with children using various blend modes (Multiply, Screen)
+2. [x] Set the group to pass-through mode
+3. [x] Verify children blend directly with layers below the group (as if the group doesn't exist)
 
-#### [ ] Isolated group composites children internally first
-1. [ ] Create a group with children using blend modes
-2. [ ] Set the group to isolated mode (NOT pass-through)
-3. [ ] Verify children are composited together first, then the result is blended as a unit onto layers below
+#### [x] Isolated group composites children internally first
+1. [x] Create a group with children using blend modes
+2. [x] Set the group to isolated mode (NOT pass-through)
+3. [x] Verify children are composited together first, then the result is blended as a unit onto layers below
 
-#### [ ] Group opacity applies to entire group output
-1. [ ] Create an isolated group with children
-2. [ ] Set the group's opacity to 128 (50%)
-3. [ ] Verify the entire group result renders at 50% opacity, not each child individually
+#### [x] Group opacity applies to entire group output
+1. [x] Create an isolated group with children
+2. [x] Set the group's opacity to 128 (50%)
+3. [x] Verify the entire group result renders at 50% opacity, not each child individually
 
-#### [ ] Group blend mode applies to group result
-1. [ ] Create an isolated group
-2. [ ] Set the group's blend mode to Multiply
-3. [ ] Verify the composited group result blends with Multiply onto layers below
+#### [x] Group blend mode applies to group result
+1. [x] Create an isolated group
+2. [x] Set the group's blend mode to Multiply
+3. [x] Verify the composited group result blends with Multiply onto layers below
 
-#### [ ] Nested isolated groups compose correctly
-1. [ ] Create GroupA (isolated) containing GroupB (isolated) with children
-2. [ ] Set different opacities on GroupA and GroupB
-3. [ ] Verify GroupB composites its children first at GroupB's opacity
-4. [ ] Verify GroupA then composites the GroupB result at GroupA's opacity
+#### [x] Nested isolated groups compose correctly
+1. [x] Create GroupA (isolated) containing GroupB (isolated) with children
+2. [x] Set different opacities on GroupA and GroupB
+3. [x] Verify GroupB composites its children first at GroupB's opacity
+4. [x] Verify GroupA then composites the GroupB result at GroupA's opacity
 
-#### [ ] Invisible group skips all children during render
-1. [ ] Create a group with visible children
-2. [ ] Hide the group (click eye icon)
-3. [ ] Verify none of the children render on the canvas even though their individual visible% is TRUE
+#### [x] Invisible group skips all children during render
+1. [x] Create a group with visible children
+2. [x] Hide the group (click eye icon)
+3. [x] Verify none of the children render on the canvas even though their individual visible% is TRUE
 
 ---
 
@@ -615,55 +615,55 @@ Groups support pass-through (default) and isolated compositing.
 ### [ ] Context Menu Items
 Verify the context menu shows correct group-specific items.
 
-#### [ ] Right-click on group header shows group actions
-1. [ ] Right-click on a group header
-2. [ ] Verify these items are present and enabled: New Group, Group from Selection (disabled), Ungroup, Merge Group, Select All in Group, Selection from Group
+#### [x] Right-click on group header shows group actions
+1. [x] Right-click on a group header
+2. [x] Verify these items are present and enabled: New Group, Group from Selection (disabled), Ungroup, Merge Group, Select All in Group, Selection from Group
 
-#### [ ] Right-click on child layer shows group actions
-1. [ ] Right-click on a child layer inside a group
-2. [ ] Verify "Select All in Group" is enabled
-3. [ ] Verify "Selection from Group" is enabled
-4. [ ] Verify "Ungroup" is disabled (needs group header selected)
+#### [x] Right-click on child layer shows group actions
+1. [x] Right-click on a child layer inside a group
+2. [x] Verify "Select All in Group" is enabled
+3. [x] Verify "Selection from Group" is enabled
+4. [x] Verify "Ungroup" is disabled (needs group header selected)
 
-#### [ ] Right-click on standalone layer
-1. [ ] Right-click on a layer not in any group
-2. [ ] Verify "New Group" is enabled
-3. [ ] Verify "Ungroup" is disabled
-4. [ ] Verify "Merge Group" is disabled
-5. [ ] Verify "Select All in Group" is disabled
-6. [ ] Verify "Selection from Group" is disabled
+#### [x] Right-click on standalone layer
+1. [x] Right-click on a layer not in any group
+2. [x] Verify "New Group" is enabled
+3. [x] Verify "Ungroup" is disabled
+4. [x] Verify "Merge Group" is disabled
+5. [x] Verify "Select All in Group" is disabled
+6. [x] Verify "Selection from Group" is disabled
 
-#### [ ] Group from Selection enabled when multi-selected
-1. [ ] Ctrl+Click to multi-select 3 layers
-2. [ ] Right-click one of them
-3. [ ] Verify "Group from Selection" is enabled
+#### [x] Group from Selection enabled when multi-selected
+1. [x] Ctrl+Click to multi-select 3 layers
+2. [x] Right-click one of them
+3. [x] Verify "Group from Selection" is enabled
 
 ---
 
-## [ ] GROUP KEYBOARD SHORTCUTS
+## [x] GROUP KEYBOARD SHORTCUTS
 
-### [ ] All Keyboard Bindings
+### [x] All Keyboard Bindings
 Verify every keyboard shortcut related to groups works.
 
-#### [ ] Ctrl+G creates new group
-1. [ ] Press Ctrl+G with any layer selected
-2. [ ] Verify a new group is created
+#### [x] Ctrl+G creates new group
+1. [x] Press Ctrl+G with any layer selected
+2. [x] Verify a new group is created
 
-#### [ ] Ctrl+Shift+G creates group from selection
-1. [ ] Multi-select 2+ layers and press Ctrl+Shift+G
-2. [ ] Verify the selected layers are wrapped in a group
+#### [x] Ctrl+Shift+G creates group from selection
+1. [x] Multi-select 2+ layers and press Ctrl+Shift+G
+2. [x] Verify the selected layers are wrapped in a group
 
-#### [ ] Ctrl+Shift+U ungroups
-1. [ ] Select a group header and press Ctrl+Shift+U
-2. [ ] Verify the group is dissolved
+#### [x] Ctrl+Shift+U ungroups
+1. [x] Select a group header and press Ctrl+Shift+U
+2. [x] Verify the group is dissolved
 
-#### [ ] Ctrl+PgUp moves group up
-1. [ ] Select a group header and press Ctrl+PgUp
-2. [ ] Verify the group block moves up in z-order
+#### [x] Ctrl+PgUp moves group up
+1. [x] Select a group header and press Ctrl+PgUp
+2. [x] Verify the group block moves up in z-order
 
-#### [ ] Ctrl+PgDn moves group down
-1. [ ] Select a group header and press Ctrl+PgDn
-2. [ ] Verify the group block moves down in z-order
+#### [x] Ctrl+PgDn moves group down
+1. [x] Select a group header and press Ctrl+PgDn
+2. [x] Verify the group block moves down in z-order
 
 ---
 
@@ -672,20 +672,20 @@ Verify every keyboard shortcut related to groups works.
 ### [ ] Tool Behavior When Group Header Selected
 Drawing tools should NOT operate on the 1×1 group sentinel.
 
-#### [ ] Brush tool on group header
-1. [ ] Select a group header as CURRENT_LAYER%
-2. [ ] Select the Brush tool and try to paint on the canvas
-3. [ ] Verify no painting occurs on the 1×1 sentinel image
-4. [ ] Verify the application does not crash
+#### [x] Brush tool on group header
+1. [x] Select a group header as CURRENT_LAYER%
+2. [x] Select the Brush tool and try to paint on the canvas
+3. [x] Verify no painting occurs on the 1×1 sentinel image
+4. [x] Verify the application does not crash
 
-#### [ ] Fill tool on group header
-1. [ ] Select a group header and try to use the Fill tool
-2. [ ] Verify the fill does not crash or corrupt anything
+#### [x] Fill tool on group header
+1. [x] Select a group header and try to use the Fill tool
+2. [x] Verify the fill does not crash or corrupt anything
 
-#### [ ] Other tools on group header
-1. [ ] Select a group header
-2. [ ] Try Line, Rectangle, Ellipse, Dot, Spray tools
-3. [ ] Verify none of them produce unexpected results on the 1×1 sentinel
+#### [x] Other tools on group header
+1. [x] Select a group header
+2. [x] Try Line, Rectangle, Ellipse, Dot, Spray tools
+3. [x] Verify none of them produce unexpected results on the 1×1 sentinel
 
 ---
 
