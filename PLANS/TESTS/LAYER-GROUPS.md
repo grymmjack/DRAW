@@ -797,25 +797,25 @@ DRW v24+ format saves group fields.
 4. [x] Ctrl+Y to redo
 5. [x] Verify the new name reappears
 
-### [ ] Opacity and Blend Mode on Group Header
+### [x] Opacity and Blend Mode on Group Header
 
-#### [ ] Drag opacity slider on group header
-1. [ ] Click the opacity area on a group header row
-2. [ ] Drag to change opacity
-3. [ ] Verify the group's opacity changes and affects its rendered output
+#### [x] Drag opacity slider on group header
+1. [x] Click the opacity area on a group header row
+2. [x] Drag to change opacity
+3. [x] Verify the group's opacity changes and affects its rendered output
 
-#### [ ] Change blend mode on group header
-1. [ ] Click the blend mode cell on a group header row
-2. [ ] Select a different blend mode (e.g., Multiply)
-3. [ ] Verify the group's blend mode updates and the rendering changes
+#### [x] Change blend mode on group header
+1. [x] Click the blend mode cell on a group header row
+2. [x] Select a different blend mode (e.g., Multiply)
+3. [x] Verify the group's blend mode updates and the rendering changes
 
-### [ ] Image Adjustments on Groups
+### [x] Image Adjustments on Groups
 
-#### [ ] Apply adjustment when group selected
-1. [ ] Select a group header
-2. [ ] Open Image → Brightness/Contrast
-3. [ ] Apply an adjustment
-4. [ ] Verify all group descendants are affected
+#### [x] Apply adjustment when group selected
+1. [x] Select a group header
+2. [x] Open Image → Brightness/Contrast
+3. [x] Apply an adjustment
+4. [x] Verify all group descendants are affected
 
 ### [ ] Text Layers in Groups
 
