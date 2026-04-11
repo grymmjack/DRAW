@@ -408,37 +408,37 @@ Create a pixel-accurate marquee selection from group contents.
 1. [x] Select a standalone top-level layer not in any group
 2. [x] Verify "Selection from Group" is greyed out
 
-### [ ] Delete Group (Action via context menu)
+### [x] Delete Group (Action via context menu)
 Delete a group and all its children.
 
-#### [ ] Delete group prompts user
-1. [ ] Create a group with children
-2. [ ] Right-click the group header and choose delete, or select and press Ctrl+Shift+Delete
-3. [ ] Verify a dialog asks: "Yes = Delete all / No = Ungroup / Cancel"
+#### [x] Delete group prompts user
+1. [x] Create a group with children
+2. [x] Right-click the group header and choose delete, or select and press Ctrl+Shift+Delete
+3. [x] Verify a dialog asks: "Yes = Delete all / No = Ungroup / Cancel"
 
-#### [ ] Delete group — Yes deletes all contents
-1. [ ] At the dialog, choose "Yes"
-2. [ ] Verify the group header and all children are removed
+#### [x] Delete group — Yes deletes all contents
+1. [x] At the dialog, choose "Yes"
+2. [x] Verify the group header and all children are removed
 
-#### [ ] Delete group — No ungroups children
-1. [ ] At the dialog, choose "No"
-2. [ ] Verify the group header is removed but children become top-level
+#### [x] Delete group — No ungroups children
+1. [x] At the dialog, choose "No"
+2. [x] Verify the group header is removed but children become top-level
 
-#### [ ] Delete group — Cancel aborts
-1. [ ] At the dialog, choose "Cancel"
-2. [ ] Verify nothing changes
+#### [x] Delete group — Cancel aborts
+1. [x] At the dialog, choose "Cancel"
+2. [x] Verify nothing changes
 
-#### [ ] Delete empty group
-1. [ ] Create an empty group (no children)
-2. [ ] Delete it
-3. [ ] Verify no prompt — the empty group is simply removed
+#### [x] Delete empty group
+1. [x] Create an empty group (no children)
+2. [x] Delete it
+3. [x] Verify no prompt — the empty group is simply removed
 
-#### [ ] Undo/Redo delete group
-1. [ ] Delete a group with children (choose Yes)
-2. [ ] Ctrl+Z to undo
-3. [ ] Verify the group and all children are restored
-4. [ ] Ctrl+Y to redo
-5. [ ] Verify the deletion is re-applied
+#### [x] Undo/Redo delete group
+1. [x] Delete a group with children (choose Yes)
+2. [x] Ctrl+Z to undo
+3. [x] Verify the group and all children are restored
+4. [x] Ctrl+Y to redo
+5. [x] Verify the deletion is re-applied
 
 ---
 
