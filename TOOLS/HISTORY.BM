@@ -115,7 +115,8 @@ SUB HISTORY_clear ()
             _FREEIMAGE HISTORY_SEL_DATA(i%).sel_mask&
             HISTORY_SEL_DATA(i%).sel_mask& = 0
         END IF
-        IF HISTORY_RECORDS(i%).kind% = HISTORY_KIND_LAYER_MERGE_VISIBLE THEN
+        IF HISTORY_RECORDS(i%).kind% = HISTORY_KIND_LAYER_MERGE_VISIBLE _
+           OR HISTORY_RECORDS(i%).kind% = HISTORY_KIND_MERGE_GROUP THEN
             DIM clsMvSlt AS INTEGER : clsMvSlt% = HISTORY_MV_SLOT(i%)
             IF clsMvSlt% >= 1 THEN HISTORY_MV_free_slot clsMvSlt%
             HISTORY_MV_SLOT(i%) = 0
@@ -1638,7 +1639,8 @@ SUB HISTORY_selection_commit ()
                 _FREEIMAGE HISTORY_SEL_DATA(i%).sel_mask&
                 HISTORY_SEL_DATA(i%).sel_mask& = 0
             END IF
-            IF HISTORY_RECORDS(i%).kind% = HISTORY_KIND_LAYER_MERGE_VISIBLE THEN
+            IF HISTORY_RECORDS(i%).kind% = HISTORY_KIND_LAYER_MERGE_VISIBLE _
+               OR HISTORY_RECORDS(i%).kind% = HISTORY_KIND_MERGE_GROUP THEN
                 DIM mvSlt AS INTEGER : mvSlt% = HISTORY_MV_SLOT(i%)
                 IF mvSlt% >= 1 THEN HISTORY_MV_free_slot mvSlt%
                 HISTORY_MV_SLOT(i%) = 0
@@ -1657,7 +1659,8 @@ SUB HISTORY_selection_commit ()
             _FREEIMAGE HISTORY_SEL_DATA(1).sel_mask&
             HISTORY_SEL_DATA(1).sel_mask& = 0
         END IF
-        IF HISTORY_RECORDS(1).kind% = HISTORY_KIND_LAYER_MERGE_VISIBLE THEN
+        IF HISTORY_RECORDS(1).kind% = HISTORY_KIND_LAYER_MERGE_VISIBLE _
+           OR HISTORY_RECORDS(1).kind% = HISTORY_KIND_MERGE_GROUP THEN
             DIM mvSlt2 AS INTEGER : mvSlt2% = HISTORY_MV_SLOT(1)
             IF mvSlt2% >= 1 THEN HISTORY_MV_free_slot mvSlt2%
             HISTORY_MV_SLOT(1) = 0
@@ -1906,6 +1909,95 @@ SUB HISTORY_record_layer_merge_visible (sortedLayers() AS INTEGER, sortCount AS 
 END SUB
 
 ''
+' Records a merge-group operation for undo. Called BEFORE the merge is performed.
+' Snapshots all descendants AND the group header into an MV backup slot so they
+' can be fully restored on undo (including group type, parentGroupIdx, etc.).
+' @param groupIdx INTEGER Slot of the group header being merged
+' @param childBuf() INTEGER Array of descendant slot indices sorted by zIndex ascending
+' @param childCount INTEGER Number of entries in childBuf()
+'
+SUB HISTORY_record_merge_group (groupIdx AS INTEGER, childBuf() AS INTEGER, childCount AS INTEGER)
+    IF HISTORY_IN_PROGRESS% THEN EXIT SUB
+    IF groupIdx% < 1 OR groupIdx% > MAX_LAYERS THEN EXIT SUB
+    IF LAYERS(groupIdx%).imgHandle& = 0 THEN EXIT SUB
+
+    DIM mgMvSlot AS INTEGER
+    mgMvSlot% = HISTORY_MV_alloc_slot%
+    IF mgMvSlot% = 0 THEN EXIT SUB
+
+    DIM mgRecIdx AS INTEGER
+    mgRecIdx% = HISTORY_begin_record%(HISTORY_KIND_MERGE_GROUP, HISTORY_EXPORT_NONE, "Merge Group")
+    IF mgRecIdx% < 1 THEN EXIT SUB
+
+    ' primaryLayerId will be filled after merged result layer is created
+    HISTORY_RECORDS(mgRecIdx%).primaryLayerId& = 0
+    ' secondaryLayerId stores the group header's historyId for redo lookup
+    HISTORY_RECORDS(mgRecIdx%).secondaryLayerId& = LAYERS(groupIdx%).historyId&
+    HISTORY_RECORDS(mgRecIdx%).slotIndex% = 0
+    HISTORY_RECORDS(mgRecIdx%).x1% = CURRENT_LAYER%
+    HISTORY_MV_SLOT(mgRecIdx%) = mgMvSlot%
+
+    ' Store all descendants + group header
+    ' Descendants first (indices 1..childCount), group header last (childCount+1)
+    DIM mgI AS INTEGER
+    DIM mgSrcIdx AS INTEGER
+    DIM mgTotal AS INTEGER
+    mgTotal% = childCount% + 1
+    HISTORY_MV_COUNT(mgMvSlot%) = mgTotal%
+
+    FOR mgI% = 1 TO childCount%
+        mgSrcIdx% = childBuf%(mgI%)
+        HISTORY_MV_DATA(mgMvSlot%, mgI%).slotIndex%      = mgSrcIdx%
+        HISTORY_MV_DATA(mgMvSlot%, mgI%).layerId&         = LAYERS(mgSrcIdx%).historyId&
+        HISTORY_MV_DATA(mgMvSlot%, mgI%).zIndex%          = LAYERS(mgSrcIdx%).zIndex%
+        HISTORY_MV_DATA(mgMvSlot%, mgI%).opacity%         = LAYERS(mgSrcIdx%).opacity%
+        HISTORY_MV_DATA(mgMvSlot%, mgI%).visible%         = LAYERS(mgSrcIdx%).visible%
+        HISTORY_MV_DATA(mgMvSlot%, mgI%).opacityLock%     = LAYERS(mgSrcIdx%).opacityLock%
+        HISTORY_MV_DATA(mgMvSlot%, mgI%).blendMode%       = LAYERS(mgSrcIdx%).blendMode%
+        HISTORY_MV_DATA(mgMvSlot%, mgI%).name$            = LAYERS(mgSrcIdx%).name$
+        HISTORY_MV_DATA(mgMvSlot%, mgI%).parentGroupIdx%  = LAYERS(mgSrcIdx%).parentGroupIdx%
+        HISTORY_MV_DATA(mgMvSlot%, mgI%).layerType%       = LAYERS(mgSrcIdx%).layerType%
+        HISTORY_MV_DATA(mgMvSlot%, mgI%).passThrough%     = LAYERS(mgSrcIdx%).passThrough%
+        HISTORY_MV_DATA(mgMvSlot%, mgI%).collapsed%       = LAYERS(mgSrcIdx%).collapsed%
+        IF LAYERS(mgSrcIdx%).imgHandle& < -1 THEN
+            HISTORY_MV_DATA(mgMvSlot%, mgI%).img& = _COPYIMAGE(LAYERS(mgSrcIdx%).imgHandle&, 32)
+        ELSE
+            HISTORY_MV_DATA(mgMvSlot%, mgI%).img& = 0
+        END IF
+    NEXT mgI%
+
+    ' Store group header as last entry
+    HISTORY_MV_DATA(mgMvSlot%, mgTotal%).slotIndex%      = groupIdx%
+    HISTORY_MV_DATA(mgMvSlot%, mgTotal%).layerId&         = LAYERS(groupIdx%).historyId&
+    HISTORY_MV_DATA(mgMvSlot%, mgTotal%).zIndex%          = LAYERS(groupIdx%).zIndex%
+    HISTORY_MV_DATA(mgMvSlot%, mgTotal%).opacity%         = LAYERS(groupIdx%).opacity%
+    HISTORY_MV_DATA(mgMvSlot%, mgTotal%).visible%         = LAYERS(groupIdx%).visible%
+    HISTORY_MV_DATA(mgMvSlot%, mgTotal%).opacityLock%     = LAYERS(groupIdx%).opacityLock%
+    HISTORY_MV_DATA(mgMvSlot%, mgTotal%).blendMode%       = LAYERS(groupIdx%).blendMode%
+    HISTORY_MV_DATA(mgMvSlot%, mgTotal%).name$            = LAYERS(groupIdx%).name$
+    HISTORY_MV_DATA(mgMvSlot%, mgTotal%).parentGroupIdx%  = LAYERS(groupIdx%).parentGroupIdx%
+    HISTORY_MV_DATA(mgMvSlot%, mgTotal%).layerType%       = LAYERS(groupIdx%).layerType%
+    HISTORY_MV_DATA(mgMvSlot%, mgTotal%).passThrough%     = LAYERS(groupIdx%).passThrough%
+    HISTORY_MV_DATA(mgMvSlot%, mgTotal%).collapsed%       = LAYERS(groupIdx%).collapsed%
+    HISTORY_MV_DATA(mgMvSlot%, mgTotal%).img& = 0  ' Group sentinel has no useful image data
+
+    HISTORY_commit_record mgRecIdx%
+END SUB
+
+''
+' Stores the merged-result layer's stable history ID into the most recent
+' MERGE_GROUP record. Called after the merged result layer is created.
+' @param resultLayerId LONG History ID of the newly created merged result layer
+' @param resultSlot INTEGER Slot index of the merged result layer
+'
+SUB HISTORY_merge_group_update_result (resultLayerId AS LONG, resultSlot AS INTEGER)
+    IF HISTORY.current% < 1 THEN EXIT SUB
+    IF HISTORY_RECORDS(HISTORY.current%).kind% <> HISTORY_KIND_MERGE_GROUP THEN EXIT SUB
+    HISTORY_RECORDS(HISTORY.current%).primaryLayerId& = resultLayerId&
+    HISTORY_RECORDS(HISTORY.current%).slotIndex% = resultSlot%
+END SUB
+
+''
 ' Stores the merged-result layer's stable history ID into the most recent
 ' LAYER_MERGE_VISIBLE record. Called after LAYERS_new% creates the merged
 ' result layer so the record can reference it for redo.
@@ -2084,6 +2176,76 @@ SUB HISTORY_undo ()
                 IF mvUndoOrigSel% >= 1 AND mvUndoOrigSel% <= MAX_LAYERS AND LAYERS(mvUndoOrigSel%).imgHandle& < -1 THEN
                     LAYERS_select mvUndoOrigSel%
                 END IF
+            CASE HISTORY_KIND_MERGE_GROUP
+                ' Undo merge-group: delete merged result, recreate all children + group header
+                DIM mgUndoMvSlot AS INTEGER
+                mgUndoMvSlot% = HISTORY_MV_SLOT(idx%)
+                ' Delete merged result layer
+                DIM mgUndoResultIdx AS INTEGER
+                mgUndoResultIdx% = HISTORY_find_layer_slot_by_id%(HISTORY_RECORDS(idx%).primaryLayerId&)
+                IF mgUndoResultIdx% <= 0 THEN mgUndoResultIdx% = HISTORY_RECORDS(idx%).slotIndex%
+                IF mgUndoResultIdx% >= 1 AND mgUndoResultIdx% <= MAX_LAYERS THEN
+                    IF LAYERS(mgUndoResultIdx%).imgHandle& < -1 THEN
+                        IF LAYERS(mgUndoResultIdx%).opacityCacheImg& < -1 THEN
+                            _FREEIMAGE LAYERS(mgUndoResultIdx%).opacityCacheImg&
+                        END IF
+                        _FREEIMAGE LAYERS(mgUndoResultIdx%).imgHandle&
+                        LAYERS(mgUndoResultIdx%).imgHandle&       = 0
+                        LAYERS(mgUndoResultIdx%).imgWidth%        = 0
+                        LAYERS(mgUndoResultIdx%).imgHeight%       = 0
+                        LAYERS(mgUndoResultIdx%).zIndex%          = 0
+                        LAYERS(mgUndoResultIdx%).visible%         = FALSE
+                        LAYERS(mgUndoResultIdx%).isSelected%      = FALSE
+                        LAYERS(mgUndoResultIdx%).name$            = ""
+                        LAYERS(mgUndoResultIdx%).opacity%         = 255
+                        LAYERS(mgUndoResultIdx%).opacityLock%     = FALSE
+                        LAYERS(mgUndoResultIdx%).opacityCacheImg& = 0
+                        LAYERS(mgUndoResultIdx%).opacityCacheVal% = 0
+                        LAYERS(mgUndoResultIdx%).contentDirty%    = FALSE
+                        LAYERS(mgUndoResultIdx%).parentGroupIdx%  = 0
+                        LAYERS(mgUndoResultIdx%).layerType%       = LAYER_TYPE_IMAGE
+                        LAYERS(mgUndoResultIdx%).passThrough%     = FALSE
+                        LAYERS(mgUndoResultIdx%).collapsed%       = FALSE
+                        LAYER_COUNT% = LAYER_COUNT% - 1
+                    END IF
+                END IF
+                ' Recreate all source layers (children + group header) from MV backup
+                DIM mgUndoI AS INTEGER
+                DIM mgUndoRestoreSlot AS INTEGER
+                FOR mgUndoI% = 1 TO HISTORY_MV_COUNT(mgUndoMvSlot%)
+                    mgUndoRestoreSlot% = HISTORY_MV_DATA(mgUndoMvSlot%, mgUndoI%).slotIndex%
+                    mgUndoRestoreSlot% = HISTORY_create_layer_at_slot%(mgUndoRestoreSlot%, HISTORY_MV_DATA(mgUndoMvSlot%, mgUndoI%).zIndex%)
+                    IF mgUndoRestoreSlot% >= 1 THEN
+                        LAYERS(mgUndoRestoreSlot%).historyId&       = HISTORY_MV_DATA(mgUndoMvSlot%, mgUndoI%).layerId&
+                        LAYERS(mgUndoRestoreSlot%).name$            = HISTORY_MV_DATA(mgUndoMvSlot%, mgUndoI%).name$
+                        LAYERS(mgUndoRestoreSlot%).zIndex%          = HISTORY_MV_DATA(mgUndoMvSlot%, mgUndoI%).zIndex%
+                        LAYERS(mgUndoRestoreSlot%).opacity%         = HISTORY_MV_DATA(mgUndoMvSlot%, mgUndoI%).opacity%
+                        LAYERS(mgUndoRestoreSlot%).visible%         = HISTORY_MV_DATA(mgUndoMvSlot%, mgUndoI%).visible%
+                        LAYERS(mgUndoRestoreSlot%).opacityLock%     = HISTORY_MV_DATA(mgUndoMvSlot%, mgUndoI%).opacityLock%
+                        LAYERS(mgUndoRestoreSlot%).blendMode%       = HISTORY_MV_DATA(mgUndoMvSlot%, mgUndoI%).blendMode%
+                        LAYERS(mgUndoRestoreSlot%).parentGroupIdx%  = HISTORY_MV_DATA(mgUndoMvSlot%, mgUndoI%).parentGroupIdx%
+                        LAYERS(mgUndoRestoreSlot%).layerType%       = HISTORY_MV_DATA(mgUndoMvSlot%, mgUndoI%).layerType%
+                        LAYERS(mgUndoRestoreSlot%).passThrough%     = HISTORY_MV_DATA(mgUndoMvSlot%, mgUndoI%).passThrough%
+                        LAYERS(mgUndoRestoreSlot%).collapsed%       = HISTORY_MV_DATA(mgUndoMvSlot%, mgUndoI%).collapsed%
+                        LAYERS(mgUndoRestoreSlot%).isSelected%      = FALSE
+                        LAYERS(mgUndoRestoreSlot%).lastSelected%    = FALSE
+                        LAYERS(mgUndoRestoreSlot%).contentDirty%    = TRUE
+                        IF HISTORY_MV_DATA(mgUndoMvSlot%, mgUndoI%).img& < -1 THEN
+                            IF LAYERS(mgUndoRestoreSlot%).imgHandle& < -1 THEN
+                                _FREEIMAGE LAYERS(mgUndoRestoreSlot%).imgHandle&
+                            END IF
+                            LAYERS(mgUndoRestoreSlot%).imgHandle& = _COPYIMAGE(HISTORY_MV_DATA(mgUndoMvSlot%, mgUndoI%).img&, 32)
+                        END IF
+                    END IF
+                NEXT mgUndoI%
+                ' Select the group header (stored in x1%)
+                DIM mgUndoOrigSel AS INTEGER
+                mgUndoOrigSel% = HISTORY_RECORDS(idx%).x1%
+                IF mgUndoOrigSel% >= 1 AND mgUndoOrigSel% <= MAX_LAYERS THEN
+                    IF LAYERS(mgUndoOrigSel%).imgHandle& <> 0 THEN
+                        LAYERS_select mgUndoOrigSel%
+                    END IF
+                END IF
         END SELECT
         idx% = idx% - 1
     LOOP
@@ -2196,6 +2358,17 @@ SUB HISTORY_redo ()
                 ' Redo merge-visible: re-run the merge
                 ' HISTORY_IN_PROGRESS% is TRUE, so LAYERS_merge_visible won't record a new entry
                 LAYERS_merge_visible
+            CASE HISTORY_KIND_MERGE_GROUP
+                ' Redo merge-group: find the restored group header and re-merge
+                DIM mgRedoGroupSlot AS INTEGER
+                mgRedoGroupSlot% = HISTORY_find_layer_slot_by_id%(HISTORY_RECORDS(idx%).secondaryLayerId&)
+                IF mgRedoGroupSlot% >= 1 AND mgRedoGroupSlot% <= MAX_LAYERS THEN
+                    IF LAYERS(mgRedoGroupSlot%).imgHandle& <> 0 AND _
+                       LAYERS(mgRedoGroupSlot%).layerType% = LAYER_TYPE_GROUP THEN
+                        ' HISTORY_IN_PROGRESS% is TRUE, so LAYERS_merge_group won't record again
+                        LAYERS_merge_group mgRedoGroupSlot%
+                    END IF
+                END IF
         END SELECT
         HISTORY.current% = idx%
         idx% = idx% + 1

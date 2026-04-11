@@ -308,7 +308,7 @@ Dissolve a group, reparenting children to the grandparent.
 4. [x] Ctrl+Y to redo
 5. [x] Verify the group is dissolved again
 
-### [ ] Merge Group (Action 723)
+### [x] Merge Group (Action 723)
 Flatten all group children into a single image layer.
 
 #### [x] Merge group with image layers
@@ -324,61 +324,61 @@ Flatten all group children into a single image layer.
 2. [x] Merge the group
 3. [x] Verify the merged result correctly composites the blend modes
 
-#### [ ] Merge group with varying opacities
-1. [ ] Create a group with children at different opacity levels (e.g., 128, 64, 255)
-2. [ ] Merge the group
-3. [ ] Verify the merged result correctly applies per-layer opacity
+#### [x] Merge group with varying opacities
+1. [x] Create a group with children at different opacity levels (e.g., 128, 64, 255)
+2. [x] Merge the group
+3. [x] Verify the merged result correctly applies per-layer opacity
 
-#### [ ] Merge group with hidden children
-1. [ ] Create a group with 3 children, hide one
-2. [ ] Merge the group
-3. [ ] Verify hidden layers are excluded from the composite
+#### [x] Merge group with hidden children
+1. [x] Create a group with 3 children, hide one
+2. [x] Merge the group
+3. [x] Verify hidden layers are excluded from the composite
 
-#### [ ] Merge group with nested sub-groups
-1. [ ] Create a group containing a sub-group with its own children
-2. [ ] Merge the parent group
-3. [ ] Verify ALL descendants (including sub-group children) are composited
-4. [ ] Verify the result is a single flat image layer
+#### [x] Merge group with nested sub-groups
+1. [x] Create a group containing a sub-group with its own children
+2. [x] Merge the parent group
+3. [x] Verify ALL descendants (including sub-group children) are composited
+4. [x] Verify the result is a single flat image layer
 
-#### [ ] Merge group preserves parent group membership
-1. [ ] Create GroupA containing GroupB with children
-2. [ ] Merge GroupB
-3. [ ] Verify the merged result layer remains a child of GroupA
+#### [x] Merge group preserves parent group membership
+1. [x] Create GroupA containing GroupB with children
+2. [x] Merge GroupB
+3. [x] Verify the merged result layer remains a child of GroupA
 
-#### [ ] Merge group disabled when not a group
-1. [ ] Select a regular image layer
-2. [ ] Verify "Merge Group" is greyed out in the menu and context menu
+#### [x] Merge group disabled when not a group
+1. [x] Select a regular image layer
+2. [x] Verify "Merge Group" is greyed out in the menu and context menu
 
-#### [ ] Undo/Redo merge group
-1. [ ] Merge a group with distinct child content
-2. [ ] Ctrl+Z to undo
-3. [ ] Verify the group and all children are restored to their original state
-4. [ ] Ctrl+Y to redo
-5. [ ] Verify the merge result reappears
+#### [x] Undo/Redo merge group
+1. [x] Merge a group with distinct child content
+2. [x] Ctrl+Z to undo
+3. [x] Verify the group and all children are restored to their original state
+4. [x] Ctrl+Y to redo
+5. [x] Verify the merge result reappears
 
-### [ ] Select All in Group (Action 725)
+### [x] Select All in Group (Action 725)
 Multi-select all descendants of a group.
 
-#### [ ] Select all in group from group header
-1. [ ] Create a group with 4 child layers
-2. [ ] Select the group header
-3. [ ] Execute "Select All in Group" from Layer menu or context menu
-4. [ ] Verify all 4 children are multi-selected (highlighted in panel)
+#### [x] Select all in group from group header
+1. [x] Create a group with 4 child layers
+2. [x] Select the group header
+3. [x] Execute "Select All in Group" from Layer menu or context menu
+4. [x] Verify all 4 children are multi-selected (highlighted in panel)
 
-#### [ ] Select all in group from child layer
-1. [ ] Create a group with 3 children
-2. [ ] Select one of the children
-3. [ ] Execute "Select All in Group"
-4. [ ] Verify all children of the parent group are selected
+#### [x] Select all in group from child layer
+1. [x] Create a group with 3 children
+2. [x] Select one of the children
+3. [x] Execute "Select All in Group"
+4. [x] Verify all children of the parent group are selected
 
-#### [ ] Select all in nested group selects descendants recursively
-1. [ ] Create GroupA with children and a sub-group GroupB (also with children)
-2. [ ] Execute "Select All in Group" on GroupA
-3. [ ] Verify ALL descendants including GroupB's children are multi-selected
+#### [x] Select all in nested group selects descendants recursively
+1. [x] Create GroupA with children and a sub-group GroupB (also with children)
+2. [x] Execute "Select All in Group" on GroupA
+3. [x] Verify ALL descendants including GroupB's children are multi-selected
 
-#### [ ] Select all disabled when not in a group
-1. [ ] Select a top-level layer that is not in any group
-2. [ ] Verify "Select All in Group" is greyed out
+#### [x] Select all disabled when not in a group
+1. [x] Select a top-level layer that is not in any group
+2. [x] Verify "Select All in Group" is greyed out
 
 ### [ ] Selection from Group (Action 727)
 Create a pixel-accurate marquee selection from group contents.

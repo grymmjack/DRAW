@@ -5337,6 +5337,12 @@ SUB LAYERS_merge_group (groupIdx AS INTEGER)
     DIM grpName AS STRING
     grpName$ = LAYERS(grpSlot%).name
 
+    ' Save group's blend mode and opacity so the merged result inherits them
+    DIM grpBlendMode AS INTEGER
+    DIM grpOpacity AS INTEGER
+    grpBlendMode% = LAYERS(grpSlot%).blendMode%
+    grpOpacity% = LAYERS(grpSlot%).opacity%
+
     ' Validate
     IF grpSlot% < 1 OR grpSlot% > MAX_LAYERS THEN EXIT SUB
     IF LAYERS(grpSlot%).imgHandle& = 0 THEN EXIT SUB
@@ -5351,14 +5357,14 @@ SUB LAYERS_merge_group (groupIdx AS INTEGER)
         EXIT SUB
     END IF
 
-    HISTORY_begin_group
+    ' Record history BEFORE performing the merge (snapshot all children + group header)
+    IF NOT HISTORY_IN_PROGRESS% THEN
+        HISTORY_record_merge_group grpSlot%, childBuf%(), childCount%
+    END IF
 
     ' Create a temporary composite image
     tempImg& = _NEWIMAGE(SCRN.canvasW&, SCRN.canvasH&, 32)
-    IF tempImg& >= -1 THEN
-        HISTORY_end_group
-        EXIT SUB
-    END IF
+    IF tempImg& >= -1 THEN EXIT SUB
     oldDest& = _DEST
     _DEST tempImg&
     CLS , _RGBA32(0, 0, 0, 0)
@@ -5409,8 +5415,9 @@ SUB LAYERS_merge_group (groupIdx AS INTEGER)
         END IF
     NEXT i%
 
-    ' Delete all descendants (suppress history for each — we batched it)
-    ' Delete in reverse z-order; delete sub-group headers' children first
+    ' Delete all descendants (suppress history for each — we recorded above)
+    DIM mgWasInProgress AS INTEGER
+    mgWasInProgress% = HISTORY_IN_PROGRESS%
     HISTORY_IN_PROGRESS% = TRUE
     FOR i% = childCount% TO 1 STEP -1
         IF LAYERS(childBuf%(i%)).imgHandle& <> 0 THEN
@@ -5433,6 +5440,9 @@ SUB LAYERS_merge_group (groupIdx AS INTEGER)
         LAYERS(newIdx%).imgHeight% = _HEIGHT(tempImg&)
         LAYERS(newIdx%).name = grpName$
         LAYERS(newIdx%).contentDirty% = TRUE
+        ' Inherit group's blend mode and opacity
+        LAYERS(newIdx%).blendMode% = grpBlendMode%
+        LAYERS(newIdx%).opacity% = grpOpacity%
         ' Ensure merged layer is NOT inside the group we're about to delete
         LAYERS(newIdx%).parentGroupIdx% = LAYERS(grpSlot%).parentGroupIdx%
     ELSE
@@ -5443,9 +5453,12 @@ SUB LAYERS_merge_group (groupIdx AS INTEGER)
     IF LAYERS(grpSlot%).imgHandle& <> 0 THEN
         LAYERS_delete grpSlot%
     END IF
-    HISTORY_IN_PROGRESS% = FALSE
+    HISTORY_IN_PROGRESS% = mgWasInProgress%
 
-    HISTORY_end_group
+    ' Update the history record with the merged result layer's ID and slot
+    IF NOT mgWasInProgress% AND newIdx% > 0 THEN
+        HISTORY_merge_group_update_result LAYERS(newIdx%).historyId&, newIdx%
+    END IF
 
     IF newIdx% > 0 THEN LAYERS_select newIdx%
     BLEND_invalidate_cache

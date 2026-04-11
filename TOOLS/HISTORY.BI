@@ -30,6 +30,7 @@ CONST HISTORY_KIND_LAYER_MERGE = 13
 CONST HISTORY_KIND_LAYER_MERGE_VISIBLE = 14
 CONST HISTORY_KIND_RASTERIZE = 15
 CONST HISTORY_KIND_GROUP_REPARENT = 16
+CONST HISTORY_KIND_MERGE_GROUP = 17
 
 CONST HISTORY_FLAG_FILLED = 1
 CONST HISTORY_FLAG_CUSTOM_BRUSH = 2
@@ -122,15 +123,19 @@ DIM SHARED HISTORY_SEL_DATA(1 TO HISTORY_MAX_RECORDS) AS HISTORY_SEL_SNAP
 CONST HISTORY_MAX_MV_SLOTS = 64
 
 TYPE HISTORY_MV_ENTRY
-    slotIndex   AS INTEGER
-    layerId     AS LONG
-    zIndex      AS INTEGER
-    opacity     AS INTEGER
-    visible     AS INTEGER
-    opacityLock AS INTEGER
-    blendMode   AS INTEGER
-    img         AS LONG
-    name        AS STRING * 64
+    slotIndex      AS INTEGER
+    layerId        AS LONG
+    zIndex         AS INTEGER
+    opacity        AS INTEGER
+    visible        AS INTEGER
+    opacityLock    AS INTEGER
+    blendMode      AS INTEGER
+    img            AS LONG
+    name           AS STRING * 64
+    parentGroupIdx AS INTEGER
+    layerType      AS INTEGER
+    passThrough    AS INTEGER
+    collapsed      AS INTEGER
 END TYPE
 
 ' HISTORY_MV_DATA(mvSlot, layerEntry) — first dim is the MV slot (1..HISTORY_MAX_MV_SLOTS),
@@ -172,6 +177,8 @@ DECLARE SUB HISTORY_record_brush (layerId AS LONG, layerSlot AS INTEGER, drawCol
 DECLARE SUB HISTORY_record_transform (layerId AS LONG, layerSlot AS INTEGER, flags AS LONG, beforeImg AS LONG, label AS STRING)
 DECLARE SUB HISTORY_record_layer_merge (topIndex AS INTEGER, bottomIndex AS INTEGER)
 DECLARE SUB HISTORY_record_layer_merge_visible (sortedLayers() AS INTEGER, sortCount AS INTEGER, mergedResultSlot AS INTEGER)
+DECLARE SUB HISTORY_record_merge_group (groupIdx AS INTEGER, childBuf() AS INTEGER, childCount AS INTEGER)
+DECLARE SUB HISTORY_merge_group_update_result (resultLayerId AS LONG, resultSlot AS INTEGER)
 DECLARE SUB HISTORY_selection_stage ()
 DECLARE SUB HISTORY_selection_commit ()
 DECLARE FUNCTION HISTORY_MV_alloc_slot% ()
