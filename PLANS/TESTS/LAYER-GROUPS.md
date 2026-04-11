@@ -1,4 +1,4 @@
-# [ ] LAYER GROUPS TESTING
+# [x] LAYER GROUPS TESTING
 
 ## [x] GROUP CREATION
 
@@ -85,16 +85,16 @@ Wrap multi-selected layers into a new group.
 4. [x] Press Ctrl+Shift+G
 5. [x] Verify the new group is created at the top level (common ancestor is root)
 
-#### [ ] Undo/Redo group from selection
+#### [x] Undo/Redo group from selection
 1. [x] Multi-select 3 layers and press Ctrl+Shift+G
 2. [x] Ctrl+Z to undo
 3. [x] Verify all 3 layers return to their original un-grouped positions
-4. [ ] Ctrl+Y to redo
+4. [x] Ctrl+Y to redo
 5. [x] Verify the group is recreated with the same structure
 
 ---
 
-## [ ] GROUP PANEL INTERACTIONS
+## [x] GROUP PANEL INTERACTIONS
 
 ### [x] Collapse/Expand
 Toggle group collapse state in the layers panel.
@@ -265,7 +265,7 @@ Reorder layers into groups via drag-and-drop in the panel.
 
 ---
 
-## [ ] GROUP OPERATIONS
+## [x] GROUP OPERATIONS
 
 ### [x] Ungroup (Ctrl+Shift+U / Action 722)
 Dissolve a group, reparenting children to the grandparent.
@@ -610,9 +610,9 @@ Groups support pass-through (default) and isolated compositing.
 
 ---
 
-## [ ] GROUP CONTEXT MENU
+## [x] GROUP CONTEXT MENU
 
-### [ ] Context Menu Items
+### [x] Context Menu Items
 Verify the context menu shows correct group-specific items.
 
 #### [x] Right-click on group header shows group actions
@@ -667,9 +667,9 @@ Verify every keyboard shortcut related to groups works.
 
 ---
 
-## [ ] DRAWING ON GROUPS
+## [x] DRAWING ON GROUPS
 
-### [ ] Tool Behavior When Group Header Selected
+### [x] Tool Behavior When Group Header Selected
 Drawing tools should NOT operate on the 1×1 group sentinel.
 
 #### [x] Brush tool on group header
@@ -734,9 +734,9 @@ DRW v24+ format saves group fields.
 
 ---
 
-## [ ] GROUP INTERACTIONS WITH OTHER FEATURES
+## [x] GROUP INTERACTIONS WITH OTHER FEATURES
 
-### [ ] Multi-Select and Groups
+### [x] Multi-Select and Groups
 
 #### [x] Ctrl+Click to add group children to multi-select
 1. [x] Create a group with 3 children
@@ -817,161 +817,161 @@ DRW v24+ format saves group fields.
 3. [x] Apply an adjustment
 4. [x] Verify all group descendants are affected
 
-### [ ] Text Layers in Groups
+### [x] Text Layers in Groups
 
-#### [ ] Text layer inside group renders correctly
-1. [ ] Create a text layer inside a group
-2. [ ] Verify the text layer renders at the correct position
-3. [ ] Verify editing the text layer works normally
+#### [x] Text layer inside group renders correctly
+1. [x] Create a text layer inside a group
+2. [x] Verify the text layer renders at the correct position
+3. [x] Verify editing the text layer works normally
 
-#### [ ] Merge group containing text layers
-1. [ ] Create a group with a text layer and an image layer
-2. [ ] Merge the group
-3. [ ] Verify the text is rasterized and composited correctly into the merged result
-
----
-
-## [ ] GROUP STATE MACHINE EDGE CASES
-
-### [ ] Rapid Operations
-
-#### [ ] Rapid create and ungroup
-1. [ ] Quickly press Ctrl+G then Ctrl+Shift+U in rapid succession
-2. [ ] Verify no stale state or crash
-
-#### [ ] Rapid group from selection and undo
-1. [ ] Multi-select layers, Ctrl+Shift+G, immediately Ctrl+Z
-2. [ ] Verify clean undo without corruption
-
-### [ ] Guard Conditions
-
-#### [ ] Ungroup with no group selected
-1. [ ] Select a non-group layer
-2. [ ] Try Ctrl+Shift+U
-3. [ ] Verify nothing happens (guard exits early)
-
-#### [ ] Merge group on non-group layer
-1. [ ] Select a non-group layer
-2. [ ] Try executing Merge Group via command palette
-3. [ ] Verify nothing happens
-
-#### [ ] Group from selection with only group headers
-1. [ ] Multi-select two group headers (no regular layers)
-2. [ ] Try Ctrl+Shift+G
-3. [ ] Verify it works or fails gracefully
-
-### [ ] Re-entry / State Reset
-
-#### [ ] Load file resets all group state
-1. [ ] Create groups, modify them
-2. [ ] Open a different .draw file
-3. [ ] Verify all group state from the previous file is cleared
-4. [ ] Verify the new file's group structure loads correctly
-
-#### [ ] New canvas resets group state
-1. [ ] Create groups with children
-2. [ ] Press Ctrl+N for new canvas
-3. [ ] Verify NEXT_GROUP_NUM is reset
-4. [ ] Verify no orphaned group references exist
-
-### [ ] Cancellation Paths
-
-#### [ ] Cancel delete group dialog
-1. [ ] Right-click group → Delete → Cancel
-2. [ ] Verify the group remains intact with no side effects
-
-#### [ ] Context menu dismiss
-1. [ ] Right-click a group to open context menu
-2. [ ] Press Escape or click outside
-3. [ ] Verify the context menu closes cleanly with no state corruption
+#### [x] Merge group containing text layers
+1. [x] Create a group with a text layer and an image layer
+2. [x] Merge the group
+3. [x] Verify the text is rasterized and composited correctly into the merged result
 
 ---
 
-## [ ] GROUP UNDO/REDO COMPREHENSIVE
+## [x] GROUP STATE MACHINE EDGE CASES
 
-### [ ] Multi-Step Undo Through Group Operations
+### [x] Rapid Operations
 
-#### [ ] Undo through create → modify → ungroup
-1. [ ] Create a group (Ctrl+G)
-2. [ ] Paint on a child layer
-3. [ ] Ungroup (Ctrl+Shift+U)
-4. [ ] Ctrl+Z three times
-5. [ ] Verify: ungroup reversed → paint reversed → group creation reversed
+#### [x] Rapid create and ungroup
+1. [x] Quickly press Ctrl+G then Ctrl+Shift+U in rapid succession
+2. [x] Verify no stale state or crash
 
-#### [ ] Undo through group from selection → transform
-1. [ ] Multi-select layers, group them (Ctrl+Shift+G)
-2. [ ] Flip the group (H)
-3. [ ] Ctrl+Z twice
-4. [ ] Verify: flip reversed → grouping reversed, layers back to original state
+#### [x] Rapid group from selection and undo
+1. [x] Multi-select layers, Ctrl+Shift+G, immediately Ctrl+Z
+2. [x] Verify clean undo without corruption
 
-#### [ ] Undo merge group
-1. [ ] Create a group with 3 layers, each with unique content
-2. [ ] Merge the group
-3. [ ] Ctrl+Z
-4. [ ] Verify: the group header and all 3 children are fully restored
+### [x] Guard Conditions
 
-#### [ ] Undo drag layer into group
-1. [ ] Drag a layer into a group
-2. [ ] Ctrl+Z
-3. [ ] Verify the layer returns to its original position outside the group
+#### [x] Ungroup with no group selected
+1. [x] Select a non-group layer
+2. [x] Try Ctrl+Shift+U
+3. [x] Verify nothing happens (guard exits early)
 
-#### [ ] Multi-undo across tool switches
-1. [ ] Create a group
-2. [ ] Switch to Brush tool, paint on a child layer
-3. [ ] Switch to Move tool, move the child
-4. [ ] Ctrl+Z through all operations
-5. [ ] Verify each step undoes correctly in reverse order
+#### [x] Merge group on non-group layer
+1. [x] Select a non-group layer
+2. [x] Try executing Merge Group via command palette
+3. [x] Verify nothing happens
 
-#### [ ] Redo after partial undo
-1. [ ] Perform 5 group operations (create, rename, move, transform, ungroup)
-2. [ ] Ctrl+Z 3 times
-3. [ ] Ctrl+Y 2 times
-4. [ ] Verify state is consistent at each step
+#### [x] Group from selection with only group headers
+1. [x] Multi-select two group headers (no regular layers)
+2. [x] Try Ctrl+Shift+G
+3. [x] Verify it works or fails gracefully
+
+### [x] Re-entry / State Reset
+
+#### [x] Load file resets all group state
+1. [x] Create groups, modify them
+2. [x] Open a different .draw file
+3. [x] Verify all group state from the previous file is cleared
+4. [x] Verify the new file's group structure loads correctly
+
+#### [x] New canvas resets group state
+1. [x] Create groups with children
+2. [x] Press Ctrl+N for new canvas
+3. [x] Verify NEXT_GROUP_NUM is reset
+4. [x] Verify no orphaned group references exist
+
+### [x] Cancellation Paths
+
+#### [x] Cancel delete group dialog
+1. [x] Right-click group → Delete → Cancel
+2. [x] Verify the group remains intact with no side effects
+
+#### [x] Context menu dismiss
+1. [x] Right-click a group to open context menu
+2. [x] Press Escape or click outside
+3. [x] Verify the context menu closes cleanly with no state corruption
 
 ---
 
-## [ ] GROUP EDGE CASES
+## [x] GROUP UNDO/REDO COMPREHENSIVE
 
-### [ ] Empty Groups
+### [x] Multi-Step Undo Through Group Operations
 
-#### [ ] Empty group with no children
-1. [ ] Create an empty group (Ctrl+G with no children)
-2. [ ] Verify the group header exists but has no children
-3. [ ] Verify the group can be collapsed/expanded (no-op visually)
+#### [x] Undo through create → modify → ungroup
+1. [x] Create a group (Ctrl+G)
+2. [x] Paint on a child layer
+3. [x] Ungroup (Ctrl+Shift+U)
+4. [x] Ctrl+Z three times
+5. [x] Verify: ungroup reversed → paint reversed → group creation reversed
 
-#### [ ] Delete last child of a group
-1. [ ] Create a group with 1 child
-2. [ ] Delete the child
-3. [ ] Verify the group becomes empty (or is auto-deleted depending on implementation)
+#### [x] Undo through group from selection → transform
+1. [x] Multi-select layers, group them (Ctrl+Shift+G)
+2. [x] Flip the group (H)
+3. [x] Ctrl+Z twice
+4. [x] Verify: flip reversed → grouping reversed, layers back to original state
 
-### [ ] Maximum Layers
+#### [x] Undo merge group
+1. [x] Create a group with 3 layers, each with unique content
+2. [x] Merge the group
+3. [x] Ctrl+Z
+4. [x] Verify: the group header and all 3 children are fully restored
 
-#### [ ] Groups near MAX_LAYERS (64)
-1. [ ] Create many layers to approach the 64-layer limit
-2. [ ] Try creating a group (needs 1 slot for the header)
-3. [ ] Verify the group creation fails gracefully if no slots available
+#### [x] Undo drag layer into group
+1. [x] Drag a layer into a group
+2. [x] Ctrl+Z
+3. [x] Verify the layer returns to its original position outside the group
 
-### [ ] Mixed Content
+#### [x] Multi-undo across tool switches
+1. [x] Create a group
+2. [x] Switch to Brush tool, paint on a child layer
+3. [x] Switch to Move tool, move the child
+4. [x] Ctrl+Z through all operations
+5. [x] Verify each step undoes correctly in reverse order
 
-#### [ ] Group with mixed layer types
-1. [ ] Create a group containing: an image layer, a text layer, and a sub-group
-2. [ ] Verify all types display correctly in the panel
-3. [ ] Verify all types render correctly on the canvas
+#### [x] Redo after partial undo
+1. [x] Perform 5 group operations (create, rename, move, transform, ungroup)
+2. [x] Ctrl+Z 3 times
+3. [x] Ctrl+Y 2 times
+4. [x] Verify state is consistent at each step
 
-#### [ ] Group operations across zoom levels
-1. [ ] Set zoom to 800%
-2. [ ] Create a group, add children, manipulate it
-3. [ ] Set zoom to 25%
-4. [ ] Verify the group panel and canvas rendering are correct at both zoom levels
+---
 
-#### [ ] Group operations with active selection
-1. [ ] Create a marquee selection on the canvas
-2. [ ] Create a group (Ctrl+G)
-3. [ ] Verify the selection is preserved or properly handled
-4. [ ] Perform group operations (merge, ungroup)
-5. [ ] Verify the selection state remains consistent
+## [x] GROUP EDGE CASES
 
-#### [ ] Group operations with grid snap enabled
-1. [ ] Enable grid snap (;)
-2. [ ] Create and manipulate groups
-3. [ ] Verify group operations are not affected by grid snap settings
+### [x] Empty Groups
+
+#### [x] Empty group with no children
+1. [x] Create an empty group (Ctrl+G with no children)
+2. [x] Verify the group header exists but has no children
+3. [x] Verify the group can be collapsed/expanded (no-op visually)
+
+#### [x] Delete last child of a group
+1. [x] Create a group with 1 child
+2. [x] Delete the child
+3. [x] Verify the group becomes empty (or is auto-deleted depending on implementation)
+
+### [x] Maximum Layers
+
+#### [x] Groups near MAX_LAYERS (64)
+1. [x] Create many layers to approach the 64-layer limit
+2. [x] Try creating a group (needs 1 slot for the header)
+3. [x] Verify the group creation fails gracefully if no slots available
+
+### [x] Mixed Content
+
+#### [x] Group with mixed layer types
+1. [x] Create a group containing: an image layer, a text layer, and a sub-group
+2. [x] Verify all types display correctly in the panel
+3. [x] Verify all types render correctly on the canvas
+
+#### [x] Group operations across zoom levels
+1. [x] Set zoom to 800%
+2. [x] Create a group, add children, manipulate it
+3. [x] Set zoom to 25%
+4. [x] Verify the group panel and canvas rendering are correct at both zoom levels
+
+#### [x] Group operations with active selection
+1. [x] Create a marquee selection on the canvas
+2. [x] Create a group (Ctrl+G)
+3. [x] Verify the selection is preserved or properly handled
+4. [x] Perform group operations (merge, ungroup)
+5. [x] Verify the selection state remains consistent
+
+#### [x] Group operations with grid snap enabled
+1. [x] Enable grid snap (;)
+2. [x] Create and manipulate groups
+3. [x] Verify group operations are not affected by grid snap settings
