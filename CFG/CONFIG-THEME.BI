@@ -339,6 +339,8 @@ TYPE DRAW_THEME
     GLOBAL_FONT_FILE       AS STRING          ' Primary UI font filename (e.g. Tiny5-Regular.ttf)
     GLOBAL_FONT_SIZE       AS INTEGER         ' Primary UI font size in points/pixels
     ALT_FONT_FILE          AS STRING          ' Alternate font filename (e.g. PICO-8.ttf) — reserved
+    FILE_DIALOG_FONT_FILE  AS STRING          ' File dialog font filename (overrides GLOBAL if set)
+    FILE_DIALOG_FONT_SIZE  AS INTEGER         ' File dialog font size in points/pixels
     ' --- Sounds ---
     SOUND_MENU_OPEN_FILE   AS STRING          ' Filename for menu-open sound
     SOUND_MENU_SELECT_FILE AS STRING          ' Filename for menu-item-selected sound

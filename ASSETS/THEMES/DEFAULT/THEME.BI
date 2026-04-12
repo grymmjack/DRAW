@@ -348,6 +348,8 @@ THEME.CP_check_b~&               = _RGB32(60, 60, 60)            ' Checkerboard 
 THEME.GLOBAL_FONT_FILE$          = "Tiny5-Regular.ttf"       ' Primary UI font
 THEME.GLOBAL_FONT_SIZE%          = 8                         ' Primary UI font size
 THEME.ALT_FONT_FILE$             = "PICO-8.ttf"              ' Alternate font (reserved)
+THEME.FILE_DIALOG_FONT_FILE$     = "Tiny5-Regular.ttf"       ' File dialog font (set to "" to use GLOBAL)
+THEME.FILE_DIALOG_FONT_SIZE%     = 8                         ' File dialog font size
 
 ' --- Sounds ---
 THEME.SOUND_MENU_OPEN_FILE$   = "menu-open.wav"    ' Open root menu
@@ -500,6 +502,18 @@ THEME.ADV_BAR_ICON_DIST_H$          = "distribute-horizontal.png"
 THEME.ADV_BAR_ICON_DIST_V$          = "distribute-vertical.png"
 THEME.ADV_BAR_ICON_FLIP_CANVAS_H$   = "flip-canvas-horizontal.png"
 THEME.ADV_BAR_ICON_FLIP_CANVAS_V$   = "flip-canvas-vertical.png"
+
+' =============================================================================
+' TOOLTIPS
+' =============================================================================
+THEME.TOOLTIP_FONT$                 = ""                             ' Empty = inherit GLOBAL_FONT_FILE
+THEME.TOOLTIP_FONT_SIZE%            = 8                              ' Tooltip font size in pixels
+THEME.TOOLTIP_BG_COLOR~&            = _RGBA32(40, 40, 50, 240)      ' Tooltip background
+THEME.TOOLTIP_FG_COLOR~&            = _RGBA32(200, 200, 200, 255)   ' Tooltip text color
+THEME.TOOLTIP_BOLD_FG_COLOR~&       = _RGBA32(255, 255, 100, 255)   ' Hotkey / bold text color
+THEME.TOOLTIP_BORDER_COLOR~&        = _RGBA32(100, 100, 120, 255)   ' Tooltip border color
+THEME.TOOLTIP_BORDER_WIDTH%         = 1                              ' Border width in pixels
+THEME.TOOLTIP_PADDING%              = 3                              ' Inner padding in pixels
 
 PALETTE_SEP_LOSPEC_LBL$             = "-- USER : LOSPEC --"
 PALETTE_SEP_CREATED_LBL$            = "-- USER : CREATED --"

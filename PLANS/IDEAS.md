@@ -1,7 +1,7 @@
 # IDEAS
 
 
-## [ ] FILE DIALOG IMPROVEMENTS
+## - [ ] FILE DIALOG IMPROVEMENTS
 - [ ] Make the cursor focus default to the filename for:
   - [ ] Save dialogs
 
