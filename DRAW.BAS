@@ -19,6 +19,43 @@ THEME_load
 '$CONSOLE
 $EXEICON:'./ASSETS/ICONS/icon.ico'
 
+' === Splash screen — show ASAP with fade-in while rest of startup loads ===
+DIM splashImg AS LONG, splashStart AS DOUBLE
+DIM splashDstW AS LONG, splashDstH AS LONG
+DIM splashX AS LONG, splashY AS LONG
+DIM splashAlpha AS INTEGER
+DIM splashBg AS _UNSIGNED LONG, splashBgR AS INTEGER, splashBgG AS INTEGER, splashBgB AS INTEGER
+splashImg& = _LOADIMAGE("ASSETS/THEMES/" + _TRIM$(CFG.THEME$) + "/splash.png", 32)
+IF splashImg& < -1 THEN
+    splashBg~& = THEME.SPLASH_BG_COLOR~&
+    splashBgR% = _RED32(splashBg~&): splashBgG% = _GREEN32(splashBg~&): splashBgB% = _BLUE32(splashBg~&)
+    DIM splashScale AS SINGLE
+    splashScale! = _HEIGHT(0) / _HEIGHT(splashImg&)
+    splashDstW& = INT(_WIDTH(splashImg&) * splashScale!)
+    splashDstH& = _HEIGHT(0)
+    splashX& = (_WIDTH(0) - splashDstW&) \ 2
+    splashY& = 0
+    DIM splashOldDest AS LONG: splashOldDest& = _DEST
+    _DEST 0
+    ' Fade in over ~0.4 seconds
+    splashStart# = TIMER(.001)
+    DO
+        splashAlpha% = INT((TIMER(.001) - splashStart#) / 0.4 * 255)
+        IF splashAlpha% > 255 THEN splashAlpha% = 255
+        CLS , splashBg~&
+        _PUTIMAGE (splashX&, splashY&)-(splashX& + splashDstW& - 1, splashY& + splashDstH& - 1), splashImg&, 0
+        LINE (0, 0)-(_WIDTH(0) - 1, _HEIGHT(0) - 1), _RGBA32(splashBgR%, splashBgG%, splashBgB%, 255 - splashAlpha%), BF
+        _DISPLAY
+        _LIMIT 60
+    LOOP UNTIL splashAlpha% >= 255
+    ' Show fully opaque splash and record time for minimum-hold check
+    CLS , splashBg~&
+    _PUTIMAGE (splashX&, splashY&)-(splashX& + splashDstW& - 1, splashY& + splashDstH& - 1), splashImg&, 0
+    _DISPLAY
+    splashStart# = TIMER(.001) ' reset: hold starts after fade-in completes
+    _DEST splashOldDest&
+END IF
+
 ' Parse command line arguments (just store filename, load after first frame)
 ' --config / -c args are already consumed by CONFIG.BI inline code
 DIM cmdArg$
@@ -144,7 +181,35 @@ ebPrevCanUndo% = FALSE
 ebPrevCanRedo% = FALSE
 ebPrevHasClip% = FALSE
 ebPrevHasSel%  = FALSE
-    
+
+' === Dismiss splash screen with fade-out (after configurable hold) ===
+IF splashImg& < -1 THEN
+    DIM splashOldDest2 AS LONG: splashOldDest2& = _DEST
+    DIM splashWinBg AS _UNSIGNED LONG
+    splashWinBg~& = THEME.WINDOW_BG_COLOR~&
+    DIM splashWinR AS INTEGER, splashWinG AS INTEGER, splashWinB AS INTEGER
+    splashWinR% = _RED32(splashWinBg~&): splashWinG% = _GREEN32(splashWinBg~&): splashWinB% = _BLUE32(splashWinBg~&)
+    _DEST 0
+    ' Wait for configured hold time since fade-in completed
+    DO WHILE TIMER(.001) - splashStart# < THEME.SPLASH_HOLD_TIME!
+        _LIMIT 60
+    LOOP
+    ' Fade out over ~0.4 seconds toward WINDOW_BG_COLOR
+    DIM splashFadeOut AS DOUBLE
+    splashFadeOut# = TIMER(.001)
+    DO
+        splashAlpha% = INT((TIMER(.001) - splashFadeOut#) / 0.4 * 255)
+        IF splashAlpha% > 255 THEN splashAlpha% = 255
+        CLS , splashBg~&
+        _PUTIMAGE (splashX&, splashY&)-(splashX& + splashDstW& - 1, splashY& + splashDstH& - 1), splashImg&, 0
+        LINE (0, 0)-(_WIDTH(0) - 1, _HEIGHT(0) - 1), _RGBA32(splashWinR%, splashWinG%, splashWinB%, splashAlpha%), BF
+        _DISPLAY
+        _LIMIT 60
+    LOOP UNTIL splashAlpha% >= 255
+    _DEST splashOldDest2&
+    _FREEIMAGE splashImg&
+END IF
+
 DO
     ' Deferred command line file loading (after first frame when everything is initialized)
     IF CMDLINE_FIRST_FRAME% AND CMDLINE_PENDING_FILE$ <> "" THEN

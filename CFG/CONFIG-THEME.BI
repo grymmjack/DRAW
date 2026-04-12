@@ -553,6 +553,11 @@ TYPE DRAW_THEME
     SMART_GUIDES_outline_width AS INTEGER         ' Outline width in px (0=none, default 1)
     SMART_GUIDES_pattern       AS INTEGER         ' 16-bit LINE pattern (default &B1111000011110000)
     SMART_GUIDES_distance      AS INTEGER         ' Detection distance in canvas px (default 4)
+    ' --- Splash screen ---
+    SPLASH_HOLD_TIME           AS SINGLE          ' Seconds splash stays visible after fade-in (default 1.0)
+    SPLASH_BG_COLOR            AS _UNSIGNED LONG  ' Splash background fill color (default black)
+    ' --- Window ---
+    WINDOW_BG_COLOR            AS _UNSIGNED LONG  ' Default window background color (default black)
 END TYPE
 
 ' Runtime theme loader — populates THEME from ASSETS/THEMES/{CFG.THEME$}/THEME.CFG

@@ -656,3 +656,10 @@ CURSORS(CURSOR_WAND).hotspot_y_expr$ = "9"
 CURSORS(CURSOR_ZOOM).filename$       = "cursor-zoom.png"
 CURSORS(CURSOR_ZOOM).hotspot_x_expr$ = "center"
 CURSORS(CURSOR_ZOOM).hotspot_y_expr$ = "center"
+
+' --- Splash screen ---
+THEME.SPLASH_HOLD_TIME! = 1.0
+THEME.SPLASH_BG_COLOR~& = _RGB32(0, 0, 0)
+
+' --- Window ---
+THEME.WINDOW_BG_COLOR~& = _RGB32(0, 0, 0)
