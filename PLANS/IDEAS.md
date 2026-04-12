@@ -1,5 +1,20 @@
 # IDEAS
 
+## FILE DIALOG IMPROVEMENTS
+- Make the cursor focus default to the filename for:
+  - Save dialogs
+  
+## LOSPEC DIALOG IMPROVEMENTS
+- Fix the alignment of the text in the search box
+  - Is Lospec dialog even using our text input lib?
+
+## SPARE PAGE
+- Implement Spare page
+
+## PALETTE BUTTON IN DRAWER
+- Load Palette
+- Load from Lospec
+
 
 ## Image Browser (For drag/drop to brush and pattern slots)
 
