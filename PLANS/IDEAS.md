@@ -1,21 +1,5 @@
 # IDEAS
 
-## COLOR MIXER (replaces COLOR-OPS)
-- Toggle with COLOR MIXER button on/off 
-  - rename color-ops-off.png to color-mixer-off.png
-  - rename color-ops-on.png to color-mixer-on.png
-  - color-mixer-off = color dialog invisible
-  - color-mixer-on = color dialog visible
-  - New Tooltip: L-CLICK to show/hide color dialog
-  - Add to PALETTE -> [x] Color Mixer 
-  - Should remain at same z-index as Preview Window
-  - Can be freely moved inside DRAW window like preview window
-  - Should be hidden if user drags over it while drawing like other chrome
-  - State should be remembered per session, per document, etc.
-    - DRAW_CFG COLOR_MIXER_VISIBLE = true/false
-  - When picking colors from ANYWHERE else in DRAW, synchronize to the color mixer
-    and pick that same color, if possible, honoring quantization, etc. if setup.
-
 
 ## FILE DIALOG IMPROVEMENTS
 - Add tooltip for buttons and panes
@@ -501,3 +485,21 @@ Automatically snap to layer candidates when near X/Y/W/H bounds of neighbors
 ## - [x] Color BITMAP fonts
 - [x] See DEV/FONTS/COLOR_BITMAP
 - [x] Lots of examples there
+
+
+
+## - [x] COLOR MIXER (replaces COLOR-OPS)
+- [x] Toggle with COLOR MIXER button on/off 
+  - [x] rename color-ops-off.png to color-mixer-off.png
+  - [x] rename color-ops-on.png to color-mixer-on.png
+  - [x] color-mixer-off = color dialog invisible
+  - [x] color-mixer-on = color dialog visible
+  - [x] New Tooltip: L-CLICK to show/hide color dialog
+  - [x] Add to PALETTE -> [x] Color Mixer 
+  - [x] Should remain at same z-index as Preview Window
+  - [x] Can be freely moved inside DRAW window like preview window
+  - [x] Should be hidden if user drags over it while drawing like other chrome
+  - [x] State should be remembered per session, per document, etc.
+    - [x] DRAW_CFG COLOR_MIXER_VISIBLE = true/false
+  - [x] When picking colors from ANYWHERE else in DRAW, synchronize to the color mixer
+    and pick that same color, if possible, honoring quantization, etc. if setup.
