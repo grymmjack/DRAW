@@ -63,25 +63,105 @@ SUB COLORMIXER_ensure_initialized ()
 
     CP_init initColor~&
 
+    ' Wire DRAW theme colors into CP_THEME (overrides library defaults)
+    CP_THEME.bg~&              = THEME.CP_bg~&
+    CP_THEME.titleBg~&         = THEME.CP_title_bg~&
+    CP_THEME.titleHoverBg~&    = THEME.CP_title_hover_bg~&
+    CP_THEME.titleDragBg~&     = THEME.CP_title_drag_bg~&
+    CP_THEME.buttonBarBg~&     = THEME.CP_button_bar_bg~&
+    CP_THEME.contentBg~&       = THEME.CP_bg~&
+    CP_THEME.titleFg~&         = THEME.CP_title_fg~&
+    CP_THEME.text~&            = THEME.CP_text~&
+    CP_THEME.textBright~&      = THEME.CP_text_bright~&
+    CP_THEME.textDim~&         = THEME.CP_text_dim~&
+    CP_THEME.buttonBg~&        = THEME.CP_button_bg~&
+    CP_THEME.buttonHover~&     = THEME.CP_button_hover~&
+    CP_THEME.buttonText~&      = THEME.CP_button_text~&
+    CP_THEME.buttonSecondary~& = THEME.CP_button_secondary~&
+    CP_THEME.buttonSecHover~&  = THEME.CP_button_sec_hover~&
+    CP_THEME.buttonSecText~&   = THEME.CP_button_sec_text~&
+    CP_THEME.buttonFocus~&     = THEME.CP_button_focus~&
+    CP_THEME.closeFg~&         = THEME.CP_close_fg~&
+    CP_THEME.closeHoverBg~&    = THEME.CP_close_hover_bg~&
+    CP_THEME.border~&          = THEME.CP_border~&
+    CP_THEME.divider~&         = THEME.CP_divider~&
+    CP_THEME.sliderBg~&        = THEME.CP_slider_bg~&
+    CP_THEME.sliderBorder~&    = THEME.CP_slider_border~&
+    CP_THEME.overlay~&         = THEME.CP_overlay~&
+    CP_THEME.checkA~&          = THEME.CP_check_a~&
+    CP_THEME.checkB~&          = THEME.CP_check_b~&
+
+    ' Load the same font as PREVIEW/MENUBAR/STATUS chrome
+    DIM cpFontFile AS STRING
+    DIM cpFontSize AS INTEGER
+    cpFontFile$ = THEME_font_path$(THEME.GLOBAL_FONT_FILE$)
+    cpFontSize% = THEME.GLOBAL_FONT_SIZE%
+    IF cpFontSize% < 1 THEN cpFontSize% = 8
+    IF _FILEEXISTS(cpFontFile$) THEN
+        CP_THEME.fontHandle& = _LOADFONT(cpFontFile$, cpFontSize%, "DONTBLEND")
+        IF CP_THEME.fontHandle& <= 0 THEN
+            _LOGWARN "COLORMIXER: _LOADFONT failed for " + cpFontFile$
+            CP_THEME.fontHandle& = 0
+        ELSE
+            ' Sync font metrics into CP_STATE for layout calculations
+            DIM cpOldFont AS LONG
+            cpOldFont& = _FONT
+            _FONT CP_THEME.fontHandle&
+            CP_STATE.fontW = _FONTWIDTH
+            CP_STATE.fontH = _FONTHEIGHT
+            ' TTF fonts return 0 for _FONTWIDTH; measure a glyph instead
+            IF CP_STATE.fontW < 1 THEN
+                CP_STATE.fontW = _UPRINTWIDTH("M")
+            END IF
+            CP_THEME.fontW% = CP_STATE.fontW
+            CP_THEME.fontH% = CP_STATE.fontH
+            _FONT cpOldFont&
+        END IF
+    ELSE
+        CP_THEME.fontHandle& = 0
+    END IF
+
     ' Set title for the floating panel
-    CP_STATE.title = "Color Mixer"
+    CP_STATE.title = "COLOR MIXER"
 
     ' Free screenshot — not needed for non-modal rendering
     IF CP_STATE.screenShot < -1 THEN _FREEIMAGE CP_STATE.screenShot
     CP_STATE.screenShot = -1
 
-    ' Use same font config as the modal color picker (DRAW_pick_color&)
-    IF CFG.FD_FONT% = 16 THEN
-        CP_STATE.fontID = 16: CP_STATE.fontW = 8: CP_STATE.fontH = 16
-    ELSE
-        CP_STATE.fontID = 8: CP_STATE.fontW = 8: CP_STATE.fontH = 8
+    ' If font didn't load, fall back to built-in bitmap font config
+    IF CP_THEME.fontHandle& = 0 THEN
+        IF CFG.FD_FONT% = 16 THEN
+            CP_STATE.fontID = 16: CP_STATE.fontW = 8: CP_STATE.fontH = 16
+        ELSE
+            CP_STATE.fontID = 8: CP_STATE.fontW = 8: CP_STATE.fontH = 8
+        END IF
     END IF
 
     ' Render at native size, upscale via _PUTIMAGE (same as CP_RENDER_blit)
     CP_STATE.scale = 1
 
+    ' Scale geometry to match font size (proportional to default 8×16 font)
+    CP_THEME_scale_geometry
+
     ' Recalculate layout
     CP_layout_calculate
+
+    ' Rebuild hue bar image at correct scaled dimensions
+    IF CP_STATE.hueBarImage < -1 THEN _FREEIMAGE CP_STATE.hueBarImage
+    CP_STATE.hueBarImage = -1
+    CP_RENDER_build_hue_bar
+
+    ' Recreate TI hex widget at correct scaled position
+    IF CP_STATE.tiHexId > 0 THEN
+        DIM tiHexText AS STRING
+        tiHexText$ = TI_get_text$(CP_STATE.tiHexId)
+        TI_destroy CP_STATE.tiHexId
+        CP_STATE.tiHexId = TI_create%(CP_STATE.hexInputX, CP_STATE.hexY, CP_STATE.hexInputW, CP_THEME.hexInputH%)
+        IF CP_STATE.tiHexId > 0 THEN
+            TI_set_text CP_STATE.tiHexId, tiHexText$
+            CP_wire_hex_ti_theme
+        END IF
+    END IF
 
     ' (Re)create offscreen buffer at correct size
     IF CP_STATE.imgHandle < -1 THEN _FREEIMAGE CP_STATE.imgHandle
@@ -108,6 +188,11 @@ END SUB
 ' ---------------------------------------------------------------------------
 SUB COLORMIXER_cleanup ()
     IF COLORMIXER.initialized% THEN
+        ' Free the themed font handle if we loaded one
+        IF CP_THEME.fontHandle& > 0 THEN
+            _FREEFONT CP_THEME.fontHandle&
+            CP_THEME.fontHandle& = 0
+        END IF
         CP_cleanup
         COLORMIXER.initialized% = FALSE
     END IF

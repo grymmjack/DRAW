@@ -317,6 +317,33 @@ THEME.PREVIEW_initial_padding%   = 8                             ' Edge padding 
 THEME.PREVIEW_font$              = ""                            ' Font (empty = global)
 THEME.PREVIEW_font_size%         = 8                             ' Font point size
 
+' --- Color Picker / Mixer ---
+THEME.CP_bg~&                    = _RGB32(30, 30, 30)            ' Dialog background (match Preview)
+THEME.CP_border~&                = _RGB32(80, 80, 80)            ' Outer border (match Preview)
+THEME.CP_title_bg~&              = _RGB32(45, 45, 45)            ' Title bar normal (match Preview)
+THEME.CP_title_hover_bg~&        = _RGB32(60, 60, 60)            ' Title bar hover (match Preview)
+THEME.CP_title_drag_bg~&         = _RGB32(35, 35, 100)           ' Title bar drag (match Preview)
+THEME.CP_title_fg~&              = _RGB32(200, 200, 200)         ' Title bar text (match Preview)
+THEME.CP_close_fg~&              = _RGB32(220, 80, 80)           ' Close X color (match Preview)
+THEME.CP_close_hover_bg~&        = _RGB32(180, 40, 40)           ' Close X hover bg (match Preview)
+THEME.CP_text~&                  = _RGB32(180, 180, 180)         ' Normal text
+THEME.CP_text_bright~&           = _RGB32(220, 220, 220)         ' Bright text
+THEME.CP_text_dim~&              = _RGB32(100, 100, 100)         ' Dim text
+THEME.CP_button_bg~&             = _RGB32(60, 60, 60)            ' Primary button bg
+THEME.CP_button_hover~&          = _RGB32(75, 75, 75)            ' Primary button hover
+THEME.CP_button_text~&           = _RGB32(220, 220, 220)         ' Primary button text
+THEME.CP_button_secondary~&      = _RGB32(50, 50, 50)            ' Secondary button bg
+THEME.CP_button_sec_hover~&      = _RGB32(65, 65, 65)            ' Secondary button hover
+THEME.CP_button_sec_text~&       = _RGB32(180, 180, 180)         ' Secondary button text
+THEME.CP_button_focus~&          = _RGB32(80, 80, 80)            ' Button focus ring
+THEME.CP_button_bar_bg~&         = _RGB32(35, 35, 35)            ' Button bar background
+THEME.CP_divider~&               = _RGB32(60, 60, 60)            ' Section divider
+THEME.CP_slider_bg~&             = _RGB32(25, 25, 25)            ' Slider track bg
+THEME.CP_slider_border~&         = _RGB32(70, 70, 70)            ' Slider track border
+THEME.CP_overlay~&               = &H80000000~&                  ' Modal dimming
+THEME.CP_check_a~&               = _RGB32(40, 40, 40)            ' Checkerboard A
+THEME.CP_check_b~&               = _RGB32(60, 60, 60)            ' Checkerboard B
+
 ' --- Fonts ---
 THEME.GLOBAL_FONT_FILE$          = "Tiny5-Regular.ttf"       ' Primary UI font
 THEME.GLOBAL_FONT_SIZE%          = 8                         ' Primary UI font size

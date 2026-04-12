@@ -23,19 +23,97 @@ FUNCTION DRAW_pick_color& (title AS STRING, initialColor AS _UNSIGNED LONG)
     mixerWasInit% = COLORMIXER.initialized%
     IF mixerWasInit% THEN COLORMIXER_cleanup
     CP_init initialColor
-    ' Apply configured font after init (init zeros state then sets defaults)
-    IF CFG.FD_FONT% = 8 THEN
-        CP_STATE.fontID = 8: CP_STATE.fontW = 8: CP_STATE.fontH = 8
-        TI_set_font 8, 8, 8
-    ELSEIF CFG.FD_FONT% = 16 THEN
-        CP_STATE.fontID = 16: CP_STATE.fontW = 8: CP_STATE.fontH = 16
-        TI_set_font 16, 8, 16
+
+    ' Wire DRAW theme colors into CP_THEME (same colors as floating mixer)
+    CP_THEME.bg~&              = THEME.CP_bg~&
+    CP_THEME.titleBg~&         = THEME.CP_title_bg~&
+    CP_THEME.titleHoverBg~&    = THEME.CP_title_hover_bg~&
+    CP_THEME.titleDragBg~&     = THEME.CP_title_drag_bg~&
+    CP_THEME.buttonBarBg~&     = THEME.CP_button_bar_bg~&
+    CP_THEME.contentBg~&       = THEME.CP_bg~&
+    CP_THEME.titleFg~&         = THEME.CP_title_fg~&
+    CP_THEME.text~&            = THEME.CP_text~&
+    CP_THEME.textBright~&      = THEME.CP_text_bright~&
+    CP_THEME.textDim~&         = THEME.CP_text_dim~&
+    CP_THEME.buttonBg~&        = THEME.CP_button_bg~&
+    CP_THEME.buttonHover~&     = THEME.CP_button_hover~&
+    CP_THEME.buttonText~&      = THEME.CP_button_text~&
+    CP_THEME.buttonSecondary~& = THEME.CP_button_secondary~&
+    CP_THEME.buttonSecHover~&  = THEME.CP_button_sec_hover~&
+    CP_THEME.buttonSecText~&   = THEME.CP_button_sec_text~&
+    CP_THEME.buttonFocus~&     = THEME.CP_button_focus~&
+    CP_THEME.closeFg~&         = THEME.CP_close_fg~&
+    CP_THEME.closeHoverBg~&    = THEME.CP_close_hover_bg~&
+    CP_THEME.border~&          = THEME.CP_border~&
+    CP_THEME.divider~&         = THEME.CP_divider~&
+    CP_THEME.sliderBg~&        = THEME.CP_slider_bg~&
+    CP_THEME.sliderBorder~&    = THEME.CP_slider_border~&
+    CP_THEME.overlay~&         = THEME.CP_overlay~&
+    CP_THEME.checkA~&          = THEME.CP_check_a~&
+    CP_THEME.checkB~&          = THEME.CP_check_b~&
+
+    ' Load themed font for modal picker
+    DIM cpModalFontFile AS STRING
+    DIM cpModalFontSize AS INTEGER
+    cpModalFontFile$ = THEME_font_path$(THEME.GLOBAL_FONT_FILE$)
+    cpModalFontSize% = THEME.GLOBAL_FONT_SIZE%
+    IF cpModalFontSize% < 1 THEN cpModalFontSize% = 8
+    IF _FILEEXISTS(cpModalFontFile$) THEN
+        CP_THEME.fontHandle& = _LOADFONT(cpModalFontFile$, cpModalFontSize%, "DONTBLEND")
+        IF CP_THEME.fontHandle& <= 0 THEN
+            CP_THEME.fontHandle& = 0
+        ELSE
+            DIM cpModalOldFont AS LONG
+            cpModalOldFont& = _FONT
+            _FONT CP_THEME.fontHandle&
+            CP_STATE.fontW = _FONTWIDTH
+            CP_STATE.fontH = _FONTHEIGHT
+            ' TTF fonts return 0 for _FONTWIDTH; measure a glyph instead
+            IF CP_STATE.fontW < 1 THEN
+                CP_STATE.fontW = _UPRINTWIDTH("M")
+            END IF
+            CP_THEME.fontW% = CP_STATE.fontW
+            CP_THEME.fontH% = CP_STATE.fontH
+            _FONT cpModalOldFont&
+        END IF
+    ELSE
+        CP_THEME.fontHandle& = 0
+    END IF
+
+    ' Fall back to built-in font if themed font failed
+    IF CP_THEME.fontHandle& = 0 THEN
+        IF CFG.FD_FONT% = 8 THEN
+            CP_STATE.fontID = 8: CP_STATE.fontW = 8: CP_STATE.fontH = 8
+            TI_set_font 8, 8, 8
+        ELSEIF CFG.FD_FONT% = 16 THEN
+            CP_STATE.fontID = 16: CP_STATE.fontW = 8: CP_STATE.fontH = 16
+            TI_set_font 16, 8, 16
+        END IF
     END IF
     DIM cpScale AS INTEGER
     cpScale = CFG.TOOLBAR_SCALE%
     IF cpScale < 1 THEN cpScale = 1
     CP_STATE.scale = cpScale
+    CP_THEME_scale_geometry
     CP_layout_calculate
+
+    ' Rebuild hue bar image at correct scaled dimensions
+    IF CP_STATE.hueBarImage < -1 THEN _FREEIMAGE CP_STATE.hueBarImage
+    CP_STATE.hueBarImage = -1
+    CP_RENDER_build_hue_bar
+
+    ' Recreate TI hex widget at correct scaled position
+    IF CP_STATE.tiHexId > 0 THEN
+        DIM tiModalHexText AS STRING
+        tiModalHexText$ = TI_get_text$(CP_STATE.tiHexId)
+        TI_destroy CP_STATE.tiHexId
+        CP_STATE.tiHexId = TI_create%(CP_STATE.hexInputX, CP_STATE.hexY, CP_STATE.hexInputW, CP_THEME.hexInputH%)
+        IF CP_STATE.tiHexId > 0 THEN
+            TI_set_text CP_STATE.tiHexId, tiModalHexText$
+            CP_wire_hex_ti_theme
+        END IF
+    END IF
+
     IF CP_STATE.imgHandle < -1 THEN _FREEIMAGE CP_STATE.imgHandle
     CP_STATE.imgHandle = _NEWIMAGE(CP_STATE.dialogW, CP_STATE.dialogH, 32)
     CP_STATE.dirty = -1
@@ -46,6 +124,11 @@ FUNCTION DRAW_pick_color& (title AS STRING, initialColor AS _UNSIGNED LONG)
         chosenColor = _RGB32(CP_STATE.cR, CP_STATE.cG, CP_STATE.cB)
     ELSE
         chosenColor = initialColor
+    END IF
+    ' Free modal picker font before cleanup
+    IF CP_THEME.fontHandle& > 0 THEN
+        _FREEFONT CP_THEME.fontHandle&
+        CP_THEME.fontHandle& = 0
     END IF
     CP_cleanup
     ' Re-init color mixer if it was active before the modal dialog

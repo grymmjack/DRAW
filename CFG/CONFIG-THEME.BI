@@ -309,6 +309,32 @@ TYPE DRAW_THEME
     PREVIEW_initial_padding      AS INTEGER         ' Padding from screen edges on first open
     PREVIEW_font                 AS STRING          ' Font filename (empty = global fallback)
     PREVIEW_font_size            AS INTEGER         ' Font point size
+    ' --- Color Picker / Mixer ---
+    CP_bg                        AS _UNSIGNED LONG  ' Dialog background fill
+    CP_border                    AS _UNSIGNED LONG  ' Outer border
+    CP_title_bg                  AS _UNSIGNED LONG  ' Title bar background (normal)
+    CP_title_hover_bg            AS _UNSIGNED LONG  ' Title bar background (hovered)
+    CP_title_drag_bg             AS _UNSIGNED LONG  ' Title bar background (dragging)
+    CP_title_fg                  AS _UNSIGNED LONG  ' Title bar text color
+    CP_close_fg                  AS _UNSIGNED LONG  ' Close X text color
+    CP_close_hover_bg            AS _UNSIGNED LONG  ' Close X hover background
+    CP_text                      AS _UNSIGNED LONG  ' Normal text
+    CP_text_bright               AS _UNSIGNED LONG  ' Bright/white text
+    CP_text_dim                  AS _UNSIGNED LONG  ' Dim/gray text
+    CP_button_bg                 AS _UNSIGNED LONG  ' Primary button background
+    CP_button_hover              AS _UNSIGNED LONG  ' Primary button hover
+    CP_button_text               AS _UNSIGNED LONG  ' Primary button text
+    CP_button_secondary          AS _UNSIGNED LONG  ' Secondary button background
+    CP_button_sec_hover          AS _UNSIGNED LONG  ' Secondary button hover
+    CP_button_sec_text           AS _UNSIGNED LONG  ' Secondary button text
+    CP_button_focus              AS _UNSIGNED LONG  ' Button focus ring
+    CP_button_bar_bg             AS _UNSIGNED LONG  ' Button bar background
+    CP_divider                   AS _UNSIGNED LONG  ' Section divider line
+    CP_slider_bg                 AS _UNSIGNED LONG  ' Slider track background
+    CP_slider_border             AS _UNSIGNED LONG  ' Slider track border
+    CP_overlay                   AS _UNSIGNED LONG  ' Modal dimming overlay
+    CP_check_a                   AS _UNSIGNED LONG  ' Checkerboard color A
+    CP_check_b                   AS _UNSIGNED LONG  ' Checkerboard color B
     ' --- Fonts ---
     GLOBAL_FONT_FILE       AS STRING          ' Primary UI font filename (e.g. Tiny5-Regular.ttf)
     GLOBAL_FONT_SIZE       AS INTEGER         ' Primary UI font size in points/pixels

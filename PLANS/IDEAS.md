@@ -38,8 +38,9 @@
 - Fix the alignment of the text in the search box
   - Is Lospec dialog even using our text input lib?
 
-## SPARE PAGE
-- Implement Spare page
+## - [ ] SPARE PAGE
+- [ ] Implement Spare page
+- Rename canvas-ops
 
 ## PALETTE BUTTON IN DRAWER
 - Load Palette
