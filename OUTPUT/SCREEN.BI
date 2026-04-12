@@ -74,6 +74,9 @@ TYPE SCREEN_OBJ
     charMapManuallyHidden    AS INTEGER   ' TRUE when user explicitly hid character map
     charMapHiddenByToggleAll AS INTEGER   ' TRUE only when toggle-all (F11) hid charmap
     charMapX                 AS INTEGER   ' Left edge of charmap panel (position varies by dock side)
+    showColorMixer            AS INTEGER   ' TRUE when color mixer panel is visible
+    colorMixerManuallyHidden  AS INTEGER   ' TRUE when user explicitly hid color mixer
+    colorMixerHiddenByToggleAll AS INTEGER ' TRUE only when toggle-all (F11) hid color mixer
 END TYPE
 
 DIM SHARED SCRN AS SCREEN_OBJ
