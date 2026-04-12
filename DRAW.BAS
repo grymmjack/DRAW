@@ -164,6 +164,7 @@ SOUND_init
 SOUND_play SND_NEW_FILE  ' Startup chime (silent when sounds are disabled)
 MUSIC_init               ' Initialise background music (plays if CFG.MUSIC_ENABLED)
 IMAGE_ADJ_init           ' Initialise image adjustment library (IMGADJ)
+COLORMIXER_init          ' Initialise non-modal color mixer panel
 
 ' Main Loop
 DIM k AS LONG
@@ -561,6 +562,13 @@ SUB MAIN_shutdown ()
     CFG.PREVIEW_ZOOM!    = PREVIEW.zoom!
     CFG.PREVIEW_FOLLOW%  = PREVIEW.followPointer%
     CFG.PREVIEW_VISIBLE% = PREVIEW.visible%
+
+    ' Persist color mixer state on exit
+    CFG.COLOR_MIXER_VISIBLE% = COLORMIXER.visible%
+    IF COLORMIXER.initialized% THEN
+        CFG.COLOR_MIXER_X% = COLORMIXER.dispX%
+        CFG.COLOR_MIXER_Y% = COLORMIXER.dispY%
+    END IF
     CONFIG_save
 
     IF CFG.DISPLAY_SCALE_CHANGED% THEN

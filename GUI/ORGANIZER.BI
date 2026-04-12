@@ -17,7 +17,7 @@
 $INCLUDEONCE
 
 ' Widget indices
-CONST ORG_COLOR_OPS     = 0
+CONST ORG_COLOR_MIXER   = 0
 CONST ORG_CANVAS_OPS    = 1
 CONST ORG_BRUSH_SIZE    = 2
 CONST ORG_PATTERN_MODE  = 3
@@ -70,11 +70,12 @@ DIM SHARED ORG_WIDGETS(0 TO ORG_WIDGET_COUNT - 1) AS ORGANIZER_WIDGET
 DIM SHARED ORGANIZER AS ORGANIZER_STATE
 
 ' Initialize widget image sources and dimensions
-' ── Col 0, Row 0: Color Ops ──
-ORG_WIDGETS(ORG_COLOR_OPS).imgSrc$   = "color-ops.png"
-ORG_WIDGETS(ORG_COLOR_OPS).srcW%     = 11
-ORG_WIDGETS(ORG_COLOR_OPS).srcH%     = 10
-ORG_WIDGETS(ORG_COLOR_OPS).tip$      = "Color Ops (stub)"
+' ── Col 0, Row 0: Color Mixer ──
+ORG_WIDGETS(ORG_COLOR_MIXER).imgSrc$   = "color-mixer-off.png"
+ORG_WIDGETS(ORG_COLOR_MIXER).imgSrc2$  = "color-mixer-on.png"
+ORG_WIDGETS(ORG_COLOR_MIXER).srcW%     = 11
+ORG_WIDGETS(ORG_COLOR_MIXER).srcH%     = 10
+ORG_WIDGETS(ORG_COLOR_MIXER).tip$      = "Color Mixer"
 
 ' ── Col 1, Row 0: Canvas Ops ──
 ORG_WIDGETS(ORG_CANVAS_OPS).imgSrc$   = "canvas-ops.png"

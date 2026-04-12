@@ -108,9 +108,9 @@ TOOLTIP_LINE2$(27) = "SHIFT+CTRL+o - IMPORT and PLACE image from disk."
 DIM SHARED TOOLTIP_ORG_LINE1$(0 TO 10)
 DIM SHARED TOOLTIP_ORG_LINE2$(0 TO 10)
 
-' 0 = ORG_COLOR_OPS
-TOOLTIP_ORG_LINE1$(0) = "COLOR OPS - L-CLICK to IMPORT, R-CLICK to LOAD from Lospec"
-TOOLTIP_ORG_LINE2$(0) = "See the PALETTE MENU in the MENUBAR for more options."
+' 0 = ORG_COLOR_MIXER
+TOOLTIP_ORG_LINE1$(0) = "COLOR MIXER - L-CLICK to show/hide color mixer panel."
+TOOLTIP_ORG_LINE2$(0) = "Mix and pick colors with HSV square, hue bar, and RGB/HSL sliders."
 ' 1 = ORG_CANVAS_OPS
 TOOLTIP_ORG_LINE1$(1) = "CANVAS OPS - L-CLICK to switch to SPARE PAGE. R-CLICK to CLEAR SPARE PAGE."
 TOOLTIP_ORG_LINE2$(1) = "Use SPARE PAGE as a scratchpad, test area, assembly canvas, etc."

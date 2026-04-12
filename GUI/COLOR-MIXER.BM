@@ -1,0 +1,491 @@
+''
+' DRAW - GUI/COLOR-MIXER.BM
+' =============================================================================
+' Color Mixer — non-modal floating color picker panel implementation.
+' Wraps the QB64_GJ_LIB COLOR_PICKER (CP module) in a per-frame tick model
+' instead of the blocking modal loop. Color changes are applied live to
+' PAINT_COLOR~&.
+'
+' Rendering: called from SCREEN_render after PREVIEW_render (same z-order tier)
+' so the panel floats above the canvas and does NOT force scene re-compositing.
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+OPTION _EXPLICIT
+OPTION _EXPLICITARRAY
+
+' ---------------------------------------------------------------------------
+' COLORMIXER_init — Set defaults, check config for saved visibility.
+' Does NOT initialize CP state yet (lazy-init on first render/toggle).
+' Must follow the default-hidden + ManuallyHidden pattern (gotcha #18).
+' ---------------------------------------------------------------------------
+SUB COLORMIXER_init ()
+    COLORMIXER.visible%       = FALSE
+    COLORMIXER.positioned%    = FALSE
+    COLORMIXER.initialized%   = FALSE
+    COLORMIXER.autoHidden%    = FALSE
+    COLORMIXER.lastSyncColor~& = 0
+    COLORMIXER.renderScale!   = 1.0
+    COLORMIXER.dispW%         = 0
+    COLORMIXER.dispH%         = 0
+    COLORMIXER.dispX%         = 0
+    COLORMIXER.dispY%         = 0
+    COLORMIXER.dragging%      = FALSE
+    COLORMIXER.dragStartMX%   = 0
+    COLORMIXER.dragStartMY%   = 0
+    COLORMIXER.dragStartDX%   = 0
+    COLORMIXER.dragStartDY%   = 0
+
+    SCRN.showColorMixer%            = FALSE
+    SCRN.colorMixerManuallyHidden%  = TRUE
+
+    IF CFG.COLOR_MIXER_VISIBLE% THEN
+        COLORMIXER.visible%             = TRUE
+        SCRN.showColorMixer%            = TRUE
+        SCRN.colorMixerManuallyHidden%  = FALSE
+    END IF
+END SUB
+
+' ---------------------------------------------------------------------------
+' COLORMIXER_ensure_initialized — Lazy-init the CP library state.
+' Deferred so that PAINT_COLOR~& and THEME fields are guaranteed valid
+' (see gotcha #17 re: THEME.BI include-order timing).
+' ---------------------------------------------------------------------------
+SUB COLORMIXER_ensure_initialized ()
+    IF COLORMIXER.initialized% THEN EXIT SUB
+
+    ' Initialize CP with current foreground color
+    DIM initColor AS _UNSIGNED LONG
+    initColor~& = PAINT_COLOR~&
+    IF PAL_FG_IS_TRANSPARENT% THEN initColor~& = _RGB32(0, 0, 0)
+
+    CP_init initColor~&
+
+    ' Free screenshot — not needed for non-modal rendering
+    IF CP_STATE.screenShot < -1 THEN _FREEIMAGE CP_STATE.screenShot
+    CP_STATE.screenShot = -1
+
+    ' Use same font config as the modal color picker (DRAW_pick_color&)
+    IF CFG.FD_FONT% = 16 THEN
+        CP_STATE.fontID = 16: CP_STATE.fontW = 8: CP_STATE.fontH = 16
+    ELSE
+        CP_STATE.fontID = 8: CP_STATE.fontW = 8: CP_STATE.fontH = 8
+    END IF
+
+    ' Render at native size, upscale via _PUTIMAGE (same as CP_RENDER_blit)
+    CP_STATE.scale = 1
+
+    ' Recalculate layout
+    CP_layout_calculate
+
+    ' (Re)create offscreen buffer at correct size
+    IF CP_STATE.imgHandle < -1 THEN _FREEIMAGE CP_STATE.imgHandle
+    CP_STATE.imgHandle = _NEWIMAGE(CP_STATE.dialogW, CP_STATE.dialogH, 32)
+    CP_STATE.dirty  = -1
+    CP_STATE.svDirty = -1
+
+    ' Compute display scale to fit work area
+    COLORMIXER_compute_display_size
+
+    ' Restore saved position or mark for auto-position
+    IF CFG.COLOR_MIXER_X% > -1 AND CFG.COLOR_MIXER_Y% > -1 THEN
+        COLORMIXER.dispX% = CFG.COLOR_MIXER_X%
+        COLORMIXER.dispY% = CFG.COLOR_MIXER_Y%
+        COLORMIXER.positioned% = TRUE
+    END IF
+
+    COLORMIXER.lastSyncColor~& = initColor~&
+    COLORMIXER.initialized% = TRUE
+END SUB
+
+' ---------------------------------------------------------------------------
+' COLORMIXER_cleanup — Free all CP resources. Sets initialized = FALSE.
+' ---------------------------------------------------------------------------
+SUB COLORMIXER_cleanup ()
+    IF COLORMIXER.initialized% THEN
+        CP_cleanup
+        COLORMIXER.initialized% = FALSE
+    END IF
+END SUB
+
+' ---------------------------------------------------------------------------
+' COLORMIXER_toggle — Toggle panel visibility.
+' On first open, performs smart placement via COLORMIXER_auto_position.
+' ---------------------------------------------------------------------------
+SUB COLORMIXER_toggle ()
+    IF COLORMIXER.visible% THEN
+        COLORMIXER.visible%             = FALSE
+        SCRN.showColorMixer%            = FALSE
+        SCRN.colorMixerManuallyHidden%  = TRUE
+    ELSE
+        COLORMIXER.visible%             = TRUE
+        SCRN.showColorMixer%            = TRUE
+        SCRN.colorMixerManuallyHidden%  = FALSE
+
+        COLORMIXER_ensure_initialized
+        IF NOT COLORMIXER.positioned% THEN
+            COLORMIXER_auto_position
+        END IF
+        ' Sync with current FG colour on open
+        COLORMIXER_sync_from_paint
+    END IF
+    CFG.COLOR_MIXER_VISIBLE% = COLORMIXER.visible%
+    ' Force full render to clean screen 0 (mixer renders directly to screen 0)
+    SCENE_DIRTY% = TRUE
+    FRAME_IDLE% = FALSE
+END SUB
+
+' ---------------------------------------------------------------------------
+' COLORMIXER_auto_position — Place panel at right side of work area.
+' Uses dispW/dispH (scaled display dimensions) for placement.
+' ---------------------------------------------------------------------------
+SUB COLORMIXER_auto_position ()
+    COLORMIXER_ensure_initialized
+
+    DIM pad AS INTEGER
+    DIM posX AS INTEGER, posY AS INTEGER
+    DIM minY AS INTEGER, maxY AS INTEGER
+
+    pad% = 8
+
+    ' Use same bounds as clamp (accounts for toolbar, layers, etc.)
+    minY% = 0
+    IF SCRN.showMenubar% AND MENU_BAR.visible% THEN minY% = MENU_BAR_HEIGHT
+    maxY% = SCRN.h&
+    IF SCRN.showStatus% THEN
+        maxY% = SCRN.h& - THEME.STATUS_height% - PALETTE_STRIP_get_height%
+    END IF
+
+    ' Right side of work area, vertically centred
+    posX% = SCRN.uiRightEdge% - COLORMIXER.dispW% - pad%
+    posY% = minY% + (maxY% - minY% - COLORMIXER.dispH%) \ 2
+
+    IF posX% < SCRN.uiLeftEdge% + pad% THEN posX% = SCRN.uiLeftEdge% + pad%
+    IF posY% < minY% + pad% THEN posY% = minY% + pad%
+
+    COLORMIXER.dispX% = posX%
+    COLORMIXER.dispY% = posY%
+    COLORMIXER.positioned% = TRUE
+
+    CFG.COLOR_MIXER_X% = COLORMIXER.dispX%
+    CFG.COLOR_MIXER_Y% = COLORMIXER.dispY%
+END SUB
+
+' ---------------------------------------------------------------------------
+' COLORMIXER_compute_display_size — Calculate render scale so dialog fits
+' within the work area.  Target: dialog height <= 75% of work area height.
+' ---------------------------------------------------------------------------
+SUB COLORMIXER_compute_display_size ()
+    ' NOTE: No initialized% guard here — this is called from ensure_initialized
+    ' BEFORE initialized% is set to TRUE, but AFTER CP_layout_calculate has run.
+    '
+    ' Match the modal dialog's physical size (CP_RENDER_blit uses toolbarScale).
+    ' The mixer renders to screen 0 at toolbarScale, but dispW/H are in viewport
+    ' (canvas) space for hit testing and clamping.
+    ' Physical size = dialogW × toolbarScale
+    ' Viewport footprint = physical / displayScale = dialogW × ts / ds
+    DIM ts AS INTEGER, ds AS INTEGER
+    ts% = CFG.TOOLBAR_SCALE%: IF ts% < 1 THEN ts% = 1
+    ds% = SCRN.displayScale%: IF ds% < 1 THEN ds% = 1
+
+    COLORMIXER.renderScale! = CSNG(ts%) / CSNG(ds%)
+    COLORMIXER.dispW% = INT(CSNG(CP_STATE.dialogW) * CSNG(ts%) / CSNG(ds%) + 0.5)
+    COLORMIXER.dispH% = INT(CSNG(CP_STATE.dialogH) * CSNG(ts%) / CSNG(ds%) + 0.5)
+END SUB
+
+' ---------------------------------------------------------------------------
+' COLORMIXER_clamp_to_work_area — Keep panel inside the canvas work area.
+' Uses dispX/Y/W/H (viewport coords, already scaled).
+' ---------------------------------------------------------------------------
+SUB COLORMIXER_clamp_to_work_area ()
+    IF NOT COLORMIXER.initialized% THEN EXIT SUB
+
+    ' Use the same layout edges as the preview window so the mixer
+    ' cannot be dragged behind toolbar, layers panel, edit bar, etc.
+    DIM minX AS INTEGER, minY AS INTEGER
+    DIM maxX AS INTEGER, maxY AS INTEGER
+
+    minX% = SCRN.uiLeftEdge%
+    maxX% = SCRN.uiRightEdge%
+
+    IF SCRN.showMenubar% AND MENU_BAR.visible% THEN
+        minY% = MENU_BAR_HEIGHT
+    ELSE
+        minY% = 0
+    END IF
+    IF TEXT_BAR.visible% THEN
+        DIM tbBottom AS INTEGER
+        tbBottom% = TEXT_BAR.barY% + TEXT_BAR.barH%
+        IF tbBottom% > minY% THEN minY% = tbBottom%
+    END IF
+
+    IF SCRN.showStatus% THEN
+        maxY% = SCRN.h& - THEME.STATUS_height% - PALETTE_STRIP_get_height%
+    ELSE
+        maxY% = SCRN.h&
+    END IF
+
+    ' Clamp left edge
+    IF COLORMIXER.dispX% < minX% THEN COLORMIXER.dispX% = minX%
+    ' Clamp right edge
+    IF COLORMIXER.dispX% + COLORMIXER.dispW% > maxX% THEN
+        COLORMIXER.dispX% = maxX% - COLORMIXER.dispW%
+    END IF
+    IF COLORMIXER.dispX% < minX% THEN COLORMIXER.dispX% = minX%
+
+    ' Clamp top edge
+    IF COLORMIXER.dispY% < minY% THEN COLORMIXER.dispY% = minY%
+    ' Clamp bottom: at least title bar must be visible
+    DIM titleH AS INTEGER
+    titleH% = INT(CP_TITLE_BAR_H * COLORMIXER.renderScale! + 0.5)
+    IF titleH% < 20 THEN titleH% = 20
+    IF COLORMIXER.dispY% + titleH% > maxY% THEN
+        COLORMIXER.dispY% = maxY% - titleH%
+    END IF
+    ' Clamp bottom fully if it fits
+    IF COLORMIXER.dispY% + COLORMIXER.dispH% > maxY% THEN
+        COLORMIXER.dispY% = maxY% - COLORMIXER.dispH%
+    END IF
+    IF COLORMIXER.dispY% < minY% THEN COLORMIXER.dispY% = minY%
+END SUB
+
+' ---------------------------------------------------------------------------
+' COLORMIXER_reset — Reset transient state after file load.
+' Does NOT close the panel or change visibility.
+' ---------------------------------------------------------------------------
+SUB COLORMIXER_reset ()
+    COLORMIXER.autoHidden% = FALSE
+END SUB
+
+' ---------------------------------------------------------------------------
+' COLORMIXER_render — Render the color mixer onto the destination image.
+' Must be called from the SkipToPointer section of SCREEN_render so it
+' does NOT force scene re-compositing.
+' @param destHandle LONG  Destination image (typically SCRN.CANVAS&)
+' ---------------------------------------------------------------------------
+SUB COLORMIXER_render ()
+    IF NOT COLORMIXER.visible% THEN EXIT SUB
+    IF COLORMIXER.autoHidden% THEN EXIT SUB
+
+    COLORMIXER_ensure_initialized
+
+    COLORMIXER_clamp_to_work_area
+
+    ' Sync colour from external changes (palette strip click, picker, etc.)
+    COLORMIXER_sync_from_paint
+
+    ' Clear hover state when mouse is outside panel (prevents stale highlights)
+    IF NOT COLORMIXER_hit_window%(MOUSE.RAW_X%, MOUSE.RAW_Y%) THEN
+        IF CP_STATE.dragging = CP_DRAG_NONE THEN
+            IF CP_STATE.hoverButton <> -1 OR CP_STATE.hoverPosterize <> -1 THEN
+                CP_STATE.hoverButton    = -1
+                CP_STATE.hoverPosterize = -1
+                CP_STATE.dirty = -1
+            END IF
+        END IF
+    END IF
+
+    ' Render CP dialog to offscreen buffer if dirty
+    IF CP_STATE.dirty THEN
+        DIM oldDest AS LONG: oldDest& = _DEST
+        CP_RENDER_all          ' Sets _DEST to CP_STATE.imgHandle
+        CP_STATE.dirty = 0
+
+        ' Override title text: "Color Mixer" instead of "Color Picker"
+        IF CP_STATE.imgHandle < -1 THEN
+            DIM titleTextX AS INTEGER, titleTextY AS INTEGER
+            titleTextX% = CP_PADDING \ 2 + 2
+            titleTextY% = (CP_TITLE_BAR_H - CP_STATE.fontH) \ 2 + 1
+            ' Clear old title text area
+            LINE (titleTextX%, titleTextY%)-(titleTextX% + 12 * CP_STATE.fontW - 1, titleTextY% + CP_STATE.fontH - 1), CP_CLR_TITLE_BG~&, BF
+            ' Draw new title
+            COLOR CP_CLR_TEXT_BRIGHT~&, _RGBA32(0, 0, 0, 0)
+            _PRINTSTRING (titleTextX%, titleTextY%), "Color Mixer"
+        END IF
+        _DEST oldDest&
+    END IF
+
+    ' Blit panel to screen 0 at toolbarScale (same method as modal CP_RENDER_blit).
+    ' This bypasses the canvas pipeline so the mixer appears at the same physical
+    ' size as the modal dialog, regardless of SCRN.displayScale%.
+    IF CP_STATE.imgHandle < -1 THEN
+        DIM ts AS INTEGER, ds AS INTEGER
+        ts% = CFG.TOOLBAR_SCALE%: IF ts% < 1 THEN ts% = 1
+        ds% = SCRN.displayScale%: IF ds% < 1 THEN ds% = 1
+
+        DIM sx AS LONG, sy AS LONG, sw AS LONG, sh AS LONG
+        sx& = CLNG(COLORMIXER.dispX%) * ds%
+        sy& = CLNG(COLORMIXER.dispY%) * ds%
+        sw& = CLNG(CP_STATE.dialogW) * ts%
+        sh& = CLNG(CP_STATE.dialogH) * ts%
+
+        DIM oldDest2 AS LONG: oldDest2& = _DEST
+        _DEST 0
+        _PUTIMAGE (sx&, sy&)-(sx& + sw& - 1, sy& + sh& - 1), CP_STATE.imgHandle, 0
+        _DEST oldDest2&
+    END IF
+END SUB
+
+' ---------------------------------------------------------------------------
+' COLORMIXER_mouse_input — Feed DRAW mouse events into the CP input system.
+' Called from MOUSE_input_handler when the mouse is over the panel or a
+' CP drag is in progress.
+' @param wheelDelta%  Mouse wheel delta for this frame
+' ---------------------------------------------------------------------------
+SUB COLORMIXER_mouse_input (wheelDelta AS INTEGER)
+    IF NOT COLORMIXER.visible% THEN EXIT SUB
+    IF COLORMIXER.autoHidden% THEN EXIT SUB
+    IF NOT COLORMIXER.initialized% THEN EXIT SUB
+
+    ' ── Title-bar drag: handled entirely in viewport (display) space ──
+    ' We intercept title-bar drag ourselves so CP's internal drag (which
+    ' clamps to _WIDTH(0)) doesn't break in the non-modal coordinate model.
+    DIM localX AS INTEGER, localY AS INTEGER
+    DIM justPressed AS INTEGER, justReleased AS INTEGER
+    localX% = MOUSE.RAW_X% - COLORMIXER.dispX%
+    localY% = MOUSE.RAW_Y% - COLORMIXER.dispY%
+    justPressed%  = (MOUSE.B1% AND NOT MOUSE.OLD_B1%)
+    justReleased% = (NOT MOUSE.B1% AND MOUSE.OLD_B1%)
+
+    ' Scale local coords to native CP space for title-bar hit test
+    DIM nativeX AS INTEGER, nativeY AS INTEGER
+    IF COLORMIXER.renderScale! > 0 THEN
+        nativeX% = INT(localX% / COLORMIXER.renderScale!)
+        nativeY% = INT(localY% / COLORMIXER.renderScale!)
+    ELSE
+        nativeX% = localX%
+        nativeY% = localY%
+    END IF
+
+    ' Close button X region (right edge of title bar)
+    DIM closeX AS INTEGER
+    closeX% = CP_STATE.dialogW - CP_TITLE_BAR_H
+
+    IF COLORMIXER.dragging% THEN
+        IF MOUSE.B1% THEN
+            ' Update position from mouse delta
+            COLORMIXER.dispX% = COLORMIXER.dragStartDX% + (MOUSE.RAW_X% - COLORMIXER.dragStartMX%)
+            COLORMIXER.dispY% = COLORMIXER.dragStartDY% + (MOUSE.RAW_Y% - COLORMIXER.dragStartMY%)
+            COLORMIXER_clamp_to_work_area
+            CFG.COLOR_MIXER_X% = COLORMIXER.dispX%
+            CFG.COLOR_MIXER_Y% = COLORMIXER.dispY%
+            SCENE_DIRTY% = TRUE
+            FRAME_IDLE% = FALSE
+        ELSE
+            ' Released — end drag
+            COLORMIXER.dragging% = FALSE
+            CFG.COLOR_MIXER_X% = COLORMIXER.dispX%
+            CFG.COLOR_MIXER_Y% = COLORMIXER.dispY%
+            SCENE_DIRTY% = TRUE
+        END IF
+        EXIT SUB  ' Don't pass drag frames to CP
+    END IF
+
+    ' Detect title-bar click (not on close button) to start drag
+    DIM overPanel AS INTEGER
+    overPanel% = (localX% >= 0 AND localX% < COLORMIXER.dispW% AND localY% >= 0 AND localY% < COLORMIXER.dispH%)
+    IF justPressed% AND overPanel% THEN
+        DIM titleBarH AS INTEGER
+        titleBarH% = INT(CP_TITLE_BAR_H * COLORMIXER.renderScale! + 0.5)
+        IF localY% < titleBarH% AND nativeX% < closeX% THEN
+            ' Start our own drag
+            COLORMIXER.dragging%    = TRUE
+            COLORMIXER.dragStartMX% = MOUSE.RAW_X%
+            COLORMIXER.dragStartMY% = MOUSE.RAW_Y%
+            COLORMIXER.dragStartDX% = COLORMIXER.dispX%
+            COLORMIXER.dragStartDY% = COLORMIXER.dispY%
+            EXIT SUB
+        END IF
+    END IF
+
+    ' ── Feed remaining interactions to CP ──
+    ' Keep CP_STATE.dialogX/Y at 0 so CP's coordinate space stays consistent.
+    CP_STATE.dialogX = 0
+    CP_STATE.dialogY = 0
+
+    ' Map viewport coords to CP native space
+    CP_STATE.mouseX     = nativeX%
+    CP_STATE.mouseY     = nativeY%
+    CP_STATE.mouseB1    = MOUSE.B1%
+    CP_STATE.oldMouseB1 = MOUSE.OLD_B1%
+    CP_STATE.mouseWheel = wheelDelta%
+
+    ' Process mouse interactions (SV square, hue bar, sliders, buttons)
+    CP_INPUT_mouse
+
+    ' Reset dialogX/Y in case CP's title-bar drag set them
+    CP_STATE.dialogX = 0
+    CP_STATE.dialogY = 0
+
+    ' Process wheel (zoom posterize chips, fine-tune sliders)
+    IF wheelDelta% <> 0 THEN CP_INPUT_wheel
+
+    ' Sync position back to config
+    CFG.COLOR_MIXER_X% = COLORMIXER.dispX%
+    CFG.COLOR_MIXER_Y% = COLORMIXER.dispY%
+
+    ' Handle "done" (user clicked OK, Cancel, or X close button)
+    IF CP_STATE.done THEN
+        CP_STATE.done   = FALSE
+        CP_STATE.result = CP_RESULT_NONE
+        COLORMIXER_toggle
+        EXIT SUB
+    END IF
+
+    ' Live colour sync: mixer → PAINT_COLOR
+    DIM mixerColor AS _UNSIGNED LONG
+    mixerColor~& = _RGB32(CP_STATE.cR, CP_STATE.cG, CP_STATE.cB)
+    IF mixerColor~& <> COLORMIXER.lastSyncColor~& THEN
+        PAINT_COLOR~&       = mixerColor~&
+        DRAW_COLOR~&        = mixerColor~&
+        PAL_FG_IS_TRANSPARENT% = FALSE
+        COLORMIXER.lastSyncColor~& = mixerColor~&
+        STATUS_NEEDS_REDRAW% = TRUE
+        FRAME_IDLE% = FALSE
+    END IF
+END SUB
+
+' ---------------------------------------------------------------------------
+' COLORMIXER_sync_from_paint — Sync mixer to current PAINT_COLOR~&.
+' Called each frame from COLORMIXER_render when an external colour change
+' is detected (palette strip click, picker tool, keyboard shortcut, etc.).
+' ---------------------------------------------------------------------------
+SUB COLORMIXER_sync_from_paint ()
+    IF NOT COLORMIXER.initialized% THEN EXIT SUB
+
+    DIM currentColor AS _UNSIGNED LONG
+    IF PAL_FG_IS_TRANSPARENT% THEN
+        currentColor~& = _RGB32(0, 0, 0)
+    ELSE
+        currentColor~& = PAINT_COLOR~&
+    END IF
+
+    IF currentColor~& <> COLORMIXER.lastSyncColor~& THEN
+        CP_STATE.cR = _RED32(currentColor~&)
+        CP_STATE.cG = _GREEN32(currentColor~&)
+        CP_STATE.cB = _BLUE32(currentColor~&)
+        CP_STATE.origColor = currentColor~&
+        CP_update_from_rgb
+        CP_STATE.dirty = -1
+        COLORMIXER.lastSyncColor~& = currentColor~&
+    END IF
+END SUB
+
+' ---------------------------------------------------------------------------
+' COLORMIXER_hit_window% — Hit-test: is the screen pixel inside the panel?
+' ---------------------------------------------------------------------------
+FUNCTION COLORMIXER_hit_window% (rawX AS INTEGER, rawY AS INTEGER)
+    IF NOT COLORMIXER.initialized% THEN
+        COLORMIXER_hit_window% = FALSE
+        EXIT FUNCTION
+    END IF
+    IF rawX% >= COLORMIXER.dispX% AND rawX% < COLORMIXER.dispX% + COLORMIXER.dispW% THEN
+        IF rawY% >= COLORMIXER.dispY% AND rawY% < COLORMIXER.dispY% + COLORMIXER.dispH% THEN
+            COLORMIXER_hit_window% = TRUE
+            EXIT FUNCTION
+        END IF
+    END IF
+    COLORMIXER_hit_window% = FALSE
+END FUNCTION
