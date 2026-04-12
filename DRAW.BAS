@@ -44,6 +44,8 @@ $IF MAC THEN
                 macArgIdx% = macArgIdx% + 2 ' Skip flag + value
             ELSEIF LCASE$(macArgVal$) = "--portable" THEN
                 macArgIdx% = macArgIdx% + 1 ' Skip flag only
+            ELSEIF LCASE$(macArgVal$) = "--reset-defaults" THEN
+                macArgIdx% = macArgIdx% + 1 ' Skip flag only
             ELSE
                 cmdArg$ = macArgVal$
                 EXIT DO
@@ -64,6 +66,8 @@ $ELSE
         ELSEIF LCASE$(argVal$) = "--canvas-size" THEN
             argIdx% = argIdx% + 2 ' Skip flag + value
         ELSEIF LCASE$(argVal$) = "--portable" THEN
+            argIdx% = argIdx% + 1 ' Skip flag only
+        ELSEIF LCASE$(argVal$) = "--reset-defaults" THEN
             argIdx% = argIdx% + 1 ' Skip flag only
         ELSE
             cmdArg$ = argVal$

@@ -45,6 +45,10 @@ CMDLINE_CONFIG_ARG_COUNT% = 0
 DIM SHARED CMDLINE_CONFIG_UPGRADE%
 CMDLINE_CONFIG_UPGRADE% = FALSE
 
+' Flag: TRUE if --reset-defaults was requested (delete config, use factory defaults)
+DIM SHARED CMDLINE_RESET_DEFAULTS%
+CMDLINE_RESET_DEFAULTS% = FALSE
+
 ' Command-line canvas size override (--canvas-size WWWxHHH)
 DIM SHARED CMDLINE_CANVAS_W%
 DIM SHARED CMDLINE_CANVAS_H%
@@ -63,6 +67,11 @@ DO WHILE CONFIG_cmdArgIdx% <= CONFIG_cmdArgCount%
 
     IF LCASE$(CONFIG_cmdArgVal$) = "--config-upgrade" THEN
         CMDLINE_CONFIG_UPGRADE% = TRUE
+        CMDLINE_CONFIG_ARG_COUNT% = CMDLINE_CONFIG_ARG_COUNT% + 1
+        CONFIG_cmdArgIdx% = CONFIG_cmdArgIdx% + 1
+
+    ELSEIF LCASE$(CONFIG_cmdArgVal$) = "--reset-defaults" THEN
+        CMDLINE_RESET_DEFAULTS% = TRUE
         CMDLINE_CONFIG_ARG_COUNT% = CMDLINE_CONFIG_ARG_COUNT% + 1
         CONFIG_cmdArgIdx% = CONFIG_cmdArgIdx% + 1
 
@@ -138,6 +147,31 @@ IF CMDLINE_CONFIG_ARG_COUNT% = 0 OR (CMDLINE_CONFIG_UPGRADE% AND CMDLINE_CONFIG_
         ELSEIF _FILEEXISTS(CONFIG_FILE_OS_SPECIFIC$) THEN
             ' Fallback: check beside executable (pre-migration)
             CONFIG_FILE_PATH$ = CONFIG_FILE_OS_SPECIFIC$
+        END IF
+    END IF
+END IF
+
+' --reset-defaults: delete existing config file so CONFIG_load regenerates from defaults
+IF CMDLINE_RESET_DEFAULTS% THEN
+    IF _FILEEXISTS(CONFIG_FILE_PATH$) THEN
+        KILL CONFIG_FILE_PATH$
+    END IF
+    ' Also check for OS-specific config beside exe
+    IF CONFIG_FILE_OS_SPECIFIC$ <> "" THEN
+        IF _FILEEXISTS(CONFIG_FILE_OS_SPECIFIC$) THEN
+            KILL CONFIG_FILE_OS_SPECIFIC$
+        END IF
+        IF _FILEEXISTS(PATHS_config$(CONFIG_FILE_OS_SPECIFIC$)) THEN
+            KILL PATHS_config$(CONFIG_FILE_OS_SPECIFIC$)
+        END IF
+    END IF
+    ' Also delete the base default if it exists beside exe
+    IF _FILEEXISTS(CONFIG_FILE_DEFAULT$) THEN
+        KILL CONFIG_FILE_DEFAULT$
+    END IF
+    IF CONFIG_FILE_PATH$ <> PATHS_config$(CONFIG_FILE_DEFAULT$) THEN
+        IF _FILEEXISTS(PATHS_config$(CONFIG_FILE_DEFAULT$)) THEN
+            KILL PATHS_config$(CONFIG_FILE_DEFAULT$)
         END IF
     END IF
 END IF
