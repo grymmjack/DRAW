@@ -33,11 +33,6 @@ SUB LOSPEC_show_dialog ()
     LOSPEC_BATCH_COUNT% = 0
     LOSPEC_DOWNLOAD_STATUS$ = ""
 
-    DIM searchBuf AS STRING
-    DIM searchLen AS INTEGER
-    searchBuf$ = SPACE$(128)
-    searchLen% = 0
-
     ' ---- Layout constants ----
     CONST LS_PAD        = 8      ' left/right padding
     CONST LS_CHECKBOX_SZ = 8     ' checkbox square side
@@ -51,6 +46,44 @@ SUB LOSPEC_show_dialog ()
     CONST LS_PREV_W     = 178    ' preview panel width  (ctx.w - LS_PREV_X - 4)
     CONST LS_BTN_Y      = 294    ' bottom button row Y
     CONST LS_BTN_H      = 18
+
+    ' --- Search TI widget ---
+    ' Compute label width using the dialog font so we know where the input starts
+    DIM oldDest AS LONG : oldDest& = _DEST
+    _DEST ctx.imgHandle
+    _FONT ctx.fontH
+    DIM srchLblW AS INTEGER
+    srchLblW% = _PRINTWIDTH("SEARCH:", ctx.imgHandle)
+    _DEST oldDest&
+    DIM tiSearchX AS INTEGER : tiSearchX% = LS_PAD + srchLblW% + 2
+    DIM tiSearchW AS INTEGER : tiSearchW% = LS_PREV_X - LS_PAD - tiSearchX%
+    DIM tiSearchH AS INTEGER : tiSearchH% = LS_SEARCH_H + 3
+    DIM tiSearchId AS INTEGER
+    tiSearchId% = TI_create%(tiSearchX%, LS_SEARCH_Y - 2, tiSearchW%, tiSearchH%)
+    IF tiSearchId% > 0 THEN
+        TI_inputs(tiSearchId%).placeholder = "Type and press Enter to search..."
+        TI_inputs(tiSearchId%).maxLen = 64
+        ' Wire theme: use dialog font and Lospec search colors
+        DIM lsFontW AS INTEGER
+        lsFontW% = _FONTWIDTH(ctx.fontH)
+        IF lsFontW% < 1 THEN lsFontW% = _PRINTWIDTH("M", ctx.imgHandle)
+        IF lsFontW% < 1 THEN lsFontW% = 5
+        DIM lsFontH AS INTEGER
+        lsFontH% = _FONTHEIGHT(ctx.fontH)
+        IF lsFontH% < 1 THEN lsFontH% = 10
+        TI_inputs(tiSearchId%).theme.fontHandle = ctx.fontH
+        TI_inputs(tiSearchId%).theme.fontW = lsFontW%
+        TI_inputs(tiSearchId%).theme.fontH = lsFontH%
+        TI_inputs(tiSearchId%).theme.bgColor = THEME.LOSPEC_search_bg~&
+        TI_inputs(tiSearchId%).theme.focusBgColor = THEME.LOSPEC_search_bg~&
+        TI_inputs(tiSearchId%).theme.borderColor = THEME.LOSPEC_search_border~&
+        TI_inputs(tiSearchId%).theme.focusBorderColor = THEME.LOSPEC_search_cursor~&
+        TI_inputs(tiSearchId%).theme.textColor = THEME.DIALOG_label_fg~&
+        TI_inputs(tiSearchId%).theme.cursorColor = THEME.LOSPEC_search_cursor~&
+        TI_inputs(tiSearchId%).theme.selectionColor = THEME.LOSPEC_result_sel_bg~&
+        TI_inputs(tiSearchId%).theme.placeholderColor = THEME.LOSPEC_empty_fg~&
+        TI_set_focus tiSearchId%
+    END IF
 
     ' Scrolling
     DIM listScroll  AS INTEGER
@@ -84,51 +117,57 @@ SUB LOSPEC_show_dialog ()
 
         ' ---- Keyboard ----
         k& = _KEYHIT
-        SELECT CASE k&
-            CASE 27 : ctx.done = TRUE : ctx.result = FALSE  ' Escape = close
-            CASE 13  ' Enter = search
-                IF searchLen% > 0 THEN
-                    LOSPEC_DOWNLOAD_STATUS$ = "Searching..."
-                    LOSPEC_search LEFT$(searchBuf$, searchLen%)
-                    FOR dfi% = 0 TO LOSPEC_MAX_RESULTS - 1 : detailFetched%(dfi%) = FALSE : NEXT dfi%
-                    listScroll% = 0
-                    hovResult%  = -1
-                    previewIdx% = -1
-                    ' Eager prefetch all palette details
-                    IF LOSPEC_RESULT_COUNT% > 0 THEN
-                        LOSPEC_DOWNLOAD_STATUS$ = "Loading palette details..."
-                        DIM efi2 AS INTEGER
-                        FOR efi2% = 0 TO LOSPEC_RESULT_COUNT% - 1
-                            LOSPEC_fetch_detail efi2%
-                            detailFetched%(efi2%) = TRUE
-                        NEXT efi2%
-                        LOSPEC_DOWNLOAD_STATUS$ = ""
+
+        ' Route to TI search widget first
+        DIM tiConsumed AS INTEGER : tiConsumed% = 0
+        IF tiSearchId% > 0 AND k& <> 0 THEN
+            ' Check for Enter (submit) before TI consumes it
+            IF TI_focusedId = tiSearchId% THEN
+                tiConsumed% = TI_process_key%(k&)
+                IF TI_inputs(tiSearchId%).submitted THEN
+                    DIM searchText AS STRING
+                    searchText$ = TI_get_text$(tiSearchId%)
+                    IF LEN(searchText$) > 0 THEN
+                        LOSPEC_DOWNLOAD_STATUS$ = "Searching..."
+                        LOSPEC_search searchText$
+                        FOR dfi% = 0 TO LOSPEC_MAX_RESULTS - 1 : detailFetched%(dfi%) = FALSE : NEXT dfi%
+                        listScroll% = 0
+                        hovResult%  = -1
+                        previewIdx% = -1
+                        ' Eager prefetch all palette details
+                        IF LOSPEC_RESULT_COUNT% > 0 THEN
+                            LOSPEC_DOWNLOAD_STATUS$ = "Loading palette details..."
+                            DIM efi2 AS INTEGER
+                            FOR efi2% = 0 TO LOSPEC_RESULT_COUNT% - 1
+                                LOSPEC_fetch_detail efi2%
+                                detailFetched%(efi2%) = TRUE
+                            NEXT efi2%
+                            LOSPEC_DOWNLOAD_STATUS$ = ""
+                        END IF
                     END IF
+                    TI_inputs(tiSearchId%).submitted = 0
+                    TI_set_focus tiSearchId%  ' Keep focus in search
                 END IF
-            CASE 8   ' Backspace
-                IF searchLen% > 0 THEN
-                    searchLen% = searchLen% - 1
-                    MID$(searchBuf$, searchLen% + 1, 1) = " "
+                IF TI_inputs(tiSearchId%).escaped THEN
+                    ctx.done = TRUE : ctx.result = FALSE
+                    TI_inputs(tiSearchId%).escaped = 0
                 END IF
-            CASE 32  ' Space - add to search box
-                IF searchLen% < 64 THEN
-                    MID$(searchBuf$, searchLen% + 1, 1) = " "
-                    searchLen% = searchLen% + 1
-                END IF
-            CASE 18432  ' Up arrow = scroll up
-                IF listScroll% > 0 THEN listScroll% = listScroll% - 1
-            CASE 20480  ' Down arrow = scroll down
-                IF LOSPEC_RESULT_COUNT% - visRows% > 0 THEN
-                    IF listScroll% < LOSPEC_RESULT_COUNT% - visRows% THEN
-                        listScroll% = listScroll% + 1
+            END IF
+        END IF
+
+        IF NOT tiConsumed% THEN
+            SELECT CASE k&
+                CASE 27 : ctx.done = TRUE : ctx.result = FALSE  ' Escape = close
+                CASE 18432  ' Up arrow = scroll up
+                    IF listScroll% > 0 THEN listScroll% = listScroll% - 1
+                CASE 20480  ' Down arrow = scroll down
+                    IF LOSPEC_RESULT_COUNT% - visRows% > 0 THEN
+                        IF listScroll% < LOSPEC_RESULT_COUNT% - visRows% THEN
+                            listScroll% = listScroll% + 1
+                        END IF
                     END IF
-                END IF
-            CASE ELSE
-                IF k& >= 32 AND k& <= 126 AND searchLen% < 64 THEN
-                    MID$(searchBuf$, searchLen% + 1, 1) = CHR$(k&)
-                    searchLen% = searchLen% + 1
-                END IF
-        END SELECT
+            END SELECT
+        END IF
 
         ' ---- Mouse wheel ----
         IF ctx.mwheel <> 0 THEN
@@ -201,6 +240,15 @@ SUB LOSPEC_show_dialog ()
             END IF
         END IF
 
+        ' ---- TI search input mouse ----
+        IF tiSearchId% > 0 AND ctx.mb1 THEN
+            IF ctx.mx >= tiSearchX% AND ctx.mx < tiSearchX% + tiSearchW% THEN
+                IF ctx.my >= LS_SEARCH_Y - 2 AND ctx.my < LS_SEARCH_Y - 2 + tiSearchH% THEN
+                    TI_process_mouse ctx.mx, ctx.my, ctx.mb1
+                END IF
+            END IF
+        END IF
+
         ' ---- Click dispatch ----
         IF ctx.justClicked THEN
             ' Click in results list -> checkbox area toggles batch; rest selects preview
@@ -230,27 +278,7 @@ SUB LOSPEC_show_dialog ()
             END IF
         END IF
 
-        ' Button: SEARCH
-        IF DIALOG_hit%(ctx, LS_PAD + _PRINTWIDTH("SEARCH:", ctx.imgHandle) + 2, LS_SEARCH_Y - 2, 56, LS_SEARCH_H + 4) THEN
-            IF searchLen% > 0 THEN
-                LOSPEC_DOWNLOAD_STATUS$ = "Searching..."
-                LOSPEC_search LEFT$(searchBuf$, searchLen%)
-                FOR dfi% = 0 TO LOSPEC_MAX_RESULTS - 1 : detailFetched%(dfi%) = FALSE : NEXT dfi%
-                listScroll%  = 0
-                hovResult%   = -1
-                previewIdx%  = -1
-                ' Eager prefetch all palette details
-                IF LOSPEC_RESULT_COUNT% > 0 THEN
-                    LOSPEC_DOWNLOAD_STATUS$ = "Loading palette details..."
-                    DIM efi AS INTEGER
-                    FOR efi% = 0 TO LOSPEC_RESULT_COUNT% - 1
-                        LOSPEC_fetch_detail efi%
-                        detailFetched%(efi%) = TRUE
-                    NEXT efi%
-                    LOSPEC_DOWNLOAD_STATUS$ = ""
-                END IF
-            END IF
-        END IF
+        ' (Search is now triggered by Enter in the TI widget)
 
         ' Button: DOWNLOAD (selected/hovered result)
         IF DIALOG_hit%(ctx, LS_PAD, LS_BTN_Y, 100, LS_BTN_H) THEN
@@ -284,16 +312,13 @@ SUB LOSPEC_show_dialog ()
         ' --- Search area ---
         DIM srchLabelW AS INTEGER
         srchLabelW% = _PRINTWIDTH("SEARCH:", ctx.imgHandle)
-        DIALOG_draw_label ctx, LS_PAD, 25, "SEARCH:"
-        LINE (LS_PAD + srchLabelW% + 2, LS_SEARCH_Y - 2)-(LS_PREV_X - LS_PAD, LS_SEARCH_Y + LS_SEARCH_H + 1), THEME.LOSPEC_search_bg~&, BF
-        LINE (LS_PAD + srchLabelW% + 2, LS_SEARCH_Y - 2)-(LS_PREV_X - LS_PAD, LS_SEARCH_Y + LS_SEARCH_H + 1), THEME.LOSPEC_search_border~&, B
-        _PRINTSTRING (LS_PAD + srchLabelW% + 4, LS_SEARCH_Y), LEFT$(searchBuf$, searchLen%)
-        IF searchLen% < 64 THEN
-            IF (TIMER * 2) MOD 2 < 1 THEN
-                DIM cursorX AS INTEGER
-                cursorX% = LS_PAD + srchLabelW% + 4 + _PRINTWIDTH(LEFT$(searchBuf$, searchLen%), ctx.imgHandle)
-                LINE (cursorX%, LS_SEARCH_Y)-(cursorX%, LS_SEARCH_Y + 10), THEME.LOSPEC_search_cursor~&
-            END IF
+        ' Vertically center the label relative to the TI box
+        DIM srchLabelY AS INTEGER
+        srchLabelY% = LS_SEARCH_Y - 2 + (tiSearchH% - lsFontH%) \ 2
+        DIALOG_draw_label ctx, LS_PAD, srchLabelY%, "SEARCH:"
+        ' TI widget renders itself (background, border, text, cursor, selection)
+        IF tiSearchId% > 0 THEN
+            TI_render tiSearchId%, 0, 0
         END IF
 
         ' --- Column headers ---
@@ -587,6 +612,12 @@ SUB LOSPEC_show_dialog ()
 
         DIALOG_blit ctx
     LOOP UNTIL ctx.done
+
+    ' Clean up TI widget
+    IF tiSearchId% > 0 THEN
+        TI_destroy tiSearchId%
+        tiSearchId% = 0
+    END IF
 
     DIALOG_cleanup ctx
 END SUB

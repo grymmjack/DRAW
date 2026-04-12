@@ -1,38 +1,43 @@
 # IDEAS
 
 
-## FILE DIALOG IMPROVEMENTS
-- Add tooltip for buttons and panes
-  - DIALOG TITLE BAR AREA:
-    - Resize and move as needed your preference will be remembered
-  - BUTTONS:
-    - Up directory - BACKSPACE, or L-CLICK to cd ..
-    - Create directory - Create new directory in current directory
-    - Detail View - Show files with icon, name, type, size, and modified time
-    - List View - Show files just with icon, name and extension
-    - Thumbnail View - Show files as thumbnail images - CTRL+M-WHEEL to zoom in/out
-    - Show Hidden Files - Show hidden files (. (dot) files)
-    - Toggle Image Preview Pane - Show or hide the image preview pane
-  - PANES:
-    - Current Path - You are here
-    - / - File System Root - Root of the entire computer file system
-    - Home - Users Home Directory - Also known as $HOME or ~
-    - Desktop - Users Desktop Directory - ~/Desktop (or Desktop if Windows)
-    - Documents - Users Documents Directory - ~/Documents or (My Documents if Windows)
-    - Downloads - Users Downloads Directory - ~/Downloads (or My Downloads if Windows)
-    - Pictures - Users Pictures Directory - ~/Pictures (or My Pictures if Windows)
-    - Music - Users Music Directory - ~/Music (or My Music if Windows)
-    - Videos - Users Video Directory - ~/Videos (or My Videos if Windows)
-    - DRAW SPECIFIC:
-      - DRAW - DRAW Program Directory - where the binary/exe ran from
-      - Samples - DRAW Samples Directory - Inspiration and examples of what you can do
-      - User Data - DRAW User Data Directory - your own DRAW stuff! Palettes, Drawer Sets, Fonts, etc.
-      - Palettes - DRAW ASSETS: Palletes - All the built-in palettes
-      - Drawer Sets - DRAW ASSETS: Drawer Sets - All the built-in drawer sets
-    - CUSTOM PLACES:
-      - User Favorited Places - R-CLICK on any folder to add to favorite places! R-CLICK again to remove
-- Make the cursor focus default to the filename for:
-  - Save dialogs
+## [ ] FILE DIALOG IMPROVEMENTS
+- [ ] Make the cursor focus default to the filename for:
+  - [ ] Save dialogs
+
+- [ ] Use custom fonts (like colorpicker in QB64_GJ_LIB/COLOR_PICKER)
+- [ ] Use a theme (like colorpicker in QB64_GJ_LIB/COLOR_PICKER)
+
+- [ ] Add tooltip for buttons and panes
+  - [ ] DIALOG TITLE BAR AREA:
+    - [ ] Resize and move as needed your preference will be remembered
+  - [ ] BUTTONS:
+    - [ ] Up directory - BACKSPACE, or L-CLICK to cd ..
+    - [ ] Create directory - Create new directory in current directory
+    - [ ] Detail View - Show files with icon, name, type, size, and modified time
+    - [ ] List View - Show files just with icon, name and extension
+    - [ ] Thumbnail View - Show files as thumbnail images - CTRL+M-WHEEL to zoom in/out
+    - [ ] Show Hidden Files - Show hidden files (. (dot) files)
+    - [ ] Toggle Image Preview Pane - Show or hide the image preview pane
+  - [ ] PANES:
+    - [ ] Current Path - You are here
+    - [ ] / - File System Root - Root of the entire computer file system
+    - [ ] Home - Users Home Directory - Also known as $HOME or ~
+    - [ ] Desktop - Users Desktop Directory - ~/Desktop (or Desktop if Windows)
+    - [ ] Documents - Users Documents Directory - ~/Documents or (My Documents if Windows)
+    - [ ] Downloads - Users Downloads Directory - ~/Downloads (or My Downloads if Windows)
+    - [ ] Pictures - Users Pictures Directory - ~/Pictures (or My Pictures if Windows)
+    - [ ] Music - Users Music Directory - ~/Music (or My Music if Windows)
+    - [ ] Videos - Users Video Directory - ~/Videos (or My Videos if Windows)
+    - [ ] DRAW SPECIFIC:
+      - [ ] DRAW - DRAW Program Directory - where the binary/exe ran from
+      - [ ] Samples - DRAW Samples Directory - Inspiration and examples of what you can do
+      - [ ] User Data - DRAW User Data Directory - your own DRAW stuff! Palettes, Drawer Sets, Fonts, etc.
+      - [ ] Palettes - DRAW ASSETS: Palletes - All the built-in palettes
+      - [ ] Drawer Sets - DRAW ASSETS: Drawer Sets - All the built-in drawer sets
+    - [ ] CUSTOM PLACES:
+      - [ ] User Favorited Places - R-CLICK on any folder to add to favorite places! R-CLICK again to remove
+
   
 ## LOSPEC DIALOG IMPROVEMENTS
 - Fix the alignment of the text in the search box
@@ -41,10 +46,6 @@
 ## - [ ] SPARE PAGE
 - [ ] Implement Spare page
 - Rename canvas-ops
-
-## PALETTE BUTTON IN DRAWER
-- Load Palette
-- Load from Lospec
 
 
 ## QB64PE EXPORT
