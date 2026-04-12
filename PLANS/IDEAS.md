@@ -1,6 +1,52 @@
 # IDEAS
 
+## COLOR MIXER (replaces COLOR-OPS)
+- Toggle with COLOR MIXER button on/off 
+  - rename color-ops-off.png to color-mixer-off.png
+  - rename color-ops-on.png to color-mixer-on.png
+  - color-mixer-off = color dialog invisible
+  - color-mixer-on = color dialog visible
+  - New Tooltip: L-CLICK to show/hide color dialog
+  - Add to PALETTE -> [x] Color Mixer 
+  - Should remain at same z-index as Preview Window
+  - Can be freely moved inside DRAW window like preview window
+  - Should be hidden if user drags over it while drawing like other chrome
+  - State should be remembered per session, per document, etc.
+    - DRAW_CFG COLOR_MIXER_VISIBLE = true/false
+  - When picking colors from ANYWHERE else in DRAW, synchronize to the color mixer
+    and pick that same color, if possible, honoring quantization, etc. if setup.
+
+
 ## FILE DIALOG IMPROVEMENTS
+- Add tooltip for buttons and panes
+  - DIALOG TITLE BAR AREA:
+    - Resize and move as needed your preference will be remembered
+  - BUTTONS:
+    - Up directory - BACKSPACE, or L-CLICK to cd ..
+    - Create directory - Create new directory in current directory
+    - Detail View - Show files with icon, name, type, size, and modified time
+    - List View - Show files just with icon, name and extension
+    - Thumbnail View - Show files as thumbnail images - CTRL+M-WHEEL to zoom in/out
+    - Show Hidden Files - Show hidden files (. (dot) files)
+    - Toggle Image Preview Pane - Show or hide the image preview pane
+  - PANES:
+    - Current Path - You are here
+    - / - File System Root - Root of the entire computer file system
+    - Home - Users Home Directory - Also known as $HOME or ~
+    - Desktop - Users Desktop Directory - ~/Desktop (or Desktop if Windows)
+    - Documents - Users Documents Directory - ~/Documents or (My Documents if Windows)
+    - Downloads - Users Downloads Directory - ~/Downloads (or My Downloads if Windows)
+    - Pictures - Users Pictures Directory - ~/Pictures (or My Pictures if Windows)
+    - Music - Users Music Directory - ~/Music (or My Music if Windows)
+    - Videos - Users Video Directory - ~/Videos (or My Videos if Windows)
+    - DRAW SPECIFIC:
+      - DRAW - DRAW Program Directory - where the binary/exe ran from
+      - Samples - DRAW Samples Directory - Inspiration and examples of what you can do
+      - User Data - DRAW User Data Directory - your own DRAW stuff! Palettes, Drawer Sets, Fonts, etc.
+      - Palettes - DRAW ASSETS: Palletes - All the built-in palettes
+      - Drawer Sets - DRAW ASSETS: Drawer Sets - All the built-in drawer sets
+    - CUSTOM PLACES:
+      - User Favorited Places - R-CLICK on any folder to add to favorite places! R-CLICK again to remove
 - Make the cursor focus default to the filename for:
   - Save dialogs
   
@@ -16,20 +62,33 @@
 - Load from Lospec
 
 
+## QB64PE EXPORT
+- Each layer is a SUB
+  - When duplicating a layer, do not duplicate the layer, just refer to the SUB in the export
+  - So if a layer is duplicated it needs a new icon (SUB) to show it's not the original
+  - Only the original layer is editable, [SUB] which when edited updates all (SUB)
+- Restrict to use only these tools:
+  - DOT (`PSET`)
+  - BRUSH (`PSET`)
+  - LINE (`LINE`)
+    - IF BRUSH SIZE > 1px EXPORT USING MULTIPLE `LINE`
+  - POLY LINE (`LINE`)
+  - RECT (`LINE BF`)
+  - CIRCLE (`CIRCLE`)
+  - FILLED POLY LINE (`LINE + PAINT`)
+  - FILLED RECT LINE (`BF + PAINT`)
+  - FILLED CIRCLE (`CIRCLE + PAINT`)
+  - NOT TRACKED IN CODE EXPORT EXCEPT FINAL OUTPUT
+    - MARQUEE
+    - MOVE
+  - TEXT TOOL
+    - EXPORT code for `_LOADFONT`, copy font to export dir, etc.
+    - TEXT LAYERS have (SUB:TXT)/[SUB:TXT]
+- If using ANY other tool the layer becomes a (SUB:IMG) layer, when exported the layer becomes LAYER_NAME.PNG and referenced in code using `_LOADIMAGE`
+  - CAN DUPLICATE IMG layer, but only [SUB:IMG] source is editable - when edited updates everywhere
+  
+
 ## Image Browser (For drag/drop to brush and pattern slots)
-
-
-## Layer Groups
-- Move layer into
-- Move layer out of
-- Group operations:
-  - Expand
-  - Collapse
-  - Move group
-  - Transform group
-  - Selection from group
-  - Merge group
-- Align/Distribute Layers in group
 
 
 ## ADDITIONAL TABLE LAYOUT MODE
