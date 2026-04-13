@@ -1,5 +1,41 @@
 # IDEAS
 
+## - [ ] SYMBOL LAYERS
+- [ ] Menu: Layer -> New Symbol Layer
+- [ ] Menu: Layer -> Synchronize Children (when parent symbol layer is selected)
+- [ ] SYMBOL LAYERS exist as 1 source layer identified as [SYM] known as symbol parents
+  - [ ] In essence symbol parent layer is embedded image exactly the size of the extents of the symbol parent content
+        when it is duplicated from the symbol parent layer and creates symbol children
+- [ ] A symbol parent layer that is duplicated creates (SYM@) symbol child instances
+- [ ] A symbol parent layer, when edited will automatically update any other symbol child used in other places except for these properties which remain untouched for each other child instance of the symbol:
+  - [ ] Visibility
+  - [ ] Opacity
+  - [ ] Opacity lock
+  - [ ] Position
+  - [ ] Scale
+  - [ ] Rotation
+  - [ ] Blend mode
+- [ ] When symbol layer is duplicated it creates symbol children instance layers
+- [ ] A symbol childs instance layers pixel data cannot be edited directly
+- [ ] Symbol child instance layers can have unique properties from the symbol root:
+  - [ ] Visibility
+  - [ ] Opacity
+  - [ ] Opacity lock
+  - [ ] Position
+  - [ ] Scale
+  - [ ] Rotation
+  - [ ] Blend mode
+- [ ] Symbols parents and children are treated otherwise identically as regular layers
+  - [ ] They can be grouped
+  - [ ] Selections can be made with them
+  - [ ] They can be selected
+  - [ ] They can be rearranged in any order
+- [ ] Symbol parent layers can be hidden in the canvas while their child instances can still be visible
+  - [ ] Independent of the parent because of the unique properties
+- [ ] When a child symbol layer is selected
+  - [ ] Modifications made to it for scale, and rotation must be non-destructive and operate as an instance of the parent symbols own image data
+
+  
   
 ## - [ ] SPARE PAGE
 - [ ] Implement Spare page
