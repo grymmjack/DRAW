@@ -185,6 +185,9 @@ TYPE DRAW_THEME
     LAYER_PANEL_group_indent     AS INTEGER         ' Child indentation in pixels (per level)
     LAYER_PANEL_group_collapse_fg AS _UNSIGNED LONG ' Collapse triangle color
     ' --- Transform overlay frame ---
+    ' --- Marquee selection handles ---
+    MARQUEE_HANDLE_SIZE          AS INTEGER         ' Marquee corner/edge handle half-size in screen pixels
+    ' --- Transform overlay frame ---
     TRANSFORM_FRAME_COLOR        AS _UNSIGNED LONG  ' Quad outline color (RGBA)
     TRANSFORM_FRAME_HANDLE_COLOR AS _UNSIGNED LONG  ' Unselected handle fill color (RGBA)
     TRANSFORM_FRAME_HANDLE_SIZE  AS INTEGER         ' Handle half-size in screen pixels (draw + hit test)

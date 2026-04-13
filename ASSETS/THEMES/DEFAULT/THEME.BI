@@ -186,6 +186,9 @@ THEME.LAYER_PANEL_group_header_fg~&  = _RGB32(180, 200, 220)       ' Group heade
 THEME.LAYER_PANEL_group_indent%      = 12                          ' Child indent pixels
 THEME.LAYER_PANEL_group_collapse_fg~& = _RGB32(160, 180, 200)      ' Collapse triangle color
 
+' --- Marquee selection handles ---
+THEME.MARQUEE_HANDLE_SIZE%           = 1                           ' Handle half-size (screen px)
+
 ' --- Transform overlay frame ---
 THEME.TRANSFORM_FRAME_COLOR~&        = _RGB32(180, 220, 255)       ' Quad outline
 THEME.TRANSFORM_FRAME_HANDLE_COLOR~& = _RGB32(200, 230, 255)       ' Unselected handle fill

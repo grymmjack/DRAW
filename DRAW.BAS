@@ -390,6 +390,11 @@ DO
         FRAME_IDLE% = FALSE
         IF mouseMoved% THEN SCENE_CHANGED% = TRUE                 ' Marquee preview only changes on mouse movement
     END IF
+    IF CURRENT_TOOL% = TOOL_MARQUEE AND (MARQUEE.DRAGGING% OR MARQUEE.RESIZING% OR MARQUEE.MOVING%) THEN
+        FRAME_IDLE% = FALSE
+        STATUS_NEEDS_REDRAW% = TRUE
+        IF mouseMoved% THEN SCENE_CHANGED% = TRUE                 ' Keep marquee overlays and status dimensions live while editing
+    END IF
     IF TRANSFORM.ACTIVE THEN
         FRAME_IDLE% = FALSE   ' keep render loop active while overlay is live
         IF TRANSFORM.GRABBED >= 0 OR TRANSFORM_PREVIEW_DIRTY THEN SCENE_CHANGED% = TRUE
