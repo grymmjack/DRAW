@@ -345,6 +345,7 @@ DO
         SCENE_CHANGED% = TRUE
         COMPOSITE_RESULT_VALID% = FALSE                           ' Committed pixels invalidate cached composite
         IF CURRENT_LAYER% > 0 THEN LAYERS(CURRENT_LAYER%).contentDirty% = TRUE   ' Invalidate opacity cache for < 100% layers
+        IF CURRENT_LAYER% > 0 THEN SYMBOL_mark_parent_dirty CURRENT_LAYER%
     END IF
     IF mouseMoved% THEN
         FRAME_IDLE% = FALSE                                       ' Mouse moved (cursor only)
@@ -451,6 +452,7 @@ DO
     ' Mark current layer content dirty when user is actively drawing
     IF (MOUSE.B1% OR MOUSE.B2%) AND CURRENT_LAYER% > 0 THEN
         LAYERS(CURRENT_LAYER%).contentDirty% = TRUE
+        SYMBOL_mark_parent_dirty CURRENT_LAYER%
         ' Track dirty region for region-based blend compositing.
         ' Base padding = brush half-size. Spray tool has much larger radius.
         DIM compHalf AS INTEGER

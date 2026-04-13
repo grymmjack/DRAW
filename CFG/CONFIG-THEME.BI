@@ -557,6 +557,10 @@ TYPE DRAW_THEME
     TEXT_BAR_TRANSPARENT_CHECK_LIGHT AS _UNSIGNED LONG ' Checkerboard light square
     ' --- Text Layers ---
     LAYER_PANEL_TEXT_ACCENT    AS _UNSIGNED LONG  ' Accent color for [T] text layer rows
+    LAYER_PANEL_symbol_parent_bg AS _UNSIGNED LONG ' Symbol parent row background
+    LAYER_PANEL_symbol_parent_fg AS _UNSIGNED LONG ' Symbol parent row name text
+    LAYER_PANEL_symbol_child_bg  AS _UNSIGNED LONG ' Symbol child row background
+    LAYER_PANEL_symbol_child_fg  AS _UNSIGNED LONG ' Symbol child row name text
     TEXT_LAYER_HOVER_OUTLINE   AS _UNSIGNED LONG  ' Outline color when hovering editable text layer
     TEXT_LAYER_HOVER_OUTLINE_WIDTH AS INTEGER       ' Stroke width in pixels for hover outline
     ' --- Character Map panel ---
