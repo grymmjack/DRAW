@@ -604,6 +604,10 @@ THEME.TEXT_BAR_ICON_AA$              = "IMAGES/TEXTBAR/tb-aa.png"
 THEME.TEXT_BAR_TRANSPARENT_CHECK_DARK~&   = _RGBA32(192, 192, 192, 255)
 THEME.TEXT_BAR_TRANSPARENT_CHECK_LIGHT~&  = _RGBA32(255, 255, 255, 255)
 THEME.LAYER_PANEL_TEXT_ACCENT~&      = _RGB32(80, 120, 200)
+THEME.LAYER_PANEL_symbol_parent_bg~& = _RGB32(40, 70, 65)          ' Muted teal for symbol parent rows
+THEME.LAYER_PANEL_symbol_parent_fg~& = _RGB32(180, 220, 210)       ' Light teal text
+THEME.LAYER_PANEL_symbol_child_bg~&  = _RGB32(45, 50, 75)          ' Muted blue for symbol child rows
+THEME.LAYER_PANEL_symbol_child_fg~&  = _RGB32(180, 195, 230)       ' Light blue text
 THEME.TEXT_LAYER_HOVER_OUTLINE~&     = _RGBA32(100, 200, 255, 180)
 THEME.TEXT_LAYER_HOVER_OUTLINE_WIDTH% = 2
 

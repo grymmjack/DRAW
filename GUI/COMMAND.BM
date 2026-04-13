@@ -219,6 +219,13 @@ SUB CMD_init ()
     CMD_register "Rename Layer", "", CMD_CAT_LAYER, 726
     CMD_register "Selection from Group", "", CMD_CAT_LAYER, 727
     CMD_register "Selection from Layer", "", CMD_CAT_LAYER, 728
+    CMD_register "Convert to Symbol", "", CMD_CAT_LAYER, 730
+    CMD_register "New Symbol Layer", "", CMD_CAT_LAYER, 731
+    CMD_register "Create Symbol Instance", "", CMD_CAT_LAYER, 732
+    CMD_register "Sync Symbols", "", CMD_CAT_LAYER, 733
+    CMD_register "Rasterize Symbol", "", CMD_CAT_LAYER, 734
+    CMD_register "Detach Instance", "", CMD_CAT_LAYER, 735
+    CMD_register "Select Parent", "", CMD_CAT_LAYER, 736
     
     ' ========== SELECT ==========
     CMD_register "Select From Current Layer", "", CMD_CAT_SELECT, 1401
@@ -1812,6 +1819,60 @@ SUB CMD_execute_action (action_id AS INTEGER)
                 END IF
             END IF
 
+        ' ========== SYMBOL LAYERS ==========
+        CASE 730  ' Convert to Symbol Parent
+            IF CURRENT_LAYER% >= 1 THEN
+                IF CURRENT_LAYER% <= MAX_LAYERS THEN
+                    IF LAYERS(CURRENT_LAYER%).layerType% = LAYER_TYPE_IMAGE THEN
+                        SYMBOL_create_parent CURRENT_LAYER%
+                        FRAME_IDLE% = FALSE
+                    END IF
+                END IF
+            END IF
+        CASE 731  ' New Symbol Layer (empty)
+            DIM newSymIdx AS INTEGER
+            newSymIdx% = SYMBOL_create_parent_empty%
+            IF newSymIdx% > 0 THEN FRAME_IDLE% = FALSE
+        CASE 732  ' Create Symbol Instance
+            IF CURRENT_LAYER% >= 1 THEN
+                IF CURRENT_LAYER% <= MAX_LAYERS THEN
+                    IF LAYERS(CURRENT_LAYER%).layerType% = LAYER_TYPE_SYMBOL_PARENT THEN
+                        SYMBOL_create_child CURRENT_LAYER%
+                        FRAME_IDLE% = FALSE
+                    END IF
+                END IF
+            END IF
+        CASE 733  ' Sync Symbols
+            SYMBOL_sync_all
+            FRAME_IDLE% = FALSE
+        CASE 734  ' Rasterize Symbol
+            IF CURRENT_LAYER% >= 1 THEN
+                IF CURRENT_LAYER% <= MAX_LAYERS THEN
+                    IF LAYERS(CURRENT_LAYER%).layerType% = LAYER_TYPE_SYMBOL_PARENT THEN
+                        SYMBOL_rasterize_parent CURRENT_LAYER%
+                        FRAME_IDLE% = FALSE
+                    END IF
+                END IF
+            END IF
+        CASE 735  ' Detach Instance
+            IF CURRENT_LAYER% >= 1 THEN
+                IF CURRENT_LAYER% <= MAX_LAYERS THEN
+                    IF LAYERS(CURRENT_LAYER%).layerType% = LAYER_TYPE_SYMBOL_CHILD THEN
+                        SYMBOL_detach_child CURRENT_LAYER%
+                        FRAME_IDLE% = FALSE
+                    END IF
+                END IF
+            END IF
+        CASE 736  ' Select Parent (from child)
+            IF CURRENT_LAYER% >= 1 THEN
+                IF CURRENT_LAYER% <= MAX_LAYERS THEN
+                    IF LAYERS(CURRENT_LAYER%).layerType% = LAYER_TYPE_SYMBOL_CHILD THEN
+                        SYMBOL_select_parent CURRENT_LAYER%
+                        FRAME_IDLE% = FALSE
+                    END IF
+                END IF
+            END IF
+
         ' ========== GRID ==========
         CASE 901: GRID.SHOW% = NOT GRID.SHOW%: GUI_NEEDS_REDRAW% = TRUE: SCENE_DIRTY% = TRUE
         CASE 902: PIXEL_GRID.SHOW% = NOT PIXEL_GRID.SHOW%: GUI_NEEDS_REDRAW% = TRUE: SCENE_DIRTY% = TRUE
@@ -2254,6 +2315,19 @@ SUB CMD_execute_action (action_id AS INTEGER)
                 FRAME_IDLE% = FALSE
             END IF
         CASE 315  ' Flip Horizontal
+            ' Symbol child: toggle flip via negative scale instead of destructive pixel flip
+            IF CURRENT_LAYER% >= 1 THEN
+                IF CURRENT_LAYER% <= MAX_LAYERS THEN
+                    IF LAYERS(CURRENT_LAYER%).layerType% = LAYER_TYPE_SYMBOL_CHILD THEN
+                        LAYERS(CURRENT_LAYER%).symbolScaleX! = -LAYERS(CURRENT_LAYER%).symbolScaleX!
+                        SYMBOL_render_child CURRENT_LAYER%
+                        BLEND_invalidate_cache
+                        FRAME_IDLE% = FALSE
+                        INVALIDATE_scene
+                        GOTO SkipFlipH315
+                    END IF
+                END IF
+            END IF
             DIM grpExp315 AS INTEGER
             grpExp315% = CMD_group_expand_for_op%
             SOUND_play SND_TRANSFORM
@@ -2339,7 +2413,21 @@ SUB CMD_execute_action (action_id AS INTEGER)
                 INVALIDATE_layers
             END IF
             IF grpExp315% > 0 THEN CMD_group_restore_after_op grpExp315%
+            SkipFlipH315:
         CASE 316  ' Flip Vertical
+            ' Symbol child: toggle flip via negative scale instead of destructive pixel flip
+            IF CURRENT_LAYER% >= 1 THEN
+                IF CURRENT_LAYER% <= MAX_LAYERS THEN
+                    IF LAYERS(CURRENT_LAYER%).layerType% = LAYER_TYPE_SYMBOL_CHILD THEN
+                        LAYERS(CURRENT_LAYER%).symbolScaleY! = -LAYERS(CURRENT_LAYER%).symbolScaleY!
+                        SYMBOL_render_child CURRENT_LAYER%
+                        BLEND_invalidate_cache
+                        FRAME_IDLE% = FALSE
+                        INVALIDATE_scene
+                        GOTO SkipFlipV316
+                    END IF
+                END IF
+            END IF
             DIM grpExp316 AS INTEGER
             grpExp316% = CMD_group_expand_for_op%
             SOUND_play SND_TRANSFORM
@@ -2425,7 +2513,41 @@ SUB CMD_execute_action (action_id AS INTEGER)
                 INVALIDATE_layers
             END IF
             IF grpExp316% > 0 THEN CMD_group_restore_after_op grpExp316%
+            SkipFlipV316:
         CASE 317  ' Scale -50%
+            ' Symbol child: adjust scale factor non-destructively (integer steps)
+            IF CURRENT_LAYER% >= 1 THEN
+                IF CURRENT_LAYER% <= MAX_LAYERS THEN
+                    IF LAYERS(CURRENT_LAYER%).layerType% = LAYER_TYPE_SYMBOL_CHILD THEN
+                        DIM sc317x AS SINGLE, sc317y AS SINGLE
+                        sc317x! = LAYERS(CURRENT_LAYER%).symbolScaleX!
+                        sc317y! = LAYERS(CURRENT_LAYER%).symbolScaleY!
+                        ' Decrease absolute value by 1, minimum 1.0
+                        IF sc317x! > 0 THEN
+                            sc317x! = sc317x! - 1.0!
+                            IF sc317x! < 1.0! THEN sc317x! = 1.0!
+                        ELSE
+                            sc317x! = sc317x! + 1.0!
+                            IF sc317x! > -1.0! THEN sc317x! = -1.0!
+                        END IF
+                        IF sc317y! > 0 THEN
+                            sc317y! = sc317y! - 1.0!
+                            IF sc317y! < 1.0! THEN sc317y! = 1.0!
+                        ELSE
+                            sc317y! = sc317y! + 1.0!
+                            IF sc317y! > -1.0! THEN sc317y! = -1.0!
+                        END IF
+                        LAYERS(CURRENT_LAYER%).symbolScaleX! = sc317x!
+                        LAYERS(CURRENT_LAYER%).symbolScaleY! = sc317y!
+                        SYMBOL_render_child CURRENT_LAYER%
+                        BLEND_invalidate_cache
+                        FRAME_IDLE% = FALSE
+                        INVALIDATE_scene
+                        SOUND_play SND_TRANSFORM
+                        GOTO SkipScale317
+                    END IF
+                END IF
+            END IF
             DIM grpExp317 AS INTEGER
             grpExp317% = CMD_group_expand_for_op%
             SOUND_play SND_TRANSFORM
@@ -2561,7 +2683,41 @@ SUB CMD_execute_action (action_id AS INTEGER)
                 INVALIDATE_layers
             END IF
             IF grpExp317% > 0 THEN CMD_group_restore_after_op grpExp317%
+            SkipScale317:
         CASE 318  ' Scale +50%
+            ' Symbol child: adjust scale factor non-destructively (integer steps)
+            IF CURRENT_LAYER% >= 1 THEN
+                IF CURRENT_LAYER% <= MAX_LAYERS THEN
+                    IF LAYERS(CURRENT_LAYER%).layerType% = LAYER_TYPE_SYMBOL_CHILD THEN
+                        DIM sc318x AS SINGLE, sc318y AS SINGLE
+                        sc318x! = LAYERS(CURRENT_LAYER%).symbolScaleX!
+                        sc318y! = LAYERS(CURRENT_LAYER%).symbolScaleY!
+                        ' Increase absolute value by 1, maximum 10.0
+                        IF sc318x! > 0 THEN
+                            sc318x! = sc318x! + 1.0!
+                            IF sc318x! > 10.0! THEN sc318x! = 10.0!
+                        ELSE
+                            sc318x! = sc318x! - 1.0!
+                            IF sc318x! < -10.0! THEN sc318x! = -10.0!
+                        END IF
+                        IF sc318y! > 0 THEN
+                            sc318y! = sc318y! + 1.0!
+                            IF sc318y! > 10.0! THEN sc318y! = 10.0!
+                        ELSE
+                            sc318y! = sc318y! - 1.0!
+                            IF sc318y! < -10.0! THEN sc318y! = -10.0!
+                        END IF
+                        LAYERS(CURRENT_LAYER%).symbolScaleX! = sc318x!
+                        LAYERS(CURRENT_LAYER%).symbolScaleY! = sc318y!
+                        SYMBOL_render_child CURRENT_LAYER%
+                        BLEND_invalidate_cache
+                        FRAME_IDLE% = FALSE
+                        INVALIDATE_scene
+                        SOUND_play SND_TRANSFORM
+                        GOTO SkipScale318
+                    END IF
+                END IF
+            END IF
             DIM grpExp318 AS INTEGER
             grpExp318% = CMD_group_expand_for_op%
             SOUND_play SND_TRANSFORM
@@ -2712,6 +2868,7 @@ SUB CMD_execute_action (action_id AS INTEGER)
                 INVALIDATE_layers
             END IF
             IF grpExp318% > 0 THEN CMD_group_restore_after_op grpExp318%
+            SkipScale318:
         CASE 319  ' Rotate 90 CW
             DIM grpExp319 AS INTEGER
             grpExp319% = CMD_group_expand_for_op%

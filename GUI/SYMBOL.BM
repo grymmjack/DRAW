@@ -1,0 +1,393 @@
+'$INCLUDEONCE
+
+' Symbol Layers — Implementation
+' Parent/child linked-instance system for reusable sprites
+
+''
+' Find the LAYERS() slot index of the parent for a given symbol child.
+' @param childIdx% INTEGER — slot index of the child layer
+' @return INTEGER — slot index of parent, or 0 if not found
+'
+FUNCTION SYMBOL_find_parent_slot% (childIdx AS INTEGER)
+    SYMBOL_find_parent_slot% = 0
+    IF childIdx% < 1 OR childIdx% > MAX_LAYERS THEN EXIT FUNCTION
+    IF LAYERS(childIdx%).layerType% <> LAYER_TYPE_SYMBOL_CHILD THEN EXIT FUNCTION
+    DIM parentId AS LONG
+    parentId& = LAYERS(childIdx%).symbolParentId&
+    IF parentId& = 0 THEN EXIT FUNCTION
+    DIM i AS INTEGER
+    FOR i% = 1 TO MAX_LAYERS
+        IF LAYERS(i%).imgHandle& <> 0 THEN
+            IF LAYERS(i%).layerType% = LAYER_TYPE_SYMBOL_PARENT THEN
+                IF LAYERS(i%).historyId& = parentId& THEN
+                    SYMBOL_find_parent_slot% = i%
+                    EXIT FUNCTION
+                END IF
+            END IF
+        END IF
+    NEXT i%
+END FUNCTION
+
+''
+' Find all symbol children that reference a given parent.
+' @param parentIdx% INTEGER — slot index of the parent layer
+' @param children%() INTEGER — output array (1 TO MAX_LAYERS), filled with child slot indices
+' @param count% INTEGER — output: number of children found
+'
+SUB SYMBOL_find_children (parentIdx AS INTEGER, children() AS INTEGER, count AS INTEGER)
+    count% = 0
+    IF parentIdx% < 1 OR parentIdx% > MAX_LAYERS THEN EXIT SUB
+    IF LAYERS(parentIdx%).layerType% <> LAYER_TYPE_SYMBOL_PARENT THEN EXIT SUB
+    DIM parentId AS LONG
+    parentId& = LAYERS(parentIdx%).historyId&
+    DIM i AS INTEGER
+    FOR i% = 1 TO MAX_LAYERS
+        IF LAYERS(i%).imgHandle& <> 0 THEN
+            IF LAYERS(i%).layerType% = LAYER_TYPE_SYMBOL_CHILD THEN
+                IF LAYERS(i%).symbolParentId& = parentId& THEN
+                    count% = count% + 1
+                    children%(count%) = i%
+                END IF
+            END IF
+        END IF
+    NEXT i%
+END SUB
+
+''
+' Re-render a symbol child from its parent's content.
+' Uses _PUTIMAGE with nearest-neighbor for pixel-perfect scaling.
+' Negative scale factors produce flip via source rect coordinate swap.
+' @param childIdx% INTEGER — slot index of the child layer
+'
+SUB SYMBOL_render_child (childIdx AS INTEGER)
+    IF childIdx% < 1 OR childIdx% > MAX_LAYERS THEN EXIT SUB
+    IF LAYERS(childIdx%).layerType% <> LAYER_TYPE_SYMBOL_CHILD THEN EXIT SUB
+
+    DIM parentIdx AS INTEGER
+    parentIdx% = SYMBOL_find_parent_slot%(childIdx%)
+    IF parentIdx% = 0 THEN EXIT SUB
+    DIM parentImg AS LONG
+    parentImg& = LAYERS(parentIdx%).imgHandle&
+    IF parentImg& >= -1 THEN EXIT SUB
+
+    ' Get parent content bounds
+    DIM bx AS INTEGER, by AS INTEGER, bw AS INTEGER, bh AS INTEGER
+    LAYER_get_content_bounds parentIdx%, bx%, by%, bw%, bh%
+    IF bw% <= 0 OR bh% <= 0 THEN
+        ' Parent has no visible content — clear child
+        DIM oldDest0 AS LONG: oldDest0& = _DEST
+        _DEST LAYERS(childIdx%).imgHandle&
+        CLS , _RGBA32(0, 0, 0, 0)
+        _DEST oldDest0&
+        LAYERS(childIdx%).contentDirty% = TRUE
+        EXIT SUB
+    END IF
+
+    ' Read child transform
+    DIM scaleX AS SINGLE, scaleY AS SINGLE
+    scaleX! = LAYERS(childIdx%).symbolScaleX!
+    scaleY! = LAYERS(childIdx%).symbolScaleY!
+    IF scaleX! = 0 THEN scaleX! = 1.0
+    IF scaleY! = 0 THEN scaleY! = 1.0
+
+    DIM offX AS INTEGER, offY AS INTEGER
+    offX% = LAYERS(childIdx%).symbolOffsetX%
+    offY% = LAYERS(childIdx%).symbolOffsetY%
+
+    ' Compute destination size from content bounds and scale
+    DIM destW AS INTEGER, destH AS INTEGER
+    destW% = INT(ABS(scaleX!) * bw%)
+    destH% = INT(ABS(scaleY!) * bh%)
+    IF destW% < 1 THEN destW% = 1
+    IF destH% < 1 THEN destH% = 1
+
+    ' Build source rectangle — swap coords for flip
+    DIM sx1 AS INTEGER, sy1 AS INTEGER, sx2 AS INTEGER, sy2 AS INTEGER
+    IF scaleX! >= 0 THEN
+        sx1% = bx%
+        sx2% = bx% + bw% - 1
+    ELSE
+        sx1% = bx% + bw% - 1
+        sx2% = bx%
+    END IF
+    IF scaleY! >= 0 THEN
+        sy1% = by%
+        sy2% = by% + bh% - 1
+    ELSE
+        sy1% = by% + bh% - 1
+        sy2% = by%
+    END IF
+
+    ' Clear child canvas to transparent and render
+    DIM childImg AS LONG
+    childImg& = LAYERS(childIdx%).imgHandle&
+    IF childImg& >= -1 THEN EXIT SUB
+
+    DIM oldDest AS LONG: oldDest& = _DEST
+    _DEST childImg&
+    CLS , _RGBA32(0, 0, 0, 0)
+    _DONTBLEND childImg&
+    _PUTIMAGE (offX%, offY%)-(offX% + destW% - 1, offY% + destH% - 1), parentImg&, childImg&, (sx1%, sy1%)-(sx2%, sy2%)
+    _BLEND childImg&
+    _DEST oldDest&
+
+    LAYERS(childIdx%).contentDirty% = TRUE
+END SUB
+
+''
+' Sync all children of a specific parent by re-rendering them.
+' Clears the parent's symbolParentDirty% flag.
+' @param parentIdx% INTEGER — slot index of the parent layer
+'
+SUB SYMBOL_sync_children (parentIdx AS INTEGER)
+    IF parentIdx% < 1 OR parentIdx% > MAX_LAYERS THEN EXIT SUB
+    IF LAYERS(parentIdx%).layerType% <> LAYER_TYPE_SYMBOL_PARENT THEN EXIT SUB
+
+    DIM children(1 TO MAX_LAYERS) AS INTEGER
+    DIM count AS INTEGER
+    SYMBOL_find_children parentIdx%, children%(), count%
+
+    DIM i AS INTEGER
+    FOR i% = 1 TO count%
+        SYMBOL_render_child children%(i%)
+    NEXT i%
+
+    LAYERS(parentIdx%).symbolParentDirty% = FALSE
+END SUB
+
+''
+' Sync all dirty symbol parents. Called by Layer → Sync Symbols command.
+' Also called after file load and undo/redo for correctness.
+'
+SUB SYMBOL_sync_all ()
+    DIM i AS INTEGER
+    DIM synced AS INTEGER
+    synced% = FALSE
+    FOR i% = 1 TO MAX_LAYERS
+        IF LAYERS(i%).imgHandle& <> 0 THEN
+            IF LAYERS(i%).layerType% = LAYER_TYPE_SYMBOL_PARENT THEN
+                IF LAYERS(i%).symbolParentDirty% THEN
+                    SYMBOL_sync_children i%
+                    synced% = TRUE
+                END IF
+            END IF
+        END IF
+    NEXT i%
+    IF synced% THEN
+        BLEND_invalidate_cache
+        INVALIDATE_scene
+    END IF
+END SUB
+
+''
+' Convert an existing layer to a Symbol Parent.
+' @param layerIdx% INTEGER — slot index of the layer to convert
+'
+SUB SYMBOL_create_parent (layerIdx AS INTEGER)
+    IF layerIdx% < 1 OR layerIdx% > MAX_LAYERS THEN EXIT SUB
+    IF LAYERS(layerIdx%).imgHandle& = 0 THEN EXIT SUB
+    ' Only convert IMAGE layers
+    IF LAYERS(layerIdx%).layerType% <> LAYER_TYPE_IMAGE THEN EXIT SUB
+
+    LAYERS(layerIdx%).layerType% = LAYER_TYPE_SYMBOL_PARENT
+    LAYERS(layerIdx%).symbolParentDirty% = FALSE
+    LAYERS(layerIdx%).symbolParentId& = 0
+    LAYERS(layerIdx%).symbolScaleX! = 1.0
+    LAYERS(layerIdx%).symbolScaleY! = 1.0
+    LAYERS(layerIdx%).symbolOffsetX% = 0
+    LAYERS(layerIdx%).symbolOffsetY% = 0
+
+    BLEND_invalidate_cache
+    INVALIDATE_scene
+END SUB
+
+''
+' Create a new empty Symbol Parent layer.
+' @return INTEGER — slot index of the new layer, or 0 on failure
+'
+FUNCTION SYMBOL_create_parent_empty% ()
+    DIM newIdx AS INTEGER
+    newIdx% = LAYERS_new%
+    IF newIdx% = 0 THEN
+        SYMBOL_create_parent_empty% = 0
+        EXIT FUNCTION
+    END IF
+    LAYERS(newIdx%).layerType% = LAYER_TYPE_SYMBOL_PARENT
+    LAYERS(newIdx%).symbolParentDirty% = FALSE
+    LAYERS(newIdx%).symbolScaleX! = 1.0
+    LAYERS(newIdx%).symbolScaleY! = 1.0
+    LAYERS(newIdx%).name = "Symbol " + _TRIM$(STR$(LAYER_COUNT%))
+
+    SYMBOL_create_parent_empty% = newIdx%
+END FUNCTION
+
+''
+' Create a Symbol Child instance linked to a parent.
+' The child gets a canvas-sized image buffer and is rendered from parent content.
+' @param parentIdx% INTEGER — slot index of the parent layer
+'
+SUB SYMBOL_create_child (parentIdx AS INTEGER)
+    IF parentIdx% < 1 OR parentIdx% > MAX_LAYERS THEN EXIT SUB
+    IF LAYERS(parentIdx%).layerType% <> LAYER_TYPE_SYMBOL_PARENT THEN EXIT SUB
+    IF LAYER_COUNT% >= CFG.NUM_LAYERS% THEN EXIT SUB
+
+    ' Find an empty slot
+    DIM newIdx AS INTEGER
+    DIM i AS INTEGER
+    newIdx% = 0
+    FOR i% = 1 TO MAX_LAYERS
+        IF LAYERS(i%).imgHandle& = 0 THEN
+            newIdx% = i%
+            EXIT FOR
+        END IF
+    NEXT i%
+    IF newIdx% = 0 THEN EXIT SUB
+
+    ' Insert above parent in z-order
+    DIM parentZ AS INTEGER
+    parentZ% = LAYERS(parentIdx%).zIndex%
+    FOR i% = 1 TO MAX_LAYERS
+        IF LAYERS(i%).imgHandle& <> 0 THEN
+            IF LAYERS(i%).zIndex% > parentZ% THEN
+                LAYERS(i%).zIndex% = LAYERS(i%).zIndex% + 1
+            END IF
+        END IF
+    NEXT i%
+
+    ' Create canvas-sized image buffer
+    LAYERS(newIdx%).imgHandle& = _NEWIMAGE(SCRN.canvasW&, SCRN.canvasH&, 32)
+    IF LAYERS(newIdx%).imgHandle& >= -1 THEN
+        _LOGERROR "SYMBOL_create_child: _NEWIMAGE failed for slot " + STR$(newIdx%)
+        LAYERS(newIdx%).imgHandle& = 0
+        EXIT SUB
+    END IF
+
+    ' Clear to transparent
+    DIM oldDest AS LONG: oldDest& = _DEST
+    _DEST LAYERS(newIdx%).imgHandle&
+    CLS , _RGBA32(0, 0, 0, 0)
+    _DEST oldDest&
+
+    ' Set properties
+    LAYER_COUNT% = LAYER_COUNT% + 1
+    LAYERS(newIdx%).historyId& = LAYERS_alloc_history_id&
+    LAYERS(newIdx%).imgWidth% = SCRN.canvasW&
+    LAYERS(newIdx%).imgHeight% = SCRN.canvasH&
+    LAYERS(newIdx%).zIndex% = parentZ% + 1
+    LAYERS(newIdx%).visible% = LAYERS(parentIdx%).visible%
+    LAYERS(newIdx%).isSelected% = FALSE
+    LAYERS(newIdx%).lastSelected% = FALSE
+    LAYERS(newIdx%).opacity% = LAYERS(parentIdx%).opacity%
+    LAYERS(newIdx%).opacityLock% = LAYERS(parentIdx%).opacityLock%
+    LAYERS(newIdx%).blendMode% = LAYERS(parentIdx%).blendMode%
+    LAYERS(newIdx%).contentDirty% = TRUE
+    LAYERS(newIdx%).layerType% = LAYER_TYPE_SYMBOL_CHILD
+    LAYERS(newIdx%).textDataIdx% = 0
+    LAYERS(newIdx%).parentGroupIdx% = LAYERS(parentIdx%).parentGroupIdx%
+    LAYERS(newIdx%).collapsed% = FALSE
+    LAYERS(newIdx%).passThrough% = FALSE
+    LAYERS(newIdx%).name = _TRIM$(LAYERS(parentIdx%).name) + " instance"
+
+    ' Symbol child fields
+    LAYERS(newIdx%).symbolParentId& = LAYERS(parentIdx%).historyId&
+    LAYERS(newIdx%).symbolParentDirty% = FALSE
+    LAYERS(newIdx%).symbolScaleX! = 1.0
+    LAYERS(newIdx%).symbolScaleY! = 1.0
+
+    ' Position at parent's content origin
+    DIM bx AS INTEGER, by AS INTEGER, bw AS INTEGER, bh AS INTEGER
+    LAYER_get_content_bounds parentIdx%, bx%, by%, bw%, bh%
+    LAYERS(newIdx%).symbolOffsetX% = bx%
+    LAYERS(newIdx%).symbolOffsetY% = by%
+
+    ' Render child content from parent
+    SYMBOL_render_child newIdx%
+
+    IF NOT HISTORY_IN_PROGRESS% THEN
+        HISTORY_record_layer_add LAYERS(newIdx%).historyId&, newIdx%, LAYERS(newIdx%).zIndex%, "Symbol Instance"
+    END IF
+
+    LAYERS_select newIdx%
+    BLEND_invalidate_cache
+    INVALIDATE_scene
+END SUB
+
+''
+' Rasterize a Symbol Parent — converts it to a regular IMAGE layer
+' and detaches all children.
+' @param idx% INTEGER — slot index of the parent
+'
+SUB SYMBOL_rasterize_parent (idx AS INTEGER)
+    IF idx% < 1 OR idx% > MAX_LAYERS THEN EXIT SUB
+    IF LAYERS(idx%).layerType% <> LAYER_TYPE_SYMBOL_PARENT THEN EXIT SUB
+
+    ' Detach all children first
+    DIM children(1 TO MAX_LAYERS) AS INTEGER
+    DIM count AS INTEGER
+    SYMBOL_find_children idx%, children%(), count%
+
+    DIM i AS INTEGER
+    FOR i% = 1 TO count%
+        SYMBOL_detach_child children%(i%)
+    NEXT i%
+
+    ' Convert parent to regular image
+    LAYERS(idx%).layerType% = LAYER_TYPE_IMAGE
+    LAYERS(idx%).symbolParentDirty% = FALSE
+    LAYERS(idx%).symbolParentId& = 0
+    LAYERS(idx%).symbolScaleX! = 1.0
+    LAYERS(idx%).symbolScaleY! = 1.0
+    LAYERS(idx%).symbolOffsetX% = 0
+    LAYERS(idx%).symbolOffsetY% = 0
+
+    BLEND_invalidate_cache
+    INVALIDATE_scene
+END SUB
+
+''
+' Detach a Symbol Child — converts it to a regular IMAGE layer.
+' Pixel data remains frozen at current state.
+' @param idx% INTEGER — slot index of the child
+'
+SUB SYMBOL_detach_child (idx AS INTEGER)
+    IF idx% < 1 OR idx% > MAX_LAYERS THEN EXIT SUB
+    IF LAYERS(idx%).layerType% <> LAYER_TYPE_SYMBOL_CHILD THEN EXIT SUB
+
+    LAYERS(idx%).layerType% = LAYER_TYPE_IMAGE
+    LAYERS(idx%).symbolParentId& = 0
+    LAYERS(idx%).symbolParentDirty% = FALSE
+    LAYERS(idx%).symbolScaleX! = 1.0
+    LAYERS(idx%).symbolScaleY! = 1.0
+    LAYERS(idx%).symbolOffsetX% = 0
+    LAYERS(idx%).symbolOffsetY% = 0
+
+    BLEND_invalidate_cache
+    INVALIDATE_scene
+END SUB
+
+''
+' Mark a layer's symbol parent as dirty (content changed since last sync).
+' Call this whenever contentDirty% is set on a layer that might be a parent.
+' @param layerIdx% INTEGER — slot index of the layer
+'
+SUB SYMBOL_mark_parent_dirty (layerIdx AS INTEGER)
+    IF layerIdx% < 1 OR layerIdx% > MAX_LAYERS THEN EXIT SUB
+    IF LAYERS(layerIdx%).layerType% = LAYER_TYPE_SYMBOL_PARENT THEN
+        LAYERS(layerIdx%).symbolParentDirty% = TRUE
+    END IF
+END SUB
+
+''
+' Select the parent of the current symbol child.
+' @param childIdx% INTEGER — slot index of the child
+'
+SUB SYMBOL_select_parent (childIdx AS INTEGER)
+    DIM parentIdx AS INTEGER
+    parentIdx% = SYMBOL_find_parent_slot%(childIdx%)
+    IF parentIdx% > 0 THEN
+        LAYERS_select parentIdx%
+        LAYER_PANEL_scroll_to_layer parentIdx%
+        BLEND_invalidate_cache
+        INVALIDATE_scene
+    END IF
+END SUB

@@ -44,6 +44,8 @@ CONST BLEND_MODE_COUNT   = 19 ' Total number of blend modes
 CONST LAYER_TYPE_IMAGE = 0   ' Standard pixel/image layer (default)
 CONST LAYER_TYPE_TEXT  = 1   ' Non-destructive text layer
 CONST LAYER_TYPE_GROUP = 2   ' Group container (no pixel data, organizational only)
+CONST LAYER_TYPE_SYMBOL_PARENT = 3 ' Symbol parent: editable source layer for linked instances
+CONST LAYER_TYPE_SYMBOL_CHILD  = 4 ' Symbol child: non-editable linked instance of a parent
 
 TYPE DRAW_LAYER
     historyId    AS LONG        ' Stable runtime identity for unified history
@@ -68,6 +70,13 @@ TYPE DRAW_LAYER
     parentGroupIdx  AS INTEGER  ' Index into LAYERS() of parent group (0 = top-level / no group)
     collapsed       AS INTEGER  ' TRUE if group is collapsed in panel (LAYER_TYPE_GROUP only)
     passThrough     AS INTEGER  ' TRUE = pass-through blend (children composite directly); FALSE = isolated group blend
+    ' Symbol layer fields
+    symbolParentId    AS LONG     ' Child: historyId& of parent; parent/other: 0
+    symbolParentDirty AS INTEGER  ' Parent: TRUE when content edited since last sync
+    symbolScaleX      AS SINGLE   ' Child: X scale factor (default 1.0; negative = flip H)
+    symbolScaleY      AS SINGLE   ' Child: Y scale factor (default 1.0; negative = flip V)
+    symbolOffsetX     AS INTEGER  ' Child: canvas X for top-left of scaled content
+    symbolOffsetY     AS INTEGER  ' Child: canvas Y for top-left of scaled content
 END TYPE
 
 TYPE LAYER_PANEL_OBJ
