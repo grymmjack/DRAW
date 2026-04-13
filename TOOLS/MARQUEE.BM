@@ -518,6 +518,33 @@ END SUB
 
 
 ''
+' Select exactly one grid cell by generating a mask from grid cell geometry.
+' This reuses GRID_fill_cell geometry so selection shape matches grid mode.
+'
+SUB MARQUEE_select_single_grid_cell (clickX AS INTEGER, clickY AS INTEGER, mode AS INTEGER)
+    DIM cellMask AS LONG
+    DIM oldDest AS LONG
+    DIM maskColor AS _UNSIGNED LONG
+
+    cellMask& = _NEWIMAGE(SCRN.canvasW&, SCRN.canvasH&, 32)
+    IF cellMask& >= -1 THEN EXIT SUB
+
+    oldDest& = _DEST
+    _DEST cellMask&
+    CLS , _RGBA32(0, 0, 0, 0)
+    _DONTBLEND cellMask&
+
+    maskColor~& = _RGB32(255, 255, 255)
+    GRID_fill_cell_on_image cellMask&, clickX%, clickY%, maskColor~&
+
+    _BLEND cellMask&
+    _DEST oldDest&
+
+    SELECTION_merge_mask cellMask&, mode%
+END SUB
+
+
+''
 ' Finish the drag operation and create the final BBOX
 '
 SUB MARQUEE_finish_drag ()
@@ -554,14 +581,37 @@ SUB MARQUEE_finish_drag ()
     ' Treat only an exact no-move press/release as click-clear.
     ' This allows tiny drags (1px/2px/3px) to create real selections.
     IF clickDeltaX% = 0 AND clickDeltaY% = 0 THEN
-        ' Just a click - clear ALL selection state in replace mode (including mask)
-        IF MARQUEE.SELECTION_MODE = SEL_MODE_REPLACE THEN
-            MARQUEE_clear
-            MAGIC_WAND_reset
-            INVALIDATE_scene
+        DIM clickOnCanvas AS INTEGER
+        clickOnCanvas% = TRUE
+        IF NOT SCRN.patternTileMode% THEN
+            DIM clickZW AS LONG, clickZH AS LONG
+            DIM clickDX AS INTEGER, clickDY AS INTEGER
+            clickZW& = SCRN.canvasW& * SCRN.zoom!
+            clickZH& = SCRN.canvasH& * SCRN.zoom!
+            clickDX% = (SCRN.w& - clickZW&) \ 2 + SCRN.offsetX% + SCRN.panelShiftX%
+            clickDY% = (SCRN.h& - clickZH&) \ 2 + SCRN.offsetY%
+            clickOnCanvas% = (MOUSE.RAW_X% >= clickDX% AND MOUSE.RAW_X% < clickDX% + clickZW& AND MOUSE.RAW_Y% >= clickDY% AND MOUSE.RAW_Y% < clickDY% + clickZH&)
         END IF
-        MARQUEE.DRAGGING% = FALSE
-        EXIT SUB
+
+        ' Workflow enhancement: with rectangular marquee + grid snap enabled,
+        ' a single click should select exactly one snapped grid cell.
+        ' Keep existing click-clear behavior for all other modes.
+        IF NOT (GRID.SHOW% AND GRID.SNAP% AND GRID.gridWidth% > 0 AND GRID.gridHeight% > 0 AND MARQUEE.VARIANT = TOOL_SELECT_RECT AND clickOnCanvas%) THEN
+            ' Just a click - clear ALL selection state in replace mode (including mask)
+            IF MARQUEE.SELECTION_MODE = SEL_MODE_REPLACE THEN
+                MARQUEE_clear
+                MAGIC_WAND_reset
+                INVALIDATE_scene
+            END IF
+            MARQUEE.DRAGGING% = FALSE
+            EXIT SUB
+        ELSE
+            MARQUEE_select_single_grid_cell MARQUEE_UNSNAPPED_START_X%, MARQUEE_UNSNAPPED_START_Y%, MARQUEE.SELECTION_MODE
+            MARQUEE.DRAGGING% = FALSE
+            MARQUEE.SELECTION_MODE = SEL_MODE_REPLACE
+            INVALIDATE_scene
+            EXIT SUB
+        END IF
     END IF
     
     ' Only create box if drag has some size
