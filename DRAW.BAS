@@ -173,6 +173,8 @@ DIM prevShiftHeld AS INTEGER, prevCtrlHeld AS INTEGER, prevAltHeld AS INTEGER
 DIM prevMouseOverCanvas AS INTEGER
 DIM ebPrevCanUndo AS INTEGER, ebPrevCanRedo AS INTEGER
 DIM ebPrevHasClip AS INTEGER, ebPrevHasSel AS INTEGER
+DIM resizeWatchLastW AS LONG, resizeWatchLastH AS LONG
+DIM resizeWatchSettleFrames AS INTEGER
 exitConfirmed% = FALSE
 prevShiftHeld% = MODIFIERS.shift%
 prevCtrlHeld% = MODIFIERS.ctrl%
@@ -182,6 +184,9 @@ ebPrevCanUndo% = FALSE
 ebPrevCanRedo% = FALSE
 ebPrevHasClip% = FALSE
 ebPrevHasSel%  = FALSE
+resizeWatchLastW& = _WIDTH(0)
+resizeWatchLastH& = _HEIGHT(0)
+resizeWatchSettleFrames% = 0
 
 ' === Dismiss splash screen with fade-out (after configurable hold) ===
 IF splashImg& < -1 THEN
@@ -252,11 +257,44 @@ DO
     $END IF
     ' OS-initiated window resize (maximize, drag, etc.): snap back to nearest
     ' integer scale so $RESIZE:STRETCH always produces a pixel-perfect result.
+    ' Also run a settle watcher because some WMs can miss/lag _RESIZE while
+    ' maximizing or after native dialogs, which can leave black gaps.
+    DIM resizeWinW AS LONG, resizeWinH AS LONG
+    DIM resizeExpectedW AS LONG, resizeExpectedH AS LONG
+    resizeWinW& = _WIDTH(0)
+    resizeWinH& = _HEIGHT(0)
+    resizeExpectedW& = SCRN.w& * SCRN.displayScale%
+    resizeExpectedH& = SCRN.h& * SCRN.displayScale%
+
     IF _RESIZE THEN
         IF SCREEN_DEFERRED_RESIZE% > 0 THEN
             SCREEN_DEFERRED_RESIZE% = SCREEN_DEFERRED_RESIZE% - 1
         ELSE
             SCREEN_snap_window_to_scale _ResizeWidth, _ResizeHeight
+            INVALIDATE_scene
+        END IF
+        resizeWatchSettleFrames% = 6
+        resizeWatchLastW& = resizeWinW&
+        resizeWatchLastH& = resizeWinH&
+    ELSE
+        IF resizeWinW& <> resizeWatchLastW& OR resizeWinH& <> resizeWatchLastH& THEN
+            resizeWatchSettleFrames% = 6
+            resizeWatchLastW& = resizeWinW&
+            resizeWatchLastH& = resizeWinH&
+        ELSEIF resizeWatchSettleFrames% > 0 THEN
+            resizeWatchSettleFrames% = resizeWatchSettleFrames% - 1
+            IF resizeWatchSettleFrames% = 0 THEN
+                IF SCREEN_DEFERRED_RESIZE% > 0 THEN
+                    SCREEN_DEFERRED_RESIZE% = SCREEN_DEFERRED_RESIZE% - 1
+                ELSEIF resizeWinW& <> resizeExpectedW& OR resizeWinH& <> resizeExpectedH& THEN
+                    _LOGINFO "Resize watcher: corrective snap window " + _TRIM$(STR$(resizeWinW&)) + "x" + _TRIM$(STR$(resizeWinH&)) + " expected " + _TRIM$(STR$(resizeExpectedW&)) + "x" + _TRIM$(STR$(resizeExpectedH&)) + " scale " + _TRIM$(STR$(SCRN.displayScale%)) + "x"
+                    SCREEN_snap_window_to_scale resizeWinW&, resizeWinH&
+                    INVALIDATE_scene
+                ELSE
+                    ' Same size but force a repaint after settle to flush stale black regions.
+                    INVALIDATE_scene
+                END IF
+            END IF
         END IF
     END IF
 
