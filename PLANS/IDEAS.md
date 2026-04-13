@@ -1,48 +1,6 @@
 # IDEAS
 
-
-## - [ ] FILE DIALOG IMPROVEMENTS
-- [ ] Make the cursor focus default to the filename for:
-  - [ ] Save dialogs
-
-- [ ] Use custom fonts (like colorpicker in QB64_GJ_LIB/COLOR_PICKER)
-- [ ] Use a theme (like colorpicker in QB64_GJ_LIB/COLOR_PICKER)
-
-- [ ] Add tooltip for buttons and panes
-  - [ ] DIALOG TITLE BAR AREA:
-    - [ ] Resize and move as needed your preference will be remembered
-  - [ ] BUTTONS:
-    - [ ] Up directory - BACKSPACE, or L-CLICK to cd ..
-    - [ ] Create directory - Create new directory in current directory
-    - [ ] Detail View - Show files with icon, name, type, size, and modified time
-    - [ ] List View - Show files just with icon, name and extension
-    - [ ] Thumbnail View - Show files as thumbnail images - CTRL+M-WHEEL to zoom in/out
-    - [ ] Show Hidden Files - Show hidden files (. (dot) files)
-    - [ ] Toggle Image Preview Pane - Show or hide the image preview pane
-  - [ ] PANES:
-    - [ ] Current Path - You are here
-    - [ ] / - File System Root - Root of the entire computer file system
-    - [ ] Home - Users Home Directory - Also known as $HOME or ~
-    - [ ] Desktop - Users Desktop Directory - ~/Desktop (or Desktop if Windows)
-    - [ ] Documents - Users Documents Directory - ~/Documents or (My Documents if Windows)
-    - [ ] Downloads - Users Downloads Directory - ~/Downloads (or My Downloads if Windows)
-    - [ ] Pictures - Users Pictures Directory - ~/Pictures (or My Pictures if Windows)
-    - [ ] Music - Users Music Directory - ~/Music (or My Music if Windows)
-    - [ ] Videos - Users Video Directory - ~/Videos (or My Videos if Windows)
-    - [ ] DRAW SPECIFIC:
-      - [ ] DRAW - DRAW Program Directory - where the binary/exe ran from
-      - [ ] Samples - DRAW Samples Directory - Inspiration and examples of what you can do
-      - [ ] User Data - DRAW User Data Directory - your own DRAW stuff! Palettes, Drawer Sets, Fonts, etc.
-      - [ ] Palettes - DRAW ASSETS: Palletes - All the built-in palettes
-      - [ ] Drawer Sets - DRAW ASSETS: Drawer Sets - All the built-in drawer sets
-    - [ ] CUSTOM PLACES:
-      - [ ] User Favorited Places - R-CLICK on any folder to add to favorite places! R-CLICK again to remove
-
   
-## LOSPEC DIALOG IMPROVEMENTS
-- Fix the alignment of the text in the search box
-  - Is Lospec dialog even using our text input lib?
-
 ## - [ ] SPARE PAGE
 - [ ] Implement Spare page
 - Rename canvas-ops
@@ -505,3 +463,47 @@ Automatically snap to layer candidates when near X/Y/W/H bounds of neighbors
     - [x] DRAW_CFG COLOR_MIXER_VISIBLE = true/false
   - [x] When picking colors from ANYWHERE else in DRAW, synchronize to the color mixer
     and pick that same color, if possible, honoring quantization, etc. if setup.
+
+
+## - [x] FILE DIALOG IMPROVEMENTS
+- [x] Make the cursor focus default to the filename for:
+  - [x] Save dialogs
+
+- [x] Use custom fonts (like colorpicker in QB64_GJ_LIB/COLOR_PICKER)
+- [x] Use a theme (like colorpicker in QB64_GJ_LIB/COLOR_PICKER)
+
+- [x] Add tooltip for buttons and panes
+  - [x] DIALOG TITLE BAR AREA:
+    - [x] Resize and move as needed your preference will be remembered
+  - [x] BUTTONS:
+    - [x] Up directory - BACKSPACE, or L-CLICK to cd ..
+    - [x] Create directory - Create new directory in current directory
+    - [x] Detail View - Show files with icon, name, type, size, and modified time
+    - [x] List View - Show files just with icon, name and extension
+    - [x] Thumbnail View - Show files as thumbnail images - CTRL+M-WHEEL to zoom in/out
+    - [x] Show Hidden Files - Show hidden files (. (dot) files)
+    - [x] Toggle Image Preview Pane - Show or hide the image preview pane
+  - [x] PANES:
+    - [x] Current Path - You are here
+    - [x] / - File System Root - Root of the entire computer file system
+    - [x] Home - Users Home Directory - Also known as $HOME or ~
+    - [x] Desktop - Users Desktop Directory - ~/Desktop (or Desktop if Windows)
+    - [x] Documents - Users Documents Directory - ~/Documents or (My Documents if Windows)
+    - [x] Downloads - Users Downloads Directory - ~/Downloads (or My Downloads if Windows)
+    - [x] Pictures - Users Pictures Directory - ~/Pictures (or My Pictures if Windows)
+    - [x] Music - Users Music Directory - ~/Music (or My Music if Windows)
+    - [x] Videos - Users Video Directory - ~/Videos (or My Videos if Windows)
+    - [x] DRAW SPECIFIC:
+      - [x] DRAW - DRAW Program Directory - where the binary/exe ran from
+      - [x] Samples - DRAW Samples Directory - Inspiration and examples of what you can do
+      - [x] User Data - DRAW User Data Directory - your own DRAW stuff! Palettes, Drawer Sets, Fonts, etc.
+      - [x] Palettes - DRAW ASSETS: Palletes - All the built-in palettes
+      - [x] Drawer Sets - DRAW ASSETS: Drawer Sets - All the built-in drawer sets
+    - [x] CUSTOM PLACES:
+      - [x] User Favorited Places - R-CLICK on any folder to add to favorite places! R-CLICK again to remove
+
+
+## LOSPEC DIALOG IMPROVEMENTS
+- Fix the alignment of the text in the search box
+  - Is Lospec dialog even using our text input lib?
+
