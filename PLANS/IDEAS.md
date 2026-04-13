@@ -1,5 +1,23 @@
 # IDEAS
-  
+
+## - [ ] EXTRACT FROM GRID
+- [ ] Menu: FILE -> EXTRACT FROM GRID
+  - [ ] Exports a flattened image (whatever layers are visible)
+    - [ ] According to the grid width and height.
+    - [ ] In this way I can quickly build icons and tiles
+    - [ ] Evaluate each grid cell:
+      - [ ] If the grid cell contains ANY non-transparent pixels:
+        - [ ] Consider the entire cell exportable and save a flattened image of that cell:
+          - [ ] X,Y = grid cell X, Y top left, and W, H = width and height of grid
+          - [ ] If the pixel contents exist only on a single layer (or within a layer group)
+            - [ ] Export the image as the layer name or layer group name
+          - [ ] Else: export the image as the image filename-grid-### where ### is a number
+- [ ] If before choosing this menu option, a selection exists:
+  - [ ] Operate only on any grid cells present in the selection area
+  - [ ] The selection area can be non rectangular as well, but to qualify being part of the extraction, the entire grid cell must be part of the selection.
+
+
+
 ## - [ ] SPARE PAGE
 - [ ] Implement Spare page
 - Rename canvas-ops
