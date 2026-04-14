@@ -1,0 +1,163 @@
+''
+' DRAW - TOOLS/EXTRACT-LAYERS-GRID.BM
+' =============================================================================
+' Extract To Layers From Grid - creates new canvas layers from grid-sized cell
+' regions, using the same ownership and naming rules as EXTRACT FROM GRID.
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+OPTION _EXPLICIT
+OPTION _EXPLICITARRAY
+'$DYNAMIC
+
+FUNCTION EXTRACT_LAYERS_GRID_is_name_used% (usedNames() AS STRING, usedCount AS INTEGER, candidate AS STRING)
+    DIM i AS INTEGER
+    FOR i% = 1 TO usedCount%
+        IF UCASE$(usedNames(i%)) = UCASE$(candidate$) THEN
+            EXTRACT_LAYERS_GRID_is_name_used% = TRUE
+            EXIT FUNCTION
+        END IF
+    NEXT i%
+    EXTRACT_LAYERS_GRID_is_name_used% = FALSE
+END FUNCTION
+
+FUNCTION EXTRACT_LAYERS_GRID_unique_name$ (usedNames() AS STRING, usedCount AS INTEGER, desiredName AS STRING)
+    DIM candidate AS STRING
+    DIM suffix AS INTEGER
+
+    candidate$ = desiredName$
+    suffix% = 2
+    DO WHILE EXTRACT_LAYERS_GRID_is_name_used%(usedNames(), usedCount%, candidate$)
+        candidate$ = desiredName$ + "-" + LTRIM$(STR$(suffix%))
+        suffix% = suffix% + 1
+    LOOP
+
+    EXTRACT_LAYERS_GRID_unique_name$ = candidate$
+END FUNCTION
+
+SUB EXTRACT_LAYERS_GRID_run ()
+    DIM gridW AS INTEGER, gridH AS INTEGER
+    DIM maxCols AS INTEGER, maxRows AS INTEGER
+    DIM srcFlat AS LONG
+    DIM baseName AS STRING
+    DIM hasSelection AS INTEGER
+    DIM usedCount AS INTEGER
+    DIM reachedMax AS INTEGER
+    REDIM usedLayerNames(1 TO 1) AS STRING
+
+    gridW% = GRID.gridWidth%
+    gridH% = GRID.gridHeight%
+
+    IF gridW% < 1 OR gridH% < 1 THEN
+        DRAW_alert "EXTRACT TO LAYERS FROM GRID", "Grid size is invalid."
+        EXIT SUB
+    END IF
+
+    maxCols% = SCRN.canvasW& \ gridW%
+    maxRows% = SCRN.canvasH& \ gridH%
+    IF maxCols% < 1 OR maxRows% < 1 THEN
+        DRAW_alert "EXTRACT TO LAYERS FROM GRID", "Grid cells are larger than canvas."
+        EXIT SUB
+    END IF
+
+    srcFlat& = LAYERS_flatten&
+    IF srcFlat& >= -1 THEN
+        DRAW_alert "EXTRACT TO LAYERS FROM GRID", "Failed to flatten visible layers."
+        EXIT SUB
+    END IF
+
+    hasSelection% = SELECTION_has_active%
+
+    ' Build base name from current document filename
+    baseName$ = "cell"
+    IF CURRENT_DRW_FILENAME$ <> "" THEN
+        baseName$ = EXTRACT_GRID_sanitize_filename$(EXTRACT_GRID_strip_extension$(EXTRACT_GRID_extract_filename$(CURRENT_DRW_FILENAME$)))
+    ELSEIF CURRENT_FILENAME$ <> "" THEN
+        baseName$ = EXTRACT_GRID_sanitize_filename$(EXTRACT_GRID_strip_extension$(EXTRACT_GRID_extract_filename$(CURRENT_FILENAME$)))
+    END IF
+    IF LEN(baseName$) = 0 THEN baseName$ = "cell"
+    baseName$ = baseName$ + "-grid"
+
+    DIM extractCount AS INTEGER
+    DIM nextNum AS INTEGER
+    nextNum% = 1
+
+    DIM row AS INTEGER, col AS INTEGER
+    DIM oldDest AS LONG
+    reachedMax% = FALSE
+
+    FOR row% = 0 TO maxRows% - 1
+        IF reachedMax% THEN EXIT FOR
+        FOR col% = 0 TO maxCols% - 1
+            IF reachedMax% THEN EXIT FOR
+
+            DIM cellX AS INTEGER, cellY AS INTEGER
+            cellX% = col% * gridW%
+            cellY% = row% * gridH%
+
+            IF hasSelection% THEN
+                IF NOT EXTRACT_GRID_cell_fully_selected%(cellX%, cellY%, gridW%, gridH%) THEN _CONTINUE
+            END IF
+
+            IF NOT EXTRACT_GRID_cell_has_content%(srcFlat&, cellX%, cellY%, gridW%, gridH%) THEN _CONTINUE
+
+            IF LAYER_COUNT% >= CFG.NUM_LAYERS% THEN
+                _LOGWARN "EXTRACT TO LAYERS FROM GRID: max layer count reached at cell row=" + LTRIM$(STR$(row%)) + " col=" + LTRIM$(STR$(col%))
+                reachedMax% = TRUE
+                EXIT FOR
+            END IF
+
+            DIM ownerName AS STRING
+            ownerName$ = EXTRACT_GRID_owner_name_for_cell$(cellX%, cellY%, gridW%, gridH%)
+            ownerName$ = EXTRACT_GRID_sanitize_filename$(ownerName$)
+
+            DIM candidateName AS STRING
+            IF LEN(ownerName$) > 0 THEN
+                candidateName$ = ownerName$
+            ELSE
+                candidateName$ = baseName$ + "-" + EXTRACT_GRID_number3$(nextNum%)
+                nextNum% = nextNum% + 1
+            END IF
+
+            candidateName$ = EXTRACT_GRID_strip_known_image_ext$(candidateName$)
+            candidateName$ = EXTRACT_GRID_sanitize_filename$(candidateName$)
+
+            DIM finalName AS STRING
+            finalName$ = EXTRACT_LAYERS_GRID_unique_name$(usedLayerNames(), usedCount%, candidateName$)
+
+            usedCount% = usedCount% + 1
+            REDIM _PRESERVE usedLayerNames(1 TO usedCount%) AS STRING
+            usedLayerNames(usedCount%) = finalName$
+
+            DIM newIdx AS INTEGER
+            newIdx% = LAYERS_new%
+            IF newIdx% <= 0 THEN _CONTINUE
+
+            ' Copy cell pixels from flattened source into new layer at the same canvas position
+            oldDest& = _DEST
+            _DEST LAYERS(newIdx%).imgHandle&
+            _PUTIMAGE (cellX%, cellY%)-(cellX% + gridW% - 1, cellY% + gridH% - 1), srcFlat&, LAYERS(newIdx%).imgHandle&, (cellX%, cellY%)-(cellX% + gridW% - 1, cellY% + gridH% - 1)
+            _DEST oldDest&
+
+            LAYERS(newIdx%).name = finalName$
+            LAYERS(newIdx%).contentDirty% = TRUE
+            HISTORY_refresh_layer_add_snapshot LAYERS(newIdx%).historyId&
+            HISTORY_saved_this_frame% = TRUE
+
+            extractCount% = extractCount% + 1
+        NEXT col%
+    NEXT row%
+
+    IF srcFlat& < -1 THEN _FREEIMAGE srcFlat&
+
+    INVALIDATE_layers
+
+    IF extractCount% = 0 THEN
+        DRAW_alert "EXTRACT TO LAYERS FROM GRID", "No grid cells qualified for layer extraction."
+    ELSEIF reachedMax% THEN
+        DRAW_alert "EXTRACT TO LAYERS FROM GRID", LTRIM$(STR$(extractCount%)) + " cells extracted. Stopped: max layer count reached."
+    ELSE
+        DRAW_alert "EXTRACT TO LAYERS FROM GRID", LTRIM$(STR$(extractCount%)) + " grid cells extracted as new layers."
+    END IF
+END SUB
