@@ -1,0 +1,415 @@
+''
+' DRAW - TOOLS/EXTRACT-GRID.BM
+' =============================================================================
+' Extract From Grid - exports grid-sized cropped images from the flattened
+' visible layer stack.
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+OPTION _EXPLICIT
+OPTION _EXPLICITARRAY
+'$DYNAMIC
+
+FUNCTION EXTRACT_GRID_strip_extension$ (filename AS STRING)
+    DIM i AS INTEGER
+    FOR i% = LEN(filename$) TO 1 STEP -1
+        IF MID$(filename$, i%, 1) = "." THEN
+            EXTRACT_GRID_strip_extension$ = LEFT$(filename$, i% - 1)
+            EXIT FUNCTION
+        END IF
+        IF MID$(filename$, i%, 1) = "/" OR MID$(filename$, i%, 1) = "\" THEN EXIT FOR
+    NEXT i%
+    EXTRACT_GRID_strip_extension$ = filename$
+END FUNCTION
+
+FUNCTION EXTRACT_GRID_extract_filename$ (filepath AS STRING)
+    DIM i AS INTEGER
+    FOR i% = LEN(filepath$) TO 1 STEP -1
+        IF MID$(filepath$, i%, 1) = "/" OR MID$(filepath$, i%, 1) = "\" THEN
+            EXTRACT_GRID_extract_filename$ = MID$(filepath$, i% + 1)
+            EXIT FUNCTION
+        END IF
+    NEXT i%
+    EXTRACT_GRID_extract_filename$ = filepath$
+END FUNCTION
+
+FUNCTION EXTRACT_GRID_sanitize_filename$ (rawName AS STRING)
+    DIM i AS INTEGER
+    DIM result AS STRING
+
+    result$ = LTRIM$(RTRIM$(rawName$))
+    IF LEN(result$) = 0 THEN
+        EXTRACT_GRID_sanitize_filename$ = "cell"
+        EXIT FUNCTION
+    END IF
+
+    FOR i% = 1 TO LEN(result$)
+        DIM ch AS STRING
+        ch$ = MID$(result$, i%, 1)
+        IF ch$ = "/" OR ch$ = "\" OR ch$ = ":" OR ch$ = "*" OR _
+           ch$ = "?" OR ch$ = CHR$(34) OR ch$ = "<" OR ch$ = ">" OR ch$ = "|" THEN
+            MID$(result$, i%, 1) = "_"
+        END IF
+        IF ch$ = "[" OR ch$ = "]" THEN MID$(result$, i%, 1) = "_"
+    NEXT i%
+
+    DIM usPos AS INTEGER
+    DO
+        usPos% = INSTR(result$, "__")
+        IF usPos% <= 0 THEN EXIT DO
+        result$ = LEFT$(result$, usPos% - 1) + "_" + MID$(result$, usPos% + 2)
+    LOOP
+    DO WHILE LEN(result$) > 0 AND RIGHT$(result$, 1) = " "
+        result$ = LEFT$(result$, LEN(result$) - 1)
+    LOOP
+    DO WHILE LEN(result$) > 0 AND LEFT$(result$, 1) = " "
+        result$ = MID$(result$, 2)
+    LOOP
+    DO WHILE LEN(result$) > 0 AND RIGHT$(result$, 1) = "."
+        result$ = LEFT$(result$, LEN(result$) - 1)
+    LOOP
+
+    DIM dotPos AS INTEGER
+    DO
+        dotPos% = INSTR(result$, "..")
+        IF dotPos% <= 0 THEN EXIT DO
+        result$ = LEFT$(result$, dotPos% - 1) + "." + MID$(result$, dotPos% + 2)
+    LOOP
+
+    IF LEN(result$) = 0 THEN result$ = "cell"
+    EXTRACT_GRID_sanitize_filename$ = result$
+END FUNCTION
+
+FUNCTION EXTRACT_GRID_strip_known_image_ext$ (filename AS STRING)
+    DIM outName AS STRING
+    DIM lowerName AS STRING
+
+    outName$ = filename$
+    lowerName$ = LCASE$(filename$)
+
+    IF LEN(lowerName$) >= 4 THEN
+        IF RIGHT$(lowerName$, 4) = ".png" OR RIGHT$(lowerName$, 4) = ".gif" OR RIGHT$(lowerName$, 4) = ".jpg" OR _
+           RIGHT$(lowerName$, 4) = ".tga" OR RIGHT$(lowerName$, 4) = ".bmp" OR RIGHT$(lowerName$, 4) = ".hdr" OR _
+           RIGHT$(lowerName$, 4) = ".ico" OR RIGHT$(lowerName$, 4) = ".qoi" THEN
+            outName$ = LEFT$(outName$, LEN(outName$) - 4)
+        END IF
+    END IF
+    IF LEN(lowerName$) >= 5 THEN
+        IF RIGHT$(lowerName$, 5) = ".jpeg" THEN
+            outName$ = LEFT$(outName$, LEN(outName$) - 5)
+        END IF
+    END IF
+
+    EXTRACT_GRID_strip_known_image_ext$ = outName$
+END FUNCTION
+
+FUNCTION EXTRACT_GRID_is_name_used% (usedNames() AS STRING, usedCount AS INTEGER, candidate AS STRING)
+    DIM i AS INTEGER
+    FOR i% = 1 TO usedCount%
+        IF UCASE$(usedNames(i%)) = UCASE$(candidate$) THEN
+            EXTRACT_GRID_is_name_used% = TRUE
+            EXIT FUNCTION
+        END IF
+    NEXT i%
+    EXTRACT_GRID_is_name_used% = FALSE
+END FUNCTION
+
+FUNCTION EXTRACT_GRID_unique_name$ (usedNames() AS STRING, usedCount AS INTEGER, desiredName AS STRING, outDir AS STRING)
+    DIM candidate AS STRING
+    DIM suffix AS INTEGER
+
+    candidate$ = desiredName$
+    suffix% = 2
+    DO WHILE EXTRACT_GRID_is_name_used%(usedNames(), usedCount%, candidate$) OR _
+             _FILEEXISTS(outDir$ + "/" + candidate$ + ".png")
+        candidate$ = desiredName$ + "-" + LTRIM$(STR$(suffix%))
+        suffix% = suffix% + 1
+    LOOP
+
+    EXTRACT_GRID_unique_name$ = candidate$
+END FUNCTION
+
+FUNCTION EXTRACT_GRID_number3$ (value AS INTEGER)
+    DIM s AS STRING
+    s$ = LTRIM$(STR$(value%))
+    DO WHILE LEN(s$) < 3
+        s$ = "0" + s$
+    LOOP
+    EXTRACT_GRID_number3$ = s$
+END FUNCTION
+
+FUNCTION EXTRACT_GRID_cell_has_content% (srcImg AS LONG, cellX AS INTEGER, cellY AS INTEGER, cellW AS INTEGER, cellH AS INTEGER)
+    DIM mem AS _MEM
+    DIM x AS INTEGER, y AS INTEGER
+    DIM srcW AS INTEGER
+    DIM pix AS _UNSIGNED LONG
+
+    mem = _MEMIMAGE(srcImg&)
+    srcW% = _WIDTH(srcImg&)
+
+    FOR y% = cellY% TO cellY% + cellH% - 1
+        FOR x% = cellX% TO cellX% + cellW% - 1
+            _MEMGET mem, mem.OFFSET + (y% * srcW% + x%) * 4, pix~&
+            IF _ALPHA32(pix~&) > 0 THEN
+                _MEMFREE mem
+                EXTRACT_GRID_cell_has_content% = TRUE
+                EXIT FUNCTION
+            END IF
+        NEXT x%
+    NEXT y%
+
+    _MEMFREE mem
+    EXTRACT_GRID_cell_has_content% = FALSE
+END FUNCTION
+
+FUNCTION EXTRACT_GRID_cell_fully_selected% (cellX AS INTEGER, cellY AS INTEGER, cellW AS INTEGER, cellH AS INTEGER)
+    DIM x AS INTEGER, y AS INTEGER
+    FOR y% = cellY% TO cellY% + cellH% - 1
+        FOR x% = cellX% TO cellX% + cellW% - 1
+            IF NOT SELECTION_is_point_inside%(x%, y%) THEN
+                EXTRACT_GRID_cell_fully_selected% = FALSE
+                EXIT FUNCTION
+            END IF
+        NEXT x%
+    NEXT y%
+    EXTRACT_GRID_cell_fully_selected% = TRUE
+END FUNCTION
+
+FUNCTION EXTRACT_GRID_cell_has_layer_content% (layerImg AS LONG, cellX AS INTEGER, cellY AS INTEGER, cellW AS INTEGER, cellH AS INTEGER)
+    DIM mem AS _MEM
+    DIM x AS INTEGER, y AS INTEGER
+    DIM srcW AS INTEGER
+    DIM pix AS _UNSIGNED LONG
+
+    mem = _MEMIMAGE(layerImg&)
+    srcW% = _WIDTH(layerImg&)
+
+    FOR y% = cellY% TO cellY% + cellH% - 1
+        FOR x% = cellX% TO cellX% + cellW% - 1
+            _MEMGET mem, mem.OFFSET + (y% * srcW% + x%) * 4, pix~&
+            IF _ALPHA32(pix~&) > 0 THEN
+                _MEMFREE mem
+                EXTRACT_GRID_cell_has_layer_content% = TRUE
+                EXIT FUNCTION
+            END IF
+        NEXT x%
+    NEXT y%
+
+    _MEMFREE mem
+    EXTRACT_GRID_cell_has_layer_content% = FALSE
+END FUNCTION
+
+FUNCTION EXTRACT_GRID_group_owner_idx% (layerIdx AS INTEGER)
+    DIM ownerIdx AS INTEGER
+    ownerIdx% = layerIdx%
+
+    DO WHILE ownerIdx% >= 1 AND ownerIdx% <= MAX_LAYERS
+        IF LAYERS(ownerIdx%).parentGroupIdx% > 0 THEN
+            ownerIdx% = LAYERS(ownerIdx%).parentGroupIdx%
+        ELSE
+            EXIT DO
+        END IF
+    LOOP
+
+    IF ownerIdx% < 1 OR ownerIdx% > MAX_LAYERS THEN
+        EXTRACT_GRID_group_owner_idx% = 0
+    ELSE
+        EXTRACT_GRID_group_owner_idx% = ownerIdx%
+    END IF
+END FUNCTION
+
+FUNCTION EXTRACT_GRID_owner_name_for_cell$ (cellX AS INTEGER, cellY AS INTEGER, cellW AS INTEGER, cellH AS INTEGER)
+    DIM z AS INTEGER, i AS INTEGER
+
+    FOR z% = LAYER_COUNT% TO 1 STEP -1
+        FOR i% = 1 TO MAX_LAYERS
+            IF LAYERS(i%).imgHandle& < -1 AND LAYERS(i%).visible% THEN
+                IF LAYERS(i%).layerType% <> LAYER_TYPE_GROUP THEN
+                    IF LAYERS(i%).zIndex% = z% THEN
+                        IF EXTRACT_GRID_cell_has_layer_content%(LAYERS(i%).imgHandle&, cellX%, cellY%, cellW%, cellH%) THEN
+                            DIM ownerIdx AS INTEGER
+                            ownerIdx% = EXTRACT_GRID_group_owner_idx%(i%)
+                            IF ownerIdx% >= 1 AND ownerIdx% <= MAX_LAYERS THEN
+                                EXTRACT_GRID_owner_name_for_cell$ = LTRIM$(RTRIM$(LAYERS(ownerIdx%).name))
+                            ELSE
+                                EXTRACT_GRID_owner_name_for_cell$ = LTRIM$(RTRIM$(LAYERS(i%).name))
+                            END IF
+                            EXIT FUNCTION
+                        END IF
+                    END IF
+                END IF
+            END IF
+        NEXT i%
+    NEXT z%
+
+    EXTRACT_GRID_owner_name_for_cell$ = ""
+END FUNCTION
+
+SUB EXTRACT_GRID_export_cell (srcImg AS LONG, cellX AS INTEGER, cellY AS INTEGER, cellW AS INTEGER, cellH AS INTEGER, outputPath AS STRING)
+    DIM cellImg AS LONG
+    DIM oldDest AS LONG
+
+    cellImg& = _NEWIMAGE(cellW%, cellH%, 32)
+    IF cellImg& >= -1 THEN EXIT SUB
+
+    oldDest& = _DEST
+    _DEST cellImg&
+    _DONTBLEND cellImg&
+    CLS , _RGBA32(0, 0, 0, 0)
+    _BLEND cellImg&
+    _DEST oldDest&
+
+    _PUTIMAGE (0, 0)-(cellW% - 1, cellH% - 1), srcImg&, cellImg&, (cellX%, cellY%)-(cellX% + cellW% - 1, cellY% + cellH% - 1)
+    _SAVEIMAGE outputPath$, cellImg&
+
+    IF cellImg& < -1 THEN _FREEIMAGE cellImg&
+END SUB
+
+FUNCTION EXTRACT_GRID_default_base$ ()
+    DIM defaultBase AS STRING
+
+    IF EXTRACT_GRID_HAS_CONFIG% THEN
+        defaultBase$ = EXTRACT_GRID_SAVED_BASE_FILENAME$
+    END IF
+
+    IF LEN(defaultBase$) = 0 THEN
+        IF CURRENT_DRW_FILENAME$ <> "" THEN
+            defaultBase$ = EXTRACT_GRID_strip_extension$(EXTRACT_GRID_extract_filename$(CURRENT_DRW_FILENAME$))
+        ELSEIF CURRENT_FILENAME$ <> "" THEN
+            defaultBase$ = EXTRACT_GRID_strip_extension$(EXTRACT_GRID_extract_filename$(CURRENT_FILENAME$))
+        END IF
+    END IF
+
+    IF LEN(defaultBase$) = 0 THEN defaultBase$ = "image"
+    EXTRACT_GRID_default_base$ = EXTRACT_GRID_sanitize_filename$(defaultBase$)
+END FUNCTION
+
+SUB EXTRACT_GRID_run ()
+    DIM gridW AS INTEGER, gridH AS INTEGER
+    DIM maxCols AS INTEGER, maxRows AS INTEGER
+    DIM srcFlat AS LONG
+    DIM pickedFolder AS STRING
+    DIM outDir AS STRING
+    DIM baseName AS STRING
+    DIM usedCount AS INTEGER
+    REDIM usedNames(1 TO 1) AS STRING
+
+    gridW% = GRID.gridWidth%
+    gridH% = GRID.gridHeight%
+
+    IF gridW% < 1 OR gridH% < 1 THEN
+        DRAW_alert "EXTRACT FROM GRID", "Grid size is invalid."
+        EXIT SUB
+    END IF
+
+    maxCols% = SCRN.canvasW& \ gridW%
+    maxRows% = SCRN.canvasH& \ gridH%
+    IF maxCols% < 1 OR maxRows% < 1 THEN
+        DRAW_alert "EXTRACT FROM GRID", "Grid cells are larger than canvas."
+        EXIT SUB
+    END IF
+
+    IF EXTRACT_GRID_HAS_CONFIG% AND EXTRACT_GRID_SAVED_DEST_DIR$ <> "" THEN
+        outDir$ = EXTRACT_GRID_SAVED_DEST_DIR$
+    ELSEIF CFG.LAST_DIR_EXTRACT$ <> "" THEN
+        outDir$ = CFG.LAST_DIR_EXTRACT$
+    ELSEIF CFG.LAST_DIR_EXPORT_LAYER$ <> "" THEN
+        outDir$ = CFG.LAST_DIR_EXPORT_LAYER$
+    ELSE
+        outDir$ = _CWD$
+    END IF
+
+    baseName$ = EXTRACT_GRID_default_base$ + "-grid"
+
+    pickedFolder$ = DRAW_choose_folder$("Select Extract Destination", outDir$)
+    MOUSE_cleanup_after_dialog FALSE
+    IF pickedFolder$ = "" THEN EXIT SUB
+
+    outDir$ = pickedFolder$
+
+    IF LEN(outDir$) = 0 THEN outDir$ = _CWD$
+
+    CFG.LAST_DIR_EXTRACT$ = outDir$
+    CFG.LAST_DIR_EXPORT_LAYER$ = outDir$
+    LAST_DIRECTORY$ = outDir$
+    CONFIG_save
+
+    EXTRACT_GRID_CONFIG.destDir$ = outDir$
+    EXTRACT_GRID_CONFIG.baseFilename$ = baseName$
+    EXTRACT_GRID_CONFIG.nextNumber% = 1
+
+    EXTRACT_GRID_HAS_CONFIG% = TRUE
+    EXTRACT_GRID_SAVED_DEST_DIR$ = outDir$
+    EXTRACT_GRID_SAVED_BASE_FILENAME$ = baseName$
+
+    srcFlat& = LAYERS_flatten&
+    IF srcFlat& >= -1 THEN
+        DRAW_alert "EXTRACT FROM GRID", "Failed to flatten visible layers."
+        EXIT SUB
+    END IF
+
+    DIM hasSelection AS INTEGER
+    hasSelection% = SELECTION_has_active%
+
+    DIM exportCount AS INTEGER
+    DIM nextNum AS INTEGER
+    nextNum% = EXTRACT_GRID_SAVED_NEXT_NUMBER%
+    IF nextNum% < 1 THEN nextNum% = 1
+
+    DIM row AS INTEGER, col AS INTEGER
+    FOR row% = 0 TO maxRows% - 1
+        FOR col% = 0 TO maxCols% - 1
+            DIM cellX AS INTEGER, cellY AS INTEGER
+            cellX% = col% * gridW%
+            cellY% = row% * gridH%
+
+            IF hasSelection% THEN
+                IF NOT EXTRACT_GRID_cell_fully_selected%(cellX%, cellY%, gridW%, gridH%) THEN _CONTINUE
+            END IF
+
+            IF NOT EXTRACT_GRID_cell_has_content%(srcFlat&, cellX%, cellY%, gridW%, gridH%) THEN _CONTINUE
+
+            DIM ownerName AS STRING
+            ownerName$ = EXTRACT_GRID_owner_name_for_cell$(cellX%, cellY%, gridW%, gridH%)
+            ownerName$ = EXTRACT_GRID_sanitize_filename$(ownerName$)
+
+            DIM candidateBase AS STRING
+            IF LEN(ownerName$) > 0 THEN
+                candidateBase$ = ownerName$
+            ELSE
+                candidateBase$ = EXTRACT_GRID_CONFIG.baseFilename$ + "-" + EXTRACT_GRID_number3$(nextNum%)
+                nextNum% = nextNum% + 1
+            END IF
+
+            candidateBase$ = EXTRACT_GRID_strip_known_image_ext$(candidateBase$)
+            candidateBase$ = EXTRACT_GRID_sanitize_filename$(candidateBase$)
+
+            candidateBase$ = EXTRACT_GRID_unique_name$(usedNames(), usedCount%, candidateBase$, outDir$)
+
+            usedCount% = usedCount% + 1
+            REDIM _PRESERVE usedNames(1 TO usedCount%) AS STRING
+            usedNames(usedCount%) = candidateBase$
+
+            EXTRACT_GRID_export_cell srcFlat&, cellX%, cellY%, gridW%, gridH%, outDir$ + "/" + candidateBase$ + ".png"
+            exportCount% = exportCount% + 1
+        NEXT col%
+    NEXT row%
+
+    EXTRACT_GRID_SAVED_NEXT_NUMBER% = nextNum%
+
+    IF srcFlat& < -1 THEN _FREEIMAGE srcFlat&
+
+    IF exportCount% = 0 THEN
+        DRAW_alert "EXTRACT FROM GRID", "No grid cells qualified for export."
+    ELSE
+        DRAW_alert "EXTRACT FROM GRID", LTRIM$(STR$(exportCount%)) + " grid cells exported."
+    END IF
+END SUB
+
+SUB EXTRACT_GRID_reset_saved_config ()
+    EXTRACT_GRID_HAS_CONFIG% = FALSE
+    EXTRACT_GRID_SAVED_DEST_DIR$ = ""
+    EXTRACT_GRID_SAVED_BASE_FILENAME$ = ""
+    EXTRACT_GRID_SAVED_NEXT_NUMBER% = 1
+END SUB
