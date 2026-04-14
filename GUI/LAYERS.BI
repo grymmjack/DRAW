@@ -188,6 +188,8 @@ DECLARE FUNCTION LAYER_PANEL_visible_row_count% ()
 
 DECLARE SUB LAYER_PANEL_load_icons ()
 DECLARE SUB LAYER_PANEL_cleanup_icons ()
+DECLARE FUNCTION LAYER_PANEL_blend_icon_file$ (blendMode AS INTEGER)
+DECLARE FUNCTION LAYER_PANEL_blend_icon_handle& (blendMode AS INTEGER)
 DECLARE SUB LAYER_select_non_transparent (layerIdx AS INTEGER)
 DECLARE SUB LAYER_PANEL_scroll_to_layer (layerIdx AS INTEGER)
 
@@ -247,6 +249,9 @@ COMPOSITE_BELOW_VALID% = FALSE
 DIM SHARED COMPOSITE_RESULT_CACHE AS LONG     ' Previous frame's completed composite
 DIM SHARED COMPOSITE_RESULT_VALID AS INTEGER   ' Is the full composite cache usable?
 COMPOSITE_RESULT_VALID% = FALSE
+
+' Layer blend-mode icon cache (indices use BLEND_* constants 1..18)
+DIM SHARED LAYER_BLEND_ICONS(BLEND_MULTIPLY TO BLEND_LUMINOSITY) AS LONG
 
 ' Multi-layer selection — allows selecting multiple layers at once for bulk operations
 ' MULTI_SELECT_LAYERS(i): TRUE if layer i is selected (1-based, matches LAYERS array)

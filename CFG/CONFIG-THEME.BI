@@ -184,6 +184,25 @@ TYPE DRAW_THEME
     LAYER_PANEL_group_header_fg  AS _UNSIGNED LONG  ' Group header name text
     LAYER_PANEL_group_indent     AS INTEGER         ' Child indentation in pixels (per level)
     LAYER_PANEL_group_collapse_fg AS _UNSIGNED LONG ' Collapse triangle color
+    LAYER_PANEL_BLEND_ICON_MULTIPLY AS STRING * 64     ' Multiply blend-mode icon PNG filename
+    LAYER_PANEL_BLEND_ICON_SCREEN AS STRING * 64       ' Screen blend-mode icon PNG filename
+    LAYER_PANEL_BLEND_ICON_OVERLAY AS STRING * 64      ' Overlay blend-mode icon PNG filename
+    LAYER_PANEL_BLEND_ICON_ADD AS STRING * 64          ' Add blend-mode icon PNG filename
+    LAYER_PANEL_BLEND_ICON_SUBTRACT AS STRING * 64     ' Subtract blend-mode icon PNG filename
+    LAYER_PANEL_BLEND_ICON_DIFFERENCE AS STRING * 64   ' Difference blend-mode icon PNG filename
+    LAYER_PANEL_BLEND_ICON_DARKEN AS STRING * 64       ' Darken blend-mode icon PNG filename
+    LAYER_PANEL_BLEND_ICON_LIGHTEN AS STRING * 64      ' Lighten blend-mode icon PNG filename
+    LAYER_PANEL_BLEND_ICON_COLOR_DODGE AS STRING * 64  ' Color Dodge blend-mode icon PNG filename
+    LAYER_PANEL_BLEND_ICON_COLOR_BURN AS STRING * 64   ' Color Burn blend-mode icon PNG filename
+    LAYER_PANEL_BLEND_ICON_HARD_LIGHT AS STRING * 64   ' Hard Light blend-mode icon PNG filename
+    LAYER_PANEL_BLEND_ICON_SOFT_LIGHT AS STRING * 64   ' Soft Light blend-mode icon PNG filename
+    LAYER_PANEL_BLEND_ICON_EXCLUSION AS STRING * 64    ' Exclusion blend-mode icon PNG filename
+    LAYER_PANEL_BLEND_ICON_VIVID_LIGHT AS STRING * 64  ' Vivid Light blend-mode icon PNG filename
+    LAYER_PANEL_BLEND_ICON_LINEAR_LIGHT AS STRING * 64 ' Linear Light blend-mode icon PNG filename
+    LAYER_PANEL_BLEND_ICON_PIN_LIGHT AS STRING * 64    ' Pin Light blend-mode icon PNG filename
+    LAYER_PANEL_BLEND_ICON_COLOR AS STRING * 64        ' Color blend-mode icon PNG filename
+    LAYER_PANEL_BLEND_ICON_LUMINOSITY AS STRING * 64   ' Luminosity blend-mode icon PNG filename
+    LAYER_BLEND_ICON_OPACITY          AS SINGLE          ' Draw opacity for blend-mode icons (0.0–1.0, default 0.33)
     ' --- Transform overlay frame ---
     ' --- Marquee selection handles ---
     MARQUEE_HANDLE_SIZE          AS INTEGER         ' Marquee corner/edge handle half-size in screen pixels

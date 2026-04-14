@@ -185,6 +185,25 @@ THEME.LAYER_PANEL_group_header_bg~&  = _RGB32(55, 55, 65)          ' Group heade
 THEME.LAYER_PANEL_group_header_fg~&  = _RGB32(180, 200, 220)       ' Group header name text
 THEME.LAYER_PANEL_group_indent%      = 12                          ' Child indent pixels
 THEME.LAYER_PANEL_group_collapse_fg~& = _RGB32(160, 180, 200)      ' Collapse triangle color
+THEME.LAYER_PANEL_BLEND_ICON_MULTIPLY$ = "layer-blend-multiply.png"
+THEME.LAYER_PANEL_BLEND_ICON_SCREEN$ = "layer-blend-screen.png"
+THEME.LAYER_PANEL_BLEND_ICON_OVERLAY$ = "layer-blend-overlay.png"
+THEME.LAYER_PANEL_BLEND_ICON_ADD$ = "layer-blend-add.png"
+THEME.LAYER_PANEL_BLEND_ICON_SUBTRACT$ = "layer-blend-subtract.png"
+THEME.LAYER_PANEL_BLEND_ICON_DIFFERENCE$ = "layer-blend-difference.png"
+THEME.LAYER_PANEL_BLEND_ICON_DARKEN$ = "layer-blend-darken.png"
+THEME.LAYER_PANEL_BLEND_ICON_LIGHTEN$ = "layer-blend-lighten.png"
+THEME.LAYER_PANEL_BLEND_ICON_COLOR_DODGE$ = "layer-blend-colordodge.png"
+THEME.LAYER_PANEL_BLEND_ICON_COLOR_BURN$ = "layer-blend-colorburn.png"
+THEME.LAYER_PANEL_BLEND_ICON_HARD_LIGHT$ = "layer-blend-hardlight.png"
+THEME.LAYER_PANEL_BLEND_ICON_SOFT_LIGHT$ = "layer-blend-softlight.png"
+THEME.LAYER_PANEL_BLEND_ICON_EXCLUSION$ = "layer-blend-exclusion.png"
+THEME.LAYER_PANEL_BLEND_ICON_VIVID_LIGHT$ = "layer-blend-vividlight.png"
+THEME.LAYER_PANEL_BLEND_ICON_LINEAR_LIGHT$ = "layer-blend-linearlight.png"
+THEME.LAYER_PANEL_BLEND_ICON_PIN_LIGHT$ = "layer-blend-pinlight.png"
+THEME.LAYER_PANEL_BLEND_ICON_COLOR$ = "layer-blend-color.png"
+THEME.LAYER_PANEL_BLEND_ICON_LUMINOSITY$ = "layer-blend-luminosity.png"
+THEME.LAYER_BLEND_ICON_OPACITY! = 0.33
 
 ' --- Marquee selection handles ---
 THEME.MARQUEE_HANDLE_SIZE%           = 1                           ' Handle half-size (screen px)
