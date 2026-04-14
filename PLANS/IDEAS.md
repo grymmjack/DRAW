@@ -17,6 +17,15 @@
   - [ ] The selection area can be non rectangular as well, but to qualify being part of the extraction, the entire grid cell must be part of the selection.
 
 
+## - [ ] EXTRACT TO LAYERS FROM GRID
+- [ ] Menu: LAYER -> EXTRACT TO LAYERS FROM GRID
+- [ ] Same logic and ruleset as FILE -> EXTRACT FROM GRID, but instead of SAVING files
+  - [ ] Just creates new layers in place, with the same numbering, etc. 
+  - [ ] The new layer for the grid cell maintains it's pixel data and position.
+    - [ ] After extracting the grid cell, position the cell where the original layer cell was, just on top.
+  - [ ] Same rules, same schemes.
+
+
 
 ## - [ ] SPARE PAGE
 - [ ] Implement Spare page
