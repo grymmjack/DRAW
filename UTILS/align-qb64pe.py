@@ -201,6 +201,8 @@ def find_as_pos(line: str) -> int:
                 in_string = False
             else:
                 in_string = True
+        elif ch == "'" and not in_string:
+            break  # rest is a comment — stop scanning
         elif not in_string and line[i:i + 4].upper() == ' AS ':
             lhs = line[:i].strip()
             # Skip parameter-list contexts
@@ -251,6 +253,8 @@ def find_eq_pos(line: str) -> int:
                 _in_s = False
             else:
                 _in_s = True
+        elif (_c == "'" or _c == ':') and not _in_s:
+            break  # rest is a comment or compound statement — stop scanning
         elif _c == '=' and not _in_s:
             if _k > 0 and line[_k - 1] in '<>!':
                 pass
@@ -282,6 +286,10 @@ def find_eq_pos(line: str) -> int:
                 in_string = False
             else:
                 in_string = True
+        elif ch == "'" and not in_string:
+            break  # rest is a comment — stop scanning
+        elif ch == ':' and not in_string:
+            break  # colon separator — = is in a later statement, skip
         elif ch == '=' and not in_string:
             # Skip <=, >=, <>
             if i > 0 and line[i - 1] in '<>!':
@@ -647,6 +655,8 @@ def find_all_colon_positions(line: str) -> list[int]:
             rest = line[i + 1:].strip()
             if rest and not rest.startswith("'"):
                 positions.append(i)
+        elif ch == "'" and not in_string:
+            break  # rest is a comment — stop scanning
         i += 1
     return positions
 
@@ -1106,10 +1116,17 @@ def process_file(
         print(f"  ERROR reading {path}: {e}", file=sys.stderr)
         return 0
 
-    new_lines, changed = process_lines(
+    new_lines, _pass_changes = process_lines(
         lines, min_gap, mode, align_eq, eq_gap, align_as, as_gap, align_case, case_gap,
         align_colon, colon_gap, global_align
     )
+
+    # Count net changes: lines where final output differs from original input.
+    # Using cumulative pass counters gives false positives when one pass undoes
+    # another (e.g. normalise collapses spacing that AS-align later restores).
+    changed = sum(1 for a, b in zip(lines, new_lines) if a != b)
+    if len(new_lines) != len(lines):
+        changed += abs(len(new_lines) - len(lines))
 
     if changed == 0:
         return 0
