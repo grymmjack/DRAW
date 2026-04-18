@@ -48,8 +48,10 @@ Extension changed from `.drw` to `.draw` in v0.7.4 (CorelDRAW conflict).
 | Pixel Grid Visibility | show(2) | v22+ |
 | Grid Config | gridColorFG(4), gridOpacity(2), pixelgridColorFG(4), pixelgridOpacity(2), gridAngle(4), charGridWidth(2), charGridHeight(2), charGridOpacity(2), charGridColorFG(4) | v23+ |
 | Layer Groups | per-layer: layerType(2), parentGroupIdx(2), collapsed(2), passThrough(2); group layers skip pixel data write (no imgHandle) | v24+ |
+| Symbol Layer Fields | per-layer: symbolParentId(4), symbolParentDirty(2, always 0 on save), symbolScaleX(4), symbolScaleY(4), symbolOffsetX(2), symbolOffsetY(2) | v25+ |
+| Extract Grid Config | gridColCount(2), gridRowCount(2), gridCellW(2), gridCellH(2), extractGridDestDir(260), extractGridBaseFilename(64), gridNamingMethod(2), gridStartNumber(2) | v26+ |
 
-Constants: `DRW_MAGIC$ = "DRW1"`, `DRW_VERSION% = 24`, `DRW_CHUNK_VERSION% = 1`
+Constants: `DRW_MAGIC$ = "DRW1"`, `DRW_VERSION% = 26`, `DRW_CHUNK_VERSION% = 1`
 
 **Per-document vs global config**: Character Mode (`useChars%`) is saved per-document in v19+ — it is NOT stored in `DRAW.cfg`. On fresh launch (no file loaded), `useChars%` defaults to FALSE. Character grid visibility/snap state is also per-document (v18+).
 
@@ -94,7 +96,7 @@ Config file: `DRAW.cfg` — plain text, one `key=value` per line. Loaded by `CON
 | Crosshair | `CROSSHAIR_OUTLINE_FG$`, `CROSSHAIR_OUTLINE_OPACITY%`, `CROSSHAIR_OUTLINE_WIDTH%` |
 | Undo     | `HISTORY_MAX_RECORDS` (1024)                            |
 | Picker   | `PICKER_LOUPE_*` overlay layout, font, and colors |
-| Preview / Panels | `PREVIEW_*` (incl. `PREVIEW_MODE%`, `PREVIEW_COLOR_PICK%`, `PREVIEW_BIN_QUICK_LOOK%`, `PREVIEW_FLOAT_IMAGE_PATH$`, `PREVIEW_FLOAT_LAST_DIR$`), `EDIT_BAR_VISIBLE%`, `EDIT_BAR_DOCK_POSITION$`, `LAYER_PANEL_WIDTH%`, `LAYERS_PANEL_DOCK_EDGE$`, `TOOLBOX_DOCK_EDGE$`, `ADV_BAR_DOCK_POSITION$`, `ADV_BAR_VISIBLE%` |
+| Preview / Panels | `PREVIEW_*` (incl. `PREVIEW_MODE%`, `PREVIEW_COLOR_PICK%`, `PREVIEW_BIN_QUICK_LOOK%`, `PREVIEW_FLOAT_IMAGE_PATH$`, `PREVIEW_FLOAT_LAST_DIR$`), `EDIT_BAR_VISIBLE%`, `EDIT_BAR_DOCK_POSITION$`, `LAYER_PANEL_WIDTH%`, `LAYERS_PANEL_DOCK_EDGE$`, `TOOLBOX_DOCK_EDGE$`, `ADV_BAR_DOCK_POSITION$`, `ADV_BAR_VISIBLE%`, `COLOR_MIXER_VISIBLE%`, `COLOR_MIXER_X%`, `COLOR_MIXER_Y%` |
 | Palette UI | `PALETTE_SHOW_LOSPEC%`, `PALETTE_SHOW_CREATED%`, `PALETTE_CREATE_MAX_COLORS%` |
 | Drawer / Templates | `DEFAULT_DSET_*_FILE$`, `TEMPLATE_DIR$` |
 | Export   | `BAS_EXPORT_BG_COLOR~&`, `BAS_WIP_ENABLED%` |
@@ -107,7 +109,7 @@ Defaults: DOT tool, brush size 1, square shape, 60 FPS, 128×128 canvas, 4 layer
 
 **Auto-Detection (first launch)**: When `DISPLAY_SCALE=0`, `SCREEN_detect_display_scale%` targets 90% of desktop resolution at highest integer scale (capped at 4). `TOOLBAR_SCALE=0` auto-detects from viewport height (≥800=4x, ≥600=3x, ≥400=2x, else 1x). Saved on first launch via `CONFIG_NEEDS_INITIAL_SAVE%`.
 
-Command-line config helpers: `--config <file>` / `-c <file>` selects an explicit config file, and `--config-upgrade` backfills newly-added keys into an existing config.
+Command-line config helpers: `--config <file>` / `-c <file>` selects an explicit config file, `--config-upgrade` backfills newly-added keys into an existing config, and `--reset-defaults` overwrites the config with built-in factory defaults.
 
 ---
 

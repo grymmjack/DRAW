@@ -24,11 +24,11 @@ applyTo: "**"
 1. `_COMMON.BI` — core types and globals
 2. **CORE**: PERF, ERROR, IMAGE, PATHS
 3. **CFG**: CONFIG, CONFIG-THEME, CONFIG-KEYBOARD, CONFIG-MOUSE, CONFIG-STICK, BINDINGS-\*
-4. **GUI**: PALETTE, PALETTE-LOADER, PALETTE-STRIP, GUI, BRUSHES, CROSSHAIR, GRID, HELP, LAYERS, PALETTE-PICKER, PICKER, CURSOR, POINTER, STATUS, TOOLBAR, ORGANIZER, DITHER, DRAWER, PREVIEW, EDITBAR, ADVANCEDBAR, TOOLTIP, TRANSPARENCY, COMMAND, MENUBAR, SCROLLBAR, DIALOG, IMGADJ, IMAGE-ADJ, POPUP-MENU, STROKE-SEL, SMART-GUIDES
+4. **GUI**: PALETTE, PALETTE-LOADER, PALETTE-STRIP, GUI, BRUSHES, CROSSHAIR, GRID, HELP, LAYERS, PALETTE-PICKER, PICKER, CURSOR, POINTER, STATUS, TOOLBAR, ORGANIZER, DITHER, DRAWER, PREVIEW, EDITBAR, ADVANCEDBAR, TOOLTIP, TRANSPARENCY, COMMAND, MENUBAR, SCROLLBAR, DIALOG, IMGADJ, IMAGE-ADJ, POPUP-MENU, STROKE-SEL, SMART-GUIDES, COLOR-MIXER, SYMBOL
 5. **INPUT**: MODIFIERS, KEYBOARD, MOUSE, STICK, FILE-BMP, FILE-BLOAD, FILE-PAL, FILE-ASE, FILE-PSD, API-LOSPEC
 6. **OUTPUT**: SCREEN, FILE-BAS, FILE-BMP, FILE-BSAVE, FILE-EXPORT
 7. **QB64_GJ_LIB**: DICT, STRINGS, VECT2D, TEXT_INPUT, MSG_BOX, COLOR_PICKER, FILE_DIALOG
-8. **TOOLS**: 39 tool pairs (NULL, DOT, LINE, RECT, ELLIPSE, FILL, BRUSH, BRUSH-SIZE, BRUSH-FILL, BRUSH-FX-OUTLINE, BRUSH-TEXT, CUSTOM-BRUSH, POLY-LINE, POLY-FILL, MARQUEE, SELECTION, PAN, MOVE, MOVE-NUDGE, SAVE, LOAD, PICKER, PICKER-LOUPE, HISTORY, DRW, COLOR-FG, COLOR-BG, COLOR-INVERT, CROP, SPRAY, ZOOM, TEXT, SYMMETRY, RAY, IMAGE-IMPORT, REFIMG, ERASER, TRANSFORM, EXTRACT-IMAGES)
+8. **TOOLS**: 41 tool pairs (NULL, DOT, LINE, RECT, ELLIPSE, FILL, BRUSH, BRUSH-SIZE, BRUSH-FILL, BRUSH-FX-OUTLINE, BRUSH-TEXT, CUSTOM-BRUSH, POLY-LINE, POLY-FILL, MARQUEE, SELECTION, PAN, MOVE, MOVE-NUDGE, SAVE, LOAD, PICKER, PICKER-LOUPE, HISTORY, DRW, COLOR-FG, COLOR-BG, COLOR-INVERT, CROP, SPRAY, ZOOM, TEXT, SYMMETRY, RAY, IMAGE-IMPORT, REFIMG, ERASER, TRANSFORM, EXTRACT-IMAGES, EXTRACT-GRID, EXTRACT-LAYERS-GRID)
 9. **THEME**: `ASSETS/THEMES/DEFAULT/THEME.BI`
 
 ### Directory Structure
@@ -294,8 +294,8 @@ A frame is "idle" when no input, mouse movement, GUI changes, or active tool ope
 | `INPUT/KEYBOARD.BM`       | Keyboard shortcuts and handler                                      |
 
 | `OUTPUT/SCREEN.BM`        | Render pipeline (`SCREEN_render`)                                   |
-| `GUI/LAYERS.BM`           | Layer management, layer groups, context menu, group compositing (~5900+ lines) |
-| `GUI/LAYERS.BI`           | Layer type constants (`LAYER_TYPE_*`), `DRAW_LAYER` type with group fields (`parentGroupIdx`, `collapsed`, `passThrough`), `BLEND_PASS_THROUGH` |
+| `GUI/LAYERS.BM`           | Layer management, layer groups, symbol layers, context menu, group compositing (~6000+ lines) |
+| `GUI/LAYERS.BI`           | Layer type constants (`LAYER_TYPE_*`), `DRAW_LAYER` type with group fields (`parentGroupIdx`, `collapsed`, `passThrough`) and symbol fields (`symbolParentIdx`), `BLEND_PASS_THROUGH` |
 | `GUI/MENUBAR.BM`          | Menu bar with keyboard navigation and cascading submenu support     |
 | `GUI/TOOLBAR.BI`          | Layout constants (`TB_COLS`, `TB_ROWS`), button-to-tool mapping     |
 | `GUI/TOOLBAR.BM`          | Toolbar rendering, click handling, active indicator                 |
@@ -310,6 +310,8 @@ A frame is "idle" when no input, mouse movement, GUI changes, or active tool ope
 | `TOOLS/ERASER.BI/BM`      | Eraser tool (transparent painting via brush pipeline)               |
 | `TOOLS/TRANSFORM.BI/BM`   | On-canvas transform overlay (Scale/Rotate/Shear/Distort/Perspective); activated via Edit→TRANSFORM...; not a toolbar tool |
 | `TOOLS/EXTRACT-IMAGES.BI/BM` | Extract individual sprites/components from sprite sheets or multi-layer artwork as separate PNGs; supports flood fill, per-layer, or merged extraction; config persisted in DRW v14+ |
+| `TOOLS/EXTRACT-GRID.BI/BM` | Extract grid cells from sprite sheets into separate PNG files (File → Extract From Grid...) |
+| `TOOLS/EXTRACT-LAYERS-GRID.BI/BM` | Extract grid cells into separate named layers (File → Extract To Layers From Grid...) |
 | `TOOLS/TEXT.BI/BM`        | Text tool state machine and keyboard input handler for text entry on canvas |
 | `GUI/TEXT-BAR.BI/BM`      | Text tool property bar (font, size, bold/italic/underline/strikethrough, colors, spacing) |
 | `GUI/TEXT-LAYER.BI/BM`    | Text layer data storage, serialization/deserialization, and rendering |
@@ -317,6 +319,8 @@ A frame is "idle" when no input, mouse movement, GUI changes, or active tool ope
 | `GUI/CHARMAP.BI/BM`       | Character map panel (16×16 glyph grid), Character Mode (useChars), virtual cursor, bitmap font rendering, char grid overlay |
 | `TOOLS/FILL-ADJ.BI/BM`   | Interactive Fill Adjustment overlay (F8) for custom brush and paint mode tiled fills; L-handle for independent X/Y scaling; rotation handle |
 | `GUI/SMART-GUIDES.BI/BM`  | Smart guide alignment lines for move tool; action IDs 910/911; rendered after selection overlay in SCREEN_render |
+| `GUI/COLOR-MIXER.BI/BM`  | Floating Color Mixer panel for live RGB/HSV color editing; toggle via View → Color Mixer (action 2021); visibility state persisted in cfg |
+| `GUI/SYMBOL.BI/BM`       | Symbol layer system — parent/child linked layers with auto-sync, scaling, rasterize, and detach; `LAYER_TYPE_SYMBOL_PARENT` / `LAYER_TYPE_SYMBOL_CHILD` |
 | `GUI/CROSSHAIR.BI/BM`    | Crosshair assistant line rendering with configurable outline stroke |
 | `GUI/PALETTE-OPS.BI/BM`  | Palette Ops mode (on-strip palette editing: change, delete, insert, rearrange, wand select) with [DOCUMENT] palette auto-creation and snapshot/restore |
 | `GUI/GJ-DIALOG-SCALE.BM` | Custom GUI dialog wrappers (`DRAW_pick_color&`, `DRAW_open_file$`, `DRAW_save_file$`, `DRAW_msg_box`, `DRAW_input_box$`, `DRAW_input_box_ex$`) injecting `CFG.TOOLBAR_SCALE%` into QB64_GJ_LIB dialogs |

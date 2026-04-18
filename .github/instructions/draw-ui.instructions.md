@@ -29,13 +29,13 @@ Root menus (indices 0–10): FILE(0), EDIT(1), VIEW(2), SELECT(3), TOOLS(4), BRU
 | Range     | Category     | Key Actions |
 | --------- | ------------ | ----------- |
 | 101–118   | Tools        | Brush, Dot, Fill, Picker, Line, Polygon, Rect, Ellipse, Marquee, Move, Text, MagicWand, Eraser |
-| 201–217   | File         | Open, Save, SaveAs, Export, ExportSelection, Import, New, Template, Revert, Recent, Exit, ExtractImages(214), OpenAseprite(215), OpenPSD(216), ExportAsFlyout(217) |
+| 201–219   | File         | Open, Save, SaveAs, Export, ExportSelection, Import, New, Template, Revert, Recent, Exit, ExtractImages(214), OpenAseprite(215), OpenPSD(216), ExportAsFlyout(217), ExtractFromGrid(218), ExtractToLayersFromGrid(219) |
 | 301–324   | Edit         | Undo, Redo, Copy, Cut, Paste, Clear, SelectAll, Fill FG/BG, Flip, Scale, Rotate, CopyToNewLayer, StrokeSelection |
 | 325–330   | Transform    | Overlay modes: Scale(325), Distort(326), Perspective(327), Rotate(328), Shear(329); 330=TRANSFORM_ACT_FLYOUT (opens the TRANSFORM... submenu) |
 | 401–451   | View/Audio   | Toolbar, StatusBar, LayerPanel, MenuBar, Zoom, DisplayScale (408=Up/409=Down/416=Reset), BrushCursorToggle(412), Preview Window (434=toggle), Edit Bar (435=toggle), Left/Right Side UI (436/437), Pattern Tile Mode (440=toggle), Canvas Border (441), Layout Submenu (442 parent, 443–448 dock left/right for Toolbox/LayerPanel/EditBar), Advanced Bar (449=toggle, 450/451 dock left/right), SFX/Music controls (427=NextTrack, 428=PrevTrack, 429=RandomMOD, 430=RandomIT, 431=RandomXM, 432=RandomRAD, 433=RandomAny) |
 | 501–517   | Color        | Opacity presets (10–100%), Swap FG/BG |
 | 601–609   | Brush        | Size dec/inc, presets, preview, shape, pixel perfect |
-| 701–728   | Layer        | New, Delete, MoveUp/Down, MergeDown, MergeVisible, Duplicate, ArrangeTop/Bottom, ExportLayerPNG, MergeSelected, NewTextLayer(712), RasterizeText(713), RasterizeAllText(714), NewGroup(720), GroupFromSelection(721), Ungroup(722), MergeGroup(723), ToggleCollapse(724), SelectAllInGroup(725), RenameLayer(726), SelectionFromGroup(727), SelectionFromLayer(728) |
+| 701–734   | Layer        | New, Delete, MoveUp/Down, MergeDown, MergeVisible, Duplicate, ArrangeTop/Bottom, ExportLayerPNG, MergeSelected, NewTextLayer(712), RasterizeText(713), RasterizeAllText(714), NewGroup(720), GroupFromSelection(721), Ungroup(722), MergeGroup(723), ToggleCollapse(724), SelectAllInGroup(725), RenameLayer(726), SelectionFromGroup(727), SelectionFromLayer(728), ConvertToSymbol(730), NewSymbolLayer(731), AddSymbolInstance(732), SyncSymbols(733), RasterizeSymbol(734) |
 | 801–802   | Canvas       | Pan, Reset Pan |
 | 901–911   | Grid/Fill    | Toggle, Pixel Grid, Snap, Size, AlignMode, MatchBrush, CellFill, Fill Adjustment Mode (909), Smart Guides Enable (910), Smart Guides Snap (911) |
 | 1001–1003 | Symmetry     | Cycle, Clear, Set Center |
@@ -49,6 +49,7 @@ Root menus (indices 0–10): FILE(0), EDIT(1), VIEW(2), SELECT(3), TOOLS(4), BRU
 | 1911–1914 | Drawer Sets  | Load, Save, Clear, Explore drawer-set folder |
 | 2001–2010 | Image Adj    | BrightnessContrast, HueSaturation, Levels, ColorBalance, Blur, Sharpen, Invert, Desaturate, Posterize, Pixelate |
 | 2012–2020 | Preview Win  | PreviewWindowSubmenu(2012), FollowMode(2013), FloatingImageMode(2014), BinQuickLook(2015), AllowColorPicking(2016), LoadImage(2017), RecentImages(2018), ClearRecentImages(2019), GrayscalePreview(2020) |
+| 2021      | Color Mixer  | ToggleColorMixer(2021) |
 | 2050–2054 | Character Map | ToggleCharMap(2050), DockLeft(2051), DockRight(2052), ToggleCharGrid(2053), ToggleSnapToCharGrid(2054) |
 | 2201–2216 | Export As    | ExportPNGNative(2201), ExportPNG(2204), ExportGIF(2205), ExportJPG(2206), ExportTGA(2208), ExportBMP(2209), ExportHDR(2210), ExportICO(2211), ExportQOI(2216) |
 

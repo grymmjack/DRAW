@@ -14,9 +14,9 @@ DATA "::::::::", "::    ::", "::    ::", "::::  ::::", "  ::  ::  "
 
 DRAW is a pixel art editor written in QB64PE that can export images as sourcecode
 
-Current release: v0.31.0
+Current release: v0.32.0
 
-![DRAW GUI from v0.31.0](./GUI.png)
+![DRAW GUI from v0.32.0](./GUI.png)
 
 ## Features
 
@@ -30,7 +30,7 @@ Current release: v0.31.0
 - **Fill** - Flood fill tool; hold **Shift** to sample from merged visible canvas while painting onto the current layer; supports custom brush tiled fills and drawer paint mode fills with interactive Fill Adjustment overlay (`F8`) featuring drag-to-offset, scale, and rotation controls
 - **Spray** - Spray paint with brush-shaped nozzle tips, radius doubles per brush size level, custom brush stamp support, SHIFT axis constraint, circle preview
 - **Picker** - Color sampling/eyedropper with a cursor-adjacent loupe overlay that shows RGB and hex values; hold ALT with any tool for temporary picker; ALT+left picks FG, ALT+right picks BG
-- **Marquee** - Selection tools: Rectangle, Freehand, Polygon, Ellipse — each with a distinct crosshair cursor
+- **Marquee** - Selection tools: Rectangle, Freehand, Polygon, Ellipse — each with a distinct crosshair cursor; **Ctrl+Arrow** lifts and nudges content within the selection (Photoshop-style), Ctrl+Alt+Arrow clones content
 - **Magic Wand** - Select contiguous same-color pixels with dedicated crosshair cursor; **Hold `F`+click to flood fill** contiguous pixels with FG color; **Hold `E`+click to flood erase** to transparent; **Hold `W`+click to select from merged** (all visible layers)
 - **Move** - Transform and position selected content with arrow keys, undo support, and ALT+drag clone stamping
 - **Transform** - Universal flip H/V, rotate 90° CW/CCW, scale ±50% — works on layers, selections, or floating moves from any tool; **Edit → TRANSFORM...** opens an interactive on-canvas bounding-box overlay with five modes: Scale (Shift=lock aspect), Rotate (Shift=15° snap), Shear, Distort, and Perspective (Shift=wall projection); overlay frame and handle colours are fully themeable; previous tool is restored on apply/cancel
@@ -54,6 +54,7 @@ Current release: v0.31.0
 - **Image Adjustments** - Non-destructive per-layer adjustments via the Image menu: Brightness/Contrast, Hue/Saturation, Levels, Color Balance, Blur, Sharpen, Invert, Desaturate, Posterize, Pixelate — all with **live preview** and **mouse wheel slider** support; Posterize also supports multiple dithering algorithms; alpha channel preserved throughout
 - **Flip Canvas** - Flip the entire canvas horizontally or vertically across all layers (Image menu)
 - **Extract Images** - Extract individual sprites or components from sprite sheets or multi-layer artwork as separate PNG files (File → Extract Images); supports transparent/FG color/BG color background modes, connected-component flood fill for single-layer sheets, per-layer or merged extraction for multi-layer files, configurable output naming and dimensions; extraction settings persisted in `.draw` project files
+- **Extract From Grid** - Extract sprites from a grid layout into separate PNG files (File → Extract From Grid...); or extract each grid cell as a separate layer (File → Extract To Layers From Grid...)
 - **Export As** - Export artwork to multiple image formats via File → Export As: PNG (native with alpha), PNG (plain), GIF, JPEG, TGA, BMP, HDR, ICO, QOI
 - **Pixel Art Analyzer** - Interactive analysis dialog (Tools menu) that evaluates artwork for common pixel art issues: orphan pixels, jagged lines, banding, pillow shading, and doubles; includes a precompute engine for fast analysis
 
@@ -118,6 +119,7 @@ Current release: v0.31.0
 - Drag-and-drop layer reordering with visual feedback
 - Opacity lock prevents drawing on transparent pixels (enforced by all drawing tools including shape tools)
 - **Layer Groups** — Organize layers into collapsible groups (`Ctrl+G` new group, `Ctrl+Shift+G` group from selection, `Ctrl+Shift+U` ungroup); groups have independent opacity and blend mode; **Pass Through** blend mode lets children blend directly into the canvas; supports arbitrary nesting, drag-and-drop into groups, merge group, and context menu operations
+- **Symbol Layers** — Reusable linked layer instances; edit a symbol parent and all children update automatically; supports explicit sync, independent child scaling, rasterization to normal layers, and detach-from-parent; state persisted in DRW files
 - Select from current layer: Ctrl+Click a layer row to create a selection mask from its non-transparent pixels
 - Merge down, merge visible, **merge selected** (composites all multi-selected layers into one), duplicate layers
 - **Multi-layer select**: Ctrl+Click or Shift+Click layer rows to add/remove layers from the selection; Edit menu operations (clear, fill FG/BG, flip H/V, scale ±50%, rotate CW/CCW) apply to all selected layers simultaneously
@@ -141,6 +143,7 @@ Current release: v0.31.0
 - All audio state persisted in `DRAW.cfg` (`SOUNDS_ENABLED`, `SOUNDS_VOLUME`, `SOUNDS_MUTED`, `MUSIC_ENABLED`, `MUSIC_VOLUME`, `MUSIC_MUTED`)
 
 ### User Interface
+- **Color Mixer** - Floating panel for live color mixing with RGB and HSV channel controls and hex input (View → Color Mixer)
 - **Drawer panel** - A 30-slot drawer beneath the organizer for brush, gradient, and pattern sets (including 1-bit patterns with opaque background support); `F1`/`F2`/`F3` switch modes, left-click selects, `Shift+Left Click` stores, right-click opens a context menu (including Load Images to batch-import images into slots), middle-click cycles modes, `Shift+Middle Click` clears a slot, `Shift+Right Click` imports into a slot, and drag-and-drop to reorder bins
 - **Character map panel** - Dockable left/right 16×16 glyph grid with dynamic cell count (4-16 per row), mouse wheel scrolling, configurable theme colors, and bitmap font rendering
 - **Preview window** - A floating preview panel with two modes: **Follow** (canvas magnifier following the pointer) and **Floating Image** (display a loaded reference image); supports **Bin Quick Look** (hover drawer slots to preview brush/pattern/gradient), **Color Picking** (Alt+Click to sample colors from preview), and **Recent Preview Images** (up to 10 recently loaded images); pan/zoom, minimize/close buttons, and work-area clamping
@@ -207,8 +210,7 @@ Supported formats:
 | Argument | Description |
 |----------|-------------|
 | `--config <file>` / `-c <file>` | Load a specific config file instead of the default |
-| `--config-upgrade` | Reconcile existing config with latest defaults (adds missing keys) |
-
+| `--config-upgrade` | Reconcile existing config with latest defaults (adds missing keys) || `--reset-defaults` | Restore factory settings (overwrites config with built-in defaults) |
 ```bash
 # Use a specific config file
 ./DRAW.run --config DRAW.macOS.cfg

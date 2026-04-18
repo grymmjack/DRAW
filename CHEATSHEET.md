@@ -555,6 +555,7 @@ Brush size and shape affect all drawing tools: Brush, Dot, Line, Rectangle, Elli
 | `F5` | Toggle edit bar |
 | `Shift+F5` | Toggle advanced bar |
 | `Ctrl+M` | Toggle character map panel |
+| View → Color Mixer | Toggle Color Mixer panel |
 | `Ctrl+Alt+Shift+G` | Toggle grayscale preview |
 | `F10` | Toggle status bar visibility |
 | `F11` | Toggle all UI (toolbar, status bar, layer panel, menu bar) |
@@ -582,6 +583,18 @@ Brush size and shape affect all drawing tools: Brush, Dot, Line, Rectangle, Elli
 ### Display Scale (Window Size)
 
 Display scale is configured via the **Settings** dialog (Ctrl+Comma → Appearance tab).
+
+## Color Mixer
+
+The **Color Mixer** panel provides a live RGB/HSV color editing workspace. Toggle via **View → Color Mixer** in the menu bar.
+
+| Control | Function |
+|---------|----------|
+| **RGB sliders** | Adjust Red, Green, Blue channels independently |
+| **HSV sliders** | Adjust Hue, Saturation, Value (brightness) channels |
+| **Hex input** | Type a hex color value directly |
+| **FG/BG swatches** | Click to apply mixed color to foreground or background |
+| **View → Color Mixer** | Toggle panel visibility |
 
 ## Audio Controls
 
@@ -769,10 +782,12 @@ A dialog lets you choose:
 The stroke is applied to the current layer inside the selection bounds. Requires an active selection.
 | `Ctrl+D` | Deselect/clear selection (works from **any tool**) |
 | `Escape` | Deselect/clear selection (works from **any tool**) |
-| Arrow Keys | Move selection (1px) |
-| Shift + Arrows | Move selection (10px) |
-| Ctrl + Arrows | Resize selection (1px) |
-| Ctrl+Shift + Arrows | Resize selection (10px) |
+| Arrow Keys | Move selection box (1px) |
+| Shift + Arrows | Move selection box (10px) |
+| Ctrl + Arrows | **Move content** within selection 1px (lifts and floats content, Photoshop-style) |
+| Ctrl+Shift + Arrows | **Move content** within selection N px (N = NUDGE_N in config) |
+| Ctrl+Alt + Arrows | **Clone content** within selection 1px (keeps original pixels) |
+| Ctrl+Alt+Shift + Arrows | **Clone content** within selection N px |
 
 ### Clipboard with Selections
 
@@ -1043,15 +1058,18 @@ Reference image state (position, scale, opacity, visibility, filename) is saved 
 | File → Export As | Export flattened image (PNG, GIF, JPEG, TGA, BMP, HDR, ICO, QOI) |
 | File → Export Layer | Export current layer as PNG |
 | File → Export Brush | Export active custom brush as PNG |
+| File → Extract From Grid... | Extract sprites from a grid into separate PNG files |
+| File → Extract To Layers From Grid... | Extract grid cells into separate layers |
 | File → Exit | Exit DRAW (`Alt+X`) |
 
 **Note:** .draw files are PNG images with an embedded `drAw` chunk that preserves all layers, blend modes, palette colors, tool states, reference image configuration, and other project data. They can be previewed in any image viewer. Standard image saves flatten all visible layers to a single image.
 
 ## Application
 
-| Key | Function |
+| Key / Option | Function |
 |-----|----------|
 | `Ctrl+,` | Open Settings dialog |
+| `--reset-defaults` (command-line flag) | Restore factory settings (overwrites `DRAW.cfg` with defaults) |
 
 ## Music Controls
 
@@ -1111,6 +1129,28 @@ Layers can be organized into collapsible groups for structure and non-destructiv
 - **Selection from Group** creates a marquee mask from non-transparent pixels in all group descendants
 - Hidden layers and their ancestors are excluded from multi-selection
 - Deleting a group prompts for confirmation (deletes all children)
+
+### Symbol Layers
+
+Symbol layers are reusable linked layer instances. Editing a **symbol parent** automatically updates all **symbol children** that reference it.
+
+**Create and Manage Symbols via Layer menu:**
+
+| Menu Item | Function |
+|-----------|----------|
+| **Layer → Convert to Symbol** | Convert current layer into a symbol parent |
+| **Layer → New Symbol Layer** | Create a new empty symbol parent layer |
+| **Layer → Add Symbol Instance** | Add a child instance of the current symbol parent |
+| **Layer → Sync Symbols** | Manually propagate all parent changes to all children |
+| **Layer → Rasterize Symbol** | Flatten the symbol parent into a normal layer |
+| **Layer → Detach Instance** | Detach child from its parent (becomes a standalone layer) |
+| **Layer → Select Parent** | Jump to and select the parent of the current symbol child |
+
+**Symbol Layer Behaviour:**
+- Children inherit the parent's pixel content and can apply independent scaling
+- `Sync Symbols` propagates parent edits to all children; this happens automatically when you draw on the parent
+- Rasterizing removes the symbol relationship and leaves a plain pixel layer
+- Symbol state is saved in `.draw` project files
 
 ### Layer Context Menu
 
