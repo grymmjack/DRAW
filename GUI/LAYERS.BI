@@ -17,135 +17,135 @@ CONST LAYER_ROW_HEIGHT = 20
 CONST LAYER_BTN_SIZE = 12
 
 ' Layer blend mode constants
-CONST BLEND_PASS_THROUGH = -1 ' Group-only: children composite as if no group exists
+CONST BLEND_PASS_THROUGH             = -1  ' Group-only: children composite AS if no group exists
 CONST BLEND_PASS_THROUGH_POPUP_VALUE = 100 ' Popup menu sentinel (avoids -1 collision with POPUP_MENU_hit_value%)
-CONST BLEND_NORMAL       = 0
-CONST BLEND_MULTIPLY     = 1
-CONST BLEND_SCREEN       = 2
-CONST BLEND_OVERLAY      = 3
-CONST BLEND_ADD          = 4
-CONST BLEND_SUBTRACT     = 5
-CONST BLEND_DIFFERENCE   = 6
-CONST BLEND_DARKEN       = 7
-CONST BLEND_LIGHTEN      = 8
-CONST BLEND_COLOR_DODGE  = 9
-CONST BLEND_COLOR_BURN   = 10
-CONST BLEND_HARD_LIGHT   = 11
-CONST BLEND_SOFT_LIGHT   = 12
-CONST BLEND_EXCLUSION    = 13
-CONST BLEND_VIVID_LIGHT  = 14
-CONST BLEND_LINEAR_LIGHT = 15
-CONST BLEND_PIN_LIGHT    = 16
-CONST BLEND_COLOR        = 17
-CONST BLEND_LUMINOSITY   = 18
-CONST BLEND_MODE_COUNT   = 19 ' Total number of blend modes
+CONST BLEND_NORMAL                   = 0
+CONST BLEND_MULTIPLY                 = 1
+CONST BLEND_SCREEN                   = 2
+CONST BLEND_OVERLAY                  = 3
+CONST BLEND_ADD                      = 4
+CONST BLEND_SUBTRACT                 = 5
+CONST BLEND_DIFFERENCE               = 6
+CONST BLEND_DARKEN                   = 7
+CONST BLEND_LIGHTEN                  = 8
+CONST BLEND_COLOR_DODGE              = 9
+CONST BLEND_COLOR_BURN               = 10
+CONST BLEND_HARD_LIGHT               = 11
+CONST BLEND_SOFT_LIGHT               = 12
+CONST BLEND_EXCLUSION                = 13
+CONST BLEND_VIVID_LIGHT              = 14
+CONST BLEND_LINEAR_LIGHT             = 15
+CONST BLEND_PIN_LIGHT                = 16
+CONST BLEND_COLOR                    = 17
+CONST BLEND_LUMINOSITY               = 18
+CONST BLEND_MODE_COUNT               = 19  ' Total number of blend modes
 
 ' Layer type constants
-CONST LAYER_TYPE_IMAGE = 0   ' Standard pixel/image layer (default)
-CONST LAYER_TYPE_TEXT  = 1   ' Non-destructive text layer
-CONST LAYER_TYPE_GROUP = 2   ' Group container (no pixel data, organizational only)
-CONST LAYER_TYPE_SYMBOL_PARENT = 3 ' Symbol parent: editable source layer for linked instances
-CONST LAYER_TYPE_SYMBOL_CHILD  = 4 ' Symbol child: non-editable linked instance of a parent
+CONST LAYER_TYPE_IMAGE         = 0         ' Standard pixel/image layer (default)
+CONST LAYER_TYPE_TEXT          = 1         ' Non-destructive text layer
+CONST LAYER_TYPE_GROUP         = 2         ' Group container (no pixel data, organizational only)
+CONST LAYER_TYPE_SYMBOL_PARENT = 3         ' Symbol parent : editable source layer for linked instances
+CONST LAYER_TYPE_SYMBOL_CHILD  = 4         ' Symbol child  : non-editable linked instance of a parent
 
 TYPE DRAW_LAYER
-    historyId    AS LONG        ' Stable runtime identity for unified history
-    zIndex       AS INTEGER     ' Layer stacking order (1 = bottom)
-    imgWidth     AS INTEGER     ' Layer dimensions
-    imgHeight    AS INTEGER
-    imgHandle    AS LONG        ' Image buffer handle
-    visible      AS INTEGER     ' Visibility toggle
-    isSelected   AS INTEGER     ' Currently selected layer
-    lastSelected AS INTEGER     ' Previous selection state
-    name         AS STRING * 64 ' Layer name (max controlled by CFG.LAYER_NAME_MAX_LEN%)
-    opacity      AS INTEGER     ' Layer opacity (0-255, 255=opaque)
-    opacityLock  AS INTEGER     ' Opacity lock (draw only on non-transparent pixels)
-    blendMode    AS INTEGER     ' Blend mode (see BLEND_* constants, default BLEND_NORMAL)
+    historyId         AS LONG        ' Stable runtime identity for unified history
+    zIndex            AS INTEGER     ' Layer stacking order (1 = bottom)
+    imgWidth          AS INTEGER     ' Layer dimensions
+    imgHeight         AS INTEGER
+    imgHandle         AS LONG        ' Image buffer handle
+    visible           AS INTEGER     ' Visibility toggle
+    isSelected        AS INTEGER     ' Currently selected layer
+    lastSelected      AS INTEGER     ' Previous selection state
+    name              AS STRING * 64 ' Layer name (max controlled by CFG.LAYER_NAME_MAX_LEN%)
+    opacity           AS INTEGER     ' Layer opacity (0-255, 255 = opaque)
+    opacityLock       AS INTEGER     ' Opacity lock (draw only on non-transparent pixels)
+    blendMode         AS INTEGER     ' Blend mode (see BLEND_* constants, default BLEND_NORMAL)
     ' Opacity cache — avoid _COPYIMAGE + per-pixel loop every frame
-    opacityCacheImg AS LONG     ' Cached opacity-adjusted image (0 = not cached)
-    opacityCacheVal AS INTEGER  ' Opacity value when cache was built
-    contentDirty    AS INTEGER  ' TRUE = layer content changed, invalidate opacity cache
-    layerType       AS INTEGER  ' LAYER_TYPE_IMAGE (0), LAYER_TYPE_TEXT (1), or LAYER_TYPE_GROUP (2)
-    textDataIdx     AS INTEGER  ' Index into TEXT_LAYER_DATA() pool (0 = not a text layer)
+    opacityCacheImg   AS LONG        ' Cached opacity-adjusted image (0 = not cached)
+    opacityCacheVal   AS INTEGER     ' Opacity value when cache was built
+    contentDirty      AS INTEGER     ' TRUE = layer content changed, invalidate opacity cache
+    layerType         AS INTEGER     ' LAYER_TYPE_IMAGE (0), LAYER_TYPE_TEXT (1), or LAYER_TYPE_GROUP (2)
+    textDataIdx       AS INTEGER     ' Index into TEXT_LAYER_DATA() pool (0 = not a text layer)
     ' Group support fields
-    parentGroupIdx  AS INTEGER  ' Index into LAYERS() of parent group (0 = top-level / no group)
-    collapsed       AS INTEGER  ' TRUE if group is collapsed in panel (LAYER_TYPE_GROUP only)
-    passThrough     AS INTEGER  ' TRUE = pass-through blend (children composite directly); FALSE = isolated group blend
+    parentGroupIdx    AS INTEGER     ' Index into LAYERS() of parent group (0 = top-level / no group)
+    collapsed         AS INTEGER     ' TRUE if group is collapsed in panel (LAYER_TYPE_GROUP only)
+    passThrough       AS INTEGER     ' TRUE = pass-through blend (children composite directly); FALSE = isolated group blend
     ' Symbol layer fields
-    symbolParentId    AS LONG     ' Child: historyId& of parent; parent/other: 0
-    symbolParentDirty AS INTEGER  ' Parent: TRUE when content edited since last sync
-    symbolScaleX      AS SINGLE   ' Child: X scale factor (default 1.0; negative = flip H)
-    symbolScaleY      AS SINGLE   ' Child: Y scale factor (default 1.0; negative = flip V)
-    symbolOffsetX     AS INTEGER  ' Child: canvas X for top-left of scaled content
-    symbolOffsetY     AS INTEGER  ' Child: canvas Y for top-left of scaled content
+    symbolParentId    AS LONG        ' Child  : historyId& of parent; parent/other : 0
+    symbolParentDirty AS INTEGER     ' Parent : TRUE when content edited since last sync
+    symbolScaleX      AS SINGLE      ' Child  : X scale factor (default 1.0; negative = flip H)
+    symbolScaleY      AS SINGLE      ' Child  : Y scale factor (default 1.0; negative = flip V)
+    symbolOffsetX     AS INTEGER     ' Child  : canvas X for top-left of scaled content
+    symbolOffsetY     AS INTEGER     ' Child  : canvas Y for top-left of scaled content
 END TYPE
 
 TYPE LAYER_PANEL_OBJ
-    visible      AS INTEGER     ' Panel visibility toggle
-    scrollOffset AS INTEGER     ' Scroll offset for layer list
-    fontHandle   AS LONG        ' Tiny5 font handle for panel text
-    hoverRow     AS INTEGER     ' Currently hovered layer row (-1 = none)
-    draggingRow  AS INTEGER     ' Row being dragged for reorder (-1 = none)
-    dragStartY   AS INTEGER     ' Y position when drag started
-    dragStartX   AS INTEGER     ' X position when drag started (for threshold)
-    opacityDrag  AS INTEGER     ' TRUE if dragging opacity slider
-    opacityDragLayer AS INTEGER ' Layer index being opacity-adjusted
+    visible          AS INTEGER      ' Panel visibility toggle
+    scrollOffset     AS INTEGER      ' Scroll offset for layer list
+    fontHandle       AS LONG         ' Tiny5 font handle for panel text
+    hoverRow         AS INTEGER      ' Currently hovered layer row (-1   = none)
+    draggingRow      AS INTEGER      ' Row being dragged for reorder (-1 = none)
+    dragStartY       AS INTEGER      ' Y position when drag started
+    dragStartX       AS INTEGER      ' X position when drag started (for threshold)
+    opacityDrag      AS INTEGER      ' TRUE if dragging opacity slider
+    opacityDragLayer AS INTEGER      ' Layer index being opacity-adjusted
     ' Layer drag-and-drop reordering state
-    dragPending       AS INTEGER   ' TRUE when mouse down but not yet moved threshold
-    isDragging        AS INTEGER   ' TRUE while actively dragging layer for reorder
-    dragLayerIdx      AS INTEGER   ' Layer index being dragged
-    dropTargetZIndex  AS INTEGER   ' Target zIndex position for drop (-1 = no target)
-    dragOffsetY       AS INTEGER   ' Offset from row top where drag started
-    autoScrollTimer   AS SINGLE    ' Timer for auto-scroll delay at edges
-    dragPreviewY      AS INTEGER   ' Y position for drag preview cursor
-    dropOnButton      AS INTEGER   ' 0=none, 4=over Delete btn, 5=over New btn during drag
+    dragPending      AS INTEGER      ' TRUE when mouse down but not yet moved threshold
+    isDragging       AS INTEGER      ' TRUE while actively dragging layer for reorder
+    dragLayerIdx     AS INTEGER      ' Layer index being dragged
+    dropTargetZIndex AS INTEGER      ' Target zIndex position for drop (-1 = no target)
+    dragOffsetY      AS INTEGER      ' Offset from row top where drag started
+    autoScrollTimer  AS SINGLE       ' Timer for auto-scroll delay at edges
+    dragPreviewY     AS INTEGER      ' Y position for drag preview cursor
+    dropOnButton     AS INTEGER      ' 0 = none, 4=over Delete btn, 5=over New btn during drag
     ' Layer icon handles (loaded from theme PNGs, fallback to text if < -1 check fails)
-    iconVisOn         AS LONG      ' Visibility on (eye open) image handle
-    iconVisOff        AS LONG      ' Visibility off (eye closed) image handle
-    iconLockOn        AS LONG      ' Lock on (locked) image handle
-    iconLockOff       AS LONG      ' Lock off (unlocked) image handle
-    iconBtnUp         AS LONG      ' Move up button icon
-    iconBtnDown       AS LONG      ' Move down button icon
-    iconBtnMerge      AS LONG      ' Merge down button icon
-    iconBtnDelete     AS LONG      ' Delete layer button icon
-    iconBtnAdd        AS LONG      ' New layer button icon
+    iconVisOn        AS LONG         ' Visibility on (eye open) image handle
+    iconVisOff       AS LONG         ' Visibility off (eye closed) image handle
+    iconLockOn       AS LONG         ' Lock on (locked) image handle
+    iconLockOff      AS LONG         ' Lock off (unlocked) image handle
+    iconBtnUp        AS LONG         ' Move up button icon
+    iconBtnDown      AS LONG         ' Move down button icon
+    iconBtnMerge     AS LONG         ' Merge down button icon
+    iconBtnDelete    AS LONG         ' Delete layer button icon
+    iconBtnAdd       AS LONG         ' New layer button icon
     ' Solo mode state (alt+click on eye icon)
-    soloLayer         AS INTEGER    ' Layer index currently soloed (0 = none)
-    savedVisibility   AS STRING * 128 ' Saved visibility states before solo
+    soloLayer        AS INTEGER      ' Layer index currently soloed (0 = none)
+    savedVisibility  AS STRING * 128 ' Saved visibility states before solo
     ' Visibility swipe state (click+drag on eye icons)
-    visSwiping        AS INTEGER    ' TRUE while swiping visibility
-    visSwipeAction    AS INTEGER    ' 1 = show, 0 = hide (action applied during swipe)
-    visSwipedLayers   AS STRING * 128 ' Track which layers were already swiped (CHR$(1) = swiped)
+    visSwiping       AS INTEGER      ' TRUE while swiping visibility
+    visSwipeAction   AS INTEGER      ' 1                                                 = show, 0 = hide (action applied during swipe)
+    visSwipedLayers  AS STRING * 128 ' Track which layers were already swiped (CHR$(1) = swiped)
     ' Scrollbar drag state
-    scrollDragging    AS INTEGER    ' TRUE while dragging the scroll thumb
-    scrollDragOffset  AS INTEGER    ' Y offset from thumb top where drag started
+    scrollDragging   AS INTEGER      ' TRUE while dragging the scroll thumb
+    scrollDragOffset AS INTEGER      ' Y offset from thumb top where drag started
     ' Blend mode popup state
-    blendPopupOpen    AS INTEGER    ' TRUE while blend popup is showing
-    blendPopupLayer   AS INTEGER    ' Layer index popup is for
-    blendPopupX       AS INTEGER    ' Popup screen X (top-left)
-    blendPopupY       AS INTEGER    ' Popup screen Y (top-left)
-    blendPopupHover   AS INTEGER    ' Currently hovered item index (-1 = none, 0=Normal, 2..19=mode idx+1 for divider)
+    blendPopupOpen   AS INTEGER      ' TRUE while blend popup is showing
+    blendPopupLayer  AS INTEGER      ' Layer index popup is for
+    blendPopupX      AS INTEGER      ' Popup screen X (top-left)
+    blendPopupY      AS INTEGER      ' Popup screen Y (top-left)
+    blendPopupHover  AS INTEGER      ' Currently hovered item index (-1 = none, 0=Normal, 2..19=mode idx+1 for divider)
     ' Layer context menu state (right-click on row)
-    ctxMenuOpen       AS INTEGER    ' TRUE while context menu is showing
-    ctxMenuLayer      AS INTEGER    ' Layer index the context menu was invoked on
-    ctxMenuX          AS INTEGER    ' Popup screen X (top-left)
-    ctxMenuY          AS INTEGER    ' Popup screen Y (top-left)
-    ctxMenuW          AS INTEGER    ' Popup width in pixels
-    ctxMenuHover      AS INTEGER    ' Currently hovered row (-1 = none)
-    ctxMenuItems      AS INTEGER    ' Number of items in current menu
+    ctxMenuOpen      AS INTEGER      ' TRUE while context menu is showing
+    ctxMenuLayer     AS INTEGER      ' Layer index the context menu was invoked on
+    ctxMenuX         AS INTEGER      ' Popup screen X (top-left)
+    ctxMenuY         AS INTEGER      ' Popup screen Y (top-left)
+    ctxMenuW         AS INTEGER      ' Popup width in pixels
+    ctxMenuHover     AS INTEGER      ' Currently hovered row (-1 = none)
+    ctxMenuItems     AS INTEGER      ' Number of items in current menu
     ' Opacity drag anchor
-    opacityDragRowY   AS INTEGER    ' Rendered Y (drawY%) of row top when vertical opacity drag started
+    opacityDragRowY  AS INTEGER      ' Rendered Y (drawY%) of row top when vertical opacity drag started
     ' Stored panel bounds (set each render, used for hit-testing next frame)
-    panelX1           AS INTEGER    ' Left edge of rendered panel (screen coords)
-    panelX2           AS INTEGER    ' Right edge of rendered panel (screen coords)
-    width             AS INTEGER    ' Panel width in pixels (mirrors CFG.LAYER_PANEL_WIDTH)
+    panelX1          AS INTEGER      ' Left edge of rendered panel (screen coords)
+    panelX2          AS INTEGER      ' Right edge of rendered panel (screen coords)
+    width            AS INTEGER      ' Panel width in pixels (mirrors CFG.LAYER_PANEL_WIDTH)
 END TYPE
 
 ' Global layer state
-DIM SHARED LAYERS(1 TO MAX_LAYERS) AS DRAW_LAYER  ' Fixed array, actual count in LAYER_COUNT%
-DIM SHARED LAYER_PANEL AS LAYER_PANEL_OBJ
-DIM SHARED CURRENT_LAYER AS INTEGER       ' Currently active layer index (1-based)
-DIM SHARED LAYER_COUNT AS INTEGER         ' Number of layers currently in use
-DIM SHARED NEXT_LAYER_HISTORY_ID AS LONG  ' Monotonic stable layer id allocator
+DIM SHARED LAYERS(1 TO MAX_LAYERS) AS DRAW_LAYER                   ' Fixed array, actual count in LAYER_COUNT%
+DIM SHARED LAYER_PANEL           AS LAYER_PANEL_OBJ
+DIM SHARED CURRENT_LAYER         AS INTEGER                        ' Currently active layer index (1-based)
+DIM SHARED LAYER_COUNT           AS INTEGER                        ' Number of layers currently in use
+DIM SHARED NEXT_LAYER_HISTORY_ID AS LONG                           ' Monotonic stable layer id allocator
 
 ' Declare layer management functions
 DECLARE SUB LAYERS_init ()
@@ -222,30 +222,30 @@ DECLARE SUB RENDER_ORDER_rebuild ()
 ' RENDER_ORDER%(i) = layer index for z-level i, rebuilt when layer order changes
 DIM SHARED RENDER_ORDER(1 TO MAX_LAYERS) AS INTEGER
 DIM SHARED RENDER_ORDER_COUNT AS INTEGER
-DIM SHARED RENDER_ORDER_DIRTY AS INTEGER       ' TRUE = must rebuild
-RENDER_ORDER_DIRTY% = TRUE                     ' Start dirty
+DIM SHARED RENDER_ORDER_DIRTY AS INTEGER                           ' TRUE = must rebuild
+RENDER_ORDER_DIRTY%                                   = TRUE       ' Start dirty
 
 ' Blend composite cache — avoid re-scanning 64 slots every frame
-DIM SHARED BLEND_COMPOSITE_CACHED AS INTEGER   ' Cached result of BLEND_needs_composite%
-DIM SHARED BLEND_COMPOSITE_DIRTY AS INTEGER    ' TRUE = must rescan
-BLEND_COMPOSITE_DIRTY% = TRUE                  ' Start dirty
+DIM SHARED BLEND_COMPOSITE_CACHED AS INTEGER                       ' Cached result of BLEND_needs_composite%
+DIM SHARED BLEND_COMPOSITE_DIRTY  AS INTEGER                       ' TRUE = must rescan
+BLEND_COMPOSITE_DIRTY%                                = TRUE       ' Start dirty
 
 ' Persist composite buffer — avoid _NEWIMAGE/_FREEIMAGE every frame
-DIM SHARED COMPOSITE_BUFFER AS LONG
+DIM SHARED COMPOSITE_BUFFER   AS LONG
 DIM SHARED COMPOSITE_BUFFER_W AS LONG
 DIM SHARED COMPOSITE_BUFFER_H AS LONG
 
 ' Partial composite cache — skip re-compositing layers below current during painting
-DIM SHARED COMPOSITE_BELOW_CACHE AS LONG      ' Cached composite of layers below CURRENT_LAYER%
-DIM SHARED COMPOSITE_BELOW_LAYER AS INTEGER    ' Which CURRENT_LAYER% this cache was built for
-DIM SHARED COMPOSITE_BELOW_VALID AS INTEGER    ' Is the cache still valid?
+DIM SHARED COMPOSITE_BELOW_CACHE AS LONG                           ' Cached composite of layers below CURRENT_LAYER%
+DIM SHARED COMPOSITE_BELOW_LAYER AS INTEGER                        ' Which CURRENT_LAYER% this cache was built for
+DIM SHARED COMPOSITE_BELOW_VALID AS INTEGER                        ' Is the cache still valid?
 COMPOSITE_BELOW_VALID% = FALSE
 
 ' Full composite result cache — skip re-compositing when only a small region changed.
 ' When COMP_DIRTY_VALID% is TRUE and COMPOSITE_RESULT_VALID% is TRUE, RENDER_layers
 ' restores from COMPOSITE_RESULT_CACHE& and only re-blends the dirty region.
-DIM SHARED COMPOSITE_RESULT_CACHE AS LONG     ' Previous frame's completed composite
-DIM SHARED COMPOSITE_RESULT_VALID AS INTEGER   ' Is the full composite cache usable?
+DIM SHARED COMPOSITE_RESULT_CACHE AS LONG                          ' Previous frame's completed composite
+DIM SHARED COMPOSITE_RESULT_VALID AS INTEGER                       ' Is the full composite cache usable?
 COMPOSITE_RESULT_VALID% = FALSE
 
 ' Multi-layer selection — allows selecting multiple layers at once for bulk operations
@@ -262,7 +262,7 @@ DECLARE SUB LAYER_get_content_bounds (layerIndex AS INTEGER, bx AS INTEGER, by A
 DECLARE SUB LAYER_translate_content (layerIndex AS INTEGER, dx AS INTEGER, dy AS INTEGER)
 
 ' Group layer management functions
-DIM SHARED NEXT_GROUP_NUM AS INTEGER  ' Auto-incrementing counter for group naming
+DIM SHARED NEXT_GROUP_NUM AS INTEGER                               ' Auto-incrementing counter for group naming
 DECLARE FUNCTION LAYERS_new_group% ()
 DECLARE FUNCTION LAYERS_group_from_selection% ()
 DECLARE SUB LAYERS_ungroup (groupIdx AS INTEGER)
@@ -280,16 +280,16 @@ DECLARE SUB LAYERS_toggle_group_visibility (groupIdx AS INTEGER)
 
 ' Group compositing — stack of buffers for nested isolated groups
 ' Each nesting level of isolated groups needs its own composite buffer.
-CONST MAX_GROUP_NESTING = 8  ' Maximum supported group nesting depth
-DIM SHARED GROUP_COMP_STACK(1 TO MAX_GROUP_NESTING) AS LONG    ' Image handles
+CONST MAX_GROUP_NESTING = 8                                        ' Maximum supported group nesting depth
+DIM SHARED GROUP_COMP_STACK(1 TO MAX_GROUP_NESTING) AS LONG        ' Image handles
 DIM SHARED GROUP_COMP_STACK_IDX(1 TO MAX_GROUP_NESTING) AS INTEGER ' Group layer indices
-DIM SHARED GROUP_COMP_STACK_TOP AS INTEGER                      ' Current stack depth (0 = empty)
-DIM SHARED GROUP_COMP_STACK_W AS LONG                           ' Width of allocated buffers
-DIM SHARED GROUP_COMP_STACK_H AS LONG                           ' Height of allocated buffers
-DIM SHARED BLEND_HAS_ISOLATED_GROUPS AS INTEGER  ' TRUE when isolated groups exist (cached)
+DIM SHARED GROUP_COMP_STACK_TOP      AS INTEGER                    ' Current stack depth (0 = empty)
+DIM SHARED GROUP_COMP_STACK_W        AS LONG                       ' Width of allocated buffers
+DIM SHARED GROUP_COMP_STACK_H        AS LONG                       ' Height of allocated buffers
+DIM SHARED BLEND_HAS_ISOLATED_GROUPS AS INTEGER                    ' TRUE when isolated groups exist (cached)
 
 ' Legacy single-buffer aliases (kept for compatibility during transition)
-DIM SHARED GROUP_COMPOSITE_BUFFER AS LONG
+DIM SHARED GROUP_COMPOSITE_BUFFER   AS LONG
 DIM SHARED GROUP_COMPOSITE_BUFFER_W AS LONG
 DIM SHARED GROUP_COMPOSITE_BUFFER_H AS LONG
 

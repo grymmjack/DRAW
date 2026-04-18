@@ -6,26 +6,26 @@
 OPTION _EXPLICIT
 OPTION _EXPLICITARRAY
 
-CONST TRUE = -1
+CONST TRUE  = -1
 CONST FALSE = 0
 
-DIM fontPath AS STRING
-DIM fHandle AS LONG
-DIM charH AS INTEGER
-DIM scanW AS INTEGER, scanH AS INTEGER
-DIM scanImg AS LONG
-DIM imgBytes AS LONG
-DIM cp AS LONG
-DIM utf32str AS STRING
-DIM oldDest AS LONG
-DIM prevFont AS LONG
-DIM scanMem AS _MEM
-DIM byteOff AS LONG
-DIM pixel AS _UNSIGNED LONG
-DIM hasInk AS INTEGER
+DIM fontPath   AS STRING
+DIM fHandle    AS LONG
+DIM charH      AS INTEGER
+DIM scanW      AS INTEGER, scanH AS INTEGER
+DIM scanImg    AS LONG
+DIM imgBytes   AS LONG
+DIM cp         AS LONG
+DIM utf32str   AS STRING
+DIM oldDest    AS LONG
+DIM prevFont   AS LONG
+DIM scanMem    AS _MEM
+DIM byteOff    AS LONG
+DIM pixel      AS _UNSIGNED LONG
+DIM hasInk     AS INTEGER
 DIM foundCount AS LONG
 DIM firstFound AS LONG
-DIM i AS INTEGER
+DIM i          AS INTEGER
 
 SCREEN _NEWIMAGE(800, 600, 32)
 _TITLE "Unicode Charmap Test"
@@ -54,10 +54,10 @@ FOR sz% = 1 TO 4
 
     ' Get font height
     DIM tmpI AS LONG
-    tmpI& = _NEWIMAGE(1, 1, 32)
-    oldDest& = _DEST: _DEST tmpI&
-    prevFont& = _FONT: _FONT fHandle&
-    charH% = _UFONTHEIGHT
+    tmpI&     = _NEWIMAGE(1, 1, 32)
+    oldDest&  = _DEST : _DEST tmpI&
+    prevFont& = _FONT : _FONT fHandle&
+    charH%    = _UFONTHEIGHT
     _FONT prevFont&: _DEST oldDest&
     IF tmpI& < -1 THEN _FREEIMAGE tmpI&
     PRINT "UFontHeight:"; charH%
@@ -70,7 +70,7 @@ FOR sz% = 1 TO 4
     PRINT "Scan buffer:"; scanW%; "x"; scanH%
 
     scanImg& = _NEWIMAGE(scanW%, scanH%, 32)
-    IF scanImg& >= -1 THEN
+    IF scanImg& > = -1 THEN
         PRINT "ERROR: Failed to create scan image"
         _FREEFONT fHandle&
         _CONTINUE
@@ -80,7 +80,7 @@ FOR sz% = 1 TO 4
     ' Test _UPRINTWIDTH for a few PUA codepoints
     PRINT "Testing _UPRINTWIDTH for PUA codepoints:"
     FOR i% = 0 TO 4
-        cp& = &HE900 + i%
+        cp&       = &HE900 + i%
         utf32str$ = MKL$(cp&)
         DIM pw AS LONG
         pw& = _UPRINTWIDTH(utf32str$, 32, fHandle&)
@@ -123,7 +123,7 @@ FOR sz% = 1 TO 4
     _FONT fHandle&
     COLOR _RGB32(255, 255, 0)
     FOR i% = 0 TO 9
-        cp& = &HE900 + i%
+        cp&       = &HE900 + i%
         utf32str$ = MKL$(cp&)
         _UPRINTSTRING (10 + i% * 40, screenY%), utf32str$, 0, 32
     NEXT i%
@@ -135,7 +135,7 @@ FOR sz% = 1 TO 4
     DIM screenY2 AS INTEGER
     screenY2% = screenY% + charH% + 10
     FOR i% = 0 TO 9
-        cp& = &HE900 + i%
+        cp&       = &HE900 + i%
         utf32str$ = MKL$(cp&)
         _UPRINTSTRING (10 + i% * 40, screenY2%), utf32str$, 0, 32, fHandle&
     NEXT i%
@@ -148,7 +148,7 @@ FOR sz% = 1 TO 4
     PRINT "Quick PUA scan (E900..E963)..."
     FOR cp& = &HE900 TO &HE963
         utf32str$ = MKL$(cp&)
-        oldDest& = _DEST
+        oldDest&  = _DEST
         _DEST scanImg&
         CLS , _RGBA32(0, 0, 0, 0)
         prevFont& = _FONT
@@ -175,7 +175,7 @@ FOR sz% = 1 TO 4
         END IF
     NEXT cp&
     PRINT "  Found"; foundCount&; "glyphs with ink"
-    IF firstFound& >= 0 THEN PRINT "  First at U+"; HEX$(firstFound&)
+    IF firstFound& > = 0 THEN PRINT "  First at U+"; HEX$(firstFound&)
 
     IF scanImg& < -1 THEN _FREEIMAGE scanImg&
     _FONT 16

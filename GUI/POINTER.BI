@@ -8,19 +8,19 @@
 $INCLUDEONCE
 
 TYPE POINTER_OBJ
-    W  AS INTEGER   ' Width of pointer
-    H  AS INTEGER   ' Height of pointer
-    S  AS STRING    ' DRAW string used to render pointer (fallback)
-    C  AS _UNSIGNED LONG ' Pointer color chip (RGB color value)
-    O  AS INTEGER   ' Pointer outline
-    OC AS _UNSIGNED LONG ' Old pointer color chip
-    CURSOR_ID AS INTEGER ' Active cursor index (CURSOR_NULL, CURSOR_BRUSH, etc.)
-    CURSOR_FLIP AS INTEGER ' 0=none, 1=flip horiz, 2=flip vert, 3=flip both
-    HIDDEN AS INTEGER      ' TRUE when pointer is hidden for native dialogs
-    PREV_DRAW_X AS INTEGER ' Previous frame pointer X (canvas coords) for dirty-rect
-    PREV_DRAW_Y AS INTEGER ' Previous frame pointer Y (canvas coords) for dirty-rect
-    USING_SYSTEM_CURSOR AS INTEGER ' TRUE when OS system cursor is active this frame
-    PREV_SYS_CURSOR AS STRING * 24 ' Previous _MOUSESHOW string to skip redundant SDL calls
+    W                   AS INTEGER        ' Width of pointer
+    H                   AS INTEGER        ' Height of pointer
+    S                   AS STRING         ' DRAW string used to render pointer (fallback)
+    C                   AS _UNSIGNED LONG ' Pointer color chip (RGB color value)
+    O                   AS INTEGER        ' Pointer outline
+    OC                  AS _UNSIGNED LONG ' Old pointer color chip
+    CURSOR_ID           AS INTEGER        ' Active cursor index (CURSOR_NULL, CURSOR_BRUSH, etc.)
+    CURSOR_FLIP         AS INTEGER        ' 0 = none, 1=flip horiz, 2=flip vert, 3=flip both
+    HIDDEN              AS INTEGER        ' TRUE when pointer is hidden for native dialogs
+    PREV_DRAW_X         AS INTEGER        ' Previous frame pointer X (canvas coords) for dirty-rect
+    PREV_DRAW_Y         AS INTEGER        ' Previous frame pointer Y (canvas coords) for dirty-rect
+    USING_SYSTEM_CURSOR AS INTEGER        ' TRUE when OS system cursor is active this frame
+    PREV_SYS_CURSOR     AS STRING * 24    ' Previous _MOUSESHOW string to skip redundant SDL calls
 END TYPE
 
 DIM SHARED POINTER AS POINTER_OBJ

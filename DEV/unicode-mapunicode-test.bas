@@ -5,14 +5,14 @@
 OPTION _EXPLICIT
 OPTION _EXPLICITARRAY
 
-CONST TRUE = -1
+CONST TRUE  = -1
 CONST FALSE = 0
 
 DIM fontPath AS STRING
-DIM fHandle AS LONG
-DIM cp AS LONG
-DIM renderY AS INTEGER
-DIM ri AS INTEGER
+DIM fHandle  AS LONG
+DIM cp       AS LONG
+DIM renderY  AS INTEGER
+DIM ri       AS INTEGER
 
 SCREEN _NEWIMAGE(800, 600, 32)
 CLS , _RGB32(0, 0, 0)
@@ -64,13 +64,13 @@ PRINT
 ' ================================================================
 _FONT fHandle&
 PRINT "--- Method B: _MAPUNICODE + ink detection ---"
-DIM scanImg AS LONG, scanMem AS _MEM
-DIM byteOff AS LONG, pixel AS _UNSIGNED LONG
-DIM hasInk AS INTEGER, imgBytes AS LONG
-DIM oldDest AS LONG, prevFont AS LONG
+DIM scanImg  AS LONG, scanMem AS _MEM
+DIM byteOff  AS LONG, pixel AS _UNSIGNED LONG
+DIM hasInk   AS INTEGER, imgBytes AS LONG
+DIM oldDest  AS LONG, prevFont AS LONG
 DIM inkCount AS LONG
 
-scanImg& = _NEWIMAGE(64, 64, 32)
+scanImg&  = _NEWIMAGE(64, 64, 32)
 imgBytes& = 64& * 64& * 4&
 inkCount& = 0
 
@@ -138,7 +138,7 @@ done:
 _DISPLAY
 _SAVEIMAGE "/home/grymmjack/git/DRAW/DEV/unicode-mapunicode-test.png"
 _DELAY 0.5
-IF fHandle& >= 1 THEN
+IF fHandle& > = 1 THEN
     _FONT 16
     _FREEFONT fHandle&
 END IF

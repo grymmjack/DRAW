@@ -5,13 +5,13 @@
 OPTION _EXPLICIT
 OPTION _EXPLICITARRAY
 
-CONST TRUE = -1
+CONST TRUE  = -1
 CONST FALSE = 0
 
 DIM fontPath AS STRING
-DIM fHandle AS LONG
-DIM cp AS LONG
-DIM renderY AS INTEGER
+DIM fHandle  AS LONG
+DIM cp       AS LONG
+DIM renderY  AS INTEGER
 
 SCREEN _NEWIMAGE(800, 700, 32)
 CLS , _RGB32(0, 0, 0)
@@ -35,17 +35,17 @@ PRINT
 '   byte2 = 0x80 | ((cp >> 6) AND 0x3F)
 '   byte3 = 0x80 | (cp AND 0x3F)
 
-DIM utf8str AS STRING
+DIM utf8str  AS STRING
 DIM utf32str AS STRING
-DIM b1 AS INTEGER, b2 AS INTEGER, b3 AS INTEGER
+DIM b1       AS INTEGER, b2 AS INTEGER, b3 AS INTEGER
 
 cp& = &HE900&
 
 ' Build UTF-8
-b1% = &HE0& OR (cp& \ 4096)
-b2% = &H80& OR ((cp& \ 64) AND &H3F&)
-b3% = &H80& OR (cp& AND &H3F&)
-utf8str$ = CHR$(b1%) + CHR$(b2%) + CHR$(b3%)
+b1%       = &HE0& OR (cp& \ 4096)
+b2%       = &H80& OR ((cp& \ 64) AND &H3F&)
+b3%       = &H80& OR (cp& AND &H3F&)
+utf8str$  = CHR$(b1%) + CHR$(b2%) + CHR$(b3%)
 utf32str$ = MKL$(cp&)
 
 PRINT "Codepoint: U+"; HEX$(cp&); " ("; cp&; ")"
@@ -72,7 +72,7 @@ _FONT fHandle&
 COLOR _RGB32(0, 255, 128)
 DIM ri AS INTEGER
 FOR ri% = 0 TO 9
-    cp& = &HE900& + ri%
+    cp&       = &HE900& + ri%
     utf32str$ = MKL$(cp&)
     _UPRINTSTRING (10 + ri% * 40, renderY%), utf32str$, 0, 32
 NEXT ri%
@@ -89,10 +89,10 @@ renderY% = CSRLIN * 16 + 4
 _FONT fHandle&
 COLOR _RGB32(0, 255, 128)
 FOR ri% = 0 TO 9
-    cp& = &HE900& + ri%
-    b1% = &HE0& OR (cp& \ 4096)
-    b2% = &H80& OR ((cp& \ 64) AND &H3F&)
-    b3% = &H80& OR (cp& AND &H3F&)
+    cp&      = &HE900& + ri%
+    b1%      = &HE0& OR (cp& \ 4096)
+    b2%      = &H80& OR ((cp& \ 64) AND &H3F&)
+    b3%      = &H80& OR (cp& AND &H3F&)
     utf8str$ = CHR$(b1%) + CHR$(b2%) + CHR$(b3%)
     _UPRINTSTRING (10 + ri% * 40, renderY%), utf8str$, 0, 8
 NEXT ri%
@@ -108,7 +108,7 @@ PRINT "Method 3: _UPRINTSTRING utf32str$, 0, 32, fHandle&"
 renderY% = CSRLIN * 16 + 4
 COLOR _RGB32(0, 255, 128)
 FOR ri% = 0 TO 9
-    cp& = &HE900& + ri%
+    cp&       = &HE900& + ri%
     utf32str$ = MKL$(cp&)
     _UPRINTSTRING (10 + ri% * 40, renderY%), utf32str$, 0, 32, fHandle&
 NEXT ri%
@@ -123,10 +123,10 @@ PRINT "Method 4: _UPRINTSTRING utf8str$, 0, 8, fHandle&"
 renderY% = CSRLIN * 16 + 4
 COLOR _RGB32(0, 255, 128)
 FOR ri% = 0 TO 9
-    cp& = &HE900& + ri%
-    b1% = &HE0& OR (cp& \ 4096)
-    b2% = &H80& OR ((cp& \ 64) AND &H3F&)
-    b3% = &H80& OR (cp& AND &H3F&)
+    cp&      = &HE900& + ri%
+    b1%      = &HE0& OR (cp& \ 4096)
+    b2%      = &H80& OR ((cp& \ 64) AND &H3F&)
+    b3%      = &H80& OR (cp& AND &H3F&)
     utf8str$ = CHR$(b1%) + CHR$(b2%) + CHR$(b3%)
     _UPRINTSTRING (10 + ri% * 40, renderY%), utf8str$, 0, 8, fHandle&
 NEXT ri%
@@ -143,7 +143,7 @@ renderY% = CSRLIN * 16 + 4
 _FONT fHandle&
 COLOR _RGB32(0, 255, 128)
 FOR ri% = 0 TO 9
-    cp& = &HE900& + ri%
+    cp&       = &HE900& + ri%
     utf32str$ = MKL$(cp&)
     _UPRINTSTRING (10 + ri% * 40, renderY%), utf32str$
 NEXT ri%
@@ -157,16 +157,16 @@ PRINT
 ' ================================================================
 DIM fHandle2 AS LONG
 fHandle2& = _LOADFONT(fontPath$, 32, "DONTBLEND")
-IF fHandle2& >= 1 THEN
+IF fHandle2& > = 1 THEN
     PRINT "Method 6: _LOADFONT with DONTBLEND, utf8 encoding=8"
     renderY% = CSRLIN * 16 + 4
     _FONT fHandle2&
     COLOR _RGB32(0, 255, 128)
     FOR ri% = 0 TO 9
-        cp& = &HE900& + ri%
-        b1% = &HE0& OR (cp& \ 4096)
-        b2% = &H80& OR ((cp& \ 64) AND &H3F&)
-        b3% = &H80& OR (cp& AND &H3F&)
+        cp&      = &HE900& + ri%
+        b1%      = &HE0& OR (cp& \ 4096)
+        b2%      = &H80& OR ((cp& \ 64) AND &H3F&)
+        b3%      = &H80& OR (cp& AND &H3F&)
         utf8str$ = CHR$(b1%) + CHR$(b2%) + CHR$(b3%)
         _UPRINTSTRING (10 + ri% * 40, renderY%), utf8str$, 0, 8
     NEXT ri%
@@ -187,7 +187,7 @@ renderY% = CSRLIN * 16 + 4
 _FONT fHandle&
 COLOR _RGB32(0, 255, 128)
 FOR ri% = 0 TO 9
-    cp& = &HE900& + ri%
+    cp&       = &HE900& + ri%
     utf32str$ = MKL$(cp&)
     _UPRINTSTRING (10 + ri% * 40, renderY%), utf32str$, 0, 256
 NEXT ri%
@@ -200,21 +200,21 @@ PRINT
 ' METHOD 8: Ink detection using UTF-8 + render to offscreen
 ' ================================================================
 PRINT "Method 8: Ink test - UTF-8 render to offscreen buffer"
-DIM scanImg AS LONG, scanMem AS _MEM
-DIM byteOff AS LONG, pixel AS _UNSIGNED LONG
-DIM hasInk AS INTEGER, imgBytes AS LONG
-DIM oldDest AS LONG, prevFont AS LONG
+DIM scanImg  AS LONG, scanMem AS _MEM
+DIM byteOff  AS LONG, pixel AS _UNSIGNED LONG
+DIM hasInk   AS INTEGER, imgBytes AS LONG
+DIM oldDest  AS LONG, prevFont AS LONG
 DIM inkCount AS LONG, noInkCount AS LONG
 
-scanImg& = _NEWIMAGE(64, 48, 32)
+scanImg&  = _NEWIMAGE(64, 48, 32)
 imgBytes& = 64& * 48& * 4&
 inkCount& = 0: noInkCount& = 0
 
 FOR ri% = 0 TO 19
-    cp& = &HE900& + ri%
-    b1% = &HE0& OR (cp& \ 4096)
-    b2% = &H80& OR ((cp& \ 64) AND &H3F&)
-    b3% = &H80& OR (cp& AND &H3F&)
+    cp&      = &HE900& + ri%
+    b1%      = &HE0& OR (cp& \ 4096)
+    b2%      = &H80& OR ((cp& \ 64) AND &H3F&)
+    b3%      = &H80& OR (cp& AND &H3F&)
     utf8str$ = CHR$(b1%) + CHR$(b2%) + CHR$(b3%)
 
     oldDest& = _DEST
@@ -254,7 +254,7 @@ done:
 _DISPLAY
 _SAVEIMAGE "/home/grymmjack/git/DRAW/DEV/unicode-render-test.png"
 _DELAY 0.5
-IF fHandle& >= 1 THEN
+IF fHandle& > = 1 THEN
     _FONT 16
     _FREEFONT fHandle&
 END IF

@@ -22,123 +22,123 @@ OPTION _EXPLICITARRAY
 ' =============================================================================
 
 ' ---- Screen setup ----
-CONST TRUE = -1
-CONST FALSE = 0
+CONST TRUE      = -1
+CONST FALSE     = 0
 CONST SCREEN_W& = 1024
 CONST SCREEN_H& = 720
 SCREEN _NEWIMAGE(SCREEN_W&, SCREEN_H&, 32)
 _TITLE "QB64-PE Keyboard Tester (Tab=next page, Ctrl+Q=quit)"
 
 ' ---- Modifier physical key codes ----
-CONST KEY_LSHIFT& = 100304
-CONST KEY_RSHIFT& = 100303
-CONST KEY_LCTRL& = 100306  ' Note: SDL2 swaps L/R ctrl codes vs docs
-CONST KEY_RCTRL& = 100305
-CONST KEY_LALT& = 100308
-CONST KEY_RALT& = 100307
-CONST KEY_CAPSLOCK& = 100301
-CONST KEY_NUMLOCK& = 100300
+CONST KEY_LSHIFT&     = 100304
+CONST KEY_RSHIFT&     = 100303
+CONST KEY_LCTRL&      = 100306 ' Note: SDL2 swaps L/R ctrl codes vs docs
+CONST KEY_RCTRL&      = 100305
+CONST KEY_LALT&       = 100308
+CONST KEY_RALT&       = 100307
+CONST KEY_CAPSLOCK&   = 100301
+CONST KEY_NUMLOCK&    = 100300
 CONST KEY_SCROLLLOCK& = 100302
 
 ' ---- Function key codes ----
-CONST KEY_F1& = 15104
-CONST KEY_F2& = 15360
-CONST KEY_F3& = 15616
-CONST KEY_F4& = 15872
-CONST KEY_F5& = 16128
-CONST KEY_F6& = 16384
-CONST KEY_F7& = 16640
-CONST KEY_F8& = 16896
-CONST KEY_F9& = 17152
+CONST KEY_F1&  = 15104
+CONST KEY_F2&  = 15360
+CONST KEY_F3&  = 15616
+CONST KEY_F4&  = 15872
+CONST KEY_F5&  = 16128
+CONST KEY_F6&  = 16384
+CONST KEY_F7&  = 16640
+CONST KEY_F8&  = 16896
+CONST KEY_F9&  = 17152
 CONST KEY_F10& = 17408
 CONST KEY_F11& = 17664
 CONST KEY_F12& = 17920
 
 ' ---- Navigation key codes ----
-CONST KEY_UP& = 18432
-CONST KEY_DOWN& = 20480
-CONST KEY_LEFT& = 19200
-CONST KEY_RIGHT& = 19712
-CONST KEY_PGUP& = 18688
-CONST KEY_PGDN& = 20736
-CONST KEY_HOME& = 18176
-CONST KEY_ENDK& = 20224
+CONST KEY_UP&     = 18432
+CONST KEY_DOWN&   = 20480
+CONST KEY_LEFT&   = 19200
+CONST KEY_RIGHT&  = 19712
+CONST KEY_PGUP&   = 18688
+CONST KEY_PGDN&   = 20736
+CONST KEY_HOME&   = 18176
+CONST KEY_ENDK&   = 20224
 CONST KEY_INSERT& = 20992
 CONST KEY_DELETE& = 21248
 
 ' ---- Common ASCII ----
-CONST KEY_ESC& = 27
-CONST KEY_ENTER& = 13
-CONST KEY_TAB& = 9
+CONST KEY_ESC&       = 27
+CONST KEY_ENTER&     = 13
+CONST KEY_TAB&       = 9
 CONST KEY_BACKSPACE& = 8
-CONST KEY_SPACE& = 32
+CONST KEY_SPACE&     = 32
 
 ' ---- Numpad codes (when NumLock ON these produce ASCII; when OFF, nav codes) ----
 ' SDL2 numpad scancodes for _KEYDOWN
-CONST KP_0& = 100256
-CONST KP_1& = 100257
-CONST KP_2& = 100258
-CONST KP_3& = 100259
-CONST KP_4& = 100260
-CONST KP_5& = 100261
-CONST KP_6& = 100262
-CONST KP_7& = 100263
-CONST KP_8& = 100264
-CONST KP_9& = 100265
-CONST KP_PERIOD& = 100266
-CONST KP_DIVIDE& = 100267
+CONST KP_0&        = 100256
+CONST KP_1&        = 100257
+CONST KP_2&        = 100258
+CONST KP_3&        = 100259
+CONST KP_4&        = 100260
+CONST KP_5&        = 100261
+CONST KP_6&        = 100262
+CONST KP_7&        = 100263
+CONST KP_8&        = 100264
+CONST KP_9&        = 100265
+CONST KP_PERIOD&   = 100266
+CONST KP_DIVIDE&   = 100267
 CONST KP_MULTIPLY& = 100268
-CONST KP_MINUS& = 100269
-CONST KP_PLUS& = 100270
-CONST KP_ENTER& = 100271
+CONST KP_MINUS&    = 100269
+CONST KP_PLUS&     = 100270
+CONST KP_ENTER&    = 100271
 
 ' ---- Colors (initialized at runtime via _RGB32) ----
-DIM SHARED C_BG AS _UNSIGNED LONG
-DIM SHARED C_WHITE AS _UNSIGNED LONG
-DIM SHARED C_GRAY AS _UNSIGNED LONG
-DIM SHARED C_DIMM AS _UNSIGNED LONG
-DIM SHARED C_GREEN AS _UNSIGNED LONG
-DIM SHARED C_RED AS _UNSIGNED LONG
-DIM SHARED C_YELLOW AS _UNSIGNED LONG
-DIM SHARED C_CYAN AS _UNSIGNED LONG
-DIM SHARED C_ORANGE AS _UNSIGNED LONG
-DIM SHARED C_BLUE AS _UNSIGNED LONG
+DIM SHARED C_BG      AS _UNSIGNED LONG
+DIM SHARED C_WHITE   AS _UNSIGNED LONG
+DIM SHARED C_GRAY    AS _UNSIGNED LONG
+DIM SHARED C_DIMM    AS _UNSIGNED LONG
+DIM SHARED C_GREEN   AS _UNSIGNED LONG
+DIM SHARED C_RED     AS _UNSIGNED LONG
+DIM SHARED C_YELLOW  AS _UNSIGNED LONG
+DIM SHARED C_CYAN    AS _UNSIGNED LONG
+DIM SHARED C_ORANGE  AS _UNSIGNED LONG
+DIM SHARED C_BLUE    AS _UNSIGNED LONG
 DIM SHARED C_MAGENTA AS _UNSIGNED LONG
-DIM SHARED C_HEADER AS _UNSIGNED LONG
+DIM SHARED C_HEADER  AS _UNSIGNED LONG
 
-C_BG~& = _RGB32(30, 30, 30)
-C_WHITE~& = _RGB32(255, 255, 255)
-C_GRAY~& = _RGB32(153, 153, 153)
-C_DIMM~& = _RGB32(102, 102, 102)
-C_GREEN~& = _RGB32(0, 255, 0)
-C_RED~& = _RGB32(255, 80, 80)
-C_YELLOW~& = _RGB32(255, 255, 102)
-C_CYAN~& = _RGB32(102, 255, 255)
-C_ORANGE~& = _RGB32(255, 160, 64)
-C_BLUE~& = _RGB32(102, 153, 255)
+C_BG~&      = _RGB32(30, 30, 30)
+C_WHITE~&   = _RGB32(255, 255, 255)
+C_GRAY~&    = _RGB32(153, 153, 153)
+C_DIMM~&    = _RGB32(102, 102, 102)
+C_GREEN~&   = _RGB32(0, 255, 0)
+C_RED~&     = _RGB32(255, 80, 80)
+C_YELLOW~&  = _RGB32(255, 255, 102)
+C_CYAN~&    = _RGB32(102, 255, 255)
+C_ORANGE~&  = _RGB32(255, 160, 64)
+C_BLUE~&    = _RGB32(102, 153, 255)
 C_MAGENTA~& = _RGB32(255, 102, 255)
-C_HEADER~& = _RGB32(255, 204, 0)
+C_HEADER~&  = _RGB32(255, 204, 0)
 
 ' ---- Log constants ----
-CONST LOG_MAX& = 28  ' visible log lines
-CONST LOG_TOTAL& = 256 ' ring buffer size
+CONST LOG_MAX&   = 28          ' visible log lines
+CONST LOG_TOTAL& = 256         ' ring buffer size
 CONST NUM_PAGES& = 3
 
 ' ---- State ----
-DIM k AS LONG
-DIM currentPage AS INTEGER: currentPage% = 1
-DIM frameCount AS LONG: frameCount& = 0
+DIM k           AS LONG
+DIM currentPage AS INTEGER : currentPage% = 1
+DIM frameCount  AS LONG    : frameCount&      = 0
 
 ' Modifier state
-DIM ctrl AS INTEGER, shift AS INTEGER, alt AS INTEGER
-DIM lctrl AS INTEGER, rctrl AS INTEGER
-DIM lshift AS INTEGER, rshift AS INTEGER
-DIM lalt AS INTEGER, ralt AS INTEGER
+DIM ctrl     AS INTEGER, shift AS INTEGER, alt AS INTEGER
+DIM lctrl    AS INTEGER, rctrl AS INTEGER
+DIM lshift   AS INTEGER, rshift AS INTEGER
+DIM lalt     AS INTEGER, ralt AS INTEGER
 DIM capsLock AS INTEGER, numLock AS INTEGER, scrollLock AS INTEGER
 
 ' Modifier combo precomputes (matches DRAW MODIFIERS_OBJ)
-DIM ctrlOnly AS INTEGER, shiftOnly AS INTEGER, altOnly AS INTEGER
-DIM ctrlShift AS INTEGER, ctrlAlt AS INTEGER, shiftAlt AS INTEGER
+DIM ctrlOnly     AS INTEGER, shiftOnly AS INTEGER, altOnly AS INTEGER
+DIM ctrlShift    AS INTEGER, ctrlAlt AS INTEGER, shiftAlt AS INTEGER
 DIM ctrlShiftAlt AS INTEGER, modNone AS INTEGER
 
 ' macOS Alt tracking via _KEYHIT (same as DRAW's MODIFIERS_track_alt_keyhit)
@@ -147,8 +147,8 @@ DIM macAltHeld AS INTEGER: macAltHeld% = FALSE
 ' _KEYHIT event log (ring buffer)
 DIM logLines(LOG_TOTAL& - 1) AS STRING
 DIM logColors(LOG_TOTAL& - 1) AS _UNSIGNED LONG
-DIM logHead AS LONG: logHead& = 0
-DIM logCount AS LONG: logCount& = 0
+DIM logHead  AS LONG : logHead&   = 0
+DIM logCount AS LONG : logCount& = 0
 
 ' Held-key tracking for all testable keys
 CONST TRACK_MAX& = 120
@@ -207,30 +207,30 @@ DO
         IF k& > 0 THEN
             ' Key press
             logClr~& = C_GREEN~&
-            logStr$ = "PRESS   k=" + LPAD$(LTRIM$(STR$(k&)), 8) + "  "
+            logStr$  = "PRESS   k=" + LPAD$(LTRIM$(STR$(k&)), 8) + "  "
             IF k& > 0 AND k& < 127 THEN
-                IF k& >= 32 THEN
+                IF k& > = 32 THEN
                     logStr$ = logStr$ + "chr=" + CHR$(34) + CHR$(k&) + CHR$(34) + " (ASCII " + LTRIM$(STR$(k&)) + ")"
                 ELSE
                     logStr$ = logStr$ + "ctrl-chr (ASCII " + LTRIM$(STR$(k&)) + ")"
                 END IF
-            ELSEIF k& >= 256 AND k& < 65536 THEN
+            ELSEIF k& > = 256 AND k& < 65536 THEN
                 logStr$ = logStr$ + "unicode U+" + HEX$(k&)
             ELSE
                 logStr$ = logStr$ + KEYNAME$(k&)
             END IF
         ELSEIF k& < 0 THEN
             ' Key release
-            logClr~& = C_RED~&
+            logClr~&                = C_RED~&
             DIM absK AS LONG: absK& = ABS(k&)
-            logStr$ = "RELEASE k=" + LPAD$(LTRIM$(STR$(absK&)), 8) + "  "
+            logStr$                 = "RELEASE k=" + LPAD$(LTRIM$(STR$(absK&)), 8) + "  "
             IF absK& > 0 AND absK& < 127 THEN
-                IF absK& >= 32 THEN
+                IF absK& > = 32 THEN
                     logStr$ = logStr$ + "chr=" + CHR$(34) + CHR$(absK&) + CHR$(34)
                 ELSE
                     logStr$ = logStr$ + "ctrl-chr (ASCII " + LTRIM$(STR$(absK&)) + ")"
                 END IF
-            ELSEIF absK& >= 256 AND absK& < 65536 THEN
+            ELSEIF absK& > = 256 AND absK& < 65536 THEN
                 logStr$ = logStr$ + "unicode U+" + HEX$(absK&)
             ELSE
                 logStr$ = logStr$ + KEYNAME$(absK&)
@@ -248,35 +248,35 @@ DO
             logStr$ = logStr$ + "]"
         END IF
 
-        logLines$(logHead&) = logStr$
+        logLines$(logHead&)   = logStr$
         logColors~&(logHead&) = logClr~&
-        logHead& = (logHead& + 1) MOD LOG_TOTAL&
+        logHead&              = (logHead& + 1) MOD LOG_TOTAL&
         IF logCount& < LOG_TOTAL& THEN logCount& = logCount& + 1
     LOOP
 
     ' ---- Poll modifier keys via _KEYDOWN ----
-    lctrl% = _KEYDOWN(KEY_LCTRL&)
-    rctrl% = _KEYDOWN(KEY_RCTRL&)
-    ctrl% = lctrl% OR rctrl%
-    lshift% = _KEYDOWN(KEY_LSHIFT&)
-    rshift% = _KEYDOWN(KEY_RSHIFT&)
-    shift% = lshift% OR rshift%
-    lalt% = _KEYDOWN(KEY_LALT&)
-    ralt% = _KEYDOWN(KEY_RALT&)
-    alt% = lalt% OR ralt%
-    capsLock% = _KEYDOWN(KEY_CAPSLOCK&)
-    numLock% = _KEYDOWN(KEY_NUMLOCK&)
+    lctrl%      = _KEYDOWN(KEY_LCTRL&)
+    rctrl%      = _KEYDOWN(KEY_RCTRL&)
+    ctrl%       = lctrl% OR rctrl%
+    lshift%     = _KEYDOWN(KEY_LSHIFT&)
+    rshift%     = _KEYDOWN(KEY_RSHIFT&)
+    shift%      = lshift% OR rshift%
+    lalt%       = _KEYDOWN(KEY_LALT&)
+    ralt%       = _KEYDOWN(KEY_RALT&)
+    alt%        = lalt% OR ralt%
+    capsLock%   = _KEYDOWN(KEY_CAPSLOCK&)
+    numLock%    = _KEYDOWN(KEY_NUMLOCK&)
     scrollLock% = _KEYDOWN(KEY_SCROLLLOCK&)
 
     ' Precompute combo states (same as DRAW's MODIFIERS_update)
-    ctrlOnly% = (ctrl% AND NOT shift% AND NOT alt%)
-    shiftOnly% = (shift% AND NOT ctrl% AND NOT alt%)
-    altOnly% = (alt% AND NOT ctrl% AND NOT shift%)
-    ctrlShift% = (ctrl% AND shift% AND NOT alt%)
-    ctrlAlt% = (ctrl% AND alt% AND NOT shift%)
-    shiftAlt% = (shift% AND alt% AND NOT ctrl%)
+    ctrlOnly%     = (ctrl% AND NOT shift% AND NOT alt%)
+    shiftOnly%    = (shift% AND NOT ctrl% AND NOT alt%)
+    altOnly%      = (alt% AND NOT ctrl% AND NOT shift%)
+    ctrlShift%    = (ctrl% AND shift% AND NOT alt%)
+    ctrlAlt%      = (ctrl% AND alt% AND NOT shift%)
+    shiftAlt%     = (shift% AND alt% AND NOT ctrl%)
     ctrlShiftAlt% = (ctrl% AND shift% AND alt%)
-    modNone% = (NOT ctrl% AND NOT shift% AND NOT alt%)
+    modNone%      = (NOT ctrl% AND NOT shift% AND NOT alt%)
 
     ' ---- Update tracked key states ----
     DIM ti AS INTEGER
@@ -288,13 +288,13 @@ DO
             trackHeldFrames&(ti%) = trackHeldFrames&(ti%) + 1
             trackLastDetected#(ti%) = TIMER(.001)
         ELSE
-            trackDown%(ti%) = FALSE
+            trackDown%(ti%)       = FALSE
             trackHeldFrames&(ti%) = 0
         END IF
     NEXT ti%
 
     ' ---- Update combo test results ----
-    DIM ci AS INTEGER
+    DIM ci  AS INTEGER
     DIM now AS DOUBLE: now# = TIMER(.001)
     FOR ci% = 0 TO comboCount% - 1
         comboActive%(ci%) = FALSE
@@ -349,9 +349,9 @@ DO
     DIM contentY AS INTEGER: contentY% = 86
 
     SELECT CASE currentPage%
-        CASE 1: SUB_drawPage1_KeyLog contentY%
-        CASE 2: SUB_drawPage2_AllKeys contentY%
-        CASE 3: SUB_drawPage3_Combos contentY%
+        CASE 1 : SUB_drawPage1_KeyLog contentY%
+        CASE 2 : SUB_drawPage2_AllKeys contentY%
+        CASE 3 : SUB_drawPage3_Combos contentY%
     END SELECT
 
     _DISPLAY
@@ -372,7 +372,7 @@ SUB SUB_drawPage1_KeyLog (startY%)
     COLOR C_DIMM~&
     _PRINTSTRING (8, startY% + 16), "Shows every _KEYHIT event with code, character, and active modifiers."
 
-    DIM y AS INTEGER: y% = startY% + 38
+    DIM y        AS INTEGER: y% = startY% + 38
     DIM visCount AS INTEGER
     IF logCount& < LOG_MAX& THEN visCount% = logCount& ELSE visCount% = LOG_MAX&
     IF visCount% = 0 THEN
@@ -383,7 +383,7 @@ SUB SUB_drawPage1_KeyLog (startY%)
 
     ' Draw from newest to oldest
     DIM idx AS LONG
-    DIM li AS INTEGER
+    DIM li  AS INTEGER
     FOR li% = 0 TO visCount% - 1
         idx& = (logHead& - 1 - li% + LOG_TOTAL&) MOD LOG_TOTAL&
         COLOR logColors~&(idx&)
@@ -407,21 +407,21 @@ SUB SUB_drawPage2_AllKeys (startY%)
     COLOR C_DIMM~&
     _PRINTSTRING (8, startY% + 16), "Green=held now, held frame count shown. Every key DRAW cares about."
 
-    DIM y AS INTEGER: y% = startY% + 40
-    DIM x AS INTEGER: x% = 8
-    DIM col AS INTEGER: col% = 0
-    DIM colW AS INTEGER: colW% = 200
-    DIM maxCols AS INTEGER: maxCols% = 5
-    DIM rowH AS INTEGER: rowH% = 16
+    DIM y       AS INTEGER : y%             = startY% + 40
+    DIM x       AS INTEGER : x%             = 8
+    DIM col     AS INTEGER : col%         = 0
+    DIM colW    AS INTEGER : colW%       = 200
+    DIM maxCols AS INTEGER : maxCols% = 5
+    DIM rowH    AS INTEGER : rowH%       = 16
 
     ' Group headers and keys
     DIM prevGroup AS STRING: prevGroup$ = ""
-    DIM gi AS INTEGER
+    DIM gi        AS INTEGER
 
     FOR gi% = 0 TO trackCount% - 1
         ' Detect group change by prefix before ":"
         DIM groupName AS STRING
-        DIM colonPos AS INTEGER: colonPos% = INSTR(trackName$(gi%), ":")
+        DIM colonPos  AS INTEGER: colonPos% = INSTR(trackName$(gi%), ":")
         IF colonPos% > 0 THEN
             groupName$ = LEFT$(trackName$(gi%), colonPos% - 1)
         ELSE
@@ -432,7 +432,7 @@ SUB SUB_drawPage2_AllKeys (startY%)
             ' New group — move to next column if not at row start
             IF y% > startY% + 40 THEN
                 col% = col% + 1
-                IF col% >= maxCols% THEN
+                IF col% > = maxCols% THEN
                     col% = 0
                     ' We'd need scrolling here but shouldn't overflow
                 END IF
@@ -485,11 +485,11 @@ SUB SUB_drawPage3_Combos (startY%)
     COLOR C_DIMM~&
     _PRINTSTRING (8, startY% + 16), "Every modifier+key combo used in DRAW. Green=active, shows last detection time."
 
-    DIM y AS INTEGER: y% = startY% + 40
-    DIM x AS INTEGER: x% = 8
-    DIM col AS INTEGER: col% = 0
-    DIM colW AS INTEGER: colW% = 340
-    DIM now AS DOUBLE: now# = TIMER(.001)
+    DIM y    AS INTEGER : y%       = startY% + 40
+    DIM x    AS INTEGER : x%       = 8
+    DIM col  AS INTEGER : col%   = 0
+    DIM colW AS INTEGER : colW% = 340
+    DIM now  AS DOUBLE  : now#    = TIMER(.001)
 
     DIM cbi AS INTEGER
     FOR cbi% = 0 TO comboCount% - 1
@@ -560,7 +560,7 @@ SUB SUB_trackInit ()
 
     ' Letters A-Z (lowercase codes — _KEYDOWN treats upper/lower same)
     DIM letter AS INTEGER
-    FOR letter% = 97 TO 122 ' a-z
+    FOR letter% = 97 TO 122          ' a-z
         addTrack "Alpha:" + CHR$(letter% - 32), letter%
     NEXT letter%
 
@@ -571,17 +571,17 @@ SUB SUB_trackInit ()
     NEXT digit%
 
     ' Symbols used in DRAW
-    addTrack "Sym:` ~", 96      ' grave/tilde
-    addTrack "Sym:- _", 45      ' minus/underscore
-    addTrack "Sym:= +", 61      ' equals/plus
-    addTrack "Sym:[ {", 91      ' left bracket
-    addTrack "Sym:] }", 93      ' right bracket
-    addTrack "Sym:\ |", 92      ' backslash/pipe
-    addTrack "Sym:; :", 59      ' semicolon/colon
-    addTrack "Sym:' " + CHR$(34), 39  ' apostrophe/quote
-    addTrack "Sym:, <", 44      ' comma/less-than
-    addTrack "Sym:. >", 46      ' period/greater-than
-    addTrack "Sym:/ ?", 47      ' slash/question
+    addTrack "Sym:` ~", 96           ' grave/tilde
+    addTrack "Sym:- _", 45           ' minus/underscore
+    addTrack "Sym:= +", 61           ' equals/plus
+    addTrack "Sym:[ {", 91           ' left bracket
+    addTrack "Sym:] }", 93           ' right bracket
+    addTrack "Sym:\ |", 92           ' backslash/pipe
+    addTrack "Sym:; :", 59           ' semicolon/colon
+    addTrack "Sym:' " + CHR$(34), 39 ' apostrophe/quote
+    addTrack "Sym:, <", 44           ' comma/less-than
+    addTrack "Sym:. >", 46           ' period/greater-than
+    addTrack "Sym:/ ?", 47           ' slash/question
 
     ' Numpad
     addTrack "KP:KP0", KP_0&
@@ -607,11 +607,11 @@ SUB addTrack (n$, code&)
     SHARED trackDown() AS INTEGER, trackHeldFrames() AS LONG
     SHARED trackLastDetected() AS DOUBLE, trackCount AS INTEGER
 
-    IF trackCount% >= TRACK_MAX& THEN EXIT SUB
-    trackName$(trackCount%) = n$
-    trackCode&(trackCount%) = code&
-    trackDown%(trackCount%) = FALSE
-    trackHeldFrames&(trackCount%) = 0
+    IF trackCount% > = TRACK_MAX& THEN EXIT SUB
+    trackName$(trackCount%)         = n$
+    trackCode&(trackCount%)         = code&
+    trackDown%(trackCount%)         = FALSE
+    trackHeldFrames&(trackCount%)   = 0
     trackLastDetected#(trackCount%) = 0
     trackCount% = trackCount% + 1
 END SUB
@@ -668,9 +668,9 @@ SUB addCombo (n$)
     SHARED comboName() AS STRING, comboActive() AS INTEGER
     SHARED comboLastDetected() AS DOUBLE, comboCount AS INTEGER
 
-    IF comboCount% >= COMBO_MAX& THEN EXIT SUB
-    comboName$(comboCount%) = n$
-    comboActive%(comboCount%) = FALSE
+    IF comboCount% > = COMBO_MAX& THEN EXIT SUB
+    comboName$(comboCount%)         = n$
+    comboActive%(comboCount%)       = FALSE
     comboLastDetected#(comboCount%) = 0
     comboCount% = comboCount% + 1
 END SUB
@@ -681,59 +681,59 @@ END SUB
 SUB SUB_comboUpdate ()
     SHARED comboActive() AS INTEGER, comboLastDetected() AS DOUBLE
     SHARED comboCount AS INTEGER
-    SHARED ctrl AS INTEGER, shift AS INTEGER, alt AS INTEGER
-    SHARED ctrlOnly AS INTEGER, ctrlShift AS INTEGER, ctrlAlt AS INTEGER
-    SHARED shiftOnly AS INTEGER, altOnly AS INTEGER
+    SHARED ctrl       AS INTEGER, shift AS INTEGER, alt AS INTEGER
+    SHARED ctrlOnly   AS INTEGER, ctrlShift AS INTEGER, ctrlAlt AS INTEGER
+    SHARED shiftOnly  AS INTEGER, altOnly AS INTEGER
 
-    DIM now AS DOUBLE: now# = TIMER(.001)
-    DIM idx AS INTEGER: idx% = 0
+    DIM now AS DOUBLE  : now#  = TIMER(.001)
+    DIM idx AS INTEGER : idx% = 0
 
     ' Ctrl combos
-    checkCombo idx%, ctrlOnly%, 122, now#  ' Ctrl+Z
-    checkCombo idx%, ctrlOnly%, 121, now#  ' Ctrl+Y
-    checkCombo idx%, ctrlOnly%, 115, now#  ' Ctrl+S
-    checkCombo idx%, ctrlOnly%, 99, now#   ' Ctrl+C
-    checkCombo idx%, ctrlOnly%, 118, now#  ' Ctrl+V
-    checkCombo idx%, ctrlOnly%, 120, now#  ' Ctrl+X
-    checkCombo idx%, ctrlOnly%, 97, now#   ' Ctrl+A
-    checkCombo idx%, ctrlOnly%, 100, now#  ' Ctrl+D
-    checkCombo idx%, ctrlOnly%, 110, now#  ' Ctrl+N
-    checkCombo idx%, ctrlOnly%, 111, now#  ' Ctrl+O
-    checkCombo idx%, ctrlOnly%, 113, now#  ' Ctrl+Q
-    checkCombo idx%, ctrlOnly%, 98, now#   ' Ctrl+B
-    checkCombo idx%, ctrlOnly%, 105, now#  ' Ctrl+I
-    checkCombo idx%, ctrlOnly%, 117, now#  ' Ctrl+U
+    checkCombo idx%, ctrlOnly%, 122, now#          ' Ctrl+Z
+    checkCombo idx%, ctrlOnly%, 121, now#          ' Ctrl+Y
+    checkCombo idx%, ctrlOnly%, 115, now#          ' Ctrl+S
+    checkCombo idx%, ctrlOnly%, 99, now#           ' Ctrl+C
+    checkCombo idx%, ctrlOnly%, 118, now#          ' Ctrl+V
+    checkCombo idx%, ctrlOnly%, 120, now#          ' Ctrl+X
+    checkCombo idx%, ctrlOnly%, 97, now#           ' Ctrl+A
+    checkCombo idx%, ctrlOnly%, 100, now#          ' Ctrl+D
+    checkCombo idx%, ctrlOnly%, 110, now#          ' Ctrl+N
+    checkCombo idx%, ctrlOnly%, 111, now#          ' Ctrl+O
+    checkCombo idx%, ctrlOnly%, 113, now#          ' Ctrl+Q
+    checkCombo idx%, ctrlOnly%, 98, now#           ' Ctrl+B
+    checkCombo idx%, ctrlOnly%, 105, now#          ' Ctrl+I
+    checkCombo idx%, ctrlOnly%, 117, now#          ' Ctrl+U
 
     ' Ctrl+Shift combos
-    checkCombo idx%, ctrlShift%, 115, now#  ' Ctrl+Shift+S
-    checkCombo idx%, ctrlShift%, 122, now#  ' Ctrl+Shift+Z
-    checkCombo idx%, ctrlShift%, 101, now#  ' Ctrl+Shift+E
+    checkCombo idx%, ctrlShift%, 115, now#         ' Ctrl+Shift+S
+    checkCombo idx%, ctrlShift%, 122, now#         ' Ctrl+Shift+Z
+    checkCombo idx%, ctrlShift%, 101, now#         ' Ctrl+Shift+E
 
     ' Alt combos
-    checkCombo idx%, altOnly%, 102, now#    ' Alt+F
-    checkCombo idx%, altOnly%, 101, now#    ' Alt+E
-    checkCombo idx%, altOnly%, 118, now#    ' Alt+V
-    checkCombo idx%, altOnly%, 116, now#    ' Alt+T
-    checkCombo idx%, altOnly%, 108, now#    ' Alt+L
-    checkCombo idx%, altOnly%, 104, now#    ' Alt+H
+    checkCombo idx%, altOnly%, 102, now#           ' Alt+F
+    checkCombo idx%, altOnly%, 101, now#           ' Alt+E
+    checkCombo idx%, altOnly%, 118, now#           ' Alt+V
+    checkCombo idx%, altOnly%, 116, now#           ' Alt+T
+    checkCombo idx%, altOnly%, 108, now#           ' Alt+L
+    checkCombo idx%, altOnly%, 104, now#           ' Alt+H
 
     ' Ctrl+Alt combos
-    checkCombo idx%, ctrlAlt%, KEY_PGUP&, now# ' Ctrl+Alt+PgUp
-    checkCombo idx%, ctrlAlt%, KEY_PGDN&, now# ' Ctrl+Alt+PgDn
-    checkCombo idx%, ctrlAlt%, 46, now#         ' Ctrl+Alt+.
-    checkCombo idx%, ctrlAlt%, 44, now#         ' Ctrl+Alt+,
-    checkCombo idx%, ctrlAlt%, 47, now#         ' Ctrl+Alt+/
+    checkCombo idx%, ctrlAlt%, KEY_PGUP&, now#     ' Ctrl+Alt+PgUp
+    checkCombo idx%, ctrlAlt%, KEY_PGDN&, now#     ' Ctrl+Alt+PgDn
+    checkCombo idx%, ctrlAlt%, 46, now#            ' Ctrl+Alt+.
+    checkCombo idx%, ctrlAlt%, 44, now#            ' Ctrl+Alt+,
+    checkCombo idx%, ctrlAlt%, 47, now#            ' Ctrl+Alt+/
 
     ' Shift combos
-    checkCombo idx%, shiftOnly%, KEY_F5&, now#      ' Shift+F5
-    checkCombo idx%, shiftOnly%, KEY_DELETE&, now#   ' Shift+Del
+    checkCombo idx%, shiftOnly%, KEY_F5&, now#     ' Shift+F5
+    checkCombo idx%, shiftOnly%, KEY_DELETE&, now# ' Shift+Del
 END SUB
 
 SUB checkCombo (idx%, modState%, keyCode&, now#)
     SHARED comboActive() AS INTEGER, comboLastDetected() AS DOUBLE
 
     IF modState% AND _KEYDOWN(keyCode&) THEN
-        comboActive%(idx%) = TRUE
+        comboActive%(idx%)       = TRUE
         comboLastDetected#(idx%) = now#
     END IF
     idx% = idx% + 1
@@ -761,54 +761,54 @@ END SUB
 ' =============================================================================
 FUNCTION KEYNAME$ (code&)
     SELECT CASE code&
-        CASE KEY_F1&: KEYNAME$ = "F1"
-        CASE KEY_F2&: KEYNAME$ = "F2"
-        CASE KEY_F3&: KEYNAME$ = "F3"
-        CASE KEY_F4&: KEYNAME$ = "F4"
-        CASE KEY_F5&: KEYNAME$ = "F5"
-        CASE KEY_F6&: KEYNAME$ = "F6"
-        CASE KEY_F7&: KEYNAME$ = "F7"
-        CASE KEY_F8&: KEYNAME$ = "F8"
-        CASE KEY_F9&: KEYNAME$ = "F9"
-        CASE KEY_F10&: KEYNAME$ = "F10"
-        CASE KEY_F11&: KEYNAME$ = "F11"
-        CASE KEY_F12&: KEYNAME$ = "F12"
-        CASE KEY_UP&: KEYNAME$ = "Up"
-        CASE KEY_DOWN&: KEYNAME$ = "Down"
-        CASE KEY_LEFT&: KEYNAME$ = "Left"
-        CASE KEY_RIGHT&: KEYNAME$ = "Right"
-        CASE KEY_PGUP&: KEYNAME$ = "PgUp"
-        CASE KEY_PGDN&: KEYNAME$ = "PgDn"
-        CASE KEY_HOME&: KEYNAME$ = "Home"
-        CASE KEY_ENDK&: KEYNAME$ = "End"
-        CASE KEY_INSERT&: KEYNAME$ = "Insert"
-        CASE KEY_DELETE&: KEYNAME$ = "Delete"
-        CASE KEY_LSHIFT&: KEYNAME$ = "LShift"
-        CASE KEY_RSHIFT&: KEYNAME$ = "RShift"
-        CASE KEY_LCTRL&: KEYNAME$ = "LCtrl"
-        CASE KEY_RCTRL&: KEYNAME$ = "RCtrl"
-        CASE KEY_LALT&: KEYNAME$ = "LAlt"
-        CASE KEY_RALT&: KEYNAME$ = "RAlt"
-        CASE KEY_CAPSLOCK&: KEYNAME$ = "CapsLock"
-        CASE KEY_NUMLOCK&: KEYNAME$ = "NumLock"
-        CASE KEY_SCROLLLOCK&: KEYNAME$ = "ScrollLock"
-        CASE KP_0&: KEYNAME$ = "KP_0"
-        CASE KP_1&: KEYNAME$ = "KP_1"
-        CASE KP_2&: KEYNAME$ = "KP_2"
-        CASE KP_3&: KEYNAME$ = "KP_3"
-        CASE KP_4&: KEYNAME$ = "KP_4"
-        CASE KP_5&: KEYNAME$ = "KP_5"
-        CASE KP_6&: KEYNAME$ = "KP_6"
-        CASE KP_7&: KEYNAME$ = "KP_7"
-        CASE KP_8&: KEYNAME$ = "KP_8"
-        CASE KP_9&: KEYNAME$ = "KP_9"
-        CASE KP_PERIOD&: KEYNAME$ = "KP_."
-        CASE KP_DIVIDE&: KEYNAME$ = "KP_/"
-        CASE KP_MULTIPLY&: KEYNAME$ = "KP_*"
-        CASE KP_MINUS&: KEYNAME$ = "KP_-"
-        CASE KP_PLUS&: KEYNAME$ = "KP_+"
-        CASE KP_ENTER&: KEYNAME$ = "KP_Enter"
-        CASE ELSE: KEYNAME$ = "ext:" + LTRIM$(STR$(code&))
+        CASE KEY_F1&         : KEYNAME$         = "F1"
+        CASE KEY_F2&         : KEYNAME$         = "F2"
+        CASE KEY_F3&         : KEYNAME$         = "F3"
+        CASE KEY_F4&         : KEYNAME$         = "F4"
+        CASE KEY_F5&         : KEYNAME$         = "F5"
+        CASE KEY_F6&         : KEYNAME$         = "F6"
+        CASE KEY_F7&         : KEYNAME$         = "F7"
+        CASE KEY_F8&         : KEYNAME$         = "F8"
+        CASE KEY_F9&         : KEYNAME$         = "F9"
+        CASE KEY_F10&        : KEYNAME$        = "F10"
+        CASE KEY_F11&        : KEYNAME$        = "F11"
+        CASE KEY_F12&        : KEYNAME$        = "F12"
+        CASE KEY_UP&         : KEYNAME$         = "Up"
+        CASE KEY_DOWN&       : KEYNAME$       = "Down"
+        CASE KEY_LEFT&       : KEYNAME$       = "Left"
+        CASE KEY_RIGHT&      : KEYNAME$      = "Right"
+        CASE KEY_PGUP&       : KEYNAME$       = "PgUp"
+        CASE KEY_PGDN&       : KEYNAME$       = "PgDn"
+        CASE KEY_HOME&       : KEYNAME$       = "Home"
+        CASE KEY_ENDK&       : KEYNAME$       = "End"
+        CASE KEY_INSERT&     : KEYNAME$     = "Insert"
+        CASE KEY_DELETE&     : KEYNAME$     = "Delete"
+        CASE KEY_LSHIFT&     : KEYNAME$     = "LShift"
+        CASE KEY_RSHIFT&     : KEYNAME$     = "RShift"
+        CASE KEY_LCTRL&      : KEYNAME$      = "LCtrl"
+        CASE KEY_RCTRL&      : KEYNAME$      = "RCtrl"
+        CASE KEY_LALT&       : KEYNAME$       = "LAlt"
+        CASE KEY_RALT&       : KEYNAME$       = "RAlt"
+        CASE KEY_CAPSLOCK&   : KEYNAME$   = "CapsLock"
+        CASE KEY_NUMLOCK&    : KEYNAME$    = "NumLock"
+        CASE KEY_SCROLLLOCK& : KEYNAME$ = "ScrollLock"
+        CASE KP_0&           : KEYNAME$           = "KP_0"
+        CASE KP_1&           : KEYNAME$           = "KP_1"
+        CASE KP_2&           : KEYNAME$           = "KP_2"
+        CASE KP_3&           : KEYNAME$           = "KP_3"
+        CASE KP_4&           : KEYNAME$           = "KP_4"
+        CASE KP_5&           : KEYNAME$           = "KP_5"
+        CASE KP_6&           : KEYNAME$           = "KP_6"
+        CASE KP_7&           : KEYNAME$           = "KP_7"
+        CASE KP_8&           : KEYNAME$           = "KP_8"
+        CASE KP_9&           : KEYNAME$           = "KP_9"
+        CASE KP_PERIOD&      : KEYNAME$      = "KP_."
+        CASE KP_DIVIDE&      : KEYNAME$      = "KP_/"
+        CASE KP_MULTIPLY&    : KEYNAME$    = "KP_*"
+        CASE KP_MINUS&       : KEYNAME$       = "KP_-"
+        CASE KP_PLUS&        : KEYNAME$        = "KP_+"
+        CASE KP_ENTER&       : KEYNAME$       = "KP_Enter"
+        CASE ELSE            : KEYNAME$            = "ext:" + LTRIM$(STR$(code&))
     END SELECT
 END FUNCTION
 
@@ -816,7 +816,7 @@ END FUNCTION
 ' Utility: left-pad string
 ' =============================================================================
 FUNCTION LPAD$ (s$, width%)
-    IF LEN(s$) >= width% THEN
+    IF LEN(s$) > = width% THEN
         LPAD$ = s$
     ELSE
         LPAD$ = SPACE$(width% - LEN(s$)) + s$

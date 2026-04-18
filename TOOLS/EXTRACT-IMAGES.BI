@@ -22,24 +22,24 @@ CONST EXTRACT_NAME_LAYER_NAME = 1
 
 ' Configuration for extraction dialog result
 TYPE EXTRACT_CONFIG_OBJ
-    bgMode         AS INTEGER     ' EXTRACT_BG_* constant
-    destDir        AS STRING      ' Output directory path
-    baseFilename   AS STRING      ' Base filename prefix (e.g. "Image-")
-    namingMethod   AS INTEGER     ' EXTRACT_NAME_* constant
-    startNumber    AS INTEGER     ' Starting number for sequential naming (0-999)
-    appendDims     AS INTEGER     ' TRUE = append WxH@XxY to filename
-    mergeLayers    AS INTEGER     ' TRUE = merge all visible layers before extraction
-    cancelled      AS INTEGER     ' TRUE = user cancelled dialog
+    bgMode       AS INTEGER ' EXTRACT_BG_* constant
+    destDir      AS STRING  ' Output directory path
+    baseFilename AS STRING  ' Base filename prefix (e.g. "Image-")
+    namingMethod AS INTEGER ' EXTRACT_NAME_* constant
+    startNumber  AS INTEGER ' Starting number for sequential naming (0-999)
+    appendDims   AS INTEGER ' TRUE = append WxH@XxY to filename
+    mergeLayers  AS INTEGER ' TRUE = merge all visible layers before extraction
+    cancelled    AS INTEGER ' TRUE = user cancelled dialog
 END TYPE
 
 ' Per-component bounding box result
 TYPE EXTRACT_COMPONENT_OBJ
-    minX AS INTEGER
-    minY AS INTEGER
-    maxX AS INTEGER
-    maxY AS INTEGER
+    minX       AS INTEGER
+    minY       AS INTEGER
+    maxX       AS INTEGER
+    maxY       AS INTEGER
     pixelCount AS LONG
-    origIndex AS INTEGER   ' original label index before filter compaction
+    origIndex  AS INTEGER ' original label index before filter compaction
 END TYPE
 
 ' Maximum components (INTEGER label limit)
@@ -55,11 +55,11 @@ REDIM SHARED EXTRACT_COMPS(0) AS EXTRACT_COMPONENT_OBJ
 REDIM SHARED EXTRACT_LABELS(0, 0) AS INTEGER
 
 ' Per-layer mode state
-DIM SHARED EXTRACT_MERGED_MODE AS INTEGER    ' TRUE = merged flatten, FALSE = per-layer raw
-DIM SHARED EXTRACT_FLOOD_FILL_MODE AS INTEGER ' TRUE = connected-component flood fill used
+DIM SHARED EXTRACT_MERGED_MODE     AS INTEGER     ' TRUE  = merged flatten, FALSE = per-layer raw
+DIM SHARED EXTRACT_FLOOD_FILL_MODE AS INTEGER     ' TRUE = connected-component flood fill used
 REDIM SHARED EXTRACT_LAYER_NAMES(0) AS STRING
-REDIM SHARED EXTRACT_SRC_IMGS(0) AS LONG      ' Per-component source image handle
-REDIM SHARED EXTRACT_BLEND_MODES(0) AS INTEGER ' Per-component blend mode
+REDIM SHARED EXTRACT_SRC_IMGS(0) AS LONG          ' Per-component source image handle
+REDIM SHARED EXTRACT_BLEND_MODES(0) AS INTEGER    ' Per-component blend mode
 
 ' Declarations
 DECLARE SUB EXTRACT_IMAGES_dialog ()
@@ -70,14 +70,14 @@ DECLARE SUB EXTRACT_open_folder (folderPath AS STRING)
 DECLARE SUB EXTRACT_reset_saved_config ()
 
 ' Persisted extract config — saved in DRW file, survives dialog re-open
-DIM SHARED EXTRACT_HAS_CONFIG AS INTEGER  ' TRUE if config has been stored
-DIM SHARED EXTRACT_SAVED_BG_MODE AS INTEGER
+DIM SHARED EXTRACT_HAS_CONFIG          AS INTEGER ' TRUE if config has been stored
+DIM SHARED EXTRACT_SAVED_BG_MODE       AS INTEGER
 DIM SHARED EXTRACT_SAVED_BASE_FILENAME AS STRING
 DIM SHARED EXTRACT_SAVED_NAMING_METHOD AS INTEGER
-DIM SHARED EXTRACT_SAVED_START_NUMBER AS INTEGER
-DIM SHARED EXTRACT_SAVED_APPEND_DIMS AS INTEGER
-DIM SHARED EXTRACT_SAVED_MERGE_LAYERS AS INTEGER
-DIM SHARED EXTRACT_SAVED_DEST_DIR AS STRING
-DIM SHARED EXTRACT_SAVED_MIN_WIDTH AS INTEGER
-DIM SHARED EXTRACT_SAVED_MIN_HEIGHT AS INTEGER
+DIM SHARED EXTRACT_SAVED_START_NUMBER  AS INTEGER
+DIM SHARED EXTRACT_SAVED_APPEND_DIMS   AS INTEGER
+DIM SHARED EXTRACT_SAVED_MERGE_LAYERS  AS INTEGER
+DIM SHARED EXTRACT_SAVED_DEST_DIR      AS STRING
+DIM SHARED EXTRACT_SAVED_MIN_WIDTH     AS INTEGER
+DIM SHARED EXTRACT_SAVED_MIN_HEIGHT    AS INTEGER
 EXTRACT_reset_saved_config

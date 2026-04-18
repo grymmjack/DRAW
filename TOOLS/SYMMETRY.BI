@@ -27,15 +27,15 @@ TYPE SYMMETRY_TYPE
 END TYPE
 
 DIM SHARED SYMMETRY AS SYMMETRY_TYPE
-SYMMETRY.MODE = 0
-SYMMETRY.CENTER_X% = 0  ' Set properly by SYMMETRY_init() to canvas center X
-SYMMETRY.CENTER_Y% = 0  ' Set properly by SYMMETRY_init() to canvas center Y
-SYMMETRY.imgHandle& = 0
-SYMMETRY.imgWidth% = 0
-SYMMETRY.imgHeight% = 0
-SYMMETRY.DIRTY% = FALSE
-SYMMETRY.CENTER_SET% = FALSE
-SYMMETRY.guideColor~& = 0
+SYMMETRY.MODE          = 0
+SYMMETRY.CENTER_X%     = 0 ' Set properly by SYMMETRY_init() to canvas center X
+SYMMETRY.CENTER_Y%     = 0 ' Set properly by SYMMETRY_init() to canvas center Y
+SYMMETRY.imgHandle&    = 0
+SYMMETRY.imgWidth%     = 0
+SYMMETRY.imgHeight%    = 0
+SYMMETRY.DIRTY%        = FALSE
+SYMMETRY.CENTER_SET%   = FALSE
+SYMMETRY.guideColor~&  = 0
 SYMMETRY.centerColor~& = 0
 
 DECLARE SUB SYMMETRY_init ()

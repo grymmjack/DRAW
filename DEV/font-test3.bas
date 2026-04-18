@@ -16,7 +16,7 @@ OPTION _EXPLICIT
 OPTION _EXPLICITARRAY
 '$DYNAMIC
 
-CONST FP$ = "../ASSETS/FONTS/dp-tuxedo.ttf"
+CONST FP$       = "../ASSETS/FONTS/dp-tuxedo.ttf"
 CONST TEST_STR$ = "ABCDEFGHIJKLM"
 
 SCREEN _NEWIMAGE(1280, 900, 32)
@@ -24,15 +24,15 @@ _TITLE "Font Clipping Workaround: _PRINTSTRING (left) vs _UPRINTSTRING (right)"
 CLS , _RGB32(32, 32, 32)
 
 DIM sizes(0 TO 7) AS INTEGER
-sizes(0) = 12: sizes(1) = 16: sizes(2) = 20: sizes(3) = 24 
-sizes(4) = 28: sizes(5) = 32: sizes(6) = 48: sizes(7) = 64
+sizes(0) = 12 : sizes(1) = 16 : sizes(2) = 20 : sizes(3) = 24 
+sizes(4) = 28 : sizes(5) = 32 : sizes(6) = 48 : sizes(7) = 64
 
-DIM y AS INTEGER
-DIM i AS INTEGER
-DIM sz AS INTEGER
-DIM fh AS LONG
-DIM oldH AS INTEGER
-DIM newH AS INTEGER
+DIM y     AS INTEGER
+DIM i     AS INTEGER
+DIM sz    AS INTEGER
+DIM fh    AS LONG
+DIM oldH  AS INTEGER
+DIM newH  AS INTEGER
 DIM label AS STRING
 
 ' Column headers
@@ -50,7 +50,7 @@ FOR i% = 0 TO 7
     sz% = sizes(i%)
 
     fh& = _LOADFONT(FP$, sz%, "DONTBLEND")
-    IF fh& <= 0 THEN
+    IF fh& < = 0 THEN
         _FONT 16
         COLOR _RGB32(255, 80, 80), _RGB32(32, 32, 32)
         _PRINTSTRING (20, y%), "SIZE " + LTRIM$(STR$(sz%)) + ": FAILED"
@@ -79,8 +79,8 @@ FOR i% = 0 TO 7
     _UPRINTSTRING (660, y%), TEST_STR$
 
     ' Draw reference lines showing the ppem boundary
-    LINE (20, y% + oldH%)-(620, y% + oldH%), _RGB32(255, 60, 60)     ' red = ppem height
-    LINE (660, y% + newH%)-(1260, y% + newH%), _RGB32(60, 255, 60)   ' green = true height
+    LINE (20, y% + oldH%)-(620, y% + oldH%), _RGB32(255, 60, 60)   ' red   = ppem height
+    LINE (660, y% + newH%)-(1260, y% + newH%), _RGB32(60, 255, 60) ' green = true height
 
     ' Advance Y by the larger height + padding
     DIM advY AS INTEGER

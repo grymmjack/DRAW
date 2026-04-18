@@ -2,15 +2,15 @@ OPTION _EXPLICIT
 ' Test: check what QB64-PE actually renders for Apple ][ font
 ' at various sizes. Saves screenshots for analysis.
 
-DIM img AS LONG
-DIM fh AS LONG
+DIM img      AS LONG
+DIM fh       AS LONG
 DIM testSize AS INTEGER
-DIM y AS INTEGER
-DIM ch AS STRING
-DIM pw AS INTEGER, fHeight AS INTEGER
-DIM scanX AS INTEGER, scanY AS INTEGER
-DIM c AS _UNSIGNED LONG
-DIM minY AS INTEGER, maxY AS INTEGER, minX AS INTEGER, maxX AS INTEGER
+DIM y        AS INTEGER
+DIM ch       AS STRING
+DIM pw       AS INTEGER, fHeight AS INTEGER
+DIM scanX    AS INTEGER, scanY AS INTEGER
+DIM c        AS _UNSIGNED LONG
+DIM minY     AS INTEGER, maxY AS INTEGER, minX AS INTEGER, maxX AS INTEGER
 
 img& = _NEWIMAGE(800, 600, 32)
 SCREEN img&
@@ -28,8 +28,8 @@ sizes(0) = 8: sizes(1) = 12: sizes(2) = 16
 DIM si AS INTEGER
 FOR si% = 0 TO 2
     testSize% = sizes(si%)
-    fh& = _LOADFONT("ASSETS/FONTS/Apple ][.ttf", testSize%, "MONOSPACE")
-    IF fh& <= 0 THEN
+    fh&       = _LOADFONT("ASSETS/FONTS/Apple ][.ttf", testSize%, "MONOSPACE")
+    IF fh& < = 0 THEN
         COLOR _RGB32(255, 0, 0)
         _PRINTSTRING (10, y%), "FAILED to load at size" + STR$(testSize%)
         y% = y% + 16
@@ -38,7 +38,7 @@ FOR si% = 0 TO 2
 
     _FONT fh&
     fHeight% = _FONTHEIGHT
-    pw% = _PRINTWIDTH("M")
+    pw%      = _PRINTWIDTH("M")
 
     COLOR _RGB32(255, 255, 255)
     _FONT 16 ' Switch back to default for label
@@ -46,11 +46,11 @@ FOR si% = 0 TO 2
     y% = y% + 16
 
     ' Render test string into a large buffer and scan for ink bounds
-    DIM bufW AS INTEGER, bufH AS INTEGER
+    DIM bufW   AS INTEGER, bufH AS INTEGER
     bufW% = 400: bufH% = testSize% * 4
-    DIM buf AS LONG
-    buf& = _NEWIMAGE(bufW%, bufH%, 32)
-    DIM oldD AS LONG: oldD& = _DEST
+    DIM buf    AS LONG
+    buf&                    = _NEWIMAGE(bufW%, bufH%, 32)
+    DIM oldD   AS LONG: oldD& = _DEST
     _DEST buf&
     CLS , _RGBA32(0, 0, 0, 0)
     _DONTBLEND
@@ -66,8 +66,8 @@ FOR si% = 0 TO 2
     _DEST oldD&
 
     ' Scan for actual ink bounds
-    minY% = bufH%: maxY% = -1: minX% = bufW%: maxX% = -1
-    DIM oldSrc AS LONG: oldSrc& = _SOURCE
+    minY%                       = bufH% : maxY% = -1 : minX% = bufW% : maxX% = -1
+    DIM oldSrc AS LONG                  : oldSrc& = _SOURCE
     _SOURCE buf&
     FOR scanY% = 0 TO bufH% - 1
         FOR scanX% = 0 TO bufW% - 1

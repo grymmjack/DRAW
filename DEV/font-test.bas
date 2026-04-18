@@ -17,15 +17,15 @@ OPTION _EXPLICITARRAY
 
 CONST FONT_PATH_1$ = "../ASSETS/FONTS/dp-tuxedo.ttf"
 CONST FONT_PATH_2$ = "../ASSETS/FONTS/MIXELATE.TTF"
-CONST FONT_SIZE% = 16
-CONST GRID_COLS% = 16
-CONST GRID_ROWS% = 16
-CONST CELL_PAD% = 1
-CONST BG_COLOR~& = _RGB32(32, 32, 32)
-CONST GRID_BG~& = _RGB32(48, 48, 48)
-CONST CELL_BG~& = _RGB32(24, 24, 24)
-CONST LABEL_FG~& = _RGB32(200, 200, 200)
-CONST GLYPH_FG~& = _RGB32(255, 255, 255)
+CONST FONT_SIZE%   = 16
+CONST GRID_COLS%   = 16
+CONST GRID_ROWS%   = 16
+CONST CELL_PAD%    = 1
+CONST BG_COLOR~&   = _RGB32(32, 32, 32)
+CONST GRID_BG~&    = _RGB32(48, 48, 48)
+CONST CELL_BG~&    = _RGB32(24, 24, 24)
+CONST LABEL_FG~&   = _RGB32(200, 200, 200)
+CONST GLYPH_FG~&   = _RGB32(255, 255, 255)
 CONST INK_BOX_FG~& = _RGB32(255, 80, 80)
 
 ' Window layout: 3 grids per font, 2 fonts = 6 grids total
@@ -33,33 +33,33 @@ CONST INK_BOX_FG~& = _RGB32(255, 80, 80)
 '   Row 1: Font1-RAW, Font1-CROP, Font1-MONO
 '   Row 2: Font2-RAW, Font2-CROP, Font2-MONO
 
-DIM SHARED cellW AS INTEGER
-DIM SHARED cellH AS INTEGER
-DIM SHARED gridW AS INTEGER
-DIM SHARED gridH AS INTEGER
+DIM SHARED cellW  AS INTEGER
+DIM SHARED cellH  AS INTEGER
+DIM SHARED gridW  AS INTEGER
+DIM SHARED gridH  AS INTEGER
 DIM SHARED labelH AS INTEGER
 
 labelH% = 20
 
 ' Load fonts to measure cell size
-DIM fh1 AS LONG, fh1m AS LONG
-DIM fh2 AS LONG, fh2m AS LONG
+DIM fh1    AS LONG, fh1m AS LONG
+DIM fh2    AS LONG, fh2m AS LONG
 DIM tmpImg AS LONG
 
 ' Load regular (DONTBLEND = non-antialised)
 fh1& = _LOADFONT(FONT_PATH_1$, FONT_SIZE%, "DONTBLEND")
-IF fh1& <= 0 THEN PRINT "ERROR: Cannot load " + FONT_PATH_1$: SYSTEM
+IF fh1& < = 0 THEN PRINT "ERROR: Cannot load " + FONT_PATH_1$: SYSTEM
 fh1m& = _LOADFONT(FONT_PATH_1$, FONT_SIZE%, "DONTBLEND, MONOSPACE")
-IF fh1m& <= 0 THEN PRINT "ERROR: Cannot load " + FONT_PATH_1$ + " MONO": SYSTEM
+IF fh1m& < = 0 THEN PRINT "ERROR: Cannot load " + FONT_PATH_1$ + " MONO": SYSTEM
 
 fh2& = _LOADFONT(FONT_PATH_2$, FONT_SIZE%, "DONTBLEND")
-IF fh2& <= 0 THEN PRINT "ERROR: Cannot load " + FONT_PATH_2$: SYSTEM
+IF fh2& < = 0 THEN PRINT "ERROR: Cannot load " + FONT_PATH_2$: SYSTEM
 fh2m& = _LOADFONT(FONT_PATH_2$, FONT_SIZE%, "DONTBLEND, MONOSPACE")
-IF fh2m& <= 0 THEN PRINT "ERROR: Cannot load " + FONT_PATH_2$ + " MONO": SYSTEM
+IF fh2m& < = 0 THEN PRINT "ERROR: Cannot load " + FONT_PATH_2$ + " MONO": SYSTEM
 
 ' Measure max cell from both fonts
 DIM maxCW AS INTEGER, maxCH AS INTEGER
-maxCW% = 0: maxCH% = 0
+maxCW%  = 0: maxCH% = 0
 tmpImg& = _NEWIMAGE(1, 1, 32)
 _DEST tmpImg&
 
@@ -210,10 +210,10 @@ END SUB
 ' mode% = 1: CROP (ink-scan bounding box)
 '
 SUB DrawGrid (gx AS INTEGER, gy AS INTEGER, fHandle AS LONG, mode AS INTEGER)
-    DIM i AS INTEGER
+    DIM i   AS INTEGER
     DIM col AS INTEGER, row AS INTEGER
-    DIM cx AS INTEGER, cy AS INTEGER
-    DIM ch AS STRING
+    DIM cx  AS INTEGER, cy AS INTEGER
+    DIM ch  AS STRING
 
     ' Grid background
     LINE (gx%, gy%)-(gx% + gridW% - 1, gy% + gridH% - 1), GRID_BG~&, BF
@@ -221,8 +221,8 @@ SUB DrawGrid (gx AS INTEGER, gy AS INTEGER, fHandle AS LONG, mode AS INTEGER)
     FOR i% = 0 TO 255
         col% = i% MOD GRID_COLS%
         row% = i% \ GRID_COLS%
-        cx% = gx% + CELL_PAD% + col% * (cellW% + CELL_PAD%)
-        cy% = gy% + CELL_PAD% + row% * (cellH% + CELL_PAD%)
+        cx%  = gx% + CELL_PAD% + col% * (cellW% + CELL_PAD%)
+        cy%  = gy% + CELL_PAD% + row% * (cellH% + CELL_PAD%)
 
         ' Cell background
         LINE (cx%, cy%)-(cx% + cellW% - 1, cy% + cellH% - 1), CELL_BG~&, BF
@@ -248,14 +248,14 @@ END SUB
 ' RAW render: _PRINTSTRING directly at cell position, clipped to cell bounds
 '
 SUB DrawGlyph_Raw (cx AS INTEGER, cy AS INTEGER, ch AS STRING, fHandle AS LONG)
-    DIM tmpImg AS LONG
-    DIM charW AS INTEGER, charH AS INTEGER
+    DIM tmpImg  AS LONG
+    DIM charW   AS INTEGER, charH AS INTEGER
     DIM oldDest AS LONG, prevFont AS LONG
-    DIM drawX AS INTEGER, drawY AS INTEGER
+    DIM drawX   AS INTEGER, drawY AS INTEGER
 
     ' Measure
     tmpImg& = _NEWIMAGE(1, 1, 32)
-    IF tmpImg& >= -1 THEN EXIT SUB
+    IF tmpImg& > = -1 THEN EXIT SUB
     oldDest& = _DEST
     _DEST tmpImg&
     prevFont& = _FONT
@@ -272,7 +272,7 @@ SUB DrawGlyph_Raw (cx AS INTEGER, cy AS INTEGER, ch AS STRING, fHandle AS LONG)
 
     ' Render into temp image at exact size
     tmpImg& = _NEWIMAGE(charW%, charH%, 32)
-    IF tmpImg& >= -1 THEN EXIT SUB
+    IF tmpImg& > = -1 THEN EXIT SUB
     oldDest& = _DEST
     _DEST tmpImg&
     CLS , _RGBA32(0, 0, 0, 0)
@@ -298,21 +298,21 @@ END SUB
 ' (Matches DRAW's CHARMAP_rebuild_cache approach)
 '
 SUB DrawGlyph_Crop (cx AS INTEGER, cy AS INTEGER, ch AS STRING, fHandle AS LONG)
-    DIM tmpImg AS LONG, renderImg AS LONG
-    DIM charW AS INTEGER, charH AS INTEGER
+    DIM tmpImg  AS LONG, renderImg AS LONG
+    DIM charW   AS INTEGER, charH AS INTEGER
     DIM oldDest AS LONG, prevFont AS LONG
-    DIM padH AS INTEGER
+    DIM padH    AS INTEGER
     DIM inkMinX AS INTEGER, inkMinY AS INTEGER
     DIM inkMaxX AS INTEGER, inkMaxY AS INTEGER
-    DIM scanX AS INTEGER, scanY AS INTEGER
-    DIM scanC AS _UNSIGNED LONG
-    DIM inkW AS INTEGER, inkH AS INTEGER
-    DIM drawX AS INTEGER, drawY AS INTEGER
-    DIM oldSrc AS LONG
+    DIM scanX   AS INTEGER, scanY AS INTEGER
+    DIM scanC   AS _UNSIGNED LONG
+    DIM inkW    AS INTEGER, inkH AS INTEGER
+    DIM drawX   AS INTEGER, drawY AS INTEGER
+    DIM oldSrc  AS LONG
 
     ' Measure
     tmpImg& = _NEWIMAGE(1, 1, 32)
-    IF tmpImg& >= -1 THEN EXIT SUB
+    IF tmpImg& > = -1 THEN EXIT SUB
     oldDest& = _DEST
     _DEST tmpImg&
     prevFont& = _FONT
@@ -328,9 +328,9 @@ SUB DrawGlyph_Crop (cx AS INTEGER, cy AS INTEGER, ch AS STRING, fHandle AS LONG)
     IF charW% < 1 OR charH% < 1 THEN EXIT SUB
 
     ' Render into padded buffer
-    padH% = 4
+    padH%      = 4
     renderImg& = _NEWIMAGE(charW% + 4, charH% + padH%, 32)
-    IF renderImg& >= -1 THEN EXIT SUB
+    IF renderImg& > = -1 THEN EXIT SUB
     oldDest& = _DEST
     _DEST renderImg&
     CLS , _RGBA32(0, 0, 0, 0)
@@ -348,7 +348,7 @@ SUB DrawGlyph_Crop (cx AS INTEGER, cy AS INTEGER, ch AS STRING, fHandle AS LONG)
     inkMinY% = _HEIGHT(renderImg&)
     inkMaxX% = -1
     inkMaxY% = -1
-    oldSrc& = _SOURCE
+    oldSrc&  = _SOURCE
     _SOURCE renderImg&
     FOR scanY% = 0 TO _HEIGHT(renderImg&) - 1
         FOR scanX% = 0 TO _WIDTH(renderImg&) - 1
@@ -376,7 +376,7 @@ SUB DrawGlyph_Crop (cx AS INTEGER, cy AS INTEGER, ch AS STRING, fHandle AS LONG)
     IF inkH% < 1 THEN inkH% = 1
 
     tmpImg& = _NEWIMAGE(inkW%, inkH%, 32)
-    IF tmpImg& >= -1 THEN
+    IF tmpImg& > = -1 THEN
         _FREEIMAGE renderImg&
         EXIT SUB
     END IF

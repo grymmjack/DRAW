@@ -10,21 +10,21 @@ _FONT 16
 OPEN "test-font-render.txt" FOR OUTPUT AS #1
 
 DIM testSize AS INTEGER
-DIM fhAA AS LONG, fhDB AS LONG
-DIM pw AS INTEGER, fHeight AS INTEGER
-DIM buf AS LONG, bufW AS INTEGER, bufH AS INTEGER
-DIM scanX AS INTEGER, scanY AS INTEGER
-DIM c AS _UNSIGNED LONG
-DIM minY AS INTEGER, maxY AS INTEGER
-DIM printY AS INTEGER
-DIM oldD AS LONG, oldS AS LONG
-DIM si AS INTEGER
+DIM fhAA     AS LONG, fhDB AS LONG
+DIM pw       AS INTEGER, fHeight AS INTEGER
+DIM buf      AS LONG, bufW AS INTEGER, bufH AS INTEGER
+DIM scanX    AS INTEGER, scanY AS INTEGER
+DIM c        AS _UNSIGNED LONG
+DIM minY     AS INTEGER, maxY AS INTEGER
+DIM printY   AS INTEGER
+DIM oldD     AS LONG, oldS AS LONG
+DIM si       AS INTEGER
 DIM sizes(3) AS INTEGER
 sizes(0) = 8: sizes(1) = 9: sizes(2) = 12: sizes(3) = 16
 
-DIM mode AS INTEGER
+DIM mode      AS INTEGER
 DIM modeLabel AS STRING
-DIM fh AS LONG
+DIM fh        AS LONG
 
 FOR si% = 0 TO 3
     testSize% = sizes(si%)
@@ -32,19 +32,19 @@ FOR si% = 0 TO 3
     FOR mode% = 0 TO 1
         IF mode% = 0 THEN
             modeLabel$ = "AA (normal)"
-            fh& = _LOADFONT("../ASSETS/FONTS/Apple ][.ttf", testSize%, "MONOSPACE")
+            fh&        = _LOADFONT("../ASSETS/FONTS/Apple ][.ttf", testSize%, "MONOSPACE")
         ELSE
             modeLabel$ = "DONTBLEND"
-            fh& = _LOADFONT("../ASSETS/FONTS/Apple ][.ttf", testSize%, "DONTBLEND, MONOSPACE")
+            fh&        = _LOADFONT("../ASSETS/FONTS/Apple ][.ttf", testSize%, "DONTBLEND, MONOSPACE")
         END IF
-        IF fh& <= 0 THEN
+        IF fh& < = 0 THEN
             PRINT #1, "FAILED to load at size"; testSize%; " mode: "; modeLabel$
             _CONTINUE
         END IF
 
         _FONT fh&
         fHeight% = _FONTHEIGHT
-        pw% = _PRINTWIDTH("M")
+        pw%      = _PRINTWIDTH("M")
         PRINT #1, "=== Size:"; testSize%; " "; modeLabel$; " _FONTHEIGHT:"; fHeight%; " _PRINTWIDTH(M):"; pw%; " ==="
 
         ' Render 'A' into buffer and check top rows
@@ -52,7 +52,7 @@ FOR si% = 0 TO 3
         bufH% = fHeight% * 4
         IF bufW% < 4 THEN bufW% = 4
         IF bufH% < 4 THEN bufH% = 4
-        buf& = _NEWIMAGE(bufW%, bufH%, 32)
+        buf&  = _NEWIMAGE(bufW%, bufH%, 32)
         oldD& = _DEST
         _DEST buf&
         CLS , _RGBA32(0, 0, 0, 0)
@@ -67,7 +67,7 @@ FOR si% = 0 TO 3
         _DEST oldD&
 
         ' Print top 3 and bottom 3 rows of pixels for area where A was drawn
-        DIM py AS INTEGER, px AS INTEGER
+        DIM py     AS INTEGER, px AS INTEGER
         DIM rowStr AS STRING
         oldS& = _SOURCE
         _SOURCE buf&

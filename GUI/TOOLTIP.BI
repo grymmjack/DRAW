@@ -18,41 +18,41 @@ CONST TOOLTIP_SRC_ADVBAR    = 6
 CONST TOOLTIP_SRC_BINS      = 7
 
 TYPE TOOLTIP_OBJ
-    ACTIVE          AS INTEGER      ' TRUE when a tooltip is currently visible
-    HOVER_BTN_IDX   AS INTEGER      ' Index into currently hovered element (-1 = none)
-    HOVER_SOURCE    AS INTEGER      ' Which UI area: TOOLTIP_SRC_* constant
-    HOVER_START     AS DOUBLE       ' TIMER value when hover began
-    FONT_HANDLE     AS LONG         ' Loaded font handle for tooltip text
-    NEEDS_REDRAW    AS INTEGER      ' One-shot: set on state change, cleared after render
+    ACTIVE        AS INTEGER ' TRUE when a tooltip is currently visible
+    HOVER_BTN_IDX AS INTEGER ' Index into currently hovered element (-1 = none)
+    HOVER_SOURCE  AS INTEGER ' Which UI area: TOOLTIP_SRC_* constant
+    HOVER_START   AS DOUBLE  ' TIMER value when hover began
+    FONT_HANDLE   AS LONG    ' Loaded font handle for tooltip text
+    NEEDS_REDRAW  AS INTEGER ' One-shot: set on state change, cleared after render
 END TYPE
 
 DIM SHARED TOOLTIP AS TOOLTIP_OBJ
 TOOLTIP.HOVER_BTN_IDX% = -1
-TOOLTIP.HOVER_SOURCE% = TOOLTIP_SRC_NONE
+TOOLTIP.HOVER_SOURCE%  = TOOLTIP_SRC_NONE
 
 ' Tooltip text arrays — indexed by toolbar button order (0..TB_TOTAL-1)
-DIM SHARED TOOLTIP_LINE1$(0 TO 27) ' First line: hotkey + tool name + description
-DIM SHARED TOOLTIP_LINE2$(0 TO 27) ' Second line: status/usage hints
+DIM SHARED TOOLTIP_LINE1$(0 TO 27) ' First line  : hotkey + tool name + description
+DIM SHARED TOOLTIP_LINE2$(0 TO 27) ' Second line : status/usage hints
 
 ' Row 0: MOVE, PAN, ZOOM, CROP
-TOOLTIP_LINE1$(0)  = "m - MOVE - Position current selection or selected layers on the canvas."
-TOOLTIP_LINE2$(0)  = "DRAG move. ALT clones. SHIFT constrains. ARROWS nudge. SHIFT+ARROWS = nudge more."
-TOOLTIP_LINE1$(1)  = "SPACE - PAN - Pan the canvas in the window to adjust what is in view."
-TOOLTIP_LINE2$(1)  = "DRAG pan. D-CLICK center / fit."
-TOOLTIP_LINE1$(2)  = "z - ZOOM - Magnify part of the canvas for more precise drawing."
-TOOLTIP_LINE2$(2)  = "DRAG zoom area. M-WHEEL zoom in/out."
-TOOLTIP_LINE1$(3)  = "CROP - Select a part of the canvas and trim everything outside away."
-TOOLTIP_LINE2$(3)  = "DRAG select. SHIFT constrain."
+TOOLTIP_LINE1$(0) = "m - MOVE - Position current selection or selected layers on the canvas."
+TOOLTIP_LINE2$(0) = "DRAG move. ALT clones. SHIFT constrains. ARROWS nudge. SHIFT+ARROWS = nudge more."
+TOOLTIP_LINE1$(1) = "SPACE - PAN - Pan the canvas in the window to adjust what is in view."
+TOOLTIP_LINE2$(1) = "DRAG pan. D-CLICK center / fit."
+TOOLTIP_LINE1$(2) = "z - ZOOM - Magnify part of the canvas for more precise drawing."
+TOOLTIP_LINE2$(2) = "DRAG zoom area. M-WHEEL zoom in/out."
+TOOLTIP_LINE1$(3) = "CROP - Select a part of the canvas and trim everything outside away."
+TOOLTIP_LINE2$(3) = "DRAG select. SHIFT constrain."
 
 ' Row 1: MARQ RECT, MARQ FREEHAND, MARQ POLY, MARQ ELLIPSE
-TOOLTIP_LINE1$(4)  = "m - RECTANGLE MARQUEE - Create rectangular selections."
-TOOLTIP_LINE2$(4)  = "DRAG to select. SHIFT add. ALT subtract."
-TOOLTIP_LINE1$(5)  = "FREEHAND MARQUEE - Create any shape free-form selections."
-TOOLTIP_LINE2$(5)  = "DRAW to select. SHIFT+CTRL Snap. SHIFT add. ALT subtract."
-TOOLTIP_LINE1$(6)  = "POLYGONAL MARQUEE - Create a selection shape using points and lines."
-TOOLTIP_LINE2$(6)  = "DRAW selection shape. L-CLICK create point. R-CLICK finish."
-TOOLTIP_LINE1$(7)  = "ELLIPTICAL MARQUEE - Create an elliptical shaped selection."
-TOOLTIP_LINE2$(7)  = "DRAG to select. SHIFT add. ALT subtract."
+TOOLTIP_LINE1$(4) = "m - RECTANGLE MARQUEE - Create rectangular selections."
+TOOLTIP_LINE2$(4) = "DRAG to select. SHIFT add. ALT subtract."
+TOOLTIP_LINE1$(5) = "FREEHAND MARQUEE - Create any shape free-form selections."
+TOOLTIP_LINE2$(5) = "DRAW to select. SHIFT+CTRL Snap. SHIFT add. ALT subtract."
+TOOLTIP_LINE1$(6) = "POLYGONAL MARQUEE - Create a selection shape using points and lines."
+TOOLTIP_LINE2$(6) = "DRAW selection shape. L-CLICK create point. R-CLICK finish."
+TOOLTIP_LINE1$(7) = "ELLIPTICAL MARQUEE - Create an elliptical shaped selection."
+TOOLTIP_LINE2$(7) = "DRAG to select. SHIFT add. ALT subtract."
 
 ' Row 2: MARQ WAND, PICKER, TEXT, ERASER
 TOOLTIP_LINE1$(8)  = "w - WAND MARQUEE - Create a selection by same colors."
@@ -174,31 +174,31 @@ DIM SHARED TOOLTIP_EB_LINE1$(0 TO 31)
 DIM SHARED TOOLTIP_EB_LINE2$(0 TO 31)
 
 ' Slot 0: Undo
-TOOLTIP_EB_LINE1$(0)  = "CTRL+z - Undo"
-TOOLTIP_EB_LINE2$(0)  = "L-CLICK undo last action."
+TOOLTIP_EB_LINE1$(0) = "CTRL+z - Undo"
+TOOLTIP_EB_LINE2$(0) = "L-CLICK undo last action."
 ' Slot 1: Redo
-TOOLTIP_EB_LINE1$(1)  = "CTRL+y - Redo"
-TOOLTIP_EB_LINE2$(1)  = "L-CLICK redo last undone action."
+TOOLTIP_EB_LINE1$(1) = "CTRL+y - Redo"
+TOOLTIP_EB_LINE2$(1) = "L-CLICK redo last undone action."
 ' Slot 2: divider
 ' Slot 3: Cut
-TOOLTIP_EB_LINE1$(3)  = "CTRL+x - Cut"
-TOOLTIP_EB_LINE2$(3)  = "L-CLICK cut selection to clipboard."
+TOOLTIP_EB_LINE1$(3) = "CTRL+x - Cut"
+TOOLTIP_EB_LINE2$(3) = "L-CLICK cut selection to clipboard."
 ' Slot 4: Copy
-TOOLTIP_EB_LINE1$(4)  = "CTRL+c - Copy"
-TOOLTIP_EB_LINE2$(4)  = "L-CLICK copy selection to clipboard."
+TOOLTIP_EB_LINE1$(4) = "CTRL+c - Copy"
+TOOLTIP_EB_LINE2$(4) = "L-CLICK copy selection to clipboard."
 ' Slot 5: Copy Merged
-TOOLTIP_EB_LINE1$(5)  = "CTRL+SHIFT+c - Copy Merged"
-TOOLTIP_EB_LINE2$(5)  = "L-CLICK copy merged (all visible layers) to clipboard."
+TOOLTIP_EB_LINE1$(5) = "CTRL+SHIFT+c - Copy Merged"
+TOOLTIP_EB_LINE2$(5) = "L-CLICK copy merged (all visible layers) to clipboard."
 ' Slot 6: Paste
-TOOLTIP_EB_LINE1$(6)  = "CTRL+v - Paste"
-TOOLTIP_EB_LINE2$(6)  = "L-CLICK paste clipboard contents at cursor."
+TOOLTIP_EB_LINE1$(6) = "CTRL+v - Paste"
+TOOLTIP_EB_LINE2$(6) = "L-CLICK paste clipboard contents at cursor."
 ' Slot 7: Paste in Place
-TOOLTIP_EB_LINE1$(7)  = "CTRL+SHIFT+v - Paste in Place"
-TOOLTIP_EB_LINE2$(7)  = "L-CLICK paste clipboard contents at original position."
+TOOLTIP_EB_LINE1$(7) = "CTRL+SHIFT+v - Paste in Place"
+TOOLTIP_EB_LINE2$(7) = "L-CLICK paste clipboard contents at original position."
 ' Slot 8: divider
 ' Slot 9: Cut to New Layer
-TOOLTIP_EB_LINE1$(9)  = "Cut to New Layer"
-TOOLTIP_EB_LINE2$(9)  = "L-CLICK cut selection to a new layer."
+TOOLTIP_EB_LINE1$(9) = "Cut to New Layer"
+TOOLTIP_EB_LINE2$(9) = "L-CLICK cut selection to a new layer."
 ' Slot 10: Copy to New Layer
 TOOLTIP_EB_LINE1$(10) = "Copy to New Layer"
 TOOLTIP_EB_LINE2$(10) = "L-CLICK copy selection to a new layer."
@@ -259,31 +259,31 @@ DIM SHARED TOOLTIP_AB_LINE1$(0 TO 32)
 DIM SHARED TOOLTIP_AB_LINE2$(0 TO 32)
 
 ' Slot 0: Preview Window
-TOOLTIP_AB_LINE1$(0)  = "Preview Window / Floating Image Window"
-TOOLTIP_AB_LINE2$(0)  = "L-CLICK Toggle Preview Window ON / OFF"
+TOOLTIP_AB_LINE1$(0) = "Preview Window / Floating Image Window"
+TOOLTIP_AB_LINE2$(0) = "L-CLICK Toggle Preview Window ON / OFF"
 ' Slot 1: Edit Bar
-TOOLTIP_AB_LINE1$(1)  = "Edit Bar"
-TOOLTIP_AB_LINE2$(1)  = "L-CLICK Toggle Edit Bar ON / OFF"
+TOOLTIP_AB_LINE1$(1) = "Edit Bar"
+TOOLTIP_AB_LINE2$(1) = "L-CLICK Toggle Edit Bar ON / OFF"
 ' Slot 2: divider
 ' Slot 3: Character Map
-TOOLTIP_AB_LINE1$(3)  = "Character Map"
-TOOLTIP_AB_LINE2$(3)  = "L-CLICK Toggle Character Map ON / OFF"
+TOOLTIP_AB_LINE1$(3) = "Character Map"
+TOOLTIP_AB_LINE2$(3) = "L-CLICK Toggle Character Map ON / OFF"
 ' Slot 4: Character Grid
-TOOLTIP_AB_LINE1$(4)  = "Character Grid"
-TOOLTIP_AB_LINE2$(4)  = "L-CLICK Toggle Character Grid ON / OFF"
+TOOLTIP_AB_LINE1$(4) = "Character Grid"
+TOOLTIP_AB_LINE2$(4) = "L-CLICK Toggle Character Grid ON / OFF"
 ' Slot 5: Snap to Character Grid
-TOOLTIP_AB_LINE1$(5)  = "Character Grid Snap"
-TOOLTIP_AB_LINE2$(5)  = "L-CLICK Toggle Snap to Character Grid ON / OFF"
+TOOLTIP_AB_LINE1$(5) = "Character Grid Snap"
+TOOLTIP_AB_LINE2$(5) = "L-CLICK Toggle Snap to Character Grid ON / OFF"
 ' Slot 6: divider
 ' Slot 7: Tile Preview Mode
-TOOLTIP_AB_LINE1$(7)  = "Tile Preview Mode"
-TOOLTIP_AB_LINE2$(7)  = "L-CLICK Toggle Tile Preview Mode ON / OFF"
+TOOLTIP_AB_LINE1$(7) = "Tile Preview Mode"
+TOOLTIP_AB_LINE2$(7) = "L-CLICK Toggle Tile Preview Mode ON / OFF"
 ' Slot 8: Grid Cell Fill Mode
-TOOLTIP_AB_LINE1$(8)  = "Fill Grid Cell Mode"
-TOOLTIP_AB_LINE2$(8)  = "L-CLICK Toggle Fill Grid Cell Mode ON / OFF"
+TOOLTIP_AB_LINE1$(8) = "Fill Grid Cell Mode"
+TOOLTIP_AB_LINE2$(8) = "L-CLICK Toggle Fill Grid Cell Mode ON / OFF"
 ' Slot 9: Resize Grid to Brush Size
-TOOLTIP_AB_LINE1$(9)  = "Resize Grid to Brush Size"
-TOOLTIP_AB_LINE2$(9)  = "L-CLICK Resize Grid to Brush Size"
+TOOLTIP_AB_LINE1$(9) = "Resize Grid to Brush Size"
+TOOLTIP_AB_LINE2$(9) = "L-CLICK Resize Grid to Brush Size"
 ' Slot 10: Fill Adjustment Mode
 TOOLTIP_AB_LINE1$(10) = "Fill Adjustment Mode"
 TOOLTIP_AB_LINE2$(10) = "L-CLICK Toggle Fill Adjustment Mode ON / OFF"

@@ -8,43 +8,43 @@
 $INCLUDEONCE
 
 TYPE MOVE_OBJ
-    ACTIVE       AS INTEGER  ' Whether move tool is active
-    TRANSFORMING AS INTEGER  ' Whether actively transforming
-    TRANSFORM_TYPE AS INTEGER ' 0=move, 1=scale, 2=stretch
-    SELECTION_IMAGE AS LONG  ' Image buffer holding selected pixels
-    PREVIEW_BUFFER AS LONG   ' Buffer for realtime preview of painting layer with move applied
-    ORIGINAL_X   AS INTEGER  ' Original selection X (for ESC cancel)
-    ORIGINAL_Y   AS INTEGER  ' Original selection Y (for ESC cancel)
-    ORIGINAL_W   AS INTEGER  ' Original selection width (for ESC cancel)
-    ORIGINAL_H   AS INTEGER  ' Original selection height (for ESC cancel)
-    SELECTION_X  AS INTEGER  ' Current base selection X
-    SELECTION_Y  AS INTEGER  ' Current base selection Y
-    SELECTION_W  AS INTEGER  ' Current base selection width
-    SELECTION_H  AS INTEGER  ' Current base selection height
-    START_X      AS INTEGER  ' Transform start X
-    START_Y      AS INTEGER  ' Transform start Y
-    CURRENT_X    AS INTEGER  ' Current transform X
-    CURRENT_Y    AS INTEGER  ' Current transform Y
-    CURRENT_W    AS INTEGER  ' Current transform width
-    CURRENT_H    AS INTEGER  ' Current transform height
-    HANDLE       AS INTEGER  ' Which handle being dragged (0=center, 1-8=corners/sides)
-    CLONING      AS INTEGER  ' Whether ALT is held (clone mode)
-    CLONE_STAMPED AS INTEGER ' TRUE if any stamp was placed in this move session
-    CONSTRAIN    AS INTEGER  ' Whether SHIFT is held (constrain proportions)
-    CAPTURED_LAYER AS INTEGER ' Layer index that was captured (ensures apply targets correct layer)
-    ORIGINAL_IMAGE AS LONG   ' Preserved original image for lossless re-scaling
-    ORIGINAL_IMG_W AS INTEGER ' Width of original image
-    ORIGINAL_IMG_H AS INTEGER ' Height of original image
-    SCALE_FACTOR   AS SINGLE ' Cumulative scale factor (1.0 = original)
-    GROUP_ORIGIN   AS INTEGER ' Group header index that triggered auto-select (0 = not a group move)
+    ACTIVE          AS INTEGER ' Whether move tool is active
+    TRANSFORMING    AS INTEGER ' Whether actively transforming
+    TRANSFORM_TYPE  AS INTEGER ' 0 = move, 1=scale, 2=stretch
+    SELECTION_IMAGE AS LONG    ' Image buffer holding selected pixels
+    PREVIEW_BUFFER  AS LONG    ' Buffer for realtime preview of painting layer with move applied
+    ORIGINAL_X      AS INTEGER ' Original selection X (for ESC cancel)
+    ORIGINAL_Y      AS INTEGER ' Original selection Y (for ESC cancel)
+    ORIGINAL_W      AS INTEGER ' Original selection width (for ESC cancel)
+    ORIGINAL_H      AS INTEGER ' Original selection height (for ESC cancel)
+    SELECTION_X     AS INTEGER ' Current base selection X
+    SELECTION_Y     AS INTEGER ' Current base selection Y
+    SELECTION_W     AS INTEGER ' Current base selection width
+    SELECTION_H     AS INTEGER ' Current base selection height
+    START_X         AS INTEGER ' Transform start X
+    START_Y         AS INTEGER ' Transform start Y
+    CURRENT_X       AS INTEGER ' Current transform X
+    CURRENT_Y       AS INTEGER ' Current transform Y
+    CURRENT_W       AS INTEGER ' Current transform width
+    CURRENT_H       AS INTEGER ' Current transform height
+    HANDLE          AS INTEGER ' Which handle being dragged (0 = center, 1-8=corners/sides)
+    CLONING         AS INTEGER ' Whether ALT is held (clone mode)
+    CLONE_STAMPED   AS INTEGER ' TRUE if any stamp was placed in this move session
+    CONSTRAIN       AS INTEGER ' Whether SHIFT is held (constrain proportions)
+    CAPTURED_LAYER  AS INTEGER ' Layer index that was captured (ensures apply targets correct layer)
+    ORIGINAL_IMAGE  AS LONG    ' Preserved original image for lossless re-scaling
+    ORIGINAL_IMG_W  AS INTEGER ' Width of original image
+    ORIGINAL_IMG_H  AS INTEGER ' Height of original image
+    SCALE_FACTOR    AS SINGLE  ' Cumulative scale factor (1.0                      = original)
+    GROUP_ORIGIN    AS INTEGER ' Group header index that triggered auto-select (0 = not a group move)
 END TYPE
 
 DIM SHARED MOVE AS MOVE_OBJ
 
 ' Multi-layer move: snapshot of multi-selected layers at capture time.
 ' When multiple layers are selected, translation propagates to all of them.
-REDIM SHARED MOVE_MULTI_LAYERS(1 TO MAX_LAYERS) AS INTEGER  ' Layer indices (0 = unused slot)
-DIM SHARED MOVE_MULTI_COUNT AS INTEGER             ' Count of snapshotted layers
+REDIM SHARED MOVE_MULTI_LAYERS(1 TO MAX_LAYERS) AS INTEGER ' Layer indices (0 = unused slot)
+DIM SHARED MOVE_MULTI_COUNT AS INTEGER                     ' Count of snapshotted layers
 MOVE_MULTI_COUNT% = 0
 ' Per-layer original snapshots (canvas-sized copies taken at capture time)
 REDIM SHARED MOVE_MULTI_ORIGINALS(1 TO MAX_LAYERS) AS LONG
@@ -72,9 +72,9 @@ DECLARE SUB MOVE_sync_base ()
 DECLARE FUNCTION MOVE_find_topmost_layer_at% (cx AS INTEGER, cy AS INTEGER)
 
 ' Shared state for layer-level lossless scaling
-DIM SHARED SCALE_ORIGINAL_IMAGE AS LONG    ' Backup of layer before first scale op
-DIM SHARED SCALE_ORIGINAL_LAYER AS INTEGER ' Which layer the backup belongs to
-DIM SHARED SCALE_FACTOR_LAYER AS SINGLE    ' Cumulative scale factor for layer scaling
+DIM SHARED SCALE_ORIGINAL_IMAGE AS LONG                    ' Backup of layer before first scale op
+DIM SHARED SCALE_ORIGINAL_LAYER AS INTEGER                 ' Which layer the backup belongs to
+DIM SHARED SCALE_FACTOR_LAYER   AS SINGLE                  ' Cumulative scale factor for layer scaling
 SCALE_ORIGINAL_IMAGE = 0
 SCALE_ORIGINAL_LAYER = 0
-SCALE_FACTOR_LAYER = 1.0
+SCALE_FACTOR_LAYER   = 1.0

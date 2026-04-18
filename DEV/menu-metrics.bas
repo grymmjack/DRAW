@@ -3,16 +3,16 @@ _DEST _CONSOLE
 
 DIM fh AS LONG
 DIM labels(10) AS STRING
-labels(0) = "FILE"
-labels(1) = "EDIT"
-labels(2) = "VIEW"
-labels(3) = "SELECT"
-labels(4) = "TOOLS"
-labels(5) = "BRUSH"
-labels(6) = "LAYER"
-labels(7) = "PALETTE"
-labels(8) = "IMAGE"
-labels(9) = "HELP"
+labels(0)  = "FILE"
+labels(1)  = "EDIT"
+labels(2)  = "VIEW"
+labels(3)  = "SELECT"
+labels(4)  = "TOOLS"
+labels(5)  = "BRUSH"
+labels(6)  = "LAYER"
+labels(7)  = "PALETTE"
+labels(8)  = "IMAGE"
+labels(9)  = "HELP"
 labels(10) = "AUDIO"
 
 ' Create a temp image to measure on
@@ -21,7 +21,7 @@ tmpImg& = _NEWIMAGE(800, 100, 32)
 _DEST tmpImg&
 
 fh& = _LOADFONT("ASSETS/THEMES/DEFAULT/FONTS/Tiny5-Regular.ttf", 8, "DONTBLEND")
-IF fh& <= 0 THEN
+IF fh& < = 0 THEN
     _DEST _CONSOLE
     PRINT "ERROR: Could not load Tiny5-Regular.ttf at size 8"
     SYSTEM
@@ -49,9 +49,9 @@ PRINT "---  ---------  -----------  -----  --------  ------  ------"
 
 _DEST tmpImg&
 DIM i AS INTEGER, pw AS INTEGER
-FOR i% = 0 TO 8  ' Skip HELP(9) — it's right-justified; skip AUDIO(10) — same
+FOR i% = 0 TO 8                     ' Skip HELP(9) — it's right-justified; skip AUDIO(10) — same
     pw% = _PRINTWIDTH(labels(i%))
-    DIM slotW AS INTEGER
+    DIM slotW   AS INTEGER
     slotW% = pw% + MENU_ROOT_GAP
     DIM centerX AS INTEGER
     centerX% = x% + pw% \ 2
@@ -103,9 +103,9 @@ PRINT ""
 x% = barX% + MENU_PAD_LEFT
 _DEST tmpImg&
 
-FOR i% = 0 TO 9  ' FILE through HELP
-    pw% = _PRINTWIDTH(labels(i%))
-    slotW% = pw% + MENU_ROOT_GAP
+FOR i% = 0 TO 9                     ' FILE through HELP
+    pw%      = _PRINTWIDTH(labels(i%))
+    slotW%   = pw% + MENU_ROOT_GAP
     centerX% = x% + pw% \ 2
     _DEST _CONSOLE
     PRINT USING "##   \        \  pw=###  X=###  centerX=###"; i%; labels(i%); pw%; x%; centerX%
@@ -117,11 +117,11 @@ NEXT i%
 ' toolboxW = TB_COLS * (TB_BTN_W * scale) + (TB_COLS-1) * (TB_BTN_PADDING * scale) + 2
 ' At scale=1: 4 * 11 + 3 * 1 + 2 = 44 + 3 + 2 = 49
 ' rightX = 799 - 49 = 750 → menuBarRightEdge = 750
-DIM rightEdge AS INTEGER
+DIM rightEdge    AS INTEGER
 rightEdge% = 750
-audioPW% = _PRINTWIDTH("AUDIO")
-DIM audioX AS INTEGER
-audioX% = rightEdge% - audioPW% - 4  ' MENU_PAD_RIGHT = 4
+audioPW%   = _PRINTWIDTH("AUDIO")
+DIM audioX       AS INTEGER
+audioX% = rightEdge% - audioPW% - 4 ' MENU_PAD_RIGHT = 4
 DIM audioCenterX AS INTEGER
 audioCenterX% = audioX% + audioPW% \ 2
 
@@ -135,8 +135,8 @@ PRINT "=== Alt: menuBarLeftEdge = 0 (no left-docked panels) ==="
 x% = 0 + MENU_PAD_LEFT
 _DEST tmpImg&
 FOR i% = 0 TO 9
-    pw% = _PRINTWIDTH(labels(i%))
-    slotW% = pw% + MENU_ROOT_GAP
+    pw%      = _PRINTWIDTH(labels(i%))
+    slotW%   = pw% + MENU_ROOT_GAP
     centerX% = x% + pw% \ 2
     _DEST _CONSOLE
     PRINT USING "##   \        \  pw=###  X=###  centerX=###"; i%; labels(i%); pw%; x%; centerX%

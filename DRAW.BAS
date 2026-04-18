@@ -20,21 +20,21 @@ THEME_load
 $EXEICON:'./ASSETS/ICONS/icon.ico'
 
 ' === Splash screen — show ASAP with fade-in while rest of startup loads ===
-DIM splashImg AS LONG, splashStart AS DOUBLE
-DIM splashDstW AS LONG, splashDstH AS LONG
-DIM splashX AS LONG, splashY AS LONG
+DIM splashImg   AS LONG, splashStart AS DOUBLE
+DIM splashDstW  AS LONG, splashDstH AS LONG
+DIM splashX     AS LONG, splashY AS LONG
 DIM splashAlpha AS INTEGER
-DIM splashBg AS _UNSIGNED LONG, splashBgR AS INTEGER, splashBgG AS INTEGER, splashBgB AS INTEGER
+DIM splashBg    AS _UNSIGNED LONG, splashBgR AS INTEGER, splashBgG AS INTEGER, splashBgB AS INTEGER
 splashImg& = _LOADIMAGE("ASSETS/THEMES/" + _TRIM$(CFG.THEME$) + "/splash.png", 32)
 IF splashImg& < -1 THEN
     splashBg~& = THEME.SPLASH_BG_COLOR~&
     splashBgR% = _RED32(splashBg~&): splashBgG% = _GREEN32(splashBg~&): splashBgB% = _BLUE32(splashBg~&)
-    DIM splashScale AS SINGLE
-    splashScale! = _HEIGHT(0) / _HEIGHT(splashImg&)
-    splashDstW& = INT(_WIDTH(splashImg&) * splashScale!)
-    splashDstH& = _HEIGHT(0)
-    splashX& = (_WIDTH(0) - splashDstW&) \ 2
-    splashY& = 0
+    DIM splashScale   AS SINGLE
+    splashScale!                              = _HEIGHT(0) / _HEIGHT(splashImg&)
+    splashDstW&                               = INT(_WIDTH(splashImg&) * splashScale!)
+    splashDstH&                               = _HEIGHT(0)
+    splashX&                                  = (_WIDTH(0) - splashDstW&) \ 2
+    splashY&                                  = 0
     DIM splashOldDest AS LONG: splashOldDest& = _DEST
     _DEST 0
     ' Fade in over ~0.4 seconds
@@ -47,7 +47,7 @@ IF splashImg& < -1 THEN
         LINE (0, 0)-(_WIDTH(0) - 1, _HEIGHT(0) - 1), _RGBA32(splashBgR%, splashBgG%, splashBgB%, 255 - splashAlpha%), BF
         _DISPLAY
         _LIMIT 60
-    LOOP UNTIL splashAlpha% >= 255
+    LOOP UNTIL splashAlpha% > = 255
     ' Show fully opaque splash and record time for minimum-hold check
     CLS , splashBg~&
     _PUTIMAGE (splashX&, splashY&)-(splashX& + splashDstW& - 1, splashY& + splashDstH& - 1), splashImg&, 0
@@ -70,7 +70,7 @@ $IF MAC THEN
         ' Skip --config / -c and its value, and --config-upgrade when looking for file args
         DIM macArgIdx%
         macArgIdx% = 1
-        DO WHILE macArgIdx% <= _COMMANDCOUNT
+        DO WHILE macArgIdx% < = _COMMANDCOUNT
             DIM macArgVal$
             macArgVal$ = _TRIM$(COMMAND$(macArgIdx%))
             IF LCASE$(macArgVal$) = "--config" OR LCASE$(macArgVal$) = "-c" THEN
@@ -93,7 +93,7 @@ $ELSE
     ' Skip --config / -c and its value, and --config-upgrade when looking for file args
     DIM argIdx%
     argIdx% = 1
-    DO WHILE argIdx% <= _COMMANDCOUNT
+    DO WHILE argIdx% < = _COMMANDCOUNT
         DIM argVal$
         argVal$ = _TRIM$(COMMAND$(argIdx%))
         IF LCASE$(argVal$) = "--config" OR LCASE$(argVal$) = "-c" THEN
@@ -157,43 +157,43 @@ RANDOMIZE TIMER
 ' Enable OS-exit trapping — prevents X button / CTRL+BREAK from bypassing cleanup.
 ' The first call to _EXIT starts monitoring; any non-zero return means an exit was requested.
 DIM osExitTrap AS INTEGER
-osExitTrap% = _EXIT  ' Discard initial value; monitoring now active
+osExitTrap% = _EXIT     ' Discard initial value; monitoring now active
 
 ' Initialise sound system (loads handles, applies volume; respects CFG.SOUNDS_ENABLED)
 SOUND_init
-SOUND_play SND_NEW_FILE  ' Startup chime (silent when sounds are disabled)
-MUSIC_init               ' Initialise background music (plays if CFG.MUSIC_ENABLED)
-IMAGE_ADJ_init           ' Initialise image adjustment library (IMGADJ)
-COLORMIXER_init          ' Initialise non-modal color mixer panel
+SOUND_play SND_NEW_FILE ' Startup chime (silent when sounds are disabled)
+MUSIC_init              ' Initialise background music (plays if CFG.MUSIC_ENABLED)
+IMAGE_ADJ_init          ' Initialise image adjustment library (IMGADJ)
+COLORMIXER_init         ' Initialise non-modal color mixer panel
 
 ' Main Loop
-DIM k AS LONG
-DIM exitConfirmed AS INTEGER
-DIM prevShiftHeld AS INTEGER, prevCtrlHeld AS INTEGER, prevAltHeld AS INTEGER
-DIM prevMouseOverCanvas AS INTEGER
-DIM ebPrevCanUndo AS INTEGER, ebPrevCanRedo AS INTEGER
-DIM ebPrevHasClip AS INTEGER, ebPrevHasSel AS INTEGER
-DIM resizeWatchLastW AS LONG, resizeWatchLastH AS LONG
+DIM k                       AS LONG
+DIM exitConfirmed           AS INTEGER
+DIM prevShiftHeld           AS INTEGER, prevCtrlHeld AS INTEGER, prevAltHeld AS INTEGER
+DIM prevMouseOverCanvas     AS INTEGER
+DIM ebPrevCanUndo           AS INTEGER, ebPrevCanRedo AS INTEGER
+DIM ebPrevHasClip           AS INTEGER, ebPrevHasSel AS INTEGER
+DIM resizeWatchLastW        AS LONG, resizeWatchLastH AS LONG
 DIM resizeWatchSettleFrames AS INTEGER
-exitConfirmed% = FALSE
-prevShiftHeld% = MODIFIERS.shift%
-prevCtrlHeld% = MODIFIERS.ctrl%
-prevAltHeld% = MODIFIERS.alt%
-prevMouseOverCanvas% = FALSE
-ebPrevCanUndo% = FALSE
-ebPrevCanRedo% = FALSE
-ebPrevHasClip% = FALSE
-ebPrevHasSel%  = FALSE
-resizeWatchLastW& = _WIDTH(0)
-resizeWatchLastH& = _HEIGHT(0)
+exitConfirmed%           = FALSE
+prevShiftHeld%           = MODIFIERS.shift%
+prevCtrlHeld%            = MODIFIERS.ctrl%
+prevAltHeld%             = MODIFIERS.alt%
+prevMouseOverCanvas%     = FALSE
+ebPrevCanUndo%           = FALSE
+ebPrevCanRedo%           = FALSE
+ebPrevHasClip%           = FALSE
+ebPrevHasSel%            = FALSE
+resizeWatchLastW&        = _WIDTH(0)
+resizeWatchLastH&        = _HEIGHT(0)
 resizeWatchSettleFrames% = 0
 
 ' === Dismiss splash screen with fade-out (after configurable hold) ===
 IF splashImg& < -1 THEN
     DIM splashOldDest2 AS LONG: splashOldDest2& = _DEST
-    DIM splashWinBg AS _UNSIGNED LONG
+    DIM splashWinBg    AS _UNSIGNED LONG
     splashWinBg~& = THEME.WINDOW_BG_COLOR~&
-    DIM splashWinR AS INTEGER, splashWinG AS INTEGER, splashWinB AS INTEGER
+    DIM splashWinR     AS INTEGER, splashWinG AS INTEGER, splashWinB AS INTEGER
     splashWinR% = _RED32(splashWinBg~&): splashWinG% = _GREEN32(splashWinBg~&): splashWinB% = _BLUE32(splashWinBg~&)
     _DEST 0
     ' Wait for configured hold time since fade-in completed
@@ -201,7 +201,7 @@ IF splashImg& < -1 THEN
         _LIMIT 60
     LOOP
     ' Fade out over ~0.4 seconds toward WINDOW_BG_COLOR
-    DIM splashFadeOut AS DOUBLE
+    DIM splashFadeOut  AS DOUBLE
     splashFadeOut# = TIMER(.001)
     DO
         splashAlpha% = INT((TIMER(.001) - splashFadeOut#) / 0.4 * 255)
@@ -211,7 +211,7 @@ IF splashImg& < -1 THEN
         LINE (0, 0)-(_WIDTH(0) - 1, _HEIGHT(0) - 1), _RGBA32(splashWinR%, splashWinG%, splashWinB%, splashAlpha%), BF
         _DISPLAY
         _LIMIT 60
-    LOOP UNTIL splashAlpha% >= 255
+    LOOP UNTIL splashAlpha% > = 255
     _DEST splashOldDest2&
     _FREEIMAGE splashImg&
 END IF
@@ -231,7 +231,7 @@ DO
             DIM loadResult%
             loadResult% = IMAGE_IMPORT_load_file%(CMDLINE_PENDING_FILE$)
         END IF
-        CMDLINE_PENDING_FILE$ = ""  ' Clear after loading
+        CMDLINE_PENDING_FILE$ = "" ' Clear after loading
     ELSEIF CMDLINE_FIRST_FRAME% THEN
         CMDLINE_FIRST_FRAME% = FALSE
     END IF
@@ -259,10 +259,10 @@ DO
     ' integer scale so $RESIZE:STRETCH always produces a pixel-perfect result.
     ' Also run a settle watcher because some WMs can miss/lag _RESIZE while
     ' maximizing or after native dialogs, which can leave black gaps.
-    DIM resizeWinW AS LONG, resizeWinH AS LONG
+    DIM resizeWinW      AS LONG, resizeWinH AS LONG
     DIM resizeExpectedW AS LONG, resizeExpectedH AS LONG
-    resizeWinW& = _WIDTH(0)
-    resizeWinH& = _HEIGHT(0)
+    resizeWinW&      = _WIDTH(0)
+    resizeWinH&      = _HEIGHT(0)
     resizeExpectedW& = SCRN.w& * SCRN.displayScale%
     resizeExpectedH& = SCRN.h& * SCRN.displayScale%
 
@@ -274,13 +274,13 @@ DO
             INVALIDATE_scene
         END IF
         resizeWatchSettleFrames% = 6
-        resizeWatchLastW& = resizeWinW&
-        resizeWatchLastH& = resizeWinH&
+        resizeWatchLastW&        = resizeWinW&
+        resizeWatchLastH&        = resizeWinH&
     ELSE
         IF resizeWinW& <> resizeWatchLastW& OR resizeWinH& <> resizeWatchLastH& THEN
             resizeWatchSettleFrames% = 6
-            resizeWatchLastW& = resizeWinW&
-            resizeWatchLastH& = resizeWinH&
+            resizeWatchLastW&        = resizeWinW&
+            resizeWatchLastH&        = resizeWinH&
         ELSEIF resizeWatchSettleFrames% > 0 THEN
             resizeWatchSettleFrames% = resizeWatchSettleFrames% - 1
             IF resizeWatchSettleFrames% = 0 THEN
@@ -306,7 +306,7 @@ DO
     k& = _KEYHIT
     
     ' Build INKEY$-compatible fallback from _KEYHIT for handlers that need it
-    IF k& >= 32 AND k& <= 126 THEN
+    IF k& > = 32 AND k& < = 126 THEN
         KEYHIT_CHAR$ = CHR$(k&)
     ELSEIF k& = 8 OR k& = 13 OR k& = 27 THEN
         KEYHIT_CHAR$ = CHR$(k&)
@@ -342,16 +342,16 @@ DO
     ' Check if anything needs updating this frame
     PERF_start PERF_IDLE_DETECT
     FRAME_IDLE% = TRUE
-    DIM SCENE_CHANGED AS INTEGER
-    DIM modifiersChanged AS INTEGER
-    DIM mouseMoved AS INTEGER
-    DIM mouseOverCanvas AS INTEGER
+    DIM SCENE_CHANGED      AS INTEGER
+    DIM modifiersChanged   AS INTEGER
+    DIM mouseMoved         AS INTEGER
+    DIM mouseOverCanvas    AS INTEGER
     DIM canvasCoordChanged AS INTEGER
-    SCENE_CHANGED% = FALSE
-    modifiersChanged% = (MODIFIERS.shift% <> prevShiftHeld% OR MODIFIERS.ctrl% <> prevCtrlHeld% OR MODIFIERS.alt% <> prevAltHeld%)
-    mouseMoved% = (MOUSE.RAW_X% <> IDLE_PREV_MOUSE_X% OR MOUSE.RAW_Y% <> IDLE_PREV_MOUSE_Y%)
+    SCENE_CHANGED%      = FALSE
+    modifiersChanged%   = (MODIFIERS.shift% <> prevShiftHeld% OR MODIFIERS.ctrl% <> prevCtrlHeld% OR MODIFIERS.alt% <> prevAltHeld%)
+    mouseMoved%         = (MOUSE.RAW_X% <> IDLE_PREV_MOUSE_X% OR MOUSE.RAW_Y% <> IDLE_PREV_MOUSE_Y%)
     canvasCoordChanged% = (MOUSE.X% <> MOUSE.OLD_X% OR MOUSE.Y% <> MOUSE.OLD_Y%)
-    mouseOverCanvas% = FALSE
+    mouseOverCanvas%    = FALSE
 
     DIM idleZW AS LONG, idleZH AS LONG, idleDX AS INTEGER, idleDY AS INTEGER
     IF SCRN.patternTileMode% THEN
@@ -363,39 +363,39 @@ DO
     END IF
     idleDX% = (SCRN.w& - idleZW&) \ 2 + SCRN.offsetX% + SCRN.panelShiftX%
     idleDY% = (SCRN.h& - idleZH&) \ 2 + SCRN.offsetY%
-    IF MOUSE.RAW_X% >= idleDX% AND MOUSE.RAW_X% < idleDX% + idleZW& AND MOUSE.RAW_Y% >= idleDY% AND MOUSE.RAW_Y% < idleDY% + idleZH& THEN
+    IF MOUSE.RAW_X% > = idleDX% AND MOUSE.RAW_X% < idleDX% + idleZW& AND MOUSE.RAW_Y% > = idleDY% AND MOUSE.RAW_Y% < idleDY% + idleZH& THEN
         mouseOverCanvas% = TRUE
     END IF
 
     IF k& <> 0 THEN FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE   ' Key was pressed
     IF MOUSE.B1% OR MOUSE.B2% OR MOUSE.B3% THEN
-        FRAME_IDLE% = FALSE                                       ' Mouse button held — keep render loop active
+        FRAME_IDLE% = FALSE        ' Mouse button held — keep render loop active
         IF NOT SCRN.panning% THEN
-            SCENE_CHANGED% = TRUE                                 ' Only rebuild scene for drawing, not panning (pan handles its own SCENE via mouseMoved)
-            COMPOSITE_RESULT_VALID% = FALSE                       ' Drawing may have changed layer pixels — stale composite would skip them
+            SCENE_CHANGED%          = TRUE  ' Only rebuild scene for drawing, not panning (pan handles its own SCENE via mouseMoved)
+            COMPOSITE_RESULT_VALID% = FALSE ' Drawing may have changed layer pixels — stale composite would skip them
         END IF
     END IF
     ' Button release transitions: tool release handlers commit final pixels to
     ' the layer (LINE, RECT, ELLIPSE, etc.). Must rebuild scene to show them
     ' instead of the stale rubber-band preview in the scene cache.
     IF (MOUSE.OLD_B1% AND NOT MOUSE.B1%) OR (MOUSE.OLD_B2% AND NOT MOUSE.B2%) THEN
-        FRAME_IDLE% = FALSE
-        SCENE_CHANGED% = TRUE
-        COMPOSITE_RESULT_VALID% = FALSE                           ' Committed pixels invalidate cached composite
+        FRAME_IDLE%             = FALSE
+        SCENE_CHANGED%          = TRUE
+        COMPOSITE_RESULT_VALID% = FALSE ' Committed pixels invalidate cached composite
         IF CURRENT_LAYER% > 0 THEN LAYERS(CURRENT_LAYER%).contentDirty% = TRUE   ' Invalidate opacity cache for < 100% layers
         IF CURRENT_LAYER% > 0 THEN SYMBOL_mark_parent_dirty CURRENT_LAYER%
     END IF
     IF mouseMoved% THEN
-        FRAME_IDLE% = FALSE                                       ' Mouse moved (cursor only)
+        FRAME_IDLE% = FALSE             ' Mouse moved (cursor only)
         ' Only trigger status bar rebuild when canvas coords change (e.g. at zoom 2x
         ' two raw pixels map to the same canvas pixel — no coord display update needed).
         IF canvasCoordChanged% THEN
-            STATUS_NEEDS_REDRAW% = TRUE                           ' Status bar coords need refresh
+            STATUS_NEEDS_REDRAW% = TRUE ' Status bar coords need refresh
         END IF
         ' Only trigger expensive full GUI rebuild on hover-zone change (not every canvas pixel).
         ' Canvas movement doesn't change toolbar/organizer visuals — status-only path handles it.
         IF NOT mouseOverCanvas% THEN
-            GUI_NEEDS_REDRAW% = TRUE                              ' Update hover highlights in toolbar/organizer/drawer/editbar/layerpanel
+            GUI_NEEDS_REDRAW% = TRUE    ' Update hover highlights in toolbar/organizer/drawer/editbar/layerpanel
         END IF
         ' Force full render path on canvas hover — the dirty-rect/STATUS-ONLY fast
         ' paths cause visible cursor lag due to partial compositing overhead.
@@ -410,13 +410,13 @@ DO
     IF SCRN.panning% THEN FRAME_IDLE% = FALSE                             ' Panning active — only dirty scene when mouse moves
     IF SCRN.panning% AND mouseMoved% THEN SCENE_CHANGED% = TRUE
     IF MODIFIERS.shift% THEN
-        FRAME_IDLE% = FALSE                                       ' Keep render loop active for crosshair overlay
+        FRAME_IDLE% = FALSE ' Keep render loop active for crosshair overlay
         IF mouseMoved% THEN SCENE_CHANGED% = TRUE                 ' Crosshair position changed — rebuild scene (crosshair is in scene cache)
         ' Transition frame (press/release) already handled by modifiersChanged above
     END IF
     IF MOUSE.SW% <> 0 THEN FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE     ' Mouse wheel scrolled
     IF CURRENT_TOOL% = TOOL_MOVE AND MOVE.ACTIVE THEN
-        FRAME_IDLE% = FALSE                                       ' Keep render loop active
+        FRAME_IDLE% = FALSE ' Keep render loop active
         IF mouseMoved% THEN SCENE_CHANGED% = TRUE                 ' Move overlay only changes on mouse movement
     END IF
     ' Rubber-band tools: keep scene dirty while vertices are placed (no button held)
@@ -429,13 +429,13 @@ DO
         IF mouseMoved% THEN SCENE_CHANGED% = TRUE                 ' Marquee preview only changes on mouse movement
     END IF
     IF CURRENT_TOOL% = TOOL_MARQUEE AND (MARQUEE.DRAGGING% OR MARQUEE.RESIZING% OR MARQUEE.MOVING%) THEN
-        FRAME_IDLE% = FALSE
+        FRAME_IDLE%          = FALSE
         STATUS_NEEDS_REDRAW% = TRUE
         IF mouseMoved% THEN SCENE_CHANGED% = TRUE                 ' Keep marquee overlays and status dimensions live while editing
     END IF
     IF TRANSFORM.ACTIVE THEN
-        FRAME_IDLE% = FALSE   ' keep render loop active while overlay is live
-        IF TRANSFORM.GRABBED >= 0 OR TRANSFORM_PREVIEW_DIRTY THEN SCENE_CHANGED% = TRUE
+        FRAME_IDLE% = FALSE ' keep render loop active while overlay is live
+        IF TRANSFORM.GRABBED > = 0 OR TRANSFORM_PREVIEW_DIRTY THEN SCENE_CHANGED% = TRUE
     END IF
     IF CURRENT_TOOL% = TOOL_TEXT AND TEXT.ACTIVE THEN
         ' Text editing must stay at full FPS so keyboard repeats are consumed
@@ -444,8 +444,8 @@ DO
         ' Cursor blink: only dirty scene when cursor state actually toggles (every 0.5s)
         IF TIMER - TEXT.BLINK_TIMER > 0.5 THEN
             TEXT.CURSOR_BLINK = 1 - TEXT.CURSOR_BLINK
-            TEXT.BLINK_TIMER = TIMER
-            SCENE_CHANGED% = TRUE
+            TEXT.BLINK_TIMER  = TIMER
+            SCENE_CHANGED%    = TRUE
         END IF
         ' Overflow flash animates every frame until countdown reaches 0
         IF TEXT.OVERFLOW_FLASH > 0 THEN SCENE_CHANGED% = TRUE
@@ -462,7 +462,7 @@ DO
     IF SELECTION_has_active% THEN FRAME_IDLE% = FALSE  ' Animation only (marching ants) — no scene change
     ' Tooltip hover: only keep frames active while delay is counting or tooltip
     ' needs one more frame to render. Once displayed and static, allow idle.
-    IF TOOLTIP.HOVER_BTN_IDX% >= 0 AND (NOT TOOLTIP.ACTIVE% OR TOOLTIP.NEEDS_REDRAW%) THEN FRAME_IDLE% = FALSE
+    IF TOOLTIP.HOVER_BTN_IDX% > = 0 AND (NOT TOOLTIP.ACTIVE% OR TOOLTIP.NEEDS_REDRAW%) THEN FRAME_IDLE% = FALSE
     ' Preview tooltip: keep render loop active while hover timer counts or tooltip is shown
     IF PREVIEW.visible% AND NOT PREVIEW.autoHidden% AND PREVIEW.mode% = PREVIEW_MODE_FLOAT THEN
         IF PREVIEW.floatTooltipHoverStart# > 0 AND NOT PREVIEW.floatTooltipActive% THEN FRAME_IDLE% = FALSE
@@ -481,16 +481,16 @@ DO
         IF ebCanUndo% <> ebPrevCanUndo% OR ebCanRedo% <> ebPrevCanRedo% OR _
            ebHasClip% <> ebPrevHasClip% OR ebHasSel% <> ebPrevHasSel% THEN
             GUI_NEEDS_REDRAW% = TRUE
-            FRAME_IDLE% = FALSE
+            FRAME_IDLE%       = FALSE
         END IF
         ebPrevCanUndo% = ebCanUndo%
         ebPrevCanRedo% = ebCanRedo%
         ebPrevHasClip% = ebHasClip%
         ebPrevHasSel%  = ebHasSel%
     END IF
-    prevShiftHeld% = MODIFIERS.shift%
-    prevCtrlHeld% = MODIFIERS.ctrl%
-    prevAltHeld% = MODIFIERS.alt%
+    prevShiftHeld%       = MODIFIERS.shift%
+    prevCtrlHeld%        = MODIFIERS.ctrl%
+    prevAltHeld%         = MODIFIERS.alt%
     prevMouseOverCanvas% = mouseOverCanvas%
     ' Mark current layer content dirty when user is actively drawing
     IF (MOUSE.B1% OR MOUSE.B2%) AND CURRENT_LAYER% > 0 THEN
@@ -498,7 +498,7 @@ DO
         SYMBOL_mark_parent_dirty CURRENT_LAYER%
         ' Track dirty region for region-based blend compositing.
         ' Base padding = brush half-size. Spray tool has much larger radius.
-        DIM compHalf AS INTEGER
+        DIM compHalf  AS INTEGER
         IF CURRENT_TOOL% = TOOL_SPRAY THEN
             compHalf% = BRUSH_PIXEL_SIZES(BRUSH_SIZE.CURRENT) * 2 + 4
         ELSE
@@ -726,7 +726,7 @@ SUB MAIN_shutdown ()
     ' =====================================================================
     ' FREE CURSOR IMAGES + LAYER PANEL ICONS
     ' =====================================================================
-    _MOUSESHOW  ' Ensure using default system cursor before freeing cursors
+    _MOUSESHOW ' Ensure using default system cursor before freeing cursors
     CURSOR_cleanup
     LAYER_PANEL_cleanup_icons
 
@@ -737,9 +737,9 @@ SUB MAIN_shutdown ()
     ' Free each loaded handle once to avoid double-free warnings on shutdown.
     DIM freedFontCount AS INTEGER
     DIM freedFontHandle(1 TO 32) AS LONG
-    DIM fi AS INTEGER
-    DIM fontHandle AS LONG
-    DIM alreadyFreed AS INTEGER
+    DIM fi             AS INTEGER
+    DIM fontHandle     AS LONG
+    DIM alreadyFreed   AS INTEGER
 
     freedFontCount% = 0
 

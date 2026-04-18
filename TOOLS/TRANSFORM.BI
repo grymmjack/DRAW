@@ -20,7 +20,7 @@ CONST TRANSFORM_ACT_ROTATE      = 328
 CONST TRANSFORM_ACT_SHEAR       = 329
 CONST TRANSFORM_ACT_FLYOUT      = 330
 
-CONST TRANSFORM_FLYOUT_ITEMS    = 5
+CONST TRANSFORM_FLYOUT_ITEMS = 5
 
 ' ---- Transform modes ----
 CONST TRANSFORM_MODE_SCALE       = 1
@@ -30,28 +30,28 @@ CONST TRANSFORM_MODE_DISTORT     = 4
 CONST TRANSFORM_MODE_PERSPECTIVE = 5
 
 ' ---- Handle sizing (screen pixels) ----
-CONST TRANSFORM_HANDLE_RADIUS   = 7   ' hit-test radius
-CONST TRANSFORM_HANDLE_HALF     = 5   ' draw half-size of square handle
+CONST TRANSFORM_HANDLE_RADIUS = 7 ' hit-test radius
+CONST TRANSFORM_HANDLE_HALF   = 5 ' draw half-size of square handle
 
 TYPE TRANSFORM_OBJ
-    ACTIVE       AS INTEGER    ' TRUE while transform overlay is live
-    MODE         AS INTEGER    ' TRANSFORM_MODE_*
+    ACTIVE    AS INTEGER ' TRUE while transform overlay is live
+    MODE      AS INTEGER ' TRANSFORM_MODE_*
     ' Source region on layer (layer pixel coords)
-    SRC_X        AS INTEGER
-    SRC_Y        AS INTEGER
-    SRC_W        AS INTEGER
-    SRC_H        AS INTEGER
-    SRC_IMG      AS LONG       ' Copy of source pixels captured on activate
+    SRC_X     AS INTEGER
+    SRC_Y     AS INTEGER
+    SRC_W     AS INTEGER
+    SRC_H     AS INTEGER
+    SRC_IMG   AS LONG    ' Copy of source pixels captured on activate
     ' Drag state
-    GRABBED      AS INTEGER    ' -1=none  0-3=corner handle  4=body drag
-    DRAG_OFX     AS SINGLE     ' Offset from handle to mouse at press (canvas px)
-    DRAG_OFY     AS SINGLE
+    GRABBED   AS INTEGER ' -1 = none  0-3=corner handle  4=body drag
+    DRAG_OFX  AS SINGLE  ' Offset from handle to mouse at press (canvas px)
+    DRAG_OFY  AS SINGLE
     ' Status-bar display values
-    ANGLE        AS SINGLE     ' Degrees (ROTATE)
-    SCALE_X      AS SINGLE     ' (SCALE)
-    SCALE_Y      AS SINGLE
+    ANGLE     AS SINGLE  ' Degrees (ROTATE)
+    SCALE_X   AS SINGLE  ' (SCALE)
+    SCALE_Y   AS SINGLE
     ' Restore on cancel / commit
-    PREV_TOOL    AS INTEGER
+    PREV_TOOL AS INTEGER
 END TYPE
 DIM SHARED TRANSFORM AS TRANSFORM_OBJ
 
@@ -63,14 +63,14 @@ DIM SHARED TRANSFORM_HY(3) AS SINGLE
 DIM SHARED TRANSFORM_HX0(3) AS SINGLE
 DIM SHARED TRANSFORM_HY0(3) AS SINGLE
 ' Pivot (centre) in layer coords (for ROTATE)
-DIM SHARED TRANSFORM_PX    AS SINGLE
-DIM SHARED TRANSFORM_PY    AS SINGLE
+DIM SHARED TRANSFORM_PX            AS SINGLE
+DIM SHARED TRANSFORM_PY            AS SINGLE
 ' Pivot snapshot at start of drag (body-drag uses this to avoid accumulation)
-DIM SHARED TRANSFORM_PX0   AS SINGLE
-DIM SHARED TRANSFORM_PY0   AS SINGLE
+DIM SHARED TRANSFORM_PX0           AS SINGLE
+DIM SHARED TRANSFORM_PY0           AS SINGLE
 ' Cached warped preview image
 DIM SHARED TRANSFORM_PREVIEW_IMG   AS LONG
-DIM SHARED TRANSFORM_PREVIEW_OX    AS INTEGER  ' Layer-space bounding-box origin
+DIM SHARED TRANSFORM_PREVIEW_OX    AS INTEGER ' Layer-space bounding-box origin
 DIM SHARED TRANSFORM_PREVIEW_OY    AS INTEGER
 DIM SHARED TRANSFORM_PREVIEW_DIRTY AS INTEGER
 

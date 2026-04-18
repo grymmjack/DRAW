@@ -27,28 +27,28 @@
 $CONSOLE:ONLY
 OPTION _EXPLICIT
 
-CONST SLOT_COUNT = 30
-CONST MODE_BRUSH = 1
-CONST MODE_PATTERN = 2
+CONST SLOT_COUNT    = 30
+CONST MODE_BRUSH    = 1
+CONST MODE_PATTERN  = 2
 CONST MODE_GRADIENT = 3
-CONST TRUE = -1
-CONST FALSE = 0
+CONST TRUE          = -1
+CONST FALSE         = 0
 
-DIM dir AS STRING
-DIM dirName AS STRING
-DIM fileCount AS INTEGER
-DIM setCount AS INTEGER
-DIM setNum AS INTEGER
-DIM slotNum AS INTEGER
-DIM i AS INTEGER
-DIM imgPath AS STRING
-DIM outFile AS STRING
-DIM imgHandle AS LONG
-DIM fh AS INTEGER
-DIM dsetMode AS INTEGER
-DIM modeName AS STRING
+DIM dir        AS STRING
+DIM dirName    AS STRING
+DIM fileCount  AS INTEGER
+DIM setCount   AS INTEGER
+DIM setNum     AS INTEGER
+DIM slotNum    AS INTEGER
+DIM i          AS INTEGER
+DIM imgPath    AS STRING
+DIM outFile    AS STRING
+DIM imgHandle  AS LONG
+DIM fh         AS INTEGER
+DIM dsetMode   AS INTEGER
+DIM modeName   AS STRING
 DIM desaturate AS INTEGER
-DIM inputDset AS STRING
+DIM inputDset  AS STRING
 DIM outputDset AS STRING
 
 ' ---- Collect image file list ----
@@ -80,17 +80,17 @@ IF COMMAND$(1) = "" THEN
 END IF
 
 ' Parse arguments using COMMAND$(n) for proper shell quote handling
-dsetMode% = MODE_BRUSH
-modeName$ = "brush"
+dsetMode%   = MODE_BRUSH
+modeName$   = "brush"
 desaturate% = FALSE
 
 ' Collect positional args (non-flag arguments)
-DIM argNum AS INTEGER
-DIM argVal AS STRING
+DIM argNum  AS INTEGER
+DIM argVal  AS STRING
 DIM posArgs AS INTEGER
 REDIM posArgList(1 TO 10) AS STRING
 posArgs% = 0
-argNum% = 1
+argNum%  = 1
 DO
     argVal$ = COMMAND$(argNum%)
     IF argVal$ = "" THEN EXIT DO
@@ -107,7 +107,7 @@ DO
         desaturate% = TRUE
     ELSE
         posArgs% = posArgs% + 1
-        IF posArgs% <= UBOUND(posArgList) THEN posArgList(posArgs%) = argVal$
+        IF posArgs% < = UBOUND(posArgList) THEN posArgList(posArgs%) = argVal$
     END IF
     argNum% = argNum% + 1
 LOOP
@@ -121,15 +121,15 @@ END IF
 ' Second positional arg (optional) is the output path
 DIM isDsetFile AS INTEGER
 isDsetFile% = FALSE
-inputDset$ = posArgList(1)
-IF posArgs% >= 2 THEN outputDset$ = posArgList(2) ELSE outputDset$ = ""
+inputDset$  = posArgList(1)
+IF posArgs% > = 2 THEN outputDset$ = posArgList(2) ELSE outputDset$ = ""
 
 IF LCASE$(RIGHT$(inputDset$, 5)) = ".dset" THEN
     ' Resolve path
     IF _FILEEXISTS(inputDset$) THEN
         isDsetFile% = TRUE
     ELSEIF _FILEEXISTS(_STARTDIR$ + "/" + inputDset$) THEN
-        inputDset$ = _STARTDIR$ + "/" + inputDset$
+        inputDset$  = _STARTDIR$ + "/" + inputDset$
         isDsetFile% = TRUE
     END IF
 END IF
@@ -166,7 +166,7 @@ END IF
 
 ' Extract folder name (last component of path)
 DIM slashPos AS INTEGER
-DIM tempDir AS STRING
+DIM tempDir  AS STRING
 tempDir$ = dir$
 ' Find the last path separator
 slashPos% = 0
@@ -195,7 +195,7 @@ DO WHILE entry$ <> ""
     fileCount% = fileCount% + 1
     IF fileCount% > UBOUND(fileList) THEN REDIM _PRESERVE fileList(1 TO fileCount% + 100) AS STRING
     fileList(fileCount%) = dir$ + "/" + entry$
-    entry$ = _FILES$
+    entry$               = _FILES$
 LOOP
 
 entry$ = _FILES$(dir$ + "/*.bmp")
@@ -203,7 +203,7 @@ DO WHILE entry$ <> ""
     fileCount% = fileCount% + 1
     IF fileCount% > UBOUND(fileList) THEN REDIM _PRESERVE fileList(1 TO fileCount% + 100) AS STRING
     fileList(fileCount%) = dir$ + "/" + entry$
-    entry$ = _FILES$
+    entry$               = _FILES$
 LOOP
 
 entry$ = _FILES$(dir$ + "/*.jpg")
@@ -211,7 +211,7 @@ DO WHILE entry$ <> ""
     fileCount% = fileCount% + 1
     IF fileCount% > UBOUND(fileList) THEN REDIM _PRESERVE fileList(1 TO fileCount% + 100) AS STRING
     fileList(fileCount%) = dir$ + "/" + entry$
-    entry$ = _FILES$
+    entry$               = _FILES$
 LOOP
 
 entry$ = _FILES$(dir$ + "/*.jpeg")
@@ -219,7 +219,7 @@ DO WHILE entry$ <> ""
     fileCount% = fileCount% + 1
     IF fileCount% > UBOUND(fileList) THEN REDIM _PRESERVE fileList(1 TO fileCount% + 100) AS STRING
     fileList(fileCount%) = dir$ + "/" + entry$
-    entry$ = _FILES$
+    entry$               = _FILES$
 LOOP
 
 IF fileCount% = 0 THEN
@@ -234,10 +234,10 @@ DO
     swapped% = FALSE
     FOR i% = 1 TO fileCount% - 1
         IF fileList(i%) > fileList(i% + 1) THEN
-            tempStr$ = fileList(i%)
-            fileList(i%) = fileList(i% + 1)
+            tempStr$         = fileList(i%)
+            fileList(i%)     = fileList(i% + 1)
             fileList(i% + 1) = tempStr$
-            swapped% = TRUE
+            swapped%         = TRUE
         END IF
     NEXT i%
 LOOP WHILE swapped%
@@ -262,13 +262,13 @@ FOR setNum% = 1 TO setCount%
     OPEN outFile$ FOR BINARY AS #fh%
 
     ' Write header
-    DIM magic AS STRING * 4
-    DIM version AS INTEGER
-    DIM mode AS INTEGER
+    DIM magic        AS STRING * 4
+    DIM version      AS INTEGER
+    DIM mode         AS INTEGER
     DIM selectedSlot AS INTEGER
-    magic$ = "DST1"
-    version% = 1
-    mode% = dsetMode%
+    magic$        = "DST1"
+    version%      = 1
+    mode%         = dsetMode%
     selectedSlot% = 1
     PUT #fh%, , magic$
     PUT #fh%, , version%
@@ -277,28 +277,28 @@ FOR setNum% = 1 TO setCount%
 
     ' Write slots
     DIM startIdx AS INTEGER
-    DIM endIdx AS INTEGER
+    DIM endIdx   AS INTEGER
     startIdx% = (setNum% - 1) * SLOT_COUNT + 1
-    endIdx% = startIdx% + SLOT_COUNT - 1
+    endIdx%   = startIdx% + SLOT_COUNT - 1
     IF endIdx% > fileCount% THEN endIdx% = fileCount%
 
     FOR slotNum% = 1 TO SLOT_COUNT
         DIM fileIdx AS INTEGER
         fileIdx% = startIdx% + slotNum% - 1
 
-        IF fileIdx% <= endIdx% THEN
-            imgPath$ = fileList(fileIdx%)
+        IF fileIdx% < = endIdx% THEN
+            imgPath$   = fileList(fileIdx%)
             imgHandle& = _LOADIMAGE(imgPath$, 32)
 
             IF imgHandle& < -1 THEN
                 ' Write slot with image
-                DIM hasImage AS INTEGER
-                DIM imgW AS INTEGER
-                DIM imgH AS INTEGER
-                DIM x AS INTEGER
-                DIM y AS INTEGER
-                DIM c AS _UNSIGNED LONG
-                DIM m AS _MEM
+                DIM hasImage    AS INTEGER
+                DIM imgW        AS INTEGER
+                DIM imgH        AS INTEGER
+                DIM x           AS INTEGER
+                DIM y           AS INTEGER
+                DIM c           AS _UNSIGNED LONG
+                DIM m           AS _MEM
                 DIM pixelOffset AS _OFFSET
 
                 hasImage% = TRUE
@@ -313,7 +313,7 @@ FOR setNum% = 1 TO setCount%
                 FOR y% = 0 TO imgH% - 1
                     FOR x% = 0 TO imgW% - 1
                         pixelOffset%& = (y% * imgW% + x%) * 4
-                        c~& = _MEMGET(m, m.OFFSET + pixelOffset%&, _UNSIGNED LONG)
+                        c~&           = _MEMGET(m, m.OFFSET + pixelOffset%&, _UNSIGNED LONG)
                         IF desaturate% THEN c~& = DesaturatePixel~&(c~&)
                         PUT #fh%, , c~&
                     NEXT x%
@@ -324,7 +324,7 @@ FOR setNum% = 1 TO setCount%
 
                 ' Extract just the filename for display
                 DIM dispName AS STRING
-                DIM dp AS INTEGER
+                DIM dp       AS INTEGER
                 dp% = 0
                 FOR i% = LEN(imgPath$) TO 1 STEP -1
                     IF MID$(imgPath$, i%, 1) = "/" OR MID$(imgPath$, i%, 1) = "\" THEN
@@ -341,7 +341,7 @@ FOR setNum% = 1 TO setCount%
             ELSE
                 PRINT "  Slot" + STR$(slotNum%) + ": FAILED to load " + imgPath$
                 ' Write empty slot
-                DIM noImage AS INTEGER
+                DIM noImage  AS INTEGER
                 noImage% = FALSE
                 PUT #fh%, , noImage%
             END IF
@@ -365,19 +365,19 @@ SYSTEM
 ' Process existing .dset file — read, desaturate pixels, write new file
 ' ============================================================================
 ProcessExistingDset:
-    DIM pFhIn AS INTEGER
-    DIM pFhOut AS INTEGER
-    DIM pMagic AS STRING * 4
-    DIM pVersion AS INTEGER
-    DIM pMode AS INTEGER
-    DIM pSelected AS INTEGER
-    DIM pHasImage AS INTEGER
-    DIM pImgW AS INTEGER
-    DIM pImgH AS INTEGER
-    DIM pPixel AS _UNSIGNED LONG
-    DIM pX AS INTEGER
-    DIM pY AS INTEGER
-    DIM pSlot AS INTEGER
+    DIM pFhIn      AS INTEGER
+    DIM pFhOut     AS INTEGER
+    DIM pMagic     AS STRING * 4
+    DIM pVersion   AS INTEGER
+    DIM pMode      AS INTEGER
+    DIM pSelected  AS INTEGER
+    DIM pHasImage  AS INTEGER
+    DIM pImgW      AS INTEGER
+    DIM pImgH      AS INTEGER
+    DIM pPixel     AS _UNSIGNED LONG
+    DIM pX         AS INTEGER
+    DIM pY         AS INTEGER
+    DIM pSlot      AS INTEGER
     DIM pSlotCount AS INTEGER
 
     ' Build output path if not specified
@@ -460,10 +460,10 @@ RETURN
 ' Preserves alpha channel
 ' ============================================================================
 FUNCTION DesaturatePixel~& (c AS _UNSIGNED LONG)
-    DIM r AS INTEGER
-    DIM g AS INTEGER
-    DIM b AS INTEGER
-    DIM a AS INTEGER
+    DIM r    AS INTEGER
+    DIM g    AS INTEGER
+    DIM b    AS INTEGER
+    DIM a    AS INTEGER
     DIM gray AS INTEGER
 
     a% = _ALPHA32(c~&)

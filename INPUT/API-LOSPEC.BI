@@ -21,7 +21,7 @@ CONST LOSPEC_MAX_BATCH = 32
 TYPE LOSPEC_PALETTE_INFO
     palName   AS STRING * 64   ' Display name
     palSlug   AS STRING * 64   ' URL slug (used to download .GPL)
-    numColors AS INTEGER        ' Color count
+    numColors AS INTEGER       ' Color count
     author    AS STRING * 64   ' Author display name (from API "author.name")
     colors    AS STRING * 2048 ' Comma-delimited hex color values, no # prefix (up to 256)
 END TYPE

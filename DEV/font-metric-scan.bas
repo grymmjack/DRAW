@@ -6,7 +6,7 @@
 OPTION _EXPLICIT
 OPTION _EXPLICITARRAY
 
-CONST TRUE = -1
+CONST TRUE  = -1
 CONST FALSE = 0
 
 DIM SHARED scanImg AS LONG
@@ -29,14 +29,14 @@ DIM tmpFile AS STRING
 tmpFile$ = "../DEV/_font_scan_tmp.txt"
 SHELL "find ../ASSETS/FONTS -type f \( -iname '*.ttf' -o -iname '*.otf' -o -iname '*.ttc' -o -iname '*.fon' \) 2>/dev/null | sort > " + CHR$(34) + tmpFile$ + CHR$(34)
 
-DIM ff AS INTEGER
-DIM fontPath AS STRING
+DIM ff        AS INTEGER
+DIM fontPath  AS STRING
 DIM fontCount AS INTEGER
-DIM badCount AS INTEGER
-DIM fonCount AS INTEGER
+DIM badCount  AS INTEGER
+DIM fonCount  AS INTEGER
 fontCount% = 0
-badCount% = 0
-fonCount% = 0
+badCount%  = 0
+fonCount%  = 0
 
 ff% = FREEFILE
 OPEN tmpFile$ FOR INPUT AS #ff%
@@ -49,15 +49,15 @@ DO WHILE NOT EOF(ff%)
     IF UCASE$(RIGHT$(fontPath$, 4)) = ".FON" THEN fonCount% = fonCount% + 1
 
     DIM testSize AS INTEGER
-    DIM fHandle AS LONG
-    DIM fHeight AS INTEGER
-    DIM testW AS INTEGER
-    DIM hasInk AS INTEGER
-    DIM oldDest AS LONG
+    DIM fHandle  AS LONG
+    DIM fHeight  AS INTEGER
+    DIM testW    AS INTEGER
+    DIM hasInk   AS INTEGER
+    DIM oldDest  AS LONG
     DIM prevFont AS LONG
-    DIM scanMem AS _MEM
-    DIM byteOff AS LONG
-    DIM pixel AS _UNSIGNED LONG
+    DIM scanMem  AS _MEM
+    DIM byteOff  AS LONG
+    DIM pixel    AS _UNSIGNED LONG
     DIM imgBytes AS LONG
     DIM problems AS STRING
     DIM baseName AS STRING
@@ -75,21 +75,21 @@ DO WHILE NOT EOF(ff%)
 
     ' Test at sizes 8, 10, 12, 16, 20, 24
     DIM sizes(0 TO 5) AS INTEGER
-    sizes(0) = 8: sizes(1) = 10: sizes(2) = 12
-    sizes(3) = 16: sizes(4) = 20: sizes(5) = 24
+    sizes(0) = 8  : sizes(1) = 10 : sizes(2) = 12
+    sizes(3) = 16 : sizes(4) = 20 : sizes(5) = 24
     DIM si AS INTEGER
     FOR si% = 0 TO 5
         testSize% = sizes(si%)
-        fHandle& = _LOADFONT(fontPath$, testSize%)
+        fHandle&  = _LOADFONT(fontPath$, testSize%)
         IF fHandle& < 1 THEN
             problems$ = problems$ + " LOAD_FAIL@" + _TRIM$(STR$(testSize%))
             _CONTINUE
         END IF
 
         ' Check font height
-        oldDest& = _DEST: _DEST scanImg&
-        prevFont& = _FONT: _FONT fHandle&
-        fHeight% = _UFONTHEIGHT
+        oldDest&  = _DEST : _DEST scanImg&
+        prevFont& = _FONT : _FONT fHandle&
+        fHeight%  = _UFONTHEIGHT
         IF fHeight% < 1 THEN
             problems$ = problems$ + " HEIGHT=0@" + _TRIM$(STR$(testSize%))
         END IF
@@ -113,8 +113,8 @@ DO WHILE NOT EOF(ff%)
         _FONT prevFont&: _DEST oldDest&
 
         imgBytes& = CLng(_WIDTH(scanImg&)) * CLng(_HEIGHT(scanImg&)) * 4&
-        scanMem = _MEMIMAGE(scanImg&)
-        hasInk% = FALSE
+        scanMem   = _MEMIMAGE(scanImg&)
+        hasInk%   = FALSE
         FOR byteOff& = 0 TO imgBytes& - 4& STEP 4
             _MEMGET scanMem, scanMem.OFFSET + byteOff&, pixel~&
             IF _ALPHA32(pixel~&) > 0 THEN
