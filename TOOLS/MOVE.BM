@@ -131,6 +131,22 @@ SUB MOVE_capture_selection ()
         ELSE
             EXIT SUB  ' Empty group — nothing to move
         END IF
+    ELSEIF LAYERS(CURRENT_LAYER%).parentGroupIdx% > 0 THEN
+        ' Layer is a child of a group — auto-multi-select all siblings for linked move
+        DIM sibGrp AS INTEGER
+        sibGrp% = LAYERS(CURRENT_LAYER%).parentGroupIdx%
+        MOVE.GROUP_ORIGIN = sibGrp%
+        DIM sibI AS INTEGER
+        FOR sibI% = 1 TO MAX_LAYERS
+            IF LAYERS(sibI%).imgHandle& <> 0 THEN
+                IF LAYERS(sibI%).parentGroupIdx% = sibGrp% AND sibI% <> CURRENT_LAYER% THEN
+                    IF NOT MULTI_SELECT_LAYERS(sibI%) THEN
+                        MULTI_SELECT_LAYERS(sibI%) = TRUE
+                        MULTI_SELECT_COUNT% = MULTI_SELECT_COUNT% + 1
+                    END IF
+                END IF
+            END IF
+        NEXT sibI%
     END IF
 
     ' If no marquee is active, capture the entire layer
@@ -164,6 +180,9 @@ SUB MOVE_capture_selection ()
         MOVE.SELECTION_H = MARQUEE.BOX.h
     END IF
     
+    ' Bail out if selection has zero width or height (degenerate marquee)
+    IF MOVE.SELECTION_W < 1 OR MOVE.SELECTION_H < 1 THEN EXIT SUB
+
     ' Store original position for ESC cancel
     MOVE.ORIGINAL_X = MOVE.SELECTION_X
     MOVE.ORIGINAL_Y = MOVE.SELECTION_Y
@@ -231,6 +250,40 @@ SUB MOVE_capture_selection ()
     MOVE.SELECTION_IMAGE = _NEWIMAGE(MOVE.SELECTION_W, MOVE.SELECTION_H, 32)
     _DEST MOVE.SELECTION_IMAGE
     _PUTIMAGE (0, 0), LAYER_current_image&, MOVE.SELECTION_IMAGE, (MOVE.SELECTION_X, MOVE.SELECTION_Y)-(MOVE.SELECTION_X + MOVE.SELECTION_W - 1, MOVE.SELECTION_Y + MOVE.SELECTION_H - 1)
+
+    ' Apply selection mask: zero out pixels outside the non-rectangular selection
+    ' so only pixels within the actual shape (freehand, ellipse, polygon, wand) are captured
+    IF MARQUEE.SELECTION_MASK < -1 AND MARQUEE.WAND_HAS_SELECTION THEN
+        DIM capMaskMem AS _MEM, capSelMem AS _MEM
+        DIM capMaskStride AS LONG, capSelStride AS LONG
+        DIM capMx AS INTEGER, capMy AS INTEGER
+        DIM capMaskPix AS _UNSIGNED LONG
+        capMaskMem = _MEMIMAGE(MARQUEE.SELECTION_MASK)
+        capSelMem = _MEMIMAGE(MOVE.SELECTION_IMAGE)
+        capMaskStride& = _WIDTH(MARQUEE.SELECTION_MASK) * 4
+        capSelStride& = MOVE.SELECTION_W * 4
+        FOR capMy% = 0 TO MOVE.SELECTION_H - 1
+            FOR capMx% = 0 TO MOVE.SELECTION_W - 1
+                DIM capGx AS INTEGER, capGy AS INTEGER
+                capGx% = MOVE.SELECTION_X + capMx%
+                capGy% = MOVE.SELECTION_Y + capMy%
+                IF capGx% >= 0 AND capGy% >= 0 THEN
+                    IF capGx% < _WIDTH(MARQUEE.SELECTION_MASK) AND capGy% < _HEIGHT(MARQUEE.SELECTION_MASK) THEN
+                        _MEMGET capMaskMem, capMaskMem.OFFSET + (capGy% * capMaskStride& + capGx% * 4), capMaskPix~&
+                        IF _ALPHA32(capMaskPix~&) = 0 THEN
+                            _MEMPUT capSelMem, capSelMem.OFFSET + (capMy% * capSelStride& + capMx% * 4), _RGBA32(0, 0, 0, 0) AS _UNSIGNED LONG
+                        END IF
+                    ELSE
+                        _MEMPUT capSelMem, capSelMem.OFFSET + (capMy% * capSelStride& + capMx% * 4), _RGBA32(0, 0, 0, 0) AS _UNSIGNED LONG
+                    END IF
+                ELSE
+                    _MEMPUT capSelMem, capSelMem.OFFSET + (capMy% * capSelStride& + capMx% * 4), _RGBA32(0, 0, 0, 0) AS _UNSIGNED LONG
+                END IF
+            NEXT capMx%
+        NEXT capMy%
+        _MEMFREE capMaskMem
+        _MEMFREE capSelMem
+    END IF
     
     ' Save original image for lossless re-scaling
     IF MOVE.ORIGINAL_IMAGE < -1 THEN _FREEIMAGE MOVE.ORIGINAL_IMAGE
@@ -494,12 +547,26 @@ SUB MOVE_apply_transform ()
     targetImg& = LAYERS(targetLayer%).imgHandle&
     DIM moveTargetBefore AS LONG
     DIM moveUsedHistoryGroup AS INTEGER
+    DIM moveOpenedGroup AS INTEGER
     DIM moveRecorded AS INTEGER
     DIM moveDidChange AS INTEGER
     moveTargetBefore& = 0
     moveUsedHistoryGroup% = FALSE
+    moveOpenedGroup% = FALSE
     moveRecorded% = FALSE
     moveDidChange% = (MOVE.CURRENT_X <> MOVE.ORIGINAL_X) OR (MOVE.CURRENT_Y <> MOVE.ORIGINAL_Y) OR (MOVE.CURRENT_W <> MOVE.ORIGINAL_W) OR (MOVE.CURRENT_H <> MOVE.ORIGINAL_H)
+
+    ' No-op guard: when ORIGINAL == CURRENT and not cloning, skip the clear+redraw
+    ' cycle entirely. Prevents pixel corruption when MOVE_reset calls apply after
+    ' MOVE_sync_base already made ORIGINAL == CURRENT — the clear destroys
+    ' transparent regions that overlay previously-cloned content, silently damaging
+    ' the layer without a history record. This caused redo to replay from a
+    ' corrupted state after clone-nudge sequences.
+    IF NOT moveDidChange% AND NOT MOVE.CLONING AND NOT MOVE.CLONE_STAMPED THEN
+        MOVE.TRANSFORMING = FALSE
+        EXIT SUB
+    END IF
+
     IF NOT HISTORY_IN_PROGRESS% AND LAYERS(targetLayer%).historyId& > 0 AND targetImg& < -1 THEN
         moveTargetBefore& = _COPYIMAGE(targetImg&, 32)
     END IF
@@ -509,9 +576,38 @@ SUB MOVE_apply_transform ()
     ' If not cloning (and no stamps were placed), clear the ORIGINAL area to transparent
     ' Must use _DONTBLEND so alpha=0 pixels actually overwrite existing content
     IF NOT MOVE.CLONING AND NOT MOVE.CLONE_STAMPED THEN
-        _DONTBLEND targetImg&
-        LINE (MOVE.ORIGINAL_X, MOVE.ORIGINAL_Y)-(MOVE.ORIGINAL_X + MOVE.ORIGINAL_W - 1, MOVE.ORIGINAL_Y + MOVE.ORIGINAL_H - 1), _RGBA32(0, 0, 0, 0), BF
-        _BLEND targetImg&
+        IF MARQUEE.SELECTION_MASK < -1 AND MARQUEE.WAND_HAS_SELECTION THEN
+            ' Mask-aware clear: only clear pixels within the selection shape
+            DIM clrMaskMem AS _MEM, clrLayMem AS _MEM
+            DIM clrMaskStride AS LONG, clrLayStride AS LONG
+            DIM clrX AS INTEGER, clrY AS INTEGER
+            DIM clrMaskPix AS _UNSIGNED LONG
+            clrMaskMem = _MEMIMAGE(MARQUEE.SELECTION_MASK)
+            clrLayMem = _MEMIMAGE(targetImg&)
+            clrMaskStride& = _WIDTH(MARQUEE.SELECTION_MASK) * 4
+            clrLayStride& = _WIDTH(targetImg&) * 4
+            FOR clrY% = MOVE.ORIGINAL_Y TO MOVE.ORIGINAL_Y + MOVE.ORIGINAL_H - 1
+                IF clrY% >= 0 AND clrY% < _HEIGHT(targetImg&) THEN
+                    FOR clrX% = MOVE.ORIGINAL_X TO MOVE.ORIGINAL_X + MOVE.ORIGINAL_W - 1
+                        IF clrX% >= 0 AND clrX% < _WIDTH(targetImg&) THEN
+                            IF clrX% < _WIDTH(MARQUEE.SELECTION_MASK) AND clrY% < _HEIGHT(MARQUEE.SELECTION_MASK) THEN
+                                _MEMGET clrMaskMem, clrMaskMem.OFFSET + (clrY% * clrMaskStride& + clrX% * 4), clrMaskPix~&
+                                IF _ALPHA32(clrMaskPix~&) > 0 THEN
+                                    _MEMPUT clrLayMem, clrLayMem.OFFSET + (clrY% * clrLayStride& + clrX% * 4), _RGBA32(0, 0, 0, 0) AS _UNSIGNED LONG
+                                END IF
+                            END IF
+                        END IF
+                    NEXT clrX%
+                END IF
+            NEXT clrY%
+            _MEMFREE clrMaskMem
+            _MEMFREE clrLayMem
+        ELSE
+            ' Rectangular selection: clear entire bounding box
+            _DONTBLEND targetImg&
+            LINE (MOVE.ORIGINAL_X, MOVE.ORIGINAL_Y)-(MOVE.ORIGINAL_X + MOVE.ORIGINAL_W - 1, MOVE.ORIGINAL_Y + MOVE.ORIGINAL_H - 1), _RGBA32(0, 0, 0, 0), BF
+            _BLEND targetImg&
+        END IF
     END IF
     
     ' Draw the transformed selection
@@ -526,7 +622,7 @@ SUB MOVE_apply_transform ()
     MARQUEE.BOX.y = MOVE.CURRENT_Y
     MARQUEE.BOX.w = MOVE.CURRENT_W
     MARQUEE.BOX.h = MOVE.CURRENT_H
-    
+
     ' Update text layer metadata so re-edit hit-testing uses the new position
     IF LAYERS(targetLayer%).layerType% = LAYER_TYPE_TEXT THEN
         DIM mtTd AS INTEGER
@@ -544,18 +640,22 @@ SUB MOVE_apply_transform ()
     LAYERS(targetLayer%).contentDirty% = TRUE
     BLEND_invalidate_cache
 
-    ' Multi-layer linked move: translate all other snapshotted layers by the same
-    ' translation delta. Only applies when TRANSFORM_TYPE=0 (pure translation) and
-    ' not cloning. Scale/stretch only affect the captured layer.
-    IF MOVE_MULTI_COUNT% > 0 AND MOVE.TRANSFORM_TYPE = 0 AND NOT MOVE.CLONING THEN
+    ' Multi-layer linked move: apply the same selection-based cut+paste to sibling layers.
+    ' Only applies when TRANSFORM_TYPE=0 (pure translation).
+    ' Each sibling gets the same treatment as the primary layer:
+    '   - Copy the ORIGINAL region from the layer
+    '   - Clear the ORIGINAL region to transparent (unless cloning)
+    '   - Paste it at the CURRENT position
+    IF MOVE_MULTI_COUNT% > 0 AND MOVE.TRANSFORM_TYPE = 0 THEN
         DIM mmDx AS INTEGER, mmDy AS INTEGER
         mmDx% = MOVE.CURRENT_X - MOVE.ORIGINAL_X
         mmDy% = MOVE.CURRENT_Y - MOVE.ORIGINAL_Y
         IF mmDx% <> 0 OR mmDy% <> 0 THEN
-            IF NOT HISTORY_IN_PROGRESS% THEN
+            IF NOT HISTORY_IN_PROGRESS% AND NOT HISTORY_GROUP_ACTIVE% THEN
                 HISTORY_begin_group
-                moveUsedHistoryGroup% = HISTORY_GROUP_ACTIVE%
+                moveOpenedGroup% = HISTORY_GROUP_ACTIVE%
             END IF
+            moveUsedHistoryGroup% = HISTORY_GROUP_ACTIVE%
             DIM mmI AS INTEGER
             FOR mmI% = 1 TO MOVE_MULTI_COUNT%
                 DIM mmIdx AS INTEGER
@@ -567,16 +667,104 @@ SUB MOVE_apply_transform ()
                         IF LAYERS(mmIdx%).historyId& > 0 THEN
                             mmBefore& = _COPYIMAGE(LAYERS(mmIdx%).imgHandle&, 32)
                         END IF
-                        LAYER_translate_content mmIdx%, mmDx%, mmDy%
+
+                        DIM mmSibImg AS LONG
+                        mmSibImg& = LAYERS(mmIdx%).imgHandle&
+
+                        ' Copy the selection region from this sibling layer
+                        DIM mmSelCopy AS LONG
+                        mmSelCopy& = _NEWIMAGE(MOVE.ORIGINAL_W, MOVE.ORIGINAL_H, 32)
+                        _DONTBLEND mmSelCopy&
+                        _DEST mmSelCopy&
+                        CLS , _RGBA32(0, 0, 0, 0)
+                        _BLEND mmSelCopy&
+                        _PUTIMAGE (0, 0), mmSibImg&, mmSelCopy&, (MOVE.ORIGINAL_X, MOVE.ORIGINAL_Y)-(MOVE.ORIGINAL_X + MOVE.ORIGINAL_W - 1, MOVE.ORIGINAL_Y + MOVE.ORIGINAL_H - 1)
+
+                        ' Apply selection mask to sibling copy (only keep pixels within shape)
+                        IF MARQUEE.SELECTION_MASK < -1 AND MARQUEE.WAND_HAS_SELECTION THEN
+                            DIM mmCopyMem AS _MEM, mmMaskMem AS _MEM
+                            DIM mmMaskStride AS LONG, mmCopyStride AS LONG
+                            DIM mmMx AS INTEGER, mmMy AS INTEGER
+                            DIM mmMaskPix AS _UNSIGNED LONG
+                            mmMaskMem = _MEMIMAGE(MARQUEE.SELECTION_MASK)
+                            mmCopyMem = _MEMIMAGE(mmSelCopy&)
+                            mmMaskStride& = _WIDTH(MARQUEE.SELECTION_MASK) * 4
+                            mmCopyStride& = MOVE.ORIGINAL_W * 4
+                            FOR mmMy% = 0 TO MOVE.ORIGINAL_H - 1
+                                FOR mmMx% = 0 TO MOVE.ORIGINAL_W - 1
+                                    DIM mmGx AS INTEGER, mmGy AS INTEGER
+                                    mmGx% = MOVE.ORIGINAL_X + mmMx%
+                                    mmGy% = MOVE.ORIGINAL_Y + mmMy%
+                                    IF mmGx% >= 0 AND mmGy% >= 0 THEN
+                                        IF mmGx% < _WIDTH(MARQUEE.SELECTION_MASK) AND mmGy% < _HEIGHT(MARQUEE.SELECTION_MASK) THEN
+                                            _MEMGET mmMaskMem, mmMaskMem.OFFSET + (mmGy% * mmMaskStride& + mmGx% * 4), mmMaskPix~&
+                                            IF _ALPHA32(mmMaskPix~&) = 0 THEN
+                                                _MEMPUT mmCopyMem, mmCopyMem.OFFSET + (mmMy% * mmCopyStride& + mmMx% * 4), _RGBA32(0, 0, 0, 0) AS _UNSIGNED LONG
+                                            END IF
+                                        ELSE
+                                            _MEMPUT mmCopyMem, mmCopyMem.OFFSET + (mmMy% * mmCopyStride& + mmMx% * 4), _RGBA32(0, 0, 0, 0) AS _UNSIGNED LONG
+                                        END IF
+                                    ELSE
+                                        _MEMPUT mmCopyMem, mmCopyMem.OFFSET + (mmMy% * mmCopyStride& + mmMx% * 4), _RGBA32(0, 0, 0, 0) AS _UNSIGNED LONG
+                                    END IF
+                                NEXT mmMx%
+                            NEXT mmMy%
+                            _MEMFREE mmMaskMem
+                            _MEMFREE mmCopyMem
+                        END IF
+
+                        ' Clear the original region (unless cloning)
+                        IF NOT MOVE.CLONING AND NOT MOVE.CLONE_STAMPED THEN
+                            IF MARQUEE.SELECTION_MASK < -1 AND MARQUEE.WAND_HAS_SELECTION THEN
+                                ' Mask-aware clear for sibling
+                                DIM mmClrMaskMem AS _MEM, mmClrLayMem AS _MEM
+                                DIM mmClrMaskStride AS LONG, mmClrLayStride AS LONG
+                                DIM mmClrX AS INTEGER, mmClrY AS INTEGER
+                                DIM mmClrPix AS _UNSIGNED LONG
+                                mmClrMaskMem = _MEMIMAGE(MARQUEE.SELECTION_MASK)
+                                mmClrLayMem = _MEMIMAGE(mmSibImg&)
+                                mmClrMaskStride& = _WIDTH(MARQUEE.SELECTION_MASK) * 4
+                                mmClrLayStride& = _WIDTH(mmSibImg&) * 4
+                                FOR mmClrY% = MOVE.ORIGINAL_Y TO MOVE.ORIGINAL_Y + MOVE.ORIGINAL_H - 1
+                                    IF mmClrY% >= 0 AND mmClrY% < _HEIGHT(mmSibImg&) THEN
+                                        FOR mmClrX% = MOVE.ORIGINAL_X TO MOVE.ORIGINAL_X + MOVE.ORIGINAL_W - 1
+                                            IF mmClrX% >= 0 AND mmClrX% < _WIDTH(mmSibImg&) THEN
+                                                IF mmClrX% < _WIDTH(MARQUEE.SELECTION_MASK) AND mmClrY% < _HEIGHT(MARQUEE.SELECTION_MASK) THEN
+                                                    _MEMGET mmClrMaskMem, mmClrMaskMem.OFFSET + (mmClrY% * mmClrMaskStride& + mmClrX% * 4), mmClrPix~&
+                                                    IF _ALPHA32(mmClrPix~&) > 0 THEN
+                                                        _MEMPUT mmClrLayMem, mmClrLayMem.OFFSET + (mmClrY% * mmClrLayStride& + mmClrX% * 4), _RGBA32(0, 0, 0, 0) AS _UNSIGNED LONG
+                                                    END IF
+                                                END IF
+                                            END IF
+                                        NEXT mmClrX%
+                                    END IF
+                                NEXT mmClrY%
+                                _MEMFREE mmClrMaskMem
+                                _MEMFREE mmClrLayMem
+                            ELSE
+                                _DEST mmSibImg&
+                                _DONTBLEND mmSibImg&
+                                LINE (MOVE.ORIGINAL_X, MOVE.ORIGINAL_Y)-(MOVE.ORIGINAL_X + MOVE.ORIGINAL_W - 1, MOVE.ORIGINAL_Y + MOVE.ORIGINAL_H - 1), _RGBA32(0, 0, 0, 0), BF
+                                _BLEND mmSibImg&
+                            END IF
+                        END IF
+
+                        ' Paste at the new position
+                        _DEST mmSibImg&
+                        _PUTIMAGE (MOVE.CURRENT_X, MOVE.CURRENT_Y)-(MOVE.CURRENT_X + MOVE.CURRENT_W - 1, MOVE.CURRENT_Y + MOVE.CURRENT_H - 1), mmSelCopy&, mmSibImg&
+
+                        IF mmSelCopy& < -1 THEN _FREEIMAGE mmSelCopy&
+
                         LAYERS(mmIdx%).contentDirty% = TRUE
                         IF mmBefore& < -1 THEN
-                            HISTORY_record_transform LAYERS(mmIdx%).historyId&, mmIdx%, 0, mmBefore&, "Move"
+                            IF MOVE.CLONING THEN
+                                HISTORY_record_transform LAYERS(mmIdx%).historyId&, mmIdx%, 0, mmBefore&, "Clone"
+                            ELSE
+                                HISTORY_record_transform LAYERS(mmIdx%).historyId&, mmIdx%, 0, mmBefore&, "Move"
+                            END IF
                             moveRecorded% = TRUE
                         END IF
-                        ' Refresh the originals snapshot to the now-translated content.
-                        ' MOVE_sync_base resets delta to 0 and rerenders preview buffers,
-                        ' so the snapshot must reflect the post-translate pixels or the
-                        ' preview will render the layer back at its original position.
+                        ' Refresh the originals snapshot to the now-modified content.
                         IF MOVE_MULTI_ORIGINALS(mmI%) < -1 THEN
                             DIM mmO AS LONG
                             mmO& = MOVE_MULTI_ORIGINALS(mmI%)
@@ -594,18 +782,57 @@ SUB MOVE_apply_transform ()
     END IF
 
     IF moveTargetBefore& < -1 AND (moveDidChange% OR MOVE.CLONING OR MOVE.CLONE_STAMPED) THEN
-        IF MOVE_MULTI_COUNT% > 0 AND MOVE.TRANSFORM_TYPE = 0 AND NOT MOVE.CLONING AND NOT moveUsedHistoryGroup% AND NOT HISTORY_IN_PROGRESS% THEN
+        IF MOVE_MULTI_COUNT% > 0 AND MOVE.TRANSFORM_TYPE = 0 AND NOT moveUsedHistoryGroup% AND NOT HISTORY_IN_PROGRESS% AND NOT HISTORY_GROUP_ACTIVE% THEN
             HISTORY_begin_group
+            moveOpenedGroup% = HISTORY_GROUP_ACTIVE%
             moveUsedHistoryGroup% = HISTORY_GROUP_ACTIVE%
         END IF
-        HISTORY_record_transform LAYERS(targetLayer%).historyId&, targetLayer%, 0, moveTargetBefore&, "Move"
+        IF MOVE.CLONING THEN
+            HISTORY_record_transform LAYERS(targetLayer%).historyId&, targetLayer%, 0, moveTargetBefore&, "Clone"
+        ELSE
+            HISTORY_record_transform LAYERS(targetLayer%).historyId&, targetLayer%, 0, moveTargetBefore&, "Move"
+        END IF
         moveRecorded% = TRUE
     ELSEIF moveTargetBefore& < -1 THEN
         _FREEIMAGE moveTargetBefore&
     END IF
 
-    IF moveUsedHistoryGroup% THEN HISTORY_end_group
+    IF moveOpenedGroup% THEN HISTORY_end_group
     IF moveRecorded% THEN HISTORY_saved_this_frame% = TRUE
+
+    ' Latch clone mode — once cloned during a nudge sequence, don't clear
+    ' the original area on subsequent non-clone nudges (preserves clone stamps)
+    IF MOVE.CLONING AND moveDidChange% THEN MOVE.CLONE_STAMPED = TRUE
+
+    ' Shift the selection mask so marching ants follow the moved content.
+    ' Done AFTER all pixel operations (primary + siblings) since they use
+    ' the pre-shift mask at the ORIGINAL position for clearing.
+    DIM atDx AS INTEGER, atDy AS INTEGER
+    atDx% = MOVE.CURRENT_X - MOVE.ORIGINAL_X
+    atDy% = MOVE.CURRENT_Y - MOVE.ORIGINAL_Y
+    IF (atDx% <> 0 OR atDy% <> 0) AND MARQUEE.SELECTION_MASK < -1 THEN
+        DIM atMaskW AS INTEGER, atMaskH AS INTEGER
+        atMaskW% = _WIDTH(MARQUEE.SELECTION_MASK)
+        atMaskH% = _HEIGHT(MARQUEE.SELECTION_MASK)
+        DIM atTmp AS LONG
+        atTmp& = _NEWIMAGE(atMaskW%, atMaskH%, 32)
+        _DEST atTmp&
+        _DONTBLEND atTmp&
+        CLS , _RGBA32(0, 0, 0, 0)
+        _PUTIMAGE (atDx%, atDy%), MARQUEE.SELECTION_MASK, atTmp&
+        _DEST MARQUEE.SELECTION_MASK
+        _DONTBLEND MARQUEE.SELECTION_MASK
+        CLS , _RGBA32(0, 0, 0, 0)
+        _PUTIMAGE , atTmp&, MARQUEE.SELECTION_MASK
+        _BLEND MARQUEE.SELECTION_MASK
+        _DEST SCRN.CANVAS&
+        IF atTmp& < -1 THEN _FREEIMAGE atTmp&
+        MARQUEE.WAND_MIN_X = MARQUEE.WAND_MIN_X + atDx%
+        MARQUEE.WAND_MIN_Y = MARQUEE.WAND_MIN_Y + atDy%
+        MARQUEE.WAND_MAX_X = MARQUEE.WAND_MAX_X + atDx%
+        MARQUEE.WAND_MAX_Y = MARQUEE.WAND_MAX_Y + atDy%
+        MARQUEE.WAND_EDGE_DIRTY = TRUE
+    END IF
 
     ' Reset transforming flag
     MOVE.TRANSFORMING = FALSE
@@ -965,6 +1192,10 @@ END SUB
 SUB MOVE_nudge (dx AS INTEGER, dy AS INTEGER)
     IF NOT MOVE.ACTIVE THEN EXIT SUB
     
+    ' Snapshot selection state before the nudge so undo restores selection position
+    HISTORY_selection_stage
+    HISTORY_begin_group
+
     ' Update current position
     MOVE.CURRENT_X = MOVE.CURRENT_X + dx%
     MOVE.CURRENT_Y = MOVE.CURRENT_Y + dy%
@@ -972,7 +1203,12 @@ SUB MOVE_nudge (dx AS INTEGER, dy AS INTEGER)
     ' Commit the nudge to canvas (saves undo state), then sync the base
     ' position WITHOUT re-capturing from the layer so no clipping occurs.
     MOVE_apply_transform
+
     MOVE_sync_base
+
+    ' Record the selection change (grouped with the transform records)
+    HISTORY_selection_commit
+    HISTORY_end_group
 END SUB
 
 ''
