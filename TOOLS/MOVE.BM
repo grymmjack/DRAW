@@ -131,6 +131,22 @@ SUB MOVE_capture_selection ()
         ELSE
             EXIT SUB  ' Empty group — nothing to move
         END IF
+    ELSEIF LAYERS(CURRENT_LAYER%).parentGroupIdx% > 0 THEN
+        ' Layer is a child of a group — auto-multi-select all siblings for linked move
+        DIM sibGrp AS INTEGER
+        sibGrp% = LAYERS(CURRENT_LAYER%).parentGroupIdx%
+        MOVE.GROUP_ORIGIN = sibGrp%
+        DIM sibI AS INTEGER
+        FOR sibI% = 1 TO MAX_LAYERS
+            IF LAYERS(sibI%).imgHandle& <> 0 THEN
+                IF LAYERS(sibI%).parentGroupIdx% = sibGrp% AND sibI% <> CURRENT_LAYER% THEN
+                    IF NOT MULTI_SELECT_LAYERS(sibI%) THEN
+                        MULTI_SELECT_LAYERS(sibI%) = TRUE
+                        MULTI_SELECT_COUNT% = MULTI_SELECT_COUNT% + 1
+                    END IF
+                END IF
+            END IF
+        NEXT sibI%
     END IF
 
     ' If no marquee is active, capture the entire layer
@@ -164,6 +180,9 @@ SUB MOVE_capture_selection ()
         MOVE.SELECTION_H = MARQUEE.BOX.h
     END IF
     
+    ' Bail out if selection has zero width or height (degenerate marquee)
+    IF MOVE.SELECTION_W < 1 OR MOVE.SELECTION_H < 1 THEN EXIT SUB
+
     ' Store original position for ESC cancel
     MOVE.ORIGINAL_X = MOVE.SELECTION_X
     MOVE.ORIGINAL_Y = MOVE.SELECTION_Y
@@ -500,6 +519,18 @@ SUB MOVE_apply_transform ()
     moveUsedHistoryGroup% = FALSE
     moveRecorded% = FALSE
     moveDidChange% = (MOVE.CURRENT_X <> MOVE.ORIGINAL_X) OR (MOVE.CURRENT_Y <> MOVE.ORIGINAL_Y) OR (MOVE.CURRENT_W <> MOVE.ORIGINAL_W) OR (MOVE.CURRENT_H <> MOVE.ORIGINAL_H)
+
+    ' No-op guard: when ORIGINAL == CURRENT and not cloning, skip the clear+redraw
+    ' cycle entirely. Prevents pixel corruption when MOVE_reset calls apply after
+    ' MOVE_sync_base already made ORIGINAL == CURRENT — the clear destroys
+    ' transparent regions that overlay previously-cloned content, silently damaging
+    ' the layer without a history record. This caused redo to replay from a
+    ' corrupted state after clone-nudge sequences.
+    IF NOT moveDidChange% AND NOT MOVE.CLONING AND NOT MOVE.CLONE_STAMPED THEN
+        MOVE.TRANSFORMING = FALSE
+        EXIT SUB
+    END IF
+
     IF NOT HISTORY_IN_PROGRESS% AND LAYERS(targetLayer%).historyId& > 0 AND targetImg& < -1 THEN
         moveTargetBefore& = _COPYIMAGE(targetImg&, 32)
     END IF
@@ -544,10 +575,13 @@ SUB MOVE_apply_transform ()
     LAYERS(targetLayer%).contentDirty% = TRUE
     BLEND_invalidate_cache
 
-    ' Multi-layer linked move: translate all other snapshotted layers by the same
-    ' translation delta. Only applies when TRANSFORM_TYPE=0 (pure translation) and
-    ' not cloning. Scale/stretch only affect the captured layer.
-    IF MOVE_MULTI_COUNT% > 0 AND MOVE.TRANSFORM_TYPE = 0 AND NOT MOVE.CLONING THEN
+    ' Multi-layer linked move: apply the same selection-based cut+paste to sibling layers.
+    ' Only applies when TRANSFORM_TYPE=0 (pure translation).
+    ' Each sibling gets the same treatment as the primary layer:
+    '   - Copy the ORIGINAL region from the layer
+    '   - Clear the ORIGINAL region to transparent (unless cloning)
+    '   - Paste it at the CURRENT position
+    IF MOVE_MULTI_COUNT% > 0 AND MOVE.TRANSFORM_TYPE = 0 THEN
         DIM mmDx AS INTEGER, mmDy AS INTEGER
         mmDx% = MOVE.CURRENT_X - MOVE.ORIGINAL_X
         mmDy% = MOVE.CURRENT_Y - MOVE.ORIGINAL_Y
@@ -567,16 +601,43 @@ SUB MOVE_apply_transform ()
                         IF LAYERS(mmIdx%).historyId& > 0 THEN
                             mmBefore& = _COPYIMAGE(LAYERS(mmIdx%).imgHandle&, 32)
                         END IF
-                        LAYER_translate_content mmIdx%, mmDx%, mmDy%
+
+                        DIM mmSibImg AS LONG
+                        mmSibImg& = LAYERS(mmIdx%).imgHandle&
+
+                        ' Copy the selection region from this sibling layer
+                        DIM mmSelCopy AS LONG
+                        mmSelCopy& = _NEWIMAGE(MOVE.ORIGINAL_W, MOVE.ORIGINAL_H, 32)
+                        _DONTBLEND mmSelCopy&
+                        _DEST mmSelCopy&
+                        CLS , _RGBA32(0, 0, 0, 0)
+                        _BLEND mmSelCopy&
+                        _PUTIMAGE (0, 0), mmSibImg&, mmSelCopy&, (MOVE.ORIGINAL_X, MOVE.ORIGINAL_Y)-(MOVE.ORIGINAL_X + MOVE.ORIGINAL_W - 1, MOVE.ORIGINAL_Y + MOVE.ORIGINAL_H - 1)
+
+                        ' Clear the original region (unless cloning)
+                        IF NOT MOVE.CLONING AND NOT MOVE.CLONE_STAMPED THEN
+                            _DEST mmSibImg&
+                            _DONTBLEND mmSibImg&
+                            LINE (MOVE.ORIGINAL_X, MOVE.ORIGINAL_Y)-(MOVE.ORIGINAL_X + MOVE.ORIGINAL_W - 1, MOVE.ORIGINAL_Y + MOVE.ORIGINAL_H - 1), _RGBA32(0, 0, 0, 0), BF
+                            _BLEND mmSibImg&
+                        END IF
+
+                        ' Paste at the new position
+                        _DEST mmSibImg&
+                        _PUTIMAGE (MOVE.CURRENT_X, MOVE.CURRENT_Y)-(MOVE.CURRENT_X + MOVE.CURRENT_W - 1, MOVE.CURRENT_Y + MOVE.CURRENT_H - 1), mmSelCopy&, mmSibImg&
+
+                        IF mmSelCopy& < -1 THEN _FREEIMAGE mmSelCopy&
+
                         LAYERS(mmIdx%).contentDirty% = TRUE
                         IF mmBefore& < -1 THEN
-                            HISTORY_record_transform LAYERS(mmIdx%).historyId&, mmIdx%, 0, mmBefore&, "Move"
+                            IF MOVE.CLONING THEN
+                                HISTORY_record_transform LAYERS(mmIdx%).historyId&, mmIdx%, 0, mmBefore&, "Clone"
+                            ELSE
+                                HISTORY_record_transform LAYERS(mmIdx%).historyId&, mmIdx%, 0, mmBefore&, "Move"
+                            END IF
                             moveRecorded% = TRUE
                         END IF
-                        ' Refresh the originals snapshot to the now-translated content.
-                        ' MOVE_sync_base resets delta to 0 and rerenders preview buffers,
-                        ' so the snapshot must reflect the post-translate pixels or the
-                        ' preview will render the layer back at its original position.
+                        ' Refresh the originals snapshot to the now-modified content.
                         IF MOVE_MULTI_ORIGINALS(mmI%) < -1 THEN
                             DIM mmO AS LONG
                             mmO& = MOVE_MULTI_ORIGINALS(mmI%)
@@ -594,11 +655,15 @@ SUB MOVE_apply_transform ()
     END IF
 
     IF moveTargetBefore& < -1 AND (moveDidChange% OR MOVE.CLONING OR MOVE.CLONE_STAMPED) THEN
-        IF MOVE_MULTI_COUNT% > 0 AND MOVE.TRANSFORM_TYPE = 0 AND NOT MOVE.CLONING AND NOT moveUsedHistoryGroup% AND NOT HISTORY_IN_PROGRESS% THEN
+        IF MOVE_MULTI_COUNT% > 0 AND MOVE.TRANSFORM_TYPE = 0 AND NOT moveUsedHistoryGroup% AND NOT HISTORY_IN_PROGRESS% THEN
             HISTORY_begin_group
             moveUsedHistoryGroup% = HISTORY_GROUP_ACTIVE%
         END IF
-        HISTORY_record_transform LAYERS(targetLayer%).historyId&, targetLayer%, 0, moveTargetBefore&, "Move"
+        IF MOVE.CLONING THEN
+            HISTORY_record_transform LAYERS(targetLayer%).historyId&, targetLayer%, 0, moveTargetBefore&, "Clone"
+        ELSE
+            HISTORY_record_transform LAYERS(targetLayer%).historyId&, targetLayer%, 0, moveTargetBefore&, "Move"
+        END IF
         moveRecorded% = TRUE
     ELSEIF moveTargetBefore& < -1 THEN
         _FREEIMAGE moveTargetBefore&
@@ -606,6 +671,10 @@ SUB MOVE_apply_transform ()
 
     IF moveUsedHistoryGroup% THEN HISTORY_end_group
     IF moveRecorded% THEN HISTORY_saved_this_frame% = TRUE
+
+    ' Latch clone mode — once cloned during a nudge sequence, don't clear
+    ' the original area on subsequent non-clone nudges (preserves clone stamps)
+    IF MOVE.CLONING AND moveDidChange% THEN MOVE.CLONE_STAMPED = TRUE
 
     ' Reset transforming flag
     MOVE.TRANSFORMING = FALSE
