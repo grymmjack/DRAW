@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-align-comments.py — Normalise or align inline comments in QB64 source files.
+align-qb64pe.py — Align inline comments, '=', 'AS', ':', and CASE statements in QB64-PE source files.
 
 Two modes:
 
@@ -43,7 +43,7 @@ Flags:
     comments. Implies --mode align.
 
 Usage:
-  python3 align-comments.py [OPTIONS] [PATHS...]
+  python3 align-qb64pe.py [OPTIONS] [PATHS...]
 
   PATHS can be individual .BAS/.BI/.BM files or directories to scan.
   Default: current directory (recursive)
@@ -64,11 +64,11 @@ Options:
   --help                 Show this message
 
 Examples:
-  python3 align-comments.py --dry-run CFG/
-  python3 align-comments.py --align-eq CFG/BINDINGS-KEYBOARD.BI
-  python3 align-comments.py --align-as --global CFG/CONFIG-THEME.BI
-  python3 align-comments.py --align-case --global CFG/CONFIG-THEME.BM
-  python3 align-comments.py --align-eq --align-as --global CFG/
+  python3 align-qb64pe.py --dry-run CFG/
+  python3 align-qb64pe.py --align-eq CFG/BINDINGS-KEYBOARD.BI
+  python3 align-qb64pe.py --align-as --global CFG/CONFIG-THEME.BI
+  python3 align-qb64pe.py --align-case --global CFG/CONFIG-THEME.BM
+  python3 align-qb64pe.py --align-eq --align-as --global CFG/
 """
 
 import argparse
