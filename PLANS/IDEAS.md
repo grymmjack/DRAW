@@ -1,37 +1,5 @@
 # IDEAS
 
-## - [ ] EXTRACT FROM GRID
-- [ ] Menu: FILE -> EXTRACT FROM GRID
-  - [ ] Exports a flattened image (whatever layers are visible)
-    - [ ] According to the grid width and height.
-    - [ ] In this way I can quickly build icons and tiles
-    - [ ] Evaluate each grid cell:
-      - [ ] If the grid cell contains ANY non-transparent pixels:
-        - [ ] Consider the entire cell exportable and save a flattened image of that cell:
-          - [ ] X,Y = grid cell X, Y top left, and W, H = width and height of grid
-          - [ ] If the pixel contents exist only on a single layer (or within a layer group)
-            - [ ] Export the image as the layer name or layer group name
-          - [ ] Else: export the image as the image filename-grid-### where ### is a number
-- [ ] If before choosing this menu option, a selection exists:
-  - [ ] Operate only on any grid cells present in the selection area
-  - [ ] The selection area can be non rectangular as well, but to qualify being part of the extraction, the entire grid cell must be part of the selection.
-
-
-## - [ ] EXTRACT TO LAYERS FROM GRID
-- [ ] Menu: LAYER -> EXTRACT TO LAYERS FROM GRID
-- [ ] Same logic and ruleset as FILE -> EXTRACT FROM GRID, but instead of SAVING files
-  - [ ] Just creates new layers in place, with the same numbering, etc. 
-  - [ ] The new layer for the grid cell maintains it's pixel data and position.
-    - [ ] After extracting the grid cell, position the cell where the original layer cell was, just on top.
-  - [ ] Same rules, same schemes.
-
-
-
-## - [ ] SPARE PAGE
-- [ ] Implement Spare page
-- Rename canvas-ops
-
-
 ## QB64PE EXPORT
 - Each layer is a SUB
   - When duplicating a layer, do not duplicate the layer, just refer to the SUB in the export
@@ -571,3 +539,28 @@ Automatically snap to layer candidates when near X/Y/W/H bounds of neighbors
   - [x] Modifications made to it for scale, and rotation must be non-destructive and operate as an instance of the parent symbols own image data
 
   
+
+## - [x] EXTRACT FROM GRID
+- [x] Menu: FILE -> EXTRACT FROM GRID
+  - [x] Exports a flattened image (whatever layers are visible)
+    - [x] According to the grid width and height.
+    - [x] In this way I can quickly build icons and tiles
+    - [x] Evaluate each grid cell:
+      - [x] If the grid cell contains ANY non-transparent pixels:
+        - [x] Consider the entire cell exportable and save a flattened image of that cell:
+          - [x] X,Y = grid cell X, Y top left, and W, H = width and height of grid
+          - [x] If the pixel contents exist only on a single layer (or within a layer group)
+            - [x] Export the image as the layer name or layer group name
+          - [x] Else: export the image as the image filename-grid-### where ### is a number
+- [x] If before choosing this menu option, a selection exists:
+  - [x] Operate only on any grid cells present in the selection area
+  - [x] The selection area can be non rectangular as well, but to qualify being part of the extraction, the entire grid cell must be part of the selection.
+
+
+## - [x] EXTRACT TO LAYERS FROM GRID
+- [x] Menu: LAYER -> EXTRACT TO LAYERS FROM GRID
+- [x] Same logic and ruleset as FILE -> EXTRACT FROM GRID, but instead of SAVING files
+  - [x] Just creates new layers in place, with the same numbering, etc. 
+  - [x] The new layer for the grid cell maintains it's pixel data and position.
+    - [x] After extracting the grid cell, position the cell where the original layer cell was, just on top.
+  - [x] Same rules, same schemes.
