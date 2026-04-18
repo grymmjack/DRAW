@@ -68,7 +68,7 @@ PSET (9, 8), cA~&
 PSET (10, 9), cA~&: PSET (11, 9), cA~&: PSET (12, 9), cA~&                                              ' run = 3
 PSET (13, 10), cA~&
 PSET (14, 11), cA~&
-PSET (15, 12), cA~& : PSET (16, 12), cA~&                                                               ' run                                  = 2
+PSET (15, 12), cA~& : PSET (16, 12), cA~&                                                               ' run = 2
 PSET (17, 13), cA~& : PSET (18, 13), cA~& : PSET (19, 13), cA~& : PSET (20, 13), cA~&                   ' run = 4
 PSET (21, 14), cA~&
 PSET (22, 15), cA~&: PSET (23, 15), cA~&                                                                ' run = 2

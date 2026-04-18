@@ -71,7 +71,7 @@ TYPE MARQUEE_OBJ
     DRAG_END_X         AS INTEGER      ' Current/ending X coordinate of drag
     DRAG_END_Y         AS INTEGER      ' Current/ending Y coordinate of drag
     RESIZING           AS INTEGER      ' Whether currently resizing
-    RESIZE_HANDLE      AS INTEGER      ' Which handle is being resized (0 = none, 1-8=handles)
+    RESIZE_HANDLE      AS INTEGER      ' Which handle is being resized (0 = none, 1-8 = handles)
     RESIZE_START_X     AS INTEGER      ' Starting X when resize began
     RESIZE_START_Y     AS INTEGER      ' Starting Y when resize began
     RESIZE_ORIG_X      AS INTEGER      ' Original box X when resize began
@@ -99,7 +99,7 @@ TYPE MARQUEE_OBJ
     WAND_EDGE_COUNT    AS LONG         ' Number of cached edge pixels
     WAND_EDGE_DIRTY    AS INTEGER      ' TRUE when edge cache needs rebuild
     USER_CREATED       AS INTEGER      ' TRUE if user manually created selection (vs auto for move)
-    SELECTION_MODE     AS INTEGER      ' Selection mode: 0 = replace, 1=add (Shift), 2=subtract (Alt)
+    SELECTION_MODE     AS INTEGER      ' Selection mode: 0 = replace, 1 = add (Shift), 2 = subtract (Alt)
     VARIANT            AS INTEGER      ' Which toolbar selection button is active (TOOL_SELECT_* constant)
     ' Freehand selection fields
     FREE_DRAWING       AS INTEGER      ' Whether actively drawing freehand path

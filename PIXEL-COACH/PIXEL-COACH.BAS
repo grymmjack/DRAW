@@ -515,14 +515,14 @@ SUB UI_handle_mouse
             chkHit% = my% - chkBaseY%
             IF chkHit% > = 0 AND chkHit% < 8 * 18 THEN
                 SELECT CASE chkHit% \ 18
-                    CASE 0 : chkJaggies   = NOT chkJaggies
-                    CASE 1 : chkIslands   = NOT chkIslands
-                    CASE 2 : chkBanding   = NOT chkBanding
+                    CASE 0 : chkJaggies = NOT chkJaggies
+                    CASE 1 : chkIslands = NOT chkIslands
+                    CASE 2 : chkBanding = NOT chkBanding
                     CASE 3 : chkFatPixels = NOT chkFatPixels
                     CASE 4 : chkDithering = NOT chkDithering
-                    CASE 5 : chkContrast  = NOT chkContrast
-                    CASE 6 : chkValue     = NOT chkValue
-                    CASE 7 : chkNoise     = NOT chkNoise
+                    CASE 5 : chkContrast = NOT chkContrast
+                    CASE 6 : chkValue = NOT chkValue
+                    CASE 7 : chkNoise = NOT chkNoise
                 END SELECT
                 IF COACH.issueCount > 0 THEN COACH_build_overlay
                 needRedraw = -1
@@ -659,14 +659,14 @@ SUB UI_render
                 DIM vShow%
                 vShow% = 0
                 SELECT CASE vt%
-                    CASE COACH_JAGGY       : vShow%  = chkJaggies
-                    CASE COACH_ISLAND      : vShow%  = chkIslands
-                    CASE COACH_BANDING     : vShow%  = chkBanding
-                    CASE COACH_FAT_PIXEL   : vShow%  = chkFatPixels
+                    CASE COACH_JAGGY       : vShow% = chkJaggies
+                    CASE COACH_ISLAND      : vShow% = chkIslands
+                    CASE COACH_BANDING     : vShow% = chkBanding
+                    CASE COACH_FAT_PIXEL   : vShow% = chkFatPixels
                     CASE COACH_OVER_DITHER : vShow% = chkDithering
-                    CASE COACH_CONTRAST    : vShow%  = chkContrast
-                    CASE COACH_VALUE       : vShow%  = chkValue
-                    CASE COACH_NOISE       : vShow%  = chkNoise
+                    CASE COACH_CONTRAST    : vShow% = chkContrast
+                    CASE COACH_VALUE       : vShow% = chkValue
+                    CASE COACH_NOISE       : vShow% = chkNoise
                 END SELECT
                 IF vShow% THEN visCount% = visCount% + 1
             END IF
@@ -709,19 +709,19 @@ SUB UI_render
     _PRINTSTRING (panelX%, panelY%), "Detectors:"
     panelY% = panelY% + 18
 
-    UI_draw_checkbox_colored panelX%, panelY%, "Jaggies  [1]" + STR$(tc(COACH_JAGGY)), chkJaggies, COACH_COLOR_JAGGY~&          : panelY%          = panelY% + 18
-    UI_draw_checkbox_colored panelX%, panelY%, "Islands  [2]" + STR$(tc(COACH_ISLAND)), chkIslands, COACH_COLOR_ISLAND~&        : panelY%        = panelY% + 18
-    UI_draw_checkbox_colored panelX%, panelY%, "Banding  [3]" + STR$(tc(COACH_BANDING)), chkBanding, COACH_COLOR_BANDING~&      : panelY%      = panelY% + 18
-    UI_draw_checkbox_colored panelX%, panelY%, "Fat Px   [4]" + STR$(tc(COACH_FAT_PIXEL)), chkFatPixels, COACH_COLOR_FAT~&      : panelY%      = panelY% + 18
+    UI_draw_checkbox_colored panelX%, panelY%, "Jaggies  [1]" + STR$(tc(COACH_JAGGY)), chkJaggies, COACH_COLOR_JAGGY~&          : panelY% = panelY% + 18
+    UI_draw_checkbox_colored panelX%, panelY%, "Islands  [2]" + STR$(tc(COACH_ISLAND)), chkIslands, COACH_COLOR_ISLAND~&        : panelY% = panelY% + 18
+    UI_draw_checkbox_colored panelX%, panelY%, "Banding  [3]" + STR$(tc(COACH_BANDING)), chkBanding, COACH_COLOR_BANDING~&      : panelY% = panelY% + 18
+    UI_draw_checkbox_colored panelX%, panelY%, "Fat Px   [4]" + STR$(tc(COACH_FAT_PIXEL)), chkFatPixels, COACH_COLOR_FAT~&      : panelY% = panelY% + 18
     UI_draw_checkbox_colored panelX%, panelY%, "Dither   [5]" + STR$(tc(COACH_OVER_DITHER)), chkDithering, COACH_COLOR_DITHER~& : panelY% = panelY% + 18
-    UI_draw_checkbox_colored panelX%, panelY%, "Contrast [6]" + STR$(tc(COACH_CONTRAST)), chkContrast, COACH_COLOR_CONTRAST~&   : panelY%   = panelY% + 18
-    UI_draw_checkbox_colored panelX%, panelY%, "Value    [7]" + STR$(tc(COACH_VALUE)), chkValue, COACH_COLOR_VALUE~&            : panelY%            = panelY% + 18
-    UI_draw_checkbox_colored panelX%, panelY%, "Noise    [8]" + STR$(tc(COACH_NOISE)), chkNoise, COACH_COLOR_NOISE~&            : panelY%            = panelY% + 18
+    UI_draw_checkbox_colored panelX%, panelY%, "Contrast [6]" + STR$(tc(COACH_CONTRAST)), chkContrast, COACH_COLOR_CONTRAST~&   : panelY% = panelY% + 18
+    UI_draw_checkbox_colored panelX%, panelY%, "Value    [7]" + STR$(tc(COACH_VALUE)), chkValue, COACH_COLOR_VALUE~&            : panelY% = panelY% + 18
+    UI_draw_checkbox_colored panelX%, panelY%, "Noise    [8]" + STR$(tc(COACH_NOISE)), chkNoise, COACH_COLOR_NOISE~&            : panelY% = panelY% + 18
 
     ' Confidence threshold
     COLOR UI_TEXT_DIM~&, UI_PANEL_BG~&
     DIM threshPct%
-    threshPct%                                                                          = INT(COACH.confidenceThreshold * 100 + 0.5!)
+    threshPct% = INT(COACH.confidenceThreshold * 100 + 0.5!)
     _PRINTSTRING (panelX%, panelY%), "Conf >=" + STR$(threshPct%) + "%  [ / ]": panelY% = panelY% + 18
 
     ' Divider
@@ -745,14 +745,14 @@ SUB UI_render
                 DIM fShow%
                 fShow% = 0
                 SELECT CASE ft%
-                    CASE COACH_JAGGY       : fShow%  = chkJaggies
-                    CASE COACH_ISLAND      : fShow%  = chkIslands
-                    CASE COACH_BANDING     : fShow%  = chkBanding
-                    CASE COACH_FAT_PIXEL   : fShow%  = chkFatPixels
+                    CASE COACH_JAGGY       : fShow% = chkJaggies
+                    CASE COACH_ISLAND      : fShow% = chkIslands
+                    CASE COACH_BANDING     : fShow% = chkBanding
+                    CASE COACH_FAT_PIXEL   : fShow% = chkFatPixels
                     CASE COACH_OVER_DITHER : fShow% = chkDithering
-                    CASE COACH_CONTRAST    : fShow%  = chkContrast
-                    CASE COACH_VALUE       : fShow%  = chkValue
-                    CASE COACH_NOISE       : fShow%  = chkNoise
+                    CASE COACH_CONTRAST    : fShow% = chkContrast
+                    CASE COACH_VALUE       : fShow% = chkValue
+                    CASE COACH_NOISE       : fShow% = chkNoise
                 END SELECT
                 IF fShow% THEN
                     visIdx(visTotal%) = fvi%
@@ -918,26 +918,26 @@ SUB UI_draw_help
     tx% = hx% + 16: ty% = hy% + 12
 
     _PRINTSTRING (tx%, ty%), "PIXEL COACH - Keyboard Shortcuts" : ty% = ty% + 24
-    _PRINTSTRING (tx%, ty%), ""                                 : ty%                                 = ty% + 8
+    _PRINTSTRING (tx%, ty%), ""                                 : ty% = ty% + 8
     COLOR UI_TEXT_DIM~&, _RGBA32(20, 20, 30, 230)
-    _PRINTSTRING (tx%, ty%), "O .......... Open image file"         : ty%         = ty% + 18
-    _PRINTSTRING (tx%, ty%), "A .......... Analyze image"           : ty%           = ty% + 18
-    _PRINTSTRING (tx%, ty%), "1-8 ........ Toggle detector type"    : ty%    = ty% + 18
-    _PRINTSTRING (tx%, ty%), "0 .......... Show all types"          : ty%          = ty% + 18
-    _PRINTSTRING (tx%, ty%), "9 .......... Hide all types"          : ty%          = ty% + 18
-    _PRINTSTRING (tx%, ty%), "[ / ] ...... Confidence threshold"    : ty%    = ty% + 18
-    _PRINTSTRING (tx%, ty%), "SPACE ...... Toggle overlay"          : ty%          = ty% + 18
-    _PRINTSTRING (tx%, ty%), "G .......... Toggle grayscale"        : ty%        = ty% + 18
-    _PRINTSTRING (tx%, ty%), "F .......... Fit image to view"       : ty%       = ty% + 18
-    _PRINTSTRING (tx%, ty%), "` .......... Actual size (1:1)"       : ty%       = ty% + 18
-    _PRINTSTRING (tx%, ty%), "+/- ........ Zoom in/out"             : ty%             = ty% + 18
-    _PRINTSTRING (tx%, ty%), "Arrows ..... Pan view"                : ty%                = ty% + 18
+    _PRINTSTRING (tx%, ty%), "O .......... Open image file"         : ty% = ty% + 18
+    _PRINTSTRING (tx%, ty%), "A .......... Analyze image"           : ty% = ty% + 18
+    _PRINTSTRING (tx%, ty%), "1-8 ........ Toggle detector type"    : ty% = ty% + 18
+    _PRINTSTRING (tx%, ty%), "0 .......... Show all types"          : ty% = ty% + 18
+    _PRINTSTRING (tx%, ty%), "9 .......... Hide all types"          : ty% = ty% + 18
+    _PRINTSTRING (tx%, ty%), "[ / ] ...... Confidence threshold"    : ty% = ty% + 18
+    _PRINTSTRING (tx%, ty%), "SPACE ...... Toggle overlay"          : ty% = ty% + 18
+    _PRINTSTRING (tx%, ty%), "G .......... Toggle grayscale"        : ty% = ty% + 18
+    _PRINTSTRING (tx%, ty%), "F .......... Fit image to view"       : ty% = ty% + 18
+    _PRINTSTRING (tx%, ty%), "` .......... Actual size (1:1)"       : ty% = ty% + 18
+    _PRINTSTRING (tx%, ty%), "+/- ........ Zoom in/out"             : ty% = ty% + 18
+    _PRINTSTRING (tx%, ty%), "Arrows ..... Pan view"                : ty% = ty% + 18
     _PRINTSTRING (tx%, ty%), "Scroll ..... Zoom at cursor (canvas)" : ty% = ty% + 18
-    _PRINTSTRING (tx%, ty%), "Scroll ..... Scroll results (panel)"  : ty%  = ty% + 18
-    _PRINTSTRING (tx%, ty%), "R-Click .... Pan (drag)"              : ty%              = ty% + 18
+    _PRINTSTRING (tx%, ty%), "Scroll ..... Scroll results (panel)"  : ty% = ty% + 18
+    _PRINTSTRING (tx%, ty%), "R-Click .... Pan (drag)"              : ty% = ty% + 18
     _PRINTSTRING (tx%, ty%), "* .......... Cycle UI scale 1x/2x/3x" : ty% = ty% + 18
-    _PRINTSTRING (tx%, ty%), "H .......... Toggle this help"        : ty%        = ty% + 18
-    _PRINTSTRING (tx%, ty%), "ESC ........ Quit"                    : ty%                    = ty% + 24
+    _PRINTSTRING (tx%, ty%), "H .......... Toggle this help"        : ty% = ty% + 18
+    _PRINTSTRING (tx%, ty%), "ESC ........ Quit"                    : ty% = ty% + 24
     COLOR UI_TEXT~&, _RGBA32(20, 20, 30, 230)
     _PRINTSTRING (tx%, ty%), "Press H to close"
 END SUB

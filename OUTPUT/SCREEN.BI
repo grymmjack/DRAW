@@ -93,7 +93,7 @@ DIM SHARED SCREEN_toolbar_scale_is_auto AS INTEGER
 ' GUI dirty flag - when FALSE, skip toolbar/status redraw for performance
 ' Set to TRUE when: tool switch, palette change, window resize, toolbar/status toggle
 DIM SHARED GUI_NEEDS_REDRAW AS INTEGER
-GUI_NEEDS_REDRAW% = TRUE                           ' Start with redraw needed
+GUI_NEEDS_REDRAW% = TRUE                       ' Start with redraw needed
 
 ' Per-widget dirty flags — allow selective GUI rendering instead of redrawing
 ' all 9 widgets whenever any one changes.  GUI_NEEDS_REDRAW% is the aggregate
@@ -123,12 +123,12 @@ DIM SHARED PG_CACHE_OPACITY AS INTEGER
 
 ' Scene cache — fully rendered canvas (layers+grid+GUI) before cursor
 ' When only cursor position changes, copy from cache instead of full repaint
-DIM SHARED SCENE_CACHE AS LONG                     ' Cached pre-cursor canvas image
-DIM SHARED SCENE_DIRTY AS INTEGER                  ' TRUE = must do full repaint
-SCENE_DIRTY%                                = TRUE ' Start dirty
+DIM SHARED SCENE_CACHE AS LONG                 ' Cached pre-cursor canvas image
+DIM SHARED SCENE_DIRTY AS INTEGER              ' TRUE = must do full repaint
+SCENE_DIRTY% = TRUE                            ' Start dirty
 
-DIM SHARED GRAYSCALE_PREVIEW_ACTIVE AS INTEGER     ' TRUE = apply grayscale filter to final output
-GRAYSCALE_PREVIEW_ACTIVE%                              = FALSE
+DIM SHARED GRAYSCALE_PREVIEW_ACTIVE AS INTEGER ' TRUE = apply grayscale filter to final output
+GRAYSCALE_PREVIEW_ACTIVE% = FALSE
 
 ' Programmatic resize event counter.
 ' Increment before SCREEN _NEWIMAGE so the main loop can ignore matching _RESIZE

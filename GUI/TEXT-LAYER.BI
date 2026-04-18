@@ -33,10 +33,10 @@ TYPE TEXT_LAYER_OBJ
     cursorPos        AS INTEGER ' Cursor position (0-based char index)
     dirty            AS INTEGER ' TRUE when text data changed, triggers re-render
     monospace        AS INTEGER ' TRUE to load all fonts with MONOSPACE flag
-    alignment        AS INTEGER ' 0                                = LEFT, 1=CENTER, 2=RIGHT (per-layer)
-    antialias        AS _BYTE   ' 0                                = OFF (crisp pixels), 1=ON (smooth). Default ON.
+    alignment        AS INTEGER ' 0 = LEFT, 1 = CENTER, 2 = RIGHT (per-layer)
+    antialias        AS _BYTE   ' 0 = OFF (crisp pixels), 1 = ON (smooth). Default ON.
     outlineCharCount AS INTEGER ' Pre-counted : chars with outline = 1 (CPU : skip pass when 0)
-    shadowCharCount  AS INTEGER ' Pre-counted : chars with shadow  = 1 (CPU : skip pass when 0)
+    shadowCharCount  AS INTEGER ' Pre-counted : chars with shadow = 1 (CPU : skip pass when 0)
 END TYPE
 
 ' Pool of text layer data (indexed by DRAW_LAYER.textDataIdx)

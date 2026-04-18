@@ -30,11 +30,11 @@ IF splashImg& < -1 THEN
     splashBg~& = THEME.SPLASH_BG_COLOR~&
     splashBgR% = _RED32(splashBg~&): splashBgG% = _GREEN32(splashBg~&): splashBgB% = _BLUE32(splashBg~&)
     DIM splashScale   AS SINGLE
-    splashScale!                              = _HEIGHT(0) / _HEIGHT(splashImg&)
-    splashDstW&                               = INT(_WIDTH(splashImg&) * splashScale!)
-    splashDstH&                               = _HEIGHT(0)
-    splashX&                                  = (_WIDTH(0) - splashDstW&) \ 2
-    splashY&                                  = 0
+    splashScale! = _HEIGHT(0) / _HEIGHT(splashImg&)
+    splashDstW&  = INT(_WIDTH(splashImg&) * splashScale!)
+    splashDstH&  = _HEIGHT(0)
+    splashX&     = (_WIDTH(0) - splashDstW&) \ 2
+    splashY&     = 0
     DIM splashOldDest AS LONG: splashOldDest& = _DEST
     _DEST 0
     ' Fade in over ~0.4 seconds

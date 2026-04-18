@@ -31,7 +31,7 @@ TYPE MOUSE_OBJ
     B3_CLICK_TIME     AS DOUBLE
     B1_CLICK_TIME     AS DOUBLE
     UI_CHROME_CLICKED AS INTEGER
-    DEFERRED_ACTION   AS INTEGER ' Action to perform after mouse processing (0 = none, 1=save, 2=load, 3=open DRW, 4=export, 5=drawer slot import)
+    DEFERRED_ACTION   AS INTEGER ' Action to perform after mouse processing (0 = none, 1 = save, 2 = load, 3 = open DRW, 4 = export, 5 = drawer slot import)
     SUPPRESS_FRAMES   AS INTEGER ' Frames to suppress button input after native dialogs (prevents phantom clicks)
     STARTED_ON_APRON  AS INTEGER ' TRUE when button press began outside canvas bounds (apron area) — blocks tool dispatch for entire stroke
 END TYPE

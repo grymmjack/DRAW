@@ -10,7 +10,7 @@ $INCLUDEONCE
 TYPE MOVE_OBJ
     ACTIVE          AS INTEGER ' Whether move tool is active
     TRANSFORMING    AS INTEGER ' Whether actively transforming
-    TRANSFORM_TYPE  AS INTEGER ' 0 = move, 1=scale, 2=stretch
+    TRANSFORM_TYPE  AS INTEGER ' 0 = move, 1 = scale, 2 = stretch
     SELECTION_IMAGE AS LONG    ' Image buffer holding selected pixels
     PREVIEW_BUFFER  AS LONG    ' Buffer for realtime preview of painting layer with move applied
     ORIGINAL_X      AS INTEGER ' Original selection X (for ESC cancel)
@@ -27,7 +27,7 @@ TYPE MOVE_OBJ
     CURRENT_Y       AS INTEGER ' Current transform Y
     CURRENT_W       AS INTEGER ' Current transform width
     CURRENT_H       AS INTEGER ' Current transform height
-    HANDLE          AS INTEGER ' Which handle being dragged (0 = center, 1-8=corners/sides)
+    HANDLE          AS INTEGER ' Which handle being dragged (0 = center, 1-8 = corners/sides)
     CLONING         AS INTEGER ' Whether ALT is held (clone mode)
     CLONE_STAMPED   AS INTEGER ' TRUE if any stamp was placed in this move session
     CONSTRAIN       AS INTEGER ' Whether SHIFT is held (constrain proportions)
@@ -35,7 +35,7 @@ TYPE MOVE_OBJ
     ORIGINAL_IMAGE  AS LONG    ' Preserved original image for lossless re-scaling
     ORIGINAL_IMG_W  AS INTEGER ' Width of original image
     ORIGINAL_IMG_H  AS INTEGER ' Height of original image
-    SCALE_FACTOR    AS SINGLE  ' Cumulative scale factor (1.0                      = original)
+    SCALE_FACTOR    AS SINGLE  ' Cumulative scale factor (1.0 = original)
     GROUP_ORIGIN    AS INTEGER ' Group header index that triggered auto-select (0 = not a group move)
 END TYPE
 

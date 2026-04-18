@@ -42,8 +42,8 @@ END TYPE
 ' Menu bar state
 TYPE MENU_BAR_OBJ
     visible          AS INTEGER ' Show/hide the entire menu bar
-    openMenu         AS INTEGER ' Index of currently open root menu (-1  = none)
-    hoverRoot        AS INTEGER ' Currently hovered root item (-1        = none)
+    openMenu         AS INTEGER ' Index of currently open root menu (-1 = none)
+    hoverRoot        AS INTEGER ' Currently hovered root item (-1 = none)
     hoverSub         AS INTEGER ' Currently hovered submenu item idx (-1 = none)
     subScroll        AS INTEGER ' Submenu scroll offset
     subScrollMax     AS INTEGER ' Maximum scroll offset (0 = no scroll arrows)

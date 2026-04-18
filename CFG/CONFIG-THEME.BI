@@ -421,7 +421,7 @@ TYPE DRAW_THEME
     EDIT_BAR_ICON_PADDING                 AS INTEGER        ' Padding around each icon in pixels
     EDIT_BAR_BG_COLOR                     AS _UNSIGNED LONG ' Edit bar background fill color
     EDIT_BAR_ICON_MOUSE_OUTLINE_COLOR     AS _UNSIGNED LONG ' Icon hover outline color
-    EDIT_BAR_ICON_DISABLED_ALPHA          AS INTEGER        ' How much to dim disabled icons (0 = no dim, 255=fully transparent)
+    EDIT_BAR_ICON_DISABLED_ALPHA          AS INTEGER        ' How much to dim disabled icons (0 = no dim, 255 = fully transparent)
     EDIT_BAR_DIVIDER_VERT_MARGIN          AS INTEGER        ' Vertical margin around divider lines
     EDIT_BAR_ICON_UNDO                    AS STRING * 64    ' Undo icon PNG filename
     EDIT_BAR_ICON_REDO                    AS STRING * 64    ' Redo icon PNG filename

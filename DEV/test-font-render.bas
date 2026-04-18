@@ -49,7 +49,7 @@ FOR si% = 0 TO 2
     DIM bufW   AS INTEGER, bufH AS INTEGER
     bufW% = 400: bufH% = testSize% * 4
     DIM buf    AS LONG
-    buf&                    = _NEWIMAGE(bufW%, bufH%, 32)
+    buf& = _NEWIMAGE(bufW%, bufH%, 32)
     DIM oldD   AS LONG: oldD& = _DEST
     _DEST buf&
     CLS , _RGBA32(0, 0, 0, 0)
@@ -66,8 +66,8 @@ FOR si% = 0 TO 2
     _DEST oldD&
 
     ' Scan for actual ink bounds
-    minY%                       = bufH% : maxY% = -1 : minX% = bufW% : maxX% = -1
-    DIM oldSrc AS LONG                  : oldSrc& = _SOURCE
+    minY% = bufH%      : maxY% = -1 : minX% = bufW% : maxX% = -1
+    DIM oldSrc AS LONG : oldSrc& = _SOURCE
     _SOURCE buf&
     FOR scanY% = 0 TO bufH% - 1
         FOR scanX% = 0 TO bufW% - 1

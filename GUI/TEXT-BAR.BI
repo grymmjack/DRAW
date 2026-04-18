@@ -119,13 +119,13 @@ TYPE TEXT_BAR_OBJ
     shadowColor           AS _UNSIGNED LONG ' Current shadow color
     shadowOffsetX         AS INTEGER        ' Shadow X offset (1-10)
     shadowOffsetY         AS INTEGER        ' Shadow Y offset (1-10)
-    alignMode             AS INTEGER        ' 0 = LEFT, 1=CENTER, 2=RIGHT
+    alignMode             AS INTEGER        ' 0 = LEFT, 1 = CENTER, 2 = RIGHT
     aaActive              AS INTEGER        ' Antialias toggle state
     defaultKern           AS INTEGER        ' Default kern for newly typed characters
     styleDropdownOpen     AS INTEGER        ' TRUE when style list is open
     styleDropdownScroll   AS INTEGER        ' Scroll offset for style dropdown
-    fontDropdownHoverRow  AS INTEGER        ' Hovered row in font dropdown (-1  = none)
-    sizeDropdownHoverRow  AS INTEGER        ' Hovered row in size dropdown (-1  = none)
+    fontDropdownHoverRow  AS INTEGER        ' Hovered row in font dropdown (-1 = none)
+    sizeDropdownHoverRow  AS INTEGER        ' Hovered row in size dropdown (-1 = none)
     styleDropdownHoverRow AS INTEGER        ' Hovered row in style dropdown (-1 = none)
     fontSubOpen           AS INTEGER        ' TRUE when subfolder popup is visible
     fontSubFolderIdx      AS INTEGER        ' Which folder is open (index into FONT_FOLDER_NAME)

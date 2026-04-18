@@ -83,7 +83,7 @@ TYPE LAYER_PANEL_OBJ
     visible          AS INTEGER      ' Panel visibility toggle
     scrollOffset     AS INTEGER      ' Scroll offset for layer list
     fontHandle       AS LONG         ' Tiny5 font handle for panel text
-    hoverRow         AS INTEGER      ' Currently hovered layer row (-1   = none)
+    hoverRow         AS INTEGER      ' Currently hovered layer row (-1 = none)
     draggingRow      AS INTEGER      ' Row being dragged for reorder (-1 = none)
     dragStartY       AS INTEGER      ' Y position when drag started
     dragStartX       AS INTEGER      ' X position when drag started (for threshold)
@@ -97,7 +97,7 @@ TYPE LAYER_PANEL_OBJ
     dragOffsetY      AS INTEGER      ' Offset from row top where drag started
     autoScrollTimer  AS SINGLE       ' Timer for auto-scroll delay at edges
     dragPreviewY     AS INTEGER      ' Y position for drag preview cursor
-    dropOnButton     AS INTEGER      ' 0 = none, 4=over Delete btn, 5=over New btn during drag
+    dropOnButton     AS INTEGER      ' 0 = none, 4 = over Delete btn, 5 = over New btn during drag
     ' Layer icon handles (loaded from theme PNGs, fallback to text if < -1 check fails)
     iconVisOn        AS LONG         ' Visibility on (eye open) image handle
     iconVisOff       AS LONG         ' Visibility off (eye closed) image handle
@@ -113,7 +113,7 @@ TYPE LAYER_PANEL_OBJ
     savedVisibility  AS STRING * 128 ' Saved visibility states before solo
     ' Visibility swipe state (click+drag on eye icons)
     visSwiping       AS INTEGER      ' TRUE while swiping visibility
-    visSwipeAction   AS INTEGER      ' 1                                                 = show, 0 = hide (action applied during swipe)
+    visSwipeAction   AS INTEGER      ' 1 = show, 0 = hide (action applied during swipe)
     visSwipedLayers  AS STRING * 128 ' Track which layers were already swiped (CHR$(1) = swiped)
     ' Scrollbar drag state
     scrollDragging   AS INTEGER      ' TRUE while dragging the scroll thumb
@@ -123,7 +123,7 @@ TYPE LAYER_PANEL_OBJ
     blendPopupLayer  AS INTEGER      ' Layer index popup is for
     blendPopupX      AS INTEGER      ' Popup screen X (top-left)
     blendPopupY      AS INTEGER      ' Popup screen Y (top-left)
-    blendPopupHover  AS INTEGER      ' Currently hovered item index (-1 = none, 0=Normal, 2..19=mode idx+1 for divider)
+    blendPopupHover  AS INTEGER      ' Currently hovered item index (-1 = none, 0 = Normal, 2..19 = mode idx+1 for divider)
     ' Layer context menu state (right-click on row)
     ctxMenuOpen      AS INTEGER      ' TRUE while context menu is showing
     ctxMenuLayer     AS INTEGER      ' Layer index the context menu was invoked on
@@ -223,12 +223,12 @@ DECLARE SUB RENDER_ORDER_rebuild ()
 DIM SHARED RENDER_ORDER(1 TO MAX_LAYERS) AS INTEGER
 DIM SHARED RENDER_ORDER_COUNT AS INTEGER
 DIM SHARED RENDER_ORDER_DIRTY AS INTEGER                           ' TRUE = must rebuild
-RENDER_ORDER_DIRTY%                                   = TRUE       ' Start dirty
+RENDER_ORDER_DIRTY% = TRUE                                         ' Start dirty
 
 ' Blend composite cache — avoid re-scanning 64 slots every frame
 DIM SHARED BLEND_COMPOSITE_CACHED AS INTEGER                       ' Cached result of BLEND_needs_composite%
 DIM SHARED BLEND_COMPOSITE_DIRTY  AS INTEGER                       ' TRUE = must rescan
-BLEND_COMPOSITE_DIRTY%                                = TRUE       ' Start dirty
+BLEND_COMPOSITE_DIRTY% = TRUE                                      ' Start dirty
 
 ' Persist composite buffer — avoid _NEWIMAGE/_FREEIMAGE every frame
 DIM SHARED COMPOSITE_BUFFER   AS LONG

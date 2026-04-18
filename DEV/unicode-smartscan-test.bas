@@ -29,7 +29,7 @@ PRINT "Font:"; fontPath$; " h="; _UFONTHEIGHT
 
 ' Scan buffer — must also set font on this image!
 DIM scanSz AS INTEGER: scanSz% = 20
-scanImg&                       = _NEWIMAGE(scanSz%, scanSz%, 32)
+scanImg& = _NEWIMAGE(scanSz%, scanSz%, 32)
 ' SET FONT ON SCAN IMAGE TOO
 oldDest& = _DEST: _DEST scanImg&: _FONT fHandle&: _DEST oldDest&
 
@@ -46,7 +46,7 @@ COLOR _RGB32(255, 255, 255), _RGBA32(0, 0, 0, 0)
 _PRINTSTRING (0, 0), CHR$(1)
 _DEST oldDest&
 DIM notdefHash AS LONG: notdefHash& = 0
-scanMem                             = _MEMIMAGE(scanImg&)
+scanMem = _MEMIMAGE(scanImg&)
 FOR byteOff& = 0 TO imgBytes& - 4 STEP 4
     _MEMGET scanMem, scanMem.OFFSET + byteOff&, pixel~&
     notdefHash& = notdefHash& XOR CLng(_ALPHA32(pixel~&))
@@ -56,7 +56,7 @@ _MEMFREE scanMem
 
 ' Also check if .notdef has ANY ink
 DIM notdefHasInk AS INTEGER: notdefHasInk% = FALSE
-scanMem                                    = _MEMIMAGE(scanImg&)
+scanMem = _MEMIMAGE(scanImg&)
 FOR byteOff& = 0 TO imgBytes& - 4 STEP 4
     _MEMGET scanMem, scanMem.OFFSET + byteOff&, pixel~&
     IF _ALPHA32(pixel~&) > 0 THEN notdefHasInk% = TRUE: EXIT FOR
@@ -105,7 +105,7 @@ END IF
 PRINT
 PRINT "Discovered glyphs:"
 DIM renderY   AS INTEGER
-renderY%                             = CSRLIN * _UFONTHEIGHT + 4
+renderY% = CSRLIN * _UFONTHEIGHT + 4
 DIM showCount AS INTEGER: showCount% = found&
 IF showCount% > 160 THEN showCount% = 160
 DIM gx        AS INTEGER, gy AS INTEGER, gi AS INTEGER

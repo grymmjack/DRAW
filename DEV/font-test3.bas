@@ -79,7 +79,7 @@ FOR i% = 0 TO 7
     _UPRINTSTRING (660, y%), TEST_STR$
 
     ' Draw reference lines showing the ppem boundary
-    LINE (20, y% + oldH%)-(620, y% + oldH%), _RGB32(255, 60, 60)   ' red   = ppem height
+    LINE (20, y% + oldH%)-(620, y% + oldH%), _RGB32(255, 60, 60)   ' red = ppem height
     LINE (660, y% + newH%)-(1260, y% + newH%), _RGB32(60, 255, 60) ' green = true height
 
     ' Advance Y by the larger height + padding

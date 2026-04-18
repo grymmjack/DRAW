@@ -50,7 +50,7 @@ TYPE CMD_PALETTE_OBJ
     hover        AS INTEGER     ' Currently hovered item
     scroll       AS INTEGER     ' Scroll offset
     result_count AS INTEGER     ' Number of filtered results
-    mode         AS INTEGER     ' 0 = command palette, 1=quick reference (no search)
+    mode         AS INTEGER     ' 0 = command palette, 1 = quick reference (no search)
 END TYPE
 
 DIM SHARED CMD_PALETTE     AS CMD_PALETTE_OBJ

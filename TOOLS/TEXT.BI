@@ -28,8 +28,8 @@ TYPE TEXT_OBJ
     LINE_HEIGHT        AS INTEGER      ' Line height (8 for Tiny5, 13 for VGA)
     ' --- Rich text layer integration (Phase 4) ---
     editingTextLayer   AS INTEGER      ' Layer index being edited (0 = none, for re-edit)
-    selStart           AS INTEGER      ' Selection start char index (-1  = no selection)
-    selEnd             AS INTEGER      ' Selection end char index (-1    = no selection)
+    selStart           AS INTEGER      ' Selection start char index (-1 = no selection)
+    selEnd             AS INTEGER      ' Selection end char index (-1 = no selection)
     selActive          AS INTEGER      ' TRUE when text selection is active
     OVERFLOW_FLASH     AS INTEGER      ' Countdown frames for overflow visual feedback
     cmVirtualCol       AS INTEGER      ' Char mode virtual cursor column (grid position)

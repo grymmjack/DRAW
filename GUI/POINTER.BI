@@ -15,7 +15,7 @@ TYPE POINTER_OBJ
     O                   AS INTEGER        ' Pointer outline
     OC                  AS _UNSIGNED LONG ' Old pointer color chip
     CURSOR_ID           AS INTEGER        ' Active cursor index (CURSOR_NULL, CURSOR_BRUSH, etc.)
-    CURSOR_FLIP         AS INTEGER        ' 0 = none, 1=flip horiz, 2=flip vert, 3=flip both
+    CURSOR_FLIP         AS INTEGER        ' 0 = none, 1 = flip horiz, 2 = flip vert, 3 = flip both
     HIDDEN              AS INTEGER        ' TRUE when pointer is hidden for native dialogs
     PREV_DRAW_X         AS INTEGER        ' Previous frame pointer X (canvas coords) for dirty-rect
     PREV_DRAW_Y         AS INTEGER        ' Previous frame pointer Y (canvas coords) for dirty-rect

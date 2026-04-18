@@ -57,7 +57,7 @@ TYPE PREVIEW_OBJ
 
     ' Resize (8-edge handles)
     resizing     AS INTEGER
-    resizeEdge   AS INTEGER           ' 1 = N 2=NE 3=E 4=SE 5=S 6=SW 7=W 8=NW
+    resizeEdge   AS INTEGER           ' 1 = N 2 = NE 3 = E 4 = SE 5 = S 6 = SW 7 = W 8 = NW
     resizeStartX AS INTEGER
     resizeStartY AS INTEGER
     resizeOrigX  AS INTEGER

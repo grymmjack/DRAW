@@ -179,13 +179,13 @@ END IF
 TYPE DRAW_CONFIG
     THEME                           AS STRING         ' Active theme directory name (e.g. "DEFAULT")
     FULLSCREEN                      AS INTEGER        ' TRUE = fullscreen, FALSE = windowed
-    DISPLAY_SCALE                   AS INTEGER        ' 0    = auto-detect, 1-8=explicit scale
+    DISPLAY_SCALE                   AS INTEGER        ' 0 = auto-detect, 1-8 = explicit scale
     DISPLAY_SCALE_MAX               AS INTEGER        ' Maximum allowed scale (default 8)
     DISPLAY_SCALE_CHANGED           AS INTEGER        ' Runtime flag: scale changed during session
     TOOLBAR_SCALE                   AS INTEGER        ' Toolbar icon scale multiplier (1-4, default 1)
-    FD_FONT_SCALE                   AS INTEGER        ' File dialog font scale multiplier (0    = use TOOLBAR_SCALE, 1-4 explicit)
-    FD_FONT                         AS INTEGER        ' File dialog font (0                     = default 16, 8=8x8, 16=8x16)
-    FD_DIALOG_W                     AS INTEGER        ' File dialog width in logical pixels (0  = auto 60% of screen)
+    FD_FONT_SCALE                   AS INTEGER        ' File dialog font scale multiplier (0 = use TOOLBAR_SCALE, 1-4 explicit)
+    FD_FONT                         AS INTEGER        ' File dialog font (0 = default 16, 8 = 8x8, 16 = 8x16)
+    FD_DIALOG_W                     AS INTEGER        ' File dialog width in logical pixels (0 = auto 60% of screen)
     FD_DIALOG_H                     AS INTEGER        ' File dialog height in logical pixels (0 = auto 70% of screen)
     NUDGE_N                         AS INTEGER        ' Multi-pixel nudge distance (default 10)
     NUM_CUSTOM_BRUSHES              AS INTEGER        ' Number of custom brush slots (default 4)
@@ -194,12 +194,12 @@ TYPE DRAW_CONFIG
     FPS_IDLE                        AS INTEGER        ' Reduced FPS when idle (default 15)
     FPS_CURSOR                      AS INTEGER        ' Reduced FPS cursor-only movement (default 20)
     FPS_DIALOG                      AS INTEGER        ' FPS for modal dialogs (default 60)
-    SCREEN_WIDTH                    AS INTEGER        ' Viewport width in pixels (0  = auto-detect)
+    SCREEN_WIDTH                    AS INTEGER        ' Viewport width in pixels (0 = auto-detect)
     SCREEN_HEIGHT                   AS INTEGER        ' Viewport height in pixels (0 = auto-detect)
-    WIN_MIN_WIDTH                   AS INTEGER        ' Minimum viewport width (0    = use 320)
-    WIN_MIN_HEIGHT                  AS INTEGER        ' Minimum viewport height (0   = use 200)
-    WIN_MAX_WIDTH                   AS INTEGER        ' Maximum viewport width (0    = unlimited)
-    WIN_MAX_HEIGHT                  AS INTEGER        ' Maximum viewport height (0   = unlimited)
+    WIN_MIN_WIDTH                   AS INTEGER        ' Minimum viewport width (0 = use 320)
+    WIN_MIN_HEIGHT                  AS INTEGER        ' Minimum viewport height (0 = use 200)
+    WIN_MAX_WIDTH                   AS INTEGER        ' Maximum viewport width (0 = unlimited)
+    WIN_MAX_HEIGHT                  AS INTEGER        ' Maximum viewport height (0 = unlimited)
     DEFAULT_PALETTE                 AS STRING         ' Default palette name to load on startup
     PALETTE_CHIP_WIDTH              AS INTEGER        ' Width of each color chip in palette strip
     PALETTE_CHIP_HEIGHT             AS INTEGER        ' Height of each color chip in palette strip
@@ -221,25 +221,25 @@ TYPE DRAW_CONFIG
     TOOLBOX_DOCK_EDGE               AS STRING         ' "LEFT" or "RIGHT" (default : "RIGHT")
     ' Grid settings
     GRID_COLOR_FG                   AS _UNSIGNED LONG ' Grid foreground color (hex RGB, 0 = use theme)
-    GRID_OPACITY                    AS INTEGER        ' Grid line opacity 0-255 (0               = use theme)
-    GRID_SIZE_X                     AS INTEGER        ' Grid cell width in pixels (0             = use theme)
-    GRID_SIZE_Y                     AS INTEGER        ' Grid cell height in pixels (0            = use theme)
+    GRID_OPACITY                    AS INTEGER        ' Grid line opacity 0-255 (0 = use theme)
+    GRID_SIZE_X                     AS INTEGER        ' Grid cell width in pixels (0 = use theme)
+    GRID_SIZE_Y                     AS INTEGER        ' Grid cell height in pixels (0 = use theme)
     ' Pixel grid settings
     PIXELGRID_COLOR_FG              AS _UNSIGNED LONG ' Pixel grid line color (hex RGB, 0 = use theme)
-    PIXELGRID_OPACITY               AS INTEGER        ' Pixel grid line opacity 0-255 (0         = use theme)
+    PIXELGRID_OPACITY               AS INTEGER        ' Pixel grid line opacity 0-255 (0 = use theme)
     ' Crosshair settings
     CROSSHAIR_FG                    AS _UNSIGNED LONG ' Crosshair line color (hex RGB, 0 = use theme)
-    CROSSHAIR_OPACITY               AS INTEGER        ' Crosshair line opacity 0-255 (0         = use theme)
-    CROSSHAIR_FONT                  AS STRING         ' Crosshair text font filename (empty     = use theme/global font)
+    CROSSHAIR_OPACITY               AS INTEGER        ' Crosshair line opacity 0-255 (0 = use theme)
+    CROSSHAIR_FONT                  AS STRING         ' Crosshair text font filename (empty = use theme/global font)
     CROSSHAIR_FONT_SIZE             AS INTEGER        ' Crosshair text font size in pixels
-    CROSSHAIR_FONT_FG               AS _UNSIGNED LONG ' Crosshair text color (hex RGB, 0         = use theme)
+    CROSSHAIR_FONT_FG               AS _UNSIGNED LONG ' Crosshair text color (hex RGB, 0 = use theme)
     CROSSHAIR_FONT_STROKE_FG        AS _UNSIGNED LONG ' Crosshair text outline color (hex RGB, 0 = use theme)
     CROSSHAIR_FONT_STROKE_WIDTH     AS INTEGER        ' Crosshair text outline width in pixels
     CROSSHAIR_FONT_OFFSET_X         AS INTEGER        ' Crosshair text X offset from cursor (CONFIG_USE_THEME_DEFAULT = use theme)
     CROSSHAIR_FONT_OFFSET_Y         AS INTEGER        ' Crosshair text Y offset from cursor (CONFIG_USE_THEME_DEFAULT = use theme)
-    CROSSHAIR_ANGLE                 AS SINGLE         ' Crosshair rotation angle in degrees (0                        = use theme)
-    CROSSHAIR_OUTLINE_FG            AS _UNSIGNED LONG ' Crosshair outline stroke color (hex RGB, 0             = use theme)
-    CROSSHAIR_OUTLINE_OPACITY       AS INTEGER        ' Crosshair outline stroke opacity 0-255 (0                     = use theme)
+    CROSSHAIR_ANGLE                 AS SINGLE         ' Crosshair rotation angle in degrees (0 = use theme)
+    CROSSHAIR_OUTLINE_FG            AS _UNSIGNED LONG ' Crosshair outline stroke color (hex RGB, 0 = use theme)
+    CROSSHAIR_OUTLINE_OPACITY       AS INTEGER        ' Crosshair outline stroke opacity 0-255 (0 = use theme)
     CROSSHAIR_OUTLINE_WIDTH         AS INTEGER        ' Crosshair outline stroke width in pixels
     ' Picker loupe settings
     PICKER_LOUPE_ZOOM_LEVEL         AS INTEGER        ' Loupe zoom factor (1-8)
@@ -260,31 +260,31 @@ TYPE DRAW_CONFIG
     PICKER_LOUPE_PIXEL_PICKUP_COLOR AS _UNSIGNED LONG ' Loupe sampled-pixel marker color
     ' Grid mode and angle
     GRID_ANGLE                      AS SINGLE         ' Grid rotation angle in degrees (0 = use theme)
-    GRID_MODE                       AS INTEGER        ' Grid geometry mode (0             = square,1=diagonal,2=iso,3=hex)
-    GRID_CELL_FILL                  AS INTEGER        ' Grid cell fill mode (0            = off, 1=on)
-    GRID_ON_TOP                     AS INTEGER        ' Grid renders on top of art (1     = on top, 0=behind art)
+    GRID_MODE                       AS INTEGER        ' Grid geometry mode (0 = square,1 = diagonal,2 = iso,3 = hex)
+    GRID_CELL_FILL                  AS INTEGER        ' Grid cell fill mode (0 = off, 1 = on)
+    GRID_ON_TOP                     AS INTEGER        ' Grid renders on top of art (1 = on top, 0 = behind art)
     ' Transparency checkerboard settings
     TRANSPARENCY_CHECK_COLOR1       AS _UNSIGNED LONG ' Light checkerboard color
     TRANSPARENCY_CHECK_COLOR2       AS _UNSIGNED LONG ' Dark checkerboard color
-    TRANSPARENCY_CHECK_SIZE_X       AS INTEGER        ' Checkerboard square width (0  = use theme)
+    TRANSPARENCY_CHECK_SIZE_X       AS INTEGER        ' Checkerboard square width (0 = use theme)
     TRANSPARENCY_CHECK_SIZE_Y       AS INTEGER        ' Checkerboard square height (0 = use theme)
     ' Scrollbar settings
     SCROLLBAR_BG                    AS _UNSIGNED LONG ' Scrollbar track background color (hex RGB, 0 = default)
-    SCROLLBAR_HANDLE_FG             AS _UNSIGNED LONG ' Scrollbar thumb/handle color (hex RGB, 0     = default)
-    SCROLLBAR_OPACITY               AS INTEGER        ' Scrollbar overall opacity 0-255 (0                  = use default 180)
+    SCROLLBAR_HANDLE_FG             AS _UNSIGNED LONG ' Scrollbar thumb/handle color (hex RGB, 0 = default)
+    SCROLLBAR_OPACITY               AS INTEGER        ' Scrollbar overall opacity 0-255 (0 = use default 180)
     ' Sound / music settings
-    SOUNDS_ENABLED                  AS INTEGER        ' TRUE = -1 / FALSE=0 (default 0=off)
+    SOUNDS_ENABLED                  AS INTEGER        ' TRUE = -1 / FALSE = 0 (default 0 = off)
     SOUNDS_VOLUME                   AS INTEGER        ' Volume percent 0-100 (default 35)
-    SOUNDS_MUTED                    AS INTEGER        ' TRUE = -1 / FALSE=0 (mute SFX without disabling)
-    MUSIC_ENABLED                   AS INTEGER        ' TRUE = -1 / FALSE=0 (default 0=off)
+    SOUNDS_MUTED                    AS INTEGER        ' TRUE = -1 / FALSE = 0 (mute SFX without disabling)
+    MUSIC_ENABLED                   AS INTEGER        ' TRUE = -1 / FALSE = 0 (default 0 = off)
     MUSIC_VOLUME                    AS INTEGER        ' Volume percent 0-100 for music (default 35)
-    MUSIC_MUTED                     AS INTEGER        ' TRUE = -1 / FALSE=0 (mute music without stopping)
+    MUSIC_MUTED                     AS INTEGER        ' TRUE = -1 / FALSE = 0 (mute music without stopping)
     ' Default startup settings
-    DEFAULT_TOOL                    AS INTEGER        ' Default tool on startup (1 = brush, 2=fill, 3=dot, etc.)
+    DEFAULT_TOOL                    AS INTEGER        ' Default tool on startup (1 = brush, 2 = fill, 3 = dot, etc.)
     DEFAULT_BRUSH_SIZE              AS INTEGER        ' Default brush size index (1-25)
-    DEFAULT_BRUSH_SHAPE             AS INTEGER        ' Default brush shape (0           = circle, 1=square)
-    DEFAULT_DRAW_MODE               AS INTEGER        ' Default paint mode on startup (1 = color, 2=gradient, 3=pattern)
-    DEFAULT_BIN_MODE                AS INTEGER        ' Default bins panel on startup (1 = brush, 2=pattern, 3=gradient)
+    DEFAULT_BRUSH_SHAPE             AS INTEGER        ' Default brush shape (0 = circle, 1 = square)
+    DEFAULT_DRAW_MODE               AS INTEGER        ' Default paint mode on startup (1 = color, 2 = gradient, 3 = pattern)
+    DEFAULT_BIN_MODE                AS INTEGER        ' Default bins panel on startup (1 = brush, 2 = pattern, 3 = gradient)
     DEFAULT_LAYER_BG_COLOR          AS _UNSIGNED LONG ' Default layer background color
     BAS_EXPORT_BG_COLOR             AS _UNSIGNED LONG ' Default generated BAS screen background color
     BAS_WIP_ENABLED                 AS INTEGER        ' TRUE = keep live *-wip.bas stream in sync with history
@@ -305,7 +305,7 @@ TYPE DRAW_CONFIG
     ' Color extraction max for "Create from image"
     PALETTE_CREATE_MAX_COLORS       AS INTEGER        ' Default max colors for Create from Image (default 32)
     ' Preview Window settings
-    PREVIEW_VISIBLE                 AS INTEGER        ' TRUE              = preview window open at startup
+    PREVIEW_VISIBLE                 AS INTEGER        ' TRUE = preview window open at startup
     PREVIEW_X                       AS INTEGER        ' Last window X (-1 = use auto-position)
     PREVIEW_Y                       AS INTEGER        ' Last window Y (-1 = use auto-position)
     PREVIEW_W                       AS INTEGER        ' Last window width
@@ -314,13 +314,13 @@ TYPE DRAW_CONFIG
     PREVIEW_ZOOM                    AS SINGLE         ' Independent preview zoom level
     PREVIEW_PAN_X                   AS SINGLE         ' Independent preview pan X (canvas pixels)
     PREVIEW_PAN_Y                   AS SINGLE         ' Independent preview pan Y (canvas pixels)
-    PREVIEW_MODE                    AS INTEGER        ' 0    = Follow, 1=Floating Image
+    PREVIEW_MODE                    AS INTEGER        ' 0 = Follow, 1 = Floating Image
     PREVIEW_COLOR_PICK              AS INTEGER        ' TRUE = allow color picking from preview
     PREVIEW_BIN_QUICK_LOOK          AS INTEGER        ' TRUE = enable Bin Quick Look hover preview
     PREVIEW_FLOAT_IMAGE_PATH        AS STRING         ' Last loaded floating image path
     PREVIEW_FLOAT_LAST_DIR          AS STRING         ' Last directory used for Load Image dialog
     ' Color Mixer settings
-    COLOR_MIXER_VISIBLE             AS INTEGER        ' TRUE             = color mixer panel open at startup
+    COLOR_MIXER_VISIBLE             AS INTEGER        ' TRUE = color mixer panel open at startup
     COLOR_MIXER_X                   AS INTEGER        ' Last panel X (-1 = auto-position)
     COLOR_MIXER_Y                   AS INTEGER        ' Last panel Y (-1 = auto-position)
     PIXEL_ANALYZER_CONFIDENCE       AS INTEGER        ' Pixel analyzer confidence threshold percent (10-90)
@@ -333,7 +333,7 @@ TYPE DRAW_CONFIG
     DEFAULT_DSET_PATTERNS_FILE      AS STRING         ' Default pattern drawer set (.dset)
     DEFAULT_DSET_GRADIENTS_FILE     AS STRING         ' Default gradient drawer set (.dset)
     ' Canvas size settings
-    DEFAULT_CANVAS_SIZE_W           AS INTEGER        ' Default canvas width (0   = fill viewport, >0=explicit)
+    DEFAULT_CANVAS_SIZE_W           AS INTEGER        ' Default canvas width (0 = fill viewport, >0 = explicit)
     DEFAULT_CANVAS_SIZE_H           AS INTEGER        ' Default canvas height (>0 = explicit)
     CANVAS_APRON_COLOR              AS _UNSIGNED LONG ' Background color around canvas when smaller than viewport
     SYSTEM_CURSORS_ENABLED          AS INTEGER        ' TRUE = use OS system cursors for resize/hand/text/move
@@ -341,7 +341,7 @@ TYPE DRAW_CONFIG
     TOOLTIP_HOVER_DELAY_MS          AS INTEGER        ' Milliseconds before tooltip appears (default 500)
     TOOLTIPS_DISABLED               AS INTEGER        ' TRUE = hide toolbar tooltips entirely
     ' Text tool default font settings
-    FONT_DEFAULT_FONT               AS STRING         ' Default font name for text tool (empty    = use Tiny5 Regular)
+    FONT_DEFAULT_FONT               AS STRING         ' Default font name for text tool (empty = use Tiny5 Regular)
     FONT_DEFAULT_SIZE               AS INTEGER        ' Default font size for text tool (4-128, 0 = use program default 8)
     ' Character Map panel settings
     CHARMAP_VISIBLE                 AS INTEGER        ' TRUE = character map panel visible at startup
@@ -355,11 +355,11 @@ TYPE DRAW_CONFIG
     CHARMAP_MIN_FONT_SIZE           AS INTEGER        ' Minimum font size used by charmap preview (default 4)
     CHARMAP_MAX_FONT_SIZE           AS INTEGER        ' Maximum font size used by charmap preview (default 16)
     CHARMAP_CHAR_SELECTED           AS INTEGER        ' Last selected character index (0-255, -1 = none)
-    CHARMAP_USE_CHARS               AS INTEGER        ' TRUE                                     = Character Mode (Use Chars) active
+    CHARMAP_USE_CHARS               AS INTEGER        ' TRUE = Character Mode (Use Chars) active
     ' Character Grid settings
-    CHAR_GRID_WIDTH                 AS INTEGER        ' Character grid cell width (0                 = match font)
-    CHAR_GRID_HEIGHT                AS INTEGER        ' Character grid cell height (0                = match font)
-    CHAR_GRID_OPACITY               AS INTEGER        ' Character grid opacity 0-255 (0              = use theme)
+    CHAR_GRID_WIDTH                 AS INTEGER        ' Character grid cell width (0 = match font)
+    CHAR_GRID_HEIGHT                AS INTEGER        ' Character grid cell height (0 = match font)
+    CHAR_GRID_OPACITY               AS INTEGER        ' Character grid opacity 0-255 (0 = use theme)
     CHAR_GRID_COLOR_FG              AS _UNSIGNED LONG ' Character grid line color (hex RGB, 0 = use theme)
     ' Tab width in Character Mode
     CHARMAP_TAB_CHARS               AS INTEGER        ' Number of characters per TAB (default 4)
@@ -372,9 +372,9 @@ TYPE DRAW_CONFIG
     ' Smart Guides (persisted toggles)
     SMART_GUIDES_ENABLED            AS INTEGER        ' Toggle smart guide display
     SMART_GUIDES_SNAP               AS INTEGER        ' Toggle snap-to-smart-guides
-    SMART_GUIDES_DISTANCE           AS INTEGER        ' Detection distance override (0      = use theme)
+    SMART_GUIDES_DISTANCE           AS INTEGER        ' Detection distance override (0 = use theme)
     SMART_GUIDES_COLOR_FG           AS _UNSIGNED LONG ' Guide line color override (0 = use theme)
-    SMART_GUIDES_OPACITY            AS INTEGER        ' Opacity override (0                 = use theme)
+    SMART_GUIDES_OPACITY            AS INTEGER        ' Opacity override (0 = use theme)
 END TYPE
 
 DIM SHARED CFG AS DRAW_CONFIG

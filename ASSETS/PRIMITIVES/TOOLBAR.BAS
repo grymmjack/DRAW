@@ -26,20 +26,20 @@ CONST BTN_Q3~& = _RGB32(255, 170, 0)   ' qb64 orange square
 CONST BTN_Q4~& = _RGB32(255, 255, 147) ' qb64 yellow square
 
 DIM b_blank    AS LONG : btn_blank b_blank&
-DIM b_select   AS LONG : b_select   = _COPYIMAGE(b_blank&) : btn_select b_select
-DIM b_move     AS LONG : b_move     = _COPYIMAGE(b_blank&) : btn_move b_move
+DIM b_select   AS LONG : b_select = _COPYIMAGE(b_blank&)   : btn_select b_select
+DIM b_move     AS LONG : b_move = _COPYIMAGE(b_blank&)     : btn_move b_move
 DIM b_polyline AS LONG : b_polyline = _COPYIMAGE(b_blank&) : btn_polyline b_polyline
-DIM b_text     AS LONG : b_text     = _COPYIMAGE(b_blank&) : btn_text b_text
-DIM b_save     AS LONG : b_save     = _COPYIMAGE(b_blank&) : btn_save b_save
-DIM b_open     AS LONG : b_open     = _COPYIMAGE(b_blank&) : btn_open b_open
-DIM b_code     AS LONG : b_code     = _COPYIMAGE(b_blank&) : btn_code b_code
+DIM b_text     AS LONG : b_text = _COPYIMAGE(b_blank&)     : btn_text b_text
+DIM b_save     AS LONG : b_save = _COPYIMAGE(b_blank&)     : btn_save b_save
+DIM b_open     AS LONG : b_open = _COPYIMAGE(b_blank&)     : btn_open b_open
+DIM b_code     AS LONG : b_code = _COPYIMAGE(b_blank&)     : btn_code b_code
 
-DIM b_dot      AS LONG : b_dot      = _COPYIMAGE(b_blank&) : btn_dot b_dot
-DIM b_fill     AS LONG : b_fill     = _COPYIMAGE(b_blank&) : btn_fill b_fill
-DIM b_line     AS LONG : b_line     = _COPYIMAGE(b_blank&) : btn_line b_line
-DIM b_rect     AS LONG : b_rect     = _COPYIMAGE(b_blank&) : btn_rect b_rect
-DIM b_ellipse  AS LONG : b_ellipse  = _COPYIMAGE(b_blank&) : btn_ellipse b_ellipse
-DIM b_rectf    AS LONG : b_rectf    = _COPYIMAGE(b_blank&) : btn_rectf b_rectf
+DIM b_dot      AS LONG : b_dot = _COPYIMAGE(b_blank&)      : btn_dot b_dot
+DIM b_fill     AS LONG : b_fill = _COPYIMAGE(b_blank&)     : btn_fill b_fill
+DIM b_line     AS LONG : b_line = _COPYIMAGE(b_blank&)     : btn_line b_line
+DIM b_rect     AS LONG : b_rect = _COPYIMAGE(b_blank&)     : btn_rect b_rect
+DIM b_ellipse  AS LONG : b_ellipse = _COPYIMAGE(b_blank&)  : btn_ellipse b_ellipse
+DIM b_rectf    AS LONG : b_rectf = _COPYIMAGE(b_blank&)    : btn_rectf b_rectf
 DIM b_ellipsef AS LONG : b_ellipsef = _COPYIMAGE(b_blank&) : btn_ellipsef b_ellipsef
 
 ' Create cursor for fill tool

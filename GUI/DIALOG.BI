@@ -27,7 +27,7 @@ TYPE DIALOG_CTX
     justClicked  AS INTEGER ' mb1 transitioned 0->1 this frame
     mwheel       AS INTEGER ' Accumulated mouse wheel delta this frame
     done         AS INTEGER ' TRUE when loop should exit
-    result       AS INTEGER ' TRUE = OK, FALSE=Cancel
+    result       AS INTEGER ' TRUE = OK, FALSE = Cancel
     ' ---- Live preview / split view ----
     origThumb    AS LONG    ' Thumbnail of layer at open (created by IMAGE_ADJ_setup_preview)
     previewThumb AS LONG    ' Thumbnail of current adjusted result

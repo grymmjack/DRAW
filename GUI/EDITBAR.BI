@@ -21,7 +21,7 @@ CONST EDITBAR_DOCK_RIGHT   = 1
 
 TYPE EDITBAR_ITEM_OBJ
     actionID       AS INTEGER     ' CMD action ID to execute on click (0 = divider)
-    iconHandle     AS LONG        ' Loaded image handle (< -1            = valid)
+    iconHandle     AS LONG        ' Loaded image handle (< -1 = valid)
     disabledHandle AS LONG        ' Pre-computed dimmed copy (per-pixel alpha scaled)
     iconFile       AS STRING * 64 ' Theme filename for icon
     x              AS INTEGER     ' Screen position set during render

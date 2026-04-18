@@ -43,7 +43,7 @@ TYPE TRANSFORM_OBJ
     SRC_H     AS INTEGER
     SRC_IMG   AS LONG    ' Copy of source pixels captured on activate
     ' Drag state
-    GRABBED   AS INTEGER ' -1 = none  0-3=corner handle  4=body drag
+    GRABBED   AS INTEGER ' -1 = none  0-3 = corner handle  4 = body drag
     DRAG_OFX  AS SINGLE  ' Offset from handle to mouse at press (canvas px)
     DRAG_OFY  AS SINGLE
     ' Status-bar display values

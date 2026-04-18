@@ -127,7 +127,7 @@ CONST NUM_PAGES& = 3
 ' ---- State ----
 DIM k           AS LONG
 DIM currentPage AS INTEGER : currentPage% = 1
-DIM frameCount  AS LONG    : frameCount&      = 0
+DIM frameCount  AS LONG    : frameCount& = 0
 
 ' Modifier state
 DIM ctrl     AS INTEGER, shift AS INTEGER, alt AS INTEGER
@@ -147,7 +147,7 @@ DIM macAltHeld AS INTEGER: macAltHeld% = FALSE
 ' _KEYHIT event log (ring buffer)
 DIM logLines(LOG_TOTAL& - 1) AS STRING
 DIM logColors(LOG_TOTAL& - 1) AS _UNSIGNED LONG
-DIM logHead  AS LONG : logHead&   = 0
+DIM logHead  AS LONG : logHead& = 0
 DIM logCount AS LONG : logCount& = 0
 
 ' Held-key tracking for all testable keys
@@ -221,9 +221,9 @@ DO
             END IF
         ELSEIF k& < 0 THEN
             ' Key release
-            logClr~&                = C_RED~&
+            logClr~& = C_RED~&
             DIM absK AS LONG: absK& = ABS(k&)
-            logStr$                 = "RELEASE k=" + LPAD$(LTRIM$(STR$(absK&)), 8) + "  "
+            logStr$ = "RELEASE k=" + LPAD$(LTRIM$(STR$(absK&)), 8) + "  "
             IF absK& > 0 AND absK& < 127 THEN
                 IF absK& > = 32 THEN
                     logStr$ = logStr$ + "chr=" + CHR$(34) + CHR$(absK&) + CHR$(34)
@@ -407,12 +407,12 @@ SUB SUB_drawPage2_AllKeys (startY%)
     COLOR C_DIMM~&
     _PRINTSTRING (8, startY% + 16), "Green=held now, held frame count shown. Every key DRAW cares about."
 
-    DIM y       AS INTEGER : y%             = startY% + 40
-    DIM x       AS INTEGER : x%             = 8
-    DIM col     AS INTEGER : col%         = 0
-    DIM colW    AS INTEGER : colW%       = 200
+    DIM y       AS INTEGER : y% = startY% + 40
+    DIM x       AS INTEGER : x% = 8
+    DIM col     AS INTEGER : col% = 0
+    DIM colW    AS INTEGER : colW% = 200
     DIM maxCols AS INTEGER : maxCols% = 5
-    DIM rowH    AS INTEGER : rowH%       = 16
+    DIM rowH    AS INTEGER : rowH% = 16
 
     ' Group headers and keys
     DIM prevGroup AS STRING: prevGroup$ = ""
@@ -485,11 +485,11 @@ SUB SUB_drawPage3_Combos (startY%)
     COLOR C_DIMM~&
     _PRINTSTRING (8, startY% + 16), "Every modifier+key combo used in DRAW. Green=active, shows last detection time."
 
-    DIM y    AS INTEGER : y%       = startY% + 40
-    DIM x    AS INTEGER : x%       = 8
-    DIM col  AS INTEGER : col%   = 0
+    DIM y    AS INTEGER : y% = startY% + 40
+    DIM x    AS INTEGER : x% = 8
+    DIM col  AS INTEGER : col% = 0
     DIM colW AS INTEGER : colW% = 340
-    DIM now  AS DOUBLE  : now#    = TIMER(.001)
+    DIM now  AS DOUBLE  : now# = TIMER(.001)
 
     DIM cbi AS INTEGER
     FOR cbi% = 0 TO comboCount% - 1
@@ -685,7 +685,7 @@ SUB SUB_comboUpdate ()
     SHARED ctrlOnly   AS INTEGER, ctrlShift AS INTEGER, ctrlAlt AS INTEGER
     SHARED shiftOnly  AS INTEGER, altOnly AS INTEGER
 
-    DIM now AS DOUBLE  : now#  = TIMER(.001)
+    DIM now AS DOUBLE  : now# = TIMER(.001)
     DIM idx AS INTEGER : idx% = 0
 
     ' Ctrl combos
@@ -761,54 +761,54 @@ END SUB
 ' =============================================================================
 FUNCTION KEYNAME$ (code&)
     SELECT CASE code&
-        CASE KEY_F1&         : KEYNAME$         = "F1"
-        CASE KEY_F2&         : KEYNAME$         = "F2"
-        CASE KEY_F3&         : KEYNAME$         = "F3"
-        CASE KEY_F4&         : KEYNAME$         = "F4"
-        CASE KEY_F5&         : KEYNAME$         = "F5"
-        CASE KEY_F6&         : KEYNAME$         = "F6"
-        CASE KEY_F7&         : KEYNAME$         = "F7"
-        CASE KEY_F8&         : KEYNAME$         = "F8"
-        CASE KEY_F9&         : KEYNAME$         = "F9"
-        CASE KEY_F10&        : KEYNAME$        = "F10"
-        CASE KEY_F11&        : KEYNAME$        = "F11"
-        CASE KEY_F12&        : KEYNAME$        = "F12"
-        CASE KEY_UP&         : KEYNAME$         = "Up"
-        CASE KEY_DOWN&       : KEYNAME$       = "Down"
-        CASE KEY_LEFT&       : KEYNAME$       = "Left"
-        CASE KEY_RIGHT&      : KEYNAME$      = "Right"
-        CASE KEY_PGUP&       : KEYNAME$       = "PgUp"
-        CASE KEY_PGDN&       : KEYNAME$       = "PgDn"
-        CASE KEY_HOME&       : KEYNAME$       = "Home"
-        CASE KEY_ENDK&       : KEYNAME$       = "End"
-        CASE KEY_INSERT&     : KEYNAME$     = "Insert"
-        CASE KEY_DELETE&     : KEYNAME$     = "Delete"
-        CASE KEY_LSHIFT&     : KEYNAME$     = "LShift"
-        CASE KEY_RSHIFT&     : KEYNAME$     = "RShift"
-        CASE KEY_LCTRL&      : KEYNAME$      = "LCtrl"
-        CASE KEY_RCTRL&      : KEYNAME$      = "RCtrl"
-        CASE KEY_LALT&       : KEYNAME$       = "LAlt"
-        CASE KEY_RALT&       : KEYNAME$       = "RAlt"
-        CASE KEY_CAPSLOCK&   : KEYNAME$   = "CapsLock"
-        CASE KEY_NUMLOCK&    : KEYNAME$    = "NumLock"
+        CASE KEY_F1&         : KEYNAME$ = "F1"
+        CASE KEY_F2&         : KEYNAME$ = "F2"
+        CASE KEY_F3&         : KEYNAME$ = "F3"
+        CASE KEY_F4&         : KEYNAME$ = "F4"
+        CASE KEY_F5&         : KEYNAME$ = "F5"
+        CASE KEY_F6&         : KEYNAME$ = "F6"
+        CASE KEY_F7&         : KEYNAME$ = "F7"
+        CASE KEY_F8&         : KEYNAME$ = "F8"
+        CASE KEY_F9&         : KEYNAME$ = "F9"
+        CASE KEY_F10&        : KEYNAME$ = "F10"
+        CASE KEY_F11&        : KEYNAME$ = "F11"
+        CASE KEY_F12&        : KEYNAME$ = "F12"
+        CASE KEY_UP&         : KEYNAME$ = "Up"
+        CASE KEY_DOWN&       : KEYNAME$ = "Down"
+        CASE KEY_LEFT&       : KEYNAME$ = "Left"
+        CASE KEY_RIGHT&      : KEYNAME$ = "Right"
+        CASE KEY_PGUP&       : KEYNAME$ = "PgUp"
+        CASE KEY_PGDN&       : KEYNAME$ = "PgDn"
+        CASE KEY_HOME&       : KEYNAME$ = "Home"
+        CASE KEY_ENDK&       : KEYNAME$ = "End"
+        CASE KEY_INSERT&     : KEYNAME$ = "Insert"
+        CASE KEY_DELETE&     : KEYNAME$ = "Delete"
+        CASE KEY_LSHIFT&     : KEYNAME$ = "LShift"
+        CASE KEY_RSHIFT&     : KEYNAME$ = "RShift"
+        CASE KEY_LCTRL&      : KEYNAME$ = "LCtrl"
+        CASE KEY_RCTRL&      : KEYNAME$ = "RCtrl"
+        CASE KEY_LALT&       : KEYNAME$ = "LAlt"
+        CASE KEY_RALT&       : KEYNAME$ = "RAlt"
+        CASE KEY_CAPSLOCK&   : KEYNAME$ = "CapsLock"
+        CASE KEY_NUMLOCK&    : KEYNAME$ = "NumLock"
         CASE KEY_SCROLLLOCK& : KEYNAME$ = "ScrollLock"
-        CASE KP_0&           : KEYNAME$           = "KP_0"
-        CASE KP_1&           : KEYNAME$           = "KP_1"
-        CASE KP_2&           : KEYNAME$           = "KP_2"
-        CASE KP_3&           : KEYNAME$           = "KP_3"
-        CASE KP_4&           : KEYNAME$           = "KP_4"
-        CASE KP_5&           : KEYNAME$           = "KP_5"
-        CASE KP_6&           : KEYNAME$           = "KP_6"
-        CASE KP_7&           : KEYNAME$           = "KP_7"
-        CASE KP_8&           : KEYNAME$           = "KP_8"
-        CASE KP_9&           : KEYNAME$           = "KP_9"
-        CASE KP_PERIOD&      : KEYNAME$      = "KP_."
-        CASE KP_DIVIDE&      : KEYNAME$      = "KP_/"
-        CASE KP_MULTIPLY&    : KEYNAME$    = "KP_*"
-        CASE KP_MINUS&       : KEYNAME$       = "KP_-"
-        CASE KP_PLUS&        : KEYNAME$        = "KP_+"
-        CASE KP_ENTER&       : KEYNAME$       = "KP_Enter"
-        CASE ELSE            : KEYNAME$            = "ext:" + LTRIM$(STR$(code&))
+        CASE KP_0&           : KEYNAME$ = "KP_0"
+        CASE KP_1&           : KEYNAME$ = "KP_1"
+        CASE KP_2&           : KEYNAME$ = "KP_2"
+        CASE KP_3&           : KEYNAME$ = "KP_3"
+        CASE KP_4&           : KEYNAME$ = "KP_4"
+        CASE KP_5&           : KEYNAME$ = "KP_5"
+        CASE KP_6&           : KEYNAME$ = "KP_6"
+        CASE KP_7&           : KEYNAME$ = "KP_7"
+        CASE KP_8&           : KEYNAME$ = "KP_8"
+        CASE KP_9&           : KEYNAME$ = "KP_9"
+        CASE KP_PERIOD&      : KEYNAME$ = "KP_."
+        CASE KP_DIVIDE&      : KEYNAME$ = "KP_/"
+        CASE KP_MULTIPLY&    : KEYNAME$ = "KP_*"
+        CASE KP_MINUS&       : KEYNAME$ = "KP_-"
+        CASE KP_PLUS&        : KEYNAME$ = "KP_+"
+        CASE KP_ENTER&       : KEYNAME$ = "KP_Enter"
+        CASE ELSE            : KEYNAME$ = "ext:" + LTRIM$(STR$(code&))
     END SELECT
 END FUNCTION
 

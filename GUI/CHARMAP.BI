@@ -36,7 +36,7 @@ TYPE CHARMAP_OBJ
     cellH            AS INTEGER ' Glyph cell height in pixels (config-backed)
     cellPadding      AS INTEGER ' Padding between cells in pixels
     selectedIdx      AS INTEGER ' Currently selected glyph index (0-255, -1 = none)
-    hoverIdx         AS INTEGER ' Currently hovered glyph index (-1         = none)
+    hoverIdx         AS INTEGER ' Currently hovered glyph index (-1 = none)
     scrollY          AS INTEGER ' Vertical scroll offset (for future use)
     ' Glyph cache state
     cacheValid       AS INTEGER ' TRUE when cache matches current font settings
