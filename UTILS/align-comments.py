@@ -555,6 +555,188 @@ def process_lines_align_case_global(lines: list[str], case_gap: int = 1, eq_gap:
 
 
 # ---------------------------------------------------------------------------
+# Colon (multi-statement) alignment
+# ---------------------------------------------------------------------------
+
+def find_all_colon_positions(line: str) -> list[int]:
+    """Return positions of all ':' statement separators outside strings.
+
+    Only returns positions where there is actual non-empty, non-comment
+    content after the colon (ignores trailing bare ':').
+    """
+    positions: list[int] = []
+    in_string = False
+    i = 0
+    while i < len(line):
+        ch = line[i]
+        if ch == '"':
+            if in_string:
+                if i + 1 < len(line) and line[i + 1] == '"':
+                    i += 2
+                    continue
+                in_string = False
+            else:
+                in_string = True
+        elif ch == ':' and not in_string:
+            rest = line[i + 1:].strip()
+            if rest and not rest.startswith("'"):
+                positions.append(i)
+        i += 1
+    return positions
+
+
+def _align_colon_groups(
+    groups: list[list[tuple[int, str, list[int]]]],
+    lines: list[str],
+    colon_gap: int,
+) -> tuple[list[str], int]:
+    """Align ':' statement separators within each group."""
+    result = list(lines)
+    changed = 0
+
+    for group in groups:
+        if len(group) < 2:
+            continue
+
+        # Split each line into segments around ':' separators
+        all_segs: list[tuple[int, list[str]]] = []
+        for idx, raw, positions in group:
+            segs: list[str] = []
+            prev = 0
+            for pos in positions:
+                segs.append(raw[prev:pos])
+                prev = pos + 1
+            segs.append(raw[prev:])
+            all_segs.append((idx, segs))
+
+        max_colons = max(len(g[2]) for g in group)
+
+        # Normalize segments for width measurement:
+        #   slot 0: rstrip (preserves indentation)
+        #   slot 1+: ' ' + stripped (normalise to 1 leading space)
+        def _norm(s_idx: int, seg: str) -> str:
+            if s_idx == 0:
+                return seg.rstrip()
+            stripped = seg.strip()
+            return (' ' + stripped) if stripped else ''
+
+        # Find max width of each colon slot
+        slot_maxes: list[int] = []
+        for s in range(max_colons):
+            w = 0
+            for _idx, segs in all_segs:
+                if s < len(segs) - 1:
+                    w = max(w, len(_norm(s, segs[s])))
+            slot_maxes.append(w)
+
+        # Rebuild each line
+        for idx, segs in all_segs:
+            parts: list[str] = []
+            for s, seg in enumerate(segs):
+                if s < len(segs) - 1:
+                    n = _norm(s, seg)
+                    if s < len(slot_maxes):
+                        n = n.ljust(slot_maxes[s] + colon_gap)
+                    parts.append(n + ':')
+                else:
+                    # Last segment — normalise leading space
+                    stripped = seg.lstrip()
+                    parts.append((' ' + stripped) if stripped else seg)
+            new_raw = ''.join(parts)
+            ending = get_ending(lines[idx])
+            new_line = new_raw + ending
+            if new_line != lines[idx]:
+                changed += 1
+                result[idx] = new_line
+
+    return result, changed
+
+
+def process_lines_align_colon(lines: list[str], colon_gap: int = 1) -> tuple[list[str], int]:
+    """Section-aware colon alignment.
+
+    Groups consecutive lines that each contain at least one ':' statement
+    separator.  Blank lines and pure-comment lines break the current group.
+    """
+    groups: list[list[tuple[int, str, list[int]]]] = []
+    current: list[tuple[int, str, list[int]]] = []
+
+    for i, orig in enumerate(lines):
+        raw = orig.rstrip('\n').rstrip('\r')
+        stripped = raw.strip()
+        if not stripped or stripped.startswith("'"):
+            if current:
+                groups.append(current)
+                current = []
+            continue
+        positions = find_all_colon_positions(raw)
+        if positions:
+            current.append((i, raw, positions))
+        elif current:
+            groups.append(current)
+            current = []
+
+    if current:
+        groups.append(current)
+
+    return _align_colon_groups(groups, lines, colon_gap)
+
+
+def process_lines_align_colon_global(lines: list[str], colon_gap: int = 1) -> tuple[list[str], int]:
+    """Block-boundary + indent-aware global colon alignment.
+
+    Groups break at: block boundaries (SUB/FUNCTION/TYPE/END *),
+    blank lines, and indentation-level changes.  Pure-comment lines are
+    skipped but do NOT break the current group.
+    """
+    groups: list[list[tuple[int, str, list[int]]]] = []
+    current: list[tuple[int, str, list[int]]] = []
+    current_indent: int | None = None
+
+    for i, orig in enumerate(lines):
+        raw = orig.rstrip('\n').rstrip('\r')
+        stripped = raw.strip()
+
+        if _is_block_boundary(raw):
+            if current:
+                groups.append(current)
+                current = []
+            current_indent = None
+            continue
+
+        if not stripped:
+            if current:
+                groups.append(current)
+                current = []
+            current_indent = None
+            continue
+
+        if stripped.startswith("'"):
+            continue  # pure comment — skip but don't break group
+
+        positions = find_all_colon_positions(raw)
+        if positions:
+            indent = len(raw) - len(raw.lstrip())
+            if current_indent is None:
+                current_indent = indent
+            elif indent != current_indent:
+                if current:
+                    groups.append(current)
+                current = []
+                current_indent = indent
+            current.append((i, raw, positions))
+        elif current:
+            groups.append(current)
+            current = []
+            current_indent = None
+
+    if current:
+        groups.append(current)
+
+    return _align_colon_groups(groups, lines, colon_gap)
+
+
+# ---------------------------------------------------------------------------
 # Align mode: section-aware comment alignment
 # ---------------------------------------------------------------------------
 
@@ -713,6 +895,8 @@ def process_lines(
     as_gap: int = 1,
     align_case: bool = False,
     case_gap: int = 1,
+    align_colon: bool = False,
+    colon_gap: int = 1,
     global_align: bool = False,
 ) -> tuple[list[str], int]:
     total_changed = 0
@@ -733,6 +917,13 @@ def process_lines(
             lines, c = process_lines_align_case_global(lines, case_gap, eq_gap)
         else:
             lines, c = process_lines_align_case(lines, case_gap, eq_gap)
+        total_changed += c
+
+    if align_colon:
+        if global_align:
+            lines, c = process_lines_align_colon_global(lines, colon_gap)
+        else:
+            lines, c = process_lines_align_colon(lines, colon_gap)
         total_changed += c
 
     if global_align:
@@ -760,6 +951,8 @@ def process_file(
     as_gap: int,
     align_case: bool,
     case_gap: int,
+    align_colon: bool,
+    colon_gap: int,
     global_align: bool,
     dry_run: bool,
     backup: bool,
@@ -773,7 +966,8 @@ def process_file(
         return 0
 
     new_lines, changed = process_lines(
-        lines, min_gap, mode, align_eq, eq_gap, align_as, as_gap, align_case, case_gap, global_align
+        lines, min_gap, mode, align_eq, eq_gap, align_as, as_gap, align_case, case_gap,
+        align_colon, colon_gap, global_align
     )
 
     if changed == 0:
@@ -834,6 +1028,7 @@ def main():
     parser.add_argument('--align-eq', action='store_true')
     parser.add_argument('--align-as', action='store_true')
     parser.add_argument('--align-case', action='store_true')
+    parser.add_argument('--align-colon', action='store_true')
     parser.add_argument('--global', dest='global_align', action='store_true')
     parser.add_argument('--dry-run', action='store_true')
     parser.add_argument('--no-backup', action='store_true')
@@ -841,6 +1036,7 @@ def main():
     parser.add_argument('--eq-gap', type=int, default=1, metavar='N')
     parser.add_argument('--as-gap', type=int, default=1, metavar='N')
     parser.add_argument('--case-gap', type=int, default=1, metavar='N')
+    parser.add_argument('--colon-gap', type=int, default=1, metavar='N')
     parser.add_argument('--ext', default='bas,bi,bm', metavar='E[,E...]')
     parser.add_argument('--help', '-h', action='store_true')
     args = parser.parse_args()
@@ -870,6 +1066,8 @@ def main():
             as_gap=args.as_gap,
             align_case=args.align_case,
             case_gap=args.case_gap,
+            align_colon=args.align_colon,
+            colon_gap=args.colon_gap,
             global_align=args.global_align,
             dry_run=args.dry_run,
             backup=not args.no_backup,
