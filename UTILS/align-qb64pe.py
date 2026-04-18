@@ -91,8 +91,8 @@ def find_comment_pos(line: str) -> int:
     this function returns -1 for those (callers treat them as group breakers).
     """
     stripped = line.lstrip()
-    if stripped.startswith("'") or stripped.upper().startswith("REM "):
-        return -1  # pure comment / REM line
+    if stripped.startswith("'") or stripped.startswith('$') or stripped.upper().startswith("REM "):
+        return -1  # pure comment / REM / metacommand line
 
     # Lines with THEN are control-flow — aligning their comments looks odd
     # because they tend to be much longer than adjacent pure assignments.
@@ -180,7 +180,7 @@ def find_as_pos(line: str) -> int:
     Case-insensitive; stops at the first ' AS ' found outside a string.
     """
     stripped = line.lstrip()
-    if not stripped or stripped.startswith("'") or stripped.upper().startswith("REM "):
+    if not stripped or stripped.startswith("'") or stripped.startswith('$') or stripped.upper().startswith("REM "):
         return -1
 
     # Exclude file-I/O and other non-declaration uses of 'AS'
@@ -225,7 +225,7 @@ def find_eq_pos(line: str) -> int:
     a comparison or loop-header, not an assignment.
     """
     stripped = line.lstrip()
-    if not stripped or stripped.startswith("'") or stripped.upper().startswith("REM "):
+    if not stripped or stripped.startswith("'") or stripped.startswith('$') or stripped.upper().startswith("REM "):
         return -1
 
     _CTRL_PREFIXES = ('FOR ', 'WHILE ', 'IF ', 'ELSEIF ', '_IF ', 'UNTIL ',
@@ -627,6 +627,9 @@ def find_all_colon_positions(line: str) -> list[int]:
     Only returns positions where there is actual non-empty, non-comment
     content after the colon (ignores trailing bare ':').
     """
+    stripped = line.lstrip()
+    if stripped.startswith("'") or stripped.startswith('$'):
+        return []
     positions: list[int] = []
     in_string = False
     i = 0
@@ -877,7 +880,7 @@ def process_lines_normalise_ctrl_eq(lines: list[str]) -> tuple[list[str], int]:
         is_ctrl = any(su.startswith(p) for p in _CTRL_PREFIXES)
         # Detect compound assignment via find_eq_pos returning -1 while raw '=' exists
         is_compound = False
-        if not is_ctrl and '=' in raw and not stripped.startswith("'") and find_eq_pos(raw) == -1:
+        if not is_ctrl and '=' in raw and not stripped.startswith("'") and not stripped.startswith('$') and find_eq_pos(raw) == -1:
             # find_eq_pos returns -1 for compound assignments — check there's an '='
             # that's not part of <=, >= by looking directly
             for _ci, _cc in enumerate(raw):
