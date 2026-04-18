@@ -13,7 +13,7 @@ $INCLUDEONCE
 ' These are kept for backward compatibility but will use CFG values at runtime
 CONST PALETTE_STRIP_ARROW_WIDTH = 12
 ' PALETTE_STRIP_HEIGHT is now calculated dynamically based on palette size and config
-CONST PALETTE_MENU_MIN_WIDTH = 180        ' Minimum menu width for full names
+CONST PALETTE_MENU_MIN_WIDTH = 180 ' Minimum menu width for full names
 
 ' Palette menu state
 DIM SHARED PALETTE_MENU_VISIBLE%

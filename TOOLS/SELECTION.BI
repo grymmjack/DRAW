@@ -14,12 +14,12 @@
 $INCLUDEONCE
 
 TYPE CLIPBOARD_OBJ
-    IMAGE       AS LONG     ' Image buffer holding clipboard pixels
-    WIDTH       AS INTEGER  ' Width of clipboard content
-    HEIGHT      AS INTEGER  ' Height of clipboard content
-    VALID       AS INTEGER  ' Whether clipboard has valid content
-    SOURCE_X    AS INTEGER  ' Original X position where content was copied from
-    SOURCE_Y    AS INTEGER  ' Original Y position where content was copied from
+    IMAGE    AS LONG    ' Image buffer holding clipboard pixels
+    WIDTH    AS INTEGER ' Width of clipboard content
+    HEIGHT   AS INTEGER ' Height of clipboard content
+    VALID    AS INTEGER ' Whether clipboard has valid content
+    SOURCE_X AS INTEGER ' Original X position where content was copied from
+    SOURCE_Y AS INTEGER ' Original Y position where content was copied from
 END TYPE
 
 DIM SHARED CLIPBOARD AS CLIPBOARD_OBJ

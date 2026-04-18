@@ -7,22 +7,22 @@ OPTION _EXPLICIT
 OPTION _EXPLICITARRAY
 '$DYNAMIC
 
-CONST FP$ = "../ASSETS/FONTS/dp-tuxedo.ttf"
+CONST FP$       = "../ASSETS/FONTS/dp-tuxedo.ttf"
 CONST TEST_STR$ = "ABCDEFGHIJKLMNOPQRSTUVWXYZ abcdefghijklmnopqrstuvwxyz 0123456789"
 
 SCREEN _NEWIMAGE(1280, 900, 32)
 _TITLE "dp-tuxedo.ttf — plain render at multiple sizes"
 CLS , _RGB32(0, 0, 0)
 
-DIM y AS INTEGER
-DIM sz AS INTEGER
-DIM fh AS LONG
+DIM y     AS INTEGER
+DIM sz    AS INTEGER
+DIM fh    AS LONG
 DIM label AS STRING
 DIM sizes(0 TO 11) AS INTEGER
 
-sizes(0) = 8: sizes(1) = 10: sizes(2) = 12: sizes(3) = 14
-sizes(4) = 16: sizes(5) = 18: sizes(6) = 20: sizes(7) = 24
-sizes(8) = 28: sizes(9) = 32: sizes(10) = 48: sizes(11) = 64
+sizes(0) = 8  : sizes(1) = 10 : sizes(2) = 12  : sizes(3) = 14
+sizes(4) = 16 : sizes(5) = 18 : sizes(6) = 20  : sizes(7) = 24
+sizes(8) = 28 : sizes(9) = 32 : sizes(10) = 48 : sizes(11) = 64
 
 y% = 4
 
@@ -32,7 +32,7 @@ FOR i% = 0 TO 11
 
     ' Load with DONTBLEND (non-AA, like charmap uses)
     fh& = _LOADFONT(FP$, sz%, "DONTBLEND")
-    IF fh& <= 0 THEN
+    IF fh& < = 0 THEN
         COLOR _RGB32(255, 80, 80), _RGB32(0, 0, 0)
         _FONT 16
         _PRINTSTRING (4, y%), "SIZE " + LTRIM$(STR$(sz%)) + ": FAILED TO LOAD"

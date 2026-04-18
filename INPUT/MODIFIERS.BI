@@ -23,17 +23,17 @@ $INCLUDEONCE
 
 ' Modifier state object - updated once per frame
 TYPE MODIFIERS_OBJ
-    ctrl AS INTEGER         ' TRUE if any Ctrl key is held
-    shift AS INTEGER        ' TRUE if any Shift key is held
-    alt AS INTEGER          ' TRUE if any Alt key is held
-    ctrlOnly AS INTEGER     ' TRUE if ONLY Ctrl (no Shift or Alt)
-    shiftOnly AS INTEGER    ' TRUE if ONLY Shift (no Ctrl or Alt)
-    altOnly AS INTEGER      ' TRUE if ONLY Alt (no Ctrl or Shift)
-    ctrlShift AS INTEGER    ' TRUE if Ctrl+Shift (no Alt)
-    ctrlAlt AS INTEGER      ' TRUE if Ctrl+Alt (no Shift)
-    shiftAlt AS INTEGER     ' TRUE if Shift+Alt (no Ctrl)
+    ctrl         AS INTEGER ' TRUE if any Ctrl key is held
+    shift        AS INTEGER ' TRUE if any Shift key is held
+    alt          AS INTEGER ' TRUE if any Alt key is held
+    ctrlOnly     AS INTEGER ' TRUE if ONLY Ctrl (no Shift or Alt)
+    shiftOnly    AS INTEGER ' TRUE if ONLY Shift (no Ctrl or Alt)
+    altOnly      AS INTEGER ' TRUE if ONLY Alt (no Ctrl or Shift)
+    ctrlShift    AS INTEGER ' TRUE if Ctrl+Shift (no Alt)
+    ctrlAlt      AS INTEGER ' TRUE if Ctrl+Alt (no Shift)
+    shiftAlt     AS INTEGER ' TRUE if Shift+Alt (no Ctrl)
     ctrlShiftAlt AS INTEGER ' TRUE if all three modifiers
-    none AS INTEGER         ' TRUE if no modifiers held
+    none         AS INTEGER ' TRUE if no modifiers held
 END TYPE
 
 DIM SHARED MODIFIERS AS MODIFIERS_OBJ
@@ -41,7 +41,7 @@ DIM SHARED MODIFIERS AS MODIFIERS_OBJ
 $IF MAC THEN
     ' macOS: Track ALT key state via _KEYHIT (more reliable than _KEYDOWN for Option key)
     ' This is updated in MODIFIERS_track_alt_keyhit() called from main loop when k& is captured
-    DIM SHARED AS INTEGER MAC_ALT_HELD  ' TRUE when ALT/Option key is held
+    DIM SHARED AS INTEGER MAC_ALT_HELD ' TRUE when ALT/Option key is held
 $END IF
 
 ' Declare SUBs

@@ -5,19 +5,19 @@
 OPTION _EXPLICIT
 OPTION _EXPLICITARRAY
 
-CONST TRUE = -1
+CONST TRUE  = -1
 CONST FALSE = 0
 
 DIM fontPath AS STRING
-DIM fHandle AS LONG
-DIM cp AS LONG
-DIM scanImg AS LONG, scanMem AS _MEM
-DIM byteOff AS LONG, pixel AS _UNSIGNED LONG
-DIM hasInk AS INTEGER, imgBytes AS LONG
-DIM oldDest AS LONG
-DIM found AS LONG
-DIM t1 AS DOUBLE, t2 AS DOUBLE
-DIM ri AS INTEGER
+DIM fHandle  AS LONG
+DIM cp       AS LONG
+DIM scanImg  AS LONG, scanMem AS _MEM
+DIM byteOff  AS LONG, pixel AS _UNSIGNED LONG
+DIM hasInk   AS INTEGER, imgBytes AS LONG
+DIM oldDest  AS LONG
+DIM found    AS LONG
+DIM t1       AS DOUBLE, t2 AS DOUBLE
+DIM ri       AS INTEGER
 
 SCREEN _NEWIMAGE(800, 600, 32)
 CLS , _RGB32(0, 0, 0)
@@ -35,8 +35,8 @@ END IF
 
 ' Use small scan buffer for speed
 DIM scanSz AS INTEGER
-scanSz% = 24
-scanImg& = _NEWIMAGE(scanSz%, scanSz%, 32)
+scanSz%   = 24
+scanImg&  = _NEWIMAGE(scanSz%, scanSz%, 32)
 imgBytes& = CLng(scanSz%) * CLng(scanSz%) * 4&
 
 PRINT "Font handle:"; fHandle&
@@ -78,7 +78,7 @@ FOR cp& = &HE000& TO &HF8FF&
     _MEMFREE scanMem
 
     IF hasInk% THEN
-        IF found& <= foundMax& THEN foundCPs(found&) = cp&
+        IF found& < = foundMax& THEN foundCPs(found&) = cp&
         found& = found& + 1
     END IF
 NEXT cp&
@@ -101,7 +101,7 @@ PRINT
 PRINT "--- SCAN: rpgawesome range E900..EAFF (512 cps) ---"
 DIM found2 AS LONG
 found2& = 0
-t1# = TIMER(.001)
+t1#     = TIMER(.001)
 FOR cp& = &HE900& TO &HEAFF&
     _MAPUNICODE cp& TO 1
 
@@ -134,7 +134,7 @@ PRINT
 ' VISUAL: Render first 48 found glyphs as a grid
 ' ================================================================
 PRINT "--- Rendering first 48 discovered glyphs ---"
-DIM renderY AS INTEGER
+DIM renderY   AS INTEGER
 renderY% = CSRLIN * 16 + 8
 DIM showCount AS INTEGER
 showCount% = found&
@@ -164,7 +164,7 @@ _DISPLAY
 IF scanImg& < -1 THEN _FREEIMAGE scanImg&
 _SAVEIMAGE "/home/grymmjack/git/DRAW/DEV/unicode-fastscan-test.png"
 _DELAY 0.5
-IF fHandle& >= 1 THEN
+IF fHandle& > = 1 THEN
     _FONT 16
     _FREEFONT fHandle&
 END IF

@@ -13,51 +13,51 @@ OPTION _EXPLICITARRAY
 
 ' Maximum number of commands and search results
 CONST CMD_MAX_COMMANDS = 200
-CONST CMD_MAX_VISIBLE = 15
-CONST CMD_MAX_SEARCH = 64
+CONST CMD_MAX_VISIBLE  = 15
+CONST CMD_MAX_SEARCH   = 64
 
 ' Command categories
-CONST CMD_CAT_TOOL = 1
-CONST CMD_CAT_FILE = 2
-CONST CMD_CAT_EDIT = 3
-CONST CMD_CAT_VIEW = 4
-CONST CMD_CAT_COLOR = 5
-CONST CMD_CAT_BRUSH = 6
-CONST CMD_CAT_LAYER = 7
+CONST CMD_CAT_TOOL   = 1
+CONST CMD_CAT_FILE   = 2
+CONST CMD_CAT_EDIT   = 3
+CONST CMD_CAT_VIEW   = 4
+CONST CMD_CAT_COLOR  = 5
+CONST CMD_CAT_BRUSH  = 6
+CONST CMD_CAT_LAYER  = 7
 CONST CMD_CAT_CANVAS = 8
 CONST CMD_CAT_ASSIST = 9
 CONST CMD_CAT_CUSTOM = 10
-CONST CMD_CAT_GRID = 11
-CONST CMD_CAT_SYMM = 12
+CONST CMD_CAT_GRID   = 11
+CONST CMD_CAT_SYMM   = 12
 CONST CMD_CAT_SELECT = 13
-CONST CMD_CAT_HELP = 14
-CONST CMD_CAT_IMAGE = 15
+CONST CMD_CAT_HELP   = 14
+CONST CMD_CAT_IMAGE  = 15
 
 ' Command structure
 TYPE CMD_OBJ
-    name AS STRING * 48          ' Display name
-    hotkey AS STRING * 24        ' Hotkey display (e.g., "Ctrl+S")
-    category AS INTEGER          ' Category constant
-    action_id AS INTEGER         ' Unique action ID for execution
-    enabled AS INTEGER           ' Whether command is currently available
+    name      AS STRING * 48 ' Display name
+    hotkey    AS STRING * 24 ' Hotkey display (e.g., "Ctrl+S")
+    category  AS INTEGER     ' Category constant
+    action_id AS INTEGER     ' Unique action ID for execution
+    enabled   AS INTEGER     ' Whether command is currently available
 END TYPE
 
 ' Command palette state
 TYPE CMD_PALETTE_OBJ
-    visible AS INTEGER           ' Is palette visible?
-    search AS STRING * 64        ' Current search string
-    search_len AS INTEGER        ' Length of search string
-    hover AS INTEGER             ' Currently hovered item
-    scroll AS INTEGER            ' Scroll offset
-    result_count AS INTEGER      ' Number of filtered results
-    mode AS INTEGER              ' 0=command palette, 1=quick reference (no search)
+    visible      AS INTEGER     ' Is palette visible?
+    search       AS STRING * 64 ' Current search string
+    search_len   AS INTEGER     ' Length of search string
+    hover        AS INTEGER     ' Currently hovered item
+    scroll       AS INTEGER     ' Scroll offset
+    result_count AS INTEGER     ' Number of filtered results
+    mode         AS INTEGER     ' 0 = command palette, 1=quick reference (no search)
 END TYPE
 
-DIM SHARED CMD_PALETTE AS CMD_PALETTE_OBJ
+DIM SHARED CMD_PALETTE     AS CMD_PALETTE_OBJ
 DIM SHARED CMD_LIST(CMD_MAX_COMMANDS) AS CMD_OBJ
-DIM SHARED CMD_RESULTS(CMD_MAX_COMMANDS) AS INTEGER    ' Indices into CMD_LIST
-DIM SHARED CMD_COUNT AS INTEGER                        ' Total registered commands
-DIM SHARED CMD_FONT_HANDLE AS LONG                     ' Tiny5 font handle
+DIM SHARED CMD_RESULTS(CMD_MAX_COMMANDS) AS INTEGER ' Indices into CMD_LIST
+DIM SHARED CMD_COUNT       AS INTEGER               ' Total registered commands
+DIM SHARED CMD_FONT_HANDLE AS LONG                  ' Tiny5 font handle
 
 ' Palette positioning
 DIM SHARED CMD_PALETTE_X AS INTEGER

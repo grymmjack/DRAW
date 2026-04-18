@@ -8,7 +8,7 @@
 $INCLUDEONCE
 
 TYPE PAN_OBJ
-    ACTIVE AS INTEGER  ' TRUE when pan tool is selected as current tool
+    ACTIVE AS INTEGER ' TRUE when pan tool is selected as current tool
 END TYPE
 
 DIM SHARED PAN AS PAN_OBJ

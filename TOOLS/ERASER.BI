@@ -13,7 +13,7 @@ OPTION _EXPLICITARRAY
 '$DYNAMIC
 
 TYPE ERASER_OBJ
-    ACTIVE AS INTEGER           ' Whether eraser mode is engaged
+    ACTIVE AS INTEGER ' Whether eraser mode is engaged
 END TYPE
 
 DIM SHARED ERASER AS ERASER_OBJ

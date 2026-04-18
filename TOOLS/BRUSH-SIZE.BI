@@ -8,16 +8,16 @@
 $INCLUDEONCE
 
 TYPE BRUSH_SIZE_TYPE
-    CURRENT AS INTEGER    ' Current brush size index (1-25)
-    MIN     AS INTEGER    ' Minimum index (1)
-    MAX     AS INTEGER    ' Maximum index (25)
-    PRESET1 AS INTEGER    ' F1 preset index
-    PRESET2 AS INTEGER    ' F2 preset index
-    PRESET3 AS INTEGER    ' F3 preset index
-    PRESET4 AS INTEGER    ' F4 preset index
-    PREVIEW AS INTEGER    ' Show brush preview (0=off, -1=on)
-    SHAPE   AS INTEGER    ' Brush shape (0=circle, -1=square)
-    PIXEL_PERFECT AS INTEGER ' Pixel perfect mode (0=off, -1=on) - removes corner pixels
+    CURRENT       AS INTEGER ' Current brush size index (1-25)
+    MIN           AS INTEGER ' Minimum index (1)
+    MAX           AS INTEGER ' Maximum index (25)
+    PRESET1       AS INTEGER ' F1 preset index
+    PRESET2       AS INTEGER ' F2 preset index
+    PRESET3       AS INTEGER ' F3 preset index
+    PRESET4       AS INTEGER ' F4 preset index
+    PREVIEW       AS INTEGER ' Show brush preview (0    = off, -1=on)
+    SHAPE         AS INTEGER ' Brush shape (0           = circle, -1=square)
+    PIXEL_PERFECT AS INTEGER ' Pixel perfect mode (0 = off, -1=on) - removes corner pixels
 END TYPE
 
 DIM SHARED BRUSH_SIZE AS BRUSH_SIZE_TYPE

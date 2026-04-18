@@ -16,17 +16,17 @@ $INCLUDEONCE
 CONST PATHS_APP_NAME$ = "DRAW"
 
 ' Resolved directory paths (set by PATHS_init, always end with separator)
-DIM SHARED PATHS_CONFIG_DIR$   ' Config files (DRAW.cfg, font blacklist/favorites)
-DIM SHARED PATHS_DATA_DIR$     ' User data (drawer sets, palettes, text styles, fonts)
-DIM SHARED PATHS_CACHE_DIR$    ' Cache/temp files (scan tmps, lospec tmps, music list)
-DIM SHARED PATHS_PORTABLE%     ' TRUE when --portable flag was passed
-DIM SHARED PATHS_INITIALIZED%  ' TRUE after PATHS_init has run
+DIM SHARED PATHS_CONFIG_DIR$  ' Config files (DRAW.cfg, font blacklist/favorites)
+DIM SHARED PATHS_DATA_DIR$    ' User data (drawer sets, palettes, text styles, fonts)
+DIM SHARED PATHS_CACHE_DIR$   ' Cache/temp files (scan tmps, lospec tmps, music list)
+DIM SHARED PATHS_PORTABLE%    ' TRUE when --portable flag was passed
+DIM SHARED PATHS_INITIALIZED% ' TRUE after PATHS_init has run
 
 ' Set defaults to CWD (overridden by PATHS_init for native mode)
-PATHS_CONFIG_DIR$ = ""
-PATHS_DATA_DIR$ = ""
-PATHS_CACHE_DIR$ = ""
-PATHS_PORTABLE% = FALSE
+PATHS_CONFIG_DIR$  = ""
+PATHS_DATA_DIR$    = ""
+PATHS_CACHE_DIR$   = ""
+PATHS_PORTABLE%    = FALSE
 PATHS_INITIALIZED% = FALSE
 
 DECLARE SUB PATHS_init ()
@@ -40,7 +40,7 @@ DECLARE SUB PATHS_migrate ()
 DIM PATHS_cmdIdx%
 DIM PATHS_cmdVal$
 PATHS_cmdIdx% = 1
-DO WHILE PATHS_cmdIdx% <= _COMMANDCOUNT
+DO WHILE PATHS_cmdIdx% < = _COMMANDCOUNT
     PATHS_cmdVal$ = LCASE$(_TRIM$(COMMAND$(PATHS_cmdIdx%)))
     IF PATHS_cmdVal$ = "--portable" THEN
         PATHS_PORTABLE% = TRUE

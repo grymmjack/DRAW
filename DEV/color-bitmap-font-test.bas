@@ -41,27 +41,27 @@ OPTION _EXPLICITARRAY
 ' ============================================================================
 
 ' --- Constants ---
-CONST SCR_W = 1280
-CONST SCR_H = 900
+CONST SCR_W      = 1280
+CONST SCR_H      = 900
 CONST MAX_GLYPHS = 256
-CONST MAX_FONTS = 1500
+CONST MAX_FONTS  = 1500
 
 ' Font type constants
-CONST FTYPE_MARKER_ROW = 0
-CONST FTYPE_GRID = 1
-CONST FTYPE_PACKED_GRID = 2
+CONST FTYPE_MARKER_ROW   = 0
+CONST FTYPE_GRID         = 1
+CONST FTYPE_PACKED_GRID  = 2
 CONST FTYPE_MULTI_MARKER = 3
-CONST FTYPE_UNKNOWN = -1
+CONST FTYPE_UNKNOWN      = -1
 
 ' Extended key codes
-CONST KEY_LEFT = 19200
+CONST KEY_LEFT  = 19200
 CONST KEY_RIGHT = 19712
-CONST KEY_UP = 18432
-CONST KEY_DOWN = 20480
-CONST KEY_PGUP = 18688
-CONST KEY_PGDN = 20736
-CONST KEY_HOME = 18176
-CONST KEY_END = 20224
+CONST KEY_UP    = 18432
+CONST KEY_DOWN  = 20480
+CONST KEY_PGUP  = 18688
+CONST KEY_PGDN  = 20736
+CONST KEY_HOME  = 18176
+CONST KEY_END   = 20224
 
 ' --- Types ---
 TYPE CBF_GLYPH_T
@@ -69,40 +69,40 @@ TYPE CBF_GLYPH_T
     srcY AS INTEGER ' Y position in source spritesheet (grid fonts use this)
     srcW AS INTEGER ' Width in pixels
     srcH AS INTEGER ' Height in pixels (for variable-height packed grid rows)
-    img AS LONG     ' Extracted glyph image handle (bg = transparent)
+    img  AS LONG    ' Extracted glyph image handle (bg = transparent)
 END TYPE
 
 ' --- Shared state ---
 DIM SHARED gly(0 TO MAX_GLYPHS - 1) AS CBF_GLYPH_T
 DIM SHARED char2glyph(0 TO 255) AS INTEGER ' ASCII code -> glyph index (-1 = unmapped)
-DIM SHARED glyCount AS INTEGER             ' Number of detected glyphs
-DIM SHARED sheet AS LONG                   ' Spritesheet image handle
-DIM SHARED sheetW AS INTEGER               ' Spritesheet width
-DIM SHARED sheetH AS INTEGER               ' Spritesheet height
-DIM SHARED glyH AS INTEGER                 ' Actual glyph height
-DIM SHARED bgClr AS _UNSIGNED LONG         ' Detected background color
-DIM SHARED mkClr AS _UNSIGNED LONG         ' Detected marker color
-DIM SHARED charSeq AS STRING               ' Character sequence mapping
+DIM SHARED glyCount    AS INTEGER          ' Number of detected glyphs
+DIM SHARED sheet       AS LONG             ' Spritesheet image handle
+DIM SHARED sheetW      AS INTEGER          ' Spritesheet width
+DIM SHARED sheetH      AS INTEGER          ' Spritesheet height
+DIM SHARED glyH        AS INTEGER          ' Actual glyph height
+DIM SHARED bgClr       AS _UNSIGNED LONG   ' Detected background color
+DIM SHARED mkClr       AS _UNSIGNED LONG   ' Detected marker color
+DIM SHARED charSeq     AS STRING           ' Character sequence mapping
 DIM SHARED charSpacing AS INTEGER          ' Pixel gap between rendered characters
-DIM SHARED spaceW AS INTEGER               ' Width of space character (average glyph width)
+DIM SHARED spaceW      AS INTEGER          ' Width of space character (average glyph width)
 DIM SHARED curFontPath AS STRING           ' Current font file path
-DIM SHARED fontType AS INTEGER             ' FTYPE_MARKER_ROW or FTYPE_GRID
-DIM SHARED gridCellW AS INTEGER            ' Grid cell width (grid mode only)
-DIM SHARED gridCellH AS INTEGER            ' Grid cell height (grid mode only)
-DIM SHARED loadFailed AS INTEGER           ' TRUE if last load attempt failed
+DIM SHARED fontType    AS INTEGER          ' FTYPE_MARKER_ROW or FTYPE_GRID
+DIM SHARED gridCellW   AS INTEGER          ' Grid cell width (grid mode only)
+DIM SHARED gridCellH   AS INTEGER          ' Grid cell height (grid mode only)
+DIM SHARED loadFailed  AS INTEGER          ' TRUE if last load attempt failed
 
 ' Font list for cycling
 DIM SHARED fontFiles(0 TO MAX_FONTS - 1) AS STRING
-DIM SHARED fontFileCount AS INTEGER
-DIM SHARED fontFileIdx AS INTEGER
+DIM SHARED fontFileCount  AS INTEGER
+DIM SHARED fontFileIdx    AS INTEGER
 DIM SHARED bitmapFontsDir AS STRING        ' Base directory for BitmapFonts repo
 
 ' ============================================================================
 ' MAIN
 ' ============================================================================
 DIM fontArg AS STRING
-DIM scrn AS LONG
-DIM i AS INTEGER
+DIM scrn    AS LONG
+DIM i       AS INTEGER
 
 ' Parse command line — directory or file path
 fontArg$ = LTRIM$(RTRIM$(COMMAND$))
@@ -186,16 +186,16 @@ SYSTEM
 '   4. Fixed 16x16 grid (Type D) — 256-char ASCII grid, last fallback
 ' ============================================================================
 FUNCTION CBF_load% (path$)
-    CBF_load% = 0
+    CBF_load%    = 0
     curFontPath$ = path$
-    fontType = FTYPE_UNKNOWN
+    fontType     = FTYPE_UNKNOWN
 
     ' Free any previous font data
     CBF_free_glyphs
 
     ' Load spritesheet as 32-bit RGBA
     sheet& = _LOADIMAGE(path$, 32)
-    IF sheet& >= -1 THEN EXIT FUNCTION
+    IF sheet& > = -1 THEN EXIT FUNCTION
 
     sheetW = _WIDTH(sheet&)
     sheetH = _HEIGHT(sheet&)
@@ -214,26 +214,26 @@ FUNCTION CBF_load% (path$)
 
     ' --- Strategy 1: Single marker-row (only for strip-like images) ---
     ' Marker-row fonts are very wide and short (aspect ratio >= 3.0)
-    IF aspect! >= 3.0 THEN
+    IF aspect! > = 3.0 THEN
         glyH = sheetH - 1
         CBF_detect_markers
 
-        IF glyCount >= 3 THEN
+        IF glyCount > = 3 THEN
             ' Validate: check that there's no significant content below first row
             IF NOT CBF_has_content_below%(1 + glyH) THEN
                 markerValid% = -1
-                fontType = FTYPE_MARKER_ROW
+                fontType     = FTYPE_MARKER_ROW
             END IF
         END IF
 
         IF NOT markerValid% THEN
             ' Marker detection was a false positive — try multi-row marker
             glyCount = 0
-            glyH = 0
+            glyH     = 0
 
             CBF_detect_multi_marker
-            IF glyCount >= 3 THEN
-                fontType = FTYPE_MULTI_MARKER
+            IF glyCount > = 3 THEN
+                fontType     = FTYPE_MULTI_MARKER
                 markerValid% = -1
             ELSE
                 glyCount = 0
@@ -242,9 +242,9 @@ FUNCTION CBF_load% (path$)
     END IF
 
     ' --- Strategy 2: For moderate aspect ratios, try multi-row marker ---
-    IF fontType = FTYPE_UNKNOWN AND aspect! >= 1.5 THEN
+    IF fontType = FTYPE_UNKNOWN AND aspect! > = 1.5 THEN
         CBF_detect_multi_marker
-        IF glyCount >= 3 THEN
+        IF glyCount > = 3 THEN
             fontType = FTYPE_MULTI_MARKER
         ELSE
             glyCount = 0
@@ -254,7 +254,7 @@ FUNCTION CBF_load% (path$)
     ' --- Strategy 3: Packed grid (rows/cols separated by bg color) ---
     IF fontType = FTYPE_UNKNOWN THEN
         CBF_detect_packed_grid
-        IF glyCount >= 3 THEN
+        IF glyCount > = 3 THEN
             fontType = FTYPE_PACKED_GRID
         ELSE
             glyCount = 0
@@ -262,9 +262,9 @@ FUNCTION CBF_load% (path$)
     END IF
 
     ' --- Strategy 4: Fixed 16x16 grid fallback ---
-    IF fontType = FTYPE_UNKNOWN AND (sheetW >= 16) AND (sheetH >= 16) THEN
+    IF fontType = FTYPE_UNKNOWN AND (sheetW > = 16) AND (sheetH > = 16) THEN
         CBF_detect_grid
-        IF glyCount >= 3 THEN
+        IF glyCount > = 3 THEN
             fontType = FTYPE_GRID
             CBF_build_char_lookup_grid
             CBF_extract_glyphs
@@ -296,7 +296,7 @@ FUNCTION CBF_load% (path$)
 
     ' Compute space width = average glyph width
     DIM totalW AS LONG
-    DIM ci2 AS INTEGER
+    DIM ci2    AS INTEGER
     totalW& = 0
     FOR ci2% = 0 TO glyCount - 1
         totalW& = totalW& + gly(ci2%).srcW
@@ -308,7 +308,7 @@ FUNCTION CBF_load% (path$)
     END IF
 
     charSpacing = 1
-    CBF_load% = -1 ' TRUE
+    CBF_load%   = -1 ' TRUE
 END FUNCTION
 
 ' ============================================================================
@@ -319,7 +319,7 @@ END FUNCTION
 ' ============================================================================
 FUNCTION CBF_has_content_below% (startY%)
     CBF_has_content_below% = 0
-    IF startY% >= sheetH THEN EXIT FUNCTION
+    IF startY% > = sheetH THEN EXIT FUNCTION
 
     DIM oldSrc AS LONG
     oldSrc& = _SOURCE
@@ -327,7 +327,7 @@ FUNCTION CBF_has_content_below% (startY%)
 
     ' Sample 3 horizontal scanlines in the lower portion
     DIM nonBg AS INTEGER, total AS INTEGER
-    DIM x AS INTEGER, y AS INTEGER
+    DIM x     AS INTEGER, y AS INTEGER
     nonBg% = 0: total% = 0
 
     DIM step3 AS INTEGER
@@ -335,7 +335,7 @@ FUNCTION CBF_has_content_below% (startY%)
     IF step3% < 1 THEN step3% = 1
 
     FOR y% = startY% + step3% TO sheetH - 1 STEP step3%
-        IF y% >= sheetH THEN EXIT FOR
+        IF y% > = sheetH THEN EXIT FOR
         FOR x% = 0 TO sheetW - 1 STEP 2
             total% = total% + 1
             IF POINT(x%, y%) <> bgClr THEN nonBg% = nonBg% + 1
@@ -353,9 +353,9 @@ END FUNCTION
 ' Detect marker pixels at y=0 and compute glyph boundaries
 ' ============================================================================
 SUB CBF_detect_markers
-    DIM oldSrc AS LONG
-    DIM x AS INTEGER, j AS INTEGER
-    DIM c AS _UNSIGNED LONG
+    DIM oldSrc   AS LONG
+    DIM x        AS INTEGER, j AS INTEGER
+    DIM c        AS _UNSIGNED LONG
     DIM prevIsBg AS INTEGER
 
     oldSrc& = _SOURCE
@@ -364,12 +364,12 @@ SUB CBF_detect_markers
     ' --- Step 1: Color frequency analysis at y=0 ---
     DIM uClr(0 TO 511) AS _UNSIGNED LONG
     DIM uCnt(0 TO 511) AS LONG
-    DIM uNum AS INTEGER
+    DIM uNum  AS INTEGER
     DIM found AS INTEGER
 
     uNum% = 0
     FOR x% = 0 TO sheetW - 1
-        c~& = POINT(x%, 0)
+        c~&    = POINT(x%, 0)
         found% = 0
         FOR j% = 0 TO uNum% - 1
             IF uClr(j%) = c~& THEN
@@ -405,7 +405,7 @@ SUB CBF_detect_markers
             mk2Idx% = j%
         END IF
     NEXT j%
-    IF mk2Idx% >= 0 THEN
+    IF mk2Idx% > = 0 THEN
         mkClr = uClr(mk2Idx%)
     ELSE
         mkClr = _RGB32(255, 255, 0) ' fallback yellow
@@ -413,7 +413,7 @@ SUB CBF_detect_markers
 
     ' --- Step 2: Find glyph boundaries ---
     ' Every transition from bg to non-bg at y=0 = glyph start
-    glyCount = 0
+    glyCount  = 0
     prevIsBg% = -1 ' TRUE
 
     FOR x% = 0 TO sheetW - 1
@@ -469,7 +469,7 @@ SUB CBF_detect_multi_marker
     cornerClr(2) = POINT(0, sheetH - 1)
     cornerClr(3) = POINT(sheetW - 1, sheetH - 1)
 
-    DIM ci3 AS INTEGER, cj3 AS INTEGER
+    DIM ci3      AS INTEGER, cj3 AS INTEGER
     DIM bestClr3 AS _UNSIGNED LONG, bestCnt3 AS INTEGER, cnt3 AS INTEGER
     bestCnt3% = 0
     FOR ci3% = 0 TO 3
@@ -478,7 +478,7 @@ SUB CBF_detect_multi_marker
             IF cornerClr(ci3%) = cornerClr(cj3%) THEN cnt3% = cnt3% + 1
         NEXT cj3%
         IF cnt3% > bestCnt3% THEN
-            bestCnt3% = cnt3%
+            bestCnt3%  = cnt3%
             bestClr3~& = cornerClr(ci3%)
         END IF
     NEXT ci3%
@@ -489,15 +489,15 @@ SUB CBF_detect_multi_marker
     ' A "content scanline" has <80% bg pixels
     ' A "separator scanline" has >98% bg pixels (fully bg)
     CONST MAX_ROWS = 32
-    DIM markerY(0 TO MAX_ROWS - 1) AS INTEGER   ' Y position of each marker row
+    DIM markerY(0 TO MAX_ROWS - 1) AS INTEGER    ' Y position of each marker row
     DIM contentEnd(0 TO MAX_ROWS - 1) AS INTEGER ' Y end of content below each marker
     DIM rowCount AS INTEGER
 
-    DIM y AS INTEGER, x AS INTEGER
+    DIM y       AS INTEGER, x AS INTEGER
     DIM bgCount AS INTEGER, transitions AS INTEGER
-    DIM isBg AS INTEGER, wasBg AS INTEGER
-    DIM c AS _UNSIGNED LONG
-    DIM bgPct AS SINGLE
+    DIM isBg    AS INTEGER, wasBg AS INTEGER
+    DIM c       AS _UNSIGNED LONG
+    DIM bgPct   AS SINGLE
 
     rowCount% = 0
 
@@ -506,7 +506,7 @@ SUB CBF_detect_multi_marker
         ' Count bg pixels and transitions at this scanline
         bgCount% = 0: transitions% = 0: wasBg% = -1
         FOR x% = 0 TO sheetW - 1
-            c~& = POINT(x%, y%)
+            c~&   = POINT(x%, y%)
             isBg% = 0: IF c~& = bgClr THEN isBg% = -1
             IF isBg% THEN
                 bgCount% = bgCount% + 1
@@ -518,7 +518,7 @@ SUB CBF_detect_multi_marker
         bgPct! = bgCount% / sheetW
 
         ' Check if this is a marker scanline
-        IF bgPct! >= 0.80 AND bgPct! < 0.99 AND transitions% >= 3 THEN
+        IF bgPct! > = 0.80 AND bgPct! < 0.99 AND transitions% > = 3 THEN
             markerY(rowCount%) = y%
 
             ' Find where the content below this marker ends
@@ -528,7 +528,7 @@ SUB CBF_detect_multi_marker
                 ' Check if this line is mostly bg (>98% = separator/next marker)
                 DIM bgCnt2 AS INTEGER, trans2 AS INTEGER, wasBg2 AS INTEGER
                 bgCnt2% = 0: trans2% = 0: wasBg2% = -1
-                DIM x2 AS INTEGER
+                DIM x2     AS INTEGER
                 FOR x2% = 0 TO sheetW - 1
                     DIM c2 AS _UNSIGNED LONG
                     c2~& = POINT(x2%, yEnd%)
@@ -544,7 +544,7 @@ SUB CBF_detect_multi_marker
 
                 ' If this line looks like it could be a marker for the next row,
                 ' or is a full separator, end the current content row
-                IF bgPct2! >= 0.80 AND (trans2% >= 3 OR bgPct2! >= 0.98) THEN
+                IF bgPct2! > = 0.80 AND (trans2% > = 3 OR bgPct2! > = 0.98) THEN
                     EXIT DO
                 END IF
                 yEnd% = yEnd% + 1
@@ -569,15 +569,15 @@ SUB CBF_detect_multi_marker
 
     ' --- Step 3: Extract glyphs from each row ---
     glyCount = 0
-    glyH = 0
+    glyH     = 0
 
     DIM r AS INTEGER
     FOR r% = 0 TO rowCount% - 1
         DIM rMkY AS INTEGER, rContentY AS INTEGER, rEndY AS INTEGER, rH AS INTEGER
-        rMkY% = markerY(r%)
+        rMkY%      = markerY(r%)
         rContentY% = rMkY% + 1
-        rEndY% = contentEnd(r%)
-        rH% = rEndY% - rContentY% + 1
+        rEndY%     = contentEnd(r%)
+        rH%        = rEndY% - rContentY% + 1
         IF rH% < 1 THEN _CONTINUE
         IF rH% > glyH THEN glyH = rH%
 
@@ -615,7 +615,7 @@ SUB CBF_detect_multi_marker
         END IF
     NEXT gi%
 
-    mkClr = _RGB32(255, 255, 0) ' No specific marker color tracked
+    mkClr = _RGB32(255, 255, 0)                  ' No specific marker color tracked
 
     _SOURCE oldSrc&
 
@@ -639,7 +639,7 @@ SUB CBF_detect_packed_grid
     cornerClr(2) = POINT(0, sheetH - 1)
     cornerClr(3) = POINT(sheetW - 1, sheetH - 1)
 
-    DIM ci4 AS INTEGER, cj4 AS INTEGER
+    DIM ci4      AS INTEGER, cj4 AS INTEGER
     DIM bestClr4 AS _UNSIGNED LONG, bestCnt4 AS INTEGER, cnt4 AS INTEGER
     bestCnt4% = 0
     FOR ci4% = 0 TO 3
@@ -648,7 +648,7 @@ SUB CBF_detect_packed_grid
             IF cornerClr(ci4%) = cornerClr(cj4%) THEN cnt4% = cnt4% + 1
         NEXT cj4%
         IF cnt4% > bestCnt4% THEN
-            bestCnt4% = cnt4%
+            bestCnt4%  = cnt4%
             bestClr4~& = cornerClr(ci4%)
         END IF
     NEXT ci4%
@@ -663,8 +663,8 @@ SUB CBF_detect_packed_grid
     DIM pRowEnd(0 TO MAX_PROWS - 1) AS INTEGER
     DIM pRowCount AS INTEGER
 
-    DIM y AS INTEGER, x AS INTEGER
-    DIM allBg AS INTEGER
+    DIM y         AS INTEGER, x AS INTEGER
+    DIM allBg     AS INTEGER
     DIM inContent AS INTEGER
 
     pRowCount% = 0
@@ -685,7 +685,7 @@ SUB CBF_detect_packed_grid
             IF NOT inContent% THEN
                 IF pRowCount% < MAX_PROWS THEN
                     pRowStart(pRowCount%) = y%
-                    inContent% = -1
+                    inContent%            = -1
                 END IF
             END IF
         ELSE
@@ -712,19 +712,19 @@ SUB CBF_detect_packed_grid
 
     ' --- Step 3: For each content row, find column boundaries ---
     glyCount = 0
-    glyH = 0
+    glyH     = 0
 
     DIM r AS INTEGER
     FOR r% = 0 TO pRowCount% - 1
         DIM rY0 AS INTEGER, rY1 AS INTEGER, rH AS INTEGER
         rY0% = pRowStart(r%)
         rY1% = pRowEnd(r%)
-        rH% = rY1% - rY0% + 1
+        rH%  = rY1% - rY0% + 1
         IF rH% < 2 THEN _CONTINUE  ' Skip trivially small rows (likely stray pixels)
         IF rH% > glyH THEN glyH = rH%
 
         ' Scan each vertical column within this row for bg content
-        DIM inCell AS INTEGER
+        DIM inCell    AS INTEGER
         DIM cellStart AS INTEGER
         inCell% = 0
 
@@ -732,7 +732,7 @@ SUB CBF_detect_packed_grid
             ' Check if this column is fully bg within the row
             DIM colAllBg AS INTEGER
             colAllBg% = -1
-            DIM y2 AS INTEGER
+            DIM y2       AS INTEGER
             FOR y2% = rY0% TO rY1%
                 IF POINT(x%, y2%) <> bgClr THEN
                     colAllBg% = 0
@@ -744,7 +744,7 @@ SUB CBF_detect_packed_grid
                 ' Content column
                 IF NOT inCell% THEN
                     cellStart% = x%
-                    inCell% = -1
+                    inCell%    = -1
                 END IF
             ELSE
                 ' Background column — end current cell
@@ -796,10 +796,10 @@ SUB CBF_build_char_lookup
 
     FOR i% = 1 TO LEN(charSeq$)
         IF i% - 1 < glyCount THEN
-            ch% = ASC(MID$(charSeq$, i%, 1))
+            ch%             = ASC(MID$(charSeq$, i%, 1))
             char2glyph(ch%) = i% - 1
             ' Map lowercase to uppercase
-            IF ch% >= 65 AND ch% <= 90 THEN
+            IF ch% > = 65 AND ch% < = 90 THEN
                 char2glyph(ch% + 32) = i% - 1
             END IF
         END IF
@@ -811,12 +811,12 @@ END SUB
 ' Works for both marker-row and grid fonts using gly().srcY
 ' ============================================================================
 SUB CBF_extract_glyphs
-    DIM i AS INTEGER, x AS INTEGER, y AS INTEGER
-    DIM gx AS INTEGER, gy AS INTEGER, gw AS INTEGER, gh AS INTEGER
-    DIM srcC AS _UNSIGNED LONG
+    DIM i      AS INTEGER, x AS INTEGER, y AS INTEGER
+    DIM gx     AS INTEGER, gy AS INTEGER, gw AS INTEGER, gh AS INTEGER
+    DIM srcC   AS _UNSIGNED LONG
     DIM oldSrc AS LONG, oldDest AS LONG
 
-    oldSrc& = _SOURCE
+    oldSrc&  = _SOURCE
     oldDest& = _DEST
     _SOURCE sheet&
 
@@ -825,12 +825,12 @@ SUB CBF_extract_glyphs
         gy% = gly(i%).srcY
         gw% = gly(i%).srcW
         gh% = gly(i%).srcH
-        IF gh% <= 0 THEN gh% = glyH ' Fallback to global height
+        IF gh% < = 0 THEN gh% = glyH ' Fallback to global height
 
         IF gw% < 1 OR gh% < 1 THEN _CONTINUE
 
         gly(i%).img = _NEWIMAGE(gw%, gh%, 32)
-        IF gly(i%).img >= -1 THEN
+        IF gly(i%).img > = -1 THEN
             _LOGWARN "CBF: Failed to create glyph image " + LTRIM$(STR$(i%))
             _CONTINUE
         END IF
@@ -858,7 +858,7 @@ END SUB
 ' Render text string at given position using color bitmap font
 ' ============================================================================
 SUB CBF_render_text (text$, startX%, startY%)
-    DIM i AS INTEGER, ch AS INTEGER, gi AS INTEGER
+    DIM i    AS INTEGER, ch AS INTEGER, gi AS INTEGER
     DIM xPos AS INTEGER
 
     xPos% = startX%
@@ -872,7 +872,7 @@ SUB CBF_render_text (text$, startX%, startY%)
         END IF
 
         gi% = char2glyph(ch%)
-        IF gi% >= 0 AND gi% < glyCount THEN
+        IF gi% > = 0 AND gi% < glyCount THEN
             IF gly(gi%).img < -1 THEN
                 _PUTIMAGE (xPos%, startY%), gly(gi%).img
                 xPos% = xPos% + gly(gi%).srcW + charSpacing
@@ -895,7 +895,7 @@ FUNCTION CBF_text_width% (text$)
             w% = w% + spaceW + charSpacing
         ELSE
             gi% = char2glyph(ch%)
-            IF gi% >= 0 AND gi% < glyCount THEN
+            IF gi% > = 0 AND gi% < glyCount THEN
                 w% = w% + gly(gi%).srcW + charSpacing
             END IF
         END IF
@@ -927,11 +927,11 @@ END SUB
 ' ============================================================================
 SUB CBF_init_font_list
     DIM tmpFile AS STRING
-    DIM cmd AS STRING
+    DIM cmd     AS STRING
 
     fontFileCount = 0
-    fontFileIdx = 0
-    tmpFile$ = "/tmp/cbf_fontlist_" + LTRIM$(STR$(INT(RND * 99999))) + ".txt"
+    fontFileIdx   = 0
+    tmpFile$      = "/tmp/cbf_fontlist_" + LTRIM$(STR$(INT(RND * 99999))) + ".txt"
 
     ' --- Source 1: existing BMP fonts in DEV/FONTS/COLOR_BITMAP/ ---
     IF _DIREXISTS("./FONTS/COLOR_BITMAP") THEN
@@ -980,7 +980,7 @@ SUB CBF_read_font_list (tmpFile$)
         LINE INPUT #ff%, ln$
         ln$ = LTRIM$(RTRIM$(ln$))
         IF LEN(ln$) = 0 THEN _CONTINUE
-        IF fontFileCount >= MAX_FONTS THEN EXIT DO
+        IF fontFileCount > = MAX_FONTS THEN EXIT DO
         fontFiles(fontFileCount) = ln$
         fontFileCount = fontFileCount + 1
     LOOP
@@ -991,8 +991,8 @@ END SUB
 ' Detect 16x16 grid layout — fallback when marker-row detection fails
 ' ============================================================================
 SUB CBF_detect_grid
-    DIM oldSrc AS LONG
-    DIM row AS INTEGER, col AS INTEGER
+    DIM oldSrc  AS LONG
+    DIM row     AS INTEGER, col AS INTEGER
     DIM charIdx AS INTEGER
 
     ' Calculate cell dimensions
@@ -1014,7 +1014,7 @@ SUB CBF_detect_grid
     cornerClr(3) = POINT(sheetW - 1, sheetH - 1)
 
     ' Most common corner color = background
-    DIM ci AS INTEGER, cj AS INTEGER
+    DIM ci      AS INTEGER, cj AS INTEGER
     DIM bestClr AS _UNSIGNED LONG
     DIM bestCnt AS INTEGER, cnt AS INTEGER
     bestCnt% = 0
@@ -1024,7 +1024,7 @@ SUB CBF_detect_grid
             IF cornerClr(ci%) = cornerClr(cj%) THEN cnt% = cnt% + 1
         NEXT cj%
         IF cnt% > bestCnt% THEN
-            bestCnt% = cnt%
+            bestCnt%  = cnt%
             bestClr~& = cornerClr(ci%)
         END IF
     NEXT ci%
@@ -1038,7 +1038,7 @@ SUB CBF_detect_grid
     charSeq$ = ""
 
     FOR charIdx% = 32 TO 127
-        IF glyCount >= MAX_GLYPHS THEN EXIT FOR
+        IF glyCount > = MAX_GLYPHS THEN EXIT FOR
         row% = charIdx% \ 16
         col% = charIdx% MOD 16
 
@@ -1066,12 +1066,12 @@ SUB CBF_build_char_lookup_grid
     ' charSeq$ contains CHR$(32) through CHR$(127) in order
     FOR i% = 1 TO LEN(charSeq$)
         IF i% - 1 < glyCount THEN
-            ch% = ASC(MID$(charSeq$, i%, 1))
+            ch%             = ASC(MID$(charSeq$, i%, 1))
             char2glyph(ch%) = i% - 1
             ' Map uppercase to lowercase and vice versa
-            IF ch% >= 65 AND ch% <= 90 THEN
+            IF ch% > = 65 AND ch% < = 90 THEN
                 IF char2glyph(ch% + 32) = -1 THEN char2glyph(ch% + 32) = i% - 1
-            ELSEIF ch% >= 97 AND ch% <= 122 THEN
+            ELSEIF ch% > = 97 AND ch% < = 122 THEN
                 IF char2glyph(ch% - 32) = -1 THEN char2glyph(ch% - 32) = i% - 1
             END IF
         END IF
@@ -1129,7 +1129,7 @@ END SUB
 ' Draw a checkerboard rectangle (shows transparency)
 ' ============================================================================
 SUB CBF_draw_checker (x1%, y1%, w%, h%)
-    DIM cx AS INTEGER, cy AS INTEGER
+    DIM cx  AS INTEGER, cy AS INTEGER
     DIM clr AS _UNSIGNED LONG
     FOR cy% = 0 TO h% - 1 STEP 4
         FOR cx% = 0 TO w% - 1 STEP 4
@@ -1147,7 +1147,7 @@ END SUB
 ' Extract just the filename from a path
 ' ============================================================================
 FUNCTION CBF_filename$ (path$)
-    DIM p AS INTEGER
+    DIM p   AS INTEGER
     DIM idx AS INTEGER
 
     p% = 0
@@ -1169,17 +1169,17 @@ END FUNCTION
 ' Main display and interactive loop
 ' ============================================================================
 SUB CBF_main_loop
-    DIM typedText AS STRING
-    DIM k AS LONG
+    DIM typedText  AS STRING
+    DIM k          AS LONG
     DIM needRedraw AS INTEGER
-    DIM yy AS INTEGER
-    DIM i AS INTEGER
-    DIM xp AS INTEGER
-    DIM fn AS STRING
-    DIM ch AS STRING
-    DIM infoLine AS STRING
+    DIM yy         AS INTEGER
+    DIM i          AS INTEGER
+    DIM xp         AS INTEGER
+    DIM fn         AS STRING
+    DIM ch         AS STRING
+    DIM infoLine   AS STRING
 
-    typedText$ = ""
+    typedText$  = ""
     needRedraw% = -1 ' TRUE
 
     DO
@@ -1247,8 +1247,8 @@ SUB CBF_main_loop
                 IF sheet& < -1 THEN
                     ' Cap display size to fit screen
                     DIM dispW AS INTEGER, dispH AS INTEGER
-                    dispW% = sheetW: IF dispW% > SCR_W - 20 THEN dispW% = SCR_W - 20
-                    dispH% = sheetH: IF dispH% > 300 THEN dispH% = 300
+                    dispW% = sheetW : IF dispW% > SCR_W - 20 THEN dispW% = SCR_W - 20
+                    dispH% = sheetH : IF dispH% > 300 THEN dispH% = 300
 
                     ' Draw checkerboard behind spritesheet to show any transparency
                     CBF_draw_checker 10, yy%, dispW%, dispH%
@@ -1316,7 +1316,7 @@ SUB CBF_main_loop
                     COLOR _RGB32(120, 120, 120)
                     DIM mapInfo AS STRING
                     mapInfo$ = "Char map (ASCII " + LTRIM$(STR$(ASC(LEFT$(charSeq$, 1)))) + "-" + LTRIM$(STR$(ASC(RIGHT$(charSeq$, 1)))) + "): "
-                    IF LEN(charSeq$) <= 96 THEN
+                    IF LEN(charSeq$) < = 96 THEN
                         mapInfo$ = mapInfo$ + charSeq$
                     ELSE
                         mapInfo$ = mapInfo$ + LEFT$(charSeq$, 96) + "..."
@@ -1378,20 +1378,20 @@ SUB CBF_main_loop
         k& = _KEYHIT
 
         SELECT CASE k&
-            CASE 27 ' ESC
+            CASE 27        ' ESC
                 EXIT DO
 
-            CASE 13 ' Enter = clear text
-                typedText$ = ""
+            CASE 13        ' Enter = clear text
+                typedText$  = ""
                 needRedraw% = -1
 
-            CASE 8 ' Backspace
+            CASE 8         ' Backspace
                 IF LEN(typedText$) > 0 THEN
-                    typedText$ = LEFT$(typedText$, LEN(typedText$) - 1)
+                    typedText$  = LEFT$(typedText$, LEN(typedText$) - 1)
                     needRedraw% = -1
                 END IF
 
-            CASE KEY_LEFT ' Previous font
+            CASE KEY_LEFT  ' Previous font
                 IF fontFileCount > 1 THEN
                     fontFileIdx = fontFileIdx - 1
                     IF fontFileIdx < 0 THEN fontFileIdx = fontFileCount - 1
@@ -1403,13 +1403,13 @@ SUB CBF_main_loop
             CASE KEY_RIGHT ' Next font
                 IF fontFileCount > 1 THEN
                     fontFileIdx = fontFileIdx + 1
-                    IF fontFileIdx >= fontFileCount THEN fontFileIdx = 0
+                    IF fontFileIdx > = fontFileCount THEN fontFileIdx = 0
                     loadFailed% = 0
                     IF NOT CBF_load%(fontFiles(fontFileIdx)) THEN loadFailed% = -1
                     needRedraw% = -1
                 END IF
 
-            CASE KEY_PGUP ' Skip 10 fonts back
+            CASE KEY_PGUP  ' Skip 10 fonts back
                 IF fontFileCount > 1 THEN
                     fontFileIdx = fontFileIdx - 10
                     IF fontFileIdx < 0 THEN fontFileIdx = fontFileCount + fontFileIdx
@@ -1419,17 +1419,17 @@ SUB CBF_main_loop
                     needRedraw% = -1
                 END IF
 
-            CASE KEY_PGDN ' Skip 10 fonts forward
+            CASE KEY_PGDN  ' Skip 10 fonts forward
                 IF fontFileCount > 1 THEN
                     fontFileIdx = fontFileIdx + 10
-                    IF fontFileIdx >= fontFileCount THEN fontFileIdx = fontFileIdx - fontFileCount
-                    IF fontFileIdx >= fontFileCount THEN fontFileIdx = fontFileCount - 1
+                    IF fontFileIdx > = fontFileCount THEN fontFileIdx = fontFileIdx - fontFileCount
+                    IF fontFileIdx > = fontFileCount THEN fontFileIdx = fontFileCount - 1
                     loadFailed% = 0
                     IF NOT CBF_load%(fontFiles(fontFileIdx)) THEN loadFailed% = -1
                     needRedraw% = -1
                 END IF
 
-            CASE KEY_HOME ' First font
+            CASE KEY_HOME  ' First font
                 IF fontFileCount > 0 THEN
                     fontFileIdx = 0
                     loadFailed% = 0
@@ -1437,7 +1437,7 @@ SUB CBF_main_loop
                     needRedraw% = -1
                 END IF
 
-            CASE KEY_END ' Last font
+            CASE KEY_END   ' Last font
                 IF fontFileCount > 0 THEN
                     fontFileIdx = fontFileCount - 1
                     loadFailed% = 0
@@ -1445,12 +1445,12 @@ SUB CBF_main_loop
                     needRedraw% = -1
                 END IF
 
-            CASE KEY_UP ' Increase spacing
+            CASE KEY_UP    ' Increase spacing
                 charSpacing = charSpacing + 1
                 IF charSpacing > 20 THEN charSpacing = 20
                 needRedraw% = -1
 
-            CASE KEY_DOWN ' Decrease spacing
+            CASE KEY_DOWN  ' Decrease spacing
                 charSpacing = charSpacing - 1
                 IF charSpacing < -5 THEN charSpacing = -5
                 needRedraw% = -1

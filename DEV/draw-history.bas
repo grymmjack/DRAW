@@ -16,8 +16,8 @@ LOOP UNTIL _KEYHIT = 27
 SYSTEM
 
 SUB FillPolygonScanline (pointCount AS INTEGER, polyX() AS INTEGER, polyY() AS INTEGER, fillCol AS _UNSIGNED LONG)
-    DIM minY AS INTEGER, maxY AS INTEGER
-    DIM i AS INTEGER, j AS INTEGER, y AS INTEGER
+    DIM minY      AS INTEGER, maxY AS INTEGER
+    DIM i         AS INTEGER, j AS INTEGER, y AS INTEGER
     DIM nodeCount AS INTEGER, sortIndex AS INTEGER
     DIM nodes() AS SINGLE
     DIM swapValue AS SINGLE
@@ -30,9 +30,9 @@ SUB FillPolygonScanline (pointCount AS INTEGER, polyX() AS INTEGER, polyY() AS I
     REDIM nodes(0 TO pointCount - 1) AS SINGLE
     FOR y = minY TO maxY
         nodeCount = 0
-        j = pointCount - 1
+        j         = pointCount - 1
         FOR i = 0 TO pointCount - 1
-            IF ((polyY(i) < y AND polyY(j) >= y) OR (polyY(j) < y AND polyY(i) >= y)) THEN
+            IF ((polyY(i) < y AND polyY(j) > = y) OR (polyY(j) < y AND polyY(i) > = y)) THEN
                 nodes(nodeCount) = polyX(i) + (y - polyY(i)) * (polyX(j) - polyX(i)) / (polyY(j) - polyY(i))
                 nodeCount = nodeCount + 1
             END IF
@@ -41,8 +41,8 @@ SUB FillPolygonScanline (pointCount AS INTEGER, polyX() AS INTEGER, polyY() AS I
         FOR i = 0 TO nodeCount - 2
             FOR sortIndex = i + 1 TO nodeCount - 1
                 IF nodes(sortIndex) < nodes(i) THEN
-                    swapValue = nodes(i)
-                    nodes(i) = nodes(sortIndex)
+                    swapValue        = nodes(i)
+                    nodes(i)         = nodes(sortIndex)
                     nodes(sortIndex) = swapValue
                 END IF
             NEXT sortIndex
@@ -54,18 +54,18 @@ SUB FillPolygonScanline (pointCount AS INTEGER, polyX() AS INTEGER, polyY() AS I
 END SUB
 
 SUB FillEllipseScanline (x1 AS INTEGER, y1 AS INTEGER, x2 AS INTEGER, y2 AS INTEGER, fillCol AS _UNSIGNED LONG)
-    DIM centerX AS SINGLE, centerY AS SINGLE
-    DIM radiusX AS SINGLE, radiusY AS SINGLE
+    DIM centerX   AS SINGLE, centerY AS SINGLE
+    DIM radiusX   AS SINGLE, radiusY AS SINGLE
     DIM rowOffset AS SINGLE, halfSpan AS SINGLE
-    DIM drawY AS INTEGER
+    DIM drawY     AS INTEGER
     centerX = (x1 + x2) / 2
     centerY = (y1 + y2) / 2
     radiusX = ABS(x2 - x1) / 2
     radiusY = ABS(y2 - y1) / 2
-    IF radiusX <= 0 OR radiusY <= 0 THEN EXIT SUB
+    IF radiusX < = 0 OR radiusY < = 0 THEN EXIT SUB
     FOR drawY = y1 TO y2
         rowOffset = (drawY - centerY) / radiusY
-        IF ABS(rowOffset) <= 1 THEN
+        IF ABS(rowOffset) < = 1 THEN
             halfSpan = radiusX * SQR(1 - rowOffset * rowOffset)
             LINE (INT(centerX - halfSpan + .5), drawY)-(INT(centerX + halfSpan - .5), drawY), fillCol
         END IF

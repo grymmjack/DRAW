@@ -12,7 +12,7 @@ TYPE DRAW_KEYBOARD_BINDINGS
     BRUSH                 AS STRING ' Activate brush tool
     BRUSH_CAPTURE         AS STRING ' Capture selection as custom brush
     DOT                   AS STRING ' Activate dot/pixel tool
-    ERASER                AS STRING ' Activate eraser tool (hold=temp, tap=permanent)
+    ERASER                AS STRING ' Activate eraser tool (hold = temp, tap=permanent)
     ELLIPSE               AS STRING ' Activate ellipse outline tool
     ELLIPSE_FILL_SOLID    AS STRING ' Activate ellipse filled with solid color
     ELLIPSE_FILL_PATTERN  AS STRING ' Activate ellipse filled with pattern

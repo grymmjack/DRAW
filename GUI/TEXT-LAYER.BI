@@ -12,31 +12,31 @@ OPTION _EXPLICITARRAY
 '$DYNAMIC
 
 ' Limits
-CONST TEXT_LAYER_MAX_CHARS = 4096  ' Max characters per text layer
-CONST TEXT_LAYER_MAX_LINES = 256   ' Max lines per text layer
-CONST TEXT_LAYER_POOL_SIZE = 64    ' One slot per possible layer
+CONST TEXT_LAYER_MAX_CHARS = 4096 ' Max characters per text layer
+CONST TEXT_LAYER_MAX_LINES = 256  ' Max lines per text layer
+CONST TEXT_LAYER_POOL_SIZE = 64   ' One slot per possible layer
 
 ' Text alignment constants
-CONST TEXT_ALIGN_LEFT = 0
+CONST TEXT_ALIGN_LEFT   = 0
 CONST TEXT_ALIGN_CENTER = 1
-CONST TEXT_ALIGN_RIGHT = 2
+CONST TEXT_ALIGN_RIGHT  = 2
 
 TYPE TEXT_LAYER_OBJ
-    used         AS INTEGER    ' TRUE if this pool slot is in use
-    startX       AS INTEGER    ' Canvas X origin of text block
-    startY       AS INTEGER    ' Canvas Y origin of text block
-    charCount    AS INTEGER    ' Number of characters in this text layer
-    lineCount    AS INTEGER    ' Number of lines (>= 1 when used)
-    fontIdx      AS INTEGER    ' Default font index for new chars
-    fontSize     AS INTEGER    ' Default font size for new chars
-    defaultLeading AS INTEGER  ' Default line spacing in px (default = fontSize + 1)
-    cursorPos    AS INTEGER    ' Cursor position (0-based char index)
-    dirty        AS INTEGER    ' TRUE when text data changed, triggers re-render
-    monospace    AS INTEGER    ' TRUE to load all fonts with MONOSPACE flag
-    alignment    AS INTEGER    ' 0=LEFT, 1=CENTER, 2=RIGHT (per-layer)
-    antialias    AS _BYTE      ' 0=OFF (crisp pixels), 1=ON (smooth). Default ON.
-    outlineCharCount AS INTEGER ' Pre-counted: chars with outline=1 (CPU: skip pass when 0)
-    shadowCharCount  AS INTEGER ' Pre-counted: chars with shadow=1 (CPU: skip pass when 0)
+    used             AS INTEGER ' TRUE if this pool slot is in use
+    startX           AS INTEGER ' Canvas X origin of text block
+    startY           AS INTEGER ' Canvas Y origin of text block
+    charCount        AS INTEGER ' Number of characters in this text layer
+    lineCount        AS INTEGER ' Number of lines (>= 1 when used)
+    fontIdx          AS INTEGER ' Default font index for new chars
+    fontSize         AS INTEGER ' Default font size for new chars
+    defaultLeading   AS INTEGER ' Default line spacing in px (default = fontSize + 1)
+    cursorPos        AS INTEGER ' Cursor position (0-based char index)
+    dirty            AS INTEGER ' TRUE when text data changed, triggers re-render
+    monospace        AS INTEGER ' TRUE to load all fonts with MONOSPACE flag
+    alignment        AS INTEGER ' 0                                = LEFT, 1=CENTER, 2=RIGHT (per-layer)
+    antialias        AS _BYTE   ' 0                                = OFF (crisp pixels), 1=ON (smooth). Default ON.
+    outlineCharCount AS INTEGER ' Pre-counted : chars with outline = 1 (CPU : skip pass when 0)
+    shadowCharCount  AS INTEGER ' Pre-counted : chars with shadow  = 1 (CPU : skip pass when 0)
 END TYPE
 
 ' Pool of text layer data (indexed by DRAW_LAYER.textDataIdx)

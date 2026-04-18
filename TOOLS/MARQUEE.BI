@@ -61,65 +61,65 @@ TYPE MARQUEE_CFG
 END TYPE
 
 TYPE MARQUEE_OBJ
-    ACTIVE      AS INTEGER  ' Whether marquee tool is active
-    BOX         AS MARQUEE_BBOX ' The bounding box
-    CFG         AS MARQUEE_CFG  ' Configuration for the bounding box
-    INITIALIZED AS INTEGER  ' Whether the marquee has been initialized
-    DRAGGING    AS INTEGER  ' Whether currently dragging to create marquee
-    DRAG_START_X AS INTEGER ' Starting X coordinate of drag
-    DRAG_START_Y AS INTEGER ' Starting Y coordinate of drag
-    DRAG_END_X  AS INTEGER  ' Current/ending X coordinate of drag
-    DRAG_END_Y  AS INTEGER  ' Current/ending Y coordinate of drag
-    RESIZING    AS INTEGER  ' Whether currently resizing
-    RESIZE_HANDLE AS INTEGER ' Which handle is being resized (0=none, 1-8=handles)
-    RESIZE_START_X AS INTEGER ' Starting X when resize began
-    RESIZE_START_Y AS INTEGER ' Starting Y when resize began
-    RESIZE_ORIG_X AS INTEGER ' Original box X when resize began
-    RESIZE_ORIG_Y AS INTEGER ' Original box Y when resize began  
-    RESIZE_ORIG_W AS INTEGER ' Original box W when resize began
-    RESIZE_ORIG_H AS INTEGER ' Original box H when resize began
-    MOVING      AS INTEGER  ' Whether currently moving/dragging the box
-    MOVE_START_X AS INTEGER ' Starting X when move began
-    MOVE_START_Y AS INTEGER ' Starting Y when move began
-    MOVE_ORIG_X AS INTEGER  ' Original box X when move began
-    MOVE_ORIG_Y AS INTEGER  ' Original box Y when move began
+    ACTIVE             AS INTEGER      ' Whether marquee tool is active
+    BOX                AS MARQUEE_BBOX ' The bounding box
+    CFG                AS MARQUEE_CFG  ' Configuration for the bounding box
+    INITIALIZED        AS INTEGER      ' Whether the marquee has been initialized
+    DRAGGING           AS INTEGER      ' Whether currently dragging to create marquee
+    DRAG_START_X       AS INTEGER      ' Starting X coordinate of drag
+    DRAG_START_Y       AS INTEGER      ' Starting Y coordinate of drag
+    DRAG_END_X         AS INTEGER      ' Current/ending X coordinate of drag
+    DRAG_END_Y         AS INTEGER      ' Current/ending Y coordinate of drag
+    RESIZING           AS INTEGER      ' Whether currently resizing
+    RESIZE_HANDLE      AS INTEGER      ' Which handle is being resized (0 = none, 1-8=handles)
+    RESIZE_START_X     AS INTEGER      ' Starting X when resize began
+    RESIZE_START_Y     AS INTEGER      ' Starting Y when resize began
+    RESIZE_ORIG_X      AS INTEGER      ' Original box X when resize began
+    RESIZE_ORIG_Y      AS INTEGER      ' Original box Y when resize began  
+    RESIZE_ORIG_W      AS INTEGER      ' Original box W when resize began
+    RESIZE_ORIG_H      AS INTEGER      ' Original box H when resize began
+    MOVING             AS INTEGER      ' Whether currently moving/dragging the box
+    MOVE_START_X       AS INTEGER      ' Starting X when move began
+    MOVE_START_Y       AS INTEGER      ' Starting Y when move began
+    MOVE_ORIG_X        AS INTEGER      ' Original box X when move began
+    MOVE_ORIG_Y        AS INTEGER      ' Original box Y when move began
     ' Single-press key state tracking for nudge keys
-    KEY_UP_LAST AS INTEGER     ' Previous frame's Up arrow state
-    KEY_DOWN_LAST AS INTEGER   ' Previous frame's Down arrow state
-    KEY_LEFT_LAST AS INTEGER   ' Previous frame's Left arrow state
-    KEY_RIGHT_LAST AS INTEGER  ' Previous frame's Right arrow state
+    KEY_UP_LAST        AS INTEGER      ' Previous frame's Up arrow state
+    KEY_DOWN_LAST      AS INTEGER      ' Previous frame's Down arrow state
+    KEY_LEFT_LAST      AS INTEGER      ' Previous frame's Left arrow state
+    KEY_RIGHT_LAST     AS INTEGER      ' Previous frame's Right arrow state
     ' Magic Wand mode fields
-    MAGIC_WAND_MODE AS INTEGER ' Whether magic wand mode is active
-    SELECTION_MASK AS LONG     ' Image handle for per-pixel selection mask (same size as canvas)
-    WAND_MIN_X AS INTEGER      ' Bounding box of mask selection (min X)
-    WAND_MIN_Y AS INTEGER      ' Bounding box of mask selection (min Y)
-    WAND_MAX_X AS INTEGER      ' Bounding box of mask selection (max X)
-    WAND_MAX_Y AS INTEGER      ' Bounding box of mask selection (max Y)
-    WAND_HAS_SELECTION AS INTEGER ' Whether mask-based selection is active
-    WAND_EDGE_COUNT AS LONG        ' Number of cached edge pixels
-    WAND_EDGE_DIRTY AS INTEGER     ' TRUE when edge cache needs rebuild
-    USER_CREATED AS INTEGER        ' TRUE if user manually created selection (vs auto for move)
-    SELECTION_MODE AS INTEGER      ' Selection mode: 0=replace, 1=add (Shift), 2=subtract (Alt)
-    VARIANT AS INTEGER             ' Which toolbar selection button is active (TOOL_SELECT_* constant)
+    MAGIC_WAND_MODE    AS INTEGER      ' Whether magic wand mode is active
+    SELECTION_MASK     AS LONG         ' Image handle for per-pixel selection mask (same size as canvas)
+    WAND_MIN_X         AS INTEGER      ' Bounding box of mask selection (min X)
+    WAND_MIN_Y         AS INTEGER      ' Bounding box of mask selection (min Y)
+    WAND_MAX_X         AS INTEGER      ' Bounding box of mask selection (max X)
+    WAND_MAX_Y         AS INTEGER      ' Bounding box of mask selection (max Y)
+    WAND_HAS_SELECTION AS INTEGER      ' Whether mask-based selection is active
+    WAND_EDGE_COUNT    AS LONG         ' Number of cached edge pixels
+    WAND_EDGE_DIRTY    AS INTEGER      ' TRUE when edge cache needs rebuild
+    USER_CREATED       AS INTEGER      ' TRUE if user manually created selection (vs auto for move)
+    SELECTION_MODE     AS INTEGER      ' Selection mode: 0 = replace, 1=add (Shift), 2=subtract (Alt)
+    VARIANT            AS INTEGER      ' Which toolbar selection button is active (TOOL_SELECT_* constant)
     ' Freehand selection fields
-    FREE_DRAWING AS INTEGER        ' Whether actively drawing freehand path
-    FREE_POINT_COUNT AS INTEGER    ' Number of points in freehand path
+    FREE_DRAWING       AS INTEGER      ' Whether actively drawing freehand path
+    FREE_POINT_COUNT   AS INTEGER      ' Number of points in freehand path
     ' Polygon selection fields
-    POLY_DRAWING AS INTEGER        ' Whether actively placing polygon vertices
-    POLY_POINT_COUNT AS INTEGER    ' Number of placed vertices
-    POLY_CLOSED AS INTEGER         ' Whether polygon has been closed
+    POLY_DRAWING       AS INTEGER      ' Whether actively placing polygon vertices
+    POLY_POINT_COUNT   AS INTEGER      ' Number of placed vertices
+    POLY_CLOSED        AS INTEGER      ' Whether polygon has been closed
     ' Ellipse selection fields
-    ELLIP_DRAGGING AS INTEGER      ' Whether dragging to define ellipse bounds
-    ELLIP_START_X AS INTEGER       ' Start X of ellipse drag
-    ELLIP_START_Y AS INTEGER       ' Start Y of ellipse drag
-    ELLIP_END_X AS INTEGER         ' End X of ellipse drag
-    ELLIP_END_Y AS INTEGER         ' End Y of ellipse drag
+    ELLIP_DRAGGING     AS INTEGER      ' Whether dragging to define ellipse bounds
+    ELLIP_START_X      AS INTEGER      ' Start X of ellipse drag
+    ELLIP_START_Y      AS INTEGER      ' Start Y of ellipse drag
+    ELLIP_END_X        AS INTEGER      ' End X of ellipse drag
+    ELLIP_END_Y        AS INTEGER      ' End Y of ellipse drag
 END TYPE
 
 ' Selection mode constants
-CONST SEL_MODE_REPLACE = 0  ' Default: replace existing selection
-CONST SEL_MODE_ADD = 1      ' Shift: add to existing selection
-CONST SEL_MODE_SUBTRACT = 2 ' Alt: subtract from existing selection
+CONST SEL_MODE_REPLACE  = 0 ' Default   : replace existing selection
+CONST SEL_MODE_ADD      = 1 ' Shift : add to existing selection
+CONST SEL_MODE_SUBTRACT = 2 ' Alt        : subtract from existing selection
 
 DIM SHARED MARQUEE AS MARQUEE_OBJ
 

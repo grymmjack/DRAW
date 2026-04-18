@@ -8,33 +8,33 @@
 '
 $INCLUDEONCE
 
-CONST SCROLLBAR_THICKNESS = 8     ' Width (V) / Height (H) of scrollbar in pixels
-CONST SCROLLBAR_MIN_THUMB = 16    ' Minimum thumb size in pixels
-CONST SCROLLBAR_GAP = 2           ' Gap between scrollbar and adjacent GUI element
+CONST SCROLLBAR_THICKNESS = 8  ' Width (V) / Height (H) of scrollbar in pixels
+CONST SCROLLBAR_MIN_THUMB = 16 ' Minimum thumb size in pixels
+CONST SCROLLBAR_GAP       = 2  ' Gap between scrollbar and adjacent GUI element
 
 TYPE SCROLLBAR_OBJ
     ' Horizontal scrollbar state
-    hVisible       AS INTEGER     ' TRUE if H scrollbar should show
-    hTrackX        AS INTEGER     ' Track left edge (screen coords)
-    hTrackY        AS INTEGER     ' Track top edge (screen coords)
-    hTrackW        AS INTEGER     ' Track width
-    hTrackH        AS INTEGER     ' Track height (= SCROLLBAR_THICKNESS)
-    hThumbX        AS INTEGER     ' Thumb left edge (screen coords)
-    hThumbW        AS INTEGER     ' Thumb width
-    hDragging      AS INTEGER     ' TRUE if user is dragging H thumb
-    hDragOffset    AS INTEGER     ' Mouse offset from thumb left when drag started
+    hVisible    AS INTEGER ' TRUE if H scrollbar should show
+    hTrackX     AS INTEGER ' Track left edge (screen coords)
+    hTrackY     AS INTEGER ' Track top edge (screen coords)
+    hTrackW     AS INTEGER ' Track width
+    hTrackH     AS INTEGER ' Track height ( = SCROLLBAR_THICKNESS)
+    hThumbX     AS INTEGER ' Thumb left edge (screen coords)
+    hThumbW     AS INTEGER ' Thumb width
+    hDragging   AS INTEGER ' TRUE if user is dragging H thumb
+    hDragOffset AS INTEGER ' Mouse offset from thumb left when drag started
     ' Vertical scrollbar state
-    vVisible       AS INTEGER     ' TRUE if V scrollbar should show
-    vTrackX        AS INTEGER     ' Track left edge (screen coords)
-    vTrackY        AS INTEGER     ' Track top edge (screen coords)
-    vTrackW        AS INTEGER     ' Track width (= SCROLLBAR_THICKNESS)
-    vTrackH        AS INTEGER     ' Track height
-    vThumbY        AS INTEGER     ' Thumb top edge (screen coords)
-    vThumbH        AS INTEGER     ' Thumb height
-    vDragging      AS INTEGER     ' TRUE if user is dragging V thumb
-    vDragOffset    AS INTEGER     ' Mouse offset from thumb top when drag started
+    vVisible    AS INTEGER ' TRUE if V scrollbar should show
+    vTrackX     AS INTEGER ' Track left edge (screen coords)
+    vTrackY     AS INTEGER ' Track top edge (screen coords)
+    vTrackW     AS INTEGER ' Track width ( = SCROLLBAR_THICKNESS)
+    vTrackH     AS INTEGER ' Track height
+    vThumbY     AS INTEGER ' Thumb top edge (screen coords)
+    vThumbH     AS INTEGER ' Thumb height
+    vDragging   AS INTEGER ' TRUE if user is dragging V thumb
+    vDragOffset AS INTEGER ' Mouse offset from thumb top when drag started
     ' Common
-    active         AS INTEGER     ' TRUE if any scrollbar is currently interactive
+    active      AS INTEGER ' TRUE if any scrollbar is currently interactive
 END TYPE
 
 DIM SHARED SCROLLBAR AS SCROLLBAR_OBJ

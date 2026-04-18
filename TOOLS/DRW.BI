@@ -27,7 +27,7 @@
 $INCLUDEONCE
 
 ' Binary project data format constants
-CONST DRW_MAGIC$ = "DRW1"
+CONST DRW_MAGIC$   = "DRW1"
 CONST DRW_VERSION% = 26
 
 ' PNG drAw chunk format version

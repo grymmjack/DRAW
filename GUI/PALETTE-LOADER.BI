@@ -14,7 +14,7 @@ $INCLUDEONCE
 
 ' Palette info structure
 TYPE PALETTE_INFO
-    pname     AS STRING * 64
+    pname    AS STRING * 64
     filename AS STRING * 128
     count    AS INTEGER
 END TYPE
@@ -22,7 +22,7 @@ END TYPE
 DIM SHARED PALETTE_LIST(0 TO 255) AS PALETTE_INFO
 DIM SHARED PALETTE_LOADER_COUNT%
 DIM SHARED PALETTE_LOADER_CURRENT_IDX%
-DIM SHARED PALETTE_EMBEDDED_NAME$ ' Name of embedded palette (when not found in GPL files)
+DIM SHARED PALETTE_EMBEDDED_NAME$   ' Name of embedded palette (when not found in GPL files)
 DIM SHARED PALETTE_EMBEDDED_ACTIVE% ' TRUE when using embedded palette from DRW file
 
 ' Tracks which palette entries are from user sources (for filtering)

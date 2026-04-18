@@ -6,16 +6,16 @@
 OPTION _EXPLICIT
 OPTION _EXPLICITARRAY
 
-CONST TRUE = -1
+CONST TRUE  = -1
 CONST FALSE = 0
 
 DIM fontPath AS STRING
-DIM fHandle AS LONG
-DIM cp AS LONG
+DIM fHandle  AS LONG
+DIM cp       AS LONG
 DIM utf32str AS STRING
-DIM pw AS LONG
-DIM found AS LONG
-DIM t1 AS DOUBLE, t2 AS DOUBLE
+DIM pw       AS LONG
+DIM found    AS LONG
+DIM t1       AS DOUBLE, t2 AS DOUBLE
 
 SCREEN _NEWIMAGE(800, 600, 32)
 CLS , _RGB32(0, 0, 0)
@@ -41,10 +41,10 @@ PRINT
 ' ================================================================
 PRINT "--- TEST 1: _UPRINTWIDTH on full PUA (6400 codepoints) ---"
 found& = 0
-t1# = TIMER(.001)
+t1#    = TIMER(.001)
 FOR cp& = &HE000& TO &HF8FF&
     utf32str$ = MKL$(cp&)
-    pw& = _UPRINTWIDTH(utf32str$, 32, fHandle&)
+    pw&       = _UPRINTWIDTH(utf32str$, 32, fHandle&)
     IF pw& > 0 THEN found& = found& + 1
 NEXT cp&
 t2# = TIMER(.001)
@@ -57,10 +57,10 @@ PRINT
 ' ================================================================
 PRINT "--- TEST 2: _UPRINTWIDTH on Dingbats (192 codepoints) ---"
 found& = 0
-t1# = TIMER(.001)
+t1#    = TIMER(.001)
 FOR cp& = &H2700& TO &H27BF&
     utf32str$ = MKL$(cp&)
-    pw& = _UPRINTWIDTH(utf32str$, 32, fHandle&)
+    pw&       = _UPRINTWIDTH(utf32str$, 32, fHandle&)
     IF pw& > 0 THEN found& = found& + 1
 NEXT cp&
 t2# = TIMER(.001)
@@ -74,16 +74,16 @@ PRINT
 PRINT "--- TEST 3: Render+ink on 100 PUA codepoints ---"
 DIM scanImg AS LONG, scanMem AS _MEM
 DIM byteOff AS LONG, pixel AS _UNSIGNED LONG
-DIM hasInk AS INTEGER, imgBytes AS LONG
+DIM hasInk  AS INTEGER, imgBytes AS LONG
 DIM oldDest AS LONG, prevFont AS LONG
 
-scanImg& = _NEWIMAGE(64, 32, 32)
+scanImg&  = _NEWIMAGE(64, 32, 32)
 imgBytes& = 64& * 32& * 4&
-found& = 0
-t1# = TIMER(.001)
+found&    = 0
+t1#       = TIMER(.001)
 FOR cp& = &HE900& TO &HE963&
     utf32str$ = MKL$(cp&)
-    oldDest& = _DEST
+    oldDest&  = _DEST
     _DEST scanImg&
     CLS , _RGBA32(0, 0, 0, 0)
     prevFont& = _FONT
@@ -118,9 +118,9 @@ PRINT
 ' ================================================================
 PRINT "--- TEST 4: Width vs Ink comparison (E900..E963) ---"
 DIM widthFound AS LONG, inkFound AS LONG
-DIM widthZero AS LONG
-scanImg& = _NEWIMAGE(64, 32, 32)
-imgBytes& = 64& * 32& * 4&
+DIM widthZero  AS LONG
+scanImg&    = _NEWIMAGE(64, 32, 32)
+imgBytes&   = 64& * 32& * 4&
 widthFound& = 0: inkFound& = 0: widthZero& = 0
 FOR cp& = &HE900& TO &HE963&
     utf32str$ = MKL$(cp&)
@@ -171,9 +171,9 @@ DIM renderY AS INTEGER
 renderY% = CSRLIN * _UFONTHEIGHT(16) + 8
 _FONT fHandle&
 COLOR _RGB32(0, 255, 128)
-DIM ri AS INTEGER
+DIM ri      AS INTEGER
 FOR ri% = 0 TO 15
-    cp& = &HE900& + ri%
+    cp&       = &HE900& + ri%
     utf32str$ = MKL$(cp&)
     _UPRINTSTRING (10 + ri% * 30, renderY%), utf32str$, 0, 32
 NEXT ri%

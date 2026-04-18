@@ -12,17 +12,17 @@ DO
 
     ' Process mouse input
     WHILE _MOUSEINPUT: WEND
-    mx = _MOUSEX
-    my = _MOUSEY
+    mx  = _MOUSEX
+    my  = _MOUSEY
     mb1 = _MOUSEBUTTON(1)
     mb2 = _MOUSEBUTTON(2)
     mb3 = _MOUSEBUTTON(3)
 
     ' Check modifiers
-    ctrlL = _KEYDOWN(100305)
-    ctrlR = _KEYDOWN(100306)
-    altL = _KEYDOWN(100307)
-    altR = _KEYDOWN(100308)
+    ctrlL  = _KEYDOWN(100305)
+    ctrlR  = _KEYDOWN(100306)
+    altL   = _KEYDOWN(100307)
+    altR   = _KEYDOWN(100308)
     shiftL = _KEYDOWN(100303)
     shiftR = _KEYDOWN(100304)
 
@@ -62,8 +62,8 @@ DO
     _PRINTSTRING (20, 330), "--- DETECTED COMBOS ---"
 
     DIM AS INTEGER anyCtrl, anyAlt, anyShift
-    anyCtrl = ctrlL OR ctrlR
-    anyAlt = altL OR altR
+    anyCtrl  = ctrlL OR ctrlR
+    anyAlt   = altL OR altR
     anyShift = shiftL OR shiftR
 
     IF mb1 AND anyCtrl THEN

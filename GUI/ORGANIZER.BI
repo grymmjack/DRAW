@@ -31,39 +31,39 @@ CONST ORG_COLOR_MODE    = 10
 CONST ORG_WIDGET_COUNT  = 11
 
 ' Widget cell dimensions (unscaled, native pixel sizes)
-CONST ORG_COL_W         = 11    ' Column width (all columns)
-CONST ORG_ROW0_H        = 10    ' Row 0 height
-CONST ORG_ROW1_H        = 10    ' Row 1 height (row 0 + gap + row 1 = 21 for brush-size)
-CONST ORG_ROW2_H        = 10    ' Row 2 height
-CONST ORG_BRUSH_H       = 21    ' Brush size image height (spans rows 0+1)
-CONST ORG_PADDING       = 1     ' Padding between cells
-CONST ORG_COLS          = 4     ' Number of columns
+CONST ORG_COL_W   = 11 ' Column width (all columns)
+CONST ORG_ROW0_H  = 10 ' Row 0 height
+CONST ORG_ROW1_H  = 10 ' Row 1 height (row 0 + gap + row 1 = 21 for brush-size)
+CONST ORG_ROW2_H  = 10 ' Row 2 height
+CONST ORG_BRUSH_H = 21 ' Brush size image height (spans rows 0+1)
+CONST ORG_PADDING = 1  ' Padding between cells
+CONST ORG_COLS    = 4  ' Number of columns
 
 TYPE ORGANIZER_WIDGET
-    imgHandles AS LONG          ' Array of image handles (up to 4 states) - primary
-    imgHandle2 AS LONG          ' Secondary state image handle
-    imgHandle3 AS LONG          ' Third state image handle
-    imgHandle4 AS LONG          ' Fourth state image handle
-    imgSrc     AS STRING        ' Primary image filename
-    imgSrc2    AS STRING        ' Secondary image filename
-    imgSrc3    AS STRING        ' Third image filename
-    imgSrc4    AS STRING        ' Fourth image filename
-    x          AS INTEGER       ' Calculated screen X position
-    y          AS INTEGER       ' Calculated screen Y position
-    w          AS INTEGER       ' Calculated scaled width
-    h          AS INTEGER       ' Calculated scaled height
-    srcW       AS INTEGER       ' Source image width (unscaled)
-    srcH       AS INTEGER       ' Source image height (unscaled)
-    tip        AS STRING        ' Tooltip text
+    imgHandles AS LONG    ' Array of image handles (up to 4 states) - primary
+    imgHandle2 AS LONG    ' Secondary state image handle
+    imgHandle3 AS LONG    ' Third state image handle
+    imgHandle4 AS LONG    ' Fourth state image handle
+    imgSrc     AS STRING  ' Primary image filename
+    imgSrc2    AS STRING  ' Secondary image filename
+    imgSrc3    AS STRING  ' Third image filename
+    imgSrc4    AS STRING  ' Fourth image filename
+    x          AS INTEGER ' Calculated screen X position
+    y          AS INTEGER ' Calculated screen Y position
+    w          AS INTEGER ' Calculated scaled width
+    h          AS INTEGER ' Calculated scaled height
+    srcW       AS INTEGER ' Source image width (unscaled)
+    srcH       AS INTEGER ' Source image height (unscaled)
+    tip        AS STRING  ' Tooltip text
 END TYPE
 
 TYPE ORGANIZER_STATE
-    visible      AS INTEGER     ' Whether organizer is visible
-    panelX1      AS INTEGER     ' Panel bounds (for hit testing)
-    panelY1      AS INTEGER
-    panelX2      AS INTEGER
-    panelY2      AS INTEGER
-    topY         AS INTEGER     ' Top Y position (below toolbar)
+    visible AS INTEGER ' Whether organizer is visible
+    panelX1 AS INTEGER ' Panel bounds (for hit testing)
+    panelY1 AS INTEGER
+    panelX2 AS INTEGER
+    panelY2 AS INTEGER
+    topY    AS INTEGER ' Top Y position (below toolbar)
 END TYPE
 
 DIM SHARED ORG_WIDGETS(0 TO ORG_WIDGET_COUNT - 1) AS ORGANIZER_WIDGET
@@ -71,26 +71,26 @@ DIM SHARED ORGANIZER AS ORGANIZER_STATE
 
 ' Initialize widget image sources and dimensions
 ' ── Col 0, Row 0: Color Mixer ──
-ORG_WIDGETS(ORG_COLOR_MIXER).imgSrc$   = "color-mixer-off.png"
-ORG_WIDGETS(ORG_COLOR_MIXER).imgSrc2$  = "color-mixer-on.png"
-ORG_WIDGETS(ORG_COLOR_MIXER).srcW%     = 11
-ORG_WIDGETS(ORG_COLOR_MIXER).srcH%     = 10
-ORG_WIDGETS(ORG_COLOR_MIXER).tip$      = "Color Mixer"
+ORG_WIDGETS(ORG_COLOR_MIXER).imgSrc$  = "color-mixer-off.png"
+ORG_WIDGETS(ORG_COLOR_MIXER).imgSrc2$ = "color-mixer-on.png"
+ORG_WIDGETS(ORG_COLOR_MIXER).srcW%    = 11
+ORG_WIDGETS(ORG_COLOR_MIXER).srcH%    = 10
+ORG_WIDGETS(ORG_COLOR_MIXER).tip$     = "Color Mixer"
 
 ' ── Col 1, Row 0: Canvas Ops ──
-ORG_WIDGETS(ORG_CANVAS_OPS).imgSrc$   = "canvas-ops.png"
-ORG_WIDGETS(ORG_CANVAS_OPS).srcW%     = 11
-ORG_WIDGETS(ORG_CANVAS_OPS).srcH%     = 10
-ORG_WIDGETS(ORG_CANVAS_OPS).tip$      = "Canvas: L=Spare R=Resize M=Crop"
+ORG_WIDGETS(ORG_CANVAS_OPS).imgSrc$ = "canvas-ops.png"
+ORG_WIDGETS(ORG_CANVAS_OPS).srcW%   = 11
+ORG_WIDGETS(ORG_CANVAS_OPS).srcH%   = 10
+ORG_WIDGETS(ORG_CANVAS_OPS).tip$    = "Canvas: L=Spare R=Resize M=Crop"
 
 ' ── Col 2, Row 0+1: Brush Size (spans 2 rows) ──
-ORG_WIDGETS(ORG_BRUSH_SIZE).imgSrc$   = "brush-size-1.png"
-ORG_WIDGETS(ORG_BRUSH_SIZE).imgSrc2$  = "brush-size-2.png"
-ORG_WIDGETS(ORG_BRUSH_SIZE).imgSrc3$  = "brush-size-3.png"
-ORG_WIDGETS(ORG_BRUSH_SIZE).imgSrc4$  = "brush-size-4.png"
-ORG_WIDGETS(ORG_BRUSH_SIZE).srcW%     = 11
-ORG_WIDGETS(ORG_BRUSH_SIZE).srcH%     = 21
-ORG_WIDGETS(ORG_BRUSH_SIZE).tip$      = "Brush Size (click to choose preset)"
+ORG_WIDGETS(ORG_BRUSH_SIZE).imgSrc$  = "brush-size-1.png"
+ORG_WIDGETS(ORG_BRUSH_SIZE).imgSrc2$ = "brush-size-2.png"
+ORG_WIDGETS(ORG_BRUSH_SIZE).imgSrc3$ = "brush-size-3.png"
+ORG_WIDGETS(ORG_BRUSH_SIZE).imgSrc4$ = "brush-size-4.png"
+ORG_WIDGETS(ORG_BRUSH_SIZE).srcW%    = 11
+ORG_WIDGETS(ORG_BRUSH_SIZE).srcH%    = 21
+ORG_WIDGETS(ORG_BRUSH_SIZE).tip$     = "Brush Size (click to choose preset)"
 
 ' ── Col 3, Row 0: Pattern Mode ──
 ORG_WIDGETS(ORG_PATTERN_MODE).imgSrc$  = "pattern-mode-off.png"
@@ -100,11 +100,11 @@ ORG_WIDGETS(ORG_PATTERN_MODE).srcH%    = 11
 ORG_WIDGETS(ORG_PATTERN_MODE).tip$     = "Pattern Mode (F3)"
 
 ' ── Col 0, Row 1: Palette Ops ──
-ORG_WIDGETS(ORG_PALETTE_OPS).imgSrc$   = "palette-ops-off.png"
-ORG_WIDGETS(ORG_PALETTE_OPS).imgSrc2$  = "palette-ops-on.png"
-ORG_WIDGETS(ORG_PALETTE_OPS).srcW%     = 11
-ORG_WIDGETS(ORG_PALETTE_OPS).srcH%     = 10
-ORG_WIDGETS(ORG_PALETTE_OPS).tip$      = "Palette Ops: L=Toggle"
+ORG_WIDGETS(ORG_PALETTE_OPS).imgSrc$  = "palette-ops-off.png"
+ORG_WIDGETS(ORG_PALETTE_OPS).imgSrc2$ = "palette-ops-on.png"
+ORG_WIDGETS(ORG_PALETTE_OPS).srcW%    = 11
+ORG_WIDGETS(ORG_PALETTE_OPS).srcH%    = 10
+ORG_WIDGETS(ORG_PALETTE_OPS).tip$     = "Palette Ops: L=Toggle"
 
 ' ── Col 1, Row 1: Transform Ops ──
 ORG_WIDGETS(ORG_TRANSFORM_OPS).imgSrc$  = "transform-ops.png"
@@ -160,7 +160,7 @@ DECLARE SUB ORGANIZER_load_images ()
 DECLARE SUB ORGANIZER_handle_wheel (mouseX AS INTEGER, mouseY AS INTEGER, wheelDelta AS INTEGER)
 
 ' Grid mode images (4 modes × 2 on/off states = 8 handles)
-DIM SHARED GRID_MODE_IMG_OFF(0 TO 3) AS LONG  ' Off images per mode
-DIM SHARED GRID_MODE_IMG_ON(0 TO 3) AS LONG   ' On images per mode
+DIM SHARED GRID_MODE_IMG_OFF(0 TO 3) AS LONG ' Off images per mode
+DIM SHARED GRID_MODE_IMG_ON(0 TO 3) AS LONG  ' On images per mode
 ' Grid snap align images (2 modes × 2 on/off states = 4 handles)
-DIM SHARED GRID_SNAP_IMG(0 TO 3) AS LONG      ' 0=edge-off, 1=edge-on, 2=center-off, 3=center-on
+DIM SHARED GRID_SNAP_IMG(0 TO 3) AS LONG     ' 0 = edge-off, 1=edge-on, 2=center-off, 3=center-on

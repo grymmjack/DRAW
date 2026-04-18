@@ -24,41 +24,41 @@ CONST SG_EDGE_CTR_V  = 5
 
 ' Layer bounding box (cached non-transparent bounds)
 TYPE SG_BBOX
-    valid  AS INTEGER  ' TRUE if bounds are computed and non-empty
-    x1     AS INTEGER  ' Left edge (canvas pixels)
-    y1     AS INTEGER  ' Top edge
-    x2     AS INTEGER  ' Right edge (inclusive)
-    y2     AS INTEGER  ' Bottom edge (inclusive)
-    cx     AS INTEGER  ' Center X = (x1+x2)\2
-    cy     AS INTEGER  ' Center Y = (y1+y2)\2
+    valid AS INTEGER ' TRUE if bounds are computed and non-empty
+    x1    AS INTEGER ' Left edge (canvas pixels)
+    y1    AS INTEGER ' Top edge
+    x2    AS INTEGER ' Right edge (inclusive)
+    y2    AS INTEGER ' Bottom edge (inclusive)
+    cx    AS INTEGER ' Center X = (x1+x2)\2
+    cy    AS INTEGER ' Center Y = (y1+y2)\2
 END TYPE
 
 ' A single active guide line to render
 TYPE SG_GUIDE_LINE
-    pos    AS INTEGER  ' Canvas-pixel position of the guide line
-    active AS INTEGER  ' TRUE if this guide is active this frame
+    pos    AS INTEGER ' Canvas-pixel position of the guide line
+    active AS INTEGER ' TRUE if this guide is active this frame
 END TYPE
 
 ' Smart guides state
 TYPE SMART_GUIDES_OBJ
-    ENABLED     AS INTEGER  ' Master toggle (persisted in CFG)
-    SNAP        AS INTEGER  ' Snap-to-guides toggle (persisted in CFG)
-    DISTANCE    AS INTEGER  ' Detection/snap distance in canvas pixels (default 4)
+    ENABLED       AS INTEGER ' Master toggle (persisted in CFG)
+    SNAP          AS INTEGER ' Snap-to-guides toggle (persisted in CFG)
+    DISTANCE      AS INTEGER ' Detection/snap distance in canvas pixels (default 4)
     ' Active guide lines this frame
-    hCount      AS INTEGER  ' Number of active horizontal guide lines
-    vCount      AS INTEGER  ' Number of active vertical guide lines
+    hCount        AS INTEGER ' Number of active horizontal guide lines
+    vCount        AS INTEGER ' Number of active vertical guide lines
     ' Snap result: the canvas pixel to snap to (-1 = no snap)
-    snapX       AS INTEGER
-    snapY       AS INTEGER
+    snapX         AS INTEGER
+    snapY         AS INTEGER
     ' Snap deltas applied this frame
-    snapDX      AS INTEGER
-    snapDY      AS INTEGER
+    snapDX        AS INTEGER
+    snapDY        AS INTEGER
     ' Cached opaque bbox of the moving content (relative to selection image origin)
     moveBBoxValid AS INTEGER ' TRUE if moving content bbox computed this drag session
-    moveBBoxX1  AS INTEGER   ' Left edge of opaque content in selection image
-    moveBBoxY1  AS INTEGER   ' Top edge
-    moveBBoxX2  AS INTEGER   ' Right edge (inclusive)
-    moveBBoxY2  AS INTEGER   ' Bottom edge (inclusive)
+    moveBBoxX1    AS INTEGER ' Left edge of opaque content in selection image
+    moveBBoxY1    AS INTEGER ' Top edge
+    moveBBoxX2    AS INTEGER ' Right edge (inclusive)
+    moveBBoxY2    AS INTEGER ' Bottom edge (inclusive)
 END TYPE
 
 DIM SHARED SMART_GUIDES AS SMART_GUIDES_OBJ

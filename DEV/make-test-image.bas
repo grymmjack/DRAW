@@ -42,14 +42,14 @@ CLS , _RGB32(0, 0, 0)
 '   CONTRAST:    adjacent pairs with delta < 15 ✓
 DIM cA~&, cB~&, cC~&, cD~&, cE~&, cF~&, cG~&, cH~&
 
-cA~& = _RGB32(115, 100, 100) ' lum ~104  dark warm gray
-cB~& = _RGB32(108, 108, 108) ' lum ~108  neutral gray
-cC~& = _RGB32(110, 115, 110) ' lum ~113  slight green-gray
-cD~& = _RGB32(120, 120, 120) ' lum ~120  mid gray
-cE~& = _RGB32(125, 125, 125) ' lum ~125  mid-light gray
-cF~& = _RGB32(130, 130, 130) ' lum ~130  light gray
-cG~& = _RGB32(140, 135, 135) ' lum ~137  warm light
-cH~& = _RGB32(150, 145, 140) ' lum ~146  lightest
+cA~& = _RGB32(115, 100, 100)                                                                            ' lum ~104  dark warm gray
+cB~& = _RGB32(108, 108, 108)                                                                            ' lum ~108  neutral gray
+cC~& = _RGB32(110, 115, 110)                                                                            ' lum ~113  slight green-gray
+cD~& = _RGB32(120, 120, 120)                                                                            ' lum ~120  mid gray
+cE~& = _RGB32(125, 125, 125)                                                                            ' lum ~125  mid-light gray
+cF~& = _RGB32(130, 130, 130)                                                                            ' lum ~130  light gray
+cG~& = _RGB32(140, 135, 135)                                                                            ' lum ~137  warm light
+cH~& = _RGB32(150, 145, 140)                                                                            ' lum ~146  lightest
 
 DIM x%, y%
 
@@ -63,28 +63,28 @@ DIM x%, y%
 PSET (4, 4), cA~&
 PSET (5, 5), cA~&
 PSET (6, 6), cA~&
-PSET (7, 7), cA~&: PSET (8, 7), cA~&             ' run=2
+PSET (7, 7), cA~&: PSET (8, 7), cA~&                                                                    ' run = 2
 PSET (9, 8), cA~&
-PSET (10, 9), cA~&: PSET (11, 9), cA~&: PSET (12, 9), cA~& ' run=3
+PSET (10, 9), cA~&: PSET (11, 9), cA~&: PSET (12, 9), cA~&                                              ' run = 3
 PSET (13, 10), cA~&
 PSET (14, 11), cA~&
-PSET (15, 12), cA~&: PSET (16, 12), cA~&          ' run=2
-PSET (17, 13), cA~&: PSET (18, 13), cA~&: PSET (19, 13), cA~&: PSET (20, 13), cA~& ' run=4
+PSET (15, 12), cA~& : PSET (16, 12), cA~&                                                               ' run                                  = 2
+PSET (17, 13), cA~& : PSET (18, 13), cA~& : PSET (19, 13), cA~& : PSET (20, 13), cA~&                   ' run = 4
 PSET (21, 14), cA~&
-PSET (22, 15), cA~&: PSET (23, 15), cA~&          ' run=2
+PSET (22, 15), cA~&: PSET (23, 15), cA~&                                                                ' run = 2
 PSET (24, 16), cA~&
 PSET (25, 17), cA~&
 
 ' Diagonal 2 — different rhythm
 PSET (4, 20), cB~&
-PSET (5, 21), cB~&: PSET (6, 21), cB~&: PSET (7, 21), cB~& ' run=3
+PSET (5, 21), cB~&: PSET (6, 21), cB~&: PSET (7, 21), cB~&                                              ' run = 3
 PSET (8, 22), cB~&
-PSET (9, 23), cB~&: PSET (10, 23), cB~&           ' run=2
+PSET (9, 23), cB~&: PSET (10, 23), cB~&                                                                 ' run = 2
 PSET (11, 24), cB~&
 PSET (12, 25), cB~&
-PSET (13, 26), cB~&: PSET (14, 26), cB~&: PSET (15, 26), cB~&: PSET (16, 26), cB~&: PSET (17, 26), cB~& ' run=5
+PSET (13, 26), cB~&: PSET (14, 26), cB~&: PSET (15, 26), cB~&: PSET (16, 26), cB~&: PSET (17, 26), cB~& ' run = 5
 PSET (18, 27), cB~&
-PSET (19, 28), cB~&: PSET (20, 28), cB~&          ' run=2
+PSET (19, 28), cB~&: PSET (20, 28), cB~&                                                                ' run = 2
 PSET (21, 29), cB~&
 PSET (22, 30), cB~&
 
@@ -115,7 +115,7 @@ PSET (14, 75), cF~&
 ' ===========================================================================
 DIM bY%
 FOR x% = 0 TO 28
-    bY% = 3 + x% \ 3  ' staircase with run=3
+    bY% = 3 + x% \ 3    ' staircase with run=3
 
     ' Line 1
     PSET (34 + x%, bY%), cA~&
@@ -128,8 +128,8 @@ NEXT x%
 ' Second set — horizontal parallel lines (easy banding)
 FOR x% = 34 TO 62
     PSET (x%, 22), cD~&
-    PSET (x%, 24), cD~&    ' 1px gap — banding!
-    PSET (x%, 26), cD~&    ' 1px gap — banding!
+    PSET (x%, 24), cD~& ' 1px gap — banding!
+    PSET (x%, 26), cD~& ' 1px gap — banding!
 NEXT x%
 
 ' ===========================================================================
@@ -140,25 +140,25 @@ NEXT x%
 ' ===========================================================================
 ' Horizontal fat line — make line LONG for clear run detection
 FOR x% = 66 TO 93
-    PSET (x%, 8), cA~&                    ' top row — always present
-    IF x% >= 74 AND x% <= 86 THEN
-        PSET (x%, 9), cA~&                ' 2px thick section (13px run)
+    PSET (x%, 8), cA~&  ' top row — always present
+    IF x% > = 74 AND x% < = 86 THEN
+        PSET (x%, 9), cA~&  ' 2px thick section (13px run)
     END IF
 NEXT x%
 
 ' Second horizontal fat line — different color
 FOR x% = 66 TO 93
     PSET (x%, 18), cE~&
-    IF x% >= 72 AND x% <= 88 THEN
-        PSET (x%, 19), cE~&               ' 2px thick section (17px run)
+    IF x% > = 72 AND x% < = 88 THEN
+        PSET (x%, 19), cE~& ' 2px thick section (17px run)
     END IF
 NEXT x%
 
 ' Vertical fat line
 FOR y% = 4 TO 36
-    PSET (68, y%), cC~&                    ' left col — always
-    IF y% >= 14 AND y% <= 28 THEN
-        PSET (69, y%), cC~&                ' 2px thick section (15px run)
+    PSET (68, y%), cC~& ' left col — always
+    IF y% > = 14 AND y% < = 28 THEN
+        PSET (69, y%), cC~& ' 2px thick section (15px run)
     END IF
 NEXT y%
 
@@ -170,9 +170,9 @@ NEXT y%
 FOR y% = 2 TO 37
     FOR x% = 98 TO 125
         IF (x% + y%) MOD 2 = 0 THEN
-            PSET (x%, y%), cA~&            ' lum ~104
+            PSET (x%, y%), cA~& ' lum ~104
         ELSE
-            PSET (x%, y%), cH~&            ' lum ~146 (delta ~42)
+            PSET (x%, y%), cH~& ' lum ~146 (delta ~42)
         END IF
     NEXT x%
 NEXT y%
@@ -225,8 +225,8 @@ FOR x% = 139 TO 151
 NEXT x%
 
 ' Eyes
-PSET (141, 6), cA~&: PSET (142, 6), cA~&
-PSET (148, 6), cA~&: PSET (149, 6), cA~&
+PSET (141, 6), cA~& : PSET (142, 6), cA~&
+PSET (148, 6), cA~& : PSET (149, 6), cA~&
 
 ' Mouth
 FOR x% = 143 TO 147
@@ -248,8 +248,8 @@ NEXT y%
 
 ' Legs
 FOR y% = 23 TO 30
-    PSET (141, y%), cC~&: PSET (142, y%), cC~&: PSET (143, y%), cC~&
-    PSET (147, y%), cC~&: PSET (148, y%), cC~&: PSET (149, y%), cC~&
+    PSET (141, y%), cC~& : PSET (142, y%), cC~& : PSET (143, y%), cC~&
+    PSET (147, y%), cC~& : PSET (148, y%), cC~& : PSET (149, y%), cC~&
 NEXT y%
 
 ' Feet
@@ -288,13 +288,13 @@ NEXT y%
 ' ===========================================================================
 FOR y% = 44 TO 60
     FOR x% = 34 TO 44
-        PSET (x%, y%), cA~&     ' lum ~104
+        PSET (x%, y%), cA~& ' lum ~104
     NEXT x%
     FOR x% = 45 TO 55
-        PSET (x%, y%), cB~&     ' lum ~108 (delta=4)
+        PSET (x%, y%), cB~& ' lum ~108 (delta = 4)
     NEXT x%
     FOR x% = 56 TO 63
-        PSET (x%, y%), cC~&     ' lum ~113 (delta=5)
+        PSET (x%, y%), cC~& ' lum ~113 (delta = 5)
     NEXT x%
 NEXT y%
 
