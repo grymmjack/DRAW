@@ -877,7 +877,7 @@ def process_lines_normalise_ctrl_eq(lines: list[str]) -> tuple[list[str], int]:
         is_ctrl = any(su.startswith(p) for p in _CTRL_PREFIXES)
         # Detect compound assignment via find_eq_pos returning -1 while raw '=' exists
         is_compound = False
-        if not is_ctrl and '=' in raw and find_eq_pos(raw) == -1:
+        if not is_ctrl and '=' in raw and not stripped.startswith("'") and find_eq_pos(raw) == -1:
             # find_eq_pos returns -1 for compound assignments — check there's an '='
             # that's not part of <=, >= by looking directly
             for _ci, _cc in enumerate(raw):
