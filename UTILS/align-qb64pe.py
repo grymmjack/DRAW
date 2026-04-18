@@ -94,13 +94,14 @@ def find_comment_pos(line: str) -> int:
     if stripped.startswith("'") or stripped.upper().startswith("REM "):
         return -1  # pure comment / REM line
 
+    # Lines with THEN are control-flow — aligning their comments looks odd
+    # because they tend to be much longer than adjacent pure assignments.
     in_string = False
     i = 0
     while i < len(line):
         ch = line[i]
         if ch == '"':
             if in_string:
-                # "" inside a string = escaped quote, skip both
                 if i + 1 < len(line) and line[i + 1] == '"':
                     i += 2
                     continue
@@ -108,6 +109,24 @@ def find_comment_pos(line: str) -> int:
             else:
                 in_string = True
         elif ch == "'" and not in_string:
+            # Before returning, check whether THEN appears outside strings
+            # before this comment marker — if so, skip comment alignment.
+            before = line[:i]
+            _b_str = False
+            _j = 0
+            while _j < len(before):
+                _c = before[_j]
+                if _c == '"':
+                    if _b_str:
+                        if _j + 1 < len(before) and before[_j + 1] == '"':
+                            _j += 2
+                            continue
+                        _b_str = False
+                    else:
+                        _b_str = True
+                elif not _b_str and before[_j:_j + 5].upper() in (' THEN', '\tTHEN'):
+                    return -1
+                _j += 1
             return i
         i += 1
     return -1  # no inline comment
@@ -202,10 +221,54 @@ def find_eq_pos(line: str) -> int:
 
     Returns -1 for blank lines, pure comment lines, and lines with no '='.
     Skips '=' that is part of <=, >= or <> comparisons.
+    Skips control-flow lines (FOR, WHILE, IF, ELSEIF, UNTIL) where '=' is
+    a comparison or loop-header, not an assignment.
     """
     stripped = line.lstrip()
     if not stripped or stripped.startswith("'") or stripped.upper().startswith("REM "):
         return -1
+
+    _CTRL_PREFIXES = ('FOR ', 'WHILE ', 'IF ', 'ELSEIF ', '_IF ', 'UNTIL ',
+                      'DO WHILE ', 'DO UNTIL ', 'LOOP WHILE ', 'LOOP UNTIL ')
+    su = stripped.upper()
+    if any(su.startswith(p) for p in _CTRL_PREFIXES):
+        return -1
+
+    # Exclude compound / augmented assignments: n& = n& + 1, s$ = s$ + x, etc.
+    # Detect by finding the first '=' outside strings, then checking whether
+    # the RHS starts with the same token as the LHS followed by an operator.
+    _aug_ops = ('+', '-', '*', '/', '\\', '&', 'AND ', 'OR ', 'XOR ')
+    _eq_idx = None
+    _in_s = False
+    _k = 0
+    while _k < len(line):
+        _c = line[_k]
+        if _c == '"':
+            if _in_s:
+                if _k + 1 < len(line) and line[_k + 1] == '"':
+                    _k += 2
+                    continue
+                _in_s = False
+            else:
+                _in_s = True
+        elif _c == '=' and not _in_s:
+            if _k > 0 and line[_k - 1] in '<>!':
+                pass
+            else:
+                _eq_idx = _k
+                break
+        _k += 1
+    if _eq_idx is not None:
+        lhs_tok = line[:_eq_idx].strip().rstrip()
+        rhs = line[_eq_idx + 1:].lstrip()
+        # RHS starts with same token?
+        if rhs.upper().startswith(lhs_tok.upper()):
+            after = rhs[len(lhs_tok):].lstrip()
+            if after and (after[0] in ('+', '-', '*', '/', '\\', '&') or
+                          after.upper().startswith('AND ') or
+                          after.upper().startswith('OR ') or
+                          after.upper().startswith('XOR ')):
+                return -1
 
     in_string = False
     i = 0
@@ -792,6 +855,79 @@ def process_lines_align(lines: list[str], min_gap: int) -> tuple[list[str], int]
 # Eq-align pass: align '=' within consecutive assignment groups
 # ---------------------------------------------------------------------------
 
+def process_lines_normalise_ctrl_eq(lines: list[str]) -> tuple[list[str], int]:
+    """Collapse stale multi-space padding around '=' in lines excluded from alignment.
+
+    Two categories are normalised:
+    1. Control-flow lines: FOR, WHILE, IF, ELSEIF, etc.
+    2. Compound/augmented assignments: n& = n& + 1, s$ = s$ + x, etc.
+    Both are excluded from eq-alignment but may have been padded by a prior run.
+    Normalises 'lhs   =   rhs' → 'lhs = rhs'.
+    """
+    _CTRL_PREFIXES = ('FOR ', 'WHILE ', 'IF ', 'ELSEIF ', '_IF ', 'UNTIL ',
+                      'DO WHILE ', 'DO UNTIL ', 'LOOP WHILE ', 'LOOP UNTIL ')
+
+    result = list(lines)
+    changed = 0
+
+    for idx, orig in enumerate(lines):
+        raw = orig.rstrip('\n').rstrip('\r')
+        stripped = raw.lstrip()
+        su = stripped.upper()
+        is_ctrl = any(su.startswith(p) for p in _CTRL_PREFIXES)
+        # Detect compound assignment via find_eq_pos returning -1 while raw '=' exists
+        is_compound = False
+        if not is_ctrl and '=' in raw and find_eq_pos(raw) == -1:
+            # find_eq_pos returns -1 for compound assignments — check there's an '='
+            # that's not part of <=, >= by looking directly
+            for _ci, _cc in enumerate(raw):
+                if _cc == '=' and (_ci == 0 or raw[_ci - 1] not in '<>!'):
+                    is_compound = True
+                    break
+        if not is_ctrl and not is_compound:
+            continue
+        new_raw = _collapse_eq_spaces(raw)
+        if new_raw != raw:
+            ending = get_ending(orig)
+            result[idx] = new_raw + ending
+            changed += 1
+
+    return result, changed
+
+
+def _collapse_eq_spaces(line: str) -> str:
+    """Collapse '  =  ' → ' = ' outside string literals."""
+    out = []
+    in_string = False
+    i = 0
+    while i < len(line):
+        ch = line[i]
+        if ch == '"':
+            if in_string:
+                if i + 1 < len(line) and line[i + 1] == '"':
+                    out.append(ch)
+                    i += 2
+                    continue
+                in_string = False
+            else:
+                in_string = True
+            out.append(ch)
+        elif ch == '=' and not in_string:
+            # strip trailing spaces already written into out
+            while out and out[-1] == ' ':
+                out.pop()
+            out.append(' = ')
+            # skip leading spaces after '='
+            i += 1
+            while i < len(line) and line[i] == ' ':
+                i += 1
+            continue
+        else:
+            out.append(ch)
+        i += 1
+    return ''.join(out)
+
+
 def process_lines_align_eq(lines: list[str], eq_gap: int = 1) -> tuple[list[str], int]:
     """Align '=' signs within consecutive assignment groups.
 
@@ -902,6 +1038,8 @@ def process_lines(
     total_changed = 0
 
     if align_eq:
+        lines, c = process_lines_normalise_ctrl_eq(lines)
+        total_changed += c
         lines, c = process_lines_align_eq(lines, eq_gap)
         total_changed += c
 
