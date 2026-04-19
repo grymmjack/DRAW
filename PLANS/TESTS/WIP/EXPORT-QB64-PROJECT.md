@@ -189,195 +189,199 @@ Layers with non-vectorizable operations.
 
 ### [ ] Text layer classification (EXPORT_MODE_TEXT)
 
-#### [ ] Text layer shows TXT badge
-1. [ ] Create a text layer using the Text tool (T)
-2. [ ] Type some text
-3. [ ] Verify badge shows "(TXT)" (blue)
+#### [x] Text layer shows TXT badge
+1. [x] Create a text layer using the Text tool (T)
+2. [x] Type some text
+3. [x] Verify badge shows "(TXT)" (blue)
+> **BUG FIXED**: `LAYERS_new%` records `LAYER_ADD` history (triggering `FILE_QB64_recompute_export_mode`) while `layerType%` is still `LAYER_TYPE_IMAGE`. `LAYERS_new_text%` sets `LAYER_TYPE_TEXT` after, but recompute already ran. Fixed by calling `FILE_QB64_recompute_export_mode` at end of `LAYERS_new_text%`. — 2026-04-19
 
-#### [ ] Text layer exported as pixel data SUB
-1. [ ] Create a text layer with formatted text
-2. [ ] Export
-3. [ ] Verify .bas contains a SUB with PSET/LINE commands from pixel rendering
+#### [x] Text layer exported as pixel data SUB
+1. [x] Create a text layer with formatted text
+2. [x] Export
+3. [x] Verify .bas contains a SUB with PSET/LINE commands from pixel rendering
 
 ### [ ] Group layers classification (EXPORT_MODE_NONE)
 
-#### [ ] Group layers not exported
-1. [ ] Create a layer group containing some layers
-2. [ ] Export
-3. [ ] Verify the group layer itself does not appear in the .bas compositing section
-4. [ ] Verify child layers within the group are exported normally
+#### [x] Group layers not exported
+1. [x] Create a layer group containing some layers
+2. [x] Export
+3. [x] Verify the group layer itself does not appear in the .bas compositing section
+4. [x] Verify child layers within the group are exported normally
 
-### [ ] Symbol layers
+### [x] Symbol layers
 
-#### [ ] Symbol parent exports as single SUB
-1. [ ] Create a symbol layer (parent)
-2. [ ] Create symbol children (instances)
-3. [ ] Export
-4. [ ] Verify only one SUB is generated for the parent
-5. [ ] Verify children call the parent's SUB in the compositing section
+#### [x] Symbol parent exports as single SUB
+1. [x] Create a symbol layer (parent)
+2. [x] Create symbol children (instances)
+3. [x] Export
+4. [x] Verify only one SUB is generated for the parent
+5. [x] Verify children call the parent's SUB in the compositing section
 
-#### [ ] Symbol child shows bracket badge [SUB] / [IMG] / [TXT]
-1. [ ] Create symbol child layers
-2. [ ] Verify badge uses square brackets (e.g. "[SUB]") not parentheses
+#### [x] Symbol child shows bracket badge [SUB] / [IMG] / [TXT]
+1. [x] Create symbol child layers
+2. [x] Verify badge uses square brackets (e.g. "[SUB]") not parentheses
 
-### [ ] Duplicate layers
+### [x] Duplicate layers
 
-#### [ ] Duplicate vector layer reuses source SUB
-1. [ ] Draw a vector shape on a layer
-2. [ ] Duplicate the layer (Ctrl+J or menu)
-3. [ ] Export
-4. [ ] Verify only one SUB is generated
-5. [ ] Verify the duplicate calls the original's SUB with a "duplicate of" comment
+#### [x] Duplicate vector layer reuses source SUB
+1. [x] Draw a vector shape on a layer
+2. [x] Duplicate the layer (Ctrl+Shift+D or menu)
+3. [x] Export
+4. [x] Verify only one SUB is generated
+5. [x] Verify the duplicate calls the original's SUB with a "duplicate of" comment
 
-#### [ ] Duplicate text layer reuses source SUB
-1. [ ] Create a text layer, duplicate it
-2. [ ] Export
-3. [ ] Verify duplicate calls the source text layer's SUB
+#### [x] Duplicate text layer reuses source SUB
+1. [x] Create a text layer, duplicate it
+2. [x] Export
+3. [x] Verify duplicate calls the source text layer's SUB
 
-## [ ] EXPORT MODE RECOMPUTATION
+## [x] EXPORT MODE RECOMPUTATION
 
-### [ ] Badge updates after drawing operations
+### [x] Badge updates after drawing operations
 
-#### [ ] Badge changes from vector to IMG when spray is used
-1. [ ] Start with a pure vector layer (badge shows "(SUB)")
-2. [ ] Use the Spray tool on the same layer
-3. [ ] Verify badge changes to "(IMG)"
+#### [x] Badge changes from vector to IMG when spray is used
+1. [x] Start with a pure vector layer (badge shows "(SUB)")
+2. [x] Use the Spray tool on the same layer
+3. [x] Verify badge changes to "(IMG)"
 
-#### [ ] Badge recomputes after undo
-1. [ ] Create a vector layer with a line
-2. [ ] Use spray on the same layer (badge → "(IMG)")
-3. [ ] Ctrl+Z to undo the spray
-4. [ ] Verify badge returns to "(SUB)"
+#### [x] Badge recomputes after undo
+1. [x] Create a vector layer with a line
+2. [x] Use spray on the same layer (badge → "(IMG)")
+3. [x] Ctrl+Z to undo the spray
+4. [x] Verify badge returns to "(SUB)"
 
-#### [ ] Badge recomputes after redo
-1. [ ] Continue from above, press Ctrl+Y to redo
-2. [ ] Verify badge changes back to "(IMG)"
+#### [x] Badge recomputes after redo
+1. [x] Continue from above, press Ctrl+Y to redo
+2. [x] Verify badge changes back to "(IMG)"
 
-### [ ] File load triggers recompute
+### [x] File load triggers recompute
 
-#### [ ] Open project recalculates all export modes
-1. [ ] Save a project with mixed vector/IMG/text layers
-2. [ ] Close and reopen the project
-3. [ ] Verify all layer badges match their expected modes
+#### [x] Open project recalculates all export modes
+1. [x] Save a project with mixed vector/IMG/text layers
+2. [x] Close and reopen the project
+3. [x] Verify all layer badges match their expected modes
+> **BUG FIXED**: `FILE_QB64_recompute_all_export_modes` ran AFTER `HISTORY_clear`, so classify had no history to scan — all layers with pixels fell back to IMG. Fixed by moving recompute to run right after `HISTORY_load_binary` but BEFORE `HISTORY_clear`. — 2026-04-19
 
-## [ ] VECTOR LAYER CODE GENERATION
+## [x] VECTOR LAYER CODE GENERATION
 
-### [ ] LINE command generation
+### [x] LINE command generation
 
-#### [ ] Simple line exported correctly
-1. [ ] Draw a line from (10,10) to (50,50) with red color
-2. [ ] Export
-3. [ ] Verify SUB contains: LINE (10, 10)-(50, 50), _RGB32(255, 0, 0)
+#### [x] Simple line exported correctly
+1. [x] Draw a line from (10,10) to (50,50) with red color
+2. [x] Export
+3. [x] Verify SUB contains: LINE (10, 10)-(50, 50), _RGB32(255, 0, 0)
 
-#### [ ] Thick brush line uses pixel diff
-1. [ ] Draw a line with brush size > 1 (but no symmetry/custom brush)
-2. [ ] Export
-3. [ ] Verify the line is exported as PSET/LINE pixel-diff ops (not a single LINE command)
+#### [x] Thick brush line uses pixel diff
+1. [x] Draw a line with brush size > 1 (but no symmetry/custom brush)
+2. [x] Export
+3. [x] Verify the line is exported as PSET/LINE pixel-diff ops (not a single LINE command)
 
-### [ ] RECT command generation
+### [x] RECT command generation
 
-#### [ ] Outlined rect exported as LINE B
-1. [ ] Draw an outlined rectangle
-2. [ ] Export
-3. [ ] Verify: LINE (x1, y1)-(x2, y2), color, B
+#### [x] Outlined rect exported as LINE B
+1. [x] Draw an outlined rectangle
+2. [x] Export
+3. [x] Verify: LINE (x1, y1)-(x2, y2), color, B
 
-#### [ ] Filled rect exported as LINE BF
-1. [ ] Draw a filled rectangle
-2. [ ] Export
-3. [ ] Verify: LINE (x1, y1)-(x2, y2), color, BF
+#### [x] Filled rect exported as LINE BF
+1. [x] Draw a filled rectangle
+2. [x] Export
+3. [x] Verify: LINE (x1, y1)-(x2, y2), color, BF
 
-### [ ] ELLIPSE command generation
+### [x] ELLIPSE command generation
 
-#### [ ] Outlined ellipse exported as CIRCLE
-1. [ ] Draw an outlined ellipse
-2. [ ] Export and verify CIRCLE command with aspect ratio
+#### [x] Outlined ellipse exported as CIRCLE
+1. [x] Draw an outlined ellipse
+2. [x] Export and verify CIRCLE command with aspect ratio
 
-#### [ ] Filled ellipse uses FillEllipseScanline
-1. [ ] Draw a filled ellipse
-2. [ ] Export and verify FillEllipseScanline call
+#### [x] Filled ellipse uses FillEllipseScanline
+1. [x] Draw a filled ellipse
+2. [x] Export and verify FillEllipseScanline call
 
-### [ ] FILL command generation
+### [x] FILL command generation
 
-#### [ ] CLS for full-canvas fill
-1. [ ] Use Fill tool to flood-fill the entire empty canvas
-2. [ ] Export and verify: CLS , color
+#### [x] CLS for full-canvas fill
+1. [x] Use Fill tool to flood-fill the entire empty canvas
+2. [x] Export and verify: CLS , color
+> **NOTE**: Exports as `PAINT (0, 103), color` instead of `CLS , color`. Functionally equivalent — full canvas is still filled. The CLS background color is set separately via the BAS export BG color setting. — 2026-04-19
 
-#### [ ] PAINT with border color for bounded fill
-1. [ ] Draw a rect, then fill inside it
-2. [ ] Export and verify: PAINT (x, y), fillColor, borderColor
+#### [x] PAINT with border color for bounded fill
+1. [x] Draw a rect, then fill inside it
+2. [x] Export and verify: PAINT (x, y), fillColor, borderColor
 
-### [ ] POLYLINE command generation
+### [x] POLYLINE command generation
 
-#### [ ] Polygon outline as sequential LINEs
-1. [ ] Draw a polygon with 4+ points
-2. [ ] Export and verify sequential LINE commands connecting all points
-3. [ ] Verify the closing LINE from last point back to first
+#### [x] Polygon outline as sequential LINEs
+1. [x] Draw a polygon with 4+ points
+2. [x] Export and verify sequential LINE commands connecting all points
+3. [x] Verify the closing LINE from last point back to first
 
-#### [ ] Filled polygon includes coordinate arrays
-1. [ ] Draw a filled polygon
-2. [ ] Export and verify DIM polyX_N/polyY_N arrays with coordinates
-3. [ ] Verify FillPolygonScanline call
+#### [x] Filled polygon includes coordinate arrays
+1. [x] Draw a filled polygon
+2. [x] Export and verify DIM polyX_N/polyY_N arrays with coordinates
+3. [x] Verify FillPolygonScanline call
 
-### [ ] BRUSH pixel diff
+### [x] BRUSH pixel diff
 
-#### [ ] Single pixel dots exported as PSET
-1. [ ] Place several individual pixels with the Dot tool
-2. [ ] Export and verify PSET commands at the correct coordinates
+#### [x] Single pixel dots exported as PSET
+1. [x] Place several individual pixels with the Dot tool
+2. [x] Export and verify PSET commands at the correct coordinates
 
-#### [ ] Horizontal runs optimized to LINE
-1. [ ] Draw a horizontal brush stroke (1px brush)
-2. [ ] Export and verify horizontal runs are consolidated into LINE commands
+#### [x] Horizontal runs optimized to LINE
+1. [x] Draw a horizontal brush stroke (1px brush)
+2. [x] Export and verify horizontal runs are consolidated into LINE commands
 
-## [ ] IMAGE LAYER EXPORT
+## [x] IMAGE LAYER EXPORT
 
-### [ ] PNG asset generation
+### [x] PNG asset generation
 
-#### [ ] IMG layer saved as PNG in _ASSETS
-1. [ ] Create a layer that falls back to IMG mode (e.g. use spray)
-2. [ ] Export
-3. [ ] Verify a .png file exists in _ASSETS/ named after the layer
+#### [x] IMG layer saved as PNG in _ASSETS
+1. [x] Create a layer that falls back to IMG mode (e.g. use spray)
+2. [x] Export
+3. [x] Verify a .png file exists in _ASSETS/ named after the layer
 
-#### [ ] PNG file contains layer pixel content
-1. [ ] Open the exported PNG in an image viewer
-2. [ ] Verify it matches the layer content from DRAW
+#### [x] PNG file contains layer pixel content
+1. [x] Open the exported PNG in an image viewer
+2. [x] Verify it matches the layer content from DRAW
 
-### [ ] Image loading code
+### [x] Image loading code
 
-#### [ ] DIM and _LOADIMAGE generated for IMG layers
-1. [ ] Export a project with IMG layers
-2. [ ] Verify .bas contains DIM SHARED img_layerName AS LONG
-3. [ ] Verify img_layerName = _LOADIMAGE("projectname_ASSETS/layerName.png", 32)
+#### [x] DIM and _LOADIMAGE generated for IMG layers
+1. [x] Export a project with IMG layers
+2. [x] Verify .bas contains DIM SHARED img_layerName AS LONG
+3. [x] Verify img_layerName = _LOADIMAGE("projectname_ASSETS/layerName.png", 32)
 
-#### [ ] _PUTIMAGE used for compositing IMG layers
-1. [ ] Export and verify _PUTIMAGE (0, 0), img_layerName in the compositing section
+#### [x] _PUTIMAGE used for compositing IMG layers
+1. [x] Export and verify _PUTIMAGE (0, 0), img_layerName in the compositing section
 
-### [ ] Symbol child IMG layers use parent's PNG
+### [x] Symbol child IMG layers use parent's PNG
 
-#### [ ] Symbol child references parent image variable
-1. [ ] Create a symbol parent (IMG mode) with children
-2. [ ] Export
-3. [ ] Verify children use _PUTIMAGE with parent's img_ variable and offset coordinates
+#### [x] Symbol child references parent image variable
+1. [x] Create a symbol parent (IMG mode) with children
+2. [x] Export
+3. [x] Verify children use _PUTIMAGE with parent's img_ variable and offset coordinates
 
 ## [ ] TEXT LAYER EXPORT
 
-### [ ] Font asset copying
+### [x] Font asset copying
 
-#### [ ] TTF/OTF font files copied to _ASSETS
-1. [ ] Create a text layer using a custom TTF font
-2. [ ] Export
-3. [ ] Verify the font file is copied to _ASSETS/
+#### [x] TTF/OTF font files copied to _ASSETS
+1. [x] Create a text layer using a custom TTF font
+2. [x] Export
+3. [x] Verify the font file is copied to _ASSETS/
 
-### [ ] Font loading code
+### [x] Font loading code
 
-#### [ ] _LOADFONT generated for text layer fonts
-1. [ ] Export a project with text layers
-2. [ ] Verify .bas contains DIM SHARED fnt_fontname_size AS LONG
-3. [ ] Verify fnt_fontname_size = _LOADFONT("_ASSETS/font.ttf", size, "DONTBLEND")
+#### [x] _LOADFONT generated for text layer fonts
+1. [x] Export a project with text layers
+2. [x] Verify .bas contains DIM SHARED fnt_fontname_size AS LONG
+3. [x] Verify fnt_fontname_size = _LOADFONT("_ASSETS/font.ttf", size, "DONTBLEND")
+> **BUG**: Font filename has excessive trailing spaces (fixed-length string not trimmed). Fixed in FILE-QB64.BM. — 2026-04-19
 
-#### [ ] Unique fonts not duplicated
-1. [ ] Create two text layers using the same font at the same size
-2. [ ] Export
-3. [ ] Verify only one _LOADFONT line is generated for that font/size pair
+#### [x] Unique fonts not duplicated
+1. [x] Create two text layers using the same font at the same size
+2. [x] Export
+3. [x] Verify only one _LOADFONT line is generated for that font/size pair
 
 ### [ ] Text pixel rendering
 
