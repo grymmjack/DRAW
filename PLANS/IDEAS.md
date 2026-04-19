@@ -1,31 +1,5 @@
 # IDEAS
 
-## QB64PE EXPORT
-- Each layer is a SUB
-  - When duplicating a layer, do not duplicate the layer, just refer to the SUB in the export
-  - So if a layer is duplicated it needs a new icon (SUB) to show it's not the original
-  - Only the original layer is editable, [SUB] which when edited updates all (SUB)
-- Restrict to use only these tools:
-  - DOT (`PSET`)
-  - BRUSH (`PSET`)
-  - LINE (`LINE`)
-    - IF BRUSH SIZE > 1px EXPORT USING MULTIPLE `LINE`
-  - POLY LINE (`LINE`)
-  - RECT (`LINE BF`)
-  - CIRCLE (`CIRCLE`)
-  - FILLED POLY LINE (`LINE + PAINT`)
-  - FILLED RECT LINE (`BF + PAINT`)
-  - FILLED CIRCLE (`CIRCLE + PAINT`)
-  - NOT TRACKED IN CODE EXPORT EXCEPT FINAL OUTPUT
-    - MARQUEE
-    - MOVE
-  - TEXT TOOL
-    - EXPORT code for `_LOADFONT`, copy font to export dir, etc.
-    - TEXT LAYERS have (SUB:TXT)/[SUB:TXT]
-- If using ANY other tool the layer becomes a (SUB:IMG) layer, when exported the layer becomes LAYER_NAME.PNG and referenced in code using `_LOADIMAGE`
-  - CAN DUPLICATE IMG layer, but only [SUB:IMG] source is editable - when edited updates everywhere
-  
-
 ## Image Browser (For drag/drop to brush and pattern slots)
 
 
