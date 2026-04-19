@@ -107,6 +107,7 @@ $INCLUDEONCE
 '$INCLUDE:'./OUTPUT/FILE-BMP.BI'
 '$INCLUDE:'./OUTPUT/FILE-BSAVE.BI'
 '$INCLUDE:'./OUTPUT/FILE-EXPORT.BI'
+'$INCLUDE:'./OUTPUT/FILE-QB64.BI'
 
 ' TOOLS -----------------------------------------------------------------------
 '$INCLUDE:'./TOOLS/BRUSH.BI'

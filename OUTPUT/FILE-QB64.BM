@@ -1,0 +1,1136 @@
+''
+' DRAW - OUTPUT/FILE-QB64.BM
+' =============================================================================
+' QB64PE Code Export — implementation.
+'
+' Generates a standalone QB64-PE program (.BAS + _ASSETS/ folder) from the
+' current project. Each layer becomes a SUB with native drawing commands
+' (vector layers), _LOADFONT + _UPRINTSTRING (text layers), or _LOADIMAGE
+' from PNG (raster-fallback layers). Symbol parent/child layers deduplicate
+' into a single SUB called multiple times.
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+''
+' Classifies a layer's export mode by scanning its active history records.
+' Returns EXPORT_MODE_VECTOR, _TEXT, _IMG, or _NONE.
+'
+' Vector-safe operations:
+'   LINE, RECT, ELLIPSE, POLYLINE, FILL — without custom brush or symmetry
+'   BRUSH (1px dot/brush) — without custom brush, symmetry, or thick brush
+'   LINE with thick brush flag — still vector (exported as multiple LINEs)
+'
+' Forces IMG:
+'   BRUSH with "Spray" label, custom brush flag, symmetry flag, thick brush
+'   freehand, TRANSFORM kind, RASTERIZE kind
+'
+' @param layerIdx INTEGER Index into LAYERS() array
+' @return INTEGER EXPORT_MODE_* constant
+'
+FUNCTION FILE_QB64_classify_layer_export% (layerIdx AS INTEGER)
+    DIM i         AS INTEGER
+    DIM recKind   AS INTEGER
+    DIM recFlags  AS LONG
+    DIM recLabel  AS STRING
+    DIM layerId   AS LONG
+    DIM forceImg  AS INTEGER
+    DIM parentIdx AS INTEGER
+
+    IF layerIdx% < 1 OR layerIdx% > LAYER_COUNT% THEN
+        FILE_QB64_classify_layer_export% = EXPORT_MODE_NONE
+        EXIT FUNCTION
+    END IF
+
+    ' Groups are not exported directly
+    IF LAYERS(layerIdx%).layerType% = LAYER_TYPE_GROUP THEN
+        FILE_QB64_classify_layer_export% = EXPORT_MODE_NONE
+        EXIT FUNCTION
+    END IF
+
+    ' Text layers always export as text SUBs
+    IF LAYERS(layerIdx%).layerType% = LAYER_TYPE_TEXT THEN
+        FILE_QB64_classify_layer_export% = EXPORT_MODE_TEXT
+        EXIT FUNCTION
+    END IF
+
+    ' Symbol children inherit parent's export mode
+    IF LAYERS(layerIdx%).layerType% = LAYER_TYPE_SYMBOL_CHILD THEN
+        parentIdx% = 0
+        FOR i% = 1 TO LAYER_COUNT%
+            IF LAYERS(i%).historyId& = LAYERS(layerIdx%).symbolParentId& THEN
+                parentIdx% = i%
+                EXIT FOR
+            END IF
+        NEXT i%
+        IF parentIdx% > 0 THEN
+            FILE_QB64_classify_layer_export% = LAYERS(parentIdx%).exportMode%
+        ELSE
+            FILE_QB64_classify_layer_export% = EXPORT_MODE_IMG
+        END IF
+        EXIT FUNCTION
+    END IF
+
+    ' Scan all active (non-undone) history records for this layer
+    layerId&  = LAYERS(layerIdx%).historyId&
+    forceImg% = FALSE
+    DIM hasDrawingOps AS INTEGER
+    hasDrawingOps% = FALSE
+
+    FOR i% = 1 TO HISTORY.current%
+        IF HISTORY_RECORDS(i%).primaryLayerId& <> layerId& THEN _CONTINUE
+        recKind%  = HISTORY_RECORDS(i%).kind%
+        recFlags& = HISTORY_RECORDS(i%).flags&
+        recLabel$ = UCASE$(_TRIM$(HISTORY_RECORDS(i%).label$))
+
+        SELECT CASE recKind%
+            ' Layer structural ops — skip, don't affect export mode
+            CASE HISTORY_KIND_LAYER_ADD, HISTORY_KIND_LAYER_DELETE, HISTORY_KIND_LAYER_REORDER, HISTORY_KIND_LAYER_RENAME, HISTORY_KIND_SELECTION_CHANGE, HISTORY_KIND_LAYER_MERGE, HISTORY_KIND_LAYER_MERGE_VISIBLE, HISTORY_KIND_GROUP_REPARENT
+                _CONTINUE
+
+            ' Vector shapes — check flags
+            CASE HISTORY_KIND_LINE
+                hasDrawingOps% = TRUE
+                IF (recFlags& AND HISTORY_FLAG_CUSTOM_BRUSH) <> 0 THEN forceImg% = TRUE
+                IF (recFlags& AND HISTORY_FLAG_SYMMETRY) <> 0 THEN forceImg% = TRUE
+                ' Thick brush LINE is still vector — exported as multiple LINEs
+
+            CASE HISTORY_KIND_RECT, HISTORY_KIND_ELLIPSE
+                hasDrawingOps% = TRUE
+                IF (recFlags& AND HISTORY_FLAG_CUSTOM_BRUSH) <> 0 THEN forceImg% = TRUE
+                IF (recFlags& AND HISTORY_FLAG_THICK_BRUSH) <> 0 THEN forceImg% = TRUE
+                IF (recFlags& AND HISTORY_FLAG_SYMMETRY) <> 0 THEN forceImg% = TRUE
+
+            CASE HISTORY_KIND_POLYLINE
+                hasDrawingOps% = TRUE
+                IF (recFlags& AND HISTORY_FLAG_CUSTOM_BRUSH) <> 0 THEN forceImg% = TRUE
+                IF (recFlags& AND HISTORY_FLAG_THICK_BRUSH) <> 0 THEN forceImg% = TRUE
+                IF (recFlags& AND HISTORY_FLAG_SYMMETRY) <> 0 THEN forceImg% = TRUE
+
+            CASE HISTORY_KIND_FILL
+                hasDrawingOps% = TRUE
+                IF (recFlags& AND HISTORY_FLAG_CUSTOM_BRUSH) <> 0 THEN forceImg% = TRUE
+                IF (recFlags& AND HISTORY_FLAG_SYMMETRY) <> 0 THEN forceImg% = TRUE
+
+            CASE HISTORY_KIND_BRUSH
+                hasDrawingOps% = TRUE
+                ' Spray always forces IMG
+                IF recLabel$ = "SPRAY" THEN forceImg% = TRUE
+                ' Custom brush forces IMG
+                IF (recFlags& AND HISTORY_FLAG_CUSTOM_BRUSH) <> 0 THEN forceImg% = TRUE
+                ' Symmetry forces IMG
+                IF (recFlags& AND HISTORY_FLAG_SYMMETRY) <> 0 THEN forceImg% = TRUE
+                ' Thick brush freehand forces IMG (can't replay as vector)
+                IF (recFlags& AND HISTORY_FLAG_THICK_BRUSH) <> 0 THEN forceImg% = TRUE
+
+            CASE HISTORY_KIND_TRANSFORM, HISTORY_KIND_RASTERIZE, HISTORY_KIND_MERGE_GROUP
+                hasDrawingOps% = TRUE
+                forceImg% = TRUE
+
+            CASE ELSE
+                ' Unknown kind — conservative fallback
+                hasDrawingOps% = TRUE
+                forceImg% = TRUE
+        END SELECT
+
+        IF forceImg% THEN EXIT FOR
+    NEXT i%
+
+    IF forceImg% THEN
+        FILE_QB64_classify_layer_export% = EXPORT_MODE_IMG
+    ELSEIF NOT hasDrawingOps% THEN
+        ' No drawing history — check if layer has pixel content (loaded image)
+        IF LAYERS(layerIdx%).imgHandle& < -1 THEN
+            FILE_QB64_classify_layer_export% = EXPORT_MODE_IMG
+        ELSE
+            FILE_QB64_classify_layer_export% = EXPORT_MODE_NONE
+        END IF
+    ELSE
+        FILE_QB64_classify_layer_export% = EXPORT_MODE_VECTOR
+    END IF
+END FUNCTION
+
+''
+' Recomputes the export mode for a single layer.
+' @param layerIdx INTEGER Index into LAYERS() array
+'
+SUB FILE_QB64_recompute_export_mode (layerIdx AS INTEGER)
+    IF layerIdx% >= 1 AND layerIdx% <= LAYER_COUNT% THEN
+        LAYERS(layerIdx%).exportMode% = FILE_QB64_classify_layer_export%(layerIdx%)
+    END IF
+END SUB
+
+''
+' Recomputes export modes for all layers. Called after undo/redo and file load.
+'
+SUB FILE_QB64_recompute_all_export_modes ()
+    DIM i AS INTEGER
+    FOR i% = 1 TO LAYER_COUNT%
+        LAYERS(i%).exportMode% = FILE_QB64_classify_layer_export%(i%)
+    NEXT i%
+END SUB
+
+''
+' Returns a short export mode badge string for display in the layer panel.
+' @param layerIdx INTEGER Index into LAYERS() array
+' @return STRING Badge text like "(SUB)", "[SUB]", "(IMG)", etc.
+'
+FUNCTION FILE_QB64_export_badge$ (layerIdx AS INTEGER)
+    DIM mode AS INTEGER
+    DIM isChild AS INTEGER
+
+    IF layerIdx% < 1 OR layerIdx% > LAYER_COUNT% THEN
+        FILE_QB64_export_badge$ = ""
+        EXIT FUNCTION
+    END IF
+
+    mode% = LAYERS(layerIdx%).exportMode%
+    isChild% = (LAYERS(layerIdx%).layerType% = LAYER_TYPE_SYMBOL_CHILD)
+
+    SELECT CASE mode%
+        CASE EXPORT_MODE_VECTOR
+            IF isChild% THEN
+                FILE_QB64_export_badge$ = "[SUB]"
+            ELSE
+                FILE_QB64_export_badge$ = "(SUB)"
+            END IF
+        CASE EXPORT_MODE_TEXT
+            IF isChild% THEN
+                FILE_QB64_export_badge$ = "[TXT]"
+            ELSE
+                FILE_QB64_export_badge$ = "(TXT)"
+            END IF
+        CASE EXPORT_MODE_IMG
+            IF isChild% THEN
+                FILE_QB64_export_badge$ = "[IMG]"
+            ELSE
+                FILE_QB64_export_badge$ = "(IMG)"
+            END IF
+        CASE ELSE
+            FILE_QB64_export_badge$ = ""
+    END SELECT
+END FUNCTION
+
+''
+' Returns a badge color (unsigned long) for the export mode.
+' @param layerIdx INTEGER Index into LAYERS() array
+' @return _UNSIGNED LONG Color for badge text
+'
+FUNCTION FILE_QB64_badge_color~& (layerIdx AS INTEGER)
+    DIM mode AS INTEGER
+    IF layerIdx% < 1 OR layerIdx% > LAYER_COUNT% THEN
+        FILE_QB64_badge_color~& = _RGB32(128, 128, 128)
+        EXIT FUNCTION
+    END IF
+    mode% = LAYERS(layerIdx%).exportMode%
+    SELECT CASE mode%
+        CASE EXPORT_MODE_VECTOR : FILE_QB64_badge_color~& = _RGB32(100, 200, 120) ' Green
+        CASE EXPORT_MODE_TEXT   : FILE_QB64_badge_color~& = _RGB32(100, 160, 220) ' Blue
+        CASE EXPORT_MODE_IMG    : FILE_QB64_badge_color~& = _RGB32(220, 160, 80)  ' Orange
+        CASE ELSE               : FILE_QB64_badge_color~& = _RGB32(128, 128, 128) ' Gray
+    END SELECT
+END FUNCTION
+
+
+' =============================================================================
+' EXPORT ENGINE
+' =============================================================================
+
+''
+' Opens save dialog and triggers the QB64 project export.
+'
+SUB FILE_QB64_export_dialog ()
+    DIM exportPath AS STRING
+    DIM baseName   AS STRING
+    DIM i          AS INTEGER
+
+    baseName$ = "project"
+    IF CURRENT_DRW_FILENAME$ <> "" THEN
+        baseName$ = CURRENT_DRW_FILENAME$
+    ELSEIF CURRENT_FILENAME$ <> "" THEN
+        baseName$ = CURRENT_FILENAME$
+    END IF
+
+    ' Strip directory
+    FOR i% = LEN(baseName$) TO 1 STEP -1
+        IF MID$(baseName$, i%, 1) = "/" OR MID$(baseName$, i%, 1) = "\" THEN
+            baseName$ = MID$(baseName$, i% + 1)
+            EXIT FOR
+        END IF
+    NEXT i%
+    ' Strip extension
+    FOR i% = LEN(baseName$) TO 1 STEP -1
+        IF MID$(baseName$, i%, 1) = "." THEN
+            baseName$ = LEFT$(baseName$, i% - 1)
+            EXIT FOR
+        END IF
+    NEXT i%
+    IF LEN(baseName$) = 0 THEN baseName$ = "project"
+
+    DIM basDir AS STRING, basFile AS STRING
+    IF CFG.LAST_DIR_SAVE$ <> "" THEN
+        basDir$  = CFG.LAST_DIR_SAVE$
+    ELSEIF LAST_DIRECTORY$ <> "" THEN
+        basDir$  = LAST_DIRECTORY$
+    ELSE
+        basDir$  = ""
+    END IF
+    basFile$ = baseName$ + ".bas"
+
+    POINTER_hide_for_dialog
+    exportPath$ = DRAW_save_file$("Export QB64 Project", basDir$, "QB64 Source|*.bas", 0, basFile$, ".bas")
+    POINTER_show_after_dialog
+    MOUSE_cleanup_after_dialog FALSE
+
+    IF exportPath$ <> "" THEN
+        CFG.LAST_DIR_SAVE$ = CONFIG_extract_dir$(exportPath$)
+        LAST_DIRECTORY$    = CFG.LAST_DIR_SAVE$
+        CONFIG_save
+        FILE_QB64_export exportPath$
+    END IF
+END SUB
+
+''
+' Derives the asset directory path from the BAS output path.
+' For "myproject.bas" → "myproject_ASSETS/"
+' @param basPath STRING Path to the output .bas file
+' @return STRING Asset directory path (with trailing /)
+'
+FUNCTION FILE_QB64_asset_dir$ (basPath AS STRING)
+    DIM baseName AS STRING
+    DIM dirPart  AS STRING
+    DIM i        AS INTEGER
+
+    ' Extract directory and filename parts
+    dirPart$ = ""
+    baseName$ = basPath$
+    FOR i% = LEN(baseName$) TO 1 STEP -1
+        IF MID$(baseName$, i%, 1) = "/" OR MID$(baseName$, i%, 1) = "\" THEN
+            dirPart$  = LEFT$(baseName$, i%)
+            baseName$ = MID$(baseName$, i% + 1)
+            EXIT FOR
+        END IF
+    NEXT i%
+    ' Strip extension
+    FOR i% = LEN(baseName$) TO 1 STEP -1
+        IF MID$(baseName$, i%, 1) = "." THEN
+            baseName$ = LEFT$(baseName$, i% - 1)
+            EXIT FOR
+        END IF
+    NEXT i%
+    IF LEN(baseName$) = 0 THEN baseName$ = "project"
+
+    FILE_QB64_asset_dir$ = dirPart$ + baseName$ + "_ASSETS/"
+END FUNCTION
+
+''
+' Main export entry point. Generates the .BAS file and _ASSETS/ folder.
+' @param basPath STRING Full path to the output .bas file
+'
+SUB FILE_QB64_export (basPath AS STRING)
+    DIM fh         AS INTEGER
+    DIM assetDir   AS STRING
+    DIM i          AS INTEGER
+    DIM layerId    AS LONG
+    DIM subName    AS STRING
+    DIM layerName  AS STRING
+    DIM imgFile    AS STRING
+    DIM sortedZ()  AS INTEGER
+    DIM sortCount  AS INTEGER
+    DIM parentIdx  AS INTEGER
+    DIM parentSubN AS STRING
+    DIM mode       AS INTEGER
+    DIM hasImgLayers AS INTEGER
+    DIM hasTxtLayers AS INTEGER
+    DIM needHelpers  AS INTEGER
+    DIM needOpacity  AS INTEGER
+
+    ' Recompute all export modes before export
+    FILE_QB64_recompute_all_export_modes
+
+    assetDir$ = FILE_QB64_asset_dir$(basPath$)
+    ' Create asset directory
+    SHELL _HIDE "mkdir -p " + CHR$(34) + LEFT$(assetDir$, LEN(assetDir$) - 1) + CHR$(34)
+
+    ' Build z-ordered layer list (bottom to top, visible only, skip groups)
+    sortCount% = 0
+    REDIM sortedZ(1 TO MAX_LAYERS) AS INTEGER
+    FOR i% = 1 TO LAYER_COUNT%
+        IF LAYERS(i%).imgHandle& <> 0 OR LAYERS(i%).layerType% = LAYER_TYPE_TEXT THEN
+            IF LAYERS(i%).visible% THEN
+                IF LAYERS(i%).layerType% <> LAYER_TYPE_GROUP THEN
+                    sortCount% = sortCount% + 1
+                    sortedZ(sortCount%) = i%
+                END IF
+            END IF
+        END IF
+    NEXT i%
+    ' Sort by zIndex ascending (bubble sort — small N)
+    DIM swapped AS INTEGER, tmpZ AS INTEGER
+    DO
+        swapped% = FALSE
+        FOR i% = 1 TO sortCount% - 1
+            IF LAYERS(sortedZ(i%)).zIndex% > LAYERS(sortedZ(i% + 1)).zIndex% THEN
+                tmpZ% = sortedZ(i%)
+                sortedZ(i%) = sortedZ(i% + 1)
+                sortedZ(i% + 1) = tmpZ%
+                swapped% = TRUE
+            END IF
+        NEXT i%
+    LOOP WHILE swapped%
+
+    ' Pre-scan: check if we need image loading or text SUBs
+    hasImgLayers% = FALSE
+    hasTxtLayers% = FALSE
+    needHelpers%  = FALSE
+    needOpacity%  = FALSE
+    FOR i% = 1 TO sortCount%
+        mode% = LAYERS(sortedZ(i%)).exportMode%
+        IF mode% = EXPORT_MODE_IMG THEN hasImgLayers% = TRUE
+        IF mode% = EXPORT_MODE_TEXT THEN hasTxtLayers% = TRUE
+        IF LAYERS(sortedZ(i%)).opacity% < 255 AND LAYERS(sortedZ(i%)).opacity% > 0 THEN needOpacity% = TRUE
+        IF mode% = EXPORT_MODE_VECTOR THEN
+            ' Check if any vector records need polygon/ellipse fill helpers
+            DIM vCheckJ AS INTEGER
+            DIM vCheckId AS LONG
+            vCheckId& = LAYERS(sortedZ(i%)).historyId&
+            FOR vCheckJ% = 1 TO HISTORY.current%
+                IF HISTORY_RECORDS(vCheckJ%).primaryLayerId& = vCheckId& THEN
+                    IF HISTORY_RECORDS(vCheckJ%).kind% = HISTORY_KIND_POLYLINE THEN
+                        IF (HISTORY_RECORDS(vCheckJ%).flags& AND HISTORY_FLAG_FILLED) <> 0 THEN needHelpers% = TRUE
+                    END IF
+                    IF HISTORY_RECORDS(vCheckJ%).kind% = HISTORY_KIND_ELLIPSE THEN
+                        IF (HISTORY_RECORDS(vCheckJ%).flags& AND HISTORY_FLAG_FILLED) <> 0 THEN needHelpers% = TRUE
+                    END IF
+                END IF
+            NEXT vCheckJ%
+        END IF
+    NEXT i%
+
+    ' Export IMG layers as PNGs to the asset directory
+    FOR i% = 1 TO sortCount%
+        IF LAYERS(sortedZ(i%)).exportMode% = EXPORT_MODE_IMG THEN
+            ' Symbol children reuse parent's PNG
+            IF LAYERS(sortedZ(i%)).layerType% = LAYER_TYPE_SYMBOL_CHILD THEN _CONTINUE
+            layerName$ = FILE_BAS_safe_identifier$(_TRIM$(LAYERS(sortedZ(i%)).name), "layer_" + _TRIM$(STR$(LAYERS(sortedZ(i%)).historyId&)))
+            imgFile$ = assetDir$ + layerName$ + ".png"
+            IF LAYERS(sortedZ(i%)).imgHandle& < -1 THEN
+                _SAVEIMAGE imgFile$, LAYERS(sortedZ(i%)).imgHandle&
+            END IF
+        END IF
+    NEXT i%
+
+    ' Copy fonts for text layers to the asset directory
+    FOR i% = 1 TO sortCount%
+        IF LAYERS(sortedZ(i%)).exportMode% = EXPORT_MODE_TEXT THEN
+            IF LAYERS(sortedZ(i%)).layerType% = LAYER_TYPE_SYMBOL_CHILD THEN _CONTINUE
+            DIM tlIdx AS INTEGER
+            tlIdx% = LAYERS(sortedZ(i%)).textDataIdx%
+            IF tlIdx% >= 1 AND tlIdx% <= TEXT_LAYER_POOL_SIZE THEN
+                DIM fIdx AS INTEGER
+                fIdx% = TEXT_LAYER_DATA(tlIdx%).fontIdx%
+                IF fIdx% >= 1 AND fIdx% <= FONT_LIST_COUNT% THEN
+                    DIM srcFont AS STRING
+                    srcFont$ = FONT_LIST(fIdx%).path
+                    IF LEN(_TRIM$(srcFont$)) > 0 THEN
+                        DIM dstFont AS STRING
+                        DIM fontBase AS STRING
+                        fontBase$ = srcFont$
+                        DIM fb AS INTEGER
+                        FOR fb% = LEN(fontBase$) TO 1 STEP -1
+                            IF MID$(fontBase$, fb%, 1) = "/" OR MID$(fontBase$, fb%, 1) = "\" THEN
+                                fontBase$ = MID$(fontBase$, fb% + 1)
+                                EXIT FOR
+                            END IF
+                        NEXT fb%
+                        dstFont$ = assetDir$ + fontBase$
+                        IF _FILEEXISTS(_TRIM$(srcFont$)) THEN
+                            SHELL _HIDE "cp " + CHR$(34) + _TRIM$(srcFont$) + CHR$(34) + " " + CHR$(34) + dstFont$ + CHR$(34)
+                        END IF
+                    END IF
+                END IF
+            END IF
+        END IF
+    NEXT i%
+
+    ' =========================================================================
+    ' Generate the BAS file
+    ' =========================================================================
+    fh% = FREEFILE
+    OPEN basPath$ FOR OUTPUT AS #fh%
+
+    ' --- Header ---
+    PRINT #fh%, "' Generated by DRAW " + APP_VERSION$ + " - QB64PE Code Export"
+    PRINT #fh%, "' Project: " + FILE_BAS_base_name_without_ext$(basPath$)
+    PRINT #fh%, "'"
+    PRINT #fh%, "OPTION _EXPLICIT"
+    PRINT #fh%, "OPTION _EXPLICITARRAY"
+    PRINT #fh%, "'$DYNAMIC"
+    PRINT #fh%, ""
+    PRINT #fh%, "CONST CANVAS_W = " + _TRIM$(STR$(SCRN.canvasW&))
+    PRINT #fh%, "CONST CANVAS_H = " + _TRIM$(STR$(SCRN.canvasH&))
+    PRINT #fh%, ""
+    PRINT #fh%, "SCREEN _NEWIMAGE(CANVAS_W, CANVAS_H, 32)"
+    PRINT #fh%, "CLS , " + FILE_BAS_color_expr$(CFG.BAS_EXPORT_BG_COLOR~&)
+    PRINT #fh%, ""
+
+    ' --- Temp vars for opacity compositing ---
+    IF needOpacity% THEN
+        PRINT #fh%, "DIM tmpLayer AS LONG"
+        PRINT #fh%, "DIM tmpImg AS LONG"
+        PRINT #fh%, ""
+    END IF
+
+    ' --- Asset DIM + loading section ---
+    IF hasImgLayers% THEN
+        PRINT #fh%, "' --- Image assets ---"
+        FOR i% = 1 TO sortCount%
+            IF LAYERS(sortedZ(i%)).exportMode% <> EXPORT_MODE_IMG THEN _CONTINUE
+            IF LAYERS(sortedZ(i%)).layerType% = LAYER_TYPE_SYMBOL_CHILD THEN _CONTINUE
+            layerName$ = FILE_BAS_safe_identifier$(_TRIM$(LAYERS(sortedZ(i%)).name), "layer_" + _TRIM$(STR$(LAYERS(sortedZ(i%)).historyId&)))
+            DIM assetRelDir AS STRING
+            assetRelDir$ = FILE_BAS_base_name_without_ext$(basPath$) + "_ASSETS/"
+            PRINT #fh%, "DIM SHARED img_" + layerName$ + " AS LONG"
+            PRINT #fh%, "img_" + layerName$ + " = _LOADIMAGE(" + CHR$(34) + assetRelDir$ + layerName$ + ".png" + CHR$(34) + ", 32)"
+        NEXT i%
+        PRINT #fh%, ""
+    END IF
+
+    IF hasTxtLayers% THEN
+        PRINT #fh%, "' --- Font assets ---"
+        ' Emit font DIM/LOAD for each unique font used in text layers
+        DIM fontEmitted AS STRING
+        fontEmitted$ = ""
+        FOR i% = 1 TO sortCount%
+            IF LAYERS(sortedZ(i%)).exportMode% <> EXPORT_MODE_TEXT THEN _CONTINUE
+            IF LAYERS(sortedZ(i%)).layerType% = LAYER_TYPE_SYMBOL_CHILD THEN _CONTINUE
+            DIM tlIdx2 AS INTEGER
+            tlIdx2% = LAYERS(sortedZ(i%)).textDataIdx%
+            IF tlIdx2% >= 1 AND tlIdx2% <= TEXT_LAYER_POOL_SIZE THEN
+                DIM fIdx2 AS INTEGER
+                DIM fSize2 AS INTEGER
+                fIdx2%  = TEXT_LAYER_DATA(tlIdx2%).fontIdx%
+                fSize2% = TEXT_LAYER_DATA(tlIdx2%).fontSize%
+                IF fIdx2% >= 1 AND fIdx2% <= FONT_LIST_COUNT% THEN
+                    DIM fontKey AS STRING
+                    DIM fontFile AS STRING
+                    fontFile$ = FONT_LIST(fIdx2%).path
+                    DIM ffBase AS STRING
+                    ffBase$ = fontFile$
+                    DIM ffb AS INTEGER
+                    FOR ffb% = LEN(ffBase$) TO 1 STEP -1
+                        IF MID$(ffBase$, ffb%, 1) = "/" OR MID$(ffBase$, ffb%, 1) = "\" THEN
+                            ffBase$ = MID$(ffBase$, ffb% + 1)
+                            EXIT FOR
+                        END IF
+                    NEXT ffb%
+                    fontKey$ = ffBase$ + "_" + _TRIM$(STR$(fSize2%))
+                    IF INSTR(fontEmitted$, fontKey$ + "|") = 0 THEN
+                        fontEmitted$ = fontEmitted$ + fontKey$ + "|"
+                        DIM fontVarName AS STRING
+                        fontVarName$ = "fnt_" + FILE_BAS_safe_identifier$(ffBase$, "font") + "_" + _TRIM$(STR$(fSize2%))
+                        DIM assetRelDir2 AS STRING
+                        assetRelDir2$ = FILE_BAS_base_name_without_ext$(basPath$) + "_ASSETS/"
+                        PRINT #fh%, "DIM SHARED " + fontVarName$ + " AS LONG"
+                        PRINT #fh%, fontVarName$ + " = _LOADFONT(" + CHR$(34) + assetRelDir2$ + ffBase$ + CHR$(34) + ", " + _TRIM$(STR$(fSize2%)) + ", " + CHR$(34) + "DONTBLEND" + CHR$(34) + ")"
+                    END IF
+                END IF
+            END IF
+        NEXT i%
+        PRINT #fh%, ""
+    END IF
+
+    ' --- Compositing (bottom-to-top, z-order) ---
+    PRINT #fh%, "' --- Compositing ---"
+    FOR i% = 1 TO sortCount%
+        DIM cIdx AS INTEGER
+        cIdx% = sortedZ(i%)
+        layerId& = LAYERS(cIdx%).historyId&
+        mode%    = LAYERS(cIdx%).exportMode%
+        subName$ = FILE_BAS_safe_identifier$(_TRIM$(LAYERS(cIdx%).name), "layer_" + _TRIM$(STR$(layerId&))) + "_" + _TRIM$(STR$(layerId&))
+
+        ' Opacity handling
+        IF LAYERS(cIdx%).opacity% < 255 AND LAYERS(cIdx%).opacity% > 0 THEN
+            PRINT #fh%, "' Layer: " + _TRIM$(LAYERS(cIdx%).name) + " (opacity " + _TRIM$(STR$(LAYERS(cIdx%).opacity%)) + ")"
+        ELSE
+            PRINT #fh%, "' Layer: " + _TRIM$(LAYERS(cIdx%).name)
+        END IF
+
+        ' Blend mode comment (if not Normal)
+        IF LAYERS(cIdx%).blendMode% <> BLEND_NORMAL THEN
+            PRINT #fh%, "' NOTE: Blend mode " + BLEND_mode_name$(LAYERS(cIdx%).blendMode%) + " not emulated — rendered as Normal"
+        END IF
+
+        DIM hasOpacity AS INTEGER
+        DIM opStr AS STRING
+        hasOpacity% = (LAYERS(cIdx%).opacity% < 255 AND LAYERS(cIdx%).opacity% > 0)
+        opStr$ = _TRIM$(STR$(LAYERS(cIdx%).opacity%))
+
+        SELECT CASE mode%
+            CASE EXPORT_MODE_VECTOR
+                IF LAYERS(cIdx%).layerType% = LAYER_TYPE_SYMBOL_CHILD THEN
+                    ' Find parent SUB name and call it
+                    parentIdx% = 0
+                    FOR parentIdx% = 1 TO LAYER_COUNT%
+                        IF LAYERS(parentIdx%).historyId& = LAYERS(cIdx%).symbolParentId& THEN EXIT FOR
+                    NEXT parentIdx%
+                    IF parentIdx% >= 1 AND parentIdx% <= LAYER_COUNT% THEN
+                        parentSubN$ = FILE_BAS_safe_identifier$(_TRIM$(LAYERS(parentIdx%).name), "layer_" + _TRIM$(STR$(LAYERS(parentIdx%).historyId&))) + "_" + _TRIM$(STR$(LAYERS(parentIdx%).historyId&))
+                        IF hasOpacity% THEN
+                            PRINT #fh%, "DIM tmpLayer AS LONG"
+                            PRINT #fh%, "tmpLayer& = _NEWIMAGE(CANVAS_W, CANVAS_H, 32)"
+                            PRINT #fh%, "_DEST tmpLayer&"
+                            PRINT #fh%, parentSubN$ + " ' [linked from " + _TRIM$(LAYERS(parentIdx%).name) + "]"
+                            PRINT #fh%, "_DEST 0"
+                            PRINT #fh%, "ScaleImageAlpha tmpLayer&, " + opStr$
+                            PRINT #fh%, "_PUTIMAGE (0, 0), tmpLayer&"
+                            PRINT #fh%, "_FREEIMAGE tmpLayer&"
+                        ELSE
+                            PRINT #fh%, parentSubN$ + " ' [linked from " + _TRIM$(LAYERS(parentIdx%).name) + "]"
+                        END IF
+                    END IF
+                ELSE
+                    IF hasOpacity% THEN
+                        PRINT #fh%, "DIM tmpLayer AS LONG"
+                        PRINT #fh%, "tmpLayer& = _NEWIMAGE(CANVAS_W, CANVAS_H, 32)"
+                        PRINT #fh%, "_DEST tmpLayer&"
+                        PRINT #fh%, subName$
+                        PRINT #fh%, "_DEST 0"
+                        PRINT #fh%, "ScaleImageAlpha tmpLayer&, " + opStr$
+                        PRINT #fh%, "_PUTIMAGE (0, 0), tmpLayer&"
+                        PRINT #fh%, "_FREEIMAGE tmpLayer&"
+                    ELSE
+                        PRINT #fh%, subName$
+                    END IF
+                END IF
+
+            CASE EXPORT_MODE_TEXT
+                IF LAYERS(cIdx%).layerType% = LAYER_TYPE_SYMBOL_CHILD THEN
+                    parentIdx% = 0
+                    FOR parentIdx% = 1 TO LAYER_COUNT%
+                        IF LAYERS(parentIdx%).historyId& = LAYERS(cIdx%).symbolParentId& THEN EXIT FOR
+                    NEXT parentIdx%
+                    IF parentIdx% >= 1 AND parentIdx% <= LAYER_COUNT% THEN
+                        parentSubN$ = FILE_BAS_safe_identifier$(_TRIM$(LAYERS(parentIdx%).name), "layer_" + _TRIM$(STR$(LAYERS(parentIdx%).historyId&))) + "_" + _TRIM$(STR$(LAYERS(parentIdx%).historyId&))
+                        IF hasOpacity% THEN
+                            PRINT #fh%, "tmpLayer& = _NEWIMAGE(CANVAS_W, CANVAS_H, 32)"
+                            PRINT #fh%, "_DEST tmpLayer&"
+                            PRINT #fh%, parentSubN$ + " ' [linked from " + _TRIM$(LAYERS(parentIdx%).name) + "]"
+                            PRINT #fh%, "_DEST 0"
+                            PRINT #fh%, "ScaleImageAlpha tmpLayer&, " + opStr$
+                            PRINT #fh%, "_PUTIMAGE (0, 0), tmpLayer&"
+                            PRINT #fh%, "_FREEIMAGE tmpLayer&"
+                        ELSE
+                            PRINT #fh%, parentSubN$ + " ' [linked from " + _TRIM$(LAYERS(parentIdx%).name) + "]"
+                        END IF
+                    END IF
+                ELSE
+                    IF hasOpacity% THEN
+                        PRINT #fh%, "tmpLayer& = _NEWIMAGE(CANVAS_W, CANVAS_H, 32)"
+                        PRINT #fh%, "_DEST tmpLayer&"
+                        PRINT #fh%, subName$
+                        PRINT #fh%, "_DEST 0"
+                        PRINT #fh%, "ScaleImageAlpha tmpLayer&, " + opStr$
+                        PRINT #fh%, "_PUTIMAGE (0, 0), tmpLayer&"
+                        PRINT #fh%, "_FREEIMAGE tmpLayer&"
+                    ELSE
+                        PRINT #fh%, subName$
+                    END IF
+                END IF
+
+            CASE EXPORT_MODE_IMG
+                layerName$ = FILE_BAS_safe_identifier$(_TRIM$(LAYERS(cIdx%).name), "layer_" + _TRIM$(STR$(layerId&)))
+                IF LAYERS(cIdx%).layerType% = LAYER_TYPE_SYMBOL_CHILD THEN
+                    ' Find parent's image var
+                    parentIdx% = 0
+                    FOR parentIdx% = 1 TO LAYER_COUNT%
+                        IF LAYERS(parentIdx%).historyId& = LAYERS(cIdx%).symbolParentId& THEN EXIT FOR
+                    NEXT parentIdx%
+                    IF parentIdx% >= 1 AND parentIdx% <= LAYER_COUNT% THEN
+                        DIM parentImgName AS STRING
+                        parentImgName$ = FILE_BAS_safe_identifier$(_TRIM$(LAYERS(parentIdx%).name), "layer_" + _TRIM$(STR$(LAYERS(parentIdx%).historyId&)))
+                        IF hasOpacity% THEN
+                                PRINT #fh%, "tmpImg& = _COPYIMAGE(img_" + parentImgName$ + ", 32)"
+                            PRINT #fh%, "ScaleImageAlpha tmpImg&, " + opStr$
+                            PRINT #fh%, "_PUTIMAGE (" + _TRIM$(STR$(LAYERS(cIdx%).symbolOffsetX%)) + ", " + _TRIM$(STR$(LAYERS(cIdx%).symbolOffsetY%)) + "), tmpImg&"
+                            PRINT #fh%, "_FREEIMAGE tmpImg&"
+                        ELSE
+                            PRINT #fh%, "_PUTIMAGE (" + _TRIM$(STR$(LAYERS(cIdx%).symbolOffsetX%)) + ", " + _TRIM$(STR$(LAYERS(cIdx%).symbolOffsetY%)) + "), img_" + parentImgName$
+                        END IF
+                    END IF
+                ELSE
+                    IF hasOpacity% THEN
+                        PRINT #fh%, "tmpImg& = _COPYIMAGE(img_" + layerName$ + ", 32)"
+                        PRINT #fh%, "ScaleImageAlpha tmpImg&, " + opStr$
+                        PRINT #fh%, "_PUTIMAGE (0, 0), tmpImg&"
+                        PRINT #fh%, "_FREEIMAGE tmpImg&"
+                    ELSE
+                        PRINT #fh%, "_PUTIMAGE (0, 0), img_" + layerName$
+                    END IF
+                END IF
+        END SELECT
+    NEXT i%
+
+    PRINT #fh%, ""
+    PRINT #fh%, "_DISPLAY"
+    PRINT #fh%, "DO"
+    PRINT #fh%, "    _LIMIT 30"
+    PRINT #fh%, "LOOP UNTIL _KEYHIT = 27"
+    PRINT #fh%, "SYSTEM"
+    PRINT #fh%, ""
+
+    ' --- Helper SUBs (if needed) ---
+    IF needHelpers% THEN
+        PRINT #fh%, "SUB FillPolygonScanline (pointCount AS INTEGER, polyX() AS INTEGER, polyY() AS INTEGER, fillCol AS _UNSIGNED LONG)"
+        PRINT #fh%, "    DIM minY AS INTEGER, maxY AS INTEGER"
+        PRINT #fh%, "    DIM i AS INTEGER, j AS INTEGER, y AS INTEGER"
+        PRINT #fh%, "    DIM nodeCount AS INTEGER, sortIndex AS INTEGER"
+        PRINT #fh%, "    DIM nodes() AS SINGLE"
+        PRINT #fh%, "    DIM swapValue AS SINGLE"
+        PRINT #fh%, "    IF pointCount < 3 THEN EXIT SUB"
+        PRINT #fh%, "    minY = polyY(0): maxY = polyY(0)"
+        PRINT #fh%, "    FOR i = 1 TO pointCount - 1"
+        PRINT #fh%, "        IF polyY(i) < minY THEN minY = polyY(i)"
+        PRINT #fh%, "        IF polyY(i) > maxY THEN maxY = polyY(i)"
+        PRINT #fh%, "    NEXT i"
+        PRINT #fh%, "    REDIM nodes(0 TO pointCount - 1) AS SINGLE"
+        PRINT #fh%, "    FOR y = minY TO maxY"
+        PRINT #fh%, "        nodeCount = 0"
+        PRINT #fh%, "        j = pointCount - 1"
+        PRINT #fh%, "        FOR i = 0 TO pointCount - 1"
+        PRINT #fh%, "            IF ((polyY(i) < y AND polyY(j) >= y) OR (polyY(j) < y AND polyY(i) >= y)) THEN"
+        PRINT #fh%, "                nodes(nodeCount) = polyX(i) + (y - polyY(i)) * (polyX(j) - polyX(i)) / (polyY(j) - polyY(i))"
+        PRINT #fh%, "                nodeCount = nodeCount + 1"
+        PRINT #fh%, "            END IF"
+        PRINT #fh%, "            j = i"
+        PRINT #fh%, "        NEXT i"
+        PRINT #fh%, "        FOR i = 0 TO nodeCount - 2"
+        PRINT #fh%, "            FOR sortIndex = i + 1 TO nodeCount - 1"
+        PRINT #fh%, "                IF nodes(sortIndex) < nodes(i) THEN"
+        PRINT #fh%, "                    swapValue = nodes(i)"
+        PRINT #fh%, "                    nodes(i) = nodes(sortIndex)"
+        PRINT #fh%, "                    nodes(sortIndex) = swapValue"
+        PRINT #fh%, "                END IF"
+        PRINT #fh%, "            NEXT sortIndex"
+        PRINT #fh%, "        NEXT i"
+        PRINT #fh%, "        FOR i = 0 TO nodeCount - 2 STEP 2"
+        PRINT #fh%, "            LINE (INT(nodes(i) + .5), y)-(INT(nodes(i + 1) - .5), y), fillCol"
+        PRINT #fh%, "        NEXT i"
+        PRINT #fh%, "    NEXT y"
+        PRINT #fh%, "END SUB"
+        PRINT #fh%, ""
+        PRINT #fh%, "SUB FillEllipseScanline (x1 AS INTEGER, y1 AS INTEGER, x2 AS INTEGER, y2 AS INTEGER, fillCol AS _UNSIGNED LONG)"
+        PRINT #fh%, "    DIM centerX AS SINGLE, centerY AS SINGLE"
+        PRINT #fh%, "    DIM radiusX AS SINGLE, radiusY AS SINGLE"
+        PRINT #fh%, "    DIM rowOffset AS SINGLE, halfSpan AS SINGLE"
+        PRINT #fh%, "    DIM drawY AS INTEGER"
+        PRINT #fh%, "    centerX = (x1 + x2) / 2"
+        PRINT #fh%, "    centerY = (y1 + y2) / 2"
+        PRINT #fh%, "    radiusX = ABS(x2 - x1) / 2"
+        PRINT #fh%, "    radiusY = ABS(y2 - y1) / 2"
+        PRINT #fh%, "    IF radiusX <= 0 OR radiusY <= 0 THEN EXIT SUB"
+        PRINT #fh%, "    FOR drawY = y1 TO y2"
+        PRINT #fh%, "        rowOffset = (drawY - centerY) / radiusY"
+        PRINT #fh%, "        IF ABS(rowOffset) <= 1 THEN"
+        PRINT #fh%, "            halfSpan = radiusX * SQR(1 - rowOffset * rowOffset)"
+        PRINT #fh%, "            LINE (INT(centerX - halfSpan + .5), drawY)-(INT(centerX + halfSpan - .5), drawY), fillCol"
+        PRINT #fh%, "        END IF"
+        PRINT #fh%, "    NEXT drawY"
+        PRINT #fh%, "END SUB"
+        PRINT #fh%, ""
+    END IF
+
+    ' --- Opacity helper (if needed) ---
+    IF needOpacity% THEN
+        PRINT #fh%, "SUB ScaleImageAlpha (img AS LONG, opacity AS INTEGER)"
+        PRINT #fh%, "    DIM m AS _MEM"
+        PRINT #fh%, "    DIM p AS _UNSIGNED LONG"
+        PRINT #fh%, "    DIM a AS INTEGER"
+        PRINT #fh%, "    DIM pixelCount AS LONG"
+        PRINT #fh%, "    DIM x AS LONG"
+        PRINT #fh%, "    m = _MEMIMAGE(img)"
+        PRINT #fh%, "    pixelCount& = m.SIZE \ 4"
+        PRINT #fh%, "    FOR x& = 0 TO pixelCount& - 1"
+        PRINT #fh%, "        _MEMGET m, m.OFFSET + x& * 4, p"
+        PRINT #fh%, "        a% = _ALPHA32(p)"
+        PRINT #fh%, "        IF a% > 0 THEN"
+        PRINT #fh%, "            _MEMPUT m, m.OFFSET + x& * 4, _RGBA32(_RED32(p), _GREEN32(p), _BLUE32(p), (a% * opacity) \ 255) AS _UNSIGNED LONG"
+        PRINT #fh%, "        END IF"
+        PRINT #fh%, "    NEXT x&"
+        PRINT #fh%, "    _MEMFREE m"
+        PRINT #fh%, "END SUB"
+        PRINT #fh%, ""
+    END IF
+
+    ' --- Layer SUBs ---
+    FOR i% = 1 TO sortCount%
+        DIM sIdx AS INTEGER
+        sIdx% = sortedZ(i%)
+
+        ' Symbol children don't get their own SUB — they call parent's SUB
+        IF LAYERS(sIdx%).layerType% = LAYER_TYPE_SYMBOL_CHILD THEN _CONTINUE
+
+        ' IMG layers don't get a SUB — they're loaded from PNG
+        IF LAYERS(sIdx%).exportMode% = EXPORT_MODE_IMG THEN _CONTINUE
+
+        layerId& = LAYERS(sIdx%).historyId&
+        subName$ = FILE_BAS_safe_identifier$(_TRIM$(LAYERS(sIdx%).name), "layer_" + _TRIM$(STR$(layerId&))) + "_" + _TRIM$(STR$(layerId&))
+
+        IF LAYERS(sIdx%).exportMode% = EXPORT_MODE_VECTOR THEN
+            PRINT #fh%, "SUB " + subName$
+            FILE_QB64_emit_vector_ops fh%, sIdx%, "    "
+            PRINT #fh%, "END SUB"
+            PRINT #fh%, ""
+
+        ELSEIF LAYERS(sIdx%).exportMode% = EXPORT_MODE_TEXT THEN
+            PRINT #fh%, "SUB " + subName$
+            FILE_QB64_emit_text_ops fh%, sIdx%, "    "
+            PRINT #fh%, "END SUB"
+            PRINT #fh%, ""
+        END IF
+    NEXT i%
+
+    CLOSE #fh%
+
+    DIM msgResult AS INTEGER
+    msgResult% = _MESSAGEBOX("Export QB64 Project", "Exported to:" + CHR$(10) + basPath$ + CHR$(10) + CHR$(10) + "Asset folder:" + CHR$(10) + assetDir$, "information", "ok", 1)
+    _LOGINFO "FILE_QB64_export: Exported project to " + basPath$
+END SUB
+
+
+' =============================================================================
+' VECTOR LAYER CODE GENERATION
+' =============================================================================
+
+''
+' Emits QB64 drawing commands for all active history records on a vector layer.
+' @param fh INTEGER Output file handle
+' @param layerIdx INTEGER Index into LAYERS()
+' @param indent STRING Indentation prefix
+'
+SUB FILE_QB64_emit_vector_ops (fh AS INTEGER, layerIdx AS INTEGER, indent AS STRING)
+    DIM i             AS INTEGER
+    DIM layerId       AS LONG
+    DIM recKind       AS INTEGER
+    DIM recFlags      AS LONG
+    DIM colorExpr     AS STRING
+    DIM lastColorExpr AS STRING
+
+    layerId& = LAYERS(layerIdx%).historyId&
+    lastColorExpr$ = ""
+
+    FOR i% = 1 TO HISTORY.current%
+        IF HISTORY_RECORDS(i%).primaryLayerId& <> layerId& THEN _CONTINUE
+        recKind%  = HISTORY_RECORDS(i%).kind%
+        recFlags& = HISTORY_RECORDS(i%).flags&
+
+        SELECT CASE recKind%
+            CASE HISTORY_KIND_LINE
+                colorExpr$ = FILE_BAS_color_expr$(HISTORY_RECORDS(i%).colorFG~&)
+                IF (recFlags& AND HISTORY_FLAG_THICK_BRUSH) <> 0 THEN
+                    ' Thick brush line — fall back to pixel diff (before/after images)
+                    IF FILE_BAS_is_expanded_exportable%(i%) THEN
+                        FILE_QB64_emit_pixel_diff fh%, i%, indent$
+                        lastColorExpr$ = "" ' pixel diff has own color tracking
+                    ELSE
+                        IF colorExpr$ <> lastColorExpr$ THEN
+                            PRINT #fh%, indent$ + "COLOR " + colorExpr$
+                            lastColorExpr$ = colorExpr$
+                        END IF
+                        PRINT #fh%, indent$ + "LINE (" + _TRIM$(STR$(HISTORY_RECORDS(i%).x1%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(i%).y1%)) + ")-(" + _TRIM$(STR$(HISTORY_RECORDS(i%).x2%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(i%).y2%)) + ")"
+                    END IF
+                ELSE
+                    IF colorExpr$ <> lastColorExpr$ THEN
+                        PRINT #fh%, indent$ + "COLOR " + colorExpr$
+                        lastColorExpr$ = colorExpr$
+                    END IF
+                    PRINT #fh%, indent$ + "LINE (" + _TRIM$(STR$(HISTORY_RECORDS(i%).x1%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(i%).y1%)) + ")-(" + _TRIM$(STR$(HISTORY_RECORDS(i%).x2%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(i%).y2%)) + ")"
+                END IF
+
+            CASE HISTORY_KIND_RECT
+                colorExpr$ = FILE_BAS_color_expr$(HISTORY_RECORDS(i%).colorFG~&)
+                IF colorExpr$ <> lastColorExpr$ THEN
+                    PRINT #fh%, indent$ + "COLOR " + colorExpr$
+                    lastColorExpr$ = colorExpr$
+                END IF
+                IF (recFlags& AND HISTORY_FLAG_FILLED) <> 0 THEN
+                    PRINT #fh%, indent$ + "LINE (" + _TRIM$(STR$(HISTORY_RECORDS(i%).x1%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(i%).y1%)) + ")-(" + _TRIM$(STR$(HISTORY_RECORDS(i%).x2%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(i%).y2%)) + "), , BF"
+                ELSE
+                    PRINT #fh%, indent$ + "LINE (" + _TRIM$(STR$(HISTORY_RECORDS(i%).x1%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(i%).y1%)) + ")-(" + _TRIM$(STR$(HISTORY_RECORDS(i%).x2%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(i%).y2%)) + "), , B"
+                END IF
+
+            CASE HISTORY_KIND_ELLIPSE
+                colorExpr$ = FILE_BAS_color_expr$(HISTORY_RECORDS(i%).colorFG~&)
+                DIM cx AS SINGLE, cy AS SINGLE, rx AS SINGLE, ry AS SINGLE
+                cx! = (HISTORY_RECORDS(i%).x1% + HISTORY_RECORDS(i%).x2%) / 2
+                cy! = (HISTORY_RECORDS(i%).y1% + HISTORY_RECORDS(i%).y2%) / 2
+                rx! = ABS(HISTORY_RECORDS(i%).x2% - HISTORY_RECORDS(i%).x1%) / 2
+                ry! = ABS(HISTORY_RECORDS(i%).y2% - HISTORY_RECORDS(i%).y1%) / 2
+                IF rx! <= 0 THEN rx! = 1
+                IF ry! <= 0 THEN ry! = 1
+                IF (recFlags& AND HISTORY_FLAG_FILLED) <> 0 THEN
+                    PRINT #fh%, indent$ + "FillEllipseScanline " + _TRIM$(STR$(HISTORY_RECORDS(i%).x1%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(i%).y1%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(i%).x2%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(i%).y2%)) + ", " + colorExpr$
+                    lastColorExpr$ = "" ' helper SUB may change color state
+                ELSE
+                    IF colorExpr$ <> lastColorExpr$ THEN
+                        PRINT #fh%, indent$ + "COLOR " + colorExpr$
+                        lastColorExpr$ = colorExpr$
+                    END IF
+                    DIM aspect AS SINGLE
+                    IF rx! >= ry! THEN
+                        aspect! = ry! / rx!
+                        PRINT #fh%, indent$ + "CIRCLE (" + _TRIM$(STR$(INT(cx!))) + ", " + _TRIM$(STR$(INT(cy!))) + "), " + _TRIM$(STR$(INT(rx!))) + ", , , , " + _TRIM$(STR$(aspect!))
+                    ELSE
+                        aspect! = rx! / ry!
+                        PRINT #fh%, indent$ + "CIRCLE (" + _TRIM$(STR$(INT(cx!))) + ", " + _TRIM$(STR$(INT(cy!))) + "), " + _TRIM$(STR$(INT(ry!))) + ", , , , " + _TRIM$(STR$(aspect!))
+                    END IF
+                END IF
+
+            CASE HISTORY_KIND_FILL
+                colorExpr$ = FILE_BAS_color_expr$(HISTORY_RECORDS(i%).colorFG~&)
+                IF HISTORY_RECORDS(i%).x1% = -32768 AND HISTORY_RECORDS(i%).y1% = -32768 THEN
+                    ' Full-canvas fill (CLS sentinel) — always inline
+                    PRINT #fh%, indent$ + "CLS , " + colorExpr$
+                    lastColorExpr$ = "" ' CLS doesn't set drawing color
+                ELSE
+                    ' Find border color from the most recent shape on same layer
+                    DIM borderExpr AS STRING
+                    DIM scanIdx AS INTEGER
+                    borderExpr$ = ""
+                    FOR scanIdx% = i% - 1 TO 1 STEP -1
+                        IF HISTORY_RECORDS(scanIdx%).primaryLayerId& <> layerId& THEN _CONTINUE
+                        SELECT CASE HISTORY_RECORDS(scanIdx%).kind%
+                            CASE HISTORY_KIND_LINE, HISTORY_KIND_RECT, HISTORY_KIND_ELLIPSE, HISTORY_KIND_POLYLINE, HISTORY_KIND_BRUSH
+                                borderExpr$ = FILE_BAS_color_expr$(HISTORY_RECORDS(scanIdx%).colorFG~&)
+                                EXIT FOR
+                            CASE HISTORY_KIND_FILL
+                                _CONTINUE ' skip prior fills
+                        END SELECT
+                    NEXT scanIdx%
+                    IF LEN(borderExpr$) > 0 THEN
+                        PRINT #fh%, indent$ + "PAINT (" + _TRIM$(STR$(HISTORY_RECORDS(i%).x1%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(i%).y1%)) + "), " + colorExpr$ + ", " + borderExpr$
+                    ELSE
+                        PRINT #fh%, indent$ + "PAINT (" + _TRIM$(STR$(HISTORY_RECORDS(i%).x1%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(i%).y1%)) + "), " + colorExpr$
+                    END IF
+                    lastColorExpr$ = "" ' PAINT doesn't set COLOR state
+                END IF
+
+            CASE HISTORY_KIND_POLYLINE
+                DIM payload AS STRING
+                DIM ptCount AS INTEGER
+                DIM pts     AS INTEGER
+                payload$ = HISTORY_PAYLOADS(i%)
+                ptCount% = HISTORY_RECORDS(i%).payloadOffset&
+                IF ptCount% >= 2 THEN
+                    ' Parse points from payload and emit LINE segments
+                    DIM pxArr(0 TO ptCount% - 1) AS INTEGER
+                    DIM pyArr(0 TO ptCount% - 1) AS INTEGER
+                    DIM pIdx AS INTEGER, pSep AS INTEGER, pPair AS STRING
+                    DIM pSrc AS STRING
+                    pSrc$ = payload$
+                    FOR pIdx% = 0 TO ptCount% - 1
+                        pSep% = INSTR(pSrc$, CHR$(30))
+                        IF pSep% > 0 THEN
+                            pPair$ = LEFT$(pSrc$, pSep% - 1)
+                            pSrc$  = MID$(pSrc$, pSep% + 1)
+                        ELSE
+                            pPair$ = pSrc$
+                            pSrc$  = ""
+                        END IF
+                        DIM commaPos AS INTEGER
+                        commaPos% = INSTR(pPair$, ",")
+                        IF commaPos% > 0 THEN
+                            pxArr(pIdx%) = VAL(LEFT$(pPair$, commaPos% - 1))
+                            pyArr(pIdx%) = VAL(MID$(pPair$, commaPos% + 1))
+                        END IF
+                    NEXT pIdx%
+
+                    colorExpr$ = FILE_BAS_color_expr$(HISTORY_RECORDS(i%).colorFG~&)
+                    IF colorExpr$ <> lastColorExpr$ THEN
+                        PRINT #fh%, indent$ + "COLOR " + colorExpr$
+                        lastColorExpr$ = colorExpr$
+                    END IF
+                    FOR pts% = 0 TO ptCount% - 2
+                        PRINT #fh%, indent$ + "LINE (" + _TRIM$(STR$(pxArr(pts%))) + ", " + _TRIM$(STR$(pyArr(pts%))) + ")-(" + _TRIM$(STR$(pxArr(pts% + 1))) + ", " + _TRIM$(STR$(pyArr(pts% + 1))) + ")"
+                    NEXT pts%
+                    ' Close polygon (last to first)
+                    IF ptCount% >= 3 THEN
+                        PRINT #fh%, indent$ + "LINE (" + _TRIM$(STR$(pxArr(ptCount% - 1))) + ", " + _TRIM$(STR$(pyArr(ptCount% - 1))) + ")-(" + _TRIM$(STR$(pxArr(0))) + ", " + _TRIM$(STR$(pyArr(0))) + ")"
+                    END IF
+
+                    IF (recFlags& AND HISTORY_FLAG_FILLED) <> 0 THEN
+                        ' Emit polygon coordinate arrays and FillPolygonScanline call
+                        PRINT #fh%, indent$ + "DIM polyX_" + _TRIM$(STR$(i%)) + "(0 TO " + _TRIM$(STR$(ptCount% - 1)) + ") AS INTEGER"
+                        PRINT #fh%, indent$ + "DIM polyY_" + _TRIM$(STR$(i%)) + "(0 TO " + _TRIM$(STR$(ptCount% - 1)) + ") AS INTEGER"
+                        FOR pIdx% = 0 TO ptCount% - 1
+                            PRINT #fh%, indent$ + "polyX_" + _TRIM$(STR$(i%)) + "(" + _TRIM$(STR$(pIdx%)) + ") = " + _TRIM$(STR$(pxArr(pIdx%)))
+                            PRINT #fh%, indent$ + "polyY_" + _TRIM$(STR$(i%)) + "(" + _TRIM$(STR$(pIdx%)) + ") = " + _TRIM$(STR$(pyArr(pIdx%)))
+                        NEXT pIdx%
+                        PRINT #fh%, indent$ + "FillPolygonScanline " + _TRIM$(STR$(ptCount%)) + ", polyX_" + _TRIM$(STR$(i%)) + "(), polyY_" + _TRIM$(STR$(i%)) + "(), " + colorExpr$
+                        lastColorExpr$ = "" ' helper SUB may change color state
+                    END IF
+                END IF
+
+            CASE HISTORY_KIND_BRUSH
+                ' Dot/Brush (1px) — use pixel-diff of before/after images
+                IF FILE_BAS_is_expanded_exportable%(i%) THEN
+                    FILE_QB64_emit_pixel_diff fh%, i%, indent$
+                    lastColorExpr$ = "" ' pixel diff has own color tracking
+                END IF
+        END SELECT
+    NEXT i%
+END SUB
+
+''
+' Emits pixel-diff PSET/LINE ops by comparing before/after images.
+' Used for brush strokes and thick-brush lines in vector layers.
+' @param fh INTEGER Output file handle
+' @param recordIndex INTEGER Index into HISTORY_RECORDS()
+' @param indent STRING Indentation prefix
+'
+SUB FILE_QB64_emit_pixel_diff (fh AS INTEGER, recordIndex AS INTEGER, indent AS STRING)
+    DIM beforeMem      AS _MEM
+    DIM afterMem       AS _MEM
+    DIM width          AS LONG, height AS LONG
+    DIM x              AS LONG, y AS LONG
+    DIM runStart       AS LONG, runEnd AS LONG
+    DIM beforeCol      AS _UNSIGNED LONG
+    DIM afterCol       AS _UNSIGNED LONG
+    DIM nextBeforeCol  AS _UNSIGNED LONG
+    DIM nextAfterCol   AS _UNSIGNED LONG
+    DIM rowOffset      AS _OFFSET
+    DIM runColorExpr   AS STRING
+    DIM lastColorExpr  AS STRING
+
+    IF NOT FILE_BAS_is_expanded_exportable%(recordIndex%) THEN EXIT SUB
+
+    width&    = _WIDTH(HISTORY_RECORDS(recordIndex%).img2&)
+    height&   = _HEIGHT(HISTORY_RECORDS(recordIndex%).img2&)
+    beforeMem = _MEMIMAGE(HISTORY_RECORDS(recordIndex%).img&)
+    afterMem  = _MEMIMAGE(HISTORY_RECORDS(recordIndex%).img2&)
+
+    lastColorExpr$ = ""
+    PRINT #fh%, indent$ + "' Pixel diff for " + _TRIM$(HISTORY_RECORDS(recordIndex%).label$)
+    FOR y& = 0 TO height& - 1
+        rowOffset = y& * width& * 4
+        x& = 0
+        DO WHILE x& < width&
+            _MEMGET beforeMem, beforeMem.OFFSET + rowOffset + x& * 4, beforeCol~&
+            _MEMGET afterMem, afterMem.OFFSET + rowOffset + x& * 4, afterCol~&
+            IF beforeCol~& = afterCol~& THEN
+                x& = x& + 1
+                _CONTINUE
+            END IF
+
+            runStart& = x&
+            runEnd&   = x&
+            DO WHILE runEnd& + 1 < width&
+                _MEMGET beforeMem, beforeMem.OFFSET + rowOffset + (runEnd& + 1) * 4, nextBeforeCol~&
+                _MEMGET afterMem, afterMem.OFFSET + rowOffset + (runEnd& + 1) * 4, nextAfterCol~&
+                IF nextBeforeCol~& = nextAfterCol~& THEN EXIT DO
+                IF nextAfterCol~& <> afterCol~& THEN EXIT DO
+                runEnd& = runEnd& + 1
+            LOOP
+
+            runColorExpr$ = FILE_BAS_color_expr$(afterCol~&)
+            IF runColorExpr$ <> lastColorExpr$ THEN
+                PRINT #fh%, indent$ + "COLOR " + runColorExpr$
+                lastColorExpr$ = runColorExpr$
+            END IF
+            IF runStart& = runEnd& THEN
+                PRINT #fh%, indent$ + "PSET (" + _TRIM$(STR$(runStart&)) + ", " + _TRIM$(STR$(y&)) + ")"
+            ELSE
+                PRINT #fh%, indent$ + "LINE (" + _TRIM$(STR$(runStart&)) + ", " + _TRIM$(STR$(y&)) + ")-(" + _TRIM$(STR$(runEnd&)) + ", " + _TRIM$(STR$(y&)) + ")"
+            END IF
+            x& = runEnd& + 1
+        LOOP
+    NEXT y&
+
+    _MEMFREE beforeMem
+    _MEMFREE afterMem
+END SUB
+
+
+' =============================================================================
+' TEXT LAYER CODE GENERATION
+' =============================================================================
+
+''
+' Emits text rendering ops for a text layer.
+' Uses _LOADFONT + _UPRINTSTRING for each character run with same attributes.
+' @param fh INTEGER Output file handle
+' @param layerIdx INTEGER Index into LAYERS()
+' @param indent STRING Indentation prefix
+'
+SUB FILE_QB64_emit_text_ops (fh AS INTEGER, layerIdx AS INTEGER, indent AS STRING)
+    DIM tlIdx     AS INTEGER
+
+    tlIdx% = LAYERS(layerIdx%).textDataIdx%
+    IF tlIdx% < 1 OR tlIdx% > TEXT_LAYER_POOL_SIZE THEN
+        PRINT #fh%, indent$ + "' Empty text layer"
+        EXIT SUB
+    END IF
+
+    IF TEXT_LAYER_DATA(tlIdx%).charCount% <= 0 THEN
+        PRINT #fh%, indent$ + "' No text content"
+        EXIT SUB
+    END IF
+
+    ' For simplicity, render the text layer from its pre-rendered image
+    ' (full fidelity with per-character styling, outline, shadow, etc.)
+    ' If the layer has a valid imgHandle, export as pixel data
+    IF LAYERS(layerIdx%).imgHandle& < -1 THEN
+        PRINT #fh%, indent$ + "' Text layer rendered as pixel data (preserves per-character formatting)"
+        DIM tlBeforeMem AS _MEM
+        DIM tlWidth AS LONG, tlHeight AS LONG
+        DIM tlX AS LONG, tlY AS LONG
+        DIM tlCol AS _UNSIGNED LONG
+        DIM tlRowOff AS _OFFSET
+        DIM tlRunStart AS LONG, tlRunEnd AS LONG
+        DIM tlColorExpr AS STRING
+        DIM tlNextCol AS _UNSIGNED LONG
+        DIM tlLastColorExpr AS STRING
+
+        tlWidth&  = _WIDTH(LAYERS(layerIdx%).imgHandle&)
+        tlHeight& = _HEIGHT(LAYERS(layerIdx%).imgHandle&)
+        tlBeforeMem = _MEMIMAGE(LAYERS(layerIdx%).imgHandle&)
+        tlLastColorExpr$ = ""
+
+        FOR tlY& = 0 TO tlHeight& - 1
+            tlRowOff = tlY& * tlWidth& * 4
+            tlX& = 0
+            DO WHILE tlX& < tlWidth&
+                _MEMGET tlBeforeMem, tlBeforeMem.OFFSET + tlRowOff + tlX& * 4, tlCol~&
+                IF _ALPHA32(tlCol~&) = 0 THEN
+                    tlX& = tlX& + 1
+                    _CONTINUE
+                END IF
+
+                tlRunStart& = tlX&
+                tlRunEnd&   = tlX&
+                DO WHILE tlRunEnd& + 1 < tlWidth&
+                    _MEMGET tlBeforeMem, tlBeforeMem.OFFSET + tlRowOff + (tlRunEnd& + 1) * 4, tlNextCol~&
+                    IF tlNextCol~& <> tlCol~& THEN EXIT DO
+                    tlRunEnd& = tlRunEnd& + 1
+                LOOP
+
+                tlColorExpr$ = FILE_BAS_color_expr$(tlCol~&)
+                IF tlColorExpr$ <> tlLastColorExpr$ THEN
+                    PRINT #fh%, indent$ + "COLOR " + tlColorExpr$
+                    tlLastColorExpr$ = tlColorExpr$
+                END IF
+                IF tlRunStart& = tlRunEnd& THEN
+                    PRINT #fh%, indent$ + "PSET (" + _TRIM$(STR$(tlRunStart&)) + ", " + _TRIM$(STR$(tlY&)) + ")"
+                ELSE
+                    PRINT #fh%, indent$ + "LINE (" + _TRIM$(STR$(tlRunStart&)) + ", " + _TRIM$(STR$(tlY&)) + ")-(" + _TRIM$(STR$(tlRunEnd&)) + ", " + _TRIM$(STR$(tlY&)) + ")"
+                END IF
+                tlX& = tlRunEnd& + 1
+            LOOP
+        NEXT tlY&
+
+        _MEMFREE tlBeforeMem
+    ELSE
+        PRINT #fh%, indent$ + "' Text layer has no rendered image"
+    END IF
+END SUB
