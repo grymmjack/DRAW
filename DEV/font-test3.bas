@@ -50,7 +50,7 @@ FOR i% = 0 TO 7
     sz% = sizes(i%)
 
     fh& = _LOADFONT(FP$, sz%, "DONTBLEND")
-    IF fh& < = 0 THEN
+    IF fh& <= 0 THEN
         _FONT 16
         COLOR _RGB32(255, 80, 80), _RGB32(32, 32, 32)
         _PRINTSTRING (20, y%), "SIZE " + LTRIM$(STR$(sz%)) + ": FAILED"

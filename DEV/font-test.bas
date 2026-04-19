@@ -48,14 +48,14 @@ DIM tmpImg AS LONG
 
 ' Load regular (DONTBLEND = non-antialised)
 fh1& = _LOADFONT(FONT_PATH_1$, FONT_SIZE%, "DONTBLEND")
-IF fh1& < = 0 THEN PRINT "ERROR: Cannot load " + FONT_PATH_1$: SYSTEM
+IF fh1& <= 0 THEN PRINT "ERROR: Cannot load " + FONT_PATH_1$: SYSTEM
 fh1m& = _LOADFONT(FONT_PATH_1$, FONT_SIZE%, "DONTBLEND, MONOSPACE")
-IF fh1m& < = 0 THEN PRINT "ERROR: Cannot load " + FONT_PATH_1$ + " MONO": SYSTEM
+IF fh1m& <= 0 THEN PRINT "ERROR: Cannot load " + FONT_PATH_1$ + " MONO": SYSTEM
 
 fh2& = _LOADFONT(FONT_PATH_2$, FONT_SIZE%, "DONTBLEND")
-IF fh2& < = 0 THEN PRINT "ERROR: Cannot load " + FONT_PATH_2$: SYSTEM
+IF fh2& <= 0 THEN PRINT "ERROR: Cannot load " + FONT_PATH_2$: SYSTEM
 fh2m& = _LOADFONT(FONT_PATH_2$, FONT_SIZE%, "DONTBLEND, MONOSPACE")
-IF fh2m& < = 0 THEN PRINT "ERROR: Cannot load " + FONT_PATH_2$ + " MONO": SYSTEM
+IF fh2m& <= 0 THEN PRINT "ERROR: Cannot load " + FONT_PATH_2$ + " MONO": SYSTEM
 
 ' Measure max cell from both fonts
 DIM maxCW AS INTEGER, maxCH AS INTEGER
@@ -255,7 +255,7 @@ SUB DrawGlyph_Raw (cx AS INTEGER, cy AS INTEGER, ch AS STRING, fHandle AS LONG)
 
     ' Measure
     tmpImg& = _NEWIMAGE(1, 1, 32)
-    IF tmpImg& > = -1 THEN EXIT SUB
+    IF tmpImg& >= -1 THEN EXIT SUB
     oldDest& = _DEST
     _DEST tmpImg&
     prevFont& = _FONT
@@ -272,7 +272,7 @@ SUB DrawGlyph_Raw (cx AS INTEGER, cy AS INTEGER, ch AS STRING, fHandle AS LONG)
 
     ' Render into temp image at exact size
     tmpImg& = _NEWIMAGE(charW%, charH%, 32)
-    IF tmpImg& > = -1 THEN EXIT SUB
+    IF tmpImg& >= -1 THEN EXIT SUB
     oldDest& = _DEST
     _DEST tmpImg&
     CLS , _RGBA32(0, 0, 0, 0)
@@ -312,7 +312,7 @@ SUB DrawGlyph_Crop (cx AS INTEGER, cy AS INTEGER, ch AS STRING, fHandle AS LONG)
 
     ' Measure
     tmpImg& = _NEWIMAGE(1, 1, 32)
-    IF tmpImg& > = -1 THEN EXIT SUB
+    IF tmpImg& >= -1 THEN EXIT SUB
     oldDest& = _DEST
     _DEST tmpImg&
     prevFont& = _FONT
@@ -330,7 +330,7 @@ SUB DrawGlyph_Crop (cx AS INTEGER, cy AS INTEGER, ch AS STRING, fHandle AS LONG)
     ' Render into padded buffer
     padH%      = 4
     renderImg& = _NEWIMAGE(charW% + 4, charH% + padH%, 32)
-    IF renderImg& > = -1 THEN EXIT SUB
+    IF renderImg& >= -1 THEN EXIT SUB
     oldDest& = _DEST
     _DEST renderImg&
     CLS , _RGBA32(0, 0, 0, 0)
@@ -376,7 +376,7 @@ SUB DrawGlyph_Crop (cx AS INTEGER, cy AS INTEGER, ch AS STRING, fHandle AS LONG)
     IF inkH% < 1 THEN inkH% = 1
 
     tmpImg& = _NEWIMAGE(inkW%, inkH%, 32)
-    IF tmpImg& > = -1 THEN
+    IF tmpImg& >= -1 THEN
         _FREEIMAGE renderImg&
         EXIT SUB
     END IF

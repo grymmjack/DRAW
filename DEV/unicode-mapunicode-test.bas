@@ -138,7 +138,7 @@ done:
 _DISPLAY
 _SAVEIMAGE "/home/grymmjack/git/DRAW/DEV/unicode-mapunicode-test.png"
 _DELAY 0.5
-IF fHandle& > = 1 THEN
+IF fHandle& >= 1 THEN
     _FONT 16
     _FREEFONT fHandle&
 END IF

@@ -32,7 +32,7 @@ SUB FillPolygonScanline (pointCount AS INTEGER, polyX() AS INTEGER, polyY() AS I
         nodeCount = 0
         j         = pointCount - 1
         FOR i = 0 TO pointCount - 1
-            IF ((polyY(i) < y AND polyY(j) > = y) OR (polyY(j) < y AND polyY(i) > = y)) THEN
+            IF ((polyY(i) < y AND polyY(j) >= y) OR (polyY(j) < y AND polyY(i) >= y)) THEN
                 nodes(nodeCount) = polyX(i) + (y - polyY(i)) * (polyX(j) - polyX(i)) / (polyY(j) - polyY(i))
                 nodeCount = nodeCount + 1
             END IF
@@ -62,10 +62,10 @@ SUB FillEllipseScanline (x1 AS INTEGER, y1 AS INTEGER, x2 AS INTEGER, y2 AS INTE
     centerY = (y1 + y2) / 2
     radiusX = ABS(x2 - x1) / 2
     radiusY = ABS(y2 - y1) / 2
-    IF radiusX < = 0 OR radiusY < = 0 THEN EXIT SUB
+    IF radiusX <= 0 OR radiusY <= 0 THEN EXIT SUB
     FOR drawY = y1 TO y2
         rowOffset = (drawY - centerY) / radiusY
-        IF ABS(rowOffset) < = 1 THEN
+        IF ABS(rowOffset) <= 1 THEN
             halfSpan = radiusX * SQR(1 - rowOffset * rowOffset)
             LINE (INT(centerX - halfSpan + .5), drawY)-(INT(centerX + halfSpan - .5), drawY), fillCol
         END IF

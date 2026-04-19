@@ -62,7 +62,7 @@ DIM CONFIG_cmdArgCount%
 DIM CONFIG_cmdArgVal$
 CONFIG_cmdArgCount% = _COMMANDCOUNT
 CONFIG_cmdArgIdx%   = 1
-DO WHILE CONFIG_cmdArgIdx% < = CONFIG_cmdArgCount%
+DO WHILE CONFIG_cmdArgIdx% <= CONFIG_cmdArgCount%
     CONFIG_cmdArgVal$ = _TRIM$(COMMAND$(CONFIG_cmdArgIdx%))
 
     IF LCASE$(CONFIG_cmdArgVal$) = "--config-upgrade" THEN
@@ -77,12 +77,12 @@ DO WHILE CONFIG_cmdArgIdx% < = CONFIG_cmdArgCount%
 
     ELSEIF LCASE$(CONFIG_cmdArgVal$) = "--canvas-size" THEN
         ' Parse --canvas-size WWWxHHH
-        IF CONFIG_cmdArgIdx% + 1 < = CONFIG_cmdArgCount% THEN
+        IF CONFIG_cmdArgIdx% + 1 <= CONFIG_cmdArgCount% THEN
             DIM CONFIG_canvasSizeArg$
             DIM CONFIG_canvasXPos%
             CONFIG_canvasSizeArg$ = _TRIM$(COMMAND$(CONFIG_cmdArgIdx% + 1))
             CONFIG_canvasXPos%    = INSTR(UCASE$(CONFIG_canvasSizeArg$), "X")
-            IF CONFIG_canvasXPos% > = 2 THEN
+            IF CONFIG_canvasXPos% >= 2 THEN
                 CMDLINE_CANVAS_W% = VAL(LEFT$(CONFIG_canvasSizeArg$, CONFIG_canvasXPos% - 1))
                 CMDLINE_CANVAS_H% = VAL(MID$(CONFIG_canvasSizeArg$, CONFIG_canvasXPos% + 1))
                 IF CMDLINE_CANVAS_W% < 1 THEN CMDLINE_CANVAS_W% = 0
@@ -98,7 +98,7 @@ DO WHILE CONFIG_cmdArgIdx% < = CONFIG_cmdArgCount%
 
     ELSEIF LCASE$(CONFIG_cmdArgVal$) = "--config" OR LCASE$(CONFIG_cmdArgVal$) = "-c" THEN
         ' Found --config / -c flag
-        IF CONFIG_cmdArgIdx% + 1 < = CONFIG_cmdArgCount% THEN
+        IF CONFIG_cmdArgIdx% + 1 <= CONFIG_cmdArgCount% THEN
             ' Next argument is the config file path
             CONFIG_FILE_PATH$ = _TRIM$(COMMAND$(CONFIG_cmdArgIdx% + 1))
             ' Remove surrounding quotes if present

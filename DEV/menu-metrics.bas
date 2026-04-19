@@ -21,7 +21,7 @@ tmpImg& = _NEWIMAGE(800, 100, 32)
 _DEST tmpImg&
 
 fh& = _LOADFONT("ASSETS/THEMES/DEFAULT/FONTS/Tiny5-Regular.ttf", 8, "DONTBLEND")
-IF fh& < = 0 THEN
+IF fh& <= 0 THEN
     _DEST _CONSOLE
     PRINT "ERROR: Could not load Tiny5-Regular.ttf at size 8"
     SYSTEM

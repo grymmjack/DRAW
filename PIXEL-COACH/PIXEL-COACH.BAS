@@ -105,15 +105,15 @@ canvasArea = SCREEN_W - PANEL_W
 
 ' Load built-in font
 uiFont = _LOADFONT("", 16, "MONOSPACE")
-IF uiFont < = 0 THEN uiFont = 16 ' Fallback to built-in
+IF uiFont <= 0 THEN uiFont = 16 ' Fallback to built-in
 uiFontSmall = _LOADFONT("", 12, "MONOSPACE")
-IF uiFontSmall < = 0 THEN uiFontSmall = 8
+IF uiFontSmall <= 0 THEN uiFontSmall = 8
 
 ' Accept drag and drop
 _ACCEPTFILEDROP
 
 ' Check command line
-IF _COMMANDCOUNT > = 1 THEN
+IF _COMMANDCOUNT >= 1 THEN
     imgFilePath = COMMAND$(1)
     COACH_load_image imgFilePath
     IF COACH.srcImg < -1 THEN
@@ -173,7 +173,7 @@ SYSTEM
 ' SUB: Fit image to the canvas view area
 ' ============================================================================
 SUB UI_fit_image_to_view
-    IF COACH.srcImg > = -1 THEN EXIT SUB
+    IF COACH.srcImg >= -1 THEN EXIT SUB
     ' Fit image within canvas area with some padding
     DIM padW%, padH%
     padW% = canvasArea - 40
@@ -200,7 +200,7 @@ END SUB
 ' SUB: Build grayscale version of loaded image
 ' ============================================================================
 SUB UI_build_grayscale
-    IF COACH.srcImg > = -1 THEN EXIT SUB
+    IF COACH.srcImg >= -1 THEN EXIT SUB
     IF grayscaleImg < -1 THEN _FREEIMAGE grayscaleImg
 
     grayscaleImg = _NEWIMAGE(COACH.imgW, COACH.imgH, 32)
@@ -480,7 +480,7 @@ SUB UI_handle_mouse
 
     ' Check hover over issue list in panel
     ' Clear checkbox hover when mouse leaves panel
-    IF mx% < = canvasArea AND hoverCheckbox > = 0 THEN
+    IF mx% <= canvasArea AND hoverCheckbox >= 0 THEN
         hoverCheckbox = -1
         needRedraw    = -1
     END IF
@@ -495,7 +495,7 @@ SUB UI_handle_mouse
         ' Checkbox hover detection (for tooltips)
         DIM cbHov%
         cbHov% = my% - chkBaseY%
-        IF cbHov% > = 0 AND cbHov% < 8 * 18 THEN
+        IF cbHov% >= 0 AND cbHov% < 8 * 18 THEN
             DIM newChkHov%
             newChkHov% = cbHov% \ 18
             IF newChkHov% <> hoverCheckbox THEN
@@ -505,15 +505,15 @@ SUB UI_handle_mouse
                 needRedraw    = -1
             END IF
         ELSE
-            IF hoverCheckbox > = 0 THEN
+            IF hoverCheckbox >= 0 THEN
                 hoverCheckbox = -1
                 needRedraw    = -1
             END IF
         END IF
-        IF justClickedB1% AND mx% > = canvasArea + BUTTON_PAD AND mx% < = SCREEN_W - BUTTON_PAD THEN
+        IF justClickedB1% AND mx% >= canvasArea + BUTTON_PAD AND mx% <= SCREEN_W - BUTTON_PAD THEN
             DIM chkHit%
             chkHit% = my% - chkBaseY%
-            IF chkHit% > = 0 AND chkHit% < 8 * 18 THEN
+            IF chkHit% >= 0 AND chkHit% < 8 * 18 THEN
                 SELECT CASE chkHit% \ 18
                     CASE 0 : chkJaggies = NOT chkJaggies
                     CASE 1 : chkIslands = NOT chkIslands
@@ -530,7 +530,7 @@ SUB UI_handle_mouse
         END IF
         DIM panelY%
         panelY% = my% - TITLE_BAR_H - (BUTTON_H + BUTTON_PAD) * 3 - CHECKBOX_SIZE * 10 - 20
-        IF panelY% > = 0 THEN
+        IF panelY% >= 0 THEN
             DIM newHover%
             newHover% = panelY% \ ISSUE_ROW_H + COACH.scrollOffset
             IF newHover% <> hoverIssue THEN
@@ -541,7 +541,7 @@ SUB UI_handle_mouse
 
         ' Left click on issue in panel = select it
         IF b1% THEN
-            IF hoverIssue > = 0 AND hoverIssue < COACH.issueCount THEN
+            IF hoverIssue >= 0 AND hoverIssue < COACH.issueCount THEN
                 IF COACH.selectedIssue <> hoverIssue THEN
                     COACH.selectedIssue = hoverIssue
                     needRedraw          = -1
@@ -610,7 +610,7 @@ SUB UI_render
         END IF
 
         ' Draw selected issue highlight (blinking box)
-        IF COACH.selectedIssue > = 0 AND COACH.selectedIssue < COACH.issueCount THEN
+        IF COACH.selectedIssue >= 0 AND COACH.selectedIssue < COACH.issueCount THEN
             DIM si%
             si% = COACH.selectedIssue
             DIM blink%
@@ -652,10 +652,10 @@ SUB UI_render
         DIM visCount%, vi%
         visCount% = 0
         FOR vi% = 0 TO COACH.issueCount - 1
-            IF COACH_ISSUES(vi%).confidence > = COACH.confidenceThreshold THEN
+            IF COACH_ISSUES(vi%).confidence >= COACH.confidenceThreshold THEN
                 DIM vt%
                 vt% = COACH_ISSUES(vi%).issueType
-                IF vt% > = 1 AND vt% < = 10 THEN tc(vt%) = tc(vt%) + 1
+                IF vt% >= 1 AND vt% <= 10 THEN tc(vt%) = tc(vt%) + 1
                 DIM vShow%
                 vShow% = 0
                 SELECT CASE vt%
@@ -739,7 +739,7 @@ SUB UI_render
         visTotal% = 0
         DIM fvi%
         FOR fvi% = 0 TO COACH.issueCount - 1
-            IF COACH_ISSUES(fvi%).confidence > = COACH.confidenceThreshold THEN
+            IF COACH_ISSUES(fvi%).confidence >= COACH.confidenceThreshold THEN
                 DIM ft%
                 ft% = COACH_ISSUES(fvi%).issueType
                 DIM fShow%
@@ -777,7 +777,7 @@ SUB UI_render
             FOR i% = 0 TO maxVisible% - 1
                 DIM scrolledIdx%
                 scrolledIdx% = i% + COACH.scrollOffset
-                IF scrolledIdx% > = visTotal% THEN EXIT FOR
+                IF scrolledIdx% >= visTotal% THEN EXIT FOR
                 issueIdx% = visIdx(scrolledIdx%)
 
             listY% = panelY% + i% * ISSUE_ROW_H
@@ -832,7 +832,7 @@ SUB UI_render
     _PRINTSTRING (canvasArea - LEN(zoomStr$) * 8 - 8, SCREEN_H - 16), zoomStr$
 
     ' --- Tooltip for hovered detector checkbox ---
-    IF hoverCheckbox > = 0 THEN
+    IF hoverCheckbox >= 0 THEN
         UI_draw_tooltip tooltipMY, hoverCheckbox
     END IF
 

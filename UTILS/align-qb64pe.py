@@ -926,15 +926,25 @@ def _collapse_eq_spaces(line: str) -> str:
                 in_string = True
             out.append(ch)
         elif ch == '=' and not in_string:
-            # strip trailing spaces already written into out
-            while out and out[-1] == ' ':
-                out.pop()
-            out.append(' = ')
-            # skip leading spaces after '='
-            i += 1
-            while i < len(line) and line[i] == ' ':
+            # Check if this '=' is part of <=, >=, or != comparison
+            last_nonspace = ''
+            for _back in reversed(out):
+                if _back != ' ':
+                    last_nonspace = _back
+                    break
+            if last_nonspace in '<>!':
+                # Part of a comparison operator — emit as-is
+                out.append(ch)
+            else:
+                # strip trailing spaces already written into out
+                while out and out[-1] == ' ':
+                    out.pop()
+                out.append(' = ')
+                # skip leading spaces after '='
                 i += 1
-            continue
+                while i < len(line) and line[i] == ' ':
+                    i += 1
+                continue
         else:
             out.append(ch)
         i += 1

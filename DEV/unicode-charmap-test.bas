@@ -70,7 +70,7 @@ FOR sz% = 1 TO 4
     PRINT "Scan buffer:"; scanW%; "x"; scanH%
 
     scanImg& = _NEWIMAGE(scanW%, scanH%, 32)
-    IF scanImg& > = -1 THEN
+    IF scanImg& >= -1 THEN
         PRINT "ERROR: Failed to create scan image"
         _FREEFONT fHandle&
         _CONTINUE
@@ -175,7 +175,7 @@ FOR sz% = 1 TO 4
         END IF
     NEXT cp&
     PRINT "  Found"; foundCount&; "glyphs with ink"
-    IF firstFound& > = 0 THEN PRINT "  First at U+"; HEX$(firstFound&)
+    IF firstFound& >= 0 THEN PRINT "  First at U+"; HEX$(firstFound&)
 
     IF scanImg& < -1 THEN _FREEIMAGE scanImg&
     _FONT 16

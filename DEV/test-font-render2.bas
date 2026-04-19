@@ -37,7 +37,7 @@ FOR si% = 0 TO 3
             modeLabel$ = "DONTBLEND"
             fh&        = _LOADFONT("../ASSETS/FONTS/Apple ][.ttf", testSize%, "DONTBLEND, MONOSPACE")
         END IF
-        IF fh& < = 0 THEN
+        IF fh& <= 0 THEN
             PRINT #1, "FAILED to load at size"; testSize%; " mode: "; modeLabel$
             _CONTINUE
         END IF

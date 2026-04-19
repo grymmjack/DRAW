@@ -141,7 +141,7 @@ NEXT x%
 ' Horizontal fat line — make line LONG for clear run detection
 FOR x% = 66 TO 93
     PSET (x%, 8), cA~&  ' top row — always present
-    IF x% > = 74 AND x% < = 86 THEN
+    IF x% >= 74 AND x% <= 86 THEN
         PSET (x%, 9), cA~&  ' 2px thick section (13px run)
     END IF
 NEXT x%
@@ -149,7 +149,7 @@ NEXT x%
 ' Second horizontal fat line — different color
 FOR x% = 66 TO 93
     PSET (x%, 18), cE~&
-    IF x% > = 72 AND x% < = 88 THEN
+    IF x% >= 72 AND x% <= 88 THEN
         PSET (x%, 19), cE~& ' 2px thick section (17px run)
     END IF
 NEXT x%
@@ -157,7 +157,7 @@ NEXT x%
 ' Vertical fat line
 FOR y% = 4 TO 36
     PSET (68, y%), cC~& ' left col — always
-    IF y% > = 14 AND y% < = 28 THEN
+    IF y% >= 14 AND y% <= 28 THEN
         PSET (69, y%), cC~& ' 2px thick section (15px run)
     END IF
 NEXT y%

@@ -40,7 +40,7 @@ DECLARE SUB PATHS_migrate ()
 DIM PATHS_cmdIdx%
 DIM PATHS_cmdVal$
 PATHS_cmdIdx% = 1
-DO WHILE PATHS_cmdIdx% < = _COMMANDCOUNT
+DO WHILE PATHS_cmdIdx% <= _COMMANDCOUNT
     PATHS_cmdVal$ = LCASE$(_TRIM$(COMMAND$(PATHS_cmdIdx%)))
     IF PATHS_cmdVal$ = "--portable" THEN
         PATHS_PORTABLE% = TRUE

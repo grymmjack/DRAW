@@ -78,7 +78,7 @@ FOR cp& = &HE000& TO &HF8FF&
     _MEMFREE scanMem
 
     IF hasInk% THEN
-        IF found& < = foundMax& THEN foundCPs(found&) = cp&
+        IF found& <= foundMax& THEN foundCPs(found&) = cp&
         found& = found& + 1
     END IF
 NEXT cp&
@@ -164,7 +164,7 @@ _DISPLAY
 IF scanImg& < -1 THEN _FREEIMAGE scanImg&
 _SAVEIMAGE "/home/grymmjack/git/DRAW/DEV/unicode-fastscan-test.png"
 _DELAY 0.5
-IF fHandle& > = 1 THEN
+IF fHandle& >= 1 THEN
     _FONT 16
     _FREEFONT fHandle&
 END IF

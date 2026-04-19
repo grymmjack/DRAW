@@ -157,7 +157,7 @@ PRINT
 ' ================================================================
 DIM fHandle2 AS LONG
 fHandle2& = _LOADFONT(fontPath$, 32, "DONTBLEND")
-IF fHandle2& > = 1 THEN
+IF fHandle2& >= 1 THEN
     PRINT "Method 6: _LOADFONT with DONTBLEND, utf8 encoding=8"
     renderY% = CSRLIN * 16 + 4
     _FONT fHandle2&
@@ -254,7 +254,7 @@ done:
 _DISPLAY
 _SAVEIMAGE "/home/grymmjack/git/DRAW/DEV/unicode-render-test.png"
 _DELAY 0.5
-IF fHandle& > = 1 THEN
+IF fHandle& >= 1 THEN
     _FONT 16
     _FREEFONT fHandle&
 END IF

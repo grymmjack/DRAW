@@ -132,5 +132,5 @@ _DISPLAY
 IF scanImg& < -1 THEN _FREEIMAGE scanImg&
 _SAVEIMAGE "/home/grymmjack/git/DRAW/DEV/unicode-smartscan-test.png"
 _DELAY 0.5
-IF fHandle& > = 1 THEN _FONT 16: _FREEFONT fHandle&
+IF fHandle& >= 1 THEN _FONT 16: _FREEFONT fHandle&
 SYSTEM

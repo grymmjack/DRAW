@@ -23,7 +23,7 @@ OPEN "/home/grymmjack/git/DRAW/DEV/test-charmap-cache-out.txt" FOR OUTPUT AS #F%
 
 ' Load font with DONTBLEND, MONOSPACE (same as CHARMAP)
 fHandle& = _LOADFONT(fontPath$, 8, "DONTBLEND, MONOSPACE")
-IF fHandle& < = 0 THEN
+IF fHandle& <= 0 THEN
     PRINT #F%, "Failed to load font": CLOSE #F%: SYSTEM
 END IF
 
@@ -174,7 +174,7 @@ _FREEFONT fHandle&
 ' === Test 7: WITHOUT MONOSPACE (proportional, like DRAW when mono=FALSE) ===
 DIM fProp AS LONG
 fProp& = _LOADFONT(fontPath$, 8, "DONTBLEND")
-IF fProp& < = 0 THEN
+IF fProp& <= 0 THEN
     PRINT #F%, "": PRINT #F%, "Test 7: font load failed": CLOSE #F%: SYSTEM
 END IF
 measImg&  = _NEWIMAGE(1, 1, 32)

@@ -47,7 +47,7 @@ IF splashImg& < -1 THEN
         LINE (0, 0)-(_WIDTH(0) - 1, _HEIGHT(0) - 1), _RGBA32(splashBgR%, splashBgG%, splashBgB%, 255 - splashAlpha%), BF
         _DISPLAY
         _LIMIT 60
-    LOOP UNTIL splashAlpha% > = 255
+    LOOP UNTIL splashAlpha% >= 255
     ' Show fully opaque splash and record time for minimum-hold check
     CLS , splashBg~&
     _PUTIMAGE (splashX&, splashY&)-(splashX& + splashDstW& - 1, splashY& + splashDstH& - 1), splashImg&, 0
@@ -70,7 +70,7 @@ $IF MAC THEN
         ' Skip --config / -c and its value, and --config-upgrade when looking for file args
         DIM macArgIdx%
         macArgIdx% = 1
-        DO WHILE macArgIdx% < = _COMMANDCOUNT
+        DO WHILE macArgIdx% <= _COMMANDCOUNT
             DIM macArgVal$
             macArgVal$ = _TRIM$(COMMAND$(macArgIdx%))
             IF LCASE$(macArgVal$) = "--config" OR LCASE$(macArgVal$) = "-c" THEN
@@ -93,7 +93,7 @@ $ELSE
     ' Skip --config / -c and its value, and --config-upgrade when looking for file args
     DIM argIdx%
     argIdx% = 1
-    DO WHILE argIdx% < = _COMMANDCOUNT
+    DO WHILE argIdx% <= _COMMANDCOUNT
         DIM argVal$
         argVal$ = _TRIM$(COMMAND$(argIdx%))
         IF LCASE$(argVal$) = "--config" OR LCASE$(argVal$) = "-c" THEN
@@ -211,7 +211,7 @@ IF splashImg& < -1 THEN
         LINE (0, 0)-(_WIDTH(0) - 1, _HEIGHT(0) - 1), _RGBA32(splashWinR%, splashWinG%, splashWinB%, splashAlpha%), BF
         _DISPLAY
         _LIMIT 60
-    LOOP UNTIL splashAlpha% > = 255
+    LOOP UNTIL splashAlpha% >= 255
     _DEST splashOldDest2&
     _FREEIMAGE splashImg&
 END IF
@@ -306,7 +306,7 @@ DO
     k& = _KEYHIT
     
     ' Build INKEY$-compatible fallback from _KEYHIT for handlers that need it
-    IF k& > = 32 AND k& < = 126 THEN
+    IF k& >= 32 AND k& <= 126 THEN
         KEYHIT_CHAR$ = CHR$(k&)
     ELSEIF k& = 8 OR k& = 13 OR k& = 27 THEN
         KEYHIT_CHAR$ = CHR$(k&)
@@ -363,7 +363,7 @@ DO
     END IF
     idleDX% = (SCRN.w& - idleZW&) \ 2 + SCRN.offsetX% + SCRN.panelShiftX%
     idleDY% = (SCRN.h& - idleZH&) \ 2 + SCRN.offsetY%
-    IF MOUSE.RAW_X% > = idleDX% AND MOUSE.RAW_X% < idleDX% + idleZW& AND MOUSE.RAW_Y% > = idleDY% AND MOUSE.RAW_Y% < idleDY% + idleZH& THEN
+    IF MOUSE.RAW_X% >= idleDX% AND MOUSE.RAW_X% < idleDX% + idleZW& AND MOUSE.RAW_Y% >= idleDY% AND MOUSE.RAW_Y% < idleDY% + idleZH& THEN
         mouseOverCanvas% = TRUE
     END IF
 
@@ -435,7 +435,7 @@ DO
     END IF
     IF TRANSFORM.ACTIVE THEN
         FRAME_IDLE% = FALSE ' keep render loop active while overlay is live
-        IF TRANSFORM.GRABBED > = 0 OR TRANSFORM_PREVIEW_DIRTY THEN SCENE_CHANGED% = TRUE
+        IF TRANSFORM.GRABBED >= 0 OR TRANSFORM_PREVIEW_DIRTY THEN SCENE_CHANGED% = TRUE
     END IF
     IF CURRENT_TOOL% = TOOL_TEXT AND TEXT.ACTIVE THEN
         ' Text editing must stay at full FPS so keyboard repeats are consumed
@@ -462,7 +462,7 @@ DO
     IF SELECTION_has_active% THEN FRAME_IDLE% = FALSE  ' Animation only (marching ants) — no scene change
     ' Tooltip hover: only keep frames active while delay is counting or tooltip
     ' needs one more frame to render. Once displayed and static, allow idle.
-    IF TOOLTIP.HOVER_BTN_IDX% > = 0 AND (NOT TOOLTIP.ACTIVE% OR TOOLTIP.NEEDS_REDRAW%) THEN FRAME_IDLE% = FALSE
+    IF TOOLTIP.HOVER_BTN_IDX% >= 0 AND (NOT TOOLTIP.ACTIVE% OR TOOLTIP.NEEDS_REDRAW%) THEN FRAME_IDLE% = FALSE
     ' Preview tooltip: keep render loop active while hover timer counts or tooltip is shown
     IF PREVIEW.visible% AND NOT PREVIEW.autoHidden% AND PREVIEW.mode% = PREVIEW_MODE_FLOAT THEN
         IF PREVIEW.floatTooltipHoverStart# > 0 AND NOT PREVIEW.floatTooltipActive% THEN FRAME_IDLE% = FALSE

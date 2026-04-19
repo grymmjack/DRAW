@@ -15,10 +15,10 @@ labels(9)  = "HELP"
 labels(10) = "AUDIO"
 
 fh& = _LOADFONT("ASSETS/THEMES/DEFAULT/FONTS/Tiny5-Regular.ttf", 8, "DONTBLEND")
-IF fh& < = 0 THEN
+IF fh& <= 0 THEN
     fh& = _LOADFONT("ASSETS/FONTS/Tiny5-Regular.ttf", 8, "DONTBLEND")
 END IF
-IF fh& < = 0 THEN
+IF fh& <= 0 THEN
     OPEN "DEV/menu-metrics-out.txt" FOR OUTPUT AS #1
     PRINT #1, "ERROR: Could not load font"
     CLOSE #1

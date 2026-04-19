@@ -29,7 +29,7 @@ DIM si AS INTEGER
 FOR si% = 0 TO 2
     testSize% = sizes(si%)
     fh&       = _LOADFONT("ASSETS/FONTS/Apple ][.ttf", testSize%, "MONOSPACE")
-    IF fh& < = 0 THEN
+    IF fh& <= 0 THEN
         COLOR _RGB32(255, 0, 0)
         _PRINTSTRING (10, y%), "FAILED to load at size" + STR$(testSize%)
         y% = y% + 16

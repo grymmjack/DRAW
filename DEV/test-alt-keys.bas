@@ -209,12 +209,12 @@ DO
             logClr~& = C_GREEN~&
             logStr$  = "PRESS   k=" + LPAD$(LTRIM$(STR$(k&)), 8) + "  "
             IF k& > 0 AND k& < 127 THEN
-                IF k& > = 32 THEN
+                IF k& >= 32 THEN
                     logStr$ = logStr$ + "chr=" + CHR$(34) + CHR$(k&) + CHR$(34) + " (ASCII " + LTRIM$(STR$(k&)) + ")"
                 ELSE
                     logStr$ = logStr$ + "ctrl-chr (ASCII " + LTRIM$(STR$(k&)) + ")"
                 END IF
-            ELSEIF k& > = 256 AND k& < 65536 THEN
+            ELSEIF k& >= 256 AND k& < 65536 THEN
                 logStr$ = logStr$ + "unicode U+" + HEX$(k&)
             ELSE
                 logStr$ = logStr$ + KEYNAME$(k&)
@@ -225,12 +225,12 @@ DO
             DIM absK AS LONG: absK& = ABS(k&)
             logStr$ = "RELEASE k=" + LPAD$(LTRIM$(STR$(absK&)), 8) + "  "
             IF absK& > 0 AND absK& < 127 THEN
-                IF absK& > = 32 THEN
+                IF absK& >= 32 THEN
                     logStr$ = logStr$ + "chr=" + CHR$(34) + CHR$(absK&) + CHR$(34)
                 ELSE
                     logStr$ = logStr$ + "ctrl-chr (ASCII " + LTRIM$(STR$(absK&)) + ")"
                 END IF
-            ELSEIF absK& > = 256 AND absK& < 65536 THEN
+            ELSEIF absK& >= 256 AND absK& < 65536 THEN
                 logStr$ = logStr$ + "unicode U+" + HEX$(absK&)
             ELSE
                 logStr$ = logStr$ + KEYNAME$(absK&)
@@ -432,7 +432,7 @@ SUB SUB_drawPage2_AllKeys (startY%)
             ' New group — move to next column if not at row start
             IF y% > startY% + 40 THEN
                 col% = col% + 1
-                IF col% > = maxCols% THEN
+                IF col% >= maxCols% THEN
                     col% = 0
                     ' We'd need scrolling here but shouldn't overflow
                 END IF
@@ -607,7 +607,7 @@ SUB addTrack (n$, code&)
     SHARED trackDown() AS INTEGER, trackHeldFrames() AS LONG
     SHARED trackLastDetected() AS DOUBLE, trackCount AS INTEGER
 
-    IF trackCount% > = TRACK_MAX& THEN EXIT SUB
+    IF trackCount% >= TRACK_MAX& THEN EXIT SUB
     trackName$(trackCount%)         = n$
     trackCode&(trackCount%)         = code&
     trackDown%(trackCount%)         = FALSE
@@ -668,7 +668,7 @@ SUB addCombo (n$)
     SHARED comboName() AS STRING, comboActive() AS INTEGER
     SHARED comboLastDetected() AS DOUBLE, comboCount AS INTEGER
 
-    IF comboCount% > = COMBO_MAX& THEN EXIT SUB
+    IF comboCount% >= COMBO_MAX& THEN EXIT SUB
     comboName$(comboCount%)         = n$
     comboActive%(comboCount%)       = FALSE
     comboLastDetected#(comboCount%) = 0
@@ -816,7 +816,7 @@ END FUNCTION
 ' Utility: left-pad string
 ' =============================================================================
 FUNCTION LPAD$ (s$, width%)
-    IF LEN(s$) > = width% THEN
+    IF LEN(s$) >= width% THEN
         LPAD$ = s$
     ELSE
         LPAD$ = SPACE$(width% - LEN(s$)) + s$

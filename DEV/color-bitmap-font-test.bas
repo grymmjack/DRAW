@@ -195,7 +195,7 @@ FUNCTION CBF_load% (path$)
 
     ' Load spritesheet as 32-bit RGBA
     sheet& = _LOADIMAGE(path$, 32)
-    IF sheet& > = -1 THEN EXIT FUNCTION
+    IF sheet& >= -1 THEN EXIT FUNCTION
 
     sheetW = _WIDTH(sheet&)
     sheetH = _HEIGHT(sheet&)
@@ -214,11 +214,11 @@ FUNCTION CBF_load% (path$)
 
     ' --- Strategy 1: Single marker-row (only for strip-like images) ---
     ' Marker-row fonts are very wide and short (aspect ratio >= 3.0)
-    IF aspect! > = 3.0 THEN
+    IF aspect! >= 3.0 THEN
         glyH = sheetH - 1
         CBF_detect_markers
 
-        IF glyCount > = 3 THEN
+        IF glyCount >= 3 THEN
             ' Validate: check that there's no significant content below first row
             IF NOT CBF_has_content_below%(1 + glyH) THEN
                 markerValid% = -1
@@ -232,7 +232,7 @@ FUNCTION CBF_load% (path$)
             glyH     = 0
 
             CBF_detect_multi_marker
-            IF glyCount > = 3 THEN
+            IF glyCount >= 3 THEN
                 fontType     = FTYPE_MULTI_MARKER
                 markerValid% = -1
             ELSE
@@ -242,9 +242,9 @@ FUNCTION CBF_load% (path$)
     END IF
 
     ' --- Strategy 2: For moderate aspect ratios, try multi-row marker ---
-    IF fontType = FTYPE_UNKNOWN AND aspect! > = 1.5 THEN
+    IF fontType = FTYPE_UNKNOWN AND aspect! >= 1.5 THEN
         CBF_detect_multi_marker
-        IF glyCount > = 3 THEN
+        IF glyCount >= 3 THEN
             fontType = FTYPE_MULTI_MARKER
         ELSE
             glyCount = 0
@@ -254,7 +254,7 @@ FUNCTION CBF_load% (path$)
     ' --- Strategy 3: Packed grid (rows/cols separated by bg color) ---
     IF fontType = FTYPE_UNKNOWN THEN
         CBF_detect_packed_grid
-        IF glyCount > = 3 THEN
+        IF glyCount >= 3 THEN
             fontType = FTYPE_PACKED_GRID
         ELSE
             glyCount = 0
@@ -262,9 +262,9 @@ FUNCTION CBF_load% (path$)
     END IF
 
     ' --- Strategy 4: Fixed 16x16 grid fallback ---
-    IF fontType = FTYPE_UNKNOWN AND (sheetW > = 16) AND (sheetH > = 16) THEN
+    IF fontType = FTYPE_UNKNOWN AND (sheetW >= 16) AND (sheetH >= 16) THEN
         CBF_detect_grid
-        IF glyCount > = 3 THEN
+        IF glyCount >= 3 THEN
             fontType = FTYPE_GRID
             CBF_build_char_lookup_grid
             CBF_extract_glyphs
@@ -319,7 +319,7 @@ END FUNCTION
 ' ============================================================================
 FUNCTION CBF_has_content_below% (startY%)
     CBF_has_content_below% = 0
-    IF startY% > = sheetH THEN EXIT FUNCTION
+    IF startY% >= sheetH THEN EXIT FUNCTION
 
     DIM oldSrc AS LONG
     oldSrc& = _SOURCE
@@ -335,7 +335,7 @@ FUNCTION CBF_has_content_below% (startY%)
     IF step3% < 1 THEN step3% = 1
 
     FOR y% = startY% + step3% TO sheetH - 1 STEP step3%
-        IF y% > = sheetH THEN EXIT FOR
+        IF y% >= sheetH THEN EXIT FOR
         FOR x% = 0 TO sheetW - 1 STEP 2
             total% = total% + 1
             IF POINT(x%, y%) <> bgClr THEN nonBg% = nonBg% + 1
@@ -405,7 +405,7 @@ SUB CBF_detect_markers
             mk2Idx% = j%
         END IF
     NEXT j%
-    IF mk2Idx% > = 0 THEN
+    IF mk2Idx% >= 0 THEN
         mkClr = uClr(mk2Idx%)
     ELSE
         mkClr = _RGB32(255, 255, 0) ' fallback yellow
@@ -518,7 +518,7 @@ SUB CBF_detect_multi_marker
         bgPct! = bgCount% / sheetW
 
         ' Check if this is a marker scanline
-        IF bgPct! > = 0.80 AND bgPct! < 0.99 AND transitions% > = 3 THEN
+        IF bgPct! >= 0.80 AND bgPct! < 0.99 AND transitions% >= 3 THEN
             markerY(rowCount%) = y%
 
             ' Find where the content below this marker ends
@@ -544,7 +544,7 @@ SUB CBF_detect_multi_marker
 
                 ' If this line looks like it could be a marker for the next row,
                 ' or is a full separator, end the current content row
-                IF bgPct2! > = 0.80 AND (trans2% > = 3 OR bgPct2! > = 0.98) THEN
+                IF bgPct2! >= 0.80 AND (trans2% >= 3 OR bgPct2! >= 0.98) THEN
                     EXIT DO
                 END IF
                 yEnd% = yEnd% + 1
@@ -799,7 +799,7 @@ SUB CBF_build_char_lookup
             ch%             = ASC(MID$(charSeq$, i%, 1))
             char2glyph(ch%) = i% - 1
             ' Map lowercase to uppercase
-            IF ch% > = 65 AND ch% < = 90 THEN
+            IF ch% >= 65 AND ch% <= 90 THEN
                 char2glyph(ch% + 32) = i% - 1
             END IF
         END IF
@@ -825,12 +825,12 @@ SUB CBF_extract_glyphs
         gy% = gly(i%).srcY
         gw% = gly(i%).srcW
         gh% = gly(i%).srcH
-        IF gh% < = 0 THEN gh% = glyH ' Fallback to global height
+        IF gh% <= 0 THEN gh% = glyH ' Fallback to global height
 
         IF gw% < 1 OR gh% < 1 THEN _CONTINUE
 
         gly(i%).img = _NEWIMAGE(gw%, gh%, 32)
-        IF gly(i%).img > = -1 THEN
+        IF gly(i%).img >= -1 THEN
             _LOGWARN "CBF: Failed to create glyph image " + LTRIM$(STR$(i%))
             _CONTINUE
         END IF
@@ -872,7 +872,7 @@ SUB CBF_render_text (text$, startX%, startY%)
         END IF
 
         gi% = char2glyph(ch%)
-        IF gi% > = 0 AND gi% < glyCount THEN
+        IF gi% >= 0 AND gi% < glyCount THEN
             IF gly(gi%).img < -1 THEN
                 _PUTIMAGE (xPos%, startY%), gly(gi%).img
                 xPos% = xPos% + gly(gi%).srcW + charSpacing
@@ -895,7 +895,7 @@ FUNCTION CBF_text_width% (text$)
             w% = w% + spaceW + charSpacing
         ELSE
             gi% = char2glyph(ch%)
-            IF gi% > = 0 AND gi% < glyCount THEN
+            IF gi% >= 0 AND gi% < glyCount THEN
                 w% = w% + gly(gi%).srcW + charSpacing
             END IF
         END IF
@@ -980,7 +980,7 @@ SUB CBF_read_font_list (tmpFile$)
         LINE INPUT #ff%, ln$
         ln$ = LTRIM$(RTRIM$(ln$))
         IF LEN(ln$) = 0 THEN _CONTINUE
-        IF fontFileCount > = MAX_FONTS THEN EXIT DO
+        IF fontFileCount >= MAX_FONTS THEN EXIT DO
         fontFiles(fontFileCount) = ln$
         fontFileCount = fontFileCount + 1
     LOOP
@@ -1038,7 +1038,7 @@ SUB CBF_detect_grid
     charSeq$ = ""
 
     FOR charIdx% = 32 TO 127
-        IF glyCount > = MAX_GLYPHS THEN EXIT FOR
+        IF glyCount >= MAX_GLYPHS THEN EXIT FOR
         row% = charIdx% \ 16
         col% = charIdx% MOD 16
 
@@ -1069,9 +1069,9 @@ SUB CBF_build_char_lookup_grid
             ch%             = ASC(MID$(charSeq$, i%, 1))
             char2glyph(ch%) = i% - 1
             ' Map uppercase to lowercase and vice versa
-            IF ch% > = 65 AND ch% < = 90 THEN
+            IF ch% >= 65 AND ch% <= 90 THEN
                 IF char2glyph(ch% + 32) = -1 THEN char2glyph(ch% + 32) = i% - 1
-            ELSEIF ch% > = 97 AND ch% < = 122 THEN
+            ELSEIF ch% >= 97 AND ch% <= 122 THEN
                 IF char2glyph(ch% - 32) = -1 THEN char2glyph(ch% - 32) = i% - 1
             END IF
         END IF
@@ -1316,7 +1316,7 @@ SUB CBF_main_loop
                     COLOR _RGB32(120, 120, 120)
                     DIM mapInfo AS STRING
                     mapInfo$ = "Char map (ASCII " + LTRIM$(STR$(ASC(LEFT$(charSeq$, 1)))) + "-" + LTRIM$(STR$(ASC(RIGHT$(charSeq$, 1)))) + "): "
-                    IF LEN(charSeq$) < = 96 THEN
+                    IF LEN(charSeq$) <= 96 THEN
                         mapInfo$ = mapInfo$ + charSeq$
                     ELSE
                         mapInfo$ = mapInfo$ + LEFT$(charSeq$, 96) + "..."
@@ -1403,7 +1403,7 @@ SUB CBF_main_loop
             CASE KEY_RIGHT ' Next font
                 IF fontFileCount > 1 THEN
                     fontFileIdx = fontFileIdx + 1
-                    IF fontFileIdx > = fontFileCount THEN fontFileIdx = 0
+                    IF fontFileIdx >= fontFileCount THEN fontFileIdx = 0
                     loadFailed% = 0
                     IF NOT CBF_load%(fontFiles(fontFileIdx)) THEN loadFailed% = -1
                     needRedraw% = -1
@@ -1422,8 +1422,8 @@ SUB CBF_main_loop
             CASE KEY_PGDN  ' Skip 10 fonts forward
                 IF fontFileCount > 1 THEN
                     fontFileIdx = fontFileIdx + 10
-                    IF fontFileIdx > = fontFileCount THEN fontFileIdx = fontFileIdx - fontFileCount
-                    IF fontFileIdx > = fontFileCount THEN fontFileIdx = fontFileCount - 1
+                    IF fontFileIdx >= fontFileCount THEN fontFileIdx = fontFileIdx - fontFileCount
+                    IF fontFileIdx >= fontFileCount THEN fontFileIdx = fontFileCount - 1
                     loadFailed% = 0
                     IF NOT CBF_load%(fontFiles(fontFileIdx)) THEN loadFailed% = -1
                     needRedraw% = -1

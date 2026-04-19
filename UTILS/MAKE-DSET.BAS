@@ -107,7 +107,7 @@ DO
         desaturate% = TRUE
     ELSE
         posArgs% = posArgs% + 1
-        IF posArgs% < = UBOUND(posArgList) THEN posArgList(posArgs%) = argVal$
+        IF posArgs% <= UBOUND(posArgList) THEN posArgList(posArgs%) = argVal$
     END IF
     argNum% = argNum% + 1
 LOOP
@@ -122,7 +122,7 @@ END IF
 DIM isDsetFile AS INTEGER
 isDsetFile% = FALSE
 inputDset$  = posArgList(1)
-IF posArgs% > = 2 THEN outputDset$ = posArgList(2) ELSE outputDset$ = ""
+IF posArgs% >= 2 THEN outputDset$ = posArgList(2) ELSE outputDset$ = ""
 
 IF LCASE$(RIGHT$(inputDset$, 5)) = ".dset" THEN
     ' Resolve path
@@ -286,7 +286,7 @@ FOR setNum% = 1 TO setCount%
         DIM fileIdx AS INTEGER
         fileIdx% = startIdx% + slotNum% - 1
 
-        IF fileIdx% < = endIdx% THEN
+        IF fileIdx% <= endIdx% THEN
             imgPath$   = fileList(fileIdx%)
             imgHandle& = _LOADIMAGE(imgPath$, 32)
 

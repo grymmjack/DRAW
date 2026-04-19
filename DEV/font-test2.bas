@@ -32,7 +32,7 @@ FOR i% = 0 TO 11
 
     ' Load with DONTBLEND (non-AA, like charmap uses)
     fh& = _LOADFONT(FP$, sz%, "DONTBLEND")
-    IF fh& < = 0 THEN
+    IF fh& <= 0 THEN
         COLOR _RGB32(255, 80, 80), _RGB32(0, 0, 0)
         _FONT 16
         _PRINTSTRING (4, y%), "SIZE " + LTRIM$(STR$(sz%)) + ": FAILED TO LOAD"
