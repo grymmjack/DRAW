@@ -18,6 +18,10 @@ CONST EXPORT_QB64_ACTION = 220
 
 DECLARE SUB FILE_QB64_export_dialog ()
 DECLARE SUB FILE_QB64_export (basPath AS STRING)
+DECLARE SUB FILE_QB64_export_quick ()
 DECLARE FUNCTION FILE_QB64_classify_layer_export% (layerIdx AS INTEGER)
 DECLARE SUB FILE_QB64_recompute_export_mode (layerIdx AS INTEGER)
 DECLARE SUB FILE_QB64_recompute_all_export_modes ()
+
+'' Session-scoped last QB64 project export path (not persisted to config)
+DIM SHARED FILE_QB64_LAST_EXPORT_PATH AS STRING
