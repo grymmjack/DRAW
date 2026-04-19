@@ -38,7 +38,7 @@ FUNCTION FILE_QB64_classify_layer_export% (layerIdx AS INTEGER)
     DIM forceImg  AS INTEGER
     DIM parentIdx AS INTEGER
 
-    IF layerIdx% < 1 OR layerIdx% > LAYER_COUNT% THEN
+    IF layerIdx% < 1 OR layerIdx% > MAX_LAYERS THEN
         FILE_QB64_classify_layer_export% = EXPORT_MODE_NONE
         EXIT FUNCTION
     END IF
@@ -58,10 +58,12 @@ FUNCTION FILE_QB64_classify_layer_export% (layerIdx AS INTEGER)
     ' Symbol children inherit parent's export mode
     IF LAYERS(layerIdx%).layerType% = LAYER_TYPE_SYMBOL_CHILD THEN
         parentIdx% = 0
-        FOR i% = 1 TO LAYER_COUNT%
-            IF LAYERS(i%).historyId& = LAYERS(layerIdx%).symbolParentId& THEN
-                parentIdx% = i%
-                EXIT FOR
+        FOR i% = 1 TO MAX_LAYERS
+            IF LAYERS(i%).imgHandle& <> 0 THEN
+                IF LAYERS(i%).historyId& = LAYERS(layerIdx%).symbolParentId& THEN
+                    parentIdx% = i%
+                    EXIT FOR
+                END IF
             END IF
         NEXT i%
         IF parentIdx% > 0 THEN
@@ -140,7 +142,23 @@ FUNCTION FILE_QB64_classify_layer_export% (layerIdx AS INTEGER)
     IF forceImg% THEN
         FILE_QB64_classify_layer_export% = EXPORT_MODE_IMG
     ELSEIF NOT hasDrawingOps% THEN
-        ' No drawing history — check if layer has pixel content (loaded image)
+        ' No drawing history — check if this is a duplicate of a vector/text layer
+        DIM dupSourceId AS LONG
+        dupSourceId& = FILE_QB64_find_duplicate_source&(layerIdx%)
+        IF dupSourceId& > 0 THEN
+            ' Find source layer and inherit its export mode
+            DIM srcIdx AS INTEGER
+            FOR srcIdx% = 1 TO MAX_LAYERS
+                IF LAYERS(srcIdx%).imgHandle& <> 0 THEN
+                    IF LAYERS(srcIdx%).historyId& = dupSourceId& THEN
+                        FILE_QB64_classify_layer_export% = LAYERS(srcIdx%).exportMode%
+                        EXIT FUNCTION
+                    END IF
+                END IF
+            NEXT srcIdx%
+            ' Source layer not found — fall through to pixel check
+        END IF
+        ' No duplicate source — check if layer has pixel content (loaded image)
         IF LAYERS(layerIdx%).imgHandle& < -1 THEN
             FILE_QB64_classify_layer_export% = EXPORT_MODE_IMG
         ELSE
@@ -152,11 +170,43 @@ FUNCTION FILE_QB64_classify_layer_export% (layerIdx AS INTEGER)
 END FUNCTION
 
 ''
+' Finds the source historyId for a duplicated layer by scanning its history
+' for a "Layer Duplicate:N" or "Dup Group Child:N" label.
+' Returns 0 if not a duplicate or source not found.
+'
+' @param layerIdx INTEGER Index into LAYERS() array
+' @return LONG Source layer's historyId, or 0
+'
+FUNCTION FILE_QB64_find_duplicate_source& (layerIdx AS INTEGER)
+    DIM j          AS INTEGER
+    DIM recLabel   AS STRING
+    DIM colonPos   AS INTEGER
+    DIM layerId    AS LONG
+
+    FILE_QB64_find_duplicate_source& = 0
+    IF layerIdx% < 1 OR layerIdx% > MAX_LAYERS THEN EXIT FUNCTION
+
+    layerId& = LAYERS(layerIdx%).historyId&
+    FOR j% = 1 TO HISTORY.current%
+        IF HISTORY_RECORDS(j%).primaryLayerId& <> layerId& THEN _CONTINUE
+        IF HISTORY_RECORDS(j%).kind% <> HISTORY_KIND_LAYER_ADD THEN _CONTINUE
+        recLabel$ = _TRIM$(HISTORY_RECORDS(j%).label$)
+        IF LEFT$(recLabel$, 16) = "Layer Duplicate:" THEN
+            FILE_QB64_find_duplicate_source& = VAL(MID$(recLabel$, 17))
+            EXIT FUNCTION
+        ELSEIF LEFT$(recLabel$, 16) = "Dup Group Child:" THEN
+            FILE_QB64_find_duplicate_source& = VAL(MID$(recLabel$, 17))
+            EXIT FUNCTION
+        END IF
+    NEXT j%
+END FUNCTION
+
+''
 ' Recomputes the export mode for a single layer.
 ' @param layerIdx INTEGER Index into LAYERS() array
 '
 SUB FILE_QB64_recompute_export_mode (layerIdx AS INTEGER)
-    IF layerIdx% >= 1 AND layerIdx% <= LAYER_COUNT% THEN
+    IF layerIdx% >= 1 AND layerIdx% <= MAX_LAYERS THEN
         LAYERS(layerIdx%).exportMode% = FILE_QB64_classify_layer_export%(layerIdx%)
     END IF
 END SUB
@@ -166,8 +216,10 @@ END SUB
 '
 SUB FILE_QB64_recompute_all_export_modes ()
     DIM i AS INTEGER
-    FOR i% = 1 TO LAYER_COUNT%
-        LAYERS(i%).exportMode% = FILE_QB64_classify_layer_export%(i%)
+    FOR i% = 1 TO MAX_LAYERS
+        IF LAYERS(i%).imgHandle& <> 0 THEN
+            LAYERS(i%).exportMode% = FILE_QB64_classify_layer_export%(i%)
+        END IF
     NEXT i%
 END SUB
 
@@ -180,7 +232,7 @@ FUNCTION FILE_QB64_export_badge$ (layerIdx AS INTEGER)
     DIM mode AS INTEGER
     DIM isChild AS INTEGER
 
-    IF layerIdx% < 1 OR layerIdx% > LAYER_COUNT% THEN
+    IF layerIdx% < 1 OR layerIdx% > MAX_LAYERS THEN
         FILE_QB64_export_badge$ = ""
         EXIT FUNCTION
     END IF
@@ -219,7 +271,7 @@ END FUNCTION
 '
 FUNCTION FILE_QB64_badge_color~& (layerIdx AS INTEGER)
     DIM mode AS INTEGER
-    IF layerIdx% < 1 OR layerIdx% > LAYER_COUNT% THEN
+    IF layerIdx% < 1 OR layerIdx% > MAX_LAYERS THEN
         FILE_QB64_badge_color~& = _RGB32(128, 128, 128)
         EXIT FUNCTION
     END IF
@@ -356,7 +408,7 @@ SUB FILE_QB64_export (basPath AS STRING)
     ' Build z-ordered layer list (bottom to top, visible only, skip groups)
     sortCount% = 0
     REDIM sortedZ(1 TO MAX_LAYERS) AS INTEGER
-    FOR i% = 1 TO LAYER_COUNT%
+    FOR i% = 1 TO MAX_LAYERS
         IF LAYERS(i%).imgHandle& <> 0 OR LAYERS(i%).layerType% = LAYER_TYPE_TEXT THEN
             IF LAYERS(i%).visible% THEN
                 IF LAYERS(i%).layerType% <> LAYER_TYPE_GROUP THEN
@@ -564,21 +616,24 @@ SUB FILE_QB64_export (basPath AS STRING)
 
         DIM hasOpacity AS INTEGER
         DIM opStr AS STRING
+        DIM dupSrcId AS LONG
+        DIM dupSrcIdx AS INTEGER
+        DIM dupSrcSubN AS STRING
         hasOpacity% = (LAYERS(cIdx%).opacity% < 255 AND LAYERS(cIdx%).opacity% > 0)
         opStr$ = _TRIM$(STR$(LAYERS(cIdx%).opacity%))
+        dupSrcId& = FILE_QB64_find_duplicate_source&(cIdx%)
 
         SELECT CASE mode%
             CASE EXPORT_MODE_VECTOR
                 IF LAYERS(cIdx%).layerType% = LAYER_TYPE_SYMBOL_CHILD THEN
                     ' Find parent SUB name and call it
                     parentIdx% = 0
-                    FOR parentIdx% = 1 TO LAYER_COUNT%
+                    FOR parentIdx% = 1 TO MAX_LAYERS
                         IF LAYERS(parentIdx%).historyId& = LAYERS(cIdx%).symbolParentId& THEN EXIT FOR
                     NEXT parentIdx%
-                    IF parentIdx% >= 1 AND parentIdx% <= LAYER_COUNT% THEN
+                    IF parentIdx% >= 1 AND parentIdx% <= MAX_LAYERS THEN
                         parentSubN$ = FILE_BAS_safe_identifier$(_TRIM$(LAYERS(parentIdx%).name), "layer_" + _TRIM$(STR$(LAYERS(parentIdx%).historyId&))) + "_" + _TRIM$(STR$(LAYERS(parentIdx%).historyId&))
                         IF hasOpacity% THEN
-                            PRINT #fh%, "DIM tmpLayer AS LONG"
                             PRINT #fh%, "tmpLayer& = _NEWIMAGE(CANVAS_W, CANVAS_H, 32)"
                             PRINT #fh%, "_DEST tmpLayer&"
                             PRINT #fh%, parentSubN$ + " ' [linked from " + _TRIM$(LAYERS(parentIdx%).name) + "]"
@@ -590,9 +645,28 @@ SUB FILE_QB64_export (basPath AS STRING)
                             PRINT #fh%, parentSubN$ + " ' [linked from " + _TRIM$(LAYERS(parentIdx%).name) + "]"
                         END IF
                     END IF
+                ELSEIF dupSrcId& > 0 THEN
+                    ' Duplicate layer — call source layer's SUB
+                    dupSrcIdx% = 0
+                    FOR dupSrcIdx% = 1 TO MAX_LAYERS
+                        IF LAYERS(dupSrcIdx%).historyId& = dupSrcId& THEN EXIT FOR
+                    NEXT dupSrcIdx%
+                    IF dupSrcIdx% >= 1 AND dupSrcIdx% <= MAX_LAYERS THEN
+                        dupSrcSubN$ = FILE_BAS_safe_identifier$(_TRIM$(LAYERS(dupSrcIdx%).name), "layer_" + _TRIM$(STR$(dupSrcId&))) + "_" + _TRIM$(STR$(dupSrcId&))
+                        IF hasOpacity% THEN
+                            PRINT #fh%, "tmpLayer& = _NEWIMAGE(CANVAS_W, CANVAS_H, 32)"
+                            PRINT #fh%, "_DEST tmpLayer&"
+                            PRINT #fh%, dupSrcSubN$ + " ' [duplicate of " + _TRIM$(LAYERS(dupSrcIdx%).name) + "]"
+                            PRINT #fh%, "_DEST 0"
+                            PRINT #fh%, "ScaleImageAlpha tmpLayer&, " + opStr$
+                            PRINT #fh%, "_PUTIMAGE (0, 0), tmpLayer&"
+                            PRINT #fh%, "_FREEIMAGE tmpLayer&"
+                        ELSE
+                            PRINT #fh%, dupSrcSubN$ + " ' [duplicate of " + _TRIM$(LAYERS(dupSrcIdx%).name) + "]"
+                        END IF
+                    END IF
                 ELSE
                     IF hasOpacity% THEN
-                        PRINT #fh%, "DIM tmpLayer AS LONG"
                         PRINT #fh%, "tmpLayer& = _NEWIMAGE(CANVAS_W, CANVAS_H, 32)"
                         PRINT #fh%, "_DEST tmpLayer&"
                         PRINT #fh%, subName$
@@ -608,10 +682,10 @@ SUB FILE_QB64_export (basPath AS STRING)
             CASE EXPORT_MODE_TEXT
                 IF LAYERS(cIdx%).layerType% = LAYER_TYPE_SYMBOL_CHILD THEN
                     parentIdx% = 0
-                    FOR parentIdx% = 1 TO LAYER_COUNT%
+                    FOR parentIdx% = 1 TO MAX_LAYERS
                         IF LAYERS(parentIdx%).historyId& = LAYERS(cIdx%).symbolParentId& THEN EXIT FOR
                     NEXT parentIdx%
-                    IF parentIdx% >= 1 AND parentIdx% <= LAYER_COUNT% THEN
+                    IF parentIdx% >= 1 AND parentIdx% <= MAX_LAYERS THEN
                         parentSubN$ = FILE_BAS_safe_identifier$(_TRIM$(LAYERS(parentIdx%).name), "layer_" + _TRIM$(STR$(LAYERS(parentIdx%).historyId&))) + "_" + _TRIM$(STR$(LAYERS(parentIdx%).historyId&))
                         IF hasOpacity% THEN
                             PRINT #fh%, "tmpLayer& = _NEWIMAGE(CANVAS_W, CANVAS_H, 32)"
@@ -623,6 +697,26 @@ SUB FILE_QB64_export (basPath AS STRING)
                             PRINT #fh%, "_FREEIMAGE tmpLayer&"
                         ELSE
                             PRINT #fh%, parentSubN$ + " ' [linked from " + _TRIM$(LAYERS(parentIdx%).name) + "]"
+                        END IF
+                    END IF
+                ELSEIF dupSrcId& > 0 THEN
+                    ' Duplicate text layer — call source layer's SUB
+                    dupSrcIdx% = 0
+                    FOR dupSrcIdx% = 1 TO MAX_LAYERS
+                        IF LAYERS(dupSrcIdx%).historyId& = dupSrcId& THEN EXIT FOR
+                    NEXT dupSrcIdx%
+                    IF dupSrcIdx% >= 1 AND dupSrcIdx% <= MAX_LAYERS THEN
+                        dupSrcSubN$ = FILE_BAS_safe_identifier$(_TRIM$(LAYERS(dupSrcIdx%).name), "layer_" + _TRIM$(STR$(dupSrcId&))) + "_" + _TRIM$(STR$(dupSrcId&))
+                        IF hasOpacity% THEN
+                            PRINT #fh%, "tmpLayer& = _NEWIMAGE(CANVAS_W, CANVAS_H, 32)"
+                            PRINT #fh%, "_DEST tmpLayer&"
+                            PRINT #fh%, dupSrcSubN$ + " ' [duplicate of " + _TRIM$(LAYERS(dupSrcIdx%).name) + "]"
+                            PRINT #fh%, "_DEST 0"
+                            PRINT #fh%, "ScaleImageAlpha tmpLayer&, " + opStr$
+                            PRINT #fh%, "_PUTIMAGE (0, 0), tmpLayer&"
+                            PRINT #fh%, "_FREEIMAGE tmpLayer&"
+                        ELSE
+                            PRINT #fh%, dupSrcSubN$ + " ' [duplicate of " + _TRIM$(LAYERS(dupSrcIdx%).name) + "]"
                         END IF
                     END IF
                 ELSE
@@ -644,10 +738,10 @@ SUB FILE_QB64_export (basPath AS STRING)
                 IF LAYERS(cIdx%).layerType% = LAYER_TYPE_SYMBOL_CHILD THEN
                     ' Find parent's image var
                     parentIdx% = 0
-                    FOR parentIdx% = 1 TO LAYER_COUNT%
+                    FOR parentIdx% = 1 TO MAX_LAYERS
                         IF LAYERS(parentIdx%).historyId& = LAYERS(cIdx%).symbolParentId& THEN EXIT FOR
                     NEXT parentIdx%
-                    IF parentIdx% >= 1 AND parentIdx% <= LAYER_COUNT% THEN
+                    IF parentIdx% >= 1 AND parentIdx% <= MAX_LAYERS THEN
                         DIM parentImgName AS STRING
                         parentImgName$ = FILE_BAS_safe_identifier$(_TRIM$(LAYERS(parentIdx%).name), "layer_" + _TRIM$(STR$(LAYERS(parentIdx%).historyId&)))
                         IF hasOpacity% THEN
@@ -774,6 +868,9 @@ SUB FILE_QB64_export (basPath AS STRING)
         ' IMG layers don't get a SUB — they're loaded from PNG
         IF LAYERS(sIdx%).exportMode% = EXPORT_MODE_IMG THEN _CONTINUE
 
+        ' Duplicates don't get their own SUB — they call source's SUB
+        IF FILE_QB64_find_duplicate_source&(sIdx%) > 0 THEN _CONTINUE
+
         layerId& = LAYERS(sIdx%).historyId&
         subName$ = FILE_BAS_safe_identifier$(_TRIM$(LAYERS(sIdx%).name), "layer_" + _TRIM$(STR$(layerId&))) + "_" + _TRIM$(STR$(layerId&))
 
@@ -815,10 +912,8 @@ SUB FILE_QB64_emit_vector_ops (fh AS INTEGER, layerIdx AS INTEGER, indent AS STR
     DIM recKind       AS INTEGER
     DIM recFlags      AS LONG
     DIM colorExpr     AS STRING
-    DIM lastColorExpr AS STRING
 
     layerId& = LAYERS(layerIdx%).historyId&
-    lastColorExpr$ = ""
 
     FOR i% = 1 TO HISTORY.current%
         IF HISTORY_RECORDS(i%).primaryLayerId& <> layerId& THEN _CONTINUE
@@ -832,32 +927,19 @@ SUB FILE_QB64_emit_vector_ops (fh AS INTEGER, layerIdx AS INTEGER, indent AS STR
                     ' Thick brush line — fall back to pixel diff (before/after images)
                     IF FILE_BAS_is_expanded_exportable%(i%) THEN
                         FILE_QB64_emit_pixel_diff fh%, i%, indent$
-                        lastColorExpr$ = "" ' pixel diff has own color tracking
                     ELSE
-                        IF colorExpr$ <> lastColorExpr$ THEN
-                            PRINT #fh%, indent$ + "COLOR " + colorExpr$
-                            lastColorExpr$ = colorExpr$
-                        END IF
-                        PRINT #fh%, indent$ + "LINE (" + _TRIM$(STR$(HISTORY_RECORDS(i%).x1%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(i%).y1%)) + ")-(" + _TRIM$(STR$(HISTORY_RECORDS(i%).x2%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(i%).y2%)) + ")"
+                        PRINT #fh%, indent$ + "LINE (" + _TRIM$(STR$(HISTORY_RECORDS(i%).x1%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(i%).y1%)) + ")-(" + _TRIM$(STR$(HISTORY_RECORDS(i%).x2%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(i%).y2%)) + "), " + colorExpr$
                     END IF
                 ELSE
-                    IF colorExpr$ <> lastColorExpr$ THEN
-                        PRINT #fh%, indent$ + "COLOR " + colorExpr$
-                        lastColorExpr$ = colorExpr$
-                    END IF
-                    PRINT #fh%, indent$ + "LINE (" + _TRIM$(STR$(HISTORY_RECORDS(i%).x1%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(i%).y1%)) + ")-(" + _TRIM$(STR$(HISTORY_RECORDS(i%).x2%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(i%).y2%)) + ")"
+                    PRINT #fh%, indent$ + "LINE (" + _TRIM$(STR$(HISTORY_RECORDS(i%).x1%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(i%).y1%)) + ")-(" + _TRIM$(STR$(HISTORY_RECORDS(i%).x2%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(i%).y2%)) + "), " + colorExpr$
                 END IF
 
             CASE HISTORY_KIND_RECT
                 colorExpr$ = FILE_BAS_color_expr$(HISTORY_RECORDS(i%).colorFG~&)
-                IF colorExpr$ <> lastColorExpr$ THEN
-                    PRINT #fh%, indent$ + "COLOR " + colorExpr$
-                    lastColorExpr$ = colorExpr$
-                END IF
                 IF (recFlags& AND HISTORY_FLAG_FILLED) <> 0 THEN
-                    PRINT #fh%, indent$ + "LINE (" + _TRIM$(STR$(HISTORY_RECORDS(i%).x1%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(i%).y1%)) + ")-(" + _TRIM$(STR$(HISTORY_RECORDS(i%).x2%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(i%).y2%)) + "), , BF"
+                    PRINT #fh%, indent$ + "LINE (" + _TRIM$(STR$(HISTORY_RECORDS(i%).x1%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(i%).y1%)) + ")-(" + _TRIM$(STR$(HISTORY_RECORDS(i%).x2%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(i%).y2%)) + "), " + colorExpr$ + ", BF"
                 ELSE
-                    PRINT #fh%, indent$ + "LINE (" + _TRIM$(STR$(HISTORY_RECORDS(i%).x1%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(i%).y1%)) + ")-(" + _TRIM$(STR$(HISTORY_RECORDS(i%).x2%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(i%).y2%)) + "), , B"
+                    PRINT #fh%, indent$ + "LINE (" + _TRIM$(STR$(HISTORY_RECORDS(i%).x1%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(i%).y1%)) + ")-(" + _TRIM$(STR$(HISTORY_RECORDS(i%).x2%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(i%).y2%)) + "), " + colorExpr$ + ", B"
                 END IF
 
             CASE HISTORY_KIND_ELLIPSE
@@ -871,19 +953,14 @@ SUB FILE_QB64_emit_vector_ops (fh AS INTEGER, layerIdx AS INTEGER, indent AS STR
                 IF ry! <= 0 THEN ry! = 1
                 IF (recFlags& AND HISTORY_FLAG_FILLED) <> 0 THEN
                     PRINT #fh%, indent$ + "FillEllipseScanline " + _TRIM$(STR$(HISTORY_RECORDS(i%).x1%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(i%).y1%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(i%).x2%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(i%).y2%)) + ", " + colorExpr$
-                    lastColorExpr$ = "" ' helper SUB may change color state
                 ELSE
-                    IF colorExpr$ <> lastColorExpr$ THEN
-                        PRINT #fh%, indent$ + "COLOR " + colorExpr$
-                        lastColorExpr$ = colorExpr$
-                    END IF
                     DIM aspect AS SINGLE
                     IF rx! >= ry! THEN
                         aspect! = ry! / rx!
-                        PRINT #fh%, indent$ + "CIRCLE (" + _TRIM$(STR$(INT(cx!))) + ", " + _TRIM$(STR$(INT(cy!))) + "), " + _TRIM$(STR$(INT(rx!))) + ", , , , " + _TRIM$(STR$(aspect!))
+                        PRINT #fh%, indent$ + "CIRCLE (" + _TRIM$(STR$(INT(cx!))) + ", " + _TRIM$(STR$(INT(cy!))) + "), " + _TRIM$(STR$(INT(rx!))) + ", " + colorExpr$ + ", , , " + _TRIM$(STR$(aspect!))
                     ELSE
                         aspect! = rx! / ry!
-                        PRINT #fh%, indent$ + "CIRCLE (" + _TRIM$(STR$(INT(cx!))) + ", " + _TRIM$(STR$(INT(cy!))) + "), " + _TRIM$(STR$(INT(ry!))) + ", , , , " + _TRIM$(STR$(aspect!))
+                        PRINT #fh%, indent$ + "CIRCLE (" + _TRIM$(STR$(INT(cx!))) + ", " + _TRIM$(STR$(INT(cy!))) + "), " + _TRIM$(STR$(INT(ry!))) + ", " + colorExpr$ + ", , , " + _TRIM$(STR$(aspect!))
                     END IF
                 END IF
 
@@ -892,7 +969,6 @@ SUB FILE_QB64_emit_vector_ops (fh AS INTEGER, layerIdx AS INTEGER, indent AS STR
                 IF HISTORY_RECORDS(i%).x1% = -32768 AND HISTORY_RECORDS(i%).y1% = -32768 THEN
                     ' Full-canvas fill (CLS sentinel) — always inline
                     PRINT #fh%, indent$ + "CLS , " + colorExpr$
-                    lastColorExpr$ = "" ' CLS doesn't set drawing color
                 ELSE
                     ' Find border color from the most recent shape on same layer
                     DIM borderExpr AS STRING
@@ -913,7 +989,6 @@ SUB FILE_QB64_emit_vector_ops (fh AS INTEGER, layerIdx AS INTEGER, indent AS STR
                     ELSE
                         PRINT #fh%, indent$ + "PAINT (" + _TRIM$(STR$(HISTORY_RECORDS(i%).x1%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(i%).y1%)) + "), " + colorExpr$
                     END IF
-                    lastColorExpr$ = "" ' PAINT doesn't set COLOR state
                 END IF
 
             CASE HISTORY_KIND_POLYLINE
@@ -947,16 +1022,12 @@ SUB FILE_QB64_emit_vector_ops (fh AS INTEGER, layerIdx AS INTEGER, indent AS STR
                     NEXT pIdx%
 
                     colorExpr$ = FILE_BAS_color_expr$(HISTORY_RECORDS(i%).colorFG~&)
-                    IF colorExpr$ <> lastColorExpr$ THEN
-                        PRINT #fh%, indent$ + "COLOR " + colorExpr$
-                        lastColorExpr$ = colorExpr$
-                    END IF
                     FOR pts% = 0 TO ptCount% - 2
-                        PRINT #fh%, indent$ + "LINE (" + _TRIM$(STR$(pxArr(pts%))) + ", " + _TRIM$(STR$(pyArr(pts%))) + ")-(" + _TRIM$(STR$(pxArr(pts% + 1))) + ", " + _TRIM$(STR$(pyArr(pts% + 1))) + ")"
+                        PRINT #fh%, indent$ + "LINE (" + _TRIM$(STR$(pxArr(pts%))) + ", " + _TRIM$(STR$(pyArr(pts%))) + ")-(" + _TRIM$(STR$(pxArr(pts% + 1))) + ", " + _TRIM$(STR$(pyArr(pts% + 1))) + "), " + colorExpr$
                     NEXT pts%
                     ' Close polygon (last to first)
                     IF ptCount% >= 3 THEN
-                        PRINT #fh%, indent$ + "LINE (" + _TRIM$(STR$(pxArr(ptCount% - 1))) + ", " + _TRIM$(STR$(pyArr(ptCount% - 1))) + ")-(" + _TRIM$(STR$(pxArr(0))) + ", " + _TRIM$(STR$(pyArr(0))) + ")"
+                        PRINT #fh%, indent$ + "LINE (" + _TRIM$(STR$(pxArr(ptCount% - 1))) + ", " + _TRIM$(STR$(pyArr(ptCount% - 1))) + ")-(" + _TRIM$(STR$(pxArr(0))) + ", " + _TRIM$(STR$(pyArr(0))) + "), " + colorExpr$
                     END IF
 
                     IF (recFlags& AND HISTORY_FLAG_FILLED) <> 0 THEN
@@ -968,7 +1039,6 @@ SUB FILE_QB64_emit_vector_ops (fh AS INTEGER, layerIdx AS INTEGER, indent AS STR
                             PRINT #fh%, indent$ + "polyY_" + _TRIM$(STR$(i%)) + "(" + _TRIM$(STR$(pIdx%)) + ") = " + _TRIM$(STR$(pyArr(pIdx%)))
                         NEXT pIdx%
                         PRINT #fh%, indent$ + "FillPolygonScanline " + _TRIM$(STR$(ptCount%)) + ", polyX_" + _TRIM$(STR$(i%)) + "(), polyY_" + _TRIM$(STR$(i%)) + "(), " + colorExpr$
-                        lastColorExpr$ = "" ' helper SUB may change color state
                     END IF
                 END IF
 
@@ -976,7 +1046,6 @@ SUB FILE_QB64_emit_vector_ops (fh AS INTEGER, layerIdx AS INTEGER, indent AS STR
                 ' Dot/Brush (1px) — use pixel-diff of before/after images
                 IF FILE_BAS_is_expanded_exportable%(i%) THEN
                     FILE_QB64_emit_pixel_diff fh%, i%, indent$
-                    lastColorExpr$ = "" ' pixel diff has own color tracking
                 END IF
         END SELECT
     NEXT i%
@@ -1001,7 +1070,6 @@ SUB FILE_QB64_emit_pixel_diff (fh AS INTEGER, recordIndex AS INTEGER, indent AS 
     DIM nextAfterCol   AS _UNSIGNED LONG
     DIM rowOffset      AS _OFFSET
     DIM runColorExpr   AS STRING
-    DIM lastColorExpr  AS STRING
 
     IF NOT FILE_BAS_is_expanded_exportable%(recordIndex%) THEN EXIT SUB
 
@@ -1010,7 +1078,6 @@ SUB FILE_QB64_emit_pixel_diff (fh AS INTEGER, recordIndex AS INTEGER, indent AS 
     beforeMem = _MEMIMAGE(HISTORY_RECORDS(recordIndex%).img&)
     afterMem  = _MEMIMAGE(HISTORY_RECORDS(recordIndex%).img2&)
 
-    lastColorExpr$ = ""
     PRINT #fh%, indent$ + "' Pixel diff for " + _TRIM$(HISTORY_RECORDS(recordIndex%).label$)
     FOR y& = 0 TO height& - 1
         rowOffset = y& * width& * 4
@@ -1034,14 +1101,10 @@ SUB FILE_QB64_emit_pixel_diff (fh AS INTEGER, recordIndex AS INTEGER, indent AS 
             LOOP
 
             runColorExpr$ = FILE_BAS_color_expr$(afterCol~&)
-            IF runColorExpr$ <> lastColorExpr$ THEN
-                PRINT #fh%, indent$ + "COLOR " + runColorExpr$
-                lastColorExpr$ = runColorExpr$
-            END IF
             IF runStart& = runEnd& THEN
-                PRINT #fh%, indent$ + "PSET (" + _TRIM$(STR$(runStart&)) + ", " + _TRIM$(STR$(y&)) + ")"
+                PRINT #fh%, indent$ + "PSET (" + _TRIM$(STR$(runStart&)) + ", " + _TRIM$(STR$(y&)) + "), " + runColorExpr$
             ELSE
-                PRINT #fh%, indent$ + "LINE (" + _TRIM$(STR$(runStart&)) + ", " + _TRIM$(STR$(y&)) + ")-(" + _TRIM$(STR$(runEnd&)) + ", " + _TRIM$(STR$(y&)) + ")"
+                PRINT #fh%, indent$ + "LINE (" + _TRIM$(STR$(runStart&)) + ", " + _TRIM$(STR$(y&)) + ")-(" + _TRIM$(STR$(runEnd&)) + ", " + _TRIM$(STR$(y&)) + "), " + runColorExpr$
             END IF
             x& = runEnd& + 1
         LOOP
