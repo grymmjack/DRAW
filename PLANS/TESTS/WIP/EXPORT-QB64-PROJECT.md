@@ -361,7 +361,7 @@ Layers with non-vectorizable operations.
 2. [x] Export
 3. [x] Verify children use _PUTIMAGE with parent's img_ variable and offset coordinates
 
-## [ ] TEXT LAYER EXPORT
+## [x] TEXT LAYER EXPORT
 
 ### [x] Font asset copying
 
@@ -383,37 +383,38 @@ Layers with non-vectorizable operations.
 2. [x] Export
 3. [x] Verify only one _LOADFONT line is generated for that font/size pair
 
-### [ ] Text pixel rendering
+### [x] Text pixel rendering
 
-#### [ ] Text layer content exported as pixel data
-1. [ ] Create a text layer with "Hello World"
-2. [ ] Export
-3. [ ] Verify the SUB contains COLOR + PSET/LINE ops representing the rendered text pixels
+#### [x] Text layer content exported as pixel data
+1. [x] Create a text layer with "Hello World"
+2. [x] Export
+3. [x] Verify the SUB contains COLOR + PSET/LINE ops representing the rendered text pixels
 
-#### [ ] Multi-color text exports with COLOR changes
-1. [ ] Create text with different colors per character
-2. [ ] Export
-3. [ ] Verify COLOR statements change between character groups
+#### [x] Multi-color text exports with COLOR changes
+1. [x] Create text with different colors per character
+2. [x] Export
+3. [x] Verify COLOR statements change between character groups
 
 ## [ ] OPACITY AND BLEND MODES
 
 ### [ ] Layer opacity
 
-#### [ ] Full opacity layer exported without wrapper
-1. [ ] Create a layer at 100% opacity
-2. [ ] Export
-3. [ ] Verify the SUB is called directly (no tmpLayer wrapper)
+#### [x] Full opacity layer exported without wrapper
+1. [x] Create a layer at 100% opacity
+2. [x] Export
+3. [x] Verify the SUB is called directly (no tmpLayer wrapper)
 
-#### [ ] Partial opacity generates ScaleImageAlpha helper
-1. [ ] Set a layer to 50% opacity
-2. [ ] Export
-3. [ ] Verify the .bas includes the ScaleImageAlpha SUB
-4. [ ] Verify compositing wraps the layer: tmpLayer → render → ScaleImageAlpha → _PUTIMAGE → _FREEIMAGE
+#### [x] Partial opacity generates ScaleImageAlpha helper
+1. [x] Set a layer to 50% opacity
+2. [x] Export
+3. [x] Verify the .bas includes the ScaleImageAlpha SUB
+4. [x] Verify compositing wraps the layer: tmpLayer → render → ScaleImageAlpha → _PUTIMAGE → _FREEIMAGE
 
-#### [ ] Zero opacity layer still in compositing
-1. [ ] Set a layer to 0% opacity (but visible)
-2. [ ] Export
-3. [ ] Verify the layer is listed in compositing (or check the behavior — it may be skipped)
+#### [x] Zero opacity layer still in compositing
+1. [x] Set a layer to 0% opacity (but visible)
+2. [x] Export
+3. [x] Verify the layer is listed in compositing (or check the behavior — it may be skipped)
+> **FAIL**: Layer at 0% opacity exports as full 100% opacity — removes ScaleImageAlpha and tmpLayer wrapper entirely instead of emitting ScaleImageAlpha with factor 0. — 2026-04-19
 
 ### [ ] Blend modes
 
