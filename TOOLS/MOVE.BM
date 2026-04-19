@@ -30,6 +30,11 @@ SUB MOVE_init ()
     MOVE.CLONE_STAMPED   = FALSE
     MOVE.CONSTRAIN       = FALSE
     MOVE.CAPTURED_LAYER  = 0
+    MOVE.SYMBOL_CHILD    = FALSE
+    MOVE.SYMBOL_ORIG_OX  = 0
+    MOVE.SYMBOL_ORIG_OY  = 0
+    MOVE.SYMBOL_ORIG_SX  = 1.0
+    MOVE.SYMBOL_ORIG_SY  = 1.0
     ' Clear multi-layer move snapshot
     REDIM _PRESERVE MOVE_MULTI_LAYERS(1 TO MAX_LAYERS) AS INTEGER
     DIM mmi AS INTEGER
@@ -56,7 +61,7 @@ END SUB
 '
 SUB MOVE_reset ()
     ' Apply any active transformation before resetting
-    IF MOVE.ACTIVE AND MOVE.SELECTION_IMAGE < -1 THEN
+    IF MOVE.ACTIVE AND (MOVE.SELECTION_IMAGE < -1 OR MOVE.SYMBOL_CHILD) THEN
         MOVE_apply_transform
     END IF
     ' Clear ACTIVE flag BEFORE calling LAYERS_select to prevent infinite recursion:
@@ -147,6 +152,53 @@ SUB MOVE_capture_selection ()
                 END IF
             END IF
         NEXT sibI%
+    END IF
+
+    ' Symbol child: use offset-based dragging with pixel snapshot
+    ' (preserves per-pixel transforms like rotation from Transform tool)
+    MOVE.SYMBOL_CHILD = FALSE
+    IF LAYERS(CURRENT_LAYER%).layerType% = LAYER_TYPE_SYMBOL_CHILD THEN
+        MOVE.SYMBOL_CHILD    = TRUE
+        MOVE.CAPTURED_LAYER  = CURRENT_LAYER%
+        MOVE.SYMBOL_ORIG_OX  = LAYERS(CURRENT_LAYER%).symbolOffsetX%
+        MOVE.SYMBOL_ORIG_OY  = LAYERS(CURRENT_LAYER%).symbolOffsetY%
+        DIM symOrigSX AS SINGLE, symOrigSY AS SINGLE
+        symOrigSX! = LAYERS(CURRENT_LAYER%).symbolScaleX!
+        symOrigSY! = LAYERS(CURRENT_LAYER%).symbolScaleY!
+        IF symOrigSX! = 0 THEN symOrigSX! = 1.0
+        IF symOrigSY! = 0 THEN symOrigSY! = 1.0
+        MOVE.SYMBOL_ORIG_SX  = symOrigSX!
+        MOVE.SYMBOL_ORIG_SY  = symOrigSY!
+        ' Get child content bounds for selection rectangle
+        DIM symBX AS INTEGER, symBY AS INTEGER, symBW AS INTEGER, symBH AS INTEGER
+        LAYER_get_content_bounds CURRENT_LAYER%, symBX%, symBY%, symBW%, symBH%
+        IF symBW% < 1 THEN symBW% = SCRN.canvasW&: symBX% = 0
+        IF symBH% < 1 THEN symBH% = SCRN.canvasH&: symBY% = 0
+        MOVE.ORIGINAL_X      = symBX%
+        MOVE.ORIGINAL_Y      = symBY%
+        MOVE.ORIGINAL_W      = symBW%
+        MOVE.ORIGINAL_H      = symBH%
+        MOVE.CURRENT_X       = symBX%
+        MOVE.CURRENT_Y       = symBY%
+        MOVE.CURRENT_W       = symBW%
+        MOVE.CURRENT_H       = symBH%
+        MOVE.SELECTION_X     = symBX%
+        MOVE.SELECTION_Y     = symBY%
+        MOVE.SELECTION_W     = symBW%
+        MOVE.SELECTION_H     = symBH%
+        ' Set up marquee bounds so handles render correctly
+        MARQUEE.BOX.x        = symBX%
+        MARQUEE.BOX.y        = symBY%
+        MARQUEE.BOX.w        = symBW%
+        MARQUEE.BOX.h        = symBH%
+        MARQUEE.INITIALIZED  = TRUE
+        MARQUEE.ACTIVE       = TRUE
+        MARQUEE.USER_CREATED = FALSE
+        ' Snapshot child's current rendered pixels (preserves rotation/transforms)
+        MOVE.SELECTION_IMAGE = _COPYIMAGE(LAYERS(CURRENT_LAYER%).imgHandle&)
+        MOVE.PREVIEW_BUFFER  = 0
+        MOVE.ACTIVE          = TRUE
+        EXIT FUNCTION
     END IF
 
     ' If no marquee is active, capture the entire layer
@@ -490,8 +542,53 @@ SUB MOVE_update_transform (x AS INTEGER, y AS INTEGER)
         MARQUEE.BOX.y = MOVE.CURRENT_Y
         MARQUEE.BOX.w = MOVE.CURRENT_W
         MARQUEE.BOX.h = MOVE.CURRENT_H
-        ' Update preview buffer when transform changes
-        MOVE_update_preview_buffer
+        ' Symbol children don't use the preview buffer — updated in real-time
+        IF MOVE.SYMBOL_CHILD THEN
+            DIM symScIdx AS INTEGER
+            symScIdx% = MOVE.CAPTURED_LAYER
+            IF symScIdx% >= 1 AND symScIdx% <= MAX_LAYERS THEN
+                IF MOVE.TRANSFORM_TYPE = 0 THEN
+                    ' Move: shift pixel snapshot directly (preserves per-pixel transforms)
+                    DIM symScDX AS INTEGER, symScDY AS INTEGER
+                    symScDX% = MOVE.CURRENT_X - MOVE.ORIGINAL_X
+                    symScDY% = MOVE.CURRENT_Y - MOVE.ORIGINAL_Y
+                    DIM symScChildImg AS LONG
+                    symScChildImg& = LAYERS(symScIdx%).imgHandle&
+                    IF symScChildImg& < -1 AND MOVE.SELECTION_IMAGE < -1 THEN
+                        DIM symScOldDest AS LONG: symScOldDest& = _DEST
+                        _DEST symScChildImg&
+                        CLS , _RGBA32(0, 0, 0, 0)
+                        _DONTBLEND symScChildImg&
+                        _PUTIMAGE (symScDX%, symScDY%), MOVE.SELECTION_IMAGE, symScChildImg&
+                        _BLEND symScChildImg&
+                        _DEST symScOldDest&
+                        LAYERS(symScIdx%).contentDirty% = TRUE
+                    END IF
+                ELSE
+                    ' Scale/Stretch: update symbolScale and re-render from parent
+                    DIM symNewSX AS SINGLE, symNewSY AS SINGLE
+                    IF MOVE.ORIGINAL_W > 0 THEN
+                        symNewSX! = MOVE.SYMBOL_ORIG_SX * (CSNG(MOVE.CURRENT_W) / CSNG(MOVE.ORIGINAL_W))
+                    ELSE
+                        symNewSX! = MOVE.SYMBOL_ORIG_SX
+                    END IF
+                    IF MOVE.ORIGINAL_H > 0 THEN
+                        symNewSY! = MOVE.SYMBOL_ORIG_SY * (CSNG(MOVE.CURRENT_H) / CSNG(MOVE.ORIGINAL_H))
+                    ELSE
+                        symNewSY! = MOVE.SYMBOL_ORIG_SY
+                    END IF
+                    LAYERS(symScIdx%).symbolScaleX! = symNewSX!
+                    LAYERS(symScIdx%).symbolScaleY! = symNewSY!
+                    LAYERS(symScIdx%).symbolOffsetX% = MOVE.CURRENT_X
+                    LAYERS(symScIdx%).symbolOffsetY% = MOVE.CURRENT_Y
+                    SYMBOL_render_child symScIdx%
+                END IF
+                BLEND_invalidate_cache
+                FRAME_IDLE% = FALSE
+            END IF
+        ELSE
+            MOVE_update_preview_buffer
+        END IF
     END IF
 END SUB
 
@@ -519,27 +616,25 @@ SUB MOVE_apply_transform ()
     END IF
     IF targetLayer% < 1 OR targetLayer% > MAX_LAYERS OR LAYERS(targetLayer%).imgHandle& >= -1 THEN EXIT SUB
 
-    ' --- Symbol child: update offset instead of moving pixels ---
+    ' --- Symbol child: commit offset and scale changes ---
     IF LAYERS(targetLayer%).layerType% = LAYER_TYPE_SYMBOL_CHILD THEN
-        DIM symDx AS INTEGER, symDy AS INTEGER
-        symDx% = MOVE.CURRENT_X - MOVE.ORIGINAL_X
-        symDy% = MOVE.CURRENT_Y - MOVE.ORIGINAL_Y
-        IF symDx% <> 0 OR symDy% <> 0 THEN
-            LAYERS(targetLayer%).symbolOffsetX% = LAYERS(targetLayer%).symbolOffsetX% + symDx%
-            LAYERS(targetLayer%).symbolOffsetY% = LAYERS(targetLayer%).symbolOffsetY% + symDy%
+        IF MOVE.TRANSFORM_TYPE = 0 THEN
+            ' Move: update offset, pixels already shifted
+            LAYERS(targetLayer%).symbolOffsetX% = MOVE.SYMBOL_ORIG_OX + (MOVE.CURRENT_X - MOVE.ORIGINAL_X)
+            LAYERS(targetLayer%).symbolOffsetY% = MOVE.SYMBOL_ORIG_OY + (MOVE.CURRENT_Y - MOVE.ORIGINAL_Y)
+        ELSE
+            ' Scale/Stretch: symbolScaleX/Y and offset already updated during drag
+            ' Do a final clean render from parent at the committed scale
             SYMBOL_render_child targetLayer%
-            BLEND_invalidate_cache
-            INVALIDATE_scene
         END IF
-        ' Clean up move state without applying normal pixel logic
+        LAYERS(targetLayer%).contentDirty% = TRUE
         IF MOVE.SELECTION_IMAGE < -1 THEN _FREEIMAGE MOVE.SELECTION_IMAGE
         MOVE.SELECTION_IMAGE = 0
-        IF MOVE.ORIGINAL_IMAGE < -1 THEN _FREEIMAGE MOVE.ORIGINAL_IMAGE
-        MOVE.ORIGINAL_IMAGE = 0
-        IF MOVE.PREVIEW_BUFFER < -1 THEN _FREEIMAGE MOVE.PREVIEW_BUFFER
-        MOVE.PREVIEW_BUFFER = 0
-        MOVE.ACTIVE         = FALSE
-        MOVE.TRANSFORMING   = FALSE
+        MOVE.SYMBOL_CHILD    = FALSE
+        MOVE.ACTIVE          = FALSE
+        MOVE.TRANSFORMING    = FALSE
+        BLEND_invalidate_cache
+        INVALIDATE_scene
         EXIT SUB
     END IF
 
@@ -639,6 +734,12 @@ SUB MOVE_apply_transform ()
     CANVAS_DIRTY%                      = TRUE
     LAYERS(targetLayer%).contentDirty% = TRUE
     BLEND_invalidate_cache
+
+    ' Symbol parent: re-sync all children after moving the parent's pixels
+    IF LAYERS(targetLayer%).layerType% = LAYER_TYPE_SYMBOL_PARENT THEN
+        LAYERS(targetLayer%).symbolParentDirty% = TRUE
+        SYMBOL_sync_children targetLayer%
+    END IF
 
     ' Multi-layer linked move: apply the same selection-based cut+paste to sibling layers.
     ' Only applies when TRANSFORM_TYPE=0 (pure translation).
@@ -761,6 +862,9 @@ SUB MOVE_apply_transform ()
                                 HISTORY_record_transform LAYERS(mmIdx%).historyId&, mmIdx%, 0, mmBefore&, "Clone"
                             ELSE
                                 HISTORY_record_transform LAYERS(mmIdx%).historyId&, mmIdx%, 0, mmBefore&, "Move"
+                                ' Store move delta for vector export offset tracking
+                                HISTORY_RECORDS(HISTORY.current%).x1% = MOVE.CURRENT_X - MOVE.ORIGINAL_X
+                                HISTORY_RECORDS(HISTORY.current%).y1% = MOVE.CURRENT_Y - MOVE.ORIGINAL_Y
                             END IF
                             moveRecorded% = TRUE
                         END IF
@@ -791,6 +895,9 @@ SUB MOVE_apply_transform ()
             HISTORY_record_transform LAYERS(targetLayer%).historyId&, targetLayer%, 0, moveTargetBefore&, "Clone"
         ELSE
             HISTORY_record_transform LAYERS(targetLayer%).historyId&, targetLayer%, 0, moveTargetBefore&, "Move"
+            ' Store move delta in x1/y1 for vector export offset tracking
+            HISTORY_RECORDS(HISTORY.current%).x1% = MOVE.CURRENT_X - MOVE.ORIGINAL_X
+            HISTORY_RECORDS(HISTORY.current%).y1% = MOVE.CURRENT_Y - MOVE.ORIGINAL_Y
         END IF
         moveRecorded% = TRUE
     ELSEIF moveTargetBefore& < -1 THEN
@@ -903,6 +1010,39 @@ END SUB
 '
 SUB MOVE_cancel_transform ()
     IF NOT MOVE.ACTIVE THEN EXIT SUB
+    
+    ' Symbol child: restore original pixels, offset, and scale
+    IF MOVE.SYMBOL_CHILD THEN
+        DIM cancelTarget AS INTEGER
+        cancelTarget% = MOVE.CAPTURED_LAYER
+        IF cancelTarget% >= 1 AND cancelTarget% <= MAX_LAYERS THEN
+            LAYERS(cancelTarget%).symbolOffsetX% = MOVE.SYMBOL_ORIG_OX
+            LAYERS(cancelTarget%).symbolOffsetY% = MOVE.SYMBOL_ORIG_OY
+            LAYERS(cancelTarget%).symbolScaleX!  = MOVE.SYMBOL_ORIG_SX
+            LAYERS(cancelTarget%).symbolScaleY!  = MOVE.SYMBOL_ORIG_SY
+            ' Restore original pixel content (preserves rotation/transforms)
+            DIM cancelChildImg AS LONG
+            cancelChildImg& = LAYERS(cancelTarget%).imgHandle&
+            IF cancelChildImg& < -1 AND MOVE.SELECTION_IMAGE < -1 THEN
+                DIM cancelOldDest AS LONG: cancelOldDest& = _DEST
+                _DEST cancelChildImg&
+                CLS , _RGBA32(0, 0, 0, 0)
+                _DONTBLEND cancelChildImg&
+                _PUTIMAGE (0, 0), MOVE.SELECTION_IMAGE, cancelChildImg&
+                _BLEND cancelChildImg&
+                _DEST cancelOldDest&
+                LAYERS(cancelTarget%).contentDirty% = TRUE
+            END IF
+            BLEND_invalidate_cache
+            INVALIDATE_scene
+        END IF
+        IF MOVE.SELECTION_IMAGE < -1 THEN _FREEIMAGE MOVE.SELECTION_IMAGE
+        MOVE.SYMBOL_CHILD    = FALSE
+        MOVE.SELECTION_IMAGE = 0
+        MOVE.ACTIVE          = FALSE
+        MOVE.TRANSFORMING    = FALSE
+        EXIT SUB
+    END IF
     
     ' Reset to original position/size from when tool was activated
     MOVE.CURRENT_X = MOVE.ORIGINAL_X

@@ -131,7 +131,12 @@ FUNCTION FILE_QB64_classify_layer_export% (layerIdx AS INTEGER)
 
             CASE HISTORY_KIND_TRANSFORM, HISTORY_KIND_RASTERIZE, HISTORY_KIND_MERGE_GROUP
                 hasDrawingOps% = TRUE
-                forceImg%      = TRUE
+                ' Pure moves are just translations — vector coords stay valid with offset
+                IF recKind% = HISTORY_KIND_TRANSFORM AND recLabel$ = "MOVE" THEN
+                    ' Don't force IMG — emit will apply cumulative offset
+                ELSE
+                    forceImg% = TRUE
+                END IF
 
             CASE ELSE
                 ' Unknown kind — conservative fallback
@@ -434,8 +439,6 @@ SUB FILE_QB64_export (basPath AS STRING)
     DIM imgFile      AS STRING
     DIM sortedZ()  AS INTEGER
     DIM sortCount    AS INTEGER
-    DIM parentIdx    AS INTEGER
-    DIM parentSubN   AS STRING
     DIM mode         AS INTEGER
     DIM hasImgLayers AS INTEGER
     DIM hasTxtLayers AS INTEGER
@@ -485,12 +488,20 @@ SUB FILE_QB64_export (basPath AS STRING)
     needHelpers%  = FALSE
     needOpacity%  = FALSE
     needBlend%    = FALSE
+    DIM hasSymChildren AS INTEGER
+    hasSymChildren% = FALSE
+    DIM needRotation AS INTEGER
+    needRotation% = FALSE
     FOR i% = 1 TO sortCount%
         mode% = LAYERS(sortedZ(i%)).exportMode%
         IF mode% = EXPORT_MODE_IMG THEN hasImgLayers% = TRUE
         IF mode% = EXPORT_MODE_TEXT THEN hasTxtLayers% = TRUE
         IF LAYERS(sortedZ(i%)).opacity% < 255 AND LAYERS(sortedZ(i%)).opacity% > 0 THEN needOpacity% = TRUE
         IF LAYERS(sortedZ(i%)).blendMode% <> BLEND_NORMAL THEN needBlend% = TRUE
+        IF LAYERS(sortedZ(i%)).layerType% = LAYER_TYPE_SYMBOL_CHILD THEN
+            hasSymChildren% = TRUE
+            IF LAYERS(sortedZ(i%)).symbolRotation% > 0 AND LAYERS(sortedZ(i%)).symbolRotation% <= 3 THEN needRotation% = TRUE
+        END IF
         IF mode% = EXPORT_MODE_VECTOR THEN
             ' Check if any vector records need polygon/ellipse fill helpers
             DIM vCheckJ  AS INTEGER
@@ -576,10 +587,11 @@ SUB FILE_QB64_export (basPath AS STRING)
     PRINT #fh%, "CLS , " + FILE_BAS_color_expr$(CFG.BAS_EXPORT_BG_COLOR~&)
     PRINT #fh%, ""
 
-    ' --- Temp vars for opacity compositing ---
-    IF needOpacity% OR needBlend% THEN
+    ' --- Temp vars for opacity/blend/symbol compositing ---
+    IF needOpacity% OR needBlend% OR hasSymChildren% THEN
         PRINT #fh%, "DIM tmpLayer AS LONG"
         PRINT #fh%, "DIM tmpImg AS LONG"
+        PRINT #fh%, "DIM tmpChild AS LONG"
         PRINT #fh%, ""
     END IF
 
@@ -678,34 +690,93 @@ SUB FILE_QB64_export (basPath AS STRING)
         opStr$      = _TRIM$(STR$(LAYERS(cIdx%).opacity%))
         dupSrcId&   = FILE_QB64_find_duplicate_source&(cIdx%)
 
+        ' Precompute symbol child transform strings for _PUTIMAGE
+        DIM isSymChild    AS INTEGER
+        DIM symParentIdx  AS INTEGER
+        DIM symParentSubN AS STRING
+        DIM symParentImgN AS STRING
+        DIM symDstRect    AS STRING
+        DIM symSrcRect    AS STRING
+        isSymChild% = (LAYERS(cIdx%).layerType% = LAYER_TYPE_SYMBOL_CHILD)
+        symParentIdx% = 0
+        IF isSymChild% THEN
+            FOR symParentIdx% = 1 TO MAX_LAYERS
+                IF LAYERS(symParentIdx%).historyId& = LAYERS(cIdx%).symbolParentId& THEN EXIT FOR
+            NEXT symParentIdx%
+            IF symParentIdx% >= 1 AND symParentIdx% <= MAX_LAYERS THEN
+                symParentSubN$ = FILE_BAS_safe_identifier$(_TRIM$(LAYERS(symParentIdx%).name), "layer_" + _TRIM$(STR$(LAYERS(symParentIdx%).historyId&))) + "_" + _TRIM$(STR$(LAYERS(symParentIdx%).historyId&))
+                symParentImgN$ = FILE_BAS_safe_identifier$(_TRIM$(LAYERS(symParentIdx%).name), "layer_" + _TRIM$(STR$(LAYERS(symParentIdx%).historyId&)))
+                ' Get parent content bounds and compute child transform
+                DIM symBx AS INTEGER, symBy AS INTEGER, symBw AS INTEGER, symBh AS INTEGER
+                LAYER_get_content_bounds symParentIdx%, symBx%, symBy%, symBw%, symBh%
+                IF symBw% > 0 AND symBh% > 0 THEN
+                    DIM symSX AS SINGLE, symSY AS SINGLE
+                    symSX! = LAYERS(cIdx%).symbolScaleX!
+                    symSY! = LAYERS(cIdx%).symbolScaleY!
+                    IF symSX! = 0 THEN symSX! = 1.0
+                    IF symSY! = 0 THEN symSY! = 1.0
+                    DIM symOX AS INTEGER, symOY AS INTEGER
+                    symOX% = LAYERS(cIdx%).symbolOffsetX%
+                    symOY% = LAYERS(cIdx%).symbolOffsetY%
+                    DIM symDW AS INTEGER, symDH AS INTEGER
+                    symDW% = INT(ABS(symSX!) * symBw%)
+                    symDH% = INT(ABS(symSY!) * symBh%)
+                    IF symDW% < 1 THEN symDW% = 1
+                    IF symDH% < 1 THEN symDH% = 1
+                    ' Source rect (swap coords for flip)
+                    DIM symSX1 AS INTEGER, symSY1 AS INTEGER, symSX2 AS INTEGER, symSY2 AS INTEGER
+                    IF symSX! >= 0 THEN symSX1% = symBx% : symSX2% = symBx% + symBw% - 1 ELSE symSX1% = symBx% + symBw% - 1 : symSX2% = symBx%
+                    IF symSY! >= 0 THEN symSY1% = symBy% : symSY2% = symBy% + symBh% - 1 ELSE symSY1% = symBy% + symBh% - 1 : symSY2% = symBy%
+                    symDstRect$ = "(" + _TRIM$(STR$(symOX%)) + ", " + _TRIM$(STR$(symOY%)) + ")-(" + _TRIM$(STR$(symOX% + symDW% - 1)) + ", " + _TRIM$(STR$(symOY% + symDH% - 1)) + ")"
+                    symSrcRect$ = "(" + _TRIM$(STR$(symSX1%)) + ", " + _TRIM$(STR$(symSY1%)) + ")-(" + _TRIM$(STR$(symSX2%)) + ", " + _TRIM$(STR$(symSY2%)) + ")"
+                    DIM symRotSteps AS INTEGER
+                    symRotSteps% = LAYERS(cIdx%).symbolRotation%
+                    IF symRotSteps% < 0 OR symRotSteps% > 3 THEN symRotSteps% = 0
+                    DIM symRotCall AS STRING
+                    IF symRotSteps% > 0 THEN
+                        symRotCall$ = "RotateImageRegion tmpChild&, " + _TRIM$(STR$(symRotSteps%)) + ", " + _TRIM$(STR$(symOX%)) + ", " + _TRIM$(STR$(symOY%)) + ", " + _TRIM$(STR$(symDW%)) + ", " + _TRIM$(STR$(symDH%))
+                    ELSE
+                        symRotCall$ = ""
+                    END IF
+                ELSE
+                    symParentIdx% = 0 ' No content — skip
+                END IF
+            END IF
+        END IF
+
         SELECT CASE mode%
             CASE EXPORT_MODE_VECTOR
-                IF LAYERS(cIdx%).layerType% = LAYER_TYPE_SYMBOL_CHILD THEN
-                    ' Find parent SUB name and call it
-                    parentIdx% = 0
-                    FOR parentIdx% = 1 TO MAX_LAYERS
-                        IF LAYERS(parentIdx%).historyId& = LAYERS(cIdx%).symbolParentId& THEN EXIT FOR
-                    NEXT parentIdx%
-                    IF parentIdx% >= 1 AND parentIdx% <= MAX_LAYERS THEN
-                        parentSubN$ = FILE_BAS_safe_identifier$(_TRIM$(LAYERS(parentIdx%).name), "layer_" + _TRIM$(STR$(LAYERS(parentIdx%).historyId&))) + "_" + _TRIM$(STR$(LAYERS(parentIdx%).historyId&))
-                        IF hasBlend% THEN
-                            PRINT #fh%, "tmpLayer& = _NEWIMAGE(CANVAS_W, CANVAS_H, 32)"
-                            PRINT #fh%, "_DEST tmpLayer&"
-                            PRINT #fh%, parentSubN$ + " ' [linked from " + _TRIM$(LAYERS(parentIdx%).name) + "]"
-                            PRINT #fh%, "_DEST 0"
-                            PRINT #fh%, "BlendLayer tmpLayer&, " + blendModeStr$ + ", " + opStr$
-                            PRINT #fh%, "_FREEIMAGE tmpLayer&"
-                        ELSEIF hasOpacity% THEN
-                            PRINT #fh%, "tmpLayer& = _NEWIMAGE(CANVAS_W, CANVAS_H, 32)"
-                            PRINT #fh%, "_DEST tmpLayer&"
-                            PRINT #fh%, parentSubN$ + " ' [linked from " + _TRIM$(LAYERS(parentIdx%).name) + "]"
-                            PRINT #fh%, "_DEST 0"
-                            PRINT #fh%, "ScaleImageAlpha tmpLayer&, " + opStr$
-                            PRINT #fh%, "_PUTIMAGE (0, 0), tmpLayer&"
-                            PRINT #fh%, "_FREEIMAGE tmpLayer&"
-                        ELSE
-                            PRINT #fh%, parentSubN$ + " ' [linked from " + _TRIM$(LAYERS(parentIdx%).name) + "]"
-                        END IF
+                IF isSymChild% AND symParentIdx% >= 1 AND symParentIdx% <= MAX_LAYERS THEN
+                    ' Render parent SUB to temp, then _PUTIMAGE with child transform + rotation
+                    PRINT #fh%, "tmpLayer& = _NEWIMAGE(CANVAS_W, CANVAS_H, 32)"
+                    PRINT #fh%, "_DEST tmpLayer&"
+                    PRINT #fh%, symParentSubN$ + " ' [linked from " + _TRIM$(LAYERS(symParentIdx%).name) + "]"
+                    PRINT #fh%, "_DEST 0"
+                    IF hasBlend% THEN
+                        PRINT #fh%, "tmpChild& = _NEWIMAGE(CANVAS_W, CANVAS_H, 32)"
+                        PRINT #fh%, "_PUTIMAGE " + symDstRect$ + ", tmpLayer&, tmpChild&, " + symSrcRect$
+                        PRINT #fh%, "_FREEIMAGE tmpLayer&"
+                        IF symRotCall$ <> "" THEN PRINT #fh%, symRotCall$
+                        PRINT #fh%, "BlendLayer tmpChild&, " + blendModeStr$ + ", " + opStr$
+                        PRINT #fh%, "_FREEIMAGE tmpChild&"
+                    ELSEIF hasOpacity% THEN
+                        PRINT #fh%, "tmpChild& = _NEWIMAGE(CANVAS_W, CANVAS_H, 32)"
+                        PRINT #fh%, "_PUTIMAGE " + symDstRect$ + ", tmpLayer&, tmpChild&, " + symSrcRect$
+                        PRINT #fh%, "_FREEIMAGE tmpLayer&"
+                        IF symRotCall$ <> "" THEN PRINT #fh%, symRotCall$
+                        PRINT #fh%, "ScaleImageAlpha tmpChild&, " + opStr$
+                        PRINT #fh%, "_PUTIMAGE (0, 0), tmpChild&"
+                        PRINT #fh%, "_FREEIMAGE tmpChild&"
+                    ELSEIF symRotCall$ <> "" THEN
+                        PRINT #fh%, "tmpChild& = _NEWIMAGE(CANVAS_W, CANVAS_H, 32)"
+                        PRINT #fh%, "_PUTIMAGE " + symDstRect$ + ", tmpLayer&, tmpChild&, " + symSrcRect$
+                        PRINT #fh%, "_FREEIMAGE tmpLayer&"
+                        PRINT #fh%, symRotCall$
+                        PRINT #fh%, "_PUTIMAGE (0, 0), tmpChild&"
+                        PRINT #fh%, "_FREEIMAGE tmpChild&"
+                    ELSE
+                        PRINT #fh%, "_PUTIMAGE " + symDstRect$ + ", tmpLayer&, , " + symSrcRect$
+                        PRINT #fh%, "_FREEIMAGE tmpLayer&"
                     END IF
                 ELSEIF dupSrcId& > 0 THEN
                     ' Duplicate layer — call source layer's SUB
@@ -756,31 +827,37 @@ SUB FILE_QB64_export (basPath AS STRING)
                 END IF
 
             CASE EXPORT_MODE_TEXT
-                IF LAYERS(cIdx%).layerType% = LAYER_TYPE_SYMBOL_CHILD THEN
-                    parentIdx% = 0
-                    FOR parentIdx% = 1 TO MAX_LAYERS
-                        IF LAYERS(parentIdx%).historyId& = LAYERS(cIdx%).symbolParentId& THEN EXIT FOR
-                    NEXT parentIdx%
-                    IF parentIdx% >= 1 AND parentIdx% <= MAX_LAYERS THEN
-                        parentSubN$ = FILE_BAS_safe_identifier$(_TRIM$(LAYERS(parentIdx%).name), "layer_" + _TRIM$(STR$(LAYERS(parentIdx%).historyId&))) + "_" + _TRIM$(STR$(LAYERS(parentIdx%).historyId&))
-                        IF hasBlend% THEN
-                            PRINT #fh%, "tmpLayer& = _NEWIMAGE(CANVAS_W, CANVAS_H, 32)"
-                            PRINT #fh%, "_DEST tmpLayer&"
-                            PRINT #fh%, parentSubN$ + " ' [linked from " + _TRIM$(LAYERS(parentIdx%).name) + "]"
-                            PRINT #fh%, "_DEST 0"
-                            PRINT #fh%, "BlendLayer tmpLayer&, " + blendModeStr$ + ", " + opStr$
-                            PRINT #fh%, "_FREEIMAGE tmpLayer&"
-                        ELSEIF hasOpacity% THEN
-                            PRINT #fh%, "tmpLayer& = _NEWIMAGE(CANVAS_W, CANVAS_H, 32)"
-                            PRINT #fh%, "_DEST tmpLayer&"
-                            PRINT #fh%, parentSubN$ + " ' [linked from " + _TRIM$(LAYERS(parentIdx%).name) + "]"
-                            PRINT #fh%, "_DEST 0"
-                            PRINT #fh%, "ScaleImageAlpha tmpLayer&, " + opStr$
-                            PRINT #fh%, "_PUTIMAGE (0, 0), tmpLayer&"
-                            PRINT #fh%, "_FREEIMAGE tmpLayer&"
-                        ELSE
-                            PRINT #fh%, parentSubN$ + " ' [linked from " + _TRIM$(LAYERS(parentIdx%).name) + "]"
-                        END IF
+                IF isSymChild% AND symParentIdx% >= 1 AND symParentIdx% <= MAX_LAYERS THEN
+                    ' Render parent SUB to temp, then _PUTIMAGE with child transform + rotation
+                    PRINT #fh%, "tmpLayer& = _NEWIMAGE(CANVAS_W, CANVAS_H, 32)"
+                    PRINT #fh%, "_DEST tmpLayer&"
+                    PRINT #fh%, symParentSubN$ + " ' [linked from " + _TRIM$(LAYERS(symParentIdx%).name) + "]"
+                    PRINT #fh%, "_DEST 0"
+                    IF hasBlend% THEN
+                        PRINT #fh%, "tmpChild& = _NEWIMAGE(CANVAS_W, CANVAS_H, 32)"
+                        PRINT #fh%, "_PUTIMAGE " + symDstRect$ + ", tmpLayer&, tmpChild&, " + symSrcRect$
+                        PRINT #fh%, "_FREEIMAGE tmpLayer&"
+                        IF symRotCall$ <> "" THEN PRINT #fh%, symRotCall$
+                        PRINT #fh%, "BlendLayer tmpChild&, " + blendModeStr$ + ", " + opStr$
+                        PRINT #fh%, "_FREEIMAGE tmpChild&"
+                    ELSEIF hasOpacity% THEN
+                        PRINT #fh%, "tmpChild& = _NEWIMAGE(CANVAS_W, CANVAS_H, 32)"
+                        PRINT #fh%, "_PUTIMAGE " + symDstRect$ + ", tmpLayer&, tmpChild&, " + symSrcRect$
+                        PRINT #fh%, "_FREEIMAGE tmpLayer&"
+                        IF symRotCall$ <> "" THEN PRINT #fh%, symRotCall$
+                        PRINT #fh%, "ScaleImageAlpha tmpChild&, " + opStr$
+                        PRINT #fh%, "_PUTIMAGE (0, 0), tmpChild&"
+                        PRINT #fh%, "_FREEIMAGE tmpChild&"
+                    ELSEIF symRotCall$ <> "" THEN
+                        PRINT #fh%, "tmpChild& = _NEWIMAGE(CANVAS_W, CANVAS_H, 32)"
+                        PRINT #fh%, "_PUTIMAGE " + symDstRect$ + ", tmpLayer&, tmpChild&, " + symSrcRect$
+                        PRINT #fh%, "_FREEIMAGE tmpLayer&"
+                        PRINT #fh%, symRotCall$
+                        PRINT #fh%, "_PUTIMAGE (0, 0), tmpChild&"
+                        PRINT #fh%, "_FREEIMAGE tmpChild&"
+                    ELSE
+                        PRINT #fh%, "_PUTIMAGE " + symDstRect$ + ", tmpLayer&, , " + symSrcRect$
+                        PRINT #fh%, "_FREEIMAGE tmpLayer&"
                     END IF
                 ELSEIF dupSrcId& > 0 THEN
                     ' Duplicate text layer — call source layer's SUB
@@ -832,30 +909,35 @@ SUB FILE_QB64_export (basPath AS STRING)
 
             CASE EXPORT_MODE_IMG
                 layerName$ = FILE_BAS_safe_identifier$(_TRIM$(LAYERS(cIdx%).name), "layer_" + _TRIM$(STR$(layerId&)))
-                IF LAYERS(cIdx%).layerType% = LAYER_TYPE_SYMBOL_CHILD THEN
-                    ' Find parent's image var
-                    parentIdx% = 0
-                    FOR parentIdx% = 1 TO MAX_LAYERS
-                        IF LAYERS(parentIdx%).historyId& = LAYERS(cIdx%).symbolParentId& THEN EXIT FOR
-                    NEXT parentIdx%
-                    IF parentIdx% >= 1 AND parentIdx% <= MAX_LAYERS THEN
-                        DIM parentImgName AS STRING
-                        parentImgName$ = FILE_BAS_safe_identifier$(_TRIM$(LAYERS(parentIdx%).name), "layer_" + _TRIM$(STR$(LAYERS(parentIdx%).historyId&)))
-                        IF hasBlend% THEN
-                            PRINT #fh%, "tmpImg& = _NEWIMAGE(CANVAS_W, CANVAS_H, 32)"
-                            PRINT #fh%, "_DEST tmpImg&"
-                            PRINT #fh%, "_PUTIMAGE (" + _TRIM$(STR$(LAYERS(cIdx%).symbolOffsetX%)) + ", " + _TRIM$(STR$(LAYERS(cIdx%).symbolOffsetY%)) + "), img_" + parentImgName$
-                            PRINT #fh%, "_DEST 0"
-                            PRINT #fh%, "BlendLayer tmpImg&, " + blendModeStr$ + ", " + opStr$
-                            PRINT #fh%, "_FREEIMAGE tmpImg&"
-                        ELSEIF hasOpacity% THEN
-                            PRINT #fh%, "tmpImg& = _COPYIMAGE(img_" + parentImgName$ + ", 32)"
-                            PRINT #fh%, "ScaleImageAlpha tmpImg&, " + opStr$
-                            PRINT #fh%, "_PUTIMAGE (" + _TRIM$(STR$(LAYERS(cIdx%).symbolOffsetX%)) + ", " + _TRIM$(STR$(LAYERS(cIdx%).symbolOffsetY%)) + "), tmpImg&"
-                            PRINT #fh%, "_FREEIMAGE tmpImg&"
-                        ELSE
-                            PRINT #fh%, "_PUTIMAGE (" + _TRIM$(STR$(LAYERS(cIdx%).symbolOffsetX%)) + ", " + _TRIM$(STR$(LAYERS(cIdx%).symbolOffsetY%)) + "), img_" + parentImgName$
-                        END IF
+                IF isSymChild% AND symParentIdx% >= 1 AND symParentIdx% <= MAX_LAYERS THEN
+                    ' _PUTIMAGE with child transform (scale + offset + rotation) from parent's loaded PNG
+                    DIM symRotCallImg AS STRING
+                    IF symRotSteps% > 0 THEN
+                        symRotCallImg$ = "RotateImageRegion tmpImg&, " + _TRIM$(STR$(symRotSteps%)) + ", " + _TRIM$(STR$(symOX%)) + ", " + _TRIM$(STR$(symOY%)) + ", " + _TRIM$(STR$(symDW%)) + ", " + _TRIM$(STR$(symDH%))
+                    ELSE
+                        symRotCallImg$ = ""
+                    END IF
+                    IF hasBlend% THEN
+                        PRINT #fh%, "tmpImg& = _NEWIMAGE(CANVAS_W, CANVAS_H, 32)"
+                        PRINT #fh%, "_PUTIMAGE " + symDstRect$ + ", img_" + symParentImgN$ + ", tmpImg&, " + symSrcRect$
+                        IF symRotCallImg$ <> "" THEN PRINT #fh%, symRotCallImg$
+                        PRINT #fh%, "BlendLayer tmpImg&, " + blendModeStr$ + ", " + opStr$
+                        PRINT #fh%, "_FREEIMAGE tmpImg&"
+                    ELSEIF hasOpacity% THEN
+                        PRINT #fh%, "tmpImg& = _NEWIMAGE(CANVAS_W, CANVAS_H, 32)"
+                        PRINT #fh%, "_PUTIMAGE " + symDstRect$ + ", img_" + symParentImgN$ + ", tmpImg&, " + symSrcRect$
+                        IF symRotCallImg$ <> "" THEN PRINT #fh%, symRotCallImg$
+                        PRINT #fh%, "ScaleImageAlpha tmpImg&, " + opStr$
+                        PRINT #fh%, "_PUTIMAGE (0, 0), tmpImg&"
+                        PRINT #fh%, "_FREEIMAGE tmpImg&"
+                    ELSEIF symRotCallImg$ <> "" THEN
+                        PRINT #fh%, "tmpImg& = _NEWIMAGE(CANVAS_W, CANVAS_H, 32)"
+                        PRINT #fh%, "_PUTIMAGE " + symDstRect$ + ", img_" + symParentImgN$ + ", tmpImg&, " + symSrcRect$
+                        PRINT #fh%, symRotCallImg$
+                        PRINT #fh%, "_PUTIMAGE (0, 0), tmpImg&"
+                        PRINT #fh%, "_FREEIMAGE tmpImg&"
+                    ELSE
+                        PRINT #fh%, "_PUTIMAGE " + symDstRect$ + ", img_" + symParentImgN$ + ", , " + symSrcRect$
                     END IF
                 ELSE
                     IF hasBlend% THEN
@@ -994,6 +1076,51 @@ SUB FILE_QB64_export (basPath AS STRING)
         PRINT #fh%, "        END IF"
         PRINT #fh%, "    NEXT x&"
         PRINT #fh%, "    _MEMFREE m"
+        PRINT #fh%, "END SUB"
+        PRINT #fh%, ""
+    END IF
+
+    ' --- Rotation helper (if needed) ---
+    IF needRotation% THEN
+        PRINT #fh%, "SUB RotateImageRegion (img AS LONG, steps AS INTEGER, offX AS INTEGER, offY AS INTEGER, w AS INTEGER, h AS INTEGER)"
+        PRINT #fh%, "    ' Rotate content at (offX,offY) size (w,h) in img by steps*90 CW"
+        PRINT #fh%, "    IF steps < 1 OR steps > 3 THEN EXIT SUB"
+        PRINT #fh%, "    DIM reg AS LONG"
+        PRINT #fh%, "    reg = _NEWIMAGE(w, h, 32)"
+        PRINT #fh%, "    _DONTBLEND reg"
+        PRINT #fh%, "    _PUTIMAGE (0, 0), img, reg, (offX, offY)-(offX + w - 1, offY + h - 1)"
+        PRINT #fh%, "    DIM rW AS INTEGER, rH AS INTEGER"
+        PRINT #fh%, "    IF steps = 2 THEN rW = w: rH = h ELSE rW = h: rH = w"
+        PRINT #fh%, "    DIM rotImg AS LONG"
+        PRINT #fh%, "    rotImg = _NEWIMAGE(rW, rH, 32)"
+        PRINT #fh%, "    DIM oldS AS LONG, oldD AS LONG"
+        PRINT #fh%, "    oldS = _SOURCE: oldD = _DEST"
+        PRINT #fh%, "    _SOURCE reg: _DEST rotImg"
+        PRINT #fh%, "    _DONTBLEND rotImg"
+        PRINT #fh%, "    CLS , _RGBA32(0, 0, 0, 0)"
+        PRINT #fh%, "    DIM px AS INTEGER, py AS INTEGER, c AS _UNSIGNED LONG"
+        PRINT #fh%, "    FOR py = 0 TO h - 1"
+        PRINT #fh%, "        FOR px = 0 TO w - 1"
+        PRINT #fh%, "            c = POINT(px, py)"
+        PRINT #fh%, "            IF _ALPHA32(c) > 0 THEN"
+        PRINT #fh%, "                SELECT CASE steps"
+        PRINT #fh%, "                    CASE 1: PSET (h - 1 - py, px), c"
+        PRINT #fh%, "                    CASE 2: PSET (w - 1 - px, h - 1 - py), c"
+        PRINT #fh%, "                    CASE 3: PSET (py, w - 1 - px), c"
+        PRINT #fh%, "                END SELECT"
+        PRINT #fh%, "            END IF"
+        PRINT #fh%, "        NEXT"
+        PRINT #fh%, "    NEXT"
+        PRINT #fh%, "    _BLEND rotImg: _SOURCE oldS"
+        PRINT #fh%, "    _DEST img: _DONTBLEND img"
+        PRINT #fh%, "    LINE (offX, offY)-(offX + w - 1, offY + h - 1), _RGBA32(0, 0, 0, 0), BF"
+        PRINT #fh%, "    DIM nX AS INTEGER, nY AS INTEGER"
+        PRINT #fh%, "    nX = offX + (w - rW) \ 2"
+        PRINT #fh%, "    nY = offY + (h - rH) \ 2"
+        PRINT #fh%, "    _PUTIMAGE (nX, nY), rotImg, img"
+        PRINT #fh%, "    _BLEND img: _DEST oldD"
+        PRINT #fh%, "    IF reg < -1 THEN _FREEIMAGE reg"
+        PRINT #fh%, "    IF rotImg < -1 THEN _FREEIMAGE rotImg"
         PRINT #fh%, "END SUB"
         PRINT #fh%, ""
     END IF
@@ -1217,13 +1344,28 @@ SUB FILE_QB64_emit_vector_ops (fh AS INTEGER, layerIdx AS INTEGER, indent AS STR
     DIM recKind   AS INTEGER
     DIM recFlags  AS LONG
     DIM colorExpr AS STRING
+    DIM moveOX    AS INTEGER ' cumulative move offset X
+    DIM moveOY    AS INTEGER ' cumulative move offset Y
 
     layerId& = LAYERS(layerIdx%).historyId&
+    moveOX% = 0
+    moveOY% = 0
 
     FOR i% = 1 TO HISTORY.current%
         IF HISTORY_RECORDS(i%).primaryLayerId& <> layerId& THEN _CONTINUE
         recKind%  = HISTORY_RECORDS(i%).kind%
         recFlags& = HISTORY_RECORDS(i%).flags&
+
+        ' Accumulate move offsets (stored in x1/y1 by MOVE_apply_transform)
+        IF recKind% = HISTORY_KIND_TRANSFORM THEN
+            DIM recLabel AS STRING
+            recLabel$ = UCASE$(_TRIM$(HISTORY_RECORDS(i%).label$))
+            IF recLabel$ = "MOVE" THEN
+                moveOX% = moveOX% + HISTORY_RECORDS(i%).x1%
+                moveOY% = moveOY% + HISTORY_RECORDS(i%).y1%
+            END IF
+            _CONTINUE
+        END IF
 
         SELECT CASE recKind%
             CASE HISTORY_KIND_LINE
@@ -1231,33 +1373,33 @@ SUB FILE_QB64_emit_vector_ops (fh AS INTEGER, layerIdx AS INTEGER, indent AS STR
                 IF (recFlags& AND HISTORY_FLAG_THICK_BRUSH) <> 0 THEN
                     ' Thick brush line — fall back to pixel diff (before/after images)
                     IF FILE_BAS_is_expanded_exportable%(i%) THEN
-                        FILE_QB64_emit_pixel_diff fh%, i%, indent$
+                        FILE_QB64_emit_pixel_diff fh%, i%, indent$, moveOX%, moveOY%
                     ELSE
-                        PRINT #fh%, indent$ + "LINE (" + _TRIM$(STR$(HISTORY_RECORDS(i%).x1%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(i%).y1%)) + ")-(" + _TRIM$(STR$(HISTORY_RECORDS(i%).x2%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(i%).y2%)) + "), " + colorExpr$
+                        PRINT #fh%, indent$ + "LINE (" + _TRIM$(STR$(HISTORY_RECORDS(i%).x1% + moveOX%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(i%).y1% + moveOY%)) + ")-(" + _TRIM$(STR$(HISTORY_RECORDS(i%).x2% + moveOX%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(i%).y2% + moveOY%)) + "), " + colorExpr$
                     END IF
                 ELSE
-                    PRINT #fh%, indent$ + "LINE (" + _TRIM$(STR$(HISTORY_RECORDS(i%).x1%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(i%).y1%)) + ")-(" + _TRIM$(STR$(HISTORY_RECORDS(i%).x2%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(i%).y2%)) + "), " + colorExpr$
+                    PRINT #fh%, indent$ + "LINE (" + _TRIM$(STR$(HISTORY_RECORDS(i%).x1% + moveOX%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(i%).y1% + moveOY%)) + ")-(" + _TRIM$(STR$(HISTORY_RECORDS(i%).x2% + moveOX%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(i%).y2% + moveOY%)) + "), " + colorExpr$
                 END IF
 
             CASE HISTORY_KIND_RECT
                 colorExpr$ = FILE_BAS_color_expr$(HISTORY_RECORDS(i%).colorFG~&)
                 IF (recFlags& AND HISTORY_FLAG_FILLED) <> 0 THEN
-                    PRINT #fh%, indent$ + "LINE (" + _TRIM$(STR$(HISTORY_RECORDS(i%).x1%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(i%).y1%)) + ")-(" + _TRIM$(STR$(HISTORY_RECORDS(i%).x2%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(i%).y2%)) + "), " + colorExpr$ + ", BF"
+                    PRINT #fh%, indent$ + "LINE (" + _TRIM$(STR$(HISTORY_RECORDS(i%).x1% + moveOX%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(i%).y1% + moveOY%)) + ")-(" + _TRIM$(STR$(HISTORY_RECORDS(i%).x2% + moveOX%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(i%).y2% + moveOY%)) + "), " + colorExpr$ + ", BF"
                 ELSE
-                    PRINT #fh%, indent$ + "LINE (" + _TRIM$(STR$(HISTORY_RECORDS(i%).x1%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(i%).y1%)) + ")-(" + _TRIM$(STR$(HISTORY_RECORDS(i%).x2%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(i%).y2%)) + "), " + colorExpr$ + ", B"
+                    PRINT #fh%, indent$ + "LINE (" + _TRIM$(STR$(HISTORY_RECORDS(i%).x1% + moveOX%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(i%).y1% + moveOY%)) + ")-(" + _TRIM$(STR$(HISTORY_RECORDS(i%).x2% + moveOX%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(i%).y2% + moveOY%)) + "), " + colorExpr$ + ", B"
                 END IF
 
             CASE HISTORY_KIND_ELLIPSE
                 colorExpr$ = FILE_BAS_color_expr$(HISTORY_RECORDS(i%).colorFG~&)
                 DIM cx AS SINGLE, cy AS SINGLE, rx AS SINGLE, ry AS SINGLE
-                cx! = (HISTORY_RECORDS(i%).x1% + HISTORY_RECORDS(i%).x2%) / 2
-                cy! = (HISTORY_RECORDS(i%).y1% + HISTORY_RECORDS(i%).y2%) / 2
+                cx! = (HISTORY_RECORDS(i%).x1% + HISTORY_RECORDS(i%).x2%) / 2 + moveOX%
+                cy! = (HISTORY_RECORDS(i%).y1% + HISTORY_RECORDS(i%).y2%) / 2 + moveOY%
                 rx! = ABS(HISTORY_RECORDS(i%).x2% - HISTORY_RECORDS(i%).x1%) / 2
                 ry! = ABS(HISTORY_RECORDS(i%).y2% - HISTORY_RECORDS(i%).y1%) / 2
                 IF rx! <= 0 THEN rx! = 1
                 IF ry! <= 0 THEN ry! = 1
                 IF (recFlags& AND HISTORY_FLAG_FILLED) <> 0 THEN
-                    PRINT #fh%, indent$ + "FillEllipseScanline " + _TRIM$(STR$(HISTORY_RECORDS(i%).x1%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(i%).y1%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(i%).x2%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(i%).y2%)) + ", " + colorExpr$
+                    PRINT #fh%, indent$ + "FillEllipseScanline " + _TRIM$(STR$(HISTORY_RECORDS(i%).x1% + moveOX%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(i%).y1% + moveOY%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(i%).x2% + moveOX%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(i%).y2% + moveOY%)) + ", " + colorExpr$
                 ELSE
                     DIM aspect AS SINGLE
                     IF rx! >= ry! THEN
@@ -1290,9 +1432,9 @@ SUB FILE_QB64_emit_vector_ops (fh AS INTEGER, layerIdx AS INTEGER, indent AS STR
                         END SELECT
                     NEXT scanIdx%
                     IF LEN(borderExpr$) > 0 THEN
-                        PRINT #fh%, indent$ + "PAINT (" + _TRIM$(STR$(HISTORY_RECORDS(i%).x1%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(i%).y1%)) + "), " + colorExpr$ + ", " + borderExpr$
+                        PRINT #fh%, indent$ + "PAINT (" + _TRIM$(STR$(HISTORY_RECORDS(i%).x1% + moveOX%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(i%).y1% + moveOY%)) + "), " + colorExpr$ + ", " + borderExpr$
                     ELSE
-                        PRINT #fh%, indent$ + "PAINT (" + _TRIM$(STR$(HISTORY_RECORDS(i%).x1%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(i%).y1%)) + "), " + colorExpr$
+                        PRINT #fh%, indent$ + "PAINT (" + _TRIM$(STR$(HISTORY_RECORDS(i%).x1% + moveOX%)) + ", " + _TRIM$(STR$(HISTORY_RECORDS(i%).y1% + moveOY%)) + "), " + colorExpr$
                     END IF
                 END IF
 
@@ -1304,8 +1446,8 @@ SUB FILE_QB64_emit_vector_ops (fh AS INTEGER, layerIdx AS INTEGER, indent AS STR
                 ptCount% = HISTORY_RECORDS(i%).payloadOffset&
                 IF ptCount% >= 2 THEN
                     ' Parse points from payload and emit LINE segments
-                    DIM pxArr(0 TO ptCount% - 1) AS INTEGER
-                    DIM pyArr(0 TO ptCount% - 1) AS INTEGER
+                    REDIM pxArr(0 TO ptCount% - 1) AS INTEGER
+                    REDIM pyArr(0 TO ptCount% - 1) AS INTEGER
                     DIM pIdx AS INTEGER, pSep AS INTEGER, pPair AS STRING
                     DIM pSrc AS STRING
                     pSrc$ = payload$
@@ -1328,11 +1470,11 @@ SUB FILE_QB64_emit_vector_ops (fh AS INTEGER, layerIdx AS INTEGER, indent AS STR
 
                     colorExpr$ = FILE_BAS_color_expr$(HISTORY_RECORDS(i%).colorFG~&)
                     FOR pts% = 0 TO ptCount% - 2
-                        PRINT #fh%, indent$ + "LINE (" + _TRIM$(STR$(pxArr(pts%))) + ", " + _TRIM$(STR$(pyArr(pts%))) + ")-(" + _TRIM$(STR$(pxArr(pts% + 1))) + ", " + _TRIM$(STR$(pyArr(pts% + 1))) + "), " + colorExpr$
+                        PRINT #fh%, indent$ + "LINE (" + _TRIM$(STR$(pxArr(pts%) + moveOX%)) + ", " + _TRIM$(STR$(pyArr(pts%) + moveOY%)) + ")-(" + _TRIM$(STR$(pxArr(pts% + 1) + moveOX%)) + ", " + _TRIM$(STR$(pyArr(pts% + 1) + moveOY%)) + "), " + colorExpr$
                     NEXT pts%
                     ' Close polygon (last to first)
                     IF ptCount% >= 3 THEN
-                        PRINT #fh%, indent$ + "LINE (" + _TRIM$(STR$(pxArr(ptCount% - 1))) + ", " + _TRIM$(STR$(pyArr(ptCount% - 1))) + ")-(" + _TRIM$(STR$(pxArr(0))) + ", " + _TRIM$(STR$(pyArr(0))) + "), " + colorExpr$
+                        PRINT #fh%, indent$ + "LINE (" + _TRIM$(STR$(pxArr(ptCount% - 1) + moveOX%)) + ", " + _TRIM$(STR$(pyArr(ptCount% - 1) + moveOY%)) + ")-(" + _TRIM$(STR$(pxArr(0) + moveOX%)) + ", " + _TRIM$(STR$(pyArr(0) + moveOY%)) + "), " + colorExpr$
                     END IF
 
                     IF (recFlags& AND HISTORY_FLAG_FILLED) <> 0 THEN
@@ -1340,8 +1482,8 @@ SUB FILE_QB64_emit_vector_ops (fh AS INTEGER, layerIdx AS INTEGER, indent AS STR
                         PRINT #fh%, indent$ + "DIM polyX_" + _TRIM$(STR$(i%)) + "(0 TO " + _TRIM$(STR$(ptCount% - 1)) + ") AS INTEGER"
                         PRINT #fh%, indent$ + "DIM polyY_" + _TRIM$(STR$(i%)) + "(0 TO " + _TRIM$(STR$(ptCount% - 1)) + ") AS INTEGER"
                         FOR pIdx% = 0 TO ptCount% - 1
-                            PRINT #fh%, indent$ + "polyX_" + _TRIM$(STR$(i%)) + "(" + _TRIM$(STR$(pIdx%)) + ") = " + _TRIM$(STR$(pxArr(pIdx%)))
-                            PRINT #fh%, indent$ + "polyY_" + _TRIM$(STR$(i%)) + "(" + _TRIM$(STR$(pIdx%)) + ") = " + _TRIM$(STR$(pyArr(pIdx%)))
+                            PRINT #fh%, indent$ + "polyX_" + _TRIM$(STR$(i%)) + "(" + _TRIM$(STR$(pIdx%)) + ") = " + _TRIM$(STR$(pxArr(pIdx%) + moveOX%))
+                            PRINT #fh%, indent$ + "polyY_" + _TRIM$(STR$(i%)) + "(" + _TRIM$(STR$(pIdx%)) + ") = " + _TRIM$(STR$(pyArr(pIdx%) + moveOY%))
                         NEXT pIdx%
                         PRINT #fh%, indent$ + "FillPolygonScanline " + _TRIM$(STR$(ptCount%)) + ", polyX_" + _TRIM$(STR$(i%)) + "(), polyY_" + _TRIM$(STR$(i%)) + "(), " + colorExpr$
                     END IF
@@ -1350,7 +1492,7 @@ SUB FILE_QB64_emit_vector_ops (fh AS INTEGER, layerIdx AS INTEGER, indent AS STR
             CASE HISTORY_KIND_BRUSH
                 ' Dot/Brush (1px) — use pixel-diff of before/after images
                 IF FILE_BAS_is_expanded_exportable%(i%) THEN
-                    FILE_QB64_emit_pixel_diff fh%, i%, indent$
+                    FILE_QB64_emit_pixel_diff fh%, i%, indent$, moveOX%, moveOY%
                 END IF
         END SELECT
     NEXT i%
@@ -1363,7 +1505,7 @@ END SUB
 ' @param recordIndex INTEGER Index into HISTORY_RECORDS()
 ' @param indent STRING Indentation prefix
 '
-SUB FILE_QB64_emit_pixel_diff (fh AS INTEGER, recordIndex AS INTEGER, indent AS STRING)
+SUB FILE_QB64_emit_pixel_diff (fh AS INTEGER, recordIndex AS INTEGER, indent AS STRING, offsetX AS INTEGER, offsetY AS INTEGER)
     DIM beforeMem     AS _MEM
     DIM afterMem      AS _MEM
     DIM width         AS LONG, height AS LONG
@@ -1407,9 +1549,9 @@ SUB FILE_QB64_emit_pixel_diff (fh AS INTEGER, recordIndex AS INTEGER, indent AS 
 
             runColorExpr$ = FILE_BAS_color_expr$(afterCol~&)
             IF runStart& = runEnd& THEN
-                PRINT #fh%, indent$ + "PSET (" + _TRIM$(STR$(runStart&)) + ", " + _TRIM$(STR$(y&)) + "), " + runColorExpr$
+                PRINT #fh%, indent$ + "PSET (" + _TRIM$(STR$(runStart& + offsetX%)) + ", " + _TRIM$(STR$(y& + offsetY%)) + "), " + runColorExpr$
             ELSE
-                PRINT #fh%, indent$ + "LINE (" + _TRIM$(STR$(runStart&)) + ", " + _TRIM$(STR$(y&)) + ")-(" + _TRIM$(STR$(runEnd&)) + ", " + _TRIM$(STR$(y&)) + "), " + runColorExpr$
+                PRINT #fh%, indent$ + "LINE (" + _TRIM$(STR$(runStart& + offsetX%)) + ", " + _TRIM$(STR$(y& + offsetY%)) + ")-(" + _TRIM$(STR$(runEnd& + offsetX%)) + ", " + _TRIM$(STR$(y& + offsetY%)) + "), " + runColorExpr$
             END IF
             x& = runEnd& + 1
         LOOP

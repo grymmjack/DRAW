@@ -83,6 +83,7 @@ TYPE DRAW_LAYER
     symbolScaleY      AS SINGLE      ' Child  : Y scale factor (default 1.0; negative = flip V)
     symbolOffsetX     AS INTEGER     ' Child  : canvas X for top-left of scaled content
     symbolOffsetY     AS INTEGER     ' Child  : canvas Y for top-left of scaled content
+    symbolRotation    AS INTEGER     ' Child  : rotation steps (0=none, 1=90CW, 2=180, 3=270CW)
     ' QB64PE Code Export classification (computed from history, undo-aware)
     exportMode        AS INTEGER     ' EXPORT_MODE_VECTOR (0), _TEXT (1), _IMG (2), _NONE (3)
 END TYPE

@@ -37,6 +37,11 @@ TYPE MOVE_OBJ
     ORIGINAL_IMG_H  AS INTEGER ' Height of original image
     SCALE_FACTOR    AS SINGLE  ' Cumulative scale factor (1.0 = original)
     GROUP_ORIGIN    AS INTEGER ' Group header index that triggered auto-select (0 = not a group move)
+    SYMBOL_CHILD    AS INTEGER ' TRUE when dragging a symbol child (offset-based, no pixel capture)
+    SYMBOL_ORIG_OX  AS INTEGER ' Original symbolOffsetX at capture time (for cancel)
+    SYMBOL_ORIG_OY  AS INTEGER ' Original symbolOffsetY at capture time (for cancel)
+    SYMBOL_ORIG_SX  AS SINGLE  ' Original symbolScaleX at capture time (for cancel/scale)
+    SYMBOL_ORIG_SY  AS SINGLE  ' Original symbolScaleY at capture time (for cancel/scale)
 END TYPE
 
 DIM SHARED MOVE AS MOVE_OBJ
