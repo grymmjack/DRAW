@@ -66,6 +66,7 @@ TYPE SETTINGS_CTX
     scrollDrag     AS INTEGER    ' TRUE if content scrollbar is being dragged
     scrollDragY    AS INTEGER    ' Mouse Y at drag start
     scrollDragOfs  AS INTEGER    ' Scroll offset at drag start
+    reopenNeeded   AS INTEGER    ' TRUE if Apply changed display scale; dialog must close & reopen
 END TYPE
 
 DIM SHARED SETTINGS AS SETTINGS_CTX
