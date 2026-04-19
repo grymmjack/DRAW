@@ -158,33 +158,34 @@ Layers with only vector-safe operations should be classified as vector.
 ### [ ] Image layer classification (EXPORT_MODE_IMG)
 Layers with non-vectorizable operations.
 
-#### [ ] Custom brush forces IMG mode
-1. [ ] Activate a custom brush and paint with it
-2. [ ] Verify layer badge shows "(IMG)" (orange)
-3. [ ] Export and verify layer is saved as PNG in _ASSETS/ and loaded via _LOADIMAGE
+#### [x] Custom brush forces IMG mode
+1. [x] Activate a custom brush and paint with it
+2. [x] Verify layer badge shows "(IMG)" (orange)
+3. [x] Export and verify layer is saved as PNG in _ASSETS/ and loaded via _LOADIMAGE
 
-#### [ ] Symmetry forces IMG mode
-1. [ ] Enable symmetry (e.g. horizontal mirror)
-2. [ ] Draw a line with symmetry active
-3. [ ] Verify badge shows "(IMG)"
+#### [x] Symmetry forces IMG mode
+1. [x] Enable symmetry (e.g. horizontal mirror)
+2. [x] Draw a line with symmetry active
+3. [x] Verify badge shows "(IMG)"
 
-#### [ ] Spray tool forces IMG mode
-1. [ ] Use the Spray tool (K) to paint
-2. [ ] Verify badge shows "(IMG)"
+#### [x] Spray tool forces IMG mode
+1. [x] Use the Spray tool (K) to paint
+2. [x] Verify badge shows "(IMG)"
 
-#### [ ] Thick brush with freehand forces IMG mode
-1. [ ] Set brush size > 1
-2. [ ] Use the Brush tool (B) to freehand draw
-3. [ ] Verify badge shows "(IMG)"
+#### [x] Thick brush with freehand forces IMG mode
+1. [x] Set brush size > 1
+2. [x] Use the Brush tool (B) to freehand draw
+3. [x] Verify badge shows "(IMG)"
 
-#### [ ] Transform forces IMG mode
-1. [ ] Apply Edit → Transform to a layer
-2. [ ] Verify badge shows "(IMG)"
+#### [x] Transform forces IMG mode
+1. [x] Apply Edit → Transform to a layer
+2. [x] Verify badge shows "(IMG)"
 
-#### [ ] Imported image with no history classified as IMG
-1. [ ] Import an image as a new layer (File → Import Image)
-2. [ ] Verify badge shows "(IMG)"
-3. [ ] Export and verify a PNG is saved to _ASSETS/
+#### [x] Imported image with no history classified as IMG
+1. [x] Import an image as a new layer (File → Import Image)
+2. [x] Verify badge shows "(IMG)"
+3. [x] Export and verify a PNG is saved to _ASSETS/
+> **BUG FIXED**: Imported images with only structural history (LAYER_ADD) were misclassified as VECTOR → empty SUB. Fixed by scanning for non-transparent pixel content when layer has structural history but no drawing ops. — 2026-04-19
 
 ### [ ] Text layer classification (EXPORT_MODE_TEXT)
 
