@@ -47,6 +47,12 @@ CONST LAYER_TYPE_GROUP         = 2         ' Group container (no pixel data, org
 CONST LAYER_TYPE_SYMBOL_PARENT = 3         ' Symbol parent : editable source layer for linked instances
 CONST LAYER_TYPE_SYMBOL_CHILD  = 4         ' Symbol child  : non-editable linked instance of a parent
 
+' Export mode constants (QB64PE Code Export classification)
+CONST EXPORT_MODE_VECTOR = 0               ' All ops are vector-exportable (SUB)
+CONST EXPORT_MODE_TEXT   = 1               ' Text layer (SUB:TXT)
+CONST EXPORT_MODE_IMG    = 2               ' Has non-vector ops — exports as PNG + _LOADIMAGE (SUB:IMG)
+CONST EXPORT_MODE_NONE   = 3               ' Groups — not exported directly
+
 TYPE DRAW_LAYER
     historyId         AS LONG        ' Stable runtime identity for unified history
     zIndex            AS INTEGER     ' Layer stacking order (1 = bottom)
@@ -77,6 +83,8 @@ TYPE DRAW_LAYER
     symbolScaleY      AS SINGLE      ' Child  : Y scale factor (default 1.0; negative = flip V)
     symbolOffsetX     AS INTEGER     ' Child  : canvas X for top-left of scaled content
     symbolOffsetY     AS INTEGER     ' Child  : canvas Y for top-left of scaled content
+    ' QB64PE Code Export classification (computed from history, undo-aware)
+    exportMode        AS INTEGER     ' EXPORT_MODE_VECTOR (0), _TEXT (1), _IMG (2), _NONE (3)
 END TYPE
 
 TYPE LAYER_PANEL_OBJ
