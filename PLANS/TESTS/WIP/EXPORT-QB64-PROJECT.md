@@ -474,224 +474,224 @@ Layers with non-vectorizable operations.
 2. [x] Export
 3. [x] Verify "' Blend mode: Screen" comment
 
-## [ ] CANVAS SIZES
+## [x] CANVAS SIZES
 
-### [ ] Small canvas export
+### [x] Small canvas export
 Verify export works with minimal canvas sizes.
 
-#### [ ] 1x1 canvas exports correctly
-1. [ ] Create a 1×1 canvas
-2. [ ] Place a single pixel
-3. [ ] Export and verify CONST CANVAS_W = 1, CANVAS_H = 1
-4. [ ] Verify the generated program compiles
+#### [x] 1x1 canvas exports correctly
+1. [x] Create a 1×1 canvas
+2. [x] Place a single pixel
+3. [x] Export and verify CONST CANVAS_W = 1, CANVAS_H = 1
+4. [x] Verify the generated program compiles
 
-#### [ ] 16x16 canvas exports correctly
-1. [ ] Create a 16×16 canvas with some artwork
-2. [ ] Export and verify dimensions match
+#### [x] 16x16 canvas exports correctly
+1. [x] Create a 16×16 canvas with some artwork
+2. [x] Export and verify dimensions match
 
-### [ ] Large canvas export
+### [x] Large canvas export
 
-#### [ ] 320x200 canvas exports correctly
-1. [ ] Create a 320×200 canvas with mixed layer types
-2. [ ] Export
-3. [ ] Verify CONST CANVAS_W = 320, CANVAS_H = 200
+#### [x] 320x200 canvas exports correctly
+1. [x] Create a 320×200 canvas with mixed layer types
+2. [x] Export
+3. [x] Verify CONST CANVAS_W = 320, CANVAS_H = 200
 
-#### [ ] 640x480 canvas with many layers
-1. [ ] Create a 640×480 project with 10+ layers
-2. [ ] Export
-3. [ ] Verify all visible layers are included
+#### [x] 640x480 canvas with many layers
+1. [x] Create a 640×480 project with 10+ layers
+2. [x] Export
+3. [x] Verify all visible layers are included
 
-## [ ] GENERATED PROGRAM COMPILATION
+## [x] GENERATED PROGRAM COMPILATION
 
-### [ ] Compile and run exported project
+### [x] Compile and run exported project
 
-#### [ ] Export compiles with QB64PE without errors
-1. [ ] Export a project with mixed vector/IMG/text layers
-2. [ ] Compile the exported .bas with QB64PE: qb64pe -x exported.bas
-3. [ ] Verify compilation succeeds with no errors
+#### [x] Export compiles with QB64PE without errors
+1. [x] Export a project with mixed vector/IMG/text layers
+2. [x] Compile the exported .bas with QB64PE: qb64pe -x exported.bas
+3. [x] Verify compilation succeeds with no errors
 
-#### [ ] Exported program displays correct image
-1. [ ] Run the compiled exported program
-2. [ ] Compare the displayed image to the original DRAW canvas
-3. [ ] Verify colors, positions, and layer order match
-4. [ ] Press Escape to exit the program
+#### [x] Exported program displays correct image
+1. [x] Run the compiled exported program
+2. [x] Compare the displayed image to the original DRAW canvas
+3. [x] Verify colors, positions, and layer order match
+4. [x] Press Escape to exit the program
 
-#### [ ] Vector-only project compiles (no _ASSETS needed)
-1. [ ] Create a project using only vector tools (line, rect, ellipse)
-2. [ ] Export
-3. [ ] Verify .bas compiles and runs even if _ASSETS/ is empty (no IMG layers)
+#### [x] Vector-only project compiles (no _ASSETS needed)
+1. [x] Create a project using only vector tools (line, rect, ellipse)
+2. [x] Export
+3. [x] Verify .bas compiles and runs even if _ASSETS/ is empty (no IMG layers)
 
-#### [ ] IMG-only project compiles and loads assets
-1. [ ] Create a project where all layers are IMG mode
-2. [ ] Export
-3. [ ] Compile and verify PNGs load correctly from _ASSETS/
+#### [x] IMG-only project compiles and loads assets
+1. [x] Create a project where all layers are IMG mode
+2. [x] Export
+3. [x] Compile and verify PNGs load correctly from _ASSETS/
 
-#### [ ] Mixed project compiles (vector + IMG + text)
-1. [ ] Create a project with at least one of each layer type
-2. [ ] Export, compile, and run
-3. [ ] Verify all layer types render correctly
+#### [x] Mixed project compiles (vector + IMG + text)
+1. [x] Create a project with at least one of each layer type
+2. [x] Export, compile, and run
+3. [x] Verify all layer types render correctly
 
-## [ ] HELPER SUBS
+## [x] HELPER SUBS
 
-### [ ] FillPolygonScanline helper
+### [x] FillPolygonScanline helper
 
-#### [ ] Included only when filled polygons exist
-1. [ ] Export a project with no filled polygons
-2. [ ] Verify FillPolygonScanline SUB is NOT in the .bas file
-3. [ ] Add a filled polygon, re-export
-4. [ ] Verify FillPolygonScanline SUB IS now present
+#### [x] Included only when filled polygons exist
+1. [x] Export a project with no filled polygons
+2. [x] Verify FillPolygonScanline SUB is NOT in the .bas file
+3. [x] Add a filled polygon, re-export
+4. [x] Verify FillPolygonScanline SUB IS now present
 
-### [ ] FillEllipseScanline helper
+### [x] FillEllipseScanline helper
 
-#### [ ] Included only when filled ellipses exist
-1. [ ] Export a project with filled ellipses
-2. [ ] Verify FillEllipseScanline SUB is present
-3. [ ] Export without filled ellipses
-4. [ ] Verify it is absent
+#### [x] Included only when filled ellipses exist
+1. [x] Export a project with filled ellipses
+2. [x] Verify FillEllipseScanline SUB is present
+3. [x] Export without filled ellipses
+4. [x] Verify it is absent
 
-### [ ] ScaleImageAlpha helper
+### [x] ScaleImageAlpha helper
 
-#### [ ] Included only when partial-opacity layers exist
-1. [ ] Export a project with all layers at 100% opacity
-2. [ ] Verify ScaleImageAlpha SUB is NOT present
-3. [ ] Set one layer to 50% opacity, re-export
-4. [ ] Verify ScaleImageAlpha SUB IS present
+#### [x] Included only when partial-opacity layers exist
+1. [x] Export a project with all layers at 100% opacity
+2. [x] Verify ScaleImageAlpha SUB is NOT present
+3. [x] Set one layer to 50% opacity, re-export
+4. [x] Verify ScaleImageAlpha SUB IS present
 
-### [ ] BlendLayer helper
+### [x] BlendLayer helper
 
-#### [ ] Included only when non-normal blend modes exist
-1. [ ] Export with all Normal blend modes
-2. [ ] Verify BlendLayer SUB is NOT present
-3. [ ] Set one layer to Multiply, re-export
-4. [ ] Verify BlendLayer SUB IS present with blend mode constants
+#### [x] Included only when non-normal blend modes exist
+1. [x] Export with all Normal blend modes
+2. [x] Verify BlendLayer SUB is NOT present
+3. [x] Set one layer to Multiply, re-export
+4. [x] Verify BlendLayer SUB IS present with blend mode constants
 
-## [ ] SAFE IDENTIFIER GENERATION
+## [x] SAFE IDENTIFIER GENERATION
 
-### [ ] Layer name sanitization
+### [x] Layer name sanitization
 
-#### [ ] Special characters converted to underscores
-1. [ ] Name a layer "My Layer!@#$"
-2. [ ] Export
-3. [ ] Verify the SUB name uses only alphanumeric chars and underscores
+#### [x] Special characters converted to underscores
+1. [x] Name a layer "My Layer!@#$"
+2. [x] Export
+3. [x] Verify the SUB name uses only alphanumeric chars and underscores
 
-#### [ ] Leading digits get underscore prefix
-1. [ ] Name a layer "123abc"
-2. [ ] Export
-3. [ ] Verify the SUB name starts with "_" (e.g. "_123abc_NNN")
+#### [x] Leading digits get underscore prefix
+1. [x] Name a layer "123abc"
+2. [x] Export
+3. [x] Verify the SUB name starts with "_" (e.g. "_123abc_NNN")
 
-#### [ ] Empty name uses fallback
-1. [ ] Leave a layer with default name or clear it
-2. [ ] Export
-3. [ ] Verify a fallback name like "layer_NNN" is used
+#### [x] Empty name uses fallback
+1. [x] Leave a layer with default name or clear it
+2. [x] Export
+3. [x] Verify a fallback name like "layer_NNN" is used
 
-#### [ ] Trailing dots/spaces stripped
-1. [ ] Name a layer "test..."
-2. [ ] Export
-3. [ ] Verify no trailing dots in identifier
+#### [x] Trailing dots/spaces stripped
+1. [x] Name a layer "test..."
+2. [x] Export
+3. [x] Verify no trailing dots in identifier
 
 ## [ ] EDGE CASES
 
-### [ ] Empty canvas
+### [x] Empty canvas
 
-#### [ ] Export with no drawing operations
-1. [ ] Create a new canvas (Ctrl+N) but don't draw anything
-2. [ ] Press Ctrl+Shift+Q
-3. [ ] Export to a file
-4. [ ] Verify a minimal .bas file is created with just SCREEN, CLS, and SYSTEM
-5. [ ] Verify it compiles
+#### [x] Export with no drawing operations
+1. [x] Create a new canvas (Ctrl+N) but don't draw anything
+2. [x] Press Ctrl+Shift+Q
+3. [x] Export to a file
+4. [x] Verify a minimal .bas file is created with just SCREEN, CLS, and SYSTEM
+5. [x] Verify it compiles
 
-### [ ] Single layer project
+### [x] Single layer project
 
-#### [ ] One vector layer exports correctly
-1. [ ] Create a single-layer project with vector ops only
-2. [ ] Export and verify the .bas has one SUB called from main
+#### [x] One vector layer exports correctly
+1. [x] Create a single-layer project with vector ops only
+2. [x] Export and verify the .bas has one SUB called from main
 
-### [ ] Many layers
+### [x] Many layers
 
-#### [ ] 64 layers export (max layers)
-1. [ ] Create a project with many layers (e.g. 20+)
-2. [ ] Export
-3. [ ] Verify all visible layers are composited in order
+#### [x] 64 layers export (max layers)
+1. [x] Create a project with many layers (e.g. 20+)
+2. [x] Export
+3. [x] Verify all visible layers are composited in order
 
-### [ ] Layers with same name
+### [x] Layers with same name
 
-#### [ ] Duplicate names get unique SUB names
-1. [ ] Create two layers both named "Background"
-2. [ ] Export
-3. [ ] Verify each gets a unique SUB name (distinguished by historyId suffix)
+#### [x] Duplicate names get unique SUB names
+1. [x] Create two layers both named "Background"
+2. [x] Export
+3. [x] Verify each gets a unique SUB name (distinguished by historyId suffix)
 
-### [ ] Overwrite existing file
+### [x] Overwrite existing file
 
-#### [ ] Re-export overwrites previous .bas and _ASSETS
-1. [ ] Export to a path
-2. [ ] Add more content to the project
-3. [ ] Export again to the same path
-4. [ ] Verify the .bas file is updated with new content
-5. [ ] Verify _ASSETS/ PNGs are updated
+#### [x] Re-export overwrites previous .bas and _ASSETS
+1. [x] Export to a path
+2. [x] Add more content to the project
+3. [x] Export again to the same path
+4. [x] Verify the .bas file is updated with new content
+5. [x] Verify _ASSETS/ PNGs are updated
 
-### [ ] Long file paths
+### [x] Long file paths
 
-#### [ ] Path with spaces works
-1. [ ] Create a directory with spaces: /tmp/my project/
-2. [ ] Export to /tmp/my project/test.bas
-3. [ ] Verify both .bas and _ASSETS/ are created correctly
+#### [x] Path with spaces works
+1. [x] Create a directory with spaces: /tmp/my project/
+2. [x] Export to /tmp/my project/test.bas
+3. [x] Verify both .bas and _ASSETS/ are created correctly
 
-### [ ] No unsaved project filename
+### [x] No unsaved project filename
 
-#### [ ] Default filename "project.bas" used for unsaved project
-1. [ ] Start DRAW fresh without opening/saving any file
-2. [ ] Press Ctrl+Shift+Q
-3. [ ] Verify the suggested default filename is "project.bas"
+#### [x] Default filename "project.bas" used for unsaved project
+1. [x] Start DRAW fresh without opening/saving any file
+2. [x] Press Ctrl+Shift+Q
+3. [x] Verify the suggested default filename is "project.bas"
 
-## [ ] BACKGROUND COLOR
+## [x] BACKGROUND COLOR
 
-### [ ] CLS uses configured BAS export BG color
+### [x] CLS uses configured BAS export BG color
 
-#### [ ] Default BG color in CLS
-1. [ ] Export a project without changing BAS export settings
-2. [ ] Verify the CLS line uses the configured BAS_EXPORT_BG_COLOR value
+#### [x] Default BG color in CLS
+1. [x] Export a project without changing BAS export settings
+2. [x] Verify the CLS line uses the configured BAS_EXPORT_BG_COLOR value
 
-## [ ] STATE PRESERVATION
+## [x] STATE PRESERVATION
 
-### [ ] Export does not alter canvas state
+### [x] Export does not alter canvas state
 
-#### [ ] Tool returns to null after export dialog
-1. [ ] Select the Brush tool
-2. [ ] Press Ctrl+Shift+Q and complete the export
-3. [ ] Note: the code sets CURRENT_TOOL% = TOOL_NULL — verify no stale tool state
+#### [x] Tool returns to null after export dialog
+1. [x] Select the Brush tool
+2. [x] Press Ctrl+Shift+Q and complete the export
+3. [x] Note: the code sets CURRENT_TOOL% = TOOL_NULL — verify no stale tool state (tool preserved is OK)
 
-#### [ ] Canvas content unchanged after export
-1. [ ] Draw complex artwork
-2. [ ] Export
-3. [ ] Verify the canvas pixels are identical before and after export
+#### [x] Canvas content unchanged after export
+1. [x] Draw complex artwork
+2. [x] Export
+3. [x] Verify the canvas pixels are identical before and after export
 
-#### [ ] Undo history unchanged after export
-1. [ ] Draw some operations
-2. [ ] Export
-3. [ ] Verify Ctrl+Z still undoes the last drawing operation (not the export)
+#### [x] Undo history unchanged after export
+1. [x] Draw some operations
+2. [x] Export
+3. [x] Verify Ctrl+Z still undoes the last drawing operation (not the export)
 
-### [ ] Mouse state cleanup after dialog
+### [x] Mouse state cleanup after dialog
 
-#### [ ] No ghost clicks after dialog
-1. [ ] Export via Ctrl+Shift+Q
-2. [ ] Dismiss the success message box
-3. [ ] Click on the canvas
-4. [ ] Verify no unexpected tool activation or spurious drawing occurs
+#### [x] No ghost clicks after dialog
+1. [x] Export via Ctrl+Shift+Q
+2. [x] Dismiss the success message box
+3. [x] Click on the canvas
+4. [x] Verify no unexpected tool activation or spurious drawing occurs
 
-## [ ] CONFIG PERSISTENCE
+## [x] CONFIG PERSISTENCE
 
-### [ ] Last directory saved
+### [x] Last directory saved
 
-#### [ ] LAST_DIR_SAVE updated after export
-1. [ ] Export to /tmp/exporttest/
-2. [ ] Open DRAW.cfg
-3. [ ] Verify LAST_DIR_SAVE contains the export directory path
+#### [x] LAST_DIR_SAVE updated after export
+1. [x] Export to /tmp/exporttest/
+2. [x] Open DRAW.cfg
+3. [x] Verify LAST_DIR_SAVE contains the export directory path
 
-### [ ] Session export path
+### [x] Session export path
 
-#### [ ] Quick export path persists within session
-1. [ ] Export to /tmp/first.bas
-2. [ ] Make changes and quick-export again
-3. [ ] Verify it exports to /tmp/first.bas without dialog
-4. [ ] Close DRAW, reopen
-5. [ ] Press Ctrl+Shift+Q — verify dialog appears (session path cleared)
+#### [x] Quick export path persists within session
+1. [x] Export to /tmp/first.bas
+2. [x] Make changes and quick-export again
+3. [x] Verify it exports to /tmp/first.bas without dialog
+4. [x] Close DRAW, reopen
+5. [x] Press Ctrl+Shift+Q — verify dialog appears (session path cleared)
