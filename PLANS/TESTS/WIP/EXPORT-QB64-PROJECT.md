@@ -395,9 +395,9 @@ Layers with non-vectorizable operations.
 2. [x] Export
 3. [x] Verify COLOR statements change between character groups
 
-## [ ] OPACITY AND BLEND MODES
+## [x] OPACITY AND BLEND MODES
 
-### [ ] Layer opacity
+### [x] Layer opacity
 
 #### [x] Full opacity layer exported without wrapper
 1. [x] Create a layer at 100% opacity
@@ -414,65 +414,65 @@ Layers with non-vectorizable operations.
 1. [x] Set a layer to 0% opacity (but visible)
 2. [x] Export
 3. [x] Verify the layer is listed in compositing (or check the behavior — it may be skipped)
-> **FAIL**: Layer at 0% opacity exports as full 100% opacity — removes ScaleImageAlpha and tmpLayer wrapper entirely instead of emitting ScaleImageAlpha with factor 0. — 2026-04-19
+> **FAIL→FIXED**: Layer at 0% opacity was exported as full 100% opacity (condition excluded 0). Fixed: 0% opacity layers are now skipped entirely in compositing with a comment. — 2026-04-19
 
-### [ ] Blend modes
+### [x] Blend modes
 
-#### [ ] Normal blend mode exported without wrapper
-1. [ ] Create a layer with Normal blend mode (default)
-2. [ ] Export
-3. [ ] Verify no BlendLayer call
+#### [x] Normal blend mode exported without wrapper
+1. [x] Create a layer with Normal blend mode (default)
+2. [x] Export
+3. [x] Verify no BlendLayer call
 
-#### [ ] Non-normal blend mode generates BlendLayer helper
-1. [ ] Set a layer to Multiply blend mode
-2. [ ] Export
-3. [ ] Verify the .bas includes the BlendLayer SUB
-4. [ ] Verify blend mode constants (BM_MULTIPLY etc.) are defined
-5. [ ] Verify compositing wraps: tmpLayer → render → BlendLayer → _FREEIMAGE
+#### [x] Non-normal blend mode generates BlendLayer helper
+1. [x] Set a layer to Multiply blend mode
+2. [x] Export
+3. [x] Verify the .bas includes the BlendLayer SUB
+4. [x] Verify blend mode constants (BM_MULTIPLY etc.) are defined
+5. [x] Verify compositing wraps: tmpLayer → render → BlendLayer → _FREEIMAGE
 
-#### [ ] All blend modes have constants defined
-1. [ ] Set different layers to various blend modes (Screen, Overlay, Add, Subtract, etc.)
-2. [ ] Export
-3. [ ] Verify all BM_* constants are emitted (18 modes total)
+#### [x] All blend modes have constants defined
+1. [x] Set different layers to various blend modes (Screen, Overlay, Add, Subtract, etc.)
+2. [x] Export
+3. [x] Verify all BM_* constants are emitted (18 modes total)
 
-#### [ ] Combined opacity + blend mode
-1. [ ] Set a layer to 75% opacity with Overlay blend mode
-2. [ ] Export
-3. [ ] Verify compositing uses BlendLayer (which handles opacity internally via effA)
+#### [x] Combined opacity + blend mode
+1. [x] Set a layer to 75% opacity with Overlay blend mode
+2. [x] Export
+3. [x] Verify compositing uses BlendLayer (which handles opacity internally via effA)
 
-## [ ] COMPOSITING ORDER
+## [x] COMPOSITING ORDER
 
-### [ ] Z-order respected
+### [x] Z-order respected
 
-#### [ ] Layers composited bottom to top
-1. [ ] Create 3 layers: Layer1 (bottom), Layer2 (middle), Layer3 (top)
-2. [ ] Export
-3. [ ] Verify the compositing section calls SUBs in z-index ascending order
-4. [ ] Verify Layer1 is first, Layer3 is last
+#### [x] Layers composited bottom to top
+1. [x] Create 3 layers: Layer1 (bottom), Layer2 (middle), Layer3 (top)
+2. [x] Export
+3. [x] Verify the compositing section calls SUBs in z-index ascending order
+4. [x] Verify Layer1 is first, Layer3 is last
 
-### [ ] Only visible layers exported
+### [x] Only visible layers exported
 
-#### [ ] Hidden layers excluded from export
-1. [ ] Create 3 layers, hide the middle one
-2. [ ] Export
-3. [ ] Verify only 2 layers appear in compositing section and SUBs
-4. [ ] Verify no PNG is generated for the hidden layer
+#### [x] Hidden layers excluded from export
+1. [x] Create 3 layers, hide the middle one
+2. [x] Export
+3. [x] Verify only 2 layers appear in compositing section and SUBs
+4. [x] Verify no PNG is generated for the hidden layer
 
-### [ ] Layer comments
+### [x] Layer comments
 
-#### [ ] Each layer has a name comment
-1. [ ] Export a multi-layer project
-2. [ ] Verify each compositing entry has a "' Layer: name" comment
+#### [x] Each layer has a name comment
+1. [x] Export a multi-layer project
+2. [x] Verify each compositing entry has a "' Layer: name" comment
 
-#### [ ] Opacity noted in comment when not 100%
-1. [ ] Set a layer to 128 opacity
-2. [ ] Export
-3. [ ] Verify comment includes "(opacity 128)"
+#### [x] Opacity noted in comment when not 100%
+1. [x] Set a layer to 128 opacity
+2. [x] Export
+3. [x] Verify comment includes "(opacity 128)"
 
-#### [ ] Blend mode noted in comment when non-normal
-1. [ ] Set a layer to Screen blend mode
-2. [ ] Export
-3. [ ] Verify "' Blend mode: Screen" comment
+#### [x] Blend mode noted in comment when non-normal
+1. [x] Set a layer to Screen blend mode
+2. [x] Export
+3. [x] Verify "' Blend mode: Screen" comment
 
 ## [ ] CANVAS SIZES
 
