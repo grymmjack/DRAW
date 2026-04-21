@@ -183,10 +183,10 @@ TYPE DRAW_CONFIG
     DISPLAY_SCALE_MAX               AS INTEGER        ' Maximum allowed scale (default 8)
     DISPLAY_SCALE_CHANGED           AS INTEGER        ' Runtime flag: scale changed during session
     TOOLBAR_SCALE                   AS INTEGER        ' Toolbar icon scale multiplier (1-4, default 1)
-    FD_FONT_SCALE                   AS INTEGER        ' File dialog font scale multiplier (0 = use TOOLBAR_SCALE, 1-4 explicit)
+    FD_FONT_SCALE                   AS INTEGER        ' File dialog text/icon/control scale multiplier (1-4, default 2)
     FD_FONT                         AS INTEGER        ' File dialog font (0 = default 16, 8 = 8x8, 16 = 8x16)
-    FD_DIALOG_W                     AS INTEGER        ' File dialog width in logical pixels (0 = auto 60% of screen)
-    FD_DIALOG_H                     AS INTEGER        ' File dialog height in logical pixels (0 = auto 70% of screen)
+    FD_DIALOG_W                     AS INTEGER        ' File dialog width in pixels (0 = auto 60% of window)
+    FD_DIALOG_H                     AS INTEGER        ' File dialog height in pixels (0 = auto 70% of window)
     NUDGE_N                         AS INTEGER        ' Multi-pixel nudge distance (default 10)
     NUM_CUSTOM_BRUSHES              AS INTEGER        ' Number of custom brush slots (default 4)
     NUM_LAYERS                      AS INTEGER        ' Initial number of layers on new file
