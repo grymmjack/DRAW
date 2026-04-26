@@ -27,6 +27,8 @@ You can also **drag a layer row** with the left mouse button to reorder. **Right
 > 3. Layer 3: character base colors (with Opacity Lock — see below).
 > 4. Layer 4: highlights and effects.
 
+<div class="page-break"></div>
+
 ## Opacity, Visibility & Opacity Lock
 
 > 🎯 **Goal:** Control transparency and protect existing pixels.
@@ -41,6 +43,8 @@ Each layer row has three persistent controls:
 > 1. Draw a character on one layer (transparent background).
 > 2. Toggle the lock icon on that layer.
 > 3. Take a giant brush and slosh new color over the whole canvas. Notice it only paints inside the silhouette.
+
+<div class="page-break"></div>
 
 ## Blend Modes — All 19 Explained
 
@@ -73,6 +77,8 @@ To cycle a layer's blend mode without opening the dropdown, **`Shift`+Right-clic
 > 2. Layer 2: Multiply mode, paint cool desaturated tones for shadows.
 > 3. Layer 3: Screen (or Add) mode, paint warm highlights.
 
+<div class="page-break"></div>
+
 ## Layer Groups, Symbols & Advanced Operations
 
 > 🎯 **Goal:** Organize complex artwork.
@@ -101,6 +107,8 @@ Groups can be nested arbitrarily and use a special **Pass Through** blend mode t
 ### Alignment & distribution
 
 DRAW provides nine alignment commands (Left/Center/Right × Top/Middle/Bottom) and two distribution commands (horizontal, vertical). Combined with multi-layer selection, this is the fastest way to lay out drawn objects in pleasing ways.
+
+<div class="page-break"></div>
 
 ### Symbol Layers
 

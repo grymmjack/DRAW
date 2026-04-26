@@ -23,6 +23,8 @@ If you have a steady hand but find that single-pixel stairsteps creep into your 
 
 The Organizer widget on the right contains **four brush size presets** that you can configure for the workflow you use most often (e.g., 1, 2, 4, 8 pixels for sprite work).
 
+<div class="page-break"></div>
+
 > 🎨 **Try it — your first 16×16 sprite**
 > 1. `Ctrl+N` for a new canvas at 16×16 pixels.
 > 2. Press `D` for the Dot tool, set size to 1 with `[`.
@@ -35,6 +37,8 @@ The Organizer widget on the right contains **four brush size presets** that you 
 > - **Action:** Press and hold the backtick key over the canvas (do not click).
 > - **Capture:** Cropped to canvas, shows the outlined preview footprint and color swatch.
 > - **Save as:** `images/ch02-brush-preview.png`
+
+<div class="page-break"></div>
 
 ## Lines, Rectangles & Ellipses
 
@@ -55,12 +59,16 @@ The shared modifier vocabulary across all three:
 - **Shift while drawing the rect or ellipse** — anchor from the *center* instead of the corner.
 - **Ctrl+Shift while drawing a line** — angle snap to 15°/30°/45°/90° increments.
 
+<div class="page-break"></div>
+
 > 🎨 **Try it — house in 30 seconds**
 > 1. Filled rectangle for the body.
 > 2. Two lines forming the roof triangle.
 > 3. Filled circle (the sun).
 > 4. A few short lines for the sun's rays.
 > 5. Filled rectangle for the ground.
+
+<div class="page-break"></div>
 
 ## Polygons & the Fill Tool
 
@@ -77,6 +85,8 @@ DRAW's flood fill is unusual in two ways:
 
 After a tiled fill, press `F8` to open the **Fill Adjustment overlay**. Drag the canvas to reposition the tile origin, mouse-wheel for uniform scale, drag the L-handle for independent X/Y scaling, and drag the rotation handle (small arc) to rotate the tile. `Enter` applies, `Esc` cancels.
 
+<div class="page-break"></div>
+
 > 🎨 **Try it — tileable pattern fill**
 > 1. Draw a small 8×8 motif.
 > 2. Capture it as a custom brush (see Chapter 9).
@@ -84,6 +94,8 @@ After a tiled fill, press `F8` to open the **Fill Adjustment overlay**. Drag the
 > 4. Press `F8` and experiment with scale, rotation, and offset.
 
 ![Fill Adjustment Handles](images/ch02-fill-adj.png)
+
+<div class="page-break"></div>
 
 ## Spray Tool & Eraser
 

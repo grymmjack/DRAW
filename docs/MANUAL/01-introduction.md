@@ -18,6 +18,8 @@ DRAW is **cross-platform** (Windows, Linux, macOS), **open source** (MIT license
   <img src="images/ch01-hero.png" alt="Chapter 1 - DRAW GUI" style="max-width: 6.5in; width: 95%; height: auto;" />
 </div>
 
+<div class="page-break"></div>
+
 ## Getting DRAW — Download, Build & Install
 
 > 🎯 **Goal:** Get DRAW running on your machine.
@@ -94,9 +96,8 @@ Every dockable panel can be flipped to the opposite side with **Ctrl+Shift+Click
 
 The single most important keystroke to remember on day one is `?` — that opens the **Command Palette**, a fuzzy-searchable list of every command in the app. If you can't remember a shortcut, type a few letters and hit Enter.
 
-> DRAW Command Palette  
-![DRAW Command Palette](images/ch01-command-palette.png)
-
----
+<div align="center">
+  <img src="images/ch01-command-palette.png" alt="Chapter 1 - Command Palette" style="max-width: 3.5in; width: 65%; height: auto;" />
+</div>
 
 ➡️ Next: [Chapter 2 — Core Drawing Fundamentals](02-drawing-fundamentals.md)

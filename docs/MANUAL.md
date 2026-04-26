@@ -24,6 +24,8 @@ By Rick Christy ([grymmjack](https://github.com/grymmjack)) · [github.com/grymm
 
 <div class="page-break"></div>
 
+<div class="toc">
+
 ## Table of Contents
 
 1. **[Ch. 01  🎬 Introduction & Setup](MANUAL/01-introduction.md)**  
@@ -67,6 +69,8 @@ By Rick Christy ([grymmjack](https://github.com/grymmjack)) · [github.com/grymm
 20. **[Ch. 20  📋 Appendix — Quick Reference](MANUAL/20-appendix.md)**  
     Full cheat sheet, 56 palettes, 19 blend modes.
 
+</div>
+
 <div class="page-break"></div>
 
 ## About this Manual
@@ -79,7 +83,7 @@ You can read it cover-to-cover, jump to any chapter from the [Table of Contents]
 
 - 🎨 **Pixel artists** moving from DPaint / Aseprite / ProMotion who want a free, open-source, scriptable alternative.
 - 🎮 **Game developers** who need fast sprite, tile, and palette workflows with deep export options.
-- 💻 **QB64-PE / QBasic enthusiasts** who appreciate that the whole editor — and its native export format — is BASIC code.
+- 💻 **QB64-PE / QBasic enthusiasts** who appreciate that the whole editor and its native export format is QB64 code.
 - 🆕 **Newcomers to pixel art** who want a guided walkthrough rather than a feature dump.
 
 ### Conventions used in this manual
@@ -97,7 +101,6 @@ You can read it cover-to-cover, jump to any chapter from the [Table of Contents]
 | ⚠️ *Gotcha* | Something that commonly trips people up. |
 | 📸 *Screenshot needed* | A visual that hasn't been captured yet — see [SCREENSHOTS.md](MANUAL/SCREENSHOTS.md) for the production checklist. |
 
----
 <div class="page-break"></div>
 
 ## How this manual is organized

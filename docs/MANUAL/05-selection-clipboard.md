@@ -27,6 +27,8 @@ The shared modifier vocabulary works across **every** selection tool:
 
 After a selection exists you get **resize handles** on its edges; **drag inside the marquee** to translate the selection (with `Move` semantics); **arrow keys** nudge by 1 pixel (10 with `Shift`).
 
+<div class="page-break"></div>
+
 ### Magic Wand specials
 
 - `Shift+Click` — add to selection.

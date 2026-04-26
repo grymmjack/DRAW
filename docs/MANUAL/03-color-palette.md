@@ -22,6 +22,8 @@ The palette strip across the bottom of the screen is the fastest way to choose c
 
 **Paint opacity** — the keys `1` through `9` set strokes to 10–90% opacity, and `0` returns to fully opaque 100%. DRAW uses **per-stroke compositing**, which means a 50% stroke that overlaps itself does not get *more* opaque the way Photoshop's brush would; the stroke is rendered once at the end as a single 50% pass. This makes for predictable, pixel-art-friendly results.
 
+<div class="page-break"></div>
+
 ## Color Picker, Color Mixer & Custom RGB
 
 > 🎯 **Goal:** Use the full RGB color picker and the live Color Mixer.
@@ -43,6 +45,8 @@ Because the mixer is non-modal, you can keep it open while drawing and tweak col
 > - **Capture:** Full window crop showing canvas and mixer side by side.
 > - **Save as:** `images/ch03-color-mixer.png`
 
+<div class="page-break"></div>
+
 ## Palette Management — 56 Built-in Palettes
 
 > 🎯 **Goal:** Switch, browse, and manage palettes.
@@ -57,6 +61,8 @@ Palette workflows DRAW supports natively:
 - **Create palette from existing image** — distill the unique colors of any open image into a new palette.
 - **Import / Export `.gpl`** — interchange with GIMP, Aseprite, Krita.
 - **Remap existing artwork** — recolor a finished piece into a different palette while preserving structure.
+
+<div class="page-break"></div>
 
 ## Palette Ops — Edit Colors Directly
 
