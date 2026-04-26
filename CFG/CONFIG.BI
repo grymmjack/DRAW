@@ -9,6 +9,7 @@ $INCLUDEONCE
 
 ' Default config filename (can be overridden by --config / -c command line arg)
 CONST CONFIG_FILE_DEFAULT$      = "DRAW.cfg"
+CONST CONFIG_DEFAULT_FILE$      = "DRAW.cfg.default" ' Factory defaults template (shipped beside exe)
 CONST CONFIG_USE_THEME_DEFAULT% = -32768
 
 ' OS-specific config filenames (checked before falling back to DRAW.cfg)
@@ -52,7 +53,7 @@ CMDLINE_RESET_DEFAULTS% = FALSE
 ' Command-line canvas size override (--canvas-size WWWxHHH)
 DIM SHARED CMDLINE_CANVAS_W%
 DIM SHARED CMDLINE_CANVAS_H%
-CMDLINE_CANVAS_W% = 0 ' 0 = not specified on command line
+CMDLINE_CANVAS_W% = 0                                ' 0 = not specified on command line
 CMDLINE_CANVAS_H% = 0
 
 ' Parse command-line args: --config / -c, --config-upgrade
