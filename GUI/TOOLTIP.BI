@@ -24,6 +24,10 @@ TYPE TOOLTIP_OBJ
     HOVER_START   AS DOUBLE  ' TIMER value when hover began
     FONT_HANDLE   AS LONG    ' Loaded font handle for tooltip text
     NEEDS_REDRAW  AS INTEGER ' One-shot: set on state change, cleared after render
+    RENDER_X      AS INTEGER ' Last-rendered tooltip X (canvas coords; 0 if none this frame)
+    RENDER_Y      AS INTEGER ' Last-rendered tooltip Y (canvas coords)
+    RENDER_W      AS INTEGER ' Last-rendered tooltip width  (0 = none drawn this frame)
+    RENDER_H      AS INTEGER ' Last-rendered tooltip height
 END TYPE
 
 DIM SHARED TOOLTIP AS TOOLTIP_OBJ
@@ -161,6 +165,7 @@ TOOLTIP_BINS_LINE2$ = "Use M-WHEEL UP and M-WHEEL DOWN to navigate through drawe
 
 DECLARE SUB TOOLTIP_update ()
 DECLARE SUB TOOLTIP_render (target&)
+DECLARE SUB TOOLTIP_reblit_to_screen0 ()
 DECLARE SUB TOOLTIP_reset ()
 DECLARE FUNCTION TOOLTIP_get_hovered_btn_idx% (mouseX%, mouseY%)
 DECLARE FUNCTION TOOLTIP_get_hovered_org_idx% (mouseX%, mouseY%)
