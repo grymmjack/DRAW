@@ -26,9 +26,9 @@
 
 ### Per-stroke compositing (no compounding!)
 
-## EP09: Color Picker & Custom RGB
+## EP09: Color Picker, Color Mixer & Custom RGB
 
-### 🎯 Goal: Use the full RGB color picker
+### 🎯 Goal: Use the full RGB color picker and live Color Mixer
 
 ### Click FG/BG swatches in status bar → open picker
 
@@ -41,6 +41,22 @@
 ### Hex input support
 
 ### Invert colors command (toolbar)
+
+### Color Mixer Panel (View → Color Mixer)
+
+- Floating panel for live RGB/HSV color editing
+
+- RGB sliders — adjust Red, Green, Blue independently
+
+- HSV sliders — adjust Hue, Saturation, Value (brightness)
+
+- Hex input field — type any hex color value directly
+
+- FG/BG swatches — click to apply mixed color to foreground or background
+
+- Stays open while drawing — tweak colors without interrupting your flow
+
+- Visibility persisted in DRAW.cfg
 
 ## EP10: Palette Management — 56 Built-In Palettes
 

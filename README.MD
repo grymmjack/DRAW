@@ -93,7 +93,7 @@ Current release: v0.33.0
 
 ### Canvas & View
 - Configurable canvas size (up to 4096x4096)
-- Clear canvas: `Delete` (with prompt) or `Backspace` (instant)
+- Clear layer/selection: `Delete` (Edit > Clear); Fill with FG: `Backspace`; Fill with BG: `Shift+Backspace`
 - Infinite zoom levels (mouse wheel or Ctrl +/-)
 - Pan with middle mouse button or spacebar + drag
 - Scrollbars for canvases larger than the viewport
@@ -177,10 +177,10 @@ Current release: v0.33.0
 **Grid:** `'` (toggle), `Shift+'` (pixel grid), `;` (snap), `Ctrl+'` (cycle mode), `.` (bigger), `,` (smaller)  
 **Brush Size:** `[` (smaller), `]` (bigger), F6 (pixel perfect)  
 **Panels:** F4 (preview), F5 (edit bar), Tab/F10/F11 (UI), Shift+Tab (pattern tile)  
-**Canvas:** Delete (clear with prompt), Backspace (clear instant)  
+**Canvas:** Delete (Edit > Clear), Backspace (fill with FG), Shift+Backspace (fill with BG)  
 **View:** Mouse wheel (zoom), Middle click (pan), Ctrl+0 (reset)  
 **Clipboard:** Ctrl+C (copy), Ctrl+X (cut), Ctrl+V (paste at cursor), Ctrl+E (clear)  
-**Files:** Ctrl+N (new), Alt+O (open .draw), Ctrl+S (save), Ctrl+Shift+S (save as), Alt+X (exit)  
+**Files:** Ctrl+N (new), Alt+O (open .draw), Ctrl+S (save), Ctrl+Shift+S (save as), Ctrl+Shift+Q (QB64 re-export), Alt+X (exit)  
 **Reference:** Ctrl+R (toggle), Ctrl+Shift+Wheel (opacity)  
 **Undo/Redo:** Ctrl+Z / Ctrl+Y
 

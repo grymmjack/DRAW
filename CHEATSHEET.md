@@ -53,6 +53,7 @@ status bar as `OP:nn%` when below 100%.
 | `X` | Swap foreground and background colors (including transparency state) |
 | `Ctrl+D` | Reset FG to white, BG to black (also deselects active selection) |
 | `Shift+Delete` | Set BG to transparent (leave FG as-is) |
+| `Ctrl+Alt+R` | Load a random palette from available palettes |
 | `F1` | Drawer brush mode |
 | `F2` | Drawer gradient mode |
 | `F3` | Drawer pattern mode |
@@ -146,6 +147,7 @@ Press `E` to activate the **Eraser tool**. The eraser paints with full transpare
 | `Ctrl+'` | Cycle grid geometry mode (Square → Diagonal → Isometric → Hex) |
 | `.` (period) | Increase grid size (+1px, max 50px) |
 | `,` (comma) | Decrease grid size (-1px, min 2px) |
+| `Ctrl+Shift+?` (`Ctrl+Shift+/`) | Set grid size from current brush size (or custom brush dimensions); enables center alignment + snap |
 
 ### Grid Geometry Modes
 
@@ -911,6 +913,19 @@ CBF fonts are DPaint-style spritesheet fonts (`.bmp`) that preserve their origin
 | **Charmap** | Displays glyphs in original colors |
 | **Config** | `FONTS_INCLUDE_DRAW_BITMAP` / `FONTS_INCLUDE_USER_BITMAP` in DRAW.cfg |
 
+### Per-Character Formatting Shortcuts
+
+While the text tool is active and editing:
+
+| Key | Function |
+|-----|----------|
+| `Ctrl+Shift+.` or `Ctrl+Shift+>` | Increase font size at cursor or selection |
+| `Ctrl+Shift+,` or `Ctrl+Shift+<` | Decrease font size at cursor or selection |
+| `Ctrl+Alt+.` or `Ctrl+Alt+>` | Increase kerning at cursor or selected characters |
+| `Ctrl+Alt+,` or `Ctrl+Alt+<` | Decrease kerning at cursor or selected characters |
+| `Ctrl+Alt+Up` | Raise baseline at cursor or selected characters |
+| `Ctrl+Alt+Down` | Lower baseline at cursor or selected characters |
+
 ### Custom Font Loading
 
 | Action | Function |
@@ -1005,6 +1020,7 @@ The overlay frame and handles can be customised in `ASSETS/THEMES/DEFAULT/THEME.
 | `Ctrl+S` | Save (silently if previously saved, dialog if new) |
 | `Ctrl+Shift+S` | Save As (always prompts for filename) |
 | `Ctrl+Alt+Shift+S` | Export selection as cropped image |
+| `Ctrl+Shift+Q` | QB64 Code Export — re-export to last project path (no dialog) |
 
 ### Reference Image
 
@@ -1099,9 +1115,14 @@ The layer panel is displayed on the left side of the screen and can be toggled w
 | `Ctrl+L` | Toggle layer panel visibility |
 | `Ctrl+Shift+N` | Create new layer (note: `Ctrl+N` creates new canvas) |
 | `Ctrl+Shift+D` | Duplicate current layer |
+| `Ctrl+Shift+R` | Rename current layer |
 | `Ctrl+Shift+Delete` | Delete current layer |
 | `Ctrl+PgUp` | Move layer up in stack |
 | `Ctrl+PgDn` | Move layer down in stack |
+| `Ctrl+Home` | Arrange layer to top of stack |
+| `Ctrl+End` | Arrange layer to bottom of stack |
+| `Ctrl+Shift+[` | Arrange layer to bottom of stack (alternate) |
+| `Ctrl+Shift+]` | Arrange layer to top of stack (alternate) |
 | `Ctrl+Alt+E` | Merge current layer down |
 | `Ctrl+Alt+Shift+E` | Merge all visible layers |
 | `Ctrl+G` | Create new empty layer group |

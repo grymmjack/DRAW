@@ -56,7 +56,13 @@
 
 ### Reference Image (Ctrl+R) — trace with adjustable opacity
 
-### Clear Canvas: Delete (prompt) / Backspace (instant)
+### Canvas Fill & Clear
+
+- Delete = Edit > Clear (clears active selection, or whole layer if none; no prompt)
+
+- Backspace = fill with foreground color (instant)
+
+- Shift+Backspace = fill with background color (instant)
 
 ### Canvas crop — interactive with handles
 

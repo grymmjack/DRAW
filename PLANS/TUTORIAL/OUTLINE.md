@@ -238,9 +238,9 @@
 
 ### Per-stroke compositing (no compounding!)
 
-## EP09: Color Picker & Custom RGB
+## EP09: Color Picker, Color Mixer & Custom RGB
 
-### 🎯 Goal: Use the full RGB color picker
+### 🎯 Goal: Use the full RGB color picker and live Color Mixer
 
 ### Click FG/BG swatches in status bar → open picker
 
@@ -253,6 +253,22 @@
 ### Hex input support
 
 ### Invert colors command (toolbar)
+
+### Color Mixer Panel (View → Color Mixer)
+
+- Floating panel for live RGB/HSV color editing
+
+- RGB sliders — adjust Red, Green, Blue independently
+
+- HSV sliders — adjust Hue, Saturation, Value (brightness)
+
+- Hex input field — type any hex color value directly
+
+- FG/BG swatches — click to apply mixed color to foreground or background
+
+- Stays open while drawing — tweak colors without interrupting your flow
+
+- Visibility persisted in DRAW.cfg
 
 ## EP10: Palette Management — 56 Built-In Palettes
 
@@ -426,6 +442,22 @@
 - Align Left / Center / Right
 - Align Top / Middle / Bottom
 - Distribute Horizontally / Vertically
+
+### Symbol Layers
+
+- Symbol Parent + one or more Symbol Children
+
+- Draw on the parent → all children auto-sync
+
+- Children can be independently scaled and repositioned
+
+- Rasterize: bake a symbol child into a normal pixel layer
+
+- Detach: break the sync link — child becomes independent
+
+- Useful for repeated elements (coins, enemies, tiles, UI components)
+
+- Created via Layer menu → New Symbol Layer / Convert to Symbol
 
 ---
 
@@ -979,7 +1011,13 @@
 
 ### Reference Image (Ctrl+R) — trace with adjustable opacity
 
-### Clear Canvas: Delete (prompt) / Backspace (instant)
+### Canvas Fill & Clear
+
+- Delete = Edit > Clear (clears active selection, or whole layer if no selection; no prompt)
+
+- Backspace = fill with foreground color (instant, no prompt)
+
+- Shift+Backspace = fill with background color (instant)
 
 ### Canvas crop — interactive with handles
 
@@ -1052,6 +1090,16 @@
 ### Ctrl+Shift+Click = toggle dock side
 
 ### F11 = toggle all UI / Ctrl+F11 = menu only
+
+### Quick Side-Panel Hide Shortcuts
+
+- Ctrl+Shift+Left = hide/show left-side panels (edit bar, layer panel)
+
+- Ctrl+Shift+Right = hide/show right-side panels (toolbar, organizer, drawer)
+
+- Ctrl+Shift+Up = hide/show menu bar
+
+- Ctrl+Shift+Down = hide/show status bar and color strip
 
 ### Auto-hide panels while drawing
 

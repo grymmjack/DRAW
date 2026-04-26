@@ -68,6 +68,16 @@
 
 ### F11 = toggle all UI / Ctrl+F11 = menu only
 
+### Quick Side-Panel Hide Shortcuts
+
+- Ctrl+Shift+Left = hide/show left-side panels (edit bar, layer panel)
+
+- Ctrl+Shift+Right = hide/show right-side panels (toolbar, organizer, drawer)
+
+- Ctrl+Shift+Up = hide/show menu bar
+
+- Ctrl+Shift+Down = hide/show status bar and color strip
+
 ### Auto-hide panels while drawing
 
 ### Cursor system: OS native for UI, custom for tools

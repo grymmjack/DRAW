@@ -283,15 +283,27 @@ const playlistTree = [
                 ]
             },
             {
-                title: 'EP09: Color Picker & Custom RGB',
+                title: 'EP09: Color Picker, Color Mixer & Custom RGB',
                 children: [
-                    { title: '🎯 Goal: Use the full RGB color picker' },
+                    { title: '🎯 Goal: Use the full RGB color picker and live Color Mixer' },
                     { title: 'Click FG/BG swatches in status bar → open picker' },
                     { title: 'Picker tool (I) — eyedropper with loupe overlay' },
                     { title: 'Loupe shows RGB + hex values on hover' },
                     { title: 'True 24-bit RGB color selection' },
                     { title: 'Hex input support' },
                     { title: 'Invert colors command (toolbar)' },
+                    {
+                        title: 'Color Mixer Panel (View → Color Mixer)',
+                        children: [
+                            { title: 'Floating panel for live RGB/HSV color editing' },
+                            { title: 'RGB sliders — adjust Red, Green, Blue independently' },
+                            { title: 'HSV sliders — adjust Hue, Saturation, Value (brightness)' },
+                            { title: 'Hex input field — type any hex color value directly' },
+                            { title: 'FG/BG swatches — click to apply mixed color' },
+                            { title: 'Stays open while drawing — tweak colors without interrupting flow' },
+                            { title: 'Visibility persisted in DRAW.cfg' },
+                        ]
+                    },
                 ]
             },
             {
@@ -478,6 +490,18 @@ const playlistTree = [
                             { title: 'Align Left / Center / Right' },
                             { title: 'Align Top / Middle / Bottom' },
                             { title: 'Distribute Horizontally / Vertically' },
+                        ]
+                    },
+                    {
+                        title: 'Symbol Layers',
+                        children: [
+                            { title: 'Symbol Parent + one or more Symbol Children' },
+                            { title: 'Draw on the parent → all children auto-sync' },
+                            { title: 'Children can be independently scaled and repositioned' },
+                            { title: 'Rasterize: bake a symbol child into a normal pixel layer' },
+                            { title: 'Detach: break the sync link — child becomes independent' },
+                            { title: 'Useful for repeated elements (coins, enemies, tiles, UI)' },
+                            { title: 'Created via Layer menu → New Symbol Layer / Convert to Symbol' },
                         ]
                     },
                 ]
@@ -1092,7 +1116,14 @@ const playlistTree = [
                     { title: 'Pattern Tile Mode (Shift+Tab) — 3×3 tiled, up to 512×512' },
                     { title: 'Grayscale Preview (Ctrl+Alt+Shift+G)' },
                     { title: 'Reference Image (Ctrl+R) — trace with adjustable opacity' },
-                    { title: 'Clear Canvas: Delete (prompt) / Backspace (instant)' },
+                    {
+                        title: 'Canvas Fill & Clear',
+                        children: [
+                            { title: 'Delete = Edit > Clear (clears selection, or whole layer if none; no prompt)' },
+                            { title: 'Backspace = fill with foreground color (instant)' },
+                            { title: 'Shift+Backspace = fill with background color (instant)' },
+                        ]
+                    },
                     { title: 'Canvas crop — interactive with handles' },
                     { title: 'Canvas resize dialog (Image menu)' },
                 ]
@@ -1155,6 +1186,15 @@ const playlistTree = [
                     },
                     { title: 'Ctrl+Shift+Click = toggle dock side' },
                     { title: 'F11 = toggle all UI / Ctrl+F11 = menu only' },
+                    {
+                        title: 'Quick Side-Panel Hide Shortcuts',
+                        children: [
+                            { title: 'Ctrl+Shift+Left = hide/show left-side panels (edit bar, layer panel)' },
+                            { title: 'Ctrl+Shift+Right = hide/show right-side panels (toolbar, organizer, drawer)' },
+                            { title: 'Ctrl+Shift+Up = hide/show menu bar' },
+                            { title: 'Ctrl+Shift+Down = hide/show status bar and color strip' },
+                        ]
+                    },
                     { title: 'Auto-hide panels while drawing' },
                     { title: 'Cursor system: OS native for UI, custom for tools' },
                 ]

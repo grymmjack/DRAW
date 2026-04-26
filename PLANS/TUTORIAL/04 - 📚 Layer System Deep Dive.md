@@ -159,4 +159,20 @@
 - Align Top / Middle / Bottom
   
 - Distribute Horizontally / Vertically
+
+### Symbol Layers
+
+- Symbol Parent + one or more Symbol Children
+
+- Draw on the parent → all children auto-sync
+
+- Children can be independently scaled and repositioned
+
+- Rasterize: bake a symbol child into a normal pixel layer
+
+- Detach: break the sync link — child becomes independent
+
+- Useful for repeated elements (coins, enemies, tiles, UI components)
+
+- Created via Layer menu → New Symbol Layer / Convert to Symbol
   
