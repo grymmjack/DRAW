@@ -9,22 +9,14 @@
 $INCLUDEONCE
 
 ' ---- Lifecycle ---------------------------------------------------------------
-DECLARE SUB IMAGE_ADJ_init ()
 
 ' ---- Internal helpers --------------------------------------------------------
-DECLARE SUB IMAGE_ADJ_apply_to_layer (adjResult AS LONG, historyLabel AS STRING)
 
 ' ---- Direct ops (no dialog) --------------------------------------------------
-DECLARE SUB IMAGE_ADJ_invert ()
-DECLARE SUB IMAGE_ADJ_desaturate ()
 
 ' ---- Internal function -------------------------------------------------------
-DECLARE FUNCTION IMAGE_ADJ_apply_sharpen& (sourceImg AS LONG, amt AS INTEGER)
 
 ' ---- Live loupe preview helpers ---------------------------------------------
-DECLARE SUB IMAGE_ADJ_setup_preview (ctx AS DIALOG_CTX, layerImg AS LONG)
-DECLARE SUB IMAGE_ADJ_update_loupe (ctx AS DIALOG_CTX)
-DECLARE SUB IMAGE_ADJ_mask_preview (ctx AS DIALOG_CTX)
 
 ' Shared layer-alpha mask for preview: captures the current layer's rendered
 ' region at the same screen coordinates as origThumb. Used by mask_preview
@@ -32,12 +24,3 @@ DECLARE SUB IMAGE_ADJ_mask_preview (ctx AS DIALOG_CTX)
 DIM SHARED IMGADJ_LAYER_MASK AS LONG
 
 ' ---- Slider dialogs ----------------------------------------------------------
-DECLARE SUB IMAGE_ADJ_brightness_contrast_dialog ()
-DECLARE SUB IMAGE_ADJ_hue_saturation_dialog ()
-DECLARE SUB IMAGE_ADJ_levels_dialog ()
-DECLARE SUB IMAGE_ADJ_color_balance_dialog ()
-DECLARE SUB IMAGE_ADJ_blur_dialog ()
-DECLARE SUB IMAGE_ADJ_sharpen_dialog ()
-DECLARE SUB IMAGE_ADJ_posterize_dialog ()
-DECLARE SUB IMAGE_ADJ_pixelate_dialog ()
-DECLARE SUB IMAGE_ADJ_remove_background_dialog ()

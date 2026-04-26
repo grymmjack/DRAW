@@ -46,18 +46,4 @@ DIM SHARED MUSIC_HANDLE       AS LONG            ' Handle for the currently play
 DIM SHARED MUSIC_CURRENT_FILE AS STRING          ' Filename of the track currently loaded/playing
 DIM SHARED MUSIC_PREV_FILE    AS STRING          ' Filename of the previously played track (for Prev Track)
 
-DECLARE SUB SOUND_init ()
-DECLARE SUB SOUND_play (category AS INTEGER)
-DECLARE SUB SOUND_play_pitched (category AS INTEGER, speedMin AS SINGLE, speedMax AS SINGLE, vol AS SINGLE)
-DECLARE SUB SOUND_loop (category AS INTEGER)
-DECLARE SUB SOUND_stop (category AS INTEGER)
-DECLARE SUB SOUND_apply_volume ()
-DECLARE SUB SOUND_close_all ()
 
-DECLARE SUB MUSIC_init ()
-DECLARE SUB MUSIC_play_random ()
-DECLARE SUB MUSIC_play_random_ext (ext AS STRING)
-DECLARE SUB MUSIC_next_track ()
-DECLARE SUB MUSIC_prev_track ()
-DECLARE SUB MUSIC_tick ()
-DECLARE SUB MUSIC_stop ()

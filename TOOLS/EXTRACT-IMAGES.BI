@@ -62,12 +62,6 @@ REDIM SHARED EXTRACT_SRC_IMGS(0) AS LONG          ' Per-component source image h
 REDIM SHARED EXTRACT_BLEND_MODES(0) AS INTEGER    ' Per-component blend mode
 
 ' Declarations
-DECLARE SUB EXTRACT_IMAGES_dialog ()
-DECLARE SUB EXTRACT_find_components (srcImg AS LONG, bgMode AS INTEGER)
-DECLARE SUB EXTRACT_save_component (srcImg AS LONG, compIdx AS INTEGER, labelArr() AS INTEGER, outputPath AS STRING, bgMode AS INTEGER)
-DECLARE SUB EXTRACT_progress_dialog (srcImg AS LONG, labelArr() AS INTEGER)
-DECLARE SUB EXTRACT_open_folder (folderPath AS STRING)
-DECLARE SUB EXTRACT_reset_saved_config ()
 
 ' Persisted extract config — saved in DRW file, survives dialog re-open
 DIM SHARED EXTRACT_HAS_CONFIG          AS INTEGER ' TRUE if config has been stored

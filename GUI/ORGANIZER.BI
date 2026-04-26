@@ -153,11 +153,6 @@ ORG_WIDGETS(ORG_COLOR_MODE).tip$     = "FG/BG Color (F1, L=pick FG, R=pick BG, s
 
 ORGANIZER.visible% = TRUE
 
-DECLARE SUB ORGANIZER_render (tbPanelY2 AS INTEGER)
-DECLARE FUNCTION ORGANIZER_handle_click% (mouseX AS INTEGER, mouseY AS INTEGER)
-DECLARE FUNCTION ORGANIZER_is_over_area% (mouseX AS INTEGER, mouseY AS INTEGER)
-DECLARE SUB ORGANIZER_load_images ()
-DECLARE SUB ORGANIZER_handle_wheel (mouseX AS INTEGER, mouseY AS INTEGER, wheelDelta AS INTEGER)
 
 ' Grid mode images (4 modes × 2 on/off states = 8 handles)
 DIM SHARED GRID_MODE_IMG_OFF(0 TO 3) AS LONG ' Off images per mode

@@ -121,31 +121,7 @@ REDIM SHARED COACH_PIXELS(0) AS _UNSIGNED LONG
 ' ============================================================================
 ' Forward declarations
 ' ============================================================================
-DECLARE SUB COACH_init ()
-DECLARE SUB COACH_load_image (filepath$)
-DECLARE SUB COACH_run_analysis ()
-DECLARE SUB COACH_precompute ()
-DECLARE SUB COACH_clear_issues ()
-DECLARE SUB COACH_add_issue (issueType%, confidence!, x1%, y1%, x2%, y2%, pixCount%, msg$, hint$)
-DECLARE SUB COACH_build_overlay ()
-DECLARE FUNCTION COACH_pixel_luminance! (c~&)
-DECLARE FUNCTION COACH_issue_type_name$ (t%)
-DECLARE FUNCTION COACH_issue_color~& (t%)
 
 ' Detectors
-DECLARE SUB COACH_detect_jaggies ()
-DECLARE SUB COACH_detect_islands ()
-DECLARE SUB COACH_detect_banding ()
-DECLARE SUB COACH_detect_fat_pixels ()
-DECLARE FUNCTION COACH_colors_similar% (c1~&, c2~&, thresholdSq&)
-DECLARE SUB COACH_detect_over_dithering ()
-DECLARE SUB COACH_detect_contrast ()
-DECLARE SUB COACH_detect_value ()
-DECLARE SUB COACH_detect_noise ()
 
 ' Precompute
-DECLARE SUB COACH_precompute_pixels ()
-DECLARE SUB COACH_precompute_labels ()
-DECLARE SUB COACH_precompute_boundary ()
-DECLARE SUB COACH_precompute_luminance ()
-DECLARE SUB COACH_precompute_components ()

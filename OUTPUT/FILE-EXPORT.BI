@@ -29,4 +29,3 @@ CONST EXPORT_ACT_FLYOUT = 217
 CONST EXPORT_FLYOUT_ITEMS = 9
 
 ' Sub declarations
-DECLARE SUB EXPORT_flattened_as (formatExt AS STRING, formatName AS STRING, embedDrawChunk AS INTEGER)

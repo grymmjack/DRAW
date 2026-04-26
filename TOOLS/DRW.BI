@@ -34,10 +34,4 @@ CONST DRW_VERSION% = 27
 CONST DRW_CHUNK_VERSION% = 1
 
 ' Declare public API
-DECLARE SUB DRW_save (filename AS STRING)
-DECLARE SUB DRW_load (filename AS STRING)
-DECLARE SUB DRW_save_dialog ()
-DECLARE SUB DRW_open_dialog ()
-DECLARE SUB DRW_embed_chunk_in_png (pngFilePath AS STRING)
-DECLARE SUB DRW_new_canvas ()
 

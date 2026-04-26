@@ -83,6 +83,3 @@ PERF_names(PERF_LIMIT_WAIT)         = "_LIMIT wait"
 PERF_names(PERF_MAIN_LOOP_TOTAL)    = "MAIN LOOP TOTAL"
 PERF_names(PERF_POST_INPUT)         = "Post-render input"
 
-DECLARE SUB PERF_start (section AS INTEGER)
-DECLARE SUB PERF_stop (section AS INTEGER)
-DECLARE SUB PERF_frame_end ()

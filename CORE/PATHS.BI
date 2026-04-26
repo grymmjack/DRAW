@@ -29,12 +29,6 @@ PATHS_CACHE_DIR$   = ""
 PATHS_PORTABLE%    = FALSE
 PATHS_INITIALIZED% = FALSE
 
-DECLARE SUB PATHS_init ()
-DECLARE FUNCTION PATHS_config$ (filename$)
-DECLARE FUNCTION PATHS_data$ (filename$)
-DECLARE FUNCTION PATHS_cache$ (filename$)
-DECLARE SUB PATHS_ensure_dir (dirPath$)
-DECLARE SUB PATHS_migrate ()
 
 ' Parse --portable from command line at include time (before CONFIG.BI runs)
 DIM PATHS_cmdIdx%

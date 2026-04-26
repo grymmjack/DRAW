@@ -38,9 +38,3 @@ SYMMETRY.CENTER_SET%   = FALSE
 SYMMETRY.guideColor~&  = 0
 SYMMETRY.centerColor~& = 0
 
-DECLARE SUB SYMMETRY_init ()
-DECLARE SUB SYMMETRY_cycle_mode ()
-DECLARE SUB SYMMETRY_clear ()
-DECLARE SUB SYMMETRY_set_center (x AS INTEGER, y AS INTEGER)
-DECLARE SUB SYMMETRY_get_mirrored_points (x AS INTEGER, y AS INTEGER, mx%(), my%(), count%)
-DECLARE SUB SYMMETRY_render_guides (zw AS LONG, zh AS LONG, zoom AS SINGLE)

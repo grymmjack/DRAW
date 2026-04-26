@@ -126,13 +126,9 @@ CANVAS_DIRTY%    = FALSE                                   ' Start with clean ca
 DIM SHARED AS INTEGER COMP_DIRTY_X1, COMP_DIRTY_Y1         ' Top-left  (canvas coords)
 DIM SHARED AS INTEGER COMP_DIRTY_X2, COMP_DIRTY_Y2         ' Bot-right (canvas coords)
 DIM SHARED AS INTEGER COMP_DIRTY_VALID                     ' TRUE when rect set this frame
-DECLARE SUB COMP_mark_dirty (x1 AS INTEGER, y1 AS INTEGER, x2 AS INTEGER, y2 AS INTEGER)
 
 DIM SHARED            KEYHIT_CHAR AS STRING                ' _KEYHIT → CHR$ fallback for INKEY$
 
 ' ---------------------------------------------------------------------------
 ' INVALIDATE helpers — collapse repeated 3-5-line dirty-flag sequences.
 ' ---------------------------------------------------------------------------
-DECLARE SUB INVALIDATE_scene ()
-DECLARE SUB INVALIDATE_canvas ()
-DECLARE SUB INVALIDATE_layers ()
