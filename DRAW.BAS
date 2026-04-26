@@ -391,7 +391,7 @@ DO
         ' two raw pixels map to the same canvas pixel — no coord display update needed).
         IF canvasCoordChanged% THEN
             STATUS_NEEDS_REDRAW% = TRUE ' Status bar coords need refresh
-            GUI_NEEDS_REDRAW% = TRUE    ' Full render path needs GUI rebuild to update status text in SCRN.GUI&
+            GUI_NEEDS_REDRAW%    = TRUE ' Full render path needs GUI rebuild to update status text in SCRN.GUI&
         END IF
         ' Only trigger expensive full GUI rebuild on hover-zone change (not every canvas pixel).
         ' Canvas movement doesn't change toolbar/organizer visuals — status-only path handles it.
