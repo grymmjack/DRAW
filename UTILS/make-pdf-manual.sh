@@ -80,6 +80,32 @@ link_re = re.compile(r'(?<!\!)(\[[^\]]*\]\()([^)\s]+)(\s*(?:"[^"]*")?\))')
 htmlsrc_re = re.compile(r'(<img[^>]*\bsrc=")([^"]+)(")', re.IGNORECASE)
 
 def to_data_uri(p: Path) -> str:
+    # Prefer the HD counterpart in DEV/HD-IMAGES/ when present.
+    # Theme icon paths look like
+    #   ASSETS/THEMES/DEFAULT/IMAGES/<DIR>/<name>.png
+    # whose HD twin is
+    #   DEV/HD-IMAGES/<DIR>/<name>-hd.png
+    try:
+        rel = p.relative_to(repo)
+        parts = rel.parts
+        if (len(parts) >= 5
+                and parts[0] == "ASSETS"
+                and parts[1] == "THEMES"
+                and parts[3] == "IMAGES"):
+            sub_dir = parts[4]
+            stem    = Path(parts[-1]).stem
+            hd = repo / "DEV" / "HD-IMAGES" / sub_dir / f"{stem}-hd.png"
+            if hd.is_file():
+                p = hd
+        else:
+            # Generic fallback: any DEV/HD-IMAGES/<rest>/<name>-hd.png
+            for cand in (
+                repo / "DEV" / "HD-IMAGES" / Path(*parts[1:]).with_name(p.stem + "-hd.png"),
+            ):
+                if cand.is_file():
+                    p = cand; break
+    except (ValueError, IndexError):
+        pass
     if not p.is_file():
         sys.stderr.write(f"WARN: missing image {p}\n")
         return f"file://{p}"
@@ -156,9 +182,51 @@ choose_engine() {
 ENGINE="$(choose_engine)"
 echo "==> Using engine: $ENGINE"
 
+# ---- Embed fonts as data: URIs ----------------------------------------
+# Read every .woff2 next to UTILS/fonts/fonts.css, base64-encode it, and
+# rewrite the url(...) reference so the resulting CSS is self-contained.
+# This is what makes the PDF show in Inter / JetBrains Mono regardless of
+# what fonts are installed on the host or in headless Chrome.
+FONTS_DIR="${SCRIPT_DIR}/fonts"
+FONTS_CSS_OUT="${WORK_DIR}/fonts.css"
+if [[ -f "${FONTS_DIR}/fonts.css" ]]; then
+    python3 - "$FONTS_DIR" "$FONTS_CSS_OUT" <<'PY'
+import base64, re, sys
+from pathlib import Path
+fonts_dir = Path(sys.argv[1])
+out_path  = Path(sys.argv[2])
+src = (fonts_dir / "fonts.css").read_text()
+def inline(m):
+    name = m.group(1)
+    p = fonts_dir / name
+    if not p.is_file():
+        return m.group(0)
+    b64 = base64.b64encode(p.read_bytes()).decode("ascii")
+    return f"url(data:font/woff2;base64,{b64})"
+out = re.sub(r'url\(([^)\s"\']+\.woff2)\)', inline, src)
+out_path.write_text(out)
+print(f"    -> embedded {len(re.findall(r'data:font/woff2', out))} fonts")
+PY
+else
+    : > "$FONTS_CSS_OUT"
+    echo "    -> no UTILS/fonts/fonts.css, skipping font embedding"
+fi
+
 # ---- CSS for HTML/Chrome/weasyprint pipelines --------------------------
+# The user-editable stylesheet lives next to this script. If it's missing
+# (e.g. someone copied just the .sh file), fall back to the embedded
+# defaults below so the build still produces a reasonable-looking PDF.
 CSS_FILE="${WORK_DIR}/manual.css"
-cat > "$CSS_FILE" <<'CSS'
+USER_CSS="${SCRIPT_DIR}/make-pdf-manual.css"
+if [[ -f "$USER_CSS" ]]; then
+    # Concatenate font @font-face block + user stylesheet so all engines
+    # see a single CSS file.
+    cat "$FONTS_CSS_OUT" "$USER_CSS" > "$CSS_FILE"
+    echo "    -> using stylesheet: $USER_CSS"
+else
+    echo "    -> $USER_CSS not found, using built-in defaults"
+    cp "$FONTS_CSS_OUT" "$CSS_FILE"
+    cat >> "$CSS_FILE" <<'CSS'
 @page { size: Letter; margin: 0.75in; }
 html { font-size: 11pt; }
 body {
@@ -171,7 +239,14 @@ body {
     margin: 0 auto;
 }
 h1, h2, h3, h4 { font-weight: 700; line-height: 1.2; }
-h1 { font-size: 2.2em; border-bottom: 3px solid #3d8bff; padding-bottom: 0.2em; margin-top: 0.5em; }
+h1 {
+    font-size: 1.7em;
+    border-bottom: 3px solid #3d8bff;
+    padding-bottom: 0.2em;
+    margin-top: 0.5em;
+    white-space: nowrap;
+    overflow: visible;
+}
 h2 { font-size: 1.55em; color: #1f4f99; margin-top: 1.6em; }
 h3 { font-size: 1.2em; color: #2a2a2a; }
 code, pre, kbd {
@@ -192,17 +267,19 @@ blockquote {
 a { color: #1f6feb; text-decoration: none; }
 a:hover { text-decoration: underline; }
 img { max-width: 100%; height: auto; }
+td img, th img { width: 48px; height: 48px; image-rendering: pixelated;
+                 object-fit: contain; vertical-align: middle; display: inline-block; }
 table { border-collapse: collapse; margin: 1em 0; width: 100%; }
 th, td { border: 1px solid #cdd5e0; padding: 0.4em 0.7em; text-align: left;
-         vertical-align: top; }
+         vertical-align: middle; }
 th { background: #eef3fb; }
 hr { border: none; border-top: 1px solid #cdd5e0; margin: 2em 0; }
 .page-break { page-break-before: always; break-before: page; }
-/* Center the cover block */
 body > div:first-of-type[align="center"], body > p:first-child img {
     display: block; margin: 1em auto; text-align: center;
 }
 CSS
+fi
 
 # ---- Step 3: render -----------------------------------------------------
 case "$ENGINE" in
@@ -216,7 +293,9 @@ case "$ENGINE" in
         pandoc "$COMBINED_MD" -f gfm -t html5 \
             --metadata title="DRAW User Manual" \
             --css "$CSS_FILE" --standalone -o "$COMBINED_HTML"
-        wkhtmltopdf --enable-local-file-access "$COMBINED_HTML" "$OUT_PDF"
+        wkhtmltopdf --enable-local-file-access \
+            --outline --outline-depth 3 \
+            "$COMBINED_HTML" "$OUT_PDF"
         ;;
     xelatex)
         pandoc "$COMBINED_MD" -f gfm \
@@ -234,8 +313,11 @@ case "$ENGINE" in
         cat > "$CONFIG_JS" <<JS
 module.exports = {
     stylesheet:        ["$CSS_FILE"],
-    pdf_options:       { format: "Letter", margin: "0.75in",
+    pdf_options:       { format: "Letter",
+                         margin: { top: "0.45in", bottom: "0.45in", left: "0.75in", right: "0.75in" },
                          printBackground: true,
+                         outline: true,
+                         tagged: true,
                          displayHeaderFooter: true,
                          headerTemplate: '<div></div>',
                          footerTemplate: '<div style="font-size:9px;width:100%;text-align:center;color:#888;">DRAW User Manual — <span class="pageNumber"></span> / <span class="totalPages"></span></div>' },
@@ -262,9 +344,11 @@ HTML
         echo '</body></html>' >> "$COMBINED_HTML"
 
         CHROME_BIN="$(command -v google-chrome || command -v chromium)"
-        "$CHROME_BIN" --headless --disable-gpu --no-sandbox \
+        "$CHROME_BIN" --headless=new --disable-gpu --no-sandbox \
             --no-pdf-header-footer \
             --allow-file-access-from-files \
+            --generate-pdf-document-outline \
+            --export-tagged-pdf \
             --print-to-pdf="$OUT_PDF" \
             --print-to-pdf-no-header \
             "file://$COMBINED_HTML"

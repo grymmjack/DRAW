@@ -1,4 +1,4 @@
-# ↩️ Chapter 17 — Undo, Redo & History
+# Ch. 17  ↩️ Undo, Redo & History
 
 > **What you'll learn:** How DRAW's unified history system works, why text-local undo is separate, and why you can experiment fearlessly.
 

@@ -1,4 +1,4 @@
-# 🎓 Chapter 18 — Real-World Pixel Art Workflows
+# Ch. 18  🎓 Real-World Pixel Art Workflows
 
 > **What you'll learn:** Step-by-step recipes for the most common pixel-art tasks: a 16×16 sprite, a seamless tile, isometric building, mandala, ANSI art, sprite-sheet assembly, and converting a photo into pixel art.
 

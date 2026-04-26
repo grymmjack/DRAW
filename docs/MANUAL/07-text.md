@@ -1,4 +1,4 @@
-# 📝 Chapter 7 — Text System
+# Ch. 07  📝 Text System
 
 > **What you'll learn:** How DRAW's text tool works, the bundled and custom font support, rich per-character formatting, persistent text layers, and the unique **Character Mode** for ANSI-style art.
 

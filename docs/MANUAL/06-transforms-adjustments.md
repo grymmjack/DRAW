@@ -1,4 +1,4 @@
-# 🔄 Chapter 6 — Transforms & Image Adjustments
+# Ch. 06  🔄 Transforms & Image Adjustments
 
 > **What you'll learn:** Quick flips, rotations and scales, the on-canvas Transform overlay (Scale / Rotate / Shear / Distort / Perspective), the Move tool with Smart Guides, and DRAW's image-adjustment dialogs (Brightness/Contrast, Hue/Sat, Levels, etc.).
 

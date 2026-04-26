@@ -1,4 +1,4 @@
-# 📋 Chapter 20 — Appendix: Quick Reference
+# Ch. 20  📋 Appendix: Quick Reference
 
 > **What you'll learn:** Where the canonical cheat sheet lives, plus a one-page summary of the most-used keyboard shortcuts, the 56 bundled palettes, and all 19 blend modes.
 

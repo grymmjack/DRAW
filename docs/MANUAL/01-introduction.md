@@ -1,4 +1,4 @@
-# 🎬 Chapter 1 — Introduction & Setup
+# Ch. 01  🎬 Introduction & Setup
 
 > **What you'll learn:** What DRAW is, why it exists, how to install or build it on Windows / Linux / macOS, and how to find your way around the interface in five minutes.
 
@@ -14,7 +14,9 @@ The project takes its inspiration from the legends of the genre — Electronic A
 
 DRAW is **cross-platform** (Windows, Linux, macOS), **open source** (MIT licensed), and **dependency-free** at runtime — once it's built, you have a single executable plus its `ASSETS/` folder. It ships with **64 layers**, **19 blend modes**, a complete **text system** with rich formatting, **theming**, **audio**, **custom brushes**, and **symmetry drawing**. Its native `.draw` file format is a regular PNG file with a custom embedded chunk, so any image viewer can preview your art even though no other application can re-edit it. You don't need to save your file as .draw.png or .draw, as it recognizes draw files automatically.
 
-![Chapter 1 - DRAW GUI](images/ch01-hero.png)
+<div align="center">
+  <img src="images/ch01-hero.png" alt="Chapter 1 - DRAW GUI" style="max-width: 6.5in; width: 95%; height: auto;" />
+</div>
 
 ## Getting DRAW — Download, Build & Install
 
@@ -47,6 +49,8 @@ The repository also ships a `Makefile` with shortcuts (`make`, `make clean`, `ma
 ### First launch
 
 On first run, DRAW probes your monitor with `_DESKTOPWIDTH`/`_DESKTOPHEIGHT` and chooses a sensible **display scale** (1× through 8×) and **toolbar scale** (1× through 4×). It writes a fresh `DRAW.cfg` next to the executable. That file is plain text — you can hand-edit it any time, and you can override the defaults entirely with `--config /path/to/your.cfg`.
+
+<div class="page-break"></div>
 
 ## Your First 5 Minutes — UI Tour
 

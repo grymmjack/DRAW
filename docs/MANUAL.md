@@ -10,9 +10,64 @@
 
 By Rick Christy ([grymmjack](https://github.com/grymmjack)) · [github.com/grymmjack/DRAW](https://github.com/grymmjack/DRAW) · MIT License
 
-</div>
+---
+
+<img src="../ASSETS/ICONS/icon-1024.png" alt="DRAW icon" width="256" />
 
 ---
+
+###### Inspired by Dazzle Draw, Deluxe Paint, Grafx2, Inkscape, The GIMP, and yes... Photoshop
+
+</div>
+
+
+
+<div class="page-break"></div>
+
+## Table of Contents
+
+1. **[Ch. 01  🎬 Introduction & Setup](MANUAL/01-introduction.md)**  
+    What DRAW is, how to install it, and a 5-minute UI tour.
+2. **[Ch. 02  🖌️ Core Drawing Fundamentals](MANUAL/02-drawing-fundamentals.md)**  
+    Brush, dot, lines, shapes, polygons, fills, spray and eraser.
+3. **[Ch. 03  🎨 Color & Palette Mastery](MANUAL/03-color-palette.md)**  
+    FG/BG, color picker, mixer, 56 built-in palettes, palette ops.
+4. **[Ch. 04  📚 Layer System Deep Dive](MANUAL/04-layers.md)**  
+    64 layers, opacity, 19 blend modes, groups, symbols.
+5. **[Ch. 05  ✂️ Selection & Clipboard](MANUAL/05-selection-clipboard.md)**  
+    Marquee, freehand, wand, copy/cut/paste, stroke selection.
+6. **[Ch. 06  🔄 Transforms & Image Adjustments](MANUAL/06-transforms-adjustments.md)**  
+    Flip, rotate, scale, transform overlay, color correction.
+7. **[Ch. 07  📝 Text System](MANUAL/07-text.md)**  
+    Fonts, rich text, text layers, character mode.
+8. **[Ch. 08  📐 Grid, Symmetry & Drawing Aids](MANUAL/08-grid-symmetry.md)**  
+    4 grid geometries, 3 symmetry modes, angle snap, crosshair.
+9. **[Ch. 09  🪄 Custom Brushes & Drawer Panel](MANUAL/09-brushes-drawer.md)**  
+    Capture, transform, recolor, 30-slot drawer, dithering.
+10. **[Ch. 10  💾 File I/O & Export](MANUAL/10-file-io.md)**  
+    Open/save, the `.draw` format, 9 export formats, sprite extraction.
+11. **[Ch. 11  🖥️ Canvas & View Controls](MANUAL/11-canvas-view.md)**  
+    Zoom, pan, preview window, tile mode, reference image.
+12. **[Ch. 12  ⚙️ UI Customization & Settings](MANUAL/12-settings.md)**  
+    Settings dialog, theming, panel docking.
+13. **[Ch. 13  🔊 Audio — Music & Sound Effects](MANUAL/13-audio.md)**  
+    SFX bank, tracker music, customization.
+14. **[Ch. 14  🔍 Pixel Art Analyzer](MANUAL/14-analyzer.md)**  
+    Find and fix orphans, jaggies, banding, pillow shading, doubles.
+15. **[Ch. 15  🖼️ Reference Image & Import](MANUAL/15-reference-import.md)**  
+    Tracing, oversized image import, Aseprite/PSD support.
+16. **[Ch. 16  ⌨️ Keyboard Shortcuts & Command Palette](MANUAL/16-shortcuts.md)**  
+    200+ commands at your fingertips.
+17. **[Ch. 17  ↩️ Undo, Redo & History](MANUAL/17-history.md)**  
+    The unified history system, text-local undo, fearless experimentation.
+18. **[Ch. 18  🎓 Real-World Pixel Art Workflows](MANUAL/18-workflows.md)**  
+    Game sprites, tileable textures, isometric, mandalas, ANSI art.
+19. **[Ch. 19  💡 Tips, Tricks & Advanced Techniques](MANUAL/19-tips.md)**  
+    10 time-savers, advanced layer techniques.
+20. **[Ch. 20  📋 Appendix — Quick Reference](MANUAL/20-appendix.md)**  
+    Full cheat sheet, 56 palettes, 19 blend modes.
+
+<div class="page-break"></div>
 
 ## About this Manual
 
@@ -42,38 +97,8 @@ You can read it cover-to-cover, jump to any chapter from the [Table of Contents]
 | ⚠️ *Gotcha* | Something that commonly trips people up. |
 | 📸 *Screenshot needed* | A visual that hasn't been captured yet — see [SCREENSHOTS.md](MANUAL/SCREENSHOTS.md) for the production checklist. |
 
-### Chapter emoji legend
-
-The chapter emojis match the DRAW XMind feature mindmap so that visual learners can navigate by glyph as well as by number.
-
-🎬 Intro · 🖌️ Drawing · 🎨 Color · 📚 Layers · ✂️ Selection · 🔄 Transforms · 📝 Text · 📐 Grid & Symmetry · 🪄 Brushes · 💾 Files · 🖥️ Canvas · ⚙️ Settings · 🔊 Audio · 🔍 Analyzer · 🖼️ Reference · ⌨️ Shortcuts · ↩️ Undo · 🎓 Workflows · 💡 Tips · 📋 Appendix
-
 ---
-
-## Table of Contents
-
-1. [🎬 Introduction & Setup](MANUAL/01-introduction.md) — what DRAW is, how to install it, and a 5-minute UI tour.
-2. [🖌️ Core Drawing Fundamentals](MANUAL/02-drawing-fundamentals.md) — brush, dot, lines, shapes, polygons, fills, spray and eraser.
-3. [🎨 Color & Palette Mastery](MANUAL/03-color-palette.md) — FG/BG, color picker, mixer, 56 built-in palettes, palette ops.
-4. [📚 Layer System Deep Dive](MANUAL/04-layers.md) — 64 layers, opacity, 19 blend modes, groups, symbols.
-5. [✂️ Selection & Clipboard](MANUAL/05-selection-clipboard.md) — marquee, freehand, wand, copy/cut/paste, stroke selection.
-6. [🔄 Transforms & Image Adjustments](MANUAL/06-transforms-adjustments.md) — flip, rotate, scale, transform overlay, color correction.
-7. [📝 Text System](MANUAL/07-text.md) — fonts, rich text, text layers, character mode.
-8. [📐 Grid, Symmetry & Drawing Aids](MANUAL/08-grid-symmetry.md) — 4 grid geometries, 3 symmetry modes, angle snap, crosshair.
-9. [🪄 Custom Brushes & Drawer Panel](MANUAL/09-brushes-drawer.md) — capture, transform, recolor, 30-slot drawer, dithering.
-10. [💾 File I/O & Export](MANUAL/10-file-io.md) — open/save, the `.draw` format, 9 export formats, sprite extraction.
-11. [🖥️ Canvas & View Controls](MANUAL/11-canvas-view.md) — zoom, pan, preview window, tile mode, reference image.
-12. [⚙️ UI Customization & Settings](MANUAL/12-settings.md) — settings dialog, theming, panel docking.
-13. [🔊 Audio — Music & Sound Effects](MANUAL/13-audio.md) — SFX bank, tracker music, customization.
-14. [🔍 Pixel Art Analyzer](MANUAL/14-analyzer.md) — find and fix orphans, jaggies, banding, pillow shading, doubles.
-15. [🖼️ Reference Image & Import](MANUAL/15-reference-import.md) — tracing, oversized image import, Aseprite/PSD support.
-16. [⌨️ Keyboard Shortcuts & Command Palette](MANUAL/16-shortcuts.md) — 200+ commands at your fingertips.
-17. [↩️ Undo, Redo & History](MANUAL/17-history.md) — the unified history system, text-local undo, fearless experimentation.
-18. [🎓 Real-World Pixel Art Workflows](MANUAL/18-workflows.md) — game sprites, tileable textures, isometric, mandalas, ANSI art.
-19. [💡 Tips, Tricks & Advanced Techniques](MANUAL/19-tips.md) — 10 time-savers, advanced layer techniques.
-20. [📋 Appendix — Quick Reference](MANUAL/20-appendix.md) — full cheat sheet, 56 palettes, 19 blend modes.
-
----
+<div class="page-break"></div>
 
 ## How this manual is organized
 

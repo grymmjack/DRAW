@@ -1,4 +1,4 @@
-# 🔊 Chapter 13 — Audio: Music & Sound Effects
+# Ch. 13  🔊 Audio: Music & Sound Effects
 
 > **What you'll learn:** DRAW's per-theme sound effect bank and tracker-music player, plus how to swap, mute, and customize the audio experience.
 

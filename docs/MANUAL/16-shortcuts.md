@@ -1,4 +1,4 @@
-# ⌨️ Chapter 16 — Keyboard Shortcuts & Command Palette
+# Ch. 16  ⌨️ Keyboard Shortcuts & Command Palette
 
 > **What you'll learn:** How to find any command instantly via the Command Palette, and the most important shortcuts grouped by activity.
 

@@ -1,4 +1,4 @@
-# 💾 Chapter 10 — File I/O & Export
+# Ch. 10  💾 File I/O & Export
 
 > **What you'll learn:** Every way to get artwork in and out of DRAW — the native `.draw` format, nine raster export formats, the famous QB64 source-code export, and the Extract Images sprite-decomposition tools.
 

@@ -1,4 +1,4 @@
-# 💡 Chapter 19 — Tips, Tricks & Advanced Techniques
+# Ch. 19  💡 Tips, Tricks & Advanced Techniques
 
 > **What you'll learn:** Ten time-saving tips that experienced DRAW users rely on every day, plus advanced layer techniques for non-destructive workflows.
 

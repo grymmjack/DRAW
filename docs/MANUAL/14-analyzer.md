@@ -1,4 +1,4 @@
-# 🔍 Chapter 14 — Pixel Art Analyzer
+# Ch. 14  🔍 Pixel Art Analyzer
 
 > **What you'll learn:** How DRAW's built-in Pixel Art Analyzer detects the five most common pixel-art mistakes and how to fix each one.
 

@@ -1,4 +1,4 @@
-# 🎨 Chapter 3 — Color & Palette Mastery
+# Ch. 03  🎨 Color & Palette Mastery
 
 > **What you'll learn:** How DRAW thinks about color, the FG/BG/swap dance, the Color Picker and live Color Mixer, the 56 bundled palettes, and the palette-ops mode that lets you remap entire compositions in seconds.
 

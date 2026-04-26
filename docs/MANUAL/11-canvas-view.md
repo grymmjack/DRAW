@@ -1,4 +1,4 @@
-# 🖥️ Chapter 11 — Canvas & View Controls
+# Ch. 11  🖥️ Canvas & View Controls
 
 > **What you'll learn:** How to navigate any canvas — zoom, pan, the floating Preview Window, pattern-tile preview, reference images, fill / clear shortcuts, and canvas resize / crop.
 

@@ -1,4 +1,4 @@
-# ⚙️ Chapter 12 — UI Customization & Settings
+# Ch. 12  ⚙️ UI Customization & Settings
 
 > **What you'll learn:** How to configure DRAW to your taste — the eight-tab settings dialog, theming, panel docking, and the various ways `DRAW.cfg` works under the hood.
 

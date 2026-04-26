@@ -1,4 +1,4 @@
-# 🖼️ Chapter 15 — Reference Image & Import
+# Ch. 15  🖼️ Reference Image & Import
 
 > **What you'll learn:** How to load a reference image for tracing or study, and how to import oversized images with interactive placement, rotation, and flipping.
 

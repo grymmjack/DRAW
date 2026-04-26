@@ -1,4 +1,4 @@
-# 📐 Chapter 8 — Grid, Symmetry & Drawing Aids
+# Ch. 08  📐 Grid, Symmetry & Drawing Aids
 
 > **What you'll learn:** How to use DRAW's four grid geometries, three symmetry modes, angle-snap, the crosshair assistant, Pixel Perfect mode, and the pattern tile preview.
 

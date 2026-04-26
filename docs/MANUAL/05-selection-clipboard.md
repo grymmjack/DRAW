@@ -1,4 +1,4 @@
-# ✂️ Chapter 5 — Selection & Clipboard
+# Ch. 05  ✂️ Selection & Clipboard
 
 > **What you'll learn:** Every selection tool DRAW offers, how selections clip drawing tools, the full clipboard vocabulary, and the Stroke Selection effect.
 

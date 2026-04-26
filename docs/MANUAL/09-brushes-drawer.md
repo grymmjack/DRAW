@@ -1,4 +1,4 @@
-# 🪄 Chapter 9 — Custom Brushes & Drawer Panel
+# Ch. 09  🪄 Custom Brushes & Drawer Panel
 
 > **What you'll learn:** How to capture, transform, recolor and stamp custom brushes; the 30-slot Drawer panel for brush / pattern / gradient libraries; and DRAW's six dithering algorithms.
 

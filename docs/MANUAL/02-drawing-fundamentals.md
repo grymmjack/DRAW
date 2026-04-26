@@ -1,4 +1,4 @@
-# 🖌️ Chapter 2 — Core Drawing Fundamentals
+# Ch. 02  🖌️ Core Drawing Fundamentals
 
 > **What you'll learn:** Free-hand brushwork, geometric shapes, polygons, the flood-fill tool, the spray can, and the eraser — the seven tools that account for 90% of pixel art.
 

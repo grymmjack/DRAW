@@ -1,4 +1,4 @@
-# 📚 Chapter 4 — Layer System Deep Dive
+# Ch. 04  📚 Layer System Deep Dive
 
 > **What you'll learn:** How to use DRAW's 64-layer system, opacity and visibility, the 19 blend modes, layer groups, multi-layer selection, alignment, and the unique **symbol layer** system for repeated artwork.
 
