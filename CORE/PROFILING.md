@@ -2,16 +2,21 @@
 
 ## Quick Start
 
-1. Build DRAW normally: `qb64pe -w -x -o DRAW.run DRAW.BAS`
-2. Run with logging enabled:
+1. **Enable profiling** in `CORE/PERF.BI` — flip the master switch:
+   ```qb64
+   PERF_ENABLED% = TRUE   ' default is FALSE
+   ```
+   (Profiling is gated at runtime so the default release build pays no overhead. All `PERF_start`/`PERF_stop`/`PERF_frame_end` calls early-out when `PERF_ENABLED% = FALSE`.)
+2. Build DRAW normally: `qb64pe -w -x -o DRAW.run DRAW.BAS`
+3. Run with logging enabled:
    ```bash
    QB64PE_LOG_HANDLERS=file \
    QB64PE_LOG_LEVEL=1 \
    QB64PE_LOG_FILE_PATH=./perf.log \
    ./DRAW.run
    ```
-3. Use the app for a bit (move mouse, click, draw, make selections)
-4. Exit and read the log:
+4. Use the app for a bit (move mouse, click, draw, make selections)
+5. Exit and read the log:
    ```bash
    grep "PERF" perf.log
    ```
@@ -183,10 +188,11 @@ None of these are fixable in application code — they're platform-level behavio
 
 ## Disabling Profiling
 
-To remove profiling overhead, comment out the `$INCLUDE` lines in `_ALL.BI` and `_ALL.BM`:
+Profiling defaults to **disabled** via the `PERF_ENABLED%` runtime flag in `CORE/PERF.BI`:
+
 ```qb64
-' '$INCLUDE:'./CORE/PERF.BI'
-' '$INCLUDE:'./CORE/PERF.BM'
+DIM SHARED PERF_ENABLED AS INTEGER
+PERF_ENABLED% = FALSE
 ```
 
-Then remove or comment out all `PERF_start`, `PERF_stop`, and `PERF_frame_end` calls. The overhead when enabled is negligible (<0.01ms per frame for all timing calls combined) since it's just `TIMER()` reads and array additions.
+When `FALSE`, all `PERF_start`/`PERF_stop`/`PERF_frame_end` calls early-out immediately, so the overhead is effectively zero. To enable, set `PERF_ENABLED% = TRUE` and rebuild. There's no need to comment out includes or remove instrumentation calls.

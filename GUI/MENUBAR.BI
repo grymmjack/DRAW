@@ -5,6 +5,12 @@
 ' dropdown submenus, checkboxes, dividers, hotkey display, and full keyboard
 ' navigation.
 '
+' True story: my first learnings with QB64 was with a menu bar, trying to grok
+' how things worked, how to manage and store it elegantly, etc. This happened
+' in the old QB64 discord (not the PE one, I didn't know about PE until later).
+'
+' I have a fondness for old-school GUI controls, and menu bars are a classic!
+'
 ' @author Rick Christy <grymmjack@gmail.com>
 '
 $INCLUDEONCE

@@ -1,3 +1,25 @@
+''
+' DRAW - TOOLBAR.BAS
+' =============================================================================
+' TOOLBAR.BAS primitives
+'
+' NOTE: THIS IS NOT USED BY DRAW ANYMORE. 
+'
+' It was an early experiment in creating a toolbar using custom button 
+' graphics and a custom cursor. I kept it around as a reference for how to 
+' create and render buttons and cursors, but the actual DRAW toolbar is now
+' implemented using a different approach.
+'
+' In some ways, TOOLBAR.BAS was such a simple approach but it gave me the
+' vision to create DRAW in the first place, so I wanted to keep 
+' it around as a sort of "origin story" for the project. 
+'
+' It was a fun experiment and I'm glad I did it, even if it's not part of the 
+' final product.
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+
 $INCLUDEONCE
 
 $CONSOLE
