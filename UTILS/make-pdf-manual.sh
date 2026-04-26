@@ -329,6 +329,48 @@ module.exports = {
 JS
         ( cd "$REPO_ROOT" && \
           npx --yes md-to-pdf --config-file "$CONFIG_JS" "$COMBINED_MD" )
+
+        # Hide the page footer on the cover pages (1-2) by overlaying a
+        # small white rectangle. Chrome's footerTemplate renders on every
+        # page with no per-page conditional, so post-processing is the only
+        # reliable way to suppress it. Uses pypdf if available; if not,
+        # the footer remains visible on all pages (non-fatal).
+        if python3 -c "import pypdf" 2>/dev/null; then
+            echo "    -> hiding footer on cover pages 1-2"
+            python3 - "$OUT_PDF" <<'PY'
+import sys
+from pypdf import PdfReader, PdfWriter
+from pypdf.generic import RectangleObject
+import io
+src = sys.argv[1]
+reader = PdfReader(src)
+writer = PdfWriter(clone_from=reader)
+# Build a one-page overlay PDF with a white rectangle covering the footer
+# strip at the bottom of a US Letter page.
+try:
+    from reportlab.pdfgen import canvas
+    from reportlab.lib.pagesizes import LETTER
+    buf = io.BytesIO()
+    c = canvas.Canvas(buf, pagesize=LETTER)
+    c.setFillColorRGB(1, 1, 1)
+    c.setStrokeColorRGB(1, 1, 1)
+    # Cover bottom 0.45in (margin region) full width
+    w, h = LETTER
+    c.rect(0, 0, w, 0.5 * 72, fill=1, stroke=0)
+    c.showPage()
+    c.save()
+    buf.seek(0)
+    overlay = PdfReader(buf).pages[0]
+    for i in (0, 1):
+        if i < len(writer.pages):
+            writer.pages[i].merge_page(overlay)
+    with open(src, "wb") as f:
+        writer.write(f)
+    print("    -> footer hidden on pages 1-2")
+except ImportError:
+    print("    -> reportlab not installed; footer remains on all pages")
+PY
+        fi
         ;;
     chrome)
         # Convert MD -> HTML via npx markdown-it
