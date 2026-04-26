@@ -163,16 +163,6 @@ DIM SHARED TOOLTIP_BINS_LINE2$
 TOOLTIP_BINS_LINE1$ = "BIN - L-CLICK Select/Use. SHIFT+L-CLICK Store into bin. R-CLICK for Menu."
 TOOLTIP_BINS_LINE2$ = "Use M-WHEEL UP and M-WHEEL DOWN to navigate through drawer sets for current drawing mode."
 
-DECLARE SUB TOOLTIP_update ()
-DECLARE SUB TOOLTIP_render (target&)
-DECLARE SUB TOOLTIP_reblit_to_screen0 ()
-DECLARE SUB TOOLTIP_reset ()
-DECLARE FUNCTION TOOLTIP_get_hovered_btn_idx% (mouseX%, mouseY%)
-DECLARE FUNCTION TOOLTIP_get_hovered_org_idx% (mouseX%, mouseY%)
-DECLARE FUNCTION TOOLTIP_get_hovered_mini_pal% (mouseX%, mouseY%)
-DECLARE FUNCTION TOOLTIP_get_hovered_dock_area% (mouseX%, mouseY%)
-DECLARE FUNCTION TOOLTIP_get_hovered_editbar_idx% (mouseX%, mouseY%)
-DECLARE FUNCTION TOOLTIP_get_hovered_advbar_idx% (mouseX%, mouseY%)
 
 ' --- Edit Bar tooltip text arrays (indexed by EDITBAR slot 0..31) ---
 DIM SHARED TOOLTIP_EB_LINE1$(0 TO 31)

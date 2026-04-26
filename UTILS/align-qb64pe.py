@@ -65,7 +65,7 @@ Options:
 
 Examples:
   python3 align-qb64pe.py --dry-run CFG/
-  python3 align-qb64pe.py --align-eq CFG/BINDINGS-KEYBOARD.BI
+  python3 align-qb64pe.py --align-eq CFG/CONFIG.BI
   python3 align-qb64pe.py --align-as --global CFG/CONFIG-THEME.BI
   python3 align-qb64pe.py --align-case --global CFG/CONFIG-THEME.BM
   python3 align-qb64pe.py --align-eq --align-as --global CFG/

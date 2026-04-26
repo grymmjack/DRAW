@@ -157,75 +157,16 @@ DIM SHARED LAYER_COUNT           AS INTEGER                        ' Number of l
 DIM SHARED NEXT_LAYER_HISTORY_ID AS LONG                           ' Monotonic stable layer id allocator
 
 ' Declare layer management functions
-DECLARE SUB LAYERS_init ()
-DECLARE FUNCTION LAYERS_recount% ()
-DECLARE FUNCTION LAYERS_alloc_history_id& ()
-DECLARE FUNCTION LAYERS_new% ()
-DECLARE FUNCTION LAYERS_new_at_top% ()
-DECLARE FUNCTION LAYERS_new_text% (x AS INTEGER, y AS INTEGER)
-DECLARE SUB LAYERS_delete (layerIndex AS INTEGER)
-DECLARE SUB LAYERS_duplicate (layerIndex AS INTEGER)
-DECLARE SUB LAYERS_clear (layerIndex AS INTEGER)
-DECLARE SUB LAYERS_rename (layerIndex AS INTEGER)
-DECLARE SUB LAYERS_select (layerIndex AS INTEGER)
-DECLARE SUB LAYERS_move_up (layerIndex AS INTEGER)
-DECLARE SUB LAYERS_move_down (layerIndex AS INTEGER)
-DECLARE SUB LAYERS_to_top (layerIndex AS INTEGER)
-DECLARE SUB LAYERS_to_bottom (layerIndex AS INTEGER)
-DECLARE SUB LAYERS_toggle_visibility (layerIndex AS INTEGER)
-DECLARE SUB LAYERS_set_opacity (layerIndex AS INTEGER, opacity AS INTEGER)
-DECLARE SUB LAYERS_toggle_opacity_lock (layerIndex AS INTEGER)
-DECLARE SUB LAYERS_merge_down (layerIndex AS INTEGER)
-DECLARE SUB LAYERS_merge_visible ()
-DECLARE FUNCTION LAYERS_flatten& ()
-DECLARE FUNCTION LAYER_current_image& ()
 
 ' Layer panel UI functions
-DECLARE SUB LAYER_PANEL_render (canvasHeight AS INTEGER)
-DECLARE FUNCTION LAYER_PANEL_in_bounds% (rawX AS INTEGER, rawY AS INTEGER)
-DECLARE FUNCTION LAYER_PANEL_handle_click% (rawX AS INTEGER, rawY AS INTEGER, button AS INTEGER)
-DECLARE SUB LAYER_PANEL_handle_wheel (rawX AS INTEGER, rawY AS INTEGER, delta AS INTEGER)
-DECLARE SUB LAYER_PANEL_handle_opacity_drag (rawX AS INTEGER, rawY AS INTEGER)
-DECLARE SUB LAYER_PANEL_handle_drag (rawX AS INTEGER, rawY AS INTEGER)
-DECLARE SUB LAYER_PANEL_handle_drop ()
-DECLARE SUB LAYER_PANEL_drag_cancel ()
-DECLARE FUNCTION LAYER_PANEL_is_dragging% ()
-DECLARE SUB LAYER_PANEL_handle_vis_swipe (rawX AS INTEGER, rawY AS INTEGER)
-DECLARE SUB LAYER_PANEL_end_vis_swipe ()
-DECLARE SUB LAYER_PANEL_handle_scroll_drag (rawY AS INTEGER)
-DECLARE FUNCTION LAYER_PANEL_visible_row_count% ()
 
-DECLARE SUB LAYER_PANEL_load_icons ()
-DECLARE SUB LAYER_PANEL_cleanup_icons ()
-DECLARE SUB LAYER_select_non_transparent (layerIdx AS INTEGER)
-DECLARE SUB LAYER_PANEL_scroll_to_layer (layerIdx AS INTEGER)
 
 ' Blend mode popup
-DECLARE SUB LAYER_PANEL_blend_popup_show (layerIdx AS INTEGER, x AS INTEGER, y AS INTEGER)
-DECLARE SUB LAYER_PANEL_blend_popup_close ()
-DECLARE SUB LAYER_PANEL_blend_popup_render ()
-DECLARE FUNCTION LAYER_PANEL_blend_popup_hit% (rawX AS INTEGER, rawY AS INTEGER)
-DECLARE SUB LAYER_PANEL_blend_popup_hover (rawX AS INTEGER, rawY AS INTEGER)
 
 ' Layer context menu (right-click on row)
 CONST LAYER_CTX_ITEM_H = 12
-DECLARE SUB LAYER_PANEL_ctx_menu_build (layerIdx AS INTEGER, itemCount AS INTEGER)
-DECLARE SUB LAYER_PANEL_ctx_menu_show (layerIdx AS INTEGER, x AS INTEGER, y AS INTEGER)
-DECLARE SUB LAYER_PANEL_ctx_menu_close ()
-DECLARE SUB LAYER_PANEL_ctx_menu_render ()
-DECLARE FUNCTION LAYER_PANEL_ctx_menu_hit% (rawX AS INTEGER, rawY AS INTEGER)
-DECLARE SUB LAYER_PANEL_ctx_menu_hover (rawX AS INTEGER, rawY AS INTEGER)
-DECLARE SUB LAYER_PANEL_ctx_menu_activate (actionValue AS INTEGER)
 
 ' Blend mode functions
-DECLARE FUNCTION BLEND_mode_name$ (mode AS INTEGER)
-DECLARE FUNCTION BLEND_mode_short$ (mode AS INTEGER)
-DECLARE SUB LAYER_blend_composite (dst AS LONG, src AS LONG, blendMode AS INTEGER, opacity AS INTEGER)
-DECLARE SUB LAYER_blend_composite_region (dst AS LONG, src AS LONG, blendMode AS INTEGER, opacity AS INTEGER, rx1 AS INTEGER, ry1 AS INTEGER, rx2 AS INTEGER, ry2 AS INTEGER)
-DECLARE FUNCTION BLEND_needs_composite% ()
-DECLARE SUB BLEND_invalidate_cache ()
-DECLARE SUB BLEND_invalidate_visibility (changedLayer AS INTEGER)
-DECLARE SUB RENDER_ORDER_rebuild ()
 
 ' Layer render order — pre-sorted array avoids O(n×64) lookup per frame
 ' RENDER_ORDER%(i) = layer index for z-level i, rebuilt when layer order changes
@@ -264,28 +205,9 @@ DIM SHARED MULTI_SELECT_LAYERS(1 TO MAX_LAYERS) AS INTEGER
 DIM SHARED MULTI_SELECT_COUNT AS INTEGER
 MULTI_SELECT_COUNT% = 0
 
-DECLARE SUB MULTI_SELECT_clear ()
-DECLARE FUNCTION MULTI_SELECT_has_any% ()
-DECLARE SUB MULTI_SELECT_toggle (layerIndex AS INTEGER)
-DECLARE SUB LAYER_get_content_bounds (layerIndex AS INTEGER, bx AS INTEGER, by AS INTEGER, bw AS INTEGER, bh AS INTEGER)
-DECLARE SUB LAYER_translate_content (layerIndex AS INTEGER, dx AS INTEGER, dy AS INTEGER)
 
 ' Group layer management functions
 DIM SHARED NEXT_GROUP_NUM AS INTEGER                               ' Auto-incrementing counter for group naming
-DECLARE FUNCTION LAYERS_new_group% ()
-DECLARE FUNCTION LAYERS_group_from_selection% ()
-DECLARE SUB LAYERS_ungroup (groupIdx AS INTEGER)
-DECLARE SUB LAYERS_move_into_group (layerIdx AS INTEGER, groupIdx AS INTEGER)
-DECLARE SUB LAYERS_move_out_of_group (layerIdx AS INTEGER)
-DECLARE FUNCTION LAYERS_group_child_count% (groupIdx AS INTEGER)
-DECLARE SUB LAYERS_group_descendants (groupIdx AS INTEGER, outArray() AS INTEGER, outCount AS INTEGER)
-DECLARE SUB LAYERS_group_children (groupIdx AS INTEGER, outArray() AS INTEGER, outCount AS INTEGER)
-DECLARE SUB LAYERS_group_zIndex_range (groupIdx AS INTEGER, outMinZ AS INTEGER, outMaxZ AS INTEGER)
-DECLARE SUB LAYERS_enforce_group_contiguity ()
-DECLARE SUB LAYERS_merge_group (groupIdx AS INTEGER)
-DECLARE SUB LAYERS_select_group (groupIdx AS INTEGER)
-DECLARE SUB LAYERS_delete_group (groupIdx AS INTEGER)
-DECLARE SUB LAYERS_toggle_group_visibility (groupIdx AS INTEGER)
 
 ' Group compositing — stack of buffers for nested isolated groups
 ' Each nesting level of isolated groups needs its own composite buffer.
@@ -297,13 +219,7 @@ DIM SHARED GROUP_COMP_STACK_W        AS LONG                       ' Width of al
 DIM SHARED GROUP_COMP_STACK_H        AS LONG                       ' Height of allocated buffers
 DIM SHARED BLEND_HAS_ISOLATED_GROUPS AS INTEGER                    ' TRUE when isolated groups exist (cached)
 
-' Legacy single-buffer aliases (kept for compatibility during transition)
-DIM SHARED GROUP_COMPOSITE_BUFFER   AS LONG
-DIM SHARED GROUP_COMPOSITE_BUFFER_W AS LONG
-DIM SHARED GROUP_COMPOSITE_BUFFER_H AS LONG
-
 ' Helper: get nesting depth of a layer (0 = top-level)
-DECLARE FUNCTION LAYERS_nesting_depth% (layerIdx AS INTEGER)
 
 ' Note: LAYERS_init is called from SCREEN_init after CONFIG_load
 ' LAYER_PANEL_load_icons is called from DRAW.BAS after CONFIG_apply_startup_defaults

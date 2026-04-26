@@ -45,6 +45,3 @@ $IF MAC THEN
 $END IF
 
 ' Declare SUBs
-DECLARE SUB MODIFIERS_init ()
-DECLARE SUB MODIFIERS_update ()
-DECLARE SUB MODIFIERS_track_alt_keyhit (k&)

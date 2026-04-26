@@ -56,25 +56,6 @@ REDIM SHARED MOVE_MULTI_ORIGINALS(1 TO MAX_LAYERS) AS LONG
 ' Per-layer preview buffers (canvas-sized, shifted by current drag delta each frame)
 REDIM SHARED MOVE_MULTI_PREVIEWS(1 TO MAX_LAYERS) AS LONG
 
-DECLARE SUB MOVE_init ()
-DECLARE SUB MOVE_reset ()
-DECLARE SUB MOVE_capture_selection ()
-DECLARE SUB MOVE_start_transform (handle AS INTEGER, x AS INTEGER, y AS INTEGER)
-DECLARE SUB MOVE_update_transform (x AS INTEGER, y AS INTEGER)
-DECLARE SUB MOVE_apply_transform ()
-DECLARE SUB MOVE_stamp ()
-DECLARE SUB MOVE_cancel_transform ()
-DECLARE SUB MOVE_render_preview (dest AS LONG)
-DECLARE SUB MOVE_render_status (dest AS LONG)
-DECLARE SUB MOVE_update_preview_buffer ()
-DECLARE FUNCTION MOVE_get_preview_buffer& ()
-DECLARE FUNCTION MOVE_get_multi_layer_preview& (layerIdx AS INTEGER)
-DECLARE SUB MOVE_flip_horizontal ()
-DECLARE SUB MOVE_flip_vertical ()
-DECLARE SUB MOVE_nudge (dx AS INTEGER, dy AS INTEGER)
-DECLARE SUB MOVE_resize (dw AS INTEGER, dh AS INTEGER)
-DECLARE SUB MOVE_sync_base ()
-DECLARE FUNCTION MOVE_find_topmost_layer_at% (cx AS INTEGER, cy AS INTEGER)
 
 ' Shared state for layer-level lossless scaling
 DIM SHARED SCALE_ORIGINAL_IMAGE AS LONG                    ' Backup of layer before first scale op

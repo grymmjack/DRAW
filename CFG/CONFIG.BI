@@ -382,13 +382,3 @@ END TYPE
 DIM SHARED CFG AS DRAW_CONFIG
 DIM SHARED CONFIG_NEEDS_INITIAL_SAVE% ' Deferred save flag: set when config file doesn't exist yet
 
-DECLARE SUB CONFIG_load ()
-DECLARE SUB CONFIG_save ()
-DECLARE SUB CONFIG_set_defaults ()
-DECLARE SUB CONFIG_upgrade ()
-DECLARE SUB CONFIG_apply_startup_defaults ()
-DECLARE SUB CONFIG_validate_palette_strip ()
-DECLARE FUNCTION CONFIG_extract_dir$ (filepath AS STRING)
-DECLARE SUB RECENT_add_file (filepath AS STRING)
-DECLARE SUB RECENT_clear ()
-DECLARE FUNCTION RECENT_extract_filename$ (filepath AS STRING)

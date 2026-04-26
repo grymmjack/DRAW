@@ -7,9 +7,6 @@
 ' @author Rick Christy <grymmjack@gmail.com>
 '
 $INCLUDEONCE
-DECLARE SUB POLY_LINE_render_preview ()
-DECLARE SUB POLY_LINE_reset ()
-DECLARE SUB POLY_LINE_cancel_restore ()
 
 TYPE POLY_LINE_TYPE
     LAST_X             AS INTEGER ' Last point X for continuing line

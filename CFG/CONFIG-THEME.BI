@@ -596,9 +596,6 @@ TYPE DRAW_THEME
 END TYPE
 
 ' Runtime theme loader — populates THEME from ASSETS/THEMES/{CFG.THEME$}/THEME.CFG
-DECLARE SUB THEME_load ()
-DECLARE FUNCTION THEME_parse_rgba~& (val$)
-DECLARE FUNCTION THEME_font_path$ (filename AS STRING)
 
 DIM SHARED THEME AS DRAW_THEME
 DIM SHARED PALETTE_SEP_LOSPEC_LBL$  ' Section header label : Lospec downloaded palettes

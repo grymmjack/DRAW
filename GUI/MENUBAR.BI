@@ -5,6 +5,12 @@
 ' dropdown submenus, checkboxes, dividers, hotkey display, and full keyboard
 ' navigation.
 '
+' True story: my first learnings with QB64 was with a menu bar, trying to grok
+' how things worked, how to manage and store it elegantly, etc. This happened
+' in the old QB64 discord (not the PE one, I didn't know about PE until later).
+'
+' I have a fondness for old-school GUI controls, and menu bars are a classic!
+'
 ' @author Rick Christy <grymmjack@gmail.com>
 '
 $INCLUDEONCE
@@ -152,36 +158,4 @@ MENU_OVERFLOW_OPEN%  = FALSE
 MENU_OVERFLOW_HOVER% = -1
 
 ' Sub declarations
-DECLARE SUB MENUBAR_init ()
-DECLARE SUB MENUBAR_register_all ()
-DECLARE SUB MENUBAR_register_item (label AS STRING, hotkey AS STRING, parentIdx AS INTEGER, actionId AS INTEGER, hasCheckbox AS INTEGER, isDivider AS INTEGER)
-DECLARE SUB MENUBAR_render ()
-DECLARE SUB MENUBAR_render_submenu (rootIdx AS INTEGER)
-DECLARE SUB MENUBAR_update_bar_geometry ()
-DECLARE SUB MENUBAR_update_checkboxes ()
-DECLARE SUB MENUBAR_handle_click (rawX AS INTEGER, rawY AS INTEGER)
-DECLARE SUB MENUBAR_handle_mouse_move (rawX AS INTEGER, rawY AS INTEGER)
-DECLARE SUB MENUBAR_close_all ()
-DECLARE FUNCTION MENUBAR_handle_key% (k AS LONG)
-DECLARE FUNCTION MENUBAR_in_bounds% (rawX AS INTEGER, rawY AS INTEGER)
-DECLARE FUNCTION MENUBAR_submenu_in_bounds% (rawX AS INTEGER, rawY AS INTEGER)
-DECLARE FUNCTION MENUBAR_is_open% ()
-DECLARE FUNCTION MENUBAR_get_submenu_item_at% (rawY AS INTEGER)
-DECLARE FUNCTION MENUBAR_is_sub_item_enabled% (childPosition AS INTEGER)
-DECLARE FUNCTION MENUBAR_is_cascading_item% (childPosition AS INTEGER)
-DECLARE SUB MENUBAR_render_recent_submenu ()
-DECLARE SUB MENUBAR_handle_recent_click (rawX AS INTEGER, rawY AS INTEGER)
-DECLARE FUNCTION MENUBAR_recent_in_bounds% (rawX AS INTEGER, rawY AS INTEGER)
-DECLARE SUB MENUBAR_render_overflow_popup ()
-DECLARE FUNCTION MENUBAR_overflow_in_bounds% (rawX AS INTEGER, rawY AS INTEGER)
-DECLARE SUB MENUBAR_handle_overflow_click (rawX AS INTEGER, rawY AS INTEGER)
-DECLARE SUB MENUBAR_render_pvw_submenu ()
-DECLARE SUB MENUBAR_handle_pvw_click (rawX AS INTEGER, rawY AS INTEGER)
-DECLARE FUNCTION MENUBAR_pvw_in_bounds% (rawX AS INTEGER, rawY AS INTEGER)
-DECLARE SUB MENUBAR_render_pvw_recent_submenu ()
-DECLARE SUB MENUBAR_handle_pvw_recent_click (rawX AS INTEGER, rawY AS INTEGER)
-DECLARE FUNCTION MENUBAR_pvw_recent_in_bounds% (rawX AS INTEGER, rawY AS INTEGER)
-DECLARE SUB MENUBAR_render_export_submenu ()
-DECLARE SUB MENUBAR_handle_export_click (rawX AS INTEGER, rawY AS INTEGER)
-DECLARE FUNCTION MENUBAR_export_in_bounds% (rawX AS INTEGER, rawY AS INTEGER)
 
