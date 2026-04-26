@@ -185,6 +185,7 @@ TYPE DRAW_CONFIG
     DISPLAY_SCALE_CHANGED           AS INTEGER        ' Runtime flag: scale changed during session
     TOOLBAR_SCALE                   AS INTEGER        ' Toolbar icon scale multiplier (1-4, default 1)
     FD_FONT_SCALE                   AS INTEGER        ' File dialog text/icon/control scale multiplier (1-4, default 2)
+    FD_ICON_SCALE                   AS INTEGER        ' File dialog icon scale multiplier (1-4, default 3) — independent of font scale
     FD_FONT                         AS INTEGER        ' File dialog font (0 = default 16, 8 = 8x8, 16 = 8x16)
     FD_DIALOG_W                     AS INTEGER        ' File dialog width in pixels (0 = auto 60% of window)
     FD_DIALOG_H                     AS INTEGER        ' File dialog height in pixels (0 = auto 70% of window)
