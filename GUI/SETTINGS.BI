@@ -77,3 +77,4 @@ DIM SHARED SETTINGS_CFG AS DRAW_CONFIG
 ' --- Function Declarations ---------------------------------------------------
 
 DECLARE SUB SETTINGS_show_dialog ()
+DECLARE SUB SETTINGS_resolve_shadow_sentinels ()
