@@ -190,9 +190,6 @@ DECLARE FUNCTION DRAWER_pattern_is_1bit% (slotIndex AS INTEGER)
 DECLARE SUB DRAWER_analyze_1bit (slotIndex AS INTEGER)
 DECLARE SUB DRAWER_analyze_all_1bit ()
 
-' Font handle for 1-bit sigil (loaded lazily in DRAWER_render)
-DIM SHARED DRAWER_1BIT_FONT AS LONG
-
 ' Context menu constants
 CONST DRAWER_CONTEXT_ITEM_H         = 12                                    ' Must match MENU_ITEM_HEIGHT in MENUBAR.BI
 CONST DRAWER_CONTEXT_MAX_ITEMS      = 14

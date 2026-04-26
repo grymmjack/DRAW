@@ -229,7 +229,6 @@ DECLARE FUNCTION TEXT_BAR_handle_subfolder_click% (rawX AS INTEGER, rawY AS INTE
 DECLARE FUNCTION TEXT_BAR_char_mode_font_is_safe% (fontIdx AS INTEGER)
 DECLARE SUB TEXT_BAR_ensure_char_mode_safe_font ()
 DECLARE SUB TEXT_BAR_select_font (fontIdx AS INTEGER)
-DECLARE SUB TEXT_BAR_handle_key (k AS LONG)
 DECLARE SUB TEXT_BAR_sync_paint_color ()
 DECLARE FUNCTION TEXT_BAR_in_bounds% (rawX AS INTEGER, rawY AS INTEGER)
 DECLARE FUNCTION TEXT_BAR_ui_in_bounds% (rawX AS INTEGER, rawY AS INTEGER)

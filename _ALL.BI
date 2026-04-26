@@ -37,12 +37,6 @@ $INCLUDEONCE
 ' CONFIG ----------------------------------------------------------------------
 '$INCLUDE:'./CFG/CONFIG.BI'
 '$INCLUDE:'./CFG/CONFIG-THEME.BI'
-'$INCLUDE:'./CFG/CONFIG-KEYBOARD.BI'
-'$INCLUDE:'./CFG/CONFIG-MOUSE.BI'
-'$INCLUDE:'./CFG/CONFIG-STICK.BI'
-'$INCLUDE:'./CFG/BINDINGS-KEYBOARD.BI'
-'$INCLUDE:'./CFG/BINDINGS-MOUSE.BI'
-'$INCLUDE:'./CFG/BINDINGS-STICK.BI'
 
 ' GUI -------------------------------------------------------------------------
 '$INCLUDE:'./GUI/PALETTE.BI'

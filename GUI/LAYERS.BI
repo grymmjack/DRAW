@@ -297,11 +297,6 @@ DIM SHARED GROUP_COMP_STACK_W        AS LONG                       ' Width of al
 DIM SHARED GROUP_COMP_STACK_H        AS LONG                       ' Height of allocated buffers
 DIM SHARED BLEND_HAS_ISOLATED_GROUPS AS INTEGER                    ' TRUE when isolated groups exist (cached)
 
-' Legacy single-buffer aliases (kept for compatibility during transition)
-DIM SHARED GROUP_COMPOSITE_BUFFER   AS LONG
-DIM SHARED GROUP_COMPOSITE_BUFFER_W AS LONG
-DIM SHARED GROUP_COMPOSITE_BUFFER_H AS LONG
-
 ' Helper: get nesting depth of a layer (0 = top-level)
 DECLARE FUNCTION LAYERS_nesting_depth% (layerIdx AS INTEGER)
 
