@@ -892,9 +892,12 @@ def process_lines_normalise_ctrl_eq(lines: list[str]) -> tuple[list[str], int]:
         is_compound = False
         if not is_ctrl and '=' in raw and not stripped.startswith("'") and not stripped.startswith('$') and find_eq_pos(raw) == -1:
             # find_eq_pos returns -1 for compound assignments — check there's an '='
-            # that's not part of <=, >= by looking directly
-            for _ci, _cc in enumerate(raw):
-                if _cc == '=' and (_ci == 0 or raw[_ci - 1] not in '<>!'):
+            # that's not part of <=, >= by looking directly.
+            # Truncate to code portion so '=' inside a comment is not counted.
+            _cmt = find_comment_pos(raw)
+            _scan = raw[:_cmt] if _cmt != -1 else raw
+            for _ci, _cc in enumerate(_scan):
+                if _cc == '=' and (_ci == 0 or _scan[_ci - 1] not in '<>!'):
                     is_compound = True
                     break
         if not is_ctrl and not is_compound:
@@ -925,6 +928,10 @@ def _collapse_eq_spaces(line: str) -> str:
             else:
                 in_string = True
             out.append(ch)
+        elif ch == "'" and not in_string:
+            # Rest of line is a comment — append verbatim and stop
+            out.append(line[i:])
+            break
         elif ch == '=' and not in_string:
             # Check if this '=' is part of <=, >=, or != comparison
             last_nonspace = ''
