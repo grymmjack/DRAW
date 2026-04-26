@@ -35,7 +35,7 @@
 
 1. **`Ctrl+'`** — set grid geometry to Isometric.
 2. **`;`** — enable snap.
-3. The grid guides ensure perfect 2:1 ratio.
+3. The grid guides ensure perfect 2:1 ratio. (Also try Edit → Angle Snap: Pixel Art)
 4. Use the Polygon tool for angled surfaces (top, left, right faces of a cube).
 5. Put each face on its own layer.
 6. Use Multiply / Screen blend modes for light/shadow on each face.

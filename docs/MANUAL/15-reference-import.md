@@ -4,7 +4,7 @@
 
 ---
 
-## EP41 · Reference Image — Tracing Made Easy
+## Reference Image — Tracing Made Easy
 
 > 🎯 **Goal:** Use reference images for tracing and study.
 
@@ -26,7 +26,7 @@ Reference image state is persisted in the `.draw` file along with its opacity, p
 > 5. Fill regions with flood fill.
 > 6. Hide the reference (`Ctrl+R`) to evaluate the standalone result.
 
-## EP42 · Image Import — Oversized Placement & Transform
+## Image Import — Oversized Placement & Transform
 
 > 🎯 **Goal:** Import and position external images.
 

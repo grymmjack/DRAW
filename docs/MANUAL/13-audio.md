@@ -4,7 +4,7 @@
 
 ---
 
-## EP39 · Audio System — SFX, Music & Customization
+## Audio System — SFX, Music & Customization
 
 > 🎯 **Goal:** Configure the creative audio experience.
 

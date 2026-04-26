@@ -4,7 +4,7 @@
 
 ---
 
-## EP45 · History System — Fearless Experimentation
+## History System — Fearless Experimentation
 
 > 🎯 **Goal:** Understand the unified undo/redo system.
 
@@ -12,7 +12,7 @@ DRAW has **one timeline** for everything you do — drawing, transforms, layer o
 
 ### How history is recorded
 
-History records **on mouse release**, automatically. There is no manual save-state command, and there is a guard against double-recording on the same frame. Each entry carries a human-readable label — *"Brush stroke on Layer 3"*, *"Move 12px on selected layers"*, *"Apply Transform"* — so the undo button's tooltip tells you exactly what it would undo.
+History records **on mouse release**, automatically. There is no manual save-state command, and there is a guard against double-recording on the same frame. Each entry carries a human-readable label — *"Brush stroke on Layer 3"*, *"Move 12px on selected layers"*, *"Apply Transform"*, for a future history panel and comments in QB64PE Project Export.
 
 ### Multi-layer awareness
 
