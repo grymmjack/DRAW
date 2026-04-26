@@ -14,9 +14,9 @@ DATA "::::::::", "::    ::", "::    ::", "::::  ::::", "  ::  ::  "
 
 DRAW is a pixel art editor written in QB64PE that can export images as sourcecode
 
-Current release: v0.32.0
+Current release: v0.33.0
 
-![DRAW GUI from v0.32.0](./GUI.png)
+![DRAW GUI from v0.33.0](./GUI.png)
 
 ## Features
 
@@ -49,7 +49,7 @@ Current release: v0.32.0
 - **Crop** - Interactive canvas crop using marquee selection with dark overlay, resize handles, and size label; also supports canvas resize dialog
 - **Canvas Resize** - Resize canvas to arbitrary dimensions via dialog (Canvas menu), preserving layer content at origin
 - **New from Template** - Start fresh from bundled `.draw`/image templates or a remembered template folder
-- **QB64 Export** - Generate QB64 source output from artwork/history, with improved raster fallback for operations that cannot be reproduced parametrically
+- **QB64 Export** - Generate QB64 source output from artwork/history, with improved raster fallback for operations that cannot be reproduced parametrically; supports per-layer blend modes; vector vs imported-image layer classification; transparent layers skipped; `Ctrl+Shift+Q` re-exports to the last project path without prompting
 - **Angle Snap** - Two modes: degree-based (configurable 15°/30°/45°/90° increments) and pixel-art (11 integer-ratio angles for clean pixel lines). Hold Ctrl+Shift to snap + bypass grid. Applies to Line, Polygon, and Brush/Dot connecting lines
 - **Image Adjustments** - Non-destructive per-layer adjustments via the Image menu: Brightness/Contrast, Hue/Saturation, Levels, Color Balance, Blur, Sharpen, Invert, Desaturate, Posterize, Pixelate — all with **live preview** and **mouse wheel slider** support; Posterize also supports multiple dithering algorithms; alpha channel preserved throughout
 - **Flip Canvas** - Flip the entire canvas horizontally or vertically across all layers (Image menu)
