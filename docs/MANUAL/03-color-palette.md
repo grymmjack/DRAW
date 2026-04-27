@@ -39,11 +39,13 @@ The **Color Mixer panel** is a floating, persistent alternative to the modal pic
 
 Because the mixer is non-modal, you can keep it open while drawing and tweak colors live. Its visibility is persisted in `DRAW.cfg`.
 
-> 📸 **Screenshot needed — Color Mixer alongside canvas**
-> - **Setup:** Any canvas. Open `View → Color Mixer`. Drag mixer to a tidy position (right side, above status).
-> - **Action:** Adjust the H slider mid-range so the swatch is a vivid blue/purple.
-> - **Capture:** Full window crop showing canvas and mixer side by side.
-> - **Save as:** `images/ch03-color-mixer.png`
+> DRAW's various color widgets and doo-dads
+> ![Color Widgets](images/ch03-color-widgets.png)
+> 1. Color Mixer — `View → Color Mixer`
+> 2. Mini Palette — Always visible as part of Tool Box
+> 3. Color Strip — Can be hidden, shows (4) Palette
+> 4. Palette Picker — Choose a palette for editing
+> 5. Active Foreground (FG) and Background (BG) colors
 
 <div class="page-break"></div>
 
