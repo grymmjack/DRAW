@@ -61,6 +61,10 @@ Non-rectangular shapes are preserved via the alpha channel.
 
 The **Drawer panel** is a docked grid of 30 slots that hold reusable brushes, patterns, or gradients. Each slot is one click away from being the active stamp.
 
+<div align="center">
+  <img src="images/ch09-brush-sets.png" alt="Chapter 9 - Brush Sets" style="max-width: 6.0in; width: 90%; height: auto;" />
+</div>
+
 ### Drawer modes
 
 | Mode | Shortcut | Use for |
@@ -77,6 +81,8 @@ The **Drawer panel** is a docked grid of 30 slots that hold reusable brushes, pa
 | Right-click any slot | Context menu — load, save, clear, replace, export, etc. |
 | Drag-and-drop slots | Reorder. |
 | Drop image files onto the panel | Batch import as slot brushes. |
+
+<div class="page-break"></div>
 
 ### `.dset` import / export
 
@@ -98,8 +104,6 @@ The drawer ties into three paint modes that affect Fill and Brush behaviour:
 - **Pattern** — tile the active drawer slot.
 - **Gradient** — interpolate between palette stops via the active gradient slot.
 
-<div class="page-break"></div>
-
 ### Dithering algorithms
 
 When painting gradients (or applying Posterize) you can pick from:
@@ -109,12 +113,6 @@ When painting gradients (or applying Posterize) you can pick from:
 - **Atkinson** — classic Mac dither.
 - **Stucki** — heavier diffusion.
 - **Blue Noise** — perceptually uniform.
-
-> 📸 **Screenshot needed — Drawer panel populated**
-> - **Setup:** Load `DEV/brush-set.dset`. Make sure all 30 slots show content.
-> - **Action:** Hover one slot to bring up its tooltip.
-> - **Capture:** Drawer panel docked, mini palette visible.
-> - **Save as:** `images/ch09-drawer-panel.png`
 
 ---
 

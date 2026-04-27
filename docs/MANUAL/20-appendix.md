@@ -56,7 +56,7 @@ The complete, always-up-to-date list of keyboard shortcuts lives in [`CHEATSHEET
 | Reset zoom | `Ctrl+0` |
 | Reset pan + zoom | Double-middle-click |
 | Pan | Middle-drag, `Space`+drag |
-| Pattern tile | `Shift+Tab` |
+| Pattern tile | View menu / Advanced Bar |
 | Grayscale preview | `Ctrl+Alt+Shift+G` |
 | Reference image | `Ctrl+R` |
 | Canvas border | `#` |

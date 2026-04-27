@@ -26,10 +26,9 @@ DRAW ships with **24 color bitmap fonts** in the DPaint-style `.bmp` spritesheet
 
 When the text tool is active, a property bar appears with the font dropdown, size, and the standard formatting toggles (bold, italic, underline, strikethrough). This bar is fixed in position under the menu bar and not movable or undockable.
 
-> 📸 **Screenshot needed — text property bar**
-> - **Setup:** New canvas. `T` to activate text. Click on the canvas to enter text mode.
-> - **Capture:** Property bar at top with the font dropdown, size spinner, and B/I/U/S toggles all visible.
-> - **Save as:** `images/ch07-text-bar.png`
+<div align="center">
+  <img src="images/ch07-text-bar.png" alt="Chapter 7 - Text Property Bar" style="max-width: 3.0in; width: 50%; height: auto;" />
+</div>
 
 <div class="page-break"></div>
 
@@ -81,7 +80,7 @@ Once you commit a text-tool entry, it becomes a **text layer** — fully persist
 
 Character Mode is for **ANSI / DOS / text-mode art**. Once enabled, the canvas is treated as a grid of cells with a virtual cursor:
 
-> NOTE: DRAW is NOT a full fledged text mode art program, but this is a neat way to make GUI elements so I included it.
+> NOTE: DRAW is NOT a full fledged text mode art program, but this is a neat way to make GUI elements!
 
 - Free grid navigation with arrow keys.
 - `F1`–`F12` insert ANSI block characters (`░ ▒ ▓ █ ▀ ▄ ▌ ▐`).

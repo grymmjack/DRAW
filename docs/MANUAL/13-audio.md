@@ -44,11 +44,9 @@ The **Audio** menu (rightmost in the menu bar) hosts:
 
 All audio settings persist in `DRAW.cfg`.
 
-> 📸 **Screenshot needed — Audio menu open**
-> - **Setup:** A theme with music files in its `MUSIC/` folder. Auto-shuffle on.
-> - **Action:** Click `Audio` in the menu bar.
-> - **Capture:** Open Audio menu showing the NOW PLAYING entry and surrounding actions.
-> - **Save as:** `images/ch13-audio-menu.png`
+<div align="center">
+  <img src="images/ch13-audio.png" alt="DRAW can play music and has sound effects" style="max-width: 8.0in; width: 95%; height: auto;" />
+</div>
 
 ---
 

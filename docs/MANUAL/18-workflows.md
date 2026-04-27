@@ -24,7 +24,7 @@
 > 🎯 **Goal:** Create a tileable background pattern.
 
 1. **`Ctrl+N`** — new canvas, 32×32 or 64×64.
-2. **`Shift+Tab`** — enable Pattern Tile Mode. The 3×3 preview will reveal seams instantly.
+2. **View → Pattern Tile Mode** — enable Pattern Tile Mode. The 3×3 preview will reveal seams instantly.
 3. Draw your base pattern.
 4. Watch the seams in the preview. Fix them at the canvas edges by painting through the wrap.
 5. Capture the result as a custom brush.

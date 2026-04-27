@@ -44,11 +44,9 @@ When grid cell fill is enabled, the fill tool paints whole cells of the active g
 > 3. Use the Polygon tool to outline the top, left, and right faces of a cube on three layers.
 > 4. Apply Multiply/Screen blend modes for top vs. side shading.
 
-> 📸 **Screenshot needed — isometric grid with cube outlined**
-> - **Setup:** 256×256 canvas, isometric grid visible, snap on.
-> - **Action:** Draw the three quad faces of a cube on three separate layers.
-> - **Capture:** Canvas with grid + cube outlines.
-> - **Save as:** `images/ch08-isometric-cube.png`
+<div align="center">
+  <img src="images/ch08-isometric.png" alt="Chapter 8 - Isometric Grid Mode" style="max-width: 6.0in; width: 90%; height: auto;" />
+</div>
 
 <div class="page-break"></div>
 
@@ -78,11 +76,9 @@ Symmetry works with **every** drawing tool — Brush, Dot, Line, Rect, Ellipse, 
 > 4. Draw one curved stroke from center outward — eight reflections appear instantly.
 > 5. Add layers and blend modes to taste.
 
-> 📸 **Screenshot needed — 8-way symmetry mandala**
-> - **Setup:** 256×256 canvas, PICO-8 palette, `SYM:3` mode.
-> - **Action:** Draw one curving stroke off-center. Capture mid-stroke if possible.
-> - **Capture:** Cropped canvas showing all 8 reflections.
-> - **Save as:** `images/ch08-symmetry-mandala.png`
+<div align="center">
+  <img src="images/ch08-symmetry.png" alt="Chapter 8 - Symmetry Mode" style="max-width: 6.0in; width: 90%; height: auto;" />
+</div>
 
 <div class="page-break"></div>
 
@@ -110,7 +106,7 @@ Hold `Shift` to display a full-screen crosshair through the cursor — invaluabl
 ### Other view aids
 
 - **Grayscale Preview** — `Ctrl+Alt+Shift+G`. View the composite as luminance only to check value structure.
-- **Pattern Tile Mode** — `Shift+Tab`. Renders the canvas as a 3×3 tiled preview so seamless textures show their seams immediately.
+- **Pattern Tile Mode** — *View → Pattern Tile Mode* (or the tile-mode button in the Advanced Bar). Renders the canvas as a 3×3 tiled preview so seamless textures show their seams immediately.
 - **Canvas Border** — `#`. Toggles a thin border around the canvas (useful at high zoom over dark themes).
 
 ---

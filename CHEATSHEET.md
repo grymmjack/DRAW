@@ -566,7 +566,7 @@ Brush size and shape affect all drawing tools: Brush, Dot, Line, Rectangle, Elli
 | `Ctrl+Shift+Right` | Hide/show right side UI (toolbar, organizer, drawer) |
 | `Ctrl+Shift+Up` | Hide/show menu bar (alternate binding for `Ctrl+F11`) |
 | `Ctrl+Shift+Down` | Hide/show status bar and color strip |
-| `Shift+Tab` | Toggle pattern tile mode |
+| View → Pattern Tile Mode | Toggle pattern tile mode |
 | `Shift` | Show crosshair (when held) |
 
 **Note:** Toggling the layer panel or menu bar does not shift the canvas position. UI panels overlay on top of the canvas.

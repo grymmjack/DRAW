@@ -91,7 +91,7 @@ Current release: v1.0
 - Keyboard panning with arrow keys
 - Reset view with Ctrl+0 or double-click middle mouse
 - **Preview Window** - Floating preview with two modes: Follow (magnifier) and Floating Image (load a reference image); Bin Quick Look previews drawer slot contents on hover; Color Picking with Alt+Click; Recent Preview Images submenu; independent zoom/pan, move/resize controls, and persistent state (`F4`)
-- **Pattern Tile Mode** - 3×3 tiled canvas preview for seamless work on canvases up to 512×512 (`Shift+Tab`)
+- **Pattern Tile Mode** - 3×3 tiled canvas preview for seamless work on canvases up to 512×512 (View menu / Advanced Bar)
 - **Grayscale Preview** - Toggle a grayscale view of the canvas to check values and contrast without modifying the artwork (`Ctrl+Alt+Shift+G`)
 - Toggle UI elements (toolbar, status bar, menu bar, layer panel, preview window, edit bar)
 
@@ -167,7 +167,7 @@ Current release: v1.0
 **Palette:** Click palette name dropdown to switch palettes, SHIFT+wheel for fast scroll  
 **Grid:** `'` (toggle), `Shift+'` (pixel grid), `;` (snap), `Ctrl+'` (cycle mode), `.` (bigger), `,` (smaller)  
 **Brush Size:** `[` (smaller), `]` (bigger), F6 (pixel perfect)  
-**Panels:** F4 (preview), F5 (edit bar), Tab/F10/F11 (UI), Shift+Tab (pattern tile)  
+**Panels:** F4 (preview), F5 (edit bar), Tab/F10/F11 (UI)  
 **Canvas:** Delete (Edit > Clear), Backspace (fill with FG), Shift+Backspace (fill with BG)  
 **View:** Mouse wheel (zoom), Middle click (pan), Ctrl+0 (reset)  
 **Clipboard:** Ctrl+C (copy), Ctrl+X (cut), Ctrl+V (paste at cursor), Ctrl+E (clear)  

@@ -48,12 +48,6 @@ This is the cleanest way to bring an external sprite into a project at the right
 
 DRAW reads `.ase` / `.aseprite` and `.psd` files directly via `File → Open Aseprite` and `File → Open Photoshop`. Layers are preserved (where they map cleanly to DRAW's blend mode set) and re-exposed as native DRAW layers.
 
-> 📸 **Screenshot needed — Import Image with rotated overlay**
-> - **Setup:** Existing 256×256 canvas. Import a photo larger than the canvas.
-> - **Action:** Rotate the import 90° CW; pan inside the image so an interesting region is in the destination box.
-> - **Capture:** Full canvas with import overlay and toolbar visible.
-> - **Save as:** `images/ch15-import.png`
-
 ---
 
 ➡️ Next: [Chapter 16 — Keyboard Shortcuts & Command Palette](16-shortcuts.md)

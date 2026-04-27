@@ -70,6 +70,10 @@ When you move a layer, DRAW can render **Smart Guides** — temporary alignment 
 
 Smart-guide colors and opacity are themeable.
 
+<div align="center">
+  <img src="images/ch06-smart-guides.png" alt="Chapter 6 - Smart Guides" style="max-width: 6.0in; width: 90%; height: auto;" />
+</div>
+
 <div class="page-break"></div>
 
 ## Image Adjustments — Color Correction & Effects
@@ -98,12 +102,6 @@ Hover any slider and use the **mouse wheel** for fine control.
 - **Remove Background**
 
 Every adjustment **preserves the alpha channel** and is undone in a single `Ctrl+Z`.
-
-> 📸 **Screenshot needed — Levels dialog with histogram**
-> - **Setup:** Open a colorful image. `Image → Adjustments → Levels`.
-> - **Action:** Drag the gamma slider so the preview is visibly brightened.
-> - **Capture:** Dialog with histogram and live preview visible.
-> - **Save as:** `images/ch06-levels.png`
 
 ---
 

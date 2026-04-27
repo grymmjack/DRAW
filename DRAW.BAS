@@ -304,6 +304,7 @@ DO
     IF osExitTrap% THEN CMD_execute_action 212
 
     k& = _KEYHIT
+    LAST_KEYHIT_RAW& = k&
     
     ' Build INKEY$-compatible fallback from _KEYHIT for handlers that need it
     IF k& >= 32 AND k& <= 126 THEN

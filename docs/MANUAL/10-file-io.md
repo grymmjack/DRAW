@@ -72,6 +72,8 @@ The format is versioned for forward compatibility — newer DRAW builds still re
 | **ICO** | Windows Icon (multi-resolution). |
 | **QOI** | Modern lossless [Quite OK Image](https://qoiformat.org/) format. |
 
+<div class="page-break"></div>
+
 ### QB64 Source Code Export
 
 The signature feature: export your artwork as a self-contained `.bas` program. The file declares a screen, sets pixels in order, and runs as a standalone QB64-PE compile. Open it, hit compile, and your sprite paints itself onto the screen. This is wonderful for:
@@ -80,11 +82,9 @@ The signature feature: export your artwork as a self-contained `.bas` program. T
 - Embedding small graphics in QB64-PE programs without shipping image files.
 - Showing how a piece of pixel art was constructed pixel by pixel.
 
-> 📸 **Screenshot needed — exported BAS running**
-> - **Setup:** Open a small (32×32) sprite. `File → Export As → QB64 BAS`.
-> - **Action:** Compile and run the resulting `.bas`.
-> - **Capture:** The QB64 console window with the rendered sprite, side-by-side with the same sprite in DRAW.
-> - **Save as:** `images/ch10-bas-export.png`
+<div align="center">
+  <img src="images/ch04-symbol-layers.png" alt="Chapter 10 - QB64PE Project Export Source Code" style="max-width: 6.0in; width: 90%; height: auto;" />
+</div>
 
 <div class="page-break"></div>
 
@@ -101,6 +101,10 @@ DRAW can decompose a finished image into individual sprite PNGs. Three extractio
 Background options for each output sprite: **Transparent**, **FG color**, or **BG color**. Output is a folder of separate PNG files; the settings you pick are persisted in the `.draw` file so you can re-export later with one click.
 
 There is a related command, **Extract From Grid…**, which slices a regular grid (e.g., 16×16 cells) into named PNGs — perfect for tilesets — and **Extract To Layers From Grid…**, which slices a grid into named *layers* in a new project.
+
+<div align="center">
+  <img src="images/ch10-extract-images.png" alt="Chapter 10 - Extract Images" style="max-width: 5.0in; width: 80%; height: auto;" />
+</div>
 
 ---
 

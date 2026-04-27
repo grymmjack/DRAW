@@ -33,11 +33,9 @@ The analyzer uses a precompute engine for fast incremental analysis. After the f
 > 4. Re-analyze. Move to jagged lines next, then doubles, banding, and pillow shading last.
 > 5. Save before-and-after copies for your portfolio.
 
-> 📸 **Screenshot needed — analyzer overlay**
-> - **Setup:** Open a 32×32 sprite with several orphan pixels and a couple of doubles.
-> - **Action:** Run the Pixel Art Analyzer. Tab the overlay to "Orphan pixels".
-> - **Capture:** Canvas with orphan pixels highlighted, plus the analyzer dialog showing the totals.
-> - **Save as:** `images/ch14-analyzer.png`
+<div align="center">
+  <img src="images/ch14-pixel-art-analyzer.png" alt="Pixel Art Analyzer" style="max-width: 8.0in; width: 95%; height: auto;" />
+</div>
 
 ---
 

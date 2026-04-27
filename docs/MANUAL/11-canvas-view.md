@@ -47,9 +47,19 @@ Scrollbars appear automatically for canvases larger than the viewport. The canva
 
 Independent zoom and pan inside the preview, plus **`Alt`+Click to color-pick** without switching tools. The preview also remembers up to 10 recent images for quick swaps.
 
+<div align="center">
+  <img src="images/ch01-preview-window.png" alt="Preview Window" style="max-width: 5.0in; width: 80%; height: auto;" />
+</div>
+
+<div class="page-break"></div>
+
 ### Pattern Tile Mode
 
-`Shift+Tab` toggles **Pattern Tile Mode** — DRAW renders your canvas as a 3×3 tiled preview (up to 512×512 source). Seams in seamless textures jump out instantly because they appear nine times.
+**View → Pattern Tile Mode** (or the tile-mode button in the Advanced Bar) toggles a 3×3 tiled preview (up to 512×512 source). Seams in seamless textures jump out instantly because they appear nine times.
+
+<div align="center">
+  <img src="images/ch11-tile-mode.png" alt="Chapter 11 - Tile Mode" style="max-width: 5.0in; width: 80%; height: auto;" />
+</div>
 
 ### Other view options
 
@@ -66,12 +76,6 @@ Independent zoom and pan inside the preview, plus **`Alt`+Click to color-pick** 
 
 - **Crop tool** (![crop](../../ASSETS/THEMES/DEFAULT/IMAGES/TOOLBOX/crop.png)) — interactive with handles; commit with Enter.
 - **Image → Canvas Resize…** — dialog with anchor selection and pixel/percent toggle.
-
-> 📸 **Screenshot needed — Pattern Tile Mode with seams**
-> - **Setup:** Open a 32×32 tile that has visible seams.
-> - **Action:** `Shift+Tab`.
-> - **Capture:** Full window showing the 3×3 tiling.
-> - **Save as:** `images/ch11-pattern-tile.png`
 
 ---
 

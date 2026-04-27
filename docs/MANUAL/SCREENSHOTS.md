@@ -113,7 +113,7 @@ When all items are checked off, the manual is fully illustrated.
 
 - [ ] **`images/ch11-pattern-tile.png`** — Pattern Tile Mode.
   - Setup: 32×32 tile with visible seams.
-  - Action: `Shift+Tab`.
+  - Action: View → Pattern Tile Mode (or the tile-mode button in the Advanced Bar).
   - Capture: Full window showing the 3×3 tiling.
 
 ### Chapter 12 — Settings
