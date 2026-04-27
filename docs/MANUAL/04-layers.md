@@ -121,8 +121,6 @@ When you finish a child or want to have a child no longer inherit changes from i
 
 Create them via `Layer → New Symbol Layer` or `Layer → Convert to Symbol`.
 
-> - **Save as:** `images/ch04-symbol-layers.png`
-
 <div align="center">
   <img src="images/ch04-symbol-layers.png" alt="Chapter 4 - Symbol Layers" style="max-width: 6.0in; width: 90%; height: auto;" />
 </div>

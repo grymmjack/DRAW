@@ -58,7 +58,7 @@ On first run, DRAW probes your monitor with `_DESKTOPWIDTH`/`_DESKTOPHEIGHT` and
 
 > 🎯 **Goal:** Navigate the interface confidently.
 
-When DRAW launches you'll see six always-visible regions. From top to bottom and outside in:
+When DRAW launches you'll see six regions. From top to bottom and outside in:
 
 | Region | Purpose |
 | --- | --- |

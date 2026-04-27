@@ -8,7 +8,7 @@
 
 > 🎯 **Goal:** Master basic freehand pixel drawing.
 
-The two beginner tools you'll meet first are the **Brush** (`B`) for freehand strokes and the **Dot** (`D`) for single-pixel placement. Both share the same brush size and shape state — switching between them is instant and lossless.
+The two beginner tools you'll meet first are the **Brush** (`B`) for freehand strokes and the **Dot** (`D`) for single-pixel placement. Both share the same brush size and shape state.
 
 | Tool | Icon | Key | Behaviour |
 | --- | :---: | :---: | --- |
@@ -21,7 +21,7 @@ DRAW follows the universal "left = foreground, right = background" convention. *
 
 If you have a steady hand but find that single-pixel stairsteps creep into your strokes, enable **Pixel Perfect mode** with `F6`. DRAW will retroactively remove L-shaped corners as you draw, leaving cleaner outlines.
 
-The Organizer widget on the right contains **four brush size presets** that you can configure for the workflow you use most often (e.g., 1, 2, 4, 8 pixels for sprite work).
+The Organizer widget on the left contains **four brush size presets** that you can configure for the workflow you use most often (e.g., 1, 2, 4, 8 pixels for sprite work).
 
 <div class="page-break"></div>
 
@@ -81,7 +81,7 @@ DRAW's flood fill is unusual in two ways:
 1. It supports **custom brushes as a tiled fill** — if you have a brush captured (Chapter 9), the fill is rendered as a seamless tiling of that brush rather than a flat color.
 2. It also honours the **paint mode** — set Pattern or Gradient mode (Chapter 9) and your fill becomes a dithered gradient or tiled pattern instead of a solid color.
 
-After a tiled fill, press `F8` to open the **Fill Adjustment overlay**. Drag the canvas to reposition the tile origin, mouse-wheel for uniform scale, drag the L-handle for independent X/Y scaling, and drag the rotation handle (small arc) to rotate the tile. `Enter` applies, `Esc` cancels.
+Press `F8` to enable **Fill Adjustment overlay**. Now when you fill, drag the canvas to reposition the tile origin, mouse-wheel for uniform scale, drag the L-handle for independent X/Y scaling, and drag the rotation handle (small arc) to rotate the tile. `Enter` applies, `Esc` cancels.
 
 <div class="page-break"></div>
 

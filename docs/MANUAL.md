@@ -81,7 +81,7 @@ You can read it cover-to-cover, jump to any chapter from the [Table of Contents]
 
 ### Who this is for
 
-- 🎨 **Pixel artists** moving from DPaint / Aseprite / ProMotion who want a free, open-source, scriptable alternative.
+- 🎨 **Pixel artists** moving from DPaint / Aseprite / ProMotion who want a free open-source alternative.
 - 🎮 **Game developers** who need fast sprite, tile, and palette workflows with deep export options.
 - 💻 **QB64-PE / QBasic enthusiasts** who appreciate that the whole editor and its native export format is QB64 code.
 - 🆕 **Newcomers to pixel art** who want a guided walkthrough rather than a feature dump.
