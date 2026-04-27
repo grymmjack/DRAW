@@ -36,6 +36,8 @@ When grid cell fill is enabled, the fill tool paints whole cells of the active g
 
 `Ctrl+Shift` while drawing temporarily **bypasses snap**, so you can sketch freely without disabling the grid. All grid state is persisted in `.draw` files.
 
+<div class="page-break"></div>
+
 > 🎨 **Try it — isometric cube**
 > 1. `Ctrl+'` to switch to Isometric mode.
 > 2. `;` to enable snap.
@@ -47,6 +49,8 @@ When grid cell fill is enabled, the fill tool paints whole cells of the active g
 > - **Action:** Draw the three quad faces of a cube on three separate layers.
 > - **Capture:** Canvas with grid + cube outlines.
 > - **Save as:** `images/ch08-isometric-cube.png`
+
+<div class="page-break"></div>
 
 ## Symmetry Drawing — Mirror & Kaleidoscope
 
@@ -65,6 +69,8 @@ Press `F7` to cycle symmetry modes:
 
 Symmetry works with **every** drawing tool — Brush, Dot, Line, Rect, Ellipse, Polygon, Spray, Custom Brush. `F8` disables symmetry (or, in Fill Adjust contexts, opens the adjust overlay).
 
+<div class="page-break"></div>
+
 > 🎨 **Try it — 8-way mandala**
 > 1. New 256×256 canvas.
 > 2. `F7` × 3 until status bar reads `SYM:3`.
@@ -77,6 +83,8 @@ Symmetry works with **every** drawing tool — Brush, Dot, Line, Rect, Ellipse, 
 > - **Action:** Draw one curving stroke off-center. Capture mid-stroke if possible.
 > - **Capture:** Cropped canvas showing all 8 reflections.
 > - **Save as:** `images/ch08-symmetry-mandala.png`
+
+<div class="page-break"></div>
 
 ## Drawing Aids — Angle Snap, Crosshair & Assists
 

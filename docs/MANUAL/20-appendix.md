@@ -32,6 +32,8 @@ The complete, always-up-to-date list of keyboard shortcuts lives in [`CHEATSHEET
 | `Alt` | Subtract from selection / temporary picker / clone (with Move). |
 | `Ctrl+Shift` | Angle snap / bypass grid snap. |
 
+<div class="page-break"></div>
+
 ### Panel toggles
 
 | Key | Panel |
@@ -68,6 +70,8 @@ The complete, always-up-to-date list of keyboard shortcuts lives in [`CHEATSHEET
 | BG = transparent | `Shift+Delete` |
 | Paint opacity | `0`–`9` |
 | Temp picker FG / BG | `Alt`+L-click / R-click |
+
+<div class="page-break"></div>
 
 ### Brush
 

@@ -31,6 +31,8 @@ When the text tool is active, a property bar appears with the font dropdown, siz
 > - **Capture:** Property bar at top with the font dropdown, size spinner, and B/I/U/S toggles all visible.
 > - **Save as:** `images/ch07-text-bar.png`
 
+<div class="page-break"></div>
+
 ## Rich Text — Per-Character Formatting
 
 > 🎯 **Goal:** Apply advanced text formatting.
@@ -61,6 +63,8 @@ Auto-wrap reflows the text inside the bounding box. Style presets let you save t
 
 While in text-entry mode, **`Ctrl+Z` and `Ctrl+Y` operate on a separate 128-state text-local history**. This means typo experiments don't pollute your global history. Sound feedback on each keystroke is configurable in audio settings.
 
+<div class="page-break"></div>
+
 ## Text Layers & Character Mode
 
 > 🎯 **Goal:** Master persistent text and ANSI-style art.
@@ -85,6 +89,8 @@ Character Mode is for **ANSI / DOS / text-mode art**. Once enabled, the canvas i
 - The DOT and RECT drawing tools fill cells with the current glyph instead of pixels.
 - `Alt+U` picks both the FG and BG colors from the character under the cursor.
 - A character grid overlay snaps cursor positions cleanly.
+
+<div class="page-break"></div>
 
 ### Character Map panel
 

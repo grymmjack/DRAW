@@ -30,6 +30,8 @@ DRAW plays **tracker** modules natively:
 | `.s3m` | Scream Tracker 3. |
 | `.rad` | Reality Adlib Tracker. |
 
+<div class="page-break"></div>
+
 The **Audio** menu (rightmost in the menu bar) hosts:
 
 - **Auto-shuffle** — when the current track ends, DRAW picks a random next track from the active music folder.

@@ -24,6 +24,8 @@ The **Pixel Art Analyzer** scans the active layer (or selection) for five well-k
 
 The analyzer uses a precompute engine for fast incremental analysis. After the first scan it caches the per-pixel classifications so re-analysis after a fix is near-instant. Results are presented in an interactive dialog with totals per category and a clickable list that pans/zooms to each occurrence.
 
+<div class="page-break"></div>
+
 > 🎨 **Try it — before/after cleanup**
 > 1. Open a sprite that you know is rough.
 > 2. Run `Image → Pixel Art Analyzer`.

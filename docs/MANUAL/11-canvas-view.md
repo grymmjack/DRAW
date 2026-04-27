@@ -31,6 +31,8 @@ You can pan **with any tool active**, no need to switch:
 
 Scrollbars appear automatically for canvases larger than the viewport. The canvas border (`#`) outlines the edge of the canvas at any zoom.
 
+<div class="page-break"></div>
+
 ## Preview Window, Tile Mode & View Options
 
 > 🎯 **Goal:** Use preview and tiling for workflow efficiency.

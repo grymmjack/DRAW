@@ -34,6 +34,8 @@ The **Recent Files** list holds up to 10 entries with quick-jump shortcuts `Alt+
 
 `File → New from Template…` reads from `ASSETS/TEMPLATES/` and gives you a starter canvas with appropriate dimensions, palette, and grid for common targets (NES sprite, Game Boy tile, Lospec sheet, etc.).
 
+<div class="page-break"></div>
+
 ## The `.draw` Format — PNG with Superpowers
 
 > 🎯 **Goal:** Understand the native DRAW project format.
@@ -51,6 +53,8 @@ What `.draw` preserves:
 - Character Mode state.
 
 The format is versioned for forward compatibility — newer DRAW builds still read older `.draw` files, and they extend the chunk safely when new features arrive.
+
+<div class="page-break"></div>
 
 ## Export As — 9 Image Formats
 
@@ -81,6 +85,8 @@ The signature feature: export your artwork as a self-contained `.bas` program. T
 > - **Action:** Compile and run the resulting `.bas`.
 > - **Capture:** The QB64 console window with the rendered sprite, side-by-side with the same sprite in DRAW.
 > - **Save as:** `images/ch10-bas-export.png`
+
+<div class="page-break"></div>
 
 ## Extract Images — Sprite Sheet Decomposition
 

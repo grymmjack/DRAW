@@ -19,6 +19,8 @@
 9. **Double-middle-click = instant pan/zoom reset.** Get back to a fitting view in one gesture.
 10. **`.draw` is a PNG you can open in any viewer.** Show off your art on Discord without exporting first — your project file *is* the preview.
 
+<div class="page-break"></div>
+
 ## Advanced Layer Techniques
 
 > 🎯 **Goal:** Push the layer system to its limits.

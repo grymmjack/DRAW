@@ -17,6 +17,8 @@
 7. **Run the Pixel Art Analyzer** — fix orphans, doubles, jaggies, banding.
 8. **Export** — File → Export As → PNG (plain) for engines, or save as `.draw` to keep the layers editable.
 
+<div class="page-break"></div>
+
 ## Workflow — Seamless Tile Texture
 
 > 🎯 **Goal:** Create a tileable background pattern.
@@ -28,6 +30,8 @@
 5. Capture the result as a custom brush.
 6. On a fresh test canvas, flood-fill with the brush to verify seamlessness.
 7. Export as a plain PNG tile.
+
+<div class="page-break"></div>
 
 ## Workflow — Isometric Pixel Art
 
@@ -41,6 +45,8 @@
 6. Use Multiply / Screen blend modes for light/shadow on each face.
 7. Group the layers per object so you can move it as a unit.
 
+<div class="page-break"></div>
+
 ## Workflow — Symmetrical Mandala / Pattern
 
 > 🎯 **Goal:** Create complex symmetrical artwork.
@@ -51,6 +57,8 @@
 4. Layer subsequent strokes on different layers with different blend modes.
 5. Vary opacity for depth.
 6. Use custom-brush stamps (small flowers, dots, geometric shapes) for ornamentation.
+
+<div class="page-break"></div>
 
 ## Workflow — ANSI / Text Art with Character Mode
 
@@ -65,6 +73,8 @@
 7. The DOT and RECT tools fill cells with the active glyph instead of pixels.
 8. Toggle CP437 mode (`Ctrl+Shift+U`) for the classic DOS feel.
 
+<div class="page-break"></div>
+
 ## Workflow — Sprite Sheet Assembly & Export
 
 > 🎯 **Goal:** Assemble sprites into a sheet and re-extract.
@@ -76,6 +86,8 @@
 5. Export the full sheet as PNG.
 6. Use **Extract Images** to decompose the sheet into individual PNGs (Chapter 10).
 7. Save the project as `.draw` to preserve layers for future edits.
+
+<div class="page-break"></div>
 
 ## Workflow — Photo to Pixel Art
 

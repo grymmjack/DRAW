@@ -21,6 +21,8 @@ These are the no-dialog shortcuts you'll reach for hundreds of times a session.
 
 All of the above operate on the active selection if there is one, otherwise on the active layer (or the multi-selected layers). For canvas-level flips that move *every* layer at once, use the corresponding entries under the `Image` menu.
 
+<div class="page-break"></div>
+
 ## Transform Overlay — Scale, Rotate, Shear, Distort, Perspective
 
 > 🎯 **Goal:** Use the interactive on-canvas transform tool.
@@ -42,6 +44,8 @@ The overlay frame and handles are themeable in `THEME.CFG`. Press `Enter` to app
 > - **Action:** Pull two corners outward to skew the sprite into a perspective-y trapezoid.
 > - **Capture:** Full canvas, overlay frame and four corner handles visible.
 > - **Save as:** `images/ch06-transform-distort.png`
+
+<div class="page-break"></div>
 
 ## Move Tool & Smart Guides
 
@@ -67,6 +71,8 @@ When you move a layer, DRAW can render **Smart Guides** — temporary alignment 
 | Snap to Smart Guides | `Ctrl+;` |
 
 Smart-guide colors and opacity are themeable.
+
+<div class="page-break"></div>
 
 ## Image Adjustments — Color Correction & Effects
 

@@ -26,6 +26,8 @@ Reference image state is persisted in the `.draw` file along with its opacity, p
 > 5. Fill regions with flood fill.
 > 6. Hide the reference (`Ctrl+R`) to evaluate the standalone result.
 
+<div class="page-break"></div>
+
 ## Image Import — Oversized Placement & Transform
 
 > 🎯 **Goal:** Import and position external images.

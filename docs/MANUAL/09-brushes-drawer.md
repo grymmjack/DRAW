@@ -53,6 +53,8 @@ Non-rectangular shapes are preserved via the alpha channel.
 > 3. Switch to Spray, increase brush size, set FG to a green family.
 > 4. Spray a tree's foliage onto a new layer in seconds.
 
+<div class="page-break"></div>
+
 ## Drawer Panel — 30 Reusable Slots
 
 > 🎯 **Goal:** Organize and reuse brushes and patterns.
@@ -95,6 +97,8 @@ The drawer ties into three paint modes that affect Fill and Brush behaviour:
 - **Normal** — solid current FG color.
 - **Pattern** — tile the active drawer slot.
 - **Gradient** — interpolate between palette stops via the active gradient slot.
+
+<div class="page-break"></div>
 
 ### Dithering algorithms
 

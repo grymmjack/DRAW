@@ -48,6 +48,8 @@ After a selection exists you get **resize handles** on its edges; **drag inside 
 | Selection from current layer | (non-transparent pixels) |
 | Selection from selected layers | union mask |
 
+<div class="page-break"></div>
+
 ## Copy, Cut, Paste & Clipboard Power
 
 > 🎯 **Goal:** Master clipboard operations.

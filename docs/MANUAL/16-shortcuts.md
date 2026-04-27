@@ -30,6 +30,8 @@ The Palette is grouped into categories that match the menus:
 - Image
 - Audio
 
+<div class="page-break"></div>
+
 ## Keyboard Shortcuts Cheat Sheet
 
 > 🎯 **Goal:** Memorize the essential shortcuts.
@@ -55,6 +57,8 @@ The full, authoritative list is in [`CHEATSHEET.md`](../../CHEATSHEET.md) at the
 | `V` | Move |
 | `Z` | Zoom |
 | `T` | Text |
+
+<div class="page-break"></div>
 
 ### Essential combos
 

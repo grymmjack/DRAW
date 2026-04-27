@@ -30,6 +30,8 @@ CLI flags:
 - `--config /path/to/your.cfg` — use a non-default config file.
 - `--config-upgrade` — reconcile your existing config with any new defaults introduced by an upgrade. Recommended after each release.
 
+<div class="page-break"></div>
+
 ## Theming — Icons, Colors & Sounds
 
 > 🎯 **Goal:** Customize DRAW's look and feel.
@@ -49,6 +51,8 @@ Anything you can theme — UI palette, transform-overlay frame, smart-guide colo
 
 - **Display Scale** — 1× through 8×. Suits HiDPI monitors.
 - **Toolbar Scale** — 1× through 4×. Independent of display scale, so you can have small toolbar icons on a HiDPI display.
+
+<div class="page-break"></div>
 
 ## Panel Layout & Docking
 
@@ -80,12 +84,6 @@ DRAW also supports **auto-hide** while drawing: panels fade out so they don't ob
 ### Cursor system
 
 The cursor system uses your OS-native cursor for UI hovers and a custom-painted cursor for tool-specific feedback (crosshair on dot, brush footprint on brush, etc.). This is automatic and themeable.
-
-> 📸 **Screenshot needed — settings dialog (General tab)**
-> - **Setup:** Open `Edit → Settings`. Default theme.
-> - **Action:** None — capture the General tab.
-> - **Capture:** Full dialog overlapping the canvas.
-> - **Save as:** `images/ch12-settings-general.png`
 
 ---
 
