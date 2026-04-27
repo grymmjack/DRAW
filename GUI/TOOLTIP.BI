@@ -16,6 +16,7 @@ CONST TOOLTIP_SRC_DOCK_SWAP = 4
 CONST TOOLTIP_SRC_EDITBAR   = 5
 CONST TOOLTIP_SRC_ADVBAR    = 6
 CONST TOOLTIP_SRC_BINS      = 7
+CONST TOOLTIP_SRC_LAYER_NAME = 8
 
 TYPE TOOLTIP_OBJ
     ACTIVE        AS INTEGER ' TRUE when a tooltip is currently visible
@@ -28,6 +29,7 @@ TYPE TOOLTIP_OBJ
     RENDER_Y      AS INTEGER ' Last-rendered tooltip Y (canvas coords)
     RENDER_W      AS INTEGER ' Last-rendered tooltip width  (0 = none drawn this frame)
     RENDER_H      AS INTEGER ' Last-rendered tooltip height
+    DYNAMIC_TEXT  AS STRING  ' Tooltip text for dynamic sources (e.g. layer name)
 END TYPE
 
 DIM SHARED TOOLTIP AS TOOLTIP_OBJ

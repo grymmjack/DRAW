@@ -781,34 +781,15 @@ SUB LAYERS_rename (layerIndex AS INTEGER)
     MOUSE_cleanup_after_dialog FALSE ' Clear buffers but don't move mouse
 
     IF LEN(newName$) > 0 THEN
-        ' Truncate to max length (warn user if input exceeded the limit, so a
-        ' rename like "Parent instance" -> "Parent instance 2" doesn't silently
-        ' no-op when the trailing characters get chopped to match the old name)
-        DIM nameTruncated AS INTEGER
-        nameTruncated% = FALSE
-        IF LEN(newName$) > CFG.LAYER_NAME_MAX_LEN% THEN
-            newName$       = LEFT$(newName$, CFG.LAYER_NAME_MAX_LEN%)
-            nameTruncated% = TRUE
-        END IF
-
         IF _TRIM$(newName$) <> _TRIM$(LAYERS(layerIndex%).name) THEN
             IF NOT HISTORY_IN_PROGRESS% THEN
                 HISTORY_record_layer_rename LAYERS(layerIndex%).historyId&, _TRIM$(LAYERS(layerIndex%).name), newName$, "Layer Rename"
             END IF
 
+            ' STRING * 64 field truncates anything longer to 64 chars on assignment.
             LAYERS(layerIndex%).name = newName$
             GUI_NEEDS_REDRAW%        = TRUE
             FRAME_IDLE%              = FALSE
-        ELSEIF nameTruncated% THEN
-            ' Truncated input collided with existing name — tell user instead
-            ' of silently doing nothing.
-            POINTER_hide_for_dialog
-            DRAW_alert "Name Too Long", _
-                "Layer name is limited to " + _TRIM$(STR$(CFG.LAYER_NAME_MAX_LEN%)) + " characters." + CHR$(10) + CHR$(10) + _
-                "Pick a shorter name, or raise the limit in" + CHR$(10) + _
-                "Settings > General > Layer Name Max Len."
-            POINTER_show_after_dialog
-            MOUSE_cleanup_after_dialog FALSE
         END IF
     END IF
 END SUB
@@ -2222,13 +2203,27 @@ SUB LAYER_PANEL_render (canvasHeight AS INTEGER)
                         ' Group name (trimmed to fit, leaving room for count + blend abbrev)
                         DIM grpName   AS STRING
                         grpName$ = _TRIM$(LAYERS(layerIdx%).name)
+                        ' Char-count cap (display-only)
+                        DIM grpNameMaxChars AS INTEGER
+                        grpNameMaxChars% = CFG.LAYER_NAME_MAX_LEN%
+                        IF grpNameMaxChars% < 1 THEN grpNameMaxChars% = 20
+                        DIM grpNameTruncated AS INTEGER
+                        grpNameTruncated% = FALSE
+                        IF LEN(grpName$) > grpNameMaxChars% THEN
+                            grpName$ = LEFT$(grpName$, grpNameMaxChars%)
+                            grpNameTruncated% = TRUE
+                        END IF
                         DIM grpAvailW AS INTEGER
                         grpAvailW% = panelW% - rowIndent% - 24 - 14
                         IF LEN(grpCountStr$) > 0 THEN grpAvailW% = grpAvailW% - _PRINTWIDTH(grpCountStr$)
                         IF grpShowBlend% THEN grpAvailW% = grpAvailW% - _PRINTWIDTH(grpBlendShort$) - 2
-                        DO WHILE LEN(grpName$) > 0 AND _PRINTWIDTH(grpName$) > grpAvailW%
-                            grpName$ = LEFT$(grpName$, LEN(grpName$) - 1)
-                        LOOP
+                        IF _PRINTWIDTH(grpName$) > grpAvailW% THEN
+                            grpNameTruncated% = TRUE
+                            DO WHILE LEN(grpName$) > 0 AND _PRINTWIDTH(grpName$ + "...") > grpAvailW%
+                                grpName$ = LEFT$(grpName$, LEN(grpName$) - 1)
+                            LOOP
+                        END IF
+                        IF grpNameTruncated% THEN grpName$ = grpName$ + "..."
                         COLOR THEME.LAYER_PANEL_group_header_fg~&, _RGBA32(0, 0, 0, 0)
                         _UPRINTSTRING (rowX% + 22, drawY% + 4), grpName$
 
@@ -2302,6 +2297,17 @@ SUB LAYER_PANEL_render (canvasHeight AS INTEGER)
                         layerName$ = "[T] " + layerName$
                     END IF
 
+                    ' Char-count cap (display-only). Anything beyond gets ellipsis-trimmed.
+                    DIM layerNameMaxChars AS INTEGER
+                    layerNameMaxChars% = CFG.LAYER_NAME_MAX_LEN%
+                    IF layerNameMaxChars% < 1 THEN layerNameMaxChars% = 20
+                    DIM layerNameTruncatedByChar AS INTEGER
+                    layerNameTruncatedByChar% = FALSE
+                    IF LEN(layerName$) > layerNameMaxChars% THEN
+                        layerName$ = LEFT$(layerName$, layerNameMaxChars%)
+                        layerNameTruncatedByChar% = TRUE
+                    END IF
+
                     ' Pre-compute blend abbreviation so we can shrink availW% to make room.
                     ' Blend is shown right-aligned on the name row (y+4); badge gets y+12 alone.
                     DIM showBlendInd AS INTEGER
@@ -2324,16 +2330,16 @@ SUB LAYER_PANEL_render (canvasHeight AS INTEGER)
                     IF showBlendInd% THEN availW% = availW% - _PRINTWIDTH(blendShort$) - 2
 
                     ' Trim from end until it fits the available pixel width.
-                    ' If we had to trim, append an ellipsis to signal truncation.
+                    ' If we had to trim (by char-count cap or by pixel width), append an ellipsis.
                     DIM layerNameTruncated AS INTEGER
-                    layerNameTruncated% = FALSE
+                    layerNameTruncated% = layerNameTruncatedByChar%
                     IF _PRINTWIDTH(layerName$) > availW% THEN
                         layerNameTruncated% = TRUE
                         DO WHILE LEN(layerName$) > 0 AND _PRINTWIDTH(layerName$ + "...") > availW%
                             layerName$ = LEFT$(layerName$, LEN(layerName$) - 1)
                         LOOP
-                        layerName$ = layerName$ + "..."
                     END IF
+                    IF layerNameTruncated% THEN layerName$ = layerName$ + "..."
                     COLOR THEME.LAYER_PANEL_row_fg~&, _RGBA32(0, 0, 0, 0)
                     IF LAYERS(layerIdx%).layerType% = LAYER_TYPE_SYMBOL_PARENT THEN
                         COLOR THEME.LAYER_PANEL_symbol_parent_fg~&, _RGBA32(0, 0, 0, 0)
@@ -2638,6 +2644,74 @@ FUNCTION LAYER_PANEL_in_bounds% (rawX AS INTEGER, rawY AS INTEGER)
     panelH% = SCRN.h& - bottomBarsHeight%
     
     LAYER_PANEL_in_bounds% = (rawX% >= LAYER_PANEL.panelX1% AND rawX% <= LAYER_PANEL.panelX2% AND rawY% >= 0 AND rawY% < panelH%)
+END FUNCTION
+
+
+''
+' Map a raw mouse coordinate to the layer slot under the cursor in the layer
+' panel list area. Returns 0 if the cursor is outside the panel, over the
+' header/button bar, or over an empty area below the last layer row.
+' Mirrors the row hit-test logic in LAYER_PANEL_handle_click and accounts for
+' collapsed group children being skipped.
+' @param rawX INTEGER Raw screen X coordinate
+' @param rawY INTEGER Raw screen Y coordinate
+' @return INTEGER - Layer slot (1..MAX_LAYERS), or 0 if not over a row
+'
+FUNCTION LAYER_PANEL_get_row_slot% (rawX AS INTEGER, rawY AS INTEGER)
+    LAYER_PANEL_get_row_slot% = 0
+    IF NOT LAYER_PANEL.visible% THEN EXIT FUNCTION
+    IF NOT LAYER_PANEL_in_bounds%(rawX%, rawY%) THEN EXIT FUNCTION
+
+    DIM bottomBarsHeight AS INTEGER
+    IF SCRN.showStatus% THEN
+        bottomBarsHeight% = THEME.STATUS_height% + PALETTE_STRIP_get_height%
+    ELSE
+        bottomBarsHeight% = 0
+    END IF
+    DIM panelH        AS INTEGER : panelH% = SCRN.h& - bottomBarsHeight%
+    DIM listTop       AS INTEGER : listTop% = THEME.LAYER_PANEL_header_height%
+    DIM listBot       AS INTEGER : listBot% = panelH% - THEME.LAYER_PANEL_btn_bar_height%
+    IF rawY% < listTop% OR rawY% >= listBot% THEN EXIT FUNCTION
+
+    DIM clickY        AS INTEGER : clickY% = rawY% + LAYER_PANEL.scrollOffset%
+    DIM rowY          AS INTEGER : rowY% = 16
+    DIM z             AS INTEGER, i AS INTEGER, layerIdx AS INTEGER
+    DIM walkPar       AS INTEGER, ancCollapsed AS INTEGER
+
+    FOR z% = LAYER_COUNT% TO 1 STEP -1
+        layerIdx% = 0
+        FOR i% = 1 TO MAX_LAYERS
+            IF LAYERS(i%).imgHandle& <> 0 AND LAYERS(i%).zIndex% = z% THEN
+                layerIdx% = i%
+                EXIT FOR
+            END IF
+        NEXT i%
+        IF layerIdx% = 0 THEN _CONTINUE
+
+        ' Skip children of collapsed groups
+        ancCollapsed% = FALSE
+        walkPar% = LAYERS(layerIdx%).parentGroupIdx%
+        DO WHILE walkPar% > 0
+            IF walkPar% <= MAX_LAYERS THEN
+                IF LAYERS(walkPar%).imgHandle& <> 0 THEN
+                    IF LAYERS(walkPar%).collapsed% THEN
+                        ancCollapsed% = TRUE
+                        EXIT DO
+                    END IF
+                END IF
+                walkPar% = LAYERS(walkPar%).parentGroupIdx%
+            ELSE
+                EXIT DO
+            END IF
+        LOOP
+        IF ancCollapsed% THEN _CONTINUE
+
+        IF clickY% >= rowY% AND clickY% < rowY% + LAYER_ROW_HEIGHT THEN
+            LAYER_PANEL_get_row_slot% = layerIdx%
+            EXIT FUNCTION
+        END IF
+        rowY% = rowY% + LAYER_ROW_HEIGHT
+    NEXT z%
 END FUNCTION
 
 
