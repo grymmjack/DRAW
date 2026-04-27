@@ -51,6 +51,18 @@ done
 [[ -f "$COVER_FILE" ]] || { echo "Missing $COVER_FILE" >&2; exit 2; }
 [[ -d "$MANUAL_DIR" ]] || { echo "Missing $MANUAL_DIR" >&2; exit 2; }
 
+# ---- Extract version from _COMMON.BI -----------------------------------
+COMMON_BI="${REPO_ROOT}/_COMMON.BI"
+if [[ -f "$COMMON_BI" ]]; then
+    APP_VERSION="$(grep -E '^\s*CONST\s+APP_VERSION\$' "$COMMON_BI" \
+        | head -1 \
+        | sed -E 's/.*"([^"]+)".*/\1/')"
+fi
+APP_VERSION="${APP_VERSION:-unknown}"
+BUILD_DATE="$(date +%Y-%m-%d)"
+export APP_VERSION BUILD_DATE
+echo "==> Manual version: ${APP_VERSION}  (date: ${BUILD_DATE})"
+
 WORK_DIR="$(mktemp -d)"
 trap 'rm -rf "$WORK_DIR"' EXIT
 
@@ -144,6 +156,9 @@ def slug_for(path: Path) -> str:
 def emit(path: Path, is_cover: bool):
     text = path.read_text(encoding="utf-8")
     text = absolutize(text, path.parent)
+    # Substitute version/date placeholders so docs always reflect _COMMON.BI
+    text = text.replace("{{VERSION}}", os.environ.get("APP_VERSION", "unknown"))
+    text = text.replace("{{DATE}}",    os.environ.get("BUILD_DATE", ""))
     anchor = slug_for(path)
     if not is_cover:
         # page break + anchor target so cross-file links still resolve

@@ -5,9 +5,9 @@ DRAW by Rick Christy <grymmjack@gmail.com>
 
 DRAW is a pixel art editor written in QB64PE that can export images as sourcecode
 
-Current release: v0.33.0
+Current release: v1.0
 
-![DRAW GUI from v0.33.0](./GUI.png)
+![DRAW GUI from v1.0](./GUI.png)
 
 ## Features
 

@@ -6,7 +6,7 @@
 
 ### A pixel art editor written in QB64-PE — that exports your artwork as QB64 source code.
 
-**Version 0.33.0** · Manual revision 2026-04-26
+**Version {{VERSION}}** · Manual revision {{DATE}}
 
 By Rick Christy ([grymmjack](https://github.com/grymmjack)) · [github.com/grymmjack/DRAW](https://github.com/grymmjack/DRAW) · MIT License
 
