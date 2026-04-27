@@ -217,7 +217,7 @@ TYPE DRAW_CONFIG
     ANGLE_SNAP_PIXEL_ART            AS INTEGER        ' TRUE = snap to pixel-art angles (integer slope ratios)
     ' Layer panel settings
     LAYER_PANEL_WIDTH               AS INTEGER        ' Width of layer panel in pixels (min 100)
-    LAYER_NAME_MAX_LEN              AS INTEGER        ' Max layer name length (1-64, default 16)
+    LAYER_NAME_MAX_LEN              AS INTEGER        ' Max layer name length (1-64, default 20)
     LAYER_GROUP_INDENT              AS INTEGER        ' Per-level indent for nested groups in px (0 = use theme, 4-32)
     LAYERS_PANEL_DOCK_EDGE          AS STRING         ' "LEFT" or "RIGHT" (default : "LEFT")
     TOOLBOX_DOCK_EDGE               AS STRING         ' "LEFT" or "RIGHT" (default : "RIGHT")

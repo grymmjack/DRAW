@@ -68,6 +68,8 @@ DRAW has more clipboard verbs than most editors because it cares about both laye
 | Paste from OS Clipboard | `Ctrl+Shift+V` | Brings in any image you copied from another application. |
 | Clear / Erase | `Ctrl+E` or `Delete` | Clears the selection (or the whole layer if no selection — no prompt). |
 
+<div class="page-break"></div>
+
 ### Stroke Selection
 
 `Edit → Stroke Selection` adds a stroke around the selection boundary. You can configure:
@@ -78,11 +80,9 @@ DRAW has more clipboard verbs than most editors because it cares about both laye
 
 This is the cleanest way to outline finished sprites in a uniform thickness.
 
-> 📸 **Screenshot needed — stroke selection dialog**
-> - **Setup:** Marquee a sprite shape on a transparent layer.
-> - **Action:** `Edit → Stroke Selection`. Set Width = 2, Position = Outside.
-> - **Capture:** Dialog overlapping canvas, before clicking OK.
-> - **Save as:** `images/ch05-stroke-selection.png`
+<div align="center">
+  <img src="images/ch05-stroke-selection.png" alt="Chapter 5 - Stroke Selection" style="max-width: 6.0in; width: 90%; height: auto;" />
+</div>
 
 ---
 

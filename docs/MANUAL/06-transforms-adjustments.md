@@ -39,11 +39,9 @@ The overlay supports five modes; switch between them with yhe menu bar items and
 
 The overlay frame and handles are themeable in `THEME.CFG`. Press `Enter` to apply (full undo step is recorded), `Esc` to cancel without modifying anything.
 
-> 📸 **Screenshot needed — transform overlay in distort mode**
-> - **Setup:** Sprite roughly centered on canvas, selection around it, `Edit → TRANSFORM…`, mode = Distort.
-> - **Action:** Pull two corners outward to skew the sprite into a perspective-y trapezoid.
-> - **Capture:** Full canvas, overlay frame and four corner handles visible.
-> - **Save as:** `images/ch06-transform-distort.png`
+<div align="center">
+  <img src="images/ch06-distort.png" alt="Chapter 6 - Distort Transformation" style="max-width: 6.0in; width: 90%; height: auto;" />
+</div>
 
 <div class="page-break"></div>
 

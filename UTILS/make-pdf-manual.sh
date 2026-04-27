@@ -438,3 +438,10 @@ fi
 
 echo "==> Wrote $OUT_PDF"
 ls -lh "$OUT_PDF" | awk '{print "    " $5 "  " $9}'
+
+# Move final PDF to repo root for convenient access (overwrites any existing copy)
+ROOT_PDF="${REPO_ROOT}/$(basename "$OUT_PDF")"
+if [[ "$OUT_PDF" != "$ROOT_PDF" ]]; then
+    mv -f "$OUT_PDF" "$ROOT_PDF"
+    echo "==> Moved to $ROOT_PDF"
+fi
