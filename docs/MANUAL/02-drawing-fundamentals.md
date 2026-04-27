@@ -32,11 +32,7 @@ The Organizer widget on the right contains **four brush size presets** that you 
 > 4. Switch to `B` (Brush), increase to size 2, and fill the larger regions.
 > 5. Save as `.draw` so you can come back later.
 
-> 📸 **Screenshot needed — brush preview overlay**
-> - **Setup:** New 64×64 canvas, brush size 6, square shape, FG = bright cyan.
-> - **Action:** Press and hold the backtick key over the canvas (do not click).
-> - **Capture:** Cropped to canvas, shows the outlined preview footprint and color swatch.
-> - **Save as:** `images/ch02-brush-preview.png`
+![Dot Brush Preview](images/ch02-brush-preview.png)
 
 <div class="page-break"></div>
 
@@ -62,11 +58,13 @@ The shared modifier vocabulary across all three:
 <div class="page-break"></div>
 
 > 🎨 **Try it — house in 30 seconds**
-> 1. Filled rectangle for the body.
-> 2. Two lines forming the roof triangle.
-> 3. Filled circle (the sun).
-> 4. A few short lines for the sun's rays.
-> 5. Filled rectangle for the ground.
+> 1. Filled rectangle for the body. `Shift+R`
+> 2. Two lines forming the roof triangle. `L`
+> 3. Filled circle (the sun). `Shift+C`
+> 4. A few short lines for the sun's rays. `L`
+> 5. Filled rectangle for the ground. `Shift+R`
+
+![Try it - house](images/ch02-tryit-house.png)
 
 <div class="page-break"></div>
 

@@ -80,8 +80,12 @@ A second tier of **hidden panels** can be summoned on demand:
 
 Every dockable panel can be flipped to the opposite side with **Ctrl+Shift+Click** on its title or icon area. `F11` toggles *all* UI for distraction-free drawing; `Ctrl+F11` keeps only the menu bar; `Tab` toggles the toolbar alone.
 
-> DRAW GUI Annotated  
-![DRAW GUI Annotated](images/ch01-gui-annotated.png)
+<div class="page-break"></div>
+
+
+<div align="center">
+  <img src="images/ch01-gui-annotated.png" alt="DRAW GUI Annotated" style="max-width: 6.5in; width: 95%; height: auto;" />
+</div>
 
 1. Menu Bar
 2. Status Bar
