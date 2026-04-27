@@ -618,10 +618,56 @@ SUB MOVE_apply_transform ()
 
     ' --- Symbol child: commit offset and scale changes ---
     IF LAYERS(targetLayer%).layerType% = LAYER_TYPE_SYMBOL_CHILD THEN
+        DIM symOldOX     AS INTEGER, symOldOY AS INTEGER
+        DIM symBeforeImg AS LONG
+        DIM symNewOX     AS INTEGER, symNewOY AS INTEGER
+        DIM symDidMove   AS INTEGER
+        symOldOX%     = LAYERS(targetLayer%).symbolOffsetX%
+        symOldOY%     = LAYERS(targetLayer%).symbolOffsetY%
+        symBeforeImg& = 0
+        symDidMove%   = FALSE
+
         IF MOVE.TRANSFORM_TYPE = 0 THEN
-            ' Move: update offset, pixels already shifted
-            LAYERS(targetLayer%).symbolOffsetX% = MOVE.SYMBOL_ORIG_OX + (MOVE.CURRENT_X - MOVE.ORIGINAL_X)
-            LAYERS(targetLayer%).symbolOffsetY% = MOVE.SYMBOL_ORIG_OY + (MOVE.CURRENT_Y - MOVE.ORIGINAL_Y)
+            ' Move: update offset, pixels already shifted by MOVE_update_transform
+            symNewOX% = MOVE.SYMBOL_ORIG_OX + (MOVE.CURRENT_X - MOVE.ORIGINAL_X)
+            symNewOY% = MOVE.SYMBOL_ORIG_OY + (MOVE.CURRENT_Y - MOVE.ORIGINAL_Y)
+            symDidMove% = (symNewOX% <> symOldOX%) OR (symNewOY% <> symOldOY%)
+
+            ' Capture before-image (full-canvas) so undo can restore pre-move pixels.
+            ' MOVE.SELECTION_IMAGE holds the unshifted snapshot from MOVE_capture_selection.
+            IF symDidMove% AND NOT HISTORY_IN_PROGRESS% AND LAYERS(targetLayer%).historyId& > 0 _
+               AND MOVE.SELECTION_IMAGE < -1 AND LAYERS(targetLayer%).imgHandle& < -1 THEN
+                symBeforeImg& = _NEWIMAGE(_WIDTH(LAYERS(targetLayer%).imgHandle&), _HEIGHT(LAYERS(targetLayer%).imgHandle&), 32)
+                IF symBeforeImg& < -1 THEN
+                    DIM symBeforeOldDest AS LONG
+                    symBeforeOldDest&    = _DEST
+                    _DEST symBeforeImg&
+                    CLS , _RGBA32(0, 0, 0, 0)
+                    _DONTBLEND symBeforeImg&
+                    _PUTIMAGE (MOVE.ORIGINAL_X, MOVE.ORIGINAL_Y), MOVE.SELECTION_IMAGE, symBeforeImg&
+                    _BLEND symBeforeImg&
+                    _DEST symBeforeOldDest&
+                END IF
+            END IF
+
+            LAYERS(targetLayer%).symbolOffsetX% = symNewOX%
+            LAYERS(targetLayer%).symbolOffsetY% = symNewOY%
+
+            ' Record history so a single Ctrl+Z undoes the symbol-child move.
+            ' Encodes oldOffset in x1/y1 and newOffset in x2/y2 so the undo
+            ' handler can also restore the symbolOffset fields (not just pixels).
+            IF symDidMove% AND symBeforeImg& < -1 AND NOT HISTORY_IN_PROGRESS% AND LAYERS(targetLayer%).historyId& > 0 THEN
+                HISTORY_record_transform LAYERS(targetLayer%).historyId&, targetLayer%, 0, symBeforeImg&, "Symbol Move"
+                IF HISTORY.current% >= 1 THEN
+                    HISTORY_RECORDS(HISTORY.current%).x1% = symOldOX%
+                    HISTORY_RECORDS(HISTORY.current%).y1% = symOldOY%
+                    HISTORY_RECORDS(HISTORY.current%).x2% = symNewOX%
+                    HISTORY_RECORDS(HISTORY.current%).y2% = symNewOY%
+                END IF
+                HISTORY_saved_this_frame% = TRUE
+            ELSE
+                IF symBeforeImg& < -1 THEN _FREEIMAGE symBeforeImg&
+            END IF
         ELSE
             ' Scale/Stretch: symbolScaleX/Y and offset already updated during drag
             ' Do a final clean render from parent at the committed scale
