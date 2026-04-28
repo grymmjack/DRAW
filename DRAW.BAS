@@ -217,20 +217,30 @@ IF splashImg& < -1 THEN
 END IF
 
 DO
-    ' Deferred command line file loading (after first frame when everything is initialized)
+    ' Deferred command line file loading (after first frame when everything is initialized).
+    ' Acts exactly like File -> Open: direct load, NO interactive placement.
+    ' Interactive placement is reserved for File -> Import Image only.
     IF CMDLINE_FIRST_FRAME% AND CMDLINE_PENDING_FILE$ <> "" THEN
         CMDLINE_FIRST_FRAME% = FALSE
-        DIM pendingExt$
-        pendingExt$ = LCASE$(RIGHT$(CMDLINE_PENDING_FILE$, 5))
-        IF pendingExt$ = ".draw" THEN
+        IF FILE_ASE_is_aseprite_file%(CMDLINE_PENDING_FILE$) THEN
+            FILE_ASE_load CMDLINE_PENDING_FILE$
+            SOUND_play SND_NEW_FILE
+            RECENT_add_file CMDLINE_PENDING_FILE$
+        ELSEIF FILE_PSD_is_psd_file%(CMDLINE_PENDING_FILE$) THEN
+            FILE_PSD_load CMDLINE_PENDING_FILE$
+            SOUND_play SND_NEW_FILE
+            RECENT_add_file CMDLINE_PENDING_FILE$
+        ELSE
+            ' .draw projects and raster images both go through DRW_load (direct load).
             DRW_load CMDLINE_PENDING_FILE$
             SOUND_play SND_NEW_FILE
-            CURRENT_DRW_FILENAME$ = CMDLINE_PENDING_FILE$
-        ELSE
-            ' Image file - use image import
-            DIM loadResult%
-            loadResult% = IMAGE_IMPORT_load_file%(CMDLINE_PENDING_FILE$)
+            RECENT_add_file CMDLINE_PENDING_FILE$
+            CURRENT_FILENAME$ = CMDLINE_PENDING_FILE$
+            IF LCASE$(RIGHT$(CMDLINE_PENDING_FILE$, 5)) = ".draw" THEN
+                CURRENT_DRW_FILENAME$ = CMDLINE_PENDING_FILE$
+            END IF
         END IF
+        CANVAS_DIRTY%         = FALSE
         CMDLINE_PENDING_FILE$ = "" ' Clear after loading
     ELSEIF CMDLINE_FIRST_FRAME% THEN
         CMDLINE_FIRST_FRAME% = FALSE
