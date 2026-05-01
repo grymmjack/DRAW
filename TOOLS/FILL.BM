@@ -359,6 +359,7 @@ SUB FILL_flood_merged (x AS INTEGER, y AS INTEGER)
     DIM old_source       AS LONG
     DIM target_color     AS _UNSIGNED LONG
     DIM fill_color       AS _UNSIGNED LONG
+    DIM visited_color    AS _UNSIGNED LONG
     DIM w                AS INTEGER, h AS INTEGER
     DIM targetImg        AS LONG
     DIM mergedImg        AS LONG
@@ -441,6 +442,9 @@ SUB FILL_flood_merged (x AS INTEGER, y AS INTEGER)
     target_color~& = POINT(x%, y%)
     _SOURCE old_src2&
 
+    ' Visited marker must differ from target_color to prevent infinite re-seeding.
+    visited_color~& = _RGBA32(255 - _RED32(target_color~&), 255 - _GREEN32(target_color~&), 255 - _BLUE32(target_color~&), 255)
+
     ' Already the fill color? Nothing to do
     IF NOT use_drawer_paint% AND target_color~& = fill_color~& THEN
         _BLEND targetImg&
@@ -467,7 +471,11 @@ SUB FILL_flood_merged (x AS INTEGER, y AS INTEGER)
     fmstack_x(stack_ptr&) = x%
     fmstack_y(stack_ptr&) = y%
 
-    WHILE stack_ptr& > 0
+    DIM fmMaxIter AS LONG
+    fmMaxIter& = CLng(w%) * h% * 4 + 1
+
+    WHILE stack_ptr& > 0 AND fmMaxIter& > 0
+        fmMaxIter& = fmMaxIter& - 1
         x%  = fmstack_x(stack_ptr&)
         py% = fmstack_y(stack_ptr&)
         stack_ptr& = stack_ptr& - 1
@@ -502,7 +510,8 @@ SUB FILL_flood_merged (x AS INTEGER, y AS INTEGER)
         ' Without this, the scanline reads mergedImg (unchanged) and keeps re-visiting the same
         ' row infinitely — causing the lockup.
         _DEST mergedImg&
-        LINE (x1%, py%)-(x2%, py%), fill_color~&
+        _DONTBLEND mergedImg&
+        LINE (x1%, py%)-(x2%, py%), visited_color~&
         ' Switch back to reading merged for span checks
         _SOURCE mergedImg&
 
@@ -535,6 +544,8 @@ SUB FILL_flood_merged (x AS INTEGER, y AS INTEGER)
 
         fm_next_seed:
     WEND
+
+    IF fmMaxIter& <= 0 THEN _LOGERROR "FILL_flood_merged: MAX ITERATIONS HIT — flood fill aborted to prevent lockup"
 
     ERASE fmstack_x, fmstack_y
     IF mergedImg& < -1 THEN _FREEIMAGE mergedImg&
@@ -785,6 +796,23 @@ SUB FILL_flood_global (x AS INTEGER, y AS INTEGER, replaceAll AS INTEGER)
     ' ------------------------------------------------------------------
     ' Apply mask to every visible non-group layer via _MEM
     ' ------------------------------------------------------------------
+
+    ' Pre-collect filled pixel byte-offsets once so per-layer work is O(filled) not O(canvas).
+    ' For contiguous fills of small regions this is a large win; for replaceAll-everything
+    ' worst case it is the same as scanning maskMem per layer.
+    DIM gfFillCount AS LONG
+    REDIM gfFillOffsets(0 TO maskMem.SIZE \ 4 - 1) AS LONG
+    DIM gfScanOff   AS _OFFSET
+    DIM gfScanPix   AS _UNSIGNED LONG
+    gfFillCount& = 0
+    FOR gfScanOff = 0 TO maskMem.SIZE - 4 STEP 4
+        _MEMGET maskMem, maskMem.OFFSET + gfScanOff, gfScanPix~&
+        IF gfScanPix~& <> 0 THEN
+            gfFillOffsets(gfFillCount&) = CLng(gfScanOff)
+            gfFillCount& = gfFillCount& + 1
+        END IF
+    NEXT gfScanOff
+
     HISTORY_begin_group
 
     DIM maskOff2         AS _OFFSET
@@ -820,14 +848,11 @@ SUB FILL_flood_global (x AS INTEGER, y AS INTEGER, replaceAll AS INTEGER)
                 END IF
 
                 IF NOT has_selection% AND NOT layerOpacityLock% AND NOT use_pset% THEN
-                    ' Fast path: no per-pixel x/y needed — direct offset comparison
-                    DIM ffOff AS _OFFSET
-                    FOR ffOff = 0 TO maskMem.SIZE - 4 STEP 4
-                        _MEMGET maskMem, maskMem.OFFSET + ffOff, maskPix~&
-                        IF maskPix~& <> 0 THEN
-                            _MEMPUT layerMem, layerMem.OFFSET + ffOff, fill_color~& AS _UNSIGNED LONG
-                        END IF
-                    NEXT ffOff
+                    ' Fast path: iterate only pre-collected fill positions — O(filled) not O(canvas)
+                    DIM gfFci AS LONG
+                    FOR gfFci& = 0 TO gfFillCount& - 1
+                        _MEMPUT layerMem, layerMem.OFFSET + gfFillOffsets(gfFci&), fill_color~& AS _UNSIGNED LONG
+                    NEXT gfFci&
                 ELSE
                     ' Full path: selection / opacity-lock / paint-mode checks per pixel
                     FOR maskOff2 = maskMem.OFFSET TO maskMem.OFFSET + maskMem.SIZE - 4 STEP 4
@@ -878,6 +903,7 @@ SUB FILL_flood_global (x AS INTEGER, y AS INTEGER, replaceAll AS INTEGER)
 
     _MEMFREE maskMem
     IF maskImg& < -1 THEN _FREEIMAGE maskImg&
+    ERASE gfFillOffsets
 
     HISTORY_end_group
 
