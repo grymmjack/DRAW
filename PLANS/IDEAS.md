@@ -1,6 +1,77 @@
 # IDEAS
 
+## Global Fill
+- [ ] With Fill tool, hold `f` while flood filling to replace contiguous colors on all layers with filled color, honors FG and BG
+- [ ] With Fill tool, hold `Shift+f` while flood filling to replace all colors across document and all layers with filled color, honors FG and BG
+- [ ] Left click = Fill with FG
+- [ ] Right click = Fill with BG
+
 ## Image Browser (For drag/drop to brush and pattern slots)
+- [ ] Since drag and drop is not ubiquitously available across all OS in QB64PE...
+  - [ ] Create a Image Browser using FILE_DIALOG from QB64_GJ_LIB includes library
+    - [ ] OK to add new modes/features in base library as necessary to make it a floating panel compatible
+      - [ ] Add library setting/option to configure so most code is reused as possible!
+      - [ ] Theme can be identical
+      - [ ] Render at same display scale as the COLOR MIXER, if possible because that provides a lot more room,
+  - [ ] Identical to File -> Open / File -> Save (as) Dialogs already in DRAW, EXCEPT:
+    - [ ] Floats like COLOR MIXER
+    - [ ] Is toggleable via a button View -> Browser
+      - [ ] Hide / Show
+    - [ ] Replaces File Import image from Open Folder Toolbar button with browser show/hide
+    - [ ] Remembers width/height and position
+    - [ ] Uses the same PLACES as regular dialogs
+    - [ ] Default to Thumbnail view Zoom of 2x
+    - [ ] Default to Preview Pane open
+    - [ ] Remembers the last directory it was open to with the file
+    - [ ] Allows dragging multiple files outside of the browser onto:
+      - [ ] Canvas (handled via File -> Import Image function)
+      - [ ] Layer panel -> Creates a new layer named as filename (with same File -> Import Image function)
+      - [ ] Brush Bins and Pattern Bins -> Imports Image(s) to bin (using same method as right click context for this)
+        - [ ] Should honor the existing way that works about how to position things, etc.
+        - [ ] If dragging more than 30 things, create new dynamic DSETs on disk in USER called BROWSER_DROPPED_n where n = number for the DSET if it needs to make 10 DSETs becuase there were 100 images dropped, for example ... DSETs should be immediately navigable with mousewheel hover like always, after DROP.
+    - [ ] Use existing file dialog theme colors and font sizes and dimensions besides.
+    - [ ] Title floating window title bar as BROWSER
+- [ ] Add additional Right Click menu to files for FILE_DIALOG (ok to modify library):
+  - [ ] IF right click on file:
+    - [ ] Rename
+    - [ ] Supports multiple files selected (same level in menu as Rename though):
+      - [ ] Copy
+      - [ ] Cut
+      - [ ] Paste
+      - [ ] ---
+      - [ ] Delete
+      - [ ] ---
+      - [ ] Add to Recent Files List
+    - [ ] Open with Default OS Program
+    - [ ] Reveal Folder
+      - [ ] Uses OS specific opening of folder the file resides in whatever program OS deems to do
+  - [ ] IF right click on empty area in file pane:
+    - (IF have copied or cut files previous in BROWSER):
+      - [ ] Paste (Copy)
+      - [ ] Move (Cut)
+    - [ ] Create Folder
+    - [ ] Reveal Folder
+    - [ ] Add to Browser Places
+- [ ] Needs cleanup on exit for all image handles / fonts used, etc.
+- [ ] Initial size of Browser should be configurable in DRAW.cfg with:
+  - [ ] BROWSER_WIDTH
+  - [ ] BROWSER_HEIGHT
+  - [ ] BROWSER_POS_X
+  - [ ] BROWSER_POS_Y
+  - [ ] BROWSER_DEFAULT_FOLDER
+  - [ ] BROWSER_DEFAULT_VIEW_MODE
+  - [ ] BROWSER_DEFAULT_ZOOM_LEVEL (used for Thumbnail view)
+  - [ ] BROWSER_DEFAULT_SORT_TYPE
+  - [ ] BROWSER_DEFAULT_SORT_ORDER
+  - [ ] BROWSER_DEFAULT_PREVIEW_OPEN (true/false)
+    - [ ] This lets user open to a specific folder by default
+    - [ ] If not specified use the following in order (as available/applicable):
+      - [ ] Last open directory from BROWSER as loaded in from FILE
+      - [ ] Current file directory (if one is loaded already)
+      - [ ] Users Pictures directory
+      - [ ] Users Documents directory
+      - [ ] DRAW program directory
+  
 
 
 ## ADDITIONAL TABLE LAYOUT MODE

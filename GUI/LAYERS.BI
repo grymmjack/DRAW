@@ -117,6 +117,7 @@ TYPE LAYER_PANEL_OBJ
     iconBtnMerge     AS LONG         ' Merge down button icon
     iconBtnDelete    AS LONG         ' Delete layer button icon
     iconBtnAdd       AS LONG         ' New layer button icon
+    iconBtnGroup     AS LONG         ' New group button icon
     ' Solo mode state (alt+click on eye icon)
     soloLayer        AS INTEGER      ' Layer index currently soloed (0 = none)
     savedVisibility  AS STRING * 128 ' Saved visibility states before solo
