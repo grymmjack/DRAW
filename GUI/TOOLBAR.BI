@@ -183,7 +183,7 @@ GUI_TB(TB_SAVE).tip$  = "Save your image"
 GUI_TB(TB_SAVE).evt$  = "SAVE"
 
 GUI_TB(TB_OPEN).iSrc$ = "open.png"
-GUI_TB(TB_OPEN).tip$  = "Open an image"
+GUI_TB(TB_OPEN).tip$  = "Toggle Browser"
 GUI_TB(TB_OPEN).evt$  = "OPEN"
 
 GUI_TB(TB_QB64).iSrc$ = "qb64.png"

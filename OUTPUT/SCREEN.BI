@@ -77,6 +77,9 @@ TYPE SCREEN_OBJ
     showColorMixer                AS INTEGER ' TRUE when color mixer panel is visible
     colorMixerManuallyHidden      AS INTEGER ' TRUE when user explicitly hid color mixer
     colorMixerHiddenByToggleAll   AS INTEGER ' TRUE only when toggle-all (F11) hid color mixer
+    showBrowser                   AS INTEGER ' TRUE when browser panel is visible
+    browserManuallyHidden         AS INTEGER ' TRUE when user explicitly hid browser
+    browserHiddenByToggleAll      AS INTEGER ' TRUE only when toggle-all (F11) hid browser
 END TYPE
 
 DIM SHARED SCRN AS SCREEN_OBJ
