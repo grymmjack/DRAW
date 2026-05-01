@@ -1,8 +1,8 @@
 # BUGS
 
 ## Mousewheel over color strip does not scroll it
-- [ ] The color strip used to scroll when mousewheel was over it
-- [ ] It used to also allow SHIFT or CTRL to scroll by the size of a page (whatever the max color chips were -1 (i think))
+- [x] The color strip used to scroll when mousewheel was over it
+- [x] It used to also allow SHIFT or CTRL to scroll by the size of a page (whatever the max color chips were -1 (i think))
 
 ## Apron wheel zoom
 - [x] Should not be able to zoom in to negative apron space

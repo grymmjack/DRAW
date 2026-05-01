@@ -24,6 +24,24 @@ The palette strip across the bottom of the screen is the fastest way to choose c
 
 <div class="page-break"></div>
 
+### The Opacity Slider
+Use the opacity slider in the organizer of the toolbox to set whatever opacity level you wish from 1% to 100%.
+
+<div align="center">
+  <img src="images/ch03-opacity-slider.png" alt="Chapter 3 - Opacity Slider" style="max-width: 6.0in; width: 90%; height: auto;" />
+</div>
+
+| Action | Key / mouse |
+| --- | --- |
+| Set Opacity from 10% to 100% | `1-9` for 10% to 90%, or `0` for 100% opacity |
+| Mouse Wheel Up | Increase opacity by 1% |
+| Mouse Wheel Down | Decrease opacity by 1% | 
+| `Shift` + Mousewheel | Increase or decrease opacity by 10% |
+
+> Opacity slider will be outlined in a bright color if you set opacity to `<=` the percentage according to `DRAW.cfg` setting: `OPACITY_WARN_THRESHOLD`
+
+<div class="page-break"></div>
+
 ## Color Picker, Color Mixer & Custom RGB
 
 > 🎯 **Goal:** Use the full RGB color picker and the live Color Mixer.
@@ -63,6 +81,10 @@ Palette workflows DRAW supports natively:
 - **Create palette from existing image** — distill the unique colors of any open image into a new palette.
 - **Import / Export `.gpl`** — interchange with GIMP, Aseprite, Krita.
 - **Remap existing artwork** — recolor a finished piece into a different palette while preserving structure.
+
+<div align="center">
+  <img src="images/ch03-palette-picker.png" alt="Chapter 3 - Palette Picker" style="max-width: 2.0in; width: 20%; height: auto;" />
+</div>
 
 <div class="page-break"></div>
 
