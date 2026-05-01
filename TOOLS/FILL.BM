@@ -729,8 +729,11 @@ SUB FILL_flood_global (x AS INTEGER, y AS INTEGER, replaceAll AS INTEGER)
             _DONTBLEND maskImg&
             LINE (x1%, py%)-(x2%, py%), _RGBA32(255, 255, 255, 255)
 
-            ' Overwrite mergedImg span with fill_color so it won't be re-visited
+            ' Overwrite mergedImg span so it won't be re-visited.
+            ' MUST use _DONTBLEND so transparent fill_color actually writes
+            ' (with _BLEND, alpha=0 blends to nothing and pixels are never marked).
             _DEST mergedImg&
+            _DONTBLEND mergedImg&
             LINE (x1%, py%)-(x2%, py%), fill_color~&
             _SOURCE mergedImg&
 
@@ -773,13 +776,16 @@ SUB FILL_flood_global (x AS INTEGER, y AS INTEGER, replaceAll AS INTEGER)
     ' ------------------------------------------------------------------
     HISTORY_begin_group
 
-    DIM maskMem2  AS _MEM
-    DIM maskOff2  AS _OFFSET
-    DIM maskPix   AS _UNSIGNED LONG
-    DIM pixIdx    AS LONG
-    DIM px        AS INTEGER, pxY AS INTEGER
+    DIM maskMem2         AS _MEM
+    DIM maskOff2         AS _OFFSET
+    DIM maskPix          AS _UNSIGNED LONG
+    DIM pixIdx           AS LONG
+    DIM px               AS INTEGER, pxY AS INTEGER
     DIM use_drawer_paint AS INTEGER
+    DIM is_erase_mode    AS INTEGER
     use_drawer_paint% = DRAWER_has_paint_mode%
+    ' Transparent fill acts as eraser — use _MEM writes to bypass blending state
+    is_erase_mode% = (_ALPHA32(fill_color~&) = 0) AND NOT use_drawer_paint%
 
     maskMem2 = _MEMIMAGE(maskImg&)
 
@@ -795,9 +801,25 @@ SUB FILL_flood_global (x AS INTEGER, y AS INTEGER, replaceAll AS INTEGER)
                     lBefore& = _COPYIMAGE(layerImg&, 32)
                 END IF
 
-                ' Paint mask onto this layer
-                _DEST layerImg&
-                _DONTBLEND layerImg&
+                ' Read layer pixels via _MEM to write directly — avoids blending
+                ' state issues (PSET alpha behaviour can vary in _BLEND vs _DONTBLEND).
+                ' Also handles opacity lock on the correct layer (not CURRENT_LAYER).
+                DIM layerMem2       AS _MEM
+                DIM layerAlphaByte  AS _UNSIGNED _BYTE
+                DIM layerOpacityLock AS INTEGER
+                layerOpacityLock% = LAYERS(li%).opacityLock%
+                layerMem2 = _MEMIMAGE(layerImg&)
+
+                ' For non-eraser, non-drawer-paint fills with no selection/opacityLock
+                ' we can also just use _MEMPUT directly for the solid color path.
+                DIM use_direct_mem AS INTEGER
+                use_direct_mem% = NOT use_drawer_paint% AND NOT has_selection% AND NOT layerOpacityLock%
+
+                IF NOT use_direct_mem% THEN
+                    ' Non-direct path needs _DEST for DRAWER_resolve_paint_color internal calls
+                    _DEST layerImg&
+                    IF is_erase_mode% THEN _DONTBLEND layerImg&
+                END IF
 
                 FOR maskOff2 = maskMem2.OFFSET TO maskMem2.OFFSET + maskMem2.SIZE - 4 STEP 4
                     _MEMGET maskMem2, maskOff2, maskPix~&
@@ -806,14 +828,30 @@ SUB FILL_flood_global (x AS INTEGER, y AS INTEGER, replaceAll AS INTEGER)
                         px%     = pixIdx& MOD w%
                         pxY%    = pixIdx& \ w%
                         IF NOT has_selection% OR SELECTION_is_point_inside%(px%, pxY%) THEN
-                            IF OPACITY_LOCK_allows_draw%(px%, pxY%) THEN
-                                PSET (px%, pxY%), DRAWER_resolve_paint_color~&(px%, pxY%, fill_color~&)
+                            DIM gf_allow AS INTEGER
+                            gf_allow% = TRUE
+                            IF layerOpacityLock% THEN
+                                ' Opacity lock: only allow paint if pixel already has alpha > 0
+                                _MEMGET layerMem2, layerMem2.OFFSET + pixIdx& * 4 + 3, layerAlphaByte~%%
+                                gf_allow% = (layerAlphaByte~%% > 0)
+                            END IF
+                            IF gf_allow% THEN
+                                IF use_direct_mem% THEN
+                                    ' Direct memory write — correct for transparent AND opaque fills
+                                    _MEMPUT layerMem2, layerMem2.OFFSET + pixIdx& * 4, fill_color~& AS _UNSIGNED LONG
+                                ELSE
+                                    PSET (px%, pxY%), DRAWER_resolve_paint_color~&(px%, pxY%, fill_color~&)
+                                END IF
                             END IF
                         END IF
                     END IF
                 NEXT maskOff2
 
-                _BLEND layerImg&
+                _MEMFREE layerMem2
+
+                IF NOT use_direct_mem% THEN
+                    IF is_erase_mode% THEN _BLEND layerImg&
+                END IF
 
                 ' Record history for this layer
                 DIM lFlags AS LONG : lFlags& = 0
