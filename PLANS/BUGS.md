@@ -1,5 +1,9 @@
 # BUGS
 
+## Mousewheel over color strip does not scroll it
+- [ ] The color strip used to scroll when mousewheel was over it
+- [ ] It used to also allow SHIFT or CTRL to scroll by the size of a page (whatever the max color chips were -1 (i think))
+
 ## Apron wheel zoom
 - [x] Should not be able to zoom in to negative apron space
   - [x] When zooming and the mouse pointer is over the apron:
@@ -7,10 +11,7 @@
           the zoom position for the pointer.
 
 ## In palette picker, selecting downloaded LOSPEC palettes or USER palettes does not update color strip
-- [ ] When I click to load a downloaded LOSPECT or USER palette the color strip does not update
-
-## Canvas Erase from DOCUMENT Palette pick in palette picker
-- [ ] When using Palette Ops button and reordering palette to create DOCUMENT palette, choosing another palette then choosing DOCUMENT palette erases entire canvas!
+- [x] When I click to load a downloaded LOSPECT or USER palette the color strip does not update
 
 ## ZOOM with hotkeys
 - [x] When zoom with `z` + number, if the zoom would result only in showing apron, the entire canvas should zoom and center to the new desired zoom level
