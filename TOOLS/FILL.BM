@@ -580,19 +580,17 @@ SUB FILL_flood_global (x AS INTEGER, y AS INTEGER, replaceAll AS INTEGER)
     DIM has_selection    AS INTEGER
     DIM layerImg         AS LONG
 
-    ' Need at least one real layer to work with
     IF LAYER_COUNT% < 1 THEN EXIT SUB
 
     old_dest&   = _DEST
     old_source& = _SOURCE
-
     w%          = SCRN.canvasW&
     h%          = SCRN.canvasH&
 
-    ' Guard: seed must be on-canvas
+    _LOGINFO "FILL_flood_global entry x=" + STR$(x%) + " y=" + STR$(y%) + " replaceAll=" + STR$(replaceAll%) + " w=" + STR$(w%) + " h=" + STR$(h%) + " fill=" + STR$(FILL.COLOR~&)
+
     IF x% < 0 OR x% >= w% OR y% < 0 OR y% >= h% THEN EXIT SUB
 
-    ' Guard: if selection active, seed must be inside it
     has_selection% = SELECTION_has_active%
     IF has_selection% AND NOT SELECTION_is_point_inside%(x%, y%) THEN EXIT SUB
 
@@ -600,7 +598,6 @@ SUB FILL_flood_global (x AS INTEGER, y AS INTEGER, replaceAll AS INTEGER)
 
     ' ------------------------------------------------------------------
     ' Build merged composite of all visible non-group layers bottom-to-top
-    ' (same pattern as FILL_flood_merged)
     ' ------------------------------------------------------------------
     mergedImg& = _NEWIMAGE(w%, h%, 32)
     IF mergedImg& >= -1 THEN EXIT SUB
@@ -635,225 +632,226 @@ SUB FILL_flood_global (x AS INTEGER, y AS INTEGER, replaceAll AS INTEGER)
         NEXT li%
     NEXT zi%
 
-    ' Sample seed color from the merged composite
-    _SOURCE mergedImg&
-    target_color~& = POINT(x%, y%)
+    ' Sample seed color via _MEM — avoids any _SOURCE/_DEST side-effects
+    DIM mergedMem AS _MEM
+    mergedMem = _MEMIMAGE(mergedImg&)
+    DIM seedIdx AS LONG : seedIdx& = CLng(y%) * w% + x%
+    _MEMGET mergedMem, mergedMem.OFFSET + seedIdx& * 4, target_color~&
 
-    ' Early-exit if seed already equals fill color and no drawer paint mode
+    ' Early-exit: seed already equals fill color
     IF NOT DRAWER_has_paint_mode% AND target_color~& = fill_color~& THEN
-        IF mergedImg& < -1 THEN _FREEIMAGE mergedImg&
+        _MEMFREE mergedMem
+        _FREEIMAGE mergedImg&
         _SOURCE old_source&
         _DEST old_dest&
         EXIT SUB
     END IF
 
     ' ------------------------------------------------------------------
-    ' Build the pixel mask
+    ' Build pixel mask using pure _MEM — NO _DEST/_SOURCE/_BLEND inside loops
+    ' maskImg: _RGBA32(255,255,255,255) = fill this pixel; 0 = skip
     ' ------------------------------------------------------------------
-    ' maskImg: white pixel (RGB 255,255,255, alpha 255) = fill here
-    '          transparent pixel (alpha 0)              = skip
     maskImg& = _NEWIMAGE(w%, h%, 32)
     IF maskImg& >= -1 THEN
-        IF mergedImg& < -1 THEN _FREEIMAGE mergedImg&
+        _MEMFREE mergedMem
+        _FREEIMAGE mergedImg&
         _SOURCE old_source&
         _DEST old_dest&
         EXIT SUB
     END IF
-    _DEST maskImg&
-    CLS , _RGBA32(0, 0, 0, 0)
+
+    DIM maskMem AS _MEM
+    maskMem = _MEMIMAGE(maskImg&)
+    ' maskImg pixels default to 0 (transparent) from _NEWIMAGE — no CLS needed
+    DIM MASK_ON AS _UNSIGNED LONG : MASK_ON~& = _RGBA32(255, 255, 255, 255)
 
     IF replaceAll% THEN
-        ' Replace-all mode: scan every pixel of mergedImg for target_color
-        DIM raMem   AS _MEM
-        DIM raOff   AS _OFFSET
-        DIM raPix   AS _UNSIGNED LONG
-        DIM maskMem AS _MEM
-        DIM MASK_ON AS _UNSIGNED LONG : MASK_ON~& = _RGBA32(255, 255, 255, 255)
-        raMem   = _MEMIMAGE(mergedImg&)
-        maskMem = _MEMIMAGE(maskImg&)
-        FOR raOff = raMem.OFFSET TO raMem.OFFSET + raMem.SIZE - 4 STEP 4
-            _MEMGET raMem, raOff, raPix~&
+        ' Replace-all: mark every pixel in merged composite matching target_color
+        DIM raOff AS _OFFSET
+        DIM raPix AS _UNSIGNED LONG
+        FOR raOff = mergedMem.OFFSET TO mergedMem.OFFSET + mergedMem.SIZE - 4 STEP 4
+            _MEMGET mergedMem, raOff, raPix~&
             IF raPix~& = target_color~& THEN
-                ' Calculate corresponding pixel coordinates for selection test
+                DIM raRel AS _OFFSET : raRel = raOff - mergedMem.OFFSET
                 IF has_selection% THEN
-                    DIM raPixIdx AS LONG : raPixIdx& = (raOff - raMem.OFFSET) \ 4
-                    DIM raPX AS INTEGER : raPX% = raPixIdx& MOD w%
-                    DIM raPY AS INTEGER : raPY% = raPixIdx& \ w%
-                    IF SELECTION_is_point_inside%(raPX%, raPY%) THEN
-                        _MEMPUT maskMem, maskMem.OFFSET + (raOff - raMem.OFFSET), MASK_ON~& AS _UNSIGNED LONG
+                    DIM raIdx AS LONG : raIdx& = raRel \ 4
+                    IF SELECTION_is_point_inside%(raIdx& MOD w%, raIdx& \ w%) THEN
+                        _MEMPUT maskMem, maskMem.OFFSET + raRel, MASK_ON~& AS _UNSIGNED LONG
                     END IF
                 ELSE
-                    _MEMPUT maskMem, maskMem.OFFSET + (raOff - raMem.OFFSET), MASK_ON~& AS _UNSIGNED LONG
+                    _MEMPUT maskMem, maskMem.OFFSET + raRel, MASK_ON~& AS _UNSIGNED LONG
                 END IF
             END IF
         NEXT raOff
-        _MEMFREE raMem
-        _MEMFREE maskMem
     ELSE
-        ' Contiguous mode: scanline flood fill on mergedImg to build mask
-        _SOURCE mergedImg&
-        DIM stack_capacity AS LONG : stack_capacity& = 128
-        REDIM fg_stack_x(1 TO 128) AS INTEGER
-        REDIM fg_stack_y(1 TO 128) AS INTEGER
-        DIM stack_ptr AS LONG
-        DIM py        AS INTEGER, x1 AS INTEGER, x2 AS INTEGER
-        DIM sx        AS INTEGER, dy AS INTEGER, ny AS INTEGER
-        DIM in_span   AS INTEGER
+        ' Contiguous flood fill — pure _MEM reads/writes, no rendering state changes
+        ' visited_color must differ from target_color so mergedMem marks work correctly.
+        ' If fill_color = target_color (e.g. drawer paint mode), using fill_color as visited
+        ' marker leaves mergedMem pixels still matching target_color → infinite re-seeding.
+        DIM visited_color AS _UNSIGNED LONG
+        visited_color~& = _RGBA32(255 - _RED32(target_color~&), 255 - _GREEN32(target_color~&), 255 - _BLUE32(target_color~&), 255 - _ALPHA32(target_color~&))
 
-        stack_ptr&             = 1
-        fg_stack_x(stack_ptr&) = x%
-        fg_stack_y(stack_ptr&) = y%
+        DIM gfCap AS LONG : gfCap& = 256
+        REDIM gfSX(1 TO 256) AS INTEGER
+        REDIM gfSY(1 TO 256) AS INTEGER
+        DIM gfPtr  AS LONG
+        DIM gfFx   AS INTEGER, gfPy AS INTEGER, gfPx AS INTEGER
+        DIM gfX1   AS INTEGER, gfX2 AS INTEGER
+        DIM gfSx   AS INTEGER, gfDy AS INTEGER, gfNy AS INTEGER
+        DIM gfSpan AS INTEGER
+        DIM gfPix  AS _UNSIGNED LONG
 
-        WHILE stack_ptr& > 0
-            DIM fx AS INTEGER : fx% = fg_stack_x(stack_ptr&)
-            py% = fg_stack_y(stack_ptr&)
-            stack_ptr& = stack_ptr& - 1
+        gfPtr&     = 1
+        gfSX(1)    = x%
+        gfSY(1)    = y%
 
-            IF py% < 0 OR py% >= h% OR fx% < 0 OR fx% >= w% THEN GOTO fg_next_seed
-            IF POINT(fx%, py%) <> target_color~& THEN GOTO fg_next_seed
+        DIM gfMaxIter AS LONG : gfMaxIter& = CLng(w%) * h% * 4 + 1
 
-            ' Find span extents on this scanline
-            x1% = fx%
-            WHILE x1% > 0 AND POINT(x1% - 1, py%) = target_color~&
-                IF has_selection% AND NOT SELECTION_is_point_inside%(x1% - 1, py%) THEN EXIT WHILE
-                x1% = x1% - 1
-            WEND
-            x2% = fx%
-            WHILE x2% < w% - 1 AND POINT(x2% + 1, py%) = target_color~&
-                IF has_selection% AND NOT SELECTION_is_point_inside%(x2% + 1, py%) THEN EXIT WHILE
-                x2% = x2% + 1
-            WEND
+        _LOGINFO "FILL_flood_global: contiguous start seed=(" + STR$(x%) + "," + STR$(y%) + ") target=" + STR$(target_color~&) + " fill=" + STR$(fill_color~&) + " visited=" + STR$(visited_color~&)
 
-            ' Mark span as visited in maskImg
-            _DEST maskImg&
-            _DONTBLEND maskImg&
-            LINE (x1%, py%)-(x2%, py%), _RGBA32(255, 255, 255, 255)
+        WHILE gfPtr& > 0 AND gfMaxIter& > 0
+            gfMaxIter& = gfMaxIter& - 1
+            gfFx% = gfSX(gfPtr&)
+            gfPy% = gfSY(gfPtr&)
+            gfPtr& = gfPtr& - 1
 
-            ' Overwrite mergedImg span so it won't be re-visited.
-            ' MUST use _DONTBLEND so transparent fill_color actually writes
-            ' (with _BLEND, alpha=0 blends to nothing and pixels are never marked).
-            _DEST mergedImg&
-            _DONTBLEND mergedImg&
-            LINE (x1%, py%)-(x2%, py%), fill_color~&
-            _SOURCE mergedImg&
+            IF gfPy% < 0 OR gfPy% >= h% OR gfFx% < 0 OR gfFx% >= w% THEN GOTO gfNextSeed
+            _MEMGET mergedMem, mergedMem.OFFSET + (CLng(gfPy%) * w% + gfFx%) * 4, gfPix~&
+            IF gfPix~& <> target_color~& THEN GOTO gfNextSeed
 
-            ' Seed above and below
-            FOR dy% = -1 TO 1 STEP 2
-                ny% = py% + dy%
-                IF ny% >= 0 AND ny% < h% THEN
-                    in_span% = FALSE
-                    FOR sx% = x1% TO x2%
-                        IF has_selection% AND NOT SELECTION_is_point_inside%(sx%, ny%) THEN
-                            in_span% = FALSE
-                        ELSEIF POINT(sx%, ny%) = target_color~& THEN
-                            IF NOT in_span% THEN
-                                IF stack_ptr& >= stack_capacity& THEN
-                                    stack_capacity& = stack_capacity& * 2
-                                    REDIM _PRESERVE fg_stack_x(1 TO stack_capacity&) AS INTEGER
-                                    REDIM _PRESERVE fg_stack_y(1 TO stack_capacity&) AS INTEGER
-                                END IF
-                                stack_ptr& = stack_ptr& + 1
-                                fg_stack_x(stack_ptr&) = sx%
-                                fg_stack_y(stack_ptr&) = ny%
-                                in_span%               = TRUE
-                            END IF
+            ' Extend span left
+            gfX1% = gfFx%
+            DO WHILE gfX1% > 0
+                IF has_selection% AND NOT SELECTION_is_point_inside%(gfX1% - 1, gfPy%) THEN EXIT DO
+                _MEMGET mergedMem, mergedMem.OFFSET + (CLng(gfPy%) * w% + gfX1% - 1) * 4, gfPix~&
+                IF gfPix~& <> target_color~& THEN EXIT DO
+                gfX1% = gfX1% - 1
+            LOOP
+
+            ' Extend span right
+            gfX2% = gfFx%
+            DO WHILE gfX2% < w% - 1
+                IF has_selection% AND NOT SELECTION_is_point_inside%(gfX2% + 1, gfPy%) THEN EXIT DO
+                _MEMGET mergedMem, mergedMem.OFFSET + (CLng(gfPy%) * w% + gfX2% + 1) * 4, gfPix~&
+                IF gfPix~& <> target_color~& THEN EXIT DO
+                gfX2% = gfX2% + 1
+            LOOP
+
+            ' Mark span visited in mergedMem (visited_color, NOT fill_color — must differ from
+            ' target_color or the adjacent-row scan re-seeds them infinitely).
+            ' Mark span to-fill in maskMem.
+            DIM gfSxOff AS LONG
+            FOR gfSx% = gfX1% TO gfX2%
+                gfSxOff& = (CLng(gfPy%) * w% + gfSx%) * 4
+                _MEMPUT mergedMem, mergedMem.OFFSET + gfSxOff&, visited_color~& AS _UNSIGNED LONG
+                _MEMPUT maskMem,   maskMem.OFFSET   + gfSxOff&, MASK_ON~&       AS _UNSIGNED LONG
+            NEXT gfSx%
+
+            ' Seed adjacent rows
+            FOR gfDy% = -1 TO 1 STEP 2
+                gfNy% = gfPy% + gfDy%
+                IF gfNy% >= 0 AND gfNy% < h% THEN
+                    gfSpan% = FALSE
+                    FOR gfSx% = gfX1% TO gfX2%
+                        IF has_selection% AND NOT SELECTION_is_point_inside%(gfSx%, gfNy%) THEN
+                            gfSpan% = FALSE
                         ELSE
-                            in_span% = FALSE
+                            _MEMGET mergedMem, mergedMem.OFFSET + (CLng(gfNy%) * w% + gfSx%) * 4, gfPix~&
+                            IF gfPix~& = target_color~& THEN
+                                IF NOT gfSpan% THEN
+                                    IF gfPtr& >= gfCap& THEN
+                                        gfCap& = gfCap& * 2
+                                        REDIM _PRESERVE gfSX(1 TO gfCap&) AS INTEGER
+                                        REDIM _PRESERVE gfSY(1 TO gfCap&) AS INTEGER
+                                    END IF
+                                    gfPtr& = gfPtr& + 1
+                                    gfSX(gfPtr&) = gfSx%
+                                    gfSY(gfPtr&) = gfNy%
+                                    gfSpan%      = TRUE
+                                END IF
+                            ELSE
+                                gfSpan% = FALSE
+                            END IF
                         END IF
-                    NEXT sx%
+                    NEXT gfSx%
                 END IF
-            NEXT dy%
+            NEXT gfDy%
 
-            fg_next_seed:
+            gfNextSeed:
         WEND
-        ERASE fg_stack_x, fg_stack_y
+        _LOGINFO "FILL_flood_global: contiguous done, maxIter remaining=" + STR$(gfMaxIter&)
+        IF gfMaxIter& <= 0 THEN _LOGERROR "FILL_flood_global: MAX ITERATIONS HIT — flood fill aborted to prevent lockup"
+        ERASE gfSX, gfSY
     END IF
 
-    IF mergedImg& < -1 THEN _FREEIMAGE mergedImg&
+    _MEMFREE mergedMem
+    _FREEIMAGE mergedImg&
+
+    _LOGINFO "FILL_flood_global: mask built, applying to layers"
 
     ' ------------------------------------------------------------------
-    ' Apply mask to every visible non-group layer
+    ' Apply mask to every visible non-group layer via _MEM
     ' ------------------------------------------------------------------
     HISTORY_begin_group
 
-    DIM maskMem2         AS _MEM
     DIM maskOff2         AS _OFFSET
     DIM maskPix          AS _UNSIGNED LONG
     DIM pixIdx           AS LONG
-    DIM px               AS INTEGER, pxY AS INTEGER
     DIM use_drawer_paint AS INTEGER
-    DIM is_erase_mode    AS INTEGER
     use_drawer_paint% = DRAWER_has_paint_mode%
-    ' Transparent fill acts as eraser — use _MEM writes to bypass blending state
-    is_erase_mode% = (_ALPHA32(fill_color~&) = 0) AND NOT use_drawer_paint%
-
-    maskMem2 = _MEMIMAGE(maskImg&)
 
     FOR zi% = 1 TO LAYER_COUNT%
         FOR li% = 1 TO MAX_LAYERS
             IF LAYERS(li%).imgHandle& < -1 AND LAYERS(li%).visible% AND LAYERS(li%).zIndex% = zi% AND LAYERS(li%).layerType% <> LAYER_TYPE_GROUP THEN
                 layerImg& = LAYERS(li%).imgHandle&
 
-                ' Snapshot before image for history
-                DIM lBefore AS LONG
-                lBefore& = 0
+                DIM lBefore AS LONG : lBefore& = 0
                 IF NOT HISTORY_IN_PROGRESS% AND LAYERS(li%).historyId& > 0 THEN
                     lBefore& = _COPYIMAGE(layerImg&, 32)
                 END IF
 
-                ' Read layer pixels via _MEM to write directly — avoids blending
-                ' state issues (PSET alpha behaviour can vary in _BLEND vs _DONTBLEND).
-                ' Also handles opacity lock on the correct layer (not CURRENT_LAYER).
-                DIM layerMem2       AS _MEM
-                DIM layerAlphaByte  AS _UNSIGNED _BYTE
+                DIM layerMem        AS _MEM
                 DIM layerOpacityLock AS INTEGER
                 layerOpacityLock% = LAYERS(li%).opacityLock%
-                layerMem2 = _MEMIMAGE(layerImg&)
+                layerMem = _MEMIMAGE(layerImg&)
 
-                ' For non-eraser, non-drawer-paint fills with no selection/opacityLock
-                ' we can also just use _MEMPUT directly for the solid color path.
-                DIM use_direct_mem AS INTEGER
-                use_direct_mem% = NOT use_drawer_paint% AND NOT has_selection% AND NOT layerOpacityLock%
-
-                IF NOT use_direct_mem% THEN
-                    ' Non-direct path needs _DEST for DRAWER_resolve_paint_color internal calls
+        ' For drawer paint mode (gradient/pattern) only — fall back to PSET so
+        ' DRAWER_resolve_paint_color gets the correct x,y position.
+        ' Selection and opacity-lock are handled by the guards inside the loop;
+        ' they do NOT need PSET (direct _MEMPUT is correct and much faster).
+        DIM use_pset AS INTEGER
+        use_pset% = use_drawer_paint%
+                IF use_pset% THEN
                     _DEST layerImg&
-                    IF is_erase_mode% THEN _DONTBLEND layerImg&
+                    _DONTBLEND layerImg&
                 END IF
 
-                FOR maskOff2 = maskMem2.OFFSET TO maskMem2.OFFSET + maskMem2.SIZE - 4 STEP 4
-                    _MEMGET maskMem2, maskOff2, maskPix~&
+                FOR maskOff2 = maskMem.OFFSET TO maskMem.OFFSET + maskMem.SIZE - 4 STEP 4
+                    _MEMGET maskMem, maskOff2, maskPix~&
                     IF _ALPHA32(maskPix~&) > 0 THEN
-                        pixIdx& = (maskOff2 - maskMem2.OFFSET) \ 4
-                        px%     = pixIdx& MOD w%
-                        pxY%    = pixIdx& \ w%
-                        IF NOT has_selection% OR SELECTION_is_point_inside%(px%, pxY%) THEN
-                            DIM gf_allow AS INTEGER
-                            gf_allow% = TRUE
+                        pixIdx& = (maskOff2 - maskMem.OFFSET) \ 4
+                        gfPx% = pixIdx& MOD w%
+                        gfPy% = pixIdx& \ w%
+                        IF NOT has_selection% OR SELECTION_is_point_inside%(gfPx%, gfPy%) THEN
+                            ' Opacity lock: allow only if the pixel already has alpha > 0
                             IF layerOpacityLock% THEN
-                                ' Opacity lock: only allow paint if pixel already has alpha > 0
-                                _MEMGET layerMem2, layerMem2.OFFSET + pixIdx& * 4 + 3, layerAlphaByte~%%
-                                gf_allow% = (layerAlphaByte~%% > 0)
+                                DIM gfAlpha AS _UNSIGNED _BYTE
+                                _MEMGET layerMem, layerMem.OFFSET + pixIdx& * 4 + 3, gfAlpha~%%
+                                IF gfAlpha~%% = 0 THEN GOTO gfSkipPixel
                             END IF
-                            IF gf_allow% THEN
-                                IF use_direct_mem% THEN
-                                    ' Direct memory write — correct for transparent AND opaque fills
-                                    _MEMPUT layerMem2, layerMem2.OFFSET + pixIdx& * 4, fill_color~& AS _UNSIGNED LONG
-                                ELSE
-                                    PSET (px%, pxY%), DRAWER_resolve_paint_color~&(px%, pxY%, fill_color~&)
-                                END IF
+                            IF use_pset% THEN
+                                PSET (gfPx%, gfPy%), DRAWER_resolve_paint_color~&(gfPx%, gfPy%, fill_color~&)
+                            ELSE
+                                _MEMPUT layerMem, layerMem.OFFSET + pixIdx& * 4, fill_color~& AS _UNSIGNED LONG
                             END IF
                         END IF
+                        gfSkipPixel:
                     END IF
                 NEXT maskOff2
 
-                _MEMFREE layerMem2
+                IF use_pset% THEN _BLEND layerImg&
+                _MEMFREE layerMem
 
-                IF NOT use_direct_mem% THEN
-                    IF is_erase_mode% THEN _BLEND layerImg&
-                END IF
-
-                ' Record history for this layer
                 DIM lFlags AS LONG : lFlags& = 0
                 IF has_selection% OR LAYERS(li%).opacityLock% THEN lFlags& = lFlags& OR HISTORY_FLAG_CLIPPED
                 IF SYMMETRY.MODE% > 0 THEN lFlags& = lFlags& OR HISTORY_FLAG_SYMMETRY
@@ -873,13 +871,15 @@ SUB FILL_flood_global (x AS INTEGER, y AS INTEGER, replaceAll AS INTEGER)
         NEXT li%
     NEXT zi%
 
-    _MEMFREE maskMem2
+    _MEMFREE maskMem
     IF maskImg& < -1 THEN _FREEIMAGE maskImg&
 
     HISTORY_end_group
 
     _SOURCE old_source&
     _DEST old_dest&
+
+    _LOGINFO "FILL_flood_global: done"
 
     COMPOSITE_RESULT_VALID% = FALSE
     CANVAS_DIRTY%           = TRUE
