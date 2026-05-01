@@ -127,7 +127,7 @@ DIM SHARED AS INTEGER COMP_DIRTY_X1, COMP_DIRTY_Y1         ' Top-left  (canvas c
 DIM SHARED AS INTEGER COMP_DIRTY_X2, COMP_DIRTY_Y2         ' Bot-right (canvas coords)
 DIM SHARED AS INTEGER COMP_DIRTY_VALID                     ' TRUE when rect set this frame
 
-DIM SHARED            KEYHIT_CHAR AS STRING                ' _KEYHIT → CHR$ fallback for INKEY$
+DIM SHARED            KEYHIT_CHAR     AS STRING            ' _KEYHIT → CHR$ fallback for INKEY$
 DIM SHARED            LAST_KEYHIT_RAW AS LONG              ' Raw k& from _KEYHIT this frame (0 = none)
 
 ' ---------------------------------------------------------------------------
