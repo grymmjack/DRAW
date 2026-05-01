@@ -21,7 +21,7 @@ DRAW follows the universal "left = foreground, right = background" convention. *
 
 If you have a steady hand but find that single-pixel stairsteps creep into your strokes, enable **Pixel Perfect mode** with `F6`. DRAW will retroactively remove L-shaped corners as you draw, leaving cleaner outlines.
 
-The Organizer widget on the left contains **four brush size presets** that you can configure for the workflow you use most often (e.g., 1, 2, 4, 8 pixels for sprite work).
+The Organizer widget on the left contains **four brush size presets** (1, 3, 5, 9 pixels for sprite work).
 
 <div class="page-break"></div>
 
@@ -52,7 +52,7 @@ The shared modifier vocabulary across all three:
 
 - **Shift** — constrain (line: H/V; rect: square; ellipse: circle).
 - **Ctrl** — perfect aspect (forces square / circle even after you start dragging).
-- **Shift while drawing the rect or ellipse** — anchor from the *center* instead of the corner.
+- **Ctrl+Shift while drawing the rect or ellipse** — anchor from the *center* instead of the corner.
 - **Ctrl+Shift while drawing a line** — angle snap to 15°/30°/45°/90° increments.
 
 <div class="page-break"></div>
