@@ -543,3 +543,307 @@ SUB FILL_flood_merged (x AS INTEGER, y AS INTEGER)
     _SOURCE old_source&
     _DEST old_dest&
 END SUB
+
+
+''
+' Global flood fill — fills every visible non-group layer.
+'
+' Two modes controlled by replaceAll%:
+'   FALSE — contiguous (f+click): build a merged composite, run a single
+'           scanline flood fill on it to produce a pixel mask, then write
+'           FILL.COLOR to every pixel inside that mask on each visible layer.
+'   TRUE  — replace all (Shift+f+click): for each visible non-group layer
+'           replace every pixel that exactly matches the seed color
+'           (sampled from the merged composite) with FILL.COLOR.
+'
+' Both modes respect the active selection and per-layer opacity lock.
+' History is wrapped in a group so Ctrl+Z undoes all layers at once.
+'
+' @param x          INTEGER  Seed X in canvas pixels
+' @param y          INTEGER  Seed Y in canvas pixels
+' @param replaceAll INTEGER  FALSE = contiguous region only; TRUE = all matching pixels
+'
+SUB FILL_flood_global (x AS INTEGER, y AS INTEGER, replaceAll AS INTEGER)
+    DIM old_dest         AS LONG, old_source AS LONG
+    DIM fill_color       AS _UNSIGNED LONG
+    DIM target_color     AS _UNSIGNED LONG
+    DIM w                AS INTEGER, h AS INTEGER
+    DIM mergedImg        AS LONG
+    DIM maskImg          AS LONG
+    DIM zi               AS INTEGER, li AS INTEGER
+    DIM tmpImg           AS LONG
+    DIM mvMem            AS _MEM
+    DIM mvOff            AS _OFFSET
+    DIM mvPix            AS _UNSIGNED LONG
+    DIM mvAlpha          AS _UNSIGNED _BYTE
+    DIM mvNewAlpha       AS INTEGER
+    DIM has_selection    AS INTEGER
+    DIM layerImg         AS LONG
+
+    ' Need at least one real layer to work with
+    IF LAYER_COUNT% < 1 THEN EXIT SUB
+
+    old_dest&   = _DEST
+    old_source& = _SOURCE
+
+    w%          = SCRN.canvasW&
+    h%          = SCRN.canvasH&
+
+    ' Guard: seed must be on-canvas
+    IF x% < 0 OR x% >= w% OR y% < 0 OR y% >= h% THEN EXIT SUB
+
+    ' Guard: if selection active, seed must be inside it
+    has_selection% = SELECTION_has_active%
+    IF has_selection% AND NOT SELECTION_is_point_inside%(x%, y%) THEN EXIT SUB
+
+    fill_color~& = FILL.COLOR~&
+
+    ' ------------------------------------------------------------------
+    ' Build merged composite of all visible non-group layers bottom-to-top
+    ' (same pattern as FILL_flood_merged)
+    ' ------------------------------------------------------------------
+    mergedImg& = _NEWIMAGE(w%, h%, 32)
+    IF mergedImg& >= -1 THEN EXIT SUB
+    _DEST mergedImg&
+    CLS , _RGBA32(0, 0, 0, 0)
+    _BLEND mergedImg&
+
+    FOR zi% = 1 TO LAYER_COUNT%
+        FOR li% = 1 TO MAX_LAYERS
+            IF LAYERS(li%).imgHandle& < -1 AND LAYERS(li%).visible% AND LAYERS(li%).zIndex% = zi% AND LAYERS(li%).layerType% <> LAYER_TYPE_GROUP THEN
+                IF LAYERS(li%).opacity% >= 255 THEN
+                    _PUTIMAGE , LAYERS(li%).imgHandle&
+                ELSE
+                    tmpImg& = _COPYIMAGE(LAYERS(li%).imgHandle&, 32)
+                    IF tmpImg& < -1 THEN
+                        mvMem = _MEMIMAGE(tmpImg&)
+                        FOR mvOff = mvMem.OFFSET TO mvMem.OFFSET + mvMem.SIZE - 4 STEP 4
+                            _MEMGET mvMem, mvOff, mvPix~&
+                            mvAlpha~%% = _ALPHA32(mvPix~&)
+                            IF mvAlpha~%% > 0 THEN
+                                mvNewAlpha% = (mvAlpha~%% * LAYERS(li%).opacity%) \ 255
+                                _MEMPUT mvMem, mvOff + 3, mvNewAlpha% AS _UNSIGNED _BYTE
+                            END IF
+                        NEXT mvOff
+                        _MEMFREE mvMem
+                        _PUTIMAGE , tmpImg&
+                        _FREEIMAGE tmpImg&
+                    END IF
+                END IF
+                EXIT FOR
+            END IF
+        NEXT li%
+    NEXT zi%
+
+    ' Sample seed color from the merged composite
+    _SOURCE mergedImg&
+    target_color~& = POINT(x%, y%)
+
+    ' Early-exit if seed already equals fill color and no drawer paint mode
+    IF NOT DRAWER_has_paint_mode% AND target_color~& = fill_color~& THEN
+        IF mergedImg& < -1 THEN _FREEIMAGE mergedImg&
+        _SOURCE old_source&
+        _DEST old_dest&
+        EXIT SUB
+    END IF
+
+    ' ------------------------------------------------------------------
+    ' Build the pixel mask
+    ' ------------------------------------------------------------------
+    ' maskImg: white pixel (RGB 255,255,255, alpha 255) = fill here
+    '          transparent pixel (alpha 0)              = skip
+    maskImg& = _NEWIMAGE(w%, h%, 32)
+    IF maskImg& >= -1 THEN
+        IF mergedImg& < -1 THEN _FREEIMAGE mergedImg&
+        _SOURCE old_source&
+        _DEST old_dest&
+        EXIT SUB
+    END IF
+    _DEST maskImg&
+    CLS , _RGBA32(0, 0, 0, 0)
+
+    IF replaceAll% THEN
+        ' Replace-all mode: scan every pixel of mergedImg for target_color
+        DIM raMem   AS _MEM
+        DIM raOff   AS _OFFSET
+        DIM raPix   AS _UNSIGNED LONG
+        DIM maskMem AS _MEM
+        DIM MASK_ON AS _UNSIGNED LONG : MASK_ON~& = _RGBA32(255, 255, 255, 255)
+        raMem   = _MEMIMAGE(mergedImg&)
+        maskMem = _MEMIMAGE(maskImg&)
+        FOR raOff = raMem.OFFSET TO raMem.OFFSET + raMem.SIZE - 4 STEP 4
+            _MEMGET raMem, raOff, raPix~&
+            IF raPix~& = target_color~& THEN
+                ' Calculate corresponding pixel coordinates for selection test
+                IF has_selection% THEN
+                    DIM raPixIdx AS LONG : raPixIdx& = (raOff - raMem.OFFSET) \ 4
+                    DIM raPX AS INTEGER : raPX% = raPixIdx& MOD w%
+                    DIM raPY AS INTEGER : raPY% = raPixIdx& \ w%
+                    IF SELECTION_is_point_inside%(raPX%, raPY%) THEN
+                        _MEMPUT maskMem, maskMem.OFFSET + (raOff - raMem.OFFSET), MASK_ON~& AS _UNSIGNED LONG
+                    END IF
+                ELSE
+                    _MEMPUT maskMem, maskMem.OFFSET + (raOff - raMem.OFFSET), MASK_ON~& AS _UNSIGNED LONG
+                END IF
+            END IF
+        NEXT raOff
+        _MEMFREE raMem
+        _MEMFREE maskMem
+    ELSE
+        ' Contiguous mode: scanline flood fill on mergedImg to build mask
+        _SOURCE mergedImg&
+        DIM stack_capacity AS LONG : stack_capacity& = 128
+        REDIM fg_stack_x(1 TO 128) AS INTEGER
+        REDIM fg_stack_y(1 TO 128) AS INTEGER
+        DIM stack_ptr AS LONG
+        DIM py        AS INTEGER, x1 AS INTEGER, x2 AS INTEGER
+        DIM sx        AS INTEGER, dy AS INTEGER, ny AS INTEGER
+        DIM in_span   AS INTEGER
+
+        stack_ptr&             = 1
+        fg_stack_x(stack_ptr&) = x%
+        fg_stack_y(stack_ptr&) = y%
+
+        WHILE stack_ptr& > 0
+            DIM fx AS INTEGER : fx% = fg_stack_x(stack_ptr&)
+            py% = fg_stack_y(stack_ptr&)
+            stack_ptr& = stack_ptr& - 1
+
+            IF py% < 0 OR py% >= h% OR fx% < 0 OR fx% >= w% THEN GOTO fg_next_seed
+            IF POINT(fx%, py%) <> target_color~& THEN GOTO fg_next_seed
+
+            ' Find span extents on this scanline
+            x1% = fx%
+            WHILE x1% > 0 AND POINT(x1% - 1, py%) = target_color~&
+                IF has_selection% AND NOT SELECTION_is_point_inside%(x1% - 1, py%) THEN EXIT WHILE
+                x1% = x1% - 1
+            WEND
+            x2% = fx%
+            WHILE x2% < w% - 1 AND POINT(x2% + 1, py%) = target_color~&
+                IF has_selection% AND NOT SELECTION_is_point_inside%(x2% + 1, py%) THEN EXIT WHILE
+                x2% = x2% + 1
+            WEND
+
+            ' Mark span as visited in maskImg
+            _DEST maskImg&
+            _DONTBLEND maskImg&
+            LINE (x1%, py%)-(x2%, py%), _RGBA32(255, 255, 255, 255)
+
+            ' Overwrite mergedImg span with fill_color so it won't be re-visited
+            _DEST mergedImg&
+            LINE (x1%, py%)-(x2%, py%), fill_color~&
+            _SOURCE mergedImg&
+
+            ' Seed above and below
+            FOR dy% = -1 TO 1 STEP 2
+                ny% = py% + dy%
+                IF ny% >= 0 AND ny% < h% THEN
+                    in_span% = FALSE
+                    FOR sx% = x1% TO x2%
+                        IF has_selection% AND NOT SELECTION_is_point_inside%(sx%, ny%) THEN
+                            in_span% = FALSE
+                        ELSEIF POINT(sx%, ny%) = target_color~& THEN
+                            IF NOT in_span% THEN
+                                IF stack_ptr& >= stack_capacity& THEN
+                                    stack_capacity& = stack_capacity& * 2
+                                    REDIM _PRESERVE fg_stack_x(1 TO stack_capacity&) AS INTEGER
+                                    REDIM _PRESERVE fg_stack_y(1 TO stack_capacity&) AS INTEGER
+                                END IF
+                                stack_ptr& = stack_ptr& + 1
+                                fg_stack_x(stack_ptr&) = sx%
+                                fg_stack_y(stack_ptr&) = ny%
+                                in_span%               = TRUE
+                            END IF
+                        ELSE
+                            in_span% = FALSE
+                        END IF
+                    NEXT sx%
+                END IF
+            NEXT dy%
+
+            fg_next_seed:
+        WEND
+        ERASE fg_stack_x, fg_stack_y
+    END IF
+
+    IF mergedImg& < -1 THEN _FREEIMAGE mergedImg&
+
+    ' ------------------------------------------------------------------
+    ' Apply mask to every visible non-group layer
+    ' ------------------------------------------------------------------
+    HISTORY_begin_group
+
+    DIM maskMem2  AS _MEM
+    DIM maskOff2  AS _OFFSET
+    DIM maskPix   AS _UNSIGNED LONG
+    DIM pixIdx    AS LONG
+    DIM px        AS INTEGER, pxY AS INTEGER
+    DIM use_drawer_paint AS INTEGER
+    use_drawer_paint% = DRAWER_has_paint_mode%
+
+    maskMem2 = _MEMIMAGE(maskImg&)
+
+    FOR zi% = 1 TO LAYER_COUNT%
+        FOR li% = 1 TO MAX_LAYERS
+            IF LAYERS(li%).imgHandle& < -1 AND LAYERS(li%).visible% AND LAYERS(li%).zIndex% = zi% AND LAYERS(li%).layerType% <> LAYER_TYPE_GROUP THEN
+                layerImg& = LAYERS(li%).imgHandle&
+
+                ' Snapshot before image for history
+                DIM lBefore AS LONG
+                lBefore& = 0
+                IF NOT HISTORY_IN_PROGRESS% AND LAYERS(li%).historyId& > 0 THEN
+                    lBefore& = _COPYIMAGE(layerImg&, 32)
+                END IF
+
+                ' Paint mask onto this layer
+                _DEST layerImg&
+                _DONTBLEND layerImg&
+
+                FOR maskOff2 = maskMem2.OFFSET TO maskMem2.OFFSET + maskMem2.SIZE - 4 STEP 4
+                    _MEMGET maskMem2, maskOff2, maskPix~&
+                    IF _ALPHA32(maskPix~&) > 0 THEN
+                        pixIdx& = (maskOff2 - maskMem2.OFFSET) \ 4
+                        px%     = pixIdx& MOD w%
+                        pxY%    = pixIdx& \ w%
+                        IF NOT has_selection% OR SELECTION_is_point_inside%(px%, pxY%) THEN
+                            IF OPACITY_LOCK_allows_draw%(px%, pxY%) THEN
+                                PSET (px%, pxY%), DRAWER_resolve_paint_color~&(px%, pxY%, fill_color~&)
+                            END IF
+                        END IF
+                    END IF
+                NEXT maskOff2
+
+                _BLEND layerImg&
+
+                ' Record history for this layer
+                DIM lFlags AS LONG : lFlags& = 0
+                IF has_selection% OR LAYERS(li%).opacityLock% THEN lFlags& = lFlags& OR HISTORY_FLAG_CLIPPED
+                IF SYMMETRY.MODE% > 0 THEN lFlags& = lFlags& OR HISTORY_FLAG_SYMMETRY
+                IF use_drawer_paint% THEN lFlags& = lFlags& OR HISTORY_FLAG_PAINT_MODE
+                IF lBefore& < -1 THEN
+                    DIM gfLabel AS STRING
+                    IF replaceAll% THEN
+                        gfLabel$ = "Fill Global All"
+                    ELSE
+                        gfLabel$ = "Fill Global"
+                    END IF
+                    HISTORY_record_fill LAYERS(li%).historyId&, li%, PAINT_apply_opacity~&(fill_color~&), lFlags&, lBefore&, x%, y%, gfLabel$
+                END IF
+
+                EXIT FOR
+            END IF
+        NEXT li%
+    NEXT zi%
+
+    _MEMFREE maskMem2
+    IF maskImg& < -1 THEN _FREEIMAGE maskImg&
+
+    HISTORY_end_group
+
+    _SOURCE old_source&
+    _DEST old_dest&
+
+    COMPOSITE_RESULT_VALID% = FALSE
+    CANVAS_DIRTY%           = TRUE
+    INVALIDATE_scene
+END SUB
