@@ -7,9 +7,9 @@
           the zoom position for the pointer.
 
 ## Crosshair rendering over DRAW GUI CHROME
-- [ ] When holding SHIFT, and the mouse is over the GUI chrome, it is still rendering the crosshair on the canvas.
-  - [ ] It should only render the crosshair when the cursor is on the canvas OR apron
-  - [ ] If cursor is over the GUI CHROME - NONE of the assistants should render
-    - [ ] No crosshair assistant
-    - [ ] No color picker loupe
+- [x] When holding SHIFT, and the mouse is over the GUI chrome, it is still rendering the crosshair on the canvas.
+  - [x] It should only render the crosshair when the cursor is on the canvas OR apron
+  - [x] If cursor is over the GUI CHROME - NONE of the assistants should render
+    - [x] No crosshair assistant
+    - [x] No color picker loupe
 

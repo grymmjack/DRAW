@@ -1784,6 +1784,43 @@ END SUB
 
 
 ''
+''
+' Returns TRUE if raw screen coordinates are within the canvas work area
+' (the apron + canvas region, bounded by all side panels and top/bottom chrome).
+' Use this to gate assistants (crosshair, loupe) that must not render over UI.
+'
+FUNCTION SCREEN_mouse_over_work_area% (rawX AS INTEGER, rawY AS INTEGER)
+    ' Horizontal: must be inside the work area left/right edges
+    IF rawX% < SCRN.uiLeftEdge% OR rawX% > SCRN.uiRightEdge% THEN
+        SCREEN_mouse_over_work_area% = FALSE
+        EXIT FUNCTION
+    END IF
+
+    ' Vertical top: past menu bar if shown, plus text bar if shown
+    DIM topY AS INTEGER
+    topY% = 0
+    IF SCRN.showMenubar% AND MENU_BAR.visible% THEN topY% = MENU_BAR_HEIGHT
+    IF TEXT_BAR.visible% THEN topY% = TEXT_BAR.barY% + TEXT_BAR.barH%
+    IF rawY% < topY% THEN
+        SCREEN_mouse_over_work_area% = FALSE
+        EXIT FUNCTION
+    END IF
+
+    ' Vertical bottom: before status bar and palette strip if shown
+    DIM botY AS INTEGER
+    botY% = SCRN.h& - 1
+    IF SCRN.showStatus% THEN
+        botY% = SCRN.h& - 1 - THEME.STATUS_height% - PALETTE_STRIP_get_height%
+    END IF
+    IF rawY% > botY% THEN
+        SCREEN_mouse_over_work_area% = FALSE
+        EXIT FUNCTION
+    END IF
+
+    SCREEN_mouse_over_work_area% = TRUE
+END FUNCTION
+
+
 ' Render crosshair overlay and command palette.
 ' Crosshair shown when SHIFT held (without CTRL), not over UI, not in text mode.
 '
@@ -1793,33 +1830,23 @@ SUB RENDER_crosshair_and_command_palette ()
     ctrlHeld%  = MODIFIERS.ctrl%
     altHeld%   = MODIFIERS.alt%
 
-    ' Check if mouse is over any UI element (suppress crosshair over all UI)
-    DIM crosshairOverUI AS INTEGER
-    crosshairOverUI% = FALSE
-    DIM cmx             AS INTEGER, cmy AS INTEGER
+    DIM cmx AS INTEGER, cmy AS INTEGER
     cmx% = MOUSE.RAW_X%
     cmy% = MOUSE.RAW_Y%
-    IF SCRN.showToolbar% AND TOOLBAR_is_over_area%(cmx%, cmy%) THEN crosshairOverUI% = TRUE
-    IF NOT crosshairOverUI% AND LAYER_PANEL.visible% AND cmx% >= LAYER_PANEL.panelX1% AND cmx% <= LAYER_PANEL.panelX2% THEN crosshairOverUI% = TRUE
-    IF NOT crosshairOverUI% AND SCRN.showMenubar% AND MENU_BAR.visible% THEN
-        IF (cmy% < MENU_BAR_HEIGHT AND cmx% >= MENU_BAR.barX%) OR MENUBAR_submenu_in_bounds%(cmx%, cmy%) THEN
-            crosshairOverUI% = TRUE
-        END IF
-    END IF
-    IF NOT crosshairOverUI% AND TEXT_BAR.visible% AND TEXT_BAR_in_bounds%(cmx%, cmy%) THEN
-        crosshairOverUI% = TRUE
-    END IF
-    IF NOT crosshairOverUI% AND SCRN.showStatus% THEN
-        DIM ch_strip_top AS INTEGER
-        ch_strip_top% = SCRN.h& - THEME.STATUS_height% - PALETTE_STRIP_get_height%
-        IF cmy% >= ch_strip_top% THEN crosshairOverUI% = TRUE
-    END IF
-    IF NOT crosshairOverUI% AND PALETTE_MENU_VISIBLE% THEN crosshairOverUI% = TRUE
-    IF NOT crosshairOverUI% AND PREVIEW.visible% AND NOT PREVIEW.autoHidden% THEN
-        IF PREVIEW_hit_window%(cmx%, cmy%) THEN crosshairOverUI% = TRUE
+
+    ' Positive work-area test: suppress assistants whenever mouse is outside the
+    ' canvas+apron zone (over toolbar, layer panel, editbar, advbar, charmap, etc.)
+    DIM overUI AS INTEGER
+    overUI% = NOT SCREEN_mouse_over_work_area%(cmx%, cmy%)
+
+    ' Also suppress over floating overlays that can appear within the work area
+    IF NOT overUI% AND PALETTE_MENU_VISIBLE% THEN overUI% = TRUE
+    IF NOT overUI% AND MENUBAR_is_open% THEN overUI% = TRUE
+    IF NOT overUI% AND PREVIEW.visible% AND NOT PREVIEW.autoHidden% THEN
+        IF PREVIEW_hit_window%(cmx%, cmy%) THEN overUI% = TRUE
     END IF
 
-    IF shiftHeld% AND NOT ctrlHeld% AND CURRENT_TOOL% <> TOOL_TEXT AND NOT MENUBAR_is_open% AND NOT crosshairOverUI% THEN
+    IF shiftHeld% AND NOT ctrlHeld% AND CURRENT_TOOL% <> TOOL_TEXT AND NOT overUI% THEN
         CROSSHAIR_render
     END IF
 
@@ -2505,7 +2532,8 @@ SUB SCREEN_render ()
                 MOVE_render_status SCRN.CANVAS&
             END IF
 
-            IF CURRENT_TOOL% = TOOL_PICKER AND PICKER.ACTIVE% THEN
+            IF CURRENT_TOOL% = TOOL_PICKER AND PICKER.ACTIVE% AND _
+               SCREEN_mouse_over_work_area%(MOUSE.RAW_X%, MOUSE.RAW_Y%) THEN
                 PICKER_LOUPE_render SCRN.CANVAS&
                 PREVIEW_render_loupe SCRN.CANVAS&
             END IF
@@ -2992,7 +3020,8 @@ SUB SCREEN_render ()
     END IF
     ' ==== END CONTEXTUAL STATUS BARS ====
 
-    IF CURRENT_TOOL% = TOOL_PICKER AND PICKER.ACTIVE% THEN
+    IF CURRENT_TOOL% = TOOL_PICKER AND PICKER.ACTIVE% AND _
+       SCREEN_mouse_over_work_area%(MOUSE.RAW_X%, MOUSE.RAW_Y%) THEN
         PICKER_LOUPE_render SCRN.CANVAS&
         PREVIEW_render_loupe SCRN.CANVAS&
     END IF
