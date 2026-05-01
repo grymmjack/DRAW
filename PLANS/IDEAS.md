@@ -1,10 +1,10 @@
 # IDEAS
 
 ## Global Fill
-- [ ] With Fill tool, hold `f` while flood filling to replace contiguous colors on all layers with filled color, honors FG and BG
-- [ ] With Fill tool, hold `Shift+f` while flood filling to replace all colors across document and all layers with filled color, honors FG and BG
-- [ ] Left click = Fill with FG
-- [ ] Right click = Fill with BG
+- [x] With Fill tool, hold `f` while flood filling to replace contiguous colors on all layers with filled color, honors FG and BG
+- [x] With Fill tool, hold `Shift+f` while flood filling to replace all colors across document and all layers with filled color, honors FG and BG
+- [x] Left click = Fill with FG
+- [x] Right click = Fill with BG
 
 ## Image Browser (For drag/drop to brush and pattern slots)
 - [ ] Since drag and drop is not ubiquitously available across all OS in QB64PE...
@@ -15,9 +15,11 @@
       - [ ] Render at same display scale as the COLOR MIXER, if possible because that provides a lot more room,
   - [ ] Identical to File -> Open / File -> Save (as) Dialogs already in DRAW, EXCEPT:
     - [ ] Floats like COLOR MIXER
-    - [ ] Is toggleable via a button View -> Browser
-      - [ ] Hide / Show
-    - [ ] Replaces File Import image from Open Folder Toolbar button with browser show/hide
+    - [ ] Is toggleable via a menu item View -> Browser
+      - [ ] Hide / Show with the checkmark thing
+    - [ ] Is toggleable from and Replaces 'File Import image' from 'Open File' Toolbar button with browser show/hide (open tool open.png, etc.)
+      - [ ] When it is open and visible show with outline on the button border
+      - [ ] When it is closed no border on button
     - [ ] Remembers width/height and position
     - [ ] Uses the same PLACES as regular dialogs
     - [ ] Default to Thumbnail view Zoom of 2x
