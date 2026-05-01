@@ -377,6 +377,8 @@ TYPE DRAW_CONFIG
     SMART_GUIDES_DISTANCE           AS INTEGER        ' Detection distance override (0 = use theme)
     SMART_GUIDES_COLOR_FG           AS _UNSIGNED LONG ' Guide line color override (0 = use theme)
     SMART_GUIDES_OPACITY            AS INTEGER        ' Opacity override (0 = use theme)
+    ' Opacity slider settings
+    OPACITY_WARN_THRESHOLD          AS INTEGER        ' Opacity level at or below which warning colors show (default 10)
 END TYPE
 
 DIM SHARED CFG AS DRAW_CONFIG

@@ -3,14 +3,15 @@
 ' =============================================================================
 ' Toolbox Organizer - compact widget grid that sits directly beneath the Toolbar.
 ' Provides quick-access buttons for brush size, symmetry, grid, pattern/color
-' mode, canvas ops, transform ops, color ops, palette ops, and gradient mode.
+' mode, opacity slider, color ops, palette ops, and gradient mode.
 '
 ' Layout (4 columns x 3 rows):
-'   Row 0: [COLOR OPS]     [CANVAS OPS]      [BRUSH SIZE top]  [PATTERN MODE]
-'   Row 1: [PALETTE OPS]   [TRANSFORM OPS]   [BRUSH SIZE bot]  [GRADIENT MODE]
+'   Row 0: [COLOR OPS]     [OPACITY SLIDER]  [BRUSH SIZE top]  [PATTERN MODE]
+'   Row 1: [PALETTE OPS]   [OPACITY SLIDER]  [BRUSH SIZE bot]  [GRADIENT MODE]
 '   Row 2: [SYMMETRY MODE] [GRID VISIBILITY]  [GRID SNAP]      [COLOR MODE]
 '
 ' Brush Size spans rows 0+1 in column 2 (11x21 image).
+' Opacity Slider spans rows 0+1 in column 1 (11x21 drawn inline).
 '
 ' @author Rick Christy <grymmjack@gmail.com>
 '
@@ -77,11 +78,11 @@ ORG_WIDGETS(ORG_COLOR_MIXER).srcW%    = 11
 ORG_WIDGETS(ORG_COLOR_MIXER).srcH%    = 10
 ORG_WIDGETS(ORG_COLOR_MIXER).tip$     = "Color Mixer"
 
-' ── Col 1, Row 0: Canvas Ops ──
-ORG_WIDGETS(ORG_CANVAS_OPS).imgSrc$ = "canvas-ops.png"
+' ── Col 1, Row 0+1: Opacity Slider (no image — drawn inline) ──
+ORG_WIDGETS(ORG_CANVAS_OPS).imgSrc$ = ""
 ORG_WIDGETS(ORG_CANVAS_OPS).srcW%   = 11
-ORG_WIDGETS(ORG_CANVAS_OPS).srcH%   = 10
-ORG_WIDGETS(ORG_CANVAS_OPS).tip$    = "Canvas: L=Spare R=Resize M=Crop"
+ORG_WIDGETS(ORG_CANVAS_OPS).srcH%   = 21
+ORG_WIDGETS(ORG_CANVAS_OPS).tip$    = ""
 
 ' ── Col 2, Row 0+1: Brush Size (spans 2 rows) ──
 ORG_WIDGETS(ORG_BRUSH_SIZE).imgSrc$  = "brush-size-1.png"
@@ -106,13 +107,13 @@ ORG_WIDGETS(ORG_PALETTE_OPS).srcW%    = 11
 ORG_WIDGETS(ORG_PALETTE_OPS).srcH%    = 10
 ORG_WIDGETS(ORG_PALETTE_OPS).tip$     = "Palette Ops: L=Toggle"
 
-' ── Col 1, Row 1: Transform Ops ──
-ORG_WIDGETS(ORG_TRANSFORM_OPS).imgSrc$  = "transform-ops.png"
-ORG_WIDGETS(ORG_TRANSFORM_OPS).imgSrc2$ = "assistant-flip-horizontal.png"
-ORG_WIDGETS(ORG_TRANSFORM_OPS).imgSrc3$ = "assistant-flip-vertical.png"
+' ── Col 1, Row 1: (part of opacity slider — no separate widget) ──
+ORG_WIDGETS(ORG_TRANSFORM_OPS).imgSrc$  = ""
+ORG_WIDGETS(ORG_TRANSFORM_OPS).imgSrc2$ = ""
+ORG_WIDGETS(ORG_TRANSFORM_OPS).imgSrc3$ = ""
 ORG_WIDGETS(ORG_TRANSFORM_OPS).srcW%    = 11
 ORG_WIDGETS(ORG_TRANSFORM_OPS).srcH%    = 10
-ORG_WIDGETS(ORG_TRANSFORM_OPS).tip$     = "Transform: L=Flip H R=Flip V"
+ORG_WIDGETS(ORG_TRANSFORM_OPS).tip$     = ""
 
 ' ── Col 3, Row 1: Gradient Mode ──
 ORG_WIDGETS(ORG_GRADIENT_MODE).imgSrc$  = "gradient-mode-off.png"

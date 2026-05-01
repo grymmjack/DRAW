@@ -593,6 +593,21 @@ TYPE DRAW_THEME
     SPLASH_BG_COLOR                       AS _UNSIGNED LONG ' Splash background fill color (default black)
     ' --- Window ---
     WINDOW_BG_COLOR                       AS _UNSIGNED LONG ' Default window background color (default black)
+    ' --- Opacity Slider (organizer col 1, rows 0+1) ---
+    OPACITY_SLIDER_BG                     AS _UNSIGNED LONG ' Slider track fill (inactive / low-fill area)
+    OPACITY_SLIDER_FG                     AS _UNSIGNED LONG ' Slider fill (active / high-fill area)
+    OPACITY_SLIDER_BORDER_FG              AS _UNSIGNED LONG ' Slider outer border color
+    OPACITY_SLIDER_BORDER_WIDTH           AS INTEGER        ' Slider border width in pixels
+    OPACITY_SLIDER_PADDING                AS INTEGER        ' Pixels between border and track body (filled with BG color)
+    OPACITY_SLIDER_HANDLE_HEIGHT          AS INTEGER        ' Height of handle bar in pixels
+    OPACITY_SLIDER_TEXT_FG                AS _UNSIGNED LONG ' Percentage text color (normal)
+    OPACITY_SLIDER_TEXT_BG                AS _UNSIGNED LONG ' Percentage text shadow/bg color (0 = none)
+    OPACITY_SLIDER_HANDLE_FG              AS _UNSIGNED LONG ' Handle line color
+    OPACITY_SLIDER_TEXT_WARN_FG           AS _UNSIGNED LONG ' Percentage text color when <= warn threshold
+    OPACITY_SLIDER_TEXT_OUTLINE_FG        AS _UNSIGNED LONG ' Text stroke/outline color
+    OPACITY_SLIDER_TEXT_OUTLINE_WIDTH     AS INTEGER        ' Text outline width in pixels (0 = off)
+    OPACITY_SLIDER_WARN_FG                AS _UNSIGNED LONG ' Slider fill color when <= warn threshold
+    OPACITY_SLIDER_WARN_BORDER_FG         AS _UNSIGNED LONG ' Border color when <= warn threshold
 END TYPE
 
 ' Runtime theme loader — populates THEME from ASSETS/THEMES/{CFG.THEME$}/THEME.CFG
