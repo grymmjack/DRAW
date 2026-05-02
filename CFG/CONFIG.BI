@@ -189,6 +189,12 @@ TYPE DRAW_CONFIG
     FD_FONT                         AS INTEGER        ' File dialog font (0 = default 16, 8 = 8x8, 16 = 8x16)
     FD_DIALOG_W                     AS INTEGER        ' File dialog width in pixels (0 = auto 60% of window)
     FD_DIALOG_H                     AS INTEGER        ' File dialog height in pixels (0 = auto 70% of window)
+    FD_DIALOG_LAST_X                AS INTEGER        ' Last modal file dialog X position (−1 = auto-center)
+    FD_DIALOG_LAST_Y                AS INTEGER        ' Last modal file dialog Y position (−1 = auto-center)
+    FD_DIALOG_PLACES_W              AS INTEGER        ' Last modal file dialog places pane width (0 = auto)
+    FD_DIALOG_PREVIEW_W             AS INTEGER        ' Last modal file dialog preview pane width (0 = auto)
+    FD_DIALOG_PLACES_MIN_W          AS INTEGER        ' Minimum modal file dialog places pane width (0 = library default)
+    FD_DIALOG_PREVIEW_MIN_W         AS INTEGER        ' Minimum modal file dialog preview pane width (0 = library default)
     NUDGE_N                         AS INTEGER        ' Multi-pixel nudge distance (default 10)
     NUM_CUSTOM_BRUSHES              AS INTEGER        ' Number of custom brush slots (default 4)
     NUM_LAYERS                      AS INTEGER        ' Initial number of layers on new file
@@ -340,6 +346,8 @@ TYPE DRAW_CONFIG
     BROWSER_DEFAULT_PREVIEW_OPEN    AS INTEGER        ' TRUE = preview pane open by default
     BROWSER_FONT_SCALE              AS INTEGER        ' Browser UI/font scale (1-4 explicit, 0=compact compat fallback)
     BROWSER_ICON_SCALE              AS INTEGER        ' Browser icon scale (1-4 explicit, 0=compact compat fallback)
+    BROWSER_PLACES_MIN_W            AS INTEGER        ' Minimum places pane width in FD native pixels (0=auto)
+    BROWSER_PREVIEW_MIN_W           AS INTEGER        ' Minimum preview pane width in FD native pixels (0=auto)
     PIXEL_ANALYZER_CONFIDENCE       AS INTEGER        ' Pixel analyzer confidence threshold percent (10-90)
     EDIT_BAR_VISIBLE                AS INTEGER        ' TRUE = edit bar visible at startup
     EDIT_BAR_DOCK_POSITION          AS STRING         ' "LEFT" or "RIGHT"

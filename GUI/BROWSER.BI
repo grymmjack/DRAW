@@ -20,6 +20,7 @@ TYPE BROWSER_OBJ
     positioned     AS INTEGER
     initialized    AS INTEGER
     settingsLoaded AS INTEGER   ' TRUE after first-ever defaults load; survives suspend/resume
+    needReClamp    AS INTEGER   ' TRUE until first render after startup (deferred work-area clamp)
     autoHidden     AS INTEGER
 
     dispW        AS INTEGER

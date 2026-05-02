@@ -629,11 +629,20 @@ SUB MAIN_shutdown ()
     END IF
 
     ' Persist browser panel state on exit
+    ' BROWSER.dispW/H are viewport pixels after BROWSER_compute_display_size;
+    ' CFG.BROWSER_WIDTH/HEIGHT must store FD native pixels for BROWSER_init.
+    ' Use FD_STATE.dialogW/H when initialized (authoritative native size).
     CFG.BROWSER_VISIBLE% = BROWSER.visible%
     CFG.BROWSER_POS_X%   = BROWSER.dispX%
     CFG.BROWSER_POS_Y%   = BROWSER.dispY%
-    CFG.BROWSER_WIDTH%   = BROWSER.dispW%
-    CFG.BROWSER_HEIGHT%  = BROWSER.dispH%
+    IF BROWSER.initialized% THEN
+        CFG.BROWSER_WIDTH%  = FD_STATE.dialogW
+        CFG.BROWSER_HEIGHT% = FD_STATE.dialogH
+    ELSE
+        ' Not initialized: dispW/H still hold native pixels from BROWSER_init
+        CFG.BROWSER_WIDTH%  = BROWSER.dispW%
+        CFG.BROWSER_HEIGHT% = BROWSER.dispH%
+    END IF
     CFG.BROWSER_LAST_DIR$ = BROWSER.lastDir$
     CFG.BROWSER_DEFAULT_VIEW_MODE% = BROWSER.viewMode%
     CFG.BROWSER_DEFAULT_ZOOM_LEVEL% = BROWSER.zoomLevel%

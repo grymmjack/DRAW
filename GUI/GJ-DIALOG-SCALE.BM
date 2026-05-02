@@ -295,6 +295,7 @@ FUNCTION DRAW_open_file$ (title AS STRING, startDir AS STRING, filters AS STRING
     ELSE
         result = ""
     END IF
+    DRAW_FD_save_modal_state
     FD_cleanup
     BROWSER_resume_after_modal
     DRAW_open_file$ = result
@@ -323,6 +324,7 @@ FUNCTION DRAW_open_files% (title AS STRING, startDir AS STRING, filters AS STRIN
     ELSE
         resultCount = 0
     END IF
+    DRAW_FD_save_modal_state
     FD_cleanup
     BROWSER_resume_after_modal
     DRAW_open_files% = resultCount
@@ -352,6 +354,7 @@ FUNCTION DRAW_save_file$ (title AS STRING, startDir AS STRING, filters AS STRING
     ELSE
         result = ""
     END IF
+    DRAW_FD_save_modal_state
     FD_cleanup
     BROWSER_resume_after_modal
     DRAW_save_file$ = result
@@ -381,6 +384,7 @@ FUNCTION DRAW_save_as_file$ (title AS STRING, startDir AS STRING, filters AS STR
     ELSE
         result = ""
     END IF
+    DRAW_FD_save_modal_state
     FD_cleanup
     BROWSER_resume_after_modal
     DRAW_save_as_file$ = result
@@ -405,6 +409,7 @@ FUNCTION DRAW_choose_folder$ (title AS STRING, startDir AS STRING)
     ELSE
         result = ""
     END IF
+    DRAW_FD_save_modal_state
     FD_cleanup
     BROWSER_resume_after_modal
     DRAW_choose_folder$ = result
@@ -517,28 +522,51 @@ SUB DRAW_FD_apply_scale_and_center
     IF FD_STATE.dialogW > scrLogW THEN FD_STATE.dialogW = scrLogW
     IF FD_STATE.dialogH > scrLogH THEN FD_STATE.dialogH = scrLogH
 
-    ' Re-center in logical coordinates (or restore saved position)
+    ' Restore last-known modal dialog position from DRAW config (survives exit/restart).
+    ' Falls back to FD_CFG (from ~/.file-dialog.cfg) then auto-center.
     DIM useSavedPos AS INTEGER
     useSavedPos = 0
-    IF FD_CFG.dialogX > 0 OR FD_CFG.dialogY > 0 THEN
-        ' Validate saved position is still on-screen
-        DIM maxSavedX AS INTEGER : maxSavedX = scrLogW - FD_STATE.dialogW
-        DIM maxSavedY AS INTEGER : maxSavedY = scrLogH - FD_STATE.dialogH
-        IF FD_CFG.dialogX >= 0 AND FD_CFG.dialogX <= maxSavedX THEN
-            IF FD_CFG.dialogY >= 0 AND FD_CFG.dialogY <= maxSavedY THEN
-                useSavedPos = -1
+    IF CFG.FD_DIALOG_LAST_X% >= 0 AND CFG.FD_DIALOG_LAST_Y% >= 0 THEN
+        DIM maxCfgX AS INTEGER : maxCfgX = scrLogW - FD_STATE.dialogW
+        DIM maxCfgY AS INTEGER : maxCfgY = scrLogH - FD_STATE.dialogH
+        IF CFG.FD_DIALOG_LAST_X% <= maxCfgX AND CFG.FD_DIALOG_LAST_Y% <= maxCfgY THEN
+            useSavedPos = -1
+        END IF
+    END IF
+    IF NOT useSavedPos THEN
+        IF FD_CFG.dialogX > 0 OR FD_CFG.dialogY > 0 THEN
+            ' Validate saved position is still on-screen
+            DIM maxSavedX AS INTEGER : maxSavedX = scrLogW - FD_STATE.dialogW
+            DIM maxSavedY AS INTEGER : maxSavedY = scrLogH - FD_STATE.dialogH
+            IF FD_CFG.dialogX >= 0 AND FD_CFG.dialogX <= maxSavedX THEN
+                IF FD_CFG.dialogY >= 0 AND FD_CFG.dialogY <= maxSavedY THEN
+                    useSavedPos = -1
+                END IF
             END IF
         END IF
     END IF
     IF useSavedPos THEN
-        FD_STATE.dialogX = FD_CFG.dialogX
-        FD_STATE.dialogY = FD_CFG.dialogY
+        IF CFG.FD_DIALOG_LAST_X% >= 0 THEN
+            FD_STATE.dialogX = CFG.FD_DIALOG_LAST_X%
+            FD_STATE.dialogY = CFG.FD_DIALOG_LAST_Y%
+        ELSE
+            FD_STATE.dialogX = FD_CFG.dialogX
+            FD_STATE.dialogY = FD_CFG.dialogY
+        END IF
     ELSE
         FD_STATE.dialogX = (scrLogW - FD_STATE.dialogW) \ 2
         FD_STATE.dialogY = (scrLogH - FD_STATE.dialogH) \ 2
     END IF
     IF FD_STATE.dialogX < 0 THEN FD_STATE.dialogX = 0
     IF FD_STATE.dialogY < 0 THEN FD_STATE.dialogY = 0
+
+    ' Restore last-known pane widths from DRAW config (priority over ~/.file-dialog.cfg).
+    IF CFG.FD_DIALOG_PLACES_W% > 0 THEN FD_STATE.placesW = CFG.FD_DIALOG_PLACES_W%
+    IF CFG.FD_DIALOG_PREVIEW_W% > 0 THEN FD_STATE.previewW = CFG.FD_DIALOG_PREVIEW_W%
+
+    ' Apply configured pane minimum widths so splitter drag is bounded.
+    FD_STATE.placesMinW  = CFG.FD_DIALOG_PLACES_MIN_W%
+    FD_STATE.previewMinW = CFG.FD_DIALOG_PREVIEW_MIN_W%
 
     ' Recalculate layout with new geometry
     FD_LAYOUT_calculate
@@ -548,6 +576,19 @@ SUB DRAW_FD_apply_scale_and_center
     FD_STATE.imgHandle = _NEWIMAGE(FD_STATE.dialogW, FD_STATE.dialogH, 32)
     _FONT FD_CFG.fontID, FD_STATE.imgHandle
     FD_STATE.dirty = -1
+END SUB
+
+' --------------------------------------------------------------------------
+' DRAW_FD_save_modal_state — Capture FD modal state into DRAW config
+'   Call immediately after FD_modal_loop and before FD_cleanup in every
+'   modal wrapper (open/save/choose-folder).  Persists position and pane
+'   widths so they survive exit and are not overwritten by browser state.
+' --------------------------------------------------------------------------
+SUB DRAW_FD_save_modal_state
+    CFG.FD_DIALOG_LAST_X%   = FD_STATE.dialogX
+    CFG.FD_DIALOG_LAST_Y%   = FD_STATE.dialogY
+    CFG.FD_DIALOG_PLACES_W% = FD_STATE.placesW
+    IF FD_STATE.previewW > 0 THEN CFG.FD_DIALOG_PREVIEW_W% = FD_STATE.previewW
 END SUB
 
 ' --------------------------------------------------------------------------
