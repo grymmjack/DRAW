@@ -62,12 +62,13 @@ FUNCTION BROWSER_resolve_start_dir$ ()
 END FUNCTION
 
 SUB BROWSER_compute_display_size ()
+    ' Match floating panel pipeline used by Color Mixer:
+    ' viewport coords for hit testing, integer ts upscale on screen 0.
     DIM ts AS INTEGER, ds AS INTEGER
     ts% = CFG.TOOLBAR_SCALE%: IF ts% < 1 THEN ts% = 1
     ds% = SCRN.displayScale%: IF ds% < 1 THEN ds% = 1
 
     BROWSER.renderScale! = CSNG(ts%) / CSNG(ds%)
-
     BROWSER.dispW% = INT(CSNG(FD_STATE.dialogW) * BROWSER.renderScale! + 0.5)
     BROWSER.dispH% = INT(CSNG(FD_STATE.dialogH) * BROWSER.renderScale! + 0.5)
     BROWSER.dispX% = INT(CSNG(FD_STATE.dialogX) * BROWSER.renderScale! + 0.5)
@@ -189,16 +190,11 @@ SUB BROWSER_suspend_for_modal ()
     IF BROWSER.suspendDepth% = 0 THEN
         BROWSER.suspendWasVisible% = (BROWSER.visible% AND SCRN.showBrowser%)
 
-        ' Browser and modal dialogs share FILE_DIALOG singleton state.
-        ' Release Browser runtime handles WITHOUT FD_cleanup so modal dialogs
-        ' keep their own persisted size/position and last directory.
+            ' Browser and modal dialogs share FILE_DIALOG singleton state.
+            ' Release Browser runtime handles without saving modal dialog config.
         IF BROWSER.initialized% THEN
-            IF FD_STATE.imgHandle& < -1 THEN
-                _FREEIMAGE FD_STATE.imgHandle&
-                FD_STATE.imgHandle& = -1
-            END IF
-            FD_THUMB_cleanup
-            BROWSER.initialized% = FALSE
+                FD_cleanup_runtime
+                BROWSER.initialized% = FALSE
         END IF
 
         IF BROWSER.suspendWasVisible% THEN
@@ -284,17 +280,7 @@ SUB BROWSER_ensure_initialized ()
     FD_init FD_MODE_OPEN, "BROWSER", "OPEN", BROWSER.lastDir$, "Image Files|*.png|*.bmp|*.jpg|*.jpeg|*.gif|*.webp|*.qoi|*.drw|All Files|*.*", 0, ""
     DRAW_FD_load_icons
 
-    ' Browser uses a compact embedded scale independent from modal dialogs.
-    FD_CFG.titleFontScale = 1
-    FD_CFG.placesFontScale = 1
-    FD_CFG.pathFontScale = 1
-    FD_CFG.contentFontScale = 1
-    FD_CFG.previewFontScale = 1
-    FD_CFG.inputFontScale = 1
-    FD_CFG.filterFontScale = 1
-    FD_CFG.statusFontScale = 1
-    FD_CFG.sortFontScale = 1
-    FD_CFG.iconScale = 1
+    DRAW_FD_apply_browser_font_scale
 
     DRAW_FD_apply_theme
 
@@ -444,7 +430,7 @@ END SUB
 
 SUB BROWSER_cleanup ()
     IF BROWSER.initialized% THEN
-        FD_cleanup
+        FD_cleanup_runtime
     END IF
     BROWSER.fontHandle& = 0
     BROWSER.imgHandle& = 0
@@ -628,6 +614,7 @@ SUB BROWSER_mouse_input (wheelDelta AS INTEGER)
         DIM titleBarPx AS INTEGER, closeX AS INTEGER
         DIM nowT AS DOUBLE
         titleBarPx% = INT(CSNG(FD_STATE.titleBarH) * BROWSER.renderScale! + 0.5)
+        IF titleBarPx% < 1 THEN titleBarPx% = FD_STATE.titleBarH
         closeX% = FD_STATE.dialogW - FD_STATE.titleBarH
         IF localY% < titleBarPx% AND nativeX% < closeX% THEN
             nowT# = TIMER
@@ -696,6 +683,24 @@ SUB BROWSER_render ()
     IF NOT BROWSER.visible% OR BROWSER.autoHidden% THEN EXIT SUB
     BROWSER_ensure_initialized
 
+    ' Reconcile bounds at render time so startup placement stays correct even
+    ' if chrome geometry settles after init.
+    DIM oldX AS INTEGER, oldY AS INTEGER, oldW AS INTEGER, oldH AS INTEGER
+    oldX% = BROWSER.dispX%
+    oldY% = BROWSER.dispY%
+    oldW% = BROWSER.dispW%
+    oldH% = BROWSER.dispH%
+    BROWSER_clamp_size
+    BROWSER_clamp_to_work_area
+    IF BROWSER.dispX% <> oldX% OR BROWSER.dispY% <> oldY% OR BROWSER.dispW% <> oldW% OR BROWSER.dispH% <> oldH% THEN
+        BROWSER_sync_fd_from_display
+        CFG.BROWSER_POS_X% = BROWSER.dispX%
+        CFG.BROWSER_POS_Y% = BROWSER.dispY%
+        CFG.BROWSER_WIDTH% = BROWSER.dispW%
+        CFG.BROWSER_HEIGHT% = BROWSER.dispH%
+        BROWSER.positioned% = TRUE
+    END IF
+
     ' Browser renders beneath top-layer UI (menus/popups/dialog-like overlays).
     IF MENUBAR_is_open% THEN EXIT SUB
     IF PALETTE_MENU_VISIBLE% THEN EXIT SUB
@@ -711,17 +716,14 @@ SUB BROWSER_render ()
 
     BROWSER_compute_display_size
 
-    DIM ds AS INTEGER, ts AS INTEGER
     DIM sx AS LONG
     DIM sy AS LONG
     DIM sw AS LONG
     DIM sh AS LONG
 
-    ts% = CFG.TOOLBAR_SCALE%
-    IF ts% < 1 THEN ts% = 1
-
-    ds% = SCRN.displayScale%
-    IF ds% < 1 THEN ds% = 1
+    DIM ts AS INTEGER, ds AS INTEGER
+    ts% = CFG.TOOLBAR_SCALE%: IF ts% < 1 THEN ts% = 1
+    ds% = SCRN.displayScale%: IF ds% < 1 THEN ds% = 1
 
     sx& = CLNG(BROWSER.dispX%) * ds%
     sy& = CLNG(BROWSER.dispY%) * ds%

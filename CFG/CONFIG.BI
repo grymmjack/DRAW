@@ -338,6 +338,8 @@ TYPE DRAW_CONFIG
     BROWSER_DEFAULT_SORT_TYPE       AS INTEGER        ' 0=name,1=type,2=size,3=date
     BROWSER_DEFAULT_SORT_ORDER      AS INTEGER        ' 0=ascending, 1=descending
     BROWSER_DEFAULT_PREVIEW_OPEN    AS INTEGER        ' TRUE = preview pane open by default
+    BROWSER_FONT_SCALE              AS INTEGER        ' Browser UI/font scale (1-4 explicit, 0=compact compat fallback)
+    BROWSER_ICON_SCALE              AS INTEGER        ' Browser icon scale (1-4 explicit, 0=compact compat fallback)
     PIXEL_ANALYZER_CONFIDENCE       AS INTEGER        ' Pixel analyzer confidence threshold percent (10-90)
     EDIT_BAR_VISIBLE                AS INTEGER        ' TRUE = edit bar visible at startup
     EDIT_BAR_DOCK_POSITION          AS STRING         ' "LEFT" or "RIGHT"
