@@ -165,6 +165,7 @@ SOUND_play SND_NEW_FILE ' Startup chime (silent when sounds are disabled)
 MUSIC_init              ' Initialise background music (plays if CFG.MUSIC_ENABLED)
 IMAGE_ADJ_init          ' Initialise image adjustment library (IMGADJ)
 COLORMIXER_init         ' Initialise non-modal color mixer panel
+BROWSER_init            ' Initialise floating browser panel scaffold
 
 ' Main Loop
 DIM k                       AS LONG
@@ -626,7 +627,31 @@ SUB MAIN_shutdown ()
         CFG.COLOR_MIXER_X% = COLORMIXER.dispX%
         CFG.COLOR_MIXER_Y% = COLORMIXER.dispY%
     END IF
+
+    ' Persist browser panel state on exit
+    ' BROWSER.dispW/H are viewport pixels after BROWSER_compute_display_size;
+    ' CFG.BROWSER_WIDTH/HEIGHT must store FD native pixels for BROWSER_init.
+    ' Use FD_STATE.dialogW/H when initialized (authoritative native size).
+    CFG.BROWSER_VISIBLE% = BROWSER.visible%
+    CFG.BROWSER_POS_X%   = BROWSER.dispX%
+    CFG.BROWSER_POS_Y%   = BROWSER.dispY%
+    IF BROWSER.initialized% THEN
+        CFG.BROWSER_WIDTH%  = FD_STATE.dialogW
+        CFG.BROWSER_HEIGHT% = FD_STATE.dialogH
+    ELSE
+        ' Not initialized: dispW/H still hold native pixels from BROWSER_init
+        CFG.BROWSER_WIDTH%  = BROWSER.dispW%
+        CFG.BROWSER_HEIGHT% = BROWSER.dispH%
+    END IF
+    CFG.BROWSER_LAST_DIR$ = BROWSER.lastDir$
+    CFG.BROWSER_DEFAULT_VIEW_MODE% = BROWSER.viewMode%
+    CFG.BROWSER_DEFAULT_ZOOM_LEVEL% = BROWSER.zoomLevel%
+    CFG.BROWSER_DEFAULT_SORT_TYPE% = BROWSER.sortType%
+    CFG.BROWSER_DEFAULT_SORT_ORDER% = BROWSER.sortOrder%
+    CFG.BROWSER_DEFAULT_PREVIEW_OPEN% = BROWSER.previewOpen%
     CONFIG_save
+
+    BROWSER_cleanup
 
     _MOUSESHOW
     SCREEN 0

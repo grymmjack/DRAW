@@ -1,0 +1,1172 @@
+''
+' DRAW - GUI/BROWSER.BM
+' =============================================================================
+' Browser panel implementation scaffold.
+'
+$INCLUDEONCE
+
+OPTION _EXPLICIT
+OPTION _EXPLICITARRAY
+
+FUNCTION BROWSER_resolve_start_dir$ ()
+    DIM d AS STRING
+    DIM homeDir AS STRING
+
+    d$ = _TRIM$(CFG.BROWSER_DEFAULT_FOLDER$)
+    IF d$ <> "" THEN
+        IF _DIREXISTS(d$) THEN
+            BROWSER_resolve_start_dir$ = d$
+            EXIT FUNCTION
+        END IF
+    END IF
+
+    d$ = _TRIM$(CFG.BROWSER_LAST_DIR$)
+    IF d$ <> "" THEN
+        IF _DIREXISTS(d$) THEN
+            BROWSER_resolve_start_dir$ = d$
+            EXIT FUNCTION
+        END IF
+    END IF
+
+    IF _TRIM$(CURRENT_DRW_FILENAME$) <> "" THEN
+        d$ = CONFIG_extract_dir$(CURRENT_DRW_FILENAME$)
+        IF d$ <> "" AND _DIREXISTS(d$) THEN
+            BROWSER_resolve_start_dir$ = d$
+            EXIT FUNCTION
+        END IF
+    END IF
+
+    IF _TRIM$(CURRENT_FILENAME$) <> "" THEN
+        d$ = CONFIG_extract_dir$(CURRENT_FILENAME$)
+        IF d$ <> "" AND _DIREXISTS(d$) THEN
+            BROWSER_resolve_start_dir$ = d$
+            EXIT FUNCTION
+        END IF
+    END IF
+
+    homeDir$ = _TRIM$(ENVIRON$("HOME"))
+    IF homeDir$ <> "" THEN
+        d$ = homeDir$ + "/Pictures"
+        IF _DIREXISTS(d$) THEN
+            BROWSER_resolve_start_dir$ = d$
+            EXIT FUNCTION
+        END IF
+        d$ = homeDir$ + "/Documents"
+        IF _DIREXISTS(d$) THEN
+            BROWSER_resolve_start_dir$ = d$
+            EXIT FUNCTION
+        END IF
+    END IF
+
+    BROWSER_resolve_start_dir$ = _CWD$
+END FUNCTION
+
+SUB BROWSER_compute_display_size ()
+    DIM ts AS INTEGER, ds AS INTEGER
+    ts% = CFG.TOOLBAR_SCALE%: IF ts% < 1 THEN ts% = 1
+    ds% = SCRN.displayScale%: IF ds% < 1 THEN ds% = 1
+
+    BROWSER.renderScale! = CSNG(ts%) / CSNG(ds%)
+
+    BROWSER.dispW% = INT(CSNG(FD_STATE.dialogW) * BROWSER.renderScale! + 0.5)
+    BROWSER.dispH% = INT(CSNG(FD_STATE.dialogH) * BROWSER.renderScale! + 0.5)
+    BROWSER.dispX% = INT(CSNG(FD_STATE.dialogX) * BROWSER.renderScale! + 0.5)
+    BROWSER.dispY% = INT(CSNG(FD_STATE.dialogY) * BROWSER.renderScale! + 0.5)
+END SUB
+
+SUB BROWSER_apply_split_defaults ()
+    ' Keep Browser pane widths independent from modal FD persisted splitters.
+    IF FD_STATE.dialogW < 1 THEN EXIT SUB
+
+    DIM targetPlaces AS INTEGER
+    DIM targetPreview AS INTEGER
+
+    targetPlaces% = FD_STATE.dialogW \ 6
+    DIM placesMin AS INTEGER
+    placesMin% = CFG.BROWSER_PLACES_MIN_W%
+    IF placesMin% < 40 THEN placesMin% = 70    ' 0=auto → default 70
+    IF targetPlaces% < placesMin% THEN targetPlaces% = placesMin%
+    IF targetPlaces% > 300 THEN targetPlaces% = 300
+
+    targetPreview% = FD_STATE.dialogW \ 5
+    DIM previewMin AS INTEGER
+    previewMin% = CFG.BROWSER_PREVIEW_MIN_W%
+    IF previewMin% < 40 THEN previewMin% = 110  ' 0=auto → default 110
+    IF targetPreview% < previewMin% THEN targetPreview% = previewMin%
+    IF targetPreview% > 400 THEN targetPreview% = 400
+
+    FD_STATE.placesW = targetPlaces%
+    IF FD_CFG.showPreview THEN
+        FD_STATE.previewW = targetPreview%
+    END IF
+END SUB
+
+SUB BROWSER_sync_fd_from_display ()
+    DIM oldX AS INTEGER, oldY AS INTEGER
+    DIM oldW AS INTEGER, oldH AS INTEGER
+
+    oldX% = FD_STATE.dialogX
+    oldY% = FD_STATE.dialogY
+    oldW% = FD_STATE.dialogW
+    oldH% = FD_STATE.dialogH
+
+    IF BROWSER.renderScale! <= 0 THEN BROWSER.renderScale! = 1!
+
+    FD_STATE.dialogX = INT(CSNG(BROWSER.dispX%) / BROWSER.renderScale! + 0.5)
+    FD_STATE.dialogY = INT(CSNG(BROWSER.dispY%) / BROWSER.renderScale! + 0.5)
+    FD_STATE.dialogW = INT(CSNG(BROWSER.dispW%) / BROWSER.renderScale! + 0.5)
+    FD_STATE.dialogH = INT(CSNG(BROWSER.dispH%) / BROWSER.renderScale! + 0.5)
+
+    IF FD_STATE.dialogW < BROWSER_MIN_W THEN FD_STATE.dialogW = BROWSER_MIN_W
+    IF FD_STATE.dialogH < BROWSER_MIN_H THEN FD_STATE.dialogH = BROWSER_MIN_H
+
+    IF FD_STATE.dialogW <> oldW% OR FD_STATE.dialogH <> oldH% THEN
+        IF FD_STATE.imgHandle& < -1 THEN _FREEIMAGE FD_STATE.imgHandle&
+        FD_STATE.imgHandle& = _NEWIMAGE(FD_STATE.dialogW, FD_STATE.dialogH, 32)
+        IF FD_STATE.imgHandle& < -1 THEN _FONT FD_CFG.fontID, FD_STATE.imgHandle&
+        BROWSER_apply_split_defaults
+        FD_LAYOUT_calculate
+        FD_FS_recalc_scroll
+    END IF
+
+    IF FD_STATE.dialogX <> oldX% OR FD_STATE.dialogY <> oldY% OR FD_STATE.dialogW <> oldW% OR FD_STATE.dialogH <> oldH% THEN
+        FD_STATE.dirty = TRUE
+    END IF
+END SUB
+
+SUB BROWSER_get_work_area (minX AS INTEGER, minY AS INTEGER, maxX AS INTEGER, maxY AS INTEGER)
+    minX% = SCRN.uiLeftEdge%
+    maxX% = SCRN.uiRightEdge%
+
+    IF LAYER_PANEL.visible% THEN
+        IF LAYER_PANEL.panelX1 > 0 THEN
+            IF LAYER_PANEL.panelX1 - 1 < maxX% THEN maxX% = LAYER_PANEL.panelX1 - 1
+        END IF
+    END IF
+
+    minY% = 0
+    IF SCRN.showMenubar% AND MENU_BAR.visible% THEN minY% = MENU_BAR_HEIGHT
+
+    maxY% = SCRN.h&
+    IF SCRN.showStatus% THEN
+        maxY% = SCRN.h& - THEME.STATUS_height% - PALETTE_STRIP_get_height%
+    END IF
+END SUB
+
+SUB BROWSER_toggle_maximize ()
+    DIM minX AS INTEGER, minY AS INTEGER
+    DIM maxX AS INTEGER, maxY AS INTEGER
+
+    BROWSER_get_work_area minX%, minY%, maxX%, maxY%
+
+    IF BROWSER.maximized% THEN
+        BROWSER.dispX% = BROWSER.restoreX%
+        BROWSER.dispY% = BROWSER.restoreY%
+        BROWSER.dispW% = BROWSER.restoreW%
+        BROWSER.dispH% = BROWSER.restoreH%
+        BROWSER.maximized% = FALSE
+    ELSE
+        BROWSER.restoreX% = BROWSER.dispX%
+        BROWSER.restoreY% = BROWSER.dispY%
+        BROWSER.restoreW% = BROWSER.dispW%
+        BROWSER.restoreH% = BROWSER.dispH%
+
+        BROWSER.dispX% = minX%
+        BROWSER.dispY% = minY%
+        BROWSER.dispW% = maxX% - minX%
+        BROWSER.dispH% = maxY% - minY%
+        BROWSER.maximized% = TRUE
+    END IF
+
+    BROWSER_clamp_size
+    BROWSER_clamp_to_work_area
+    BROWSER_sync_fd_from_display
+
+    BROWSER.positioned% = TRUE
+    CFG.BROWSER_POS_X% = BROWSER.dispX%
+    CFG.BROWSER_POS_Y% = BROWSER.dispY%
+    CFG.BROWSER_WIDTH% = FD_STATE.dialogW
+    CFG.BROWSER_HEIGHT% = FD_STATE.dialogH
+    FRAME_IDLE% = FALSE
+    SCENE_DIRTY% = TRUE
+END SUB
+
+SUB BROWSER_suspend_for_modal ()
+    IF BROWSER.suspendDepth% = 0 THEN
+        BROWSER.suspendWasVisible% = (BROWSER.visible% AND SCRN.showBrowser%)
+
+        ' Browser and modal dialogs share FILE_DIALOG singleton state.
+        ' Release Browser runtime handles WITHOUT FD_cleanup so modal dialogs
+        ' keep their own persisted size/position and last directory.
+        IF BROWSER.initialized% THEN
+            ' FD_STATE.dialogW/H are in FD native pixels; BROWSER.dispW/H are
+            ' viewport pixels at this point.  Reset dispW/H to native so that
+            ' BROWSER_ensure_initialized can safely do:
+            '   FD_STATE.dialogW = BROWSER.dispW%   (native = native, correct)
+            ' Without this reset, dispW would still be viewport pixels and the
+            ' assignment would treat viewport as native, then
+            ' BROWSER_compute_display_size would multiply by renderScale again,
+            ' shrinking the browser by renderScale^n across each modal open/close.
+            BROWSER.dispW% = FD_STATE.dialogW
+            BROWSER.dispH% = FD_STATE.dialogH
+            BROWSER.dispX% = INT(CSNG(FD_STATE.dialogX) * BROWSER.renderScale! + 0.5)
+            BROWSER.dispY% = INT(CSNG(FD_STATE.dialogY) * BROWSER.renderScale! + 0.5)
+            ' Also persist native size so BROWSER_init would restore correctly
+            ' if the browser were fully re-created (e.g. settings change).
+            CFG.BROWSER_WIDTH%  = FD_STATE.dialogW
+            CFG.BROWSER_HEIGHT% = FD_STATE.dialogH
+
+            IF FD_STATE.imgHandle& < -1 THEN
+                _FREEIMAGE FD_STATE.imgHandle&
+                FD_STATE.imgHandle& = -1
+            END IF
+            FD_THUMB_cleanup
+            BROWSER.initialized% = FALSE
+        END IF
+
+        IF BROWSER.suspendWasVisible% THEN
+            BROWSER.visible% = FALSE
+            SCRN.showBrowser% = FALSE
+            FRAME_IDLE% = FALSE
+            SCENE_DIRTY% = TRUE
+            SCREEN_render
+        END IF
+    END IF
+    BROWSER.suspendDepth% = BROWSER.suspendDepth% + 1
+END SUB
+
+SUB BROWSER_resume_after_modal ()
+    IF BROWSER.suspendDepth% <= 0 THEN EXIT SUB
+
+    BROWSER.suspendDepth% = BROWSER.suspendDepth% - 1
+    IF BROWSER.suspendDepth% > 0 THEN EXIT SUB
+
+    IF BROWSER.suspendWasVisible% THEN
+        BROWSER.visible% = TRUE
+        SCRN.showBrowser% = TRUE
+        SCRN.browserManuallyHidden% = FALSE
+        BROWSER.autoHidden% = FALSE
+        BROWSER_ensure_initialized
+        BROWSER_clamp_size
+        BROWSER_clamp_to_work_area
+        BROWSER_sync_fd_from_display
+        FRAME_IDLE% = FALSE
+        SCENE_DIRTY% = TRUE
+    END IF
+    BROWSER.suspendWasVisible% = FALSE
+END SUB
+
+SUB BROWSER_clamp_size ()
+    DIM availW AS INTEGER, availH AS INTEGER
+    DIM topY AS INTEGER, bottomPad AS INTEGER
+    DIM maxW AS INTEGER, maxH AS INTEGER
+
+    availW% = SCRN.uiRightEdge% - SCRN.uiLeftEdge% + 1
+    IF availW% < BROWSER_MIN_W THEN availW% = BROWSER_MIN_W
+
+    topY% = 0
+    IF SCRN.showMenubar% AND MENU_BAR.visible% THEN topY% = MENU_BAR_HEIGHT
+    bottomPad% = 0
+    IF SCRN.showStatus% THEN bottomPad% = THEME.STATUS_height% + PALETTE_STRIP_get_height%
+
+    availH% = SCRN.h& - topY% - bottomPad%
+    IF availH% < BROWSER_MIN_H THEN availH% = BROWSER_MIN_H
+
+    ' Allow browser to grow near full work area for wide/tall browsing.
+    maxW% = (availW% * 98) \ 100
+    maxH% = (availH% * 98) \ 100
+    IF maxW% > availW% THEN maxW% = availW%
+    IF maxH% > availH% THEN maxH% = availH%
+
+    IF BROWSER.dispW% < BROWSER_MIN_W THEN BROWSER.dispW% = BROWSER_MIN_W
+    IF BROWSER.dispH% < BROWSER_MIN_H THEN BROWSER.dispH% = BROWSER_MIN_H
+    IF BROWSER.dispW% > maxW% THEN BROWSER.dispW% = maxW%
+    IF BROWSER.dispH% > maxH% THEN BROWSER.dispH% = maxH%
+END SUB
+
+SUB BROWSER_ensure_initialized ()
+    IF BROWSER.initialized% THEN EXIT SUB
+
+    ' Only load defaults on the first-ever initialization.
+    ' On resume after a modal dialog, BROWSER.* live state (dir, view, sort, etc.)
+    ' must be preserved — the user should return to exactly where they left off.
+    IF NOT BROWSER.settingsLoaded% THEN
+        BROWSER.viewMode%    = CFG.BROWSER_DEFAULT_VIEW_MODE%
+        BROWSER.zoomLevel%   = CFG.BROWSER_DEFAULT_ZOOM_LEVEL%
+        BROWSER.sortType%    = CFG.BROWSER_DEFAULT_SORT_TYPE%
+        BROWSER.sortOrder%   = CFG.BROWSER_DEFAULT_SORT_ORDER%
+        BROWSER.previewOpen% = CFG.BROWSER_DEFAULT_PREVIEW_OPEN%
+        BROWSER.lastDir$     = BROWSER_resolve_start_dir$
+        BROWSER.settingsLoaded% = TRUE
+    END IF
+
+    IF BROWSER.viewMode% < 0 THEN BROWSER.viewMode% = 0
+    IF BROWSER.viewMode% > 2 THEN BROWSER.viewMode% = 2
+    IF BROWSER.zoomLevel% < 1 THEN BROWSER.zoomLevel% = 2
+    IF BROWSER.zoomLevel% > 8 THEN BROWSER.zoomLevel% = 8
+    IF BROWSER.sortType% < 0 THEN BROWSER.sortType% = 0
+    IF BROWSER.sortType% > 3 THEN BROWSER.sortType% = 0
+    IF BROWSER.sortOrder% < 0 THEN BROWSER.sortOrder% = 0
+    IF BROWSER.sortOrder% > 1 THEN BROWSER.sortOrder% = 0
+
+    DRAW_FD_register_custom_places
+    FD_init FD_MODE_OPEN, "BROWSER", "OPEN", BROWSER.lastDir$, "Image Files|*.png|*.bmp|*.jpg|*.jpeg|*.gif|*.webp|*.qoi|*.drw|All Files|*.*", 0, ""
+    DRAW_FD_load_icons
+
+    ' Use compact browser-specific font/icon scales (CFG.BROWSER_FONT_SCALE%,
+    ' CFG.BROWSER_ICON_SCALE%) instead of the modal FD scales.  Modal dialogs
+    ' use FD_FONT_SCALE=2/FD_ICON_SCALE=3; using those here makes FD render all
+    ' content at 2x, producing an enormous panel.  Browser defaults to scale 1.
+    DRAW_FD_apply_browser_font_scale
+
+    DRAW_FD_apply_theme
+
+    FD_STATE.embeddedMode = TRUE
+    FD_STATE.hideButtonBar = TRUE
+    ' Tell FD_LAYOUT_calculate the blit multiplier so it can compensate minimum
+    ' bar/row heights.  Without this, all minimums (pathBarH=28, rowH=20, etc.)
+    ' appear doubled after the ts=2 blit, making the browser bars thicker than
+    ' the equivalent modal dialog.  scale=1 for modal (no blit scaling).
+    DIM bts AS INTEGER: bts% = CFG.TOOLBAR_SCALE%
+    IF bts% < 1 THEN bts% = 1
+    FD_STATE.scale = bts%
+    ' Pass configured pane minimum widths so drag-resize enforces them.
+    FD_STATE.placesMinW = CFG.BROWSER_PLACES_MIN_W%
+    FD_STATE.previewMinW = CFG.BROWSER_PREVIEW_MIN_W%
+
+    FD_CFG.viewMode = BROWSER.viewMode%
+    FD_CFG.sortField = BROWSER.sortType%
+    IF BROWSER.sortOrder% = 0 THEN
+        FD_CFG.sortAscending = TRUE
+    ELSE
+        FD_CFG.sortAscending = FALSE
+    END IF
+    ' Use proper QB64 boolean (-1=TRUE, 0=FALSE). A non-standard value like 1
+    ' causes `NOT FD_CFG.showPreview` to evaluate to -2 (truthy), which silently
+    ' disables preview image loading in FD_INPUT_update_preview.
+    IF BROWSER.previewOpen% THEN FD_CFG.showPreview = -1 ELSE FD_CFG.showPreview = 0
+
+    FD_CFG.thumbSize = BROWSER.zoomLevel% * 32
+    IF FD_CFG.thumbSize < 32 THEN FD_CFG.thumbSize = 32
+    IF FD_CFG.thumbSize > 256 THEN FD_CFG.thumbSize = 256
+
+    ' CFG.BROWSER_WIDTH/HEIGHT are stored in FD native pixels (same role as
+    ' CP_STATE.dialogW for Color Mixer). BROWSER.dispW/H hold those native values
+    ' at init time.  Set FD dialog size first, then derive the viewport footprint.
+    FD_STATE.dialogW = BROWSER.dispW%
+    FD_STATE.dialogH = BROWSER.dispH%
+    IF FD_STATE.dialogW < BROWSER_MIN_W THEN FD_STATE.dialogW = BROWSER_MIN_W
+    IF FD_STATE.dialogH < BROWSER_MIN_H THEN FD_STATE.dialogH = BROWSER_MIN_H
+    BROWSER_apply_split_defaults
+    BROWSER_compute_display_size    ' BROWSER.dispW = FD.dialogW * ts/ds (viewport footprint)
+    IF BROWSER.renderScale! <= 0 THEN BROWSER.renderScale! = 1
+    BROWSER_clamp_size              ' clamp viewport footprint to available area
+    ' Sync (possibly clamped) viewport back to FD native coords
+    FD_STATE.dialogX = INT(CSNG(BROWSER.dispX%) / BROWSER.renderScale! + 0.5)
+    FD_STATE.dialogY = INT(CSNG(BROWSER.dispY%) / BROWSER.renderScale! + 0.5)
+    FD_STATE.dialogW = INT(CSNG(BROWSER.dispW%) / BROWSER.renderScale! + 0.5)
+    FD_STATE.dialogH = INT(CSNG(BROWSER.dispH%) / BROWSER.renderScale! + 0.5)
+    IF FD_STATE.dialogW < BROWSER_MIN_W THEN FD_STATE.dialogW = BROWSER_MIN_W
+    IF FD_STATE.dialogH < BROWSER_MIN_H THEN FD_STATE.dialogH = BROWSER_MIN_H
+
+    FD_LAYOUT_calculate
+    IF FD_STATE.imgHandle& < -1 THEN _FREEIMAGE FD_STATE.imgHandle&
+    FD_STATE.imgHandle& = _NEWIMAGE(FD_STATE.dialogW, FD_STATE.dialogH, 32)
+    IF FD_STATE.imgHandle& < -1 THEN _FONT FD_CFG.fontID, FD_STATE.imgHandle&
+    FD_STATE.dirty = TRUE
+
+    ' Enable multi-select so Ctrl+click / Shift+click work in the browser
+    FD_STATE.multiSelect = TRUE
+
+    BROWSER.initialized% = TRUE
+END SUB
+
+SUB BROWSER_clamp_to_work_area ()
+    DIM minX AS INTEGER, maxX AS INTEGER
+    DIM minY AS INTEGER, maxY AS INTEGER
+
+    BROWSER_get_work_area minX%, minY%, maxX%, maxY%
+
+    maxX% = maxX% - BROWSER.dispW%
+    IF maxX% < minX% THEN maxX% = minX%
+
+    maxY% = maxY% - BROWSER.dispH%
+    IF maxY% < minY% THEN maxY% = minY%
+
+    IF BROWSER.dispX% < minX% THEN BROWSER.dispX% = minX%
+    IF BROWSER.dispX% > maxX% THEN BROWSER.dispX% = maxX%
+    IF BROWSER.dispY% < minY% THEN BROWSER.dispY% = minY%
+    IF BROWSER.dispY% > maxY% THEN BROWSER.dispY% = maxY%
+END SUB
+
+SUB BROWSER_auto_position ()
+    DIM pad AS INTEGER
+    DIM minX AS INTEGER, minY AS INTEGER
+    DIM maxX AS INTEGER, maxY AS INTEGER
+    pad% = 8
+
+    BROWSER_get_work_area minX%, minY%, maxX%, maxY%
+    BROWSER.dispX% = minX% + pad%
+    BROWSER.dispY% = minY% + pad%
+
+    BROWSER_clamp_to_work_area
+
+    IF BROWSER.renderScale! <= 0 THEN BROWSER.renderScale! = 1
+    FD_STATE.dialogX = INT(CSNG(BROWSER.dispX%) / BROWSER.renderScale! + 0.5)
+    FD_STATE.dialogY = INT(CSNG(BROWSER.dispY%) / BROWSER.renderScale! + 0.5)
+    BROWSER_compute_display_size
+
+    BROWSER.positioned% = TRUE
+    CFG.BROWSER_POS_X% = BROWSER.dispX%
+    CFG.BROWSER_POS_Y% = BROWSER.dispY%
+END SUB
+
+SUB BROWSER_init ()
+    BROWSER.visible%        = FALSE
+    BROWSER.positioned%     = FALSE
+    BROWSER.initialized%    = FALSE
+    BROWSER.settingsLoaded% = FALSE
+    BROWSER.needReClamp%    = TRUE    ' Defer work-area clamp to first render (layout not ready at init)
+    BROWSER.autoHidden%     = FALSE
+
+    BROWSER.dragging%     = FALSE
+    BROWSER.dragStartMX%  = 0
+    BROWSER.dragStartMY%  = 0
+    BROWSER.dragStartDX%  = 0
+    BROWSER.dragStartDY%  = 0
+    BROWSER.resizing%     = FALSE
+    BROWSER.resizeEdge%   = FD_RESIZE_NONE
+    BROWSER.resizeStartMX% = 0
+    BROWSER.resizeStartMY% = 0
+    BROWSER.resizeStartX%  = 0
+    BROWSER.resizeStartY%  = 0
+    BROWSER.resizeStartW%  = 0
+    BROWSER.resizeStartH%  = 0
+    BROWSER.maximized%     = FALSE
+    BROWSER.restoreX%      = 0
+    BROWSER.restoreY%      = 0
+    BROWSER.restoreW%      = 0
+    BROWSER.restoreH%      = 0
+    BROWSER.titleClickTime# = 0
+    BROWSER.suspendDepth%  = 0
+    BROWSER.suspendWasVisible% = FALSE
+
+    BROWSER.fileDragActive%  = FALSE
+    BROWSER.fileDragStarted% = FALSE
+    BROWSER.fileDragStartMX% = 0
+    BROWSER.fileDragStartMY% = 0
+    BROWSER.fileDragPath     = ""
+    BROWSER.fileDragCount%   = 0
+
+    BROWSER.imgHandle&    = 0
+    BROWSER.fontHandle&   = 0
+
+    BROWSER.dispW% = CFG.BROWSER_WIDTH%
+    BROWSER.dispH% = CFG.BROWSER_HEIGHT%
+    BROWSER.renderScale! = 1!
+    IF BROWSER.dispW% < BROWSER_MIN_W THEN BROWSER.dispW% = BROWSER_DEFAULT_W
+    IF BROWSER.dispH% < BROWSER_MIN_H THEN BROWSER.dispH% = BROWSER_DEFAULT_H
+    BROWSER_clamp_size
+
+    BROWSER.lastDir$ = ""
+
+    SCRN.showBrowser%           = FALSE
+    SCRN.browserManuallyHidden% = TRUE
+
+    IF CFG.BROWSER_VISIBLE% THEN
+        BROWSER.visible%            = TRUE
+        SCRN.showBrowser%           = TRUE
+        SCRN.browserManuallyHidden% = FALSE
+    END IF
+
+    IF CFG.BROWSER_POS_X% > -1 AND CFG.BROWSER_POS_Y% > -1 THEN
+        BROWSER.dispX% = CFG.BROWSER_POS_X%
+        BROWSER.dispY% = CFG.BROWSER_POS_Y%
+        BROWSER.positioned% = TRUE
+        BROWSER_clamp_to_work_area
+    ELSE
+        ' Visible on startup with no saved position: spawn in safe top-left work area.
+        DIM sx AS INTEGER, sy AS INTEGER, ex AS INTEGER, ey AS INTEGER
+        BROWSER_get_work_area sx%, sy%, ex%, ey%
+        BROWSER.dispX% = sx% + 8
+        BROWSER.dispY% = sy% + 8
+        BROWSER.positioned% = TRUE
+        BROWSER_clamp_to_work_area
+    END IF
+END SUB
+
+SUB BROWSER_cleanup ()
+    IF BROWSER.initialized% THEN
+        ' Use FD_cleanup_runtime (no config save) so browser state does NOT
+        ' overwrite ~/.file-dialog.cfg.  Modal dialog position/pane widths
+        ' are persisted in DRAW.cfg via DRAW_FD_save_modal_state instead.
+        FD_cleanup_runtime
+    END IF
+    BROWSER.fontHandle& = 0
+    BROWSER.imgHandle& = 0
+    BROWSER.initialized% = FALSE
+END SUB
+
+SUB BROWSER_toggle ()
+    IF BROWSER.visible% THEN
+        BROWSER.visible%            = FALSE
+        SCRN.showBrowser%           = FALSE
+        SCRN.browserManuallyHidden% = TRUE
+    ELSE
+        BROWSER.visible%            = TRUE
+        SCRN.showBrowser%           = TRUE
+        SCRN.browserManuallyHidden% = FALSE
+        BROWSER_ensure_initialized
+        IF NOT BROWSER.positioned% THEN
+            BROWSER_auto_position
+        ELSE
+            BROWSER_clamp_size
+            BROWSER_clamp_to_work_area
+            BROWSER_sync_fd_from_display
+        END IF
+    END IF
+
+    CFG.BROWSER_VISIBLE% = BROWSER.visible%
+    SCENE_DIRTY%         = TRUE
+    FRAME_IDLE%          = FALSE
+END SUB
+
+FUNCTION BROWSER_hit_window% (rawX AS INTEGER, rawY AS INTEGER)
+    BROWSER_hit_window% = FALSE
+    IF NOT BROWSER.visible% THEN EXIT FUNCTION
+    IF BROWSER.autoHidden% THEN EXIT FUNCTION
+
+    IF rawX% >= BROWSER.dispX% AND rawX% <= BROWSER.dispX% + BROWSER.dispW% - 1 THEN
+        IF rawY% >= BROWSER.dispY% AND rawY% <= BROWSER.dispY% + BROWSER.dispH% - 1 THEN
+            BROWSER_hit_window% = TRUE
+        END IF
+    END IF
+END FUNCTION
+
+SUB BROWSER_mouse_input (wheelDelta AS INTEGER)
+    IF NOT BROWSER.visible% OR BROWSER.autoHidden% THEN EXIT SUB
+    BROWSER_ensure_initialized
+
+    ' Feed FILE_DIALOG with DRAW's already-polled mouse/modifier state.
+    FD_STATE.oldMouseB1 = FD_STATE.mouseB1
+    FD_STATE.oldMouseB2 = FD_STATE.mouseB2
+    FD_STATE.oldMouseB4 = FD_STATE.mouseB4
+    FD_STATE.oldMouseB5 = FD_STATE.mouseB5
+
+    DIM localX AS INTEGER, localY AS INTEGER
+    DIM nativeX AS INTEGER, nativeY AS INTEGER
+    DIM justPressed AS INTEGER, justReleased AS INTEGER
+    localX% = MOUSE.RAW_X% - BROWSER.dispX%
+    localY% = MOUSE.RAW_Y% - BROWSER.dispY%
+    justPressed% = (MOUSE.B1% AND NOT MOUSE.OLD_B1%)
+    justReleased% = (NOT MOUSE.B1% AND MOUSE.OLD_B1%)
+
+    IF BROWSER.renderScale! > 0 THEN
+        nativeX% = INT(CSNG(localX%) / BROWSER.renderScale!)
+        nativeY% = INT(CSNG(localY%) / BROWSER.renderScale!)
+    ELSE
+        nativeX% = localX%
+        nativeY% = localY%
+    END IF
+
+    FD_STATE.mouseX = nativeX%
+    FD_STATE.mouseY = nativeY%
+    FD_STATE.mouseB1 = MOUSE.B1%
+    FD_STATE.mouseB2 = MOUSE.B2%
+    FD_STATE.mouseB4 = 0
+    FD_STATE.mouseB5 = 0
+    FD_STATE.mouseWheel = wheelDelta%
+
+    FD_STATE.modCtrl = MODIFIERS.ctrl%
+    FD_STATE.modAlt = MODIFIERS.alt%
+    FD_STATE.modShift = MODIFIERS.shift%
+
+    DIM overPanel AS INTEGER
+    overPanel% = (localX% >= 0 AND localX% < BROWSER.dispW% AND localY% >= 0 AND localY% < BROWSER.dispH%)
+
+    ' ---- Active file drag-out ----
+    ' Once the user has dragged a file outside the browser panel, we bypass all
+    ' normal FD input processing and just wait for the button release to drop.
+    IF BROWSER.fileDragActive% THEN
+        IF NOT MOUSE.B1% THEN
+            BROWSER_execute_file_drop
+            BROWSER.fileDragActive%  = FALSE
+            BROWSER.fileDragStarted% = FALSE
+            BROWSER.fileDragCount%   = 0
+            BROWSER.fileDragPath     = ""
+        END IF
+        FRAME_IDLE% = FALSE
+        SCENE_DIRTY% = TRUE
+        EXIT SUB
+    END IF
+
+    IF BROWSER.dragging% THEN
+        IF MOUSE.B1% THEN
+            BROWSER.dispX% = BROWSER.dragStartDX% + (MOUSE.RAW_X% - BROWSER.dragStartMX%)
+            BROWSER.dispY% = BROWSER.dragStartDY% + (MOUSE.RAW_Y% - BROWSER.dragStartMY%)
+            BROWSER_clamp_to_work_area
+            BROWSER_sync_fd_from_display
+            BROWSER.maximized% = FALSE
+            BROWSER.positioned% = TRUE
+            CFG.BROWSER_POS_X% = BROWSER.dispX%
+            CFG.BROWSER_POS_Y% = BROWSER.dispY%
+            FRAME_IDLE% = FALSE
+            SCENE_DIRTY% = TRUE
+        ELSE
+            BROWSER.dragging% = FALSE
+        END IF
+        EXIT SUB
+    END IF
+
+    IF BROWSER.resizing% THEN
+        IF MOUSE.B1% THEN
+            DIM dx AS INTEGER, dy AS INTEGER
+            DIM newX AS INTEGER, newY AS INTEGER
+            DIM newW AS INTEGER, newH AS INTEGER
+            DIM rightEdge AS INTEGER, bottomEdge AS INTEGER
+
+            dx% = MOUSE.RAW_X% - BROWSER.resizeStartMX%
+            dy% = MOUSE.RAW_Y% - BROWSER.resizeStartMY%
+
+            newX% = BROWSER.resizeStartX%
+            newY% = BROWSER.resizeStartY%
+            newW% = BROWSER.resizeStartW%
+            newH% = BROWSER.resizeStartH%
+
+            IF BROWSER.resizeEdge% = FD_RESIZE_E OR BROWSER.resizeEdge% = FD_RESIZE_NE OR BROWSER.resizeEdge% = FD_RESIZE_SE THEN
+                newW% = BROWSER.resizeStartW% + dx%
+            END IF
+            IF BROWSER.resizeEdge% = FD_RESIZE_W OR BROWSER.resizeEdge% = FD_RESIZE_NW OR BROWSER.resizeEdge% = FD_RESIZE_SW THEN
+                newW% = BROWSER.resizeStartW% - dx%
+                newX% = BROWSER.resizeStartX% + dx%
+            END IF
+            IF BROWSER.resizeEdge% = FD_RESIZE_S OR BROWSER.resizeEdge% = FD_RESIZE_SE OR BROWSER.resizeEdge% = FD_RESIZE_SW THEN
+                newH% = BROWSER.resizeStartH% + dy%
+            END IF
+            IF BROWSER.resizeEdge% = FD_RESIZE_N OR BROWSER.resizeEdge% = FD_RESIZE_NE OR BROWSER.resizeEdge% = FD_RESIZE_NW THEN
+                newH% = BROWSER.resizeStartH% - dy%
+                newY% = BROWSER.resizeStartY% + dy%
+            END IF
+
+            rightEdge% = newX% + newW%
+            bottomEdge% = newY% + newH%
+
+            BROWSER.dispW% = newW%
+            BROWSER.dispH% = newH%
+            BROWSER_clamp_size
+
+            IF BROWSER.resizeEdge% = FD_RESIZE_W OR BROWSER.resizeEdge% = FD_RESIZE_NW OR BROWSER.resizeEdge% = FD_RESIZE_SW THEN
+                newX% = rightEdge% - BROWSER.dispW%
+            END IF
+            IF BROWSER.resizeEdge% = FD_RESIZE_N OR BROWSER.resizeEdge% = FD_RESIZE_NE OR BROWSER.resizeEdge% = FD_RESIZE_NW THEN
+                newY% = bottomEdge% - BROWSER.dispH%
+            END IF
+
+            BROWSER.dispX% = newX%
+            BROWSER.dispY% = newY%
+            BROWSER_clamp_to_work_area
+            BROWSER_sync_fd_from_display
+            BROWSER.maximized% = FALSE
+
+            BROWSER.positioned% = TRUE
+            CFG.BROWSER_POS_X% = BROWSER.dispX%
+            CFG.BROWSER_POS_Y% = BROWSER.dispY%
+            CFG.BROWSER_WIDTH% = FD_STATE.dialogW
+            CFG.BROWSER_HEIGHT% = FD_STATE.dialogH
+            FRAME_IDLE% = FALSE
+            SCENE_DIRTY% = TRUE
+        ELSE
+            BROWSER.resizing% = FALSE
+            BROWSER.resizeEdge% = FD_RESIZE_NONE
+        END IF
+        EXIT SUB
+    END IF
+
+    IF justPressed% AND overPanel% THEN
+        DIM edgeHit AS INTEGER
+        edgeHit% = FD_INPUT_hit_resize_edge%(nativeX%, nativeY%)
+        IF edgeHit% <> FD_RESIZE_NONE THEN
+            BROWSER.resizing% = TRUE
+            BROWSER.resizeEdge% = edgeHit%
+            BROWSER.resizeStartMX% = MOUSE.RAW_X%
+            BROWSER.resizeStartMY% = MOUSE.RAW_Y%
+            BROWSER.resizeStartX% = BROWSER.dispX%
+            BROWSER.resizeStartY% = BROWSER.dispY%
+            BROWSER.resizeStartW% = BROWSER.dispW%
+            BROWSER.resizeStartH% = BROWSER.dispH%
+            EXIT SUB
+        END IF
+
+        DIM titleBarPx AS INTEGER, closeX AS INTEGER
+        DIM nowT AS DOUBLE
+        titleBarPx% = INT(CSNG(FD_STATE.titleBarH) * BROWSER.renderScale! + 0.5)
+        closeX% = FD_STATE.dialogW - FD_STATE.titleBarH
+        IF localY% < titleBarPx% AND nativeX% < closeX% THEN
+            nowT# = TIMER
+            IF nowT# - BROWSER.titleClickTime# <= .30 THEN
+                BROWSER.titleClickTime# = 0
+                BROWSER_toggle_maximize
+                EXIT SUB
+            END IF
+            BROWSER.titleClickTime# = nowT#
+            BROWSER.dragging% = TRUE
+            BROWSER.dragStartMX% = MOUSE.RAW_X%
+            BROWSER.dragStartMY% = MOUSE.RAW_Y%
+            BROWSER.dragStartDX% = BROWSER.dispX%
+            BROWSER.dragStartDY% = BROWSER.dispY%
+            EXIT SUB
+        END IF
+    END IF
+
+    IF TIMER(.001) - FD_STATE.cursorTimer > FD_CURSOR_BLINK_MS THEN
+        FD_STATE.cursorBlink = NOT FD_STATE.cursorBlink
+        FD_STATE.cursorTimer = TIMER(.001)
+        FD_STATE.dirty = TRUE
+    END IF
+
+    FD_INPUT_mouse
+    TI_tick
+    FD_TOOLTIP_update
+    IF FD_CFG.viewMode = FD_VIEW_THUMBNAILS THEN FD_THUMB_tick
+
+    ' Propagate FD dirty to DRAW render loop (wheel scroll, hover, etc.)
+    IF FD_STATE.dirty THEN
+        FRAME_IDLE% = FALSE
+        SCENE_DIRTY% = TRUE
+    END IF
+
+    ' ---- Check for Add-to-Recent callback from FD context menu ----
+    IF LEN(FD_PLAT_trim_cstr$(FD_STATE.pendingRecentPath)) > 0 THEN
+        RECENT_add_file FD_PLAT_trim_cstr$(FD_STATE.pendingRecentPath)
+        FD_STATE.pendingRecentPath = ""
+    END IF
+
+    ' ---- Check for Open-in-DRAW callback from FD context menu ----
+    DIM pendingOpen AS STRING
+    pendingOpen$ = FD_PLAT_trim_cstr$(FD_STATE.pendingOpenInDraw)
+    IF LEN(pendingOpen$) > 0 THEN
+        FD_STATE.pendingOpenInDraw = ""
+        IF _FILEEXISTS(pendingOpen$) THEN
+            DIM doOpenIt AS INTEGER
+            doOpenIt% = TRUE
+            IF CANVAS_DIRTY% THEN
+                POINTER_hide_for_dialog
+                DIM openConfirm AS LONG
+                openConfirm& = DRAW_message_box%("Open in DRAW", "You have unsaved changes. Open " + BROWSER_file_basename$(pendingOpen$) + " without saving?", MB_BTN_YES_NO, MB_ICON_WARNING)
+                POINTER_show_after_dialog
+                MOUSE_cleanup_after_dialog FALSE
+                IF openConfirm& <> MB_RESULT_1 THEN doOpenIt% = FALSE
+            END IF
+            IF doOpenIt% THEN
+                DRW_load pendingOpen$
+                SOUND_play SND_NEW_FILE
+                RECENT_add_file pendingOpen$
+                MOUSE_cleanup_after_dialog TRUE
+            END IF
+        END IF
+    END IF
+
+    ' ---- File drag-out detection ----
+    ' Phase 1: B1 just pressed on a non-directory entry → arm drag-start.
+    ' Capture the file path NOW while selectedIndex is guaranteed valid.
+    ' Note: FD_STATE.selectedIndex is a *filtered* index; use FD_filtered() for raw entry.
+    ' IMPORTANT: FD_entries().fileName and FD_STATE.currentPath are STRING * 260 (null-padded).
+    ' RTRIM$ only strips spaces; CHR$(0) padding requires FD_PLAT_trim_cstr$.
+    IF justPressed% AND overPanel% THEN
+        DIM dragRawIdx AS INTEGER
+        IF FD_STATE.selectedIndex >= 0 AND FD_STATE.selectedIndex < FD_STATE.visibleCount THEN
+            dragRawIdx% = FD_filtered(FD_STATE.selectedIndex)
+            IF NOT FD_entries(dragRawIdx%).isDirectory THEN
+                DIM earlyPath AS STRING
+                earlyPath$ = FD_PLAT_trim_cstr$(FD_STATE.currentPath)
+                IF RIGHT$(earlyPath$, 1) <> "/" THEN earlyPath$ = earlyPath$ + "/"
+                earlyPath$ = earlyPath$ + FD_PLAT_trim_cstr$(FD_entries(dragRawIdx%).fileName)
+                IF _FILEEXISTS(earlyPath$) THEN
+                    BROWSER.fileDragPath     = earlyPath$
+                    BROWSER.fileDragStarted% = TRUE
+                    BROWSER.fileDragStartMX% = MOUSE.RAW_X%
+                    BROWSER.fileDragStartMY% = MOUSE.RAW_Y%
+                    IF FD_STATE.multiSelect AND FD_STATE.multiSelectCount > 1 THEN
+                        BROWSER.fileDragCount% = FD_STATE.multiSelectCount
+                    ELSE
+                        BROWSER.fileDragCount% = 1
+                    END IF
+                END IF
+            END IF
+        END IF
+    END IF
+
+    ' Phase 2: Committed drag — B1 still held, mouse moved outside panel.
+    ' Path was already captured in Phase 1; just commit drag-active on leaving panel.
+    IF BROWSER.fileDragStarted% THEN
+        IF NOT MOUSE.B1% THEN
+            BROWSER.fileDragStarted% = FALSE
+            BROWSER.fileDragPath     = ""
+        ELSEIF NOT overPanel% THEN
+            IF LEN(FD_PLAT_trim_cstr$(BROWSER.fileDragPath)) > 0 THEN
+                BROWSER.fileDragActive%  = TRUE
+                BROWSER.fileDragStarted% = FALSE
+                FRAME_IDLE% = FALSE
+                SCENE_DIRTY% = TRUE
+            END IF
+        END IF
+    END IF
+
+    ' Sync shared browser state from FILE_DIALOG runtime state.
+    BROWSER_compute_display_size
+    BROWSER.positioned% = TRUE
+
+    BROWSER.lastDir$ = RTRIM$(FD_STATE.currentPath)
+    BROWSER.viewMode% = FD_CFG.viewMode
+    BROWSER.sortType% = FD_CFG.sortField
+    BROWSER.previewOpen% = FD_CFG.showPreview
+    IF FD_CFG.sortAscending THEN
+        BROWSER.sortOrder% = 0
+    ELSE
+        BROWSER.sortOrder% = 1
+    END IF
+    BROWSER.zoomLevel% = FD_CFG.thumbSize \ 32
+    IF BROWSER.zoomLevel% < 1 THEN BROWSER.zoomLevel% = 1
+    IF BROWSER.zoomLevel% > 8 THEN BROWSER.zoomLevel% = 8
+
+    CFG.BROWSER_POS_X% = BROWSER.dispX%
+    CFG.BROWSER_POS_Y% = BROWSER.dispY%
+    CFG.BROWSER_WIDTH% = FD_STATE.dialogW
+    CFG.BROWSER_HEIGHT% = FD_STATE.dialogH
+    CFG.BROWSER_LAST_DIR$ = BROWSER.lastDir$
+
+    IF FD_STATE.done THEN
+        FD_STATE.done = FALSE
+        BROWSER.visible% = FALSE
+        SCRN.showBrowser% = FALSE
+        SCRN.browserManuallyHidden% = TRUE
+        CFG.BROWSER_VISIBLE% = FALSE
+    END IF
+
+    FRAME_IDLE% = FALSE
+    SCENE_DIRTY% = TRUE
+END SUB
+
+''
+' Execute the pending file drop action.
+' Tests what UI region the mouse is over and dispatches accordingly:
+'   • Drawer (brush/pattern/gradient panel) → DRAWER_import_file_to_slot
+'   • Layer panel → IMAGE_IMPORT_load_file% + immediate apply, layer renamed to basename
+'   • Anywhere else (canvas apron, work area) → IMAGE_IMPORT_load_file% (interactive)
+'
+SUB BROWSER_execute_file_drop ()
+    DIM dragPath      AS STRING
+    DIM mx            AS INTEGER
+    DIM my            AS INTEGER
+    DIM slotIdx       AS INTEGER
+    DIM importOK      AS INTEGER
+    DIM baseName      AS STRING
+    DIM savedFilename AS STRING
+
+    dragPath$ = FD_PLAT_trim_cstr$(BROWSER.fileDragPath)
+    IF dragPath$ = "" OR NOT _FILEEXISTS(dragPath$) THEN EXIT SUB
+
+    mx% = MOUSE.RAW_X%
+    my% = MOUSE.RAW_Y%
+
+    IF DRAWER.visible% AND DRAWER_is_over_area%(mx%, my%) THEN
+        ' --- Drop onto brush / pattern / gradient drawer ---
+        slotIdx% = DRAWER_slot_at%(mx%, my%)
+        IF slotIdx% < 1 THEN
+            SELECT CASE DRAWER.mode%
+                CASE DRAWER_MODE_BRUSH    : slotIdx% = DRAWER.brushSelected%
+                CASE DRAWER_MODE_PATTERN  : slotIdx% = DRAWER.patternSelected%
+                CASE ELSE                 : slotIdx% = DRAWER.gradientSelected%
+            END SELECT
+        END IF
+        IF slotIdx% < 1 THEN slotIdx% = 1
+
+        IF BROWSER.fileDragCount% > 1 THEN
+            ' Multi-file drop
+            IF BROWSER.fileDragCount% > DRAWER_SLOT_COUNT THEN
+                ' Large drop (>30): create BROWSER_DROPPED_n DSETs on disk
+                BROWSER_create_browser_dsets DRAWER.mode%
+            ELSE
+                ' Fits in one set: fill consecutive slots from the target
+                BROWSER_drop_multifile_to_drawer slotIdx%, DRAWER.mode%
+            END IF
+        ELSE
+            DRAWER_import_file_to_slot dragPath$, slotIdx%, DRAWER.mode%
+        END IF
+
+    ELSEIF LAYER_PANEL.visible% AND LAYER_PANEL_in_bounds%(mx%, my%) THEN
+        ' --- Drop onto layer panel — import and apply immediately ---
+        ' Preserve document filename: IMAGE_IMPORT_apply sets CURRENT_FILENAME$ to
+        ' the imported PNG path, but a browser drag-drop only adds a layer to the
+        ' existing document — the document's identity must not change.
+        savedFilename$ = CURRENT_FILENAME$
+        importOK% = IMAGE_IMPORT_load_file%(dragPath$)
+        IF importOK% THEN
+            IMAGE_IMPORT_apply
+            CURRENT_FILENAME$ = savedFilename$ ' Restore — drop must not rename the doc
+            baseName$ = BROWSER_file_basename$(dragPath$)
+            IF baseName$ <> "" THEN LAYERS(CURRENT_LAYER%).name = baseName$
+            GUI_NEEDS_REDRAW% = TRUE
+        END IF
+
+    ELSE
+        ' --- Drop onto canvas / anywhere else — import and apply immediately ---
+        ' Preserve document filename for the same reason as the layer-panel drop.
+        savedFilename$ = CURRENT_FILENAME$
+        DIM canvasDropOK AS INTEGER
+        canvasDropOK% = IMAGE_IMPORT_load_file%(dragPath$)
+        IF canvasDropOK% THEN
+            IMAGE_IMPORT_apply
+            CURRENT_FILENAME$ = savedFilename$ ' Restore — drop must not rename the doc
+            baseName$ = BROWSER_file_basename$(dragPath$)
+            IF baseName$ <> "" THEN LAYERS(CURRENT_LAYER%).name = baseName$
+            GUI_NEEDS_REDRAW% = TRUE
+        END IF
+    END IF
+
+    FRAME_IDLE% = FALSE
+    SCENE_DIRTY% = TRUE
+END SUB
+
+''
+' For multi-file drag-out to the drawer, fill consecutive slots starting at
+' startSlot with every file in the FD multi-select set.
+' If more than DRAWER_SLOT_COUNT files are selected, the extras are ignored
+' (DSET creation for large drops is handled separately).
+'
+SUB BROWSER_drop_multifile_to_drawer (startSlot AS INTEGER, mode AS INTEGER)
+    DIM localStart AS INTEGER
+    DIM fi         AS INTEGER
+    DIM filePath   AS STRING
+    DIM slotTarget AS INTEGER
+
+    localStart% = startSlot%
+    IF localStart% < 1 THEN localStart% = 1
+    IF localStart% > DRAWER_SLOT_COUNT THEN localStart% = DRAWER_SLOT_COUNT
+
+    slotTarget% = localStart%
+    FOR fi% = 0 TO FD_STATE.entryCount - 1
+        IF FD_entries(fi%).selected AND NOT FD_entries(fi%).isDirectory THEN
+            filePath$ = FD_PLAT_trim_cstr$(FD_STATE.currentPath)
+            IF RIGHT$(filePath$, 1) <> "/" THEN filePath$ = filePath$ + "/"
+            filePath$ = filePath$ + FD_PLAT_trim_cstr$(FD_entries(fi%).fileName)
+            IF _FILEEXISTS(filePath$) THEN
+                DRAWER_import_file_to_slot filePath$, slotTarget%, mode%
+                slotTarget% = slotTarget% + 1
+                IF slotTarget% > DRAWER_SLOT_COUNT THEN EXIT FOR
+            END IF
+        END IF
+    NEXT fi%
+END SUB
+
+''
+' Return just the filename without extension from a full file path.
+'
+FUNCTION BROWSER_file_basename$ (filePath AS STRING)
+    DIM p    AS STRING
+    DIM i    AS INTEGER
+
+    p$ = filePath$
+
+    ' Strip directory component
+    FOR i% = LEN(p$) TO 1 STEP -1
+        IF MID$(p$, i%, 1) = "/" OR MID$(p$, i%, 1) = "\" THEN
+            p$ = MID$(p$, i% + 1)
+            EXIT FOR
+        END IF
+    NEXT i%
+
+    ' Strip extension
+    FOR i% = LEN(p$) TO 1 STEP -1
+        IF MID$(p$, i%, 1) = "." THEN
+            p$ = LEFT$(p$, i% - 1)
+            EXIT FOR
+        END IF
+    NEXT i%
+
+    BROWSER_file_basename$ = p$
+END FUNCTION
+
+''
+' For large browser drops (>DRAWER_SLOT_COUNT files), batch the selected files
+' into groups of DRAWER_SLOT_COUNT and write each group as a dynamic_import_n.dset
+' in USER/DRAWER-SETS/.  After creation, load the first DSET into the drawer and
+' refresh the DSET scan so all created files are immediately navigable via mousewheel.
+' @param startSlot INTEGER  First slot to use when loading the first batch
+' @param mode      INTEGER  Drawer mode (DRAWER_MODE_BRUSH/PATTERN/GRADIENT)
+'
+SUB BROWSER_create_browser_dsets (mode AS INTEGER)
+    DIM setsDir    AS STRING
+    DIM magic      AS STRING * 4
+    DIM version    AS INTEGER
+    DIM fi         AS INTEGER
+    DIM si         AS INTEGER       ' slot index within current batch (1..DRAWER_SLOT_COUNT)
+    DIM dsetNum    AS INTEGER       ' sequential DSET file number
+    DIM fh         AS INTEGER
+    DIM filePath   AS STRING
+    DIM imgH       AS LONG
+    DIM hasImage   AS INTEGER
+    DIM imgW       AS INTEGER
+    DIM imgH2      AS INTEGER
+    DIM empSlot    AS INTEGER
+    DIM padSlot    AS INTEGER
+    DIM x          AS INTEGER
+    DIM y          AS INTEGER
+    DIM c          AS _UNSIGNED LONG
+    DIM oldSrc     AS LONG
+    DIM firstDset  AS STRING
+    DIM dsetPath   AS STRING
+    DIM selectedSlot AS INTEGER
+
+    IF mode% < DRAWER_MODE_BRUSH OR mode% > DRAWER_MODE_GRADIENT THEN EXIT SUB
+
+    DRAWER_ensure_sets_dir
+    setsDir$ = DRAWER_sets_dir$
+    IF RIGHT$(setsDir$, 1) <> "/" THEN setsDir$ = setsDir$ + "/"
+
+    magic$ = "DST1"
+    IF mode% = DRAWER_MODE_GRADIENT THEN version% = 2 ELSE version% = 1
+    selectedSlot% = 1
+
+    dsetNum% = 0
+    si%      = 0
+
+    ' Walk all entries in the current FD listing, collecting selected files
+    FOR fi% = 0 TO FD_STATE.entryCount - 1
+        IF FD_entries(fi%).selected AND NOT FD_entries(fi%).isDirectory THEN
+            filePath$ = FD_PLAT_trim_cstr$(FD_STATE.currentPath)
+            IF RIGHT$(filePath$, 1) <> "/" THEN filePath$ = filePath$ + "/"
+            filePath$ = filePath$ + FD_PLAT_trim_cstr$(FD_entries(fi%).fileName)
+
+            IF _FILEEXISTS(filePath$) THEN
+                ' Start a new DSET file when a batch fills up
+                IF si% = 0 THEN
+                    ' Close previous file if open
+                    IF fh% > 0 THEN
+                        ' Pad remaining slots in the last batch
+                        FOR empSlot% = si% + 1 TO DRAWER_SLOT_COUNT
+                            hasImage% = FALSE
+                            PUT #fh%, , hasImage%
+                        NEXT empSlot%
+                        CLOSE #fh%
+                        fh% = 0
+                    END IF
+
+                    dsetNum% = dsetNum% + 1
+                    dsetPath$ = setsDir$ + "dynamic_import_" + _TRIM$(STR$(dsetNum%)) + ".dset"
+                    IF firstDset$ = "" THEN firstDset$ = dsetPath$
+
+                    fh% = FREEFILE
+                    OPEN dsetPath$ FOR BINARY AS #fh%
+                    PUT #fh%, , magic$
+                    PUT #fh%, , version%
+                    PUT #fh%, , mode%
+                    PUT #fh%, , selectedSlot%
+                END IF
+
+                ' Load and write the image to this slot
+                imgH& = _LOADIMAGE(filePath$, 32)
+                IF imgH& < -1 THEN
+                    imgW%     = _WIDTH(imgH&)
+                    imgH2%    = _HEIGHT(imgH&)
+                    hasImage% = TRUE
+                    PUT #fh%, , hasImage%
+                    PUT #fh%, , imgW%
+                    PUT #fh%, , imgH2%
+                    oldSrc& = _SOURCE
+                    _SOURCE imgH&
+                    FOR y% = 0 TO imgH2% - 1
+                        FOR x% = 0 TO imgW% - 1
+                            c~& = POINT(x%, y%)
+                            PUT #fh%, , c~&
+                        NEXT x%
+                    NEXT y%
+                    _SOURCE oldSrc&
+                    _FREEIMAGE imgH&
+                ELSE
+                    hasImage% = FALSE
+                    PUT #fh%, , hasImage%
+                END IF
+
+                si% = si% + 1
+                IF si% >= DRAWER_SLOT_COUNT THEN si% = 0  ' batch full; next entry starts a new DSET
+            END IF
+        END IF
+    NEXT fi%
+
+    ' Close the last open DSET file and pad remaining slots
+    IF fh% > 0 THEN
+        FOR padSlot% = si% + 1 TO DRAWER_SLOT_COUNT
+            hasImage% = FALSE
+            PUT #fh%, , hasImage%
+        NEXT padSlot%
+        CLOSE #fh%
+        fh% = 0
+    END IF
+
+    ' Load the first DSET into the drawer (uses the target start slot as the selected slot)
+    IF firstDset$ <> "" AND _FILEEXISTS(firstDset$) THEN
+        IF DRAWER_load_dset_file%(firstDset$, mode%) THEN
+            DRAWER_scan_dset_files
+            _LOGINFO "BROWSER_create_browser_dsets: created " + _TRIM$(STR$(dsetNum%)) + " DSET(s), loaded " + firstDset$
+        END IF
+    END IF
+
+    GUI_NEEDS_REDRAW% = TRUE
+    FRAME_IDLE%       = FALSE
+END SUB
+
+SUB BROWSER_render ()
+    IF NOT BROWSER.visible% OR BROWSER.autoHidden% THEN EXIT SUB
+    BROWSER_ensure_initialized
+
+    ' On the first render after startup, SCREEN_compute_layout has run and
+    ' SCRN.uiRightEdge%/layerPanelX% are valid.  Re-clamp now so the saved
+    ' position does not overlap the layer panel or go off-screen.
+    IF BROWSER.needReClamp% THEN
+        BROWSER_clamp_size
+        BROWSER_clamp_to_work_area
+        BROWSER_sync_fd_from_display
+        BROWSER.needReClamp% = FALSE
+    END IF
+
+    IF MENUBAR_is_open% THEN EXIT SUB
+    IF PALETTE_MENU_VISIBLE% THEN EXIT SUB
+    IF LAYER_PANEL.blendPopupOpen% THEN EXIT SUB
+    IF LAYER_PANEL.ctxMenuOpen% THEN EXIT SUB
+    IF DRAWER.contextMenuOpen% THEN EXIT SUB
+    IF CMD_PALETTE.visible THEN EXIT SUB
+
+    IF FD_STATE.dirty THEN
+        FD_RENDER_all
+        FD_STATE.dirty = FALSE
+    END IF
+
+    BROWSER_compute_display_size
+
+    DIM ds AS INTEGER, ts AS INTEGER
+    DIM sx AS LONG
+    DIM sy AS LONG
+    DIM sw AS LONG
+    DIM sh AS LONG
+
+    ' ── Blit pattern: IDENTICAL to COLORMIXER_render. DO NOT change to 1:1. ──
+    ' FD renders its offscreen image at base resolution (FD_STATE.scale = 1 is
+    ' FD-internal only and unrelated to this blit).  The ts upscale here is what
+    ' makes the panel readable at high DPI — same as every other floating panel.
+    '   position on screen 0 = dispX/Y (viewport) * displayScale
+    '   rendered size        = dialogW/H (FD native) * toolbarScale
+    ts% = CFG.TOOLBAR_SCALE%
+    IF ts% < 1 THEN ts% = 1
+
+    ds% = SCRN.displayScale%
+    IF ds% < 1 THEN ds% = 1
+
+    sx& = CLNG(BROWSER.dispX%) * ds%
+    sy& = CLNG(BROWSER.dispY%) * ds%
+    sw& = CLNG(FD_STATE.dialogW) * ts%
+    sh& = CLNG(FD_STATE.dialogH) * ts%
+    IF FD_STATE.imgHandle& < -1 THEN
+        _PUTIMAGE (sx&, sy&)-(sx& + sw& - 1, sy& + sh& - 1), FD_STATE.imgHandle&, 0
+    END IF
+END SUB

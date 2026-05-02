@@ -22,6 +22,7 @@ FUNCTION DRAW_pick_color& (title AS STRING, initialColor AS _UNSIGNED LONG)
     DIM mixerWasInit AS INTEGER
     mixerWasInit% = COLORMIXER.initialized%
     IF mixerWasInit% THEN COLORMIXER_cleanup
+    BROWSER_suspend_for_modal
     CP_init initialColor
 
     ' Wire DRAW theme colors into CP_THEME (same colors as floating mixer)
@@ -136,6 +137,7 @@ FUNCTION DRAW_pick_color& (title AS STRING, initialColor AS _UNSIGNED LONG)
         COLORMIXER.initialized% = FALSE
         COLORMIXER_ensure_initialized
     END IF
+    BROWSER_resume_after_modal
     DRAW_pick_color& = chosenColor
 END FUNCTION
 
@@ -144,6 +146,7 @@ END FUNCTION
 ' DRAW_message_box% — Message box with toolbar scale
 ' --------------------------------------------------------------------------
 FUNCTION DRAW_message_box% (title AS STRING, message AS STRING, buttons AS INTEGER, icon AS INTEGER)
+    BROWSER_suspend_for_modal
     MB_init MB_MODE_MESSAGE, title, message, buttons, icon, "", ""
     ' Apply configured font after init (init zeros state then sets defaults)
     IF CFG.FD_FONT% = 8 THEN
@@ -177,6 +180,7 @@ FUNCTION DRAW_message_box% (title AS STRING, message AS STRING, buttons AS INTEG
     MB_STATE.dirty = -1
     MB_modal_loop
     MB_cleanup
+    BROWSER_resume_after_modal
     DRAW_message_box% = MB_STATE.result
 END FUNCTION
 
@@ -192,6 +196,7 @@ END FUNCTION
 ' DRAW_input_box_ex$ — Input box with toolbar scale and auto-select option
 ' --------------------------------------------------------------------------
 FUNCTION DRAW_input_box_ex$ (title AS STRING, message AS STRING, defaultText AS STRING, placeholder AS STRING, autoSelect AS INTEGER)
+    BROWSER_suspend_for_modal
     MB_STATE.autoSelectText = autoSelect
     MB_init MB_MODE_INPUT, title, message, MB_BTN_OK_CANCEL, MB_ICON_NONE, defaultText, placeholder
     ' Apply configured font after init (init zeros state then sets defaults)
@@ -227,6 +232,7 @@ FUNCTION DRAW_input_box_ex$ (title AS STRING, message AS STRING, defaultText AS 
         result = ""
     END IF
     MB_cleanup
+    BROWSER_resume_after_modal
     DRAW_input_box_ex$ = result
 END FUNCTION
 
@@ -275,6 +281,7 @@ END SUB
 ' DRAW_open_file$ — Open file dialog (scale=1)
 ' --------------------------------------------------------------------------
 FUNCTION DRAW_open_file$ (title AS STRING, startDir AS STRING, filters AS STRING, defaultFilter AS INTEGER)
+    BROWSER_suspend_for_modal
     DRAW_FD_register_custom_places
     FD_init FD_MODE_OPEN, title, "Open", startDir, filters, defaultFilter, ""
     DRAW_FD_load_icons
@@ -288,7 +295,9 @@ FUNCTION DRAW_open_file$ (title AS STRING, startDir AS STRING, filters AS STRING
     ELSE
         result = ""
     END IF
+    DRAW_FD_save_modal_state
     FD_cleanup
+    BROWSER_resume_after_modal
     DRAW_open_file$ = result
 END FUNCTION
 
@@ -299,6 +308,7 @@ END FUNCTION
 ' Each result can be retrieved via RTRIM$(FD_multiResults(i)) for i = 0..N-1.
 ' --------------------------------------------------------------------------
 FUNCTION DRAW_open_files% (title AS STRING, startDir AS STRING, filters AS STRING, defaultFilter AS INTEGER)
+    BROWSER_suspend_for_modal
     DRAW_FD_register_custom_places
     FD_init FD_MODE_OPEN, title, "Open", startDir, filters, defaultFilter, ""
     FD_STATE.multiSelect = -1
@@ -314,7 +324,9 @@ FUNCTION DRAW_open_files% (title AS STRING, startDir AS STRING, filters AS STRIN
     ELSE
         resultCount = 0
     END IF
+    DRAW_FD_save_modal_state
     FD_cleanup
+    BROWSER_resume_after_modal
     DRAW_open_files% = resultCount
 END FUNCTION
 
@@ -323,6 +335,7 @@ END FUNCTION
 ' DRAW_save_file$ — Save file dialog (scale=1)
 ' --------------------------------------------------------------------------
 FUNCTION DRAW_save_file$ (title AS STRING, startDir AS STRING, filters AS STRING, defaultFilter AS INTEGER, defaultFileName AS STRING, defaultExt AS STRING)
+    BROWSER_suspend_for_modal
     DRAW_FD_register_custom_places
     FD_init FD_MODE_SAVE, title, "Save", startDir, filters, defaultFilter, defaultExt
     DRAW_FD_load_icons
@@ -341,7 +354,9 @@ FUNCTION DRAW_save_file$ (title AS STRING, startDir AS STRING, filters AS STRING
     ELSE
         result = ""
     END IF
+    DRAW_FD_save_modal_state
     FD_cleanup
+    BROWSER_resume_after_modal
     DRAW_save_file$ = result
 END FUNCTION
 
@@ -350,6 +365,7 @@ END FUNCTION
 ' DRAW_save_as_file$ — Save-as dialog (scale=1)
 ' --------------------------------------------------------------------------
 FUNCTION DRAW_save_as_file$ (title AS STRING, startDir AS STRING, filters AS STRING, defaultFilter AS INTEGER, defaultFileName AS STRING, defaultExt AS STRING)
+    BROWSER_suspend_for_modal
     DRAW_FD_register_custom_places
     FD_init FD_MODE_SAVE_AS, title, "Save As", startDir, filters, defaultFilter, defaultExt
     DRAW_FD_load_icons
@@ -368,7 +384,9 @@ FUNCTION DRAW_save_as_file$ (title AS STRING, startDir AS STRING, filters AS STR
     ELSE
         result = ""
     END IF
+    DRAW_FD_save_modal_state
     FD_cleanup
+    BROWSER_resume_after_modal
     DRAW_save_as_file$ = result
 END FUNCTION
 
@@ -377,6 +395,7 @@ END FUNCTION
 ' DRAW_choose_folder$ — Folder chooser dialog (scale=1)
 ' --------------------------------------------------------------------------
 FUNCTION DRAW_choose_folder$ (title AS STRING, startDir AS STRING)
+    BROWSER_suspend_for_modal
     DRAW_FD_register_custom_places
     FD_init FD_MODE_CHOOSE_FOLDER, title, "Select", startDir, "", 0, ""
     DRAW_FD_load_icons
@@ -390,7 +409,9 @@ FUNCTION DRAW_choose_folder$ (title AS STRING, startDir AS STRING)
     ELSE
         result = ""
     END IF
+    DRAW_FD_save_modal_state
     FD_cleanup
+    BROWSER_resume_after_modal
     DRAW_choose_folder$ = result
 END FUNCTION
 
@@ -501,28 +522,51 @@ SUB DRAW_FD_apply_scale_and_center
     IF FD_STATE.dialogW > scrLogW THEN FD_STATE.dialogW = scrLogW
     IF FD_STATE.dialogH > scrLogH THEN FD_STATE.dialogH = scrLogH
 
-    ' Re-center in logical coordinates (or restore saved position)
+    ' Restore last-known modal dialog position from DRAW config (survives exit/restart).
+    ' Falls back to FD_CFG (from ~/.file-dialog.cfg) then auto-center.
     DIM useSavedPos AS INTEGER
     useSavedPos = 0
-    IF FD_CFG.dialogX > 0 OR FD_CFG.dialogY > 0 THEN
-        ' Validate saved position is still on-screen
-        DIM maxSavedX AS INTEGER : maxSavedX = scrLogW - FD_STATE.dialogW
-        DIM maxSavedY AS INTEGER : maxSavedY = scrLogH - FD_STATE.dialogH
-        IF FD_CFG.dialogX >= 0 AND FD_CFG.dialogX <= maxSavedX THEN
-            IF FD_CFG.dialogY >= 0 AND FD_CFG.dialogY <= maxSavedY THEN
-                useSavedPos = -1
+    IF CFG.FD_DIALOG_LAST_X% >= 0 AND CFG.FD_DIALOG_LAST_Y% >= 0 THEN
+        DIM maxCfgX AS INTEGER : maxCfgX = scrLogW - FD_STATE.dialogW
+        DIM maxCfgY AS INTEGER : maxCfgY = scrLogH - FD_STATE.dialogH
+        IF CFG.FD_DIALOG_LAST_X% <= maxCfgX AND CFG.FD_DIALOG_LAST_Y% <= maxCfgY THEN
+            useSavedPos = -1
+        END IF
+    END IF
+    IF NOT useSavedPos THEN
+        IF FD_CFG.dialogX > 0 OR FD_CFG.dialogY > 0 THEN
+            ' Validate saved position is still on-screen
+            DIM maxSavedX AS INTEGER : maxSavedX = scrLogW - FD_STATE.dialogW
+            DIM maxSavedY AS INTEGER : maxSavedY = scrLogH - FD_STATE.dialogH
+            IF FD_CFG.dialogX >= 0 AND FD_CFG.dialogX <= maxSavedX THEN
+                IF FD_CFG.dialogY >= 0 AND FD_CFG.dialogY <= maxSavedY THEN
+                    useSavedPos = -1
+                END IF
             END IF
         END IF
     END IF
     IF useSavedPos THEN
-        FD_STATE.dialogX = FD_CFG.dialogX
-        FD_STATE.dialogY = FD_CFG.dialogY
+        IF CFG.FD_DIALOG_LAST_X% >= 0 THEN
+            FD_STATE.dialogX = CFG.FD_DIALOG_LAST_X%
+            FD_STATE.dialogY = CFG.FD_DIALOG_LAST_Y%
+        ELSE
+            FD_STATE.dialogX = FD_CFG.dialogX
+            FD_STATE.dialogY = FD_CFG.dialogY
+        END IF
     ELSE
         FD_STATE.dialogX = (scrLogW - FD_STATE.dialogW) \ 2
         FD_STATE.dialogY = (scrLogH - FD_STATE.dialogH) \ 2
     END IF
     IF FD_STATE.dialogX < 0 THEN FD_STATE.dialogX = 0
     IF FD_STATE.dialogY < 0 THEN FD_STATE.dialogY = 0
+
+    ' Restore last-known pane widths from DRAW config (priority over ~/.file-dialog.cfg).
+    IF CFG.FD_DIALOG_PLACES_W% > 0 THEN FD_STATE.placesW = CFG.FD_DIALOG_PLACES_W%
+    IF CFG.FD_DIALOG_PREVIEW_W% > 0 THEN FD_STATE.previewW = CFG.FD_DIALOG_PREVIEW_W%
+
+    ' Apply configured pane minimum widths so splitter drag is bounded.
+    FD_STATE.placesMinW  = CFG.FD_DIALOG_PLACES_MIN_W%
+    FD_STATE.previewMinW = CFG.FD_DIALOG_PREVIEW_MIN_W%
 
     ' Recalculate layout with new geometry
     FD_LAYOUT_calculate
@@ -532,6 +576,19 @@ SUB DRAW_FD_apply_scale_and_center
     FD_STATE.imgHandle = _NEWIMAGE(FD_STATE.dialogW, FD_STATE.dialogH, 32)
     _FONT FD_CFG.fontID, FD_STATE.imgHandle
     FD_STATE.dirty = -1
+END SUB
+
+' --------------------------------------------------------------------------
+' DRAW_FD_save_modal_state — Capture FD modal state into DRAW config
+'   Call immediately after FD_modal_loop and before FD_cleanup in every
+'   modal wrapper (open/save/choose-folder).  Persists position and pane
+'   widths so they survive exit and are not overwritten by browser state.
+' --------------------------------------------------------------------------
+SUB DRAW_FD_save_modal_state
+    CFG.FD_DIALOG_LAST_X%   = FD_STATE.dialogX
+    CFG.FD_DIALOG_LAST_Y%   = FD_STATE.dialogY
+    CFG.FD_DIALOG_PLACES_W% = FD_STATE.placesW
+    IF FD_STATE.previewW > 0 THEN CFG.FD_DIALOG_PREVIEW_W% = FD_STATE.previewW
 END SUB
 
 ' --------------------------------------------------------------------------
@@ -560,6 +617,35 @@ SUB DRAW_FD_apply_font_scale
 END SUB
 
 ' --------------------------------------------------------------------------
+' DRAW_FD_apply_browser_font_scale — Inject compact browser-specific scale into FD_CFG
+'   Uses CFG.BROWSER_FONT_SCALE% / CFG.BROWSER_ICON_SCALE% (both default to 1).
+'   Do NOT use for modal dialogs — they use DRAW_FD_apply_font_scale.
+' --------------------------------------------------------------------------
+SUB DRAW_FD_apply_browser_font_scale
+    DIM iconFs AS INTEGER
+    iconFs = CFG.BROWSER_ICON_SCALE%
+    IF iconFs < 1 THEN iconFs = 1
+    IF iconFs > 4 THEN iconFs = 4
+    FD_CFG.iconScale = iconFs
+
+    ' Font scale is independent of icon scale.  NEVER sync fontScale up to
+    ' iconScale — that scales all bar heights 2×, making the panel enormous.
+    ' Row height (iconRowMin in FD_LAYOUT_calculate) handles icon fit separately.
+    DIM fs AS INTEGER
+    fs = CFG.BROWSER_FONT_SCALE%
+    IF fs < 1 THEN fs = 1
+    IF fs > 4 THEN fs = 4
+    FD_CFG.titleFontScale   = fs
+    FD_CFG.placesFontScale  = fs
+    FD_CFG.pathFontScale    = fs
+    FD_CFG.contentFontScale = fs
+    FD_CFG.previewFontScale = fs
+    FD_CFG.inputFontScale   = fs
+    FD_CFG.filterFontScale  = fs
+    FD_CFG.statusFontScale  = fs
+    FD_CFG.sortFontScale    = fs
+END SUB
+
 ' DRAW_FD_apply_theme — Wire DRAW theme colors and font into FD_THEME,
 '   then call FD_THEME_sync to propagate into the FD_CLR_* render variables.
 '   Must be called AFTER DRAW_FD_apply_scale_and_center (imgHandle must exist).

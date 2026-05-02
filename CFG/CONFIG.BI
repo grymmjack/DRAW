@@ -189,6 +189,12 @@ TYPE DRAW_CONFIG
     FD_FONT                         AS INTEGER        ' File dialog font (0 = default 16, 8 = 8x8, 16 = 8x16)
     FD_DIALOG_W                     AS INTEGER        ' File dialog width in pixels (0 = auto 60% of window)
     FD_DIALOG_H                     AS INTEGER        ' File dialog height in pixels (0 = auto 70% of window)
+    FD_DIALOG_LAST_X                AS INTEGER        ' Last modal file dialog X position (−1 = auto-center)
+    FD_DIALOG_LAST_Y                AS INTEGER        ' Last modal file dialog Y position (−1 = auto-center)
+    FD_DIALOG_PLACES_W              AS INTEGER        ' Last modal file dialog places pane width (0 = auto)
+    FD_DIALOG_PREVIEW_W             AS INTEGER        ' Last modal file dialog preview pane width (0 = auto)
+    FD_DIALOG_PLACES_MIN_W          AS INTEGER        ' Minimum modal file dialog places pane width (0 = library default)
+    FD_DIALOG_PREVIEW_MIN_W         AS INTEGER        ' Minimum modal file dialog preview pane width (0 = library default)
     NUDGE_N                         AS INTEGER        ' Multi-pixel nudge distance (default 10)
     NUM_CUSTOM_BRUSHES              AS INTEGER        ' Number of custom brush slots (default 4)
     NUM_LAYERS                      AS INTEGER        ' Initial number of layers on new file
@@ -325,6 +331,23 @@ TYPE DRAW_CONFIG
     COLOR_MIXER_VISIBLE             AS INTEGER        ' TRUE = color mixer panel open at startup
     COLOR_MIXER_X                   AS INTEGER        ' Last panel X (-1 = auto-position)
     COLOR_MIXER_Y                   AS INTEGER        ' Last panel Y (-1 = auto-position)
+    ' Browser panel settings
+    BROWSER_VISIBLE                 AS INTEGER        ' TRUE = browser panel open at startup
+    BROWSER_POS_X                   AS INTEGER        ' Last browser panel X (-1 = auto-position)
+    BROWSER_POS_Y                   AS INTEGER        ' Last browser panel Y (-1 = auto-position)
+    BROWSER_WIDTH                   AS INTEGER        ' Browser panel width
+    BROWSER_HEIGHT                  AS INTEGER        ' Browser panel height
+    BROWSER_DEFAULT_FOLDER          AS STRING         ' Preferred startup folder for browser
+    BROWSER_LAST_DIR                AS STRING         ' Last active browser directory
+    BROWSER_DEFAULT_VIEW_MODE       AS INTEGER        ' 0=list, 1=details, 2=thumbnails
+    BROWSER_DEFAULT_ZOOM_LEVEL      AS INTEGER        ' Thumbnail zoom level (1-8)
+    BROWSER_DEFAULT_SORT_TYPE       AS INTEGER        ' 0=name,1=type,2=size,3=date
+    BROWSER_DEFAULT_SORT_ORDER      AS INTEGER        ' 0=ascending, 1=descending
+    BROWSER_DEFAULT_PREVIEW_OPEN    AS INTEGER        ' TRUE = preview pane open by default
+    BROWSER_FONT_SCALE              AS INTEGER        ' Browser UI/font scale (1-4 explicit, 0=compact compat fallback)
+    BROWSER_ICON_SCALE              AS INTEGER        ' Browser icon scale (1-4 explicit, 0=compact compat fallback)
+    BROWSER_PLACES_MIN_W            AS INTEGER        ' Minimum places pane width in FD native pixels (0=auto)
+    BROWSER_PREVIEW_MIN_W           AS INTEGER        ' Minimum preview pane width in FD native pixels (0=auto)
     PIXEL_ANALYZER_CONFIDENCE       AS INTEGER        ' Pixel analyzer confidence threshold percent (10-90)
     EDIT_BAR_VISIBLE                AS INTEGER        ' TRUE = edit bar visible at startup
     EDIT_BAR_DOCK_POSITION          AS STRING         ' "LEFT" or "RIGHT"
