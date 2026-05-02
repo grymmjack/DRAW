@@ -375,6 +375,9 @@ SUB BROWSER_ensure_initialized ()
     IF FD_STATE.imgHandle& < -1 THEN _FONT FD_CFG.fontID, FD_STATE.imgHandle&
     FD_STATE.dirty = TRUE
 
+    ' Enable multi-select so Ctrl+click / Shift+click work in the browser
+    FD_STATE.multiSelect = TRUE
+
     BROWSER.initialized% = TRUE
 END SUB
 
@@ -738,6 +741,31 @@ SUB BROWSER_mouse_input (wheelDelta AS INTEGER)
         FD_STATE.pendingRecentPath = ""
     END IF
 
+    ' ---- Check for Open-in-DRAW callback from FD context menu ----
+    DIM pendingOpen AS STRING
+    pendingOpen$ = FD_PLAT_trim_cstr$(FD_STATE.pendingOpenInDraw)
+    IF LEN(pendingOpen$) > 0 THEN
+        FD_STATE.pendingOpenInDraw = ""
+        IF _FILEEXISTS(pendingOpen$) THEN
+            DIM doOpenIt AS INTEGER
+            doOpenIt% = TRUE
+            IF CANVAS_DIRTY% THEN
+                POINTER_hide_for_dialog
+                DIM openConfirm AS LONG
+                openConfirm& = DRAW_message_box%("Open in DRAW", "You have unsaved changes. Open " + BROWSER_file_basename$(pendingOpen$) + " without saving?", MB_BTN_YES_NO, MB_ICON_WARNING)
+                POINTER_show_after_dialog
+                MOUSE_cleanup_after_dialog FALSE
+                IF openConfirm& <> MB_RESULT_1 THEN doOpenIt% = FALSE
+            END IF
+            IF doOpenIt% THEN
+                DRW_load pendingOpen$
+                SOUND_play SND_NEW_FILE
+                RECENT_add_file pendingOpen$
+                MOUSE_cleanup_after_dialog TRUE
+            END IF
+        END IF
+    END IF
+
     ' ---- File drag-out detection ----
     ' Phase 1: B1 just pressed on a non-directory entry → arm drag-start.
     ' Capture the file path NOW while selectedIndex is guaranteed valid.
@@ -827,12 +855,13 @@ END SUB
 '   • Anywhere else (canvas apron, work area) → IMAGE_IMPORT_load_file% (interactive)
 '
 SUB BROWSER_execute_file_drop ()
-    DIM dragPath  AS STRING
-    DIM mx        AS INTEGER
-    DIM my        AS INTEGER
-    DIM slotIdx   AS INTEGER
-    DIM importOK  AS INTEGER
-    DIM baseName  AS STRING
+    DIM dragPath      AS STRING
+    DIM mx            AS INTEGER
+    DIM my            AS INTEGER
+    DIM slotIdx       AS INTEGER
+    DIM importOK      AS INTEGER
+    DIM baseName      AS STRING
+    DIM savedFilename AS STRING
 
     dragPath$ = FD_PLAT_trim_cstr$(BROWSER.fileDragPath)
     IF dragPath$ = "" OR NOT _FILEEXISTS(dragPath$) THEN EXIT SUB
@@ -867,9 +896,14 @@ SUB BROWSER_execute_file_drop ()
 
     ELSEIF LAYER_PANEL.visible% AND LAYER_PANEL_in_bounds%(mx%, my%) THEN
         ' --- Drop onto layer panel — import and apply immediately ---
+        ' Preserve document filename: IMAGE_IMPORT_apply sets CURRENT_FILENAME$ to
+        ' the imported PNG path, but a browser drag-drop only adds a layer to the
+        ' existing document — the document's identity must not change.
+        savedFilename$ = CURRENT_FILENAME$
         importOK% = IMAGE_IMPORT_load_file%(dragPath$)
         IF importOK% THEN
             IMAGE_IMPORT_apply
+            CURRENT_FILENAME$ = savedFilename$ ' Restore — drop must not rename the doc
             baseName$ = BROWSER_file_basename$(dragPath$)
             IF baseName$ <> "" THEN LAYERS(CURRENT_LAYER%).name = baseName$
             GUI_NEEDS_REDRAW% = TRUE
@@ -877,10 +911,13 @@ SUB BROWSER_execute_file_drop ()
 
     ELSE
         ' --- Drop onto canvas / anywhere else — import and apply immediately ---
+        ' Preserve document filename for the same reason as the layer-panel drop.
+        savedFilename$ = CURRENT_FILENAME$
         DIM canvasDropOK AS INTEGER
         canvasDropOK% = IMAGE_IMPORT_load_file%(dragPath$)
         IF canvasDropOK% THEN
             IMAGE_IMPORT_apply
+            CURRENT_FILENAME$ = savedFilename$ ' Restore — drop must not rename the doc
             baseName$ = BROWSER_file_basename$(dragPath$)
             IF baseName$ <> "" THEN LAYERS(CURRENT_LAYER%).name = baseName$
             GUI_NEEDS_REDRAW% = TRUE
@@ -952,7 +989,7 @@ END FUNCTION
 
 ''
 ' For large browser drops (>DRAWER_SLOT_COUNT files), batch the selected files
-' into groups of DRAWER_SLOT_COUNT and write each group as a BROWSER_DROPPED_n.dset
+' into groups of DRAWER_SLOT_COUNT and write each group as a dynamic_import_n.dset
 ' in USER/DRAWER-SETS/.  After creation, load the first DSET into the drawer and
 ' refresh the DSET scan so all created files are immediately navigable via mousewheel.
 ' @param startSlot INTEGER  First slot to use when loading the first batch
@@ -1016,7 +1053,7 @@ SUB BROWSER_create_browser_dsets (mode AS INTEGER)
                     END IF
 
                     dsetNum% = dsetNum% + 1
-                    dsetPath$ = setsDir$ + "BROWSER_DROPPED_" + _TRIM$(STR$(dsetNum%)) + ".dset"
+                    dsetPath$ = setsDir$ + "dynamic_import_" + _TRIM$(STR$(dsetNum%)) + ".dset"
                     IF firstDset$ = "" THEN firstDset$ = dsetPath$
 
                     fh% = FREEFILE
