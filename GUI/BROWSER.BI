@@ -60,6 +60,14 @@ TYPE BROWSER_OBJ
     sortType     AS INTEGER
     sortOrder    AS INTEGER
     previewOpen  AS INTEGER
+
+    ' File drag-out state (drag file from browser onto canvas/layers/bins)
+    fileDragActive   AS INTEGER      ' TRUE while dragging a file outside the panel
+    fileDragStarted  AS INTEGER      ' B1 pressed on a file entry; drag not yet committed
+    fileDragStartMX  AS INTEGER      ' Raw mouse X when B1 pressed on file
+    fileDragStartMY  AS INTEGER      ' Raw mouse Y when B1 pressed on file
+    fileDragPath     AS STRING * 260 ' Full path of the dragged file
+    fileDragCount    AS INTEGER      ' Number of files selected for drag (multi-select)
 END TYPE
 
 DIM SHARED BROWSER AS BROWSER_OBJ

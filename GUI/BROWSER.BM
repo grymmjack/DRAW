@@ -448,6 +448,13 @@ SUB BROWSER_init ()
     BROWSER.suspendDepth%  = 0
     BROWSER.suspendWasVisible% = FALSE
 
+    BROWSER.fileDragActive%  = FALSE
+    BROWSER.fileDragStarted% = FALSE
+    BROWSER.fileDragStartMX% = 0
+    BROWSER.fileDragStartMY% = 0
+    BROWSER.fileDragPath     = ""
+    BROWSER.fileDragCount%   = 0
+
     BROWSER.imgHandle&    = 0
     BROWSER.fontHandle&   = 0
 
@@ -573,6 +580,22 @@ SUB BROWSER_mouse_input (wheelDelta AS INTEGER)
 
     DIM overPanel AS INTEGER
     overPanel% = (localX% >= 0 AND localX% < BROWSER.dispW% AND localY% >= 0 AND localY% < BROWSER.dispH%)
+
+    ' ---- Active file drag-out ----
+    ' Once the user has dragged a file outside the browser panel, we bypass all
+    ' normal FD input processing and just wait for the button release to drop.
+    IF BROWSER.fileDragActive% THEN
+        IF NOT MOUSE.B1% THEN
+            BROWSER_execute_file_drop
+            BROWSER.fileDragActive%  = FALSE
+            BROWSER.fileDragStarted% = FALSE
+            BROWSER.fileDragCount%   = 0
+            BROWSER.fileDragPath     = ""
+        END IF
+        FRAME_IDLE% = FALSE
+        SCENE_DIRTY% = TRUE
+        EXIT SUB
+    END IF
 
     IF BROWSER.dragging% THEN
         IF MOUSE.B1% THEN
@@ -703,6 +726,64 @@ SUB BROWSER_mouse_input (wheelDelta AS INTEGER)
     FD_TOOLTIP_update
     IF FD_CFG.viewMode = FD_VIEW_THUMBNAILS THEN FD_THUMB_tick
 
+    ' Propagate FD dirty to DRAW render loop (wheel scroll, hover, etc.)
+    IF FD_STATE.dirty THEN
+        FRAME_IDLE% = FALSE
+        SCENE_DIRTY% = TRUE
+    END IF
+
+    ' ---- Check for Add-to-Recent callback from FD context menu ----
+    IF LEN(FD_PLAT_trim_cstr$(FD_STATE.pendingRecentPath)) > 0 THEN
+        RECENT_add_file FD_PLAT_trim_cstr$(FD_STATE.pendingRecentPath)
+        FD_STATE.pendingRecentPath = ""
+    END IF
+
+    ' ---- File drag-out detection ----
+    ' Phase 1: B1 just pressed on a non-directory entry → arm drag-start.
+    ' Capture the file path NOW while selectedIndex is guaranteed valid.
+    ' Note: FD_STATE.selectedIndex is a *filtered* index; use FD_filtered() for raw entry.
+    ' IMPORTANT: FD_entries().fileName and FD_STATE.currentPath are STRING * 260 (null-padded).
+    ' RTRIM$ only strips spaces; CHR$(0) padding requires FD_PLAT_trim_cstr$.
+    IF justPressed% AND overPanel% THEN
+        DIM dragRawIdx AS INTEGER
+        IF FD_STATE.selectedIndex >= 0 AND FD_STATE.selectedIndex < FD_STATE.visibleCount THEN
+            dragRawIdx% = FD_filtered(FD_STATE.selectedIndex)
+            IF NOT FD_entries(dragRawIdx%).isDirectory THEN
+                DIM earlyPath AS STRING
+                earlyPath$ = FD_PLAT_trim_cstr$(FD_STATE.currentPath)
+                IF RIGHT$(earlyPath$, 1) <> "/" THEN earlyPath$ = earlyPath$ + "/"
+                earlyPath$ = earlyPath$ + FD_PLAT_trim_cstr$(FD_entries(dragRawIdx%).fileName)
+                IF _FILEEXISTS(earlyPath$) THEN
+                    BROWSER.fileDragPath     = earlyPath$
+                    BROWSER.fileDragStarted% = TRUE
+                    BROWSER.fileDragStartMX% = MOUSE.RAW_X%
+                    BROWSER.fileDragStartMY% = MOUSE.RAW_Y%
+                    IF FD_STATE.multiSelect AND FD_STATE.multiSelectCount > 1 THEN
+                        BROWSER.fileDragCount% = FD_STATE.multiSelectCount
+                    ELSE
+                        BROWSER.fileDragCount% = 1
+                    END IF
+                END IF
+            END IF
+        END IF
+    END IF
+
+    ' Phase 2: Committed drag — B1 still held, mouse moved outside panel.
+    ' Path was already captured in Phase 1; just commit drag-active on leaving panel.
+    IF BROWSER.fileDragStarted% THEN
+        IF NOT MOUSE.B1% THEN
+            BROWSER.fileDragStarted% = FALSE
+            BROWSER.fileDragPath     = ""
+        ELSEIF NOT overPanel% THEN
+            IF LEN(FD_PLAT_trim_cstr$(BROWSER.fileDragPath)) > 0 THEN
+                BROWSER.fileDragActive%  = TRUE
+                BROWSER.fileDragStarted% = FALSE
+                FRAME_IDLE% = FALSE
+                SCENE_DIRTY% = TRUE
+            END IF
+        END IF
+    END IF
+
     ' Sync shared browser state from FILE_DIALOG runtime state.
     BROWSER_compute_display_size
     BROWSER.positioned% = TRUE
@@ -736,6 +817,266 @@ SUB BROWSER_mouse_input (wheelDelta AS INTEGER)
 
     FRAME_IDLE% = FALSE
     SCENE_DIRTY% = TRUE
+END SUB
+
+''
+' Execute the pending file drop action.
+' Tests what UI region the mouse is over and dispatches accordingly:
+'   • Drawer (brush/pattern/gradient panel) → DRAWER_import_file_to_slot
+'   • Layer panel → IMAGE_IMPORT_load_file% + immediate apply, layer renamed to basename
+'   • Anywhere else (canvas apron, work area) → IMAGE_IMPORT_load_file% (interactive)
+'
+SUB BROWSER_execute_file_drop ()
+    DIM dragPath  AS STRING
+    DIM mx        AS INTEGER
+    DIM my        AS INTEGER
+    DIM slotIdx   AS INTEGER
+    DIM importOK  AS INTEGER
+    DIM baseName  AS STRING
+
+    dragPath$ = FD_PLAT_trim_cstr$(BROWSER.fileDragPath)
+    IF dragPath$ = "" OR NOT _FILEEXISTS(dragPath$) THEN EXIT SUB
+
+    mx% = MOUSE.RAW_X%
+    my% = MOUSE.RAW_Y%
+
+    IF DRAWER.visible% AND DRAWER_is_over_area%(mx%, my%) THEN
+        ' --- Drop onto brush / pattern / gradient drawer ---
+        slotIdx% = DRAWER_slot_at%(mx%, my%)
+        IF slotIdx% < 1 THEN
+            SELECT CASE DRAWER.mode%
+                CASE DRAWER_MODE_BRUSH    : slotIdx% = DRAWER.brushSelected%
+                CASE DRAWER_MODE_PATTERN  : slotIdx% = DRAWER.patternSelected%
+                CASE ELSE                 : slotIdx% = DRAWER.gradientSelected%
+            END SELECT
+        END IF
+        IF slotIdx% < 1 THEN slotIdx% = 1
+
+        IF BROWSER.fileDragCount% > 1 THEN
+            ' Multi-file drop
+            IF BROWSER.fileDragCount% > DRAWER_SLOT_COUNT THEN
+                ' Large drop (>30): create BROWSER_DROPPED_n DSETs on disk
+                BROWSER_create_browser_dsets DRAWER.mode%
+            ELSE
+                ' Fits in one set: fill consecutive slots from the target
+                BROWSER_drop_multifile_to_drawer slotIdx%, DRAWER.mode%
+            END IF
+        ELSE
+            DRAWER_import_file_to_slot dragPath$, slotIdx%, DRAWER.mode%
+        END IF
+
+    ELSEIF LAYER_PANEL.visible% AND LAYER_PANEL_in_bounds%(mx%, my%) THEN
+        ' --- Drop onto layer panel — import and apply immediately ---
+        importOK% = IMAGE_IMPORT_load_file%(dragPath$)
+        IF importOK% THEN
+            IMAGE_IMPORT_apply
+            baseName$ = BROWSER_file_basename$(dragPath$)
+            IF baseName$ <> "" THEN LAYERS(CURRENT_LAYER%).name = baseName$
+            GUI_NEEDS_REDRAW% = TRUE
+        END IF
+
+    ELSE
+        ' --- Drop onto canvas / anywhere else — import and apply immediately ---
+        DIM canvasDropOK AS INTEGER
+        canvasDropOK% = IMAGE_IMPORT_load_file%(dragPath$)
+        IF canvasDropOK% THEN
+            IMAGE_IMPORT_apply
+            baseName$ = BROWSER_file_basename$(dragPath$)
+            IF baseName$ <> "" THEN LAYERS(CURRENT_LAYER%).name = baseName$
+            GUI_NEEDS_REDRAW% = TRUE
+        END IF
+    END IF
+
+    FRAME_IDLE% = FALSE
+    SCENE_DIRTY% = TRUE
+END SUB
+
+''
+' For multi-file drag-out to the drawer, fill consecutive slots starting at
+' startSlot with every file in the FD multi-select set.
+' If more than DRAWER_SLOT_COUNT files are selected, the extras are ignored
+' (DSET creation for large drops is handled separately).
+'
+SUB BROWSER_drop_multifile_to_drawer (startSlot AS INTEGER, mode AS INTEGER)
+    DIM localStart AS INTEGER
+    DIM fi         AS INTEGER
+    DIM filePath   AS STRING
+    DIM slotTarget AS INTEGER
+
+    localStart% = startSlot%
+    IF localStart% < 1 THEN localStart% = 1
+    IF localStart% > DRAWER_SLOT_COUNT THEN localStart% = DRAWER_SLOT_COUNT
+
+    slotTarget% = localStart%
+    FOR fi% = 0 TO FD_STATE.entryCount - 1
+        IF FD_entries(fi%).selected AND NOT FD_entries(fi%).isDirectory THEN
+            filePath$ = FD_PLAT_trim_cstr$(FD_STATE.currentPath)
+            IF RIGHT$(filePath$, 1) <> "/" THEN filePath$ = filePath$ + "/"
+            filePath$ = filePath$ + FD_PLAT_trim_cstr$(FD_entries(fi%).fileName)
+            IF _FILEEXISTS(filePath$) THEN
+                DRAWER_import_file_to_slot filePath$, slotTarget%, mode%
+                slotTarget% = slotTarget% + 1
+                IF slotTarget% > DRAWER_SLOT_COUNT THEN EXIT FOR
+            END IF
+        END IF
+    NEXT fi%
+END SUB
+
+''
+' Return just the filename without extension from a full file path.
+'
+FUNCTION BROWSER_file_basename$ (filePath AS STRING)
+    DIM p    AS STRING
+    DIM i    AS INTEGER
+
+    p$ = filePath$
+
+    ' Strip directory component
+    FOR i% = LEN(p$) TO 1 STEP -1
+        IF MID$(p$, i%, 1) = "/" OR MID$(p$, i%, 1) = "\" THEN
+            p$ = MID$(p$, i% + 1)
+            EXIT FOR
+        END IF
+    NEXT i%
+
+    ' Strip extension
+    FOR i% = LEN(p$) TO 1 STEP -1
+        IF MID$(p$, i%, 1) = "." THEN
+            p$ = LEFT$(p$, i% - 1)
+            EXIT FOR
+        END IF
+    NEXT i%
+
+    BROWSER_file_basename$ = p$
+END FUNCTION
+
+''
+' For large browser drops (>DRAWER_SLOT_COUNT files), batch the selected files
+' into groups of DRAWER_SLOT_COUNT and write each group as a BROWSER_DROPPED_n.dset
+' in USER/DRAWER-SETS/.  After creation, load the first DSET into the drawer and
+' refresh the DSET scan so all created files are immediately navigable via mousewheel.
+' @param startSlot INTEGER  First slot to use when loading the first batch
+' @param mode      INTEGER  Drawer mode (DRAWER_MODE_BRUSH/PATTERN/GRADIENT)
+'
+SUB BROWSER_create_browser_dsets (mode AS INTEGER)
+    DIM setsDir    AS STRING
+    DIM magic      AS STRING * 4
+    DIM version    AS INTEGER
+    DIM fi         AS INTEGER
+    DIM si         AS INTEGER       ' slot index within current batch (1..DRAWER_SLOT_COUNT)
+    DIM dsetNum    AS INTEGER       ' sequential DSET file number
+    DIM fh         AS INTEGER
+    DIM filePath   AS STRING
+    DIM imgH       AS LONG
+    DIM hasImage   AS INTEGER
+    DIM imgW       AS INTEGER
+    DIM imgH2      AS INTEGER
+    DIM empSlot    AS INTEGER
+    DIM padSlot    AS INTEGER
+    DIM x          AS INTEGER
+    DIM y          AS INTEGER
+    DIM c          AS _UNSIGNED LONG
+    DIM oldSrc     AS LONG
+    DIM firstDset  AS STRING
+    DIM dsetPath   AS STRING
+    DIM selectedSlot AS INTEGER
+
+    IF mode% < DRAWER_MODE_BRUSH OR mode% > DRAWER_MODE_GRADIENT THEN EXIT SUB
+
+    DRAWER_ensure_sets_dir
+    setsDir$ = DRAWER_sets_dir$
+    IF RIGHT$(setsDir$, 1) <> "/" THEN setsDir$ = setsDir$ + "/"
+
+    magic$ = "DST1"
+    IF mode% = DRAWER_MODE_GRADIENT THEN version% = 2 ELSE version% = 1
+    selectedSlot% = 1
+
+    dsetNum% = 0
+    si%      = 0
+
+    ' Walk all entries in the current FD listing, collecting selected files
+    FOR fi% = 0 TO FD_STATE.entryCount - 1
+        IF FD_entries(fi%).selected AND NOT FD_entries(fi%).isDirectory THEN
+            filePath$ = FD_PLAT_trim_cstr$(FD_STATE.currentPath)
+            IF RIGHT$(filePath$, 1) <> "/" THEN filePath$ = filePath$ + "/"
+            filePath$ = filePath$ + FD_PLAT_trim_cstr$(FD_entries(fi%).fileName)
+
+            IF _FILEEXISTS(filePath$) THEN
+                ' Start a new DSET file when a batch fills up
+                IF si% = 0 THEN
+                    ' Close previous file if open
+                    IF fh% > 0 THEN
+                        ' Pad remaining slots in the last batch
+                        FOR empSlot% = si% + 1 TO DRAWER_SLOT_COUNT
+                            hasImage% = FALSE
+                            PUT #fh%, , hasImage%
+                        NEXT empSlot%
+                        CLOSE #fh%
+                        fh% = 0
+                    END IF
+
+                    dsetNum% = dsetNum% + 1
+                    dsetPath$ = setsDir$ + "BROWSER_DROPPED_" + _TRIM$(STR$(dsetNum%)) + ".dset"
+                    IF firstDset$ = "" THEN firstDset$ = dsetPath$
+
+                    fh% = FREEFILE
+                    OPEN dsetPath$ FOR BINARY AS #fh%
+                    PUT #fh%, , magic$
+                    PUT #fh%, , version%
+                    PUT #fh%, , mode%
+                    PUT #fh%, , selectedSlot%
+                END IF
+
+                ' Load and write the image to this slot
+                imgH& = _LOADIMAGE(filePath$, 32)
+                IF imgH& < -1 THEN
+                    imgW%     = _WIDTH(imgH&)
+                    imgH2%    = _HEIGHT(imgH&)
+                    hasImage% = TRUE
+                    PUT #fh%, , hasImage%
+                    PUT #fh%, , imgW%
+                    PUT #fh%, , imgH2%
+                    oldSrc& = _SOURCE
+                    _SOURCE imgH&
+                    FOR y% = 0 TO imgH2% - 1
+                        FOR x% = 0 TO imgW% - 1
+                            c~& = POINT(x%, y%)
+                            PUT #fh%, , c~&
+                        NEXT x%
+                    NEXT y%
+                    _SOURCE oldSrc&
+                    _FREEIMAGE imgH&
+                ELSE
+                    hasImage% = FALSE
+                    PUT #fh%, , hasImage%
+                END IF
+
+                si% = si% + 1
+                IF si% >= DRAWER_SLOT_COUNT THEN si% = 0  ' batch full; next entry starts a new DSET
+            END IF
+        END IF
+    NEXT fi%
+
+    ' Close the last open DSET file and pad remaining slots
+    IF fh% > 0 THEN
+        FOR padSlot% = si% + 1 TO DRAWER_SLOT_COUNT
+            hasImage% = FALSE
+            PUT #fh%, , hasImage%
+        NEXT padSlot%
+        CLOSE #fh%
+        fh% = 0
+    END IF
+
+    ' Load the first DSET into the drawer (uses the target start slot as the selected slot)
+    IF firstDset$ <> "" AND _FILEEXISTS(firstDset$) THEN
+        IF DRAWER_load_dset_file%(firstDset$, mode%) THEN
+            DRAWER_scan_dset_files
+            _LOGINFO "BROWSER_create_browser_dsets: created " + _TRIM$(STR$(dsetNum%)) + " DSET(s), loaded " + firstDset$
+        END IF
+    END IF
+
+    GUI_NEEDS_REDRAW% = TRUE
+    FRAME_IDLE%       = FALSE
 END SUB
 
 SUB BROWSER_render ()
