@@ -1,81 +1,5 @@
 # IDEAS
 
-## Global Fill
-- [x] With Fill tool, hold `f` while flood filling to replace contiguous colors on all layers with filled color, honors FG and BG
-- [x] With Fill tool, hold `Shift+f` while flood filling to replace all colors across document and all layers with filled color, honors FG and BG
-- [x] Left click = Fill with FG
-- [x] Right click = Fill with BG
-
-## Image Browser (For drag/drop to brush and pattern slots)
-- [ ] Since drag and drop is not ubiquitously available across all OS in QB64PE...
-  - [ ] Create a Image Browser using FILE_DIALOG from QB64_GJ_LIB includes library
-    - [ ] OK to add new modes/features in base library as necessary to make it a floating panel compatible
-      - [ ] Add library setting/option to configure so most code is reused as possible!
-      - [ ] Theme can be identical
-      - [ ] Render at same display scale as the COLOR MIXER, if possible because that provides a lot more room,
-  - [ ] Identical to File -> Open / File -> Save (as) Dialogs already in DRAW, EXCEPT:
-    - [ ] Floats like COLOR MIXER
-    - [ ] Is toggleable via a menu item View -> Browser
-      - [ ] Hide / Show with the checkmark thing
-    - [ ] Is toggleable from and Replaces 'File Import image' from 'Open File' Toolbar button with browser show/hide (open tool open.png, etc.)
-      - [ ] When it is open and visible show with outline on the button border
-      - [ ] When it is closed no border on button
-    - [ ] Remembers width/height and position
-    - [ ] Uses the same PLACES as regular dialogs
-    - [ ] Default to Thumbnail view Zoom of 2x
-    - [ ] Default to Preview Pane open
-    - [ ] Remembers the last directory it was open to with the file
-    - [ ] Allows dragging multiple files outside of the browser onto:
-      - [ ] Canvas (handled via File -> Import Image function)
-      - [ ] Layer panel -> Creates a new layer named as filename (with same File -> Import Image function)
-      - [ ] Brush Bins and Pattern Bins -> Imports Image(s) to bin (using same method as right click context for this)
-        - [ ] Should honor the existing way that works about how to position things, etc.
-        - [ ] If dragging more than 30 things, create new dynamic DSETs on disk in USER called BROWSER_DROPPED_n where n = number for the DSET if it needs to make 10 DSETs becuase there were 100 images dropped, for example ... DSETs should be immediately navigable with mousewheel hover like always, after DROP.
-    - [ ] Use existing file dialog theme colors and font sizes and dimensions besides.
-    - [ ] Title floating window title bar as BROWSER
-- [ ] Add additional Right Click menu to files for FILE_DIALOG (ok to modify library):
-  - [ ] IF right click on file:
-    - [ ] Rename
-    - [ ] Supports multiple files selected (same level in menu as Rename though):
-      - [ ] Copy
-      - [ ] Cut
-      - [ ] Paste
-      - [ ] ---
-      - [ ] Delete
-      - [ ] ---
-      - [ ] Add to Recent Files List
-    - [ ] Open with Default OS Program
-    - [ ] Reveal Folder
-      - [ ] Uses OS specific opening of folder the file resides in whatever program OS deems to do
-  - [ ] IF right click on empty area in file pane:
-    - (IF have copied or cut files previous in BROWSER):
-      - [ ] Paste (Copy)
-      - [ ] Move (Cut)
-    - [ ] Create Folder
-    - [ ] Reveal Folder
-    - [ ] Add to Browser Places
-- [ ] Needs cleanup on exit for all image handles / fonts used, etc.
-- [ ] Initial size of Browser should be configurable in DRAW.cfg with:
-  - [ ] BROWSER_WIDTH
-  - [ ] BROWSER_HEIGHT
-  - [ ] BROWSER_POS_X
-  - [ ] BROWSER_POS_Y
-  - [ ] BROWSER_DEFAULT_FOLDER
-  - [ ] BROWSER_DEFAULT_VIEW_MODE
-  - [ ] BROWSER_DEFAULT_ZOOM_LEVEL (used for Thumbnail view)
-  - [ ] BROWSER_DEFAULT_SORT_TYPE
-  - [ ] BROWSER_DEFAULT_SORT_ORDER
-  - [ ] BROWSER_DEFAULT_PREVIEW_OPEN (true/false)
-    - [ ] This lets user open to a specific folder by default
-    - [ ] If not specified use the following in order (as available/applicable):
-      - [ ] Last open directory from BROWSER as loaded in from FILE
-      - [ ] Current file directory (if one is loaded already)
-      - [ ] Users Pictures directory
-      - [ ] Users Documents directory
-      - [ ] DRAW program directory
-  
-
-
 ## ADDITIONAL TABLE LAYOUT MODE
 
 Like HTML table, with resizable columns/rows with row span, col span, padding, 
@@ -611,3 +535,79 @@ Automatically snap to layer candidates when near X/Y/W/H bounds of neighbors
   - [x] The new layer for the grid cell maintains it's pixel data and position.
     - [x] After extracting the grid cell, position the cell where the original layer cell was, just on top.
   - [x] Same rules, same schemes.
+
+
+## Global Fill
+- [x] With Fill tool, hold `f` while flood filling to replace contiguous colors on all layers with filled color, honors FG and BG
+- [x] With Fill tool, hold `Shift+f` while flood filling to replace all colors across document and all layers with filled color, honors FG and BG
+- [x] Left click = Fill with FG
+- [x] Right click = Fill with BG
+
+## Image Browser (For drag/drop to brush and pattern slots)
+- [x] Since drag and drop is not ubiquitously available across all OS in QB64PE...
+  - [x] Create a Image Browser using FILE_DIALOG from QB64_GJ_LIB includes library
+    - [x] OK to add new modes/features in base library as necessary to make it a floating panel compatible
+      - [x] Add library setting/option to configure so most code is reused as possible!
+      - [x] Theme can be identical
+      - [x] Render at same display scale as the COLOR MIXER, if possible because that provides a lot more room,
+  - [x] Identical to File -> Open / File -> Save (as) Dialogs already in DRAW, EXCEPT:
+    - [x] Floats like COLOR MIXER
+    - [x] Is toggleable via a menu item View -> Browser
+      - [x] Hide / Show with the checkmark thing
+    - [x] Is toggleable from and Replaces 'File Import image' from 'Open File' Toolbar button with browser show/hide (open tool open.png, etc.)
+      - [x] When it is open and visible show with outline on the button border
+      - [x] When it is closed no border on button
+    - [x] Remembers width/height and position
+    - [x] Uses the same PLACES as regular dialogs
+    - [x] Default to Thumbnail view Zoom of 2x
+    - [x] Default to Preview Pane open
+    - [x] Remembers the last directory it was open to with the file
+    - [x] Allows dragging multiple files outside of the browser onto:
+      - [x] Canvas (handled via File -> Import Image function)
+      - [x] Layer panel -> Creates a new layer named as filename (with same File -> Import Image function)
+      - [x] Brush Bins and Pattern Bins -> Imports Image(s) to bin (using same method as right click context for this)
+        - [x] Should honor the existing way that works about how to position things, etc.
+        - [x] If dragging more than 30 things, create new dynamic DSETs on disk in USER called dynamic_import_n where n = number for the DSET if it needs to make 10 DSETs becuase there were 100 images dropped, for example ... DSETs should be immediately navigable with mousewheel hover like always, after DROP.
+    - [x] Use existing file dialog theme colors and font sizes and dimensions besides.
+    - [x] Title floating window title bar as BROWSER
+- [x] Add additional Right Click menu to files for FILE_DIALOG (ok to modify library):
+  - [x] IF right click on file:
+    - [x] Rename
+    - [x] Supports multiple files selected (same level in menu as Rename though):
+      - [x] Copy
+      - [x] Cut
+      - [x] Paste
+      - [x] ---
+      - [x] Delete
+      - [x] ---
+      - [x] Add to Recent Files List
+    - [x] Open with Default OS Program
+    - [x] Reveal Folder
+      - [x] Uses OS specific opening of folder the file resides in whatever program OS deems to do
+    - [x] Open in DRAW (loads file as new project, with unsaved-changes prompt)
+  - [x] IF right click on empty area in file pane:
+    - (IF have copied or cut files previous in BROWSER):
+      - [x] Paste (Copy)
+      - [x] Move (Cut)
+    - [x] Create Folder
+    - [x] Reveal Folder
+    - [x] Add to Browser Places
+- [x] Needs cleanup on exit for all image handles / fonts used, etc.
+- [x] Initial size of Browser should be configurable in DRAW.cfg with:
+  - [x] BROWSER_WIDTH
+  - [x] BROWSER_HEIGHT
+  - [x] BROWSER_POS_X
+  - [x] BROWSER_POS_Y
+  - [x] BROWSER_DEFAULT_FOLDER
+  - [x] BROWSER_DEFAULT_VIEW_MODE
+  - [x] BROWSER_DEFAULT_ZOOM_LEVEL (used for Thumbnail view)
+  - [x] BROWSER_DEFAULT_SORT_TYPE
+  - [x] BROWSER_DEFAULT_SORT_ORDER
+  - [x] BROWSER_DEFAULT_PREVIEW_OPEN (true/false)
+    - [x] This lets user open to a specific folder by default
+    - [x] If not specified use the following in order (as available/applicable):
+      - [x] Last open directory from BROWSER as loaded in from FILE
+      - [x] Current file directory (if one is loaded already)
+      - [x] Users Pictures directory
+      - [x] Users Documents directory
+      - [x] DRAW program directory
