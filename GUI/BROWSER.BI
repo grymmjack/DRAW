@@ -16,10 +16,11 @@ CONST BROWSER_MIN_H     = 120
 CONST BROWSER_TITLE_H   = 16
 
 TYPE BROWSER_OBJ
-    visible      AS INTEGER
-    positioned   AS INTEGER
-    initialized  AS INTEGER
-    autoHidden   AS INTEGER
+    visible        AS INTEGER
+    positioned     AS INTEGER
+    initialized    AS INTEGER
+    settingsLoaded AS INTEGER   ' TRUE after first-ever defaults load; survives suspend/resume
+    autoHidden     AS INTEGER
 
     dispW        AS INTEGER
     dispH        AS INTEGER

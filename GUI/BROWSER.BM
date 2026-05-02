@@ -193,6 +193,23 @@ SUB BROWSER_suspend_for_modal ()
         ' Release Browser runtime handles WITHOUT FD_cleanup so modal dialogs
         ' keep their own persisted size/position and last directory.
         IF BROWSER.initialized% THEN
+            ' FD_STATE.dialogW/H are in FD native pixels; BROWSER.dispW/H are
+            ' viewport pixels at this point.  Reset dispW/H to native so that
+            ' BROWSER_ensure_initialized can safely do:
+            '   FD_STATE.dialogW = BROWSER.dispW%   (native = native, correct)
+            ' Without this reset, dispW would still be viewport pixels and the
+            ' assignment would treat viewport as native, then
+            ' BROWSER_compute_display_size would multiply by renderScale again,
+            ' shrinking the browser by renderScale^n across each modal open/close.
+            BROWSER.dispW% = FD_STATE.dialogW
+            BROWSER.dispH% = FD_STATE.dialogH
+            BROWSER.dispX% = INT(CSNG(FD_STATE.dialogX) * BROWSER.renderScale! + 0.5)
+            BROWSER.dispY% = INT(CSNG(FD_STATE.dialogY) * BROWSER.renderScale! + 0.5)
+            ' Also persist native size so BROWSER_init would restore correctly
+            ' if the browser were fully re-created (e.g. settings change).
+            CFG.BROWSER_WIDTH%  = FD_STATE.dialogW
+            CFG.BROWSER_HEIGHT% = FD_STATE.dialogH
+
             IF FD_STATE.imgHandle& < -1 THEN
                 _FREEIMAGE FD_STATE.imgHandle&
                 FD_STATE.imgHandle& = -1
@@ -264,12 +281,18 @@ END SUB
 SUB BROWSER_ensure_initialized ()
     IF BROWSER.initialized% THEN EXIT SUB
 
-    BROWSER.viewMode%    = CFG.BROWSER_DEFAULT_VIEW_MODE%
-    BROWSER.zoomLevel%   = CFG.BROWSER_DEFAULT_ZOOM_LEVEL%
-    BROWSER.sortType%    = CFG.BROWSER_DEFAULT_SORT_TYPE%
-    BROWSER.sortOrder%   = CFG.BROWSER_DEFAULT_SORT_ORDER%
-    BROWSER.previewOpen% = CFG.BROWSER_DEFAULT_PREVIEW_OPEN%
-    BROWSER.lastDir$     = BROWSER_resolve_start_dir$
+    ' Only load defaults on the first-ever initialization.
+    ' On resume after a modal dialog, BROWSER.* live state (dir, view, sort, etc.)
+    ' must be preserved — the user should return to exactly where they left off.
+    IF NOT BROWSER.settingsLoaded% THEN
+        BROWSER.viewMode%    = CFG.BROWSER_DEFAULT_VIEW_MODE%
+        BROWSER.zoomLevel%   = CFG.BROWSER_DEFAULT_ZOOM_LEVEL%
+        BROWSER.sortType%    = CFG.BROWSER_DEFAULT_SORT_TYPE%
+        BROWSER.sortOrder%   = CFG.BROWSER_DEFAULT_SORT_ORDER%
+        BROWSER.previewOpen% = CFG.BROWSER_DEFAULT_PREVIEW_OPEN%
+        BROWSER.lastDir$     = BROWSER_resolve_start_dir$
+        BROWSER.settingsLoaded% = TRUE
+    END IF
 
     IF BROWSER.viewMode% < 0 THEN BROWSER.viewMode% = 0
     IF BROWSER.viewMode% > 2 THEN BROWSER.viewMode% = 2
@@ -387,10 +410,11 @@ SUB BROWSER_auto_position ()
 END SUB
 
 SUB BROWSER_init ()
-    BROWSER.visible%      = FALSE
-    BROWSER.positioned%   = FALSE
-    BROWSER.initialized%  = FALSE
-    BROWSER.autoHidden%   = FALSE
+    BROWSER.visible%        = FALSE
+    BROWSER.positioned%     = FALSE
+    BROWSER.initialized%    = FALSE
+    BROWSER.settingsLoaded% = FALSE
+    BROWSER.autoHidden%     = FALSE
 
     BROWSER.dragging%     = FALSE
     BROWSER.dragStartMX%  = 0
