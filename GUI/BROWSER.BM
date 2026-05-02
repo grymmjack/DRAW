@@ -62,13 +62,12 @@ FUNCTION BROWSER_resolve_start_dir$ ()
 END FUNCTION
 
 SUB BROWSER_compute_display_size ()
-    ' Match floating panel pipeline used by Color Mixer:
-    ' viewport coords for hit testing, integer ts upscale on screen 0.
     DIM ts AS INTEGER, ds AS INTEGER
     ts% = CFG.TOOLBAR_SCALE%: IF ts% < 1 THEN ts% = 1
     ds% = SCRN.displayScale%: IF ds% < 1 THEN ds% = 1
 
     BROWSER.renderScale! = CSNG(ts%) / CSNG(ds%)
+
     BROWSER.dispW% = INT(CSNG(FD_STATE.dialogW) * BROWSER.renderScale! + 0.5)
     BROWSER.dispH% = INT(CSNG(FD_STATE.dialogH) * BROWSER.renderScale! + 0.5)
     BROWSER.dispX% = INT(CSNG(FD_STATE.dialogX) * BROWSER.renderScale! + 0.5)
@@ -83,12 +82,12 @@ SUB BROWSER_apply_split_defaults ()
     DIM targetPreview AS INTEGER
 
     targetPlaces% = FD_STATE.dialogW \ 6
-    IF targetPlaces% < 140 THEN targetPlaces% = 140
-    IF targetPlaces% > 220 THEN targetPlaces% = 220
+    IF targetPlaces% < 70  THEN targetPlaces% = 70   ' compact: was 140 (sized for fontScale=2)
+    IF targetPlaces% > 140 THEN targetPlaces% = 140
 
     targetPreview% = FD_STATE.dialogW \ 5
-    IF targetPreview% < 220 THEN targetPreview% = 220
-    IF targetPreview% > 320 THEN targetPreview% = 320
+    IF targetPreview% < 110 THEN targetPreview% = 110  ' compact: was 220 (sized for fontScale=2)
+    IF targetPreview% > 200 THEN targetPreview% = 200
 
     FD_STATE.placesW = targetPlaces%
     IF FD_CFG.showPreview THEN
@@ -180,8 +179,8 @@ SUB BROWSER_toggle_maximize ()
     BROWSER.positioned% = TRUE
     CFG.BROWSER_POS_X% = BROWSER.dispX%
     CFG.BROWSER_POS_Y% = BROWSER.dispY%
-    CFG.BROWSER_WIDTH% = BROWSER.dispW%
-    CFG.BROWSER_HEIGHT% = BROWSER.dispH%
+    CFG.BROWSER_WIDTH% = FD_STATE.dialogW
+    CFG.BROWSER_HEIGHT% = FD_STATE.dialogH
     FRAME_IDLE% = FALSE
     SCENE_DIRTY% = TRUE
 END SUB
@@ -190,11 +189,16 @@ SUB BROWSER_suspend_for_modal ()
     IF BROWSER.suspendDepth% = 0 THEN
         BROWSER.suspendWasVisible% = (BROWSER.visible% AND SCRN.showBrowser%)
 
-            ' Browser and modal dialogs share FILE_DIALOG singleton state.
-            ' Release Browser runtime handles without saving modal dialog config.
+        ' Browser and modal dialogs share FILE_DIALOG singleton state.
+        ' Release Browser runtime handles WITHOUT FD_cleanup so modal dialogs
+        ' keep their own persisted size/position and last directory.
         IF BROWSER.initialized% THEN
-                FD_cleanup_runtime
-                BROWSER.initialized% = FALSE
+            IF FD_STATE.imgHandle& < -1 THEN
+                _FREEIMAGE FD_STATE.imgHandle&
+                FD_STATE.imgHandle& = -1
+            END IF
+            FD_THUMB_cleanup
+            BROWSER.initialized% = FALSE
         END IF
 
         IF BROWSER.suspendWasVisible% THEN
@@ -280,12 +284,23 @@ SUB BROWSER_ensure_initialized ()
     FD_init FD_MODE_OPEN, "BROWSER", "OPEN", BROWSER.lastDir$, "Image Files|*.png|*.bmp|*.jpg|*.jpeg|*.gif|*.webp|*.qoi|*.drw|All Files|*.*", 0, ""
     DRAW_FD_load_icons
 
+    ' Use compact browser-specific font/icon scales (CFG.BROWSER_FONT_SCALE%,
+    ' CFG.BROWSER_ICON_SCALE%) instead of the modal FD scales.  Modal dialogs
+    ' use FD_FONT_SCALE=2/FD_ICON_SCALE=3; using those here makes FD render all
+    ' content at 2x, producing an enormous panel.  Browser defaults to scale 1.
     DRAW_FD_apply_browser_font_scale
 
     DRAW_FD_apply_theme
 
     FD_STATE.embeddedMode = TRUE
     FD_STATE.hideButtonBar = TRUE
+    ' Tell FD_LAYOUT_calculate the blit multiplier so it can compensate minimum
+    ' bar/row heights.  Without this, all minimums (pathBarH=28, rowH=20, etc.)
+    ' appear doubled after the ts=2 blit, making the browser bars thicker than
+    ' the equivalent modal dialog.  scale=1 for modal (no blit scaling).
+    DIM bts AS INTEGER: bts% = CFG.TOOLBAR_SCALE%
+    IF bts% < 1 THEN bts% = 1
+    FD_STATE.scale = bts%
 
     FD_CFG.viewMode = BROWSER.viewMode%
     FD_CFG.sortField = BROWSER.sortType%
@@ -294,25 +309,33 @@ SUB BROWSER_ensure_initialized ()
     ELSE
         FD_CFG.sortAscending = FALSE
     END IF
-    FD_CFG.showPreview = BROWSER.previewOpen%
+    ' Use proper QB64 boolean (-1=TRUE, 0=FALSE). A non-standard value like 1
+    ' causes `NOT FD_CFG.showPreview` to evaluate to -2 (truthy), which silently
+    ' disables preview image loading in FD_INPUT_update_preview.
+    IF BROWSER.previewOpen% THEN FD_CFG.showPreview = -1 ELSE FD_CFG.showPreview = 0
 
     FD_CFG.thumbSize = BROWSER.zoomLevel% * 32
     IF FD_CFG.thumbSize < 32 THEN FD_CFG.thumbSize = 32
     IF FD_CFG.thumbSize > 256 THEN FD_CFG.thumbSize = 256
 
-    BROWSER_clamp_size
-
-    BROWSER_compute_display_size
+    ' CFG.BROWSER_WIDTH/HEIGHT are stored in FD native pixels (same role as
+    ' CP_STATE.dialogW for Color Mixer). BROWSER.dispW/H hold those native values
+    ' at init time.  Set FD dialog size first, then derive the viewport footprint.
+    FD_STATE.dialogW = BROWSER.dispW%
+    FD_STATE.dialogH = BROWSER.dispH%
+    IF FD_STATE.dialogW < BROWSER_MIN_W THEN FD_STATE.dialogW = BROWSER_MIN_W
+    IF FD_STATE.dialogH < BROWSER_MIN_H THEN FD_STATE.dialogH = BROWSER_MIN_H
+    BROWSER_apply_split_defaults
+    BROWSER_compute_display_size    ' BROWSER.dispW = FD.dialogW * ts/ds (viewport footprint)
     IF BROWSER.renderScale! <= 0 THEN BROWSER.renderScale! = 1
-
+    BROWSER_clamp_size              ' clamp viewport footprint to available area
+    ' Sync (possibly clamped) viewport back to FD native coords
     FD_STATE.dialogX = INT(CSNG(BROWSER.dispX%) / BROWSER.renderScale! + 0.5)
     FD_STATE.dialogY = INT(CSNG(BROWSER.dispY%) / BROWSER.renderScale! + 0.5)
     FD_STATE.dialogW = INT(CSNG(BROWSER.dispW%) / BROWSER.renderScale! + 0.5)
     FD_STATE.dialogH = INT(CSNG(BROWSER.dispH%) / BROWSER.renderScale! + 0.5)
     IF FD_STATE.dialogW < BROWSER_MIN_W THEN FD_STATE.dialogW = BROWSER_MIN_W
     IF FD_STATE.dialogH < BROWSER_MIN_H THEN FD_STATE.dialogH = BROWSER_MIN_H
-    BROWSER_apply_split_defaults
-    BROWSER_compute_display_size
 
     FD_LAYOUT_calculate
     IF FD_STATE.imgHandle& < -1 THEN _FREEIMAGE FD_STATE.imgHandle&
@@ -430,7 +453,7 @@ END SUB
 
 SUB BROWSER_cleanup ()
     IF BROWSER.initialized% THEN
-        FD_cleanup_runtime
+        FD_cleanup
     END IF
     BROWSER.fontHandle& = 0
     BROWSER.imgHandle& = 0
@@ -585,8 +608,8 @@ SUB BROWSER_mouse_input (wheelDelta AS INTEGER)
             BROWSER.positioned% = TRUE
             CFG.BROWSER_POS_X% = BROWSER.dispX%
             CFG.BROWSER_POS_Y% = BROWSER.dispY%
-            CFG.BROWSER_WIDTH% = BROWSER.dispW%
-            CFG.BROWSER_HEIGHT% = BROWSER.dispH%
+            CFG.BROWSER_WIDTH% = FD_STATE.dialogW
+            CFG.BROWSER_HEIGHT% = FD_STATE.dialogH
             FRAME_IDLE% = FALSE
             SCENE_DIRTY% = TRUE
         ELSE
@@ -614,7 +637,6 @@ SUB BROWSER_mouse_input (wheelDelta AS INTEGER)
         DIM titleBarPx AS INTEGER, closeX AS INTEGER
         DIM nowT AS DOUBLE
         titleBarPx% = INT(CSNG(FD_STATE.titleBarH) * BROWSER.renderScale! + 0.5)
-        IF titleBarPx% < 1 THEN titleBarPx% = FD_STATE.titleBarH
         closeX% = FD_STATE.dialogW - FD_STATE.titleBarH
         IF localY% < titleBarPx% AND nativeX% < closeX% THEN
             nowT# = TIMER
@@ -663,8 +685,8 @@ SUB BROWSER_mouse_input (wheelDelta AS INTEGER)
 
     CFG.BROWSER_POS_X% = BROWSER.dispX%
     CFG.BROWSER_POS_Y% = BROWSER.dispY%
-    CFG.BROWSER_WIDTH% = BROWSER.dispW%
-    CFG.BROWSER_HEIGHT% = BROWSER.dispH%
+    CFG.BROWSER_WIDTH% = FD_STATE.dialogW
+    CFG.BROWSER_HEIGHT% = FD_STATE.dialogH
     CFG.BROWSER_LAST_DIR$ = BROWSER.lastDir$
 
     IF FD_STATE.done THEN
@@ -683,24 +705,6 @@ SUB BROWSER_render ()
     IF NOT BROWSER.visible% OR BROWSER.autoHidden% THEN EXIT SUB
     BROWSER_ensure_initialized
 
-    ' Reconcile bounds at render time so startup placement stays correct even
-    ' if chrome geometry settles after init.
-    DIM oldX AS INTEGER, oldY AS INTEGER, oldW AS INTEGER, oldH AS INTEGER
-    oldX% = BROWSER.dispX%
-    oldY% = BROWSER.dispY%
-    oldW% = BROWSER.dispW%
-    oldH% = BROWSER.dispH%
-    BROWSER_clamp_size
-    BROWSER_clamp_to_work_area
-    IF BROWSER.dispX% <> oldX% OR BROWSER.dispY% <> oldY% OR BROWSER.dispW% <> oldW% OR BROWSER.dispH% <> oldH% THEN
-        BROWSER_sync_fd_from_display
-        CFG.BROWSER_POS_X% = BROWSER.dispX%
-        CFG.BROWSER_POS_Y% = BROWSER.dispY%
-        CFG.BROWSER_WIDTH% = BROWSER.dispW%
-        CFG.BROWSER_HEIGHT% = BROWSER.dispH%
-        BROWSER.positioned% = TRUE
-    END IF
-
     ' Browser renders beneath top-layer UI (menus/popups/dialog-like overlays).
     IF MENUBAR_is_open% THEN EXIT SUB
     IF PALETTE_MENU_VISIBLE% THEN EXIT SUB
@@ -716,20 +720,28 @@ SUB BROWSER_render ()
 
     BROWSER_compute_display_size
 
+    DIM ds AS INTEGER, ts AS INTEGER
     DIM sx AS LONG
     DIM sy AS LONG
     DIM sw AS LONG
     DIM sh AS LONG
 
-    DIM ts AS INTEGER, ds AS INTEGER
-    ts% = CFG.TOOLBAR_SCALE%: IF ts% < 1 THEN ts% = 1
-    ds% = SCRN.displayScale%: IF ds% < 1 THEN ds% = 1
+    ' ── Blit pattern: IDENTICAL to COLORMIXER_render. DO NOT change to 1:1. ──
+    ' FD renders its offscreen image at base resolution (FD_STATE.scale = 1 is
+    ' FD-internal only and unrelated to this blit).  The ts upscale here is what
+    ' makes the panel readable at high DPI — same as every other floating panel.
+    '   position on screen 0 = dispX/Y (viewport) * displayScale
+    '   rendered size        = dialogW/H (FD native) * toolbarScale
+    ts% = CFG.TOOLBAR_SCALE%
+    IF ts% < 1 THEN ts% = 1
+
+    ds% = SCRN.displayScale%
+    IF ds% < 1 THEN ds% = 1
 
     sx& = CLNG(BROWSER.dispX%) * ds%
     sy& = CLNG(BROWSER.dispY%) * ds%
     sw& = CLNG(FD_STATE.dialogW) * ts%
     sh& = CLNG(FD_STATE.dialogH) * ts%
-
     IF FD_STATE.imgHandle& < -1 THEN
         _PUTIMAGE (sx&, sy&)-(sx& + sw& - 1, sy& + sh& - 1), FD_STATE.imgHandle&, 0
     END IF
