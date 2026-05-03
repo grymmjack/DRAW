@@ -1,5 +1,22 @@
 # IDEAS
 
+## CROP TOOL IMPROVEMENTS
+- [ ] Allow crop tool bounding box to grow the canvas size.
+  - [ ] When the crop tool selects the entire canvas, it can grow top, bottom, left, right
+  - [ ] This should allow the crop tool bounding box to reach on top of the apron
+  - [ ] When the crop boundary is larger than the existing canvas size, resize the canvas:
+    - [ ] If the canvas is being grown to the right, anchor the contents to the left
+    - [ ] If the canvas is being grown to the left, anchor the contents to the right
+    - [ ] If the canvas is being grown up, anchor the contents to the bottom
+    - [ ] If the canvas is being grown down, anchor the contents to the top
+    - [ ] If the canvas is being grown in more than one direction, attempt to make it sane anchor:
+      - [ ] If both top and left are being grown: anchor to bottom right
+      - [ ] If both bottom and right are being grown: anchor to top left
+      - [ ] etc.
+      - [ ] If all sides are being grown anchor to center
+  - Operation should happen the same as Image -> Resize Canvas... (except no size prompt, and custom anchoring).
+- [ ] Crop tool INSIDE existing bounds operates as it does now.
+
 ## COLOR MIXER IMPROVEMENTS
 
 ### COLOR MIXER HEX CODE
