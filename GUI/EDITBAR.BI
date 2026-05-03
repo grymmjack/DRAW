@@ -32,14 +32,16 @@ TYPE EDITBAR_ITEM_OBJ
 END TYPE
 
 TYPE EDITBAR_OBJ
-    visible     AS INTEGER ' TRUE when edit bar should render
-    dockSide    AS INTEGER ' EDITBAR_DOCK_LEFT or EDITBAR_DOCK_RIGHT
-    panelX1     AS INTEGER ' Left edge of panel (for hit testing)
-    panelX2     AS INTEGER ' Right edge of panel
-    panelY1     AS INTEGER ' Top (below menubar)
-    panelY2     AS INTEGER ' Bottom (screen bottom)
-    hoverIndex  AS INTEGER ' Index of hovered item (-1 = none)
-    iconsLoaded AS INTEGER ' TRUE once icons have been loaded
+    visible       AS INTEGER ' TRUE when edit bar should render
+    dockSide      AS INTEGER ' EDITBAR_DOCK_LEFT or EDITBAR_DOCK_RIGHT
+    panelX1       AS INTEGER ' Left edge of panel (for hit testing)
+    panelX2       AS INTEGER ' Right edge of panel
+    panelY1       AS INTEGER ' Top (below menubar)
+    panelY2       AS INTEGER ' Bottom (screen bottom)
+    hoverIndex    AS INTEGER ' Index of hovered item (-1 = none)
+    iconsLoaded   AS INTEGER ' TRUE once icons have been loaded
+    scrollOffset  AS INTEGER ' Pixels scrolled down from top (0 = fully scrolled to top)
+    contentH      AS INTEGER ' Total content height in pixels (set during render)
 END TYPE
 
 DIM SHARED EDIT_BAR AS EDITBAR_OBJ

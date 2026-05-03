@@ -1,11 +1,5 @@
 # IDEAS
 
-## MIDI MUSIC
-- [ ] Allow playback of .MID files if they exist using default QB64PE font, or configured SF2 file.
-
-## ADVANCED BAR AND EDIT BAR
-- [ ] If the contents of the bar buttons cannot be shown all at once, allow the edit bar and advanced bar to be scrolled with mousewheel up/down
-
 ## COLOR MIXER IMPROVEMENTS
 
 ### COLOR MIXER HEX CODE
@@ -22,13 +16,11 @@
   - [ ] Honor SNAP setting if enabled
 
 
-## CANVAS RESIZE
-- [ ] Currently Image -> Resize does not do anything to the content, this should then be moved to Image -> Resize Canvas...
 
-### IMAGE RESIZE
-- [ ] We do need an option to resize the image and all layers in it WITH the content, up and downscale accordingly
-  - [ ] Under Image -> Resize Canvas... put Image -> Resize Image with Content...
-  - [ ] You may need to increase the number of valid menu options
+## MIDI MUSIC
+- [ ] Allow playback of .MID files if they exist using default QB64PE font, or configured SF2 file.
+
+
 
 ## DRAW KITS
 - User sharable and exportable kits which contain all or one of:
@@ -643,3 +635,15 @@ Automatically snap to layer candidates when near X/Y/W/H bounds of neighbors
       - [x] Users Pictures directory
       - [x] Users Documents directory
       - [x] DRAW program directory
+
+## CANVAS RESIZE
+- [x] Currently Image -> Resize does not do anything to the content, this should then be moved to Image -> Resize Canvas...
+
+### IMAGE RESIZE
+- [x] We do need an option to resize the image and all layers in it WITH the content, up and downscale accordingly
+  - [x] Under Image -> Resize Canvas... put Image -> Resize Image with Content...
+  - [x] You may need to increase the number of valid menu options
+
+## ADVANCED BAR AND EDIT BAR
+- [x] If the contents of the bar buttons cannot be shown all at once, allow the edit bar and advanced bar to be scrolled with mousewheel up/down
+
