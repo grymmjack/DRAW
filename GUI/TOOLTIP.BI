@@ -107,8 +107,8 @@ TOOLTIP_LINE1$(25) = "c - ELLIPSE/CIRCLE - Create ellipses and circles on the ca
 TOOLTIP_LINE2$(25) = "DRAW ellipse. L-CLICK FG color. R-CLICK BG color. CTRL+SHIFT snap."
 TOOLTIP_LINE1$(26) = "SHIFT+c - FILLED ELLIPSE/CIRCLE - Create filled ellipses and filled circles on the canvas."
 TOOLTIP_LINE2$(26) = "DRAW filled ellipse. L-CLICK FG color. R-CLICK BG color. CTRL+SHIFT snap."
-TOOLTIP_LINE1$(27) = "CTRL+o - LOAD IMAGE from disk."
-TOOLTIP_LINE2$(27) = "SHIFT+CTRL+o - IMPORT and PLACE image from disk."
+TOOLTIP_LINE1$(27) = "Open Browser - Browse and open images from disk."
+TOOLTIP_LINE2$(27) = "Drag and drop images onto layers, bins, and canvas."
 
 ' Organizer widget tooltip text arrays — indexed by ORG_* constants (0..10)
 DIM SHARED TOOLTIP_ORG_LINE1$(0 TO 10)
