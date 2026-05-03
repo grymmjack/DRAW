@@ -1,6 +1,12 @@
 # IDEAS
 
-## GRID HOTKEY CHANGES
+## MARQUEE RECT IMPROVEMENTS
+
+- [ ] I would like the edges of the marquee rectangle selections and crop boundaries to be resizable from the entire edge, not just the center anchor if that's possible.
+  - [ ] The anchor is often not in view, and makes it very painful to have to pan the canvas find the anchor resize, then go back to what i was doing.
+  - [ ] If this requires we can have it so I hold down `m` or something to engage this feature, not sure.
+
+## GRID HOTKEY IMPROVEMENTS
 > I would like to modify the grid hotkeys:
 
 - [ ] Hold `g` and: 
@@ -56,10 +62,8 @@
   - [ ] Honor SNAP setting if enabled
 
 
-
 ## MIDI MUSIC
 - [ ] Allow playback of .MID files if they exist using default QB64PE font, or configured SF2 file.
-
 
 
 ## DRAW KITS
