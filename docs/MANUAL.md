@@ -120,6 +120,6 @@ If you are reading this on GitHub, every chapter link above will jump straight t
 
 ## Contributing & feedback
 
-DRAW and this manual are open source. If you find a mistake, want to add a workflow, or simply want to send a screenshot from the [SCREENSHOTS.md](MANUAL/SCREENSHOTS.md) checklist, please open an issue or pull request on the [GitHub repository](https://github.com/grymmjack/DRAW). Thank you for reading — now go make something pixelated.
+DRAW and this manual are open source. If you find a mistake, or want to add a workflow, please open an issue or pull request on the [GitHub repository](https://github.com/grymmjack/DRAW). Thank you for reading — now go make something pixelated.
 
 — *grymmjack*
