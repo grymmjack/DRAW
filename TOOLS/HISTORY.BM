@@ -1025,6 +1025,83 @@ SUB HISTORY_record_transform (layerId AS LONG, layerSlot AS INTEGER, flags AS LO
     HISTORY_commit_record idx%
 END SUB
 
+
+''
+' Records a canvas resize or resize-with-content operation for undo/redo.
+' Must be called BEFORE the resize is applied, while layers are still at
+' oldW x oldH. Serializes all non-group layer pixel data into a DEFLATE-
+' compressed payload so undo can fully restore them.
+' Guarded by HISTORY_IN_PROGRESS%: no-op when called from within undo/redo.
+'
+' Record fields used:
+'   x1/y1  = old canvas W/H (restore target for undo)
+'   x2/y2  = new canvas W/H (re-apply target for redo)
+'   flags& = 0 → canvas-only resize, 1 → resize-with-content
+'   HISTORY_PAYLOADS = DEFLATE-compressed: [2-byte layerCount] then per layer:
+'     [2-byte slotIndex][oldW*oldH*4 bytes pixel data row-major BGRA]
+'
+' @param oldW INTEGER Current canvas width
+' @param oldH INTEGER Current canvas height
+' @param newW INTEGER Target canvas width
+' @param newH INTEGER Target canvas height
+' @param isContent INTEGER TRUE = resize-with-content, FALSE = canvas-only
+'
+SUB HISTORY_record_canvas_resize (oldW AS INTEGER, oldH AS INTEGER, newW AS INTEGER, newH AS INTEGER, isContent AS INTEGER)
+    DIM idx      AS INTEGER
+    DIM i        AS INTEGER
+    DIM raw      AS STRING
+    DIM lc       AS INTEGER
+    DIM pixBytes AS LONG
+    DIM rawOff   AS LONG
+    DIM lm       AS _MEM
+
+    idx% = HISTORY_begin_record%(HISTORY_KIND_CANVAS_RESIZE, HISTORY_EXPORT_RASTER, "Resize Canvas")
+    IF idx% = 0 THEN EXIT SUB
+
+    HISTORY_RECORDS(idx%).x1% = oldW%
+    HISTORY_RECORDS(idx%).y1% = oldH%
+    HISTORY_RECORDS(idx%).x2% = newW%
+    HISTORY_RECORDS(idx%).y2% = newH%
+    IF isContent% THEN
+        HISTORY_RECORDS(idx%).flags& = 1
+    ELSE
+        HISTORY_RECORDS(idx%).flags& = 0
+    END IF
+
+    ' Count active non-group layers to serialize
+    lc% = 0
+    FOR i% = 1 TO MAX_LAYERS
+        IF LAYERS(i%).imgHandle& < -1 THEN
+            IF LAYERS(i%).layerType% <> LAYER_TYPE_GROUP THEN lc% = lc% + 1
+        END IF
+    NEXT i%
+
+    ' Pre-allocate exact buffer: [2-byte count] + per layer [2-byte slot + W*H*4 pixels]
+    ' Uses MID$(...) = in-place assignment to avoid O(n^2) string concatenation.
+    pixBytes& = CLng(oldW%) * oldH% * 4
+    raw$ = STRING$(2 + CLng(lc%) * (2 + pixBytes&), 0)
+    MID$(raw$, 1, 2) = MKI$(lc%)
+    rawOff& = 3
+    FOR i% = 1 TO MAX_LAYERS
+        IF LAYERS(i%).imgHandle& < -1 THEN
+            IF LAYERS(i%).layerType% <> LAYER_TYPE_GROUP THEN
+                MID$(raw$, rawOff&, 2) = MKI$(i%) : rawOff& = rawOff& + 2
+                ' Bulk-copy raw pixel data via _MEMIMAGE — no blending, near-instant
+                DIM crSaveTmp AS STRING
+                crSaveTmp$ = SPACE$(pixBytes&)
+                lm = _MEMIMAGE(LAYERS(i%).imgHandle&)
+                _MEMGET lm, lm.OFFSET, crSaveTmp$
+                _MEMFREE lm
+                MID$(raw$, rawOff&, pixBytes&) = crSaveTmp$
+                rawOff& = rawOff& + pixBytes&
+            END IF
+        END IF
+    NEXT i%
+
+    HISTORY_PAYLOADS(idx%) = _DEFLATE$(raw$)
+    HISTORY_commit_record idx%
+END SUB
+
 ''
 ' Records a text layer rasterization for undo/redo.
 ' Stores before/after images and serialized text layer data in payload.
@@ -2283,6 +2360,40 @@ SUB HISTORY_undo ()
                         LAYERS_select mgUndoOrigSel%
                     END IF
                 END IF
+            CASE HISTORY_KIND_CANVAS_RESIZE
+                ' Undo: restore canvas to old dimensions then bulk-restore layer pixels
+                DIM crUndoOldW    AS INTEGER, crUndoOldH AS INTEGER
+                DIM crUndoRaw     AS STRING
+                DIM crUndoPos     AS LONG,    crUndoLc   AS INTEGER
+                DIM crUndoI       AS INTEGER, crUndoSlot AS INTEGER
+                DIM crUndoPixBytes AS LONG
+                DIM crUndoLm      AS _MEM
+                crUndoOldW% = HISTORY_RECORDS(idx%).x1%
+                crUndoOldH% = HISTORY_RECORDS(idx%).y1%
+                ' HISTORY_IN_PROGRESS% is TRUE so CANVAS_resize won't re-record
+                CANVAS_resize crUndoOldW%, crUndoOldH%
+                ' Restore per-layer pixel data from compressed payload via _MEMIMAGE
+                IF LEN(HISTORY_PAYLOADS(idx%)) > 0 THEN
+                    crUndoRaw$      = _INFLATE$(HISTORY_PAYLOADS(idx%))
+                    crUndoPos&      = 1
+                    crUndoLc%       = CVI(MID$(crUndoRaw$, crUndoPos&, 2)) : crUndoPos& = crUndoPos& + 2
+                    crUndoPixBytes& = CLng(crUndoOldW%) * crUndoOldH% * 4
+                    FOR crUndoI% = 1 TO crUndoLc%
+                        crUndoSlot% = CVI(MID$(crUndoRaw$, crUndoPos&, 2)) : crUndoPos& = crUndoPos& + 2
+                        IF crUndoSlot% >= 1 AND crUndoSlot% <= MAX_LAYERS THEN
+                            IF LAYERS(crUndoSlot%).imgHandle& < -1 THEN
+                                ' Bulk-write raw pixels directly into image memory — bypasses _BLEND
+                                DIM crUndoPixData AS STRING
+                                crUndoPixData$ = MID$(crUndoRaw$, crUndoPos&, crUndoPixBytes&)
+                                crUndoLm = _MEMIMAGE(LAYERS(crUndoSlot%).imgHandle&)
+                                _MEMPUT crUndoLm, crUndoLm.OFFSET, crUndoPixData$
+                                _MEMFREE crUndoLm
+                                LAYERS(crUndoSlot%).contentDirty% = TRUE
+                            END IF
+                        END IF
+                        crUndoPos& = crUndoPos& + crUndoPixBytes&
+                    NEXT crUndoI%
+                END IF
         END SELECT
         idx% = idx% - 1
     LOOP
@@ -2433,6 +2544,17 @@ SUB HISTORY_redo ()
                         ' HISTORY_IN_PROGRESS% is TRUE, so LAYERS_merge_group won't record again
                         LAYERS_merge_group mgRedoGroupSlot%
                     END IF
+                END IF
+            CASE HISTORY_KIND_CANVAS_RESIZE
+                ' Redo: re-apply the resize to new dimensions
+                ' HISTORY_IN_PROGRESS% is TRUE so CANVAS_resize won't re-record
+                DIM crRedoNewW AS INTEGER, crRedoNewH AS INTEGER
+                crRedoNewW% = HISTORY_RECORDS(idx%).x2%
+                crRedoNewH% = HISTORY_RECORDS(idx%).y2%
+                IF HISTORY_RECORDS(idx%).flags& AND 1 THEN
+                    CANVAS_resize_with_content crRedoNewW%, crRedoNewH%
+                ELSE
+                    CANVAS_resize crRedoNewW%, crRedoNewH%
                 END IF
         END SELECT
         HISTORY.current% = idx%

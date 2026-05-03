@@ -1,37 +1,34 @@
 # IDEAS
 
-## ADDITIONAL TABLE LAYOUT MODE
+## MIDI MUSIC
+- [ ] Allow playback of .MID files if they exist using default QB64PE font, or configured SF2 file.
 
-Like HTML table, with resizable columns/rows with row span, col span, padding, 
-cell alignment inside, borders, border widths, border colors, etc.
+## ADVANCED BAR AND EDIT BAR
+- [ ] If the contents of the bar buttons cannot be shown all at once, allow the edit bar and advanced bar to be scrolled with mousewheel up/down
 
-### OPERATIONS
-- Select entire table
-- Select a column across whole table
-- Select a row across whole table
-- Select multiple columns
-- Select multiple rows
-- Apply a column span
-- Apply a row span
-- Remove a column span
-- Remove a row span
-- Insert a column to the right
-- Insert a column to the left
-- Delete a column
-- Delete selected columns
-- Insert a row above
-- Insert a row below
-- Delete a row
-- Delete selected rows
-- Move table
-- Export table
-- Convert table to GUIDE layer
-- DIVIDE EVENLY (visually)
+## COLOR MIXER IMPROVEMENTS
+
+### COLOR MIXER HEX CODE
+- [ ] Clicking in hex code input should select it by default so user can quickly replace with paste from external text source, etc.
+
+### COLOR MIXER COLOR HISTORY
+- [ ] Add color history under SNAP area for up to 16 recent colors
+  - [ ] 2 rows of 8 color chips
+
+### COLOR MIXER COLOR FG<->BG BLENDER
+- [ ] Add color blender with two stops FG on left, BG on right
+  - [ ] Interpolate the color between FG and BG in a strip
+  - [ ] Allow user to pick the color from anywhere on the blended strip
+  - [ ] Honor SNAP setting if enabled
 
 
+## CANVAS RESIZE
+- [ ] Currently Image -> Resize does not do anything to the content, this should then be moved to Image -> Resize Canvas...
 
-
-
+### IMAGE RESIZE
+- [ ] We do need an option to resize the image and all layers in it WITH the content, up and downscale accordingly
+  - [ ] Under Image -> Resize Canvas... put Image -> Resize Image with Content...
+  - [ ] You may need to increase the number of valid menu options
 
 ## DRAW KITS
 - User sharable and exportable kits which contain all or one of:
@@ -69,6 +66,41 @@ cell alignment inside, borders, border widths, border colors, etc.
 - Description field
 - Screenshot chooser
 - Export button
+
+
+
+
+
+## ADDITIONAL TABLE LAYOUT MODE
+
+Like HTML table, with resizable columns/rows with row span, col span, padding, 
+cell alignment inside, borders, border widths, border colors, etc.
+
+### OPERATIONS
+- Select entire table
+- Select a column across whole table
+- Select a row across whole table
+- Select multiple columns
+- Select multiple rows
+- Apply a column span
+- Apply a row span
+- Remove a column span
+- Remove a row span
+- Insert a column to the right
+- Insert a column to the left
+- Delete a column
+- Delete selected columns
+- Insert a row above
+- Insert a row below
+- Delete a row
+- Delete selected rows
+- Move table
+- Export table
+- Convert table to GUIDE layer
+- DIVIDE EVENLY (visually)
+
+
+
 
 
 

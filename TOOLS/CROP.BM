@@ -50,6 +50,9 @@ SUB CANVAS_resize (newW AS INTEGER, newH AS INTEGER)
     ' No change?
     IF w% = SCRN.canvasW& AND h% = SCRN.canvasH& THEN EXIT SUB
 
+    ' Record for undo before making any changes
+    HISTORY_record_canvas_resize SCRN.canvasW&, SCRN.canvasH&, w%, h%, FALSE
+
     ' Cancel any active import / custom brush / move
     IF IMG_IMPORT.STATE > IMPORT_STATE_IDLE THEN IMAGE_IMPORT_cancel
     IF CUSTOM_BRUSH_is_active% THEN CUSTOM_BRUSH_reset
@@ -191,6 +194,183 @@ SUB CANVAS_resize_dialog ()
     IF newH% > 4096 THEN newH% = 4096
 
     CANVAS_resize newW%, newH%
+END SUB
+
+
+''
+' Resize the canvas AND scale all layer pixel content to the new dimensions.
+' Group layers (1x1 sentinels) are left unchanged; only image/text layers
+' have their pixel data scaled via _PUTIMAGE.
+'
+' @param newW INTEGER New canvas width  (must be >= 1)
+' @param newH INTEGER New canvas height (must be >= 1)
+'
+SUB CANVAS_resize_with_content (newW AS INTEGER, newH AS INTEGER)
+    DIM AS INTEGER i, w, h, oldW, oldH
+    DIM oldDest     AS LONG
+    DIM oldSrc      AS LONG
+    DIM oldImg      AS LONG
+    DIM newImg      AS LONG
+    DIM oldGridXPos AS INTEGER, oldGridYPos AS INTEGER
+
+    w% = newW%: h% = newH%
+    IF w% < 1 THEN w% = 1
+    IF h% < 1 THEN h% = 1
+
+    IF w% = SCRN.canvasW& AND h% = SCRN.canvasH& THEN EXIT SUB
+
+    oldW% = SCRN.canvasW&
+    oldH% = SCRN.canvasH&
+
+    ' Record for undo before making any changes
+    HISTORY_record_canvas_resize SCRN.canvasW&, SCRN.canvasH&, w%, h%, TRUE
+
+    ' Preserve grid phase
+    oldGridXPos% = GRID.xPos%
+    oldGridYPos% = GRID.yPos%
+
+    ' Cancel any active import / custom brush / move
+    IF IMG_IMPORT.STATE > IMPORT_STATE_IDLE THEN IMAGE_IMPORT_cancel
+    IF CUSTOM_BRUSH_is_active% THEN CUSTOM_BRUSH_reset
+    MARQUEE_reset
+    MOVE_init
+    MAGIC_WAND_reset
+
+    ' Update canvas dimensions
+    SCRN.canvasW& = w%
+    SCRN.canvasH& = h%
+    SCREEN_pattern_tile_force_off
+
+    ' Recreate PAINTING buffer
+    IF SCRN.PAINTING& < -1 THEN _FREEIMAGE SCRN.PAINTING&
+    SCRN.PAINTING& = _NEWIMAGE(w%, h%, 32)
+    oldDest&       = _DEST
+    _DEST SCRN.PAINTING&
+    CLS , _RGBA32(0, 0, 0, 0)
+    _DEST oldDest&
+
+    ' Scale each image/text layer to the new dimensions
+    FOR i% = 1 TO MAX_LAYERS
+        IF LAYERS(i%).imgHandle& < -1 THEN
+            IF LAYERS(i%).layerType% <> LAYER_TYPE_GROUP THEN
+                oldImg&  = LAYERS(i%).imgHandle&
+                newImg&  = _NEWIMAGE(w%, h%, 32)
+                oldDest& = _DEST
+                oldSrc&  = _SOURCE
+                _DEST newImg&
+                _DONTBLEND newImg&
+                CLS , _RGBA32(0, 0, 0, 0)
+                _BLEND newImg&
+                _PUTIMAGE (0, 0)-(w% - 1, h% - 1), oldImg&, newImg&, (0, 0)-(oldW% - 1, oldH% - 1)
+                _DEST oldDest&
+                _SOURCE oldSrc&
+                _FREEIMAGE oldImg&
+                LAYERS(i%).imgHandle&    = newImg&
+                LAYERS(i%).imgWidth%     = w%
+                LAYERS(i%).imgHeight%    = h%
+                LAYERS(i%).contentDirty% = TRUE
+            END IF
+        END IF
+        ' Free opacity cache (will be lazily recreated)
+        IF LAYERS(i%).opacityCacheImg& < -1 THEN
+            _FREEIMAGE LAYERS(i%).opacityCacheImg&
+            LAYERS(i%).opacityCacheImg& = 0
+        END IF
+        LAYERS(i%).opacityCacheVal% = 0
+    NEXT i%
+
+    ' Free render caches (lazily recreated at new size)
+    IF SCENE_CACHE& < -1 THEN _FREEIMAGE SCENE_CACHE&                     : SCENE_CACHE& = 0
+    IF PG_CACHE_IMG& < -1 THEN _FREEIMAGE PG_CACHE_IMG&                   : PG_CACHE_IMG& = 0
+    IF COMPOSITE_BUFFER& < -1 THEN _FREEIMAGE COMPOSITE_BUFFER&           : COMPOSITE_BUFFER& = 0
+    IF COMPOSITE_BELOW_CACHE& < -1 THEN _FREEIMAGE COMPOSITE_BELOW_CACHE& : COMPOSITE_BELOW_CACHE& = 0
+    COMPOSITE_BELOW_VALID% = FALSE
+
+    ' Free scale originals (dimensions changed, no longer valid)
+    IF SCALE_ORIGINAL_IMAGE < -1 THEN _FREEIMAGE SCALE_ORIGINAL_IMAGE
+    SCALE_ORIGINAL_IMAGE = 0
+    SCALE_ORIGINAL_LAYER = 0
+    SCALE_FACTOR_LAYER   = 1.0
+    IF MOVE.ORIGINAL_IMAGE < -1 THEN _FREEIMAGE MOVE.ORIGINAL_IMAGE
+    MOVE.ORIGINAL_IMAGE = 0
+
+    ' Reset zoom/pan to fit new canvas
+    IF w% <= SCRN.w& AND h% <= SCRN.h& THEN
+        SCRN.zoom! = 1.0
+    ELSE
+        DIM fitZWC AS SINGLE, fitZHC AS SINGLE
+        fitZWC! = SCRN.w& / w%
+        fitZHC! = SCRN.h& / h%
+        IF fitZWC! < fitZHC! THEN SCRN.zoom! = fitZWC! ELSE SCRN.zoom! = fitZHC!
+    END IF
+    SCRN.offsetX% = 0
+    SCRN.offsetY% = 0
+    SCRN.panning% = FALSE
+
+    ' Recalculate symmetry center
+    SYMMETRY.CENTER_X% = w% \ 2
+    SYMMETRY.CENTER_Y% = h% \ 2
+
+    ' Recreate and redraw grid cache at the new canvas dimensions
+    IF GRID.imgHandle& < -1 THEN _FREEIMAGE GRID.imgHandle&
+    GRID.imgWidth%  = w%
+    GRID.imgHeight% = h%
+    GRID.imgHandle& = _NEWIMAGE(w%, h%, 32)
+    GRID.xPos%      = oldGridXPos%
+    GRID.yPos%      = oldGridYPos%
+    GRID_draw
+
+    ' Mark everything dirty
+    CANVAS_DIRTY% = TRUE
+    BLEND_invalidate_cache
+    SCENE_DIRTY%        = TRUE
+    RENDER_ORDER_DIRTY% = TRUE
+    GUI_NEEDS_REDRAW%   = TRUE
+    FRAME_IDLE%         = FALSE
+
+    _LOGINFO "CANVAS_resize_with_content: " + STR$(oldW%) + "x" + STR$(oldH%) + " -> " + STR$(w%) + "x" + STR$(h%)
+END SUB
+
+
+''
+' Show native input dialog for resize-image-with-content.
+' Prompts user for WxH, parses the response, and calls CANVAS_resize_with_content.
+'
+SUB CANVAS_resize_with_content_dialog ()
+    DIM currentSize AS STRING
+    DIM response    AS STRING
+    DIM xPos        AS INTEGER
+    DIM newW        AS INTEGER, newH AS INTEGER
+
+    currentSize$ = _TRIM$(STR$(SCRN.canvasW&)) + "x" + _TRIM$(STR$(SCRN.canvasH&))
+
+    POINTER_hide_for_dialog
+    response$ = DRAW_input_box_ex$("Resize Image with Content", "Enter new size (WxH):", currentSize$, "e.g. 320x200", TRUE)
+    POINTER_show_after_dialog
+    MOUSE_cleanup_after_dialog FALSE
+
+    IF LEN(response$) = 0 THEN EXIT SUB  ' User cancelled
+
+    DIM upper AS STRING
+    upper$ = UCASE$(response$)
+    xPos%  = INSTR(upper$, "X")
+    IF xPos% < 2 THEN
+        _LOGWARN "CANVAS_resize_with_content_dialog: Invalid format: " + response$
+        EXIT SUB
+    END IF
+
+    newW% = VAL(LEFT$(response$, xPos% - 1))
+    newH% = VAL(MID$(response$, xPos% + 1))
+
+    IF newW% < 1 OR newH% < 1 THEN
+        _LOGWARN "CANVAS_resize_with_content_dialog: Invalid dimensions: " + response$
+        EXIT SUB
+    END IF
+
+    IF newW% > 4096 THEN newW% = 4096
+    IF newH% > 4096 THEN newH% = 4096
+
+    CANVAS_resize_with_content newW%, newH%
 END SUB
 
 
