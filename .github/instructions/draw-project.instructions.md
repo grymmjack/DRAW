@@ -24,7 +24,7 @@ applyTo: "**"
 1. `_COMMON.BI` — core types and globals
 2. **CORE**: PERF, ERROR, IMAGE, PATHS
 3. **CFG**: CONFIG, CONFIG-THEME
-4. **GUI**: PALETTE, PALETTE-LOADER, PALETTE-STRIP, GUI, BRUSHES, CROSSHAIR, GRID, HELP, LAYERS, PALETTE-PICKER, PICKER, CURSOR, POINTER, STATUS, TOOLBAR, ORGANIZER, DITHER, DRAWER, PREVIEW, EDITBAR, ADVANCEDBAR, TOOLTIP, TRANSPARENCY, COMMAND, MENUBAR, SCROLLBAR, DIALOG, IMGADJ, IMAGE-ADJ, POPUP-MENU, STROKE-SEL, SMART-GUIDES, COLOR-MIXER, SYMBOL
+4. **GUI**: PALETTE, PALETTE-LOADER, PALETTE-STRIP, GUI, BRUSHES, CROSSHAIR, GRID, HELP, LAYERS, PALETTE-PICKER, PICKER, CURSOR, POINTER, STATUS, TOOLBAR, ORGANIZER, DITHER, DRAWER, PREVIEW, EDITBAR, ADVANCEDBAR, TOOLTIP, TRANSPARENCY, COMMAND, MENUBAR, SCROLLBAR, DIALOG, IMGADJ, IMAGE-ADJ, POPUP-MENU, STROKE-SEL, SMART-GUIDES, COLOR-MIXER, SYMBOL, BROWSER
 5. **INPUT**: MODIFIERS, KEYBOARD, MOUSE, STICK, FILE-BMP, FILE-BLOAD, FILE-PAL, FILE-ASE, FILE-PSD, API-LOSPEC
 6. **OUTPUT**: SCREEN, FILE-BAS, FILE-BMP, FILE-BSAVE, FILE-EXPORT
 7. **QB64_GJ_LIB**: DICT, STRINGS, VECT2D, TEXT_INPUT, MSG_BOX, COLOR_PICKER, FILE_DIALOG
@@ -325,6 +325,7 @@ A frame is "idle" when no input, mouse movement, GUI changes, or active tool ope
 | `GUI/PALETTE-OPS.BI/BM`  | Palette Ops mode (on-strip palette editing: change, delete, insert, rearrange, wand select) with [DOCUMENT] palette auto-creation and snapshot/restore |
 | `GUI/GJ-DIALOG-SCALE.BM` | Custom GUI dialog wrappers (`DRAW_pick_color&`, `DRAW_open_file$`, `DRAW_save_file$`, `DRAW_msg_box`, `DRAW_input_box$`, `DRAW_input_box_ex$`) injecting `CFG.TOOLBAR_SCALE%` into QB64_GJ_LIB dialogs |
 | `GUI/SETTINGS.BI/BM`     | GIMP-style tabbed settings dialog (General, Grid, Palette, Panels, Audio, Fonts, Appearance, Directories) |
+| `GUI/BROWSER.BI/BM`      | Floating resizable Image Browser panel; file listing, multi-select, drag-and-drop files onto canvas/drawer/layers; toggle via View → Browser (action 2022); visibility and size persisted in cfg |
 | `GUI/ABOUT.BI/BM`        | About screen dialog with animated logo, version, credits, clickable GitHub link |
 | `CFG/CONFIG.BI`           | Configuration structure                                             |
 | `CORE/SOUND.BI/BM`        | Sound constants, loader, playback SUBs                              |

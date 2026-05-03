@@ -258,6 +258,19 @@ Smart Guides provide automatic alignment feedback when moving layers. When enabl
 - When snap is enabled, moving content snaps to the nearest guide within the configured distance
 - Guides render as dashed lines with configurable color, opacity, and outline via theme settings
 
+## Global Fill
+
+The Fill tool supports cross-layer flooding when you hold the **`F` key** while clicking. This is in addition to the normal per-layer flood fill activated by pressing the `F` tool hotkey and clicking.
+
+| Modifier | Action |
+|----------|--------|
+| **Hold `F` + Left Click** | Contiguous global fill — flood-fills all visible non-locked layers with the same contiguous color as the clicked pixel, using FG color |
+| **Hold `F` + Right Click** | Same as above, but fills with BG color |
+| **Hold `Shift+F` + Left Click** | Replace-all global fill — replaces every pixel matching the clicked color across the entire document (all visible non-locked layers), using FG color |
+| **Hold `Shift+F` + Right Click** | Same as above, but fills with BG color |
+
+Global fills respect layer visibility and opacity lock. Undo (Ctrl+Z) reverts all layers simultaneously.
+
 ## Fill Adjustment Mode
 
 When a **custom brush** or **drawer paint mode** (pattern/gradient) is active, `F8` enters Fill Adjustment Mode instead of disabling symmetry. This mode provides an interactive overlay for adjusting tiled fill parameters before committing.
@@ -558,6 +571,7 @@ Brush size and shape affect all drawing tools: Brush, Dot, Line, Rectangle, Elli
 | `Shift+F5` | Toggle advanced bar |
 | `Ctrl+M` | Toggle character map panel |
 | View → Color Mixer | Toggle Color Mixer panel |
+| View → Browser | Toggle Image Browser panel |
 | `Ctrl+Alt+Shift+G` | Toggle grayscale preview |
 | `F10` | Toggle status bar visibility |
 | `F11` | Toggle all UI (toolbar, status bar, layer panel, menu bar) |
@@ -597,6 +611,34 @@ The **Color Mixer** panel provides a live RGB/HSV color editing workspace. Toggl
 | **Hex input** | Type a hex color value directly |
 | **FG/BG swatches** | Click to apply mixed color to foreground or background |
 | **View → Color Mixer** | Toggle panel visibility |
+
+## Image Browser
+
+The Image Browser is a floating, resizable panel for browsing and loading image files. Toggle via **View → Browser** in the menu bar.
+
+### Browser Controls
+
+| Action | Function |
+|--------|----------|
+| **View → Browser** | Toggle browser visibility |
+| **Double-click title bar** | Maximize/restore browser |
+| **Drag title bar** | Move browser window |
+| **Drag edge/corner** | Resize browser window |
+| **Click file entry** | Select file |
+| **Ctrl+Click file entry** | Add file to multi-selection |
+| **Double-click file** | Load image into canvas |
+| **Drag file to canvas** | Drop image onto canvas (initiates image import) |
+| **Drag file to drawer** | Drop image into a drawer slot |
+| **Drag file to layer panel** | Drop image as a new layer |
+| **Mouse wheel** | Scroll file list |
+
+### Browser Features
+
+- Floating non-modal panel — browse files without blocking drawing
+- Multi-select for batch file operations
+- Drag files directly from the browser to the canvas, drawer, or layer panel
+- Configurable panel size (`BROWSER_W`, `BROWSER_H` in `DRAW.cfg`)
+- Panel position and size are preserved across sessions
 
 ## Audio Controls
 

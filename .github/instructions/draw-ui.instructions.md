@@ -50,6 +50,7 @@ Root menus (indices 0–10): FILE(0), EDIT(1), VIEW(2), SELECT(3), TOOLS(4), BRU
 | 2001–2010 | Image Adj    | BrightnessContrast, HueSaturation, Levels, ColorBalance, Blur, Sharpen, Invert, Desaturate, Posterize, Pixelate |
 | 2012–2020 | Preview Win  | PreviewWindowSubmenu(2012), FollowMode(2013), FloatingImageMode(2014), BinQuickLook(2015), AllowColorPicking(2016), LoadImage(2017), RecentImages(2018), ClearRecentImages(2019), GrayscalePreview(2020) |
 | 2021      | Color Mixer  | ToggleColorMixer(2021) |
+| 2022      | Browser      | ToggleBrowser(2022) |
 | 2050–2054 | Character Map | ToggleCharMap(2050), DockLeft(2051), DockRight(2052), ToggleCharGrid(2053), ToggleSnapToCharGrid(2054) |
 | 2201–2216 | Export As    | ExportPNGNative(2201), ExportPNG(2204), ExportGIF(2205), ExportJPG(2206), ExportTGA(2208), ExportBMP(2209), ExportHDR(2210), ExportICO(2211), ExportQOI(2216) |
 

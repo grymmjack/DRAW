@@ -51,8 +51,9 @@ Extension changed from `.drw` to `.draw` in v0.7.4 (CorelDRAW conflict).
 | Symbol Layer Fields | per-layer: symbolParentId(4), symbolParentDirty(2, always 0 on save), symbolScaleX(4), symbolScaleY(4), symbolOffsetX(2), symbolOffsetY(2) | v25+ |
 | Extract Grid Config | gridColCount(2), gridRowCount(2), gridCellW(2), gridCellH(2), extractGridDestDir(260), extractGridBaseFilename(64), gridNamingMethod(2), gridStartNumber(2) | v26+ |
 | Symbol Child Rotation | per-layer: symbolRotation(2) — 0=none, 1=90CW, 2=180, 3=270CW | v27+ |
+| Layer Name Width | Layer name field expanded from 16 bytes to 64 bytes (allows longer layer names up to 63 chars) | v28+ |
 
-Constants: `DRW_MAGIC$ = "DRW1"`, `DRW_VERSION% = 27`, `DRW_CHUNK_VERSION% = 1`
+Constants: `DRW_MAGIC$ = "DRW1"`, `DRW_VERSION% = 28`, `DRW_CHUNK_VERSION% = 1`
 
 **Per-document vs global config**: Character Mode (`useChars%`) is saved per-document in v19+ — it is NOT stored in `DRAW.cfg`. On fresh launch (no file loaded), `useChars%` defaults to FALSE. Character grid visibility/snap state is also per-document (v18+).
 

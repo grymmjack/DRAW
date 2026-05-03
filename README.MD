@@ -5,7 +5,7 @@ DRAW by Rick Christy <grymmjack@gmail.com>
 
 DRAW is a pixel art editor written in QB64PE that can export images as sourcecode
 
-Current release: v1.0
+Current release: v1.1.0
 
 ![DRAW GUI from v1.0](./GUI.png)
 
@@ -18,7 +18,7 @@ Current release: v1.0
 - **Rectangle** - Draw outlined or filled rectangles with brush size/shape; filled mode supports custom brush tiled fill and drawer paint modes with interactive Fill Adjustment (`F8`)
 - **Ellipse** - Draw outlined or filled ellipses/circles with brush size/shape; filled mode supports custom brush tiled fill and drawer paint modes with interactive Fill Adjustment (`F8`)
 - **Polygon** - Draw outlined or filled multi-point polygons with brush size/shape, angle snapping; filled mode supports custom brush tiled fill and drawer paint modes with interactive Fill Adjustment (`F8`)
-- **Fill** - Flood fill tool; hold **Shift** to sample from merged visible canvas while painting onto the current layer; supports custom brush tiled fills and drawer paint mode fills with interactive Fill Adjustment overlay (`F8`) featuring drag-to-offset, scale, and rotation controls
+- **Fill** - Flood fill tool; hold **Shift** to sample from merged visible canvas while painting onto the current layer; supports custom brush tiled fills and drawer paint mode fills with interactive Fill Adjustment overlay (`F8`) featuring drag-to-offset, scale, and rotation controls; **Global Fill**: hold `F`+click to flood-fill contiguous matching color on all visible layers simultaneously, hold `Shift+F`+click to replace all matching pixels across the entire document
 - **Spray** - Spray paint with brush-shaped nozzle tips, radius doubles per brush size level, custom brush stamp support, SHIFT axis constraint, circle preview
 - **Picker** - Color sampling/eyedropper with a cursor-adjacent loupe overlay that shows RGB and hex values; hold ALT with any tool for temporary picker; ALT+left picks FG, ALT+right picks BG
 - **Marquee** - Selection tools: Rectangle, Freehand, Polygon, Ellipse — each with a distinct crosshair cursor; **Ctrl+Arrow** lifts and nudges content within the selection (Photoshop-style), Ctrl+Alt+Arrow clones content
@@ -135,6 +135,7 @@ Current release: v1.0
 
 ### User Interface
 - **Color Mixer** - Floating panel for live color mixing with RGB and HSV channel controls and hex input (View → Color Mixer)
+- **Image Browser** - Floating, resizable file browser panel (View → Browser) for navigating and loading image files; supports multi-select, drag-and-drop files directly onto the canvas, drawer slots, or layer panel; panel size and position persisted in config
 - **Drawer panel** - A 30-slot drawer beneath the organizer for brush, gradient, and pattern sets (including 1-bit patterns with opaque background support); `F1`/`F2`/`F3` switch modes, left-click selects, `Shift+Left Click` stores, right-click opens a context menu (including Load Images to batch-import images into slots), middle-click cycles modes, `Shift+Middle Click` clears a slot, `Shift+Right Click` imports into a slot, and drag-and-drop to reorder bins
 - **Character map panel** - Dockable left/right 16×16 glyph grid with dynamic cell count (4-16 per row), mouse wheel scrolling, configurable theme colors, and bitmap font rendering
 - **Preview window** - A floating preview panel with two modes: **Follow** (canvas magnifier following the pointer) and **Floating Image** (display a loaded reference image); supports **Bin Quick Look** (hover drawer slots to preview brush/pattern/gradient), **Color Picking** (Alt+Click to sample colors from preview), and **Recent Preview Images** (up to 10 recently loaded images); pan/zoom, minimize/close buttons, and work-area clamping
