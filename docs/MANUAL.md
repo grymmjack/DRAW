@@ -99,7 +99,6 @@ You can read it cover-to-cover, jump to any chapter from the [Table of Contents]
 | 🎨 *Try it* | A short, practical exercise. |
 | 💡 *Tip* | Something useful but optional. |
 | ⚠️ *Gotcha* | Something that commonly trips people up. |
-| 📸 *Screenshot needed* | A visual that hasn't been captured yet — see [SCREENSHOTS.md](MANUAL/SCREENSHOTS.md) for the production checklist. |
 
 <div class="page-break"></div>
 
