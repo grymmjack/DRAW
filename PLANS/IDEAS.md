@@ -1,5 +1,28 @@
 # IDEAS
 
+## GRID HOTKEY CHANGES
+> I would like to modify the grid hotkeys:
+
+- [ ] Hold `g` and: 
+  - [ ] Up arrow = resize grid height up
+  - [ ] Down arrow = resize grid height down
+  - [ ] Left arrow = resize grid width down
+  - [ ] Right arrow = resize grid width up
+- [ ] Remove the , and . bindings and change them accordingly.
+
+> Also, I would like to be able to offset the grid from the top left origin
+
+- [ ] Hold `g` and `CTRL` plus the arrows to position the offset:
+  - [ ] Up arrow = move offset up (negative OK)
+  - [ ] Down arrow = move offset down
+  - [ ] Right arrow = move offset right
+  - [ ] Left arrow = move offset left
+- [ ] We need new DRAW.cfg settings for the grid offset as well:
+  - [ ] GRID_OFFSET_X
+  - [ ] GRID_OFFSET_Y
+- [ ] We also need to provide a way to change this in Edit -> Settings
+
+
 ## CROP TOOL IMPROVEMENTS
 - [ ] Allow crop tool bounding box to grow the canvas size.
   - [ ] When the crop tool selects the entire canvas, it can grow top, bottom, left, right
