@@ -232,6 +232,8 @@ TYPE DRAW_CONFIG
     GRID_OPACITY                    AS INTEGER        ' Grid line opacity 0-255 (0 = use theme)
     GRID_SIZE_X                     AS INTEGER        ' Grid cell width in pixels (0 = use theme)
     GRID_SIZE_Y                     AS INTEGER        ' Grid cell height in pixels (0 = use theme)
+    GRID_OFFSET_X                   AS INTEGER        ' Grid X origin offset in canvas pixels (can be negative)
+    GRID_OFFSET_Y                   AS INTEGER        ' Grid Y origin offset in canvas pixels (can be negative)
     ' Pixel grid settings
     PIXELGRID_COLOR_FG              AS _UNSIGNED LONG ' Pixel grid line color (hex RGB, 0 = use theme)
     PIXELGRID_OPACITY               AS INTEGER        ' Pixel grid line opacity 0-255 (0 = use theme)

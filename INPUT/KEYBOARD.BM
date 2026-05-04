@@ -192,8 +192,12 @@ SUB KEYBOARD_tools (keypress AS STRING)
             TEXT_reset ' Reset text tool when switching to it
             GUI_NEEDS_REDRAW% = TRUE
         CASE CHR$(27)                      ' ESC key - reset poly line tool, cancel move, cancel layer drag, apply text, or clear selection
+            ' Grid offset pick mode — cancel on Escape
+            IF GRID_OFFSET_PICK_MODE% THEN
+                GRID_OFFSET_PICK_MODE% = FALSE
+                GUI_NEEDS_REDRAW%      = TRUE
             ' Palette Ops mode — deactivate on Escape
-            IF PALETTE_OPS.ACTIVE% THEN
+            ELSEIF PALETTE_OPS.ACTIVE% THEN
                 PALETTE_OPS_deactivate
                 GUI_NEEDS_REDRAW% = TRUE
             ' First check if layer drag is in progress
@@ -2520,22 +2524,6 @@ SUB KEYBOARD_handle_grid_controls ()
         snapTogglePressed% = FALSE
     END IF
     
-    ' Period (.) to increase grid size
-    STATIC periodPressed AS INTEGER
-    IF _KEYDOWN(46) THEN
-        IF NOT periodPressed% THEN
-            IF GRID.gridWidth% < 50 THEN
-                GRID.gridWidth% = GRID.gridWidth% + 1
-                GRID.gridHeight% = GRID.gridHeight% + 1
-                GRID_draw
-                INVALIDATE_scene
-            END IF
-            periodPressed% = TRUE
-        END IF
-    ELSE
-        periodPressed% = FALSE
-    END IF
-    
     ' Ctrl+Comma — open Settings dialog
     STATIC ctrlCommaPressed AS INTEGER
     IF MODIFIERS.ctrl% AND (NOT MODIFIERS.shift%) AND (NOT MODIFIERS.alt%) AND _KEYDOWN(44) THEN
@@ -2548,23 +2536,108 @@ SUB KEYBOARD_handle_grid_controls ()
         ctrlCommaPressed% = FALSE
     END IF
 
-    ' Comma (,) to decrease grid size
-    STATIC commaPressed AS INTEGER
-    IF _KEYDOWN(44) AND (NOT MODIFIERS.ctrl%) THEN
-        IF NOT commaPressed% THEN
-            IF GRID.gridWidth% > 2 THEN
-                GRID.gridWidth% = GRID.gridWidth% - 1
-                GRID.gridHeight% = GRID.gridHeight% - 1
+    ' Hold G + arrows: resize grid width/height
+    ' Hold G + Ctrl + arrows: shift grid origin offset
+    ' GRID_G_KEY_ARMED% is computed at the top of KEYBOARD_input_handler so that
+    ' Ctrl+G (new group, in KEYBOARD_layers) can check it and not fire when G came first.
+
+    STATIC gRightPressed AS INTEGER, gLeftPressed AS INTEGER
+    STATIC gUpPressed    AS INTEGER, gDownPressed AS INTEGER
+
+    IF GRID_G_KEY_ARMED% AND NOT MODIFIERS.ctrl% THEN
+        ' G + O = enter grid offset pick mode (next canvas click sets the origin)
+        STATIC gOPressed AS INTEGER
+        IF _KEYDOWN(111) OR _KEYDOWN(79) THEN   ' o / O
+            IF NOT gOPressed% THEN
+                GRID_OFFSET_PICK_MODE% = TRUE
+                GRID_G_KEY_ARMED%      = FALSE   ' disarm so G+arrows don't fire
+                GUI_NEEDS_REDRAW%      = TRUE
+                FRAME_IDLE%            = FALSE
+                gOPressed%             = TRUE
+            END IF
+        ELSE
+            gOPressed% = FALSE
+        END IF
+        ' G + R = reset grid offset to 0,0
+        STATIC gRResetPressed AS INTEGER
+        IF _KEYDOWN(114) OR _KEYDOWN(82) THEN   ' r / R
+            IF NOT gRResetPressed% THEN
+                GRID.xPos%          = 0
+                GRID.yPos%          = 0
+                CFG.GRID_OFFSET_X%  = 0
+                CFG.GRID_OFFSET_Y%  = 0
                 GRID_draw
                 INVALIDATE_scene
+                GUI_NEEDS_REDRAW%   = TRUE
+                FRAME_IDLE%         = FALSE
+                gRResetPressed%     = TRUE
             END IF
-            commaPressed% = TRUE
+        ELSE
+            gRResetPressed% = FALSE
+        END IF
+        ' G + Right = increase grid width
+        IF _KEYDOWN(19712) THEN
+            IF NOT gRightPressed% THEN
+                IF GRID.gridWidth% < 256 THEN
+                    GRID.gridWidth%    = GRID.gridWidth% + 1
+                    CFG.GRID_SIZE_X%   = GRID.gridWidth%
+                    GRID_draw
+                    INVALIDATE_scene
+                END IF
+                gRightPressed% = TRUE
+            END IF
+        ELSE
+            gRightPressed% = FALSE
+        END IF
+        ' G + Left = decrease grid width
+        IF _KEYDOWN(19200) THEN
+            IF NOT gLeftPressed% THEN
+                IF GRID.gridWidth% > 2 THEN
+                    GRID.gridWidth%    = GRID.gridWidth% - 1
+                    CFG.GRID_SIZE_X%   = GRID.gridWidth%
+                    GRID_draw
+                    INVALIDATE_scene
+                END IF
+                gLeftPressed% = TRUE
+            END IF
+        ELSE
+            gLeftPressed% = FALSE
+        END IF
+        ' G + Down = increase grid height
+        IF _KEYDOWN(20480) THEN
+            IF NOT gDownPressed% THEN
+                IF GRID.gridHeight% < 256 THEN
+                    GRID.gridHeight%   = GRID.gridHeight% + 1
+                    CFG.GRID_SIZE_Y%   = GRID.gridHeight%
+                    GRID_draw
+                    INVALIDATE_scene
+                END IF
+                gDownPressed% = TRUE
+            END IF
+        ELSE
+            gDownPressed% = FALSE
+        END IF
+        ' G + Up = decrease grid height
+        IF _KEYDOWN(18432) THEN
+            IF NOT gUpPressed% THEN
+                IF GRID.gridHeight% > 2 THEN
+                    GRID.gridHeight%   = GRID.gridHeight% - 1
+                    CFG.GRID_SIZE_Y%   = GRID.gridHeight%
+                    GRID_draw
+                    INVALIDATE_scene
+                END IF
+                gUpPressed% = TRUE
+            END IF
+        ELSE
+            gUpPressed% = FALSE
         END IF
     ELSE
-        commaPressed% = FALSE
+        ' G key released — reset all direction pressed states
+        gRightPressed% = FALSE
+        gLeftPressed%  = FALSE
+        gDownPressed%  = FALSE
+        gUpPressed%    = FALSE
     END IF
-    
-    ' CTRL+SHIFT+Q to export QB64 project
     STATIC ctrlShiftQPressed AS INTEGER
     IF (_KEYDOWN(113) OR _KEYDOWN(81)) AND MODIFIERS.ctrl% AND MODIFIERS.shift% THEN
         IF NOT ctrlShiftQPressed% THEN
@@ -3220,7 +3293,20 @@ END SUB
 SUB KEYBOARD_input_handler ()
     DIM keypress AS STRING
     DIM drainKey AS LONG
-    
+
+    ' Track G-key arm state BEFORE KEYBOARD_layers runs so Ctrl+G (new group)
+    ' can check GRID_G_KEY_ARMED% and skip when the user held G first.
+    ' Rule: arm when G transitions up->down with NO modifiers; disarm when G released.
+    STATIC gKeyArmedWasDown AS INTEGER
+    DIM    gKeyArmedNow     AS INTEGER
+    gKeyArmedNow% = _KEYDOWN(103) OR _KEYDOWN(71)
+    IF gKeyArmedNow% AND NOT gKeyArmedWasDown% AND NOT MODIFIERS.ctrl% AND NOT MODIFIERS.shift% AND NOT MODIFIERS.alt% THEN
+        GRID_G_KEY_ARMED% = TRUE
+    ELSEIF NOT gKeyArmedNow% THEN
+        GRID_G_KEY_ARMED% = FALSE
+    END IF
+    gKeyArmedWasDown% = gKeyArmedNow%
+
     ' Layer keyboard handling - MUST run first before any EXIT SUB statements
     ' Uses _KEYDOWN() so runs every frame regardless of INKEY$ state
     ' Skip when text tool is actively editing — all global hotkeys are gated
@@ -3261,6 +3347,15 @@ SUB KEYBOARD_input_handler ()
     
     ' NOTE: Display scale hotkeys (CTRL+ALT+SHIFT+=/-) are handled in DRAW.BAS main loop
     ' using _KEYHIT which is more reliable on Linux for complex modifier combinations
+
+    ' After a native dialog closes, SDL2 briefly reports stale _KEYDOWN state for
+    ' keys that were held or typed during the dialog (e.g. a filename with "L" in it
+    ' can trigger Ctrl+L to hide the layer panel).  MOUSE_cleanup_after_dialog sets
+    ' KEYBOARD_SUPPRESS_FRAMES% = 3; we skip all shortcut handlers until it drains.
+    IF KEYBOARD_SUPPRESS_FRAMES% > 0 THEN
+        KEYBOARD_SUPPRESS_FRAMES% = KEYBOARD_SUPPRESS_FRAMES% - 1
+        EXIT SUB
+    END IF
 
     ' On Linux/SDL2, Ctrl/Alt combinations can leak ASCII control characters into
     ' INKEY$ even though the real shortcut handling below uses _KEYDOWN(). Drain the
@@ -3849,7 +3944,8 @@ SUB KEYBOARD_layers ()
     END IF
 
     ' CTRL+G: New Group
-    IF isCtrl% AND NOT isShift% AND NOT isAlt% AND (_KEYDOWN(103) OR _KEYDOWN(71)) THEN
+    ' Skip if G was already held before Ctrl was pressed (that's the grid offset chord).
+    IF isCtrl% AND NOT isShift% AND NOT isAlt% AND (_KEYDOWN(103) OR _KEYDOWN(71)) AND NOT GRID_G_KEY_ARMED% THEN
         IF NOT layerCtrlGPressed% THEN
             CMD_execute_action 720
             FRAME_IDLE%        = FALSE

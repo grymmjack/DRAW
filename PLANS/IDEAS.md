@@ -1,50 +1,25 @@
 # IDEAS
 
-## MARQUEE RECT IMPROVEMENTS
-
-- [x] I would like the edges of the marquee rectangle selections and crop boundaries to be resizable from the entire edge, not just the center anchor if that's possible.
-  - [x] The anchor is often not in view, and makes it very painful to have to pan the canvas find the anchor resize, then go back to what i was doing.
-  - [x] No modifier key needed — full-edge hit detection works everywhere along the edge.
-
-## GRID HOTKEY IMPROVEMENTS
-> I would like to modify the grid hotkeys:
-
-- [ ] Hold `g` and: 
-  - [ ] Up arrow = resize grid height up
-  - [ ] Down arrow = resize grid height down
-  - [ ] Left arrow = resize grid width down
-  - [ ] Right arrow = resize grid width up
-- [ ] Remove the , and . bindings and change them accordingly.
-
-> Also, I would like to be able to offset the grid from the top left origin
-
-- [ ] Hold `g` and `CTRL` plus the arrows to position the offset:
-  - [ ] Up arrow = move offset up (negative OK)
-  - [ ] Down arrow = move offset down
-  - [ ] Right arrow = move offset right
-  - [ ] Left arrow = move offset left
-- [ ] We need new DRAW.cfg settings for the grid offset as well:
-  - [ ] GRID_OFFSET_X
-  - [ ] GRID_OFFSET_Y
-- [ ] We also need to provide a way to change this in Edit -> Settings
+## RECT GRID MODIFIER
+- [ ] While drawing a r Rect, before releasing, user can press arrows:
+  - [ ] Right = add equidistant divisible section 
+    - [ ] Press right 1 time = center of rect horizontally
+    - [ ] Press right 2 times = divide rect into 3rds
+    - [ ] Press right 4 times = divide rect into 4ths, etc.
+  - [ ] Left = subtract a section
+  - [ ] Up = subtract a vertical section
+  - [ ] Down = divide vertically like horizontal, same idea.
 
 
-## CROP TOOL IMPROVEMENTS
-- [ ] Allow crop tool bounding box to grow the canvas size.
-  - [ ] When the crop tool selects the entire canvas, it can grow top, bottom, left, right
-  - [ ] This should allow the crop tool bounding box to reach on top of the apron
-  - [ ] When the crop boundary is larger than the existing canvas size, resize the canvas:
-    - [ ] If the canvas is being grown to the right, anchor the contents to the left
-    - [ ] If the canvas is being grown to the left, anchor the contents to the right
-    - [ ] If the canvas is being grown up, anchor the contents to the bottom
-    - [ ] If the canvas is being grown down, anchor the contents to the top
-    - [ ] If the canvas is being grown in more than one direction, attempt to make it sane anchor:
-      - [ ] If both top and left are being grown: anchor to bottom right
-      - [ ] If both bottom and right are being grown: anchor to top left
-      - [ ] etc.
-      - [ ] If all sides are being grown anchor to center
-  - Operation should happen the same as Image -> Resize Canvas... (except no size prompt, and custom anchoring).
-- [ ] Crop tool INSIDE existing bounds operates as it does now.
+## ELLIPSE GRID MODIFIER
+- [ ] Same as RECT grid, but with polar cooardinates 
+  - [ ] Left/right = in pie slices
+  - [ ] Up/down = add concentric circles inside equidistant
+
+
+## LINE RAY MODIFIER
+- [ ] Same as RECT grid, but draw spokes out of the line according to equidistant angles
+
 
 ## COLOR MIXER IMPROVEMENTS
 
@@ -690,4 +665,50 @@ Automatically snap to layer candidates when near X/Y/W/H bounds of neighbors
 
 ## ADVANCED BAR AND EDIT BAR
 - [x] If the contents of the bar buttons cannot be shown all at once, allow the edit bar and advanced bar to be scrolled with mousewheel up/down
+
+## MARQUEE RECT IMPROVEMENTS
+
+- [x] I would like the edges of the marquee rectangle selections and crop boundaries to be resizable from the entire edge, not just the center anchor if that's possible.
+  - [x] The anchor is often not in view, and makes it very painful to have to pan the canvas find the anchor resize, then go back to what i was doing.
+  - [x] No modifier key needed — full-edge hit detection works everywhere along the edge.
+
+## GRID HOTKEY IMPROVEMENTS
+> I would like to modify the grid hotkeys:
+
+- [x] Hold `g` and: 
+  - [x] Up arrow = resize grid height up
+  - [x] Down arrow = resize grid height down
+  - [x] Left arrow = resize grid width down
+  - [x] Right arrow = resize grid width up
+- [x] Remove the , and . bindings and change them accordingly.
+
+> Also, I would like to be able to offset the grid from the top left origin
+
+- [x] Hold `g` and `CTRL` plus the arrows to position the offset:
+  - [x] Up arrow = move offset up (negative OK)
+  - [x] Down arrow = move offset down
+  - [x] Right arrow = move offset right
+  - [x] Left arrow = move offset left
+- [x] We need new DRAW.cfg settings for the grid offset as well:
+  - [x] GRID_OFFSET_X
+  - [x] GRID_OFFSET_Y
+- [x] We also need to provide a way to change this in Edit -> Settings
+
+
+## CROP TOOL IMPROVEMENTS
+- [x] Allow crop tool bounding box to grow the canvas size.
+  - [x] When the crop tool selects the entire canvas, it can grow top, bottom, left, right
+  - [x] This should allow the crop tool bounding box to reach on top of the apron
+  - [x] When the crop boundary is larger than the existing canvas size, resize the canvas:
+    - [x] If the canvas is being grown to the right, anchor the contents to the left
+    - [x] If the canvas is being grown to the left, anchor the contents to the right
+    - [x] If the canvas is being grown up, anchor the contents to the bottom
+    - [x] If the canvas is being grown down, anchor the contents to the top
+    - [x] If the canvas is being grown in more than one direction, attempt to make it sane anchor:
+      - [x] If both top and left are being grown: anchor to bottom right
+      - [x] If both bottom and right are being grown: anchor to top left
+      - [x] etc.
+      - [x] If all sides are being grown anchor to center
+  - Operation should happen the same as Image -> Resize Canvas... (except no size prompt, and custom anchoring).
+- [x] Crop tool INSIDE existing bounds operates as it does now.
 
