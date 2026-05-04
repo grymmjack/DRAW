@@ -160,6 +160,7 @@ SUB COLORMIXER_ensure_initialized ()
         IF CP_STATE.tiHexId > 0 THEN
             TI_set_text CP_STATE.tiHexId, tiHexText$
             CP_wire_hex_ti_theme
+            TI_inputs(CP_STATE.tiHexId).autoSelect = TRUE ' Select-all on first click
         END IF
     END IF
 
@@ -363,6 +364,20 @@ SUB COLORMIXER_render ()
 
     COLORMIXER_clamp_to_work_area
 
+    ' Keep blender's BG reference in sync with DRAW's current BG paint color
+    ' Compare and mark dirty so the blender strip re-renders immediately
+    IF CP_STATE.bgColorRef <> PAINT_BG_COLOR~& THEN
+        CP_STATE.bgColorRef = PAINT_BG_COLOR~&
+        CP_STATE.dirty      = -1
+    END IF
+
+    ' Push current paint color to color history when user commits a draw stroke
+    STATIC lastHistSaved AS INTEGER
+    IF HISTORY_saved_this_frame% AND NOT lastHistSaved% THEN
+        CP_history_push PAINT_COLOR~&
+    END IF
+    lastHistSaved% = HISTORY_saved_this_frame%
+
     ' Sync colour from external changes (palette strip click, picker, etc.)
     COLORMIXER_sync_from_paint
 
@@ -500,6 +515,30 @@ SUB COLORMIXER_mouse_input (wheelDelta AS INTEGER)
     CP_STATE.oldMouseB1 = MOUSE.OLD_B1%
     CP_STATE.mouseWheel = wheelDelta%
 
+    ' Right-click on blender strip = pick that blended color as the BG color
+    DIM justPressedB2 AS INTEGER
+    justPressedB2% = (MOUSE.B2% AND NOT MOUSE.OLD_B2%)
+    IF justPressedB2% AND NOT COLORMIXER.dragging% THEN
+        DIM blStripY AS INTEGER: blStripY% = CP_STATE.blenderY + CP_STATE.fontH + 4
+        DIM blStripH AS INTEGER: blStripH% = CP_THEME.histChipH%
+        IF nativeY% >= blStripY% AND nativeY% < blStripY% + blStripH% THEN
+            DIM blPad AS INTEGER: blPad% = CP_THEME.padding%
+            DIM blW2  AS INTEGER: blW2%  = CP_STATE.dialogW - 2 * blPad%
+            DIM blNX  AS INTEGER: blNX%  = nativeX% - blPad%
+            IF blNX% >= 0 AND blNX% < blW2% THEN
+                DIM blBGT AS SINGLE: blBGT! = CSNG(blNX%) / CSNG(blW2% - 1)
+                DIM blBGR AS INTEGER, blBGG AS INTEGER, blBGB AS INTEGER
+                blBGR% = INT(CP_STATE.blenderFGR + (_RED32(CP_STATE.bgColorRef)   - CP_STATE.blenderFGR) * blBGT! + 0.5)
+                blBGG% = INT(CP_STATE.blenderFGG + (_GREEN32(CP_STATE.bgColorRef) - CP_STATE.blenderFGG) * blBGT! + 0.5)
+                blBGB% = INT(CP_STATE.blenderFGB + (_BLUE32(CP_STATE.bgColorRef)  - CP_STATE.blenderFGB) * blBGT! + 0.5)
+                PAINT_BG_COLOR~&     = _RGB32(blBGR%, blBGG%, blBGB%)
+                STATUS_NEEDS_REDRAW% = TRUE
+                FRAME_IDLE%          = FALSE
+                EXIT SUB
+            END IF
+        END IF
+    END IF
+
     ' Process mouse interactions (SV square, hue bar, sliders, buttons)
     CP_INPUT_mouse
 
@@ -533,6 +572,7 @@ SUB COLORMIXER_mouse_input (wheelDelta AS INTEGER)
         STATUS_NEEDS_REDRAW%       = TRUE
         FRAME_IDLE%                = FALSE
     END IF
+
 END SUB
 
 ' ---------------------------------------------------------------------------
@@ -556,6 +596,10 @@ SUB COLORMIXER_sync_from_paint ()
         CP_STATE.cB        = _BLUE32(currentColor~&)
         CP_STATE.origColor = currentColor~&
         CP_update_from_rgb
+        ' Also update blender FG endpoint so the gradient reflects the new FG
+        CP_STATE.blenderFGR        = CP_STATE.cR
+        CP_STATE.blenderFGG        = CP_STATE.cG
+        CP_STATE.blenderFGB        = CP_STATE.cB
         CP_STATE.dirty             = -1
         COLORMIXER.lastSyncColor~& = currentColor~&
     END IF

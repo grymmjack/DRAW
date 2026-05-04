@@ -1,20 +1,5 @@
 # IDEAS
 
-## COLOR MIXER IMPROVEMENTS
-
-### COLOR MIXER HEX CODE
-- [ ] Clicking in hex code input should select it by default so user can quickly replace with paste from external text source, etc.
-
-### COLOR MIXER COLOR HISTORY
-- [ ] Add color history under SNAP area for up to 16 recent colors
-  - [ ] 2 rows of 8 color chips
-
-### COLOR MIXER COLOR FG<->BG BLENDER
-- [ ] Add color blender with two stops FG on left, BG on right
-  - [ ] Interpolate the color between FG and BG in a strip
-  - [ ] Allow user to pick the color from anywhere on the blended strip
-  - [ ] Honor SNAP setting if enabled
-
 
 ## MIDI MUSIC
 - [ ] Allow playback of .MID files if they exist using default QB64PE font, or configured SF2 file.
@@ -710,3 +695,19 @@ Automatically snap to layer candidates when near X/Y/W/H bounds of neighbors
 
 ## LINE RAY MODIFIER
 - [x] Same as RECT grid, but draw spokes out of the line according to equidistant angles
+
+
+## COLOR MIXER IMPROVEMENTS
+
+### COLOR MIXER HEX CODE
+- [x] Clicking in hex code input should select it by default so user can quickly replace with paste from external text source, etc.
+
+### COLOR MIXER COLOR HISTORY
+- [x] Add color history under SNAP area for up to 16 recent colors
+  - [x] 2 rows of 8 color chips
+
+### COLOR MIXER COLOR FG<->BG BLENDER
+- [x] Add color blender with two stops FG on left, BG on right
+  - [x] Interpolate the color between FG and BG in a strip
+  - [x] Allow user to pick the color from anywhere on the blended strip
+  - [x] Honor SNAP setting if enabled
