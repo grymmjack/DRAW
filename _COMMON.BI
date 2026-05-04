@@ -107,6 +107,9 @@ DIM SHARED AS INTEGER CANVAS_DIRTY                         ' Track if canvas has
 DIM SHARED TEXT_BUFFER(0 TO 99) AS STRING                  ' Text tool buffer for 100 lines
 DIM SHARED AS INTEGER FRAME_IDLE                           ' TRUE when nothing needs updating (idle throttling)
 DIM SHARED AS INTEGER IDLE_PREV_MOUSE_X, IDLE_PREV_MOUSE_Y ' Previous frame mouse position
+DIM SHARED AS INTEGER KEYBOARD_SUPPRESS_FRAMES             ' Frames to suppress _KEYDOWN shortcut handlers after native dialogs
+DIM SHARED AS INTEGER GRID_G_KEY_ARMED                     ' TRUE when G was freshly pressed without modifiers (grid resize/offset mode)
+DIM SHARED AS INTEGER GRID_OFFSET_PICK_MODE                ' TRUE when user triggered G+O offset-pick mode (next click sets grid origin)
 ' FPS limits now in CFG.FPS_IDLE%, CFG.FPS_CURSOR%, CFG.FPS_DIALOG% (DRAW.cfg)
 ' NOTE: MAC_ALT_HELD% is now declared in INPUT/MODIFIERS.BI
 CONSTRAIN_X%     = FALSE : CONSTRAIN_Y% = FALSE

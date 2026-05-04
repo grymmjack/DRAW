@@ -93,10 +93,18 @@ SUB MOUSE_drain_update_state (rawX AS INTEGER, rawY AS INTEGER, wheel_delta AS I
     MOUSE.UNSNAPPED_Y% = MOUSE.Y%
 
     ' Clamp unsnapped coords to canvas bounds (needed for Ctrl+Shift grid override)
-    IF MOUSE.UNSNAPPED_X% < 0 THEN MOUSE.UNSNAPPED_X% = 0
-    IF MOUSE.UNSNAPPED_Y% < 0 THEN MOUSE.UNSNAPPED_Y% = 0
-    IF MOUSE.UNSNAPPED_X% >= SCRN.canvasW& THEN MOUSE.UNSNAPPED_X% = SCRN.canvasW& - 1
-    IF MOUSE.UNSNAPPED_Y% >= SCRN.canvasH& THEN MOUSE.UNSNAPPED_Y% = SCRN.canvasH& - 1
+    ' In crop mode, allow beyond-canvas coords so handles can grow the canvas.
+    IF CROP.STATE = CROP_STATE_ACTIVE THEN
+        IF MOUSE.UNSNAPPED_X% < -SCRN.canvasW& THEN MOUSE.UNSNAPPED_X% = -SCRN.canvasW&
+        IF MOUSE.UNSNAPPED_Y% < -SCRN.canvasH& THEN MOUSE.UNSNAPPED_Y% = -SCRN.canvasH&
+        IF MOUSE.UNSNAPPED_X% >= SCRN.canvasW& * 2 THEN MOUSE.UNSNAPPED_X% = SCRN.canvasW& * 2 - 1
+        IF MOUSE.UNSNAPPED_Y% >= SCRN.canvasH& * 2 THEN MOUSE.UNSNAPPED_Y% = SCRN.canvasH& * 2 - 1
+    ELSE
+        IF MOUSE.UNSNAPPED_X% < 0 THEN MOUSE.UNSNAPPED_X% = 0
+        IF MOUSE.UNSNAPPED_Y% < 0 THEN MOUSE.UNSNAPPED_Y% = 0
+        IF MOUSE.UNSNAPPED_X% >= SCRN.canvasW& THEN MOUSE.UNSNAPPED_X% = SCRN.canvasW& - 1
+        IF MOUSE.UNSNAPPED_Y% >= SCRN.canvasH& THEN MOUSE.UNSNAPPED_Y% = SCRN.canvasH& - 1
+    END IF
 
     ' Apply snapping (Ctrl+Shift bypasses all snapping).
     ' Character-grid snap takes precedence so snaps don't stack.
@@ -108,11 +116,18 @@ SUB MOUSE_drain_update_state (rawX AS INTEGER, rawY AS INTEGER, wheel_delta AS I
         END IF
     END IF
 
-    ' Clamp to canvas bounds
-    IF MOUSE.X% < 0 THEN MOUSE.X% = 0
-    IF MOUSE.Y% < 0 THEN MOUSE.Y% = 0
-    IF MOUSE.X% >= SCRN.canvasW& THEN MOUSE.X% = SCRN.canvasW& - 1
-    IF MOUSE.Y% >= SCRN.canvasH& THEN MOUSE.Y% = SCRN.canvasH& - 1
+    ' Clamp to canvas bounds (bypass in crop mode to allow canvas-grow handles)
+    IF CROP.STATE = CROP_STATE_ACTIVE THEN
+        IF MOUSE.X% < -SCRN.canvasW& THEN MOUSE.X% = -SCRN.canvasW&
+        IF MOUSE.Y% < -SCRN.canvasH& THEN MOUSE.Y% = -SCRN.canvasH&
+        IF MOUSE.X% >= SCRN.canvasW& * 2 THEN MOUSE.X% = SCRN.canvasW& * 2 - 1
+        IF MOUSE.Y% >= SCRN.canvasH& * 2 THEN MOUSE.Y% = SCRN.canvasH& * 2 - 1
+    ELSE
+        IF MOUSE.X% < 0 THEN MOUSE.X% = 0
+        IF MOUSE.Y% < 0 THEN MOUSE.Y% = 0
+        IF MOUSE.X% >= SCRN.canvasW& THEN MOUSE.X% = SCRN.canvasW& - 1
+        IF MOUSE.Y% >= SCRN.canvasH& THEN MOUSE.Y% = SCRN.canvasH& - 1
+    END IF
 
     ' Update button states from hardware
     $IF MAC THEN
@@ -250,6 +265,11 @@ SUB MOUSE_cleanup_after_dialog (centerMouse AS INTEGER)
     
     ' Suppress button input for next 2 frames (catches late SDL events)
     MOUSE.SUPPRESS_FRAMES% = 2
+
+    ' Suppress _KEYDOWN shortcut handlers for 3 frames after dialog
+    ' SDL2 can report stale key state (e.g. letters typed in filename field)
+    ' which would trigger shortcuts like Ctrl+L, Ctrl+D, etc. on return.
+    KEYBOARD_SUPPRESS_FRAMES% = 3
     
     ' Clear keyboard buffer
     _KEYCLEAR
@@ -368,11 +388,13 @@ FUNCTION MOUSE_handle_image_import% ()
     MOUSE.X% = INT((imp_rawX% - imp_dx%) / SCRN.zoom!)
     MOUSE.Y% = INT((imp_rawY% - imp_dy%) / SCRN.zoom!)
 
-    ' Clamp to canvas bounds
-    IF MOUSE.X% < 0 THEN MOUSE.X% = 0
-    IF MOUSE.Y% < 0 THEN MOUSE.Y% = 0
-    IF MOUSE.X% >= SCRN.canvasW& THEN MOUSE.X% = SCRN.canvasW& - 1
-    IF MOUSE.Y% >= SCRN.canvasH& THEN MOUSE.Y% = SCRN.canvasH& - 1
+    ' Clamp to canvas bounds (bypass in crop mode for canvas-grow handles)
+    IF CROP.STATE <> CROP_STATE_ACTIVE THEN
+        IF MOUSE.X% < 0 THEN MOUSE.X% = 0
+        IF MOUSE.Y% < 0 THEN MOUSE.Y% = 0
+        IF MOUSE.X% >= SCRN.canvasW& THEN MOUSE.X% = SCRN.canvasW& - 1
+        IF MOUSE.Y% >= SCRN.canvasH& THEN MOUSE.Y% = SCRN.canvasH& - 1
+    END IF
 
     ' Get button states
     $IF MAC THEN
@@ -4169,9 +4191,24 @@ SUB MOUSE_handle_tool_phase (rawX AS INTEGER, rawY AS INTEGER)
         END IF
     END IF
 
-    ' On-canvas transform intercepts all mouse before normal tools
-    IF TRANSFORM.ACTIVE AND NOT SCRN.panning% THEN
+    ' ==== GRID OFFSET PICK MODE ====
+    ' G+O was pressed: next left-click on canvas sets grid origin to that canvas pixel.
+    IF GRID_OFFSET_PICK_MODE% AND NOT SCRN.panning% THEN
         IF MOUSE.B1% AND NOT MOUSE.OLD_B1% THEN
+            GRID.xPos%              = MOUSE.UNSNAPPED_X%
+            GRID.yPos%              = MOUSE.UNSNAPPED_Y%
+            CFG.GRID_OFFSET_X%      = GRID.xPos%
+            CFG.GRID_OFFSET_Y%      = GRID.yPos%
+            GRID_OFFSET_PICK_MODE%  = FALSE
+            GRID_draw
+            INVALIDATE_scene
+            GUI_NEEDS_REDRAW%       = TRUE
+        END IF
+        EXIT SUB
+    END IF
+
+    ' On-canvas transform intercepts all mouse before normal tools
+    IF TRANSFORM.ACTIVE AND NOT SCRN.panning% THEN        IF MOUSE.B1% AND NOT MOUSE.OLD_B1% THEN
             TRANSFORM_mouse_press rawX%, rawY%
         ELSEIF MOUSE.B1% THEN
             TRANSFORM_mouse_hold rawX%, rawY%

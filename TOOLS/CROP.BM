@@ -387,11 +387,22 @@ SUB CROP_begin ()
     ' Switch to marquee tool — the marquee handles ALL box interaction
     CURRENT_TOOL%   = TOOL_MARQUEE
     MARQUEE.VARIANT = TOOL_SELECT_RECT ' Crop always uses rectangular marquee
-    MARQUEE_reset                      ' Clear any existing selection so user draws fresh
+    MARQUEE_reset                      ' Clear any existing selection
+
+    ' Pre-initialize marquee to the full canvas.
+    ' User drags handles INWARD to crop, or OUTWARD past canvas edge to grow.
+    MARQUEE.BOX.x        = 0
+    MARQUEE.BOX.y        = 0
+    MARQUEE.BOX.w        = SCRN.canvasW&
+    MARQUEE.BOX.h        = SCRN.canvasH&
+    MARQUEE.BOX.state    = MARQUEE_STATE_SELECTED
+    MARQUEE.ACTIVE%      = TRUE
+    MARQUEE.INITIALIZED% = TRUE
+    MARQUEE.USER_CREATED = TRUE
 
     INVALIDATE_scene
 
-    _LOGINFO "CROP_begin: Crop mode started (using MARQUEE)"
+    _LOGINFO "CROP_begin: Crop mode started (using MARQUEE, full-canvas init)"
 END SUB
 
 
@@ -428,6 +439,10 @@ SUB CROP_apply ()
     DIM newImg      AS LONG
     DIM oldGridXPos AS INTEGER, oldGridYPos AS INTEGER
     DIM cropModX    AS INTEGER, cropModY AS INTEGER
+    ' Unified src/dst rect vars (handle both crop and grow with one formula)
+    DIM srcX1  AS INTEGER, srcY1 AS INTEGER, srcX2 AS INTEGER, srcY2 AS INTEGER
+    DIM dstX1  AS INTEGER, dstY1 AS INTEGER, dstX2 AS INTEGER, dstY2 AS INTEGER
+    DIM isGrow AS INTEGER
 
     IF CROP.STATE <> CROP_STATE_ACTIVE THEN EXIT SUB
 
@@ -459,6 +474,27 @@ SUB CROP_apply ()
         EXIT SUB
     END IF
 
+    ' Detect grow: any side of the crop box extends beyond the current canvas
+    isGrow% = (bx% < 0) OR (by% < 0) OR (bx% + bw% > SCRN.canvasW&) OR (by% + bh% > SCRN.canvasH&)
+
+    ' Compute unified src/dst copy rects — works for both crop (positive bx/by)
+    ' and grow (negative bx/by or extent > canvasW/H).
+    '   srcX1/Y1: first valid pixel in old image to copy (clamped to [0, canvasW-1])
+    '   dstX1/Y1: where it lands in the new image (= 0 if bx>=0, or -bx if bx<0)
+    srcX1% = 0 : IF bx% > 0 THEN srcX1% = bx%
+    srcY1% = 0 : IF by% > 0 THEN srcY1% = by%
+    srcX2% = bx% + bw% - 1 : IF srcX2% > SCRN.canvasW& - 1 THEN srcX2% = SCRN.canvasW& - 1
+    srcY2% = by% + bh% - 1 : IF srcY2% > SCRN.canvasH& - 1 THEN srcY2% = SCRN.canvasH& - 1
+    dstX1% = 0 : IF -bx% > 0 THEN dstX1% = -bx%
+    dstY1% = 0 : IF -by% > 0 THEN dstY1% = -by%
+    dstX2% = dstX1% + (srcX2% - srcX1%)
+    dstY2% = dstY1% + (srcY2% - srcY1%)
+
+    ' Record undo for grow operations (same mechanism as Image -> Resize Canvas)
+    IF isGrow% THEN
+        HISTORY_record_canvas_resize SCRN.canvasW&, SCRN.canvasH&, bw%, bh%, FALSE
+    END IF
+
     ' Cancel active tools and clear the marquee
     MARQUEE_reset
     IF IMG_IMPORT.STATE > IMPORT_STATE_IDLE THEN IMAGE_IMPORT_cancel
@@ -487,8 +523,10 @@ SUB CROP_apply ()
             oldDest& = _DEST
             _DEST newImg&
             CLS , _RGBA32(0, 0, 0, 0)
-            ' Copy the crop region from old image to (0,0) on new image
-            _PUTIMAGE (0, 0)-(bw% - 1, bh% - 1), oldImg&, newImg&, (bx%, by%)-(bx% + bw% - 1, by% + bh% - 1)
+            ' Copy using unified src/dst rects — handles both crop (bx>0) and grow (bx<0)
+            IF srcX2% >= srcX1% AND srcY2% >= srcY1% THEN
+                _PUTIMAGE (dstX1%, dstY1%)-(dstX2%, dstY2%), oldImg&, newImg&, (srcX1%, srcY1%)-(srcX2%, srcY2%)
+            END IF
             _DEST oldDest&
             _FREEIMAGE oldImg&
             LAYERS(i%).imgHandle&    = newImg&
@@ -581,7 +619,11 @@ SUB CROP_apply ()
     GUI_NEEDS_REDRAW%   = TRUE
     FRAME_IDLE%         = FALSE
 
-    _LOGINFO "CROP_apply: Cropped to " + STR$(bw%) + "x" + STR$(bh%) + " from (" + STR$(bx%) + "," + STR$(by%) + ")"
+    IF isGrow% THEN
+        _LOGINFO "CROP_apply: Grew canvas to " + STR$(bw%) + "x" + STR$(bh%) + " (box offset " + STR$(bx%) + "," + STR$(by%) + ")"
+    ELSE
+        _LOGINFO "CROP_apply: Cropped to " + STR$(bw%) + "x" + STR$(bh%) + " from (" + STR$(bx%) + "," + STR$(by%) + ")"
+    END IF
 END SUB
 
 
