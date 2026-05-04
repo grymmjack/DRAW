@@ -1,26 +1,5 @@
 # IDEAS
 
-## RECT GRID MODIFIER
-- [ ] While drawing a r Rect, before releasing, user can press arrows:
-  - [ ] Right = add equidistant divisible section 
-    - [ ] Press right 1 time = center of rect horizontally
-    - [ ] Press right 2 times = divide rect into 3rds
-    - [ ] Press right 4 times = divide rect into 4ths, etc.
-  - [ ] Left = subtract a section
-  - [ ] Up = subtract a vertical section
-  - [ ] Down = divide vertically like horizontal, same idea.
-
-
-## ELLIPSE GRID MODIFIER
-- [ ] Same as RECT grid, but with polar cooardinates 
-  - [ ] Left/right = in pie slices
-  - [ ] Up/down = add concentric circles inside equidistant
-
-
-## LINE RAY MODIFIER
-- [ ] Same as RECT grid, but draw spokes out of the line according to equidistant angles
-
-
 ## COLOR MIXER IMPROVEMENTS
 
 ### COLOR MIXER HEX CODE
@@ -712,3 +691,22 @@ Automatically snap to layer candidates when near X/Y/W/H bounds of neighbors
   - Operation should happen the same as Image -> Resize Canvas... (except no size prompt, and custom anchoring).
 - [x] Crop tool INSIDE existing bounds operates as it does now.
 
+## RECT GRID MODIFIER
+- [x] While drawing a Rect, before releasing, user can press arrows:
+  - [x] Right = add equidistant divisible section 
+    - [x] Press right 1 time = center of rect horizontally
+    - [x] Press right 2 times = divide rect into 3rds
+    - [x] Press right 4 times = divide rect into 4ths, etc.
+  - [x] Left = subtract a section
+  - [x] Up = subtract a vertical section
+  - [x] Down = divide vertically like horizontal, same idea.
+
+
+## ELLIPSE GRID MODIFIER
+- [x] Same as RECT grid, but with polar coordinates
+  - [x] Left/right = in pie slices
+  - [x] Up/down = add concentric circles inside equidistant
+
+
+## LINE RAY MODIFIER
+- [x] Same as RECT grid, but draw spokes out of the line according to equidistant angles
