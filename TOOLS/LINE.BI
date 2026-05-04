@@ -13,6 +13,7 @@ TYPE LINE_TYPE
     START_Y  AS INTEGER ' Line start Y
     END_X    AS INTEGER ' Line end X (current mouse position)
     END_Y    AS INTEGER ' Line end Y (current mouse position)
+    SPOKES   AS INTEGER ' Extra radial lines from start point at equidistant angles (0=none)
 END TYPE
 
 DIM SHARED LINE_TOOL AS LINE_TYPE
@@ -21,3 +22,4 @@ LINE_TOOL.START_X  = 0
 LINE_TOOL.START_Y  = 0
 LINE_TOOL.END_X    = 0
 LINE_TOOL.END_Y    = 0
+LINE_TOOL.SPOKES   = 0
