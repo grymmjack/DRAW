@@ -2,7 +2,7 @@
 
 
 ## MIDI MUSIC
-- [ ] Allow playback of .MID files if they exist using default QB64PE font, or configured SF2 file.
+- [x] Allow playback of .MID files if they exist using default QB64PE font, or configured SF2 file.
 
 
 ## DRAW KITS
