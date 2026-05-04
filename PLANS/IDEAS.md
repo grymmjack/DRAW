@@ -1,10 +1,5 @@
 # IDEAS
 
-
-## MIDI MUSIC
-- [x] Allow playback of .MID files if they exist using default QB64PE font, or configured SF2 file.
-
-
 ## DRAW KITS
 - User sharable and exportable kits which contain all or one of:
   - Themes
@@ -711,3 +706,10 @@ Automatically snap to layer candidates when near X/Y/W/H bounds of neighbors
   - [x] Interpolate the color between FG and BG in a strip
   - [x] Allow user to pick the color from anywhere on the blended strip
   - [x] Honor SNAP setting if enabled
+
+
+
+
+## MIDI MUSIC
+- [x] Allow playback of .MID files if they exist using default QB64PE font, or configured SF2 file.
+

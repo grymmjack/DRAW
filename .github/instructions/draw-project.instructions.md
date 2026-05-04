@@ -273,6 +273,7 @@ A frame is "idle" when no input, mouse movement, GUI changes, or active tool ope
 - **Input**: `_KEYHIT`, `_KEYDOWN()`, `_MOUSEINPUT`, `_MOUSEWHEEL`, `_MOUSEMOVE`
 - **Dialogs**: `_MESSAGEBOX()`, `_OPENFILEDIALOG$()`, `_SAVEFILEDIALOG$()`
 - **Logging**: `_LOGINFO`, `_LOGWARN`, `_LOGERROR` — **ALWAYS use these, NEVER `_DEST _CONSOLE`**
+- **Audio**: `_SNDOPEN`, `_SNDPLAY`, `_SNDSTOP`, `_SNDCLOSE`, `_SNDPLAYING`, `_MIDISOUNDBANK` (call before `_SNDOPEN` for MIDI/RMI tracks when SF2 path is set)
 - **Compression**: `_DEFLATE$`, `_INFLATE$`
 - **CRC**: `_CRC32`
 - **System**: `_TITLE`, `_LIMIT`, `_FULLSCREEN`, `_DESKTOPWIDTH/HEIGHT`
@@ -309,6 +310,7 @@ A frame is "idle" when no input, mouse movement, GUI changes, or active tool ope
 | `TOOLS/HISTORY.BI/BM`     | Unified history system for all Ctrl+Z/Y undo/redo                   |
 | `TOOLS/ERASER.BI/BM`      | Eraser tool (transparent painting via brush pipeline)               |
 | `TOOLS/TRANSFORM.BI/BM`   | On-canvas transform overlay (Scale/Rotate/Shear/Distort/Perspective); activated via Edit→TRANSFORM...; not a toolbar tool |
+| `TOOLS/CROP.BI/BM`        | Crop tool + `CANVAS_resize` (canvas-only) + `CANVAS_resize_with_content` (scales all layers) + `CANVAS_resize_with_content_dialog`; inward trim or outward canvas growth with transparent fill; undo supported |
 | `TOOLS/EXTRACT-IMAGES.BI/BM` | Extract individual sprites/components from sprite sheets or multi-layer artwork as separate PNGs; supports flood fill, per-layer, or merged extraction; config persisted in DRW v14+ |
 | `TOOLS/EXTRACT-GRID.BI/BM` | Extract grid cells from sprite sheets into separate PNG files (File → Extract From Grid...) |
 | `TOOLS/EXTRACT-LAYERS-GRID.BI/BM` | Extract grid cells into separate named layers (File → Extract To Layers From Grid...) |

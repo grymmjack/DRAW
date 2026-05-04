@@ -145,9 +145,23 @@ Press `E` to activate the **Eraser tool**. The eraser paints with full transpare
 | `Shift+'` (quote) | Toggle pixel grid (400%+ zoom) |
 | `;` (semicolon) | Toggle snap-to-grid |
 | `Ctrl+'` | Cycle grid geometry mode (Square → Diagonal → Isometric → Hex) |
-| `.` (period) | Increase grid size (+1px, max 50px) |
-| `,` (comma) | Decrease grid size (-1px, min 2px) |
+| `.` (period) | Increase grid size (+1px, max 50px — uniform W and H) |
+| `,` (comma) | Decrease grid size (-1px, min 2px — uniform W and H) |
+| `/` (slash) | Toggle grid alignment mode (Corner ↔ Center) |
 | `Ctrl+Shift+?` (`Ctrl+Shift+/`) | Set grid size from current brush size (or custom brush dimensions); enables center alignment + snap |
+
+### Independent Grid Width / Height Adjustment
+
+Hold `G` and press an arrow key to resize the grid on a single axis:
+
+| Key | Function |
+|-----|----------|
+| `G + Right` | Increase grid **width** by 1px (max 256px) |
+| `G + Left` | Decrease grid **width** by 1px (min 2px) |
+| `G + Down` | Increase grid **height** by 1px (max 256px) |
+| `G + Up` | Decrease grid **height** by 1px (min 2px) |
+
+Use this when you need a non-square grid (e.g., 16×8 isometric cells). The `.`/`,` keys adjust width and height together; `G+Arrow` adjusts each axis independently.
 
 ### Grid Geometry Modes
 
@@ -666,11 +680,24 @@ All audio settings are in the **Audio** menu (rightmost menu in the menu bar). S
 | **RANDOM TRACK › .IT** | | Play a random .IT track |
 | **RANDOM TRACK › .XM** | | Play a random .XM track |
 | **RANDOM TRACK › .RAD** | | Play a random .RAD track |
+| **RANDOM TRACK › .MID** | | Play a random MIDI (.mid) track |
+| **RANDOM TRACK › .RMI** | | Play a random MIDI (.rmi) track |
 | **NEXT TRACK** | `}` | Skip to the next random track |
 | **PREV TRACK** | `{` | Return to the previously played track |
 | **EXPLORE MUSIC...** | | Open the theme's `MUSIC/` folder in your file manager |
 
-Background music plays random tracks from `ASSETS/THEMES/DEFAULT/MUSIC/` and auto-shuffles when a track ends or music is toggled. The currently playing track is shown as **NOW: trackname** at the bottom of the Audio menu.
+Background music plays random tracks from `ASSETS/THEMES/DEFAULT/MUSIC/` and auto-shuffles when a track ends or music is toggled. The currently playing track is shown as **NOW: trackname [EXT]** at the bottom of the Audio menu (e.g. `NOW: jester - stardust [MOD]`).
+
+### MIDI Playback
+
+DRAW supports MIDI playback natively via QB64-PE's built-in OPL3 FM emulator. To use a custom SoundFont2 instead:
+
+1. Go to **Settings → Audio → MIDI Soundfont**.
+2. Click `...` to browse for a `.sf2` file.
+3. The chosen font is applied on every MIDI/RMI track load.
+4. Click **Clear** to revert to the built-in OPL3 FM synthesis.
+
+The `MIDI_SF2_FILE` key in `DRAW.cfg` stores the path persistently.
 
 ## Drawing Modifiers
 
@@ -684,6 +711,22 @@ Background music plays random tracks from `ASSETS/THEMES/DEFAULT/MUSIC/` and aut
 | **Rectangle** | Shift (drag center) | Draw from center |
 | **Ellipse** | Ctrl (drag) | Draw perfect circle |
 | **Ellipse** | Shift (drag center) | Draw from center |
+
+## Shape Modifiers (while dragging)
+
+While **actively dragging** a Rectangle, Ellipse, or Line shape, press Arrow keys to add or remove interior subdivision lines — without releasing the mouse button.
+
+| Key | Rectangle | Ellipse | Line |
+|-----|-----------|---------|------|
+| `Right Arrow` | + column divider | + spoke | + radial spoke |
+| `Left Arrow` | − column divider | − spoke | − radial spoke |
+| `Down Arrow` | + row divider | + concentric ring | _(n/a)_ |
+| `Up Arrow` | − row divider | − concentric ring | _(n/a)_ |
+
+- **Rectangle**: divisions create an evenly-spaced grid inside the rectangle (up to 32 per axis)
+- **Ellipse**: spokes radiate from center (up to 16); concentric rings are equally spaced (up to 16)
+- **Line**: radial spokes fan out from the line's midpoint (up to 16)
+- Modifier counts **reset** each time you start a new drag
 
 ## Angle Snapping
 
@@ -765,6 +808,9 @@ The Marquee (`M`) creates rectangular selections:
 | **Left Drag** | Create rectangular selection |
 | **Shift + Drag** | Add to existing selection (union) |
 | **Alt + Drag** | Subtract from existing selection |
+| **Drag corner handle** | Resize selection from corner |
+| **Drag full edge** | Resize selection from that edge (grab anywhere along the full edge, not just the corner handle) |
+| **Drag inside** | Move selection |
 
 ### Magic Wand Tool
 
@@ -1436,10 +1482,34 @@ The crop tool lets you trim the canvas to a selected region. It uses the **Marqu
 - **Size label** shows crop dimensions above the selection
 - Status bar shows "CROP" with contextual hints
 
+### Crop Inward vs. Grow Outward
+
+The crop tool does **both directions**:
+
+- **Drag handles inward** (within the canvas) → trims the canvas to the selected area.
+- **Drag handles outward past a canvas edge** → **grows** the canvas in that direction. New pixels are transparent on all layers.
+
+This means you can use the crop tool to add empty space to any side of the canvas without going through **Canvas → Resize**. Grow operations support undo just like image resize.
+
 ### Notes
-- Crop resets undo history (canvas dimensions change)
-- Crop resets zoom/pan to fit the new canvas size
-- All layers are cropped to the selected region simultaneously
+- Crop/grow resets zoom/pan to fit the new canvas size
+- All layers are cropped or expanded simultaneously
+- Undo is supported for both crop and grow operations
+
+## Image → Resize Image with Content
+
+**Image → Resize Image with Content...** resizes the canvas *and* scales all layer pixel data to the new dimensions simultaneously — unlike Canvas Resize (which only expands/crops the canvas, leaving pixels untouched).
+
+| Step | Action |
+|------|--------|
+| 1 | Open **Image → Resize Image with Content...** |
+| 2 | Enter new dimensions in `WxH` format (e.g. `320x200`) |
+| 3 | Click **OK** — all layers are scaled to fit |
+
+- Group layers (1×1 sentinels) are skipped; only image and text layers are scaled
+- Uses nearest-neighbor via `_PUTIMAGE` (preserves crisp pixel art)
+- Resets zoom/pan to fit the new canvas size
+- Undo is fully supported
 
 ## Image Adjustments
 
@@ -1513,7 +1583,7 @@ DRAW has an optional menu bar at the top of the screen providing access to all c
 | **Tools** | All drawing tools (Dot, Brush, Line, etc.) |
 | **Layer** | New, Duplicate, Delete, Merge Down, Merge All, **Merge Selected** *(requires 2+ selected)*, Arrange, Align, Distribute |
 | **Palette** | Color Picker, Import Palette, Export Palette, Random Palette, Load Palette, Load from Lospec, Create from Image, Remap to Palette, Show Lospec Palettes, Swap Colors |
-| **Image** | Resize, Crop, Flip Canvas H/V, Brightness/Contrast, Hue/Saturation, Levels, Color Balance, Blur, Sharpen, Invert, Desaturate, Posterize, Pixelate |
+| **Image** | Resize Canvas, Resize Image with Content, Crop, Flip Canvas H/V, Brightness/Contrast, Hue/Saturation, Levels, Color Balance, Blur, Sharpen, Invert, Desaturate, Posterize, Pixelate |
 | **Tools** | All drawing tools (Dot, Brush, Line, etc.), Pixel Art Analyzer |
 | **Help** | Command Palette, Cheatsheet |
 | **Audio** | Sound FX toggle, Music toggle, SFX/Music volume up/down, SFX/Music mute, Explore Music, Now Playing |

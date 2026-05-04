@@ -15,11 +15,12 @@
 | Zoom in/out continuously | `Ctrl`+Mouse wheel |
 | Zoom in / out 1 step | `Ctrl+=` / `Ctrl+-` |
 | Reset to 100% | `Ctrl+0` |
+| Zoom to canonical level | Hold `Z` and press `1-8` for 100%-800%, `9` for 1600%, and `0` for 3200% |
 | Zoom tool | `Z` (![zoom](../../ASSETS/THEMES/DEFAULT/IMAGES/TOOLBOX/zoom.png)) |
 | Zoom to dragged region | `Z` then drag |
 | Zoom out (Zoom tool) | `Alt`+Click |
 
-Zoom snaps to canonical levels: 25%, 50%, 75%, 100%, 200%, 300%, 400%, 600%, 800%.
+Zoom snaps to canonical levels: 25%, 50%, 75%, 100%, 200%, 300%, 400%, 600%, 800%, 1600%, 3200%
 
 ### Pan
 
@@ -75,6 +76,9 @@ Independent zoom and pan inside the preview, plus **`Alt`+Click to color-pick** 
 ### Canvas crop & resize
 
 - **Crop tool** (![crop](../../ASSETS/THEMES/DEFAULT/IMAGES/TOOLBOX/crop.png)) — interactive with handles; commit with Enter.
+  - Drag handles **inward** to trim the canvas to the selected region.
+  - Drag handles **outward past a canvas edge** to **grow** the canvas in that direction — new pixels are transparent on all layers. This is a quick alternative to the canvas resize dialog when you just need to add space on one side.
+  - Arrow keys nudge the crop box 1px; `Shift+Arrow` nudges 10px.
 - **Image → Canvas Resize…** — dialog with anchor selection and pixel/percent toggle.
 
 ---

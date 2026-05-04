@@ -73,7 +73,10 @@ The full, authoritative list is in [`CHEATSHEET.md`](../../CHEATSHEET.md) at the
 | `\` | Brush Shape (circle ↔ square) |
 | `X` | Swap FG / BG |
 | `0`–`9` | Paint Opacity 100% / 10–90% |
-| `'` `;` `.` `,` | Grid controls |
+| `'` `;` `.` `,` | Grid: toggle / snap / size+ / size− |
+| `/` | Toggle grid alignment (Corner ↔ Center) |
+| `G+Arrow` | Adjust grid width/height independently |
+| `}` / `{` | Music: next / previous track |
 | `F4`–`F9`, `F11` | Panel and mode toggles |
 | `Tab` | Toggle Toolbar |
 | `?` | Command Palette |

@@ -13,11 +13,26 @@
 | Toggle grid visibility | `'` (apostrophe) |
 | Toggle pixel grid (≥ 400% zoom) | `Shift+'` |
 | Toggle snap-to-grid | `;` (semicolon) |
-| Increase grid size | `.` |
-| Decrease grid size | `,` |
+| Increase grid size (uniform W+H) | `.` |
+| Decrease grid size (uniform W+H) | `,` |
+| Toggle grid alignment (Corner ↔ Center) | `/` (slash) |
 | Cycle geometry mode | `Ctrl+'` |
+| Set grid size from brush / custom brush | `Ctrl+Shift+/` |
 
-Grid sizes range from 2 to 50 pixels per cell.
+Grid sizes range from 2 to 256 pixels per cell.
+
+### Independent axis sizing
+
+Hold `G` and press an arrow key to resize width or height separately — useful for non-square grids (e.g., a 16×8 isometric tile cell):
+
+| Key | Effect |
+| --- | --- |
+| `G + Right` | Increase grid **width** by 1px |
+| `G + Left` | Decrease grid **width** by 1px |
+| `G + Down` | Increase grid **height** by 1px |
+| `G + Up` | Decrease grid **height** by 1px |
+
+The `.` / `,` keys adjust width and height together; `G+Arrow` adjusts each axis independently.
 
 ### Geometry modes
 

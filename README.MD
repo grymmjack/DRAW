@@ -5,7 +5,7 @@ DRAW by Rick Christy <grymmjack@gmail.com>
 
 DRAW is a pixel art editor written in QB64PE that can export images as sourcecode
 
-Current release: v1.1.0
+Current release: v1.2.0
 
 ![DRAW GUI from v1.1.0](./GUI.png)
 
@@ -14,14 +14,14 @@ Current release: v1.1.0
 ### Drawing Tools
 - **Brush** - Continuous freehand painting with adjustable size (1-50px) and shape (circle/square)
 - **Dot** - Single-pixel stamp tool (click to place, no drag painting)
-- **Line** - Draw straight lines with brush size/shape, real-time thick preview, angle snapping
-- **Rectangle** - Draw outlined or filled rectangles with brush size/shape; filled mode supports custom brush tiled fill and drawer paint modes with interactive Fill Adjustment (`F8`)
-- **Ellipse** - Draw outlined or filled ellipses/circles with brush size/shape; filled mode supports custom brush tiled fill and drawer paint modes with interactive Fill Adjustment (`F8`)
+- **Line** - Draw straight lines with brush size/shape, real-time thick preview, angle snapping; while dragging press `Right`/`Left` to add/remove radial spokes from the midpoint (up to 16)
+- **Rectangle** - Draw outlined or filled rectangles with brush size/shape; filled mode supports custom brush tiled fill and drawer paint modes with interactive Fill Adjustment (`F8`); while dragging press `Right`/`Left` to add/remove column dividers and `Down`/`Up` for row dividers (up to 32 per axis, creating an interior grid)
+- **Ellipse** - Draw outlined or filled ellipses/circles with brush size/shape; filled mode supports custom brush tiled fill and drawer paint modes with interactive Fill Adjustment (`F8`); while dragging press `Right`/`Left` to add/remove radial spokes and `Down`/`Up` for concentric inner rings (up to 16 each)
 - **Polygon** - Draw outlined or filled multi-point polygons with brush size/shape, angle snapping; filled mode supports custom brush tiled fill and drawer paint modes with interactive Fill Adjustment (`F8`)
 - **Fill** - Flood fill tool; hold **Shift** to sample from merged visible canvas while painting onto the current layer; supports custom brush tiled fills and drawer paint mode fills with interactive Fill Adjustment overlay (`F8`) featuring drag-to-offset, scale, and rotation controls; **Global Fill**: hold `F`+click to flood-fill contiguous matching color on all visible layers simultaneously, hold `Shift+F`+click to replace all matching pixels across the entire document
 - **Spray** - Spray paint with brush-shaped nozzle tips, radius doubles per brush size level, custom brush stamp support, SHIFT axis constraint, circle preview
 - **Picker** - Color sampling/eyedropper with a cursor-adjacent loupe overlay that shows RGB and hex values; hold ALT with any tool for temporary picker; ALT+left picks FG, ALT+right picks BG
-- **Marquee** - Selection tools: Rectangle, Freehand, Polygon, Ellipse — each with a distinct crosshair cursor; **Ctrl+Arrow** lifts and nudges content within the selection (Photoshop-style), Ctrl+Alt+Arrow clones content
+- **Marquee** - Selection tools: Rectangle, Freehand, Polygon, Ellipse — each with a distinct crosshair cursor; **Ctrl+Arrow** lifts and nudges content within the selection (Photoshop-style), Ctrl+Alt+Arrow clones content; drag **any full edge** of an existing selection to resize from that side (not just corner handles)
 - **Magic Wand** - Select contiguous same-color pixels with dedicated crosshair cursor; **Hold `F`+click to flood fill** contiguous pixels with FG color; **Hold `E`+click to flood erase** to transparent; **Hold `W`+click to select from merged** (all visible layers)
 - **Move** - Transform and position selected content with arrow keys, undo support, and ALT+drag clone stamping
 - **Transform** - Universal flip H/V, rotate 90° CW/CCW, scale ±50% — works on layers, selections, or floating moves from any tool; **Edit → TRANSFORM...** opens an interactive on-canvas bounding-box overlay with five modes: Scale (Shift=lock aspect), Rotate (Shift=15° snap), Shear, Distort, and Perspective (Shift=wall projection); overlay frame and handle colours are fully themeable; previous tool is restored on apply/cancel
@@ -37,8 +37,9 @@ Current release: v1.1.0
 - **Image Import** - Load images with interactive placement, rotation (90° CW/CCW), horizontal/vertical flip, zoom, pan, and resize — with live preview of all transformations
 - **Aseprite Import** - Open `.ase` / `.aseprite` sprite files (File → Open Aseprite)
 - **PSD Import** - Open Adobe Photoshop `.psd` files (File → Open PSD)
-- **Crop** - Interactive canvas crop using marquee selection with dark overlay, resize handles, and size label; also supports canvas resize dialog
+- **Crop** - Interactive canvas crop using marquee selection with dark overlay, resize handles, and size label; drag handles **inward** to trim the canvas, drag **outward past a canvas edge** to grow/expand the canvas in that direction (new pixels are transparent); also supports canvas resize dialog
 - **Canvas Resize** - Resize canvas to arbitrary dimensions via dialog (Canvas menu), preserving layer content at origin
+- **Resize Image with Content** - Resize canvas *and* scale all layer pixel data simultaneously via **Image → Resize Image with Content...** (WxH prompt); uses nearest-neighbor scaling to preserve crisp pixel art; undo supported
 - **New from Template** - Start fresh from bundled `.draw`/image templates or a remembered template folder
 - **QB64 Export** - Generate QB64 source output from artwork/history, with improved raster fallback for operations that cannot be reproduced parametrically; supports per-layer blend modes; vector vs imported-image layer classification; transparent layers skipped; `Ctrl+Shift+Q` re-exports to the last project path without prompting
 - **Angle Snap** - Two modes: degree-based (configurable 15°/30°/45°/90° increments) and pixel-art (11 integer-ratio angles for clean pixel lines). Hold Ctrl+Shift to snap + bypass grid. Applies to Line, Polygon, and Brush/Dot connecting lines
@@ -50,15 +51,16 @@ Current release: v1.1.0
 - **Pixel Art Analyzer** - Interactive analysis dialog (Tools menu) that evaluates artwork for common pixel art issues: orphan pixels, jagged lines, banding, pillow shading, and doubles; includes a precompute engine for fast analysis
 
 ### Grid System
-- Adjustable grid overlay (2-50px spacing)
+- Adjustable grid overlay (2–256px spacing, independently configurable width and height)
 - Toggle grid visibility with `'` (apostrophe)
 - Pixel grid for precise work at 400%+ zoom (`Shift+'`)
 - Snap-to-grid mode with `;` (semicolon)
 - **4 grid geometry modes**: Square, Diagonal (45°), Isometric (2:1 pixel art, 26.565°), Hexagonal — cycle with `Ctrl+'`
 - **Ctrl+Shift bypasses grid snap** for freehand placement when snap-to-grid is enabled
-- Grid alignment modes: Corner (snap to intersections) or Center (snap to cell centers) — toggle via View menu
+- Grid alignment modes: Corner (snap to intersections) or Center (snap to cell centers) — toggle with `/` (slash) or via View menu
 - **Grid cell fill mode**: Fill tool fills individual grid cells (squares, diamonds, triangles, or hexagons) instead of flood fill — toggle via View menu
-- Dynamic grid sizing with `.` (increase) and `,` (decrease)
+- Dynamic uniform grid sizing with `.` (increase) and `,` (decrease)
+- **Independent axis sizing**: hold `G` and press Arrow keys — `G+Right`/`G+Left` adjusts grid width, `G+Down`/`G+Up` adjusts grid height. Useful for non-square grids (e.g., 16×8 isometric cells)
 - Both grids can be shown simultaneously at high zoom
 - Configurable grid/pixel grid/crosshair color, opacity, and angle via DRAW.cfg
 - Crosshair assistant lines with configurable outline stroke (color, opacity, width) for improved visibility against any background
@@ -128,10 +130,12 @@ Current release: v1.1.0
 
 ### Music System
 - **Background music** — plays random tracker files (`.mod`, `.xm`, `.it`, `.s3m`, `.rad`) from `ASSETS/THEMES/DEFAULT/MUSIC/`
+- **MIDI playback** — also plays `.mid`, `.midi`, and `.rmi` files natively via QB64-PE's built-in OPL3 FM emulator
+- **SF2 SoundFont support** — configure an optional SoundFont2 (`.sf2`) file in **Settings → Audio → MIDI Soundfont**; applied before every MIDI/RMI track load; clear to revert to built-in FM synthesis
 - **Auto-shuffle** — picks a new random track when the current one ends; avoids repeating the last track
-- **Dedicated AUDIO root menu** (rightmost in the menu bar) — separate controls for SFX and music: toggle, volume up/down (±10%), mute toggle, **Explore Music Folder**, and live **NOW PLAYING** status
+- **Dedicated AUDIO root menu** (rightmost in the menu bar) — separate controls for SFX and music: toggle, volume up/down (±10%), mute toggle, **Random Track** submenu (`.MOD`, `.IT`, `.XM`, `.RAD`, `.MID`, `.RMI`), **Explore Music Folder**, and live **NOW PLAYING** status showing the track name and format tag (e.g. `NOW: jester - stardust [MOD]`)
 - Music volume and mute are independent of SFX volume and mute
-- All audio state persisted in `DRAW.cfg` (`SOUNDS_ENABLED`, `SOUNDS_VOLUME`, `SOUNDS_MUTED`, `MUSIC_ENABLED`, `MUSIC_VOLUME`, `MUSIC_MUTED`)
+- All audio state persisted in `DRAW.cfg` (`SOUNDS_ENABLED`, `SOUNDS_VOLUME`, `SOUNDS_MUTED`, `MUSIC_ENABLED`, `MUSIC_VOLUME`, `MUSIC_MUTED`, `MIDI_SF2_FILE`)
 
 ### User Interface
 - **Color Mixer** - Floating panel for live color mixing with RGB and HSV channel controls and hex input (View → Color Mixer)
@@ -139,8 +143,8 @@ Current release: v1.1.0
 - **Drawer panel** - A 30-slot drawer beneath the organizer for brush, gradient, and pattern sets (including 1-bit patterns with opaque background support); `F1`/`F2`/`F3` switch modes, left-click selects, `Shift+Left Click` stores, right-click opens a context menu (including Load Images to batch-import images into slots), middle-click cycles modes, `Shift+Middle Click` clears a slot, `Shift+Right Click` imports into a slot, and drag-and-drop to reorder bins
 - **Character map panel** - Dockable left/right 16×16 glyph grid with dynamic cell count (4-16 per row), mouse wheel scrolling, configurable theme colors, and bitmap font rendering
 - **Preview window** - A floating preview panel with two modes: **Follow** (canvas magnifier following the pointer) and **Floating Image** (display a loaded reference image); supports **Bin Quick Look** (hover drawer slots to preview brush/pattern/gradient), **Color Picking** (Alt+Click to sample colors from preview), and **Recent Preview Images** (up to 10 recently loaded images); pan/zoom, minimize/close buttons, and work-area clamping
-- **Edit bar** - A dockable vertical strip of edit-action icons on the left or right side of the workspace (`F5`); includes Smart Guides toggle, Pixel Perfect toggle, and Flip Canvas H/V buttons
-- **Advanced bar** - A dockable vertical strip of quick-access toggle buttons for char map, char grid, char snap, preview, edit bar, tile preview, grid cell fill, grid show, fill adjust, brush edges, angle snap, grayscale preview, reference image controls, distribute layers, crosshair, smart guides, and more (`Shift+F5`)
+- **Edit bar** - A dockable vertical strip of edit-action icons on the left or right side of the workspace (`F5`); includes Smart Guides toggle, Pixel Perfect toggle, and Flip Canvas H/V buttons; **mouse wheel scrolls** the bar when it overflows the screen height
+- **Advanced bar** - A dockable vertical strip of quick-access toggle buttons for char map, char grid, char snap, preview, edit bar, tile preview, grid cell fill, grid show, fill adjust, brush edges, angle snap, grayscale preview, reference image controls, distribute layers, crosshair, smart guides, and more (`Shift+F5`); **mouse wheel scrolls** the bar when it overflows the screen height
 - **Layout docking** - Toolbox, layer panel, edit bar, character map, and advanced bar can each be docked to the left or right side of the workspace via View → Layout menu or `Ctrl+Shift+Click` on the panel
 - **System cursors** - Automatically uses OS native cursors for UI areas (arrow in toolbar/panels), canvas work (crosshair for drawing tools, I-beam for text, resize arrows for handles) and move tool (move pointer); falls back to custom PNG cursors for tools that need them (brush, fill, picker loupe, spray, marquee); configurable via `SYSTEM_CURSORS` in `DRAW.cfg`
 - Themeable PNG icon toolbar (28 buttons in **4×7 grid**)

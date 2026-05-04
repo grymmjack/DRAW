@@ -66,12 +66,39 @@ SOUND_play_pitched SND_DRAW, 0.8, 1.2, 0.9  ' Randomised pitch between speedMin/
 
 - `MUSIC_HANDLE` (LONG, shared) — current tracker file handle
 - `MUSIC_CURRENT_FILE$` — filename of playing track; empty when not playing
-- `MUSIC_play_random` — scans `ASSETS/THEMES/DEFAULT/MUSIC/` for `.mod/.xm/.it/.s3m`, picks random (avoids repeating last track when 2+ exist)
+- `MUSIC_play_random` — scans `ASSETS/THEMES/DEFAULT/MUSIC/` for `.mod/.xm/.it/.s3m/.rad/.mid/.midi/.rmi`, picks random (avoids repeating last track when 2+ exist)
 - `MUSIC_init` — clears `MUSIC_CURRENT_FILE$`, delegates to `MUSIC_play_random`
 - `MUSIC_tick` — called every frame; triggers `MUSIC_play_random` when track ends (auto-shuffle)
 - `MUSIC_stop` — `_SNDSTOP` + `_SNDCLOSE`, clears `MUSIC_CURRENT_FILE$`
 - `SOUND_apply_volume` — applies separate sfx/music volumes to all handles, respects mute flags
 - `RANDOMIZE TIMER` called once at startup before `SOUND_init`
+
+### MIDI Playback & SoundFont2
+
+DRAW supports MIDI (`.mid`, `.midi`) and RIFF MIDI (`.rmi`) via QB64-PE's built-in `_SNDOPEN`. Before opening a MIDI/RMI track, call `_MIDISOUNDBANK` if `CFG.MIDI_SF2_FILE$` is non-empty:
+
+```qb64
+IF RIGHT$(UCASE$(file$), 4) = ".MID" OR RIGHT$(UCASE$(file$), 5) = ".MIDI" OR RIGHT$(UCASE$(file$), 4) = ".RMI" THEN
+    IF LEN(_TRIM$(CFG.MIDI_SF2_FILE$)) > 0 THEN
+        _MIDISOUNDBANK CFG.MIDI_SF2_FILE$, "sf2"
+    END IF
+END IF
+MUSIC_HANDLE = _SNDOPEN(file$)
+```
+
+- `_MIDISOUNDBANK` must be called **before** `_SNDOPEN` for the SF2 to take effect
+- If `MIDI_SF2_FILE$` is empty or the file is not found, QB64-PE falls back to built-in OPL3 FM emulation
+- SF2 path is configured via **Settings → Audio → MIDI Soundfont** (Clear button removes it without reopening the Browse dialog)
+- `MIDI_SF2_FILE` key in `DRAW.cfg` stores the path persistently
+
+### NOW PLAYING Format
+
+NOW PLAYING menu item (action 426, always disabled) shows:
+```
+NOW: <name> [<EXT>]
+```
+- `<name>` is the filename without extension, truncated to 32 chars
+- `<EXT>` is the uppercase extension without the dot (e.g. `MOD`, `MID`, `RMI`)
 
 AUDIO root menu: parentIdx=10 (rightmost), action IDs 417–426. Item 426 is always disabled (NOW PLAYING label only).
 

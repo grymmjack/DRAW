@@ -102,7 +102,7 @@ Config file: `DRAW.cfg` — plain text, one `key=value` per line. Loaded by `CON
 | Palette UI | `PALETTE_SHOW_LOSPEC%`, `PALETTE_SHOW_CREATED%`, `PALETTE_CREATE_MAX_COLORS%` |
 | Drawer / Templates | `DEFAULT_DSET_*_FILE$`, `TEMPLATE_DIR$` |
 | Export   | `BAS_EXPORT_BG_COLOR~&`, `BAS_WIP_ENABLED%` |
-| Audio    | `SOUNDS_*`, `MUSIC_*` |
+| Audio    | `SOUNDS_ENABLED%`, `SOUNDS_VOLUME%`, `SOUNDS_MUTED%`, `MUSIC_ENABLED%`, `MUSIC_VOLUME%`, `MUSIC_MUTED%`, `MIDI_SF2_FILE$` (path to SoundFont2 file; empty = built-in FM OPL3) |
 | Cursor   | `SYSTEM_CURSORS_ENABLED%` — TRUE=OS native cursors for UI/canvas; FALSE=always custom PNG |
 | Dialogs  | `FD_FONT%` (8=compact, 16=standard), `FD_FONT_SCALE%` (1-4) — font settings for FILE_DIALOG, COLOR_PICKER, MSG_BOX |
 | Dirs     | `LAST_DIR_OPEN$`, `LAST_DIR_SAVE$`, `LAST_DIR_IMPORT$`, `LAST_DIR_EXPORT_BRUSH/LAYER$`, `LAST_DIR_PALETTE$`, `LAST_DIR_EXTRACT$` |

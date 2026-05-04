@@ -45,7 +45,7 @@ Root menus (indices 0–10): FILE(0), EDIT(1), VIEW(2), SELECT(3), TOOLS(4), BRU
 | 1501–1517 | Palette/Ref  | RefImage, GPL Import (1510), GPL Export (1511), Random, Color Picker, Swap FG/BG, Load from Lospec, Create from Image, Remap to Palette, Show Lospec Palettes |
 | 1601–1609 | Help/Tools   | About, CheatSheet, Manual, GitHub, Issues, Credits, PixelArtAnalyzer(1609) |
 | 1701–1704 | Tools (menu) | Zoom, Spray, CmdPalette, CodeExport |
-| 1801–1804 | Canvas       | Resize dialog (1801), Crop dialog (1802), FlipCanvasH(1803), FlipCanvasV(1804) |
+| 1801–1805 | Canvas       | Resize dialog (1801), Crop dialog (1802), FlipCanvasH(1803), FlipCanvasV(1804), Resize Image with Content (1805) |
 | 1911–1914 | Drawer Sets  | Load, Save, Clear, Explore drawer-set folder |
 | 2001–2010 | Image Adj    | BrightnessContrast, HueSaturation, Levels, ColorBalance, Blur, Sharpen, Invert, Desaturate, Posterize, Pixelate |
 | 2012–2020 | Preview Win  | PreviewWindowSubmenu(2012), FollowMode(2013), FloatingImageMode(2014), BinQuickLook(2015), AllowColorPicking(2016), LoadImage(2017), RecentImages(2018), ClearRecentImages(2019), GrayscalePreview(2020) |
