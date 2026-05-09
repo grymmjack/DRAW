@@ -1,0 +1,321 @@
+''
+' DRAW - TOOLS/BEZIER.BM
+' =============================================================================
+' Bezier Curve pen tool implementation.
+'
+' Core algorithm: cubic De Casteljau / Bernstein subdivision.
+' Each segment is P0..P3 where:
+'   P0 = BEZIER_PTS(i).AX/AY   (from-anchor)
+'   P1 = BEZIER_PTS(i).C2X/C2Y (from out-handle)
+'   P2 = BEZIER_PTS(i+1).C1X/C1Y (to in-handle)
+'   P3 = BEZIER_PTS(i+1).AX/AY (to-anchor)
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+''
+' Initialise Bezier tool state (called when tool is activated).
+'
+SUB BEZIER_init ()
+    BEZIER.STATE               = BEZIER_STATE_IDLE
+    BEZIER.POINT_COUNT         = 0
+    BEZIER.CLOSE_PATH          = FALSE
+    BEZIER.HISTORY_BEFORE_IMG  = 0
+    BEZIER.DRAG_IDX            = 0
+    BEZIER.DRAG_HANDLE         = 0
+    BEZIER.DRAG_PREV_X         = 0
+    BEZIER.DRAG_PREV_Y         = 0
+    BEZIER.PENDING_DRAG_IDX    = -1
+    BEZIER.PENDING_DRAG_HANDLE = 0
+    BEZIER.PENDING_PRESS_X     = 0
+    BEZIER.PENDING_PRESS_Y     = 0
+END SUB
+
+''
+' Reset Bezier tool state and free any saved before-image.
+'
+SUB BEZIER_reset ()
+    IF BEZIER.HISTORY_BEFORE_IMG < -1 THEN
+        _FREEIMAGE BEZIER.HISTORY_BEFORE_IMG
+    END IF
+    BEZIER.STATE               = BEZIER_STATE_IDLE
+    BEZIER.POINT_COUNT         = 0
+    BEZIER.CLOSE_PATH          = FALSE
+    BEZIER.HISTORY_BEFORE_IMG  = 0
+    BEZIER.DRAG_IDX            = 0
+    BEZIER.DRAG_HANDLE         = 0
+    BEZIER.DRAG_PREV_X         = 0
+    BEZIER.DRAG_PREV_Y         = 0
+    BEZIER.PENDING_DRAG_IDX    = -1
+    BEZIER.PENDING_DRAG_HANDLE = 0
+    BEZIER.PENDING_PRESS_X     = 0
+    BEZIER.PENDING_PRESS_Y     = 0
+END SUB
+
+''
+' Cancel in-progress Bezier path: restore layer canvas to pre-draw state.
+'
+SUB BEZIER_cancel_restore ()
+    DIM oldDest AS LONG
+
+    IF BEZIER.HISTORY_BEFORE_IMG < -1 AND CURRENT_LAYER% > 0 AND LAYERS(CURRENT_LAYER%).imgHandle& < -1 THEN
+        oldDest& = _DEST
+        _DEST LAYERS(CURRENT_LAYER%).imgHandle&
+        _DONTBLEND LAYERS(CURRENT_LAYER%).imgHandle&
+        _PUTIMAGE , BEZIER.HISTORY_BEFORE_IMG, LAYERS(CURRENT_LAYER%).imgHandle&
+        _BLEND LAYERS(CURRENT_LAYER%).imgHandle&
+        _DEST oldDest&
+
+        LAYERS(CURRENT_LAYER%).contentDirty% = TRUE
+        INVALIDATE_layers
+        CANVAS_DIRTY% = TRUE
+        SCENE_DIRTY%  = TRUE
+        FRAME_IDLE%   = FALSE
+    END IF
+
+    BEZIER_reset
+END SUB
+
+''
+' Restore the canvas layer to HISTORY_BEFORE_IMG then redraw all committed segments.
+' Called during live drag-editing and per-step undo.
+'
+SUB BEZIER_redraw_all_segments ()
+    DIM bra_oldDest AS LONG
+    bra_oldDest& = _DEST
+    ' Restore canvas layer to pre-bezier snapshot
+    IF BEZIER.HISTORY_BEFORE_IMG < -1 AND CURRENT_LAYER% > 0 AND LAYERS(CURRENT_LAYER%).imgHandle& < -1 THEN
+        _DEST LAYERS(CURRENT_LAYER%).imgHandle&
+        _DONTBLEND LAYERS(CURRENT_LAYER%).imgHandle&
+        _PUTIMAGE , BEZIER.HISTORY_BEFORE_IMG, LAYERS(CURRENT_LAYER%).imgHandle&
+        _BLEND LAYERS(CURRENT_LAYER%).imgHandle&
+        LAYERS(CURRENT_LAYER%).contentDirty% = TRUE
+        INVALIDATE_layers
+    END IF
+    ' Redraw all committed segments
+    DIM bra_i AS INTEGER
+    FOR bra_i% = 0 TO BEZIER.POINT_COUNT - 2
+        BEZIER_draw_segment bra_i%, bra_i% + 1
+    NEXT bra_i%
+    _DEST bra_oldDest&
+    CANVAS_DIRTY% = TRUE
+    SCENE_DIRTY%  = TRUE
+    FRAME_IDLE%   = FALSE
+END SUB
+
+''
+' Per-step undo while building a Bezier path (Ctrl+Z during curve entry).
+' - Mid-drag (ANCHORING/DRAG_*): cancel the drag, keep all placed anchors.
+' - PLACED: remove last committed anchor and restore the canvas.
+' - POINT_COUNT falls to 0: full restore via BEZIER_cancel_restore.
+' After commit, the normal HISTORY undo covers the whole curve.
+'
+SUB BEZIER_undo_step ()
+    IF BEZIER.STATE = BEZIER_STATE_IDLE THEN EXIT SUB
+    ' Mid-drag: cancel the drag, keep already-placed anchors
+    IF BEZIER.STATE = BEZIER_STATE_ANCHORING OR _
+       BEZIER.STATE = BEZIER_STATE_DRAG_ANCHOR OR _
+       BEZIER.STATE = BEZIER_STATE_DRAG_HANDLE THEN
+        IF BEZIER.POINT_COUNT > 0 THEN
+            BEZIER_redraw_all_segments
+            BEZIER.STATE = BEZIER_STATE_PLACED
+        ELSE
+            BEZIER_cancel_restore
+        END IF
+        SOUND_play SND_MENU_SELECT
+        GUI_NEEDS_REDRAW% = TRUE
+        CANVAS_DIRTY%     = TRUE
+        SCENE_DIRTY%      = TRUE
+        FRAME_IDLE%       = FALSE
+        EXIT SUB
+    END IF
+    ' PLACED: remove the last committed anchor
+    BEZIER.POINT_COUNT = BEZIER.POINT_COUNT - 1
+    IF BEZIER.POINT_COUNT <= 0 THEN
+        BEZIER_cancel_restore
+        EXIT SUB
+    END IF
+    BEZIER_redraw_all_segments
+    BEZIER.STATE      = BEZIER_STATE_PLACED
+    SOUND_play SND_MENU_SELECT
+    GUI_NEEDS_REDRAW% = TRUE
+    CANVAS_DIRTY%     = TRUE
+    SCENE_DIRTY%      = TRUE
+    FRAME_IDLE%       = FALSE
+END SUB
+
+''
+' Draw a single cubic Bezier segment using Bernstein polynomial evaluation.
+' Delegates per-pixel drawing to the same dispatch as LINE_draw_brushed/clipped/resolved,
+' matching the current draw mode and brush size.
+'
+' @param x0 INTEGER - Start anchor X
+' @param y0 INTEGER - Start anchor Y
+' @param cx1 INTEGER - First control point X
+' @param cy1 INTEGER - First control point Y
+' @param cx2 INTEGER - Second control point X
+' @param cy2 INTEGER - Second control point Y
+' @param x3 INTEGER - End anchor X
+' @param y3 INTEGER - End anchor Y
+'
+SUB BEZIER_draw_cubic (x0 AS INTEGER, y0 AS INTEGER, cx1 AS INTEGER, cy1 AS INTEGER, cx2 AS INTEGER, cy2 AS INTEGER, x3 AS INTEGER, y3 AS INTEGER)
+    ' Determine draw target and transparent mode
+    DIM bez_target         AS LONG
+    DIM bez_is_transparent AS INTEGER
+    bez_target&         = LAYER_current_image&
+    bez_is_transparent% = (_ALPHA32(PAINT_COLOR~&) = 0)
+    IF bez_is_transparent% THEN _DONTBLEND bez_target&
+
+    ' Degenerate / near-flat case: handles collapsed onto anchors, OR both
+    ' control points lie within ~1px of the straight line P0->P3.
+    ' (Avoids Bernstein t-step jitter on near-straight axis-aligned segments.)
+    DIM bez_is_flat AS INTEGER
+    bez_is_flat% = (cx1 = x0 AND cy1 = y0 AND cx2 = x3 AND cy2 = y3)
+    IF NOT bez_is_flat% THEN
+        DIM bez_dx AS SINGLE, bez_dy AS SINGLE, bez_segLen2 AS SINGLE
+        bez_dx!      = x3 - x0
+        bez_dy!      = y3 - y0
+        bez_segLen2! = bez_dx! * bez_dx! + bez_dy! * bez_dy!
+        IF bez_segLen2! > 0 THEN
+            ' Perpendicular distance squared of (cx1,cy1) and (cx2,cy2) from line P0-P3.
+            ' |(P3-P0) x (P-P0)|^2 / |P3-P0|^2
+            DIM bez_cr1 AS SINGLE, bez_cr2 AS SINGLE
+            bez_cr1! = bez_dx! * (cy1 - y0) - bez_dy! * (cx1 - x0)
+            bez_cr2! = bez_dx! * (cy2 - y0) - bez_dy! * (cx2 - x0)
+            ' Threshold: distance <= 1.0px on each control point
+            IF (bez_cr1! * bez_cr1!) <= bez_segLen2! AND (bez_cr2! * bez_cr2!) <= bez_segLen2! THEN
+                ' Also require control points project within the segment (not extending past endpoints)
+                DIM bez_t1 AS SINGLE, bez_t2 AS SINGLE
+                bez_t1! = (bez_dx! * (cx1 - x0) + bez_dy! * (cy1 - y0)) / bez_segLen2!
+                bez_t2! = (bez_dx! * (cx2 - x0) + bez_dy! * (cy2 - y0)) / bez_segLen2!
+                IF bez_t1! >= -0.05 AND bez_t1! <= 1.05 AND bez_t2! >= -0.05 AND bez_t2! <= 1.05 THEN
+                    bez_is_flat% = TRUE
+                END IF
+            END IF
+        END IF
+    END IF
+    IF bez_is_flat% THEN
+        IF CUSTOM_BRUSH_is_active% THEN
+            CUSTOM_BRUSH_stamp_line x0, y0, x3, y3
+        ELSEIF BRUSH_SIZE_pixels% > 1 THEN
+            LINE_draw_brushed x0, y0, x3, y3, PAINT_COLOR~&
+        ELSEIF SELECTION_has_active% OR LAYERS(CURRENT_LAYER%).opacityLock% THEN
+            LINE_draw_clipped x0, y0, x3, y3, PAINT_COLOR~&
+        ELSEIF DRAWER_has_paint_mode% THEN
+            LINE_draw_resolved x0, y0, x3, y3, PAINT_COLOR~&
+        ELSE
+            LINE (x0, y0)-(x3, y3), PAINT_COLOR~&
+        END IF
+        IF bez_is_transparent% THEN _BLEND bez_target&
+        EXIT SUB
+    END IF
+
+    ' Estimate number of steps from control polygon perimeter
+    DIM peri AS SINGLE
+    peri! = SQR((cx1 - x0) ^ 2 + (cy1 - y0) ^ 2) _
+          + SQR((cx2 - cx1) ^ 2 + (cy2 - cy1) ^ 2) _
+          + SQR((x3 - cx2) ^ 2 + (y3 - cy2) ^ 2)
+    DIM steps AS INTEGER
+    steps% = 10
+    IF INT(peri! / 2) > steps% THEN steps% = INT(peri! / 2)
+    IF steps% > 2000 THEN steps% = 2000
+
+    DIM prevX AS INTEGER, prevY AS INTEGER
+    prevX% = x0
+    prevY% = y0
+
+    DIM i  AS INTEGER
+    DIM t  AS SINGLE
+    DIM mt AS SINGLE
+    DIM px AS INTEGER, py AS INTEGER
+
+    FOR i% = 1 TO steps%
+        t!  = i% / steps%
+        mt! = 1! - t!
+
+        ' Cubic Bernstein: B(t) = (1-t)^3*P0 + 3*(1-t)^2*t*P1 + 3*(1-t)*t^2*P2 + t^3*P3
+        px% = INT(mt! ^ 3 * x0 + 3 * mt! ^ 2 * t! * cx1 + 3 * mt! * t! ^ 2 * cx2 + t! ^ 3 * x3)
+        py% = INT(mt! ^ 3 * y0 + 3 * mt! ^ 2 * t! * cy1 + 3 * mt! * t! ^ 2 * cy2 + t! ^ 3 * y3)
+
+        ' Draw line from previous rasterized point to current
+        IF px% <> prevX% OR py% <> prevY% THEN
+            IF CUSTOM_BRUSH_is_active% THEN
+                CUSTOM_BRUSH_stamp_line prevX%, prevY%, px%, py%
+            ELSEIF BRUSH_SIZE_pixels% > 1 THEN
+                LINE_draw_brushed prevX%, prevY%, px%, py%, PAINT_COLOR~&
+            ELSEIF SELECTION_has_active% OR LAYERS(CURRENT_LAYER%).opacityLock% THEN
+                LINE_draw_clipped prevX%, prevY%, px%, py%, PAINT_COLOR~&
+            ELSEIF DRAWER_has_paint_mode% THEN
+                LINE_draw_resolved prevX%, prevY%, px%, py%, PAINT_COLOR~&
+            ELSE
+                LINE (prevX%, prevY%)-(px%, py%), PAINT_COLOR~&
+            END IF
+            prevX% = px%
+            prevY% = py%
+        END IF
+    NEXT i%
+
+    IF bez_is_transparent% THEN _BLEND bez_target&
+END SUB
+
+''
+' Draw the committed Bezier segment between two anchor indices.
+' Uses BEZIER_PTS(fromIdx).C2 as P1 and BEZIER_PTS(toIdx).C1 as P2.
+'
+' @param fromIdx INTEGER - Index of the from-anchor in BEZIER_PTS
+' @param toIdx   INTEGER - Index of the to-anchor in BEZIER_PTS
+'
+SUB BEZIER_draw_segment (fromIdx AS INTEGER, toIdx AS INTEGER)
+    DIM oldDest AS LONG
+    oldDest& = _DEST
+    _DEST LAYER_current_image&
+
+    GRAD_CTX_set BEZIER_PTS(fromIdx).AX, BEZIER_PTS(fromIdx).AY, BEZIER_PTS(toIdx).AX, BEZIER_PTS(toIdx).AY
+
+    BEZIER_draw_cubic _
+        BEZIER_PTS(fromIdx).AX, BEZIER_PTS(fromIdx).AY, _
+        BEZIER_PTS(fromIdx).C2X, BEZIER_PTS(fromIdx).C2Y, _
+        BEZIER_PTS(toIdx).C1X, BEZIER_PTS(toIdx).C1Y, _
+        BEZIER_PTS(toIdx).AX, BEZIER_PTS(toIdx).AY
+
+    GRAD_CTX_clear
+    _DEST oldDest&
+    _DEST SCRN.CANVAS&
+
+    CANVAS_DIRTY% = TRUE
+    SCENE_DIRTY%  = TRUE
+    FRAME_IDLE%   = FALSE
+END SUB
+
+''
+' Commit the current Bezier path to undo history, then reset.
+' Records the operation using HISTORY_record_polyline (reuses polyline record with
+' anchor positions; control handles are not stored — undo is image-based).
+'
+SUB BEZIER_commit ()
+    DIM tmpX(BEZIER_MAX_POINTS) AS INTEGER
+    DIM tmpY(BEZIER_MAX_POINTS) AS INTEGER
+    DIM i AS INTEGER
+
+    FOR i% = 0 TO BEZIER.POINT_COUNT - 1
+        tmpX(i%) = BEZIER_PTS(i%).AX
+        tmpY(i%) = BEZIER_PTS(i%).AY
+    NEXT i%
+
+    STROKE_commit
+    IF BEZIER.HISTORY_BEFORE_IMG < -1 THEN
+        HISTORY_record_polyline LAYERS(CURRENT_LAYER%).historyId&, CURRENT_LAYER%, _
+            PAINT_apply_opacity~&(PAINT_COLOR~&), 0, BEZIER.HISTORY_BEFORE_IMG, _
+            BEZIER.POINT_COUNT, tmpX(), tmpY(), "Bezier Curve"
+        BEZIER.HISTORY_BEFORE_IMG = 0
+        HISTORY_saved_this_frame% = TRUE
+    END IF
+
+    SOUND_play SND_DRAG_DROP
+    BEZIER_reset
+    GUI_NEEDS_REDRAW% = TRUE
+    CANVAS_DIRTY%     = TRUE
+    SCENE_DIRTY%      = TRUE
+    FRAME_IDLE%       = FALSE
+END SUB

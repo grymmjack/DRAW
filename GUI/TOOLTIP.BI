@@ -91,9 +91,9 @@ TOOLTIP_LINE2$(18) = "DRAW filled shape. L-CLICK create point. R-CLICK finish."
 TOOLTIP_LINE1$(19) = "CTRL+s - SAVE IMAGE to disk."
 TOOLTIP_LINE2$(19) = "CTRL+SHIFT+s SAVE AS NEW image to disk."
 
-' Row 5: QB64/CODE, RECT, RECT FILLED, EXPORT SEL
-TOOLTIP_LINE1$(20) = "EXPORT QB64PE Source Code."
-TOOLTIP_LINE2$(20) = "Save as .BAS for learning and dissection and usage in your own programs."
+' Row 5: BEZIER, RECT, RECT FILLED, EXPORT SEL
+TOOLTIP_LINE1$(20) = "q - BEZIER CURVE - Draw curves similar to the Pen Tool in GIMP / Photoshop."
+TOOLTIP_LINE2$(20) = "L-CLICK drag = smooth point. CTRL+DRAG on handle = corner. CTRL+SHIFT+CLICK handle = plot point there."
 TOOLTIP_LINE1$(21) = "r - RECTANGLE - Create rectangle shapes on the canvas."
 TOOLTIP_LINE2$(21) = "DRAW rectangle. L-CLICK FG color. R-CLICK BG color. CTRL+SHIFT snap."
 TOOLTIP_LINE1$(22) = "SHIFT+r - FILLED RECTANGLE - Create filled rectangle shapes on the canvas."
