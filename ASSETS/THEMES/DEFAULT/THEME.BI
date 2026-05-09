@@ -291,6 +291,8 @@ THEME.ZOOM_BOX_border~&                  = _RGB32(255, 255, 255)            ' Zo
 THEME.ZOOM_BOX_outer_border~&            = _RGB32(0, 0, 0)                  ' Zoom drag outer border
 THEME.TOOL_PREVIEW_transparent_fg~&      = _RGB32(255, 255, 255)            ' Transparent tool preview fill
 THEME.TOOL_PREVIEW_transparent_outline~& = _RGB32(0, 0, 0)                  ' Transparent tool preview outline
+THEME.BEZIER_anchor_color~&              = _RGB32(255, 255, 255)            ' Bezier anchor dots (white)
+THEME.BEZIER_handle_color~&              = _RGB32(60, 180, 255)             ' Bezier handle arms/endpoints (cyan-blue)
 THEME.CANVAS_border~&                    = _RGB32(51, 51, 51)               ' Canvas border
 
 ' --- Preview Window ---

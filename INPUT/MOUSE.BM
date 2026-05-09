@@ -1138,7 +1138,7 @@ SUB MOUSE_handle_ui_autohide_restore (rawX AS INTEGER, rawY AS INTEGER)
     ' Skip auto-hide for NULL tool - let user freely access toolbar/status
     ' Also check shape tools that are in "drawing" state (LINE, RECT, ELLIPSE, POLY_LINE)
     DIM shapeToolDrawing AS INTEGER
-    shapeToolDrawing% = LINE_TOOL.DRAGGING OR RECT_TOOL.DRAGGING OR ELLIPSE_TOOL.DRAGGING OR POLY_LINE.HAS_LAST
+    shapeToolDrawing% = LINE_TOOL.DRAGGING OR RECT_TOOL.DRAGGING OR ELLIPSE_TOOL.DRAGGING OR POLY_LINE.HAS_LAST OR (BEZIER.STATE <> BEZIER_STATE_IDLE)
 
     DIM activelyDrawing AS INTEGER
     activelyDrawing% = ((MOUSE.B1% AND MOUSE.OLD_B1%) OR (MOUSE.B2% AND MOUSE.OLD_B2%)) OR shapeToolDrawing%
@@ -2161,6 +2161,239 @@ SUB MOUSE_tool_poly ()
         POLY_LINE.LAST_Y   = poly_y%
         POLY_LINE.HAS_LAST = TRUE
     END IF
+END SUB
+
+
+''
+' Tool handler: Bezier curve.
+'
+SUB MOUSE_tool_bezier ()
+    DIM bez_b1_pressed AS INTEGER
+    bez_b1_pressed% = (MOUSE.B1% AND NOT MOUSE.OLD_B1%)
+
+    IF bez_b1_pressed% THEN
+        DIM bez_x AS INTEGER, bez_y AS INTEGER
+        bez_x% = MOUSE.X%
+        bez_y% = MOUSE.Y%
+
+        ' 1. Close path: click near first anchor when >= 2 anchors placed (highest priority)
+        IF BEZIER.POINT_COUNT >= 2 THEN
+            DIM bez_dist2first AS SINGLE
+            bez_dist2first! = SQR((bez_x% - BEZIER_PTS(0).AX) ^ 2 + (bez_y% - BEZIER_PTS(0).AY) ^ 2)
+            IF bez_dist2first! <= 5 THEN
+                ' Snap closing anchor to first anchor, enter ANCHORING so user can drag the handle
+                ' before committing — allows smooth closure (e.g. 4-point circle)
+                BEZIER_PTS(BEZIER.POINT_COUNT).AX  = BEZIER_PTS(0).AX
+                BEZIER_PTS(BEZIER.POINT_COUNT).AY  = BEZIER_PTS(0).AY
+                BEZIER_PTS(BEZIER.POINT_COUNT).C1X = BEZIER_PTS(0).AX
+                BEZIER_PTS(BEZIER.POINT_COUNT).C1Y = BEZIER_PTS(0).AY
+                BEZIER_PTS(BEZIER.POINT_COUNT).C2X = BEZIER_PTS(0).AX
+                BEZIER_PTS(BEZIER.POINT_COUNT).C2Y = BEZIER_PTS(0).AY
+                BEZIER.CLOSE_PATH                  = TRUE
+                BEZIER.STATE                       = BEZIER_STATE_ANCHORING
+                SOUND_play SND_POINT
+                FRAME_IDLE% = FALSE
+                EXIT SUB
+            END IF
+        END IF
+
+        ' 2. In PLACED state: hit-test existing anchors and handles for live drag-editing
+        IF BEZIER.STATE = BEZIER_STATE_PLACED AND BEZIER.POINT_COUNT > 0 THEN
+            DIM bez_hi AS INTEGER, bez_hitD AS SINGLE
+            ' Check anchors first (grab radius 5 canvas-px)
+            FOR bez_hi% = 0 TO BEZIER.POINT_COUNT - 1
+                bez_hitD! = SQR((bez_x% - BEZIER_PTS(bez_hi%).AX) ^ 2 + (bez_y% - BEZIER_PTS(bez_hi%).AY) ^ 2)
+                IF bez_hitD! <= 5 THEN
+                    BEZIER.DRAG_IDX    = bez_hi%
+                    BEZIER.DRAG_HANDLE = BEZIER_DRAG_ANCHOR
+                    BEZIER.DRAG_PREV_X = bez_x%
+                    BEZIER.DRAG_PREV_Y = bez_y%
+                    BEZIER.STATE       = BEZIER_STATE_DRAG_ANCHOR
+                    FRAME_IDLE%        = FALSE
+                    EXIT SUB
+                END IF
+            NEXT bez_hi%
+            ' Check handles (C2 out-handle, then C1 in-handle).
+            ' Skip the entire handle hit-test when handles are hidden (` toggle) so
+            ' the user can click anywhere — including over an invisible handle — to
+            ' plot a new anchor without grabbing the handle.
+            IF BEZIER.SHOW_HANDLES% THEN
+            FOR bez_hi% = 0 TO BEZIER.POINT_COUNT - 1
+                IF BEZIER_PTS(bez_hi%).C2X <> BEZIER_PTS(bez_hi%).AX OR BEZIER_PTS(bez_hi%).C2Y <> BEZIER_PTS(bez_hi%).AY THEN
+                    bez_hitD! = SQR((bez_x% - BEZIER_PTS(bez_hi%).C2X) ^ 2 + (bez_y% - BEZIER_PTS(bez_hi%).C2Y) ^ 2)
+                    IF bez_hitD! <= 5 THEN
+                        ' Click on visible handle: drag handle immediately
+                        BEZIER.DRAG_IDX    = bez_hi%
+                        BEZIER.DRAG_HANDLE = BEZIER_DRAG_C2
+                        BEZIER.DRAG_PREV_X = bez_x%
+                        BEZIER.DRAG_PREV_Y = bez_y%
+                        BEZIER.STATE       = BEZIER_STATE_DRAG_HANDLE
+                        FRAME_IDLE%        = FALSE
+                        EXIT SUB
+                    END IF
+                END IF
+                IF BEZIER_PTS(bez_hi%).C1X <> BEZIER_PTS(bez_hi%).AX OR BEZIER_PTS(bez_hi%).C1Y <> BEZIER_PTS(bez_hi%).AY THEN
+                    bez_hitD! = SQR((bez_x% - BEZIER_PTS(bez_hi%).C1X) ^ 2 + (bez_y% - BEZIER_PTS(bez_hi%).C1Y) ^ 2)
+                    IF bez_hitD! <= 5 THEN
+                        ' Click on visible handle: drag handle immediately
+                        BEZIER.DRAG_IDX    = bez_hi%
+                        BEZIER.DRAG_HANDLE = BEZIER_DRAG_C1
+                        BEZIER.DRAG_PREV_X = bez_x%
+                        BEZIER.DRAG_PREV_Y = bez_y%
+                        BEZIER.STATE       = BEZIER_STATE_DRAG_HANDLE
+                        FRAME_IDLE%        = FALSE
+                        EXIT SUB
+                    END IF
+                END IF
+            NEXT bez_hi%
+            END IF
+        END IF
+
+        ' 3. Place new anchor (saves before-image on very first anchor)
+        IF BEZIER.POINT_COUNT = 0 THEN
+            IF BEZIER.HISTORY_BEFORE_IMG < -1 THEN _FREEIMAGE BEZIER.HISTORY_BEFORE_IMG
+            BEZIER.HISTORY_BEFORE_IMG = 0
+            IF NOT HISTORY_IN_PROGRESS% AND LAYERS(CURRENT_LAYER%).historyId& > 0 AND LAYERS(CURRENT_LAYER%).imgHandle& < -1 THEN
+                BEZIER.HISTORY_BEFORE_IMG = _COPYIMAGE(LAYERS(CURRENT_LAYER%).imgHandle&, 32)
+            END IF
+            STROKE_begin
+        END IF
+        BEZIER_PTS(BEZIER.POINT_COUNT).AX  = bez_x%
+        BEZIER_PTS(BEZIER.POINT_COUNT).AY  = bez_y%
+        BEZIER_PTS(BEZIER.POINT_COUNT).C1X = bez_x%
+        BEZIER_PTS(BEZIER.POINT_COUNT).C1Y = bez_y%
+        BEZIER_PTS(BEZIER.POINT_COUNT).C2X = bez_x%
+        BEZIER_PTS(BEZIER.POINT_COUNT).C2Y = bez_y%
+        BEZIER.STATE                       = BEZIER_STATE_ANCHORING
+        SOUND_play SND_POINT
+        FRAME_IDLE% = FALSE
+
+    ELSEIF MOUSE.B1% AND MOUSE.OLD_B1% THEN
+        SELECT CASE BEZIER.STATE
+            CASE BEZIER_STATE_ANCHORING
+                ' B1 held: drag to set out-handle of current anchor
+                ' 3px dead zone prevents click jitter from creating accidental handles (wavy lines)
+                DIM bez_jdx AS INTEGER, bez_jdy AS INTEGER
+                bez_jdx% = MOUSE.X% - BEZIER_PTS(BEZIER.POINT_COUNT).AX
+                bez_jdy% = MOUSE.Y% - BEZIER_PTS(BEZIER.POINT_COUNT).AY
+                IF ABS(bez_jdx%) > 3 OR ABS(bez_jdy%) > 3 THEN
+                    BEZIER_PTS(BEZIER.POINT_COUNT).C2X = MOUSE.X%
+                    BEZIER_PTS(BEZIER.POINT_COUNT).C2Y = MOUSE.Y%
+                    ' Default = smooth: mirror in-handle (like Photoshop smooth node)
+                    ' Ctrl held = corner: C1 stays at anchor so incoming segment stays straight
+                    IF NOT MODIFIERS.ctrl% THEN
+                        BEZIER_PTS(BEZIER.POINT_COUNT).C1X = 2 * BEZIER_PTS(BEZIER.POINT_COUNT).AX - MOUSE.X%
+                        BEZIER_PTS(BEZIER.POINT_COUNT).C1Y = 2 * BEZIER_PTS(BEZIER.POINT_COUNT).AY - MOUSE.Y%
+                    END IF
+                END IF
+                FRAME_IDLE% = FALSE
+
+            CASE BEZIER_STATE_PENDING_DRAG
+                ' B1 held after press near a handle: wait for movement to commit to drag vs click
+                DIM bez_pdx AS INTEGER, bez_pdy AS INTEGER
+                bez_pdx% = MOUSE.X% - BEZIER.PENDING_PRESS_X
+                bez_pdy% = MOUSE.Y% - BEZIER.PENDING_PRESS_Y
+                IF ABS(bez_pdx%) > 3 OR ABS(bez_pdy%) > 3 THEN
+                    ' Moved enough — commit to handle drag
+                    BEZIER.DRAG_IDX         = BEZIER.PENDING_DRAG_IDX
+                    BEZIER.DRAG_HANDLE      = BEZIER.PENDING_DRAG_HANDLE
+                    BEZIER.DRAG_PREV_X      = BEZIER.PENDING_PRESS_X
+                    BEZIER.DRAG_PREV_Y      = BEZIER.PENDING_PRESS_Y
+                    BEZIER.PENDING_DRAG_IDX = -1
+                    BEZIER.STATE            = BEZIER_STATE_DRAG_HANDLE
+                END IF
+                FRAME_IDLE% = FALSE
+
+            CASE BEZIER_STATE_DRAG_ANCHOR
+                ' Move anchor and its handles by per-frame delta
+                DIM bdA_dx AS INTEGER, bdA_dy AS INTEGER
+                bdA_dx% = MOUSE.X% - BEZIER.DRAG_PREV_X
+                bdA_dy% = MOUSE.Y% - BEZIER.DRAG_PREV_Y
+                BEZIER_PTS(BEZIER.DRAG_IDX).AX = BEZIER_PTS(BEZIER.DRAG_IDX).AX  + bdA_dx%
+                BEZIER_PTS(BEZIER.DRAG_IDX).AY = BEZIER_PTS(BEZIER.DRAG_IDX).AY  + bdA_dy%
+                BEZIER_PTS(BEZIER.DRAG_IDX).C1X = BEZIER_PTS(BEZIER.DRAG_IDX).C1X + bdA_dx%
+                BEZIER_PTS(BEZIER.DRAG_IDX).C1Y = BEZIER_PTS(BEZIER.DRAG_IDX).C1Y + bdA_dy%
+                BEZIER_PTS(BEZIER.DRAG_IDX).C2X = BEZIER_PTS(BEZIER.DRAG_IDX).C2X + bdA_dx%
+                BEZIER_PTS(BEZIER.DRAG_IDX).C2Y = BEZIER_PTS(BEZIER.DRAG_IDX).C2Y + bdA_dy%
+                BEZIER.DRAG_PREV_X = MOUSE.X%
+                BEZIER.DRAG_PREV_Y = MOUSE.Y%
+                BEZIER_redraw_all_segments
+                FRAME_IDLE% = FALSE
+
+            CASE BEZIER_STATE_DRAG_HANDLE
+                ' Drag C1 or C2 handle; default = smooth (mirror opposite); Ctrl = corner (no mirror)
+                IF BEZIER.DRAG_HANDLE = BEZIER_DRAG_C2 THEN
+                    BEZIER_PTS(BEZIER.DRAG_IDX).C2X = MOUSE.X%
+                    BEZIER_PTS(BEZIER.DRAG_IDX).C2Y = MOUSE.Y%
+                    IF NOT MODIFIERS.ctrl% THEN
+                        BEZIER_PTS(BEZIER.DRAG_IDX).C1X = 2 * BEZIER_PTS(BEZIER.DRAG_IDX).AX - MOUSE.X%
+                        BEZIER_PTS(BEZIER.DRAG_IDX).C1Y = 2 * BEZIER_PTS(BEZIER.DRAG_IDX).AY - MOUSE.Y%
+                    END IF
+                ELSE
+                    BEZIER_PTS(BEZIER.DRAG_IDX).C1X = MOUSE.X%
+                    BEZIER_PTS(BEZIER.DRAG_IDX).C1Y = MOUSE.Y%
+                    IF NOT MODIFIERS.ctrl% THEN
+                        BEZIER_PTS(BEZIER.DRAG_IDX).C2X = 2 * BEZIER_PTS(BEZIER.DRAG_IDX).AX - MOUSE.X%
+                        BEZIER_PTS(BEZIER.DRAG_IDX).C2Y = 2 * BEZIER_PTS(BEZIER.DRAG_IDX).AY - MOUSE.Y%
+                    END IF
+                END IF
+                BEZIER_redraw_all_segments
+                FRAME_IDLE% = FALSE
+        END SELECT
+    END IF
+END SUB
+
+
+''
+' Release handler: Bezier curve.
+'
+SUB MOUSE_release_bezier ()
+    SELECT CASE BEZIER.STATE
+        CASE BEZIER_STATE_DRAG_ANCHOR, BEZIER_STATE_DRAG_HANDLE
+            ' Drag complete: commit final positions and return to PLACED
+            BEZIER_redraw_all_segments
+            BEZIER.STATE = BEZIER_STATE_PLACED
+            FRAME_IDLE%  = FALSE
+
+        CASE BEZIER_STATE_PENDING_DRAG
+            ' Released without enough movement — treat as a new anchor placement
+            ' (clicking near a handle tip should plot a point, not drag the handle)
+            BEZIER.PENDING_DRAG_IDX = -1
+            BEZIER.STATE            = BEZIER_STATE_PLACED
+            ' Place anchor at the press position
+            BEZIER_PTS(BEZIER.POINT_COUNT).AX  = BEZIER.PENDING_PRESS_X
+            BEZIER_PTS(BEZIER.POINT_COUNT).AY  = BEZIER.PENDING_PRESS_Y
+            BEZIER_PTS(BEZIER.POINT_COUNT).C1X = BEZIER.PENDING_PRESS_X
+            BEZIER_PTS(BEZIER.POINT_COUNT).C1Y = BEZIER.PENDING_PRESS_Y
+            BEZIER_PTS(BEZIER.POINT_COUNT).C2X = BEZIER.PENDING_PRESS_X
+            BEZIER_PTS(BEZIER.POINT_COUNT).C2Y = BEZIER.PENDING_PRESS_Y
+            IF BEZIER.POINT_COUNT >= 1 THEN
+                BEZIER_draw_segment BEZIER.POINT_COUNT - 1, BEZIER.POINT_COUNT
+            END IF
+            IF BEZIER.POINT_COUNT < BEZIER_MAX_POINTS THEN
+                BEZIER.POINT_COUNT = BEZIER.POINT_COUNT + 1
+            END IF
+            FRAME_IDLE% = FALSE
+        CASE BEZIER_STATE_ANCHORING
+            IF BEZIER.CLOSE_PATH THEN
+                ' Close path: draw the closing segment then commit the whole curve
+                IF BEZIER.POINT_COUNT >= 1 THEN
+                    BEZIER_draw_segment BEZIER.POINT_COUNT - 1, BEZIER.POINT_COUNT
+                END IF
+                BEZIER.POINT_COUNT = BEZIER.POINT_COUNT + 1
+                BEZIER_commit
+            ELSE
+                ' Normal: finalize the anchor, draw segment if not the first point
+                IF BEZIER.POINT_COUNT >= 1 THEN
+                    BEZIER_draw_segment BEZIER.POINT_COUNT - 1, BEZIER.POINT_COUNT
+                END IF
+                IF BEZIER.POINT_COUNT < BEZIER_MAX_POINTS THEN
+                    BEZIER.POINT_COUNT = BEZIER.POINT_COUNT + 1
+                END IF
+                BEZIER.STATE = BEZIER_STATE_PLACED
+            END IF
+            FRAME_IDLE% = FALSE
+    END SELECT
 END SUB
 
 
@@ -3870,6 +4103,8 @@ SUB MOUSE_dispatch_tool_hold (rawX AS INTEGER, rawY AS INTEGER)
             MOUSE_tool_line
         CASE TOOL_POLYGON, TOOL_POLYGON_FILLED
             MOUSE_tool_poly
+        CASE TOOL_BEZIER
+            MOUSE_tool_bezier
         CASE TOOL_RECT, TOOL_RECT_FILLED
             MOUSE_tool_rect
         CASE TOOL_ELLIPSE, TOOL_ELLIPSE_FILLED
@@ -3951,6 +4186,8 @@ SUB MOUSE_dispatch_tool_release (rawX AS INTEGER, rawY AS INTEGER)
                 MOUSE_release_text
             CASE TOOL_SPRAY
                 MOUSE_release_spray
+            CASE TOOL_BEZIER
+                MOUSE_release_bezier
         END SELECT
     END IF
 END SUB

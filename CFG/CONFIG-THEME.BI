@@ -285,6 +285,8 @@ TYPE DRAW_THEME
     ZOOM_BOX_outer_border                 AS _UNSIGNED LONG ' Zoom drag outer border
     TOOL_PREVIEW_transparent_fg           AS _UNSIGNED LONG ' Tool preview color when paint is transparent
     TOOL_PREVIEW_transparent_outline      AS _UNSIGNED LONG ' Tool preview outline when paint is transparent
+    BEZIER_anchor_color                   AS _UNSIGNED LONG ' Bezier anchor point dot color
+    BEZIER_handle_color                   AS _UNSIGNED LONG ' Bezier handle arm and endpoint color
     CANVAS_border                         AS _UNSIGNED LONG ' Canvas border color
     ' --- Preview Window ---
     PREVIEW_bg                            AS _UNSIGNED LONG ' Window background fill
