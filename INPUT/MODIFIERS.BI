@@ -38,6 +38,14 @@ END TYPE
 
 DIM SHARED MODIFIERS AS MODIFIERS_OBJ
 
+' Stuck-modifier latches — set by MODIFIERS_force_release after a native dialog
+' returns.  When TRUE, the corresponding modifier reports FALSE in MODIFIERS.*
+' until the OS-reported key state goes UP (key physically released), even if
+' SDL2 still reports the key as down due to a lost key-up event.
+DIM SHARED AS INTEGER MODIFIERS_LATCH_CTRL
+DIM SHARED AS INTEGER MODIFIERS_LATCH_SHIFT
+DIM SHARED AS INTEGER MODIFIERS_LATCH_ALT
+
 $IF MAC THEN
     ' macOS: Track ALT key state via _KEYHIT (more reliable than _KEYDOWN for Option key)
     ' This is updated in MODIFIERS_track_alt_keyhit() called from main loop when k& is captured

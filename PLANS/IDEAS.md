@@ -102,6 +102,9 @@ The depth of the points needs explaining. So if user draws a polygon with 5 side
 - [ ] Left arrow decrease point depth
 - [ ] Right arrow increase point depth
 
+> TOOLTIP LINE 1: SMART-SHAPE: POLYGON - UP-ARROW: Add edge, DOWN-ARROW: Remove edge
+> TOOLTIP LINE 2: LEFT-ARROW: Decrease point depth, RIGHT-ARROW: Increase point depth
+
 
 ### Pie / Donut
 > Pie / Donut the user can create pie charts with equidistant divisions of slices of pie, or adjusted custom slice sizes. If the user uses the left arrow or right arrow, a new hole inside the middle of the pie chart should be created, which consists of an outline, and a blank area so it looks like an outlined O or donut, the idea is that we can create very quick GUI dials and things using this method by creating a simple knob with spokes (the slices), in donut mode which makes it look like a outlined O, but with the spokes neatly divided perfectly around the circle/donut, and enclosed by two ellipses/circles..
@@ -115,6 +118,8 @@ The maximum radius of the middle donut hole is 90% of the size of the shape, wit
 - [ ] Left arrow decrease hole size
 - [ ] Right arrow increase hole size
 
+> TOOLTIP LINE 1: SMART-SHAPE: PIE/DONUT - UP-ARROW: Add segment, DOWN-ARROW: Remove segment
+> TOOLTIP LINE 2: LEFT-ARROW: Decrease donut hole size, RIGHT-ARROW: Increase donut hole size
 
 
 ### Rounded Rect
@@ -123,6 +128,10 @@ User can decrease corner radius to 1 so it's a regular rect with only 1 px round
 - [ ] Start as rect with 3px roundedness
 - [ ] Up arrow increase corner radius 
 - [ ] Down arrow decrease corner radius
+
+> TOOLTIP LINE 1: SMART-SHAPE: ROUNDED RECTANGLE
+> TOOLTIP LINE 2: UP-ARROW: Inc. corner radius DOWN-ARROW: Dec. corner radius
+
 
 ### Tab
 > A tab is a rounded rectangle that has 1 flat edge vertically.
@@ -134,6 +143,9 @@ The idea is the user can quickly create tabs. The flat edge can be cycled around
 - [ ] Down arrow round top corners less
 - [ ] Left arrow cycle tab bottom side left
 - [ ] Right arrow cycle tab bottom side right
+
+> TOOLTIP LINE 1: SMART-SHAPE: TAB - UP-ARROW: Round tab more, DOWN-ARROW: Round tab less
+> TOOLTIP LINE 2: LEFT-ARROW: Cycle tab side left, RIGHT-ARROW: Cycle tab side right
 
 
 ### Pill
@@ -147,6 +159,9 @@ For example a user could create a sliding ON/OFF by creating a pill 20 wide, wit
 - [ ] Left arrow decrease segments
 - [ ] Right arrow increase segments
 
+> TOOLTIP LINE 1: SMART-SHAPE: PILL - UP-ARROW: Round pill more, DOWN-ARROW: Round pill less
+> TOOLTIP LINE 2: LEFT-ARROW: Decrease segments, RIGHT-ARROW: Increase segments
+
 
 ### Pac-Man
 > A Pac-man is simply a pie chart with a single slice that is cut out of the circle. 
@@ -158,6 +173,11 @@ For example a user could create a sliding ON/OFF by creating a pill 20 wide, wit
 - [ ] Down arrow decrease mouth size
 - [ ] Left arrow decrease inner hole
 - [ ] Right arrow increase inner hole
+
+> TOOLTIP LINE 1: SMART-SHAPE: PAC-MAN - UP-ARROW: Inc. mouth size, DOWN-ARROW: Dec. mouth size
+> TOOLTIP LINE 2: LEFT-ARROW: Decrease inner hole, RIGHT-ARROW: Increase inner hole
+
+
 
 ### 3D cube / 3D polygon (dice)
 > 3D shape/polygon (we can start with cube)
@@ -175,6 +195,9 @@ User will take the wireframe and do what they want, fill or not.
 - [ ] Mouse wheel up rotate up
 - [ ] Mouse wheel down rotate down
 
+> TOOLTIP LINE 1: SMART-SHAPE: 3D - UP-ARROW: Inc. Z, DOWN-ARROW: Dec. Z
+> TOOLTIP LINE 2: LEFT-ARROW: Rotate left X, RIGHT-ARROW: Rotate right X, MW-UP/Down: Rotate Y
+
 
 ### Bevel rect
 > Idea of bevel rect is that the bevel is created using outlines/wireframes
@@ -191,6 +214,10 @@ User will take the wireframe and do what they want, fill or not.
 - [ ] Mouse wheel up increase z-depth (angled edges)
 - [ ] Mouse wheel down decrease z-depth angled edges
 
+> TOOLTIP LINE 1: SMART-SHAPE: BEVEL RECT. - UP-ARROW: Inc. bevel size, DOWN-ARROW: Dec. bevel size
+> TOOLTIP LINE 2: LEFT-ARROW: Dec. border size, RIGHT-ARROW: Inc. border size, I:Inner, O:Outer, MW-Up/Down: Z
+
+
 ### Arrow
 > Arrow consists of the stem (the line part facing the triangle)
 > The triangle head, and it's concavity.
@@ -205,6 +232,8 @@ User will take the wireframe and do what they want, fill or not.
 - [ ] Mouse wheel up increase head concavity
 - [ ] Mouse wheel down decrease head concavity
 
+> TOOLTIP LINE 1: SMART-SHAPE: ARROW - UP-ARROW: Fatter stem, DOWN-ARROW: Thinner stem
+> TOOLTIP LINE 2: LEFT-ARROW: Shorter head, RIGHT-ARROW: Longer head, MW-Up/Down: Head concavity
 
 
 ---
