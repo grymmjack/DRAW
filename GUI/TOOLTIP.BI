@@ -101,9 +101,9 @@ TOOLTIP_LINE2$(22) = "DRAW filled rectangle. L-CLICK FG color. R-CLICK BG color.
 TOOLTIP_LINE1$(23) = "CTRL+SHIFT+ALT+s - EXPORT SELECTION."
 TOOLTIP_LINE2$(23) = "Saves the selected area to disk."
 
-' Row 6: HELP, ELLIPSE, ELLIPSE FILLED, OPEN
-TOOLTIP_LINE1$(24) = "? - COMMAND PALETTE."
-TOOLTIP_LINE2$(24) = "Show a searchable cheat sheet of commands and keyboard shortcuts."
+' Row 6: SMART SHAPES, ELLIPSE, ELLIPSE FILLED, OPEN
+TOOLTIP_LINE1$(24) = "s - SMART SHAPES - L-Click and hold to select a shape from flyout menu."
+TOOLTIP_LINE2$(24) = "Status bar contains instructions for how to use each smart shape!"
 TOOLTIP_LINE1$(25) = "c - ELLIPSE/CIRCLE - Create ellipses and circles on the canvas."
 TOOLTIP_LINE2$(25) = "DRAW ellipse. L-CLICK FG color. R-CLICK BG color. CTRL+SHIFT snap."
 TOOLTIP_LINE1$(26) = "SHIFT+c - FILLED ELLIPSE/CIRCLE - Create filled ellipses and filled circles on the canvas."

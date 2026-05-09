@@ -1,0 +1,214 @@
+''
+' DRAW - TOOLS/SS-POLYGON.BM
+' =============================================================================
+' Implementation of the Polygon / Star smart-shape sub-tool.
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+CONST SS_POLY_MAX_VERTS = (SS_POLY_MAX_SIDES * 2) + 4
+
+''
+' Reset polygon tool state. Call when switching tools or finishing a stroke.
+'
+SUB SS_POLYGON_reset ()
+    SS_POLYGON.DRAGGING       = FALSE
+    SS_POLYGON.HAS_LAST_ANGLE = FALSE
+    SS_POLYGON.ROTATION       = 0
+    IF SS_POLYGON.HISTORY_BEFORE& < -1 THEN _FREEIMAGE SS_POLYGON.HISTORY_BEFORE&
+    SS_POLYGON.HISTORY_BEFORE = 0
+END SUB
+
+''
+' Compute polygon vertices into px(), py() arrays. Returns vertex count.
+'
+FUNCTION SS_POLYGON_compute_verts% (px() AS INTEGER, py() AS INTEGER)
+    DIM cx AS SINGLE, cy AS SINGLE
+    DIM rx AS SINGLE, ry AS SINGLE
+    cx! = SS_POLYGON.CENTER_X%
+    cy! = SS_POLYGON.CENTER_Y%
+    rx! = SS_POLYGON.RX%
+    ry! = SS_POLYGON.RY%
+    IF rx! < 1 THEN rx! = 1
+    IF ry! < 1 THEN ry! = 1
+
+    DIM sides AS INTEGER
+    sides% = SS_POLYGON.SIDES%
+    IF sides% < SS_POLY_MIN_SIDES THEN sides% = SS_POLY_MIN_SIDES
+    IF sides% > SS_POLY_MAX_SIDES THEN sides% = SS_POLY_MAX_SIDES
+
+    DIM depth AS INTEGER
+    depth% = SS_POLYGON.POINT_DEPTH%
+
+    DIM PI2 AS SINGLE
+    PI2! = 6.2831853
+
+    DIM count AS INTEGER, i AS INTEGER
+    DIM theta AS SINGLE, baseTheta AS SINGLE, stepAng AS SINGLE
+    DIM rA AS SINGLE, rB AS SINGLE, r AS SINGLE
+    baseTheta! = -1.5707963 + SS_POLYGON.ROTATION!  ' First vertex points up
+
+    IF depth% = 100 THEN
+        ' Regular polygon: N vertices
+        count% = sides%
+        stepAng! = PI2! / sides%
+        FOR i% = 0 TO count% - 1
+            theta! = baseTheta! + i% * stepAng!
+            px(i%) = INT(cx! + COS(theta!) * rx! + 0.5)
+            py(i%) = INT(cy! + SIN(theta!) * ry! + 0.5)
+        NEXT i%
+    ELSE
+        ' Star/burst: 2N alternating vertices
+        count% = sides% * 2
+        stepAng! = PI2! / count%
+        rA! = 1.0
+        rB! = depth% / 100.0
+        IF rB! < 0.05 THEN rB! = 0.05
+        FOR i% = 0 TO count% - 1
+            theta! = baseTheta! + i% * stepAng!
+            IF (i% AND 1) = 0 THEN r! = rA! ELSE r! = rB!
+            px(i%) = INT(cx! + COS(theta!) * rx! * r! + 0.5)
+            py(i%) = INT(cy! + SIN(theta!) * ry! * r! + 0.5)
+        NEXT i%
+    END IF
+    SS_POLYGON_compute_verts% = count%
+END FUNCTION
+
+''
+' Render polygon preview onto a canvas-resolution overlay image (already _DEST).
+' Caller draws this overlay scaled to the screen via _PUTIMAGE.
+'
+SUB SS_POLYGON_render_preview (preview_color AS _UNSIGNED LONG)
+    DIM px(0 TO SS_POLY_MAX_VERTS - 1) AS INTEGER
+    DIM py(0 TO SS_POLY_MAX_VERTS - 1) AS INTEGER
+    DIM count AS INTEGER, i AS INTEGER, j AS INTEGER
+    count% = SS_POLYGON_compute_verts%(px(), py())
+    IF count% < 3 THEN EXIT SUB
+
+    IF SS_POLYGON.FILLED% THEN
+        ' Fill via repeated horizontal LINEs using polygon scanline algorithm
+        SS_POLYGON_scanline_fill_pset px(), py(), count%, preview_color~&, FALSE
+    END IF
+    ' Always stroke the outline on top
+    FOR i% = 0 TO count% - 1
+        j% = i% + 1
+        IF j% >= count% THEN j% = 0
+        LINE (px(i%), py(i%))-(px(j%), py(j%)), preview_color~&
+    NEXT i%
+END SUB
+
+''
+' Walk a Bresenham line, calling PAINT_pset_with_symmetry for each pixel.
+' Used by SS_POLYGON_commit so we honor selection mask + paint mode + symmetry.
+'
+SUB SS_POLYGON_stroke_edge (x0 AS INTEGER, y0 AS INTEGER, x1 AS INTEGER, y1 AS INTEGER, col AS _UNSIGNED LONG)
+    DIM dx AS INTEGER, dy AS INTEGER
+    DIM sx AS INTEGER, sy AS INTEGER
+    DIM berr AS INTEGER, be2 AS INTEGER
+    DIM x AS INTEGER, y AS INTEGER
+    x% = x0%: y% = y0%
+    dx% = ABS(x1% - x0%): IF x0% < x1% THEN sx% = 1 ELSE sx% = -1
+    dy% = -ABS(y1% - y0%): IF y0% < y1% THEN sy% = 1 ELSE sy% = -1
+    berr% = dx% + dy%
+    DO
+        PAINT_pset_with_symmetry x%, y%, col~&, TRUE
+        IF x% = x1% AND y% = y1% THEN EXIT DO
+        be2% = berr% * 2
+        IF be2% >= dy% THEN berr% = berr% + dy%: x% = x% + sx%
+        IF be2% <= dx% THEN berr% = berr% + dx%: y% = y% + sy%
+    LOOP
+END SUB
+
+''
+' Scanline-fill a polygon using PSETs (no selection / symmetry) onto current
+' _DEST. Used for the live preview overlay only.
+'
+SUB SS_POLYGON_scanline_fill_pset (px() AS INTEGER, py() AS INTEGER, count AS INTEGER, col AS _UNSIGNED LONG, useSymmetry AS INTEGER)
+    DIM minY AS INTEGER, maxY AS INTEGER, i AS INTEGER, j AS INTEGER
+    minY% = py(0): maxY% = py(0)
+    FOR i% = 1 TO count% - 1
+        IF py(i) < minY% THEN minY% = py(i)
+        IF py(i) > maxY% THEN maxY% = py(i)
+    NEXT i%
+
+    DIM y AS INTEGER, k AS INTEGER, x AS INTEGER
+    DIM xs(0 TO SS_POLY_MAX_VERTS - 1) AS INTEGER
+    DIM nIntersect AS INTEGER, tmp AS INTEGER
+
+    FOR y% = minY% TO maxY%
+        nIntersect% = 0
+        j% = count% - 1
+        FOR i% = 0 TO count% - 1
+            IF (py(i) <= y% AND py(j) > y%) OR (py(j) <= y% AND py(i) > y%) THEN
+                xs(nIntersect%) = INT(px(i) + (y% - py(i)) * (px(j) - px(i)) / (py(j) - py(i)) + 0.5)
+                nIntersect% = nIntersect% + 1
+            END IF
+            j% = i%
+        NEXT i%
+        ' Sort intersections (small array, simple bubble)
+        DIM a AS INTEGER, b AS INTEGER
+        FOR a% = 0 TO nIntersect% - 2
+            FOR b% = 0 TO nIntersect% - 2 - a%
+                IF xs(b) > xs(b + 1) THEN
+                    tmp% = xs(b)
+                    xs(b) = xs(b + 1)
+                    xs(b + 1) = tmp%
+                END IF
+            NEXT b%
+        NEXT a%
+        ' Fill between pairs
+        FOR i% = 0 TO nIntersect% - 1 STEP 2
+            IF i% + 1 >= nIntersect% THEN EXIT FOR
+            FOR x% = xs(i) TO xs(i + 1)
+                IF useSymmetry% THEN
+                    PAINT_pset_with_symmetry x%, y%, col~&, TRUE
+                ELSE
+                    PSET (x%, y%), col~&
+                END IF
+            NEXT x%
+        NEXT i%
+    NEXT y%
+END SUB
+
+''
+' Commit polygon to the active layer. Records history before.
+'
+SUB SS_POLYGON_commit (col AS _UNSIGNED LONG)
+    DIM px(0 TO SS_POLY_MAX_VERTS - 1) AS INTEGER
+    DIM py(0 TO SS_POLY_MAX_VERTS - 1) AS INTEGER
+    DIM count AS INTEGER, i AS INTEGER, j AS INTEGER
+    count% = SS_POLYGON_compute_verts%(px(), py())
+    IF count% < 3 THEN EXIT SUB
+
+    ' Record history "before" state for the active layer (LAYER_current_image&)
+    DIM beforeImg AS LONG
+    beforeImg& = _COPYIMAGE(LAYER_current_image&, 32)
+
+    DIM oldDest AS LONG
+    oldDest& = _DEST
+    _DEST LAYER_current_image&
+
+    IF SS_POLYGON.FILLED% THEN
+        SS_POLYGON_scanline_fill_pset px(), py(), count%, col~&, TRUE
+    END IF
+    FOR i% = 0 TO count% - 1
+        j% = i% + 1
+        IF j% >= count% THEN j% = 0
+        SS_POLYGON_stroke_edge px(i), py(i), px(j), py(j), col~&
+    NEXT i%
+
+    _DEST oldDest&
+
+    ' Push history state — HISTORY_record_brush takes ownership of beforeImg&.
+    IF beforeImg& < -1 THEN
+        HISTORY_record_brush LAYERS(CURRENT_LAYER%).historyId&, CURRENT_LAYER%, col~&, 0, beforeImg&, "Polygon"
+        HISTORY_saved_this_frame% = TRUE
+    END IF
+
+    LAYERS(CURRENT_LAYER%).contentDirty% = TRUE
+    BLEND_invalidate_cache
+    CANVAS_DIRTY% = TRUE
+    SCENE_DIRTY%  = TRUE
+    FRAME_IDLE%   = FALSE
+END SUB

@@ -3976,7 +3976,7 @@ SUB MOUSE_dispatch_tool_hold (rawX AS INTEGER, rawY AS INTEGER)
             END IF
             IF NOT cmToolAllowed% THEN
                 SELECT CASE CURRENT_TOOL%
-                    CASE TOOL_BRUSH, TOOL_DOT, TOOL_SPRAY, TOOL_LINE, TOOL_RECT, TOOL_RECT_FILLED, TOOL_ELLIPSE, TOOL_ELLIPSE_FILLED, TOOL_ERASER, TOOL_FILL, TOOL_POLYGON, TOOL_POLYGON_FILLED
+                    CASE TOOL_BRUSH, TOOL_DOT, TOOL_SPRAY, TOOL_LINE, TOOL_RECT, TOOL_RECT_FILLED, TOOL_ELLIPSE, TOOL_ELLIPSE_FILLED, TOOL_ERASER, TOOL_FILL, TOOL_POLYGON, TOOL_POLYGON_FILLED, TOOL_SS_POLYGON
                         IF (MOUSE.B1% AND NOT MOUSE.OLD_B1%) OR (MOUSE.B2% AND NOT MOUSE.OLD_B2%) THEN
                             POINTER_hide_for_dialog
                             DRAW_alert "Cannot Draw on Text Layer", _
@@ -3995,7 +3995,7 @@ SUB MOUSE_dispatch_tool_hold (rawX AS INTEGER, rawY AS INTEGER)
         ' --- Guard: block drawing tools on symbol child layers ---
         IF LAYERS(CURRENT_LAYER%).layerType% = LAYER_TYPE_SYMBOL_CHILD THEN
             SELECT CASE CURRENT_TOOL%
-                CASE TOOL_BRUSH, TOOL_DOT, TOOL_SPRAY, TOOL_LINE, TOOL_RECT, TOOL_RECT_FILLED, TOOL_ELLIPSE, TOOL_ELLIPSE_FILLED, TOOL_ERASER, TOOL_FILL, TOOL_POLYGON, TOOL_POLYGON_FILLED
+                CASE TOOL_BRUSH, TOOL_DOT, TOOL_SPRAY, TOOL_LINE, TOOL_RECT, TOOL_RECT_FILLED, TOOL_ELLIPSE, TOOL_ELLIPSE_FILLED, TOOL_ERASER, TOOL_FILL, TOOL_POLYGON, TOOL_POLYGON_FILLED, TOOL_SS_POLYGON
                     IF (MOUSE.B1% AND NOT MOUSE.OLD_B1%) OR (MOUSE.B2% AND NOT MOUSE.OLD_B2%) THEN
                         POINTER_hide_for_dialog
                         DRAW_alert "Cannot Edit Symbol Instance", _
@@ -4027,7 +4027,7 @@ SUB MOUSE_dispatch_tool_hold (rawX AS INTEGER, rawY AS INTEGER)
         DIM sndCard AS INTEGER
         DIM sndVol  AS SINGLE
         SELECT CASE CURRENT_TOOL%
-            CASE TOOL_BRUSH, TOOL_DOT, TOOL_SPRAY, TOOL_LINE, TOOL_RECT, TOOL_RECT_FILLED, TOOL_ELLIPSE, TOOL_ELLIPSE_FILLED
+            CASE TOOL_BRUSH, TOOL_DOT, TOOL_SPRAY, TOOL_LINE, TOOL_RECT, TOOL_RECT_FILLED, TOOL_ELLIPSE, TOOL_ELLIPSE_FILLED, TOOL_SS_POLYGON
                 IF NOT MOUSE.OLD_B1% THEN
                     soundCardinal = 0: soundAccumX = 0: soundAccumY = 0: soundStrokeDist = 0!
                 ELSEIF MOUSE.X% <> MOUSE.OLD_X% OR MOUSE.Y% <> MOUSE.OLD_Y% THEN
@@ -4107,6 +4107,8 @@ SUB MOUSE_dispatch_tool_hold (rawX AS INTEGER, rawY AS INTEGER)
             MOUSE_tool_bezier
         CASE TOOL_RECT, TOOL_RECT_FILLED
             MOUSE_tool_rect
+        CASE TOOL_SS_POLYGON
+            MOUSE_tool_ss_polygon
         CASE TOOL_ELLIPSE, TOOL_ELLIPSE_FILLED
             MOUSE_tool_ellip
         CASE TOOL_BRUSH, TOOL_ERASER
@@ -4141,7 +4143,7 @@ SUB MOUSE_dispatch_tool_release (rawX AS INTEGER, rawY AS INTEGER)
             END IF
             IF NOT cmRelAllowed% THEN
                 SELECT CASE CURRENT_TOOL%
-                    CASE TOOL_BRUSH, TOOL_DOT, TOOL_SPRAY, TOOL_LINE, TOOL_RECT, TOOL_RECT_FILLED, TOOL_ELLIPSE, TOOL_ELLIPSE_FILLED, TOOL_ERASER, TOOL_FILL, TOOL_POLYGON, TOOL_POLYGON_FILLED
+                    CASE TOOL_BRUSH, TOOL_DOT, TOOL_SPRAY, TOOL_LINE, TOOL_RECT, TOOL_RECT_FILLED, TOOL_ELLIPSE, TOOL_ELLIPSE_FILLED, TOOL_ERASER, TOOL_FILL, TOOL_POLYGON, TOOL_POLYGON_FILLED, TOOL_SS_POLYGON
                         EXIT SUB
                 END SELECT
             END IF
@@ -4161,6 +4163,8 @@ SUB MOUSE_dispatch_tool_release (rawX AS INTEGER, rawY AS INTEGER)
                 SOUND_stop SND_DRAW
             CASE TOOL_ELLIPSE, TOOL_ELLIPSE_FILLED
                 SOUND_stop SND_DRAW
+            CASE TOOL_SS_POLYGON
+                SOUND_stop SND_DRAW
         END SELECT
     END IF
     ' Button released - save undo state if we were drawing
@@ -4176,6 +4180,8 @@ SUB MOUSE_dispatch_tool_release (rawX AS INTEGER, rawY AS INTEGER)
                 MOUSE_release_line
             CASE TOOL_RECT, TOOL_RECT_FILLED
                 MOUSE_release_rect
+            CASE TOOL_SS_POLYGON
+                MOUSE_release_ss_polygon
             CASE TOOL_ELLIPSE, TOOL_ELLIPSE_FILLED
                 MOUSE_release_ellip
             CASE TOOL_BRUSH, TOOL_ERASER
@@ -4914,6 +4920,18 @@ FUNCTION MOUSE_process_frame% (rawX AS INTEGER, rawY AS INTEGER, wheel_delta AS 
     ' Pan mode (spacebar + LMB OR MMB OR PAN tool + LMB)
     MOUSE_handle_panning rawX%, rawY%
 
+    ' Smart-shapes / sub-tool flyout intercepts all input while open
+    IF SUBTOOL_FLYOUT.ACTIVE THEN
+        SUBTOOL_FLYOUT_handle_input rawX%, rawY%
+        MOUSE.OLD_B1% = MOUSE.B1%
+        MOUSE.OLD_B2% = MOUSE.B2%
+        MOUSE.OLD_B3% = MOUSE.B3%
+        MOUSE.OLD_X%  = MOUSE.X%
+        MOUSE.OLD_Y%  = MOUSE.Y%
+        MOUSE_process_frame% = FALSE
+        EXIT FUNCTION
+    END IF
+
     ' Skip tool actions if we just clicked on the toolbar
     IF MOUSE_should_skip_tool_actions% THEN
         MOUSE_process_frame% = FALSE
@@ -4992,3 +5010,93 @@ END SUB
 
 ''
 
+' Tool handler: Smart-Shapes Polygon (B1=outline, B2=filled).
+'
+SUB MOUSE_tool_ss_polygon ()
+    DIM justPressed AS INTEGER
+    justPressed% = (MOUSE.B1% AND NOT MOUSE.OLD_B1%) OR (MOUSE.B2% AND NOT MOUSE.OLD_B2%)
+
+    IF justPressed% THEN
+        SOUND_play SND_POINT
+        STROKE_begin
+        SS_POLYGON.DRAGGING       = TRUE
+        SS_POLYGON.START_X        = MOUSE.X%
+        SS_POLYGON.START_Y        = MOUSE.Y%
+        SS_POLYGON.CENTER_X       = MOUSE.X%
+        SS_POLYGON.CENTER_Y       = MOUSE.Y%
+        SS_POLYGON.END_X          = MOUSE.X%
+        SS_POLYGON.END_Y          = MOUSE.Y%
+        SS_POLYGON.RX             = 0
+        SS_POLYGON.RY             = 0
+        SS_POLYGON.ROTATION       = 0
+        SS_POLYGON.HAS_LAST_ANGLE = FALSE
+        SS_POLYGON.FILLED         = (MOUSE.B2% AND NOT MOUSE.OLD_B2%)
+    ELSEIF SS_POLYGON.DRAGGING THEN
+        SS_POLYGON.END_X = MOUSE.X%
+        SS_POLYGON.END_Y = MOUSE.Y%
+
+        ' Default: center at first click; if SHIFT/CTRL, draw from center anchor.
+        ' For now, center is fixed at START position (drag = define radius+rotation).
+        DIM dx AS SINGLE, dy AS SINGLE
+        dx! = MOUSE.X% - SS_POLYGON.CENTER_X
+        dy! = MOUSE.Y% - SS_POLYGON.CENTER_Y
+
+        ' Update outer radii from cursor distance (use absolute axes for ellipse fit)
+        SS_POLYGON.RX = INT(ABS(dx!) + 0.5)
+        SS_POLYGON.RY = INT(ABS(dy!) + 0.5)
+        ' If SHIFT held, force circular (square bbox -> equal radii using max axis)
+        IF MODIFIERS.shift% THEN
+            DIM r AS INTEGER
+            r% = SS_POLYGON.RX
+            IF SS_POLYGON.RY > r% THEN r% = SS_POLYGON.RY
+            SS_POLYGON.RX = r%
+            SS_POLYGON.RY = r%
+        END IF
+        IF SS_POLYGON.RX < 1 THEN SS_POLYGON.RX = 1
+        IF SS_POLYGON.RY < 1 THEN SS_POLYGON.RY = 1
+
+        ' Accumulate rotation from circular cursor motion around center
+        IF dx! <> 0! OR dy! <> 0! THEN
+            DIM ang AS SINGLE
+            ang! = _ATAN2(dy!, dx!)
+            IF SS_POLYGON.HAS_LAST_ANGLE THEN
+                DIM delta AS SINGLE
+                delta! = ang! - SS_POLYGON.LAST_ANGLE
+                ' Normalize to (-PI, PI]
+                IF delta! > 3.1415927 THEN delta! = delta! - 6.2831853
+                IF delta! < -3.1415927 THEN delta! = delta! + 6.2831853
+                SS_POLYGON.ROTATION = SS_POLYGON.ROTATION + delta!
+            END IF
+            SS_POLYGON.LAST_ANGLE     = ang!
+            SS_POLYGON.HAS_LAST_ANGLE = TRUE
+        END IF
+
+        SCENE_DIRTY% = TRUE
+        FRAME_IDLE%  = FALSE
+    END IF
+END SUB
+
+
+''
+' Mouse release handler: Smart-Shapes Polygon. Commits stamped polygon onto layer.
+'
+SUB MOUSE_release_ss_polygon ()
+    IF NOT SS_POLYGON.DRAGGING THEN EXIT SUB
+    IF SS_POLYGON.RX < 1 OR SS_POLYGON.RY < 1 THEN
+        SS_POLYGON_reset
+        EXIT SUB
+    END IF
+
+    DIM commitColor AS _UNSIGNED LONG
+    IF SS_POLYGON.FILLED OR (NOT MOUSE.OLD_B1% AND MOUSE.OLD_B2%) THEN
+        ' Was right-button drag — use FG too (consistent with rect/ellipse)
+        commitColor~& = PAINT_apply_opacity~&(DRAW_COLOR~&)
+    ELSE
+        commitColor~& = PAINT_apply_opacity~&(DRAW_COLOR~&)
+    END IF
+
+    SS_POLYGON_commit commitColor~&
+    STROKE_commit
+    SOUND_play SND_DRAG_DROP
+    SS_POLYGON_reset
+END SUB
