@@ -3,9 +3,12 @@
 ## APRON .5 SIZE of canvas = phantom draw area (to prevent clips)
 - [ ] Right now the rotation/movement of something off the canvas into the apron area clips it.
   - [ ] This would let it not clip
-  
+
 ## 3D TEXT
 - [ ] Just like Smart Shape 3D, but on text.
+
+## TDF FONT SUPPORT
+- [ ] Render/load/use TheDraw fonts :)
 
 ## DRAW KITS
 - User sharable and exportable kits which contain all or one of:

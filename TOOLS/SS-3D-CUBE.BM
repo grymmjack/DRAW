@@ -1,75 +1,418 @@
 ''
 ' DRAW - TOOLS/SS-3D-CUBE.BM
 '
+' Generic 3D polyhedron renderer for the Smart-Shape "3D" sub-tool.
+' Supports D4 (tetrahedron), D6 (cube), D8 (octahedron),
+'          D10 (pentagonal trapezohedron), D12 (dodecahedron),
+'          D20 (icosahedron), D30 (rhombic triacontahedron).
+' Number keys while dragging select the type:
+'   4 -> D4, 6 -> D6, 8 -> D8, 0 -> D10, 1 -> D12, 2 -> D20, 3 -> D30
+'
 $INCLUDEONCE
+
+CONST SS_DICE_MAX_VERTS = 32
+CONST SS_DICE_MAX_EDGES = 60
 
 SUB SS_CUBE_reset ()
     SS_CUBE.DRAGGING = FALSE
 END SUB
 
 ''
-' Project 8 cube vertices using rotations around X then Y, orthographic on XY.
-' size = half-edge of cube; rot in degrees.
+' Build canonical (unit-ish) 3D vertices and edge index pairs for the requested
+' dice type. Coordinates are not normalised here — caller scales to fit bbox.
 '
-SUB SS_CUBE_project (cx AS INTEGER, cy AS INTEGER, halfW AS SINGLE, halfH AS SINGLE, halfD AS SINGLE, rotXdeg AS SINGLE, rotYdeg AS SINGLE, vx() AS INTEGER, vy() AS INTEGER)
+' @param diceType 4,6,8,10,12,20,30
+' @param vCount   (out) number of vertices written
+' @param eCount   (out) number of edges written
+' @param vxa(),vya(),vza()  vertex component arrays (size SS_DICE_MAX_VERTS)
+' @param eA(),eB()          edge index pair arrays (size SS_DICE_MAX_EDGES)
+'
+SUB SS_DICE_build (diceType AS INTEGER, vCount AS INTEGER, eCount AS INTEGER, vxa() AS SINGLE, vya() AS SINGLE, vza() AS SINGLE, eA() AS INTEGER, eB() AS INTEGER)
+    DIM PHI AS SINGLE, IPHI AS SINGLE
+    PHI! = 1.6180339887
+    IPHI! = 0.6180339887
+    vCount% = 0: eCount% = 0
+
+    SELECT CASE diceType%
+        CASE 4 ' Tetrahedron
+            vxa(0) =  1: vya(0) =  1: vza(0) =  1
+            vxa(1) =  1: vya(1) = -1: vza(1) = -1
+            vxa(2) = -1: vya(2) =  1: vza(2) = -1
+            vxa(3) = -1: vya(3) = -1: vza(3) =  1
+            vCount% = 4
+            eA(0)=0: eB(0)=1
+            eA(1)=0: eB(1)=2
+            eA(2)=0: eB(2)=3
+            eA(3)=1: eB(3)=2
+            eA(4)=1: eB(4)=3
+            eA(5)=2: eB(5)=3
+            eCount% = 6
+
+        CASE 6 ' Cube
+            DIM ci AS INTEGER
+            FOR ci% = 0 TO 7
+                IF (ci% AND 1) = 0 THEN vxa(ci%) = -1 ELSE vxa(ci%) = 1
+                IF (ci% AND 2) = 0 THEN vya(ci%) = -1 ELSE vya(ci%) = 1
+                IF (ci% AND 4) = 0 THEN vza(ci%) = -1 ELSE vza(ci%) = 1
+            NEXT ci%
+            vCount% = 8
+            eA(0)=0: eB(0)=1
+            eA(1)=2: eB(1)=3
+            eA(2)=4: eB(2)=5
+            eA(3)=6: eB(3)=7
+            eA(4)=0: eB(4)=2
+            eA(5)=1: eB(5)=3
+            eA(6)=4: eB(6)=6
+            eA(7)=5: eB(7)=7
+            eA(8)=0: eB(8)=4
+            eA(9)=1: eB(9)=5
+            eA(10)=2: eB(10)=6
+            eA(11)=3: eB(11)=7
+            eCount% = 12
+
+        CASE 8 ' Octahedron
+            ' 0=+X, 1=-X, 2=+Y, 3=-Y, 4=+Z, 5=-Z
+            vxa(0)= 1: vya(0)=0: vza(0)=0
+            vxa(1)=-1: vya(1)=0: vza(1)=0
+            vxa(2)=0: vya(2)= 1: vza(2)=0
+            vxa(3)=0: vya(3)=-1: vza(3)=0
+            vxa(4)=0: vya(4)=0: vza(4)= 1
+            vxa(5)=0: vya(5)=0: vza(5)=-1
+            vCount% = 6
+            DIM oi AS INTEGER, oj AS INTEGER, oc AS INTEGER
+            oc% = 0
+            FOR oi% = 0 TO 5
+                FOR oj% = oi% + 1 TO 5
+                    ' Skip antipodal pairs (axis-opposite): differ only in sign of one coord and that's actually all pairs except (0,1),(2,3),(4,5)
+                    IF NOT ((oi% = 0 AND oj% = 1) OR (oi% = 2 AND oj% = 3) OR (oi% = 4 AND oj% = 5)) THEN
+                        eA(oc%) = oi%: eB(oc%) = oj%
+                        oc% = oc% + 1
+                    END IF
+                NEXT oj%
+            NEXT oi%
+            eCount% = oc%
+
+        CASE 10 ' Pentagonal trapezohedron
+            ' 0 = top apex, 1 = bottom apex
+            ' 2..6 = top pentagon (z = +0.30), 7..11 = bottom pentagon (z = -0.30)
+            vxa(0) = 0: vya(0) = 0: vza(0) =  1
+            vxa(1) = 0: vya(1) = 0: vza(1) = -1
+            DIM tk AS INTEGER, tang AS SINGLE
+            FOR tk% = 0 TO 4
+                tang! = tk% * 1.2566371                ' 72° in radians
+                vxa(2 + tk%) = COS(tang!) * 0.95
+                vya(2 + tk%) = SIN(tang!) * 0.95
+                vza(2 + tk%) = 0.30
+            NEXT tk%
+            FOR tk% = 0 TO 4
+                tang! = tk% * 1.2566371 + 0.6283185    ' 36° offset
+                vxa(7 + tk%) = COS(tang!) * 0.95
+                vya(7 + tk%) = SIN(tang!) * 0.95
+                vza(7 + tk%) = -0.30
+            NEXT tk%
+            vCount% = 12
+            DIM tc AS INTEGER
+            tc% = 0
+            ' Top apex to top pentagon
+            FOR tk% = 0 TO 4
+                eA(tc%) = 0: eB(tc%) = 2 + tk%: tc% = tc% + 1
+            NEXT tk%
+            ' Bottom apex to bottom pentagon
+            FOR tk% = 0 TO 4
+                eA(tc%) = 1: eB(tc%) = 7 + tk%: tc% = tc% + 1
+            NEXT tk%
+            ' Zigzag: each top k connects to bottom k and bottom (k+4) MOD 5 (== k-1)
+            FOR tk% = 0 TO 4
+                eA(tc%) = 2 + tk%: eB(tc%) = 7 + tk%:                      tc% = tc% + 1
+                eA(tc%) = 2 + tk%: eB(tc%) = 7 + ((tk% + 4) MOD 5):        tc% = tc% + 1
+            NEXT tk%
+            eCount% = tc%
+
+        CASE 12 ' Dodecahedron — 20 vertices
+            DIM dc AS INTEGER
+            dc% = 0
+            ' (±1, ±1, ±1)
+            DIM si AS INTEGER, sj AS INTEGER, sk AS INTEGER
+            FOR si% = 0 TO 1
+                FOR sj% = 0 TO 1
+                    FOR sk% = 0 TO 1
+                        vxa(dc%) = (si% * 2 - 1)
+                        vya(dc%) = (sj% * 2 - 1)
+                        vza(dc%) = (sk% * 2 - 1)
+                        dc% = dc% + 1
+                    NEXT sk%
+                NEXT sj%
+            NEXT si%
+            ' (0, ±1/φ, ±φ)
+            FOR sj% = 0 TO 1
+                FOR sk% = 0 TO 1
+                    vxa(dc%) = 0
+                    vya(dc%) = (sj% * 2 - 1) * IPHI!
+                    vza(dc%) = (sk% * 2 - 1) * PHI!
+                    dc% = dc% + 1
+                NEXT sk%
+            NEXT sj%
+            ' (±1/φ, ±φ, 0)
+            FOR si% = 0 TO 1
+                FOR sj% = 0 TO 1
+                    vxa(dc%) = (si% * 2 - 1) * IPHI!
+                    vya(dc%) = (sj% * 2 - 1) * PHI!
+                    vza(dc%) = 0
+                    dc% = dc% + 1
+                NEXT sj%
+            NEXT si%
+            ' (±φ, 0, ±1/φ)
+            FOR si% = 0 TO 1
+                FOR sk% = 0 TO 1
+                    vxa(dc%) = (si% * 2 - 1) * PHI!
+                    vya(dc%) = 0
+                    vza(dc%) = (sk% * 2 - 1) * IPHI!
+                    dc% = dc% + 1
+                NEXT sk%
+            NEXT si%
+            vCount% = dc%
+            ' Edges: pairs at canonical edge-length 2/φ ≈ 1.2361
+            SS_DICE_edges_by_distance vxa(), vya(), vza(), vCount%, 2.0 / PHI!, 0.05, eA(), eB(), eCount%
+
+        CASE 20 ' Icosahedron — 12 vertices
+            DIM ic AS INTEGER
+            ic% = 0
+            ' (0, ±1, ±φ)
+            DIM xi AS INTEGER, xj AS INTEGER
+            FOR xi% = 0 TO 1
+                FOR xj% = 0 TO 1
+                    vxa(ic%) = 0
+                    vya(ic%) = (xi% * 2 - 1)
+                    vza(ic%) = (xj% * 2 - 1) * PHI!
+                    ic% = ic% + 1
+                NEXT xj%
+            NEXT xi%
+            ' (±1, ±φ, 0)
+            FOR xi% = 0 TO 1
+                FOR xj% = 0 TO 1
+                    vxa(ic%) = (xi% * 2 - 1)
+                    vya(ic%) = (xj% * 2 - 1) * PHI!
+                    vza(ic%) = 0
+                    ic% = ic% + 1
+                NEXT xj%
+            NEXT xi%
+            ' (±φ, 0, ±1)
+            FOR xi% = 0 TO 1
+                FOR xj% = 0 TO 1
+                    vxa(ic%) = (xi% * 2 - 1) * PHI!
+                    vya(ic%) = 0
+                    vza(ic%) = (xj% * 2 - 1)
+                    ic% = ic% + 1
+                NEXT xj%
+            NEXT xi%
+            vCount% = ic%
+            ' Edge length = 2
+            SS_DICE_edges_by_distance vxa(), vya(), vza(), vCount%, 2.0, 0.05, eA(), eB(), eCount%
+
+        CASE 30 ' Rhombic triacontahedron — 32 vertices (12 ico + 20 dodec)
+            DIM rc AS INTEGER, ri AS INTEGER, rj AS INTEGER, rk AS INTEGER
+            rc% = 0
+            ' --- Icosahedron 12 vertices, scaled to fit nicely with dodec ---
+            ' (0, ±1, ±φ)
+            FOR ri% = 0 TO 1
+                FOR rj% = 0 TO 1
+                    vxa(rc%) = 0
+                    vya(rc%) = (ri% * 2 - 1)
+                    vza(rc%) = (rj% * 2 - 1) * PHI!
+                    rc% = rc% + 1
+                NEXT rj%
+            NEXT ri%
+            FOR ri% = 0 TO 1
+                FOR rj% = 0 TO 1
+                    vxa(rc%) = (ri% * 2 - 1)
+                    vya(rc%) = (rj% * 2 - 1) * PHI!
+                    vza(rc%) = 0
+                    rc% = rc% + 1
+                NEXT rj%
+            NEXT ri%
+            FOR ri% = 0 TO 1
+                FOR rj% = 0 TO 1
+                    vxa(rc%) = (ri% * 2 - 1) * PHI!
+                    vya(rc%) = 0
+                    vza(rc%) = (rj% * 2 - 1)
+                    rc% = rc% + 1
+                NEXT rj%
+            NEXT ri%
+            ' --- Dodecahedron 20 vertices ---
+            FOR ri% = 0 TO 1
+                FOR rj% = 0 TO 1
+                    FOR rk% = 0 TO 1
+                        vxa(rc%) = (ri% * 2 - 1)
+                        vya(rc%) = (rj% * 2 - 1)
+                        vza(rc%) = (rk% * 2 - 1)
+                        rc% = rc% + 1
+                    NEXT rk%
+                NEXT rj%
+            NEXT ri%
+            FOR rj% = 0 TO 1
+                FOR rk% = 0 TO 1
+                    vxa(rc%) = 0
+                    vya(rc%) = (rj% * 2 - 1) * IPHI!
+                    vza(rc%) = (rk% * 2 - 1) * PHI!
+                    rc% = rc% + 1
+                NEXT rk%
+            NEXT rj%
+            FOR ri% = 0 TO 1
+                FOR rj% = 0 TO 1
+                    vxa(rc%) = (ri% * 2 - 1) * IPHI!
+                    vya(rc%) = (rj% * 2 - 1) * PHI!
+                    vza(rc%) = 0
+                    rc% = rc% + 1
+                NEXT rj%
+            NEXT ri%
+            FOR ri% = 0 TO 1
+                FOR rk% = 0 TO 1
+                    vxa(rc%) = (ri% * 2 - 1) * PHI!
+                    vya(rc%) = 0
+                    vza(rc%) = (rk% * 2 - 1) * IPHI!
+                    rc% = rc% + 1
+                NEXT rk%
+            NEXT ri%
+            vCount% = rc%
+            ' D30 edges connect each icosahedron vertex (idx 0..11) to its 5
+            ' nearest dodecahedron vertices (idx 12..31). Use distance threshold.
+            SS_DICE_edges_d30 vxa(), vya(), vza(), eA(), eB(), eCount%
+
+        CASE ELSE
+            ' Fallback to D6
+            SS_DICE_build 6, vCount%, eCount%, vxa(), vya(), vza(), eA(), eB()
+    END SELECT
+END SUB
+
+''
+' Connect every vertex pair within (target ± tolerance × target). Used for
+' regular convex polyhedra (D12, D20) where all edges share the same length.
+'
+SUB SS_DICE_edges_by_distance (vxa() AS SINGLE, vya() AS SINGLE, vza() AS SINGLE, vCount AS INTEGER, target AS SINGLE, tolPct AS SINGLE, eA() AS INTEGER, eB() AS INTEGER, eCount AS INTEGER)
+    DIM lo AS SINGLE, hi AS SINGLE
+    lo! = target! * (1 - tolPct!)
+    hi! = target! * (1 + tolPct!)
+    DIM lo2 AS SINGLE, hi2 AS SINGLE
+    lo2! = lo! * lo!
+    hi2! = hi! * hi!
+    DIM ec AS INTEGER, vi AS INTEGER, vj AS INTEGER
+    DIM ddx AS SINGLE, ddy AS SINGLE, ddz AS SINGLE, dist2 AS SINGLE
+    ec% = 0
+    FOR vi% = 0 TO vCount% - 1
+        FOR vj% = vi% + 1 TO vCount% - 1
+            ddx! = vxa(vi%) - vxa(vj%)
+            ddy! = vya(vi%) - vya(vj%)
+            ddz! = vza(vi%) - vza(vj%)
+            dist2! = ddx! * ddx! + ddy! * ddy! + ddz! * ddz!
+            IF dist2! >= lo2! AND dist2! <= hi2! THEN
+                IF ec% < SS_DICE_MAX_EDGES THEN
+                    eA(ec%) = vi%: eB(ec%) = vj%: ec% = ec% + 1
+                END IF
+            END IF
+        NEXT vj%
+    NEXT vi%
+    eCount% = ec%
+END SUB
+
+''
+' D30 edge builder: vertices 0..11 are icosahedron, 12..31 are dodecahedron.
+' Find the minimum ico-dodec distance, then connect every pair at that distance.
+'
+SUB SS_DICE_edges_d30 (vxa() AS SINGLE, vya() AS SINGLE, vza() AS SINGLE, eA() AS INTEGER, eB() AS INTEGER, eCount AS INTEGER)
+    DIM minD2 AS SINGLE
+    minD2! = 1.0E+9
+    DIM vi AS INTEGER, vj AS INTEGER
+    DIM ddx AS SINGLE, ddy AS SINGLE, ddz AS SINGLE, dist2 AS SINGLE
+    FOR vi% = 0 TO 11
+        FOR vj% = 12 TO 31
+            ddx! = vxa(vi%) - vxa(vj%)
+            ddy! = vya(vi%) - vya(vj%)
+            ddz! = vza(vi%) - vza(vj%)
+            dist2! = ddx! * ddx! + ddy! * ddy! + ddz! * ddz!
+            IF dist2! < minD2! THEN minD2! = dist2!
+        NEXT vj%
+    NEXT vi%
+    DIM lo2 AS SINGLE, hi2 AS SINGLE
+    lo2! = minD2! * 0.92
+    hi2! = minD2! * 1.10
+    DIM ec AS INTEGER
+    ec% = 0
+    FOR vi% = 0 TO 11
+        FOR vj% = 12 TO 31
+            ddx! = vxa(vi%) - vxa(vj%)
+            ddy! = vya(vi%) - vya(vj%)
+            ddz! = vza(vi%) - vza(vj%)
+            dist2! = ddx! * ddx! + ddy! * ddy! + ddz! * ddz!
+            IF dist2! >= lo2! AND dist2! <= hi2! THEN
+                IF ec% < SS_DICE_MAX_EDGES THEN
+                    eA(ec%) = vi%: eB(ec%) = vj%: ec% = ec% + 1
+                END IF
+            END IF
+        NEXT vj%
+    NEXT vi%
+    eCount% = ec%
+END SUB
+
+''
+' Project a 3D vertex through rotX (around X axis) then rotY (around Y axis),
+' apply orthographic projection on the XY plane, output screen coords.
+'
+SUB SS_DICE_project (cx AS INTEGER, cy AS INTEGER, scale AS SINGLE, zScale AS SINGLE, rotXdeg AS SINGLE, rotYdeg AS SINGLE, vCount AS INTEGER, vxa() AS SINGLE, vya() AS SINGLE, vza() AS SINGLE, vsx() AS INTEGER, vsy() AS INTEGER)
     DIM ax AS SINGLE, ay AS SINGLE
     ax! = rotXdeg! * 3.1415927 / 180.0
     ay! = rotYdeg! * 3.1415927 / 180.0
-    DIM cx_a AS SINGLE, sx_a AS SINGLE, cy_a AS SINGLE, sy_a AS SINGLE
-    cx_a! = COS(ax!): sx_a! = SIN(ax!)
-    cy_a! = COS(ay!): sy_a! = SIN(ay!)
-
-    DIM i AS INTEGER, sx AS SINGLE, sy AS SINGLE, sz AS SINGLE
-    DIM rx AS SINGLE, ry AS SINGLE, rz AS SINGLE
-    DIM tx AS SINGLE, ty AS SINGLE, tz AS SINGLE
-    FOR i% = 0 TO 7
-        IF (i% AND 1) = 0 THEN sx! = -halfW! ELSE sx! = halfW!
-        IF (i% AND 2) = 0 THEN sy! = -halfH! ELSE sy! = halfH!
-        IF (i% AND 4) = 0 THEN sz! = -halfD! ELSE sz! = halfD!
+    DIM cxA AS SINGLE, sxA AS SINGLE, cyA AS SINGLE, syA AS SINGLE
+    cxA! = COS(ax!): sxA! = SIN(ax!)
+    cyA! = COS(ay!): syA! = SIN(ay!)
+    DIM i AS INTEGER
+    DIM x AS SINGLE, y AS SINGLE, z AS SINGLE
+    DIM x2 AS SINGLE, y2 AS SINGLE, z2 AS SINGLE
+    FOR i% = 0 TO vCount% - 1
+        x! = vxa(i%) * scale!
+        y! = vya(i%) * scale!
+        z! = vza(i%) * scale! * zScale!
         ' Rotate around X
-        ty! = sy! * cx_a! - sz! * sx_a!
-        tz! = sy! * sx_a! + sz! * cx_a!
-        ry! = ty!: rz! = tz!: rx! = sx!
+        y2! = y! * cxA! - z! * sxA!
+        z2! = y! * sxA! + z! * cxA!
+        y! = y2!: z! = z2!
         ' Rotate around Y
-        tx! = rx! * cy_a! + rz! * sy_a!
-        tz! = -rx! * sy_a! + rz! * cy_a!
-        rx! = tx!
-        vx(i%) = INT(cx% + rx! + 0.5)
-        vy(i%) = INT(cy% + ry! + 0.5)
+        x2! = x! * cyA! + z! * syA!
+        z2! = -x! * syA! + z! * cyA!
+        x! = x2!: z! = z2!
+        vsx(i%) = INT(cx% + x! + 0.5)
+        vsy(i%) = INT(cy% + y! + 0.5)
     NEXT i%
 END SUB
 
 ''
-' Returns an array of 12 edges, each as 2 vertex indices (i0, i1).
-' Built locally each call.
+' Render edges of a polyhedron (preview or commit).
 '
-SUB SS_CUBE_render_edges (vx() AS INTEGER, vy() AS INTEGER, col AS _UNSIGNED LONG, commit AS INTEGER)
-    DIM edges(0 TO 23) AS INTEGER
-    ' 12 edges of a cube indexed by binary bit pattern
-    edges(0) = 0: edges(1) = 1
-    edges(2) = 2: edges(3) = 3
-    edges(4) = 4: edges(5) = 5
-    edges(6) = 6: edges(7) = 7
-    edges(8) = 0: edges(9) = 2
-    edges(10) = 1: edges(11) = 3
-    edges(12) = 4: edges(13) = 6
-    edges(14) = 5: edges(15) = 7
-    edges(16) = 0: edges(17) = 4
-    edges(18) = 1: edges(19) = 5
-    edges(20) = 2: edges(21) = 6
-    edges(22) = 3: edges(23) = 7
-
+SUB SS_DICE_render_edges (vsx() AS INTEGER, vsy() AS INTEGER, eA() AS INTEGER, eB() AS INTEGER, eCount AS INTEGER, col AS _UNSIGNED LONG, commit AS INTEGER)
     DIM i AS INTEGER, a AS INTEGER, b AS INTEGER
-    FOR i% = 0 TO 11
-        a% = edges(i% * 2)
-        b% = edges(i% * 2 + 1)
+    FOR i% = 0 TO eCount% - 1
+        a% = eA(i%): b% = eB(i%)
         IF commit% THEN
-            SS_stroke_line vx(a%), vy(a%), vx(b%), vy(b%), col~&
+            SS_stroke_line vsx(a%), vsy(a%), vsx(b%), vsy(b%), col~&
         ELSE
-            LINE (vx(a%), vy(a%))-(vx(b%), vy(b%)), col~&
+            LINE (vsx(a%), vsy(a%))-(vsx(b%), vsy(b%)), col~&
         END IF
     NEXT i%
 END SUB
+
+''
+' Compute max canonical XY-extent of a polytope (after rotation) so we can scale
+' it to fit halfW × halfH bbox without clipping. Cheap: just sample the
+' un-rotated bounding radius (max sqrt(x²+y²+z²)).
+'
+FUNCTION SS_DICE_canonical_radius! (vCount AS INTEGER, vxa() AS SINGLE, vya() AS SINGLE, vza() AS SINGLE)
+    DIM i AS INTEGER, r2 AS SINGLE, mx AS SINGLE
+    mx! = 0
+    FOR i% = 0 TO vCount% - 1
+        r2! = vxa(i%) * vxa(i%) + vya(i%) * vya(i%) + vza(i%) * vza(i%)
+        IF r2! > mx! THEN mx! = r2!
+    NEXT i%
+    SS_DICE_canonical_radius! = SQR(mx!)
+END FUNCTION
 
 SUB SS_CUBE_render_preview (col AS _UNSIGNED LONG)
     IF ABS(SS_CUBE.X1 - SS_CUBE.X0) < 1 OR ABS(SS_CUBE.Y1 - SS_CUBE.Y0) < 1 THEN EXIT SUB
@@ -80,14 +423,31 @@ SUB SS_CUBE_render_preview (col AS _UNSIGNED LONG)
     DIM cx AS INTEGER, cy AS INTEGER
     cx% = (xL% + xR%) \ 2
     cy% = (yT% + yB%) \ 2
-    DIM hw AS SINGLE, hh AS SINGLE, hd AS SINGLE, mn AS INTEGER
+    DIM hw AS SINGLE, hh AS SINGLE, bbMin AS SINGLE
     hw! = (xR% - xL%) / 2.0
     hh! = (yB% - yT%) / 2.0
-    mn% = INT(hw!): IF hh! < mn% THEN mn% = INT(hh!)
-    hd! = mn% * SS_CUBE.Z_DEPTH / 100.0
-    DIM vx(0 TO 7) AS INTEGER, vy(0 TO 7) AS INTEGER
-    SS_CUBE_project cx%, cy%, hw!, hh!, hd!, SS_CUBE.ROT_X, SS_CUBE.ROT_Y, vx(), vy()
-    SS_CUBE_render_edges vx(), vy(), col~&, FALSE
+    bbMin! = hw!: IF hh! < bbMin! THEN bbMin! = hh!
+
+    DIM vCount AS INTEGER, eCount AS INTEGER
+    DIM vxa(0 TO SS_DICE_MAX_VERTS - 1) AS SINGLE
+    DIM vya(0 TO SS_DICE_MAX_VERTS - 1) AS SINGLE
+    DIM vza(0 TO SS_DICE_MAX_VERTS - 1) AS SINGLE
+    DIM eA(0 TO SS_DICE_MAX_EDGES - 1) AS INTEGER
+    DIM eB(0 TO SS_DICE_MAX_EDGES - 1) AS INTEGER
+    SS_DICE_build SS_CUBE.DICE_TYPE, vCount%, eCount%, vxa(), vya(), vza(), eA(), eB()
+    DIM canon AS SINGLE
+    canon! = SS_DICE_canonical_radius!(vCount%, vxa(), vya(), vza())
+    IF canon! < 0.001 THEN canon! = 1
+    DIM scale AS SINGLE
+    scale! = bbMin! / canon!
+
+    DIM zScale AS SINGLE
+    zScale! = SS_CUBE.Z_DEPTH / 100.0
+
+    DIM vsx(0 TO SS_DICE_MAX_VERTS - 1) AS INTEGER
+    DIM vsy(0 TO SS_DICE_MAX_VERTS - 1) AS INTEGER
+    SS_DICE_project cx%, cy%, scale!, zScale!, SS_CUBE.ROT_X, SS_CUBE.ROT_Y, vCount%, vxa(), vya(), vza(), vsx(), vsy()
+    SS_DICE_render_edges vsx(), vsy(), eA(), eB(), eCount%, col~&, FALSE
 END SUB
 
 SUB SS_CUBE_commit (col AS _UNSIGNED LONG)
@@ -99,17 +459,38 @@ SUB SS_CUBE_commit (col AS _UNSIGNED LONG)
     DIM cx AS INTEGER, cy AS INTEGER
     cx% = (xL% + xR%) \ 2
     cy% = (yT% + yB%) \ 2
-    DIM hw AS SINGLE, hh AS SINGLE, hd AS SINGLE, mn AS INTEGER
+    DIM hw AS SINGLE, hh AS SINGLE, bbMin AS SINGLE
     hw! = (xR% - xL%) / 2.0
     hh! = (yB% - yT%) / 2.0
-    mn% = INT(hw!): IF hh! < mn% THEN mn% = INT(hh!)
-    hd! = mn% * SS_CUBE.Z_DEPTH / 100.0
-    DIM vx(0 TO 7) AS INTEGER, vy(0 TO 7) AS INTEGER
-    SS_CUBE_project cx%, cy%, hw!, hh!, hd!, SS_CUBE.ROT_X, SS_CUBE.ROT_Y, vx(), vy()
+    bbMin! = hw!: IF hh! < bbMin! THEN bbMin! = hh!
+
+    DIM vCount AS INTEGER, eCount AS INTEGER
+    DIM vxa(0 TO SS_DICE_MAX_VERTS - 1) AS SINGLE
+    DIM vya(0 TO SS_DICE_MAX_VERTS - 1) AS SINGLE
+    DIM vza(0 TO SS_DICE_MAX_VERTS - 1) AS SINGLE
+    DIM eA(0 TO SS_DICE_MAX_EDGES - 1) AS INTEGER
+    DIM eB(0 TO SS_DICE_MAX_EDGES - 1) AS INTEGER
+    SS_DICE_build SS_CUBE.DICE_TYPE, vCount%, eCount%, vxa(), vya(), vza(), eA(), eB()
+    DIM canon AS SINGLE
+    canon! = SS_DICE_canonical_radius!(vCount%, vxa(), vya(), vza())
+    IF canon! < 0.001 THEN canon! = 1
+    DIM scale AS SINGLE
+    scale! = bbMin! / canon!
+    DIM zScale AS SINGLE
+    zScale! = SS_CUBE.Z_DEPTH / 100.0
+
+    DIM vsx(0 TO SS_DICE_MAX_VERTS - 1) AS INTEGER
+    DIM vsy(0 TO SS_DICE_MAX_VERTS - 1) AS INTEGER
+    SS_DICE_project cx%, cy%, scale!, zScale!, SS_CUBE.ROT_X, SS_CUBE.ROT_Y, vCount%, vxa(), vya(), vza(), vsx(), vsy()
+
     DIM beforeImg AS LONG: beforeImg& = SS_history_snapshot&
     DIM oldDest AS LONG: oldDest& = _DEST
     _DEST LAYER_current_image&
-    SS_CUBE_render_edges vx(), vy(), col~&, TRUE
+    SS_DICE_render_edges vsx(), vsy(), eA(), eB(), eCount%, col~&, TRUE
     _DEST oldDest&
-    SS_history_finalize beforeImg&, col~&, "3D Cube"
+
+    DIM histLabel AS STRING
+    histLabel$ = "3D D" + LTRIM$(STR$(SS_CUBE.DICE_TYPE))
+    SS_history_finalize beforeImg&, col~&, histLabel$
 END SUB
+
