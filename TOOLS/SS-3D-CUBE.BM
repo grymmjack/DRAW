@@ -12,10 +12,23 @@ $INCLUDEONCE
 
 CONST SS_DICE_MAX_VERTS = 32
 CONST SS_DICE_MAX_EDGES = 60
+CONST SS_DICE_MAX_TRIS = 64
 
 SUB SS_CUBE_reset ()
     SS_CUBE.DRAGGING = FALSE
+    SS_CUBE.FILLED = FALSE
 END SUB
+
+''
+' Per-die-type Y-axis stretch so dice look more "dice-like" (slightly taller
+' than they are wide). D12 / D20 are sphere-ish — leave them alone.
+'
+FUNCTION SS_DICE_height_factor! (diceType AS INTEGER)
+    SELECT CASE diceType%
+        CASE 12, 20: SS_DICE_height_factor! = 1.0
+        CASE ELSE:   SS_DICE_height_factor! = 1.30
+    END SELECT
+END FUNCTION
 
 ''
 ' Build canonical (unit-ish) 3D vertices and edge index pairs for the requested
@@ -281,7 +294,17 @@ SUB SS_DICE_build (diceType AS INTEGER, vCount AS INTEGER, eCount AS INTEGER, vx
         CASE ELSE
             ' Fallback to D6
             SS_DICE_build 6, vCount%, eCount%, vxa(), vya(), vza(), eA(), eB()
+            EXIT SUB
     END SELECT
+
+    ' Per-die-type Y stretch (taller dice).
+    DIM yScale AS SINGLE: yScale! = SS_DICE_height_factor!(diceType%)
+    IF yScale! <> 1.0 THEN
+        DIM yi AS INTEGER
+        FOR yi% = 0 TO vCount% - 1
+            vya(yi%) = vya(yi%) * yScale!
+        NEXT yi%
+    END IF
 END SUB
 
 ''
@@ -415,53 +438,46 @@ FUNCTION SS_DICE_canonical_radius! (vCount AS INTEGER, vxa() AS SINGLE, vya() AS
 END FUNCTION
 
 SUB SS_CUBE_render_preview (col AS _UNSIGNED LONG)
-    IF ABS(SS_CUBE.X1 - SS_CUBE.X0) < 1 OR ABS(SS_CUBE.Y1 - SS_CUBE.Y0) < 1 THEN EXIT SUB
-    DIM xL AS INTEGER, xR AS INTEGER, yT AS INTEGER, yB AS INTEGER
-    xL% = SS_CUBE.X0: xR% = SS_CUBE.X1: yT% = SS_CUBE.Y0: yB% = SS_CUBE.Y1
-    IF xL% > xR% THEN SWAP xL%, xR%
-    IF yT% > yB% THEN SWAP yT%, yB%
-    DIM cx AS INTEGER, cy AS INTEGER
-    cx% = (xL% + xR%) \ 2
-    cy% = (yT% + yB%) \ 2
-    DIM hw AS SINGLE, hh AS SINGLE, bbMin AS SINGLE
-    hw! = (xR% - xL%) / 2.0
-    hh! = (yB% - yT%) / 2.0
-    bbMin! = hw!: IF hh! < bbMin! THEN bbMin! = hh!
-
-    DIM vCount AS INTEGER, eCount AS INTEGER
-    DIM vxa(0 TO SS_DICE_MAX_VERTS - 1) AS SINGLE
-    DIM vya(0 TO SS_DICE_MAX_VERTS - 1) AS SINGLE
-    DIM vza(0 TO SS_DICE_MAX_VERTS - 1) AS SINGLE
-    DIM eA(0 TO SS_DICE_MAX_EDGES - 1) AS INTEGER
-    DIM eB(0 TO SS_DICE_MAX_EDGES - 1) AS INTEGER
-    SS_DICE_build SS_CUBE.DICE_TYPE, vCount%, eCount%, vxa(), vya(), vza(), eA(), eB()
-    DIM canon AS SINGLE
-    canon! = SS_DICE_canonical_radius!(vCount%, vxa(), vya(), vza())
-    IF canon! < 0.001 THEN canon! = 1
-    DIM scale AS SINGLE
-    scale! = bbMin! / canon!
-
-    DIM zScale AS SINGLE
-    zScale! = SS_CUBE.Z_DEPTH / 100.0
-
-    DIM vsx(0 TO SS_DICE_MAX_VERTS - 1) AS INTEGER
-    DIM vsy(0 TO SS_DICE_MAX_VERTS - 1) AS INTEGER
-    SS_DICE_project cx%, cy%, scale!, zScale!, SS_CUBE.ROT_X, SS_CUBE.ROT_Y, vCount%, vxa(), vya(), vza(), vsx(), vsy()
-    SS_DICE_render_edges vsx(), vsy(), eA(), eB(), eCount%, col~&, FALSE
+    IF SS_CUBE.FILLED AND SS_DICE_supports_solid%(SS_CUBE.DICE_TYPE) THEN
+        SS_CUBE_render_solid_internal col~&, FALSE
+    ELSE
+        SS_CUBE_render_wire_internal col~&, FALSE
+    END IF
 END SUB
 
 SUB SS_CUBE_commit (col AS _UNSIGNED LONG)
     IF ABS(SS_CUBE.X1 - SS_CUBE.X0) < 1 OR ABS(SS_CUBE.Y1 - SS_CUBE.Y0) < 1 THEN EXIT SUB
+    DIM beforeImg AS LONG: beforeImg& = SS_history_snapshot&
+    DIM oldDest AS LONG: oldDest& = _DEST
+    _DEST LAYER_current_image&
+    IF SS_CUBE.FILLED AND SS_DICE_supports_solid%(SS_CUBE.DICE_TYPE) THEN
+        SS_CUBE_render_solid_internal col~&, TRUE
+    ELSE
+        SS_CUBE_render_wire_internal col~&, TRUE
+    END IF
+    _DEST oldDest&
+
+    DIM histLabel AS STRING
+    histLabel$ = "3D D" + LTRIM$(STR$(SS_CUBE.DICE_TYPE))
+    IF SS_CUBE.FILLED THEN histLabel$ = histLabel$ + " (solid)"
+    SS_history_finalize beforeImg&, col~&, histLabel$
+END SUB
+
+''
+' Wireframe renderer (formerly SS_CUBE_render_preview body). When commit% = TRUE
+' uses SS_stroke_line so the result lands on the active layer with proper
+' opacity / blend; otherwise uses LINE for live preview overlay.
+'
+SUB SS_CUBE_render_wire_internal (col AS _UNSIGNED LONG, commit AS INTEGER)
+    IF ABS(SS_CUBE.X1 - SS_CUBE.X0) < 1 OR ABS(SS_CUBE.Y1 - SS_CUBE.Y0) < 1 THEN EXIT SUB
     DIM xL AS INTEGER, xR AS INTEGER, yT AS INTEGER, yB AS INTEGER
     xL% = SS_CUBE.X0: xR% = SS_CUBE.X1: yT% = SS_CUBE.Y0: yB% = SS_CUBE.Y1
     IF xL% > xR% THEN SWAP xL%, xR%
     IF yT% > yB% THEN SWAP yT%, yB%
     DIM cx AS INTEGER, cy AS INTEGER
-    cx% = (xL% + xR%) \ 2
-    cy% = (yT% + yB%) \ 2
+    cx% = (xL% + xR%) \ 2: cy% = (yT% + yB%) \ 2
     DIM hw AS SINGLE, hh AS SINGLE, bbMin AS SINGLE
-    hw! = (xR% - xL%) / 2.0
-    hh! = (yB% - yT%) / 2.0
+    hw! = (xR% - xL%) / 2.0: hh! = (yB% - yT%) / 2.0
     bbMin! = hw!: IF hh! < bbMin! THEN bbMin! = hh!
 
     DIM vCount AS INTEGER, eCount AS INTEGER
@@ -471,26 +487,285 @@ SUB SS_CUBE_commit (col AS _UNSIGNED LONG)
     DIM eA(0 TO SS_DICE_MAX_EDGES - 1) AS INTEGER
     DIM eB(0 TO SS_DICE_MAX_EDGES - 1) AS INTEGER
     SS_DICE_build SS_CUBE.DICE_TYPE, vCount%, eCount%, vxa(), vya(), vza(), eA(), eB()
-    DIM canon AS SINGLE
-    canon! = SS_DICE_canonical_radius!(vCount%, vxa(), vya(), vza())
+    DIM canon AS SINGLE: canon! = SS_DICE_canonical_radius!(vCount%, vxa(), vya(), vza())
     IF canon! < 0.001 THEN canon! = 1
-    DIM scale AS SINGLE
-    scale! = bbMin! / canon!
-    DIM zScale AS SINGLE
-    zScale! = SS_CUBE.Z_DEPTH / 100.0
+    DIM scale AS SINGLE: scale! = bbMin! / canon!
+    DIM zScale AS SINGLE: zScale! = SS_CUBE.Z_DEPTH / 100.0
 
     DIM vsx(0 TO SS_DICE_MAX_VERTS - 1) AS INTEGER
     DIM vsy(0 TO SS_DICE_MAX_VERTS - 1) AS INTEGER
     SS_DICE_project cx%, cy%, scale!, zScale!, SS_CUBE.ROT_X, SS_CUBE.ROT_Y, vCount%, vxa(), vya(), vza(), vsx(), vsy()
-
-    DIM beforeImg AS LONG: beforeImg& = SS_history_snapshot&
-    DIM oldDest AS LONG: oldDest& = _DEST
-    _DEST LAYER_current_image&
-    SS_DICE_render_edges vsx(), vsy(), eA(), eB(), eCount%, col~&, TRUE
-    _DEST oldDest&
-
-    DIM histLabel AS STRING
-    histLabel$ = "3D D" + LTRIM$(STR$(SS_CUBE.DICE_TYPE))
-    SS_history_finalize beforeImg&, col~&, histLabel$
+    SS_DICE_render_edges vsx(), vsy(), eA(), eB(), eCount%, col~&, commit%
 END SUB
 
+
+''
+' Returns TRUE for dice types that have a hand-coded or auto-derivable solid
+' face triangulation. D12 / D30 fall back to wireframe even on right-click.
+'
+FUNCTION SS_DICE_supports_solid% (diceType AS INTEGER)
+    SELECT CASE diceType%
+        CASE 4, 6, 8, 10, 20: SS_DICE_supports_solid% = TRUE
+        CASE ELSE:            SS_DICE_supports_solid% = FALSE
+    END SELECT
+END FUNCTION
+
+''
+' Project canonical 3D verts to screen space, also returning rotated z (depth).
+' Higher vsz = farther from camera (used for painter's-algorithm sorting).
+'
+SUB SS_DICE_project_3d (cx AS INTEGER, cy AS INTEGER, scale AS SINGLE, zScale AS SINGLE, rotXdeg AS SINGLE, rotYdeg AS SINGLE, vCount AS INTEGER, vxa() AS SINGLE, vya() AS SINGLE, vza() AS SINGLE, vsx() AS INTEGER, vsy() AS INTEGER, vsz() AS SINGLE, vrx() AS SINGLE, vry() AS SINGLE, vrz() AS SINGLE)
+    DIM ax AS SINGLE, ay AS SINGLE
+    ax! = rotXdeg! * 3.1415927 / 180.0
+    ay! = rotYdeg! * 3.1415927 / 180.0
+    DIM cxA AS SINGLE, sxA AS SINGLE, cyA AS SINGLE, syA AS SINGLE
+    cxA! = COS(ax!): sxA! = SIN(ax!)
+    cyA! = COS(ay!): syA! = SIN(ay!)
+    DIM i AS INTEGER
+    DIM x AS SINGLE, y AS SINGLE, z AS SINGLE, x2 AS SINGLE, y2 AS SINGLE, z2 AS SINGLE
+    FOR i% = 0 TO vCount% - 1
+        x! = vxa(i%) * scale!
+        y! = vya(i%) * scale!
+        z! = vza(i%) * scale! * zScale!
+        y2! = y! * cxA! - z! * sxA!
+        z2! = y! * sxA! + z! * cxA!
+        y! = y2!: z! = z2!
+        x2! = x! * cyA! + z! * syA!
+        z2! = -x! * syA! + z! * cyA!
+        x! = x2!: z! = z2!
+        vrx(i%) = x!: vry(i%) = y!: vrz(i%) = z!
+        vsx(i%) = INT(cx% + x! + 0.5)
+        vsy(i%) = INT(cy% + y! + 0.5)
+        vsz(i%) = z!
+    NEXT i%
+END SUB
+
+''
+' Build per-die triangle list (vertex index triples). For D6 / D10 the faces
+' are hardcoded; for D4 / D8 / D20 (all-triangle faces) the triangles are
+' enumerated from the edge graph (any (i,j,k) with all three edges present is
+' a triangular face on a convex polyhedron).
+'
+SUB SS_DICE_build_tris (diceType AS INTEGER, vCount AS INTEGER, eA() AS INTEGER, eB() AS INTEGER, eCount AS INTEGER, tA() AS INTEGER, tB() AS INTEGER, tC() AS INTEGER, tCount AS INTEGER)
+    tCount% = 0
+    SELECT CASE diceType%
+        CASE 6 ' Cube — 6 quads, 12 tris
+            ' Vert layout: ci = z*4 + y*2 + x
+            ' 0=(-,-,-) 1=(+,-,-) 2=(-,+,-) 3=(+,+,-) 4=(-,-,+) 5=(+,-,+) 6=(-,+,+) 7=(+,+,+)
+            DIM quads(0 TO 5, 0 TO 3) AS INTEGER
+            ' z=-1 back:   0,1,3,2
+            quads(0,0)=0: quads(0,1)=1: quads(0,2)=3: quads(0,3)=2
+            ' z=+1 front:  4,6,7,5
+            quads(1,0)=4: quads(1,1)=6: quads(1,2)=7: quads(1,3)=5
+            ' x=-1 left:   0,2,6,4
+            quads(2,0)=0: quads(2,1)=2: quads(2,2)=6: quads(2,3)=4
+            ' x=+1 right:  1,5,7,3
+            quads(3,0)=1: quads(3,1)=5: quads(3,2)=7: quads(3,3)=3
+            ' y=-1 bottom: 0,4,5,1
+            quads(4,0)=0: quads(4,1)=4: quads(4,2)=5: quads(4,3)=1
+            ' y=+1 top:    2,3,7,6
+            quads(5,0)=2: quads(5,1)=3: quads(5,2)=7: quads(5,3)=6
+            DIM qi AS INTEGER
+            FOR qi% = 0 TO 5
+                tA(tCount%) = quads(qi%, 0): tB(tCount%) = quads(qi%, 1): tC(tCount%) = quads(qi%, 2): tCount% = tCount% + 1
+                tA(tCount%) = quads(qi%, 0): tB(tCount%) = quads(qi%, 2): tC(tCount%) = quads(qi%, 3): tCount% = tCount% + 1
+            NEXT qi%
+
+        CASE 10 ' Trapezohedron — 10 kites, 20 tris
+            ' 0 = top apex, 1 = bottom apex
+            ' 2..6 = top pentagon (z=+0.30)
+            ' 7..11 = bottom pentagon (z=-0.30, 36° offset)
+            ' Top kite j: top_apex(0), top_(j+1)(2+(j+1) MOD 5), bot_j(7+j), top_j(2+j)
+            ' Bot kite j: bot_apex(1), bot_(j+1)(7+(j+1) MOD 5), top_(j+1)(2+(j+1) MOD 5), bot_j(7+j)
+            DIM kj AS INTEGER, kjp AS INTEGER
+            FOR kj% = 0 TO 4
+                kjp% = (kj% + 1) MOD 5
+                ' Top kite — fan from top_apex
+                tA(tCount%) = 0:        tB(tCount%) = 2 + kjp%: tC(tCount%) = 7 + kj%:  tCount% = tCount% + 1
+                tA(tCount%) = 0:        tB(tCount%) = 7 + kj%:  tC(tCount%) = 2 + kj%:  tCount% = tCount% + 1
+                ' Bottom kite — fan from bot_apex
+                tA(tCount%) = 1:        tB(tCount%) = 7 + kjp%: tC(tCount%) = 2 + kjp%: tCount% = tCount% + 1
+                tA(tCount%) = 1:        tB(tCount%) = 2 + kjp%: tC(tCount%) = 7 + kj%:  tCount% = tCount% + 1
+            NEXT kj%
+
+        CASE 4, 8, 20 ' Triangle-faced — auto-detect from edge graph
+            REDIM adj(0 TO vCount% - 1, 0 TO vCount% - 1) AS _BYTE
+            DIM ei AS INTEGER
+            FOR ei% = 0 TO eCount% - 1
+                adj(eA(ei%), eB(ei%)) = 1
+                adj(eB(ei%), eA(ei%)) = 1
+            NEXT ei%
+            DIM ai AS INTEGER, aj AS INTEGER, ak AS INTEGER
+            FOR ai% = 0 TO vCount% - 1
+                FOR aj% = ai% + 1 TO vCount% - 1
+                    IF adj(ai%, aj%) THEN
+                        FOR ak% = aj% + 1 TO vCount% - 1
+                            IF adj(ai%, ak%) AND adj(aj%, ak%) THEN
+                                IF tCount% < SS_DICE_MAX_TRIS THEN
+                                    tA(tCount%) = ai%: tB(tCount%) = aj%: tC(tCount%) = ak%
+                                    tCount% = tCount% + 1
+                                END IF
+                            END IF
+                        NEXT ak%
+                    END IF
+                NEXT aj%
+            NEXT ai%
+
+        CASE ELSE
+            tCount% = 0
+    END SELECT
+END SUB
+
+''
+' Multiply RGB of col by factor!, clamp [0..255], preserve alpha.
+'
+FUNCTION SS_DICE_shade~& (col AS _UNSIGNED LONG, factor AS SINGLE)
+    DIM r AS INTEGER, g AS INTEGER, b AS INTEGER, a AS INTEGER
+    r% = INT(_RED32(col~&)   * factor!)
+    g% = INT(_GREEN32(col~&) * factor!)
+    b% = INT(_BLUE32(col~&)  * factor!)
+    IF r% < 0 THEN r% = 0
+    IF r% > 255 THEN r% = 255
+    IF g% < 0 THEN g% = 0
+    IF g% > 255 THEN g% = 255
+    IF b% < 0 THEN b% = 0
+    IF b% > 255 THEN b% = 255
+    a% = _ALPHA32(col~&)
+    SS_DICE_shade~& = _RGBA32(r%, g%, b%, a%)
+END FUNCTION
+
+''
+' Solid flat-shaded renderer. Painter's algorithm by per-triangle avg z;
+' Lambert shading from a fixed upper-left-front light. Triangles are filled
+' via _MAPTRIANGLE from a 2×2 solid-colour source image.
+'
+SUB SS_CUBE_render_solid_internal (col AS _UNSIGNED LONG, commit AS INTEGER)
+    IF ABS(SS_CUBE.X1 - SS_CUBE.X0) < 1 OR ABS(SS_CUBE.Y1 - SS_CUBE.Y0) < 1 THEN EXIT SUB
+    DIM xL AS INTEGER, xR AS INTEGER, yT AS INTEGER, yB AS INTEGER
+    xL% = SS_CUBE.X0: xR% = SS_CUBE.X1: yT% = SS_CUBE.Y0: yB% = SS_CUBE.Y1
+    IF xL% > xR% THEN SWAP xL%, xR%
+    IF yT% > yB% THEN SWAP yT%, yB%
+    DIM cx AS INTEGER, cy AS INTEGER
+    cx% = (xL% + xR%) \ 2: cy% = (yT% + yB%) \ 2
+    DIM hw AS SINGLE, hh AS SINGLE, bbMin AS SINGLE
+    hw! = (xR% - xL%) / 2.0: hh! = (yB% - yT%) / 2.0
+    bbMin! = hw!: IF hh! < bbMin! THEN bbMin! = hh!
+
+    DIM vCount AS INTEGER, eCount AS INTEGER
+    DIM vxa(0 TO SS_DICE_MAX_VERTS - 1) AS SINGLE
+    DIM vya(0 TO SS_DICE_MAX_VERTS - 1) AS SINGLE
+    DIM vza(0 TO SS_DICE_MAX_VERTS - 1) AS SINGLE
+    DIM eA(0 TO SS_DICE_MAX_EDGES - 1) AS INTEGER
+    DIM eB(0 TO SS_DICE_MAX_EDGES - 1) AS INTEGER
+    SS_DICE_build SS_CUBE.DICE_TYPE, vCount%, eCount%, vxa(), vya(), vza(), eA(), eB()
+    DIM canon AS SINGLE: canon! = SS_DICE_canonical_radius!(vCount%, vxa(), vya(), vza())
+    IF canon! < 0.001 THEN canon! = 1
+    DIM scale AS SINGLE: scale! = bbMin! / canon!
+    DIM zScale AS SINGLE: zScale! = SS_CUBE.Z_DEPTH / 100.0
+
+    DIM vsx(0 TO SS_DICE_MAX_VERTS - 1) AS INTEGER
+    DIM vsy(0 TO SS_DICE_MAX_VERTS - 1) AS INTEGER
+    DIM vsz(0 TO SS_DICE_MAX_VERTS - 1) AS SINGLE
+    DIM vrx(0 TO SS_DICE_MAX_VERTS - 1) AS SINGLE
+    DIM vry(0 TO SS_DICE_MAX_VERTS - 1) AS SINGLE
+    DIM vrz(0 TO SS_DICE_MAX_VERTS - 1) AS SINGLE
+    SS_DICE_project_3d cx%, cy%, scale!, zScale!, SS_CUBE.ROT_X, SS_CUBE.ROT_Y, vCount%, vxa(), vya(), vza(), vsx(), vsy(), vsz(), vrx(), vry(), vrz()
+
+    DIM tA(0 TO SS_DICE_MAX_TRIS - 1) AS INTEGER
+    DIM tB(0 TO SS_DICE_MAX_TRIS - 1) AS INTEGER
+    DIM tC(0 TO SS_DICE_MAX_TRIS - 1) AS INTEGER
+    DIM tCount AS INTEGER
+    SS_DICE_build_tris SS_CUBE.DICE_TYPE, vCount%, eA(), eB(), eCount%, tA(), tB(), tC(), tCount%
+    IF tCount% < 1 THEN
+        ' Should not happen for supported types, but be safe.
+        SS_DICE_render_edges vsx(), vsy(), eA(), eB(), eCount%, col~&, commit%
+        EXIT SUB
+    END IF
+
+    ' Per-triangle avg z + Lambert brightness.
+    DIM tAvgZ(0 TO SS_DICE_MAX_TRIS - 1) AS SINGLE
+    DIM tBright(0 TO SS_DICE_MAX_TRIS - 1) AS SINGLE
+    DIM tOrder(0 TO SS_DICE_MAX_TRIS - 1) AS INTEGER
+
+    ' Light direction (toward light source, in screen-space coords):
+    ' upper-left-ish, slightly out of the screen. Already normalized.
+    DIM lx AS SINGLE, ly AS SINGLE, lz AS SINGLE
+    lx! = -0.4082: ly! = -0.4082: lz! = -0.8165
+
+    DIM ti AS INTEGER, ia AS INTEGER, ib AS INTEGER, ic AS INTEGER
+    DIM ux AS SINGLE, uy AS SINGLE, uz AS SINGLE
+    DIM vx AS SINGLE, vy AS SINGLE, vz AS SINGLE
+    DIM nx AS SINGLE, ny AS SINGLE, nz AS SINGLE, nlen AS SINGLE
+    DIM cxF AS SINGLE, cyF AS SINGLE, czF AS SINGLE
+    DIM ndotc AS SINGLE, ndotl AS SINGLE
+    FOR ti% = 0 TO tCount% - 1
+        ia% = tA(ti%): ib% = tB(ti%): ic% = tC(ti%)
+        tAvgZ(ti%) = (vsz(ia%) + vsz(ib%) + vsz(ic%)) / 3.0
+        ' Edge vectors in rotated-3D space
+        ux! = vrx(ib%) - vrx(ia%): uy! = vry(ib%) - vry(ia%): uz! = vrz(ib%) - vrz(ia%)
+        vx! = vrx(ic%) - vrx(ia%): vy! = vry(ic%) - vry(ia%): vz! = vrz(ic%) - vrz(ia%)
+        ' Normal = U × V
+        nx! = uy! * vz! - uz! * vy!
+        ny! = uz! * vx! - ux! * vz!
+        nz! = ux! * vy! - uy! * vx!
+        nlen! = SQR(nx! * nx! + ny! * ny! + nz! * nz!)
+        IF nlen! < 0.0001 THEN
+            tBright(ti%) = 0.5
+        ELSE
+            nx! = nx! / nlen!: ny! = ny! / nlen!: nz! = nz! / nlen!
+            ' Ensure outward (face centroid points away from origin in same dir as N)
+            cxF! = (vrx(ia%) + vrx(ib%) + vrx(ic%)) / 3.0
+            cyF! = (vry(ia%) + vry(ib%) + vry(ic%)) / 3.0
+            czF! = (vrz(ia%) + vrz(ib%) + vrz(ic%)) / 3.0
+            ndotc! = nx! * cxF! + ny! * cyF! + nz! * czF!
+            IF ndotc! < 0 THEN nx! = -nx!: ny! = -ny!: nz! = -nz!
+            ndotl! = nx! * lx! + ny! * ly! + nz! * lz!
+            IF ndotl! < 0 THEN ndotl! = 0
+            ' Ambient 0.30, diffuse 0.70
+            tBright(ti%) = 0.30 + 0.70 * ndotl!
+            IF tBright(ti%) > 1.0 THEN tBright(ti%) = 1.0
+        END IF
+        tOrder(ti%) = ti%
+    NEXT ti%
+
+    ' Sort tOrder by tAvgZ DESCENDING (far first). Insertion sort — tCount<=64.
+    DIM si AS INTEGER, sj AS INTEGER, sk AS INTEGER
+    FOR si% = 1 TO tCount% - 1
+        sk% = tOrder(si%)
+        sj% = si% - 1
+        DO WHILE sj% >= 0
+            IF tAvgZ(tOrder(sj%)) < tAvgZ(sk%) THEN EXIT DO
+            tOrder(sj% + 1) = tOrder(sj%)
+            sj% = sj% - 1
+        LOOP
+        tOrder(sj% + 1) = sk%
+    NEXT si%
+
+    DIM srcSolid AS LONG: srcSolid& = _NEWIMAGE(2, 2, 32)
+    IF srcSolid& >= -1 THEN EXIT SUB
+    DIM oldSrc AS LONG: oldSrc& = _SOURCE
+    DIM oldDest AS LONG: oldDest& = _DEST
+    DIM destImg AS LONG
+    IF commit% THEN destImg& = LAYER_current_image& ELSE destImg& = oldDest&
+
+    ' Compose final colour with current opacity (mirror SS_stroke_line semantics).
+    DIM drawCol AS _UNSIGNED LONG
+    DIM lastBright AS SINGLE: lastBright! = -1
+    DIM oi AS INTEGER, idx AS INTEGER
+    FOR oi% = 0 TO tCount% - 1
+        idx% = tOrder(oi%)
+        IF tBright(idx%) <> lastBright! THEN
+            drawCol~& = SS_DICE_shade~&(col~&, tBright(idx%))
+            _DEST srcSolid&
+            CLS , drawCol~&
+            _DEST destImg&
+            lastBright! = tBright(idx%)
+        END IF
+        ia% = tA(idx%): ib% = tB(idx%): ic% = tC(idx%)
+        _MAPTRIANGLE (0, 0)-(1, 0)-(1, 1), srcSolid& TO (vsx(ia%), vsy(ia%))-(vsx(ib%), vsy(ib%))-(vsx(ic%), vsy(ic%))
+    NEXT oi%
+
+    _DEST oldDest&
+    _SOURCE oldSrc&
+    _FREEIMAGE srcSolid&
+END SUB

@@ -3895,7 +3895,8 @@ SUB MOUSE_handle_wheel (rawX AS INTEGER, rawY AS INTEGER, wheel_delta AS INTEGER
                (CURRENT_TOOL% = TOOL_SS_ROUNDED_RECT AND SS_RR.DRAGGING)      OR _
                (CURRENT_TOOL% = TOOL_SS_TAB         AND SS_TAB.DRAGGING)      OR _
                (CURRENT_TOOL% = TOOL_SS_PILL        AND SS_PILL.DRAGGING)     OR _
-               (CURRENT_TOOL% = TOOL_SS_PACMAN      AND SS_PACMAN.DRAGGING)   THEN
+               (CURRENT_TOOL% = TOOL_SS_PACMAN      AND SS_PACMAN.DRAGGING)   OR _
+               (CURRENT_TOOL% = TOOL_SS_3D_TEXT     AND SS_TEXT.DRAGGING)     THEN
             DIM ssWheelStep AS INTEGER
             ssWheelStep% = 5
             IF MODIFIERS.shift% THEN ssWheelStep% = 25
@@ -3928,6 +3929,12 @@ SUB MOUSE_handle_wheel (rawX AS INTEGER, rawY AS INTEGER, wheel_delta AS INTEGER
                     ELSEIF MOUSE.SW% > 0 THEN
                         SS_ARROW.HEAD_FLARE_PCT = SS_ARROW.HEAD_FLARE_PCT - ssWheelStep%
                         IF SS_ARROW.HEAD_FLARE_PCT < 50 THEN SS_ARROW.HEAD_FLARE_PCT = 50
+                    END IF
+                CASE TOOL_SS_3D_TEXT
+                    IF MOUSE.SW% < 0 THEN
+                        SS_TEXT.ROT_X = SS_TEXT.ROT_X + ssWheelStep%
+                    ELSEIF MOUSE.SW% > 0 THEN
+                        SS_TEXT.ROT_X = SS_TEXT.ROT_X - ssWheelStep%
                     END IF
             END SELECT
             SCENE_DIRTY% = TRUE
@@ -4188,6 +4195,8 @@ SUB MOUSE_dispatch_tool_hold (rawX AS INTEGER, rawY AS INTEGER)
             MOUSE_tool_ss_bevel_rect
         CASE TOOL_SS_ARROW
             MOUSE_tool_ss_arrow
+        CASE TOOL_SS_3D_TEXT
+            MOUSE_tool_ss_3d_text
         CASE TOOL_ELLIPSE, TOOL_ELLIPSE_FILLED
             MOUSE_tool_ellip
         CASE TOOL_BRUSH, TOOL_ERASER
@@ -4277,6 +4286,8 @@ SUB MOUSE_dispatch_tool_release (rawX AS INTEGER, rawY AS INTEGER)
                 MOUSE_release_ss_bevel_rect
             CASE TOOL_SS_ARROW
                 MOUSE_release_ss_arrow
+            CASE TOOL_SS_3D_TEXT
+                MOUSE_release_ss_3d_text
             CASE TOOL_ELLIPSE, TOOL_ELLIPSE_FILLED
                 MOUSE_release_ellip
             CASE TOOL_BRUSH, TOOL_ERASER
@@ -5383,6 +5394,7 @@ SUB MOUSE_tool_ss_3d_cube ()
     IF justPressed% THEN
         SOUND_play SND_POINT: STROKE_begin
         SS_CUBE.DRAGGING = TRUE
+        SS_CUBE.FILLED = (MOUSE.B2% AND NOT MOUSE.OLD_B2%)
         SS_CUBE.X0 = MOUSE.X%: SS_CUBE.Y0 = MOUSE.Y%
         SS_CUBE.X1 = MOUSE.X%: SS_CUBE.Y1 = MOUSE.Y%
     ELSEIF SS_CUBE.DRAGGING THEN
@@ -5399,7 +5411,11 @@ SUB MOUSE_tool_ss_3d_cube ()
 END SUB
 SUB MOUSE_release_ss_3d_cube ()
     IF NOT SS_CUBE.DRAGGING THEN EXIT SUB
-    DIM cc AS _UNSIGNED LONG: cc~& = PAINT_apply_opacity~&(DRAW_COLOR~&)
+    ' Right-click activates solid mode but DRAW_COLOR is the BG colour on B2;
+    ' the user expects the SOLID dice to use the foreground colour.
+    DIM baseCol AS _UNSIGNED LONG
+    IF SS_CUBE.FILLED THEN baseCol~& = PAINT_COLOR~& ELSE baseCol~& = DRAW_COLOR~&
+    DIM cc AS _UNSIGNED LONG: cc~& = PAINT_apply_opacity~&(baseCol~&)
     SS_CUBE_commit cc~&
     STROKE_commit: SOUND_play SND_DRAG_DROP: SS_CUBE_reset
 END SUB
@@ -5465,4 +5481,82 @@ SUB MOUSE_release_ss_arrow ()
     DIM cc AS _UNSIGNED LONG: cc~& = PAINT_apply_opacity~&(DRAW_COLOR~&)
     SS_ARROW_commit cc~&
     STROKE_commit: SOUND_play SND_DRAG_DROP: SS_ARROW_reset
+END SUB
+
+SUB MOUSE_tool_ss_3d_text ()
+    DIM justPressed AS INTEGER
+    justPressed% = (MOUSE.B1% AND NOT MOUSE.OLD_B1%) OR (MOUSE.B2% AND NOT MOUSE.OLD_B2%)
+    IF justPressed% THEN
+        ' First press of this drag-cycle: if no text yet, prompt for it and
+        ' build the mesh. If text exists but mesh was reset, rebuild silently.
+        IF SS_TEXT.txtLen = 0 THEN
+            ' Inherit current text-tool font preferences as defaults.
+            SS_TEXT.fontIdx   = TEXT_BAR.selectedFontIdx%
+            SS_TEXT.fontSize  = TEXT_BAR.selectedSize%
+            SS_TEXT.bold      = TEXT_BAR.boldActive%
+            SS_TEXT.italic    = TEXT_BAR.italicActive%
+            SS_TEXT.antialias = TEXT_BAR.aaActive%
+            SS_TEXT.monospace = TEXT_BAR.monoActive%
+            IF SS_TEXT.fontIdx < 0 THEN SS_TEXT.fontIdx = 0
+            IF SS_TEXT.fontSize < 8 THEN SS_TEXT.fontSize = 32
+
+            DIM s AS STRING
+            DIM fontLabel AS STRING
+            IF SS_TEXT.fontIdx >= 0 AND SS_TEXT.fontIdx < FONT_LIST_COUNT% THEN
+                fontLabel$ = "Font: " + RTRIM$(FONT_LIST(SS_TEXT.fontIdx).displayName) + " " + LTRIM$(STR$(SS_TEXT.fontSize)) + "px (change via Text tool)"
+            ELSE
+                fontLabel$ = "Enter text to extrude (font from Text tool)"
+            END IF
+            s$ = DRAW_input_box$("3D TEXT", fontLabel$, "", "DRAW")
+            MOUSE_cleanup_after_dialog FALSE
+            IF LEN(s$) = 0 THEN EXIT SUB
+            IF LEN(s$) > 256 THEN s$ = LEFT$(s$, 256)
+            SS_TEXT.txt = s$
+            SS_TEXT.txtLen = LEN(s$)
+            SS_TEXT_build_mesh
+            IF NOT SS_TEXT.meshValid THEN
+                SS_TEXT.txtLen = 0
+                EXIT SUB
+            END IF
+            ' Tell user to click-drag now.
+            SCENE_DIRTY% = TRUE: FRAME_IDLE% = FALSE
+            EXIT SUB
+        END IF
+        IF NOT SS_TEXT.meshValid THEN
+            SS_TEXT_build_mesh
+            IF NOT SS_TEXT.meshValid THEN EXIT SUB
+        END IF
+
+        SOUND_play SND_POINT: STROKE_begin
+        SS_TEXT.DRAGGING = TRUE
+        SS_TEXT.X0 = MOUSE.X%: SS_TEXT.Y0 = MOUSE.Y%
+        SS_TEXT.X1 = MOUSE.X%: SS_TEXT.Y1 = MOUSE.Y%
+    ELSEIF SS_TEXT.DRAGGING THEN
+        SS_TEXT.X1 = MOUSE.X%: SS_TEXT.Y1 = MOUSE.Y%
+        IF MODIFIERS.shift% THEN
+            ' Constrain to text's natural aspect ratio
+            DIM tdx AS INTEGER, tdy AS INTEGER
+            tdx% = ABS(SS_TEXT.X1 - SS_TEXT.X0)
+            tdy% = ABS(SS_TEXT.Y1 - SS_TEXT.Y0)
+            IF SS_TEXT.meshAspect > 0 THEN
+                IF tdx% / SS_TEXT.meshAspect > tdy% THEN
+                    tdy% = INT(tdx% / SS_TEXT.meshAspect)
+                ELSE
+                    tdx% = INT(tdy% * SS_TEXT.meshAspect)
+                END IF
+            END IF
+            IF SS_TEXT.X1 >= SS_TEXT.X0 THEN SS_TEXT.X1 = SS_TEXT.X0 + tdx% ELSE SS_TEXT.X1 = SS_TEXT.X0 - tdx%
+            IF SS_TEXT.Y1 >= SS_TEXT.Y0 THEN SS_TEXT.Y1 = SS_TEXT.Y0 + tdy% ELSE SS_TEXT.Y1 = SS_TEXT.Y0 - tdy%
+        END IF
+        SCENE_DIRTY% = TRUE: FRAME_IDLE% = FALSE
+    END IF
+END SUB
+
+SUB MOUSE_release_ss_3d_text ()
+    IF NOT SS_TEXT.DRAGGING THEN EXIT SUB
+    DIM cc AS _UNSIGNED LONG: cc~& = PAINT_apply_opacity~&(DRAW_COLOR~&)
+    SS_TEXT_commit cc~&
+    STROKE_commit: SOUND_play SND_DRAG_DROP
+    ' Keep text & mesh cached so user can stamp again until tool switch.
+    SS_TEXT.DRAGGING = FALSE
 END SUB
