@@ -40,6 +40,11 @@ CONST HISTORY_FLAG_CLIPPED      = 8
 CONST HISTORY_FLAG_SYMMETRY     = 16
 CONST HISTORY_FLAG_PAINT_MODE   = 32        ' Drawer paint mode active (gradient/pattern) — forces raster export
 
+' Line end-cap types packed into bits 6-8 (start) and 9-11 (end) of flags LONG
+CONST HISTORY_FLAG_LINE_CAP_START_SHIFT = 6
+CONST HISTORY_FLAG_LINE_CAP_END_SHIFT   = 9
+CONST HISTORY_FLAG_LINE_CAP_MASK        = 7
+
 CONST HISTORY_EXPORT_NONE     = 0
 CONST HISTORY_EXPORT_DIRECT   = 1
 CONST HISTORY_EXPORT_EXPANDED = 2

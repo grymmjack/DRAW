@@ -178,19 +178,45 @@ SUB LINE_render_preview ()
                 END IF
             NEXT i%
         END IF
+
+        ' Draw end caps on preview
+        DIM capHw AS INTEGER
+        capHw% = BRUSH_SIZE_pixels%
+        IF capHw% < 3 THEN capHw% = 3
+        IF LINE_TOOL.START_CAP <> LINE_CAP_NONE THEN
+            LINE_draw_cap SCRN.CANVAS&, LINE_TOOL.START_CAP, LINE_TOOL.START_X, LINE_TOOL.START_Y, LINE_TOOL.END_X, LINE_TOOL.END_Y, capHw%, PAINT_COLOR~&
+        END IF
+        IF LINE_TOOL.END_CAP <> LINE_CAP_NONE THEN
+            LINE_draw_cap SCRN.CANVAS&, LINE_TOOL.END_CAP, LINE_TOOL.END_X, LINE_TOOL.END_Y, LINE_TOOL.START_X, LINE_TOOL.START_Y, capHw%, PAINT_COLOR~&
+        END IF
+
+        ' Draw end caps on symmetry mirror lines
+        IF SYMMETRY.MODE > 0 AND (LINE_TOOL.START_CAP <> LINE_CAP_NONE OR LINE_TOOL.END_CAP <> LINE_CAP_NONE) THEN
+            FOR i% = 0 TO count% - 1
+                IF LINE_TOOL.START_CAP <> LINE_CAP_NONE THEN
+                    LINE_draw_cap SCRN.CANVAS&, LINE_TOOL.START_CAP, sx%(i%), sy%(i%), mx%(i%), my%(i%), capHw%, PAINT_COLOR~&
+                END IF
+                IF LINE_TOOL.END_CAP <> LINE_CAP_NONE THEN
+                    LINE_draw_cap SCRN.CANVAS&, LINE_TOOL.END_CAP, mx%(i%), my%(i%), sx%(i%), sy%(i%), capHw%, PAINT_COLOR~&
+                END IF
+            NEXT i%
+        END IF
     END IF
 END SUB
 
 ''
+''
 ' Resets line tool state
 '
 SUB LINE_reset ()
-    LINE_TOOL.DRAGGING = FALSE
-    LINE_TOOL.START_X  = 0
-    LINE_TOOL.START_Y  = 0
-    LINE_TOOL.END_X    = 0
-    LINE_TOOL.END_Y    = 0
-    LINE_TOOL.SPOKES   = 0
+    LINE_TOOL.DRAGGING  = FALSE
+    LINE_TOOL.START_X   = 0
+    LINE_TOOL.START_Y   = 0
+    LINE_TOOL.END_X     = 0
+    LINE_TOOL.END_Y     = 0
+    LINE_TOOL.SPOKES    = 0
+    LINE_TOOL.START_CAP = LINE_CAP_NONE
+    LINE_TOOL.END_CAP   = LINE_CAP_NONE
 END SUB
 
 ''
@@ -228,4 +254,182 @@ SUB LINE_draw_spokes (sx AS INTEGER, sy AS INTEGER, ex AS INTEGER, ey AS INTEGER
         yEnd% = sy% + INT(lineLen! * SIN(ang!) + 0.5)
         LINE (sx%, sy%)-(xEnd%, yEnd%), col~&
     NEXT i%
+END SUB
+
+''
+' Draw a line-end cap shape onto destImg at position (cx, cy).
+' The shape points toward (cx, cy) coming from (lineFromX, lineFromY).
+' hw is the cap size in pixels (= BRUSH_SIZE_pixels%, minimum 3).
+'
+' Cap types (LINE_CAP_*):
+'   LINE_CAP_NONE  = 0  no cap
+'   LINE_CAP_ARROW = 1  filled triangle pointing along the line
+'   LINE_CAP_CUBE  = 2  filled square rotated to line angle
+'   LINE_CAP_DOT   = 3  filled circle
+'
+SUB LINE_draw_cap (destImg AS LONG, capType AS INTEGER, cx AS INTEGER, cy AS INTEGER, lineFromX AS INTEGER, lineFromY AS INTEGER, hw AS INTEGER, col AS _UNSIGNED LONG)
+    IF capType% = LINE_CAP_NONE THEN EXIT SUB
+
+    DIM oldDest AS LONG
+    oldDest& = _DEST
+    IF destImg& < -1 THEN _DEST destImg&
+
+    DIM dxf    AS SINGLE, dyf AS SINGLE
+    DIM capLen AS SINGLE
+    DIM pxf    AS SINGLE, pyf AS SINGLE
+    DIM sz     AS INTEGER
+
+    sz% = hw%
+    IF sz% < 2 THEN sz% = 2
+
+    ' Unit vector from lineFrom toward cap endpoint (cx,cy)
+    dxf!    = cx% - lineFromX%
+    dyf!    = cy% - lineFromY%
+    capLen! = SQR(dxf! * dxf! + dyf! * dyf!)
+    IF capLen! < 1 THEN
+        _DEST oldDest&
+        EXIT SUB
+    END IF
+    dxf! = dxf! / capLen!
+    dyf! = dyf! / capLen!
+    ' Perpendicular (rotate 90 CCW)
+    pxf! = -dyf!
+    pyf! = dxf!
+
+    SELECT CASE capType%
+
+        CASE LINE_CAP_ARROW
+            ' The thick line's endpoint brush circle extends sz/2 back from (cx,cy).
+            ' Push the wing base back sz/2 so the arrowhead covers that full circle —
+            ' eliminates the crescent notch on diagonal lines.
+            DIM arBkX  AS INTEGER, arBkY  AS INTEGER
+            DIM arTipX AS INTEGER, arTipY AS INTEGER
+            DIM arW1X  AS INTEGER, arW1Y  AS INTEGER
+            DIM arW2X  AS INTEGER, arW2Y  AS INTEGER
+            arBkX%  = cx% - INT(dxf! * (sz% \ 2) + 0.5)
+            arBkY%  = cy% - INT(dyf! * (sz% \ 2) + 0.5)
+            arTipX% = cx% + INT(dxf! * sz% * 2 + 0.5)
+            arTipY% = cy% + INT(dyf! * sz% * 2 + 0.5)
+            arW1X%  = arBkX% + INT(pxf! * sz% + 0.5)
+            arW1Y%  = arBkY% + INT(pyf! * sz% + 0.5)
+            arW2X%  = arBkX% - INT(pxf! * sz% + 0.5)
+            arW2Y%  = arBkY% - INT(pyf! * sz% + 0.5)
+            LINE_cap_fill_tri arTipX%, arTipY%, arW1X%, arW1Y%, arW2X%, arW2Y%, col~&
+
+        CASE LINE_CAP_CUBE
+            ' Filled rotated square centred at (cx,cy), side = 2*sz
+            DIM cub1X AS INTEGER, cub1Y AS INTEGER
+            DIM cub2X AS INTEGER, cub2Y AS INTEGER
+            DIM cub3X AS INTEGER, cub3Y AS INTEGER
+            DIM cub4X AS INTEGER, cub4Y AS INTEGER
+            cub1X% = cx% + INT( dxf! * sz% + pxf! * sz% + 0.5)
+            cub1Y% = cy% + INT( dyf! * sz% + pyf! * sz% + 0.5)
+            cub2X% = cx% + INT( dxf! * sz% - pxf! * sz% + 0.5)
+            cub2Y% = cy% + INT( dyf! * sz% - pyf! * sz% + 0.5)
+            cub3X% = cx% + INT(-dxf! * sz% - pxf! * sz% + 0.5)
+            cub3Y% = cy% + INT(-dyf! * sz% - pyf! * sz% + 0.5)
+            cub4X% = cx% + INT(-dxf! * sz% + pxf! * sz% + 0.5)
+            cub4Y% = cy% + INT(-dyf! * sz% + pyf! * sz% + 0.5)
+            LINE_cap_fill_quad cub1X%, cub1Y%, cub2X%, cub2Y%, cub3X%, cub3Y%, cub4X%, cub4Y%, col~&
+
+        CASE LINE_CAP_DOT
+            ' Filled circle via scanlines — more reliable than CIRCLE+PAINT
+            DIM dotY AS INTEGER, dotW AS INTEGER
+            FOR dotY% = -sz% TO sz%
+                dotW% = INT(SQR(CSng(sz% * sz% - dotY% * dotY%)) + 0.5)
+                LINE (cx% - dotW%, cy% + dotY%)-(cx% + dotW%, cy% + dotY%), col~&
+            NEXT dotY%
+
+    END SELECT
+
+    _DEST oldDest&
+END SUB
+
+' Fill a triangle (x0,y0)-(x1,y1)-(x2,y2) with col using horizontal scanlines.
+' Draws to the current _DEST — caller must set _DEST beforehand.
+SUB LINE_cap_fill_tri (x0 AS INTEGER, y0 AS INTEGER, x1 AS INTEGER, y1 AS INTEGER, x2 AS INTEGER, y2 AS INTEGER, col AS _UNSIGNED LONG)
+    ' Local copies for in-place sort
+    DIM ax    AS INTEGER, ay AS INTEGER
+    DIM bx    AS INTEGER, by AS INTEGER
+    DIM cx    AS INTEGER, cy AS INTEGER
+    DIM tmp   AS INTEGER
+    ax% = x0%                    : ay% = y0%
+    bx% = x1%                    : by% = y1%
+    cx% = x2%                    : cy% = y2%
+    ' Sort vertices by Y ascending (ay <= by <= cy)
+    IF ay% > by% THEN tmp% = ax% : ax% = bx% : bx% = tmp% : tmp% = ay% : ay% = by% : by% = tmp%
+    IF ay% > cy% THEN tmp% = ax% : ax% = cx% : cx% = tmp% : tmp% = ay% : ay% = cy% : cy% = tmp%
+    IF by% > cy% THEN tmp% = bx% : bx% = cx% : cx% = tmp% : tmp% = by% : by% = cy% : cy% = tmp%
+    DIM scanY AS INTEGER
+    DIM xlong AS SINGLE, xshort AS SINGLE
+    DIM xl    AS SINGLE, xr     AS SINGLE
+    FOR scanY% = ay% TO cy%
+        ' Long edge A→C
+        IF cy% > ay% THEN
+            xlong! = ax% + CSng(cx% - ax%) * CSng(scanY% - ay%) / CSng(cy% - ay%)
+        ELSE
+            xlong! = CSng(ax%)
+        END IF
+        ' Short edge: A→B in upper half, B→C in lower half
+        IF scanY% <= by% THEN
+            IF by% > ay% THEN
+                xshort! = ax% + CSng(bx% - ax%) * CSng(scanY% - ay%) / CSng(by% - ay%)
+            ELSE
+                xshort! = CSng(ax%)
+            END IF
+        ELSE
+            IF cy% > by% THEN
+                xshort! = bx% + CSng(cx% - bx%) * CSng(scanY% - by%) / CSng(cy% - by%)
+            ELSE
+                xshort! = CSng(bx%)
+            END IF
+        END IF
+        xl! = xlong! : xr! = xshort!
+        IF xl! > xr! THEN SWAP xl!, xr!
+        LINE (INT(xl! + 0.5), scanY%)-(INT(xr! + 0.5), scanY%), col~&
+    NEXT scanY%
+END SUB
+
+' Fill a convex quad (q0..q3 in order) using edge-scan — no diagonal artifacts.
+' Draws to the current _DEST — caller must set _DEST beforehand.
+SUB LINE_cap_fill_quad (qx0 AS INTEGER, qy0 AS INTEGER, qx1 AS INTEGER, qy1 AS INTEGER, qx2 AS INTEGER, qy2 AS INTEGER, qx3 AS INTEGER, qy3 AS INTEGER, col AS _UNSIGNED LONG)
+    DIM vx(3) AS INTEGER, vy(3) AS INTEGER
+    vx%(0) = qx0% : vy%(0) = qy0%
+    vx%(1) = qx1% : vy%(1) = qy1%
+    vx%(2) = qx2% : vy%(2) = qy2%
+    vx%(3) = qx3% : vy%(3) = qy3%
+    DIM qMinY  AS INTEGER, qMaxY AS INTEGER
+    qMinY% = vy%(0) : qMaxY% = vy%(0)
+    DIM qi     AS INTEGER
+    FOR qi% = 1 TO 3
+        IF vy%(qi%) < qMinY% THEN qMinY% = vy%(qi%)
+        IF vy%(qi%) > qMaxY% THEN qMaxY% = vy%(qi%)
+    NEXT qi%
+    DIM qScanY AS INTEGER, qEdge AS INTEGER
+    DIM qX1e   AS INTEGER, qY1e  AS INTEGER, qX2e AS INTEGER, qY2e AS INTEGER
+    DIM qT     AS SINGLE,  qHit  AS SINGLE
+    DIM qXl    AS SINGLE,  qXr   AS SINGLE
+    FOR qScanY% = qMinY% TO qMaxY%
+        qXl! = 32767! : qXr! = -32767!
+        FOR qEdge% = 0 TO 3
+            qX1e% = vx%(qEdge%)             : qY1e% = vy%(qEdge%)
+            qX2e% = vx%((qEdge% + 1) MOD 4) : qY2e% = vy%((qEdge% + 1) MOD 4)
+            IF qY2e% <> qY1e% THEN
+                qT! = CSng(qScanY% - qY1e%) / CSng(qY2e% - qY1e%)
+                IF qT! >= 0! AND qT! <= 1! THEN
+                    qHit! = qX1e% + qT! * CSng(qX2e% - qX1e%)
+                    IF qHit! < qXl! THEN qXl! = qHit!
+                    IF qHit! > qXr! THEN qXr! = qHit!
+                END IF
+            ELSEIF qScanY% = qY1e% THEN
+                IF CSng(qX1e%) < qXl! THEN qXl! = CSng(qX1e%)
+                IF CSng(qX1e%) > qXr! THEN qXr! = CSng(qX1e%)
+                IF CSng(qX2e%) < qXl! THEN qXl! = CSng(qX2e%)
+                IF CSng(qX2e%) > qXr! THEN qXr! = CSng(qX2e%)
+            END IF
+        NEXT qEdge%
+        IF qXr! >= qXl! THEN
+            LINE (INT(qXl! + 0.5), qScanY%)-(INT(qXr! + 0.5), qScanY%), col~&
+        END IF
+    NEXT qScanY%
 END SUB
