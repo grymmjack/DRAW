@@ -1,5 +1,8 @@
 # IDEAS
 
+## TEXT TOOL PICKUP STYLE
+- [x] When user arrows back to previous character, automatically adjust the text style to reflect current cell
+
 ## DRAW KITS
 - User sharable and exportable kits which contain all or one of:
   - Themes
@@ -70,7 +73,84 @@ cell alignment inside, borders, border widths, border colors, etc.
 - DIVIDE EVENLY (visually)
 
 
+## Line ends (arrows, cubes, brackets, dots)
+- [ ] Press s to cycle shapes for start of line
+- [ ] Press e to cycle shapes for end of line
+- [ ] Press r to reset
 
+## Bezier Curve
+- [ ] Like photoshop pen tool
+
+## Smart Shapes
+
+### Polygon
+- [ ] Start as triangle
+- [ ] Up arrow add edges,
+- [ ] Down arrow remove edges
+- [ ] Left arrow decrease point depth
+- [ ] Right arrow increase point depth
+
+### Pie / Donut
+- [ ] Start as circle
+- [ ] Up arrow add segments
+- [ ] Down arrow remove segments
+- [ ] Left arrow decrease hole size
+- [ ] Right arrow increase hole size
+
+### Rounded Rect
+- [ ] Start as rect with 3px roundedness
+- [ ] Up arrow increase corner radius 
+- [ ] Down arrow decrease corner radius
+
+### Tab
+- [ ] Start as rect
+- [ ] Up arrow round top corners more
+- [ ] Down arrow round top corners less
+- [ ] Left arrow cycle tab bottom side left
+- [ ] Right arrow cycle tab bottom side right
+
+### Pill
+- [ ] Start as rect
+- [ ] Up arrow increase roundness 
+- [ ] Down arrow decrease roundness
+- [ ] Left arrow decrease segments
+- [ ] Right arrow increase segments
+
+### Pac-Man
+- [ ] Start as circle
+- [ ] Up arrow increase mouth size
+- [ ] Down arrow decrease mouth size
+- [ ] Left arrow decrease inner hole
+- [ ] Right arrow increase inner hole
+
+### 3D cube / 3D polygon (dice)
+- [ ] Start as rect
+- [ ] Up arrow increase z-depth
+- [ ] Down arrow decrease z-depth
+- [ ] Left arrow rotate left
+- [ ] Right arrow rotate right
+- [ ] Mouse wheel up rotate up
+- [ ] Mouse wheel down rotate down
+
+### Bevel rect
+- [ ] Start as rect
+- [ ] Up arrow increase bevel size
+- [ ] Down arrow decrease bevel size
+- [ ] Left arrow decrease border size
+- [ ] Right arrow increase border size
+- [ ] Press I - change to inner
+- [ ] Press O - change to outer
+- [ ] Mouse wheel up increase z-depth (angled edges)
+- [ ] Mouse wheel down decrease z-depth angled edges
+
+### Arrow
+- [ ] Start with arrow shape
+- [ ] Up arrow make arrow stem fatter
+- [ ] Down arrow make arrow stem skinnier
+- [ ] Left arrow make arrow head shorter
+- [ ] Right arrow make arrow head longer
+- [ ] Mouse wheel up increase head concavity
+- [ ] Mouse wheel down decrease head concavity
 
 
 
