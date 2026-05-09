@@ -54,6 +54,7 @@ TYPE BEZIER_TYPE
     PENDING_DRAG_HANDLE AS INTEGER ' BEZIER_DRAG_C1/C2 of candidate
     PENDING_PRESS_X     AS INTEGER ' Canvas X where the pending press occurred
     PENDING_PRESS_Y     AS INTEGER ' Canvas Y where the pending press occurred
+    SHOW_HANDLES        AS INTEGER ' TRUE=draw+hit-test handles, FALSE=hide (toggle with `)
 END TYPE
 
 DIM SHARED BEZIER AS BEZIER_TYPE
@@ -72,3 +73,4 @@ BEZIER.PENDING_DRAG_IDX    = -1
 BEZIER.PENDING_DRAG_HANDLE = 0
 BEZIER.PENDING_PRESS_X     = 0
 BEZIER.PENDING_PRESS_Y     = 0
+BEZIER.SHOW_HANDLES        = TRUE

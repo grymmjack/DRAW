@@ -244,5 +244,5 @@ GUI_TB(TB_EXPORT_SEL).tip$  = "Export selection to file"
 GUI_TB(TB_EXPORT_SEL).evt$  = "EXPORT_SEL"
 
 GUI_TB(TB_BEZIER).iSrc$ = "bezier.png"
-GUI_TB(TB_BEZIER).tip$  = "q - Bezier curve tool. L-CLICK drag = smooth point. CTRL+DRAG handle = corner. CTRL+SHIFT+CLICK handle = plot point."
+GUI_TB(TB_BEZIER).tip$  = "q - Bezier curve tool. L-CLICK drag = smooth point. CTRL+DRAG handle = corner. ` toggles handle visibility."
 GUI_TB(TB_BEZIER).evt$  = "BEZIER"

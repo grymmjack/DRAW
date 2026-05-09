@@ -93,7 +93,7 @@ TOOLTIP_LINE2$(19) = "CTRL+SHIFT+s SAVE AS NEW image to disk."
 
 ' Row 5: BEZIER, RECT, RECT FILLED, EXPORT SEL
 TOOLTIP_LINE1$(20) = "q - BEZIER CURVE - Draw curves similar to the Pen Tool in GIMP / Photoshop."
-TOOLTIP_LINE2$(20) = "L-CLICK drag = smooth point. CTRL+DRAG on handle = corner. CTRL+SHIFT+CLICK handle = plot point there."
+TOOLTIP_LINE2$(20) = "L-CLICK drag = smooth point. CTRL+DRAG on handle = corner. ` toggles handle visibility."
 TOOLTIP_LINE1$(21) = "r - RECTANGLE - Create rectangle shapes on the canvas."
 TOOLTIP_LINE2$(21) = "DRAW rectangle. L-CLICK FG color. R-CLICK BG color. CTRL+SHIFT snap."
 TOOLTIP_LINE1$(22) = "SHIFT+r - FILLED RECTANGLE - Create filled rectangle shapes on the canvas."
