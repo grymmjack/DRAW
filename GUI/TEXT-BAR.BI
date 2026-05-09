@@ -49,6 +49,7 @@ CONST TEXT_BTN_ALIGN_L       = 26 ' Align left
 CONST TEXT_BTN_ALIGN_C       = 27 ' Align center
 CONST TEXT_BTN_ALIGN_R       = 28 ' Align right
 CONST TEXT_BTN_AA            = 29 ' Antialias toggle
+CONST TEXT_BTN_SYNC          = 30 ' Style sync toggle [SYNC]
 
 TYPE TEXT_BAR_OBJ
     visible               AS INTEGER        ' TRUE when bar should be shown
@@ -111,6 +112,23 @@ TYPE TEXT_BAR_OBJ
     iconLineHeightOff     AS LONG           ' Line height icon dimmed copy
     charBtnX              AS INTEGER        ' CHAR button hit zone X
     charBtnW              AS INTEGER        ' CHAR button hit zone width
+    syncBtnX              AS INTEGER        ' SYNC button hit zone X
+    syncBtnW              AS INTEGER        ' SYNC button hit zone width
+    ' --- Picked-style clipboard (ALT+U to pick, ALT+V to paste) ---
+    pickedHasStyle        AS INTEGER        ' TRUE when a style has been picked (ALT+U)
+    pickedFontIdx         AS INTEGER        ' Picked font registry index
+    pickedSize            AS INTEGER        ' Picked font size
+    pickedBold            AS INTEGER        ' Picked bold flag
+    pickedItalic          AS INTEGER        ' Picked italic flag
+    pickedUnderline       AS INTEGER        ' Picked underline flag
+    pickedStrike          AS INTEGER        ' Picked strikethrough flag
+    pickedOutline         AS INTEGER        ' Picked outline enabled
+    pickedOutlineColor    AS _UNSIGNED LONG ' Picked outline color
+    pickedOutlineSize     AS INTEGER        ' Picked outline size
+    pickedShadow          AS INTEGER        ' Picked shadow enabled
+    pickedShadowColor     AS _UNSIGNED LONG ' Picked shadow color
+    pickedShadowX         AS INTEGER        ' Picked shadow X offset
+    pickedShadowY         AS INTEGER        ' Picked shadow Y offset
     ' --- Row 2: Outline/Shadow/Alignment/Style/AA state ---
     outlineActive         AS INTEGER        ' Outline toggle state
     outlineColor          AS _UNSIGNED LONG ' Current outline color

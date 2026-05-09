@@ -371,6 +371,7 @@ TYPE DRAW_CONFIG
     ' Text tool default font settings
     FONT_DEFAULT_FONT               AS STRING         ' Default font name for text tool (empty = use Tiny5 Regular)
     FONT_DEFAULT_SIZE               AS INTEGER        ' Default font size for text tool (4-128, 0 = use program default 8)
+    TEXT_SYNC_STYLE                 AS INTEGER        ' TRUE = auto-sync TEXT_BAR style toggles when cursor moves
     ' Character Map panel settings
     CHARMAP_VISIBLE                 AS INTEGER        ' TRUE = character map panel visible at startup
     CHARMAP_PANEL_DOCK_EDGE         AS STRING         ' "LEFT" or "RIGHT" (default: "LEFT")
