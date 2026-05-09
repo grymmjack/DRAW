@@ -1,0 +1,170 @@
+''
+' DRAW - TOOLS/SS-COMMON.BM
+' =============================================================================
+' Shared primitives for SS-* sub-shapes.
+'
+$INCLUDEONCE
+
+''
+' Walk a Bresenham line, calling PAINT_pset_with_symmetry for every pixel.
+'
+SUB SS_stroke_line (x0 AS INTEGER, y0 AS INTEGER, x1 AS INTEGER, y1 AS INTEGER, col AS _UNSIGNED LONG)
+    DIM dx AS INTEGER, dy AS INTEGER
+    DIM sx AS INTEGER, sy AS INTEGER
+    DIM berr AS INTEGER, be2 AS INTEGER
+    DIM x AS INTEGER, y AS INTEGER
+    x% = x0%: y% = y0%
+    dx% = ABS(x1% - x0%): IF x0% < x1% THEN sx% = 1 ELSE sx% = -1
+    dy% = -ABS(y1% - y0%): IF y0% < y1% THEN sy% = 1 ELSE sy% = -1
+    berr% = dx% + dy%
+    DO
+        PAINT_pset_with_symmetry x%, y%, col~&, TRUE
+        IF x% = x1% AND y% = y1% THEN EXIT DO
+        be2% = berr% * 2
+        IF be2% >= dy% THEN berr% = berr% + dy%: x% = x% + sx%
+        IF be2% <= dx% THEN berr% = berr% + dx%: y% = y% + sy%
+    LOOP
+END SUB
+
+''
+' Same as SS_stroke_line but uses PSET directly to current _DEST (preview overlay).
+'
+SUB SS_stroke_line_pset (x0 AS INTEGER, y0 AS INTEGER, x1 AS INTEGER, y1 AS INTEGER, col AS _UNSIGNED LONG)
+    LINE (x0%, y0%)-(x1%, y1%), col~&
+END SUB
+
+''
+' Stroke a closed or open polyline from a vertex array.
+' commit% TRUE = use PAINT_pset_with_symmetry (real commit); FALSE = use LINE (preview).
+'
+SUB SS_stroke_polyline (px() AS INTEGER, py() AS INTEGER, n AS INTEGER, closed AS INTEGER, col AS _UNSIGNED LONG, commit AS INTEGER)
+    DIM i AS INTEGER, j AS INTEGER, last AS INTEGER
+    IF n% < 2 THEN EXIT SUB
+    IF closed% THEN last% = n% - 1 ELSE last% = n% - 2
+    FOR i% = 0 TO last%
+        j% = i% + 1
+        IF j% >= n% THEN j% = 0
+        IF commit% THEN
+            SS_stroke_line px(i%), py(i%), px(j%), py(j%), col~&
+        ELSE
+            LINE (px(i%), py(i%))-(px(j%), py(j%)), col~&
+        END IF
+    NEXT i%
+END SUB
+
+''
+' Scanline-fill a polygon. commit% TRUE -> PAINT_pset_with_symmetry; FALSE -> PSET preview.
+'
+SUB SS_fill_polygon (px() AS INTEGER, py() AS INTEGER, n AS INTEGER, col AS _UNSIGNED LONG, commit AS INTEGER)
+    IF n% < 3 THEN EXIT SUB
+    DIM minY AS INTEGER, maxY AS INTEGER, i AS INTEGER, j AS INTEGER
+    minY% = py(0): maxY% = py(0)
+    FOR i% = 1 TO n% - 1
+        IF py(i%) < minY% THEN minY% = py(i%)
+        IF py(i%) > maxY% THEN maxY% = py(i%)
+    NEXT i%
+
+    DIM y AS INTEGER, x AS INTEGER
+    DIM xs(0 TO SS_MAX_VERTS - 1) AS INTEGER
+    DIM nIntersect AS INTEGER, tmp AS INTEGER
+    DIM a AS INTEGER, b AS INTEGER
+
+    FOR y% = minY% TO maxY%
+        nIntersect% = 0
+        j% = n% - 1
+        FOR i% = 0 TO n% - 1
+            IF (py(i%) <= y% AND py(j%) > y%) OR (py(j%) <= y% AND py(i%) > y%) THEN
+                xs(nIntersect%) = INT(px(i%) + (y% - py(i%)) * (px(j%) - px(i%)) / (py(j%) - py(i%)) + 0.5)
+                nIntersect% = nIntersect% + 1
+            END IF
+            j% = i%
+        NEXT i%
+        FOR a% = 0 TO nIntersect% - 2
+            FOR b% = 0 TO nIntersect% - 2 - a%
+                IF xs(b%) > xs(b% + 1) THEN
+                    tmp% = xs(b%): xs(b%) = xs(b% + 1): xs(b% + 1) = tmp%
+                END IF
+            NEXT b%
+        NEXT a%
+        FOR i% = 0 TO nIntersect% - 1 STEP 2
+            IF i% + 1 >= nIntersect% THEN EXIT FOR
+            FOR x% = xs(i%) TO xs(i% + 1)
+                IF commit% THEN
+                    PAINT_pset_with_symmetry x%, y%, col~&, TRUE
+                ELSE
+                    PSET (x%, y%), col~&
+                END IF
+            NEXT x%
+        NEXT i%
+    NEXT y%
+END SUB
+
+''
+' Sample N points along an ellipse arc from ang0 to ang1 (radians).
+' Writes into px(), py() starting at offset offs. Returns number of points written.
+'
+FUNCTION SS_sample_arc% (cx AS INTEGER, cy AS INTEGER, rx AS SINGLE, ry AS SINGLE, ang0 AS SINGLE, ang1 AS SINGLE, samples AS INTEGER, px() AS INTEGER, py() AS INTEGER, offs AS INTEGER)
+    DIM i AS INTEGER, t AS SINGLE
+    IF samples% < 2 THEN samples% = 2
+    DIM diff AS SINGLE
+    diff! = ang1! - ang0!
+    FOR i% = 0 TO samples% - 1
+        t! = ang0! + diff! * (i% / (samples% - 1))
+        px(offs% + i%) = INT(cx% + COS(t!) * rx! + 0.5)
+        py(offs% + i%) = INT(cy% + SIN(t!) * ry! + 0.5)
+    NEXT i%
+    SS_sample_arc% = samples%
+END FUNCTION
+
+''
+' Stroke an ellipse arc by stepping one degree at a time.
+' commit% TRUE = use PAINT_pset_with_symmetry; FALSE = PSET only.
+'
+SUB SS_stroke_arc (cx AS INTEGER, cy AS INTEGER, rx AS SINGLE, ry AS SINGLE, ang0 AS SINGLE, ang1 AS SINGLE, col AS _UNSIGNED LONG, commit AS INTEGER)
+    DIM steps AS INTEGER
+    DIM diff AS SINGLE
+    diff! = ABS(ang1! - ang0!)
+    ' One sample per degree, minimum 8.
+    steps% = INT(diff! * 57.2958 + 0.5)
+    IF steps% < 8 THEN steps% = 8
+    DIM lastX AS INTEGER, lastY AS INTEGER
+    DIM nx AS INTEGER, ny AS INTEGER
+    DIM i AS INTEGER, t AS SINGLE
+    FOR i% = 0 TO steps%
+        t! = ang0! + (ang1! - ang0!) * (i% / steps%)
+        nx% = INT(cx% + COS(t!) * rx! + 0.5)
+        ny% = INT(cy% + SIN(t!) * ry! + 0.5)
+        IF i% > 0 THEN
+            IF commit% THEN
+                SS_stroke_line lastX%, lastY%, nx%, ny%, col~&
+            ELSE
+                LINE (lastX%, lastY%)-(nx%, ny%), col~&
+            END IF
+        END IF
+        lastX% = nx%
+        lastY% = ny%
+    NEXT i%
+END SUB
+
+''
+' Snapshot active layer for history record. Returns image handle (caller passes
+' to HISTORY_record_brush which takes ownership).
+'
+FUNCTION SS_history_snapshot& ()
+    SS_history_snapshot& = _COPYIMAGE(LAYER_current_image&, 32)
+END FUNCTION
+
+''
+' Push history record + mark dirty after a shape commit.
+'
+SUB SS_history_finalize (beforeImg AS LONG, col AS _UNSIGNED LONG, label AS STRING)
+    IF beforeImg& < -1 THEN
+        HISTORY_record_brush LAYERS(CURRENT_LAYER%).historyId&, CURRENT_LAYER%, col~&, 0, beforeImg&, label$
+        HISTORY_saved_this_frame% = TRUE
+    END IF
+    LAYERS(CURRENT_LAYER%).contentDirty% = TRUE
+    BLEND_invalidate_cache
+    CANVAS_DIRTY% = TRUE
+    SCENE_DIRTY%  = TRUE
+    FRAME_IDLE%   = FALSE
+END SUB
