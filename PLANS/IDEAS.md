@@ -1,8 +1,5 @@
 # IDEAS
 
-## TEXT TOOL PICKUP STYLE
-- [x] When user arrows back to previous character, automatically adjust the text style to reflect current cell
-
 ## DRAW KITS
 - User sharable and exportable kits which contain all or one of:
   - Themes
@@ -70,13 +67,7 @@ cell alignment inside, borders, border widths, border colors, etc.
 - Move table
 - Export table
 - Convert table to GUIDE layer
-- DIVIDE EVENLY (visually)
-
-
-## Line ends (arrows, cubes, brackets, dots)
-- [ ] Press s to cycle shapes for start of line
-- [ ] Press e to cycle shapes for end of line
-- [ ] Press r to reset
+- DIVIDE EVENLY (visually)1
 
 ## Bezier Curve
 - [ ] Like photoshop pen tool
@@ -793,3 +784,12 @@ Automatically snap to layer candidates when near X/Y/W/H bounds of neighbors
 ## MIDI MUSIC
 - [x] Allow playback of .MID files if they exist using default QB64PE font, or configured SF2 file.
 
+
+## TEXT TOOL PICKUP STYLE
+- [x] When user arrows back to previous character, automatically adjust the text style to reflect current cell
+
+
+
+## Line ends (arrows, cubes, dots)
+- [x] Press s to cycle shapes for start of line
+- [x] Press e to cycle shapes for end of line
