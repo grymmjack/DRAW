@@ -1,5 +1,12 @@
 # IDEAS
 
+## APRON .5 SIZE of canvas = phantom draw area (to prevent clips)
+- [ ] Right now the rotation/movement of something off the canvas into the apron area clips it.
+  - [ ] This would let it not clip
+  
+## 3D TEXT
+- [ ] Just like Smart Shape 3D, but on text.
+
 ## DRAW KITS
 - User sharable and exportable kits which contain all or one of:
   - Themes
@@ -183,7 +190,7 @@ For example a user could create a sliding ON/OFF by creating a pill 20 wide, wit
 > 3D shape/polygon (we can start with cube)
 > Simply draws a 3D cube wireframe (no lighting)
 > Controls explain how it works.
-> For now 3D cube is enough but I would love to be able to create polyhedron dice shapes for this tool etc. D4, D6, D8, D10, D12, D20, D30, etc.
+> For now 3D cube is enough but I would love to be able to create polyhedron dice shapes for this tool etc. D4, D6, D8, D10, D12, D20, D30, etc. Press numbers while drawing for the dice sides: 4 = D4, 6 = D6, 8 = D8, 0 = D10, 2 = D20, 3 = D30, 1 = D12
 
 User will take the wireframe and do what they want, fill or not.
 
