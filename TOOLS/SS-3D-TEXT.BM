@@ -48,6 +48,29 @@ FUNCTION SS_TEXT_shade~& (col AS _UNSIGNED LONG, factor AS SINGLE)
 END FUNCTION
 
 ''
+' Compute Lambert + soft specular brightness for a face whose (already
+' rotated) outward normal is (nx,ny,nz) under light vector (lx,ly,lz).
+' Mirrors the formula used by SS_CUBE_render_solid_internal so that 3D text
+' and 3D dice respond identically to the SS_LIGHT controls.
+'
+FUNCTION SS_TEXT_lit_brightness! (nx AS SINGLE, ny AS SINGLE, nz AS SINGLE, lx AS SINGLE, ly AS SINGLE, lz AS SINGLE)
+    DIM nlen AS SINGLE, ndotl AS SINGLE, spec AS SINGLE, b AS SINGLE
+    nlen! = SQR(nx! * nx! + ny! * ny! + nz! * nz!)
+    IF nlen! < 0.0001 THEN
+        SS_TEXT_lit_brightness! = 0.5
+        EXIT FUNCTION
+    END IF
+    ndotl! = (nx! * lx! + ny! * ly! + nz! * lz!) / nlen!
+    IF ndotl! < 0 THEN ndotl! = 0
+    spec! = ndotl! * ndotl!
+    spec! = spec! * spec!
+    b! = 0.25 + SS_LIGHT.INTENSITY * (1.10 * ndotl! + 0.25 * spec!)
+    IF b! < 0.10 THEN b! = 0.10
+    IF b! > 1.80 THEN b! = 1.80
+    SS_TEXT_lit_brightness! = b!
+END FUNCTION
+
+''
 ' Rasterize text into a 32-bit image with `col` as the foreground colour and
 ' transparent background. Returns image handle (caller _FREEIMAGE) or -1.
 '
@@ -457,7 +480,44 @@ SUB SS_TEXT_render_filled (col AS _UNSIGNED LONG)
     ' face is unambiguously the brightest plane (it faces the camera).
     DIM t AS STRING: t$ = LEFT$(SS_TEXT.txt, SS_TEXT.txtLen)
     DIM mask AS LONG, mw AS INTEGER, mh AS INTEGER
-    DIM frontCol AS _UNSIGNED LONG: frontCol~& = SS_TEXT_shade~&(col~&, 1.15)
+    ' --- Light vector in screen space, derived from SS_LIGHT (shared with dice).
+    DIM lx AS SINGLE, ly AS SINGLE, lz AS SINGLE
+    DIM azR AS SINGLE, elR AS SINGLE, ce AS SINGLE
+    azR! = SS_LIGHT.AZIMUTH   * 3.1415927 / 180.0
+    elR! = SS_LIGHT.ELEVATION * 3.1415927 / 180.0
+    ce! = COS(elR!)
+    lx! = SIN(azR!) * ce!
+    ly! = -SIN(elR!)
+    lz! = COS(azR!) * ce!
+
+    ' Per-plane rotated face normals (in mesh-local space, then projected
+    ' through the same rotation as vertices). FRONT normal = -Z (toward
+    ' camera with current convention); ribbon normals point outward from
+    ' the silhouette of each edge kind.
+    '   TOP    -> (0,-1, 0)
+    '   BOTTOM -> (0,+1, 0)
+    '   LEFT   -> (-1,0, 0)
+    '   RIGHT  -> (+1,0, 0)
+    '   FRONT  -> (0, 0,-1)
+    DIM nFx AS SINGLE, nFy AS SINGLE, nFz AS SINGLE
+    DIM nTx AS SINGLE, nTy AS SINGLE, nTz AS SINGLE
+    DIM nBx AS SINGLE, nBy AS SINGLE, nBz AS SINGLE
+    DIM nLx AS SINGLE, nLy AS SINGLE, nLz AS SINGLE
+    DIM nRx AS SINGLE, nRy AS SINGLE, nRz AS SINGLE
+    SS_TEXT_project_one  0.0, -1.0,  0.0, cxA!, sxA!, cyA!, syA!, nTx!, nTy!, nTz!
+    SS_TEXT_project_one  0.0,  1.0,  0.0, cxA!, sxA!, cyA!, syA!, nBx!, nBy!, nBz!
+    SS_TEXT_project_one -1.0,  0.0,  0.0, cxA!, sxA!, cyA!, syA!, nLx!, nLy!, nLz!
+    SS_TEXT_project_one  1.0,  0.0,  0.0, cxA!, sxA!, cyA!, syA!, nRx!, nRy!, nRz!
+    SS_TEXT_project_one  0.0,  0.0, -1.0, cxA!, sxA!, cyA!, syA!, nFx!, nFy!, nFz!
+
+    DIM bFront AS SINGLE, bTop AS SINGLE, bBot AS SINGLE, bLft AS SINGLE, bRgt AS SINGLE
+    bFront! = SS_TEXT_lit_brightness!(nFx!, nFy!, nFz!, lx!, ly!, lz!)
+    bTop!   = SS_TEXT_lit_brightness!(nTx!, nTy!, nTz!, lx!, ly!, lz!)
+    bBot!   = SS_TEXT_lit_brightness!(nBx!, nBy!, nBz!, lx!, ly!, lz!)
+    bLft!   = SS_TEXT_lit_brightness!(nLx!, nLy!, nLz!, lx!, ly!, lz!)
+    bRgt!   = SS_TEXT_lit_brightness!(nRx!, nRy!, nRz!, lx!, ly!, lz!)
+
+    DIM frontCol AS _UNSIGNED LONG: frontCol~& = SS_TEXT_shade~&(col~&, bFront!)
     mask& = SS_TEXT_render_mask&(t$, SS_TEXT.fontIdx, SS_TEXT.fontSize, SS_TEXT.bold, SS_TEXT.italic, SS_TEXT.antialias, SS_TEXT.monospace, mw%, mh%, frontCol~&)
     IF mask& >= -1 THEN EXIT SUB
 
@@ -468,10 +528,10 @@ SUB SS_TEXT_render_filled (col AS _UNSIGNED LONG)
     END IF
 
     DIM cTop AS _UNSIGNED LONG, cBot AS _UNSIGNED LONG, cLft AS _UNSIGNED LONG, cRgt AS _UNSIGNED LONG
-    cTop~& = SS_TEXT_shade~&(col~&, 0.95)
-    cBot~& = SS_TEXT_shade~&(col~&, 0.45)
-    cLft~& = SS_TEXT_shade~&(col~&, 0.60)
-    cRgt~& = SS_TEXT_shade~&(col~&, 0.78)
+    cTop~& = SS_TEXT_shade~&(col~&, bTop!)
+    cBot~& = SS_TEXT_shade~&(col~&, bBot!)
+    cLft~& = SS_TEXT_shade~&(col~&, bLft!)
+    cRgt~& = SS_TEXT_shade~&(col~&, bRgt!)
 
     ' Per-ribbon painter's algorithm. Sorting by per-edge bucket (kind) gives
     ' visible seam stripes on slanted strokes (W, A, R diagonals) because
