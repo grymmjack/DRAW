@@ -1,16 +1,5 @@
 # IDEAS
 
-## QOL - SELECTION HIDING
-- [ ] I would like to be able to use CTRL-h to hide and show the selections without clearing them
-  - [ ] This is just like photoshop.
-- [ ] Make sure CTRL is down then press h = toggle selection visibility if there is one to toggle
-
-## QOL - MARQUEE CONTENT MOVES
-- [ ] When moving selections with content using CTRL+arrows, CTRL+SHIFT+arrows:
-  - [ ] Moved content leaves behind the background color
-    - [ ] Including if it's transparent background
-  - [ ] This will make it much easier and less time consuming to move stuff around
-
 ## CREATE DARK THEME
 - [ ] To test the theme mode, we need a dark theme
 
@@ -925,3 +914,14 @@ User will take the wireframe and do what they want, fill or not.
   - [x] so they continue beyond the canvas
 
 
+
+## QOL - SELECTION HIDING
+- [x] I would like to be able to use CTRL-h to hide and show the selections without clearing them
+  - [x] This is just like photoshop.
+- [x] Make sure CTRL is down then press h = toggle selection visibility if there is one to toggle
+
+## QOL - MARQUEE CONTENT MOVES
+- [x] When moving selections with content using CTRL+arrows, CTRL+SHIFT+arrows:
+  - [x] Moved content leaves behind the background color
+    - [x] Including if it's transparent background
+  - [x] This will make it much easier and less time consuming to move stuff around
