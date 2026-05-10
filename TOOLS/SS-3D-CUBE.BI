@@ -28,3 +28,19 @@ SS_CUBE.ROT_X = 25
 SS_CUBE.ROT_Y = -25
 SS_CUBE.DICE_TYPE = 6
 SS_CUBE.FILLED = FALSE
+
+''
+' Adjustable directional light for solid 3D shapes.
+' AZIMUTH:    degrees, 0 = light from camera-front, +90 = from right, -90 = from left.
+' ELEVATION:  degrees, 0 = horizon (light along screen plane), 90 = zenith (overhead).
+' INTENSITY:  diffuse multiplier (0.0 .. 2.0). Specular tracks intensity.
+'
+TYPE SS_LIGHT_TYPE
+    AZIMUTH   AS SINGLE
+    ELEVATION AS SINGLE
+    INTENSITY AS SINGLE
+END TYPE
+DIM SHARED SS_LIGHT AS SS_LIGHT_TYPE
+SS_LIGHT.AZIMUTH   = -35
+SS_LIGHT.ELEVATION =  45
+SS_LIGHT.INTENSITY =   1.0

@@ -686,11 +686,20 @@ SUB SS_CUBE_render_solid_internal (col AS _UNSIGNED LONG, commit AS INTEGER)
     DIM tAvgZ(0 TO SS_DICE_MAX_TRIS - 1) AS SINGLE
     DIM tBright(0 TO SS_DICE_MAX_TRIS - 1) AS SINGLE
     DIM tOrder(0 TO SS_DICE_MAX_TRIS - 1) AS INTEGER
+    DIM tFront(0 TO SS_DICE_MAX_TRIS - 1) AS INTEGER
 
-    ' Light direction (toward light source, in screen-space coords):
-    ' upper-left-ish, slightly out of the screen. Already normalized.
+    ' Light direction derived from user-adjustable spherical coords. The
+    ' vector L points from the surface TOWARD the light source (so larger
+    ' N·L = more lit). +Y is screen-down, so elevation>0 (light from above)
+    ' yields negative ly.
     DIM lx AS SINGLE, ly AS SINGLE, lz AS SINGLE
-    lx! = -0.4082: ly! = -0.4082: lz! = -0.8165
+    DIM azR AS SINGLE, elR AS SINGLE, ce AS SINGLE
+    azR! = SS_LIGHT.AZIMUTH   * 3.1415927 / 180.0
+    elR! = SS_LIGHT.ELEVATION * 3.1415927 / 180.0
+    ce! = COS(elR!)
+    lx! = SIN(azR!) * ce!
+    ly! = -SIN(elR!)
+    lz! = COS(azR!) * ce!
 
     DIM ti AS INTEGER, ia AS INTEGER, ib AS INTEGER, ic AS INTEGER
     DIM ux AS SINGLE, uy AS SINGLE, uz AS SINGLE
@@ -711,6 +720,7 @@ SUB SS_CUBE_render_solid_internal (col AS _UNSIGNED LONG, commit AS INTEGER)
         nlen! = SQR(nx! * nx! + ny! * ny! + nz! * nz!)
         IF nlen! < 0.0001 THEN
             tBright(ti%) = 0.5
+            tFront(ti%) = FALSE
         ELSE
             nx! = nx! / nlen!: ny! = ny! / nlen!: nz! = nz! / nlen!
             ' Ensure outward (face centroid points away from origin in same dir as N)
@@ -719,11 +729,18 @@ SUB SS_CUBE_render_solid_internal (col AS _UNSIGNED LONG, commit AS INTEGER)
             czF! = (vrz(ia%) + vrz(ib%) + vrz(ic%)) / 3.0
             ndotc! = nx! * cxF! + ny! * cyF! + nz! * czF!
             IF ndotc! < 0 THEN nx! = -nx!: ny! = -ny!: nz! = -nz!
+            ' Front-facing if outward normal points toward camera (+Z).
+            IF nz! > 0 THEN tFront(ti%) = TRUE ELSE tFront(ti%) = FALSE
             ndotl! = nx! * lx! + ny! * ly! + nz! * lz!
             IF ndotl! < 0 THEN ndotl! = 0
-            ' Ambient 0.30, diffuse 0.70
-            tBright(ti%) = 0.30 + 0.70 * ndotl!
-            IF tBright(ti%) > 1.0 THEN tBright(ti%) = 1.0
+            ' Continuous Lambert + soft specular. Intensity scales the
+            ' direct (diffuse + specular) contribution; ambient is fixed.
+            DIM spec AS SINGLE
+            spec! = ndotl! * ndotl!
+            spec! = spec! * spec!  ' ndotl^4
+            tBright(ti%) = 0.25 + SS_LIGHT.INTENSITY * (1.10 * ndotl! + 0.25 * spec!)
+            IF tBright(ti%) < 0.10 THEN tBright(ti%) = 0.10
+            IF tBright(ti%) > 1.80 THEN tBright(ti%) = 1.80
         END IF
         tOrder(ti%) = ti%
     NEXT ti%
@@ -764,6 +781,35 @@ SUB SS_CUBE_render_solid_internal (col AS _UNSIGNED LONG, commit AS INTEGER)
         ia% = tA(idx%): ib% = tB(idx%): ic% = tC(idx%)
         _MAPTRIANGLE (0, 0)-(1, 0)-(1, 1), srcSolid& TO (vsx(ia%), vsy(ia%))-(vsx(ib%), vsy(ib%))-(vsx(ic%), vsy(ic%))
     NEXT oi%
+
+    ' Wireframe overlay (back-face culled) — draws every edge that borders at
+    ' least one front-facing triangle. Uses a darker shade of the base colour
+    ' with reduced alpha for a subtle "ink" pass that defines face boundaries.
+    DIM edgeCol AS _UNSIGNED LONG
+    DIM eR AS INTEGER, eG AS INTEGER, eBl AS INTEGER
+    eR% = INT(_RED32(col~&)   * 0.35)
+    eG% = INT(_GREEN32(col~&) * 0.35)
+    eBl% = INT(_BLUE32(col~&) * 0.35)
+    edgeCol~& = _RGBA32(eR%, eG%, eBl%, 110)
+    DIM prevBlend AS INTEGER: prevBlend% = _BLEND
+    _BLEND
+    DIM ei AS INTEGER, ti2 AS INTEGER, va AS INTEGER, vb AS INTEGER, drawIt AS INTEGER
+    DIM ta AS INTEGER, tb AS INTEGER, tc AS INTEGER
+    FOR ei% = 0 TO eCount% - 1
+        va% = eA(ei%): vb% = eB(ei%)
+        drawIt% = FALSE
+        FOR ti2% = 0 TO tCount% - 1
+            IF tFront(ti2%) THEN
+                ta% = tA(ti2%): tb% = tB(ti2%): tc% = tC(ti2%)
+                IF (ta% = va% OR tb% = va% OR tc% = va%) AND (ta% = vb% OR tb% = vb% OR tc% = vb%) THEN
+                    drawIt% = TRUE
+                    EXIT FOR
+                END IF
+            END IF
+        NEXT ti2%
+        IF drawIt% THEN LINE (vsx(va%), vsy(va%))-(vsx(vb%), vsy(vb%)), edgeCol~&
+    NEXT ei%
+    IF NOT prevBlend% THEN _DONTBLEND
 
     _DEST oldDest&
     _SOURCE oldSrc&
