@@ -86,6 +86,11 @@ TYPE DRAW_LAYER
     symbolRotation    AS INTEGER     ' Child  : rotation steps (0=none, 1=90CW, 2=180, 3=270CW)
     ' QB64PE Code Export classification (computed from history, undo-aware)
     exportMode        AS INTEGER     ' EXPORT_MODE_VECTOR (0), _TEXT (1), _IMG (2), _NONE (3)
+    ' Apron support — non-zero when layer has been lazily promoted to an
+    ' apron-extended buffer. Buffer size is (canvasW + 2*apronW) x (canvasH + 2*apronH).
+    ' Canvas-coord (cx,cy) maps to buffer-coord (cx + apronW, cy + apronH).
+    apronW            AS INTEGER     ' Per-layer apron width in canvas pixels (0 = compact, no apron buffer)
+    apronH            AS INTEGER     ' Per-layer apron height in canvas pixels (0 = compact)
 END TYPE
 
 TYPE LAYER_PANEL_OBJ

@@ -130,6 +130,17 @@ DIM SHARED AS INTEGER COMP_DIRTY_X1, COMP_DIRTY_Y1         ' Top-left  (canvas c
 DIM SHARED AS INTEGER COMP_DIRTY_X2, COMP_DIRTY_Y2         ' Bot-right (canvas coords)
 DIM SHARED AS INTEGER COMP_DIRTY_VALID                     ' TRUE when rect set this frame
 
+' ---------------------------------------------------------------------------
+' APRON — phantom draw area around the canvas. When CFG.APRON_ENABLED% is
+' TRUE and a layer's content needs to live off-canvas (Move/Transform past
+' the edge, paint past the edge, etc.), the layer is lazily promoted to an
+' apron-extended buffer of size (canvasW + 2*APRON_W) x (canvasH + 2*APRON_H).
+' APRON_W/APRON_H reflect the GLOBAL apron dims for newly-promoted layers;
+' each LAYER also stores its own apronW/apronH (= 0 when compact).
+' Apron pixels are session-only — not persisted on save (cull-on-save).
+' ---------------------------------------------------------------------------
+DIM SHARED AS INTEGER APRON_W, APRON_H                     ' Current global apron size in canvas pixels (0 when disabled)
+
 DIM SHARED            KEYHIT_CHAR     AS STRING            ' _KEYHIT → CHR$ fallback for INKEY$
 DIM SHARED            LAST_KEYHIT_RAW AS LONG              ' Raw k& from _KEYHIT this frame (0 = none)
 
