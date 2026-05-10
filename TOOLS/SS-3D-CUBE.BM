@@ -505,8 +505,8 @@ END SUB
 '
 FUNCTION SS_DICE_supports_solid% (diceType AS INTEGER)
     SELECT CASE diceType%
-        CASE 4, 6, 8, 10, 20: SS_DICE_supports_solid% = TRUE
-        CASE ELSE:            SS_DICE_supports_solid% = FALSE
+        CASE 4, 6, 8, 10, 12, 20, 30: SS_DICE_supports_solid% = TRUE
+        CASE ELSE:                    SS_DICE_supports_solid% = FALSE
     END SELECT
 END FUNCTION
 
@@ -546,7 +546,7 @@ END SUB
 ' enumerated from the edge graph (any (i,j,k) with all three edges present is
 ' a triangular face on a convex polyhedron).
 '
-SUB SS_DICE_build_tris (diceType AS INTEGER, vCount AS INTEGER, eA() AS INTEGER, eB() AS INTEGER, eCount AS INTEGER, tA() AS INTEGER, tB() AS INTEGER, tC() AS INTEGER, tCount AS INTEGER)
+SUB SS_DICE_build_tris (diceType AS INTEGER, vCount AS INTEGER, vxa() AS SINGLE, vya() AS SINGLE, vza() AS SINGLE, eA() AS INTEGER, eB() AS INTEGER, eCount AS INTEGER, tA() AS INTEGER, tB() AS INTEGER, tC() AS INTEGER, tCount AS INTEGER)
     tCount% = 0
     SELECT CASE diceType%
         CASE 6 ' Cube — 6 quads, 12 tris
@@ -610,6 +610,170 @@ SUB SS_DICE_build_tris (diceType AS INTEGER, vCount AS INTEGER, eA() AS INTEGER,
                     END IF
                 NEXT aj%
             NEXT ai%
+
+        CASE 12 ' Dodecahedron — 12 pentagons → 36 triangles
+            ' Each pentagonal face corresponds to one of the 12 icosahedron-vertex
+            ' directions. For each face direction, pick the 5 dodec verts with
+            ' the largest dot product (those lying on the face plane), then walk
+            ' the edge graph among those 5 to obtain the cyclic order, then fan-
+            ' triangulate.
+            DIM PHI12 AS SINGLE: PHI12! = 1.6180339887
+            DIM fc12(0 TO 11, 0 TO 2) AS SINGLE
+            DIM fci AS INTEGER, fi AS INTEGER, fj AS INTEGER
+            fci% = 0
+            FOR fi% = 0 TO 1
+                FOR fj% = 0 TO 1
+                    fc12(fci%, 0) = 0
+                    fc12(fci%, 1) = (fi% * 2 - 1)
+                    fc12(fci%, 2) = (fj% * 2 - 1) * PHI12!
+                    fci% = fci% + 1
+                NEXT fj%
+            NEXT fi%
+            FOR fi% = 0 TO 1
+                FOR fj% = 0 TO 1
+                    fc12(fci%, 0) = (fi% * 2 - 1)
+                    fc12(fci%, 1) = (fj% * 2 - 1) * PHI12!
+                    fc12(fci%, 2) = 0
+                    fci% = fci% + 1
+                NEXT fj%
+            NEXT fi%
+            FOR fi% = 0 TO 1
+                FOR fj% = 0 TO 1
+                    fc12(fci%, 0) = (fi% * 2 - 1) * PHI12!
+                    fc12(fci%, 1) = 0
+                    fc12(fci%, 2) = (fj% * 2 - 1)
+                    fci% = fci% + 1
+                NEXT fj%
+            NEXT fi%
+            DIM dots12(0 TO SS_DICE_MAX_VERTS - 1) AS SINGLE
+            DIM used12(0 TO SS_DICE_MAX_VERTS - 1) AS _BYTE
+            DIM faceVerts12(0 TO 4) AS INTEGER
+            DIM subAdj12(0 TO 4, 0 TO 4) AS _BYTE
+            DIM ordered12(0 TO 4) AS INTEGER
+            DIM ff12 AS INTEGER, vv12 AS INTEGER, si12 AS INTEGER, sj12 AS INTEGER
+            DIM bestIdx12 AS INTEGER, bestVal12 AS SINGLE
+            DIM mi12 AS INTEGER, mj12 AS INTEGER, ei12 AS INTEGER
+            DIM aIdx12 AS INTEGER, bIdx12 AS INTEGER
+            DIM prev12 AS INTEGER, cur12 AS INTEGER, nxt12 AS INTEGER
+            FOR ff12% = 0 TO 11
+                FOR vv12% = 0 TO vCount% - 1
+                    dots12(vv12%) = vxa(vv12%) * fc12(ff12%, 0) + vya(vv12%) * fc12(ff12%, 1) + vza(vv12%) * fc12(ff12%, 2)
+                    used12(vv12%) = 0
+                NEXT vv12%
+                ' Pick top 5 by dot product
+                FOR si12% = 0 TO 4
+                    bestIdx12% = -1: bestVal12! = -1E30
+                    FOR sj12% = 0 TO vCount% - 1
+                        IF NOT used12(sj12%) THEN
+                            IF dots12(sj12%) > bestVal12! THEN
+                                bestVal12! = dots12(sj12%)
+                                bestIdx12% = sj12%
+                            END IF
+                        END IF
+                    NEXT sj12%
+                    IF bestIdx12% < 0 THEN EXIT FOR
+                    faceVerts12(si12%) = bestIdx12%
+                    used12(bestIdx12%) = 1
+                NEXT si12%
+                ' Build sub-adjacency from full edge list
+                FOR mi12% = 0 TO 4
+                    FOR mj12% = 0 TO 4
+                        subAdj12(mi12%, mj12%) = 0
+                    NEXT mj12%
+                NEXT mi12%
+                FOR ei12% = 0 TO eCount% - 1
+                    aIdx12% = -1: bIdx12% = -1
+                    FOR mi12% = 0 TO 4
+                        IF eA(ei12%) = faceVerts12(mi12%) THEN aIdx12% = mi12%
+                        IF eB(ei12%) = faceVerts12(mi12%) THEN bIdx12% = mi12%
+                    NEXT mi12%
+                    IF aIdx12% >= 0 AND bIdx12% >= 0 THEN
+                        subAdj12(aIdx12%, bIdx12%) = 1
+                        subAdj12(bIdx12%, aIdx12%) = 1
+                    END IF
+                NEXT ei12%
+                ' Walk cycle starting at 0
+                ordered12(0) = 0
+                prev12% = -1: cur12% = 0
+                FOR mi12% = 1 TO 4
+                    nxt12% = -1
+                    FOR mj12% = 0 TO 4
+                        IF mj12% <> prev12% AND mj12% <> cur12% AND subAdj12(cur12%, mj12%) THEN
+                            nxt12% = mj12%
+                            EXIT FOR
+                        END IF
+                    NEXT mj12%
+                    IF nxt12% < 0 THEN EXIT FOR
+                    ordered12(mi12%) = nxt12%
+                    prev12% = cur12%
+                    cur12% = nxt12%
+                NEXT mi12%
+                ' Fan-triangulate from ordered12(0)
+                IF tCount% + 3 <= SS_DICE_MAX_TRIS THEN
+                    tA(tCount%) = faceVerts12(ordered12(0)): tB(tCount%) = faceVerts12(ordered12(1)): tC(tCount%) = faceVerts12(ordered12(2)): tCount% = tCount% + 1
+                    tA(tCount%) = faceVerts12(ordered12(0)): tB(tCount%) = faceVerts12(ordered12(2)): tC(tCount%) = faceVerts12(ordered12(3)): tCount% = tCount% + 1
+                    tA(tCount%) = faceVerts12(ordered12(0)): tB(tCount%) = faceVerts12(ordered12(3)): tC(tCount%) = faceVerts12(ordered12(4)): tCount% = tCount% + 1
+                END IF
+            NEXT ff12%
+
+        CASE 30 ' Rhombic triacontahedron — 30 rhombi → 60 triangles
+            ' Verts 0..11 are icosahedron (valence 5), 12..31 are dodecahedron
+            ' (valence 3). Every edge in the mesh connects an ico vert to a
+            ' dodec vert. A face = pair of ico verts that share exactly two
+            ' common dodec neighbours; the four verts form the rhombus.
+            REDIM adj30(0 TO 31, 0 TO 31) AS _BYTE
+            DIM ek30 AS INTEGER
+            FOR ek30% = 0 TO eCount% - 1
+                adj30(eA(ek30%), eB(ek30%)) = 1
+                adj30(eB(ek30%), eA(ek30%)) = 1
+            NEXT ek30%
+            DIM i1 AS INTEGER, i2 AS INTEGER, dd AS INTEGER
+            DIM common0 AS INTEGER, common1 AS INTEGER, commonCount AS INTEGER
+            FOR i1% = 0 TO 11
+                FOR i2% = i1% + 1 TO 11
+                    common0% = -1: common1% = -1: commonCount% = 0
+                    FOR dd% = 12 TO 31
+                        IF adj30(i1%, dd%) AND adj30(i2%, dd%) THEN
+                            IF commonCount% = 0 THEN
+                                common0% = dd%
+                            ELSEIF commonCount% = 1 THEN
+                                common1% = dd%
+                            END IF
+                            commonCount% = commonCount% + 1
+                        END IF
+                    NEXT dd%
+                    IF commonCount% = 2 THEN
+                        ' Rhombus: i1, common0, i2, common1
+                        IF tCount% + 2 <= SS_DICE_MAX_TRIS THEN
+                            tA(tCount%) = i1%:      tB(tCount%) = common0%: tC(tCount%) = i2%:      tCount% = tCount% + 1
+                            tA(tCount%) = i1%:      tB(tCount%) = i2%:      tC(tCount%) = common1%: tCount% = tCount% + 1
+                        END IF
+                    END IF
+                NEXT i2%
+            NEXT i1%
+
+        CASE 4, 8, 20 ' Triangle-faced — auto-detect from edge graph
+            REDIM adj(0 TO vCount% - 1, 0 TO vCount% - 1) AS _BYTE
+            DIM eii AS INTEGER
+            FOR eii% = 0 TO eCount% - 1
+                adj(eA(eii%), eB(eii%)) = 1
+                adj(eB(eii%), eA(eii%)) = 1
+            NEXT eii%
+            DIM aii AS INTEGER, ajj AS INTEGER, akk AS INTEGER
+            FOR aii% = 0 TO vCount% - 1
+                FOR ajj% = aii% + 1 TO vCount% - 1
+                    IF adj(aii%, ajj%) THEN
+                        FOR akk% = ajj% + 1 TO vCount% - 1
+                            IF adj(aii%, akk%) AND adj(ajj%, akk%) THEN
+                                IF tCount% < SS_DICE_MAX_TRIS THEN
+                                    tA(tCount%) = aii%: tB(tCount%) = ajj%: tC(tCount%) = akk%
+                                    tCount% = tCount% + 1
+                                END IF
+                            END IF
+                        NEXT akk%
+                    END IF
+                NEXT ajj%
+            NEXT aii%
 
         CASE ELSE
             tCount% = 0
@@ -675,7 +839,7 @@ SUB SS_CUBE_render_solid_internal (col AS _UNSIGNED LONG, commit AS INTEGER)
     DIM tB(0 TO SS_DICE_MAX_TRIS - 1) AS INTEGER
     DIM tC(0 TO SS_DICE_MAX_TRIS - 1) AS INTEGER
     DIM tCount AS INTEGER
-    SS_DICE_build_tris SS_CUBE.DICE_TYPE, vCount%, eA(), eB(), eCount%, tA(), tB(), tC(), tCount%
+    SS_DICE_build_tris SS_CUBE.DICE_TYPE, vCount%, vxa(), vya(), vza(), eA(), eB(), eCount%, tA(), tB(), tC(), tCount%
     IF tCount% < 1 THEN
         ' Should not happen for supported types, but be safe.
         SS_DICE_render_edges vsx(), vsy(), eA(), eB(), eCount%, col~&, commit%
