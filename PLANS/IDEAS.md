@@ -1,11 +1,16 @@
 # IDEAS
 
+## QOL - SELECTION HIDING
+- [ ] I would like to be able to use CTRL-h to hide and show the selections without clearing them
+  - [ ] This is just like photoshop.
+- [ ] Make sure CTRL is down then press h = toggle selection visibility if there is one to toggle
+
 ## QOL - MARQUEE CONTENT MOVES
 - [ ] When moving selections with content using CTRL+arrows, CTRL+SHIFT+arrows:
   - [ ] Moved content leaves behind the background color
     - [ ] Including if it's transparent background
   - [ ] This will make it much easier and less time consuming to move stuff around
-  
+
 ## APRON .5 SIZE of canvas = phantom draw area (to prevent clips)
 - [ ] Right now the rotation/movement of something off the canvas into the apron area clips it.
   - [ ] It should still not be visible when on the apron, or partially hidden when on part of the apron
