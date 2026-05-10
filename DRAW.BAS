@@ -26,6 +26,9 @@ DIM splashX     AS LONG, splashY AS LONG
 DIM splashAlpha AS INTEGER
 DIM splashBg    AS _UNSIGNED LONG, splashBgR AS INTEGER, splashBgG AS INTEGER, splashBgB AS INTEGER
 splashImg& = _LOADIMAGE("ASSETS/THEMES/" + _TRIM$(CFG.THEME$) + "/splash.png", 32)
+DIM splashVerFont AS LONG: splashVerFont& = 0
+DIM splashVerStr AS STRING
+DIM splashVerDstX AS LONG, splashVerDstY AS LONG
 IF splashImg& < -1 THEN
     splashBg~& = THEME.SPLASH_BG_COLOR~&
     splashBgR% = _RED32(splashBg~&): splashBgG% = _GREEN32(splashBg~&): splashBgB% = _BLUE32(splashBg~&)
@@ -36,6 +39,24 @@ IF splashImg& < -1 THEN
     splashX&     = (_WIDTH(0) - splashDstW&) \ 2
     splashY&     = 0
     DIM splashOldDest AS LONG: splashOldDest& = _DEST
+
+    ' Load the version font at the scaled point size so we can draw it
+    ' directly onto screen 0 at the correct on-screen position. This avoids
+    ' off-screen image + _PUTIMAGE scaling (which can corrupt small fonts).
+    IF THEME.SPLASH_VERSION_SHOW% THEN
+        splashVerStr$ = _TRIM$(THEME.SPLASH_VERSION_PREFIX$) + APP_VERSION$
+        DIM splashVerSize AS INTEGER
+        splashVerSize% = INT(THEME.SPLASH_VERSION_FONT_SIZE% * splashScale!)
+        IF splashVerSize% < 1 THEN splashVerSize% = 1
+        splashVerFont& = _LOADFONT(THEME_font_path$(THEME.SPLASH_VERSION_FONT$), splashVerSize%, "DONTBLEND")
+        IF splashVerFont& > 0 THEN
+            splashVerDstX& = splashX& + INT(THEME.SPLASH_VERSION_X% * splashScale!)
+            splashVerDstY& = splashY& + INT(THEME.SPLASH_VERSION_Y% * splashScale!)
+        ELSE
+            _LOGWARN "Splash: failed to load version font: " + THEME.SPLASH_VERSION_FONT$
+        END IF
+    END IF
+
     _DEST 0
     ' Fade in over ~0.4 seconds
     splashStart# = TIMER(.001)
@@ -44,6 +65,12 @@ IF splashImg& < -1 THEN
         IF splashAlpha% > 255 THEN splashAlpha% = 255
         CLS , splashBg~&
         _PUTIMAGE (splashX&, splashY&)-(splashX& + splashDstW& - 1, splashY& + splashDstH& - 1), splashImg&, 0
+        IF splashVerFont& > 0 THEN
+            _FONT splashVerFont&
+            COLOR THEME.SPLASH_VERSION_COLOR~&, _RGBA32(0, 0, 0, 0)
+            _PRINTSTRING (splashVerDstX&, splashVerDstY&), splashVerStr$
+            _FONT 16
+        END IF
         LINE (0, 0)-(_WIDTH(0) - 1, _HEIGHT(0) - 1), _RGBA32(splashBgR%, splashBgG%, splashBgB%, 255 - splashAlpha%), BF
         _DISPLAY
         _LIMIT 60
@@ -51,6 +78,12 @@ IF splashImg& < -1 THEN
     ' Show fully opaque splash and record time for minimum-hold check
     CLS , splashBg~&
     _PUTIMAGE (splashX&, splashY&)-(splashX& + splashDstW& - 1, splashY& + splashDstH& - 1), splashImg&, 0
+    IF splashVerFont& > 0 THEN
+        _FONT splashVerFont&
+        COLOR THEME.SPLASH_VERSION_COLOR~&, _RGBA32(0, 0, 0, 0)
+        _PRINTSTRING (splashVerDstX&, splashVerDstY&), splashVerStr$
+        _FONT 16
+    END IF
     _DISPLAY
     splashStart# = TIMER(.001) ' reset: hold starts after fade-in completes
     _DEST splashOldDest&
@@ -210,12 +243,19 @@ IF splashImg& < -1 THEN
         IF splashAlpha% > 255 THEN splashAlpha% = 255
         CLS , splashBg~&
         _PUTIMAGE (splashX&, splashY&)-(splashX& + splashDstW& - 1, splashY& + splashDstH& - 1), splashImg&, 0
+        IF splashVerFont& > 0 THEN
+            _FONT splashVerFont&
+            COLOR THEME.SPLASH_VERSION_COLOR~&, _RGBA32(0, 0, 0, 0)
+            _PRINTSTRING (splashVerDstX&, splashVerDstY&), splashVerStr$
+            _FONT 16
+        END IF
         LINE (0, 0)-(_WIDTH(0) - 1, _HEIGHT(0) - 1), _RGBA32(splashWinR%, splashWinG%, splashWinB%, splashAlpha%), BF
         _DISPLAY
         _LIMIT 60
     LOOP UNTIL splashAlpha% >= 255
     _DEST splashOldDest2&
     _FREEIMAGE splashImg&
+    IF splashVerFont& > 0 THEN _FREEFONT splashVerFont&
 END IF
 
 DO

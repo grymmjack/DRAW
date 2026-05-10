@@ -594,6 +594,13 @@ TYPE DRAW_THEME
     ' --- Splash screen ---
     SPLASH_HOLD_TIME                      AS SINGLE         ' Seconds splash stays visible after fade-in (default 1.0)
     SPLASH_BG_COLOR                       AS _UNSIGNED LONG ' Splash background fill color (default black)
+    SPLASH_VERSION_SHOW                   AS INTEGER        ' TRUE = render version string on splash (default TRUE)
+    SPLASH_VERSION_PREFIX                 AS STRING         ' String prepended to APP_VERSION$ (default "v")
+    SPLASH_VERSION_FONT                   AS STRING         ' Font filename, looked up via THEME_font_path$ (default "Tiny5-Regular.ttf")
+    SPLASH_VERSION_FONT_SIZE              AS INTEGER        ' Font size in image-space pixels (default 8)
+    SPLASH_VERSION_COLOR                  AS _UNSIGNED LONG ' Version text color (default RGB 145,164,240)
+    SPLASH_VERSION_X                      AS INTEGER        ' X offset in image-space pixels from splash image top-left (default 45)
+    SPLASH_VERSION_Y                      AS INTEGER        ' Y offset in image-space pixels from splash image top-left (default 32)
     ' --- Window ---
     WINDOW_BG_COLOR                       AS _UNSIGNED LONG ' Default window background color (default black)
     ' --- Opacity Slider (organizer col 1, rows 0+1) ---
