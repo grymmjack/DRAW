@@ -8,7 +8,8 @@
 - [ ] Render/load/use TheDraw fonts :)
 
 
-## ANTIALIAS MODE
+## ANTIALIAS MODE 
+- [ ] See plan: <a href="./ANTI-ALIASING-PLAN.md">Anti-Aliasing Plan</a>
 - [ ] Everything operates in anti-aliased mode. (this is a big one)
 
 
