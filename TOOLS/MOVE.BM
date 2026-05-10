@@ -210,11 +210,13 @@ SUB MOVE_capture_selection ()
     IF MOVE.PREVIEW_BUFFER < -1 THEN _FREEIMAGE MOVE.PREVIEW_BUFFER
     
     IF captureWholeLayer% THEN
-        ' No marquee: capture entire layer
+        ' No marquee: capture entire CANVAS region of the layer.
+        ' (Even if the layer is apron-extended, the user's mental model is
+        ' "move the visible canvas content", not the hidden apron border.)
         MOVE.SELECTION_X = 0
         MOVE.SELECTION_Y = 0
-        MOVE.SELECTION_W = _WIDTH(LAYER_current_image&)
-        MOVE.SELECTION_H = _HEIGHT(LAYER_current_image&)
+        MOVE.SELECTION_W = SCRN.canvasW&
+        MOVE.SELECTION_H = SCRN.canvasH&
         
         ' Set up marquee bounds to match full layer (so handles render correctly)
         MARQUEE.BOX.x        = 0
@@ -244,6 +246,12 @@ SUB MOVE_capture_selection ()
     ' Track which layer we captured from (ensures apply targets the correct layer
     ' even if the user switches layers before committing)
     MOVE.CAPTURED_LAYER = CURRENT_LAYER%
+
+    ' APRON: promote captured layer to extended buffer so off-canvas drag
+    ' positions are preserved on commit. No-op if APRON disabled or already
+    ' extended. Multi-selected siblings stay compact (multi-layer apron support
+    ' is deferred to a later commit).
+    LAYERS_promote_to_extended MOVE.CAPTURED_LAYER
 
     ' Snapshot multi-selected layers for linked move.
     ' Only OTHER selected layers are recorded — the captured layer is handled
@@ -298,10 +306,15 @@ SUB MOVE_capture_selection ()
     ' MOVE_apply_transform and MOVE_stamp so each committed move/stamp becomes
     ' a single unified-history record without duplicate pre-capture states.
 
-    ' Create image buffer and copy selected region from CURRENT LAYER
+    ' Create image buffer and copy selected region from CURRENT LAYER.
+    ' APRON: source rect is in canvas coords; offset by captured layer's apron
+    ' to read from the canvas region of the (possibly extended) layer buffer.
+    DIM capLayerAW AS INTEGER, capLayerAH AS INTEGER
+    capLayerAW% = LAYERS(MOVE.CAPTURED_LAYER).apronW%
+    capLayerAH% = LAYERS(MOVE.CAPTURED_LAYER).apronH%
     MOVE.SELECTION_IMAGE = _NEWIMAGE(MOVE.SELECTION_W, MOVE.SELECTION_H, 32)
     _DEST MOVE.SELECTION_IMAGE
-    _PUTIMAGE (0, 0), LAYER_current_image&, MOVE.SELECTION_IMAGE, (MOVE.SELECTION_X, MOVE.SELECTION_Y)-(MOVE.SELECTION_X + MOVE.SELECTION_W - 1, MOVE.SELECTION_Y + MOVE.SELECTION_H - 1)
+    _PUTIMAGE (0, 0), LAYER_current_image&, MOVE.SELECTION_IMAGE, (MOVE.SELECTION_X + capLayerAW%, MOVE.SELECTION_Y + capLayerAH%)-(MOVE.SELECTION_X + capLayerAW% + MOVE.SELECTION_W - 1, MOVE.SELECTION_Y + capLayerAH% + MOVE.SELECTION_H - 1)
 
     ' Apply selection mask: zero out pixels outside the non-rectangular selection
     ' so only pixels within the actual shape (freehand, ellipse, polygon, wand) are captured
@@ -711,7 +724,14 @@ SUB MOVE_apply_transform ()
     IF NOT HISTORY_IN_PROGRESS% AND LAYERS(targetLayer%).historyId& > 0 AND targetImg& < -1 THEN
         moveTargetBefore& = _COPYIMAGE(targetImg&, 32)
     END IF
-    
+
+    ' APRON: target layer may be extended — translate canvas coords by its
+    ' apron offsets so paste/clear hits the canvas region (and content past
+    ' canvas edge is preserved in the apron border instead of being clipped).
+    DIM tgtAW AS INTEGER, tgtAH AS INTEGER
+    tgtAW% = LAYERS(targetLayer%).apronW%
+    tgtAH% = LAYERS(targetLayer%).apronH%
+
     _DEST targetImg&
     
     ' If not cloning (and no stamps were placed), clear the ORIGINAL area to transparent
@@ -746,14 +766,14 @@ SUB MOVE_apply_transform ()
         ELSE
             ' Rectangular selection: clear entire bounding box
             _DONTBLEND targetImg&
-            LINE (MOVE.ORIGINAL_X, MOVE.ORIGINAL_Y)-(MOVE.ORIGINAL_X + MOVE.ORIGINAL_W - 1, MOVE.ORIGINAL_Y + MOVE.ORIGINAL_H - 1), _RGBA32(0, 0, 0, 0), BF
+            LINE (MOVE.ORIGINAL_X + tgtAW%, MOVE.ORIGINAL_Y + tgtAH%)-(MOVE.ORIGINAL_X + tgtAW% + MOVE.ORIGINAL_W - 1, MOVE.ORIGINAL_Y + tgtAH% + MOVE.ORIGINAL_H - 1), _RGBA32(0, 0, 0, 0), BF
             _BLEND targetImg&
         END IF
     END IF
     
     ' Draw the transformed selection
     IF MOVE.SELECTION_IMAGE < -1 THEN
-        _PUTIMAGE (MOVE.CURRENT_X, MOVE.CURRENT_Y)-(MOVE.CURRENT_X + MOVE.CURRENT_W - 1, MOVE.CURRENT_Y + MOVE.CURRENT_H - 1), MOVE.SELECTION_IMAGE, targetImg&
+        _PUTIMAGE (MOVE.CURRENT_X + tgtAW%, MOVE.CURRENT_Y + tgtAH%)-(MOVE.CURRENT_X + tgtAW% + MOVE.CURRENT_W - 1, MOVE.CURRENT_Y + tgtAH% + MOVE.CURRENT_H - 1), MOVE.SELECTION_IMAGE, targetImg&
     END IF
     
     _DEST SCRN.CANVAS&
@@ -1240,24 +1260,46 @@ SUB MOVE_update_preview_buffer ()
     IF previewLayer% < 1 OR previewLayer% > MAX_LAYERS OR LAYERS(previewLayer%).imgHandle& >= -1 THEN EXIT SUB
     DIM previewSrc   AS LONG
     previewSrc& = LAYERS(previewLayer%).imgHandle&
-    
+
+    ' APRON: when previewLayer is extended, all coords below operate in the
+    ' extended-buffer space (translate canvas coords by apronW/H of layer).
+    DIM previewAW AS INTEGER, previewAH AS INTEGER
+    previewAW% = LAYERS(previewLayer%).apronW%
+    previewAH% = LAYERS(previewLayer%).apronH%
+
     ' Clear preview buffer first to prevent ghosts
     _DEST MOVE.PREVIEW_BUFFER
     CLS , _RGBA32(0, 0, 0, 0) ' Clear with transparency for layers
     
-    ' Copy entire captured layer to preview buffer
-    _PUTIMAGE , previewSrc&, MOVE.PREVIEW_BUFFER
+    ' Whole-layer optimization: when the ORIGINAL rect covers the entire
+    ' content area of the preview buffer and we're not cloning, the
+    ' "copy entire layer + erase original area" sequence cancels itself
+    ' out. Skip both steps and jump straight to drawing the selection
+    ' at its current position. Saves ~2 full-canvas writes per frame.
+    DIM mvuPbW AS LONG, mvuPbH AS LONG
+    mvuPbW& = _WIDTH(MOVE.PREVIEW_BUFFER) - 2 * previewAW%
+    mvuPbH& = _HEIGHT(MOVE.PREVIEW_BUFFER) - 2 * previewAH%
+    DIM mvuWholeLayer AS INTEGER
+    mvuWholeLayer% = (NOT MOVE.CLONING) AND (NOT MOVE.CLONE_STAMPED) AND _
+                     (MOVE.ORIGINAL_X <= 0) AND (MOVE.ORIGINAL_Y <= 0) AND _
+                     (MOVE.ORIGINAL_X + MOVE.ORIGINAL_W >= mvuPbW&) AND _
+                     (MOVE.ORIGINAL_Y + MOVE.ORIGINAL_H >= mvuPbH&)
     
-    ' If NOT cloning (and no stamps were placed), clear the ORIGINAL area to transparent
-    ' Must use _DONTBLEND so alpha=0 pixels actually overwrite existing content
-    IF NOT MOVE.CLONING AND NOT MOVE.CLONE_STAMPED THEN
-        _DONTBLEND MOVE.PREVIEW_BUFFER
-        LINE (MOVE.ORIGINAL_X, MOVE.ORIGINAL_Y)-(MOVE.ORIGINAL_X + MOVE.ORIGINAL_W - 1, MOVE.ORIGINAL_Y + MOVE.ORIGINAL_H - 1), _RGBA32(0, 0, 0, 0), BF
-        _BLEND MOVE.PREVIEW_BUFFER
+    IF NOT mvuWholeLayer% THEN
+        ' Copy entire captured layer to preview buffer
+        _PUTIMAGE , previewSrc&, MOVE.PREVIEW_BUFFER
+        
+        ' If NOT cloning (and no stamps were placed), clear the ORIGINAL area to transparent
+        ' Must use _DONTBLEND so alpha=0 pixels actually overwrite existing content
+        IF NOT MOVE.CLONING AND NOT MOVE.CLONE_STAMPED THEN
+            _DONTBLEND MOVE.PREVIEW_BUFFER
+            LINE (MOVE.ORIGINAL_X + previewAW%, MOVE.ORIGINAL_Y + previewAH%)-(MOVE.ORIGINAL_X + previewAW% + MOVE.ORIGINAL_W - 1, MOVE.ORIGINAL_Y + previewAH% + MOVE.ORIGINAL_H - 1), _RGBA32(0, 0, 0, 0), BF
+            _BLEND MOVE.PREVIEW_BUFFER
+        END IF
     END IF
     
     ' Draw the transformed selection at its current position/size
-    _PUTIMAGE (MOVE.CURRENT_X, MOVE.CURRENT_Y)-(MOVE.CURRENT_X + MOVE.CURRENT_W - 1, MOVE.CURRENT_Y + MOVE.CURRENT_H - 1), MOVE.SELECTION_IMAGE, MOVE.PREVIEW_BUFFER
+    _PUTIMAGE (MOVE.CURRENT_X + previewAW%, MOVE.CURRENT_Y + previewAH%)-(MOVE.CURRENT_X + previewAW% + MOVE.CURRENT_W - 1, MOVE.CURRENT_Y + previewAH% + MOVE.CURRENT_H - 1), MOVE.SELECTION_IMAGE, MOVE.PREVIEW_BUFFER
 
     ' Update per-layer preview buffers for all other multi-selected layers.
     ' Each preview shows the layer's original content shifted by the same (dx, dy)

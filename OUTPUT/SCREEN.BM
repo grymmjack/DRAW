@@ -736,6 +736,7 @@ SUB SCREEN_init ()
     SCRN.bpp% = _PIXELSIZE
     ' Initialize tools
     LAYERS_init                                ' Initialize layers system (must be after CONFIG_load)
+    APRON_recompute_global_dims                ' Resolve global APRON_W/APRON_H from CFG (after canvas dims are set)
     MOVE_init
     TEXT_init
     GRID_init
@@ -1113,7 +1114,61 @@ SUB RENDER_layers (dx AS INTEGER, dy AS INTEGER, zw AS LONG, zh AS LONG)
                     layerRenderSource& = LAYERS(layerFound%).imgHandle&
                 END IF
 
-                ' Get opacity-adjusted image (cached when possible)
+                ' --- APRON: if layer is extended, extract canvas region into a
+                ' shared scratch buffer so all downstream blit/blend code can
+                ' continue to assume a canvas-sized source. The pixels living
+                ' in the apron border are simply not shown (the canvas is the
+                ' viewport into the larger layer buffer).
+                ' Optimization: for layers NOT actively being moved, cache the
+                ' extraction in a per-layer apronCacheImg so we don't pay a
+                ' full-canvas _PUTIMAGE every frame. The MOVE preview buffer
+                ' changes each frame, so it always uses the shared scratch.
+                IF LAYERS(layerFound%).apronW% > 0 OR LAYERS(layerFound%).apronH% > 0 THEN
+                    DIM scrAW        AS INTEGER, scrAH AS INTEGER
+                    scrAW% = LAYERS(layerFound%).apronW%
+                    scrAH% = LAYERS(layerFound%).apronH%
+                    DIM oldDestApron AS LONG
+                    IF useMoveBuf% THEN
+                        ' Dynamic source — use shared scratch, re-extract every frame.
+                        IF APRON_RENDER_SCRATCH& = 0 OR APRON_RENDER_SCRATCH& >= -1 THEN
+                            APRON_RENDER_SCRATCH& = _NEWIMAGE(SCRN.canvasW&, SCRN.canvasH&, 32)
+                        END IF
+                        IF APRON_RENDER_SCRATCH& < -1 THEN
+                            oldDestApron& = _DEST
+                            _DEST APRON_RENDER_SCRATCH&
+                            _DONTBLEND APRON_RENDER_SCRATCH&
+                            CLS , _RGBA32(0, 0, 0, 0)
+                            _PUTIMAGE (0, 0)-(SCRN.canvasW& - 1, SCRN.canvasH& - 1), layerRenderSource&, APRON_RENDER_SCRATCH&, (scrAW%, scrAH%)-(scrAW% + SCRN.canvasW& - 1, scrAH% + SCRN.canvasH& - 1)
+                            _BLEND APRON_RENDER_SCRATCH&
+                            _DEST oldDestApron&
+                            layerRenderSource& = APRON_RENDER_SCRATCH&
+                        END IF
+                    ELSE
+                        ' Static source — cache per-layer; re-extract only when content changes.
+                        IF LAYERS(layerFound%).apronCacheImg& = 0 OR LAYERS(layerFound%).apronCacheImg& >= -1 THEN
+                            LAYERS(layerFound%).apronCacheImg& = _NEWIMAGE(SCRN.canvasW&, SCRN.canvasH&, 32)
+                            LAYERS(layerFound%).apronCacheValid% = FALSE
+                        END IF
+                        IF LAYERS(layerFound%).apronCacheImg& < -1 THEN
+                            IF NOT LAYERS(layerFound%).apronCacheValid% OR LAYERS(layerFound%).contentDirty% THEN
+                                oldDestApron& = _DEST
+                                _DEST LAYERS(layerFound%).apronCacheImg&
+                                _DONTBLEND LAYERS(layerFound%).apronCacheImg&
+                                CLS , _RGBA32(0, 0, 0, 0)
+                                _PUTIMAGE (0, 0)-(SCRN.canvasW& - 1, SCRN.canvasH& - 1), layerRenderSource&, LAYERS(layerFound%).apronCacheImg&, (scrAW%, scrAH%)-(scrAW% + SCRN.canvasW& - 1, scrAH% + SCRN.canvasH& - 1)
+                                _BLEND LAYERS(layerFound%).apronCacheImg&
+                                _DEST oldDestApron&
+                                LAYERS(layerFound%).apronCacheValid% = TRUE
+                                ' If opacity path won't run, it won't clear contentDirty% — clear it
+                                ' here so we don't keep re-extracting forever for opaque layers.
+                                IF LAYERS(layerFound%).opacity% = 255 THEN
+                                    LAYERS(layerFound%).contentDirty% = FALSE
+                                END IF
+                            END IF
+                            layerRenderSource& = LAYERS(layerFound%).apronCacheImg&
+                        END IF
+                    END IF
+                END IF
                 DIM opacityImg    AS LONG
                 DIM layerOpacityI AS INTEGER
                 layerOpacityI% = LAYERS(layerFound%).opacity%

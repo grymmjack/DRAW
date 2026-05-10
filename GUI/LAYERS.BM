@@ -37,6 +37,10 @@ SUB LAYERS_init ()
         LAYERS(i%).parentGroupIdx%  = 0
         LAYERS(i%).collapsed%       = FALSE
         LAYERS(i%).passThrough%     = FALSE
+        LAYERS(i%).apronW%          = 0
+        LAYERS(i%).apronH%          = 0
+        LAYERS(i%).apronCacheImg&   = 0
+        LAYERS(i%).apronCacheValid% = FALSE
     NEXT i%
     
     ' Initialize panel state
@@ -185,6 +189,8 @@ FUNCTION LAYERS_new% ()
     LAYERS(newIndex%).imgWidth%  = SCRN.canvasW&
     LAYERS(newIndex%).imgHeight% = SCRN.canvasH&
     LAYERS(newIndex%).imgHandle& = _NEWIMAGE(SCRN.canvasW&, SCRN.canvasH&, 32)
+    LAYERS(newIndex%).apronW%    = 0
+    LAYERS(newIndex%).apronH%    = 0
     IF LAYERS(newIndex%).imgHandle& >= -1 THEN
         _LOGERROR "LAYERS_new: _NEWIMAGE failed for layer slot " + STR$(newIndex%) + " (handle=" + STR$(LAYERS(newIndex%).imgHandle&) + ")"
         LAYERS(newIndex%).imgHandle& = 0
@@ -396,6 +402,10 @@ SUB LAYERS_delete (layerIndex AS INTEGER)
     IF LAYERS(delSlot%).opacityCacheImg& < -1 THEN
         _FREEIMAGE LAYERS(delSlot%).opacityCacheImg&
     END IF
+    ' Free apron extraction cache
+    IF LAYERS(delSlot%).apronCacheImg& < -1 THEN
+        _FREEIMAGE LAYERS(delSlot%).apronCacheImg&
+    END IF
     
     ' Clear the slot
     LAYERS(delSlot%).historyId&       = 0
@@ -416,6 +426,10 @@ SUB LAYERS_delete (layerIndex AS INTEGER)
     LAYERS(delSlot%).parentGroupIdx%  = 0
     LAYERS(delSlot%).collapsed%       = FALSE
     LAYERS(delSlot%).passThrough%     = FALSE
+    LAYERS(delSlot%).apronW%          = 0
+    LAYERS(delSlot%).apronH%          = 0
+    LAYERS(delSlot%).apronCacheImg&   = 0
+    LAYERS(delSlot%).apronCacheValid% = FALSE
     
     LAYER_COUNT% = LAYER_COUNT% - 1
     ' Adjust zIndex of layers above the deleted one
@@ -603,6 +617,8 @@ SUB LAYERS_duplicate (layerIndex AS INTEGER)
             LAYERS(dDst%).collapsed%    = LAYERS(dSrc%).collapsed%
             LAYERS(dDst%).passThrough%  = LAYERS(dSrc%).passThrough%
             LAYERS(dDst%).textDataIdx%  = 0
+            LAYERS(dDst%).apronW%       = LAYERS(dSrc%).apronW%
+            LAYERS(dDst%).apronH%       = LAYERS(dSrc%).apronH%
 
             ' Remap parent pointer: if original parent is in the duplication set, point to new copy
             IF LAYERS(dSrc%).parentGroupIdx% > 0 AND LAYERS(dSrc%).parentGroupIdx% < = MAX_LAYERS THEN
@@ -710,6 +726,8 @@ SUB LAYERS_duplicate (layerIndex AS INTEGER)
     LAYERS(newIndex%).contentDirty%   = TRUE ' New pixel data needs opacity cache build
     LAYERS(newIndex%).layerType%      = LAYERS(layerIndex%).layerType%
     LAYERS(newIndex%).parentGroupIdx% = LAYERS(layerIndex%).parentGroupIdx%
+    LAYERS(newIndex%).apronW%         = LAYERS(layerIndex%).apronW%
+    LAYERS(newIndex%).apronH%         = LAYERS(layerIndex%).apronH%
 
     ' Duplicate text layer data if source is a text layer
     IF LAYERS(layerIndex%).layerType% = LAYER_TYPE_TEXT THEN
@@ -1878,19 +1896,36 @@ FUNCTION LAYERS_flatten& ()
     _DEST oldDest&
     
     ' Composite visible layers bottom-to-top by zIndex
+    DIM srcImg AS LONG, apronTmp AS LONG, oldSrc AS LONG, sx AS INTEGER, sy AS INTEGER
     FOR z% = 1 TO LAYER_COUNT%
         FOR i% = 1 TO MAX_LAYERS
             IF LAYERS(i%).imgHandle& <> 0 AND LAYERS(i%).visible% AND LAYERS(i%).zIndex% = z% THEN
+                ' APRON: extract canvas region into a compact temp if layer is extended.
+                apronTmp& = 0
+                IF LAYERS(i%).apronW% > 0 OR LAYERS(i%).apronH% > 0 THEN
+                    apronTmp& = _NEWIMAGE(SCRN.canvasW&, SCRN.canvasH&, 32)
+                    oldSrc& = _SOURCE
+                    _SOURCE LAYERS(i%).imgHandle&
+                    DIM olD AS LONG: olD& = _DEST: _DEST apronTmp&
+                    sx% = LAYERS(i%).apronW%
+                    sy% = LAYERS(i%).apronH%
+                    _PUTIMAGE (0, 0)-(SCRN.canvasW& - 1, SCRN.canvasH& - 1), LAYERS(i%).imgHandle&, apronTmp&, (sx%, sy%)-(sx% + SCRN.canvasW& - 1, sy% + SCRN.canvasH& - 1)
+                    _DEST olD&
+                    _SOURCE oldSrc&
+                    srcImg& = apronTmp&
+                ELSE
+                    srcImg& = LAYERS(i%).imgHandle&
+                END IF
                 IF LAYERS(i%).blendMode% <> BLEND_NORMAL THEN
                     ' Non-Normal blend: use per-pixel blend composite
-                    LAYER_blend_composite result&, LAYERS(i%).imgHandle&, LAYERS(i%).blendMode%, LAYERS(i%).opacity%
+                    LAYER_blend_composite result&, srcImg&, LAYERS(i%).blendMode%, LAYERS(i%).opacity%
                 ELSE
                     ' Normal blend: standard alpha composite via _PUTIMAGE
                     oldDest& = _DEST
                     _DEST result&
                     IF LAYERS(i%).opacity% < 255 THEN
                         ' Scale alpha per-pixel (not _SETALPHA which overwrites transparent pixels)
-                        tempImg& = _COPYIMAGE(LAYERS(i%).imgHandle&, 32)
+                        tempImg& = _COPYIMAGE(srcImg&, 32)
                         DIM flatMem  AS _MEM
                         DIM flatOff  AS _OFFSET
                         DIM flatPix  AS _UNSIGNED LONG
@@ -1909,10 +1944,11 @@ FUNCTION LAYERS_flatten& ()
                         _PUTIMAGE , tempImg&
                         IF tempImg& < -1 THEN _FREEIMAGE tempImg&
                     ELSE
-                        _PUTIMAGE , LAYERS(i%).imgHandle&
+                        _PUTIMAGE , srcImg&
                     END IF
                     _DEST oldDest&
                 END IF
+                IF apronTmp& < -1 THEN _FREEIMAGE apronTmp&
                 EXIT FOR
             END IF
         NEXT i%
@@ -4199,19 +4235,25 @@ SUB LAYER_select_non_transparent (layerIdx AS INTEGER)
     DIM mask_color  AS _UNSIGNED LONG
     DIM pixel_color AS _UNSIGNED LONG
     DIM found_any   AS INTEGER
-    
+    DIM aW          AS INTEGER, aH AS INTEGER
+
     ' Validate layer
     IF layerIdx% < 1 OR layerIdx% > MAX_LAYERS THEN EXIT SUB
     imgHandle& = LAYERS(layerIdx%).imgHandle&
     IF imgHandle& = 0 THEN EXIT SUB
-    
+
     old_dest&    = _DEST
     old_source&  = _SOURCE
     mask_color~& = _RGB32(255, 255, 255)
-    
-    w% = _WIDTH(imgHandle&)
-    h% = _HEIGHT(imgHandle&)
-    
+
+    ' APRON: scan only the canvas region (offset by apronW/apronH) and produce
+    ' a canvas-sized mask in canvas coordinates. Apron pixels are intentionally
+    ' excluded — selection is always defined in canvas space.
+    aW% = LAYERS(layerIdx%).apronW%
+    aH% = LAYERS(layerIdx%).apronH%
+    w%  = SCRN.canvasW&
+    h%  = SCRN.canvasH&
+
     ' Clear any existing selection
     MARQUEE_reset
     MAGIC_WAND_reset
@@ -4219,28 +4261,28 @@ SUB LAYER_select_non_transparent (layerIdx AS INTEGER)
         _FREEIMAGE MARQUEE.SELECTION_MASK
         MARQUEE.SELECTION_MASK = 0
     END IF
-    
-    ' Create new selection mask
+
+    ' Create new selection mask (canvas-sized)
     MARQUEE.SELECTION_MASK = _NEWIMAGE(w%, h%, 32)
     IF MARQUEE.SELECTION_MASK >= -1 THEN
         _DEST old_dest&
         _SOURCE old_source&
         EXIT SUB
     END IF
-    
+
     ' Clear mask to transparent
     _DEST MARQUEE.SELECTION_MASK
     CLS , _RGBA32(0, 0, 0, 0)
     _DONTBLEND MARQUEE.SELECTION_MASK
-    
-    ' Scan layer image and mark non-transparent pixels
+
+    ' Scan layer image (canvas region only) and mark non-transparent pixels
     _SOURCE imgHandle&
     minX%      = w%: minY% = h%: maxX% = 0: maxY% = 0
     found_any% = FALSE
-    
+
     FOR py% = 0 TO h% - 1
         FOR px% = 0 TO w% - 1
-            pixel_color~& = POINT(px%, py%)
+            pixel_color~& = POINT(px% + aW%, py% + aH%)
             IF _ALPHA32(pixel_color~&) > 0 THEN
                 _DEST MARQUEE.SELECTION_MASK
                 PSET (px%, py%), mask_color~&
@@ -4253,7 +4295,7 @@ SUB LAYER_select_non_transparent (layerIdx AS INTEGER)
             END IF
         NEXT px%
     NEXT py%
-    
+
     _BLEND MARQUEE.SELECTION_MASK
     
     IF found_any% THEN
@@ -5108,6 +5150,8 @@ FUNCTION LAYERS_new_group% ()
     LAYERS(newIndex%).historyId&    = LAYERS_alloc_history_id&
     LAYERS(newIndex%).imgWidth%     = 1
     LAYERS(newIndex%).imgHeight%    = 1
+    LAYERS(newIndex%).apronW%       = 0
+    LAYERS(newIndex%).apronH%       = 0
     LAYERS(newIndex%).zIndex%       = newZ%
     LAYERS(newIndex%).visible%      = TRUE
     LAYERS(newIndex%).isSelected%   = FALSE
@@ -5900,6 +5944,8 @@ SUB LAYERS_merge_group (groupIdx AS INTEGER)
         LAYERS(newIdx%).imgHandle&    = tempImg&
         LAYERS(newIdx%).imgWidth%     = _WIDTH(tempImg&)
         LAYERS(newIdx%).imgHeight%    = _HEIGHT(tempImg&)
+        LAYERS(newIdx%).apronW%       = 0
+        LAYERS(newIdx%).apronH%       = 0
         LAYERS(newIdx%).name          = grpName$
         LAYERS(newIdx%).contentDirty% = TRUE
         ' Inherit group's blend mode and opacity
@@ -6464,4 +6510,226 @@ SUB LAYER_PANEL_ctx_menu_activate (actionValue AS INTEGER)
     IF actionValue% > 0 THEN
         CMD_execute_action actionValue%
     END IF
+END SUB
+
+
+' ===========================================================================
+' APRON SUPPORT — Hybrid lazy-promote model
+' ===========================================================================
+' A layer is "compact" while LAYERS(i%).apronW%/apronH% are 0 (default).
+' When content needs to live off-canvas (Move/Transform past edge, paint past
+' edge), the layer is promoted to an apron-extended buffer of size
+'   (canvasW + 2*apronW) x (canvasH + 2*apronH)
+' Canvas-coord (cx,cy) maps to buffer-coord (cx + apronW, cy + apronH).
+' Apron pixels are session-only — culled on save (DRW + all export formats).
+' ===========================================================================
+
+
+''
+' Recompute global APRON_W%/APRON_H% from CFG. Called whenever the canvas
+' dimensions change (new doc, file load, canvas resize) or when the user
+' toggles APRON_ENABLED / changes APRON_SIZE_RATIO at runtime.
+'
+' This sets the GLOBAL default apron size used when promoting NEW layers.
+' Existing extended layers keep their own apronW/apronH until rebuilt.
+'
+SUB APRON_recompute_global_dims ()
+    IF NOT CFG.APRON_ENABLED% THEN
+        APRON_W% = 0
+        APRON_H% = 0
+        EXIT SUB
+    END IF
+    DIM r AS SINGLE
+    r! = CFG.APRON_SIZE_RATIO!
+    IF r! < 0.0 THEN r! = 0.0
+    IF r! > 2.0 THEN r! = 2.0
+    APRON_W% = INT(SCRN.canvasW& * r!)
+    APRON_H% = INT(SCRN.canvasH& * r!)
+    IF APRON_W% < 0 THEN APRON_W% = 0
+    IF APRON_H% < 0 THEN APRON_H% = 0
+END SUB
+
+
+''
+' Convert canvas X coordinate to layer-buffer X coordinate for the given
+' layer. For a compact layer (apronW% = 0) this is a passthrough.
+' For an extended layer, it offsets by the layer's apronW%.
+'
+FUNCTION LAYERS_canvas_to_buf_x% (canvasX AS INTEGER, layerIdx AS INTEGER)
+    LAYERS_canvas_to_buf_x% = canvasX% + LAYERS(layerIdx%).apronW%
+END FUNCTION
+
+
+''
+' Convert canvas Y coordinate to layer-buffer Y coordinate for the given
+' layer. Mirror of LAYERS_canvas_to_buf_x%.
+'
+FUNCTION LAYERS_canvas_to_buf_y% (canvasY AS INTEGER, layerIdx AS INTEGER)
+    LAYERS_canvas_to_buf_y% = canvasY% + LAYERS(layerIdx%).apronH%
+END FUNCTION
+
+
+''
+' TRUE if the given layer has been promoted to an apron-extended buffer.
+'
+FUNCTION LAYERS_is_extended% (layerIdx AS INTEGER)
+    IF layerIdx% < 1 OR layerIdx% > MAX_LAYERS THEN
+        LAYERS_is_extended% = FALSE
+        EXIT FUNCTION
+    END IF
+    LAYERS_is_extended% = (LAYERS(layerIdx%).apronW% > 0 OR LAYERS(layerIdx%).apronH% > 0)
+END FUNCTION
+
+
+''
+' Promote a compact layer to an apron-extended buffer.
+' Allocates a new image of size (canvasW + 2*APRON_W, canvasH + 2*APRON_H),
+' clears it transparent, copies existing canvas content to (APRON_W, APRON_H),
+' frees the old image and any opacity cache, and updates layer fields.
+'
+' No-op cases:
+'   - Apron disabled (APRON_W = 0 AND APRON_H = 0)
+'   - Layer already extended (apronW > 0 OR apronH > 0)
+'   - Group/folder sentinel (layerType = LAYER_TYPE_GROUP)
+'   - Invalid layer index or null image handle
+'
+SUB LAYERS_promote_to_extended (layerIdx AS INTEGER)
+    IF layerIdx% < 1 OR layerIdx% > MAX_LAYERS THEN EXIT SUB
+    ' Refresh global apron dims so a canvas resize since last promote takes effect.
+    APRON_recompute_global_dims
+    IF APRON_W% = 0 AND APRON_H% = 0 THEN EXIT SUB
+    IF LAYERS(layerIdx%).imgHandle& >= -1 THEN EXIT SUB
+    IF LAYERS(layerIdx%).layerType% = LAYER_TYPE_GROUP THEN EXIT SUB
+    IF LAYERS(layerIdx%).apronW% > 0 OR LAYERS(layerIdx%).apronH% > 0 THEN EXIT SUB
+
+    DIM newW AS LONG, newH AS LONG
+    newW& = SCRN.canvasW& + 2 * APRON_W%
+    newH& = SCRN.canvasH& + 2 * APRON_H%
+
+    DIM newImg AS LONG
+    newImg& = _NEWIMAGE(newW&, newH&, 32)
+    IF newImg& >= -1 THEN EXIT SUB ' allocation failed — leave layer compact
+
+    DIM oldDest AS LONG
+    oldDest& = _DEST
+    _DEST newImg&
+    CLS , _RGBA32(0, 0, 0, 0)
+    _DEST oldDest&
+
+    ' Copy canvas-sized old content into the canvas region of the extended buffer.
+    _PUTIMAGE (APRON_W%, APRON_H%), LAYERS(layerIdx%).imgHandle&, newImg&
+
+    ' Swap in new image, free old.
+    _FREEIMAGE LAYERS(layerIdx%).imgHandle&
+    LAYERS(layerIdx%).imgHandle&    = newImg&
+    LAYERS(layerIdx%).imgWidth%     = newW&
+    LAYERS(layerIdx%).imgHeight%    = newH&
+    LAYERS(layerIdx%).apronW%       = APRON_W%
+    LAYERS(layerIdx%).apronH%       = APRON_H%
+    LAYERS(layerIdx%).contentDirty% = TRUE
+
+    ' Invalidate opacity cache — its size no longer matches.
+    IF LAYERS(layerIdx%).opacityCacheImg& < -1 THEN
+        _FREEIMAGE LAYERS(layerIdx%).opacityCacheImg&
+    END IF
+    LAYERS(layerIdx%).opacityCacheImg& = 0
+
+    ' Invalidate apron extraction cache — size no longer matches (or stale content).
+    IF LAYERS(layerIdx%).apronCacheImg& < -1 THEN
+        _FREEIMAGE LAYERS(layerIdx%).apronCacheImg&
+    END IF
+    LAYERS(layerIdx%).apronCacheImg&     = 0
+    LAYERS(layerIdx%).apronCacheValid%   = FALSE
+END SUB
+
+
+''
+' Demote an apron-extended layer back to a compact (canvas-sized) buffer.
+' Allocates a new canvas-sized image, copies only the canvas-region pixels
+' from the extended buffer (apronW, apronH)-(apronW+canvasW-1, apronH+canvasH-1),
+' discarding any pixels that lived in the apron border.
+'
+' No-op cases:
+'   - Layer already compact (apronW = 0 AND apronH = 0)
+'   - Group/folder sentinel
+'   - Invalid layer index or null image handle
+'
+SUB LAYERS_demote_to_compact (layerIdx AS INTEGER)
+    IF layerIdx% < 1 OR layerIdx% > MAX_LAYERS THEN EXIT SUB
+    IF LAYERS(layerIdx%).imgHandle& >= -1 THEN EXIT SUB
+    IF LAYERS(layerIdx%).layerType% = LAYER_TYPE_GROUP THEN EXIT SUB
+    IF LAYERS(layerIdx%).apronW% = 0 AND LAYERS(layerIdx%).apronH% = 0 THEN EXIT SUB
+
+    DIM aW AS INTEGER, aH AS INTEGER
+    aW% = LAYERS(layerIdx%).apronW%
+    aH% = LAYERS(layerIdx%).apronH%
+
+    DIM newImg AS LONG
+    newImg& = _NEWIMAGE(SCRN.canvasW&, SCRN.canvasH&, 32)
+    IF newImg& >= -1 THEN EXIT SUB
+
+    DIM oldDest AS LONG
+    oldDest& = _DEST
+    _DEST newImg&
+    CLS , _RGBA32(0, 0, 0, 0)
+    _DEST oldDest&
+
+    ' Copy the canvas region from the extended buffer.
+    _PUTIMAGE (0, 0)-(SCRN.canvasW& - 1, SCRN.canvasH& - 1), LAYERS(layerIdx%).imgHandle&, newImg&, (aW%, aH%)-(aW% + SCRN.canvasW& - 1, aH% + SCRN.canvasH& - 1)
+
+    _FREEIMAGE LAYERS(layerIdx%).imgHandle&
+    LAYERS(layerIdx%).imgHandle&    = newImg&
+    LAYERS(layerIdx%).imgWidth%     = SCRN.canvasW&
+    LAYERS(layerIdx%).imgHeight%    = SCRN.canvasH&
+    LAYERS(layerIdx%).apronW%       = 0
+    LAYERS(layerIdx%).apronH%       = 0
+    LAYERS(layerIdx%).contentDirty% = TRUE
+
+    IF LAYERS(layerIdx%).opacityCacheImg& < -1 THEN
+        _FREEIMAGE LAYERS(layerIdx%).opacityCacheImg&
+    END IF
+    LAYERS(layerIdx%).opacityCacheImg& = 0
+
+    ' Invalidate apron extraction cache — content (and size) just changed.
+    IF LAYERS(layerIdx%).apronCacheImg& < -1 THEN
+        _FREEIMAGE LAYERS(layerIdx%).apronCacheImg&
+    END IF
+    LAYERS(layerIdx%).apronCacheImg&     = 0
+    LAYERS(layerIdx%).apronCacheValid%   = FALSE
+END SUB
+
+
+''
+' Promote ALL non-group layers to apron-extended buffers using the current
+' global APRON_W%/APRON_H%. Used when toggling APRON_ENABLED on or after a
+' canvas resize that changes apron dims.
+'
+SUB LAYERS_promote_all ()
+    IF APRON_W% = 0 AND APRON_H% = 0 THEN EXIT SUB
+    DIM i AS INTEGER
+    FOR i% = 1 TO MAX_LAYERS
+        IF LAYERS(i%).imgHandle& < -1 THEN
+            IF LAYERS(i%).layerType% <> LAYER_TYPE_GROUP THEN
+                IF LAYERS(i%).apronW% = 0 AND LAYERS(i%).apronH% = 0 THEN
+                    LAYERS_promote_to_extended i%
+                END IF
+            END IF
+        END IF
+    NEXT i%
+END SUB
+
+
+''
+' Demote ALL extended layers back to compact buffers. Used when disabling
+' apron, before save (cull-on-save), or before canvas resize.
+'
+SUB LAYERS_demote_all ()
+    DIM i AS INTEGER
+    FOR i% = 1 TO MAX_LAYERS
+        IF LAYERS(i%).imgHandle& < -1 THEN
+            IF LAYERS(i%).apronW% > 0 OR LAYERS(i%).apronH% > 0 THEN
+                LAYERS_demote_to_compact i%
+            END IF
+        END IF
+    NEXT i%
 END SUB
