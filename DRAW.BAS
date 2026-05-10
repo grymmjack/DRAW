@@ -20,14 +20,14 @@ THEME_load
 $EXEICON:'./ASSETS/ICONS/icon.ico'
 
 ' === Splash screen — show ASAP with fade-in while rest of startup loads ===
-DIM splashImg   AS LONG, splashStart AS DOUBLE
-DIM splashDstW  AS LONG, splashDstH AS LONG
-DIM splashX     AS LONG, splashY AS LONG
-DIM splashAlpha AS INTEGER
-DIM splashBg    AS _UNSIGNED LONG, splashBgR AS INTEGER, splashBgG AS INTEGER, splashBgB AS INTEGER
+DIM splashImg     AS LONG, splashStart AS DOUBLE
+DIM splashDstW    AS LONG, splashDstH AS LONG
+DIM splashX       AS LONG, splashY AS LONG
+DIM splashAlpha   AS INTEGER
+DIM splashBg      AS _UNSIGNED LONG, splashBgR AS INTEGER, splashBgG AS INTEGER, splashBgB AS INTEGER
 splashImg& = _LOADIMAGE("ASSETS/THEMES/" + _TRIM$(CFG.THEME$) + "/splash.png", 32)
 DIM splashVerFont AS LONG: splashVerFont& = 0
-DIM splashVerStr AS STRING
+DIM splashVerStr  AS STRING
 DIM splashVerDstX AS LONG, splashVerDstY AS LONG
 IF splashImg& < -1 THEN
     splashBg~& = THEME.SPLASH_BG_COLOR~&
