@@ -5,7 +5,7 @@ DRAW by Rick Christy <grymmjack@gmail.com>
 
 DRAW is a pixel art editor written in QB64PE that can export images as sourcecode
 
-Current release: v1.3.0
+Current release: v1.4.0
 
 ![DRAW GUI from v1.1.0](./GUI.png)
 
@@ -20,6 +20,7 @@ Current release: v1.3.0
 - **Polygon** - Draw outlined or filled multi-point polygons with brush size/shape, angle snapping; filled mode supports custom brush tiled fill and drawer paint modes with interactive Fill Adjustment (`F8`)
 - **Bezier** (`Q`) - Draw cubic bezier curves: click to drop corner anchors, click+drag to drop smooth anchors with shaped handles; `H` toggles handle visualisation while editing, `Backspace` removes the last anchor, `Enter` commits, `Escape` cancels
 - **Smart Shapes** - Parametric shape group accessed via the toolbar Smart Shapes flyout (long-press the toolbar button to choose a sub-tool). Live drag-time arrow-key tweaks for every parameter. Sub-tools: **Polygon** (n-gon / star with adjustable point depth), **Pie / Donut** (with hole percentage and segment count), **Rounded Rect**, **Tab**, **Pill**, **Pac-Man** (mouth-angle), **3D Dice** (D4/D6/D8/D10/D12/D20 with wireframe or solid mode — left-click for wireframe in FG colour, right-click for solid mode that fills faces with **BG colour** and overlays the wireframe in **FG colour**), **Bevel Rect**, **Arrow** (adjustable stem), and **3D Text** (extruded text with live shading)
+- **Expanded Smart Shapes** — New sub-tools, live drag-time arrow-key tweaks for every parameter, 3D Dice (D4/D6/D8/D10/D12/D20), and 3D Text (extruded, shaded, font-selectable) with improved snapping and tooltips.
 
 **Hold SPACE while dragging any shape tool (Line, Rectangle, Ellipse, Polygon, Smart Shapes)** to temporarily reposition the in-progress shape with the mouse, instead of resizing it. Release SPACE to resume resizing from the new anchor. Grid snap is honored. (Photoshop-style move-during-drag.)
 
