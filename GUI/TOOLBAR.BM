@@ -99,6 +99,25 @@ SUB TOOLBAR_render(xPos%, btnRangeStart%, btnRangeEnd%)
                 display_handle& = GUI_TB(btnIdx%).iHndAlt&
             END IF
         END IF
+
+        ' Swap Smart Shapes parent icon to currently active sub-shape (session-only)
+        IF btnIdx% = TB_SMART_SHAPES THEN
+            DIM ssActiveIcon AS STRING
+            ssActiveIcon$ = SMART_SHAPES_active_icon$
+            IF ssActiveIcon$ <> _TRIM$(GUI_TB(btnIdx%).iSrc$) THEN
+                ' Lazy-load alt icon for the currently selected child
+                DIM ssDir                  AS STRING
+                ssDir$ = "ASSETS/THEMES/" + _TRIM$(CFG.THEME$) + "/IMAGES/TOOLBOX/"
+                STATIC ss_last_loaded_icon AS STRING
+                STATIC ss_last_loaded_hnd  AS LONG
+                IF ssActiveIcon$ <> ss_last_loaded_icon$ THEN
+                    IF ss_last_loaded_hnd& < -1 THEN _FREEIMAGE ss_last_loaded_hnd&
+                    ss_last_loaded_hnd&  = _LOADIMAGE(ssDir$ + ssActiveIcon$, 32)
+                    ss_last_loaded_icon$ = ssActiveIcon$
+                END IF
+                IF ss_last_loaded_hnd& < -1 THEN display_handle& = ss_last_loaded_hnd&
+            END IF
+        END IF
         
         ' Only draw if we have a valid handle
         IF display_handle& < -1 THEN
@@ -116,6 +135,10 @@ SUB TOOLBAR_render(xPos%, btnRangeStart%, btnRangeEnd%)
         
         ' Check if this button's tool is active
         IF TOOLBAR_BUTTON_TO_TOOL(i%) = CURRENT_TOOL% THEN
+            is_active% = TRUE
+        END IF
+        ' Smart Shapes button highlights when any of its sub-tools is active
+        IF TOOLBAR_BUTTON_TO_TOOL(i%) = TOOL_SMART_SHAPES AND SMART_SHAPES_is_active% THEN
             is_active% = TRUE
         END IF
         IF TOOLBAR_BUTTON_TO_TOOL(i%) = TOOL_OPEN AND BROWSER.visible% THEN
@@ -278,13 +301,36 @@ FUNCTION TOOLBAR_handle_click%(mouseX%, mouseY%)
                 EXIT FUNCTION
             END IF
             
-            ' Help button toggles command palette
-            IF tool_id% = TOOL_HELP THEN
-                SOUND_play SND_TOOL_SELECT
-                IF CMD_PALETTE.visible THEN CMD_hide ELSE CMD_show_palette
-                MOUSE.UI_CHROME_CLICKED% = TRUE
-                TOOLBAR_handle_click%    = TRUE
-                EXIT FUNCTION
+            ' Smart Shapes — open the sub-tool flyout AND immediately activate
+            ' the last-chosen sub-shape. A quick click selects it (release with
+            ' no hover keeps the activation); hold-and-drag over a different
+            ' icon changes selection on release.
+            IF tool_id% = TOOL_SMART_SHAPES THEN
+                IF SMART_SHAPES_GROUP_IDX >= 0 THEN
+                    DIM ssLastIdx AS INTEGER
+                    ssLastIdx% = SUBTOOL_GROUPS(SMART_SHAPES_GROUP_IDX%).lastChildIdx
+                    IF ssLastIdx% < 0 THEN ssLastIdx% = 0
+                    IF ssLastIdx% < SUBTOOL_GROUPS(SMART_SHAPES_GROUP_IDX%).childCount THEN
+                        DIM ssTool AS INTEGER
+                        ssTool% = SUBTOOL_GROUP_CHILDREN(SMART_SHAPES_GROUP_IDX%, ssLastIdx%).toolConst
+                        IF CURRENT_TOOL% <> ssTool% THEN
+                            ' Cancel crop / reset move state, mirroring the normal
+                            ' tool-switch path below.
+                            IF CROP.STATE = CROP_STATE_ACTIVE THEN CROP_cancel
+                            IF CURRENT_TOOL% = TOOL_MOVE AND MOVE.ACTIVE THEN MOVE_reset
+                            PREVIOUS_TOOL% = CURRENT_TOOL%
+                            CURRENT_TOOL%  = ssTool%
+                            TOOLS_reset_all FALSE
+                            IF CURRENT_TOOL% <> TOOL_FILL THEN FILL_deactivate
+                            IF CURRENT_TOOL% = TOOL_PICKER THEN PICKER_activate ELSE PICKER_deactivate
+                        END IF
+                    END IF
+                    SUBTOOL_FLYOUT_open SMART_SHAPES_GROUP_IDX%
+                    SOUND_play SND_TOOL_SELECT
+                    MOUSE.UI_CHROME_CLICKED% = TRUE
+                    TOOLBAR_handle_click%    = TRUE
+                    EXIT FUNCTION
+                END IF
             END IF
             
             ' Crop button enters crop mode

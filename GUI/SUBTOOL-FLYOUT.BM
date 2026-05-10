@@ -1,0 +1,359 @@
+''
+' DRAW - GUI/SUBTOOL-FLYOUT.BM
+' =============================================================================
+' Reusable toolbar sub-tool flyout. See SUBTOOL-FLYOUT.BI for overview.
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+''
+' Register a new flyout group anchored to a toolbar button.
+' @param parentTb INTEGER  TB_* constant of the parent toolbar button
+' @return INTEGER          New group index (or -1 on failure)
+'
+FUNCTION SUBTOOL_register_group% (parentTb AS INTEGER)
+    IF SUBTOOL_GROUP_COUNT >= SUBTOOL_MAX_GROUPS THEN
+        SUBTOOL_register_group% = -1
+        EXIT FUNCTION
+    END IF
+    DIM gIdx AS INTEGER
+    gIdx%                              = SUBTOOL_GROUP_COUNT
+    SUBTOOL_GROUPS(gIdx%).parentTb     = parentTb%
+    SUBTOOL_GROUPS(gIdx%).childCount   = 0
+    SUBTOOL_GROUPS(gIdx%).lastChildIdx = -1
+    SUBTOOL_GROUP_COUNT = SUBTOOL_GROUP_COUNT + 1
+    SUBTOOL_register_group% = gIdx%
+END FUNCTION
+
+''
+' Add a child entry to a flyout group.
+' @param groupIdx INTEGER  Group index returned by SUBTOOL_register_group
+' @param toolConst INTEGER TOOL_* constant assigned to the child
+' @param iSrc STRING       Icon PNG filename (in theme TOOLBOX dir)
+' @param statusName STRING Short status-bar name
+'
+SUB SUBTOOL_register_child (groupIdx AS INTEGER, toolConst AS INTEGER, iSrc AS STRING, statusName AS STRING)
+    IF groupIdx% < 0 OR groupIdx% >= SUBTOOL_GROUP_COUNT THEN EXIT SUB
+    DIM cIdx AS INTEGER
+    cIdx% = SUBTOOL_GROUPS(groupIdx%).childCount
+    IF cIdx% >= SUBTOOL_MAX_CHILDREN THEN EXIT SUB
+    SUBTOOL_GROUP_CHILDREN(groupIdx%, cIdx%).toolConst  = toolConst%
+    SUBTOOL_GROUP_CHILDREN(groupIdx%, cIdx%).iSrc       = iSrc$
+    SUBTOOL_GROUP_CHILDREN(groupIdx%, cIdx%).iconHnd    = 0
+    SUBTOOL_GROUP_CHILDREN(groupIdx%, cIdx%).statusName = statusName$
+    SUBTOOL_GROUPS(groupIdx%).childCount                = cIdx% + 1
+END SUB
+
+''
+' Compute scaled flyout geometry (anchor + button size + wrap point) for a group.
+' Anchors the strip on the side of the toolbar facing the canvas.
+' Wraps to a 2nd row if total width exceeds available canvas width.
+'
+SUB SUBTOOL_FLYOUT_compute_geometry (groupIdx AS INTEGER)
+    DIM scale AS INTEGER
+    scale% = CFG.TOOLBAR_SCALE%
+    IF scale% < 1 THEN scale% = 1
+    IF scale% > 4 THEN scale% = 4
+    SUBTOOL_FLYOUT.BTN_W = TB_BTN_W * scale%
+    SUBTOOL_FLYOUT.BTN_H = TB_BTN_H * scale%
+    SUBTOOL_FLYOUT.PAD   = TB_BTN_PADDING * scale%
+
+    DIM parentTb AS INTEGER
+    parentTb% = SUBTOOL_GROUPS(groupIdx%).parentTb
+    DIM px       AS INTEGER, py AS INTEGER
+    px% = GUI_TB(parentTb%).x%
+    py% = GUI_TB(parentTb%).y%
+
+    ' Decide expand direction: face the canvas. Toolbox can dock LEFT or RIGHT.
+    DIM expandRight AS INTEGER
+    IF UCASE$(_TRIM$(CFG.TOOLBOX_DOCK_EDGE)) = "RIGHT" THEN
+        expandRight% = FALSE
+    ELSE
+        expandRight% = TRUE
+    END IF
+    SUBTOOL_FLYOUT.EXPAND_RIGHT = expandRight%
+
+    DIM totalChildren AS INTEGER
+    totalChildren% = SUBTOOL_GROUPS(groupIdx%).childCount
+
+    ' Available width on the side facing the canvas
+    DIM availW AS INTEGER
+    IF expandRight% THEN
+        availW% = _WIDTH(SCRN.GUI&) - (px% + SUBTOOL_FLYOUT.BTN_W + SUBTOOL_FLYOUT.PAD)
+    ELSE
+        availW% = px% - SUBTOOL_FLYOUT.PAD
+    END IF
+    IF availW% < SUBTOOL_FLYOUT.BTN_W * 2 THEN availW% = SUBTOOL_FLYOUT.BTN_W * 2
+
+    DIM stride AS INTEGER
+    stride% = SUBTOOL_FLYOUT.BTN_W + SUBTOOL_FLYOUT.PAD
+
+    DIM row1 AS INTEGER
+    row1% = availW% \ stride%
+    IF row1% < 1 THEN row1% = 1
+    IF row1% > totalChildren% THEN row1% = totalChildren%
+    SUBTOOL_FLYOUT.ROW1_COUNT = row1%
+
+    ' Anchor: just past the parent button on the canvas side
+    IF expandRight% THEN
+        SUBTOOL_FLYOUT.ANCHOR_X = px% + SUBTOOL_FLYOUT.BTN_W + SUBTOOL_FLYOUT.PAD
+    ELSE
+        ' Right-edge of strip aligned with left of parent button
+        DIM stripW AS INTEGER
+        stripW%                 = row1% * SUBTOOL_FLYOUT.BTN_W + (row1% - 1) * SUBTOOL_FLYOUT.PAD
+        SUBTOOL_FLYOUT.ANCHOR_X = px% - SUBTOOL_FLYOUT.PAD - stripW%
+        IF SUBTOOL_FLYOUT.ANCHOR_X < 0 THEN SUBTOOL_FLYOUT.ANCHOR_X = 0
+    END IF
+    SUBTOOL_FLYOUT.ANCHOR_Y = py%
+END SUB
+
+''
+' Compute the screen rect of a child button. Returns position via BYREF args.
+' @param childIdx INTEGER  Index into the active group
+' @return INTEGER          TRUE if rect is valid (idx in range)
+'
+FUNCTION SUBTOOL_FLYOUT_child_rect% (childIdx AS INTEGER, outX AS INTEGER, outY AS INTEGER, outW AS INTEGER, outH AS INTEGER)
+    IF NOT SUBTOOL_FLYOUT.ACTIVE THEN
+        SUBTOOL_FLYOUT_child_rect% = FALSE
+        EXIT FUNCTION
+    END IF
+    DIM g      AS INTEGER
+    g% = SUBTOOL_FLYOUT.GROUP_IDX
+    IF g% < 0 OR g% >= SUBTOOL_GROUP_COUNT THEN
+        SUBTOOL_FLYOUT_child_rect% = FALSE
+        EXIT FUNCTION
+    END IF
+    DIM total  AS INTEGER
+    total% = SUBTOOL_GROUPS(g%).childCount
+    IF childIdx% < 0 OR childIdx% >= total% THEN
+        SUBTOOL_FLYOUT_child_rect% = FALSE
+        EXIT FUNCTION
+    END IF
+    DIM row    AS INTEGER, col AS INTEGER
+    DIM stride AS INTEGER
+    stride% = SUBTOOL_FLYOUT.BTN_W + SUBTOOL_FLYOUT.PAD
+    IF childIdx% < SUBTOOL_FLYOUT.ROW1_COUNT THEN
+        row% = 0
+        col% = childIdx%
+    ELSE
+        row% = 1
+        col% = childIdx% - SUBTOOL_FLYOUT.ROW1_COUNT
+    END IF
+    outX%                      = SUBTOOL_FLYOUT.ANCHOR_X + col% * stride%
+    outY%                      = SUBTOOL_FLYOUT.ANCHOR_Y + row% * (SUBTOOL_FLYOUT.BTN_H + SUBTOOL_FLYOUT.PAD)
+    outW%                      = SUBTOOL_FLYOUT.BTN_W
+    outH%                      = SUBTOOL_FLYOUT.BTN_H
+    SUBTOOL_FLYOUT_child_rect% = TRUE
+END FUNCTION
+
+''
+' Hit-test the flyout strip against a screen position. Returns child index
+' under the cursor, or -1 if none.
+'
+FUNCTION SUBTOOL_FLYOUT_hit_test% (rawX AS INTEGER, rawY AS INTEGER)
+    SUBTOOL_FLYOUT_hit_test% = -1
+    IF NOT SUBTOOL_FLYOUT.ACTIVE THEN EXIT FUNCTION
+    DIM g     AS INTEGER
+    g% = SUBTOOL_FLYOUT.GROUP_IDX
+    IF g% < 0 OR g% >= SUBTOOL_GROUP_COUNT THEN EXIT FUNCTION
+    DIM total AS INTEGER, i AS INTEGER
+    DIM cx    AS INTEGER, cy AS INTEGER, cw AS INTEGER, ch AS INTEGER
+    total% = SUBTOOL_GROUPS(g%).childCount
+    FOR i% = 0 TO total% - 1
+        IF SUBTOOL_FLYOUT_child_rect%(i%, cx%, cy%, cw%, ch%) THEN
+            IF rawX% >= cx% AND rawX% < cx% + cw% AND rawY% >= cy% AND rawY% < cy% + ch% THEN
+                SUBTOOL_FLYOUT_hit_test% = i%
+                EXIT FUNCTION
+            END IF
+        END IF
+    NEXT i%
+END FUNCTION
+
+''
+' Open the flyout for a registered group.
+'
+SUB SUBTOOL_FLYOUT_open (groupIdx AS INTEGER)
+    IF groupIdx% < 0 OR groupIdx% >= SUBTOOL_GROUP_COUNT THEN EXIT SUB
+    SUBTOOL_FLYOUT.ACTIVE          = TRUE
+    SUBTOOL_FLYOUT.GROUP_IDX       = groupIdx%
+    SUBTOOL_FLYOUT.HOVER_CHILD_IDX = -1
+    SUBTOOL_FLYOUT_compute_geometry groupIdx%
+    SCENE_DIRTY%      = TRUE
+    GUI_NEEDS_REDRAW% = TRUE
+    FRAME_IDLE%       = FALSE
+END SUB
+
+''
+' Close the flyout (without committing).
+'
+SUB SUBTOOL_FLYOUT_close ()
+    IF NOT SUBTOOL_FLYOUT.ACTIVE THEN EXIT SUB
+    SUBTOOL_FLYOUT.ACTIVE          = FALSE
+    SUBTOOL_FLYOUT.GROUP_IDX       = -1
+    SUBTOOL_FLYOUT.HOVER_CHILD_IDX = -1
+    SCENE_DIRTY%                   = TRUE
+    GUI_NEEDS_REDRAW%              = TRUE
+    FRAME_IDLE%                    = FALSE
+END SUB
+
+''
+' Commit a child selection: switches CURRENT_TOOL%, resets tool state, and closes.
+'
+SUB SUBTOOL_FLYOUT_commit (childIdx AS INTEGER)
+    IF NOT SUBTOOL_FLYOUT.ACTIVE THEN EXIT SUB
+    DIM g         AS INTEGER
+    g% = SUBTOOL_FLYOUT.GROUP_IDX
+    IF g% < 0 OR g% >= SUBTOOL_GROUP_COUNT THEN EXIT SUB
+    IF childIdx% < 0 OR childIdx% >= SUBTOOL_GROUPS(g%).childCount THEN EXIT SUB
+    DIM toolConst AS INTEGER
+    toolConst%                      = SUBTOOL_GROUP_CHILDREN(g%, childIdx%).toolConst
+    SUBTOOL_GROUPS(g%).lastChildIdx = childIdx%
+    PREVIOUS_TOOL%                  = CURRENT_TOOL%
+    CURRENT_TOOL%                   = toolConst%
+    TOOLS_reset_all FALSE
+    SOUND_play SND_TOOL_SELECT
+    SUBTOOL_FLYOUT_close
+END SUB
+
+''
+' Update flyout state from current mouse input. Called every frame while ACTIVE.
+' Tracks hover; on B1 release commits hovered child or cancels.
+'
+SUB SUBTOOL_FLYOUT_handle_input (rawX AS INTEGER, rawY AS INTEGER)
+    IF NOT SUBTOOL_FLYOUT.ACTIVE THEN EXIT SUB
+
+    DIM newHover AS INTEGER
+    newHover% = SUBTOOL_FLYOUT_hit_test%(rawX%, rawY%)
+    IF newHover% <> SUBTOOL_FLYOUT.HOVER_CHILD_IDX THEN
+        SUBTOOL_FLYOUT.HOVER_CHILD_IDX = newHover%
+        FRAME_IDLE%                    = FALSE
+        GUI_NEEDS_REDRAW%              = TRUE
+        SCENE_DIRTY%                   = TRUE
+    END IF
+
+    ' B1 released this frame -> commit or cancel
+    IF NOT MOUSE.B1% AND MOUSE.OLD_B1% THEN
+        IF SUBTOOL_FLYOUT.HOVER_CHILD_IDX >= 0 THEN
+            SUBTOOL_FLYOUT_commit SUBTOOL_FLYOUT.HOVER_CHILD_IDX
+        ELSE
+            SUBTOOL_FLYOUT_close
+        END IF
+    END IF
+
+    ' Right-click while open: cancel
+    IF MOUSE.B2% AND NOT MOUSE.OLD_B2% THEN
+        SUBTOOL_FLYOUT_close
+    END IF
+END SUB
+
+''
+' Look up a child's icon filename for a given group (used by toolbar to render
+' the parent button as the chosen sub-tool icon).
+' Returns "" if no child has been chosen yet.
+'
+FUNCTION SUBTOOL_FLYOUT_active_child_icon$ (groupIdx AS INTEGER)
+    SUBTOOL_FLYOUT_active_child_icon$ = ""
+    IF groupIdx% < 0 OR groupIdx% >= SUBTOOL_GROUP_COUNT THEN EXIT FUNCTION
+    DIM idx AS INTEGER
+    idx% = SUBTOOL_GROUPS(groupIdx%).lastChildIdx
+    IF idx% < 0 OR idx% >= SUBTOOL_GROUPS(groupIdx%).childCount THEN EXIT FUNCTION
+    SUBTOOL_FLYOUT_active_child_icon$ = _TRIM$(SUBTOOL_GROUP_CHILDREN(groupIdx%, idx%).iSrc)
+END FUNCTION
+
+''
+' Set the "last chosen" child index for a group programmatically.
+' Used by keyboard cycling (e.g. pressing 's' to cycle smart shapes).
+'
+SUB SUBTOOL_FLYOUT_set_last_child (groupIdx AS INTEGER, childIdx AS INTEGER)
+    IF groupIdx% < 0 OR groupIdx% >= SUBTOOL_GROUP_COUNT THEN EXIT SUB
+    IF childIdx% < 0 OR childIdx% >= SUBTOOL_GROUPS(groupIdx%).childCount THEN EXIT SUB
+    SUBTOOL_GROUPS(groupIdx%).lastChildIdx = childIdx%
+END SUB
+
+''
+' Find the child index for a tool constant in a group, or -1 if not registered.
+'
+FUNCTION SUBTOOL_FLYOUT_find_child_for_tool% (groupIdx AS INTEGER, toolConst AS INTEGER)
+    SUBTOOL_FLYOUT_find_child_for_tool% = -1
+    IF groupIdx% < 0 OR groupIdx% >= SUBTOOL_GROUP_COUNT THEN EXIT FUNCTION
+    DIM total AS INTEGER, i AS INTEGER
+    total% = SUBTOOL_GROUPS(groupIdx%).childCount
+    FOR i% = 0 TO total% - 1
+        IF SUBTOOL_GROUP_CHILDREN(groupIdx%, i%).toolConst = toolConst% THEN
+            SUBTOOL_FLYOUT_find_child_for_tool% = i%
+            EXIT FUNCTION
+        END IF
+    NEXT i%
+END FUNCTION
+
+''
+' Render the flyout strip onto SCRN.GUI&. Should be called immediately after
+' TOOLBAR_render so the strip overlays the GUI layer at the proper position.
+' Uses the same active-tool overlay/stroke colors as the toolbar.
+'
+SUB SUBTOOL_FLYOUT_render ()
+    IF NOT SUBTOOL_FLYOUT.ACTIVE THEN EXIT SUB
+    DIM g AS INTEGER
+    g% = SUBTOOL_FLYOUT.GROUP_IDX
+    IF g% < 0 OR g% >= SUBTOOL_GROUP_COUNT THEN EXIT SUB
+
+    DIM oldDest AS LONG
+    oldDest& = _DEST
+    _DEST SCRN.GUI&
+
+    DIM total AS INTEGER, i AS INTEGER
+    DIM cx    AS INTEGER, cy AS INTEGER, cw AS INTEGER, ch AS INTEGER
+    total% = SUBTOOL_GROUPS(g%).childCount
+
+    DIM themeImgDir AS STRING
+    themeImgDir$ = "ASSETS/THEMES/" + _TRIM$(CFG.THEME$) + "/IMAGES/TOOLBOX/"
+
+    ' Background panel covering all child rects + a small frame
+    DIM minX AS INTEGER, minY AS INTEGER, maxX AS INTEGER, maxY AS INTEGER
+    minX% = 32767: minY% = 32767: maxX% = -32768: maxY% = -32768
+    FOR i% = 0 TO total% - 1
+        IF SUBTOOL_FLYOUT_child_rect%(i%, cx%, cy%, cw%, ch%) THEN
+            IF cx% < minX% THEN minX% = cx%
+            IF cy% < minY% THEN minY% = cy%
+            IF cx% + cw% - 1 > maxX% THEN maxX% = cx% + cw% - 1
+            IF cy% + ch% - 1 > maxY% THEN maxY% = cy% + ch% - 1
+        END IF
+    NEXT i%
+    IF maxX% > minX% THEN
+        DIM bgPad AS INTEGER
+        bgPad% = SUBTOOL_FLYOUT.PAD
+        IF bgPad% < 1 THEN bgPad% = 1
+        LINE (minX% - bgPad%, minY% - bgPad%)-(maxX% + bgPad%, maxY% + bgPad%), THEME.TOOLBAR_bg~&, BF
+        LINE (minX% - bgPad%, minY% - bgPad%)-(maxX% + bgPad%, maxY% + bgPad%), THEME.TOOLBAR_btn_stroke~&, B
+    END IF
+
+    FOR i% = 0 TO total% - 1
+        IF NOT SUBTOOL_FLYOUT_child_rect%(i%, cx%, cy%, cw%, ch%) THEN GOTO subtool_next_render
+        ' Lazy-load icon
+        IF SUBTOOL_GROUP_CHILDREN(g%, i%).iconHnd = 0 THEN
+            DIM iPath AS STRING
+            iPath$                                 = themeImgDir$ + _TRIM$(SUBTOOL_GROUP_CHILDREN(g%, i%).iSrc)
+            SUBTOOL_GROUP_CHILDREN(g%, i%).iconHnd = _LOADIMAGE(iPath$, 32)
+        END IF
+        DIM ih AS LONG
+        ih& = SUBTOOL_GROUP_CHILDREN(g%, i%).iconHnd
+        IF ih& < -1 THEN
+            _PUTIMAGE (cx%, cy%)-(cx% + cw% - 1, cy% + ch% - 1), ih&, SCRN.GUI&, (0, 0)-(TB_BTN_W - 1, TB_BTN_H - 1)
+        END IF
+        ' Highlight hovered child using the same overlay/stroke as toolbar active indicator
+        IF i% = SUBTOOL_FLYOUT.HOVER_CHILD_IDX THEN
+            DIM bt AS INTEGER
+            bt% = CFG.TOOLBAR_SCALE%
+            IF bt% < 1 THEN bt% = 1
+            LINE (cx%, cy%)-(cx% + cw%, cy% + ch%), THEME.TOOLBAR_btn_overlay~&, BF
+            LINE (cx%, cy%)-(cx% + cw% - 1, cy% + bt% - 1), THEME.TOOLBAR_btn_stroke~&, BF
+            LINE (cx%, cy% + ch% - bt%)-(cx% + cw% - 1, cy% + ch% - 1), THEME.TOOLBAR_btn_stroke~&, BF
+            LINE (cx%, cy% + bt%)-(cx% + bt% - 1, cy% + ch% - bt% - 1), THEME.TOOLBAR_btn_stroke~&, BF
+            LINE (cx% + cw% - bt%, cy% + bt%)-(cx% + cw% - 1, cy% + ch% - bt% - 1), THEME.TOOLBAR_btn_stroke~&, BF
+        END IF
+        subtool_next_render:
+    NEXT i%
+
+    _DEST oldDest&
+END SUB

@@ -1,0 +1,167 @@
+''
+' DRAW - TOOLS/SS-PIE-DONUT.BM
+'
+$INCLUDEONCE
+
+SUB SS_PIE_DONUT_reset ()
+    SS_PIE_DONUT.DRAGGING = FALSE
+END SUB
+
+''
+' Compute geometry helpers: spoke endpoints from inner radius (or center if no hole)
+' to outer radius at angle ang (radians, measured from +X CCW). Returns 4 INTEGERs.
+'
+SUB SS_PIE_DONUT_spoke (cx AS INTEGER, cy AS INTEGER, rxOut AS SINGLE, ryOut AS SINGLE, rxIn AS SINGLE, ryIn AS SINGLE, ang AS SINGLE, x0 AS INTEGER, y0 AS INTEGER, x1 AS INTEGER, y1 AS INTEGER)
+    DIM ca AS SINGLE, sa AS SINGLE
+    ca! = COS(ang!): sa! = SIN(ang!)
+    x0% = INT(cx% + ca! * rxIn! + 0.5)
+    y0% = INT(cy% + sa! * ryIn! + 0.5)
+    x1% = INT(cx% + ca! * rxOut! + 0.5)
+    y1% = INT(cy% + sa! * ryOut! + 0.5)
+END SUB
+
+''
+' Build polygon vertices for a filled donut/pie (outer CCW, inner CW for hole).
+' Used only when SS_PIE_DONUT.FILLED. Returns vertex count.
+'
+FUNCTION SS_PIE_DONUT_build_filled% (px() AS INTEGER, py() AS INTEGER)
+    ' Approximate annulus with N samples per ring.
+    DIM samples AS INTEGER
+    samples% = 64
+    DIM cx      AS INTEGER, cy AS INTEGER
+    DIM rxOut   AS SINGLE, ryOut AS SINGLE, rxIn AS SINGLE, ryIn AS SINGLE
+    cx%    = SS_PIE_DONUT.CENTER_X
+    cy%    = SS_PIE_DONUT.CENTER_Y
+    rxOut! = SS_PIE_DONUT.RX
+    ryOut! = SS_PIE_DONUT.RY
+    rxIn!  = rxOut! * SS_PIE_DONUT.HOLE_PCT / 100.0
+    ryIn!  = ryOut! * SS_PIE_DONUT.HOLE_PCT / 100.0
+
+    DIM count AS INTEGER, i AS INTEGER, t AS SINGLE
+    DIM PI2   AS SINGLE: PI2! = 6.2831853
+
+    IF SS_PIE_DONUT.HOLE_PCT <= 0 THEN
+        ' Solid disk
+        IF samples% > SS_MAX_VERTS THEN samples% = SS_MAX_VERTS
+        FOR i% = 0 TO samples% - 1
+            t!     = PI2! * i% / samples%
+            px(i%) = INT(cx% + COS(t!) * rxOut! + 0.5)
+            py(i%) = INT(cy% + SIN(t!) * ryOut! + 0.5)
+        NEXT i%
+        SS_PIE_DONUT_build_filled% = samples%
+        EXIT FUNCTION
+    END IF
+
+    ' Donut: scanline-fill helper handles concave annulus poorly, so we draw
+    ' the disk and then "erase" inner via a separate fill in negative — simpler
+    ' to draw two separate fills: outer disk, then erase inner disk by re-fill
+    ' in TRANSPARENT/BG. For simplicity Phase 2 fills only the outer ring as
+    ' an annulus polygon (outer CCW + degenerate seam + inner CW).
+    IF samples% * 2 + 1 > SS_MAX_VERTS THEN samples% = (SS_MAX_VERTS - 1) \ 2
+    count% = 0
+    ' Outer ring CCW
+    FOR i% = 0 TO samples% - 1
+        t!         = PI2! * i% / samples%
+        px(count%) = INT(cx% + COS(t!) * rxOut! + 0.5)
+        py(count%) = INT(cy% + SIN(t!) * ryOut! + 0.5)
+        count% = count% + 1
+    NEXT i%
+    ' Close back to first outer point
+    px(count%) = px(0): py(count%) = py(0): count% = count% + 1
+    ' Inner ring CW (reverse) - bridges back through seam at angle 0
+    FOR i% = samples% - 1 TO 0 STEP -1
+        t!         = PI2! * i% / samples%
+        px(count%) = INT(cx% + COS(t!) * rxIn! + 0.5)
+        py(count%) = INT(cy% + SIN(t!) * ryIn! + 0.5)
+        count% = count% + 1
+    NEXT i%
+    SS_PIE_DONUT_build_filled% = count%
+END FUNCTION
+
+''
+' Render preview (current _DEST is overlay buffer).
+'
+SUB SS_PIE_DONUT_render_preview (col AS _UNSIGNED LONG)
+    DIM cx    AS INTEGER, cy AS INTEGER
+    DIM rxOut AS SINGLE, ryOut AS SINGLE, rxIn AS SINGLE, ryIn AS SINGLE
+    cx%    = SS_PIE_DONUT.CENTER_X
+    cy%    = SS_PIE_DONUT.CENTER_Y
+    rxOut! = SS_PIE_DONUT.RX
+    ryOut! = SS_PIE_DONUT.RY
+    IF rxOut! < 1 OR ryOut! < 1 THEN EXIT SUB
+    rxIn! = rxOut! * SS_PIE_DONUT.HOLE_PCT / 100.0
+    ryIn! = ryOut! * SS_PIE_DONUT.HOLE_PCT / 100.0
+
+    DIM PI2 AS SINGLE: PI2! = 6.2831853
+
+    IF SS_PIE_DONUT.FILLED THEN
+        DIM px(0 TO SS_MAX_VERTS - 1) AS INTEGER
+        DIM py(0 TO SS_MAX_VERTS - 1) AS INTEGER
+        DIM n AS INTEGER
+        n% = SS_PIE_DONUT_build_filled%(px(), py())
+        SS_fill_polygon px(), py(), n%, col~&, FALSE
+    END IF
+
+    ' Outer outline
+    SS_stroke_arc cx%, cy%, rxOut!, ryOut!, 0, PI2!, col~&, FALSE
+    ' Inner outline (donut)
+    IF SS_PIE_DONUT.HOLE_PCT > 0 THEN
+        SS_stroke_arc cx%, cy%, rxIn!, ryIn!, 0, PI2!, col~&, FALSE
+    END IF
+    ' Spokes
+    IF SS_PIE_DONUT.SLICES > 0 THEN
+        DIM s  AS INTEGER, ang AS SINGLE
+        DIM x0 AS INTEGER, y0 AS INTEGER, x1 AS INTEGER, y1 AS INTEGER
+        FOR s% = 0 TO SS_PIE_DONUT.SLICES - 1
+            ang! = PI2! * s% / SS_PIE_DONUT.SLICES - 1.5707963
+            SS_PIE_DONUT_spoke cx%, cy%, rxOut!, ryOut!, rxIn!, ryIn!, ang!, x0%, y0%, x1%, y1%
+            LINE (x0%, y0%)-(x1%, y1%), col~&
+        NEXT s%
+    END IF
+END SUB
+
+''
+' Commit pie/donut to active layer.
+'
+SUB SS_PIE_DONUT_commit (col AS _UNSIGNED LONG)
+    DIM cx    AS INTEGER, cy AS INTEGER
+    DIM rxOut AS SINGLE, ryOut AS SINGLE, rxIn AS SINGLE, ryIn AS SINGLE
+    cx%    = SS_PIE_DONUT.CENTER_X
+    cy%    = SS_PIE_DONUT.CENTER_Y
+    rxOut! = SS_PIE_DONUT.RX
+    ryOut! = SS_PIE_DONUT.RY
+    IF rxOut! < 1 OR ryOut! < 1 THEN EXIT SUB
+    rxIn! = rxOut! * SS_PIE_DONUT.HOLE_PCT / 100.0
+    ryIn! = ryOut! * SS_PIE_DONUT.HOLE_PCT / 100.0
+
+    DIM PI2       AS SINGLE: PI2! = 6.2831853
+    DIM beforeImg AS LONG
+    beforeImg& = SS_history_snapshot&
+
+    DIM oldDest AS LONG: oldDest& = _DEST
+    _DEST LAYER_current_image&
+
+    IF SS_PIE_DONUT.FILLED THEN
+        DIM px(0 TO SS_MAX_VERTS - 1) AS INTEGER
+        DIM py(0 TO SS_MAX_VERTS - 1) AS INTEGER
+        DIM n  AS INTEGER
+        n% = SS_PIE_DONUT_build_filled%(px(), py())
+        SS_fill_polygon px(), py(), n%, col~&, TRUE
+    END IF
+    SS_stroke_arc cx%, cy%, rxOut!, ryOut!, 0, PI2!, col~&, TRUE
+    IF SS_PIE_DONUT.HOLE_PCT > 0 THEN
+        SS_stroke_arc cx%, cy%, rxIn!, ryIn!, 0, PI2!, col~&, TRUE
+    END IF
+    IF SS_PIE_DONUT.SLICES > 0 THEN
+        DIM s  AS INTEGER, ang AS SINGLE
+        DIM x0 AS INTEGER, y0 AS INTEGER, x1 AS INTEGER, y1 AS INTEGER
+        FOR s% = 0 TO SS_PIE_DONUT.SLICES - 1
+            ang! = PI2! * s% / SS_PIE_DONUT.SLICES - 1.5707963
+            SS_PIE_DONUT_spoke cx%, cy%, rxOut!, ryOut!, rxIn!, ryIn!, ang!, x0%, y0%, x1%, y1%
+            SS_stroke_line x0%, y0%, x1%, y1%, col~&
+        NEXT s%
+    END IF
+
+    _DEST oldDest&
+    SS_history_finalize beforeImg&, col~&, "Pie/Donut"
+END SUB

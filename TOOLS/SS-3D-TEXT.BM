@@ -1,0 +1,623 @@
+''
+' DRAW - TOOLS/SS-3D-TEXT.BM
+'
+' Smart-Shape 3D TEXT — flat-shaded extruded text using raster silhouette
+' tracing. Uses any FONT_LIST_get_handle& font (built-in VGA, Tiny5, TTF, OTF,
+' CBF, FON, etc.). Inherits the Text tool's current font/size/style.
+'
+' Render style:
+'   - Front face : full FG colour, _MAPTRIANGLE'd from the rasterized text
+'                  mask (alpha preserves the letter shape)
+'   - Top    side: 80% brightness
+'   - Right  side: 65% brightness
+'   - Left   side: 55% brightness
+'   - Bottom side: 40% brightness
+'
+' Order: ribbons drawn back-to-front (painter's algorithm, kind granularity),
+' then the front face on top with alpha blend.
+'
+$INCLUDEONCE
+
+''
+' Reset on tool switch / cancel / file load. Clearing txtLen forces re-prompt
+' on next activation, which picks up any font changes made via the Text tool
+' in between.
+'
+SUB SS_TEXT_reset ()
+    SS_TEXT.DRAGGING  = FALSE
+    SS_TEXT.meshValid = FALSE
+    SS_TEXT.txtLen    = 0
+END SUB
+
+''
+' Multiply RGB channels of col by factor!, clamp to [0..255]. Alpha preserved.
+'
+FUNCTION SS_TEXT_shade~& (col AS _UNSIGNED LONG, factor AS SINGLE)
+    DIM r AS INTEGER, g AS INTEGER, b AS INTEGER, a AS INTEGER
+    r% = INT(_RED32(col~&)   * factor!)
+    g% = INT(_GREEN32(col~&) * factor!)
+    b% = INT(_BLUE32(col~&)  * factor!)
+    IF r% < 0 THEN r% = 0
+    IF r% > 255 THEN r% = 255
+    IF g% < 0 THEN g% = 0
+    IF g% > 255 THEN g% = 255
+    IF b% < 0 THEN b% = 0
+    IF b% > 255 THEN b% = 255
+    a%              = _ALPHA32(col~&)
+    SS_TEXT_shade~& = _RGBA32(r%, g%, b%, a%)
+END FUNCTION
+
+''
+' Compute Lambert + soft specular brightness for a face whose (already
+' rotated) outward normal is (nx,ny,nz) under light vector (lx,ly,lz).
+' Mirrors the formula used by SS_CUBE_render_solid_internal so that 3D text
+' and 3D dice respond identically to the SS_LIGHT controls.
+'
+FUNCTION SS_TEXT_lit_brightness! (nx AS SINGLE, ny AS SINGLE, nz AS SINGLE, lx AS SINGLE, ly AS SINGLE, lz AS SINGLE)
+    DIM nlen AS SINGLE, ndotl AS SINGLE, spec AS SINGLE, b AS SINGLE
+    nlen! = SQR(nx! * nx! + ny! * ny! + nz! * nz!)
+    IF nlen! < 0.0001 THEN
+        SS_TEXT_lit_brightness! = 0.5
+        EXIT FUNCTION
+    END IF
+    ndotl! = (nx! * lx! + ny! * ly! + nz! * lz!) / nlen!
+    IF ndotl! < 0 THEN ndotl! = 0
+    spec! = ndotl! * ndotl!
+    spec! = spec! * spec!
+    b! = 0.25 + SS_LIGHT.INTENSITY * (1.10 * ndotl! + 0.25 * spec!)
+    IF b! < 0.10 THEN b! = 0.10
+    IF b! > 1.80 THEN b! = 1.80
+    SS_TEXT_lit_brightness! = b!
+END FUNCTION
+
+''
+' Rasterize text into a 32-bit image with `col` as the foreground colour and
+' transparent background. Returns image handle (caller _FREEIMAGE) or -1.
+'
+FUNCTION SS_TEXT_render_mask& (txt AS STRING, fontIdx AS INTEGER, fontSize AS INTEGER, bold AS INTEGER, italic AS INTEGER, antialias AS INTEGER, mono AS INTEGER, outW AS INTEGER, outH AS INTEGER, col AS _UNSIGNED LONG)
+    SS_TEXT_render_mask& = -1
+    outW%                = 0: outH% = 0
+    IF LEN(txt$) = 0 THEN EXIT FUNCTION
+
+    DIM fontStyle AS STRING
+    IF bold% AND italic% THEN
+        fontStyle$ = FONT_STYLE_BOLDITALIC$
+    ELSEIF bold% THEN
+        fontStyle$ = FONT_STYLE_BOLD$
+    ELSEIF italic% THEN
+        fontStyle$ = FONT_STYLE_ITALIC$
+    ELSE
+        fontStyle$ = FONT_STYLE_REGULAR$
+    END IF
+
+    DIM fh AS LONG
+    fh& = FONT_LIST_get_handle&(fontIdx%, fontSize%, fontStyle$, mono%, antialias%)
+    IF fh& = -1 THEN fh& = 16 ' fallback to default 8x16 built-in
+    IF fh& = 0 THEN EXIT FUNCTION
+
+    DIM measDest AS LONG: measDest& = _NEWIMAGE(8, 8, 32)
+    IF measDest& >= -1 THEN EXIT FUNCTION
+    DIM oldDest  AS LONG: oldDest& = _DEST
+    _DEST measDest&
+    _FONT fh&
+    DIM tw       AS INTEGER, th AS INTEGER
+    tw% = _PRINTWIDTH(txt$)
+    th% = _FONTHEIGHT
+    _DEST oldDest&
+    _FREEIMAGE measDest&
+
+    IF tw% < 1 THEN tw% = 1
+    IF th% < 1 THEN th% = 1
+    DIM pad AS INTEGER: pad% = 2
+    DIM mw  AS INTEGER, mh AS INTEGER
+    mw% = tw% + pad% * 2
+    mh% = th% + pad% * 2
+
+    DIM mask AS LONG
+    mask& = _NEWIMAGE(mw%, mh%, 32)
+    IF mask& >= -1 THEN EXIT FUNCTION
+
+    _DEST mask&
+    _FONT fh&
+    CLS , _RGBA32(0, 0, 0, 0)
+    _PRINTMODE _KEEPBACKGROUND
+    COLOR col~&, _RGBA32(0, 0, 0, 0)
+    _PRINTSTRING (pad%, pad%), txt$
+    _DEST oldDest&
+
+    outW%                = mw%
+    outH%                = mh%
+    SS_TEXT_render_mask& = mask&
+END FUNCTION
+
+''
+' Trace boundary of opaque pixels in mask into front + back face vert/edge
+' tables. Each silhouette segment is tagged with its outward orientation
+' (TOP=0, BOTTOM=1, LEFT=2, RIGHT=3) so the renderer can shade ribbons.
+'
+FUNCTION SS_TEXT_trace_boundary% (mask AS LONG, mw AS INTEGER, mh AS INTEGER, vCountOut AS INTEGER, eCountOut AS INTEGER, aspectOut AS SINGLE)
+    SS_TEXT_trace_boundary% = FALSE
+    vCountOut%              = 0: eCountOut% = 0: aspectOut! = 1.0
+    IF mask& >= -1 THEN EXIT FUNCTION
+    IF mw% < 1 OR mh% < 1 THEN EXIT FUNCTION
+
+    DIM gw AS INTEGER, gh AS INTEGER
+    gw% = mw% + 2: gh% = mh% + 2
+
+    REDIM op(0 TO gw% - 1, 0 TO gh% - 1) AS _BYTE
+    DIM mm AS _MEM
+    mm = _MEMIMAGE(mask&)
+    IF mm.SIZE = 0 THEN EXIT FUNCTION
+    DIM x  AS INTEGER, y AS INTEGER, ofs AS _OFFSET, alpha AS _UNSIGNED _BYTE
+    FOR y% = 0 TO mh% - 1
+        FOR x% = 0 TO mw% - 1
+            ofs = mm.OFFSET + (y% * mw% + x%) * 4 + 3
+            _MEMGET mm, ofs, alpha
+            IF alpha > 64 THEN op(x% + 1, y% + 1) = 1
+        NEXT x%
+    NEXT y%
+    _MEMFREE mm
+
+    REDIM vIdx(0 TO gw%, 0 TO gh%) AS INTEGER
+    FOR y% = 0 TO gh%
+        FOR x% = 0 TO gw%
+            vIdx(x%, y%) = -1
+        NEXT x%
+    NEXT y%
+
+    DIM vCount AS INTEGER, eCount AS INTEGER
+    vCount% = 0: eCount% = 0
+
+    DIM cxF AS SINGLE, cyF AS SINGLE
+    cxF! = mw% / 2.0
+    cyF! = mh% / 2.0
+
+    DIM ax   AS INTEGER, ay AS INTEGER, bx AS INTEGER, by AS INTEGER
+    DIM aIdx AS INTEGER, bIdx AS INTEGER
+    DIM x0   AS INTEGER, y0 AS INTEGER
+
+    ' --- Top edges (kind 0): pixel above is transparent
+    FOR y% = 1 TO mh%
+        x% = 1
+        DO WHILE x% <= mw%
+            IF op(x%, y%) = 1 AND op(x%, y% - 1) = 0 THEN
+                x0% = x%
+                DO WHILE x% <= mw% AND op(x%, y%) = 1 AND op(x%, y% - 1) = 0
+                    x% = x% + 1
+                LOOP
+                ax% = x0% - 1 : ay% = y% - 1
+                bx% = x% - 1  : by% = y% - 1
+                IF vCount% >= SS_TEXT_MAX_VERTS - 1 THEN EXIT FUNCTION
+                IF vIdx(ax%, ay%) = -1 THEN
+                    vIdx(ax%, ay%)      = vCount%
+                    SS_TEXT_VX(vCount%) = ax% - cxF!
+                    SS_TEXT_VY(vCount%) = ay% - cyF!
+                    SS_TEXT_VZ(vCount%) = 0
+                    vCount% = vCount% + 1
+                END IF
+                aIdx% = vIdx(ax%, ay%)
+                IF vIdx(bx%, by%) = -1 THEN
+                    vIdx(bx%, by%)      = vCount%
+                    SS_TEXT_VX(vCount%) = bx% - cxF!
+                    SS_TEXT_VY(vCount%) = by% - cyF!
+                    SS_TEXT_VZ(vCount%) = 0
+                    vCount% = vCount% + 1
+                END IF
+                bIdx% = vIdx(bx%, by%)
+                IF eCount% >= SS_TEXT_MAX_EDGES THEN EXIT FUNCTION
+                SS_TEXT_EA(eCount%)    = aIdx%
+                SS_TEXT_EB(eCount%)    = bIdx%
+                SS_TEXT_EKIND(eCount%) = 0 ' TOP
+                eCount% = eCount% + 1
+            ELSE
+                x% = x% + 1
+            END IF
+        LOOP
+    NEXT y%
+
+    ' --- Bottom edges (kind 1): pixel below is transparent
+    FOR y% = 1 TO mh%
+        x% = 1
+        DO WHILE x% <= mw%
+            IF op(x%, y%) = 1 AND op(x%, y% + 1) = 0 THEN
+                x0% = x%
+                DO WHILE x% <= mw% AND op(x%, y%) = 1 AND op(x%, y% + 1) = 0
+                    x% = x% + 1
+                LOOP
+                ax% = x0% - 1 : ay% = y%
+                bx% = x% - 1  : by% = y%
+                IF vCount% >= SS_TEXT_MAX_VERTS - 1 THEN EXIT FUNCTION
+                IF vIdx(ax%, ay%) = -1 THEN
+                    vIdx(ax%, ay%)      = vCount%
+                    SS_TEXT_VX(vCount%) = ax% - cxF!
+                    SS_TEXT_VY(vCount%) = ay% - cyF!
+                    SS_TEXT_VZ(vCount%) = 0
+                    vCount% = vCount% + 1
+                END IF
+                aIdx% = vIdx(ax%, ay%)
+                IF vIdx(bx%, by%) = -1 THEN
+                    vIdx(bx%, by%)      = vCount%
+                    SS_TEXT_VX(vCount%) = bx% - cxF!
+                    SS_TEXT_VY(vCount%) = by% - cyF!
+                    SS_TEXT_VZ(vCount%) = 0
+                    vCount% = vCount% + 1
+                END IF
+                bIdx% = vIdx(bx%, by%)
+                IF eCount% >= SS_TEXT_MAX_EDGES THEN EXIT FUNCTION
+                SS_TEXT_EA(eCount%)    = aIdx%
+                SS_TEXT_EB(eCount%)    = bIdx%
+                SS_TEXT_EKIND(eCount%) = 1 ' BOTTOM
+                eCount% = eCount% + 1
+            ELSE
+                x% = x% + 1
+            END IF
+        LOOP
+    NEXT y%
+
+    ' --- Left edges (kind 2): pixel to the left is transparent
+    FOR x% = 1 TO mw%
+        y% = 1
+        DO WHILE y% <= mh%
+            IF op(x%, y%) = 1 AND op(x% - 1, y%) = 0 THEN
+                y0% = y%
+                DO WHILE y% <= mh% AND op(x%, y%) = 1 AND op(x% - 1, y%) = 0
+                    y% = y% + 1
+                LOOP
+                ax% = x% - 1 : ay% = y0% - 1
+                bx% = x% - 1 : by% = y% - 1
+                IF vCount% >= SS_TEXT_MAX_VERTS - 1 THEN EXIT FUNCTION
+                IF vIdx(ax%, ay%) = -1 THEN
+                    vIdx(ax%, ay%)      = vCount%
+                    SS_TEXT_VX(vCount%) = ax% - cxF!
+                    SS_TEXT_VY(vCount%) = ay% - cyF!
+                    SS_TEXT_VZ(vCount%) = 0
+                    vCount% = vCount% + 1
+                END IF
+                aIdx% = vIdx(ax%, ay%)
+                IF vIdx(bx%, by%) = -1 THEN
+                    vIdx(bx%, by%)      = vCount%
+                    SS_TEXT_VX(vCount%) = bx% - cxF!
+                    SS_TEXT_VY(vCount%) = by% - cyF!
+                    SS_TEXT_VZ(vCount%) = 0
+                    vCount% = vCount% + 1
+                END IF
+                bIdx% = vIdx(bx%, by%)
+                IF eCount% >= SS_TEXT_MAX_EDGES THEN EXIT FUNCTION
+                SS_TEXT_EA(eCount%)    = aIdx%
+                SS_TEXT_EB(eCount%)    = bIdx%
+                SS_TEXT_EKIND(eCount%) = 2 ' LEFT
+                eCount% = eCount% + 1
+            ELSE
+                y% = y% + 1
+            END IF
+        LOOP
+    NEXT x%
+
+    ' --- Right edges (kind 3): pixel to the right is transparent
+    FOR x% = 1 TO mw%
+        y% = 1
+        DO WHILE y% <= mh%
+            IF op(x%, y%) = 1 AND op(x% + 1, y%) = 0 THEN
+                y0% = y%
+                DO WHILE y% <= mh% AND op(x%, y%) = 1 AND op(x% + 1, y%) = 0
+                    y% = y% + 1
+                LOOP
+                ax% = x% : ay% = y0% - 1
+                bx% = x% : by% = y% - 1
+                IF vCount% >= SS_TEXT_MAX_VERTS - 1 THEN EXIT FUNCTION
+                IF vIdx(ax%, ay%) = -1 THEN
+                    vIdx(ax%, ay%)      = vCount%
+                    SS_TEXT_VX(vCount%) = ax% - cxF!
+                    SS_TEXT_VY(vCount%) = ay% - cyF!
+                    SS_TEXT_VZ(vCount%) = 0
+                    vCount% = vCount% + 1
+                END IF
+                aIdx% = vIdx(ax%, ay%)
+                IF vIdx(bx%, by%) = -1 THEN
+                    vIdx(bx%, by%)      = vCount%
+                    SS_TEXT_VX(vCount%) = bx% - cxF!
+                    SS_TEXT_VY(vCount%) = by% - cyF!
+                    SS_TEXT_VZ(vCount%) = 0
+                    vCount% = vCount% + 1
+                END IF
+                bIdx% = vIdx(bx%, by%)
+                IF eCount% >= SS_TEXT_MAX_EDGES THEN EXIT FUNCTION
+                SS_TEXT_EA(eCount%)    = aIdx%
+                SS_TEXT_EB(eCount%)    = bIdx%
+                SS_TEXT_EKIND(eCount%) = 3 ' RIGHT
+                eCount% = eCount% + 1
+            ELSE
+                y% = y% + 1
+            END IF
+        LOOP
+    NEXT x%
+
+    IF vCount% < 2 OR eCount% < 1 THEN EXIT FUNCTION
+
+    ' Duplicate front verts as back verts at z=1 and clone edges with same kind.
+    DIM frontVCount AS INTEGER : frontVCount% = vCount%
+    DIM frontECount AS INTEGER : frontECount% = eCount%
+    DIM i           AS INTEGER
+    REDIM backIdx(0 TO frontVCount% - 1) AS INTEGER
+    FOR i% = 0 TO frontVCount% - 1
+        IF vCount% >= SS_TEXT_MAX_VERTS THEN EXIT FUNCTION
+        SS_TEXT_VX(vCount%) = SS_TEXT_VX(i%)
+        SS_TEXT_VY(vCount%) = SS_TEXT_VY(i%)
+        SS_TEXT_VZ(vCount%) = 1
+        backIdx(i%)         = vCount%
+        vCount% = vCount% + 1
+    NEXT i%
+    FOR i% = 0 TO frontECount% - 1
+        IF eCount% >= SS_TEXT_MAX_EDGES THEN EXIT FUNCTION
+        SS_TEXT_EA(eCount%)    = backIdx(SS_TEXT_EA(i%))
+        SS_TEXT_EB(eCount%)    = backIdx(SS_TEXT_EB(i%))
+        SS_TEXT_EKIND(eCount%) = SS_TEXT_EKIND(i%)
+        eCount% = eCount% + 1
+    NEXT i%
+
+    vCountOut%              = vCount%
+    eCountOut%              = eCount%
+    aspectOut!              = mw% / mh%
+    SS_TEXT_trace_boundary% = TRUE
+END FUNCTION
+
+''
+' Build / cache mesh from current SS_TEXT.txt. Sets meshValid, maskW, maskH.
+'
+SUB SS_TEXT_build_mesh ()
+    SS_TEXT.meshValid  = FALSE
+    SS_TEXT.meshVCount = 0
+    SS_TEXT.meshECount = 0
+    DIM t AS STRING
+    t$ = LEFT$(SS_TEXT.txt, SS_TEXT.txtLen)
+    IF LEN(t$) = 0 THEN EXIT SUB
+
+    DIM mw   AS INTEGER, mh AS INTEGER
+    DIM mask AS LONG
+    mask& = SS_TEXT_render_mask&(t$, SS_TEXT.fontIdx, SS_TEXT.fontSize, SS_TEXT.bold, SS_TEXT.italic, SS_TEXT.antialias, SS_TEXT.monospace, mw%, mh%, _RGB32(255, 255, 255))
+    IF mask& >= -1 THEN EXIT SUB
+
+    DIM vc AS INTEGER, ec AS INTEGER, asp AS SINGLE
+    IF SS_TEXT_trace_boundary%(mask&, mw%, mh%, vc%, ec%, asp!) THEN
+        SS_TEXT.meshVCount = vc%
+        SS_TEXT.meshECount = ec%
+        SS_TEXT.meshAspect = asp!
+        SS_TEXT.maskW      = mw%
+        SS_TEXT.maskH      = mh%
+        SS_TEXT.meshValid  = TRUE
+    END IF
+    _FREEIMAGE mask&
+END SUB
+
+''
+' Project a single mesh-local point through current rotation. Outputs are
+' rotated x/y (offsets from canvas centre) and z (depth, larger = farther).
+'
+SUB SS_TEXT_project_one (mx AS SINGLE, my AS SINGLE, mz AS SINGLE, cxA AS SINGLE, sxA AS SINGLE, cyA AS SINGLE, syA AS SINGLE, ox AS SINGLE, oy AS SINGLE, oz AS SINGLE)
+    DIM x  AS SINGLE, y AS SINGLE, z AS SINGLE
+    DIM x2 AS SINGLE, y2 AS SINGLE, z2 AS SINGLE
+    x!  = mx!: y! = my!: z! = mz!
+    y2! = y! * cxA! - z! * sxA!
+    z2! = y! * sxA! + z! * cxA!
+    y!  = y2!: z! = z2!
+    x2! = x! * cyA! + z! * syA!
+    z2! = -x! * syA! + z! * cyA!
+    ox! = x2!
+    oy! = y!
+    oz! = z2!
+END SUB
+
+''
+' Flat-shaded extruded text renderer. Renders directly into _DEST (preview
+' overlay or LAYER_current_image&).
+'
+SUB SS_TEXT_render_filled (col AS _UNSIGNED LONG)
+    IF NOT SS_TEXT.meshValid THEN EXIT SUB
+    IF SS_TEXT.meshVCount < 2 OR SS_TEXT.meshECount < 2 THEN EXIT SUB
+    IF SS_TEXT.maskW < 1 OR SS_TEXT.maskH < 1 THEN EXIT SUB
+    IF ABS(SS_TEXT.X1 - SS_TEXT.X0) < 1 OR ABS(SS_TEXT.Y1 - SS_TEXT.Y0) < 1 THEN EXIT SUB
+
+    DIM xL  AS INTEGER, xR AS INTEGER, yT AS INTEGER, yB AS INTEGER
+    xL% = SS_TEXT.X0 : xR% = SS_TEXT.X1
+    yT% = SS_TEXT.Y0 : yB% = SS_TEXT.Y1
+    IF xL% > xR% THEN SWAP xL%, xR%
+    IF yT% > yB% THEN SWAP yT%, yB%
+    DIM cx  AS INTEGER, cy AS INTEGER
+    cx% = (xL% + xR%) \ 2
+    cy% = (yT% + yB%) \ 2
+    DIM bbW AS SINGLE, bbH AS SINGLE
+    bbW! = (xR% - xL%): bbH! = (yB% - yT%)
+
+    DIM canonW AS SINGLE, canonH AS SINGLE
+    canonW! = SS_TEXT.maskW : IF canonW! < 1 THEN canonW! = 1
+    canonH! = SS_TEXT.maskH : IF canonH! < 1 THEN canonH! = 1
+    DIM scale  AS SINGLE, sX AS SINGLE, sY AS SINGLE
+    sX!    = bbW! / canonW! : sY! = bbH! / canonH!
+    scale! = sX!            : IF sY! < scale! THEN scale! = sY!
+    IF scale! < 0.05 THEN scale! = 0.05
+
+    DIM bbMin  AS SINGLE
+    bbMin! = bbW!: IF bbH! < bbMin! THEN bbMin! = bbH!
+    DIM zScale AS SINGLE
+    zScale! = (SS_TEXT.Z_DEPTH / 100.0) * bbMin! / 2.0
+
+    DIM ax  AS SINGLE, ay AS SINGLE
+    ax! = SS_TEXT.ROT_X * 3.1415927 / 180.0
+    ay! = SS_TEXT.ROT_Y * 3.1415927 / 180.0
+    DIM cxA AS SINGLE, sxA AS SINGLE, cyA AS SINGLE, syA AS SINGLE
+    cxA! = COS(ax!) : sxA! = SIN(ax!)
+    cyA! = COS(ay!) : syA! = SIN(ay!)
+
+    REDIM vsx(0 TO SS_TEXT.meshVCount - 1) AS INTEGER
+    REDIM vsy(0 TO SS_TEXT.meshVCount - 1) AS INTEGER
+    REDIM vsz(0 TO SS_TEXT.meshVCount - 1) AS SINGLE
+    DIM i AS INTEGER, ox AS SINGLE, oy AS SINGLE, oz AS SINGLE
+    FOR i% = 0 TO SS_TEXT.meshVCount - 1
+        SS_TEXT_project_one SS_TEXT_VX(i%) * scale!, SS_TEXT_VY(i%) * scale!, (SS_TEXT_VZ(i%) - 0.5) * zScale!, cxA!, sxA!, cyA!, syA!, ox!, oy!, oz!
+        vsx(i%) = INT(cx% + ox! + 0.5)
+        vsy(i%) = INT(cy% + oy! + 0.5)
+        vsz(i%) = oz!
+    NEXT i%
+
+    ' Project front-face quad corners (TL, TR, BR, BL at z = front).
+    DIM hw AS SINGLE, hh AS SINGLE
+    hw! = SS_TEXT.maskW / 2.0
+    hh! = SS_TEXT.maskH / 2.0
+    DIM ffx(0 TO 3) AS INTEGER, ffy(0 TO 3) AS INTEGER
+    DIM cornerX(0 TO 3) AS SINGLE, cornerY(0 TO 3) AS SINGLE
+    cornerX(0) = -hw! : cornerY(0) = -hh!
+    cornerX(1) = hw!  : cornerY(1) = -hh!
+    cornerX(2) = hw!  : cornerY(2) =  hh!
+    cornerX(3) = -hw! : cornerY(3) =  hh!
+    DIM j  AS INTEGER
+    FOR j% = 0 TO 3
+        SS_TEXT_project_one cornerX(j%) * scale!, cornerY(j%) * scale!, -0.5 * zScale!, cxA!, sxA!, cyA!, syA!, ox!, oy!, oz!
+        ffx(j%) = INT(cx% + ox! + 0.5)
+        ffy(j%) = INT(cy% + oy! + 0.5)
+    NEXT j%
+
+    ' Re-render mask in current FG colour, slightly brightened so the front
+    ' face is unambiguously the brightest plane (it faces the camera).
+    DIM t    AS STRING: t$ = LEFT$(SS_TEXT.txt, SS_TEXT.txtLen)
+    DIM mask AS LONG, mw AS INTEGER, mh AS INTEGER
+    ' --- Light vector in screen space, derived from SS_LIGHT (shared with dice).
+    ' Text mesh uses camera-at-(-Z) convention (front face vertices have z<0
+    ' and outward normal -Z), so we negate lz so the same azimuth/elevation
+    ' that lights the dice's front face also lights the text's front face.
+    DIM lx   AS SINGLE, ly AS SINGLE, lz AS SINGLE
+    DIM azR  AS SINGLE, elR AS SINGLE, ce AS SINGLE
+    azR! = SS_LIGHT.AZIMUTH   * 3.1415927 / 180.0
+    elR! = SS_LIGHT.ELEVATION * 3.1415927 / 180.0
+    ce!  = COS(elR!)
+    lx!  = SIN(azR!) * ce!
+    ly!  = -SIN(elR!)
+    lz!  = -COS(azR!) * ce!
+
+    ' Per-plane rotated face normals (in mesh-local space, then projected
+    ' through the same rotation as vertices). FRONT normal = -Z (toward
+    ' camera with current convention); ribbon normals point outward from
+    ' the silhouette of each edge kind.
+    '   TOP    -> (0,-1, 0)
+    '   BOTTOM -> (0,+1, 0)
+    '   LEFT   -> (-1,0, 0)
+    '   RIGHT  -> (+1,0, 0)
+    '   FRONT  -> (0, 0,-1)
+    DIM nFx AS SINGLE, nFy AS SINGLE, nFz AS SINGLE
+    DIM nTx AS SINGLE, nTy AS SINGLE, nTz AS SINGLE
+    DIM nBx AS SINGLE, nBy AS SINGLE, nBz AS SINGLE
+    DIM nLx AS SINGLE, nLy AS SINGLE, nLz AS SINGLE
+    DIM nRx AS SINGLE, nRy AS SINGLE, nRz AS SINGLE
+    SS_TEXT_project_one  0.0, -1.0,  0.0, cxA!, sxA!, cyA!, syA!, nTx!, nTy!, nTz!
+    SS_TEXT_project_one  0.0,  1.0,  0.0, cxA!, sxA!, cyA!, syA!, nBx!, nBy!, nBz!
+    SS_TEXT_project_one -1.0,  0.0,  0.0, cxA!, sxA!, cyA!, syA!, nLx!, nLy!, nLz!
+    SS_TEXT_project_one  1.0,  0.0,  0.0, cxA!, sxA!, cyA!, syA!, nRx!, nRy!, nRz!
+    SS_TEXT_project_one  0.0,  0.0, -1.0, cxA!, sxA!, cyA!, syA!, nFx!, nFy!, nFz!
+
+    DIM bFront AS SINGLE, bTop AS SINGLE, bBot AS SINGLE, bLft AS SINGLE, bRgt AS SINGLE
+    bFront! = SS_TEXT_lit_brightness!(nFx!, nFy!, nFz!, lx!, ly!, lz!)
+    bTop!   = SS_TEXT_lit_brightness!(nTx!, nTy!, nTz!, lx!, ly!, lz!)
+    bBot!   = SS_TEXT_lit_brightness!(nBx!, nBy!, nBz!, lx!, ly!, lz!)
+    bLft!   = SS_TEXT_lit_brightness!(nLx!, nLy!, nLz!, lx!, ly!, lz!)
+    bRgt!   = SS_TEXT_lit_brightness!(nRx!, nRy!, nRz!, lx!, ly!, lz!)
+
+    DIM frontCol AS _UNSIGNED LONG: frontCol~& = SS_TEXT_shade~&(col~&, bFront!)
+    mask& = SS_TEXT_render_mask&(t$, SS_TEXT.fontIdx, SS_TEXT.fontSize, SS_TEXT.bold, SS_TEXT.italic, SS_TEXT.antialias, SS_TEXT.monospace, mw%, mh%, frontCol~&)
+    IF mask& >= -1 THEN EXIT SUB
+
+    DIM srcSolid AS LONG: srcSolid& = _NEWIMAGE(2, 2, 32)
+    IF srcSolid& >= -1 THEN
+        _FREEIMAGE mask&
+        EXIT SUB
+    END IF
+
+    DIM cTop AS _UNSIGNED LONG, cBot AS _UNSIGNED LONG, cLft AS _UNSIGNED LONG, cRgt AS _UNSIGNED LONG
+    cTop~& = SS_TEXT_shade~&(col~&, bTop!)
+    cBot~& = SS_TEXT_shade~&(col~&, bBot!)
+    cLft~& = SS_TEXT_shade~&(col~&, bLft!)
+    cRgt~& = SS_TEXT_shade~&(col~&, bRgt!)
+
+    ' Per-ribbon painter's algorithm. Sorting by per-edge bucket (kind) gives
+    ' visible seam stripes on slanted strokes (W, A, R diagonals) because
+    ' adjacent ribbons of the same orientation actually sit at different
+    ' depths. Compute avg z per ribbon, then Shell-sort indices descending.
+    DIM frontN AS INTEGER: frontN% = SS_TEXT.meshECount \ 2
+    DIM ai     AS INTEGER, bi AS INTEGER, abi AS INTEGER, bbi AS INTEGER
+    REDIM rOrder(0 TO frontN% - 1) AS INTEGER
+    REDIM rZ(0 TO frontN% - 1) AS SINGLE
+    FOR i% = 0 TO frontN% - 1
+        ai%        = SS_TEXT_EA(i%)           : bi% = SS_TEXT_EB(i%)
+        abi%       = SS_TEXT_EA(i% + frontN%) : bbi% = SS_TEXT_EB(i% + frontN%)
+        rZ(i%)     = (vsz(ai%) + vsz(bi%) + vsz(abi%) + vsz(bbi%)) * 0.25
+        rOrder(i%) = i%
+    NEXT i%
+    ' Shell sort indices by rZ descending (far first).
+    DIM gap    AS INTEGER, si AS INTEGER, sj AS INTEGER, tmpIdx AS INTEGER
+    gap% = frontN% \ 2
+    DO WHILE gap% > 0
+        FOR si% = gap% TO frontN% - 1
+            tmpIdx% = rOrder(si%)
+            sj%     = si%
+            DO WHILE sj% >= gap%
+                IF rZ(rOrder(sj% - gap%)) >= rZ(tmpIdx%) THEN EXIT DO
+                rOrder(sj%) = rOrder(sj% - gap%)
+                sj% = sj% - gap%
+            LOOP
+            rOrder(sj%) = tmpIdx%
+        NEXT si%
+        gap% = gap% \ 2
+    LOOP
+
+    ' Save dest blend state; ribbons want overwrite, mask wants alpha blend.
+    DIM prevBlend AS INTEGER: prevBlend% = _BLEND
+    _DONTBLEND _DEST
+
+    DIM ri       AS INTEGER, rIdx AS INTEGER, rkind AS INTEGER, drawCol AS _UNSIGNED LONG
+    DIM lastKind AS INTEGER: lastKind% = -1
+    DIM oldD     AS LONG
+    FOR ri% = 0 TO frontN% - 1
+        rIdx%  = rOrder(ri%)
+        rkind% = SS_TEXT_EKIND(rIdx%)
+        IF rkind% <> lastKind% THEN
+            SELECT CASE rkind%
+                CASE 0 : drawCol~& = cTop~&
+                CASE 1 : drawCol~& = cBot~&
+                CASE 2 : drawCol~& = cLft~&
+                CASE 3 : drawCol~& = cRgt~&
+            END SELECT
+            oldD& = _DEST
+            _DEST srcSolid&
+            CLS , drawCol~&
+            _DEST oldD&
+            lastKind% = rkind%
+        END IF
+        ai%  = SS_TEXT_EA(rIdx%)           : bi% = SS_TEXT_EB(rIdx%)
+        abi% = SS_TEXT_EA(rIdx% + frontN%) : bbi% = SS_TEXT_EB(rIdx% + frontN%)
+        _MAPTRIANGLE (0, 0)-(1, 0)-(1, 1), srcSolid& TO (vsx(ai%), vsy(ai%))-(vsx(bi%), vsy(bi%))-(vsx(bbi%), vsy(bbi%))
+        _MAPTRIANGLE (0, 0)-(1, 1)-(0, 1), srcSolid& TO (vsx(ai%), vsy(ai%))-(vsx(bbi%), vsy(bbi%))-(vsx(abi%), vsy(abi%))
+    NEXT ri%
+
+    ' Front face on top with alpha blend so transparent mask pixels don't
+    ' punch holes through the ribbons drawn below.
+    _BLEND _DEST
+    _MAPTRIANGLE (0, 0)-(mw% - 1, 0)-(mw% - 1, mh% - 1), mask& TO (ffx(0), ffy(0))-(ffx(1), ffy(1))-(ffx(2), ffy(2))
+    _MAPTRIANGLE (0, 0)-(mw% - 1, mh% - 1)-(0, mh% - 1), mask& TO (ffx(0), ffy(0))-(ffx(2), ffy(2))-(ffx(3), ffy(3))
+
+    IF NOT prevBlend% THEN _DONTBLEND _DEST
+
+    _FREEIMAGE mask&
+    _FREEIMAGE srcSolid&
+END SUB
+
+SUB SS_TEXT_render_preview (col AS _UNSIGNED LONG)
+    SS_TEXT_render_filled col~&
+END SUB
+
+SUB SS_TEXT_commit (col AS _UNSIGNED LONG)
+    IF NOT SS_TEXT.meshValid THEN EXIT SUB
+    DIM beforeImg AS LONG : beforeImg& = SS_history_snapshot&
+    DIM oldDest   AS LONG : oldDest& = _DEST
+    _DEST LAYER_current_image&
+    SS_TEXT_render_filled col~&
+    _DEST oldDest&
+    SS_history_finalize beforeImg&, col~&, "3D TEXT"
+END SUB

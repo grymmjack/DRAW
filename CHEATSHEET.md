@@ -12,6 +12,7 @@
 | `L` | Line | Draw straight lines |
 | `P` | Polygon | Draw polygon outlines |
 | `Shift+P` | Polygon (Filled) | Draw filled polygons |
+| `Q` | Bezier | Draw cubic bezier curves (click to drop anchors, drag to set handles) |
 | `R` | Rectangle | Draw rectangle outlines |
 | `Shift+R` | Rectangle (Filled) | Draw filled rectangles |
 | `C` | Ellipse | Draw ellipse outlines |
@@ -24,6 +25,8 @@
 | `Z` | Zoom | Zoom tool (click to zoom in, Alt+click to zoom out) |
 | `T` | Text | Text entry tool |
 | `?` | Command Palette | Search commands and hotkeys |
+
+> **Smart Shapes** and **3D Text** are accessed from the toolbar via the Smart Shapes flyout (long-press / right-click the Smart Shapes button to choose: Polygon, Pie/Donut, Rounded Rect, Tab, Pill, Pac-Man, 3D Dice, Bevel Rect, Arrow, 3D Text). See [Smart Shapes](#smart-shapes) section below.
 
 ## Paint Opacity
 
@@ -727,6 +730,83 @@ While **actively dragging** a Rectangle, Ellipse, or Line shape, press Arrow key
 - **Ellipse**: spokes radiate from center (up to 16); concentric rings are equally spaced (up to 16)
 - **Line**: radial spokes fan out from the line's midpoint (up to 16)
 - Modifier counts **reset** each time you start a new drag
+
+## Smart Shapes
+
+Smart Shapes is a parametric shape tool group accessed via the toolbar. Long-press (or right-click) the Smart Shapes button to open a flyout menu and pick the active sub-tool. While **dragging**, arrow keys and other modifiers tweak the shape live.
+
+### Sub-tools
+
+| Sub-tool | Description |
+|----------|-------------|
+| **Polygon** | Regular n-gon / star with adjustable point depth |
+| **Pie/Donut** | Pie slice or donut with hole percentage and segments |
+| **Rounded Rect** | Rectangle with corner radius |
+| **Tab** | Rectangle with one rounded edge |
+| **Pill** | Capsule / stadium shape |
+| **Pac-Man** | Circle with adjustable mouth angle |
+| **3D Dice** | Wireframe or solid 3D dice (D4, D6, D8, D10, D12, D20) |
+| **Bevel Rect** | Rectangle with bevelled corners |
+| **Arrow** | Single-headed arrow with adjustable stem |
+| **3D Text** | Extruded 3D text with live lighting |
+
+### Shared Modifiers (during drag)
+
+| Key | Function |
+|-----|----------|
+| `Up Arrow` / `Down Arrow` | Sub-tool-specific primary parameter (segments, bevel, mouth size, Z depth, etc.) |
+| `Left Arrow` / `Right Arrow` | Sub-tool-specific secondary parameter (point depth, hole %, etc.) |
+| `Shift` (hold) | Constrain to square / natural aspect ratio |
+| `Mouse Wheel` | Adjust primary parameter (where applicable) |
+
+### 3D Dice Modifiers (while dragging)
+
+| Key | Function |
+|-----|----------|
+| `4` / `6` / `8` / `0` / `1` / `2` | Switch dice type to D4 / D6 / D8 / D10 / D12 / D20 |
+| `Up Arrow` / `Down Arrow` | Increase / decrease Z depth |
+| **Left-click** drag | Wireframe-only mode (uses FG colour) |
+| **Right-click** drag | Solid mode — faces filled with **BG colour**, wireframe overlay drawn in **FG colour** |
+| `W` / `S` | Tilt light up / down (elevation ±) |
+| `A` / `D` (or `Q` / `E`) | Orbit light left / right (azimuth ±) |
+| `=` / `-` | Push light toward / away from zenith |
+| `L`+`0..9` | Set light intensity preset (0=1.0×, 1..9 = 0.2×..1.8×) |
+
+### 3D Text Modifiers (while dragging)
+
+| Key | Function |
+|-----|----------|
+| `Up Arrow` / `Down Arrow` | Increase / decrease Z depth (extrusion) |
+| `Shift` (hold) | Constrain to text's natural aspect ratio |
+| `W` / `A` / `S` / `D` / `Q` / `E` / `=` / `-` / `L`+digit | Same lighting controls as 3D Dice |
+
+> When you first activate the 3D Text sub-tool, you'll be prompted to enter the text string. The text and font are cached until you switch tools.
+
+## Bezier Curve
+
+Press `Q` to activate the Bezier tool. Build cubic curves by dropping anchor points and dragging handles.
+
+### Controls
+
+| Key / Action | Function |
+|--------------|----------|
+| **Click** | Drop a corner anchor (no handles) |
+| **Click + drag** | Drop a smooth anchor and shape its outgoing handle |
+| `Backspace` | Remove last anchor |
+| `Enter` | Commit curve to current layer |
+| `Escape` | Cancel current curve |
+| `H` (toggle) | Show / hide handle visualisation while editing |
+
+## Line Tool — End Caps
+
+While the **Line** tool is **dragging**, cycle the start/end cap shape:
+
+| Key | Function |
+|-----|----------|
+| `s` | Cycle start cap (none → arrow → diamond → circle → square → ...) |
+| `e` | Cycle end cap |
+
+End caps render in the same FG colour as the line itself.
 
 ## Angle Snapping
 

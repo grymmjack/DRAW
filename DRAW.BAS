@@ -166,6 +166,7 @@ MUSIC_init              ' Initialise background music (plays if CFG.MUSIC_ENABLE
 IMAGE_ADJ_init          ' Initialise image adjustment library (IMGADJ)
 COLORMIXER_init         ' Initialise non-modal color mixer panel
 BROWSER_init            ' Initialise floating browser panel scaffold
+SMART_SHAPES_init       ' Register Smart Shapes flyout sub-tools
 
 ' Main Loop
 DIM k                       AS LONG
@@ -674,9 +675,9 @@ SUB MAIN_shutdown ()
     IF COMPOSITE_BELOW_CACHE& < -1 THEN _FREEIMAGE COMPOSITE_BELOW_CACHE&
 
     ' =====================================================================
-    ' FREE TOOLBAR BUTTON IMAGES (0-20, all used slots)
+    ' FREE TOOLBAR BUTTON IMAGES (all used slots)
     ' =====================================================================
-    FOR i% = 0 TO 20
+    FOR i% = 0 TO TB_TOTAL
         IF GUI_TB(i%).iHnd& < -1 THEN _FREEIMAGE GUI_TB(i%).iHnd&
         IF GUI_TB(i%).iHndAlt& < -1 THEN _FREEIMAGE GUI_TB(i%).iHndAlt&
     NEXT i%

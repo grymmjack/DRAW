@@ -8,16 +8,17 @@
 $INCLUDEONCE
 
 ' Tooltip hover source constants
-CONST TOOLTIP_SRC_NONE          = 0
-CONST TOOLTIP_SRC_TOOLBAR       = 1
-CONST TOOLTIP_SRC_ORGANIZER     = 2
-CONST TOOLTIP_SRC_MINI_PAL      = 3
-CONST TOOLTIP_SRC_DOCK_SWAP     = 4
-CONST TOOLTIP_SRC_EDITBAR       = 5
-CONST TOOLTIP_SRC_ADVBAR        = 6
-CONST TOOLTIP_SRC_BINS          = 7
-CONST TOOLTIP_SRC_LAYER_NAME    = 8
-CONST TOOLTIP_SRC_LAYER_OPACITY = 9
+CONST TOOLTIP_SRC_NONE           = 0
+CONST TOOLTIP_SRC_TOOLBAR        = 1
+CONST TOOLTIP_SRC_ORGANIZER      = 2
+CONST TOOLTIP_SRC_MINI_PAL       = 3
+CONST TOOLTIP_SRC_DOCK_SWAP      = 4
+CONST TOOLTIP_SRC_EDITBAR        = 5
+CONST TOOLTIP_SRC_ADVBAR         = 6
+CONST TOOLTIP_SRC_BINS           = 7
+CONST TOOLTIP_SRC_LAYER_NAME     = 8
+CONST TOOLTIP_SRC_LAYER_OPACITY  = 9
+CONST TOOLTIP_SRC_SUBTOOL_FLYOUT = 10
 
 TYPE TOOLTIP_OBJ
     ACTIVE        AS INTEGER ' TRUE when a tooltip is currently visible
@@ -101,9 +102,9 @@ TOOLTIP_LINE2$(22) = "DRAW filled rectangle. L-CLICK FG color. R-CLICK BG color.
 TOOLTIP_LINE1$(23) = "CTRL+SHIFT+ALT+s - EXPORT SELECTION."
 TOOLTIP_LINE2$(23) = "Saves the selected area to disk."
 
-' Row 6: HELP, ELLIPSE, ELLIPSE FILLED, OPEN
-TOOLTIP_LINE1$(24) = "? - COMMAND PALETTE."
-TOOLTIP_LINE2$(24) = "Show a searchable cheat sheet of commands and keyboard shortcuts."
+' Row 6: SMART SHAPES, ELLIPSE, ELLIPSE FILLED, OPEN
+TOOLTIP_LINE1$(24) = "s - SMART SHAPES - L-Click and hold to select a shape from flyout menu."
+TOOLTIP_LINE2$(24) = "Status bar contains instructions for how to use each smart shape!"
 TOOLTIP_LINE1$(25) = "c - ELLIPSE/CIRCLE - Create ellipses and circles on the canvas."
 TOOLTIP_LINE2$(25) = "DRAW ellipse. L-CLICK FG color. R-CLICK BG color. CTRL+SHIFT snap."
 TOOLTIP_LINE1$(26) = "SHIFT+c - FILLED ELLIPSE/CIRCLE - Create filled ellipses and filled circles on the canvas."

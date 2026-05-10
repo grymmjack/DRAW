@@ -28,7 +28,7 @@ applyTo: "**"
 5. **INPUT**: MODIFIERS, KEYBOARD, MOUSE, STICK, FILE-BMP, FILE-BLOAD, FILE-PAL, FILE-ASE, FILE-PSD, API-LOSPEC
 6. **OUTPUT**: SCREEN, FILE-BAS, FILE-BMP, FILE-BSAVE, FILE-EXPORT
 7. **QB64_GJ_LIB**: DICT, STRINGS, VECT2D, TEXT_INPUT, MSG_BOX, COLOR_PICKER, FILE_DIALOG
-8. **TOOLS**: 41 tool pairs (NULL, DOT, LINE, RECT, ELLIPSE, FILL, BRUSH, BRUSH-SIZE, BRUSH-FILL, BRUSH-FX-OUTLINE, BRUSH-TEXT, CUSTOM-BRUSH, POLY-LINE, POLY-FILL, MARQUEE, SELECTION, PAN, MOVE, MOVE-NUDGE, SAVE, LOAD, PICKER, PICKER-LOUPE, HISTORY, DRW, COLOR-FG, COLOR-BG, COLOR-INVERT, CROP, SPRAY, ZOOM, TEXT, SYMMETRY, RAY, IMAGE-IMPORT, REFIMG, ERASER, TRANSFORM, EXTRACT-IMAGES, EXTRACT-GRID, EXTRACT-LAYERS-GRID)
+8. **TOOLS**: 53 tool pairs (NULL, DOT, LINE, RECT, ELLIPSE, FILL, BRUSH, BRUSH-SIZE, BRUSH-FILL, BRUSH-FX-OUTLINE, BRUSH-TEXT, CUSTOM-BRUSH, POLY-LINE, POLY-FILL, BEZIER, MARQUEE, SELECTION, PAN, MOVE, MOVE-NUDGE, SAVE, LOAD, PICKER, PICKER-LOUPE, HISTORY, DRW, COLOR-FG, COLOR-BG, COLOR-INVERT, CROP, SPRAY, ZOOM, TEXT, SYMMETRY, RAY, IMAGE-IMPORT, REFIMG, ERASER, TRANSFORM, EXTRACT-IMAGES, EXTRACT-GRID, EXTRACT-LAYERS-GRID, SMART-SHAPES, SS-COMMON, SS-POLYGON, SS-PIE-DONUT, SS-ROUNDED-RECT, SS-TAB, SS-PILL, SS-PACMAN, SS-3D-CUBE, SS-BEVEL-RECT, SS-ARROW, SS-3D-TEXT)
 9. **THEME**: `ASSETS/THEMES/DEFAULT/THEME.BI`
 
 ### Directory Structure
@@ -329,6 +329,13 @@ A frame is "idle" when no input, mouse movement, GUI changes, or active tool ope
 | `GUI/SETTINGS.BI/BM`     | GIMP-style tabbed settings dialog (General, Grid, Palette, Panels, Audio, Fonts, Appearance, Directories) |
 | `GUI/BROWSER.BI/BM`      | Floating resizable Image Browser panel; file listing, multi-select, drag-and-drop files onto canvas/drawer/layers; toggle via View → Browser (action 2022); visibility and size persisted in cfg |
 | `GUI/ABOUT.BI/BM`        | About screen dialog with animated logo, version, credits, clickable GitHub link |
+| `TOOLS/SMART-SHAPES.BM`   | Smart Shapes tool group registration, sub-tool flyout binding, status/tooltip helpers |
+| `TOOLS/SS-COMMON.BM`      | Shared helpers used by all Smart Shapes sub-tools (drag state, AABB, etc.) |
+| `TOOLS/SS-3D-CUBE.BI/BM`  | 3D Dice sub-tool: D4/D6/D8/D10/D12/D20 wireframe + solid (BG-colour fill, FG-colour wire overlay), spherical Lambert+specular lighting (azimuth/elevation/intensity controlled by W/A/S/D/Q/E, +/-, L+digit during drag); D12 uses a 5-cycle pentagon finder for triangulation |
+| `TOOLS/SS-3D-TEXT.BI/BM`  | 3D extruded text sub-tool sharing the cube's lighting model (with Z-axis sign flipped — camera at -Z); prompts for text/font on activation |
+| `TOOLS/SS-POLYGON.BM`, `TOOLS/SS-PIE-DONUT.BM`, `TOOLS/SS-ROUNDED-RECT.BM`, `TOOLS/SS-TAB.BM`, `TOOLS/SS-PILL.BM`, `TOOLS/SS-PACMAN.BM`, `TOOLS/SS-BEVEL-RECT.BM`, `TOOLS/SS-ARROW.BM` | Individual Smart Shapes sub-tool implementations |
+| `TOOLS/BEZIER.BI/BM`      | Cubic Bezier curve tool; corner/smooth anchor states, handle visualisation toggle (`H`), `Backspace`/`Enter`/`Escape` editing controls |
+| `GUI/SUBTOOL-FLYOUT.BI/BM` | Toolbar long-press / right-click flyout menu used by Smart Shapes (and any future tool group) to pick the active sub-tool |
 | `CFG/CONFIG.BI`           | Configuration structure                                             |
 | `CORE/SOUND.BI/BM`        | Sound constants, loader, playback SUBs                              |
 | `CHEATSHEET.md`           | All keyboard shortcuts                                              |
