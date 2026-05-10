@@ -1882,3 +1882,21 @@ See [MAC-USERS-README.md](MAC-USERS-README.md) for macOS-specific behavior inclu
 - Ctrl+Click is converted to right-click by macOS (DRAW handles this for symmetry center)
 - Command (⌘) key is not detected by QB64PE
 - Running DRAW on Windows via Parallels may have OpenGL compatibility issues
+
+## Hold-Key Combos (Non-Modifier)
+
+The following combos require holding a non-modifier key (not Ctrl/Alt/Shift) and clicking, pressing, or dragging another input. These are distinct from standard modifier shortcuts and are easy to miss!
+
+| Hold Key | + Action | Effect |
+|----------|----------|--------|
+| `F`      | Left Click | Global Fill — flood-fills all visible non-locked layers with FG color (contiguous) |
+| `F`      | Right Click | Global Fill — flood-fills all visible non-locked layers with BG color (contiguous) |
+| `Shift+F`| Left Click | Replace-all Global Fill — replaces all matching pixels across all visible layers with FG color |
+| `Shift+F`| Right Click | Replace-all Global Fill — replaces all matching pixels across all visible layers with BG color |
+| `E`      | Click      | Flood Erase — erases contiguous same-color pixels to transparent (no selection step) |
+| `W`      | Click      | Magic Wand — select from merged canvas (all visible layers) |
+| `G`      | Arrow Key  | Resize grid width/height independently |
+| `L`      | Digit (0-9) | Set Smart Shape 3D light intensity preset |
+| `R`      | Click      | Picker — sample from reference image instead of visible layers |
+
+> See also: Tool-specific sections for additional drag-time and context-sensitive combos (e.g., Smart Shapes, Line End Caps, etc.).
