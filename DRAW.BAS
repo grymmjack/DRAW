@@ -616,6 +616,14 @@ DO
         _LIMIT CFG.FPS_IDLE%
     ELSEIF cursorOnlyMove% THEN
         _LIMIT CFG.FPS_CURSOR%
+    ELSEIF MOVE.ACTIVE AND CURRENT_TOOL% = TOOL_MOVE THEN
+        ' Throttle MOVE drag — full-canvas re-composite per frame is expensive
+        ' and 30 fps is plenty for drag responsiveness. Cap at min(FPS_LIMIT, 30).
+        IF CFG.FPS_LIMIT% < 30 THEN
+            _LIMIT CFG.FPS_LIMIT%
+        ELSE
+            _LIMIT 30
+        END IF
     ELSE
         _LIMIT CFG.FPS_LIMIT%
     END IF
