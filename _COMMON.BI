@@ -140,6 +140,7 @@ DIM SHARED AS INTEGER COMP_DIRTY_VALID                     ' TRUE when rect set 
 ' Apron pixels are session-only — not persisted on save (cull-on-save).
 ' ---------------------------------------------------------------------------
 DIM SHARED AS INTEGER APRON_W, APRON_H                     ' Current global apron size in canvas pixels (0 when disabled)
+DIM SHARED APRON_RENDER_SCRATCH AS LONG                    ' Canvas-sized scratch image for extracting canvas region from extended layers during render
 
 DIM SHARED            KEYHIT_CHAR     AS STRING            ' _KEYHIT → CHR$ fallback for INKEY$
 DIM SHARED            LAST_KEYHIT_RAW AS LONG              ' Raw k& from _KEYHIT this frame (0 = none)
