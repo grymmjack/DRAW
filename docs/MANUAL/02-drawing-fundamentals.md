@@ -121,43 +121,110 @@ The eraser uses your current brush size, shape, and even custom-brush stamp. The
 The **Smart Shapes** tool group is accessed from the toolbar. **Long-press or right-click** the Smart Shapes button to open a flyout menu and pick a sub-tool. Each shape has live drag-time arrow-key tweaks and unique modifiers.
 
 **Sub-tools:**
-- **Polygon** — regular n-gon / star with adjustable point depth
-- **Pie / Donut** — segments, hole percentage
-- **Rounded Rectangle**
-- **Tab**
-- **Pill** (capsule / stadium)
-- **Pac-Man** — adjustable mouth angle
-- **3D Dice** — D4 / D6 / D8 / D10 / D12 / D20 with wireframe or solid modes
-- **Bevel Rect**
-- **Arrow** (adjustable stem)
-- **3D Text** — extruded text with live shading
 
-#### Modifiers (while dragging)
-- **Arrow keys / Mouse wheel** — adjust shape parameters (segments, bevel, mouth, Z depth, etc.)
-- **Shift** — constrain aspect ratio
-- **Left-click drag** — wireframe mode (FG color)
+---
+
+### Smart Shapes — Detailed Controls & Behaviors
+
+![Smart Shapes Example](images/smart-shapes.png)
+
+The idea of smart shapes is that you begin drawing, then use keys to modify the shape as you create it. All smart shapes snap to the grid and honor grid/symmetry settings, just like regular rectangles and ellipses.
+
+Below are the controls and behaviors for each smart shape:
+
+#### Polygon
+> Minimum sides: 3, Maximum: 30
+
+Draws a regular polygon. While dragging, use:
+- **Up arrow**: Add edges
+- **Down arrow**: Remove edges
+- **Left arrow**: Decrease point/star depth (makes a star/burst)
+- **Right arrow**: Increase point/star depth
+
+#### Pie / Donut
+> Create pie charts or donut shapes with equidistant or custom slices. Left/right arrows add a hole (donut mode).
+> Minimum slices: 0, Maximum: 30. Max hole radius: 90% of shape size.
+
+- **Up arrow**: Add segments
+- **Down arrow**: Remove segments
+- **Left arrow**: Decrease hole size
+- **Right arrow**: Increase hole size
+
+#### Rounded Rectangle
+> Rectangle with rounded corners. Corner radius can be 1 (almost square) up to 30 (fully rounded), but never so large that corners intersect.
+
+- **Up arrow**: Increase corner radius
+- **Down arrow**: Decrease corner radius
+
+#### Tab
+> Rounded rectangle with one flat edge. Flat edge can be cycled to any side (top, bottom, left, right).
+
+- **Up arrow**: Round top corners more
+- **Down arrow**: Round top corners less
+- **Left arrow**: Cycle flat edge left
+- **Right arrow**: Cycle flat edge right
+
+#### Pill
+> Capsule/oval with dividers for options (like a segmented control). Horizontal by default.
+
+- **Up arrow**: Increase roundness
+- **Down arrow**: Decrease roundness
+- **Left arrow**: Decrease segments
+- **Right arrow**: Increase segments
+
+#### Pac-Man
+> Pie chart with a single slice cut out (the mouth). Mouth can be opened/closed. Inner hole for dial/knob effects.
+
+- **Up arrow**: Increase mouth size
+- **Down arrow**: Decrease mouth size
+- **Left arrow**: Decrease inner hole
+- **Right arrow**: Increase inner hole
+
+#### 3D Cube / 3D Polygon (Dice)
+> Draws a 3D cube or polyhedral dice wireframe. Press number keys while dragging for dice types: 4 = D4, 6 = D6, 8 = D8, 0 = D10, 1 = D12, 2 = D20, 3 = D30.
+
+- **Up arrow**: Increase Z-depth
+- **Down arrow**: Decrease Z-depth
+- **Left arrow**: Rotate left
+- **Right arrow**: Rotate right
+- **Mouse wheel up**: Rotate up
+- **Mouse wheel down**: Decrease Z-depth (angle)
+
+#### Bevel Rect
+> Rectangle with beveled (angled) edges. Bevel and border size adjustable. Can switch between inner/outer bevel.
+
+- **Up arrow**: Increase bevel size
+- **Down arrow**: Decrease bevel size
+- **Left arrow**: Decrease border size
+- **Right arrow**: Increase border size
+- **I**: Switch to inner bevel
+- **O**: Switch to outer bevel
+- **Mouse wheel up**: Increase Z-depth (angle)
+- **Mouse wheel down**: Decrease Z-depth (angle)
+
+#### Arrow
+> Arrow with adjustable stem and head. Head can be made concave/curved.
+
+- **Up arrow**: Make stem fatter
+- **Down arrow**: Make stem skinnier
+- **Left arrow**: Make arrow head shorter
+- **Right arrow**: Make arrow head longer
+- **Mouse wheel up**: Increase head concavity
+- **Mouse wheel down**: Decrease head concavity
+
+---
+
 - **Right-click drag** — solid mode (BG color fill, FG color wireframe)
 
-#### 3D Dice & 3D Text Lighting Controls
-- `W` / `A` / `S` / `D` (or `Q` / `E`) — orbit the light
-- `=` / `-` — change light elevation
-- `L`+`0..9` — intensity presets
 - Dice type: `4`/`6`/`8`/`0`/`1`/`2` for D4/D6/D8/D10/D12/D20
 
 ### Bezier Curve Tool (`Q`)
 
-The **Bezier** tool lets you build cubic curves:
-- **Click** — drop a corner anchor (no handles)
-- **Click + drag** — drop a smooth anchor and shape its outgoing handle
-- `H` — toggle handle visualisation
-- `Backspace` — remove last anchor
-- `Enter` — commit
 - `Escape` — cancel
 
 ### Line Tool — End Caps
 
 While dragging the Line tool, press `s` / `e` to cycle the start / end cap shape (none → arrow → diamond → circle → square → ...). End caps render in the same FG color as the line.
-
 ---
 
 ➡️ Next: [Chapter 3 — Color & Palette Mastery](03-color-palette.md)
