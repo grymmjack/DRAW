@@ -5,7 +5,7 @@
   - [ ] This would let it not clip
 
 ## 3D TEXT
-- [ ] Just like Smart Shape 3D, but on text.
+- [x] Just like Smart Shape 3D, but on text.
 
 ## TDF FONT SUPPORT
 - [ ] Render/load/use TheDraw fonts :)
@@ -106,11 +106,11 @@ Movement of the mouse as the shape is created makes it wider/taller/shorter/etc.
 
 The depth of the points needs explaining. So if user draws a polygon with 5 sides, pressing the right arrow would create a middle dividing point so that it can make a star shape, the depth of this star is determined by left arrow and right arrow. The star can have depth less than the perimeter of the polygon, or greater than. In this way the polygon can have bursts, stars, and so on.
 
-- [ ] Start as triangle
-- [ ] Up arrow add edges,
-- [ ] Down arrow remove edges
-- [ ] Left arrow decrease point depth
-- [ ] Right arrow increase point depth
+- [x] Start as triangle
+- [x] Up arrow add edges,
+- [x] Down arrow remove edges
+- [x] Left arrow decrease point depth
+- [x] Right arrow increase point depth
 
 > TOOLTIP LINE 1: SMART-SHAPE: POLYGON - UP-ARROW: Add edge, DOWN-ARROW: Remove edge
 > TOOLTIP LINE 2: LEFT-ARROW: Decrease point depth, RIGHT-ARROW: Increase point depth
@@ -122,11 +122,11 @@ The depth of the points needs explaining. So if user draws a polygon with 5 side
 > The minimum amount of slices is 0 and maximum is 30.
 The maximum radius of the middle donut hole is 90% of the size of the shape, with minimum being 0 (or no donut hole)
 
-- [ ] Start as circle
-- [ ] Up arrow add segments
-- [ ] Down arrow remove segments
-- [ ] Left arrow decrease hole size
-- [ ] Right arrow increase hole size
+- [x] Start as circle
+- [x] Up arrow add segments
+- [x] Down arrow remove segments
+- [x] Left arrow decrease hole size
+- [x] Right arrow increase hole size
 
 > TOOLTIP LINE 1: SMART-SHAPE: PIE/DONUT - UP-ARROW: Add segment, DOWN-ARROW: Remove segment
 > TOOLTIP LINE 2: LEFT-ARROW: Decrease donut hole size, RIGHT-ARROW: Increase donut hole size
@@ -135,9 +135,9 @@ The maximum radius of the middle donut hole is 90% of the size of the shape, wit
 ### Rounded Rect
 > Rounded rectangle just draws a rect that's got round corners.
 User can decrease corner radius to 1 so it's a regular rect with only 1 px round edge, or up to a full radius of 30 with max roundness, but the radius should be impossible to create intersecting radius corners. so if the rect is 10x10 the maximum radius for corners would be 5 because they would touch, etc. Can accommodate up to 30 radius but only if shape is > 60px height or width.
-- [ ] Start as rect with 3px roundedness
-- [ ] Up arrow increase corner radius 
-- [ ] Down arrow decrease corner radius
+- [x] Start as rect with 3px roundedness
+- [x] Up arrow increase corner radius 
+- [x] Down arrow decrease corner radius
 
 > TOOLTIP LINE 1: SMART-SHAPE: ROUNDED RECTANGLE
 > TOOLTIP LINE 2: UP-ARROW: Inc. corner radius DOWN-ARROW: Dec. corner radius
@@ -148,11 +148,11 @@ User can decrease corner radius to 1 so it's a regular rect with only 1 px round
 > Top left corner - rounded, top right corner - rounded, bottom left corner sharp 90, bottom right corner sharp 90.
 The idea is the user can quickly create tabs. The flat edge can be cycled around each edge so the user could create a tab that is horizontal, or vertical, on any edge.
 
-- [ ] Start as rect
-- [ ] Up arrow round top corners more
-- [ ] Down arrow round top corners less
-- [ ] Left arrow cycle tab bottom side left
-- [ ] Right arrow cycle tab bottom side right
+- [x] Start as rect
+- [x] Up arrow round top corners more
+- [x] Down arrow round top corners less
+- [x] Left arrow cycle tab bottom side left
+- [x] Right arrow cycle tab bottom side right
 
 > TOOLTIP LINE 1: SMART-SHAPE: TAB - UP-ARROW: Round tab more, DOWN-ARROW: Round tab less
 > TOOLTIP LINE 2: LEFT-ARROW: Cycle tab side left, RIGHT-ARROW: Cycle tab side right
@@ -163,11 +163,11 @@ The idea is the user can quickly create tabs. The flat edge can be cycled around
 
 For example a user could create a sliding ON/OFF by creating a pill 20 wide, with 1 divider creating 2 options, one for off, one for on.
 
-- [ ] Start as rect
-- [ ] Up arrow increase roundness 
-- [ ] Down arrow decrease roundness
-- [ ] Left arrow decrease segments
-- [ ] Right arrow increase segments
+- [x] Start as rect
+- [x] Up arrow increase roundness 
+- [x] Down arrow decrease roundness
+- [x] Left arrow decrease segments
+- [x] Right arrow increase segments
 
 > TOOLTIP LINE 1: SMART-SHAPE: PILL - UP-ARROW: Round pill more, DOWN-ARROW: Round pill less
 > TOOLTIP LINE 2: LEFT-ARROW: Decrease segments, RIGHT-ARROW: Increase segments
@@ -178,11 +178,11 @@ For example a user could create a sliding ON/OFF by creating a pill 20 wide, wit
 > The slice size is the mouth. The mouth can be wider or closed completely.
 > The hole in the middle affords the ability to create dials that show traversal like Ableton live does with the Pacman mout facing down, and the value traversal going through the body.
 
-- [ ] Start as circle
-- [ ] Up arrow increase mouth size
-- [ ] Down arrow decrease mouth size
-- [ ] Left arrow decrease inner hole
-- [ ] Right arrow increase inner hole
+- [x] Start as circle
+- [x] Up arrow increase mouth size
+- [x] Down arrow decrease mouth size
+- [x] Left arrow decrease inner hole
+- [x] Right arrow increase inner hole
 
 > TOOLTIP LINE 1: SMART-SHAPE: PAC-MAN - UP-ARROW: Inc. mouth size, DOWN-ARROW: Dec. mouth size
 > TOOLTIP LINE 2: LEFT-ARROW: Decrease inner hole, RIGHT-ARROW: Increase inner hole
@@ -197,13 +197,13 @@ For example a user could create a sliding ON/OFF by creating a pill 20 wide, wit
 
 User will take the wireframe and do what they want, fill or not.
 
-- [ ] Start as rect
-- [ ] Up arrow increase z-depth
-- [ ] Down arrow decrease z-depth
-- [ ] Left arrow rotate left
-- [ ] Right arrow rotate right
-- [ ] Mouse wheel up rotate up
-- [ ] Mouse wheel down rotate down
+- [x] Start as rect
+- [x] Up arrow increase z-depth
+- [x] Down arrow decrease z-depth
+- [x] Left arrow rotate left
+- [x] Right arrow rotate right
+- [x] Mouse wheel up rotate up
+- [x] Mouse wheel down rotate down
 
 > TOOLTIP LINE 1: SMART-SHAPE: 3D - UP-ARROW: Inc. Z, DOWN-ARROW: Dec. Z
 > TOOLTIP LINE 2: LEFT-ARROW: Rotate left X, RIGHT-ARROW: Rotate right X, MW-UP/Down: Rotate Y
@@ -214,15 +214,15 @@ User will take the wireframe and do what they want, fill or not.
 > Often we need to create a beveled rectangle.
 > THe controls explain
 
-- [ ] Start as rect
-- [ ] Up arrow increase bevel size
-- [ ] Down arrow decrease bevel size
-- [ ] Left arrow decrease border size
-- [ ] Right arrow increase border size
-- [ ] Press I - change to inner
-- [ ] Press O - change to outer
-- [ ] Mouse wheel up increase z-depth (angled edges)
-- [ ] Mouse wheel down decrease z-depth angled edges
+- [x] Start as rect
+- [x] Up arrow increase bevel size
+- [x] Down arrow decrease bevel size
+- [x] Left arrow decrease border size
+- [x] Right arrow increase border size
+- [x] Press I - change to inner
+- [x] Press O - change to outer
+- [x] Mouse wheel up increase z-depth (angled edges)
+- [x] Mouse wheel down decrease z-depth angled edges
 
 > TOOLTIP LINE 1: SMART-SHAPE: BEVEL RECT. - UP-ARROW: Inc. bevel size, DOWN-ARROW: Dec. bevel size
 > TOOLTIP LINE 2: LEFT-ARROW: Dec. border size, RIGHT-ARROW: Inc. border size, I:Inner, O:Outer, MW-Up/Down: Z
@@ -234,13 +234,13 @@ User will take the wireframe and do what they want, fill or not.
 > User can change width/length of stem, and arrow fatness
 > User can change concavity which makes arrow head curved
 
-- [ ] Start with arrow shape
-- [ ] Up arrow make arrow stem fatter
-- [ ] Down arrow make arrow stem skinnier
-- [ ] Left arrow make arrow head shorter
-- [ ] Right arrow make arrow head longer
-- [ ] Mouse wheel up increase head concavity
-- [ ] Mouse wheel down decrease head concavity
+- [x] Start with arrow shape
+- [x] Up arrow make arrow stem fatter
+- [x] Down arrow make arrow stem skinnier
+- [x] Left arrow make arrow head shorter
+- [x] Right arrow make arrow head longer
+- [x] Mouse wheel up increase head concavity
+- [x] Mouse wheel down decrease head concavity
 
 > TOOLTIP LINE 1: SMART-SHAPE: ARROW - UP-ARROW: Fatter stem, DOWN-ARROW: Thinner stem
 > TOOLTIP LINE 2: LEFT-ARROW: Shorter head, RIGHT-ARROW: Longer head, MW-Up/Down: Head concavity
