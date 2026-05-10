@@ -11,23 +11,23 @@
 $INCLUDEONCE
 
 TYPE SS_CUBE_TYPE
-    DRAGGING AS INTEGER
-    X0 AS INTEGER
-    Y0 AS INTEGER
-    X1 AS INTEGER
-    Y1 AS INTEGER
-    Z_DEPTH AS INTEGER ' 10..100 (% of min(w,h))
-    ROT_X AS INTEGER   ' degrees
-    ROT_Y AS INTEGER   ' degrees
+    DRAGGING  AS INTEGER
+    X0        AS INTEGER
+    Y0        AS INTEGER
+    X1        AS INTEGER
+    Y1        AS INTEGER
+    Z_DEPTH   AS INTEGER ' 10..100 (% of min(w,h))
+    ROT_X     AS INTEGER ' degrees
+    ROT_Y     AS INTEGER ' degrees
     DICE_TYPE AS INTEGER ' 4,6,8,10,12,20,30
-    FILLED AS INTEGER  ' TRUE = right-click solid flat-shaded; FALSE = wireframe
+    FILLED    AS INTEGER ' TRUE = right-click solid flat-shaded; FALSE = wireframe
 END TYPE
 DIM SHARED SS_CUBE AS SS_CUBE_TYPE
-SS_CUBE.Z_DEPTH = 30
-SS_CUBE.ROT_X = 25
-SS_CUBE.ROT_Y = -25
+SS_CUBE.Z_DEPTH   = 30
+SS_CUBE.ROT_X     = 25
+SS_CUBE.ROT_Y     = -25
 SS_CUBE.DICE_TYPE = 6
-SS_CUBE.FILLED = FALSE
+SS_CUBE.FILLED    = FALSE
 
 ''
 ' Adjustable directional light for solid 3D shapes.
@@ -42,5 +42,5 @@ TYPE SS_LIGHT_TYPE
 END TYPE
 DIM SHARED SS_LIGHT AS SS_LIGHT_TYPE
 SS_LIGHT.AZIMUTH   = -35
-SS_LIGHT.ELEVATION =  45
-SS_LIGHT.INTENSITY =   1.0
+SS_LIGHT.ELEVATION = 45
+SS_LIGHT.INTENSITY = 1.0

@@ -18,16 +18,16 @@ CONST SUBTOOL_MAX_GROUPS   = 8
 CONST SUBTOOL_MAX_CHILDREN = 16
 
 TYPE SUBTOOL_ENTRY_TYPE
-    toolConst   AS INTEGER     ' TOOL_* constant assigned to this child
-    iSrc        AS STRING * 64 ' Icon filename (loaded from theme TOOLBOX dir)
-    iconHnd     AS LONG        ' Cached icon handle (lazy load)
-    statusName  AS STRING * 32 ' Short name for status bar
+    toolConst  AS INTEGER     ' TOOL_* constant assigned to this child
+    iSrc       AS STRING * 64 ' Icon filename (loaded from theme TOOLBOX dir)
+    iconHnd    AS LONG        ' Cached icon handle (lazy load)
+    statusName AS STRING * 32 ' Short name for status bar
 END TYPE
 
 TYPE SUBTOOL_GROUP_TYPE
-    parentTb    AS INTEGER     ' TB_* constant of the parent toolbar button
-    childCount  AS INTEGER
-    lastChildIdx AS INTEGER    ' -1 = none chosen yet, else 0..childCount-1
+    parentTb     AS INTEGER ' TB_* constant of the parent toolbar button
+    childCount   AS INTEGER
+    lastChildIdx AS INTEGER ' -1 = none chosen yet, else 0..childCount-1
 END TYPE
 
 TYPE SUBTOOL_FLYOUT_OBJ
@@ -48,7 +48,7 @@ DIM SHARED SUBTOOL_GROUP_CHILDREN(SUBTOOL_MAX_GROUPS - 1, SUBTOOL_MAX_CHILDREN -
 DIM SHARED SUBTOOL_GROUP_COUNT AS INTEGER
 DIM SHARED SUBTOOL_FLYOUT      AS SUBTOOL_FLYOUT_OBJ
 
-SUBTOOL_GROUP_COUNT          = 0
-SUBTOOL_FLYOUT.ACTIVE        = FALSE
-SUBTOOL_FLYOUT.GROUP_IDX     = -1
+SUBTOOL_GROUP_COUNT            = 0
+SUBTOOL_FLYOUT.ACTIVE          = FALSE
+SUBTOOL_FLYOUT.GROUP_IDX       = -1
 SUBTOOL_FLYOUT.HOVER_CHILD_IDX = -1
