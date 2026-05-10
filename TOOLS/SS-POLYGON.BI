@@ -34,6 +34,7 @@ TYPE SS_POLYGON_TYPE
     HAS_LAST_ANGLE AS INTEGER
     FILLED         AS INTEGER ' TRUE = filled (right-button drag)
     SNAP_VERTS     AS INTEGER ' TRUE = snap each computed vertex to grid (toggle: `)
+    LOCK_ROTATION  AS INTEGER ' TRUE = ignore circular cursor rotation (toggle: Shift+`)
     SHIFT_PREV     AS INTEGER ' Previous-frame shift state (for release re-anchor)
     HISTORY_BEFORE AS LONG    ' _COPYIMAGE of layer before stamp
 END TYPE
@@ -46,5 +47,6 @@ SS_POLYGON.POINT_DEPTH    = 100
 SS_POLYGON.ROTATION       = 0
 SS_POLYGON.HAS_LAST_ANGLE = FALSE
 SS_POLYGON.SNAP_VERTS     = FALSE
+SS_POLYGON.LOCK_ROTATION  = FALSE
 SS_POLYGON.SHIFT_PREV     = FALSE
 SS_POLYGON.HISTORY_BEFORE = 0
