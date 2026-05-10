@@ -1,14 +1,21 @@
 # IDEAS
 
+## APRON .5 SIZE of canvas = phantom draw area (to prevent clips)
+- [ ] Right now the rotation/movement of something off the canvas into the apron area clips it.
+  - [ ] It should still not be visible when on the apron, or partially hidden when on part of the apron
+  - [ ] But the pixels should not be destroyed just by moving things into the apron
+  - [ ] This would let it not clip
+- [ ] User should be able to click on apron when drawing shapes, lines, etc. to end them, 
+  - [ ] so they continue beyond the canvas
+
+
 ## CREATE DARK THEME
 - [ ] To test the theme mode, we need a dark theme
 
-## APRON .5 SIZE of canvas = phantom draw area (to prevent clips)
-- [ ] Right now the rotation/movement of something off the canvas into the apron area clips it.
-  - [ ] This would let it not clip
 
 ## TDF FONT SUPPORT
 - [ ] Render/load/use TheDraw fonts :)
+
 
 ## DRAW KITS
 - User sharable and exportable kits which contain all or one of:

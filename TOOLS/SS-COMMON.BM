@@ -18,7 +18,74 @@ SUB SS_stroke_line (x0 AS INTEGER, y0 AS INTEGER, x1 AS INTEGER, y1 AS INTEGER, 
     dy%   = -ABS(y1% - y0%) : IF y0% < y1% THEN sy% = 1 ELSE sy% = -1
     berr% = dx% + dy%
     DO
-        PAINT_pset_with_symmetry x%, y%, col~&, TRUE
+        PAINT_stamp_brush x%, y%, col~&
+        IF x% = x1% AND y% = y1% THEN EXIT DO
+        be2% = berr% * 2
+        IF be2% >= dy% THEN berr% = berr% + dy% : x% = x% + sx%
+        IF be2% <= dx% THEN berr% = berr% + dx% : y% = y% + sy%
+    LOOP
+END SUB
+
+''
+' Stamp the active brush shape at (x,y) via plain PSET on current _DEST.
+' Used by preview rendering so brush width is visible while dragging.
+' No symmetry, no selection, no paint mode — those happen on commit.
+'
+SUB SS_pset_brush_stamp (x AS INTEGER, y AS INTEGER, col AS _UNSIGNED LONG)
+    DIM sz      AS INTEGER, r AS INTEGER, cx AS INTEGER, cy AS INTEGER
+    DIM dist_sq AS SINGLE, r_sq AS SINGLE
+    sz% = BRUSH_SIZE_pixels%
+    IF sz% <= 1 THEN
+        PSET (x%, y%), col~&
+        EXIT SUB
+    END IF
+    IF sz% = 3 AND BRUSH_SIZE.SHAPE = 0 THEN
+        ' Plus sign for size 3 circle
+        DIM py   AS INTEGER, px AS INTEGER
+        FOR py% = y% - 1 TO y% + 1
+            PSET (x%, py%), col~&
+        NEXT
+        FOR px% = x% - 1 TO x% + 1
+            PSET (px%, y%), col~&
+        NEXT
+        EXIT SUB
+    END IF
+    IF BRUSH_SIZE.SHAPE = 0 THEN
+        ' Filled circle
+        r%    = sz% \ 2
+        r_sq! = (r% - 0.5) * (r% - 0.5)
+        FOR cy% = y% - r% TO y% + r%
+            FOR cx% = x% - r% TO x% + r%
+                dist_sq! = (cx% - x%) * (cx% - x%) + (cy% - y%) * (cy% - y%)
+                IF dist_sq! <= r_sq! THEN PSET (cx%, cy%), col~&
+            NEXT cx%
+        NEXT cy%
+    ELSE
+        ' Filled square
+        DIM half AS INTEGER
+        half% = sz% \ 2
+        FOR cy% = y% - half% TO y% + half%
+            FOR cx% = x% - half% TO x% + half%
+                PSET (cx%, cy%), col~&
+            NEXT cx%
+        NEXT cy%
+    END IF
+END SUB
+
+''
+' Bresenham line that calls SS_pset_brush_stamp at every step (preview thick line).
+'
+SUB SS_pset_brush_line (x0 AS INTEGER, y0 AS INTEGER, x1 AS INTEGER, y1 AS INTEGER, col AS _UNSIGNED LONG)
+    DIM dx   AS INTEGER, dy AS INTEGER
+    DIM sx   AS INTEGER, sy AS INTEGER
+    DIM berr AS INTEGER, be2 AS INTEGER
+    DIM x    AS INTEGER, y AS INTEGER
+    x%    = x0%             : y% = y0%
+    dx%   = ABS(x1% - x0%)  : IF x0% < x1% THEN sx% = 1 ELSE sx% = -1
+    dy%   = -ABS(y1% - y0%) : IF y0% < y1% THEN sy% = 1 ELSE sy% = -1
+    berr% = dx% + dy%
+    DO
+        SS_pset_brush_stamp x%, y%, col~&
         IF x% = x1% AND y% = y1% THEN EXIT DO
         be2% = berr% * 2
         IF be2% >= dy% THEN berr% = berr% + dy% : x% = x% + sx%
@@ -30,7 +97,11 @@ END SUB
 ' Same as SS_stroke_line but uses PSET directly to current _DEST (preview overlay).
 '
 SUB SS_stroke_line_pset (x0 AS INTEGER, y0 AS INTEGER, x1 AS INTEGER, y1 AS INTEGER, col AS _UNSIGNED LONG)
-    LINE (x0%, y0%)-(x1%, y1%), col~&
+    IF BRUSH_SIZE_pixels% > 1 THEN
+        SS_pset_brush_line x0%, y0%, x1%, y1%, col~&
+    ELSE
+        LINE (x0%, y0%)-(x1%, y1%), col~&
+    END IF
 END SUB
 
 ''
@@ -47,7 +118,7 @@ SUB SS_stroke_polyline (px() AS INTEGER, py() AS INTEGER, n AS INTEGER, closed A
         IF commit% THEN
             SS_stroke_line px(i%), py(i%), px(j%), py(j%), col~&
         ELSE
-            LINE (px(i%), py(i%))-(px(j%), py(j%)), col~&
+            SS_stroke_line_pset px(i%), py(i%), px(j%), py(j%), col~&
         END IF
     NEXT i%
 END SUB
@@ -138,7 +209,7 @@ SUB SS_stroke_arc (cx AS INTEGER, cy AS INTEGER, rx AS SINGLE, ry AS SINGLE, ang
             IF commit% THEN
                 SS_stroke_line lastX%, lastY%, nx%, ny%, col~&
             ELSE
-                LINE (lastX%, lastY%)-(nx%, ny%), col~&
+                SS_stroke_line_pset lastX%, lastY%, nx%, ny%, col~&
             END IF
         END IF
         lastX% = nx%
@@ -167,4 +238,50 @@ SUB SS_history_finalize (beforeImg AS LONG, col AS _UNSIGNED LONG, label AS STRI
     CANVAS_DIRTY% = TRUE
     SCENE_DIRTY%  = TRUE
     FRAME_IDLE%   = FALSE
+END SUB
+
+''
+' Configure the active layer + gradient context for a Smart Shape commit so
+' drawer pattern / gradient paint modes resolve correctly. Mirrors the setup
+' RECT/ELLIPSE perform before their filled commits:
+'   - GRAD_CTX_set bounds the gradient to this shape's AABB
+'   - _DONTBLEND on the layer when a paint mode is active so PSET writes raw
+'     RGBA verbatim (compositing handles the single correct blend)
+' Caller MUST pair this with SS_paint_end after drawing.
+'
+SUB SS_paint_begin (x0 AS INTEGER, y0 AS INTEGER, x1 AS INTEGER, y1 AS INTEGER, col AS _UNSIGNED LONG)
+    DIM minX AS INTEGER, minY AS INTEGER, maxX AS INTEGER, maxY AS INTEGER
+    IF x0% < x1% THEN minX% = x0% : maxX% = x1% ELSE minX% = x1% : maxX% = x0%
+    IF y0% < y1% THEN minY% = y0% : maxY% = y1% ELSE minY% = y1% : maxY% = y0%
+    GRAD_CTX_set minX%, minY%, maxX%, maxY%
+    IF DRAWER_has_paint_mode% AND _ALPHA32(col~&) > 0 THEN
+        _DONTBLEND LAYER_current_image&
+    END IF
+END SUB
+
+''
+' Compute AABB from vertex array and call SS_paint_begin.
+'
+SUB SS_paint_begin_verts (px() AS INTEGER, py() AS INTEGER, n AS INTEGER, col AS _UNSIGNED LONG)
+    IF n% < 1 THEN EXIT SUB
+    DIM i    AS INTEGER
+    DIM minX AS INTEGER, minY AS INTEGER, maxX AS INTEGER, maxY AS INTEGER
+    minX% = px(0): maxX% = px(0): minY% = py(0): maxY% = py(0)
+    FOR i% = 1 TO n% - 1
+        IF px(i%) < minX% THEN minX% = px(i%)
+        IF px(i%) > maxX% THEN maxX% = px(i%)
+        IF py(i%) < minY% THEN minY% = py(i%)
+        IF py(i%) > maxY% THEN maxY% = py(i%)
+    NEXT i%
+    SS_paint_begin minX%, minY%, maxX%, maxY%, col~&
+END SUB
+
+''
+' Tear down the paint setup established by SS_paint_begin.
+'
+SUB SS_paint_end (col AS _UNSIGNED LONG)
+    IF DRAWER_has_paint_mode% AND _ALPHA32(col~&) > 0 THEN
+        _BLEND LAYER_current_image&
+    END IF
+    GRAD_CTX_clear
 END SUB

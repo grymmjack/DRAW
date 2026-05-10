@@ -19,7 +19,9 @@ TYPE SS_BEVEL_TYPE
     BEVEL_SIZE  AS INTEGER ' 1..30
     BORDER_SIZE AS INTEGER ' 0..10
     FILLED      AS INTEGER
+    STYLE       AS INTEGER ' 0 = inner bevel (default), 1 = outer bevel (border drawn outside)
 END TYPE
 DIM SHARED SS_BEVEL AS SS_BEVEL_TYPE
 SS_BEVEL.BEVEL_SIZE  = 4
 SS_BEVEL.BORDER_SIZE = 0
+SS_BEVEL.STYLE       = 0
