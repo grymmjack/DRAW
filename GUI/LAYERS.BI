@@ -91,6 +91,14 @@ TYPE DRAW_LAYER
     ' Canvas-coord (cx,cy) maps to buffer-coord (cx + apronW, cy + apronH).
     apronW            AS INTEGER     ' Per-layer apron width in canvas pixels (0 = compact, no apron buffer)
     apronH            AS INTEGER     ' Per-layer apron height in canvas pixels (0 = compact)
+    ' Apron render-extraction cache — when layer is promoted (apronW/H > 0),
+    ' SCREEN_render must extract the canvas region from the extended buffer
+    ' so downstream blit/blend code can use a canvas-sized source. This cache
+    ' avoids re-extracting every frame for layers whose content hasn't changed.
+    ' Invalidated by promote/demote, history snapshot apply, file load, and
+    ' (implicitly) by contentDirty% TRUE which forces re-extraction.
+    apronCacheImg     AS LONG        ' Canvas-sized scratch (0 = not allocated)
+    apronCacheValid   AS INTEGER     ' TRUE = apronCacheImg holds current canvas region of layer
 END TYPE
 
 TYPE LAYER_PANEL_OBJ
