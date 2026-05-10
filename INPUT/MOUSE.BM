@@ -1341,6 +1341,13 @@ SUB MOUSE_handle_panning (rawX AS INTEGER, rawY AS INTEGER)
     ' Block Space+LMB and TOOL_PAN pan initiation when mouse is over any GUI element
     DIM allowCanvasPan AS INTEGER
     allowCanvasPan% = ((_KEYDOWN(32) AND allowSpacePan%) AND MOUSE.B1%) OR panToolActive%
+
+    ' Suppress Space+LMB canvas pan while a shape drag is active — SPACE is
+    ' routed to per-tool reposition. PAN tool itself is unaffected.
+    IF allowCanvasPan% AND NOT panToolActive% AND SHAPE_drag_in_progress THEN
+        allowCanvasPan% = FALSE
+    END IF
+
     IF allowCanvasPan% AND NOT SCRN.panning% THEN
         ' Only block on pan START (not while already panning)
         IF SCRN.showToolbar% AND TOOLBAR_is_over_area%(rawX%, rawY%) THEN allowCanvasPan% = FALSE
@@ -2054,6 +2061,15 @@ SUB MOUSE_tool_line ()
             LINE_TOOL.END_Y   = MOUSE.Y%
         END IF
     ELSEIF LINE_TOOL.DRAGGING THEN
+        ' SPACE held: translate the in-progress line with the cursor
+        DIM sdx AS INTEGER, sdy AS INTEGER
+        IF SHAPE_space_drag_delta(sdx, sdy) THEN
+            LINE_TOOL.START_X = LINE_TOOL.START_X + sdx%
+            LINE_TOOL.START_Y = LINE_TOOL.START_Y + sdy%
+            LINE_TOOL.END_X = LINE_TOOL.END_X + sdx%
+            LINE_TOOL.END_Y = LINE_TOOL.END_Y + sdy%
+            EXIT SUB
+        END IF
         ' Update end position while dragging
         IF MODIFIERS.ctrlShift% THEN
             ' Use unsnapped coords so angle snap overrides grid snap
@@ -2428,6 +2444,17 @@ SUB MOUSE_tool_rect ()
         RECT_TOOL.H_DIVISIONS = 0
         RECT_TOOL.V_DIVISIONS = 0
     ELSEIF RECT_TOOL.DRAGGING THEN
+        ' SPACE held: translate the in-progress rectangle with the cursor
+        DIM sdx        AS INTEGER, sdy AS INTEGER
+        IF SHAPE_space_drag_delta(sdx, sdy) THEN
+            RECT_TOOL.START_X = RECT_TOOL.START_X + sdx%
+            RECT_TOOL.START_Y = RECT_TOOL.START_Y + sdy%
+            RECT_TOOL.CENTER_X = RECT_TOOL.CENTER_X + sdx%
+            RECT_TOOL.CENTER_Y = RECT_TOOL.CENTER_Y + sdy%
+            RECT_TOOL.END_X = RECT_TOOL.END_X + sdx%
+            RECT_TOOL.END_Y = RECT_TOOL.END_Y + sdy%
+            EXIT SUB
+        END IF
         ' Update end position while dragging
         _LOGINFO "RECT: hold - dragging to" + STR$(MOUSE.X%) + "," + STR$(MOUSE.Y%)
         DIM temp_end_x AS INTEGER, temp_end_y AS INTEGER
@@ -2494,6 +2521,17 @@ SUB MOUSE_tool_ellip ()
         ELLIPSE_TOOL.SLICES   = 0
         ELLIPSE_TOOL.RINGS    = 0
     ELSEIF ELLIPSE_TOOL.DRAGGING THEN
+        ' SPACE held: translate the in-progress ellipse with the cursor
+        DIM sdx     AS INTEGER, sdy AS INTEGER
+        IF SHAPE_space_drag_delta(sdx, sdy) THEN
+            ELLIPSE_TOOL.START_X = ELLIPSE_TOOL.START_X + sdx%
+            ELLIPSE_TOOL.START_Y = ELLIPSE_TOOL.START_Y + sdy%
+            ELLIPSE_TOOL.CENTER_X = ELLIPSE_TOOL.CENTER_X + sdx%
+            ELLIPSE_TOOL.CENTER_Y = ELLIPSE_TOOL.CENTER_Y + sdy%
+            ELLIPSE_TOOL.END_X = ELLIPSE_TOOL.END_X + sdx%
+            ELLIPSE_TOOL.END_Y = ELLIPSE_TOOL.END_Y + sdy%
+            EXIT SUB
+        END IF
         ' Update end position while dragging
         DIM temp_ex AS INTEGER, temp_ey AS INTEGER
         temp_ex% = MOUSE.X%
@@ -4475,11 +4513,70 @@ END SUB
 
 
 ''
+' Returns TRUE if any shape tool is currently in its DRAGGING state.
+' Used to suppress spacebar pan and route SPACE to shape-translation instead.
+'
+FUNCTION SHAPE_drag_in_progress% ()
+    SHAPE_drag_in_progress% = (LINE_TOOL.DRAGGING _
+        OR RECT_TOOL.DRAGGING _
+        OR ELLIPSE_TOOL.DRAGGING _
+        OR SS_POLYGON.DRAGGING _
+        OR SS_PIE_DONUT.DRAGGING _
+        OR SS_RR.DRAGGING _
+        OR SS_TAB.DRAGGING _
+        OR SS_PILL.DRAGGING _
+        OR SS_PACMAN.DRAGGING _
+        OR SS_CUBE.DRAGGING _
+        OR SS_BEVEL.DRAGGING _
+        OR SS_ARROW.DRAGGING _
+        OR SS_TEXT.DRAGGING)
+END FUNCTION
+
+
+''
+' Photoshop-style SPACE-to-reposition during shape draw.
+' When SPACE is held during an active shape drag, returns TRUE and writes the
+' frame's (canvas) cursor delta into dx/dy. Caller translates its anchor fields
+' by that delta and EXIT SUBs to skip normal resize logic. Honors grid snap
+' automatically because MOUSE.X/Y are pre-snapped.
+'
+' @param dx INTEGER (out) Horizontal canvas-pixel delta this frame
+' @param dy INTEGER (out) Vertical canvas-pixel delta this frame
+' @return INTEGER TRUE when caller should translate + EXIT SUB
+'
+FUNCTION SHAPE_space_drag_delta% (dx AS INTEGER, dy AS INTEGER)
+    dx% = 0: dy% = 0
+    IF NOT _KEYDOWN(32) THEN
+        SHAPE_space_drag_delta% = FALSE
+        EXIT FUNCTION
+    END IF
+    IF NOT SHAPE_drag_in_progress THEN
+        SHAPE_space_drag_delta% = FALSE
+        EXIT FUNCTION
+    END IF
+    dx% = MOUSE.X% - MOUSE.OLD_X%
+    dy% = MOUSE.Y% - MOUSE.OLD_Y%
+    IF dx% <> 0 OR dy% <> 0 THEN
+        SCENE_DIRTY% = TRUE
+        FRAME_IDLE%  = FALSE
+    END IF
+    SHAPE_space_drag_delta% = TRUE
+END FUNCTION
+
+
+''
 ' Spacebar temporary pan tool switch.
 ' When spacebar is pressed, temporarily switches to PAN tool.
 ' When released, restores the previous tool. Similar to ALT→picker pattern.
 '
 SUB MOUSE_handle_space_pan ()
+    ' Don't hijack SPACE while a shape drag is in progress — the shape tool
+    ' consumes SPACE for Photoshop-style reposition. Rising-edge detection in
+    ' this SUB's STATIC spaceWasHeld% is preserved, so when the drag ends with
+    ' SPACE still held, the next call will re-fire the press transition and
+    ' pan engages normally.
+    IF SHAPE_drag_in_progress THEN EXIT SUB
+
     STATIC spaceWasHeld%
     STATIC panFromSpace%
 
@@ -5139,6 +5236,17 @@ SUB MOUSE_tool_ss_polygon ()
         SS_POLYGON.FILLED         = (MOUSE.B2% AND NOT MOUSE.OLD_B2%)
         SS_POLYGON.SHIFT_PREV%    = MODIFIERS.shift%
     ELSEIF SS_POLYGON.DRAGGING THEN
+        ' SPACE held: translate the in-progress polygon with the cursor
+        DIM sdx AS INTEGER, sdy AS INTEGER
+        IF SHAPE_space_drag_delta(sdx, sdy) THEN
+            SS_POLYGON.START_X = SS_POLYGON.START_X + sdx%
+            SS_POLYGON.START_Y = SS_POLYGON.START_Y + sdy%
+            SS_POLYGON.CENTER_X = SS_POLYGON.CENTER_X + sdx%
+            SS_POLYGON.CENTER_Y = SS_POLYGON.CENTER_Y + sdy%
+            SS_POLYGON.END_X = SS_POLYGON.END_X + sdx%
+            SS_POLYGON.END_Y = SS_POLYGON.END_Y + sdy%
+            EXIT SUB
+        END IF
         SS_POLYGON.END_X = MOUSE.X%
         SS_POLYGON.END_Y = MOUSE.Y%
 
@@ -5257,9 +5365,20 @@ SUB MOUSE_tool_ss_pie_donut ()
         SS_PIE_DONUT.RY       = 0
         SS_PIE_DONUT.FILLED   = (MOUSE.B2% AND NOT MOUSE.OLD_B2%)
     ELSEIF SS_PIE_DONUT.DRAGGING THEN
+        ' SPACE held: translate the in-progress pie/donut with the cursor
+        DIM sdx AS INTEGER, sdy AS INTEGER
+        IF SHAPE_space_drag_delta(sdx, sdy) THEN
+            SS_PIE_DONUT.START_X = SS_PIE_DONUT.START_X + sdx%
+            SS_PIE_DONUT.START_Y = SS_PIE_DONUT.START_Y + sdy%
+            SS_PIE_DONUT.CENTER_X = SS_PIE_DONUT.CENTER_X + sdx%
+            SS_PIE_DONUT.CENTER_Y = SS_PIE_DONUT.CENTER_Y + sdy%
+            SS_PIE_DONUT.END_X = SS_PIE_DONUT.END_X + sdx%
+            SS_PIE_DONUT.END_Y = SS_PIE_DONUT.END_Y + sdy%
+            EXIT SUB
+        END IF
         SS_PIE_DONUT.END_X = MOUSE.X%
         SS_PIE_DONUT.END_Y = MOUSE.Y%
-        DIM dx AS INTEGER, dy AS INTEGER
+        DIM dx  AS INTEGER, dy AS INTEGER
         dx% = ABS(MOUSE.X% - SS_PIE_DONUT.CENTER_X)
         dy% = ABS(MOUSE.Y% - SS_PIE_DONUT.CENTER_Y)
         IF MODIFIERS.shift% THEN
@@ -5303,6 +5422,13 @@ SUB MOUSE_tool_ss_rounded_rect ()
         SS_RR.X1       = MOUSE.X% : SS_RR.Y1 = MOUSE.Y%
         SS_RR.FILLED   = (MOUSE.B2% AND NOT MOUSE.OLD_B2%)
     ELSEIF SS_RR.DRAGGING THEN
+        ' SPACE held: translate the in-progress rounded rect with the cursor
+        DIM sdx AS INTEGER, sdy AS INTEGER
+        IF SHAPE_space_drag_delta(sdx, sdy) THEN
+            SS_RR.X0 = SS_RR.X0 + sdx% : SS_RR.Y0 = SS_RR.Y0 + sdy%
+            SS_RR.X1 = SS_RR.X1 + sdx% : SS_RR.Y1 = SS_RR.Y1 + sdy%
+            EXIT SUB
+        END IF
         SS_RR.X1 = MOUSE.X%: SS_RR.Y1 = MOUSE.Y%
         IF MODIFIERS.shift% THEN
             DIM ddx AS INTEGER, ddy AS INTEGER, ddmax AS INTEGER
@@ -5331,6 +5457,13 @@ SUB MOUSE_tool_ss_tab ()
         SS_TAB.X1       = MOUSE.X% : SS_TAB.Y1 = MOUSE.Y%
         SS_TAB.FILLED   = (MOUSE.B2% AND NOT MOUSE.OLD_B2%)
     ELSEIF SS_TAB.DRAGGING THEN
+        ' SPACE held: translate the in-progress tab shape with the cursor
+        DIM sdx AS INTEGER, sdy AS INTEGER
+        IF SHAPE_space_drag_delta(sdx, sdy) THEN
+            SS_TAB.X0 = SS_TAB.X0 + sdx% : SS_TAB.Y0 = SS_TAB.Y0 + sdy%
+            SS_TAB.X1 = SS_TAB.X1 + sdx% : SS_TAB.Y1 = SS_TAB.Y1 + sdy%
+            EXIT SUB
+        END IF
         SS_TAB.X1 = MOUSE.X%: SS_TAB.Y1 = MOUSE.Y%
         IF MODIFIERS.shift% THEN
             DIM ddx AS INTEGER, ddy AS INTEGER, ddmax AS INTEGER
@@ -5359,6 +5492,13 @@ SUB MOUSE_tool_ss_pill ()
         SS_PILL.X1       = MOUSE.X% : SS_PILL.Y1 = MOUSE.Y%
         SS_PILL.FILLED   = (MOUSE.B2% AND NOT MOUSE.OLD_B2%)
     ELSEIF SS_PILL.DRAGGING THEN
+        ' SPACE held: translate the in-progress pill with the cursor
+        DIM sdx AS INTEGER, sdy AS INTEGER
+        IF SHAPE_space_drag_delta(sdx, sdy) THEN
+            SS_PILL.X0 = SS_PILL.X0 + sdx% : SS_PILL.Y0 = SS_PILL.Y0 + sdy%
+            SS_PILL.X1 = SS_PILL.X1 + sdx% : SS_PILL.Y1 = SS_PILL.Y1 + sdy%
+            EXIT SUB
+        END IF
         SS_PILL.X1   = MOUSE.X% : SS_PILL.Y1 = MOUSE.Y%
         SCENE_DIRTY% = TRUE     : FRAME_IDLE% = FALSE
     END IF
@@ -5383,8 +5523,20 @@ SUB MOUSE_tool_ss_pacman ()
         SS_PACMAN.MOUTH_DIR = 0
         SS_PACMAN.FILLED    = (MOUSE.B2% AND NOT MOUSE.OLD_B2%)
     ELSEIF SS_PACMAN.DRAGGING THEN
+        ' SPACE held: translate the in-progress pacman with the cursor
+        ' (MOUTH_DIR is relative to CENTER and is preserved)
+        DIM sdx AS INTEGER, sdy AS INTEGER
+        IF SHAPE_space_drag_delta(sdx, sdy) THEN
+            SS_PACMAN.START_X = SS_PACMAN.START_X + sdx%
+            SS_PACMAN.START_Y = SS_PACMAN.START_Y + sdy%
+            SS_PACMAN.CENTER_X = SS_PACMAN.CENTER_X + sdx%
+            SS_PACMAN.CENTER_Y = SS_PACMAN.CENTER_Y + sdy%
+            SS_PACMAN.END_X = SS_PACMAN.END_X + sdx%
+            SS_PACMAN.END_Y = SS_PACMAN.END_Y + sdy%
+            EXIT SUB
+        END IF
         SS_PACMAN.END_X = MOUSE.X%: SS_PACMAN.END_Y = MOUSE.Y%
-        DIM dx AS INTEGER, dy AS INTEGER
+        DIM dx  AS INTEGER, dy AS INTEGER
         dx% = ABS(MOUSE.X% - SS_PACMAN.CENTER_X)
         dy% = ABS(MOUSE.Y% - SS_PACMAN.CENTER_Y)
         IF MODIFIERS.shift% THEN
@@ -5394,7 +5546,7 @@ SUB MOUSE_tool_ss_pacman ()
         IF dy% < 1 THEN dy% = 1
         SS_PACMAN.RX = dx%: SS_PACMAN.RY = dy%
         ' Mouth direction = drag vector angle
-        DIM vx AS SINGLE, vy AS SINGLE
+        DIM vx  AS SINGLE, vy AS SINGLE
         vx! = MOUSE.X% - SS_PACMAN.CENTER_X
         vy! = MOUSE.Y% - SS_PACMAN.CENTER_Y
         IF vx! <> 0 OR vy! <> 0 THEN SS_PACMAN.MOUTH_DIR = _ATAN2(vy!, vx!)
@@ -5419,6 +5571,13 @@ SUB MOUSE_tool_ss_3d_cube ()
         SS_CUBE.X0       = MOUSE.X% : SS_CUBE.Y0 = MOUSE.Y%
         SS_CUBE.X1       = MOUSE.X% : SS_CUBE.Y1 = MOUSE.Y%
     ELSEIF SS_CUBE.DRAGGING THEN
+        ' SPACE held: translate the in-progress 3D cube with the cursor
+        DIM sdx AS INTEGER, sdy AS INTEGER
+        IF SHAPE_space_drag_delta(sdx, sdy) THEN
+            SS_CUBE.X0 = SS_CUBE.X0 + sdx% : SS_CUBE.Y0 = SS_CUBE.Y0 + sdy%
+            SS_CUBE.X1 = SS_CUBE.X1 + sdx% : SS_CUBE.Y1 = SS_CUBE.Y1 + sdy%
+            EXIT SUB
+        END IF
         SS_CUBE.X1 = MOUSE.X%: SS_CUBE.Y1 = MOUSE.Y%
         IF MODIFIERS.shift% THEN
             DIM ddx AS INTEGER, ddy AS INTEGER, ddmax AS INTEGER
@@ -5452,6 +5611,13 @@ SUB MOUSE_tool_ss_bevel_rect ()
         SS_BEVEL.X1       = MOUSE.X% : SS_BEVEL.Y1 = MOUSE.Y%
         SS_BEVEL.FILLED   = (MOUSE.B2% AND NOT MOUSE.OLD_B2%)
     ELSEIF SS_BEVEL.DRAGGING THEN
+        ' SPACE held: translate the in-progress bevel rect with the cursor
+        DIM sdx AS INTEGER, sdy AS INTEGER
+        IF SHAPE_space_drag_delta(sdx, sdy) THEN
+            SS_BEVEL.X0 = SS_BEVEL.X0 + sdx% : SS_BEVEL.Y0 = SS_BEVEL.Y0 + sdy%
+            SS_BEVEL.X1 = SS_BEVEL.X1 + sdx% : SS_BEVEL.Y1 = SS_BEVEL.Y1 + sdy%
+            EXIT SUB
+        END IF
         SS_BEVEL.X1 = MOUSE.X%: SS_BEVEL.Y1 = MOUSE.Y%
         IF MODIFIERS.shift% THEN
             DIM ddx AS INTEGER, ddy AS INTEGER, ddmax AS INTEGER
@@ -5480,6 +5646,15 @@ SUB MOUSE_tool_ss_arrow ()
         SS_ARROW.END_X    = MOUSE.X% : SS_ARROW.END_Y = MOUSE.Y%
         SS_ARROW.FILLED   = (MOUSE.B2% AND NOT MOUSE.OLD_B2%)
     ELSEIF SS_ARROW.DRAGGING THEN
+        ' SPACE held: translate the in-progress arrow with the cursor
+        DIM sdx AS INTEGER, sdy AS INTEGER
+        IF SHAPE_space_drag_delta(sdx, sdy) THEN
+            SS_ARROW.START_X = SS_ARROW.START_X + sdx%
+            SS_ARROW.START_Y = SS_ARROW.START_Y + sdy%
+            SS_ARROW.END_X = SS_ARROW.END_X + sdx%
+            SS_ARROW.END_Y = SS_ARROW.END_Y + sdy%
+            EXIT SUB
+        END IF
         SS_ARROW.END_X = MOUSE.X%: SS_ARROW.END_Y = MOUSE.Y%
         IF MODIFIERS.shift% THEN
             ' Constrain to 8 cardinal/diagonal directions
@@ -5554,6 +5729,13 @@ SUB MOUSE_tool_ss_3d_text ()
         SS_TEXT.X0       = MOUSE.X% : SS_TEXT.Y0 = MOUSE.Y%
         SS_TEXT.X1       = MOUSE.X% : SS_TEXT.Y1 = MOUSE.Y%
     ELSEIF SS_TEXT.DRAGGING THEN
+        ' SPACE held: translate the in-progress 3D text with the cursor
+        DIM sdx AS INTEGER, sdy AS INTEGER
+        IF SHAPE_space_drag_delta(sdx, sdy) THEN
+            SS_TEXT.X0 = SS_TEXT.X0 + sdx% : SS_TEXT.Y0 = SS_TEXT.Y0 + sdy%
+            SS_TEXT.X1 = SS_TEXT.X1 + sdx% : SS_TEXT.Y1 = SS_TEXT.Y1 + sdy%
+            EXIT SUB
+        END IF
         SS_TEXT.X1 = MOUSE.X%: SS_TEXT.Y1 = MOUSE.Y%
         IF MODIFIERS.shift% THEN
             ' Constrain to text's natural aspect ratio
