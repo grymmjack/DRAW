@@ -48,6 +48,8 @@ When freehand stops being precise enough you reach for the geometric trio. All t
 | Rectangle | ![rect](../../ASSETS/THEMES/DEFAULT/IMAGES/TOOLBOX/rect.png) ![rect-filled](../../ASSETS/THEMES/DEFAULT/IMAGES/TOOLBOX/rect-filled.png) | `R` | `Shift+R` |
 | Ellipse / Circle | ![circle](../../ASSETS/THEMES/DEFAULT/IMAGES/TOOLBOX/circle.png) ![circle-filled](../../ASSETS/THEMES/DEFAULT/IMAGES/TOOLBOX/circle-filled.png) | `C` | `Shift+C` |
 
+**Tip:** While dragging any shape, hold SPACE to move the entire shape with the mouse instead of resizing it. Release SPACE to resume resizing from the new anchor. This works for all geometric and Smart Shape tools, and honors grid snap.
+
 The shared modifier vocabulary across all three:
 
 - **Shift** — constrain (line: H/V; rect: square; ellipse: circle).
@@ -119,6 +121,8 @@ The eraser uses your current brush size, shape, and even custom-brush stamp. The
 ### Smart Shapes Tool Group
 
 The **Smart Shapes** tool group is accessed from the toolbar. **Long-press or right-click** the Smart Shapes button to open a flyout menu and pick a sub-tool. Each shape has live drag-time arrow-key tweaks and unique modifiers.
+
+**Tip:** While dragging any Smart Shape, hold SPACE to move the entire shape with the mouse instead of resizing it. Release SPACE to resume resizing from the new anchor. Grid snap is honored.
 
 **Sub-tools:**
 

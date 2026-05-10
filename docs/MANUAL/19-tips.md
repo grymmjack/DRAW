@@ -18,6 +18,7 @@
 8. **`Ctrl+Shift+C` is Copy Merged.** Flatten the visible composite to clipboard without merging your actual layers.
 9. **Double-middle-click = instant pan/zoom reset.** Get back to a fitting view in one gesture.
 10. **`.draw` is a PNG you can open in any viewer.** Show off your art on Discord without exporting first — your project file *is* the preview.
+11. **Move shapes while dragging:** Hold SPACE while dragging any geometric or Smart Shape tool (Line, Rectangle, Ellipse, Polygon, Smart Shapes) to temporarily reposition the in-progress shape with the mouse, instead of resizing it. Release SPACE to resume resizing from the new anchor. Grid snap is honored. (Photoshop-style move-during-drag.)
 
 <div class="page-break"></div>
 
