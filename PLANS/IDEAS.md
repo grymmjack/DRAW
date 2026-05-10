@@ -1,11 +1,11 @@
 # IDEAS
 
+## CREATE DARK THEME
+- [ ] To test the theme mode, we need a dark theme
+
 ## APRON .5 SIZE of canvas = phantom draw area (to prevent clips)
 - [ ] Right now the rotation/movement of something off the canvas into the apron area clips it.
   - [ ] This would let it not clip
-
-## 3D TEXT
-- [x] Just like Smart Shape 3D, but on text.
 
 ## TDF FONT SUPPORT
 - [ ] Render/load/use TheDraw fonts :)
@@ -78,173 +78,6 @@ cell alignment inside, borders, border widths, border colors, etc.
 - Export table
 - Convert table to GUIDE layer
 - DIVIDE EVENLY (visually)1
-
-
-
-## Smart Shapes
-> When clicking and holding on the smart shape button, present a submenu of buttons that looks like:
-> DEV/smart-shapes.png
-> Each of these buttons is separate and engages the smart shape below:
-> Present them in a straight row starting from the side of the smart-shape button that is facing towards the canvas, and create a strip of buttons to choose shape, one of:
-> Polygon, Pie/Donut, Rounded Rect, Tab, Pill, Pac-Man, 3D Cube, Bevel Rect, or Arrow
-> As the user holds left button to choose a shape, keep the row of buttons expanded.
-> When the user moves the mouse while holding the left button down (left drag), highlight the shape button they are hovering over like we do to show the shape is picked in the toolbox
-> When the user releases the left button, the tool that is engaged is the tool they are over.
-> IF the user is not over a tool when they release the button, no tool change happens
-> WHEN the user releases the left button hide/collapse the button row of smart shapes and make the smart shape button render as the selected smart shape. 
-> On document start/open always set the smart shape to the default smartshape.png, but keep the current smart shape remembered if it is changed DURING a session - does not need to restore or maintain state in documents.
-
-The idea of smart shapes is that the user begins drawing, and then uses keys to
-modify the shape they are making. All smart shapes should snap to the grid and honor the grid and symmetry according to regular shapes like rect/ellipse.
-
-See below for how each shape works once engaged:
-
-### Polygon
-> A polygons minimum sides is 3, and maximum is 30
-
-Movement of the mouse as the shape is created makes it wider/taller/shorter/etc. as normal rect drawing would. 
-
-The depth of the points needs explaining. So if user draws a polygon with 5 sides, pressing the right arrow would create a middle dividing point so that it can make a star shape, the depth of this star is determined by left arrow and right arrow. The star can have depth less than the perimeter of the polygon, or greater than. In this way the polygon can have bursts, stars, and so on.
-
-- [x] Start as triangle
-- [x] Up arrow add edges,
-- [x] Down arrow remove edges
-- [x] Left arrow decrease point depth
-- [x] Right arrow increase point depth
-
-> TOOLTIP LINE 1: SMART-SHAPE: POLYGON - UP-ARROW: Add edge, DOWN-ARROW: Remove edge
-> TOOLTIP LINE 2: LEFT-ARROW: Decrease point depth, RIGHT-ARROW: Increase point depth
-
-
-### Pie / Donut
-> Pie / Donut the user can create pie charts with equidistant divisions of slices of pie, or adjusted custom slice sizes. If the user uses the left arrow or right arrow, a new hole inside the middle of the pie chart should be created, which consists of an outline, and a blank area so it looks like an outlined O or donut, the idea is that we can create very quick GUI dials and things using this method by creating a simple knob with spokes (the slices), in donut mode which makes it look like a outlined O, but with the spokes neatly divided perfectly around the circle/donut, and enclosed by two ellipses/circles..
-
-> The minimum amount of slices is 0 and maximum is 30.
-The maximum radius of the middle donut hole is 90% of the size of the shape, with minimum being 0 (or no donut hole)
-
-- [x] Start as circle
-- [x] Up arrow add segments
-- [x] Down arrow remove segments
-- [x] Left arrow decrease hole size
-- [x] Right arrow increase hole size
-
-> TOOLTIP LINE 1: SMART-SHAPE: PIE/DONUT - UP-ARROW: Add segment, DOWN-ARROW: Remove segment
-> TOOLTIP LINE 2: LEFT-ARROW: Decrease donut hole size, RIGHT-ARROW: Increase donut hole size
-
-
-### Rounded Rect
-> Rounded rectangle just draws a rect that's got round corners.
-User can decrease corner radius to 1 so it's a regular rect with only 1 px round edge, or up to a full radius of 30 with max roundness, but the radius should be impossible to create intersecting radius corners. so if the rect is 10x10 the maximum radius for corners would be 5 because they would touch, etc. Can accommodate up to 30 radius but only if shape is > 60px height or width.
-- [x] Start as rect with 3px roundedness
-- [x] Up arrow increase corner radius 
-- [x] Down arrow decrease corner radius
-
-> TOOLTIP LINE 1: SMART-SHAPE: ROUNDED RECTANGLE
-> TOOLTIP LINE 2: UP-ARROW: Inc. corner radius DOWN-ARROW: Dec. corner radius
-
-
-### Tab
-> A tab is a rounded rectangle that has 1 flat edge vertically.
-> Top left corner - rounded, top right corner - rounded, bottom left corner sharp 90, bottom right corner sharp 90.
-The idea is the user can quickly create tabs. The flat edge can be cycled around each edge so the user could create a tab that is horizontal, or vertical, on any edge.
-
-- [x] Start as rect
-- [x] Up arrow round top corners more
-- [x] Down arrow round top corners less
-- [x] Left arrow cycle tab bottom side left
-- [x] Right arrow cycle tab bottom side right
-
-> TOOLTIP LINE 1: SMART-SHAPE: TAB - UP-ARROW: Round tab more, DOWN-ARROW: Round tab less
-> TOOLTIP LINE 2: LEFT-ARROW: Cycle tab side left, RIGHT-ARROW: Cycle tab side right
-
-
-### Pill
-> A pill is a rounded rect, up to an oval in roundness, that has dividers evenly based on how many options there are. Like a radio control, it is meant to choose one of many options in the sections of the pill. THe shape is called pill because the left or right sides are ( ) in shape, a pill can exist vertically as well, but is less common, and we don't need to worry about that we can rotate it.
-
-For example a user could create a sliding ON/OFF by creating a pill 20 wide, with 1 divider creating 2 options, one for off, one for on.
-
-- [x] Start as rect
-- [x] Up arrow increase roundness 
-- [x] Down arrow decrease roundness
-- [x] Left arrow decrease segments
-- [x] Right arrow increase segments
-
-> TOOLTIP LINE 1: SMART-SHAPE: PILL - UP-ARROW: Round pill more, DOWN-ARROW: Round pill less
-> TOOLTIP LINE 2: LEFT-ARROW: Decrease segments, RIGHT-ARROW: Increase segments
-
-
-### Pac-Man
-> A Pac-man is simply a pie chart with a single slice that is cut out of the circle. 
-> The slice size is the mouth. The mouth can be wider or closed completely.
-> The hole in the middle affords the ability to create dials that show traversal like Ableton live does with the Pacman mout facing down, and the value traversal going through the body.
-
-- [x] Start as circle
-- [x] Up arrow increase mouth size
-- [x] Down arrow decrease mouth size
-- [x] Left arrow decrease inner hole
-- [x] Right arrow increase inner hole
-
-> TOOLTIP LINE 1: SMART-SHAPE: PAC-MAN - UP-ARROW: Inc. mouth size, DOWN-ARROW: Dec. mouth size
-> TOOLTIP LINE 2: LEFT-ARROW: Decrease inner hole, RIGHT-ARROW: Increase inner hole
-
-
-
-### 3D cube / 3D polygon (dice)
-> 3D shape/polygon (we can start with cube)
-> Simply draws a 3D cube wireframe (no lighting)
-> Controls explain how it works.
-> For now 3D cube is enough but I would love to be able to create polyhedron dice shapes for this tool etc. D4, D6, D8, D10, D12, D20, D30, etc. Press numbers while drawing for the dice sides: 4 = D4, 6 = D6, 8 = D8, 0 = D10, 2 = D20, 3 = D30, 1 = D12
-
-User will take the wireframe and do what they want, fill or not.
-
-- [x] Start as rect
-- [x] Up arrow increase z-depth
-- [x] Down arrow decrease z-depth
-- [x] Left arrow rotate left
-- [x] Right arrow rotate right
-- [x] Mouse wheel up rotate up
-- [x] Mouse wheel down rotate down
-
-> TOOLTIP LINE 1: SMART-SHAPE: 3D - UP-ARROW: Inc. Z, DOWN-ARROW: Dec. Z
-> TOOLTIP LINE 2: LEFT-ARROW: Rotate left X, RIGHT-ARROW: Rotate right X, MW-UP/Down: Rotate Y
-
-
-### Bevel rect
-> Idea of bevel rect is that the bevel is created using outlines/wireframes
-> Often we need to create a beveled rectangle.
-> THe controls explain
-
-- [x] Start as rect
-- [x] Up arrow increase bevel size
-- [x] Down arrow decrease bevel size
-- [x] Left arrow decrease border size
-- [x] Right arrow increase border size
-- [x] Press I - change to inner
-- [x] Press O - change to outer
-- [x] Mouse wheel up increase z-depth (angled edges)
-- [x] Mouse wheel down decrease z-depth angled edges
-
-> TOOLTIP LINE 1: SMART-SHAPE: BEVEL RECT. - UP-ARROW: Inc. bevel size, DOWN-ARROW: Dec. bevel size
-> TOOLTIP LINE 2: LEFT-ARROW: Dec. border size, RIGHT-ARROW: Inc. border size, I:Inner, O:Outer, MW-Up/Down: Z
-
-
-### Arrow
-> Arrow consists of the stem (the line part facing the triangle)
-> The triangle head, and it's concavity.
-> User can change width/length of stem, and arrow fatness
-> User can change concavity which makes arrow head curved
-
-- [x] Start with arrow shape
-- [x] Up arrow make arrow stem fatter
-- [x] Down arrow make arrow stem skinnier
-- [x] Left arrow make arrow head shorter
-- [x] Right arrow make arrow head longer
-- [x] Mouse wheel up increase head concavity
-- [x] Mouse wheel down decrease head concavity
-
-> TOOLTIP LINE 1: SMART-SHAPE: ARROW - UP-ARROW: Fatter stem, DOWN-ARROW: Thinner stem
-> TOOLTIP LINE 2: LEFT-ARROW: Shorter head, RIGHT-ARROW: Longer head, MW-Up/Down: Head concavity
-
 
 ---
 
@@ -896,3 +729,175 @@ Automatically snap to layer candidates when near X/Y/W/H bounds of neighbors
 ## Bezier Curve
 - [x] Like photoshop pen tool
 
+
+
+
+
+## Smart Shapes
+> When clicking and holding on the smart shape button, present a submenu of buttons that looks like:
+> DEV/smart-shapes.png
+> Each of these buttons is separate and engages the smart shape below:
+> Present them in a straight row starting from the side of the smart-shape button that is facing towards the canvas, and create a strip of buttons to choose shape, one of:
+> Polygon, Pie/Donut, Rounded Rect, Tab, Pill, Pac-Man, 3D Cube, Bevel Rect, or Arrow
+> As the user holds left button to choose a shape, keep the row of buttons expanded.
+> When the user moves the mouse while holding the left button down (left drag), highlight the shape button they are hovering over like we do to show the shape is picked in the toolbox
+> When the user releases the left button, the tool that is engaged is the tool they are over.
+> IF the user is not over a tool when they release the button, no tool change happens
+> WHEN the user releases the left button hide/collapse the button row of smart shapes and make the smart shape button render as the selected smart shape. 
+> On document start/open always set the smart shape to the default smartshape.png, but keep the current smart shape remembered if it is changed DURING a session - does not need to restore or maintain state in documents.
+
+The idea of smart shapes is that the user begins drawing, and then uses keys to
+modify the shape they are making. All smart shapes should snap to the grid and honor the grid and symmetry according to regular shapes like rect/ellipse.
+
+See below for how each shape works once engaged:
+
+### Polygon
+> A polygons minimum sides is 3, and maximum is 30
+
+Movement of the mouse as the shape is created makes it wider/taller/shorter/etc. as normal rect drawing would. 
+
+The depth of the points needs explaining. So if user draws a polygon with 5 sides, pressing the right arrow would create a middle dividing point so that it can make a star shape, the depth of this star is determined by left arrow and right arrow. The star can have depth less than the perimeter of the polygon, or greater than. In this way the polygon can have bursts, stars, and so on.
+
+- [x] Start as triangle
+- [x] Up arrow add edges,
+- [x] Down arrow remove edges
+- [x] Left arrow decrease point depth
+- [x] Right arrow increase point depth
+
+> TOOLTIP LINE 1: SMART-SHAPE: POLYGON - UP-ARROW: Add edge, DOWN-ARROW: Remove edge
+> TOOLTIP LINE 2: LEFT-ARROW: Decrease point depth, RIGHT-ARROW: Increase point depth
+
+
+### Pie / Donut
+> Pie / Donut the user can create pie charts with equidistant divisions of slices of pie, or adjusted custom slice sizes. If the user uses the left arrow or right arrow, a new hole inside the middle of the pie chart should be created, which consists of an outline, and a blank area so it looks like an outlined O or donut, the idea is that we can create very quick GUI dials and things using this method by creating a simple knob with spokes (the slices), in donut mode which makes it look like a outlined O, but with the spokes neatly divided perfectly around the circle/donut, and enclosed by two ellipses/circles..
+
+> The minimum amount of slices is 0 and maximum is 30.
+The maximum radius of the middle donut hole is 90% of the size of the shape, with minimum being 0 (or no donut hole)
+
+- [x] Start as circle
+- [x] Up arrow add segments
+- [x] Down arrow remove segments
+- [x] Left arrow decrease hole size
+- [x] Right arrow increase hole size
+
+> TOOLTIP LINE 1: SMART-SHAPE: PIE/DONUT - UP-ARROW: Add segment, DOWN-ARROW: Remove segment
+> TOOLTIP LINE 2: LEFT-ARROW: Decrease donut hole size, RIGHT-ARROW: Increase donut hole size
+
+
+### Rounded Rect
+> Rounded rectangle just draws a rect that's got round corners.
+User can decrease corner radius to 1 so it's a regular rect with only 1 px round edge, or up to a full radius of 30 with max roundness, but the radius should be impossible to create intersecting radius corners. so if the rect is 10x10 the maximum radius for corners would be 5 because they would touch, etc. Can accommodate up to 30 radius but only if shape is > 60px height or width.
+- [x] Start as rect with 3px roundedness
+- [x] Up arrow increase corner radius 
+- [x] Down arrow decrease corner radius
+
+> TOOLTIP LINE 1: SMART-SHAPE: ROUNDED RECTANGLE
+> TOOLTIP LINE 2: UP-ARROW: Inc. corner radius DOWN-ARROW: Dec. corner radius
+
+
+### Tab
+> A tab is a rounded rectangle that has 1 flat edge vertically.
+> Top left corner - rounded, top right corner - rounded, bottom left corner sharp 90, bottom right corner sharp 90.
+The idea is the user can quickly create tabs. The flat edge can be cycled around each edge so the user could create a tab that is horizontal, or vertical, on any edge.
+
+- [x] Start as rect
+- [x] Up arrow round top corners more
+- [x] Down arrow round top corners less
+- [x] Left arrow cycle tab bottom side left
+- [x] Right arrow cycle tab bottom side right
+
+> TOOLTIP LINE 1: SMART-SHAPE: TAB - UP-ARROW: Round tab more, DOWN-ARROW: Round tab less
+> TOOLTIP LINE 2: LEFT-ARROW: Cycle tab side left, RIGHT-ARROW: Cycle tab side right
+
+
+### Pill
+> A pill is a rounded rect, up to an oval in roundness, that has dividers evenly based on how many options there are. Like a radio control, it is meant to choose one of many options in the sections of the pill. THe shape is called pill because the left or right sides are ( ) in shape, a pill can exist vertically as well, but is less common, and we don't need to worry about that we can rotate it.
+
+For example a user could create a sliding ON/OFF by creating a pill 20 wide, with 1 divider creating 2 options, one for off, one for on.
+
+- [x] Start as rect
+- [x] Up arrow increase roundness 
+- [x] Down arrow decrease roundness
+- [x] Left arrow decrease segments
+- [x] Right arrow increase segments
+
+> TOOLTIP LINE 1: SMART-SHAPE: PILL - UP-ARROW: Round pill more, DOWN-ARROW: Round pill less
+> TOOLTIP LINE 2: LEFT-ARROW: Decrease segments, RIGHT-ARROW: Increase segments
+
+
+### Pac-Man
+> A Pac-man is simply a pie chart with a single slice that is cut out of the circle. 
+> The slice size is the mouth. The mouth can be wider or closed completely.
+> The hole in the middle affords the ability to create dials that show traversal like Ableton live does with the Pacman mout facing down, and the value traversal going through the body.
+
+- [x] Start as circle
+- [x] Up arrow increase mouth size
+- [x] Down arrow decrease mouth size
+- [x] Left arrow decrease inner hole
+- [x] Right arrow increase inner hole
+
+> TOOLTIP LINE 1: SMART-SHAPE: PAC-MAN - UP-ARROW: Inc. mouth size, DOWN-ARROW: Dec. mouth size
+> TOOLTIP LINE 2: LEFT-ARROW: Decrease inner hole, RIGHT-ARROW: Increase inner hole
+
+
+
+### 3D cube / 3D polygon (dice)
+> 3D shape/polygon (we can start with cube)
+> Simply draws a 3D cube wireframe (no lighting)
+> Controls explain how it works.
+> For now 3D cube is enough but I would love to be able to create polyhedron dice shapes for this tool etc. D4, D6, D8, D10, D12, D20, D30, etc. Press numbers while drawing for the dice sides: 4 = D4, 6 = D6, 8 = D8, 0 = D10, 2 = D20, 3 = D30, 1 = D12
+
+User will take the wireframe and do what they want, fill or not.
+
+- [x] Start as rect
+- [x] Up arrow increase z-depth
+- [x] Down arrow decrease z-depth
+- [x] Left arrow rotate left
+- [x] Right arrow rotate right
+- [x] Mouse wheel up rotate up
+- [x] Mouse wheel down rotate down
+
+> TOOLTIP LINE 1: SMART-SHAPE: 3D - UP-ARROW: Inc. Z, DOWN-ARROW: Dec. Z
+> TOOLTIP LINE 2: LEFT-ARROW: Rotate left X, RIGHT-ARROW: Rotate right X, MW-UP/Down: Rotate Y
+
+
+### Bevel rect
+> Idea of bevel rect is that the bevel is created using outlines/wireframes
+> Often we need to create a beveled rectangle.
+> THe controls explain
+
+- [x] Start as rect
+- [x] Up arrow increase bevel size
+- [x] Down arrow decrease bevel size
+- [x] Left arrow decrease border size
+- [x] Right arrow increase border size
+- [x] Press I - change to inner
+- [x] Press O - change to outer
+- [x] Mouse wheel up increase z-depth (angled edges)
+- [x] Mouse wheel down decrease z-depth angled edges
+
+> TOOLTIP LINE 1: SMART-SHAPE: BEVEL RECT. - UP-ARROW: Inc. bevel size, DOWN-ARROW: Dec. bevel size
+> TOOLTIP LINE 2: LEFT-ARROW: Dec. border size, RIGHT-ARROW: Inc. border size, I:Inner, O:Outer, MW-Up/Down: Z
+
+
+### Arrow
+> Arrow consists of the stem (the line part facing the triangle)
+> The triangle head, and it's concavity.
+> User can change width/length of stem, and arrow fatness
+> User can change concavity which makes arrow head curved
+
+- [x] Start with arrow shape
+- [x] Up arrow make arrow stem fatter
+- [x] Down arrow make arrow stem skinnier
+- [x] Left arrow make arrow head shorter
+- [x] Right arrow make arrow head longer
+- [x] Mouse wheel up increase head concavity
+- [x] Mouse wheel down decrease head concavity
+
+> TOOLTIP LINE 1: SMART-SHAPE: ARROW - UP-ARROW: Fatter stem, DOWN-ARROW: Thinner stem
+> TOOLTIP LINE 2: LEFT-ARROW: Shorter head, RIGHT-ARROW: Longer head, MW-Up/Down: Head concavity
+
+
+
+## 3D TEXT
+- [x] Just like Smart Shape 3D, but on text.

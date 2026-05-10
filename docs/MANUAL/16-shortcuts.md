@@ -57,6 +57,8 @@ The full, authoritative list is in [`CHEATSHEET.md`](../../CHEATSHEET.md) at the
 | `V` | Move |
 | `Z` | Zoom |
 | `T` | Text |
+| `Q` | Bezier |
+| (Toolbar) | Smart Shapes (Polygon, Pie/Donut, Rounded Rect, Tab, Pill, Pac-Man, 3D Dice, Bevel Rect, Arrow, 3D Text) |
 
 <div class="page-break"></div>
 
@@ -80,6 +82,39 @@ The full, authoritative list is in [`CHEATSHEET.md`](../../CHEATSHEET.md) at the
 | `F4`–`F9`, `F11` | Panel and mode toggles |
 | `Tab` | Toggle Toolbar |
 | `?` | Command Palette |
+
+### Smart Shapes & 3D Tool Modifiers
+
+| Key | Function |
+|-----|----------|
+| `Up/Down/Left/Right` | Adjust shape parameters (segments, bevel, mouth, Z depth, etc.) |
+| `Mouse Wheel` | Adjust primary parameter |
+| `Shift` | Constrain aspect ratio |
+| `Left-click drag` | Wireframe mode (FG color) |
+| `Right-click drag` | Solid mode (BG color fill, FG color wireframe) |
+| `4`/`6`/`8`/`0`/`1`/`2` | Switch dice type (D4/D6/D8/D10/D12/D20) |
+| `W`/`A`/`S`/`D`/`Q`/`E` | Orbit light |
+| `=`/`-` | Change light elevation |
+| `L`+`0..9` | Light intensity presets |
+
+### Bezier Tool
+
+| Key / Action | Function |
+|--------------|----------|
+| `Q` | Activate Bezier tool |
+| Click | Drop corner anchor |
+| Click+drag | Drop smooth anchor, shape handle |
+| `H` | Toggle handle visualisation |
+| `Backspace` | Remove last anchor |
+| `Enter` | Commit curve |
+| `Escape` | Cancel |
+
+### Line Tool — End Caps
+
+| Key | Function |
+|-----|----------|
+| `s` | Cycle start cap (while dragging) |
+| `e` | Cycle end cap (while dragging) |
 
 For everything else, use the Command Palette or read the chapter where the feature is introduced.
 

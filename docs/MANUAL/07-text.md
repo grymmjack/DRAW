@@ -62,6 +62,10 @@ Auto-wrap reflows the text inside the bounding box. Style presets let you save t
 
 While in text-entry mode, **`Ctrl+Z` and `Ctrl+Y` operate on a separate 128-state text-local history**. This means typo experiments don't pollute your global history. Sound feedback on each keystroke is configurable in audio settings.
 
+### Style Auto-Sync
+
+As you move the text cursor, the formatting toolbar now updates live to reflect the style of the character at the cursor. This makes it effortless to inspect and modify mixed-style text — the toolbar always shows the current character's formatting.
+
 <div class="page-break"></div>
 
 ## Text Layers & Character Mode

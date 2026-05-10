@@ -112,4 +112,52 @@ The eraser uses your current brush size, shape, and even custom-brush stamp. The
 
 ---
 
+## Smart Shapes & Advanced Tools
+
+> 🎯 **Goal:** Draw parametric shapes, 3D dice, and advanced curves.
+
+### Smart Shapes Tool Group
+
+The **Smart Shapes** tool group is accessed from the toolbar. **Long-press or right-click** the Smart Shapes button to open a flyout menu and pick a sub-tool. Each shape has live drag-time arrow-key tweaks and unique modifiers.
+
+**Sub-tools:**
+- **Polygon** — regular n-gon / star with adjustable point depth
+- **Pie / Donut** — segments, hole percentage
+- **Rounded Rectangle**
+- **Tab**
+- **Pill** (capsule / stadium)
+- **Pac-Man** — adjustable mouth angle
+- **3D Dice** — D4 / D6 / D8 / D10 / D12 / D20 with wireframe or solid modes
+- **Bevel Rect**
+- **Arrow** (adjustable stem)
+- **3D Text** — extruded text with live shading
+
+#### Modifiers (while dragging)
+- **Arrow keys / Mouse wheel** — adjust shape parameters (segments, bevel, mouth, Z depth, etc.)
+- **Shift** — constrain aspect ratio
+- **Left-click drag** — wireframe mode (FG color)
+- **Right-click drag** — solid mode (BG color fill, FG color wireframe)
+
+#### 3D Dice & 3D Text Lighting Controls
+- `W` / `A` / `S` / `D` (or `Q` / `E`) — orbit the light
+- `=` / `-` — change light elevation
+- `L`+`0..9` — intensity presets
+- Dice type: `4`/`6`/`8`/`0`/`1`/`2` for D4/D6/D8/D10/D12/D20
+
+### Bezier Curve Tool (`Q`)
+
+The **Bezier** tool lets you build cubic curves:
+- **Click** — drop a corner anchor (no handles)
+- **Click + drag** — drop a smooth anchor and shape its outgoing handle
+- `H` — toggle handle visualisation
+- `Backspace` — remove last anchor
+- `Enter` — commit
+- `Escape` — cancel
+
+### Line Tool — End Caps
+
+While dragging the Line tool, press `s` / `e` to cycle the start / end cap shape (none → arrow → diamond → circle → square → ...). End caps render in the same FG color as the line.
+
+---
+
 ➡️ Next: [Chapter 3 — Color & Palette Mastery](03-color-palette.md)
