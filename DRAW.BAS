@@ -513,7 +513,7 @@ DO
         IF mouseMoved% THEN SCENE_CHANGED% = TRUE                 ' Crop overlay only changes on mouse movement
     END IF
     IF CMD_PALETTE.visible THEN FRAME_IDLE% = FALSE  ' Overlay only — scene cache + SkipToPointer handles rendering; no scene rebuild needed
-    IF SELECTION_has_active% THEN FRAME_IDLE% = FALSE  ' Animation only (marching ants) — no scene change
+    IF SELECTION_has_active% AND MARQUEE.SHOW_OVERLAY% THEN FRAME_IDLE% = FALSE  ' Animation only (marching ants) — no scene change. Skip when overlay hidden via Ctrl+H.
     ' Tooltip hover: only keep frames active while delay is counting or tooltip
     ' needs one more frame to render. Once displayed and static, allow idle.
     IF TOOLTIP.HOVER_BTN_IDX% >= 0 AND (NOT TOOLTIP.ACTIVE% OR TOOLTIP.NEEDS_REDRAW%) THEN FRAME_IDLE% = FALSE

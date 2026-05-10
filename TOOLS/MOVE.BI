@@ -8,40 +8,46 @@
 $INCLUDEONCE
 
 TYPE MOVE_OBJ
-    ACTIVE          AS INTEGER ' Whether move tool is active
-    TRANSFORMING    AS INTEGER ' Whether actively transforming
-    TRANSFORM_TYPE  AS INTEGER ' 0 = move, 1 = scale, 2 = stretch
-    SELECTION_IMAGE AS LONG    ' Image buffer holding selected pixels
-    PREVIEW_BUFFER  AS LONG    ' Buffer for realtime preview of painting layer with move applied
-    ORIGINAL_X      AS INTEGER ' Original selection X (for ESC cancel)
-    ORIGINAL_Y      AS INTEGER ' Original selection Y (for ESC cancel)
-    ORIGINAL_W      AS INTEGER ' Original selection width (for ESC cancel)
-    ORIGINAL_H      AS INTEGER ' Original selection height (for ESC cancel)
-    SELECTION_X     AS INTEGER ' Current base selection X
-    SELECTION_Y     AS INTEGER ' Current base selection Y
-    SELECTION_W     AS INTEGER ' Current base selection width
-    SELECTION_H     AS INTEGER ' Current base selection height
-    START_X         AS INTEGER ' Transform start X
-    START_Y         AS INTEGER ' Transform start Y
-    CURRENT_X       AS INTEGER ' Current transform X
-    CURRENT_Y       AS INTEGER ' Current transform Y
-    CURRENT_W       AS INTEGER ' Current transform width
-    CURRENT_H       AS INTEGER ' Current transform height
-    HANDLE          AS INTEGER ' Which handle being dragged (0 = center, 1-8 = corners/sides)
-    CLONING         AS INTEGER ' Whether ALT is held (clone mode)
-    CLONE_STAMPED   AS INTEGER ' TRUE if any stamp was placed in this move session
-    CONSTRAIN       AS INTEGER ' Whether SHIFT is held (constrain proportions)
-    CAPTURED_LAYER  AS INTEGER ' Layer index that was captured (ensures apply targets correct layer)
-    ORIGINAL_IMAGE  AS LONG    ' Preserved original image for lossless re-scaling
-    ORIGINAL_IMG_W  AS INTEGER ' Width of original image
-    ORIGINAL_IMG_H  AS INTEGER ' Height of original image
-    SCALE_FACTOR    AS SINGLE  ' Cumulative scale factor (1.0 = original)
-    GROUP_ORIGIN    AS INTEGER ' Group header index that triggered auto-select (0 = not a group move)
-    SYMBOL_CHILD    AS INTEGER ' TRUE when dragging a symbol child (offset-based, no pixel capture)
-    SYMBOL_ORIG_OX  AS INTEGER ' Original symbolOffsetX at capture time (for cancel)
-    SYMBOL_ORIG_OY  AS INTEGER ' Original symbolOffsetY at capture time (for cancel)
-    SYMBOL_ORIG_SX  AS SINGLE  ' Original symbolScaleX at capture time (for cancel/scale)
-    SYMBOL_ORIG_SY  AS SINGLE  ' Original symbolScaleY at capture time (for cancel/scale)
+    ACTIVE          AS INTEGER        ' Whether move tool is active
+    TRANSFORMING    AS INTEGER        ' Whether actively transforming
+    TRANSFORM_TYPE  AS INTEGER        ' 0 = move, 1 = scale, 2 = stretch
+    SELECTION_IMAGE AS LONG           ' Image buffer holding selected pixels
+    PREVIEW_BUFFER  AS LONG           ' Buffer for realtime preview of painting layer with move applied
+    ORIGINAL_X      AS INTEGER        ' Original selection X (for ESC cancel)
+    ORIGINAL_Y      AS INTEGER        ' Original selection Y (for ESC cancel)
+    ORIGINAL_W      AS INTEGER        ' Original selection width (for ESC cancel)
+    ORIGINAL_H      AS INTEGER        ' Original selection height (for ESC cancel)
+    SELECTION_X     AS INTEGER        ' Current base selection X
+    SELECTION_Y     AS INTEGER        ' Current base selection Y
+    SELECTION_W     AS INTEGER        ' Current base selection width
+    SELECTION_H     AS INTEGER        ' Current base selection height
+    START_X         AS INTEGER        ' Transform start X
+    START_Y         AS INTEGER        ' Transform start Y
+    CURRENT_X       AS INTEGER        ' Current transform X
+    CURRENT_Y       AS INTEGER        ' Current transform Y
+    CURRENT_W       AS INTEGER        ' Current transform width
+    CURRENT_H       AS INTEGER        ' Current transform height
+    HANDLE          AS INTEGER        ' Which handle being dragged (0 = center, 1-8 = corners/sides)
+    CLONING         AS INTEGER        ' Whether ALT is held (clone mode)
+    CLONE_STAMPED   AS INTEGER        ' TRUE if any stamp was placed in this move session
+    CONSTRAIN       AS INTEGER        ' Whether SHIFT is held (constrain proportions)
+    CAPTURED_LAYER  AS INTEGER        ' Layer index that was captured (ensures apply targets correct layer)
+    ORIGINAL_IMAGE  AS LONG           ' Preserved original image for lossless re-scaling
+    ORIGINAL_IMG_W  AS INTEGER        ' Width of original image
+    ORIGINAL_IMG_H  AS INTEGER        ' Height of original image
+    SCALE_FACTOR    AS SINGLE         ' Cumulative scale factor (1.0 = original)
+    GROUP_ORIGIN    AS INTEGER        ' Group header index that triggered auto-select (0 = not a group move)
+    SYMBOL_CHILD    AS INTEGER        ' TRUE when dragging a symbol child (offset-based, no pixel capture)
+    SYMBOL_ORIG_OX  AS INTEGER        ' Original symbolOffsetX at capture time (for cancel)
+    SYMBOL_ORIG_OY  AS INTEGER        ' Original symbolOffsetY at capture time (for cancel)
+    SYMBOL_ORIG_SX  AS SINGLE         ' Original symbolScaleX at capture time (for cancel/scale)
+    SYMBOL_ORIG_SY  AS SINGLE         ' Original symbolScaleY at capture time (for cancel/scale)
+    ' Photoshop-style "leave BG behind" for keyboard Ctrl/Ctrl+Shift+Arrow nudges:
+    ' when TRUE the original-region clear in MOVE_apply_transform fills with the
+    ' captured BG color instead of transparent. Set by keyboard nudge handler at
+    ' first lift; ignored when MOVE.CLONING is TRUE.
+    BG_FILL_ON_LIFT AS INTEGER        ' TRUE if first nudge requested BG fill
+    BG_FILL_COLOR   AS _UNSIGNED LONG ' Cached _RGBA32 fill color at lift time
 END TYPE
 
 DIM SHARED MOVE AS MOVE_OBJ
