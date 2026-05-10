@@ -114,6 +114,10 @@ TYPE MARQUEE_OBJ
     ELLIP_START_Y      AS INTEGER      ' Start Y of ellipse drag
     ELLIP_END_X        AS INTEGER      ' End X of ellipse drag
     ELLIP_END_Y        AS INTEGER      ' End Y of ellipse drag
+    ' Photoshop-style "Hide Selection" — Ctrl+H toggles overlay visibility
+    ' without clearing the underlying selection. TRUE = marching ants and
+    ' handles drawn; FALSE = fully hidden but selection is still functional.
+    SHOW_OVERLAY       AS INTEGER      ' Default TRUE; TRUE on every new selection
 END TYPE
 
 ' Selection mode constants
