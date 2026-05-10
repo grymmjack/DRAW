@@ -1,5 +1,11 @@
 # IDEAS
 
+## QOL - MARQUEE CONTENT MOVES
+- [ ] When moving selections with content using CTRL+arrows, CTRL+SHIFT+arrows:
+  - [ ] Moved content leaves behind the background color
+    - [ ] Including if it's transparent background
+  - [ ] This will make it much easier and less time consuming to move stuff around
+  
 ## APRON .5 SIZE of canvas = phantom draw area (to prevent clips)
 - [ ] Right now the rotation/movement of something off the canvas into the apron area clips it.
   - [ ] It should still not be visible when on the apron, or partially hidden when on part of the apron
@@ -15,6 +21,10 @@
 
 ## TDF FONT SUPPORT
 - [ ] Render/load/use TheDraw fonts :)
+
+
+## ANTIALIAS MODE
+- [ ] Everything operates in anti-aliased mode. (this is a big one)
 
 
 ## DRAW KITS
