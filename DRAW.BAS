@@ -561,6 +561,17 @@ DO
         COMP_mark_dirty MOUSE.X% - compHalf%, MOUSE.Y% - compHalf%, MOUSE.X% + compHalf%, MOUSE.Y% + compHalf%
         COMP_mark_dirty MOUSE.OLD_X% - compHalf%, MOUSE.OLD_Y% - compHalf%, MOUSE.OLD_X% + compHalf%, MOUSE.OLD_Y% + compHalf%
     END IF
+    ' Mark dirty for active MOVE: the cleared "hole" at ORIGINAL ∪ the new
+    ' content position at CURRENT. Lets region-composite path activate when
+    ' the affected area is < 25% of canvas (small selection drag on a multi-
+    ' layer scene). Whole-layer moves on full-canvas images naturally fall
+    ' back to the standard composite path since the region is too large.
+    IF MOVE.ACTIVE AND CURRENT_TOOL% = TOOL_MOVE THEN
+        COMP_mark_dirty MOVE.ORIGINAL_X, MOVE.ORIGINAL_Y, _
+                        MOVE.ORIGINAL_X + MOVE.ORIGINAL_W - 1, MOVE.ORIGINAL_Y + MOVE.ORIGINAL_H - 1
+        COMP_mark_dirty MOVE.CURRENT_X, MOVE.CURRENT_Y, _
+                        MOVE.CURRENT_X + MOVE.CURRENT_W - 1, MOVE.CURRENT_Y + MOVE.CURRENT_H - 1
+    END IF
     IDLE_PREV_MOUSE_X% = MOUSE.RAW_X%
     IDLE_PREV_MOUSE_Y% = MOUSE.RAW_Y%
     PERF_stop PERF_IDLE_DETECT
