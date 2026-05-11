@@ -757,6 +757,7 @@ Smart Shapes is a parametric shape tool group accessed via the toolbar. Long-pre
 | `Up Arrow` / `Down Arrow` | Sub-tool-specific primary parameter (segments, bevel, mouth size, Z depth, etc.) |
 | `Left Arrow` / `Right Arrow` | Sub-tool-specific secondary parameter (point depth, hole %, etc.) |
 | `Shift` (hold) | Constrain to square / natural aspect ratio |
+| `Space` (hold while dragging) | Translate / reposition shape without resizing |
 | `Mouse Wheel` | Adjust primary parameter (where applicable) |
 
 ### 3D Dice Modifiers (while dragging)
@@ -937,6 +938,7 @@ When a selection is active (marquee or magic wand), it acts as a **clipping mask
 |-----|----------|
 | `Ctrl+A` | Select all (entire canvas) |
 | `Ctrl+Shift+I` | Invert selection |
+| `Ctrl+H` | Hide/show selection overlay (marching ants) — selection still active |
 
 ### Stroke Selection
 
@@ -1804,6 +1806,8 @@ DRAW stores settings in `DRAW.cfg` in the application directory. Settings are lo
 | `TRANSPARENCY_CHECK_SIZE_Y` | Checkerboard square height (0=use theme) |
 | `MAX_LAYERS` | Maximum number of layers (1-64) |
 | `LAYER_PANEL_WIDTH` | Width of layer panel in pixels |
+| `APRON_ENABLED` | Enable extended layer canvas apron (TRUE/FALSE) |
+| `APRON_SIZE_PERCENT` | Apron margin as percentage of canvas size (1-200) |
 | `FONTS_INCLUDE_OS_INSTALLED` | Include system fonts from OS (TRUE/FALSE) |
 | `FONTS_INCLUDE_DRAW_BITMAP` | Include bitmap fonts from ASSETS/FONTS/BITMAP/ (TRUE/FALSE) |
 | `FONTS_INCLUDE_DRAW_EXTRAS` | Include extra TTF/OTF fonts from ASSETS/FONTS/ (TRUE/FALSE) |

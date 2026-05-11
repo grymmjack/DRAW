@@ -96,6 +96,7 @@ Config file: `DRAW.cfg` — plain text, one `key=value` per line. Loaded by `CON
 | Brush    | `DEFAULT_TOOL%`, `DEFAULT_BRUSH_SIZE%`, `DEFAULT_BRUSH_SHAPE%`, `DEFAULT_DRAW_MODE%`, `DEFAULT_BIN_MODE%` |
 | Grid     | `GRID_MODE%`, `GRID_SIZE_X/Y%`, `GRID_CELL_FILL%`, `SMART_GUIDES_ENABLED%`, `SMART_GUIDES_SNAP%` |
 | Crosshair | `CROSSHAIR_OUTLINE_FG$`, `CROSSHAIR_OUTLINE_OPACITY%`, `CROSSHAIR_OUTLINE_WIDTH%` |
+| Apron    | `APRON_ENABLED%` — TRUE=preserve off-canvas pixels in per-layer extended buffer; `APRON_SIZE_RATIO!` — fraction of canvas size (0.5 = ±50% extra on each side) |
 | Undo     | `HISTORY_MAX_RECORDS` (1024)                            |
 | Picker   | `PICKER_LOUPE_*` overlay layout, font, and colors |
 | Preview / Panels | `PREVIEW_*` (incl. `PREVIEW_MODE%`, `PREVIEW_COLOR_PICK%`, `PREVIEW_BIN_QUICK_LOOK%`, `PREVIEW_FLOAT_IMAGE_PATH$`, `PREVIEW_FLOAT_LAST_DIR$`), `EDIT_BAR_VISIBLE%`, `EDIT_BAR_DOCK_POSITION$`, `LAYER_PANEL_WIDTH%`, `LAYERS_PANEL_DOCK_EDGE$`, `TOOLBOX_DOCK_EDGE$`, `ADV_BAR_DOCK_POSITION$`, `ADV_BAR_VISIBLE%`, `COLOR_MIXER_VISIBLE%`, `COLOR_MIXER_X%`, `COLOR_MIXER_Y%` |

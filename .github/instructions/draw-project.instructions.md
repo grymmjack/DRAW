@@ -236,6 +236,15 @@ SUB LAYERS_merge_group (groupIdx AS INTEGER)
 END SUB
 ```
 
+### 23. Apron Coordinate System
+
+When a layer is **promoted** (`apronW% > 0`), its `imgHandle&` is larger than the canvas. The buffer is sized `(canvasW + 2*apronW) × (canvasH + 2*apronH)`. Canvas-coordinate `(cx, cy)` maps to buffer-coordinate `(cx + apronW, cy + apronH)`. Never write raw canvas coords directly into a promoted layer's buffer — always add the apron offset.
+
+- DRW **save** culls apron pixels back to canvas-size automatically — promoted layers do not bloat the file.
+- DRW **load** always demotes layers to compact (canvas-size) buffers.
+- Crop, canvas resize, and TRANSFORM all auto-demote layers before operating.
+- `CFG.APRON_ENABLED%` / `CFG.APRON_SIZE_RATIO!` control the feature; toggle in Settings → General.
+
 ---
 
 ## Main Loop Structure (DRAW.BAS)
@@ -296,7 +305,7 @@ A frame is "idle" when no input, mouse movement, GUI changes, or active tool ope
 
 | `OUTPUT/SCREEN.BM`        | Render pipeline (`SCREEN_render`)                                   |
 | `GUI/LAYERS.BM`           | Layer management, layer groups, symbol layers, context menu, group compositing (~6000+ lines) |
-| `GUI/LAYERS.BI`           | Layer type constants (`LAYER_TYPE_*`), `DRAW_LAYER` type with group fields (`parentGroupIdx`, `collapsed`, `passThrough`) and symbol fields (`symbolParentIdx`), `BLEND_PASS_THROUGH` |
+| `GUI/LAYERS.BI`           | Layer type constants (`LAYER_TYPE_*`), `DRAW_LAYER` type with group fields (`parentGroupIdx`, `collapsed`, `passThrough`), symbol fields (`symbolParentIdx`), and apron fields (`apronW`, `apronH`, `apronCacheImg`, `apronCacheValid`); `BLEND_PASS_THROUGH` |
 | `GUI/MENUBAR.BM`          | Menu bar with keyboard navigation and cascading submenu support     |
 | `GUI/TOOLBAR.BI`          | Layout constants (`TB_COLS`, `TB_ROWS`), button-to-tool mapping     |
 | `GUI/TOOLBAR.BM`          | Toolbar rendering, click handling, active indicator                 |

@@ -5,7 +5,7 @@ DRAW by Rick Christy <grymmjack@gmail.com>
 
 DRAW is a pixel art editor written in QB64PE that can export images as sourcecode
 
-Current release: v1.4.0
+Current release: v1.4.1
 
 ![DRAW GUI from v1.1.0](./GUI.png)
 
@@ -26,7 +26,7 @@ Current release: v1.4.0
 
 - **Spray** - Spray paint with brush-shaped nozzle tips, radius doubles per brush size level, custom brush stamp support, SHIFT axis constraint, circle preview
 - **Picker** - Color sampling/eyedropper with a cursor-adjacent loupe overlay that shows RGB and hex values; hold ALT with any tool for temporary picker; ALT+left picks FG, ALT+right picks BG
-- **Marquee** - Selection tools: Rectangle, Freehand, Polygon, Ellipse — each with a distinct crosshair cursor; **Ctrl+Arrow** lifts and nudges content within the selection (Photoshop-style), Ctrl+Alt+Arrow clones content; drag **any full edge** of an existing selection to resize from that side (not just corner handles)
+- **Marquee** - Selection tools: Rectangle, Freehand, Polygon, Ellipse — each with a distinct crosshair cursor; **Ctrl+Arrow** lifts and nudges content within the selection (Photoshop-style), Ctrl+Alt+Arrow clones content; drag **any full edge** of an existing selection to resize from that side (not just corner handles); **Ctrl+H** hides/shows the marching ants selection overlay without deselecting
 - **Magic Wand** - Select contiguous same-color pixels with dedicated crosshair cursor; **Hold `F`+click to flood fill** contiguous pixels with FG color; **Hold `E`+click to flood erase** to transparent; **Hold `W`+click to select from merged** (all visible layers)
 - **Move** - Transform and position selected content with arrow keys, undo support, and ALT+drag clone stamping
 - **Transform** - Universal flip H/V, rotate 90° CW/CCW, scale ±50% — works on layers, selections, or floating moves from any tool; **Edit → TRANSFORM...** opens an interactive on-canvas bounding-box overlay with five modes: Scale (Shift=lock aspect), Rotate (Shift=15° snap), Shear, Distort, and Perspective (Shift=wall projection); overlay frame and handle colours are fully themeable; previous tool is restored on apply/cancel
@@ -125,6 +125,7 @@ Current release: v1.4.0
 - **Select → From Selected Layers**: creates a union selection mask from all non-transparent pixels across every selected layer (requires 2+ selected)
 - **Recent Files** - File menu tracks up to 10 recently opened projects with submenu navigation and `Alt+1`–`Alt+0` keyboard shortcuts
 - DRW project format: PNG with embedded `drAw` chunk — preserves layers, blend modes, opacity, palette, tool states, grid state, reference image configuration, and extract images settings while remaining viewable in any image viewer
+- **Layer Apron** — Optional virtual canvas extension that lets layers hold pixels outside the visible canvas bounds; enables Move tool to drag content fluidly beyond the edge without clipping; configurable as a percentage of canvas size in Settings → General; toggled per-project via `APRON_ENABLED` / `APRON_SIZE_PERCENT` in config; DRW save culls apron pixels automatically; crop and resize auto-flatten aprons before operating
 
 ### Sound System
 - **21 categorized sound slots** covering menus, tools, selections, fill, clipboard, layers, text, sliders, drag-drop, point placement, and organizer interactions
