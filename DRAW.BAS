@@ -580,21 +580,9 @@ DO
     ' reading mouse input and displaying the result on screen.
     ' (_LIMIT before render would add a full frame delay to the pointer)
     
-    ' Late mouse drain: re-read cursor position just before render to pick
-    ' up any movement that arrived during keyboard/idle-detection processing.
-    ' Only updates RAW_X/Y (screen coords for cursor drawing) — button/wheel
-    ' state was already processed by MOUSE_input_handler above.
-    IF NOT FRAME_IDLE% THEN
-        DIM lateDrained AS INTEGER
-        lateDrained% = FALSE
-        DO WHILE _MOUSEINPUT
-            lateDrained% = TRUE
-        LOOP
-        IF lateDrained% THEN
-            MOUSE.RAW_X% = _MOUSEX \ SCRN.displayScale%
-            MOUSE.RAW_Y% = _MOUSEY \ SCRN.displayScale%
-        END IF
-    END IF
+    ' Late pre-render mouse refresh intentionally disabled.
+    ' Mouse state is updated once in MOUSE_input_handler via drain-then-process.
+    ' Extra refreshes here can desync hover/render timing and cause jitter/flicker.
     
     ' Skip full render when idle — previous frame remains on display
     IF NOT FRAME_IDLE% THEN
