@@ -1,0 +1,1611 @@
+''
+' DRAW - GUI/CONTROLS.BM
+' =============================================================================
+' Customize Controls dialog — full modal implementation.
+' Provides a scrollable grid of all 165+ registered commands, each with
+' columns showing the current (default) assignment and a new (override)
+' assignment.  Four capture sub-dialogs handle HOLD key, PRESS key,
+' mouse CLICK, and mouse WHEEL assignment.
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+' ============================================================================
+'  HELPERS
+' ============================================================================
+
+''
+' Return the icon handle for a given actionId by scanning EDIT_BAR_ITEMS.
+' Returns 0 if no icon is loaded for this action.
+'
+FUNCTION CTRL_action_icon& (actionId AS INTEGER)
+    DIM i AS INTEGER
+    FOR i% = 0 TO EDITBAR_TOTAL_SLOTS - 1
+        IF EDIT_BAR_ITEMS(i%).actionID = actionId% AND NOT EDIT_BAR_ITEMS(i%).isDivider THEN
+            IF EDIT_BAR_ITEMS(i%).iconHandle < -1 THEN
+                CTRL_action_icon& = EDIT_BAR_ITEMS(i%).iconHandle
+                EXIT FUNCTION
+            END IF
+        END IF
+    NEXT i%
+    CTRL_action_icon& = 0
+END FUNCTION
+
+
+''
+' Return a short conflict description if pending binding b conflicts with
+' any other CTRL_PENDING entry.  Returns "" if no conflict.
+'
+FUNCTION CTRL_conflict_label$ (skipIdx AS INTEGER, b AS DRAW_BINDING)
+    DIM i   AS INTEGER
+    DIM cur AS DRAW_BINDING
+
+    FOR i% = 0 TO CMD_COUNT - 1
+        IF i% = skipIdx% THEN _CONTINUE
+        IF NOT CTRL_PENDING(i%).hasCustom THEN _CONTINUE
+
+        cur = CTRL_PENDING(i%)
+
+        ' Key conflict
+        IF b.pressKey <> 0 AND cur.pressKey <> 0 THEN
+            IF cur.pressKey = b.pressKey AND cur.pressMods = b.pressMods AND cur.holdKey = b.holdKey THEN
+                CTRL_conflict_label$ = "!" + LEFT$(_TRIM$(CMD_LIST(i%).name), 12)
+                EXIT FUNCTION
+            END IF
+        END IF
+
+        ' Mouse conflict
+        IF b.mouseBtn <> BINDINGS_BTN_NONE AND cur.mouseBtn = b.mouseBtn THEN
+            CTRL_conflict_label$ = "!" + LEFT$(_TRIM$(CMD_LIST(i%).name), 12)
+            EXIT FUNCTION
+        END IF
+
+        ' Wheel conflict
+        IF b.wheelDir <> BINDINGS_WHEEL_NONE AND cur.wheelDir <> BINDINGS_WHEEL_NONE THEN
+            IF b.wheelDir = cur.wheelDir OR b.wheelDir = BINDINGS_WHEEL_BOTH OR cur.wheelDir = BINDINGS_WHEEL_BOTH THEN
+                CTRL_conflict_label$ = "!" + LEFT$(_TRIM$(CMD_LIST(i%).name), 12)
+                EXIT FUNCTION
+            END IF
+        END IF
+    NEXT i%
+    CTRL_conflict_label$ = ""
+END FUNCTION
+
+
+''
+' Retrieve the entry at position pos% in the packed visItems list.
+' cmdIdx receives the CMD slot index (0-based).
+' isCatHeader receives TRUE when this entry is a category header (cmdIdx = category id).
+' Packing: each entry is 3 bytes: [type(1)] [idxLo(1)] [idxHi(1)]
+' type: 0=command row, 1=category header
+'
+SUB CTRL_get_vis_item (visPos AS INTEGER, cmdIdx AS INTEGER, isCatHeader AS INTEGER)
+    DIM baseOff AS INTEGER : baseOff% = visPos% * 3 + 1
+    DIM t    AS INTEGER : t%    = ASC(MID$(CTRL.visItems, baseOff%, 1))
+    DIM lo   AS INTEGER : lo%   = ASC(MID$(CTRL.visItems, baseOff% + 1, 1))
+    DIM hi   AS INTEGER : hi%   = ASC(MID$(CTRL.visItems, baseOff% + 2, 1))
+    isCatHeader% = t%
+    cmdIdx%      = lo% + hi% * 256
+END SUB
+
+
+''
+' Append an entry to CTRL.visItems.
+'
+SUB CTRL_push_vis_item (isCatHeader AS INTEGER, idx AS INTEGER)
+    ' CHR$() requires 0-255; QB64 TRUE = -1, so mask to 0/1 with AND 1
+    CTRL.visItems = CTRL.visItems + CHR$(isCatHeader% AND 1) + CHR$(idx% AND 255) + CHR$((idx% \ 256) AND 255)
+    CTRL.visCount = CTRL.visCount + 1
+END SUB
+
+
+''
+' Rebuild the visible items list based on the current filter.
+' Items are grouped by category with a header row per group.
+'
+SUB CTRL_rebuild_vis ()
+    DIM i        AS INTEGER
+    DIM cat      AS INTEGER
+    DIM lastCat  AS INTEGER
+    DIM nameStr  AS STRING
+    DIM filt     AS STRING
+
+    CTRL.visItems = ""
+    CTRL.visCount = 0
+    lastCat% = -1
+    filt$    = UCASE$(LEFT$(CTRL.filter, CTRL.filterLen))
+
+    FOR i% = 0 TO CMD_COUNT - 1
+        nameStr$ = UCASE$(_TRIM$(CMD_LIST(i%).name))
+
+        ' Filter: skip if filter non-empty and name doesn't contain filter
+        IF CTRL.filterLen > 0 THEN
+            IF INSTR(nameStr$, filt$) = 0 THEN _CONTINUE
+        END IF
+
+        cat% = CMD_LIST(i%).category
+
+        ' Insert category header if category changed
+        IF cat% <> lastCat% THEN
+            CTRL_push_vis_item TRUE, cat%
+            lastCat% = cat%
+        END IF
+
+        CTRL_push_vis_item FALSE, i%
+    NEXT i%
+
+    ' Compute total scrollable height
+    DIM hdrCount  AS INTEGER
+    DIM rowCount  AS INTEGER
+    DIM k         AS INTEGER
+    DIM isHdr     AS INTEGER
+    DIM idx       AS INTEGER
+    hdrCount% = 0
+    rowCount%  = 0
+    FOR k% = 0 TO CTRL.visCount - 1
+        CTRL_get_vis_item k%, idx%, isHdr%
+        IF isHdr% THEN hdrCount% = hdrCount% + 1 ELSE rowCount% = rowCount% + 1
+    NEXT k%
+    CTRL.totalH = hdrCount% * CTRL_CAT_H + rowCount% * CTRL_ROW_H
+    CTRL.needsRebuild = FALSE
+    CTRL.needsRedraw  = TRUE
+END SUB
+
+
+' ============================================================================
+'  RENDERING HELPERS
+' ============================================================================
+
+''
+' Return category display name from CMD_CAT_* constant.
+'
+FUNCTION CTRL_cat_name$ (cat AS INTEGER)
+    SELECT CASE cat%
+        CASE CMD_CAT_TOOL   : CTRL_cat_name$ = "TOOLS"
+        CASE CMD_CAT_FILE   : CTRL_cat_name$ = "FILE"
+        CASE CMD_CAT_EDIT   : CTRL_cat_name$ = "EDIT"
+        CASE CMD_CAT_VIEW   : CTRL_cat_name$ = "VIEW"
+        CASE CMD_CAT_COLOR  : CTRL_cat_name$ = "COLOR"
+        CASE CMD_CAT_BRUSH  : CTRL_cat_name$ = "BRUSH"
+        CASE CMD_CAT_LAYER  : CTRL_cat_name$ = "LAYER"
+        CASE CMD_CAT_CANVAS : CTRL_cat_name$ = "CANVAS"
+        CASE CMD_CAT_ASSIST : CTRL_cat_name$ = "ASSISTANTS"
+        CASE CMD_CAT_CUSTOM : CTRL_cat_name$ = "CUSTOM"
+        CASE CMD_CAT_GRID   : CTRL_cat_name$ = "GRID"
+        CASE CMD_CAT_SYMM   : CTRL_cat_name$ = "SYMMETRY"
+        CASE CMD_CAT_SELECT : CTRL_cat_name$ = "SELECTION"
+        CASE CMD_CAT_HELP   : CTRL_cat_name$ = "HELP"
+        CASE CMD_CAT_IMAGE  : CTRL_cat_name$ = "IMAGE"
+        CASE ELSE           : CTRL_cat_name$ = "OTHER"
+    END SELECT
+END FUNCTION
+
+
+''
+' Draw the two-row column headers.
+'
+SUB CTRL_draw_headers ()
+    DIM ctx     AS DIALOG_CTX
+    DIM y       AS INTEGER
+    DIM midY    AS INTEGER
+    DIM fg AS _UNSIGNED LONG
+    DIM hdrBg AS _UNSIGNED LONG
+
+    ctx      = CTRL.ctx
+    y%       = CTRL_TITLE_H + CTRL_FIND_H
+    hdrBg~&  = _RGB32(40, 44, 54)
+    fg~&     = _RGB32(180, 190, 200)
+
+    LINE (0, y%)-(CTRL_W - 1, y% + CTRL_HDR_H - 1), hdrBg~&, BF
+
+    ' Row 1: group labels centered over columns
+    DIM row1Y AS INTEGER : row1Y% = y% + 2
+    midY% = y% + CTRL_HDR_H \ 2
+
+    ' "CURRENT ASSIGNMENT" centered over current columns
+    DIM curMidX AS INTEGER
+    curMidX% = (CTRL_COL_HCUR_X + CTRL_COL_WCUR_X + CTRL_COL_WCUR_W) \ 2
+    DIM curLbl AS STRING : curLbl$ = "= CURRENT ASSIGNMENT ="
+    DIM curLblW AS INTEGER : curLblW% = LEN(curLbl$) * 5
+    _PRINTSTRING (curMidX% - curLblW% \ 2, row1Y%), curLbl$, ctx.imgHandle
+
+    ' "NEW ASSIGNMENT" centered over new columns
+    DIM newMidX AS INTEGER
+    newMidX% = (CTRL_COL_HNEW_X + CTRL_COL_WNEW_X + CTRL_COL_WNEW_W) \ 2
+    DIM newLbl AS STRING : newLbl$ = "= NEW ASSIGNMENT ="
+    DIM newLblW AS INTEGER : newLblW% = LEN(newLbl$) * 5
+    _PRINTSTRING (newMidX% - newLblW% \ 2, row1Y%), newLbl$, ctx.imgHandle
+
+    ' Row 2: individual column labels
+    DIM row2Y AS INTEGER : row2Y% = y% + 15
+    _PRINTSTRING (CTRL_COL_NAME_X,  row2Y%), "FUNCTION",   ctx.imgHandle
+    _PRINTSTRING (CTRL_COL_HCUR_X,  row2Y%), "HOLD",       ctx.imgHandle
+    _PRINTSTRING (CTRL_COL_PCUR_X,  row2Y%), "PRESS",      ctx.imgHandle
+    _PRINTSTRING (CTRL_COL_CCUR_X,  row2Y%), "CLICK",      ctx.imgHandle
+    _PRINTSTRING (CTRL_COL_WCUR_X,  row2Y%), "WHEEL",      ctx.imgHandle
+    _PRINTSTRING (CTRL_COL_HNEW_X,  row2Y%), "HOLD",       ctx.imgHandle
+    _PRINTSTRING (CTRL_COL_PNEW_X,  row2Y%), "PRESS",      ctx.imgHandle
+    _PRINTSTRING (CTRL_COL_CNEW_X,  row2Y%), "CLICK",      ctx.imgHandle
+    _PRINTSTRING (CTRL_COL_WNEW_X,  row2Y%), "WHEEL",      ctx.imgHandle
+
+    ' Separator line between current and new groups
+    DIM sepX AS INTEGER : sepX% = CTRL_COL_SEP_X + CTRL_COL_SEP_W \ 2
+    LINE (sepX%, y%)-(sepX%, y% + CTRL_HDR_H - 1), _RGB32(80, 88, 100)
+
+    ' Bottom border of header area
+    LINE (0, y% + CTRL_HDR_H - 1)-(CTRL_W - 1, y% + CTRL_HDR_H - 1), _RGB32(60, 68, 80)
+END SUB
+
+
+''
+' Draw the FIND row.
+'
+SUB CTRL_draw_find_row ()
+    DIM y     AS INTEGER : y%  = CTRL_TITLE_H
+    DIM fgLbl AS _UNSIGNED LONG : fgLbl~& = _RGB32(200, 200, 200)
+    DIM bgFind AS _UNSIGNED LONG : bgFind~& = _RGB32(30, 34, 42)
+    DIM brdrA AS _UNSIGNED LONG : brdrA~&  = _RGB32(80, 140, 200)
+    DIM brdrN AS _UNSIGNED LONG : brdrN~&  = _RGB32(60, 68, 80)
+
+    LINE (0, y%)-(CTRL_W - 1, y% + CTRL_FIND_H - 1), _RGB32(28, 32, 40), BF
+    _PRINTSTRING (CTRL_COL_PAD, y% + 7), "FIND:", CTRL.ctx.imgHandle
+
+    DIM inX AS INTEGER : inX% = 34
+    DIM inW AS INTEGER : inW% = CTRL_COL_SEP_X - inX% - 4
+    DIM inH AS INTEGER : inH% = 16
+    DIM inY AS INTEGER : inY% = y% + 5
+
+    LINE (inX%, inY%)-(inX% + inW%, inY% + inH%), bgFind~&, BF
+    IF CTRL.filterFocus THEN
+        LINE (inX%, inY%)-(inX% + inW%, inY% + inH%), brdrA~&, B
+    ELSE
+        LINE (inX%, inY%)-(inX% + inW%, inY% + inH%), brdrN~&, B
+    END IF
+
+    DIM displayFilter AS STRING
+    displayFilter$ = LEFT$(CTRL.filter, CTRL.filterLen)
+    IF CTRL.filterFocus THEN displayFilter$ = displayFilter$ + "_"
+    _PRINTSTRING (inX% + 2, inY% + 2), displayFilter$, CTRL.ctx.imgHandle
+END SUB
+
+
+''
+' Draw the scrollable content area.
+'
+SUB CTRL_draw_content ()
+    DIM ctx     AS DIALOG_CTX
+    ctx = CTRL.ctx
+
+    ' Clip to content area
+    DIM clipX1 AS INTEGER : clipX1% = 0
+    DIM clipY1 AS INTEGER : clipY1% = CTRL_CONTENT_Y
+    DIM clipX2 AS INTEGER : clipX2% = CTRL_COL_SCROLL_X - 1
+    DIM clipY2 AS INTEGER : clipY2% = CTRL_CONTENT_Y + CTRL_CONTENT_H - 1
+
+    ' Fill background
+    LINE (clipX1%, clipY1%)-(clipX2%, CTRL_H - CTRL_BTN_BAR_H - 1), _RGB32(22, 26, 34), BF
+
+    DIM k        AS INTEGER
+    DIM cmdIdx   AS INTEGER
+    DIM isCatHdr AS INTEGER
+    DIM rowY     AS INTEGER
+    DIM curY     AS INTEGER ' y in dialog coords = CTRL_CONTENT_Y + rowY - scrollY
+
+    rowY%  = 0
+    FOR k% = 0 TO CTRL.visCount - 1
+        CTRL_get_vis_item k%, cmdIdx%, isCatHdr%
+
+        DIM rowH AS INTEGER
+        IF isCatHdr% THEN rowH% = CTRL_CAT_H ELSE rowH% = CTRL_ROW_H
+
+        curY% = CTRL_CONTENT_Y + rowY% - CTRL.scrollY
+
+        ' Skip rows outside visible area
+        IF curY% + rowH% > clipY1% AND curY% < clipY2% + 1 THEN
+            IF isCatHdr% THEN
+                CTRL_draw_cat_header cmdIdx%, curY%
+            ELSE
+                CTRL_draw_cmd_row cmdIdx%, curY%, k% = CTRL.hovRow
+            END IF
+        END IF
+
+        rowY% = rowY% + rowH%
+    NEXT k%
+
+    ' Scroll track
+    CTRL_draw_scroll_track
+END SUB
+
+
+''
+' Draw a category header row.
+'
+SUB CTRL_draw_cat_header (cat AS INTEGER, y AS INTEGER)
+    DIM bg AS _UNSIGNED LONG : bg~& = _RGB32(44, 50, 64)
+    DIM fg AS _UNSIGNED LONG : fg~& = _RGB32(140, 180, 220)
+
+    LINE (0, y%)-(CTRL_COL_SCROLL_X - 1, y% + CTRL_CAT_H - 1), bg~&, BF
+    LINE (0, y% + CTRL_CAT_H - 1)-(CTRL_COL_SCROLL_X - 1, y% + CTRL_CAT_H - 1), _RGB32(60, 70, 90)
+    _PRINTSTRING (CTRL_COL_ICON_X, y% + 2), CTRL_cat_name(cat%), CTRL.ctx.imgHandle
+END SUB
+
+
+''
+' Format the "current assignment" text from CMD_LIST(i).hotkey.
+' Returns the original hotkey string trimmed.
+'
+FUNCTION CTRL_current_hotkey$ (cmdIdx AS INTEGER)
+    CTRL_current_hotkey$ = _TRIM$(CMD_LIST(cmdIdx%).hotkey)
+END FUNCTION
+
+
+''
+' Draw a single command row at dialog y coordinate dy%.
+' hov: TRUE when mouse is hovering over this row.
+'
+SUB CTRL_draw_cmd_row (cmdIdx AS INTEGER, dy AS INTEGER, hov AS INTEGER)
+    DIM bg AS _UNSIGNED LONG
+    DIM fg AS _UNSIGNED LONG
+    DIM dimFg AS _UNSIGNED LONG
+    DIM cfgFg AS _UNSIGNED LONG
+    DIM newFg AS _UNSIGNED LONG
+
+    IF hov% THEN
+        bg~&  = _RGB32(38, 44, 58)
+        fg~&  = _RGB32(230, 240, 255)
+    ELSE
+        bg~&  = _RGB32(22, 26, 34)
+        fg~&  = _RGB32(190, 200, 210)
+    END IF
+    dimFg~& = _RGB32(100, 112, 130)
+    cfgFg~& = _RGB32(140, 180, 140) ' green-ish for current defaults
+    newFg~& = _RGB32(220, 180, 80)  ' amber for user overrides
+
+    LINE (0, dy%)-(CTRL_COL_SCROLL_X - 1, dy% + CTRL_ROW_H - 1), bg~&, BF
+
+    ' Bottom separator
+    LINE (0, dy% + CTRL_ROW_H - 1)-(CTRL_COL_SCROLL_X - 1, dy% + CTRL_ROW_H - 1), _RGB32(32, 38, 50)
+
+    DIM iconH AS LONG : iconH& = CTRL_action_icon(CMD_LIST(cmdIdx%).action_id)
+    IF iconH& < -1 THEN
+        DIM si AS LONG : si& = _COPYIMAGE(iconH&, 32)
+        IF si& < -1 THEN
+            _PUTIMAGE (CTRL_COL_ICON_X, dy% + 1)-(CTRL_COL_ICON_X + CTRL_COL_ICON_W - 1, dy% + CTRL_ROW_H - 2), si&
+            _FREEIMAGE si&
+        END IF
+    END IF
+
+    ' Name (trimmed, truncated to fit)
+    DIM nameStr AS STRING
+    nameStr$ = _TRIM$(CMD_LIST(cmdIdx%).name)
+    ' Approximate truncation (5px per char in Tiny5 font at size 8)
+    DIM maxChars AS INTEGER : maxChars% = CTRL_COL_NAME_W \ 5
+    IF LEN(nameStr$) > maxChars% THEN nameStr$ = LEFT$(nameStr$, maxChars% - 1) + "~"
+    COLOR fg~&, bg~&
+    _PRINTSTRING (CTRL_COL_NAME_X, dy% + 4), nameStr$, CTRL.ctx.imgHandle
+
+    ' Current assignment: parse hotkey string from CMD_LIST
+    DIM hot AS STRING : hot$ = CTRL_current_hotkey(cmdIdx%)
+    ' Display current hotkey split across Hold/Press/Click/Wheel columns
+    ' Simple heuristic: if hot$ is non-empty show it in PRESS column
+    COLOR cfgFg~&, bg~&
+    IF LEN(hot$) > 0 THEN
+        ' Truncate for column width
+        DIM hmax AS INTEGER : hmax% = CTRL_COL_PCUR_W \ 5
+        IF LEN(hot$) > hmax% THEN hot$ = LEFT$(hot$, hmax% - 1) + "~"
+        _PRINTSTRING (CTRL_COL_PCUR_X, dy% + 4), hot$, CTRL.ctx.imgHandle
+    END IF
+
+    ' Column separator
+    DIM sepX AS INTEGER : sepX% = CTRL_COL_SEP_X + CTRL_COL_SEP_W \ 2
+    LINE (sepX%, dy%)-(sepX%, dy% + CTRL_ROW_H - 1), _RGB32(60, 70, 90)
+
+    ' New assignment from CTRL_PENDING
+    DIM pndBind AS DRAW_BINDING
+    pndBind = CTRL_PENDING(cmdIdx%)
+    COLOR newFg~&, bg~&
+
+    ' New HOLD
+    DIM hBtn AS STRING : hBtn$ = "(  )"
+    IF pndBind.hasCustom AND pndBind.pressKey <> 0 AND pndBind.holdKey <> 0 THEN
+        hBtn$ = BINDINGS_key_name(pndBind.holdKey)
+    END IF
+    CTRL_draw_new_btn CTRL_COL_HNEW_X, dy%, hBtn$, bg~&
+
+    ' New PRESS
+    DIM pBtn AS STRING : pBtn$ = "(  )"
+    IF pndBind.hasCustom AND pndBind.pressKey <> 0 THEN
+        pBtn$ = BINDINGS_format_key(pndBind.pressKey, pndBind.pressMods)
+    END IF
+    ' Check conflict
+    DIM conflictLbl AS STRING
+    IF pndBind.hasCustom AND pndBind.pressKey <> 0 THEN
+        conflictLbl$ = CTRL_conflict_label(cmdIdx%, pndBind)
+        IF LEN(conflictLbl$) > 0 THEN
+            COLOR _RGB32(220, 70, 70), bg~&
+            _PRINTSTRING (CTRL_COL_PNEW_X, dy% + 4), LEFT$(conflictLbl$, CTRL_COL_PNEW_W \ 5), CTRL.ctx.imgHandle
+            COLOR newFg~&, bg~&
+        ELSE
+            CTRL_draw_new_btn CTRL_COL_PNEW_X, dy%, pBtn$, bg~&
+        END IF
+    ELSE
+        CTRL_draw_new_btn CTRL_COL_PNEW_X, dy%, pBtn$, bg~&
+    END IF
+
+    ' New CLICK
+    DIM cBtn AS STRING : cBtn$ = "(  )"
+    IF pndBind.hasCustom AND pndBind.mouseBtn <> BINDINGS_BTN_NONE THEN
+        SELECT CASE pndBind.mouseBtn
+            CASE BINDINGS_BTN_LEFT   : cBtn$ = "L"
+            CASE BINDINGS_BTN_RIGHT  : cBtn$ = "R"
+            CASE BINDINGS_BTN_MIDDLE : cBtn$ = "M"
+        END SELECT
+    END IF
+    CTRL_draw_new_btn CTRL_COL_CNEW_X, dy%, cBtn$, bg~&
+
+    ' New WHEEL
+    DIM wBtn AS STRING : wBtn$ = "(  )"
+    IF pndBind.hasCustom AND pndBind.wheelDir <> BINDINGS_WHEEL_NONE THEN
+        SELECT CASE pndBind.wheelDir
+            CASE BINDINGS_WHEEL_UP   : wBtn$ = "Up"
+            CASE BINDINGS_WHEEL_DOWN : wBtn$ = "Dn"
+            CASE BINDINGS_WHEEL_BOTH : wBtn$ = "Both"
+        END SELECT
+    END IF
+    CTRL_draw_new_btn CTRL_COL_WNEW_X, dy%, wBtn$, bg~&
+
+    COLOR fg~&, _RGB32(0, 0, 0, 0)
+END SUB
+
+
+''
+' Draw a "new assignment" button cell with label.
+'
+SUB CTRL_draw_new_btn (x AS INTEGER, y AS INTEGER, lbl AS STRING, bg AS _UNSIGNED LONG)
+    DIM btnFg AS _UNSIGNED LONG : btnFg~& = _RGB32(180, 210, 255)
+    DIM btnBr AS _UNSIGNED LONG : btnBr~& = _RGB32(60, 80, 110)
+
+    IF bg~& = 0 THEN bg~& = _RGB32(36, 44, 60)
+    LINE (x% + 1, y% + 2)-(x% + CTRL_COL_HNEW_W - 2, y% + CTRL_ROW_H - 3), bg~&, BF
+    LINE (x% + 1, y% + 2)-(x% + CTRL_COL_HNEW_W - 2, y% + CTRL_ROW_H - 3), btnBr~&, B
+    COLOR btnFg~&, bg~&
+    DIM maxC AS INTEGER : maxC% = (CTRL_COL_HNEW_W - 4) \ 5
+    DIM s    AS STRING  : s$    = lbl$
+    IF LEN(s$) > maxC% THEN s$ = LEFT$(s$, maxC%)
+    _PRINTSTRING (x% + 3, y% + 4), s$, CTRL.ctx.imgHandle
+END SUB
+
+
+''
+' Draw the scrollbar track and thumb.
+'
+SUB CTRL_draw_scroll_track ()
+    DIM trackX AS INTEGER : trackX% = CTRL_COL_SCROLL_X
+    DIM trackY AS INTEGER : trackY% = CTRL_CONTENT_Y
+    DIM trackH AS INTEGER : trackH% = CTRL_CONTENT_H
+    DIM bg AS _UNSIGNED LONG : bg~&  = _RGB32(30, 36, 48)
+    DIM th AS _UNSIGNED LONG : th~&  = _RGB32(80, 100, 140)
+
+    LINE (trackX%, trackY%)-(trackX% + CTRL_COL_SCROLL_W - 1, trackY% + trackH% - 1), bg~&, BF
+
+    IF CTRL.totalH <= CTRL_CONTENT_H THEN EXIT SUB
+
+    DIM thumbH AS INTEGER
+    DIM thumbY AS INTEGER
+    thumbH% = trackH% * CTRL_CONTENT_H \ CTRL.totalH
+    IF thumbH% < 8 THEN thumbH% = 8
+    thumbY% = trackY% + (CTRL.scrollY * (trackH% - thumbH%)) \ (CTRL.totalH - CTRL_CONTENT_H)
+    IF thumbY% + thumbH% > trackY% + trackH% THEN thumbY% = trackY% + trackH% - thumbH%
+
+    LINE (trackX% + 1, thumbY%)-(trackX% + CTRL_COL_SCROLL_W - 2, thumbY% + thumbH% - 1), th~&, BF
+END SUB
+
+
+''
+' Draw the bottom button bar.
+'
+SUB CTRL_draw_button_bar ()
+    DIM y  AS INTEGER  : y%  = CTRL_H - CTRL_BTN_BAR_H
+    DIM bg AS _UNSIGNED LONG : bg~& = _RGB32(30, 36, 48)
+    LINE (0, y%)-(CTRL_W - 1, CTRL_H - 1), bg~&, BF
+    LINE (0, y%)-(CTRL_W - 1, y%), _RGB32(60, 68, 80)
+
+    DIM bx AS INTEGER : bx% = 4
+    DIM bw AS INTEGER : bw% = 48
+    DIM bh AS INTEGER : bh% = 18
+    DIM by AS INTEGER : by% = y% + 5
+
+    CTRL_draw_bar_btn bx%,               by%, bw%, bh%, "SAVE"
+    CTRL_draw_bar_btn bx% + bw% + 4,     by%, bw%, bh%, "LOAD"
+    CTRL_draw_bar_btn bx% + (bw% + 4)*2, by%, bw%, bh%, "RESET"
+    CTRL_draw_bar_btn bx% + (bw% + 4)*3, by%, bw%, bh%, "PRINT"
+
+    ' OK button centred
+    DIM okW AS INTEGER : okW% = 60
+    DIM okX AS INTEGER : okX% = (CTRL_W - okW%) \ 2
+    CTRL_draw_bar_btn okX%, by%, okW%, bh%, "  OK  "
+END SUB
+
+
+''
+' Draw a single bottom bar button.
+'
+SUB CTRL_draw_bar_btn (x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER, lbl AS STRING)
+    LINE (x%, y%)-(x% + w% - 1, y% + h% - 1), _RGB32(44, 54, 74), BF
+    LINE (x%, y%)-(x% + w% - 1, y% + h% - 1), _RGB32(70, 90, 130), B
+    COLOR _RGB32(200, 215, 240), _RGB32(44, 54, 74)
+    DIM lx AS INTEGER : lx% = x% + (w% - LEN(lbl$) * 5) \ 2
+    IF lx% < x% + 2 THEN lx% = x% + 2
+    _PRINTSTRING (lx%, y% + 4), lbl$, CTRL.ctx.imgHandle
+END SUB
+
+
+' ============================================================================
+'  INPUT HANDLING
+' ============================================================================
+
+''
+' Handle scroll track mouse interaction (drag + wheel).
+'
+SUB CTRL_handle_scroll ()
+    DIM ctx     AS DIALOG_CTX
+    DIM mx      AS INTEGER
+    DIM my      AS INTEGER
+    DIM trackX  AS INTEGER : trackX% = CTRL_COL_SCROLL_X
+    DIM trackY  AS INTEGER : trackY% = CTRL_CONTENT_Y
+    DIM trackH  AS INTEGER : trackH% = CTRL_CONTENT_H
+    DIM maxScrl AS INTEGER
+
+    ctx = CTRL.ctx
+    mx% = ctx.mx
+    my% = ctx.my
+
+    IF CTRL.totalH <= CTRL_CONTENT_H THEN
+        CTRL.scrollY = 0
+        EXIT SUB
+    END IF
+    maxScrl% = CTRL.totalH - CTRL_CONTENT_H
+
+    ' Mouse wheel scroll over content area
+    IF my% >= CTRL_CONTENT_Y AND my% < CTRL_CONTENT_Y + CTRL_CONTENT_H THEN
+        IF ctx.mwheel <> 0 THEN
+            CTRL.scrollY = CTRL.scrollY + ctx.mwheel * CTRL_ROW_H * 3
+            IF CTRL.scrollY < 0 THEN CTRL.scrollY = 0
+            IF CTRL.scrollY > maxScrl% THEN CTRL.scrollY = maxScrl%
+            CTRL.needsRedraw = TRUE
+        END IF
+    END IF
+
+    ' Drag scroll thumb
+    IF ctx.justClicked AND mx% >= trackX% AND mx% < trackX% + CTRL_COL_SCROLL_W AND _
+       my% >= trackY% AND my% < trackY% + trackH% THEN
+        CTRL.scrollDrag    = TRUE
+        CTRL.scrollDragY   = my%
+        CTRL.scrollDragOfs = CTRL.scrollY
+    END IF
+
+    IF CTRL.scrollDrag THEN
+        IF ctx.mb1 THEN
+            DIM delta  AS INTEGER : delta%  = my% - CTRL.scrollDragY
+            DIM scroll AS INTEGER : scroll% = CTRL.scrollDragOfs + delta% * maxScrl% \ (trackH% - 20)
+            IF scroll% < 0 THEN scroll% = 0
+            IF scroll% > maxScrl% THEN scroll% = maxScrl%
+            CTRL.scrollY    = scroll%
+            CTRL.needsRedraw = TRUE
+        ELSE
+            CTRL.scrollDrag = FALSE
+        END IF
+    END IF
+END SUB
+
+
+''
+' Handle FIND input keystrokes when FIND has focus.
+'
+SUB CTRL_handle_find_input ()
+    IF NOT CTRL.filterFocus THEN EXIT SUB
+
+    DIM k        AS LONG
+    DIM changed  AS INTEGER : changed% = FALSE
+
+    k& = _KEYHIT
+    DO WHILE k& <> 0
+        IF k& = 27 THEN    ' Esc: clear filter and unfocus
+            CTRL.filter    = ""
+            CTRL.filterLen = 0
+            CTRL.filterFocus = FALSE
+            changed% = TRUE
+            EXIT DO
+        ELSEIF k& = 8 THEN ' Backspace
+            IF CTRL.filterLen > 0 THEN
+                CTRL.filterLen = CTRL.filterLen - 1
+                MID$(CTRL.filter, CTRL.filterLen + 1, 1) = " "
+                changed% = TRUE
+            END IF
+        ELSEIF k& >= 32 AND k& <= 126 THEN  ' Printable ASCII
+            IF CTRL.filterLen < 63 THEN
+                CTRL.filterLen = CTRL.filterLen + 1
+                MID$(CTRL.filter, CTRL.filterLen, 1) = CHR$(k&)
+                changed% = TRUE
+            END IF
+        END IF
+        k& = _KEYHIT
+    LOOP
+
+    IF changed% THEN
+        CTRL.needsRebuild = TRUE
+        CTRL.needsRedraw  = TRUE
+    END IF
+END SUB
+
+
+''
+' Handle a click in the FIND input area — give or remove focus.
+'
+FUNCTION CTRL_find_hit% (mx AS INTEGER, my AS INTEGER)
+    IF my% >= CTRL_TITLE_H AND my% < CTRL_TITLE_H + CTRL_FIND_H THEN
+        IF mx% >= 34 AND mx% < CTRL_COL_SEP_X - 4 THEN
+            CTRL_find_hit% = TRUE
+            EXIT FUNCTION
+        END IF
+    END IF
+    CTRL_find_hit% = FALSE
+END FUNCTION
+
+
+''
+' Scroll the view so that the row at visItems index rowIdx is visible.
+'
+SUB CTRL_ensure_visible (rowIdx AS INTEGER)
+    DIM rowY  AS INTEGER
+    DIM k     AS INTEGER
+    DIM idx   AS INTEGER
+    DIM isHdr AS INTEGER
+    DIM rowH  AS INTEGER
+
+    rowY% = 0
+    FOR k% = 0 TO rowIdx% - 1
+        CTRL_get_vis_item k%, idx%, isHdr%
+        IF isHdr% THEN rowY% = rowY% + CTRL_CAT_H ELSE rowY% = rowY% + CTRL_ROW_H
+    NEXT k%
+
+    CTRL_get_vis_item rowIdx%, idx%, isHdr%
+    IF isHdr% THEN rowH% = CTRL_CAT_H ELSE rowH% = CTRL_ROW_H
+
+    IF rowY% < CTRL.scrollY THEN
+        CTRL.scrollY = rowY%
+        CTRL.needsRedraw = TRUE
+    ELSEIF rowY% + rowH% > CTRL.scrollY + CTRL_CONTENT_H THEN
+        CTRL.scrollY = rowY% + rowH% - CTRL_CONTENT_H
+        CTRL.needsRedraw = TRUE
+    END IF
+END SUB
+
+
+''
+' Handle clicks in the content area. Returns TRUE if a button was clicked.
+'
+SUB CTRL_handle_content_click ()
+    DIM ctx   AS DIALOG_CTX : ctx = CTRL.ctx
+    IF NOT ctx.justClicked THEN EXIT SUB
+
+    DIM mx AS INTEGER : mx% = ctx.mx
+    DIM my AS INTEGER : my% = ctx.my
+
+    ' Only within content area (not scrollbar)
+    IF my% < CTRL_CONTENT_Y OR my% >= CTRL_CONTENT_Y + CTRL_CONTENT_H THEN EXIT SUB
+    IF mx% >= CTRL_COL_SCROLL_X THEN EXIT SUB
+
+    ' Find which row was clicked
+    DIM k       AS INTEGER
+    DIM rowY    AS INTEGER : rowY%  = 0
+    DIM absRowY AS INTEGER
+    DIM cmdIdx  AS INTEGER
+    DIM isHdr   AS INTEGER
+
+    FOR k% = 0 TO CTRL.visCount - 1
+        CTRL_get_vis_item k%, cmdIdx%, isHdr%
+        DIM rowH AS INTEGER
+        IF isHdr% THEN rowH% = CTRL_CAT_H ELSE rowH% = CTRL_ROW_H
+
+        absRowY% = CTRL_CONTENT_Y + rowY% - CTRL.scrollY
+        IF my% >= absRowY% AND my% < absRowY% + rowH% THEN
+            IF NOT isHdr% THEN
+                CTRL_handle_row_click cmdIdx%, mx%
+            END IF
+            EXIT FOR
+        END IF
+        rowY% = rowY% + rowH%
+    NEXT k%
+END SUB
+
+
+''
+' Handle a click within a command row at column mx%.
+'
+SUB CTRL_handle_row_click (cmdIdx AS INTEGER, mx AS INTEGER)
+    IF mx% >= CTRL_COL_HNEW_X AND mx% < CTRL_COL_HNEW_X + CTRL_COL_HNEW_W THEN
+        IF CTRL_assign_key_dialog(cmdIdx%, CTRL_ASSIGN_HOLD) THEN
+            CTRL.hasChanges  = TRUE
+            CTRL.needsRedraw = TRUE
+        END IF
+    ELSEIF mx% >= CTRL_COL_PNEW_X AND mx% < CTRL_COL_PNEW_X + CTRL_COL_PNEW_W THEN
+        IF CTRL_assign_key_dialog(cmdIdx%, CTRL_ASSIGN_PRESS) THEN
+            CTRL.hasChanges  = TRUE
+            CTRL.needsRedraw = TRUE
+        END IF
+    ELSEIF mx% >= CTRL_COL_CNEW_X AND mx% < CTRL_COL_CNEW_X + CTRL_COL_CNEW_W THEN
+        IF CTRL_assign_mouse_dialog(cmdIdx%) THEN
+            CTRL.hasChanges  = TRUE
+            CTRL.needsRedraw = TRUE
+        END IF
+    ELSEIF mx% >= CTRL_COL_WNEW_X AND mx% < CTRL_COL_WNEW_X + CTRL_COL_WNEW_W THEN
+        IF CTRL_assign_wheel_dialog(cmdIdx%) THEN
+            CTRL.hasChanges  = TRUE
+            CTRL.needsRedraw = TRUE
+        END IF
+    END IF
+END SUB
+
+
+''
+' Handle hover tracking — update CTRL.hovRow based on mouse position.
+'
+SUB CTRL_handle_hover ()
+    DIM ctx   AS DIALOG_CTX : ctx = CTRL.ctx
+    DIM mx    AS INTEGER     : mx% = ctx.mx
+    DIM my    AS INTEGER     : my% = ctx.my
+    DIM k     AS INTEGER
+    DIM rowY  AS INTEGER : rowY%  = 0
+    DIM absY  AS INTEGER
+    DIM cmdIdx AS INTEGER
+    DIM isHdr  AS INTEGER
+
+    CTRL.hovRow = -1
+
+    IF my% < CTRL_CONTENT_Y OR my% >= CTRL_CONTENT_Y + CTRL_CONTENT_H THEN EXIT SUB
+    IF mx% >= CTRL_COL_SCROLL_X THEN EXIT SUB
+
+    FOR k% = 0 TO CTRL.visCount - 1
+        CTRL_get_vis_item k%, cmdIdx%, isHdr%
+        DIM rowH AS INTEGER
+        IF isHdr% THEN rowH% = CTRL_CAT_H ELSE rowH% = CTRL_ROW_H
+        absY% = CTRL_CONTENT_Y + rowY% - CTRL.scrollY
+        IF my% >= absY% AND my% < absY% + rowH% AND NOT isHdr% THEN
+            CTRL.hovRow = k%
+            EXIT FOR
+        END IF
+        rowY% = rowY% + rowH%
+    NEXT k%
+END SUB
+
+
+''
+' Handle clicks in the button bar. Returns an action code:
+'  0=none, 1=save, 2=load, 3=reset, 4=print, 5=ok, 6=cancel(X)
+'
+FUNCTION CTRL_btn_bar_hit% ()
+    DIM ctx AS DIALOG_CTX : ctx = CTRL.ctx
+    IF NOT ctx.justClicked THEN
+        CTRL_btn_bar_hit% = 0
+        EXIT FUNCTION
+    END IF
+    DIM mx AS INTEGER : mx% = ctx.mx
+    DIM my AS INTEGER : my% = ctx.my
+    DIM y  AS INTEGER : y%  = CTRL_H - CTRL_BTN_BAR_H
+    DIM bw AS INTEGER : bw% = 48
+    DIM bh AS INTEGER : bh% = 18
+    DIM by AS INTEGER : by% = y% + 5
+    DIM bx AS INTEGER : bx% = 4
+
+    IF my% < by% OR my% > by% + bh% THEN
+        CTRL_btn_bar_hit% = 0
+        EXIT FUNCTION
+    END IF
+
+    IF mx% >= bx% AND mx% < bx% + bw% THEN CTRL_btn_bar_hit% = 1 : EXIT FUNCTION   ' SAVE
+    bx% = bx% + bw% + 4
+    IF mx% >= bx% AND mx% < bx% + bw% THEN CTRL_btn_bar_hit% = 2 : EXIT FUNCTION   ' LOAD
+    bx% = bx% + bw% + 4
+    IF mx% >= bx% AND mx% < bx% + bw% THEN CTRL_btn_bar_hit% = 3 : EXIT FUNCTION   ' RESET
+    bx% = bx% + bw% + 4
+    IF mx% >= bx% AND mx% < bx% + bw% THEN CTRL_btn_bar_hit% = 4 : EXIT FUNCTION   ' PRINT
+
+    DIM okW AS INTEGER : okW% = 60
+    DIM okX AS INTEGER : okX% = (CTRL_W - okW%) \ 2
+    IF mx% >= okX% AND mx% < okX% + okW% THEN CTRL_btn_bar_hit% = 5 : EXIT FUNCTION ' OK
+
+    CTRL_btn_bar_hit% = 0
+END FUNCTION
+
+
+''
+' Copy CTRL_PENDING into BINDINGS() and save to file.
+'
+SUB CTRL_apply_pending ()
+    DIM i AS INTEGER
+    FOR i% = 0 TO CMD_COUNT - 1
+        BINDINGS(i%) = CTRL_PENDING(i%)
+    NEXT i%
+    BINDINGS_save
+END SUB
+
+
+''
+' Write a formatted hotkey reference to a text file chosen by the user.
+'
+SUB CTRL_print_to_file ()
+    DIM savePath AS STRING
+    savePath$ = DRAW_save_file$("Save Hotkey Reference", CFG.DEFAULT_SAVE_DIR$, "Text Files (*.txt)|*.txt", 1, "", ".txt")
+    IF savePath$ = "" THEN EXIT SUB
+
+    DIM fh  AS INTEGER : fh%  = FREEFILE
+    DIM i   AS INTEGER
+    DIM hot AS STRING
+
+    OPEN savePath$ FOR OUTPUT AS #fh%
+    PRINT #fh%, "DRAW HOTKEY REFERENCE"
+    PRINT #fh%, STRING$(60, "=")
+    PRINT #fh%, ""
+
+    DIM lastCat AS INTEGER : lastCat% = -1
+    FOR i% = 0 TO CMD_COUNT - 1
+        IF CMD_LIST(i%).category <> lastCat% THEN
+            IF lastCat% >= 0 THEN PRINT #fh%, ""
+            PRINT #fh%, "--- " + CTRL_cat_name(CMD_LIST(i%).category) + " ---"
+            lastCat% = CMD_LIST(i%).category
+        END IF
+        hot$ = _TRIM$(CMD_LIST(i%).hotkey)
+        IF CTRL_PENDING(i%).hasCustom THEN
+            hot$ = hot$ + "  [CUSTOM: " + BINDINGS_format_key(CTRL_PENDING(i%).pressKey, CTRL_PENDING(i%).pressMods) + "]"
+        END IF
+        PRINT #fh%, LEFT$(_TRIM$(CMD_LIST(i%).name) + STRING$(40, " "), 40) + "  " + hot$
+    NEXT i%
+    CLOSE #fh%
+END SUB
+
+
+' ============================================================================
+'  SUB-DIALOG: KEY ASSIGN (HOLD or PRESS)
+' ============================================================================
+
+''
+' Show the key assignment dialog for HOLD or PRESS.
+' assignType: CTRL_ASSIGN_HOLD or CTRL_ASSIGN_PRESS
+' Returns TRUE if the user confirmed a new assignment (or CLEAR).
+'
+FUNCTION CTRL_assign_key_dialog% (cmdIdx AS INTEGER, assignType AS INTEGER)
+    DIM AW    AS INTEGER : AW%    = 280
+    DIM AH    AS INTEGER : AH%    = 160
+    DIM aCtx  AS DIALOG_CTX
+
+    DIALOG_init aCtx, AW%, AH%
+    _DEST aCtx.imgHandle
+
+    DIM title AS STRING
+    IF assignType% = CTRL_ASSIGN_HOLD THEN title$ = "ASSIGNING HOLD KEY" ELSE title$ = "ASSIGNING PRESS KEY"
+
+    DIM selCtrl  AS INTEGER : selCtrl%  = FALSE
+    DIM selShift AS INTEGER : selShift% = FALSE
+    DIM selAlt   AS INTEGER : selAlt%   = FALSE
+    DIM capKey   AS LONG    : capKey&   = 0
+    DIM capturing AS INTEGER : capturing% = FALSE
+    DIM changed  AS INTEGER : changed%   = FALSE
+    DIM result   AS INTEGER : result%    = FALSE
+
+    ' Pre-fill with current pending assignment
+    IF assignType% = CTRL_ASSIGN_HOLD THEN
+        capKey& = CTRL_PENDING(cmdIdx%).holdKey
+    ELSE
+        capKey& = CTRL_PENDING(cmdIdx%).pressKey
+        selCtrl%  = (CTRL_PENDING(cmdIdx%).pressMods AND BINDINGS_MOD_CTRL)  <> 0
+        selShift% = (CTRL_PENDING(cmdIdx%).pressMods AND BINDINGS_MOD_SHIFT) <> 0
+        selAlt%   = (CTRL_PENDING(cmdIdx%).pressMods AND BINDINGS_MOD_ALT)   <> 0
+    END IF
+
+    DIM stIdle   AS INTEGER
+    DIM prevMX   AS INTEGER : prevMX% = -1
+    DIM prevMY   AS INTEGER : prevMY% = -1
+    DIM needsDrw AS INTEGER : needsDrw% = TRUE
+    DIM conflictName AS STRING
+
+    ' Drain input before entering loop
+    _KEYCLEAR
+    DO WHILE _MOUSEINPUT: LOOP
+
+    DO
+        stIdle% = TRUE
+        DIALOG_poll_mouse aCtx
+
+        IF aCtx.mx <> prevMX% OR aCtx.my <> prevMY% THEN stIdle% = FALSE
+        IF aCtx.justClicked THEN stIdle% = FALSE
+        IF needsDrw% THEN stIdle% = FALSE
+
+        ' Key capture when in capture mode
+        IF capturing% THEN
+            DIM k AS LONG : k& = _KEYHIT
+            DO WHILE k& <> 0
+                ' Skip modifier-only events (negative codes for Ctrl/Shift/Alt keys)
+                IF k& > 0 AND k& < 65536 THEN
+                    IF k& <> 0 THEN
+                        capKey&    = k&
+                        capturing% = FALSE
+                        needsDrw%  = TRUE
+                        stIdle%    = FALSE
+                    END IF
+                ELSEIF k& < 0 THEN
+                    ' Extended key (F-keys, arrows etc.) - store ABS value
+                    DIM absK AS LONG : absK& = -k&
+                    ' Filter out modifier keys themselves
+                    IF absK& <> 100303 AND absK& <> 100304 AND _
+                       absK& <> 100305 AND absK& <> 100306 AND _
+                       absK& <> 100307 AND absK& <> 100308 THEN
+                        capKey&    = absK&
+                        capturing% = FALSE
+                        needsDrw%  = TRUE
+                        stIdle%    = FALSE
+                    END IF
+                END IF
+                k& = _KEYHIT
+            LOOP
+        END IF
+
+        ' Check conflicts for PRESS type
+        conflictName$ = ""
+        IF assignType% = CTRL_ASSIGN_PRESS AND capKey& <> 0 THEN
+            DIM testB AS DRAW_BINDING
+            testB.pressKey  = capKey&
+            testB.pressMods = (selCtrl% * BINDINGS_MOD_CTRL) OR (selShift% * BINDINGS_MOD_SHIFT) OR (selAlt% * BINDINGS_MOD_ALT)
+            testB.holdKey   = CTRL_PENDING(cmdIdx%).holdKey
+            testB.mouseBtn  = BINDINGS_BTN_NONE
+            testB.wheelDir  = BINDINGS_WHEEL_NONE
+            testB.hasCustom = TRUE
+            conflictName$ = CTRL_conflict_label(cmdIdx%, testB)
+        END IF
+
+        IF NOT stIdle% OR needsDrw% THEN
+            needsDrw% = FALSE
+            _DEST aCtx.imgHandle
+            _FONT aCtx.fontH
+            _PRINTMODE _KEEPBACKGROUND
+
+            DIALOG_draw_frame aCtx, title$
+
+            DIM pad AS INTEGER : pad% = 10
+
+            ' Function name
+            COLOR _RGB32(180, 200, 220), _RGB32(24, 28, 38)
+            _PRINTSTRING (pad%, CTRL_TITLE_H + 4), LEFT$(_TRIM$(CMD_LIST(cmdIdx%).name), 42), aCtx.imgHandle
+
+            ' Current assignment
+            COLOR _RGB32(120, 140, 160), _RGB32(24, 28, 38)
+            DIM curTxt AS STRING
+            IF assignType% = CTRL_ASSIGN_HOLD THEN
+                IF capKey& <> 0 THEN
+                    curTxt$ = "Currently: " + BINDINGS_key_name(capKey&)
+                ELSE
+                    curTxt$ = "Currently: (none)"
+                END IF
+            ELSE
+                IF capKey& <> 0 THEN
+                    DIM curMods AS INTEGER
+                    curMods% = (selCtrl% * BINDINGS_MOD_CTRL) OR (selShift% * BINDINGS_MOD_SHIFT) OR (selAlt% * BINDINGS_MOD_ALT)
+                    curTxt$ = "Currently: " + BINDINGS_format_key(capKey&, curMods%)
+                ELSE
+                    curTxt$ = "Currently: (none)"
+                END IF
+            END IF
+            _PRINTSTRING (pad%, CTRL_TITLE_H + 18), curTxt$, aCtx.imgHandle
+
+            ' Modifier checkboxes (only for PRESS type)
+            IF assignType% = CTRL_ASSIGN_PRESS THEN
+                DIM chkY AS INTEGER : chkY% = CTRL_TITLE_H + 35
+                DIM chkX AS INTEGER : chkX% = pad%
+                CTRL_draw_checkbox aCtx, chkX%,       chkY%, "Ctrl",  selCtrl%
+                CTRL_draw_checkbox aCtx, chkX% + 56,  chkY%, "Shift", selShift%
+                CTRL_draw_checkbox aCtx, chkX% + 116, chkY%, "Alt",   selAlt%
+            END IF
+
+            ' Capture button / display
+            DIM capBtnY AS INTEGER : capBtnY% = CTRL_TITLE_H + 56
+            DIM capBtnX AS INTEGER : capBtnX% = pad%
+            DIM capBtnW AS INTEGER : capBtnW% = AW% - pad% * 2
+            DIM capBtnH AS INTEGER : capBtnH% = 22
+
+            IF capturing% THEN
+                LINE (capBtnX%, capBtnY%)-(capBtnX% + capBtnW% - 1, capBtnY% + capBtnH% - 1), _RGB32(40, 80, 120), BF
+                LINE (capBtnX%, capBtnY%)-(capBtnX% + capBtnW% - 1, capBtnY% + capBtnH% - 1), _RGB32(80, 160, 240), B
+                COLOR _RGB32(240, 240, 80), _RGB32(40, 80, 120)
+                _PRINTSTRING (capBtnX% + 4, capBtnY% + 6), "Press a key...", aCtx.imgHandle
+            ELSE
+                LINE (capBtnX%, capBtnY%)-(capBtnX% + capBtnW% - 1, capBtnY% + capBtnH% - 1), _RGB32(36, 44, 60), BF
+                LINE (capBtnX%, capBtnY%)-(capBtnX% + capBtnW% - 1, capBtnY% + capBtnH% - 1), _RGB32(60, 80, 110), B
+                DIM dispKey AS STRING
+                IF capKey& <> 0 THEN
+                    dispKey$ = "Key: " + BINDINGS_key_name(capKey&) + "  [click to change]"
+                ELSE
+                    dispKey$ = "[click to assign a key]"
+                END IF
+                COLOR _RGB32(200, 215, 240), _RGB32(36, 44, 60)
+                _PRINTSTRING (capBtnX% + 4, capBtnY% + 6), LEFT$(dispKey$, 42), aCtx.imgHandle
+            END IF
+
+            ' Conflict warning
+            IF LEN(conflictName$) > 0 THEN
+                COLOR _RGB32(220, 70, 70), _RGB32(24, 28, 38)
+                _PRINTSTRING (pad%, capBtnY% + capBtnH% + 4), "CONFLICT: " + MID$(conflictName$, 2), aCtx.imgHandle
+            END IF
+
+            ' Buttons: CLEAR, OK, CANCEL
+            DIM btnY AS INTEGER : btnY% = AH% - 28
+            DIM okDisabled AS INTEGER
+            okDisabled% = (LEN(conflictName$) > 0)
+            CTRL_draw_assign_buttons aCtx, btnY%, okDisabled%
+
+            DIALOG_blit aCtx
+        ELSE
+            _LIMIT 30
+        END IF
+
+        prevMX% = aCtx.mx
+        prevMY% = aCtx.my
+
+        ' Hit-test clicks
+        IF aCtx.justClicked THEN
+            DIM amx AS INTEGER : amx% = aCtx.mx
+            DIM amy AS INTEGER : amy% = aCtx.my
+
+            ' Check capture button area
+            DIM capBtnYc AS INTEGER : capBtnYc% = CTRL_TITLE_H + 56
+            DIM capBtnXc AS INTEGER : capBtnXc% = 10
+            DIM capBtnWc AS INTEGER : capBtnWc% = AW% - 20
+            IF amx% >= capBtnXc% AND amx% < capBtnXc% + capBtnWc% AND _
+               amy% >= capBtnYc% AND amy% < capBtnYc% + 22 THEN
+                capturing% = TRUE
+                _KEYCLEAR
+                needsDrw%  = TRUE
+                _CONTINUE
+            END IF
+
+            ' Modifier checkboxes (PRESS type only)
+            IF assignType% = CTRL_ASSIGN_PRESS THEN
+                DIM chkYc AS INTEGER : chkYc% = CTRL_TITLE_H + 35
+                IF amy% >= chkYc% AND amy% < chkYc% + 14 THEN
+                    IF amx% >= 10 AND amx% < 66     THEN selCtrl%  = NOT selCtrl%  : needsDrw% = TRUE
+                    IF amx% >= 66 AND amx% < 116    THEN selShift% = NOT selShift% : needsDrw% = TRUE
+                    IF amx% >= 116 AND amx% < 176   THEN selAlt%   = NOT selAlt%   : needsDrw% = TRUE
+                    _CONTINUE
+                END IF
+            END IF
+
+            ' Check bottom buttons
+            DIM btnYc AS INTEGER : btnYc% = AH% - 28
+            DIM btnAction AS INTEGER
+            btnAction% = CTRL_assign_btn_hit(amx%, amy%, btnYc%, LEN(conflictName$) > 0)
+            IF btnAction% = 1 THEN ' CLEAR
+                capKey&    = 0
+                selCtrl%   = FALSE
+                selShift%  = FALSE
+                selAlt%    = FALSE
+                ' Clear only the relevant field
+                IF assignType% = CTRL_ASSIGN_HOLD THEN
+                    CTRL_PENDING(cmdIdx%).holdKey   = 0
+                ELSE
+                    CTRL_PENDING(cmdIdx%).pressKey  = 0
+                    CTRL_PENDING(cmdIdx%).pressMods = 0
+                END IF
+                CTRL_PENDING(cmdIdx%).hasCustom = _
+                    (CTRL_PENDING(cmdIdx%).pressKey <> 0) OR _
+                    (CTRL_PENDING(cmdIdx%).mouseBtn <> BINDINGS_BTN_NONE) OR _
+                    (CTRL_PENDING(cmdIdx%).wheelDir <> BINDINGS_WHEEL_NONE)
+                changed%   = TRUE
+                result%    = TRUE
+                aCtx.done  = TRUE
+            ELSEIF btnAction% = 2 THEN ' OK — only when no conflict
+                IF LEN(conflictName$) = 0 THEN
+                    IF assignType% = CTRL_ASSIGN_HOLD THEN
+                        CTRL_PENDING(cmdIdx%).holdKey = capKey&
+                    ELSE
+                        CTRL_PENDING(cmdIdx%).pressKey  = capKey&
+                        CTRL_PENDING(cmdIdx%).pressMods = _
+                            (selCtrl% * BINDINGS_MOD_CTRL) OR _
+                            (selShift% * BINDINGS_MOD_SHIFT) OR _
+                            (selAlt% * BINDINGS_MOD_ALT)
+                    END IF
+                    IF CTRL_PENDING(cmdIdx%).pressKey <> 0 OR _
+                       CTRL_PENDING(cmdIdx%).mouseBtn <> BINDINGS_BTN_NONE OR _
+                       CTRL_PENDING(cmdIdx%).wheelDir <> BINDINGS_WHEEL_NONE OR _
+                       CTRL_PENDING(cmdIdx%).holdKey  <> 0 THEN
+                        CTRL_PENDING(cmdIdx%).hasCustom = TRUE
+                    END IF
+                    changed%  = TRUE
+                    result%   = TRUE
+                    aCtx.done = TRUE
+                END IF
+            ELSEIF btnAction% = 3 THEN ' CANCEL
+                aCtx.done = TRUE
+            END IF
+
+            ' Close via title bar X
+            IF _KEYDOWN(27) THEN aCtx.done = TRUE
+        END IF
+
+    LOOP UNTIL aCtx.done
+
+    DIALOG_cleanup aCtx
+    CTRL.needsRedraw = TRUE
+    CTRL_assign_key_dialog% = result%
+END FUNCTION
+
+
+''
+' Draw the CLEAR / OK / CANCEL buttons in assign dialogs.
+'
+SUB CTRL_draw_assign_buttons (ctx AS DIALOG_CTX, y AS INTEGER, okDisabled AS INTEGER)
+    DIM bw AS INTEGER : bw% = 60
+    DIM bh AS INTEGER : bh% = 18
+    DIM bx AS INTEGER : bx% = (ctx.w - bw% * 3 - 8) \ 2
+
+    CTRL_draw_assign_btn ctx, bx%,          y%, bw%, bh%, "CLEAR",  FALSE
+    CTRL_draw_assign_btn ctx, bx% + bw% + 4, y%, bw%, bh%, "OK",    okDisabled%
+    CTRL_draw_assign_btn ctx, bx% + bw%*2+8, y%, bw%, bh%, "CANCEL", FALSE
+END SUB
+
+
+''
+' Draw a single assign dialog button (disabled = dimmed, no click).
+'
+SUB CTRL_draw_assign_btn (ctx AS DIALOG_CTX, x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER, lbl AS STRING, disabled AS INTEGER)
+    DIM bg AS _UNSIGNED LONG
+    DIM fg AS _UNSIGNED LONG
+    DIM br AS _UNSIGNED LONG
+    IF disabled% THEN
+        bg~& = _RGB32(36, 40, 52) : fg~& = _RGB32(80, 90, 100) : br~& = _RGB32(50, 58, 70)
+    ELSE
+        bg~& = _RGB32(44, 54, 74) : fg~& = _RGB32(200, 215, 240) : br~& = _RGB32(70, 90, 130)
+    END IF
+    LINE (x%, y%)-(x% + w% - 1, y% + h% - 1), bg~&, BF
+    LINE (x%, y%)-(x% + w% - 1, y% + h% - 1), br~&, B
+    COLOR fg~&, bg~&
+    DIM lx AS INTEGER : lx% = x% + (w% - LEN(lbl$) * 5) \ 2
+    IF lx% < x% + 2 THEN lx% = x% + 2
+    _PRINTSTRING (lx%, y% + 4), lbl$, ctx.imgHandle
+END SUB
+
+
+''
+' Hit-test the CLEAR/OK/CANCEL buttons in an assign dialog.
+' Returns: 0=none, 1=CLEAR, 2=OK, 3=CANCEL
+'
+FUNCTION CTRL_assign_btn_hit% (mx AS INTEGER, my AS INTEGER, y AS INTEGER, okDisabled AS INTEGER)
+    DIM bw AS INTEGER : bw% = 60
+    DIM bh AS INTEGER : bh% = 18
+    DIM bx AS INTEGER : bx% = (280 - bw% * 3 - 8) \ 2
+
+    IF my% < y% OR my% > y% + bh% THEN
+        CTRL_assign_btn_hit% = 0
+        EXIT FUNCTION
+    END IF
+
+    IF mx% >= bx% AND mx% < bx% + bw% THEN CTRL_assign_btn_hit% = 1 : EXIT FUNCTION  ' CLEAR
+    bx% = bx% + bw% + 4
+    IF mx% >= bx% AND mx% < bx% + bw% THEN
+        IF NOT okDisabled% THEN CTRL_assign_btn_hit% = 2 ELSE CTRL_assign_btn_hit% = 0
+        EXIT FUNCTION
+    END IF
+    bx% = bx% + bw% + 4
+    IF mx% >= bx% AND mx% < bx% + bw% THEN CTRL_assign_btn_hit% = 3 : EXIT FUNCTION  ' CANCEL
+    CTRL_assign_btn_hit% = 0
+END FUNCTION
+
+
+''
+' Draw a checkbox at (x,y) with label text, checked state.
+'
+SUB CTRL_draw_checkbox (ctx AS DIALOG_CTX, x AS INTEGER, y AS INTEGER, lbl AS STRING, checked AS INTEGER)
+    DIM sz  AS INTEGER : sz%  = 10
+    DIM bg AS _UNSIGNED LONG : bg~& = _RGB32(24, 28, 38)
+    DIM br AS _UNSIGNED LONG : br~& = _RGB32(70, 90, 130)
+    DIM ck AS _UNSIGNED LONG : ck~& = _RGB32(80, 200, 100)
+    LINE (x%, y%)-(x% + sz% - 1, y% + sz% - 1), bg~&, BF
+    LINE (x%, y%)-(x% + sz% - 1, y% + sz% - 1), br~&, B
+    IF checked% THEN
+        LINE (x% + 2, y% + 2)-(x% + sz% - 3, y% + sz% - 3), ck~&, BF
+    END IF
+    COLOR _RGB32(190, 200, 210), bg~&
+    _PRINTSTRING (x% + sz% + 3, y%), lbl$, ctx.imgHandle
+END SUB
+
+
+' ============================================================================
+'  SUB-DIALOG: MOUSE ASSIGN
+' ============================================================================
+
+''
+' Show the mouse-button assignment dialog.
+' Returns TRUE if user confirmed (including CLEAR).
+'
+FUNCTION CTRL_assign_mouse_dialog% (cmdIdx AS INTEGER)
+    DIM AW   AS INTEGER : AW%  = 260
+    DIM AH   AS INTEGER : AH%  = 140
+    DIM aCtx AS DIALOG_CTX
+
+    DIALOG_init aCtx, AW%, AH%
+    _DEST aCtx.imgHandle
+
+    DIM selBtn  AS INTEGER : selBtn%  = CTRL_PENDING(cmdIdx%).mouseBtn
+    DIM result  AS INTEGER : result%  = FALSE
+    DIM needsDrw AS INTEGER : needsDrw% = TRUE
+
+    _KEYCLEAR
+    DO WHILE _MOUSEINPUT: LOOP
+
+    DO
+        DIM stIdle AS INTEGER : stIdle% = TRUE
+        DIALOG_poll_mouse aCtx
+        IF aCtx.justClicked THEN stIdle% = FALSE
+        IF needsDrw% THEN stIdle% = FALSE
+
+        IF NOT stIdle% OR needsDrw% THEN
+            needsDrw% = FALSE
+            _DEST aCtx.imgHandle
+            _FONT aCtx.fontH
+            _PRINTMODE _KEEPBACKGROUND
+            DIALOG_draw_frame aCtx, "ASSIGNING MOUSE BUTTON"
+
+            COLOR _RGB32(180, 200, 220), _RGB32(24, 28, 38)
+            _PRINTSTRING (10, CTRL_TITLE_H + 4), LEFT$(_TRIM$(CMD_LIST(cmdIdx%).name), 38), aCtx.imgHandle
+
+            DIM curLbl AS STRING
+            SELECT CASE selBtn%
+                CASE BINDINGS_BTN_LEFT   : curLbl$ = "Currently: Left"
+                CASE BINDINGS_BTN_RIGHT  : curLbl$ = "Currently: Right"
+                CASE BINDINGS_BTN_MIDDLE : curLbl$ = "Currently: Middle"
+                CASE ELSE                : curLbl$ = "Currently: (none)"
+            END SELECT
+            COLOR _RGB32(120, 140, 160), _RGB32(24, 28, 38)
+            _PRINTSTRING (10, CTRL_TITLE_H + 18), curLbl$, aCtx.imgHandle
+
+            ' Radio buttons
+            DIM radioY AS INTEGER : radioY% = CTRL_TITLE_H + 36
+            CTRL_draw_radio aCtx, 10,  radioY%, "Left Button",   selBtn% = BINDINGS_BTN_LEFT
+            CTRL_draw_radio aCtx, 90,  radioY%, "Right Button",  selBtn% = BINDINGS_BTN_RIGHT
+            CTRL_draw_radio aCtx, 170, radioY%, "Middle Button", selBtn% = BINDINGS_BTN_MIDDLE
+
+            CTRL_draw_assign_buttons aCtx, AH% - 28, FALSE
+            DIALOG_blit aCtx
+        ELSE
+            _LIMIT 30
+        END IF
+
+        IF aCtx.justClicked THEN
+            DIM amx AS INTEGER : amx% = aCtx.mx
+            DIM amy AS INTEGER : amy% = aCtx.my
+
+            ' Radio button hits
+            DIM radioYh AS INTEGER : radioYh% = CTRL_TITLE_H + 36
+            IF amy% >= radioYh% AND amy% < radioYh% + 14 THEN
+                IF amx% >= 10  AND amx% < 86  THEN selBtn% = BINDINGS_BTN_LEFT   : needsDrw% = TRUE
+                IF amx% >= 90  AND amx% < 166 THEN selBtn% = BINDINGS_BTN_RIGHT  : needsDrw% = TRUE
+                IF amx% >= 170 AND amx% < 250 THEN selBtn% = BINDINGS_BTN_MIDDLE : needsDrw% = TRUE
+            END IF
+
+            DIM btnAct AS INTEGER
+            btnAct% = CTRL_assign_btn_hit(amx%, amy%, AH% - 28, FALSE)
+            IF btnAct% = 1 THEN  ' CLEAR
+                CTRL_PENDING(cmdIdx%).mouseBtn  = BINDINGS_BTN_NONE
+                CTRL_PENDING(cmdIdx%).hasCustom = _
+                    (CTRL_PENDING(cmdIdx%).pressKey <> 0) OR _
+                    (CTRL_PENDING(cmdIdx%).wheelDir <> BINDINGS_WHEEL_NONE)
+                result%   = TRUE
+                aCtx.done = TRUE
+            ELSEIF btnAct% = 2 THEN  ' OK
+                CTRL_PENDING(cmdIdx%).mouseBtn  = selBtn%
+                IF CTRL_PENDING(cmdIdx%).mouseBtn <> BINDINGS_BTN_NONE OR _
+                   CTRL_PENDING(cmdIdx%).pressKey <> 0 OR _
+                   CTRL_PENDING(cmdIdx%).wheelDir <> BINDINGS_WHEEL_NONE THEN
+                    CTRL_PENDING(cmdIdx%).hasCustom = TRUE
+                END IF
+                result%   = TRUE
+                aCtx.done = TRUE
+            ELSEIF btnAct% = 3 THEN  ' CANCEL
+                aCtx.done = TRUE
+            END IF
+
+            IF _KEYDOWN(27) THEN aCtx.done = TRUE
+        END IF
+
+    LOOP UNTIL aCtx.done
+
+    DIALOG_cleanup aCtx
+    CTRL.needsRedraw = TRUE
+    CTRL_assign_mouse_dialog% = result%
+END FUNCTION
+
+
+''
+' Draw a radio button at (x,y).
+'
+SUB CTRL_draw_radio (ctx AS DIALOG_CTX, x AS INTEGER, y AS INTEGER, lbl AS STRING, selected AS INTEGER)
+    DIM sz   AS INTEGER : sz%  = 10
+    DIM bg AS _UNSIGNED LONG : bg~& = _RGB32(24, 28, 38)
+    DIM br AS _UNSIGNED LONG : br~& = _RGB32(70, 90, 130)
+    DIM ck AS _UNSIGNED LONG : ck~& = _RGB32(80, 180, 240)
+    CIRCLE (x% + sz% \ 2, y% + sz% \ 2), sz% \ 2, br~&
+    IF selected% THEN CIRCLE (x% + sz% \ 2, y% + sz% \ 2), sz% \ 2 - 3, ck~&
+    COLOR _RGB32(190, 200, 210), bg~&
+    _PRINTSTRING (x% + sz% + 3, y%), lbl$, ctx.imgHandle
+END SUB
+
+
+' ============================================================================
+'  SUB-DIALOG: WHEEL ASSIGN
+' ============================================================================
+
+''
+' Show the wheel assignment dialog.
+' Returns TRUE if user confirmed.
+'
+FUNCTION CTRL_assign_wheel_dialog% (cmdIdx AS INTEGER)
+    DIM AW   AS INTEGER : AW%  = 300
+    DIM AH   AS INTEGER : AH%  = 150
+    DIM aCtx AS DIALOG_CTX
+
+    DIALOG_init aCtx, AW%, AH%
+    _DEST aCtx.imgHandle
+
+    DIM selDir  AS INTEGER : selDir%  = CTRL_PENDING(cmdIdx%).wheelDir
+    DIM result  AS INTEGER : result%  = FALSE
+    DIM needsDrw AS INTEGER : needsDrw% = TRUE
+    DIM isBidir AS INTEGER : isBidir% = CMD_LIST(cmdIdx%).bidirectional
+
+    _KEYCLEAR
+    DO WHILE _MOUSEINPUT: LOOP
+
+    DO
+        DIM stIdle AS INTEGER : stIdle% = TRUE
+        DIALOG_poll_mouse aCtx
+        IF aCtx.justClicked THEN stIdle% = FALSE
+        IF needsDrw% THEN stIdle% = FALSE
+
+        IF NOT stIdle% OR needsDrw% THEN
+            needsDrw% = FALSE
+            _DEST aCtx.imgHandle
+            _FONT aCtx.fontH
+            _PRINTMODE _KEEPBACKGROUND
+            DIALOG_draw_frame aCtx, "ASSIGNING WHEEL"
+
+            COLOR _RGB32(180, 200, 220), _RGB32(24, 28, 38)
+            _PRINTSTRING (10, CTRL_TITLE_H + 4), LEFT$(_TRIM$(CMD_LIST(cmdIdx%).name), 44), aCtx.imgHandle
+
+            DIM curLbl AS STRING
+            SELECT CASE selDir%
+                CASE BINDINGS_WHEEL_UP   : curLbl$ = "Currently: Scroll Up"
+                CASE BINDINGS_WHEEL_DOWN : curLbl$ = "Currently: Scroll Down"
+                CASE BINDINGS_WHEEL_BOTH : curLbl$ = "Currently: Both"
+                CASE ELSE                : curLbl$ = "Currently: (none)"
+            END SELECT
+            COLOR _RGB32(120, 140, 160), _RGB32(24, 28, 38)
+            _PRINTSTRING (10, CTRL_TITLE_H + 18), curLbl$, aCtx.imgHandle
+
+            ' Radio buttons
+            DIM radioY AS INTEGER : radioY% = CTRL_TITLE_H + 36
+            CTRL_draw_radio aCtx, 10,  radioY%, "Scroll Up",   selDir% = BINDINGS_WHEEL_UP
+            CTRL_draw_radio aCtx, 110, radioY%, "Scroll Down", selDir% = BINDINGS_WHEEL_DOWN
+
+            ' "Both" only enabled for bidirectional commands
+            IF isBidir% THEN
+                CTRL_draw_radio aCtx, 210, radioY%, "Both", selDir% = BINDINGS_WHEEL_BOTH
+            ELSE
+                COLOR _RGB32(70, 80, 90), _RGB32(24, 28, 38)
+                _PRINTSTRING (210, radioY%), "Both (N/A)", aCtx.imgHandle
+            END IF
+
+            CTRL_draw_assign_buttons aCtx, AH% - 28, FALSE
+            DIALOG_blit aCtx
+        ELSE
+            _LIMIT 30
+        END IF
+
+        IF aCtx.justClicked THEN
+            DIM amx AS INTEGER : amx% = aCtx.mx
+            DIM amy AS INTEGER : amy% = aCtx.my
+
+            DIM radioYh AS INTEGER : radioYh% = CTRL_TITLE_H + 36
+            IF amy% >= radioYh% AND amy% < radioYh% + 14 THEN
+                IF amx% >= 10  AND amx% < 108  THEN selDir% = BINDINGS_WHEEL_UP   : needsDrw% = TRUE
+                IF amx% >= 110 AND amx% < 208  THEN selDir% = BINDINGS_WHEEL_DOWN : needsDrw% = TRUE
+                IF isBidir% THEN
+                    IF amx% >= 210 AND amx% < 300 THEN selDir% = BINDINGS_WHEEL_BOTH : needsDrw% = TRUE
+                END IF
+            END IF
+
+            DIM btnAct AS INTEGER
+            btnAct% = CTRL_assign_btn_hit(amx%, amy%, AH% - 28, FALSE)
+            IF btnAct% = 1 THEN  ' CLEAR
+                CTRL_PENDING(cmdIdx%).wheelDir  = BINDINGS_WHEEL_NONE
+                CTRL_PENDING(cmdIdx%).hasCustom = _
+                    (CTRL_PENDING(cmdIdx%).pressKey <> 0) OR _
+                    (CTRL_PENDING(cmdIdx%).mouseBtn <> BINDINGS_BTN_NONE)
+                result%   = TRUE
+                aCtx.done = TRUE
+            ELSEIF btnAct% = 2 THEN  ' OK
+                CTRL_PENDING(cmdIdx%).wheelDir = selDir%
+                IF CTRL_PENDING(cmdIdx%).wheelDir <> BINDINGS_WHEEL_NONE OR _
+                   CTRL_PENDING(cmdIdx%).pressKey <> 0 OR _
+                   CTRL_PENDING(cmdIdx%).mouseBtn <> BINDINGS_BTN_NONE THEN
+                    CTRL_PENDING(cmdIdx%).hasCustom = TRUE
+                END IF
+                result%   = TRUE
+                aCtx.done = TRUE
+            ELSEIF btnAct% = 3 THEN  ' CANCEL
+                aCtx.done = TRUE
+            END IF
+
+            IF _KEYDOWN(27) THEN aCtx.done = TRUE
+        END IF
+
+    LOOP UNTIL aCtx.done
+
+    DIALOG_cleanup aCtx
+    CTRL.needsRedraw = TRUE
+    CTRL_assign_wheel_dialog% = result%
+END FUNCTION
+
+
+' ============================================================================
+'  MAIN DIALOG
+' ============================================================================
+
+''
+' Open the Customize Controls dialog.
+' This is a blocking modal following the SETTINGS_show_dialog pattern.
+'
+SUB CONTROLS_open ()
+    BROWSER_suspend_for_modal
+
+    ' Init dialog context
+    DIALOG_init CTRL.ctx, CTRL_W, CTRL_H
+
+    ' Copy current BINDINGS into CTRL_PENDING shadow
+    DIM i AS INTEGER
+    FOR i% = 0 TO CMD_COUNT - 1
+        CTRL_PENDING(i%) = BINDINGS(i%)
+    NEXT i%
+
+    ' Reset dialog state
+    CTRL.filter      = ""
+    CTRL.filterLen   = 0
+    CTRL.filterFocus = FALSE
+    CTRL.scrollY     = 0
+    CTRL.hovRow      = -1
+    CTRL.hasChanges  = FALSE
+    CTRL.needsRebuild = TRUE
+    CTRL.needsRedraw  = TRUE
+    CTRL.scrollDrag   = FALSE
+
+    ' Drain stale input
+    _KEYCLEAR
+    DO WHILE _MOUSEINPUT: LOOP
+
+    ' === Modal Loop ===
+    DIM stFrameIdle AS INTEGER
+    DIM prevMX      AS INTEGER : prevMX% = -1
+    DIM prevMY      AS INTEGER : prevMY% = -1
+    DIM prevHovRow  AS INTEGER : prevHovRow% = -2
+
+    DO
+        stFrameIdle% = TRUE
+
+        ' --- Input phase ---
+        DIALOG_poll_mouse CTRL.ctx
+
+        IF CTRL.ctx.mx <> prevMX% OR CTRL.ctx.my <> prevMY% THEN stFrameIdle% = FALSE
+        IF CTRL.ctx.mb1 THEN stFrameIdle% = FALSE
+        IF CTRL.ctx.mwheel <> 0 THEN stFrameIdle% = FALSE
+        IF CTRL.ctx.justClicked THEN stFrameIdle% = FALSE
+        IF CTRL.needsRedraw OR CTRL.needsRebuild THEN stFrameIdle% = FALSE
+
+        ' Rebuild visible list if filter changed
+        IF CTRL.needsRebuild THEN CTRL_rebuild_vis
+
+        ' Handle FIND input focus via click
+        IF CTRL.ctx.justClicked THEN
+            IF CTRL_find_hit(CTRL.ctx.mx, CTRL.ctx.my) THEN
+                CTRL.filterFocus = TRUE
+                CTRL.needsRedraw = TRUE
+            ELSE
+                IF CTRL.filterFocus THEN
+                    CTRL.filterFocus = FALSE
+                    CTRL.needsRedraw = TRUE
+                END IF
+            END IF
+        END IF
+
+        ' Handle FIND text input
+        CTRL_handle_find_input
+
+        ' Handle hover tracking
+        DIM oldHov AS INTEGER : oldHov% = CTRL.hovRow
+        CTRL_handle_hover
+        IF CTRL.hovRow <> oldHov% THEN CTRL.needsRedraw = TRUE
+
+        ' Handle scroll
+        CTRL_handle_scroll
+
+        ' Handle content clicks (opens sub-dialogs)
+        CTRL_handle_content_click
+
+        ' Handle title bar close (ESC key or CTRL.ctx.done set elsewhere)
+        IF _KEYDOWN(27) THEN CTRL.ctx.done = TRUE
+
+        ' Handle button bar
+        IF CTRL.ctx.justClicked THEN
+            DIM btnHit AS INTEGER : btnHit% = CTRL_btn_bar_hit
+            SELECT CASE btnHit%
+                CASE 1 ' SAVE
+                    CTRL_apply_pending
+                    CTRL.hasChanges = FALSE
+                    CTRL.needsRedraw = TRUE
+                CASE 2 ' LOAD
+                    DIM loadPath AS STRING
+                    loadPath$ = DRAW_open_file$("Load Bindings File", CFG.DEFAULT_OPEN_DIR$, "Bindings Files (*.bindings)|*.bindings", 1)
+                    IF loadPath$ <> "" THEN
+                        BINDINGS_load loadPath$
+                        FOR i% = 0 TO CMD_COUNT - 1
+                            CTRL_PENDING(i%) = BINDINGS(i%)
+                        NEXT i%
+                        CTRL.hasChanges  = FALSE
+                        CTRL.needsRedraw = TRUE
+                    END IF
+                CASE 3 ' RESET
+                    DIM confirmReset AS INTEGER
+                    confirmReset% = DRAW_message_box%("Reset Bindings", "Reset all custom bindings to defaults?", MB_BTN_YES_NO, MB_ICON_WARNING)
+                    IF confirmReset% = MB_RESULT_1 THEN
+                        FOR i% = 0 TO CMD_COUNT - 1
+                            CTRL_PENDING(i%).hasCustom = FALSE
+                            CTRL_PENDING(i%).pressKey  = 0
+                            CTRL_PENDING(i%).pressMods = 0
+                            CTRL_PENDING(i%).holdKey   = 0
+                            CTRL_PENDING(i%).mouseBtn  = BINDINGS_BTN_NONE
+                            CTRL_PENDING(i%).wheelDir  = BINDINGS_WHEEL_NONE
+                        NEXT i%
+                        CTRL.hasChanges  = TRUE
+                        CTRL.needsRedraw = TRUE
+                    END IF
+                CASE 4 ' PRINT
+                    CTRL_print_to_file
+                CASE 5 ' OK
+                    CTRL_apply_pending
+                    CTRL.ctx.done   = TRUE
+                    CTRL.ctx.result = TRUE
+            END SELECT
+        END IF
+
+        ' --- Render phase ---
+        IF NOT stFrameIdle% OR CTRL.needsRedraw THEN
+            CTRL.needsRedraw = FALSE
+            _DEST CTRL.ctx.imgHandle
+            _FONT CTRL.ctx.fontH
+            _PRINTMODE _KEEPBACKGROUND
+
+            DIALOG_draw_frame CTRL.ctx, "CUSTOMIZE CONTROLS"
+            CTRL_draw_find_row
+            CTRL_draw_headers
+            CTRL_draw_content
+            CTRL_draw_button_bar
+
+            DIALOG_blit CTRL.ctx
+        ELSE
+            _LIMIT 15
+        END IF
+
+        prevMX% = CTRL.ctx.mx
+        prevMY% = CTRL.ctx.my
+
+    LOOP UNTIL CTRL.ctx.done
+
+    DIALOG_cleanup CTRL.ctx
+    BROWSER_resume_after_modal
+END SUB

@@ -35,12 +35,16 @@ CONST CMD_CAT_IMAGE  = 15
 
 ' Command structure
 TYPE CMD_OBJ
-    name      AS STRING * 48 ' Display name
-    hotkey    AS STRING * 24 ' Hotkey display (e.g., "Ctrl+S")
-    category  AS INTEGER     ' Category constant
-    action_id AS INTEGER     ' Unique action ID for execution
-    enabled   AS INTEGER     ' Whether command is currently available
+    name          AS STRING * 48 ' Display name
+    hotkey        AS STRING * 24 ' Hotkey display (e.g., "Ctrl+S")
+    category      AS INTEGER     ' Category constant
+    action_id     AS INTEGER     ' Unique action ID for execution
+    enabled       AS INTEGER     ' Whether command is currently available
+    bidirectional AS INTEGER     ' TRUE = action supports both wheel directions
 END TYPE
+
+' Customize Controls action ID
+CONST ACTION_CUSTOMIZE_CONTROLS = 2300
 
 ' Command palette state
 TYPE CMD_PALETTE_OBJ

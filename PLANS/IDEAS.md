@@ -1,5 +1,124 @@
 # IDEAS
 
+## CUSTOMIZABLE CONTROLS
+- [ ] Allow the user to customize keyboard shortcuts
+- [ ] For each shortcut-enabled function:
+  - [ ] Show an icon if relevant to the function (from toolbox/bars)
+  - [ ] Show the description of the function
+  - [ ] Controls:
+    - [ ] HOLD Key (optional) (button)
+      - [ ] This key is required to be held for a gate to enable the PRESS key(s)
+      - [ ] User clicks button, and it shows a dialog Waiting for input | Press the key to hold down to gate this shortcut.
+    - [ ] PRESS Key(s) (button)
+      - [ ] These keys (plus optional HOLD key) are used to trigger the function/shortcut
+      - [ ] User clicks PRESS Keys button and dialog shows Waiting for input | Press the key(s) to trigger (description/name of function with optional icon).
+    - [ ] MOUSE Button(s) (radio)
+      - [ ] Left Click
+      - [ ] Right Click
+      - [ ] Middle Click
+    - [ ] MOUSE Wheel
+      - [ ] ...
+
+
+```
+Fig 1 - CONTROL CUSTOMIZATION WINDOW
+____________________________________________________________________________________________________________________________
+| CUSTOMIZE CONTROLS                                                                                                   [x] |
+|--------------------------------------------------------------------------------------------------------------------------|
+|                                                                                                                          |
+|  FIND: {e.g. "fill" auto-refreshes below}                                                                                |
+|                                                                                                                          |
+|                                                  ======= CURRENT ASSIGNMENT ====  ======= NEW ASSIGNMENT =========  ___  |
+| |ICON | FUNCTION                                 | HOLD | PRESS | CLICK | WHEEL | | HOLD | PRESS | CLICK | WHEEL |  | |  |
+| |-----|------------------------------------------|------|-------|-------|-------| |------|-------|-------|-------|  |-|  |
+| | *1  | FILL: Engage Tool                        |      |   f   |       |       | | (  ) | (  )  | (  )  | (  )  |  |S|  |
+| |     | FILL: Execute Flood Fill                 |      |   L   |       |       | | (  ) | (  )  | (  )  | (  )  |  |C|  |
+| | *2  | FILL: Flood Fill Globally using FG Color |   f  |       |   L   |       | | (  ) | (  )  | (  )  | (  )  |  |R|  |
+| | *3  | FILL: Flood Fill Globally using BG Color |   f  |       |   R   |       | | (  ) | (  )  | (  )  | (  )  |  |O|  |
+| | *4  | Toggle Grid Cell Fill Mode               |      |       |       |       | | (  ) | (  )  | (  )  | (  )  |  |L|  |
+| |     |                                          |      |       |       |       | | (  ) | (  )  | (  )  | (  )  |  |L|  |
+| |     |                                          |      |       |       |       | | (  ) | (  )  | (  )  | (  )  |  | |  |
+| |-----|------------------------------------------|------|-------|-------|-------| |------|-------|-------|-------|  |_|  |
+|                                                                                                                          |
+| (SAVE) (LOAD) (RESET) (PRINT)                                                                                            |
+|                                                                                                                          |
+|                                                       [   OK  ]                                                          |
+|__________________________________________________________________________________________________________________________|
+     
+...
+
+(  ) = Button to engage control assignment
+  *1 = Toolbox Fill Icon
+  *2 = Edit Bar Fill with FG Icon
+  *3 = Edit Bar Fill with BG Icon
+  *4 = Advanced Bar Grid Cell Fill Icon
+---
+
+Fig 2 - CONTROL ASSIGN DIALOG(s)
+
+_______________________________________________
+| ASSIGNING HOLD KEY                       [x]|
+|---------------------------------------------|
+| FUNCTION: {function}                        |
+|                                             |
+|       is currently assigned to: {key}       |
+|                                             |
+|       Press key to assign for >HOLD<        |
+|                                             |
+| [ CLEAR ]       [  OK  ]         [ CANCEL ] |
+|_____________________________________________|
+
+Same dialog but with HOLD changed to PRESS for PRESS Key
+_______________________________________________
+| ASSIGNING PRESS KEY(s)                   [x]|
+|---------------------------------------------|
+| FUNCTION: {function}                        |
+|                                             |
+|     is currently assigned to: {key, key}    |
+|                                             |
+|          Press key(s) to assign...          |
+|                                             |
+| [ CLEAR ]       [  OK  ]         [ CANCEL ] |
+|_____________________________________________|
+Where key can be any legal ascii key, case sensitive and also modifiers:
+ALT, CTRL, SHIFT
+
+Same dialog but with HOLD changed to CLICK and KEY changed to BUTTON
+_______________________________________________
+| ASSIGNING MOUSE BUTTON                   [x]|
+|---------------------------------------------|
+| FUNCTION: {function}                        |
+|                                             |
+|     is currently assigned to: {button}      |
+|                                             |
+|          Press button to assign...          |
+|                                             |
+| [ CLEAR ]       [  OK  ]         [ CANCEL ] |
+|_____________________________________________|
+
+
+Same dialog but with HOLD changed to WHEEL, Press changed to Scroll, key changed to wheel
+_________________________________________________
+| ASSIGNING WHEEL                            [x]|
+|-----------------------------------------------|
+| FUNCTION: {function}                          |
+|                                               |
+|          is currently assigned to:            |
+| WHEEL: [ SCROLL UP ] [ SCROLL DOWN ] [ BOTH ] |
+|                                               |
+|                  change to:                   |
+| WHEEL: [ SCROLL UP ] [ SCROLL DOWN ] [ BOTH ] |
+|                                               |
+| [ CLEAR ]        [  OK  ]          [ CANCEL ] |
+|_______________________________________________|
+
+BOTH is only enabled and available for bidirectional operations like brush size, opacity, font size, etc. where a value can be increased or decreased.
+
+```
+
+
+## CREATE PRINTABLE HOTKEY REFERENCE HTML
+
 ## CREATE DARK THEME
 - [ ] To test the theme mode, we need a dark theme
 

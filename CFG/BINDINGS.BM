@@ -1,0 +1,371 @@
+''
+' DRAW - CFG/BINDINGS.BM
+' =============================================================================
+' Custom control bindings load/save/dispatch implementation.
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+''
+' Initialise bindings: zero all slots, set the file path.
+' Must be called AFTER CMD_init (which populates CMD_LIST / CMD_COUNT).
+'
+SUB BINDINGS_init ()
+    DIM i AS INTEGER
+    FOR i% = 0 TO CMD_MAX_COMMANDS - 1
+        BINDINGS(i%).pressKey  = 0
+        BINDINGS(i%).pressMods = 0
+        BINDINGS(i%).holdKey   = 0
+        BINDINGS(i%).mouseBtn  = BINDINGS_BTN_NONE
+        BINDINGS(i%).wheelDir  = BINDINGS_WHEEL_NONE
+        BINDINGS(i%).hasCustom = FALSE
+    NEXT i%
+    BINDINGS_FILE_PATH = PATHS_config$(BINDINGS_FILE_DEFAULT$)
+END SUB
+
+
+''
+' Load custom bindings from a text file.
+' Format (one per line):  actionId=pressKey,pressMods,holdKey,mouseBtn,wheelDir
+' Lines starting with # or ; are comments.  Unknown action IDs are silently skipped.
+'
+SUB BINDINGS_load (filePath AS STRING)
+    IF NOT _FILEEXISTS(filePath) THEN EXIT SUB
+
+    DIM fh          AS INTEGER : fh% = FREEFILE
+    DIM ln          AS STRING
+    DIM eqPos       AS INTEGER
+    DIM actionIdStr AS STRING
+    DIM valStr      AS STRING
+    DIM actionId    AS INTEGER
+    DIM cmdIdx      AS INTEGER
+    DIM i           AS INTEGER
+    DIM parts(4)    AS STRING
+    DIM pCount      AS INTEGER
+    DIM rest        AS STRING
+    DIM commaPos    AS INTEGER
+
+    OPEN filePath FOR INPUT AS #fh%
+    DO WHILE NOT EOF(fh%)
+        LINE INPUT #fh%, ln$
+        ln$ = _TRIM$(ln$)
+        IF LEN(ln$) = 0 THEN _CONTINUE
+        IF LEFT$(ln$, 1) = "#" OR LEFT$(ln$, 1) = ";" THEN _CONTINUE
+        IF LEFT$(ln$, 1) = "[" THEN _CONTINUE
+
+        eqPos% = INSTR(ln$, "=")
+        IF eqPos% < 2 THEN _CONTINUE
+
+        actionIdStr$ = _TRIM$(LEFT$(ln$, eqPos% - 1))
+        valStr$      = _TRIM$(MID$(ln$, eqPos% + 1))
+
+        actionId% = VAL(actionIdStr$)
+        IF actionId% = 0 THEN _CONTINUE
+
+        ' Find matching CMD slot
+        cmdIdx% = -1
+        FOR i% = 0 TO CMD_COUNT - 1
+            IF CMD_LIST(i%).action_id = actionId% THEN
+                cmdIdx% = i%
+                EXIT FOR
+            END IF
+        NEXT i%
+        IF cmdIdx% < 0 THEN _CONTINUE
+
+        ' Parse CSV: pressKey,pressMods,holdKey,mouseBtn,wheelDir
+        pCount% = 0
+        rest$    = valStr$
+        DO WHILE pCount% < 5
+            commaPos% = INSTR(rest$, ",")
+            IF commaPos% > 0 THEN
+                parts$(pCount%) = LEFT$(rest$, commaPos% - 1)
+                rest$           = MID$(rest$, commaPos% + 1)
+            ELSE
+                parts$(pCount%) = rest$
+                rest$           = ""
+            END IF
+            pCount% = pCount% + 1
+        LOOP
+
+        IF pCount% < 5 THEN _CONTINUE
+
+        BINDINGS(cmdIdx%).pressKey  = VAL(parts$(0))
+        BINDINGS(cmdIdx%).pressMods = VAL(parts$(1))
+        BINDINGS(cmdIdx%).holdKey   = VAL(parts$(2))
+        BINDINGS(cmdIdx%).mouseBtn  = VAL(parts$(3))
+        BINDINGS(cmdIdx%).wheelDir  = VAL(parts$(4))
+        BINDINGS(cmdIdx%).hasCustom = TRUE
+    LOOP
+    CLOSE #fh%
+END SUB
+
+
+''
+' Save all hasCustom=TRUE bindings to BINDINGS_FILE_PATH.
+' Only overrides are written; defaults are omitted to keep the file minimal.
+'
+SUB BINDINGS_save ()
+    DIM fh  AS INTEGER : fh% = FREEFILE
+    DIM i   AS INTEGER
+
+    OPEN BINDINGS_FILE_PATH FOR OUTPUT AS #fh%
+    PRINT #fh%, "# DRAW Custom Key Bindings"
+    PRINT #fh%, "# Format: actionId=pressKey,pressMods,holdKey,mouseBtn,wheelDir"
+    PRINT #fh%, ""
+    PRINT #fh%, "[BINDINGS]"
+    FOR i% = 0 TO CMD_COUNT - 1
+        IF BINDINGS(i%).hasCustom THEN
+            PRINT #fh%, STR$(CMD_LIST(i%).action_id) + "=" + _
+                STR$(BINDINGS(i%).pressKey) + "," + _
+                STR$(BINDINGS(i%).pressMods) + "," + _
+                STR$(BINDINGS(i%).holdKey) + "," + _
+                STR$(BINDINGS(i%).mouseBtn) + "," + _
+                STR$(BINDINGS(i%).wheelDir)
+        END IF
+    NEXT i%
+    CLOSE #fh%
+END SUB
+
+
+''
+' Clear all custom overrides (hasCustom=FALSE on every slot).
+'
+SUB BINDINGS_reset ()
+    DIM i AS INTEGER
+    FOR i% = 0 TO CMD_MAX_COMMANDS - 1
+        BINDINGS(i%).hasCustom = FALSE
+        BINDINGS(i%).pressKey  = 0
+        BINDINGS(i%).pressMods = 0
+        BINDINGS(i%).holdKey   = 0
+        BINDINGS(i%).mouseBtn  = BINDINGS_BTN_NONE
+        BINDINGS(i%).wheelDir  = BINDINGS_WHEEL_NONE
+    NEXT i%
+END SUB
+
+
+''
+' Return a human-readable display name for a key code (ABS(_KEYHIT) value).
+'
+FUNCTION BINDINGS_key_name$ (keyCode AS LONG)
+    DIM kc AS LONG : kc& = keyCode&
+    SELECT CASE kc&
+        CASE 0     : BINDINGS_key_name$ = ""
+        CASE 27    : BINDINGS_key_name$ = "Esc"
+        CASE 13    : BINDINGS_key_name$ = "Enter"
+        CASE 9     : BINDINGS_key_name$ = "Tab"
+        CASE 8     : BINDINGS_key_name$ = "Bksp"
+        CASE 32    : BINDINGS_key_name$ = "Space"
+        CASE 127   : BINDINGS_key_name$ = "Del"
+        CASE 33    : BINDINGS_key_name$ = "!"
+        CASE 34    : BINDINGS_key_name$ = CHR$(34) ' "
+        CASE 35    : BINDINGS_key_name$ = "#"
+        CASE 36    : BINDINGS_key_name$ = "$"
+        CASE 37    : BINDINGS_key_name$ = "%"
+        CASE 38    : BINDINGS_key_name$ = "&"
+        CASE 39    : BINDINGS_key_name$ = "'"
+        CASE 40    : BINDINGS_key_name$ = "("
+        CASE 41    : BINDINGS_key_name$ = ")"
+        CASE 42    : BINDINGS_key_name$ = "*"
+        CASE 43    : BINDINGS_key_name$ = "+"
+        CASE 44    : BINDINGS_key_name$ = ","
+        CASE 45    : BINDINGS_key_name$ = "-"
+        CASE 46    : BINDINGS_key_name$ = "."
+        CASE 47    : BINDINGS_key_name$ = "/"
+        CASE 48 TO 57  : BINDINGS_key_name$ = CHR$(kc&)
+        CASE 58    : BINDINGS_key_name$ = ":"
+        CASE 59    : BINDINGS_key_name$ = ";"
+        CASE 60    : BINDINGS_key_name$ = "<"
+        CASE 61    : BINDINGS_key_name$ = "="
+        CASE 62    : BINDINGS_key_name$ = ">"
+        CASE 63    : BINDINGS_key_name$ = "?"
+        CASE 64    : BINDINGS_key_name$ = "@"
+        CASE 65 TO 90  : BINDINGS_key_name$ = CHR$(kc&)
+        CASE 91    : BINDINGS_key_name$ = "["
+        CASE 92    : BINDINGS_key_name$ = "\"
+        CASE 93    : BINDINGS_key_name$ = "]"
+        CASE 94    : BINDINGS_key_name$ = "^"
+        CASE 95    : BINDINGS_key_name$ = "_"
+        CASE 96    : BINDINGS_key_name$ = "`"
+        CASE 97 TO 122 : BINDINGS_key_name$ = CHR$(kc&)
+        CASE 123   : BINDINGS_key_name$ = "{"
+        CASE 124   : BINDINGS_key_name$ = "|"
+        CASE 125   : BINDINGS_key_name$ = "}"
+        CASE 126   : BINDINGS_key_name$ = "~"
+        ' Extended keys (ABS of negative _KEYHIT codes)
+        CASE 15104 : BINDINGS_key_name$ = "F1"
+        CASE 15360 : BINDINGS_key_name$ = "F2"
+        CASE 15616 : BINDINGS_key_name$ = "F3"
+        CASE 15872 : BINDINGS_key_name$ = "F4"
+        CASE 16128 : BINDINGS_key_name$ = "F5"
+        CASE 16384 : BINDINGS_key_name$ = "F6"
+        CASE 16640 : BINDINGS_key_name$ = "F7"
+        CASE 16896 : BINDINGS_key_name$ = "F8"
+        CASE 17152 : BINDINGS_key_name$ = "F9"
+        CASE 17408 : BINDINGS_key_name$ = "F10"
+        CASE 17664 : BINDINGS_key_name$ = "F11"
+        CASE 17920 : BINDINGS_key_name$ = "F12"
+        CASE 18176 : BINDINGS_key_name$ = "Home"
+        CASE 18432 : BINDINGS_key_name$ = "Up"
+        CASE 18688 : BINDINGS_key_name$ = "PgUp"
+        CASE 19200 : BINDINGS_key_name$ = "Left"
+        CASE 19456 : BINDINGS_key_name$ = "5"     ' numpad center
+        CASE 19712 : BINDINGS_key_name$ = "Right"
+        CASE 20224 : BINDINGS_key_name$ = "End"
+        CASE 20480 : BINDINGS_key_name$ = "Down"
+        CASE 20736 : BINDINGS_key_name$ = "PgDn"
+        CASE 20992 : BINDINGS_key_name$ = "Ins"
+        CASE 21248 : BINDINGS_key_name$ = "Del"
+        CASE ELSE
+            IF kc& > 32 AND kc& < 127 THEN
+                BINDINGS_key_name$ = CHR$(kc&)
+            ELSE
+                BINDINGS_key_name$ = "?" + LTRIM$(STR$(kc&))
+            END IF
+    END SELECT
+END FUNCTION
+
+
+''
+' Return a modifier-bitmask as a prefix string (e.g. "Ctrl+Shift+").
+'
+FUNCTION BINDINGS_mods_str$ (mods AS INTEGER)
+    DIM s AS STRING
+    IF mods% AND BINDINGS_MOD_CTRL  THEN s$ = s$ + "Ctrl+"
+    IF mods% AND BINDINGS_MOD_SHIFT THEN s$ = s$ + "Shift+"
+    IF mods% AND BINDINGS_MOD_ALT   THEN s$ = s$ + "Alt+"
+    BINDINGS_mods_str$ = s$
+END FUNCTION
+
+
+''
+' Format a full key assignment string (e.g. "Ctrl+Shift+S").
+' Returns "" when keyCode = 0.
+'
+FUNCTION BINDINGS_format_key$ (keyCode AS LONG, mods AS INTEGER)
+    IF keyCode& = 0 THEN
+        BINDINGS_format_key$ = ""
+        EXIT FUNCTION
+    END IF
+    BINDINGS_format_key$ = BINDINGS_mods_str(mods%) + BINDINGS_key_name(keyCode&)
+END FUNCTION
+
+
+''
+' Find a conflicting binding.
+' Returns the CMD slot index of the first binding that has the same
+' pressKey+pressMods+holdKey combo (key conflict), or the same mouseBtn
+' (if non-zero), or the same wheelDir (if non-zero) as the supplied record.
+' Returns -1 if no conflict.
+' skipIdx: the CMD slot to exclude from the search (the row being edited).
+'
+FUNCTION BINDINGS_find_conflict% (skipIdx AS INTEGER, b AS DRAW_BINDING)
+    DIM i   AS INTEGER
+    DIM cur AS DRAW_BINDING
+    FOR i% = 0 TO CMD_COUNT - 1
+        IF i% = skipIdx% THEN _CONTINUE
+        IF NOT BINDINGS(i%).hasCustom THEN _CONTINUE
+
+        cur = BINDINGS(i%)
+
+        ' Key conflict: same pressKey + pressMods + holdKey (all non-zero)
+        IF b.pressKey <> 0 AND cur.pressKey <> 0 THEN
+            IF cur.pressKey = b.pressKey AND cur.pressMods = b.pressMods AND cur.holdKey = b.holdKey THEN
+                BINDINGS_find_conflict% = i%
+                EXIT FUNCTION
+            END IF
+        END IF
+
+        ' Mouse conflict: same non-zero button
+        IF b.mouseBtn <> BINDINGS_BTN_NONE AND cur.mouseBtn = b.mouseBtn THEN
+            BINDINGS_find_conflict% = i%
+            EXIT FUNCTION
+        END IF
+
+        ' Wheel conflict: both non-zero and overlap
+        IF b.wheelDir <> BINDINGS_WHEEL_NONE AND cur.wheelDir <> BINDINGS_WHEEL_NONE THEN
+            IF b.wheelDir = cur.wheelDir OR _
+               b.wheelDir = BINDINGS_WHEEL_BOTH OR _
+               cur.wheelDir = BINDINGS_WHEEL_BOTH THEN
+                BINDINGS_find_conflict% = i%
+                EXIT FUNCTION
+            END IF
+        END IF
+    NEXT i%
+    BINDINGS_find_conflict% = -1
+END FUNCTION
+
+
+''
+' Check custom bindings for a character-key event.
+' keyCode: ABS(_KEYHIT) value of the key that just fired.
+' mods   : current BINDINGS_MOD_* bitmask from MODIFIERS.*.
+' Returns TRUE and executes the action if a custom binding matches.
+' Call this BEFORE the standard KEYBOARD_tools / KEYBOARD_colors dispatch.
+'
+FUNCTION BINDINGS_check_char_binding% (keyCode AS LONG, mods AS INTEGER)
+    DIM i AS INTEGER
+    FOR i% = 0 TO CMD_COUNT - 1
+        IF NOT BINDINGS(i%).hasCustom THEN _CONTINUE
+        IF BINDINGS(i%).pressKey = 0 THEN _CONTINUE
+        IF BINDINGS(i%).mouseBtn <> BINDINGS_BTN_NONE THEN _CONTINUE
+        IF BINDINGS(i%).wheelDir <> BINDINGS_WHEEL_NONE THEN _CONTINUE
+
+        IF BINDINGS(i%).pressKey = keyCode& AND BINDINGS(i%).pressMods = mods% THEN
+            ' Check optional hold-key gate
+            IF BINDINGS(i%).holdKey <> 0 THEN
+                IF NOT _KEYDOWN(BINDINGS(i%).holdKey) THEN _CONTINUE
+            END IF
+            CMD_execute_action CMD_LIST(i%).action_id
+            BINDINGS_check_char_binding% = TRUE
+            EXIT FUNCTION
+        END IF
+    NEXT i%
+    BINDINGS_check_char_binding% = FALSE
+END FUNCTION
+
+
+''
+' Check custom bindings for a mouse-button event.
+' btn: BINDINGS_BTN_LEFT / _RIGHT / _MIDDLE for the button just pressed.
+' Returns TRUE and executes the action if a match is found.
+'
+FUNCTION BINDINGS_check_mouse_binding% (btn AS INTEGER)
+    DIM i AS INTEGER
+    IF btn% = BINDINGS_BTN_NONE THEN
+        BINDINGS_check_mouse_binding% = FALSE
+        EXIT FUNCTION
+    END IF
+    FOR i% = 0 TO CMD_COUNT - 1
+        IF NOT BINDINGS(i%).hasCustom THEN _CONTINUE
+        IF BINDINGS(i%).mouseBtn <> btn% THEN _CONTINUE
+        CMD_execute_action CMD_LIST(i%).action_id
+        BINDINGS_check_mouse_binding% = TRUE
+        EXIT FUNCTION
+    NEXT i%
+    BINDINGS_check_mouse_binding% = FALSE
+END FUNCTION
+
+
+''
+' Check custom bindings for a mouse-wheel event.
+' dir: BINDINGS_WHEEL_UP or BINDINGS_WHEEL_DOWN for the direction scrolled.
+' Returns TRUE and executes the action if a match is found.
+'
+FUNCTION BINDINGS_check_wheel_binding% (dir AS INTEGER)
+    DIM i AS INTEGER
+    IF dir% = BINDINGS_WHEEL_NONE THEN
+        BINDINGS_check_wheel_binding% = FALSE
+        EXIT FUNCTION
+    END IF
+    FOR i% = 0 TO CMD_COUNT - 1
+        IF NOT BINDINGS(i%).hasCustom THEN _CONTINUE
+        IF BINDINGS(i%).wheelDir = BINDINGS_WHEEL_NONE THEN _CONTINUE
+        IF BINDINGS(i%).wheelDir = dir% OR BINDINGS(i%).wheelDir = BINDINGS_WHEEL_BOTH THEN
+            CMD_execute_action CMD_LIST(i%).action_id
+            BINDINGS_check_wheel_binding% = TRUE
+            EXIT FUNCTION
+        END IF
+    NEXT i%
+    BINDINGS_check_wheel_binding% = FALSE
+END FUNCTION

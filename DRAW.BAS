@@ -166,6 +166,7 @@ PATHS_migrate
 ' Apply config startup defaults (tool, brush size, directories)
 ' Must be called after all modules are initialized via includes
 CONFIG_apply_startup_defaults
+BINDINGS_init ' Load custom key bindings (must come after CMD_init)
 HISTORY_init
 FILE_BAS_wip_reset
 
