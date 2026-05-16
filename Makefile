@@ -18,7 +18,9 @@ BASENAME  := DRAW
 LOGFILE   := $(BASENAME).log
 
 # ---------- Compiler ----------------------------------------------------------
+#QB64PE    ?= $(HOME)/git/qb64pe-a740g-test/qb64pe
 QB64PE    ?= $(HOME)/git/qb64pe/qb64pe
+#QB64PE    ?= $(HOME)/git/qb64pe-450/qb64pe
 THREADS   ?= 12
 QB64FLAGS := -w -x -f:MaxCompilerProcesses=$(THREADS)
 

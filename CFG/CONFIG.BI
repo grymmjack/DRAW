@@ -196,7 +196,6 @@ TYPE DRAW_CONFIG
     FD_DIALOG_PLACES_MIN_W          AS INTEGER        ' Minimum modal file dialog places pane width (0 = library default)
     FD_DIALOG_PREVIEW_MIN_W         AS INTEGER        ' Minimum modal file dialog preview pane width (0 = library default)
     NUDGE_N                         AS INTEGER        ' Multi-pixel nudge distance (default 10)
-    NUM_CUSTOM_BRUSHES              AS INTEGER        ' Number of custom brush slots (default 4)
     NUM_LAYERS                      AS INTEGER        ' Initial number of layers on new file
     FPS_LIMIT                       AS INTEGER        ' Maximum frames per second when active (default 60)
     FPS_IDLE                        AS INTEGER        ' Reduced FPS when idle (default 15)

@@ -801,14 +801,6 @@ SUB MAIN_shutdown ()
     NEXT gi%
 
     ' =====================================================================
-    ' FREE BRUSH PRIMITIVE IMAGES
-    ' =====================================================================
-    DIM bi AS INTEGER
-    FOR bi% = LBOUND(BRUSHES) TO UBOUND(BRUSHES)
-        IF BRUSHES(bi%).BRUSH.IMG& < -1 THEN _FREEIMAGE BRUSHES(bi%).BRUSH.IMG&
-    NEXT bi%
-
-    ' =====================================================================
     ' FREE CURSOR IMAGES + LAYER PANEL ICONS
     ' =====================================================================
     _MOUSESHOW ' Ensure using default system cursor before freeing cursors

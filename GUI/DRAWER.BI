@@ -32,6 +32,13 @@ CONST GRAD_STOP_USER = 0 ' Fixed user-specified color
 CONST GRAD_STOP_FG   = 1 ' References current foreground (PAINT_COLOR~&)
 CONST GRAD_STOP_BG   = 2 ' References current background (PAINT_BG_COLOR~&)
 
+' A drawer brush slot: image handle plus its dimensions
+TYPE DRAW_BRUSH
+    IMG AS LONG
+    W   AS INTEGER
+    H   AS INTEGER
+END TYPE
+
 ' A single color stop in a gradient definition
 TYPE GRADIENT_COLOR_STOP
     position AS SINGLE         ' 0.0 to 1.0
