@@ -288,7 +288,7 @@ A frame is "idle" when no input, mouse movement, GUI changes, or active tool ope
 ## Key Files
 
 | File                      | Contains                                                            |
-| ------------------------- | ------------------------------------------------------------------- |
+|---------------------------|---------------------------------------------------------------------|
 | `_COMMON.BI`              | Core types, global state, tool constants                            |
 | `_COMMON.BM`              | Stroke system, title bar, paint helpers                             |
 | `DRAW.BAS`                | Main loop, application entry point                                  |
@@ -298,7 +298,6 @@ A frame is "idle" when no input, mouse movement, GUI changes, or active tool ope
 | `GUI/DITHER.BI/BM`        | Shared dithering algorithms and threshold helpers for gradients and posterize |
 | `INPUT/MOUSE.BM`          | Mouse processing pipeline (~2590 lines)                             |
 | `INPUT/KEYBOARD.BM`       | Keyboard shortcuts and handler                                      |
-
 | `OUTPUT/SCREEN.BM`        | Render pipeline (`SCREEN_render`)                                   |
 | `GUI/LAYERS.BM`           | Layer management, layer groups, symbol layers, context menu, group compositing (~6000+ lines) |
 | `GUI/LAYERS.BI`           | Layer type constants (`LAYER_TYPE_*`), `DRAW_LAYER` type with group fields (`parentGroupIdx`, `collapsed`, `passThrough`), symbol fields (`symbolParentIdx`), and apron fields (`apronW`, `apronH`, `apronCacheImg`, `apronCacheValid`); `BLEND_PASS_THROUGH` |
