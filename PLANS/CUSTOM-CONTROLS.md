@@ -1,4 +1,4 @@
-User: ## CUSTOMIZABLE CONTROLS
+## CUSTOMIZABLE CONTROLS
 - [ ] Allow the user to customize keyboard shortcuts
 - [ ] For each shortcut-enabled function:
   - [ ] Show an icon if relevant to the function (from toolbox/bars)
