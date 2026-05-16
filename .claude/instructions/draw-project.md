@@ -1,7 +1,3 @@
----
-applyTo: "**"
----
-
 # DRAW Project — Core Context
 
 **Always start sessions with `#qb64pe`** to activate the QB64-PE MCP server.
@@ -104,7 +100,7 @@ _DEST oldDest&
 
 ### 4. History System — #1 Source of Bugs
 
-Read `draw-undo.instructions.md` before touching any code that saves history states, handles mouse press/release, opens GUI dialogs, or changes `MOUSE.UI_CHROME_CLICKED%`. DRAW uses a unified `HISTORY` system (`TOOLS/HISTORY.BI/BM`) — the old separate `UNDO` and `WORKSPACE_UNDO` systems have been removed. Common bugs: ghost history states from GUI click-release cycles, double-saves from missing guard, `_DEST` corruption from debug prints.
+Read `draw-undo.md` before touching any code that saves history states, handles mouse press/release, opens GUI dialogs, or changes `MOUSE.UI_CHROME_CLICKED%`. DRAW uses a unified `HISTORY` system (`TOOLS/HISTORY.BI/BM`) — the old separate `UNDO` and `WORKSPACE_UNDO` systems have been removed. Common bugs: ghost history states from GUI click-release cycles, double-saves from missing guard, `_DEST` corruption from debug prints.
 
 ### 5. History Double-Save Prevention
 
@@ -292,7 +288,7 @@ A frame is "idle" when no input, mouse movement, GUI changes, or active tool ope
 ## Key Files
 
 | File                      | Contains                                                            |
-| ------------------------- | ------------------------------------------------------------------- |
+|---------------------------|---------------------------------------------------------------------|
 | `_COMMON.BI`              | Core types, global state, tool constants                            |
 | `_COMMON.BM`              | Stroke system, title bar, paint helpers                             |
 | `DRAW.BAS`                | Main loop, application entry point                                  |
@@ -302,7 +298,6 @@ A frame is "idle" when no input, mouse movement, GUI changes, or active tool ope
 | `GUI/DITHER.BI/BM`        | Shared dithering algorithms and threshold helpers for gradients and posterize |
 | `INPUT/MOUSE.BM`          | Mouse processing pipeline (~2590 lines)                             |
 | `INPUT/KEYBOARD.BM`       | Keyboard shortcuts and handler                                      |
-
 | `OUTPUT/SCREEN.BM`        | Render pipeline (`SCREEN_render`)                                   |
 | `GUI/LAYERS.BM`           | Layer management, layer groups, symbol layers, context menu, group compositing (~6000+ lines) |
 | `GUI/LAYERS.BI`           | Layer type constants (`LAYER_TYPE_*`), `DRAW_LAYER` type with group fields (`parentGroupIdx`, `collapsed`, `passThrough`), symbol fields (`symbolParentIdx`), and apron fields (`apronW`, `apronH`, `apronCacheImg`, `apronCacheValid`); `BLEND_PASS_THROUGH` |

@@ -107,17 +107,17 @@ Update:
 
 ## Step 6 — Update instruction files
 
-Review each file in `.github/instructions/` against the collected changes list from Step 2. Update only the files affected by this release — skip files whose content is still accurate.
+Review each file in `.claude/instructions/` against the collected changes list from Step 2. Update only the files affected by this release — skip files whose content is still accurate.
 
-| File                              | Update when…                                                                                                                                    |
-| --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| `draw-project.instructions.md`    | Architecture changes, new directories, new/changed gotchas, new tools in key files table, updated adding-tools checklist, new QB64-PE APIs used |
-| `draw-undo.instructions.md`       | Undo system changes, new undo callers, new bug patterns                                                                                         |
-| `draw-rendering.instructions.md`  | Render pipeline step changes, new blend modes, layer type field changes, cache invalidation rule changes                                        |
-| `draw-mouse.instructions.md`      | `MOUSE_OBJ` field additions, new `DEFERRED_ACTION%` values, processing flow changes                                                             |
-| `draw-ui.instructions.md`         | New action IDs or ranges, new menu items, toolbar row/column layout changes, new organizer slots                                                |
-| `draw-sound.instructions.md`      | New sound constants, new playback wiring, new config keys, music system changes                                                                 |
-| `draw-fileformat.instructions.md` | New `.draw` binary sections or version bump, new config fields, new theme fields                                                                |
+| File                  | Update when…                                                                                                                                    |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `draw-project.md`     | Architecture changes, new directories, new/changed gotchas, new tools in key files table, updated adding-tools checklist, new QB64-PE APIs used |
+| `draw-undo.md`        | Undo system changes, new undo callers, new bug patterns                                                                                         |
+| `draw-rendering.md`   | Render pipeline step changes, new blend modes, layer type field changes, cache invalidation rule changes                                        |
+| `draw-mouse.md`       | `MOUSE_OBJ` field additions, new `DEFERRED_ACTION%` values, processing flow changes                                                             |
+| `draw-ui.md`          | New action IDs or ranges, new menu items, toolbar row/column layout changes, new organizer slots                                                |
+| `draw-sound.md`       | New sound constants, new playback wiring, new config keys, music system changes                                                                 |
+| `draw-fileformat.md`  | New `.draw` binary sections or version bump, new config fields, new theme fields                                                                |
 
 For each file that needs updating:
 

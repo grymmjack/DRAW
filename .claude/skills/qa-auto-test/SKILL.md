@@ -34,17 +34,17 @@ Read these sources to understand the feature's states, transitions, guards, and 
 ### 1a. Instructions and skills
 
 **Always read:**
-- `.github/instructions/draw-project.instructions.md` — core project context
+- `.claude/instructions/draw-project.md` — core project context
 
 **Read when relevant** (match to test subject):
-- `.github/instructions/draw-undo.instructions.md` — history/undo system
-- `.github/instructions/draw-ui-chrome.instructions.md` — menus, commands, toolbar, organizer, edit bar
-- `.github/instructions/draw-mouse.instructions.md` — mouse input system
-- `.github/instructions/draw-file-config-theme.instructions.md` — file format, config, theme
-- `.github/instructions/draw-rendering-layers.instructions.md` — rendering pipeline, layer system
-- `.github/instructions/draw-ui-geometry.instructions.md` — UI chrome geometry reference
-- `.github/instructions/draw-sound.instructions.md` — sound system
-- `.github/instructions/draw-text-tool.instructions.md` — text tool specifics
+- `.claude/instructions/draw-undo.md` — history/undo system
+- `.claude/instructions/draw-ui.md` — menus, commands, toolbar, organizer, edit bar
+- `.claude/instructions/draw-mouse.md` — mouse input system
+- `.claude/instructions/draw-fileformat.md` — file format, config, theme
+- `.claude/instructions/draw-rendering.md` — rendering pipeline, layer system
+- `.claude/instructions/draw-chrome-geometry.md` — UI chrome geometry reference
+- `.claude/instructions/draw-sound.md` — sound system
+- `.claude/instructions/draw-text-tool.md` — text tool specifics
 
 ### 1b. State machine diagrams
 

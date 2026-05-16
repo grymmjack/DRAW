@@ -1,7 +1,3 @@
----
-applyTo: "**/SCREEN.BM, **/SCREEN.BI, **/TOOLBAR.BI, **/TOOLBAR.BM, **/ORGANIZER.BI, **/ORGANIZER.BM, **/DRAWER.BI, **/DRAWER.BM, **/MENUBAR.BI, **/STATUS.BI, **/PALETTE-STRIP.BI, **/PALETTE-STRIP.BM, **/LAYERS.BI, **/EDITBAR.BI, **/EDITBAR.BM, **/ADVANCEDBAR.BI, **/ADVANCEDBAR.BM, **/PREVIEW.BI, **/SCROLLBAR.BI, **/CONFIG-THEME.BI"
----
-
 # DRAW UI Chrome Geometry Reference
 
 All dimensions are in **unscaled viewport pixels** unless noted. Elements in

@@ -1,0 +1,2 @@
+- [Copilot to Claude Code migration](copilot-migration.md) — what moved where during the 2026-05-16 housekeeping
+- [Project conventions](project-conventions.md) — non-obvious DRAW-specific norms not derivable from code

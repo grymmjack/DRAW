@@ -1,7 +1,3 @@
----
-applyTo: "**/MOUSE.BM, **/MOUSE.BI"
----
-
 # DRAW — Mouse Input System
 
 **Files**: `INPUT/MOUSE.BI` (MOUSE_OBJ type), `INPUT/MOUSE.BM` (~2590 lines)

@@ -1,7 +1,3 @@
----
-applyTo: "**/DRW*.B*, **/CONFIG*.B*, **/THEME*.B*, **/FILE-*.B*"
----
-
 # DRAW — File Format, Config & Theme
 
 ---

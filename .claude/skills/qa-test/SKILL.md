@@ -27,17 +27,17 @@ Collect context in this priority order (per `PLANS/TESTING.md`):
 
 ### 1a — Instructions and skills
 
-Read `.github/instructions/draw-project.instructions.md` (always). Then read any instruction file whose `applyTo` pattern matches the feature's source files:
+Read `.claude/instructions/draw-project.md` (always). Then read any instruction file whose topic matches the feature's source files:
 
 | Feature Area | Instruction File |
 |-------------|-----------------|
-| Mouse/input tools | `draw-mouse.instructions.md` |
-| Screen/rendering | `draw-rendering.instructions.md`, `draw-chrome-geometry.instructions.md` |
-| UI panels/toolbar/menubar | `draw-ui.instructions.md`, `draw-chrome-geometry.instructions.md` |
-| Undo/history | `draw-undo.instructions.md` |
-| Text tool | `draw-text-tool.instructions.md` |
-| File formats/DRW | `draw-fileformat.instructions.md` |
-| Sound/music | `draw-sound.instructions.md` |
+| Mouse/input tools | `draw-mouse.md` |
+| Screen/rendering | `draw-rendering.md`, `draw-chrome-geometry.md` |
+| UI panels/toolbar/menubar | `draw-ui.md`, `draw-chrome-geometry.md` |
+| Undo/history | `draw-undo.md` |
+| Text tool | `draw-text-tool.md` |
+| File formats/DRW | `draw-fileformat.md` |
+| Sound/music | `draw-sound.md` |
 
 ### 1b — State machine diagram
 

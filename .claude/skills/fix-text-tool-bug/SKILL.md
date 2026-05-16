@@ -54,7 +54,7 @@ Before diagnosing, verify the code doesn't violate these critical QB64-PE rules:
 6. **`_UNSIGNED LONG` for colors** — using `INTEGER (%)` truncates `_RGB32` values.
 7. **NEVER `_DEST _CONSOLE`** — use `_LOGINFO`, `_LOGWARN`, `_LOGERROR` for debug output.
 8. **`HISTORY_saved_this_frame%`** must be checked before recording history to prevent double-saves.
-9. **Render path awareness** — `SCREEN_render` has 4 fast paths (GUI-ONLY, STATUS-ONLY, dirty-rect, full render). Any text tool overlay drawn after `SkipToPointer:` must ensure ALL fast paths reach it or gate their partial-present `EXIT SUB`. See `draw-rendering.instructions.md`.
+9. **Render path awareness** — `SCREEN_render` has 4 fast paths (GUI-ONLY, STATUS-ONLY, dirty-rect, full render). Any text tool overlay drawn after `SkipToPointer:` must ensure ALL fast paths reach it or gate their partial-present `EXIT SUB`. See `.claude/instructions/draw-rendering.md`.
 10. **`MOUSE.X/Y%` vs `MOUSE.UNSNAPPED_X/Y%`** — Grid-snapped coords (`MOUSE.X/Y%`) cause shimmer in hit-tests when grid snap is active. Use `MOUSE.UNSNAPPED_X/Y%` for text layer boundary hit-testing.
 
 ---

@@ -1,7 +1,3 @@
----
-applyTo: "**/HISTORY*.B*, **/MOUSE.BM, **/KEYBOARD.BM"
----
-
 # DRAW — History / Undo System
 
 DRAW uses a **unified history system** (`TOOLS/HISTORY.BI` / `HISTORY.BM`) for all Ctrl+Z/Y undo/redo. The old separate `UNDO` (pixel snapshots) and `WORKSPACE_UNDO` (structural layer ops) systems have been removed.

@@ -1,7 +1,3 @@
----
-applyTo: "**/SOUND.B*, **/MUSIC*.B*"
----
-
 # DRAW — Sound System
 
 **Files**: `CORE/SOUND.BI` (constants + declarations), `CORE/SOUND.BM` (loader + playback SUBs)

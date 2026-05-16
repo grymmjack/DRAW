@@ -1,7 +1,3 @@
----
-applyTo: "**/SCREEN.BM, **/LAYERS.BM, **/COMPOSITE*.B*"
----
-
 # DRAW — Rendering & Layer System
 
 ---
