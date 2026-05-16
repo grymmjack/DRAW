@@ -107,7 +107,7 @@ Idle frames skip `SCREEN_render` entirely. `_LIMIT` placed before `SCREEN_render
 
 ### Render pipeline (`OUTPUT/SCREEN.BM` → `SCREEN_render`)
 
-Layers composite back-to-front into `SCRN.CANVAS&`, then GPU-scale to window. The scene is cached in `SCENE_CACHE&`; cursor-only frames skip to the `SkipToPointer:` label and re-blit the cache. **Per-frame animations (marching ants, blinking cursors) must render AFTER `SkipToPointer:`** — otherwise they force `SCENE_DIRTY% = TRUE` every frame and defeat the cache. See `.github/instructions/draw-rendering.instructions.md` for the full step list and cache invariants.
+Layers composite back-to-front into `SCRN.CANVAS&`, then GPU-scale to window. The scene is cached in `SCENE_CACHE&`; cursor-only frames skip to the `SkipToPointer:` label and re-blit the cache. **Per-frame animations (marching ants, blinking cursors) must render AFTER `SkipToPointer:`** — otherwise they force `SCENE_DIRTY% = TRUE` every frame and defeat the cache. See `.claude/instructions/draw-rendering.md` for the full step list and cache invariants.
 
 ### Coordinate systems
 
@@ -129,12 +129,12 @@ All commands route through `CMD_execute_action <id>` in `GUI/COMMAND.BM` (200+ a
 
 ## Critical gotchas
 
-These reflect real bugs that have shipped. Read `.github/instructions/draw-project.instructions.md` for the full list with examples — what follows is the short version.
+These reflect real bugs that have shipped. Read `.claude/instructions/draw-project.md` for the full list with examples — what follows is the short version.
 
 1. **Never use `_DEST _CONSOLE` + `PRINT` for debug.** Corrupts the active drawing destination mid-frame. Use `_LOGINFO` / `_LOGWARN` / `_LOGERROR`.
 2. **Image handle validity:** `IF handle& < -1 THEN _FREEIMAGE handle&`. Zero and -1 are invalid.
 3. **Preserve `_DEST`:** save `oldDest& = _DEST`, do work, restore. The same applies to `_SOURCE`, `_FONT`.
-4. **History is the #1 bug source.** All Ctrl+Z/Y goes through the unified `HISTORY` system in `TOOLS/HISTORY.BI/BM`. Old `UNDO` / `WORKSPACE_UNDO` systems were removed — do not reintroduce. Always guard saves with `IF NOT HISTORY_saved_this_frame% THEN ... HISTORY_saved_this_frame% = TRUE`. Reset in `LOOP_start`. See `.github/instructions/draw-undo.instructions.md`.
+4. **History is the #1 bug source.** All Ctrl+Z/Y goes through the unified `HISTORY` system in `TOOLS/HISTORY.BI/BM`. Old `UNDO` / `WORKSPACE_UNDO` systems were removed — do not reintroduce. Always guard saves with `IF NOT HISTORY_saved_this_frame% THEN ... HISTORY_saved_this_frame% = TRUE`. Reset in `LOOP_start`. See `.claude/instructions/draw-undo.md`.
 5. **`MOUSE.UI_CHROME_CLICKED%` must be reset INSIDE `MOUSE_should_skip_tool_actions%`**, never before — otherwise the release-frame fires a spurious history save (ghost undo states from clicking GUI chrome).
 6. **`_KEYHIT` is unreliable for Ctrl+/Alt+ combos on Linux/SDL2.** Use `_KEYDOWN(physicalCode&)` with a `STATIC pressed%` guard. Put Ctrl+Alt hotkeys in `KEYBOARD.BM`, never in `DRAW.BAS`. Key physical codes: `KEY_PGUP& = 18688`, `KEY_PGDN& = 20736`, `.` = 46, `,` = 44, `/` = 47.
 7. **Mouse button transitions:** `IF MOUSE.B1% AND NOT MOUSE.OLD_B1% THEN` (pressed) / `IF NOT MOUSE.B1% AND MOUSE.OLD_B1% THEN` (released).
@@ -163,19 +163,21 @@ These reflect real bugs that have shipped. Read `.github/instructions/draw-proje
 
 ## Specialized instruction files
 
-`.github/instructions/` contains focused, scope-tagged deep-dives. Read the relevant one before touching that area:
+`.claude/instructions/` contains focused deep-dives. Read the relevant one before touching that area:
 
 | File | Scope |
 |------|-------|
-| `draw-project.instructions.md` | Master overview, all gotchas, every key file |
-| `draw-undo.instructions.md` | History system internals, record kinds, double-save guard |
-| `draw-rendering.instructions.md` | Render pipeline, scene cache, blend compositing |
-| `draw-mouse.instructions.md` | MOUSE dispatch pipeline, UI_CHROME_CLICKED lifecycle |
-| `draw-ui.instructions.md` | Panel docking, auto-hide, tooltips, edit/advanced bars |
-| `draw-fileformat.instructions.md` | `.draw` PNG+drAw-chunk binary format versions |
-| `draw-chrome-geometry.instructions.md` | Toolbar/panel layout math |
-| `draw-sound.instructions.md` | Sound slots, music, SF2 MIDI |
-| `draw-text-tool.instructions.md` | Text tool state machine |
+| `.claude/instructions/draw-project.md` | Master overview, all gotchas, every key file |
+| `.claude/instructions/draw-undo.md` | History system internals, record kinds, double-save guard |
+| `.claude/instructions/draw-rendering.md` | Render pipeline, scene cache, blend compositing |
+| `.claude/instructions/draw-mouse.md` | MOUSE dispatch pipeline, UI_CHROME_CLICKED lifecycle |
+| `.claude/instructions/draw-ui.md` | Panel docking, auto-hide, tooltips, edit/advanced bars |
+| `.claude/instructions/draw-fileformat.md` | `.draw` PNG+drAw-chunk binary format versions |
+| `.claude/instructions/draw-chrome-geometry.md` | Toolbar/panel layout math |
+| `.claude/instructions/draw-sound.md` | Sound slots, music, SF2 MIDI |
+| `.claude/instructions/draw-text-tool.md` | Text tool state machine (points to `fix-text-tool-bug` skill) |
+
+The `.claude/skills/` directory contains procedural workflows for common tasks (release prep, QA test generation, bug fixing with state diagrams, PDF manual build, image upscaling, mind-map generation, QB64-PE porting/debugging). Each subdirectory has a `SKILL.md` invoked as a slash command.
 
 ## Config
 
