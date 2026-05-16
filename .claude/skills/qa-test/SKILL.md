@@ -169,7 +169,7 @@ Read `CHEATSHEET.md` and extract all bindings relevant to the feature being test
 
 ### 1e — MCP tools (optional)
 
-If the `#qb64pe` MCP server is active, use `lookup_qb64pe_keyword` or `search_qb64pe_wiki` for any QB64-PE API behaviour that affects the feature's test cases.
+If the `qb64pe` MCP server is active, use `mcp__qb64pe__lookup_qb64pe_keyword` or `mcp__qb64pe__search_qb64pe_wiki` for any QB64-PE API behaviour that affects the feature's test cases.
 
 ---
 

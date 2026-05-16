@@ -168,7 +168,7 @@ Read `CHEATSHEET.md` for the keyboard shortcuts and mouse bindings relevant to t
 
 ### 1e. QB64PE MCP (optional)
 
-Use `qb64pe-lookup_qb64pe_keyword` or `qb64pe-search_qb64pe_wiki` if you need to verify QB64PE API behavior that affects test expectations.
+Use `mcp__qb64pe__lookup_qb64pe_keyword` or `mcp__qb64pe__search_qb64pe_wiki` if you need to verify QB64PE API behavior that affects test expectations.
 
 ---
 

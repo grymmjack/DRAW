@@ -38,7 +38,7 @@ Read the relevant source files based on the suspected state/transition:
 | **History** | `TOOLS/HISTORY.BI`, `TOOLS/HISTORY.BM` |
 | **Font system** | `GUI/FONT-LIST.BI`, `GUI/FONT-LIST.BM` |
 
-Use `mcp_qb64pe_analyze_qb64pe_execution_mode` or `mcp_qb64pe_analyze_qb64pe_execution_mode_file` to check execution flow if the bug involves control flow or mode switching.
+Use `mcp__qb64pe__analyze_qb64pe_execution_mode` or `mcp__qb64pe__analyze_qb64pe_execution_mode_file` to check execution flow if the bug involves control flow or mode switching.
 
 ---
 
