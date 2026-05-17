@@ -932,6 +932,9 @@ SUB MAIN_shutdown ()
     ' =====================================================================
     SOUND_close_all
 
+    ' Flush + close the --perf log file (no-op when --perf wasn't enabled)
+    PERF_log_close
+
     SYSTEM
 END SUB
 
