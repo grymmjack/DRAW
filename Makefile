@@ -17,11 +17,20 @@
 #   make COMPILER=a740g <target>   Combine with any other target
 #   make COMPILER=v450 clean       (e.g. clean using v450 build dir)
 #   make QB64PE=/full/path         Override path directly
+#
+# Compile output is appended to $(HOME)/.claude/make.log so a side terminal
+# can `tail -f ~/.claude/make.log` to watch warnings/errors across builds.
+
+# Use bash with pipefail so `qb64pe ... | tee` propagates compile failures
+# instead of returning tee's exit code.
+SHELL       := /bin/bash
+.SHELLFLAGS := -o pipefail -c
 
 # ---------- Source / output ---------------------------------------------------
 SRC       := DRAW.BAS
 BASENAME  := DRAW
 LOGFILE   := $(BASENAME).log
+MAKE_LOG  := $(HOME)/.claude/make.log
 
 # ---------- Compiler ----------------------------------------------------------
 COMPILER ?=
@@ -70,7 +79,9 @@ all: $(OUT)
 
 $(OUT): $(SRC)
 	$(RM) $(OUT)
-	$(QB64PE) $(QB64FLAGS) $(SRC) -o $(OUT)
+	@mkdir -p $(dir $(MAKE_LOG))
+	@printf '\n=== %s  %s %s %s -o %s ===\n' "$$(date '+%Y-%m-%d %H:%M:%S')" "$(QB64PE)" "$(QB64FLAGS)" "$(SRC)" "$(OUT)" | tee -a $(MAKE_LOG)
+	$(QB64PE) $(QB64FLAGS) $(SRC) -o $(OUT) 2>&1 | tee -a $(MAKE_LOG)
 
 run: $(OUT)
 	./$(OUT)
