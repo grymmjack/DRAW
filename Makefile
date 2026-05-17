@@ -18,8 +18,11 @@
 #   make COMPILER=v450 clean       (e.g. clean using v450 build dir)
 #   make QB64PE=/full/path         Override path directly
 #
-# Compile output is appended to $(HOME)/.claude/make.log so a side terminal
-# can `tail -f ~/.claude/make.log` to watch warnings/errors across builds.
+# Compile output is appended to .claude/make.log (project-local, gitignored)
+# so a side terminal can `tail -f .claude/make.log` to watch warnings/errors
+# across builds. The pipeline strips QB64-PE's ANSI progress bar so only
+# meaningful lines (warnings, errors, "Compiling..." / "Output:") land in
+# both the terminal and the log.
 
 # Use bash with pipefail so `qb64pe ... | tee` propagates compile failures
 # instead of returning tee's exit code.
@@ -30,7 +33,7 @@ SHELL       := /bin/bash
 SRC       := DRAW.BAS
 BASENAME  := DRAW
 LOGFILE   := $(BASENAME).log
-MAKE_LOG  := $(HOME)/.claude/make.log
+MAKE_LOG  := .claude/make.log
 
 # ---------- Compiler ----------------------------------------------------------
 COMPILER ?=
@@ -81,7 +84,10 @@ $(OUT): $(SRC)
 	$(RM) $(OUT)
 	@mkdir -p $(dir $(MAKE_LOG))
 	@printf '\n=== %s  %s %s %s -o %s ===\n' "$$(date '+%Y-%m-%d %H:%M:%S')" "$(QB64PE)" "$(QB64FLAGS)" "$(SRC)" "$(OUT)" | tee -a $(MAKE_LOG)
-	$(QB64PE) $(QB64FLAGS) $(SRC) -o $(OUT) 2>&1 | tee -a $(MAKE_LOG)
+	$(QB64PE) $(QB64FLAGS) $(SRC) -o $(OUT) 2>&1 \
+	    | sed -u 's/\x1b\[[0-9;]*[A-Za-z]//g' \
+	    | grep --line-buffered -v '^\[[ .]*\][[:space:]]*[0-9]\+%' \
+	    | tee -a $(MAKE_LOG)
 
 run: $(OUT)
 	./$(OUT)
