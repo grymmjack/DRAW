@@ -184,84 +184,90 @@ END SUB
 ' @param zh LONG Zoomed canvas height in display pixels
 ' @param zoom SINGLE Current zoom level for scaling guide elements
 ' 
-SUB SYMMETRY_render_guides (zw&, zh&, zoom!)
+' Render symmetry guides directly into dstImg at offset (dxOffset, dyOffset).
+' Previously this used an intermediate SYMMETRY.imgHandle& sized to (zw, zh) +
+' a _PUTIMAGE blit — at zoom 32x on 1920x1080 that's an 8.5 GB allocation and
+' a per-frame CLS of 2 billion pixels.  Drawing directly is just ~6 LINE calls
+' clipped at the destination bounds.
+SUB SYMMETRY_render_guides (dstImg AS LONG, dxOffset AS INTEGER, dyOffset AS INTEGER, zw AS LONG, zh AS LONG, zoom AS SINGLE)
     DIM oldDest AS LONG
     DIM AS INTEGER x1, y1, x2, y2
     DIM AS INTEGER centerX, centerY
-    
-    ' Calculate center in zoomed display coordinates
-    centerX% = SYMMETRY.CENTER_X% * zoom!
-    centerY% = SYMMETRY.CENTER_Y% * zoom!
-    
-    ' (Logging removed from render path for performance)
+
+    IF SYMMETRY.MODE% <= 0 THEN EXIT SUB
+
+    ' Calculate center in viewport (screen) coordinates
+    centerX% = dxOffset% + SYMMETRY.CENTER_X% * zoom!
+    centerY% = dyOffset% + SYMMETRY.CENTER_Y% * zoom!
+
     oldDest& = _DEST
-    _DEST SYMMETRY.imgHandle&
-    CLS , _RGBA32(0, 0, 0, 0) ' Clear with transparency
-    
-    IF SYMMETRY.MODE% > 0 THEN
-            ' Use theme colors directly (already _RGBA32 values)
-            DIM guideRGBA AS _UNSIGNED LONG
-            guideRGBA~& = THEME.SYMMETRY_guide_fg~&
-            
-            ' Draw guide lines based on mode
-            SELECT CASE SYMMETRY.MODE%
-                CASE 1 ' VERTICAL (|)
-                    ' Vertical line through center
-                    LINE (centerX%, 0)-(centerX%, zh& - 1), guideRGBA~&
-                    
-                CASE 2 ' CROSS (+)
-                    ' Vertical line
-                    LINE (centerX%, 0)-(centerX%, zh& - 1), guideRGBA~&
-                    ' Horizontal line
-                    LINE (0, centerY%)-(zw& - 1, centerY%), guideRGBA~&
-                    
-                CASE 3 ' ASTERISK (*)
-                    ' Vertical line
-                    LINE (centerX%, 0)-(centerX%, zh& - 1), guideRGBA~&
-                    ' Horizontal line
-                    LINE (0, centerY%)-(zw& - 1, centerY%), guideRGBA~&
-                    ' Diagonal lines (45°)
-                    ' Top-left to bottom-right
-                    x1% = centerX% - centerY%
-                    y1% = 0
-                    x2% = centerX% + (zh& - 1 - centerY%)
-                    y2% = zh& - 1
-                    IF x1% < 0 THEN
-                        y1% = -x1%
-                        x1% = 0
-                    END IF
-                    IF x2% >= zw& THEN
-                        y2% = y2% - (x2% - zw& + 1)
-                        x2% = zw& - 1
-                    END IF
-                    LINE (x1%, y1%)-(x2%, y2%), guideRGBA~&
-                    
-                    ' Top-right to bottom-left
-                    x1% = centerX% + centerY%
-                    y1% = 0
-                    x2% = centerX% - (zh& - 1 - centerY%)
-                    y2% = zh& - 1
-                    IF x1% >= zw& THEN
-                        y1% = x1% - zw& + 1
-                        x1% = zw& - 1
-                    END IF
-                    IF x2% < 0 THEN
-                        y2% = y2% + x2%
-                        x2% = 0
-                    END IF
-                    LINE (x1%, y1%)-(x2%, y2%), guideRGBA~&
-            END SELECT
-            
-            ' Draw center crosshair dot (5x5 pixels scaled with zoom)
-            DIM centerRGBA    AS _UNSIGNED LONG
-            DIM crosshairSize AS INTEGER
-            centerRGBA~&   = THEME.SYMMETRY_center_fg~&
-            crosshairSize% = 2 * zoom!
-            IF crosshairSize% < 2 THEN crosshairSize% = 2
-            LINE (centerX% - crosshairSize%, centerY% - crosshairSize%)-(centerX% + crosshairSize%, centerY% + crosshairSize%), _
-                centerRGBA~&, BF
-        END IF
-        
-        _DEST oldDest&
-        ' (Logging removed from render path for performance)
+    _DEST dstImg&
+    _BLEND dstImg&
+
+    ' Use theme colors directly (already _RGBA32 values)
+    DIM guideRGBA AS _UNSIGNED LONG
+    guideRGBA~& = THEME.SYMMETRY_guide_fg~&
+
+    ' Guide extents in viewport coordinates (LINE clips at dst bounds)
+    DIM gLeft   AS INTEGER, gRight  AS INTEGER
+    DIM gTop    AS INTEGER, gBottom AS INTEGER
+    gLeft%   = dxOffset%
+    gRight%  = dxOffset% + zw& - 1
+    gTop%    = dyOffset%
+    gBottom% = dyOffset% + zh& - 1
+
+    ' Draw guide lines based on mode
+    SELECT CASE SYMMETRY.MODE%
+        CASE 1 ' VERTICAL (|)
+            LINE (centerX%, gTop%)-(centerX%, gBottom%), guideRGBA~&
+
+        CASE 2 ' CROSS (+)
+            LINE (centerX%, gTop%)-(centerX%, gBottom%), guideRGBA~&
+            LINE (gLeft%, centerY%)-(gRight%, centerY%), guideRGBA~&
+
+        CASE 3 ' ASTERISK (*)
+            LINE (centerX%, gTop%)-(centerX%, gBottom%), guideRGBA~&
+            LINE (gLeft%, centerY%)-(gRight%, centerY%), guideRGBA~&
+            ' Diagonals (45°), endpoints clamped to canvas-in-viewport rect.
+            ' Top-left to bottom-right
+            x1% = centerX% - (centerY% - gTop%)
+            y1% = gTop%
+            x2% = centerX% + (gBottom% - centerY%)
+            y2% = gBottom%
+            IF x1% < gLeft% THEN
+                y1% = y1% + (gLeft% - x1%)
+                x1% = gLeft%
+            END IF
+            IF x2% > gRight% THEN
+                y2% = y2% - (x2% - gRight%)
+                x2% = gRight%
+            END IF
+            LINE (x1%, y1%)-(x2%, y2%), guideRGBA~&
+
+            ' Top-right to bottom-left
+            x1% = centerX% + (centerY% - gTop%)
+            y1% = gTop%
+            x2% = centerX% - (gBottom% - centerY%)
+            y2% = gBottom%
+            IF x1% > gRight% THEN
+                y1% = y1% + (x1% - gRight%)
+                x1% = gRight%
+            END IF
+            IF x2% < gLeft% THEN
+                y2% = y2% - (gLeft% - x2%)
+                x2% = gLeft%
+            END IF
+            LINE (x1%, y1%)-(x2%, y2%), guideRGBA~&
+    END SELECT
+
+    ' Center crosshair dot (scaled with zoom; min 2px)
+    DIM centerRGBA    AS _UNSIGNED LONG
+    DIM crosshairSize AS INTEGER
+    centerRGBA~&   = THEME.SYMMETRY_center_fg~&
+    crosshairSize% = 2 * zoom!
+    IF crosshairSize% < 2 THEN crosshairSize% = 2
+    LINE (centerX% - crosshairSize%, centerY% - crosshairSize%)-(centerX% + crosshairSize%, centerY% + crosshairSize%), _
+        centerRGBA~&, BF
+
+    _DEST oldDest&
 END SUB
