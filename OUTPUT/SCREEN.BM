@@ -447,18 +447,22 @@ SUB SCREEN_snap_window_to_scale (newW AS LONG, newH AS LONG)
     ' Save old handles for cleanup
     oldCanvas& = SCRN.CANVAS&
     oldGUI&    = SCRN.GUI&
+    DIM oldCanvasHW AS LONG : oldCanvasHW& = SCRN.CANVAS_HW&
 
     ' Update viewport dimensions
     SCRN.w& = newVpW&
     SCRN.h& = newVpH&
 
-    ' Recreate viewport-sized image buffers
-    SCRN.CANVAS& = _NEWIMAGE(SCRN.w&, SCRN.h&, 32)
-    SCRN.GUI&    = _NEWIMAGE(SCRN.w&, SCRN.h&, 32)
+    ' Recreate viewport-sized image buffers.  CANVAS_HW is lazy-allocated
+    ' by the final-blit path; just drop the stale one so it gets rebuilt.
+    SCRN.CANVAS&    = _NEWIMAGE(SCRN.w&, SCRN.h&, 32)
+    SCRN.CANVAS_HW& = 0
+    SCRN.GUI&       = _NEWIMAGE(SCRN.w&, SCRN.h&, 32)
 
     ' Free old buffers (after creating new ones so _DEST never points to freed handle)
     IF oldCanvas& < -1 THEN _FREEIMAGE oldCanvas&
     IF oldGUI& < -1 THEN _FREEIMAGE oldGUI&
+    IF oldCanvasHW& < -1 THEN _FREEIMAGE oldCanvasHW&
 
     ' Recreate OS window at correctly scaled size (snap to integer multiple)
     winW& = SCRN.w& * SCRN.displayScale%
@@ -703,10 +707,14 @@ SUB SCREEN_init ()
     SCRN.showCanvasBorder%              = TRUE
     SCRN.canvasBorderOpacity%           = 100
 
-    ' Create image buffers (canvas at viewport size, painting at canvas size)
-    SCRN.CANVAS&   = _NEWIMAGE(SCRN.w&, SCRN.h&, 32)
-    SCRN.PAINTING& = _NEWIMAGE(SCRN.canvasW&, SCRN.canvasH&, 32)
-    SCRN.GUI&      = _NEWIMAGE(SCRN.w&, SCRN.h&, 32)
+    ' Create image buffers (canvas at viewport size, painting at canvas size).
+    ' CANVAS_HW& (hardware image, mode 33) is allocated lazily on first final-blit
+    ' call — mode 33 requires an active GL context which only exists after
+    ' SCREEN _NEWIMAGE switches into graphics mode (a few lines below).
+    SCRN.CANVAS&    = _NEWIMAGE(SCRN.w&, SCRN.h&, 32)
+    SCRN.CANVAS_HW& = 0
+    SCRN.PAINTING&  = _NEWIMAGE(SCRN.canvasW&, SCRN.canvasH&, 32)
+    SCRN.GUI&       = _NEWIMAGE(SCRN.w&, SCRN.h&, 32)
     ' SCRN.CURSOR& removed — cursors now draw directly onto SCRN.CANVAS&
     
     _DEST SCRN.PAINTING&
@@ -3551,7 +3559,34 @@ SUB SCREEN_render ()
             _MEMFREE grsFrame
         END IF
     END IF
-    _PUTIMAGE (0, 0)-(_WIDTH(0) - 1, _HEIGHT(0) - 1), SCRN.CANVAS&, 0
+    ' Upload software canvas to a fresh hardware image, then GPU-stretch via
+    ' two triangles covering screen 0.  Replaces the CPU-bound software
+    ' upscale that was 63-80% of render time.
+    '
+    ' Hardware images in QB64-PE are immutable: to update we _FREEIMAGE the
+    ' old one and _COPYIMAGE the software canvas with mode 33.  The copy is
+    ' the GPU texture upload — bounded by SCRN.w * SCRN.h pixels (not by
+    ' the larger destination), which is the whole point.
+    IF SCRN.CANVAS_HW& < -1 THEN _FREEIMAGE SCRN.CANVAS_HW&
+    SCRN.CANVAS_HW& = _COPYIMAGE(SCRN.CANVAS&, 33)
+    IF SCRN.CANVAS_HW& < -1 THEN
+        DIM finOldDest AS LONG : finOldDest& = _DEST
+        _DEST 0
+        DIM finScaleSW AS LONG, finScaleSH AS LONG
+        DIM finScaleDW AS LONG, finScaleDH AS LONG
+        finScaleSW& = SCRN.w&     - 1
+        finScaleSH& = SCRN.h&     - 1
+        finScaleDW& = _WIDTH(0)   - 1
+        finScaleDH& = _HEIGHT(0)  - 1
+        ' Triangle 1: top-left half (covers along the (0,0)-(W,H) diagonal)
+        _MAPTRIANGLE (0, 0)-(0, finScaleSH&)-(finScaleSW&, finScaleSH&), SCRN.CANVAS_HW& TO (0, 0)-(0, finScaleDH&)-(finScaleDW&, finScaleDH&)
+        ' Triangle 2: top-right half
+        _MAPTRIANGLE (0, 0)-(finScaleSW&, 0)-(finScaleSW&, finScaleSH&), SCRN.CANVAS_HW& TO (0, 0)-(finScaleDW&, 0)-(finScaleDW&, finScaleDH&)
+        _DEST finOldDest&
+    ELSE
+        ' Fallback (HW image unavailable) — original CPU upscale path
+        _PUTIMAGE (0, 0)-(_WIDTH(0) - 1, _HEIGHT(0) - 1), SCRN.CANVAS&, 0
+    END IF
     PERF_stop PERF_FINAL_SCALE
 
     ' ==== FLOATING PANELS (after canvas upscale, draw directly to screen 0) ====

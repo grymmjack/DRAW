@@ -735,6 +735,7 @@ SUB MAIN_shutdown ()
     ' FREE MAIN SCREEN BUFFERS
     ' =====================================================================
     IF SCRN.CANVAS& < -1 THEN _FREEIMAGE SCRN.CANVAS&
+    IF SCRN.CANVAS_HW& < -1 THEN _FREEIMAGE SCRN.CANVAS_HW&
     IF SCRN.PAINTING& < -1 THEN _FREEIMAGE SCRN.PAINTING&
     IF SCRN.GUI& < -1 THEN _FREEIMAGE SCRN.GUI&
     ' SCRN.CURSOR& no longer allocated — cursors draw directly onto SCRN.CANVAS&
