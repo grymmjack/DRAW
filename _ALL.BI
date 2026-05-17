@@ -10,6 +10,11 @@ $INCLUDEONCE
 ' COMMON ----------------------------------------------------------------------
 '$INCLUDE:'./_COMMON.BI'
 
+' HELP ------------------------------------------------------------------------
+' Must run before PATHS/CONFIG/SCREEN so --help / --version exit before any
+' graphics window or directory side effects.
+'$INCLUDE:'./CORE/HELP.BI'
+
 ' CORE ------------------------------------------------------------------------
 '$INCLUDE:'./CORE/PERF.BI'
 '$INCLUDE:'./CORE/ERROR.BI'

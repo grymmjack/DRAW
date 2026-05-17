@@ -116,6 +116,11 @@ $IF MAC THEN
                 macArgIdx% = macArgIdx% + 1 ' Skip flag only
             ELSEIF LCASE$(macArgVal$) = "--reset-defaults" THEN
                 macArgIdx% = macArgIdx% + 1 ' Skip flag only
+            ELSEIF LCASE$(macArgVal$) = "--help" OR LCASE$(macArgVal$) = "-h" OR _
+                   LCASE$(macArgVal$) = "/?" OR LCASE$(macArgVal$) = "-?" OR _
+                   LCASE$(macArgVal$) = "/h" OR LCASE$(macArgVal$) = "/help" OR _
+                   LCASE$(macArgVal$) = "--version" OR LCASE$(macArgVal$) = "-v" THEN
+                macArgIdx% = macArgIdx% + 1 ' Defensive: HELP.BI should have exited already
             ELSE
                 cmdArg$ = macArgVal$
                 EXIT DO
@@ -139,6 +144,11 @@ $ELSE
             argIdx% = argIdx% + 1 ' Skip flag only
         ELSEIF LCASE$(argVal$) = "--reset-defaults" THEN
             argIdx% = argIdx% + 1 ' Skip flag only
+        ELSEIF LCASE$(argVal$) = "--help" OR LCASE$(argVal$) = "-h" OR _
+               LCASE$(argVal$) = "/?" OR LCASE$(argVal$) = "-?" OR _
+               LCASE$(argVal$) = "/h" OR LCASE$(argVal$) = "/help" OR _
+               LCASE$(argVal$) = "--version" OR LCASE$(argVal$) = "-v" THEN
+            argIdx% = argIdx% + 1 ' Defensive: HELP.BI should have exited already
         ELSE
             cmdArg$ = argVal$
             EXIT DO
