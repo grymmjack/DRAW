@@ -804,6 +804,44 @@ SUB RENDER_layers (dx AS INTEGER, dy AS INTEGER, zw AS LONG, zh AS LONG)
         ' Rebuild render order lookup table if dirty
         IF RENDER_ORDER_DIRTY% THEN RENDER_ORDER_rebuild
 
+        ' === Trivial single-layer fast path ===
+        ' When the only reason useComposite is TRUE is PREVIEW visibility and
+        ' the scene is exactly one visible non-group layer with full opacity,
+        ' NORMAL blend, no apron, no move-preview, we can skip the composite
+        ' buffer entirely.  The "composite" is just a copy of that one layer,
+        ' so we point CANVAS_CONTENT_SRC at the layer directly and let the
+        ' non-composite blit path draw it.  Saves an 8MB canvas-res memcpy
+        ' every dirty frame on the most common drawing workflow.
+        DIM trivialOnlyLayer    AS INTEGER
+        DIM trivialVisibleCount AS INTEGER
+        trivialOnlyLayer%    = 0
+        trivialVisibleCount% = 0
+        IF useComposite% AND NOT BLEND_needs_composite% AND NOT BLEND_HAS_ISOLATED_GROUPS% AND NOT MOVE.ACTIVE THEN
+            DIM trivI AS INTEGER, trivLayer AS INTEGER
+            FOR trivI% = 1 TO RENDER_ORDER_COUNT%
+                trivLayer% = RENDER_ORDER%(trivI%)
+                IF trivLayer% > 0 THEN
+                    IF LAYERS(trivLayer%).visible% AND LAYERS(trivLayer%).layerType% <> LAYER_TYPE_GROUP THEN
+                        ' Bail if this visible layer disqualifies the trivial path
+                        IF LAYERS(trivLayer%).opacity% <> 255 _
+                           OR LAYERS(trivLayer%).blendMode% <> BLEND_NORMAL _
+                           OR LAYERS(trivLayer%).apronW% <> 0 _
+                           OR LAYERS(trivLayer%).apronH% <> 0 THEN
+                            trivialVisibleCount% = 99
+                            EXIT FOR
+                        END IF
+                        trivialVisibleCount% = trivialVisibleCount% + 1
+                        trivialOnlyLayer%    = trivLayer%
+                        IF trivialVisibleCount% > 1 THEN EXIT FOR
+                    END IF
+                END IF
+            NEXT trivI%
+            IF trivialVisibleCount% = 1 THEN
+                useComposite% = FALSE                                  ' Take the fast direct-blit path
+                CANVAS_CONTENT_SRC& = LAYERS(trivialOnlyLayer%).imgHandle& ' Where PREVIEW reads from
+            END IF
+        END IF
+
         ' Start index for layer loop (1 = full composite, >1 = partial cache hit)
         DIM compositeStartIdx AS INTEGER
         DIM savePartialCache  AS INTEGER
@@ -1305,6 +1343,7 @@ SUB RENDER_layers (dx AS INTEGER, dy AS INTEGER, zw AS LONG, zh AS LONG)
         IF useComposite% THEN
             _PUTIMAGE (dx%, dy%)-(dx% + zw& - 1, dy% + zh& - 1), compositeImg&, SCRN.CANVAS&
             ' compositeImg& is persistent (COMPOSITE_BUFFER&), do NOT free it
+            CANVAS_CONTENT_SRC& = compositeImg&  ' Where PREVIEW reads from
 
             ' Save completed composite for next frame's region-based path.
             ' The cache feeds the region path (line ~828), which only triggers

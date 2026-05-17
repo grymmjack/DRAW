@@ -119,6 +119,16 @@ DIM SHARED SCENE_CACHE AS LONG                 ' Cached pre-cursor canvas image
 DIM SHARED SCENE_DIRTY AS INTEGER              ' TRUE = must do full repaint
 SCENE_DIRTY% = TRUE                            ' Start dirty
 
+' Canonical "current canvas content" image handle.  Set by RENDER_layers to:
+'  - COMPOSITE_BUFFER& when the composite path is used (multiple layers,
+'    blend modes, opacity < 100%, etc.)
+'  - the visible layer's imgHandle& directly in the trivial single-layer case,
+'    avoiding the 8MB canvas-resolution memcpy each frame
+' PREVIEW reads from this instead of COMPOSITE_BUFFER& so it works in both
+' modes.  0 = not yet set (preview falls back to old behavior).
+DIM SHARED CANVAS_CONTENT_SRC AS LONG
+CANVAS_CONTENT_SRC& = 0
+
 DIM SHARED GRAYSCALE_PREVIEW_ACTIVE AS INTEGER ' TRUE = apply grayscale filter to final output
 GRAYSCALE_PREVIEW_ACTIVE% = FALSE
 
