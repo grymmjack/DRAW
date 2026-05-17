@@ -9,8 +9,14 @@
 #   make clean        Remove built binary and log files
 #   make clean-log    Remove log file only
 #
-# Override the compiler path:
-#   make QB64PE=/path/to/qb64pe
+# Compiler selection (default = $(HOME)/git/qb64pe/qb64pe):
+#   make a740g            Build with the a740g PR compiler
+#   make v450             Build with the qb64pe-450 compiler
+#   make a740g-run        Build & run with a740g
+#   make v450-run         Build & run with v450
+#   make COMPILER=a740g <target>   Combine with any other target
+#   make COMPILER=v450 clean       (e.g. clean using v450 build dir)
+#   make QB64PE=/full/path         Override path directly
 
 # ---------- Source / output ---------------------------------------------------
 SRC       := DRAW.BAS
@@ -18,9 +24,14 @@ BASENAME  := DRAW
 LOGFILE   := $(BASENAME).log
 
 # ---------- Compiler ----------------------------------------------------------
-#QB64PE    ?= $(HOME)/git/qb64pe-a740g-test/qb64pe
-QB64PE    ?= $(HOME)/git/qb64pe/qb64pe
-#QB64PE    ?= $(HOME)/git/qb64pe-450/qb64pe
+COMPILER ?=
+ifeq ($(COMPILER),a740g)
+    QB64PE := $(HOME)/git/qb64pe-a740g-test/qb64pe
+else ifeq ($(COMPILER),v450)
+    QB64PE := $(HOME)/git/qb64pe-450/qb64pe
+else
+    QB64PE ?= $(HOME)/git/qb64pe/qb64pe
+endif
 THREADS   ?= 12
 QB64FLAGS := -w -x -f:MaxCompilerProcesses=$(THREADS)
 
@@ -52,7 +63,8 @@ LOG_ENV_BASIC := QB64PE_LOG_HANDLERS=console,file \
                  QB64PE_LOG_FILE_PATH=$(LOGFILE)
 
 # ---------- Targets -----------------------------------------------------------
-.PHONY: all run run-logged run-log-bas clean clean-log
+.PHONY: all run run-logged run-log-bas clean clean-log \
+        a740g v450 a740g-run v450-run
 
 all: $(OUT)
 
@@ -75,3 +87,18 @@ clean:
 
 clean-log:
 	$(RM) $(LOGFILE)
+
+# ---------- Compiler shortcuts ------------------------------------------------
+# Each shortcut recurses into make with COMPILER=<alias> so the ifeq chain
+# above resolves QB64PE to the matching path.
+a740g:
+	@$(MAKE) --no-print-directory COMPILER=a740g all
+
+v450:
+	@$(MAKE) --no-print-directory COMPILER=v450 all
+
+a740g-run:
+	@$(MAKE) --no-print-directory COMPILER=a740g run
+
+v450-run:
+	@$(MAKE) --no-print-directory COMPILER=v450 run
