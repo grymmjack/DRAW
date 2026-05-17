@@ -61,6 +61,7 @@ IF HELP_showHelp% OR HELP_showVer% THEN
         PRINT "      --reset-defaults      Restore factory configuration"
         PRINT "      --canvas-size WxH     Override startup canvas size (e.g. 320x200)"
         PRINT "      --portable            Keep config/data beside the executable"
+        PRINT "      --perf                Enable render-pipeline profiling (logs to DRAW.log)"
         PRINT
         PRINT "Examples:"
         PRINT "  DRAW myproject.draw"

@@ -1298,21 +1298,33 @@ SUB RENDER_layers (dx AS INTEGER, dy AS INTEGER, zw AS LONG, zh AS LONG)
             _PUTIMAGE (dx%, dy%)-(dx% + zw& - 1, dy% + zh& - 1), compositeImg&, SCRN.CANVAS&
             ' compositeImg& is persistent (COMPOSITE_BUFFER&), do NOT free it
 
-            ' Save completed composite for next frame's region-based path
-            IF COMPOSITE_RESULT_CACHE& = 0 OR _
-               _WIDTH(COMPOSITE_RESULT_CACHE&) <> SCRN.canvasW& OR _
-               _HEIGHT(COMPOSITE_RESULT_CACHE&) <> SCRN.canvasH& THEN
-                IF COMPOSITE_RESULT_CACHE& < -1 THEN _FREEIMAGE COMPOSITE_RESULT_CACHE&
-                COMPOSITE_RESULT_CACHE& = _NEWIMAGE(SCRN.canvasW&, SCRN.canvasH&, 32)
+            ' Save completed composite for next frame's region-based path.
+            ' The cache feeds the region path (line ~828), which only triggers
+            ' when BLEND_needs_composite% is TRUE.  When the composite was
+            ' only built to feed PREVIEW (which reads compositeImg& directly,
+            ' not the cache), skip the canvas-sized memcpy — at 1920x1080
+            ' that's ~8MB/frame of pure waste.
+            IF BLEND_needs_composite% THEN
+                IF COMPOSITE_RESULT_CACHE& = 0 OR _
+                   _WIDTH(COMPOSITE_RESULT_CACHE&) <> SCRN.canvasW& OR _
+                   _HEIGHT(COMPOSITE_RESULT_CACHE&) <> SCRN.canvasH& THEN
+                    IF COMPOSITE_RESULT_CACHE& < -1 THEN _FREEIMAGE COMPOSITE_RESULT_CACHE&
+                    COMPOSITE_RESULT_CACHE& = _NEWIMAGE(SCRN.canvasW&, SCRN.canvasH&, 32)
+                END IF
+                DIM crOldDest AS LONG
+                crOldDest& = _DEST
+                _DEST COMPOSITE_RESULT_CACHE&
+                _DONTBLEND COMPOSITE_RESULT_CACHE&
+                _PUTIMAGE , compositeImg&, COMPOSITE_RESULT_CACHE&
+                _BLEND COMPOSITE_RESULT_CACHE&
+                _DEST crOldDest&
+                COMPOSITE_RESULT_VALID% = TRUE
+            ELSE
+                ' Composite was built only for PREVIEW; the cache is stale
+                ' relative to next frame, so mark it invalid to prevent the
+                ' region path from using out-of-date data.
+                COMPOSITE_RESULT_VALID% = FALSE
             END IF
-            DIM crOldDest AS LONG
-            crOldDest& = _DEST
-            _DEST COMPOSITE_RESULT_CACHE&
-            _DONTBLEND COMPOSITE_RESULT_CACHE&
-            _PUTIMAGE , compositeImg&, COMPOSITE_RESULT_CACHE&
-            _BLEND COMPOSITE_RESULT_CACHE&
-            _DEST crOldDest&
-            COMPOSITE_RESULT_VALID% = TRUE
         END IF
     ELSE
         ' Fallback: Use SCRN.PAINTING if no layers exist yet (legacy support)
@@ -1370,22 +1382,86 @@ SUB RENDER_grids (dx AS INTEGER, dy AS INTEGER, zw AS LONG, zh AS LONG)
                     ssOpacity% = THEME.GRID_opacity%
                 END IF
                 ssColor~& = _RGBA32(_RED32(ssColor~&), _GREEN32(ssColor~&), _BLUE32(ssColor~&), ssOpacity%)
-                ' Vertical lines
-                DIM ssx       AS SINGLE : ssx! = dx% + GRID.xPos% * SCRN.zoom!
-                DO WHILE INT(ssx!) <= dx% + zw& - 1
-                    IF INT(ssx!) >= dx% THEN
-                        LINE (INT(ssx!), dy%)-(INT(ssx!), dy% + zh& - 1), ssColor~&
+
+                ' Screen-space cache: rebuild only when zoom / dimensions / step /
+                ' offset / colour changes; per-frame draw is a single _PUTIMAGE
+                ' memcpy.  At 1920x1080 zoom 0.25 this replaces ~375 LINE calls
+                ' per frame with one cached blit.
+                '
+                ' Defensive: skip caching when (zw, zh) exceeds viewport (e.g.
+                ' huge canvas at zoom just under 1.0).  Inline LINE-loop is used
+                ' instead; LINE clips to dest bounds so per-frame cost stays
+                ' proportional to visible area.
+                DIM gridCacheFits AS INTEGER
+                gridCacheFits% = (zw& <= SCRN.w& AND zh& <= SCRN.h&)
+
+                IF gridCacheFits% THEN
+                    IF GRID.ssCacheImg& = 0 OR _
+                       GRID.ssCacheW% <> zw& OR _
+                       GRID.ssCacheH% <> zh& OR _
+                       GRID.ssCacheZoom! <> SCRN.zoom! OR _
+                       GRID.ssCacheColor~& <> ssColor~& OR _
+                       GRID.ssCacheStepX% <> GRID.gridWidth% OR _
+                       GRID.ssCacheStepY% <> GRID.gridHeight% OR _
+                       GRID.ssCacheOffsetX% <> GRID.xPos% OR _
+                       GRID.ssCacheOffsetY% <> GRID.yPos% THEN
+                        IF GRID.ssCacheImg& < -1 THEN _FREEIMAGE GRID.ssCacheImg&
+                        GRID.ssCacheImg&     = _NEWIMAGE(zw&, zh&, 32)
+                        GRID.ssCacheW%       = zw&
+                        GRID.ssCacheH%       = zh&
+                        GRID.ssCacheZoom!    = SCRN.zoom!
+                        GRID.ssCacheColor~&  = ssColor~&
+                        GRID.ssCacheStepX%   = GRID.gridWidth%
+                        GRID.ssCacheStepY%   = GRID.gridHeight%
+                        GRID.ssCacheOffsetX% = GRID.xPos%
+                        GRID.ssCacheOffsetY% = GRID.yPos%
+
+                        DIM ssOldDest AS LONG : ssOldDest& = _DEST
+                        _DEST GRID.ssCacheImg&
+                        CLS , _RGBA32(0, 0, 0, 0)
+                        ' Vertical lines (cache-local coords; offset applied at blit time)
+                        DIM ssx AS SINGLE : ssx! = GRID.xPos% * SCRN.zoom!
+                        DO WHILE INT(ssx!) <= zw& - 1
+                            IF INT(ssx!) >= 0 THEN
+                                LINE (INT(ssx!), 0)-(INT(ssx!), zh& - 1), ssColor~&
+                            END IF
+                            ssx! = ssx! + ssStepX!
+                        LOOP
+                        ' Horizontal lines
+                        DIM ssy AS SINGLE : ssy! = GRID.yPos% * SCRN.zoom!
+                        DO WHILE INT(ssy!) <= zh& - 1
+                            IF INT(ssy!) >= 0 THEN
+                                LINE (0, INT(ssy!))-(zw& - 1, INT(ssy!)), ssColor~&
+                            END IF
+                            ssy! = ssy! + ssStepY!
+                        LOOP
+                        _DEST ssOldDest&
                     END IF
-                    ssx! = ssx! + ssStepX!
-                LOOP
-                ' Horizontal lines
-                DIM ssy       AS SINGLE : ssy! = dy% + GRID.yPos% * SCRN.zoom!
-                DO WHILE INT(ssy!) <= dy% + zh& - 1
-                    IF INT(ssy!) >= dy% THEN
-                        LINE (dx%, INT(ssy!))-(dx% + zw& - 1, INT(ssy!)), ssColor~&
-                    END IF
-                    ssy! = ssy! + ssStepY!
-                LOOP
+                    ' Per-frame: one blit (memcpy, no scaling)
+                    _PUTIMAGE (dx%, dy%), GRID.ssCacheImg&, SCRN.CANVAS&
+                ELSE
+                    ' Cache would exceed viewport — drop any stale cache,
+                    ' draw directly into SCRN.CANVAS (LINE clips at dst).
+                    IF GRID.ssCacheImg& < -1 THEN _FREEIMAGE GRID.ssCacheImg&
+                    GRID.ssCacheImg&  = 0
+                    GRID.ssCacheW%    = 0
+                    GRID.ssCacheH%    = 0
+                    GRID.ssCacheZoom! = 0
+                    DIM ssxFb AS SINGLE : ssxFb! = dx% + GRID.xPos% * SCRN.zoom!
+                    DO WHILE INT(ssxFb!) <= dx% + zw& - 1
+                        IF INT(ssxFb!) >= dx% THEN
+                            LINE (INT(ssxFb!), dy%)-(INT(ssxFb!), dy% + zh& - 1), ssColor~&
+                        END IF
+                        ssxFb! = ssxFb! + ssStepX!
+                    LOOP
+                    DIM ssyFb AS SINGLE : ssyFb! = dy% + GRID.yPos% * SCRN.zoom!
+                    DO WHILE INT(ssyFb!) <= dy% + zh& - 1
+                        IF INT(ssyFb!) >= dy% THEN
+                            LINE (dx%, INT(ssyFb!))-(dx% + zw& - 1, INT(ssyFb!)), ssColor~&
+                        END IF
+                        ssyFb! = ssyFb! + ssStepY!
+                    LOOP
+                END IF
             END IF
         ELSE
             ' Non-square / rotated grids, or zoom >= 100%: use cached image
@@ -1424,38 +1500,103 @@ SUB RENDER_grids (dx AS INTEGER, dy AS INTEGER, zw AS LONG, zh AS LONG)
             pgOpacity% = THEME.PIXEL_GRID_opacity%
         END IF
 
-        ' Reuse cached pixel grid image if zoom/size/color/opacity unchanged
-        IF PG_CACHE_IMG& = 0 OR _
-           PG_CACHE_ZW& <> zw& OR _
-           PG_CACHE_ZH& <> zh& OR _
-           PG_CACHE_ZOOM% <> pzoom% OR _
-           PG_CACHE_COLOR~& <> pgColor~& OR _
-           PG_CACHE_OPACITY% <> pgOpacity% THEN
-            ' Cache miss — rebuild pixel grid image
+        ' Defensive: skip the cache when the entire pixel grid wouldn't fit
+        ' in the viewport (e.g. zoom 32x on 1920x1080 = 8.5GB allocation).
+        ' Inline-draw only the visible pixel grid lines directly into
+        ' SCRN.CANVAS; LINE clips at dst so cost is bounded by visible area.
+        DIM pgCacheFits AS INTEGER
+        pgCacheFits% = (zw& + 1 <= SCRN.w& AND zh& + 1 <= SCRN.h&)
+
+        IF pgCacheFits% THEN
+            ' Reuse cached pixel grid image if zoom/size/color/opacity unchanged
+            IF PG_CACHE_IMG& = 0 OR _
+               PG_CACHE_ZW& <> zw& OR _
+               PG_CACHE_ZH& <> zh& OR _
+               PG_CACHE_ZOOM% <> pzoom% OR _
+               PG_CACHE_COLOR~& <> pgColor~& OR _
+               PG_CACHE_OPACITY% <> pgOpacity% THEN
+                ' Cache miss — rebuild pixel grid image
+                IF PG_CACHE_IMG& < -1 THEN _FREEIMAGE PG_CACHE_IMG&
+                PG_CACHE_IMG&     = _NEWIMAGE(zw& + 1, zh& + 1, 32)
+                PG_CACHE_ZW&      = zw&
+                PG_CACHE_ZH&      = zh&
+                PG_CACHE_ZOOM%    = pzoom%
+                PG_CACHE_COLOR~&  = pgColor~&
+                PG_CACHE_OPACITY% = pgOpacity%
+                _DEST PG_CACHE_IMG&
+                CLS , _RGBA32(0, 0, 0, 0)
+                ' Draw vertical lines between each pixel column
+                FOR pgx% = 0 TO SCRN.canvasW&
+                    LINE (pgx% * pzoom%, 0)-(pgx% * pzoom%, zh&), pgColor~&
+                NEXT pgx%
+                ' Draw horizontal lines between each pixel row
+                FOR pgy% = 0 TO SCRN.canvasH&
+                    LINE (0, pgy% * pzoom%)-(zw&, pgy% * pzoom%), pgColor~&
+                NEXT pgy%
+                ' Apply resolved opacity globally to all drawn pixels
+                _SETALPHA pgOpacity%, pgColor~& TO pgColor~&, PG_CACHE_IMG&
+            END IF
+            ' Composite cached pixel grid onto canvas
+            _DEST SCRN.CANVAS&
+            _BLEND SCRN.CANVAS&
+            _PUTIMAGE (dx%, dy%), PG_CACHE_IMG&
+        ELSE
+            ' Free stale cache from a previous fits-viewport zoom level
             IF PG_CACHE_IMG& < -1 THEN _FREEIMAGE PG_CACHE_IMG&
-            PG_CACHE_IMG&     = _NEWIMAGE(zw& + 1, zh& + 1, 32)
-            PG_CACHE_ZW&      = zw&
-            PG_CACHE_ZH&      = zh&
-            PG_CACHE_ZOOM%    = pzoom%
-            PG_CACHE_COLOR~&  = pgColor~&
-            PG_CACHE_OPACITY% = pgOpacity%
-            _DEST PG_CACHE_IMG&
-            CLS , _RGBA32(0, 0, 0, 0)
-            ' Draw vertical lines between each pixel column
-            FOR pgx% = 0 TO SCRN.canvasW&
-                LINE (pgx% * pzoom%, 0)-(pgx% * pzoom%, zh&), pgColor~&
+            PG_CACHE_IMG&    = 0
+            PG_CACHE_ZW&     = 0
+            PG_CACHE_ZH&     = 0
+            PG_CACHE_ZOOM%   = 0
+
+            ' Pre-mix alpha into the line color (no _SETALPHA pass needed)
+            DIM pgInlineColor AS _UNSIGNED LONG
+            pgInlineColor~& = _RGBA32(_RED32(pgColor~&), _GREEN32(pgColor~&), _BLUE32(pgColor~&), pgOpacity%)
+
+            ' Compute visible canvas-pixel range so we don't loop the full grid
+            DIM pgVisX1 AS LONG, pgVisX2 AS LONG, pgVisY1 AS LONG, pgVisY2 AS LONG
+            pgVisX1& = 0
+            pgVisX2& = SCRN.canvasW&
+            pgVisY1& = 0
+            pgVisY2& = SCRN.canvasH&
+            ' Clamp to what's actually visible on SCRN.CANVAS (dx + cx*pzoom in [0, SCRN.w-1])
+            IF dx% < 0 THEN
+                pgVisX1& = (-dx%) \ pzoom%
+                IF pgVisX1& < 0 THEN pgVisX1& = 0
+            END IF
+            IF dx% + zw& > SCRN.w& THEN
+                pgVisX2& = (SCRN.w& - 1 - dx%) \ pzoom% + 1
+                IF pgVisX2& > SCRN.canvasW& THEN pgVisX2& = SCRN.canvasW&
+            END IF
+            IF dy% < 0 THEN
+                pgVisY1& = (-dy%) \ pzoom%
+                IF pgVisY1& < 0 THEN pgVisY1& = 0
+            END IF
+            IF dy% + zh& > SCRN.h& THEN
+                pgVisY2& = (SCRN.h& - 1 - dy%) \ pzoom% + 1
+                IF pgVisY2& > SCRN.canvasH& THEN pgVisY2& = SCRN.canvasH&
+            END IF
+
+            _DEST SCRN.CANVAS&
+            _BLEND SCRN.CANVAS&
+            ' Vertical lines: only visible canvas-x range
+            DIM pgVlineY1 AS LONG, pgVlineY2 AS LONG
+            pgVlineY1& = dy%
+            pgVlineY2& = dy% + zh&
+            IF pgVlineY1& < 0 THEN pgVlineY1& = 0
+            IF pgVlineY2& > SCRN.h& - 1 THEN pgVlineY2& = SCRN.h& - 1
+            FOR pgx% = pgVisX1& TO pgVisX2&
+                LINE (dx% + pgx% * pzoom%, pgVlineY1&)-(dx% + pgx% * pzoom%, pgVlineY2&), pgInlineColor~&
             NEXT pgx%
-            ' Draw horizontal lines between each pixel row
-            FOR pgy% = 0 TO SCRN.canvasH&
-                LINE (0, pgy% * pzoom%)-(zw&, pgy% * pzoom%), pgColor~&
+            ' Horizontal lines: only visible canvas-y range
+            DIM pgHlineX1 AS LONG, pgHlineX2 AS LONG
+            pgHlineX1& = dx%
+            pgHlineX2& = dx% + zw&
+            IF pgHlineX1& < 0 THEN pgHlineX1& = 0
+            IF pgHlineX2& > SCRN.w& - 1 THEN pgHlineX2& = SCRN.w& - 1
+            FOR pgy% = pgVisY1& TO pgVisY2&
+                LINE (pgHlineX1&, dy% + pgy% * pzoom%)-(pgHlineX2&, dy% + pgy% * pzoom%), pgInlineColor~&
             NEXT pgy%
-            ' Apply resolved opacity globally to all drawn pixels
-            _SETALPHA pgOpacity%, pgColor~& TO pgColor~&, PG_CACHE_IMG&
         END IF
-        ' Composite cached pixel grid onto canvas
-        _DEST SCRN.CANVAS&
-        _BLEND SCRN.CANVAS&
-        _PUTIMAGE (dx%, dy%), PG_CACHE_IMG&
     END IF
 END SUB
 

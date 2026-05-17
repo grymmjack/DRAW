@@ -116,6 +116,8 @@ $IF MAC THEN
                 macArgIdx% = macArgIdx% + 1 ' Skip flag only
             ELSEIF LCASE$(macArgVal$) = "--reset-defaults" THEN
                 macArgIdx% = macArgIdx% + 1 ' Skip flag only
+            ELSEIF LCASE$(macArgVal$) = "--perf" THEN
+                macArgIdx% = macArgIdx% + 1 ' Skip flag only (consumed by PERF.BI)
             ELSEIF LCASE$(macArgVal$) = "--help" OR LCASE$(macArgVal$) = "-h" OR _
                    LCASE$(macArgVal$) = "/?" OR LCASE$(macArgVal$) = "-?" OR _
                    LCASE$(macArgVal$) = "/h" OR LCASE$(macArgVal$) = "/help" OR _
@@ -144,6 +146,8 @@ $ELSE
             argIdx% = argIdx% + 1 ' Skip flag only
         ELSEIF LCASE$(argVal$) = "--reset-defaults" THEN
             argIdx% = argIdx% + 1 ' Skip flag only
+        ELSEIF LCASE$(argVal$) = "--perf" THEN
+            argIdx% = argIdx% + 1 ' Skip flag only (consumed by PERF.BI)
         ELSEIF LCASE$(argVal$) = "--help" OR LCASE$(argVal$) = "-h" OR _
                LCASE$(argVal$) = "/?" OR LCASE$(argVal$) = "-?" OR _
                LCASE$(argVal$) = "/h" OR LCASE$(argVal$) = "/help" OR _
@@ -786,11 +790,13 @@ SUB MAIN_shutdown ()
     ' =====================================================================
     ' Grid system
     IF GRID.imgHandle& < -1 THEN _FREEIMAGE GRID.imgHandle&
+    IF GRID.ssCacheImg& < -1 THEN _FREEIMAGE GRID.ssCacheImg&
     IF PIXEL_GRID.imgHandle& < -1 THEN _FREEIMAGE PIXEL_GRID.imgHandle&
     ' Symmetry guides
     IF SYMMETRY.imgHandle& < -1 THEN _FREEIMAGE SYMMETRY.imgHandle&
-    ' Transparency checkerboard
+    ' Transparency checkerboard (two-level cache: display + canvas-res blueprint)
     IF TRANSPARENCY.imgHandle& < -1 THEN _FREEIMAGE TRANSPARENCY.imgHandle&
+    IF TRANSPARENCY.blueprint& < -1 THEN _FREEIMAGE TRANSPARENCY.blueprint&
 
     ' =====================================================================
     ' FREE ORGANIZER WIDGET IMAGES

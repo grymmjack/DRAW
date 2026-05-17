@@ -43,6 +43,21 @@ CONST PERF_LOG_INTERVAL = 120
 DIM SHARED PERF_ENABLED AS INTEGER
 PERF_ENABLED% = FALSE
 
+' Enable via --perf command-line flag (scanned at include time so it takes
+' effect before SCREEN_init / first render). Once on, _LOGINFO emits a
+' per-section average + max timing report every PERF_LOG_INTERVAL frames.
+DIM PERF_cmdIdx%
+DIM PERF_cmdVal$
+PERF_cmdIdx% = 1
+DO WHILE PERF_cmdIdx% <= _COMMANDCOUNT
+    PERF_cmdVal$ = LCASE$(_TRIM$(COMMAND$(PERF_cmdIdx%)))
+    IF PERF_cmdVal$ = "--perf" THEN
+        PERF_ENABLED% = TRUE
+        EXIT DO
+    END IF
+    PERF_cmdIdx% = PERF_cmdIdx% + 1
+LOOP
+
 ' Timing accumulators (sum over interval)
 DIM SHARED PERF_sum(0 TO PERF_SECTION_COUNT - 1) AS DOUBLE
 ' Per-frame start time scratch

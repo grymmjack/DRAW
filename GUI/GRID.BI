@@ -20,21 +20,33 @@ CONST GRID_MODE_HEX       = 3 ' Hexagonal grid
 CONST GRID_MODE_COUNT     = 4 ' Total number of modes (for cycling)
 
 TYPE DRAW_GRID
-    imgWidth   AS INTEGER        ' Width of the full grid image
-    imgHeight  AS INTEGER        ' Height of the full grid image
-    fgColor    AS _UNSIGNED LONG ' Foreground color of the grid lines
-    xPos       AS INTEGER        ' X position of the grid in the image
-    yPos       AS INTEGER        ' Y position of the grid in the image
-    gridWidth  AS INTEGER        ' Width of a grid square
-    gridHeight AS INTEGER        ' Height of a grid square
-    hStyle     AS INTEGER        ' Horizontal style &B0000111100001111 (16 bits)
-    vStyle     AS INTEGER        ' Vertical style &B0000111100001111 (16 bits)
-    imgHandle  AS LONG           ' Grid image handle
-    SHOW       AS INTEGER        ' Whether grid is visible (TRUE/FALSE)
-    SNAP       AS INTEGER        ' Whether snap-to-grid is enabled (TRUE/FALSE)
-    ALIGN_MODE AS INTEGER        ' Alignment mode : GRID_ALIGN_CORNER or GRID_ALIGN_CENTER
-    GRID_MODE  AS INTEGER        ' Geometry mode  : GRID_MODE_SQUARE/DIAGONAL/ISOMETRIC/HEX
-    CELL_FILL  AS INTEGER        ' Cell fill mode : fill tool fills grid cells instead of flood fill
+    imgWidth        AS INTEGER        ' Width of the full grid image
+    imgHeight       AS INTEGER        ' Height of the full grid image
+    fgColor         AS _UNSIGNED LONG ' Foreground color of the grid lines
+    xPos            AS INTEGER        ' X position of the grid in the image
+    yPos            AS INTEGER        ' Y position of the grid in the image
+    gridWidth       AS INTEGER        ' Width of a grid square
+    gridHeight      AS INTEGER        ' Height of a grid square
+    hStyle          AS INTEGER        ' Horizontal style &B0000111100001111 (16 bits)
+    vStyle          AS INTEGER        ' Vertical style &B0000111100001111 (16 bits)
+    imgHandle       AS LONG           ' Grid image handle (canvas-resolution)
+    SHOW            AS INTEGER        ' Whether grid is visible (TRUE/FALSE)
+    SNAP            AS INTEGER        ' Whether snap-to-grid is enabled (TRUE/FALSE)
+    ALIGN_MODE      AS INTEGER        ' Alignment mode : GRID_ALIGN_CORNER or GRID_ALIGN_CENTER
+    GRID_MODE       AS INTEGER        ' Geometry mode  : GRID_MODE_SQUARE/DIAGONAL/ISOMETRIC/HEX
+    CELL_FILL       AS INTEGER        ' Cell fill mode : fill tool fills grid cells instead of flood fill
+    ' Screen-space cache for axis-aligned square grid at zoom < 1.0 (avoids
+    ' per-frame LINE loop in RENDER_grids; rebuilt only when zoom / dimensions
+    ' / step / offset / color / opacity change).
+    ssCacheImg      AS LONG           ' Screen-space grid cache image handle
+    ssCacheW        AS INTEGER        ' Cache width (= zw at build time)
+    ssCacheH        AS INTEGER        ' Cache height (= zh at build time)
+    ssCacheZoom     AS SINGLE         ' Zoom at last cache build
+    ssCacheColor    AS _UNSIGNED LONG ' Color (with alpha) at last cache build
+    ssCacheStepX    AS INTEGER        ' Grid step X (canvas pixels) at last build
+    ssCacheStepY    AS INTEGER        ' Grid step Y (canvas pixels) at last build
+    ssCacheOffsetX  AS INTEGER        ' Grid offset X (canvas pixels) at last build
+    ssCacheOffsetY  AS INTEGER        ' Grid offset Y (canvas pixels) at last build
 END TYPE
 
 ' Pixel grid (checkerboard) for high zoom levels
