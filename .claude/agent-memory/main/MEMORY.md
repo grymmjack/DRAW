@@ -1,0 +1,9 @@
+- [User background & collaboration style](user_background_and_collaboration.md) — career BASIC programmer, learning-mode user, wants visibility not autonomy
+- [DRAW compile convention](feedback_draw_compile_convention.md) — foreground + 600000ms timeout for every qb64pe build, never background
+- [DRAW observability logs](reference_draw_activity_log.md) — `.claude/activity.log` (every Bash/Agent call) + `~/.claude/make.log` (qb64pe compile output)
+- [qb64pe sandbox limitation](reference_qb64pe_sandbox_limitation.md) — silent fail under sandbox ("Press enter to continue" with no banner); retry with `dangerouslyDisableSandbox: true` and it compiles cleanly
+- [QB64-PE wiki first](feedback_qb64pe_wiki_first.md) — MCP scraped wiki drops syntax/params content; WebFetch the wiki URL directly for graphics keywords
+- [Isolated tests first](feedback_isolated_tests_first.md) — for risky QB64-PE quirks, build a minimal `DEV/EXPERIMENTS/*.BAS` repro before touching DRAW source
+- [Trust user symptoms](feedback_trust_user_symptoms.md) — echo the user's exact symptom words; don't silently reinterpret "partial paint" as "alpha trails"
+- [Tag before experiments](feedback_tag_before_experiments.md) — tag known-good state before exploration; tags survive squash-merges and enable surgical recovery
+- [Memory location](feedback_memory_location.md) — ALWAYS write DRAW memory to `.claude/agent-memory/main/` (version-controlled), NOT to `~/.claude/projects/...` (per-user)
