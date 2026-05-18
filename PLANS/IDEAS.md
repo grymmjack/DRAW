@@ -1,5 +1,22 @@
 # IDEAS
 
+## Use GLFW Stuff:
+a740g — 5/16/26, 6:13 PM
+_CAPSLOCK, _NUMLOCK and _SCROLLLOCK now works on all platforms.
+Drag and drop works on all platforms.
+_desktopwidth and _desktopheight now works on all platforms.
+_SCREENMOVE now works on Linux
+_SCREENX and _SCREENY works on all platforms.
+
+a740g — 5/16/26, 6:20 PM
+Try the windowing functions that worked only on Windows before. _WINDOWHASFOCUS, _SCREENX, _SCREENY, _SCREENMOVE, _ACCEPTFILEDROP, _DROPPEDFILE, _TOTALDROPPEDFILES etc.
+Add drag and drop support in DRAW! 
+
+a740g — 5/16/26, 6:17 PM
+_WINDOWHANDLE works on all platforms.
+
+
+
 ## CREATE DARK THEME
 - [ ] To test the theme mode, we need a dark theme
 
