@@ -2579,7 +2579,14 @@ SUB SCREEN_render ()
     ' GUI overlay onto the cached scene. Avoids expensive layer compositing,
     ' grid rendering, and transparency checkerboard.
     ' ========================================================================
-    IF NOT SCENE_DIRTY% AND GUI_NEEDS_REDRAW% AND SCENE_CACHE& <> 0 THEN
+    ' DISABLED while HW final-scale is active: the partial-restore-then-overlay
+    ' sequence leaves residual sub-255 alpha pixels on SCRN.CANVAS from
+    ' previous tooltip BG draws.  Those punch transparent holes into the HW1
+    ' framebuffer at HW present time, preserving stale prior-frame content =>
+    ' ghost-trail tooltips.  Full path's CLS , apron resets alpha = 255 every
+    ' frame, eliminating the leak.  Cost of always-full-path is +3-5ms per
+    ' dirty frame; the HW final scale saves ~18ms, so net we still win big.
+    IF FALSE AND NOT SCENE_DIRTY% AND GUI_NEEDS_REDRAW% AND SCENE_CACHE& <> 0 THEN
         PERF_start PERF_GUI_ONLY_PATH
         SCREEN_compute_layout
         ' Re-render GUI elements with updated content
@@ -2667,7 +2674,8 @@ SUB SCREEN_render ()
     ' Never touches the palette strip swatch loop or does any full-frame copy.
     ' Falls back to SkipToPointer only when partial present is unsafe.
     ' ========================================================================
-    IF NOT SCENE_DIRTY% AND NOT GUI_NEEDS_REDRAW% AND STATUS_NEEDS_REDRAW% AND SCENE_CACHE& <> 0 THEN
+    ' DISABLED while HW final-scale is active (see GUI-only path comment above)
+    IF FALSE AND NOT SCENE_DIRTY% AND NOT GUI_NEEDS_REDRAW% AND STATUS_NEEDS_REDRAW% AND SCENE_CACHE& <> 0 THEN
         PERF_start PERF_GUI_ONLY_PATH
         ' SCREEN_compute_layout is intentionally skipped here.
         ' STATUS-ONLY fires only when NOT GUI_NEEDS_REDRAW%, meaning the GUI
@@ -2884,7 +2892,8 @@ SUB SCREEN_render ()
     ' only the regions that need updating (pointer area + selection overlay)
     ' instead of copying and scaling the full canvas every frame.
     ' ========================================================================
-    IF NOT SCENE_DIRTY% AND SCENE_CACHE& <> 0 AND NOT SCRN.patternTileMode% THEN
+    ' DISABLED while HW final-scale is active (see GUI-only path comment above)
+    IF FALSE AND NOT SCENE_DIRTY% AND SCENE_CACHE& <> 0 AND NOT SCRN.patternTileMode% THEN
         ' Skip dirty-rect optimization when popup overlays are open — they need
         ' full-frame consistency to avoid flicker and z-order artifacts with scrollbars.
         IF LAYER_PANEL.blendPopupOpen% OR DRAWER.contextMenuOpen% OR CMD_PALETTE.visible THEN
@@ -3598,30 +3607,42 @@ SUB SCREEN_render ()
             _MEMFREE grsFrame
         END IF
     END IF
-    ' Upload software canvas to a fresh hardware image, then GPU-stretch via
-    ' two triangles covering screen 0.  Replaces the CPU-bound software
-    ' upscale that was 63-80% of render time.
+    ' Upload software canvas to a fresh hardware image, then blit to screen 0
+    ' with stretch.  Hardware-image source enables _PUTIMAGE's GL path
+    ' (GPU texture mapping), replacing the CPU-bound software upscale that
+    ' was 63-80% of render time.
     '
     ' Hardware images in QB64-PE are immutable: to update we _FREEIMAGE the
     ' old one and _COPYIMAGE the software canvas with mode 33.  The copy is
     ' the GPU texture upload — bounded by SCRN.w * SCRN.h pixels (not by
     ' the larger destination), which is the whole point.
+    '
+    ' Critical: force every SCRN.CANVAS pixel to alpha=255 before snapshotting.
+    ' QB64-PE's _BLEND-mode draws with _RGBA32(..., alpha<255) corrupt the
+    ' destination alpha (down to 0 in some cases), leaving transparent holes
+    ' that alpha-blend with the GL HW1 framebuffer at HW present time —
+    ' preserving prior frame content where alpha is 0 → tooltip ghost trails.
+    '
+    ' _SETALPHA can't fix this (verified — it doesn't lift alpha-0 pixels
+    ' back to opaque even with correct syntax).  Walk the canvas memory
+    ' directly: every 4th byte (the alpha byte at offset +3 in each 32-bit
+    ' pixel) gets forced to 255.  Cost: ~1-2ms for SCRN.w × SCRN.h pixels.
+    DIM fsCanvasMem AS _MEM
+    DIM fsAlphaOff  AS _OFFSET, fsAlphaEnd AS _OFFSET
+    fsCanvasMem = _MEMIMAGE(SCRN.CANVAS&)
+    IF fsCanvasMem.SIZE > 0 THEN
+        fsAlphaOff = fsCanvasMem.OFFSET + 3
+        fsAlphaEnd = fsCanvasMem.OFFSET + fsCanvasMem.SIZE
+        DO WHILE fsAlphaOff < fsAlphaEnd
+            _MEMPUT fsCanvasMem, fsAlphaOff, 255 AS _UNSIGNED _BYTE
+            fsAlphaOff = fsAlphaOff + 4
+        LOOP
+    END IF
+    _MEMFREE fsCanvasMem
     IF SCRN.CANVAS_HW& < -1 THEN _FREEIMAGE SCRN.CANVAS_HW&
     SCRN.CANVAS_HW& = _COPYIMAGE(SCRN.CANVAS&, 33)
     IF SCRN.CANVAS_HW& < -1 THEN
-        DIM finOldDest AS LONG : finOldDest& = _DEST
-        _DEST 0
-        DIM finScaleSW AS LONG, finScaleSH AS LONG
-        DIM finScaleDW AS LONG, finScaleDH AS LONG
-        finScaleSW& = SCRN.w&     - 1
-        finScaleSH& = SCRN.h&     - 1
-        finScaleDW& = _WIDTH(0)   - 1
-        finScaleDH& = _HEIGHT(0)  - 1
-        ' Triangle 1: top-left half (covers along the (0,0)-(W,H) diagonal)
-        _MAPTRIANGLE (0, 0)-(0, finScaleSH&)-(finScaleSW&, finScaleSH&), SCRN.CANVAS_HW& TO (0, 0)-(0, finScaleDH&)-(finScaleDW&, finScaleDH&)
-        ' Triangle 2: top-right half
-        _MAPTRIANGLE (0, 0)-(finScaleSW&, 0)-(finScaleSW&, finScaleSH&), SCRN.CANVAS_HW& TO (0, 0)-(finScaleDW&, 0)-(finScaleDW&, finScaleDH&)
-        _DEST finOldDest&
+        _PUTIMAGE (0, 0)-(_WIDTH(0) - 1, _HEIGHT(0) - 1), SCRN.CANVAS_HW&, 0
     ELSE
         ' Fallback (HW image unavailable) — original CPU upscale path
         _PUTIMAGE (0, 0)-(_WIDTH(0) - 1, _HEIGHT(0) - 1), SCRN.CANVAS&, 0
