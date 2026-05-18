@@ -43,6 +43,29 @@ CONST PERF_LOG_INTERVAL = 120
 DIM SHARED PERF_ENABLED AS INTEGER
 PERF_ENABLED% = FALSE
 
+' Log-file handle (lazy-opened on first PERF report write so we don't depend
+' on PATHS.BI being included first).  0 = not yet opened.
+DIM SHARED PERF_LOG_FH AS INTEGER
+DIM SHARED PERF_LOG_PATH$
+PERF_LOG_FH%   = 0
+PERF_LOG_PATH$ = "DRAW-perf.log"
+
+' Enable via --perf command-line flag (scanned at include time so it takes
+' effect before SCREEN_init / first render). Once on, every PERF_LOG_INTERVAL
+' frames a per-section average + max timing report is emitted to both the
+' console (_LOGINFO) and DRAW-perf.log (next to the working directory).
+DIM PERF_cmdIdx%
+DIM PERF_cmdVal$
+PERF_cmdIdx% = 1
+DO WHILE PERF_cmdIdx% <= _COMMANDCOUNT
+    PERF_cmdVal$ = LCASE$(_TRIM$(COMMAND$(PERF_cmdIdx%)))
+    IF PERF_cmdVal$ = "--perf" THEN
+        PERF_ENABLED% = TRUE
+        EXIT DO
+    END IF
+    PERF_cmdIdx% = PERF_cmdIdx% + 1
+LOOP
+
 ' Timing accumulators (sum over interval)
 DIM SHARED PERF_sum(0 TO PERF_SECTION_COUNT - 1) AS DOUBLE
 ' Per-frame start time scratch

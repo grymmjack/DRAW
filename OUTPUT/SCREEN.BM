@@ -447,18 +447,22 @@ SUB SCREEN_snap_window_to_scale (newW AS LONG, newH AS LONG)
     ' Save old handles for cleanup
     oldCanvas& = SCRN.CANVAS&
     oldGUI&    = SCRN.GUI&
+    DIM oldCanvasHW AS LONG : oldCanvasHW& = SCRN.CANVAS_HW&
 
     ' Update viewport dimensions
     SCRN.w& = newVpW&
     SCRN.h& = newVpH&
 
-    ' Recreate viewport-sized image buffers
-    SCRN.CANVAS& = _NEWIMAGE(SCRN.w&, SCRN.h&, 32)
-    SCRN.GUI&    = _NEWIMAGE(SCRN.w&, SCRN.h&, 32)
+    ' Recreate viewport-sized image buffers.  CANVAS_HW is lazy-allocated
+    ' by the final-blit path; just drop the stale one so it gets rebuilt.
+    SCRN.CANVAS&    = _NEWIMAGE(SCRN.w&, SCRN.h&, 32)
+    SCRN.CANVAS_HW& = 0
+    SCRN.GUI&       = _NEWIMAGE(SCRN.w&, SCRN.h&, 32)
 
     ' Free old buffers (after creating new ones so _DEST never points to freed handle)
     IF oldCanvas& < -1 THEN _FREEIMAGE oldCanvas&
     IF oldGUI& < -1 THEN _FREEIMAGE oldGUI&
+    IF oldCanvasHW& < -1 THEN _FREEIMAGE oldCanvasHW&
 
     ' Recreate OS window at correctly scaled size (snap to integer multiple)
     winW& = SCRN.w& * SCRN.displayScale%
@@ -703,10 +707,14 @@ SUB SCREEN_init ()
     SCRN.showCanvasBorder%              = TRUE
     SCRN.canvasBorderOpacity%           = 100
 
-    ' Create image buffers (canvas at viewport size, painting at canvas size)
-    SCRN.CANVAS&   = _NEWIMAGE(SCRN.w&, SCRN.h&, 32)
-    SCRN.PAINTING& = _NEWIMAGE(SCRN.canvasW&, SCRN.canvasH&, 32)
-    SCRN.GUI&      = _NEWIMAGE(SCRN.w&, SCRN.h&, 32)
+    ' Create image buffers (canvas at viewport size, painting at canvas size).
+    ' CANVAS_HW& (hardware image, mode 33) is allocated lazily on first final-blit
+    ' call — mode 33 requires an active GL context which only exists after
+    ' SCREEN _NEWIMAGE switches into graphics mode (a few lines below).
+    SCRN.CANVAS&    = _NEWIMAGE(SCRN.w&, SCRN.h&, 32)
+    SCRN.CANVAS_HW& = 0
+    SCRN.PAINTING&  = _NEWIMAGE(SCRN.canvasW&, SCRN.canvasH&, 32)
+    SCRN.GUI&       = _NEWIMAGE(SCRN.w&, SCRN.h&, 32)
     ' SCRN.CURSOR& removed — cursors now draw directly onto SCRN.CANVAS&
     
     _DEST SCRN.PAINTING&
@@ -795,6 +803,44 @@ SUB RENDER_layers (dx AS INTEGER, dy AS INTEGER, zw AS LONG, zh AS LONG)
 
         ' Rebuild render order lookup table if dirty
         IF RENDER_ORDER_DIRTY% THEN RENDER_ORDER_rebuild
+
+        ' === Trivial single-layer fast path ===
+        ' When the only reason useComposite is TRUE is PREVIEW visibility and
+        ' the scene is exactly one visible non-group layer with full opacity,
+        ' NORMAL blend, no apron, no move-preview, we can skip the composite
+        ' buffer entirely.  The "composite" is just a copy of that one layer,
+        ' so we point CANVAS_CONTENT_SRC at the layer directly and let the
+        ' non-composite blit path draw it.  Saves an 8MB canvas-res memcpy
+        ' every dirty frame on the most common drawing workflow.
+        DIM trivialOnlyLayer    AS INTEGER
+        DIM trivialVisibleCount AS INTEGER
+        trivialOnlyLayer%    = 0
+        trivialVisibleCount% = 0
+        IF useComposite% AND NOT BLEND_needs_composite% AND NOT BLEND_HAS_ISOLATED_GROUPS% AND NOT MOVE.ACTIVE THEN
+            DIM trivI AS INTEGER, trivLayer AS INTEGER
+            FOR trivI% = 1 TO RENDER_ORDER_COUNT%
+                trivLayer% = RENDER_ORDER%(trivI%)
+                IF trivLayer% > 0 THEN
+                    IF LAYERS(trivLayer%).visible% AND LAYERS(trivLayer%).layerType% <> LAYER_TYPE_GROUP THEN
+                        ' Bail if this visible layer disqualifies the trivial path
+                        IF LAYERS(trivLayer%).opacity% <> 255 _
+                           OR LAYERS(trivLayer%).blendMode% <> BLEND_NORMAL _
+                           OR LAYERS(trivLayer%).apronW% <> 0 _
+                           OR LAYERS(trivLayer%).apronH% <> 0 THEN
+                            trivialVisibleCount% = 99
+                            EXIT FOR
+                        END IF
+                        trivialVisibleCount% = trivialVisibleCount% + 1
+                        trivialOnlyLayer%    = trivLayer%
+                        IF trivialVisibleCount% > 1 THEN EXIT FOR
+                    END IF
+                END IF
+            NEXT trivI%
+            IF trivialVisibleCount% = 1 THEN
+                useComposite% = FALSE                                  ' Take the fast direct-blit path
+                CANVAS_CONTENT_SRC& = LAYERS(trivialOnlyLayer%).imgHandle& ' Where PREVIEW reads from
+            END IF
+        END IF
 
         ' Start index for layer loop (1 = full composite, >1 = partial cache hit)
         DIM compositeStartIdx AS INTEGER
@@ -1297,22 +1343,35 @@ SUB RENDER_layers (dx AS INTEGER, dy AS INTEGER, zw AS LONG, zh AS LONG)
         IF useComposite% THEN
             _PUTIMAGE (dx%, dy%)-(dx% + zw& - 1, dy% + zh& - 1), compositeImg&, SCRN.CANVAS&
             ' compositeImg& is persistent (COMPOSITE_BUFFER&), do NOT free it
+            CANVAS_CONTENT_SRC& = compositeImg&  ' Where PREVIEW reads from
 
-            ' Save completed composite for next frame's region-based path
-            IF COMPOSITE_RESULT_CACHE& = 0 OR _
-               _WIDTH(COMPOSITE_RESULT_CACHE&) <> SCRN.canvasW& OR _
-               _HEIGHT(COMPOSITE_RESULT_CACHE&) <> SCRN.canvasH& THEN
-                IF COMPOSITE_RESULT_CACHE& < -1 THEN _FREEIMAGE COMPOSITE_RESULT_CACHE&
-                COMPOSITE_RESULT_CACHE& = _NEWIMAGE(SCRN.canvasW&, SCRN.canvasH&, 32)
+            ' Save completed composite for next frame's region-based path.
+            ' The cache feeds the region path (line ~828), which only triggers
+            ' when BLEND_needs_composite% is TRUE.  When the composite was
+            ' only built to feed PREVIEW (which reads compositeImg& directly,
+            ' not the cache), skip the canvas-sized memcpy — at 1920x1080
+            ' that's ~8MB/frame of pure waste.
+            IF BLEND_needs_composite% THEN
+                IF COMPOSITE_RESULT_CACHE& = 0 OR _
+                   _WIDTH(COMPOSITE_RESULT_CACHE&) <> SCRN.canvasW& OR _
+                   _HEIGHT(COMPOSITE_RESULT_CACHE&) <> SCRN.canvasH& THEN
+                    IF COMPOSITE_RESULT_CACHE& < -1 THEN _FREEIMAGE COMPOSITE_RESULT_CACHE&
+                    COMPOSITE_RESULT_CACHE& = _NEWIMAGE(SCRN.canvasW&, SCRN.canvasH&, 32)
+                END IF
+                DIM crOldDest AS LONG
+                crOldDest& = _DEST
+                _DEST COMPOSITE_RESULT_CACHE&
+                _DONTBLEND COMPOSITE_RESULT_CACHE&
+                _PUTIMAGE , compositeImg&, COMPOSITE_RESULT_CACHE&
+                _BLEND COMPOSITE_RESULT_CACHE&
+                _DEST crOldDest&
+                COMPOSITE_RESULT_VALID% = TRUE
+            ELSE
+                ' Composite was built only for PREVIEW; the cache is stale
+                ' relative to next frame, so mark it invalid to prevent the
+                ' region path from using out-of-date data.
+                COMPOSITE_RESULT_VALID% = FALSE
             END IF
-            DIM crOldDest AS LONG
-            crOldDest& = _DEST
-            _DEST COMPOSITE_RESULT_CACHE&
-            _DONTBLEND COMPOSITE_RESULT_CACHE&
-            _PUTIMAGE , compositeImg&, COMPOSITE_RESULT_CACHE&
-            _BLEND COMPOSITE_RESULT_CACHE&
-            _DEST crOldDest&
-            COMPOSITE_RESULT_VALID% = TRUE
         END IF
     ELSE
         ' Fallback: Use SCRN.PAINTING if no layers exist yet (legacy support)
@@ -1370,22 +1429,86 @@ SUB RENDER_grids (dx AS INTEGER, dy AS INTEGER, zw AS LONG, zh AS LONG)
                     ssOpacity% = THEME.GRID_opacity%
                 END IF
                 ssColor~& = _RGBA32(_RED32(ssColor~&), _GREEN32(ssColor~&), _BLUE32(ssColor~&), ssOpacity%)
-                ' Vertical lines
-                DIM ssx       AS SINGLE : ssx! = dx% + GRID.xPos% * SCRN.zoom!
-                DO WHILE INT(ssx!) <= dx% + zw& - 1
-                    IF INT(ssx!) >= dx% THEN
-                        LINE (INT(ssx!), dy%)-(INT(ssx!), dy% + zh& - 1), ssColor~&
+
+                ' Screen-space cache: rebuild only when zoom / dimensions / step /
+                ' offset / colour changes; per-frame draw is a single _PUTIMAGE
+                ' memcpy.  At 1920x1080 zoom 0.25 this replaces ~375 LINE calls
+                ' per frame with one cached blit.
+                '
+                ' Defensive: skip caching when (zw, zh) exceeds viewport (e.g.
+                ' huge canvas at zoom just under 1.0).  Inline LINE-loop is used
+                ' instead; LINE clips to dest bounds so per-frame cost stays
+                ' proportional to visible area.
+                DIM gridCacheFits AS INTEGER
+                gridCacheFits% = (zw& <= SCRN.w& AND zh& <= SCRN.h&)
+
+                IF gridCacheFits% THEN
+                    IF GRID.ssCacheImg& = 0 OR _
+                       GRID.ssCacheW% <> zw& OR _
+                       GRID.ssCacheH% <> zh& OR _
+                       GRID.ssCacheZoom! <> SCRN.zoom! OR _
+                       GRID.ssCacheColor~& <> ssColor~& OR _
+                       GRID.ssCacheStepX% <> GRID.gridWidth% OR _
+                       GRID.ssCacheStepY% <> GRID.gridHeight% OR _
+                       GRID.ssCacheOffsetX% <> GRID.xPos% OR _
+                       GRID.ssCacheOffsetY% <> GRID.yPos% THEN
+                        IF GRID.ssCacheImg& < -1 THEN _FREEIMAGE GRID.ssCacheImg&
+                        GRID.ssCacheImg&     = _NEWIMAGE(zw&, zh&, 32)
+                        GRID.ssCacheW%       = zw&
+                        GRID.ssCacheH%       = zh&
+                        GRID.ssCacheZoom!    = SCRN.zoom!
+                        GRID.ssCacheColor~&  = ssColor~&
+                        GRID.ssCacheStepX%   = GRID.gridWidth%
+                        GRID.ssCacheStepY%   = GRID.gridHeight%
+                        GRID.ssCacheOffsetX% = GRID.xPos%
+                        GRID.ssCacheOffsetY% = GRID.yPos%
+
+                        DIM ssOldDest AS LONG : ssOldDest& = _DEST
+                        _DEST GRID.ssCacheImg&
+                        CLS , _RGBA32(0, 0, 0, 0)
+                        ' Vertical lines (cache-local coords; offset applied at blit time)
+                        DIM ssx AS SINGLE : ssx! = GRID.xPos% * SCRN.zoom!
+                        DO WHILE INT(ssx!) <= zw& - 1
+                            IF INT(ssx!) >= 0 THEN
+                                LINE (INT(ssx!), 0)-(INT(ssx!), zh& - 1), ssColor~&
+                            END IF
+                            ssx! = ssx! + ssStepX!
+                        LOOP
+                        ' Horizontal lines
+                        DIM ssy AS SINGLE : ssy! = GRID.yPos% * SCRN.zoom!
+                        DO WHILE INT(ssy!) <= zh& - 1
+                            IF INT(ssy!) >= 0 THEN
+                                LINE (0, INT(ssy!))-(zw& - 1, INT(ssy!)), ssColor~&
+                            END IF
+                            ssy! = ssy! + ssStepY!
+                        LOOP
+                        _DEST ssOldDest&
                     END IF
-                    ssx! = ssx! + ssStepX!
-                LOOP
-                ' Horizontal lines
-                DIM ssy       AS SINGLE : ssy! = dy% + GRID.yPos% * SCRN.zoom!
-                DO WHILE INT(ssy!) <= dy% + zh& - 1
-                    IF INT(ssy!) >= dy% THEN
-                        LINE (dx%, INT(ssy!))-(dx% + zw& - 1, INT(ssy!)), ssColor~&
-                    END IF
-                    ssy! = ssy! + ssStepY!
-                LOOP
+                    ' Per-frame: one blit (memcpy, no scaling)
+                    _PUTIMAGE (dx%, dy%), GRID.ssCacheImg&, SCRN.CANVAS&
+                ELSE
+                    ' Cache would exceed viewport — drop any stale cache,
+                    ' draw directly into SCRN.CANVAS (LINE clips at dst).
+                    IF GRID.ssCacheImg& < -1 THEN _FREEIMAGE GRID.ssCacheImg&
+                    GRID.ssCacheImg&  = 0
+                    GRID.ssCacheW%    = 0
+                    GRID.ssCacheH%    = 0
+                    GRID.ssCacheZoom! = 0
+                    DIM ssxFb AS SINGLE : ssxFb! = dx% + GRID.xPos% * SCRN.zoom!
+                    DO WHILE INT(ssxFb!) <= dx% + zw& - 1
+                        IF INT(ssxFb!) >= dx% THEN
+                            LINE (INT(ssxFb!), dy%)-(INT(ssxFb!), dy% + zh& - 1), ssColor~&
+                        END IF
+                        ssxFb! = ssxFb! + ssStepX!
+                    LOOP
+                    DIM ssyFb AS SINGLE : ssyFb! = dy% + GRID.yPos% * SCRN.zoom!
+                    DO WHILE INT(ssyFb!) <= dy% + zh& - 1
+                        IF INT(ssyFb!) >= dy% THEN
+                            LINE (dx%, INT(ssyFb!))-(dx% + zw& - 1, INT(ssyFb!)), ssColor~&
+                        END IF
+                        ssyFb! = ssyFb! + ssStepY!
+                    LOOP
+                END IF
             END IF
         ELSE
             ' Non-square / rotated grids, or zoom >= 100%: use cached image
@@ -1424,38 +1547,103 @@ SUB RENDER_grids (dx AS INTEGER, dy AS INTEGER, zw AS LONG, zh AS LONG)
             pgOpacity% = THEME.PIXEL_GRID_opacity%
         END IF
 
-        ' Reuse cached pixel grid image if zoom/size/color/opacity unchanged
-        IF PG_CACHE_IMG& = 0 OR _
-           PG_CACHE_ZW& <> zw& OR _
-           PG_CACHE_ZH& <> zh& OR _
-           PG_CACHE_ZOOM% <> pzoom% OR _
-           PG_CACHE_COLOR~& <> pgColor~& OR _
-           PG_CACHE_OPACITY% <> pgOpacity% THEN
-            ' Cache miss — rebuild pixel grid image
+        ' Defensive: skip the cache when the entire pixel grid wouldn't fit
+        ' in the viewport (e.g. zoom 32x on 1920x1080 = 8.5GB allocation).
+        ' Inline-draw only the visible pixel grid lines directly into
+        ' SCRN.CANVAS; LINE clips at dst so cost is bounded by visible area.
+        DIM pgCacheFits AS INTEGER
+        pgCacheFits% = (zw& + 1 <= SCRN.w& AND zh& + 1 <= SCRN.h&)
+
+        IF pgCacheFits% THEN
+            ' Reuse cached pixel grid image if zoom/size/color/opacity unchanged
+            IF PG_CACHE_IMG& = 0 OR _
+               PG_CACHE_ZW& <> zw& OR _
+               PG_CACHE_ZH& <> zh& OR _
+               PG_CACHE_ZOOM% <> pzoom% OR _
+               PG_CACHE_COLOR~& <> pgColor~& OR _
+               PG_CACHE_OPACITY% <> pgOpacity% THEN
+                ' Cache miss — rebuild pixel grid image
+                IF PG_CACHE_IMG& < -1 THEN _FREEIMAGE PG_CACHE_IMG&
+                PG_CACHE_IMG&     = _NEWIMAGE(zw& + 1, zh& + 1, 32)
+                PG_CACHE_ZW&      = zw&
+                PG_CACHE_ZH&      = zh&
+                PG_CACHE_ZOOM%    = pzoom%
+                PG_CACHE_COLOR~&  = pgColor~&
+                PG_CACHE_OPACITY% = pgOpacity%
+                _DEST PG_CACHE_IMG&
+                CLS , _RGBA32(0, 0, 0, 0)
+                ' Draw vertical lines between each pixel column
+                FOR pgx% = 0 TO SCRN.canvasW&
+                    LINE (pgx% * pzoom%, 0)-(pgx% * pzoom%, zh&), pgColor~&
+                NEXT pgx%
+                ' Draw horizontal lines between each pixel row
+                FOR pgy% = 0 TO SCRN.canvasH&
+                    LINE (0, pgy% * pzoom%)-(zw&, pgy% * pzoom%), pgColor~&
+                NEXT pgy%
+                ' Apply resolved opacity globally to all drawn pixels
+                _SETALPHA pgOpacity%, pgColor~& TO pgColor~&, PG_CACHE_IMG&
+            END IF
+            ' Composite cached pixel grid onto canvas
+            _DEST SCRN.CANVAS&
+            _BLEND SCRN.CANVAS&
+            _PUTIMAGE (dx%, dy%), PG_CACHE_IMG&
+        ELSE
+            ' Free stale cache from a previous fits-viewport zoom level
             IF PG_CACHE_IMG& < -1 THEN _FREEIMAGE PG_CACHE_IMG&
-            PG_CACHE_IMG&     = _NEWIMAGE(zw& + 1, zh& + 1, 32)
-            PG_CACHE_ZW&      = zw&
-            PG_CACHE_ZH&      = zh&
-            PG_CACHE_ZOOM%    = pzoom%
-            PG_CACHE_COLOR~&  = pgColor~&
-            PG_CACHE_OPACITY% = pgOpacity%
-            _DEST PG_CACHE_IMG&
-            CLS , _RGBA32(0, 0, 0, 0)
-            ' Draw vertical lines between each pixel column
-            FOR pgx% = 0 TO SCRN.canvasW&
-                LINE (pgx% * pzoom%, 0)-(pgx% * pzoom%, zh&), pgColor~&
+            PG_CACHE_IMG&    = 0
+            PG_CACHE_ZW&     = 0
+            PG_CACHE_ZH&     = 0
+            PG_CACHE_ZOOM%   = 0
+
+            ' Pre-mix alpha into the line color (no _SETALPHA pass needed)
+            DIM pgInlineColor AS _UNSIGNED LONG
+            pgInlineColor~& = _RGBA32(_RED32(pgColor~&), _GREEN32(pgColor~&), _BLUE32(pgColor~&), pgOpacity%)
+
+            ' Compute visible canvas-pixel range so we don't loop the full grid
+            DIM pgVisX1 AS LONG, pgVisX2 AS LONG, pgVisY1 AS LONG, pgVisY2 AS LONG
+            pgVisX1& = 0
+            pgVisX2& = SCRN.canvasW&
+            pgVisY1& = 0
+            pgVisY2& = SCRN.canvasH&
+            ' Clamp to what's actually visible on SCRN.CANVAS (dx + cx*pzoom in [0, SCRN.w-1])
+            IF dx% < 0 THEN
+                pgVisX1& = (-dx%) \ pzoom%
+                IF pgVisX1& < 0 THEN pgVisX1& = 0
+            END IF
+            IF dx% + zw& > SCRN.w& THEN
+                pgVisX2& = (SCRN.w& - 1 - dx%) \ pzoom% + 1
+                IF pgVisX2& > SCRN.canvasW& THEN pgVisX2& = SCRN.canvasW&
+            END IF
+            IF dy% < 0 THEN
+                pgVisY1& = (-dy%) \ pzoom%
+                IF pgVisY1& < 0 THEN pgVisY1& = 0
+            END IF
+            IF dy% + zh& > SCRN.h& THEN
+                pgVisY2& = (SCRN.h& - 1 - dy%) \ pzoom% + 1
+                IF pgVisY2& > SCRN.canvasH& THEN pgVisY2& = SCRN.canvasH&
+            END IF
+
+            _DEST SCRN.CANVAS&
+            _BLEND SCRN.CANVAS&
+            ' Vertical lines: only visible canvas-x range
+            DIM pgVlineY1 AS LONG, pgVlineY2 AS LONG
+            pgVlineY1& = dy%
+            pgVlineY2& = dy% + zh&
+            IF pgVlineY1& < 0 THEN pgVlineY1& = 0
+            IF pgVlineY2& > SCRN.h& - 1 THEN pgVlineY2& = SCRN.h& - 1
+            FOR pgx% = pgVisX1& TO pgVisX2&
+                LINE (dx% + pgx% * pzoom%, pgVlineY1&)-(dx% + pgx% * pzoom%, pgVlineY2&), pgInlineColor~&
             NEXT pgx%
-            ' Draw horizontal lines between each pixel row
-            FOR pgy% = 0 TO SCRN.canvasH&
-                LINE (0, pgy% * pzoom%)-(zw&, pgy% * pzoom%), pgColor~&
+            ' Horizontal lines: only visible canvas-y range
+            DIM pgHlineX1 AS LONG, pgHlineX2 AS LONG
+            pgHlineX1& = dx%
+            pgHlineX2& = dx% + zw&
+            IF pgHlineX1& < 0 THEN pgHlineX1& = 0
+            IF pgHlineX2& > SCRN.w& - 1 THEN pgHlineX2& = SCRN.w& - 1
+            FOR pgy% = pgVisY1& TO pgVisY2&
+                LINE (pgHlineX1&, dy% + pgy% * pzoom%)-(pgHlineX2&, dy% + pgy% * pzoom%), pgInlineColor~&
             NEXT pgy%
-            ' Apply resolved opacity globally to all drawn pixels
-            _SETALPHA pgOpacity%, pgColor~& TO pgColor~&, PG_CACHE_IMG&
         END IF
-        ' Composite cached pixel grid onto canvas
-        _DEST SCRN.CANVAS&
-        _BLEND SCRN.CANVAS&
-        _PUTIMAGE (dx%, dy%), PG_CACHE_IMG&
     END IF
 END SUB
 
@@ -2391,7 +2579,14 @@ SUB SCREEN_render ()
     ' GUI overlay onto the cached scene. Avoids expensive layer compositing,
     ' grid rendering, and transparency checkerboard.
     ' ========================================================================
-    IF NOT SCENE_DIRTY% AND GUI_NEEDS_REDRAW% AND SCENE_CACHE& <> 0 THEN
+    ' DISABLED while HW final-scale is active: the partial-restore-then-overlay
+    ' sequence leaves residual sub-255 alpha pixels on SCRN.CANVAS from
+    ' previous tooltip BG draws.  Those punch transparent holes into the HW1
+    ' framebuffer at HW present time, preserving stale prior-frame content =>
+    ' ghost-trail tooltips.  Full path's CLS , apron resets alpha = 255 every
+    ' frame, eliminating the leak.  Cost of always-full-path is +3-5ms per
+    ' dirty frame; the HW final scale saves ~18ms, so net we still win big.
+    IF FALSE AND NOT SCENE_DIRTY% AND GUI_NEEDS_REDRAW% AND SCENE_CACHE& <> 0 THEN
         PERF_start PERF_GUI_ONLY_PATH
         SCREEN_compute_layout
         ' Re-render GUI elements with updated content
@@ -2479,7 +2674,8 @@ SUB SCREEN_render ()
     ' Never touches the palette strip swatch loop or does any full-frame copy.
     ' Falls back to SkipToPointer only when partial present is unsafe.
     ' ========================================================================
-    IF NOT SCENE_DIRTY% AND NOT GUI_NEEDS_REDRAW% AND STATUS_NEEDS_REDRAW% AND SCENE_CACHE& <> 0 THEN
+    ' DISABLED while HW final-scale is active (see GUI-only path comment above)
+    IF FALSE AND NOT SCENE_DIRTY% AND NOT GUI_NEEDS_REDRAW% AND STATUS_NEEDS_REDRAW% AND SCENE_CACHE& <> 0 THEN
         PERF_start PERF_GUI_ONLY_PATH
         ' SCREEN_compute_layout is intentionally skipped here.
         ' STATUS-ONLY fires only when NOT GUI_NEEDS_REDRAW%, meaning the GUI
@@ -2696,7 +2892,8 @@ SUB SCREEN_render ()
     ' only the regions that need updating (pointer area + selection overlay)
     ' instead of copying and scaling the full canvas every frame.
     ' ========================================================================
-    IF NOT SCENE_DIRTY% AND SCENE_CACHE& <> 0 AND NOT SCRN.patternTileMode% THEN
+    ' DISABLED while HW final-scale is active (see GUI-only path comment above)
+    IF FALSE AND NOT SCENE_DIRTY% AND SCENE_CACHE& <> 0 AND NOT SCRN.patternTileMode% THEN
         ' Skip dirty-rect optimization when popup overlays are open — they need
         ' full-frame consistency to avoid flicker and z-order artifacts with scrollbars.
         IF LAYER_PANEL.blendPopupOpen% OR DRAWER.contextMenuOpen% OR CMD_PALETTE.visible THEN
@@ -3041,18 +3238,12 @@ SUB SCREEN_render ()
             PERF_stop PERF_FULL_GRIDS
         END IF
 
-        ' Symmetry guides — center tile only
+        ' Symmetry guides — center tile only.  Drawn directly into SCRN.CANVAS
+        ' (LINE clips at dst bounds); no intermediate display-rect image, which
+        ' would balloon to 8.5 GB at zoom 32x on a 1920x1080 canvas.
         PERF_start PERF_FULL_SYMMETRY
         IF SYMMETRY.MODE > 0 THEN
-            IF SYMMETRY.imgHandle& = 0 OR _WIDTH(SYMMETRY.imgHandle&) <> zw& OR _HEIGHT(SYMMETRY.imgHandle&) <> zh& THEN
-                IF SYMMETRY.imgHandle& < -1 THEN _FREEIMAGE SYMMETRY.imgHandle&
-                SYMMETRY.imgHandle& = _NEWIMAGE(zw&, zh&, 32)
-                SYMMETRY.DIRTY%     = TRUE
-            END IF
-            SYMMETRY_render_guides zw&, zh&, SCRN.zoom!
-            _DEST SCRN.CANVAS&
-            _BLEND SCRN.CANVAS&
-            _PUTIMAGE (dx%, dy%), SYMMETRY.imgHandle&, SCRN.CANVAS&
+            SYMMETRY_render_guides SCRN.CANVAS&, dx%, dy%, zw&, zh&, SCRN.zoom!
         END IF
         PERF_stop PERF_FULL_SYMMETRY
 
@@ -3114,18 +3305,7 @@ SUB SCREEN_render ()
         ' Draw symmetry guide overlay (after grids, before border/GUI)
         PERF_start PERF_FULL_SYMMETRY
         IF SYMMETRY.MODE > 0 THEN
-            ' Recreate guide image if size changed
-            IF SYMMETRY.imgHandle& = 0 OR _WIDTH(SYMMETRY.imgHandle&) <> zw& OR _HEIGHT(SYMMETRY.imgHandle&) <> zh& THEN
-                IF SYMMETRY.imgHandle& < -1 THEN _FREEIMAGE SYMMETRY.imgHandle&
-                SYMMETRY.imgHandle& = _NEWIMAGE(zw&, zh&, 32)
-                SYMMETRY.DIRTY%     = TRUE
-            END IF
-
-            ' (Logging removed from render path for performance)
-            SYMMETRY_render_guides zw&, zh&, SCRN.zoom!
-            _DEST SCRN.CANVAS&
-            _BLEND SCRN.CANVAS&          ' Use alpha blending for transparency
-            _PUTIMAGE (dx%, dy%), SYMMETRY.imgHandle&, SCRN.CANVAS&
+            SYMMETRY_render_guides SCRN.CANVAS&, dx%, dy%, zw&, zh&, SCRN.zoom!
         END IF
         PERF_stop PERF_FULL_SYMMETRY
 
@@ -3427,7 +3607,46 @@ SUB SCREEN_render ()
             _MEMFREE grsFrame
         END IF
     END IF
-    _PUTIMAGE (0, 0)-(_WIDTH(0) - 1, _HEIGHT(0) - 1), SCRN.CANVAS&, 0
+    ' Upload software canvas to a fresh hardware image, then blit to screen 0
+    ' with stretch.  Hardware-image source enables _PUTIMAGE's GL path
+    ' (GPU texture mapping), replacing the CPU-bound software upscale that
+    ' was 63-80% of render time.
+    '
+    ' Hardware images in QB64-PE are immutable: to update we _FREEIMAGE the
+    ' old one and _COPYIMAGE the software canvas with mode 33.  The copy is
+    ' the GPU texture upload — bounded by SCRN.w * SCRN.h pixels (not by
+    ' the larger destination), which is the whole point.
+    '
+    ' Critical: force every SCRN.CANVAS pixel to alpha=255 before snapshotting.
+    ' QB64-PE's _BLEND-mode draws with _RGBA32(..., alpha<255) corrupt the
+    ' destination alpha (down to 0 in some cases), leaving transparent holes
+    ' that alpha-blend with the GL HW1 framebuffer at HW present time —
+    ' preserving prior frame content where alpha is 0 → tooltip ghost trails.
+    '
+    ' _SETALPHA can't fix this (verified — it doesn't lift alpha-0 pixels
+    ' back to opaque even with correct syntax).  Walk the canvas memory
+    ' directly: every 4th byte (the alpha byte at offset +3 in each 32-bit
+    ' pixel) gets forced to 255.  Cost: ~1-2ms for SCRN.w × SCRN.h pixels.
+    DIM fsCanvasMem AS _MEM
+    DIM fsAlphaOff  AS _OFFSET, fsAlphaEnd AS _OFFSET
+    fsCanvasMem = _MEMIMAGE(SCRN.CANVAS&)
+    IF fsCanvasMem.SIZE > 0 THEN
+        fsAlphaOff = fsCanvasMem.OFFSET + 3
+        fsAlphaEnd = fsCanvasMem.OFFSET + fsCanvasMem.SIZE
+        DO WHILE fsAlphaOff < fsAlphaEnd
+            _MEMPUT fsCanvasMem, fsAlphaOff, 255 AS _UNSIGNED _BYTE
+            fsAlphaOff = fsAlphaOff + 4
+        LOOP
+    END IF
+    _MEMFREE fsCanvasMem
+    IF SCRN.CANVAS_HW& < -1 THEN _FREEIMAGE SCRN.CANVAS_HW&
+    SCRN.CANVAS_HW& = _COPYIMAGE(SCRN.CANVAS&, 33)
+    IF SCRN.CANVAS_HW& < -1 THEN
+        _PUTIMAGE (0, 0)-(_WIDTH(0) - 1, _HEIGHT(0) - 1), SCRN.CANVAS_HW&, 0
+    ELSE
+        ' Fallback (HW image unavailable) — original CPU upscale path
+        _PUTIMAGE (0, 0)-(_WIDTH(0) - 1, _HEIGHT(0) - 1), SCRN.CANVAS&, 0
+    END IF
     PERF_stop PERF_FINAL_SCALE
 
     ' ==== FLOATING PANELS (after canvas upscale, draw directly to screen 0) ====

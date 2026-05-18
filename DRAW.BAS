@@ -116,6 +116,8 @@ $IF MAC THEN
                 macArgIdx% = macArgIdx% + 1 ' Skip flag only
             ELSEIF LCASE$(macArgVal$) = "--reset-defaults" THEN
                 macArgIdx% = macArgIdx% + 1 ' Skip flag only
+            ELSEIF LCASE$(macArgVal$) = "--perf" THEN
+                macArgIdx% = macArgIdx% + 1 ' Skip flag only (consumed by PERF.BI)
             ELSEIF LCASE$(macArgVal$) = "--help" OR LCASE$(macArgVal$) = "-h" OR _
                    LCASE$(macArgVal$) = "/?" OR LCASE$(macArgVal$) = "-?" OR _
                    LCASE$(macArgVal$) = "/h" OR LCASE$(macArgVal$) = "/help" OR _
@@ -144,6 +146,8 @@ $ELSE
             argIdx% = argIdx% + 1 ' Skip flag only
         ELSEIF LCASE$(argVal$) = "--reset-defaults" THEN
             argIdx% = argIdx% + 1 ' Skip flag only
+        ELSEIF LCASE$(argVal$) = "--perf" THEN
+            argIdx% = argIdx% + 1 ' Skip flag only (consumed by PERF.BI)
         ELSEIF LCASE$(argVal$) = "--help" OR LCASE$(argVal$) = "-h" OR _
                LCASE$(argVal$) = "/?" OR LCASE$(argVal$) = "-?" OR _
                LCASE$(argVal$) = "/h" OR LCASE$(argVal$) = "/help" OR _
@@ -615,9 +619,12 @@ DO
     '  sets the window to the correct size immediately; no retry needed.)
     
     ' Apply frame rate limit AFTER render+display (reduced when idle).
-    ' Cursor-only movement uses CFG.FPS_CURSOR% (default 240) — the
-    ' STATUS-ONLY and dirty-rect paths are ultra-lightweight partial
-    ' blits, so high FPS is cheap and makes the cursor responsive.
+    ' Cursor-only movement historically used CFG.FPS_CURSOR% (default 240)
+    ' because the STATUS-ONLY and dirty-rect partial paths were ultra-light
+    ' (~1ms).  With those paths disabled to fix HW final-scale ghost trails,
+    ' every cursor move now triggers a full render (~7ms), so 240 FPS would
+    ' burn ~1700ms/sec of CPU.  Cap at FPS_LIMIT (60) — same cap as steady
+    ' rendering, keeps CPU usage reasonable.
     DIM cursorOnlyMove AS INTEGER
     cursorOnlyMove% = (mouseMoved% AND NOT SCENE_CHANGED% _
                        AND NOT MOUSE.B1% AND NOT MOUSE.B2% AND NOT MOUSE.B3%)
@@ -625,7 +632,7 @@ DO
     IF FRAME_IDLE% THEN
         _LIMIT CFG.FPS_IDLE%
     ELSEIF cursorOnlyMove% THEN
-        _LIMIT CFG.FPS_CURSOR%
+        _LIMIT CFG.FPS_LIMIT%
     ELSEIF MOVE.ACTIVE AND CURRENT_TOOL% = TOOL_MOVE THEN
         ' Throttle MOVE drag — full-canvas re-composite per frame is expensive
         ' and 30 fps is plenty for drag responsiveness. Cap at min(FPS_LIMIT, 30).
@@ -731,6 +738,7 @@ SUB MAIN_shutdown ()
     ' FREE MAIN SCREEN BUFFERS
     ' =====================================================================
     IF SCRN.CANVAS& < -1 THEN _FREEIMAGE SCRN.CANVAS&
+    IF SCRN.CANVAS_HW& < -1 THEN _FREEIMAGE SCRN.CANVAS_HW&
     IF SCRN.PAINTING& < -1 THEN _FREEIMAGE SCRN.PAINTING&
     IF SCRN.GUI& < -1 THEN _FREEIMAGE SCRN.GUI&
     ' SCRN.CURSOR& no longer allocated — cursors draw directly onto SCRN.CANVAS&
@@ -786,11 +794,13 @@ SUB MAIN_shutdown ()
     ' =====================================================================
     ' Grid system
     IF GRID.imgHandle& < -1 THEN _FREEIMAGE GRID.imgHandle&
+    IF GRID.ssCacheImg& < -1 THEN _FREEIMAGE GRID.ssCacheImg&
     IF PIXEL_GRID.imgHandle& < -1 THEN _FREEIMAGE PIXEL_GRID.imgHandle&
     ' Symmetry guides
     IF SYMMETRY.imgHandle& < -1 THEN _FREEIMAGE SYMMETRY.imgHandle&
-    ' Transparency checkerboard
+    ' Transparency checkerboard (two-level cache: display + canvas-res blueprint)
     IF TRANSPARENCY.imgHandle& < -1 THEN _FREEIMAGE TRANSPARENCY.imgHandle&
+    IF TRANSPARENCY.blueprint& < -1 THEN _FREEIMAGE TRANSPARENCY.blueprint&
 
     ' =====================================================================
     ' FREE ORGANIZER WIDGET IMAGES
@@ -925,6 +935,9 @@ SUB MAIN_shutdown ()
     ' FREE SOUND HANDLES
     ' =====================================================================
     SOUND_close_all
+
+    ' Flush + close the --perf log file (no-op when --perf wasn't enabled)
+    PERF_log_close
 
     SYSTEM
 END SUB

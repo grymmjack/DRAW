@@ -3,18 +3,31 @@
 ' =============================================================================
 ' Transparency checkerboard background rendering.
 '
+' Two-level cache:
+'   - blueprint  : canvas-resolution ground truth, rebuilt only when colors /
+'                  check-size / canvas size change (LINE BF loop, expensive)
+'   - imgHandle  : display-rect blit cache, rebuilt from blueprint via one
+'                  scaled _PUTIMAGE when zoom or dimensions change (cheap)
+'   - per frame  : no-scale _PUTIMAGE blit of imgHandle to target (memcpy)
+'
+' This gives the win in both directions: rapid zoom scrubbing doesn't
+' re-run the LINE loop, and per-frame draw is never a scaled blit.
+'
 ' @author Rick Christy <grymmjack@gmail.com>
 '
 $INCLUDEONCE
 
 ''
 ' Initialize the transparency checkerboard system
-' 
+'
 SUB TRANSPARENCY_init ()
     DIM effSizeX AS INTEGER, effSizeY AS INTEGER
-    TRANSPARENCY.imgHandle& = 0
-    TRANSPARENCY.imgWidth%  = 0
-    TRANSPARENCY.imgHeight% = 0
+    TRANSPARENCY.imgHandle&  = 0
+    TRANSPARENCY.imgWidth%   = 0
+    TRANSPARENCY.imgHeight%  = 0
+    TRANSPARENCY.blueprint&  = 0
+    TRANSPARENCY.blueprintW% = 0
+    TRANSPARENCY.blueprintH% = 0
     ' Resolve check sizes: config overrides theme (CFG 0 = use theme default)
     IF CFG.TRANSPARENCY_CHECK_SIZE_X% > 0 THEN
         effSizeX% = CFG.TRANSPARENCY_CHECK_SIZE_X%
@@ -36,33 +49,39 @@ END SUB
 
 ''
 ' Invalidate the cached checkerboard (call when size/colors change)
-' 
+'
 SUB TRANSPARENCY_invalidate ()
     IF TRANSPARENCY.imgHandle& < -1 THEN
         _FREEIMAGE TRANSPARENCY.imgHandle&
     END IF
-    TRANSPARENCY.imgHandle& = 0
-    TRANSPARENCY.imgWidth%  = 0
-    TRANSPARENCY.imgHeight% = 0
+    IF TRANSPARENCY.blueprint& < -1 THEN
+        _FREEIMAGE TRANSPARENCY.blueprint&
+    END IF
+    TRANSPARENCY.imgHandle&  = 0
+    TRANSPARENCY.imgWidth%   = 0
+    TRANSPARENCY.imgHeight%  = 0
+    TRANSPARENCY.blueprint&  = 0
+    TRANSPARENCY.blueprintW% = 0
+    TRANSPARENCY.blueprintH% = 0
 END SUB
 
 
 ''
 ' Render the transparency checkerboard to a target location.
-' Creates/updates cached image if needed.
+' Two-level cache (blueprint + display-rect blit cache); see file header.
 ' @param targetImg LONG Destination image handle to draw the checkerboard onto
 ' @param x INTEGER Left edge X coordinate on the target surface
 ' @param y INTEGER Top edge Y coordinate on the target surface
 ' @param w INTEGER Width of the area to fill with checkerboard
 ' @param h INTEGER Height of the area to fill with checkerboard
-' 
+'
 SUB TRANSPARENCY_render (targetImg AS LONG, x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER)
     DIM oldDest     AS LONG
     DIM cx          AS INTEGER, cy AS INTEGER
     DIM checkX      AS INTEGER, checkY AS INTEGER
     DIM useColor    AS _UNSIGNED LONG
-    DIM scaledSizeX AS INTEGER, scaledSizeY AS INTEGER
     DIM effSizeX    AS INTEGER, effSizeY AS INTEGER
+    DIM bpW         AS INTEGER, bpH AS INTEGER
 
     IF w <= 0 OR h <= 0 THEN EXIT SUB
 
@@ -77,73 +96,117 @@ SUB TRANSPARENCY_render (targetImg AS LONG, x AS INTEGER, y AS INTEGER, w AS INT
     ELSE
         effSizeY% = THEME.TRANSPARENCY_check_size_y%
     END IF
-    
-    ' Scale checker size by zoom so squares grow/shrink with canvas
-    scaledSizeX% = INT(effSizeX% * SCRN.zoom!)
-    IF scaledSizeX% < 2 THEN scaledSizeX% = 2  ' Minimum 2px to stay visible
-    scaledSizeY% = INT(effSizeY% * SCRN.zoom!)
-    IF scaledSizeY% < 2 THEN scaledSizeY% = 2
-    
-    ' Check if we need to recreate the cached image
-    IF TRANSPARENCY.imgHandle& = 0 OR _
-       TRANSPARENCY.imgWidth% <> w% OR _
-       TRANSPARENCY.imgHeight% <> h% OR _
+
+    ' === LEVEL 1: Build canvas-resolution blueprint (rare rebuild) ===
+    bpW% = SCRN.canvasW&
+    bpH% = SCRN.canvasH&
+    IF bpW% < 1 THEN bpW% = w%
+    IF bpH% < 1 THEN bpH% = h%
+
+    IF TRANSPARENCY.blueprint& = 0 OR _
+       TRANSPARENCY.blueprintW% <> bpW% OR _
+       TRANSPARENCY.blueprintH% <> bpH% OR _
        TRANSPARENCY.checkSizeX% <> effSizeX% OR _
        TRANSPARENCY.checkSizeY% <> effSizeY% OR _
        TRANSPARENCY.color1~& <> CFG.TRANSPARENCY_CHECK_COLOR1~& OR _
-       TRANSPARENCY.color2~& <> CFG.TRANSPARENCY_CHECK_COLOR2~& OR _
-       TRANSPARENCY.lastZoom! <> SCRN.zoom! THEN
-        
-        ' Free old image if exists
-        IF TRANSPARENCY.imgHandle& < -1 THEN
-            _FREEIMAGE TRANSPARENCY.imgHandle&
-        END IF
-        
-        ' Create new cached image
-        TRANSPARENCY.imgHandle&  = _NEWIMAGE(w%, h%, 32)
-        TRANSPARENCY.imgWidth%   = w%
-        TRANSPARENCY.imgHeight%  = h%
+       TRANSPARENCY.color2~& <> CFG.TRANSPARENCY_CHECK_COLOR2~& THEN
+
+        IF TRANSPARENCY.blueprint& < -1 THEN _FREEIMAGE TRANSPARENCY.blueprint&
+        TRANSPARENCY.blueprint&  = _NEWIMAGE(bpW%, bpH%, 32)
+        TRANSPARENCY.blueprintW% = bpW%
+        TRANSPARENCY.blueprintH% = bpH%
         TRANSPARENCY.checkSizeX% = effSizeX%
         TRANSPARENCY.checkSizeY% = effSizeY%
         TRANSPARENCY.color1~&    = CFG.TRANSPARENCY_CHECK_COLOR1~&
         TRANSPARENCY.color2~&    = CFG.TRANSPARENCY_CHECK_COLOR2~&
-        TRANSPARENCY.lastZoom!   = SCRN.zoom!
-        
-        ' Draw the checkerboard pattern (scaled by zoom)
+
+        ' Draw the checkerboard pattern at canvas resolution (one-time cost)
         oldDest& = _DEST
-        _DEST TRANSPARENCY.imgHandle&
-        
-        FOR cy% = 0 TO h% - 1 STEP scaledSizeY%
-            checkY% = cy% \ scaledSizeY%
-            FOR cx% = 0 TO w% - 1 STEP scaledSizeX%
-                checkX% = cx% \ scaledSizeX%
-                
-                ' Alternate colors based on position
+        _DEST TRANSPARENCY.blueprint&
+
+        FOR cy% = 0 TO bpH% - 1 STEP effSizeY%
+            checkY% = cy% \ effSizeY%
+            FOR cx% = 0 TO bpW% - 1 STEP effSizeX%
+                checkX% = cx% \ effSizeX%
+
                 IF ((checkX% + checkY%) MOD 2) = 0 THEN
                     useColor~& = TRANSPARENCY.color1~&
                 ELSE
                     useColor~& = TRANSPARENCY.color2~&
                 END IF
-                
-                ' Draw the checker rectangle
+
                 DIM x2 AS INTEGER, y2 AS INTEGER
-                x2% = cx% + scaledSizeX% - 1
-                y2% = cy% + scaledSizeY% - 1
-                IF x2% >= w% THEN x2% = w% - 1
-                IF y2% >= h% THEN y2% = h% - 1
-                
+                x2% = cx% + effSizeX% - 1
+                y2% = cy% + effSizeY% - 1
+                IF x2% >= bpW% THEN x2% = bpW% - 1
+                IF y2% >= bpH% THEN y2% = bpH% - 1
+
                 LINE (cx%, cy%)-(x2%, y2%), useColor~&, BF
             NEXT cx%
         NEXT cy%
-        
+
+        _DEST oldDest&
+
+        ' Blueprint changed — display cache must be rebuilt from it
+        IF TRANSPARENCY.imgHandle& < -1 THEN _FREEIMAGE TRANSPARENCY.imgHandle&
+        TRANSPARENCY.imgHandle& = 0
+        TRANSPARENCY.imgWidth%  = 0
+        TRANSPARENCY.imgHeight% = 0
+        TRANSPARENCY.lastZoom!  = 0
+    END IF
+
+    ' === LEVEL 2: Build display-rect blit cache from blueprint (per zoom) ===
+    ' Only when the display rect fits in the viewport.  At deep zoom-in,
+    ' (zw, zh) can be many times viewport size — building a 530MB cache
+    ' (zoom 8x on a 1920x1080 canvas) is catastrophic.  Fall back to a
+    ' direct scaled blit from the blueprint; _PUTIMAGE clips at dst bounds,
+    ' so the per-frame cost stays proportional to the *visible* area
+    ' regardless of how huge the display rect is.
+    DIM cacheFitsViewport AS INTEGER
+    cacheFitsViewport% = (w% <= SCRN.w& AND h% <= SCRN.h&)
+
+    IF cacheFitsViewport% THEN
+        IF TRANSPARENCY.imgHandle& = 0 OR _
+           TRANSPARENCY.imgWidth% <> w% OR _
+           TRANSPARENCY.imgHeight% <> h% THEN
+
+            IF TRANSPARENCY.imgHandle& < -1 THEN _FREEIMAGE TRANSPARENCY.imgHandle&
+            TRANSPARENCY.imgHandle& = _NEWIMAGE(w%, h%, 32)
+            TRANSPARENCY.imgWidth%  = w%
+            TRANSPARENCY.imgHeight% = h%
+            TRANSPARENCY.lastZoom!  = SCRN.zoom!
+
+            ' Single scaled blit: blueprint -> display cache
+            oldDest& = _DEST
+            _DEST TRANSPARENCY.imgHandle&
+            _DONTBLEND TRANSPARENCY.imgHandle&
+            _PUTIMAGE (0, 0)-(w% - 1, h% - 1), TRANSPARENCY.blueprint&
+            _BLEND TRANSPARENCY.imgHandle&
+            _DEST oldDest&
+        END IF
+
+        ' Per-frame: no-scale blit display cache to target (memcpy)
+        oldDest& = _DEST
+        _DEST targetImg&
+        _DONTBLEND targetImg& ' No blending for background
+        _PUTIMAGE (x%, y%), TRANSPARENCY.imgHandle&
+        _BLEND targetImg&     ' Re-enable blending for subsequent operations
+        _DEST oldDest&
+    ELSE
+        ' Display rect exceeds viewport — direct scaled blit, no cache.
+        ' Free any stale cache so memory doesn't bloat from a previous
+        ' fits-viewport zoom level.
+        IF TRANSPARENCY.imgHandle& < -1 THEN _FREEIMAGE TRANSPARENCY.imgHandle&
+        TRANSPARENCY.imgHandle& = 0
+        TRANSPARENCY.imgWidth%  = 0
+        TRANSPARENCY.imgHeight% = 0
+        TRANSPARENCY.lastZoom!  = 0
+
+        oldDest& = _DEST
+        _DEST targetImg&
+        _DONTBLEND targetImg&
+        _PUTIMAGE (x%, y%)-(x% + w - 1, y% + h - 1), TRANSPARENCY.blueprint&
+        _BLEND targetImg&
         _DEST oldDest&
     END IF
-    
-    ' Blit the cached checkerboard to target
-    oldDest& = _DEST
-    _DEST targetImg&
-    _DONTBLEND targetImg& ' No blending for background
-    _PUTIMAGE (x%, y%), TRANSPARENCY.imgHandle&
-    _BLEND targetImg&     ' Re-enable blending for subsequent operations
-    _DEST oldDest&
 END SUB
