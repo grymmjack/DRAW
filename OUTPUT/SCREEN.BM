@@ -447,22 +447,18 @@ SUB SCREEN_snap_window_to_scale (newW AS LONG, newH AS LONG)
     ' Save old handles for cleanup
     oldCanvas& = SCRN.CANVAS&
     oldGUI&    = SCRN.GUI&
-    DIM oldCanvasHW AS LONG : oldCanvasHW& = SCRN.CANVAS_HW&
 
     ' Update viewport dimensions
     SCRN.w& = newVpW&
     SCRN.h& = newVpH&
 
-    ' Recreate viewport-sized image buffers.  CANVAS_HW is lazy-allocated
-    ' by the final-blit path; just drop the stale one so it gets rebuilt.
-    SCRN.CANVAS&    = _NEWIMAGE(SCRN.w&, SCRN.h&, 32)
-    SCRN.CANVAS_HW& = 0
-    SCRN.GUI&       = _NEWIMAGE(SCRN.w&, SCRN.h&, 32)
+    ' Recreate viewport-sized image buffers
+    SCRN.CANVAS& = _NEWIMAGE(SCRN.w&, SCRN.h&, 32)
+    SCRN.GUI&    = _NEWIMAGE(SCRN.w&, SCRN.h&, 32)
 
     ' Free old buffers (after creating new ones so _DEST never points to freed handle)
     IF oldCanvas& < -1 THEN _FREEIMAGE oldCanvas&
     IF oldGUI& < -1 THEN _FREEIMAGE oldGUI&
-    IF oldCanvasHW& < -1 THEN _FREEIMAGE oldCanvasHW&
 
     ' Recreate OS window at correctly scaled size (snap to integer multiple)
     winW& = SCRN.w& * SCRN.displayScale%
@@ -707,14 +703,10 @@ SUB SCREEN_init ()
     SCRN.showCanvasBorder%              = TRUE
     SCRN.canvasBorderOpacity%           = 100
 
-    ' Create image buffers (canvas at viewport size, painting at canvas size).
-    ' CANVAS_HW& (hardware image, mode 33) is allocated lazily on first final-blit
-    ' call — mode 33 requires an active GL context which only exists after
-    ' SCREEN _NEWIMAGE switches into graphics mode (a few lines below).
-    SCRN.CANVAS&    = _NEWIMAGE(SCRN.w&, SCRN.h&, 32)
-    SCRN.CANVAS_HW& = 0
-    SCRN.PAINTING&  = _NEWIMAGE(SCRN.canvasW&, SCRN.canvasH&, 32)
-    SCRN.GUI&       = _NEWIMAGE(SCRN.w&, SCRN.h&, 32)
+    ' Create image buffers (canvas at viewport size, painting at canvas size)
+    SCRN.CANVAS&   = _NEWIMAGE(SCRN.w&, SCRN.h&, 32)
+    SCRN.PAINTING& = _NEWIMAGE(SCRN.canvasW&, SCRN.canvasH&, 32)
+    SCRN.GUI&      = _NEWIMAGE(SCRN.w&, SCRN.h&, 32)
     ' SCRN.CURSOR& removed — cursors now draw directly onto SCRN.CANVAS&
     
     _DEST SCRN.PAINTING&
@@ -2579,14 +2571,7 @@ SUB SCREEN_render ()
     ' GUI overlay onto the cached scene. Avoids expensive layer compositing,
     ' grid rendering, and transparency checkerboard.
     ' ========================================================================
-    ' DISABLED while HW final-scale is active: the partial-restore-then-overlay
-    ' sequence leaves residual sub-255 alpha pixels on SCRN.CANVAS from
-    ' previous tooltip BG draws.  Those punch transparent holes into the HW1
-    ' framebuffer at HW present time, preserving stale prior-frame content =>
-    ' ghost-trail tooltips.  Full path's CLS , apron resets alpha = 255 every
-    ' frame, eliminating the leak.  Cost of always-full-path is +3-5ms per
-    ' dirty frame; the HW final scale saves ~18ms, so net we still win big.
-    IF FALSE AND NOT SCENE_DIRTY% AND GUI_NEEDS_REDRAW% AND SCENE_CACHE& <> 0 THEN
+    IF NOT SCENE_DIRTY% AND GUI_NEEDS_REDRAW% AND SCENE_CACHE& <> 0 THEN
         PERF_start PERF_GUI_ONLY_PATH
         SCREEN_compute_layout
         ' Re-render GUI elements with updated content
@@ -2674,8 +2659,7 @@ SUB SCREEN_render ()
     ' Never touches the palette strip swatch loop or does any full-frame copy.
     ' Falls back to SkipToPointer only when partial present is unsafe.
     ' ========================================================================
-    ' DISABLED while HW final-scale is active (see GUI-only path comment above)
-    IF FALSE AND NOT SCENE_DIRTY% AND NOT GUI_NEEDS_REDRAW% AND STATUS_NEEDS_REDRAW% AND SCENE_CACHE& <> 0 THEN
+    IF NOT SCENE_DIRTY% AND NOT GUI_NEEDS_REDRAW% AND STATUS_NEEDS_REDRAW% AND SCENE_CACHE& <> 0 THEN
         PERF_start PERF_GUI_ONLY_PATH
         ' SCREEN_compute_layout is intentionally skipped here.
         ' STATUS-ONLY fires only when NOT GUI_NEEDS_REDRAW%, meaning the GUI
@@ -2892,8 +2876,7 @@ SUB SCREEN_render ()
     ' only the regions that need updating (pointer area + selection overlay)
     ' instead of copying and scaling the full canvas every frame.
     ' ========================================================================
-    ' DISABLED while HW final-scale is active (see GUI-only path comment above)
-    IF FALSE AND NOT SCENE_DIRTY% AND SCENE_CACHE& <> 0 AND NOT SCRN.patternTileMode% THEN
+    IF NOT SCENE_DIRTY% AND SCENE_CACHE& <> 0 AND NOT SCRN.patternTileMode% THEN
         ' Skip dirty-rect optimization when popup overlays are open — they need
         ' full-frame consistency to avoid flicker and z-order artifacts with scrollbars.
         IF LAYER_PANEL.blendPopupOpen% OR DRAWER.contextMenuOpen% OR CMD_PALETTE.visible THEN
@@ -3607,46 +3590,7 @@ SUB SCREEN_render ()
             _MEMFREE grsFrame
         END IF
     END IF
-    ' Upload software canvas to a fresh hardware image, then blit to screen 0
-    ' with stretch.  Hardware-image source enables _PUTIMAGE's GL path
-    ' (GPU texture mapping), replacing the CPU-bound software upscale that
-    ' was 63-80% of render time.
-    '
-    ' Hardware images in QB64-PE are immutable: to update we _FREEIMAGE the
-    ' old one and _COPYIMAGE the software canvas with mode 33.  The copy is
-    ' the GPU texture upload — bounded by SCRN.w * SCRN.h pixels (not by
-    ' the larger destination), which is the whole point.
-    '
-    ' Critical: force every SCRN.CANVAS pixel to alpha=255 before snapshotting.
-    ' QB64-PE's _BLEND-mode draws with _RGBA32(..., alpha<255) corrupt the
-    ' destination alpha (down to 0 in some cases), leaving transparent holes
-    ' that alpha-blend with the GL HW1 framebuffer at HW present time —
-    ' preserving prior frame content where alpha is 0 → tooltip ghost trails.
-    '
-    ' _SETALPHA can't fix this (verified — it doesn't lift alpha-0 pixels
-    ' back to opaque even with correct syntax).  Walk the canvas memory
-    ' directly: every 4th byte (the alpha byte at offset +3 in each 32-bit
-    ' pixel) gets forced to 255.  Cost: ~1-2ms for SCRN.w × SCRN.h pixels.
-    DIM fsCanvasMem AS _MEM
-    DIM fsAlphaOff  AS _OFFSET, fsAlphaEnd AS _OFFSET
-    fsCanvasMem = _MEMIMAGE(SCRN.CANVAS&)
-    IF fsCanvasMem.SIZE > 0 THEN
-        fsAlphaOff = fsCanvasMem.OFFSET + 3
-        fsAlphaEnd = fsCanvasMem.OFFSET + fsCanvasMem.SIZE
-        DO WHILE fsAlphaOff < fsAlphaEnd
-            _MEMPUT fsCanvasMem, fsAlphaOff, 255 AS _UNSIGNED _BYTE
-            fsAlphaOff = fsAlphaOff + 4
-        LOOP
-    END IF
-    _MEMFREE fsCanvasMem
-    IF SCRN.CANVAS_HW& < -1 THEN _FREEIMAGE SCRN.CANVAS_HW&
-    SCRN.CANVAS_HW& = _COPYIMAGE(SCRN.CANVAS&, 33)
-    IF SCRN.CANVAS_HW& < -1 THEN
-        _PUTIMAGE (0, 0)-(_WIDTH(0) - 1, _HEIGHT(0) - 1), SCRN.CANVAS_HW&, 0
-    ELSE
-        ' Fallback (HW image unavailable) — original CPU upscale path
-        _PUTIMAGE (0, 0)-(_WIDTH(0) - 1, _HEIGHT(0) - 1), SCRN.CANVAS&, 0
-    END IF
+    _PUTIMAGE (0, 0)-(_WIDTH(0) - 1, _HEIGHT(0) - 1), SCRN.CANVAS&, 0
     PERF_stop PERF_FINAL_SCALE
 
     ' ==== FLOATING PANELS (after canvas upscale, draw directly to screen 0) ====

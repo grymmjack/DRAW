@@ -287,8 +287,14 @@ Supported formats:
 
 | Argument | Description |
 |----------|-------------|
+| `--help` / `-h` / `/?` / `-?` / `/h` / `/help` | Show command-line usage and exit (no graphics mode) |
+| `--version` / `-v` | Show version and exit |
 | `--config <file>` / `-c <file>` | Load a specific config file instead of the default |
-| `--config-upgrade` | Reconcile existing config with latest defaults (adds missing keys) || `--reset-defaults` | Restore factory settings (overwrites config with built-in defaults) |
+| `--config-upgrade` | Reconcile existing config with latest defaults (adds missing keys) |
+| `--reset-defaults` | Restore factory settings (overwrites config with built-in defaults) |
+| `--canvas-size WxH` | Set initial canvas size (e.g. `--canvas-size 1920x1080`) |
+| `--portable` | Use portable (local-directory) config paths instead of OS-native dirs |
+| `--perf` | Enable per-stage performance logging to `DRAW-perf.log` |
 ```bash
 # Use a specific config file
 ./DRAW.run --config DRAW.macOS.cfg
