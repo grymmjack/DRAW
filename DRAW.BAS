@@ -619,9 +619,12 @@ DO
     '  sets the window to the correct size immediately; no retry needed.)
     
     ' Apply frame rate limit AFTER render+display (reduced when idle).
-    ' Cursor-only movement uses CFG.FPS_CURSOR% (default 240) — the
-    ' STATUS-ONLY and dirty-rect paths are ultra-lightweight partial
-    ' blits, so high FPS is cheap and makes the cursor responsive.
+    ' Cursor-only movement historically used CFG.FPS_CURSOR% (default 240)
+    ' because the STATUS-ONLY and dirty-rect partial paths were ultra-light
+    ' (~1ms).  With those paths disabled to fix HW final-scale ghost trails,
+    ' every cursor move now triggers a full render (~7ms), so 240 FPS would
+    ' burn ~1700ms/sec of CPU.  Cap at FPS_LIMIT (60) — same cap as steady
+    ' rendering, keeps CPU usage reasonable.
     DIM cursorOnlyMove AS INTEGER
     cursorOnlyMove% = (mouseMoved% AND NOT SCENE_CHANGED% _
                        AND NOT MOUSE.B1% AND NOT MOUSE.B2% AND NOT MOUSE.B3%)
@@ -629,7 +632,7 @@ DO
     IF FRAME_IDLE% THEN
         _LIMIT CFG.FPS_IDLE%
     ELSEIF cursorOnlyMove% THEN
-        _LIMIT CFG.FPS_CURSOR%
+        _LIMIT CFG.FPS_LIMIT%
     ELSEIF MOVE.ACTIVE AND CURRENT_TOOL% = TOOL_MOVE THEN
         ' Throttle MOVE drag — full-canvas re-composite per frame is expensive
         ' and 30 fps is plenty for drag responsiveness. Cap at min(FPS_LIMIT, 30).
