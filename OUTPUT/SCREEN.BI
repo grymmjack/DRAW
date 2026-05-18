@@ -15,6 +15,7 @@ TYPE SCREEN_OBJ
     canvasH                       AS LONG    ' Actual artwork/canvas height (may be smaller than h)
     bpp                           AS INTEGER
     CANVAS                        AS LONG
+    CANVAS_HW                     AS LONG    ' Hardware-image (mode 33) twin of CANVAS for GPU final blit
     PAINTING                      AS LONG
     CURSOR                        AS LONG
     GUI                           AS LONG
