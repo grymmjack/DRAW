@@ -115,6 +115,8 @@ SUB CMD_init ()
     CMD_register "Contract Selection (large)", "Hold M:_", CMD_CAT_EDIT, 1413
     CMD_register "Rotate 90 CW", ">", CMD_CAT_EDIT, 319
     CMD_register "Rotate 90 CCW", "<", CMD_CAT_EDIT, 320
+    CMD_register "Scale 2x Horizontal", "Ctrl+Home", CMD_CAT_EDIT, 331
+    CMD_register "Scale 2x Vertical", "Ctrl+End", CMD_CAT_EDIT, 333
     CMD_register "Copy Merged", "Ctrl+Shift+C", CMD_CAT_EDIT, 322
     CMD_register "Copy to New Layer", "Ctrl+Alt+C", CMD_CAT_EDIT, 321
     CMD_register "Cut to New Layer", "Ctrl+Alt+X", CMD_CAT_EDIT, 323
@@ -204,8 +206,8 @@ SUB CMD_init ()
     CMD_register "New Text Layer", "", CMD_CAT_LAYER, 712
     CMD_register "Rasterize Text Layer", "", CMD_CAT_LAYER, 713
     CMD_register "Rasterize All Text Layers", "", CMD_CAT_LAYER, 714
-    CMD_register "Arrange to Top", "Ctrl+Home", CMD_CAT_LAYER, 708
-    CMD_register "Arrange to Bottom", "Ctrl+End", CMD_CAT_LAYER, 709
+    CMD_register "Arrange to Top", "Ctrl+Shift+]", CMD_CAT_LAYER, 708
+    CMD_register "Arrange to Bottom", "Ctrl+Shift+[", CMD_CAT_LAYER, 709
     CMD_register "Align Left (layers)", "", CMD_CAT_LAYER, 1901
     CMD_register "Align Center H (layers)", "", CMD_CAT_LAYER, 1902
     CMD_register "Align Right (layers)", "", CMD_CAT_LAYER, 1903
@@ -2995,6 +2997,412 @@ SUB CMD_execute_action (action_id AS INTEGER)
             END IF
             IF grpExp318% > 0 THEN CMD_group_restore_after_op grpExp318%
             SkipScale318:
+        CASE 331                     ' Scale 2x Horizontal (in-place; selection > brush > whole layer)
+            ' Symbol child: scale vector X by 2x (non-destructive)
+            IF CURRENT_LAYER% >= 1 THEN
+                IF CURRENT_LAYER% <= MAX_LAYERS THEN
+                    IF LAYERS(CURRENT_LAYER%).layerType% = LAYER_TYPE_SYMBOL_CHILD THEN
+                        DIM sc331x AS SINGLE
+                        sc331x! = LAYERS(CURRENT_LAYER%).symbolScaleX!
+                        IF sc331x! = 0 THEN sc331x! = 1.0!
+                        sc331x! = sc331x! * 2.0!
+                        IF ABS(sc331x!) > 10.0! THEN sc331x! = SGN(sc331x!) * 10.0!
+                        LAYERS(CURRENT_LAYER%).symbolScaleX! = sc331x!
+                        SYMBOL_render_child CURRENT_LAYER%
+                        BLEND_invalidate_cache
+                        FRAME_IDLE% = FALSE
+                        INVALIDATE_scene
+                        SOUND_play SND_TRANSFORM
+                        GOTO SkipScale331
+                    END IF
+                END IF
+            END IF
+            SOUND_play SND_TRANSFORM
+            ' Priority: selection-on-layer > brush > whole-layer.
+            ' Selection wins over brush because creating a marquee is the most explicit
+            ' "I'm working on this" signal; the brush IMAGE can linger from a prior pick.
+            DIM h2hSrc           AS LONG, h2hBefore AS LONG, h2hFlags AS LONG
+            DIM h2hLayerValid    AS INTEGER
+            h2hSrc&        = 0
+            h2hBefore&     = 0
+            h2hFlags&      = 0
+            h2hLayerValid% = FALSE
+            IF CURRENT_LAYER% >= 1 AND CURRENT_LAYER% <= MAX_LAYERS THEN
+                h2hSrc& = LAYERS(CURRENT_LAYER%).imgHandle&
+                IF h2hSrc& < -1 THEN h2hLayerValid% = TRUE
+            END IF
+
+            IF SELECTION_has_active% AND h2hLayerValid% THEN
+                ' SELECTION BRANCH (in-place on layer)
+                h2hFlags& = h2hFlags& OR HISTORY_FLAG_CLIPPED
+                IF LAYERS(CURRENT_LAYER%).opacityLock% THEN h2hFlags& = h2hFlags& OR HISTORY_FLAG_CLIPPED
+                ' Stage marquee state BEFORE the scale mutates it, so the eventual
+                ' HISTORY_selection_commit can record the before→after delta and
+                ' Ctrl+Z restores selection bounds + mask along with layer pixels.
+                HISTORY_selection_stage
+                IF NOT HISTORY_IN_PROGRESS% AND LAYERS(CURRENT_LAYER%).historyId& > 0 THEN
+                    h2hBefore& = _COPYIMAGE(h2hSrc&, 32)
+                END IF
+                DIM h2hSelW    AS INTEGER, h2hSelH AS INTEGER
+                h2hSelW% = MARQUEE.BOX.w : h2hSelH% = MARQUEE.BOX.h
+                DIM h2hNewW    AS INTEGER, h2hNewH AS INTEGER
+                h2hNewW% = h2hSelW% * 2 : h2hNewH% = h2hSelH%
+                IF h2hNewW% < 1 THEN h2hNewW% = 1
+                IF h2hNewH% < 1 THEN h2hNewH% = 1
+                DIM h2hReg     AS LONG, h2hScl AS LONG
+                h2hReg& = _NEWIMAGE(h2hSelW%, h2hSelH%, 32)
+                _DONTBLEND h2hReg&
+                _PUTIMAGE (0, 0), h2hSrc&, h2hReg&, (MARQUEE.BOX.x, MARQUEE.BOX.y)-(MARQUEE.BOX.x + h2hSelW% - 1, MARQUEE.BOX.y + h2hSelH% - 1)
+                h2hScl& = _NEWIMAGE(h2hNewW%, h2hNewH%, 32)
+                DIM h2hOldDst  AS LONG, h2hOldSrc AS LONG
+                h2hOldDst& = _DEST : h2hOldSrc& = _SOURCE
+                _DEST h2hScl&
+                CLS , _RGBA32(0, 0, 0, 0)
+                _SOURCE h2hReg&
+                _DONTBLEND h2hScl&
+                DIM h2hPx      AS INTEGER, h2hPy AS INTEGER, h2hPix AS _UNSIGNED LONG
+                FOR h2hPy% = 0 TO h2hSelH% - 1
+                    FOR h2hPx% = 0 TO h2hSelW% - 1
+                        h2hPix~& = POINT(h2hPx%, h2hPy%)
+                        PSET (h2hPx% * 2,     h2hPy%), h2hPix~&
+                        PSET (h2hPx% * 2 + 1, h2hPy%), h2hPix~&
+                    NEXT h2hPx%
+                NEXT h2hPy%
+                _BLEND h2hScl&
+                _DEST h2hSrc&
+                _DONTBLEND h2hSrc&
+                LINE (MARQUEE.BOX.x, MARQUEE.BOX.y)-(MARQUEE.BOX.x + h2hSelW% - 1, MARQUEE.BOX.y + h2hSelH% - 1), _RGBA32(0, 0, 0, 0), BF
+                DIM h2hCanvW   AS INTEGER, h2hCanvH AS INTEGER
+                h2hCanvW% = _WIDTH(h2hSrc&) : h2hCanvH% = _HEIGHT(h2hSrc&)
+                DIM h2hDstX    AS INTEGER, h2hDstY AS INTEGER
+                DIM h2hCpSrcX  AS INTEGER, h2hCpSrcY AS INTEGER
+                DIM h2hCpW     AS INTEGER, h2hCpH AS INTEGER
+                h2hDstX%   = MARQUEE.BOX.x + (h2hSelW% - h2hNewW%) \ 2
+                h2hDstY%   = MARQUEE.BOX.y
+                h2hCpSrcX% = 0 : h2hCpSrcY% = 0
+                h2hCpW%    = h2hNewW% : h2hCpH% = h2hNewH%
+                IF h2hDstX% < 0 THEN h2hCpSrcX% = -h2hDstX% : h2hCpW% = h2hCpW% - h2hCpSrcX% : h2hDstX% = 0
+                IF h2hDstY% < 0 THEN h2hCpSrcY% = -h2hDstY% : h2hCpH% = h2hCpH% - h2hCpSrcY% : h2hDstY% = 0
+                IF h2hDstX% + h2hCpW% > h2hCanvW% THEN h2hCpW% = h2hCanvW% - h2hDstX%
+                IF h2hDstY% + h2hCpH% > h2hCanvH% THEN h2hCpH% = h2hCanvH% - h2hDstY%
+                IF h2hCpW% > 0 AND h2hCpH% > 0 THEN
+                    _PUTIMAGE (h2hDstX%, h2hDstY%)-(h2hDstX% + h2hCpW% - 1, h2hDstY% + h2hCpH% - 1), h2hScl&, h2hSrc&, (h2hCpSrcX%, h2hCpSrcY%)-(h2hCpSrcX% + h2hCpW% - 1, h2hCpSrcY% + h2hCpH% - 1)
+                END IF
+                _BLEND h2hSrc&
+                _SOURCE h2hOldSrc&
+                _DEST   h2hOldDst&
+                IF h2hReg& < -1 THEN _FREEIMAGE h2hReg&
+                IF h2hScl& < -1 THEN _FREEIMAGE h2hScl&
+                ' Scale the wand mask the same way as the layer content so the
+                ' marching ants follow the pixel-doubled silhouette, not a rectangle.
+                IF MARQUEE.WAND_HAS_SELECTION AND MARQUEE.SELECTION_MASK < -1 THEN
+                    DIM h2hMskOld    AS LONG, h2hMskNew AS LONG
+                    DIM h2hMskOldDst AS LONG, h2hMskOldSrc AS LONG
+                    DIM h2hMpx       AS INTEGER, h2hMpy AS INTEGER, h2hMpix AS _UNSIGNED LONG
+                    h2hMskOld& = _NEWIMAGE(h2hSelW%, h2hSelH%, 32)
+                    _DONTBLEND h2hMskOld&
+                    _PUTIMAGE (0, 0), MARQUEE.SELECTION_MASK, h2hMskOld&, (MARQUEE.BOX.x, MARQUEE.BOX.y)-(MARQUEE.BOX.x + h2hSelW% - 1, MARQUEE.BOX.y + h2hSelH% - 1)
+                    h2hMskNew& = _NEWIMAGE(h2hNewW%, h2hNewH%, 32)
+                    h2hMskOldDst& = _DEST : h2hMskOldSrc& = _SOURCE
+                    _DEST h2hMskNew&
+                    CLS , _RGBA32(0, 0, 0, 0)
+                    _SOURCE h2hMskOld&
+                    _DONTBLEND h2hMskNew&
+                    FOR h2hMpy% = 0 TO h2hSelH% - 1
+                        FOR h2hMpx% = 0 TO h2hSelW% - 1
+                            h2hMpix~& = POINT(h2hMpx%, h2hMpy%)
+                            PSET (h2hMpx% * 2,     h2hMpy%), h2hMpix~&
+                            PSET (h2hMpx% * 2 + 1, h2hMpy%), h2hMpix~&
+                        NEXT h2hMpx%
+                    NEXT h2hMpy%
+                    _BLEND h2hMskNew&
+                    ' Clear original mask region on canvas-sized mask, then paste the doubled mask
+                    _DEST MARQUEE.SELECTION_MASK
+                    _DONTBLEND MARQUEE.SELECTION_MASK
+                    LINE (MARQUEE.BOX.x, MARQUEE.BOX.y)-(MARQUEE.BOX.x + h2hSelW% - 1, MARQUEE.BOX.y + h2hSelH% - 1), _RGBA32(0, 0, 0, 0), BF
+                    IF h2hCpW% > 0 AND h2hCpH% > 0 THEN
+                        _PUTIMAGE (h2hDstX%, h2hDstY%)-(h2hDstX% + h2hCpW% - 1, h2hDstY% + h2hCpH% - 1), h2hMskNew&, MARQUEE.SELECTION_MASK, (h2hCpSrcX%, h2hCpSrcY%)-(h2hCpSrcX% + h2hCpW% - 1, h2hCpSrcY% + h2hCpH% - 1)
+                    END IF
+                    _BLEND MARQUEE.SELECTION_MASK
+                    _SOURCE h2hMskOldSrc&
+                    _DEST   h2hMskOldDst&
+                    IF h2hMskOld& < -1 THEN _FREEIMAGE h2hMskOld&
+                    IF h2hMskNew& < -1 THEN _FREEIMAGE h2hMskNew&
+                    MARQUEE.WAND_MIN_X      = h2hDstX%
+                    MARQUEE.WAND_MIN_Y      = h2hDstY%
+                    MARQUEE.WAND_MAX_X      = h2hDstX% + h2hCpW% - 1
+                    MARQUEE.WAND_MAX_Y      = h2hDstY% + h2hCpH% - 1
+                    MARQUEE.WAND_EDGE_DIRTY = TRUE
+                END IF
+                MARQUEE.BOX.x = h2hDstX% : MARQUEE.BOX.y = h2hDstY%
+                MARQUEE.BOX.w = h2hCpW%  : MARQUEE.BOX.h = h2hCpH%
+                ' Bundle the layer transform AND the selection change in one undo group,
+                ' so a single Ctrl+Z restores both layer pixels and marquee/mask state.
+                IF h2hBefore& < -1 THEN
+                    HISTORY_begin_group
+                    HISTORY_record_transform LAYERS(CURRENT_LAYER%).historyId&, CURRENT_LAYER%, h2hFlags&, h2hBefore&, "Scale 2x H"
+                    HISTORY_selection_commit
+                    HISTORY_end_group
+                    HISTORY_saved_this_frame% = TRUE
+                ELSE
+                    HISTORY_selection_commit
+                END IF
+                LAYERS(CURRENT_LAYER%).contentDirty% = TRUE
+                INVALIDATE_layers
+            ELSEIF CUSTOM_BRUSH_is_active% AND CUSTOM_BRUSH.IMAGE& < -1 THEN
+                ' BRUSH BRANCH
+                CUSTOM_BRUSH_scale_2x_horizontal
+            ELSEIF h2hLayerValid% THEN
+                ' WHOLE-LAYER BRANCH (no selection, no brush)
+                IF LAYERS(CURRENT_LAYER%).opacityLock% THEN h2hFlags& = h2hFlags& OR HISTORY_FLAG_CLIPPED
+                IF NOT HISTORY_IN_PROGRESS% AND LAYERS(CURRENT_LAYER%).historyId& > 0 THEN
+                    h2hBefore& = _COPYIMAGE(h2hSrc&, 32)
+                END IF
+                DIM h2hLW      AS INTEGER, h2hLH AS INTEGER
+                h2hLW% = _WIDTH(h2hSrc&) : h2hLH% = _HEIGHT(h2hSrc&)
+                DIM h2hLNW     AS INTEGER, h2hLNH AS INTEGER
+                h2hLNW% = h2hLW% * 2 : h2hLNH% = h2hLH%
+                DIM h2hSnap    AS LONG, h2hLScl AS LONG
+                h2hSnap& = _COPYIMAGE(h2hSrc&, 32)
+                h2hLScl& = _NEWIMAGE(h2hLNW%, h2hLNH%, 32)
+                DIM h2hLOldDst AS LONG, h2hLOldSrc AS LONG
+                h2hLOldDst& = _DEST : h2hLOldSrc& = _SOURCE
+                _DEST h2hLScl&
+                CLS , _RGBA32(0, 0, 0, 0)
+                _SOURCE h2hSnap&
+                _DONTBLEND h2hLScl&
+                DIM h2hLPx     AS INTEGER, h2hLPy AS INTEGER, h2hLPix AS _UNSIGNED LONG
+                FOR h2hLPy% = 0 TO h2hLH% - 1
+                    FOR h2hLPx% = 0 TO h2hLW% - 1
+                        h2hLPix~& = POINT(h2hLPx%, h2hLPy%)
+                        PSET (h2hLPx% * 2,     h2hLPy%), h2hLPix~&
+                        PSET (h2hLPx% * 2 + 1, h2hLPy%), h2hLPix~&
+                    NEXT h2hLPx%
+                NEXT h2hLPy%
+                _BLEND h2hLScl&
+                _DEST h2hSrc&
+                _DONTBLEND h2hSrc&
+                CLS , _RGBA32(0, 0, 0, 0)
+                DIM h2hOverX   AS INTEGER
+                h2hOverX% = (h2hLNW% - h2hLW%) \ 2
+                _PUTIMAGE (0, 0)-(h2hLW% - 1, h2hLH% - 1), h2hLScl&, h2hSrc&, (h2hOverX%, 0)-(h2hOverX% + h2hLW% - 1, h2hLH% - 1)
+                _BLEND h2hSrc&
+                _SOURCE h2hLOldSrc&
+                _DEST   h2hLOldDst&
+                IF h2hSnap& < -1 THEN _FREEIMAGE h2hSnap&
+                IF h2hLScl& < -1 THEN _FREEIMAGE h2hLScl&
+                IF h2hBefore& < -1 THEN
+                    HISTORY_record_transform LAYERS(CURRENT_LAYER%).historyId&, CURRENT_LAYER%, h2hFlags&, h2hBefore&, "Scale 2x H"
+                    HISTORY_saved_this_frame% = TRUE
+                END IF
+                LAYERS(CURRENT_LAYER%).contentDirty% = TRUE
+                INVALIDATE_layers
+            ELSE
+                _LOGINFO "Scale 2x H: no target (no selection, no brush, no layer)"
+            END IF
+            SkipScale331:
+        CASE 333                     ' Scale 2x Vertical (in-place; selection > brush > whole layer)
+            ' Symbol child: scale vector Y by 2x (non-destructive)
+            IF CURRENT_LAYER% >= 1 THEN
+                IF CURRENT_LAYER% <= MAX_LAYERS THEN
+                    IF LAYERS(CURRENT_LAYER%).layerType% = LAYER_TYPE_SYMBOL_CHILD THEN
+                        DIM sc333y AS SINGLE
+                        sc333y! = LAYERS(CURRENT_LAYER%).symbolScaleY!
+                        IF sc333y! = 0 THEN sc333y! = 1.0!
+                        sc333y! = sc333y! * 2.0!
+                        IF ABS(sc333y!) > 10.0! THEN sc333y! = SGN(sc333y!) * 10.0!
+                        LAYERS(CURRENT_LAYER%).symbolScaleY! = sc333y!
+                        SYMBOL_render_child CURRENT_LAYER%
+                        BLEND_invalidate_cache
+                        FRAME_IDLE% = FALSE
+                        INVALIDATE_scene
+                        SOUND_play SND_TRANSFORM
+                        GOTO SkipScale333
+                    END IF
+                END IF
+            END IF
+            SOUND_play SND_TRANSFORM
+            ' Priority: selection-on-layer > brush > whole-layer.
+            DIM v2vSrc           AS LONG, v2vBefore AS LONG, v2vFlags AS LONG
+            DIM v2vLayerValid    AS INTEGER
+            v2vSrc&        = 0
+            v2vBefore&     = 0
+            v2vFlags&      = 0
+            v2vLayerValid% = FALSE
+            IF CURRENT_LAYER% >= 1 AND CURRENT_LAYER% <= MAX_LAYERS THEN
+                v2vSrc& = LAYERS(CURRENT_LAYER%).imgHandle&
+                IF v2vSrc& < -1 THEN v2vLayerValid% = TRUE
+            END IF
+
+            IF SELECTION_has_active% AND v2vLayerValid% THEN
+                ' SELECTION BRANCH (in-place on layer)
+                v2vFlags& = v2vFlags& OR HISTORY_FLAG_CLIPPED
+                IF LAYERS(CURRENT_LAYER%).opacityLock% THEN v2vFlags& = v2vFlags& OR HISTORY_FLAG_CLIPPED
+                ' Stage marquee state BEFORE the scale mutates it, so the eventual
+                ' HISTORY_selection_commit can record the before→after delta and
+                ' Ctrl+Z restores selection bounds + mask along with layer pixels.
+                HISTORY_selection_stage
+                IF NOT HISTORY_IN_PROGRESS% AND LAYERS(CURRENT_LAYER%).historyId& > 0 THEN
+                    v2vBefore& = _COPYIMAGE(v2vSrc&, 32)
+                END IF
+                DIM v2vSelW    AS INTEGER, v2vSelH AS INTEGER
+                v2vSelW% = MARQUEE.BOX.w : v2vSelH% = MARQUEE.BOX.h
+                DIM v2vNewW    AS INTEGER, v2vNewH AS INTEGER
+                v2vNewW% = v2vSelW% : v2vNewH% = v2vSelH% * 2
+                IF v2vNewW% < 1 THEN v2vNewW% = 1
+                IF v2vNewH% < 1 THEN v2vNewH% = 1
+                DIM v2vReg     AS LONG, v2vScl AS LONG
+                v2vReg& = _NEWIMAGE(v2vSelW%, v2vSelH%, 32)
+                _DONTBLEND v2vReg&
+                _PUTIMAGE (0, 0), v2vSrc&, v2vReg&, (MARQUEE.BOX.x, MARQUEE.BOX.y)-(MARQUEE.BOX.x + v2vSelW% - 1, MARQUEE.BOX.y + v2vSelH% - 1)
+                v2vScl& = _NEWIMAGE(v2vNewW%, v2vNewH%, 32)
+                DIM v2vOldDst  AS LONG, v2vOldSrc AS LONG
+                v2vOldDst& = _DEST : v2vOldSrc& = _SOURCE
+                _DEST v2vScl&
+                CLS , _RGBA32(0, 0, 0, 0)
+                _SOURCE v2vReg&
+                _DONTBLEND v2vScl&
+                DIM v2vPx      AS INTEGER, v2vPy AS INTEGER, v2vPix AS _UNSIGNED LONG
+                FOR v2vPy% = 0 TO v2vSelH% - 1
+                    FOR v2vPx% = 0 TO v2vSelW% - 1
+                        v2vPix~& = POINT(v2vPx%, v2vPy%)
+                        PSET (v2vPx%, v2vPy% * 2),     v2vPix~&
+                        PSET (v2vPx%, v2vPy% * 2 + 1), v2vPix~&
+                    NEXT v2vPx%
+                NEXT v2vPy%
+                _BLEND v2vScl&
+                _DEST v2vSrc&
+                _DONTBLEND v2vSrc&
+                LINE (MARQUEE.BOX.x, MARQUEE.BOX.y)-(MARQUEE.BOX.x + v2vSelW% - 1, MARQUEE.BOX.y + v2vSelH% - 1), _RGBA32(0, 0, 0, 0), BF
+                DIM v2vCanvW   AS INTEGER, v2vCanvH AS INTEGER
+                v2vCanvW% = _WIDTH(v2vSrc&) : v2vCanvH% = _HEIGHT(v2vSrc&)
+                DIM v2vDstX    AS INTEGER, v2vDstY AS INTEGER
+                DIM v2vCpSrcX  AS INTEGER, v2vCpSrcY AS INTEGER
+                DIM v2vCpW     AS INTEGER, v2vCpH AS INTEGER
+                v2vDstX%   = MARQUEE.BOX.x
+                v2vDstY%   = MARQUEE.BOX.y + (v2vSelH% - v2vNewH%) \ 2
+                v2vCpSrcX% = 0 : v2vCpSrcY% = 0
+                v2vCpW%    = v2vNewW% : v2vCpH% = v2vNewH%
+                IF v2vDstX% < 0 THEN v2vCpSrcX% = -v2vDstX% : v2vCpW% = v2vCpW% - v2vCpSrcX% : v2vDstX% = 0
+                IF v2vDstY% < 0 THEN v2vCpSrcY% = -v2vDstY% : v2vCpH% = v2vCpH% - v2vCpSrcY% : v2vDstY% = 0
+                IF v2vDstX% + v2vCpW% > v2vCanvW% THEN v2vCpW% = v2vCanvW% - v2vDstX%
+                IF v2vDstY% + v2vCpH% > v2vCanvH% THEN v2vCpH% = v2vCanvH% - v2vDstY%
+                IF v2vCpW% > 0 AND v2vCpH% > 0 THEN
+                    _PUTIMAGE (v2vDstX%, v2vDstY%)-(v2vDstX% + v2vCpW% - 1, v2vDstY% + v2vCpH% - 1), v2vScl&, v2vSrc&, (v2vCpSrcX%, v2vCpSrcY%)-(v2vCpSrcX% + v2vCpW% - 1, v2vCpSrcY% + v2vCpH% - 1)
+                END IF
+                _BLEND v2vSrc&
+                _SOURCE v2vOldSrc&
+                _DEST   v2vOldDst&
+                IF v2vReg& < -1 THEN _FREEIMAGE v2vReg&
+                IF v2vScl& < -1 THEN _FREEIMAGE v2vScl&
+                ' Scale the wand mask the same way as the layer content so the
+                ' marching ants follow the pixel-doubled silhouette, not a rectangle.
+                IF MARQUEE.WAND_HAS_SELECTION AND MARQUEE.SELECTION_MASK < -1 THEN
+                    DIM v2vMskOld    AS LONG, v2vMskNew AS LONG
+                    DIM v2vMskOldDst AS LONG, v2vMskOldSrc AS LONG
+                    DIM v2vMpx       AS INTEGER, v2vMpy AS INTEGER, v2vMpix AS _UNSIGNED LONG
+                    v2vMskOld& = _NEWIMAGE(v2vSelW%, v2vSelH%, 32)
+                    _DONTBLEND v2vMskOld&
+                    _PUTIMAGE (0, 0), MARQUEE.SELECTION_MASK, v2vMskOld&, (MARQUEE.BOX.x, MARQUEE.BOX.y)-(MARQUEE.BOX.x + v2vSelW% - 1, MARQUEE.BOX.y + v2vSelH% - 1)
+                    v2vMskNew& = _NEWIMAGE(v2vNewW%, v2vNewH%, 32)
+                    v2vMskOldDst& = _DEST : v2vMskOldSrc& = _SOURCE
+                    _DEST v2vMskNew&
+                    CLS , _RGBA32(0, 0, 0, 0)
+                    _SOURCE v2vMskOld&
+                    _DONTBLEND v2vMskNew&
+                    FOR v2vMpy% = 0 TO v2vSelH% - 1
+                        FOR v2vMpx% = 0 TO v2vSelW% - 1
+                            v2vMpix~& = POINT(v2vMpx%, v2vMpy%)
+                            PSET (v2vMpx%, v2vMpy% * 2),     v2vMpix~&
+                            PSET (v2vMpx%, v2vMpy% * 2 + 1), v2vMpix~&
+                        NEXT v2vMpx%
+                    NEXT v2vMpy%
+                    _BLEND v2vMskNew&
+                    ' Clear original mask region on canvas-sized mask, then paste the doubled mask
+                    _DEST MARQUEE.SELECTION_MASK
+                    _DONTBLEND MARQUEE.SELECTION_MASK
+                    LINE (MARQUEE.BOX.x, MARQUEE.BOX.y)-(MARQUEE.BOX.x + v2vSelW% - 1, MARQUEE.BOX.y + v2vSelH% - 1), _RGBA32(0, 0, 0, 0), BF
+                    IF v2vCpW% > 0 AND v2vCpH% > 0 THEN
+                        _PUTIMAGE (v2vDstX%, v2vDstY%)-(v2vDstX% + v2vCpW% - 1, v2vDstY% + v2vCpH% - 1), v2vMskNew&, MARQUEE.SELECTION_MASK, (v2vCpSrcX%, v2vCpSrcY%)-(v2vCpSrcX% + v2vCpW% - 1, v2vCpSrcY% + v2vCpH% - 1)
+                    END IF
+                    _BLEND MARQUEE.SELECTION_MASK
+                    _SOURCE v2vMskOldSrc&
+                    _DEST   v2vMskOldDst&
+                    IF v2vMskOld& < -1 THEN _FREEIMAGE v2vMskOld&
+                    IF v2vMskNew& < -1 THEN _FREEIMAGE v2vMskNew&
+                    MARQUEE.WAND_MIN_X      = v2vDstX%
+                    MARQUEE.WAND_MIN_Y      = v2vDstY%
+                    MARQUEE.WAND_MAX_X      = v2vDstX% + v2vCpW% - 1
+                    MARQUEE.WAND_MAX_Y      = v2vDstY% + v2vCpH% - 1
+                    MARQUEE.WAND_EDGE_DIRTY = TRUE
+                END IF
+                MARQUEE.BOX.x = v2vDstX% : MARQUEE.BOX.y = v2vDstY%
+                MARQUEE.BOX.w = v2vCpW%  : MARQUEE.BOX.h = v2vCpH%
+                ' Bundle the layer transform AND the selection change in one undo group,
+                ' so a single Ctrl+Z restores both layer pixels and marquee/mask state.
+                IF v2vBefore& < -1 THEN
+                    HISTORY_begin_group
+                    HISTORY_record_transform LAYERS(CURRENT_LAYER%).historyId&, CURRENT_LAYER%, v2vFlags&, v2vBefore&, "Scale 2x V"
+                    HISTORY_selection_commit
+                    HISTORY_end_group
+                    HISTORY_saved_this_frame% = TRUE
+                ELSE
+                    HISTORY_selection_commit
+                END IF
+                LAYERS(CURRENT_LAYER%).contentDirty% = TRUE
+                INVALIDATE_layers
+            ELSEIF CUSTOM_BRUSH_is_active% AND CUSTOM_BRUSH.IMAGE& < -1 THEN
+                ' BRUSH BRANCH
+                CUSTOM_BRUSH_scale_2x_vertical
+            ELSEIF v2vLayerValid% THEN
+                ' WHOLE-LAYER BRANCH (no selection, no brush)
+                IF LAYERS(CURRENT_LAYER%).opacityLock% THEN v2vFlags& = v2vFlags& OR HISTORY_FLAG_CLIPPED
+                IF NOT HISTORY_IN_PROGRESS% AND LAYERS(CURRENT_LAYER%).historyId& > 0 THEN
+                    v2vBefore& = _COPYIMAGE(v2vSrc&, 32)
+                END IF
+                DIM v2vLW      AS INTEGER, v2vLH AS INTEGER
+                v2vLW% = _WIDTH(v2vSrc&) : v2vLH% = _HEIGHT(v2vSrc&)
+                DIM v2vLNW     AS INTEGER, v2vLNH AS INTEGER
+                v2vLNW% = v2vLW% : v2vLNH% = v2vLH% * 2
+                DIM v2vSnap    AS LONG, v2vLScl AS LONG
+                v2vSnap& = _COPYIMAGE(v2vSrc&, 32)
+                v2vLScl& = _NEWIMAGE(v2vLNW%, v2vLNH%, 32)
+                DIM v2vLOldDst AS LONG, v2vLOldSrc AS LONG
+                v2vLOldDst& = _DEST : v2vLOldSrc& = _SOURCE
+                _DEST v2vLScl&
+                CLS , _RGBA32(0, 0, 0, 0)
+                _SOURCE v2vSnap&
+                _DONTBLEND v2vLScl&
+                DIM v2vLPx     AS INTEGER, v2vLPy AS INTEGER, v2vLPix AS _UNSIGNED LONG
+                FOR v2vLPy% = 0 TO v2vLH% - 1
+                    FOR v2vLPx% = 0 TO v2vLW% - 1
+                        v2vLPix~& = POINT(v2vLPx%, v2vLPy%)
+                        PSET (v2vLPx%, v2vLPy% * 2),     v2vLPix~&
+                        PSET (v2vLPx%, v2vLPy% * 2 + 1), v2vLPix~&
+                    NEXT v2vLPx%
+                NEXT v2vLPy%
+                _BLEND v2vLScl&
+                _DEST v2vSrc&
+                _DONTBLEND v2vSrc&
+                CLS , _RGBA32(0, 0, 0, 0)
+                DIM v2vOverY   AS INTEGER
+                v2vOverY% = (v2vLNH% - v2vLH%) \ 2
+                _PUTIMAGE (0, 0)-(v2vLW% - 1, v2vLH% - 1), v2vLScl&, v2vSrc&, (0, v2vOverY%)-(v2vLW% - 1, v2vOverY% + v2vLH% - 1)
+                _BLEND v2vSrc&
+                _SOURCE v2vLOldSrc&
+                _DEST   v2vLOldDst&
+                IF v2vSnap& < -1 THEN _FREEIMAGE v2vSnap&
+                IF v2vLScl& < -1 THEN _FREEIMAGE v2vLScl&
+                IF v2vBefore& < -1 THEN
+                    HISTORY_record_transform LAYERS(CURRENT_LAYER%).historyId&, CURRENT_LAYER%, v2vFlags&, v2vBefore&, "Scale 2x V"
+                    HISTORY_saved_this_frame% = TRUE
+                END IF
+                LAYERS(CURRENT_LAYER%).contentDirty% = TRUE
+                INVALIDATE_layers
+            ELSE
+                _LOGINFO "Scale 2x V: no target (no selection, no brush, no layer)"
+            END IF
+            SkipScale333:
         CASE 319                     ' Rotate 90 CW
             DIM grpExp319 AS INTEGER
             grpExp319% = CMD_group_expand_for_op%

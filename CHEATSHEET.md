@@ -1124,6 +1124,8 @@ Transform operations work universally on the current layer, active selection, or
 | **<** | Rotate 90° counter-clockwise |
 | **Ctrl+Shift+-** | Scale down 50% |
 | **Ctrl+Shift+=** | Scale up 50% |
+| **Ctrl+Home** | Scale 2x horizontal (per-axis pixel-double — brush > floating selection > auto-lift marquee) |
+| **Ctrl+End** | Scale 2x vertical (per-axis pixel-double — brush > floating selection > auto-lift marquee) |
 
 These also work on custom brushes when one is active (flip, rotate, scale).
 
@@ -1289,10 +1291,8 @@ The layer panel is displayed on the left side of the screen and can be toggled w
 | `Ctrl+Shift+Delete` | Delete current layer |
 | `Ctrl+PgUp` | Move layer up in stack |
 | `Ctrl+PgDn` | Move layer down in stack |
-| `Ctrl+Home` | Arrange layer to top of stack |
-| `Ctrl+End` | Arrange layer to bottom of stack |
-| `Ctrl+Shift+[` | Arrange layer to bottom of stack (alternate) |
-| `Ctrl+Shift+]` | Arrange layer to top of stack (alternate) |
+| `Ctrl+Shift+]` | Arrange layer to top of stack |
+| `Ctrl+Shift+[` | Arrange layer to bottom of stack |
 | `Ctrl+Alt+E` | Merge current layer down |
 | `Ctrl+Alt+Shift+E` | Merge all visible layers |
 | `Ctrl+G` | Create new empty layer group |
