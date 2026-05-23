@@ -7,3 +7,5 @@
 - [Trust user symptoms](feedback_trust_user_symptoms.md) — echo the user's exact symptom words; don't silently reinterpret "partial paint" as "alpha trails"
 - [Tag before experiments](feedback_tag_before_experiments.md) — tag known-good state before exploration; tags survive squash-merges and enable surgical recovery
 - [Memory location](feedback_memory_location.md) — ALWAYS write DRAW memory to `.claude/agent-memory/main/` (version-controlled), NOT to `~/.claude/projects/...` (per-user)
+- [Destructive in-place transforms](feedback_destructive_in_place_transforms.md) — new transform features (scale/flip/rotate) modify the layer in place; bundle layer + selection undo with HISTORY group; scale wand mask alongside content
+- [Selection > brush > layer priority](feedback_selection_vs_brush_priority.md) — hotkey dispatch order when multiple targets are valid; require both ACTIVE flag and valid IMAGE handle for brush
