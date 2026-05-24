@@ -9,3 +9,4 @@
 - [Memory location](feedback_memory_location.md) — ALWAYS write DRAW memory to `.claude/agent-memory/main/` (version-controlled), NOT to `~/.claude/projects/...` (per-user)
 - [Destructive in-place transforms](feedback_destructive_in_place_transforms.md) — new transform features (scale/flip/rotate) modify the layer in place; bundle layer + selection undo with HISTORY group; scale wand mask alongside content
 - [Selection > brush > layer priority](feedback_selection_vs_brush_priority.md) — hotkey dispatch order when multiple targets are valid; require both ACTIVE flag and valid IMAGE handle for brush
+- [Hotkey grep sweep before adding chords](feedback_hotkey_grep_sweep.md) — DRAW has no central dispatch; grep _KEYDOWN(<keycode>) and CASE "letter" across whole KEYBOARD.BM before adding any new chord

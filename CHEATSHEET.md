@@ -160,11 +160,14 @@ Hold `G` and press an arrow key to resize the grid on a single axis:
 | Key | Function |
 |-----|----------|
 | `G + Right` | Increase grid **width** by 1px (max 256px) |
-| `G + Left` | Decrease grid **width** by 1px (min 2px) |
+| `G + Left` | Decrease grid **width** by 1px (min 1px) |
 | `G + Down` | Increase grid **height** by 1px (max 256px) |
-| `G + Up` | Decrease grid **height** by 1px (min 2px) |
+| `G + Up` | Decrease grid **height** by 1px (min 1px) |
+| `G + R` | Reset grid **offset** to (0,0) |
+| `G + Shift + R` | Reset grid **size** to theme default |
+| `G + Ctrl + R` | Reset grid offset **and** size (full reset) |
 
-Use this when you need a non-square grid (e.g., 16×8 isometric cells). The `.`/`,` keys adjust width and height together; `G+Arrow` adjusts each axis independently.
+Use this when you need a non-square grid (e.g., 16×8 isometric cells, 2×1 Atari wide pixels, 1×2 Apple II hi-res tall pixels). The `.`/`,` keys adjust width and height together; `G+Arrow` adjusts each axis independently. Setting an axis to 1px skips drawing lines on that axis — letting you show only horizontal or only vertical bands for asymmetric pixel modes.
 
 ### Grid Geometry Modes
 
