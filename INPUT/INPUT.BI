@@ -336,3 +336,25 @@ DECLARE FUNCTION INPUT_register% ( _
     actionId AS INTEGER, dispatched AS INTEGER, label AS STRING)
 DECLARE FUNCTION INPUT_BIND_matches% (bindIdx AS INTEGER, evtIdx AS INTEGER)
 DECLARE FUNCTION INPUT_BINDS_could_collide% (a AS INTEGER, b AS INTEGER)
+
+' --- Convenience wrappers (most call sites use these for readability) ---
+DECLARE FUNCTION INPUT_register_key% ( _
+    keycode AS LONG, requireMods AS INTEGER, forbidMods AS INTEGER, _
+    requireCtx AS _UNSIGNED _INTEGER64, forbidCtx AS _UNSIGNED _INTEGER64, _
+    actionId AS INTEGER, dispatched AS INTEGER, label AS STRING)
+DECLARE FUNCTION INPUT_register_mouse% ( _
+    eventType AS INTEGER, region AS INTEGER, button AS INTEGER, _
+    requireMods AS INTEGER, forbidMods AS INTEGER, _
+    requireCtx AS _UNSIGNED _INTEGER64, forbidCtx AS _UNSIGNED _INTEGER64, _
+    actionId AS INTEGER, dispatched AS INTEGER, label AS STRING)
+DECLARE FUNCTION INPUT_register_wheel% ( _
+    region AS INTEGER, wheelDir AS INTEGER, _
+    requireMods AS INTEGER, forbidMods AS INTEGER, _
+    requireCtx AS _UNSIGNED _INTEGER64, forbidCtx AS _UNSIGNED _INTEGER64, _
+    actionId AS INTEGER, dispatched AS INTEGER, label AS STRING)
+DECLARE FUNCTION INPUT_register_hover% ( _
+    region AS INTEGER, enterOrLeave AS INTEGER, _
+    actionId AS INTEGER, dispatched AS INTEGER, label AS STRING)
+
+' --- Phase 1: bulk legacy-metadata registration ---
+DECLARE SUB INPUTS_register_all ()
