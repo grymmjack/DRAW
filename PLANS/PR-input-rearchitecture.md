@@ -122,7 +122,7 @@ Key smoke tests:
 
 **Low-to-medium.** The risky changes (bulk `_FREEIMAGE` replacement across 86 files) are mathematically symmetric (250 inserts / 250 deletes) — pure line-for-line substitution with `SAFE_FREEIMAGE` being a strict superset of bare `_FREEIMAGE`. No semantic shift possible at sites where handles are valid; defense-in-depth at sites where handles might be invalid.
 
-**Only one logic regression caught and fixed during development**: a single `ELSEIF` chain in `MOVE.BM:987` was incorrectly converted to `ELSE` by an over-eager regex. Semantics preserved (SAFE_FREEIMAGE no-ops on invalid handles), but the regex was tightened immediately and no other sites were affected.
+**Only one logic regression caught and fixed during development**: a single `ELSEIF` chain in `MOVE.BM:987` was incorrectly converted to `ELSE` by the bulk-replacement perl pattern used at development time (perl/sed regex, not anything in QB64-PE itself — QB64-PE has no regex feature). The over-eager match was caught at compile time, fixed inline, and the dev-time pattern was tightened. Semantics preserved (SAFE_FREEIMAGE no-ops on invalid handles) and no other sites were affected.
 
 ## Migration path forward
 
