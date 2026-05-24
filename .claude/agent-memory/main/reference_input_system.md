@@ -45,17 +45,21 @@ When active: `./inputs.log` is cleared on startup, then receives `[INIT]`, `[AUD
 - `b1bd100` Phase 3 + 4 — 72 mouse bindings as metadata, audit wheelDir fix (160 total bindings, 0 conflicts)
 - `ad8ce5a` Phase 5a — PIXEL_DOUBLE_AXIS + SAFE_FREEIMAGE adoption in CUSTOM-BRUSH.BM
 - `c07d923` Phase 5b — PIXEL_DOUBLE_AXIS adoption in COMMAND.BM CASE 331/333
+- `8e0a1b0` Memory update with full commit list
+- `e2a472c` Phase 5c — bulk SAFE_FREEIMAGE adoption (215 sites across 17 files)
+- `6635665` Phase 5d — SCENE_invalidate adoption (13 same-line sites)
 
-**Remaining work** (not yet on branch):
+**Remaining work** (future sessions):
 - Phase 1b: more keyboard registrations (brush size, Esc, arrows, F-keys 4-9)
 - Phase 5 continued: apply remaining CORE/HELPERS to existing code:
-  - ~216 SAFE_FREEIMAGE call sites (verify each surrounding context first)
-  - ~50 SCENE_DIRTY%+FRAME_IDLE% pairs → SCENE_invalidate (sites vary widely in pattern)
+  - ~140 remaining _FREEIMAGE sites with COMPLEX surrounding logic (multi-statement IF blocks); need per-site review
+  - ~50 multi-line SCENE_DIRTY+FRAME_IDLE pairs → SCENE_invalidate (sites vary widely in pattern)
+  - ~10 manual MODIFIERS chains → MODS_only% (small win)
   - ~8 _DEST/_SOURCE manual save-restore sites → DEST_SAVE/RESTORE + SOURCE_SAVE/RESTORE
 - Phase 8: manual QA against PLANS/TESTS/
 - Phase 9: merge to main
 
-**Current state**: 10 commits on branch, ~3500 LOC added, 0 audit conflicts on 160 metadata bindings. Branch is mergeable as-is — ships pure infrastructure + metadata + helpers. Remaining phases can ship on subsequent branches.
+**Current state**: 13 commits on branch, ~3800 LOC added, 0 audit conflicts on 160 metadata bindings, **276 sites using SAFE_FREEIMAGE**. Branch is mergeable as-is. Remaining phases can ship on subsequent branches.
 
 ## Key invariants (don't violate)
 
