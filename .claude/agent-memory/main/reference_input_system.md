@@ -48,18 +48,28 @@ When active: `./inputs.log` is cleared on startup, then receives `[INIT]`, `[AUD
 - `8e0a1b0` Memory update with full commit list
 - `e2a472c` Phase 5c — bulk SAFE_FREEIMAGE adoption (215 sites across 17 files)
 - `6635665` Phase 5d — SCENE_invalidate adoption (13 same-line sites)
+- `b4f164c` Memory update with Phase 5c/5d
+- `fa3dce8` Phase 5e — collapse 4-line _FREEIMAGE blocks (38 sites, -114 LOC)
+- `20d75ee` Phase 5f — collapse 3-line _FREEIMAGE blocks (31 sites, -58 LOC)
+- `0d314f8` Phase 5g — first dispatched=TRUE binding (F12 dev debug proof of concept)
 
 **Remaining work** (future sessions):
 - Phase 1b: more keyboard registrations (brush size, Esc, arrows, F-keys 4-9)
-- Phase 5 continued: apply remaining CORE/HELPERS to existing code:
-  - ~140 remaining _FREEIMAGE sites with COMPLEX surrounding logic (multi-statement IF blocks); need per-site review
-  - ~50 multi-line SCENE_DIRTY+FRAME_IDLE pairs → SCENE_invalidate (sites vary widely in pattern)
-  - ~10 manual MODIFIERS chains → MODS_only% (small win)
-  - ~8 _DEST/_SOURCE manual save-restore sites → DEST_SAVE/RESTORE + SOURCE_SAVE/RESTORE
+- Phase 5 continued: ~297 remaining _FREEIMAGE sites have complex surrounding logic
+  (multi-statement IF blocks with extra conditions/statements) — per-site review needed
+- ~50 multi-line SCENE_DIRTY+FRAME_IDLE pairs → SCENE_invalidate (varied patterns)
+- ~10 manual MODIFIERS chains → MODS_only% (small win)
+- ~8 _DEST/_SOURCE manual save-restore sites → DEST_SAVE/RESTORE
+- Migrate dispatched=FALSE bindings to dispatched=TRUE one at a time
+  (must remove corresponding legacy inline handler at same time to avoid double-fire)
 - Phase 8: manual QA against PLANS/TESTS/
 - Phase 9: merge to main
 
-**Current state**: 13 commits on branch, ~3800 LOC added, 0 audit conflicts on 160 metadata bindings, **276 sites using SAFE_FREEIMAGE**. Branch is mergeable as-is. Remaining phases can ship on subsequent branches.
+**Current state**: 17 commits on branch, ~3850/-550 LOC, 161 bindings registered
+(160 metadata + 1 F12 proof-of-concept dispatched=TRUE), 0 audit conflicts,
+**345 sites using SAFE_FREEIMAGE** (54% of original 642 _FREEIMAGE sites).
+Branch is mergeable as-is. The dispatcher is proven end-to-end via F12 test —
+verify by running `./DRAW.run --developer`, pressing F12, then `cat inputs.log`.
 
 ## Key invariants (don't violate)
 
