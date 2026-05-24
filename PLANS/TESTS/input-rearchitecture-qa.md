@@ -130,19 +130,21 @@ After launch (before doing anything else), quit and check:
 ```bash
 cat inputs.log
 ```
-Expected output (exact timestamps will differ):
+Expected output (exact timestamps will differ; counts after Phase 6a-c):
 ```
 [<time>] [INIT] DRAW 1.5.0 developer mode active
 [<time>] [INIT] 0 input bindings registered
-[<time>] [AUDIT] Scanning 161 bindings for conflicts
+[<time>] [AUDIT] Scanning 167 bindings for conflicts
 [<time>] [AUDIT] Complete: 0 conflicts found
-[<time>] [INIT] After registration: 161 bindings
+[<time>] [INIT] After registration: 167 bindings
+[<time>] [INIT] dispatched=TRUE: 36, letter skip-list size: 31
 [<time>] [GAMEPAD] 3 input device(s) detected (stub — no translation active)
 ```
 
 - [ ] `inputs.log` appears in project directory
 - [ ] `[INIT]` line shows version + dev mode
-- [ ] `[AUDIT]` reports **0 conflicts** on **161 bindings**
+- [ ] `[AUDIT]` reports **0 conflicts** on **167 bindings**
+- [ ] `[INIT] dispatched=TRUE: 36, letter skip-list size: 31` confirms Phase 6a-c migration
 - [ ] No `[CONFLICT]` lines anywhere
 - [ ] No `[CONSISTENCY]` warnings anywhere
 - [ ] `[GAMEPAD]` line shows device count (your machine's input devices)
@@ -188,6 +190,65 @@ Expected:
 
 - [ ] Audit detects the duplicate
 - [ ] Restore the duplicate, rebuild, re-verify audit returns to 0 conflicts
+
+### 2.4 — Phase 6a–c migration smoke test
+
+35 keys have been flipped from `dispatched=FALSE` (legacy-only metadata)
+to `dispatched=TRUE` (central dispatcher owns dispatch). In dev mode each
+should produce **exactly one** `[FIRE]` line per press, and the
+corresponding behavior should match what main does.
+
+```bash
+rm -f inputs.log
+./DRAW.run --developer
+```
+
+**Tool keys (Phase 6a-iii)** — press each in turn, verify tool switches:
+- [ ] `B` → Brush. `[FIRE] action=101`
+- [ ] `D` → Dot. `[FIRE] action=102`
+- [ ] `F` → Fill. `[FIRE] action=103`
+- [ ] `L` → Line. `[FIRE] action=105`
+- [ ] `P` → Polygon. `[FIRE] action=106`
+- [ ] `Shift+P` → Polygon Filled. `[FIRE] action=107`
+- [ ] `R` → Rectangle. `[FIRE] action=108`
+- [ ] `Shift+R` → Rectangle Filled. `[FIRE] action=109`
+- [ ] `C` → Ellipse. `[FIRE] action=110`
+- [ ] `Shift+C` → Ellipse Filled. `[FIRE] action=111`
+- [ ] `M` → Marquee. `[FIRE] action=112`
+- [ ] `V` → Move. `[FIRE] action=113`
+- [ ] `T` → Text (VGA default). `[FIRE] action=114`
+- [ ] `Shift+T` → Text Tiny5. `[FIRE] action=115`
+- [ ] `E` → Eraser (tap, not hold). `[FIRE] action=118`
+- [ ] `W` → Magic Wand. `[FIRE] action=117`
+- [ ] `I` → Picker. `[FIRE] action=104`
+- [ ] `S` → Smart Shapes (single tap activates). `[FIRE] action=1706`
+- [ ] `S` `S` quickly (within 600ms) → Smart Shapes cycle. Two `[FIRE] action=1706` lines.
+- [ ] `Q` → Bezier. `[FIRE] action=122`
+- [ ] `K` → Spray. `[FIRE] action=1702`
+- [ ] `Z` → Zoom. `[FIRE] action=1701`
+- [ ] (After clicking inside a TOOL_SS_BEVEL_RECT shape) `I` → bevel inner style. `[FIRE] action=104`
+- [ ] (Same) `O` → bevel outer style. `[FIRE] action=1707`
+
+**Context guards still work**:
+- [ ] In Magic Wand mode (`W`), pressing `F` does **not** switch tool (no `[FIRE]` for action 103)
+- [ ] With MOVE active + floating selection, `V` fires **action 316** (flip vertical), not action 113
+
+**Opacity / X swap (Phase 6b)**:
+- [ ] `1` → opacity 10%. `[FIRE] action=501`
+- [ ] `2` → opacity 20%. `[FIRE] action=502`
+- [ ] ... through ...
+- [ ] `0` → opacity 100%. `[FIRE] action=510`
+- [ ] `X` → swap FG/BG colors. `[FIRE] action=517`
+- [ ] While drawing a 3D dice (TOOL_SS_3D_CUBE + dragging), digit keys do **not** fire opacity (CTX_SS_DRAGGING in forbidCtx)
+- [ ] While holding `Z`, `1`..`0` fires Z-zoom-preset (still legacy), NOT opacity
+
+**Brush size (Phase 6c)**:
+- [ ] `[` → brush size −. `[FIRE] action=601`
+- [ ] `]` → brush size +. `[FIRE] action=602`
+
+**Double-fire check** (the biggest regression risk):
+- [ ] After pressing each key once, the `inputs.log` shows **one** `[FIRE]` per press (not two)
+- [ ] Tool actually switched only once (no double-execution side effects like double `SOUND_play` on `M`/`W`)
 
 ---
 

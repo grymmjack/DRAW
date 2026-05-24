@@ -65,15 +65,52 @@ When active: `./inputs.log` is cleared on startup, then receives `[INIT]`, `[AUD
 - Phase 8: manual QA against PLANS/TESTS/
 - Phase 9: merge to main
 
-**Current state**: 19 commits on branch, ~4042/-857 LOC, 161 bindings registered
-(160 metadata + 1 F12 proof-of-concept dispatched=TRUE), 0 audit conflicts,
-**637 sites using SAFE_FREEIMAGE** (100% of executable code — only the
-helper definition itself in CORE/HELPERS.BM has bare _FREEIMAGE).
-Branch is mergeable as-is. The dispatcher is proven end-to-end via F12 test —
-verify by running `./DRAW.run --developer`, pressing F12, then `cat inputs.log`.
+**Current state (Phase 6a-c complete)**: 26+ commits on branch, 167 bindings,
+36 dispatched=TRUE (was 1 before P6; now 22 tool keys + 11 opacity/X + 2
+brush-size + 1 F12 proof), letter skip-list size 31, 0 audit conflicts.
 
-Latest commits:
-- `7d7a3b4` Phase 5h — defense-in-depth, all 291 remaining bare _FREEIMAGE → SAFE_FREEIMAGE
+Phase 6 added two new infrastructure pieces in INPUT.BI/BM:
+- `INPUT_LETTER_DISPATCHED(0 TO 127) AS INTEGER` — set by INPUT_register%
+  when a dispatched=TRUE EVT_KEY_PRESS binding lands on 0..127 keycode
+  (A-Z normalized to a-z). Lookup index = ASC(LCASE$(keypress$)).
+- `INPUT_DISPATCH_DEPTH AS INTEGER` — depth counter, incremented at top
+  of CMD_execute_action, decremented at end. Lets KEYBOARD_tools and
+  KEYBOARD_colors early-exit when called from INKEY$ (depth=0) but
+  proceed when CMD_execute_action calls back into them (depth>0).
+- New CTX_SS_DRAGGING bit for 3D dice / SS polygon dragging — digit
+  opacity bindings forbid it so digits feed dice type / polygon sides
+  instead of opacity during drag.
+
+Phase 6 commits:
+- `26a0feb` Phase 6a-i — corrected Phase 1a action IDs (still FALSE)
+- `12b7584` Phase 6a-ii — added CASE 1701 (Zoom tool switch), 1706
+  (Smart Shapes activate/cycle with STATIC double-tap), 1707 (Bevel
+  outer style); added Shift+T → 115 binding
+- `bc9e954` Phase 6a-iii — flipped 22 tool keys to dispatched=TRUE
+- `37350c1` Phase 6b — flipped opacity 1-0 (501-510) and X-swap (517);
+  added CASE 517 handler that was registered but never implemented
+- `1b83204` Phase 6c — flipped [ and ] (601, 602)
+- `b41d919` Removed KEYBOARD_brush_size SUB (fully migrated)
+
+Branch is mergeable. The migrated keys are end-to-end dispatched through
+the central dispatcher. Verify by running `./DRAW.run --developer`,
+pressing any migrated key, then `cat inputs.log` — exactly one [FIRE]
+line per press, action ID matches the binding label.
+
+**Remaining work** (future sessions):
+- Phase 6d: Ctrl+letter ops (Ctrl+S/O/N/Z/Y/C/X/V/A/D/T/L/P/B/E/R, plus
+  Ctrl+Shift+S, Ctrl+=, Ctrl+-, Ctrl+0, Ctrl+Home, Ctrl+End, etc.).
+  Each currently has STATIC pressed% + _KEYDOWN guard scattered across
+  KEYBOARD.BM SUBs. Per-chord migration: add binding dispatched=TRUE,
+  remove legacy STATIC block. Best done one chord at a time with QA.
+- Phase 6e: Chord bindings (G+R, G+Shift+R, G+Ctrl+R, G+O, G+arrows,
+  M+=, M+-, M++, M+_, Z+0..9). Multi-key state machines. Complex.
+- Migrate * (random track) and # (border toggle) — needs CTX_MUSIC_ENABLED
+  or in-action guard.
+- Remove KEYBOARD_colors entirely once * and # migrated (digits + X
+  already skip-listed; * and # are only remaining live cases).
+- Phase 8: full QA against PLANS/TESTS/input-rearchitecture-qa.md
+- Phase 9: merge to main
 
 ## Key invariants (don't violate)
 

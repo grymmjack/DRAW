@@ -1,9 +1,11 @@
 # PR: Input Subsystem Rearchitecture + Cross-Cutting Helpers
 
 **Branch**: `input-rearchitecture` → `main`
-**Commits**: 20
-**LOC**: +4046 / -857 across 86 files
-**Behavior change for normal users**: ZERO (gated on `--developer` CLI flag)
+**Commits**: 26+ (was 20, +6 for Phase 6a-c migration)
+**LOC**: ~+4150 / -880 across 86+ files
+**Behavior change for normal users**: ZERO (gated on `--developer` CLI flag);
+35 commonly-used keys now route through the new dispatcher but produce
+identical end-user behavior to main
 
 ---
 
@@ -43,10 +45,12 @@ This PR introduces a **declarative event-dispatch table** so that adding new key
   - `MODS_NOW%` / `MODS_only%` (modifier bitmask helpers)
 - **`CFG.DEVELOPER_MODE%`** field with CLI flag `--developer` / `--dev` (CFG override + CLI override)
 
-### Registration coverage (Phases 1, 3)
-- **89 keyboard bindings** registered as metadata (88 `dispatched=FALSE` + 1 F12 proof `dispatched=TRUE`)
+### Registration coverage (Phases 1, 3, 6)
+- **95 keyboard bindings** registered (was 89 in P1; +6 in P6: Shift+T, Q, K, O, and two new brush-size bindings; X swap and opacity were already there)
 - **72 mouse event bindings** registered as metadata
-- **161 total bindings, 0 audit conflicts** (math proves no overlap given current modifier + context exclusions)
+- **167 total bindings, 0 audit conflicts**
+- **36 bindings are `dispatched=TRUE`** (was 1 before P6; Phase 6a-c migrated 35 keys — 22 tool, 11 opacity+X, 2 brush size)
+- **letter skip-list size: 31** (covers a-z migrated + 0-9 + 'x' + '[' + ']')
 
 ### GUI panel migrations (Phase 2)
 14 of 18 GUI panels now call `REGION_set_bounds` in their render SUB:
@@ -76,10 +80,17 @@ Modals (settings dialog, file dialog, command palette, popup menus) deliberately
 - **Zero behavior change for normal users.** Without `--developer`:
   - No `inputs.log` written
   - No audit runs
-  - All legacy `KEYBOARD.BM` / `MOUSE.BM` handlers continue to fully own dispatch
-  - `dispatched=FALSE` bindings are pure metadata — never fire actions
-  - Only F12 (the proof-of-concept `dispatched=TRUE`) fires through the new dispatcher, and that only writes to `inputs.log` in dev mode
-- **No public API changes.** `CMD_execute_action` is unchanged.
+  - Tool keys, opacity keys, X-swap, and brush-size keys now route through
+    the new dispatcher but produce identical end-user behavior (the action
+    handlers either call the same legacy `KEYBOARD_tools` SUB or were
+    factored out of it).
+  - Other keys (ESC, Enter, Ctrl+letters, chord keys G+R/M+=/Z+digit) still
+    run through legacy `KEYBOARD.BM` handlers.
+  - `dispatched=FALSE` bindings remain pure metadata — never fire actions.
+- **`CMD_execute_action` is mostly unchanged.** Phase 6 added an
+  `INPUT_DISPATCH_DEPTH` increment/decrement at top/bottom so the
+  KEYBOARD_tools skip-list guard can tell INKEY$ calls from dispatcher
+  callbacks. No public signature change.
 - **No config format changes** that break existing `DRAW.cfg` files. The new `DEVELOPER_MODE` field defaults to `FALSE` on old configs (sentinel = absent).
 
 ## Performance
@@ -93,7 +104,15 @@ Verified by clean `--developer` runs throughout development — no perceptible c
 
 ## What's deferred (intentionally — not blockers for merge)
 
-1. **More `dispatched=TRUE` migrations**: each requires removing the corresponding legacy inline handler at the same time (avoid double-fire). Best done one-by-one per chord with manual QA. Future small branches off `main`.
+1. **More `dispatched=TRUE` migrations**: Phase 6a-c covers the common
+   tool/opacity/brush-size keys. Still on legacy `KEYBOARD.BM`:
+   - Ctrl+letter ops (Ctrl+S/O/N/Z/Y/C/X/V/A/D/T/L/P/B/E/R, Ctrl+Shift+S, etc.)
+   - Chord bindings (G+R, G+Shift+R, G+Ctrl+R, G+O, G+arrows; M+=, M+-,
+     M++, M+_; Z+0..9 zoom presets)
+   - `*` (random track) and `#` (toggle border) — need CTX_MUSIC_ENABLED bit
+     or in-action guard before migration.
+   Each remaining chord requires its own small commit + manual QA — best
+   done in follow-up branches off `main`.
 2. **Modal dialog REGION integration**: deferred because modals have their own `DIALOG_CTX` input loops that already handle all input correctly. Context bits (`CTX_*_OPEN`) flag their visibility to other bindings.
 3. **Multi-line `SCENE_invalidate` adoption**: ~50 sites have `SCENE_DIRTY` and `FRAME_IDLE` interleaved with other code (`GUI_NEEDS_REDRAW`, conditionals). Need per-site review.
 4. **`MODS_only%` adoption**: ~10 manual `MODIFIERS.ctrl% AND NOT MODIFIERS.shift%` chains. Low value.
