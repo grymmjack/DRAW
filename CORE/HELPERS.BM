@@ -1,0 +1,191 @@
+''
+' DRAW - CORE/HELPERS.BM
+' =============================================================================
+' Implementation of cross-cutting helpers declared in CORE/HELPERS.BI.
+' See HELPERS.BI for rationale.
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+
+''
+' Free an image handle if valid. Image handles are negative LONGs;
+' 0 and -1 are invalid (-1 is _SCREEN, freeing it would be catastrophic).
+' Per CLAUDE.md gotcha #2.
+' @param handle LONG Image handle to free (silently ignored if invalid)
+'
+SUB SAFE_FREEIMAGE (handle AS LONG)
+    IF handle < -1 THEN _FREEIMAGE handle
+END SUB
+
+
+''
+' Push current _DEST onto the stack. Use DEST_RESTORE to pop.
+' Logs and no-ops on stack overflow (depth > RENDER_STATE_STACK_DEPTH).
+'
+SUB DEST_SAVE ()
+    IF DEST_STACK_TOP >= RENDER_STATE_STACK_DEPTH THEN
+        _LOGERROR "HELPERS: DEST_SAVE stack overflow (depth " + _TRIM$(STR$(DEST_STACK_TOP)) + ")"
+        EXIT SUB
+    END IF
+    DEST_STACK_TOP             = DEST_STACK_TOP + 1
+    DEST_STACK(DEST_STACK_TOP) = _DEST
+END SUB
+
+
+''
+' Pop and restore the saved _DEST. Pairs with DEST_SAVE.
+' Logs and no-ops on stack underflow (no matching SAVE).
+'
+SUB DEST_RESTORE ()
+    IF DEST_STACK_TOP <= 0 THEN
+        _LOGERROR "HELPERS: DEST_RESTORE stack underflow"
+        EXIT SUB
+    END IF
+    _DEST DEST_STACK(DEST_STACK_TOP)
+    DEST_STACK_TOP = DEST_STACK_TOP - 1
+END SUB
+
+
+''
+' Push current _SOURCE onto the stack. Use SOURCE_RESTORE to pop.
+'
+SUB SOURCE_SAVE ()
+    IF SOURCE_STACK_TOP >= RENDER_STATE_STACK_DEPTH THEN
+        _LOGERROR "HELPERS: SOURCE_SAVE stack overflow"
+        EXIT SUB
+    END IF
+    SOURCE_STACK_TOP                 = SOURCE_STACK_TOP + 1
+    SOURCE_STACK(SOURCE_STACK_TOP)   = _SOURCE
+END SUB
+
+
+''
+' Pop and restore the saved _SOURCE.
+'
+SUB SOURCE_RESTORE ()
+    IF SOURCE_STACK_TOP <= 0 THEN
+        _LOGERROR "HELPERS: SOURCE_RESTORE stack underflow"
+        EXIT SUB
+    END IF
+    _SOURCE SOURCE_STACK(SOURCE_STACK_TOP)
+    SOURCE_STACK_TOP = SOURCE_STACK_TOP - 1
+END SUB
+
+
+''
+' Push current _FONT onto the stack.
+'
+SUB FONT_SAVE ()
+    IF FONT_STACK_TOP >= RENDER_STATE_STACK_DEPTH THEN
+        _LOGERROR "HELPERS: FONT_SAVE stack overflow"
+        EXIT SUB
+    END IF
+    FONT_STACK_TOP               = FONT_STACK_TOP + 1
+    FONT_STACK(FONT_STACK_TOP)   = _FONT
+END SUB
+
+
+''
+' Pop and restore the saved _FONT.
+'
+SUB FONT_RESTORE ()
+    IF FONT_STACK_TOP <= 0 THEN
+        _LOGERROR "HELPERS: FONT_RESTORE stack underflow"
+        EXIT SUB
+    END IF
+    _FONT FONT_STACK(FONT_STACK_TOP)
+    FONT_STACK_TOP = FONT_STACK_TOP - 1
+END SUB
+
+
+''
+' Nearest-neighbor pixel-double an image along ONE axis.
+' Used by per-axis scale operations (asymmetric "wide-pixel" art:
+' Atari 2600 = horizontal axis, Apple II hi-res = vertical axis).
+' Replaces 4 nearly-identical loops in COMMAND.BM and CUSTOM-BRUSH.BM.
+' @param srcImg LONG Source image (must be valid 32-bit RGBA)
+' @param dstImg LONG Destination image (must be exact 2x size on chosen axis)
+' @param axis INTEGER 0 = horizontal (each col -> 2 cols), 1 = vertical (each row -> 2 rows)
+'
+SUB PIXEL_DOUBLE_AXIS (srcImg AS LONG, dstImg AS LONG, axis AS INTEGER)
+    IF srcImg >= -1 THEN EXIT SUB
+    IF dstImg >= -1 THEN EXIT SUB
+    DIM sw       AS INTEGER, sh AS INTEGER
+    DIM px       AS INTEGER, py AS INTEGER
+    DIM p        AS _UNSIGNED LONG
+    sw% = _WIDTH(srcImg) : sh% = _HEIGHT(srcImg)
+    SOURCE_SAVE : DEST_SAVE
+    _SOURCE srcImg : _DEST dstImg
+    _DONTBLEND dstImg
+    CLS , _RGBA32(0, 0, 0, 0)
+    FOR py% = 0 TO sh% - 1
+        FOR px% = 0 TO sw% - 1
+            p~& = POINT(px%, py%)
+            IF axis% = 0 THEN
+                PSET (px% * 2,     py%), p~&
+                PSET (px% * 2 + 1, py%), p~&
+            ELSE
+                PSET (px%, py% * 2),     p~&
+                PSET (px%, py% * 2 + 1), p~&
+            END IF
+        NEXT px%
+    NEXT py%
+    _BLEND dstImg
+    SOURCE_RESTORE : DEST_RESTORE
+END SUB
+
+
+''
+' Mark the scene as needing a full re-render this frame.
+' Use when actual pixel content changed (paint stroke, layer transform, etc).
+' Pairs SCENE_DIRTY% + FRAME_IDLE% atomically — replaces ~50 scattered
+' inconsistent pairings identified in idiom discovery.
+'
+SUB SCENE_invalidate ()
+    SCENE_DIRTY% = TRUE
+    FRAME_IDLE%  = FALSE
+END SUB
+
+
+''
+' Mark the scene cache as invalid but don't force exit from idle.
+' Use when cache invalidation is needed but no visible content change yet
+' (e.g. blend cache flush, layer reorder pending).
+'
+SUB SCENE_request_render ()
+    SCENE_DIRTY% = TRUE
+END SUB
+
+
+''
+' Snapshot current modifier state into a MOD_* bitmask.
+' Used by INPUT_dispatch_frame to populate INPUT_EVENT.mods, and
+' by any code that needs a single-INTEGER modifier value.
+' @return INTEGER bitmask: MOD_CTRL | MOD_SHIFT | MOD_ALT
+'
+FUNCTION MODS_NOW% ()
+    DIM result AS INTEGER
+    result% = 0
+    IF MODIFIERS.ctrl%  THEN result% = result% OR MOD_CTRL
+    IF MODIFIERS.shift% THEN result% = result% OR MOD_SHIFT
+    IF MODIFIERS.alt%   THEN result% = result% OR MOD_ALT
+    MODS_NOW% = result%
+END FUNCTION
+
+
+''
+' Check if current modifier state EXACTLY matches wantMods (no more, no less).
+' Replaces 15+ manual chains like
+'   MODIFIERS.ctrl% AND NOT MODIFIERS.shift% AND NOT MODIFIERS.alt%
+' Usage:
+'   IF MODS_only%(MOD_CTRL) THEN ...           ' only Ctrl
+'   IF MODS_only%(MOD_CTRL OR MOD_SHIFT) THEN ' only Ctrl+Shift
+'   IF MODS_only%(MOD_NONE) THEN ...           ' no modifiers at all
+' @param wantMods INTEGER Bitmask of required modifiers
+' @return INTEGER TRUE if current state exactly matches wantMods
+'
+FUNCTION MODS_only% (wantMods AS INTEGER)
+    MODS_only% = (MODS_NOW% = wantMods)
+END FUNCTION

@@ -214,6 +214,8 @@ IMAGE_ADJ_init          ' Initialise image adjustment library (IMGADJ)
 COLORMIXER_init         ' Initialise non-modal color mixer panel
 BROWSER_init            ' Initialise floating browser panel scaffold
 SMART_SHAPES_init       ' Register Smart Shapes flyout sub-tools
+INPUTS_init             ' Initialise input dispatch system + audit (DEV_MODE -> inputs.log)
+GAMEPAD_init            ' Initialise gamepad subsystem (stub — mouse emulation)
 
 ' Main Loop
 DIM k                       AS LONG
@@ -386,10 +388,15 @@ DO
     
     ' Update modifier key state (CTRL, SHIFT, ALT) once per frame
     MODIFIERS_update
-    
+
     LOOP_start
     MUSIC_tick
     PERF_start PERF_MAIN_LOOP_TOTAL
+
+    ' Poll gamepad (mouse-emulated) BEFORE mouse drain so gamepad-driven
+    ' state appears as real mouse state to downstream code.
+    GAMEPAD_poll
+
     PERF_start PERF_MOUSE_INPUT
     MOUSE_input_handler
     PALETTE_OPS_tick
@@ -397,6 +404,14 @@ DO
     PERF_start PERF_KEYBOARD_INPUT
     KEYBOARD_input_handler
     PERF_stop PERF_KEYBOARD_INPUT
+
+    ' === New unified input dispatch (Phase 0) ===
+    ' For dispatched=TRUE bindings, fires actions via CMD_execute_action.
+    ' Legacy KEYBOARD/MOUSE handlers above still run for dispatched=FALSE
+    ' bindings (which is everything until subsequent migration phases).
+    INPUT_update_context
+    INPUT_detect_events
+    INPUT_dispatch_frame
     
     PERF_start PERF_STICK_INPUT
     STICK_input_handler

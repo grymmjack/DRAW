@@ -1,0 +1,640 @@
+''
+' DRAW - INPUT/INPUT.BM
+' =============================================================================
+' Implementation of the unified input dispatch system declared in INPUT.BI.
+' See PLANS/REARCHITECTURE.md for full design rationale.
+'
+' Per-frame call order (wired from DRAW.BAS main loop):
+'   1. INPUT_update_context     ' refresh INPUT_CONTEXT bitmask
+'   2. INPUT_detect_events      ' state machine -> DETECTED_EVENTS queue
+'   3. INPUT_dispatch_frame     ' match events to bindings, fire actions
+'   4. [legacy] MOUSE_input_handler / KEYBOARD_input_handler still run for
+'      dispatched=FALSE bindings until migrated.
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+
+''
+' Initialize the input system at startup. Detects developer mode (CLI flag,
+' CFG.DEVELOPER_MODE%), prepares inputs.log, runs audit on registered
+' bindings (none in Phase 0; subsequent phases populate the table).
+'
+SUB INPUTS_init ()
+    DIM i AS INTEGER
+    DIM arg AS STRING
+    DIM fh AS INTEGER
+
+    ' --- Developer-mode detection (any source enables it) ---
+    DEV_MODE% = FALSE
+    IF CFG.DEVELOPER_MODE% THEN DEV_MODE% = TRUE
+    FOR i% = 1 TO _COMMANDCOUNT
+        arg$ = COMMAND$(i%)
+        IF arg$ = "--developer" THEN DEV_MODE% = TRUE
+        IF arg$ = "--dev" THEN DEV_MODE% = TRUE
+    NEXT i%
+
+    ' --- Log path: project working directory ---
+    INPUTS_LOG_PATH$ = "./inputs.log"
+
+    ' --- Clear log on each startup (dev mode only) ---
+    IF DEV_MODE% THEN
+        fh% = FREEFILE
+        OPEN INPUTS_LOG_PATH$ FOR OUTPUT AS #fh%
+        CLOSE #fh%
+        INPUTS_log "[INIT] DRAW " + APP_VERSION$ + " developer mode active"
+        INPUTS_log "[INIT] " + _TRIM$(STR$(INPUT_BIND_COUNT%)) + " input bindings registered"
+    END IF
+
+    ' --- Initialize per-frame state ---
+    DETECTED_EVENT_COUNT     = 0
+    INPUT_CONTEXT            = 0
+    INPUT_CONTEXT_PREV       = 0
+    HOVER_REGION_LAST        = 0
+
+    ' --- Build perf-optimization tables ---
+    INPUT_interesting_keys_build
+
+    ' --- Run audit (dev mode only, writes conflicts to inputs.log) ---
+    INPUT_audit
+END SUB
+
+
+''
+' Append a line to inputs.log. No-op when DEV_MODE is FALSE.
+' @param msg STRING Line to append (timestamp prepended automatically)
+'
+SUB INPUTS_log (msg AS STRING)
+    IF NOT DEV_MODE% THEN EXIT SUB
+    DIM fh AS INTEGER
+    fh% = FREEFILE
+    OPEN INPUTS_LOG_PATH$ FOR APPEND AS #fh%
+    PRINT #fh%, "[" + _TRIM$(STR$(TIMER)) + "] " + msg
+    CLOSE #fh%
+END SUB
+
+
+''
+' Register an input binding. Returns the binding index (or 0 on overflow).
+' Most call sites use the registration convention shown in the spec example.
+'
+FUNCTION INPUT_register% ( _
+    eventType AS INTEGER, _
+    region AS INTEGER, _
+    keycode AS LONG, _
+    button AS INTEGER, _
+    wheelDir AS INTEGER, _
+    requireMods AS INTEGER, _
+    forbidMods AS INTEGER, _
+    requireCtx AS _UNSIGNED _INTEGER64, _
+    forbidCtx AS _UNSIGNED _INTEGER64, _
+    actionId AS INTEGER, _
+    dispatched AS INTEGER, _
+    label AS STRING)
+
+    IF INPUT_BIND_COUNT >= INPUT_MAX_BINDS THEN
+        _LOGERROR "INPUT: binding table full (max " + _TRIM$(STR$(INPUT_MAX_BINDS)) + ")"
+        INPUT_register% = 0
+        EXIT FUNCTION
+    END IF
+
+    INPUT_BIND_COUNT = INPUT_BIND_COUNT + 1
+    INPUT_BINDS(INPUT_BIND_COUNT).eventType   = eventType%
+    INPUT_BINDS(INPUT_BIND_COUNT).region      = region%
+    INPUT_BINDS(INPUT_BIND_COUNT).keycode     = keycode&
+    INPUT_BINDS(INPUT_BIND_COUNT).button      = button%
+    INPUT_BINDS(INPUT_BIND_COUNT).wheelDir    = wheelDir%
+    INPUT_BINDS(INPUT_BIND_COUNT).requireMods = requireMods%
+    INPUT_BINDS(INPUT_BIND_COUNT).forbidMods  = forbidMods%
+    INPUT_BINDS(INPUT_BIND_COUNT).requireCtx  = requireCtx
+    INPUT_BINDS(INPUT_BIND_COUNT).forbidCtx   = forbidCtx
+    INPUT_BINDS(INPUT_BIND_COUNT).actionId    = actionId%
+    INPUT_BINDS(INPUT_BIND_COUNT).dispatched  = dispatched%
+    INPUT_BINDS(INPUT_BIND_COUNT).label       = label$
+
+    ' Infer device class from event type range
+    SELECT CASE eventType%
+        CASE 1 TO 9   : INPUT_BINDS(INPUT_BIND_COUNT).device = DEVICE_KEYBOARD
+        CASE 10 TO 29 : INPUT_BINDS(INPUT_BIND_COUNT).device = DEVICE_MOUSE
+        CASE 30 TO 39 : INPUT_BINDS(INPUT_BIND_COUNT).device = DEVICE_GAMEPAD
+        CASE 40 TO 49 : INPUT_BINDS(INPUT_BIND_COUNT).device = DEVICE_MIDI
+        CASE 50 TO 59 : INPUT_BINDS(INPUT_BIND_COUNT).device = DEVICE_TABLET
+        CASE 60 TO 69 : INPUT_BINDS(INPUT_BIND_COUNT).device = DEVICE_TOUCH
+        CASE ELSE     : INPUT_BINDS(INPUT_BIND_COUNT).device = DEVICE_NONE
+    END SELECT
+
+    INPUT_register% = INPUT_BIND_COUNT
+END FUNCTION
+
+
+''
+' Build the INPUT_INTERESTING_KEYS bitmap. Called from INPUTS_init AFTER all
+' registration is complete. Optimization: edge-detection only polls keys that
+' have at least one registered binding.
+'
+SUB INPUT_interesting_keys_build ()
+    DIM ki AS LONG       ' must be LONG: INTEGER (16-bit signed) overflows past 32767
+    DIM bi AS INTEGER
+    DIM kc AS LONG
+    ' Clear
+    FOR ki = 0 TO 65535
+        INPUT_INTERESTING_KEYS(ki) = 0
+    NEXT ki
+    FOR bi = 1 TO INPUT_BIND_COUNT
+        kc& = INPUT_BINDS(bi).keycode
+        IF kc& > 0 AND kc& <= 65535 THEN
+            INPUT_INTERESTING_KEYS(kc&) = 1
+            ' Letter-case insensitivity: also flag the other case
+            IF kc& >= 97 AND kc& <= 122 THEN
+                INPUT_INTERESTING_KEYS(kc& - 32) = 1   ' lowercase -> also flag uppercase
+            ELSEIF kc& >= 65 AND kc& <= 90 THEN
+                INPUT_INTERESTING_KEYS(kc& + 32) = 1   ' uppercase -> also flag lowercase
+            END IF
+        END IF
+    NEXT bi
+END SUB
+
+
+''
+' Set or update a region's screen rectangle. Called from each panel's render
+' SUB every frame the panel is visible. Bounds are stored in screen pixels
+' (same coord space as MOUSE.RAW_X/Y).
+' Per CLAUDE.md / PLANS/REARCHITECTURE.md §13d: every visible panel MUST call
+' this in its render SUB.
+'
+SUB REGION_set_bounds (region AS INTEGER, x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER, zOrder AS INTEGER)
+    IF region < 0 OR region >= REGION_TABLE_SIZE THEN
+        _LOGERROR "REGION_set_bounds: region " + _TRIM$(STR$(region)) + " out of range"
+        EXIT SUB
+    END IF
+    REGION_BOUNDS_TABLE(region).active = TRUE
+    REGION_BOUNDS_TABLE(region).x      = x%
+    REGION_BOUNDS_TABLE(region).y      = y%
+    REGION_BOUNDS_TABLE(region).w      = w%
+    REGION_BOUNDS_TABLE(region).h      = h%
+    REGION_BOUNDS_TABLE(region).zOrder = zOrder%
+END SUB
+
+
+''
+' Mark a region as inactive (hidden). Hit-testing skips inactive regions.
+'
+SUB REGION_set_inactive (region AS INTEGER)
+    IF region < 0 OR region >= REGION_TABLE_SIZE THEN EXIT SUB
+    REGION_BOUNDS_TABLE(region).active = FALSE
+END SUB
+
+
+''
+' Clear ALL region bounds (called on display-scale change to force re-layout).
+' Next frame, panels re-render and set fresh bounds. Worst case: one frame of
+' "no region matches" during a rare event.
+'
+SUB REGION_clear_all ()
+    DIM i AS INTEGER
+    FOR i = 0 TO REGION_TABLE_SIZE - 1
+        REGION_BOUNDS_TABLE(i).active = FALSE
+        REGION_BOUNDS_TABLE(i).x      = 0
+        REGION_BOUNDS_TABLE(i).y      = 0
+        REGION_BOUNDS_TABLE(i).w      = 0
+        REGION_BOUNDS_TABLE(i).h      = 0
+    NEXT i
+END SUB
+
+
+''
+' Dev-mode invariant check: walk REGION_BOUNDS_TABLE, log any inconsistencies
+' (active but degenerate, off-screen, etc.). Runs once per frame in dev mode.
+'
+SUB REGION_check_consistency ()
+    IF NOT DEV_MODE% THEN EXIT SUB
+    DIM i AS INTEGER
+    FOR i = 0 TO REGION_TABLE_SIZE - 1
+        IF REGION_BOUNDS_TABLE(i).active THEN
+            IF REGION_BOUNDS_TABLE(i).w <= 0 OR REGION_BOUNDS_TABLE(i).h <= 0 THEN
+                INPUTS_log "[CONSISTENCY] REGION " + _TRIM$(STR$(i)) + " active but degenerate bounds"
+            END IF
+        END IF
+    NEXT i
+END SUB
+
+
+''
+' Return the topmost active region at the given screen coords (or REGION_GLOBAL
+' if none). Topmost = highest zOrder.
+' Cost: ~30 comparisons. Called once per frame from INPUT_update_context.
+'
+FUNCTION REGION_hit_test% (mouseX AS INTEGER, mouseY AS INTEGER)
+    DIM i AS INTEGER
+    DIM bestZ AS INTEGER
+    DIM bestRegion AS INTEGER
+    bestZ = -1
+    bestRegion = REGION_GLOBAL
+    FOR i = 1 TO REGION_TABLE_SIZE - 1
+        IF REGION_BOUNDS_TABLE(i).active THEN
+            IF i <> REGION_TOOLTIP THEN  ' tooltip is render-only, never consumes events
+                IF mouseX% >= REGION_BOUNDS_TABLE(i).x AND _
+                   mouseX% < REGION_BOUNDS_TABLE(i).x + REGION_BOUNDS_TABLE(i).w AND _
+                   mouseY% >= REGION_BOUNDS_TABLE(i).y AND _
+                   mouseY% < REGION_BOUNDS_TABLE(i).y + REGION_BOUNDS_TABLE(i).h THEN
+                    IF REGION_BOUNDS_TABLE(i).zOrder > bestZ THEN
+                        bestZ = REGION_BOUNDS_TABLE(i).zOrder
+                        bestRegion = i
+                    END IF
+                END IF
+            END IF
+        END IF
+    NEXT i
+    REGION_hit_test% = bestRegion
+END FUNCTION
+
+
+''
+' Compute INPUT_CONTEXT bitmask once per frame from world state.
+' Held-key context: only polls keys with registered bindings (interesting set).
+' Region-over context: single REGION_hit_test result.
+'
+' Subsystem-mode context (CTX_TEXT_ACTIVE, etc.) is added as the corresponding
+' subsystems migrate. Phase 0 sets the minimal safe set (held-keys + region).
+'
+SUB INPUT_update_context ()
+    DIM ctx AS _UNSIGNED _INTEGER64
+    DIM hoverRegion AS INTEGER
+    ctx = 0
+
+    ' --- Subsystem state flags (additive; safe to reference fields that exist) ---
+    ' TEXT tool active
+    IF CURRENT_TOOL% = TOOL_TEXT THEN
+        IF TEXT.ACTIVE THEN ctx = ctx OR CTX_TEXT_ACTIVE
+    END IF
+    ' MOVE tool with floating selection
+    IF MOVE.ACTIVE THEN ctx = ctx OR CTX_MOVE_ACTIVE
+    ' Magic Wand mode
+    IF MARQUEE.MAGIC_WAND_MODE THEN ctx = ctx OR CTX_MAGIC_WAND_ACTIVE
+    ' Grid offset pick mode
+    IF GRID_OFFSET_PICK_MODE% THEN ctx = ctx OR CTX_GRID_OFFSET_PICK
+    ' Reference image reposition
+    IF REFIMG.REPOSITION THEN ctx = ctx OR CTX_REFIMG_REPOSITION
+    ' Command palette visible
+    IF CMD_PALETTE.visible% THEN ctx = ctx OR CTX_COMMAND_PALETTE_OPEN
+
+    ' --- Held-key chord initiators ---
+    ' Each requires its key down AND no conflicting modifiers (no Ctrl/Shift/Alt)
+    IF (_KEYDOWN(103) OR _KEYDOWN(71)) AND NOT MODIFIERS.ctrl% AND NOT MODIFIERS.shift% AND NOT MODIFIERS.alt% THEN
+        ctx = ctx OR CTX_G_HELD
+    END IF
+    IF (_KEYDOWN(109) OR _KEYDOWN(77)) AND NOT MODIFIERS.ctrl% AND NOT MODIFIERS.alt% THEN
+        ctx = ctx OR CTX_M_HELD
+    END IF
+    IF (_KEYDOWN(122) OR _KEYDOWN(90)) AND NOT MODIFIERS.ctrl% AND NOT MODIFIERS.alt% THEN
+        ctx = ctx OR CTX_Z_HELD
+    END IF
+    IF (_KEYDOWN(101) OR _KEYDOWN(69)) AND NOT MODIFIERS.ctrl% AND NOT MODIFIERS.alt% THEN
+        ctx = ctx OR CTX_E_HELD
+    END IF
+    IF (_KEYDOWN(102) OR _KEYDOWN(70)) AND NOT MODIFIERS.ctrl% AND NOT MODIFIERS.alt% THEN
+        ctx = ctx OR CTX_F_HELD
+    END IF
+    IF (_KEYDOWN(119) OR _KEYDOWN(87)) AND NOT MODIFIERS.ctrl% AND NOT MODIFIERS.alt% THEN
+        ctx = ctx OR CTX_W_HELD
+    END IF
+    IF _KEYDOWN(32) AND NOT MODIFIERS.ctrl% AND NOT MODIFIERS.alt% THEN
+        ctx = ctx OR CTX_SPACE_HELD
+    END IF
+    IF MODIFIERS.alt% THEN ctx = ctx OR CTX_ALT_HELD
+
+    ' --- Cursor-region flags ---
+    hoverRegion% = REGION_hit_test%(MOUSE.RAW_X%, MOUSE.RAW_Y%)
+    SELECT CASE hoverRegion%
+        CASE REGION_CANVAS         : ctx = ctx OR CTX_OVER_CANVAS
+        CASE REGION_TOOLBAR        : ctx = ctx OR CTX_OVER_TOOLBAR
+        CASE REGION_MENUBAR        : ctx = ctx OR CTX_OVER_MENUBAR
+        CASE REGION_LAYER_PANEL    : ctx = ctx OR CTX_OVER_LAYER_PANEL
+        CASE REGION_PALETTE_STRIP  : ctx = ctx OR CTX_OVER_PALETTE
+        CASE REGION_EDIT_BAR       : ctx = ctx OR CTX_OVER_EDIT_BAR
+        CASE REGION_ADV_BAR        : ctx = ctx OR CTX_OVER_ADV_BAR
+        CASE REGION_STATUS_BAR     : ctx = ctx OR CTX_OVER_STATUS_BAR
+        CASE REGION_DRAWER         : ctx = ctx OR CTX_OVER_DRAWER
+        CASE REGION_PREVIEW        : ctx = ctx OR CTX_OVER_PREVIEW
+        CASE REGION_COLOR_MIXER    : ctx = ctx OR CTX_OVER_COLOR_MIXER
+        CASE REGION_IMAGE_BROWSER  : ctx = ctx OR CTX_OVER_IMAGE_BROWSER
+        CASE REGION_CHARMAP        : ctx = ctx OR CTX_OVER_CHARMAP
+        CASE REGION_ORGANIZER      : ctx = ctx OR CTX_OVER_ORGANIZER
+        CASE REGION_POPUP_MENU     : ctx = ctx OR CTX_OVER_POPUP_MENU
+        CASE REGION_SETTINGS_DLG, REGION_FILE_DIALOG, REGION_DIALOG_GENERIC
+                                   : ctx = ctx OR CTX_OVER_DIALOG
+    END SELECT
+
+    INPUT_CONTEXT = ctx
+END SUB
+
+
+''
+' Internal: append a detected event to the per-frame queue.
+'
+SUB INPUT_enqueue_event (eventType AS INTEGER, region AS INTEGER, keycode AS LONG, button AS INTEGER, wheelDir AS INTEGER, mouseX AS INTEGER, mouseY AS INTEGER, canvasX AS INTEGER, canvasY AS INTEGER, value AS SINGLE, value2 AS SINGLE, device AS INTEGER, deviceIdx AS INTEGER)
+    IF DETECTED_EVENT_COUNT >= INPUT_MAX_EVENTS THEN
+        IF DEV_MODE% THEN INPUTS_log "[OVERFLOW] DETECTED_EVENTS queue full this frame"
+        EXIT SUB
+    END IF
+    DETECTED_EVENT_COUNT = DETECTED_EVENT_COUNT + 1
+    DETECTED_EVENTS(DETECTED_EVENT_COUNT).eventType = eventType%
+    DETECTED_EVENTS(DETECTED_EVENT_COUNT).region    = region%
+    DETECTED_EVENTS(DETECTED_EVENT_COUNT).keycode   = keycode&
+    DETECTED_EVENTS(DETECTED_EVENT_COUNT).button    = button%
+    DETECTED_EVENTS(DETECTED_EVENT_COUNT).wheelDir  = wheelDir%
+    DETECTED_EVENTS(DETECTED_EVENT_COUNT).mouseX    = mouseX%
+    DETECTED_EVENTS(DETECTED_EVENT_COUNT).mouseY    = mouseY%
+    DETECTED_EVENTS(DETECTED_EVENT_COUNT).canvasX   = canvasX%
+    DETECTED_EVENTS(DETECTED_EVENT_COUNT).canvasY   = canvasY%
+    DETECTED_EVENTS(DETECTED_EVENT_COUNT).value     = value!
+    DETECTED_EVENTS(DETECTED_EVENT_COUNT).value2    = value2!
+    DETECTED_EVENTS(DETECTED_EVENT_COUNT).device    = device%
+    DETECTED_EVENTS(DETECTED_EVENT_COUNT).deviceIdx = deviceIdx%
+END SUB
+
+
+''
+' Detect input events for this frame. Walks the interesting-keys set,
+' the 3 mouse buttons, the wheel, and hover transitions. Populates
+' DETECTED_EVENTS queue for INPUT_dispatch_frame to consume.
+'
+SUB INPUT_detect_events ()
+    DETECTED_EVENT_COUNT = 0
+    DIM i AS INTEGER, kc AS LONG
+    DIM keyDown AS INTEGER
+    DIM region AS INTEGER
+    DIM btn AS INTEGER
+    DIM bDown AS INTEGER, bDownLast AS INTEGER
+    DIM dx AS INTEGER, dy AS INTEGER
+    DIM nowT AS DOUBLE
+    nowT# = TIMER
+
+    ' --- Keyboard edge detection (only for keys with registered bindings) ---
+    ' Walk the binding table; for each EVT_KEY_PRESS binding, check its key
+    ' and fire EVT_KEY_PRESS if a fresh edge. KEY_DOWN_LAST tracks per-binding.
+    FOR i = 1 TO INPUT_BIND_COUNT
+        IF INPUT_BINDS(i).eventType = EVT_KEY_PRESS THEN
+            kc& = INPUT_BINDS(i).keycode
+            keyDown% = 0
+            IF kc& > 0 AND kc& <= 65535 THEN
+                IF _KEYDOWN(kc&) THEN keyDown% = -1
+                ' Also check case-flipped variant for letters
+                IF kc& >= 97 AND kc& <= 122 THEN
+                    IF _KEYDOWN(kc& - 32) THEN keyDown% = -1
+                ELSEIF kc& >= 65 AND kc& <= 90 THEN
+                    IF _KEYDOWN(kc& + 32) THEN keyDown% = -1
+                END IF
+            END IF
+            IF keyDown% AND NOT KEY_DOWN_LAST(i) THEN
+                INPUT_enqueue_event EVT_KEY_PRESS, REGION_GLOBAL, kc&, 0, 0, MOUSE.RAW_X%, MOUSE.RAW_Y%, MOUSE.X%, MOUSE.Y%, 0.0, 0.0, DEVICE_KEYBOARD, 0
+            END IF
+            KEY_DOWN_LAST(i) = keyDown%
+        END IF
+    NEXT i
+
+    ' --- Mouse buttons + click/dblclick/drag state machine ---
+    region% = REGION_hit_test%(MOUSE.RAW_X%, MOUSE.RAW_Y%)
+    FOR btn = 1 TO 3
+        SELECT CASE btn
+            CASE 1 : bDown% = MOUSE.B1% : bDownLast% = MOUSE_BTN_DOWN_LAST(1)
+            CASE 2 : bDown% = MOUSE.B2% : bDownLast% = MOUSE_BTN_DOWN_LAST(2)
+            CASE 3 : bDown% = MOUSE.B3% : bDownLast% = MOUSE_BTN_DOWN_LAST(3)
+        END SELECT
+
+        IF bDown% AND NOT bDownLast% THEN
+            ' DOWN edge
+            MOUSE_DOWN_REGION(btn) = region%
+            MOUSE_DOWN_X(btn)      = MOUSE.RAW_X%
+            MOUSE_DOWN_Y(btn)      = MOUSE.RAW_Y%
+            MOUSE_DOWN_TIME(btn)   = nowT#
+            MOUSE_DRAG_STARTED(btn) = FALSE
+            INPUT_enqueue_event EVT_MOUSE_DOWN, region%, 0, btn, 0, MOUSE.RAW_X%, MOUSE.RAW_Y%, MOUSE.X%, MOUSE.Y%, 0.0, 0.0, DEVICE_MOUSE, 0
+        ELSEIF bDown% AND bDownLast% THEN
+            ' Still held: check for drag start
+            IF NOT MOUSE_DRAG_STARTED(btn) THEN
+                dx% = ABS(MOUSE.RAW_X% - MOUSE_DOWN_X(btn))
+                dy% = ABS(MOUSE.RAW_Y% - MOUSE_DOWN_Y(btn))
+                IF dx% > DRAG_THRESHOLD_PX OR dy% > DRAG_THRESHOLD_PX THEN
+                    MOUSE_DRAG_STARTED(btn) = TRUE
+                    INPUT_enqueue_event EVT_MOUSE_DRAG_START, MOUSE_DOWN_REGION(btn), 0, btn, 0, MOUSE.RAW_X%, MOUSE.RAW_Y%, MOUSE.X%, MOUSE.Y%, 0.0, 0.0, DEVICE_MOUSE, 0
+                END IF
+            END IF
+            IF MOUSE_DRAG_STARTED(btn) THEN
+                INPUT_enqueue_event EVT_MOUSE_DRAG_MOVE, MOUSE_DOWN_REGION(btn), 0, btn, 0, MOUSE.RAW_X%, MOUSE.RAW_Y%, MOUSE.X%, MOUSE.Y%, 0.0, 0.0, DEVICE_MOUSE, 0
+            END IF
+        ELSEIF NOT bDown% AND bDownLast% THEN
+            ' UP edge
+            IF MOUSE_DRAG_STARTED(btn) THEN
+                INPUT_enqueue_event EVT_MOUSE_DRAG_END, MOUSE_DOWN_REGION(btn), 0, btn, 0, MOUSE.RAW_X%, MOUSE.RAW_Y%, MOUSE.X%, MOUSE.Y%, 0.0, 0.0, DEVICE_MOUSE, 0
+            ELSE
+                ' CLICK (no significant motion + same region as down)
+                IF region% = MOUSE_DOWN_REGION(btn) THEN
+                    INPUT_enqueue_event EVT_MOUSE_CLICK, region%, 0, btn, 0, MOUSE.RAW_X%, MOUSE.RAW_Y%, MOUSE.X%, MOUSE.Y%, 0.0, 0.0, DEVICE_MOUSE, 0
+                    ' Double-click check
+                    IF (nowT# - MOUSE_LAST_CLICK_TIME(btn)) < DBLCLICK_WINDOW_S AND _
+                       MOUSE_LAST_CLICK_REGION(btn) = region% THEN
+                        INPUT_enqueue_event EVT_MOUSE_DBLCLICK, region%, 0, btn, 0, MOUSE.RAW_X%, MOUSE.RAW_Y%, MOUSE.X%, MOUSE.Y%, 0.0, 0.0, DEVICE_MOUSE, 0
+                        MOUSE_LAST_CLICK_TIME(btn) = 0  ' prevent triple-as-dbl
+                    ELSE
+                        MOUSE_LAST_CLICK_TIME(btn)   = nowT#
+                        MOUSE_LAST_CLICK_REGION(btn) = region%
+                    END IF
+                END IF
+            END IF
+            INPUT_enqueue_event EVT_MOUSE_UP, region%, 0, btn, 0, MOUSE.RAW_X%, MOUSE.RAW_Y%, MOUSE.X%, MOUSE.Y%, 0.0, 0.0, DEVICE_MOUSE, 0
+        END IF
+
+        MOUSE_BTN_DOWN_LAST(btn) = bDown%
+    NEXT btn
+
+    ' --- Hover enter/leave detection ---
+    IF region% <> HOVER_REGION_LAST THEN
+        IF HOVER_REGION_LAST <> 0 AND HOVER_REGION_LAST <> REGION_GLOBAL THEN
+            INPUT_enqueue_event EVT_MOUSE_HOVER_LEAVE, HOVER_REGION_LAST, 0, 0, 0, MOUSE.RAW_X%, MOUSE.RAW_Y%, MOUSE.X%, MOUSE.Y%, 0.0, 0.0, DEVICE_MOUSE, 0
+        END IF
+        IF region% <> 0 AND region% <> REGION_GLOBAL THEN
+            INPUT_enqueue_event EVT_MOUSE_HOVER_ENTER, region%, 0, 0, 0, MOUSE.RAW_X%, MOUSE.RAW_Y%, MOUSE.X%, MOUSE.Y%, 0.0, 0.0, DEVICE_MOUSE, 0
+        END IF
+        HOVER_REGION_LAST = region%
+    END IF
+
+    ' --- Run consistency check in dev mode ---
+    REGION_check_consistency
+END SUB
+
+
+''
+' Dispatch all events queued this frame. For each event, finds the first
+' matching dispatched=TRUE binding (registration order = priority) and
+' calls CMD_execute_action with the bound action ID.
+' Idle-fast-path: if no events fired AND context unchanged, return immediately.
+'
+SUB INPUT_dispatch_frame ()
+    IF DETECTED_EVENT_COUNT = 0 AND INPUT_CONTEXT = INPUT_CONTEXT_PREV THEN
+        EXIT SUB
+    END IF
+    INPUT_CONTEXT_PREV = INPUT_CONTEXT
+
+    DIM e AS INTEGER, i AS INTEGER, modsNow AS INTEGER
+    modsNow% = MODS_NOW%
+
+    FOR e = 1 TO DETECTED_EVENT_COUNT
+        ' Populate INPUT_EVENT shared state for action handler context
+        INPUT_EVENT.eventType = DETECTED_EVENTS(e).eventType
+        INPUT_EVENT.region    = DETECTED_EVENTS(e).region
+        INPUT_EVENT.keycode   = DETECTED_EVENTS(e).keycode
+        INPUT_EVENT.button    = DETECTED_EVENTS(e).button
+        INPUT_EVENT.wheelDir  = DETECTED_EVENTS(e).wheelDir
+        INPUT_EVENT.mouseX    = DETECTED_EVENTS(e).mouseX
+        INPUT_EVENT.mouseY    = DETECTED_EVENTS(e).mouseY
+        INPUT_EVENT.canvasX   = DETECTED_EVENTS(e).canvasX
+        INPUT_EVENT.canvasY   = DETECTED_EVENTS(e).canvasY
+        INPUT_EVENT.value     = DETECTED_EVENTS(e).value
+        INPUT_EVENT.value2    = DETECTED_EVENTS(e).value2
+        INPUT_EVENT.device    = DETECTED_EVENTS(e).device
+        INPUT_EVENT.deviceIdx = DETECTED_EVENTS(e).deviceIdx
+        INPUT_EVENT.mods      = modsNow%
+        INPUT_EVENT.ctx       = INPUT_CONTEXT
+
+        ' Find first matching dispatched binding (registration order = priority)
+        FOR i = 1 TO INPUT_BIND_COUNT
+            IF INPUT_BINDS(i).dispatched THEN
+                IF INPUT_BIND_matches%(i, e) THEN
+                    IF DEV_MODE% THEN
+                        INPUTS_log "[FIRE] evt=" + _TRIM$(STR$(INPUT_BINDS(i).eventType)) + _
+                                   " region=" + _TRIM$(STR$(INPUT_BINDS(i).region)) + _
+                                   " action=" + _TRIM$(STR$(INPUT_BINDS(i).actionId)) + _
+                                   " label=" + RTRIM$(INPUT_BINDS(i).label)
+                    END IF
+                    CMD_execute_action INPUT_BINDS(i).actionId
+                    EXIT FOR
+                END IF
+            END IF
+        NEXT i
+    NEXT e
+
+    DETECTED_EVENT_COUNT = 0
+END SUB
+
+
+''
+' Does binding bindIdx match detected event evtIdx?
+' Used by dispatcher. Reads MODS_NOW% and INPUT_CONTEXT for current state.
+'
+FUNCTION INPUT_BIND_matches% (bindIdx AS INTEGER, evtIdx AS INTEGER)
+    DIM b AS INPUT_BIND
+    DIM e AS DETECTED_EVENT
+    b = INPUT_BINDS(bindIdx)
+    e = DETECTED_EVENTS(evtIdx)
+    DIM modsNow AS INTEGER
+    modsNow% = MODS_NOW%
+
+    IF b.eventType <> e.eventType THEN INPUT_BIND_matches% = FALSE : EXIT FUNCTION
+    IF b.region <> REGION_GLOBAL AND b.region <> e.region THEN INPUT_BIND_matches% = FALSE : EXIT FUNCTION
+
+    ' Keycode (with case-insensitive letter handling)
+    IF b.keycode <> 0 THEN
+        IF b.keycode <> e.keycode THEN
+            ' Allow case-flipped match
+            IF b.keycode >= 97 AND b.keycode <= 122 AND e.keycode = b.keycode - 32 THEN
+                ' lower binding matched by upper-case event
+            ELSEIF b.keycode >= 65 AND b.keycode <= 90 AND e.keycode = b.keycode + 32 THEN
+                ' upper binding matched by lower-case event
+            ELSE
+                INPUT_BIND_matches% = FALSE : EXIT FUNCTION
+            END IF
+        END IF
+    END IF
+
+    IF b.button   <> 0 AND b.button   <> e.button   THEN INPUT_BIND_matches% = FALSE : EXIT FUNCTION
+    IF b.wheelDir <> 0 AND b.wheelDir <> e.wheelDir THEN INPUT_BIND_matches% = FALSE : EXIT FUNCTION
+
+    ' Modifiers
+    IF (modsNow% AND b.requireMods) <> b.requireMods THEN INPUT_BIND_matches% = FALSE : EXIT FUNCTION
+    IF (modsNow% AND b.forbidMods) <> 0 THEN INPUT_BIND_matches% = FALSE : EXIT FUNCTION
+
+    ' Context
+    IF (INPUT_CONTEXT AND b.requireCtx) <> b.requireCtx THEN INPUT_BIND_matches% = FALSE : EXIT FUNCTION
+    IF (INPUT_CONTEXT AND b.forbidCtx) <> 0 THEN INPUT_BIND_matches% = FALSE : EXIT FUNCTION
+
+    INPUT_BIND_matches% = TRUE
+END FUNCTION
+
+
+''
+' Run conflict audit: walk all binding pairs, log to inputs.log any pair
+' that could match simultaneously. Dev mode only. Runs once at startup.
+'
+SUB INPUT_audit ()
+    IF NOT DEV_MODE% THEN EXIT SUB
+    INPUTS_log "[AUDIT] Scanning " + _TRIM$(STR$(INPUT_BIND_COUNT)) + " bindings for conflicts"
+    DIM i AS INTEGER, j AS INTEGER, conflicts AS INTEGER
+    conflicts = 0
+    FOR i = 1 TO INPUT_BIND_COUNT
+        FOR j = i + 1 TO INPUT_BIND_COUNT
+            IF INPUT_BINDS_could_collide%(i, j) THEN
+                INPUTS_log "[CONFLICT] (" + _TRIM$(STR$(i)) + ") " + RTRIM$(INPUT_BINDS(i).label) + _
+                           " <-> (" + _TRIM$(STR$(j)) + ") " + RTRIM$(INPUT_BINDS(j).label)
+                conflicts = conflicts + 1
+            END IF
+        NEXT j
+    NEXT i
+    INPUTS_log "[AUDIT] Complete: " + _TRIM$(STR$(conflicts)) + " conflicts found"
+END SUB
+
+
+''
+' Could bindings a and b both match the same input + context state?
+' Conservative: if both could fire under any condition, returns TRUE.
+'
+FUNCTION INPUT_BINDS_could_collide% (a AS INTEGER, b AS INTEGER)
+    IF INPUT_BINDS(a).eventType <> INPUT_BINDS(b).eventType THEN
+        INPUT_BINDS_could_collide% = FALSE : EXIT FUNCTION
+    END IF
+
+    ' Region: differ AND neither is REGION_GLOBAL? then no overlap
+    IF INPUT_BINDS(a).region <> REGION_GLOBAL AND _
+       INPUT_BINDS(b).region <> REGION_GLOBAL AND _
+       INPUT_BINDS(a).region <> INPUT_BINDS(b).region THEN
+        INPUT_BINDS_could_collide% = FALSE : EXIT FUNCTION
+    END IF
+
+    ' Keycode: both nonzero and differ (allowing case-flip) => no overlap
+    IF INPUT_BINDS(a).keycode <> 0 AND INPUT_BINDS(b).keycode <> 0 THEN
+        IF INPUT_BINDS(a).keycode <> INPUT_BINDS(b).keycode THEN
+            ' Check case-flipped match
+            DIM matched AS INTEGER : matched = FALSE
+            IF INPUT_BINDS(a).keycode >= 97 AND INPUT_BINDS(a).keycode <= 122 AND _
+               INPUT_BINDS(b).keycode = INPUT_BINDS(a).keycode - 32 THEN matched = TRUE
+            IF INPUT_BINDS(a).keycode >= 65 AND INPUT_BINDS(a).keycode <= 90 AND _
+               INPUT_BINDS(b).keycode = INPUT_BINDS(a).keycode + 32 THEN matched = TRUE
+            IF NOT matched THEN INPUT_BINDS_could_collide% = FALSE : EXIT FUNCTION
+        END IF
+    END IF
+
+    ' Button: both nonzero and differ => no overlap
+    IF INPUT_BINDS(a).button <> 0 AND INPUT_BINDS(b).button <> 0 AND _
+       INPUT_BINDS(a).button <> INPUT_BINDS(b).button THEN
+        INPUT_BINDS_could_collide% = FALSE : EXIT FUNCTION
+    END IF
+
+    ' Modifiers: if a requires bits that b forbids (or vice versa), no overlap
+    IF (INPUT_BINDS(a).requireMods AND INPUT_BINDS(b).forbidMods) <> 0 THEN
+        INPUT_BINDS_could_collide% = FALSE : EXIT FUNCTION
+    END IF
+    IF (INPUT_BINDS(b).requireMods AND INPUT_BINDS(a).forbidMods) <> 0 THEN
+        INPUT_BINDS_could_collide% = FALSE : EXIT FUNCTION
+    END IF
+
+    ' Context: same logic
+    IF (INPUT_BINDS(a).requireCtx AND INPUT_BINDS(b).forbidCtx) <> 0 THEN
+        INPUT_BINDS_could_collide% = FALSE : EXIT FUNCTION
+    END IF
+    IF (INPUT_BINDS(b).requireCtx AND INPUT_BINDS(a).forbidCtx) <> 0 THEN
+        INPUT_BINDS_could_collide% = FALSE : EXIT FUNCTION
+    END IF
+
+    INPUT_BINDS_could_collide% = TRUE
+END FUNCTION
