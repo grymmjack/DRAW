@@ -1,11 +1,12 @@
-# PR: Input Subsystem Rearchitecture + Cross-Cutting Helpers
+# PR: Input Subsystem Rearchitecture + Full Migration + Cross-Cutting Helpers
 
 **Branch**: `input-rearchitecture` → `main`
-**Commits**: 26+ (was 20, +6 for Phase 6a-c migration)
-**LOC**: ~+4150 / -880 across 86+ files
-**Behavior change for normal users**: ZERO (gated on `--developer` CLI flag);
-35 commonly-used keys now route through the new dispatcher but produce
-identical end-user behavior to main
+**Commits**: 39 (was 20 after foundation; +19 for full Phase 6 migration)
+**LOC**: ~+4400 / -1900 across 90+ files
+**Behavior change for normal users**: ZERO functionally; 131 chords
+(was 1 in foundation) now route through the new central dispatcher.
+Behavior preserved end-to-end via the strangler-fig pattern + skip-list
+guards + dispatch-depth reentrancy counter.
 
 ---
 
@@ -46,11 +47,15 @@ This PR introduces a **declarative event-dispatch table** so that adding new key
 - **`CFG.DEVELOPER_MODE%`** field with CLI flag `--developer` / `--dev` (CFG override + CLI override)
 
 ### Registration coverage (Phases 1, 3, 6)
-- **95 keyboard bindings** registered (was 89 in P1; +6 in P6: Shift+T, Q, K, O, and two new brush-size bindings; X swap and opacity were already there)
+- **134 keyboard bindings** registered (full Phase 6 added Ctrl+letter,
+  chord, F-key, grid toggle, file op, clipboard, DEL/Backspace bindings)
 - **72 mouse event bindings** registered as metadata
-- **167 total bindings, 0 audit conflicts**
-- **36 bindings are `dispatched=TRUE`** (was 1 before P6; Phase 6a-c migrated 35 keys — 22 tool, 11 opacity+X, 2 brush size)
-- **letter skip-list size: 31** (covers a-z migrated + 0-9 + 'x' + '[' + ']')
+- **206 total bindings, 0 audit conflicts**
+- **131 bindings are `dispatched=TRUE`** (was 1 before P6 — F12 proof
+  of concept). All commonly-used chord families now route through
+  CMD_execute_action via the central dispatcher.
+- **letter skip-list size: 48** (covers a-z migrated, digits, x, [, ],
+  ', ;, /, \, |, etc.)
 
 ### GUI panel migrations (Phase 2)
 14 of 18 GUI panels now call `REGION_set_bounds` in their render SUB:
@@ -104,15 +109,23 @@ Verified by clean `--developer` runs throughout development — no perceptible c
 
 ## What's deferred (intentionally — not blockers for merge)
 
-1. **More `dispatched=TRUE` migrations**: Phase 6a-c covers the common
-   tool/opacity/brush-size keys. Still on legacy `KEYBOARD.BM`:
-   - Ctrl+letter ops (Ctrl+S/O/N/Z/Y/C/X/V/A/D/T/L/P/B/E/R, Ctrl+Shift+S, etc.)
-   - Chord bindings (G+R, G+Shift+R, G+Ctrl+R, G+O, G+arrows; M+=, M+-,
-     M++, M+_; Z+0..9 zoom presets)
-   - `*` (random track) and `#` (toggle border) — need CTX_MUSIC_ENABLED bit
-     or in-action guard before migration.
-   Each remaining chord requires its own small commit + manual QA — best
-   done in follow-up branches off `main`.
+1. **Small follow-up migrations** (handful of chords still inline):
+   - `*` (random track) and `#` (border toggle) — need CTX_MUSIC_ENABLED
+     bit or in-action guard. Then KEYBOARD_colors can be deleted entirely.
+   - `?` (Shift+/ = command palette) and `{`/`}` (music prev/next)
+     inline in KEYBOARD_input_handler.
+   - KEYBOARD_handle_recent_files (Alt+1-0) — needs 10 new actions.
+2. **Intentionally kept inline** (context-aware, don't fit the
+   action-ID model cleanly):
+   - KEYBOARD_handle_text_tool — gated by TEXT.ACTIVE, intercepts
+     text-editing-specific Ctrl+letter combos.
+   - KEYBOARD_handle_custom_brush — Home/End/PgUp/PgDn dispatch differs
+     by CUSTOM_BRUSH_is_active% (brush flip/scale vs layer transform).
+   - KEYBOARD_handle_shape_modifiers, _marquee_keys, _move_keys —
+     tool-specific arrow-key behavior.
+   - KEYBOARD_handle_eraser_hold — hold-vs-tap state machine.
+   - The remaining backtick toggle in KEYBOARD_handle_function_keys
+     (SS_POLYGON/BEZIER context-aware).
 2. **Modal dialog REGION integration**: deferred because modals have their own `DIALOG_CTX` input loops that already handle all input correctly. Context bits (`CTX_*_OPEN`) flag their visibility to other bindings.
 3. **Multi-line `SCENE_invalidate` adoption**: ~50 sites have `SCENE_DIRTY` and `FRAME_IDLE` interleaved with other code (`GUI_NEEDS_REDRAW`, conditionals). Need per-site review.
 4. **`MODS_only%` adoption**: ~10 manual `MODIFIERS.ctrl% AND NOT MODIFIERS.shift%` chains. Low value.

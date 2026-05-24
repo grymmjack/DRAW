@@ -65,9 +65,27 @@ When active: `./inputs.log` is cleared on startup, then receives `[INIT]`, `[AUD
 - Phase 8: manual QA against PLANS/TESTS/
 - Phase 9: merge to main
 
-**Current state (Phase 6a-c complete)**: 26+ commits on branch, 167 bindings,
-36 dispatched=TRUE (was 1 before P6; now 22 tool keys + 11 opacity/X + 2
-brush-size + 1 F12 proof), letter skip-list size 31, 0 audit conflicts.
+**Current state (Phase 6 complete)**: 39 commits on branch, 206 bindings,
+131 dispatched=TRUE (was 1 before P6), letter skip-list size 48,
+0 audit conflicts.
+
+`KEYBOARD.BM` SUB count dropped from 18 to 11. Removed entirely:
+- `KEYBOARD_brush_size` (P6c)
+- `KEYBOARD_layers` (P6d-1, 16 chord handlers)
+- `KEYBOARD_handle_clipboard_operations` (P6d-4, 15 chord handlers)
+- `KEYBOARD_handle_file_operations` (P6d-5, 5 chord handlers)
+- `KEYBOARD_handle_zoom_shortcuts` (P6d-5, 3 chord handlers)
+- `KEYBOARD_handle_z_zoom_presets` (P6e)
+- `KEYBOARD_handle_marquee_expand_contract` (P6e)
+- `KEYBOARD_handle_grid_controls` (P6 final)
+- `KEYBOARD_handle_ui_toggles` (P6 final)
+- `KEYBOARD_handle_delete_backspace` (P6 final)
+- `KEYBOARD_handle_layer_shortcuts` (P6 final, was empty)
+
+Remaining SUBs are all context-aware (tool-specific arrows, text-tool
+editing, custom brush transforms, eraser hold/tap, recent files Alt+
+1-0, command palette intercept) and don't fit the action-ID model
+cleanly — they stay as legacy.
 
 Phase 6 added two new infrastructure pieces in INPUT.BI/BM:
 - `INPUT_LETTER_DISPATCHED(0 TO 127) AS INTEGER` — set by INPUT_register%
@@ -82,33 +100,58 @@ Phase 6 added two new infrastructure pieces in INPUT.BI/BM:
   instead of opacity during drag.
 
 Phase 6 commits:
-- `26a0feb` Phase 6a-i — corrected Phase 1a action IDs (still FALSE)
-- `12b7584` Phase 6a-ii — added CASE 1701 (Zoom tool switch), 1706
-  (Smart Shapes activate/cycle with STATIC double-tap), 1707 (Bevel
-  outer style); added Shift+T → 115 binding
-- `bc9e954` Phase 6a-iii — flipped 22 tool keys to dispatched=TRUE
-- `37350c1` Phase 6b — flipped opacity 1-0 (501-510) and X-swap (517);
+- `26a0feb` 6a-i — corrected Phase 1a action IDs (still FALSE)
+- `12b7584` 6a-ii — added CASE 1701/1706/1707 + Shift+T binding
+- `bc9e954` 6a-iii — flipped 22 tool keys to dispatched=TRUE
+- `37350c1` 6b — flipped opacity 1-0 (501-510) and X-swap (517);
   added CASE 517 handler that was registered but never implemented
-- `1b83204` Phase 6c — flipped [ and ] (601, 602)
+- `1b83204` 6c — flipped [ and ] (601, 602)
 - `b41d919` Removed KEYBOARD_brush_size SUB (fully migrated)
+- `de909a4` 6d batch 1 — KEYBOARD_layers removed (Ctrl+L/Shift+N/
+  Shift+Del/Shift+D/Shift+R/PgUp/PgDn/Shift+[/]/Home/End/Alt+E/
+  Alt+Shift+E/G/Shift+G/Shift+U)
+- `4e3f3c2` 6d batches 2+3 — Ctrl+B (new CASE 1101), Ctrl+R/Alt+R/
+  Alt+Shift+G, Ctrl+,/Shift+Del/Ctrl+D/Ctrl+M
+- `78e85fc` 6d batch 4 — KEYBOARD_handle_clipboard_operations removed
+  (Ctrl+Z/Y/Shift+Z/C/Shift+C/Alt+C/X/Alt+X/V/Shift+V/A/Shift+I/H/E/T)
+- `f9c940c` 6d batch 5 — KEYBOARD_handle_file_operations +
+  KEYBOARD_handle_zoom_shortcuts removed (Ctrl+N/O/S/Shift+S/
+  Alt+Shift+S/Shift+Q + Ctrl+0/=/-); new CASE 201 for Open
+- `3de3be9` 6e — chord migrations (Z+1..0, M+=/-/++/_, G+R/Shift+R/
+  Ctrl+R/O/arrows, Ctrl+Shift+/). KEYBOARD_handle_z_zoom_presets +
+  KEYBOARD_handle_marquee_expand_contract removed. New actions
+  9001-9013 (G chord), 9100-9109 (Z chord). CTX_G_HELD switched to
+  use GRID_G_KEY_ARMED% for chord-sticky semantics.
+- `e4b66a7` 6 final — F1-F8/Shift+F5/Tab/F10/F11/Ctrl+F11/\/| migrated;
+  KEYBOARD_handle_ui_toggles removed. New actions 8001-8011.
+- `b0e22b8` 6 final — grid toggles ('/"/Ctrl+'/;//); 
+  KEYBOARD_handle_grid_controls removed. New actions 8101-8105.
+- `6539df4` 6 final — DEL/Backspace migrated;
+  KEYBOARD_handle_delete_backspace removed.
+- `7d2a6a0` 6 final — empty KEYBOARD_handle_layer_shortcuts removed.
 
 Branch is mergeable. The migrated keys are end-to-end dispatched through
 the central dispatcher. Verify by running `./DRAW.run --developer`,
 pressing any migrated key, then `cat inputs.log` — exactly one [FIRE]
 line per press, action ID matches the binding label.
 
-**Remaining work** (future sessions):
-- Phase 6d: Ctrl+letter ops (Ctrl+S/O/N/Z/Y/C/X/V/A/D/T/L/P/B/E/R, plus
-  Ctrl+Shift+S, Ctrl+=, Ctrl+-, Ctrl+0, Ctrl+Home, Ctrl+End, etc.).
-  Each currently has STATIC pressed% + _KEYDOWN guard scattered across
-  KEYBOARD.BM SUBs. Per-chord migration: add binding dispatched=TRUE,
-  remove legacy STATIC block. Best done one chord at a time with QA.
-- Phase 6e: Chord bindings (G+R, G+Shift+R, G+Ctrl+R, G+O, G+arrows,
-  M+=, M+-, M++, M+_, Z+0..9). Multi-key state machines. Complex.
-- Migrate * (random track) and # (border toggle) — needs CTX_MUSIC_ENABLED
-  or in-action guard.
-- Remove KEYBOARD_colors entirely once * and # migrated (digits + X
-  already skip-listed; * and # are only remaining live cases).
+**Remaining work** (small follow-ups):
+- Migrate `*` (random track, action 433) and `#` (border toggle, action
+  441) — needs CTX_MUSIC_ENABLED for `*` or in-action guard. KEYBOARD_colors
+  could then be removed (digits + X already skip-listed; only those
+  two remain).
+- Migrate `?` (Shift+/ = command palette) — currently inline in
+  KEYBOARD_input_handler.
+- Migrate `{` and `}` (music prev/next track, actions 428/427) — also
+  inline in KEYBOARD_input_handler.
+- Migrate KEYBOARD_handle_recent_files (Alt+1-0) — would need 10
+  new actions.
+- The context-aware KEYBOARD_handle_custom_brush (Home/End/PgUp/PgDn
+  with brush-vs-layer dispatch) stays inline by design.
+- KEYBOARD_handle_text_tool stays inline (gated by TEXT.ACTIVE,
+  intentional context override).
+- Other tool-specific arrow handlers (marquee, move, shape modifier)
+  stay inline.
 - Phase 8: full QA against PLANS/TESTS/input-rearchitecture-qa.md
 - Phase 9: merge to main
 

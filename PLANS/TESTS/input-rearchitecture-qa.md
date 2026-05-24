@@ -130,21 +130,21 @@ After launch (before doing anything else), quit and check:
 ```bash
 cat inputs.log
 ```
-Expected output (exact timestamps will differ; counts after Phase 6a-c):
+Expected output (exact timestamps will differ; counts after FULL Phase 6):
 ```
 [<time>] [INIT] DRAW 1.5.0 developer mode active
 [<time>] [INIT] 0 input bindings registered
-[<time>] [AUDIT] Scanning 167 bindings for conflicts
+[<time>] [AUDIT] Scanning 206 bindings for conflicts
 [<time>] [AUDIT] Complete: 0 conflicts found
-[<time>] [INIT] After registration: 167 bindings
-[<time>] [INIT] dispatched=TRUE: 36, letter skip-list size: 31
+[<time>] [INIT] After registration: 206 bindings
+[<time>] [INIT] dispatched=TRUE: 131, letter skip-list size: 48
 [<time>] [GAMEPAD] 3 input device(s) detected (stub — no translation active)
 ```
 
 - [ ] `inputs.log` appears in project directory
 - [ ] `[INIT]` line shows version + dev mode
-- [ ] `[AUDIT]` reports **0 conflicts** on **167 bindings**
-- [ ] `[INIT] dispatched=TRUE: 36, letter skip-list size: 31` confirms Phase 6a-c migration
+- [ ] `[AUDIT]` reports **0 conflicts** on **206 bindings**
+- [ ] `[INIT] dispatched=TRUE: 131, letter skip-list size: 48` confirms full Phase 6 migration
 - [ ] No `[CONFLICT]` lines anywhere
 - [ ] No `[CONSISTENCY]` warnings anywhere
 - [ ] `[GAMEPAD]` line shows device count (your machine's input devices)
@@ -240,7 +240,7 @@ rm -f inputs.log
 - [ ] `0` → opacity 100%. `[FIRE] action=510`
 - [ ] `X` → swap FG/BG colors. `[FIRE] action=517`
 - [ ] While drawing a 3D dice (TOOL_SS_3D_CUBE + dragging), digit keys do **not** fire opacity (CTX_SS_DRAGGING in forbidCtx)
-- [ ] While holding `Z`, `1`..`0` fires Z-zoom-preset (still legacy), NOT opacity
+- [ ] While holding `Z`, `1`..`0` fires Z-zoom-preset via the new dispatcher (action 9100-9109), NOT opacity
 
 **Brush size (Phase 6c)**:
 - [ ] `[` → brush size −. `[FIRE] action=601`
@@ -249,6 +249,62 @@ rm -f inputs.log
 **Double-fire check** (the biggest regression risk):
 - [ ] After pressing each key once, the `inputs.log` shows **one** `[FIRE]` per press (not two)
 - [ ] Tool actually switched only once (no double-execution side effects like double `SOUND_play` on `M`/`W`)
+
+### 2.5 — Phase 6d/6e/final additional smoke tests
+
+Quickly smoke-test the major new categories. Each should produce exactly one `[FIRE]` per press:
+
+**Ctrl+letter ops (P6d)**:
+- [ ] Ctrl+Z (undo) → `[FIRE] action=301`
+- [ ] Ctrl+Y (redo) → `[FIRE] action=302`
+- [ ] Ctrl+C / X / V → 303 / 304 / 305
+- [ ] Ctrl+A / Ctrl+Shift+I / Ctrl+H → 310 / 311 / 332
+- [ ] Ctrl+L (layer panel) → 404
+- [ ] Ctrl+N / O / S / Shift+S → 209 / 201 / 202 / 204
+- [ ] Ctrl+Shift+Q (export QB64) → 220
+- [ ] Ctrl+0 / = / - (zoom) → 405 / 406 / 407
+- [ ] Ctrl+, (settings) → 2100
+- [ ] Ctrl+M (character map) → 2050
+- [ ] Ctrl+B (custom brush) → 1101
+- [ ] Ctrl+R (toggle ref image) → 1501
+- [ ] Ctrl+Home/End (scale 2x H/V) → 331 / 333
+- [ ] Ctrl+Shift+[/] (layer to bottom/top) → 709 / 708
+- [ ] Ctrl+Shift+N/D/R (new/dup/rename layer) → 701 / 707 / 726
+- [ ] Ctrl+G / Ctrl+Shift+G / Ctrl+Shift+U → 720 / 721 / 722
+
+**Chords (P6e)**:
+- [ ] Hold Z, press 1 → zoom 100% (`[FIRE] action=9100`)
+- [ ] Hold Z, press 0 → zoom 3200% (`[FIRE] action=9109`)
+- [ ] Make a selection, hold M, press = → expand 1px (`[FIRE] action=1410`)
+- [ ] Hold M, press - → contract 1px (`[FIRE] action=1411`)
+- [ ] Hold M, press Shift+= → expand large (`[FIRE] action=1412`)
+- [ ] Hold G, press R → reset grid offset (`[FIRE] action=9001`)
+- [ ] Hold G, press Shift+R → reset grid size (`[FIRE] action=9002`)
+- [ ] Hold G, press Ctrl+R → reset both (`[FIRE] action=9003`)
+- [ ] Hold G, press O → grid offset pick mode (`[FIRE] action=9004`)
+- [ ] Hold G, press Right → grid width + (`[FIRE] action=9010`)
+- [ ] Hold G, press Up → grid height - (`[FIRE] action=9013`)
+
+**F-keys + UI toggles (P6 final)**:
+- [ ] F1 / F2 / F3 → drawer modes (8001/8002/8003)
+- [ ] F4 / F5 / Shift+F5 → preview/edit/adv (434/435/449)
+- [ ] F6 / F7 / F8 → pixel-perfect/symmetry/fill-adj (8006/8007/8008)
+- [ ] F10 / F11 / Ctrl+F11 → status/all-UI/menubar (402/403/8011)
+- [ ] Tab → toolbar (401)
+- [ ] \ or | → toggle brush shape (8009)
+
+**Grid toggles (P6 final)**:
+- [ ] ' → grid visibility (8101)
+- [ ] Shift+' → pixel grid (8102)
+- [ ] Ctrl+' → cycle grid mode (8103)
+- [ ] ; → snap-to-grid (8104)
+- [ ] / → grid alignment (8105)
+- [ ] Ctrl+Shift+/ → match grid to brush (907)
+
+**DEL/Backspace (P6 final)**:
+- [ ] DEL → clear selection (306)
+- [ ] Backspace → fill FG (313)
+- [ ] Shift+Backspace → fill BG (314)
 
 ---
 
