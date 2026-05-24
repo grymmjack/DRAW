@@ -309,6 +309,22 @@ DIM SHARED HOVER_REGION_LAST                         AS INTEGER
 ' Performance optimization: interesting-keys set built at init
 DIM SHARED INPUT_INTERESTING_KEYS(0 TO 65535)        AS _BYTE
 
+' Phase 6 migration: skip-list indexed by lowercase printable ASCII (0-127).
+' Set to TRUE by INPUT_register% whenever a dispatched=TRUE key binding
+' uses a keycode in 0-127 range. Legacy INKEY$-driven SUBs (KEYBOARD_tools,
+' KEYBOARD_colors, KEYBOARD_brush_size) early-exit for any character whose
+' lowercase ASCII is flagged here, preventing double-fire while migration
+' is in flight. Lookup: INPUT_LETTER_DISPATCHED(ASC(LCASE$(keypress$))).
+DIM SHARED INPUT_LETTER_DISPATCHED(0 TO 127)         AS INTEGER
+
+' Phase 6 migration: nesting counter. Incremented at start of every
+' CMD_execute_action call, decremented at end. Whenever > 0, we're
+' executing a command (from dispatcher, menubar, command palette, or
+' nested CMD_execute_action). The skip-list guard in KEYBOARD_tools
+' bypasses itself when this is > 0 so the action body (which often
+' calls back into KEYBOARD_tools "<letter>") actually runs.
+DIM SHARED INPUT_DISPATCH_DEPTH                      AS INTEGER
+
 ' Developer mode + log path
 DIM SHARED DEV_MODE                                  AS INTEGER
 DIM SHARED INPUTS_LOG_PATH                           AS STRING
