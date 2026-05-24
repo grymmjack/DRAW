@@ -161,7 +161,8 @@ CONST CTX_F_HELD                = &H0000000001000000
 CONST CTX_W_HELD                = &H0000000002000000
 CONST CTX_SPACE_HELD            = &H0000000004000000
 CONST CTX_ALT_HELD              = &H0000000008000000
-' bits 28-31 reserved for future chord initiators
+CONST CTX_SS_DRAGGING           = &H0000000010000000  ' SS 3D dice or SS polygon currently dragging — digit keys reserved
+' bits 29-31 reserved for future chord initiators
 
 ' Cursor-region flags (auto-set from REGION_hit_test result)
 CONST CTX_OVER_CANVAS           = &H0000000100000000  ' bit 32
