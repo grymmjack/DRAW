@@ -39,16 +39,23 @@ When active: `./inputs.log` is cleared on startup, then receives `[INIT]`, `[AUD
 - `9d745aa` Phase 0 — infrastructure shipped (zero behavior change)
 - `45c2b4d` Phase 1a — 88 keyboard bindings registered as `dispatched = FALSE` metadata (0 audit conflicts)
 - `d43e32f` Phase 2a — first panel (status bar) migrated to REGION system
+- `1cf8a84` Phase 2b.1 — 6 core panels migrated (edit bar, adv bar, toolbar, layer panel, palette strip, menubar)
+- `952329e` Phase 2b.2 — 8 more panels migrated (drawer, organizer, charmap, preview, color mixer, browser, subtool flyout, text bar)
+- `fa78a93` Phase 7 — CLAUDE.md + input-system.md instructions
+- `b1bd100` Phase 3 + 4 — 72 mouse bindings as metadata, audit wheelDir fix (160 total bindings, 0 conflicts)
+- `ad8ce5a` Phase 5a — PIXEL_DOUBLE_AXIS + SAFE_FREEIMAGE adoption in CUSTOM-BRUSH.BM
+- `c07d923` Phase 5b — PIXEL_DOUBLE_AXIS adoption in COMMAND.BM CASE 331/333
 
 **Remaining work** (not yet on branch):
-- Phase 1b: more keyboard registrations (brush size, Esc, arrows, etc.)
-- Phase 2b: 18 remaining panels (toolbar, layer panel, palette strip, edit/adv bars, drawer, preview, color mixer, browser, charmap, organizer, command palette, settings dialog, file dialog, popup menus, etc.)
-- Phase 3: mouse event bindings
-- Phase 4: audit-driven conflict resolution (currently 0 conflicts because no dispatched bindings overlap; will surface conflicts as Phase 2/3 progress)
-- Phase 5: apply CORE/HELPERS to existing code (SAFE_FREEIMAGE × 216 sites, pixel-double consolidation × 4, DEST/SOURCE/FONT stack adoption)
-- Phase 7: CLAUDE.md + `.claude/instructions/input-system.md`
+- Phase 1b: more keyboard registrations (brush size, Esc, arrows, F-keys 4-9)
+- Phase 5 continued: apply remaining CORE/HELPERS to existing code:
+  - ~216 SAFE_FREEIMAGE call sites (verify each surrounding context first)
+  - ~50 SCENE_DIRTY%+FRAME_IDLE% pairs → SCENE_invalidate (sites vary widely in pattern)
+  - ~8 _DEST/_SOURCE manual save-restore sites → DEST_SAVE/RESTORE + SOURCE_SAVE/RESTORE
 - Phase 8: manual QA against PLANS/TESTS/
 - Phase 9: merge to main
+
+**Current state**: 10 commits on branch, ~3500 LOC added, 0 audit conflicts on 160 metadata bindings. Branch is mergeable as-is — ships pure infrastructure + metadata + helpers. Remaining phases can ship on subsequent branches.
 
 ## Key invariants (don't violate)
 
