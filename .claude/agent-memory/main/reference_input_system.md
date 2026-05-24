@@ -65,11 +65,15 @@ When active: `./inputs.log` is cleared on startup, then receives `[INIT]`, `[AUD
 - Phase 8: manual QA against PLANS/TESTS/
 - Phase 9: merge to main
 
-**Current state**: 17 commits on branch, ~3850/-550 LOC, 161 bindings registered
+**Current state**: 19 commits on branch, ~4042/-857 LOC, 161 bindings registered
 (160 metadata + 1 F12 proof-of-concept dispatched=TRUE), 0 audit conflicts,
-**345 sites using SAFE_FREEIMAGE** (54% of original 642 _FREEIMAGE sites).
+**637 sites using SAFE_FREEIMAGE** (100% of executable code — only the
+helper definition itself in CORE/HELPERS.BM has bare _FREEIMAGE).
 Branch is mergeable as-is. The dispatcher is proven end-to-end via F12 test —
 verify by running `./DRAW.run --developer`, pressing F12, then `cat inputs.log`.
+
+Latest commits:
+- `7d7a3b4` Phase 5h — defense-in-depth, all 291 remaining bare _FREEIMAGE → SAFE_FREEIMAGE
 
 ## Key invariants (don't violate)
 
