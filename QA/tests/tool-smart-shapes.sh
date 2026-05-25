@@ -29,20 +29,26 @@ assert_regions_differ "$BEFORE" "$ACTIVATED" "S should activate Smart Shapes too
 assert_no_crash
 
 # -- Second tap within 600ms = cycle to next sub-shape --
-info "Second S tap within 600ms (cycle sub-shape)"
+# CRITICAL TIMING: the dispatcher's CASE 1706 STATIC ss_last_tap_1706 stores
+# TIMER from the previous press. If the second press is >600ms later, it
+# re-activates instead of cycling. The default `key s` helper takes ~150-200ms
+# of overhead (draw_focus + sleeps), so back-to-back `key s` calls average
+# ~200-300ms apart — within the window.
+# Skip the snap-between-presses to minimize the elapsed time.
+info "Second S tap (cycle sub-shape — must be within 600ms of first)"
 key s
-wait_for 0.4 "S cycled"
+wait_for 0.3 "S cycled"
 park_mouse
 snap_region 0 $(( VIEWPORT_H - STATUS_H )) $VIEWPORT_W $STATUS_H "ss-cycled"
 CYCLED="$SNAP_RESULT"
 assert_regions_differ "$ACTIVATED" "$CYCLED" "Second S tap within 600ms should cycle sub-shape"
 assert_no_crash
 
-# -- Wait > 600ms, then S should activate (not cycle) --
+# -- Wait > 600ms, then S should re-activate (not cycle further) --
 sleep 0.9
-info "Third S tap after 600ms (activate, not cycle)"
+info "Third S tap after 600ms (re-activate window expired)"
 key s
-wait_for 0.4 "S after delay"
+wait_for 0.4 "S re-activated"
 assert_no_crash
 
 # -- Switch back to brush for cleanup --
