@@ -310,6 +310,12 @@ DIM SHARED HOVER_REGION_LAST                         AS INTEGER
 ' Performance optimization: interesting-keys set built at init
 DIM SHARED INPUT_INTERESTING_KEYS(0 TO 65535)        AS _BYTE
 
+' Per-frame "keycode already enqueued" flag used by INPUT_detect_events
+' to prevent double-fire when multiple bindings share the same keycode
+' (e.g. plain M binding + Ctrl+M binding both on keycode 109). SHARED to
+' avoid 64KB stack allocation every frame; the SUB ERASEs it on entry.
+DIM SHARED INPUT_KC_ENQUEUED(0 TO 65535)             AS _BYTE
+
 ' Phase 6 migration: skip-list indexed by lowercase printable ASCII (0-127).
 ' Set to TRUE by INPUT_register% whenever a dispatched=TRUE key binding
 ' uses a keycode in 0-127 range. Legacy INKEY$-driven SUBs (KEYBOARD_tools,
