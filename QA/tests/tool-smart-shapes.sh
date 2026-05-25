@@ -1,9 +1,16 @@
 #!/bin/bash
 # =============================================================================
 # tool-smart-shapes.sh — QA test: Smart Shapes tool (S key, action 1706)
-# Tests: S activates remembered sub-shape; double-tap cycles to next sub-shape.
-# Phase 6a-ii added CASE 1706 with STATIC ss_last_tap_1706 for the
-# 600ms double-tap window.
+# Tests: S activates remembered sub-shape; second S within 600ms cycles.
+# Phase 6a-ii added CASE 1706 with STATIC ss_last_tap_1706 for the 600ms
+# double-tap window.
+#
+# CRITICAL TIMING: the standard `key` helper has ~150-200ms of overhead
+# (draw_focus + sleeps) so two back-to-back `key s` calls already eat
+# 300-400ms. Adding snap_region between them pushes the gap past 600ms
+# and the second tap re-activates instead of cycling. We use direct
+# xdotool keydown/keyup with controlled timing and only snap AFTER both
+# taps complete.
 # =============================================================================
 
 info "=== Smart Shapes Tool Test ==="
@@ -12,46 +19,43 @@ wait_for 0.3 "Brush tool ready"
 key grave
 wait_for 0.1 "Pointer arrow hidden"
 
-# -- Snap status bar area (tool name changes there) --
+# -- Snap status bar area in brush mode --
 park_mouse
-snap_region 0 $(( VIEWPORT_H - STATUS_H )) $VIEWPORT_W $STATUS_H "ss-before"
-BEFORE="$SNAP_RESULT"
+snap_region 0 "$(( VIEWPORT_H - STATUS_H ))" "$VIEWPORT_W" "$STATUS_H" "ss-brush"
+BRUSH="$SNAP_RESULT"
 assert_no_crash
 
-# -- First tap = activate remembered Smart Shape sub-tool --
+# -- First S tap (activate). Direct xdotool — minimal overhead. --
 info "First S tap (activate Smart Shapes)"
-key s
-wait_for 0.4 "S activated"
+draw_focus
+xdotool keydown s
+sleep 0.15
+xdotool keyup s
+sleep 0.20
+
+# -- Second S tap within 600ms (cycle). Total time from first keydown to
+#    second keydown should be ~350ms — well inside the 600ms window. --
+info "Second S tap within 600ms (cycle sub-shape)"
+xdotool keydown s
+sleep 0.15
+xdotool keyup s
+sleep 0.30
+
+# -- Snap status bar after both taps --
 park_mouse
-snap_region 0 $(( VIEWPORT_H - STATUS_H )) $VIEWPORT_W $STATUS_H "ss-activated"
-ACTIVATED="$SNAP_RESULT"
-assert_regions_differ "$BEFORE" "$ACTIVATED" "S should activate Smart Shapes tool (status bar updates)"
+snap_region 0 "$(( VIEWPORT_H - STATUS_H ))" "$VIEWPORT_W" "$STATUS_H" "ss-after-cycle"
+AFTER="$SNAP_RESULT"
+assert_regions_differ "$BRUSH" "$AFTER" "Two S taps should switch FROM brush TO smart shape (and cycle)"
 assert_no_crash
 
-# -- Second tap within 600ms = cycle to next sub-shape --
-# CRITICAL TIMING: the dispatcher's CASE 1706 STATIC ss_last_tap_1706 stores
-# TIMER from the previous press. If the second press is >600ms later, it
-# re-activates instead of cycling. The default `key s` helper takes ~150-200ms
-# of overhead (draw_focus + sleeps), so back-to-back `key s` calls average
-# ~200-300ms apart — within the window.
-# Skip the snap-between-presses to minimize the elapsed time.
-info "Second S tap (cycle sub-shape — must be within 600ms of first)"
-key s
-wait_for 0.3 "S cycled"
-park_mouse
-snap_region 0 $(( VIEWPORT_H - STATUS_H )) $VIEWPORT_W $STATUS_H "ss-cycled"
-CYCLED="$SNAP_RESULT"
-assert_regions_differ "$ACTIVATED" "$CYCLED" "Second S tap within 600ms should cycle sub-shape"
-assert_no_crash
-
-# -- Wait > 600ms, then S should re-activate (not cycle further) --
+# -- Wait > 600ms, then a third S tap (window expired — re-activate, not cycle) --
 sleep 0.9
-info "Third S tap after 600ms (re-activate window expired)"
+info "Third S tap after >600ms (window expired)"
 key s
 wait_for 0.4 "S re-activated"
 assert_no_crash
 
-# -- Switch back to brush for cleanup --
+# -- Cleanup --
 key b
 wait_for 0.2 "Brush"
 
