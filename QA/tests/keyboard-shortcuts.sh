@@ -29,10 +29,12 @@ key b
 assert_no_crash
 
 # ── Grid toggle ───────────────────────────────────────────────────────────────
-info "Testing grid toggle (g)"
-key g
+# Grid visibility toggle is `'` (apostrophe, action 8101). `g` alone is a
+# chord initiator (CTX_G_HELD for G+R/Shift+R/Ctrl+R/O/arrows), not a toggle.
+info "Testing grid toggle (')"
+key apostrophe
 assert_no_crash
-key g   # toggle back
+key apostrophe   # toggle back
 
 # ── Select All / Deselect ─────────────────────────────────────────────────────
 info "Testing Select All / Deselect"

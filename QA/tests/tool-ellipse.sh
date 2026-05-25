@@ -4,7 +4,8 @@
 # Tests ellipse drawing, filled variant, and undo restoration.
 
 # --- Setup: focus canvas and switch to ellipse tool ---
-canvas_focus e
+# Ellipse = C (action 110). The old test used `e` which is Eraser (118).
+canvas_focus c
 wait_for 0.3 "Ellipse tool ready"
 
 # --- Increase brush size for visibility ---
@@ -47,8 +48,9 @@ snap_region $WORK_LEFT $WORK_TOP $WORK_W $WORK_H "ellipse-outline-undo"
 UNDO_OUTLINE="$SNAP_RESULT"
 assert_regions_differ "$AFTER_OUTLINE" "$UNDO_OUTLINE" "Undo should change canvas from outline ellipse"
 
-# --- Switch to filled ellipse (Shift+E) ---
-key shift+e
+# --- Switch to filled ellipse (Shift+C = action 111). The old test used
+#     Shift+E which has no binding — was a no-op. ---
+key shift+c
 wait_for 0.3 "Switch to filled ellipse"
 
 # --- Snap work area BEFORE filled ellipse ---

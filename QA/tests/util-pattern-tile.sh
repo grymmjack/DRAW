@@ -10,13 +10,8 @@ wait_for 0.3 "Brush tool ready"
 key grave
 wait_for 0.1 "Pointer arrow hidden"
 
-# -- Open drawer first (F6) to see mode changes --
-info "Open drawer (F6)"
-key F6
-wait_for 0.5 "Drawer opened"
-assert_no_crash
-
-# -- Snap drawer area in brush mode (F1 default) --
+# -- Drawer is visible by default (DRAWER.BM:13). F6 used to be "open drawer"
+#    in this test but F6 = Pixel Perfect toggle (action 8006). Snap baseline. --
 park_mouse
 snap_region 0 $(( VIEWPORT_H - STATUS_H - PALETTE_H - 60 )) $VIEWPORT_W 60 "drawer-brush-mode"
 BRUSH_MODE="$SNAP_RESULT"
@@ -56,10 +51,7 @@ snap_region 0 $(( VIEWPORT_H - STATUS_H - PALETTE_H - 60 )) $VIEWPORT_W 60 "draw
 BACK_BRUSH="$SNAP_RESULT"
 assert_regions_differ "$PATTERN_MODE" "$BACK_BRUSH" "Should return to brush mode"
 
-# -- Close drawer --
-key F6
-wait_for 0.3 "Drawer closed"
-assert_no_crash
+# -- No drawer "close" hotkey exists; drawer stays visible. --
 
 # -- Final check --
 assert_no_crash
