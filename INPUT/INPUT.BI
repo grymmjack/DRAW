@@ -310,11 +310,15 @@ DIM SHARED HOVER_REGION_LAST                         AS INTEGER
 ' Performance optimization: interesting-keys set built at init
 DIM SHARED INPUT_INTERESTING_KEYS(0 TO 65535)        AS _BYTE
 
-' Per-frame "keycode already enqueued" flag used by INPUT_detect_events
+' Per-frame "keycode already enqueued" tracker used by INPUT_detect_events
 ' to prevent double-fire when multiple bindings share the same keycode
-' (e.g. plain M binding + Ctrl+M binding both on keycode 109). SHARED to
-' avoid 64KB stack allocation every frame; the SUB ERASEs it on entry.
-DIM SHARED INPUT_KC_ENQUEUED(0 TO 65535)             AS _BYTE
+' (e.g. plain M binding + Ctrl+M binding both on keycode 109). Uses a
+' version-counter pattern: INPUT_KC_FRAME increments each frame; a key
+' is "enqueued this frame" iff INPUT_KC_ENQUEUED(kc) == INPUT_KC_FRAME.
+' Avoids any per-frame ERASE (which would deallocate the SHARED array
+' under $DYNAMIC and cause "Subscript out of range" on next access).
+DIM SHARED INPUT_KC_ENQUEUED(0 TO 65535)             AS LONG
+DIM SHARED INPUT_KC_FRAME                            AS LONG
 
 ' Phase 6 migration: skip-list indexed by lowercase printable ASCII (0-127).
 ' Set to TRUE by INPUT_register% whenever a dispatched=TRUE key binding
