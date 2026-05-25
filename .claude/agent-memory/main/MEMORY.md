@@ -12,3 +12,4 @@
 - [Hotkey grep sweep before adding chords](feedback_hotkey_grep_sweep.md) — DRAW has no central dispatch; grep _KEYDOWN(<keycode>) and CASE "letter" across whole KEYBOARD.BM before adding any new chord (NOTE: superseded by input rearchitecture once Phase 2+ complete)
 - [Input system reference](reference_input_system.md) — INPUT/INPUT.BI/BM unified dispatch; CORE/HELPERS.BI/BM utilities; migration phase status; dev mode via --developer + inputs.log; spec in PLANS/REARCHITECTURE.md
 - [Self-blocking context bug](feedback_self_blocking_context_bug.md) — chord-initiator tool keys (M/Z/E/F/W) must NOT forbid their own CTX_*_HELD bit; the context update runs before dispatch and would self-block on the very press edge
+- [QB64-PE NOT is bitwise](feedback_qb64pe_not_is_bitwise.md) — `NOT 1` returns `-2` (truthy), not `0` (falsy). For non-boolean flags use `IF flag = 0 THEN` instead of `IF NOT flag THEN`. The naive `NOT` only works on values that are exactly 0 or -1.
