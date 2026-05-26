@@ -4,7 +4,8 @@
 # Tests spray paint application via drag, visibility, and undo restoration.
 
 # --- Setup: ensure spray tool and canvas focus ---
-canvas_focus a
+# Spray = K (action 1702). The old test used `a` which is not a tool hotkey.
+canvas_focus k
 wait_for 0.3 "Spray tool ready"
 key bracketright
 key bracketright

@@ -23,8 +23,10 @@ park_mouse
 snap_region $(( CANVAS_CX - 80 )) $(( CANVAS_CY - 60 )) 160 120 "eraser-before"
 BEFORE_ERASE="$SNAP_RESULT"
 
-# --- Switch to eraser tool ---
-key x
+# --- Switch to eraser tool (E = action 118; the old test pressed X which
+#     swaps FG/BG colors and left brush active — the assertion below was
+#     passing because the next drag was a brush stroke, not an erase) ---
+key e
 wait_for 0.3 "Switch to eraser tool"
 
 # --- Drag eraser over the brush stroke ---

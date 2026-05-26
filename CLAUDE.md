@@ -118,7 +118,19 @@ Layers composite back-to-front into `SCRN.CANVAS&`, then GPU-scale to window. Th
 
 ### Action dispatcher
 
-All commands route through `CMD_execute_action <id>` in `GUI/COMMAND.BM` (200+ actions). New keybindings register an action ID in `CMD_init` and a handler in `CMD_execute_action`; user-customizable bindings live in `CFG/BINDINGS.BI/BM`.
+All commands route through `CMD_execute_action <id>` in `GUI/COMMAND.BM` (200+ actions). New keybindings register an action ID in `CMD_init` and a handler in `CMD_execute_action`.
+
+### Input system (NEW — branch `input-rearchitecture`)
+
+DRAW is migrating from scattered IF/STATIC keyboard/mouse handlers to a unified event-dispatch table in `INPUT/INPUT.BI/BM`:
+
+- **Bindings declared in a table** via `INPUT_register_key%`, `INPUT_register_mouse%`, `INPUT_register_wheel%`, `INPUT_register_hover%` (all centralized in `INPUTS_register_all` in `INPUT/INPUT.BM`).
+- **Regions** (GUI panels) call `REGION_set_bounds REGION_<NAME>, x, y, w, h, ZORDER_*` in their render SUBs. Hidden panels stay inactive via `REGION_clear_all` at the top of `SCREEN_render`.
+- **Events** flow: keyboard edges + mouse click/dblclick/drag state machines + hover enter/leave + wheel ticks → `DETECTED_EVENTS` queue → `INPUT_dispatch_frame` matches against bindings → `CMD_execute_action`.
+- **Conflict detection** runs at startup in developer mode (`--developer` CLI flag, `CFG.DEVELOPER_MODE=TRUE`, or `DRAW_DEVELOPER=1` env). Writes to `./inputs.log`.
+- **Migration is phased**: bindings marked `dispatched = FALSE` are metadata-only (legacy code still owns dispatch); bindings marked `dispatched = TRUE` fire through the central dispatcher. Current state: 88 keyboard bindings + 14 panel regions registered as metadata, 0 audit conflicts.
+
+See `PLANS/REARCHITECTURE.md` for the full spec, `.claude/agent-memory/main/reference_input_system.md` for the quick reference, and `.claude/instructions/input-system.md` for the implementation guide.
 
 ## Naming conventions
 

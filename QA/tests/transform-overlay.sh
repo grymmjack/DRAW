@@ -33,9 +33,15 @@ park_mouse
 snap_region $WORK_LEFT $WORK_TOP $WORK_W $WORK_H "xform-overlay-before"
 BEFORE="$SNAP_RESULT"
 
-# -- Enter transform mode: Ctrl+T --
-info "Entering transform mode (Ctrl+T)"
-key ctrl+t
+# -- Enter transform mode via Command Palette --
+# Ctrl+T = Text Tool with Custom Font (action 116), NOT Transform. Transform
+# overlay (actions 325-329) has no hotkey — invoke via Edit menu or palette.
+info "Entering transform mode via command palette"
+key question
+wait_for 0.4 "Palette opened"
+type_text "transform scale"
+wait_for 0.3 "Filter applied"
+key Return
 wait_for 1.0 "Transform overlay active"
 assert_no_crash
 

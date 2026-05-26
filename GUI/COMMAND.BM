@@ -60,7 +60,11 @@ SUB CMD_init ()
     CMD_register "Polygon Select", "", CMD_CAT_TOOL, 120
     CMD_register "Ellipse Select", "", CMD_CAT_TOOL, 121
     CMD_register "Bezier Curve", "Q", CMD_CAT_TOOL, 122
-    
+    CMD_register "Smart Shapes (activate/cycle)", "S", CMD_CAT_TOOL, 1706
+    CMD_register "Bevel Rect Outer Style", "O", CMD_CAT_TOOL, 1707
+    CMD_register "Spray Tool", "K", CMD_CAT_TOOL, 1702
+    CMD_register "Zoom Tool", "Z", CMD_CAT_TOOL, 1701
+
     ' ========== FILE ==========
     CMD_register "New Canvas", "Ctrl+N", CMD_CAT_FILE, 209
     CMD_register "Open Image", "Ctrl+O", CMD_CAT_FILE, 201
@@ -688,6 +692,13 @@ END SUB
 ' @param action_id INTEGER - Action ID to execute (see Action ID Ranges in COMMAND.BM)
 '
 SUB CMD_execute_action (action_id AS INTEGER)
+    ' Phase 6 migration: bump dispatch depth so the skip-list guard in
+    ' KEYBOARD_tools (and future KEYBOARD_colors/brush_size guards) lets
+    ' the action body call back into the legacy SUBs to do real work.
+    ' Nesting-safe: action 113 -> KEYBOARD_tools "v" -> action 316 stays
+    ' fully inside the dispatch context.
+    INPUT_DISPATCH_DEPTH = INPUT_DISPATCH_DEPTH + 1
+
     ' Auto-deactivate Palette Ops mode on any command dispatch
     IF PALETTE_OPS.ACTIVE% THEN
         PALETTE_OPS_deactivate
@@ -733,11 +744,25 @@ SUB CMD_execute_action (action_id AS INTEGER)
             TEXT.LINE_HEIGHT = 6
             TEXT_reset
             GUI_NEEDS_REDRAW% = TRUE
-        CASE 116                                                                         ' Text Custom
+        CASE 116                                                                         ' Text Custom (Ctrl+T)
             PREVIOUS_TOOL% = CURRENT_TOOL%
             CURRENT_TOOL%  = TOOL_TEXT
-            IF TEXT.CUSTOM_FONT_HANDLE > 0 THEN TEXT.USE_CUSTOM = TRUE
-            TEXT.USE_TINY5 = FALSE
+            TOOLS_reset_all FALSE
+            IF TEXT.CUSTOM_FONT_HANDLE > 0 THEN
+                TEXT.USE_CUSTOM = TRUE
+                TEXT.USE_TINY5  = FALSE
+                DIM tcft_old_font AS LONG
+                tcft_old_font& = _FONT
+                _FONT TEXT.CUSTOM_FONT_HANDLE
+                TEXT.CHAR_WIDTH  = _PRINTWIDTH("A")
+                TEXT.LINE_HEIGHT = _FONTHEIGHT + 2
+                _FONT tcft_old_font&
+            ELSE
+                TEXT.USE_CUSTOM  = FALSE
+                TEXT.USE_TINY5   = FALSE
+                TEXT.CHAR_WIDTH  = 8
+                TEXT.LINE_HEIGHT = 13
+            END IF
             TEXT_reset
             GUI_NEEDS_REDRAW% = TRUE
         CASE 118                                                                         ' Eraser Tool
@@ -891,6 +916,15 @@ SUB CMD_execute_action (action_id AS INTEGER)
                 END IF
             END IF
         CASE 306, 308 ' Clear selection / Edit > Clear
+            ' Wand-specific branch (was inline in KEYBOARD_handle_clipboard_operations):
+            ' when magic wand has an active selection, clear THROUGH the wand mask
+            ' instead of bbox-clearing the whole marquee.
+            IF CURRENT_TOOL% = TOOL_MARQUEE AND MARQUEE.MAGIC_WAND_MODE AND MARQUEE.WAND_HAS_SELECTION THEN
+                MAGIC_WAND_clear_selected_transparent
+                MAGIC_WAND_reset
+                GUI_NEEDS_REDRAW% = TRUE
+                EXIT SELECT
+            END IF
             DIM clearUsedHistoryGroup AS INTEGER
             clearUsedHistoryGroup% = FALSE
             IF MULTI_SELECT_has_any% AND NOT HISTORY_IN_PROGRESS% THEN
@@ -1512,6 +1546,20 @@ SUB CMD_execute_action (action_id AS INTEGER)
         CASE 508 : PAINT_OPACITY% = 80  : GUI_NEEDS_REDRAW% = TRUE : SCENE_DIRTY% = TRUE
         CASE 509 : PAINT_OPACITY% = 90  : GUI_NEEDS_REDRAW% = TRUE : SCENE_DIRTY% = TRUE
         CASE 510 : PAINT_OPACITY% = 100 : GUI_NEEDS_REDRAW% = TRUE : SCENE_DIRTY% = TRUE
+        CASE 517      ' Swap FG/BG Colors (was inline in KEYBOARD_colors "x"; Phase 6b)
+            DIM swap_color AS _UNSIGNED LONG
+            DIM swap_idx   AS INTEGER
+            DIM swap_trans AS INTEGER
+            swap_color~&           = PAINT_COLOR~&
+            swap_idx%              = PAL_FG_IDX%
+            swap_trans%            = PAL_FG_IS_TRANSPARENT%
+            PAINT_COLOR~&          = PAINT_BG_COLOR~&
+            PAL_FG_IDX%            = PAL_BG_IDX%
+            PAL_FG_IS_TRANSPARENT% = PAL_BG_IS_TRANSPARENT%
+            PAINT_BG_COLOR~&       = swap_color~&
+            PAL_BG_IDX%            = swap_idx%
+            PAL_BG_IS_TRANSPARENT% = swap_trans%
+            GUI_NEEDS_REDRAW%      = TRUE
         CASE 518      ' Default Colors (White/Black)
             PAL_FG_IS_TRANSPARENT% = FALSE
             PAINT_COLOR~&          = _RGB32(255, 255, 255)
@@ -1663,7 +1711,7 @@ SUB CMD_execute_action (action_id AS INTEGER)
                     NEXT ms711_off
                     _MEMFREE ms711_mem
                     _PUTIMAGE , ms711_tempImg&
-                    IF ms711_tempImg& < -1 THEN _FREEIMAGE ms711_tempImg&
+                    SAFE_FREEIMAGE ms711_tempImg&
                 ELSE
                     _PUTIMAGE , LAYERS(ms711_srcIdx%).imgHandle&
                 END IF
@@ -1969,9 +2017,9 @@ SUB CMD_execute_action (action_id AS INTEGER)
         CASE 902 : PIXEL_GRID.SHOW% = NOT PIXEL_GRID.SHOW% : GUI_NEEDS_REDRAW% = TRUE : SCENE_DIRTY% = TRUE
         CASE 903 : GRID.SNAP% = NOT GRID.SNAP%             : GUI_NEEDS_REDRAW% = TRUE
         CASE 904      ' Increase grid size
-            IF GRID.gridWidth% < 50 THEN GRID.gridWidth% = GRID.gridWidth% + 1: GRID.gridHeight% = GRID.gridWidth%: GRID_draw: GUI_NEEDS_REDRAW% = TRUE: SCENE_DIRTY% = TRUE: FRAME_IDLE% = FALSE
+            IF GRID.gridWidth% < 50 THEN GRID.gridWidth% = GRID.gridWidth% + 1: GRID.gridHeight% = GRID.gridWidth%: GRID_draw: GUI_NEEDS_REDRAW% = TRUE: SCENE_invalidate
         CASE 905      ' Decrease grid size
-            IF GRID.gridWidth% > 2 THEN GRID.gridWidth% = GRID.gridWidth% - 1: GRID.gridHeight% = GRID.gridWidth%: GRID_draw: GUI_NEEDS_REDRAW% = TRUE: SCENE_DIRTY% = TRUE: FRAME_IDLE% = FALSE
+            IF GRID.gridWidth% > 2 THEN GRID.gridWidth% = GRID.gridWidth% - 1: GRID.gridHeight% = GRID.gridWidth%: GRID_draw: GUI_NEEDS_REDRAW% = TRUE: SCENE_invalidate
         CASE 906      ' Toggle grid tile mode (ON = center/tiling, OFF = corner/lines)
             IF GRID.ALIGN_MODE% = GRID_ALIGN_CORNER THEN GRID.ALIGN_MODE% = GRID_ALIGN_CENTER ELSE GRID.ALIGN_MODE% = GRID_ALIGN_CORNER
             GUI_NEEDS_REDRAW% = TRUE
@@ -2038,13 +2086,20 @@ SUB CMD_execute_action (action_id AS INTEGER)
                 CMD_execute_action 320
             END IF
         
-        ' ========== FILE (menu-only) ==========
+        ' ========== FILE ==========
+        CASE 201                     ' Open Image (Ctrl+O) — added Phase 6d batch 5
+            LOAD_image
         CASE 202                     ' Save (Ctrl+S)
             SAVE_image
         CASE 204                     ' Save AS (Ctrl+Shift+S)
             SAVE_as
         CASE 205                     ' Export Selection
-            SAVE_selection
+            ' Defer so the dialog opens after the input frame completes —
+            ' prevents SDL2 from losing Alt/Shift key-up events when called
+            ' from the Ctrl+Alt+Shift+S hotkey. Menu invocations also benefit
+            ' from the deferred path. _KEYCLEAR drains stale presses.
+            MOUSE.DEFERRED_ACTION% = 4
+            _KEYCLEAR
         CASE 206                     ' Open DRAW file
             DRW_open_dialog
         CASE 215                     ' Open Aseprite file
@@ -2107,7 +2162,7 @@ SUB CMD_execute_action (action_id AS INTEGER)
                 POINTER_show_after_dialog
                 MOUSE_cleanup_after_dialog FALSE
                 IF ncbSave& <> MB_RESULT_1 THEN
-                    _FREEIMAGE ncbImg&
+                    SAFE_FREEIMAGE ncbImg&
                     EXIT SUB
                 END IF
             END IF
@@ -2120,7 +2175,7 @@ SUB CMD_execute_action (action_id AS INTEGER)
             _PUTIMAGE , ncbImg&
             _DEST ncbOldDest&
             LAYERS(1).contentDirty% = TRUE
-            _FREEIMAGE ncbImg&
+            SAFE_FREEIMAGE ncbImg&
             CANVAS_DIRTY% = TRUE
             SOUND_play SND_CLIPBOARD
             BLEND_invalidate_cache
@@ -2242,7 +2297,7 @@ SUB CMD_execute_action (action_id AS INTEGER)
                                 _BLEND eleCropImg&
                                 _DEST eleOldDest&
                                 _SAVEIMAGE layerExportPath$, eleCropImg&
-                                _FREEIMAGE eleCropImg&
+                                SAFE_FREEIMAGE eleCropImg&
                             ELSE
                                 ' _NEWIMAGE failed — save full image as fallback
                                 _SAVEIMAGE layerExportPath$, LAYERS(CURRENT_LAYER%).imgHandle&
@@ -2492,7 +2547,7 @@ SUB CMD_execute_action (action_id AS INTEGER)
                 _PUTIMAGE , fhMoveTmp&, MOVE.SELECTION_IMAGE
                 _BLEND MOVE.SELECTION_IMAGE
                 _DEST SCRN.CANVAS&
-                IF fhMoveTmp& < -1 THEN _FREEIMAGE fhMoveTmp&
+                SAFE_FREEIMAGE fhMoveTmp&
                 MOVE_update_preview_buffer
                 INVALIDATE_scene
             ELSEIF CURRENT_LAYER% > 0 THEN
@@ -2525,7 +2580,7 @@ SUB CMD_execute_action (action_id AS INTEGER)
                     _PUTIMAGE (MARQUEE.BOX.x + fhSelW% - 1, MARQUEE.BOX.y)-(MARQUEE.BOX.x, MARQUEE.BOX.y + fhSelH% - 1), fhRegion&, flipH_src&
                     _BLEND flipH_src&
                     _DEST oldFHSelDest&
-                    IF fhRegion& < -1 THEN _FREEIMAGE fhRegion&
+                    SAFE_FREEIMAGE fhRegion&
                 ELSE
                     ' Flip entire layer
                     flipH_w& = _WIDTH(flipH_src&)
@@ -2539,7 +2594,7 @@ SUB CMD_execute_action (action_id AS INTEGER)
                     _PUTIMAGE , flipH_tmp&, flipH_src&
                     _BLEND flipH_src&
                     _DEST oldFlipDest&
-                    IF flipH_tmp& < -1 THEN _FREEIMAGE flipH_tmp&
+                    SAFE_FREEIMAGE flipH_tmp&
                 END IF
                 IF flipH_history_before& < -1 THEN
                     HISTORY_record_transform LAYERS(CURRENT_LAYER%).historyId&, CURRENT_LAYER%, flipH_history_flags&, flipH_history_before&, "Flip Horizontal"
@@ -2592,7 +2647,7 @@ SUB CMD_execute_action (action_id AS INTEGER)
                 _PUTIMAGE , fvMoveTmp&, MOVE.SELECTION_IMAGE
                 _BLEND MOVE.SELECTION_IMAGE
                 _DEST SCRN.CANVAS&
-                IF fvMoveTmp& < -1 THEN _FREEIMAGE fvMoveTmp&
+                SAFE_FREEIMAGE fvMoveTmp&
                 MOVE_update_preview_buffer
                 INVALIDATE_scene
             ELSEIF CURRENT_LAYER% > 0 THEN
@@ -2625,7 +2680,7 @@ SUB CMD_execute_action (action_id AS INTEGER)
                     _PUTIMAGE (MARQUEE.BOX.x, MARQUEE.BOX.y + fvSelH% - 1)-(MARQUEE.BOX.x + fvSelW% - 1, MARQUEE.BOX.y), fvRegion&, flipV_src&
                     _BLEND flipV_src&
                     _DEST oldFVSelDest&
-                    IF fvRegion& < -1 THEN _FREEIMAGE fvRegion&
+                    SAFE_FREEIMAGE fvRegion&
                 ELSE
                     ' Flip entire layer
                     flipV_w& = _WIDTH(flipV_src&)
@@ -2639,7 +2694,7 @@ SUB CMD_execute_action (action_id AS INTEGER)
                     _PUTIMAGE , flipV_tmp&, flipV_src&
                     _BLEND flipV_src&
                     _DEST oldFlipVDest&
-                    IF flipV_tmp& < -1 THEN _FREEIMAGE flipV_tmp&
+                    SAFE_FREEIMAGE flipV_tmp&
                 END IF
                 IF flipV_history_before& < -1 THEN
                     HISTORY_record_transform LAYERS(CURRENT_LAYER%).historyId&, CURRENT_LAYER%, flipV_history_flags&, flipV_history_before&, "Flip Vertical"
@@ -2703,7 +2758,7 @@ SUB CMD_execute_action (action_id AS INTEGER)
                 _DONTBLEND sdMoveTmp&
                 _PUTIMAGE (0, 0)-(sdNewW% - 1, sdNewH% - 1), MOVE.ORIGINAL_IMAGE, sdMoveTmp&
                 _BLEND sdMoveTmp&
-                IF MOVE.SELECTION_IMAGE < -1 THEN _FREEIMAGE MOVE.SELECTION_IMAGE
+                SAFE_FREEIMAGE MOVE.SELECTION_IMAGE
                 MOVE.SELECTION_IMAGE = sdMoveTmp&
                 MOVE.CURRENT_W       = sdNewW%
                 MOVE.CURRENT_H       = sdNewH%
@@ -2761,8 +2816,8 @@ SUB CMD_execute_action (action_id AS INTEGER)
                     _PUTIMAGE (sdCx%, sdCy%)-(sdCx% + sdSelNW% - 1, sdCy% + sdSelNH% - 1), sdScl&, sdSrc&
                     _BLEND sdSrc&
                     _DEST oldSdDest&
-                    IF sdReg& < -1 THEN _FREEIMAGE sdReg&
-                    IF sdScl& < -1 THEN _FREEIMAGE sdScl&
+                    SAFE_FREEIMAGE sdReg&
+                    SAFE_FREEIMAGE sdScl&
                     ' Update marquee box to the scaled content position
                     MARQUEE.BOX.x = sdCx%    : MARQUEE.BOX.y = sdCy%
                     MARQUEE.BOX.w = sdSelNW% : MARQUEE.BOX.h = sdSelNH%
@@ -2773,7 +2828,7 @@ SUB CMD_execute_action (action_id AS INTEGER)
                     sdLH& = _HEIGHT(sdSrc&)
                     ' Save original on first scale operation for this layer
                     IF SCALE_ORIGINAL_IMAGE = 0 OR SCALE_ORIGINAL_LAYER <> CURRENT_LAYER% THEN
-                        IF SCALE_ORIGINAL_IMAGE < -1 THEN _FREEIMAGE SCALE_ORIGINAL_IMAGE
+                        SAFE_FREEIMAGE SCALE_ORIGINAL_IMAGE
                         SCALE_ORIGINAL_IMAGE = _COPYIMAGE(sdSrc&)
                         SCALE_ORIGINAL_LAYER = CURRENT_LAYER%
                         SCALE_FACTOR_LAYER   = 1.0
@@ -2800,7 +2855,7 @@ SUB CMD_execute_action (action_id AS INTEGER)
                     _PUTIMAGE (sdLCx%, sdLCy%)-(sdLCx% + sdLNW% - 1, sdLCy% + sdLNH% - 1), sdLTmp&, sdSrc&
                     _BLEND sdSrc&
                     _DEST oldSdLDest&
-                    IF sdLTmp& < -1 THEN _FREEIMAGE sdLTmp&
+                    SAFE_FREEIMAGE sdLTmp&
                 END IF
                 IF sd_history_before& < -1 THEN
                     HISTORY_record_transform LAYERS(CURRENT_LAYER%).historyId&, CURRENT_LAYER%, sd_history_flags&, sd_history_before&, "Scale -50%"
@@ -2864,7 +2919,7 @@ SUB CMD_execute_action (action_id AS INTEGER)
                 _DONTBLEND suMoveTmp&
                 _PUTIMAGE (0, 0)-(suNewW% - 1, suNewH% - 1), MOVE.ORIGINAL_IMAGE, suMoveTmp&
                 _BLEND suMoveTmp&
-                IF MOVE.SELECTION_IMAGE < -1 THEN _FREEIMAGE MOVE.SELECTION_IMAGE
+                SAFE_FREEIMAGE MOVE.SELECTION_IMAGE
                 MOVE.SELECTION_IMAGE = suMoveTmp&
                 MOVE.CURRENT_W       = suNewW%
                 MOVE.CURRENT_H       = suNewH%
@@ -2937,8 +2992,8 @@ SUB CMD_execute_action (action_id AS INTEGER)
                     END IF
                     _BLEND suSrc&
                     _DEST oldSuDest&
-                    IF suReg& < -1 THEN _FREEIMAGE suReg&
-                    IF suScl& < -1 THEN _FREEIMAGE suScl&
+                    SAFE_FREEIMAGE suReg&
+                    SAFE_FREEIMAGE suScl&
                     ' Update marquee box to the actual drawn region (already canvas-clamped)
                     MARQUEE.BOX.x = suDstX% : MARQUEE.BOX.y = suDstY%
                     MARQUEE.BOX.w = suCpW%  : MARQUEE.BOX.h = suCpH%
@@ -2949,7 +3004,7 @@ SUB CMD_execute_action (action_id AS INTEGER)
                     suLH& = _HEIGHT(suSrc&)
                     ' Save original on first scale operation for this layer
                     IF SCALE_ORIGINAL_IMAGE = 0 OR SCALE_ORIGINAL_LAYER <> CURRENT_LAYER% THEN
-                        IF SCALE_ORIGINAL_IMAGE < -1 THEN _FREEIMAGE SCALE_ORIGINAL_IMAGE
+                        SAFE_FREEIMAGE SCALE_ORIGINAL_IMAGE
                         SCALE_ORIGINAL_IMAGE = _COPYIMAGE(suSrc&)
                         SCALE_ORIGINAL_LAYER = CURRENT_LAYER%
                         SCALE_FACTOR_LAYER   = 1.0
@@ -2976,7 +3031,7 @@ SUB CMD_execute_action (action_id AS INTEGER)
                     _PUTIMAGE (0, 0)-(suLW& - 1, suLH& - 1), suLTmp&, suSrc&, (suOverX%, suOverY%)-(suOverX% + suLW& - 1, suOverY% + suLH& - 1)
                     _BLEND suSrc&
                     _DEST oldSuLDest&
-                    IF suLTmp& < -1 THEN _FREEIMAGE suLTmp&
+                    SAFE_FREEIMAGE suLTmp&
                 END IF
                 IF su_history_before& < -1 THEN
                     HISTORY_record_transform LAYERS(CURRENT_LAYER%).historyId&, CURRENT_LAYER%, su_history_flags&, su_history_before&, "Scale 2x"
@@ -3054,21 +3109,9 @@ SUB CMD_execute_action (action_id AS INTEGER)
                 _DONTBLEND h2hReg&
                 _PUTIMAGE (0, 0), h2hSrc&, h2hReg&, (MARQUEE.BOX.x, MARQUEE.BOX.y)-(MARQUEE.BOX.x + h2hSelW% - 1, MARQUEE.BOX.y + h2hSelH% - 1)
                 h2hScl& = _NEWIMAGE(h2hNewW%, h2hNewH%, 32)
-                DIM h2hOldDst  AS LONG, h2hOldSrc AS LONG
+                PIXEL_DOUBLE_AXIS h2hReg&, h2hScl&, 0     ' double horizontally
+                DIM h2hOldDst AS LONG, h2hOldSrc AS LONG
                 h2hOldDst& = _DEST : h2hOldSrc& = _SOURCE
-                _DEST h2hScl&
-                CLS , _RGBA32(0, 0, 0, 0)
-                _SOURCE h2hReg&
-                _DONTBLEND h2hScl&
-                DIM h2hPx      AS INTEGER, h2hPy AS INTEGER, h2hPix AS _UNSIGNED LONG
-                FOR h2hPy% = 0 TO h2hSelH% - 1
-                    FOR h2hPx% = 0 TO h2hSelW% - 1
-                        h2hPix~& = POINT(h2hPx%, h2hPy%)
-                        PSET (h2hPx% * 2,     h2hPy%), h2hPix~&
-                        PSET (h2hPx% * 2 + 1, h2hPy%), h2hPix~&
-                    NEXT h2hPx%
-                NEXT h2hPy%
-                _BLEND h2hScl&
                 _DEST h2hSrc&
                 _DONTBLEND h2hSrc&
                 LINE (MARQUEE.BOX.x, MARQUEE.BOX.y)-(MARQUEE.BOX.x + h2hSelW% - 1, MARQUEE.BOX.y + h2hSelH% - 1), _RGBA32(0, 0, 0, 0), BF
@@ -3091,8 +3134,8 @@ SUB CMD_execute_action (action_id AS INTEGER)
                 _BLEND h2hSrc&
                 _SOURCE h2hOldSrc&
                 _DEST   h2hOldDst&
-                IF h2hReg& < -1 THEN _FREEIMAGE h2hReg&
-                IF h2hScl& < -1 THEN _FREEIMAGE h2hScl&
+                SAFE_FREEIMAGE h2hReg&
+                SAFE_FREEIMAGE h2hScl&
                 ' Scale the wand mask the same way as the layer content so the
                 ' marching ants follow the pixel-doubled silhouette, not a rectangle.
                 IF MARQUEE.WAND_HAS_SELECTION AND MARQUEE.SELECTION_MASK < -1 THEN
@@ -3126,8 +3169,8 @@ SUB CMD_execute_action (action_id AS INTEGER)
                     _BLEND MARQUEE.SELECTION_MASK
                     _SOURCE h2hMskOldSrc&
                     _DEST   h2hMskOldDst&
-                    IF h2hMskOld& < -1 THEN _FREEIMAGE h2hMskOld&
-                    IF h2hMskNew& < -1 THEN _FREEIMAGE h2hMskNew&
+                    SAFE_FREEIMAGE h2hMskOld&
+                    SAFE_FREEIMAGE h2hMskNew&
                     MARQUEE.WAND_MIN_X      = h2hDstX%
                     MARQUEE.WAND_MIN_Y      = h2hDstY%
                     MARQUEE.WAND_MAX_X      = h2hDstX% + h2hCpW% - 1
@@ -3189,8 +3232,8 @@ SUB CMD_execute_action (action_id AS INTEGER)
                 _BLEND h2hSrc&
                 _SOURCE h2hLOldSrc&
                 _DEST   h2hLOldDst&
-                IF h2hSnap& < -1 THEN _FREEIMAGE h2hSnap&
-                IF h2hLScl& < -1 THEN _FREEIMAGE h2hLScl&
+                SAFE_FREEIMAGE h2hSnap&
+                SAFE_FREEIMAGE h2hLScl&
                 IF h2hBefore& < -1 THEN
                     HISTORY_record_transform LAYERS(CURRENT_LAYER%).historyId&, CURRENT_LAYER%, h2hFlags&, h2hBefore&, "Scale 2x H"
                     HISTORY_saved_this_frame% = TRUE
@@ -3256,21 +3299,9 @@ SUB CMD_execute_action (action_id AS INTEGER)
                 _DONTBLEND v2vReg&
                 _PUTIMAGE (0, 0), v2vSrc&, v2vReg&, (MARQUEE.BOX.x, MARQUEE.BOX.y)-(MARQUEE.BOX.x + v2vSelW% - 1, MARQUEE.BOX.y + v2vSelH% - 1)
                 v2vScl& = _NEWIMAGE(v2vNewW%, v2vNewH%, 32)
-                DIM v2vOldDst  AS LONG, v2vOldSrc AS LONG
+                PIXEL_DOUBLE_AXIS v2vReg&, v2vScl&, 1     ' double vertically
+                DIM v2vOldDst AS LONG, v2vOldSrc AS LONG
                 v2vOldDst& = _DEST : v2vOldSrc& = _SOURCE
-                _DEST v2vScl&
-                CLS , _RGBA32(0, 0, 0, 0)
-                _SOURCE v2vReg&
-                _DONTBLEND v2vScl&
-                DIM v2vPx      AS INTEGER, v2vPy AS INTEGER, v2vPix AS _UNSIGNED LONG
-                FOR v2vPy% = 0 TO v2vSelH% - 1
-                    FOR v2vPx% = 0 TO v2vSelW% - 1
-                        v2vPix~& = POINT(v2vPx%, v2vPy%)
-                        PSET (v2vPx%, v2vPy% * 2),     v2vPix~&
-                        PSET (v2vPx%, v2vPy% * 2 + 1), v2vPix~&
-                    NEXT v2vPx%
-                NEXT v2vPy%
-                _BLEND v2vScl&
                 _DEST v2vSrc&
                 _DONTBLEND v2vSrc&
                 LINE (MARQUEE.BOX.x, MARQUEE.BOX.y)-(MARQUEE.BOX.x + v2vSelW% - 1, MARQUEE.BOX.y + v2vSelH% - 1), _RGBA32(0, 0, 0, 0), BF
@@ -3293,8 +3324,8 @@ SUB CMD_execute_action (action_id AS INTEGER)
                 _BLEND v2vSrc&
                 _SOURCE v2vOldSrc&
                 _DEST   v2vOldDst&
-                IF v2vReg& < -1 THEN _FREEIMAGE v2vReg&
-                IF v2vScl& < -1 THEN _FREEIMAGE v2vScl&
+                SAFE_FREEIMAGE v2vReg&
+                SAFE_FREEIMAGE v2vScl&
                 ' Scale the wand mask the same way as the layer content so the
                 ' marching ants follow the pixel-doubled silhouette, not a rectangle.
                 IF MARQUEE.WAND_HAS_SELECTION AND MARQUEE.SELECTION_MASK < -1 THEN
@@ -3328,8 +3359,8 @@ SUB CMD_execute_action (action_id AS INTEGER)
                     _BLEND MARQUEE.SELECTION_MASK
                     _SOURCE v2vMskOldSrc&
                     _DEST   v2vMskOldDst&
-                    IF v2vMskOld& < -1 THEN _FREEIMAGE v2vMskOld&
-                    IF v2vMskNew& < -1 THEN _FREEIMAGE v2vMskNew&
+                    SAFE_FREEIMAGE v2vMskOld&
+                    SAFE_FREEIMAGE v2vMskNew&
                     MARQUEE.WAND_MIN_X      = v2vDstX%
                     MARQUEE.WAND_MIN_Y      = v2vDstY%
                     MARQUEE.WAND_MAX_X      = v2vDstX% + v2vCpW% - 1
@@ -3391,8 +3422,8 @@ SUB CMD_execute_action (action_id AS INTEGER)
                 _BLEND v2vSrc&
                 _SOURCE v2vLOldSrc&
                 _DEST   v2vLOldDst&
-                IF v2vSnap& < -1 THEN _FREEIMAGE v2vSnap&
-                IF v2vLScl& < -1 THEN _FREEIMAGE v2vLScl&
+                SAFE_FREEIMAGE v2vSnap&
+                SAFE_FREEIMAGE v2vLScl&
                 IF v2vBefore& < -1 THEN
                     HISTORY_record_transform LAYERS(CURRENT_LAYER%).historyId&, CURRENT_LAYER%, v2vFlags&, v2vBefore&, "Scale 2x V"
                     HISTORY_saved_this_frame% = TRUE
@@ -3432,7 +3463,7 @@ SUB CMD_execute_action (action_id AS INTEGER)
                 NEXT rcPy%
                 _BLEND rcNew&
                 _SOURCE rcOldSrc& : _DEST rcOldDst&
-                IF MOVE.SELECTION_IMAGE < -1 THEN _FREEIMAGE MOVE.SELECTION_IMAGE
+                SAFE_FREEIMAGE MOVE.SELECTION_IMAGE
                 MOVE.SELECTION_IMAGE = rcNew&
                 ' Swap dimensions
                 MOVE.CURRENT_W   = rcMoveH%
@@ -3519,8 +3550,8 @@ SUB CMD_execute_action (action_id AS INTEGER)
                     END IF
                     _BLEND rcSrc&
                     _DEST rcD&
-                    IF rcReg& < -1 THEN _FREEIMAGE rcReg&
-                    IF rcRot& < -1 THEN _FREEIMAGE rcRot&
+                    SAFE_FREEIMAGE rcReg&
+                    SAFE_FREEIMAGE rcRot&
                     ' Update marquee box: swap w/h and recentre on original selection centre,
                     ' clamped to canvas so the box always matches the rotated pixel content
                     DIM rcNewBx  AS INTEGER, rcNewBy AS INTEGER
@@ -3585,7 +3616,7 @@ SUB CMD_execute_action (action_id AS INTEGER)
                     END IF
                     _BLEND rcSrc&
                     _DEST rcLOD&
-                    IF rcLRot& < -1 THEN _FREEIMAGE rcLRot&
+                    SAFE_FREEIMAGE rcLRot&
                 END IF
                 IF rc_history_before& < -1 THEN
                     HISTORY_record_transform LAYERS(CURRENT_LAYER%).historyId&, CURRENT_LAYER%, rc_history_flags&, rc_history_before&, "Rotate 90 CW"
@@ -3634,7 +3665,7 @@ SUB CMD_execute_action (action_id AS INTEGER)
                 NEXT rccPy%
                 _BLEND rccNew&
                 _SOURCE rccOldSrc& : _DEST rccOldDst&
-                IF MOVE.SELECTION_IMAGE < -1 THEN _FREEIMAGE MOVE.SELECTION_IMAGE
+                SAFE_FREEIMAGE MOVE.SELECTION_IMAGE
                 MOVE.SELECTION_IMAGE = rccNew&
                 ' Swap dimensions
                 MOVE.CURRENT_W   = rccMoveH%
@@ -3719,8 +3750,8 @@ SUB CMD_execute_action (action_id AS INTEGER)
                     END IF
                     _BLEND rccSrc&
                     _DEST rccD&
-                    IF rccReg& < -1 THEN _FREEIMAGE rccReg&
-                    IF rccRot& < -1 THEN _FREEIMAGE rccRot&
+                    SAFE_FREEIMAGE rccReg&
+                    SAFE_FREEIMAGE rccRot&
                     ' Update marquee box: swap w/h and recentre on original selection centre,
                     ' clamped to canvas so the box always matches the rotated pixel content
                     DIM rccNewBx  AS INTEGER, rccNewBy AS INTEGER
@@ -3784,7 +3815,7 @@ SUB CMD_execute_action (action_id AS INTEGER)
                     END IF
                     _BLEND rccSrc&
                     _DEST rccLOD&
-                    IF rccLRot& < -1 THEN _FREEIMAGE rccLRot&
+                    SAFE_FREEIMAGE rccLRot&
                 END IF
                 IF rcc_history_before& < -1 THEN
                     HISTORY_record_transform LAYERS(CURRENT_LAYER%).historyId&, CURRENT_LAYER%, rcc_history_flags&, rcc_history_before&, "Rotate 90 CCW"
@@ -4125,7 +4156,7 @@ SUB CMD_execute_action (action_id AS INTEGER)
             END IF
             FOR algnI% = 1 TO algnCount%
                 IF algnBefore(algnLayers(algnI%)) < -1 THEN
-                    _FREEIMAGE algnBefore(algnLayers(algnI%))
+                    SAFE_FREEIMAGE algnBefore(algnLayers(algnI%))
                     algnBefore(algnLayers(algnI%)) = 0
                 END IF
             NEXT algnI%
@@ -4188,10 +4219,7 @@ SUB CMD_execute_action (action_id AS INTEGER)
             ' Reset any existing selection
             MARQUEE_reset
             MAGIC_WAND_reset
-            IF MARQUEE.SELECTION_MASK < -1 THEN
-                _FREEIMAGE MARQUEE.SELECTION_MASK
-                MARQUEE.SELECTION_MASK = 0
-            END IF
+            SAFE_FREEIMAGE MARQUEE.SELECTION_MASK : MARQUEE.SELECTION_MASK = 0
             ' Create new selection mask
             MARQUEE.SELECTION_MASK = _NEWIMAGE(sel14_w%, sel14_h%, 32)
             IF MARQUEE.SELECTION_MASK >= -1 THEN
@@ -4287,21 +4315,29 @@ SUB CMD_execute_action (action_id AS INTEGER)
             IF MARQUEE.ACTIVE% THEN MARQUEE.BOX.y = MARQUEE.BOX.y - 10
             INVALIDATE_scene
         CASE 1410            ' Expand Selection 1px
-            SOUND_play SND_SELECTION
-            SELECTION_expand 1
-            INVALIDATE_scene
+            IF SELECTION_has_active% THEN
+                SOUND_play SND_SELECTION
+                SELECTION_expand 1
+                INVALIDATE_scene
+            END IF
         CASE 1411            ' Contract Selection 1px
-            SOUND_play SND_SELECTION
-            SELECTION_contract 1
-            INVALIDATE_scene
+            IF SELECTION_has_active% THEN
+                SOUND_play SND_SELECTION
+                SELECTION_contract 1
+                INVALIDATE_scene
+            END IF
         CASE 1412            ' Expand Selection by NUDGE_N px
-            SOUND_play SND_SELECTION
-            SELECTION_expand CFG.NUDGE_N%
-            INVALIDATE_scene
+            IF SELECTION_has_active% THEN
+                SOUND_play SND_SELECTION
+                SELECTION_expand CFG.NUDGE_N%
+                INVALIDATE_scene
+            END IF
         CASE 1413            ' Contract Selection by NUDGE_N px
-            SOUND_play SND_SELECTION
-            SELECTION_contract CFG.NUDGE_N%
-            INVALIDATE_scene
+            IF SELECTION_has_active% THEN
+                SOUND_play SND_SELECTION
+                SELECTION_contract CFG.NUDGE_N%
+                INVALIDATE_scene
+            END IF
 
         ' ========== PALETTE (menu-only) ==========
         CASE 1510            ' Import palette (GPL)
@@ -4568,6 +4604,17 @@ SUB CMD_execute_action (action_id AS INTEGER)
             GUI_NEEDS_REDRAW% = TRUE
         
         ' ========== TOOLS (menu-only) ==========
+        CASE 1101            ' Capture Custom Brush (Ctrl+B) — was inline KEYBOARD_handle_custom_brush
+            IF CUSTOM_BRUSH_is_active% THEN
+                CUSTOM_BRUSH_reset
+                CUSTOM_BRUSH_clear_stash
+                GUI_NEEDS_REDRAW% = TRUE
+            ELSEIF MARQUEE.ACTIVE% THEN
+                CUSTOM_BRUSH_capture_from_marquee
+                SOUND_play SND_CLIPBOARD
+                CMD_execute_action 101                ' Switch to Brush tool
+                GUI_NEEDS_REDRAW% = TRUE
+            END IF
         CASE 1102            ' Clear custom brush
             IF CUSTOM_BRUSH_is_active% THEN
                 CUSTOM_BRUSH_reset
@@ -4595,8 +4642,11 @@ SUB CMD_execute_action (action_id AS INTEGER)
             ELSE
                 ERR_info "No custom brush active. Create one with Ctrl+B first."
             END IF
-        CASE 1701            ' Zoom tool
-            ERR_info "Zoom: use Ctrl+= / Ctrl+- or scroll wheel"
+        CASE 1701            ' Zoom tool — switch to TOOL_ZOOM
+            PREVIOUS_TOOL%    = CURRENT_TOOL%
+            CURRENT_TOOL%     = TOOL_ZOOM
+            TOOLS_reset_all FALSE
+            GUI_NEEDS_REDRAW% = TRUE
         CASE 1702            ' Spray tool
             PREVIOUS_TOOL%    = CURRENT_TOOL%
             CURRENT_TOOL%     = TOOL_SPRAY
@@ -4605,6 +4655,29 @@ SUB CMD_execute_action (action_id AS INTEGER)
             CMD_show_palette
         CASE 1704            ' Code / BAS export
             FILE_BAS_export_dialog
+        CASE 1706            ' Smart Shapes activate-or-cycle
+            ' Tap once to activate the remembered sub-shape; tap again within
+            ' 600 ms to cycle to the next sub-shape. Replicates KEYBOARD_tools
+            ' "s" so the new dispatcher can own S without losing double-tap.
+            STATIC ss_last_tap_1706 AS DOUBLE
+            DIM ss_now_1706 AS DOUBLE
+            ss_now_1706# = TIMER
+            IF SMART_SHAPES_is_active% AND (ss_now_1706# - ss_last_tap_1706# < 0.6) THEN
+                SMART_SHAPES_cycle_next
+            ELSE
+                SMART_SHAPES_activate_remembered
+            END IF
+            ss_last_tap_1706# = ss_now_1706#
+        CASE 1707            ' Smart Shape Bevel Rect: outer style (O key)
+            ' Only meaningful when TOOL_SS_BEVEL_RECT is active. Replicates
+            ' KEYBOARD_tools "o" so the new dispatcher can own O.
+            IF CURRENT_TOOL% = TOOL_SS_BEVEL_RECT THEN
+                SS_BEVEL.STYLE = 1
+                IF SS_BEVEL.BORDER_SIZE = 0 THEN SS_BEVEL.BORDER_SIZE = 1
+                FRAME_IDLE%       = FALSE
+                SCENE_DIRTY%      = TRUE
+                GUI_NEEDS_REDRAW% = TRUE
+            END IF
         
         ' ========== HELP ==========
         CASE 1601            ' About
@@ -4785,7 +4858,148 @@ SUB CMD_execute_action (action_id AS INTEGER)
         CASE ACTION_SETTINGS ' Settings dialog
             MENUBAR_close_all
             SETTINGS_show_dialog
+
+        ' ========== F-key shortcuts (Phase 6 final) ==========
+        CASE 8001            ' F1: Drawer brush mode
+            DRAWER_set_mode DRAWER_MODE_BRUSH
+            GUI_NEEDS_REDRAW% = TRUE
+            FRAME_IDLE%       = FALSE
+        CASE 8002            ' F2: Drawer gradient mode
+            DRAWER_set_mode DRAWER_MODE_GRADIENT
+            GUI_NEEDS_REDRAW% = TRUE
+            FRAME_IDLE%       = FALSE
+        CASE 8003            ' F3: Drawer pattern mode
+            DRAWER_set_mode DRAWER_MODE_PATTERN
+            GUI_NEEDS_REDRAW% = TRUE
+            FRAME_IDLE%       = FALSE
+        CASE 8006            ' F6: Pixel perfect toggle
+            BRUSH_SIZE_toggle_pixel_perfect
+            GUI_NEEDS_REDRAW% = TRUE
+            FRAME_IDLE%       = FALSE
+        CASE 8007            ' F7: Symmetry cycle
+            SYMMETRY_cycle_mode
+            GUI_NEEDS_REDRAW% = TRUE
+            FRAME_IDLE%       = FALSE
+        CASE 8008            ' F8: Fill Adjust toggle (custom brush or paint mode only)
+            IF CUSTOM_BRUSH_is_active% OR DRAWER_has_paint_mode% THEN
+                FILL_ADJ_toggle_enabled
+            END IF
+            GUI_NEEDS_REDRAW% = TRUE
+            FRAME_IDLE%       = FALSE
+        CASE 8009            ' \ / |: Toggle brush shape
+            BRUSH_SIZE_toggle_shape
+            GUI_NEEDS_REDRAW% = TRUE
+            FRAME_IDLE%       = FALSE
+        CASE 8011            ' Ctrl+F11: Toggle menubar (sticky-hide marker, distinct from action 438)
+            MENU_BAR.visible%           = NOT MENU_BAR.visible%
+            SCRN.showMenubar%           = MENU_BAR.visible%
+            SCRN.menubarManuallyHidden% = NOT MENU_BAR.visible%
+            IF NOT MENU_BAR.visible% THEN MENUBAR_close_all
+            INVALIDATE_scene
+        CASE 8101            ' ' apostrophe: Toggle grid visibility
+            GRID.SHOW% = NOT GRID.SHOW%
+            INVALIDATE_scene
+        CASE 8102            ' Shift+' (double quote): Toggle pixel grid
+            PIXEL_GRID.SHOW% = NOT PIXEL_GRID.SHOW%
+            INVALIDATE_scene
+        CASE 8103            ' Ctrl+' Cycle grid mode (square/diag/iso/hex)
+            GRID.GRID_MODE% = (GRID.GRID_MODE% + 1) MOD GRID_MODE_COUNT
+            GRID_draw
+            INVALIDATE_scene
+        CASE 8104            ' ; Toggle snap-to-grid
+            GRID.SNAP%        = NOT GRID.SNAP%
+            GUI_NEEDS_REDRAW% = TRUE
+            FRAME_IDLE%       = FALSE
+        CASE 8105            ' / Toggle grid alignment mode (corner / center)
+            IF GRID.ALIGN_MODE% = GRID_ALIGN_CORNER THEN
+                GRID.ALIGN_MODE% = GRID_ALIGN_CENTER
+            ELSE
+                GRID.ALIGN_MODE% = GRID_ALIGN_CORNER
+            END IF
+            GUI_NEEDS_REDRAW% = TRUE
+            FRAME_IDLE%       = FALSE
+
+        ' ========== G+key grid chords (Phase 6e) ==========
+        CASE 9001            ' G+R: reset grid offset
+            GRID.xPos%         = 0
+            GRID.yPos%         = 0
+            CFG.GRID_OFFSET_X% = 0
+            CFG.GRID_OFFSET_Y% = 0
+            GRID_draw
+            INVALIDATE_scene
+            GUI_NEEDS_REDRAW% = TRUE
+            FRAME_IDLE%       = FALSE
+        CASE 9002            ' G+Shift+R: reset grid size to theme default
+            CFG.GRID_SIZE_X% = 0
+            CFG.GRID_SIZE_Y% = 0
+            GRID.gridWidth%  = THEME.GRID_size_x%
+            GRID.gridHeight% = THEME.GRID_size_y%
+            IF GRID.gridWidth%  < 1 THEN GRID.gridWidth%  = 10
+            IF GRID.gridHeight% < 1 THEN GRID.gridHeight% = 10
+            GRID_draw
+            INVALIDATE_scene
+            GUI_NEEDS_REDRAW% = TRUE
+            FRAME_IDLE%       = FALSE
+        CASE 9003            ' G+Ctrl+R: reset both offset and size
+            CMD_execute_action 9001
+            CMD_execute_action 9002
+        CASE 9004            ' G+O: enter grid offset pick mode
+            GRID_OFFSET_PICK_MODE% = TRUE
+            GRID_G_KEY_ARMED%      = FALSE  ' disarm so G+arrows don't fire next
+            GUI_NEEDS_REDRAW%      = TRUE
+            FRAME_IDLE%            = FALSE
+        CASE 9010            ' G+Right: increase grid width
+            IF GRID.gridWidth% < 256 THEN
+                GRID.gridWidth%  = GRID.gridWidth% + 1
+                CFG.GRID_SIZE_X% = GRID.gridWidth%
+                GRID_draw
+                INVALIDATE_scene
+            END IF
+        CASE 9011            ' G+Left: decrease grid width
+            IF GRID.gridWidth% > 1 THEN
+                GRID.gridWidth%  = GRID.gridWidth% - 1
+                CFG.GRID_SIZE_X% = GRID.gridWidth%
+                GRID_draw
+                INVALIDATE_scene
+            END IF
+        CASE 9012            ' G+Down: increase grid height
+            IF GRID.gridHeight% < 256 THEN
+                GRID.gridHeight% = GRID.gridHeight% + 1
+                CFG.GRID_SIZE_Y% = GRID.gridHeight%
+                GRID_draw
+                INVALIDATE_scene
+            END IF
+        CASE 9013            ' G+Up: decrease grid height
+            IF GRID.gridHeight% > 1 THEN
+                GRID.gridHeight% = GRID.gridHeight% - 1
+                CFG.GRID_SIZE_Y% = GRID.gridHeight%
+                GRID_draw
+                INVALIDATE_scene
+            END IF
+
+        ' ========== Z+digit zoom presets (Phase 6e) ==========
+        CASE 9100 : ZOOM_to_level_canvas_center 1.0   ' Z+1 = 100%
+        CASE 9101 : ZOOM_to_level_canvas_center 2.0   ' Z+2 = 200%
+        CASE 9102 : ZOOM_to_level_canvas_center 3.0   ' Z+3 = 300%
+        CASE 9103 : ZOOM_to_level_canvas_center 4.0   ' Z+4 = 400%
+        CASE 9104 : ZOOM_to_level_canvas_center 5.0   ' Z+5 = 500%
+        CASE 9105 : ZOOM_to_level_canvas_center 6.0   ' Z+6 = 600%
+        CASE 9106 : ZOOM_to_level_canvas_center 7.0   ' Z+7 = 700%
+        CASE 9107 : ZOOM_to_level_canvas_center 8.0   ' Z+8 = 800%
+        CASE 9108 : ZOOM_to_level_canvas_center 16.0  ' Z+9 = 1600%
+        CASE 9109 : ZOOM_to_level_canvas_center 32.0  ' Z+0 = 3200%
+
+        CASE 9999 ' Dev-mode debug dump (dispatched=TRUE proof of concept; F12)
+            INPUTS_log "[DEBUG] F12 fired via central dispatcher: " + _
+                       "evt=" + _TRIM$(STR$(INPUT_EVENT.eventType)) + _
+                       " key=" + _TRIM$(STR$(INPUT_EVENT.keycode)) + _
+                       " mods=" + _TRIM$(STR$(INPUT_EVENT.mods)) + _
+                       " ctx=" + _TRIM$(STR$(INPUT_EVENT.ctx)) + _
+                       " mouseXY=(" + _TRIM$(STR$(INPUT_EVENT.mouseX)) + "," + _TRIM$(STR$(INPUT_EVENT.mouseY)) + ")"
     END SELECT
+
+    ' Pair with the increment at the top — Phase 6 dispatch-depth guard
+    IF INPUT_DISPATCH_DEPTH > 0 THEN INPUT_DISPATCH_DEPTH = INPUT_DISPATCH_DEPTH - 1
 END SUB
 
 
@@ -5020,7 +5234,7 @@ SUB CMD_ml_flip_h (layerIdx AS INTEGER, historyFlags AS LONG, historyLabel AS ST
     _PUTIMAGE , mlFHTmp&, mlFHSrc&
     _BLEND mlFHSrc&
     _DEST mlFHOD&
-    IF mlFHTmp& < -1 THEN _FREEIMAGE mlFHTmp&
+    SAFE_FREEIMAGE mlFHTmp&
     IF mlFHBefore& < -1 THEN
         HISTORY_record_transform LAYERS(layerIdx%).historyId&, layerIdx%, historyFlags&, mlFHBefore&, historyLabel$
     END IF
@@ -5052,7 +5266,7 @@ SUB CMD_ml_flip_v (layerIdx AS INTEGER, historyFlags AS LONG, historyLabel AS ST
     _PUTIMAGE , mlFVTmp&, mlFVSrc&
     _BLEND mlFVSrc&
     _DEST mlFVOD&
-    IF mlFVTmp& < -1 THEN _FREEIMAGE mlFVTmp&
+    SAFE_FREEIMAGE mlFVTmp&
     IF mlFVBefore& < -1 THEN
         HISTORY_record_transform LAYERS(layerIdx%).historyId&, layerIdx%, historyFlags&, mlFVBefore&, historyLabel$
     END IF
@@ -5105,7 +5319,7 @@ SUB CMD_ml_scale (layerIdx AS INTEGER, factor AS SINGLE, historyFlags AS LONG, h
     END IF
     _BLEND mlSSrc&
     _DEST mlSOD&
-    IF mlSTmp& < -1 THEN _FREEIMAGE mlSTmp&
+    SAFE_FREEIMAGE mlSTmp&
     IF mlSBefore& < -1 THEN
         HISTORY_record_transform LAYERS(layerIdx%).historyId&, layerIdx%, historyFlags&, mlSBefore&, historyLabel$
     END IF
@@ -5163,7 +5377,7 @@ SUB CMD_ml_rotate_cw (layerIdx AS INTEGER, historyFlags AS LONG, historyLabel AS
     END IF
     _BLEND mlRcSrc&
     _DEST mlRcOD2&
-    IF mlRcRot& < -1 THEN _FREEIMAGE mlRcRot&
+    SAFE_FREEIMAGE mlRcRot&
     IF mlRcBefore& < -1 THEN
         HISTORY_record_transform LAYERS(layerIdx%).historyId&, layerIdx%, historyFlags&, mlRcBefore&, historyLabel$
     END IF
@@ -5220,7 +5434,7 @@ SUB CMD_ml_rotate_ccw (layerIdx AS INTEGER, historyFlags AS LONG, historyLabel A
     END IF
     _BLEND mlRccSrc&
     _DEST mlRccOD2&
-    IF mlRccRot& < -1 THEN _FREEIMAGE mlRccRot&
+    SAFE_FREEIMAGE mlRccRot&
     IF mlRccBefore& < -1 THEN
         HISTORY_record_transform LAYERS(layerIdx%).historyId&, layerIdx%, historyFlags&, mlRccBefore&, historyLabel$
     END IF

@@ -20,6 +20,7 @@ $INCLUDEONCE
 '$INCLUDE:'./CORE/ERROR.BI'
 '$INCLUDE:'./CORE/PATHS.BI'
 '$INCLUDE:'./CORE/SOUND.BI'
+'$INCLUDE:'./CORE/HELPERS.BI'
 
 ' QB64_GJ COMPONENTS ----------------------------------------------------------
 ' Include sub-files directly (NOT the leader files) to avoid QB64-PE
@@ -86,6 +87,7 @@ $INCLUDEONCE
 '$INCLUDE:'./GUI/SETTINGS.BI'
 
 ' INPUT -----------------------------------------------------------------------
+'$INCLUDE:'./INPUT/INPUT.BI'
 '$INCLUDE:'./INPUT/MODIFIERS.BI'
 '$INCLUDE:'./INPUT/KEYBOARD.BI'
 '$INCLUDE:'./INPUT/MOUSE.BI'

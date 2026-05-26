@@ -1,0 +1,1149 @@
+''
+' DRAW - INPUT/INPUT.BM
+' =============================================================================
+' Implementation of the unified input dispatch system declared in INPUT.BI.
+' See PLANS/REARCHITECTURE.md for full design rationale.
+'
+' Per-frame call order (wired from DRAW.BAS main loop):
+'   1. INPUT_update_context     ' refresh INPUT_CONTEXT bitmask
+'   2. INPUT_detect_events      ' state machine -> DETECTED_EVENTS queue
+'   3. INPUT_dispatch_frame     ' match events to bindings, fire actions
+'   4. [legacy] MOUSE_input_handler / KEYBOARD_input_handler still run for
+'      dispatched=FALSE bindings until migrated.
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+
+''
+' Initialize the input system at startup. Detects developer mode (CLI flag,
+' CFG.DEVELOPER_MODE%), prepares inputs.log, runs audit on registered
+' bindings (none in Phase 0; subsequent phases populate the table).
+'
+SUB INPUTS_init ()
+    DIM i AS INTEGER
+    DIM arg AS STRING
+    DIM fh AS INTEGER
+
+    ' --- Developer-mode detection (any source enables it) ---
+    DEV_MODE% = FALSE
+    IF CFG.DEVELOPER_MODE% THEN DEV_MODE% = TRUE
+    FOR i% = 1 TO _COMMANDCOUNT
+        arg$ = COMMAND$(i%)
+        IF arg$ = "--developer" THEN DEV_MODE% = TRUE
+        IF arg$ = "--dev" THEN DEV_MODE% = TRUE
+    NEXT i%
+
+    ' --- Log path: project working directory ---
+    INPUTS_LOG_PATH$ = "./inputs.log"
+
+    ' --- Clear log on each startup (dev mode only) ---
+    IF DEV_MODE% THEN
+        fh% = FREEFILE
+        OPEN INPUTS_LOG_PATH$ FOR OUTPUT AS #fh%
+        CLOSE #fh%
+        INPUTS_log "[INIT] DRAW " + APP_VERSION$ + " developer mode active"
+        INPUTS_log "[INIT] " + _TRIM$(STR$(INPUT_BIND_COUNT%)) + " input bindings registered"
+    END IF
+
+    ' --- Initialize per-frame state ---
+    DETECTED_EVENT_COUNT     = 0
+    INPUT_CONTEXT            = 0
+    INPUT_CONTEXT_PREV       = 0
+    HOVER_REGION_LAST        = 0
+
+    ' --- Force allocation of $DYNAMIC SHARED arrays by writing to them.
+    '     DIM SHARED at module level under $DYNAMIC does not allocate;
+    '     reading an unallocated element triggers "Subscript out of range".
+    DIM iKce AS LONG
+    FOR iKce = 0 TO 65535
+        INPUT_KC_ENQUEUED(iKce) = 0
+    NEXT iKce
+    INPUT_KC_FRAME = 0
+
+    ' --- Phase 1: register all legacy bindings as metadata (dispatched=FALSE) ---
+    INPUTS_register_all
+
+    ' --- Build perf-optimization tables (must run AFTER registrations) ---
+    INPUT_interesting_keys_build
+
+    ' --- Run audit (dev mode only, writes conflicts to inputs.log) ---
+    INPUT_audit
+
+    ' --- Re-log binding count post-registration ---
+    IF DEV_MODE% THEN
+        INPUTS_log "[INIT] After registration: " + _TRIM$(STR$(INPUT_BIND_COUNT)) + " bindings"
+        DIM dispatchedCount AS INTEGER, skipListCount AS INTEGER
+        DIM iCount AS INTEGER
+        FOR iCount% = 1 TO INPUT_BIND_COUNT
+            IF INPUT_BINDS(iCount%).dispatched THEN dispatchedCount% = dispatchedCount% + 1
+        NEXT iCount%
+        FOR iCount% = 0 TO 127
+            IF INPUT_LETTER_DISPATCHED(iCount%) THEN skipListCount% = skipListCount% + 1
+        NEXT iCount%
+        INPUTS_log "[INIT] dispatched=TRUE: " + _TRIM$(STR$(dispatchedCount%)) + ", letter skip-list size: " + _TRIM$(STR$(skipListCount%))
+    END IF
+END SUB
+
+
+''
+' Convenience wrapper: register a keyboard EVT_KEY_PRESS binding.
+' Common case — most keyboard hotkeys are EVT_KEY_PRESS in REGION_GLOBAL.
+'
+FUNCTION INPUT_register_key% (keycode AS LONG, requireMods AS INTEGER, forbidMods AS INTEGER, requireCtx AS _UNSIGNED _INTEGER64, forbidCtx AS _UNSIGNED _INTEGER64, actionId AS INTEGER, dispatched AS INTEGER, label AS STRING)
+    INPUT_register_key% = INPUT_register%(EVT_KEY_PRESS, REGION_GLOBAL, keycode&, 0, 0, requireMods%, forbidMods%, requireCtx, forbidCtx, actionId%, dispatched%, label$)
+END FUNCTION
+
+
+''
+' Convenience wrapper: register a mouse binding.
+'
+FUNCTION INPUT_register_mouse% (eventType AS INTEGER, region AS INTEGER, button AS INTEGER, requireMods AS INTEGER, forbidMods AS INTEGER, requireCtx AS _UNSIGNED _INTEGER64, forbidCtx AS _UNSIGNED _INTEGER64, actionId AS INTEGER, dispatched AS INTEGER, label AS STRING)
+    INPUT_register_mouse% = INPUT_register%(eventType%, region%, 0, button%, 0, requireMods%, forbidMods%, requireCtx, forbidCtx, actionId%, dispatched%, label$)
+END FUNCTION
+
+
+''
+' Convenience wrapper: register a mouse wheel binding.
+'
+FUNCTION INPUT_register_wheel% (region AS INTEGER, wheelDir AS INTEGER, requireMods AS INTEGER, forbidMods AS INTEGER, requireCtx AS _UNSIGNED _INTEGER64, forbidCtx AS _UNSIGNED _INTEGER64, actionId AS INTEGER, dispatched AS INTEGER, label AS STRING)
+    INPUT_register_wheel% = INPUT_register%(EVT_MOUSE_WHEEL, region%, 0, 0, wheelDir%, requireMods%, forbidMods%, requireCtx, forbidCtx, actionId%, dispatched%, label$)
+END FUNCTION
+
+
+''
+' Convenience wrapper: register a hover enter/leave binding.
+' enterOrLeave should be EVT_MOUSE_HOVER_ENTER or EVT_MOUSE_HOVER_LEAVE.
+'
+FUNCTION INPUT_register_hover% (region AS INTEGER, enterOrLeave AS INTEGER, actionId AS INTEGER, dispatched AS INTEGER, label AS STRING)
+    INPUT_register_hover% = INPUT_register%(enterOrLeave%, region%, 0, 0, 0, 0, 0, 0, 0, actionId%, dispatched%, label$)
+END FUNCTION
+
+
+''
+' Phase 1: bulk-register all legacy keyboard + mouse bindings as METADATA
+' (dispatched=FALSE). No behavior change — these inform the audit and
+' future dispatched=TRUE migration. Grouped by area for readability.
+'
+' Convention: keycodes are LOWERCASE ASCII for letters (case-insensitive
+' match handled by dispatcher / register builder).
+'
+SUB INPUTS_register_all ()
+    DIM r AS INTEGER  ' return value discarded
+
+    ' ============================================================
+    ' TOOL KEYS (KEYBOARD_tools in INPUT/KEYBOARD.BM)
+    ' Single-key, no modifiers, gated to not fire when text tool is typing
+    ' or any chord initiator is held.
+    ' ============================================================
+    DIM allMods AS INTEGER : allMods% = MOD_CTRL OR MOD_SHIFT OR MOD_ALT
+    DIM chordHeld AS _UNSIGNED _INTEGER64
+    chordHeld = CTX_G_HELD OR CTX_M_HELD OR CTX_Z_HELD OR CTX_E_HELD OR CTX_F_HELD OR CTX_W_HELD
+
+    ' Per-key variants: each chord-initiator tool key (M/Z/E/F/W) MUST NOT
+    ' forbid its own CTX_*_HELD bit. Otherwise the binding can never fire,
+    ' because INPUT_update_context sets that bit the same frame the key
+    ' is pressed (before INPUT_detect_events / INPUT_dispatch_frame run).
+    ' The matching behavior preserves legacy: pressing the key switches
+    ' tool; holding the key + secondary key fires the chord binding.
+    DIM chordHeldNoM AS _UNSIGNED _INTEGER64
+    DIM chordHeldNoZ AS _UNSIGNED _INTEGER64
+    DIM chordHeldNoE AS _UNSIGNED _INTEGER64
+    DIM chordHeldNoF AS _UNSIGNED _INTEGER64
+    DIM chordHeldNoW AS _UNSIGNED _INTEGER64
+    chordHeldNoM = CTX_G_HELD OR CTX_Z_HELD OR CTX_E_HELD OR CTX_F_HELD OR CTX_W_HELD
+    chordHeldNoZ = CTX_G_HELD OR CTX_M_HELD OR CTX_E_HELD OR CTX_F_HELD OR CTX_W_HELD
+    chordHeldNoE = CTX_G_HELD OR CTX_M_HELD OR CTX_Z_HELD OR CTX_F_HELD OR CTX_W_HELD
+    chordHeldNoF = CTX_G_HELD OR CTX_M_HELD OR CTX_Z_HELD OR CTX_E_HELD OR CTX_W_HELD
+    chordHeldNoW = CTX_G_HELD OR CTX_M_HELD OR CTX_Z_HELD OR CTX_E_HELD OR CTX_F_HELD
+
+    ' Tools: lowercase letter, no mods, not text-typing, not in chord.
+    ' Action IDs match COMMAND.BM CASE numbers (verified in CMD_execute_action).
+    ' Phase 6a-iii: flipped to dispatched=TRUE. The legacy KEYBOARD_tools
+    ' SUB still owns the tool-switch implementation; CMD_execute_action calls
+    ' back into it with INPUT_DISPATCHING=TRUE. The skip-list guard at the
+    ' top of KEYBOARD_tools prevents the INKEY$ path from double-firing.
+    r% = INPUT_register_key%( 98, 0, allMods%, 0, CTX_TEXT_ACTIVE OR chordHeld, 101, TRUE, "Brush tool")             ' B
+    r% = INPUT_register_key%(100, 0, allMods%, 0, CTX_TEXT_ACTIVE OR chordHeld, 102, TRUE, "Dot tool")               ' D
+    r% = INPUT_register_key%(102, 0, allMods%, 0, CTX_TEXT_ACTIVE OR chordHeldNoF, 103, TRUE, "Fill tool")           ' F (chord initiator — must allow CTX_F_HELD on press edge)
+    r% = INPUT_register_key%(108, 0, allMods%, 0, CTX_TEXT_ACTIVE OR chordHeld, 105, TRUE, "Line tool")              ' L
+    r% = INPUT_register_key%(112, 0, allMods%, 0, CTX_TEXT_ACTIVE OR chordHeld, 106, TRUE, "Polygon tool")           ' P
+    r% = INPUT_register_key%(112, MOD_SHIFT, MOD_CTRL OR MOD_ALT, 0, CTX_TEXT_ACTIVE OR chordHeld, 107, TRUE, "Polygon filled tool")  ' Shift+P
+    r% = INPUT_register_key%(114, 0, allMods%, 0, CTX_TEXT_ACTIVE OR chordHeld, 108, TRUE, "Rectangle tool")         ' R
+    r% = INPUT_register_key%(114, MOD_SHIFT, MOD_CTRL OR MOD_ALT, 0, CTX_TEXT_ACTIVE OR chordHeld, 109, TRUE, "Rectangle filled tool") ' Shift+R
+    r% = INPUT_register_key%( 99, 0, allMods%, 0, CTX_TEXT_ACTIVE OR chordHeld, 110, TRUE, "Ellipse tool")           ' C
+    r% = INPUT_register_key%( 99, MOD_SHIFT, MOD_CTRL OR MOD_ALT, 0, CTX_TEXT_ACTIVE OR chordHeld, 111, TRUE, "Ellipse filled tool")  ' Shift+C
+    r% = INPUT_register_key%(101, 0, allMods%, 0, CTX_TEXT_ACTIVE OR chordHeldNoE, 118, TRUE, "Eraser tool")         ' E (chord initiator — hold-vs-tap handled by legacy KEYBOARD_handle_eraser_hold)
+    r% = INPUT_register_key%(109, 0, allMods%, 0, CTX_TEXT_ACTIVE OR chordHeldNoM, 112, TRUE, "Marquee tool")        ' M (chord initiator — must allow CTX_M_HELD on press edge)
+    r% = INPUT_register_key%(119, 0, allMods%, 0, CTX_TEXT_ACTIVE OR chordHeldNoW, 117, TRUE, "Magic wand tool")     ' W (chord initiator — must allow CTX_W_HELD on press edge)
+    r% = INPUT_register_key%(118, 0, allMods%, 0, CTX_TEXT_ACTIVE OR chordHeld, 113, TRUE, "Move tool")              ' V (KEYBOARD_tools routes to 316 flip-V when MOVE.ACTIVE)
+    r% = INPUT_register_key%(116, 0, allMods%, 0, CTX_TEXT_ACTIVE OR chordHeld, 114, TRUE, "Text tool")              ' T
+    r% = INPUT_register_key%(116, MOD_SHIFT, MOD_CTRL OR MOD_ALT, 0, CTX_TEXT_ACTIVE OR chordHeld, 115, TRUE, "Text tool (Tiny5 font)") ' Shift+T
+    r% = INPUT_register_key%(122, 0, allMods%, 0, CTX_TEXT_ACTIVE OR chordHeldNoZ, 1701, TRUE, "Zoom tool")          ' Z (chord initiator — must allow CTX_Z_HELD on press edge)
+    r% = INPUT_register_key%(105, 0, allMods%, 0, CTX_TEXT_ACTIVE OR chordHeld, 104, TRUE, "Picker tool")            ' I (KEYBOARD_tools handles bevel-rect inner branch)
+    r% = INPUT_register_key%(115, 0, allMods%, 0, CTX_TEXT_ACTIVE OR chordHeld, 1706, TRUE, "Smart shapes tool")     ' S (CASE 1706 does double-tap cycle)
+    r% = INPUT_register_key%(113, 0, allMods%, 0, CTX_TEXT_ACTIVE OR chordHeld, 122, TRUE, "Bezier tool")            ' Q
+    r% = INPUT_register_key%(107, 0, allMods%, 0, CTX_TEXT_ACTIVE OR chordHeld, 1702, TRUE, "Spray tool")            ' K
+    r% = INPUT_register_key%(111, 0, allMods%, 0, CTX_TEXT_ACTIVE OR chordHeld, 1707, TRUE, "Bevel-rect outer style") ' O (only meaningful when TOOL_SS_BEVEL_RECT)
+
+    ' Universal transforms (H = flip H — works regardless of tool)
+    r% = INPUT_register_key%(104, 0, allMods%, 0, CTX_TEXT_ACTIVE, 315, FALSE, "Flip horizontal")                     ' H
+    r% = INPUT_register_key%(104, MOD_SHIFT OR MOD_CTRL, MOD_ALT, 0, CTX_TEXT_ACTIVE, 316, FALSE, "Flip vertical")    ' Ctrl+Shift+H
+
+    ' ============================================================
+    ' GRID CHORD: G + ...  (KEYBOARD.BM around line 3147-3290)
+    ' ============================================================
+    r% = INPUT_register_key%(114, 0,         allMods%, CTX_G_HELD, CTX_TEXT_ACTIVE, 9001, TRUE, "G+R reset grid offset")
+    r% = INPUT_register_key%(114, MOD_SHIFT, MOD_CTRL OR MOD_ALT, CTX_G_HELD, CTX_TEXT_ACTIVE, 9002, TRUE, "G+Shift+R reset grid size")
+    r% = INPUT_register_key%(114, MOD_CTRL,  MOD_SHIFT OR MOD_ALT, CTX_G_HELD, CTX_TEXT_ACTIVE, 9003, TRUE, "G+Ctrl+R reset grid all")
+    r% = INPUT_register_key%(111, 0, allMods%, CTX_G_HELD, CTX_TEXT_ACTIVE, 9004, TRUE, "G+O grid offset pick mode")
+    ' G+arrows: resize grid (no Ctrl, no Shift, no Alt — Ctrl+Arrows are content nudge)
+    r% = INPUT_register_key%(19712, 0, allMods%, CTX_G_HELD, CTX_TEXT_ACTIVE, 9010, TRUE, "G+Right grid width +")
+    r% = INPUT_register_key%(19200, 0, allMods%, CTX_G_HELD, CTX_TEXT_ACTIVE, 9011, TRUE, "G+Left grid width -")
+    r% = INPUT_register_key%(20480, 0, allMods%, CTX_G_HELD, CTX_TEXT_ACTIVE, 9012, TRUE, "G+Down grid height +")
+    r% = INPUT_register_key%(18432, 0, allMods%, CTX_G_HELD, CTX_TEXT_ACTIVE, 9013, TRUE, "G+Up grid height -")
+    ' Ctrl+Shift+/ — set grid size to brush size (Phase 6e)
+    r% = INPUT_register_key%( 63, MOD_CTRL OR MOD_SHIFT, MOD_ALT, 0, CTX_TEXT_ACTIVE OR CTX_G_HELD, 907, TRUE, "Match grid to brush size")
+
+    ' ============================================================
+    ' MARQUEE CHORD: M + ... (KEYBOARD_handle_marquee_expand_contract)
+    ' ============================================================
+    r% = INPUT_register_key%( 61, 0,         MOD_CTRL OR MOD_SHIFT OR MOD_ALT, CTX_M_HELD, CTX_TEXT_ACTIVE, 1410, TRUE, "M+= expand selection 1px")
+    r% = INPUT_register_key%( 45, 0,         MOD_CTRL OR MOD_SHIFT OR MOD_ALT, CTX_M_HELD, CTX_TEXT_ACTIVE, 1411, TRUE, "M+- contract selection 1px")
+    r% = INPUT_register_key%( 61, MOD_SHIFT, MOD_CTRL OR MOD_ALT,               CTX_M_HELD, CTX_TEXT_ACTIVE, 1412, TRUE, "M++ expand selection large")
+    r% = INPUT_register_key%( 45, MOD_SHIFT, MOD_CTRL OR MOD_ALT,               CTX_M_HELD, CTX_TEXT_ACTIVE, 1413, TRUE, "M+_ contract selection large")
+
+    ' ============================================================
+    ' ZOOM CHORD: Z + 0-9 (KEYBOARD_handle_z_zoom_presets)
+    ' ============================================================
+    r% = INPUT_register_key%(49, 0, allMods%, CTX_Z_HELD, CTX_TEXT_ACTIVE, 9100, TRUE, "Z+1 zoom 100%")
+    r% = INPUT_register_key%(50, 0, allMods%, CTX_Z_HELD, CTX_TEXT_ACTIVE, 9101, TRUE, "Z+2 zoom 200%")
+    r% = INPUT_register_key%(51, 0, allMods%, CTX_Z_HELD, CTX_TEXT_ACTIVE, 9102, TRUE, "Z+3 zoom 300%")
+    r% = INPUT_register_key%(52, 0, allMods%, CTX_Z_HELD, CTX_TEXT_ACTIVE, 9103, TRUE, "Z+4 zoom 400%")
+    r% = INPUT_register_key%(53, 0, allMods%, CTX_Z_HELD, CTX_TEXT_ACTIVE, 9104, TRUE, "Z+5 zoom 500%")
+    r% = INPUT_register_key%(54, 0, allMods%, CTX_Z_HELD, CTX_TEXT_ACTIVE, 9105, TRUE, "Z+6 zoom 600%")
+    r% = INPUT_register_key%(55, 0, allMods%, CTX_Z_HELD, CTX_TEXT_ACTIVE, 9106, TRUE, "Z+7 zoom 700%")
+    r% = INPUT_register_key%(56, 0, allMods%, CTX_Z_HELD, CTX_TEXT_ACTIVE, 9107, TRUE, "Z+8 zoom 800%")
+    r% = INPUT_register_key%(57, 0, allMods%, CTX_Z_HELD, CTX_TEXT_ACTIVE, 9108, TRUE, "Z+9 zoom 1600%")
+    r% = INPUT_register_key%(48, 0, allMods%, CTX_Z_HELD, CTX_TEXT_ACTIVE, 9109, TRUE, "Z+0 zoom 3200%")
+
+    ' ============================================================
+    ' FILE OPERATIONS — Phase 1a duplicates (Ctrl+S/Shift+S/O/N) removed;
+    ' canonical dispatched=TRUE versions live in Phase 6d batch 5 block below.
+    ' ============================================================
+    r% = INPUT_register_key%(113, MOD_CTRL, MOD_SHIFT OR MOD_ALT, 0, CTX_TEXT_ACTIVE, 212, FALSE, "Quit")              ' Ctrl+Q
+
+    ' ============================================================
+    ' EDIT OPERATIONS (Ctrl+letter) — Phase 1a duplicates of Ctrl+Z/Y/C/X/V/A/Shift+I
+    ' removed; the canonical dispatched=TRUE versions live in the clipboard
+    ' block further down. Keep only Ctrl+R/Alt+R/Alt+Shift+G here (they
+    ' were already TRUE and unique).
+    ' ============================================================
+    r% = INPUT_register_key%(114, MOD_CTRL, MOD_SHIFT OR MOD_ALT, 0, CTX_TEXT_ACTIVE OR CTX_G_HELD, 1501, TRUE, "Toggle reference image")  ' Ctrl+R (NOT in G chord)
+    r% = INPUT_register_key%(114, MOD_CTRL OR MOD_ALT, MOD_SHIFT, 0, CTX_TEXT_ACTIVE OR CTX_G_HELD, 1512, TRUE, "Random palette")          ' Ctrl+Alt+R
+    r% = INPUT_register_key%(103, MOD_CTRL OR MOD_ALT OR MOD_SHIFT, 0, 0, CTX_TEXT_ACTIVE OR CTX_G_HELD, 2020, TRUE, "Grayscale preview")  ' Ctrl+Alt+Shift+G
+
+    ' (Layer operations were moved below to the Phase 6d block where they
+    '  are dispatched=TRUE. Old Phase 1a duplicates removed to clear the audit.)
+
+    ' (Ctrl+0/=/- zoom bindings moved to Phase 6d batch 5 block below)
+
+    ' Function keys — Phase 6 final, dispatched=TRUE
+    r% = INPUT_register_key%(15104, 0, allMods%, 0, CTX_TEXT_ACTIVE, 8001, TRUE, "F1 — Drawer brush mode")          ' F1
+    r% = INPUT_register_key%(15360, 0, allMods%, 0, CTX_TEXT_ACTIVE, 8002, TRUE, "F2 — Drawer gradient mode")       ' F2
+    r% = INPUT_register_key%(15616, 0, allMods%, 0, CTX_TEXT_ACTIVE, 8003, TRUE, "F3 — Drawer pattern mode")        ' F3
+    r% = INPUT_register_key%(15872, 0, allMods%, 0, CTX_TEXT_ACTIVE, 434, TRUE, "F4 — Toggle preview window")       ' F4
+    r% = INPUT_register_key%(16128, 0, allMods%, 0, CTX_TEXT_ACTIVE, 435, TRUE, "F5 — Toggle edit bar")              ' F5
+    r% = INPUT_register_key%(16128, MOD_SHIFT, MOD_CTRL OR MOD_ALT, 0, CTX_TEXT_ACTIVE, 449, TRUE, "Shift+F5 — Toggle adv bar") ' Shift+F5
+    r% = INPUT_register_key%(16384, 0, allMods%, 0, CTX_TEXT_ACTIVE, 8006, TRUE, "F6 — Pixel perfect toggle")       ' F6
+    r% = INPUT_register_key%(16640, 0, allMods%, 0, CTX_TEXT_ACTIVE, 8007, TRUE, "F7 — Symmetry cycle")             ' F7
+    r% = INPUT_register_key%(16896, 0, allMods%, 0, CTX_TEXT_ACTIVE, 8008, TRUE, "F8 — Fill Adjust toggle")         ' F8
+    r% = INPUT_register_key%(17408, 0, allMods%, 0, CTX_TEXT_ACTIVE, 402, TRUE, "F10 — toggle status bar")           ' F10 (keycode 17408 per inline)
+    r% = INPUT_register_key%(34048, 0,         MOD_CTRL OR MOD_SHIFT OR MOD_ALT, 0, CTX_TEXT_ACTIVE, 403, TRUE, "F11 — toggle all UI")  ' F11
+    r% = INPUT_register_key%(34048, MOD_CTRL,  MOD_SHIFT OR MOD_ALT,              0, CTX_TEXT_ACTIVE, 8011, TRUE, "Ctrl+F11 — Toggle menubar")
+
+    ' Tab = toggle toolbar
+    r% = INPUT_register_key%(  9, 0, allMods%, 0, CTX_TEXT_ACTIVE, 401, TRUE, "Tab — toggle toolbar")
+
+    ' Backslash | pipe = toggle brush shape
+    r% = INPUT_register_key%( 92, 0, allMods%, 0, CTX_TEXT_ACTIVE, 8009, TRUE, "\ Toggle brush shape")
+    r% = INPUT_register_key%(124, MOD_SHIFT, MOD_CTRL OR MOD_ALT, 0, CTX_TEXT_ACTIVE, 8009, TRUE, "| Toggle brush shape")
+
+    ' DEL / Backspace — Phase 6 final
+    r% = INPUT_register_key%(21248, 0,         MOD_CTRL OR MOD_SHIFT OR MOD_ALT, 0, CTX_TEXT_ACTIVE, 306, TRUE, "DEL — Clear selection")
+    r% = INPUT_register_key%(    8, 0,         MOD_CTRL OR MOD_SHIFT OR MOD_ALT, 0, CTX_TEXT_ACTIVE, 313, TRUE, "Backspace — Fill with FG")
+    r% = INPUT_register_key%(    8, MOD_SHIFT, MOD_CTRL OR MOD_ALT,              0, CTX_TEXT_ACTIVE, 314, TRUE, "Shift+Backspace — Fill with BG")
+
+    ' Grid toggles — Phase 6 final
+    r% = INPUT_register_key%( 39, 0,         MOD_CTRL OR MOD_SHIFT OR MOD_ALT, 0, CTX_TEXT_ACTIVE, 8101, TRUE, "' Toggle grid visibility")
+    r% = INPUT_register_key%( 39, MOD_SHIFT, MOD_CTRL OR MOD_ALT,              0, CTX_TEXT_ACTIVE, 8102, TRUE, "Shift+' Toggle pixel grid")
+    r% = INPUT_register_key%( 39, MOD_CTRL,  MOD_SHIFT OR MOD_ALT,             0, CTX_TEXT_ACTIVE, 8103, TRUE, "Ctrl+' Cycle grid mode")
+    r% = INPUT_register_key%( 59, 0, allMods%, 0, CTX_TEXT_ACTIVE, 8104, TRUE, "; Toggle snap-to-grid")
+    r% = INPUT_register_key%( 47, 0, allMods%, 0, CTX_TEXT_ACTIVE, 8105, TRUE, "/ Toggle grid alignment mode")
+
+    ' ============================================================
+    ' LAYER OPS (Ctrl+L/Shift+N/Shift+Delete/Shift+D/Shift+R, PgUp/PgDn,
+    ' Shift+[/], Alt+E, Alt+Shift+E, G/Shift+G/Shift+U) — Phase 6d.
+    ' Action handlers in COMMAND.BM are stricter than the legacy inline
+    ' code (e.g. CASE 701 checks LAYER_COUNT% >= CFG.NUM_LAYERS%);
+    ' migration upgrades these chords slightly.
+    ' KEYBOARD_layers SUB removed entirely in this phase.
+    ' ============================================================
+    r% = INPUT_register_key%(108, MOD_CTRL, MOD_SHIFT OR MOD_ALT, 0, CTX_TEXT_ACTIVE, 404, TRUE, "Toggle Layer Panel")              ' Ctrl+L
+    r% = INPUT_register_key%(110, MOD_CTRL OR MOD_SHIFT, MOD_ALT, 0, CTX_TEXT_ACTIVE, 701, TRUE, "New Layer")                       ' Ctrl+Shift+N
+    r% = INPUT_register_key%(21248, MOD_CTRL OR MOD_SHIFT, MOD_ALT, 0, CTX_TEXT_ACTIVE, 702, TRUE, "Delete Layer")                  ' Ctrl+Shift+Delete
+    r% = INPUT_register_key%(100, MOD_CTRL OR MOD_SHIFT, MOD_ALT, 0, CTX_TEXT_ACTIVE, 707, TRUE, "Duplicate Layer")                 ' Ctrl+Shift+D
+    r% = INPUT_register_key%(114, MOD_CTRL OR MOD_SHIFT, MOD_ALT, 0, CTX_TEXT_ACTIVE OR CTX_G_HELD, 726, TRUE, "Rename Layer")      ' Ctrl+Shift+R
+    r% = INPUT_register_key%( 91, MOD_CTRL OR MOD_SHIFT, MOD_ALT, 0, CTX_TEXT_ACTIVE, 709, TRUE, "Layer to bottom")                 ' Ctrl+Shift+[
+    r% = INPUT_register_key%( 93, MOD_CTRL OR MOD_SHIFT, MOD_ALT, 0, CTX_TEXT_ACTIVE, 708, TRUE, "Layer to top")                    ' Ctrl+Shift+]
+    r% = INPUT_register_key%(18688, MOD_CTRL, MOD_SHIFT OR MOD_ALT, 0, CTX_TEXT_ACTIVE, 703, TRUE, "Layer move up")                 ' Ctrl+PgUp
+    r% = INPUT_register_key%(20736, MOD_CTRL, MOD_SHIFT OR MOD_ALT, 0, CTX_TEXT_ACTIVE, 704, TRUE, "Layer move down")               ' Ctrl+PgDn
+    r% = INPUT_register_key%(18176, MOD_CTRL, MOD_SHIFT OR MOD_ALT, 0, CTX_TEXT_ACTIVE, 331, TRUE, "Scale 2x horizontal")           ' Ctrl+Home
+    r% = INPUT_register_key%(20224, MOD_CTRL, MOD_SHIFT OR MOD_ALT, 0, CTX_TEXT_ACTIVE, 333, TRUE, "Scale 2x vertical")             ' Ctrl+End
+    r% = INPUT_register_key%(101, MOD_CTRL OR MOD_ALT, MOD_SHIFT, 0, CTX_TEXT_ACTIVE, 705, TRUE, "Merge layer down")                ' Ctrl+Alt+E
+    r% = INPUT_register_key%(101, MOD_CTRL OR MOD_ALT OR MOD_SHIFT, 0, 0, CTX_TEXT_ACTIVE, 706, TRUE, "Merge all visible")          ' Ctrl+Alt+Shift+E
+    r% = INPUT_register_key%(103, MOD_CTRL, MOD_SHIFT OR MOD_ALT, 0, CTX_TEXT_ACTIVE OR CTX_G_HELD, 720, TRUE, "New Group")         ' Ctrl+G (skip when G already held = grid chord)
+    r% = INPUT_register_key%(103, MOD_CTRL OR MOD_SHIFT, MOD_ALT, 0, CTX_TEXT_ACTIVE OR CTX_G_HELD, 721, TRUE, "Group from Sel.")   ' Ctrl+Shift+G
+    r% = INPUT_register_key%(117, MOD_CTRL OR MOD_SHIFT, MOD_ALT, 0, CTX_TEXT_ACTIVE, 722, TRUE, "Ungroup")                         ' Ctrl+Shift+U
+
+    ' ============================================================
+    ' COMMAND PALETTE — Ctrl+P (action 1703, was mis-mapped to 2017 in P1a)
+    ' ============================================================
+    r% = INPUT_register_key%(112, MOD_CTRL, MOD_SHIFT OR MOD_ALT, 0, CTX_TEXT_ACTIVE, 1703, TRUE, "Command palette")  ' Ctrl+P
+
+    ' ============================================================
+    ' CUSTOM BRUSH — Ctrl+B (action 1101, was inline KEYBOARD_handle_custom_brush)
+    ' ============================================================
+    r% = INPUT_register_key%( 98, MOD_CTRL, MOD_SHIFT OR MOD_ALT, 0, CTX_TEXT_ACTIVE, 1101, TRUE, "Capture/Clear Custom Brush")  ' Ctrl+B
+
+    ' ============================================================
+    ' GLOBAL Ctrl+ and Shift+ combos (Phase 6d batch 3)
+    ' ============================================================
+    r% = INPUT_register_key%( 44, MOD_CTRL, MOD_SHIFT OR MOD_ALT, 0, CTX_TEXT_ACTIVE, ACTION_SETTINGS, TRUE, "Settings dialog")     ' Ctrl+,
+    r% = INPUT_register_key%(21248, MOD_SHIFT, MOD_CTRL OR MOD_ALT, 0, CTX_TEXT_ACTIVE, 519, TRUE, "Set BG transparent")            ' Shift+Delete
+    r% = INPUT_register_key%(100, MOD_CTRL, MOD_SHIFT OR MOD_ALT, 0, CTX_TEXT_ACTIVE, 307, TRUE, "Deselect")                       ' Ctrl+D (standard hotkey; legacy also did Default Colors)
+    r% = INPUT_register_key%(109, MOD_CTRL, MOD_SHIFT OR MOD_ALT, 0, CTX_TEXT_ACTIVE, 2050, TRUE, "Toggle Character Map")          ' Ctrl+M
+
+    ' ============================================================
+    ' CLIPBOARD / SELECTION / UNDO (Phase 6d batch 4 — KEYBOARD_handle_clipboard_operations removed)
+    ' ============================================================
+    r% = INPUT_register_key%( 97, MOD_CTRL, MOD_SHIFT OR MOD_ALT, 0, CTX_TEXT_ACTIVE, 310, TRUE, "Select All")                    ' Ctrl+A
+    r% = INPUT_register_key%(105, MOD_CTRL OR MOD_SHIFT, MOD_ALT, 0, CTX_TEXT_ACTIVE, 311, TRUE, "Invert Selection")              ' Ctrl+Shift+I
+    r% = INPUT_register_key%(104, MOD_CTRL, MOD_SHIFT OR MOD_ALT, 0, CTX_TEXT_ACTIVE, 332, TRUE, "Hide Selection")                ' Ctrl+H
+    r% = INPUT_register_key%( 99, MOD_CTRL, MOD_SHIFT OR MOD_ALT, 0, CTX_TEXT_ACTIVE, 303, TRUE, "Copy")                          ' Ctrl+C
+    r% = INPUT_register_key%( 99, MOD_CTRL OR MOD_SHIFT, MOD_ALT, 0, CTX_TEXT_ACTIVE, 322, TRUE, "Copy Merged")                   ' Ctrl+Shift+C
+    r% = INPUT_register_key%( 99, MOD_CTRL OR MOD_ALT, MOD_SHIFT, 0, CTX_TEXT_ACTIVE, 321, TRUE, "Copy to New Layer")             ' Ctrl+Alt+C
+    r% = INPUT_register_key%(120, MOD_CTRL, MOD_SHIFT OR MOD_ALT, 0, CTX_TEXT_ACTIVE, 304, TRUE, "Cut")                           ' Ctrl+X
+    r% = INPUT_register_key%(120, MOD_CTRL OR MOD_ALT, MOD_SHIFT, 0, CTX_TEXT_ACTIVE, 323, TRUE, "Cut to New Layer")              ' Ctrl+Alt+X
+    r% = INPUT_register_key%(118, MOD_CTRL, MOD_SHIFT OR MOD_ALT, 0, CTX_TEXT_ACTIVE, 305, TRUE, "Paste")                         ' Ctrl+V
+    r% = INPUT_register_key%(118, MOD_CTRL OR MOD_SHIFT, MOD_ALT, 0, CTX_TEXT_ACTIVE, 330, TRUE, "Paste from OS Clipboard")       ' Ctrl+Shift+V
+    r% = INPUT_register_key%(101, MOD_CTRL, MOD_SHIFT OR MOD_ALT, 0, CTX_TEXT_ACTIVE, 306, TRUE, "Clear Selection")               ' Ctrl+E
+    r% = INPUT_register_key%(116, MOD_CTRL, MOD_SHIFT OR MOD_ALT, 0, CTX_TEXT_ACTIVE, 116, TRUE, "Text Tool (Custom Font)")       ' Ctrl+T
+    r% = INPUT_register_key%(122, MOD_CTRL, MOD_SHIFT OR MOD_ALT, 0, CTX_TEXT_ACTIVE, 301, TRUE, "Undo")                          ' Ctrl+Z
+    r% = INPUT_register_key%(121, MOD_CTRL, MOD_SHIFT OR MOD_ALT, 0, CTX_TEXT_ACTIVE, 302, TRUE, "Redo")                          ' Ctrl+Y
+    r% = INPUT_register_key%(122, MOD_CTRL OR MOD_SHIFT, MOD_ALT, 0, CTX_TEXT_ACTIVE, 302, TRUE, "Redo (Ctrl+Shift+Z)")           ' Ctrl+Shift+Z
+
+    ' ============================================================
+    ' FILE OPS / ZOOM / QB64 EXPORT (Phase 6d batch 5 — KEYBOARD_handle_file_operations,
+    ' KEYBOARD_handle_zoom_shortcuts removed)
+    ' ============================================================
+    r% = INPUT_register_key%(110, MOD_CTRL, MOD_SHIFT OR MOD_ALT, 0, CTX_TEXT_ACTIVE, 209, TRUE, "New canvas")                    ' Ctrl+N
+    r% = INPUT_register_key%(111, MOD_CTRL, MOD_SHIFT OR MOD_ALT, 0, CTX_TEXT_ACTIVE, 201, TRUE, "Open Image")                    ' Ctrl+O
+    r% = INPUT_register_key%(115, MOD_CTRL, MOD_SHIFT OR MOD_ALT, 0, CTX_TEXT_ACTIVE, 202, TRUE, "Save Image")                    ' Ctrl+S
+    r% = INPUT_register_key%(115, MOD_CTRL OR MOD_SHIFT, MOD_ALT, 0, CTX_TEXT_ACTIVE, 204, TRUE, "Save As")                       ' Ctrl+Shift+S
+    r% = INPUT_register_key%(115, MOD_CTRL OR MOD_ALT OR MOD_SHIFT, 0, 0, CTX_TEXT_ACTIVE, 205, TRUE, "Export Selection")         ' Ctrl+Alt+Shift+S
+    r% = INPUT_register_key%(113, MOD_CTRL OR MOD_SHIFT, MOD_ALT, 0, CTX_TEXT_ACTIVE, EXPORT_QB64_ACTION, TRUE, "Export QB64 Project")  ' Ctrl+Shift+Q
+    r% = INPUT_register_key%( 48, MOD_CTRL, MOD_SHIFT OR MOD_ALT, 0, CTX_TEXT_ACTIVE, 405, TRUE, "Reset Zoom")                    ' Ctrl+0
+    r% = INPUT_register_key%( 61, MOD_CTRL, MOD_SHIFT OR MOD_ALT, 0, CTX_TEXT_ACTIVE, 406, TRUE, "Zoom In")                       ' Ctrl+=
+    r% = INPUT_register_key%( 45, MOD_CTRL, MOD_SHIFT OR MOD_ALT, 0, CTX_TEXT_ACTIVE, 407, TRUE, "Zoom Out")                      ' Ctrl+-
+
+    ' ============================================================
+    ' OPACITY / COLOR (1-0 = opacity 10%-100%) — Phase 6b dispatched=TRUE.
+    ' Forbid Z-held (Z+digit zooms) and SS dragging (3D dice / SS polygon
+    ' consume digits for type/sides). Action handlers in COMMAND.BM
+    ' (CASE 501..510) own the PAINT_OPACITY set. Legacy KEYBOARD_colors
+    ' digit cases are now suppressed by the skip-list guard at its top.
+    ' ============================================================
+    DIM digitForbid AS _UNSIGNED _INTEGER64
+    digitForbid = CTX_TEXT_ACTIVE OR CTX_Z_HELD OR CTX_SS_DRAGGING
+    r% = INPUT_register_key%(49, 0, allMods%, 0, digitForbid, 501, TRUE, "Opacity 10%")  ' 1
+    r% = INPUT_register_key%(50, 0, allMods%, 0, digitForbid, 502, TRUE, "Opacity 20%")
+    r% = INPUT_register_key%(51, 0, allMods%, 0, digitForbid, 503, TRUE, "Opacity 30%")
+    r% = INPUT_register_key%(52, 0, allMods%, 0, digitForbid, 504, TRUE, "Opacity 40%")
+    r% = INPUT_register_key%(53, 0, allMods%, 0, digitForbid, 505, TRUE, "Opacity 50%")
+    r% = INPUT_register_key%(54, 0, allMods%, 0, digitForbid, 506, TRUE, "Opacity 60%")
+    r% = INPUT_register_key%(55, 0, allMods%, 0, digitForbid, 507, TRUE, "Opacity 70%")
+    r% = INPUT_register_key%(56, 0, allMods%, 0, digitForbid, 508, TRUE, "Opacity 80%")
+    r% = INPUT_register_key%(57, 0, allMods%, 0, digitForbid, 509, TRUE, "Opacity 90%")
+    r% = INPUT_register_key%(48, 0, allMods%, 0, digitForbid, 510, TRUE, "Opacity 100%")
+
+    ' Swap FG/BG = X (action 517; CASE handler added Phase 6b in COMMAND.BM)
+    r% = INPUT_register_key%(120, 0, allMods%, 0, CTX_TEXT_ACTIVE OR chordHeld, 517, TRUE, "Swap FG/BG")  ' X
+
+    ' ============================================================
+    ' BRUSH SIZE: [ = decrease, ] = increase  (Phase 6c — was KEYBOARD_brush_size)
+    ' ============================================================
+    r% = INPUT_register_key%(91, 0, allMods%, 0, CTX_TEXT_ACTIVE OR chordHeld, 601, TRUE, "Brush size -")  ' [
+    r% = INPUT_register_key%(93, 0, allMods%, 0, CTX_TEXT_ACTIVE OR chordHeld, 602, TRUE, "Brush size +")  ' ]
+
+    ' ============================================================
+    ' === DEV-MODE TEST BINDING (dispatched=TRUE proof of concept) ==
+    ' ============================================================
+    ' F12 = dump current INPUT_EVENT details to inputs.log.
+    ' Only dispatched=TRUE binding in the table — proves the central
+    ' dispatcher fires end-to-end. Action 9999 implemented in COMMAND.BM.
+    r% = INPUT_register_key%(28416, 0, allMods%, 0, CTX_TEXT_ACTIVE, 9999, TRUE, "F12 dev debug dump (dispatched=TRUE proof)")
+
+    ' ============================================================
+    ' === PHASE 3: MOUSE EVENT BINDINGS (legacy metadata) ========
+    ' ============================================================
+    ' All dispatched=FALSE — legacy MOUSE.BM handlers continue to own
+    ' actual dispatch. These registrations let the audit detect
+    ' conflicts that arise from future dispatched=TRUE migration.
+    '
+    ' Pattern: register one EVT_MOUSE_CLICK per panel with button=1
+    ' (left-click owns the panel's primary action). Right-click (button=2)
+    ' registers separately for context menus. Wheel and drag register
+    ' for canvas. Hover enter/leave register for panels with tooltips.
+
+    ' --- CANVAS: tool strokes (left button) ---
+    r% = INPUT_register_mouse%(EVT_MOUSE_DOWN,       REGION_CANVAS, 1, 0, 0, 0, CTX_TEXT_ACTIVE, 0, FALSE, "Canvas: tool stroke begin (LMB down)")
+    r% = INPUT_register_mouse%(EVT_MOUSE_DRAG_START, REGION_CANVAS, 1, 0, 0, 0, CTX_TEXT_ACTIVE, 0, FALSE, "Canvas: tool drag begin")
+    r% = INPUT_register_mouse%(EVT_MOUSE_DRAG_MOVE,  REGION_CANVAS, 1, 0, 0, 0, CTX_TEXT_ACTIVE, 0, FALSE, "Canvas: tool drag continue")
+    r% = INPUT_register_mouse%(EVT_MOUSE_DRAG_END,   REGION_CANVAS, 1, 0, 0, 0, CTX_TEXT_ACTIVE, 0, FALSE, "Canvas: tool drag end")
+    r% = INPUT_register_mouse%(EVT_MOUSE_UP,         REGION_CANVAS, 1, 0, 0, 0, CTX_TEXT_ACTIVE, 0, FALSE, "Canvas: tool stroke end (LMB up)")
+    r% = INPUT_register_mouse%(EVT_MOUSE_CLICK,      REGION_CANVAS, 1, 0, 0, 0, CTX_TEXT_ACTIVE, 0, FALSE, "Canvas: tap (single click no motion)")
+
+    ' --- CANVAS: BG color (right button) ---
+    r% = INPUT_register_mouse%(EVT_MOUSE_DOWN,       REGION_CANVAS, 2, 0, 0, 0, CTX_TEXT_ACTIVE, 0, FALSE, "Canvas: BG paint begin (RMB down)")
+    r% = INPUT_register_mouse%(EVT_MOUSE_DRAG_START, REGION_CANVAS, 2, 0, 0, 0, CTX_TEXT_ACTIVE, 0, FALSE, "Canvas: BG drag begin")
+    r% = INPUT_register_mouse%(EVT_MOUSE_UP,         REGION_CANVAS, 2, 0, 0, 0, CTX_TEXT_ACTIVE, 0, FALSE, "Canvas: BG end (RMB up)")
+
+    ' --- CANVAS: middle button = pan ---
+    r% = INPUT_register_mouse%(EVT_MOUSE_DOWN,       REGION_CANVAS, 3, 0, 0, 0, CTX_TEXT_ACTIVE, 0, FALSE, "Canvas: pan begin (MMB down)")
+    r% = INPUT_register_mouse%(EVT_MOUSE_DRAG_MOVE,  REGION_CANVAS, 3, 0, 0, 0, CTX_TEXT_ACTIVE, 0, FALSE, "Canvas: pan drag")
+    r% = INPUT_register_mouse%(EVT_MOUSE_UP,         REGION_CANVAS, 3, 0, 0, 0, CTX_TEXT_ACTIVE, 0, FALSE, "Canvas: pan end (MMB up)")
+
+    ' --- CANVAS: wheel zoom / scroll ---
+    r% = INPUT_register_wheel%(REGION_CANVAS, 1, MOD_CTRL, MOD_SHIFT OR MOD_ALT, 0, CTX_TEXT_ACTIVE, 406, FALSE, "Canvas: Ctrl+Wheel zoom in")
+    r% = INPUT_register_wheel%(REGION_CANVAS, -1, MOD_CTRL, MOD_SHIFT OR MOD_ALT, 0, CTX_TEXT_ACTIVE, 407, FALSE, "Canvas: Ctrl+Wheel zoom out")
+    r% = INPUT_register_wheel%(REGION_CANVAS, 1, 0, MOD_CTRL OR MOD_SHIFT OR MOD_ALT, 0, CTX_TEXT_ACTIVE, 0, FALSE, "Canvas: Wheel up (brush size or scroll)")
+    r% = INPUT_register_wheel%(REGION_CANVAS, -1, 0, MOD_CTRL OR MOD_SHIFT OR MOD_ALT, 0, CTX_TEXT_ACTIVE, 0, FALSE, "Canvas: Wheel down")
+
+    ' --- TOOLBAR ---
+    r% = INPUT_register_mouse%(EVT_MOUSE_CLICK,       REGION_TOOLBAR, 1, 0, 0, 0, 0, 0, FALSE, "Toolbar: click (select tool)")
+    r% = INPUT_register_mouse%(EVT_MOUSE_DBLCLICK,    REGION_TOOLBAR, 1, 0, 0, 0, 0, 0, FALSE, "Toolbar: double-click (subtool flyout)")
+    r% = INPUT_register_mouse%(EVT_MOUSE_CLICK,       REGION_TOOLBAR, 2, 0, 0, 0, 0, 0, FALSE, "Toolbar: right-click (context menu)")
+    r% = INPUT_register_mouse%(EVT_MOUSE_HOVER_ENTER, REGION_TOOLBAR, 0, 0, 0, 0, 0, 0, FALSE, "Toolbar: hover enter (tooltip start)")
+    r% = INPUT_register_mouse%(EVT_MOUSE_HOVER_LEAVE, REGION_TOOLBAR, 0, 0, 0, 0, 0, 0, FALSE, "Toolbar: hover leave (tooltip clear)")
+    r% = INPUT_register_mouse%(EVT_MOUSE_MOVE,        REGION_TOOLBAR, 0, 0, 0, 0, 0, 0, FALSE, "Toolbar: cursor move (sub-button tracking)")
+
+    ' --- MENUBAR ---
+    r% = INPUT_register_mouse%(EVT_MOUSE_CLICK,       REGION_MENUBAR, 1, 0, 0, 0, 0, 0, FALSE, "Menubar: click (open menu)")
+    r% = INPUT_register_mouse%(EVT_MOUSE_HOVER_ENTER, REGION_MENUBAR, 0, 0, 0, 0, 0, 0, FALSE, "Menubar: hover (switch open menu)")
+
+    ' --- LAYER PANEL ---
+    r% = INPUT_register_mouse%(EVT_MOUSE_CLICK,       REGION_LAYER_PANEL, 1, 0, 0, 0, 0, 0, FALSE, "Layer panel: click (select layer)")
+    r% = INPUT_register_mouse%(EVT_MOUSE_DBLCLICK,    REGION_LAYER_PANEL, 1, 0, 0, 0, 0, 0, FALSE, "Layer panel: double-click (rename)")
+    r% = INPUT_register_mouse%(EVT_MOUSE_CLICK,       REGION_LAYER_PANEL, 2, 0, 0, 0, 0, 0, FALSE, "Layer panel: right-click (context menu)")
+    r% = INPUT_register_mouse%(EVT_MOUSE_DRAG_START,  REGION_LAYER_PANEL, 1, 0, 0, 0, 0, 0, FALSE, "Layer panel: drag begin (reorder)")
+    r% = INPUT_register_mouse%(EVT_MOUSE_DRAG_MOVE,   REGION_LAYER_PANEL, 1, 0, 0, 0, 0, 0, FALSE, "Layer panel: drag continue (reorder)")
+    r% = INPUT_register_mouse%(EVT_MOUSE_DRAG_END,    REGION_LAYER_PANEL, 1, 0, 0, 0, 0, 0, FALSE, "Layer panel: drag end (reorder)")
+    r% = INPUT_register_wheel%(REGION_LAYER_PANEL, 1, 0, 0, 0, 0, 0, FALSE, "Layer panel: wheel up (scroll list)")
+    r% = INPUT_register_wheel%(REGION_LAYER_PANEL, -1, 0, 0, 0, 0, 0, FALSE, "Layer panel: wheel down (scroll list)")
+    r% = INPUT_register_mouse%(EVT_MOUSE_MOVE,        REGION_LAYER_PANEL, 0, 0, 0, 0, 0, 0, FALSE, "Layer panel: cursor move (row tracking)")
+
+    ' --- PALETTE STRIP ---
+    r% = INPUT_register_mouse%(EVT_MOUSE_CLICK,       REGION_PALETTE_STRIP, 1, 0, 0, 0, 0, 0, FALSE, "Palette: left-click (set FG color)")
+    r% = INPUT_register_mouse%(EVT_MOUSE_CLICK,       REGION_PALETTE_STRIP, 2, 0, 0, 0, 0, 0, FALSE, "Palette: right-click (set BG color)")
+    r% = INPUT_register_mouse%(EVT_MOUSE_DBLCLICK,    REGION_PALETTE_STRIP, 1, 0, 0, 0, 0, 0, FALSE, "Palette: double-click (edit color)")
+    r% = INPUT_register_mouse%(EVT_MOUSE_HOVER_ENTER, REGION_PALETTE_STRIP, 0, 0, 0, 0, 0, 0, FALSE, "Palette: hover enter")
+    r% = INPUT_register_mouse%(EVT_MOUSE_HOVER_LEAVE, REGION_PALETTE_STRIP, 0, 0, 0, 0, 0, 0, FALSE, "Palette: hover leave")
+    r% = INPUT_register_wheel%(REGION_PALETTE_STRIP, 1, 0, 0, 0, 0, 0, FALSE, "Palette: wheel up (next palette)")
+    r% = INPUT_register_wheel%(REGION_PALETTE_STRIP, -1, 0, 0, 0, 0, 0, FALSE, "Palette: wheel down (prev palette)")
+
+    ' --- EDIT BAR + ADV BAR ---
+    r% = INPUT_register_mouse%(EVT_MOUSE_CLICK,       REGION_EDIT_BAR, 1, 0, 0, 0, 0, 0, FALSE, "Edit bar: click (invoke action)")
+    r% = INPUT_register_mouse%(EVT_MOUSE_HOVER_ENTER, REGION_EDIT_BAR, 0, 0, 0, 0, 0, 0, FALSE, "Edit bar: hover (tooltip)")
+    r% = INPUT_register_mouse%(EVT_MOUSE_CLICK,       REGION_ADV_BAR,  1, 0, 0, 0, 0, 0, FALSE, "Adv bar: click (invoke action)")
+    r% = INPUT_register_mouse%(EVT_MOUSE_HOVER_ENTER, REGION_ADV_BAR,  0, 0, 0, 0, 0, 0, FALSE, "Adv bar: hover (tooltip)")
+
+    ' --- STATUS BAR ---
+    r% = INPUT_register_mouse%(EVT_MOUSE_CLICK,       REGION_STATUS_BAR, 1, 0, 0, 0, 0, 0, FALSE, "Status bar: click (e.g. toggle indicator)")
+
+    ' --- DRAWER ---
+    r% = INPUT_register_mouse%(EVT_MOUSE_CLICK,       REGION_DRAWER, 1, 0, 0, 0, 0, 0, FALSE, "Drawer: click (select bin)")
+    r% = INPUT_register_mouse%(EVT_MOUSE_DBLCLICK,    REGION_DRAWER, 1, 0, 0, 0, 0, 0, FALSE, "Drawer: double-click")
+    r% = INPUT_register_mouse%(EVT_MOUSE_CLICK,       REGION_DRAWER, 2, 0, 0, 0, 0, 0, FALSE, "Drawer: right-click (context)")
+    r% = INPUT_register_mouse%(EVT_MOUSE_DRAG_START,  REGION_DRAWER, 1, 0, 0, 0, 0, 0, FALSE, "Drawer: drag begin")
+    r% = INPUT_register_wheel%(REGION_DRAWER, 1, 0, 0, 0, 0, 0, FALSE, "Drawer: wheel up (page)")
+    r% = INPUT_register_wheel%(REGION_DRAWER, -1, 0, 0, 0, 0, 0, FALSE, "Drawer: wheel down (page)")
+
+    ' --- ORGANIZER ---
+    r% = INPUT_register_mouse%(EVT_MOUSE_CLICK, REGION_ORGANIZER, 1, 0, 0, 0, 0, 0, FALSE, "Organizer: click")
+    r% = INPUT_register_wheel%(REGION_ORGANIZER, 1, 0, 0, 0, 0, 0, FALSE, "Organizer: wheel up (cycle state)")
+    r% = INPUT_register_wheel%(REGION_ORGANIZER, -1, 0, 0, 0, 0, 0, FALSE, "Organizer: wheel down (cycle state)")
+
+    ' --- PREVIEW (floating, draggable) ---
+    r% = INPUT_register_mouse%(EVT_MOUSE_CLICK,      REGION_PREVIEW, 1, 0, 0, 0, 0, 0, FALSE, "Preview: click (button)")
+    r% = INPUT_register_mouse%(EVT_MOUSE_DRAG_START, REGION_PREVIEW, 1, 0, 0, 0, 0, 0, FALSE, "Preview: drag begin (move/resize)")
+    r% = INPUT_register_mouse%(EVT_MOUSE_DRAG_MOVE,  REGION_PREVIEW, 1, 0, 0, 0, 0, 0, FALSE, "Preview: drag continue")
+    r% = INPUT_register_mouse%(EVT_MOUSE_DRAG_END,   REGION_PREVIEW, 1, 0, 0, 0, 0, 0, FALSE, "Preview: drag end")
+    r% = INPUT_register_wheel%(REGION_PREVIEW, 1, 0, 0, 0, 0, 0, FALSE, "Preview: wheel up")
+    r% = INPUT_register_wheel%(REGION_PREVIEW, -1, 0, 0, 0, 0, 0, FALSE, "Preview: wheel down")
+
+    ' --- COLOR MIXER, BROWSER, CHARMAP (floating panels) ---
+    r% = INPUT_register_mouse%(EVT_MOUSE_CLICK,      REGION_COLOR_MIXER, 1, 0, 0, 0, 0, 0, FALSE, "Color mixer: click")
+    r% = INPUT_register_mouse%(EVT_MOUSE_DRAG_START, REGION_COLOR_MIXER, 1, 0, 0, 0, 0, 0, FALSE, "Color mixer: drag begin")
+    r% = INPUT_register_mouse%(EVT_MOUSE_CLICK,      REGION_IMAGE_BROWSER, 1, 0, 0, 0, 0, 0, FALSE, "Browser: click")
+    r% = INPUT_register_mouse%(EVT_MOUSE_DBLCLICK,   REGION_IMAGE_BROWSER, 1, 0, 0, 0, 0, 0, FALSE, "Browser: double-click (open)")
+    r% = INPUT_register_mouse%(EVT_MOUSE_DRAG_START, REGION_IMAGE_BROWSER, 1, 0, 0, 0, 0, 0, FALSE, "Browser: drag begin (move/resize)")
+    r% = INPUT_register_mouse%(EVT_MOUSE_CLICK,      REGION_CHARMAP, 1, 0, 0, 0, 0, 0, FALSE, "Charmap: click (select char)")
+    r% = INPUT_register_mouse%(EVT_MOUSE_DBLCLICK,   REGION_CHARMAP, 1, 0, 0, 0, 0, 0, FALSE, "Charmap: double-click (insert)")
+    r% = INPUT_register_wheel%(REGION_CHARMAP, 1, 0, 0, 0, 0, 0, FALSE, "Charmap: wheel up (page)")
+    r% = INPUT_register_wheel%(REGION_CHARMAP, -1, 0, 0, 0, 0, 0, FALSE, "Charmap: wheel down (page)")
+
+    ' --- SUBTOOL FLYOUT (high z-order, wins over toolbar) ---
+    r% = INPUT_register_mouse%(EVT_MOUSE_CLICK, REGION_SUBTOOL_FLYOUT, 1, 0, 0, 0, 0, 0, FALSE, "Subtool flyout: click (select sub-tool)")
+    r% = INPUT_register_mouse%(EVT_MOUSE_MOVE,  REGION_SUBTOOL_FLYOUT, 0, 0, 0, 0, 0, 0, FALSE, "Subtool flyout: cursor track")
+
+    ' --- TEXT BAR ---
+    r% = INPUT_register_mouse%(EVT_MOUSE_CLICK, REGION_TEXT_BAR, 1, 0, 0, 0, 0, 0, FALSE, "Text bar: click (button or dropdown)")
+END SUB
+
+
+''
+' Append a line to inputs.log. No-op when DEV_MODE is FALSE.
+' @param msg STRING Line to append (timestamp prepended automatically)
+'
+SUB INPUTS_log (msg AS STRING)
+    IF NOT DEV_MODE% THEN EXIT SUB
+    DIM fh AS INTEGER
+    fh% = FREEFILE
+    OPEN INPUTS_LOG_PATH$ FOR APPEND AS #fh%
+    PRINT #fh%, "[" + _TRIM$(STR$(TIMER)) + "] " + msg
+    CLOSE #fh%
+END SUB
+
+
+''
+' Register an input binding. Returns the binding index (or 0 on overflow).
+' Most call sites use the registration convention shown in the spec example.
+'
+FUNCTION INPUT_register% ( _
+    eventType AS INTEGER, _
+    region AS INTEGER, _
+    keycode AS LONG, _
+    button AS INTEGER, _
+    wheelDir AS INTEGER, _
+    requireMods AS INTEGER, _
+    forbidMods AS INTEGER, _
+    requireCtx AS _UNSIGNED _INTEGER64, _
+    forbidCtx AS _UNSIGNED _INTEGER64, _
+    actionId AS INTEGER, _
+    dispatched AS INTEGER, _
+    label AS STRING)
+
+    IF INPUT_BIND_COUNT >= INPUT_MAX_BINDS THEN
+        _LOGERROR "INPUT: binding table full (max " + _TRIM$(STR$(INPUT_MAX_BINDS)) + ")"
+        INPUT_register% = 0
+        EXIT FUNCTION
+    END IF
+
+    INPUT_BIND_COUNT = INPUT_BIND_COUNT + 1
+    INPUT_BINDS(INPUT_BIND_COUNT).eventType   = eventType%
+    INPUT_BINDS(INPUT_BIND_COUNT).region      = region%
+    INPUT_BINDS(INPUT_BIND_COUNT).keycode     = keycode&
+    INPUT_BINDS(INPUT_BIND_COUNT).button      = button%
+    INPUT_BINDS(INPUT_BIND_COUNT).wheelDir    = wheelDir%
+    INPUT_BINDS(INPUT_BIND_COUNT).requireMods = requireMods%
+    INPUT_BINDS(INPUT_BIND_COUNT).forbidMods  = forbidMods%
+    INPUT_BINDS(INPUT_BIND_COUNT).requireCtx  = requireCtx
+    INPUT_BINDS(INPUT_BIND_COUNT).forbidCtx   = forbidCtx
+    INPUT_BINDS(INPUT_BIND_COUNT).actionId    = actionId%
+    INPUT_BINDS(INPUT_BIND_COUNT).dispatched  = dispatched%
+    INPUT_BINDS(INPUT_BIND_COUNT).label       = label$
+
+    ' Infer device class from event type range
+    SELECT CASE eventType%
+        CASE 1 TO 9   : INPUT_BINDS(INPUT_BIND_COUNT).device = DEVICE_KEYBOARD
+        CASE 10 TO 29 : INPUT_BINDS(INPUT_BIND_COUNT).device = DEVICE_MOUSE
+        CASE 30 TO 39 : INPUT_BINDS(INPUT_BIND_COUNT).device = DEVICE_GAMEPAD
+        CASE 40 TO 49 : INPUT_BINDS(INPUT_BIND_COUNT).device = DEVICE_MIDI
+        CASE 50 TO 59 : INPUT_BINDS(INPUT_BIND_COUNT).device = DEVICE_TABLET
+        CASE 60 TO 69 : INPUT_BINDS(INPUT_BIND_COUNT).device = DEVICE_TOUCH
+        CASE ELSE     : INPUT_BINDS(INPUT_BIND_COUNT).device = DEVICE_NONE
+    END SELECT
+
+    ' Phase 6 skip-list: when a key binding is dispatched=TRUE and the keycode
+    ' is a printable ASCII letter or digit (0..127), flag it so the legacy
+    ' INKEY$ handlers (KEYBOARD_tools/colors/brush_size) can early-exit and
+    ' avoid double-firing.
+    '
+    ' IMPORTANT: only flag when requireMods=0 (plain key, no Ctrl/Shift/Alt
+    ' required). Otherwise a Ctrl+letter binding would suppress the plain
+    ' letter from the legacy path even though the plain letter has its own
+    ' (still-legacy) tool/transform handler. Example: Ctrl+H = Hide Selection
+    ' (dispatched=TRUE), plain H = Flip Horizontal (dispatched=FALSE inline
+    ' in KEYBOARD_tools). Flagging 'h' for Ctrl+H would block plain H.
+    '
+    ' For Shift+T (a dispatched=TRUE variant of T): the plain T binding is
+    ' ALSO dispatched=TRUE, so 't' still gets flagged on the plain T call;
+    ' Shift+T just doesn't redundantly flag it again.
+    IF dispatched% AND eventType% = EVT_KEY_PRESS AND keycode& >= 0 AND keycode& <= 127 AND requireMods% = 0 THEN
+        DIM lcCode AS INTEGER
+        IF keycode& >= 65 AND keycode& <= 90 THEN
+            lcCode% = keycode& + 32      ' A..Z -> a..z
+        ELSE
+            lcCode% = keycode&
+        END IF
+        IF lcCode% >= 0 AND lcCode% <= 127 THEN
+            INPUT_LETTER_DISPATCHED(lcCode%) = TRUE
+        END IF
+    END IF
+
+    INPUT_register% = INPUT_BIND_COUNT
+END FUNCTION
+
+
+''
+' Build the INPUT_INTERESTING_KEYS bitmap. Called from INPUTS_init AFTER all
+' registration is complete. Optimization: edge-detection only polls keys that
+' have at least one registered binding.
+'
+SUB INPUT_interesting_keys_build ()
+    DIM ki AS LONG       ' must be LONG: INTEGER (16-bit signed) overflows past 32767
+    DIM bi AS INTEGER
+    DIM kc AS LONG
+    ' Clear
+    FOR ki = 0 TO 65535
+        INPUT_INTERESTING_KEYS(ki) = 0
+    NEXT ki
+    FOR bi = 1 TO INPUT_BIND_COUNT
+        kc& = INPUT_BINDS(bi).keycode
+        IF kc& > 0 AND kc& <= 65535 THEN
+            INPUT_INTERESTING_KEYS(kc&) = 1
+            ' Letter-case insensitivity: also flag the other case
+            IF kc& >= 97 AND kc& <= 122 THEN
+                INPUT_INTERESTING_KEYS(kc& - 32) = 1   ' lowercase -> also flag uppercase
+            ELSEIF kc& >= 65 AND kc& <= 90 THEN
+                INPUT_INTERESTING_KEYS(kc& + 32) = 1   ' uppercase -> also flag lowercase
+            END IF
+        END IF
+    NEXT bi
+END SUB
+
+
+''
+' Set or update a region's screen rectangle. Called from each panel's render
+' SUB every frame the panel is visible. Bounds are stored in screen pixels
+' (same coord space as MOUSE.RAW_X/Y).
+' Per CLAUDE.md / PLANS/REARCHITECTURE.md §13d: every visible panel MUST call
+' this in its render SUB.
+'
+SUB REGION_set_bounds (region AS INTEGER, x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER, zOrder AS INTEGER)
+    IF region < 0 OR region >= REGION_TABLE_SIZE THEN
+        _LOGERROR "REGION_set_bounds: region " + _TRIM$(STR$(region)) + " out of range"
+        EXIT SUB
+    END IF
+    REGION_BOUNDS_TABLE(region).active = TRUE
+    REGION_BOUNDS_TABLE(region).x      = x%
+    REGION_BOUNDS_TABLE(region).y      = y%
+    REGION_BOUNDS_TABLE(region).w      = w%
+    REGION_BOUNDS_TABLE(region).h      = h%
+    REGION_BOUNDS_TABLE(region).zOrder = zOrder%
+END SUB
+
+
+''
+' Mark a region as inactive (hidden). Hit-testing skips inactive regions.
+'
+SUB REGION_set_inactive (region AS INTEGER)
+    IF region < 0 OR region >= REGION_TABLE_SIZE THEN EXIT SUB
+    REGION_BOUNDS_TABLE(region).active = FALSE
+END SUB
+
+
+''
+' Clear ALL region bounds (called on display-scale change to force re-layout).
+' Next frame, panels re-render and set fresh bounds. Worst case: one frame of
+' "no region matches" during a rare event.
+'
+SUB REGION_clear_all ()
+    DIM i AS INTEGER
+    FOR i = 0 TO REGION_TABLE_SIZE - 1
+        REGION_BOUNDS_TABLE(i).active = FALSE
+        REGION_BOUNDS_TABLE(i).x      = 0
+        REGION_BOUNDS_TABLE(i).y      = 0
+        REGION_BOUNDS_TABLE(i).w      = 0
+        REGION_BOUNDS_TABLE(i).h      = 0
+    NEXT i
+END SUB
+
+
+''
+' Dev-mode invariant check: walk REGION_BOUNDS_TABLE, log any inconsistencies
+' (active but degenerate, off-screen, etc.). Runs once per frame in dev mode.
+'
+SUB REGION_check_consistency ()
+    IF NOT DEV_MODE% THEN EXIT SUB
+    DIM i AS INTEGER
+    FOR i = 0 TO REGION_TABLE_SIZE - 1
+        IF REGION_BOUNDS_TABLE(i).active THEN
+            IF REGION_BOUNDS_TABLE(i).w <= 0 OR REGION_BOUNDS_TABLE(i).h <= 0 THEN
+                INPUTS_log "[CONSISTENCY] REGION " + _TRIM$(STR$(i)) + " active but degenerate bounds"
+            END IF
+        END IF
+    NEXT i
+END SUB
+
+
+''
+' Return the topmost active region at the given screen coords (or REGION_GLOBAL
+' if none). Topmost = highest zOrder.
+' Cost: ~30 comparisons. Called once per frame from INPUT_update_context.
+'
+FUNCTION REGION_hit_test% (mouseX AS INTEGER, mouseY AS INTEGER)
+    DIM i AS INTEGER
+    DIM bestZ AS INTEGER
+    DIM bestRegion AS INTEGER
+    bestZ = -1
+    bestRegion = REGION_GLOBAL
+    FOR i = 1 TO REGION_TABLE_SIZE - 1
+        IF REGION_BOUNDS_TABLE(i).active THEN
+            IF i <> REGION_TOOLTIP THEN  ' tooltip is render-only, never consumes events
+                IF mouseX% >= REGION_BOUNDS_TABLE(i).x AND _
+                   mouseX% < REGION_BOUNDS_TABLE(i).x + REGION_BOUNDS_TABLE(i).w AND _
+                   mouseY% >= REGION_BOUNDS_TABLE(i).y AND _
+                   mouseY% < REGION_BOUNDS_TABLE(i).y + REGION_BOUNDS_TABLE(i).h THEN
+                    IF REGION_BOUNDS_TABLE(i).zOrder > bestZ THEN
+                        bestZ = REGION_BOUNDS_TABLE(i).zOrder
+                        bestRegion = i
+                    END IF
+                END IF
+            END IF
+        END IF
+    NEXT i
+    REGION_hit_test% = bestRegion
+END FUNCTION
+
+
+''
+' Compute INPUT_CONTEXT bitmask once per frame from world state.
+' Held-key context: only polls keys with registered bindings (interesting set).
+' Region-over context: single REGION_hit_test result.
+'
+' Subsystem-mode context (CTX_TEXT_ACTIVE, etc.) is added as the corresponding
+' subsystems migrate. Phase 0 sets the minimal safe set (held-keys + region).
+'
+SUB INPUT_update_context ()
+    DIM ctx AS _UNSIGNED _INTEGER64
+    DIM hoverRegion AS INTEGER
+    ctx = 0
+
+    ' --- Subsystem state flags (additive; safe to reference fields that exist) ---
+    ' TEXT tool active
+    IF CURRENT_TOOL% = TOOL_TEXT THEN
+        IF TEXT.ACTIVE THEN ctx = ctx OR CTX_TEXT_ACTIVE
+    END IF
+    ' MOVE tool with floating selection
+    IF MOVE.ACTIVE THEN ctx = ctx OR CTX_MOVE_ACTIVE
+    ' Magic Wand mode
+    IF MARQUEE.MAGIC_WAND_MODE THEN ctx = ctx OR CTX_MAGIC_WAND_ACTIVE
+    ' Grid offset pick mode
+    IF GRID_OFFSET_PICK_MODE% THEN ctx = ctx OR CTX_GRID_OFFSET_PICK
+    ' Reference image reposition
+    IF REFIMG.REPOSITION THEN ctx = ctx OR CTX_REFIMG_REPOSITION
+    ' Command palette visible
+    IF CMD_PALETTE.visible% THEN ctx = ctx OR CTX_COMMAND_PALETTE_OPEN
+
+    ' --- Held-key chord initiators ---
+    ' G uses GRID_G_KEY_ARMED% (set when G transitions to down with NO mods,
+    ' stays TRUE while G is held even if user adds Ctrl/Shift/Alt later) so
+    ' G+Ctrl+R works. Other chord initiators use the simpler "no-mods" check.
+    IF GRID_G_KEY_ARMED% THEN ctx = ctx OR CTX_G_HELD
+    IF (_KEYDOWN(109) OR _KEYDOWN(77)) AND NOT MODIFIERS.ctrl% AND NOT MODIFIERS.alt% THEN
+        ctx = ctx OR CTX_M_HELD
+    END IF
+    IF (_KEYDOWN(122) OR _KEYDOWN(90)) AND NOT MODIFIERS.ctrl% AND NOT MODIFIERS.alt% THEN
+        ctx = ctx OR CTX_Z_HELD
+    END IF
+    IF (_KEYDOWN(101) OR _KEYDOWN(69)) AND NOT MODIFIERS.ctrl% AND NOT MODIFIERS.alt% THEN
+        ctx = ctx OR CTX_E_HELD
+    END IF
+    IF (_KEYDOWN(102) OR _KEYDOWN(70)) AND NOT MODIFIERS.ctrl% AND NOT MODIFIERS.alt% THEN
+        ctx = ctx OR CTX_F_HELD
+    END IF
+    IF (_KEYDOWN(119) OR _KEYDOWN(87)) AND NOT MODIFIERS.ctrl% AND NOT MODIFIERS.alt% THEN
+        ctx = ctx OR CTX_W_HELD
+    END IF
+    IF _KEYDOWN(32) AND NOT MODIFIERS.ctrl% AND NOT MODIFIERS.alt% THEN
+        ctx = ctx OR CTX_SPACE_HELD
+    END IF
+    IF MODIFIERS.alt% THEN ctx = ctx OR CTX_ALT_HELD
+
+    ' Smart-shape dragging states reserve digit keys (3D dice type / SS polygon side count)
+    IF CURRENT_TOOL% = TOOL_SS_3D_CUBE AND SS_CUBE.DRAGGING THEN ctx = ctx OR CTX_SS_DRAGGING
+    IF CURRENT_TOOL% = TOOL_SS_POLYGON AND SS_POLYGON.DRAGGING THEN ctx = ctx OR CTX_SS_DRAGGING
+
+    ' --- Cursor-region flags ---
+    hoverRegion% = REGION_hit_test%(MOUSE.RAW_X%, MOUSE.RAW_Y%)
+    SELECT CASE hoverRegion%
+        CASE REGION_CANVAS         : ctx = ctx OR CTX_OVER_CANVAS
+        CASE REGION_TOOLBAR        : ctx = ctx OR CTX_OVER_TOOLBAR
+        CASE REGION_MENUBAR        : ctx = ctx OR CTX_OVER_MENUBAR
+        CASE REGION_LAYER_PANEL    : ctx = ctx OR CTX_OVER_LAYER_PANEL
+        CASE REGION_PALETTE_STRIP  : ctx = ctx OR CTX_OVER_PALETTE
+        CASE REGION_EDIT_BAR       : ctx = ctx OR CTX_OVER_EDIT_BAR
+        CASE REGION_ADV_BAR        : ctx = ctx OR CTX_OVER_ADV_BAR
+        CASE REGION_STATUS_BAR     : ctx = ctx OR CTX_OVER_STATUS_BAR
+        CASE REGION_DRAWER         : ctx = ctx OR CTX_OVER_DRAWER
+        CASE REGION_PREVIEW        : ctx = ctx OR CTX_OVER_PREVIEW
+        CASE REGION_COLOR_MIXER    : ctx = ctx OR CTX_OVER_COLOR_MIXER
+        CASE REGION_IMAGE_BROWSER  : ctx = ctx OR CTX_OVER_IMAGE_BROWSER
+        CASE REGION_CHARMAP        : ctx = ctx OR CTX_OVER_CHARMAP
+        CASE REGION_ORGANIZER      : ctx = ctx OR CTX_OVER_ORGANIZER
+        CASE REGION_POPUP_MENU     : ctx = ctx OR CTX_OVER_POPUP_MENU
+        CASE REGION_SETTINGS_DLG, REGION_FILE_DIALOG, REGION_DIALOG_GENERIC
+                                   : ctx = ctx OR CTX_OVER_DIALOG
+    END SELECT
+
+    INPUT_CONTEXT = ctx
+END SUB
+
+
+''
+' Internal: append a detected event to the per-frame queue.
+'
+SUB INPUT_enqueue_event (eventType AS INTEGER, region AS INTEGER, keycode AS LONG, button AS INTEGER, wheelDir AS INTEGER, mouseX AS INTEGER, mouseY AS INTEGER, canvasX AS INTEGER, canvasY AS INTEGER, value AS SINGLE, value2 AS SINGLE, device AS INTEGER, deviceIdx AS INTEGER)
+    IF DETECTED_EVENT_COUNT >= INPUT_MAX_EVENTS THEN
+        IF DEV_MODE% THEN INPUTS_log "[OVERFLOW] DETECTED_EVENTS queue full this frame"
+        EXIT SUB
+    END IF
+    DETECTED_EVENT_COUNT = DETECTED_EVENT_COUNT + 1
+    DETECTED_EVENTS(DETECTED_EVENT_COUNT).eventType = eventType%
+    DETECTED_EVENTS(DETECTED_EVENT_COUNT).region    = region%
+    DETECTED_EVENTS(DETECTED_EVENT_COUNT).keycode   = keycode&
+    DETECTED_EVENTS(DETECTED_EVENT_COUNT).button    = button%
+    DETECTED_EVENTS(DETECTED_EVENT_COUNT).wheelDir  = wheelDir%
+    DETECTED_EVENTS(DETECTED_EVENT_COUNT).mouseX    = mouseX%
+    DETECTED_EVENTS(DETECTED_EVENT_COUNT).mouseY    = mouseY%
+    DETECTED_EVENTS(DETECTED_EVENT_COUNT).canvasX   = canvasX%
+    DETECTED_EVENTS(DETECTED_EVENT_COUNT).canvasY   = canvasY%
+    DETECTED_EVENTS(DETECTED_EVENT_COUNT).value     = value!
+    DETECTED_EVENTS(DETECTED_EVENT_COUNT).value2    = value2!
+    DETECTED_EVENTS(DETECTED_EVENT_COUNT).device    = device%
+    DETECTED_EVENTS(DETECTED_EVENT_COUNT).deviceIdx = deviceIdx%
+END SUB
+
+
+''
+' Detect input events for this frame. Walks the interesting-keys set,
+' the 3 mouse buttons, the wheel, and hover transitions. Populates
+' DETECTED_EVENTS queue for INPUT_dispatch_frame to consume.
+'
+SUB INPUT_detect_events ()
+    DETECTED_EVENT_COUNT = 0
+    DIM i AS INTEGER, kc AS LONG
+    DIM keyDown AS INTEGER
+    DIM region AS INTEGER
+    DIM btn AS INTEGER
+    DIM bDown AS INTEGER, bDownLast AS INTEGER
+    DIM dx AS INTEGER, dy AS INTEGER
+    DIM nowT AS DOUBLE
+    DIM kcIdx AS LONG
+    nowT# = TIMER
+
+    ' --- Keyboard edge detection (only for keys with registered bindings) ---
+    ' Walk the binding table; for each EVT_KEY_PRESS binding, check its key
+    ' and fire EVT_KEY_PRESS if a fresh edge. KEY_DOWN_LAST tracks per-binding
+    ' for the state-change check, but we enqueue at most ONE event per
+    ' (keycode + case-flipped variant) per frame — otherwise a key with
+    ' multiple bindings (e.g. M and Ctrl+M both on keycode 109) would
+    ' enqueue an event per binding, double-firing whichever one matches.
+    ' Version-counter trick: INPUT_KC_ENQUEUED stores the frame number the
+    ' key was last enqueued in; a key is "enqueued this frame" iff its
+    ' stored value == current INPUT_KC_FRAME. No per-frame ERASE needed.
+    INPUT_KC_FRAME = INPUT_KC_FRAME + 1
+    FOR i = 1 TO INPUT_BIND_COUNT
+        IF INPUT_BINDS(i).eventType = EVT_KEY_PRESS THEN
+            kc& = INPUT_BINDS(i).keycode
+            keyDown% = 0
+            IF kc& > 0 AND kc& <= 65535 THEN
+                IF _KEYDOWN(kc&) THEN keyDown% = -1
+                ' Also check case-flipped variant for letters
+                IF kc& >= 97 AND kc& <= 122 THEN
+                    IF _KEYDOWN(kc& - 32) THEN keyDown% = -1
+                ELSEIF kc& >= 65 AND kc& <= 90 THEN
+                    IF _KEYDOWN(kc& + 32) THEN keyDown% = -1
+                END IF
+            END IF
+            IF keyDown% AND NOT KEY_DOWN_LAST(i) THEN
+                ' Bounds-check kc& separately (QB64-PE AND is non-short-circuit).
+                ' "Already enqueued this frame" iff stored frame == current frame.
+                kcIdx& = kc&
+                IF kcIdx& < 0 THEN kcIdx& = -1
+                IF kcIdx& > 65535 THEN kcIdx& = -1
+                IF kcIdx& >= 0 THEN
+                    IF INPUT_KC_ENQUEUED(kcIdx&) <> INPUT_KC_FRAME THEN
+                        INPUT_enqueue_event EVT_KEY_PRESS, REGION_GLOBAL, kc&, 0, 0, MOUSE.RAW_X%, MOUSE.RAW_Y%, MOUSE.X%, MOUSE.Y%, 0.0, 0.0, DEVICE_KEYBOARD, 0
+                        INPUT_KC_ENQUEUED(kcIdx&) = INPUT_KC_FRAME
+                    END IF
+                END IF
+            END IF
+            KEY_DOWN_LAST(i) = keyDown%
+        END IF
+    NEXT i
+
+    ' --- Mouse buttons + click/dblclick/drag state machine ---
+    region% = REGION_hit_test%(MOUSE.RAW_X%, MOUSE.RAW_Y%)
+    FOR btn = 1 TO 3
+        SELECT CASE btn
+            CASE 1 : bDown% = MOUSE.B1% : bDownLast% = MOUSE_BTN_DOWN_LAST(1)
+            CASE 2 : bDown% = MOUSE.B2% : bDownLast% = MOUSE_BTN_DOWN_LAST(2)
+            CASE 3 : bDown% = MOUSE.B3% : bDownLast% = MOUSE_BTN_DOWN_LAST(3)
+        END SELECT
+
+        IF bDown% AND NOT bDownLast% THEN
+            ' DOWN edge
+            MOUSE_DOWN_REGION(btn) = region%
+            MOUSE_DOWN_X(btn)      = MOUSE.RAW_X%
+            MOUSE_DOWN_Y(btn)      = MOUSE.RAW_Y%
+            MOUSE_DOWN_TIME(btn)   = nowT#
+            MOUSE_DRAG_STARTED(btn) = FALSE
+            INPUT_enqueue_event EVT_MOUSE_DOWN, region%, 0, btn, 0, MOUSE.RAW_X%, MOUSE.RAW_Y%, MOUSE.X%, MOUSE.Y%, 0.0, 0.0, DEVICE_MOUSE, 0
+        ELSEIF bDown% AND bDownLast% THEN
+            ' Still held: check for drag start
+            IF NOT MOUSE_DRAG_STARTED(btn) THEN
+                dx% = ABS(MOUSE.RAW_X% - MOUSE_DOWN_X(btn))
+                dy% = ABS(MOUSE.RAW_Y% - MOUSE_DOWN_Y(btn))
+                IF dx% > DRAG_THRESHOLD_PX OR dy% > DRAG_THRESHOLD_PX THEN
+                    MOUSE_DRAG_STARTED(btn) = TRUE
+                    INPUT_enqueue_event EVT_MOUSE_DRAG_START, MOUSE_DOWN_REGION(btn), 0, btn, 0, MOUSE.RAW_X%, MOUSE.RAW_Y%, MOUSE.X%, MOUSE.Y%, 0.0, 0.0, DEVICE_MOUSE, 0
+                END IF
+            END IF
+            IF MOUSE_DRAG_STARTED(btn) THEN
+                INPUT_enqueue_event EVT_MOUSE_DRAG_MOVE, MOUSE_DOWN_REGION(btn), 0, btn, 0, MOUSE.RAW_X%, MOUSE.RAW_Y%, MOUSE.X%, MOUSE.Y%, 0.0, 0.0, DEVICE_MOUSE, 0
+            END IF
+        ELSEIF NOT bDown% AND bDownLast% THEN
+            ' UP edge
+            IF MOUSE_DRAG_STARTED(btn) THEN
+                INPUT_enqueue_event EVT_MOUSE_DRAG_END, MOUSE_DOWN_REGION(btn), 0, btn, 0, MOUSE.RAW_X%, MOUSE.RAW_Y%, MOUSE.X%, MOUSE.Y%, 0.0, 0.0, DEVICE_MOUSE, 0
+            ELSE
+                ' CLICK (no significant motion + same region as down)
+                IF region% = MOUSE_DOWN_REGION(btn) THEN
+                    INPUT_enqueue_event EVT_MOUSE_CLICK, region%, 0, btn, 0, MOUSE.RAW_X%, MOUSE.RAW_Y%, MOUSE.X%, MOUSE.Y%, 0.0, 0.0, DEVICE_MOUSE, 0
+                    ' Double-click check
+                    IF (nowT# - MOUSE_LAST_CLICK_TIME(btn)) < DBLCLICK_WINDOW_S AND _
+                       MOUSE_LAST_CLICK_REGION(btn) = region% THEN
+                        INPUT_enqueue_event EVT_MOUSE_DBLCLICK, region%, 0, btn, 0, MOUSE.RAW_X%, MOUSE.RAW_Y%, MOUSE.X%, MOUSE.Y%, 0.0, 0.0, DEVICE_MOUSE, 0
+                        MOUSE_LAST_CLICK_TIME(btn) = 0  ' prevent triple-as-dbl
+                    ELSE
+                        MOUSE_LAST_CLICK_TIME(btn)   = nowT#
+                        MOUSE_LAST_CLICK_REGION(btn) = region%
+                    END IF
+                END IF
+            END IF
+            INPUT_enqueue_event EVT_MOUSE_UP, region%, 0, btn, 0, MOUSE.RAW_X%, MOUSE.RAW_Y%, MOUSE.X%, MOUSE.Y%, 0.0, 0.0, DEVICE_MOUSE, 0
+        END IF
+
+        MOUSE_BTN_DOWN_LAST(btn) = bDown%
+    NEXT btn
+
+    ' --- Hover enter/leave detection ---
+    IF region% <> HOVER_REGION_LAST THEN
+        IF HOVER_REGION_LAST <> 0 AND HOVER_REGION_LAST <> REGION_GLOBAL THEN
+            INPUT_enqueue_event EVT_MOUSE_HOVER_LEAVE, HOVER_REGION_LAST, 0, 0, 0, MOUSE.RAW_X%, MOUSE.RAW_Y%, MOUSE.X%, MOUSE.Y%, 0.0, 0.0, DEVICE_MOUSE, 0
+        END IF
+        IF region% <> 0 AND region% <> REGION_GLOBAL THEN
+            INPUT_enqueue_event EVT_MOUSE_HOVER_ENTER, region%, 0, 0, 0, MOUSE.RAW_X%, MOUSE.RAW_Y%, MOUSE.X%, MOUSE.Y%, 0.0, 0.0, DEVICE_MOUSE, 0
+        END IF
+        HOVER_REGION_LAST = region%
+    END IF
+
+    ' --- Run consistency check in dev mode ---
+    REGION_check_consistency
+END SUB
+
+
+''
+' Dispatch all events queued this frame. For each event, finds the first
+' matching dispatched=TRUE binding (registration order = priority) and
+' calls CMD_execute_action with the bound action ID.
+' Idle-fast-path: if no events fired AND context unchanged, return immediately.
+'
+SUB INPUT_dispatch_frame ()
+    IF DETECTED_EVENT_COUNT = 0 AND INPUT_CONTEXT = INPUT_CONTEXT_PREV THEN
+        EXIT SUB
+    END IF
+    INPUT_CONTEXT_PREV = INPUT_CONTEXT
+
+    DIM e AS INTEGER, i AS INTEGER, modsNow AS INTEGER
+    modsNow% = MODS_NOW%
+
+    FOR e = 1 TO DETECTED_EVENT_COUNT
+        ' Populate INPUT_EVENT shared state for action handler context
+        INPUT_EVENT.eventType = DETECTED_EVENTS(e).eventType
+        INPUT_EVENT.region    = DETECTED_EVENTS(e).region
+        INPUT_EVENT.keycode   = DETECTED_EVENTS(e).keycode
+        INPUT_EVENT.button    = DETECTED_EVENTS(e).button
+        INPUT_EVENT.wheelDir  = DETECTED_EVENTS(e).wheelDir
+        INPUT_EVENT.mouseX    = DETECTED_EVENTS(e).mouseX
+        INPUT_EVENT.mouseY    = DETECTED_EVENTS(e).mouseY
+        INPUT_EVENT.canvasX   = DETECTED_EVENTS(e).canvasX
+        INPUT_EVENT.canvasY   = DETECTED_EVENTS(e).canvasY
+        INPUT_EVENT.value     = DETECTED_EVENTS(e).value
+        INPUT_EVENT.value2    = DETECTED_EVENTS(e).value2
+        INPUT_EVENT.device    = DETECTED_EVENTS(e).device
+        INPUT_EVENT.deviceIdx = DETECTED_EVENTS(e).deviceIdx
+        INPUT_EVENT.mods      = modsNow%
+        INPUT_EVENT.ctx       = INPUT_CONTEXT
+
+        ' Find first matching dispatched binding (registration order = priority)
+        FOR i = 1 TO INPUT_BIND_COUNT
+            IF INPUT_BINDS(i).dispatched THEN
+                IF INPUT_BIND_matches%(i, e) THEN
+                    IF DEV_MODE% THEN
+                        INPUTS_log "[FIRE] evt=" + _TRIM$(STR$(INPUT_BINDS(i).eventType)) + _
+                                   " region=" + _TRIM$(STR$(INPUT_BINDS(i).region)) + _
+                                   " action=" + _TRIM$(STR$(INPUT_BINDS(i).actionId)) + _
+                                   " label=" + RTRIM$(INPUT_BINDS(i).label)
+                    END IF
+                    CMD_execute_action INPUT_BINDS(i).actionId
+                    EXIT FOR
+                END IF
+            END IF
+        NEXT i
+    NEXT e
+
+    DETECTED_EVENT_COUNT = 0
+END SUB
+
+
+''
+' Does binding bindIdx match detected event evtIdx?
+' Used by dispatcher. Reads MODS_NOW% and INPUT_CONTEXT for current state.
+'
+FUNCTION INPUT_BIND_matches% (bindIdx AS INTEGER, evtIdx AS INTEGER)
+    DIM b AS INPUT_BIND
+    DIM e AS DETECTED_EVENT
+    b = INPUT_BINDS(bindIdx)
+    e = DETECTED_EVENTS(evtIdx)
+    DIM modsNow AS INTEGER
+    modsNow% = MODS_NOW%
+
+    IF b.eventType <> e.eventType THEN INPUT_BIND_matches% = FALSE : EXIT FUNCTION
+    IF b.region <> REGION_GLOBAL AND b.region <> e.region THEN INPUT_BIND_matches% = FALSE : EXIT FUNCTION
+
+    ' Keycode (with case-insensitive letter handling)
+    IF b.keycode <> 0 THEN
+        IF b.keycode <> e.keycode THEN
+            ' Allow case-flipped match
+            IF b.keycode >= 97 AND b.keycode <= 122 AND e.keycode = b.keycode - 32 THEN
+                ' lower binding matched by upper-case event
+            ELSEIF b.keycode >= 65 AND b.keycode <= 90 AND e.keycode = b.keycode + 32 THEN
+                ' upper binding matched by lower-case event
+            ELSE
+                INPUT_BIND_matches% = FALSE : EXIT FUNCTION
+            END IF
+        END IF
+    END IF
+
+    IF b.button   <> 0 AND b.button   <> e.button   THEN INPUT_BIND_matches% = FALSE : EXIT FUNCTION
+    IF b.wheelDir <> 0 AND b.wheelDir <> e.wheelDir THEN INPUT_BIND_matches% = FALSE : EXIT FUNCTION
+
+    ' Modifiers
+    IF (modsNow% AND b.requireMods) <> b.requireMods THEN INPUT_BIND_matches% = FALSE : EXIT FUNCTION
+    IF (modsNow% AND b.forbidMods) <> 0 THEN INPUT_BIND_matches% = FALSE : EXIT FUNCTION
+
+    ' Context
+    IF (INPUT_CONTEXT AND b.requireCtx) <> b.requireCtx THEN INPUT_BIND_matches% = FALSE : EXIT FUNCTION
+    IF (INPUT_CONTEXT AND b.forbidCtx) <> 0 THEN INPUT_BIND_matches% = FALSE : EXIT FUNCTION
+
+    INPUT_BIND_matches% = TRUE
+END FUNCTION
+
+
+''
+' Run conflict audit: walk all binding pairs, log to inputs.log any pair
+' that could match simultaneously. Dev mode only. Runs once at startup.
+'
+SUB INPUT_audit ()
+    IF NOT DEV_MODE% THEN EXIT SUB
+    INPUTS_log "[AUDIT] Scanning " + _TRIM$(STR$(INPUT_BIND_COUNT)) + " bindings for conflicts"
+    DIM i AS INTEGER, j AS INTEGER, conflicts AS INTEGER
+    conflicts = 0
+    FOR i = 1 TO INPUT_BIND_COUNT
+        FOR j = i + 1 TO INPUT_BIND_COUNT
+            IF INPUT_BINDS_could_collide%(i, j) THEN
+                INPUTS_log "[CONFLICT] (" + _TRIM$(STR$(i)) + ") " + RTRIM$(INPUT_BINDS(i).label) + _
+                           " <-> (" + _TRIM$(STR$(j)) + ") " + RTRIM$(INPUT_BINDS(j).label)
+                conflicts = conflicts + 1
+            END IF
+        NEXT j
+    NEXT i
+    INPUTS_log "[AUDIT] Complete: " + _TRIM$(STR$(conflicts)) + " conflicts found"
+END SUB
+
+
+''
+' Could bindings a and b both match the same input + context state?
+' Conservative: if both could fire under any condition, returns TRUE.
+'
+FUNCTION INPUT_BINDS_could_collide% (a AS INTEGER, b AS INTEGER)
+    IF INPUT_BINDS(a).eventType <> INPUT_BINDS(b).eventType THEN
+        INPUT_BINDS_could_collide% = FALSE : EXIT FUNCTION
+    END IF
+
+    ' Region: differ AND neither is REGION_GLOBAL? then no overlap
+    IF INPUT_BINDS(a).region <> REGION_GLOBAL AND _
+       INPUT_BINDS(b).region <> REGION_GLOBAL AND _
+       INPUT_BINDS(a).region <> INPUT_BINDS(b).region THEN
+        INPUT_BINDS_could_collide% = FALSE : EXIT FUNCTION
+    END IF
+
+    ' Keycode: both nonzero and differ (allowing case-flip) => no overlap
+    IF INPUT_BINDS(a).keycode <> 0 AND INPUT_BINDS(b).keycode <> 0 THEN
+        IF INPUT_BINDS(a).keycode <> INPUT_BINDS(b).keycode THEN
+            ' Check case-flipped match
+            DIM matched AS INTEGER : matched = FALSE
+            IF INPUT_BINDS(a).keycode >= 97 AND INPUT_BINDS(a).keycode <= 122 AND _
+               INPUT_BINDS(b).keycode = INPUT_BINDS(a).keycode - 32 THEN matched = TRUE
+            IF INPUT_BINDS(a).keycode >= 65 AND INPUT_BINDS(a).keycode <= 90 AND _
+               INPUT_BINDS(b).keycode = INPUT_BINDS(a).keycode + 32 THEN matched = TRUE
+            IF NOT matched THEN INPUT_BINDS_could_collide% = FALSE : EXIT FUNCTION
+        END IF
+    END IF
+
+    ' Button: both nonzero and differ => no overlap
+    IF INPUT_BINDS(a).button <> 0 AND INPUT_BINDS(b).button <> 0 AND _
+       INPUT_BINDS(a).button <> INPUT_BINDS(b).button THEN
+        INPUT_BINDS_could_collide% = FALSE : EXIT FUNCTION
+    END IF
+
+    ' Wheel direction: both nonzero and differ => no overlap
+    ' (+1 wheel-up and -1 wheel-down never fire simultaneously)
+    IF INPUT_BINDS(a).wheelDir <> 0 AND INPUT_BINDS(b).wheelDir <> 0 AND _
+       INPUT_BINDS(a).wheelDir <> INPUT_BINDS(b).wheelDir THEN
+        INPUT_BINDS_could_collide% = FALSE : EXIT FUNCTION
+    END IF
+
+    ' Modifiers: if a requires bits that b forbids (or vice versa), no overlap
+    IF (INPUT_BINDS(a).requireMods AND INPUT_BINDS(b).forbidMods) <> 0 THEN
+        INPUT_BINDS_could_collide% = FALSE : EXIT FUNCTION
+    END IF
+    IF (INPUT_BINDS(b).requireMods AND INPUT_BINDS(a).forbidMods) <> 0 THEN
+        INPUT_BINDS_could_collide% = FALSE : EXIT FUNCTION
+    END IF
+
+    ' Context: same logic
+    IF (INPUT_BINDS(a).requireCtx AND INPUT_BINDS(b).forbidCtx) <> 0 THEN
+        INPUT_BINDS_could_collide% = FALSE : EXIT FUNCTION
+    END IF
+    IF (INPUT_BINDS(b).requireCtx AND INPUT_BINDS(a).forbidCtx) <> 0 THEN
+        INPUT_BINDS_could_collide% = FALSE : EXIT FUNCTION
+    END IF
+
+    INPUT_BINDS_could_collide% = TRUE
+END FUNCTION
