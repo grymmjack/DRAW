@@ -25,6 +25,9 @@ $INCLUDEONCE
 ' QB64_GJ COMPONENTS ----------------------------------------------------------
 ' Include sub-files directly (NOT the leader files) to avoid QB64-PE
 ' $INCLUDEONCE path-normalization issue with TEXT-INPUT cross-includes.
+' _GJ_LIB_COMMON.BI must come first — it carries shared CONSTs and the
+' QB64_GJ_SAFE_FREE_IMAGE helper that the lib's *.BM files call.
+'$INCLUDE:'./includes/QB64_GJ_LIB/_GJ_LIB_COMMON.BI'
 '$INCLUDE:'./includes/QB64_GJ_LIB/TEXT_INPUT/TI-TYPES.BI'
 '$INCLUDE:'./includes/QB64_GJ_LIB/MSG_BOX/MB-TYPES.BI'
 '$INCLUDE:'./includes/QB64_GJ_LIB/MSG_BOX/MB-THEME.BI'
