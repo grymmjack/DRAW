@@ -52,18 +52,6 @@ CONST MOD_SHIFT = 2
 CONST MOD_ALT   = 4
 
 
-'==============================================================================
-' Forward DECLAREs
-'==============================================================================
-DECLARE SUB      SAFE_FREEIMAGE (handle AS LONG)
-DECLARE SUB      DEST_SAVE ()
-DECLARE SUB      DEST_RESTORE ()
-DECLARE SUB      SOURCE_SAVE ()
-DECLARE SUB      SOURCE_RESTORE ()
-DECLARE SUB      FONT_SAVE ()
-DECLARE SUB      FONT_RESTORE ()
-DECLARE SUB      PIXEL_DOUBLE_AXIS (srcImg AS LONG, dstImg AS LONG, axis AS INTEGER)
-DECLARE SUB      SCENE_invalidate ()
-DECLARE SUB      SCENE_request_render ()
-DECLARE FUNCTION MODS_NOW% ()
-DECLARE FUNCTION MODS_only% (wantMods AS INTEGER)
+' DECLARE SUB/FUNCTION blocks removed — QB64-PE auto-discovers SUBs and
+' FUNCTIONs from the include chain. Only DECLARE LIBRARY still needs an
+' explicit declaration (and DRAW has none).

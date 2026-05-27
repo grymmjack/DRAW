@@ -341,47 +341,15 @@ DIM SHARED DEV_MODE                                  AS INTEGER
 DIM SHARED INPUTS_LOG_PATH                           AS STRING
 
 
-'==============================================================================
-' DECLARES
-'==============================================================================
-DECLARE SUB      INPUTS_init ()
-DECLARE SUB      INPUTS_log (msg AS STRING)
-DECLARE SUB      INPUT_update_context ()
-DECLARE SUB      INPUT_detect_events ()
-DECLARE SUB      INPUT_dispatch_frame ()
-DECLARE SUB      INPUT_audit ()
-DECLARE SUB      INPUT_interesting_keys_build ()
-DECLARE SUB      REGION_set_bounds (region AS INTEGER, x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER, zOrder AS INTEGER)
-DECLARE SUB      REGION_set_inactive (region AS INTEGER)
-DECLARE SUB      REGION_clear_all ()
-DECLARE SUB      REGION_check_consistency ()
-DECLARE FUNCTION REGION_hit_test% (mouseX AS INTEGER, mouseY AS INTEGER)
-DECLARE FUNCTION INPUT_register% ( _
-    eventType AS INTEGER, region AS INTEGER, keycode AS LONG, button AS INTEGER, _
-    wheelDir AS INTEGER, requireMods AS INTEGER, forbidMods AS INTEGER, _
-    requireCtx AS _UNSIGNED _INTEGER64, forbidCtx AS _UNSIGNED _INTEGER64, _
-    actionId AS INTEGER, dispatched AS INTEGER, label AS STRING)
-DECLARE FUNCTION INPUT_BIND_matches% (bindIdx AS INTEGER, evtIdx AS INTEGER)
-DECLARE FUNCTION INPUT_BINDS_could_collide% (a AS INTEGER, b AS INTEGER)
-
-' --- Convenience wrappers (most call sites use these for readability) ---
-DECLARE FUNCTION INPUT_register_key% ( _
-    keycode AS LONG, requireMods AS INTEGER, forbidMods AS INTEGER, _
-    requireCtx AS _UNSIGNED _INTEGER64, forbidCtx AS _UNSIGNED _INTEGER64, _
-    actionId AS INTEGER, dispatched AS INTEGER, label AS STRING)
-DECLARE FUNCTION INPUT_register_mouse% ( _
-    eventType AS INTEGER, region AS INTEGER, button AS INTEGER, _
-    requireMods AS INTEGER, forbidMods AS INTEGER, _
-    requireCtx AS _UNSIGNED _INTEGER64, forbidCtx AS _UNSIGNED _INTEGER64, _
-    actionId AS INTEGER, dispatched AS INTEGER, label AS STRING)
-DECLARE FUNCTION INPUT_register_wheel% ( _
-    region AS INTEGER, wheelDir AS INTEGER, _
-    requireMods AS INTEGER, forbidMods AS INTEGER, _
-    requireCtx AS _UNSIGNED _INTEGER64, forbidCtx AS _UNSIGNED _INTEGER64, _
-    actionId AS INTEGER, dispatched AS INTEGER, label AS STRING)
-DECLARE FUNCTION INPUT_register_hover% ( _
-    region AS INTEGER, enterOrLeave AS INTEGER, _
-    actionId AS INTEGER, dispatched AS INTEGER, label AS STRING)
-
-' --- Phase 1: bulk legacy-metadata registration ---
-DECLARE SUB INPUTS_register_all ()
+' DECLARE SUB/FUNCTION blocks removed — QB64-PE auto-discovers SUBs and
+' FUNCTIONs from the include chain. Only DECLARE LIBRARY still needs an
+' explicit declaration (and DRAW has none).
+'
+' The SUBs/FUNCTIONs themselves live in INPUT.BM:
+'   INPUTS_init, INPUTS_log, INPUT_update_context, INPUT_detect_events,
+'   INPUT_dispatch_frame, INPUT_audit, INPUT_interesting_keys_build,
+'   REGION_set_bounds, REGION_set_inactive, REGION_clear_all,
+'   REGION_check_consistency, REGION_hit_test%, INPUT_register%,
+'   INPUT_BIND_matches%, INPUT_BINDS_could_collide%, INPUT_register_key%,
+'   INPUT_register_mouse%, INPUT_register_wheel%, INPUT_register_hover%,
+'   INPUTS_register_all.
