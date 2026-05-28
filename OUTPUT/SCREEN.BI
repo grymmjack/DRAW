@@ -118,6 +118,11 @@ DIM SHARED SCENE_CACHE AS LONG                 ' Cached pre-cursor canvas image
 DIM SHARED SCENE_DIRTY AS INTEGER              ' TRUE = must do full repaint
 SCENE_DIRTY% = TRUE                            ' Start dirty
 
+' When TRUE, SCREEN_render skips its trailing _DISPLAY so a caller can
+' composite an overlay (e.g. modal dialog) onto screen 0 before flipping.
+DIM SHARED SCREEN_SUPPRESS_DISPLAY AS INTEGER
+SCREEN_SUPPRESS_DISPLAY% = FALSE
+
 ' Canonical "current canvas content" image handle.  Set by RENDER_layers to:
 '  - COMPOSITE_BUFFER& when the composite path is used (multiple layers,
 '    blend modes, opacity < 100%, etc.)

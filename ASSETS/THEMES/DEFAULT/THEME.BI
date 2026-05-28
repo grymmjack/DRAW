@@ -295,6 +295,19 @@ THEME.BEZIER_anchor_color~&              = _RGB32(255, 255, 255)            ' Be
 THEME.BEZIER_handle_color~&              = _RGB32(60, 180, 255)             ' Bezier handle arms/endpoints (cyan-blue)
 THEME.CANVAS_border~&                    = _RGB32(51, 51, 51)               ' Canvas border
 
+' --- CRT Overlay Effect ---
+' Alpha channel on scanline/vignette colors sets the base opacity.
+' CFG.CRT_INTENSITY% scales these alphas at render time (0-100 percent).
+THEME.CRT_SCANLINE_COLOR~&    = _RGBA32(0, 0, 0, 180)       ' Soft-black scanlines, ~70% base alpha
+THEME.CRT_PHOSPHOR_R~&        = _RGBA32(255, 0, 0, 64)      ' Red phosphor strip
+THEME.CRT_PHOSPHOR_G~&        = _RGBA32(0, 255, 0, 64)      ' Green phosphor strip
+THEME.CRT_PHOSPHOR_B~&        = _RGBA32(0, 0, 255, 64)      ' Blue phosphor strip
+THEME.CRT_VIGNETTE_COLOR~&    = _RGBA32(0, 0, 0, 180)       ' Vignette goes to near-opaque at far corners
+THEME.CRT_TINT_AMBER~&        = _RGBA32(255, 176, 0, 60)    ' Classic amber monitor cast
+THEME.CRT_TINT_GREEN~&        = _RGBA32(40, 255, 100, 60)   ' P1 phosphor green
+THEME.CRT_TINT_COOL~&         = _RGBA32(120, 180, 255, 50)  ' Cool blue cast
+THEME.CRT_ROLLING_BAR_COLOR~& = _RGBA32(255, 255, 255, 20)  ' Very faint white rolling band
+
 ' --- Preview Window ---
 THEME.PREVIEW_bg~&                = _RGB32(30, 30, 30)                      ' Window background
 THEME.PREVIEW_border~&            = _RGB32(80, 80, 80)                      ' Outer border

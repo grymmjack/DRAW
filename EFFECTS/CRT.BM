@@ -1,0 +1,358 @@
+''
+' DRAW - EFFECTS/CRT.BM
+' =============================================================================
+' CRT overlay implementation. See CRT.BI for design notes.
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+
+''
+' Free the cached overlay image and mark for rebake. Called when CRT params
+' change or when the window resizes. Safe to call repeatedly.
+'
+SUB CRT_invalidate ()
+    IF CRT.overlay& < -1 THEN
+        SAFE_FREEIMAGE CRT.overlay&
+    END IF
+    CRT.overlay& = 0
+    CRT.dirty%   = TRUE
+END SUB
+
+
+''
+' Scale an alpha 0-255 by CFG.CRT_INTENSITY% (0-100). Returns 0-255.
+'
+FUNCTION CRT_scale_alpha~& (baseAlpha AS INTEGER)
+    DIM scaled AS LONG
+    scaled& = (CLNG(baseAlpha%) * CLNG(CFG.CRT_INTENSITY%)) \ 100
+    IF scaled& < 0   THEN scaled& = 0
+    IF scaled& > 255 THEN scaled& = 255
+    CRT_scale_alpha~& = scaled&
+END FUNCTION
+
+
+''
+' Apply CRT_INTENSITY to an RGBA color's alpha channel, preserving RGB.
+'
+FUNCTION CRT_scale_rgba~& (c AS _UNSIGNED LONG)
+    DIM a AS INTEGER
+    a% = _ALPHA32(c~&)
+    CRT_scale_rgba~& = _RGBA32(_RED32(c~&), _GREEN32(c~&), _BLUE32(c~&), CRT_scale_alpha~&(a%))
+END FUNCTION
+
+
+''
+' Return the currently-selected tint color (RGB only — alpha set separately
+' by CRT_TINT_AMOUNT). 0 = none, 1 = amber, 2 = green, 3 = cool, 4 = custom.
+'
+FUNCTION CRT_tint_color~& ()
+    SELECT CASE CFG.CRT_TINT%
+        CASE 1 : CRT_tint_color~& = _RGB32(255, 176, 0)             ' Apple ][ amber
+        CASE 2 : CRT_tint_color~& = _RGB32(51, 255, 51)             ' IBM PC P1 phosphor green
+        CASE 3 : CRT_tint_color~& = _RGB32(120, 180, 255)           ' Cool blue
+        CASE 4 : CRT_tint_color~& = CFG.CRT_TINT_CUSTOM_COLOR~&     ' User-picked custom
+        CASE ELSE : CRT_tint_color~& = _RGB32(0, 0, 0)
+    END SELECT
+END FUNCTION
+
+
+''
+' Build the pre-baked overlay image at window size. Composites (in order):
+'   1. Tint (flat fill, if enabled)
+'   2. Vignette (radial edge darkening, if enabled)
+'   3. Phosphor mask (RGB vertical triads, if enabled)
+'   4. Scanlines (horizontal dark lines, if enabled)
+'
+' All effects modulated by CFG.CRT_INTENSITY%. Result is alpha-bearing,
+' meant to be _PUTIMAGE'd over the window with _BLEND active.
+'
+SUB CRT_bake_overlay ()
+    DIM oldDest AS LONG
+    DIM w AS LONG, h AS LONG
+    DIM cx AS SINGLE, cy AS SINGLE
+    DIM maxDist AS SINGLE
+    DIM dx AS SINGLE, dy AS SINGLE
+    DIM dist AS SINGLE
+    DIM t AS SINGLE
+    DIM px AS LONG, py AS LONG
+    DIM tintCol AS _UNSIGNED LONG
+    DIM tintR AS INTEGER, tintG AS INTEGER, tintB AS INTEGER, tintA AS INTEGER
+    DIM vigBaseA AS INTEGER
+    DIM vigR AS INTEGER, vigG AS INTEGER, vigB AS INTEGER
+    DIM phosA(2) AS INTEGER
+    DIM phosR(2) AS INTEGER, phosG(2) AS INTEGER, phosB(2) AS INTEGER
+    DIM scanR AS INTEGER, scanG AS INTEGER, scanB AS INTEGER, scanA AS INTEGER
+    DIM thickness AS INTEGER, gap AS INTEGER
+    DIM scanRow AS INTEGER
+    DIM strip AS INTEGER
+    DIM rCur AS LONG, gCur AS LONG, bCur AS LONG, aCur AS LONG
+    DIM srcR AS LONG, srcG AS LONG, srcB AS LONG, srcA AS LONG
+    DIM mImg AS _MEM, pxOff AS _OFFSET
+    DIM finalRGBA AS _UNSIGNED LONG
+    DIM pcR AS _UNSIGNED LONG, pcG AS _UNSIGNED LONG, pcB AS _UNSIGNED LONG
+    DIM scanIsVert AS INTEGER
+
+    oldDest& = _DEST
+
+    ' Bake at viewport (canvas-buffer) resolution. The final SCRN.CANVAS& →
+    ' screen 0 blit upscales nearest-neighbor, so scanlines stay pixel-perfect
+    ' at displayScale-thickness on the actual screen.
+    w& = SCRN.w&
+    h& = SCRN.h&
+    IF w& < 2 OR h& < 2 THEN EXIT SUB
+
+    CRT_invalidate
+    CRT.overlay& = _NEWIMAGE(w&, h&, 32)
+    IF CRT.overlay& >= -1 THEN
+        _LOGERROR "CRT_bake_overlay: _NEWIMAGE failed"
+        CRT.overlay& = 0
+        EXIT SUB
+    END IF
+
+    ' Pre-resolve effect parameters
+    IF CFG.CRT_TINT% > 0 THEN
+        tintCol~& = CRT_tint_color~&
+        tintR%    = _RED32(tintCol~&)
+        tintG%    = _GREEN32(tintCol~&)
+        tintB%    = _BLUE32(tintCol~&)
+        ' TINT_AMOUNT (0-100) drives alpha directly; independent of CRT_INTENSITY
+        tintA% = (CFG.CRT_TINT_AMOUNT% * 255) \ 100
+        IF tintA% < 0   THEN tintA% = 0
+        IF tintA% > 255 THEN tintA% = 255
+    ELSE
+        tintA% = 0
+    END IF
+
+    IF CFG.CRT_VIGNETTE% THEN
+        ' VIGNETTE_AMOUNT (0-100) drives peak edge alpha; independent of CRT_INTENSITY.
+        vigBaseA% = (CFG.CRT_VIGNETTE_AMOUNT% * 255) \ 100
+        IF vigBaseA% < 0   THEN vigBaseA% = 0
+        IF vigBaseA% > 255 THEN vigBaseA% = 255
+        IF CFG.CRT_VIGNETTE_COLOR~& <> 0 THEN
+            vigR% = _RED32(CFG.CRT_VIGNETTE_COLOR~&)
+            vigG% = _GREEN32(CFG.CRT_VIGNETTE_COLOR~&)
+            vigB% = _BLUE32(CFG.CRT_VIGNETTE_COLOR~&)
+        ELSE
+            vigR% = _RED32(THEME.CRT_VIGNETTE_COLOR~&)
+            vigG% = _GREEN32(THEME.CRT_VIGNETTE_COLOR~&)
+            vigB% = _BLUE32(THEME.CRT_VIGNETTE_COLOR~&)
+        END IF
+        cx!      = (w& - 1) * 0.5
+        cy!      = (h& - 1) * 0.5
+        maxDist! = SQR(cx! * cx! + cy! * cy!)
+        IF maxDist! < 1 THEN maxDist! = 1
+    ELSE
+        vigBaseA% = 0
+    END IF
+
+    IF CFG.CRT_PHOSPHOR% THEN
+        pcR~&    = CRT_scale_rgba~&(THEME.CRT_PHOSPHOR_R~&)
+        pcG~&    = CRT_scale_rgba~&(THEME.CRT_PHOSPHOR_G~&)
+        pcB~&    = CRT_scale_rgba~&(THEME.CRT_PHOSPHOR_B~&)
+        phosR(0) = _RED32(pcR~&)   : phosG(0) = _GREEN32(pcR~&) : phosB(0) = _BLUE32(pcR~&)   : phosA(0) = _ALPHA32(pcR~&)
+        phosR(1) = _RED32(pcG~&)   : phosG(1) = _GREEN32(pcG~&) : phosB(1) = _BLUE32(pcG~&)   : phosA(1) = _ALPHA32(pcG~&)
+        phosR(2) = _RED32(pcB~&)   : phosG(2) = _GREEN32(pcB~&) : phosB(2) = _BLUE32(pcB~&)   : phosA(2) = _ALPHA32(pcB~&)
+    ELSE
+        phosA(0) = 0 : phosA(1) = 0 : phosA(2) = 0
+    END IF
+
+    IF CFG.CRT_SCANLINES% THEN
+        ' Scanlines at viewport resolution — GPU nearest-neighbor upscale to
+        ' screen will multiply thickness/gap by displayScale automatically.
+        thickness% = CFG.CRT_SCANLINE_THICKNESS%
+        gap%       = CFG.CRT_SCANLINE_GAP%
+        IF thickness% < 1 THEN thickness% = 1
+        IF gap% < 1 THEN gap% = 1
+        ' Scanline color: theme alpha + (custom RGB override OR theme RGB).
+        IF CFG.CRT_SCANLINE_COLOR~& <> 0 THEN
+            scanR% = _RED32(CFG.CRT_SCANLINE_COLOR~&)
+            scanG% = _GREEN32(CFG.CRT_SCANLINE_COLOR~&)
+            scanB% = _BLUE32(CFG.CRT_SCANLINE_COLOR~&)
+        ELSE
+            scanR% = _RED32(THEME.CRT_SCANLINE_COLOR~&)
+            scanG% = _GREEN32(THEME.CRT_SCANLINE_COLOR~&)
+            scanB% = _BLUE32(THEME.CRT_SCANLINE_COLOR~&)
+        END IF
+        scanA% = CRT_scale_alpha~&(_ALPHA32(THEME.CRT_SCANLINE_COLOR~&))
+    ELSE
+        scanA% = 0
+    END IF
+
+    ' Direct pixel writes via _MEM — bypasses all _BLEND state ambiguity.
+    ' Each pixel: start transparent, layer effects via "over" alpha composition.
+    scanIsVert% = CFG.CRT_SCANLINE_VERTICAL%
+    mImg = _MEMIMAGE(CRT.overlay&)
+    FOR py& = 0 TO h& - 1
+        ' Pre-compute scanline row contribution (only for HORIZONTAL mode — vertical
+        ' computes per-column inside the inner loop).
+        IF scanA% > 0 AND NOT scanIsVert% THEN
+            scanRow% = ((py& MOD (thickness% + gap%)) < thickness%)
+        ELSE
+            scanRow% = 0
+        END IF
+
+        FOR px& = 0 TO w& - 1
+            ' Vertical scanlines: re-compute scanRow% per column from X coord
+            IF scanA% > 0 AND scanIsVert% THEN
+                scanRow% = ((px& MOD (thickness% + gap%)) < thickness%)
+            END IF
+            ' Start fully transparent
+            rCur& = 0 : gCur& = 0 : bCur& = 0 : aCur& = 0
+
+            ' Layer 1: Tint
+            IF tintA% > 0 THEN
+                srcR& = tintR% : srcG& = tintG% : srcB& = tintB% : srcA& = tintA%
+                ' "Over" composition (straight alpha): out_a = src_a + dst_a*(1-src_a/255)
+                aCur& = srcA& + (aCur& * (255 - srcA&)) \ 255
+                rCur& = (srcR& * srcA& + rCur& * (255 - srcA&)) \ 255
+                gCur& = (srcG& * srcA& + gCur& * (255 - srcA&)) \ 255
+                bCur& = (srcB& * srcA& + bCur& * (255 - srcA&)) \ 255
+            END IF
+
+            ' Layer 2: Vignette (radial)
+            IF vigBaseA% > 0 THEN
+                dx!   = px& - cx!
+                dy!   = py& - cy!
+                dist! = SQR(dx! * dx! + dy! * dy!) / maxDist!
+                t!    = dist! * dist!
+                IF t! > 1 THEN t! = 1
+                srcA& = INT(vigBaseA% * t!)
+                IF srcA& > 0 THEN
+                    srcR& = vigR% : srcG& = vigG% : srcB& = vigB%
+                    aCur& = srcA& + (aCur& * (255 - srcA&)) \ 255
+                    rCur& = (srcR& * srcA& + rCur& * (255 - srcA&)) \ 255
+                    gCur& = (srcG& * srcA& + gCur& * (255 - srcA&)) \ 255
+                    bCur& = (srcB& * srcA& + bCur& * (255 - srcA&)) \ 255
+                END IF
+            END IF
+
+            ' Layer 3: Phosphor mask
+            strip% = px& MOD 3
+            IF phosA(strip%) > 0 THEN
+                srcA& = phosA(strip%)
+                srcR& = phosR(strip%) : srcG& = phosG(strip%) : srcB& = phosB(strip%)
+                aCur& = srcA& + (aCur& * (255 - srcA&)) \ 255
+                rCur& = (srcR& * srcA& + rCur& * (255 - srcA&)) \ 255
+                gCur& = (srcG& * srcA& + gCur& * (255 - srcA&)) \ 255
+                bCur& = (srcB& * srcA& + bCur& * (255 - srcA&)) \ 255
+            END IF
+
+            ' Layer 4: Scanline
+            IF scanRow% AND scanA% > 0 THEN
+                srcA& = scanA%
+                srcR& = scanR% : srcG& = scanG% : srcB& = scanB%
+                aCur& = srcA& + (aCur& * (255 - srcA&)) \ 255
+                rCur& = (srcR& * srcA& + rCur& * (255 - srcA&)) \ 255
+                gCur& = (srcG& * srcA& + gCur& * (255 - srcA&)) \ 255
+                bCur& = (srcB& * srcA& + bCur& * (255 - srcA&)) \ 255
+            END IF
+
+            IF aCur& > 255 THEN aCur& = 255
+            IF rCur& > 255 THEN rCur& = 255
+            IF gCur& > 255 THEN gCur& = 255
+            IF bCur& > 255 THEN bCur& = 255
+
+            finalRGBA~& = _RGBA32(rCur&, gCur&, bCur&, aCur&)
+            pxOff       = mImg.OFFSET + (CLNG(py&) * w& + px&) * 4
+            _MEMPUT mImg, pxOff, finalRGBA~&
+        NEXT px&
+    NEXT py&
+    _MEMFREE mImg
+
+    ' Ensure the overlay blends (honors its alpha channel) when later blitted
+    ' to screen 0 via _PUTIMAGE.
+    _BLEND CRT.overlay&
+
+    _DEST oldDest&
+
+    CRT.lastW&         = w&
+    CRT.lastH&         = h&
+    CRT.lastIntensity% = CFG.CRT_INTENSITY%
+    CRT.lastTint%      = CFG.CRT_TINT%
+    CRT.lastScanlines% = CFG.CRT_SCANLINES%
+    CRT.lastPhosphor%  = CFG.CRT_PHOSPHOR%
+    CRT.lastVignette%  = CFG.CRT_VIGNETTE%
+    CRT.lastThickness% = CFG.CRT_SCANLINE_THICKNESS%
+    CRT.lastGap%       = CFG.CRT_SCANLINE_GAP%
+    CRT.dirty%         = FALSE
+END SUB
+
+
+''
+' Detect any CRT param change that would require a rebake.
+'
+FUNCTION CRT_needs_rebake% ()
+    IF CRT.overlay& >= -1 THEN CRT_needs_rebake% = TRUE : EXIT FUNCTION
+    IF CRT.dirty% THEN CRT_needs_rebake% = TRUE : EXIT FUNCTION
+    IF CRT.lastW& <> SCRN.w& OR CRT.lastH& <> SCRN.h& THEN CRT_needs_rebake% = TRUE : EXIT FUNCTION
+    IF CRT.lastIntensity% <> CFG.CRT_INTENSITY% THEN CRT_needs_rebake% = TRUE : EXIT FUNCTION
+    IF CRT.lastTint%      <> CFG.CRT_TINT%      THEN CRT_needs_rebake% = TRUE : EXIT FUNCTION
+    IF CRT.lastScanlines% <> CFG.CRT_SCANLINES% THEN CRT_needs_rebake% = TRUE : EXIT FUNCTION
+    IF CRT.lastPhosphor%  <> CFG.CRT_PHOSPHOR%  THEN CRT_needs_rebake% = TRUE : EXIT FUNCTION
+    IF CRT.lastVignette%  <> CFG.CRT_VIGNETTE%  THEN CRT_needs_rebake% = TRUE : EXIT FUNCTION
+    IF CRT.lastThickness% <> CFG.CRT_SCANLINE_THICKNESS% THEN CRT_needs_rebake% = TRUE : EXIT FUNCTION
+    IF CRT.lastGap%       <> CFG.CRT_SCANLINE_GAP%       THEN CRT_needs_rebake% = TRUE : EXIT FUNCTION
+    CRT_needs_rebake% = FALSE
+END FUNCTION
+
+
+''
+' Compute the canvas work-area rectangle in window pixels (matches the
+' grayscale preview's clamp logic in SCREEN_render).
+'
+SUB CRT_canvas_rect (x1 AS LONG, y1 AS LONG, x2 AS LONG, y2 AS LONG)
+    DIM tbB AS INTEGER
+    x1& = SCRN.uiLeftEdge%
+    x2& = SCRN.uiRightEdge% - 1
+    IF SCRN.showMenubar% AND MENU_BAR.visible% THEN
+        y1& = MENU_BAR_HEIGHT
+    ELSE
+        y1& = 0
+    END IF
+    IF TEXT_BAR.visible% THEN
+        tbB% = TEXT_BAR.barY% + TEXT_BAR.barH%
+        IF tbB% > y1& THEN y1& = tbB%
+    END IF
+    IF SCRN.showStatus% THEN
+        y2& = SCRN.h& - THEME.STATUS_height% - PALETTE_STRIP_get_height% - 1
+    ELSE
+        y2& = SCRN.h& - 1
+    END IF
+    IF x1& < 0          THEN x1& = 0
+    IF y1& < 0          THEN y1& = 0
+    IF x2& > SCRN.w& - 1 THEN x2& = SCRN.w& - 1
+    IF y2& > SCRN.h& - 1 THEN y2& = SCRN.h& - 1
+END SUB
+
+
+''
+' Public entry point. Called from SCREEN_render after the canvas blit and
+' before the floating panels. Cheap when overlay is cached.
+'
+SUB CRT_render ()
+    DIM x1 AS LONG, y1 AS LONG, x2 AS LONG, y2 AS LONG
+
+    IF NOT CFG.CRT_ENABLED% THEN EXIT SUB
+    IF CFG.CRT_INTENSITY% <= 0 AND CFG.CRT_TINT_AMOUNT% <= 0 THEN EXIT SUB
+
+    IF CRT_needs_rebake% THEN CRT_bake_overlay
+    IF CRT.overlay& >= -1 THEN EXIT SUB
+
+    ' Always clip to canvas work area — UI chrome stays crisp.
+    CRT_canvas_rect x1&, y1&, x2&, y2&
+    IF x2& <= x1& OR y2& <= y1& THEN EXIT SUB
+
+    _PUTIMAGE (x1&, y1&)-(x2&, y2&), CRT.overlay&, SCRN.CANVAS&, (x1&, y1&)-(x2&, y2&)
+END SUB
+
+
+''
+' Free the cached overlay (called on app exit by cleanup paths, optional).
+'
+SUB CRT_free ()
+    IF CRT.overlay& < -1 THEN SAFE_FREEIMAGE CRT.overlay&
+    CRT.overlay& = 0
+    CRT.dirty%   = TRUE
+END SUB
