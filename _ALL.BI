@@ -75,6 +75,7 @@ $INCLUDEONCE
 '$INCLUDE:'./GUI/MENUBAR.BI'
 '$INCLUDE:'./GUI/SCROLLBAR.BI'
 '$INCLUDE:'./GUI/DIALOG.BI'
+'$INCLUDE:'./GUI/DIALOG-CRT.BI'
 '$INCLUDE:'./GUI/IMGADJ.BI'
 '$INCLUDE:'./GUI/IMAGE-ADJ.BI'
 '$INCLUDE:'./GUI/STROKE-SEL.BI'
@@ -100,6 +101,10 @@ $INCLUDEONCE
 '$INCLUDE:'./OUTPUT/SCREEN.BI'
 '$INCLUDE:'./OUTPUT/FILE-EXPORT.BI'
 '$INCLUDE:'./OUTPUT/FILE-QB64.BI'
+
+' EFFECTS ---------------------------------------------------------------------
+' Presentation-only overlays (never written to canvas).
+'$INCLUDE:'./EFFECTS/CRT.BI'
 
 ' TOOLS -----------------------------------------------------------------------
 '$INCLUDE:'./TOOLS/BRUSH.BI'

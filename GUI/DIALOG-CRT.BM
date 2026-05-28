@@ -1,0 +1,382 @@
+''
+' DRAW - GUI/DIALOG-CRT.BM
+' =============================================================================
+' Implementation of the CRT Effect settings dialog. See DIALOG-CRT.BI.
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+''
+' Re-render the canvas with current CRT settings and refresh the dialog's
+' screenshot backdrop — WITHOUT flashing a no-dialog frame.
+'
+' Trick: SCREEN_render normally calls _DISPLAY which would commit a frame
+' showing canvas-only (dialog isn't on screen 0 yet). We suppress that
+' _DISPLAY via SCREEN_SUPPRESS_DISPLAY%, then capture the screenshot from
+' the back buffer, then re-blit the dialog buffer on top, then _DISPLAY
+' ourselves so the user only ever sees canvas+dialog.
+'
+SUB DIALOG_CRT_refresh_backdrop (ctx AS DIALOG_CTX)
+    GUI_NEEDS_REDRAW%        = TRUE
+    SCENE_DIRTY%             = TRUE
+    SCREEN_SUPPRESS_DISPLAY% = TRUE
+    SCREEN_render
+    SCREEN_SUPPRESS_DISPLAY% = FALSE
+
+    ' Capture the canvas-only state for future DIALOG_blit calls.
+    IF ctx.screenShot < -1 THEN SAFE_FREEIMAGE ctx.screenShot
+    ctx.screenShot = _COPYIMAGE(0, 32)
+
+    ' Repaint dialog on top before flipping, so user never sees a no-dialog frame.
+    IF ctx.imgHandle < -1 THEN
+        _DEST 0
+        _PUTIMAGE (ctx.x * ctx.scale, ctx.y * ctx.scale)-((ctx.x + ctx.w) * ctx.scale - 1, (ctx.y + ctx.h) * ctx.scale - 1), ctx.imgHandle
+    END IF
+    _DISPLAY
+END SUB
+
+
+''
+' Draw a checkbox-style toggle (small square with check + label).
+'
+SUB DIALOG_CRT_draw_checkbox (cx AS INTEGER, cy AS INTEGER, label AS STRING, checked AS INTEGER)
+    DIM boxSize AS INTEGER : boxSize% = 12
+    DIM border  AS _UNSIGNED LONG
+    DIM bgFill  AS _UNSIGNED LONG
+    IF checked% THEN
+        border~& = THEME.DIALOG_toggle_sel_border~&
+        bgFill~& = THEME.DIALOG_toggle_sel_bg~&
+    ELSE
+        border~& = THEME.DIALOG_toggle_border~&
+        bgFill~& = THEME.DIALOG_toggle_bg~&
+    END IF
+    LINE (cx%, cy%)-(cx% + boxSize%, cy% + boxSize%), bgFill~&, BF
+    LINE (cx%, cy%)-(cx% + boxSize%, cy% + boxSize%), border~&, B
+    IF checked% THEN
+        LINE (cx% + 2, cy% + 6)-(cx% + 5, cy% + 9), THEME.DIALOG_toggle_sel_fg~&
+        LINE (cx% + 5, cy% + 9)-(cx% + 10, cy% + 3), THEME.DIALOG_toggle_sel_fg~&
+        LINE (cx% + 2, cy% + 7)-(cx% + 5, cy% + 10), THEME.DIALOG_toggle_sel_fg~&
+        LINE (cx% + 5, cy% + 10)-(cx% + 10, cy% + 4), THEME.DIALOG_toggle_sel_fg~&
+    END IF
+    COLOR THEME.DIALOG_label_fg~&
+    _UPRINTSTRING (cx% + boxSize% + 6, cy% + 2), label$
+END SUB
+
+
+''
+' Draw a color swatch button: filled rectangle showing a color, with a thin
+' border. When the color is _RGB32(0,0,0) we render a checkerboard to imply
+' "use theme default".
+'
+SUB DIALOG_CRT_draw_swatch (sx AS INTEGER, sy AS INTEGER, sw AS INTEGER, sh AS INTEGER, fillCol AS _UNSIGNED LONG, isDefault AS INTEGER)
+    DIM cx AS INTEGER, cy AS INTEGER
+    IF isDefault% THEN
+        ' Checker pattern (4x4 squares) — implies "theme default"
+        FOR cy% = sy% TO sy% + sh% - 1
+            FOR cx% = sx% TO sx% + sw% - 1
+                IF ((cx% \ 4) + (cy% \ 4)) MOD 2 = 0 THEN
+                    PSET (cx%, cy%), _RGB32(180, 180, 180)
+                ELSE
+                    PSET (cx%, cy%), _RGB32(80, 80, 80)
+                END IF
+            NEXT cx%
+        NEXT cy%
+    ELSE
+        LINE (sx%, sy%)-(sx% + sw%, sy% + sh%), fillCol~&, BF
+    END IF
+    LINE (sx%, sy%)-(sx% + sw%, sy% + sh%), _RGB32(180, 180, 180), B
+END SUB
+
+
+''
+' Open the CRT Effect modal dialog. Modifies CFG.CRT_* fields directly.
+' All changes preview live; persists via CONFIG_save on close.
+'
+SUB DIALOG_CRT_open ()
+    DIM ctx AS DIALOG_CTX
+    DIM dlgW AS INTEGER : dlgW% = 320
+    DIM dlgH AS INTEGER : dlgH% = 290
+
+    DIALOG_init ctx, dlgW%, dlgH%
+
+    ' --- Layout constants (dialog-local pixels) ---
+    DIM hdrH AS INTEGER : hdrH% = THEME.DIALOG_title_height% + 4
+    DIM rowH AS INTEGER : rowH% = 16
+    DIM padX AS INTEGER : padX% = 10
+
+    DIM yEnable     AS INTEGER : yEnable%     = hdrH% + 6
+    DIM yIntensity  AS INTEGER : yIntensity%  = yEnable% + rowH% + 4
+    DIM yDiv1       AS INTEGER : yDiv1%       = yIntensity% + rowH% + 8
+    DIM yScanlines  AS INTEGER : yScanlines%  = yDiv1% + 6
+    DIM yPhosphor   AS INTEGER : yPhosphor%   = yScanlines% + rowH%
+    DIM yVignette   AS INTEGER : yVignette%   = yPhosphor% + rowH%
+    DIM yVignAmt    AS INTEGER : yVignAmt%    = yVignette% + rowH%
+    DIM yVertScan   AS INTEGER : yVertScan%   = yVignAmt% + rowH% + 2
+    DIM yScanGeom   AS INTEGER : yScanGeom%   = yVertScan% + rowH%
+    DIM yDiv2       AS INTEGER : yDiv2%       = yScanGeom% + rowH% + 6
+    DIM yTint       AS INTEGER : yTint%       = yDiv2% + 6
+    DIM yTintAmt    AS INTEGER : yTintAmt%    = yTint% + rowH% + 2
+    DIM yButtons    AS INTEGER : yButtons%    = dlgH% - 26
+
+    ' Scanline color swatch (right of "Scanlines" checkbox)
+    DIM scanSwatchW AS INTEGER : scanSwatchW% = 18
+    DIM scanSwatchH AS INTEGER : scanSwatchH% = 12
+    DIM scanSwatchX AS INTEGER : scanSwatchX% = padX% + 130
+
+    ' Tint toggles
+    DIM tintBtnW AS INTEGER : tintBtnW% = 44
+    DIM tintBtnH AS INTEGER : tintBtnH% = 14
+    DIM tintXnone   AS INTEGER : tintXnone%   = padX% + 36
+    DIM tintXamber  AS INTEGER : tintXamber%  = tintXnone%  + tintBtnW% + 2
+    DIM tintXgreen  AS INTEGER : tintXgreen%  = tintXamber% + tintBtnW% + 2
+    DIM tintXcool   AS INTEGER : tintXcool%   = tintXgreen% + tintBtnW% + 2
+    DIM tintXcustom AS INTEGER : tintXcustom% = tintXcool%  + tintBtnW% + 2
+    DIM customSwatchX AS INTEGER : customSwatchX% = tintXcustom% + tintBtnW% + 4
+
+    ' Sliders
+    DIM intensSliderX AS INTEGER : intensSliderX% = padX% + 70
+    DIM intensSliderW AS INTEGER : intensSliderW% = dlgW% - intensSliderX% - padX%
+    DIM tintAmtSliderX AS INTEGER : tintAmtSliderX% = padX% + 70
+    DIM tintAmtSliderW AS INTEGER : tintAmtSliderW% = dlgW% - tintAmtSliderX% - padX%
+    DIM vignAmtSliderX AS INTEGER : vignAmtSliderX% = padX% + 70
+    DIM vignAmtSliderW AS INTEGER : vignAmtSliderW% = dlgW% - vignAmtSliderX% - padX%
+
+    DIM thickSliderX AS INTEGER : thickSliderX% = padX% + 50
+    DIM thickSliderW AS INTEGER : thickSliderW% = 90
+    DIM gapSliderX   AS INTEGER : gapSliderX%   = thickSliderX% + thickSliderW% + 30
+    DIM gapSliderW   AS INTEGER : gapSliderW%   = 80
+
+    DIM resetX AS INTEGER : resetX% = padX%
+    DIM closeX AS INTEGER : closeX% = dlgW% - padX% - 90
+    DIM btnH   AS INTEGER : btnH%   = 20
+    DIM btnW   AS INTEGER : btnW%   = 90
+
+    DIM k           AS LONG
+    DIM dirty       AS INTEGER
+    DIM newVal      AS INTEGER
+    DIM saveOnExit  AS INTEGER : saveOnExit% = FALSE
+    DIM picked      AS _UNSIGNED LONG
+    DIM scanInitial AS _UNSIGNED LONG
+    DIM vigInitial  AS _UNSIGNED LONG
+
+    DO
+        DIALOG_poll_mouse ctx
+        dirty% = FALSE
+
+        k& = _KEYHIT
+        SELECT CASE k&
+            CASE 27, 13 : ctx.done = TRUE
+        END SELECT
+
+        ' Master enable checkbox
+        IF DIALOG_hit%(ctx, padX%, yEnable%, 200, 14) THEN
+            CFG.CRT_ENABLED% = NOT CFG.CRT_ENABLED%
+            dirty% = TRUE
+        END IF
+
+        ' Intensity slider (drag + wheel)
+        newVal% = DIALOG_slider_drag%(ctx, intensSliderX%, yIntensity%, intensSliderW%, 14, CFG.CRT_INTENSITY%, 0, 100)
+        IF newVal% <> CFG.CRT_INTENSITY% THEN
+            CFG.CRT_INTENSITY% = newVal% : CRT.dirty% = TRUE : dirty% = TRUE
+        END IF
+        newVal% = DIALOG_slider_wheel%(ctx, intensSliderX%, yIntensity%, intensSliderW%, 14, CFG.CRT_INTENSITY%, 0, 100)
+        IF newVal% <> CFG.CRT_INTENSITY% THEN
+            CFG.CRT_INTENSITY% = newVal% : CRT.dirty% = TRUE : dirty% = TRUE
+        END IF
+
+        ' Scanlines checkbox
+        IF DIALOG_hit%(ctx, padX%, yScanlines%, 110, 14) THEN
+            CFG.CRT_SCANLINES% = NOT CFG.CRT_SCANLINES%
+            CRT.dirty% = TRUE : dirty% = TRUE
+        END IF
+        ' Scanline color swatch
+        IF DIALOG_hit%(ctx, scanSwatchX%, yScanlines%, scanSwatchW%, scanSwatchH%) THEN
+            IF CFG.CRT_SCANLINE_COLOR~& = 0 THEN
+                scanInitial~& = THEME.CRT_SCANLINE_COLOR~&
+            ELSE
+                scanInitial~& = CFG.CRT_SCANLINE_COLOR~&
+            END IF
+            picked~& = CP_pick_color&("Scanline Color", scanInitial~&)
+            CFG.CRT_SCANLINE_COLOR~& = picked~&
+            CRT.dirty% = TRUE : dirty% = TRUE
+        END IF
+
+        ' Phosphor + Vignette checkboxes
+        IF DIALOG_hit%(ctx, padX%, yPhosphor%, 200, 14) THEN
+            CFG.CRT_PHOSPHOR% = NOT CFG.CRT_PHOSPHOR%
+            CRT.dirty% = TRUE : dirty% = TRUE
+        END IF
+        IF DIALOG_hit%(ctx, padX%, yVignette%, 110, 14) THEN
+            CFG.CRT_VIGNETTE% = NOT CFG.CRT_VIGNETTE%
+            CRT.dirty% = TRUE : dirty% = TRUE
+        END IF
+        ' Vignette color swatch
+        IF DIALOG_hit%(ctx, scanSwatchX%, yVignette%, scanSwatchW%, scanSwatchH%) THEN
+            IF CFG.CRT_VIGNETTE_COLOR~& = 0 THEN
+                vigInitial~& = THEME.CRT_VIGNETTE_COLOR~&
+            ELSE
+                vigInitial~& = CFG.CRT_VIGNETTE_COLOR~&
+            END IF
+            picked~& = CP_pick_color&("Vignette Color", vigInitial~&)
+            CFG.CRT_VIGNETTE_COLOR~& = picked~&
+            CRT.dirty% = TRUE : dirty% = TRUE
+        END IF
+        ' Vignette amount slider
+        newVal% = DIALOG_slider_drag%(ctx, vignAmtSliderX%, yVignAmt%, vignAmtSliderW%, 14, CFG.CRT_VIGNETTE_AMOUNT%, 0, 100)
+        IF newVal% <> CFG.CRT_VIGNETTE_AMOUNT% THEN
+            CFG.CRT_VIGNETTE_AMOUNT% = newVal% : CRT.dirty% = TRUE : dirty% = TRUE
+        END IF
+        newVal% = DIALOG_slider_wheel%(ctx, vignAmtSliderX%, yVignAmt%, vignAmtSliderW%, 14, CFG.CRT_VIGNETTE_AMOUNT%, 0, 100)
+        IF newVal% <> CFG.CRT_VIGNETTE_AMOUNT% THEN
+            CFG.CRT_VIGNETTE_AMOUNT% = newVal% : CRT.dirty% = TRUE : dirty% = TRUE
+        END IF
+
+        ' Vertical scanlines checkbox
+        IF DIALOG_hit%(ctx, padX%, yVertScan%, 200, 14) THEN
+            CFG.CRT_SCANLINE_VERTICAL% = NOT CFG.CRT_SCANLINE_VERTICAL%
+            CRT.dirty% = TRUE : dirty% = TRUE
+        END IF
+
+        ' Thick / Gap sliders
+        newVal% = DIALOG_slider_drag%(ctx, thickSliderX%, yScanGeom%, thickSliderW%, 14, CFG.CRT_SCANLINE_THICKNESS%, 1, 3)
+        IF newVal% <> CFG.CRT_SCANLINE_THICKNESS% THEN
+            CFG.CRT_SCANLINE_THICKNESS% = newVal% : CRT.dirty% = TRUE : dirty% = TRUE
+        END IF
+        newVal% = DIALOG_slider_wheel%(ctx, thickSliderX%, yScanGeom%, thickSliderW%, 14, CFG.CRT_SCANLINE_THICKNESS%, 1, 3)
+        IF newVal% <> CFG.CRT_SCANLINE_THICKNESS% THEN
+            CFG.CRT_SCANLINE_THICKNESS% = newVal% : CRT.dirty% = TRUE : dirty% = TRUE
+        END IF
+        newVal% = DIALOG_slider_drag%(ctx, gapSliderX%, yScanGeom%, gapSliderW%, 14, CFG.CRT_SCANLINE_GAP%, 1, 8)
+        IF newVal% <> CFG.CRT_SCANLINE_GAP% THEN
+            CFG.CRT_SCANLINE_GAP% = newVal% : CRT.dirty% = TRUE : dirty% = TRUE
+        END IF
+        newVal% = DIALOG_slider_wheel%(ctx, gapSliderX%, yScanGeom%, gapSliderW%, 14, CFG.CRT_SCANLINE_GAP%, 1, 8)
+        IF newVal% <> CFG.CRT_SCANLINE_GAP% THEN
+            CFG.CRT_SCANLINE_GAP% = newVal% : CRT.dirty% = TRUE : dirty% = TRUE
+        END IF
+
+        ' Tint radios
+        IF DIALOG_hit%(ctx, tintXnone%,   yTint%, tintBtnW%, tintBtnH%) THEN
+            IF CFG.CRT_TINT% <> 0 THEN CFG.CRT_TINT% = 0 : CRT.dirty% = TRUE : dirty% = TRUE
+        END IF
+        IF DIALOG_hit%(ctx, tintXamber%,  yTint%, tintBtnW%, tintBtnH%) THEN
+            IF CFG.CRT_TINT% <> 1 THEN CFG.CRT_TINT% = 1 : CRT.dirty% = TRUE : dirty% = TRUE
+        END IF
+        IF DIALOG_hit%(ctx, tintXgreen%,  yTint%, tintBtnW%, tintBtnH%) THEN
+            IF CFG.CRT_TINT% <> 2 THEN CFG.CRT_TINT% = 2 : CRT.dirty% = TRUE : dirty% = TRUE
+        END IF
+        IF DIALOG_hit%(ctx, tintXcool%,   yTint%, tintBtnW%, tintBtnH%) THEN
+            IF CFG.CRT_TINT% <> 3 THEN CFG.CRT_TINT% = 3 : CRT.dirty% = TRUE : dirty% = TRUE
+        END IF
+        IF DIALOG_hit%(ctx, tintXcustom%, yTint%, tintBtnW%, tintBtnH%) THEN
+            IF CFG.CRT_TINT% <> 4 THEN
+                CFG.CRT_TINT% = 4 : CRT.dirty% = TRUE : dirty% = TRUE
+            END IF
+        END IF
+        ' Custom tint swatch — opens picker
+        IF DIALOG_hit%(ctx, customSwatchX%, yTint%, scanSwatchW%, scanSwatchH%) THEN
+            picked~& = CP_pick_color&("Custom Tint Color", CFG.CRT_TINT_CUSTOM_COLOR~&)
+            CFG.CRT_TINT_CUSTOM_COLOR~& = picked~&
+            CFG.CRT_TINT% = 4 ' Switch to custom when color is picked
+            CRT.dirty% = TRUE : dirty% = TRUE
+        END IF
+
+        ' Tint amount slider
+        newVal% = DIALOG_slider_drag%(ctx, tintAmtSliderX%, yTintAmt%, tintAmtSliderW%, 14, CFG.CRT_TINT_AMOUNT%, 0, 100)
+        IF newVal% <> CFG.CRT_TINT_AMOUNT% THEN
+            CFG.CRT_TINT_AMOUNT% = newVal% : CRT.dirty% = TRUE : dirty% = TRUE
+        END IF
+        newVal% = DIALOG_slider_wheel%(ctx, tintAmtSliderX%, yTintAmt%, tintAmtSliderW%, 14, CFG.CRT_TINT_AMOUNT%, 0, 100)
+        IF newVal% <> CFG.CRT_TINT_AMOUNT% THEN
+            CFG.CRT_TINT_AMOUNT% = newVal% : CRT.dirty% = TRUE : dirty% = TRUE
+        END IF
+
+        ' Reset button — restore factory defaults (matches CONFIG_set_defaults)
+        IF DIALOG_hit%(ctx, resetX%, yButtons%, btnW%, btnH%) THEN
+            CFG.CRT_ENABLED%             = TRUE
+            CFG.CRT_INTENSITY%           = 40
+            CFG.CRT_SCANLINES%           = TRUE
+            CFG.CRT_PHOSPHOR%            = FALSE
+            CFG.CRT_VIGNETTE%            = TRUE
+            CFG.CRT_TINT%                = 0
+            CFG.CRT_TINT_AMOUNT%         = 0
+            CFG.CRT_TINT_CUSTOM_COLOR~&  = _RGB32(255, 176, 0)
+            CFG.CRT_SCANLINE_COLOR~&     = 0
+            CFG.CRT_VIGNETTE_AMOUNT%     = 100
+            CFG.CRT_VIGNETTE_COLOR~&     = 0
+            CFG.CRT_SCANLINE_THICKNESS%  = 1
+            CFG.CRT_SCANLINE_GAP%        = 1
+            CFG.CRT_SCANLINE_VERTICAL%   = FALSE
+            CRT.dirty%                   = TRUE
+            dirty%                       = TRUE
+        END IF
+        ' Close
+        IF DIALOG_hit%(ctx, closeX%, yButtons%, btnW%, btnH%) THEN
+            ctx.done = TRUE
+        END IF
+
+        IF dirty% THEN
+            saveOnExit% = TRUE
+            DIALOG_CRT_refresh_backdrop ctx
+        END IF
+
+        ' ---- Draw the dialog ----
+        _DEST ctx.imgHandle
+        _FONT ctx.fontH
+        DIALOG_draw_frame ctx, "CRT EFFECT"
+
+        DIALOG_CRT_draw_checkbox padX%, yEnable%, "Enable CRT effect", CFG.CRT_ENABLED%
+
+        DIALOG_draw_label ctx, padX%, yIntensity% + 2, "INTENSITY:"
+        DIALOG_draw_slider ctx, intensSliderX%, yIntensity%, intensSliderW%, CFG.CRT_INTENSITY%, 0, 100, "", "%"
+
+        DIALOG_draw_divider ctx, yDiv1%
+
+        DIALOG_CRT_draw_checkbox padX%, yScanlines%, "Scanlines", CFG.CRT_SCANLINES%
+        DIALOG_CRT_draw_swatch scanSwatchX%, yScanlines%, scanSwatchW%, scanSwatchH%, CFG.CRT_SCANLINE_COLOR~&, (CFG.CRT_SCANLINE_COLOR~& = 0)
+        COLOR THEME.DIALOG_label_fg~&
+        _UPRINTSTRING (scanSwatchX% + scanSwatchW% + 6, yScanlines% + 2), "color"
+
+        DIALOG_CRT_draw_checkbox padX%, yPhosphor%, "Phosphor mask", CFG.CRT_PHOSPHOR%
+        DIALOG_CRT_draw_checkbox padX%, yVignette%, "Vignette",      CFG.CRT_VIGNETTE%
+        DIALOG_CRT_draw_swatch scanSwatchX%, yVignette%, scanSwatchW%, scanSwatchH%, CFG.CRT_VIGNETTE_COLOR~&, (CFG.CRT_VIGNETTE_COLOR~& = 0)
+        COLOR THEME.DIALOG_label_fg~&
+        _UPRINTSTRING (scanSwatchX% + scanSwatchW% + 6, yVignette% + 2), "color"
+
+        DIALOG_draw_label ctx, padX%, yVignAmt% + 2, "VIGN AMT:"
+        DIALOG_draw_slider ctx, vignAmtSliderX%, yVignAmt%, vignAmtSliderW%, CFG.CRT_VIGNETTE_AMOUNT%, 0, 100, "", "%"
+
+        DIALOG_CRT_draw_checkbox padX%, yVertScan%, "Vertical scanlines", CFG.CRT_SCANLINE_VERTICAL%
+
+        DIALOG_draw_label ctx, padX%, yScanGeom% + 2, "THICK:"
+        DIALOG_draw_slider ctx, thickSliderX%, yScanGeom%, thickSliderW%, CFG.CRT_SCANLINE_THICKNESS%, 1, 3, "", "px"
+        DIALOG_draw_label ctx, thickSliderX% + thickSliderW% + 6, yScanGeom% + 2, "GAP:"
+        DIALOG_draw_slider ctx, gapSliderX%, yScanGeom%, gapSliderW%, CFG.CRT_SCANLINE_GAP%, 1, 8, "", "px"
+
+        DIALOG_draw_divider ctx, yDiv2%
+
+        DIALOG_draw_label ctx, padX%, yTint% + 2, "TINT:"
+        DIALOG_draw_toggle ctx, tintXnone%,   yTint%, tintBtnW%, tintBtnH%, "None",   (CFG.CRT_TINT% = 0)
+        DIALOG_draw_toggle ctx, tintXamber%,  yTint%, tintBtnW%, tintBtnH%, "Amber",  (CFG.CRT_TINT% = 1)
+        DIALOG_draw_toggle ctx, tintXgreen%,  yTint%, tintBtnW%, tintBtnH%, "Green",  (CFG.CRT_TINT% = 2)
+        DIALOG_draw_toggle ctx, tintXcool%,   yTint%, tintBtnW%, tintBtnH%, "Cool",   (CFG.CRT_TINT% = 3)
+        DIALOG_draw_toggle ctx, tintXcustom%, yTint%, tintBtnW%, tintBtnH%, "Custom", (CFG.CRT_TINT% = 4)
+        DIALOG_CRT_draw_swatch customSwatchX%, yTint%, scanSwatchW%, scanSwatchH%, CFG.CRT_TINT_CUSTOM_COLOR~&, FALSE
+
+        DIALOG_draw_label ctx, padX%, yTintAmt% + 2, "AMOUNT:"
+        DIALOG_draw_slider ctx, tintAmtSliderX%, yTintAmt%, tintAmtSliderW%, CFG.CRT_TINT_AMOUNT%, 0, 100, "", "%"
+
+        DIALOG_draw_button ctx, resetX%, yButtons%, btnW%, btnH%, "Reset", _RGB32(80, 60, 60),  _RGB32(120, 80, 80),  _RGB32(180, 120, 120)
+        DIALOG_draw_button ctx, closeX%, yButtons%, btnW%, btnH%, "Close", _RGB32(40, 80, 40),  _RGB32(60, 120, 60),  _RGB32(80, 180, 80)
+
+        DIALOG_blit ctx
+    LOOP UNTIL ctx.done
+
+    DIALOG_cleanup ctx
+
+    IF saveOnExit% THEN CONFIG_save
+
+    FRAME_IDLE%  = FALSE
+    SCENE_DIRTY% = TRUE
+END SUB

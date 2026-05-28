@@ -408,6 +408,21 @@ TYPE DRAW_CONFIG
     SMART_GUIDES_OPACITY            AS INTEGER        ' Opacity override (0 = use theme)
     ' Opacity slider settings
     OPACITY_WARN_THRESHOLD          AS INTEGER        ' Opacity level at or below which warning colors show (default 10)
+    ' CRT overlay effect settings (presentation-only, never written to canvas)
+    CRT_ENABLED                     AS INTEGER        ' Master on/off
+    CRT_INTENSITY                   AS INTEGER        ' Global intensity 0-100 (scales scanlines, phosphor, vignette)
+    CRT_SCANLINES                   AS INTEGER        ' TRUE = draw scanlines
+    CRT_PHOSPHOR                    AS INTEGER        ' TRUE = draw RGB phosphor mask
+    CRT_VIGNETTE                    AS INTEGER        ' TRUE = draw vignette edge darkening
+    CRT_TINT                        AS INTEGER        ' 0 = none, 1 = amber, 2 = green, 3 = cool, 4 = custom
+    CRT_TINT_AMOUNT                 AS INTEGER        ' Tint opacity 0-100 (independent of CRT_INTENSITY)
+    CRT_TINT_CUSTOM_COLOR           AS _UNSIGNED LONG ' RGB used when CRT_TINT = 4 (custom)
+    CRT_SCANLINE_COLOR              AS _UNSIGNED LONG ' RGB scanline override (0 = use theme default)
+    CRT_VIGNETTE_AMOUNT             AS INTEGER        ' Vignette edge opacity 0-100 (independent of CRT_INTENSITY)
+    CRT_VIGNETTE_COLOR              AS _UNSIGNED LONG ' RGB vignette override (0 = use theme default)
+    CRT_SCANLINE_THICKNESS          AS INTEGER        ' Viewport pixels per scanline (1-3)
+    CRT_SCANLINE_GAP                AS INTEGER        ' Viewport pixels between scanlines (1-8)
+    CRT_SCANLINE_VERTICAL           AS INTEGER        ' FALSE = horizontal (TV/CRT), TRUE = vertical (aperture grille / Trinitron)
 END TYPE
 
 DIM SHARED CFG AS DRAW_CONFIG

@@ -618,6 +618,16 @@ TYPE DRAW_THEME
     OPACITY_SLIDER_TEXT_OUTLINE_WIDTH     AS INTEGER        ' Text outline width in pixels (0 = off)
     OPACITY_SLIDER_WARN_FG                AS _UNSIGNED LONG ' Slider fill color when <= warn threshold
     OPACITY_SLIDER_WARN_BORDER_FG         AS _UNSIGNED LONG ' Border color when <= warn threshold
+    ' --- CRT Overlay Effect ---
+    CRT_SCANLINE_COLOR                    AS _UNSIGNED LONG ' Color of horizontal scanlines (alpha = base opacity)
+    CRT_PHOSPHOR_R                        AS _UNSIGNED LONG ' R-channel phosphor strip color (RGBA)
+    CRT_PHOSPHOR_G                        AS _UNSIGNED LONG ' G-channel phosphor strip color (RGBA)
+    CRT_PHOSPHOR_B                        AS _UNSIGNED LONG ' B-channel phosphor strip color (RGBA)
+    CRT_VIGNETTE_COLOR                    AS _UNSIGNED LONG ' Vignette edge color (alpha = edge opacity)
+    CRT_TINT_AMBER                        AS _UNSIGNED LONG ' Amber monochrome tint (RGBA)
+    CRT_TINT_GREEN                        AS _UNSIGNED LONG ' Green monochrome tint (RGBA)
+    CRT_TINT_COOL                         AS _UNSIGNED LONG ' Cool blue monochrome tint (RGBA)
+    CRT_ROLLING_BAR_COLOR                 AS _UNSIGNED LONG ' Rolling brightness band color (RGBA)
 END TYPE
 
 ' Runtime theme loader — populates THEME from ASSETS/THEMES/{CFG.THEME$}/THEME.CFG
