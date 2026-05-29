@@ -36,10 +36,10 @@ CONST PART_Y2 = CANVAS_H / 2
 SCREEN _NEWIMAGE(WIN_W, WIN_H, 32)
 _TITLE "HW Partial Boundary Test (1=HW+partial 2=CPU+partial ESC=quit)"
 
-DIM canvas AS LONG : canvas = _NEWIMAGE(CANVAS_W, CANVAS_H, 32)
-DIM hw     AS LONG : hw = 0
+DIM canvas AS LONG    : canvas = _NEWIMAGE(CANVAS_W, CANVAS_H, 32)
+DIM hw     AS LONG    : hw = 0
 DIM mode   AS INTEGER : mode = 1
-DIM frame  AS LONG : frame = 0
+DIM frame  AS LONG    : frame = 0
 DIM tipX   AS INTEGER : tipX = 30
 DIM dir    AS INTEGER : dir = 1
 DIM k      AS LONG
@@ -68,7 +68,7 @@ DO
     LINE (tipX, ttY)-(tipX + ttW - 1, ttY + ttH - 1), _RGB32(40, 40, 50), BF
     LINE (tipX, ttY)-(tipX + ttW - 1, ttY + ttH - 1), _RGB32(100, 100, 120), B
     ' Internal stripes (every other pixel column white) — high contrast detail
-    DIM sx AS INTEGER
+    DIM sx  AS INTEGER
     FOR sx = tipX + 2 TO tipX + ttW - 3 STEP 2
         LINE (sx, ttY + 4)-(sx, ttY + ttH - 5), _RGB32(255, 255, 100)
     NEXT sx

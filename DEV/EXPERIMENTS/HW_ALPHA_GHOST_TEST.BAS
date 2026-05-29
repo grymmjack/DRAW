@@ -35,13 +35,13 @@ _TITLE "HW Alpha Ghost Test (1/2/3 modes, ESC quit)"
 DIM canvas AS LONG : canvas = _NEWIMAGE(CANVAS_W, CANVAS_H, 32)
 DIM hw     AS LONG : hw = 0
 
-DIM frame  AS LONG : frame = 0
-DIM mode   AS INTEGER : mode = 1
-DIM cx     AS INTEGER : cx = CANVAS_W \ 2
-DIM cy     AS INTEGER : cy = CANVAS_H \ 2
-DIM dirX   AS INTEGER : dirX = 1
-DIM dirY   AS INTEGER : dirY = 1
-DIM k      AS LONG
+DIM frame AS LONG    : frame = 0
+DIM mode  AS INTEGER : mode = 1
+DIM cx    AS INTEGER : cx = CANVAS_W \ 2
+DIM cy    AS INTEGER : cy = CANVAS_H \ 2
+DIM dirX  AS INTEGER : dirX = 1
+DIM dirY  AS INTEGER : dirY = 1
+DIM k     AS LONG
 
 DO
     frame = frame + 1
@@ -53,7 +53,7 @@ DO
     ' === Update canvas ===
     _DEST canvas
     _DONTBLEND canvas
-    CLS , _RGBA32(0, 0, 64, 255)  ' opaque dark blue
+    CLS , _RGBA32(0, 0, 64, 255) ' opaque dark blue
     _BLEND canvas
 
     ' Move "tooltip" position
@@ -66,9 +66,9 @@ DO
     ' force-sets canvas alpha to 255 before _COPYIMAGE.
     DIM tipAlpha AS INTEGER
     SELECT CASE mode
-        CASE 1: tipAlpha = 240
-        CASE 2: tipAlpha = 255
-        CASE 3: tipAlpha = 240
+        CASE 1 : tipAlpha = 240
+        CASE 2 : tipAlpha = 255
+        CASE 3 : tipAlpha = 240
     END SELECT
 
     LINE (cx - 8, cy - 8)-(cx + 8, cy + 8), _RGBA32(255, 255, 100, tipAlpha), BF

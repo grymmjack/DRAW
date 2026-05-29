@@ -40,13 +40,13 @@ _TITLE "HW Image Test (1/2/3 to switch path, D for dontblend, ESC to quit)"
 DIM canvas AS LONG : canvas = _NEWIMAGE(CANVAS_W, CANVAS_H, 32)
 DIM hw     AS LONG : hw = 0
 
-DIM frame      AS LONG : frame = 0
-DIM mode       AS INTEGER : mode = MODE_PUT_HW
-DIM dontblend  AS INTEGER : dontblend = 0
-DIM circleX    AS INTEGER
-DIM circleY    AS INTEGER
-DIM dirX       AS INTEGER : dirX = 1
-DIM dirY       AS INTEGER : dirY = 1
+DIM frame     AS LONG    : frame = 0
+DIM mode      AS INTEGER : mode = MODE_PUT_HW
+DIM dontblend AS INTEGER : dontblend = 0
+DIM circleX   AS INTEGER
+DIM circleY   AS INTEGER
+DIM dirX      AS INTEGER : dirX = 1
+DIM dirY      AS INTEGER : dirY = 1
 circleX = CANVAS_W \ 2
 circleY = CANVAS_H \ 2
 
@@ -66,7 +66,7 @@ DO
     ' === Animate the software canvas ===
     _DEST canvas
     _DONTBLEND canvas
-    CLS , _RGBA32(0, 0, 64, 255)  ' opaque dark blue background
+    CLS , _RGBA32(0, 0, 64, 255) ' opaque dark blue background
     _BLEND canvas
 
     ' Move a white circle each frame.  If we see trails, the present path

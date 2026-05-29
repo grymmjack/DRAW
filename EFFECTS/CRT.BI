@@ -21,17 +21,17 @@
 $INCLUDEONCE
 
 TYPE CRT_OBJ
-    overlay      AS LONG    ' Pre-baked composite at viewport size (alpha overlay)
-    lastW        AS LONG
-    lastH        AS LONG
+    overlay       AS LONG    ' Pre-baked composite at viewport size (alpha overlay)
+    lastW         AS LONG
+    lastH         AS LONG
     lastIntensity AS INTEGER
-    lastTint     AS INTEGER
+    lastTint      AS INTEGER
     lastScanlines AS INTEGER
-    lastPhosphor AS INTEGER
-    lastVignette AS INTEGER
+    lastPhosphor  AS INTEGER
+    lastVignette  AS INTEGER
     lastThickness AS INTEGER
-    lastGap      AS INTEGER
-    dirty        AS INTEGER ' TRUE = force rebake on next render
+    lastGap       AS INTEGER
+    dirty         AS INTEGER ' TRUE = force rebake on next render
 END TYPE
 DIM SHARED CRT AS CRT_OBJ
 

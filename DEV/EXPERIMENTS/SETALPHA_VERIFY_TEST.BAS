@@ -12,11 +12,11 @@ _BLEND img
 CLS , _RGBA32(255, 255, 255, 255)
 LINE (10, 10)-(70, 70), _RGBA32(255, 0, 0, 240), BF
 
-DIM px AS _UNSIGNED LONG : px = POINT(30, 30)
-DIM aBefore AS LONG : aBefore = _ALPHA32(px)
-DIM rBefore AS LONG : rBefore = _RED32(px)
-DIM gBefore AS LONG : gBefore = _GREEN32(px)
-DIM bBefore AS LONG : bBefore = _BLUE32(px)
+DIM px      AS _UNSIGNED LONG : px = POINT(30, 30)
+DIM aBefore AS LONG           : aBefore = _ALPHA32(px)
+DIM rBefore AS LONG           : rBefore = _RED32(px)
+DIM gBefore AS LONG           : gBefore = _GREEN32(px)
+DIM bBefore AS LONG           : bBefore = _BLUE32(px)
 
 ' Now apply _SETALPHA 255 to the whole image (correct syntax — no middle param)
 _SETALPHA 255, img

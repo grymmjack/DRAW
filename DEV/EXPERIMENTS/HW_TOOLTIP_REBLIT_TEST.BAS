@@ -31,10 +31,10 @@ CONST WIN_H    = CANVAS_H * SCALE
 SCREEN _NEWIMAGE(WIN_W, WIN_H, 32)
 _TITLE "HW Tooltip Reblit Test (1/2/3 modes, ESC quit)"
 
-DIM canvas AS LONG : canvas = _NEWIMAGE(CANVAS_W, CANVAS_H, 32)
-DIM hw     AS LONG : hw = 0
+DIM canvas AS LONG    : canvas = _NEWIMAGE(CANVAS_W, CANVAS_H, 32)
+DIM hw     AS LONG    : hw = 0
 DIM mode   AS INTEGER : mode = 1
-DIM frame  AS LONG : frame = 0
+DIM frame  AS LONG    : frame = 0
 DIM tipX   AS INTEGER : tipX = 40
 DIM dir    AS INTEGER : dir = 1
 DIM k      AS LONG
@@ -60,7 +60,7 @@ DO
     ' === Render scene + tooltip to software canvas ===
     _DEST canvas
     _DONTBLEND canvas
-    CLS , _RGBA32(20, 30, 50, 255)  ' dark background (the "canvas content")
+    CLS , _RGBA32(20, 30, 50, 255) ' dark background (the "canvas content")
     _BLEND canvas
 
     ' Draw some background detail (so we can see if anything bleeds through)

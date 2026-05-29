@@ -23,10 +23,10 @@ CONST WIN_H    = CANVAS_H * SCALE
 SCREEN _NEWIMAGE(WIN_W, WIN_H, 32)
 _TITLE "HW Sync Test (1/2/3/4 modes, ESC quit)"
 
-DIM canvas AS LONG : canvas = _NEWIMAGE(CANVAS_W, CANVAS_H, 32)
-DIM hw     AS LONG : hw = 0
+DIM canvas AS LONG    : canvas = _NEWIMAGE(CANVAS_W, CANVAS_H, 32)
+DIM hw     AS LONG    : hw = 0
 DIM mode   AS INTEGER : mode = 1
-DIM frame  AS LONG : frame = 0
+DIM frame  AS LONG    : frame = 0
 DIM k      AS LONG
 
 DO
@@ -67,11 +67,11 @@ DO
             IF hw < -1 THEN _FREEIMAGE hw
             hw = _COPYIMAGE(canvas, 33)
             _PUTIMAGE (0, 0)-(WIN_W - 1, WIN_H - 1), hw, 0
-            _DISPLAY  ' Flush HW
+            _DISPLAY ' Flush HW
             _DEST 0
             LINE (WIN_W / 2, WIN_H / 2)-(WIN_W - 50, WIN_H - 50), _RGB32(255, 100, 100), BF
             _PRINTSTRING (WIN_W / 2 + 8, WIN_H / 2 + 8), "CPU PANEL"
-            _DISPLAY  ' Flush CPU
+            _DISPLAY ' Flush CPU
 
         CASE 3
             ' CPU baseline: CPU _PUTIMAGE, CPU LINE, _DISPLAY

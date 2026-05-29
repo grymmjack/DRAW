@@ -45,13 +45,13 @@ _TITLE "HW Partial Mix Test (1/2/3/4 modes, ESC quit)"
 DIM canvas AS LONG : canvas = _NEWIMAGE(CANVAS_W, CANVAS_H, 32)
 DIM hw     AS LONG : hw = 0
 
-DIM frame  AS LONG : frame = 0
-DIM mode   AS INTEGER : mode = 2  ' Start in the suspected bug mode
-DIM cx     AS INTEGER : cx = CANVAS_W \ 2
-DIM cy     AS INTEGER : cy = CANVAS_H \ 2
-DIM dirX   AS INTEGER : dirX = 1
-DIM dirY   AS INTEGER : dirY = 1
-DIM k      AS LONG
+DIM frame AS LONG    : frame = 0
+DIM mode  AS INTEGER : mode = 2 ' Start in the suspected bug mode
+DIM cx    AS INTEGER : cx = CANVAS_W \ 2
+DIM cy    AS INTEGER : cy = CANVAS_H \ 2
+DIM dirX  AS INTEGER : dirX = 1
+DIM dirY  AS INTEGER : dirY = 1
+DIM k     AS LONG
 
 DO
     frame = frame + 1
@@ -81,14 +81,14 @@ DO
     _PRINTSTRING (4, 4), "Mode " + LTRIM$(STR$(mode)) + " Frame " + LTRIM$(STR$(frame))
 
     ' === Present ===
-    DIM doHwFull AS INTEGER : doHwFull = 0
+    DIM doHwFull  AS INTEGER : doHwFull = 0
     DIM doCpuFull AS INTEGER : doCpuFull = 0
     DIM doPartial AS INTEGER : doPartial = 0
 
     SELECT CASE mode
-        CASE 1: doHwFull = 1                                ' pure HW
-        CASE 2: doHwFull = 1: doPartial = 1                 ' HW + CPU partial (DRAW's pattern)
-        CASE 3: doCpuFull = 1: doPartial = 1                ' CPU + CPU partial (pre-HW pattern)
+        CASE 1 : doHwFull = 1                  ' pure HW
+        CASE 2 : doHwFull = 1  : doPartial = 1 ' HW + CPU partial (DRAW's pattern)
+        CASE 3 : doCpuFull = 1 : doPartial = 1 ' CPU + CPU partial (pre-HW pattern)
         CASE 4
             IF (frame MOD 2) = 1 THEN doHwFull = 1 ELSE doPartial = 1
     END SELECT

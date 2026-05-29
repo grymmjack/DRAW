@@ -24,14 +24,14 @@ SCREEN _NEWIMAGE(400, 200, 32)
 DIM img AS LONG : img = _NEWIMAGE(100, 100, 32)
 _DEST img
 _BLEND img
-CLS , _RGBA32(255, 255, 255, 255)   ' opaque white
+CLS , _RGBA32(255, 255, 255, 255) ' opaque white
 
 ' Draw a semi-transparent red rect with alpha 240
 LINE (10, 10)-(70, 70), _RGBA32(255, 0, 0, 240), BF
 
 DIM px AS _UNSIGNED LONG
 px = POINT(30, 30)
-DIM r AS LONG, g AS LONG, b AS LONG, a AS LONG
+DIM r  AS LONG, g AS LONG, b AS LONG, a AS LONG
 r = _RED32(px)
 g = _GREEN32(px)
 b = _BLUE32(px)
