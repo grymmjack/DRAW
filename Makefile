@@ -48,20 +48,40 @@ THREADS   ?= 12
 QB64FLAGS := -w -x -f:MaxCompilerProcesses=$(THREADS)
 
 # ---------- OS detection ------------------------------------------------------
+# All recipes run under bash (SHELL := /bin/bash above) — including on Windows,
+# where that means Git Bash / MSYS2. So use bash's `rm` everywhere; cmd.exe's
+# `del` does not exist in that shell.
+#
+# Output naming convention: the binary always carries `.run` (grymmjack's marker
+# for "build artifact, never committed" — see .gitignore `*.run` / `*.run.exe`).
+# On Windows we append `.exe` as well so the OS will actually execute it, giving
+# DRAW.run.exe; Linux/macOS just use DRAW.run.
+RM := rm -f
 ifeq ($(OS),Windows_NT)
-    EXT     := .exe
-    RM      := del /f /q
+    EXT := .run.exe
 else
-    UNAME_S := $(shell uname -s)
-    ifeq ($(UNAME_S),Darwin)
-        EXT := .run
-    else
-        EXT := .run
-    endif
-    RM      := rm -f
+    EXT := .run
 endif
 
 OUT := $(BASENAME)$(EXT)
+
+# ---------- Dependency tracking (compile goals only — no side effects) ---------
+# QB64-PE compiles the whole program as ONE unit: DRAW.BAS pulls in the entire
+# .BI/.BM tree via _ALL.BI/_ALL.BM. Make can't see those $INCLUDE chains, so the
+# binary must depend on EVERY .BI/.BM plus the entry .BAS for change detection.
+#
+# The `find` that builds that list runs ONLY when the requested goal actually
+# compiles (or no goal was given, which defaults to `all`). `make clean`,
+# `make clean-log`, `make -n clean`, etc. take the cheap branch — no disk walk,
+# no scanning, no side effects. Standalone *.BAS programs under includes/ are
+# not part of DRAW, so we glob .BI/.BM only and name DRAW.BAS explicitly.
+COMPILE_GOALS := all run run-logged run-log-bas $(OUT)
+GOALS         := $(if $(MAKECMDGOALS),$(MAKECMDGOALS),all)
+ifeq ($(filter $(COMPILE_GOALS),$(GOALS)),)
+    SOURCES := $(SRC)
+else
+    SOURCES := $(SRC) $(shell find . -type f \( -name '*.BI' -o -name '*.BM' \) -not -path './.git/*')
+endif
 
 # ---------- Logging env vars --------------------------------------------------
 LOG_ENV_FULL  := QB64PE_LOG_HANDLERS=console,file \
@@ -80,7 +100,7 @@ LOG_ENV_BASIC := QB64PE_LOG_HANDLERS=console,file \
 
 all: $(OUT)
 
-$(OUT): $(SRC)
+$(OUT): $(SOURCES)
 	$(RM) $(OUT)
 	@mkdir -p $(dir $(MAKE_LOG))
 	@printf '\n=== %s  %s %s %s -o %s ===\n' "$$(date '+%Y-%m-%d %H:%M:%S')" "$(QB64PE)" "$(QB64FLAGS)" "$(SRC)" "$(OUT)" | tee -a $(MAKE_LOG)
