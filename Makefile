@@ -95,10 +95,22 @@ LOG_ENV_BASIC := QB64PE_LOG_HANDLERS=console,file \
                  QB64PE_LOG_FILE_PATH=$(LOGFILE)
 
 # ---------- Targets -----------------------------------------------------------
-.PHONY: all run run-logged run-log-bas clean clean-log \
+.PHONY: help all run run-logged run-log-bas clean clean-log \
         a740g v450 a740g-run v450-run
+.DEFAULT_GOAL := all
 
-all: $(OUT)
+# `make help` lists every target by scanning this file for TARGET-DEFINITION
+# lines tagged with a trailing `#: description`. The scan is anchored so it can
+# only match a real rule header (start-of-line name, then `:`), never a recipe
+# or printf line. To document a NEW target, add `#: ...` after its prerequisites.
+help:  #: Show this help (targets + variable overrides)
+	@awk 'BEGIN{FS="[ \t]*#: "} /^[a-zA-Z][a-zA-Z0-9_-]*:([^=]|$$)/ && /#: / {name=$$1; sub(/:.*/,"",name); printf "  \033[36m%-12s\033[0m %s\n", name, $$2}' $(MAKEFILE_LIST) | sort
+	@printf '\nVariable overrides (append VAR=value to any target):\n'
+	@printf '  COMPILER=a740g|v450   use an alternate qb64pe build\n'
+	@printf '  QB64PE=/full/path     override the compiler path directly\n'
+	@printf '  THREADS=N             parallel compiler processes (default 12)\n'
+
+all: $(OUT)  #: Build DRAW (default) -> DRAW.run, or DRAW.run.exe on Windows
 
 $(OUT): $(SOURCES)
 	$(RM) $(OUT)
@@ -109,33 +121,33 @@ $(OUT): $(SOURCES)
 	    | grep --line-buffered -v '^\[[ .]*\][[:space:]]*[0-9]\+%' \
 	    | tee -a $(MAKE_LOG)
 
-run: $(OUT)
+run: $(OUT)  #: Build then run DRAW
 	./$(OUT)
 
-run-logged: clean-log $(OUT)
+run-logged: clean-log $(OUT)  #: Build & run with FULL QB64-PE logging -> DRAW.log
 	$(LOG_ENV_FULL) ./$(OUT)
 
-run-log-bas: clean-log $(OUT)
+run-log-bas: clean-log $(OUT)  #: Build & run with BASIC logging -> DRAW.log
 	$(LOG_ENV_BASIC) ./$(OUT)
 
-clean:
+clean:  #: Remove the built binary and log file
 	$(RM) $(OUT)
 	$(RM) $(LOGFILE)
 
-clean-log:
+clean-log:  #: Remove the log file only
 	$(RM) $(LOGFILE)
 
 # ---------- Compiler shortcuts ------------------------------------------------
 # Each shortcut recurses into make with COMPILER=<alias> so the ifeq chain
 # above resolves QB64PE to the matching path.
-a740g:
+a740g:  #: Build with the a740g PR compiler
 	@$(MAKE) --no-print-directory COMPILER=a740g all
 
-v450:
+v450:  #: Build with the qb64pe-450 compiler
 	@$(MAKE) --no-print-directory COMPILER=v450 all
 
-a740g-run:
+a740g-run:  #: Build & run with the a740g compiler
 	@$(MAKE) --no-print-directory COMPILER=a740g run
 
-v450-run:
+v450-run:  #: Build & run with the qb64pe-450 compiler
 	@$(MAKE) --no-print-directory COMPILER=v450 run
