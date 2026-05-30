@@ -180,6 +180,7 @@ END IF
 TYPE DRAW_CONFIG
     THEME                           AS STRING         ' Active theme directory name (e.g. "DEFAULT")
     FULLSCREEN                      AS INTEGER        ' TRUE = fullscreen, FALSE = windowed
+    SPLASH_ENABLED                  AS INTEGER        ' TRUE = show splash screen on startup (default TRUE)
     DISPLAY_SCALE                   AS INTEGER        ' 0 = auto-detect, 1-8 = explicit scale
     DISPLAY_SCALE_MAX               AS INTEGER        ' Maximum allowed scale (default 8)
     DISPLAY_SCALE_CHANGED           AS INTEGER        ' Runtime flag: scale changed during session

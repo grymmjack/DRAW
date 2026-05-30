@@ -25,7 +25,10 @@ DIM splashDstW    AS LONG, splashDstH AS LONG
 DIM splashX       AS LONG, splashY AS LONG
 DIM splashAlpha   AS INTEGER
 DIM splashBg      AS _UNSIGNED LONG, splashBgR AS INTEGER, splashBgG AS INTEGER, splashBgB AS INTEGER
-splashImg& = _LOADIMAGE("ASSETS/THEMES/" + _TRIM$(CFG.THEME$) + "/splash.png", 32)
+' Splash is gated on CFG.SPLASH_ENABLED% (Settings > General > Startup Defaults).
+' When disabled, splashImg& stays 0 so the fade-in/hold/fade-out blocks below
+' (all guarded by `splashImg& < -1`) are skipped entirely — no side effects.
+IF CFG.SPLASH_ENABLED% THEN splashImg& = _LOADIMAGE("ASSETS/THEMES/" + _TRIM$(CFG.THEME$) + "/splash.png", 32)
 DIM splashVerFont AS LONG: splashVerFont& = 0
 DIM splashVerStr  AS STRING
 DIM splashVerDstX AS LONG, splashVerDstY AS LONG
