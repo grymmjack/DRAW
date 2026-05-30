@@ -9,13 +9,15 @@
 #   make clean        Remove built binary and log files
 #   make clean-log    Remove log file only
 #
-# Compiler selection (default = $(HOME)/git/qb64pe/qb64pe):
+# Compiler selection (default = $(HOME)/git/qb64pe-450/qb64pe — QB64-PE v4.5.0):
+#   make v440             Build with the v4.4.0 compiler ($(HOME)/git/qb64pe)
+#   make v450             Build with the v4.5.0 compiler ($(HOME)/git/qb64pe-450) [default]
 #   make a740g            Build with the a740g PR compiler
-#   make v450             Build with the qb64pe-450 compiler
-#   make a740g-run        Build & run with a740g
+#   make v440-run         Build & run with v440
 #   make v450-run         Build & run with v450
-#   make COMPILER=a740g <target>   Combine with any other target
-#   make COMPILER=v450 clean       (e.g. clean using v450 build dir)
+#   make a740g-run        Build & run with a740g
+#   make COMPILER=v440 <target>    Combine with any other target
+#   make COMPILER=v440 clean       (e.g. clean using v440 build dir)
 #   make QB64PE=/full/path         Override path directly
 #
 # Compile output is appended to .claude/make.log (project-local, gitignored)
@@ -36,13 +38,17 @@ LOGFILE   := $(BASENAME).log
 MAKE_LOG  := .claude/make.log
 
 # ---------- Compiler ----------------------------------------------------------
+# Default is v450 (QB64-PE v4.5.0). Pick an alternate build with
+# COMPILER=v440|v450|a740g, or override the path outright with QB64PE=/full/path.
 COMPILER ?=
-ifeq ($(COMPILER),a740g)
-    QB64PE := $(HOME)/git/qb64pe-a740g-test/qb64pe
+ifeq ($(COMPILER),v440)
+    QB64PE := $(HOME)/git/qb64pe/qb64pe
 else ifeq ($(COMPILER),v450)
     QB64PE := $(HOME)/git/qb64pe-450/qb64pe
+else ifeq ($(COMPILER),a740g)
+    QB64PE := $(HOME)/git/qb64pe-a740g-test/qb64pe
 else
-    QB64PE ?= $(HOME)/git/qb64pe/qb64pe
+    QB64PE ?= $(HOME)/git/qb64pe-450/qb64pe
 endif
 THREADS   ?= 12
 QB64FLAGS := -w -x -f:MaxCompilerProcesses=$(THREADS)
@@ -96,7 +102,7 @@ LOG_ENV_BASIC := QB64PE_LOG_HANDLERS=console,file \
 
 # ---------- Targets -----------------------------------------------------------
 .PHONY: help all run run-logged run-log-bas clean clean-log \
-        a740g v450 a740g-run v450-run
+        v440 v450 a740g v440-run v450-run a740g-run
 .DEFAULT_GOAL := all
 
 # `make help` lists every target by scanning this file for TARGET-DEFINITION
@@ -106,7 +112,7 @@ LOG_ENV_BASIC := QB64PE_LOG_HANDLERS=console,file \
 help:  #: Show this help (targets + variable overrides)
 	@awk 'BEGIN{FS="[ \t]*#: "} /^[a-zA-Z][a-zA-Z0-9_-]*:([^=]|$$)/ && /#: / {name=$$1; sub(/:.*/,"",name); printf "  \033[36m%-12s\033[0m %s\n", name, $$2}' $(MAKEFILE_LIST) | sort
 	@printf '\nVariable overrides (append VAR=value to any target):\n'
-	@printf '  COMPILER=a740g|v450   use an alternate qb64pe build\n'
+	@printf '  COMPILER=v440|v450|a740g  alternate qb64pe build (default v450)\n'
 	@printf '  QB64PE=/full/path     override the compiler path directly\n'
 	@printf '  THREADS=N             parallel compiler processes (default 12)\n'
 
@@ -139,15 +145,22 @@ clean-log:  #: Remove the log file only
 
 # ---------- Compiler shortcuts ------------------------------------------------
 # Each shortcut recurses into make with COMPILER=<alias> so the ifeq chain
-# above resolves QB64PE to the matching path.
+# above resolves QB64PE to the matching path. Plain `make` already uses v450,
+# so these select a non-default compiler (or make the default explicit).
+v440:  #: Build with the v4.4.0 compiler (~/git/qb64pe)
+	@$(MAKE) --no-print-directory COMPILER=v440 all
+
+v450:  #: Build with the v4.5.0 compiler (~/git/qb64pe-450) [current default]
+	@$(MAKE) --no-print-directory COMPILER=v450 all
+
 a740g:  #: Build with the a740g PR compiler
 	@$(MAKE) --no-print-directory COMPILER=a740g all
 
-v450:  #: Build with the qb64pe-450 compiler
-	@$(MAKE) --no-print-directory COMPILER=v450 all
+v440-run:  #: Build & run with the v4.4.0 compiler
+	@$(MAKE) --no-print-directory COMPILER=v440 run
+
+v450-run:  #: Build & run with the v4.5.0 compiler
+	@$(MAKE) --no-print-directory COMPILER=v450 run
 
 a740g-run:  #: Build & run with the a740g compiler
 	@$(MAKE) --no-print-directory COMPILER=a740g run
-
-v450-run:  #: Build & run with the qb64pe-450 compiler
-	@$(MAKE) --no-print-directory COMPILER=v450 run

@@ -133,7 +133,7 @@ $IF MAC THEN
         LOOP
     END IF
 $ELSE
-    ' Skip --config / -c and its value, and --config-upgrade when looking for file args
+    ' Skip --config / -c and its value, andh --config-upgrade when looking for file args
     DIM argIdx%
     argIdx% = 1
     DO WHILE argIdx% <= _COMMANDCOUNT
@@ -144,7 +144,7 @@ $ELSE
         ELSEIF LCASE$(argVal$) = "--config-upgrade" THEN
             argIdx% = argIdx% + 1 ' Skip flag only
         ELSEIF LCASE$(argVal$) = "--canvas-size" THEN
-            argIdx% = argIdx% + 2 ' Skip flag + value
+            argIdx% = argIdx% + 2 ' Skip flag + valueh
         ELSEIF LCASE$(argVal$) = "--portable" THEN
             argIdx% = argIdx% + 1 ' Skip flag only
         ELSEIF LCASE$(argVal$) = "--reset-defaults" THEN
