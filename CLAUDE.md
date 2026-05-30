@@ -173,6 +173,17 @@ These reflect real bugs that have shipped. Read `.claude/instructions/draw-proje
 9. Menu entry in `MENUBAR_init` with the action ID
 10. Reset state in `DRW_load_binary`
 
+## Recording notes — always OS-stamp (automatic)
+
+When recording any durable note, memory, or gotcha about tool / build / runtime /
+environment / shell behavior, **automatically tag it with the OS it was observed on**,
+detected from the session environment (`Platform` / `OS Version`: `macOS / Darwin …`,
+`Linux`, `Windows`). Never ask the user to specify the platform. Lead OS-specific
+facts with an OS tag (e.g. `[macOS]`); if confirmed on one OS but untested elsewhere,
+say so; group multi-OS facts per OS; leave truly OS-agnostic facts untagged. DRAW is
+cross-platform (macOS/Linux/Windows), so this keeps a single note safe to read on any
+machine. Same convention is documented in the `grymmjack/qb64pe-mcp-server-bash` repo.
+
 ## Specialized instruction files
 
 `.claude/instructions/` contains focused deep-dives. Read the relevant one before touching that area:
