@@ -29,9 +29,9 @@ data.
 
 | `TEST=` | Program | Keyword(s) | Pre-a740g | How to verify |
 |---------|---------|------------|-----------|---------------|
-| `CAPSLOCK` | `GLFW_CAPSLOCK_TEST.BAS` | `_CAPSLOCK` (read + `ON/OFF/_TOGGLE`) | Win-only | O/F/T set it; state tracks the keyboard LED |
-| `NUMLOCK` | `GLFW_NUMLOCK_TEST.BAS` | `_NUMLOCK` | Win-only | same as Caps |
-| `SCROLLLOCK` | `GLFW_SCROLLLOCK_TEST.BAS` | `_SCROLLLOCK` | Win-only | same as Caps |
+| `CAPSLOCK` | `GLFW_CAPSLOCK_TEST.BAS` | `_CAPSLOCK` (read) | read: all platforms; set: Win-only | press the PHYSICAL Caps Lock key; the `value%` reading flips |
+| `NUMLOCK` | `GLFW_NUMLOCK_TEST.BAS` | `_NUMLOCK` (read) | read: all platforms; set: Win-only | press the PHYSICAL Num Lock key; reading flips |
+| `SCROLLLOCK` | `GLFW_SCROLLLOCK_TEST.BAS` | `_SCROLLLOCK` (read) | read: all platforms; set: Win-only | press the PHYSICAL Scroll Lock key; reading flips |
 | `DRAGDROP` | `GLFW_DRAGDROP_TEST.BAS` | `_ACCEPTFILEDROP`, `_TOTALDROPPEDFILES`, `_DROPPEDFILE$`, `_FINISHDROP` | Win-only | drag files onto the window; paths + count appear |
 | `DESKTOPWIDTH` | `GLFW_DESKTOPWIDTH_TEST.BAS` | `_DESKTOPWIDTH` | partial | non-zero, matches real screen width |
 | `DESKTOPHEIGHT` | `GLFW_DESKTOPHEIGHT_TEST.BAS` | `_DESKTOPHEIGHT` | partial | non-zero, matches real screen height |
@@ -63,9 +63,9 @@ Fill in as each keyword is verified per OS: ✅ pass · ❌ fail · ⬜ untested
 
 | Keyword | Linux | macOS | Windows | Notes |
 |---------|:-----:|:-----:|:-------:|-------|
-| `_CAPSLOCK` | ❌ | ⬜ | ⬜ | a740g/Linux: read + set BOTH no-op (see CAPSLOCK note below) |
-| `_NUMLOCK` | ✅ | ⬜ | ⬜ | a740g/Linux: works |
-| `_SCROLLLOCK` | ✅ | ⬜ | ⬜ | a740g/Linux: works |
+| `_CAPSLOCK` (read) | ⬜ | ⬜ | ⬜ | press physical key + watch counter; setter is Windows-only |
+| `_NUMLOCK` (read) | ⬜ | ⬜ | ⬜ | press physical key + watch counter; setter is Windows-only |
+| `_SCROLLLOCK` (read) | ⬜ | ⬜ | ⬜ | press physical key + watch counter; setter is Windows-only |
 | drag & drop | ✅ | ⬜ | ⬜ | a740g/Linux: works (manual) |
 | `_DESKTOPWIDTH` | ✅ | ⬜ | ⬜ | a740g/Linux: 3840 (non-zero) |
 | `_DESKTOPHEIGHT` | ✅ | ⬜ | ⬜ | a740g/Linux: works (manual) |
@@ -74,12 +74,16 @@ Fill in as each keyword is verified per OS: ✅ pass · ❌ fail · ⬜ untested
 | `_WINDOWHASFOCUS` | ✅ | ⬜ | ⬜ | a740g/Linux: works (manual); macOS still open |
 | `_WINDOWHANDLE` | ✅ | ⬜ | ⬜ | a740g/Linux: returns X11 window id (non-zero) |
 
-**CAPSLOCK (a740g/Linux):** `GLFW_CAPSLOCK_TEST` shows `_CAPSLOCK` broken in BOTH
-directions — the function reading never changes when you press the physical Caps
-Lock key, AND the `O`/`F`/`T` setters (`_CAPSLOCK ON|OFF|_TOGGLE`) do nothing to
-the state or the keyboard LED. `_NUMLOCK` and `_SCROLLLOCK` use byte-identical
-test code and work, so this is specific to the `_CAPSLOCK` keyword, not the test.
-Refines a740g's "all three lock keys now work" claim: Caps is still broken on Linux.
+**Lock keys — read vs set (important):** per a740g, the lock-key **function**
+(`value% = _CAPSLOCK`) reads state on **all platforms** (on Linux via
+`XkbGetIndicatorState`, no window focus required); the lock-key **statement**
+(`_CAPSLOCK ON|OFF|_TOGGLE`) is **Windows-only** by design. So on Linux/macOS the
+correct test is the **reader**: press the *physical* lock key and watch the
+`value%` reading flip (the test counts the changes). Note: this **cannot be
+automated** here — synthetic `xdotool Caps_Lock` does NOT move the real
+`XkbGetIndicatorState`/`/sys/class/leds` state, so only a physical keypress
+exercises it. Ground-truth cross-checks on Linux: `xset q` and
+`cat /sys/class/leds/input*::capslock/brightness`.
 
 ### Ctrl+Alt+O on a740g — NOT a regression (it works on a real keyboard)
 
