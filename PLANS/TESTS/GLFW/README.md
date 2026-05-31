@@ -43,12 +43,12 @@ data.
 
 ## Why the `KEYCODE` scanner is here
 
-When DRAW is built with a740g, **Ctrl+Alt+O stops firing**. DRAW detects that
-hotkey with `_KEYDOWN(111) OR _KEYDOWN(79)` plus the modifier codes
-`100305..100308`, and `_KEYDOWN` physical codes are **backend-specific**. The
-scanner shows, live, exactly which codes the active backend reports for Ctrl,
-Alt and O — so we can tell whether the modifier codes or the letter code shifted
-under GLFW. Run it under a740g vs v450 and compare:
+Built to diagnose a reported "Ctrl+Alt+O doesn't fire in DRAW under a740g". It
+shows, live, exactly which physical codes the active backend reports for Ctrl,
+Alt and O. **Outcome:** on a real keyboard, Ctrl+Alt+O works fine on a740g
+(`O 111=Y`, FIRES=ON) — see [KNOWN-xdotool-ctrl-alt-letter.md](KNOWN-xdotool-ctrl-alt-letter.md).
+The only failure was with `xdotool` synthetic input (an automation artifact, not
+a real bug). Run it under a740g vs v450 to compare:
 
 ```bash
 make a740g-run TEST=KEYCODE                                       # GLFW backend
@@ -63,29 +63,36 @@ Fill in as each keyword is verified per OS: ✅ pass · ❌ fail · ⬜ untested
 
 | Keyword | Linux | macOS | Windows | Notes |
 |---------|:-----:|:-----:|:-------:|-------|
-| `_CAPSLOCK` | ⬜ | ⬜ | ⬜ | |
-| `_NUMLOCK` | ⬜ | ⬜ | ⬜ | |
-| `_SCROLLLOCK` | ⬜ | ⬜ | ⬜ | |
-| drag & drop | ⬜ | ⬜ | ⬜ | |
+| `_CAPSLOCK` | ❌ | ⬜ | ⬜ | a740g/Linux: read + set BOTH no-op (see CAPSLOCK note below) |
+| `_NUMLOCK` | ✅ | ⬜ | ⬜ | a740g/Linux: works |
+| `_SCROLLLOCK` | ✅ | ⬜ | ⬜ | a740g/Linux: works |
+| drag & drop | ✅ | ⬜ | ⬜ | a740g/Linux: works (manual) |
 | `_DESKTOPWIDTH` | ✅ | ⬜ | ⬜ | a740g/Linux: 3840 (non-zero) |
-| `_DESKTOPHEIGHT` | ⬜ | ⬜ | ⬜ | |
-| `_SCREENMOVE` | ⬜ | ⬜ | ⬜ | |
-| `_SCREENX/_SCREENY` | ⬜ | ⬜ | ⬜ | |
-| `_WINDOWHASFOCUS` | ⬜ | ⬜ | ⬜ | macOS is the open question |
+| `_DESKTOPHEIGHT` | ✅ | ⬜ | ⬜ | a740g/Linux: works (manual) |
+| `_SCREENMOVE` | ✅ | ⬜ | ⬜ | a740g/Linux: works (manual) |
+| `_SCREENX/_SCREENY` | ✅ | ⬜ | ⬜ | a740g/Linux: works (manual) |
+| `_WINDOWHASFOCUS` | ✅ | ⬜ | ⬜ | a740g/Linux: works (manual); macOS still open |
 | `_WINDOWHANDLE` | ✅ | ⬜ | ⬜ | a740g/Linux: returns X11 window id (non-zero) |
 
-### Ctrl+Alt+O regression (DRAW, built with a740g) — CONFIRMED
+**CAPSLOCK (a740g/Linux):** `GLFW_CAPSLOCK_TEST` shows `_CAPSLOCK` broken in BOTH
+directions — the function reading never changes when you press the physical Caps
+Lock key, AND the `O`/`F`/`T` setters (`_CAPSLOCK ON|OFF|_TOGGLE`) do nothing to
+the state or the keyboard LED. `_NUMLOCK` and `_SCROLLLOCK` use byte-identical
+test code and work, so this is specific to the `_CAPSLOCK` keyword, not the test.
+Refines a740g's "all three lock keys now work" claim: Caps is still broken on Linux.
 
-Measured with `GLFW_KEYCODE_TEST` holding Ctrl+Alt+O (identical synthetic input
-to both builds). Full write-up + screenshots: [REGRESSION-ctrl-alt-letter.md](REGRESSION-ctrl-alt-letter.md).
+### Ctrl+Alt+O on a740g — NOT a regression (it works on a real keyboard)
 
-| Backend | CTRL reads | ALT reads | O: 111 / 79 / 15 | O in `_KEYHIT`? | Ctrl+Alt+O fires? |
-|---------|:----------:|:---------:|:----------------:|:---------------:|:-----------------:|
-| a740g (GLFW) | ON | ON | **n** / n / n | **no** | **off** ❌ |
-| v450 (SDL2) | ON | ON | **Y** / n / n | **yes (111)** | **ON** ✅ |
+Full write-up: [KNOWN-xdotool-ctrl-alt-letter.md](KNOWN-xdotool-ctrl-alt-letter.md).
+Holding Ctrl+Alt+O in `GLFW_KEYCODE_TEST`:
 
-**Conclusion:** a740g's GLFW backend **swallows the letter key while Ctrl+Alt are
-held** — the modifiers are fine, but the letter event never arrives (no code, not
-even in `_KEYHIT`). Plain `Ctrl+letter` (e.g. `Ctrl+O`) works under a740g, so
-`Ctrl+Z`/`Ctrl+B`/`Ctrl+S` are unaffected. This is a **PR/backend regression, not
-a DRAW bug** — DRAW needs no change; report it to a740g.
+| Input on a740g (GLFW) | CTRL | ALT | O: 111 | O in `_KEYHIT`? | Ctrl+Alt+O fires? |
+|-----------------------|:----:|:---:|:------:|:---------------:|:-----------------:|
+| **physical keyboard** | ON | ON | **Y** | **yes** | **ON** ✅ |
+| `xdotool` (XTEST) | ON | ON | n | no | off ❌ |
+
+**Conclusion:** with a **real keyboard**, Ctrl+Alt+O works on a740g. The `xdotool`
+"swallow" is a **synthetic-input artifact** (XTEST letter dropped under Ctrl+Alt by
+the GLFW backend), NOT a user-facing bug — **don't report it to a740g.** Side
+effect: DRAW's `xdotool`-based `QA/` harness can't reliably test `Ctrl+Alt+letter`
+hotkeys on a GLFW build; verify those by hand.
