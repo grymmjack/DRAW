@@ -30,8 +30,14 @@ TYPE PREVIEW_OBJ
     w AS INTEGER                      ' Total window width (inc title bar)
     h AS INTEGER                      ' Total window height (inc title bar)
 
-    ' Offscreen render target
+    ' Offscreen render target (NATIVE-size buffer; blitted to screen 0 at ts)
     imgHandle AS LONG
+
+    ' Floating-overlay scale (mirrors COLOR MIXER): renderScale = ts/ds.
+    ' w/h are NATIVE; dispW/dispH are the VIEWPORT footprint (= w*ts/ds).
+    renderScale AS SINGLE
+    dispW       AS INTEGER
+    dispH       AS INTEGER
 
     ' Follow-pointer magnifier mode
     followPointer AS INTEGER          ' TRUE = center on mouse position

@@ -181,7 +181,9 @@ TYPE DRAW_CONFIG
     THEME                           AS STRING         ' Active theme directory name (e.g. "DEFAULT")
     FULLSCREEN                      AS INTEGER        ' TRUE = fullscreen, FALSE = windowed
     SPLASH_ENABLED                  AS INTEGER        ' TRUE = show splash screen on startup (default TRUE)
-    DISPLAY_SCALE                   AS INTEGER        ' 0 = auto-detect, 1-8 = explicit scale
+    UI_SCALE                        AS INTEGER        ' MASTER scale (0 = auto, 1-8). Drives DISPLAY_SCALE + TOOLBAR_SCALE; dialog/browser scales derive from it.
+    HIDPI_AWARE                     AS INTEGER        ' [Windows] TRUE = mark process DPI-aware so the display reports true pixels (crisp). No effect on Linux/macOS.
+    DISPLAY_SCALE                   AS INTEGER        ' 0 = auto-detect, 1-8 = explicit scale (canvas magnification)
     DISPLAY_SCALE_MAX               AS INTEGER        ' Maximum allowed scale (default 8)
     DISPLAY_SCALE_CHANGED           AS INTEGER        ' Runtime flag: scale changed during session
     TOOLBAR_SCALE                   AS INTEGER        ' Toolbar icon scale multiplier (1-4, default 1)

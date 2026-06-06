@@ -173,6 +173,27 @@ END FUNCTION
 
 
 ''
+' Maps a display (canvas) scale to the matching chrome / toolbar scale.
+' Used by the master UI_SCALE so one knob drives both. Reproduces the
+' resolution-preset pairings (chrome stays ~2 across most desktops, growing
+' only at very high display scales) and clamps to the valid TOOLBAR_SCALE range.
+' @param ds INTEGER Display scale (1-8)
+' @return INTEGER - Chrome / toolbar scale (1-4)
+'
+FUNCTION SCREEN_chrome_scale_from_display% (ds AS INTEGER)
+    DIM ts AS INTEGER
+    SELECT CASE ds%
+        CASE IS <= 1 : ts% = 1
+        CASE 2 TO 4  : ts% = 2
+        CASE ELSE    : ts% = 3 ' ds 5-8
+    END SELECT
+    IF ts% < 1 THEN ts% = 1
+    IF ts% > 4 THEN ts% = 4
+    SCREEN_chrome_scale_from_display% = ts%
+END FUNCTION
+
+
+''
 ' Calculates the minimum viewport width for a given toolbar scale.
 ' Chrome accounted for:
 '   Toolbar:      4×(11×TB) + 3×(1×TB) + 2   (TB_COLS=4, TB_BTN_W=11, TB_BTN_PADDING=1)
@@ -401,6 +422,14 @@ SUB SCREEN_set_display_scale (newScale AS INTEGER)
         END IF
     END IF
     
+    ' Keep the master UI scale in sync with runtime scale changes so it stays
+    ' authoritative on the next launch (and re-derives chrome to match).
+    IF CFG.UI_SCALE% > 0 THEN
+        CFG.UI_SCALE%      = clampedScale%
+        CFG.DISPLAY_SCALE% = clampedScale%
+        CFG.TOOLBAR_SCALE% = SCREEN_chrome_scale_from_display%(clampedScale%)
+    END IF
+
     ' Mark config as changed
     CFG.DISPLAY_SCALE_CHANGED% = TRUE
 END SUB
@@ -481,13 +510,42 @@ SUB SCREEN_init ()
     ' Load configuration from disk
     CONFIG_load
 
+    ' [Windows] Become DPI-aware BEFORE the first _DESKTOPWIDTH query or window
+    ' creation, so the rest of SCREEN_init sees true physical pixels. Guarded by
+    ' CFG.HIDPI_AWARE% so it can be disabled from config if it ever misbehaves.
+    ' Linux/macOS already report usable pixels, so there is no equivalent call.
+    $IF WIN THEN
+        IF CFG.HIDPI_AWARE% THEN
+            DIM dpiAwareOK AS LONG
+            dpiAwareOK& = DRAW_SetProcessDPIAware&
+            _LOGINFO "SCREEN_init: SetProcessDPIAware -> " + _TRIM$(STR$(dpiAwareOK&)) + " (desktop now " + _TRIM$(STR$(_DESKTOPWIDTH)) + "x" + _TRIM$(STR$(_DESKTOPHEIGHT)) + ")"
+        END IF
+    $END IF
+
     ' Load runtime theme overrides from THEME.CFG (after CONFIG_load so CFG.THEME$ is known)
     THEME_load
     
     SCRN.w&   = 0
     SCRN.h&   = 0
     SCRN.bpp% = 0
-    
+
+    ' --- Master UI scale: one knob to rule them all ---------------------------
+    ' When CFG.UI_SCALE% > 0 it OWNS every other scale: it sets the canvas
+    ' (DISPLAY_SCALE) and chrome (TOOLBAR_SCALE) scales here, and the modal file
+    ' dialog + docked browser derive their font/icon scales from TOOLBAR_SCALE
+    ' (see DRAW_FD_apply_font_scale). UI_SCALE = 0 leaves everything on
+    ' auto-detect, which still feeds the dialog/browser derivation downstream.
+    IF CFG.UI_SCALE% > 0 THEN
+        CFG.DISPLAY_SCALE% = CFG.UI_SCALE%
+        IF CFG.DISPLAY_SCALE% > CFG.DISPLAY_SCALE_MAX% THEN CFG.DISPLAY_SCALE% = CFG.DISPLAY_SCALE_MAX%
+        CFG.TOOLBAR_SCALE% = SCREEN_chrome_scale_from_display%(CFG.DISPLAY_SCALE%)
+        ' Re-derive the viewport from the chosen scale instead of any stale
+        ' SCREEN_WIDTH/HEIGHT frozen on a previous (differently sized) display.
+        CFG.SCREEN_WIDTH%  = 0
+        CFG.SCREEN_HEIGHT% = 0
+        _LOGINFO "SCREEN_init: UI_SCALE master = " + _TRIM$(STR$(CFG.UI_SCALE%)) + " -> DISPLAY_SCALE=" + _TRIM$(STR$(CFG.DISPLAY_SCALE%)) + " TOOLBAR_SCALE=" + _TRIM$(STR$(CFG.TOOLBAR_SCALE%))
+    END IF
+
     ' Determine display scale FIRST (needed for auto-detect viewport sizing)
     IF CFG.DISPLAY_SCALE% > 0 THEN
         ' Use explicit scale from config
@@ -2674,9 +2732,8 @@ SUB SCREEN_render ()
         ' render — the values computed then are still valid.
 
         ' Same partial-present safety gates as the dirty-rect path.
-        ' PREVIEW.visible% is no longer a gate here: we call PREVIEW_render inline
-        ' and present the preview window rect as a separate partial present, so the
-        ' expensive full-frame window scale is never needed just for canvas hover.
+        ' The preview window is a floating screen-0 overlay (drawn in the
+        ' overlay section), so canvas hover never needs the full-frame scale.
         DIM so_can_partial AS INTEGER
         so_can_partial% = NOT SCRN.patternTileMode%
         IF IMG_IMPORT.STATE > IMPORT_STATE_IDLE THEN so_can_partial% = FALSE
@@ -2753,25 +2810,9 @@ SUB SCREEN_render ()
             POINTER_update
             POINTER_render
 
-            ' Preview window: only re-render when content has actually changed.
-            ' In follow-pointer mode the viewport pans with the cursor — must re-render every frame.
-            ' Otherwise content is static unless the pointer dirty-rect overlaps the preview window,
-            ' which would expose a SCENE_CACHE hole that needs repairing.
-            ' Skipping saves an expensive _PUTIMAGE of COMPOSITE_BUFFER& per frame.
-            IF PREVIEW.visible% AND NOT PREVIEW.autoHidden% THEN
-                DIM so_pv_need_render AS INTEGER
-                so_pv_need_render% = PREVIEW.followPointer%
-                IF NOT so_pv_need_render% THEN
-                    ' Check if pointer dirty-rect overlaps preview bounds
-                    IF so_px2% >= PREVIEW.x% AND so_px1% <= PREVIEW.x% + PREVIEW.w% - 1 AND _
-                       so_py2% >= PREVIEW.y% AND so_py1% <= PREVIEW.y% + PREVIEW.h% - 1 THEN
-                        so_pv_need_render% = TRUE
-                    END IF
-                END IF
-                IF so_pv_need_render% THEN
-                    PREVIEW_render SCRN.CANVAS&
-                END IF
-            END IF
+            ' Preview window is now a FLOATING OVERLAY drawn directly to screen 0
+            ' (like the color mixer) in the overlay section below — no longer
+            ' baked into the viewport here.
 
             _DEST SCRN.CANVAS&
             _PUTIMAGE (so_px1%, so_py1%)-(so_px2%, so_py2%), SCRN.GUI&, SCRN.CANVAS&, (so_px1%, so_py1%)-(so_px2%, so_py2%)
@@ -2794,13 +2835,12 @@ SUB SCREEN_render ()
             SCROLLBAR_render
             RENDER_crosshair_and_command_palette
             POINTER_render_cursor_overlay
-            PREVIEW_render_tooltip SCRN.CANVAS&
             TOOLTIP_render SCRN.CANVAS&
 
             POINTER.PREV_DRAW_X% = so_nx%
             POINTER.PREV_DRAW_Y% = so_ny%
 
-            ' Partial window presents: pointer area + status strip + preview window.
+            ' Partial window presents: pointer area + status strip.
             ' Avoids the expensive full-frame _PUTIMAGE scale to window.
             DIM so_sc     AS INTEGER
             DIM so_winW   AS LONG, so_winH AS LONG
@@ -2821,29 +2861,13 @@ SUB SCREEN_render ()
             IF SCRN.showStatus% THEN
                 _PUTIMAGE (0, CLNG(so_statusTop%) * so_sc%)-(_WIDTH(0) - 1, _HEIGHT(0) - 1), SCRN.CANVAS&, 0, (0, so_statusTop%)-(SCRN.w& - 1, SCRN.h& - 1)
             END IF
-            ' Preview window partial present: present the preview widget area directly
-            ' instead of doing a full-frame upscale just because preview is visible.
-            IF PREVIEW.visible% AND NOT PREVIEW.autoHidden% THEN
-                DIM so_pv_x1 AS INTEGER, so_pv_y1 AS INTEGER
-                DIM so_pv_x2 AS INTEGER, so_pv_y2 AS INTEGER
-                so_pv_x1% = PREVIEW.x%
-                so_pv_y1% = PREVIEW.y%
-                so_pv_x2% = PREVIEW.x% + PREVIEW.w% - 1
-                IF PREVIEW.minimized% THEN
-                    so_pv_y2% = PREVIEW.y% + THEME.PREVIEW_title_height% + THEME.PREVIEW_border_width% * 2 - 1
-                ELSE
-                    so_pv_y2% = PREVIEW.y% + PREVIEW.h% - 1
-                END IF
-                IF so_pv_x1% < 0 THEN so_pv_x1% = 0
-                IF so_pv_y1% < 0 THEN so_pv_y1% = 0
-                IF so_pv_x2% >= SCRN.w& THEN so_pv_x2% = SCRN.w& - 1
-                IF so_pv_y2% >= SCRN.h& THEN so_pv_y2% = SCRN.h& - 1
-                _PUTIMAGE (CLNG(so_pv_x1%) * so_sc%, CLNG(so_pv_y1%) * so_sc%)-(CLNG(so_pv_x2% + 1) * so_sc% - 1, CLNG(so_pv_y2% + 1) * so_sc% - 1), SCRN.CANVAS&, 0, (so_pv_x1%, so_pv_y1%)-(so_pv_x2%, so_pv_y2%)
-            END IF
-
-            ' ==== COLOR MIXER (after partial blit, draws directly to screen 0) ====
+            ' ==== FLOATING OVERLAYS (after partial blit, draw directly to screen 0) ====
+            ' (Picker active forces so_can_partial% = FALSE above, so the loupe
+            '  is handled in the full SkipToPointer path, not here.)
+            IF PREVIEW.visible% AND NOT PREVIEW.autoHidden% THEN PREVIEW_render 0
             COLORMIXER_render
             BROWSER_render
+            PREVIEW_render_tooltip 0
             TOOLTIP_reblit_to_screen0
 
             IF NOT SCREEN_SUPPRESS_DISPLAY% THEN _DISPLAY
@@ -3004,23 +3028,8 @@ SUB SCREEN_render ()
             _DEST SCRN.CANVAS&
             _PUTIMAGE (dr_x1%, dr_y1%)-(dr_x2%, dr_y2%), SCRN.GUI&, SCRN.CANVAS&, (dr_x1%, dr_y1%)-(dr_x2%, dr_y2%)
 
-            ' --- Preview window (inline, same logic as STATUS-ONLY path) ---
-            ' Re-render only when follow-pointer mode is active (viewport pans with cursor)
-            ' or when the pointer dirty-rect overlaps the preview window bounds
-            ' (which would expose a SCENE_CACHE hole that needs repairing).
-            IF PREVIEW.visible% AND NOT PREVIEW.autoHidden% THEN
-                DIM dr_pv_need_render AS INTEGER
-                dr_pv_need_render% = PREVIEW.followPointer%
-                IF NOT dr_pv_need_render% THEN
-                    IF dr_x2% >= PREVIEW.x% AND dr_x1% <= PREVIEW.x% + PREVIEW.w% - 1 AND _
-                       dr_y2% >= PREVIEW.y% AND dr_y1% <= PREVIEW.y% + PREVIEW.h% - 1 THEN
-                        dr_pv_need_render% = TRUE
-                    END IF
-                END IF
-                IF dr_pv_need_render% THEN
-                    PREVIEW_render SCRN.CANVAS&
-                END IF
-            END IF
+            ' Preview window is a floating screen-0 overlay — drawn in the
+            ' overlay section after the dirty-rect present (see below).
 
             ' --- Crosshair assistant overlay ---
             RENDER_crosshair_and_command_palette
@@ -3043,7 +3052,6 @@ SUB SCREEN_render ()
             IF CURRENT_TOOL% = TOOL_PICKER AND PICKER.ACTIVE% AND _
                SCREEN_mouse_over_work_area%(MOUSE.RAW_X%, MOUSE.RAW_Y%) THEN
                 PICKER_LOUPE_render SCRN.CANVAS&
-                PREVIEW_render_loupe SCRN.CANVAS&
             END IF
 
             ' --- Final overlay popups (must stay above GUI, scrollbars, and status overlays) ---
@@ -3059,10 +3067,9 @@ SUB SCREEN_render ()
             IF CMD_PALETTE.visible THEN
                 CMD_render SCRN.CANVAS&
             END IF
-            
+
             ' --- Redraw cursor on top of GUI ---
             POINTER_render_cursor_overlay
-            PREVIEW_render_tooltip SCRN.CANVAS&
             TOOLTIP_render SCRN.CANVAS&
 
             ' --- Save pointer position for next frame ---
@@ -3092,28 +3099,15 @@ SUB SCREEN_render ()
             win_y2& = CLNG(dr_y2% + 1) * dr_scale% - 1
             _PUTIMAGE (win_x1&, win_y1&)-(win_x2&, win_y2&), SCRN.CANVAS&, 0, (dr_x1%, dr_y1%)-(dr_x2%, dr_y2%)
 
-            ' Preview window partial present (avoids full-frame upscale just for preview)
-            IF PREVIEW.visible% AND NOT PREVIEW.autoHidden% THEN
-                DIM dr_pv_x1 AS INTEGER, dr_pv_y1 AS INTEGER
-                DIM dr_pv_x2 AS INTEGER, dr_pv_y2 AS INTEGER
-                dr_pv_x1% = PREVIEW.x%
-                dr_pv_y1% = PREVIEW.y%
-                dr_pv_x2% = PREVIEW.x% + PREVIEW.w% - 1
-                IF PREVIEW.minimized% THEN
-                    dr_pv_y2% = PREVIEW.y% + THEME.PREVIEW_title_height% + THEME.PREVIEW_border_width% * 2 - 1
-                ELSE
-                    dr_pv_y2% = PREVIEW.y% + PREVIEW.h% - 1
-                END IF
-                IF dr_pv_x1% < 0 THEN dr_pv_x1% = 0
-                IF dr_pv_y1% < 0 THEN dr_pv_y1% = 0
-                IF dr_pv_x2% >= SCRN.w& THEN dr_pv_x2% = SCRN.w& - 1
-                IF dr_pv_y2% >= SCRN.h& THEN dr_pv_y2% = SCRN.h& - 1
-                _PUTIMAGE (CLNG(dr_pv_x1%) * dr_scale%, CLNG(dr_pv_y1%) * dr_scale%)-(CLNG(dr_pv_x2% + 1) * dr_scale% - 1, CLNG(dr_pv_y2% + 1) * dr_scale% - 1), SCRN.CANVAS&, 0, (dr_pv_x1%, dr_pv_y1%)-(dr_pv_x2%, dr_pv_y2%)
-            END IF
-
-            ' ==== FLOATING PANELS (after partial blit, draw directly to screen 0) ====
+            ' ==== FLOATING OVERLAYS (after partial blit, draw directly to screen 0) ====
+            IF PREVIEW.visible% AND NOT PREVIEW.autoHidden% THEN PREVIEW_render 0
             COLORMIXER_render
             BROWSER_render
+            IF CURRENT_TOOL% = TOOL_PICKER AND PICKER.ACTIVE% AND _
+               SCREEN_mouse_over_work_area%(MOUSE.RAW_X%, MOUSE.RAW_Y%) THEN
+                PREVIEW_render_loupe SCRN.CANVAS&
+            END IF
+            PREVIEW_render_tooltip 0
             TOOLTIP_reblit_to_screen0
 
             PERF_stop PERF_DIRTY_RECT_PATH
@@ -3477,8 +3471,8 @@ SUB SCREEN_render ()
     POINTER_render
     PERF_stop PERF_POINTER_RENDER
 
-    ' ==== PREVIEW WINDOW (before GUI re-composite so menus, pickers, etc. render on top) ====
-    PREVIEW_render SCRN.CANVAS&
+    ' Preview window is a floating screen-0 overlay — drawn after the canvas
+    ' upscale (overlay section near the end of this SUB), like the color mixer.
 
     ' Re-composite GUI so brush previews and marching ants don't show over UI elements.
     ' This must happen AFTER POINTER_render since brush previews are drawn there.
@@ -3534,7 +3528,6 @@ SUB SCREEN_render ()
     IF CURRENT_TOOL% = TOOL_PICKER AND PICKER.ACTIVE% AND _
        SCREEN_mouse_over_work_area%(MOUSE.RAW_X%, MOUSE.RAW_Y%) THEN
         PICKER_LOUPE_render SCRN.CANVAS&
-        PREVIEW_render_loupe SCRN.CANVAS&
     END IF
 
     ' ==== FINAL OVERLAY POPUPS (must stay above GUI, scrollbars, and status overlays) ====
@@ -3555,7 +3548,7 @@ SUB SCREEN_render ()
     POINTER_render_cursor_overlay
 
     ' ==== TOOLTIP (on top of everything, including cursor and UI chrome) ====
-    PREVIEW_render_tooltip SCRN.CANVAS&
+    ' (PREVIEW_render_tooltip is a screen-0 overlay — drawn after the upscale.)
     DRAWER_wheel_tooltip_render SCRN.CANVAS&
     TOOLTIP_render SCRN.CANVAS&
 
@@ -3616,9 +3609,17 @@ SUB SCREEN_render ()
     _PUTIMAGE (0, 0)-(_WIDTH(0) - 1, _HEIGHT(0) - 1), SCRN.CANVAS&, 0
     PERF_stop PERF_FINAL_SCALE
 
-    ' ==== FLOATING PANELS (after canvas upscale, draw directly to screen 0) ====
+    ' ==== FLOATING OVERLAYS (after canvas upscale, draw directly to screen 0) ====
+    ' Preview renders under the color mixer (z-order: preview < mixer).
+    IF PREVIEW.visible% AND NOT PREVIEW.autoHidden% THEN PREVIEW_render 0
     COLORMIXER_render
     BROWSER_render
+    ' Preview loupe + float tooltip on top of the overlay stack.
+    IF CURRENT_TOOL% = TOOL_PICKER AND PICKER.ACTIVE% AND _
+       SCREEN_mouse_over_work_area%(MOUSE.RAW_X%, MOUSE.RAW_Y%) THEN
+        PREVIEW_render_loupe SCRN.CANVAS&
+    END IF
+    PREVIEW_render_tooltip 0
     TOOLTIP_reblit_to_screen0
 
     PERF_start PERF_DISPLAY_CALL

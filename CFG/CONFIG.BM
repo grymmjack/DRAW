@@ -14,6 +14,8 @@ SUB CONFIG_set_defaults ()
     ' Default to windowed mode with auto-detected scale
     CFG.FULLSCREEN%                     = FALSE
     CFG.SPLASH_ENABLED%                 = TRUE                                            ' Show splash screen on startup by default
+    CFG.UI_SCALE%                       = 0                                               ' MASTER scale (0=auto). Drives display + chrome; dialog/browser derive from it
+    CFG.HIDPI_AWARE%                    = TRUE                                            ' [Windows] DPI-aware process = true-pixel display. No effect on Linux/macOS
     CFG.DISPLAY_SCALE%                  = 0                                               ' 0 = auto-detect from desktop resolution
     CFG.DISPLAY_SCALE_MAX%              = 8                                               ' Maximum allowed scale multiplier
     CFG.DISPLAY_SCALE_CHANGED%          = FALSE                                           ' Runtime flag, not persisted
@@ -173,8 +175,8 @@ SUB CONFIG_set_defaults ()
     CFG.BROWSER_DEFAULT_SORT_TYPE%    = 0                                                 ' 0 = name
     CFG.BROWSER_DEFAULT_SORT_ORDER%   = 0                                                 ' 0 = ascending
     CFG.BROWSER_DEFAULT_PREVIEW_OPEN% = TRUE                                              ' Preview pane open by default
-    CFG.BROWSER_FONT_SCALE%           = 1                                                 ' Compact browser font scale (independent from modal FD)
-    CFG.BROWSER_ICON_SCALE%           = 1                                                 ' Compact browser icon scale (independent from modal FD)
+    CFG.BROWSER_FONT_SCALE%           = 0                                                 ' 0 = auto-derive from chrome scale (recommended); 1-4 explicit
+    CFG.BROWSER_ICON_SCALE%           = 0                                                 ' 0 = auto-derive from chrome scale (recommended); 1-4 explicit
     CFG.BROWSER_PLACES_MIN_W%         = 0                                                 ' 0 = auto (dialogW/6, clamped 70-140)
     CFG.BROWSER_PREVIEW_MIN_W%        = 0                                                 ' 0 = auto (dialogW/5, clamped 110-200)
     CFG.PIXEL_ANALYZER_CONFIDENCE%    = 60                                                ' Pixel analyzer default confidence threshold percent
@@ -215,8 +217,8 @@ SUB CONFIG_set_defaults ()
     CFG.CHAR_GRID_OPACITY%   = 0                                                          ' 0 = use theme default
     CFG.CHAR_GRID_COLOR_FG~& = 0                                                          ' 0 = use theme default
     ' File dialog settings
-    CFG.FD_FONT_SCALE%           = 2                                                      ' File dialog UI/font scale (1-4)
-    CFG.FD_ICON_SCALE%           = 3                                                      ' File dialog icon scale (1-4)
+    CFG.FD_FONT_SCALE%           = 0                                                      ' 0 = auto-derive from chrome scale (recommended); 1-4 explicit
+    CFG.FD_ICON_SCALE%           = 0                                                      ' 0 = auto-derive from chrome scale (recommended); 1-4 explicit
     CFG.FD_FONT%                 = 16                                                     ' 8=compact, 16=standard
     CFG.FD_DIALOG_W%             = 0                                                      ' 0 = auto-size
     CFG.FD_DIALOG_H%             = 0                                                      ' 0 = auto-size
@@ -368,6 +370,10 @@ SUB CONFIG_load ()
                         CFG.FULLSCREEN% = VAL(configValue$)
                     CASE "SPLASH_ENABLED"
                         CFG.SPLASH_ENABLED% = VAL(configValue$)
+                    CASE "UI_SCALE"
+                        CFG.UI_SCALE% = VAL(configValue$)
+                    CASE "HIDPI_AWARE"
+                        CFG.HIDPI_AWARE% = (VAL(configValue$) <> 0)
                     CASE "DISPLAY_SCALE"
                         CFG.DISPLAY_SCALE% = VAL(configValue$)
                     CASE "DISPLAY_SCALE_MAX"
@@ -954,6 +960,12 @@ SUB CFG_validate ()
         CFG.DISPLAY_SCALE_MAX% = 8
     END IF
     
+    ' Validate master UI scale (0-8, where 0 = auto-detect)
+    IF CFG.UI_SCALE% < 0 OR CFG.UI_SCALE% > CFG.DISPLAY_SCALE_MAX% THEN
+        ERR_warn "Config: UI_SCALE out of range (" + _TRIM$(STR$(CFG.UI_SCALE%)) + "), using auto-detect"
+        CFG.UI_SCALE% = 0
+    END IF
+
     ' Validate display scale (0-8, where 0 = auto-detect)
     IF CFG.DISPLAY_SCALE% < 0 OR CFG.DISPLAY_SCALE% > CFG.DISPLAY_SCALE_MAX% THEN
         ERR_warn "Config: DISPLAY_SCALE out of range (" + _TRIM$(STR$(CFG.DISPLAY_SCALE%)) + "), using auto-detect"
@@ -965,11 +977,12 @@ SUB CFG_validate ()
         ERR_warn "Config: TOOLBAR_SCALE out of range (" + _TRIM$(STR$(CFG.TOOLBAR_SCALE%)) + "), using auto"
         CFG.TOOLBAR_SCALE% = 0
     END IF
-    IF CFG.FD_FONT_SCALE% < 1 OR CFG.FD_FONT_SCALE% > 4 THEN
-        CFG.FD_FONT_SCALE% = 2
+    ' 0 = auto-derive from chrome scale (see DRAW_FD_apply_font_scale); 1-4 explicit
+    IF CFG.FD_FONT_SCALE% < 0 OR CFG.FD_FONT_SCALE% > 4 THEN
+        CFG.FD_FONT_SCALE% = 0
     END IF
-    IF CFG.FD_ICON_SCALE% < 1 OR CFG.FD_ICON_SCALE% > 4 THEN
-        CFG.FD_ICON_SCALE% = 3
+    IF CFG.FD_ICON_SCALE% < 0 OR CFG.FD_ICON_SCALE% > 4 THEN
+        CFG.FD_ICON_SCALE% = 0
     END IF
     IF CFG.FD_FONT% <> 8 AND CFG.FD_FONT% <> 16 THEN CFG.FD_FONT% = 16
     IF CFG.FD_DIALOG_W% < 0 THEN CFG.FD_DIALOG_W% = 0
@@ -1352,6 +1365,10 @@ SUB CONFIG_save ()
     PRINT #fh%, "THEME=" + CFG.THEME$
     PRINT #fh%, "FULLSCREEN=" + _TRIM$(STR$(CFG.FULLSCREEN%))
     PRINT #fh%, "SPLASH_ENABLED=" + _TRIM$(STR$(CFG.SPLASH_ENABLED%))
+    ' Master UI scale: persist the user's choice verbatim (0 = auto-detect).
+    PRINT #fh%, "UI_SCALE=" + _TRIM$(STR$(CFG.UI_SCALE%))
+    ' [Windows] DPI awareness (1=on). No effect on Linux/macOS. -1 (TRUE) -> 1.
+    PRINT #fh%, "HIDPI_AWARE=" + _TRIM$(STR$(ABS(CFG.HIDPI_AWARE% <> 0)))
     IF CFG.DISPLAY_SCALE% > 0 THEN
         PRINT #fh%, "DISPLAY_SCALE=" + _TRIM$(STR$(CFG.DISPLAY_SCALE%))
     ELSE
@@ -1389,10 +1406,11 @@ SUB CONFIG_save ()
     PRINT #fh%, ""
 
     PRINT #fh%, "[FILE_DIALOG]"
-    IF CFG.FD_FONT_SCALE% < 1 THEN CFG.FD_FONT_SCALE% = 2
+    ' 0 = auto-derive from chrome scale (preserve, do NOT bump to a fixed value)
+    IF CFG.FD_FONT_SCALE% < 0 THEN CFG.FD_FONT_SCALE% = 0
     IF CFG.FD_FONT_SCALE% > 4 THEN CFG.FD_FONT_SCALE% = 4
     PRINT #fh%, "FD_FONT_SCALE=" + _TRIM$(STR$(CFG.FD_FONT_SCALE%))
-    IF CFG.FD_ICON_SCALE% < 1 THEN CFG.FD_ICON_SCALE% = 3
+    IF CFG.FD_ICON_SCALE% < 0 THEN CFG.FD_ICON_SCALE% = 0
     IF CFG.FD_ICON_SCALE% > 4 THEN CFG.FD_ICON_SCALE% = 4
     PRINT #fh%, "FD_ICON_SCALE=" + _TRIM$(STR$(CFG.FD_ICON_SCALE%))
     IF CFG.FD_FONT% <> 8 AND CFG.FD_FONT% <> 16 THEN CFG.FD_FONT% = 16

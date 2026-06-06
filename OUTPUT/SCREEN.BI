@@ -142,4 +142,16 @@ GRAYSCALE_PREVIEW_ACTIVE% = FALSE
 DIM SHARED SCREEN_DEFERRED_RESIZE AS INTEGER
 SCREEN_DEFERRED_RESIZE% = FALSE
 
+$IF WIN THEN
+' [Windows] Opt the process into DPI awareness so _DESKTOPWIDTH/_DESKTOPHEIGHT and
+' the window report TRUE physical pixels instead of the OS DPI-virtualized desktop
+' (e.g. 3840x2160 instead of a stretched 1536x864 on a 4K panel at >100% scaling).
+' Must run before the first window is created — see the call at the top of
+' SCREEN_init (gated on CFG.HIDPI_AWARE%). user32 export; returns BOOL.
+' Linux (real pixels) and macOS (Retina backing) need no equivalent call.
+DECLARE DYNAMIC LIBRARY "user32"
+    FUNCTION DRAW_SetProcessDPIAware& ALIAS "SetProcessDPIAware" ()
+END DECLARE
+$END IF
+
 SCREEN_init
