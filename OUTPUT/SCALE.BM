@@ -1,0 +1,97 @@
+''
+' DRAW - OUTPUT/SCALE.BM
+' =============================================================================
+' Unified UI scale resolver. See OUTPUT/SCALE.BI for the model.
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+''
+' Resolve the master scale, then every per-widget scale.
+'
+' master% precedence:
+'   1. CFG.DISPLAY_SCALE%  (> 0)  — explicit canvas override
+'   2. CFG.UI_SCALE%       (> 0)  — master knob * SCALE_RATIO_CANVAS
+'   3. auto-detect from the desktop resolution (SCREEN_detect_display_scale%)
+'
+SUB SCALE_resolve_all ()
+    ' UI_SCALE is the master knob and wins. DISPLAY_SCALE is only a fallback
+    ' override for Auto mode (UI_SCALE = 0) — e.g. force a scale from the cfg
+    ' without picking a UI_SCALE. UI_SCALE = 0 and DISPLAY_SCALE = 0 -> auto-detect.
+    DIM master AS INTEGER
+    IF CFG.UI_SCALE% > 0 THEN
+        master% = INT(CFG.UI_SCALE% * CFG.SCALE_RATIO_CANVAS! + 0.5)
+    ELSEIF CFG.DISPLAY_SCALE% > 0 THEN
+        master% = CFG.DISPLAY_SCALE%
+    ELSE
+        master% = SCREEN_detect_display_scale%
+    END IF
+    IF master% < 1 THEN master% = 1
+    IF master% > CFG.DISPLAY_SCALE_MAX% THEN master% = CFG.DISPLAY_SCALE_MAX%
+    SCALE_resolve_widgets master%
+END SUB
+
+''
+' Resolve all per-widget scales against an already-decided master scale.
+' Used both from SCALE_resolve_all and after SCREEN_init's fit/safety pass (or a
+' runtime scale change) settles the final display scale.
+' @param master INTEGER The canvas/display scale every widget derives from.
+'
+SUB SCALE_resolve_widgets (master AS INTEGER)
+    DIM m AS INTEGER
+    m% = master%
+    IF m% < 1 THEN m% = 1
+
+    USCALE.canvas%    = m%
+    USCALE.toolbar%   = SCALE_resolve_one%(CFG.TOOLBAR_SCALE_OVR%, m%, CFG.SCALE_RATIO_TOOLBAR!, 1, 4)
+    USCALE.organizer% = SCALE_resolve_one%(CFG.TOOLBAR_SCALE_OVR%, m%, CFG.SCALE_RATIO_ORGANIZER!, 1, 4)
+    USCALE.drawer%    = SCALE_resolve_one%(CFG.TOOLBAR_SCALE_OVR%, m%, CFG.SCALE_RATIO_DRAWER!, 1, 4)
+    USCALE.flyout%    = SCALE_resolve_one%(CFG.TOOLBAR_SCALE_OVR%, m%, CFG.SCALE_RATIO_FLYOUT!, 1, 4)
+    USCALE.tooltip%   = SCALE_resolve_one%(CFG.TOOLBAR_SCALE_OVR%, m%, CFG.SCALE_RATIO_TOOLTIP!, 1, 4)
+    USCALE.preview%   = SCALE_resolve_one%(CFG.TOOLBAR_SCALE_OVR%, m%, CFG.SCALE_RATIO_PREVIEW!, 1, 4)
+    USCALE.mixer%     = SCALE_resolve_one%(CFG.TOOLBAR_SCALE_OVR%, m%, CFG.SCALE_RATIO_MIXER!, 1, 4)
+    ' These dialogs historically tracked the canvas/display scale (not chrome),
+    ' so resolve with no chrome override and the full canvas range; ratio 1.0
+    ' reproduces the old SCRN.displayScale% value exactly. Lower the ratio in
+    ' DRAW.cfg to shrink them toward the modal-dialog size.
+    USCALE.dialog%        = SCALE_resolve_one%(0, m%, CFG.SCALE_RATIO_DIALOG!, 1, CFG.DISPLAY_SCALE_MAX%)
+    USCALE.about%         = SCALE_resolve_one%(0, m%, CFG.SCALE_RATIO_ABOUT!, 1, CFG.DISPLAY_SCALE_MAX%)
+    USCALE.palettePicker% = SCALE_resolve_one%(0, m%, CFG.SCALE_RATIO_PALETTE_PICKER!, 1, CFG.DISPLAY_SCALE_MAX%)
+    USCALE.fdFont%        = SCALE_resolve_one%(CFG.FD_FONT_SCALE%, m%, CFG.SCALE_RATIO_FD_FONT!, 1, 4)
+    USCALE.fdIcon%        = SCALE_resolve_one%(CFG.FD_ICON_SCALE%, m%, CFG.SCALE_RATIO_FD_ICON!, 1, 4)
+    USCALE.colorPick%     = SCALE_resolve_one%(CFG.TOOLBAR_SCALE_OVR%, m%, CFG.SCALE_RATIO_COLORPICK!, 1, 4)
+    USCALE.msgBox%        = SCALE_resolve_one%(CFG.TOOLBAR_SCALE_OVR%, m%, CFG.SCALE_RATIO_MSGBOX!, 1, 4)
+    USCALE.inputBox%      = SCALE_resolve_one%(CFG.TOOLBAR_SCALE_OVR%, m%, CFG.SCALE_RATIO_INPUTBOX!, 1, 4)
+    USCALE.browser%       = SCALE_resolve_one%(CFG.TOOLBAR_SCALE_OVR%, m%, CFG.SCALE_RATIO_BROWSER!, 1, 4)
+    USCALE.browserFont%   = SCALE_resolve_one%(CFG.BROWSER_FONT_SCALE%, m%, CFG.SCALE_RATIO_BROWSER_FONT!, 1, 4)
+    USCALE.browserIcon%   = SCALE_resolve_one%(CFG.BROWSER_ICON_SCALE%, m%, CFG.SCALE_RATIO_BROWSER_ICON!, 1, 4)
+
+    ' Write the resolved chrome scale back into CFG.TOOLBAR_SCALE% so legacy
+    ' readers (and dialog auto-derive) follow the unified master without change.
+    CFG.TOOLBAR_SCALE% = USCALE.toolbar%
+
+    _LOGINFO "SCALE_resolve: master=" + _TRIM$(STR$(m%)) + " toolbar=" + _TRIM$(STR$(USCALE.toolbar%)) + " preview=" + _TRIM$(STR$(USCALE.preview%)) + " mixer=" + _TRIM$(STR$(USCALE.mixer%)) + " dialog=" + _TRIM$(STR$(USCALE.dialog%)) + " fdFont=" + _TRIM$(STR$(USCALE.fdFont%)) + " fdIcon=" + _TRIM$(STR$(USCALE.fdIcon%)) + " browser=" + _TRIM$(STR$(USCALE.browser%))
+END SUB
+
+''
+' Resolve one widget's integer scale: explicit override wins, else ROUND(master
+' * ratio), clamped to [mn, mx]. The clamp also defends against malformed ratios.
+' @param override INTEGER Legacy absolute scale (>0 forces this value)
+' @param master   INTEGER The master scale to derive from
+' @param ratio    SINGLE  Per-widget multiplier of the master
+' @param mn       INTEGER Minimum allowed result
+' @param mx       INTEGER Maximum allowed result
+' @return INTEGER - Resolved scale in [mn, mx]
+'
+FUNCTION SCALE_resolve_one% (override AS INTEGER, master AS INTEGER, ratio AS SINGLE, mn AS INTEGER, mx AS INTEGER)
+    DIM r AS INTEGER
+    IF override% > 0 THEN
+        r% = override%
+    ELSE
+        r% = INT(master% * ratio! + 0.5)
+    END IF
+    IF r% < mn% THEN r% = mn%
+    IF r% > mx% THEN r% = mx%
+    SCALE_resolve_one% = r%
+END FUNCTION

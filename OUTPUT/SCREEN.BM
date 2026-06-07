@@ -355,47 +355,62 @@ END FUNCTION
 '
 SUB SCREEN_set_display_scale (newScale AS INTEGER)
     DIM winW         AS LONG, winH AS LONG
-    DIM maxFitW      AS INTEGER, maxFitH AS INTEGER
     DIM clampedScale AS INTEGER
-    DIM maxScale     AS INTEGER
-    
+    DIM newVpW       AS LONG, newVpH AS LONG
+    DIM minW         AS LONG, minH AS LONG, estTB AS INTEGER
+    DIM oldCanvas    AS LONG, oldGUI AS LONG
+
     ' Don't allow scale changes in fullscreen mode
     IF CFG.FULLSCREEN% THEN EXIT SUB
-    
+
     clampedScale% = newScale%
-    
-    ' Clamp to minimum of 1
     IF clampedScale% < 1 THEN clampedScale% = 1
-    
-    ' Clamp to configured maximum
-    IF clampedScale% > CFG.DISPLAY_SCALE_MAX% THEN
-        clampedScale% = CFG.DISPLAY_SCALE_MAX%
-    END IF
-    
-    ' Clamp to fit on desktop (use full desktop — user explicitly requested scale change)
-    maxFitW%  = _DESKTOPWIDTH \ SCRN.w&
-    maxFitH%  = _DESKTOPHEIGHT \ SCRN.h&
-    maxScale% = maxFitW%
-    IF maxFitH% < maxScale% THEN maxScale% = maxFitH%
-    IF maxScale% > CFG.DISPLAY_SCALE_MAX% THEN maxScale% = CFG.DISPLAY_SCALE_MAX%
-    IF clampedScale% > maxScale% THEN clampedScale% = maxScale%
-    
-    _LOGINFO "SCREEN_set_display_scale: requested=" + _TRIM$(STR$(newScale%)) + " clamped=" + _TRIM$(STR$(clampedScale%)) + " current=" + _TRIM$(STR$(SCRN.displayScale%)) + " maxFit=" + _TRIM$(STR$(maxScale%)) + " desktop=" + _TRIM$(STR$(_DESKTOPWIDTH)) + "x" + _TRIM$(STR$(_DESKTOPHEIGHT)) + " viewport=" + _TRIM$(STR$(SCRN.w&)) + "x" + _TRIM$(STR$(SCRN.h&))
-    
-    ' No change needed (already at requested scale or at limit)
-    IF clampedScale% = SCRN.displayScale% THEN
-        IF newScale% > SCRN.displayScale% THEN
-            _LOGWARN "SCREEN_set_display_scale: cannot scale up, " + _TRIM$(STR$(SCRN.displayScale%)) + "x is max for " + _TRIM$(STR$(SCRN.w&)) + "x" + _TRIM$(STR$(SCRN.h&)) + " on " + _TRIM$(STR$(_DESKTOPWIDTH)) + "x" + _TRIM$(STR$(_DESKTOPHEIGHT)) + " desktop"
-        ELSEIF newScale% < SCRN.displayScale% THEN
-            _LOGWARN "SCREEN_set_display_scale: cannot scale down, already at minimum (1x)"
-        END IF
+    IF clampedScale% > CFG.DISPLAY_SCALE_MAX% THEN clampedScale% = CFG.DISPLAY_SCALE_MAX%
+
+    ' Re-derive the viewport to fill the desktop at the requested scale. An explicit
+    ' scale change re-magnifies the SAME UI: a bigger scale means a smaller viewport
+    ' (fewer logical pixels, each drawn larger). Shrinking the viewport with the
+    ' scale is what lets the scale go UP from a low-scale / large-viewport state —
+    ' the old code clamped the scale to the existing (large) viewport, so it never
+    ' grew. If the resulting viewport is too small for the chrome, step back down.
+    DO
+        newVpW& = _DESKTOPWIDTH \ clampedScale%
+        newVpH& = _DESKTOPHEIGHT \ clampedScale%
+        newVpW& = (newVpW& \ 2) * 2
+        newVpH& = (newVpH& \ 2) * 2
+        estTB%  = SCREEN_estimate_toolbar_scale%(newVpW&, newVpH&)
+        minW&   = SCREEN_chrome_min_w&(estTB%)
+        minH&   = SCREEN_chrome_min_h&(estTB%)
+        IF CFG.WIN_MIN_WIDTH% > minW& THEN minW& = CFG.WIN_MIN_WIDTH%
+        IF CFG.WIN_MIN_HEIGHT% > minH& THEN minH& = CFG.WIN_MIN_HEIGHT%
+        IF (newVpW& >= minW& AND newVpH& >= minH&) OR clampedScale% <= 1 THEN EXIT DO
+        clampedScale% = clampedScale% - 1
+    LOOP
+
+    _LOGINFO "SCREEN_set_display_scale: requested=" + _TRIM$(STR$(newScale%)) + " -> scale=" + _TRIM$(STR$(clampedScale%)) + " viewport=" + _TRIM$(STR$(newVpW&)) + "x" + _TRIM$(STR$(newVpH&)) + " desktop=" + _TRIM$(STR$(_DESKTOPWIDTH)) + "x" + _TRIM$(STR$(_DESKTOPHEIGHT))
+
+    ' Nothing actually changed — just keep the master + per-widget scales in sync.
+    IF clampedScale% = SCRN.displayScale% AND newVpW& = SCRN.w& AND newVpH& = SCRN.h& THEN
+        IF CFG.UI_SCALE% > 0 THEN CFG.UI_SCALE% = clampedScale%
+        SCALE_resolve_widgets clampedScale%
+        SCREEN_compute_layout
+        GUI_NEEDS_REDRAW% = TRUE
         EXIT SUB
     END IF
-    
-    ' Update display scale
+
+    ' Recreate viewport-sized buffers (new before freeing old, so _DEST never
+    ' points at a freed handle) — mirrors SCREEN_snap_window_to_scale.
+    oldCanvas&         = SCRN.CANVAS&
+    oldGUI&            = SCRN.GUI&
+    SCRN.w&            = newVpW&
+    SCRN.h&            = newVpH&
     SCRN.displayScale% = clampedScale%
-    
-    ' Recreate window-sized screen surface at new scale; no glutReshapeWindow needed.
+    SCRN.CANVAS&       = _NEWIMAGE(SCRN.w&, SCRN.h&, 32)
+    SCRN.GUI&          = _NEWIMAGE(SCRN.w&, SCRN.h&, 32)
+    SAFE_FREEIMAGE oldCanvas&
+    SAFE_FREEIMAGE oldGUI&
+
+    ' Recreate the OS window at viewport * scale and recentre.
     winW& = SCRN.w& * SCRN.displayScale%
     winH& = SCRN.h& * SCRN.displayScale%
     _LOGINFO "SCREEN_set_display_scale: resizing window to " + _TRIM$(STR$(winW&)) + "x" + _TRIM$(STR$(winH&)) + " (scale " + _TRIM$(STR$(SCRN.displayScale%)) + "x)"
@@ -403,32 +418,18 @@ SUB SCREEN_set_display_scale (newScale AS INTEGER)
     SCREEN _NEWIMAGE(winW&, winH&, 32)
     _DEST SCRN.CANVAS&
     _SCREENMOVE _MIDDLE
-    
+
     ' Reset input state after window resize
-    MOUSE_cleanup_after_dialog FALSE ' Clear buffers but don't move mouse (no dialog, but same cleanup needed)
-    _MOUSEHIDE                       ' Ensure system cursor stays hidden
-    
-    ' Mark GUI as needing redraw
+    MOUSE_cleanup_after_dialog FALSE
+    _MOUSEHIDE
     GUI_NEEDS_REDRAW% = TRUE
-    
-    ' Recalculate toolbar scale if it was auto-detected
-    IF SCREEN_toolbar_scale_is_auto% THEN
-        DIM setNewTB AS INTEGER
-        setNewTB% = SCREEN_estimate_toolbar_scale%(SCRN.w&, SCRN.h&)
-        IF setNewTB% <> CFG.TOOLBAR_SCALE% THEN
-            _LOGINFO "SCREEN_set_display_scale: toolbar scale " + _TRIM$(STR$(CFG.TOOLBAR_SCALE%)) + " -> " + _TRIM$(STR$(setNewTB%)) + " for viewport " + _TRIM$(STR$(SCRN.w&)) + "x" + _TRIM$(STR$(SCRN.h&))
-            CFG.TOOLBAR_SCALE% = setNewTB%
-            SCREEN_compute_layout
-        END IF
-    END IF
-    
-    ' Keep the master UI scale in sync with runtime scale changes so it stays
-    ' authoritative on the next launch (and re-derives chrome to match).
-    IF CFG.UI_SCALE% > 0 THEN
-        CFG.UI_SCALE%      = clampedScale%
-        CFG.DISPLAY_SCALE% = clampedScale%
-        CFG.TOOLBAR_SCALE% = SCREEN_chrome_scale_from_display%(clampedScale%)
-    END IF
+
+    ' Keep an existing UI_SCALE master in sync (Auto stays Auto), re-resolve every
+    ' per-widget scale against the new master, relayout, and invalidate the scene.
+    IF CFG.UI_SCALE% > 0 THEN CFG.UI_SCALE% = clampedScale%
+    SCALE_resolve_widgets clampedScale%
+    SCREEN_compute_layout
+    INVALIDATE_scene
 
     ' Mark config as changed
     CFG.DISPLAY_SCALE_CHANGED% = TRUE
@@ -529,36 +530,23 @@ SUB SCREEN_init ()
     SCRN.h&   = 0
     SCRN.bpp% = 0
 
-    ' --- Master UI scale: one knob to rule them all ---------------------------
-    ' When CFG.UI_SCALE% > 0 it OWNS every other scale: it sets the canvas
-    ' (DISPLAY_SCALE) and chrome (TOOLBAR_SCALE) scales here, and the modal file
-    ' dialog + docked browser derive their font/icon scales from TOOLBAR_SCALE
-    ' (see DRAW_FD_apply_font_scale). UI_SCALE = 0 leaves everything on
-    ' auto-detect, which still feeds the dialog/browser derivation downstream.
-    IF CFG.UI_SCALE% > 0 THEN
-        CFG.DISPLAY_SCALE% = CFG.UI_SCALE%
-        IF CFG.DISPLAY_SCALE% > CFG.DISPLAY_SCALE_MAX% THEN CFG.DISPLAY_SCALE% = CFG.DISPLAY_SCALE_MAX%
-        CFG.TOOLBAR_SCALE% = SCREEN_chrome_scale_from_display%(CFG.DISPLAY_SCALE%)
-        ' Re-derive the viewport from the chosen scale instead of any stale
-        ' SCREEN_WIDTH/HEIGHT frozen on a previous (differently sized) display.
+    ' --- Unified scale resolution: one master knob + per-widget ratios --------
+    ' SCALE_resolve_all derives the canvas/display scale and every per-widget
+    ' chrome/dialog/browser scale from CFG.UI_SCALE% (master), the SCALE_RATIO_*
+    ' ratios, and the legacy *_SCALE overrides (see OUTPUT/SCALE.BM). The whole
+    ' UI then scales together from one knob; ratios (in DRAW.cfg) tune each
+    ' widget. "Explicit" (fill the desktop) means a DISPLAY_SCALE override or a
+    ' UI_SCALE master was set; auto leaves a centering margin.
+    DIM scaleIsExplicit AS INTEGER
+    scaleIsExplicit% = (CFG.DISPLAY_SCALE% > 0) OR (CFG.UI_SCALE% > 0)
+    ' A UI_SCALE master re-derives the viewport from the chosen scale rather than
+    ' any stale SCREEN_WIDTH/HEIGHT frozen on a previously sized display.
+    IF CFG.UI_SCALE% > 0 AND CFG.DISPLAY_SCALE% = 0 THEN
         CFG.SCREEN_WIDTH%  = 0
         CFG.SCREEN_HEIGHT% = 0
-        _LOGINFO "SCREEN_init: UI_SCALE master = " + _TRIM$(STR$(CFG.UI_SCALE%)) + " -> DISPLAY_SCALE=" + _TRIM$(STR$(CFG.DISPLAY_SCALE%)) + " TOOLBAR_SCALE=" + _TRIM$(STR$(CFG.TOOLBAR_SCALE%))
     END IF
-
-    ' Determine display scale FIRST (needed for auto-detect viewport sizing)
-    IF CFG.DISPLAY_SCALE% > 0 THEN
-        ' Use explicit scale from config
-        SCRN.displayScale% = CFG.DISPLAY_SCALE%
-        ' Clamp to max
-        IF SCRN.displayScale% > CFG.DISPLAY_SCALE_MAX% THEN
-            SCRN.displayScale% = CFG.DISPLAY_SCALE_MAX%
-        END IF
-    ELSE
-        ' Auto-detect optimal scale
-        SCRN.displayScale% = SCREEN_detect_display_scale%
-    END IF
-    
+    SCALE_resolve_all
+    SCRN.displayScale% = USCALE.canvas%
     ' Ensure minimum scale of 1
     IF SCRN.displayScale% < 1 THEN SCRN.displayScale% = 1
     
@@ -574,7 +562,7 @@ SUB SCREEN_init ()
         ' When scale is also auto, stay at 90% so the window has a centering margin.
         SCREEN_detect_desktop_resolution
         DIM targetW AS LONG, targetH AS LONG
-        IF CFG.DISPLAY_SCALE% > 0 THEN
+        IF scaleIsExplicit% THEN
             ' Explicit scale: viewport fills the monitor exactly regardless of ratio
             targetW& = SCRN.w&
             targetH& = SCRN.h&
@@ -613,7 +601,7 @@ SUB SCREEN_init ()
     DIM initDesktopW AS LONG, initDesktopH AS LONG
     initDesktopW& = _DESKTOPWIDTH
     initDesktopH& = _DESKTOPHEIGHT
-    IF CFG.DISPLAY_SCALE% > 0 THEN
+    IF scaleIsExplicit% THEN
         ' User explicitly set scale — use full desktop as window limit
         initMaxW& = initDesktopW&
         initMaxH& = initDesktopH&
@@ -695,21 +683,12 @@ SUB SCREEN_init ()
         _LOGINFO "SCREEN_init: viewport was reduced from configured " + _TRIM$(STR$(CFG.SCREEN_WIDTH%)) + "x" + _TRIM$(STR$(CFG.SCREEN_HEIGHT%)) + " to " + _TRIM$(STR$(SCRN.w&)) + "x" + _TRIM$(STR$(SCRN.h&)) + " to honor " + _TRIM$(STR$(SCRN.displayScale%)) + "x display scale"
     END IF
     
-    ' Auto-detect toolbar scale from viewport size if not explicitly set
-    IF CFG.TOOLBAR_SCALE% = 0 THEN
-        SCREEN_toolbar_scale_is_auto% = TRUE
-        ' If a resolution preset provided a recommended TB scale, use it
-        IF SCREEN_preset_toolbar_scale% > 0 THEN
-            CFG.TOOLBAR_SCALE% = SCREEN_preset_toolbar_scale%
-            _LOGINFO "SCREEN_init: using preset toolbar scale=" + _TRIM$(STR$(CFG.TOOLBAR_SCALE%))
-        ELSE
-            ' Calculate highest TB scale that fits the viewport proportionally
-            CFG.TOOLBAR_SCALE% = SCREEN_estimate_toolbar_scale%(SCRN.w&, SCRN.h&)
-            _LOGINFO "SCREEN_init: auto-detected toolbar scale=" + _TRIM$(STR$(CFG.TOOLBAR_SCALE%)) + " for viewport " + _TRIM$(STR$(SCRN.w&)) + "x" + _TRIM$(STR$(SCRN.h&))
-        END IF
-    ELSE
-        SCREEN_toolbar_scale_is_auto% = FALSE
-    END IF
+    ' Re-resolve every per-widget scale against the final display scale (the
+    ' fit/safety pass above may have reduced it to fit the desktop). This sets
+    ' SCALE.* and writes the resolved chrome scale back into CFG.TOOLBAR_SCALE%.
+    SCALE_resolve_widgets SCRN.displayScale%
+    ' "Auto" chrome = no explicit override; resize/scale events re-resolve it.
+    SCREEN_toolbar_scale_is_auto% = (CFG.TOOLBAR_SCALE_OVR% = 0)
 
     ' Canvas dimensions: use command-line override, config default, or viewport
     IF CMDLINE_CANVAS_W% > 0 AND CMDLINE_CANVAS_H% > 0 THEN

@@ -202,7 +202,7 @@ SUB ORGANIZER_render (tbPanelY2 AS INTEGER)
     ORGANIZER_load_images
 
     ' Get toolbar scale from config (match toolbar scaling)
-    scale% = CFG.TOOLBAR_SCALE%
+    scale% = USCALE.organizer%
     IF scale% < 1 THEN scale% = 1
     IF scale% > 4 THEN scale% = 4
 
@@ -1080,16 +1080,49 @@ SUB ORGANIZER_opacity_slider_render (wx AS INTEGER, wy AS INTEGER, ww AS INTEGER
         END IF
     END IF
 
-    ' Percentage text — centered horizontally, near top of slider
-    pctTxt$ = _TRIM$(STR$(PAINT_OPACITY%))
-    IF STATUS_FONT > 16 THEN
-        _FONT STATUS_FONT, SCRN.GUI&
+    ' Percentage text — centered horizontally, near top of slider.
+    ' Sized to scale with the organizer AND fit the narrow opacity column:
+    ' "100" at ~6px-per-scale-step keeps 3 glyphs inside ORG_COL_W*scale at
+    ' every scale. A heavy multi-pass outline turns small glyphs into an
+    ' illegible blob, so we use a single 1px drop shadow for contrast instead.
+    ' Cached; the font is reloaded only when the target size changes.
+    ' Always a 2-glyph readout so it stays legible in the narrow column:
+    '   100% -> "--"  (full),   0-99% -> zero-padded "00".."99".
+    IF PAINT_OPACITY% >= 100 THEN
+        pctTxt$ = "--"
+    ELSE
+        pctTxt$ = RIGHT$("0" + _TRIM$(STR$(PAINT_OPACITY%)), 2)
+    END IF
+    DIM AS INTEGER opSz, opScl
+    DIM AS LONG opFont, opNewFont
+    opScl% = ww% \ ORG_COL_W ' organizer scale (ww = ORG_COL_W * scale)
+    IF opScl% < 1 THEN opScl% = 1
+    opSz% = 8 * opScl%       ' 2 glyphs at 8px fit the column legibly
+    IF opSz% <> ORG_OP_FONT_SZ% OR ORG_OP_FONT& = 0 THEN
+        ' Load the NEW size first; only then detach the old font from the GUI
+        ' surface and free it. _FREEFONT throws "Illegal function call" on a font
+        ' still bound as the active _FONT of a surface (happens on a scale change),
+        ' so we must switch GUI off it before freeing.
+        opNewFont& = _LOADFONT(THEME_font_path$(THEME.GLOBAL_FONT_FILE$), opSz%, "DONTBLEND")
+        IF opNewFont& > 0 THEN
+            IF ORG_OP_FONT& > 16 THEN
+                _FONT 16, SCRN.GUI&
+                _FREEFONT ORG_OP_FONT&
+            END IF
+            ORG_OP_FONT&    = opNewFont&
+            ORG_OP_FONT_SZ% = opSz%
+        END IF
+    END IF
+    opFont& = ORG_OP_FONT&
+    IF opFont& <= 0 THEN opFont& = STATUS_FONT
+    IF opFont& > 0 THEN
+        _FONT opFont&, SCRN.GUI&
         pw% = _PRINTWIDTH(pctTxt$)
         tx% = wx% + (ww% - pw%) \ 2
         IF tx% < innerX1% THEN tx% = innerX1%
         ty% = wy% + bw% + pad% + 1
-        ' Draw text background rect if it has any opacity
-        DIM AS _UNSIGNED LONG textBgCol
+        ' Optional text background rect (themed)
+        DIM AS _UNSIGNED LONG textBgCol, textShadow
         textBgCol~& = THEME.OPACITY_SLIDER_TEXT_BG~&
         IF _ALPHA32(textBgCol~&) > 0 THEN
             DIM AS INTEGER th
@@ -1097,22 +1130,14 @@ SUB ORGANIZER_opacity_slider_render (wx AS INTEGER, wy AS INTEGER, ww AS INTEGER
             LINE (tx%, ty%)-(tx% + pw% - 1, ty% + th% - 1), textBgCol~&, BF
         END IF
         _PRINTMODE _KEEPBACKGROUND
-        ' Draw text outline if width > 0
-        DIM AS _UNSIGNED LONG textOutlineFg
-        DIM AS INTEGER ow, odx, ody
-        textOutlineFg~& = THEME.OPACITY_SLIDER_TEXT_OUTLINE_FG~&
-        ow%             = THEME.OPACITY_SLIDER_TEXT_OUTLINE_WIDTH%
-        IF ow% > 0 THEN
-            COLOR textOutlineFg~&
-            FOR ody% = -ow% TO ow%
-                FOR odx% = -ow% TO ow%
-                    IF odx% <> 0 OR ody% <> 0 THEN
-                        _UPRINTSTRING (tx% + odx%, ty% + ody%), pctTxt$
-                    END IF
-                NEXT odx%
-            NEXT ody%
+        ' Single 1px drop shadow (themed outline color) — keeps contrast over the
+        ' slider fill without the blobbing of a full multi-pass outline.
+        textShadow~& = THEME.OPACITY_SLIDER_TEXT_OUTLINE_FG~&
+        IF _ALPHA32(textShadow~&) > 0 THEN
+            COLOR textShadow~&
+            _UPRINTSTRING (tx% + 1, ty% + 1), pctTxt$
         END IF
-        ' Draw main text on top
+        ' Main text on top
         COLOR textCol~&
         _UPRINTSTRING (tx%, ty%), pctTxt$
     END IF
