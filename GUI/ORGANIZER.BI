@@ -70,6 +70,12 @@ END TYPE
 DIM SHARED ORG_WIDGETS(0 TO ORG_WIDGET_COUNT - 1) AS ORGANIZER_WIDGET
 DIM SHARED ORGANIZER AS ORGANIZER_STATE
 
+' Cached font for the opacity-slider percentage readout. Sized to fit the
+' narrow opacity column (it scales with the organizer rather than using the
+' fixed global UI font, which overflows the column). Reloaded on size change.
+DIM SHARED ORG_OP_FONT    AS LONG
+DIM SHARED ORG_OP_FONT_SZ AS INTEGER
+
 ' Initialize widget image sources and dimensions
 ' ── Col 0, Row 0: Color Mixer ──
 ORG_WIDGETS(ORG_COLOR_MIXER).imgSrc$  = "color-mixer-off.png"

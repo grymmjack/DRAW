@@ -98,6 +98,9 @@ $INCLUDEONCE
 '$INCLUDE:'./INPUT/API-LOSPEC.BI'
 
 ' OUTPUT ----------------------------------------------------------------------
+' SCALE.BI before SCREEN.BI: SCREEN_init runs at include time and calls
+' SCALE_resolve_all, so the SCALE singleton must already be declared.
+'$INCLUDE:'./OUTPUT/SCALE.BI'
 '$INCLUDE:'./OUTPUT/SCREEN.BI'
 '$INCLUDE:'./OUTPUT/FILE-EXPORT.BI'
 '$INCLUDE:'./OUTPUT/FILE-QB64.BI'

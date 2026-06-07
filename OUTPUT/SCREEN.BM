@@ -173,6 +173,27 @@ END FUNCTION
 
 
 ''
+' Maps a display (canvas) scale to the matching chrome / toolbar scale.
+' Used by the master UI_SCALE so one knob drives both. Reproduces the
+' resolution-preset pairings (chrome stays ~2 across most desktops, growing
+' only at very high display scales) and clamps to the valid TOOLBAR_SCALE range.
+' @param ds INTEGER Display scale (1-8)
+' @return INTEGER - Chrome / toolbar scale (1-4)
+'
+FUNCTION SCREEN_chrome_scale_from_display% (ds AS INTEGER)
+    DIM ts AS INTEGER
+    SELECT CASE ds%
+        CASE IS <= 1 : ts% = 1
+        CASE 2 TO 4  : ts% = 2
+        CASE ELSE    : ts% = 3 ' ds 5-8
+    END SELECT
+    IF ts% < 1 THEN ts% = 1
+    IF ts% > 4 THEN ts% = 4
+    SCREEN_chrome_scale_from_display% = ts%
+END FUNCTION
+
+
+''
 ' Calculates the minimum viewport width for a given toolbar scale.
 ' Chrome accounted for:
 '   Toolbar:      4×(11×TB) + 3×(1×TB) + 2   (TB_COLS=4, TB_BTN_W=11, TB_BTN_PADDING=1)
@@ -334,47 +355,64 @@ END FUNCTION
 '
 SUB SCREEN_set_display_scale (newScale AS INTEGER)
     DIM winW         AS LONG, winH AS LONG
-    DIM maxFitW      AS INTEGER, maxFitH AS INTEGER
     DIM clampedScale AS INTEGER
-    DIM maxScale     AS INTEGER
-    
+    DIM newVpW       AS LONG, newVpH AS LONG
+    DIM minW         AS LONG, minH AS LONG, estTB AS INTEGER
+    DIM oldCanvas    AS LONG, oldGUI AS LONG
+
     ' Don't allow scale changes in fullscreen mode
     IF CFG.FULLSCREEN% THEN EXIT SUB
-    
+
     clampedScale% = newScale%
-    
-    ' Clamp to minimum of 1
     IF clampedScale% < 1 THEN clampedScale% = 1
-    
-    ' Clamp to configured maximum
-    IF clampedScale% > CFG.DISPLAY_SCALE_MAX% THEN
-        clampedScale% = CFG.DISPLAY_SCALE_MAX%
-    END IF
-    
-    ' Clamp to fit on desktop (use full desktop — user explicitly requested scale change)
-    maxFitW%  = _DESKTOPWIDTH \ SCRN.w&
-    maxFitH%  = _DESKTOPHEIGHT \ SCRN.h&
-    maxScale% = maxFitW%
-    IF maxFitH% < maxScale% THEN maxScale% = maxFitH%
-    IF maxScale% > CFG.DISPLAY_SCALE_MAX% THEN maxScale% = CFG.DISPLAY_SCALE_MAX%
-    IF clampedScale% > maxScale% THEN clampedScale% = maxScale%
-    
-    _LOGINFO "SCREEN_set_display_scale: requested=" + _TRIM$(STR$(newScale%)) + " clamped=" + _TRIM$(STR$(clampedScale%)) + " current=" + _TRIM$(STR$(SCRN.displayScale%)) + " maxFit=" + _TRIM$(STR$(maxScale%)) + " desktop=" + _TRIM$(STR$(_DESKTOPWIDTH)) + "x" + _TRIM$(STR$(_DESKTOPHEIGHT)) + " viewport=" + _TRIM$(STR$(SCRN.w&)) + "x" + _TRIM$(STR$(SCRN.h&))
-    
-    ' No change needed (already at requested scale or at limit)
-    IF clampedScale% = SCRN.displayScale% THEN
-        IF newScale% > SCRN.displayScale% THEN
-            _LOGWARN "SCREEN_set_display_scale: cannot scale up, " + _TRIM$(STR$(SCRN.displayScale%)) + "x is max for " + _TRIM$(STR$(SCRN.w&)) + "x" + _TRIM$(STR$(SCRN.h&)) + " on " + _TRIM$(STR$(_DESKTOPWIDTH)) + "x" + _TRIM$(STR$(_DESKTOPHEIGHT)) + " desktop"
-        ELSEIF newScale% < SCRN.displayScale% THEN
-            _LOGWARN "SCREEN_set_display_scale: cannot scale down, already at minimum (1x)"
-        END IF
+    IF clampedScale% > CFG.DISPLAY_SCALE_MAX% THEN clampedScale% = CFG.DISPLAY_SCALE_MAX%
+
+    ' Re-derive the viewport to fill the desktop at the requested scale. An explicit
+    ' scale change re-magnifies the SAME UI: a bigger scale means a smaller viewport
+    ' (fewer logical pixels, each drawn larger). Shrinking the viewport with the
+    ' scale is what lets the scale go UP from a low-scale / large-viewport state —
+    ' the old code clamped the scale to the existing (large) viewport, so it never
+    ' grew. If the resulting viewport is too small for the chrome, step back down.
+    DO
+        ' ~10% margin so window (viewport*scale) + title bar + taskbar fit the
+        ' desktop and the window centers correctly (matches SCREEN_init).
+        newVpW& = ((_DESKTOPWIDTH * 9) \ 10) \ clampedScale%
+        newVpH& = ((_DESKTOPHEIGHT * 9) \ 10) \ clampedScale%
+        newVpW& = (newVpW& \ 2) * 2
+        newVpH& = (newVpH& \ 2) * 2
+        estTB%  = SCREEN_estimate_toolbar_scale%(newVpW&, newVpH&)
+        minW&   = SCREEN_chrome_min_w&(estTB%)
+        minH&   = SCREEN_chrome_min_h&(estTB%)
+        IF CFG.WIN_MIN_WIDTH% > minW& THEN minW& = CFG.WIN_MIN_WIDTH%
+        IF CFG.WIN_MIN_HEIGHT% > minH& THEN minH& = CFG.WIN_MIN_HEIGHT%
+        IF (newVpW& >= minW& AND newVpH& >= minH&) OR clampedScale% <= 1 THEN EXIT DO
+        clampedScale% = clampedScale% - 1
+    LOOP
+
+    _LOGINFO "SCREEN_set_display_scale: requested=" + _TRIM$(STR$(newScale%)) + " -> scale=" + _TRIM$(STR$(clampedScale%)) + " viewport=" + _TRIM$(STR$(newVpW&)) + "x" + _TRIM$(STR$(newVpH&)) + " desktop=" + _TRIM$(STR$(_DESKTOPWIDTH)) + "x" + _TRIM$(STR$(_DESKTOPHEIGHT))
+
+    ' Nothing actually changed — just keep the master + per-widget scales in sync.
+    IF clampedScale% = SCRN.displayScale% AND newVpW& = SCRN.w& AND newVpH& = SCRN.h& THEN
+        IF CFG.UI_SCALE% > 0 THEN CFG.UI_SCALE% = clampedScale%
+        SCALE_resolve_widgets clampedScale%
+        SCREEN_compute_layout
+        GUI_NEEDS_REDRAW% = TRUE
         EXIT SUB
     END IF
-    
-    ' Update display scale
+
+    ' Recreate viewport-sized buffers (new before freeing old, so _DEST never
+    ' points at a freed handle) — mirrors SCREEN_snap_window_to_scale.
+    oldCanvas&         = SCRN.CANVAS&
+    oldGUI&            = SCRN.GUI&
+    SCRN.w&            = newVpW&
+    SCRN.h&            = newVpH&
     SCRN.displayScale% = clampedScale%
-    
-    ' Recreate window-sized screen surface at new scale; no glutReshapeWindow needed.
+    SCRN.CANVAS&       = _NEWIMAGE(SCRN.w&, SCRN.h&, 32)
+    SCRN.GUI&          = _NEWIMAGE(SCRN.w&, SCRN.h&, 32)
+    SAFE_FREEIMAGE oldCanvas&
+    SAFE_FREEIMAGE oldGUI&
+
+    ' Recreate the OS window at viewport * scale and recentre.
     winW& = SCRN.w& * SCRN.displayScale%
     winH& = SCRN.h& * SCRN.displayScale%
     _LOGINFO "SCREEN_set_display_scale: resizing window to " + _TRIM$(STR$(winW&)) + "x" + _TRIM$(STR$(winH&)) + " (scale " + _TRIM$(STR$(SCRN.displayScale%)) + "x)"
@@ -382,25 +420,19 @@ SUB SCREEN_set_display_scale (newScale AS INTEGER)
     SCREEN _NEWIMAGE(winW&, winH&, 32)
     _DEST SCRN.CANVAS&
     _SCREENMOVE _MIDDLE
-    
+
     ' Reset input state after window resize
-    MOUSE_cleanup_after_dialog FALSE ' Clear buffers but don't move mouse (no dialog, but same cleanup needed)
-    _MOUSEHIDE                       ' Ensure system cursor stays hidden
-    
-    ' Mark GUI as needing redraw
+    MOUSE_cleanup_after_dialog FALSE
+    _MOUSEHIDE
     GUI_NEEDS_REDRAW% = TRUE
-    
-    ' Recalculate toolbar scale if it was auto-detected
-    IF SCREEN_toolbar_scale_is_auto% THEN
-        DIM setNewTB AS INTEGER
-        setNewTB% = SCREEN_estimate_toolbar_scale%(SCRN.w&, SCRN.h&)
-        IF setNewTB% <> CFG.TOOLBAR_SCALE% THEN
-            _LOGINFO "SCREEN_set_display_scale: toolbar scale " + _TRIM$(STR$(CFG.TOOLBAR_SCALE%)) + " -> " + _TRIM$(STR$(setNewTB%)) + " for viewport " + _TRIM$(STR$(SCRN.w&)) + "x" + _TRIM$(STR$(SCRN.h&))
-            CFG.TOOLBAR_SCALE% = setNewTB%
-            SCREEN_compute_layout
-        END IF
-    END IF
-    
+
+    ' Keep an existing UI_SCALE master in sync (Auto stays Auto), re-resolve every
+    ' per-widget scale against the new master, relayout, and invalidate the scene.
+    IF CFG.UI_SCALE% > 0 THEN CFG.UI_SCALE% = clampedScale%
+    SCALE_resolve_widgets clampedScale%
+    SCREEN_compute_layout
+    INVALIDATE_scene
+
     ' Mark config as changed
     CFG.DISPLAY_SCALE_CHANGED% = TRUE
 END SUB
@@ -481,31 +513,51 @@ SUB SCREEN_init ()
     ' Load configuration from disk
     CONFIG_load
 
+    ' [Windows] Become DPI-aware BEFORE the first _DESKTOPWIDTH query or window
+    ' creation, so the rest of SCREEN_init sees true physical pixels. Guarded by
+    ' CFG.HIDPI_AWARE% so it can be disabled from config if it ever misbehaves.
+    ' Linux/macOS already report usable pixels, so there is no equivalent call.
+    $IF WIN THEN
+        IF CFG.HIDPI_AWARE% THEN
+            DIM dpiAwareOK AS LONG
+            dpiAwareOK& = DRAW_SetProcessDPIAware&
+            _LOGINFO "SCREEN_init: SetProcessDPIAware -> " + _TRIM$(STR$(dpiAwareOK&)) + " (desktop now " + _TRIM$(STR$(_DESKTOPWIDTH)) + "x" + _TRIM$(STR$(_DESKTOPHEIGHT)) + ")"
+        END IF
+    $END IF
+
     ' Load runtime theme overrides from THEME.CFG (after CONFIG_load so CFG.THEME$ is known)
     THEME_load
     
     SCRN.w&   = 0
     SCRN.h&   = 0
     SCRN.bpp% = 0
-    
-    ' Determine display scale FIRST (needed for auto-detect viewport sizing)
-    IF CFG.DISPLAY_SCALE% > 0 THEN
-        ' Use explicit scale from config
-        SCRN.displayScale% = CFG.DISPLAY_SCALE%
-        ' Clamp to max
-        IF SCRN.displayScale% > CFG.DISPLAY_SCALE_MAX% THEN
-            SCRN.displayScale% = CFG.DISPLAY_SCALE_MAX%
-        END IF
-    ELSE
-        ' Auto-detect optimal scale
-        SCRN.displayScale% = SCREEN_detect_display_scale%
+
+    ' --- Unified scale resolution: one master knob + per-widget ratios --------
+    ' SCALE_resolve_all derives the canvas/display scale and every per-widget
+    ' chrome/dialog/browser scale from CFG.UI_SCALE% (master), the SCALE_RATIO_*
+    ' ratios, and the legacy *_SCALE overrides (see OUTPUT/SCALE.BM). The whole
+    ' UI then scales together from one knob; ratios (in DRAW.cfg) tune each
+    ' widget. "Explicit" (fill the desktop) means a DISPLAY_SCALE override or a
+    ' UI_SCALE master was set; auto leaves a centering margin.
+    DIM scaleIsExplicit AS INTEGER
+    scaleIsExplicit% = (CFG.DISPLAY_SCALE% > 0) OR (CFG.UI_SCALE% > 0)
+    ' A UI_SCALE master re-derives the viewport from the chosen scale rather than
+    ' any stale SCREEN_WIDTH/HEIGHT frozen on a previously sized display.
+    IF CFG.UI_SCALE% > 0 AND CFG.DISPLAY_SCALE% = 0 THEN
+        CFG.SCREEN_WIDTH%  = 0
+        CFG.SCREEN_HEIGHT% = 0
     END IF
-    
+    SCALE_resolve_all
+    SCRN.displayScale% = USCALE.canvas%
     ' Ensure minimum scale of 1
     IF SCRN.displayScale% < 1 THEN SCRN.displayScale% = 1
     
-    ' Get screen dimensions from config or auto-detect
-    IF CFG.SCREEN_WIDTH% > 0 AND CFG.SCREEN_HEIGHT% > 0 THEN
+    ' Get screen dimensions from config or auto-detect.
+    ' The UI_SCALE master knob ALWAYS derives the viewport from desktop/scale —
+    ' a frozen SCREEN_WIDTH/HEIGHT (e.g. saved at a different scale) would make
+    ' the viewport inconsistent with the scale and break the whole layout.
+    ' Only honor an explicit configured viewport in pure Auto mode (UI_SCALE = 0).
+    IF CFG.UI_SCALE% = 0 AND CFG.SCREEN_WIDTH% > 0 AND CFG.SCREEN_HEIGHT% > 0 THEN
         ' Use configured dimensions (these are viewport/internal pixels)
         SCRN.w& = CFG.SCREEN_WIDTH%
         SCRN.h& = CFG.SCREEN_HEIGHT%
@@ -516,15 +568,13 @@ SUB SCREEN_init ()
         ' When scale is also auto, stay at 90% so the window has a centering margin.
         SCREEN_detect_desktop_resolution
         DIM targetW AS LONG, targetH AS LONG
-        IF CFG.DISPLAY_SCALE% > 0 THEN
-            ' Explicit scale: viewport fills the monitor exactly regardless of ratio
-            targetW& = SCRN.w&
-            targetH& = SCRN.h&
-        ELSE
-            ' Auto scale: leave ~10% margin around the window
-            targetW& = (SCRN.w& * 9) \ 10
-            targetH& = (SCRN.h& * 9) \ 10
-        END IF
+        ' ALWAYS leave a ~10% margin (even for explicit scale). Filling the desktop
+        ' exactly made the window taller than the screen once the OS title bar was
+        ' added (worse under Windows DPI awareness, where the title bar is large),
+        ' so the OS clipped + mis-positioned the window and the whole UI broke
+        ' (offset canvas, dialog clicks missing, dialogs opening off-screen).
+        targetW& = (SCRN.w& * 9) \ 10
+        targetH& = (SCRN.h& * 9) \ 10
         SCRN.w& = targetW& \ SCRN.displayScale%
         SCRN.h& = targetH& \ SCRN.displayScale%
         ' Round down to nearest even number for clean GPU scaling
@@ -555,15 +605,10 @@ SUB SCREEN_init ()
     DIM initDesktopW AS LONG, initDesktopH AS LONG
     initDesktopW& = _DESKTOPWIDTH
     initDesktopH& = _DESKTOPHEIGHT
-    IF CFG.DISPLAY_SCALE% > 0 THEN
-        ' User explicitly set scale — use full desktop as window limit
-        initMaxW& = initDesktopW&
-        initMaxH& = initDesktopH&
-    ELSE
-        ' Auto-detect — 90% margin for comfortable centering
-        initMaxW& = (initDesktopW& * 9) \ 10
-        initMaxH& = (initDesktopH& * 9) \ 10
-    END IF
+    ' Reserve a ~10% margin for the OS window chrome (title bar + taskbar) for
+    ' BOTH explicit and auto scale, so the window always fits + centers.
+    initMaxW& = (initDesktopW& * 9) \ 10
+    initMaxH& = (initDesktopH& * 9) \ 10
     IF initMaxW& < 320 THEN initMaxW& = 320
     IF initMaxH& < 200 THEN initMaxH& = 200
     
@@ -637,21 +682,12 @@ SUB SCREEN_init ()
         _LOGINFO "SCREEN_init: viewport was reduced from configured " + _TRIM$(STR$(CFG.SCREEN_WIDTH%)) + "x" + _TRIM$(STR$(CFG.SCREEN_HEIGHT%)) + " to " + _TRIM$(STR$(SCRN.w&)) + "x" + _TRIM$(STR$(SCRN.h&)) + " to honor " + _TRIM$(STR$(SCRN.displayScale%)) + "x display scale"
     END IF
     
-    ' Auto-detect toolbar scale from viewport size if not explicitly set
-    IF CFG.TOOLBAR_SCALE% = 0 THEN
-        SCREEN_toolbar_scale_is_auto% = TRUE
-        ' If a resolution preset provided a recommended TB scale, use it
-        IF SCREEN_preset_toolbar_scale% > 0 THEN
-            CFG.TOOLBAR_SCALE% = SCREEN_preset_toolbar_scale%
-            _LOGINFO "SCREEN_init: using preset toolbar scale=" + _TRIM$(STR$(CFG.TOOLBAR_SCALE%))
-        ELSE
-            ' Calculate highest TB scale that fits the viewport proportionally
-            CFG.TOOLBAR_SCALE% = SCREEN_estimate_toolbar_scale%(SCRN.w&, SCRN.h&)
-            _LOGINFO "SCREEN_init: auto-detected toolbar scale=" + _TRIM$(STR$(CFG.TOOLBAR_SCALE%)) + " for viewport " + _TRIM$(STR$(SCRN.w&)) + "x" + _TRIM$(STR$(SCRN.h&))
-        END IF
-    ELSE
-        SCREEN_toolbar_scale_is_auto% = FALSE
-    END IF
+    ' Re-resolve every per-widget scale against the final display scale (the
+    ' fit/safety pass above may have reduced it to fit the desktop). This sets
+    ' SCALE.* and writes the resolved chrome scale back into CFG.TOOLBAR_SCALE%.
+    SCALE_resolve_widgets SCRN.displayScale%
+    ' "Auto" chrome = no explicit override; resize/scale events re-resolve it.
+    SCREEN_toolbar_scale_is_auto% = (CFG.TOOLBAR_SCALE_OVR% = 0)
 
     ' Canvas dimensions: use command-line override, config default, or viewport
     IF CMDLINE_CANVAS_W% > 0 AND CMDLINE_CANVAS_H% > 0 THEN
@@ -2674,9 +2710,8 @@ SUB SCREEN_render ()
         ' render — the values computed then are still valid.
 
         ' Same partial-present safety gates as the dirty-rect path.
-        ' PREVIEW.visible% is no longer a gate here: we call PREVIEW_render inline
-        ' and present the preview window rect as a separate partial present, so the
-        ' expensive full-frame window scale is never needed just for canvas hover.
+        ' The preview window is a floating screen-0 overlay (drawn in the
+        ' overlay section), so canvas hover never needs the full-frame scale.
         DIM so_can_partial AS INTEGER
         so_can_partial% = NOT SCRN.patternTileMode%
         IF IMG_IMPORT.STATE > IMPORT_STATE_IDLE THEN so_can_partial% = FALSE
@@ -2753,25 +2788,9 @@ SUB SCREEN_render ()
             POINTER_update
             POINTER_render
 
-            ' Preview window: only re-render when content has actually changed.
-            ' In follow-pointer mode the viewport pans with the cursor — must re-render every frame.
-            ' Otherwise content is static unless the pointer dirty-rect overlaps the preview window,
-            ' which would expose a SCENE_CACHE hole that needs repairing.
-            ' Skipping saves an expensive _PUTIMAGE of COMPOSITE_BUFFER& per frame.
-            IF PREVIEW.visible% AND NOT PREVIEW.autoHidden% THEN
-                DIM so_pv_need_render AS INTEGER
-                so_pv_need_render% = PREVIEW.followPointer%
-                IF NOT so_pv_need_render% THEN
-                    ' Check if pointer dirty-rect overlaps preview bounds
-                    IF so_px2% >= PREVIEW.x% AND so_px1% <= PREVIEW.x% + PREVIEW.w% - 1 AND _
-                       so_py2% >= PREVIEW.y% AND so_py1% <= PREVIEW.y% + PREVIEW.h% - 1 THEN
-                        so_pv_need_render% = TRUE
-                    END IF
-                END IF
-                IF so_pv_need_render% THEN
-                    PREVIEW_render SCRN.CANVAS&
-                END IF
-            END IF
+            ' Preview window is now a FLOATING OVERLAY drawn directly to screen 0
+            ' (like the color mixer) in the overlay section below — no longer
+            ' baked into the viewport here.
 
             _DEST SCRN.CANVAS&
             _PUTIMAGE (so_px1%, so_py1%)-(so_px2%, so_py2%), SCRN.GUI&, SCRN.CANVAS&, (so_px1%, so_py1%)-(so_px2%, so_py2%)
@@ -2794,13 +2813,12 @@ SUB SCREEN_render ()
             SCROLLBAR_render
             RENDER_crosshair_and_command_palette
             POINTER_render_cursor_overlay
-            PREVIEW_render_tooltip SCRN.CANVAS&
             TOOLTIP_render SCRN.CANVAS&
 
             POINTER.PREV_DRAW_X% = so_nx%
             POINTER.PREV_DRAW_Y% = so_ny%
 
-            ' Partial window presents: pointer area + status strip + preview window.
+            ' Partial window presents: pointer area + status strip.
             ' Avoids the expensive full-frame _PUTIMAGE scale to window.
             DIM so_sc     AS INTEGER
             DIM so_winW   AS LONG, so_winH AS LONG
@@ -2821,29 +2839,13 @@ SUB SCREEN_render ()
             IF SCRN.showStatus% THEN
                 _PUTIMAGE (0, CLNG(so_statusTop%) * so_sc%)-(_WIDTH(0) - 1, _HEIGHT(0) - 1), SCRN.CANVAS&, 0, (0, so_statusTop%)-(SCRN.w& - 1, SCRN.h& - 1)
             END IF
-            ' Preview window partial present: present the preview widget area directly
-            ' instead of doing a full-frame upscale just because preview is visible.
-            IF PREVIEW.visible% AND NOT PREVIEW.autoHidden% THEN
-                DIM so_pv_x1 AS INTEGER, so_pv_y1 AS INTEGER
-                DIM so_pv_x2 AS INTEGER, so_pv_y2 AS INTEGER
-                so_pv_x1% = PREVIEW.x%
-                so_pv_y1% = PREVIEW.y%
-                so_pv_x2% = PREVIEW.x% + PREVIEW.w% - 1
-                IF PREVIEW.minimized% THEN
-                    so_pv_y2% = PREVIEW.y% + THEME.PREVIEW_title_height% + THEME.PREVIEW_border_width% * 2 - 1
-                ELSE
-                    so_pv_y2% = PREVIEW.y% + PREVIEW.h% - 1
-                END IF
-                IF so_pv_x1% < 0 THEN so_pv_x1% = 0
-                IF so_pv_y1% < 0 THEN so_pv_y1% = 0
-                IF so_pv_x2% >= SCRN.w& THEN so_pv_x2% = SCRN.w& - 1
-                IF so_pv_y2% >= SCRN.h& THEN so_pv_y2% = SCRN.h& - 1
-                _PUTIMAGE (CLNG(so_pv_x1%) * so_sc%, CLNG(so_pv_y1%) * so_sc%)-(CLNG(so_pv_x2% + 1) * so_sc% - 1, CLNG(so_pv_y2% + 1) * so_sc% - 1), SCRN.CANVAS&, 0, (so_pv_x1%, so_pv_y1%)-(so_pv_x2%, so_pv_y2%)
-            END IF
-
-            ' ==== COLOR MIXER (after partial blit, draws directly to screen 0) ====
+            ' ==== FLOATING OVERLAYS (after partial blit, draw directly to screen 0) ====
+            ' (Picker active forces so_can_partial% = FALSE above, so the loupe
+            '  is handled in the full SkipToPointer path, not here.)
+            IF PREVIEW.visible% AND NOT PREVIEW.autoHidden% THEN PREVIEW_render 0
             COLORMIXER_render
             BROWSER_render
+            PREVIEW_render_tooltip 0
             TOOLTIP_reblit_to_screen0
 
             IF NOT SCREEN_SUPPRESS_DISPLAY% THEN _DISPLAY
@@ -3004,23 +3006,8 @@ SUB SCREEN_render ()
             _DEST SCRN.CANVAS&
             _PUTIMAGE (dr_x1%, dr_y1%)-(dr_x2%, dr_y2%), SCRN.GUI&, SCRN.CANVAS&, (dr_x1%, dr_y1%)-(dr_x2%, dr_y2%)
 
-            ' --- Preview window (inline, same logic as STATUS-ONLY path) ---
-            ' Re-render only when follow-pointer mode is active (viewport pans with cursor)
-            ' or when the pointer dirty-rect overlaps the preview window bounds
-            ' (which would expose a SCENE_CACHE hole that needs repairing).
-            IF PREVIEW.visible% AND NOT PREVIEW.autoHidden% THEN
-                DIM dr_pv_need_render AS INTEGER
-                dr_pv_need_render% = PREVIEW.followPointer%
-                IF NOT dr_pv_need_render% THEN
-                    IF dr_x2% >= PREVIEW.x% AND dr_x1% <= PREVIEW.x% + PREVIEW.w% - 1 AND _
-                       dr_y2% >= PREVIEW.y% AND dr_y1% <= PREVIEW.y% + PREVIEW.h% - 1 THEN
-                        dr_pv_need_render% = TRUE
-                    END IF
-                END IF
-                IF dr_pv_need_render% THEN
-                    PREVIEW_render SCRN.CANVAS&
-                END IF
-            END IF
+            ' Preview window is a floating screen-0 overlay — drawn in the
+            ' overlay section after the dirty-rect present (see below).
 
             ' --- Crosshair assistant overlay ---
             RENDER_crosshair_and_command_palette
@@ -3043,7 +3030,6 @@ SUB SCREEN_render ()
             IF CURRENT_TOOL% = TOOL_PICKER AND PICKER.ACTIVE% AND _
                SCREEN_mouse_over_work_area%(MOUSE.RAW_X%, MOUSE.RAW_Y%) THEN
                 PICKER_LOUPE_render SCRN.CANVAS&
-                PREVIEW_render_loupe SCRN.CANVAS&
             END IF
 
             ' --- Final overlay popups (must stay above GUI, scrollbars, and status overlays) ---
@@ -3059,10 +3045,9 @@ SUB SCREEN_render ()
             IF CMD_PALETTE.visible THEN
                 CMD_render SCRN.CANVAS&
             END IF
-            
+
             ' --- Redraw cursor on top of GUI ---
             POINTER_render_cursor_overlay
-            PREVIEW_render_tooltip SCRN.CANVAS&
             TOOLTIP_render SCRN.CANVAS&
 
             ' --- Save pointer position for next frame ---
@@ -3092,28 +3077,15 @@ SUB SCREEN_render ()
             win_y2& = CLNG(dr_y2% + 1) * dr_scale% - 1
             _PUTIMAGE (win_x1&, win_y1&)-(win_x2&, win_y2&), SCRN.CANVAS&, 0, (dr_x1%, dr_y1%)-(dr_x2%, dr_y2%)
 
-            ' Preview window partial present (avoids full-frame upscale just for preview)
-            IF PREVIEW.visible% AND NOT PREVIEW.autoHidden% THEN
-                DIM dr_pv_x1 AS INTEGER, dr_pv_y1 AS INTEGER
-                DIM dr_pv_x2 AS INTEGER, dr_pv_y2 AS INTEGER
-                dr_pv_x1% = PREVIEW.x%
-                dr_pv_y1% = PREVIEW.y%
-                dr_pv_x2% = PREVIEW.x% + PREVIEW.w% - 1
-                IF PREVIEW.minimized% THEN
-                    dr_pv_y2% = PREVIEW.y% + THEME.PREVIEW_title_height% + THEME.PREVIEW_border_width% * 2 - 1
-                ELSE
-                    dr_pv_y2% = PREVIEW.y% + PREVIEW.h% - 1
-                END IF
-                IF dr_pv_x1% < 0 THEN dr_pv_x1% = 0
-                IF dr_pv_y1% < 0 THEN dr_pv_y1% = 0
-                IF dr_pv_x2% >= SCRN.w& THEN dr_pv_x2% = SCRN.w& - 1
-                IF dr_pv_y2% >= SCRN.h& THEN dr_pv_y2% = SCRN.h& - 1
-                _PUTIMAGE (CLNG(dr_pv_x1%) * dr_scale%, CLNG(dr_pv_y1%) * dr_scale%)-(CLNG(dr_pv_x2% + 1) * dr_scale% - 1, CLNG(dr_pv_y2% + 1) * dr_scale% - 1), SCRN.CANVAS&, 0, (dr_pv_x1%, dr_pv_y1%)-(dr_pv_x2%, dr_pv_y2%)
-            END IF
-
-            ' ==== FLOATING PANELS (after partial blit, draw directly to screen 0) ====
+            ' ==== FLOATING OVERLAYS (after partial blit, draw directly to screen 0) ====
+            IF PREVIEW.visible% AND NOT PREVIEW.autoHidden% THEN PREVIEW_render 0
             COLORMIXER_render
             BROWSER_render
+            IF CURRENT_TOOL% = TOOL_PICKER AND PICKER.ACTIVE% AND _
+               SCREEN_mouse_over_work_area%(MOUSE.RAW_X%, MOUSE.RAW_Y%) THEN
+                PREVIEW_render_loupe SCRN.CANVAS&
+            END IF
+            PREVIEW_render_tooltip 0
             TOOLTIP_reblit_to_screen0
 
             PERF_stop PERF_DIRTY_RECT_PATH
@@ -3477,8 +3449,8 @@ SUB SCREEN_render ()
     POINTER_render
     PERF_stop PERF_POINTER_RENDER
 
-    ' ==== PREVIEW WINDOW (before GUI re-composite so menus, pickers, etc. render on top) ====
-    PREVIEW_render SCRN.CANVAS&
+    ' Preview window is a floating screen-0 overlay — drawn after the canvas
+    ' upscale (overlay section near the end of this SUB), like the color mixer.
 
     ' Re-composite GUI so brush previews and marching ants don't show over UI elements.
     ' This must happen AFTER POINTER_render since brush previews are drawn there.
@@ -3534,7 +3506,6 @@ SUB SCREEN_render ()
     IF CURRENT_TOOL% = TOOL_PICKER AND PICKER.ACTIVE% AND _
        SCREEN_mouse_over_work_area%(MOUSE.RAW_X%, MOUSE.RAW_Y%) THEN
         PICKER_LOUPE_render SCRN.CANVAS&
-        PREVIEW_render_loupe SCRN.CANVAS&
     END IF
 
     ' ==== FINAL OVERLAY POPUPS (must stay above GUI, scrollbars, and status overlays) ====
@@ -3555,7 +3526,7 @@ SUB SCREEN_render ()
     POINTER_render_cursor_overlay
 
     ' ==== TOOLTIP (on top of everything, including cursor and UI chrome) ====
-    PREVIEW_render_tooltip SCRN.CANVAS&
+    ' (PREVIEW_render_tooltip is a screen-0 overlay — drawn after the upscale.)
     DRAWER_wheel_tooltip_render SCRN.CANVAS&
     TOOLTIP_render SCRN.CANVAS&
 
@@ -3616,9 +3587,17 @@ SUB SCREEN_render ()
     _PUTIMAGE (0, 0)-(_WIDTH(0) - 1, _HEIGHT(0) - 1), SCRN.CANVAS&, 0
     PERF_stop PERF_FINAL_SCALE
 
-    ' ==== FLOATING PANELS (after canvas upscale, draw directly to screen 0) ====
+    ' ==== FLOATING OVERLAYS (after canvas upscale, draw directly to screen 0) ====
+    ' Preview renders under the color mixer (z-order: preview < mixer).
+    IF PREVIEW.visible% AND NOT PREVIEW.autoHidden% THEN PREVIEW_render 0
     COLORMIXER_render
     BROWSER_render
+    ' Preview loupe + float tooltip on top of the overlay stack.
+    IF CURRENT_TOOL% = TOOL_PICKER AND PICKER.ACTIVE% AND _
+       SCREEN_mouse_over_work_area%(MOUSE.RAW_X%, MOUSE.RAW_Y%) THEN
+        PREVIEW_render_loupe SCRN.CANVAS&
+    END IF
+    PREVIEW_render_tooltip 0
     TOOLTIP_reblit_to_screen0
 
     PERF_start PERF_DISPLAY_CALL

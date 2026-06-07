@@ -44,6 +44,9 @@ SUB PREVIEW_init ()
     PREVIEW.x%                  = 0
     PREVIEW.y%                  = 0
     PREVIEW.imgHandle&          = 0
+    PREVIEW.renderScale!        = 1.0
+    PREVIEW.dispW%              = PREVIEW_DEFAULT_W
+    PREVIEW.dispH%              = PREVIEW_DEFAULT_H
     PREVIEW.fontHandle&         = 0
     SCRN.showPreviewWindow%     = FALSE
     SCRN.previewManuallyHidden% = TRUE
@@ -195,6 +198,9 @@ END SUB
 ' and palette strip.
 ' ---------------------------------------------------------------------------
 SUB PREVIEW_clamp_to_work_area ()
+    ' Position (x/y) is VIEWPORT; clamp using the dispW x dispH footprint.
+    PREVIEW_compute_display
+
     DIM minX AS INTEGER, minY AS INTEGER
     DIM maxX AS INTEGER, maxY AS INTEGER
 
@@ -224,18 +230,18 @@ SUB PREVIEW_clamp_to_work_area ()
     ' Clamp left edge
     IF PREVIEW.x% < minX% THEN PREVIEW.x% = minX%
     ' Clamp right edge
-    IF PREVIEW.x% + PREVIEW.w% > maxX% THEN PREVIEW.x% = maxX% - PREVIEW.w%
+    IF PREVIEW.x% + PREVIEW.dispW% > maxX% THEN PREVIEW.x% = maxX% - PREVIEW.dispW%
     ' If too wide to fit, pin to left
     IF PREVIEW.x% < minX% THEN PREVIEW.x% = minX%
 
     ' Clamp top edge
     IF PREVIEW.y% < minY% THEN PREVIEW.y% = minY%
-    ' Clamp bottom (at least title bar must be visible)
-    DIM titleH AS INTEGER : titleH% = THEME.PREVIEW_title_height%
+    ' Clamp bottom (at least title bar must be visible) — footprint magnitude
+    DIM titleH AS INTEGER : titleH% = INT(THEME.PREVIEW_title_height% * PREVIEW.renderScale! + 0.5)
     IF PREVIEW.y% + titleH% > maxY% THEN PREVIEW.y% = maxY% - titleH%
     ' Clamp bottom fully if not minimized
     IF NOT PREVIEW.minimized% THEN
-        IF PREVIEW.y% + PREVIEW.h% > maxY% THEN PREVIEW.y% = maxY% - PREVIEW.h%
+        IF PREVIEW.y% + PREVIEW.dispH% > maxY% THEN PREVIEW.y% = maxY% - PREVIEW.dispH%
     END IF
     IF PREVIEW.y% < minY% THEN PREVIEW.y% = minY%
 END SUB
@@ -264,25 +270,53 @@ END SUB
 ' @param destHandle LONG The destination image handle (typically SCRN.CANVAS&)
 '
 ' ---------------------------------------------------------------------------
+' PREVIEW_compute_display - Calculate render scale + viewport footprint.
+' Mirrors COLORMIXER_compute_display_size: the preview renders into a NATIVE
+' offscreen buffer (PREVIEW.w% x PREVIEW.h%) and is blitted to screen 0 at
+' TOOLBAR_SCALE (ts). dispW/dispH are the VIEWPORT footprint used for hit
+' testing, region bounds, and work-area clamping.
+'   renderScale = ts / ds
+'   dispW = w * ts / ds   dispH = h * ts / ds
+' ---------------------------------------------------------------------------
+SUB PREVIEW_compute_display ()
+    DIM ts AS INTEGER, ds AS INTEGER
+    ts%                  = USCALE.preview%    : IF ts% < 1 THEN ts% = 1
+    ds%                  = SCRN.displayScale% : IF ds% < 1 THEN ds% = 1
+    PREVIEW.renderScale! = CSNG(ts%) / CSNG(ds%)
+    PREVIEW.dispW%       = INT(CSNG(PREVIEW.w%) * CSNG(ts%) / CSNG(ds%) + 0.5)
+    PREVIEW.dispH%       = INT(CSNG(PREVIEW.h%) * CSNG(ts%) / CSNG(ds%) + 0.5)
+END SUB
+
+' ---------------------------------------------------------------------------
 ' PREVIEW_render - Draw the preview window chrome and canvas composite.
-' Must be called from the SkipToPointer section of SCREEN_render so it
-' renders on top of everything and does not force scene re-compositing.
-' @param destHandle LONG The destination image (typically SCRN.CANVAS&)
+' FLOATING OVERLAY: renders into a NATIVE offscreen buffer then blits to
+' screen 0 at TOOLBAR_SCALE, exactly like COLOR MIXER. Called from
+' SCREEN_render AFTER the canvas->screen0 upscale (overlay section).
+' @param destHandle LONG IGNORED (kept for signature compatibility).
 ' ---------------------------------------------------------------------------
 SUB PREVIEW_render (destHandle AS LONG)
     IF NOT PREVIEW.visible% THEN EXIT SUB
     IF PREVIEW.autoHidden% THEN EXIT SUB
+    ' destHandle& is intentionally ignored — this is now a screen-0 overlay.
+
+    ' Hide while any menu / interactive popup is open so they keep the highest
+    ' z-order. The preview blits to screen 0 AFTER the canvas upscale, but menus
+    ' and popups live on SCRN.CANVAS& (drawn before the upscale) — without this
+    ' guard the preview would paint over them. Mirrors COLORMIXER_render.
+    IF MENUBAR_is_open% THEN EXIT SUB
+    IF PALETTE_MENU_VISIBLE% THEN EXIT SUB
+    IF LAYER_PANEL.blendPopupOpen% THEN EXIT SUB
+    IF LAYER_PANEL.ctxMenuOpen% THEN EXIT SUB
+    IF DRAWER.contextMenuOpen% THEN EXIT SUB
+    IF CMD_PALETTE.visible THEN EXIT SUB
+
+    ' Resolve floating-overlay scale + viewport footprint
+    PREVIEW_compute_display
 
     ' Keep window within the canvas work area (panels may have toggled/resized)
     PREVIEW_clamp_to_work_area
 
-    ' Register preview hitbox (floating panel)
-    REGION_set_bounds REGION_PREVIEW, PREVIEW.x%, PREVIEW.y%, PREVIEW.w%, PREVIEW.h%, ZORDER_PANEL
-
-    DIM oldDest AS LONG : oldDest& = _DEST
-    _DEST destHandle&
-
-    ' --- Layout constants ---
+    ' --- Layout constants (all NATIVE-magnitude theme values) ---
     DIM titleH AS INTEGER : titleH% = THEME.PREVIEW_title_height%
     DIM bw     AS INTEGER : bw% = THEME.PREVIEW_border_width%
     DIM btnW   AS INTEGER : btnW% = THEME.PREVIEW_button_width%
@@ -291,11 +325,51 @@ SUB PREVIEW_render (destHandle AS LONG)
     DIM cbSz   AS INTEGER : cbSz% = THEME.PREVIEW_checkbox_size%
     DIM hndSz  AS INTEGER : hndSz% = THEME.PREVIEW_resize_handle_size%
 
-    DIM wx AS INTEGER : wx% = PREVIEW.x%
-    DIM wy AS INTEGER : wy% = PREVIEW.y%
+    ' Register preview hitbox (footprint in viewport coords)
+    DIM pvFootH AS INTEGER : pvFootH% = PREVIEW.dispH%
+    IF PREVIEW.minimized% THEN
+        DIM pvMinNativeH AS INTEGER : pvMinNativeH% = titleH% + bw% * 2
+        pvFootH% = INT(CSNG(pvMinNativeH%) * PREVIEW.renderScale! + 0.5)
+    END IF
+    REGION_set_bounds REGION_PREVIEW, PREVIEW.x%, PREVIEW.y%, PREVIEW.dispW%, pvFootH%, ZORDER_PANEL
+
+    ' --- Allocate / resize the NATIVE offscreen buffer (w x h) ---
+    DIM pvNeedW     AS INTEGER : pvNeedW% = PREVIEW.w%
+    DIM pvNeedH     AS INTEGER : pvNeedH% = PREVIEW.h%
+    IF pvNeedW% < 1 THEN pvNeedW% = 1
+    IF pvNeedH% < 1 THEN pvNeedH% = 1
+    DIM pvNeedAlloc AS INTEGER : pvNeedAlloc% = FALSE
+    IF PREVIEW.imgHandle& >= -1 THEN
+        pvNeedAlloc% = TRUE
+    ELSEIF _WIDTH(PREVIEW.imgHandle&) <> pvNeedW% OR _HEIGHT(PREVIEW.imgHandle&) <> pvNeedH% THEN
+        pvNeedAlloc% = TRUE
+    END IF
+    IF pvNeedAlloc% THEN
+        IF PREVIEW.imgHandle& < -1 THEN SAFE_FREEIMAGE PREVIEW.imgHandle&
+        PREVIEW.imgHandle& = _NEWIMAGE(pvNeedW%, pvNeedH%, 32)
+    END IF
+    IF PREVIEW.imgHandle& >= -1 THEN EXIT SUB ' allocation failed — nothing to draw
+
+    DIM oldDest AS LONG : oldDest& = _DEST
+    _DEST PREVIEW.imgHandle&
+    CLS , 0                                                ' transparent clear; border/bg fill the opaque window area
+
+    ' --- Native window rect (origin 0,0 inside the offscreen buffer) ---
+    DIM wx AS INTEGER : wx% = 0
+    DIM wy AS INTEGER : wy% = 0
     DIM ww AS INTEGER : ww% = PREVIEW.w%
     DIM wh AS INTEGER : wh% = PREVIEW.h%
     IF PREVIEW.minimized% THEN wh% = titleH% + bw% * 2
+
+    ' --- Local-native mouse (for hover/hit tests inside the window) ---
+    DIM pmx AS INTEGER, pmy AS INTEGER
+    IF PREVIEW.renderScale! > 0 THEN
+        pmx% = INT((MOUSE.RAW_X% - PREVIEW.x%) / PREVIEW.renderScale!)
+        pmy% = INT((MOUSE.RAW_Y% - PREVIEW.y%) / PREVIEW.renderScale!)
+    ELSE
+        pmx% = MOUSE.RAW_X% - PREVIEW.x%
+        pmy% = MOUSE.RAW_Y% - PREVIEW.y%
+    END IF
 
     ' --- Border ---
     LINE (wx%, wy%)-(wx% + ww% - 1, wy% + wh% - 1), THEME.PREVIEW_border~&, B
@@ -304,8 +378,8 @@ SUB PREVIEW_render (destHandle AS LONG)
     DIM titleBg AS _UNSIGNED LONG
     IF PREVIEW.dragging% THEN
         titleBg~& = THEME.PREVIEW_title_drag_bg~&
-    ELSEIF MOUSE.RAW_X% >= wx% AND MOUSE.RAW_X% < wx% + ww% AND _
-           MOUSE.RAW_Y% >= wy% AND MOUSE.RAW_Y% < wy% + titleH% THEN
+    ELSEIF pmx% >= wx% AND pmx% < wx% + ww% AND _
+           pmy% >= wy% AND pmy% < wy% + titleH% THEN
         titleBg~& = THEME.PREVIEW_title_hover_bg~&
     ELSE
         titleBg~& = THEME.PREVIEW_title_bg~&
@@ -322,8 +396,8 @@ SUB PREVIEW_render (destHandle AS LONG)
     DIM closeX   AS INTEGER : closeX% = wx% + ww% - bw% - btnW% - 1
     DIM closeY   AS INTEGER : closeY% = wy% + bw% + (titleH% - bw% - btnH%) \ 2
     DIM closeHov AS INTEGER
-    closeHov% = MOUSE.RAW_X% >= closeX% AND MOUSE.RAW_X% < closeX% + btnW% AND _
-                MOUSE.RAW_Y% >= closeY% AND MOUSE.RAW_Y% < closeY% + btnH%
+    closeHov% = pmx% >= closeX% AND pmx% < closeX% + btnW% AND _
+                pmy% >= closeY% AND pmy% < closeY% + btnH%
     IF closeHov% THEN
         LINE (closeX%, closeY%)-(closeX% + btnW% - 1, closeY% + btnH% - 1), THEME.PREVIEW_close_hover_bg~&, BF
     END IF
@@ -336,8 +410,8 @@ SUB PREVIEW_render (destHandle AS LONG)
     DIM minBtnX AS INTEGER : minBtnX% = closeX% - btnW% - 2
     DIM minBtnY AS INTEGER : minBtnY% = closeY%
     DIM minHov  AS INTEGER
-    minHov% = MOUSE.RAW_X% >= minBtnX% AND MOUSE.RAW_X% < minBtnX% + btnW% AND _
-              MOUSE.RAW_Y% >= minBtnY% AND MOUSE.RAW_Y% < minBtnY% + btnH%
+    minHov% = pmx% >= minBtnX% AND pmx% < minBtnX% + btnW% AND _
+              pmy% >= minBtnY% AND pmy% < minBtnY% + btnH%
     IF minHov% THEN
         LINE (minBtnX%, minBtnY%)-(minBtnX% + btnW% - 1, minBtnY% + btnH% - 1), THEME.PREVIEW_minimize_hover_bg~&, BF
     END IF
@@ -348,10 +422,9 @@ SUB PREVIEW_render (destHandle AS LONG)
     COLOR THEME.PREVIEW_title_fg~&
     _UPRINTSTRING (wx% + bw% + 3, wy% + bw% + (titleH% - bw% - THEME.PREVIEW_font_size%) \ 2), "PREVIEW"
 
-    ' Early exit if minimized
+    ' Early exit if minimized — only the title strip was drawn; still blit it.
     IF PREVIEW.minimized% THEN
-        _DEST oldDest&
-        EXIT SUB
+        GOTO PvRenderDone
     END IF
 
     ' --- Follow-pointer checkbox (in title bar, after title text) ---
@@ -387,8 +460,7 @@ SUB PREVIEW_render (destHandle AS LONG)
     DIM cy2 AS INTEGER : cy2% = wy% + wh% - bw% - pad% - 1
 
     IF cx2% <= cx1% OR cy2% <= cy1% THEN
-        _DEST oldDest&
-        EXIT SUB
+        GOTO PvRenderDone
     END IF
 
     ' Content border
@@ -592,7 +664,7 @@ SUB PREVIEW_render (destHandle AS LONG)
                             IF bqlDX2% > cx2% THEN bqlSX2% = bqlSX2% - (bqlDX2% - cx2%) : bqlDX2% = cx2%
                             IF bqlDY2% > cy2% THEN bqlSY2% = bqlSY2% - (bqlDY2% - cy2%) : bqlDY2% = cy2%
                             IF bqlDX2% >= bqlDX1% AND bqlDY2% >= bqlDY1% THEN
-                                _PUTIMAGE (bqlDX1%, bqlDY1%)-(bqlDX2%, bqlDY2%), pvSrcImg&, destHandle&, (bqlSX1%, bqlSY1%)-(bqlSX2%, bqlSY2%)
+                                _PUTIMAGE (bqlDX1%, bqlDY1%)-(bqlDX2%, bqlDY2%), pvSrcImg&, PREVIEW.imgHandle&, (bqlSX1%, bqlSY1%)-(bqlSX2%, bqlSY2%)
                             END IF
                         NEXT bqlC%
                     NEXT bqlR%
@@ -612,13 +684,13 @@ SUB PREVIEW_render (destHandle AS LONG)
                 IF bqlDH% < 1 THEN bqlDH% = 1
                 DIM bqlBX    AS INTEGER : bqlBX% = cx1% + (contentW% - bqlDW%) \ 2
                 DIM bqlBY    AS INTEGER : bqlBY% = cy1% + (contentH% - bqlDH%) \ 2
-                _PUTIMAGE (bqlBX%, bqlBY%)-(bqlBX% + bqlDW% - 1, bqlBY% + bqlDH% - 1), pvSrcImg&, destHandle&, (0, 0)-(pvSrcW& - 1, pvSrcH& - 1)
+                _PUTIMAGE (bqlBX%, bqlBY%)-(bqlBX% + bqlDW% - 1, bqlBY% + bqlDH% - 1), pvSrcImg&, PREVIEW.imgHandle&, (0, 0)-(pvSrcW& - 1, pvSrcH& - 1)
             ELSE
                 ' Gradient or other: stretch to fit (existing behavior)
-                _PUTIMAGE (cx1%, cy1%)-(cx2%, cy2%), pvSrcImg&, destHandle&, (srcX1!, srcY1!)-(srcX2!, srcY2!)
+                _PUTIMAGE (cx1%, cy1%)-(cx2%, cy2%), pvSrcImg&, PREVIEW.imgHandle&, (srcX1!, srcY1!)-(srcX2!, srcY2!)
             END IF
         ELSE
-            _PUTIMAGE (cx1%, cy1%)-(cx2%, cy2%), pvSrcImg&, destHandle&, (srcX1!, srcY1!)-(srcX2!, srcY2!)
+            _PUTIMAGE (cx1%, cy1%)-(cx2%, cy2%), pvSrcImg&, PREVIEW.imgHandle&, (srcX1!, srcY1!)-(srcX2!, srcY2!)
         END IF
 
         ' --- Center tracking crosshair in follow mode ---
@@ -662,8 +734,8 @@ SUB PREVIEW_render (destHandle AS LONG)
     ' --- Floating image tooltip hover tracking (drawing deferred to PREVIEW_render_tooltip) ---
     IF PREVIEW.mode% = PREVIEW_MODE_FLOAT AND PREVIEW.floatImage& < -1 THEN
         DIM ttInContent AS INTEGER
-        ttInContent% = (MOUSE.RAW_X% >= cx1% AND MOUSE.RAW_X% <= cx2% AND _
-                        MOUSE.RAW_Y% >= cy1% AND MOUSE.RAW_Y% <= cy2%)
+        ttInContent% = (pmx% >= cx1% AND pmx% <= cx2% AND _
+                        pmy% >= cy1% AND pmy% <= cy2%)
         IF ttInContent% AND NOT MOUSE.B1% AND NOT MOUSE.B2% AND NOT MOUSE.B3% THEN
             ' Track hover timing using PREVIEW_OBJ fields
             IF MOUSE.RAW_X% <> PREVIEW.floatTooltipLastMX% OR _
@@ -692,7 +764,23 @@ SUB PREVIEW_render (destHandle AS LONG)
         END IF
     END IF
 
+    PvRenderDone:
+    ' Restore caller's destination, then blit the NATIVE offscreen buffer to
+    ' screen 0 scaled by TOOLBAR_SCALE (ts). Position uses displayScale (ds).
+    ' When minimized, only the title strip (native height) is blitted.
     _DEST oldDest&
+
+    DIM pvTs    AS INTEGER, pvDs AS INTEGER
+    pvTs% = USCALE.preview%    : IF pvTs% < 1 THEN pvTs% = 1
+    pvDs% = SCRN.displayScale% : IF pvDs% < 1 THEN pvDs% = 1
+    DIM pvBlitH AS INTEGER     : pvBlitH% = PREVIEW.h%
+    IF PREVIEW.minimized% THEN pvBlitH% = THEME.PREVIEW_title_height% + THEME.PREVIEW_border_width% * 2
+    IF PREVIEW.imgHandle& < -1 THEN
+        DIM pvOldD AS LONG : pvOldD& = _DEST
+        _DEST 0
+        _PUTIMAGE (PREVIEW.x% * pvDs%, PREVIEW.y% * pvDs%)-(PREVIEW.x% * pvDs% + PREVIEW.w% * pvTs% - 1, PREVIEW.y% * pvDs% + pvBlitH% * pvTs% - 1), PREVIEW.imgHandle&, 0, (0, 0)-(PREVIEW.w% - 1, pvBlitH% - 1)
+        _DEST pvOldD&
+    END IF
 END SUB
 
 ''
@@ -710,8 +798,10 @@ SUB PREVIEW_render_tooltip (destHandle AS LONG)
     IF PREVIEW.floatImage& >= -1 THEN EXIT SUB
     IF NOT PREVIEW.floatTooltipActive% THEN EXIT SUB
 
-    DIM oldDest2 AS LONG : oldDest2& = _DEST
-    _DEST destHandle&
+    ' Overlay scale: tooltip is rendered NATIVE then blitted x ts to screen 0.
+    DIM ttTs AS INTEGER, ttDs AS INTEGER
+    ttTs% = USCALE.preview%    : IF ttTs% < 1 THEN ttTs% = 1
+    ttDs% = SCRN.displayScale% : IF ttDs% < 1 THEN ttDs% = 1
 
     ' Build 3-line tooltip
     DIM ttFile  AS STRING
@@ -729,33 +819,7 @@ SUB PREVIEW_render_tooltip (destHandle AS LONG)
     END IF
     ttDims$ = _TRIM$(STR$(PREVIEW.floatImageW%)) + " x " + _TRIM$(STR$(PREVIEW.floatImageH%)) + " @ " + _TRIM$(STR$(PREVIEW.floatImageDepth%)) + " bit"
 
-    ' Measure text
-    DIM ttFontH    AS INTEGER : ttFontH% = _UFONTHEIGHT
-    DIM ttPad      AS INTEGER : ttPad% = THEME.TOOLTIP_PADDING%
-    IF ttPad% < 2 THEN ttPad% = 3
-    DIM ttBW       AS INTEGER : ttBW% = THEME.TOOLTIP_BORDER_WIDTH%
-    IF ttBW% < 1 THEN ttBW% = 1
-    DIM ttW1       AS INTEGER : ttW1% = _PRINTWIDTH(ttFile$)
-    DIM ttW2       AS INTEGER : ttW2% = _PRINTWIDTH(ttDir$)
-    DIM ttW3       AS INTEGER : ttW3% = _PRINTWIDTH(ttDims$)
-    DIM ttMaxW     AS INTEGER
-    ttMaxW% = ttW1%
-    IF ttW2% > ttMaxW% THEN ttMaxW% = ttW2%
-    IF ttW3% > ttMaxW% THEN ttMaxW% = ttW3%
-    DIM ttNumLines AS INTEGER : ttNumLines% = 3
-    IF LEN(ttDir$) = 0 THEN ttNumLines% = 2
-    DIM ttTW       AS INTEGER : ttTW% = ttMaxW% + ttPad% * 2 + ttBW% * 2
-    DIM ttTH       AS INTEGER : ttTH% = ttFontH% * ttNumLines% + (ttNumLines% - 1) + ttPad% * 2 + ttBW% * 2
-
-    ' Position: near cursor, clamp to screen
-    DIM ttX AS INTEGER : ttX% = MOUSE.RAW_X% + 8
-    DIM ttY AS INTEGER : ttY% = MOUSE.RAW_Y% + 16
-    IF ttX% + ttTW% > SCRN.w& - 2 THEN ttX% = MOUSE.RAW_X% - ttTW% - 4
-    IF ttY% + ttTH% > SCRN.h& - 2 THEN ttY% = MOUSE.RAW_Y% - ttTH% - 4
-    IF ttX% < 2 THEN ttX% = 2
-    IF ttY% < 2 THEN ttY% = 2
-
-    ' Draw tooltip background and border
+    ' Colors
     DIM ttBg   AS _UNSIGNED LONG : ttBg~& = THEME.TOOLTIP_BG_COLOR~&
     DIM ttBrd  AS _UNSIGNED LONG : ttBrd~& = THEME.TOOLTIP_BORDER_COLOR~&
     DIM ttBold AS _UNSIGNED LONG : ttBold~& = THEME.TOOLTIP_BOLD_FG_COLOR~&
@@ -765,13 +829,48 @@ SUB PREVIEW_render_tooltip (destHandle AS LONG)
     IF ttBold~& = 0 THEN ttBold~& = _RGBA32(255, 255, 100, 255)
     IF ttFg~& = 0 THEN ttFg~& = _RGBA32(200, 200, 200, 255)
 
-    LINE (ttX%, ttY%)-(ttX% + ttTW% - 1, ttY% + ttTH% - 1), ttBg~&, BF
-    LINE (ttX%, ttY%)-(ttX% + ttTW% - 1, ttY% + ttTH% - 1), ttBrd~&, B
+    DIM ttPad AS INTEGER : ttPad% = THEME.TOOLTIP_PADDING%
+    IF ttPad% < 2 THEN ttPad% = 3
+    DIM ttBW  AS INTEGER : ttBW% = THEME.TOOLTIP_BORDER_WIDTH%
+    IF ttBW% < 1 THEN ttBW% = 1
 
-    ' Draw text
+    ' Use a small scratch image to measure native text with the preview font.
+    DIM ttOldDest AS LONG : ttOldDest& = _DEST
+    DIM ttOldFont AS LONG : ttOldFont& = _FONT
+    DIM ttMeas    AS LONG : ttMeas& = _NEWIMAGE(8, 8, 32)
+    IF ttMeas& >= -1 THEN EXIT SUB
+    _DEST ttMeas&
+    IF PREVIEW.fontHandle& > 0 THEN _FONT PREVIEW.fontHandle&
+    DIM ttFontH   AS INTEGER : ttFontH% = _UFONTHEIGHT
+    IF ttFontH% < 1 THEN ttFontH% = 8
+    DIM ttW1      AS INTEGER : ttW1% = _PRINTWIDTH(ttFile$)
+    DIM ttW2      AS INTEGER : ttW2% = _PRINTWIDTH(ttDir$)
+    DIM ttW3      AS INTEGER : ttW3% = _PRINTWIDTH(ttDims$)
+    IF ttOldFont& > 0 THEN _FONT ttOldFont&
+    _DEST ttOldDest&
+    _FREEIMAGE ttMeas&
+
+    DIM ttMaxW     AS INTEGER : ttMaxW% = ttW1%
+    IF ttW2% > ttMaxW% THEN ttMaxW% = ttW2%
+    IF ttW3% > ttMaxW% THEN ttMaxW% = ttW3%
+    DIM ttNumLines AS INTEGER : ttNumLines% = 3
+    IF LEN(ttDir$) = 0 THEN ttNumLines% = 2
+    DIM ttTW       AS INTEGER : ttTW% = ttMaxW% + ttPad% * 2 + ttBW% * 2
+    DIM ttTH       AS INTEGER : ttTH% = ttFontH% * ttNumLines% + (ttNumLines% - 1) + ttPad% * 2 + ttBW% * 2
+    IF ttTW% < 1 THEN ttTW% = 1
+    IF ttTH% < 1 THEN ttTH% = 1
+
+    ' Render the tooltip into a NATIVE offscreen buffer
+    DIM ttBuf AS LONG : ttBuf& = _NEWIMAGE(ttTW%, ttTH%, 32)
+    IF ttBuf& >= -1 THEN EXIT SUB
+    _DEST ttBuf&
+    CLS , 0
+    IF PREVIEW.fontHandle& > 0 THEN _FONT PREVIEW.fontHandle&
+    LINE (0, 0)-(ttTW% - 1, ttTH% - 1), ttBg~&, BF
+    LINE (0, 0)-(ttTW% - 1, ttTH% - 1), ttBrd~&, B
     _PRINTMODE _KEEPBACKGROUND
-    DIM ttTX AS INTEGER : ttTX% = ttX% + ttBW% + ttPad%
-    DIM ttTY AS INTEGER : ttTY% = ttY% + ttBW% + ttPad%
+    DIM ttTX  AS INTEGER : ttTX% = ttBW% + ttPad%
+    DIM ttTY  AS INTEGER : ttTY% = ttBW% + ttPad%
     COLOR ttBold~&
     _UPRINTSTRING (ttTX%, ttTY%), ttFile$
     ttTY% = ttTY% + ttFontH% + 1
@@ -782,8 +881,26 @@ SUB PREVIEW_render_tooltip (destHandle AS LONG)
     END IF
     COLOR ttFg~&
     _UPRINTSTRING (ttTX%, ttTY%), ttDims$
+    IF ttOldFont& > 0 THEN _FONT ttOldFont&
 
-    _DEST oldDest2&
+    ' Position near the PHYSICAL cursor, clamp to physical screen, blit x ts
+    DIM ttPhysX AS INTEGER : ttPhysX% = MOUSE.RAW_X% * ttDs%
+    DIM ttPhysY AS INTEGER : ttPhysY% = MOUSE.RAW_Y% * ttDs%
+    DIM ttBlitW AS INTEGER : ttBlitW% = ttTW% * ttTs%
+    DIM ttBlitH AS INTEGER : ttBlitH% = ttTH% * ttTs%
+    DIM ttX     AS INTEGER : ttX% = ttPhysX% + 8 * ttTs%
+    DIM ttY     AS INTEGER : ttY% = ttPhysY% + 16 * ttTs%
+    DIM ttScrW  AS INTEGER : ttScrW% = _WIDTH(0)
+    DIM ttScrH  AS INTEGER : ttScrH% = _HEIGHT(0)
+    IF ttX% + ttBlitW% > ttScrW% - 2 THEN ttX% = ttPhysX% - ttBlitW% - 4 * ttTs%
+    IF ttY% + ttBlitH% > ttScrH% - 2 THEN ttY% = ttPhysY% - ttBlitH% - 4 * ttTs%
+    IF ttX% < 2 THEN ttX% = 2
+    IF ttY% < 2 THEN ttY% = 2
+
+    _DEST 0
+    _PUTIMAGE (ttX%, ttY%)-(ttX% + ttBlitW% - 1, ttY% + ttBlitH% - 1), ttBuf&, 0
+    _DEST ttOldDest&
+    _FREEIMAGE ttBuf&
 END SUB
 
 ''
@@ -799,12 +916,16 @@ END SUB
 ' Edge IDs: 1=N 2=NE 3=E 4=SE 5=S 6=SW 7=W 8=NW
 ' ---------------------------------------------------------------------------
 FUNCTION PREVIEW_hit_resize_edge% (mx AS INTEGER, my AS INTEGER)
-    DIM hs AS INTEGER : hs% = THEME.PREVIEW_resize_handle_size%
+    ' mx/my are VIEWPORT coords. The window footprint is dispW x dispH.
+    PREVIEW_compute_display
+    ' Resize-handle band scales with the overlay so it stays grabbable.
+    DIM hs AS INTEGER : hs% = INT(THEME.PREVIEW_resize_handle_size% * PREVIEW.renderScale! + 0.5)
+    IF hs% < 3 THEN hs% = 3
     DIM wx AS INTEGER : wx% = PREVIEW.x%
     DIM wy AS INTEGER : wy% = PREVIEW.y%
-    DIM ww AS INTEGER : ww% = PREVIEW.w%
-    DIM wh AS INTEGER : wh% = PREVIEW.h%
-    IF PREVIEW.minimized% THEN wh% = THEME.PREVIEW_title_height% + THEME.PREVIEW_border_width% * 2
+    DIM ww AS INTEGER : ww% = PREVIEW.dispW%
+    DIM wh AS INTEGER : wh% = PREVIEW.dispH%
+    IF PREVIEW.minimized% THEN wh% = INT((THEME.PREVIEW_title_height% + THEME.PREVIEW_border_width% * 2) * PREVIEW.renderScale! + 0.5)
 
     DIM onLeft   AS INTEGER : onLeft% = (mx% >= wx% AND mx% < wx% + hs%)
     DIM onRight  AS INTEGER : onRight% = (mx% >= wx% + ww% - hs% AND mx% < wx% + ww%)
@@ -835,9 +956,11 @@ END FUNCTION
 ' Helper: TRUE when the given point is inside the window rect.
 ' ---------------------------------------------------------------------------
 FUNCTION PREVIEW_hit_window% (mx AS INTEGER, my AS INTEGER)
-    DIM wh AS INTEGER : wh% = PREVIEW.h%
-    IF PREVIEW.minimized% THEN wh% = THEME.PREVIEW_title_height% + THEME.PREVIEW_border_width% * 2
-    PREVIEW_hit_window% = (mx% >= PREVIEW.x% AND mx% < PREVIEW.x% + PREVIEW.w% AND _
+    ' mx/my are VIEWPORT coords; test against the dispW x dispH footprint.
+    PREVIEW_compute_display
+    DIM wh AS INTEGER : wh% = PREVIEW.dispH%
+    IF PREVIEW.minimized% THEN wh% = INT((THEME.PREVIEW_title_height% + THEME.PREVIEW_border_width% * 2) * PREVIEW.renderScale! + 0.5)
+    PREVIEW_hit_window% = (mx% >= PREVIEW.x% AND mx% < PREVIEW.x% + PREVIEW.dispW% AND _
                            my% >= PREVIEW.y% AND my% < PREVIEW.y% + wh%)
 END FUNCTION
 
@@ -854,19 +977,30 @@ SUB PREVIEW_mouse_input ()
     IF NOT PREVIEW.visible% THEN EXIT SUB
     IF PREVIEW.autoHidden% THEN EXIT SUB
 
-    DIM mx     AS INTEGER : mx% = MOUSE.RAW_X%
-    DIM my     AS INTEGER : my% = MOUSE.RAW_Y%
+    ' Resolve overlay scale so we can map viewport <-> native this frame.
+    PREVIEW_compute_display
+    DIM pvRS AS SINGLE : pvRS! = PREVIEW.renderScale!
+    IF pvRS! <= 0 THEN pvRS! = 1
+
+    DIM mx     AS INTEGER : mx% = MOUSE.RAW_X% ' viewport coords
+    DIM my     AS INTEGER : my% = MOUSE.RAW_Y% ' viewport coords
     DIM bw     AS INTEGER : bw% = THEME.PREVIEW_border_width%
     DIM titleH AS INTEGER : titleH% = THEME.PREVIEW_title_height%
     DIM btnW   AS INTEGER : btnW% = THEME.PREVIEW_button_width%
     DIM btnH   AS INTEGER : btnH% = THEME.PREVIEW_button_height%
 
+    ' Local-NATIVE mouse: maps a viewport point into the window's native space
+    ' (0..w / 0..h). Used for internal element hit tests so they match the
+    ' native geometry drawn in PREVIEW_render.
+    DIM pmx AS INTEGER : pmx% = INT((mx% - PREVIEW.x%) / pvRS!)
+    DIM pmy AS INTEGER : pmy% = INT((my% - PREVIEW.y%) / pvRS!)
+
     DIM wh AS INTEGER : wh% = PREVIEW.h%
     IF PREVIEW.minimized% THEN wh% = titleH% + bw% * 2
 
-    ' Button regions
-    DIM btnY    AS INTEGER : btnY% = PREVIEW.y% + bw% + (titleH% - bw% - btnH%) \ 2
-    DIM closeX  AS INTEGER : closeX% = PREVIEW.x% + PREVIEW.w% - bw% - btnW% - 1
+    ' Button regions (NATIVE coords; compare against pmx/pmy)
+    DIM btnY    AS INTEGER : btnY% = bw% + (titleH% - bw% - btnH%) \ 2
+    DIM closeX  AS INTEGER : closeX% = PREVIEW.w% - bw% - btnW% - 1
     DIM minBtnX AS INTEGER : minBtnX% = closeX% - btnW% - 2
 
     ' --- On press (B1 just went down) ---
@@ -875,25 +1009,25 @@ SUB PREVIEW_mouse_input ()
         IF PREVIEW_hit_window%(mx%, my%) THEN
             MOUSE.UI_CHROME_CLICKED% = TRUE
 
-            ' Close button?
-            IF mx% >= closeX% AND mx% < closeX% + btnW% AND my% >= btnY% AND my% < btnY% + btnH% THEN
+            ' Close button? (native space)
+            IF pmx% >= closeX% AND pmx% < closeX% + btnW% AND pmy% >= btnY% AND pmy% < btnY% + btnH% THEN
                 CMD_execute_action 434 ' Toggle (hide) preview
                 EXIT SUB
             END IF
 
-            ' Minimize button?
-            IF mx% >= minBtnX% AND mx% < minBtnX% + btnW% AND my% >= btnY% AND my% < btnY% + btnH% THEN
+            ' Minimize button? (native space)
+            IF pmx% >= minBtnX% AND pmx% < minBtnX% + btnW% AND pmy% >= btnY% AND pmy% < btnY% + btnH% THEN
                 PREVIEW.minimized% = NOT PREVIEW.minimized%
                 GUI_NEEDS_REDRAW%  = TRUE
                 FRAME_IDLE%        = FALSE
                 EXIT SUB
             END IF
 
-            ' Follow-pointer / Color-pick checkbox?
-            DIM cbX  AS INTEGER : cbX% = PREVIEW.x% + bw% + 3 + 52
-            DIM cbY  AS INTEGER : cbY% = PREVIEW.y% + bw% + (titleH% - bw% - THEME.PREVIEW_checkbox_size%) \ 2
+            ' Follow-pointer / Color-pick checkbox? (native space)
+            DIM cbX  AS INTEGER : cbX% = bw% + 3 + 52
+            DIM cbY  AS INTEGER : cbY% = bw% + (titleH% - bw% - THEME.PREVIEW_checkbox_size%) \ 2
             DIM cbSz AS INTEGER : cbSz% = THEME.PREVIEW_checkbox_size%
-            IF mx% >= cbX% AND mx% < cbX% + cbSz% + 14 AND my% >= cbY% AND my% < cbY% + cbSz% + 2 THEN
+            IF pmx% >= cbX% AND pmx% < cbX% + cbSz% + 14 AND pmy% >= cbY% AND pmy% < cbY% + cbSz% + 2 THEN
                 IF PREVIEW.mode% = PREVIEW_MODE_FLOAT THEN
                     ' Toggle color picking in floating image mode
                     PREVIEW.colorPickEnabled% = NOT PREVIEW.colorPickEnabled%
@@ -931,8 +1065,9 @@ SUB PREVIEW_mouse_input ()
                 EXIT SUB
             END IF
 
-            ' Title bar drag?
-            IF my% >= PREVIEW.y% AND my% < PREVIEW.y% + titleH% THEN
+            ' Title bar drag? (titleH is native; compare in viewport)
+            DIM pvTitleVH AS INTEGER : pvTitleVH% = INT(titleH% * pvRS! + 0.5)
+            IF my% >= PREVIEW.y% AND my% < PREVIEW.y% + pvTitleVH% THEN
                 DIM edge AS INTEGER : edge% = PREVIEW_hit_resize_edge%(mx%, my%)
                 IF edge% = 0 THEN
                     PREVIEW.dragging% = TRUE
@@ -961,17 +1096,17 @@ SUB PREVIEW_mouse_input ()
             ' Color picking from preview content area (Alt + click)
             ' Alt is explicit user intent — works in both Follow and Float modes
             IF MODIFIERS.alt% AND NOT PREVIEW.minimized% AND PREVIEW.colorPickEnabled% THEN
-                DIM cpCy1 AS INTEGER : cpCy1% = PREVIEW.y% + titleH%
+                DIM cpCy1 AS INTEGER : cpCy1% = PREVIEW.y% + INT(titleH% * pvRS! + 0.5)
                 IF my% >= cpCy1% THEN
                     MOUSE.UI_CHROME_CLICKED% = TRUE
-                    PREVIEW_pick_color_at mx%, my%, 1 ' B1 = foreground
+                    PREVIEW_pick_color_at mx%, my%, 1 ' B1 = foreground (raw viewport coords)
                     EXIT SUB
                 END IF
             END IF
 
             ' Content area click — double-click to fit, or pan (only when not in follow mode)
             IF NOT PREVIEW.minimized% AND NOT PREVIEW.followPointer% THEN
-                DIM ccy1 AS INTEGER : ccy1% = PREVIEW.y% + titleH%
+                DIM ccy1 AS INTEGER : ccy1% = PREVIEW.y% + INT(titleH% * pvRS! + 0.5)
                 IF my% >= ccy1% THEN
                     ' Double-click detection: fit image in preview
                     STATIC pvB1ClickTime AS DOUBLE
@@ -1031,10 +1166,10 @@ SUB PREVIEW_mouse_input ()
     IF MOUSE.B2% AND NOT MOUSE.OLD_B2% THEN
         IF MODIFIERS.alt% AND NOT PREVIEW.minimized% AND PREVIEW.colorPickEnabled% THEN
             IF PREVIEW_hit_window%(mx%, my%) THEN
-                DIM cpB2Y1 AS INTEGER : cpB2Y1% = PREVIEW.y% + titleH%
+                DIM cpB2Y1 AS INTEGER : cpB2Y1% = PREVIEW.y% + INT(titleH% * pvRS! + 0.5)
                 IF my% >= cpB2Y1% THEN
                     MOUSE.UI_CHROME_CLICKED% = TRUE
-                    PREVIEW_pick_color_at mx%, my%, 2 ' B2 = background
+                    PREVIEW_pick_color_at mx%, my%, 2 ' B2 = background (raw viewport coords)
                 END IF
             END IF
         END IF
@@ -1043,7 +1178,7 @@ SUB PREVIEW_mouse_input ()
     ' --- Middle-click pan start (double-middle-click resets to 1:1) ---
     IF MOUSE.B3% AND NOT MOUSE.OLD_B3% THEN
         IF NOT PREVIEW.minimized% AND NOT PREVIEW.followPointer% THEN
-            DIM cy1 AS INTEGER : cy1% = PREVIEW.y% + titleH%
+            DIM cy1 AS INTEGER : cy1% = PREVIEW.y% + INT(titleH% * pvRS! + 0.5)
             IF PREVIEW_hit_window%(mx%, my%) AND my% >= cy1% THEN
                 ' Double-middle-click detection: reset zoom to 1:1 and center
                 STATIC pvB3ClickTime AS DOUBLE
@@ -1113,30 +1248,34 @@ SUB PREVIEW_mouse_input ()
 
     ' --- Resize in-progress ---
     IF PREVIEW.resizing% AND MOUSE.B1% THEN
-        DIM dx AS INTEGER : dx% = mx% - PREVIEW.resizeStartX%
-        DIM dy AS INTEGER : dy% = my% - PREVIEW.resizeStartY%
-        DIM nx AS INTEGER : nx% = PREVIEW.resizeOrigX%
-        DIM ny AS INTEGER : ny% = PREVIEW.resizeOrigY%
-        DIM nw AS INTEGER : nw% = PREVIEW.resizeOrigW%
-        DIM nh AS INTEGER : nh% = PREVIEW.resizeOrigH%
+        ' Position (x/y) is VIEWPORT — use viewport deltas.
+        ' Size (w/h) is NATIVE — convert viewport deltas to native (/renderScale).
+        DIM dxV AS INTEGER : dxV% = mx% - PREVIEW.resizeStartX%
+        DIM dyV AS INTEGER : dyV% = my% - PREVIEW.resizeStartY%
+        DIM dxN AS INTEGER : dxN% = INT(dxV% / pvRS!)
+        DIM dyN AS INTEGER : dyN% = INT(dyV% / pvRS!)
+        DIM nx  AS INTEGER : nx% = PREVIEW.resizeOrigX%
+        DIM ny  AS INTEGER : ny% = PREVIEW.resizeOrigY%
+        DIM nw  AS INTEGER : nw% = PREVIEW.resizeOrigW%
+        DIM nh  AS INTEGER : nh% = PREVIEW.resizeOrigH%
 
         SELECT CASE PREVIEW.resizeEdge%
             CASE 1 ' N
-                ny% = ny% + dy% : nh% = nh% - dy%
+                ny% = ny% + dyV% : nh% = nh% - dyN%
             CASE 2 ' NE
-                ny% = ny% + dy% : nh% = nh% - dy% : nw% = nw% + dx%
+                ny% = ny% + dyV% : nh% = nh% - dyN% : nw% = nw% + dxN%
             CASE 3 ' E
-                nw% = nw% + dx%
+                nw% = nw% + dxN%
             CASE 4 ' SE
-                nw% = nw% + dx% : nh% = nh% + dy%
+                nw% = nw% + dxN% : nh% = nh% + dyN%
             CASE 5 ' S
-                nh% = nh% + dy%
+                nh% = nh% + dyN%
             CASE 6 ' SW
-                nx% = nx% + dx% : nw% = nw% - dx% : nh% = nh% + dy%
+                nx% = nx% + dxV% : nw% = nw% - dxN% : nh% = nh% + dyN%
             CASE 7 ' W
-                nx% = nx% + dx% : nw% = nw% - dx%
+                nx% = nx% + dxV% : nw% = nw% - dxN%
             CASE 8 ' NW
-                nx% = nx% + dx% : nw% = nw% - dx% : ny% = ny% + dy% : nh% = nh% - dy%
+                nx% = nx% + dxV% : nw% = nw% - dxN% : ny% = ny% + dyV% : nh% = nh% - dyN%
         END SELECT
 
         IF nw% >= PREVIEW_MIN_W AND nh% >= PREVIEW_MIN_H THEN
@@ -1155,9 +1294,10 @@ SUB PREVIEW_mouse_input ()
 
     ' --- Pan in-progress ---
     IF PREVIEW.panning% AND (MOUSE.B1% OR MOUSE.B3%) THEN
-        ' Pan offset is in canvas pixels; mouse delta is screen pixels
-        PREVIEW.panX!     = PREVIEW.panOrigX! - (mx% - PREVIEW.panStartMX%) / PREVIEW.zoom!
-        PREVIEW.panY!     = PREVIEW.panOrigY! - (my% - PREVIEW.panStartMY%) / PREVIEW.zoom!
+        ' Pan offset is in canvas pixels. Mouse delta is VIEWPORT pixels:
+        ' viewport -> native content px (/renderScale) -> canvas px (/zoom).
+        PREVIEW.panX!     = PREVIEW.panOrigX! - ((mx% - PREVIEW.panStartMX%) / pvRS!) / PREVIEW.zoom!
+        PREVIEW.panY!     = PREVIEW.panOrigY! - ((my% - PREVIEW.panStartMY%) / pvRS!) / PREVIEW.zoom!
         GUI_NEEDS_REDRAW% = TRUE
         FRAME_IDLE%       = FALSE
         EXIT SUB
@@ -1189,14 +1329,22 @@ SUB PREVIEW_mouse_scroll (delta AS INTEGER)
 
     ' Zoom relative to mouse position (keep canvas point under cursor fixed)
     IF PREVIEW.zoom! <> oldZoom! AND NOT PREVIEW.followPointer% THEN
+        ' Resolve overlay scale and map the cursor (viewport) into NATIVE
+        ' content-local coords so zoom centers on the pixel under the cursor.
+        PREVIEW_compute_display
+        DIM swRS   AS SINGLE  : swRS! = PREVIEW.renderScale!
+        IF swRS! <= 0 THEN swRS! = 1
         DIM bw     AS INTEGER : bw% = THEME.PREVIEW_border_width%
         DIM pad    AS INTEGER : pad% = THEME.PREVIEW_padding%
         DIM titleH AS INTEGER : titleH% = THEME.PREVIEW_title_height%
-        DIM cx1    AS INTEGER : cx1% = PREVIEW.x% + bw% + pad%
-        DIM cy1    AS INTEGER : cy1% = PREVIEW.y% + titleH% + pad%
-        ' Mouse offset within content area (screen pixels)
-        DIM relX   AS SINGLE  : relX! = MOUSE.RAW_X% - cx1%
-        DIM relY   AS SINGLE  : relY! = MOUSE.RAW_Y% - cy1%
+        ' Native content origin inside the window buffer
+        DIM cx1    AS INTEGER : cx1% = bw% + pad%
+        DIM cy1    AS INTEGER : cy1% = titleH% + pad%
+        ' Cursor -> native-local, then offset within native content area
+        DIM lmx    AS SINGLE  : lmx! = (MOUSE.RAW_X% - PREVIEW.x%) / swRS!
+        DIM lmy    AS SINGLE  : lmy! = (MOUSE.RAW_Y% - PREVIEW.y%) / swRS!
+        DIM relX   AS SINGLE  : relX! = lmx! - cx1%
+        DIM relY   AS SINGLE  : relY! = lmy! - cy1%
         ' Canvas point under mouse at old zoom
         DIM canvX  AS SINGLE  : canvX! = PREVIEW.panX! + relX! / oldZoom!
         DIM canvY  AS SINGLE  : canvY! = PREVIEW.panY! + relY! / oldZoom!
@@ -1403,19 +1551,27 @@ END SUB
 ' button: 1 = set foreground, 2 = set background
 ' ---------------------------------------------------------------------------
 SUB PREVIEW_pick_color_at (rawX AS INTEGER, rawY AS INTEGER, button AS INTEGER)
+    ' rawX/rawY are VIEWPORT coords. Map to NATIVE-local inside the window,
+    ' then use the same NATIVE content-rect math as PREVIEW_render.
+    PREVIEW_compute_display
+    DIM pcRS AS SINGLE : pcRS! = PREVIEW.renderScale!
+    IF pcRS! <= 0 THEN pcRS! = 1
+    DIM lx   AS INTEGER : lx% = INT((rawX% - PREVIEW.x%) / pcRS!)
+    DIM ly   AS INTEGER : ly% = INT((rawY% - PREVIEW.y%) / pcRS!)
+
     DIM pcBw  AS INTEGER : pcBw% = THEME.PREVIEW_border_width%
     DIM pcTH  AS INTEGER : pcTH% = THEME.PREVIEW_title_height%
     DIM pcPad AS INTEGER : pcPad% = THEME.PREVIEW_padding%
 
-    ' Content area bounds
-    DIM pcCx1 AS INTEGER : pcCx1% = PREVIEW.x% + pcBw% + pcPad%
-    DIM pcCy1 AS INTEGER : pcCy1% = PREVIEW.y% + pcTH% + pcPad%
-    DIM pcCx2 AS INTEGER : pcCx2% = PREVIEW.x% + PREVIEW.w% - pcBw% - pcPad% - 1
-    DIM pcCy2 AS INTEGER : pcCy2% = PREVIEW.y% + PREVIEW.h% - pcBw% - pcPad% - 1
+    ' Content area bounds (NATIVE, origin 0 inside window)
+    DIM pcCx1 AS INTEGER : pcCx1% = pcBw% + pcPad%
+    DIM pcCy1 AS INTEGER : pcCy1% = pcTH% + pcPad%
+    DIM pcCx2 AS INTEGER : pcCx2% = PREVIEW.w% - pcBw% - pcPad% - 1
+    DIM pcCy2 AS INTEGER : pcCy2% = PREVIEW.h% - pcBw% - pcPad% - 1
     IF pcCx2% <= pcCx1% OR pcCy2% <= pcCy1% THEN EXIT SUB
 
-    ' Mouse must be within content area
-    IF rawX% < pcCx1% OR rawX% > pcCx2% OR rawY% < pcCy1% OR rawY% > pcCy2% THEN EXIT SUB
+    ' Mouse must be within content area (native-local)
+    IF lx% < pcCx1% OR lx% > pcCx2% OR ly% < pcCy1% OR ly% > pcCy2% THEN EXIT SUB
 
     DIM pcContentW AS INTEGER : pcContentW% = pcCx2% - pcCx1% + 1
     DIM pcContentH AS INTEGER : pcContentH% = pcCy2% - pcCy1% + 1
@@ -1441,9 +1597,9 @@ SUB PREVIEW_pick_color_at (rawX AS INTEGER, rawY AS INTEGER, button AS INTEGER)
         pcSrcH&   = SCRN.canvasH&
     END IF
 
-    ' Reverse pan/zoom transform: screen pixel → source image pixel
-    DIM pcRelX AS SINGLE : pcRelX! = rawX% - pcCx1%
-    DIM pcRelY AS SINGLE : pcRelY! = rawY% - pcCy1%
+    ' Reverse pan/zoom transform: native-local content pixel → source image pixel
+    DIM pcRelX AS SINGLE : pcRelX! = lx% - pcCx1%
+    DIM pcRelY AS SINGLE : pcRelY! = ly% - pcCy1%
 
     DIM pcImgX AS INTEGER
     DIM pcImgY AS INTEGER
@@ -1515,20 +1671,27 @@ SUB PREVIEW_render_loupe (dest AS LONG)
     ' Suppress loupe when Alt is held with another key (e.g. Alt+X exit)
     IF MODIFIERS.alt% AND (_KEYDOWN(88) OR _KEYDOWN(120) OR _KEYDOWN(111) OR _KEYDOWN(79)) THEN EXIT SUB
 
-    ' ---- Content area bounds (same math as PREVIEW_render / PREVIEW_pick_color_at) ----
+    ' Overlay scale: loupe is rendered NATIVE then blitted x ts to screen 0.
+    PREVIEW_compute_display
+    DIM plRS AS SINGLE : plRS! = PREVIEW.renderScale!
+    IF plRS! <= 0 THEN plRS! = 1
+    DIM plTs AS INTEGER : plTs% = USCALE.preview%    : IF plTs% < 1 THEN plTs% = 1
+    DIM plDs AS INTEGER : plDs% = SCRN.displayScale% : IF plDs% < 1 THEN plDs% = 1
+
+    ' ---- Content area bounds (NATIVE-local, same math as PREVIEW_render) ----
     DIM plBw  AS INTEGER : plBw% = THEME.PREVIEW_border_width%
     DIM plTH  AS INTEGER : plTH% = THEME.PREVIEW_title_height%
     DIM plPad AS INTEGER : plPad% = THEME.PREVIEW_padding%
 
-    DIM plCx1 AS INTEGER : plCx1% = PREVIEW.x% + plBw% + plPad%
-    DIM plCy1 AS INTEGER : plCy1% = PREVIEW.y% + plTH% + plPad%
-    DIM plCx2 AS INTEGER : plCx2% = PREVIEW.x% + PREVIEW.w% - plBw% - plPad% - 1
-    DIM plCy2 AS INTEGER : plCy2% = PREVIEW.y% + PREVIEW.h% - plBw% - plPad% - 1
+    DIM plCx1 AS INTEGER : plCx1% = plBw% + plPad%
+    DIM plCy1 AS INTEGER : plCy1% = plTH% + plPad%
+    DIM plCx2 AS INTEGER : plCx2% = PREVIEW.w% - plBw% - plPad% - 1
+    DIM plCy2 AS INTEGER : plCy2% = PREVIEW.h% - plBw% - plPad% - 1
     IF plCx2% <= plCx1% OR plCy2% <= plCy1% THEN EXIT SUB
 
-    ' Must be inside content area
-    DIM mx AS INTEGER : mx% = MOUSE.RAW_X%
-    DIM my AS INTEGER : my% = MOUSE.RAW_Y%
+    ' Cursor in native-local window coords; must be inside content area
+    DIM mx AS INTEGER : mx% = INT((MOUSE.RAW_X% - PREVIEW.x%) / plRS!)
+    DIM my AS INTEGER : my% = INT((MOUSE.RAW_Y% - PREVIEW.y%) / plRS!)
     IF mx% < plCx1% OR mx% > plCx2% OR my% < plCy1% OR my% > plCy2% THEN EXIT SUB
 
     DIM plContentW AS INTEGER : plContentW% = plCx2% - plCx1% + 1
@@ -1663,18 +1826,8 @@ SUB PREVIEW_render_loupe (dest AS LONG)
     plSampleColor~& = POINT(plImgX%, plImgY%)
     _SOURCE plOldSrc&
 
-    ' ---- Set loupe font (same as regular PICKER_LOUPE_render) ----
+    ' ---- Set loupe font (rendered NATIVE into an offscreen buffer) ----
     PICKER_LOUPE_ensure_font
-    DIM plOldFont AS LONG : plOldFont& = _FONT(dest&)
-    IF PICKER_LOUPE.FONT_HANDLE& > 0 THEN
-        _FONT PICKER_LOUPE.FONT_HANDLE&, dest&
-    END IF
-
-    ' ---- Position loupe (same layout as regular PICKER_LOUPE_render) ----
-    DIM plRX AS INTEGER
-    DIM plRY AS INTEGER
-    plRX% = mx% + PICKER_LOUPE_resolve_int%(CFG.PICKER_LOUPE_RECT_X_OFFSET%, THEME.PICKER_LOUPE_rect_x_offset%, 24)
-    plRY% = my% + PICKER_LOUPE_resolve_int%(CFG.PICKER_LOUPE_RECT_Y_OFFSET%, THEME.PICKER_LOUPE_rect_y_offset%, -24)
 
     ' Text layout
     DIM plFontH   AS INTEGER
@@ -1694,14 +1847,21 @@ SUB PREVIEW_render_loupe (dest AS LONG)
     DIM plYL  AS STRING : plYL$ = "Y:" + ns$(plImgY%)
     DIM plHex AS STRING : plHex$ = "#" + RIGHT$("0" + HEX$(_RED32(plSampleColor~&)), 2) + RIGHT$("0" + HEX$(_GREEN32(plSampleColor~&)), 2) + RIGHT$("0" + HEX$(_BLUE32(plSampleColor~&)), 2)
 
-    ' Measure text widths
-    DIM plTxtMaxW AS INTEGER : plTxtMaxW% = _PRINTWIDTH(plRL$, dest&)
-    DIM plTmpW    AS INTEGER
-    plTmpW% = _PRINTWIDTH(plGL$, dest&) : IF plTmpW% > plTxtMaxW% THEN plTxtMaxW% = plTmpW%
-    plTmpW% = _PRINTWIDTH(plBL$, dest&) : IF plTmpW% > plTxtMaxW% THEN plTxtMaxW% = plTmpW%
-    plTmpW% = _PRINTWIDTH(plXL$, dest&) : IF plTmpW% > plTxtMaxW% THEN plTxtMaxW% = plTmpW%
-    plTmpW% = _PRINTWIDTH(plYL$, dest&) : IF plTmpW% > plTxtMaxW% THEN plTxtMaxW% = plTmpW%
-    DIM plHexW    AS INTEGER            : plHexW% = _PRINTWIDTH(plHex$, dest&)
+    ' Measure text widths on a small scratch image with the loupe font
+    DIM plMeasOldDest AS LONG : plMeasOldDest& = _DEST
+    DIM plMeas        AS LONG : plMeas& = _NEWIMAGE(8, 8, 32)
+    IF plMeas& >= -1 THEN EXIT SUB
+    _DEST plMeas&
+    IF PICKER_LOUPE.FONT_HANDLE& > 0 THEN _FONT PICKER_LOUPE.FONT_HANDLE&
+    DIM plTxtMaxW     AS INTEGER : plTxtMaxW% = _PRINTWIDTH(plRL$)
+    DIM plTmpW        AS INTEGER
+    plTmpW% = _PRINTWIDTH(plGL$) : IF plTmpW% > plTxtMaxW% THEN plTxtMaxW% = plTmpW%
+    plTmpW% = _PRINTWIDTH(plBL$) : IF plTmpW% > plTxtMaxW% THEN plTxtMaxW% = plTmpW%
+    plTmpW% = _PRINTWIDTH(plXL$) : IF plTmpW% > plTxtMaxW% THEN plTxtMaxW% = plTmpW%
+    plTmpW% = _PRINTWIDTH(plYL$) : IF plTmpW% > plTxtMaxW% THEN plTxtMaxW% = plTmpW%
+    DIM plHexW        AS INTEGER : plHexW% = _PRINTWIDTH(plHex$)
+    _DEST plMeasOldDest&
+    _FREEIMAGE plMeas&
 
     ' Compute text position using same theme/config offsets as regular loupe
     DIM plTxtRelX AS INTEGER
@@ -1723,16 +1883,24 @@ SUB PREVIEW_render_loupe (dest AS LONG)
     IF plRectH% + plLineGap% + plFontH% > plMaxRY% THEN plMaxRY% = plRectH% + plLineGap% + plFontH%
     IF plHexRelX% + plHexW% > plMaxRX% THEN plMaxRX% = plHexRelX% + plHexW%
 
-    ' Clamp to screen edges (same as regular loupe)
-    IF plRX% + plMinRX% < 0 THEN plRX% = -plMinRX%
-    IF plRY% + plMinRY% < 0 THEN plRY% = -plMinRY%
-    IF plRX% + plMaxRX% > _WIDTH(dest&) - 1 THEN plRX% = (_WIDTH(dest&) - 1) - plMaxRX%
-    IF plRY% + plMaxRY% > _HEIGHT(dest&) - 1 THEN plRY% = (_HEIGHT(dest&) - 1) - plMaxRY%
+    ' ---- Render the loupe into a NATIVE offscreen buffer ----
+    ' Shift all element coords so the bbox origin is (0,0). Everything that was
+    ' drawn at plRX+rel is now drawn at (rel - plMinRX).
+    DIM plBufW AS INTEGER : plBufW% = plMaxRX% - plMinRX%
+    DIM plBufH AS INTEGER : plBufH% = plMaxRY% - plMinRY%
+    IF plBufW% < 1 THEN plBufW% = 1
+    IF plBufH% < 1 THEN plBufH% = 1
+    DIM plRX   AS INTEGER : plRX% = -plMinRX% ' rect origin inside buffer
+    DIM plRY   AS INTEGER : plRY% = -plMinRY%
 
-    ' ---- Draw loupe ----
+    DIM plBuf     AS LONG : plBuf& = _NEWIMAGE(plBufW%, plBufH%, 32)
+    IF plBuf& >= -1 THEN EXIT SUB
     DIM plOldDest AS LONG : plOldDest& = _DEST
-    _DEST dest&
-    _BLEND dest&
+    DIM plOldFont AS LONG : plOldFont& = _FONT
+    _DEST plBuf&
+    CLS , 0
+    _BLEND plBuf&
+    IF PICKER_LOUPE.FONT_HANDLE& > 0 THEN _FONT PICKER_LOUPE.FONT_HANDLE&
 
     DIM plStrokeColor AS _UNSIGNED LONG : plStrokeColor~& = _RGB32(255, 255, 255)
     DIM plBgColor     AS _UNSIGNED LONG : plBgColor~& = _RGB32(0, 0, 0)
@@ -1826,6 +1994,32 @@ SUB PREVIEW_render_loupe (dest AS LONG)
     _UPRINTSTRING (plTxtX%, plL5Y%), plYL$
     _UPRINTSTRING (plHexX%, plHexY%), plHex$
 
-    IF plOldFont& > 0 THEN _FONT plOldFont&, dest&
+    IF plOldFont& > 0 THEN _FONT plOldFont&
     _DEST plOldDest&
+
+    ' ---- Blit the native loupe buffer to screen 0, scaled by ts ----
+    ' Position relative to the PHYSICAL cursor using the same offsets as the
+    ' native layout (offsets are native -> scale by ts), then clamp to screen.
+    DIM plPhysX AS INTEGER : plPhysX% = MOUSE.RAW_X% * plDs%
+    DIM plPhysY AS INTEGER : plPhysY% = MOUSE.RAW_Y% * plDs%
+    DIM plOffX  AS INTEGER : plOffX% = PICKER_LOUPE_resolve_int%(CFG.PICKER_LOUPE_RECT_X_OFFSET%, THEME.PICKER_LOUPE_rect_x_offset%, 24)
+    DIM plOffY  AS INTEGER : plOffY% = PICKER_LOUPE_resolve_int%(CFG.PICKER_LOUPE_RECT_Y_OFFSET%, THEME.PICKER_LOUPE_rect_y_offset%, -24)
+    ' Screen-0 top-left of the buffer: cursor + (rect-offset + bbox-origin) * ts
+    DIM plScrX  AS INTEGER : plScrX% = plPhysX% + (plOffX% + plMinRX%) * plTs%
+    DIM plScrY  AS INTEGER : plScrY% = plPhysY% + (plOffY% + plMinRY%) * plTs%
+    DIM plScrBW AS INTEGER : plScrBW% = plBufW% * plTs%
+    DIM plScrBH AS INTEGER : plScrBH% = plBufH% * plTs%
+    DIM plScrW  AS INTEGER : plScrW% = _WIDTH(0)
+    DIM plScrH  AS INTEGER : plScrH% = _HEIGHT(0)
+    IF plScrX% < 0 THEN plScrX% = 0
+    IF plScrY% < 0 THEN plScrY% = 0
+    IF plScrX% + plScrBW% > plScrW% - 1 THEN plScrX% = (plScrW% - 1) - plScrBW%
+    IF plScrY% + plScrBH% > plScrH% - 1 THEN plScrY% = (plScrH% - 1) - plScrBH%
+    IF plScrX% < 0 THEN plScrX% = 0
+    IF plScrY% < 0 THEN plScrY% = 0
+
+    _DEST 0
+    _PUTIMAGE (plScrX%, plScrY%)-(plScrX% + plScrBW% - 1, plScrY% + plScrBH% - 1), plBuf&, 0
+    _DEST plOldDest&
+    _FREEIMAGE plBuf&
 END SUB

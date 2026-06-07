@@ -181,12 +181,40 @@ TYPE DRAW_CONFIG
     THEME                           AS STRING         ' Active theme directory name (e.g. "DEFAULT")
     FULLSCREEN                      AS INTEGER        ' TRUE = fullscreen, FALSE = windowed
     SPLASH_ENABLED                  AS INTEGER        ' TRUE = show splash screen on startup (default TRUE)
-    DISPLAY_SCALE                   AS INTEGER        ' 0 = auto-detect, 1-8 = explicit scale
+    UI_SCALE                        AS INTEGER        ' MASTER scale (0 = auto, 1-8). Drives DISPLAY_SCALE + TOOLBAR_SCALE; dialog/browser scales derive from it.
+    HIDPI_AWARE                     AS INTEGER        ' [Windows] TRUE = mark process DPI-aware so the display reports true pixels (crisp). No effect on Linux/macOS.
+    DISPLAY_SCALE                   AS INTEGER        ' 0 = auto-detect, 1-8 = explicit scale (canvas magnification)
     DISPLAY_SCALE_MAX               AS INTEGER        ' Maximum allowed scale (default 8)
     DISPLAY_SCALE_CHANGED           AS INTEGER        ' Runtime flag: scale changed during session
-    TOOLBAR_SCALE                   AS INTEGER        ' Toolbar icon scale multiplier (1-4, default 1)
-    FD_FONT_SCALE                   AS INTEGER        ' File dialog text/icon/control scale multiplier (1-4, default 2)
-    FD_ICON_SCALE                   AS INTEGER        ' File dialog icon scale multiplier (1-4, default 3) — independent of font scale
+    TOOLBAR_SCALE                   AS INTEGER        ' RESOLVED toolbar/chrome scale (runtime; written by SCALE_resolve). Read by chrome widgets + dialog auto-derive.
+    TOOLBAR_SCALE_OVR               AS INTEGER        ' OVERRIDE: persisted "TOOLBAR_SCALE" key (0 = use SCALE_RATIO_*, 1-4 = force chrome scale)
+    FD_FONT_SCALE                   AS INTEGER        ' OVERRIDE: modal file dialog font scale (0 = use SCALE_RATIO_FD_FONT, 1-4 explicit)
+    FD_ICON_SCALE                   AS INTEGER        ' OVERRIDE: modal file dialog icon scale (0 = use SCALE_RATIO_FD_ICON, 1-4 explicit)
+    ' --- Per-widget UI scale ratios (unified scaling) -----------------------
+    ' Effective scale for each widget = ROUND(master * ratio), clamped 1-4
+    ' (canvas 1-8). master = UI_SCALE (or the auto-detected display scale when
+    ' UI_SCALE = 0). A legacy *_SCALE override (>0) wins over its ratio. Tune
+    ' these in DRAW.cfg to resize individual widgets; defaults keep the UI
+    ' unified. See OUTPUT/SCALE.BM (SCALE_resolve_all).
+    SCALE_RATIO_CANVAS              AS SINGLE         ' canvas/window magnification vs master (1.0 = equal to master)
+    SCALE_RATIO_TOOLBAR             AS SINGLE         ' toolbar icons/buttons
+    SCALE_RATIO_ORGANIZER           AS SINGLE         ' organizer strip
+    SCALE_RATIO_DRAWER              AS SINGLE         ' drawer bins
+    SCALE_RATIO_FLYOUT              AS SINGLE         ' subtool flyout
+    SCALE_RATIO_TOOLTIP             AS SINGLE         ' tooltips
+    SCALE_RATIO_PREVIEW             AS SINGLE         ' preview window chrome
+    SCALE_RATIO_MIXER               AS SINGLE         ' color mixer chrome
+    SCALE_RATIO_DIALOG              AS SINGLE         ' generic modal dialog chrome
+    SCALE_RATIO_ABOUT               AS SINGLE         ' about dialog
+    SCALE_RATIO_PALETTE_PICKER      AS SINGLE         ' palette picker dialog
+    SCALE_RATIO_FD_FONT             AS SINGLE         ' modal file dialog font
+    SCALE_RATIO_FD_ICON             AS SINGLE         ' modal file dialog icons
+    SCALE_RATIO_COLORPICK           AS SINGLE         ' color picker dialog
+    SCALE_RATIO_MSGBOX              AS SINGLE         ' message box dialog
+    SCALE_RATIO_INPUTBOX            AS SINGLE         ' input box dialog
+    SCALE_RATIO_BROWSER             AS SINGLE         ' docked browser render scale
+    SCALE_RATIO_BROWSER_FONT        AS SINGLE         ' docked browser font
+    SCALE_RATIO_BROWSER_ICON        AS SINGLE         ' docked browser icons
     FD_FONT                         AS INTEGER        ' File dialog font (0 = default 16, 8 = 8x8, 16 = 8x16)
     FD_DIALOG_W                     AS INTEGER        ' File dialog width in pixels (0 = auto 60% of window)
     FD_DIALOG_H                     AS INTEGER        ' File dialog height in pixels (0 = auto 70% of window)
