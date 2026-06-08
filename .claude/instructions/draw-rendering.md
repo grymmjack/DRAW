@@ -13,26 +13,27 @@ Composited back-to-front onto `SCRN.CANVAS&`, then GPU-scaled to window via `_PU
    - **Group compositing**: Groups use isolated compositing via `GROUP_COMP_STACK` (up to `MAX_GROUP_NESTING = 8` levels). Non-pass-through groups composite children into a temporary buffer, then blend the result with group opacity/blend mode. Pass-through groups skip isolation — children blend directly into the main composite. `BLEND_HAS_ISOLATED_GROUPS%` is a cached flag to skip group stack allocation when unnecessary.
    - Partial composite cache: layers below current layer cached in `COMPOSITE_BELOW_CACHE&`
    - Opacity adjustment: cached per-layer in `opacityCacheImg&` (invalidated by `contentDirty%`)
-3. Grid overlay
-4. Symmetry guides
-5. Canvas border
-6. Image import preview
-7. **Tool previews** (marquee, line, rect, ellipse, polygon, move, text, zoom)
-8. GUI layer (`SCRN.GUI&` — toolbar, organizer, drawer panel, edit bar, status bar, palette strip, layer panel, menubar)
-9. Crosshair overlay
-10. Scrollbars
-11. **Scene cache save** → `SCENE_CACHE&`
-12. `SkipToPointer:` — fast path target for cursor-only updates
-13. **Selection overlay** (marching ants) — AFTER cache, so animation doesn't invalidate it
-14. **Smart Guides** — alignment lines during move tool operations (when `SMART_GUIDES.ENABLED%` and `MOVE.TRANSFORMING`)
-15. Pointer cursor (`POINTER_update` + `POINTER_render`)
-16. **Preview window** (`PREVIEW_render`) — before the second GUI composite so menus and overlays stay above it
-17. GUI recomposite + scrollbars + contextual status bars
-18. Picker loupe overlay (`PICKER_LOUPE_render`) when the picker is active
-19. **Final overlay popups** (blend-mode popup, drawer context menu, command palette)
-20. Cursor overlay
-21. Scale `SCRN.CANVAS&` to window (integer scaling, nearest neighbor)
-22. `_DISPLAY`
+3. **CRT effect** (`CRT_render`, when `CFG.CRT_ENABLED%`) — applied to the art content (transparency + layers + refimg) only, so grids/symmetry/borders/tool-previews/GUI render on top and are NOT darkened by scanlines/mask/vignette. Settings dialog: `DIALOG_CRT_open` (action 951)
+4. Grid overlay
+5. Symmetry guides
+6. Canvas border
+7. Image import preview
+8. **Tool previews** (marquee, line, rect, ellipse, polygon, move, text, zoom)
+9. GUI layer (`SCRN.GUI&` — toolbar, organizer, drawer panel, edit bar, status bar, palette strip, layer panel, menubar)
+10. Crosshair overlay
+11. Scrollbars
+12. **Scene cache save** → `SCENE_CACHE&`
+13. `SkipToPointer:` — fast path target for cursor-only updates
+14. **Selection overlay** (marching ants) — AFTER cache, so animation doesn't invalidate it
+15. **Smart Guides** — alignment lines during move tool operations (when `SMART_GUIDES.ENABLED%` and `MOVE.TRANSFORMING`)
+16. Pointer cursor (`POINTER_update` + `POINTER_render`)
+17. **Preview window** (`PREVIEW_render`) — before the second GUI composite so menus and overlays stay above it
+18. GUI recomposite + scrollbars + contextual status bars
+19. Picker loupe overlay (`PICKER_LOUPE_render`) when the picker is active
+20. **Final overlay popups** (blend-mode popup, drawer context menu, command palette)
+21. Cursor overlay
+22. Scale `SCRN.CANVAS&` to window (integer scaling, nearest neighbor)
+23. `_DISPLAY`
 
 ### Scene Cache (`SCENE_CACHE&`, `SCENE_DIRTY%`)
 

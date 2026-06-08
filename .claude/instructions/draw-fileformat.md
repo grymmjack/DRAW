@@ -86,8 +86,10 @@ Config file: `DRAW.cfg` — plain text, one `key=value` per line. Loaded by `CON
 
 | Category | Fields |
 | -------- | ------ |
-| Display  | `DISPLAY_SCALE%`, `FULLSCREEN%`, `FPS_LIMIT%` |
-| Canvas   | `SCREEN_WIDTH%`, `SCREEN_HEIGHT%` |
+| Display  | `UI_SCALE%` (MASTER scale, 0=auto / 1-8; drives `DISPLAY_SCALE` + `TOOLBAR_SCALE` and dialog/browser scales), `DISPLAY_SCALE%`, `HIDPI_AWARE%` ([Windows] mark process DPI-aware; no effect on Linux/macOS), `SPLASH_ENABLED%`, `FULLSCREEN%`, `FPS_LIMIT%` |
+| Scaling ratios | `SCALE_RATIO_*!` (SINGLE per-widget magnification vs the master scale, 1.0 = equal): `CANVAS`, `TOOLBAR`, `ORGANIZER`, `DRAWER`, `FLYOUT`, `TOOLTIP`, `PREVIEW`, `MIXER`, `DIALOG`, `ABOUT`, `PALETTE_PICKER`, `FD_FONT`, `FD_ICON`, `COLORPICK`, `MSGBOX`, `INPUTBOX`, `BROWSER`, `BROWSER_FONT`, `BROWSER_ICON`. Legacy explicit overrides (`TOOLBAR_SCALE_OVR%`, `FD_FONT_SCALE%`, `FD_ICON_SCALE%`; >0 wins over the ratio) |
+| CRT      | `CRT_ENABLED%`, `CRT_INTENSITY%` (0-100), `CRT_SCANLINES%`, `CRT_PHOSPHOR%`, `CRT_VIGNETTE%`, `CRT_TINT%` (0=none,1=amber,2=green,3=cool,4=custom), `CRT_TINT_AMOUNT%`, `CRT_TINT_CUSTOM_COLOR~&`, `CRT_SCANLINE_COLOR~&`, `CRT_VIGNETTE_AMOUNT%`, `CRT_VIGNETTE_COLOR~&`, `CRT_SCANLINE_THICKNESS%` (1-3), `CRT_SCANLINE_GAP%` (1-8) — colors must be `~&` |
+| Canvas   | `SCREEN_WIDTH%`, `SCREEN_HEIGHT%` (written as 0 when `UI_SCALE>0` so the viewport is never frozen against a stale scale) |
 | Palette  | `DEFAULT_PALETTE$`, `PALETTE_CHIP_WIDTH/HEIGHT%`, `PALETTE_MIN/MAX_ROWS%` |
 | Brush    | `DEFAULT_TOOL%`, `DEFAULT_BRUSH_SIZE%`, `DEFAULT_BRUSH_SHAPE%`, `DEFAULT_DRAW_MODE%`, `DEFAULT_BIN_MODE%` |
 | Grid     | `GRID_MODE%`, `GRID_SIZE_X/Y%`, `GRID_CELL_FILL%`, `SMART_GUIDES_ENABLED%`, `SMART_GUIDES_SNAP%` |
@@ -106,7 +108,7 @@ Config file: `DRAW.cfg` — plain text, one `key=value` per line. Loaded by `CON
 
 Defaults: DOT tool, brush size 1, square shape, 60 FPS, 128×128 canvas, 4 layers.
 
-**Auto-Detection (first launch)**: When `DISPLAY_SCALE=0`, `SCREEN_detect_display_scale%` targets 90% of desktop resolution at highest integer scale (capped at 4). `TOOLBAR_SCALE=0` auto-detects from viewport height (≥800=4x, ≥600=3x, ≥400=2x, else 1x). Saved on first launch via `CONFIG_NEEDS_INITIAL_SAVE%`.
+**Auto-Detection (first launch)**: When `UI_SCALE=0` (default), the master scale auto-detects — `SCREEN_detect_display_scale%` targets 90% of desktop resolution at highest integer scale (capped at 4) and `TOOLBAR_SCALE` derives from viewport height (≥800=4x, ≥600=3x, ≥400=2x, else 1x). Set `UI_SCALE=1..8` to drive the whole UI from one knob (it sets `DISPLAY_SCALE` and derives `TOOLBAR_SCALE` via `SCREEN_chrome_scale_from_display%`; per-widget `SCALE_RATIO_*` tune individual widgets). On Windows, `HIDPI_AWARE=1` (default) calls `SetProcessDPIAware` at the top of `SCREEN_init` so the desktop reports true pixels before auto-detect runs. Saved on first launch via `CONFIG_NEEDS_INITIAL_SAVE%`.
 
 Command-line config helpers: `--config <file>` / `-c <file>` selects an explicit config file, `--config-upgrade` backfills newly-added keys into an existing config, and `--reset-defaults` overwrites the config with built-in factory defaults.
 

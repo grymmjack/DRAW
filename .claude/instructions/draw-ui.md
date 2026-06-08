@@ -34,6 +34,7 @@ Root menus (indices 0–10): FILE(0), EDIT(1), VIEW(2), SELECT(3), TOOLS(4), BRU
 | 701–734   | Layer        | New, Delete, MoveUp/Down, MergeDown, MergeVisible, Duplicate, ArrangeTop/Bottom, ExportLayerPNG, MergeSelected, NewTextLayer(712), RasterizeText(713), RasterizeAllText(714), NewGroup(720), GroupFromSelection(721), Ungroup(722), MergeGroup(723), ToggleCollapse(724), SelectAllInGroup(725), RenameLayer(726), SelectionFromGroup(727), SelectionFromLayer(728), ConvertToSymbol(730), NewSymbolLayer(731), AddSymbolInstance(732), SyncSymbols(733), RasterizeSymbol(734) |
 | 801–802   | Canvas       | Pan, Reset Pan |
 | 901–911   | Grid/Fill    | Toggle, Pixel Grid, Snap, Size, AlignMode, MatchBrush, CellFill, Fill Adjustment Mode (909), Smart Guides Enable (910), Smart Guides Snap (911) |
+| 950–957   | CRT Effect   | ToggleCRT(950, Ctrl+Alt+O), CRTSettingsDialog(951 → `DIALOG_CRT_open`), Scanlines(952), PhosphorMask(953), Vignette(954), VerticalScanlines(955), CycleTint(957) — all toggle `CFG.CRT_*` + set `CRT.dirty%` |
 | 1001–1003 | Symmetry     | Cycle, Clear, Set Center |
 | 1101–1112 | Custom Brush | Capture, Clear, Recolor, Outline, Flip, Scale, Export, Rotate |
 | 1201–1206 | Assistants   | Constrain, AngleSnap, Square/Circle, Center, Clone, TempPicker |
@@ -48,6 +49,7 @@ Root menus (indices 0–10): FILE(0), EDIT(1), VIEW(2), SELECT(3), TOOLS(4), BRU
 | 2021      | Color Mixer  | ToggleColorMixer(2021) |
 | 2022      | Browser      | ToggleBrowser(2022) |
 | 2050–2054 | Character Map | ToggleCharMap(2050), DockLeft(2051), DockRight(2052), ToggleCharGrid(2053), ToggleSnapToCharGrid(2054) |
+| 2100      | Settings     | ACTION_SETTINGS — open Settings dialog (Ctrl+,; Ctrl+punctuation handled in `KEYBOARD_input_handler`, see CLAUDE.md gotcha #6); tabbed UI in `GUI/SETTINGS-TABS.BM` incl. Display tab's master UI Scale |
 | 2201–2216 | Export As    | ExportPNGNative(2201), ExportPNG(2204), ExportGIF(2205), ExportJPG(2206), ExportTGA(2208), ExportBMP(2209), ExportHDR(2210), ExportICO(2211), ExportQOI(2216) |
 
 ### Command Palette

@@ -37,6 +37,7 @@
 | `INPUT/`                | Input handlers (mouse, keyboard, joystick), file loaders, Lospec API |
 | `OUTPUT/`               | Screen rendering (`SCREEN_render`), file export (BAS, BMP, BSAVE, Export As 9 formats) |
 | `TOOLS/`                | Drawing tools, history/undo system, DRW format, image import, extract images, text tool |
+| `EFFECTS/`              | Post-render visual effects — `CRT.BI/BM` (CRT overlay: scanlines, phosphor mask, vignette, tint; `CRT_render` applied to art content before chrome). Settings UI in `GUI/DIALOG-CRT.BI/BM` |
 | `PIXEL-COACH/`          | Pixel Art Analyzer — precompute engine and analysis results          |
 | `ASSETS/`               | Fonts, icons, palettes (56 GPL files), themes                        |
 | `includes/QB64_GJ_LIB/` | External utility library (DICT, STRINGS, VECT2D, FILE_DIALOG, COLOR_PICKER, MSG_BOX, TEXT_INPUT) |

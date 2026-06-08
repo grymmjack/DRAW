@@ -4,18 +4,18 @@ OPTION _EXPLICIT
 ' DEV/keytest.log, so we can see exactly what code(s) Ctrl+comma produces on
 ' this machine. Runs ~12 seconds then exits.
 
-DIM logPath AS STRING : logPath$ = "keytest.log" ' written next to the EXE (CWD)
-DIM fh AS INTEGER : fh% = FREEFILE
+DIM logPath AS STRING  : logPath$ = "keytest.log" ' written next to the EXE (CWD)
+DIM fh      AS INTEGER : fh% = FREEFILE
 OPEN logPath$ FOR OUTPUT AS #fh%
 PRINT #fh%, "keytest start"
 
 SCREEN _NEWIMAGE(640, 200, 32)
 _TITLE "KEYTEST - press Ctrl+, (comma)"
 
-DIM startT AS DOUBLE : startT# = TIMER
-DIM frame AS LONG
-DIM code AS LONG
-DIM downStr AS STRING
+DIM startT   AS DOUBLE : startT# = TIMER
+DIM frame    AS LONG
+DIM code     AS LONG
+DIM downStr  AS STRING
 DIM prevLine AS STRING : prevLine$ = ""
 
 DO

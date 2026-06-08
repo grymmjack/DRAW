@@ -593,6 +593,7 @@ Brush size and shape affect all drawing tools: Brush, Dot, Line, Rectangle, Elli
 | View → Color Mixer | Toggle Color Mixer panel |
 | View → Browser | Toggle Image Browser panel |
 | `Ctrl+Alt+Shift+G` | Toggle grayscale preview |
+| `Ctrl+Alt+O` | Toggle CRT effect overlay |
 | `F10` | Toggle status bar visibility |
 | `F11` | Toggle all UI (toolbar, status bar, layer panel, menu bar) |
 | `Ctrl+F11` | Toggle menu bar visibility |
@@ -618,7 +619,30 @@ Brush size and shape affect all drawing tools: Brush, Dot, Line, Rectangle, Elli
 
 ### Display Scale (Window Size)
 
-Display scale is configured via the **Settings** dialog (Ctrl+Comma → Appearance tab).
+UI scaling is controlled by a single master **UI Scale** setting in the **Settings** dialog (`Ctrl+,` → **Display** tab). `0` = auto-detect (the default); `1`–`8` set an explicit integer scale for the whole UI together. Per-widget fine-tuning lives in `DRAW.cfg` as the `SCALE_RATIO_*` values. On Windows, DRAW is DPI-aware (`HIDPI_AWARE` config key, default on) so the auto-detect reads the true panel resolution.
+
+## CRT Effect
+
+A full-screen **CRT effect overlay** simulates a retro monitor — scanlines, phosphor mask, vignette, and color tint — rendered on top of the canvas without altering your artwork.
+
+| Key | Function |
+|-----|----------|
+| `Ctrl+Alt+O` | Toggle the CRT effect on/off (master) |
+| View → CRT Effect Settings… | Open the CRT settings dialog |
+
+### CRT Settings
+
+Open via **View → CRT Effect Settings…** (or the Command Palette). Toggles available as individual commands in the Command Palette:
+
+| Setting | Description |
+|---------|-------------|
+| **Scanlines** | Horizontal scanline darkening |
+| **Vertical Scanlines** | Adds vertical scanlines (aperture-grille look) |
+| **Phosphor Mask** | RGB phosphor/shadow-mask pattern |
+| **Vignette** | Darkened screen edges/corners |
+| **Tint** | Cycle a color tint (e.g. amber/green monochrome looks) |
+
+All CRT state persists in `DRAW.cfg` (`CRT_ENABLED`, `CRT_SCANLINES`, `CRT_PHOSPHOR`, `CRT_VIGNETTE`, etc.).
 
 ## Color Mixer
 

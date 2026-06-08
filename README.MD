@@ -5,7 +5,7 @@ DRAW by Rick Christy <grymmjack@gmail.com>
 
 DRAW is a pixel art editor written in QB64PE that can export images as sourcecode
 
-Current release: v1.4.1
+Current release: v1.6.0
 
 ![DRAW GUI from v1.1.0](./GUI.png)
 
@@ -100,6 +100,7 @@ Current release: v1.4.1
 - **Preview Window** - Floating preview with two modes: Follow (magnifier) and Floating Image (load a reference image); Bin Quick Look previews drawer slot contents on hover; Color Picking with Alt+Click; Recent Preview Images submenu; independent zoom/pan, move/resize controls, and persistent state (`F4`)
 - **Pattern Tile Mode** - 3×3 tiled canvas preview for seamless work on canvases up to 512×512 (View menu / Advanced Bar)
 - **Grayscale Preview** - Toggle a grayscale view of the canvas to check values and contrast without modifying the artwork (`Ctrl+Alt+Shift+G`)
+- **CRT Effect** - Full-screen retro-monitor overlay (`Ctrl+Alt+O`) with configurable scanlines, vertical scanlines, phosphor/shadow mask, vignette, and color tint; rendered on top of the canvas without altering artwork; tune via View → CRT Effect Settings…
 - Toggle UI elements (toolbar, status bar, menu bar, layer panel, preview window, edit bar)
 
 ### Brush System
@@ -165,7 +166,7 @@ Current release: v1.4.1
 - Help button opens searchable command palette
 - **Tooltips** - Hover hints for toolbar buttons, organizer widgets, and drawer mini palette; toggleable via Help menu → Show Tooltips
 - **Settings Dialog** - GIMP-style tabbed settings interface for configuring application preferences
-- **About Screen** - Animated splash screen with version info and clickable GitHub link
+- **About Screen** - Animated splash screen with version info and clickable GitHub link (can be disabled via Settings / the `SPLASH_ENABLED` config key)
 - **Custom GUI Dialogs** - Built-in color picker, message box, and file dialogs (QB64_GJ_LIB based)
 
 ## Quick Start
@@ -330,8 +331,10 @@ This allows you to maintain separate configurations per platform (e.g., differen
 
 On first launch (or when no config file exists), DRAW auto-detects optimal settings:
 
+- **UI Scale (master)** — A single `UI_SCALE` setting drives the whole UI together (`0` = auto-detect, `1`–`8` = explicit). When set, it derives the display scale and toolbar scale from one knob; per-widget ratios live in `DRAW.cfg` as `SCALE_RATIO_*`. Adjustable live in **Settings → Display**.
 - **Display scale** — Targets 90% of desktop, picks highest integer scale up to 4x where the viewport fits (manual override via `DISPLAY_SCALE` supports up to 8x)
 - **Toolbar scale** — Calculated from viewport height (>=800px=4x, >=600px=3x, >=400px=2x, else 1x)
+- **Windows HiDPI** — DRAW is DPI-aware on Windows (`HIDPI_AWARE` config key, default on) so auto-detect reads the true panel resolution instead of the DPI-virtualized desktop
 - **Screen dimensions** — Viewport = 90% of desktop ÷ scale, rounded to even pixels
 - All auto-detected values are saved to the config file for consistent subsequent launches
 
