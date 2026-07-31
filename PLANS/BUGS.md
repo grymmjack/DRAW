@@ -1,5 +1,11 @@
 # BUGS
 
+## Line tool pressing s and e does not change caps, but switches tools instead
+- [ ] While drawing with line tool and in active drag state:
+  - [ ] Pressing s changes to smart shape
+  - [ ] Pressing e changes to eraser
+  - [ ] This should instead, while dragging change start and end line_caps
+  
 ## Mousewheel over color strip does not scroll it
 - [x] The color strip used to scroll when mousewheel was over it
 - [x] It used to also allow SHIFT or CTRL to scroll by the size of a page (whatever the max color chips were -1 (i think))

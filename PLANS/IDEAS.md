@@ -1,5 +1,104 @@
 # IDEAS
 
+## Add color chips to popup palettes menu
+- [ ] It would be great if the actual palette chips were rendered in the palette picker popup menu
+  - [ ] Add a setting to enable this or disable it
+
+## AI Integration
+- [ ] Add support for AI image generation
+  - [ ] Create new Menu option AI (just before help)
+    - [ ] Settings
+      - [ ] Tools (list)
+        - [ ] Add
+        - [ ] Remove
+        - [ ] Edit
+          - [ ] Name
+          - [ ] Executable
+          - [ ] Directory
+          - [ ] Arguments
+        - [ ] Tool Entry:
+          - [ ] Executable
+          - [ ] Directory
+          - [ ] Arguments (parsed through DRAW_InfoParser$)
+            - [ ] Options parameter macros (derived by new function DRAW_InfoParser$)
+              - [ ] Seed: {seed}
+              - [ ] Image filename: {if}
+              - [ ] Image directory: {id}
+              - [ ] Image width: {ih}
+              - [ ] Image height: {iw}
+              - [ ] Selection width: {sw}
+              - [ ] Selection height: {sh}
+              - [ ] Brush w: {bw}
+              - [ ] Brush h: {bh}
+              - [ ] Grid width: {gw}
+              - [ ] Grid height: {gh}
+              - [ ] Palette: {pal}
+              - [ ] Colors: {numpal}
+              - [ ] Num Layers: {numlayers}
+              - [ ] Current layer index: {lidx}
+              - [ ] Current layer name: {lname}
+              - [ ] Current layer width: {lw}
+              - [ ] Current layer height: {lh}
+              - [ ] Current layer x pos: {lx}
+              - [ ] Current layer x pos: {ly}
+              - [ ] BG color: {bg}
+              - [ ] FG color: {fg}
+              - [ ] Paint Mode: {pmode}
+              - [ ] Active tool: {tool}
+              - [ ] Pointer x: {px}
+              - [ ] Pointer y: {py}
+              - [ ] Active font: {font}
+              - [ ] Font size: {fsize}
+              - [ ] Path to font: {fontfile}
+              - [ ] Path to layer image: {limg} (for steering and hinting)
+              - [ ] Path to flattened document: {dimg} (for steering and hinting)
+              - [ ] Path to brush image: {bimg}
+    - [ ] Style Editor (prefix/postfix) (list)
+      - [ ] Add
+      - [ ] Remove
+      - [ ] Edit
+        - [ ] Tool (picker)
+        - [ ] Name
+        - [ ] Text
+        - [ ] Description
+        - [ ] Seed
+    - [ ] Prompt Editor
+      - [ ] Preset prompts simple text lists/paragraphs for steering AI
+      - [ ] Add
+      - [ ] Remove
+  - [ ] Create new layer menu option: New from AI (creates new AI layer with prompts):
+      - [ ] Style (picker)
+      - [ ] Prompt (textbox)
+      - [ ] Layer dimensions: W x H  - button: [Image Size]
+      - [ ] Layer position: X, Y  (default 0,0)
+        - [ ] Button position presets: (math based on image size)
+            [TL] [T] [TR]
+            [L]  [M] [R]
+            [BL] [B] [BR]
+      - [ ] Seed
+  - [ ] Create new Layer type: AI Layer
+    - [ ] AI Layer is created with text to image (pixelmon)
+    - [ ] AI Layer shows [AI] for type of layer
+    - [ ] AI Layer tooltip shows Prompt, Style, and engine with model/seed on second line
+    - [ ] Prompt is embedded into layer for later regeneration
+    - [ ] Generated pixels embed seed, model, etc.
+    - [ ] Right click on AI layer shows menu:
+      - [ ] Prompt
+      - [ ] Style -> Style options, one checked
+      - [ ] Generate (runs the AI generator tool and style for the prompt)
+  - [ ] When a selection is present, pass that to the width and height for the tool
+    - [ ] Inserts as selection, keeps selection active (for later regen)
+  - [ ] Create new file menu option:
+    - [ ] New from AI
+      - [ ] Dialog:
+        - [ ] Tool (picker)
+        - [ ] Style (picker)
+        - [ ] Seed
+        - [ ] Prompt (textbox)
+        - [ ] Image dimensions: W x H
+    - [ ] Prompt is embedded into image for later regeneration
+    - [ ] Generated pixels embed tool, args, model, seed, etc.
+
 ## Use GLFW Stuff:
 a740g — 5/16/26, 6:13 PM
 _CAPSLOCK, _NUMLOCK and _SCROLLLOCK now works on all platforms.
