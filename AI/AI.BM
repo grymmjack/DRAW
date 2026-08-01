@@ -24,6 +24,24 @@ SUB AI_init ()
     NEXT i%
     AI_TOOL_COUNT% = 0
 
+    FOR i% = 1 TO AI_MAX_STYLES
+        AI_STYLES(i%).used       = FALSE
+        AI_STYLES(i%).styleName  = ""
+        AI_STYLES(i%).toolName   = ""
+        AI_STYLES(i%).prefixText = ""
+        AI_STYLES(i%).suffixText = ""
+        AI_STYLES(i%).descText   = ""
+        AI_STYLES(i%).seedVal    = 0
+    NEXT i%
+    AI_STYLE_COUNT% = 0
+
+    FOR i% = 1 TO AI_MAX_PROMPTS
+        AI_PROMPTS(i%).used     = FALSE
+        AI_PROMPTS(i%).label    = ""
+        AI_PROMPTS(i%).textBody = ""
+    NEXT i%
+    AI_PROMPT_COUNT% = 0
+
     FOR i% = 1 TO AI_LAYER_POOL_SIZE
         AI_LAYER_DATA(i%).used      = FALSE
         AI_LAYER_DATA(i%).prompt    = ""
@@ -47,10 +65,12 @@ SUB AI_init ()
     AI_JOB.lastPoll   = 0
     AI_JOB.statusMsg  = ""
 
-    AI_LAST_PROMPT$ = ""
-    AI_LAST_STYLE$  = ""
-    AI_LAST_SEED&   = 0
-    AI_LAST_TOOL%   = 0
+    AI_LAST_PROMPT$     = ""
+    AI_LAST_PROMPT_RAW$ = ""
+    AI_LAST_STYLE$      = ""
+    AI_LAST_SEED&       = 0
+    AI_LAST_TOOL%       = 0
+    AI_LAST_STYLE_IDX%  = 0
 
     AI_config_load
 END SUB
@@ -97,12 +117,37 @@ SUB AI_config_load ()
         IF LEN(lineIn$) = 0 THEN _CONTINUE
         IF LEFT$(lineIn$, 1) = "#" OR LEFT$(lineIn$, 1) = ";" THEN _CONTINUE
 
+        ' Section headers switch which record subsequent keys belong to
+        DIM secKind AS INTEGER      ' 1 = tool, 2 = style, 3 = prompt
         IF UCASE$(lineIn$) = "[TOOL]" THEN
             IF AI_TOOL_COUNT% < AI_MAX_TOOLS THEN
                 AI_TOOL_COUNT%             = AI_TOOL_COUNT% + 1
                 curIdx%                    = AI_TOOL_COUNT%
                 AI_TOOLS(curIdx%).used     = TRUE
                 AI_TOOLS(curIdx%).toolName = "tool " + _TRIM$(STR$(curIdx%))
+                secKind%                   = 1
+            ELSE
+                curIdx% = 0
+            END IF
+            _CONTINUE
+        ELSEIF UCASE$(lineIn$) = "[STYLE]" THEN
+            IF AI_STYLE_COUNT% < AI_MAX_STYLES THEN
+                AI_STYLE_COUNT%             = AI_STYLE_COUNT% + 1
+                curIdx%                     = AI_STYLE_COUNT%
+                AI_STYLES(curIdx%).used     = TRUE
+                AI_STYLES(curIdx%).styleName = "style " + _TRIM$(STR$(curIdx%))
+                secKind%                    = 2
+            ELSE
+                curIdx% = 0
+            END IF
+            _CONTINUE
+        ELSEIF UCASE$(lineIn$) = "[PROMPT]" THEN
+            IF AI_PROMPT_COUNT% < AI_MAX_PROMPTS THEN
+                AI_PROMPT_COUNT%           = AI_PROMPT_COUNT% + 1
+                curIdx%                    = AI_PROMPT_COUNT%
+                AI_PROMPTS(curIdx%).used   = TRUE
+                AI_PROMPTS(curIdx%).label  = "prompt " + _TRIM$(STR$(curIdx%))
+                secKind%                   = 3
             ELSE
                 curIdx% = 0
             END IF
@@ -115,11 +160,29 @@ SUB AI_config_load ()
         keyStr$ = UCASE$(_TRIM$(LEFT$(lineIn$, eqPos% - 1)))
         valStr$ = _TRIM$(MID$(lineIn$, eqPos% + 1))
 
-        SELECT CASE keyStr$
-            CASE "NAME" : AI_TOOLS(curIdx%).toolName = valStr$
-            CASE "EXE"  : AI_TOOLS(curIdx%).exePath  = valStr$
-            CASE "DIR"  : AI_TOOLS(curIdx%).workDir  = valStr$
-            CASE "ARGS" : AI_TOOLS(curIdx%).argsTmpl = valStr$
+        SELECT CASE secKind%
+            CASE 1
+                SELECT CASE keyStr$
+                    CASE "NAME" : AI_TOOLS(curIdx%).toolName = valStr$
+                    CASE "EXE"  : AI_TOOLS(curIdx%).exePath  = valStr$
+                    CASE "DIR"  : AI_TOOLS(curIdx%).workDir  = valStr$
+                    CASE "ARGS" : AI_TOOLS(curIdx%).argsTmpl = valStr$
+                END SELECT
+            CASE 2
+                SELECT CASE keyStr$
+                    CASE "NAME"   : AI_STYLES(curIdx%).styleName  = valStr$
+                    CASE "TOOL"   : AI_STYLES(curIdx%).toolName   = valStr$
+                    CASE "PREFIX" : AI_STYLES(curIdx%).prefixText = valStr$
+                    CASE "SUFFIX" : AI_STYLES(curIdx%).suffixText = valStr$
+                    CASE "TEXT"   : AI_STYLES(curIdx%).suffixText = valStr$ ' alias
+                    CASE "DESC"   : AI_STYLES(curIdx%).descText   = valStr$
+                    CASE "SEED"   : AI_STYLES(curIdx%).seedVal    = VAL(valStr$)
+                END SELECT
+            CASE 3
+                SELECT CASE keyStr$
+                    CASE "NAME" : AI_PROMPTS(curIdx%).label    = valStr$
+                    CASE "TEXT" : AI_PROMPTS(curIdx%).textBody = valStr$
+                END SELECT
         END SELECT
     LOOP
     CLOSE #fh%
@@ -150,9 +213,156 @@ SUB AI_config_save ()
         PRINT #fh%, "ARGS=" + RTRIM$(AI_TOOLS(i%).argsTmpl)
         PRINT #fh%, ""
     NEXT i%
+
+    FOR i% = 1 TO AI_STYLE_COUNT%
+        IF AI_STYLES(i%).used = 0 THEN _CONTINUE
+        PRINT #fh%, "[STYLE]"
+        PRINT #fh%, "NAME=" + RTRIM$(AI_STYLES(i%).styleName)
+        PRINT #fh%, "TOOL=" + RTRIM$(AI_STYLES(i%).toolName)
+        PRINT #fh%, "PREFIX=" + RTRIM$(AI_STYLES(i%).prefixText)
+        PRINT #fh%, "SUFFIX=" + RTRIM$(AI_STYLES(i%).suffixText)
+        PRINT #fh%, "DESC=" + RTRIM$(AI_STYLES(i%).descText)
+        PRINT #fh%, "SEED=" + _TRIM$(STR$(AI_STYLES(i%).seedVal))
+        PRINT #fh%, ""
+    NEXT i%
+
+    FOR i% = 1 TO AI_PROMPT_COUNT%
+        IF AI_PROMPTS(i%).used = 0 THEN _CONTINUE
+        PRINT #fh%, "[PROMPT]"
+        PRINT #fh%, "NAME=" + RTRIM$(AI_PROMPTS(i%).label)
+        PRINT #fh%, "TEXT=" + RTRIM$(AI_PROMPTS(i%).textBody)
+        PRINT #fh%, ""
+    NEXT i%
+
     CLOSE #fh%
-    _LOGINFO "AI_config_save: wrote " + _TRIM$(STR$(AI_TOOL_COUNT%)) + " tool(s)"
+    _LOGINFO "AI_config_save: " + _TRIM$(STR$(AI_TOOL_COUNT%)) + " tool(s), " + _
+             _TRIM$(STR$(AI_STYLE_COUNT%)) + " style(s), " + _TRIM$(STR$(AI_PROMPT_COUNT%)) + " prompt(s)"
 END SUB
+
+
+''
+' Wrap a prompt in a style's prefix/suffix.
+' @param basePrompt STRING - What the user typed
+' @param styleIdx INTEGER - 1-based style index, 0 = no style
+' @return STRING - Prompt to hand the generator
+'
+FUNCTION AI_compose_prompt$ (basePrompt AS STRING, styleIdx AS INTEGER)
+    DIM s AS STRING
+    s$ = _TRIM$(basePrompt$)
+    IF styleIdx% < 1 OR styleIdx% > AI_STYLE_COUNT% THEN
+        AI_compose_prompt$ = s$
+        EXIT FUNCTION
+    END IF
+    IF AI_STYLES(styleIdx%).used = 0 THEN
+        AI_compose_prompt$ = s$
+        EXIT FUNCTION
+    END IF
+
+    DIM pre AS STRING, suf AS STRING
+    pre$ = _TRIM$(AI_STYLES(styleIdx%).prefixText)
+    suf$ = _TRIM$(AI_STYLES(styleIdx%).suffixText)
+    IF LEN(pre$) > 0 THEN s$ = pre$ + ", " + s$
+    IF LEN(suf$) > 0 THEN s$ = s$ + ", " + suf$
+    AI_compose_prompt$ = s$
+END FUNCTION
+
+
+''
+' Claim a free style slot.
+' @return INTEGER - 1-based index, or 0 when full
+'
+FUNCTION AI_style_alloc% ()
+    AI_style_alloc% = 0
+    IF AI_STYLE_COUNT% >= AI_MAX_STYLES THEN EXIT FUNCTION
+    AI_STYLE_COUNT%                  = AI_STYLE_COUNT% + 1
+    AI_STYLES(AI_STYLE_COUNT%).used  = TRUE
+    AI_STYLES(AI_STYLE_COUNT%).styleName  = "New Style"
+    AI_STYLES(AI_STYLE_COUNT%).toolName   = ""
+    AI_STYLES(AI_STYLE_COUNT%).prefixText = ""
+    AI_STYLES(AI_STYLE_COUNT%).suffixText = ""
+    AI_STYLES(AI_STYLE_COUNT%).descText   = ""
+    AI_STYLES(AI_STYLE_COUNT%).seedVal    = 0
+    AI_style_alloc% = AI_STYLE_COUNT%
+END FUNCTION
+
+
+''
+' Remove a style, closing the gap so the list stays contiguous.
+' @param idx INTEGER - 1-based index
+'
+SUB AI_style_remove (idx AS INTEGER)
+    DIM i AS INTEGER
+    IF idx% < 1 OR idx% > AI_STYLE_COUNT% THEN EXIT SUB
+    FOR i% = idx% TO AI_STYLE_COUNT% - 1
+        AI_STYLES(i%) = AI_STYLES(i% + 1)
+    NEXT i%
+    AI_STYLES(AI_STYLE_COUNT%).used = FALSE
+    AI_STYLE_COUNT% = AI_STYLE_COUNT% - 1
+    IF AI_LAST_STYLE_IDX% > AI_STYLE_COUNT% THEN AI_LAST_STYLE_IDX% = 0
+END SUB
+
+
+''
+' Claim a free prompt-preset slot.
+' @return INTEGER - 1-based index, or 0 when full
+'
+FUNCTION AI_prompt_alloc% ()
+    AI_prompt_alloc% = 0
+    IF AI_PROMPT_COUNT% >= AI_MAX_PROMPTS THEN EXIT FUNCTION
+    AI_PROMPT_COUNT%                     = AI_PROMPT_COUNT% + 1
+    AI_PROMPTS(AI_PROMPT_COUNT%).used     = TRUE
+    AI_PROMPTS(AI_PROMPT_COUNT%).label    = "New Prompt"
+    AI_PROMPTS(AI_PROMPT_COUNT%).textBody = ""
+    AI_prompt_alloc% = AI_PROMPT_COUNT%
+END FUNCTION
+
+
+''
+' Remove a prompt preset, closing the gap.
+' @param idx INTEGER - 1-based index
+'
+SUB AI_prompt_remove (idx AS INTEGER)
+    DIM i AS INTEGER
+    IF idx% < 1 OR idx% > AI_PROMPT_COUNT% THEN EXIT SUB
+    FOR i% = idx% TO AI_PROMPT_COUNT% - 1
+        AI_PROMPTS(i%) = AI_PROMPTS(i% + 1)
+    NEXT i%
+    AI_PROMPTS(AI_PROMPT_COUNT%).used = FALSE
+    AI_PROMPT_COUNT% = AI_PROMPT_COUNT% - 1
+END SUB
+
+
+''
+' Remove a tool, closing the gap.
+' @param idx INTEGER - 1-based index
+'
+SUB AI_tool_remove (idx AS INTEGER)
+    DIM i AS INTEGER
+    IF idx% < 1 OR idx% > AI_TOOL_COUNT% THEN EXIT SUB
+    FOR i% = idx% TO AI_TOOL_COUNT% - 1
+        AI_TOOLS(i%) = AI_TOOLS(i% + 1)
+    NEXT i%
+    AI_TOOLS(AI_TOOL_COUNT%).used = FALSE
+    AI_TOOL_COUNT% = AI_TOOL_COUNT% - 1
+    IF AI_LAST_TOOL% > AI_TOOL_COUNT% THEN AI_LAST_TOOL% = 0
+END SUB
+
+
+''
+' Claim a free tool slot.
+' @return INTEGER - 1-based index, or 0 when full
+'
+FUNCTION AI_tool_alloc% ()
+    AI_tool_alloc% = 0
+    IF AI_TOOL_COUNT% >= AI_MAX_TOOLS THEN EXIT FUNCTION
+    AI_TOOL_COUNT%                   = AI_TOOL_COUNT% + 1
+    AI_TOOLS(AI_TOOL_COUNT%).used     = TRUE
+    AI_TOOLS(AI_TOOL_COUNT%).toolName = "New Tool"
+    AI_TOOLS(AI_TOOL_COUNT%).exePath  = ""
+    AI_TOOLS(AI_TOOL_COUNT%).workDir  = ""
+    AI_TOOLS(AI_TOOL_COUNT%).argsTmpl = CHR$(34) + "{prompt}" + CHR$(34) + " --output-to {outdir} --name {outname}"
+    AI_tool_alloc% = AI_TOOL_COUNT%
+END FUNCTION
 
 
 ''

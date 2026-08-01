@@ -17,8 +17,19 @@
   index-keyed cache with an 8-files-per-frame budget so opening the menu never
   stalls on a large Lospec collection.
 
-## AI Integration
-- [ ] Add support for AI image generation
+## AI Integration — IN PROGRESS (branch: ai-integration)
+Implemented: AI menu (gated on Settings > General > Enable AI Features, off by
+default and fully invisible while off), generator tool registry + editor dialog,
+style editor, prompt-preset editor, DRAW_InfoParser$ macros, async job runner,
+AI layer type with [AI] tag / tooltip / context menu, .draw v29 persistence,
+File > New from AI, Layer > New from AI, 3x3 position presets, selection-driven
+size and placement.
+
+Not yet done: AI Settings TAB inside the Settings dialog (tools/styles/prompts
+are edited from the AI menu instead), model/seed reported back FROM the tool,
+{limg}/{dimg}/{bimg} steering exports are wired but untested.
+
+- [x] Add support for AI image generation
   - [ ] Create new Menu option AI (just before help)
     - [ ] Settings
       - [ ] Tools (list)

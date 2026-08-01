@@ -3,10 +3,9 @@
 ' =============================================================================
 ' User-facing AI commands: new AI layer, regenerate, and tool setup.
 '
-' Phase 1 collects the generation parameters through the existing input-box
-' dialogs rather than a bespoke multi-field panel. That keeps the whole
-' pipeline exercisable now; the richer dialog from PLANS/IDEAS.md (style
-' picker, [Image Size] button, 3x3 position presets) is a later phase.
+' Parameters are collected through the modal generate dialog in AI-DIALOG.BM
+' (tool, style, prompt + presets, size, 3x3 position, seed) — these commands
+' just translate its result into a layer and a job.
 '
 ' @author Rick Christy <grymmjack@gmail.com>
 '
@@ -73,6 +72,48 @@ SUB AI_write_starter_config ()
     PRINT #fh%, "DIR=" + _STARTDIR$ + "/../pixelmon"
     PRINT #fh%, "ARGS=" + CHR$(34) + "{prompt}" + CHR$(34) + " --size {sw}x{sh} --seed {seed} --palette " + CHR$(34) + "{pal}" + CHR$(34) + " --output-to {outdir} --name {outname} --create-dirs --no-open"
     PRINT #fh%, ""
+
+    ' Example styles. PREFIX goes before the prompt, SUFFIX after; SEED 0 means
+    ' "don't force a seed". A TOOL scopes a style to one generator.
+    PRINT #fh%, "[STYLE]"
+    PRINT #fh%, "NAME=clean pixel art"
+    PRINT #fh%, "TOOL="
+    PRINT #fh%, "PREFIX="
+    PRINT #fh%, "SUFFIX=clean pixel art, crisp pixels, clear outlines, flat shading"
+    PRINT #fh%, "DESC=Sharp, readable sprite look"
+    PRINT #fh%, "SEED=0"
+    PRINT #fh%, ""
+    PRINT #fh%, "[STYLE]"
+    PRINT #fh%, "NAME=EGA / DOS"
+    PRINT #fh%, "TOOL="
+    PRINT #fh%, "PREFIX=16-color EGA graphics,"
+    PRINT #fh%, "SUFFIX=bold black outlines, ordered dithering, vintage MS-DOS PC art"
+    PRINT #fh%, "DESC=Saturated 16-color DOS-era look"
+    PRINT #fh%, "SEED=0"
+    PRINT #fh%, ""
+    PRINT #fh%, "[STYLE]"
+    PRINT #fh%, "NAME=dark fantasy"
+    PRINT #fh%, "TOOL="
+    PRINT #fh%, "PREFIX="
+    PRINT #fh%, "SUFFIX=dark, gritty, muted desaturated palette, heavy shadows, ominous"
+    PRINT #fh%, "DESC=Moody, low-key sprite"
+    PRINT #fh%, "SEED=0"
+    PRINT #fh%, ""
+
+    ' Example prompt presets — starting points to steer from
+    PRINT #fh%, "[PROMPT]"
+    PRINT #fh%, "NAME=fantasy creature"
+    PRINT #fh%, "TEXT=a fierce dragon, side view, full body"
+    PRINT #fh%, ""
+    PRINT #fh%, "[PROMPT]"
+    PRINT #fh%, "NAME=character portrait"
+    PRINT #fh%, "TEXT=head-and-shoulders character portrait bust, front view, face clearly visible"
+    PRINT #fh%, ""
+    PRINT #fh%, "[PROMPT]"
+    PRINT #fh%, "NAME=tileset"
+    PRINT #fh%, "TEXT=seamless dungeon floor tile, top-down, repeating texture"
+    PRINT #fh%, ""
+
     CLOSE #fh%
     _LOGINFO "AI_write_starter_config: " + AI_config_path$
 END SUB
@@ -124,79 +165,76 @@ SUB AI_cmd_new_layer ()
     END IF
     IF NOT AI_require_tool% THEN EXIT SUB
 
-    DIM toolIdx AS INTEGER
-    toolIdx% = AI_pick_tool%
-    IF toolIdx% = 0 THEN EXIT SUB
-
-    ' --- Prompt ---
-    DIM promptTxt AS STRING
-    promptTxt$ = DRAW_input_box$("AI — Prompt", "What should the AI draw?", AI_LAST_PROMPT$, "a fierce dragon")
-    promptTxt$ = _TRIM$(promptTxt$)
-    IF LEN(promptTxt$) = 0 THEN EXIT SUB
-
-    ' --- Size: default to the selection when there is one, else the canvas ---
+    ' Default the size to the selection when there is one, else the canvas
     DIM defW AS INTEGER, defH AS INTEGER
-    DIM dstX AS INTEGER, dstY AS INTEGER
     IF MARQUEE.ACTIVE% AND MARQUEE.BOX.w > 0 AND MARQUEE.BOX.h > 0 THEN
         defW% = MARQUEE.BOX.w
         defH% = MARQUEE.BOX.h
-        dstX% = MARQUEE.BOX.x
-        dstY% = MARQUEE.BOX.y
     ELSE
         defW% = SCRN.canvasW&
         defH% = SCRN.canvasH&
-        dstX% = 0
-        dstY% = 0
     END IF
 
-    DIM sizeTxt AS STRING
-    sizeTxt$ = DRAW_input_box$("AI — Size", "Generation size (WxH)", _
-        _TRIM$(STR$(defW%)) + "x" + _TRIM$(STR$(defH%)), "64x64")
-    sizeTxt$ = _TRIM$(sizeTxt$)
-    IF LEN(sizeTxt$) = 0 THEN EXIT SUB
+    IF NOT AI_DLG_generate%("AI — New Layer", defW%, defH%) THEN EXIT SUB
 
-    DIM genW AS INTEGER, genH AS INTEGER
-    DIM xPos AS INTEGER
-    xPos% = INSTR(UCASE$(sizeTxt$), "X")
-    IF xPos% > 1 THEN
-        genW% = VAL(LEFT$(sizeTxt$, xPos% - 1))
-        genH% = VAL(MID$(sizeTxt$, xPos% + 1))
+    ' A live selection also fixes WHERE the result lands, and stays active so a
+    ' regeneration drops into the same place.
+    DIM dstX AS INTEGER, dstY AS INTEGER
+    dstX% = AI_DLG_X%
+    dstY% = AI_DLG_Y%
+    IF MARQUEE.ACTIVE% AND MARQUEE.BOX.w > 0 AND MARQUEE.BOX.h > 0 THEN
+        dstX% = MARQUEE.BOX.x
+        dstY% = MARQUEE.BOX.y
+    END IF
+
+    AI_start_from_dialog dstX%, dstY%, AI_TARGET_NEW_LAYER
+END SUB
+
+
+''
+' Launch a job from the values the generate dialog produced.
+' Composes the final prompt from the chosen style, creates the AI layer when
+' needed, and starts the run.
+'
+' @param dstX INTEGER - Canvas X for the result
+' @param dstY INTEGER - Canvas Y for the result
+' @param targetKind INTEGER - AI_TARGET_NEW_LAYER or AI_TARGET_REGEN
+'
+SUB AI_start_from_dialog (dstX AS INTEGER, dstY AS INTEGER, targetKind AS INTEGER)
+    DIM toolIdx AS INTEGER : toolIdx% = AI_DLG_TOOL%
+    IF toolIdx% < 1 OR toolIdx% > AI_TOOL_COUNT% THEN EXIT SUB
+
+    DIM styleIdx AS INTEGER : styleIdx% = AI_DLG_STYLE%
+    DIM seedVal  AS LONG    : seedVal&  = AI_DLG_SEED&
+
+    ' A style may pin a seed so its look is reproducible
+    IF styleIdx% >= 1 AND styleIdx% <= AI_STYLE_COUNT% THEN
+        IF AI_STYLES(styleIdx%).seedVal <> 0 THEN seedVal& = AI_STYLES(styleIdx%).seedVal
+    END IF
+
+    AI_LAST_PROMPT_RAW$ = AI_DLG_PROMPT$
+    AI_LAST_PROMPT$     = AI_compose_prompt$(AI_DLG_PROMPT$, styleIdx%)
+    AI_LAST_STYLE$      = AI_DLG_style_name$(styleIdx%)
+    IF styleIdx% < 1 THEN AI_LAST_STYLE$ = ""
+    AI_LAST_STYLE_IDX%  = styleIdx%
+    AI_LAST_SEED&       = seedVal&
+    AI_LAST_TOOL%       = toolIdx%
+
+    DIM lyr AS INTEGER
+    IF targetKind% = AI_TARGET_REGEN THEN
+        lyr% = CURRENT_LAYER%
     ELSE
-        genW% = VAL(sizeTxt$)
-        genH% = genW%
-    END IF
-    IF genW% < 1 OR genH% < 1 THEN
-        DIM badSizeRes AS INTEGER
-        badSizeRes% = DRAW_message_box%("AI", "Invalid size: " + sizeTxt$, MB_BTN_OK, MB_ICON_ERROR)
-        EXIT SUB
-    END IF
-
-    ' --- Seed (blank = random, so repeated runs differ) ---
-    DIM seedTxt AS STRING
-    seedTxt$ = DRAW_input_box$("AI — Seed", "Seed (blank = random)", "", "12345")
-    DIM seedVal AS LONG
-    IF LEN(_TRIM$(seedTxt$)) = 0 THEN
-        seedVal& = INT(RND * 999999) + 1
-    ELSE
-        seedVal& = VAL(_TRIM$(seedTxt$))
+        lyr% = LAYERS_new_ai%(AI_LAST_PROMPT_RAW$, AI_LAST_STYLE$, RTRIM$(AI_TOOLS(toolIdx%).toolName), seedVal&, AI_DLG_W%, AI_DLG_H%)
+        IF lyr% = 0 THEN
+            DIM noLayerRes AS INTEGER
+            noLayerRes% = DRAW_message_box%("AI", "Could not create an AI layer." + CHR$(10) + _
+                "The layer or AI data pool may be full.", MB_BTN_OK, MB_ICON_ERROR)
+            EXIT SUB
+        END IF
     END IF
 
-    AI_LAST_PROMPT$ = promptTxt$
-    AI_LAST_SEED&   = seedVal&
-    AI_LAST_TOOL%   = toolIdx%
-
-    ' --- Create the layer up-front so the panel shows it while generating ---
-    DIM newLayer AS INTEGER
-    newLayer% = LAYERS_new_ai%(promptTxt$, AI_LAST_STYLE$, RTRIM$(AI_TOOLS(toolIdx%).toolName), seedVal&, genW%, genH%)
-    IF newLayer% = 0 THEN
-        DIM noLayerRes AS INTEGER
-        noLayerRes% = DRAW_message_box%("AI", "Could not create an AI layer." + CHR$(10) + _
-            "The layer or AI data pool may be full.", MB_BTN_OK, MB_ICON_ERROR)
-        EXIT SUB
-    END IF
-
-    IF NOT AI_JOB_start%(toolIdx%, newLayer%, AI_TARGET_NEW_LAYER, genW%, genH%, dstX%, dstY%) THEN
-        LAYERS_delete newLayer%
+    IF NOT AI_JOB_start%(toolIdx%, lyr%, targetKind%, AI_DLG_W%, AI_DLG_H%, dstX%, dstY%) THEN
+        IF targetKind% <> AI_TARGET_REGEN THEN LAYERS_delete lyr%
         DIM failRes AS INTEGER
         failRes% = DRAW_message_box%("AI", "Could not launch the generator." + CHR$(10) + _
             "Check EXE/DIR in " + AI_config_path$, MB_BTN_OK, MB_ICON_ERROR)
@@ -230,35 +268,18 @@ SUB AI_cmd_regenerate ()
             "Use AI > New AI Layer... to create one.", MB_BTN_OK, MB_ICON_INFO)
         EXIT SUB
     END IF
+    IF NOT AI_require_tool% THEN EXIT SUB
 
     DIM poolIdx AS INTEGER
     poolIdx% = LAYERS(lyr%).aiDataIdx%
 
-    DIM toolIdx AS INTEGER
-    toolIdx% = AI_tool_by_name%(RTRIM$(AI_LAYER_DATA(poolIdx%).toolName))
-    IF toolIdx% = 0 THEN
-        IF NOT AI_require_tool% THEN EXIT SUB
-        toolIdx% = AI_pick_tool%
-        IF toolIdx% = 0 THEN EXIT SUB
-    END IF
-
-    ' Offer to re-roll: same seed reproduces, blank gives a fresh variation
-    DIM seedTxt AS STRING
-    seedTxt$ = DRAW_input_box$("AI — Regenerate", _
-        "Prompt: " + RTRIM$(AI_LAYER_DATA(poolIdx%).prompt) + CHR$(10) + _
-        "Seed (blank = new random)", _TRIM$(STR$(AI_LAYER_DATA(poolIdx%).seedVal)), "12345")
-
-    DIM seedVal AS LONG
-    IF LEN(_TRIM$(seedTxt$)) = 0 THEN
-        seedVal& = INT(RND * 999999) + 1
-    ELSE
-        seedVal& = VAL(_TRIM$(seedTxt$))
-    END IF
-
-    AI_LAST_PROMPT$ = RTRIM$(AI_LAYER_DATA(poolIdx%).prompt)
-    AI_LAST_STYLE$  = RTRIM$(AI_LAYER_DATA(poolIdx%).styleName)
-    AI_LAST_SEED&   = seedVal&
-    AI_LAYER_DATA(poolIdx%).seedVal = seedVal&
+    ' Pre-load the dialog from what this layer was generated with, so
+    ' regenerating defaults to reproducing and any field can still be changed.
+    AI_LAST_PROMPT_RAW$ = RTRIM$(AI_LAYER_DATA(poolIdx%).prompt)
+    AI_LAST_SEED&       = AI_LAYER_DATA(poolIdx%).seedVal
+    DIM tIdx AS INTEGER
+    tIdx% = AI_tool_by_name%(RTRIM$(AI_LAYER_DATA(poolIdx%).toolName))
+    IF tIdx% >= 1 THEN AI_LAST_TOOL% = tIdx%
 
     DIM genW AS INTEGER, genH AS INTEGER
     genW% = AI_LAYER_DATA(poolIdx%).genW
@@ -266,15 +287,20 @@ SUB AI_cmd_regenerate ()
     IF genW% < 1 THEN genW% = SCRN.canvasW&
     IF genH% < 1 THEN genH% = SCRN.canvasH&
 
-    IF NOT AI_JOB_start%(toolIdx%, lyr%, AI_TARGET_REGEN, genW%, genH%, 0, 0) THEN
-        DIM fail2 AS INTEGER
-        fail2% = DRAW_message_box%("AI", "Could not launch the generator.", MB_BTN_OK, MB_ICON_ERROR)
-        EXIT SUB
-    END IF
+    IF NOT AI_DLG_generate%("AI — Regenerate Layer", genW%, genH%) THEN EXIT SUB
 
-    SOUND_play SND_TOOL_SELECT
-    GUI_NEEDS_REDRAW% = TRUE
-    INVALIDATE_scene
+    ' Write the (possibly edited) parameters back onto the layer
+    AI_LAYER_DATA(poolIdx%).prompt  = AI_DLG_PROMPT$
+    AI_LAYER_DATA(poolIdx%).seedVal = AI_DLG_SEED&
+    AI_LAYER_DATA(poolIdx%).genW    = AI_DLG_W%
+    AI_LAYER_DATA(poolIdx%).genH    = AI_DLG_H%
+    IF AI_DLG_TOOL% >= 1 AND AI_DLG_TOOL% <= AI_TOOL_COUNT% THEN
+        AI_LAYER_DATA(poolIdx%).toolName = RTRIM$(AI_TOOLS(AI_DLG_TOOL%).toolName)
+    END IF
+    AI_LAYER_DATA(poolIdx%).styleName = AI_DLG_style_name$(AI_DLG_STYLE%)
+    IF AI_DLG_STYLE% < 1 THEN AI_LAYER_DATA(poolIdx%).styleName = ""
+
+    AI_start_from_dialog AI_DLG_X%, AI_DLG_Y%, AI_TARGET_REGEN
 END SUB
 
 
@@ -321,64 +347,13 @@ SUB AI_cmd_new_document ()
     END IF
     IF NOT AI_require_tool% THEN EXIT SUB
 
-    DIM toolIdx AS INTEGER
-    toolIdx% = AI_pick_tool%
-    IF toolIdx% = 0 THEN EXIT SUB
+    IF NOT AI_DLG_generate%("AI — New Document", CFG.DEFAULT_CANVAS_SIZE_W%, CFG.DEFAULT_CANVAS_SIZE_H%) THEN EXIT SUB
 
-    DIM promptTxt AS STRING
-    promptTxt$ = DRAW_input_box$("AI — New Document", "What should the AI draw?", AI_LAST_PROMPT$, "a fierce dragon")
-    promptTxt$ = _TRIM$(promptTxt$)
-    IF LEN(promptTxt$) = 0 THEN EXIT SUB
+    ' New document at the generation size, THEN the layer — the canvas must
+    ' exist before the (async) job is started against it.
+    DRW_create_canvas_at_size AI_DLG_W%, AI_DLG_H%
 
-    DIM sizeTxt AS STRING
-    sizeTxt$ = DRAW_input_box$("AI — New Document", "Image size (WxH)", _
-        _TRIM$(STR$(CFG.DEFAULT_CANVAS_SIZE_W%)) + "x" + _TRIM$(STR$(CFG.DEFAULT_CANVAS_SIZE_H%)), "128x128")
-    sizeTxt$ = _TRIM$(sizeTxt$)
-    IF LEN(sizeTxt$) = 0 THEN EXIT SUB
-
-    DIM genW AS INTEGER, genH AS INTEGER
-    DIM xPos AS INTEGER
-    xPos% = INSTR(UCASE$(sizeTxt$), "X")
-    IF xPos% > 1 THEN
-        genW% = VAL(LEFT$(sizeTxt$, xPos% - 1))
-        genH% = VAL(MID$(sizeTxt$, xPos% + 1))
-    ELSE
-        genW% = VAL(sizeTxt$)
-        genH% = genW%
-    END IF
-    IF genW% < 1 OR genH% < 1 THEN EXIT SUB
-
-    DIM seedTxt AS STRING
-    seedTxt$ = DRAW_input_box$("AI — Seed", "Seed (blank = random)", "", "12345")
-    DIM seedVal AS LONG
-    IF LEN(_TRIM$(seedTxt$)) = 0 THEN
-        seedVal& = INT(RND * 999999) + 1
-    ELSE
-        seedVal& = VAL(_TRIM$(seedTxt$))
-    END IF
-
-    ' New document at the generation size, then generate into a layer on top.
-    ' Done in this order so the canvas exists before the (async) job starts.
-    DRW_create_canvas_at_size genW%, genH%
-
-    AI_LAST_PROMPT$ = promptTxt$
-    AI_LAST_SEED&   = seedVal&
-    AI_LAST_TOOL%   = toolIdx%
-
-    DIM newLayer AS INTEGER
-    newLayer% = LAYERS_new_ai%(promptTxt$, AI_LAST_STYLE$, RTRIM$(AI_TOOLS(toolIdx%).toolName), seedVal&, genW%, genH%)
-    IF newLayer% = 0 THEN EXIT SUB
-
-    IF NOT AI_JOB_start%(toolIdx%, newLayer%, AI_TARGET_NEW_LAYER, genW%, genH%, 0, 0) THEN
-        LAYERS_delete newLayer%
-        DIM fail3 AS INTEGER
-        fail3% = DRAW_message_box%("AI", "Could not launch the generator.", MB_BTN_OK, MB_ICON_ERROR)
-        EXIT SUB
-    END IF
-
-    SOUND_play SND_TOOL_SELECT
-    GUI_NEEDS_REDRAW% = TRUE
-    INVALIDATE_scene
+    AI_start_from_dialog 0, 0, AI_TARGET_NEW_LAYER
 END SUB
 
 

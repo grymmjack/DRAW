@@ -18,7 +18,21 @@ OPTION _EXPLICITARRAY
 '$DYNAMIC
 
 CONST AI_MAX_TOOLS       = 16   ' Configured generator tools
+CONST AI_MAX_STYLES      = 48   ' Configured style guides
+CONST AI_MAX_PROMPTS     = 64   ' Saved prompt presets
 CONST AI_LAYER_POOL_SIZE = 64   ' Concurrent AI layers per project
+
+' Position presets for placing a generated layer (3x3 grid + explicit)
+CONST AI_POS_TL     = 0
+CONST AI_POS_T      = 1
+CONST AI_POS_TR     = 2
+CONST AI_POS_L      = 3
+CONST AI_POS_M      = 4
+CONST AI_POS_R      = 5
+CONST AI_POS_BL     = 6
+CONST AI_POS_B      = 7
+CONST AI_POS_BR     = 8
+CONST AI_POS_CUSTOM = 9
 
 ' Job states (AI_JOB.state)
 CONST AI_JOB_IDLE      = 0
@@ -74,16 +88,57 @@ TYPE AI_JOB_OBJ
     destH      AS INTEGER
 END TYPE
 
+' A style guide: text wrapped around the user's prompt, plus an optional seed
+' lock. Styles may be scoped to one tool (a pixelmon --style name means nothing
+' to another generator) or left global.
+TYPE AI_STYLE_OBJ
+    used       AS INTEGER
+    styleName  AS STRING * 48
+    toolName   AS STRING * 48   ' "" = applies to any tool
+    prefixText AS STRING * 256  ' Prepended to the prompt
+    suffixText AS STRING * 256  ' Appended to the prompt
+    descText   AS STRING * 128  ' Shown in the editor / picker
+    seedVal    AS LONG          ' 0 = don't force a seed
+END TYPE
+
+' A saved prompt preset — plain text for steering, picked from the dialog.
+TYPE AI_PROMPT_OBJ
+    used     AS INTEGER
+    label    AS STRING * 48
+    textBody AS STRING * 512
+END TYPE
+
 DIM SHARED AI_TOOLS(1 TO AI_MAX_TOOLS) AS AI_TOOL_OBJ
 DIM SHARED AI_TOOL_COUNT%
+DIM SHARED AI_STYLES(1 TO AI_MAX_STYLES) AS AI_STYLE_OBJ
+DIM SHARED AI_STYLE_COUNT%
+DIM SHARED AI_PROMPTS(1 TO AI_MAX_PROMPTS) AS AI_PROMPT_OBJ
+DIM SHARED AI_PROMPT_COUNT%
 DIM SHARED AI_LAYER_DATA(1 TO AI_LAYER_POOL_SIZE) AS AI_LAYER_OBJ
 DIM SHARED AI_JOB AS AI_JOB_OBJ
 
-' Last prompt / style / seed used, so the dialog can pre-fill on reopen
+' Last prompt / style / seed used, so the dialog can pre-fill on reopen.
+' AI_LAST_PROMPT$ is the COMPOSED prompt handed to the generator (style prefix +
+' raw + suffix); AI_LAST_PROMPT_RAW$ is what the user typed, and is what gets
+' stored on the layer so editing later shows their words, not the style's.
 DIM SHARED AI_LAST_PROMPT$
+DIM SHARED AI_LAST_PROMPT_RAW$
 DIM SHARED AI_LAST_STYLE$
 DIM SHARED AI_LAST_SEED&
 DIM SHARED AI_LAST_TOOL%
+DIM SHARED AI_LAST_STYLE_IDX%
+
+' Results of the generate dialog (AI_DLG_generate%). Shared rather than BYREF
+' params because QB64 passes by reference and the dialog calls into code that
+' touches the same globals — copying out once, here, keeps that unambiguous.
+DIM SHARED AI_DLG_TOOL%
+DIM SHARED AI_DLG_STYLE%
+DIM SHARED AI_DLG_PROMPT$
+DIM SHARED AI_DLG_W%
+DIM SHARED AI_DLG_H%
+DIM SHARED AI_DLG_X%
+DIM SHARED AI_DLG_Y%
+DIM SHARED AI_DLG_SEED&
 
 ' Poll interval for the running job, in seconds. Generation takes tens of
 ' seconds to minutes, so checking every frame would be pure syscall waste.
