@@ -341,6 +341,7 @@ TYPE DRAW_CONFIG
     ' User palette visibility settings
     PALETTE_SHOW_LOSPEC             AS INTEGER        ' TRUE = include USER/PALETTES/*.gpl in picker
     PALETTE_SHOW_CREATED            AS INTEGER        ' TRUE = include USER/PALETTES/CREATED/*.gpl in picker
+    PALETTE_MENU_SHOW_CHIPS         AS INTEGER        ' TRUE = draw color chips beside names in the palette dropdown
     ' Color extraction max for "Create from image"
     PALETTE_CREATE_MAX_COLORS       AS INTEGER        ' Default max colors for Create from Image (default 32)
     ' Preview Window settings

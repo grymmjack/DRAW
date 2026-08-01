@@ -1,15 +1,21 @@
 # IDEAS
 
-## Add color chips to popup palettes menu
-- [ ] It would be great if the actual palette chips were rendered in the palette picker popup menu
-  - [ ] Add a setting to enable this or disable it
-  - [ ] Maximum 64 chips in 32 chips across rows
-    - [ ] Optimize chip rows to be divisible by 8 
-      - [ ] If 8 colors - 1 row
-      - [ ] If 16 colors - 1 row (less than 32)
-      - [ ] If 24 colors - 1 row
-      - [ ] If 32 colors - 1 row
-      - [ ] More than 32 colors - second row but up to 64 total displayed with a "...and # more" to emphasize there are more colors displayed and # is the number of chips that aren't displayed.
+## Add color chips to popup palettes menu — DONE (v1.6.0+)
+- [x] It would be great if the actual palette chips were rendered in the palette picker popup menu
+  - [x] Add a setting to enable this or disable it
+        (`PALETTE_MENU_SHOW_CHIPS` in DRAW.cfg, PALETTE > SHOW COLOR CHIPS IN MENU, action 1519)
+  - [x] Maximum 64 chips in 32 chips across rows
+    - [x] Optimize chip rows to be divisible by 8 
+      - [x] If 8 colors - 1 row
+      - [x] If 16 colors - 1 row (less than 32)
+      - [x] If 24 colors - 1 row
+      - [x] If 32 colors - 1 row
+      - [x] More than 32 colors - second row but up to 64 total displayed with a "...and # more" to emphasize there are more colors displayed and # is the number of chips that aren't displayed.
+- Implementation: chips render inline to the right of the palette name at 4x4px,
+  so the dropdown's fixed row height / hit-test / scroll math is unchanged.
+  Colors come from `PALETTE_PREVIEW_*` in GUI/PALETTE-LOADER.BM — a lazily-parsed,
+  index-keyed cache with an 8-files-per-frame budget so opening the menu never
+  stalls on a large Lospec collection.
 
 ## AI Integration
 - [ ] Add support for AI image generation
