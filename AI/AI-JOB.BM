@@ -78,6 +78,47 @@ FUNCTION AI_JOB_start% (toolIdx AS INTEGER, layerIdx AS INTEGER, targetKind AS I
     IF toolIdx% < 1 OR toolIdx% > AI_TOOL_COUNT% THEN EXIT FUNCTION
     IF AI_TOOLS(toolIdx%).used = 0 THEN EXIT FUNCTION
 
+    ' --- Validate the tool BEFORE spending a run directory on it -------------
+    ' These two mistakes are easy to make and previously failed silently: the
+    ' wrapper's `cd` into a non-directory aborts the whole command, and the
+    ' user only sees "generator exited 1" with no clue why.
+    DIM vExe AS STRING, vDir AS STRING
+    vExe$ = _TRIM$(AI_TOOLS(toolIdx%).exePath)
+    vDir$ = _TRIM$(AI_TOOLS(toolIdx%).workDir)
+
+    IF LEN(vDir$) > 0 THEN
+        IF NOT _DIREXISTS(vDir$) THEN
+            DIM dirMsg AS STRING
+            IF _FILEEXISTS(vDir$) THEN
+                dirMsg$ = "DIR is a FILE, not a directory:" + CHR$(10) + vDir$ + CHR$(10) + CHR$(10) + _
+                          "DIR is the folder to run the tool FROM." + CHR$(10) + _
+                          "The program itself belongs in EXE."
+            ELSE
+                dirMsg$ = "DIR does not exist:" + CHR$(10) + vDir$
+            END IF
+            AI_log_section "CONFIG ERROR"
+            AI_log "  bad DIR: " + vDir$
+            _LOGERROR "AI_JOB_start: bad DIR for tool '" + RTRIM$(AI_TOOLS(toolIdx%).toolName) + "': " + vDir$
+            DIM dirRes AS INTEGER
+            dirRes% = DRAW_message_box%("AI - Tool Configuration", dirMsg$, MB_BTN_OK, MB_ICON_ERROR)
+            EXIT FUNCTION
+        END IF
+    END IF
+
+    ' An EXE containing a path separator must actually exist. A bare name
+    ' (python3, sh) is left alone — it is resolved against PATH.
+    IF INSTR(vExe$, "/") > 0 OR INSTR(vExe$, "\") > 0 THEN
+        IF NOT _FILEEXISTS(vExe$) THEN
+            AI_log_section "CONFIG ERROR"
+            AI_log "  EXE not found: " + vExe$
+            _LOGERROR "AI_JOB_start: EXE not found: " + vExe$
+            DIM exeRes AS INTEGER
+            exeRes% = DRAW_message_box%("AI - Tool Configuration", _
+                "EXE not found:" + CHR$(10) + vExe$, MB_BTN_OK, MB_ICON_ERROR)
+            EXIT FUNCTION
+        END IF
+    END IF
+
     DIM runDir AS STRING
     runDir$ = AI_JOB_make_outdir$
     IF LEN(runDir$) = 0 THEN
@@ -108,6 +149,14 @@ FUNCTION AI_JOB_start% (toolIdx AS INTEGER, layerIdx AS INTEGER, targetKind AS I
     DIM cmdStr  AS STRING
     DIM logFile AS STRING
     argStr$  = DRAW_InfoParser$(RTRIM$(AI_TOOLS(toolIdx%).argsTmpl))
+
+    ' Append the active style's own CLI flags (e.g. pixelmon --style ega).
+    ' Macro-expanded too, so a style can reference {seed}, {pal} and friends.
+    IF AI_LAST_STYLE_IDX% >= 1 AND AI_LAST_STYLE_IDX% <= AI_STYLE_COUNT% THEN
+        DIM styleArgs AS STRING
+        styleArgs$ = _TRIM$(AI_STYLES(AI_LAST_STYLE_IDX%).argsExtra)
+        IF LEN(styleArgs$) > 0 THEN argStr$ = argStr$ + " " + DRAW_InfoParser$(styleArgs$)
+    END IF
     exeStr$  = RTRIM$(AI_TOOLS(toolIdx%).exePath)
     dirStr$  = RTRIM$(AI_TOOLS(toolIdx%).workDir)
     logFile$ = runDir$ + "/_run.log"
@@ -126,6 +175,18 @@ FUNCTION AI_JOB_start% (toolIdx AS INTEGER, layerIdx AS INTEGER, targetKind AS I
     $END IF
 
     _LOGINFO "AI_JOB_start: " + cmdStr$
+
+    AI_log_section "GENERATE  tool=" + RTRIM$(AI_TOOLS(toolIdx%).toolName)
+    AI_log "  exe      : " + exeStr$
+    AI_log "  dir      : " + dirStr$
+    AI_log "  prompt   : " + AI_LAST_PROMPT_RAW$
+    AI_log "  composed : " + AI_LAST_PROMPT$
+    AI_log "  style    : " + AI_LAST_STYLE$
+    AI_log "  seed     : " + _TRIM$(STR$(AI_LAST_SEED&))
+    AI_log "  size     : " + _TRIM$(STR$(genW%)) + "x" + _TRIM$(STR$(genH%)) + "  at " + _TRIM$(STR$(dstX%)) + "," + _TRIM$(STR$(dstY%))
+    AI_log "  outdir   : " + runDir$
+    AI_log "  command  : " + cmdStr$
+
     SHELL _DONTWAIT _HIDE cmdStr$
 
     AI_JOB_start% = TRUE
@@ -156,6 +217,7 @@ SUB AI_JOB_tick ()
     IF elapsed# > AI_JOB.timeoutSec THEN
         AI_JOB.state     = AI_JOB_FAILED
         AI_JOB.statusMsg = "timed out after " + _TRIM$(STR$(INT(elapsed#))) + "s"
+        AI_log "  RESULT   : TIMEOUT after " + _TRIM$(STR$(INT(elapsed#))) + "s"
         _LOGERROR "AI_JOB_tick: " + RTRIM$(AI_JOB.statusMsg)
         INVALIDATE_scene
         EXIT SUB
@@ -259,6 +321,9 @@ SUB AI_JOB_finish ()
     IF exitCode% <> 0 THEN
         AI_JOB.state     = AI_JOB_FAILED
         AI_JOB.statusMsg = "generator exited " + _TRIM$(STR$(exitCode%))
+        AI_log "  RESULT   : FAILED - exit code " + _TRIM$(STR$(exitCode%))
+        AI_log "  output:"
+        AI_log_file RTRIM$(AI_JOB.outDir) + "/_run.log", 40
         _LOGERROR "AI_JOB_finish: " + RTRIM$(AI_JOB.statusMsg) + " (see " + RTRIM$(AI_JOB.outDir) + "/_run.log)"
         INVALIDATE_scene
         EXIT SUB
@@ -267,6 +332,9 @@ SUB AI_JOB_finish ()
     IF LEN(pngPath$) = 0 THEN
         AI_JOB.state     = AI_JOB_FAILED
         AI_JOB.statusMsg = "generator produced no PNG"
+        AI_log "  RESULT   : FAILED - exit 0 but no PNG in " + RTRIM$(AI_JOB.outDir)
+        AI_log "  output:"
+        AI_log_file RTRIM$(AI_JOB.outDir) + "/_run.log", 40
         _LOGERROR "AI_JOB_finish: no PNG in " + RTRIM$(AI_JOB.outDir)
         INVALIDATE_scene
         EXIT SUB
@@ -314,6 +382,7 @@ SUB AI_JOB_finish ()
 
     AI_JOB.state     = AI_JOB_DONE
     AI_JOB.statusMsg = "done"
+    AI_log "  RESULT   : OK - imported " + pngPath$ + " into layer " + _TRIM$(STR$(lyr%))
     _LOGINFO "AI_JOB_finish: imported " + pngPath$ + " into layer " + _TRIM$(STR$(lyr%))
 
     CANVAS_DIRTY% = TRUE
@@ -329,6 +398,7 @@ SUB AI_JOB_cancel ()
     IF NOT AI_JOB_is_running% THEN EXIT SUB
     AI_JOB.state     = AI_JOB_CANCELLED
     AI_JOB.statusMsg = "cancelled"
+    AI_log "  RESULT   : CANCELLED by user"
     _LOGINFO "AI_JOB_cancel: job abandoned"
     INVALIDATE_scene
 END SUB

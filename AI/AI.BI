@@ -95,8 +95,13 @@ TYPE AI_STYLE_OBJ
     used       AS INTEGER
     styleName  AS STRING * 48
     toolName   AS STRING * 48   ' "" = applies to any tool
-    prefixText AS STRING * 256  ' Prepended to the prompt
-    suffixText AS STRING * 256  ' Appended to the prompt
+    prefixText AS STRING * 256  ' Prepended to the prompt text
+    suffixText AS STRING * 256  ' Appended to the prompt text
+    argsExtra  AS STRING * 256  ' Extra CLI arguments, appended to the tool's
+                                ' template (e.g. pixelmon's --style ega). These
+                                ' are NOT prompt text — putting a flag in
+                                ' prefix/suffix would bury it inside the quoted
+                                ' prompt where the tool never sees it.
     descText   AS STRING * 128  ' Shown in the editor / picker
     seedVal    AS LONG          ' 0 = don't force a seed
 END TYPE

@@ -30,6 +30,7 @@ SUB AI_init ()
         AI_STYLES(i%).toolName   = ""
         AI_STYLES(i%).prefixText = ""
         AI_STYLES(i%).suffixText = ""
+        AI_STYLES(i%).argsExtra  = ""
         AI_STYLES(i%).descText   = ""
         AI_STYLES(i%).seedVal    = 0
     NEXT i%
@@ -175,6 +176,7 @@ SUB AI_config_load ()
                     CASE "PREFIX" : AI_STYLES(curIdx%).prefixText = valStr$
                     CASE "SUFFIX" : AI_STYLES(curIdx%).suffixText = valStr$
                     CASE "TEXT"   : AI_STYLES(curIdx%).suffixText = valStr$ ' alias
+                    CASE "ARGS"   : AI_STYLES(curIdx%).argsExtra  = valStr$
                     CASE "DESC"   : AI_STYLES(curIdx%).descText   = valStr$
                     CASE "SEED"   : AI_STYLES(curIdx%).seedVal    = VAL(valStr$)
                 END SELECT
@@ -186,6 +188,24 @@ SUB AI_config_load ()
         END SELECT
     LOOP
     CLOSE #fh%
+
+    ' Migrate flags written into PREFIX/SUFFIX. Prompt text never starts with
+    ' "--", so a value that does is unambiguously a CLI flag that would
+    ' otherwise be swallowed into the quoted {prompt} and never reach the tool.
+    DIM mi AS INTEGER
+    FOR mi% = 1 TO AI_STYLE_COUNT%
+        IF LEFT$(_TRIM$(AI_STYLES(mi%).suffixText), 2) = "--" THEN
+            AI_STYLES(mi%).argsExtra  = _TRIM$(AI_STYLES(mi%).argsExtra) + " " + _TRIM$(AI_STYLES(mi%).suffixText)
+            AI_STYLES(mi%).suffixText = ""
+            _LOGWARN "AI_config_load: style '" + RTRIM$(AI_STYLES(mi%).styleName) + "' had CLI flags in SUFFIX; moved to ARGS"
+        END IF
+        IF LEFT$(_TRIM$(AI_STYLES(mi%).prefixText), 2) = "--" THEN
+            AI_STYLES(mi%).argsExtra  = _TRIM$(AI_STYLES(mi%).argsExtra) + " " + _TRIM$(AI_STYLES(mi%).prefixText)
+            AI_STYLES(mi%).prefixText = ""
+            _LOGWARN "AI_config_load: style '" + RTRIM$(AI_STYLES(mi%).styleName) + "' had CLI flags in PREFIX; moved to ARGS"
+        END IF
+        AI_STYLES(mi%).argsExtra = _TRIM$(AI_STYLES(mi%).argsExtra)
+    NEXT mi%
 
     IF AI_TOOL_COUNT% > 0 THEN AI_LAST_TOOL% = 1
     _LOGINFO "AI_config_load: " + _TRIM$(STR$(AI_TOOL_COUNT%)) + " tool(s) from " + cfgPath$
@@ -201,7 +221,7 @@ SUB AI_config_save ()
     fh% = FREEFILE
     OPEN AI_config_path$ FOR OUTPUT AS #fh%
     PRINT #fh%, "# DRAW AI generator tools"
-    PRINT #fh%, "# ARGS macros are expanded by DRAW_InfoParser$ — see AI/AI.BM"
+    PRINT #fh%, "# ARGS macros are expanded by DRAW_InfoParser$ - see AI/AI.BM"
     PRINT #fh%, "# DRAW supplies {outdir} and {outname}; the tool must write its PNG there."
     PRINT #fh%, ""
     FOR i% = 1 TO AI_TOOL_COUNT%
@@ -221,6 +241,7 @@ SUB AI_config_save ()
         PRINT #fh%, "TOOL=" + RTRIM$(AI_STYLES(i%).toolName)
         PRINT #fh%, "PREFIX=" + RTRIM$(AI_STYLES(i%).prefixText)
         PRINT #fh%, "SUFFIX=" + RTRIM$(AI_STYLES(i%).suffixText)
+        PRINT #fh%, "ARGS=" + RTRIM$(AI_STYLES(i%).argsExtra)
         PRINT #fh%, "DESC=" + RTRIM$(AI_STYLES(i%).descText)
         PRINT #fh%, "SEED=" + _TRIM$(STR$(AI_STYLES(i%).seedVal))
         PRINT #fh%, ""
@@ -280,6 +301,7 @@ FUNCTION AI_style_alloc% ()
     AI_STYLES(AI_STYLE_COUNT%).toolName   = ""
     AI_STYLES(AI_STYLE_COUNT%).prefixText = ""
     AI_STYLES(AI_STYLE_COUNT%).suffixText = ""
+    AI_STYLES(AI_STYLE_COUNT%).argsExtra  = ""
     AI_STYLES(AI_STYLE_COUNT%).descText   = ""
     AI_STYLES(AI_STYLE_COUNT%).seedVal    = 0
     AI_style_alloc% = AI_STYLE_COUNT%
@@ -362,6 +384,92 @@ FUNCTION AI_tool_alloc% ()
     AI_TOOLS(AI_TOOL_COUNT%).workDir  = ""
     AI_TOOLS(AI_TOOL_COUNT%).argsTmpl = CHR$(34) + "{prompt}" + CHR$(34) + " --output-to {outdir} --name {outname}"
     AI_tool_alloc% = AI_TOOL_COUNT%
+END FUNCTION
+
+
+''
+' Full path of the AI activity log.
+' @return STRING - Path to ai.log
+'
+FUNCTION AI_log_path$ ()
+    AI_log_path$ = PATHS_config$("ai.log")
+END FUNCTION
+
+
+''
+' Append a line to ai.log. This is the record of what DRAW actually handed the
+' generator and what came back — the command line, exit code, output tail and
+' the imported file — because a failing generator otherwise gives the user
+' nothing but "exited 1".
+' @param msg STRING - Line to append
+'
+SUB AI_log (msg AS STRING)
+    DIM fh AS INTEGER
+    fh% = FREEFILE
+    OPEN AI_log_path$ FOR APPEND AS #fh%
+    PRINT #fh%, DATE$ + " " + TIME$ + "  " + msg$
+    CLOSE #fh%
+END SUB
+
+
+''
+' Start a new section in ai.log for one run.
+' @param heading STRING - Section heading
+'
+SUB AI_log_section (heading AS STRING)
+    AI_log ""
+    AI_log "==== " + heading + " ===================================="
+END SUB
+
+
+''
+' Copy a captured output file into ai.log, capped so a chatty generator cannot
+' grow the log without bound.
+' @param filePath STRING - File to copy in
+' @param maxLines INTEGER - Maximum lines to copy
+'
+SUB AI_log_file (filePath AS STRING, maxLines AS INTEGER)
+    IF NOT _FILEEXISTS(filePath$) THEN
+        AI_log "  (no output captured at " + filePath$ + ")"
+        EXIT SUB
+    END IF
+    DIM fh AS INTEGER, n AS INTEGER, ln AS STRING
+    fh% = FREEFILE
+    OPEN filePath$ FOR INPUT AS #fh%
+    n% = 0
+    DO WHILE NOT EOF(fh%) AND n% < maxLines%
+        LINE INPUT #fh%, ln$
+        AI_log "  | " + ln$
+        n% = n% + 1
+    LOOP
+    IF NOT EOF(fh%) THEN AI_log "  | ... (truncated)"
+    CLOSE #fh%
+END SUB
+
+
+''
+' Strip any trailing slash so joined paths do not end up with "//".
+' @param p STRING - Path
+' @return STRING - Path without a trailing separator
+'
+FUNCTION AI_trim_slash$ (p AS STRING)
+    DIM s AS STRING
+    s$ = _TRIM$(p$)
+    DO WHILE LEN(s$) > 1 AND (RIGHT$(s$, 1) = "/" OR RIGHT$(s$, 1) = "\")
+        s$ = LEFT$(s$, LEN(s$) - 1)
+    LOOP
+    AI_trim_slash$ = s$
+END FUNCTION
+
+
+''
+' Join two path fragments with exactly one separator.
+' @param basePath STRING - Left fragment
+' @param leaf STRING - Right fragment
+' @return STRING - Joined path
+'
+FUNCTION AI_join_path$ (basePath AS STRING, leaf AS STRING)
+    AI_join_path$ = AI_trim_slash$(basePath$) + "/" + _TRIM$(leaf$)
 END FUNCTION
 
 
