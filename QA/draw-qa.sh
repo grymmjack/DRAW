@@ -10,6 +10,15 @@
 #   ./draw-qa.sh --verbose        Show every mouse/key action for debugging
 #   ./draw-qa.sh --rerun-passed   Re-run tests that previously passed
 #   ./draw-qa.sh --reset          Clear the passed-test cache
+#   ./draw-qa.sh --reset-cfg      Rebuild QA/DRAW.qa.cfg from DRAW.cfg.default
+#   ./draw-qa.sh --developer      Launch DRAW with --developer (input audit)
+#   ./draw-qa.sh --probe          Launch DRAW and print cursor position in
+#                                 viewport pixels — hover a target, hold still
+#                                 ~1.5s and it prints MARK <x>,<y> for use as a
+#                                 click coordinate. PROBE_SECS=60 to run longer.
+#
+# DRAW is always launched with --config QA/DRAW.qa.cfg, so runs are
+# deterministic and never read or write the user's own DRAW.cfg.
 #
 # Each test is ATOMIC: DRAW is launched fresh and closed after every test
 # to prevent state from one test tainting the next.
@@ -26,19 +35,73 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 DRAW_ROOT="$(dirname "$SCRIPT_DIR")"
 DRAW_BIN="$DRAW_ROOT/DRAW.run"
 
-# Locate DRAW.cfg — check OS-native config dir first, fall back to beside exe.
-# Mirrors the XDG logic in CORE/PATHS.BI (Linux: ~/.config/DRAW/)
-_find_draw_cfg() {
-    local xdg_cfg="${XDG_CONFIG_HOME:-$HOME/.config}/DRAW/DRAW.cfg"
-    if [[ -f "$xdg_cfg" ]]; then
-        echo "$xdg_cfg"
-    elif [[ -f "$DRAW_ROOT/DRAW.cfg" ]]; then
-        echo "$DRAW_ROOT/DRAW.cfg"
-    else
-        echo ""
-    fi
+# ── QA config isolation ───────────────────────────────────────────────────────
+# QA runs against its OWN config, passed to DRAW via --config, for two reasons:
+#
+#   1. Determinism. The shipped default is DISPLAY_SCALE=0 / SCREEN_WIDTH=0
+#      ("auto-detect"), so the geometry maths below had nothing usable to work
+#      with — every click landed at the window origin (x * 0) and every capture
+#      cropped to 0x0, silently falling back to a full-desktop screenshot.
+#   2. Isolation. DRAW's CONFIG_save writes back to whichever config it loaded,
+#      so tests that touch settings were mutating the user's real DRAW.cfg.
+#
+# Regenerate the QA config from factory defaults with: ./draw-qa.sh --reset-cfg
+QA_CFG="$SCRIPT_DIR/DRAW.qa.cfg"
+
+# Deterministic geometry — every value the coordinate maths below depends on
+# must be explicit here; a 0 means "auto-detect" to DRAW and breaks the model.
+#
+# UI_SCALE MUST stay 0. SCREEN_init only honors an explicit SCREEN_WIDTH/HEIGHT
+# in pure Auto mode (`IF CFG.UI_SCALE% = 0 AND CFG.SCREEN_WIDTH% > 0` —
+# OUTPUT/SCREEN.BM). With a UI_SCALE master set, DRAW deliberately discards the
+# configured viewport and re-derives it from desktop/scale, so the window size
+# becomes desktop-dependent and the coordinate model below stops matching.
+_qa_cfg_overrides() {
+    cat <<'OVERRIDES'
+UI_SCALE=0
+DISPLAY_SCALE=2
+TOOLBAR_SCALE=2
+SCREEN_WIDTH=958
+SCREEN_HEIGHT=514
+LAYER_PANEL_WIDTH=100
+LAYERS_PANEL_DOCK_EDGE=LEFT
+TOOLBOX_DOCK_EDGE=RIGHT
+DEFAULT_CANVAS_SIZE_W=320
+DEFAULT_CANVAS_SIZE_H=200
+DEFAULT_PALETTE=ANSI32 (32)
+PALETTE_CHIP_WIDTH=16
+PALETTE_CHIP_HEIGHT=8
+PALETTE_MAX_CHIPS_PER_ROW=32
+PALETTE_MAX_ROWS=3
+PALETTE_MIN_ROWS=1
+SOUNDS_ENABLED=FALSE
+MUSIC_ENABLED=FALSE
+OVERRIDES
 }
-DRAW_CFG="$(_find_draw_cfg)"
+
+# Build QA/DRAW.qa.cfg from DRAW.cfg.default with the overrides above applied.
+_ensure_qa_cfg() {
+    [[ -f "$QA_CFG" ]] && return 0
+    if [[ ! -f "$DRAW_ROOT/DRAW.cfg.default" ]]; then
+        echo "ERROR: $DRAW_ROOT/DRAW.cfg.default not found — cannot build QA config" >&2
+        exit 1
+    fi
+    cp "$DRAW_ROOT/DRAW.cfg.default" "$QA_CFG"
+    local line key val
+    while IFS= read -r line; do
+        key=${line%%=*}
+        val=${line#*=}
+        if grep -q "^${key}=" "$QA_CFG"; then
+            sed -i "s|^${key}=.*|${key}=${val}|" "$QA_CFG"
+        else
+            echo "$line" >> "$QA_CFG"
+        fi
+    done < <(_qa_cfg_overrides)
+    echo "Created QA config: $QA_CFG"
+}
+_ensure_qa_cfg
+DRAW_CFG="$QA_CFG"
+
 RESULTS_DIR="$SCRIPT_DIR/results"
 SCREENSHOTS_DIR="$SCRIPT_DIR/screenshots"
 TESTS_DIR="$SCRIPT_DIR/tests"
@@ -59,8 +122,16 @@ PASSED_CACHE="$RESULTS_DIR/passed.txt"
 # ── parse DRAW.cfg ────────────────────────────────────────────────────────────
 _cfg() { [[ -n "$DRAW_CFG" ]] && grep -m1 "^${1}=" "$DRAW_CFG" 2>/dev/null | cut -d= -f2 | tr -d '[:space:]'; }
 
-DISPLAY_SCALE=$(_cfg DISPLAY_SCALE)
-DISPLAY_SCALE=${DISPLAY_SCALE:-1}
+# NOTE: ${x:-1} is NOT enough here — it only substitutes when x is unset or
+# empty, and DRAW writes a literal 0 to mean "auto-detect". A zero scale makes
+# _abs() collapse every click onto the window origin and _capture_client_area
+# crop to 0x0, which convert silently ignores (you get the whole desktop).
+_num_or() {
+    local v=$1 fallback=$2
+    [[ "$v" =~ ^[0-9]+$ ]] && [[ "$v" -gt 0 ]] && { echo "$v"; return; }
+    echo "$fallback"
+}
+DISPLAY_SCALE=$(_num_or "$(_cfg DISPLAY_SCALE)" 1)
 
 # Window decoration height (KDE title bar).  Detected from _NET_FRAME_EXTENTS
 # after window creation; override with DECORATION_H=22 ./draw-qa.sh
@@ -79,19 +150,34 @@ _detect_decoration_height() {
     echo "$visible"
 }
 
-VIEWPORT_W=$(_cfg SCREEN_WIDTH);   VIEWPORT_W=${VIEWPORT_W:-904}
-VIEWPORT_H=$(_cfg SCREEN_HEIGHT);  VIEWPORT_H=${VIEWPORT_H:-510}
-LAYER_PANEL_W=$(_cfg LAYER_PANEL_WIDTH); LAYER_PANEL_W=${LAYER_PANEL_W:-100}
+VIEWPORT_W=$(_num_or "$(_cfg SCREEN_WIDTH)" 904)
+VIEWPORT_H=$(_num_or "$(_cfg SCREEN_HEIGHT)" 510)
+LAYER_PANEL_W=$(_num_or "$(_cfg LAYER_PANEL_WIDTH)" 100)
 LAYERS_DOCK=$(_cfg LAYERS_PANEL_DOCK_EDGE); LAYERS_DOCK=${LAYERS_DOCK:-LEFT}
 TOOLBOX_DOCK=$(_cfg TOOLBOX_DOCK_EDGE);    TOOLBOX_DOCK=${TOOLBOX_DOCK:-RIGHT}
-TOOLBAR_SCALE=$(_cfg TOOLBAR_SCALE);       TOOLBAR_SCALE=${TOOLBAR_SCALE:-2}
-CANVAS_W=$(_cfg DEFAULT_CANVAS_SIZE_W);    CANVAS_W=${CANVAS_W:-320}
-CANVAS_H=$(_cfg DEFAULT_CANVAS_SIZE_H);    CANVAS_H=${CANVAS_H:-200}
+TOOLBAR_SCALE=$(_num_or "$(_cfg TOOLBAR_SCALE)" 2)
+CANVAS_W=$(_num_or "$(_cfg DEFAULT_CANVAS_SIZE_W)" 320)
+CANVAS_H=$(_num_or "$(_cfg DEFAULT_CANVAS_SIZE_H)" 200)
 
 # Derived chrome sizes (internal viewport pixels, matching DRAW's layout constants)
 MENU_BAR_H=12
 STATUS_H=11
-PALETTE_H=30    # 3 rows × 9px + 3px padding
+
+# Bottom chrome band below the canvas. VERIFIED empirically against a capture
+# on the pinned QA config (--probe + per-row colour sampling), do not "derive"
+# these from PALETTE_STRIP_get_height% — that returns just the chip rows, while
+# this band also covers the palette-name line, and shrinking it moves CANVAS_CY
+# for every test in the suite.
+#   474..485  palette chip row(s)
+#   486..495  palette name / dropdown button (right-aligned)
+#   498..514  status bar
+PALETTE_H=30
+
+# Palette-name dropdown button — the click target that opens the palette menu.
+# Probed with `./draw-qa.sh --probe` on the pinned QA config; re-probe if the
+# QA config's viewport or theme changes.
+PAL_NAME_X_OFFSET=80   # from the right edge
+PAL_NAME_Y=484
 TOOLBAR_W=$(( 47 * TOOLBAR_SCALE + 2 ))   # TB_COLS*TB_BTN_W*TB + gaps + 2
 TOOLBAR_H=$(( 83 * TOOLBAR_SCALE ))        # TB_ROWS*TB_BTN_H*TB + gaps
 ORGANIZER_H=$(( 32 * TOOLBAR_SCALE ))      # 3 rows × 10 × TB + 2 gaps × TB
@@ -153,6 +239,9 @@ PAL_X=0
 PAL_Y=$(( VIEWPORT_H - STATUS_H - PALETTE_H ))
 PAL_W=$VIEWPORT_W
 PAL_H=$PALETTE_H
+
+# Absolute click target for the palette-name dropdown button
+PAL_NAME_X=$(( VIEWPORT_W - PAL_NAME_X_OFFSET ))
 
 # ── colours ──────────────────────────────────────────────────────────────────
 GREEN="\033[0;32m"
@@ -240,8 +329,11 @@ draw_launch() {
         echo "ERROR: $DRAW_BIN not found or not executable" >&2
         exit 1
     fi
-    info "Launching DRAW..."
-    "$DRAW_BIN" &
+    info "Launching DRAW (--config $(basename "$QA_CFG"))..."
+    # Launch from DRAW_ROOT, not QA/. DRAW never CHDIRs, and several subsystems
+    # resolve assets against the CURRENT directory ("./ASSETS/..."), so running
+    # from QA/ silently breaks them — palette .GPL previews, for one.
+    ( cd "$DRAW_ROOT" && exec "$DRAW_BIN" --config "$QA_CFG" $DRAW_EXTRA_ARGS ) &
     DRAW_PID=$!
 
     info "Waiting for window (up to ${timeout}s) — PID=$DRAW_PID"
@@ -273,7 +365,39 @@ draw_launch() {
         DECORATION_H=$(_detect_decoration_height)
     fi
     info "Decoration height: ${DECORATION_H}px"
+    _verify_geometry_model
     sleep 0.3
+}
+
+# Cross-check the cfg-derived coordinate model against the real window.
+# Everything downstream (clicks, crops, snap regions) assumes
+# client size == VIEWPORT × DISPLAY_SCALE; if the window disagrees, every
+# assertion silently degrades into "compare two full-desktop screenshots",
+# which passes for the wrong reason. Fail loudly instead.
+_verify_geometry_model() {
+    eval "$(xdotool getwindowgeometry --shell "$DRAW_WID" 2>/dev/null)"
+    local win_w=${WIDTH:-0} win_h=${HEIGHT:-0}
+    local want_w=$(( VIEWPORT_W * DISPLAY_SCALE ))
+    local want_h=$(( VIEWPORT_H * DISPLAY_SCALE ))
+    dbg "geometry: window=${win_w}x${win_h} model=${want_w}x${want_h} (viewport ${VIEWPORT_W}x${VIEWPORT_H} @ ${DISPLAY_SCALE}x)"
+
+    # Tolerate a few px of WM rounding, but not a wholesale mismatch
+    local dw=$(( win_w - want_w )); [[ $dw -lt 0 ]] && dw=$(( -dw ))
+    local dh=$(( win_h - want_h )); [[ $dh -lt 0 ]] && dh=$(( -dh ))
+    if [[ $dw -le 4 && $dh -le 4 ]]; then
+        info "Geometry model OK: ${win_w}x${win_h} (viewport ${VIEWPORT_W}x${VIEWPORT_H} @ ${DISPLAY_SCALE}x)"
+        return 0
+    fi
+
+    echo "ERROR: window geometry does not match the QA coordinate model." >&2
+    echo "       window   = ${win_w}x${win_h}" >&2
+    echo "       expected = ${want_w}x${want_h} (${VIEWPORT_W}x${VIEWPORT_H} @ ${DISPLAY_SCALE}x)" >&2
+    echo "       config   = $DRAW_CFG" >&2
+    echo "       Clicks and screenshot crops would be wrong; refusing to run." >&2
+    echo "       Fix the geometry keys in the QA config, or regenerate it:" >&2
+    echo "         ./draw-qa.sh --reset-cfg" >&2
+    draw_quit
+    exit 1
 }
 
 # Kill DRAW cleanly
@@ -612,6 +736,47 @@ snap_region() {
     fi
 }
 
+# Raw AE units per differing pixel — calibrated at startup by _calibrate_ae.
+AE_UNIT=1
+
+# _ae_number "compare output" — first numeric token, scientific notation aware.
+# ImageMagick prints large counts as "1.47491e+09"; the old ^[0-9]+ grep
+# truncated that to "1", turning a whole-image difference into a 1-pixel result.
+_ae_number() {
+    awk '{
+        for (i = 1; i <= NF; i++) {
+            gsub(/[()]/, "", $i)
+            if ($i ~ /^[0-9]+(\.[0-9]+)?([eE][+-]?[0-9]+)?$/) { printf "%.0f", $i + 0; exit }
+        }
+        print "0"
+    }' <<< "$1"
+}
+
+# Measure what one differing pixel reports as. ImageMagick 7 HDRI builds scale
+# the AE metric by QuantumRange (a 1-pixel difference reads as 65535), so the
+# raw number is not a pixel count and every tolerance in every test would be
+# meaningless. Calibrate instead of hardcoding — Q8/Q16/HDRI builds differ.
+_calibrate_ae() {
+    local t; t=$(mktemp -d)
+    if magick -size 4x4 xc:black "$t/a.png" 2>/dev/null && \
+       magick "$t/a.png" -fill white -draw 'point 1,1' "$t/b.png" 2>/dev/null; then
+        local raw n
+        raw=$(compare -metric AE "$t/a.png" "$t/b.png" /dev/null 2>&1 || true)
+        n=$(_ae_number "$raw")
+        [[ "$n" -ge 1 ]] 2>/dev/null && AE_UNIT=$n
+    fi
+    rm -rf "$t"
+    dbg "AE calibration: 1 differing pixel reports as $AE_UNIT"
+    [[ "$AE_UNIT" -ne 1 ]] && info "AE metric scaled by ${AE_UNIT}× on this ImageMagick build — normalising"
+    return 0
+}
+
+# _parse_ae "compare output" — differing pixels as a plain integer.
+_parse_ae() {
+    local n; n=$(_ae_number "$1")
+    echo $(( n / AE_UNIT ))
+}
+
 # assert_regions_differ file1 file2 msg
 # Fail if two region snapshots are pixel-identical (action had no visual effect).
 assert_regions_differ() {
@@ -622,9 +787,7 @@ assert_regions_differ() {
     fi
     local diff_output diff_count
     diff_output=$(compare -metric AE -fuzz 2% "$f1" "$f2" /dev/null 2>&1 || true)
-    # AE outputs a plain integer (or float) on stderr; strip any extra IM warnings
-    diff_count=$(echo "$diff_output" | grep -oE '^[0-9]+(\.[0-9]+)?' | head -1)
-    diff_count=${diff_count%.*}  # truncate to integer
+    diff_count=$(_parse_ae "$diff_output")
     info "  [diff] raw='$diff_output' count='${diff_count:-?}' f1=$(basename $f1) f2=$(basename $f2)"
     if [[ "${diff_count:-0}" -gt 0 ]] 2>/dev/null; then
         pass "$msg (${diff_count} pixels differ)"
@@ -645,8 +808,7 @@ assert_regions_same() {
     fi
     local diff_output diff_count
     diff_output=$(compare -metric AE -fuzz 2% "$f1" "$f2" /dev/null 2>&1 || true)
-    diff_count=$(echo "$diff_output" | grep -oE '^[0-9]+(\.[0-9]+)?' | head -1)
-    diff_count=${diff_count%.*}
+    diff_count=$(_parse_ae "$diff_output")
     info "  [diff] raw='$diff_output' count='${diff_count:-?}' tol=$tolerance f1=$(basename $f1) f2=$(basename $f2)"
     if [[ "${diff_count:-0}" -le "$tolerance" ]] 2>/dev/null; then
         pass "$msg (${diff_count:-0} pixels differ, within tolerance $tolerance)"
@@ -704,6 +866,8 @@ for arg in "$@"; do
     [[ "$arg" == "--fail-fast" ]]    && FAIL_FAST=1
     [[ "$arg" == "--verbose" ]]      && VERBOSE=1
     [[ "$arg" == "--rerun-passed" ]] && RERUN_PASSED=1
+    # Pass DRAW's own developer mode through (input conflict audit → inputs.log)
+    [[ "$arg" == "--developer" ]]    && DRAW_EXTRA_ARGS="--developer"
 done
 
 mkdir -p "$RESULTS_DIR" "$SCREENSHOTS_DIR"
@@ -720,11 +884,63 @@ case "${1:-}" in
         rm -f "$RESULTS_DIR/passed.txt"
         echo "Passed-test cache cleared."
         exit 0 ;;
+    --reset-cfg)
+        rm -f "$QA_CFG"
+        _ensure_qa_cfg
+        exit 0 ;;
+    --probe)
+        # Interactive coordinate finder. Launches DRAW with the QA config and
+        # prints the cursor position in VIEWPORT pixels — the same units every
+        # test helper takes — so target coordinates can be read off the real UI
+        # instead of being derived from layout constants that drift.
+        check_deps
+        draw_launch 15
+        PROBE_SECS=${PROBE_SECS:-30}
+        log ""
+        log "${CYAN}━━━ COORDINATE PROBE (${PROBE_SECS}s) ━━━${RESET}"
+        log " Hover the UI element you want a test to click."
+        log " Viewport coords are printed live; click to mark one."
+        log " Window ${WIN_ABS_X},${WIN_ABS_Y}  scale ${DISPLAY_SCALE}x  deco ${DECORATION_H}px"
+        log ""
+        _probe_vp() {
+            eval "$(xdotool getmouselocation --shell 2>/dev/null)"
+            local vx=$(( (X - WIN_ABS_X) / DISPLAY_SCALE ))
+            local vy=$(( (Y - WIN_ABS_Y - DECORATION_H) / DISPLAY_SCALE ))
+            echo "$vx $vy"
+        }
+        # "Park protocol": hold the cursor still on a target for ~1.5s and the
+        # probe marks it. Avoids needing global click capture, and a parked
+        # cursor is exactly what a test's click coordinate should be.
+        _probe_end=$(( SECONDS + PROBE_SECS ))
+        _probe_last=""
+        _probe_still=0
+        _probe_marked=""
+        while [[ $SECONDS -lt $_probe_end ]]; do
+            read -r pvx pvy <<< "$(_probe_vp)"
+            if [[ "$pvx $pvy" == "$_probe_last" ]]; then
+                _probe_still=$(( _probe_still + 1 ))
+                if [[ $_probe_still -eq 15 && "$pvx $pvy" != "$_probe_marked" ]]; then
+                    printf "\r%-60s\r" ""
+                    log "  ${GREEN}MARK${RESET}  viewport ${pvx},${pvy}"
+                    _probe_marked="$pvx $pvy"
+                fi
+            else
+                _probe_still=0
+                printf "\r  viewport: %4s,%-4s   (hold still ~1.5s to mark)" "$pvx" "$pvy"
+            fi
+            _probe_last="$pvx $pvy"
+            sleep 0.1
+        done
+        printf "\r%-60s\r" ""
+        log "Probe finished."
+        draw_quit
+        exit 0 ;;
     --help|-h)
         sed -n '2,14p' "$0"; exit 0 ;;
 esac
 
 check_deps
+_calibrate_ae
 trap 'draw_quit' EXIT INT TERM
 
 # Count cached passes for banner
@@ -734,6 +950,7 @@ _CACHED_COUNT=0
 log "═══════════════════════════════════════════════════"
 log " DRAW QA — $(date '+%Y-%m-%d %H:%M:%S')"
 log " DRAW: $DRAW_BIN"
+log " Config: $DRAW_CFG${DRAW_EXTRA_ARGS:+  Args: $DRAW_EXTRA_ARGS}"
 log " Scale: ${DISPLAY_SCALE}x  Viewport: ${VIEWPORT_W}×${VIEWPORT_H}"
 log " Canvas: ${CANVAS_W}×${CANVAS_H}  Centre: (${CANVAS_CX},${CANVAS_CY}) viewport px"
 if [[ $_CACHED_COUNT -gt 0 ]]; then
