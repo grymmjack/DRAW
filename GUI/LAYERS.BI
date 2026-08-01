@@ -46,6 +46,7 @@ CONST LAYER_TYPE_TEXT          = 1         ' Non-destructive text layer
 CONST LAYER_TYPE_GROUP         = 2         ' Group container (no pixel data, organizational only)
 CONST LAYER_TYPE_SYMBOL_PARENT = 3         ' Symbol parent : editable source layer for linked instances
 CONST LAYER_TYPE_SYMBOL_CHILD  = 4         ' Symbol child  : non-editable linked instance of a parent
+CONST LAYER_TYPE_AI            = 5         ' AI-generated layer (prompt/seed embedded, regenerable)
 
 ' Export mode constants (QB64PE Code Export classification)
 CONST EXPORT_MODE_VECTOR = 0               ' All ops are vector-exportable (SUB)
@@ -72,6 +73,7 @@ TYPE DRAW_LAYER
     contentDirty      AS INTEGER     ' TRUE = layer content changed, invalidate opacity cache
     layerType         AS INTEGER     ' LAYER_TYPE_IMAGE (0), LAYER_TYPE_TEXT (1), or LAYER_TYPE_GROUP (2)
     textDataIdx       AS INTEGER     ' Index into TEXT_LAYER_DATA() pool (0 = not a text layer)
+    aiDataIdx         AS INTEGER     ' Index into AI_LAYER_DATA() pool (0 = not an AI layer)
     ' Group support fields
     parentGroupIdx    AS INTEGER     ' Index into LAYERS() of parent group (0 = top-level / no group)
     collapsed         AS INTEGER     ' TRUE if group is collapsed in panel (LAYER_TYPE_GROUP only)

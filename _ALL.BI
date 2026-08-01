@@ -153,6 +153,11 @@ $INCLUDEONCE
 '$INCLUDE:'./TOOLS/TRANSFORM.BI'
 '$INCLUDE:'./TOOLS/ZOOM.BI'
 
+' AI INTEGRATION --------------------------------------------------------------
+' Must come after CORE/PATHS (AI_init reads the OS-native config dir) and after
+' GUI/LAYERS (AI layers allocate from a pool indexed by DRAW_LAYER.aiDataIdx).
+'$INCLUDE:'./AI/AI.BI'
+
 ' PIXEL ART ANALYZER ENGINE --------------------------------------------------
 '$INCLUDE:'./PIXEL-COACH/COACH.BI'
 

@@ -1,0 +1,413 @@
+''
+' DRAW - AI/AI.BM
+' =============================================================================
+' AI integration: tool registry, config persistence, and DRAW_InfoParser$.
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+''
+' Initialise the AI subsystem. Called at include time from AI.BI.
+' Under $DYNAMIC a module-level DIM SHARED reserves the symbol but does not
+' allocate, so every pool entry must be touched here before first read.
+'
+SUB AI_init ()
+    DIM i AS INTEGER
+
+    FOR i% = 1 TO AI_MAX_TOOLS
+        AI_TOOLS(i%).used     = FALSE
+        AI_TOOLS(i%).toolName = ""
+        AI_TOOLS(i%).exePath  = ""
+        AI_TOOLS(i%).workDir  = ""
+        AI_TOOLS(i%).argsTmpl = ""
+    NEXT i%
+    AI_TOOL_COUNT% = 0
+
+    FOR i% = 1 TO AI_LAYER_POOL_SIZE
+        AI_LAYER_DATA(i%).used      = FALSE
+        AI_LAYER_DATA(i%).prompt    = ""
+        AI_LAYER_DATA(i%).styleName = ""
+        AI_LAYER_DATA(i%).toolName  = ""
+        AI_LAYER_DATA(i%).seedVal   = 0
+        AI_LAYER_DATA(i%).modelName = ""
+        AI_LAYER_DATA(i%).genW      = 0
+        AI_LAYER_DATA(i%).genH      = 0
+    NEXT i%
+
+    AI_JOB.state      = AI_JOB_IDLE
+    AI_JOB.toolIdx    = 0
+    AI_JOB.layerIdx   = 0
+    AI_JOB.target     = AI_TARGET_NEW_LAYER
+    AI_JOB.outDir     = ""
+    AI_JOB.outName    = ""
+    AI_JOB.doneFile   = ""
+    AI_JOB.startTime  = 0
+    AI_JOB.timeoutSec = AI_DEFAULT_TIMEOUT#
+    AI_JOB.lastPoll   = 0
+    AI_JOB.statusMsg  = ""
+
+    AI_LAST_PROMPT$ = ""
+    AI_LAST_STYLE$  = ""
+    AI_LAST_SEED&   = 0
+    AI_LAST_TOOL%   = 0
+
+    AI_config_load
+END SUB
+
+
+''
+' Full path of the AI tool configuration file (OS-native config dir).
+' @return STRING - Path to DRAW.ai.cfg
+'
+FUNCTION AI_config_path$ ()
+    AI_config_path$ = PATHS_config$("DRAW.ai.cfg")
+END FUNCTION
+
+
+''
+' Load configured tools from DRAW.ai.cfg. Format is INI-ish to match DRAW.cfg:
+'
+'   [TOOL]
+'   NAME=pixelmon
+'   EXE=/home/you/pixelmon/pixelmon.py
+'   DIR=/home/you/pixelmon
+'   ARGS="{prompt}" --size {sw}x{sh} --output-to {outdir} --name {outname}
+'
+' A missing file is not an error — it just means no tools are configured yet.
+'
+SUB AI_config_load ()
+    DIM cfgPath AS STRING
+    cfgPath$ = AI_config_path$
+    IF NOT _FILEEXISTS(cfgPath$) THEN EXIT SUB
+
+    DIM fh      AS INTEGER
+    DIM lineIn  AS STRING
+    DIM keyStr  AS STRING
+    DIM valStr  AS STRING
+    DIM eqPos   AS INTEGER
+    DIM curIdx  AS INTEGER
+
+    curIdx% = 0
+    fh%     = FREEFILE
+    OPEN cfgPath$ FOR INPUT AS #fh%
+    DO WHILE NOT EOF(fh%)
+        LINE INPUT #fh%, lineIn$
+        lineIn$ = _TRIM$(lineIn$)
+        IF LEN(lineIn$) = 0 THEN _CONTINUE
+        IF LEFT$(lineIn$, 1) = "#" OR LEFT$(lineIn$, 1) = ";" THEN _CONTINUE
+
+        IF UCASE$(lineIn$) = "[TOOL]" THEN
+            IF AI_TOOL_COUNT% < AI_MAX_TOOLS THEN
+                AI_TOOL_COUNT%             = AI_TOOL_COUNT% + 1
+                curIdx%                    = AI_TOOL_COUNT%
+                AI_TOOLS(curIdx%).used     = TRUE
+                AI_TOOLS(curIdx%).toolName = "tool " + _TRIM$(STR$(curIdx%))
+            ELSE
+                curIdx% = 0
+            END IF
+            _CONTINUE
+        END IF
+
+        IF curIdx% = 0 THEN _CONTINUE
+        eqPos% = INSTR(lineIn$, "=")
+        IF eqPos% < 2 THEN _CONTINUE
+        keyStr$ = UCASE$(_TRIM$(LEFT$(lineIn$, eqPos% - 1)))
+        valStr$ = _TRIM$(MID$(lineIn$, eqPos% + 1))
+
+        SELECT CASE keyStr$
+            CASE "NAME" : AI_TOOLS(curIdx%).toolName = valStr$
+            CASE "EXE"  : AI_TOOLS(curIdx%).exePath  = valStr$
+            CASE "DIR"  : AI_TOOLS(curIdx%).workDir  = valStr$
+            CASE "ARGS" : AI_TOOLS(curIdx%).argsTmpl = valStr$
+        END SELECT
+    LOOP
+    CLOSE #fh%
+
+    IF AI_TOOL_COUNT% > 0 THEN AI_LAST_TOOL% = 1
+    _LOGINFO "AI_config_load: " + _TRIM$(STR$(AI_TOOL_COUNT%)) + " tool(s) from " + cfgPath$
+END SUB
+
+
+''
+' Write the configured tools back to DRAW.ai.cfg.
+'
+SUB AI_config_save ()
+    DIM fh AS INTEGER
+    DIM i  AS INTEGER
+    fh% = FREEFILE
+    OPEN AI_config_path$ FOR OUTPUT AS #fh%
+    PRINT #fh%, "# DRAW AI generator tools"
+    PRINT #fh%, "# ARGS macros are expanded by DRAW_InfoParser$ — see AI/AI.BM"
+    PRINT #fh%, "# DRAW supplies {outdir} and {outname}; the tool must write its PNG there."
+    PRINT #fh%, ""
+    FOR i% = 1 TO AI_TOOL_COUNT%
+        IF AI_TOOLS(i%).used = 0 THEN _CONTINUE
+        PRINT #fh%, "[TOOL]"
+        PRINT #fh%, "NAME=" + RTRIM$(AI_TOOLS(i%).toolName)
+        PRINT #fh%, "EXE=" + RTRIM$(AI_TOOLS(i%).exePath)
+        PRINT #fh%, "DIR=" + RTRIM$(AI_TOOLS(i%).workDir)
+        PRINT #fh%, "ARGS=" + RTRIM$(AI_TOOLS(i%).argsTmpl)
+        PRINT #fh%, ""
+    NEXT i%
+    CLOSE #fh%
+    _LOGINFO "AI_config_save: wrote " + _TRIM$(STR$(AI_TOOL_COUNT%)) + " tool(s)"
+END SUB
+
+
+''
+' Find a configured tool by name (case-insensitive).
+' @param wanted STRING - Tool name
+' @return INTEGER - 1-based tool index, or 0 if not found
+'
+FUNCTION AI_tool_by_name% (wanted AS STRING)
+    DIM i AS INTEGER
+    DIM w AS STRING
+    AI_tool_by_name% = 0
+    w$ = UCASE$(_TRIM$(wanted$))
+    IF LEN(w$) = 0 THEN EXIT FUNCTION
+    FOR i% = 1 TO AI_TOOL_COUNT%
+        IF AI_TOOLS(i%).used <> 0 THEN
+            IF UCASE$(RTRIM$(AI_TOOLS(i%).toolName)) = w$ THEN
+                AI_tool_by_name% = i%
+                EXIT FUNCTION
+            END IF
+        END IF
+    NEXT i%
+END FUNCTION
+
+
+''
+' Claim a free slot in the AI layer data pool.
+' @return INTEGER - 1-based pool index, or 0 when the pool is full
+'
+FUNCTION AI_LAYER_alloc% ()
+    DIM i AS INTEGER
+    AI_LAYER_alloc% = 0
+    FOR i% = 1 TO AI_LAYER_POOL_SIZE
+        IF AI_LAYER_DATA(i%).used = 0 THEN
+            AI_LAYER_DATA(i%).used      = TRUE
+            AI_LAYER_DATA(i%).prompt    = ""
+            AI_LAYER_DATA(i%).styleName = ""
+            AI_LAYER_DATA(i%).toolName  = ""
+            AI_LAYER_DATA(i%).seedVal   = 0
+            AI_LAYER_DATA(i%).modelName = ""
+            AI_LAYER_DATA(i%).genW      = 0
+            AI_LAYER_DATA(i%).genH      = 0
+            AI_LAYER_alloc%             = i%
+            EXIT FUNCTION
+        END IF
+    NEXT i%
+END FUNCTION
+
+
+''
+' Release an AI layer data pool slot.
+' @param poolIdx INTEGER - 1-based pool index
+'
+SUB AI_LAYER_free (poolIdx AS INTEGER)
+    IF poolIdx% < 1 OR poolIdx% > AI_LAYER_POOL_SIZE THEN EXIT SUB
+    AI_LAYER_DATA(poolIdx%).used = FALSE
+END SUB
+
+
+''
+' Replace every occurrence of a substring. QB64-PE has no built-in replace.
+' @param src STRING - Source text
+' @param findStr STRING - Needle
+' @param replStr STRING - Replacement
+' @return STRING - Result
+'
+FUNCTION AI_replace$ (src AS STRING, findStr AS STRING, replStr AS STRING)
+    DIM outStr AS STRING
+    DIM rest   AS STRING
+    DIM p      AS INTEGER
+
+    IF LEN(findStr$) = 0 THEN
+        AI_replace$ = src$
+        EXIT FUNCTION
+    END IF
+
+    outStr$ = ""
+    rest$   = src$
+    DO
+        p% = INSTR(rest$, findStr$)
+        IF p% = 0 THEN EXIT DO
+        outStr$ = outStr$ + LEFT$(rest$, p% - 1) + replStr$
+        rest$   = MID$(rest$, p% + LEN(findStr$))
+    LOOP
+    AI_replace$ = outStr$ + rest$
+END FUNCTION
+
+
+''
+' Short label for the active tool, used by the {tool} macro.
+' @param toolId INTEGER - CURRENT_TOOL% value
+' @return STRING - Human-readable tool name
+'
+FUNCTION AI_tool_label$ (toolId AS INTEGER)
+    SELECT CASE toolId%
+        CASE TOOL_BRUSH    : AI_tool_label$ = "brush"
+        CASE TOOL_FILL     : AI_tool_label$ = "fill"
+        CASE TOOL_DOT      : AI_tool_label$ = "dot"
+        CASE TOOL_LINE     : AI_tool_label$ = "line"
+        CASE TOOL_RECT     : AI_tool_label$ = "rect"
+        CASE TOOL_ELLIPSE  : AI_tool_label$ = "ellipse"
+        CASE TOOL_MARQUEE  : AI_tool_label$ = "marquee"
+        CASE TOOL_MOVE     : AI_tool_label$ = "move"
+        CASE TOOL_TEXT     : AI_tool_label$ = "text"
+        CASE TOOL_ERASER   : AI_tool_label$ = "eraser"
+        CASE TOOL_PICKER   : AI_tool_label$ = "picker"
+        CASE ELSE          : AI_tool_label$ = "tool" + _TRIM$(STR$(toolId%))
+    END SELECT
+END FUNCTION
+
+
+''
+' Expand an argument template's {macros} against DRAW's current state.
+'
+' Run-specific values ({prompt}, {seed}, {style}, {outdir}, {outname}) come from
+' the pending job / AI_LAST_* state, so a template can be expanded before the
+' process is launched. Image-export macros ({limg}, {dimg}, {bimg}) write a PNG
+' into the job's output directory on demand and substitute its path.
+'
+' NOTE vs. PLANS/IDEAS.md: the spec listed "Image width: {ih}" and
+' "Image height: {iw}", which is transposed, and listed {lx} twice. Implemented
+' here the sane way: {iw} = width, {ih} = height, {lx}/{ly} = layer origin.
+'
+' @param tmpl STRING - Template containing {macro} placeholders
+' @return STRING - Expanded command-line arguments
+'
+FUNCTION DRAW_InfoParser$ (tmpl AS STRING)
+    DIM s        AS STRING
+    DIM curLayer AS INTEGER
+    DIM selW     AS INTEGER, selH AS INTEGER
+    DIM outDirS  AS STRING
+
+    s$ = tmpl$
+    IF INSTR(s$, "{") = 0 THEN
+        DRAW_InfoParser$ = s$
+        EXIT FUNCTION
+    END IF
+
+    curLayer% = CURRENT_LAYER%
+    IF curLayer% < 1 OR curLayer% > LAYER_COUNT% THEN curLayer% = 1
+    outDirS$ = RTRIM$(AI_JOB.outDir)
+
+    ' --- Run parameters ---
+    s$ = AI_replace$(s$, "{prompt}", AI_LAST_PROMPT$)
+    s$ = AI_replace$(s$, "{style}", AI_LAST_STYLE$)
+    s$ = AI_replace$(s$, "{seed}", _TRIM$(STR$(AI_LAST_SEED&)))
+    s$ = AI_replace$(s$, "{outdir}", outDirS$)
+    s$ = AI_replace$(s$, "{outname}", RTRIM$(AI_JOB.outName))
+
+    ' --- Document ---
+    DIM fnameOnly AS STRING, dirOnly AS STRING
+    fnameOnly$ = CURRENT_FILENAME$
+    dirOnly$   = ""
+    DIM slashPos AS INTEGER, k AS INTEGER
+    slashPos% = 0
+    FOR k% = LEN(fnameOnly$) TO 1 STEP -1
+        IF MID$(fnameOnly$, k%, 1) = "/" OR MID$(fnameOnly$, k%, 1) = "\" THEN
+            slashPos% = k%
+            EXIT FOR
+        END IF
+    NEXT k%
+    IF slashPos% > 0 THEN
+        dirOnly$   = LEFT$(fnameOnly$, slashPos% - 1)
+        fnameOnly$ = MID$(fnameOnly$, slashPos% + 1)
+    END IF
+    s$ = AI_replace$(s$, "{if}", fnameOnly$)
+    s$ = AI_replace$(s$, "{id}", dirOnly$)
+    s$ = AI_replace$(s$, "{iw}", _TRIM$(STR$(SCRN.canvasW&)))
+    s$ = AI_replace$(s$, "{ih}", _TRIM$(STR$(SCRN.canvasH&)))
+
+    ' --- Selection (falls back to the whole canvas when nothing is selected) ---
+    IF MARQUEE.ACTIVE% AND MARQUEE.BOX.w > 0 AND MARQUEE.BOX.h > 0 THEN
+        selW% = MARQUEE.BOX.w
+        selH% = MARQUEE.BOX.h
+    ELSE
+        selW% = SCRN.canvasW&
+        selH% = SCRN.canvasH&
+    END IF
+    s$ = AI_replace$(s$, "{sw}", _TRIM$(STR$(selW%)))
+    s$ = AI_replace$(s$, "{sh}", _TRIM$(STR$(selH%)))
+
+    ' --- Brush / grid ---
+    s$ = AI_replace$(s$, "{bw}", _TRIM$(STR$(BRUSH_SIZE.CURRENT%)))
+    s$ = AI_replace$(s$, "{bh}", _TRIM$(STR$(BRUSH_SIZE.CURRENT%)))
+    s$ = AI_replace$(s$, "{gw}", _TRIM$(STR$(GRID.gridWidth%)))
+    s$ = AI_replace$(s$, "{gh}", _TRIM$(STR$(GRID.gridHeight%)))
+
+    ' --- Palette ---
+    s$ = AI_replace$(s$, "{pal}", PALETTE_LOADER_get_name$)
+    s$ = AI_replace$(s$, "{numpal}", _TRIM$(STR$(PAL_COLOR_COUNT%)))
+
+    ' --- Layers ---
+    s$ = AI_replace$(s$, "{numlayers}", _TRIM$(STR$(LAYER_COUNT%)))
+    s$ = AI_replace$(s$, "{lidx}", _TRIM$(STR$(curLayer%)))
+    s$ = AI_replace$(s$, "{lname}", RTRIM$(LAYERS(curLayer%).name))
+    s$ = AI_replace$(s$, "{lw}", _TRIM$(STR$(LAYERS(curLayer%).imgWidth%)))
+    s$ = AI_replace$(s$, "{lh}", _TRIM$(STR$(LAYERS(curLayer%).imgHeight%)))
+    s$ = AI_replace$(s$, "{lx}", "0")
+    s$ = AI_replace$(s$, "{ly}", "0")
+
+    ' --- Colors (hex, no alpha — what CLI tools expect) ---
+    s$ = AI_replace$(s$, "{fg}", AI_hex_color$(PAINT_COLOR~&))
+    s$ = AI_replace$(s$, "{bg}", AI_hex_color$(PAINT_BG_COLOR~&))
+    s$ = AI_replace$(s$, "{pmode}", BLEND_mode_name$(LAYERS(curLayer%).blendMode%))
+
+    ' --- Tool / pointer ---
+    s$ = AI_replace$(s$, "{tool}", AI_tool_label$(CURRENT_TOOL%))
+    s$ = AI_replace$(s$, "{px}", _TRIM$(STR$(MOUSE.X%)))
+    s$ = AI_replace$(s$, "{py}", _TRIM$(STR$(MOUSE.Y%)))
+
+    ' --- Font ---
+    s$ = AI_replace$(s$, "{font}", RTRIM$(THEME.GLOBAL_FONT_FILE$))
+    s$ = AI_replace$(s$, "{fsize}", _TRIM$(STR$(THEME.GLOBAL_FONT_SIZE%)))
+    s$ = AI_replace$(s$, "{fontfile}", THEME_font_path$(THEME.GLOBAL_FONT_FILE$))
+
+    ' --- Image exports for steering / hinting (written on demand) ---
+    IF LEN(outDirS$) > 0 THEN
+        IF INSTR(s$, "{limg}") > 0 THEN
+            s$ = AI_replace$(s$, "{limg}", AI_export_png$(LAYERS(curLayer%).imgHandle&, outDirS$ + "/_layer.png"))
+        END IF
+        IF INSTR(s$, "{dimg}") > 0 THEN
+            s$ = AI_replace$(s$, "{dimg}", AI_export_png$(SCRN.CANVAS&, outDirS$ + "/_document.png"))
+        END IF
+        IF INSTR(s$, "{bimg}") > 0 THEN
+            s$ = AI_replace$(s$, "{bimg}", AI_export_png$(CUSTOM_BRUSH.IMAGE&, outDirS$ + "/_brush.png"))
+        END IF
+    END IF
+
+    DRAW_InfoParser$ = s$
+END FUNCTION
+
+
+''
+' Format a color as RRGGBB hex.
+' @param c _UNSIGNED LONG - RGB32 color
+' @return STRING - Six hex digits
+'
+FUNCTION AI_hex_color$ (c AS _UNSIGNED LONG)
+    DIM h AS STRING
+    h$ = HEX$(_RED32(c~&) * 65536 + _GREEN32(c~&) * 256 + _BLUE32(c~&))
+    WHILE LEN(h$) < 6
+        h$ = "0" + h$
+    WEND
+    AI_hex_color$ = h$
+END FUNCTION
+
+
+''
+' Save an image handle to PNG for use as a generator reference.
+' @param imgHandle LONG - Source image
+' @param destPath STRING - Destination .png path
+' @return STRING - destPath on success, "" when the handle was invalid
+'
+FUNCTION AI_export_png$ (imgHandle AS LONG, destPath AS STRING)
+    AI_export_png$ = ""
+    IF imgHandle& >= -1 THEN EXIT FUNCTION
+    _SAVEIMAGE destPath$, imgHandle&
+    IF _FILEEXISTS(destPath$) THEN AI_export_png$ = destPath$
+END FUNCTION

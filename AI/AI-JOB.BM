@@ -1,0 +1,355 @@
+''
+' DRAW - AI/AI-JOB.BM
+' =============================================================================
+' Asynchronous generation runner.
+'
+' Generation takes tens of seconds to several minutes, and QB64-PE's blocking
+' SHELL would freeze the whole app (no repaint, no cancel) for the duration.
+' So the tool is launched with SHELL _DONTWAIT wrapped in a shell that writes a
+' sentinel file containing the exit code when it finishes; AI_JOB_tick polls for
+' that sentinel from the main loop and imports the newest PNG it finds.
+'
+' One job at a time — a second request while one is in flight is refused.
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+''
+' TRUE while a generation is in flight.
+' @return INTEGER
+'
+FUNCTION AI_JOB_is_running% ()
+    AI_JOB_is_running% = (AI_JOB.state = AI_JOB_RUNNING OR AI_JOB.state = AI_JOB_IMPORTING)
+END FUNCTION
+
+
+''
+' Create (and return) a unique working directory for one generation run.
+' TIMER-based rather than date-based so it needs no extra dependencies.
+' @return STRING - Directory path, or "" if it could not be created
+'
+FUNCTION AI_JOB_make_outdir$ ()
+    STATIC runCounter AS LONG
+    runCounter& = runCounter& + 1
+
+    DIM baseDir AS STRING
+    DIM runDir  AS STRING
+    baseDir$ = PATHS_cache$("AI")
+    runDir$  = baseDir$ + "/run-" + _TRIM$(STR$(INT(TIMER * 100))) + "-" + _TRIM$(STR$(runCounter&))
+
+    $IF WIN THEN
+        SHELL _HIDE "mkdir " + CHR$(34) + baseDir$ + CHR$(34) + " 2>nul"
+        SHELL _HIDE "mkdir " + CHR$(34) + runDir$ + CHR$(34) + " 2>nul"
+    $ELSE
+        SHELL _HIDE "mkdir -p " + CHR$(34) + runDir$ + CHR$(34) + " 2>/dev/null"
+    $END IF
+
+    IF _DIREXISTS(runDir$) THEN
+        AI_JOB_make_outdir$ = runDir$
+    ELSE
+        AI_JOB_make_outdir$ = ""
+    END IF
+END FUNCTION
+
+
+''
+' Launch a generation.
+'
+' The target layer is created by the caller and passed in, so the layer panel
+' can show the pending state while the tool runs.
+'
+' @param toolIdx INTEGER - 1-based index into AI_TOOLS
+' @param layerIdx INTEGER - Target layer slot
+' @param targetKind INTEGER - AI_TARGET_NEW_LAYER or AI_TARGET_REGEN
+' @param genW INTEGER - Requested width
+' @param genH INTEGER - Requested height
+' @param dstX INTEGER - Canvas X to place the result
+' @param dstY INTEGER - Canvas Y to place the result
+' @return INTEGER - TRUE when the process was launched
+'
+FUNCTION AI_JOB_start% (toolIdx AS INTEGER, layerIdx AS INTEGER, targetKind AS INTEGER, genW AS INTEGER, genH AS INTEGER, dstX AS INTEGER, dstY AS INTEGER)
+    AI_JOB_start% = FALSE
+
+    IF AI_JOB_is_running% THEN
+        _LOGWARN "AI_JOB_start: a generation is already running"
+        EXIT FUNCTION
+    END IF
+    IF toolIdx% < 1 OR toolIdx% > AI_TOOL_COUNT% THEN EXIT FUNCTION
+    IF AI_TOOLS(toolIdx%).used = 0 THEN EXIT FUNCTION
+
+    DIM runDir AS STRING
+    runDir$ = AI_JOB_make_outdir$
+    IF LEN(runDir$) = 0 THEN
+        _LOGERROR "AI_JOB_start: could not create output directory"
+        EXIT FUNCTION
+    END IF
+
+    AI_JOB.state      = AI_JOB_RUNNING
+    AI_JOB.toolIdx    = toolIdx%
+    AI_JOB.layerIdx   = layerIdx%
+    AI_JOB.target     = targetKind%
+    AI_JOB.outDir     = runDir$
+    AI_JOB.outName    = "draw-ai"
+    AI_JOB.doneFile   = runDir$ + "/_done"
+    AI_JOB.startTime  = TIMER
+    AI_JOB.timeoutSec = AI_DEFAULT_TIMEOUT#
+    AI_JOB.lastPoll   = TIMER
+    AI_JOB.statusMsg  = "generating..."
+    AI_JOB.destX      = dstX%
+    AI_JOB.destY      = dstY%
+    AI_JOB.destW      = genW%
+    AI_JOB.destH      = genH%
+
+    ' Expand macros AFTER outDir is set — {outdir}/{limg}/{dimg} depend on it
+    DIM argStr  AS STRING
+    DIM exeStr  AS STRING
+    DIM dirStr  AS STRING
+    DIM cmdStr  AS STRING
+    DIM logFile AS STRING
+    argStr$  = DRAW_InfoParser$(RTRIM$(AI_TOOLS(toolIdx%).argsTmpl))
+    exeStr$  = RTRIM$(AI_TOOLS(toolIdx%).exePath)
+    dirStr$  = RTRIM$(AI_TOOLS(toolIdx%).workDir)
+    logFile$ = runDir$ + "/_run.log"
+    IF LEN(dirStr$) = 0 THEN dirStr$ = _STARTDIR$
+
+    $IF WIN THEN
+        cmdStr$ = "cmd /c " + CHR$(34) + "cd /d " + CHR$(34) + dirStr$ + CHR$(34) + _
+                  " && " + CHR$(34) + exeStr$ + CHR$(34) + " " + argStr$ + _
+                  " > " + CHR$(34) + logFile$ + CHR$(34) + " 2>&1 & echo %ERRORLEVEL% > " + _
+                  CHR$(34) + RTRIM$(AI_JOB.doneFile) + CHR$(34) + CHR$(34)
+    $ELSE
+        cmdStr$ = "sh -c 'cd " + CHR$(34) + dirStr$ + CHR$(34) + " && " + _
+                  CHR$(34) + exeStr$ + CHR$(34) + " " + argStr$ + _
+                  " > " + CHR$(34) + logFile$ + CHR$(34) + " 2>&1; echo $? > " + _
+                  CHR$(34) + RTRIM$(AI_JOB.doneFile) + CHR$(34) + "'"
+    $END IF
+
+    _LOGINFO "AI_JOB_start: " + cmdStr$
+    SHELL _DONTWAIT _HIDE cmdStr$
+
+    AI_JOB_start% = TRUE
+END FUNCTION
+
+
+''
+' Poll the running job. Called every frame from the main loop; cheap when idle
+' and throttled to AI_POLL_INTERVAL while running.
+'
+SUB AI_JOB_tick ()
+    IF CFG.AI_ENABLED% = 0 THEN EXIT SUB
+    IF AI_JOB.state <> AI_JOB_RUNNING THEN EXIT SUB
+
+    DIM nowT AS DOUBLE
+    DIM dt   AS DOUBLE
+    nowT# = TIMER
+
+    dt# = nowT# - AI_JOB.lastPoll
+    IF dt# < 0 THEN dt# = dt# + 86400   ' midnight wrap
+    IF dt# < AI_POLL_INTERVAL# THEN EXIT SUB
+    AI_JOB.lastPoll = nowT#
+
+    ' Timeout guard — a hung generator must not pin the UI in "generating"
+    DIM elapsed AS DOUBLE
+    elapsed# = nowT# - AI_JOB.startTime
+    IF elapsed# < 0 THEN elapsed# = elapsed# + 86400
+    IF elapsed# > AI_JOB.timeoutSec THEN
+        AI_JOB.state     = AI_JOB_FAILED
+        AI_JOB.statusMsg = "timed out after " + _TRIM$(STR$(INT(elapsed#))) + "s"
+        _LOGERROR "AI_JOB_tick: " + RTRIM$(AI_JOB.statusMsg)
+        INVALIDATE_scene
+        EXIT SUB
+    END IF
+
+    IF NOT _FILEEXISTS(RTRIM$(AI_JOB.doneFile)) THEN EXIT SUB
+
+    AI_JOB.state = AI_JOB_IMPORTING
+    AI_JOB_finish
+END SUB
+
+
+''
+' Read the exit code the wrapper wrote into the sentinel file.
+' @return INTEGER - Exit code, or -1 when it could not be read
+'
+FUNCTION AI_JOB_exit_code% ()
+    DIM fh AS INTEGER
+    DIM ln AS STRING
+    AI_JOB_exit_code% = -1
+    IF NOT _FILEEXISTS(RTRIM$(AI_JOB.doneFile)) THEN EXIT FUNCTION
+    fh% = FREEFILE
+    OPEN RTRIM$(AI_JOB.doneFile) FOR INPUT AS #fh%
+    IF NOT EOF(fh%) THEN
+        LINE INPUT #fh%, ln$
+        AI_JOB_exit_code% = VAL(_TRIM$(ln$))
+    END IF
+    CLOSE #fh%
+END FUNCTION
+
+
+''
+' Newest PNG produced by the generator in the run directory.
+' Files whose names start with "_" are DRAW's own exports ({limg}, {dimg},
+' {bimg}) and are skipped, as are the log and sentinel files.
+' @return STRING - Full path, or "" when nothing usable was produced
+'
+FUNCTION AI_JOB_newest_png$ ()
+    DIM runDir  AS STRING
+    DIM listFil AS STRING
+    DIM fh      AS INTEGER
+    DIM ln      AS STRING
+    DIM baseNm  AS STRING
+    DIM k       AS INTEGER
+    DIM slashP  AS INTEGER
+
+    AI_JOB_newest_png$ = ""
+    runDir$  = RTRIM$(AI_JOB.outDir)
+    IF LEN(runDir$) = 0 THEN EXIT FUNCTION
+    listFil$ = runDir$ + "/_pnglist.txt"
+
+    $IF WIN THEN
+        SHELL _HIDE "dir /b /o-d " + CHR$(34) + runDir$ + "\*.png" + CHR$(34) + " > " + CHR$(34) + listFil$ + CHR$(34) + " 2>nul"
+    $ELSE
+        SHELL _HIDE "ls -1t " + CHR$(34) + runDir$ + CHR$(34) + "/*.png > " + CHR$(34) + listFil$ + CHR$(34) + " 2>/dev/null"
+    $END IF
+
+    IF NOT _FILEEXISTS(listFil$) THEN EXIT FUNCTION
+    fh% = FREEFILE
+    OPEN listFil$ FOR INPUT AS #fh%
+    DO WHILE NOT EOF(fh%)
+        LINE INPUT #fh%, ln$
+        ln$ = _TRIM$(ln$)
+        IF LEN(ln$) = 0 THEN _CONTINUE
+
+        ' Reduce to a basename so the "_" test works on both listing styles
+        baseNm$ = ln$
+        slashP% = 0
+        FOR k% = LEN(baseNm$) TO 1 STEP -1
+            IF MID$(baseNm$, k%, 1) = "/" OR MID$(baseNm$, k%, 1) = "\" THEN
+                slashP% = k%
+                EXIT FOR
+            END IF
+        NEXT k%
+        IF slashP% > 0 THEN baseNm$ = MID$(baseNm$, slashP% + 1)
+        IF LEFT$(baseNm$, 1) = "_" THEN _CONTINUE
+
+        ' Windows dir /b yields bare names; Linux ls path is already absolute
+        IF slashP% = 0 THEN ln$ = runDir$ + "/" + baseNm$
+        IF _FILEEXISTS(ln$) THEN
+            AI_JOB_newest_png$ = ln$
+            EXIT DO
+        END IF
+    LOOP
+    CLOSE #fh%
+END FUNCTION
+
+
+''
+' Import the finished result into the target layer and close out the job.
+'
+SUB AI_JOB_finish ()
+    DIM exitCode AS INTEGER
+    DIM pngPath  AS STRING
+    DIM lyr      AS INTEGER
+
+    exitCode% = AI_JOB_exit_code%
+    pngPath$  = AI_JOB_newest_png$
+    lyr%      = AI_JOB.layerIdx
+
+    IF exitCode% <> 0 THEN
+        AI_JOB.state     = AI_JOB_FAILED
+        AI_JOB.statusMsg = "generator exited " + _TRIM$(STR$(exitCode%))
+        _LOGERROR "AI_JOB_finish: " + RTRIM$(AI_JOB.statusMsg) + " (see " + RTRIM$(AI_JOB.outDir) + "/_run.log)"
+        INVALIDATE_scene
+        EXIT SUB
+    END IF
+
+    IF LEN(pngPath$) = 0 THEN
+        AI_JOB.state     = AI_JOB_FAILED
+        AI_JOB.statusMsg = "generator produced no PNG"
+        _LOGERROR "AI_JOB_finish: no PNG in " + RTRIM$(AI_JOB.outDir)
+        INVALIDATE_scene
+        EXIT SUB
+    END IF
+
+    DIM srcImg AS LONG
+    srcImg& = _LOADIMAGE(pngPath$, 32)
+    IF srcImg& >= -1 THEN
+        AI_JOB.state     = AI_JOB_FAILED
+        AI_JOB.statusMsg = "could not load " + pngPath$
+        _LOGERROR "AI_JOB_finish: " + RTRIM$(AI_JOB.statusMsg)
+        INVALIDATE_scene
+        EXIT SUB
+    END IF
+
+    IF lyr% < 1 OR lyr% > LAYER_COUNT% THEN
+        SAFE_FREEIMAGE srcImg&
+        AI_JOB.state     = AI_JOB_FAILED
+        AI_JOB.statusMsg = "target layer no longer exists"
+        INVALIDATE_scene
+        EXIT SUB
+    END IF
+
+    ' Snapshot for undo before touching pixels
+    DIM beforeImg AS LONG
+    beforeImg& = _COPYIMAGE(LAYERS(lyr%).imgHandle&, 32)
+
+    DIM oldDest AS LONG
+    oldDest& = _DEST
+    _DEST LAYERS(lyr%).imgHandle&
+    _PUTIMAGE (AI_JOB.destX, AI_JOB.destY)-(AI_JOB.destX + AI_JOB.destW - 1, AI_JOB.destY + AI_JOB.destH - 1), srcImg&
+    _DEST oldDest&
+
+    SAFE_FREEIMAGE srcImg&
+
+    LAYERS(lyr%).contentDirty% = TRUE
+    BLEND_invalidate_cache
+
+    IF NOT HISTORY_saved_this_frame% THEN
+        HISTORY_record_transform LAYERS(lyr%).historyId&, lyr%, 0, beforeImg&, "AI Generate"
+        HISTORY_saved_this_frame% = TRUE
+    ELSE
+        SAFE_FREEIMAGE beforeImg&
+    END IF
+
+    AI_JOB.state     = AI_JOB_DONE
+    AI_JOB.statusMsg = "done"
+    _LOGINFO "AI_JOB_finish: imported " + pngPath$ + " into layer " + _TRIM$(STR$(lyr%))
+
+    CANVAS_DIRTY% = TRUE
+    INVALIDATE_scene
+END SUB
+
+
+''
+' Abandon the running job. The external process is left to finish on its own —
+' DRAW simply stops watching for it and discards whatever it produces.
+'
+SUB AI_JOB_cancel ()
+    IF NOT AI_JOB_is_running% THEN EXIT SUB
+    AI_JOB.state     = AI_JOB_CANCELLED
+    AI_JOB.statusMsg = "cancelled"
+    _LOGINFO "AI_JOB_cancel: job abandoned"
+    INVALIDATE_scene
+END SUB
+
+
+''
+' Human-readable one-line status for the status bar / layer panel.
+' @return STRING - Status text ("" when idle)
+'
+FUNCTION AI_JOB_status$ ()
+    DIM elapsed AS DOUBLE
+    AI_JOB_status$ = ""
+    IF CFG.AI_ENABLED% = 0 THEN EXIT FUNCTION
+    SELECT CASE AI_JOB.state
+        CASE AI_JOB_RUNNING
+            elapsed# = TIMER - AI_JOB.startTime
+            IF elapsed# < 0 THEN elapsed# = elapsed# + 86400
+            AI_JOB_status$ = "AI: generating... " + _TRIM$(STR$(INT(elapsed#))) + "s"
+        CASE AI_JOB_IMPORTING : AI_JOB_status$ = "AI: importing..."
+        CASE AI_JOB_FAILED    : AI_JOB_status$ = "AI: " + RTRIM$(AI_JOB.statusMsg)
+        CASE AI_JOB_CANCELLED : AI_JOB_status$ = "AI: cancelled"
+        CASE ELSE             : AI_JOB_status$ = ""
+    END SELECT
+END FUNCTION
