@@ -292,9 +292,18 @@ SUB PALETTE_STRIP_render ()
     info_str$ = display_name$ + " " + CHR$(31)                                 ' Name + Down arrow
     _UPRINTSTRING (pal_name_x%, y% + (strip_height% \ 2) - 3), info_str$
     
-    ' Store menu position for dropdown (fixed width, extends left from right edge)
-    PALETTE_MENU_W% = PALETTE_MENU_MIN_WIDTH
+    ' Store menu position for dropdown (extends left from right edge; the chip
+    ' column widens the menu when CFG.PALETTE_MENU_SHOW_CHIPS is on)
+    DIM strip_chip_w AS INTEGER
+    strip_chip_w% = PALETTE_MENU_chip_w%
+    IF strip_chip_w% > 0 THEN
+        PALETTE_MENU_W% = PALETTE_MENU_NAME_COL_W + PALETTE_MENU_CHIP_GAP + _
+                          (PALETTE_PREVIEW_CHIPS_PER_ROW * strip_chip_w%) + PALETTE_MENU_MORE_COL_W
+    ELSE
+        PALETTE_MENU_W% = PALETTE_MENU_MIN_WIDTH
+    END IF
     PALETTE_MENU_X% = SCRN.w& - PALETTE_MENU_W% - 4
+    IF PALETTE_MENU_X% < 2 THEN PALETTE_MENU_X% = 2
     
     _FONT old_font&
 
@@ -618,6 +627,108 @@ END SUB
 
 
 ''
+' Width in pixels of one color chip in the palette dropdown.
+' Returns 0 when chips are disabled, or when the screen is too narrow to fit a
+' full 32-chip row at the minimum chip size (the menu then falls back to the
+' plain name-only layout).
+' @return INTEGER - Chip width in pixels, or 0 for "no chip column"
+'
+FUNCTION PALETTE_MENU_chip_w% ()
+    PALETTE_MENU_chip_w% = 0
+    IF NOT CFG.PALETTE_MENU_SHOW_CHIPS% THEN EXIT FUNCTION
+
+    DIM avail AS LONG
+    avail& = SCRN.w& - 8 - PALETTE_MENU_NAME_COL_W - PALETTE_MENU_CHIP_GAP - PALETTE_MENU_MORE_COL_W
+    IF avail& < PALETTE_PREVIEW_CHIPS_PER_ROW * PALETTE_MENU_CHIP_W_MIN THEN EXIT FUNCTION
+
+    DIM cw AS INTEGER
+    cw% = avail& \ PALETTE_PREVIEW_CHIPS_PER_ROW
+    IF cw% > PALETTE_MENU_CHIP_W_MAX THEN cw% = PALETTE_MENU_CHIP_W_MAX
+    PALETTE_MENU_chip_w% = cw%
+END FUNCTION
+
+
+''
+' Draw the color chip preview for one palette dropdown row.
+' Up to PALETTE_PREVIEW_MAX_CHIPS chips are drawn, PALETTE_PREVIEW_CHIPS_PER_ROW
+' across; palettes with more colors than fit get an "...and N more" label.
+' Colors come from the live PAL() array for the active palette, from
+' PALETTE_DOC_COLORS for the [DOCUMENT] row, and from the lazily-parsed
+' PALETTE_PREVIEW_* cache for everything else.
+'
+' @param idx INTEGER Palette index, or -2 for the [DOCUMENT] row
+' @param chipX INTEGER Left X of the chip column
+' @param rowY INTEGER Top Y of the menu row
+' @param rowH INTEGER Height of the menu row
+' @param chipW INTEGER Chip width in pixels (from PALETTE_MENU_chip_w%)
+' @param labelFg _UNSIGNED LONG Text color for the "...and N more" label
+'
+SUB PALETTE_MENU_draw_chips (idx AS INTEGER, chipX AS INTEGER, rowY AS INTEGER, rowH AS INTEGER, chipW AS INTEGER, labelFg AS _UNSIGNED LONG)
+    IF chipW% < 1 THEN EXIT SUB
+
+    DIM chips(0 TO PALETTE_PREVIEW_MAX_CHIPS - 1) AS _UNSIGNED LONG
+    DIM shown AS INTEGER, total AS INTEGER, i AS INTEGER
+    shown% = 0
+    total% = 0
+
+    IF idx% = -2 THEN
+        ' [DOCUMENT] row — colors snapshotted from the loaded .draw file
+        total% = PALETTE_DOC_COUNT%
+        shown% = total%
+        IF shown% > PALETTE_PREVIEW_MAX_CHIPS THEN shown% = PALETTE_PREVIEW_MAX_CHIPS
+        FOR i% = 0 TO shown% - 1
+            chips~&(i%) = PALETTE_DOC_COLORS(i%)
+        NEXT i%
+    ELSEIF idx% = PALETTE_LOADER_CURRENT_IDX% AND NOT PALETTE_EMBEDDED_ACTIVE% THEN
+        ' Active palette — read live so palette edits show up immediately
+        total% = PAL_COLOR_COUNT%
+        shown% = total%
+        IF shown% > PALETTE_PREVIEW_MAX_CHIPS THEN shown% = PALETTE_PREVIEW_MAX_CHIPS
+        FOR i% = 0 TO shown% - 1
+            chips~&(i%) = PAL(i%).value~&
+        NEXT i%
+    ELSE
+        IF NOT PALETTE_PREVIEW_ensure%(idx%) THEN EXIT SUB
+        shown% = PALETTE_PREVIEW_SHOWN(idx%)
+        total% = PALETTE_PREVIEW_TOTAL(idx%)
+        FOR i% = 0 TO shown% - 1
+            chips~&(i%) = PALETTE_PREVIEW_COLORS(idx%, i%)
+        NEXT i%
+    END IF
+
+    IF shown% < 1 THEN EXIT SUB
+
+    ' One chip row up to 32 colors, a second stacked row beyond that
+    DIM chipRows AS INTEGER, chipH AS INTEGER
+    IF shown% > PALETTE_PREVIEW_CHIPS_PER_ROW THEN chipRows% = 2 ELSE chipRows% = 1
+    chipH% = (rowH% - 2) \ chipRows%
+    IF chipH% > PALETTE_MENU_CHIP_H_MAX THEN chipH% = PALETTE_MENU_CHIP_H_MAX
+    IF chipH% < 1 THEN chipH% = 1
+
+    ' Center the chip block vertically in the row
+    DIM chipTop AS INTEGER
+    chipTop% = rowY% + ((rowH% - (chipRows% * chipH%)) \ 2)
+
+    DIM cx AS INTEGER, cy AS INTEGER, col AS INTEGER, rw AS INTEGER
+    FOR i% = 0 TO shown% - 1
+        col% = i% MOD PALETTE_PREVIEW_CHIPS_PER_ROW
+        rw%  = i% \ PALETTE_PREVIEW_CHIPS_PER_ROW
+        cx%  = chipX% + (col% * chipW%)
+        cy%  = chipTop% + (rw% * chipH%)
+        LINE (cx%, cy%)-(cx% + chipW% - 1, cy% + chipH% - 1), chips~&(i%), BF
+    NEXT i%
+
+    ' Emphasize that the palette has colors the preview could not show
+    IF total% > shown% THEN
+        DIM moreLbl AS STRING
+        moreLbl$ = "...and " + _TRIM$(STR$(total% - shown%)) + " more"
+        COLOR labelFg~&, _RGBA32(0, 0, 0, 0)
+        _UPRINTSTRING (chipX% + (PALETTE_PREVIEW_CHIPS_PER_ROW * chipW%) + 4, rowY% + 2), moreLbl$
+    END IF
+END SUB
+
+
+''
 ' Render palette selection dropdown menu
 '
 SUB PALETTE_MENU_render ()
@@ -638,6 +749,14 @@ SUB PALETTE_MENU_render ()
     hover_bg~& = THEME.PALETTE_MENU_hover_bg~&
     sel_bg~&   = THEME.PALETTE_MENU_selected_bg~&
     
+    ' Chip column geometry — chip_w = 0 means the name-only layout
+    DIM chip_w AS INTEGER, chip_x AS INTEGER
+    chip_w% = PALETTE_MENU_chip_w%
+    chip_x% = PALETTE_MENU_X% + PALETTE_MENU_NAME_COL_W + PALETTE_MENU_CHIP_GAP
+    ' Budget the .GPL parsing so one frame never stalls on dozens of files
+    PALETTE_PREVIEW_BUDGET%  = 8
+    PALETTE_PREVIEW_PENDING% = FALSE
+
     visible_count% = PALETTE_LOADER_COUNT%
     ' Reserve 1 row for [DOCUMENT] entry + separator when it exists
     DIM doc_rows_reserved AS INTEGER
@@ -677,6 +796,7 @@ SUB PALETTE_MENU_render ()
             COLOR fg_color~&, _RGBA32(0, 0, 0, 0)
         END IF
         _UPRINTSTRING (PALETTE_MENU_X% + 4, doc_y% + 2), "[DOCUMENT]"
+        IF chip_w% > 0 THEN PALETTE_MENU_draw_chips -2, chip_x%, doc_y%, menu_item_h%, chip_w%, fg_color~&
         ' Separator line below [DOCUMENT]
         DIM doc_sep_y      AS INTEGER
         doc_sep_y% = doc_y% + menu_item_h%
@@ -755,6 +875,8 @@ SUB PALETTE_MENU_render ()
                 display_name$ = LEFT$(display_name$, 31) + "..."
             END IF
             _UPRINTSTRING (PALETTE_MENU_X% + 4, y% + 2), display_name$
+
+            IF chip_w% > 0 THEN PALETTE_MENU_draw_chips item_idx%, chip_x%, y%, menu_item_h%, chip_w%, fg_color~&
         END IF
     NEXT i%
     
@@ -770,6 +892,14 @@ SUB PALETTE_MENU_render ()
     END IF
     
     _FONT old_font&
+
+    ' Some rows hit the per-frame parse budget — ask for another frame so their
+    ' chips fill in instead of staying blank until the next unrelated redraw
+    IF PALETTE_PREVIEW_PENDING% THEN
+        GUI_NEEDS_REDRAW% = TRUE
+        SCENE_DIRTY%      = TRUE
+        FRAME_IDLE%       = FALSE
+    END IF
 
     ' Play hover sound when menu item changes
     IF (PALETTE_MENU_HOVER% >= 0 OR PALETTE_MENU_HOVER% = -2) AND PALETTE_MENU_HOVER% <> PALETTE_MENU_PREV_HOVER% THEN

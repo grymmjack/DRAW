@@ -1203,3 +1203,141 @@ SUB PALETTE_LOADER_export_gpl (filepath AS STRING)
     _LOGINFO "PALETTE_LOADER_export_gpl: Exported " + _TRIM$(STR$(PAL_COLOR_COUNT%)) + " colors to " + filepath$
 END SUB
 
+
+''
+' Resolve a palette list entry to a full .GPL path.
+' Mirrors the built-in vs. user-path logic in PALETTE_LOADER_load_by_index.
+' @param idx INTEGER - Palette index in PALETTE_LIST
+' @return STRING - Full path, or "" when the entry has no file (separator rows)
+'
+FUNCTION PALETTE_PREVIEW_path$ (idx AS INTEGER)
+    DIM fn AS STRING
+    fn$ = RTRIM$(PALETTE_LIST(idx%).filename)
+    IF LEN(fn$) = 0 THEN
+        PALETTE_PREVIEW_path$ = ""
+        EXIT FUNCTION
+    END IF
+    IF LEFT$(fn$, 1) = "/" OR LEFT$(fn$, 2) = "./" OR LEFT$(fn$, 2) = ".\" OR MID$(fn$, 2, 2) = ":\" OR MID$(fn$, 2, 2) = ":/" THEN
+        PALETTE_PREVIEW_path$ = fn$
+    ELSE
+        PALETTE_PREVIEW_path$ = "./ASSETS/PALETTES/" + fn$
+    END IF
+END FUNCTION
+
+
+''
+' Drop every cached chip preview so the next menu render re-parses.
+' Call after the palette list is rebuilt or a .GPL is written/deleted.
+'
+SUB PALETTE_PREVIEW_invalidate_all ()
+    DIM i AS INTEGER
+    FOR i% = 0 TO UBOUND(PALETTE_PREVIEW_STATE)
+        PALETTE_PREVIEW_STATE(i%) = 0
+        PALETTE_PREVIEW_SHOWN(i%) = 0
+        PALETTE_PREVIEW_TOTAL(i%) = 0
+    NEXT i%
+END SUB
+
+
+''
+' Ensure the chip preview for one palette is cached, parsing its .GPL if needed.
+' Respects PALETTE_PREVIEW_BUDGET% so a single frame never parses more than a
+' handful of files; when the budget runs out PALETTE_PREVIEW_PENDING% is raised
+' and the caller is expected to request another frame.
+' @param idx INTEGER - Palette index in PALETTE_LIST
+' @return INTEGER - TRUE when colors are available for this index
+'
+FUNCTION PALETTE_PREVIEW_ensure% (idx AS INTEGER)
+    PALETTE_PREVIEW_ensure% = FALSE
+    IF idx% < 0 OR idx% > UBOUND(PALETTE_PREVIEW_STATE) THEN EXIT FUNCTION
+
+    IF PALETTE_PREVIEW_STATE(idx%) = 1 THEN
+        PALETTE_PREVIEW_ensure% = (PALETTE_PREVIEW_SHOWN(idx%) > 0)
+        EXIT FUNCTION
+    END IF
+    IF PALETTE_PREVIEW_STATE(idx%) = -1 THEN EXIT FUNCTION
+
+    ' Not parsed yet — spend a slice of this frame's budget
+    IF PALETTE_PREVIEW_BUDGET% <= 0 THEN
+        PALETTE_PREVIEW_PENDING% = TRUE
+        EXIT FUNCTION
+    END IF
+    PALETTE_PREVIEW_BUDGET% = PALETTE_PREVIEW_BUDGET% - 1
+
+    DIM path AS STRING
+    path$ = PALETTE_PREVIEW_path$(idx%)
+    IF LEN(path$) = 0 OR NOT _FILEEXISTS(path$) THEN
+        PALETTE_PREVIEW_STATE(idx%) = -1
+        EXIT FUNCTION
+    END IF
+
+    DIM ff      AS INTEGER
+    DIM lineIn  AS STRING
+    DIM i       AS INTEGER
+    DIM ch      AS STRING
+    DIM numStr  AS STRING
+    DIM numIdx  AS INTEGER
+    DIM rgb(0 TO 2) AS INTEGER
+    DIM total   AS INTEGER
+    DIM shown   AS INTEGER
+
+    total% = 0
+    shown% = 0
+    ff%    = FREEFILE
+    OPEN path$ FOR INPUT AS #ff%
+    DO WHILE NOT EOF(ff%)
+        LINE INPUT #ff%, lineIn$
+        lineIn$ = LTRIM$(RTRIM$(lineIn$))
+        IF LEN(lineIn$) = 0 THEN _CONTINUE
+        IF LEFT$(lineIn$, 1) = "#" THEN _CONTINUE
+        IF lineIn$ = "GIMP Palette" THEN _CONTINUE
+        IF LEFT$(lineIn$, 5) = "Name:" THEN _CONTINUE
+        IF LEFT$(lineIn$, 8) = "Columns:" THEN _CONTINUE
+
+        ' Parse "R G B [tab] Name" — take the first three integers on the line
+        numIdx% = 0
+        numStr$ = ""
+        FOR i% = 1 TO LEN(lineIn$)
+            ch$ = MID$(lineIn$, i%, 1)
+            IF ch$ >= "0" AND ch$ <= "9" THEN
+                numStr$ = numStr$ + ch$
+            ELSEIF ch$ = " " OR ch$ = CHR$(9) THEN
+                IF LEN(numStr$) > 0 THEN
+                    IF numIdx% < 3 THEN
+                        rgb%(numIdx%) = VAL(numStr$)
+                        numIdx%       = numIdx% + 1
+                    END IF
+                    numStr$ = ""
+                END IF
+                IF numIdx% = 3 THEN EXIT FOR
+            END IF
+        NEXT i%
+        IF LEN(numStr$) > 0 AND numIdx% < 3 THEN
+            rgb%(numIdx%) = VAL(numStr$)
+            numIdx%       = numIdx% + 1
+        END IF
+        IF numIdx% <> 3 THEN _CONTINUE
+
+        FOR i% = 0 TO 2
+            IF rgb%(i%) < 0 THEN rgb%(i%) = 0
+            IF rgb%(i%) > 255 THEN rgb%(i%) = 255
+        NEXT i%
+
+        total% = total% + 1
+        IF shown% < PALETTE_PREVIEW_MAX_CHIPS THEN
+            PALETTE_PREVIEW_COLORS(idx%, shown%) = _RGB32(rgb%(0), rgb%(1), rgb%(2))
+            shown%                               = shown% + 1
+        END IF
+    LOOP
+    CLOSE #ff%
+
+    PALETTE_PREVIEW_SHOWN(idx%) = shown%
+    PALETTE_PREVIEW_TOTAL(idx%) = total%
+    IF shown% > 0 THEN
+        PALETTE_PREVIEW_STATE(idx%) = 1
+        PALETTE_PREVIEW_ensure%     = TRUE
+    ELSE
+        PALETTE_PREVIEW_STATE(idx%) = -1
+    END IF
+END FUNCTION
+
