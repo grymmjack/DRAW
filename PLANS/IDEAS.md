@@ -3,6 +3,13 @@
 ## Add color chips to popup palettes menu
 - [ ] It would be great if the actual palette chips were rendered in the palette picker popup menu
   - [ ] Add a setting to enable this or disable it
+  - [ ] Maximum 64 chips in 32 chips across rows
+    - [ ] Optimize chip rows to be divisible by 8 
+      - [ ] If 8 colors - 1 row
+      - [ ] If 16 colors - 1 row (less than 32)
+      - [ ] If 24 colors - 1 row
+      - [ ] If 32 colors - 1 row
+      - [ ] More than 32 colors - second row but up to 64 total displayed with a "...and # more" to emphasize there are more colors displayed and # is the number of chips that aren't displayed.
 
 ## AI Integration
 - [ ] Add support for AI image generation

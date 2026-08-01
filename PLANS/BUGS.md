@@ -1,10 +1,13 @@
 # BUGS
 
 ## Line tool pressing s and e does not change caps, but switches tools instead
-- [ ] While drawing with line tool and in active drag state:
-  - [ ] Pressing s changes to smart shape
-  - [ ] Pressing e changes to eraser
-  - [ ] This should instead, while dragging change start and end line_caps
+- [x] While drawing with line tool and in active drag state:
+  - [x] Pressing s changes to smart shape
+  - [x] Pressing e changes to eraser
+  - [x] This should instead, while dragging change start and end line_caps
+  - Fix: `INPUT_build_context` now sets `CTX_DRAWING_IN_PROGRESS` while `TOOL_LINE` is
+    dragging, and the dispatched `S` (1706) / `E` (118) bindings forbid that context,
+    so the existing cap-cycling `_KEYDOWN` handler owns the keys again.
   
 ## Mousewheel over color strip does not scroll it
 - [x] The color strip used to scroll when mousewheel was over it
