@@ -8,8 +8,31 @@
 ' @author Rick Christy <grymmjack@gmail.com>
 '
 
+' === Runtime error trap =======================================================
+' An UNHANDLED QB64 runtime error opens a modal dialog and waits for a mouse
+' click. That is fine for a human, and fatal for anything automated (headless
+' runs, the QA harness, screenshot capture, CI) — the process just hangs with
+' no useful output until something kills it.
+'
+' Armed here, before the include chain, because the first thing that errors is
+' almost always a missing asset during startup — i.e. before any window exists.
+ON ERROR GOTO FatalError
+CONST ERR_MAX = 20                  ' Runtime errors tolerated INTERACTIVELY
+DIM SHARED err_seen     AS INTEGER  ' Errors trapped so far this session
+DIM SHARED screen_shown AS INTEGER  ' TRUE once a window is actually on screen
+' Literals, not TRUE/FALSE — those CONSTs come from _COMMON.BI, which has not
+' been included yet at this point in the file.
+err_seen     = 0
+screen_shown = 0
+
 '$INCLUDE:'./_ALL.BI'
 $RESIZE:ON
+
+' SCREEN_init (from SCREEN.BI, above) has created the window by now, so from
+' this point a human can actually see and dismiss things. Deliberately keyed on
+' "is a window up?" rather than a devmode/CLI-flag check — a curated list of
+' mode names silently rots as new modes are added, and takes the wrong branch.
+screen_shown = TRUE
 
 ' THEME.BI (included above) runs at include-time and resets all THEME.* fields to
 ' compiled-in defaults, clobbering the values set by THEME_load inside SCREEN_init
@@ -673,6 +696,34 @@ DO
 LOOP
 
 MAIN_shutdown
+SYSTEM
+
+
+' === Runtime error handler ====================================================
+' Placed after the last executable line of the main module so normal flow can
+' never fall into it. Never use _DEST _CONSOLE + PRINT elsewhere in DRAW (it
+' corrupts the active drawing destination mid-frame) — here it is safe and
+' necessary, because we are already unwinding and may have no window at all.
+FatalError:
+    err_seen = err_seen + 1
+    _DEST _CONSOLE
+    PRINT ""
+    PRINT "!! QB64 RUNTIME ERROR " + LTRIM$(STR$(ERR)) + " at line " + LTRIM$(STR$(_ERRORLINE))
+    PRINT "!! " + _ERRORMESSAGE$
+    IF NOT screen_shown THEN
+        ' No window: a modal dialog would hang forever with nobody to click it.
+        ' Fail loudly and let the exit code do the talking.
+        PRINT "!! no window is up -- aborting"
+        SYSTEM 1
+    END IF
+    IF err_seen > ERR_MAX THEN
+        PRINT "!! " + LTRIM$(STR$(err_seen)) + " runtime errors -- not survivable, aborting"
+        SYSTEM 1
+    END IF
+    ' A human is watching: skip the failed statement so one missing optional
+    ' asset does not end their session mid-drawing.
+    PRINT "!! continuing (RESUME NEXT) -- " + LTRIM$(STR$(ERR_MAX - err_seen)) + " more before abort"
+    RESUME NEXT
 
 
 ''

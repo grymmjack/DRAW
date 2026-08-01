@@ -554,6 +554,60 @@ SUB DRW_save_binary (filename AS STRING)
     gridCfgColor~& = CFG.CHAR_GRID_COLOR_FG~&
     PUT #fh%, , gridCfgColor~&
 
+    ' === AI LAYER DATA (v29+) ===
+    ' Generation metadata travels with the document so an AI layer can be
+    ' regenerated (or reproduced exactly, via its seed) after a reload.
+    ' Strings are length-prefixed rather than written as their fixed-width TYPE
+    ' fields — a 512-byte prompt per layer would bloat every project file.
+    DIM aiSaveCount AS INTEGER
+    DIM aiSi        AS INTEGER
+    DIM aiSPool     AS INTEGER
+    aiSaveCount% = 0
+    FOR aiSi% = 1 TO LAYER_COUNT%
+        IF LAYERS(aiSi%).layerType% = LAYER_TYPE_AI AND LAYERS(aiSi%).aiDataIdx% >= 1 THEN
+            IF AI_LAYER_DATA(LAYERS(aiSi%).aiDataIdx%).used THEN aiSaveCount% = aiSaveCount% + 1
+        END IF
+    NEXT aiSi%
+    PUT #fh%, , aiSaveCount%
+
+    FOR aiSi% = 1 TO LAYER_COUNT%
+        IF LAYERS(aiSi%).layerType% <> LAYER_TYPE_AI THEN _CONTINUE
+        IF LAYERS(aiSi%).aiDataIdx% < 1 THEN _CONTINUE
+        aiSPool% = LAYERS(aiSi%).aiDataIdx%
+        IF NOT AI_LAYER_DATA(aiSPool%).used THEN _CONTINUE
+
+        tmpInt% = aiSi%
+        PUT #fh%, , tmpInt%
+        DIM aiSeedOut AS LONG
+        aiSeedOut& = AI_LAYER_DATA(aiSPool%).seedVal
+        PUT #fh%, , aiSeedOut&
+        tmpInt% = AI_LAYER_DATA(aiSPool%).genW
+        PUT #fh%, , tmpInt%
+        tmpInt% = AI_LAYER_DATA(aiSPool%).genH
+        PUT #fh%, , tmpInt%
+
+        DIM aiStr AS STRING
+        aiStr$ = RTRIM$(AI_LAYER_DATA(aiSPool%).prompt)
+        tmpInt% = LEN(aiStr$)
+        PUT #fh%, , tmpInt%
+        IF tmpInt% > 0 THEN PUT #fh%, , aiStr$
+
+        aiStr$ = RTRIM$(AI_LAYER_DATA(aiSPool%).styleName)
+        tmpInt% = LEN(aiStr$)
+        PUT #fh%, , tmpInt%
+        IF tmpInt% > 0 THEN PUT #fh%, , aiStr$
+
+        aiStr$ = RTRIM$(AI_LAYER_DATA(aiSPool%).toolName)
+        tmpInt% = LEN(aiStr$)
+        PUT #fh%, , tmpInt%
+        IF tmpInt% > 0 THEN PUT #fh%, , aiStr$
+
+        aiStr$ = RTRIM$(AI_LAYER_DATA(aiSPool%).modelName)
+        tmpInt% = LEN(aiStr$)
+        PUT #fh%, , tmpInt%
+        IF tmpInt% > 0 THEN PUT #fh%, , aiStr$
+    NEXT aiSi%
+
     ' === UNIFIED HISTORY (v7+) ===
     HISTORY_save_binary fh%, SCRN.canvasW&, SCRN.canvasH&
 
@@ -756,6 +810,15 @@ SUB DRW_load_binary (filename AS STRING)
     NEXT tlReset%
     TEXT.editingTextLayer%    = 0
     TEXT_BAR.editingLayerIdx% = 0
+
+    ' === RESET AI LAYER DATA ===
+    ' Stale pool slots must not leak across project loads (see the .draw
+    ' load path, which claims fresh slots for the incoming layers).
+    IF AI_JOB_is_running% THEN AI_JOB_cancel
+    DIM aiRi AS INTEGER
+    FOR aiRi% = 1 TO AI_LAYER_POOL_SIZE
+        AI_LAYER_DATA(aiRi%).used = FALSE
+    NEXT aiRi%
 
     ' === LAYERS ===
     ' Clear existing layers first
@@ -1383,6 +1446,67 @@ SUB DRW_load_binary (filename AS STRING)
         GET #fh%, , CFG.CHAR_GRID_OPACITY%
         GET #fh%, , gridCfgColorLoad~&
         CFG.CHAR_GRID_COLOR_FG~& = gridCfgColorLoad~&
+    END IF
+
+    ' === AI LAYER DATA (v29+) ===
+    IF version% >= 29 THEN
+        DIM aiLoadCount AS INTEGER
+        DIM aiLi        AS INTEGER
+        GET #fh%, , aiLoadCount%
+
+        FOR aiLi% = 1 TO aiLoadCount%
+            DIM aiLayerIdx AS INTEGER
+            DIM aiSeedIn   AS LONG
+            DIM aiGenW     AS INTEGER, aiGenH AS INTEGER
+            DIM aiLen      AS INTEGER
+            DIM aiPrompt   AS STRING, aiStyle AS STRING
+            DIM aiToolNm   AS STRING, aiModel AS STRING
+
+            GET #fh%, , aiLayerIdx%
+            GET #fh%, , aiSeedIn&
+            GET #fh%, , aiGenW%
+            GET #fh%, , aiGenH%
+
+            aiPrompt$ = "": aiStyle$ = "": aiToolNm$ = "": aiModel$ = ""
+            GET #fh%, , aiLen%
+            IF aiLen% > 0 THEN
+                aiPrompt$ = SPACE$(aiLen%)
+                GET #fh%, , aiPrompt$
+            END IF
+            GET #fh%, , aiLen%
+            IF aiLen% > 0 THEN
+                aiStyle$ = SPACE$(aiLen%)
+                GET #fh%, , aiStyle$
+            END IF
+            GET #fh%, , aiLen%
+            IF aiLen% > 0 THEN
+                aiToolNm$ = SPACE$(aiLen%)
+                GET #fh%, , aiToolNm$
+            END IF
+            GET #fh%, , aiLen%
+            IF aiLen% > 0 THEN
+                aiModel$ = SPACE$(aiLen%)
+                GET #fh%, , aiModel$
+            END IF
+
+            ' Re-attach to the layer. The pool index is NOT persisted — slots
+            ' are per-session, so a fresh one is claimed and linked here.
+            IF aiLayerIdx% >= 1 AND aiLayerIdx% <= LAYER_COUNT% THEN
+                DIM aiNewPool AS INTEGER
+                aiNewPool% = AI_LAYER_alloc%
+                IF aiNewPool% > 0 THEN
+                    AI_LAYER_DATA(aiNewPool%).prompt    = aiPrompt$
+                    AI_LAYER_DATA(aiNewPool%).styleName = aiStyle$
+                    AI_LAYER_DATA(aiNewPool%).toolName  = aiToolNm$
+                    AI_LAYER_DATA(aiNewPool%).modelName = aiModel$
+                    AI_LAYER_DATA(aiNewPool%).seedVal   = aiSeedIn&
+                    AI_LAYER_DATA(aiNewPool%).genW      = aiGenW%
+                    AI_LAYER_DATA(aiNewPool%).genH      = aiGenH%
+                    LAYERS(aiLayerIdx%).aiDataIdx%      = aiNewPool%
+                    LAYERS(aiLayerIdx%).layerType%      = LAYER_TYPE_AI
+                END IF
+            END IF
+        NEXT aiLi%
     END IF
 
     IF version% >= 7 THEN
@@ -2318,6 +2442,15 @@ SUB DRW_new_canvas ()
     TEXT.editingTextLayer%    = 0
     TEXT_BAR.editingLayerIdx% = 0
 
+    ' === RESET AI LAYER DATA ===
+    ' Stale pool slots must not leak across project loads (see the .draw
+    ' load path, which claims fresh slots for the incoming layers).
+    IF AI_JOB_is_running% THEN AI_JOB_cancel
+    DIM aiRi AS INTEGER
+    FOR aiRi% = 1 TO AI_LAYER_POOL_SIZE
+        AI_LAYER_DATA(aiRi%).used = FALSE
+    NEXT aiRi%
+
     ' === RESET LAYER PANEL STATE ===
     LAYER_PANEL.scrollOffset% = 0
     LAYER_PANEL.soloLayer%    = 0
@@ -2467,6 +2600,15 @@ SUB DRW_create_canvas_at_size (canvasW AS INTEGER, canvasH AS INTEGER)
     NEXT ncTlRi%
     TEXT.editingTextLayer%    = 0
     TEXT_BAR.editingLayerIdx% = 0
+
+    ' === RESET AI LAYER DATA ===
+    ' Stale pool slots must not leak across project loads (see the .draw
+    ' load path, which claims fresh slots for the incoming layers).
+    IF AI_JOB_is_running% THEN AI_JOB_cancel
+    DIM aiRi AS INTEGER
+    FOR aiRi% = 1 TO AI_LAYER_POOL_SIZE
+        AI_LAYER_DATA(aiRi%).used = FALSE
+    NEXT aiRi%
 
     ' === RESET LAYER PANEL STATE ===
     LAYER_PANEL.scrollOffset% = 0
