@@ -1,0 +1,1171 @@
+''
+' DRAW - AI/AI-DIALOG.BM
+' =============================================================================
+' Modal dialogs for AI: the generate dialog and the tool / style / prompt
+' editors. Built on the DIALOG_CTX framework (GUI/DIALOG.BM) so they match the
+' CRT and image-adjust dialogs in look and behaviour.
+'
+' Text entry: the SW_/DIALOG_ widget set has no in-place text field, so a text
+' row is drawn as a labelled box that opens DRAW_input_box$ for that single
+' value when clicked. Every field stays visible at once — this is one dialog,
+' not a chain of prompts.
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+''
+' Draw a labelled multi-line text box with the value word-wrapped inside it,
+' and report whether it was clicked.
+'
+' Display only — editing still opens DRAW_input_box$, since the widget set has
+' no in-place multi-line editor. The point is that a long prompt is READABLE
+' at a glance instead of truncated to one line.
+'
+' @param ctx DIALOG_CTX - Dialog context
+' @param fx INTEGER - Left X of the box
+' @param fy INTEGER - Top Y
+' @param fw INTEGER - Box width
+' @param fh INTEGER - Box height
+' @param labelTxt STRING - Label drawn to the left
+' @param valueTxt STRING - Text to wrap into the box
+' @return INTEGER - TRUE when clicked this frame
+'
+FUNCTION AI_DLG_textarea% (ctx AS DIALOG_CTX, fx AS INTEGER, fy AS INTEGER, fw AS INTEGER, fh AS INTEGER, labelTxt AS STRING, valueTxt AS STRING)
+    DIM fontH AS INTEGER
+    fontH% = DIALOG_font_height%(ctx)
+
+    DIALOG_draw_label ctx, 10, fy% + 3, labelTxt$
+
+    LINE (fx%, fy%)-(fx% + fw%, fy% + fh%), THEME.DIALOG_slider_track_bg~&, BF
+    IF ctx.mx >= fx% AND ctx.mx <= fx% + fw% AND ctx.my >= fy% AND ctx.my <= fy% + fh% THEN
+        LINE (fx%, fy%)-(fx% + fw%, fy% + fh%), THEME.DIALOG_toggle_sel_bg~&, B
+    ELSE
+        LINE (fx%, fy%)-(fx% + fw%, fy% + fh%), THEME.DIALOG_border_inner~&, B
+    END IF
+
+    ' Greedy word wrap into the available width
+    DIM lineH    AS INTEGER : lineH% = fontH% + 2
+    DIM maxLines AS INTEGER : maxLines% = (fh% - 4) \ lineH%
+    IF maxLines% < 1 THEN maxLines% = 1
+
+    COLOR THEME.DIALOG_label_fg~&
+
+    DIM rest    AS STRING : rest$ = _TRIM$(valueTxt$)
+    DIM lineNo  AS INTEGER : lineNo% = 0
+    DIM curLine AS STRING
+    DIM word    AS STRING
+    DIM spPos   AS INTEGER
+
+    DO WHILE LEN(rest$) > 0 AND lineNo% < maxLines%
+        curLine$ = ""
+        DO
+            spPos% = INSTR(rest$, " ")
+            IF spPos% > 0 THEN
+                word$ = LEFT$(rest$, spPos% - 1)
+            ELSE
+                word$ = rest$
+            END IF
+
+            DIM trial AS STRING
+            IF LEN(curLine$) = 0 THEN trial$ = word$ ELSE trial$ = curLine$ + " " + word$
+            IF _PRINTWIDTH(trial$) > fw% - 6 AND LEN(curLine$) > 0 THEN EXIT DO
+
+            curLine$ = trial$
+            IF spPos% > 0 THEN rest$ = MID$(rest$, spPos% + 1) ELSE rest$ = ""
+            IF LEN(rest$) = 0 THEN EXIT DO
+        LOOP
+
+        ' A single word longer than the line: hard-break it so we cannot spin
+        IF LEN(curLine$) = 0 THEN
+            curLine$ = LEFT$(rest$, 1)
+            rest$    = MID$(rest$, 2)
+        END IF
+
+        ' Last visible line with text still pending gets an ellipsis
+        IF lineNo% = maxLines% - 1 AND LEN(rest$) > 0 THEN
+            DO WHILE LEN(curLine$) > 0 AND _PRINTWIDTH(curLine$ + "...") > fw% - 6
+                curLine$ = LEFT$(curLine$, LEN(curLine$) - 1)
+            LOOP
+            curLine$ = curLine$ + "..."
+        END IF
+
+        _UPRINTSTRING (fx% + 3, fy% + 2 + lineNo% * lineH%), curLine$
+        lineNo% = lineNo% + 1
+    LOOP
+
+    AI_DLG_textarea% = DIALOG_hit%(ctx, fx%, fy%, fw%, fh%)
+END FUNCTION
+
+
+''
+' Draw a labelled, clickable text row and report whether it was clicked.
+' @param ctx DIALOG_CTX - Dialog context
+' @param fx INTEGER - Left X of the value box
+' @param fy INTEGER - Top Y
+' @param fw INTEGER - Width of the value box
+' @param labelTxt STRING - Label drawn to the left of the box
+' @param valueTxt STRING - Current value, truncated to fit
+' @return INTEGER - TRUE when clicked this frame
+'
+FUNCTION AI_DLG_field% (ctx AS DIALOG_CTX, fx AS INTEGER, fy AS INTEGER, fw AS INTEGER, labelTxt AS STRING, valueTxt AS STRING)
+    DIM boxH  AS INTEGER : boxH% = 14
+    DIM shown AS STRING
+    DIM fontH AS INTEGER
+
+    DIALOG_draw_label ctx, 10, fy + 3, labelTxt$
+
+    LINE (fx%, fy%)-(fx% + fw%, fy% + boxH%), THEME.DIALOG_slider_track_bg~&, BF
+    IF ctx.mx >= fx% AND ctx.mx <= fx% + fw% AND ctx.my >= fy% AND ctx.my <= fy% + boxH% THEN
+        LINE (fx%, fy%)-(fx% + fw%, fy% + boxH%), THEME.DIALOG_toggle_sel_bg~&, B
+    ELSE
+        LINE (fx%, fy%)-(fx% + fw%, fy% + boxH%), THEME.DIALOG_border_inner~&, B
+    END IF
+
+    ' Trim to the box width so a long prompt cannot spill across the dialog
+    shown$ = valueTxt$
+    IF _PRINTWIDTH(shown$) > fw% - 6 THEN
+        DO WHILE LEN(shown$) > 0 AND _PRINTWIDTH(shown$ + "...") > fw% - 6
+            shown$ = LEFT$(shown$, LEN(shown$) - 1)
+        LOOP
+        shown$ = shown$ + "..."
+    END IF
+
+    fontH% = DIALOG_font_height%(ctx)
+    COLOR THEME.DIALOG_label_fg~&
+    _UPRINTSTRING (fx% + 3, fy% + (boxH% - fontH%) \ 2), shown$
+
+    AI_DLG_field% = DIALOG_hit%(ctx, fx%, fy%, fw%, boxH%)
+END FUNCTION
+
+
+''
+' Draw a [<] value [>] cycler and return -1/0/+1 for the click.
+' @param ctx DIALOG_CTX - Dialog context
+' @param cx INTEGER - Left X of the cycler
+' @param cy INTEGER - Top Y
+' @param cw INTEGER - Total width
+' @param labelTxt STRING - Label drawn to the left
+' @param valueTxt STRING - Current value text
+' @return INTEGER - -1 previous, +1 next, 0 no change
+'
+FUNCTION AI_DLG_cycler% (ctx AS DIALOG_CTX, cx AS INTEGER, cy AS INTEGER, cw AS INTEGER, labelTxt AS STRING, valueTxt AS STRING)
+    DIM btnW  AS INTEGER : btnW% = 14
+    DIM boxH  AS INTEGER : boxH% = 14
+    DIM midX  AS INTEGER : midX% = cx% + btnW% + 2
+    DIM midW  AS INTEGER : midW% = cw% - (btnW% + 2) * 2
+    DIM shown AS STRING
+    DIM fontH AS INTEGER
+
+    AI_DLG_cycler% = 0
+    DIALOG_draw_label ctx, 10, cy% + 3, labelTxt$
+
+    DIALOG_draw_button ctx, cx%, cy%, btnW%, boxH%, "<", THEME.DIALOG_toggle_bg~&, THEME.DIALOG_toggle_sel_bg~&, THEME.DIALOG_border_inner~&
+    DIALOG_draw_button ctx, cx% + cw% - btnW%, cy%, btnW%, boxH%, ">", THEME.DIALOG_toggle_bg~&, THEME.DIALOG_toggle_sel_bg~&, THEME.DIALOG_border_inner~&
+
+    LINE (midX%, cy%)-(midX% + midW%, cy% + boxH%), THEME.DIALOG_slider_track_bg~&, BF
+    LINE (midX%, cy%)-(midX% + midW%, cy% + boxH%), THEME.DIALOG_border_inner~&, B
+
+    shown$ = valueTxt$
+    IF _PRINTWIDTH(shown$) > midW% - 6 THEN
+        DO WHILE LEN(shown$) > 0 AND _PRINTWIDTH(shown$ + "...") > midW% - 6
+            shown$ = LEFT$(shown$, LEN(shown$) - 1)
+        LOOP
+        shown$ = shown$ + "..."
+    END IF
+    fontH% = DIALOG_font_height%(ctx)
+    COLOR THEME.DIALOG_label_fg~&
+    _UPRINTSTRING (midX% + 3, cy% + (boxH% - fontH%) \ 2), shown$
+
+    IF DIALOG_hit%(ctx, cx%, cy%, btnW%, boxH%) THEN AI_DLG_cycler% = -1
+    IF DIALOG_hit%(ctx, cx% + cw% - btnW%, cy%, btnW%, boxH%) THEN AI_DLG_cycler% = 1
+END FUNCTION
+
+
+''
+' Name of a tool by index, or a placeholder when none are configured.
+' @param idx INTEGER - 1-based tool index
+' @return STRING
+'
+FUNCTION AI_DLG_tool_name$ (idx AS INTEGER)
+    IF idx% >= 1 AND idx% <= AI_TOOL_COUNT% THEN
+        AI_DLG_tool_name$ = RTRIM$(AI_TOOLS(idx%).toolName)
+    ELSE
+        AI_DLG_tool_name$ = "(none configured)"
+    END IF
+END FUNCTION
+
+
+''
+' Name of a style by index; index 0 means "no style".
+' @param idx INTEGER - 1-based style index, 0 = none
+' @return STRING
+'
+FUNCTION AI_DLG_style_name$ (idx AS INTEGER)
+    IF idx% >= 1 AND idx% <= AI_STYLE_COUNT% THEN
+        AI_DLG_style_name$ = RTRIM$(AI_STYLES(idx%).styleName)
+    ELSE
+        AI_DLG_style_name$ = "(none)"
+    END IF
+END FUNCTION
+
+
+''
+' Compute the top-left position for a generated layer from a 3x3 preset.
+' @param preset INTEGER - AI_POS_*
+' @param genW INTEGER - Generation width
+' @param genH INTEGER - Generation height
+' @param outX INTEGER - (out) canvas X
+' @param outY INTEGER - (out) canvas Y
+'
+SUB AI_DLG_preset_pos (posKind AS INTEGER, genW AS INTEGER, genH AS INTEGER, outX AS INTEGER, outY AS INTEGER)
+    DIM cw AS INTEGER, ch AS INTEGER
+    cw% = SCRN.canvasW&
+    ch% = SCRN.canvasH&
+
+    SELECT CASE posKind% MOD 3
+        CASE 0 : outX% = 0
+        CASE 1 : outX% = (cw% - genW%) \ 2
+        CASE 2 : outX% = cw% - genW%
+    END SELECT
+    SELECT CASE posKind% \ 3
+        CASE 0 : outY% = 0
+        CASE 1 : outY% = (ch% - genH%) \ 2
+        CASE 2 : outY% = ch% - genH%
+    END SELECT
+    IF outX% < 0 THEN outX% = 0
+    IF outY% < 0 THEN outY% = 0
+END SUB
+
+
+''
+' The generate dialog: tool, style, prompt (with presets), size, position and
+' seed, all visible at once.
+'
+' Results land in AI_DLG_* on success.
+' @param titleTxt STRING - Dialog title
+' @param defW INTEGER - Initial width
+' @param defH INTEGER - Initial height
+' @param defX INTEGER - Initial canvas X (e.g. the selection origin)
+' @param defY INTEGER - Initial canvas Y
+' @return INTEGER - TRUE when the user pressed Generate
+'
+FUNCTION AI_DLG_generate% (titleTxt AS STRING, defW AS INTEGER, defH AS INTEGER, defX AS INTEGER, defY AS INTEGER)
+    AI_DLG_generate% = FALSE
+
+    DIM ctx  AS DIALOG_CTX
+    DIM dlgW AS INTEGER : dlgW% = 340
+    DIM dlgH AS INTEGER : dlgH% = 300
+    ' Room for the scale row + its caution line when the display is scaled
+    IF SCRN.displayScale% > 1 THEN dlgH% = dlgH% + 34
+    DIALOG_init ctx, dlgW%, dlgH%
+
+    DIM hdrH AS INTEGER : hdrH% = THEME.DIALOG_title_height% + 4
+    DIM rowH AS INTEGER : rowH% = 18
+    DIM padX AS INTEGER : padX% = 10
+    ' SW_LABEL_W (115px) is sized for the Settings dialog and left a large gap
+    ' after short labels like "Tool". The dropdown always draws its combo at
+    ' x + SW_LABEL_W, so pass it a NEGATIVE x with an empty label — the combo
+    ' lands where we want and its own label draws nothing — then draw the real
+    ' labels ourselves in a column just wide enough for "Position".
+    DIM fldX AS INTEGER : fldX% = 64
+    DIM ddX  AS INTEGER : ddX%  = fldX% - SW_LABEL_W
+    DIM fldW AS INTEGER : fldW% = dlgW% - fldX% - padX%
+
+    DIM yTool   AS INTEGER : yTool%   = hdrH% + 2
+    DIM yStyle  AS INTEGER : yStyle%  = yTool% + SW_ROW_H
+    DIM yPreset AS INTEGER : yPreset% = yStyle% + SW_ROW_H
+    DIM yPrompt AS INTEGER : yPrompt% = yPreset% + SW_ROW_H + 2
+    ' Prompt is a multi-line box — prompts are long and were unreadable as a
+    ' single truncated line
+    DIM promptH AS INTEGER : promptH% = 52
+    DIM ySize   AS INTEGER : ySize%   = yPrompt% + promptH% + 8
+
+    ' Optional "generate at screen scale" row. Only exists when the display is
+    ' actually scaled — on a 1x display it would be a no-op control.
+    DIM uiScale AS INTEGER
+    uiScale% = SCRN.displayScale%
+    IF uiScale% < 1 THEN uiScale% = 1
+    DIM hasScaleRow AS INTEGER
+    hasScaleRow% = (uiScale% > 1)
+
+    DIM yScale  AS INTEGER : yScale%  = ySize% + rowH%
+
+    ' Caution sits on its own line below the size controls, with breathing
+    ' room — crowded against them it was hard to read
+    DIM yCaution AS INTEGER
+    IF hasScaleRow% THEN yCaution% = yScale% + rowH% + 3 ELSE yCaution% = ySize% + rowH% + 3
+
+    DIM yPos    AS INTEGER
+    yPos% = yCaution% + 14
+    DIM ySeed   AS INTEGER : ySeed%   = yPos% + 44
+    DIM yBtns   AS INTEGER : yBtns%   = dlgH% - 26
+
+    ' Working state, seeded from the last run so a re-open remembers
+    DIM curTool   AS INTEGER : curTool%   = AI_LAST_TOOL%
+    DIM curStyle  AS INTEGER : curStyle%  = AI_LAST_STYLE_IDX%
+    DIM curPreset AS INTEGER : curPreset% = 0
+    DIM curPrompt AS STRING  : curPrompt$ = AI_LAST_PROMPT_RAW$
+    DIM genW      AS INTEGER : genW%      = defW%
+    DIM genH      AS INTEGER : genH%      = defH%
+    ' Start at the caller's position (the selection origin when there is one)
+    ' rather than snapping to a preset — otherwise a generation aimed at a
+    ' selection silently lands in the top-left corner.
+    DIM posPreset AS INTEGER : posPreset% = AI_POS_CUSTOM
+    DIM posX      AS INTEGER : posX%      = defX%
+    DIM posY      AS INTEGER : posY%      = defY%
+    IF posX% = 0 AND posY% = 0 THEN posPreset% = AI_POS_TL
+    DIM seedVal   AS LONG    : seedVal&   = AI_LAST_SEED&
+    IF curTool% < 1 AND AI_TOOL_COUNT% > 0 THEN curTool% = 1
+    IF seedVal& = 0 THEN seedVal& = INT(RND * 999999) + 1
+
+    DIM k      AS LONG
+    DIM txt    AS STRING
+    DIM ddOpen AS INTEGER
+
+    ' Real multi-line text area for the prompt (QB64_GJ_LIB TEXT_INPUT): word
+    ' wrap, selection, clipboard, undo — the same widget the Lospec search box
+    ' uses inside a dialog.
+    DIM promptTI AS INTEGER
+    promptTI% = TI_create%(fldX%, yPrompt%, fldW%, promptH%)
+    ' TI's MULTILINE renderer lays out character-by-character at a fixed
+    ' TI_fontW pitch, so it needs a monospace font — DRAW's proportional Tiny5
+    ' rendered visibly spread out ("a  h u m a n o i d").
+    '
+    ' Rather than fall back to the chunky 8x8 ROM font, load DRAW's OWN theme
+    ' font with _LOADFONT's MONOSPACE flag, which forces a uniform advance. The
+    ' text area then matches the rest of the UI and still lays out correctly.
+    DIM tiOldId AS INTEGER, tiOldW AS INTEGER, tiOldH AS INTEGER
+    tiOldId% = TI_fontID : tiOldW% = TI_fontW : tiOldH% = TI_fontH
+
+    DIM tiMonoFont AS LONG
+    DIM tiMonoSize AS INTEGER
+    tiMonoSize% = THEME.GLOBAL_FONT_SIZE%
+    IF tiMonoSize% < 1 THEN tiMonoSize% = 8
+    tiMonoFont& = _LOADFONT(THEME_font_path$(THEME.GLOBAL_FONT_FILE$), tiMonoSize%, "MONOSPACE,DONTBLEND")
+
+    DIM tiMonoW AS INTEGER, tiMonoH AS INTEGER
+    IF tiMonoFont& > 0 THEN
+        tiMonoW% = _FONTWIDTH(tiMonoFont&)
+        tiMonoH% = _FONTHEIGHT(tiMonoFont&)
+    END IF
+    ' Fall back to the built-in 8x8 ROM font if the theme font will not load
+    IF tiMonoFont& <= 0 OR tiMonoW% < 1 OR tiMonoH% < 1 THEN
+        IF tiMonoFont& > 0 THEN _FREEFONT tiMonoFont&
+        tiMonoFont& = 8
+        tiMonoW%    = 8
+        tiMonoH%    = 8
+    END IF
+
+    TI_set_font 8, tiMonoW%, tiMonoH%
+
+    IF promptTI% > 0 THEN
+        DIM tiFW AS INTEGER, tiFH AS INTEGER
+        tiFW% = tiMonoW%
+        tiFH% = tiMonoH%
+
+        TI_inputs(promptTI%).multiline   = TRUE
+        TI_inputs(promptTI%).wordWrap    = TRUE
+        TI_inputs(promptTI%).placeholder = "Describe what the AI should draw..."
+        ' fontHandle stays 0: the multiline path uses the shared TI font and
+        ' the currently selected _FONT, not this handle
+        TI_inputs(promptTI%).theme.fontHandle       = 0
+        TI_inputs(promptTI%).theme.fontW            = tiFW%
+        TI_inputs(promptTI%).theme.fontH            = tiFH%
+        TI_inputs(promptTI%).theme.bgColor          = THEME.DIALOG_slider_track_bg~&
+        TI_inputs(promptTI%).theme.focusBgColor     = THEME.DIALOG_slider_track_bg~&
+        TI_inputs(promptTI%).theme.borderColor      = THEME.DIALOG_border_inner~&
+        TI_inputs(promptTI%).theme.focusBorderColor = THEME.DIALOG_toggle_sel_border~&
+        TI_inputs(promptTI%).theme.textColor        = THEME.DIALOG_title_fg~&
+        TI_inputs(promptTI%).theme.cursorColor      = THEME.DIALOG_title_fg~&
+        TI_inputs(promptTI%).theme.selectionColor   = THEME.DIALOG_toggle_sel_bg~&
+        TI_inputs(promptTI%).theme.placeholderColor = THEME.DIALOG_label_fg~&
+        TI_set_text promptTI%, curPrompt$
+        TI_set_focus promptTI%
+    END IF
+
+    SW_DD.openId = -1       ' -1 = closed; never inherit an open list
+
+    DO
+        DIALOG_poll_mouse ctx
+
+        TI_tick                         ' cursor blink
+
+        k& = _KEYHIT
+
+        ' The focused text area gets first refusal on every key, so typing a
+        ' prompt cannot trigger dialog shortcuts. ENTER inserts a newline here
+        ' rather than submitting — that is what a text area is for, so GENERATE
+        ' is the only way to submit.
+        DIM tiAte AS INTEGER : tiAte% = FALSE
+        IF promptTI% > 0 AND k& <> 0 AND TI_focusedId = promptTI% THEN
+            IF k& <> 27 THEN tiAte% = TI_process_key%(k&)
+        END IF
+
+        IF k& = 27 AND NOT tiAte% THEN
+            IF SW_DD.openId > 0 THEN
+                SW_DD.openId = -1       ' first ESC closes an open list
+            ELSEIF TI_focusedId = promptTI% AND promptTI% > 0 THEN
+                TI_clear_focus          ' then leaves the text area
+            ELSE
+                ctx.done = TRUE         ' and finally cancels the dialog
+            END IF
+        END IF
+        IF k& = 13 THEN                                     ' ENTER generates
+            IF LEN(_TRIM$(curPrompt$)) > 0 AND curTool% >= 1 THEN
+                ctx.result = TRUE
+                ctx.done   = TRUE
+            END IF
+        END IF
+
+        DIALOG_draw_frame ctx, titleTxt$
+
+        ' Dropdown rows are DRAWN LAST (below) so an open list paints over the
+        ' widgets beneath it. Their input is handled there too; everything else
+        ' is suppressed while a list is open so clicks cannot fall through.
+        ' SW_DD.openId is -1 when nothing is open and the dropdown's id when one
+        ' is. Testing "<> 0" made this permanently true, which suppressed every
+        ' other control INCLUDING Cancel and left the dialog unexitable.
+        ddOpen% = (SW_DD.openId > 0)
+
+        ' --- Prompt ---
+        ' --- Prompt text area ---
+        DIALOG_draw_label ctx, padX%, yPrompt% + 3, "Prompt"
+        IF promptTI% > 0 THEN
+            IF NOT ddOpen% THEN
+                TI_process_mouse ctx.mx, ctx.my, ctx.justClicked
+                IF ctx.mwheel <> 0 THEN TI_process_mousewheel ctx.mx, ctx.my, ctx.mwheel
+            END IF
+            DIM tiOldFont AS LONG
+            tiOldFont& = _FONT
+            _FONT tiMonoFont&            ' theme font forced monospace
+            TI_render promptTI%, 0, 0
+            _FONT tiOldFont&
+        END IF
+
+        ' --- Size + [Image Size] ---
+        DIALOG_draw_label ctx, padX%, ySize% + 3, "Size"
+        DIALOG_draw_button ctx, fldX%, ySize%, 46, 14, _TRIM$(STR$(genW%)), THEME.DIALOG_toggle_bg~&, THEME.DIALOG_toggle_sel_bg~&, THEME.DIALOG_border_inner~&
+        DIALOG_draw_label ctx, fldX% + 50, ySize% + 3, "x"
+        DIALOG_draw_button ctx, fldX% + 58, ySize%, 46, 14, _TRIM$(STR$(genH%)), THEME.DIALOG_toggle_bg~&, THEME.DIALOG_toggle_sel_bg~&, THEME.DIALOG_border_inner~&
+        DIALOG_draw_button ctx, fldX% + 110, ySize%, 74, 14, "IMAGE SIZE", THEME.DIALOG_toggle_bg~&, THEME.DIALOG_toggle_sel_bg~&, THEME.DIALOG_border_inner~&
+
+        IF DIALOG_hit%(ctx, fldX%, ySize%, 46, 14) AND NOT ddOpen% THEN
+            txt$ = DRAW_input_box$("AI - Width", "Generation width in pixels", _TRIM$(STR$(genW%)), "64")
+            IF VAL(_TRIM$(txt$)) > 0 THEN genW% = VAL(_TRIM$(txt$))
+        END IF
+        IF DIALOG_hit%(ctx, fldX% + 58, ySize%, 46, 14) AND NOT ddOpen% THEN
+            txt$ = DRAW_input_box$("AI - Height", "Generation height in pixels", _TRIM$(STR$(genH%)), "64")
+            IF VAL(_TRIM$(txt$)) > 0 THEN genH% = VAL(_TRIM$(txt$))
+        END IF
+        IF DIALOG_hit%(ctx, fldX% + 110, ySize%, 74, 14) AND NOT ddOpen% THEN
+            genW% = SCRN.canvasW&
+            genH% = SCRN.canvasH&
+        END IF
+
+        ' --- Generate at screen scale (only when the display IS scaled) ------
+        ' 1:1 is the right default for pixel art. But the canvas is being shown
+        ' at uiScale, so offer the matching larger generation for anyone who
+        ' wants the model to work at the size they are actually looking at.
+        IF hasScaleRow% THEN
+            DIM scaleLbl AS STRING
+            scaleLbl$ = "IMAGE x" + _TRIM$(STR$(uiScale%))
+            DIALOG_draw_button ctx, fldX%, yScale%, 74, 14, scaleLbl$, THEME.DIALOG_toggle_bg~&, THEME.DIALOG_toggle_sel_bg~&, THEME.DIALOG_border_inner~&
+            COLOR THEME.DIALOG_label_fg~&
+            _UPRINTSTRING (fldX% + 80, yScale% + 3), "screen scale is " + _TRIM$(STR$(uiScale%)) + "x"
+            IF DIALOG_hit%(ctx, fldX%, yScale%, 74, 14) AND NOT ddOpen% THEN
+                genW% = SCRN.canvasW& * uiScale%
+                genH% = SCRN.canvasH& * uiScale%
+            END IF
+        END IF
+
+        ' Caution for sizes that many generators cannot produce
+        IF genW% > 512 OR genH% > 512 THEN
+            COLOR _RGB32(255, 190, 90)
+            _UPRINTSTRING (fldX%, yCaution%), "large - some AI tools cannot generate this big"
+        END IF
+
+        ' --- Position: 3x3 preset grid, with the resulting X,Y shown ---
+        DIALOG_draw_label ctx, padX%, yPos% + 12, "Position"
+        DIM gi AS INTEGER, gx AS INTEGER, gy AS INTEGER
+        DIM cellW AS INTEGER : cellW% = 20
+        DIM cellH AS INTEGER : cellH% = 12
+        FOR gi% = 0 TO 8
+            gx% = fldX% + (gi% MOD 3) * (cellW% + 2)
+            gy% = yPos% + (gi% \ 3) * (cellH% + 2)
+            DIALOG_draw_toggle ctx, gx%, gy%, cellW%, cellH%, "", (posPreset% <> AI_POS_CUSTOM AND posPreset% = gi%)
+            IF DIALOG_hit%(ctx, gx%, gy%, cellW%, cellH%) AND NOT ddOpen% THEN posPreset% = gi%
+        NEXT gi%
+        IF posPreset% <> AI_POS_CUSTOM THEN AI_DLG_preset_pos posPreset%, genW%, genH%, posX%, posY%
+
+        ' Editable X / Y — the 3x3 grid is a shortcut, not the only way in
+        DIALOG_draw_label ctx, fldX% + 74, yPos% + 2, "X"
+        DIALOG_draw_button ctx, fldX% + 84, yPos%, 46, 14, _TRIM$(STR$(posX%)), THEME.DIALOG_toggle_bg~&, THEME.DIALOG_toggle_sel_bg~&, THEME.DIALOG_border_inner~&
+        DIALOG_draw_label ctx, fldX% + 74, yPos% + 20, "Y"
+        DIALOG_draw_button ctx, fldX% + 84, yPos% + 18, 46, 14, _TRIM$(STR$(posY%)), THEME.DIALOG_toggle_bg~&, THEME.DIALOG_toggle_sel_bg~&, THEME.DIALOG_border_inner~&
+
+        IF DIALOG_hit%(ctx, fldX% + 84, yPos%, 46, 14) AND NOT ddOpen% THEN
+            txt$ = DRAW_input_box$("AI - Position X", "Canvas X for the result", _TRIM$(STR$(posX%)), "0")
+            IF LEN(_TRIM$(txt$)) > 0 THEN
+                posX%      = VAL(_TRIM$(txt$))
+                posPreset% = AI_POS_CUSTOM
+            END IF
+        END IF
+        IF DIALOG_hit%(ctx, fldX% + 84, yPos% + 18, 46, 14) AND NOT ddOpen% THEN
+            txt$ = DRAW_input_box$("AI - Position Y", "Canvas Y for the result", _TRIM$(STR$(posY%)), "0")
+            IF LEN(_TRIM$(txt$)) > 0 THEN
+                posY%      = VAL(_TRIM$(txt$))
+                posPreset% = AI_POS_CUSTOM
+            END IF
+        END IF
+
+        ' --- Seed + [Random] ---
+        DIALOG_draw_label ctx, padX%, ySeed% + 3, "Seed"
+        DIALOG_draw_button ctx, fldX%, ySeed%, 80, 14, _TRIM$(STR$(seedVal&)), THEME.DIALOG_toggle_bg~&, THEME.DIALOG_toggle_sel_bg~&, THEME.DIALOG_border_inner~&
+        DIALOG_draw_button ctx, fldX% + 86, ySeed%, 60, 14, "RANDOM", THEME.DIALOG_toggle_bg~&, THEME.DIALOG_toggle_sel_bg~&, THEME.DIALOG_border_inner~&
+        IF DIALOG_hit%(ctx, fldX%, ySeed%, 80, 14) AND NOT ddOpen% THEN
+            txt$ = DRAW_input_box$("AI - Seed", "Seed (same seed reproduces a result)", _TRIM$(STR$(seedVal&)), "12345")
+            IF LEN(_TRIM$(txt$)) > 0 THEN seedVal& = VAL(_TRIM$(txt$))
+        END IF
+        IF DIALOG_hit%(ctx, fldX% + 86, ySeed%, 60, 14) AND NOT ddOpen% THEN seedVal& = INT(RND * 999999) + 1
+
+        ' --- Generate / Cancel ---
+        ' Surprise me: random style + random saved prompt + fresh seed
+        DIALOG_draw_button ctx, padX% + 96, yBtns%, 96, 20, "SURPRISE ME", THEME.DIALOG_toggle_bg~&, THEME.DIALOG_toggle_sel_bg~&, THEME.DIALOG_border_inner~&
+        IF DIALOG_hit%(ctx, padX% + 96, yBtns%, 96, 20) AND NOT ddOpen% THEN
+            IF AI_STYLE_COUNT% > 0 THEN curStyle% = INT(RND * AI_STYLE_COUNT%) + 1
+            IF AI_PROMPT_COUNT% > 0 THEN
+                curPreset% = INT(RND * AI_PROMPT_COUNT%) + 1
+                curPrompt$ = RTRIM$(AI_PROMPTS(curPreset%).textBody)
+                IF promptTI% > 0 THEN TI_set_text promptTI%, curPrompt$
+            END IF
+            seedVal& = INT(RND * 999999) + 1
+        END IF
+
+        DIALOG_draw_button ctx, padX%, yBtns%, 90, 20, "GENERATE", THEME.DIALOG_toggle_bg~&, THEME.DIALOG_toggle_sel_bg~&, THEME.DIALOG_border_inner~&
+        DIALOG_draw_button ctx, dlgW% - padX% - 90, yBtns%, 90, 20, "CANCEL", THEME.DIALOG_toggle_bg~&, THEME.DIALOG_toggle_sel_bg~&, THEME.DIALOG_border_inner~&
+        IF promptTI% > 0 THEN curPrompt$ = TI_get_text$(promptTI%)
+
+        IF DIALOG_hit%(ctx, padX%, yBtns%, 90, 20) AND NOT ddOpen% THEN
+            IF LEN(_TRIM$(curPrompt$)) > 0 AND curTool% >= 1 THEN
+                ctx.result = TRUE
+                ctx.done   = TRUE
+            END IF
+        END IF
+                ' Cancel is deliberately NOT gated on ddOpen — it is the way out.
+        IF DIALOG_hit%(ctx, dlgW% - padX% - 90, yBtns%, 90, 20) THEN ctx.done = TRUE
+
+        ' --- Dropdowns -------------------------------------------------------
+        ' INPUT and DRAW are separated on purpose.
+        '
+        ' Input must run at most ONCE per dropdown per frame. Doing input inside
+        ' a two-pass draw loop processed the open dropdown twice in one frame:
+        ' the first pass opened it, and the second saw the same still-true
+        ' justClicked as a click-outside and closed it again, so the list
+        ' appeared to snap shut the instant it opened.
+        '
+        ' Only the OPEN dropdown gets input while one is open. Otherwise a click
+        ' on an item in an open list — which floats over the combos below it —
+        ' would also register on whichever combo it happens to cover.
+        DIM ddSel AS INTEGER
+        DIM ddW   AS INTEGER
+        ' Width compensates for the label column SW adds back internally
+        ddW% = (dlgW% - padX% - fldX%) + SW_LABEL_W
+
+        IF SW_DD.openId > 0 THEN
+            SELECT CASE SW_DD.openId
+                CASE 901
+                    ddSel% = curTool% - 1
+                    IF SW_dropdown_input%(ctx, ddX%, yTool%, ddW%, 901, AI_items_tools$, ddSel%) THEN curTool% = ddSel% + 1
+                CASE 902
+                    ddSel% = curStyle%
+                    IF SW_dropdown_input%(ctx, ddX%, yStyle%, ddW%, 902, AI_items_styles$, ddSel%) THEN curStyle% = ddSel%
+                CASE 903
+                    ddSel% = curPreset%
+                    IF SW_dropdown_input%(ctx, ddX%, yPreset%, ddW%, 903, AI_items_prompts$, ddSel%) THEN
+                        curPreset% = ddSel%
+                        IF curPreset% >= 1 THEN curPrompt$ = RTRIM$(AI_PROMPTS(curPreset%).textBody)
+                    END IF
+            END SELECT
+        ELSE
+            ddSel% = curTool% - 1
+            IF SW_dropdown_input%(ctx, ddX%, yTool%, ddW%, 901, AI_items_tools$, ddSel%) THEN curTool% = ddSel% + 1
+
+            ddSel% = curStyle%
+            IF SW_dropdown_input%(ctx, ddX%, yStyle%, ddW%, 902, AI_items_styles$, ddSel%) THEN curStyle% = ddSel%
+
+            ddSel% = curPreset%
+            IF SW_dropdown_input%(ctx, ddX%, yPreset%, ddW%, 903, AI_items_prompts$, ddSel%) THEN
+                curPreset% = ddSel%
+                IF curPreset% >= 1 THEN curPrompt$ = RTRIM$(AI_PROMPTS(curPreset%).textBody)
+            END IF
+        END IF
+
+        DIALOG_draw_label ctx, padX%, yTool% + 6, "Tool"
+        DIALOG_draw_label ctx, padX%, yStyle% + 6, "Style"
+        DIALOG_draw_label ctx, padX%, yPreset% + 6, "Preset"
+
+        ' Draw last, closed ones first, so an open list paints over the rows
+        ' beneath it. Draw-only — no input in this loop.
+        DIM ddPass AS INTEGER
+        FOR ddPass% = 0 TO 1
+            IF ((SW_DD.openId = 901) <> 0) = ((ddPass% = 1) <> 0) THEN
+                SW_draw_dropdown ctx, ddX%, yTool%, ddW%, 901, AI_items_tools$, curTool% - 1, ""
+            END IF
+            IF ((SW_DD.openId = 902) <> 0) = ((ddPass% = 1) <> 0) THEN
+                SW_draw_dropdown ctx, ddX%, yStyle%, ddW%, 902, AI_items_styles$, curStyle%, ""
+            END IF
+            IF ((SW_DD.openId = 903) <> 0) = ((ddPass% = 1) <> 0) THEN
+                SW_draw_dropdown ctx, ddX%, yPreset%, ddW%, 903, AI_items_prompts$, curPreset%, ""
+            END IF
+        NEXT ddPass%
+
+        DIALOG_blit ctx
+        _LIMIT CFG.FPS_DIALOG%
+    LOOP UNTIL ctx.done
+
+    DIM okResult AS INTEGER
+    okResult% = ctx.result
+    IF promptTI% > 0 THEN
+        curPrompt$ = TI_get_text$(promptTI%)
+        TI_destroy promptTI%
+    END IF
+    TI_set_font tiOldId%, tiOldW%, tiOldH%
+    IF tiMonoFont& > 16 THEN _FREEFONT tiMonoFont&
+    DIALOG_cleanup ctx
+
+    ' A text area can contain newlines; the prompt becomes a quoted shell
+    ' argument, where a raw newline would break the command.
+    curPrompt$ = AI_flatten_lines$(curPrompt$)
+
+    IF okResult% THEN
+        AI_DLG_TOOL%   = curTool%
+        AI_DLG_STYLE%  = curStyle%
+        AI_DLG_PROMPT$ = curPrompt$
+        AI_DLG_W%      = genW%
+        AI_DLG_H%      = genH%
+        AI_DLG_X%      = posX%
+        AI_DLG_Y%      = posY%
+        AI_DLG_SEED&   = seedVal&
+        AI_DLG_generate% = TRUE
+    END IF
+END FUNCTION
+
+
+''
+' Editor for one generator tool.
+' @param idx INTEGER - 1-based tool index
+'
+SUB AI_DLG_edit_tool (idx AS INTEGER)
+    IF idx% < 1 OR idx% > AI_TOOL_COUNT% THEN EXIT SUB
+
+    DIM ctx  AS DIALOG_CTX
+    DIM dlgW AS INTEGER : dlgW% = 320
+    DIM dlgH AS INTEGER : dlgH% = 150
+    DIALOG_init ctx, dlgW%, dlgH%
+
+    DIM hdrH AS INTEGER : hdrH% = THEME.DIALOG_title_height% + 4
+    DIM rowH AS INTEGER : rowH% = 18
+    DIM padX AS INTEGER : padX% = 10
+    DIM fldX AS INTEGER : fldX% = 62
+    DIM fldW AS INTEGER : fldW% = dlgW% - fldX% - padX%
+
+    DIM yName AS INTEGER : yName% = hdrH% + 6
+    DIM yExe  AS INTEGER : yExe%  = yName% + rowH%
+    DIM yDir  AS INTEGER : yDir%  = yExe% + rowH%
+    DIM yArgs AS INTEGER : yArgs% = yDir% + rowH%
+    DIM yBtns AS INTEGER : yBtns% = dlgH% - 26
+
+    DIM k   AS LONG
+    DIM txt AS STRING
+
+    DO
+        DIALOG_poll_mouse ctx
+        k& = _KEYHIT
+        IF k& = 27 OR k& = 13 THEN ctx.done = TRUE
+
+        DIALOG_draw_frame ctx, "AI - Edit Tool"
+
+        IF AI_DLG_field%(ctx, fldX%, yName%, fldW%, "Name", RTRIM$(AI_TOOLS(idx%).toolName)) THEN
+            txt$ = DRAW_input_box$("Tool Name", "Display name", RTRIM$(AI_TOOLS(idx%).toolName), "pixelmon")
+            IF LEN(_TRIM$(txt$)) > 0 THEN AI_TOOLS(idx%).toolName = _TRIM$(txt$)
+        END IF
+        IF AI_DLG_field%(ctx, fldX%, yExe%, fldW%, "Exe", RTRIM$(AI_TOOLS(idx%).exePath)) THEN
+            txt$ = DRAW_input_box$("Executable", "Path to the generator executable", RTRIM$(AI_TOOLS(idx%).exePath), "/path/to/tool")
+            IF LEN(_TRIM$(txt$)) > 0 THEN AI_TOOLS(idx%).exePath = _TRIM$(txt$)
+        END IF
+        IF AI_DLG_field%(ctx, fldX%, yDir%, fldW%, "Dir", RTRIM$(AI_TOOLS(idx%).workDir)) THEN
+            txt$ = DRAW_input_box$("Working Directory", "Directory to run the tool from", RTRIM$(AI_TOOLS(idx%).workDir), "")
+            AI_TOOLS(idx%).workDir = _TRIM$(txt$)
+        END IF
+        ' [?] opens the live macro reference beside this dialog
+        DIALOG_draw_button ctx, dlgW% - padX% - 16, yArgs%, 16, 14, "?", THEME.DIALOG_toggle_bg~&, THEME.DIALOG_toggle_sel_bg~&, THEME.DIALOG_border_inner~&
+        IF DIALOG_hit%(ctx, dlgW% - padX% - 16, yArgs%, 16, 14) THEN AI_DLG_macro_ref
+
+        IF AI_DLG_field%(ctx, fldX%, yArgs%, fldW% - 20, "Args", RTRIM$(AI_TOOLS(idx%).argsTmpl)) THEN
+            txt$ = DRAW_input_box$("Arguments", _
+                "Macros: {prompt} {style} {seed} {outdir} {outname}" + CHR$(10) + _
+                "{iw} {ih} {sw} {sh} {pal} {numpal} {fg} {bg} ...", _
+                RTRIM$(AI_TOOLS(idx%).argsTmpl), "")
+            IF LEN(_TRIM$(txt$)) > 0 THEN AI_TOOLS(idx%).argsTmpl = _TRIM$(txt$)
+        END IF
+
+        DIALOG_draw_button ctx, dlgW% - padX% - 90, yBtns%, 90, 20, "DONE", THEME.DIALOG_toggle_bg~&, THEME.DIALOG_toggle_sel_bg~&, THEME.DIALOG_border_inner~&
+        IF DIALOG_hit%(ctx, dlgW% - padX% - 90, yBtns%, 90, 20) THEN ctx.done = TRUE
+
+        DIALOG_blit ctx
+        _LIMIT CFG.FPS_DIALOG%
+    LOOP UNTIL ctx.done
+
+    DIALOG_cleanup ctx
+END SUB
+
+
+''
+' Editor for one style guide.
+' @param idx INTEGER - 1-based style index
+'
+SUB AI_DLG_edit_style (idx AS INTEGER)
+    IF idx% < 1 OR idx% > AI_STYLE_COUNT% THEN EXIT SUB
+
+    DIM ctx  AS DIALOG_CTX
+    DIM dlgW AS INTEGER : dlgW% = 320
+    DIM dlgH AS INTEGER : dlgH% = 190
+    DIALOG_init ctx, dlgW%, dlgH%
+
+    DIM hdrH AS INTEGER : hdrH% = THEME.DIALOG_title_height% + 4
+    DIM rowH AS INTEGER : rowH% = 18
+    DIM padX AS INTEGER : padX% = 10
+    DIM fldX AS INTEGER : fldX% = 62
+    DIM fldW AS INTEGER : fldW% = dlgW% - fldX% - padX%
+
+    DIM yName   AS INTEGER : yName%   = hdrH% + 6
+    DIM yTool   AS INTEGER : yTool%   = yName% + rowH%
+    DIM yPrefix AS INTEGER : yPrefix% = yTool% + rowH%
+    DIM ySuffix AS INTEGER : ySuffix% = yPrefix% + rowH%
+    DIM yArgs   AS INTEGER : yArgs%   = ySuffix% + rowH%
+    DIM yDesc   AS INTEGER : yDesc%   = yArgs% + rowH%
+    DIM ySeed   AS INTEGER : ySeed%   = yDesc% + rowH%
+    DIM yBtns   AS INTEGER : yBtns%   = dlgH% - 26
+
+    ' Tool scope is cycled through the configured tools, plus "(any)"
+    DIM toolSel AS INTEGER
+    toolSel% = AI_tool_by_name%(RTRIM$(AI_STYLES(idx%).toolName))
+
+    DIM k     AS LONG
+    DIM txt   AS STRING
+    DIM delta AS INTEGER
+
+    DO
+        DIALOG_poll_mouse ctx
+        k& = _KEYHIT
+        IF k& = 27 OR k& = 13 THEN ctx.done = TRUE
+
+        DIALOG_draw_frame ctx, "AI - Edit Style"
+
+        IF AI_DLG_field%(ctx, fldX%, yName%, fldW%, "Name", RTRIM$(AI_STYLES(idx%).styleName)) THEN
+            txt$ = DRAW_input_box$("Style Name", "Name of this style", RTRIM$(AI_STYLES(idx%).styleName), "dosrpg")
+            IF LEN(_TRIM$(txt$)) > 0 THEN AI_STYLES(idx%).styleName = _TRIM$(txt$)
+        END IF
+
+        txt$ = "(any tool)"
+        IF toolSel% >= 1 AND toolSel% <= AI_TOOL_COUNT% THEN txt$ = RTRIM$(AI_TOOLS(toolSel%).toolName)
+        delta% = AI_DLG_cycler%(ctx, fldX%, yTool%, fldW%, "Tool", txt$)
+        IF delta% <> 0 THEN
+            toolSel% = toolSel% + delta%
+            IF toolSel% < 0 THEN toolSel% = AI_TOOL_COUNT%
+            IF toolSel% > AI_TOOL_COUNT% THEN toolSel% = 0
+            IF toolSel% >= 1 THEN
+                AI_STYLES(idx%).toolName = RTRIM$(AI_TOOLS(toolSel%).toolName)
+            ELSE
+                AI_STYLES(idx%).toolName = ""
+            END IF
+        END IF
+
+        IF AI_DLG_field%(ctx, fldX%, yPrefix%, fldW%, "Prefix", RTRIM$(AI_STYLES(idx%).prefixText)) THEN
+            txt$ = DRAW_input_box$("Style Prefix", "Text placed BEFORE the prompt", RTRIM$(AI_STYLES(idx%).prefixText), "")
+            AI_STYLES(idx%).prefixText = _TRIM$(txt$)
+        END IF
+        IF AI_DLG_field%(ctx, fldX%, ySuffix%, fldW%, "Suffix", RTRIM$(AI_STYLES(idx%).suffixText)) THEN
+            txt$ = DRAW_input_box$("Style Suffix", "Text placed AFTER the prompt", RTRIM$(AI_STYLES(idx%).suffixText), "pixel art, crisp pixels")
+            AI_STYLES(idx%).suffixText = _TRIM$(txt$)
+        END IF
+        DIALOG_draw_button ctx, dlgW% - padX% - 16, yArgs%, 16, 14, "?", THEME.DIALOG_toggle_bg~&, THEME.DIALOG_toggle_sel_bg~&, THEME.DIALOG_border_inner~&
+        IF DIALOG_hit%(ctx, dlgW% - padX% - 16, yArgs%, 16, 14) THEN AI_DLG_macro_ref
+
+        IF AI_DLG_field%(ctx, fldX%, yArgs%, fldW% - 20, "Args", RTRIM$(AI_STYLES(idx%).argsExtra)) THEN
+            txt$ = DRAW_input_box$("Style Arguments", _
+                "Extra CLI flags for this style, e.g. --style ega" + CHR$(10) + _
+                "(flags belong HERE, not in prefix/suffix)", RTRIM$(AI_STYLES(idx%).argsExtra), "--style ega")
+            AI_STYLES(idx%).argsExtra = _TRIM$(txt$)
+        END IF
+        IF AI_DLG_field%(ctx, fldX%, yDesc%, fldW%, "Desc", RTRIM$(AI_STYLES(idx%).descText)) THEN
+            txt$ = DRAW_input_box$("Description", "What this style is for", RTRIM$(AI_STYLES(idx%).descText), "")
+            AI_STYLES(idx%).descText = _TRIM$(txt$)
+        END IF
+        IF AI_DLG_field%(ctx, fldX%, ySeed%, fldW%, "Seed", _TRIM$(STR$(AI_STYLES(idx%).seedVal))) THEN
+            txt$ = DRAW_input_box$("Style Seed", "Seed to force for this style (0 = don't)", _TRIM$(STR$(AI_STYLES(idx%).seedVal)), "0")
+            AI_STYLES(idx%).seedVal = VAL(_TRIM$(txt$))
+        END IF
+
+        DIALOG_draw_button ctx, dlgW% - padX% - 90, yBtns%, 90, 20, "DONE", THEME.DIALOG_toggle_bg~&, THEME.DIALOG_toggle_sel_bg~&, THEME.DIALOG_border_inner~&
+        IF DIALOG_hit%(ctx, dlgW% - padX% - 90, yBtns%, 90, 20) THEN ctx.done = TRUE
+
+        DIALOG_blit ctx
+        _LIMIT CFG.FPS_DIALOG%
+    LOOP UNTIL ctx.done
+
+    DIALOG_cleanup ctx
+END SUB
+
+
+''
+' Editor for one prompt preset.
+' @param idx INTEGER - 1-based prompt index
+'
+SUB AI_DLG_edit_prompt_preset (idx AS INTEGER)
+    IF idx% < 1 OR idx% > AI_PROMPT_COUNT% THEN EXIT SUB
+
+    DIM ctx  AS DIALOG_CTX
+    DIM dlgW AS INTEGER : dlgW% = 320
+    DIM dlgH AS INTEGER : dlgH% = 110
+    DIALOG_init ctx, dlgW%, dlgH%
+
+    DIM hdrH AS INTEGER : hdrH% = THEME.DIALOG_title_height% + 4
+    DIM rowH AS INTEGER : rowH% = 18
+    DIM padX AS INTEGER : padX% = 10
+    DIM fldX AS INTEGER : fldX% = 62
+    DIM fldW AS INTEGER : fldW% = dlgW% - fldX% - padX%
+
+    DIM yName AS INTEGER : yName% = hdrH% + 6
+    DIM yText AS INTEGER : yText% = yName% + rowH%
+    DIM yBtns AS INTEGER : yBtns% = dlgH% - 26
+
+    DIM k   AS LONG
+    DIM txt AS STRING
+
+    DO
+        DIALOG_poll_mouse ctx
+        k& = _KEYHIT
+        IF k& = 27 OR k& = 13 THEN ctx.done = TRUE
+
+        DIALOG_draw_frame ctx, "AI - Edit Prompt Preset"
+
+        IF AI_DLG_field%(ctx, fldX%, yName%, fldW%, "Name", RTRIM$(AI_PROMPTS(idx%).label)) THEN
+            txt$ = DRAW_input_box$("Preset Name", "Short label for this preset", RTRIM$(AI_PROMPTS(idx%).label), "dungeon tileset")
+            IF LEN(_TRIM$(txt$)) > 0 THEN AI_PROMPTS(idx%).label = _TRIM$(txt$)
+        END IF
+        IF AI_DLG_field%(ctx, fldX%, yText%, fldW%, "Text", RTRIM$(AI_PROMPTS(idx%).textBody)) THEN
+            txt$ = DRAW_input_box$("Preset Text", "Prompt text", RTRIM$(AI_PROMPTS(idx%).textBody), "a fierce dragon")
+            AI_PROMPTS(idx%).textBody = _TRIM$(txt$)
+        END IF
+
+        DIALOG_draw_button ctx, dlgW% - padX% - 90, yBtns%, 90, 20, "DONE", THEME.DIALOG_toggle_bg~&, THEME.DIALOG_toggle_sel_bg~&, THEME.DIALOG_border_inner~&
+        IF DIALOG_hit%(ctx, dlgW% - padX% - 90, yBtns%, 90, 20) THEN ctx.done = TRUE
+
+        DIALOG_blit ctx
+        _LIMIT CFG.FPS_DIALOG%
+    LOOP UNTIL ctx.done
+
+    DIALOG_cleanup ctx
+END SUB
+
+
+''
+' List manager shared by tools, styles and prompts: a scrollable list with
+' Add / Edit / Remove. listKind: 1 = tools, 2 = styles, 3 = prompts.
+' @param listKind INTEGER - Which collection to manage
+'
+SUB AI_DLG_manage_list (listKind AS INTEGER)
+    DIM ctx  AS DIALOG_CTX
+    DIM dlgW AS INTEGER : dlgW% = 300
+    DIM dlgH AS INTEGER : dlgH% = 220
+    DIALOG_init ctx, dlgW%, dlgH%
+
+    DIM hdrH AS INTEGER : hdrH% = THEME.DIALOG_title_height% + 4
+    DIM padX AS INTEGER : padX% = 10
+    DIM rowH AS INTEGER : rowH% = 14
+    DIM listY AS INTEGER : listY% = hdrH% + 6
+    DIM listH AS INTEGER : listH% = 120
+    DIM yBtns AS INTEGER : yBtns% = dlgH% - 26
+    DIM yOps  AS INTEGER : yOps%  = listY% + listH% + 6
+
+    DIM titleTxt AS STRING
+    SELECT CASE listKind%
+        CASE 1 : titleTxt$ = "AI - Generator Tools"
+        CASE 2 : titleTxt$ = "AI - Style Editor"
+        CASE ELSE : titleTxt$ = "AI - Prompt Editor"
+    END SELECT
+
+    DIM sel    AS INTEGER : sel% = 1
+    DIM scroll AS INTEGER : scroll% = 0
+    DIM k      AS LONG
+    DIM i      AS INTEGER
+    DIM total  AS INTEGER
+    DIM rowsFit AS INTEGER : rowsFit% = listH% \ rowH%
+    DIM entry  AS STRING
+    DIM fontH  AS INTEGER
+
+    DO
+        DIALOG_poll_mouse ctx
+        k& = _KEYHIT
+        IF k& = 27 THEN ctx.done = TRUE
+
+        SELECT CASE listKind%
+            CASE 1 : total% = AI_TOOL_COUNT%
+            CASE 2 : total% = AI_STYLE_COUNT%
+            CASE ELSE : total% = AI_PROMPT_COUNT%
+        END SELECT
+        IF sel% > total% THEN sel% = total%
+        IF sel% < 1 THEN sel% = 1
+
+        DIALOG_draw_frame ctx, titleTxt$
+
+        ' --- List box ---
+        LINE (padX%, listY%)-(dlgW% - padX%, listY% + listH%), THEME.DIALOG_slider_track_bg~&, BF
+        LINE (padX%, listY%)-(dlgW% - padX%, listY% + listH%), THEME.DIALOG_border_inner~&, B
+
+        IF ctx.mwheel <> 0 THEN
+            scroll% = scroll% + ctx.mwheel
+            IF scroll% < 0 THEN scroll% = 0
+            IF scroll% > total% - rowsFit% THEN scroll% = total% - rowsFit%
+            IF scroll% < 0 THEN scroll% = 0
+        END IF
+
+        fontH% = DIALOG_font_height%(ctx)
+        FOR i% = 0 TO rowsFit% - 1
+            DIM entryIdx AS INTEGER
+            entryIdx% = scroll% + i% + 1
+            IF entryIdx% > total% THEN EXIT FOR
+
+            DIM rowY AS INTEGER
+            rowY% = listY% + 2 + i% * rowH%
+
+            SELECT CASE listKind%
+                CASE 1 : entry$ = RTRIM$(AI_TOOLS(entryIdx%).toolName)
+                CASE 2
+                    entry$ = RTRIM$(AI_STYLES(entryIdx%).styleName)
+                    IF LEN(RTRIM$(AI_STYLES(entryIdx%).toolName)) > 0 THEN entry$ = entry$ + "  [" + RTRIM$(AI_STYLES(entryIdx%).toolName) + "]"
+                CASE ELSE : entry$ = RTRIM$(AI_PROMPTS(entryIdx%).label)
+            END SELECT
+
+            IF entryIdx% = sel% THEN
+                LINE (padX% + 1, rowY% - 1)-(dlgW% - padX% - 1, rowY% + rowH% - 2), THEME.DIALOG_toggle_sel_bg~&, BF
+            END IF
+            COLOR THEME.DIALOG_label_fg~&
+            _UPRINTSTRING (padX% + 4, rowY%), entry$
+
+            IF DIALOG_hit%(ctx, padX%, rowY% - 1, dlgW% - padX% * 2, rowH%) THEN sel% = entryIdx%
+        NEXT i%
+
+        ' --- Add / Edit / Remove ---
+        DIALOG_draw_button ctx, padX%, yOps%, 60, 16, "ADD", THEME.DIALOG_toggle_bg~&, THEME.DIALOG_toggle_sel_bg~&, THEME.DIALOG_border_inner~&
+        DIALOG_draw_button ctx, padX% + 66, yOps%, 60, 16, "EDIT", THEME.DIALOG_toggle_bg~&, THEME.DIALOG_toggle_sel_bg~&, THEME.DIALOG_border_inner~&
+        DIALOG_draw_button ctx, padX% + 132, yOps%, 60, 16, "REMOVE", THEME.DIALOG_toggle_bg~&, THEME.DIALOG_toggle_sel_bg~&, THEME.DIALOG_border_inner~&
+
+        IF DIALOG_hit%(ctx, padX%, yOps%, 60, 16) THEN
+            DIM newIdx AS INTEGER
+            SELECT CASE listKind%
+                CASE 1 : newIdx% = AI_tool_alloc%
+                CASE 2 : newIdx% = AI_style_alloc%
+                CASE ELSE : newIdx% = AI_prompt_alloc%
+            END SELECT
+            IF newIdx% > 0 THEN
+                sel% = newIdx%
+                SELECT CASE listKind%
+                    CASE 1 : AI_DLG_edit_tool newIdx%
+                    CASE 2 : AI_DLG_edit_style newIdx%
+                    CASE ELSE : AI_DLG_edit_prompt_preset newIdx%
+                END SELECT
+            END IF
+        END IF
+
+        IF DIALOG_hit%(ctx, padX% + 66, yOps%, 60, 16) AND total% > 0 THEN
+            SELECT CASE listKind%
+                CASE 1 : AI_DLG_edit_tool sel%
+                CASE 2 : AI_DLG_edit_style sel%
+                CASE ELSE : AI_DLG_edit_prompt_preset sel%
+            END SELECT
+        END IF
+
+        IF DIALOG_hit%(ctx, padX% + 132, yOps%, 60, 16) AND total% > 0 THEN
+            SELECT CASE listKind%
+                CASE 1 : AI_tool_remove sel%
+                CASE 2 : AI_style_remove sel%
+                CASE ELSE : AI_prompt_remove sel%
+            END SELECT
+            IF sel% > 1 THEN sel% = sel% - 1
+        END IF
+
+        ' --- Close (saves) ---
+        DIALOG_draw_button ctx, dlgW% - padX% - 90, yBtns%, 90, 20, "CLOSE", THEME.DIALOG_toggle_bg~&, THEME.DIALOG_toggle_sel_bg~&, THEME.DIALOG_border_inner~&
+        IF DIALOG_hit%(ctx, dlgW% - padX% - 90, yBtns%, 90, 20) THEN ctx.done = TRUE
+
+        DIALOG_blit ctx
+        _LIMIT CFG.FPS_DIALOG%
+    LOOP UNTIL ctx.done
+
+    DIALOG_cleanup ctx
+    AI_config_save
+END SUB
+
+
+''
+' Macro quick reference: every macro, what it means, and what it expands to
+' RIGHT NOW against the current document. Values come from DRAW_InfoParser$
+' itself, so the table can never drift from what the generator will actually
+' receive.
+'
+' Opened by the [?] buttons on the tool and style editors. It is a modal, so
+' the editor behind it is paused; it stays up until CLOSE or ESC. Positioned
+' to the right of centre so the editor's fields stay visible beside it.
+'
+SUB AI_DLG_macro_ref ()
+    ' code / description pairs — order groups related macros together
+    DIM codes(1 TO 48) AS STRING
+    DIM descs(1 TO 48) AS STRING
+    DIM n AS INTEGER
+
+    codes(1) = "{prompt}"     : descs(1) = "Prompt (style applied)"
+    codes(2) = "{style}"      : descs(2) = "Selected style name"
+    codes(3) = "{seed}"       : descs(3) = "Seed for this run"
+    codes(4) = "{outdir}"     : descs(4) = "Where the tool MUST write"
+    codes(5) = "{outname}"    : descs(5) = "Output filename base"
+    codes(6) = "{if}"         : descs(6) = "Image filename"
+    codes(7) = "{id}"         : descs(7) = "Image directory"
+    codes(8) = "{iw}"         : descs(8) = "Image width"
+    codes(9) = "{ih}"         : descs(9) = "Image height"
+    codes(10) = "{sw}"        : descs(10) = "Selection width"
+    codes(11) = "{sh}"        : descs(11) = "Selection height"
+    codes(12) = "{bw}"        : descs(12) = "Brush width"
+    codes(13) = "{bh}"        : descs(13) = "Brush height"
+    codes(14) = "{gw}"        : descs(14) = "Grid width"
+    codes(15) = "{gh}"        : descs(15) = "Grid height"
+    codes(16) = "{pal}"       : descs(16) = "Palette name"
+    codes(17) = "{numpal}"    : descs(17) = "Colors in palette"
+    codes(18) = "{numlayers}" : descs(18) = "Layer count"
+    codes(19) = "{lidx}"      : descs(19) = "Current layer index"
+    codes(20) = "{lname}"     : descs(20) = "Current layer name"
+    codes(21) = "{lw}"        : descs(21) = "Layer width"
+    codes(22) = "{lh}"        : descs(22) = "Layer height"
+    codes(23) = "{lx}"        : descs(23) = "Layer X"
+    codes(24) = "{ly}"        : descs(24) = "Layer Y"
+    codes(25) = "{fg}"        : descs(25) = "Foreground color hex"
+    codes(26) = "{bg}"        : descs(26) = "Background color hex"
+    codes(27) = "{pmode}"     : descs(27) = "Layer blend mode"
+    codes(28) = "{tool}"      : descs(28) = "Active tool"
+    codes(29) = "{px}"        : descs(29) = "Pointer X"
+    codes(30) = "{py}"        : descs(30) = "Pointer Y"
+    codes(31) = "{font}"      : descs(31) = "Active font"
+    codes(32) = "{fsize}"     : descs(32) = "Font size"
+    codes(33) = "{fontfile}"  : descs(33) = "Path to font file"
+    codes(34) = "{dimg}"      : descs(34) = "Flattened doc PNG (steering)"
+    ' Screen-scaled twins: same value multiplied by the display scale
+    codes(35) = "{sciw}"      : descs(35) = "Image width x screen scale"
+    codes(36) = "{scih}"      : descs(36) = "Image height x screen scale"
+    codes(37) = "{scsw}"      : descs(37) = "Selection width x scale"
+    codes(38) = "{scsh}"      : descs(38) = "Selection height x scale"
+    codes(39) = "{sclw}"      : descs(39) = "Layer width x scale"
+    codes(40) = "{sclh}"      : descs(40) = "Layer height x scale"
+    codes(41) = "{sclx}"      : descs(41) = "Layer X x scale"
+    codes(42) = "{scly}"      : descs(42) = "Layer Y x scale"
+    codes(43) = "{scbw}"      : descs(43) = "Brush width x scale"
+    codes(44) = "{scbh}"      : descs(44) = "Brush height x scale"
+    codes(45) = "{scgw}"      : descs(45) = "Grid width x scale"
+    codes(46) = "{scgh}"      : descs(46) = "Grid height x scale"
+    codes(47) = "{scpx}"      : descs(47) = "Pointer X x scale"
+    codes(48) = "{scpy}"      : descs(48) = "Pointer Y x scale"
+    n% = 48
+
+    DIM ctx  AS DIALOG_CTX
+    DIM dlgW AS INTEGER : dlgW% = 340
+    DIM dlgH AS INTEGER : dlgH% = 270
+    DIALOG_init ctx, dlgW%, dlgH%
+
+    ' Nudge right of centre so the dialog underneath stays readable
+    ctx.x = ctx.x + 120
+    IF ctx.x + dlgW% > SCRN.w& THEN ctx.x = SCRN.w& - dlgW% - 4
+
+    DIM hdrH AS INTEGER : hdrH% = THEME.DIALOG_title_height% + 4
+    DIM padX AS INTEGER : padX% = 8
+    DIM rowH AS INTEGER : rowH% = 11
+    DIM noteY AS INTEGER : noteY% = hdrH% + 3
+    DIM listY AS INTEGER : listY% = hdrH% + 34
+    DIM listH AS INTEGER : listH% = dlgH% - listY% - 34
+    DIM yBtns AS INTEGER : yBtns% = dlgH% - 26
+    DIM rowsFit AS INTEGER : rowsFit% = listH% \ rowH%
+
+    DIM scroll AS INTEGER : scroll% = 0
+    DIM i      AS INTEGER
+    DIM k      AS LONG
+    DIM colX2  AS INTEGER : colX2% = padX% + 72
+    DIM colX3  AS INTEGER : colX3% = padX% + 210
+
+    DO
+        DIALOG_poll_mouse ctx
+        k& = _KEYHIT
+        IF k& = 27 OR k& = 13 THEN ctx.done = TRUE
+        IF k& = 18432 THEN scroll% = scroll% - 1          ' up arrow
+        IF k& = 20480 THEN scroll% = scroll% + 1          ' down arrow
+
+        DIALOG_draw_frame ctx, "AI - Macro Reference"
+
+        ' How-to note: casing shorthand + the trimming guarantee
+        COLOR THEME.DIALOG_title_fg~&
+        _UPRINTSTRING (padX%, noteY%), "{pal} = as-is    {PAL} = UPPERCASE    {pal:slug} = cli-safe"
+        COLOR THEME.DIALOG_label_fg~&
+        _UPRINTSTRING (padX%, noteY% + 9), "Trimmed of whitespace.  sc* = same value x screen scale."
+
+        ' Column headings
+        COLOR THEME.DIALOG_label_fg~&
+        _UPRINTSTRING (padX%, listY% - 12), "MACRO"
+        _UPRINTSTRING (colX2%, listY% - 12), "MEANING"
+        _UPRINTSTRING (colX3%, listY% - 12), "VALUE NOW"
+
+        LINE (padX%, listY% - 3)-(dlgW% - padX%, listY% - 3), THEME.DIALOG_border_inner~&
+
+        IF ctx.mwheel <> 0 THEN scroll% = scroll% + ctx.mwheel
+        IF scroll% > n% - rowsFit% THEN scroll% = n% - rowsFit%
+        IF scroll% < 0 THEN scroll% = 0
+
+        FOR i% = 0 TO rowsFit% - 1
+            DIM idx AS INTEGER
+            idx% = scroll% + i% + 1
+            IF idx% > n% THEN EXIT FOR
+
+            DIM rowY AS INTEGER
+            rowY% = listY% + i% * rowH%
+
+            COLOR THEME.DIALOG_toggle_sel_border~&
+            _UPRINTSTRING (padX%, rowY%), codes(idx%)
+            COLOR THEME.DIALOG_label_fg~&
+            _UPRINTSTRING (colX2%, rowY%), descs(idx%)
+
+            ' Live value, straight from the parser the generator will use
+            DIM liveVal AS STRING
+            liveVal$ = DRAW_InfoParser$(codes(idx%))
+            IF liveVal$ = codes(idx%) THEN liveVal$ = "(set at run time)"
+            IF _PRINTWIDTH(liveVal$) > dlgW% - colX3% - padX% THEN
+                DO WHILE LEN(liveVal$) > 0 AND _PRINTWIDTH(liveVal$ + "...") > dlgW% - colX3% - padX%
+                    liveVal$ = LEFT$(liveVal$, LEN(liveVal$) - 1)
+                LOOP
+                liveVal$ = liveVal$ + "..."
+            END IF
+            COLOR THEME.DIALOG_title_fg~&
+            _UPRINTSTRING (colX3%, rowY%), liveVal$
+        NEXT i%
+
+        IF n% > rowsFit% THEN
+            COLOR THEME.DIALOG_label_fg~&
+            _UPRINTSTRING (padX%, yBtns% + 6), "MWHEEL / ARROWS to scroll  (" + _TRIM$(STR$(scroll% + 1)) + "-" + _TRIM$(STR$(scroll% + rowsFit%)) + " of " + _TRIM$(STR$(n%)) + ")"
+        END IF
+
+        DIALOG_draw_button ctx, dlgW% - padX% - 70, yBtns%, 70, 20, "CLOSE", THEME.DIALOG_toggle_bg~&, THEME.DIALOG_toggle_sel_bg~&, THEME.DIALOG_border_inner~&
+        IF DIALOG_hit%(ctx, dlgW% - padX% - 70, yBtns%, 70, 20) THEN ctx.done = TRUE
+
+        DIALOG_blit ctx
+        _LIMIT CFG.FPS_DIALOG%
+    LOOP UNTIL ctx.done
+
+    DIALOG_cleanup ctx
+END SUB

@@ -334,6 +334,55 @@ END FUNCTION
 
 
 ''
+' Create a new AI layer and claim an AI_LAYER_DATA pool slot for it.
+' The generation metadata (prompt/style/tool/seed) is filled in by the caller
+' and travels with the layer into the .draw file so it can be regenerated.
+'
+' @param promptText STRING - Prompt used to generate this layer
+' @param styleText STRING - Style name ("" for none)
+' @param toolText STRING - Generator tool name
+' @param seedNum LONG - Seed (0 = random / unrecorded)
+' @param genW INTEGER - Requested generation width
+' @param genH INTEGER - Requested generation height
+' @return INTEGER - New layer index, or 0 on failure
+'
+FUNCTION LAYERS_new_ai% (promptText AS STRING, styleText AS STRING, toolText AS STRING, seedNum AS LONG, genW AS INTEGER, genH AS INTEGER)
+    LAYERS_new_ai% = 0
+
+    DIM newIdx AS INTEGER
+    newIdx% = LAYERS_new%
+    IF newIdx% = 0 THEN EXIT FUNCTION
+
+    DIM aiIdx AS INTEGER
+    aiIdx% = AI_LAYER_alloc%
+    IF aiIdx% = 0 THEN
+        ' Pool full — drop the layer we just made rather than leak it
+        LAYERS_delete newIdx%
+        EXIT FUNCTION
+    END IF
+
+    LAYERS(newIdx%).layerType% = LAYER_TYPE_AI
+    LAYERS(newIdx%).aiDataIdx% = aiIdx%
+
+    ' Name the layer after the prompt so the panel is readable at a glance
+    DIM lyrName AS STRING
+    lyrName$ = _TRIM$(promptText$)
+    IF LEN(lyrName$) = 0 THEN lyrName$ = "AI Layer"
+    IF LEN(lyrName$) > 24 THEN lyrName$ = LEFT$(lyrName$, 21) + "..."
+    LAYERS(newIdx%).name = lyrName$
+
+    AI_LAYER_DATA(aiIdx%).prompt    = promptText$
+    AI_LAYER_DATA(aiIdx%).styleName = styleText$
+    AI_LAYER_DATA(aiIdx%).toolName  = toolText$
+    AI_LAYER_DATA(aiIdx%).seedVal   = seedNum&
+    AI_LAYER_DATA(aiIdx%).genW      = genW%
+    AI_LAYER_DATA(aiIdx%).genH      = genH%
+
+    LAYERS_new_ai% = newIdx%
+END FUNCTION
+
+
+''
 ' Delete a layer
 ' @param layerIndex INTEGER Index of the layer to delete (1-64)
 '
@@ -2367,10 +2416,22 @@ SUB LAYER_PANEL_render (canvasHeight AS INTEGER)
                         END IF
                     END IF
 
+                    ' AI layer tag. Only when AI features are enabled — an AI
+                    ' layer in a project opened with AI off must look like any
+                    ' other layer, since nothing about AI may surface.
+                    DIM showAiTag AS INTEGER
+                    DIM aiTag     AS STRING
+                    showAiTag% = FALSE
+                    aiTag$     = "[AI]"
+                    IF CFG.AI_ENABLED% <> 0 AND panelW% >= 80 THEN
+                        IF LAYERS(layerIdx%).layerType% = LAYER_TYPE_AI THEN showAiTag% = TRUE
+                    END IF
+
                     ' availW% = full row width minus left icons (24px) minus opacity bar (14px)
                     ' When a blend abbreviation is present, also subtract its width + 2px gap.
                     availW% = panelW% - rowIndent% - 24 - 14
                     IF showBlendInd% THEN availW% = availW% - _PRINTWIDTH(blendShort$) - 2
+                    IF showAiTag% THEN availW% = availW% - _PRINTWIDTH(aiTag$) - 2
 
                     ' Trim from end until it fits the available pixel width.
                     ' If we had to trim (by char-count cap or by pixel width), append an ellipsis.
@@ -2398,6 +2459,16 @@ SUB LAYER_PANEL_render (canvasHeight AS INTEGER)
                         blendIndX% = panelX% + panelW% - 17 - _PRINTWIDTH(blendShort$)
                         COLOR THEME.LAYER_PANEL_row_fg_blend~&, _RGBA32(0, 0, 0, 0)
                         _UPRINTSTRING (blendIndX%, drawY% + 4), blendShort$
+                    END IF
+
+                    ' [AI] tag — sits just left of the blend indicator so the two
+                    ' can coexist on the same row without overlapping.
+                    IF showAiTag% THEN
+                        DIM aiTagX AS INTEGER
+                        aiTagX% = panelX% + panelW% - 17 - _PRINTWIDTH(aiTag$)
+                        IF showBlendInd% THEN aiTagX% = aiTagX% - _PRINTWIDTH(blendShort$) - 2
+                        COLOR THEME.LAYER_PANEL_row_fg_blend~&, _RGBA32(0, 0, 0, 0)
+                        _UPRINTSTRING (aiTagX%, drawY% + 4), aiTag$
                     END IF
                     END IF ' isGroupHeader% ELSE
 
@@ -6254,6 +6325,18 @@ SUB LAYER_PANEL_ctx_menu_build (layerIdx AS INTEGER, itemCount AS INTEGER)
     IF NOT isTextLayer% THEN flags% = POPUP_MENU_FLAG_DISABLED
     POPUP_MENU_set_item itemCount%, "RASTERIZE TEXT", "", 713, flags%
     itemCount% = itemCount% + 1
+
+    ' --- AI layer operations (omitted entirely when AI features are off) ---
+    IF CFG.AI_ENABLED% <> 0 AND LAYERS(layerIdx%).layerType% = LAYER_TYPE_AI THEN
+        POPUP_MENU_set_item itemCount%, "", "", -1, POPUP_MENU_FLAG_DIVIDER
+        itemCount% = itemCount% + 1
+
+        POPUP_MENU_set_item itemCount%, "EDIT PROMPT...", "", 1807, 0
+        itemCount% = itemCount% + 1
+
+        POPUP_MENU_set_item itemCount%, "REGENERATE", "", 1802, 0
+        itemCount% = itemCount% + 1
+    END IF
 
     POPUP_MENU_set_item itemCount%, "", "", -1, POPUP_MENU_FLAG_DIVIDER
     itemCount% = itemCount% + 1

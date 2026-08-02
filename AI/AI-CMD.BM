@@ -1,0 +1,397 @@
+''
+' DRAW - AI/AI-CMD.BM
+' =============================================================================
+' User-facing AI commands: new AI layer, regenerate, and tool setup.
+'
+' Parameters are collected through the modal generate dialog in AI-DIALOG.BM
+' (tool, style, prompt + presets, size, 3x3 position, seed) — these commands
+' just translate its result into a layer and a job.
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+''
+' Ensure at least one generator is configured, offering to write a starter
+' config if none is. Returns FALSE when the caller should abort.
+' @return INTEGER - TRUE when a tool is available
+'
+FUNCTION AI_require_tool% ()
+    AI_require_tool% = FALSE
+    IF AI_TOOL_COUNT% > 0 THEN
+        AI_require_tool% = TRUE
+        EXIT FUNCTION
+    END IF
+
+    DIM res AS INTEGER
+    res% = DRAW_message_box%("AI - No Generators", _
+        "No AI generator is configured." + CHR$(10) + CHR$(10) + _
+        "Write a starter config with the bundled test" + CHR$(10) + _
+        "engine and a pixelmon entry?" + CHR$(10) + CHR$(10) + _
+        AI_config_path$, MB_BTN_YES_NO, MB_ICON_QUESTION)
+    IF res% <> MB_RESULT_1 THEN EXIT FUNCTION
+
+    AI_write_starter_config
+    AI_config_load
+    AI_require_tool% = (AI_TOOL_COUNT% > 0)
+END FUNCTION
+
+
+''
+' Write a DRAW.ai.cfg containing the bundled echo test engine plus a pixelmon
+' entry, so a new user has something that runs immediately and a real example
+' to edit.
+'
+SUB AI_write_starter_config ()
+    DIM fh AS INTEGER
+    fh% = FREEFILE
+    OPEN AI_config_path$ FOR OUTPUT AS #fh%
+    PRINT #fh%, "# DRAW AI generator tools"
+    PRINT #fh%, "#"
+    PRINT #fh%, "# ARGS is expanded by DRAW_InfoParser$ before the tool runs."
+    PRINT #fh%, "# DRAW creates a fresh {outdir} per run and imports the newest"
+    PRINT #fh%, "# PNG the tool leaves there, so every tool MUST be pointed at"
+    PRINT #fh%, "# {outdir}. Names starting with _ are ignored (DRAW's own"
+    PRINT #fh%, "# {limg}/{dimg}/{bimg} exports live there too)."
+    PRINT #fh%, "#"
+    PRINT #fh%, "# Macros: {prompt} {style} {seed} {outdir} {outname}"
+    PRINT #fh%, "#         {if} {id} {iw} {ih} {sw} {sh} {bw} {bh} {gw} {gh}"
+    PRINT #fh%, "#         {pal} {numpal} {numlayers} {lidx} {lname} {lw} {lh} {lx} {ly}"
+    PRINT #fh%, "#         {fg} {bg} {pmode} {tool} {px} {py}"
+    PRINT #fh%, "#         {font} {fsize} {fontfile} {limg} {dimg} {bimg}"
+    PRINT #fh%, ""
+    PRINT #fh%, "[TOOL]"
+    PRINT #fh%, "NAME=echo (test)"
+    PRINT #fh%, "EXE=" + AI_join_path$(_STARTDIR$, "DEV/ai-echo.sh")
+    PRINT #fh%, "DIR=" + AI_trim_slash$(_STARTDIR$)
+    PRINT #fh%, "ARGS=" + CHR$(34) + "{prompt}" + CHR$(34) + " --size {sw}x{sh} --seed {seed} --output-to {outdir} --name {outname} --delay 1"
+    PRINT #fh%, ""
+    PRINT #fh%, "[TOOL]"
+    PRINT #fh%, "NAME=pixelmon"
+    ' pixelmon.py is not executable — bin/pixelmon is the wrapper to call.
+    ' DIR is the folder to run FROM, never the program itself.
+    PRINT #fh%, "EXE=" + AI_join_path$(_STARTDIR$, "../pixelmon/bin/pixelmon")
+    PRINT #fh%, "DIR=" + AI_join_path$(_STARTDIR$, "../pixelmon")
+    PRINT #fh%, "ARGS=" + CHR$(34) + "{prompt}" + CHR$(34) + " --size {sw}x{sh} --seed {seed} --palette " + CHR$(34) + "{pal}" + CHR$(34) + " --output-to {outdir} --name {outname} --create-dirs --no-open"
+    PRINT #fh%, ""
+
+    ' Example styles. PREFIX goes before the prompt, SUFFIX after; SEED 0 means
+    ' "don't force a seed". A TOOL scopes a style to one generator.
+    PRINT #fh%, "[STYLE]"
+    PRINT #fh%, "NAME=clean pixel art"
+    PRINT #fh%, "TOOL="
+    PRINT #fh%, "PREFIX="
+    PRINT #fh%, "SUFFIX=clean pixel art, crisp pixels, clear outlines, flat shading"
+    PRINT #fh%, "DESC=Sharp, readable sprite look"
+    PRINT #fh%, "SEED=0"
+    PRINT #fh%, ""
+    PRINT #fh%, "[STYLE]"
+    PRINT #fh%, "NAME=EGA / DOS"
+    PRINT #fh%, "TOOL="
+    PRINT #fh%, "PREFIX=16-color EGA graphics,"
+    PRINT #fh%, "SUFFIX=bold black outlines, ordered dithering, vintage MS-DOS PC art"
+    PRINT #fh%, "DESC=Saturated 16-color DOS-era look"
+    PRINT #fh%, "SEED=0"
+    PRINT #fh%, ""
+    PRINT #fh%, "[STYLE]"
+    PRINT #fh%, "NAME=dark fantasy"
+    PRINT #fh%, "TOOL="
+    PRINT #fh%, "PREFIX="
+    PRINT #fh%, "SUFFIX=dark, gritty, muted desaturated palette, heavy shadows, ominous"
+    PRINT #fh%, "DESC=Moody, low-key sprite"
+    PRINT #fh%, "SEED=0"
+    PRINT #fh%, ""
+
+    ' Example prompt presets — starting points to steer from
+    PRINT #fh%, "[PROMPT]"
+    PRINT #fh%, "NAME=fantasy creature"
+    PRINT #fh%, "TEXT=a fierce dragon, side view, full body"
+    PRINT #fh%, ""
+    PRINT #fh%, "[PROMPT]"
+    PRINT #fh%, "NAME=character portrait"
+    PRINT #fh%, "TEXT=head-and-shoulders character portrait bust, front view, face clearly visible"
+    PRINT #fh%, ""
+    PRINT #fh%, "[PROMPT]"
+    PRINT #fh%, "NAME=tileset"
+    PRINT #fh%, "TEXT=seamless dungeon floor tile, top-down, repeating texture"
+    PRINT #fh%, ""
+
+    CLOSE #fh%
+    _LOGINFO "AI_write_starter_config: " + AI_config_path$
+END SUB
+
+
+''
+' Let the user pick one of the configured tools.
+' Returns the previously-used tool without prompting when only one exists.
+' @return INTEGER - 1-based tool index, or 0 if cancelled
+'
+FUNCTION AI_pick_tool% ()
+    AI_pick_tool% = 0
+    IF AI_TOOL_COUNT% = 1 THEN
+        AI_pick_tool% = 1
+        EXIT FUNCTION
+    END IF
+
+    DIM listTxt AS STRING
+    DIM i       AS INTEGER
+    listTxt$ = "Which generator?" + CHR$(10) + CHR$(10)
+    FOR i% = 1 TO AI_TOOL_COUNT%
+        listTxt$ = listTxt$ + _TRIM$(STR$(i%)) + " = " + RTRIM$(AI_TOOLS(i%).toolName) + CHR$(10)
+    NEXT i%
+
+    DIM defIdx AS INTEGER
+    defIdx% = AI_LAST_TOOL%
+    IF defIdx% < 1 OR defIdx% > AI_TOOL_COUNT% THEN defIdx% = 1
+
+    DIM ans AS STRING
+    ans$ = DRAW_input_box$("AI - Generator", listTxt$, _TRIM$(STR$(defIdx%)), "1")
+    IF LEN(_TRIM$(ans$)) = 0 THEN EXIT FUNCTION
+
+    DIM pick AS INTEGER
+    pick% = VAL(_TRIM$(ans$))
+    IF pick% < 1 OR pick% > AI_TOOL_COUNT% THEN EXIT FUNCTION
+    AI_pick_tool% = pick%
+END FUNCTION
+
+
+''
+' AI > New AI Layer... — collect prompt/size/seed, create the layer, launch.
+'
+SUB AI_cmd_new_layer ()
+    IF AI_JOB_is_running% THEN
+        DIM busyRes AS INTEGER
+        busyRes% = DRAW_message_box%("AI", "A generation is already running." + CHR$(10) + _
+            "Wait for it to finish, or AI > Cancel Generation.", MB_BTN_OK, MB_ICON_WARNING)
+        EXIT SUB
+    END IF
+    IF NOT AI_require_tool% THEN EXIT SUB
+
+    ' Default the size to the selection when there is one, else the canvas
+    DIM defW AS INTEGER, defH AS INTEGER
+    IF MARQUEE.ACTIVE% AND MARQUEE.BOX.w > 0 AND MARQUEE.BOX.h > 0 THEN
+        defW% = MARQUEE.BOX.w
+        defH% = MARQUEE.BOX.h
+    ELSE
+        defW% = SCRN.canvasW&
+        defH% = SCRN.canvasH&
+    END IF
+
+    ' A live selection also fixes WHERE the result lands. Pass it as the
+    ' dialog's starting position rather than re-reading the marquee after the
+    ' dialog closes, so the position the user sees is the position used.
+    DIM defX AS INTEGER, defY AS INTEGER
+    defX% = 0
+    defY% = 0
+    IF MARQUEE.ACTIVE% AND MARQUEE.BOX.w > 0 AND MARQUEE.BOX.h > 0 THEN
+        defX% = MARQUEE.BOX.x
+        defY% = MARQUEE.BOX.y
+    END IF
+
+    IF NOT AI_DLG_generate%("AI - New Layer", defW%, defH%, defX%, defY%) THEN EXIT SUB
+
+    AI_start_from_dialog AI_DLG_X%, AI_DLG_Y%, AI_TARGET_NEW_LAYER
+END SUB
+
+
+''
+' Launch a job from the values the generate dialog produced.
+' Composes the final prompt from the chosen style, creates the AI layer when
+' needed, and starts the run.
+'
+' @param dstX INTEGER - Canvas X for the result
+' @param dstY INTEGER - Canvas Y for the result
+' @param targetKind INTEGER - AI_TARGET_NEW_LAYER or AI_TARGET_REGEN
+'
+SUB AI_start_from_dialog (dstX AS INTEGER, dstY AS INTEGER, targetKind AS INTEGER)
+    DIM toolIdx AS INTEGER : toolIdx% = AI_DLG_TOOL%
+    IF toolIdx% < 1 OR toolIdx% > AI_TOOL_COUNT% THEN EXIT SUB
+
+    DIM styleIdx AS INTEGER : styleIdx% = AI_DLG_STYLE%
+    DIM seedVal  AS LONG    : seedVal&  = AI_DLG_SEED&
+
+    ' A style may pin a seed so its look is reproducible
+    IF styleIdx% >= 1 AND styleIdx% <= AI_STYLE_COUNT% THEN
+        IF AI_STYLES(styleIdx%).seedVal <> 0 THEN seedVal& = AI_STYLES(styleIdx%).seedVal
+    END IF
+
+    AI_LAST_PROMPT_RAW$ = AI_DLG_PROMPT$
+    AI_LAST_PROMPT$     = AI_compose_prompt$(AI_DLG_PROMPT$, styleIdx%)
+    AI_LAST_STYLE$      = AI_DLG_style_name$(styleIdx%)
+    IF styleIdx% < 1 THEN AI_LAST_STYLE$ = ""
+    AI_LAST_STYLE_IDX%  = styleIdx%
+    AI_LAST_SEED&       = seedVal&
+    AI_LAST_TOOL%       = toolIdx%
+
+    DIM lyr AS INTEGER
+    IF targetKind% = AI_TARGET_REGEN THEN
+        lyr% = CURRENT_LAYER%
+    ELSE
+        lyr% = LAYERS_new_ai%(AI_LAST_PROMPT_RAW$, AI_LAST_STYLE$, RTRIM$(AI_TOOLS(toolIdx%).toolName), seedVal&, AI_DLG_W%, AI_DLG_H%)
+        IF lyr% = 0 THEN
+            DIM noLayerRes AS INTEGER
+            noLayerRes% = DRAW_message_box%("AI", "Could not create an AI layer." + CHR$(10) + _
+                "The layer or AI data pool may be full.", MB_BTN_OK, MB_ICON_ERROR)
+            EXIT SUB
+        END IF
+    END IF
+
+    IF NOT AI_JOB_start%(toolIdx%, lyr%, targetKind%, AI_DLG_W%, AI_DLG_H%, dstX%, dstY%) THEN
+        IF targetKind% <> AI_TARGET_REGEN THEN LAYERS_delete lyr%
+        DIM failRes AS INTEGER
+        failRes% = DRAW_message_box%("AI", "Could not launch the generator." + CHR$(10) + _
+            "Check EXE/DIR in " + AI_config_path$, MB_BTN_OK, MB_ICON_ERROR)
+        EXIT SUB
+    END IF
+
+    AI_remember_choices      ' persist tool/style/prompt/seed for next time
+
+    SOUND_play SND_TOOL_SELECT
+    GUI_NEEDS_REDRAW% = TRUE
+    INVALIDATE_scene
+END SUB
+
+
+''
+' AI > Regenerate Layer — re-run the generator for the current AI layer,
+' reusing its embedded prompt and asking whether to keep the stored seed.
+'
+SUB AI_cmd_regenerate ()
+    IF AI_JOB_is_running% THEN
+        DIM busy2 AS INTEGER
+        busy2% = DRAW_message_box%("AI", "A generation is already running.", MB_BTN_OK, MB_ICON_WARNING)
+        EXIT SUB
+    END IF
+
+    DIM lyr AS INTEGER
+    lyr% = CURRENT_LAYER%
+    IF lyr% < 1 OR lyr% > LAYER_COUNT% THEN EXIT SUB
+
+    IF LAYERS(lyr%).layerType% <> LAYER_TYPE_AI OR LAYERS(lyr%).aiDataIdx% < 1 THEN
+        DIM notAiRes AS INTEGER
+        notAiRes% = DRAW_message_box%("AI", "The current layer is not an AI layer." + CHR$(10) + _
+            "Use AI > New AI Layer... to create one.", MB_BTN_OK, MB_ICON_INFO)
+        EXIT SUB
+    END IF
+    IF NOT AI_require_tool% THEN EXIT SUB
+
+    DIM poolIdx AS INTEGER
+    poolIdx% = LAYERS(lyr%).aiDataIdx%
+
+    ' Pre-load the dialog from what this layer was generated with, so
+    ' regenerating defaults to reproducing and any field can still be changed.
+    AI_LAST_PROMPT_RAW$ = RTRIM$(AI_LAYER_DATA(poolIdx%).prompt)
+    AI_LAST_SEED&       = AI_LAYER_DATA(poolIdx%).seedVal
+    DIM tIdx AS INTEGER
+    tIdx% = AI_tool_by_name%(RTRIM$(AI_LAYER_DATA(poolIdx%).toolName))
+    IF tIdx% >= 1 THEN AI_LAST_TOOL% = tIdx%
+
+    DIM genW AS INTEGER, genH AS INTEGER
+    genW% = AI_LAYER_DATA(poolIdx%).genW
+    genH% = AI_LAYER_DATA(poolIdx%).genH
+    IF genW% < 1 THEN genW% = SCRN.canvasW&
+    IF genH% < 1 THEN genH% = SCRN.canvasH&
+
+    IF NOT AI_DLG_generate%("AI - Regenerate Layer", genW%, genH%, 0, 0) THEN EXIT SUB
+
+    ' Write the (possibly edited) parameters back onto the layer
+    AI_LAYER_DATA(poolIdx%).prompt  = AI_DLG_PROMPT$
+    AI_LAYER_DATA(poolIdx%).seedVal = AI_DLG_SEED&
+    AI_LAYER_DATA(poolIdx%).genW    = AI_DLG_W%
+    AI_LAYER_DATA(poolIdx%).genH    = AI_DLG_H%
+    IF AI_DLG_TOOL% >= 1 AND AI_DLG_TOOL% <= AI_TOOL_COUNT% THEN
+        AI_LAYER_DATA(poolIdx%).toolName = RTRIM$(AI_TOOLS(AI_DLG_TOOL%).toolName)
+    END IF
+    AI_LAYER_DATA(poolIdx%).styleName = AI_DLG_style_name$(AI_DLG_STYLE%)
+    IF AI_DLG_STYLE% < 1 THEN AI_LAYER_DATA(poolIdx%).styleName = ""
+
+    AI_start_from_dialog AI_DLG_X%, AI_DLG_Y%, AI_TARGET_REGEN
+END SUB
+
+
+''
+' Edit the prompt stored on the current AI layer, without regenerating.
+' The layer name follows the prompt so the panel stays readable.
+'
+SUB AI_cmd_edit_prompt ()
+    DIM lyr AS INTEGER
+    lyr% = CURRENT_LAYER%
+    IF lyr% < 1 OR lyr% > LAYER_COUNT% THEN EXIT SUB
+    IF LAYERS(lyr%).layerType% <> LAYER_TYPE_AI OR LAYERS(lyr%).aiDataIdx% < 1 THEN EXIT SUB
+
+    DIM poolIdx AS INTEGER
+    poolIdx% = LAYERS(lyr%).aiDataIdx%
+
+    DIM newPrompt AS STRING
+    newPrompt$ = DRAW_input_box$("AI - Prompt", "Prompt for this layer", _
+        RTRIM$(AI_LAYER_DATA(poolIdx%).prompt), "a fierce dragon")
+    newPrompt$ = _TRIM$(newPrompt$)
+    IF LEN(newPrompt$) = 0 THEN EXIT SUB
+
+    AI_LAYER_DATA(poolIdx%).prompt = newPrompt$
+
+    DIM lyrName AS STRING
+    lyrName$ = newPrompt$
+    IF LEN(lyrName$) > 24 THEN lyrName$ = LEFT$(lyrName$, 21) + "..."
+    LAYERS(lyr%).name = lyrName$
+
+    GUI_NEEDS_REDRAW% = TRUE
+    INVALIDATE_scene
+END SUB
+
+
+''
+' File > New from AI... — create a document sized to the generation and
+' immediately generate into an AI layer on top of it.
+'
+SUB AI_cmd_new_document ()
+    IF AI_JOB_is_running% THEN
+        DIM busy3 AS INTEGER
+        busy3% = DRAW_message_box%("AI", "A generation is already running.", MB_BTN_OK, MB_ICON_WARNING)
+        EXIT SUB
+    END IF
+    IF NOT AI_require_tool% THEN EXIT SUB
+
+    IF NOT AI_DLG_generate%("AI - New Document", CFG.DEFAULT_CANVAS_SIZE_W%, CFG.DEFAULT_CANVAS_SIZE_H%, 0, 0) THEN EXIT SUB
+
+    ' New document at the generation size, THEN the layer — the canvas must
+    ' exist before the (async) job is started against it.
+    DRW_create_canvas_at_size AI_DLG_W%, AI_DLG_H%
+
+    AI_start_from_dialog 0, 0, AI_TARGET_NEW_LAYER
+END SUB
+
+
+''
+' AI > Settings... — show the configured tools and where to edit them.
+'
+SUB AI_cmd_settings ()
+    DIM msg AS STRING
+    DIM i   AS INTEGER
+
+    IF AI_TOOL_COUNT% = 0 THEN
+        IF NOT AI_require_tool% THEN EXIT SUB
+    END IF
+
+    msg$ = "Configured generators:" + CHR$(10) + CHR$(10)
+    FOR i% = 1 TO AI_TOOL_COUNT%
+        msg$ = msg$ + _TRIM$(STR$(i%)) + ". " + RTRIM$(AI_TOOLS(i%).toolName) + CHR$(10)
+        msg$ = msg$ + "   " + RTRIM$(AI_TOOLS(i%).exePath) + CHR$(10)
+    NEXT i%
+    msg$ = msg$ + CHR$(10) + "Edit:" + CHR$(10) + AI_config_path$ + CHR$(10) + CHR$(10) + _
+           "Reload it now?"
+
+    DIM res AS INTEGER
+    res% = DRAW_message_box%("AI - Settings", msg$, MB_BTN_YES_NO, MB_ICON_INFO)
+    IF res% = MB_RESULT_1 THEN
+        AI_TOOL_COUNT% = 0
+        DIM k AS INTEGER
+        FOR k% = 1 TO AI_MAX_TOOLS
+            AI_TOOLS(k%).used = FALSE
+        NEXT k%
+        AI_config_load
+        DIM okRes AS INTEGER
+        okRes% = DRAW_message_box%("AI - Settings", _
+            "Reloaded " + _TRIM$(STR$(AI_TOOL_COUNT%)) + " generator(s).", MB_BTN_OK, MB_ICON_INFO)
+    END IF
+END SUB

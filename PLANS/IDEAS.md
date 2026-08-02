@@ -17,8 +17,56 @@
   index-keyed cache with an 8-files-per-frame budget so opening the menu never
   stalls on a large Lospec collection.
 
-## AI Integration
-- [ ] Add support for AI image generation
+## AI: generate multiple at once (batch / grid)
+
+Extend the generate dialog with a batch mode:
+- [ ] "Generate multiple" toggle
+- [ ] Layer group name: [____]  (results land in one group)
+- [ ] Number of generations: dropdown 1-20
+- [ ] Optional: arrange as a GRID on one layer instead of N layers
+      (contact-sheet style, cell = generation size, auto rows/cols)
+
+Design notes / gotchas for whoever picks this up:
+
+1. **The runner is deliberately single-job.** AI_JOB is ONE record and
+   AI_JOB_start% refuses a second run while one is in flight. Batch needs
+   either a job QUEUE (start the next when the previous imports) or a
+   single tool invocation that produces N images. Queue is the safer
+   shape: it keeps the existing one-at-a-time invariant, gives per-item
+   progress, and lets Cancel stop the remainder.
+
+2. **Import currently takes the NEWEST png only.** AI_JOB_newest_png$
+   returns one file; a batch must import ALL new PNGs in {outdir},
+   ignoring "_" prefixed names, in a defined order (mtime, then name).
+
+3. **Generators can do this natively.** pixelmon has `-n N` (N seeds) and
+   `--batch "a,b,c"` (subject per folder). One invocation with `-n N` is
+   far faster than N invocations — the model stays loaded. Prefer passing
+   a {count} macro through to the tool and importing everything it
+   produces, falling back to a queue only for tools without a count flag.
+   Note `--batch` writes into per-subject SUBFOLDERS, which the importer
+   would have to walk.
+
+4. **Seeds must differ per image**, or all N come back identical. Either
+   let the tool vary them (pixelmon does with -n) or increment per queued
+   job and record each layer's own seed so any one can be reproduced.
+
+5. Group creation already exists: LAYERS_new_group%. Each result then
+   sets parentGroupIdx to it.
+
+## AI Integration — IN PROGRESS (branch: ai-integration)
+Implemented: AI menu (gated on Settings > General > Enable AI Features, off by
+default and fully invisible while off), generator tool registry + editor dialog,
+style editor, prompt-preset editor, DRAW_InfoParser$ macros, async job runner,
+AI layer type with [AI] tag / tooltip / context menu, .draw v29 persistence,
+File > New from AI, Layer > New from AI, 3x3 position presets, selection-driven
+size and placement.
+
+Not yet done: AI Settings TAB inside the Settings dialog (tools/styles/prompts
+are edited from the AI menu instead), model/seed reported back FROM the tool,
+{limg}/{dimg}/{bimg} steering exports are wired but untested.
+
+- [x] Add support for AI image generation
   - [ ] Create new Menu option AI (just before help)
     - [ ] Settings
       - [ ] Tools (list)
