@@ -428,6 +428,10 @@ DO
         AI_FAIL_PENDING% = FALSE
         AI_JOB_report_failure
     END IF
+    IF AI_BATCH_NEXT% THEN
+        AI_BATCH_NEXT% = FALSE
+        AI_BATCH_advance
+    END IF
     PERF_start PERF_MAIN_LOOP_TOTAL
 
     ' Poll gamepad (mouse-emulated) BEFORE mouse drain so gamepad-driven
