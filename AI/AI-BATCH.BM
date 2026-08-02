@@ -1,0 +1,214 @@
+''
+' DRAW - AI/AI-BATCH.BM
+' =============================================================================
+' Multi-generation: N images from one dialog, each on its own layer inside a
+' layer group.
+'
+' Every item shares identical parameters — same tool, style, prompt, size and
+' position — and differs ONLY by seed, so the batch is a set of variations on
+' one idea rather than N unrelated images.
+'
+' Implemented as a QUEUE rather than a single tool invocation with a count
+' flag: the runner is deliberately single-job, a queue preserves that
+' invariant, and it works with every tool instead of only those that can
+' produce N images themselves.
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+''
+' Clear all batch state.
+'
+SUB AI_BATCH_reset ()
+    AI_BATCH.active    = FALSE
+    AI_BATCH.total     = 0
+    AI_BATCH.done      = 0
+    AI_BATCH.groupIdx  = 0
+    AI_BATCH.toolIdx   = 0
+    AI_BATCH.styleIdx  = 0
+    AI_BATCH.promptRaw = ""
+    AI_BATCH.genW      = 0
+    AI_BATCH.genH      = 0
+    AI_BATCH.dstX      = 0
+    AI_BATCH.dstY      = 0
+    AI_BATCH.seedBase  = 0
+    AI_BATCH_NEXT%     = FALSE
+END SUB
+
+
+''
+' TRUE while a batch is in progress.
+' @return INTEGER
+'
+FUNCTION AI_BATCH_is_active% ()
+    AI_BATCH_is_active% = (AI_BATCH.active <> 0)
+END FUNCTION
+
+
+''
+' Begin a batch from the values the generate dialog produced.
+'
+' The layer group is created up front so every result has somewhere to land and
+' the user can see the batch taking shape as it fills.
+'
+' @param count INTEGER - How many to generate (2..AI_MAX_BATCH)
+' @param groupName STRING - Name for the layer group
+' @param dstX INTEGER - Canvas X for every item
+' @param dstY INTEGER - Canvas Y for every item
+' @return INTEGER - TRUE when the first item was launched
+'
+FUNCTION AI_BATCH_start% (count AS INTEGER, groupName AS STRING, dstX AS INTEGER, dstY AS INTEGER)
+    AI_BATCH_start% = FALSE
+
+    DIM n AS INTEGER
+    n% = count%
+    IF n% < 2 THEN EXIT FUNCTION
+    IF n% > AI_MAX_BATCH THEN n% = AI_MAX_BATCH
+
+    DIM grp AS INTEGER
+    grp% = LAYERS_new_group%
+    IF grp% = 0 THEN
+        DIM grpRes AS INTEGER
+        grpRes% = DRAW_message_box%("AI", "Could not create a layer group." + CHR$(10) + _
+            "The layer list may be full.", MB_BTN_OK, MB_ICON_ERROR)
+        EXIT FUNCTION
+    END IF
+
+    DIM gName AS STRING
+    gName$ = _TRIM$(groupName$)
+    IF LEN(gName$) = 0 THEN gName$ = "AI Batch"
+    IF LEN(gName$) > 24 THEN gName$ = LEFT$(gName$, 24)
+    LAYERS(grp%).name = gName$
+
+    AI_BATCH.active    = TRUE
+    AI_BATCH.total     = n%
+    AI_BATCH.done      = 0
+    AI_BATCH.groupIdx  = grp%
+    AI_BATCH.toolIdx   = AI_DLG_TOOL%
+    AI_BATCH.styleIdx  = AI_DLG_STYLE%
+    AI_BATCH.promptRaw = AI_DLG_PROMPT$
+    AI_BATCH.genW      = AI_DLG_W%
+    AI_BATCH.genH      = AI_DLG_H%
+    AI_BATCH.dstX      = dstX%
+    AI_BATCH.dstY      = dstY%
+    AI_BATCH.seedBase  = AI_DLG_SEED&
+
+    AI_log_section "BATCH  " + _TRIM$(STR$(n%)) + " generations into group '" + gName$ + "'"
+
+    IF NOT AI_BATCH_launch_next% THEN
+        AI_BATCH_reset
+        EXIT FUNCTION
+    END IF
+    AI_BATCH_start% = TRUE
+END FUNCTION
+
+
+''
+' Launch the next queued item.
+'
+' Each item gets its own layer inside the group and its own seed — seedBase
+' plus the item index, so the first reproduces the seed shown in the dialog and
+' every later one is deterministic rather than random. Identical seeds would
+' make the whole batch the same picture.
+'
+' @return INTEGER - TRUE when a job was started
+'
+FUNCTION AI_BATCH_launch_next% ()
+    AI_BATCH_launch_next% = FALSE
+    IF AI_BATCH.active = 0 THEN EXIT FUNCTION
+    IF AI_BATCH.done >= AI_BATCH.total THEN EXIT FUNCTION
+
+    DIM idx AS INTEGER
+    idx% = AI_BATCH.done + 1
+
+    DIM itemSeed AS LONG
+    itemSeed& = AI_BATCH.seedBase + (idx% - 1)
+
+    ' Compose against the batch's stored parameters, not whatever the dialog
+    ' globals hold now — the user may have opened another dialog since.
+    AI_LAST_PROMPT_RAW$ = RTRIM$(AI_BATCH.promptRaw)
+    AI_LAST_PROMPT$     = AI_compose_prompt$(RTRIM$(AI_BATCH.promptRaw), AI_BATCH.styleIdx)
+    AI_LAST_STYLE_IDX%  = AI_BATCH.styleIdx
+    AI_LAST_STYLE$      = AI_DLG_style_name$(AI_BATCH.styleIdx)
+    IF AI_BATCH.styleIdx < 1 THEN AI_LAST_STYLE$ = ""
+    AI_LAST_SEED&       = itemSeed&
+    AI_LAST_TOOL%       = AI_BATCH.toolIdx
+
+    ' New layers inherit the current layer's group, so select the group first
+    IF AI_BATCH.groupIdx >= 1 AND AI_BATCH.groupIdx <= MAX_LAYERS THEN
+        CURRENT_LAYER% = AI_BATCH.groupIdx
+    END IF
+
+    DIM lyr AS INTEGER
+    lyr% = LAYERS_new_ai%(RTRIM$(AI_BATCH.promptRaw), AI_LAST_STYLE$, _
+                          RTRIM$(AI_TOOLS(AI_BATCH.toolIdx).toolName), itemSeed&, _
+                          AI_BATCH.genW, AI_BATCH.genH)
+    IF lyr% = 0 THEN
+        _LOGERROR "AI_BATCH: could not create layer for item " + _TRIM$(STR$(idx%))
+        AI_log "  BATCH    : stopped at item " + _TRIM$(STR$(idx%)) + " - no free layer"
+        EXIT FUNCTION
+    END IF
+
+    ' Put it in the group and label it by position in the batch
+    LAYERS(lyr%).parentGroupIdx% = AI_BATCH.groupIdx
+    DIM lblName AS STRING
+    lblName$ = _TRIM$(STR$(idx%)) + "/" + _TRIM$(STR$(AI_BATCH.total)) + " " + RTRIM$(AI_BATCH.promptRaw)
+    IF LEN(lblName$) > 24 THEN lblName$ = LEFT$(lblName$, 21) + "..."
+    LAYERS(lyr%).name = lblName$
+
+    IF NOT AI_JOB_start%(AI_BATCH.toolIdx, lyr%, AI_TARGET_NEW_LAYER, _
+                         AI_BATCH.genW, AI_BATCH.genH, AI_BATCH.dstX, AI_BATCH.dstY) THEN
+        LAYERS_delete lyr%
+        AI_log "  BATCH    : stopped at item " + _TRIM$(STR$(idx%)) + " - generator would not start"
+        EXIT FUNCTION
+    END IF
+
+    AI_BATCH_launch_next% = TRUE
+END FUNCTION
+
+
+''
+' Advance the batch after an item finishes. Called from the main loop, never
+' from inside AI_JOB_tick — starting the next job mid-frame would re-enter the
+' runner while it is still closing out the previous one.
+'
+SUB AI_BATCH_advance ()
+    IF AI_BATCH.active = 0 THEN EXIT SUB
+
+    AI_BATCH.done = AI_BATCH.done + 1
+    AI_log "  BATCH    : " + _TRIM$(STR$(AI_BATCH.done)) + "/" + _TRIM$(STR$(AI_BATCH.total)) + " complete"
+
+    IF AI_BATCH.done >= AI_BATCH.total THEN
+        AI_log "  BATCH    : finished"
+        AI_BATCH_reset
+        GUI_NEEDS_REDRAW% = TRUE
+        INVALIDATE_scene
+        EXIT SUB
+    END IF
+
+    IF NOT AI_BATCH_launch_next% THEN AI_BATCH_reset
+    GUI_NEEDS_REDRAW% = TRUE
+    INVALIDATE_scene
+END SUB
+
+
+''
+' Abandon the rest of a batch. Whatever has already been generated stays.
+'
+SUB AI_BATCH_cancel ()
+    IF AI_BATCH.active = 0 THEN EXIT SUB
+    AI_log "  BATCH    : cancelled after " + _TRIM$(STR$(AI_BATCH.done)) + "/" + _TRIM$(STR$(AI_BATCH.total))
+    AI_BATCH_reset
+END SUB
+
+
+''
+' Batch progress for the status bar ("" when no batch is running).
+' @return STRING
+'
+FUNCTION AI_BATCH_status$ ()
+    AI_BATCH_status$ = ""
+    IF AI_BATCH.active = 0 THEN EXIT FUNCTION
+    AI_BATCH_status$ = " [" + _TRIM$(STR$(AI_BATCH.done + 1)) + "/" + _TRIM$(STR$(AI_BATCH.total)) + "]"
+END FUNCTION

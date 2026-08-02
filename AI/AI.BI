@@ -121,6 +121,33 @@ DIM SHARED AI_PROMPTS(1 TO AI_MAX_PROMPTS) AS AI_PROMPT_OBJ
 DIM SHARED AI_PROMPT_COUNT%
 DIM SHARED AI_LAYER_DATA(1 TO AI_LAYER_POOL_SIZE) AS AI_LAYER_OBJ
 DIM SHARED AI_JOB AS AI_JOB_OBJ
+CONST AI_MAX_BATCH = 20         ' Most generations one batch may queue
+
+' A queued multi-generation. The runner is deliberately single-job, so a batch
+' is a QUEUE: each item starts only when the previous one has imported. That
+' keeps the one-at-a-time invariant, gives per-item progress, and lets Cancel
+' stop the remainder — and it works with any tool, not just those with a
+' count flag of their own.
+TYPE AI_BATCH_OBJ
+    active    AS INTEGER
+    total     AS INTEGER
+    done      AS INTEGER        ' Items already imported
+    groupIdx  AS INTEGER        ' Layer group the results go into
+    toolIdx   AS INTEGER
+    styleIdx  AS INTEGER
+    promptRaw AS STRING * 512   ' Every item shares these parameters...
+    genW      AS INTEGER
+    genH      AS INTEGER
+    dstX      AS INTEGER
+    dstY      AS INTEGER
+    seedBase  AS LONG           ' ...and differs only by seed
+END TYPE
+DIM SHARED AI_BATCH AS AI_BATCH_OBJ
+
+' Set when an item finishes and the next should start. Consumed by the main
+' loop so a new job is never launched from inside AI_JOB_tick.
+DIM SHARED AI_BATCH_NEXT%
+
 ' Raised when a run fails; the main loop shows the dialog, so a modal is never
 ' opened from inside AI_JOB_tick (which runs mid-frame, before render).
 DIM SHARED AI_FAIL_PENDING%
@@ -150,6 +177,8 @@ DIM SHARED AI_DLG_H%
 DIM SHARED AI_DLG_X%
 DIM SHARED AI_DLG_Y%
 DIM SHARED AI_DLG_SEED&
+DIM SHARED AI_DLG_COUNT%
+DIM SHARED AI_DLG_GROUP$
 
 ' Poll interval for the running job, in seconds. Generation takes tens of
 ' seconds to minutes, so checking every frame would be pure syscall waste.
