@@ -121,6 +121,9 @@ DIM SHARED AI_PROMPTS(1 TO AI_MAX_PROMPTS) AS AI_PROMPT_OBJ
 DIM SHARED AI_PROMPT_COUNT%
 DIM SHARED AI_LAYER_DATA(1 TO AI_LAYER_POOL_SIZE) AS AI_LAYER_OBJ
 DIM SHARED AI_JOB AS AI_JOB_OBJ
+' Raised when a run fails; the main loop shows the dialog, so a modal is never
+' opened from inside AI_JOB_tick (which runs mid-frame, before render).
+DIM SHARED AI_FAIL_PENDING%
 
 ' Last prompt / style / seed used, so the dialog can pre-fill on reopen.
 ' AI_LAST_PROMPT$ is the COMPOSED prompt handed to the generator (style prefix +

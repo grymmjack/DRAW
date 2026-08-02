@@ -210,6 +210,13 @@ SUB AI_JOB_tick ()
     IF dt# < AI_POLL_INTERVAL# THEN EXIT SUB
     AI_JOB.lastPoll = nowT#
 
+    ' Repaint on each poll so the spinner ticks. Deliberately at poll rate
+    ' (2 Hz), not every frame — a background job must not pin DRAW at full
+    ' frame rate for minutes.
+    GUI_NEEDS_REDRAW% = TRUE
+    SCENE_DIRTY%      = TRUE
+    FRAME_IDLE%       = FALSE
+
     ' Timeout guard — a hung generator must not pin the UI in "generating"
     DIM elapsed AS DOUBLE
     elapsed# = nowT# - AI_JOB.startTime
@@ -217,6 +224,7 @@ SUB AI_JOB_tick ()
     IF elapsed# > AI_JOB.timeoutSec THEN
         AI_JOB.state     = AI_JOB_FAILED
         AI_JOB.statusMsg = "timed out after " + _TRIM$(STR$(INT(elapsed#))) + "s"
+        AI_FAIL_PENDING% = TRUE
         AI_log "  RESULT   : TIMEOUT after " + _TRIM$(STR$(INT(elapsed#))) + "s"
         _LOGERROR "AI_JOB_tick: " + RTRIM$(AI_JOB.statusMsg)
         INVALIDATE_scene
@@ -309,6 +317,39 @@ END FUNCTION
 ''
 ' Import the finished result into the target layer and close out the job.
 '
+''
+' Report a failed run and offer to open the log. Called from the main loop,
+' never from inside the render pass — this opens a modal.
+'
+SUB AI_JOB_report_failure ()
+    DIM res AS INTEGER
+    res% = DRAW_message_box%("AI - Generation Failed", _
+        RTRIM$(AI_JOB.statusMsg) + CHR$(10) + CHR$(10) + _
+        "The full command, exit code and the tool's own" + CHR$(10) + _
+        "output were written to:" + CHR$(10) + _
+        AI_log_path$ + CHR$(10) + CHR$(10) + _
+        "Open the log now?", MB_BTN_YES_NO, MB_ICON_ERROR)
+    IF res% = MB_RESULT_1 THEN AI_open_log
+END SUB
+
+
+''
+' Open ai.log in the platform's default handler.
+'
+SUB AI_open_log ()
+    DIM logP AS STRING
+    logP$ = AI_log_path$
+    IF NOT _FILEEXISTS(logP$) THEN EXIT SUB
+    $IF WIN THEN
+        SHELL _DONTWAIT "start " + CHR$(34) + CHR$(34) + " " + CHR$(34) + logP$ + CHR$(34)
+    $ELSEIF MAC THEN
+        SHELL _DONTWAIT "open " + CHR$(34) + logP$ + CHR$(34)
+    $ELSE
+        SHELL _DONTWAIT "xdg-open " + CHR$(34) + logP$ + CHR$(34)
+    $END IF
+END SUB
+
+
 SUB AI_JOB_finish ()
     DIM exitCode AS INTEGER
     DIM pngPath  AS STRING
@@ -321,6 +362,7 @@ SUB AI_JOB_finish ()
     IF exitCode% <> 0 THEN
         AI_JOB.state     = AI_JOB_FAILED
         AI_JOB.statusMsg = "generator exited " + _TRIM$(STR$(exitCode%))
+        AI_FAIL_PENDING% = TRUE
         AI_log "  RESULT   : FAILED - exit code " + _TRIM$(STR$(exitCode%))
         AI_log "  output:"
         AI_log_file RTRIM$(AI_JOB.outDir) + "/_run.log", 40
@@ -332,6 +374,7 @@ SUB AI_JOB_finish ()
     IF LEN(pngPath$) = 0 THEN
         AI_JOB.state     = AI_JOB_FAILED
         AI_JOB.statusMsg = "generator produced no PNG"
+        AI_FAIL_PENDING% = TRUE
         AI_log "  RESULT   : FAILED - exit 0 but no PNG in " + RTRIM$(AI_JOB.outDir)
         AI_log "  output:"
         AI_log_file RTRIM$(AI_JOB.outDir) + "/_run.log", 40
@@ -345,6 +388,7 @@ SUB AI_JOB_finish ()
     IF srcImg& >= -1 THEN
         AI_JOB.state     = AI_JOB_FAILED
         AI_JOB.statusMsg = "could not load " + pngPath$
+        AI_FAIL_PENDING% = TRUE
         _LOGERROR "AI_JOB_finish: " + RTRIM$(AI_JOB.statusMsg)
         INVALIDATE_scene
         EXIT SUB
@@ -354,6 +398,7 @@ SUB AI_JOB_finish ()
         SAFE_FREEIMAGE srcImg&
         AI_JOB.state     = AI_JOB_FAILED
         AI_JOB.statusMsg = "target layer no longer exists"
+        AI_FAIL_PENDING% = TRUE
         INVALIDATE_scene
         EXIT SUB
     END IF
@@ -430,7 +475,16 @@ FUNCTION AI_JOB_status$ ()
         CASE AI_JOB_RUNNING
             elapsed# = TIMER - AI_JOB.startTime
             IF elapsed# < 0 THEN elapsed# = elapsed# + 86400
-            AI_JOB_status$ = "AI: generating... " + _TRIM$(STR$(INT(elapsed#))) + "s"
+            ' Spinner frame from elapsed time, so it animates without any
+            ' per-frame state of its own
+            DIM spin AS STRING
+            SELECT CASE INT(elapsed# * 4) MOD 4
+                CASE 0 : spin$ = "|"
+                CASE 1 : spin$ = "/"
+                CASE 2 : spin$ = "-"
+                CASE ELSE : spin$ = "\"
+            END SELECT
+            AI_JOB_status$ = spin$ + " AI generating, please wait... " + _TRIM$(STR$(INT(elapsed#))) + "s"
         CASE AI_JOB_IMPORTING : AI_JOB_status$ = "AI: importing..."
         CASE AI_JOB_FAILED    : AI_JOB_status$ = "AI: " + RTRIM$(AI_JOB.statusMsg)
         CASE AI_JOB_CANCELLED : AI_JOB_status$ = "AI: cancelled"

@@ -424,6 +424,10 @@ DO
     LOOP_start
     MUSIC_tick
     AI_JOB_tick     ' Poll any in-flight AI generation (self-throttled, no-op when idle)
+    IF AI_FAIL_PENDING% THEN
+        AI_FAIL_PENDING% = FALSE
+        AI_JOB_report_failure
+    END IF
     PERF_start PERF_MAIN_LOOP_TOTAL
 
     ' Poll gamepad (mouse-emulated) BEFORE mouse drain so gamepad-driven
