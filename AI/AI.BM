@@ -816,18 +816,63 @@ FUNCTION DRAW_InfoParser$ (tmpl AS STRING)
     AI_apply_macro s$, "fontfile", THEME_font_path$(THEME.GLOBAL_FONT_FILE$)
     ' --- Image exports for steering / hinting (written on demand) ---
     IF LEN(outDirS$) > 0 THEN
-        IF INSTR(s$, "{limg}") > 0 THEN
-            AI_apply_macro s$, "limg", AI_export_png$(LAYERS(curLayer%).imgHandle&, outDirS$ + "/_layer.png")
+        IF INSTR(s$, "{limg}") > 0 OR INSTR(s$, "{LIMG}") > 0 THEN
+            ' A promoted layer's buffer is larger than the canvas and offset by
+            ' its apron, so export the canvas region rather than the raw buffer.
+            DIM limgSrc AS LONG
+            limgSrc& = AI_canvas_region&(LAYERS(curLayer%).imgHandle&, LAYERS(curLayer%).apronW%, LAYERS(curLayer%).apronH%)
+            AI_apply_macro s$, "limg", AI_export_png$(limgSrc&, outDirS$ + "/_layer.png")
+            IF limgSrc& <> LAYERS(curLayer%).imgHandle& THEN SAFE_FREEIMAGE limgSrc&
         END IF
-        IF INSTR(s$, "{dimg}") > 0 THEN
-            AI_apply_macro s$, "dimg", AI_export_png$(SCRN.CANVAS&, outDirS$ + "/_document.png")
+        IF INSTR(s$, "{dimg}") > 0 OR INSTR(s$, "{DIMG}") > 0 THEN
+            ' NOT SCRN.CANVAS& — that is the whole viewport surface, so it
+            ' exported a screenshot of DRAW's entire UI (toolbars, palette,
+            ' panels) instead of the artwork, which would poison any steering
+            ' reference. Flatten the visible layers to a canvas-sized image.
+            DIM dimgSrc AS LONG
+            dimgSrc& = LAYERS_flatten&
+            AI_apply_macro s$, "dimg", AI_export_png$(dimgSrc&, outDirS$ + "/_document.png")
+            SAFE_FREEIMAGE dimgSrc&
         END IF
-        IF INSTR(s$, "{bimg}") > 0 THEN
+        IF INSTR(s$, "{bimg}") > 0 OR INSTR(s$, "{BIMG}") > 0 THEN
             AI_apply_macro s$, "bimg", AI_export_png$(CUSTOM_BRUSH.IMAGE&, outDirS$ + "/_brush.png")
         END IF
     END IF
 
     DRAW_InfoParser$ = s$
+END FUNCTION
+
+
+''
+' Return the canvas-sized region of a layer buffer.
+'
+' A layer promoted for off-canvas painting has an apron: its buffer is
+' (canvasW + 2*apronW) x (canvasH + 2*apronH) and canvas pixel (0,0) lives at
+' (apronW, apronH). Exporting the raw buffer would hand the generator a larger
+' image with the artwork inset.
+'
+' @param imgHandle LONG - Layer image buffer
+' @param apronW INTEGER - Layer apron width (0 = compact)
+' @param apronH INTEGER - Layer apron height
+' @return LONG - imgHandle itself when compact, else a NEW image the caller frees
+'
+FUNCTION AI_canvas_region& (imgHandle AS LONG, apronW AS INTEGER, apronH AS INTEGER)
+    AI_canvas_region& = imgHandle&
+    IF imgHandle& >= -1 THEN EXIT FUNCTION
+    IF apronW% <= 0 AND apronH% <= 0 THEN EXIT FUNCTION
+
+    DIM region AS LONG
+    region& = _NEWIMAGE(SCRN.canvasW&, SCRN.canvasH&, 32)
+    IF region& >= -1 THEN EXIT FUNCTION
+
+    DIM oldDest AS LONG
+    oldDest& = _DEST
+    _DEST region&
+    CLS , _RGBA32(0, 0, 0, 0)
+    _PUTIMAGE (0, 0)-(SCRN.canvasW& - 1, SCRN.canvasH& - 1), imgHandle&, region&, _
+              (apronW%, apronH%)-(apronW% + SCRN.canvasW& - 1, apronH% + SCRN.canvasH& - 1)
+    _DEST oldDest&
+    AI_canvas_region& = region&
 END FUNCTION
 
 
@@ -854,7 +899,13 @@ END FUNCTION
 '
 FUNCTION AI_export_png$ (imgHandle AS LONG, destPath AS STRING)
     AI_export_png$ = ""
-    IF imgHandle& >= -1 THEN EXIT FUNCTION
+    ' An unavailable source (e.g. {bimg} with no custom brush captured) expands
+    ' to nothing, which leaves the tool's flag dangling and its argument parser
+    ' eating the NEXT flag. Log it so that failure is explicable.
+    IF imgHandle& >= -1 THEN
+        AI_log "  WARN     : steering image not available for " + destPath$ + " - macro expanded to nothing"
+        EXIT FUNCTION
+    END IF
     _SAVEIMAGE destPath$, imgHandle&
     IF _FILEEXISTS(destPath$) THEN AI_export_png$ = destPath$
 END FUNCTION
