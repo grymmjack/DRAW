@@ -15,6 +15,90 @@
 $INCLUDEONCE
 
 ''
+' Draw a labelled multi-line text box with the value word-wrapped inside it,
+' and report whether it was clicked.
+'
+' Display only — editing still opens DRAW_input_box$, since the widget set has
+' no in-place multi-line editor. The point is that a long prompt is READABLE
+' at a glance instead of truncated to one line.
+'
+' @param ctx DIALOG_CTX - Dialog context
+' @param fx INTEGER - Left X of the box
+' @param fy INTEGER - Top Y
+' @param fw INTEGER - Box width
+' @param fh INTEGER - Box height
+' @param labelTxt STRING - Label drawn to the left
+' @param valueTxt STRING - Text to wrap into the box
+' @return INTEGER - TRUE when clicked this frame
+'
+FUNCTION AI_DLG_textarea% (ctx AS DIALOG_CTX, fx AS INTEGER, fy AS INTEGER, fw AS INTEGER, fh AS INTEGER, labelTxt AS STRING, valueTxt AS STRING)
+    DIM fontH AS INTEGER
+    fontH% = DIALOG_font_height%(ctx)
+
+    DIALOG_draw_label ctx, 10, fy% + 3, labelTxt$
+
+    LINE (fx%, fy%)-(fx% + fw%, fy% + fh%), THEME.DIALOG_slider_track_bg~&, BF
+    IF ctx.mx >= fx% AND ctx.mx <= fx% + fw% AND ctx.my >= fy% AND ctx.my <= fy% + fh% THEN
+        LINE (fx%, fy%)-(fx% + fw%, fy% + fh%), THEME.DIALOG_toggle_sel_bg~&, B
+    ELSE
+        LINE (fx%, fy%)-(fx% + fw%, fy% + fh%), THEME.DIALOG_border_inner~&, B
+    END IF
+
+    ' Greedy word wrap into the available width
+    DIM lineH    AS INTEGER : lineH% = fontH% + 2
+    DIM maxLines AS INTEGER : maxLines% = (fh% - 4) \ lineH%
+    IF maxLines% < 1 THEN maxLines% = 1
+
+    COLOR THEME.DIALOG_label_fg~&
+
+    DIM rest    AS STRING : rest$ = _TRIM$(valueTxt$)
+    DIM lineNo  AS INTEGER : lineNo% = 0
+    DIM curLine AS STRING
+    DIM word    AS STRING
+    DIM spPos   AS INTEGER
+
+    DO WHILE LEN(rest$) > 0 AND lineNo% < maxLines%
+        curLine$ = ""
+        DO
+            spPos% = INSTR(rest$, " ")
+            IF spPos% > 0 THEN
+                word$ = LEFT$(rest$, spPos% - 1)
+            ELSE
+                word$ = rest$
+            END IF
+
+            DIM trial AS STRING
+            IF LEN(curLine$) = 0 THEN trial$ = word$ ELSE trial$ = curLine$ + " " + word$
+            IF _PRINTWIDTH(trial$) > fw% - 6 AND LEN(curLine$) > 0 THEN EXIT DO
+
+            curLine$ = trial$
+            IF spPos% > 0 THEN rest$ = MID$(rest$, spPos% + 1) ELSE rest$ = ""
+            IF LEN(rest$) = 0 THEN EXIT DO
+        LOOP
+
+        ' A single word longer than the line: hard-break it so we cannot spin
+        IF LEN(curLine$) = 0 THEN
+            curLine$ = LEFT$(rest$, 1)
+            rest$    = MID$(rest$, 2)
+        END IF
+
+        ' Last visible line with text still pending gets an ellipsis
+        IF lineNo% = maxLines% - 1 AND LEN(rest$) > 0 THEN
+            DO WHILE LEN(curLine$) > 0 AND _PRINTWIDTH(curLine$ + "...") > fw% - 6
+                curLine$ = LEFT$(curLine$, LEN(curLine$) - 1)
+            LOOP
+            curLine$ = curLine$ + "..."
+        END IF
+
+        _UPRINTSTRING (fx% + 3, fy% + 2 + lineNo% * lineH%), curLine$
+        lineNo% = lineNo% + 1
+    LOOP
+
+    AI_DLG_textarea% = DIALOG_hit%(ctx, fx%, fy%, fw%, fh%)
+END FUNCTION
+
+
+''
 ' Draw a labelled, clickable text row and report whether it was clicked.
 ' @param ctx DIALOG_CTX - Dialog context
 ' @param fx INTEGER - Left X of the value box
@@ -169,9 +253,9 @@ FUNCTION AI_DLG_generate% (titleTxt AS STRING, defW AS INTEGER, defH AS INTEGER)
 
     DIM ctx  AS DIALOG_CTX
     DIM dlgW AS INTEGER : dlgW% = 340
-    DIM dlgH AS INTEGER : dlgH% = 246
+    DIM dlgH AS INTEGER : dlgH% = 300
     ' Room for the scale row + its caution line when the display is scaled
-    IF SCRN.displayScale% > 1 THEN dlgH% = dlgH% + 26
+    IF SCRN.displayScale% > 1 THEN dlgH% = dlgH% + 34
     DIALOG_init ctx, dlgW%, dlgH%
 
     DIM hdrH AS INTEGER : hdrH% = THEME.DIALOG_title_height% + 4
@@ -186,7 +270,10 @@ FUNCTION AI_DLG_generate% (titleTxt AS STRING, defW AS INTEGER, defH AS INTEGER)
     DIM yStyle  AS INTEGER : yStyle%  = yTool% + SW_ROW_H
     DIM yPreset AS INTEGER : yPreset% = yStyle% + SW_ROW_H
     DIM yPrompt AS INTEGER : yPrompt% = yPreset% + SW_ROW_H + 2
-    DIM ySize   AS INTEGER : ySize%   = yPrompt% + rowH% + 4
+    ' Prompt is a multi-line box — prompts are long and were unreadable as a
+    ' single truncated line
+    DIM promptH AS INTEGER : promptH% = 52
+    DIM ySize   AS INTEGER : ySize%   = yPrompt% + promptH% + 8
 
     ' Optional "generate at screen scale" row. Only exists when the display is
     ' actually scaled — on a 1x display it would be a no-op control.
@@ -197,12 +284,14 @@ FUNCTION AI_DLG_generate% (titleTxt AS STRING, defW AS INTEGER, defH AS INTEGER)
     hasScaleRow% = (uiScale% > 1)
 
     DIM yScale  AS INTEGER : yScale%  = ySize% + rowH%
+
+    ' Caution sits on its own line below the size controls, with breathing
+    ' room — crowded against them it was hard to read
+    DIM yCaution AS INTEGER
+    IF hasScaleRow% THEN yCaution% = yScale% + rowH% + 3 ELSE yCaution% = ySize% + rowH% + 3
+
     DIM yPos    AS INTEGER
-    IF hasScaleRow% THEN
-        yPos% = yScale% + rowH% + 4
-    ELSE
-        yPos% = ySize% + rowH% + 2
-    END IF
+    yPos% = yCaution% + 14
     DIM ySeed   AS INTEGER : ySeed%   = yPos% + 44
     DIM yBtns   AS INTEGER : yBtns%   = dlgH% - 26
 
@@ -255,7 +344,7 @@ FUNCTION AI_DLG_generate% (titleTxt AS STRING, defW AS INTEGER, defH AS INTEGER)
         ddOpen% = (SW_DD.openId > 0)
 
         ' --- Prompt ---
-        IF AI_DLG_field%(ctx, fldX%, yPrompt%, fldW%, "Prompt", curPrompt$) AND NOT ddOpen% THEN
+        IF AI_DLG_textarea%(ctx, fldX%, yPrompt%, fldW%, promptH%, "Prompt", curPrompt$) AND NOT ddOpen% THEN
             txt$ = DRAW_input_box$("AI - Prompt", "What should the AI draw?", curPrompt$, "a fierce dragon")
             IF LEN(_TRIM$(txt$)) > 0 THEN curPrompt$ = _TRIM$(txt$)
         END IF
@@ -298,10 +387,8 @@ FUNCTION AI_DLG_generate% (titleTxt AS STRING, defW AS INTEGER, defH AS INTEGER)
 
         ' Caution for sizes that many generators cannot produce
         IF genW% > 512 OR genH% > 512 THEN
-            DIM cautionY AS INTEGER
-            IF hasScaleRow% THEN cautionY% = yScale% + 15 ELSE cautionY% = ySize% + 15
             COLOR _RGB32(255, 190, 90)
-            _UPRINTSTRING (fldX%, cautionY%), "large - some AI tools cannot generate this big"
+            _UPRINTSTRING (fldX%, yCaution%), "large - some AI tools cannot generate this big"
         END IF
 
         ' --- Position: 3x3 preset grid, with the resulting X,Y shown ---
