@@ -12,7 +12,7 @@ Open the settings dialog with `Ctrl+,` (comma) or `Edit → Settings`. The dialo
 
 | Tab | What it controls |
 | --- | --- |
-| **General** | Display scale, fullscreen toggle, FPS limit, UI scaling. |
+| **General** | Display scale, fullscreen toggle, FPS limit, UI scaling, **Enable AI Features**. |
 | **Grid** | Default grid size, geometry, alignment, snap state, crosshair appearance. |
 | **Palette** | Default palette, recent-palettes list size, Lospec UI visibility. |
 | **Panels** | Default visibility for Toolbox, Layers, Edit Bar, Advanced Bar, Preview, Character Map, Drawer, Color Mixer. |
@@ -20,6 +20,17 @@ Open the settings dialog with `Ctrl+,` (comma) or `Edit → Settings`. The dialo
 | **Fonts** | Default font and size, paths to scan for TTF/OTF. |
 | **Appearance** | Various color scheme configurations. |
 | **Directories** | Where DRAW looks for templates, palettes, music. |
+
+### Enable AI Features
+
+AI image generation is **off by default**, and while it is off DRAW surfaces
+nothing about it — no AI menu, no commands, no layer markers, no status text.
+Some people want nothing to do with generative tooling, and a disabled-but-
+visible feature is still in the way.
+
+Tick **Enable AI Features** in the General tab to turn it on. That checkbox is
+the only place AI is mentioned while disabled. See
+[Ch. 21 — AI Image Generation](21-ai-generation.md).
 
 ### `DRAW.cfg`
 

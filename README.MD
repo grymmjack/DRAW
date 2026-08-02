@@ -128,6 +128,19 @@ Current release: v1.6.0
 - DRW project format: PNG with embedded `drAw` chunk — preserves layers, blend modes, opacity, palette, tool states, grid state, reference image configuration, and extract images settings while remaining viewable in any image viewer
 - **Layer Apron** — Optional virtual canvas extension that lets layers hold pixels outside the visible canvas bounds; enables Move tool to drag content fluidly beyond the edge without clipping; configurable as a percentage of canvas size in Settings → General; toggled per-project via `APRON_ENABLED` / `APRON_SIZE_PERCENT` in config; DRW save culls apron pixels automatically; crop and resize auto-flatten aprons before operating
 
+### AI Image Generation
+- **Off by default and completely invisible until enabled** — no AI menu, command, layer marker or status text appears anywhere while `AI_ENABLED` is off. Turn it on in **Settings → General → Enable AI Features**
+- **DRAW never talks to a model.** It runs an external command-line generator you configure yourself (e.g. [pixelmon](https://github.com/grymmjack/pixelmon)), so you choose the engine, the models and where they run
+- **Generate dialog** — tool, style and prompt-preset pickers, a full multi-line prompt editor with word wrap and clipboard, size with `[IMAGE SIZE]` (and `[IMAGE xN]` when the display is scaled), 3×3 position presets plus editable X/Y, seed with `[RANDOM]`, and `SURPRISE ME` for a random style and prompt
+- **Selection-aware** — with a selection active, the generation uses its size and top-left corner, and the result is scaled to fit inside it with aspect ratio preserved (upscaling is integer-only, so pixel art is never resampled into mush)
+- **Batch generation** — set **Count** above 1 to produce up to 20 variations at once into a layer group; every item shares identical settings and differs only by seed
+- **AI layers** — marked `[AI]` in the layer panel, with the prompt, engine, style and seed on hover; the prompt and seed are saved in the `.draw` file so a layer can be regenerated, or reproduced exactly, after reloading
+- **Asynchronous** — generation runs in the background with an animated status-bar spinner; DRAW stays fully usable and `Ctrl+Alt+K` aborts the run (and the rest of a batch), terminating the generator process
+- **Argument macros** — tool arguments are templates expanded by `DRAW_InfoParser$`: canvas, selection, layer, brush and grid dimensions, palette name and colour count, FG/BG colours, active tool, pointer position, fonts, and steering images. Every value is whitespace-trimmed, an UPPERCASE macro name yields an UPPERCASE value (`{PAL}` → `ANSI32`), and `sc*` variants give the same value multiplied by the screen scale. A live **[?] macro reference** in the tool and style editors lists every macro with its current value
+- **Steering / hinting** — `{limg}`, `{dimg}` and `{bimg}` export the current layer, the flattened document and the custom brush as PNGs for generators that accept reference images
+- **Style and prompt editors** — styles wrap a prompt with a prefix/suffix, can add their own CLI flags, may be scoped to one tool, and can lock a seed; prompt presets are saved starting points
+- **`ai.log`** in the config directory records every run: the full command line, exit code, the tool's own output, and the imported result or the reason it failed
+
 ### Sound System
 - **21 categorized sound slots** covering menus, tools, selections, fill, clipboard, layers, text, sliders, drag-drop, point placement, and organizer interactions
 - All sounds loaded from `ASSETS/THEMES/DEFAULT/SOUNDS/` — fully replaceable per theme via `THEME.CFG`

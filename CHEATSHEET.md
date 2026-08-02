@@ -1209,6 +1209,49 @@ The overlay frame and handles can be customised in `ASSETS/THEMES/DEFAULT/THEME.
 | `TRANSFORM_FRAME_HANDLE_COLOR` | `200,230,255,255` | Handle square fill colour |
 | `TRANSFORM_FRAME_HANDLE_SIZE` | `5` | Handle square half-size in pixels |
 
+## AI Image Generation
+
+AI features are **off by default**. Enable them in **Settings > General > Enable AI Features**.
+While disabled, no AI menu, command or layer marker appears anywhere in DRAW.
+
+Generators are external command-line tools you configure yourself — DRAW never
+talks to a model directly. See **AI > Tools...** and `DRAW.ai.cfg` in your
+config directory.
+
+| Key | Function |
+|-----|----------|
+| `Ctrl+Alt+K` | Cancel the running generation (and abort the rest of a batch) |
+
+### AI Menu
+| Item | Function |
+|------|----------|
+| New AI Layer... | Generate onto a new layer. With a selection active, its size and top-left corner are used |
+| Regenerate Layer | Re-run the current AI layer, pre-filled with the prompt and seed it was made with |
+| Cancel Generation | Same as `Ctrl+Alt+K` |
+| Tools... | Add / edit / remove generator tools |
+| Style Editor... | Style guides — prompt prefix/suffix, extra CLI arguments, optional locked seed |
+| Prompt Editor... | Saved prompt presets |
+
+### Also available
+| Location | Item |
+|----------|------|
+| File menu | New from AI... — new document sized to the generation |
+| Layer menu | New from AI... |
+| Layer right-click | Edit Prompt... / Regenerate (AI layers only) |
+
+### Batch Generation
+Set **Count** above 1 in the generate dialog to produce several variations at
+once. They land in a layer group, sharing identical settings and differing only
+by seed. The status bar shows progress as `[2/10]`; `Ctrl+Alt+K` stops the
+remainder.
+
+### Notes
+- AI layers are marked `[AI]` in the layer panel; hovering shows the prompt with the engine, style and seed.
+- The prompt, style, tool and seed are saved in the `.draw` file, so a layer can be regenerated after reloading.
+- Every run is logged to `ai.log` in your config directory: the full command, exit code, the tool's own output, and the result.
+
+---
+
 ## File Operations
 
 ### Standard Image Save/Load (CTRL)

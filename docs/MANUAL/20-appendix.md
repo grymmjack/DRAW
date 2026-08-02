@@ -125,6 +125,14 @@ The complete, always-up-to-date list of keyboard shortcuts lives in [`CHEATSHEET
 | Cycle geometry | `Ctrl+'` |
 | Cycle symmetry | `F7` |
 
+### AI (only when AI features are enabled)
+
+| Action | Shortcut |
+| --- | --- |
+| Cancel AI generation / batch | `Ctrl+Alt+K` |
+
+See [Ch. 21 — AI Image Generation](21-ai-generation.md).
+
 ---
 
 ## All 56 bundled palettes

@@ -69,6 +69,9 @@ By Rick Christy ([grymmjack](https://github.com/grymmjack)) · [github.com/grymm
 20. **[Ch. 20  📋 Appendix — Quick Reference](MANUAL/20-appendix.md)**  
     Full cheat sheet, 56 palettes, 19 blend modes.
 
+21. **[Ch. 21  🤖 AI Image Generation](MANUAL/21-ai-generation.md)**  
+    Optional and off by default. External generators, prompts, styles, batches.
+
 </div>
 
 <div class="page-break"></div>
@@ -108,7 +111,7 @@ You can read it cover-to-cover, jump to any chapter from the [Table of Contents]
 docs/
 ├── MANUAL.md            ← this cover + master TOC
 └── MANUAL/
-    ├── 01-introduction.md       … 20-appendix.md
+    ├── 01-introduction.md       … 21-ai-generation.md
     ├── SCREENSHOTS.md   ← capture checklist for missing visuals
     └── images/          ← captured screenshots + placeholder.svg
 ```
