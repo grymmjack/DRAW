@@ -142,6 +142,10 @@ SUB AI_config_load ()
                 curIdx% = 0
             END IF
             _CONTINUE
+        ELSEIF UCASE$(lineIn$) = "[LAST]" THEN
+            curIdx%  = 1        ' not a record index; keys handled by secKind 4
+            secKind% = 4
+            _CONTINUE
         ELSEIF UCASE$(lineIn$) = "[PROMPT]" THEN
             IF AI_PROMPT_COUNT% < AI_MAX_PROMPTS THEN
                 AI_PROMPT_COUNT%           = AI_PROMPT_COUNT% + 1
@@ -185,6 +189,15 @@ SUB AI_config_load ()
                     CASE "NAME" : AI_PROMPTS(curIdx%).label    = valStr$
                     CASE "TEXT" : AI_PROMPTS(curIdx%).textBody = valStr$
                 END SELECT
+            CASE 4
+                ' Resolved to indices after the whole file is read, since the
+                ' tool and style lists may not be fully populated yet.
+                SELECT CASE keyStr$
+                    CASE "TOOL"   : AI_LAST_TOOL_NAME$  = valStr$
+                    CASE "STYLE"  : AI_LAST_STYLE_NAME$ = valStr$
+                    CASE "PROMPT" : AI_LAST_PROMPT_RAW$ = valStr$
+                    CASE "SEED"   : AI_LAST_SEED&       = VAL(valStr$)
+                END SELECT
         END SELECT
     LOOP
     CLOSE #fh%
@@ -207,7 +220,19 @@ SUB AI_config_load ()
         AI_STYLES(mi%).argsExtra = _TRIM$(AI_STYLES(mi%).argsExtra)
     NEXT mi%
 
-    IF AI_TOOL_COUNT% > 0 THEN AI_LAST_TOOL% = 1
+    ' Resolve remembered choices by name now that both lists are complete
+    IF LEN(_TRIM$(AI_LAST_TOOL_NAME$)) > 0 THEN AI_LAST_TOOL% = AI_tool_by_name%(AI_LAST_TOOL_NAME$)
+    IF LEN(_TRIM$(AI_LAST_STYLE_NAME$)) > 0 THEN
+        DIM rs AS INTEGER
+        FOR rs% = 1 TO AI_STYLE_COUNT%
+            IF UCASE$(RTRIM$(AI_STYLES(rs%).styleName)) = UCASE$(_TRIM$(AI_LAST_STYLE_NAME$)) THEN
+                AI_LAST_STYLE_IDX% = rs%
+                EXIT FOR
+            END IF
+        NEXT rs%
+    END IF
+
+    IF AI_TOOL_COUNT% > 0 AND AI_LAST_TOOL% < 1 THEN AI_LAST_TOOL% = 1
     _LOGINFO "AI_config_load: " + _TRIM$(STR$(AI_TOOL_COUNT%)) + " tool(s) from " + cfgPath$
 END SUB
 
@@ -254,6 +279,24 @@ SUB AI_config_save ()
         PRINT #fh%, "TEXT=" + RTRIM$(AI_PROMPTS(i%).textBody)
         PRINT #fh%, ""
     NEXT i%
+
+    ' Remembered choices, so the generate dialog reopens where it was left.
+    ' Stored by NAME, not index — a reordered list must not silently select
+    ' something else.
+    PRINT #fh%, "[LAST]"
+    IF AI_LAST_TOOL% >= 1 AND AI_LAST_TOOL% <= AI_TOOL_COUNT% THEN
+        PRINT #fh%, "TOOL=" + RTRIM$(AI_TOOLS(AI_LAST_TOOL%).toolName)
+    ELSE
+        PRINT #fh%, "TOOL="
+    END IF
+    IF AI_LAST_STYLE_IDX% >= 1 AND AI_LAST_STYLE_IDX% <= AI_STYLE_COUNT% THEN
+        PRINT #fh%, "STYLE=" + RTRIM$(AI_STYLES(AI_LAST_STYLE_IDX%).styleName)
+    ELSE
+        PRINT #fh%, "STYLE="
+    END IF
+    PRINT #fh%, "PROMPT=" + AI_LAST_PROMPT_RAW$
+    PRINT #fh%, "SEED=" + _TRIM$(STR$(AI_LAST_SEED&))
+    PRINT #fh%, ""
 
     CLOSE #fh%
     _LOGINFO "AI_config_save: " + _TRIM$(STR$(AI_TOOL_COUNT%)) + " tool(s), " + _
@@ -385,6 +428,68 @@ FUNCTION AI_tool_alloc% ()
     AI_TOOLS(AI_TOOL_COUNT%).argsTmpl = CHR$(34) + "{prompt}" + CHR$(34) + " --output-to {outdir} --name {outname}"
     AI_tool_alloc% = AI_TOOL_COUNT%
 END FUNCTION
+
+
+''
+' Slugify: lowercase, spaces and underscores to dashes, drop anything else
+' that is not alphanumeric or a dash. For tools that want CLI-safe tokens.
+' @param src STRING - Source text
+' @return STRING - Slug
+'
+FUNCTION AI_slug$ (src AS STRING)
+    DIM s AS STRING, o AS STRING, c AS STRING
+    DIM i AS INTEGER
+    s$ = LCASE$(_TRIM$(src$))
+    o$ = ""
+    FOR i% = 1 TO LEN(s$)
+        c$ = MID$(s$, i%, 1)
+        IF (c$ >= "a" AND c$ <= "z") OR (c$ >= "0" AND c$ <= "9") OR c$ = "-" THEN
+            o$ = o$ + c$
+        ELSEIF c$ = " " OR c$ = "_" THEN
+            IF LEN(o$) > 0 AND RIGHT$(o$, 1) <> "-" THEN o$ = o$ + "-"
+        END IF
+    NEXT i%
+    DO WHILE LEN(o$) > 0 AND RIGHT$(o$, 1) = "-"
+        o$ = LEFT$(o$, LEN(o$) - 1)
+    LOOP
+    AI_slug$ = o$
+END FUNCTION
+
+
+''
+' Substitute one macro and all of its case variants into a template.
+'
+' Every value is _TRIM$'d before substitution. Untrimmed values are a real
+' hazard: a stray leading space in the palette name produced
+' `--palette " ANSI32"` and pixelmon rejected it outright.
+'
+' Supported forms, for a macro named "pal":
+'   {pal}        as-is (trimmed)
+'   {pal:upper}  UPPERCASE
+'   {pal:lower}  lowercase
+'   {pal:slug}   cli-safe-slug
+'
+' @param s STRING - Template, modified in place
+' @param macroName STRING - Macro name WITHOUT braces
+' @param rawVal STRING - Value to substitute
+'
+SUB AI_apply_macro (s AS STRING, macroName AS STRING, rawVal AS STRING)
+    ' Copy the value out first — QB64 passes by reference and callers routinely
+    ' hand in SHARED globals here.
+    DIM v AS STRING
+    v$ = _TRIM$(rawVal$)
+
+    DIM stem AS STRING
+    stem$ = "{" + macroName$
+    IF INSTR(s$, stem$) = 0 THEN EXIT SUB
+
+    ' Modified forms first; the bare form cannot match inside them (it needs the
+    ' closing brace immediately), but ordering keeps the intent obvious.
+    s$ = AI_replace$(s$, stem$ + ":upper}", UCASE$(v$))
+    s$ = AI_replace$(s$, stem$ + ":lower}", LCASE$(v$))
+    s$ = AI_replace$(s$, stem$ + ":slug}", AI_slug$(v$))
+    s$ = AI_replace$(s$, stem$ + "}", v$)
+END SUB
 
 
 ''
@@ -613,12 +718,11 @@ FUNCTION DRAW_InfoParser$ (tmpl AS STRING)
     outDirS$ = RTRIM$(AI_JOB.outDir)
 
     ' --- Run parameters ---
-    s$ = AI_replace$(s$, "{prompt}", AI_LAST_PROMPT$)
-    s$ = AI_replace$(s$, "{style}", AI_LAST_STYLE$)
-    s$ = AI_replace$(s$, "{seed}", _TRIM$(STR$(AI_LAST_SEED&)))
-    s$ = AI_replace$(s$, "{outdir}", outDirS$)
-    s$ = AI_replace$(s$, "{outname}", RTRIM$(AI_JOB.outName))
-
+    AI_apply_macro s$, "prompt", AI_LAST_PROMPT$
+    AI_apply_macro s$, "style", AI_LAST_STYLE$
+    AI_apply_macro s$, "seed", _TRIM$(STR$(AI_LAST_SEED&))
+    AI_apply_macro s$, "outdir", outDirS$
+    AI_apply_macro s$, "outname", RTRIM$(AI_JOB.outName)
     ' --- Document ---
     DIM fnameOnly AS STRING, dirOnly AS STRING
     fnameOnly$ = CURRENT_FILENAME$
@@ -635,11 +739,10 @@ FUNCTION DRAW_InfoParser$ (tmpl AS STRING)
         dirOnly$   = LEFT$(fnameOnly$, slashPos% - 1)
         fnameOnly$ = MID$(fnameOnly$, slashPos% + 1)
     END IF
-    s$ = AI_replace$(s$, "{if}", fnameOnly$)
-    s$ = AI_replace$(s$, "{id}", dirOnly$)
-    s$ = AI_replace$(s$, "{iw}", _TRIM$(STR$(SCRN.canvasW&)))
-    s$ = AI_replace$(s$, "{ih}", _TRIM$(STR$(SCRN.canvasH&)))
-
+    AI_apply_macro s$, "if", fnameOnly$
+    AI_apply_macro s$, "id", dirOnly$
+    AI_apply_macro s$, "iw", _TRIM$(STR$(SCRN.canvasW&))
+    AI_apply_macro s$, "ih", _TRIM$(STR$(SCRN.canvasH&))
     ' --- Selection (falls back to the whole canvas when nothing is selected) ---
     IF MARQUEE.ACTIVE% AND MARQUEE.BOX.w > 0 AND MARQUEE.BOX.h > 0 THEN
         selW% = MARQUEE.BOX.w
@@ -648,53 +751,46 @@ FUNCTION DRAW_InfoParser$ (tmpl AS STRING)
         selW% = SCRN.canvasW&
         selH% = SCRN.canvasH&
     END IF
-    s$ = AI_replace$(s$, "{sw}", _TRIM$(STR$(selW%)))
-    s$ = AI_replace$(s$, "{sh}", _TRIM$(STR$(selH%)))
-
+    AI_apply_macro s$, "sw", _TRIM$(STR$(selW%))
+    AI_apply_macro s$, "sh", _TRIM$(STR$(selH%))
     ' --- Brush / grid ---
-    s$ = AI_replace$(s$, "{bw}", _TRIM$(STR$(BRUSH_SIZE.CURRENT%)))
-    s$ = AI_replace$(s$, "{bh}", _TRIM$(STR$(BRUSH_SIZE.CURRENT%)))
-    s$ = AI_replace$(s$, "{gw}", _TRIM$(STR$(GRID.gridWidth%)))
-    s$ = AI_replace$(s$, "{gh}", _TRIM$(STR$(GRID.gridHeight%)))
-
+    AI_apply_macro s$, "bw", _TRIM$(STR$(BRUSH_SIZE.CURRENT%))
+    AI_apply_macro s$, "bh", _TRIM$(STR$(BRUSH_SIZE.CURRENT%))
+    AI_apply_macro s$, "gw", _TRIM$(STR$(GRID.gridWidth%))
+    AI_apply_macro s$, "gh", _TRIM$(STR$(GRID.gridHeight%))
     ' --- Palette ---
-    s$ = AI_replace$(s$, "{pal}", PALETTE_LOADER_get_name$)
-    s$ = AI_replace$(s$, "{numpal}", _TRIM$(STR$(PAL_COLOR_COUNT%)))
-
+    AI_apply_macro s$, "pal", PALETTE_LOADER_get_name$
+    AI_apply_macro s$, "numpal", _TRIM$(STR$(PAL_COLOR_COUNT%))
     ' --- Layers ---
-    s$ = AI_replace$(s$, "{numlayers}", _TRIM$(STR$(LAYER_COUNT%)))
-    s$ = AI_replace$(s$, "{lidx}", _TRIM$(STR$(curLayer%)))
-    s$ = AI_replace$(s$, "{lname}", RTRIM$(LAYERS(curLayer%).name))
-    s$ = AI_replace$(s$, "{lw}", _TRIM$(STR$(LAYERS(curLayer%).imgWidth%)))
-    s$ = AI_replace$(s$, "{lh}", _TRIM$(STR$(LAYERS(curLayer%).imgHeight%)))
-    s$ = AI_replace$(s$, "{lx}", "0")
-    s$ = AI_replace$(s$, "{ly}", "0")
-
+    AI_apply_macro s$, "numlayers", _TRIM$(STR$(LAYER_COUNT%))
+    AI_apply_macro s$, "lidx", _TRIM$(STR$(curLayer%))
+    AI_apply_macro s$, "lname", RTRIM$(LAYERS(curLayer%).name)
+    AI_apply_macro s$, "lw", _TRIM$(STR$(LAYERS(curLayer%).imgWidth%))
+    AI_apply_macro s$, "lh", _TRIM$(STR$(LAYERS(curLayer%).imgHeight%))
+    AI_apply_macro s$, "lx", "0"
+    AI_apply_macro s$, "ly", "0"
     ' --- Colors (hex, no alpha — what CLI tools expect) ---
-    s$ = AI_replace$(s$, "{fg}", AI_hex_color$(PAINT_COLOR~&))
-    s$ = AI_replace$(s$, "{bg}", AI_hex_color$(PAINT_BG_COLOR~&))
-    s$ = AI_replace$(s$, "{pmode}", BLEND_mode_name$(LAYERS(curLayer%).blendMode%))
-
+    AI_apply_macro s$, "fg", AI_hex_color$(PAINT_COLOR~&)
+    AI_apply_macro s$, "bg", AI_hex_color$(PAINT_BG_COLOR~&)
+    AI_apply_macro s$, "pmode", BLEND_mode_name$(LAYERS(curLayer%).blendMode%)
     ' --- Tool / pointer ---
-    s$ = AI_replace$(s$, "{tool}", AI_tool_label$(CURRENT_TOOL%))
-    s$ = AI_replace$(s$, "{px}", _TRIM$(STR$(MOUSE.X%)))
-    s$ = AI_replace$(s$, "{py}", _TRIM$(STR$(MOUSE.Y%)))
-
+    AI_apply_macro s$, "tool", AI_tool_label$(CURRENT_TOOL%)
+    AI_apply_macro s$, "px", _TRIM$(STR$(MOUSE.X%))
+    AI_apply_macro s$, "py", _TRIM$(STR$(MOUSE.Y%))
     ' --- Font ---
-    s$ = AI_replace$(s$, "{font}", RTRIM$(THEME.GLOBAL_FONT_FILE$))
-    s$ = AI_replace$(s$, "{fsize}", _TRIM$(STR$(THEME.GLOBAL_FONT_SIZE%)))
-    s$ = AI_replace$(s$, "{fontfile}", THEME_font_path$(THEME.GLOBAL_FONT_FILE$))
-
+    AI_apply_macro s$, "font", RTRIM$(THEME.GLOBAL_FONT_FILE$)
+    AI_apply_macro s$, "fsize", _TRIM$(STR$(THEME.GLOBAL_FONT_SIZE%))
+    AI_apply_macro s$, "fontfile", THEME_font_path$(THEME.GLOBAL_FONT_FILE$)
     ' --- Image exports for steering / hinting (written on demand) ---
     IF LEN(outDirS$) > 0 THEN
         IF INSTR(s$, "{limg}") > 0 THEN
-            s$ = AI_replace$(s$, "{limg}", AI_export_png$(LAYERS(curLayer%).imgHandle&, outDirS$ + "/_layer.png"))
+            AI_apply_macro s$, "limg", AI_export_png$(LAYERS(curLayer%).imgHandle&, outDirS$ + "/_layer.png")
         END IF
         IF INSTR(s$, "{dimg}") > 0 THEN
-            s$ = AI_replace$(s$, "{dimg}", AI_export_png$(SCRN.CANVAS&, outDirS$ + "/_document.png"))
+            AI_apply_macro s$, "dimg", AI_export_png$(SCRN.CANVAS&, outDirS$ + "/_document.png")
         END IF
         IF INSTR(s$, "{bimg}") > 0 THEN
-            s$ = AI_replace$(s$, "{bimg}", AI_export_png$(CUSTOM_BRUSH.IMAGE&, outDirS$ + "/_brush.png"))
+            AI_apply_macro s$, "bimg", AI_export_png$(CUSTOM_BRUSH.IMAGE&, outDirS$ + "/_brush.png")
         END IF
     END IF
 
@@ -729,3 +825,57 @@ FUNCTION AI_export_png$ (imgHandle AS LONG, destPath AS STRING)
     _SAVEIMAGE destPath$, imgHandle&
     IF _FILEEXISTS(destPath$) THEN AI_export_png$ = destPath$
 END FUNCTION
+
+
+''
+' Pipe-delimited list of configured tool names, for the dropdown widget.
+' @return STRING - "name|name|..."
+'
+FUNCTION AI_items_tools$ ()
+    DIM o AS STRING, i AS INTEGER
+    o$ = ""
+    FOR i% = 1 TO AI_TOOL_COUNT%
+        IF LEN(o$) > 0 THEN o$ = o$ + "|"
+        o$ = o$ + RTRIM$(AI_TOOLS(i%).toolName)
+    NEXT i%
+    IF LEN(o$) = 0 THEN o$ = "(none configured)"
+    AI_items_tools$ = o$
+END FUNCTION
+
+
+''
+' Pipe-delimited style names with a leading "(none)", so the dropdown's
+' 0-based selection maps directly onto the style index (0 = no style).
+' @return STRING - "(none)|name|..."
+'
+FUNCTION AI_items_styles$ ()
+    DIM o AS STRING, i AS INTEGER
+    o$ = "(none)"
+    FOR i% = 1 TO AI_STYLE_COUNT%
+        o$ = o$ + "|" + RTRIM$(AI_STYLES(i%).styleName)
+    NEXT i%
+    AI_items_styles$ = o$
+END FUNCTION
+
+
+''
+' Pipe-delimited prompt-preset labels with a leading "(none)".
+' @return STRING - "(none)|label|..."
+'
+FUNCTION AI_items_prompts$ ()
+    DIM o AS STRING, i AS INTEGER
+    o$ = "(none)"
+    FOR i% = 1 TO AI_PROMPT_COUNT%
+        o$ = o$ + "|" + RTRIM$(AI_PROMPTS(i%).label)
+    NEXT i%
+    AI_items_prompts$ = o$
+END FUNCTION
+
+
+''
+' Remember the last-used tool / style / size / seed across sessions.
+' Written as a [LAST] section in DRAW.ai.cfg by AI_config_save.
+'
+SUB AI_remember_choices ()
+    AI_config_save
+END SUB

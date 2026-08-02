@@ -132,6 +132,9 @@ DIM SHARED AI_LAST_STYLE$
 DIM SHARED AI_LAST_SEED&
 DIM SHARED AI_LAST_TOOL%
 DIM SHARED AI_LAST_STYLE_IDX%
+' Remembered-by-name choices read from [LAST]; resolved to indices after load
+DIM SHARED AI_LAST_TOOL_NAME$
+DIM SHARED AI_LAST_STYLE_NAME$
 
 ' Results of the generate dialog (AI_DLG_generate%). Shared rather than BYREF
 ' params because QB64 passes by reference and the dialog calls into code that
