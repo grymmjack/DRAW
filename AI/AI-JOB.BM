@@ -162,13 +162,20 @@ FUNCTION AI_JOB_start% (toolIdx AS INTEGER, layerIdx AS INTEGER, targetKind AS I
     logFile$ = runDir$ + "/_run.log"
     IF LEN(dirStr$) = 0 THEN dirStr$ = _STARTDIR$
 
+    ' The wrapper records its own PID first, so Cancel can actually terminate a
+    ' running generation instead of merely abandoning it. SHELL _DONTWAIT gives
+    ' us no handle on the child, so the process has to report itself.
+    DIM pidFile AS STRING
+    pidFile$ = runDir$ + "/_pid"
+
     $IF WIN THEN
-        cmdStr$ = "cmd /c " + CHR$(34) + "cd /d " + CHR$(34) + dirStr$ + CHR$(34) + _
+        cmdStr$ = "cmd /c " + CHR$(34) + "echo %%PROCESS_ID%% > " + CHR$(34) + pidFile$ + CHR$(34) + _
+                  " & cd /d " + CHR$(34) + dirStr$ + CHR$(34) + _
                   " && " + CHR$(34) + exeStr$ + CHR$(34) + " " + argStr$ + _
                   " > " + CHR$(34) + logFile$ + CHR$(34) + " 2>&1 & echo %ERRORLEVEL% > " + _
                   CHR$(34) + RTRIM$(AI_JOB.doneFile) + CHR$(34) + CHR$(34)
     $ELSE
-        cmdStr$ = "sh -c 'cd " + CHR$(34) + dirStr$ + CHR$(34) + " && " + _
+        cmdStr$ = "sh -c 'echo $$ > " + CHR$(34) + pidFile$ + CHR$(34) + "; cd " + CHR$(34) + dirStr$ + CHR$(34) + " && " + _
                   CHR$(34) + exeStr$ + CHR$(34) + " " + argStr$ + _
                   " > " + CHR$(34) + logFile$ + CHR$(34) + " 2>&1; echo $? > " + _
                   CHR$(34) + RTRIM$(AI_JOB.doneFile) + CHR$(34) + "'"
@@ -500,8 +507,47 @@ END SUB
 ' Abandon the running job. The external process is left to finish on its own —
 ' DRAW simply stops watching for it and discards whatever it produces.
 '
+''
+' Terminate the running generator process and everything it spawned.
+'
+' The wrapper writes its PID to _pid. pixelmon is three deep (sh -> bash
+' wrapper -> python), so killing the shell alone would leave the model running
+' on the GPU — the descendants are walked explicitly.
+'
+SUB AI_JOB_kill_process ()
+    DIM pidFile AS STRING
+    pidFile$ = RTRIM$(AI_JOB.outDir) + "/_pid"
+    IF NOT _FILEEXISTS(pidFile$) THEN EXIT SUB
+
+    DIM fh  AS INTEGER
+    DIM ln  AS STRING
+    fh% = FREEFILE
+    OPEN pidFile$ FOR INPUT AS #fh%
+    IF NOT EOF(fh%) THEN LINE INPUT #fh%, ln$
+    CLOSE #fh%
+
+    DIM pidStr AS STRING
+    pidStr$ = _TRIM$(ln$)
+    IF LEN(pidStr$) = 0 OR VAL(pidStr$) <= 0 THEN EXIT SUB
+
+    _LOGINFO "AI_JOB_kill_process: terminating pid " + pidStr$
+    AI_log "  CANCEL   : terminating generator pid " + pidStr$
+
+    $IF WIN THEN
+        SHELL _DONTWAIT _HIDE "taskkill /PID " + pidStr$ + " /T /F"
+    $ELSE
+        ' Two levels of descendants covers sh -> wrapper -> interpreter, then
+        ' the wrapper shell itself. Every kill is best-effort.
+        SHELL _DONTWAIT _HIDE "sh -c 'for c in $(pgrep -P " + pidStr$ + " 2>/dev/null); do " + _
+              "for g in $(pgrep -P $c 2>/dev/null); do kill -TERM $g 2>/dev/null; done; " + _
+              "kill -TERM $c 2>/dev/null; done; kill -TERM " + pidStr$ + " 2>/dev/null'"
+    $END IF
+END SUB
+
+
 SUB AI_JOB_cancel ()
     IF NOT AI_JOB_is_running% THEN EXIT SUB
+    AI_JOB_kill_process
     AI_JOB.state     = AI_JOB_CANCELLED
     AI_JOB.statusMsg = "cancelled"
     IF AI_BATCH_is_active% THEN AI_BATCH_cancel

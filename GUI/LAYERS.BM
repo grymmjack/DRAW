@@ -1920,6 +1920,33 @@ END SUB
 
 
 ''
+' TRUE when layerIdx is a descendant of groupIdx (any depth).
+' @param layerIdx INTEGER - Candidate child
+' @param groupIdx INTEGER - Ancestor group
+' @return INTEGER - TRUE when layerIdx sits under groupIdx
+'
+FUNCTION LAYERS_descends_from% (layerIdx AS INTEGER, groupIdx AS INTEGER)
+    LAYERS_descends_from% = FALSE
+    IF layerIdx% < 1 OR layerIdx% > MAX_LAYERS THEN EXIT FUNCTION
+    IF groupIdx% < 1 OR groupIdx% > MAX_LAYERS THEN EXIT FUNCTION
+
+    DIM walk  AS INTEGER
+    DIM guard AS INTEGER
+    walk%  = LAYERS(layerIdx%).parentGroupIdx%
+    guard% = 0
+    DO WHILE walk% > 0 AND walk% <= MAX_LAYERS
+        IF walk% = groupIdx% THEN
+            LAYERS_descends_from% = TRUE
+            EXIT FUNCTION
+        END IF
+        walk%  = LAYERS(walk%).parentGroupIdx%
+        guard% = guard% + 1
+        IF guard% > MAX_LAYERS THEN EXIT DO   ' corrupt parent chain
+    LOOP
+END FUNCTION
+
+
+''
 ' Flatten all visible layers and return a new image handle
 ' Caller is responsible for freeing the returned image
 ' @return LONG - New image handle containing the flattened result
@@ -1943,6 +1970,27 @@ FUNCTION LAYERS_flatten& ()
     FOR z% = 1 TO LAYER_COUNT%
         FOR i% = 1 TO MAX_LAYERS
             IF LAYERS(i%).imgHandle& <> 0 AND LAYERS(i%).visible% AND LAYERS(i%).zIndex% = z% THEN
+                ' Children of a hidden group must be skipped here too. The
+                ' screen renderer walks the parent chain, this did not — so a
+                ' hidden group's contents were absent on canvas but PRESENT in
+                ' every export and in the {dimg} steering image.
+                DIM flatParent AS INTEGER, flatHidden AS INTEGER, flatGuard AS INTEGER
+                flatHidden% = FALSE
+                flatParent% = LAYERS(i%).parentGroupIdx%
+                flatGuard%  = 0
+                DO WHILE flatParent% > 0 AND flatParent% <= MAX_LAYERS
+                    IF LAYERS(flatParent%).imgHandle& <> 0 THEN
+                        IF LAYERS(flatParent%).visible% = 0 THEN
+                            flatHidden% = TRUE
+                            EXIT DO
+                        END IF
+                    END IF
+                    flatParent% = LAYERS(flatParent%).parentGroupIdx%
+                    flatGuard%  = flatGuard% + 1
+                    IF flatGuard% > MAX_LAYERS THEN EXIT DO
+                LOOP
+                IF flatHidden% THEN _CONTINUE
+
                 ' APRON: extract canvas region into a compact temp if layer is extended.
                 apronTmp& = 0
                 IF LAYERS(i%).apronW% > 0 OR LAYERS(i%).apronH% > 0 THEN
@@ -3181,7 +3229,11 @@ FUNCTION LAYER_PANEL_handle_click% (rawX AS INTEGER, rawY AS INTEGER, button AS 
                                         ELSE
                                             MID$(LAYER_PANEL.savedVisibility, si%, 1) = CHR$(0)
                                         END IF
-                                        IF si% = layerIdx% THEN
+                                        IF si% = layerIdx% OR LAYERS_descends_from%(si%, layerIdx%) THEN
+                                            ' Soloing a GROUP must keep its own
+                                            ' children visible — hiding them
+                                            ' leaves a visible group with no
+                                            ' pixels, i.e. a blank canvas.
                                             LAYERS(si%).visible% = TRUE
                                         ELSE
                                             LAYERS(si%).visible% = FALSE
@@ -3231,7 +3283,7 @@ FUNCTION LAYER_PANEL_handle_click% (rawX AS INTEGER, rawY AS INTEGER, button AS 
                                         ELSE
                                             MID$(LAYER_PANEL.savedVisibility, si2%, 1) = CHR$(0)
                                         END IF
-                                        IF si2% = layerIdx% THEN
+                                        IF si2% = layerIdx% OR LAYERS_descends_from%(si2%, layerIdx%) THEN
                                             LAYERS(si2%).visible% = TRUE
                                         ELSE
                                             LAYERS(si2%).visible% = FALSE
