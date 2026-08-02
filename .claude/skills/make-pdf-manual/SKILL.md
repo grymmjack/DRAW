@@ -1,6 +1,6 @@
 ---
 name: make-pdf-manual
-description: Build a single PDF (docs/DRAW-Manual.pdf) from the split Markdown user manual under docs/MANUAL/. Combines the cover and all chapter files in order, rewrites image paths, and renders via pandoc/weasyprint, md-to-pdf (Puppeteer), or headless Chrome.
+description: Build DRAW-Manual.pdf from the split Markdown user manual under docs/MANUAL/. Combines the cover and all chapter files in order, stamps the version, rewrites image paths, and renders via pandoc/weasyprint, md-to-pdf (Puppeteer), or headless Chrome.
 ---
 
 # Make PDF Manual Skill
@@ -14,18 +14,25 @@ When the user invokes this skill (e.g. "/make-pdf-manual", "build the manual PDF
 Verify the manual sources exist:
 
 - `docs/MANUAL.md` (cover + master TOC)
-- `docs/MANUAL/01-introduction.md` … `docs/MANUAL/20-appendix.md`
+- `docs/MANUAL/NN-*.md` chapter files
 
-If any are missing, stop and report which file(s) are missing. Do **not** attempt to regenerate them — that is a separate task.
+Do **not** hardcode a chapter count. The script globs `docs/MANUAL/*.md` and
+sorts by the `NN-` prefix, so chapters can be added or removed without touching
+it — as of manual revision 2026-08-02 there are 21, ending with
+`21-ai-generation.md`. Only `SCREENSHOTS.md` is skipped.
+
+If the cover or the chapter directory is missing, stop and report which. Do
+**not** attempt to regenerate them — that is a separate task.
 
 ---
 
 ## Step 2 — Run the builder
 
-The script lives at [`UTILS/make-pdf-manual.sh`](../../../UTILS/make-pdf-manual.sh). From the repo root:
+The script lives at [`DEV/make-pdf-manual.sh`](../../../DEV/make-pdf-manual.sh),
+with its stylesheet alongside it at `DEV/make-pdf-manual.css`. From the repo root:
 
 ```bash
-./UTILS/make-pdf-manual.sh
+./DEV/make-pdf-manual.sh
 ```
 
 Default behaviour:
@@ -34,13 +41,15 @@ Default behaviour:
 - Rewrites every Markdown image / link / `<img>` path to an absolute `file://` URL so that images resolve correctly inside the combined document.
 - Rewrites in-document Markdown links between chapter files to `#slug` anchors targeting the combined document.
 - Picks the best available rendering engine in this order: `weasyprint` → `wkhtmltopdf` → `xelatex` → `md-to-pdf` (npx, Puppeteer) → headless `google-chrome` / `chromium`.
-- Writes `docs/DRAW-Manual.pdf` at US Letter size with a CSS stylesheet that handles emoji, tables, blockquote callouts, code blocks, and chapter page-breaks.
+- Stamps `{{VERSION}}` from `APP_VERSION$` in `_COMMON.BI` and `{{DATE}}` with today's date, so the cover always matches the build.
+- Renders at US Letter size using `DEV/make-pdf-manual.css`, which handles emoji, tables, blockquote callouts, code blocks, and chapter page-breaks.
+- Builds to `docs/DRAW-Manual.pdf` and then **moves it to the repo root** as `DRAW-Manual.pdf`. That is the final location — the `docs/` copy will not exist when the script finishes.
 
 ### Useful flags
 
 | Flag | Purpose |
 | --- | --- |
-| `-o <file>` / `--output <file>` | Custom output path. |
+| `-o <file>` / `--output <file>` | Custom output path. Note the script still moves the result to the repo root under the same basename unless the path already is the repo root. |
 | `--html-only` | Also keep the intermediate HTML next to the PDF (useful for debugging styling). |
 | `--engine <name>` | Force a specific engine: `weasyprint`, `wkhtmltopdf`, `xelatex`, `md-to-pdf`, `chrome`. |
 
@@ -48,11 +57,26 @@ Default behaviour:
 
 ## Step 3 — Verify
 
-After the script reports `==> Wrote …/DRAW-Manual.pdf`, confirm:
+The script prints `==> Wrote …/docs/DRAW-Manual.pdf` and then
+`==> Moved to …/DRAW-Manual.pdf`. **The second path is the real one.** Confirm:
 
-1. The file exists and is non-empty (script already prints size).
-2. Open it: `xdg-open docs/DRAW-Manual.pdf` (Linux), `open` (macOS), or `start` (Windows).
-3. Spot-check page 1 (cover with the DRAW logo), the master Table of Contents, one chapter heading mid-document, and the appendix.
+1. The file exists and is non-empty (the script prints its size).
+2. Check the page count and that new content actually made it in — far more
+   reliable than opening it and eyeballing:
+   ```bash
+   pdfinfo DRAW-Manual.pdf | grep -E "Pages|Page size"
+   pdftotext DRAW-Manual.pdf - | grep -c "<a phrase from the new chapter>"
+   ```
+3. To inspect a page visually, find and render it rather than scrolling a viewer:
+   ```bash
+   for p in $(seq 1 $(pdfinfo DRAW-Manual.pdf | awk '/^Pages/{print $2}')); do
+       pdftotext -f $p -l $p DRAW-Manual.pdf - | grep -q "Chapter 21" && echo "page $p"
+   done
+   pdftoppm -f <page> -l <page> -r 70 -png DRAW-Manual.pdf /tmp/mpage
+   ```
+   Then read `/tmp/mpage-<page>.png`.
+4. Spot-check the cover (DRAW logo), the master TOC, a mid-document chapter
+   heading, and the appendix.
 
 If any image is missing in the PDF, the cause is almost always one of:
 
@@ -75,14 +99,20 @@ The script will tell you which packages to install. Cheat sheet:
 
 ---
 
-## Step 5 — Optional: commit the PDF
+## Step 5 — Commit the PDF
 
-The PDF is a build artifact. By default the manual lives in `docs/DRAW-Manual.pdf`; keep it out of version control unless the user explicitly asks to commit it. Add `docs/DRAW-Manual.pdf` to `.gitignore` if you want to ensure it's never tracked.
+`DRAW-Manual.pdf` at the repo root **is tracked in this repository** — check
+with `git ls-files | grep DRAW-Manual`. It ships with the project, so a rebuild
+that is not committed leaves a stale PDF next to updated Markdown.
+
+Commit it whenever the manual sources change. It is a ~5 MB binary, so do not
+rebuild and commit it for unrelated work.
 
 ---
 
 ## Notes
 
-- The manual uses the chapter emojis from the DRAW XMind feature mindmap (🎬🖌️🎨📚✂️🔄📝📐🪄💾🖥️⚙️🔊🔍🖼️⌨️↩️🎓💡📋). All five engines render emoji glyphs correctly when the system has Noto Color Emoji or Apple Color Emoji installed.
+- The manual uses a chapter emoji per heading (🎬🖌️🎨📚✂️🔄📝📐🪄💾🖥️⚙️🔊🔍🖼️⌨️↩️🎓💡📋🤖). All five engines render emoji glyphs correctly when the system has Noto Color Emoji or Apple Color Emoji installed.
+- **Adding a chapter** takes three edits beyond the chapter file itself: the master TOC in `docs/MANUAL.md`, the directory listing further down that same file, and — if it introduces shortcuts — the keyboard summary in `docs/MANUAL/20-appendix.md`. The build script itself needs no change.
 - Chapter-to-chapter Markdown links (e.g. `[Chapter 9](09-brushes-drawer.md)`) become in-document anchors so the PDF's TOC remains clickable.
 - Screenshot placeholders (`📸 **Screenshot needed**`) render as styled blockquotes and are tracked in [`docs/MANUAL/SCREENSHOTS.md`](../../../docs/MANUAL/SCREENSHOTS.md). When real screenshots replace them, no script change is required.
