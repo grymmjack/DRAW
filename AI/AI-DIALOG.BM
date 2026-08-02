@@ -261,9 +261,13 @@ FUNCTION AI_DLG_generate% (titleTxt AS STRING, defW AS INTEGER, defH AS INTEGER)
     DIM hdrH AS INTEGER : hdrH% = THEME.DIALOG_title_height% + 4
     DIM rowH AS INTEGER : rowH% = 18
     DIM padX AS INTEGER : padX% = 10
-    ' Value column must clear SW_LABEL_W so the plain rows line up with the
-    ' dropdown combos, which the widget draws at x + SW_LABEL_W.
-    DIM fldX AS INTEGER : fldX% = padX% + SW_LABEL_W
+    ' SW_LABEL_W (115px) is sized for the Settings dialog and left a large gap
+    ' after short labels like "Tool". The dropdown always draws its combo at
+    ' x + SW_LABEL_W, so pass it a NEGATIVE x with an empty label — the combo
+    ' lands where we want and its own label draws nothing — then draw the real
+    ' labels ourselves in a column just wide enough for "Position".
+    DIM fldX AS INTEGER : fldX% = 64
+    DIM ddX  AS INTEGER : ddX%  = fldX% - SW_LABEL_W
     DIM fldW AS INTEGER : fldW% = dlgW% - fldX% - padX%
 
     DIM yTool   AS INTEGER : yTool%   = hdrH% + 2
@@ -273,6 +277,8 @@ FUNCTION AI_DLG_generate% (titleTxt AS STRING, defW AS INTEGER, defH AS INTEGER)
     ' Prompt is a multi-line box — prompts are long and were unreadable as a
     ' single truncated line
     DIM promptH AS INTEGER : promptH% = 52
+    ' Characters per line at the 8px monospace pitch, less scroll padding
+    DIM promptCols AS INTEGER
     DIM ySize   AS INTEGER : ySize%   = yPrompt% + promptH% + 8
 
     ' Optional "generate at screen scale" row. Only exists when the display is
@@ -313,17 +319,94 @@ FUNCTION AI_DLG_generate% (titleTxt AS STRING, defW AS INTEGER, defH AS INTEGER)
     DIM txt    AS STRING
     DIM ddOpen AS INTEGER
 
+    ' Real multi-line text area for the prompt (QB64_GJ_LIB TEXT_INPUT): word
+    ' wrap, selection, clipboard, undo — the same widget the Lospec search box
+    ' uses inside a dialog.
+    DIM promptTI AS INTEGER
+    promptTI% = TI_create%(fldX%, yPrompt%, fldW%, promptH%)
+    ' TI's MULTILINE renderer lays out character-by-character at a fixed
+    ' TI_fontW pitch, so it needs a monospace font — DRAW's proportional Tiny5
+    ' rendered visibly spread out ("a  h u m a n o i d").
+    '
+    ' Rather than fall back to the chunky 8x8 ROM font, load DRAW's OWN theme
+    ' font with _LOADFONT's MONOSPACE flag, which forces a uniform advance. The
+    ' text area then matches the rest of the UI and still lays out correctly.
+    DIM tiOldId AS INTEGER, tiOldW AS INTEGER, tiOldH AS INTEGER
+    tiOldId% = TI_fontID : tiOldW% = TI_fontW : tiOldH% = TI_fontH
+
+    DIM tiMonoFont AS LONG
+    DIM tiMonoSize AS INTEGER
+    tiMonoSize% = THEME.GLOBAL_FONT_SIZE%
+    IF tiMonoSize% < 1 THEN tiMonoSize% = 8
+    tiMonoFont& = _LOADFONT(THEME_font_path$(THEME.GLOBAL_FONT_FILE$), tiMonoSize%, "MONOSPACE,DONTBLEND")
+
+    DIM tiMonoW AS INTEGER, tiMonoH AS INTEGER
+    IF tiMonoFont& > 0 THEN
+        tiMonoW% = _FONTWIDTH(tiMonoFont&)
+        tiMonoH% = _FONTHEIGHT(tiMonoFont&)
+    END IF
+    ' Fall back to the built-in 8x8 ROM font if the theme font will not load
+    IF tiMonoFont& <= 0 OR tiMonoW% < 1 OR tiMonoH% < 1 THEN
+        IF tiMonoFont& > 0 THEN _FREEFONT tiMonoFont&
+        tiMonoFont& = 8
+        tiMonoW%    = 8
+        tiMonoH%    = 8
+    END IF
+
+    TI_set_font 8, tiMonoW%, tiMonoH%
+    promptCols% = (fldW% - 8) \ tiMonoW%
+    IF promptCols% < 8 THEN promptCols% = 8
+
+    IF promptTI% > 0 THEN
+        DIM tiFW AS INTEGER, tiFH AS INTEGER
+        tiFW% = tiMonoW%
+        tiFH% = tiMonoH%
+
+        TI_inputs(promptTI%).multiline   = TRUE
+        TI_inputs(promptTI%).wordWrap    = TRUE
+        TI_inputs(promptTI%).placeholder = "Describe what the AI should draw..."
+        ' fontHandle stays 0: the multiline path uses the shared TI font and
+        ' the currently selected _FONT, not this handle
+        TI_inputs(promptTI%).theme.fontHandle       = 0
+        TI_inputs(promptTI%).theme.fontW            = tiFW%
+        TI_inputs(promptTI%).theme.fontH            = tiFH%
+        TI_inputs(promptTI%).theme.bgColor          = THEME.DIALOG_slider_track_bg~&
+        TI_inputs(promptTI%).theme.focusBgColor     = THEME.DIALOG_slider_track_bg~&
+        TI_inputs(promptTI%).theme.borderColor      = THEME.DIALOG_border_inner~&
+        TI_inputs(promptTI%).theme.focusBorderColor = THEME.DIALOG_toggle_sel_border~&
+        TI_inputs(promptTI%).theme.textColor        = THEME.DIALOG_title_fg~&
+        TI_inputs(promptTI%).theme.cursorColor      = THEME.DIALOG_title_fg~&
+        TI_inputs(promptTI%).theme.selectionColor   = THEME.DIALOG_toggle_sel_bg~&
+        TI_inputs(promptTI%).theme.placeholderColor = THEME.DIALOG_label_fg~&
+        TI_set_text promptTI%, AI_wrap_text$(curPrompt$, promptCols%)
+        TI_set_focus promptTI%
+    END IF
+
     SW_DD.openId = -1       ' -1 = closed; never inherit an open list
 
     DO
         DIALOG_poll_mouse ctx
 
+        TI_tick                         ' cursor blink
+
         k& = _KEYHIT
-        IF k& = 27 THEN
+
+        ' The focused text area gets first refusal on every key, so typing a
+        ' prompt cannot trigger dialog shortcuts. ENTER inserts a newline here
+        ' rather than submitting — that is what a text area is for, so GENERATE
+        ' is the only way to submit.
+        DIM tiAte AS INTEGER : tiAte% = FALSE
+        IF promptTI% > 0 AND k& <> 0 AND TI_focusedId = promptTI% THEN
+            IF k& <> 27 THEN tiAte% = TI_process_key%(k&)
+        END IF
+
+        IF k& = 27 AND NOT tiAte% THEN
             IF SW_DD.openId > 0 THEN
-                SW_DD.openId = -1       ' first ESC closes the open list
+                SW_DD.openId = -1       ' first ESC closes an open list
+            ELSEIF TI_focusedId = promptTI% AND promptTI% > 0 THEN
+                TI_clear_focus          ' then leaves the text area
             ELSE
-                ctx.done = TRUE         ' second ESC cancels the dialog
+                ctx.done = TRUE         ' and finally cancels the dialog
             END IF
         END IF
         IF k& = 13 THEN                                     ' ENTER generates
@@ -344,9 +427,18 @@ FUNCTION AI_DLG_generate% (titleTxt AS STRING, defW AS INTEGER, defH AS INTEGER)
         ddOpen% = (SW_DD.openId > 0)
 
         ' --- Prompt ---
-        IF AI_DLG_textarea%(ctx, fldX%, yPrompt%, fldW%, promptH%, "Prompt", curPrompt$) AND NOT ddOpen% THEN
-            txt$ = DRAW_input_box$("AI - Prompt", "What should the AI draw?", curPrompt$, "a fierce dragon")
-            IF LEN(_TRIM$(txt$)) > 0 THEN curPrompt$ = _TRIM$(txt$)
+        ' --- Prompt text area ---
+        DIALOG_draw_label ctx, padX%, yPrompt% + 3, "Prompt"
+        IF promptTI% > 0 THEN
+            IF NOT ddOpen% THEN
+                TI_process_mouse ctx.mx, ctx.my, ctx.justClicked
+                IF ctx.mwheel <> 0 THEN TI_process_mousewheel ctx.mx, ctx.my, ctx.mwheel
+            END IF
+            DIM tiOldFont AS LONG
+            tiOldFont& = _FONT
+            _FONT tiMonoFont&            ' theme font forced monospace
+            TI_render promptTI%, 0, 0
+            _FONT tiOldFont&
         END IF
 
         ' --- Size + [Image Size] ---
@@ -416,8 +508,22 @@ FUNCTION AI_DLG_generate% (titleTxt AS STRING, defW AS INTEGER, defH AS INTEGER)
         IF DIALOG_hit%(ctx, fldX% + 86, ySeed%, 60, 14) AND NOT ddOpen% THEN seedVal& = INT(RND * 999999) + 1
 
         ' --- Generate / Cancel ---
+        ' Surprise me: random style + random saved prompt + fresh seed
+        DIALOG_draw_button ctx, padX% + 96, yBtns%, 96, 20, "SURPRISE ME", THEME.DIALOG_toggle_bg~&, THEME.DIALOG_toggle_sel_bg~&, THEME.DIALOG_border_inner~&
+        IF DIALOG_hit%(ctx, padX% + 96, yBtns%, 96, 20) AND NOT ddOpen% THEN
+            IF AI_STYLE_COUNT% > 0 THEN curStyle% = INT(RND * AI_STYLE_COUNT%) + 1
+            IF AI_PROMPT_COUNT% > 0 THEN
+                curPreset% = INT(RND * AI_PROMPT_COUNT%) + 1
+                curPrompt$ = RTRIM$(AI_PROMPTS(curPreset%).textBody)
+                IF promptTI% > 0 THEN TI_set_text promptTI%, AI_wrap_text$(curPrompt$, promptCols%)
+            END IF
+            seedVal& = INT(RND * 999999) + 1
+        END IF
+
         DIALOG_draw_button ctx, padX%, yBtns%, 90, 20, "GENERATE", THEME.DIALOG_toggle_bg~&, THEME.DIALOG_toggle_sel_bg~&, THEME.DIALOG_border_inner~&
         DIALOG_draw_button ctx, dlgW% - padX% - 90, yBtns%, 90, 20, "CANCEL", THEME.DIALOG_toggle_bg~&, THEME.DIALOG_toggle_sel_bg~&, THEME.DIALOG_border_inner~&
+        IF promptTI% > 0 THEN curPrompt$ = TI_get_text$(promptTI%)
+
         IF DIALOG_hit%(ctx, padX%, yBtns%, 90, 20) AND NOT ddOpen% THEN
             IF LEN(_TRIM$(curPrompt$)) > 0 AND curTool% >= 1 THEN
                 ctx.result = TRUE
@@ -441,49 +547,54 @@ FUNCTION AI_DLG_generate% (titleTxt AS STRING, defW AS INTEGER, defH AS INTEGER)
         ' would also register on whichever combo it happens to cover.
         DIM ddSel AS INTEGER
         DIM ddW   AS INTEGER
-        ddW% = dlgW% - padX% * 2
+        ' Width compensates for the label column SW adds back internally
+        ddW% = (dlgW% - padX% - fldX%) + SW_LABEL_W
 
         IF SW_DD.openId > 0 THEN
             SELECT CASE SW_DD.openId
                 CASE 901
                     ddSel% = curTool% - 1
-                    IF SW_dropdown_input%(ctx, padX%, yTool%, ddW%, 901, AI_items_tools$, ddSel%) THEN curTool% = ddSel% + 1
+                    IF SW_dropdown_input%(ctx, ddX%, yTool%, ddW%, 901, AI_items_tools$, ddSel%) THEN curTool% = ddSel% + 1
                 CASE 902
                     ddSel% = curStyle%
-                    IF SW_dropdown_input%(ctx, padX%, yStyle%, ddW%, 902, AI_items_styles$, ddSel%) THEN curStyle% = ddSel%
+                    IF SW_dropdown_input%(ctx, ddX%, yStyle%, ddW%, 902, AI_items_styles$, ddSel%) THEN curStyle% = ddSel%
                 CASE 903
                     ddSel% = curPreset%
-                    IF SW_dropdown_input%(ctx, padX%, yPreset%, ddW%, 903, AI_items_prompts$, ddSel%) THEN
+                    IF SW_dropdown_input%(ctx, ddX%, yPreset%, ddW%, 903, AI_items_prompts$, ddSel%) THEN
                         curPreset% = ddSel%
                         IF curPreset% >= 1 THEN curPrompt$ = RTRIM$(AI_PROMPTS(curPreset%).textBody)
                     END IF
             END SELECT
         ELSE
             ddSel% = curTool% - 1
-            IF SW_dropdown_input%(ctx, padX%, yTool%, ddW%, 901, AI_items_tools$, ddSel%) THEN curTool% = ddSel% + 1
+            IF SW_dropdown_input%(ctx, ddX%, yTool%, ddW%, 901, AI_items_tools$, ddSel%) THEN curTool% = ddSel% + 1
 
             ddSel% = curStyle%
-            IF SW_dropdown_input%(ctx, padX%, yStyle%, ddW%, 902, AI_items_styles$, ddSel%) THEN curStyle% = ddSel%
+            IF SW_dropdown_input%(ctx, ddX%, yStyle%, ddW%, 902, AI_items_styles$, ddSel%) THEN curStyle% = ddSel%
 
             ddSel% = curPreset%
-            IF SW_dropdown_input%(ctx, padX%, yPreset%, ddW%, 903, AI_items_prompts$, ddSel%) THEN
+            IF SW_dropdown_input%(ctx, ddX%, yPreset%, ddW%, 903, AI_items_prompts$, ddSel%) THEN
                 curPreset% = ddSel%
                 IF curPreset% >= 1 THEN curPrompt$ = RTRIM$(AI_PROMPTS(curPreset%).textBody)
             END IF
         END IF
+
+        DIALOG_draw_label ctx, padX%, yTool% + 6, "Tool"
+        DIALOG_draw_label ctx, padX%, yStyle% + 6, "Style"
+        DIALOG_draw_label ctx, padX%, yPreset% + 6, "Preset"
 
         ' Draw last, closed ones first, so an open list paints over the rows
         ' beneath it. Draw-only — no input in this loop.
         DIM ddPass AS INTEGER
         FOR ddPass% = 0 TO 1
             IF ((SW_DD.openId = 901) <> 0) = ((ddPass% = 1) <> 0) THEN
-                SW_draw_dropdown ctx, padX%, yTool%, ddW%, 901, AI_items_tools$, curTool% - 1, "Tool"
+                SW_draw_dropdown ctx, ddX%, yTool%, ddW%, 901, AI_items_tools$, curTool% - 1, ""
             END IF
             IF ((SW_DD.openId = 902) <> 0) = ((ddPass% = 1) <> 0) THEN
-                SW_draw_dropdown ctx, padX%, yStyle%, ddW%, 902, AI_items_styles$, curStyle%, "Style"
+                SW_draw_dropdown ctx, ddX%, yStyle%, ddW%, 902, AI_items_styles$, curStyle%, ""
             END IF
             IF ((SW_DD.openId = 903) <> 0) = ((ddPass% = 1) <> 0) THEN
-                SW_draw_dropdown ctx, padX%, yPreset%, ddW%, 903, AI_items_prompts$, curPreset%, "Preset"
+                SW_draw_dropdown ctx, ddX%, yPreset%, ddW%, 903, AI_items_prompts$, curPreset%, ""
             END IF
         NEXT ddPass%
 
@@ -493,7 +604,17 @@ FUNCTION AI_DLG_generate% (titleTxt AS STRING, defW AS INTEGER, defH AS INTEGER)
 
     DIM okResult AS INTEGER
     okResult% = ctx.result
+    IF promptTI% > 0 THEN
+        curPrompt$ = TI_get_text$(promptTI%)
+        TI_destroy promptTI%
+    END IF
+    TI_set_font tiOldId%, tiOldW%, tiOldH%
+    IF tiMonoFont& > 16 THEN _FREEFONT tiMonoFont&
     DIALOG_cleanup ctx
+
+    ' A text area can contain newlines; the prompt becomes a quoted shell
+    ' argument, where a raw newline would break the command.
+    curPrompt$ = AI_flatten_lines$(curPrompt$)
 
     IF okResult% THEN
         AI_DLG_TOOL%   = curTool%
