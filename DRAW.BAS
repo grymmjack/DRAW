@@ -415,6 +415,12 @@ DO
     ' Update modifier key state (CTRL, SHIFT, ALT) once per frame
     MODIFIERS_update
 
+    ' A dialog may have absorbed the window-close request while it was modal
+    IF DIALOG_EXIT_PENDING% THEN
+        DIALOG_EXIT_PENDING% = FALSE
+        CMD_execute_action 212          ' graceful exit, with unsaved-changes prompt
+    END IF
+
     LOOP_start
     MUSIC_tick
     AI_JOB_tick     ' Poll any in-flight AI generation (self-throttled, no-op when idle)

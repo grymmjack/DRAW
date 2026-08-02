@@ -12,6 +12,10 @@ OPTION _EXPLICITARRAY
 '$DYNAMIC
 
 ' Dialog context - carries all per-dialog state needed by helpers
+' Set when a dialog absorbs a window-close request; DRAW.BAS acts on it once
+' the modal loop has unwound.
+DIM SHARED DIALOG_EXIT_PENDING%
+
 TYPE DIALOG_CTX
     imgHandle    AS LONG    ' Offscreen buffer (_NEWIMAGE)
     x            AS INTEGER ' Dialog screen position (logical pixels)

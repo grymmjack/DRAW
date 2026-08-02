@@ -169,7 +169,7 @@ FUNCTION AI_DLG_generate% (titleTxt AS STRING, defW AS INTEGER, defH AS INTEGER)
 
     DIM ctx  AS DIALOG_CTX
     DIM dlgW AS INTEGER : dlgW% = 340
-    DIM dlgH AS INTEGER : dlgH% = 268
+    DIM dlgH AS INTEGER : dlgH% = 246
     DIALOG_init ctx, dlgW%, dlgH%
 
     DIM hdrH AS INTEGER : hdrH% = THEME.DIALOG_title_height% + 4
@@ -207,13 +207,19 @@ FUNCTION AI_DLG_generate% (titleTxt AS STRING, defW AS INTEGER, defH AS INTEGER)
     DIM txt    AS STRING
     DIM ddOpen AS INTEGER
 
-    SW_DD.openId = 0        ' never inherit an open list from a previous dialog
+    SW_DD.openId = -1       ' -1 = closed; never inherit an open list
 
     DO
         DIALOG_poll_mouse ctx
 
         k& = _KEYHIT
-        IF k& = 27 AND SW_DD.openId = 0 THEN ctx.done = TRUE ' ESC cancels (closes a list first)
+        IF k& = 27 THEN
+            IF SW_DD.openId > 0 THEN
+                SW_DD.openId = -1       ' first ESC closes the open list
+            ELSE
+                ctx.done = TRUE         ' second ESC cancels the dialog
+            END IF
+        END IF
         IF k& = 13 THEN                                     ' ENTER generates
             IF LEN(_TRIM$(curPrompt$)) > 0 AND curTool% >= 1 THEN
                 ctx.result = TRUE
@@ -226,7 +232,10 @@ FUNCTION AI_DLG_generate% (titleTxt AS STRING, defW AS INTEGER, defH AS INTEGER)
         ' Dropdown rows are DRAWN LAST (below) so an open list paints over the
         ' widgets beneath it. Their input is handled there too; everything else
         ' is suppressed while a list is open so clicks cannot fall through.
-        ddOpen% = (SW_DD.openId <> 0)
+        ' SW_DD.openId is -1 when nothing is open and the dropdown's id when one
+        ' is. Testing "<> 0" made this permanently true, which suppressed every
+        ' other control INCLUDING Cancel and left the dialog unexitable.
+        ddOpen% = (SW_DD.openId > 0)
 
         ' --- Prompt ---
         IF AI_DLG_field%(ctx, fldX%, yPrompt%, fldW%, "Prompt", curPrompt$) AND NOT ddOpen% THEN
@@ -287,28 +296,47 @@ FUNCTION AI_DLG_generate% (titleTxt AS STRING, defW AS INTEGER, defH AS INTEGER)
                 ctx.done   = TRUE
             END IF
         END IF
-        IF DIALOG_hit%(ctx, dlgW% - padX% - 90, yBtns%, 90, 20) AND NOT ddOpen% THEN ctx.done = TRUE
+                ' Cancel is deliberately NOT gated on ddOpen — it is the way out.
+        IF DIALOG_hit%(ctx, dlgW% - padX% - 90, yBtns%, 90, 20) THEN ctx.done = TRUE
 
-        ' --- Dropdowns LAST: their open list must paint over everything ---
-        DIM ddSel AS INTEGER
-        ddSel% = curTool% - 1
-        SW_draw_dropdown ctx, padX%, yTool%, dlgW% - padX% * 2, 901, AI_items_tools$, ddSel%, "Tool"
-        IF SW_dropdown_input%(ctx, padX%, yTool%, dlgW% - padX% * 2, 901, AI_items_tools$, ddSel%) THEN
-            curTool% = ddSel% + 1
-        END IF
+        ' --- Dropdowns LAST, and the OPEN one last of all -------------------
+        ' SW_draw_dropdown paints its combo AND its open list in one call, so
+        ' drawing them in row order lets a later combo cover an earlier list.
+        ' Two passes: every closed dropdown first, then the open one on top.
+        DIM ddPass AS INTEGER
+        DIM ddSel  AS INTEGER
+        DIM ddW    AS INTEGER
+        ddW% = dlgW% - padX% * 2
 
-        ddSel% = curStyle%
-        SW_draw_dropdown ctx, padX%, yStyle%, dlgW% - padX% * 2, 902, AI_items_styles$, ddSel%, "Style"
-        IF SW_dropdown_input%(ctx, padX%, yStyle%, dlgW% - padX% * 2, 902, AI_items_styles$, ddSel%) THEN
-            curStyle% = ddSel%
-        END IF
+        FOR ddPass% = 0 TO 1
+            ' Tool
+            IF ((SW_DD.openId = 901) <> 0) = ((ddPass% = 1) <> 0) THEN
+                ddSel% = curTool% - 1
+                SW_draw_dropdown ctx, padX%, yTool%, ddW%, 901, AI_items_tools$, ddSel%, "Tool"
+                IF SW_dropdown_input%(ctx, padX%, yTool%, ddW%, 901, AI_items_tools$, ddSel%) THEN
+                    curTool% = ddSel% + 1
+                END IF
+            END IF
 
-        ddSel% = curPreset%
-        SW_draw_dropdown ctx, padX%, yPreset%, dlgW% - padX% * 2, 903, AI_items_prompts$, ddSel%, "Preset"
-        IF SW_dropdown_input%(ctx, padX%, yPreset%, dlgW% - padX% * 2, 903, AI_items_prompts$, ddSel%) THEN
-            curPreset% = ddSel%
-            IF curPreset% >= 1 THEN curPrompt$ = RTRIM$(AI_PROMPTS(curPreset%).textBody)
-        END IF
+            ' Style
+            IF ((SW_DD.openId = 902) <> 0) = ((ddPass% = 1) <> 0) THEN
+                ddSel% = curStyle%
+                SW_draw_dropdown ctx, padX%, yStyle%, ddW%, 902, AI_items_styles$, ddSel%, "Style"
+                IF SW_dropdown_input%(ctx, padX%, yStyle%, ddW%, 902, AI_items_styles$, ddSel%) THEN
+                    curStyle% = ddSel%
+                END IF
+            END IF
+
+            ' Preset — choosing one loads its text into the prompt
+            IF ((SW_DD.openId = 903) <> 0) = ((ddPass% = 1) <> 0) THEN
+                ddSel% = curPreset%
+                SW_draw_dropdown ctx, padX%, yPreset%, ddW%, 903, AI_items_prompts$, ddSel%, "Preset"
+                IF SW_dropdown_input%(ctx, padX%, yPreset%, ddW%, 903, AI_items_prompts$, ddSel%) THEN
+                    curPreset% = ddSel%
+                    IF curPreset% >= 1 THEN curPrompt$ = RTRIM$(AI_PROMPTS(curPreset%).textBody)
+                END IF
+            END IF
+        NEXT ddPass%
 
         DIALOG_blit ctx
         _LIMIT CFG.FPS_DIALOG%
