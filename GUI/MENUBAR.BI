@@ -19,7 +19,10 @@ OPTION _EXPLICITARRAY
 '$DYNAMIC
 
 ' Menu bar constants
-CONST MENU_MAX_ITEMS      = 300 ' Max menu items across all menus
+' Max menu items across all menus. MENUBAR_register_item SILENTLY drops anything
+' past this, so the overflow shows up as a menu entry that just isn't there —
+' raised from 300 when the Help > crash-log items left only two spare slots.
+CONST MENU_MAX_ITEMS      = 400
 CONST MENU_MAX_ROOT       = 12  ' Max root-level menu entries
 CONST MENU_BAR_HEIGHT     = 12  ' 8px Tiny5 font + 4px padding
 CONST MENU_ITEM_HEIGHT    = 12  ' Height of each submenu item row

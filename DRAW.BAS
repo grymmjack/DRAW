@@ -206,7 +206,7 @@ PATHS_migrate
 ' Apply config startup defaults (tool, brush size, directories)
 ' Must be called after all modules are initialized via includes
 CONFIG_apply_startup_defaults
-HISTORY_init
+CRASH_init              ' Sync crash capture with CFG.CRASH_LOGS_ENABLED (Help menu toggle)HISTORY_init
 FILE_BAS_wip_reset
 
 ' Pre-load all cursor PNGs (must be after THEME.BI sets filenames and
@@ -422,6 +422,10 @@ DO
     END IF
 
     LOOP_start
+    ' Write out any error trapped by FatalError since the last frame. Deferred
+    ' to here on purpose: error trapping is armed again, so a failure while
+    ' writing the report is itself trappable instead of an unhandled hang.
+    IF CRASH.PENDING% THEN CRASH_flush_pending
     MUSIC_tick
     AI_JOB_tick     ' Poll any in-flight AI generation (self-throttled, no-op when idle)
     IF AI_FAIL_PENDING% THEN
@@ -715,28 +719,56 @@ SYSTEM
 
 ' === Runtime error handler ====================================================
 ' Placed after the last executable line of the main module so normal flow can
-' never fall into it. Never use _DEST _CONSOLE + PRINT elsewhere in DRAW (it
-' corrupts the active drawing destination mid-frame) — here it is safe and
-' necessary, because we are already unwinding and may have no window at all.
+' never fall into it.
+'
+' READ THIS BEFORE ADDING ANYTHING HERE.
+'
+' QB64-PE sets error_handling=1 the moment it jumps to this label and only
+' clears it on RESUME (see fix_error() in libqb/src/error_handle.cpp and the
+' RESUME codegen in source/qb64pe.bas). Its guard is:
+'
+'     if (!error_goto_line || error_handling || prevent_handling) { ...dialog... }
+'
+' So while we are in here, trapping is OFF: ANY statement that raises produces
+' the modal "Unhandled Error #n / Continue?" box — the very dialog this trap
+' exists to prevent — and in a headless run nobody is there to click it.
+'
+' That is not hypothetical. The previous version of this handler opened with
+'   _DEST _CONSOLE : PRINT ...
+' Console I/O is fallible, and a failure there turned a cleanly-trapped error
+' into an unhandled modal. THIS HANDLER THEREFORE PERFORMS NO I/O AT ALL.
+'
+' It does exactly three things, none of which can raise:
+'   * increment a counter
+'   * copy the error intrinsics into CRASH.P_* (CRASH_stash_error: assignments)
+'   * decide whether to resume or abort
+'
+' Everything fallible — the console note, the crash report, mkdir, SHELL, the
+' message box — happens in CRASH_flush_pending, called from the main loop on the
+' next iteration with trapping armed again. The two abort paths below have no
+' next iteration, so they flush inline and accept the risk; we are exiting
+' either way, and a report we might not get is better than none.
+'
+' _DEST is deliberately never touched here. The failing statement was drawing
+' somewhere and leaving the destination elsewhere would corrupt every later
+' frame (CLAUDE.md gotcha #3).
 FatalError:
     err_seen = err_seen + 1
-    _DEST _CONSOLE
-    PRINT ""
-    PRINT "!! QB64 RUNTIME ERROR " + LTRIM$(STR$(ERR)) + " at line " + LTRIM$(STR$(_ERRORLINE))
-    PRINT "!! " + _ERRORMESSAGE$
+    CRASH_stash_error ERR, _ERRORLINE, _INCLERRORFILE$, _INCLERRORLINE, _ERRORMESSAGE$
+
     IF NOT screen_shown THEN
         ' No window: a modal dialog would hang forever with nobody to click it.
         ' Fail loudly and let the exit code do the talking.
-        PRINT "!! no window is up -- aborting"
+        CRASH_abort_note "no window is up -- aborting"
         SYSTEM 1
     END IF
     IF err_seen > ERR_MAX THEN
-        PRINT "!! " + LTRIM$(STR$(err_seen)) + " runtime errors -- not survivable, aborting"
+        CRASH_abort_note LTRIM$(STR$(err_seen)) + " runtime errors -- not survivable, aborting"
         SYSTEM 1
     END IF
     ' A human is watching: skip the failed statement so one missing optional
-    ' asset does not end their session mid-drawing.
-    PRINT "!! continuing (RESUME NEXT) -- " + LTRIM$(STR$(ERR_MAX - err_seen)) + " more before abort"
+    ' asset does not end their session mid-drawing. The main loop writes the
+    ' crash report and the console note on its next pass.
     RESUME NEXT
 
 

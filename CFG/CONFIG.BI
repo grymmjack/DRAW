@@ -401,6 +401,7 @@ TYPE DRAW_CONFIG
     APRON_SIZE_RATIO                AS SINGLE         ' Apron size as fraction of canvas (e.g. 0.5 = +50% on each side, total buffer = 2x canvas)
     SYSTEM_CURSORS_ENABLED          AS INTEGER        ' TRUE = use OS system cursors for resize/hand/text/move
     DEVELOPER_MODE                  AS INTEGER        ' TRUE = enable inputs.log + audit + consistency checks (also via --developer CLI)
+    CRASH_LOGS_ENABLED              AS INTEGER        ' TRUE = write crash reports to <Desktop>/DRAW-log/DRAW-crash-logs/ (Help > Capture Crash Logs)
     ' Tooltip settings
     TOOLTIP_HOVER_DELAY_MS          AS INTEGER        ' Milliseconds before tooltip appears (default 500)
     TOOLTIPS_DISABLED               AS INTEGER        ' TRUE = hide toolbar tooltips entirely
