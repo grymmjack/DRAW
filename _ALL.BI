@@ -18,6 +18,9 @@ $INCLUDEONCE
 ' CORE ------------------------------------------------------------------------
 '$INCLUDE:'./CORE/PERF.BI'
 '$INCLUDE:'./CORE/ERROR.BI'
+' CRASH.BI declares state only (no init call), so it can sit ahead of PATHS —
+' its SESSION_START stamp wants to be as close to process start as possible.
+'$INCLUDE:'./CORE/CRASH.BI'
 '$INCLUDE:'./CORE/PATHS.BI'
 '$INCLUDE:'./CORE/SOUND.BI'
 '$INCLUDE:'./CORE/HELPERS.BI'

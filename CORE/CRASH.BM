@@ -1,0 +1,783 @@
+''
+' DRAW - CORE/CRASH.BM
+' =============================================================================
+' Crash handling / crash logging / crash reporting implementation.
+'
+' See CORE/CRASH.BI for the design notes, the report path, and why reporting is
+' deferred out of the error handler instead of done inside it.
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+
+''
+' CRASH_init — Sync capture state from config and drop the first breadcrumb.
+' Called from DRAW.BAS once CONFIG has been loaded. Safe to call repeatedly.
+' NOT required for reporting to work: CRASH_report_error resolves the log
+' directory on demand, so a crash during startup still lands on disk.
+'
+SUB CRASH_init ()
+    CRASH.ENABLED%     = CFG.CRASH_LOGS_ENABLED%
+    CRASH.INITIALIZED% = TRUE
+    CRASH_breadcrumb "session start (DRAW " + APP_VERSION$ + ")"
+    _LOGINFO "CRASH: capture " + CRASH_bool$(CRASH.ENABLED%)
+END SUB
+
+
+''
+' Path separator for the host OS.
+' @return STRING - "\" on Windows, "/" elsewhere
+'
+FUNCTION CRASH_sep$ ()
+    $IF WIN THEN
+        CRASH_sep$ = "\"
+    $ELSE
+        CRASH_sep$ = "/"
+    $END IF
+END FUNCTION
+
+
+''
+' Human-readable TRUE/FALSE.
+' @param v INTEGER Value to describe
+' @return STRING - "ON" or "OFF"
+'
+FUNCTION CRASH_bool$ (v AS INTEGER)
+    IF v% THEN CRASH_bool$ = "ON" ELSE CRASH_bool$ = "OFF"
+END FUNCTION
+
+
+''
+' Round a SINGLE to one decimal for display.
+' @param s SINGLE Value
+' @return STRING - Trimmed number
+'
+FUNCTION CRASH_secs$ (s AS SINGLE)
+    DIM v AS SINGLE
+    v! = s!
+    IF v! < 0 THEN v! = 0
+    CRASH_secs$ = _TRIM$(STR$(INT(v! * 10) / 10))
+END FUNCTION
+
+
+''
+' Format one "Label          : value" report row.
+' @param label STRING Field name
+' @param value STRING Field value
+' @return STRING - Padded row
+'
+FUNCTION CRASH_row$ (label AS STRING, value AS STRING)
+    DIM l AS STRING
+    DIM v AS STRING
+    l$ = label$ ' local copies — QB64 passes params BY REFERENCE
+    v$ = value$
+    DO WHILE LEN(l$) < 16
+        l$ = l$ + " "
+    LOOP
+    IF v$ = "" THEN v$ = "(none)"
+    CRASH_row$ = l$ + ": " + v$
+END FUNCTION
+
+
+''
+' Create a directory (and its parents) WITHOUT any statement that can raise a
+' QB64 runtime error. MKDIR raises on failure; SHELL just returns non-zero, and
+' the abort paths in FatalError call into here with trapping already off.
+' @param dirPath STRING Full path, trailing separator optional
+'
+SUB CRASH_mkdir_safe (dirPath AS STRING)
+    DIM d AS STRING
+    DIM q AS STRING
+    d$ = dirPath$ ' local copy — QB64 passes params BY REFERENCE
+    IF d$ = "" THEN EXIT SUB
+    IF _DIREXISTS(d$) THEN EXIT SUB
+    q$ = CHR$(34)
+
+    ' Strip the trailing separator: cmd's md dislikes "x\" inside quotes.
+    IF RIGHT$(d$, 1) = CRASH_sep$ THEN d$ = LEFT$(d$, LEN(d$) - 1)
+
+    $IF WIN THEN
+        SHELL _HIDE "md " + q$ + d$ + q$ + " 2>nul"
+    $ELSE
+        SHELL _HIDE "mkdir -p " + q$ + d$ + q$ + " 2>/dev/null"
+    $END IF
+END SUB
+
+
+''
+' Resolve the user's Desktop directory.
+'
+' Windows: a OneDrive-redirected Desktop wins when it actually exists (Backup is
+'          on, and %USERPROFILE%\Desktop may be gone entirely), else USERPROFILE.
+' Linux:   XDG_DESKTOP_DIR, then ~/.config/user-dirs.dirs, then ~/Desktop.
+'          The file is parsed rather than assuming "Desktop" because a localized
+'          desktop (Bureau, Escritorio, ...) is normal and a hardcoded name would
+'          drop the report somewhere the user never looks.
+' macOS:   ~/Desktop.
+'
+' @return STRING - Desktop path with NO trailing separator ("" if undeterminable)
+'
+FUNCTION CRASH_desktop_dir$ ()
+    DIM sep       AS STRING
+    DIM home      AS STRING
+    DIM result    AS STRING
+    DIM candidate AS STRING
+
+    sep$    = CRASH_sep$
+    result$ = ""
+    home$   = ""
+
+    $IF WIN THEN
+        DIM oneDrive AS STRING
+        oneDrive$ = _TRIM$(ENVIRON$("OneDrive"))
+        IF oneDrive$ = "" THEN oneDrive$ = _TRIM$(ENVIRON$("OneDriveConsumer"))
+        IF oneDrive$ = "" THEN oneDrive$ = _TRIM$(ENVIRON$("OneDriveCommercial"))
+        IF oneDrive$ <> "" THEN
+            candidate$ = oneDrive$ + sep$ + "Desktop"
+            IF _DIREXISTS(candidate$) THEN result$ = candidate$
+        END IF
+
+        home$ = _TRIM$(ENVIRON$("USERPROFILE"))
+        IF home$ = "" THEN home$ = _TRIM$(ENVIRON$("HOMEDRIVE")) + _TRIM$(ENVIRON$("HOMEPATH"))
+
+        IF result$ = "" AND home$ <> "" THEN
+            candidate$ = home$ + sep$ + "Desktop"
+            IF _DIREXISTS(candidate$) THEN result$ = candidate$
+        END IF
+        ' Nothing on disk yet — name the conventional location and let
+        ' CRASH_mkdir_safe create it.
+        IF result$ = "" AND home$ <> "" THEN result$ = home$ + sep$ + "Desktop"
+    $ELSEIF MAC THEN
+        home$ = _TRIM$(ENVIRON$("HOME"))
+        IF home$ <> "" THEN result$ = home$ + "/Desktop"
+    $ELSE
+        DIM cfgHome  AS STRING
+        DIM dirsFile AS STRING
+        DIM dfh      AS INTEGER
+        DIM ln       AS STRING
+        DIM eq       AS INTEGER
+
+        home$   = _TRIM$(ENVIRON$("HOME"))
+        result$ = _TRIM$(ENVIRON$("XDG_DESKTOP_DIR"))
+
+        IF result$ = "" THEN
+            cfgHome$ = _TRIM$(ENVIRON$("XDG_CONFIG_HOME"))
+            IF cfgHome$ = "" THEN cfgHome$ = home$ + "/.config"
+            dirsFile$ = cfgHome$ + "/user-dirs.dirs"
+            IF _FILEEXISTS(dirsFile$) THEN
+                dfh% = FREEFILE
+                OPEN dirsFile$ FOR INPUT AS #dfh%
+                DO WHILE NOT EOF(dfh%)
+                    LINE INPUT #dfh%, ln$
+                    ln$ = _TRIM$(ln$)
+                    IF LEFT$(ln$, 16) = "XDG_DESKTOP_DIR=" THEN
+                        eq% = INSTR(ln$, "=")
+                        ln$ = _TRIM$(MID$(ln$, eq% + 1))
+                        IF LEFT$(ln$, 1) = CHR$(34) THEN ln$ = MID$(ln$, 2)
+                        IF RIGHT$(ln$, 1) = CHR$(34) THEN ln$ = LEFT$(ln$, LEN(ln$) - 1)
+                        IF LEFT$(ln$, 5) = "$HOME" THEN ln$ = home$ + MID$(ln$, 6)
+                        result$ = ln$
+                        EXIT DO
+                    END IF
+                LOOP
+                CLOSE #dfh%
+            END IF
+        END IF
+
+        IF result$ = "" AND home$ <> "" THEN result$ = home$ + "/Desktop"
+    $END IF
+
+    ' Strip any trailing separator so callers can append freely
+    IF LEN(result$) > 1 THEN
+        IF RIGHT$(result$, 1) = sep$ THEN result$ = LEFT$(result$, LEN(result$) - 1)
+    END IF
+
+    CRASH_desktop_dir$ = result$
+END FUNCTION
+
+
+''
+' Resolve (and create) <Desktop>/DRAW-log/DRAW-crash-logs/.
+' Falls back to the OS-native data dir when the desktop is unwritable — a crash
+' report that cannot be written is worse than one in an awkward place.
+' Idempotent: the filesystem is only touched until DIR_READY sticks.
+'
+SUB CRASH_resolve_dir ()
+    IF CRASH.DIR_READY% THEN EXIT SUB
+
+    DIM sep     AS STRING
+    DIM desktop AS STRING
+    DIM tail    AS STRING
+
+    sep$  = CRASH_sep$
+    tail$ = "DRAW-log" + sep$ + "DRAW-crash-logs" + sep$
+
+    IF CRASH.LOG_DIR$ = "" THEN
+        desktop$ = CRASH_desktop_dir$
+        IF desktop$ <> "" THEN
+            CRASH.LOG_DIR$ = desktop$ + sep$ + tail$
+        ELSE
+            CRASH.LOG_DIR$ = PATHS_DATA_DIR$ + tail$
+        END IF
+    END IF
+
+    CRASH_mkdir_safe CRASH.LOG_DIR$
+
+    IF NOT _DIREXISTS(CRASH.LOG_DIR$) THEN
+        ' Desktop refused us (redirected, read-only, roaming profile). Retry
+        ' under the app's own data dir, which PATHS already proved writable.
+        _LOGWARN "CRASH: cannot create " + CRASH.LOG_DIR$ + " - falling back to data dir"
+        CRASH.LOG_DIR$ = PATHS_DATA_DIR$ + tail$
+        CRASH_mkdir_safe CRASH.LOG_DIR$
+    END IF
+
+    CRASH.DIR_READY% = _DIREXISTS(CRASH.LOG_DIR$)
+END SUB
+
+
+''
+' Crash log directory, resolving (and creating) it on first use.
+' @return STRING - Directory path with trailing separator
+'
+FUNCTION CRASH_log_dir$ ()
+    CRASH_resolve_dir
+    CRASH_log_dir$ = CRASH.LOG_DIR$
+END FUNCTION
+
+
+''
+' Build this session's report filename: DRAW-MMDDYY@HHMMSS-crash.log
+' DATE$ is MM-DD-YYYY and TIME$ is HH:MM:SS in QB64.
+' @return STRING - Filename only (no directory)
+'
+FUNCTION CRASH_report_filename$ ()
+    DIM d AS STRING
+    DIM t AS STRING
+    d$ = DATE$
+    t$ = TIME$
+    CRASH_report_filename$ = "DRAW-" + MID$(d$, 1, 2) + MID$(d$, 4, 2) + MID$(d$, 9, 2) + _
+                             "@" + MID$(t$, 1, 2) + MID$(t$, 4, 2) + MID$(t$, 7, 2) + "-crash.log"
+END FUNCTION
+
+
+''
+' Record a breadcrumb — "what the user was doing" — into the ring buffer.
+' Deliberately cheap (two array stores): this runs on every dispatched command.
+' @param msg STRING Short description
+'
+SUB CRASH_breadcrumb (msg AS STRING)
+    DIM m AS STRING
+    DIM t AS SINGLE
+    m$ = msg$ ' local copy — QB64 passes params BY REFERENCE
+
+    t! = TIMER(.001) - CRASH.SESSION_START#
+    IF t! < 0 THEN t! = 0 ' TIMER rolled over midnight
+
+    CRASH_BC_TEXT(CRASH.BC_HEAD%) = m$
+    CRASH_BC_TIME(CRASH.BC_HEAD%) = t!
+
+    CRASH.BC_HEAD% = (CRASH.BC_HEAD% + 1) MOD CRASH_MAX_BREADCRUMBS
+    IF CRASH.BC_COUNT% < CRASH_MAX_BREADCRUMBS THEN CRASH.BC_COUNT% = CRASH.BC_COUNT% + 1
+END SUB
+
+
+''
+' Stash a trapped error for deferred reporting. Assignments ONLY — this runs
+' inside the error handler, where trapping is off and a second error would go
+' unhandled (modal dialog / hung headless run).
+' @param errCode INTEGER ERR
+' @param errLine LONG _ERRORLINE
+' @param inclFile STRING _INCLERRORFILE$
+' @param inclLine LONG _INCLERRORLINE
+' @param errMsg STRING _ERRORMESSAGE$
+'
+SUB CRASH_stash_error (errCode AS INTEGER, errLine AS LONG, inclFile AS STRING, inclLine AS LONG, errMsg AS STRING)
+    CRASH.P_CODE%  = errCode%
+    CRASH.P_LINE&  = errLine&
+    CRASH.P_INCL$  = inclFile$
+    CRASH.P_ILINE& = inclLine&
+    CRASH.P_MSG$   = errMsg$
+    CRASH.PENDING% = TRUE
+END SUB
+
+
+''
+' Echo the trapped error to the console and the QB64-PE log.
+'
+' This is the diagnostic the QA harness and any headless run greps for, and it
+' is deliberately NOT done inside FatalError: console I/O can fail, and a
+' failure while error_handling=1 turns a trapped error into the modal
+' "Unhandled Error" box. Called only from CRASH_flush_pending, i.e. with error
+' trapping armed.
+'
+' Saves and restores _DEST — leaving the destination on the console would send
+' every later frame there (CLAUDE.md gotcha #3). This SUB and DRAW.BAS's abort
+' path are the only places in DRAW allowed to touch _DEST _CONSOLE.
+'
+SUB CRASH_console_note (outcome AS STRING)
+    DIM tail    AS STRING
+    DIM oldDest AS LONG
+    DIM detail  AS STRING
+    tail$ = outcome$ ' local copy — QB64 passes params BY REFERENCE
+
+    detail$ = "QB64 runtime error " + _TRIM$(STR$(CRASH.P_CODE%)) + " (" + _TRIM$(CRASH.P_MSG$) + ")"
+    IF LEN(_TRIM$(CRASH.P_INCL$)) > 0 THEN
+        detail$ = detail$ + " in " + _TRIM$(CRASH.P_INCL$) + ":" + _TRIM$(STR$(CRASH.P_ILINE&))
+    ELSE
+        detail$ = detail$ + " in DRAW.BAS:" + _TRIM$(STR$(CRASH.P_LINE&))
+    END IF
+    _LOGERROR detail$ + " -- " + tail$
+
+    oldDest& = _DEST
+    _DEST _CONSOLE
+    PRINT ""
+    PRINT "!! " + detail$
+    PRINT "!! " + tail$
+    _DEST oldDest&
+END SUB
+
+
+''
+' Console note for FatalError's abort paths, which have no main loop left to
+' defer to. Still fallible, but we are on our way to SYSTEM 1 regardless — a
+' report we might not get beats no report at all.
+' @param reason STRING Why we are giving up
+'
+SUB CRASH_abort_note (reason AS STRING)
+    DIM r AS STRING
+    r$ = reason$ ' local copy — QB64 passes params BY REFERENCE
+    CRASH_flush_pending_with r$
+END SUB
+
+
+''
+' Write any stashed error to the report, then notify the user once.
+' Called from the main loop, where error trapping is armed again — so unlike
+' FatalError itself, everything in here is allowed to fail.
+'
+SUB CRASH_flush_pending ()
+    CRASH_flush_pending_with "continuing (RESUME NEXT) -- " + _TRIM$(STR$(ERR_MAX - err_seen%)) + " more before abort"
+END SUB
+
+
+''
+' CRASH_flush_pending with an explicit outcome line for the console note.
+' @param outcome STRING What DRAW is about to do ("continuing ...", "aborting")
+'
+SUB CRASH_flush_pending_with (outcome AS STRING)
+    DIM tail AS STRING
+    tail$ = outcome$ ' local copy — QB64 passes params BY REFERENCE
+
+    IF NOT CRASH.PENDING% THEN EXIT SUB
+    CRASH.PENDING% = FALSE
+
+    CRASH_console_note tail$
+
+    ' Copy out of the singleton before calling — QB64 passes params BY
+    ' REFERENCE, and CRASH_report_error writes to CRASH.* while it runs.
+    DIM c  AS INTEGER
+    DIM l  AS LONG
+    DIM f  AS STRING
+    DIM il AS LONG
+    DIM m  AS STRING
+    c%  = CRASH.P_CODE%
+    l&  = CRASH.P_LINE&
+    f$  = CRASH.P_INCL$
+    il& = CRASH.P_ILINE&
+    m$  = CRASH.P_MSG$
+
+    CRASH_report_error c%, l&, f$, il&, m$
+    CRASH_notify_once
+END SUB
+
+
+''
+' Name for a QB64 runtime error code (the codes DRAW realistically hits).
+' @param code INTEGER ERR value
+' @return STRING - Short description
+'
+FUNCTION CRASH_error_name$ (code AS INTEGER)
+    SELECT CASE code%
+        CASE 1    : CRASH_error_name$ = "NEXT without FOR"
+        CASE 2    : CRASH_error_name$ = "Syntax error"
+        CASE 3    : CRASH_error_name$ = "RETURN without GOSUB"
+        CASE 4    : CRASH_error_name$ = "Out of DATA"
+        CASE 5    : CRASH_error_name$ = "Illegal function call"
+        CASE 6    : CRASH_error_name$ = "Overflow"
+        CASE 7    : CRASH_error_name$ = "Out of memory"
+        CASE 9    : CRASH_error_name$ = "Subscript out of range"
+        CASE 11   : CRASH_error_name$ = "Division by zero"
+        CASE 13   : CRASH_error_name$ = "Type mismatch"
+        CASE 14   : CRASH_error_name$ = "Out of string space"
+        CASE 20   : CRASH_error_name$ = "RESUME without error"
+        CASE 51   : CRASH_error_name$ = "Internal error"
+        CASE 52   : CRASH_error_name$ = "Bad file name or number"
+        CASE 53   : CRASH_error_name$ = "File not found"
+        CASE 54   : CRASH_error_name$ = "Bad file mode"
+        CASE 55   : CRASH_error_name$ = "File already open"
+        CASE 57   : CRASH_error_name$ = "Device I/O error"
+        CASE 58   : CRASH_error_name$ = "File already exists"
+        CASE 61   : CRASH_error_name$ = "Disk full"
+        CASE 62   : CRASH_error_name$ = "Input past end of file"
+        CASE 63   : CRASH_error_name$ = "Bad record number"
+        CASE 64   : CRASH_error_name$ = "Bad file name"
+        CASE 67   : CRASH_error_name$ = "Too many files"
+        CASE 68   : CRASH_error_name$ = "Device unavailable"
+        CASE 70   : CRASH_error_name$ = "Permission denied"
+        CASE 71   : CRASH_error_name$ = "Disk not ready"
+        CASE 72   : CRASH_error_name$ = "Disk media error"
+        CASE 75   : CRASH_error_name$ = "Path/File access error"
+        CASE 76   : CRASH_error_name$ = "Path not found"
+        CASE 258  : CRASH_error_name$ = "Invalid handle"
+        CASE ELSE : CRASH_error_name$ = "Runtime error"
+    END SELECT
+END FUNCTION
+
+
+''
+' Collect OS / CPU / RAM / GPU facts by shelling a GENERATED platform script.
+'
+' Why a generated script rather than an inline SHELL string: QB64's SHELL splits
+' the command and hands it to ShellExecute/the platform shell, and the quoting a
+' PowerShell one-liner (or a sed/awk pipeline) needs does not survive that trip
+' intact. Writing a .cmd/.sh into the cache dir and running THAT keeps every
+' quote inside a file we control, and the script owns its own redirection.
+'
+' Runs at most once per session — it costs a second or two, and a cascade of
+' trapped errors must not pay that price repeatedly.
+'
+SUB CRASH_collect_sysinfo ()
+    IF CRASH.SYS_CACHED% THEN EXIT SUB
+    CRASH.SYS_CACHED% = TRUE ' set FIRST: a failure in here must never retry
+
+    DIM q         AS STRING
+    DIM sq        AS STRING
+    DIM scriptFn  AS STRING
+    DIM outFn     AS STRING
+    DIM fh        AS INTEGER
+    DIM ln        AS STRING
+    DIM collected AS STRING
+
+    q$  = CHR$(34)
+    sq$ = CHR$(39)
+
+    $IF WIN THEN
+        scriptFn$ = PATHS_cache$("DRAW-sysinfo.cmd")
+    $ELSE
+        scriptFn$ = PATHS_cache$("DRAW-sysinfo.sh")
+    $END IF
+    outFn$ = PATHS_cache$("DRAW-sysinfo.txt")
+
+    IF _FILEEXISTS(outFn$) THEN KILL outFn$
+
+    fh% = FREEFILE
+    OPEN scriptFn$ FOR OUTPUT AS #fh%
+
+    $IF WIN THEN
+        ' Everything inside the -Command argument uses SINGLE quotes so the
+        ' surrounding double quotes survive cmd.exe. '|' and '&' are inert inside
+        ' a quoted argument, so the ' | ' field separators are safe.
+        DIM ps AS STRING
+        ps$ = "$ErrorActionPreference=" + sq$ + "SilentlyContinue" + sq$ + "; " + _
+              "$os=Get-CimInstance Win32_OperatingSystem; " + _
+              "$cs=Get-CimInstance Win32_ComputerSystem; " + _
+              sq$ + "OS_NAME=" + sq$ + " + $os.Caption; " + _
+              sq$ + "OS_VERSION=" + sq$ + " + $os.Version + " + sq$ + " build " + sq$ + " + $os.BuildNumber; " + _
+              sq$ + "OS_ARCH=" + sq$ + " + $os.OSArchitecture; " + _
+              sq$ + "HOSTNAME=" + sq$ + " + $cs.Name; " + _
+              sq$ + "MACHINE=" + sq$ + " + $cs.Manufacturer + " + sq$ + " " + sq$ + " + $cs.Model; " + _
+              sq$ + "RAM_TOTAL_MB=" + sq$ + " + [math]::Round($cs.TotalPhysicalMemory/1MB); " + _
+              sq$ + "RAM_FREE_MB=" + sq$ + " + [math]::Round($os.FreePhysicalMemory/1KB); " + _
+              "foreach($c in Get-CimInstance Win32_Processor){" + sq$ + "CPU=" + sq$ + " + $c.Name + " + sq$ + " | " + sq$ + " + $c.NumberOfCores + " + sq$ + " cores / " + sq$ + " + $c.NumberOfLogicalProcessors + " + sq$ + " threads" + sq$ + "}; " + _
+              "foreach($g in Get-CimInstance Win32_VideoController){" + sq$ + "GPU=" + sq$ + " + $g.Name + " + sq$ + " | driver " + sq$ + " + $g.DriverVersion + " + sq$ + " | mode " + sq$ + " + $g.CurrentHorizontalResolution + " + sq$ + "x" + sq$ + " + $g.CurrentVerticalResolution + " + sq$ + " @ " + sq$ + " + $g.CurrentRefreshRate + " + sq$ + "Hz" + sq$ + "}; " + _
+              sq$ + "DRAW_PROC_MEM_MB=" + sq$ + " + [math]::Round((Get-Process | Where-Object {$_.ProcessName -like " + sq$ + "DRAW*" + sq$ + "} | Measure-Object WorkingSet64 -Sum).Sum/1MB); " + _
+              sq$ + "DESKTOP_SHELL=" + sq$ + " + (Get-ItemProperty " + sq$ + "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Shell Folders" + sq$ + ").Desktop"
+
+        PRINT #fh%, "@echo off"
+        PRINT #fh%, "setlocal"
+        PRINT #fh%, "powershell -NoProfile -Command " + q$ + ps$ + q$ + " > " + q$ + outFn$ + q$ + " 2>&1"
+        PRINT #fh%, "exit /b 0"
+    $ELSEIF MAC THEN
+        PRINT #fh%, "#!/bin/sh"
+        PRINT #fh%, "exec > " + q$ + outFn$ + q$ + " 2>&1"
+        PRINT #fh%, "echo OS_NAME=$(sw_vers -productName 2>/dev/null) $(sw_vers -productVersion 2>/dev/null) $(sw_vers -buildVersion 2>/dev/null)"
+        PRINT #fh%, "uname -srm 2>/dev/null | sed -e s@^@OS_KERNEL=@"
+        PRINT #fh%, "uname -n 2>/dev/null | sed -e s@^@HOSTNAME=@"
+        PRINT #fh%, "sysctl -n hw.model 2>/dev/null | sed -e s@^@MACHINE=@"
+        PRINT #fh%, "sysctl -n machdep.cpu.brand_string 2>/dev/null | sed -e s@^@CPU=@"
+        PRINT #fh%, "sysctl -n hw.ncpu 2>/dev/null | sed -e s@^@CPU_THREADS=@"
+        PRINT #fh%, "sysctl -n hw.memsize 2>/dev/null | awk " + sq$ + "{printf " + q$ + "RAM_TOTAL_MB=%d\n" + q$ + ", $1/1048576}" + sq$
+        PRINT #fh%, "system_profiler SPDisplaysDataType 2>/dev/null | grep -E " + sq$ + "Chipset Model|VRAM|Resolution" + sq$ + " | sed -e s@^[[:space:]]*@GPU=@"
+    $ELSE
+        PRINT #fh%, "#!/bin/sh"
+        PRINT #fh%, "exec > " + q$ + outFn$ + q$ + " 2>&1"
+        PRINT #fh%, "grep -h PRETTY_NAME /etc/os-release 2>/dev/null | cut -d= -f2 | tr -d " + sq$ + q$ + sq$ + " | sed -e s@^@OS_NAME=@"
+        PRINT #fh%, "uname -srm 2>/dev/null | sed -e s@^@OS_KERNEL=@"
+        PRINT #fh%, "uname -n 2>/dev/null | sed -e s@^@HOSTNAME=@"
+        PRINT #fh%, "grep -m1 -i " + sq$ + "model name" + sq$ + " /proc/cpuinfo 2>/dev/null | sed -e s@.*:[[:space:]]*@CPU=@"
+        PRINT #fh%, "nproc 2>/dev/null | sed -e s@^@CPU_THREADS=@"
+        PRINT #fh%, "awk " + sq$ + "/MemTotal/{printf " + q$ + "RAM_TOTAL_MB=%d\n" + q$ + ", $2/1024}" + sq$ + " /proc/meminfo 2>/dev/null"
+        PRINT #fh%, "awk " + sq$ + "/MemAvailable/{printf " + q$ + "RAM_FREE_MB=%d\n" + q$ + ", $2/1024}" + sq$ + " /proc/meminfo 2>/dev/null"
+        PRINT #fh%, "lspci 2>/dev/null | grep -i -E " + sq$ + "vga|3d controller|display controller" + sq$ + " | sed -e s@^@GPU=@"
+        PRINT #fh%, "glxinfo -B 2>/dev/null | grep -i -E " + sq$ + "OpenGL renderer|OpenGL version" + sq$ + " | sed -e s@^[[:space:]]*@GL=@"
+        PRINT #fh%, "echo XDG_SESSION_TYPE=$XDG_SESSION_TYPE"
+    $END IF
+
+    CLOSE #fh%
+
+    $IF WIN THEN
+        SHELL _HIDE q$ + scriptFn$ + q$
+    $ELSE
+        SHELL _HIDE "sh " + q$ + scriptFn$ + q$
+    $END IF
+
+    collected$ = ""
+    IF _FILEEXISTS(outFn$) THEN
+        fh% = FREEFILE
+        OPEN outFn$ FOR INPUT AS #fh%
+        DO WHILE NOT EOF(fh%)
+            LINE INPUT #fh%, ln$
+            ln$ = _TRIM$(ln$)
+            IF ln$ <> "" THEN collected$ = collected$ + ln$ + CHR$(10)
+        LOOP
+        CLOSE #fh%
+    END IF
+
+    IF collected$ = "" THEN
+        collected$ = "(unavailable - the platform query returned nothing)" + CHR$(10)
+        _LOGWARN "CRASH: sysinfo collection produced no output"
+    END IF
+
+    CRASH.SYS_TEXT$ = collected$
+END SUB
+
+
+''
+' Write (or append to) this session's crash report.
+'
+' The first error of the session creates the file with the full header; every
+' error after that appends a short block. Normally reached via
+' CRASH_flush_pending from the main loop, so a failure in here is itself a
+' trappable error rather than an unhandled one.
+'
+' @param errCode INTEGER ERR value
+' @param errLine LONG _ERRORLINE (line in the main module)
+' @param inclFile STRING _INCLERRORFILE$ (empty when the error was in DRAW.BAS)
+' @param inclLine LONG _INCLERRORLINE
+' @param errMsg STRING _ERRORMESSAGE$
+'
+SUB CRASH_report_error (errCode AS INTEGER, errLine AS LONG, inclFile AS STRING, inclLine AS LONG, errMsg AS STRING)
+    ' Local copies FIRST — QB64 passes params BY REFERENCE and everything below
+    ' calls SUBs that touch shared state.
+    DIM eCode  AS INTEGER
+    DIM eLine  AS LONG
+    DIM eIncl  AS STRING
+    DIM eILine AS LONG
+    DIM eMsg   AS STRING
+    DIM firstReport AS INTEGER
+    DIM fh          AS INTEGER
+    DIM errLoc      AS STRING
+    DIM sysBlock    AS STRING
+    DIM nl          AS INTEGER
+    DIM i           AS INTEGER
+    DIM idx         AS INTEGER
+
+    eCode%  = errCode%
+    eLine&  = errLine&
+    eIncl$  = inclFile$
+    eILine& = inclLine&
+    eMsg$   = errMsg$
+
+    IF NOT CRASH.ENABLED% THEN EXIT SUB
+    IF CRASH.IN_HANDLER% THEN EXIT SUB          ' an error while reporting — do not recurse
+    IF CRASH.REPORT_COUNT% >= CRASH_MAX_APPENDS THEN EXIT SUB
+
+    CRASH.IN_HANDLER% = TRUE
+
+    CRASH_resolve_dir
+    IF NOT CRASH.DIR_READY% THEN
+        _LOGERROR "CRASH: no writable crash log directory - report skipped"
+        CRASH.IN_HANDLER% = FALSE
+        EXIT SUB
+    END IF
+
+    firstReport% = (CRASH.LOG_PATH$ = "")
+    IF firstReport% THEN CRASH.LOG_PATH$ = CRASH.LOG_DIR$ + CRASH_report_filename$
+
+    CRASH.REPORT_COUNT% = CRASH.REPORT_COUNT% + 1
+
+    ' Where the error actually happened. _ERRORLINE points into the MAIN module,
+    ' which for DRAW is almost always the '$INCLUDE line for _ALL.BM — useless on
+    ' its own. _INCLERRORFILE$ is what names the real file.
+    IF LEN(eIncl$) > 0 THEN
+        errLoc$ = eIncl$ + ":" + _TRIM$(STR$(eILine&))
+    ELSE
+        errLoc$ = "DRAW.BAS:" + _TRIM$(STR$(eLine&))
+    END IF
+
+    fh% = FREEFILE
+    IF firstReport% THEN
+        OPEN CRASH.LOG_PATH$ FOR OUTPUT AS #fh%
+    ELSE
+        OPEN CRASH.LOG_PATH$ FOR APPEND AS #fh%
+    END IF
+
+    IF firstReport% THEN
+        CRASH_collect_sysinfo
+
+        PRINT #fh%, "==============================================================================="
+        PRINT #fh%, " DRAW CRASH REPORT"
+        PRINT #fh%, "==============================================================================="
+        PRINT #fh%, CRASH_row$("Generated", DATE$ + " " + TIME$)
+        PRINT #fh%, CRASH_row$("DRAW version", APP_VERSION$)
+        PRINT #fh%, CRASH_row$("Compiled", _COMPILEDATE$)
+        PRINT #fh%, CRASH_row$("Executable", COMMAND$(0))
+        PRINT #fh%, CRASH_row$("Working dir", _CWD$)
+        PRINT #fh%, CRASH_row$("Start dir", _STARTDIR$)
+        PRINT #fh%, CRASH_row$("Command line", _TRIM$(COMMAND$))
+        PRINT #fh%, CRASH_row$("Uptime", CRASH_secs$(TIMER(.001) - CRASH.SESSION_START#) + " s")
+        PRINT #fh%, ""
+        PRINT #fh%, "Please attach this file to an issue:"
+        PRINT #fh%, "  https://github.com/grymmjack/DRAW/issues"
+        ' ASCII only in everything written to the report: this file gets opened
+        ' in Notepad, and a UTF-8 em dash renders as mojibake there.
+        PRINT #fh%, "It holds no artwork and no file contents - only the state listed below."
+        PRINT #fh%, ""
+
+        PRINT #fh%, "--- PATHS ---------------------------------------------------------------------"
+        PRINT #fh%, CRASH_row$("Config file", CONFIG_FILE_PATH$)
+        PRINT #fh%, CRASH_row$("Config dir", PATHS_CONFIG_DIR$)
+        PRINT #fh%, CRASH_row$("Data dir", PATHS_DATA_DIR$)
+        PRINT #fh%, CRASH_row$("Cache dir", PATHS_CACHE_DIR$)
+        PRINT #fh%, CRASH_row$("Crash log dir", CRASH.LOG_DIR$)
+        PRINT #fh%, CRASH_row$("Portable mode", CRASH_bool$(PATHS_PORTABLE%))
+        PRINT #fh%, ""
+
+        PRINT #fh%, "--- SYSTEM --------------------------------------------------------------------"
+        PRINT #fh%, CRASH_row$("QB64 _OS$", _OS$)
+        ' Raw KEY=value lines straight from the platform query — greppable, and
+        ' the exact text is what makes an issue reproducible.
+        sysBlock$ = CRASH.SYS_TEXT$
+        DO WHILE LEN(sysBlock$) > 0
+            nl% = INSTR(sysBlock$, CHR$(10))
+            IF nl% = 0 THEN
+                PRINT #fh%, sysBlock$
+                sysBlock$ = ""
+            ELSE
+                PRINT #fh%, LEFT$(sysBlock$, nl% - 1)
+                sysBlock$ = MID$(sysBlock$, nl% + 1)
+            END IF
+        LOOP
+        PRINT #fh%, ""
+
+        PRINT #fh%, "--- DISPLAY -------------------------------------------------------------------"
+        PRINT #fh%, CRASH_row$("Desktop res", _TRIM$(STR$(_DESKTOPWIDTH)) + " x " + _TRIM$(STR$(_DESKTOPHEIGHT)))
+        PRINT #fh%, CRASH_row$("Window", _TRIM$(STR$(_WIDTH(0))) + " x " + _TRIM$(STR$(_HEIGHT(0))))
+        PRINT #fh%, CRASH_row$("Bit depth", _TRIM$(STR$(_PIXELSIZE(0) * 8)) + " bpp")
+        PRINT #fh%, CRASH_row$("Viewport", _TRIM$(STR$(SCRN.w&)) + " x " + _TRIM$(STR$(SCRN.h&)))
+        PRINT #fh%, CRASH_row$("Display scale", _TRIM$(STR$(SCRN.displayScale%)) + "x")
+        PRINT #fh%, CRASH_row$("Canvas", _TRIM$(STR$(SCRN.canvasW&)) + " x " + _TRIM$(STR$(SCRN.canvasH&)))
+        PRINT #fh%, CRASH_row$("Zoom", _TRIM$(STR$(SCRN.zoom!)) + "x")
+        PRINT #fh%, CRASH_row$("Pan offset", _TRIM$(STR$(SCRN.offsetX%)) + ", " + _TRIM$(STR$(SCRN.offsetY%)))
+        PRINT #fh%, CRASH_row$("Theme", _TRIM$(CFG.THEME$))
+        PRINT #fh%, CRASH_row$("FPS caps", _TRIM$(STR$(CFG.FPS_LIMIT%)) + " active / " + _TRIM$(STR$(CFG.FPS_IDLE%)) + " idle / " + _TRIM$(STR$(CFG.FPS_CURSOR%)) + " cursor")
+        PRINT #fh%, ""
+
+        PRINT #fh%, "--- DOCUMENT ------------------------------------------------------------------"
+        PRINT #fh%, CRASH_row$("Current file", CURRENT_FILENAME$)
+        PRINT #fh%, CRASH_row$("Project file", CURRENT_DRW_FILENAME$)
+        PRINT #fh%, CRASH_row$("Unsaved edits", CRASH_bool$(CANVAS_DIRTY%))
+        PRINT #fh%, CRASH_row$("Layers", _TRIM$(STR$(LAYER_COUNT%)) + " (active " + _TRIM$(STR$(CURRENT_LAYER%)) + ")")
+        PRINT #fh%, CRASH_row$("Current tool", _TRIM$(STR$(CURRENT_TOOL%)))
+        PRINT #fh%, CRASH_row$("History", _TRIM$(STR$(HISTORY.current%)) + " / " + _TRIM$(STR$(HISTORY.count%)))
+        PRINT #fh%, ""
+    END IF
+
+    ' --- The error itself -----------------------------------------------------
+    PRINT #fh%, "--- ERROR #" + _TRIM$(STR$(CRASH.REPORT_COUNT%)) + " -----------------------------------------------------------------"
+    PRINT #fh%, CRASH_row$("Time", TIME$ + " (+" + CRASH_secs$(TIMER(.001) - CRASH.SESSION_START#) + "s)")
+    PRINT #fh%, CRASH_row$("Code", _TRIM$(STR$(eCode%)) + " - " + CRASH_error_name$(eCode%))
+    PRINT #fh%, CRASH_row$("Message", eMsg$)
+    PRINT #fh%, CRASH_row$("Location", errLoc$)
+    PRINT #fh%, CRASH_row$("Main line", _TRIM$(STR$(eLine&)))
+    PRINT #fh%, CRASH_row$("Errors trapped", _TRIM$(STR$(err_seen%)))
+    PRINT #fh%, ""
+
+    ' --- Breadcrumbs ----------------------------------------------------------
+    PRINT #fh%, "--- LAST " + _TRIM$(STR$(CRASH.BC_COUNT%)) + " ACTIONS (oldest first) ---------------------------------------"
+    IF CRASH.BC_COUNT% = 0 THEN
+        PRINT #fh%, "  (none recorded)"
+    ELSE
+        FOR i% = 0 TO CRASH.BC_COUNT% - 1
+            ' Walk the ring from the oldest surviving entry to the newest. The
+            ' + MAX*2 keeps the operand positive: QB64's MOD of a negative
+            ' number returns a negative remainder.
+            idx% = (CRASH.BC_HEAD% - CRASH.BC_COUNT% + i% + CRASH_MAX_BREADCRUMBS * 2) MOD CRASH_MAX_BREADCRUMBS
+            PRINT #fh%, "  +" + CRASH_secs$(CRASH_BC_TIME(idx%)) + "s  " + CRASH_BC_TEXT(idx%)
+        NEXT i%
+    END IF
+    PRINT #fh%, ""
+
+    IF CRASH.REPORT_COUNT% >= CRASH_MAX_APPENDS THEN
+        PRINT #fh%, "!! " + _TRIM$(STR$(CRASH_MAX_APPENDS)) + " errors reported - later errors will NOT be added to this file."
+        PRINT #fh%, ""
+    END IF
+
+    CLOSE #fh%
+
+    _LOGERROR "CRASH: report written to " + CRASH.LOG_PATH$
+    CRASH.IN_HANDLER% = FALSE
+END SUB
+
+
+''
+' Tell the user — once per session — that a crash report was saved.
+' Uses the NATIVE OS message box on purpose: DRAW's own dialogs run their own
+' render loop, which is not something to re-enter right after an error.
+'
+' Gated on screen_shown (DRAW.BAS): with no window up there is nobody to click
+' the dialog, and a modal here would hang every headless run, QA pass and CI
+' job — the precise failure this whole subsystem exists to remove.
+'
+SUB CRASH_notify_once ()
+    IF CRASH.NOTIFIED% THEN EXIT SUB
+    IF NOT CRASH.ENABLED% THEN EXIT SUB
+    IF NOT screen_shown% THEN EXIT SUB
+    IF CRASH.LOG_PATH$ = "" THEN EXIT SUB
+    CRASH.NOTIFIED% = TRUE
+
+    DIM msg AS STRING
+    msg$ = "DRAW hit an internal error and recovered." + CHR$(10) + CHR$(10) + _
+           "A crash report was saved to:" + CHR$(10) + _
+           CRASH.LOG_PATH$ + CHR$(10) + CHR$(10) + _
+           "Please attach it to an issue at github.com/grymmjack/DRAW/issues" + CHR$(10) + CHR$(10) + _
+           "Save your work - later errors this session may be knock-on effects." + CHR$(10) + CHR$(10) + _
+           "Turn this off with Help > Capture Crash Logs."
+    _MESSAGEBOX "DRAW - Crash Report Saved", msg$, "warning"
+END SUB
+
+
+''
+' Open the crash log folder in the OS file manager (Help > Crash Logs Folder).
+' Creates the folder first so the menu item always does something visible.
+'
+SUB CRASH_open_log_folder ()
+    DIM dir AS STRING
+    DIM q   AS STRING
+    q$   = CHR$(34)
+    dir$ = CRASH_log_dir$
+
+    IF NOT CRASH.DIR_READY% THEN
+        _MESSAGEBOX "DRAW - Crash Logs", "Could not create the crash log folder:" + CHR$(10) + dir$, "error"
+        EXIT SUB
+    END IF
+
+    $IF WIN THEN
+        SHELL _DONTWAIT "explorer " + q$ + dir$ + q$
+    $ELSEIF MAC THEN
+        SHELL _DONTWAIT "open " + q$ + dir$ + q$
+    $ELSE
+        SHELL _DONTWAIT "xdg-open " + q$ + dir$ + q$ + " &"
+    $END IF
+END SUB
