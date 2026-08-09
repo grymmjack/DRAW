@@ -186,9 +186,16 @@ non-integer upscale with NTSC composite blur).
 
 **Why the shapes did not come from the screenshot.** At that scale a lit dot
 bleeds about one dot to its right, so thresholding back to a 7x8 mask corrupted
-91 of 94 glyphs — worst on diagonals (`Q` `M` `W` `V` `X` `N`). `Apple2.ttf` at
-8px was verified to carry the identical character generator: every glyph fits
-cols 0–6 / rows 1–8, which *is* the Apple II 7x8 text cell.
+91 of 94 glyphs — worst on diagonals (`Q` `M` `W` `V` `X` `N`).
+
+**Pick the ROM font that actually has the right cell.** The first attempt used
+`Apple2.ttf`, which looks like the same character generator but is an 8x8-em
+font: `p` and `q` need *nine* rows there, so both descenders were silently
+clipped. `PrintChar21.ttf` is a true 7x8 cell — no glyph overflows it, and it
+carries MouseText too. The two disagree on exactly six glyphs (`%` `(` `,` `p`
+`q` `t`); rendering each through the fitted NTSC model and comparing against the
+screenshot picked PrintChar21 **6/6**. Always check whether *any* glyph's ink
+falls outside the cell before trusting a font as your shape source.
 
 **Where the colour came from.** Apple II text is 1-bit; the colour is an NTSC
 artifact. Dots clock out at 7.16 MHz against a 3.58 MHz subcarrier — exactly one
@@ -228,12 +235,39 @@ extraction against all 3211 candidate codepoints put 23 of 32 glyphs exactly on
 worth remembering: **a noisy extraction is good enough to locate the right
 glyphs in a clean font, even when it is not good enough to be the font.**
 
+MouseText `$46`/`$47` differ between ROM revisions — the //e Enhanced has the
+running-man pair, the IIGS has menu icons. Those were the two worst matches
+against the screenshot until the reactivemicro wiki explained why; PrintChar21
+keeps the //e glyphs at `U+E011`/`U+E012`, where `$47` matches the screenshot
+*exactly* (0 differing dots, against 24 for `U+0087`). `--iigs` selects the other
+set.
+
+**CRT variants.** Scanlines cannot be faked at 1:1 — you need at least two output
+rows per scanline, so a scanline sheet doubles the cell height. The two column
+modes share identical 7x8 bitmaps; what differs is the dot clock, so a 40-column
+dot is about square (14x16 cell once rows are doubled) and an 80-column dot is
+half as wide (7x16). Dimming applies **only to lit pixels** — an opaque CRT
+ground would make every glyph carry a black box and stop it compositing.
+
+Monochrome variants deliberately carry no artifact colour: that is what a mono
+monitor showed, and it is exactly why 80-column text was unreadable on a colour
+set.
+
 ```bash
-python3 scripts/build_apple2_color.py                     # phase 0, the shipped font
-python3 scripts/build_apple2_color.py --phase 1 --out V.bmp
-python3 scripts/build_apple2_color.py --no-mousetext      # 94-glyph ASCII only
+python3 scripts/build_apple2_color.py                     # the 40-col colour font
+python3 scripts/build_apple2_color.py --all               # the whole nine-font family
+python3 scripts/build_apple2_color.py --columns 80 --phosphor amber --scanlines --out X.bmp
+python3 scripts/build_apple2_color.py --phase 1 --out V.bmp   # violet-dominant twin
 python3 scripts/build_apple2_color.py --verify /tmp/v     # re-render the reference rows
 ```
+
+**Line spacing.** A CBF font's leading *is* its glyph height — there is no
+separate setting — so spacing can only be changed by baking blank rows into the
+sheet. Before doing that, check what the hardware actually did: the Apple II text
+screen is 192 scanlines over 24 rows, capitals occupy 7 of the 8 cell rows, and
+the reference screenshot's own row pitch measures 16 scanlines for two rows. 8px
+was already correct; the airier look people remember is the CRT's scanline
+structure, not extra leading.
 
 `--verify` re-renders the screenshot's own text at the *original* per-character
 phases and at the fitted capture brightness, so it can be compared against the

@@ -1105,7 +1105,7 @@ Click on an existing text layer (in text tool mode) to re-enter editing. All for
 
 ### Color Bitmap Fonts (CBF)
 
-CBF fonts are DPaint-style spritesheet fonts (`.bmp`) that preserve their original pixel colors instead of being tinted to the foreground color. 25 bundled CBF fonts ship in `ASSETS/FONTS/COLOR_BITMAP/`.
+CBF fonts are DPaint-style spritesheet fonts (`.bmp`) that preserve their original pixel colors instead of being tinted to the foreground color. 33 bundled CBF fonts ship in `ASSETS/FONTS/COLOR_BITMAP/`.
 
 | Aspect | Behaviour |
 |--------|-----------|
@@ -1117,11 +1117,32 @@ CBF fonts are DPaint-style spritesheet fonts (`.bmp`) that preserve their origin
 | **Character codes** | Glyphs map positionally: glyph 0 → code 33 `!`, up to 126 `~` for a full 94-glyph printable set. Sheets with more than 94 glyphs continue onto codes 127+, reachable from the character grid |
 | **Config** | `FONTS_INCLUDE_DRAW_BITMAP` / `FONTS_INCLUDE_USER_BITMAP` in DRAW.cfg |
 
-**APPLE ][ 40 COLUMNS COLOR** reproduces the NTSC composite artifact coloring of
-Apple II 40-column text (7×8 cell). Beyond the printable ASCII set it carries the
-32 **MouseText** glyphs at codes **128–159** (MouseText `$40`–`$5F`: open/closed
-apple, arrows, the return symbol, folder and scrollbar graphics) — pick them from
-the character grid.
+#### The APPLE ][ family
+
+Nine fonts reproducing Apple II text. All carry the full printable ASCII set plus
+the 32 **MouseText** glyphs at codes **128–159** (MouseText `$40`–`$5F`:
+open/closed apple, arrows, the return symbol, folder and scrollbar graphics) —
+pick those from the character grid. MouseText `$46`/`$47` are the **//e Enhanced**
+running-man pair, not the IIGS menu icons.
+
+| Font | Cell | Look |
+|------|------|------|
+| `APPLE ][ 40 COLUMNS COLOR` | 7×8 | NTSC composite artifact color, no scanlines |
+| `APPLE ][ 40 COLUMNS COLOR CRT` | 14×16 | Same, with CRT scanlines baked in |
+| `APPLE ][ 40 COLUMNS WHITE/AMBER/GREEN CRT` | 14×16 | Monochrome phosphor + scanlines |
+| `APPLE ][ 80 COLUMNS COLOR CRT` | 7×16 | 80-column, artifact color + scanlines |
+| `APPLE ][ 80 COLUMNS WHITE/AMBER/GREEN CRT` | 7×16 | 80-column mono phosphor + scanlines |
+
+40- and 80-column share identical 7×8 bitmaps — the difference is the dot clock.
+A 40-column dot is roughly square, an 80-column dot is half as wide, so with rows
+doubled for scanlines the cells come out 14×16 and 7×16 respectively. Scanlines
+darken only lit pixels, so the area around glyphs stays transparent.
+
+**Line spacing is 8px and that is hardware-accurate** — the Apple II text screen
+is 192 scanlines / 24 rows, capitals occupy 7 of the 8 rows, leaving exactly one
+blank scanline between lines. CBF fonts take their leading from the glyph height,
+so the airier look of a real CRT comes from the scanline structure, i.e. the CRT
+variants above, not from extra leading.
 
 ### Per-Character Formatting Shortcuts
 
