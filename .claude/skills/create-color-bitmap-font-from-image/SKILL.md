@@ -269,9 +269,24 @@ the same — `APPLE ][ 40 COLUMNS AMBER`, `... AMBER CRT` and `... AMBER SCAN` a
 rendered as `APPLE ][ 40 COLUMNS AMB~`, which looks like duplicate entries.
 Budget the distinguishing token to fit inside the cut.
 
-The two column modes share identical 7x8 bitmaps; what differs is the dot clock,
-so a 40-column dot is about square (14x16 once rows are doubled) and an
-80-column dot is half as wide (7x16). Dimming applies **only to lit pixels** — an
+The two column modes share identical 7x8 bitmaps AND identical row heights —
+24 rows of 8 scanlines either way. 80 columns does not make characters taller,
+it makes them NARROWER; only the dot clock differs. With square output pixels
+the dot aspects are (4/3)/(280/192) = 0.914 and (4/3)/(560/192) = 0.457, so at a
+given height 7 dots want ~7px at 40 columns and ~3px at 80:
+
+    40 col   plain 7x8    CRT 14x16
+    80 col   plain 3x8    CRT  7x16
+
+Getting this backwards is easy — the first attempt made 80-column TALLER (7x16)
+to preserve aspect, which is the one thing the real hardware never does. Check
+the row count before the pixel aspect.
+
+Downsampling wants "any covered dot is lit", and the ratio matters more than the
+filter: at 3px, 7/3 lands the sample centres on dots 1, 3, 5 — exactly where
+Apple II ink sits — and the glyphs stay sharp. At 4px, 7/4 overlaps nearly every
+dot and they collapse into solid blocks. A majority filter destroys them at any
+width. Dimming applies **only to lit pixels** — an
 opaque CRT ground would make every glyph carry a black box and stop it
 compositing.
 

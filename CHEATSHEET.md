@@ -1126,24 +1126,27 @@ the return symbol, folder and scrollbar graphics) — pick those from the charac
 grid. MouseText `$46`/`$47` are the **//e Enhanced** running-man pair, not the
 IIGS menu icons.
 
-Cell size is set by **dot aspect**, not by choice. 40- and 80-column share
-identical 7×8 bitmaps — the difference is the dot clock. A 40-column dot is
-roughly square (280 dots over 192 lines on a 4:3 screen); an 80-column dot is
-**half as wide** (560 dots). With square output pixels that gives:
+Cell size is set by **dot aspect**, not by choice. Both column modes use the
+identical 7×8 ROM bitmaps and both are 24 rows of 8 scanlines — **80-column does
+not make characters taller, it makes them narrower.** What differs is the dot
+clock: a 40-column dot is roughly square (280 dots over 192 lines on a 4:3
+screen), an 80-column dot is **half as wide** (560 dots):
 
-| | dot shape | cell |
-|---|---|---|
-| 40 col | 1 × 1 | **7 × 8** |
-| 80 col | 1 × 2 | **7 × 16** |
+| | dot aspect | 7 dots ≈ | cell |
+|---|---|---|---|
+| 40 col | 0.914 | 7px | **7 × 8** |
+| 80 col | 0.457 | 3px | **3 × 8** |
 
-There is no aspect-correct 80-column cell shorter than 16 — 7×8 would simply *be*
-the 40-column font, and squeezing to 4×8 would destroy a 7-dot glyph.
+Same height, half the width — exactly as on the machine. (3px rather than 4
+because 7/3 lands the sample centres on dots 1, 3 and 5, which is where Apple II
+ink sits; at 4px nearly every pixel overlaps a lit dot and the glyphs collapse
+into solid blocks.)
 
 | Suffix | 40 col | 80 col | Look |
 |--------|--------|--------|------|
-| *(none)* | 7×8 | 7×16 | Plain, no scanlines |
-| `SCAN` | 7×8 | — | Striped: alternate glyph rows dimmed to 78%. Reads as CRT at **no size cost**. 40-col only — at 80 col the doubled rows leave room for a real gap, so `CRT` already covers it |
-| `CRT` | 14×16 | 7×16 | True scanlines — a real dark row between each |
+| *(none)* | 7×8 | 3×8 | Plain, no scanlines |
+| `SCAN` | 7×8 | — | Striped: alternate glyph rows dimmed to 78%. Reads as CRT at **no size cost** |
+| `CRT` | 14×16 | 7×16 | True scanlines — a real dark row between each. Rows double, so widths double too |
 
 All four colorways (`COLOR` / `WHITE` / `AMBER` / `GREEN`) exist in every tier
 shown. Use the plain or `SCAN` fonts to match the size of other 8px art; use

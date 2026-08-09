@@ -78,14 +78,27 @@ def glyph_mask(codepoint, ft):
     return [[1 if p[x, y] > 127 else 0 for x in range(CELL_W)] for y in range(CELL_H)]
 
 
-def render_cell(mask, phase, phosphor=None, gain=1.0, hscale=1, vscale=1,
+def render_cell(mask, phase, phosphor=None, gain=1.0, out_w=CELL_W, vscale=1,
                 scanlines=False):
-    """Colourise one 7x8 mask and blow it up to the output cell.
+    """Colourise one 7x8 mask and resample it into an out_w x (8*vscale) cell.
 
-    hscale/vscale express the CRT's dot aspect: a 40-column dot is about square
-    (hscale 2 when rows are doubled for scanlines), an 80-column dot is half as
-    wide (hscale 1).  That is the whole difference between the two modes — the
-    bitmaps are identical, the dot clock is not.
+    out_w is the FINAL cell width in pixels, not a scale factor, because 80
+    columns needs to shrink as well as 40 needs to grow.
+
+    Both column modes use the same 7x8 ROM bitmaps and the same 24 rows of 8
+    scanlines — 80-column does not make characters taller, it makes them
+    narrower.  With square output pixels and a 4:3 screen the dot aspects are
+    (4/3)/(280/192) = 0.914 at 40 columns and (4/3)/(560/192) = 0.457 at 80, so
+    7 dots want ~7px and ~3px respectively AT THE SAME HEIGHT:
+
+        40 col  plain 7x8    CRT 14x16
+        80 col  plain 3x8    CRT  7x16
+
+    Downsampling uses "any covered dot is lit", which happens to suit this font
+    exactly at 3px: 7/3 puts the sample centres on dots 1, 3 and 5, which is
+    where Apple II ink lives.  (4px is much worse — 7/4 overlaps nearly every
+    dot and the glyphs collapse into solid blocks.)  Colour for a merged pixel
+    is the mean of the lit dots it covers.
 
     Scanlines dim every odd OUTPUT row, and only where the dot is lit.  Unlit
     dots stay pure background so they render transparent: a font has to
@@ -99,28 +112,32 @@ def render_cell(mask, phase, phosphor=None, gain=1.0, hscale=1, vscale=1,
     """
     if phosphor is None:
         px = colorize_cell(mask, parity0=phase, gain=gain)
+        colour = lambda r, c: tuple(int(v) for v in px[r, c])          # noqa: E731
     else:
-        px = [[tuple(int(round(v * gain)) for v in phosphor) if mask[r][c] else (0, 0, 0)
-               for c in range(CELL_W)] for r in range(CELL_H)]
+        tint = tuple(int(round(v * gain)) for v in phosphor)
+        colour = lambda r, c: tint                                      # noqa: E731
 
-    out = Image.new("RGB", (CELL_W * hscale, CELL_H * vscale), (0, 0, 0))
+    out = Image.new("RGB", (out_w, CELL_H * vscale), (0, 0, 0))
     ip = out.load()
     for r in range(CELL_H):
-        for c in range(CELL_W):
-            if not mask[r][c]:
+        for ox in range(out_w):
+            lo, hi = ox * CELL_W / out_w, (ox + 1) * CELL_W / out_w
+            lit = [c for c in range(CELL_W)
+                   if c + 1 > lo and c < hi and mask[r][c]]
+            if not lit:
                 continue                       # stays background -> transparent
-            base = tuple(int(v) for v in px[r][c]) if phosphor else \
-                tuple(int(v) for v in px[r, c])
+            cols = [colour(r, c) for c in lit]
+            base = tuple(int(round(sum(v[k] for v in cols) / len(cols)))
+                         for k in range(3))
             for sy in range(vscale):
                 dim = scanlines and ((r * vscale + sy) % 2 == 1)
                 col = tuple(max(1, int(round(v * SCANLINE_DIM))) for v in base) if dim \
                     else (base if any(base) else (1, 1, 1))
-                for sx in range(hscale):
-                    ip[c * hscale + sx, r * vscale + sy] = col
+                ip[ox, r * vscale + sy] = col
     return out
 
 
-def build(out_path, phase=0, phosphor=None, gain=1.0, hscale=1, vscale=1,
+def build(out_path, phase=0, phosphor=None, gain=1.0, out_w=CELL_W, vscale=1,
           scanlines=False, mousetext=True, iie=True):
     """Write one sheet.
 
@@ -134,13 +151,13 @@ def build(out_path, phase=0, phosphor=None, gain=1.0, hscale=1, vscale=1,
     itself keeps it, and where PrintChar21 maps it.
     """
     ft = ImageFont.truetype(TTF, 8)
-    kw = dict(phosphor=phosphor, gain=gain, hscale=hscale, vscale=vscale,
+    kw = dict(phosphor=phosphor, gain=gain, out_w=out_w, vscale=vscale,
               scanlines=scanlines)
 
     glyphs = [render_cell(glyph_mask(ord(ch), ft), phase, **kw) for ch in cbf.FULL_SET]
 
     if mousetext:
-        glyphs.append(Image.new("RGB", (CELL_W * hscale, CELL_H * vscale), (0, 0, 0)))
+        glyphs.append(Image.new("RGB", (out_w, CELL_H * vscale), (0, 0, 0)))
         for i in range(32):
             mt = MOUSETEXT_FIRST + i
             if iie:
@@ -161,30 +178,30 @@ def build(out_path, phase=0, phosphor=None, gain=1.0, hscale=1, vscale=1,
 #         (80): 7x16   horizontally too; 80-column dots are half as wide so they
 #                      do not. This tier is 2x the native fonts by necessity.
 FAMILY = {
-    "APPLE-][-40-COLOR":       dict(hscale=1, vscale=1, scanlines=False),
-    "APPLE-][-40-WHITE":       dict(hscale=1, vscale=1, scanlines=False, phosphor="white"),
-    "APPLE-][-40-AMBER":       dict(hscale=1, vscale=1, scanlines=False, phosphor="amber"),
-    "APPLE-][-40-GREEN":       dict(hscale=1, vscale=1, scanlines=False, phosphor="green"),
-    "APPLE-][-40-COLOR-SCAN":  dict(hscale=1, vscale=1, scanlines=True),
-    "APPLE-][-40-WHITE-SCAN":  dict(hscale=1, vscale=1, scanlines=True, phosphor="white"),
-    "APPLE-][-40-AMBER-SCAN":  dict(hscale=1, vscale=1, scanlines=True, phosphor="amber"),
-    "APPLE-][-40-GREEN-SCAN":  dict(hscale=1, vscale=1, scanlines=True, phosphor="green"),
-    "APPLE-][-40-COLOR-CRT":   dict(hscale=2, vscale=2, scanlines=True),
-    "APPLE-][-40-WHITE-CRT":   dict(hscale=2, vscale=2, scanlines=True, phosphor="white"),
-    "APPLE-][-40-AMBER-CRT":   dict(hscale=2, vscale=2, scanlines=True, phosphor="amber"),
-    "APPLE-][-40-GREEN-CRT":   dict(hscale=2, vscale=2, scanlines=True, phosphor="green"),
+    "APPLE-][-40-COLOR":       dict(out_w=7, vscale=1, scanlines=False),
+    "APPLE-][-40-WHITE":       dict(out_w=7, vscale=1, scanlines=False, phosphor="white"),
+    "APPLE-][-40-AMBER":       dict(out_w=7, vscale=1, scanlines=False, phosphor="amber"),
+    "APPLE-][-40-GREEN":       dict(out_w=7, vscale=1, scanlines=False, phosphor="green"),
+    "APPLE-][-40-COLOR-SCAN":  dict(out_w=7, vscale=1, scanlines=True),
+    "APPLE-][-40-WHITE-SCAN":  dict(out_w=7, vscale=1, scanlines=True, phosphor="white"),
+    "APPLE-][-40-AMBER-SCAN":  dict(out_w=7, vscale=1, scanlines=True, phosphor="amber"),
+    "APPLE-][-40-GREEN-SCAN":  dict(out_w=7, vscale=1, scanlines=True, phosphor="green"),
+    "APPLE-][-40-COLOR-CRT":   dict(out_w=14, vscale=2, scanlines=True),
+    "APPLE-][-40-WHITE-CRT":   dict(out_w=14, vscale=2, scanlines=True, phosphor="white"),
+    "APPLE-][-40-AMBER-CRT":   dict(out_w=14, vscale=2, scanlines=True, phosphor="amber"),
+    "APPLE-][-40-GREEN-CRT":   dict(out_w=14, vscale=2, scanlines=True, phosphor="green"),
     # 80-column plain. There is no aspect-correct 80-col cell shorter than 16:
     # an 80-col dot is half as wide as a 40-col dot, so with square output pixels
     # the smallest honest cell is 1 wide x 2 tall per dot. 7x8 would simply BE
     # the 40-column font, and squeezing to 4x8 would destroy a 7-dot glyph.
-    "APPLE-][-80-COLOR":       dict(hscale=1, vscale=2, scanlines=False),
-    "APPLE-][-80-WHITE":       dict(hscale=1, vscale=2, scanlines=False, phosphor="white"),
-    "APPLE-][-80-AMBER":       dict(hscale=1, vscale=2, scanlines=False, phosphor="amber"),
-    "APPLE-][-80-GREEN":       dict(hscale=1, vscale=2, scanlines=False, phosphor="green"),
-    "APPLE-][-80-COLOR-CRT":   dict(hscale=1, vscale=2, scanlines=True),
-    "APPLE-][-80-WHITE-CRT":   dict(hscale=1, vscale=2, scanlines=True, phosphor="white"),
-    "APPLE-][-80-AMBER-CRT":   dict(hscale=1, vscale=2, scanlines=True, phosphor="amber"),
-    "APPLE-][-80-GREEN-CRT":   dict(hscale=1, vscale=2, scanlines=True, phosphor="green"),
+    "APPLE-][-80-COLOR":       dict(out_w=3, vscale=1, scanlines=False),
+    "APPLE-][-80-WHITE":       dict(out_w=3, vscale=1, scanlines=False, phosphor="white"),
+    "APPLE-][-80-AMBER":       dict(out_w=3, vscale=1, scanlines=False, phosphor="amber"),
+    "APPLE-][-80-GREEN":       dict(out_w=3, vscale=1, scanlines=False, phosphor="green"),
+    "APPLE-][-80-COLOR-CRT":   dict(out_w=7, vscale=2, scanlines=True),
+    "APPLE-][-80-WHITE-CRT":   dict(out_w=7, vscale=2, scanlines=True, phosphor="white"),
+    "APPLE-][-80-AMBER-CRT":   dict(out_w=7, vscale=2, scanlines=True, phosphor="amber"),
+    "APPLE-][-80-GREEN-CRT":   dict(out_w=7, vscale=2, scanlines=True, phosphor="green"),
 }
 
 
@@ -222,10 +239,12 @@ if __name__ == "__main__":
             print(cbf.read(p).summary())
             print()
     else:
-        hs = 2 if (a.columns == 40 and a.scanlines) else 1
-        vs = 2 if a.scanlines else 1
+        if a.columns == 40:
+            ow, vs = (14, 2) if a.scanlines else (7, 1)
+        else:
+            ow, vs = (7, 2) if a.scanlines else (3, 1)
         build(a.out, phase=a.phase,
               phosphor=PHOSPHORS[a.phosphor] if a.phosphor else None,
-              hscale=hs, vscale=vs, scanlines=a.scanlines,
+              out_w=ow, vscale=vs, scanlines=a.scanlines,
               mousetext=not a.no_mousetext, iie=not a.iigs)
         print(cbf.read(a.out).summary())
