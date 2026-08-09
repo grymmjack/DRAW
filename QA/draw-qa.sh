@@ -667,9 +667,16 @@ key() {
             done
         else
             # Use keydown/sleep/keyup instead of 'xdotool key' so that
-            # _KEYDOWN-polling in DRAW sees the key held for at least 2 idle frames
+            # _KEYDOWN-polling in DRAW sees the key held for at least 2 idle frames.
+            #
+            # 200ms, matching the modifier-combo path above and for the same
+            # reason: an idle frame is ~77ms at 13fps, so the old 100ms hold
+            # spanned only ~1.3 frames and could land inside a single poll gap.
+            # That produced a slow drip of one-off failures across the suite —
+            # F4 not toggling the preview, and similar single-key misses that
+            # always passed when the test was re-run on its own.
             xdotool keydown "$combo"
-            sleep 0.10
+            sleep 0.20
             xdotool keyup "$combo"
         fi
         sleep 0.05
