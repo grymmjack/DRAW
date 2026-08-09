@@ -100,6 +100,12 @@ SUB FONT_LIST_scan ()
         END IF
     $END IF
 
+    ' --- TheDraw faces the user has used before ---
+    ' Must happen BEFORE the sort so these entries land in their stable
+    ' alphabetical position rather than wherever the session happened to append
+    ' them. See FONT_TDF_USED_FILE$ in FONT-LIST.BI.
+    FONT_LIST_load_tdf_used
+
     ' Sort: bundled first, then alphabetical
     FONT_LIST_sort
 
@@ -735,8 +741,8 @@ SUB FONT_LIST_apply_favorites ()
     NEXT fi%
 
     ' Build a reordered list: favorites first (in favorites-file order/pattern order), then the rest.
-    DIM tmpList(0 TO FONT_LIST_MAX - 1) AS FONT_ENTRY
-    DIM alreadyAdded(0 TO FONT_LIST_MAX - 1) AS INTEGER
+    DIM tmpList(0 TO FONT_LIST_TOTAL_MAX - 1) AS FONT_ENTRY
+    DIM alreadyAdded(0 TO FONT_LIST_TOTAL_MAX - 1) AS INTEGER
     DIM tmpCount AS INTEGER
     tmpCount% = 0
 
@@ -2196,6 +2202,198 @@ SUB FONT_LIST_add_cbf_font (fontPath$, isBundled%, avgW%, glyphH%)
     FONT_LIST_COUNT% = FONT_LIST_COUNT% + 1
     _LOGINFO "FONT_LIST_add_cbf_font: " + newName$ + " (" + _TRIM$(STR$(glyphH%)) + "px)"
 END SUB
+
+
+''
+' Add (or reuse) a font-list entry for one TheDraw face.
+'
+' TDF faces are NOT scanned into the list wholesale — the shipped corpus holds
+' 3757 of them against a FONT_LIST_MAX of 512. Instead the TDF browser calls
+' this when the user actually picks a face, so only faces in use occupy a slot.
+'
+' Identity is a pseudo-path "TDF://<BUNDLE>/<face name>", not the display name:
+' TDF face names collide 4419 times across the wild corpus, so a name alone
+' cannot round-trip a document's font choice.
+'
+' Returns the font-list index, or -1 if the list is full.
+'
+FUNCTION FONT_LIST_add_tdf_font% (faceIdx%)
+    FONT_LIST_add_tdf_font% = -1
+    IF faceIdx% < 0 THEN EXIT FUNCTION
+    IF faceIdx% >= TDF_FACE_COUNT% THEN EXIT FUNCTION
+
+    DIM pseudoPath AS STRING
+    pseudoPath$ = FONT_LIST_tdf_path$(faceIdx%)
+
+    ' Reuse an existing entry for this exact face.
+    DIM i AS INTEGER
+    FOR i% = 0 TO FONT_LIST_COUNT% - 1
+        IF RTRIM$(FONT_LIST(i%).path) = pseudoPath$ THEN
+            FONT_LIST_add_tdf_font% = i%
+            EXIT FUNCTION
+        END IF
+    NEXT i%
+
+    ' TDF may use the reserved block past FONT_LIST_MAX — that reserve exists
+    ' precisely so a full scan list cannot make picking a face a silent no-op.
+    IF FONT_LIST_COUNT% >= FONT_LIST_TOTAL_MAX THEN
+        _LOGWARN "FONT_LIST_add_tdf_font: TDF reserve exhausted (" + _TRIM$(STR$(FONT_LIST_TDF_RESERVE)) + " slots), cannot add " + pseudoPath$
+        EXIT FUNCTION
+    END IF
+
+    DIM idx AS INTEGER
+    idx% = FONT_LIST_COUNT%
+
+    FONT_LIST(idx%).path        = pseudoPath$
+    FONT_LIST(idx%).displayName = TDF_face_label$(faceIdx%)
+    FONT_LIST(idx%).isBundled   = TDF_BUNDLE(TDF_FACE(faceIdx%).bundleIdx).isBundled
+    FONT_LIST(idx%).isBuiltIn   = FALSE
+    FONT_LIST(idx%).folderName  = "THEDRAW"
+
+    ' Route through the bitmap-font pipeline: measure/draw already dispatch on
+    ' isBitmapFont, and isColorBitmapFont is what makes a glyph keep its own
+    ' colours instead of being tinted with the paint colour.
+    FONT_LIST(idx%).isBitmapFont      = TRUE
+    FONT_LIST(idx%).isColorBitmapFont = (TDF_FACE(faceIdx%).faceType = TDF_TYPE_COLOR)
+    FONT_LIST(idx%).isTdfFont         = TRUE
+    FONT_LIST(idx%).tdfFaceIdx        = faceIdx%
+    FONT_LIST(idx%).bitmapGlyphW      = TDF_FACE(faceIdx%).cellsW * TDF_CELL_W
+    FONT_LIST(idx%).bitmapGlyphH      = TDF_face_height%(faceIdx%)
+    FONT_LIST(idx%).hasBold           = FALSE
+    FONT_LIST(idx%).hasItalic         = FALSE
+    FONT_LIST(idx%).hasBoldItalic     = FALSE
+
+    FONT_LIST_COUNT%        = FONT_LIST_COUNT% + 1
+    FONT_LIST_add_tdf_font% = idx%
+    FONT_LIST_remember_tdf pseudoPath$
+    _LOGINFO "FONT_LIST_add_tdf_font: " + pseudoPath$
+END FUNCTION
+
+
+''
+' Re-register every TheDraw face recorded in FONT_TDF_USED_FILE$.
+' Called from FONT_LIST_scan before the sort.
+'
+SUB FONT_LIST_load_tdf_used ()
+    IF NOT _FILEEXISTS(FONT_TDF_USED_FILE$) THEN EXIT SUB
+    TDF_ensure_scanned
+    IF TDF_FACE_COUNT% < 1 THEN EXIT SUB
+
+    DIM tf AS INTEGER
+    tf% = FREEFILE
+    OPEN FONT_TDF_USED_FILE$ FOR INPUT AS #tf%
+
+    DIM usedLine AS STRING
+    DIM restored AS INTEGER
+    restored% = 0
+    DO WHILE NOT EOF(tf%)
+        LINE INPUT #tf%, usedLine$
+        usedLine$ = _TRIM$(usedLine$)
+        IF LEN(usedLine$) = 0 THEN _CONTINUE
+        IF LEFT$(usedLine$, 1) = "#" THEN _CONTINUE
+        IF FONT_LIST_resolve_tdf%(usedLine$) >= 0 THEN restored% = restored% + 1
+    LOOP
+
+    CLOSE #tf%
+    _LOGINFO "FONT_LIST_load_tdf_used: restored" + STR$(restored%) + " TheDraw face(s)"
+END SUB
+
+
+''
+' Record a TheDraw face in FONT_TDF_USED_FILE$ so it is restored next launch.
+' No-ops when the face is already listed.
+'
+SUB FONT_LIST_remember_tdf (pseudoPath$)
+    IF LEN(_TRIM$(pseudoPath$)) = 0 THEN EXIT SUB
+
+    ' Already recorded?
+    IF _FILEEXISTS(FONT_TDF_USED_FILE$) THEN
+        DIM rf AS INTEGER
+        rf% = FREEFILE
+        OPEN FONT_TDF_USED_FILE$ FOR INPUT AS #rf%
+        DIM chkLine AS STRING
+        DO WHILE NOT EOF(rf%)
+            LINE INPUT #rf%, chkLine$
+            IF _TRIM$(chkLine$) = pseudoPath$ THEN
+                CLOSE #rf%
+                EXIT SUB
+            END IF
+        LOOP
+        CLOSE #rf%
+    END IF
+
+    DIM wf AS INTEGER
+    wf% = FREEFILE
+    OPEN FONT_TDF_USED_FILE$ FOR APPEND AS #wf%
+    PRINT #wf%, pseudoPath$
+    CLOSE #wf%
+END SUB
+
+
+''
+' The pseudo-path that identifies a TDF face inside the font list.
+'
+' Format: TDF://<BUNDLE>/<face name>#<ordinal>
+'
+' The trailing ordinal is load-bearing. A bundle can hold several genuinely
+' different faces under one name (three distinct "BigOutline" faces ship in
+' OUTLINE.TDF), so a path without it would resolve a saved document to whichever
+' happened to come first. The ordinal is 1 for a name that appears once.
+FUNCTION FONT_LIST_tdf_path$ (faceIdx%)
+    FONT_LIST_tdf_path$ = ""
+    IF faceIdx% < 0 THEN EXIT FUNCTION
+    IF faceIdx% >= TDF_FACE_COUNT% THEN EXIT FUNCTION
+
+    DIM ord AS INTEGER
+    ord% = TDF_FACE(faceIdx%).dupIndex
+    IF ord% < 1 THEN ord% = 1
+    FONT_LIST_tdf_path$ = "TDF://" + RTRIM$(TDF_BUNDLE(TDF_FACE(faceIdx%).bundleIdx).labelTxt) + "/" + RTRIM$(TDF_FACE(faceIdx%).faceName) + "#" + LTRIM$(STR$(ord%))
+END FUNCTION
+
+
+''
+' Resolve a "TDF://<BUNDLE>/<face>" pseudo-path back to a font-list entry,
+' registering the face if it is not in the list yet. Used when loading a
+' document whose text layer referenced a TheDraw face.
+'
+' Returns the font-list index, or -1 when the face is not installed.
+'
+FUNCTION FONT_LIST_resolve_tdf% (pseudoPath$)
+    FONT_LIST_resolve_tdf% = -1
+    IF LEFT$(pseudoPath$, 6) <> "TDF://" THEN EXIT FUNCTION
+
+    DIM body AS STRING
+    body$ = MID$(pseudoPath$, 7)
+    DIM slashAt AS INTEGER
+    slashAt% = INSTR(body$, "/")
+    IF slashAt% < 2 THEN EXIT FUNCTION
+
+    DIM bundleLabel AS STRING, faceName AS STRING
+    bundleLabel$ = LEFT$(body$, slashAt% - 1)
+    faceName$    = MID$(body$, slashAt% + 1)
+
+    ' Split the trailing "#<ordinal>" off the name. Search from the RIGHT: a
+    ' face name may itself contain a '#'.
+    DIM ord AS INTEGER, hashAt AS INTEGER
+    ord%    = 1
+    hashAt% = _INSTRREV(faceName$, "#")
+    IF hashAt% > 1 THEN
+        DIM ordTxt AS STRING
+        ordTxt$ = MID$(faceName$, hashAt% + 1)
+        IF LEN(ordTxt$) > 0 _ANDALSO VAL(ordTxt$) >= 1 THEN
+            ord%      = VAL(ordTxt$)
+            faceName$ = LEFT$(faceName$, hashAt% - 1)
+        END IF
+    END IF
+
+    DIM faceIdx AS INTEGER
+    faceIdx% = TDF_find_face%(bundleLabel$, faceName$, ord%)
+    IF faceIdx% < 0 THEN
+        _LOGWARN "FONT_LIST_resolve_tdf: no such face " + pseudoPath$
+        EXIT FUNCTION
+    END IF
+    FONT_LIST_resolve_tdf% = FONT_LIST_add_tdf_font%(faceIdx%)
+END FUNCTION
 
 
 ''

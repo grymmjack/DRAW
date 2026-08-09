@@ -24,7 +24,25 @@
 | `V` | Move | Transform selected region |
 | `Z` | Zoom | Zoom tool (click to zoom in, Alt+click to zoom out) |
 | `T` | Text | Text entry tool |
-| `?` | Command Palette | Search commands and hotkeys |
+| `?` | Command Palette | Search commands and hotkeys (**smart case** — see below) |
+
+### Command Palette smart case
+
+The palette matches by **subsequence**, so a short lowercase query like `tdf`
+also finds anything containing t…d…f in order (`Toolbox Dock Left`,
+`Toggle Grid Cell Fill`, …). Typing the query in **ALL CAPS** is read as "this
+is a literal acronym" and matches case-sensitively:
+
+| Typed | Matching |
+|-------|----------|
+| `tdf` | case-insensitive — 5 commands |
+| `TDF` | case-sensitive — **1** command, "Browse TheDraw Fonts (TDF)" |
+| `os` | 68 commands · `OS` → **2** |
+| `crt` | 38 commands · `CRT` → **7** |
+
+A query containing any lower-case letter stays case-insensitive, so `browse`
+still matches `Browse` — command names are Title Case, and a fully
+case-sensitive palette would break every lowercase search.
 
 > **Smart Shapes** and **3D Text** are accessed from the toolbar via the Smart Shapes flyout (long-press / right-click the Smart Shapes button to choose: Polygon, Pie/Donut, Rounded Rect, Tab, Pill, Pac-Man, 3D Dice, Bevel Rect, Arrow, 3D Text). See [Smart Shapes](#smart-shapes) section below.
 
@@ -1102,6 +1120,51 @@ Presets store: Bold, Italic, Underline, Strikethrough, Outline (on/off + color +
 ### Re-editing Text Layers
 
 Click on an existing text layer (in text tool mode) to re-enter editing. All formatting, font, and color properties are preserved.
+
+### TheDraw Fonts (TDF)
+
+TheDraw fonts are the classic DOS ANSI-art "figlet" fonts: each letter is a grid
+of CP437 character cells rendered through the 8x16 VGA font, so a single glyph
+can be several hundred pixels tall. **3757 unique faces** ship in
+`ASSETS/FONTS/THEDRAW/`.
+
+Open the picker three ways — there is no default keybinding:
+
+- the **`[TDF]`** button on the text bar (next to `[CHAR]`); it lights up when
+  the current font is a TheDraw face
+- **TOOLS > THEDRAW FONT...**
+- the command palette (`?`) — type `tdf`, the entry is
+  "Browse TheDraw Fonts (TDF)"
+
+| Aspect | Behaviour |
+|--------|-----------|
+| **Selection** | Via the browser, not the font dropdown — 3757 faces cannot fit a 512-entry list. Picking a face adds just that one to the dropdown for reuse |
+| **Face types** | **COLOR** (3560) keep their own per-cell VGA colors; **BLOCK** (191) and **OUTLINE** (6) tint to the foreground color |
+| **Size** | Fixed to the face's native cell height; use SCALE rather than the size spinner |
+| **Scale** | 10–100%. With **AA** on, the downscale box-filters, averaging the CP437 shade-block dithering back into real intermediate colors instead of dropping it |
+| **Spacing** | Added to the face's own gap; may go negative to overlap letters, as TheDraw allowed |
+| **Outline style** | 19 box-drawing styles (single line, double line, half-blocks); applies to OUTLINE faces only |
+| **Character set** | `!` to `~` only (94 slots). Most faces are UPPER CASE ONLY — the preview auto-uppercases when a face defines no lowercase |
+| **Favorites** | `F2` or the `FAVORITE` button stars the highlighted face; the **FAVS** tab filters to starred only. Kept in `DRAW_TDF_FAVORITES.txt` (config dir) |
+| **Reset** | Each parameter row has its own `R` button; `RESET ALL` restores spacing, outline style, scale, AA and the sample text together |
+| **Random** | `RANDOM` jumps to a random face **among the current matches**, so it respects the active tab and search |
+| **Presets** | Name a preset in the left-column field and press `SAVE` to store the face + spacing + outline style + scale + AA. Click a preset row to recall it (switching to the ALL tab if its face is filtered out); `DEL` removes the selected one. Kept in `DRAW_TDF_PRESETS.txt` |
+| **Character Mode / Character Map** | **Not available** with a TheDraw face — both are fixed CP437 cell grids and a TDF glyph spans many cells. Picking a TDF face switches Character Mode off and hides the Character Map |
+| **Persistence** | Used faces are remembered in `DRAW_TDF_FONTS.txt` (config dir) and restored next launch |
+
+#### Browser keys
+
+| Key | Action |
+|-----|--------|
+| Type | Filters the face list (or edits the sample text — see Tab) |
+| `Tab` | Cycle typing focus: SEARCH → SAMPLE → PRESET NAME |
+| `Up` / `Down` | Move the selection |
+| `PgUp` / `PgDn` | Move the selection by a page |
+| `Home` / `End` | Jump to the first / last match |
+| Mouse wheel | Scroll the list |
+| `F2` | Star / unstar the highlighted face |
+| `Enter` | Use the highlighted face |
+| `Esc` | Cancel |
 
 ### Color Bitmap Fonts (CBF)
 

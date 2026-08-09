@@ -11,8 +11,18 @@ OPTION _EXPLICIT
 OPTION _EXPLICITARRAY
 '$DYNAMIC
 
-' Maximum number of fonts in the list
-CONST FONT_LIST_MAX = 512
+' Maximum number of SCANNED fonts (TTF/OTF/bitmap/CBF) in the list.
+' Raised from 512: a machine with a large system font collection hit the old
+' ceiling, and FONT_LIST_add_font simply EXIT SUBs when full — fonts were being
+' dropped silently, with no warning anywhere.
+CONST FONT_LIST_MAX = 8192
+
+' Slots reserved beyond FONT_LIST_MAX exclusively for TheDraw faces.
+' TDF faces are registered on demand from the browser, so without a reserve a
+' full scan list would leave no room and picking a face would silently do
+' nothing (the browser returns -1, the caller keeps the previous font).
+CONST FONT_LIST_TDF_RESERVE = 64
+CONST FONT_LIST_TOTAL_MAX   = FONT_LIST_MAX + FONT_LIST_TDF_RESERVE
 
 ' Maximum cached font handles (loaded at specific size+style)
 CONST FONT_CACHE_MAX = 128
@@ -38,13 +48,15 @@ TYPE FONT_ENTRY
     isFavorite        AS INTEGER      ' TRUE if font is in DRAW_FONT_FAVORITES.txt
     isBitmapFont      AS INTEGER      ' TRUE if raw bitmap font (F??, PSF, BDF, PCF)
     isColorBitmapFont AS INTEGER      ' TRUE if color bitmap spritesheet font (.BMP)
+    isTdfFont         AS INTEGER      ' TRUE if a TheDraw face (see GUI/TDF-FONT.BI)
+    tdfFaceIdx        AS INTEGER      ' Index into TDF_FACE() when isTdfFont; else -1
     bitmapGlyphW      AS INTEGER      ' Glyph width for bitmap fonts (pixels)
     bitmapGlyphH      AS INTEGER      ' Glyph height for bitmap fonts (pixels)
     folderName        AS STRING * 64  ' Subfolder name ("AMIGA", "RETRO", etc.) or empty for root
 END TYPE
 
 ' Font list (populated by FONT_LIST_scan)
-DIM SHARED FONT_LIST(0 TO FONT_LIST_MAX - 1) AS FONT_ENTRY
+DIM SHARED FONT_LIST(0 TO FONT_LIST_TOTAL_MAX - 1) AS FONT_ENTRY
 DIM SHARED FONT_LIST_COUNT   AS INTEGER
 DIM SHARED FONT_LIST_SCANNED AS INTEGER                             ' TRUE after first scan
 
@@ -71,9 +83,18 @@ CONST FONT_FAVORITES_MAX = 64
 DIM SHARED FONT_FAVORITES(0 TO FONT_FAVORITES_MAX - 1) AS STRING * 64
 DIM SHARED FONT_FAVORITES_COUNT AS INTEGER
 
+' TheDraw faces the user has picked at least once. TDF faces are registered on
+' demand (3757 of them against FONT_LIST_MAX of 512), so without this file the
+' set of TDF entries — and therefore every font index after them — would differ
+' between sessions and a saved document's text layer would resolve to the wrong
+' font. Loading it before FONT_LIST_sort gives TDF entries exactly the same
+' index stability as any other installed font.
+DIM SHARED FONT_TDF_USED_FILE$
+FONT_TDF_USED_FILE$ = PATHS_config$("DRAW_TDF_FONTS.txt")
+
 ' Font dropdown display list — maps visible row to font or folder header.
 ' Built after scan+sort by FONT_LIST_build_display_list.
-CONST FONT_DD_MAX    = 576                                          ' FONT_LIST_MAX + FONT_FOLDER_MAX headroom
+CONST FONT_DD_MAX    = FONT_LIST_TOTAL_MAX + 64                     ' font rows + FONT_FOLDER_MAX headroom
 CONST FONT_DD_FONT   = 0                                            ' Row is a selectable font
 CONST FONT_DD_FOLDER = 1                                            ' Row is a folder header with submenu
 DIM SHARED FONT_DD_TYPE(0 TO FONT_DD_MAX - 1)  AS INTEGER           ' FONT_DD_FONT or FONT_DD_FOLDER

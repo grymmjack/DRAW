@@ -23,6 +23,13 @@ CONST CHARMAP_NO_SELECTION      = -1    ' No glyph selected
 CONST CHARMAP_MAX_UNICODE_CPS   = 16384 ' Max discoverable Unicode codepoints per font
 CONST CHARMAP_PAGE_INDICATOR_H  = 14    ' Height of page nav bar in pixels
 
+' Largest glyph metrics the character map will accept from a font. The map lays
+' out 16 columns, so anything beyond this builds a panel wider than the screen.
+' A TheDraw face reports 152x176 for a single letter — see the backstop in
+' CHARMAP_build_bitmap_cache.
+CONST CHARMAP_MAX_CELL_W        = 64
+CONST CHARMAP_MAX_CELL_H        = 64
+
 TYPE CHARMAP_OBJ
     visible          AS INTEGER ' TRUE when panel should render
     dockSide         AS INTEGER ' CHARMAP_DOCK_LEFT or CHARMAP_DOCK_RIGHT
