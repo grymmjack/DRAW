@@ -110,7 +110,7 @@ DIM SHARED UNDO_SEQ                 AS LONG    ' Monotonic sequence counter for 
 ' record calls can bail out silently, and HISTORY.current% is then either 0 —
 ' HISTORY_RECORDS is 1-based, so that is a subscript error — or, worse, still
 ' pointing at some earlier unrelated record that would be quietly corrupted.
-DIM SHARED HISTORY_LAST_RECORD      AS INTEGER
+DIM SHARED HISTORY_LAST_RECORD AS INTEGER
 
 ' ---- Selection snapshot (for HISTORY_KIND_SELECTION_CHANGE records) ----
 TYPE HISTORY_SEL_SNAP

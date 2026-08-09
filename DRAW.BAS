@@ -17,9 +17,9 @@
 ' Armed here, before the include chain, because the first thing that errors is
 ' almost always a missing asset during startup — i.e. before any window exists.
 ON ERROR GOTO FatalError
-CONST ERR_MAX = 20                  ' Runtime errors tolerated INTERACTIVELY
-DIM SHARED err_seen     AS INTEGER  ' Errors trapped so far this session
-DIM SHARED screen_shown AS INTEGER  ' TRUE once a window is actually on screen
+CONST ERR_MAX = 20                 ' Runtime errors tolerated INTERACTIVELY
+DIM SHARED err_seen     AS INTEGER ' Errors trapped so far this session
+DIM SHARED screen_shown AS INTEGER ' TRUE once a window is actually on screen
 ' Literals, not TRUE/FALSE — those CONSTs come from _COMMON.BI, which has not
 ' been included yet at this point in the file.
 err_seen     = 0
@@ -418,7 +418,7 @@ DO
     ' A dialog may have absorbed the window-close request while it was modal
     IF DIALOG_EXIT_PENDING% THEN
         DIALOG_EXIT_PENDING% = FALSE
-        CMD_execute_action 212          ' graceful exit, with unsaved-changes prompt
+        CMD_execute_action 212     ' graceful exit, with unsaved-changes prompt
     END IF
 
     LOOP_start
@@ -427,7 +427,7 @@ DO
     ' writing the report is itself trappable instead of an unhandled hang.
     IF CRASH.PENDING% THEN CRASH_flush_pending
     MUSIC_tick
-    AI_JOB_tick     ' Poll any in-flight AI generation (self-throttled, no-op when idle)
+    AI_JOB_tick ' Poll any in-flight AI generation (self-throttled, no-op when idle)
     IF AI_FAIL_PENDING% THEN
         AI_FAIL_PENDING% = FALSE
         AI_JOB_report_failure
@@ -496,7 +496,7 @@ DO
 
     IF k& <> 0 THEN FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE   ' Key was pressed
     IF MOUSE.B1% OR MOUSE.B2% OR MOUSE.B3% THEN
-        FRAME_IDLE% = FALSE        ' Mouse button held — keep render loop active
+        FRAME_IDLE% = FALSE ' Mouse button held — keep render loop active
         IF NOT SCRN.panning% THEN
             SCENE_CHANGED%          = TRUE  ' Only rebuild scene for drawing, not panning (pan handles its own SCENE via mouseMoved)
             COMPOSITE_RESULT_VALID% = FALSE ' Drawing may have changed layer pixels — stale composite would skip them
