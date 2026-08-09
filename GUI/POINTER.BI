@@ -19,6 +19,7 @@ TYPE POINTER_OBJ
     HIDDEN              AS INTEGER        ' TRUE when pointer is hidden for native dialogs
     PREV_DRAW_X         AS INTEGER        ' Previous frame pointer X (canvas coords) for dirty-rect
     PREV_DRAW_Y         AS INTEGER        ' Previous frame pointer Y (canvas coords) for dirty-rect
+    DENIED_OVERLAY      AS INTEGER        ' TRUE = stamp CURSOR_DENIED_SMALL over the tool cursor this frame
     USING_SYSTEM_CURSOR AS INTEGER        ' TRUE when OS system cursor is active this frame
     PREV_SYS_CURSOR     AS STRING * 24    ' Previous _MOUSESHOW string to skip redundant SDL calls
 END TYPE

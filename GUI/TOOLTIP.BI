@@ -19,6 +19,7 @@ CONST TOOLTIP_SRC_BINS           = 7
 CONST TOOLTIP_SRC_LAYER_NAME     = 8
 CONST TOOLTIP_SRC_LAYER_OPACITY  = 9
 CONST TOOLTIP_SRC_SUBTOOL_FLYOUT = 10
+CONST TOOLTIP_SRC_LAYER_NO_PAINT = 11  ' Pencil-with-slash badge on a group header row
 
 TYPE TOOLTIP_OBJ
     ACTIVE        AS INTEGER ' TRUE when a tooltip is currently visible

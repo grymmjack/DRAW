@@ -253,6 +253,8 @@ TYPE DRAW_CONFIG
     LAYER_PANEL_WIDTH               AS INTEGER        ' Width of layer panel in pixels (min 100)
     LAYER_NAME_MAX_LEN              AS INTEGER        ' Max layer name length (1-64, default 20)
     LAYER_GROUP_INDENT              AS INTEGER        ' Per-level indent for nested groups in px (0 = use theme, 4-32)
+    GROUP_DRAW_NOTIFY               AS INTEGER        ' TRUE = alert when a drawing tool is used on a group header layer
+    GROUP_DRAW_AUTO_LAYER           AS INTEGER        ' TRUE = auto-create a layer inside the group and draw on that instead
     LAYERS_PANEL_DOCK_EDGE          AS STRING         ' "LEFT" or "RIGHT" (default : "LEFT")
     TOOLBOX_DOCK_EDGE               AS STRING         ' "LEFT" or "RIGHT" (default : "RIGHT")
     ' Grid settings

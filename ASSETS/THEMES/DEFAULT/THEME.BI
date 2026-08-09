@@ -644,6 +644,35 @@ CURSORS(CURSOR_NULL).filename$       = "cursor-null.png"
 CURSORS(CURSOR_NULL).hotspot_x_expr$ = "left"
 CURSORS(CURSOR_NULL).hotspot_y_expr$ = "top"
 
+' --- "Denied" cursor (drawing tool over a group header layer) ---
+' A group is a container with no pixels of its own, so paint aimed at one goes
+' nowhere. Uses the LARGE variant: at 15x15 the X reads clearly over canvas
+' artwork, where the 10x9 small one gets lost. Centred hotspot, because this is
+' a symbol sitting on the spot rather than a pointer aiming at it.
+CURSORS(CURSOR_DENIED).filename$       = "cursor-denied-large.png"
+CURSORS(CURSOR_DENIED).hotspot_x_expr$ = "center"
+CURSORS(CURSOR_DENIED).hotspot_y_expr$ = "center"
+
+' --- Small "denied" badge, composited onto a tool cursor -------------------
+' Used when the tool HAS recognisable art worth keeping (the fill bucket, for
+' example): the tool cursor still shows what you are holding, and the badge
+' says you cannot use it here. Hotspot is irrelevant — it is positioned by the
+' host cursor's denied_dx/denied_dy, below.
+CURSORS(CURSOR_DENIED_SMALL).filename$       = "cursor-denied-small.png"
+CURSORS(CURSOR_DENIED_SMALL).hotspot_x_expr$ = "left"
+CURSORS(CURSOR_DENIED_SMALL).hotspot_y_expr$ = "top"
+
+' Per-cursor badge placement (offset from the MOUSE POINT). Tune per cursor so
+' the badge clears that cursor's art instead of sitting on top of it.
+CURSORS(CURSOR_FILL).denied_dx%    = 14    ' bucket: badge clear of its top-right
+CURSORS(CURSOR_FILL).denied_dy%    = -21
+CURSORS(CURSOR_DROPPER).denied_dx% = 14
+CURSORS(CURSOR_DROPPER).denied_dy% = -21
+CURSORS(CURSOR_SPRAY).denied_dx%   = 15
+CURSORS(CURSOR_SPRAY).denied_dy%   = -20
+CURSORS(CURSOR_BRUSH).denied_dx%   = 15
+CURSORS(CURSOR_BRUSH).denied_dy%   = -20
+
 ' --- Brush cursor ---
 CURSORS(CURSOR_BRUSH).filename$       = "cursor-brush.png"
 CURSORS(CURSOR_BRUSH).hotspot_x_expr$ = "left"
