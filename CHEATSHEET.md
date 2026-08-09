@@ -1105,7 +1105,7 @@ Click on an existing text layer (in text tool mode) to re-enter editing. All for
 
 ### Color Bitmap Fonts (CBF)
 
-CBF fonts are DPaint-style spritesheet fonts (`.bmp`) that preserve their original pixel colors instead of being tinted to the foreground color. 40 bundled CBF fonts ship in `ASSETS/FONTS/COLOR_BITMAP/`.
+CBF fonts are DPaint-style spritesheet fonts (`.bmp`) that preserve their original pixel colors instead of being tinted to the foreground color. 44 bundled CBF fonts ship in `ASSETS/FONTS/COLOR_BITMAP/`.
 
 | Aspect | Behaviour |
 |--------|-----------|
@@ -1119,28 +1119,36 @@ CBF fonts are DPaint-style spritesheet fonts (`.bmp`) that preserve their origin
 
 #### The APPLE ][ family
 
-Sixteen fonts reproducing Apple II text, named `APPLE ][ <40|80> <COLORWAY>
+Twenty fonts reproducing Apple II text, named `APPLE ][ <40|80> <COLORWAY>
 [SCAN|CRT]`. All carry the full printable ASCII set plus the 32 **MouseText**
 glyphs at codes **128–159** (MouseText `$40`–`$5F`: open/closed apple, arrows,
 the return symbol, folder and scrollbar graphics) — pick those from the character
 grid. MouseText `$46`/`$47` are the **//e Enhanced** running-man pair, not the
 IIGS menu icons.
 
-They come in **three size tiers**. A real scanline gap needs an output row of its
-own, so it cannot exist at the native 7×8 cell — hence the tiers.
+Cell size is set by **dot aspect**, not by choice. 40- and 80-column share
+identical 7×8 bitmaps — the difference is the dot clock. A 40-column dot is
+roughly square (280 dots over 192 lines on a 4:3 screen); an 80-column dot is
+**half as wide** (560 dots). With square output pixels that gives:
 
-| Suffix | Cell | Look |
-|--------|------|------|
-| *(none)* | 7×8 | Native cell, one pixel per dot. `APPLE ][ 40 COLOR` / `WHITE` / `AMBER` / `GREEN` |
-| `SCAN` | 7×8 | Striped: alternate glyph rows dimmed to 78%. Reads as CRT at **no size cost** — drops in beside the native fonts |
-| `CRT` | 14×16 (40 col)<br>7×16 (80 col) | True scanlines — a real dark row between each. Necessarily 2× the native fonts. All four colorways at both widths |
+| | dot shape | cell |
+|---|---|---|
+| 40 col | 1 × 1 | **7 × 8** |
+| 80 col | 1 × 2 | **7 × 16** |
 
-Use the plain or `SCAN` fonts when you need to match the size of other 8px art;
-use `CRT` when you want the real thing and can afford the space.
+There is no aspect-correct 80-column cell shorter than 16 — 7×8 would simply *be*
+the 40-column font, and squeezing to 4×8 would destroy a 7-dot glyph.
 
-40- and 80-column share identical 7×8 bitmaps — the difference is the dot clock.
-A 40-column dot is roughly square, an 80-column dot is half as wide, so once rows
-are doubled for scanlines the cells come out 14×16 and 7×16 respectively.
+| Suffix | 40 col | 80 col | Look |
+|--------|--------|--------|------|
+| *(none)* | 7×8 | 7×16 | Plain, no scanlines |
+| `SCAN` | 7×8 | — | Striped: alternate glyph rows dimmed to 78%. Reads as CRT at **no size cost**. 40-col only — at 80 col the doubled rows leave room for a real gap, so `CRT` already covers it |
+| `CRT` | 14×16 | 7×16 | True scanlines — a real dark row between each |
+
+All four colorways (`COLOR` / `WHITE` / `AMBER` / `GREEN`) exist in every tier
+shown. Use the plain or `SCAN` fonts to match the size of other 8px art; use
+`CRT` when you want the real thing and can afford the space.
+
 Dimming applies **only to lit pixels**, so the area around glyphs stays
 transparent and the font composites over any canvas.
 

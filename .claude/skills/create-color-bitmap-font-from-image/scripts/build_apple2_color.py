@@ -173,6 +173,14 @@ FAMILY = {
     "APPLE-][-40-WHITE-CRT":   dict(hscale=2, vscale=2, scanlines=True, phosphor="white"),
     "APPLE-][-40-AMBER-CRT":   dict(hscale=2, vscale=2, scanlines=True, phosphor="amber"),
     "APPLE-][-40-GREEN-CRT":   dict(hscale=2, vscale=2, scanlines=True, phosphor="green"),
+    # 80-column plain. There is no aspect-correct 80-col cell shorter than 16:
+    # an 80-col dot is half as wide as a 40-col dot, so with square output pixels
+    # the smallest honest cell is 1 wide x 2 tall per dot. 7x8 would simply BE
+    # the 40-column font, and squeezing to 4x8 would destroy a 7-dot glyph.
+    "APPLE-][-80-COLOR":       dict(hscale=1, vscale=2, scanlines=False),
+    "APPLE-][-80-WHITE":       dict(hscale=1, vscale=2, scanlines=False, phosphor="white"),
+    "APPLE-][-80-AMBER":       dict(hscale=1, vscale=2, scanlines=False, phosphor="amber"),
+    "APPLE-][-80-GREEN":       dict(hscale=1, vscale=2, scanlines=False, phosphor="green"),
     "APPLE-][-80-COLOR-CRT":   dict(hscale=1, vscale=2, scanlines=True),
     "APPLE-][-80-WHITE-CRT":   dict(hscale=1, vscale=2, scanlines=True, phosphor="white"),
     "APPLE-][-80-AMBER-CRT":   dict(hscale=1, vscale=2, scanlines=True, phosphor="amber"),
