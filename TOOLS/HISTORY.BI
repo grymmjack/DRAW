@@ -101,6 +101,17 @@ DIM SHARED HISTORY_GROUP_SEQUENCE   AS LONG
 DIM SHARED HISTORY_saved_this_frame AS INTEGER ' Prevent double-saves in same frame
 DIM SHARED UNDO_SEQ                 AS LONG    ' Monotonic sequence counter for history records
 
+' Index of the record the LAST HISTORY_record_* call actually committed, or 0
+' if it declined to record (undo/redo in progress, already recording, history
+' capped). Cleared by HISTORY_begin_record%, set by HISTORY_commit_record.
+'
+' Callers that need to stamp extra fields onto the record they just created
+' MUST test this instead of indexing HISTORY_RECORDS(HISTORY.current%): the
+' record calls can bail out silently, and HISTORY.current% is then either 0 —
+' HISTORY_RECORDS is 1-based, so that is a subscript error — or, worse, still
+' pointing at some earlier unrelated record that would be quietly corrupted.
+DIM SHARED HISTORY_LAST_RECORD      AS INTEGER
+
 ' ---- Selection snapshot (for HISTORY_KIND_SELECTION_CHANGE records) ----
 TYPE HISTORY_SEL_SNAP
     sel_active       AS INTEGER
