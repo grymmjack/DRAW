@@ -11,6 +11,28 @@ wait_for 0.3 "Brush tool ready"
 key grave
 wait_for 0.1 "Pointer arrow hidden"
 
+# -- Pick a SATURATED foreground colour before drawing --
+# The default FG is palette index 15, which in ANSI32 is #a3a3a3 — a neutral
+# grey. Desaturating grey is correctly a no-op, so the whole adjustment test
+# was measuring nothing. Chip 5 of ANSI32 is #4cffff (cyan): saturation, hue
+# and brightness changes are all clearly visible on it.
+#
+# The chip position is derived from the render code rather than the harness's
+# PAL_Y/PALETTE_H, which describe a taller band than the strip actually
+# occupies (they also feed CANVAS_CY, so they are not safe to retune here):
+#   PALETTE_STRIP_get_height% = rows*(chipH+1) + 3
+#   PALETTE_STRIP_Y%          = SCRN.h - THEME.STATUS_height - stripHeight
+#   swatches_start_x%         = 2 + PALETTE_STRIP_ARROW_WIDTH(12) + 2 = 16
+#   chip pitch                = chipW + 1
+PAL_CHIP_W=$(_num_or "$(_cfg PALETTE_CHIP_WIDTH)" 16)
+PAL_CHIP_H=$(_num_or "$(_cfg PALETTE_CHIP_HEIGHT)" 8)
+PAL_STRIP_H=$(( PAL_CHIP_H + 1 + 3 ))                    # single row of chips
+PAL_STRIP_Y=$(( VIEWPORT_H - STATUS_H - PAL_STRIP_H ))
+CYAN_CHIP_X=$(( 16 + 5 * (PAL_CHIP_W + 1) + PAL_CHIP_W / 2 ))
+CYAN_CHIP_Y=$(( PAL_STRIP_Y + 1 + PAL_CHIP_H / 2 ))
+click $CYAN_CHIP_X $CYAN_CHIP_Y
+wait_for 0.3 "Foreground colour set to cyan"
+
 # -- Draw content to adjust --
 drag $(( CANVAS_CX - 30 )) $CANVAS_CY $(( CANVAS_CX + 30 )) $CANVAS_CY
 wait_for 0.3 "Brush stroke drawn"

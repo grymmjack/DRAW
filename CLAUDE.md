@@ -29,7 +29,25 @@ qb64pe -w -x -o DRAW.run DRAW.BAS
 ./DRAW.run --reset-defaults        # restore factory cfg
 ```
 
-There is no test runner. Manual QA plans live in `PLANS/TESTS/`. `draw-watch.sh` launches DRAW with a CPU-usage alert threshold (useful for catching idle-loop regressions).
+### QA
+
+`QA/draw-qa.sh` is an xdotool-driven GUI harness — ~97 test files in `QA/tests/`, each launched against a fresh DRAW using the pinned `QA/DRAW.qa.cfg` so runs never touch the user's own config.
+
+```bash
+cd QA
+./draw-qa.sh                     # whole suite
+./draw-qa.sh tests/smoke.sh      # one file
+./draw-qa.sh --rerun-passed ...  # ignore the passed-test cache
+./draw-qa.sh --developer ...     # DRAW logs every dispatched action to ./inputs.log
+```
+
+Tests assert visually: `snap_region x y w h label` then `assert_regions_differ` / `assert_regions_same`. Coordinates are **viewport pixels**, mapped to the screen by `_abs()`.
+
+**When many unrelated tests fail with "regions are identical (action had no effect?)", suspect the harness first.** That message means a click missed its target or a capture framed the wrong pixels — not necessarily that DRAW is broken. Run `tests/harness-calibration.sh`, which pins the viewport→screen mapping against the menu bar (12px), a layer row (20px) and the status bar (11px); all three are smaller than the kind of drift that causes this. To settle whether DRAW received an input at all, run with `--developer` and grep `inputs.log` for `[FIRE] ... action=`.
+
+Derive UI coordinates from the render constants rather than probing them — the geometry arithmetic is correct (status bar `SCRN.h - THEME.STATUS_height%`, layer panel `panelY% = 0` with a 16px header and 20px rows, toolbar `TB_TOP = 0`). Note `PALETTE_H` in the harness is a conservative reservation, not the real 12px strip, so `PAL_Y` must not be used to click palette chips.
+
+Manual QA plans live in `PLANS/TESTS/`. `draw-watch.sh` launches DRAW with a CPU-usage alert threshold (useful for catching idle-loop regressions).
 
 ## Architecture
 

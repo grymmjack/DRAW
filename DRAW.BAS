@@ -206,7 +206,12 @@ PATHS_migrate
 ' Apply config startup defaults (tool, brush size, directories)
 ' Must be called after all modules are initialized via includes
 CONFIG_apply_startup_defaults
-CRASH_init              ' Sync crash capture with CFG.CRASH_LOGS_ENABLED (Help menu toggle)HISTORY_init
+CRASH_init              ' Sync crash capture with CFG.CRASH_LOGS_ENABLED (Help menu toggle)
+' HISTORY_init sets HISTORY.maxRecords%. Without it the field is 0, so the
+' capacity guard in HISTORY_begin_record% (count >= maxRecords) is true on the
+' very first record and every record is silently declined — undo does nothing
+' at all. It was accidentally appended to the comment above in 59529c6.
+HISTORY_init
 FILE_BAS_wip_reset
 
 ' Pre-load all cursor PNGs (must be after THEME.BI sets filenames and

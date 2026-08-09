@@ -32,6 +32,21 @@ drag $CANVAS_CX $CANVAS_CY $(( CANVAS_CX + 30 )) $(( CANVAS_CY + 20 ))
 wait_for 0.5 "Content moved"
 assert_no_crash
 
+# -- Commit the move before undoing --
+# A dragged move is a FLOATING selection: the pixels are lifted off the layer
+# and drawn as an overlay, and nothing is written to the layer (or to history)
+# until MOVE_apply_transform runs. Switching tools calls MOVE_reset, which
+# applies the transform and records the "Move" history entry.
+#
+# Undoing while the float is still live changes the layer UNDERNEATH but the
+# overlay keeps rendering at the dragged position, so the canvas looks
+# unchanged and the undo assertion fails for the wrong reason. Commit first —
+# that is also what a user does.
+info "Commit the move (switch tool → MOVE_reset → MOVE_apply_transform)"
+key b
+wait_for 0.5 "Move committed to layer"
+assert_no_crash
+
 # -- Snap canvas AFTER move --
 park_mouse
 snap_region $(( CANVAS_CX - 60 )) $(( CANVAS_CY - 60 )) 120 120 "move-after"
@@ -51,7 +66,11 @@ UNDO="$SNAP_RESULT"
 assert_regions_differ "$AFTER" "$UNDO" "Undo should restore original position"
 
 # -- Test nudge with arrow keys --
+# Arrow-key nudge belongs to the move tool, and committing the drag above
+# switched us to the brush. Re-activate V before nudging.
 info "Test nudge (arrow keys)"
+key v
+wait_for 0.3 "Move tool re-activated"
 key Right
 wait_for 0.2 "Nudge right"
 key Right

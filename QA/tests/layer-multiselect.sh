@@ -31,11 +31,14 @@ snap_region $LP_X $LP_Y $LP_W 80 "multisel-before"
 BEFORE="$SNAP_RESULT"
 
 # -- Ctrl+Click layer 2 in the layer panel to multi-select --
-# Layer entries are stacked vertically; each is ~20px tall
-# Current layer (3) is at top; layer 2 is one row below; layer 1 is two rows below
+# The panel starts at y=0 (LAYER_PANEL_render sets panelY% = 0) and the row
+# list starts below a 16px header, so row N spans
+#   LP_Y + LP_HEADER_H + N*LAYER_ENTRY_H .. +LAYER_ENTRY_H-1
+# Current layer (3) is at row 0; layer 2 is row 1; layer 1 is row 2.
+LP_HEADER_H=16
 LAYER_ENTRY_H=20
-LAYER2_Y=$(( LP_Y + LAYER_ENTRY_H + LAYER_ENTRY_H / 2 ))
-LAYER1_Y=$(( LP_Y + LAYER_ENTRY_H * 2 + LAYER_ENTRY_H / 2 ))
+LAYER2_Y=$(( LP_Y + LP_HEADER_H + LAYER_ENTRY_H + LAYER_ENTRY_H / 2 ))
+LAYER1_Y=$(( LP_Y + LP_HEADER_H + LAYER_ENTRY_H * 2 + LAYER_ENTRY_H / 2 ))
 LAYER_MID_X=$(( LP_X + LP_W / 2 ))
 
 info "Ctrl+Click layer 2 to multi-select"
@@ -54,7 +57,7 @@ screenshot "multiselect-active"
 
 # -- Single click to deselect multi --
 info "Single click layer 3 to deselect multi"
-LAYER3_Y=$(( LP_Y + LAYER_ENTRY_H / 2 ))
+LAYER3_Y=$(( LP_Y + LP_HEADER_H + LAYER_ENTRY_H / 2 ))
 click $LAYER_MID_X $LAYER3_Y
 wait_for 0.3 "Single select restored"
 assert_no_crash

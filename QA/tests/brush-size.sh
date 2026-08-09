@@ -10,15 +10,21 @@ key grave
 wait_for 0.1 "Pointer arrow hidden"
 
 # --- Snap organizer region BEFORE size change ---
-# Organizer is in the toolbar column; brush size widget is at slot 2 (top-right area)
+# Snap the WHOLE toolbar column (toolbar + organizer), not a guessed sub-band.
+# The brush-size widget's exact Y is theme/scale driven, and at SMALL sizes the
+# only pixels that move are the top ~20px of the organizer. A tight band pinned
+# to MENU_BAR_H+TOOLBAR_H sat entirely below them and reported "no effect" even
+# though ']' worked fine. Nothing else in this column changes while the tool and
+# colors are held constant, so the wider region is safe for both the differ and
+# the restore-to-same assertion — and it survives future layout drift.
 if [[ "$TOOLBOX_DOCK" == "RIGHT" ]]; then
     ORG_X=$(( VP_W - TOOLBAR_W + 2 ))
 else
     ORG_X=2
 fi
-ORG_Y=$(( MENU_BAR_H + TOOLBAR_H + 2 ))
+ORG_Y=$MENU_BAR_H
 ORG_W=$(( TOOLBAR_W - 4 ))
-ORG_H=30
+ORG_H=$(( TOOLBAR_H + ORGANIZER_H ))
 
 park_mouse
 snap_region $ORG_X $ORG_Y $ORG_W $ORG_H "bsize-before"

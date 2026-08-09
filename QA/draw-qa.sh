@@ -137,17 +137,22 @@ DISPLAY_SCALE=$(_num_or "$(_cfg DISPLAY_SCALE)" 1)
 # after window creation; override with DECORATION_H=22 ./draw-qa.sh
 DECORATION_H=${DECORATION_H:-0}
 _detect_decoration_height() {
-    local extents
-    extents=$(xprop _NET_FRAME_EXTENTS -id "$DRAW_WID" 2>/dev/null \
-              | grep -oP '\d+' | tr '\n' ' ')
-    [[ -z "$extents" ]] && { echo 0; return; }
-    local left right top bottom
-    read -r left right top bottom <<< "$extents"
-    # KDE Breeze: side extents are shadow-only; top = shadow + title bar.
-    # Visible title bar ≈ top - 3×side_shadow.
-    local visible=$(( top - left * 3 ))
-    [[ $visible -lt 0 ]] && visible=0
-    echo "$visible"
+    # Always 0. _update_win_pos reads the CLIENT window's absolute upper-left
+    # (xwininfo "Absolute upper-left", which is reparenting-aware), so
+    # WIN_ABS_X/Y already point at the client area origin — there is no title
+    # bar left to skip.
+    #
+    # This used to guess from _NET_FRAME_EXTENTS as "top - 3×left_shadow". On
+    # KDE Breeze that yields 36 - 3 = 33 physical px of pure error, which was
+    # then added to an already-correct origin. Every click landed 16.5 viewport
+    # px BELOW its target (layer row 0 clicks hit row 1) and every capture was
+    # cropped 16.5 px too low (status-bar snaps caught the desktop below the
+    # window instead of the bar). Tests with large targets tolerated it; tests
+    # with 20px layer rows and an 11px status bar did not.
+    #
+    # Override with DECORATION_H=<physical px> for a WM where xwininfo really
+    # does report the frame rather than the client.
+    echo 0
 }
 
 VIEWPORT_W=$(_num_or "$(_cfg SCREEN_WIDTH)" 904)
@@ -163,14 +168,28 @@ CANVAS_H=$(_num_or "$(_cfg DEFAULT_CANVAS_SIZE_H)" 200)
 MENU_BAR_H=12
 STATUS_H=11
 
-# Bottom chrome band below the canvas. VERIFIED empirically against a capture
-# on the pinned QA config (--probe + per-row colour sampling), do not "derive"
-# these from PALETTE_STRIP_get_height% — that returns just the chip rows, while
-# this band also covers the palette-name line, and shrinking it moves CANVAS_CY
-# for every test in the suite.
-#   474..485  palette chip row(s)
-#   486..495  palette name / dropdown button (right-aligned)
-#   498..514  status bar
+# Bottom chrome band below the canvas — a CONSERVATIVE reservation, NOT the
+# real palette strip. It only has to be >= the actual chrome so the canvas work
+# area never overlaps it; it feeds WORK_BOTTOM and therefore CANVAS_CY, so
+# retuning it moves the drawing origin for all ~90 tests.
+#
+# The real geometry (SCREEN_HEIGHT=514, ANSI32/32 colours, 16x8 chips):
+#   PALETTE_STRIP_get_height% = rows*(chipH+1) + 3        = 1*9 + 3  = 12
+#   PALETTE_STRIP_Y%          = SCRN.h - STATUS_height - stripHeight = 491
+#   palette strip   491..502
+#   status bar      503..513   (SCRN.h - THEME.STATUS_height%)
+#
+# So PAL_Y (= VIEWPORT_H - STATUS_H - PALETTE_H = 473) sits ~18px ABOVE the
+# first chip row. Do NOT use PAL_Y to click a palette chip — it lands on the
+# canvas and draws instead of selecting a colour. Derive chip coordinates from
+# the render constants as image-adj-full.sh does:
+#   chip N centre = (16 + N*(chipW+1) + chipW/2,
+#                    VIEWPORT_H - STATUS_H - (chipH+4) + 1 + chipH/2)
+# (16 = arrow_left_x(2) + PALETTE_STRIP_ARROW_WIDTH(12) + 2)
+#
+# The older note here listed 474..485 / 486..495 / 498..514. Those were probed
+# while DECORATION_H was wrong by 33 physical px, so every figure was ~16.5
+# viewport px too high.
 PALETTE_H=30
 
 # Palette-name dropdown button — the click target that opens the palette menu.
@@ -225,7 +244,14 @@ if [[ "$LAYERS_DOCK" == "LEFT" ]]; then
 else
     LP_X=$(( VIEWPORT_W - LAYER_PANEL_W ))
 fi
-LP_Y=$MENU_BAR_H
+# LAYER_PANEL_render sets panelY% = 0 — the panel is anchored to the TOP of the
+# window, not below the menu bar (the menu bar spans only the canvas columns).
+# The row list starts LP_HEADER_H (16) px lower, so row N is
+#   LP_Y + 16 + N*20 .. +19  and its centre is LP_Y + 26 + N*20.
+# This was MENU_BAR_H, which pushed every computed row centre 12px down — far
+# enough into the next row that "click layer row 0" selected row 1, and
+# layer-groups' Ctrl+Shift+U found a non-group layer current and did nothing.
+LP_Y=0
 LP_W=$LAYER_PANEL_W
 LP_H=$(( VIEWPORT_H - MENU_BAR_H - STATUS_H - PALETTE_H ))
 
@@ -269,7 +295,11 @@ skip() { log "${YELLOW}  ~ SKIP${RESET} — $*"; SKIP=$(( SKIP + 1 )); }
 # ── prerequisite check ────────────────────────────────────────────────────────
 check_deps() {
     local missing=()
-    for cmd in xdotool scrot; do
+    # xwininfo supplies the client-area origin every click and capture is
+    # measured from (_update_win_pos). Without it the xdotool fallback is used,
+    # which reports the frame on a reparenting WM and silently offsets the
+    # entire suite — so treat it as required, not optional.
+    for cmd in xdotool scrot xwininfo; do
         command -v "$cmd" &>/dev/null || missing+=("$cmd")
     done
     if [[ ${#missing[@]} -gt 0 ]]; then
@@ -496,9 +526,21 @@ WIN_ABS_Y=""
 
 # Refresh cached window position (call after draw_launch and if window moves)
 _update_win_pos() {
-    eval "$(xdotool getwindowgeometry --shell "$DRAW_WID" 2>/dev/null)"
-    WIN_ABS_X=${X:-0}
-    WIN_ABS_Y=${Y:-0}
+    # xwininfo's "Absolute upper-left" is the CLIENT area origin on a
+    # reparenting WM — the authoritative answer, and what every click and
+    # capture offset is measured from. xdotool is only a fallback.
+    local info ax ay
+    info=$(xwininfo -id "$DRAW_WID" 2>/dev/null)
+    ax=$(awk '/Absolute upper-left X/ {print $NF}' <<< "$info")
+    ay=$(awk '/Absolute upper-left Y/ {print $NF}' <<< "$info")
+    if [[ -n "$ax" && -n "$ay" ]]; then
+        WIN_ABS_X=$ax
+        WIN_ABS_Y=$ay
+    else
+        eval "$(xdotool getwindowgeometry --shell "$DRAW_WID" 2>/dev/null)"
+        WIN_ABS_X=${X:-0}
+        WIN_ABS_Y=${Y:-0}
+    fi
 }
 
 # Convert viewport-pixel coords to absolute screen coords.
@@ -704,6 +746,34 @@ assert_no_crash() {
     fi
 }
 
+# Baseline for crash-report detection. DRAW survives a runtime error: FatalError
+# stashes it and RESUME NEXTs, so the process stays up and assert_no_crash still
+# passes. The only trace is a report under <Desktop>/DRAW-log/DRAW-crash-logs/.
+# Without this, every test in the suite is blind to trapped errors.
+CRASH_LOG_DIR="$HOME/Desktop/DRAW-log/DRAW-crash-logs"
+_crash_snapshot() {
+    mkdir -p "$CRASH_LOG_DIR" 2>/dev/null
+    CRASH_N_BEFORE=$(ls -1 "$CRASH_LOG_DIR" 2>/dev/null | wc -l)
+    CRASH_B_BEFORE=$(cat "$CRASH_LOG_DIR"/*.log 2>/dev/null | wc -c)
+}
+
+# Fails if a crash report appeared OR grew since _crash_snapshot. Reports append
+# a short "--- ERROR #n ---" block per additional error in the same session, so
+# byte growth matters as much as a new file.
+assert_no_crash_log() {
+    local label="${1:-no runtime errors trapped}"
+    local n b
+    n=$(ls -1 "$CRASH_LOG_DIR" 2>/dev/null | wc -l)
+    b=$(cat "$CRASH_LOG_DIR"/*.log 2>/dev/null | wc -c)
+    if [[ "$n" -gt "${CRASH_N_BEFORE:-0}" ]]; then
+        fail "$label — new crash report: $(ls -1t "$CRASH_LOG_DIR" 2>/dev/null | head -1)"
+    elif [[ "$b" -gt "${CRASH_B_BEFORE:-0}" ]]; then
+        fail "$label — crash report grew ${CRASH_B_BEFORE:-0} -> $b bytes (error trapped)"
+    else
+        pass "$label"
+    fi
+}
+
 # snap_region X Y W H label
 # Capture a specific viewport-pixel region of the DRAW window.
 # Two-step crop: fullscreen → client area → sub-region.
@@ -844,10 +914,14 @@ run_test_file() {
     local fail_before=$FAIL
 
     # Each test is atomic: fresh DRAW instance
+    _crash_snapshot
     draw_launch 15
     # Source directly in the current shell — DRAW_PID/WID/counters all shared.
     # shellcheck disable=SC1090
     source "$test_file"
+    # Trapped runtime errors leave DRAW running, so this is the only automatic
+    # signal that something raised during the test.
+    assert_no_crash_log "$name — no runtime errors trapped"
     log "${GREEN}  ► $name: done${RESET}"
     draw_quit
 
