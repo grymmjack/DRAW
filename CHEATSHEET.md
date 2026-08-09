@@ -1119,20 +1119,21 @@ CBF fonts are DPaint-style spritesheet fonts (`.bmp`) that preserve their origin
 
 #### The APPLE ][ family
 
-Nine fonts reproducing Apple II text. All carry the full printable ASCII set plus
-the 32 **MouseText** glyphs at codes **128–159** (MouseText `$40`–`$5F`:
-open/closed apple, arrows, the return symbol, folder and scrollbar graphics) —
-pick those from the character grid. MouseText `$46`/`$47` are the **//e Enhanced**
-running-man pair, not the IIGS menu icons.
+Sixteen fonts reproducing Apple II text, named `APPLE ][ <40|80> <COLORWAY>
+[SCAN|CRT]`. All carry the full printable ASCII set plus the 32 **MouseText**
+glyphs at codes **128–159** (MouseText `$40`–`$5F`: open/closed apple, arrows,
+the return symbol, folder and scrollbar graphics) — pick those from the character
+grid. MouseText `$46`/`$47` are the **//e Enhanced** running-man pair, not the
+IIGS menu icons.
 
-Sixteen fonts in **three size tiers**. A real scanline gap needs an output row of
-its own, so it cannot exist at the native 7×8 cell — hence the tiers.
+They come in **three size tiers**. A real scanline gap needs an output row of its
+own, so it cannot exist at the native 7×8 cell — hence the tiers.
 
 | Suffix | Cell | Look |
 |--------|------|------|
-| *(none)* | 7×8 | Native cell, one pixel per dot. `COLOR` / `WHITE` / `AMBER` / `GREEN` |
-| `SCAN` | 7×8 | Striped: alternate glyph rows dimmed to 35%. Reads as CRT at **no size cost** — drops in beside the native fonts. `COLOR` / `WHITE` / `AMBER` / `GREEN` |
-| `CRT` | 14×16 (40 col)<br>7×16 (80 col) | True scanlines — a real dark row between each. Necessarily 2× the native fonts. `COLOR` / `WHITE` / `AMBER` / `GREEN` at both widths |
+| *(none)* | 7×8 | Native cell, one pixel per dot. `APPLE ][ 40 COLOR` / `WHITE` / `AMBER` / `GREEN` |
+| `SCAN` | 7×8 | Striped: alternate glyph rows dimmed to 78%. Reads as CRT at **no size cost** — drops in beside the native fonts |
+| `CRT` | 14×16 (40 col)<br>7×16 (80 col) | True scanlines — a real dark row between each. Necessarily 2× the native fonts. All four colorways at both widths |
 
 Use the plain or `SCAN` fonts when you need to match the size of other 8px art;
 use `CRT` when you want the real thing and can afford the space.

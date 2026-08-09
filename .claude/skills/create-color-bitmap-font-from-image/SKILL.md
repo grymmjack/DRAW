@@ -65,9 +65,18 @@ Gotchas that will bite:
   `cbf.write` refuses to write that.
 
 **Display name** comes from `FONT_LIST_extract_name$`: filename, minus
-extension, with `-` and `_` turned into spaces. So `APPLE-][-40-COLUMNS-COLOR.bmp`
-shows up as `APPLE ][ 40 COLUMNS COLOR`. Prefer hyphens over literal spaces —
-the name comes out identical and the filename stays shell-safe.
+extension, with `-` and `_` turned into spaces. So `APPLE-][-40-COLOR.bmp` shows
+up as `APPLE ][ 40 COLOR`. Prefer hyphens over literal spaces — the name comes
+out identical and the filename stays shell-safe.
+
+**Keep names short, and put the distinguishing token early.** The font dropdown
+cuts long names with a `~`, so a family whose members differ only in a trailing
+suffix collapses into rows that all look the same. `APPLE ][ 40 COLUMNS AMBER`,
+`... AMBER CRT` and `... AMBER SCAN` all rendered as `APPLE ][ 40 COLUMNS AMB~`
+— three entries indistinguishable from each other. Renaming is not free either:
+`.draw` files store the font by display name and resolve by exact match
+(`DRW.BM`), so a rename silently drops the font on already-saved art. Budget the
+name before you ship the first font in a family.
 
 ---
 
@@ -253,6 +262,12 @@ glyph rows** at 7x8 (not physically a scanline, but it reads as one and costs
 nothing in size), and the true-scanline `CRT` tier at 14x16 / 7x16. Offer the
 cheap tier — people reach for a font that matches the size of their other art far
 more often than for the accurate one.
+
+Keep the names short. DRAW truncates font names in the dropdown, so a family
+whose members differ only in a trailing suffix collapses into rows that all read
+the same — `APPLE ][ 40 COLUMNS AMBER`, `... AMBER CRT` and `... AMBER SCAN` all
+rendered as `APPLE ][ 40 COLUMNS AMB~`, which looks like duplicate entries.
+Budget the distinguishing token to fit inside the cut.
 
 The two column modes share identical 7x8 bitmaps; what differs is the dot clock,
 so a 40-column dot is about square (14x16 once rows are doubled) and an

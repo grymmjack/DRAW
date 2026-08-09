@@ -65,7 +65,9 @@ PHOSPHORS = {
     "amber": (255, 176, 0),
     "green": (51, 255, 51),
 }
-SCANLINE_DIM = 0.35             # brightness of the dark half of each scanline pair
+# Brightness of the dark row of each scanline pair. 1.0 = no scanline at all.
+# 0.78 keeps the stripe readable without the heavy banding 0.35 produced.
+SCANLINE_DIM = 0.78
 
 
 def glyph_mask(codepoint, ft):
@@ -159,22 +161,22 @@ def build(out_path, phase=0, phosphor=None, gain=1.0, hscale=1, vscale=1,
 #         (80): 7x16   horizontally too; 80-column dots are half as wide so they
 #                      do not. This tier is 2x the native fonts by necessity.
 FAMILY = {
-    "APPLE-][-40-COLUMNS-COLOR":       dict(hscale=1, vscale=1, scanlines=False),
-    "APPLE-][-40-COLUMNS-WHITE":       dict(hscale=1, vscale=1, scanlines=False, phosphor="white"),
-    "APPLE-][-40-COLUMNS-AMBER":       dict(hscale=1, vscale=1, scanlines=False, phosphor="amber"),
-    "APPLE-][-40-COLUMNS-GREEN":       dict(hscale=1, vscale=1, scanlines=False, phosphor="green"),
-    "APPLE-][-40-COLUMNS-COLOR-SCAN":  dict(hscale=1, vscale=1, scanlines=True),
-    "APPLE-][-40-COLUMNS-WHITE-SCAN":  dict(hscale=1, vscale=1, scanlines=True, phosphor="white"),
-    "APPLE-][-40-COLUMNS-AMBER-SCAN":  dict(hscale=1, vscale=1, scanlines=True, phosphor="amber"),
-    "APPLE-][-40-COLUMNS-GREEN-SCAN":  dict(hscale=1, vscale=1, scanlines=True, phosphor="green"),
-    "APPLE-][-40-COLUMNS-COLOR-CRT":   dict(hscale=2, vscale=2, scanlines=True),
-    "APPLE-][-40-COLUMNS-WHITE-CRT":   dict(hscale=2, vscale=2, scanlines=True, phosphor="white"),
-    "APPLE-][-40-COLUMNS-AMBER-CRT":   dict(hscale=2, vscale=2, scanlines=True, phosphor="amber"),
-    "APPLE-][-40-COLUMNS-GREEN-CRT":   dict(hscale=2, vscale=2, scanlines=True, phosphor="green"),
-    "APPLE-][-80-COLUMNS-COLOR-CRT":   dict(hscale=1, vscale=2, scanlines=True),
-    "APPLE-][-80-COLUMNS-WHITE-CRT":   dict(hscale=1, vscale=2, scanlines=True, phosphor="white"),
-    "APPLE-][-80-COLUMNS-AMBER-CRT":   dict(hscale=1, vscale=2, scanlines=True, phosphor="amber"),
-    "APPLE-][-80-COLUMNS-GREEN-CRT":   dict(hscale=1, vscale=2, scanlines=True, phosphor="green"),
+    "APPLE-][-40-COLOR":       dict(hscale=1, vscale=1, scanlines=False),
+    "APPLE-][-40-WHITE":       dict(hscale=1, vscale=1, scanlines=False, phosphor="white"),
+    "APPLE-][-40-AMBER":       dict(hscale=1, vscale=1, scanlines=False, phosphor="amber"),
+    "APPLE-][-40-GREEN":       dict(hscale=1, vscale=1, scanlines=False, phosphor="green"),
+    "APPLE-][-40-COLOR-SCAN":  dict(hscale=1, vscale=1, scanlines=True),
+    "APPLE-][-40-WHITE-SCAN":  dict(hscale=1, vscale=1, scanlines=True, phosphor="white"),
+    "APPLE-][-40-AMBER-SCAN":  dict(hscale=1, vscale=1, scanlines=True, phosphor="amber"),
+    "APPLE-][-40-GREEN-SCAN":  dict(hscale=1, vscale=1, scanlines=True, phosphor="green"),
+    "APPLE-][-40-COLOR-CRT":   dict(hscale=2, vscale=2, scanlines=True),
+    "APPLE-][-40-WHITE-CRT":   dict(hscale=2, vscale=2, scanlines=True, phosphor="white"),
+    "APPLE-][-40-AMBER-CRT":   dict(hscale=2, vscale=2, scanlines=True, phosphor="amber"),
+    "APPLE-][-40-GREEN-CRT":   dict(hscale=2, vscale=2, scanlines=True, phosphor="green"),
+    "APPLE-][-80-COLOR-CRT":   dict(hscale=1, vscale=2, scanlines=True),
+    "APPLE-][-80-WHITE-CRT":   dict(hscale=1, vscale=2, scanlines=True, phosphor="white"),
+    "APPLE-][-80-AMBER-CRT":   dict(hscale=1, vscale=2, scanlines=True, phosphor="amber"),
+    "APPLE-][-80-GREEN-CRT":   dict(hscale=1, vscale=2, scanlines=True, phosphor="green"),
 }
 
 
@@ -191,7 +193,7 @@ def build_family(out_dir, phase=0):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("--out", default=os.path.join(FONT_DIR, "APPLE-][-40-COLUMNS-COLOR.bmp"))
+    ap.add_argument("--out", default=os.path.join(FONT_DIR, "APPLE-][-40-COLOR.bmp"))
     ap.add_argument("--all", action="store_true", help="build the whole family into FONT_DIR")
     ap.add_argument("--out-dir", default=FONT_DIR)
     ap.add_argument("--phase", type=int, default=0, choices=(0, 1),
