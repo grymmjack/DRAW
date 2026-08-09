@@ -19,6 +19,16 @@ TYPE SCREEN_OBJ
     CURSOR                        AS LONG
     GUI                           AS LONG
     displayScale                  AS INTEGER ' Current display scale multiplier (1-8)
+    ' --- GUI-logical space -------------------------------------------------
+    ' Chrome renders 1:1 into SCRN.GUI&, which is then blitted onto SCRN.CANVAS&
+    ' magnified by guiScale. That lets the UI be readable at a LOW display scale,
+    ' where the viewport holds the most canvas pixels — which is what large art
+    ' and TheDraw fonts need. Modules that draw into SCRN.GUI& must lay out
+    ' against guiW/guiH, NOT w/h; canvas-space overlays keep using w/h.
+    ' guiScale 1 makes guiW/guiH identical to w/h, i.e. exactly today's layout.
+    guiScale                      AS INTEGER ' Chrome magnification (1-4)
+    guiW                          AS LONG    ' Chrome surface width  = w \ guiScale
+    guiH                          AS LONG    ' Chrome surface height = h \ guiScale
     zoom                          AS SINGLE  ' Current zoom level
     zoomMin                       AS SINGLE  ' Minimum zoom
     zoomMax                       AS SINGLE  ' Maximum zoom

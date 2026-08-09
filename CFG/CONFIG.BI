@@ -185,6 +185,8 @@ TYPE DRAW_CONFIG
     HIDPI_AWARE                     AS INTEGER        ' [Windows] TRUE = mark process DPI-aware so the display reports true pixels (crisp). No effect on Linux/macOS.
     DISPLAY_SCALE                   AS INTEGER        ' 0 = auto-detect, 1-8 = explicit scale (canvas magnification)
     DISPLAY_SCALE_MAX               AS INTEGER        ' Maximum allowed scale (default 8)
+    GUI_SCALE                       AS INTEGER        ' Chrome magnification, INDEPENDENT of canvas scale. 0/1 = same as today, 2-4 = bigger UI at an unchanged canvas scale. See PLANS/GUI-SCALE-PLAN.md
+    GUI_SCALE_MAX                   AS INTEGER        ' Maximum allowed GUI scale (default 4)
     DISPLAY_SCALE_CHANGED           AS INTEGER        ' Runtime flag: scale changed during session
     TOOLBAR_SCALE                   AS INTEGER        ' RESOLVED toolbar/chrome scale (runtime; written by SCALE_resolve). Read by chrome widgets + dialog auto-derive.
     TOOLBAR_SCALE_OVR               AS INTEGER        ' OVERRIDE: persisted "TOOLBAR_SCALE" key (0 = use SCALE_RATIO_*, 1-4 = force chrome scale)
