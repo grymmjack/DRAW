@@ -13,6 +13,60 @@ $INCLUDEONCE
 ' Mark GUI as needing redraw
 ' Call this when: tool switches, palette changes, window resizes, toolbar/status toggles
 '
+''
+' Copy a rectangle of chrome from SCRN.GUI& onto SCRN.CANVAS&, honouring the
+' GUI scale. The rectangle is given in CANVAS coordinates.
+'
+' SCRN.GUI& is guiScale times smaller than the canvas, so a dirty-rect copy can
+' no longer use the same rect for source and destination. Rather than divide at
+' each call site — where one missed division shows up as a torn strip, and only
+' on scene-cached frames — every partial chrome copy goes through here.
+'
+' The destination is SNAPPED OUTWARD to guiScale boundaries so the source rect
+' is an exact integer sub-rectangle. Without that, truncating division leaves a
+' sub-pixel mismatch that resamples the chrome edge into a visible seam along
+' the dirty-rect border. Over-copying a few pixels costs nothing.
+'
+SUB SCREEN_blit_gui_rect (x1 AS LONG, y1 AS LONG, x2 AS LONG, y2 AS LONG)
+    DIM g AS INTEGER
+    g% = SCRN.guiScale%
+    IF g% < 1 THEN g% = 1
+
+    DIM dx1 AS LONG, dy1 AS LONG, dx2 AS LONG, dy2 AS LONG
+    dx1& = x1&: dy1& = y1&: dx2& = x2&: dy2& = y2&
+    IF dx1& < 0 THEN dx1& = 0
+    IF dy1& < 0 THEN dy1& = 0
+    IF dx2& > SCRN.w& - 1 THEN dx2& = SCRN.w& - 1
+    IF dy2& > SCRN.h& - 1 THEN dy2& = SCRN.h& - 1
+    IF dx2& < dx1& THEN EXIT SUB
+    IF dy2& < dy1& THEN EXIT SUB
+
+    IF g% = 1 THEN
+        _PUTIMAGE (dx1&, dy1&)-(dx2&, dy2&), SCRN.GUI&, SCRN.CANVAS&, (dx1&, dy1&)-(dx2&, dy2&)
+        EXIT SUB
+    END IF
+
+    DIM sx1 AS LONG, sy1 AS LONG, sx2 AS LONG, sy2 AS LONG
+    sx1& = dx1& \ g%
+    sy1& = dy1& \ g%
+    sx2& = dx2& \ g%
+    sy2& = dy2& \ g%
+    IF sx2& > SCRN.guiW& - 1 THEN sx2& = SCRN.guiW& - 1
+    IF sy2& > SCRN.guiH& - 1 THEN sy2& = SCRN.guiH& - 1
+    IF sx2& < sx1& THEN sx2& = sx1&
+    IF sy2& < sy1& THEN sy2& = sy1&
+
+    dx1& = sx1& * g%
+    dy1& = sy1& * g%
+    dx2& = (sx2& + 1) * g% - 1
+    dy2& = (sy2& + 1) * g% - 1
+    IF dx2& > SCRN.w& - 1 THEN dx2& = SCRN.w& - 1
+    IF dy2& > SCRN.h& - 1 THEN dy2& = SCRN.h& - 1
+
+    _PUTIMAGE (dx1&, dy1&)-(dx2&, dy2&), SCRN.GUI&, SCRN.CANVAS&, (sx1&, sy1&)-(sx2&, sy2&)
+END SUB
+
+
 SUB GUI_mark_dirty ()
     GUI_NEEDS_REDRAW% = TRUE
 END SUB
@@ -409,7 +463,7 @@ SUB SCREEN_set_display_scale (newScale AS INTEGER)
     SCRN.displayScale% = clampedScale%
     SCRN.CANVAS&       = _NEWIMAGE(SCRN.w&, SCRN.h&, 32)
     SCALE_resolve_gui ' keep GUI-logical size in step with the new viewport
-    SCRN.GUI&          = _NEWIMAGE(SCRN.w&, SCRN.h&, 32)
+    SCRN.GUI&          = _NEWIMAGE(SCRN.guiW&, SCRN.guiH&, 32)
     SAFE_FREEIMAGE oldCanvas&
     SAFE_FREEIMAGE oldGUI&
 
@@ -488,7 +542,7 @@ SUB SCREEN_snap_window_to_scale (newW AS LONG, newH AS LONG)
     ' Recreate viewport-sized image buffers
     SCRN.CANVAS& = _NEWIMAGE(SCRN.w&, SCRN.h&, 32)
     SCALE_resolve_gui ' keep GUI-logical size in step with the new viewport
-    SCRN.GUI&    = _NEWIMAGE(SCRN.w&, SCRN.h&, 32)
+    SCRN.GUI&    = _NEWIMAGE(SCRN.guiW&, SCRN.guiH&, 32)
 
     ' Free old buffers (after creating new ones so _DEST never points to freed handle)
     SAFE_FREEIMAGE oldCanvas&
@@ -745,7 +799,7 @@ SUB SCREEN_init ()
     SCRN.CANVAS&   = _NEWIMAGE(SCRN.w&, SCRN.h&, 32)
     SCRN.PAINTING& = _NEWIMAGE(SCRN.canvasW&, SCRN.canvasH&, 32)
     SCALE_resolve_gui ' keep GUI-logical size in step with the new viewport
-    SCRN.GUI&      = _NEWIMAGE(SCRN.w&, SCRN.h&, 32)
+    SCRN.GUI&      = _NEWIMAGE(SCRN.guiW&, SCRN.guiH&, 32)
     ' SCRN.CURSOR& removed — cursors now draw directly onto SCRN.CANVAS&
     
     _DEST SCRN.PAINTING&
@@ -2796,7 +2850,7 @@ SUB SCREEN_render ()
             ' baked into the viewport here.
 
             _DEST SCRN.CANVAS&
-            _PUTIMAGE (so_px1%, so_py1%)-(so_px2%, so_py2%), SCRN.GUI&, SCRN.CANVAS&, (so_px1%, so_py1%)-(so_px2%, so_py2%)
+            SCREEN_blit_gui_rect so_px1%, so_py1%, so_px2%, so_py2%
 
             ' Status strip: restore from SCENE_CACHE, overlay updated GUI,
             ' write back to SCENE_CACHE so next dirty-rect frame has correct cache.
@@ -2805,7 +2859,7 @@ SUB SCREEN_render ()
                 _DONTBLEND SCRN.CANVAS&
                 _PUTIMAGE (0, so_statusTop%)-(SCRN.w& - 1, SCRN.h& - 1), SCENE_CACHE&, SCRN.CANVAS&, (0, so_statusTop%)-(SCRN.w& - 1, SCRN.h& - 1)
                 _BLEND SCRN.CANVAS&
-                _PUTIMAGE (0, so_statusTop%)-(SCRN.w& - 1, SCRN.h& - 1), SCRN.GUI&, SCRN.CANVAS&, (0, so_statusTop%)-(SCRN.w& - 1, SCRN.h& - 1)
+                SCREEN_blit_gui_rect 0, so_statusTop%, SCRN.w& - 1, SCRN.h& - 1
                 _DEST SCENE_CACHE&
                 _DONTBLEND SCENE_CACHE&
                 _PUTIMAGE (0, so_statusTop%)-(SCRN.w& - 1, SCRN.h& - 1), SCRN.CANVAS&, SCENE_CACHE&, (0, so_statusTop%)-(SCRN.w& - 1, SCRN.h& - 1)
@@ -3007,7 +3061,7 @@ SUB SCREEN_render ()
 
             ' --- Clip pointer and selection overlays back behind fixed UI elements ---
             _DEST SCRN.CANVAS&
-            _PUTIMAGE (dr_x1%, dr_y1%)-(dr_x2%, dr_y2%), SCRN.GUI&, SCRN.CANVAS&, (dr_x1%, dr_y1%)-(dr_x2%, dr_y2%)
+            SCREEN_blit_gui_rect dr_x1%, dr_y1%, dr_x2%, dr_y2%
 
             ' Preview window is a floating screen-0 overlay — drawn in the
             ' overlay section after the dirty-rect present (see below).
@@ -3478,12 +3532,12 @@ SUB SCREEN_render ()
         IF so_fb_py1% < 0 THEN so_fb_py1% = 0
         IF so_fb_px2% >= SCRN.w& THEN so_fb_px2% = SCRN.w& - 1
         IF so_fb_py2% >= SCRN.h& THEN so_fb_py2% = SCRN.h& - 1
-        _PUTIMAGE (so_fb_px1%, so_fb_py1%)-(so_fb_px2%, so_fb_py2%), SCRN.GUI&, SCRN.CANVAS&, (so_fb_px1%, so_fb_py1%)-(so_fb_px2%, so_fb_py2%)
+        SCREEN_blit_gui_rect so_fb_px1%, so_fb_py1%, so_fb_px2%, so_fb_py2%
         IF SCRN.showStatus% THEN
             DIM so_fb_statusTop AS INTEGER
             so_fb_statusTop% = SCRN.h& - THEME.STATUS_height%
             IF so_fb_statusTop% < 0 THEN so_fb_statusTop% = 0
-            _PUTIMAGE (0, so_fb_statusTop%)-(SCRN.w& - 1, SCRN.h& - 1), SCRN.GUI&, SCRN.CANVAS&, (0, so_fb_statusTop%)-(SCRN.w& - 1, SCRN.h& - 1)
+            SCREEN_blit_gui_rect 0, so_fb_statusTop%, SCRN.w& - 1, SCRN.h& - 1
         END IF
     ELSE
         _SOURCE SCRN.GUI& : _PUTIMAGE
