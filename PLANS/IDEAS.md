@@ -60,6 +60,12 @@ _WINDOWHANDLE works on all platforms.
     - Including the font type
 - [ ] Using kaleidotron style import for ANSI render to image -> Import (same funciton as import image)
 
+## TDF Font Support
+- [ ] Using what we learned in kaleidotron
+- [ ] Actual Rendering of the TDF as pixels, edit, type, like a regular font.
+- [ ] Include the 1000+ TDF fonts.
+- [ ] For TDF Fonts allow rendered with antialias and allow downsize with antialias so it can be resized in a way that doesn't lose information.
+
 ## Animation Support
 - [ ] TBD (this needs deep thought)
 
