@@ -65,9 +65,18 @@ Gotchas that will bite:
   `cbf.write` refuses to write that.
 
 **Display name** comes from `FONT_LIST_extract_name$`: filename, minus
-extension, with `-` and `_` turned into spaces. So `APPLE-][-40-COLUMNS-COLOR.bmp`
-shows up as `APPLE ][ 40 COLUMNS COLOR`. Prefer hyphens over literal spaces —
-the name comes out identical and the filename stays shell-safe.
+extension, with `-` and `_` turned into spaces. So `APPLE-][-40-COLOR.bmp` shows
+up as `APPLE ][ 40 COLOR`. Prefer hyphens over literal spaces — the name comes
+out identical and the filename stays shell-safe.
+
+**Keep names short, and put the distinguishing token early.** The font dropdown
+cuts long names with a `~`, so a family whose members differ only in a trailing
+suffix collapses into rows that all look the same. `APPLE ][ 40 COLUMNS AMBER`,
+`... AMBER CRT` and `... AMBER SCAN` all rendered as `APPLE ][ 40 COLUMNS AMB~`
+— three entries indistinguishable from each other. Renaming is not free either:
+`.draw` files store the font by display name and resolve by exact match
+(`DRW.BM`), so a rename silently drops the font on already-saved art. Budget the
+name before you ship the first font in a family.
 
 ---
 
@@ -186,9 +195,16 @@ non-integer upscale with NTSC composite blur).
 
 **Why the shapes did not come from the screenshot.** At that scale a lit dot
 bleeds about one dot to its right, so thresholding back to a 7x8 mask corrupted
-91 of 94 glyphs — worst on diagonals (`Q` `M` `W` `V` `X` `N`). `Apple2.ttf` at
-8px was verified to carry the identical character generator: every glyph fits
-cols 0–6 / rows 1–8, which *is* the Apple II 7x8 text cell.
+91 of 94 glyphs — worst on diagonals (`Q` `M` `W` `V` `X` `N`).
+
+**Pick the ROM font that actually has the right cell.** The first attempt used
+`Apple2.ttf`, which looks like the same character generator but is an 8x8-em
+font: `p` and `q` need *nine* rows there, so both descenders were silently
+clipped. `PrintChar21.ttf` is a true 7x8 cell — no glyph overflows it, and it
+carries MouseText too. The two disagree on exactly six glyphs (`%` `(` `,` `p`
+`q` `t`); rendering each through the fitted NTSC model and comparing against the
+screenshot picked PrintChar21 **6/6**. Always check whether *any* glyph's ink
+falls outside the cell before trusting a font as your shape source.
 
 **Where the colour came from.** Apple II text is 1-bit; the colour is an NTSC
 artifact. Dots clock out at 7.16 MHz against a 3.58 MHz subcarrier — exactly one
@@ -228,12 +244,76 @@ extraction against all 3211 candidate codepoints put 23 of 32 glyphs exactly on
 worth remembering: **a noisy extraction is good enough to locate the right
 glyphs in a clean font, even when it is not good enough to be the font.**
 
+MouseText `$46`/`$47` differ between ROM revisions — the //e Enhanced has the
+running-man pair, the IIGS has menu icons. Those were the two worst matches
+against the screenshot until the reactivemicro wiki explained why; PrintChar21
+keeps the //e glyphs at `U+E011`/`U+E012`, where `$47` matches the screenshot
+*exactly* (0 differing dots, against 24 for `U+0087`). `--iigs` selects the other
+set.
+
+**CRT variants, and why there are three size tiers.** A real scanline *gap* needs
+an output row of its own, so a true-scanline sheet is necessarily twice as tall
+as the native cell. That is a big deal in practice: dropped next to the 7x8
+original, a 14x16 font is 4x the area and the size jump is jarring enough that
+it reads as a different font rather than a variant.
+
+So the family ships three tiers: native 7x8, a `SCAN` tier that dims **alternate
+glyph rows** at 7x8 (not physically a scanline, but it reads as one and costs
+nothing in size), and the true-scanline `CRT` tier at 14x16 / 7x16. Offer the
+cheap tier — people reach for a font that matches the size of their other art far
+more often than for the accurate one.
+
+Keep the names short. DRAW truncates font names in the dropdown, so a family
+whose members differ only in a trailing suffix collapses into rows that all read
+the same — `APPLE ][ 40 COLUMNS AMBER`, `... AMBER CRT` and `... AMBER SCAN` all
+rendered as `APPLE ][ 40 COLUMNS AMB~`, which looks like duplicate entries.
+Budget the distinguishing token to fit inside the cut.
+
+The two column modes share identical 7x8 bitmaps AND identical row heights —
+24 rows of 8 scanlines either way. 80 columns does not make characters taller,
+it makes them NARROWER; only the dot clock differs. With square output pixels
+the dot aspects are (4/3)/(280/192) = 0.914 and (4/3)/(560/192) = 0.457, so at a
+given height 7 dots want ~7px at 40 columns and ~3px at 80:
+
+    40 col   plain 7x8    CRT 14x16
+    80 col   plain 3x8    CRT  7x16
+
+Getting this backwards is easy — the first attempt made 80-column TALLER (7x16)
+to preserve aspect, which is the one thing the real hardware never does. Check
+the row count before the pixel aspect.
+
+Downsampling wants "any covered dot is lit", and the ratio matters more than the
+filter: at 3px, 7/3 lands the sample centres on dots 1, 3, 5 — exactly where
+Apple II ink sits — and the glyphs stay sharp. At 4px, 7/4 overlaps nearly every
+dot and they collapse into solid blocks. A majority filter destroys them at any
+width. Dimming applies **only to lit pixels** — an
+opaque CRT ground would make every glyph carry a black box and stop it
+compositing.
+
+One implementation trap: express the dimming rule against the **output** row, as
+`(r * vscale + sy) % 2 == 1`. Writing it against the sub-row (`sy >= vscale/2`)
+looks equivalent and works at vscale=2, but silently becomes a no-op at
+vscale=1 — the 1x variant then builds fine and looks identical to the plain one.
+
+Monochrome variants deliberately carry no artifact colour: that is what a mono
+monitor showed, and it is exactly why 80-column text was unreadable on a colour
+set.
+
 ```bash
-python3 scripts/build_apple2_color.py                     # phase 0, the shipped font
-python3 scripts/build_apple2_color.py --phase 1 --out V.bmp
-python3 scripts/build_apple2_color.py --no-mousetext      # 94-glyph ASCII only
+python3 scripts/build_apple2_color.py                     # the 40-col colour font
+python3 scripts/build_apple2_color.py --all               # the whole nine-font family
+python3 scripts/build_apple2_color.py --columns 80 --phosphor amber --scanlines --out X.bmp
+python3 scripts/build_apple2_color.py --phase 1 --out V.bmp   # violet-dominant twin
 python3 scripts/build_apple2_color.py --verify /tmp/v     # re-render the reference rows
 ```
+
+**Line spacing.** A CBF font's leading *is* its glyph height — there is no
+separate setting — so spacing can only be changed by baking blank rows into the
+sheet. Before doing that, check what the hardware actually did: the Apple II text
+screen is 192 scanlines over 24 rows, capitals occupy 7 of the 8 cell rows, and
+the reference screenshot's own row pitch measures 16 scanlines for two rows. 8px
+was already correct; the airier look people remember is the CRT's scanline
+structure, not extra leading.
 
 `--verify` re-renders the screenshot's own text at the *original* per-character
 phases and at the fitted capture brightness, so it can be compared against the

@@ -76,6 +76,57 @@ SUB POINTER_render ()
         EXIT SUB
     END IF
     POINTER_build
+    POINTER.DENIED_OVERLAY% = FALSE
+
+    ' --- "Cannot draw here": drawing tool over a group header layer ---
+    '
+    ' Groups hold no pixels of their own, so these tools would do nothing. Say
+    ' so with the cursor rather than letting the stroke silently vanish.
+    '
+    ' Gated on CURSOR_ID <> CURSOR_NULL, which POINTER_build sets for every UI
+    ' area (toolbar, menus, panels). That is what lets the normal cursors pass
+    ' through where they are still legal — only the canvas is overridden.
+    '
+    ' Tools NOT listed stay untouched on purpose: move, picker, zoom, pan and
+    ' marquee all remain legal on a group.
+    '
+    ' POINTER_system_cursor_string$ has no case for CURSOR_DENIED, so sysCur$
+    ' stays "" and the PNG is drawn by POINTER_draw. If the asset is missing,
+    ' CURSOR_load leaves img >= -1 and POINTER_draw falls back — no crash.
+    IF POINTER.CURSOR_ID% <> CURSOR_NULL THEN
+        IF CURRENT_LAYER% >= 1 AND CURRENT_LAYER% <= MAX_LAYERS THEN
+            IF LAYERS(CURRENT_LAYER%).layerType% = LAYER_TYPE_GROUP THEN
+                SELECT CASE CURRENT_TOOL%
+                    CASE TOOL_BRUSH, TOOL_DOT, TOOL_SPRAY, TOOL_LINE, TOOL_RECT, TOOL_RECT_FILLED, TOOL_ELLIPSE, TOOL_ELLIPSE_FILLED, TOOL_ERASER, TOOL_FILL, TOOL_POLYGON, TOOL_POLYGON_FILLED, TOOL_SS_POLYGON, TOOL_SS_PIE_DONUT, TOOL_SS_ROUNDED_RECT, TOOL_SS_TAB, TOOL_SS_PILL, TOOL_SS_PACMAN, TOOL_SS_3D_CUBE, TOOL_SS_BEVEL_RECT, TOOL_SS_ARROW
+                        ' Auto-add turns the attempt into a legal draw, so the
+                        ' cursor must not claim it is forbidden.
+                        IF NOT CFG.GROUP_DRAW_AUTO_LAYER% THEN
+                            ' Two presentations, picked by whether this tool has
+                            ' cursor art worth keeping:
+                            '
+                            '   composite  the tool's own PNG plus the SMALL
+                            '              badge, so you still see what you are
+                            '              holding (fill bucket, dropper, ...)
+                            '   replace    the LARGE X on its own, for tools
+                            '              drawn procedurally (-1) or mapped to
+                            '              an OS cursor. Those have no art to
+                            '              preserve, and an OS cursor is drawn
+                            '              by the compositor where nothing can
+                            '              be stamped on top of it.
+                            DIM pdSysCur AS STRING
+                            pdSysCur$ = POINTER_system_cursor_string$(POINTER.CURSOR_ID%, POINTER.CURSOR_FLIP%)
+                            IF POINTER.CURSOR_ID% = -1 OR pdSysCur$ <> "" THEN
+                                POINTER.CURSOR_ID%      = CURSOR_DENIED
+                                POINTER.DENIED_OVERLAY% = FALSE
+                            ELSE
+                                POINTER.DENIED_OVERLAY% = TRUE
+                            END IF
+                        END IF
+                END SELECT
+            END IF
+        END IF
+    END IF
+
     ' Decide: OS system cursor or hidden (custom drawn) cursor.
     ' CURSOR_NULL = UI areas — always system (arrow at display rate).
     ' Other cursors with system equivalents (when SYSTEM_CURSORS enabled) also use OS.
@@ -1209,6 +1260,29 @@ END SUB
 ''
 ' Draws the pointer
 ' 
+''
+' Stamp the small "denied" badge over whatever tool cursor was just drawn.
+'
+' Only fires when POINTER_render decided on the COMPOSITE presentation — i.e.
+' the tool has its own art worth keeping. Position comes from the host cursor's
+' denied_dx/denied_dy in the theme, measured from the mouse point rather than
+' the image corner so it lands consistently whatever that cursor's hotspot is.
+'
+' @param mx INTEGER Mouse X (raw screen)
+' @param my INTEGER Mouse Y (raw screen)
+'
+SUB POINTER_draw_denied_badge (mx AS INTEGER, my AS INTEGER)
+    IF NOT POINTER.DENIED_OVERLAY% THEN EXIT SUB
+    IF CURSORS(CURSOR_DENIED_SMALL).img& >= -1 THEN EXIT SUB
+
+    DIM dbHost AS INTEGER
+    dbHost% = POINTER.CURSOR_ID%
+    IF dbHost% < 0 OR dbHost% > CURSOR_COUNT THEN dbHost% = CURSOR_NULL
+
+    _PUTIMAGE (mx% + CURSORS(dbHost%).denied_dx%, my% + CURSORS(dbHost%).denied_dy%), CURSORS(CURSOR_DENIED_SMALL).img&, SCRN.CANVAS&
+END SUB
+
+
 SUB POINTER_draw ()
     DIM oldDest     AS LONG
     DIM is_painting AS INTEGER
@@ -1248,11 +1322,26 @@ SUB POINTER_draw ()
         EXIT SUB
     END IF
 
+    ' --- "Denied", replace presentation ---
+    ' POINTER_render chose the large X for a tool with no distinctive art. It
+    ' has to be handled HERE, before the per-tool dispatch below: that dispatch
+    ' switches on CURRENT_TOOL%, not on CURSOR_ID%, so a brush would still draw
+    ' its crosshair and arrow and the X would never appear. Draw the badge and
+    ' return so it stands alone.
+    IF POINTER.CURSOR_ID% = CURSOR_DENIED THEN
+        IF CURSORS(CURSOR_DENIED).img& < -1 THEN
+            _PUTIMAGE (mx% - CURSORS(CURSOR_DENIED).hotspot_pos_x%, my% - CURSORS(CURSOR_DENIED).hotspot_pos_y%), CURSORS(CURSOR_DENIED).img&, SCRN.CANVAS&
+        END IF
+        _DEST oldDest&
+        EXIT SUB
+    END IF
+
     IF CUSTOM_BRUSH_is_active% AND IMG_IMPORT.STATE <= IMPORT_STATE_IDLE THEN
         ' Only show custom brush cursor for drawing and unfilled shape tools
         SELECT CASE CURRENT_TOOL%
             CASE TOOL_DOT, TOOL_BRUSH, TOOL_SPRAY, TOOL_LINE, TOOL_POLYGON, TOOL_RECT, TOOL_ELLIPSE, TOOL_RECT_FILLED, TOOL_ELLIPSE_FILLED, TOOL_POLYGON_FILLED
                 POINTER_draw_custom_brush mx%, my%
+                POINTER_draw_denied_badge mx%, my%
                 _DEST oldDest&
                 EXIT SUB
         END SELECT
@@ -1288,6 +1377,7 @@ SUB POINTER_draw ()
 
     ' --- Arrow overlay for brush/spray/generic tools ---
     POINTER_draw_arrow_overlay mx%, my%, is_painting%
+    POINTER_draw_denied_badge mx%, my%
 
     _DEST oldDest&
 END SUB
@@ -1519,6 +1609,20 @@ SUB POINTER_render_cursor_overlay ()
 
     IF use_ui_cursor% THEN
         ' System cursor (_MOUSESHOW) is already showing — skip custom arrow drawing
+        _DEST oldDest&
+        EXIT SUB
+    END IF
+
+    ' --- "Denied", replace presentation ---
+    ' POINTER_render chose the large X for a tool with no distinctive art. It
+    ' has to be handled HERE, before the per-tool dispatch below: that dispatch
+    ' switches on CURRENT_TOOL%, not on CURSOR_ID%, so a brush would still draw
+    ' its crosshair and arrow and the X would never appear. Draw the badge and
+    ' return so it stands alone.
+    IF POINTER.CURSOR_ID% = CURSOR_DENIED THEN
+        IF CURSORS(CURSOR_DENIED).img& < -1 THEN
+            _PUTIMAGE (mx% - CURSORS(CURSOR_DENIED).hotspot_pos_x%, my% - CURSORS(CURSOR_DENIED).hotspot_pos_y%), CURSORS(CURSOR_DENIED).img&, SCRN.CANVAS&
+        END IF
         _DEST oldDest&
         EXIT SUB
     END IF

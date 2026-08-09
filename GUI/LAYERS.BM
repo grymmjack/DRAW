@@ -2363,6 +2363,32 @@ SUB LAYER_PANEL_render (canvasHeight AS INTEGER)
                             _PUTIMAGE (rowX% + 10, drawY% + (LAYER_ROW_HEIGHT - gviH%) \ 2)-(rowX% + 10 + gviW% - 1, drawY% + (LAYER_ROW_HEIGHT - gviH%) \ 2 + gviH% - 1), gVisIcon&, SCRN.GUI&
                         END IF
 
+                        ' "Not paintable" badge — a pencil with a slash through it.
+                        '
+                        ' A group is a container: it has no pixels of its own, so
+                        ' every paint command checks layerType% and silently does
+                        ' nothing on it. That silence is the problem — selecting a
+                        ' group and brushing looks identical to a broken brush. The
+                        ' badge states the rule where the selection is made.
+                        '
+                        ' Placed on the SECOND text line, right-aligned just left
+                        ' of the opacity bar. Everything before the name is taken
+                        ' (triangle at rowX, eye at rowX+10) and both are centred
+                        ' over the full 20px row, so anything tucked under them
+                        ' collides — the eye spans y+7..y+13. Line 2 on the right
+                        ' is empty: the blend abbreviation sits on line 1 and the
+                        ' "(SUB)" text on line 2 stays left, near the name.
+                        ' 8px tall keeps it inside the row (y+11..y+18).
+                        IF LAYER_PANEL.iconNoPaint& < -1 AND panelW% >= 80 THEN
+                            DIM npW AS INTEGER, npH AS INTEGER
+                            DIM npX AS INTEGER, npY AS INTEGER
+                            npW% = _WIDTH(LAYER_PANEL.iconNoPaint&)
+                            npH% = _HEIGHT(LAYER_PANEL.iconNoPaint&)
+                            npX% = panelX% + panelW% - 19 - npW%
+                            npY% = drawY% + 11
+                            _PUTIMAGE (npX%, npY%)-(npX% + npW% - 1, npY% + npH% - 1), LAYER_PANEL.iconNoPaint&, SCRN.GUI&
+                        END IF
+
                         ' Group blend mode abbreviation — right-aligned at y+4
                         ' (matches normal-layer layout). Pass-through is the default
                         ' for groups, so only show when it's been changed *away* from
@@ -4351,6 +4377,12 @@ SUB LAYER_PANEL_load_icons ()
     LAYER_PANEL.iconLockOn&  = _LOADIMAGE(themeDir$ + "IMAGES/LAYERS/layer-icon-lock-on.png", 32)
     LAYER_PANEL.iconLockOff& = _LOADIMAGE(themeDir$ + "IMAGES/LAYERS/layer-icon-lock-off.png", 32)
 
+    ' Group header badge: a pencil with a slash, meaning "you cannot paint here".
+    ' Groups are containers with no pixels of their own, so brush/fill/etc. are a
+    ' silent no-op on them — this makes that visible instead of leaving the user
+    ' wondering why nothing is drawing.
+    LAYER_PANEL.iconNoPaint& = _LOADIMAGE(themeDir$ + "IMAGES/LAYERS/layer-icon-no-paint.png", 32)
+
     ' Load bottom button icons
     LAYER_PANEL.iconBtnUp&     = _LOADIMAGE(themeDir$ + "IMAGES/LAYERS/layer-btn-up.png", 32)
     LAYER_PANEL.iconBtnDown&   = _LOADIMAGE(themeDir$ + "IMAGES/LAYERS/layer-btn-down.png", 32)
@@ -4369,6 +4401,7 @@ SUB LAYER_PANEL_cleanup_icons ()
     IF LAYER_PANEL.iconVisOff&   < -1 THEN SAFE_FREEIMAGE LAYER_PANEL.iconVisOff&
     IF LAYER_PANEL.iconLockOn&   < -1 THEN SAFE_FREEIMAGE LAYER_PANEL.iconLockOn&
     IF LAYER_PANEL.iconLockOff&  < -1 THEN SAFE_FREEIMAGE LAYER_PANEL.iconLockOff&
+    IF LAYER_PANEL.iconNoPaint&  < -1 THEN SAFE_FREEIMAGE LAYER_PANEL.iconNoPaint&
     IF LAYER_PANEL.iconBtnUp&     < -1 THEN SAFE_FREEIMAGE LAYER_PANEL.iconBtnUp&
     IF LAYER_PANEL.iconBtnDown&   < -1 THEN SAFE_FREEIMAGE LAYER_PANEL.iconBtnDown&
     IF LAYER_PANEL.iconBtnMerge&  < -1 THEN SAFE_FREEIMAGE LAYER_PANEL.iconBtnMerge&
@@ -4379,6 +4412,7 @@ SUB LAYER_PANEL_cleanup_icons ()
     LAYER_PANEL.iconVisOff&    = 0
     LAYER_PANEL.iconLockOn&    = 0
     LAYER_PANEL.iconLockOff&   = 0
+    LAYER_PANEL.iconNoPaint&   = 0
     LAYER_PANEL.iconBtnUp&     = 0
     LAYER_PANEL.iconBtnDown&   = 0
     LAYER_PANEL.iconBtnMerge&  = 0
@@ -5582,6 +5616,48 @@ END SUB
 ' @param layerIdx% Layer to move into the group
 ' @param groupIdx% Target group layer index
 '
+''
+' Create a new blank layer as the TOP child of a group.
+'
+' Used by the "draw on a group" guard: a group header has no pixels of its own
+' (its imgHandle& is a 1x1 placeholder that only marks the slot as in use), so
+' painting on one does nothing. With CFG.GROUP_DRAW_AUTO_LAYER% enabled the
+' guard calls this and the stroke lands on the fresh layer instead.
+'
+' LAYERS_new% creates above CURRENT_LAYER% and selects the result;
+' LAYERS_move_into_group re-parents it and lets LAYERS_enforce_group_contiguity
+' order it, which puts it at the top of the group's range.
+'
+' @param groupIdx% Group header to add the layer to
+' @return INTEGER New layer index, or 0 if the group was invalid or the layer
+'                 limit (CFG.NUM_LAYERS%) has been reached
+'
+FUNCTION LAYERS_new_in_group% (groupIdx AS INTEGER)
+    LAYERS_new_in_group% = 0
+
+    ' CRITICAL: copy the parameter to a local — QB64 passes BY REFERENCE, and
+    ' LAYERS_new% changes CURRENT_LAYER%, which is what callers pass in here.
+    DIM nigGroup AS INTEGER
+    nigGroup% = groupIdx%
+
+    IF nigGroup% < 1 OR nigGroup% > MAX_LAYERS THEN EXIT FUNCTION
+    IF LAYERS(nigGroup%).imgHandle& = 0 THEN EXIT FUNCTION
+    IF LAYERS(nigGroup%).layerType% <> LAYER_TYPE_GROUP THEN EXIT FUNCTION
+
+    DIM nigNew AS INTEGER
+    nigNew% = LAYERS_new%
+    IF nigNew% = 0 THEN EXIT FUNCTION
+
+    LAYERS_move_into_group nigNew%, nigGroup%
+    LAYERS_select nigNew%
+
+    BLEND_invalidate_cache
+    INVALIDATE_scene
+    GUI_NEEDS_REDRAW% = TRUE
+    LAYERS_new_in_group% = nigNew%
+END FUNCTION
+
+
 SUB LAYERS_move_into_group (layerIdx AS INTEGER, groupIdx AS INTEGER)
     ' Validate both indices
     IF layerIdx% < 1 OR layerIdx% > MAX_LAYERS THEN EXIT SUB

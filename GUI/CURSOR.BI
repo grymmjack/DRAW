@@ -42,7 +42,9 @@ CONST CURSOR_MARQUEE_RECT  = 13
 CONST CURSOR_MARQUEE_FREE  = 14
 CONST CURSOR_MARQUEE_POLY  = 15
 CONST CURSOR_MARQUEE_ELLIP = 16
-CONST CURSOR_COUNT         = 16 ' 0-based max index
+CONST CURSOR_DENIED        = 17 ' Large X — replaces cursors that have no distinctive art
+CONST CURSOR_DENIED_SMALL  = 18 ' Small X — composited onto a tool cursor that does
+CONST CURSOR_COUNT         = 18 ' 0-based max index
 
 TYPE CURSOR_OBJ
     ' --- Core ---
@@ -57,6 +59,15 @@ TYPE CURSOR_OBJ
     hotspot_y_expr AS STRING          ' Position expression for hotspot Y (e.g. "bottom-1", "top", "2")
     hotspot_pos_x  AS INTEGER         ' Evaluated hotspot X in pixels
     hotspot_pos_y  AS INTEGER         ' Evaluated hotspot Y in pixels
+
+    ' --- "Denied" overlay placement -----------------------------------------
+    ' Where CURSOR_DENIED_SMALL is stamped when this cursor is showing but the
+    ' action is not allowed (e.g. the fill bucket over a group header layer).
+    ' Offsets are relative to the MOUSE POINT, not the image corner, so they
+    ' read the same regardless of where this cursor's hotspot sits.
+    ' Negative Y is up; the convention is a badge off the top-right.
+    denied_dx      AS INTEGER         ' X offset of the denied badge from the mouse point
+    denied_dy      AS INTEGER         ' Y offset of the denied badge from the mouse point
 
     ' --- Overlay enable flags ---
     uses_overlay_fg        AS INTEGER ' TRUE to render FG color chip on cursor

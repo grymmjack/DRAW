@@ -380,7 +380,7 @@ SUB TEXT_BAR_render ()
     ELSE
         fontName$ = "(none)"
     END IF
-    IF LEN(fontName$) > 16 THEN fontName$ = LEFT$(fontName$, 15) + "~"
+    IF LEN(fontName$) > TEXT_BAR_FONT_BTN_MAX THEN fontName$ = LEFT$(fontName$, TEXT_BAR_FONT_BTN_MAX - 1) + "~"
 
     DIM fontBtnW AS INTEGER
     fontBtnW%          = _PRINTWIDTH(fontName$) + 12
@@ -982,7 +982,7 @@ SUB TEXT_BAR_render_font_dropdown ()
 
     itemH%      = 12
     maxVisible% = TEXT_BAR_font_dropdown_max_visible%
-    ddW%        = 160
+    ddW%        = TEXT_BAR_font_dropdown_width%
     ddH%        = maxVisible% * itemH% + 2
     ddX%        = TEXT_BAR.fontBtnX%
     ddY%        = TEXT_BAR.barY% + THEME.TEXT_BAR_ROW_HEIGHT%
@@ -1072,7 +1072,7 @@ SUB TEXT_BAR_render_font_dropdown ()
             END IF
 
             dispName$ = RTRIM$(FONT_LIST(ddFontIdx%).displayName)
-            IF LEN(dispName$) > 24 THEN dispName$ = LEFT$(dispName$, 23) + "~"
+            IF LEN(dispName$) > TEXT_BAR_FONT_NAME_MAX THEN dispName$ = LEFT$(dispName$, TEXT_BAR_FONT_NAME_MAX - 1) + "~"
 
             COLOR fontItemFG~&, _RGBA32(0, 0, 0, 0)
             _UPRINTSTRING (ddX% + 4, drawY% + 2), dispName$
@@ -1138,7 +1138,7 @@ SUB TEXT_BAR_render_font_subfolder ()
 
     ' Position: right edge of font dropdown, aligned with the folder row
     DIM sfX AS INTEGER, sfY AS INTEGER
-    sfX% = TEXT_BAR.fontBtnX% + 160                    ' right of font dropdown
+    sfX% = TEXT_BAR.fontBtnX% + TEXT_BAR_font_dropdown_width%   ' right of font dropdown
     sfY% = TEXT_BAR.barY% + THEME.TEXT_BAR_ROW_HEIGHT% ' same top AS font dropdown
 
     ' Find the visual row of the open folder to align vertically
@@ -1202,7 +1202,7 @@ SUB TEXT_BAR_render_font_subfolder ()
 
         DIM sfDispName AS STRING
         sfDispName$ = RTRIM$(FONT_LIST(sfI%).displayName)
-        IF LEN(sfDispName$) > 26 THEN sfDispName$ = LEFT$(sfDispName$, 25) + "~"
+        IF LEN(sfDispName$) > TEXT_BAR_FONT_NAME_MAX THEN sfDispName$ = LEFT$(sfDispName$, TEXT_BAR_FONT_NAME_MAX - 1) + "~"
 
         COLOR sfFG~&, _RGBA32(0, 0, 0, 0)
         _UPRINTSTRING (sfX% + 4, drawY% + 2), sfDispName$
@@ -1391,7 +1391,7 @@ FUNCTION TEXT_BAR_handle_click% (rawX%, rawY%)
             fMaxVis% = TEXT_BAR_font_dropdown_max_visible%
             fddX%    = TEXT_BAR.fontBtnX%
             fddY%    = TEXT_BAR.barY% + THEME.TEXT_BAR_ROW_HEIGHT%
-            fddW%    = 160
+            fddW%    = TEXT_BAR_font_dropdown_width%
             fddH%    = fMaxVis% * 12 + 2
 
             ' Check subfolder popup click first (it overlays the main dropdown)
@@ -2165,7 +2165,7 @@ FUNCTION TEXT_BAR_ui_in_bounds% (rawX%, rawY%)
         DIM fddX AS INTEGER, fddY AS INTEGER, fddW AS INTEGER, fddH AS INTEGER
         fddX% = TEXT_BAR.fontBtnX%
         fddY% = TEXT_BAR.barY% + THEME.TEXT_BAR_ROW_HEIGHT%
-        fddW% = 160
+        fddW% = TEXT_BAR_font_dropdown_width%
         fddH% = TEXT_BAR_font_dropdown_max_visible% * 12 + 2
         IF rawX% >= fddX% AND rawX% < fddX% + fddW% THEN
             IF rawY% >= fddY% AND rawY% < fddY% + fddH% THEN
@@ -2176,7 +2176,7 @@ FUNCTION TEXT_BAR_ui_in_bounds% (rawX%, rawY%)
         ' Subfolder popup bounds
         IF TEXT_BAR.fontSubOpen% THEN
             DIM sfbX AS INTEGER, sfbW AS INTEGER
-            sfbX% = TEXT_BAR.fontBtnX% + 160
+            sfbX% = TEXT_BAR.fontBtnX% + TEXT_BAR_font_dropdown_width%
             sfbW% = 180
             IF sfbX% + sfbW% > SCRN.w& THEN sfbX% = TEXT_BAR.fontBtnX% - sfbW%
             IF rawX% >= sfbX% AND rawX% < sfbX% + sfbW% THEN
@@ -2543,6 +2543,61 @@ END SUB
 ' Uses ~75% of screen height if there are enough fonts, otherwise fits to count.
 ' @return INTEGER number of visible rows
 '
+''
+' Width of the font dropdown, sized to fit the longest display name.
+'
+' This used to be a hardcoded 160 repeated in seven places — render, hit-test
+' and hover — which meant long names were cut to a common prefix and whole
+' families rendered as identical-looking rows. Sizing to content fixes that,
+' and having ONE source of truth keeps the click target aligned with what is
+' actually drawn.
+'
+' Clamped both ways: never narrower than the old 160 so short lists look the
+' same as before, never wider than 420 so one pathological font name cannot
+' cover the canvas.
+'
+' @return INTEGER - Dropdown width in pixels
+'
+FUNCTION TEXT_BAR_font_dropdown_width% ()
+    DIM fdwI      AS INTEGER
+    DIM fdwW      AS INTEGER
+    DIM fdwWidest AS INTEGER
+    DIM fdwName   AS STRING
+
+    ' Cached, and deliberately so. _PRINTWIDTH measures against whatever font is
+    ' current, and this is read from the render path AND from hit-test / hover.
+    ' Recomputing per call would let those disagree if the ambient font differed,
+    ' putting the click target somewhere other than the box that was drawn.
+    ' Recompute only when the font list itself changes.
+    STATIC fdwCached      AS INTEGER
+    STATIC fdwCachedCount AS INTEGER
+    IF fdwCached% > 0 AND fdwCachedCount% = FONT_LIST_COUNT% THEN
+        TEXT_BAR_font_dropdown_width% = fdwCached%
+        EXIT FUNCTION
+    END IF
+
+    fdwWidest% = 0
+    FOR fdwI% = 0 TO FONT_LIST_COUNT% - 1
+        fdwName$ = RTRIM$(FONT_LIST(fdwI%).displayName)
+        IF LEN(fdwName$) > TEXT_BAR_FONT_NAME_MAX THEN
+            fdwName$ = LEFT$(fdwName$, TEXT_BAR_FONT_NAME_MAX - 1) + "~"
+        END IF
+        fdwW% = _PRINTWIDTH(fdwName$)
+        IF fdwW% > fdwWidest% THEN fdwWidest% = fdwW%
+    NEXT fdwI%
+
+    ' 4px left inset + text + room for the folder arrow / scroll gutter
+    fdwWidest% = fdwWidest% + 26
+    IF fdwWidest% < 160 THEN fdwWidest% = 160
+    IF fdwWidest% > 420 THEN fdwWidest% = 420
+
+    fdwCached%      = fdwWidest%
+    fdwCachedCount% = FONT_LIST_COUNT%
+
+    TEXT_BAR_font_dropdown_width% = fdwWidest%
+END FUNCTION
+
+
 FUNCTION TEXT_BAR_font_dropdown_max_visible% ()
     DIM itemH     AS INTEGER
     DIM available AS INTEGER
@@ -3101,7 +3156,7 @@ SUB TEXT_BAR_update_dropdown_hover (rawX AS INTEGER, rawY AS INTEGER)
         ' Check subfolder popup hover first
         IF TEXT_BAR.fontSubOpen% THEN
             DIM sfhX AS INTEGER, sfhW AS INTEGER
-            sfhX% = TEXT_BAR.fontBtnX% + 160
+            sfhX% = TEXT_BAR.fontBtnX% + TEXT_BAR_font_dropdown_width%
             sfhW% = 180
             IF sfhX% + sfhW% > SCRN.w& THEN sfhX% = TEXT_BAR.fontBtnX% - sfhW%
 
@@ -3491,7 +3546,7 @@ FUNCTION TEXT_BAR_handle_subfolder_click% (rawX%, rawY%)
 
     ' Compute position (same as render)
     DIM sfcX AS INTEGER, sfcY AS INTEGER
-    sfcX% = TEXT_BAR.fontBtnX% + 160
+    sfcX% = TEXT_BAR.fontBtnX% + TEXT_BAR_font_dropdown_width%
     sfcY% = TEXT_BAR.barY% + THEME.TEXT_BAR_ROW_HEIGHT%
 
     DIM sfcDdStartIdx AS INTEGER

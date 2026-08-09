@@ -127,6 +127,7 @@ TYPE LAYER_PANEL_OBJ
     iconVisOff       AS LONG         ' Visibility off (eye closed) image handle
     iconLockOn       AS LONG         ' Lock on (locked) image handle
     iconLockOff      AS LONG         ' Lock off (unlocked) image handle
+    iconNoPaint      AS LONG         ' "Not paintable" badge shown on group header rows
     iconBtnUp        AS LONG         ' Move up button icon
     iconBtnDown      AS LONG         ' Move down button icon
     iconBtnMerge     AS LONG         ' Merge down button icon

@@ -18,6 +18,18 @@ OPTION _EXPLICITARRAY
 ' Preset font sizes for the size dropdown
 CONST TEXT_BAR_SIZE_COUNT = 25
 
+' Longest font display name shown in the font dropdown / search list before it
+' is cut with a "~". The dropdown sizes itself to fit (see
+' TEXT_BAR_font_dropdown_width%), so this is a sanity cap, not a layout limit.
+' Keep it generous: families that vary only in a suffix (APPLE ][ 40 AMBER vs
+' ... AMBER SCAN vs ... AMBER CRT) collapse into identical-looking rows when
+' this is too small.
+CONST TEXT_BAR_FONT_NAME_MAX = 48
+
+' The font-name BUTTON is inline in the toolbar row and every control after it
+' shifts right by its width, so it stays much shorter than the dropdown.
+CONST TEXT_BAR_FONT_BTN_MAX  = 24
+
 ' Button ID constants for hit-testing
 CONST TEXT_BTN_NONE          = 0
 CONST TEXT_BTN_FONT          = 1  ' Font name dropdown button

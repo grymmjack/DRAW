@@ -1,5 +1,77 @@
 # IDEAS
 
+## Use GLFW Stuff:
+a740g — 5/16/26, 6:13 PM
+_CAPSLOCK, _NUMLOCK and _SCROLLLOCK now works on all platforms.
+Drag and drop works on all platforms.
+_desktopwidth and _desktopheight now works on all platforms.
+_SCREENMOVE now works on Linux
+_SCREENX and _SCREENY works on all platforms.
+
+a740g — 5/16/26, 6:20 PM
+Try the windowing functions that worked only on Windows before. _WINDOWHASFOCUS, _SCREENX, _SCREENY, _SCREENMOVE, _ACCEPTFILEDROP, _DROPPEDFILE, _TOTALDROPPEDFILES etc.
+Add drag and drop support in DRAW! 
+
+a740g — 5/16/26, 6:17 PM
+_WINDOWHANDLE works on all platforms.
+
+## Font Preview in popup
+- [ ] Add setting: 
+  - [ ] Checkbox - Enable font previews in menu
+    - [ ] Font size: ___ [8] [16] [24] [32] (buttons for numbers to insert)
+    - [ ] Max Width: ____ [32] [64] [128] (buttons for numbers to insert)
+    - [ ] Max Height: ____ [16] [32] [64] (buttons for numbers to insert)
+    - [ ] FG color: [ ] color chip picker
+    - [ ] BG color: [ ] color chip picker
+    - [ ] Divider color: [ ] color chip picker
+    - [ ] Preview Text: {font|FONT|Font} {NumGlyphs} __________ [ABCabc123] [DRAW SoMeThiNG!] (buttons insert the text)
+      - [ ] If {font|FONT|Font} - show that in the preview text of the font picker in the case accordingly
+      - [ ] NumGlyphs = how many total glyphs in the font, including the entire range, unicode or otherwise.
+        - [ ] Count only NON-Blank glyphs
+          - [ ] Count can be part of font as it's cached for previews, etc.
+- When this is on:
+  - [ ] Immediately on Apply:
+    - [ ] Create previews for the dropdown font pickers
+    - [ ] The previews should show the name of the font
+  - [ ] Previews should be cached
+    - [ ] Cache can be wherever DRAW already stores it
+  - [ ] New fonts should be scanned/rendered on startup
+  - [ ] If the popups don't fit on the screen, render as much as it can and use ... for telling user.
+    - [ ] If popups don't fit in vertical space, use the same methods of scrolling/showing for the fonts that we already do for main menu, and mousehweel and arrowsa up/down, etc.
+
+## Add ANSI IMPORT/EXPORT SUPPORT
+- [ ] File -> Import ANSI | Export ANSI
+- [ ] Using IMG2ANS style export
+  - [ ] Detect if EGA palette - automatically
+  - [ ] Detect if RGB palette - automatically
+  - [ ] Show preview in export dialog:
+    - [ ] Source image on left
+    - [ ] Exported ANSI on right
+  - [ ] Style (radio):
+    - [ ] 8x8 Half block (only one choice now)
+  - [ ] Mode (radio):
+    - [ ] 16 Colors
+    - [ ] iCE
+    - [ ] 256 Colors (xbin)
+    - [ ] RGB Colors (xterm)
+  - [ ] Width: ____ [auto]
+  - [ ] Height: ____ [auto]
+    - Both are encoded as SAUCE
+    - Including the font type
+- [ ] Using kaleidotron style import for ANSI render to image -> Import (same funciton as import image)
+
+## TDF Font Support
+- [ ] Using what we learned in kaleidotron
+- [ ] Actual Rendering of the TDF as pixels, edit, type, like a regular font.
+- [ ] Include the 1000+ TDF fonts.
+- [ ] For TDF Fonts allow rendered with antialias and allow downsize with antialias so it can be resized in a way that doesn't lose information.
+
+## Animation Support
+- [ ] TBD (this needs deep thought)
+
+## Tilemap Support
+- [ ] TBD (this needs deep thought)
+
 ## Add color chips to popup palettes menu — DONE (v1.6.0+)
 - [x] It would be great if the actual palette chips were rendered in the palette picker popup menu
   - [x] Add a setting to enable this or disable it
@@ -20,10 +92,10 @@
 ## AI: generate multiple at once (batch / grid)
 
 Extend the generate dialog with a batch mode:
-- [ ] "Generate multiple" toggle
-- [ ] Layer group name: [____]  (results land in one group)
-- [ ] Number of generations: dropdown 1-20
-- [ ] Optional: arrange as a GRID on one layer instead of N layers
+- [x] "Generate multiple" toggle
+- [x] Layer group name: [____]  (results land in one group)
+- [x] Number of generations: dropdown 1-20
+- [x] Optional: arrange as a GRID on one layer instead of N layers
       (contact-sheet style, cell = generation size, auto rows/cols)
 
 Design notes / gotchas for whoever picks this up:
@@ -67,115 +139,98 @@ are edited from the AI menu instead), model/seed reported back FROM the tool,
 {limg}/{dimg}/{bimg} steering exports are wired but untested.
 
 - [x] Add support for AI image generation
-  - [ ] Create new Menu option AI (just before help)
-    - [ ] Settings
-      - [ ] Tools (list)
-        - [ ] Add
-        - [ ] Remove
-        - [ ] Edit
-          - [ ] Name
-          - [ ] Executable
-          - [ ] Directory
-          - [ ] Arguments
-        - [ ] Tool Entry:
-          - [ ] Executable
-          - [ ] Directory
-          - [ ] Arguments (parsed through DRAW_InfoParser$)
-            - [ ] Options parameter macros (derived by new function DRAW_InfoParser$)
-              - [ ] Seed: {seed}
-              - [ ] Image filename: {if}
-              - [ ] Image directory: {id}
-              - [ ] Image width: {ih}
-              - [ ] Image height: {iw}
-              - [ ] Selection width: {sw}
-              - [ ] Selection height: {sh}
-              - [ ] Brush w: {bw}
-              - [ ] Brush h: {bh}
-              - [ ] Grid width: {gw}
-              - [ ] Grid height: {gh}
-              - [ ] Palette: {pal}
-              - [ ] Colors: {numpal}
-              - [ ] Num Layers: {numlayers}
-              - [ ] Current layer index: {lidx}
-              - [ ] Current layer name: {lname}
-              - [ ] Current layer width: {lw}
-              - [ ] Current layer height: {lh}
-              - [ ] Current layer x pos: {lx}
-              - [ ] Current layer x pos: {ly}
-              - [ ] BG color: {bg}
-              - [ ] FG color: {fg}
-              - [ ] Paint Mode: {pmode}
-              - [ ] Active tool: {tool}
-              - [ ] Pointer x: {px}
-              - [ ] Pointer y: {py}
-              - [ ] Active font: {font}
-              - [ ] Font size: {fsize}
-              - [ ] Path to font: {fontfile}
-              - [ ] Path to layer image: {limg} (for steering and hinting)
-              - [ ] Path to flattened document: {dimg} (for steering and hinting)
-              - [ ] Path to brush image: {bimg}
-    - [ ] Style Editor (prefix/postfix) (list)
-      - [ ] Add
-      - [ ] Remove
-      - [ ] Edit
-        - [ ] Tool (picker)
-        - [ ] Name
-        - [ ] Text
-        - [ ] Description
-        - [ ] Seed
-    - [ ] Prompt Editor
-      - [ ] Preset prompts simple text lists/paragraphs for steering AI
-      - [ ] Add
-      - [ ] Remove
-  - [ ] Create new layer menu option: New from AI (creates new AI layer with prompts):
-      - [ ] Style (picker)
-      - [ ] Prompt (textbox)
-      - [ ] Layer dimensions: W x H  - button: [Image Size]
-      - [ ] Layer position: X, Y  (default 0,0)
-        - [ ] Button position presets: (math based on image size)
+  - [x] Create new Menu option AI (just before help)
+    - [x] Settings
+      - [x] Tools (list)
+        - [x] Add
+        - [x] Remove
+        - [x] Edit
+          - [x] Name
+          - [x] Executable
+          - [x] Directory
+          - [x] Arguments
+        - [x] Tool Entry:
+          - [x] Executable
+          - [x] Directory
+          - [x] Arguments (parsed through DRAW_InfoParser$)
+            - [x] Options parameter macros (derived by new function DRAW_InfoParser$)
+              - [x] Seed: {seed}
+              - [x] Image filename: {if}
+              - [x] Image directory: {id}
+              - [x] Image width: {ih}
+              - [x] Image height: {iw}
+              - [x] Selection width: {sw}
+              - [x] Selection height: {sh}
+              - [x] Brush w: {bw}
+              - [x] Brush h: {bh}
+              - [x] Grid width: {gw}
+              - [x] Grid height: {gh}
+              - [x] Palette: {pal}
+              - [x] Colors: {numpal}
+              - [x] Num Layers: {numlayers}
+              - [x] Current layer index: {lidx}
+              - [x] Current layer name: {lname}
+              - [x] Current layer width: {lw}
+              - [x] Current layer height: {lh}
+              - [x] Current layer x pos: {lx}
+              - [x] Current layer x pos: {ly}
+              - [x] BG color: {bg}
+              - [x] FG color: {fg}
+              - [x] Paint Mode: {pmode}
+              - [x] Active tool: {tool}
+              - [x] Pointer x: {px}
+              - [x] Pointer y: {py}
+              - [x] Active font: {font}
+              - [x] Font size: {fsize}
+              - [x] Path to font: {fontfile}
+              - [x] Path to layer image: {limg} (for steering and hinting)
+              - [x] Path to flattened document: {dimg} (for steering and hinting)
+              - [x] Path to brush image: {bimg}
+    - [x] Style Editor (prefix/postfix) (list)
+      - [x] Add
+      - [x] Remove
+      - [x] Edit
+        - [x] Tool (picker)
+        - [x] Name
+        - [x] Text
+        - [x] Description
+        - [x] Seed
+    - [x] Prompt Editor
+      - [x] Preset prompts simple text lists/paragraphs for steering AI
+      - [x] Add
+      - [x] Remove
+  - [x] Create new layer menu option: New from AI (creates new AI layer with prompts):
+      - [x] Style (picker)
+      - [x] Prompt (textbox)
+      - [x] Layer dimensions: W x H  - button: [Image Size]
+      - [x] Layer position: X, Y  (default 0,0)
+        - [x] Button position presets: (math based on image size)
             [TL] [T] [TR]
             [L]  [M] [R]
             [BL] [B] [BR]
-      - [ ] Seed
-  - [ ] Create new Layer type: AI Layer
-    - [ ] AI Layer is created with text to image (pixelmon)
-    - [ ] AI Layer shows [AI] for type of layer
-    - [ ] AI Layer tooltip shows Prompt, Style, and engine with model/seed on second line
-    - [ ] Prompt is embedded into layer for later regeneration
-    - [ ] Generated pixels embed seed, model, etc.
-    - [ ] Right click on AI layer shows menu:
-      - [ ] Prompt
-      - [ ] Style -> Style options, one checked
-      - [ ] Generate (runs the AI generator tool and style for the prompt)
-  - [ ] When a selection is present, pass that to the width and height for the tool
-    - [ ] Inserts as selection, keeps selection active (for later regen)
-  - [ ] Create new file menu option:
-    - [ ] New from AI
-      - [ ] Dialog:
-        - [ ] Tool (picker)
-        - [ ] Style (picker)
-        - [ ] Seed
-        - [ ] Prompt (textbox)
-        - [ ] Image dimensions: W x H
-    - [ ] Prompt is embedded into image for later regeneration
-    - [ ] Generated pixels embed tool, args, model, seed, etc.
-
-## Use GLFW Stuff:
-a740g — 5/16/26, 6:13 PM
-_CAPSLOCK, _NUMLOCK and _SCROLLLOCK now works on all platforms.
-Drag and drop works on all platforms.
-_desktopwidth and _desktopheight now works on all platforms.
-_SCREENMOVE now works on Linux
-_SCREENX and _SCREENY works on all platforms.
-
-a740g — 5/16/26, 6:20 PM
-Try the windowing functions that worked only on Windows before. _WINDOWHASFOCUS, _SCREENX, _SCREENY, _SCREENMOVE, _ACCEPTFILEDROP, _DROPPEDFILE, _TOTALDROPPEDFILES etc.
-Add drag and drop support in DRAW! 
-
-a740g — 5/16/26, 6:17 PM
-_WINDOWHANDLE works on all platforms.
-
-
+      - [x] Seed
+  - [x] Create new Layer type: AI Layer
+    - [x] AI Layer is created with text to image (pixelmon)
+    - [x] AI Layer shows [AI] for type of layer
+    - [x] AI Layer tooltip shows Prompt, Style, and engine with model/seed on second line
+    - [x] Prompt is embedded into layer for later regeneration
+    - [x] Generated pixels embed seed, model, etc.
+    - [x] Right click on AI layer shows menu:
+      - [x] Prompt
+      - [x] Style -> Style options, one checked
+      - [x] Generate (runs the AI generator tool and style for the prompt)
+  - [x] When a selection is present, pass that to the width and height for the tool
+    - [x] Inserts as selection, keeps selection active (for later regen)
+  - [x] Create new file menu option:
+    - [x] New from AI
+      - [x] Dialog:
+        - [x] Tool (picker)
+        - [x] Style (picker)
+        - [x] Seed
+        - [x] Prompt (textbox)
+        - [x] Image dimensions: W x H
+    - [x] Prompt is embedded into image for later regeneration
+    - [x] Generated pixels embed tool, args, model, seed, etc.
 
 ## CREATE DARK THEME
 - [ ] To test the theme mode, we need a dark theme
