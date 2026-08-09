@@ -217,6 +217,7 @@ FUNCTION LAYERS_new% ()
     LAYERS(newIndex%).opacityLock%  = FALSE
     LAYERS(newIndex%).blendMode%    = BLEND_NORMAL
     LAYERS(newIndex%).layerType%    = LAYER_TYPE_IMAGE
+    LAYERS(newIndex%).aiDataIdx%    = 0     ' never inherit the previous tenant's AI metadata
     LAYERS(newIndex%).textDataIdx%  = 0
     ' Inherit parent group from the current layer so new layers inside groups stay nested
     IF hasCurrentLayer% THEN
@@ -465,6 +466,10 @@ SUB LAYERS_delete (layerIndex AS INTEGER)
     LAYERS(delSlot%).opacityCacheVal% = 0
     LAYERS(delSlot%).contentDirty%    = FALSE
     LAYERS(delSlot%).layerType%       = LAYER_TYPE_IMAGE
+    ' Drop the AI pool reference too. Left set, a recycled slot could point at
+    ' another layer's metadata and show its prompt or regenerate from its seed.
+    ' The slot itself is reclaimed lazily by AI_LAYER_gc.
+    LAYERS(delSlot%).aiDataIdx%       = 0
     LAYERS(delSlot%).textDataIdx%     = 0
     LAYERS(delSlot%).parentGroupIdx%  = 0
     LAYERS(delSlot%).collapsed%       = FALSE
@@ -698,6 +703,25 @@ SUB LAYERS_duplicate (layerIndex AS INTEGER)
                 END IF
             END IF
 
+            ' Duplicate AI metadata the same way — a group holding AI layers is
+            ' exactly what batch generation produces, so this is the common case
+            ' for duplicating an AI result, not an edge case.
+            LAYERS(dDst%).aiDataIdx% = 0
+            IF LAYERS(dSrc%).layerType% = LAYER_TYPE_AI THEN
+                IF LAYERS(dSrc%).aiDataIdx% > 0 THEN
+                    DIM dgNewAiIdx AS INTEGER
+                    dgNewAiIdx% = AI_LAYER_alloc%
+                    IF dgNewAiIdx% > 0 THEN
+                        AI_LAYER_copy_data LAYERS(dSrc%).aiDataIdx%, dgNewAiIdx%
+                        LAYERS(dDst%).aiDataIdx% = dgNewAiIdx%
+                    ELSE
+                        LAYERS(dDst%).layerType% = LAYER_TYPE_IMAGE
+                    END IF
+                ELSE
+                    LAYERS(dDst%).layerType% = LAYER_TYPE_IMAGE
+                END IF
+            END IF
+
             IF NOT HISTORY_IN_PROGRESS% THEN
                 HISTORY_record_layer_add LAYERS(dDst%).historyId&, dDst%, newZ%, "Dup Group Child:" + _TRIM$(STR$(LAYERS(dSrc%).historyId&))
             END IF
@@ -788,6 +812,30 @@ SUB LAYERS_duplicate (layerIndex AS INTEGER)
         END IF
     ELSE
         LAYERS(newIndex%).textDataIdx% = 0
+    END IF
+
+    ' Same treatment for AI layers. layerType% was copied above, so without this
+    ' the duplicate was typed LAYER_TYPE_AI with aiDataIdx% = 0: no [AI] tag, no
+    ' tooltip, Regenerate refused it, and .draw skipped it on save — an AI layer
+    ' in name only. Symbol and group layers never reach here; they exit early to
+    ' their own paths further up.
+    LAYERS(newIndex%).aiDataIdx% = 0
+    IF LAYERS(layerIndex%).layerType% = LAYER_TYPE_AI THEN
+        IF LAYERS(layerIndex%).aiDataIdx% > 0 THEN
+            DIM newAiIdx AS INTEGER
+            newAiIdx% = AI_LAYER_alloc%
+            IF newAiIdx% > 0 THEN
+                AI_LAYER_copy_data LAYERS(layerIndex%).aiDataIdx%, newAiIdx%
+                LAYERS(newIndex%).aiDataIdx% = newAiIdx%
+            ELSE
+                ' Pool full — keep the pixels, drop the AI identity (as text does)
+                LAYERS(newIndex%).layerType% = LAYER_TYPE_IMAGE
+                LAYERS(newIndex%).aiDataIdx% = 0
+            END IF
+        ELSE
+            ' Typed AI but carrying no metadata — do not propagate the anomaly
+            LAYERS(newIndex%).layerType% = LAYER_TYPE_IMAGE
+        END IF
     END IF
 
     IF NOT HISTORY_IN_PROGRESS% THEN
@@ -1852,8 +1900,11 @@ SUB LAYERS_merge_visible ()
         EXIT SUB
     END IF
 
-    ' Update the history record with the actual merged result slot
-    HISTORY_RECORDS(HISTORY.current%).slotIndex% = newIndex%
+    ' Update the history record with the actual merged result slot.
+    ' HISTORY_record_layer_merge_visible can decline, leaving nothing to stamp.
+    IF HISTORY_LAST_RECORD% >= 1 THEN
+        HISTORY_RECORDS(HISTORY_LAST_RECORD%).slotIndex% = newIndex%
+    END IF
     HISTORY_merge_update_result_id LAYERS(newIndex%).historyId&
     
     LAYERS(newIndex%).name = "Merged"
@@ -1939,7 +1990,7 @@ FUNCTION LAYERS_descends_from% (layerIdx AS INTEGER, groupIdx AS INTEGER)
             LAYERS_descends_from% = TRUE
             EXIT FUNCTION
         END IF
-        walk%  = LAYERS(walk%).parentGroupIdx%
+        walk% = LAYERS(walk%).parentGroupIdx%
         guard% = guard% + 1
         IF guard% > MAX_LAYERS THEN EXIT DO   ' corrupt parent chain
     LOOP
@@ -1986,7 +2037,7 @@ FUNCTION LAYERS_flatten& ()
                         END IF
                     END IF
                     flatParent% = LAYERS(flatParent%).parentGroupIdx%
-                    flatGuard%  = flatGuard% + 1
+                    flatGuard% = flatGuard% + 1
                     IF flatGuard% > MAX_LAYERS THEN EXIT DO
                 LOOP
                 IF flatHidden% THEN _CONTINUE
@@ -5353,7 +5404,11 @@ FUNCTION LAYERS_group_from_selection% ()
             ' (these are the "roots" of the selection)
             DIM gfsIsRoot AS INTEGER
             gfsIsRoot% = FALSE
-            IF LAYERS(i%).parentGroupIdx% = 0 THEN
+            ' savedSel is (1 TO MAX_LAYERS); this guarded only against 0, so any
+            ' other out-of-range parent index went straight into the array.
+            ' DRW_load now validates on the way in — this is belt and braces for
+            ' the in-memory paths.
+            IF LAYERS(i%).parentGroupIdx% < 1 OR LAYERS(i%).parentGroupIdx% > MAX_LAYERS THEN
                 gfsIsRoot% = TRUE
             ELSEIF NOT savedSel%(LAYERS(i%).parentGroupIdx%) THEN
                 gfsIsRoot% = TRUE
@@ -6849,3 +6904,5 @@ SUB LAYERS_demote_all ()
         END IF
     NEXT i%
 END SUB
+
+

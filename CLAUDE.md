@@ -29,7 +29,25 @@ qb64pe -w -x -o DRAW.run DRAW.BAS
 ./DRAW.run --reset-defaults        # restore factory cfg
 ```
 
-There is no test runner. Manual QA plans live in `PLANS/TESTS/`. `draw-watch.sh` launches DRAW with a CPU-usage alert threshold (useful for catching idle-loop regressions).
+### QA
+
+`QA/draw-qa.sh` is an xdotool-driven GUI harness — ~97 test files in `QA/tests/`, each launched against a fresh DRAW using the pinned `QA/DRAW.qa.cfg` so runs never touch the user's own config.
+
+```bash
+cd QA
+./draw-qa.sh                     # whole suite
+./draw-qa.sh tests/smoke.sh      # one file
+./draw-qa.sh --rerun-passed ...  # ignore the passed-test cache
+./draw-qa.sh --developer ...     # DRAW logs every dispatched action to ./inputs.log
+```
+
+Tests assert visually: `snap_region x y w h label` then `assert_regions_differ` / `assert_regions_same`. Coordinates are **viewport pixels**, mapped to the screen by `_abs()`.
+
+**When many unrelated tests fail with "regions are identical (action had no effect?)", suspect the harness first.** That message means a click missed its target or a capture framed the wrong pixels — not necessarily that DRAW is broken. Run `tests/harness-calibration.sh`, which pins the viewport→screen mapping against the menu bar (12px), a layer row (20px) and the status bar (11px); all three are smaller than the kind of drift that causes this. To settle whether DRAW received an input at all, run with `--developer` and grep `inputs.log` for `[FIRE] ... action=`.
+
+Derive UI coordinates from the render constants rather than probing them — the geometry arithmetic is correct (status bar `SCRN.h - THEME.STATUS_height%`, layer panel `panelY% = 0` with a 16px header and 20px rows, toolbar `TB_TOP = 0`). Note `PALETTE_H` in the harness is a conservative reservation, not the real 12px strip, so `PAL_Y` must not be used to click palette chips.
+
+Manual QA plans live in `PLANS/TESTS/`. `draw-watch.sh` launches DRAW with a CPU-usage alert threshold (useful for catching idle-loop regressions).
 
 ## Architecture
 
@@ -157,9 +175,12 @@ These reflect real bugs that have shipped. Read `.claude/instructions/draw-proje
 12. **Default-hidden panels must set `ManuallyHidden% = TRUE`** alongside `show% = FALSE`. Auto-hide restore logic checks `NOT show% AND NOT ManuallyHidden%` and will unhide a panel that was initialized hidden but not manually hidden. Follow `PREVIEW_init`.
 13. **QB64 passes SUB/FUNCTION params BY REFERENCE.** `BYVAL` only works on `DECLARE LIBRARY`. If a SUB takes a `SHARED` global as a param and the body calls anything that mutates that global, the param is silently corrupted. Copy to a local at function entry.
 14. **Apron coordinate offset:** when a layer is promoted (`apronW% > 0`), its `imgHandle&` is larger than the canvas. Canvas coord `(cx, cy)` maps to buffer coord `(cx + apronW, cy + apronH)`. Never write raw canvas coords into a promoted buffer.
-15. **`DRW_load_binary` must reset all tool/panel state.** When you add new tool or panel state, add the reset to `DRW_load_binary` — otherwise stale state leaks across project loads.
+15. **All THREE document-creation paths must reset tool/panel state** — `DRW_load_binary` (open), `DRW_new_canvas` (File > New), and `DRW_create_canvas_at_size` (New from Clipboard / New from AI). They drifted apart once already: New reset the smart shapes but not the basic shape tools or the transform overlay; Open reset neither set. Stale state is not merely cosmetic — `TRANSFORM` holds a handle to the old layer, and `BEZIER`/`POLY_LINE`/`SPRAY`/`ERASER` each hold a canvas snapshot for undo, so a carried-over shape commits an undo state belonging to a document that is already closed. When you add tool or panel state, add its reset to **all three**, and diff them against each other afterwards.
 16. **Custom brush rendering must handle eraser mode.** `CUSTOM_BRUSH_render` uses `_PUTIMAGE` + `_BLEND`, which silently drops transparent pixels. Check `PAL_FG_IS_TRANSPARENT%` and use `_DONTBLEND` + per-pixel `PSET _RGBA32(0,0,0,0)` to match `PAINT_pset_with_symmetry`.
 17. **Grep before allocating an action ID.** `CMD_execute_action` is one `SELECT CASE action_id%` spanning ~4,400 lines of `GUI/COMMAND.BM`. BASIC takes the **first** matching `CASE`, so a duplicate label is silent, unreachable dead code — QB64-PE emits no warning. This has shipped twice: AI actions took 1801–1809 and killed five Image-menu commands (fixed in 1.7.0 by moving AI to 1820–1828), and text styles took 1510–1512 from the Palette actions (fixed by moving to 1520–1522). Audit with:<br>`grep -n '^        CASE [0-9]' GUI/COMMAND.BM | sed 's/.*CASE //' | awk '{print $1}' | sort | uniq -d`
+18. **`AND` / `OR` do NOT short-circuit — use `_ANDALSO` / `_ORELSE`.** Both sides are always evaluated, so a guard does not protect what follows it: `IF idx >= 1 AND arr(idx).field THEN` still subscripts `arr` when `idx` is 0. On a 1-based array that raises **ERR 9 "Subscript out of range"**, and because `FatalError` does `RESUME NEXT` the branch may then run *anyway* with the bad index — the `IF` result is unreliable, not merely noisy. 21 such sites were fixed in 1.7.0; the worst fired on every `Ctrl+A` outside a text layer. Audit with:<br>`grep -rnP '\b(\w+%?)\s*(>=|>|<=|<)\s*[-\w]+\s+AND\b.*\(\s*\1\s*[,)]' --include='*.BM' .`<br>Note the **BAS exporter emits `AND` guards into generated code**, so exported programs inherit the pattern.
+19. **`NOT` is bitwise, not logical — use `_NEGATE`.** It only behaves logically on exactly `0`/`-1`: `NOT 0` = `-1`, `NOT -1` = `0`, but **`NOT 1` = `-2`, still truthy**. Any `IF NOT someFunction%` is wrong when that function returns an id, count or handle. This shipped: `TI_process_key%` returns the focused widget's ID, so `IF NOT tiAte%` always passed and ENTER submitted the AI dialog even after the text area consumed it. Related built-ins: `_IIF(cond,a,b)`, `_TRUE`/`_FALSE`, `_LESS`/`_EQUAL`/`_GREATER` (the `SGN`/`_STRCMP` domain). DRAW's own unprefixed `TRUE`/`FALSE` in `_COMMON.BI` are equivalent and fine — do not mass-rename ~7,300 uses.
+20. **Reserved words rejected as identifiers.** `pos`, `palette`, `screen`, `color`, `scale`, `step`, `timer`, `width`, `height`, `key`, `line`, `point` and friends fail as a variable/parameter/field name with `Name already in use (pos)`. Prefix instead (`atPos`, `srcPalette`). Probe with a 6-line standalone file rather than a ~5-minute full build.
 
 ## Adding a new tool
 

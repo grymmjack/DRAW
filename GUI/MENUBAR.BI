@@ -23,17 +23,17 @@ OPTION _EXPLICITARRAY
 ' past this, so the overflow shows up as a menu entry that just isn't there —
 ' raised from 300 when the Help > crash-log items left only two spare slots.
 CONST MENU_MAX_ITEMS      = 400
-CONST MENU_MAX_ROOT       = 12  ' Max root-level menu entries
-CONST MENU_BAR_HEIGHT     = 12  ' 8px Tiny5 font + 4px padding
-CONST MENU_ITEM_HEIGHT    = 12  ' Height of each submenu item row
-CONST MENU_DIVIDER_HEIGHT = 5   ' Height of a divider row
-CONST MENU_PAD_LEFT       = 4   ' Left padding for root labels
-CONST MENU_PAD_RIGHT      = 4   ' Right padding for root labels
-CONST MENU_ROOT_GAP       = 8   ' Gap between root menu labels
-CONST MENU_SUB_PAD_LEFT   = 16  ' Left padding in submenu (room for checkbox)
-CONST MENU_SUB_PAD_RIGHT  = 8   ' Right padding after hotkey text
-CONST MENU_SUB_HOTKEY_GAP = 16  ' Gap between label and hotkey column
-CONST MENU_CHECK_WIDTH    = 12  ' Width reserved for checkbox area
+CONST MENU_MAX_ROOT       = 12 ' Max root-level menu entries
+CONST MENU_BAR_HEIGHT     = 12 ' 8px Tiny5 font + 4px padding
+CONST MENU_ITEM_HEIGHT    = 12 ' Height of each submenu item row
+CONST MENU_DIVIDER_HEIGHT = 5  ' Height of a divider row
+CONST MENU_PAD_LEFT       = 4  ' Left padding for root labels
+CONST MENU_PAD_RIGHT      = 4  ' Right padding for root labels
+CONST MENU_ROOT_GAP       = 8  ' Gap between root menu labels
+CONST MENU_SUB_PAD_LEFT   = 16 ' Left padding in submenu (room for checkbox)
+CONST MENU_SUB_PAD_RIGHT  = 8  ' Right padding after hotkey text
+CONST MENU_SUB_HOTKEY_GAP = 16 ' Gap between label and hotkey column
+CONST MENU_CHECK_WIDTH    = 12 ' Width reserved for checkbox area
 
 ' Menu item structure
 TYPE MENU_ITEM_OBJ

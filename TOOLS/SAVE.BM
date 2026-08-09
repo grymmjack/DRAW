@@ -95,6 +95,46 @@ FUNCTION SAVE_target_writable% (filePath AS STRING)
 END FUNCTION
 
 ''
+' Confirm a save actually produced a file before treating it as done.
+'
+' _SAVEIMAGE reports nothing. If it fails — disk full, filename the OS rejects,
+' a path over MAX_PATH on Windows — the raise is trapped and RESUME NEXT drops
+' execution straight onto the "mark clean" line. The document was then flagged
+' saved, the file was added to recents, and closing DRAW skipped the unsaved-
+' changes prompt: the work was gone with no warning at any point.
+'
+' SAVE_target_writable% catches the permission case up front; this catches every
+' other reason a write can fail. The .draw paths already verified this way — the
+' image paths did not.
+'
+' @param filePath STRING Path that should now exist
+' @return INTEGER TRUE when the file is on disk
+'
+FUNCTION SAVE_verify_written% (filePath AS STRING)
+    DIM res AS INTEGER
+
+    IF _FILEEXISTS(filePath$) THEN
+        SAVE_verify_written% = TRUE
+        EXIT FUNCTION
+    END IF
+
+    _LOGERROR "SAVE: file was not created - " + filePath$
+
+    POINTER_hide_for_dialog
+    res% = DRAW_message_box%("Save Failed", _
+        "DRAW could not write:" + CHR$(10) + CHR$(10) + _
+        filePath$ + CHR$(10) + CHR$(10) + _
+        "The disk may be full, or the name may not be allowed here." + CHR$(10) + _
+        "Your artwork is unchanged and still has unsaved edits." + CHR$(10) + CHR$(10) + _
+        "Try saving again with a different name or location.", _
+        MB_BTN_OK, MB_ICON_ERROR)
+    POINTER_show_after_dialog
+    MOUSE_cleanup_after_dialog TRUE
+
+    SAVE_verify_written% = FALSE
+END FUNCTION
+
+''
 ' Save the painting surface (smart save)
 ' This is CTRL-S behavior:
 '   - If we have a known .draw filename, save silently as .draw
@@ -179,7 +219,10 @@ SUB SAVE_image ()
         _SAVEIMAGE filename$, flatImg&
         _LOGINFO "SAVE_image: _SAVEIMAGE completed"
         IF flatImg& < -1 THEN SAFE_FREEIMAGE flatImg&
-        
+
+        ' Leave the document dirty and out of recents unless the file is really there
+        IF NOT SAVE_verify_written%(filename$) THEN EXIT SUB
+
         ' Embed drAw chunk with project data if saving as PNG
         IF LCASE$(RIGHT$(filename$, 4)) = ".png" THEN
             DRW_embed_chunk_in_png filename$
@@ -237,6 +280,9 @@ SUB SAVE_quick ()
     _SAVEIMAGE CURRENT_FILENAME$, flatImg&
     _LOGINFO "SAVE_quick: _SAVEIMAGE completed"
     IF flatImg& < -1 THEN SAFE_FREEIMAGE flatImg&
+
+    ' Leave the document dirty unless the file is really there
+    IF NOT SAVE_verify_written%(CURRENT_FILENAME$) THEN EXIT SUB
     
     ' Embed drAw chunk with project data if saving as PNG
     IF LCASE$(RIGHT$(CURRENT_FILENAME$, 4)) = ".png" THEN
@@ -297,7 +343,10 @@ SUB SAVE_as ()
         flatImg2& = LAYERS_flatten&
         _SAVEIMAGE filename$, flatImg2&
         IF flatImg2& < -1 THEN SAFE_FREEIMAGE flatImg2&
-        
+
+        ' Leave the document dirty and out of recents unless the file is really there
+        IF NOT SAVE_verify_written%(filename$) THEN EXIT SUB
+
         ' Embed drAw chunk with project data if saving as PNG
         IF LCASE$(RIGHT$(filename$, 4)) = ".png" THEN
             DRW_embed_chunk_in_png filename$
@@ -401,7 +450,7 @@ SUB SAVE_selection ()
         DIM flatLi AS INTEGER, flatLf AS INTEGER, flatSrc AS LONG
         FOR flatLi% = 1 TO RENDER_ORDER_COUNT%
             flatLf% = RENDER_ORDER%(flatLi%)
-            IF flatLf% > 0 AND LAYERS(flatLf%).visible% THEN
+            IF flatLf% > 0 _ANDALSO LAYERS(flatLf%).visible% THEN
                 flatSrc& = LAYERS(flatLf%).imgHandle&
                 IF flatSrc& < -1 THEN
                     IF LAYERS(flatLf%).blendMode% <> BLEND_NORMAL OR LAYERS(flatLf%).opacity% < 255 THEN
@@ -450,7 +499,10 @@ SUB SAVE_selection ()
         ' Free temporary images
         IF mergedForEx& < -1 THEN SAFE_FREEIMAGE mergedForEx&
         SAFE_FREEIMAGE cropped_image&
-        
+
+        ' Never announce "Export Complete" for a file that was not written
+        IF NOT SAVE_verify_written%(filename$) THEN EXIT SUB
+
         POINTER_hide_for_dialog
         DRAW_alert "Export Complete", "Selection exported to: " + filename$ + CHR$(10) + _
                     "Size: " + _TRIM$(STR$(MARQUEE.BOX.w)) + "x" + _TRIM$(STR$(MARQUEE.BOX.h)) + " pixels"

@@ -1105,7 +1105,7 @@ Click on an existing text layer (in text tool mode) to re-enter editing. All for
 
 ### Color Bitmap Fonts (CBF)
 
-CBF fonts are DPaint-style spritesheet fonts (`.bmp`) that preserve their original pixel colors instead of being tinted to the foreground color. 24 bundled CBF fonts ship in `ASSETS/FONTS/COLOR_BITMAP/`.
+CBF fonts are DPaint-style spritesheet fonts (`.bmp`) that preserve their original pixel colors instead of being tinted to the foreground color. 25 bundled CBF fonts ship in `ASSETS/FONTS/COLOR_BITMAP/`.
 
 | Aspect | Behaviour |
 |--------|-----------|
@@ -1114,7 +1114,14 @@ CBF fonts are DPaint-style spritesheet fonts (`.bmp`) that preserve their origin
 | **Color** | Original pixel colors from the spritesheet are preserved |
 | **Shadow/Outline** | Use their designated colors (force-tinted) |
 | **Charmap** | Displays glyphs in original colors |
+| **Character codes** | Glyphs map positionally: glyph 0 → code 33 `!`, up to 126 `~` for a full 94-glyph printable set. Sheets with more than 94 glyphs continue onto codes 127+, reachable from the character grid |
 | **Config** | `FONTS_INCLUDE_DRAW_BITMAP` / `FONTS_INCLUDE_USER_BITMAP` in DRAW.cfg |
+
+**APPLE ][ 40 COLUMNS COLOR** reproduces the NTSC composite artifact coloring of
+Apple II 40-column text (7×8 cell). Beyond the printable ASCII set it carries the
+32 **MouseText** glyphs at codes **128–159** (MouseText `$40`–`$5F`: open/closed
+apple, arrows, the return symbol, folder and scrollbar graphics) — pick them from
+the character grid.
 
 ### Per-Character Formatting Shortcuts
 

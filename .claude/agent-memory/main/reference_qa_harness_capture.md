@@ -26,17 +26,46 @@ instead of hand-rolling an xdotool + screenshot pipeline.
 **What works** — `_capture_client_area()` in `QA/draw-qa.sh`: full-screen
 capture with `setsid spectacle -b -n -f -o "$tmp"` when `$WAYLAND_DISPLAY` is
 set, then `convert -crop` down to the client area using the cached window
-position and `_NET_FRAME_EXTENTS`-derived decoration height. `setsid` matters:
-without it the compositor gives spectacle keyboard focus and DRAW misses every
-subsequent key event.
+position. `setsid` matters: without it the compositor gives spectacle keyboard
+focus and DRAW misses every subsequent key event.
 
-**Finding click coordinates — don't derive them, probe them.** DRAW's bottom
-chrome does not decompose the way the cfg suggests (`THEME.STATUS_height` is 11
-and the chip rows are 12px, yet the band below the canvas is 41px and the
-palette-name button sits at viewport y≈484, not the 497 the arithmetic gives).
-Run `./draw-qa.sh --probe`, hover the target, hold still ~1.5s, and it prints
-`MARK <x>,<y>` in viewport pixels. Ask the user to do the hovering — they can
-see the screen and you cannot. `PROBE_SECS=60` for a longer window.
+**The client-area origin comes from `xwininfo`, and `DECORATION_H` is 0.**
+`_update_win_pos` reads `xwininfo`'s "Absolute upper-left", which is already
+the client area on a reparenting WM — there is no title bar left to skip.
+
+This is a correction. The harness used to *infer* the title bar from
+`_NET_FRAME_EXTENTS` as `top - 3×left_shadow`; on KDE Breeze
+(`extents = 1, 1, 36, 1`) that is `36 - 3 = 33` physical px of pure error,
+added to an origin that was already correct. Consequences, fixed 2026-08-09:
+- every click landed **16.5 viewport px too low** (20px layer rows: "click row
+  0" hit row 1, which is empty on a fresh document);
+- every capture was cropped 16.5 px too low, so a `VIEWPORT_H - STATUS_H`
+  status-bar snap fell past the window's bottom edge and contained **desktop**,
+  never changing no matter what DRAW did.
+
+It hid for months because the error was **self-consistent** — clicks and
+captures shifted together, so the harness agreed with itself and ~780
+assertions passed. Only targets smaller than the error could detect it, and
+when they did the message was "regions are identical (action had no effect?)",
+which reads like a product bug. `QA/tests/harness-calibration.sh` now pins the
+mapping at three heights (menu bar 12px, layer row 20px, status bar 11px) with
+failure text that names `DECORATION_H`.
+
+**Derive click coordinates from the render constants; the arithmetic is right.**
+The older advice here — "don't derive them, probe them", citing a palette-name
+button at viewport y≈484 "not the 497 the arithmetic gives" — was measuring the
+33px bug. `--probe` reported through the same broken `_abs`, so every probed
+figure was ~16.5px high. Verified against a real 958×514 window:
+- status bar `503..513` = `SCRN.h - THEME.STATUS_height%` — exactly as computed;
+- palette strip `491..502`, height `rows*(chipH+1)+3` = `1*9+3` = 12;
+- layer panel `panelY% = 0` (NOT below the menu bar), 16px header, 20px rows, so
+  row N's centre is `26 + N*20`;
+- toolbar `TB_TOP = 0`, height `TB_ROWS*scaled_h + (TB_ROWS-1)*scaled_pad` = 166.
+
+Two harness constants that are still off, deliberately left alone: `PALETTE_H`
+is 30 against a real strip of 12 (it feeds `WORK_BOTTOM` → `CANVAS_CY`, so
+retuning it moves the drawing origin for every test) — never use `PAL_Y` to
+click a chip, derive it as `image-adj-full.sh` does.
 
 **Harness invariants that were silently broken before 2026-08-01** (fixed, but
 worth knowing the failure signatures):
@@ -58,6 +87,14 @@ worth knowing the failure signatures):
   `VIEWPORT × DISPLAY_SCALE`. If it fires, fix the config — don't bypass it.
 
 **How to apply:**
+- **If several unrelated tests fail at once with "regions are identical (action
+  had no effect?)", suspect the harness before the product.** Run
+  `./draw-qa.sh tests/harness-calibration.sh` first: it fails loudly and names
+  `DECORATION_H` when the viewport→screen mapping has drifted. Confirm which
+  side is wrong with `./draw-qa.sh --developer <test>` and read `./inputs.log`
+  — the dispatcher logs `[FIRE] ... action=<id> label=<name>` for every
+  dispatched binding, so "did DRAW receive it?" is answerable directly instead
+  of inferred from pixels.
 - To verify a change visually, write a test in `QA/tests/<area>.sh` and run
   `./QA/draw-qa.sh tests/<name>.sh`; use the `screenshot` / `snap_region` +
   `assert_regions_differ` / `assert_regions_same` helpers rather than shelling

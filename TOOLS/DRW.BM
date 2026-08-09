@@ -587,22 +587,22 @@ SUB DRW_save_binary (filename AS STRING)
         PUT #fh%, , tmpInt%
 
         DIM aiStr AS STRING
-        aiStr$ = RTRIM$(AI_LAYER_DATA(aiSPool%).prompt)
+        aiStr$  = RTRIM$(AI_LAYER_DATA(aiSPool%).prompt)
         tmpInt% = LEN(aiStr$)
         PUT #fh%, , tmpInt%
         IF tmpInt% > 0 THEN PUT #fh%, , aiStr$
 
-        aiStr$ = RTRIM$(AI_LAYER_DATA(aiSPool%).styleName)
+        aiStr$  = RTRIM$(AI_LAYER_DATA(aiSPool%).styleName)
         tmpInt% = LEN(aiStr$)
         PUT #fh%, , tmpInt%
         IF tmpInt% > 0 THEN PUT #fh%, , aiStr$
 
-        aiStr$ = RTRIM$(AI_LAYER_DATA(aiSPool%).toolName)
+        aiStr$  = RTRIM$(AI_LAYER_DATA(aiSPool%).toolName)
         tmpInt% = LEN(aiStr$)
         PUT #fh%, , tmpInt%
         IF tmpInt% > 0 THEN PUT #fh%, , aiStr$
 
-        aiStr$ = RTRIM$(AI_LAYER_DATA(aiSPool%).modelName)
+        aiStr$  = RTRIM$(AI_LAYER_DATA(aiSPool%).modelName)
         tmpInt% = LEN(aiStr$)
         PUT #fh%, , tmpInt%
         IF tmpInt% > 0 THEN PUT #fh%, , aiStr$
@@ -780,12 +780,32 @@ SUB DRW_load_binary (filename AS STRING)
     ' === PALETTE ===
     DIM savedFgIdx AS INTEGER, savedBgIdx AS INTEGER
     GET #fh%, , palCount%
-    FOR i% = 0 TO palCount% - 1
+    ' PAL is DIM'd (0 TO 255). palCount comes off disk unvalidated, so a
+    ' truncated or edited file could walk past the end. The palette LOADER
+    ' already clamps to 256 in three places; this import path did not.
+    ' Consume every stored color to keep the stream aligned, but only store the
+    ' ones that fit — and clamp PAL_COLOR_COUNT below so nothing reads past it.
+    DIM palTotal   AS INTEGER
+    palTotal% = palCount%
+    IF palTotal% < 0 THEN palTotal% = 0
+    IF palCount% > 256 THEN
+        _LOGWARN "DRW_load: palette count" + STR$(palTotal%) + " exceeds 256 - truncating"
+        palCount% = 256
+    END IF
+    IF palCount% < 0 THEN palCount% = 0
+
+    FOR i% = 0 TO palTotal% - 1
         GET #fh%, , c~&
-        PAL(i%).value~& = c~&
+        IF i% <= 255 THEN PAL(i%).value~& = c~&
     NEXT i%
     GET #fh%, , savedFgIdx%
     GET #fh%, , savedBgIdx%
+    ' These index PAL() a few lines below with no further checking, so a bad
+    ' value here is an immediate subscript-out-of-range rather than a wrong
+    ' colour. Range them against the array, not against palCount: a file may
+    ' legitimately name an index beyond its own stored colours.
+    IF savedFgIdx% < 0 OR savedFgIdx% > 255 THEN savedFgIdx% = 0
+    IF savedBgIdx% < 0 OR savedBgIdx% > 255 THEN savedBgIdx% = 0
     PAL_FG_IDX% = savedFgIdx%
     PAL_BG_IDX% = savedBgIdx%
 
@@ -855,6 +875,16 @@ SUB DRW_load_binary (filename AS STRING)
 
     GET #fh%, , layerCount%
     GET #fh%, , savedCurrentLayer%
+    ' LAYERS is DIM'd (1 TO MAX_LAYERS) and the loop below uses i% directly as
+    ' the slot index, so an oversized count read from disk indexes past the end.
+    ' Refuse the surplus rather than truncating mid-stream: unlike the palette
+    ' and per-character records, layer records are variable-length (pixel data),
+    ' so they cannot be skipped without decoding them anyway.
+    IF layerCount% > MAX_LAYERS THEN
+        _LOGWARN "DRW_load: layer count" + STR$(layerCount%) + " exceeds MAX_LAYERS - clamping"
+        layerCount% = MAX_LAYERS
+    END IF
+    IF layerCount% < 0 THEN layerCount% = 0
     maxLoadedHistoryId& = 0
 
     ' Load each layer
@@ -909,6 +939,22 @@ SUB DRW_load_binary (filename AS STRING)
             GET #fh%, , loadParentGroupIdx%
             GET #fh%, , loadCollapsed%
             GET #fh%, , loadPassThrough%
+            ' Validate here rather than at each consumer: this is the single
+            ' place these enter the program, and they are used as LAYERS()
+            ' subscripts all over. DRW_save already range-checks parentGroupIdx
+            ' on the way out (>= 1 AND <= MAX_LAYERS) but the way in did not, and
+            ' not every reader is careful — LAYERS.BM's group-root test guards
+            ' only against 0, so any other out-of-range value indexes straight
+            ' past the end of its lookup array.
+            IF loadParentGroupIdx% < 0 OR loadParentGroupIdx% > MAX_LAYERS THEN
+                _LOGWARN "DRW_load: parentGroupIdx" + STR$(loadParentGroupIdx%) + " out of range - orphaning layer"
+                loadParentGroupIdx% = 0
+            END IF
+            IF loadLayerType% < LAYER_TYPE_IMAGE OR loadLayerType% > LAYER_TYPE_AI THEN
+                _LOGWARN "DRW_load: unknown layerType" + STR$(loadLayerType%) + " - treating as image"
+                loadLayerType% = LAYER_TYPE_IMAGE
+            END IF
+
             LAYERS(layerIdx%).layerType%      = loadLayerType%
             LAYERS(layerIdx%).parentGroupIdx% = loadParentGroupIdx%
             LAYERS(layerIdx%).collapsed%      = loadCollapsed%
@@ -1242,11 +1288,39 @@ SUB DRW_load_binary (filename AS STRING)
             LAYERS(tlLayerIdx%).layerType%   = LAYER_TYPE_TEXT
             LAYERS(tlLayerIdx%).textDataIdx% = tlLPool%
 
-            DIM tlLTmp AS INTEGER
+            DIM tlLTmp       AS INTEGER
             GET #fh%, , tlLTmp% : TEXT_LAYER_DATA(tlLPool%).startX = tlLTmp%
             GET #fh%, , tlLTmp% : TEXT_LAYER_DATA(tlLPool%).startY = tlLTmp%
-            GET #fh%, , tlLTmp% : TEXT_LAYER_DATA(tlLPool%).charCount = tlLTmp%
-            GET #fh%, , tlLTmp% : TEXT_LAYER_DATA(tlLPool%).lineCount = tlLTmp%
+            ' Counts come straight off disk, so they are untrusted: a truncated
+            ' or hand-edited .draw can carry any INTEGER here. They drive loops
+            ' that write into TL_* arrays dimensioned to TEXT_LAYER_MAX_CHARS /
+            ' _MAX_LINES, so an oversized value used to walk off the end and
+            ' raise "subscript out of range" mid-load, leaving a half-built
+            ' document behind a crash report.
+            '
+            ' Keep the FILE's count for stream traversal — every record must
+            ' still be consumed or the rest of the load desyncs — but clamp what
+            ' is stored, and saturate the destination index inside the loops.
+            DIM tlLCharTotal AS INTEGER
+            DIM tlLLineTotal AS INTEGER
+            DIM tlLcSafe     AS INTEGER
+            DIM tlLlSafe     AS INTEGER
+
+            GET #fh%, , tlLTmp% : tlLCharTotal% = tlLTmp%
+            GET #fh%, , tlLTmp% : tlLLineTotal% = tlLTmp%
+            IF tlLCharTotal% < 0 THEN tlLCharTotal% = 0
+            IF tlLLineTotal% < 0 THEN tlLLineTotal% = 0
+
+            TEXT_LAYER_DATA(tlLPool%).charCount = tlLCharTotal%
+            TEXT_LAYER_DATA(tlLPool%).lineCount = tlLLineTotal%
+            IF TEXT_LAYER_DATA(tlLPool%).charCount > TEXT_LAYER_MAX_CHARS THEN
+                _LOGWARN "DRW_load: charCount" + STR$(tlLCharTotal%) + " exceeds cap - truncating"
+                TEXT_LAYER_DATA(tlLPool%).charCount = TEXT_LAYER_MAX_CHARS
+            END IF
+            IF TEXT_LAYER_DATA(tlLPool%).lineCount > TEXT_LAYER_MAX_LINES THEN
+                _LOGWARN "DRW_load: lineCount" + STR$(tlLLineTotal%) + " exceeds cap - truncating"
+                TEXT_LAYER_DATA(tlLPool%).lineCount = TEXT_LAYER_MAX_LINES
+            END IF
             GET #fh%, , tlLTmp% : TEXT_LAYER_DATA(tlLPool%).fontIdx = tlLTmp%
             GET #fh%, , tlLTmp% : TEXT_LAYER_DATA(tlLPool%).fontSize = tlLTmp%
             GET #fh%, , tlLTmp% : TEXT_LAYER_DATA(tlLPool%).defaultLeading = tlLTmp%
@@ -1272,72 +1346,79 @@ SUB DRW_load_binary (filename AS STRING)
 
             ' Per-char data
             DIM tlLc AS INTEGER
-            FOR tlLc% = 0 TO TEXT_LAYER_DATA(tlLPool%).charCount - 1
+            ' Iterate the FILE's count so every record is consumed and the
+            ' stream stays aligned; writes land on the last legal slot once past
+            ' the cap and are then ignored, since charCount was clamped above.
+            FOR tlLc% = 0 TO tlLCharTotal% - 1
+                tlLcSafe% = tlLc%
+                IF tlLcSafe% > TEXT_LAYER_MAX_CHARS - 1 THEN tlLcSafe% = TEXT_LAYER_MAX_CHARS - 1
                 DIM tlLChar AS STRING * 1
                 GET #fh%, , tlLChar$
-                TL_CHAR(tlLPool%, tlLc%) = tlLChar$
+                TL_CHAR(tlLPool%, tlLcSafe%) = tlLChar$
                 DIM tlLFg   AS _UNSIGNED LONG
                 GET #fh%, , tlLFg~&
-                TL_FG(tlLPool%, tlLc%) = tlLFg~&
+                TL_FG(tlLPool%, tlLcSafe%) = tlLFg~&
                 DIM tlLBg   AS _UNSIGNED LONG
                 GET #fh%, , tlLBg~&
-                TL_BG(tlLPool%, tlLc%) = tlLBg~&
-                GET #fh%, , tlLTmp% : TL_FONT_IDX(tlLPool%, tlLc%) = tlLTmp%
-                GET #fh%, , tlLTmp% : TL_FONT_SIZE(tlLPool%, tlLc%) = tlLTmp%
+                TL_BG(tlLPool%, tlLcSafe%) = tlLBg~&
+                GET #fh%, , tlLTmp% : TL_FONT_IDX(tlLPool%, tlLcSafe%) = tlLTmp%
+                GET #fh%, , tlLTmp% : TL_FONT_SIZE(tlLPool%, tlLcSafe%) = tlLTmp%
                 DIM tlLBold AS _BYTE
                 GET #fh%, , tlLBold%%
-                TL_BOLD(tlLPool%, tlLc%) = tlLBold%%
+                TL_BOLD(tlLPool%, tlLcSafe%) = tlLBold%%
                 DIM tlLItal AS _BYTE
                 GET #fh%, , tlLItal%%
-                TL_ITALIC(tlLPool%, tlLc%) = tlLItal%%
+                TL_ITALIC(tlLPool%, tlLcSafe%) = tlLItal%%
                 DIM tlLUnd  AS _BYTE
                 GET #fh%, , tlLUnd%%
-                TL_UNDERLINE(tlLPool%, tlLc%) = tlLUnd%%
+                TL_UNDERLINE(tlLPool%, tlLcSafe%) = tlLUnd%%
                 DIM tlLStr  AS _BYTE
                 GET #fh%, , tlLStr%%
-                TL_STRIKE(tlLPool%, tlLc%) = tlLStr%%
-                GET #fh%, , tlLTmp% : TL_KERN(tlLPool%, tlLc%) = tlLTmp%
-                GET #fh%, , tlLTmp% : TL_BASELINE(tlLPool%, tlLc%) = tlLTmp%
+                TL_STRIKE(tlLPool%, tlLcSafe%) = tlLStr%%
+                GET #fh%, , tlLTmp% : TL_KERN(tlLPool%, tlLcSafe%) = tlLTmp%
+                GET #fh%, , tlLTmp% : TL_BASELINE(tlLPool%, tlLcSafe%) = tlLTmp%
 
                 ' v20+ per-char: outline + shadow (13 bytes)
                 IF version% >= 20 THEN
                     DIM tlLOL      AS _BYTE
                     GET #fh%, , tlLOL%%
-                    TL_OUTLINE(tlLPool%, tlLc%) = tlLOL%%
+                    TL_OUTLINE(tlLPool%, tlLcSafe%) = tlLOL%%
                     DIM tlLOLColor AS _UNSIGNED LONG
                     GET #fh%, , tlLOLColor~&
-                    TL_OUTLINE_COLOR(tlLPool%, tlLc%) = tlLOLColor~&
+                    TL_OUTLINE_COLOR(tlLPool%, tlLcSafe%) = tlLOLColor~&
                     DIM tlLOLSize  AS _BYTE
                     GET #fh%, , tlLOLSize%%
-                    TL_OUTLINE_SIZE(tlLPool%, tlLc%) = tlLOLSize%%
+                    TL_OUTLINE_SIZE(tlLPool%, tlLcSafe%) = tlLOLSize%%
                     DIM tlLSH      AS _BYTE
                     GET #fh%, , tlLSH%%
-                    TL_SHADOW(tlLPool%, tlLc%) = tlLSH%%
+                    TL_SHADOW(tlLPool%, tlLcSafe%) = tlLSH%%
                     DIM tlLSHColor AS _UNSIGNED LONG
                     GET #fh%, , tlLSHColor~&
-                    TL_SHADOW_COLOR(tlLPool%, tlLc%) = tlLSHColor~&
+                    TL_SHADOW_COLOR(tlLPool%, tlLcSafe%) = tlLSHColor~&
                     DIM tlLSHX     AS _BYTE
                     GET #fh%, , tlLSHX%%
-                    TL_SHADOW_X(tlLPool%, tlLc%) = tlLSHX%%
+                    TL_SHADOW_X(tlLPool%, tlLcSafe%) = tlLSHX%%
                     DIM tlLSHY     AS _BYTE
                     GET #fh%, , tlLSHY%%
-                    TL_SHADOW_Y(tlLPool%, tlLc%) = tlLSHY%%
+                    TL_SHADOW_Y(tlLPool%, tlLcSafe%) = tlLSHY%%
                 ELSE
-                    TL_OUTLINE(tlLPool%, tlLc%)       = 0
-                    TL_OUTLINE_COLOR(tlLPool%, tlLc%) = _RGB32(0, 0, 0)
-                    TL_OUTLINE_SIZE(tlLPool%, tlLc%)  = 1
-                    TL_SHADOW(tlLPool%, tlLc%)        = 0
-                    TL_SHADOW_COLOR(tlLPool%, tlLc%)  = _RGB32(0, 0, 0)
-                    TL_SHADOW_X(tlLPool%, tlLc%)      = 2
-                    TL_SHADOW_Y(tlLPool%, tlLc%)      = 2
+                    TL_OUTLINE(tlLPool%, tlLcSafe%)       = 0
+                    TL_OUTLINE_COLOR(tlLPool%, tlLcSafe%) = _RGB32(0, 0, 0)
+                    TL_OUTLINE_SIZE(tlLPool%, tlLcSafe%)  = 1
+                    TL_SHADOW(tlLPool%, tlLcSafe%)        = 0
+                    TL_SHADOW_COLOR(tlLPool%, tlLcSafe%)  = _RGB32(0, 0, 0)
+                    TL_SHADOW_X(tlLPool%, tlLcSafe%)      = 2
+                    TL_SHADOW_Y(tlLPool%, tlLcSafe%)      = 2
                 END IF
             NEXT tlLc%
 
             ' Per-line data
             DIM tlLl AS INTEGER
-            FOR tlLl% = 0 TO TEXT_LAYER_DATA(tlLPool%).lineCount - 1
-                GET #fh%, , tlLTmp% : TL_LINE_BREAK(tlLPool%, tlLl%) = tlLTmp%
-                GET #fh%, , tlLTmp% : TL_LEADING(tlLPool%, tlLl%) = tlLTmp%
+            FOR tlLl% = 0 TO tlLLineTotal% - 1
+                tlLlSafe% = tlLl%
+                IF tlLlSafe% > TEXT_LAYER_MAX_LINES - 1 THEN tlLlSafe% = TEXT_LAYER_MAX_LINES - 1
+                GET #fh%, , tlLTmp% : TL_LINE_BREAK(tlLPool%, tlLlSafe%) = tlLTmp%
+                GET #fh%, , tlLTmp% : TL_LEADING(tlLPool%, tlLlSafe%) = tlLTmp%
             NEXT tlLl%
 
             TEXT_LAYER_DATA(tlLPool%).dirty = TRUE
@@ -1567,6 +1648,44 @@ SUB DRW_load_binary (filename AS STRING)
     COLORMIXER_reset               ' Reset color mixer transient state
     CHARMAP_reset                  ' Reset character map transient state
     PALETTE_OPS_reset              ' Reset palette ops mode
+
+    ' In-progress shape state. Every ordinary tool switch clears these via
+    ' TOOLS_reset_all (32 call sites); loading a project did not, so a shape
+    ' begun in the previous document survived into this one. The multi-click
+    ' tools make that reachable without even holding the mouse: place two
+    ' polygon vertices, open another project, and the next click continues the
+    ' old rubber-band from coordinates that belong to a document no longer open.
+    '
+    ' POLY_LINE and SPRAY additionally hold HISTORY_BEFORE_IMG — a snapshot of
+    ' the OLD canvas. Committing a carried-over shape would record an undo state
+    ' from a different document, and the handle leaked on every load.
+    '
+    ' Listed explicitly rather than calling TOOLS_reset_all: that helper is
+    ' correct for a tool switch, but this must not disturb view or selection
+    ' state the loader restores just below.
+    LINE_reset
+    RECT_reset
+    ELLIPSE_reset
+    POLY_LINE_reset
+    SPRAY_reset
+    ZOOM_drag_reset                ' drag rectangle only — NOT ZOOM_reset, which
+                                   ' would clobber the zoom/pan this file restores
+    PAN_reset
+    FILL_ADJ_reset
+    IMAGE_IMPORT_reset
+
+    ' Smart shape sub-tools each keep their own drag state
+    SS_POLYGON_reset
+    SS_PIE_DONUT_reset
+    SS_RR_reset
+    SS_TAB_reset
+    SS_PILL_reset
+    SS_PACMAN_reset
+    SS_CUBE_reset
+    SS_BEVEL_reset
+    SS_ARROW_reset
+    SS_TEXT_reset
+
     GRID_OFFSET_PICK_MODE% = FALSE ' Cancel grid offset pick if active
 
     ' Reset layer panel state
@@ -2417,6 +2536,31 @@ SUB DRW_new_canvas ()
     MAGIC_WAND_reset
     CROP_reset
 
+    ' Same stale-state hazard as DRW_load_binary, and these paths had a wider
+    ' gap: they reset the smart shapes and the custom brush but left the basic
+    ' shape tools, the transform overlay and the panel modes holding state that
+    ' belongs to the document being discarded.
+    '
+    ' TRANSFORM_cancel matters most — an active overlay owns a handle to the OLD
+    ' layer content, so it would keep drawing over the new blank canvas and
+    ' applying it would composite pixels from a document that is already gone.
+    ' BEZIER, POLY_LINE, SPRAY and ERASER each hold a canvas snapshot for undo,
+    ' which leaked here and could be committed against the wrong document.
+    IF TRANSFORM.ACTIVE THEN TRANSFORM_cancel
+    BEZIER_reset
+    LINE_reset
+    RECT_reset
+    ELLIPSE_reset
+    POLY_LINE_reset
+    SPRAY_reset
+    ERASER_reset
+    PAN_reset
+    FILL_ADJ_reset
+    PREVIEW_reset
+    COLORMIXER_reset
+    CHARMAP_reset
+    PALETTE_OPS_reset
+
     ' === RESET SMART SHAPES SESSION CHOICE ===
     SMART_SHAPES_CHOSEN% = FALSE
     IF SMART_SHAPES_GROUP_IDX >= 0 THEN SUBTOOL_GROUPS(SMART_SHAPES_GROUP_IDX%).lastChildIdx = 0
@@ -2575,6 +2719,31 @@ SUB DRW_create_canvas_at_size (canvasW AS INTEGER, canvasH AS INTEGER)
     MOVE_init
     MAGIC_WAND_reset
     CROP_reset
+
+    ' Same stale-state hazard as DRW_load_binary, and these paths had a wider
+    ' gap: they reset the smart shapes and the custom brush but left the basic
+    ' shape tools, the transform overlay and the panel modes holding state that
+    ' belongs to the document being discarded.
+    '
+    ' TRANSFORM_cancel matters most — an active overlay owns a handle to the OLD
+    ' layer content, so it would keep drawing over the new blank canvas and
+    ' applying it would composite pixels from a document that is already gone.
+    ' BEZIER, POLY_LINE, SPRAY and ERASER each hold a canvas snapshot for undo,
+    ' which leaked here and could be committed against the wrong document.
+    IF TRANSFORM.ACTIVE THEN TRANSFORM_cancel
+    BEZIER_reset
+    LINE_reset
+    RECT_reset
+    ELLIPSE_reset
+    POLY_LINE_reset
+    SPRAY_reset
+    ERASER_reset
+    PAN_reset
+    FILL_ADJ_reset
+    PREVIEW_reset
+    COLORMIXER_reset
+    CHARMAP_reset
+    PALETTE_OPS_reset
 
     ' === RESET SMART SHAPES SESSION CHOICE ===
     SMART_SHAPES_CHOSEN% = FALSE

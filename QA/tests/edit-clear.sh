@@ -1,5 +1,4 @@
 #!/bin/bash
-# SKIP: drag stroke not detected in harness (works standalone) — needs investigation
 # =============================================================================
 # edit-clear.sh — QA test: Clear canvas (Delete) and undo
 # Tests: Draw stroke, Delete (clear layer), Ctrl+Z (undo clear)
