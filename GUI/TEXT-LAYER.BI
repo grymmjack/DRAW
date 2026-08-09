@@ -14,7 +14,19 @@ OPTION _EXPLICITARRAY
 ' Limits
 CONST TEXT_LAYER_MAX_CHARS = 4096 ' Max characters per text layer
 CONST TEXT_LAYER_MAX_LINES = 256  ' Max lines per text layer
-CONST TEXT_LAYER_POOL_SIZE = 64   ' One slot per possible layer
+' One slot per possible layer — the invariant this pool is built on, so it must
+' track MAX_LAYERS rather than restate its value. It was literally 64 while
+' MAX_LAYERS went to 128, which quietly capped a document at 64 editable text
+' layers: past that, new text layers were refused, duplicates fell back to plain
+' image layers, and reloading a project silently dropped the surplus layers'
+' text data (pixels survived, editability did not).
+'
+' Costs roughly 152 KB per slot — 18 per-character arrays over
+' TEXT_LAYER_MAX_CHARS — so the extra 64 slots add about 10 MB of resident
+' memory. If that ever needs clawing back, reduce TEXT_LAYER_MAX_CHARS (4096
+' characters in a single text layer is generous) rather than re-breaking the
+' one-slot-per-layer invariant.
+CONST TEXT_LAYER_POOL_SIZE = MAX_LAYERS
 
 ' Text alignment constants
 CONST TEXT_ALIGN_LEFT   = 0

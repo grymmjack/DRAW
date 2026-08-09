@@ -266,6 +266,71 @@ When a layer is **promoted** (`apronW% > 0`), its `imgHandle&` is larger than th
 - Crop, canvas resize, and TRANSFORM all auto-demote layers before operating.
 - `CFG.APRON_ENABLED%` / `CFG.APRON_SIZE_RATIO!` control the feature; toggle in Settings → General.
 
+### 24. `AND` / `OR` Do Not Short-Circuit — Use `_ANDALSO` / `_ORELSE`
+
+Both operands are **always** evaluated, so a guard does not protect what follows it:
+
+```qb64
+' WRONG — arr(idx) is subscripted even when idx = 0
+IF idx >= 1 AND arr(idx).field THEN
+
+' RIGHT
+IF idx >= 1 _ANDALSO arr(idx).field THEN
+```
+
+On a 1-based array (`LAYERS(1 TO MAX_LAYERS)`, `TEXT_LAYER_DATA(1 TO …)`) the
+eager evaluation raises **ERR 9 "Subscript out of range"**. Because `FatalError`
+does `RESUME NEXT`, the branch may then execute *anyway* with the bad index — so
+this corrupts control flow, it does not merely log.
+
+21 sites were fixed in 1.7.0. The most reachable was `Ctrl+A` outside a text
+layer: `TEXT_get_active_text_data_idx%` returns 0, so `TEXT_LAYER_DATA(0)` fired
+on every press. Two more sat in the render path.
+
+Audit:
+
+```
+grep -rnP '\b(\w+%?)\s*(>=|>|<=|<)\s*[-\w]+\s+AND\b.*\(\s*\1\s*[,)]' --include='*.BM' .
+```
+
+Accesses inside the `THEN` *body* are safe — only the condition matters. Note
+`OUTPUT/FILE-BAS.BM` **emits `AND` guards into exported BAS code**, so generated
+programs inherit the pattern.
+
+### 25. `NOT` Is Bitwise — Use `_NEGATE` for Logical Negation
+
+`NOT` behaves logically only on exactly `0`/`-1`:
+
+```
+NOT 0 = -1 (true)      NOT -1 = 0 (false)      NOT 1 = -2  ← STILL TRUTHY
+```
+
+So `IF NOT someFunction%` is wrong whenever that function returns an id, count
+or handle. This shipped: `TI_process_key%` returns the focused widget's **ID**,
+so `IF NOT tiAte%` was always true and ENTER submitted the AI generate dialog
+even after the text area had consumed it (Shift+ENTER appeared to do nothing).
+
+Other modern built-ins worth using: `_IIF(cond, a, b)`, `_TRUE` / `_FALSE`, and
+`_LESS` / `_EQUAL` / `_GREATER` (the `SGN`, `_STRCMP`, `_STRICMP` return domain).
+
+DRAW's own unprefixed `TRUE`/`FALSE` in `_COMMON.BI` sit behind
+`$IF FALSE = UNDEFINED AND TRUE = UNDEFINED`, do not collide with the built-ins,
+and evaluate identically. They are correct — do not mass-rename ~7,300 uses.
+
+### 26. Reserved Words Rejected as Identifiers
+
+`pos`, `palette`, `screen`, `color`, `scale`, `step`, `timer`, `width`,
+`height`, `key`, `line`, `point` and friends fail as a variable, parameter or
+field name:
+
+```
+Name already in use (pos)
+Caused by (or after): FUNCTION Foo% (t AS STRING, pos AS INTEGER)
+```
+
+Prefix instead (`atPos`, `srcPalette`, `winWidth`). Probe a candidate name with a
+six-line standalone file — a full DRAW build takes ~5 minutes, the probe seconds.
+
 ---
 
 ## Main Loop Structure (DRAW.BAS)

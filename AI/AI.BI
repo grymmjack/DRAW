@@ -20,7 +20,14 @@ OPTION _EXPLICITARRAY
 CONST AI_MAX_TOOLS       = 16   ' Configured generator tools
 CONST AI_MAX_STYLES      = 48   ' Configured style guides
 CONST AI_MAX_PROMPTS     = 64   ' Saved prompt presets
-CONST AI_LAYER_POOL_SIZE = 64   ' Concurrent AI layers per project
+' One slot per layer slot: every layer in a document may be an AI layer, so a
+' smaller pool cannot describe them all. At 64 against MAX_LAYERS = 128, loading
+' a project with more than 64 AI layers left the surplus typed LAYER_TYPE_AI
+' (restored from the v24+ layer section) with aiDataIdx = 0 — no prompt, no
+' tooltip, Regenerate refused, and re-saving dropped their metadata for good.
+' AI_LAYER_gc cannot help there: on load the pool starts empty and every slot is
+' genuinely claimed. ~680 bytes per slot, so the extra 64 costs ~44 KB.
+CONST AI_LAYER_POOL_SIZE = MAX_LAYERS   ' Concurrent AI layers per project
 
 ' Position presets for placing a generated layer (3x3 grid + explicit)
 CONST AI_POS_TL     = 0

@@ -478,7 +478,23 @@ SUB AI_apply_macro (s AS STRING, macroName AS STRING, rawVal AS STRING)
     ' Copy the value out first — QB64 passes by reference and callers routinely
     ' hand in SHARED globals here.
     DIM v AS STRING
-    v$ = _TRIM$(rawVal$)
+    v$ = rawVal$
+
+    ' Every macro value ends up inside a command line handed to SHELL, so line
+    ' breaks cannot survive here: QB64 splits the command and passes it to the
+    ' platform shell, where an embedded newline truncates or mangles it. The
+    ' prompt box accepts Shift+ENTER, so this is now reachable with ordinary
+    ' typing rather than only via paste.
+    '
+    ' Collapse to spaces rather than dropping them — a generator reads a prompt
+    ' as free text, where a line break means a word gap. The stored prompt keeps
+    ' its newlines; only the command-line form is flattened.
+    DIM vi AS INTEGER
+    FOR vi% = 1 TO LEN(v$)
+        IF MID$(v$, vi%, 1) = CHR$(10) OR MID$(v$, vi%, 1) = CHR$(13) THEN MID$(v$, vi%, 1) = " "
+    NEXT vi%
+
+    v$ = _TRIM$(v$)
 
     DIM stem AS STRING
     stem$ = "{" + macroName$
@@ -638,23 +654,93 @@ END FUNCTION
 ' @return INTEGER - 1-based pool index, or 0 when the pool is full
 '
 FUNCTION AI_LAYER_alloc% ()
-    DIM i AS INTEGER
-    AI_LAYER_alloc% = 0
+    DIM i    AS INTEGER
+    DIM pass AS INTEGER
+    DIM slot AS INTEGER
+
+    slot% = 0
+    FOR pass% = 1 TO 2
+        FOR i% = 1 TO AI_LAYER_POOL_SIZE
+            IF AI_LAYER_DATA(i%).used = 0 THEN
+                slot% = i%
+                EXIT FOR
+            END IF
+        NEXT i%
+        IF slot% > 0 THEN EXIT FOR
+
+        ' Nothing free. Deleting an AI layer never released its slot, so a
+        ' session that made and removed 64 of them (four batches of 16) could
+        ' never generate again until restart. Reclaim the orphans and retry.
+        IF pass% = 1 THEN AI_LAYER_gc
+    NEXT pass%
+
+    IF slot% = 0 THEN
+        AI_LAYER_alloc% = 0
+        EXIT FUNCTION
+    END IF
+
+    AI_LAYER_DATA(slot%).used      = TRUE
+    AI_LAYER_DATA(slot%).prompt    = ""
+    AI_LAYER_DATA(slot%).styleName = ""
+    AI_LAYER_DATA(slot%).toolName  = ""
+    AI_LAYER_DATA(slot%).seedVal   = 0
+    AI_LAYER_DATA(slot%).modelName = ""
+    AI_LAYER_DATA(slot%).genW      = 0
+    AI_LAYER_DATA(slot%).genH      = 0
+    AI_LAYER_alloc%                = slot%
+END FUNCTION
+
+
+''
+' Copy one AI layer's generation metadata into another pool slot.
+'
+' Mirrors TEXT_LAYER_copy_data. Duplicating a layer must give the copy its OWN
+' slot: sharing an index would make Edit Prompt on one silently rewrite both,
+' and freeing one would strand the other.
+'
+' @param srcIdx INTEGER - Source pool index
+' @param destIdx INTEGER - Destination pool index (already allocated)
+'
+SUB AI_LAYER_copy_data (srcIdx AS INTEGER, destIdx AS INTEGER)
+    IF srcIdx% < 1 OR srcIdx% > AI_LAYER_POOL_SIZE THEN EXIT SUB
+    IF destIdx% < 1 OR destIdx% > AI_LAYER_POOL_SIZE THEN EXIT SUB
+    IF NOT AI_LAYER_DATA(srcIdx%).used THEN EXIT SUB
+
+    AI_LAYER_DATA(destIdx%)      = AI_LAYER_DATA(srcIdx%)
+    AI_LAYER_DATA(destIdx%).used = TRUE
+END SUB
+
+
+''
+' Release pool slots no live AI layer points at.
+'
+' Deliberately conservative: a slot is freed only when nothing claims it, so a
+' bug elsewhere costs a leaked slot rather than another layer's prompt. Called
+' lazily from AI_LAYER_alloc% when the pool looks full — cheap enough at 64
+' slots x MAX_LAYERS, and never on a hot path.
+'
+SUB AI_LAYER_gc ()
+    DIM i    AS INTEGER
+    DIM pool AS INTEGER
+    DIM live(1 TO AI_LAYER_POOL_SIZE) AS INTEGER
+
     FOR i% = 1 TO AI_LAYER_POOL_SIZE
-        IF AI_LAYER_DATA(i%).used = 0 THEN
-            AI_LAYER_DATA(i%).used      = TRUE
-            AI_LAYER_DATA(i%).prompt    = ""
-            AI_LAYER_DATA(i%).styleName = ""
-            AI_LAYER_DATA(i%).toolName  = ""
-            AI_LAYER_DATA(i%).seedVal   = 0
-            AI_LAYER_DATA(i%).modelName = ""
-            AI_LAYER_DATA(i%).genW      = 0
-            AI_LAYER_DATA(i%).genH      = 0
-            AI_LAYER_alloc%             = i%
-            EXIT FUNCTION
+        live(i%) = 0
+    NEXT i%
+
+    FOR i% = 1 TO MAX_LAYERS
+        IF LAYERS(i%).layerType% = LAYER_TYPE_AI THEN
+            pool% = LAYERS(i%).aiDataIdx%
+            IF pool% >= 1 AND pool% <= AI_LAYER_POOL_SIZE THEN live(pool%) = -1
         END IF
     NEXT i%
-END FUNCTION
+
+    FOR i% = 1 TO AI_LAYER_POOL_SIZE
+        IF AI_LAYER_DATA(i%).used <> 0 AND live(i%) = 0 THEN
+            AI_LAYER_DATA(i%).used = FALSE
+        END IF
+    NEXT i%
+END SUB
 
 
 ''

@@ -332,13 +332,18 @@ FUNCTION AI_DLG_generate% (titleTxt AS STRING, defW AS INTEGER, defH AS INTEGER,
     ' uses inside a dialog.
     DIM promptTI AS INTEGER
     promptTI% = TI_create%(fldX%, yPrompt%, fldW%, promptH%)
-    ' TI's MULTILINE renderer lays out character-by-character at a fixed
-    ' TI_fontW pitch, so it needs a monospace font — DRAW's proportional Tiny5
-    ' rendered visibly spread out ("a  h u m a n o i d").
+    ' Load DRAW's theme font normally and let TI measure it.
     '
-    ' Rather than fall back to the chunky 8x8 ROM font, load DRAW's OWN theme
-    ' font with _LOADFONT's MONOSPACE flag, which forces a uniform advance. The
-    ' text area then matches the rest of the UI and still lays out correctly.
+    ' This used to force _LOADFONT's MONOSPACE flag, because TI's multiline
+    ' renderer placed every glyph at a fixed column * fontW pitch. That is the
+    ' wrong shape for a pixel font: Tiny5 at size 8 has a 6px monospace cell but
+    ' only ~4px of natural advance, and 'i' is 2px of ink in that same 6px cell.
+    ' The result was the text visibly gapped ("a  h u m a n o i d") — the
+    ' workaround was itself the cause.
+    '
+    ' TI_inputs().proportional makes the widget measure with _PRINTWIDTH for
+    ' wrap, caret, selection and hit-testing, so the proportional face lays out
+    ' exactly as it draws.
     DIM tiOldId AS INTEGER, tiOldW AS INTEGER, tiOldH AS INTEGER
     tiOldId% = TI_fontID : tiOldW% = TI_fontW : tiOldH% = TI_fontH
 
@@ -346,12 +351,21 @@ FUNCTION AI_DLG_generate% (titleTxt AS STRING, defW AS INTEGER, defH AS INTEGER,
     DIM tiMonoSize AS INTEGER
     tiMonoSize% = THEME.GLOBAL_FONT_SIZE%
     IF tiMonoSize% < 1 THEN tiMonoSize% = 8
-    tiMonoFont& = _LOADFONT(THEME_font_path$(THEME.GLOBAL_FONT_FILE$), tiMonoSize%, "MONOSPACE,DONTBLEND")
+    tiMonoFont& = _LOADFONT(THEME_font_path$(THEME.GLOBAL_FONT_FILE$), tiMonoSize%, "DONTBLEND")
 
     DIM tiMonoW AS INTEGER, tiMonoH AS INTEGER
     IF tiMonoFont& > 0 THEN
-        tiMonoW% = _FONTWIDTH(tiMonoFont&)
+        ' _FONTWIDTH is only legal for monospace fonts and raises otherwise, so
+        ' derive a nominal advance by measuring instead. It is used purely as a
+        ' fallback/estimate now — real layout goes through _PRINTWIDTH.
+        ' Restore the caller's _FONT: measuring changes it on the current _DEST,
+        ' and the rest of the dialog draws before the widget ever renders.
+        DIM tiProbeFont AS LONG
+        tiProbeFont& = _FONT
+        _FONT tiMonoFont&
+        tiMonoW% = _PRINTWIDTH("n")
         tiMonoH% = _FONTHEIGHT(tiMonoFont&)
+        IF tiProbeFont& > 0 THEN _FONT tiProbeFont&
     END IF
     ' Fall back to the built-in 8x8 ROM font if the theme font will not load
     IF tiMonoFont& <= 0 OR tiMonoW% < 1 OR tiMonoH% < 1 THEN
@@ -370,10 +384,12 @@ FUNCTION AI_DLG_generate% (titleTxt AS STRING, defW AS INTEGER, defH AS INTEGER,
 
         TI_inputs(promptTI%).multiline   = TRUE
         TI_inputs(promptTI%).wordWrap    = TRUE
+        TI_inputs(promptTI%).proportional = TRUE
         TI_inputs(promptTI%).placeholder = "Describe what the AI should draw..."
-        ' fontHandle stays 0: the multiline path uses the shared TI font and
-        ' the currently selected _FONT, not this handle
-        TI_inputs(promptTI%).theme.fontHandle       = 0
+        ' Proportional mode measures outside the render path too (wrapping,
+        ' mouse hit-testing), where the active _FONT belongs to whoever is
+        ' drawing — so the widget needs its own handle, not 0.
+        TI_inputs(promptTI%).theme.fontHandle       = tiMonoFont&
         TI_inputs(promptTI%).theme.fontW            = tiFW%
         TI_inputs(promptTI%).theme.fontH            = tiFH%
         TI_inputs(promptTI%).theme.bgColor          = THEME.DIALOG_slider_track_bg~&
@@ -398,15 +414,25 @@ FUNCTION AI_DLG_generate% (titleTxt AS STRING, defW AS INTEGER, defH AS INTEGER,
         k& = _KEYHIT
 
         ' The focused text area gets first refusal on every key, so typing a
-        ' prompt cannot trigger dialog shortcuts. ENTER inserts a newline here
-        ' rather than submitting — that is what a text area is for, so GENERATE
-        ' is the only way to submit.
+        ' prompt cannot trigger dialog shortcuts — except the two the dialog
+        ' owns outright: ESC cancels, and plain ENTER generates. Shift+ENTER is
+        ' handed through so the text area can insert a newline.
+        '
+        ' Shift is read directly: _KEYHIT reports ENTER as 13 either way.
+        DIM tiShift AS INTEGER
+        tiShift% = (_KEYDOWN(100304) OR _KEYDOWN(100303))
+
         DIM tiAte AS INTEGER : tiAte% = FALSE
         IF promptTI% > 0 AND k& <> 0 AND TI_focusedId = promptTI% THEN
-            IF k& <> 27 THEN tiAte% = TI_process_key%(k&)
+            ' Withhold the keys the dialog owns, exactly as ESC is withheld.
+            ' Plain ENTER means GENERATE; Shift+ENTER is a newline and belongs
+            ' to the text area, which already inserts one for a multiline input.
+            DIM tiOwn AS INTEGER
+            tiOwn% = (k& = 27) _ORELSE (k& = 13 _ANDALSO _NEGATE tiShift%)
+            IF _NEGATE tiOwn% THEN tiAte% = TI_process_key%(k&)
         END IF
 
-        IF k& = 27 AND NOT tiAte% THEN
+        IF k& = 27 _ANDALSO _NEGATE tiAte% THEN
             IF SW_DD.openId > 0 THEN
                 SW_DD.openId = -1       ' first ESC closes an open list
             ELSEIF TI_focusedId = promptTI% AND promptTI% > 0 THEN
@@ -415,7 +441,10 @@ FUNCTION AI_DLG_generate% (titleTxt AS STRING, defW AS INTEGER, defH AS INTEGER,
                 ctx.done = TRUE         ' and finally cancels the dialog
             END IF
         END IF
-        IF k& = 13 THEN                                     ' ENTER generates
+        ' _NEGATE (logical) not NOT (bitwise): TI_process_key% returns the
+        ' focused widget's ID, and NOT 1 is -2 — still truthy — so the old
+        ' guard always passed and ENTER submitted even after the text area took it.
+        IF k& = 13 _ANDALSO _NEGATE tiAte% THEN                      ' ENTER generates
             IF LEN(_TRIM$(curPrompt$)) > 0 AND curTool% >= 1 THEN
                 ctx.result = TRUE
                 ctx.done   = TRUE
@@ -442,7 +471,7 @@ FUNCTION AI_DLG_generate% (titleTxt AS STRING, defW AS INTEGER, defH AS INTEGER,
             END IF
             DIM tiOldFont AS LONG
             tiOldFont& = _FONT
-            _FONT tiMonoFont&            ' theme font forced monospace
+            _FONT tiMonoFont&            ' DRAW's theme font, measured proportionally
             TI_render promptTI%, 0, 0
             _FONT tiOldFont&
         END IF

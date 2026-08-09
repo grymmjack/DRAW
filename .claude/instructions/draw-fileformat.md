@@ -82,7 +82,29 @@ LAYER_PANEL.isDragging% = FALSE: LAYER_PANEL.dragLayerIdx% = 0
 LAYER_PANEL.opacityDrag% = FALSE
 ```
 
-**When adding new tool/panel state, add its reset here.**
+**When adding new tool/panel state, add its reset to all THREE document-creation
+paths** — `DRW_load_binary` (open), `DRW_new_canvas` (File > New) and
+`DRW_create_canvas_at_size` (New from Clipboard / New from AI) — then diff them
+against each other. They have already drifted apart once in both directions:
+New reset the ten smart-shape sub-tools and the custom brush but not the basic
+shape tools, the transform overlay or the panel modes; Open reset the panel modes
+but neither shape-tool set.
+
+Transient tool state is not cosmetic. `TRANSFORM` holds a handle to the previous
+layer's content, and `BEZIER`, `POLY_LINE`, `SPRAY` and `ERASER` each hold a
+canvas snapshot captured for undo — carrying one across a document switch leaks
+the handle and lets a commit record an undo state from a document that is no
+longer open. The multi-click tools make this reachable without holding the mouse:
+place two polygon vertices, open another project, click once more.
+
+Audit by extracting the reset calls from each SUB and diffing:
+
+```
+grep -o '[A-Z_]*_reset[a-z_]*' <each SUB> | sort -u   # then comm -3 the results
+```
+
+Use `ZOOM_drag_reset`, never `ZOOM_reset`, in the **open** path — the latter
+resets `SCRN.zoom!` and the pan offsets the loader is restoring.
 
 ---
 
