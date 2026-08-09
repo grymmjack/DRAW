@@ -77,7 +77,8 @@ When only the cursor moved, `SCENE_DIRTY%` stays FALSE. The renderer copies the 
 | blendMode        | INTEGER    | One of 19 blend modes                                   |
 | contentDirty%    | INTEGER    | Pixel content changed — invalidates opacity cache       |
 | opacityCacheImg& | LONG       | Cached opacity-adjusted image                           |
-| layerType        | INTEGER    | `LAYER_TYPE_IMAGE` (0), `LAYER_TYPE_TEXT` (1), or `LAYER_TYPE_GROUP` (2) |
+| layerType        | INTEGER    | `LAYER_TYPE_IMAGE` (0), `LAYER_TYPE_TEXT` (1), `LAYER_TYPE_GROUP` (2), `LAYER_TYPE_SYMBOL_PARENT` (3), `LAYER_TYPE_SYMBOL_CHILD` (4), `LAYER_TYPE_AI` (5) |
+| aiDataIdx        | INTEGER    | Index into the `AI_LAYER_DATA` pool for `LAYER_TYPE_AI` layers; 0 = none. An AI layer composites exactly like an image layer — the type only drives the `[AI]` panel tag, tooltip, regenerate action, and v29 persistence |
 | parentGroupIdx   | INTEGER    | Index of parent group in `LAYERS()` (0 = top-level)    |
 | collapsed        | INTEGER    | TRUE if group is collapsed in layer panel               |
 | passThrough      | INTEGER    | TRUE = pass-through blend; FALSE = isolated group blend |

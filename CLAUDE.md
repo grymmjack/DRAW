@@ -159,6 +159,7 @@ These reflect real bugs that have shipped. Read `.claude/instructions/draw-proje
 14. **Apron coordinate offset:** when a layer is promoted (`apronW% > 0`), its `imgHandle&` is larger than the canvas. Canvas coord `(cx, cy)` maps to buffer coord `(cx + apronW, cy + apronH)`. Never write raw canvas coords into a promoted buffer.
 15. **`DRW_load_binary` must reset all tool/panel state.** When you add new tool or panel state, add the reset to `DRW_load_binary` — otherwise stale state leaks across project loads.
 16. **Custom brush rendering must handle eraser mode.** `CUSTOM_BRUSH_render` uses `_PUTIMAGE` + `_BLEND`, which silently drops transparent pixels. Check `PAL_FG_IS_TRANSPARENT%` and use `_DONTBLEND` + per-pixel `PSET _RGBA32(0,0,0,0)` to match `PAINT_pset_with_symmetry`.
+17. **Grep before allocating an action ID.** `CMD_execute_action` is one `SELECT CASE action_id%` spanning ~4,400 lines of `GUI/COMMAND.BM`. BASIC takes the **first** matching `CASE`, so a duplicate label is silent, unreachable dead code — QB64-PE emits no warning. This has shipped twice: AI actions took 1801–1809 and killed five Image-menu commands (fixed in 1.7.0 by moving AI to 1820–1828), and text styles took 1510–1512 from the Palette actions (fixed by moving to 1520–1522). Audit with:<br>`grep -n '^        CASE [0-9]' GUI/COMMAND.BM | sed 's/.*CASE //' | awk '{print $1}' | sort | uniq -d`
 
 ## Adding a new tool
 

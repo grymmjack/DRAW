@@ -48,8 +48,16 @@ Extension changed from `.drw` to `.draw` in v0.7.4 (CorelDRAW conflict).
 | Extract Grid Config | gridColCount(2), gridRowCount(2), gridCellW(2), gridCellH(2), extractGridDestDir(260), extractGridBaseFilename(64), gridNamingMethod(2), gridStartNumber(2) | v26+ |
 | Symbol Child Rotation | per-layer: symbolRotation(2) — 0=none, 1=90CW, 2=180, 3=270CW | v27+ |
 | Layer Name Width | Layer name field expanded from 16 bytes to 64 bytes (allows longer layer names up to 63 chars) | v28+ |
+| AI Layer Data | aiLayerCount(2), then per AI layer: layerIdx(2), seedVal(4), genW(2), genH(2), and four **length-prefixed** strings — prompt, styleName, toolName, modelName (each: len(2) + bytes, written only when len > 0) | v29+ |
 
-Constants: `DRW_MAGIC$ = "DRW1"`, `DRW_VERSION% = 28`, `DRW_CHUNK_VERSION% = 1`
+Constants: `DRW_MAGIC$ = "DRW1"`, `DRW_VERSION% = 29`, `DRW_CHUNK_VERSION% = 1`
+
+**AI layer strings are length-prefixed, not fixed-width.** `AI_LAYER_OBJ` declares
+`prompt AS STRING * 512` and friends, but writing those fixed widths would add ~670
+bytes per AI layer to every project file. Save `RTRIM$`es each field and writes
+`len(2) + bytes`; load reads the length first. Only layers with
+`layerType% = LAYER_TYPE_AI` **and** a live `aiDataIdx%` pool entry are counted and
+written, so `aiLayerCount` is not `LAYER_COUNT%`.
 
 **Per-document vs global config**: Character Mode (`useChars%`) is saved per-document in v19+ — it is NOT stored in `DRAW.cfg`. On fresh launch (no file loaded), `useChars%` defaults to FALSE. Character grid visibility/snap state is also per-document (v18+).
 
@@ -98,7 +106,9 @@ Config file: `DRAW.cfg` — plain text, one `key=value` per line. Loaded by `CON
 | Undo     | `HISTORY_MAX_RECORDS` (1024)                            |
 | Picker   | `PICKER_LOUPE_*` overlay layout, font, and colors |
 | Preview / Panels | `PREVIEW_*` (incl. `PREVIEW_MODE%`, `PREVIEW_COLOR_PICK%`, `PREVIEW_BIN_QUICK_LOOK%`, `PREVIEW_FLOAT_IMAGE_PATH$`, `PREVIEW_FLOAT_LAST_DIR$`), `EDIT_BAR_VISIBLE%`, `EDIT_BAR_DOCK_POSITION$`, `LAYER_PANEL_WIDTH%`, `LAYERS_PANEL_DOCK_EDGE$`, `TOOLBOX_DOCK_EDGE$`, `ADV_BAR_DOCK_POSITION$`, `ADV_BAR_VISIBLE%`, `COLOR_MIXER_VISIBLE%`, `COLOR_MIXER_X%`, `COLOR_MIXER_Y%` |
-| Palette UI | `PALETTE_SHOW_LOSPEC%`, `PALETTE_SHOW_CREATED%`, `PALETTE_CREATE_MAX_COLORS%` |
+| Palette UI | `PALETTE_SHOW_LOSPEC%`, `PALETTE_SHOW_CREATED%`, `PALETTE_CREATE_MAX_COLORS%`, `PALETTE_MENU_SHOW_CHIPS%` (color chips in the palette dropdown, default on) |
+| AI       | `AI_ENABLED%` — master opt-in, **default 0**. While off, no AI menu, item, command, layer tag or status text is registered or drawn. Every AI action re-checks it, since actions are reachable by ID as well as through menus. Tools/styles/prompts live in a separate `DRAW.ai.cfg` |
+| Crash    | `[CRASH]` section: `CRASH_LOGS_ENABLED` (TRUE/FALSE, default TRUE) — write crash reports to `<Desktop>/DRAW-log/DRAW-crash-logs/` |
 | Drawer / Templates | `DEFAULT_DSET_*_FILE$`, `TEMPLATE_DIR$` |
 | Export   | `BAS_EXPORT_BG_COLOR~&`, `BAS_WIP_ENABLED%` |
 | Audio    | `SOUNDS_ENABLED%`, `SOUNDS_VOLUME%`, `SOUNDS_MUTED%`, `MUSIC_ENABLED%`, `MUSIC_VOLUME%`, `MUSIC_MUTED%`, `MIDI_SF2_FILE$` (path to SoundFont2 file; empty = built-in FM OPL3) |

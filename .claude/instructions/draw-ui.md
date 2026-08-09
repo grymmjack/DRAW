@@ -4,7 +4,9 @@
 
 ## Menu Bar (`GUI/MENUBAR.BI` / `GUI/MENUBAR.BM`, ~1382 lines)
 
-Root menus (indices 0–10): FILE(0), EDIT(1), VIEW(2), SELECT(3), TOOLS(4), BRUSH(5), LAYER(6), PALETTE(7), IMAGE(8), HELP(9), AUDIO(10)
+Root menus (indices 0–10): FILE(0), EDIT(1), VIEW(2), SELECT(3), TOOLS(4), BRUSH(5), LAYER(6), PALETTE(7), IMAGE(8), HELP(9), AUDIO(10), plus **AI** — registered only when `CFG.AI_ENABLED` is on, so its root index is not fixed. `MENUBAR_rebuild` is called when the flag is toggled so the menu appears/disappears immediately.
+
+**`MENU_MAX_ITEMS` is 400** (raised from 300 when the crash-log items landed at 298/300). `MENUBAR_register_item` drops overflow **silently** — past the cap a new menu item simply never appears, with no error. Check the current total before adding items.
 
 - **ALT tap toggle**: ALT pressed then released without other keys → toggle FILE menu
 - **Keyboard nav (`kbActive%`)**: Arrow keys navigate items. When `kbActive% = TRUE`, mouse hover is ignored until mouse actually moves.
@@ -39,10 +41,36 @@ Root menus (indices 0–10): FILE(0), EDIT(1), VIEW(2), SELECT(3), TOOLS(4), BRU
 | 1101–1112 | Custom Brush | Capture, Clear, Recolor, Outline, Flip, Scale, Export, Rotate |
 | 1201–1206 | Assistants   | Constrain, AngleSnap, Square/Circle, Center, Clone, TempPicker |
 | 1401–1414 | Selection    | SelectFromLayer, Nudge 1/10px, Expand/Contract, SelectFromSelectedLayers |
-| 1501–1517 | Palette/Ref  | RefImage, GPL Import (1510), GPL Export (1511), Random, Color Picker, Swap FG/BG, Load from Lospec, Create from Image, Remap to Palette, Show Lospec Palettes |
-| 1601–1609 | Help/Tools   | About, CheatSheet, Manual, GitHub, Issues, Credits, PixelArtAnalyzer(1609) |
+| 1501–1519 | Palette/Ref  | RefImage, GPL Import (1510), GPL Export (1511), Random, Color Picker, Swap FG/BG, Load from Lospec, Create from Image, Remap to Palette, Show Lospec Palettes, ShowColorChipsInMenu(1519) |
+| 1601–1611 | Help/Tools   | About, CheatSheet, Manual, GitHub, Issues, Credits, Examples(1607), ShowTooltips(1608), PixelArtAnalyzer(1609), CaptureCrashLogs(1610), CrashLogsFolder(1611) |
 | 1701–1704 | Tools (menu) | Zoom, Spray, CmdPalette, CodeExport |
 | 1801–1805 | Canvas       | Resize dialog (1801), Crop dialog (1802), FlipCanvasH(1803), FlipCanvasV(1804), Resize Image with Content (1805) |
+| 1820–1828 | AI           | NewAILayer(1820), RegenerateLayer(1821), CancelGeneration(1822), ToolsDialog(1823), ToggleAIFeatures(1824), NewFromAI(1825), EditPrompt(1826), StyleEditor(1827), PromptEditor(1828) |
+
+> **⚠ Duplicate `CASE` labels compile silently — always grep before allocating an ID.**
+> `CMD_execute_action` is a single `SELECT CASE action_id%` spanning
+> `GUI/COMMAND.BM:719`–`:5120`. BASIC takes the **first** matching `CASE` and jumps to
+> `END SELECT`, so a second `CASE` with the same value is unreachable dead code.
+> QB64-PE emits no warning for this, and at ~4,400 lines the duplicate is invisible
+> to review.
+>
+> **Fixed in 1.7.0:** the AI actions originally shipped as 1801–1809, shadowing the
+> Canvas actions of the same IDs. Image → Resize Canvas / Crop / Flip H / Flip V did
+> nothing, and Resize Image with Content silently toggled AI features. AI was
+> renumbered to 1820–1828 (`GUI/COMMAND.BM`, `GUI/MENUBAR.BM`, `GUI/LAYERS.BM`
+> context menu, `INPUT/INPUT.BM` Ctrl+Alt+K).
+>
+> **Also fixed in 1.7.0 (the bug pre-dated 1.6.0):** `1510`/`1511`/`1512` were
+> allocated to both the Palette GPL actions and the text-style actions. The Palette
+> cases won, leaving Import / Export Text Styles as unreachable dead code — no menu
+> item misbehaved because nothing dispatched them. Text styles moved to `1520`–`1522`
+> and are now registered in `CMD_init`, so the command palette can reach them.
+>
+> **Audit for duplicates before allocating:**
+> ```
+> grep -n '^        CASE [0-9]' GUI/COMMAND.BM | sed 's/.*CASE //' | awk '{print $1}' | sort | uniq -d
+> ```
+> This must print nothing.
 | 1911–1914 | Drawer Sets  | Load, Save, Clear, Explore drawer-set folder |
 | 2001–2010 | Image Adj    | BrightnessContrast, HueSaturation, Levels, ColorBalance, Blur, Sharpen, Invert, Desaturate, Posterize, Pixelate |
 | 2012–2020 | Preview Win  | PreviewWindowSubmenu(2012), FollowMode(2013), FloatingImageMode(2014), BinQuickLook(2015), AllowColorPicking(2016), LoadImage(2017), RecentImages(2018), ClearRecentImages(2019), GrayscalePreview(2020) |

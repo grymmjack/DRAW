@@ -32,7 +32,8 @@
 | Directory               | Purpose                                                              |
 | ----------------------- | -------------------------------------------------------------------- |
 | `CFG/`                  | Configuration types, keyboard/mouse/joystick bindings                |
-| `CORE/`                 | Performance counters, error handling, image utilities, OS-native path resolution |
+| `CORE/`                 | Performance counters, error handling, crash logging/reporting (`CRASH.BI/BM`), image utilities, OS-native path resolution |
+| `AI/`                   | AI image generation — `AI.BI/BM` (config, tools/styles/prompts, layer metadata pool), `AI-CMD.BM` (menu actions), `AI-DIALOG.BM` (generate + list-manager dialogs), `AI-JOB.BM` (async runner, spinner, cancel), `AI-BATCH.BM` (multi-item queue). Shells out to a user-configured CLI; DRAW never talks to a model |
 | `GUI/`                  | UI components (toolbar, status bar, palette, grid, layers, menubar, command palette, organizer, drawer panel, preview window, edit bar, text bar, popup menus, dithering helpers, tooltips) |
 | `INPUT/`                | Input handlers (mouse, keyboard, joystick), file loaders, Lospec API |
 | `OUTPUT/`               | Screen rendering (`SCREEN_render`), file export (BAS, BMP, BSAVE, Export As 9 formats) |
@@ -81,6 +82,23 @@ OPTION _EXPLICITARRAY
 ### 1. NEVER Use `_DEST _CONSOLE`
 
 **Never** use `_DEST _CONSOLE` + `PRINT` for debug output — corrupts the active drawing destination mid-frame, causing rendering glitches, undo corruption, and silent data loss. **Always use `_LOGINFO`, `_LOGWARN`, `_LOGERROR`** instead.
+
+**The `ON ERROR` handler is where this bites hardest.** QB64-PE sets its internal
+`error_handling` flag the moment it jumps to the handler label and clears it **only**
+on `RESUME` (`libqb/src/error_handle.cpp:162`). For the entire body of the handler,
+trapping is OFF — so any statement in there that raises produces the modal
+"Unhandled Error" dialog, which is exactly what the trap exists to prevent, and a
+permanent hang under xvfb / the QA harness / CI.
+
+`FatalError` in `DRAW.BAS` therefore does **no I/O at all** — it stashes the error
+via `CRASH_stash_error`, checks two abort conditions, and `RESUME NEXT`s. Everything
+fallible (console note, report file, `mkdir`, `SHELL`, message box) runs from
+`CRASH_flush_pending`, called from the main loop with trapping re-armed, so a failure
+there is just another trapped error. The handler also must not touch `_DEST` — an
+earlier version set `_DEST _CONSOLE` and never restored it, so every frame after the
+first trapped error drew into the console (see gotcha #3).
+
+**Rule: an error handler may only do work that cannot itself raise.** Defer the rest.
 
 ### 2. Image Handle Cleanup
 
@@ -168,6 +186,12 @@ Per-frame animations (marching ants, blinking cursors) must render **after** `Sk
 ### 15. File Load Must Reset All State
 
 `DRW_load_binary` must reset all tool and panel state after loading. When adding new tool/panel state, ensure `DRW_load_binary` resets it.
+
+This now includes **AI state**: `DRW_load_binary` cancels an in-flight job
+(`IF AI_JOB_is_running% THEN AI_JOB_cancel`) and clears the whole
+`AI_LAYER_DATA` pool before repopulating it from the v29 section. Skipping either
+leaves a generation writing into a document that no longer exists, or leaks stale
+prompts onto layer indices the new document reuses.
 
 ### 16. Grid Drawing Must Be Triggered
 
@@ -295,7 +319,10 @@ A frame is "idle" when no input, mouse movement, GUI changes, or active tool ope
 | `DRAW.BAS`                | Main loop, application entry point                                  |
 | `GUI/GUI.BI`              | Tool constants (`TOOL_SELECT_*`, `TOOL_ERASER`), GUI context        |
 | `GUI/IMAGE-ADJ.BI/BM`     | Image adjustment dialogs (Brightness/Contrast, Hue/Sat, Levels, Blur, Posterize, Pixelate, etc.) with live preview |
-| `GUI/COMMAND.BM`          | Central action dispatcher (all 200+ commands)                       |
+| `GUI/COMMAND.BM`          | Central action dispatcher (all 200+ commands). One giant `SELECT CASE action_id%` (`:719`–`:5120`) — **grep for an ID literal before allocating it; duplicate `CASE` labels compile silently and the later one is dead code.** Bit the AI actions in 1.7.0 (fixed) and still affects 1510–1512; see the note in `draw-ui.md` |
+| `CORE/CRASH.BI/BM`        | Crash logging and reporting — desktop report file, sysinfo collection, 32-entry command breadcrumb ring; `CRASH_stash_error` (infallible, called from the `ON ERROR` handler) vs `CRASH_flush_pending` (does the I/O, called from the main loop) |
+| `AI/AI.BI`                | `AI_LAYER_OBJ` (per-layer generation metadata, pooled), `AI_JOB_OBJ`, `AI_TOOL_OBJ`, `AI_STYLE_OBJ`, batch queue type; `CONST AI_MAX_PROMPTS`, `AI_LAYER_POOL_SIZE` |
+| `AI/AI-JOB.BM`            | Async generation runner — `SHELL _DONTWAIT` + exit-code sentinel polled at 2 Hz from the main loop, timeout, cancel (kills the generator process), status-bar spinner |
 | `GUI/DITHER.BI/BM`        | Shared dithering algorithms and threshold helpers for gradients and posterize |
 | `INPUT/MOUSE.BM`          | Mouse processing pipeline (~2590 lines)                             |
 | `INPUT/KEYBOARD.BM`       | Keyboard shortcuts and handler                                      |

@@ -5,7 +5,7 @@ DRAW by Rick Christy <grymmjack@gmail.com>
 
 DRAW is a pixel art editor written in QB64PE that can export images as sourcecode
 
-Current release: v1.6.0
+Current release: v1.7.0
 
 ![DRAW GUI from v1.1.0](./GUI.png)
 
@@ -77,6 +77,7 @@ Current release: v1.6.0
 - **Dynamic Palette System** - Load palettes from .GPL files (GIMP Palette format)
 - **Palette Strip** - Shows current palette colors with scroll arrows for large palettes
 - **Palette Dropdown** - Click palette name to switch between available palettes
+- **Palette Color Chips** - Every row in the palette dropdown previews that palette's actual colors as chips beside its name (up to 64, with `...and N more` for larger palettes); parsing is cached and budgeted per frame so opening the menu over a large Lospec collection never stalls. Toggle via **Palette → Show Color Chips in Menu** (`PALETTE_MENU_SHOW_CHIPS`)
 - **Palette Workflows** - Load downloadable palettes from Lospec, create palettes from images, remap artwork to the active palette, and optionally include downloaded/user-created palettes in the picker
 - **Palette Ops Mode** - Toggle via organizer button to manage palette directly on the strip: double-click to change color (replaces on canvas), right-click to mark, middle-click to delete (remaps to nearest neighbor), shift+middle to insert, drag to rearrange, single-click for magic wand select
 - **[DOCUMENT] Palette** - Auto-created when palette ops modifies colors; embedded in DRW files; switch back via palette dropdown
@@ -112,7 +113,7 @@ Current release: v1.6.0
 - Visual cursor feedback with current color
 
 ### Layer System
-- Up to 64 layers with per-layer opacity, visibility, and blend mode
+- Up to 128 layer slots (default 32, set via `NUM_LAYERS`) with per-layer opacity, visibility, and blend mode
 - **19 blend modes**: Normal, Multiply, Screen, Overlay, Add, Subtract, Difference, Darken, Lighten, Color Dodge, Color Burn, Hard Light, Soft Light, Exclusion, Vivid Light, Linear Light, Pin Light, Color, Luminosity; plus **Pass Through** for layer groups
 - Solo layer (Alt+click eye icon) and visibility swipe (drag across eye icons)
 - Drag-and-drop layer reordering with visual feedback
@@ -170,7 +171,7 @@ Current release: v1.6.0
 - Themeable PNG icon toolbar (28 buttons in **4×7 grid**)
 - PNG cursors with theme-configurable hotspots and alpha transparency
 - **Fully themeable layer panel** — all colors, header height, and button bar height configurable via `ASSETS/THEMES/DEFAULT/THEME.CFG` (no recompile needed)
-- **Menu bar** with File, Edit, View, Select, Tools, Brush, Layer, Palette, Image, Help, and Audio menus plus full keyboard navigation
+- **Menu bar** with File, Edit, View, Select, Tools, Brush, Layer, Palette, Image, Help, and Audio menus (plus AI when enabled) and full keyboard navigation
 - Submenus auto-position within menu bar bounds (no toolbar/panel overlap)
 - Auto-hiding toolbar and status bar during active drawing
 - Manual UI toggle with Tab, F10, F11 — toggling panels does not shift the canvas
@@ -181,6 +182,7 @@ Current release: v1.6.0
 - **Settings Dialog** - GIMP-style tabbed settings interface for configuring application preferences
 - **About Screen** - Animated splash screen with version info and clickable GitHub link (can be disabled via Settings / the `SPLASH_ENABLED` config key)
 - **Custom GUI Dialogs** - Built-in color picker, message box, and file dialogs (QB64_GJ_LIB based)
+- **Crash Reports** - Unexpected runtime errors are trapped instead of dropping you into a modal dialog, and a report is written to `<Desktop>/DRAW-log/DRAW-crash-logs/`. Each report captures the error and its source location, OS/CPU/RAM/GPU details, window and canvas state, resolved paths, document state, and the last 32 commands you triggered — so a bug report can be a single attached file. One file per session; toggle via **Help → Capture Crash Logs**, open the folder via **Help → Crash Logs Folder...**
 
 ## Quick Start
 

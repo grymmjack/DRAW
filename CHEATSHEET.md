@@ -73,6 +73,12 @@ status bar as `OP:nn%` when below 100%.
 | **Click palette name** | Open dropdown to switch palettes |
 | **Letter keys (in picker)** | Jump to first palette starting with that letter |
 
+Each row in the palette dropdown previews that palette's actual colors as small
+chips beside its name (up to 64, with `...and N more` when a palette is larger).
+Toggle via **Palette → Show Color Chips in Menu**, persisted as
+`PALETTE_MENU_SHOW_CHIPS`. On narrow screens the chips shrink, then fall back to
+the name-only layout when they no longer fit.
+
 ### Palette Ops Mode
 
 Toggle via the **Palette Ops** organizer button. When active, the palette strip becomes a palette management tool.
@@ -1329,6 +1335,32 @@ Reference image state (position, scale, opacity, visibility, filename) is saved 
 | `Ctrl+,` | Open Settings dialog |
 | `--reset-defaults` (command-line flag) | Restore factory settings (overwrites `DRAW.cfg` with defaults) |
 
+## Crash Logs
+
+When DRAW hits an unexpected runtime error it traps it, keeps running where it
+can, and writes a report you can attach to a bug report.
+
+| Menu item | Function |
+|-----------|----------|
+| Help → Capture Crash Logs | Toggle crash reporting on/off (`CRASH_LOGS_ENABLED`) |
+| Help → Crash Logs Folder... | Open the report folder in Explorer / Finder / your file manager |
+
+Reports are written to:
+
+```
+<Desktop>/DRAW-log/DRAW-crash-logs/DRAW-MMDDYY@HHMMSS-crash.log
+```
+
+| Behaviour | Detail |
+|-----------|--------|
+| One file per session | The first error writes the full report; later errors append a short `--- ERROR #n ---` block (up to 100) |
+| Captured | Error code, message and source location, OS/CPU/RAM/GPU, window and viewport geometry, theme, resolved paths, command line, document state (file, unsaved flag, layers, tool, history) |
+| Breadcrumbs | The last 32 commands you triggered, so the report shows what led up to the failure |
+| Desktop detection | Follows a redirected or localized Desktop; falls back to the data directory if the desktop is not writable |
+
+If a session accumulates more than 20 trapped errors, DRAW writes the report and
+exits rather than continuing in an unknown state.
+
 ## Music Controls
 
 | Key | Function |
@@ -1734,11 +1766,12 @@ DRAW has an optional menu bar at the top of the screen providing access to all c
 | **Canvas** | Clear Canvas, Zoom In/Out, Reset Zoom |
 | **Tools** | All drawing tools (Dot, Brush, Line, etc.) |
 | **Layer** | New, Duplicate, Delete, Merge Down, Merge All, **Merge Selected** *(requires 2+ selected)*, Arrange, Align, Distribute |
-| **Palette** | Color Picker, Import Palette, Export Palette, Random Palette, Load Palette, Load from Lospec, Create from Image, Remap to Palette, Show Lospec Palettes, Swap Colors |
+| **Palette** | Color Picker, Import Palette, Export Palette, Random Palette, Load Palette, Load from Lospec, Create from Image, Remap to Palette, Show Lospec Palettes, Show Color Chips in Menu, Swap Colors |
 | **Image** | Resize Canvas, Resize Image with Content, Crop, Flip Canvas H/V, Brightness/Contrast, Hue/Saturation, Levels, Color Balance, Blur, Sharpen, Invert, Desaturate, Posterize, Pixelate |
 | **Tools** | All drawing tools (Dot, Brush, Line, etc.), Pixel Art Analyzer |
-| **Help** | Command Palette, Cheatsheet |
+| **Help** | About DRAW, Cheat Sheet, Manual, Pixel Art Analyzer, GitHub, Issue Tracker, Credits, Examples, Show Tooltips, **Capture Crash Logs**, **Crash Logs Folder...** |
 | **Audio** | Sound FX toggle, Music toggle, SFX/Music volume up/down, SFX/Music mute, Explore Music, Now Playing |
+| **AI** *(only when AI is enabled)* | New AI Layer, Regenerate Layer, Cancel Generation, Tools, Style Editor, Prompt Editor |
 
 ## UI Behavior
 
@@ -1874,7 +1907,7 @@ DRAW stores settings in `DRAW.cfg` in the application directory. Settings are lo
 | `TRANSPARENCY_CHECK_COLOR2` | Dark checkerboard color (hex RGB) |
 | `TRANSPARENCY_CHECK_SIZE_X` | Checkerboard square width (0=use theme) |
 | `TRANSPARENCY_CHECK_SIZE_Y` | Checkerboard square height (0=use theme) |
-| `MAX_LAYERS` | Maximum number of layers (1-64) |
+| `NUM_LAYERS` | Number of layer slots (1-128, default 32) |
 | `LAYER_PANEL_WIDTH` | Width of layer panel in pixels |
 | `APRON_ENABLED` | Enable extended layer canvas apron (TRUE/FALSE) |
 | `APRON_SIZE_PERCENT` | Apron margin as percentage of canvas size (1-200) |
@@ -1883,6 +1916,9 @@ DRAW stores settings in `DRAW.cfg` in the application directory. Settings are lo
 | `FONTS_INCLUDE_DRAW_EXTRAS` | Include extra TTF/OTF fonts from ASSETS/FONTS/ (TRUE/FALSE) |
 | `FONTS_INCLUDE_USER` | Include user TTF/OTF fonts from USER/FONTS/ (TRUE/FALSE) |
 | `FONTS_INCLUDE_USER_BITMAP` | Include user bitmap fonts from USER/FONTS/BITMAP/ (TRUE/FALSE) |
+| `PALETTE_MENU_SHOW_CHIPS` | Show color chips beside palette names in the dropdown (1/0, default 1) |
+| `AI_ENABLED` | Enable AI generation features (1/0, default 0 — off) |
+| `CRASH_LOGS_ENABLED` | Write crash reports to the desktop, in the `[CRASH]` section (TRUE/FALSE, default TRUE) |
 
 ## Command Line
 

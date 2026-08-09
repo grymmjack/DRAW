@@ -116,3 +116,29 @@ When converting `dispatched=FALSE` → `dispatched=TRUE`:
 2. Delete the inline `_KEYDOWN`/`STATIC pressed%` block in the legacy SUB
 3. Flip the `INPUT_register_*` call's last-but-one arg from `FALSE` to `TRUE`
 4. Run with `--developer` and verify no `[CONFLICT]` lines for the migrated binding
+
+### Migration hazard: a migrated key stealing a mode-local key
+
+Flipping a bare letter to `dispatched=TRUE` hands it to the central dispatcher, which
+runs **before** the legacy per-tool handlers. If some mode still uses that letter for
+something else, the dispatcher wins and the mode-local behaviour silently dies.
+
+Real case: `S` (1706 smart shapes) and `E` (118 eraser) became dispatched, so both
+switched tools mid-line-drag instead of cycling the line's start/end caps in
+`KEYBOARD_handle_shape_modifiers`.
+
+**Fix by context, not by un-migrating.** `INPUT_update_context` raises
+`CTX_DRAWING_IN_PROGRESS` while `TOOL_LINE` is dragging, and both bindings list it in
+their **forbidCtx** mask — so the dispatcher declines the key exactly in that mode and
+the legacy handler still sees it:
+
+```qb64
+' In INPUT_update_context:
+IF CURRENT_TOOL% = TOOL_LINE AND LINE_TOOL.DRAGGING THEN ctx = ctx OR CTX_DRAWING_IN_PROGRESS
+
+' In INPUTS_register_all — forbid that context on the tool-switch bindings:
+r% = INPUT_register_key%(115, 0, allMods%, 0, CTX_TEXT_ACTIVE OR CTX_DRAWING_IN_PROGRESS OR chordHeld, 1706, TRUE, "Smart shapes tool")
+```
+
+Before migrating a bare letter, grep the legacy handlers for that key to find every
+mode that already claims it.

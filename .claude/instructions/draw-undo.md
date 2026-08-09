@@ -51,7 +51,7 @@ DRAW uses a **unified history system** (`TOOLS/HISTORY.BI` / `HISTORY.BM`) for a
 | `HISTORY_record_ellipse` | Record ellipse with bounds |
 | `HISTORY_record_polyline` | Record polygon with point arrays |
 | `HISTORY_record_fill` | Record flood fill with seed point |
-| `HISTORY_record_transform` | Record transform/move/image adjustment |
+| `HISTORY_record_transform` | Record transform/move/image adjustment; also used for AI generation (`AI/AI-JOB.BM`, label `"AI Generate"`, snapshotting the layer before the generated image is imported) |
 | `HISTORY_record_canvas_resize` | Record canvas resize (crop, grow, or resize-with-content); stores old/new W×H and whether content was scaled |
 | `HISTORY_record_layer_add/delete/reorder/rename` | Structural layer ops |
 | `HISTORY_record_layer_merge` | Merge down |
