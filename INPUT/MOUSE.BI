@@ -13,8 +13,16 @@ TYPE MOUSE_OBJ
     Y                 AS INTEGER
     OLD_X             AS INTEGER
     OLD_Y             AS INTEGER
-    RAW_X             AS INTEGER ' Raw screen X coordinate (for GUI hover)
-    RAW_Y             AS INTEGER ' Raw screen Y coordinate (for GUI hover)
+    RAW_X             AS INTEGER ' Viewport X coordinate (window / displayScale)
+    RAW_Y             AS INTEGER ' Viewport Y coordinate (window / displayScale)
+    ' Chrome renders into SCRN.GUI&, which is guiScale times smaller than the
+    ' viewport and blitted back magnified — so a widget drawn at GUI (gx,gy)
+    ' appears at viewport (gx*guiScale, gy*guiScale). Hit-testing anything on
+    ' that surface must use these, NOT RAW_X/RAW_Y. Identical to RAW at scale 1.
+    ' Floating overlays (preview, colour mixer, tooltip) and the command palette
+    ' draw to screen 0 / the canvas, so they keep using RAW_X/RAW_Y.
+    GUI_X             AS INTEGER ' RAW_X \ guiScale — chrome hit-testing
+    GUI_Y             AS INTEGER ' RAW_Y \ guiScale — chrome hit-testing
     UNSNAPPED_X       AS INTEGER ' Canvas X before grid snap (for fill, picker, etc.)
     UNSNAPPED_Y       AS INTEGER ' Canvas Y before grid snap (for fill, picker, etc.)
     CON_X             AS INTEGER

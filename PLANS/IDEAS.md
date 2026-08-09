@@ -1,9 +1,19 @@
 # IDEAS
 
-## GUI SCALE independent of CANVAS scale
-- [ ] We need to be able to scale the GUI independent of the canvas
-- [ ] Currently it's unified
-  - [ ] I had this before, but we removed it
+## GUI SCALE independent of CANVAS scale — DONE
+- [x] We need to be able to scale the GUI independent of the canvas
+- [x] Currently it's unified
+
+**VIEW > GUI SCALE +/- / RESET**, command palette "GUI Scale: …", or `GUI_SCALE`
+in DRAW.cfg (0/1 = follow the canvas, 2-4 = bigger UI). The canvas scale and
+viewport do not move — which is the point: keep the display scale low so the
+viewport holds the most artwork, and raise the GUI scale to keep the interface
+readable.
+
+How it works: chrome already rendered into its own surface, `SCRN.GUI&`, so that
+surface is allocated at `viewport / guiScale` and blitted back magnified. Every
+widget scales at once and none were edited. Full write-up, including why the
+per-widget `USCALE` model could NOT be used, in `PLANS/GUI-SCALE-PLAN.md`.
   
 ## Use GLFW Stuff:
 a740g — 5/16/26, 6:13 PM

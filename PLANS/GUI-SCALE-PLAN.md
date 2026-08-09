@@ -1,4 +1,23 @@
-# GUI scale independent of canvas scale
+# GUI scale independent of canvas scale — DONE
+
+**Shipped.** VIEW > GUI SCALE +/-/RESET, command palette "GUI Scale: …",
+`GUI_SCALE` in DRAW.cfg. Verified: chrome renders 2x while the canvas scale and
+viewport are untouched, and hit-testing resolves correctly at 2x.
+
+Two notes for anyone extending it:
+
+- Chrome pixels are **magnified, not redrawn**, so text is chunky at 2x. Making
+  it crisp means the per-widget approach (real scale on every metric and font),
+  which is a much larger change — see "Thread a scale through every widget".
+- At 2x the chrome eats proportionally more of the viewport, so the menubar can
+  overflow and the palette strip wraps. That is inherent to the feature, not a
+  bug, but the menubar overflow indicator is worth a look at high GUI scales.
+
+The original plan follows.
+
+---
+
+
 
 Plan for decoupling chrome size from canvas magnification, so a large-pixel
 document (TheDraw fonts, big art) can use a low display scale — maximum canvas
