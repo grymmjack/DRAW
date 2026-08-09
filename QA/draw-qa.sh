@@ -473,6 +473,18 @@ draw_focus() {
 # Focus the canvas without drawing on it.  Temporarily switches to Move tool
 # (which doesn't paint on click), clicks the canvas centre, then restores the
 # previously-active tool via the hotkey passed as $1 (default: none).
+# canvas_focus [restore_key] — give DRAW focus by clicking the canvas.
+#
+# WARNING: this is NOT selection-neutral. It clicks with the MOVE tool, and
+# Move touches layer selection once groups are involved — MOVE_reset restores
+# the selection to the group header ("LAYERS_select moveGroupOrigin%"), and
+# clicking with Move on a group header auto-selects its children for a linked
+# move. If a test has just selected a specific layer, calling this afterwards
+# can silently move CURRENT_LAYER% somewhere else; painting then lands on a
+# different layer, or on a group where it is a no-op.
+#
+# After selecting a layer, use `key <tool>` instead — it switches tools without
+# clicking the canvas.
 canvas_focus() {
     local restore_key=${1:-""}
     dbg "canvas_focus → move tool, click canvas ($CANVAS_CX,$CANVAS_CY), restore='$restore_key'"
