@@ -49,6 +49,15 @@ TYPE CRASH_OBJ
     ENABLED       AS INTEGER ' TRUE = write crash reports (mirrors CFG.CRASH_LOGS_ENABLED)
     INITIALIZED   AS INTEGER ' TRUE after CRASH_init has run
     IN_HANDLER    AS INTEGER ' Re-entrancy guard — an error while reporting must not recurse
+    ' --- Expected-failure probe ---
+    ' QB64 forbids ON ERROR GOTO a label inside a SUB ("Common label within a
+    ' SUB/FUNCTION"), so a routine that WANTS to attempt a failing operation
+    ' cannot trap locally. Instead it raises PROBE_ACTIVE, runs the statement,
+    ' and lowers it: FatalError then skips the statement without stashing or
+    ' reporting anything. Keep the window to the guarded statements only — a
+    ' genuine unrelated error inside it would be swallowed.
+    PROBE_ACTIVE  AS INTEGER ' TRUE = errors are expected; do not report them
+    PROBE_TRIPPED AS INTEGER ' TRUE = an error fired while PROBE_ACTIVE
     REPORT_COUNT  AS INTEGER ' Error blocks written to the report this session
     NOTIFIED      AS INTEGER ' TRUE once the user has been told a report exists
     DIR_READY     AS INTEGER ' TRUE once LOG_DIR exists on disk

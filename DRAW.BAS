@@ -753,6 +753,15 @@ SYSTEM
 ' somewhere and leaving the destination elsewhere would corrupt every later
 ' frame (CLAUDE.md gotcha #3).
 FatalError:
+    ' An expected failure (e.g. probing whether a directory is writable). Record
+    ' that it tripped and skip the statement — no counter, no stash, no report.
+    ' Like everything else in this handler, these are assignments only: nothing
+    ' here can itself raise while trapping is disabled.
+    IF CRASH.PROBE_ACTIVE THEN
+        CRASH.PROBE_TRIPPED = -1
+        RESUME NEXT
+    END IF
+
     err_seen = err_seen + 1
     CRASH_stash_error ERR, _ERRORLINE, _INCLERRORFILE$, _INCLERRORLINE, _ERRORMESSAGE$
 

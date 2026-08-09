@@ -52,6 +52,49 @@ FUNCTION SAVE_has_basename_extension% (path AS STRING)
 END FUNCTION
 
 ''
+' Gate every save behind a real writability test.
+'
+' Saving into a drive/mount root (C:\ on Windows, / on Linux/macOS) or any other
+' protected directory made _SAVEIMAGE raise error 5. The runtime error trap turns
+' that into a crash report, which is technically survivable but tells the user
+' nothing about what went wrong. Checking first turns it into a plain sentence.
+'
+' Call AFTER the filename is final (extension appended, dots trimmed) and BEFORE
+' flattening — there is no point building a composite we cannot write.
+'
+' @param filePath STRING Full path about to be written
+' @return INTEGER TRUE when the save may proceed
+'
+FUNCTION SAVE_target_writable% (filePath AS STRING)
+    DIM ok  AS INTEGER
+    DIM res AS INTEGER
+    DIM dir AS STRING
+
+    ok% = PATHS_can_write_file%(filePath$)
+    IF ok% THEN
+        SAVE_target_writable% = TRUE
+        EXIT FUNCTION
+    END IF
+
+    dir$ = PATHS_parent_dir$(filePath$)
+    IF dir$ = "" THEN dir$ = "."
+    _LOGWARN "SAVE: target directory is not writable - " + dir$
+
+    POINTER_hide_for_dialog
+    res% = DRAW_message_box%("Cannot Save Here", _
+        "DRAW could not write to:" + CHR$(10) + CHR$(10) + _
+        dir$ + CHR$(10) + CHR$(10) + _
+        "That folder is read-only or needs administrator permission." + CHR$(10) + _
+        "Nothing has been saved and your artwork is unchanged." + CHR$(10) + CHR$(10) + _
+        "Try a folder you own, such as your Documents or home folder.", _
+        MB_BTN_OK, MB_ICON_WARNING)
+    POINTER_show_after_dialog
+    MOUSE_cleanup_after_dialog TRUE
+
+    SAVE_target_writable% = FALSE
+END FUNCTION
+
+''
 ' Save the painting surface (smart save)
 ' This is CTRL-S behavior:
 '   - If we have a known .draw filename, save silently as .draw
@@ -125,6 +168,9 @@ SUB SAVE_image ()
             filename$ = filename$ + ".png"
         END IF
         
+        ' Refuse unwritable targets before building a composite we cannot write
+        IF NOT SAVE_target_writable%(filename$) THEN EXIT SUB
+
         ' Flatten all visible layers and save
         DIM flatImg AS LONG
         flatImg& = LAYERS_flatten&
@@ -179,6 +225,10 @@ SUB SAVE_quick ()
         EXIT SUB
     END IF
     
+    ' The path came from an earlier save, but the drive may have gone read-only
+    ' (unplugged card, remounted share) since then — check again, not once.
+    IF NOT SAVE_target_writable%(CURRENT_FILENAME$) THEN EXIT SUB
+
     ' Flatten all visible layers and save
     DIM flatImg AS LONG
     flatImg& = LAYERS_flatten&
@@ -239,6 +289,9 @@ SUB SAVE_as ()
             filename$ = filename$ + ".png"
         END IF
         
+        ' Refuse unwritable targets before building a composite we cannot write
+        IF NOT SAVE_target_writable%(filename$) THEN EXIT SUB
+
         ' Flatten all visible layers and save
         DIM flatImg2 AS LONG
         flatImg2& = LAYERS_flatten&
@@ -323,6 +376,9 @@ SUB SAVE_selection ()
             filename$ = filename$ + ".png"
         END IF
         
+        ' Refuse unwritable targets before compositing the whole canvas twice
+        IF NOT SAVE_target_writable%(filename$) THEN EXIT SUB
+
         ' Create a cropped image from the selection — composite merged (all visible layers)
         cropped_image& = _NEWIMAGE(MARQUEE.BOX.w, MARQUEE.BOX.h, 32)
 

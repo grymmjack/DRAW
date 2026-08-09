@@ -369,3 +369,114 @@ SUB PATHS_write_migration_marker (markerPath$)
     PRINT #fh%, "beside the executable once you have confirmed everything works."
     CLOSE #fh%
 END SUB
+
+
+''
+' TRUE when a file can actually be created in the directory holding filePath$.
+'
+' Why an actual write and not a permission query: the portable C access() only
+' inspects the read-only ATTRIBUTE on Windows, not ACLs, so it happily reports
+' C:\ as writable — the very case this exists to catch. Creating a file is the
+' only test that agrees with what _SAVEIMAGE is about to attempt.
+'
+' OPEN raises on a protected path, and QB64 forbids a local ON ERROR handler
+' inside a SUB, so the failure is absorbed by FatalError via CRASH.PROBE_ACTIVE.
+' If OPEN fails, RESUME NEXT lands on the CLOSE of a handle that was never
+' opened, which raises too — also expected, also absorbed.
+'
+' @param filePath STRING Full path of the file about to be written
+' @return INTEGER TRUE if a probe file could be created and removed
+'
+''
+' Path separator for the host OS.
+' @return STRING "\" on Windows, "/" elsewhere
+'
+FUNCTION PATHS_sep$ ()
+    $IF WIN THEN
+        PATHS_sep$ = "\"
+    $ELSE
+        PATHS_sep$ = "/"
+    $END IF
+END FUNCTION
+
+
+''
+' Directory portion of a path, correct at filesystem roots.
+'
+' CONFIG_extract_dir$ cannot be used for this: it returns LEFT$(path, pos - 1),
+' so "/test.png" yields "" and "C:\test.png" yields "C:" — the first looks like
+' "no directory" (i.e. the current one) and the second means "whatever directory
+' is current on drive C", neither of which is the root the user actually picked.
+' Getting that wrong is precisely the read-only-root case this exists to catch.
+'
+' @param filePath STRING Full path to a file
+' @return STRING Directory, with the trailing separator kept ONLY on a root.
+'                "" when filePath has no directory part at all.
+'
+FUNCTION PATHS_parent_dir$ (filePath AS STRING)
+    DIM i  AS INTEGER
+    DIM ch AS STRING
+    DIM d  AS STRING
+
+    FOR i% = LEN(filePath$) TO 1 STEP -1
+        ch$ = MID$(filePath$, i%, 1)
+        IF ch$ = "/" OR ch$ = "\" THEN
+            IF i% = 1 THEN
+                ' POSIX root: "/test.png" -> "/"
+                PATHS_parent_dir$ = ch$
+                EXIT FUNCTION
+            END IF
+
+            d$ = LEFT$(filePath$, i% - 1)
+
+            ' Windows drive root: "C:\test.png" -> "C:\", not the drive-relative "C:"
+            IF LEN(d$) = 2 AND MID$(d$, 2, 1) = ":" THEN d$ = d$ + ch$
+
+            ' UNC share root: "\\server\share\x" -> keep the trailing separator
+            IF LEFT$(filePath$, 2) = "\\" AND i% = INSTR(3, filePath$, "\") THEN d$ = d$ + ch$
+
+            PATHS_parent_dir$ = d$
+            EXIT FUNCTION
+        END IF
+    NEXT i%
+
+    PATHS_parent_dir$ = ""
+END FUNCTION
+
+
+FUNCTION PATHS_can_write_file% (filePath AS STRING)
+    DIM dirPath AS STRING
+    DIM probe   AS STRING
+    DIM fh      AS INTEGER
+    DIM ok      AS INTEGER
+
+    dirPath$ = PATHS_parent_dir$(filePath$)
+    IF dirPath$ = "" THEN dirPath$ = "."
+
+    ' A name the user will never own, in the directory we are about to write to.
+    ' PATHS_parent_dir$ keeps the trailing separator on roots ("/", "C:\") and
+    ' drops it everywhere else, so add one only when it is missing.
+    probe$ = dirPath$
+    IF RIGHT$(probe$, 1) <> "/" AND RIGHT$(probe$, 1) <> "\" THEN
+        probe$ = probe$ + PATHS_sep$
+    END IF
+    probe$ = probe$ + ".draw-write-probe.tmp"
+
+    CRASH.PROBE_TRIPPED = FALSE
+    CRASH.PROBE_ACTIVE = TRUE
+    fh% = FREEFILE
+    OPEN probe$ FOR OUTPUT AS #fh%
+    CLOSE #fh%
+    CRASH.PROBE_ACTIVE = FALSE
+
+    ' Trust the filesystem, not the error flag: a tripped probe always means
+    ' failure, but an untripped one still has to show the file really landed.
+    ok% = _FILEEXISTS(probe$)
+    IF ok% THEN
+        CRASH.PROBE_ACTIVE = TRUE
+        KILL probe$
+        CRASH.PROBE_ACTIVE = FALSE
+    END IF
+
+    PATHS_can_write_file% = ok%
+END FUNCTION
