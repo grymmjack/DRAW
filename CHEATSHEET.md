@@ -1462,6 +1462,7 @@ Layers can be organized into collapsible groups for structure and non-destructiv
 | **Drag layer onto group** | Move layer into group via drag-and-drop |
 
 **Group Features:**
+- Groups **cannot be drawn on** — a group is a container with no pixels of its own. The group row shows a pencil-with-a-slash badge, and drawing tools show a "denied" cursor over the canvas. Configure in **Settings → Panels → Layer Panel**: *Warn Drawing on Group* explains it, *Auto-Add Layer to Group* creates a layer at the top of the group and draws there instead
 - Groups have their own **opacity** and **blend mode** (applied to composited children)
 - **Pass Through** blend mode (default for groups): children blend directly into the canvas as if ungrouped, but group opacity still applies
 - Groups can **nest** inside other groups (arbitrary depth)

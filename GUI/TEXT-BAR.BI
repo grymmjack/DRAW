@@ -28,7 +28,7 @@ CONST TEXT_BAR_FONT_NAME_MAX = 48
 
 ' The font-name BUTTON is inline in the toolbar row and every control after it
 ' shifts right by its width, so it stays much shorter than the dropdown.
-CONST TEXT_BAR_FONT_BTN_MAX  = 24
+CONST TEXT_BAR_FONT_BTN_MAX = 24
 
 ' Button ID constants for hit-testing
 CONST TEXT_BTN_NONE          = 0

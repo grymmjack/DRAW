@@ -333,6 +333,37 @@ six-line standalone file — a full DRAW build takes ~5 minutes, the probe secon
 
 ---
 
+### 27. A Group Layer's `imgHandle&` Is a 1x1 Placeholder
+
+`LAYERS_new_group%` allocates `_NEWIMAGE(1, 1, 32)`. The handle exists only so
+the slot reads as in-use — every "is this slot free?" test in the codebase is
+`LAYERS(i).imgHandle& = 0`, so a group needs a non-zero handle to be seen at
+all.
+
+The consequence is that painting on a group **appears to work and silently goes
+nowhere**: the draw lands in a 1x1 buffer that is never composited. There is no
+error and no log line. This looked like a broken brush more than once before it
+was tracked down.
+
+Anything that writes pixels must therefore check the type first:
+
+```qb64
+IF LAYERS(CURRENT_LAYER%).layerType% = LAYER_TYPE_GROUP THEN ...
+```
+
+`MOUSE_dispatch_tool_hold` has the canonical guard (alongside the sibling
+guards for text layers and symbol children), which either warns or — with
+`CFG.GROUP_DRAW_AUTO_LAYER%` — calls `LAYERS_new_in_group%` and lets the same
+stroke land on a real layer.
+
+Related: several group *commands* also silently no-op on the wrong selection.
+`CASE 722` (Ungroup), `723` (Merge Group) and `724` (Toggle Collapse) all
+require `CURRENT_LAYER%` to BE the group and have no else branch. `725` (Select
+All in Group) is the odd one out — it also accepts a child via
+`parentGroupIdx%`.
+
+---
+
 ## Main Loop Structure (DRAW.BAS)
 
 ```

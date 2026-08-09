@@ -66,8 +66,8 @@ TYPE CURSOR_OBJ
     ' Offsets are relative to the MOUSE POINT, not the image corner, so they
     ' read the same regardless of where this cursor's hotspot sits.
     ' Negative Y is up; the convention is a badge off the top-right.
-    denied_dx      AS INTEGER         ' X offset of the denied badge from the mouse point
-    denied_dy      AS INTEGER         ' Y offset of the denied badge from the mouse point
+    denied_dx AS INTEGER              ' X offset of the denied badge from the mouse point
+    denied_dy AS INTEGER              ' Y offset of the denied badge from the mouse point
 
     ' --- Overlay enable flags ---
     uses_overlay_fg        AS INTEGER ' TRUE to render FG color chip on cursor

@@ -77,7 +77,7 @@ Root menus (indices 0–10): FILE(0), EDIT(1), VIEW(2), SELECT(3), TOOLS(4), BRU
 | 2021      | Color Mixer  | ToggleColorMixer(2021) |
 | 2022      | Browser      | ToggleBrowser(2022) |
 | 2050–2054 | Character Map | ToggleCharMap(2050), DockLeft(2051), DockRight(2052), ToggleCharGrid(2053), ToggleSnapToCharGrid(2054) |
-| 2100      | Settings     | ACTION_SETTINGS — open Settings dialog (Ctrl+,; Ctrl+punctuation handled in `KEYBOARD_input_handler`, see CLAUDE.md gotcha #6); tabbed UI in `GUI/SETTINGS-TABS.BM` incl. Display tab's master UI Scale |
+| 2100      | Settings     | ACTION_SETTINGS — open Settings dialog (Ctrl+,; Ctrl+punctuation handled in `KEYBOARD_input_handler`, see CLAUDE.md gotcha #6); tabbed UI in `GUI/SETTINGS-TABS.BM` incl. Display tab's master UI Scale, and Panels tab's *Warn Drawing on Group* / *Auto-Add Layer to Group* (`CFG.GROUP_DRAW_NOTIFY%` / `CFG.GROUP_DRAW_AUTO_LAYER%`) |
 | 2201–2216 | Export As    | ExportPNGNative(2201), ExportPNG(2204), ExportGIF(2205), ExportJPG(2206), ExportTGA(2208), ExportBMP(2209), ExportHDR(2210), ExportICO(2211), ExportQOI(2216) |
 
 ### Command Palette

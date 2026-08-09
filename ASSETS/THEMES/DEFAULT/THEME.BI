@@ -664,7 +664,7 @@ CURSORS(CURSOR_DENIED_SMALL).hotspot_y_expr$ = "top"
 
 ' Per-cursor badge placement (offset from the MOUSE POINT). Tune per cursor so
 ' the badge clears that cursor's art instead of sitting on top of it.
-CURSORS(CURSOR_FILL).denied_dx%    = 14    ' bucket: badge clear of its top-right
+CURSORS(CURSOR_FILL).denied_dx%    = 14                                     ' bucket: badge clear of its top-right
 CURSORS(CURSOR_FILL).denied_dy%    = -21
 CURSORS(CURSOR_DROPPER).denied_dx% = 14
 CURSORS(CURSOR_DROPPER).denied_dy% = -21
