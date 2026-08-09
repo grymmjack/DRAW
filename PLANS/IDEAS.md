@@ -60,6 +60,12 @@ _WINDOWHANDLE works on all platforms.
     - Including the font type
 - [ ] Using kaleidotron style import for ANSI render to image -> Import (same funciton as import image)
 
+## Animation Support
+- [ ] TBD (this needs deep thought)
+
+## Tilemap Support
+- [ ] TBD (this needs deep thought)
+
 ## Add color chips to popup palettes menu — DONE (v1.6.0+)
 - [x] It would be great if the actual palette chips were rendered in the palette picker popup menu
   - [x] Add a setting to enable this or disable it
