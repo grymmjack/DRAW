@@ -1,5 +1,4 @@
 #!/bin/bash
-# SKIP: scroll wheel not registering via xdotool on SDL2 (works manually)
 # =============================================================================
 # layer-opacity.sh — QA test: Change layer opacity via scroll wheel
 # Tests: Scroll wheel on opacity area in layer panel
