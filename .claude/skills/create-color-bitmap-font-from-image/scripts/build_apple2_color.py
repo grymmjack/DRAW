@@ -85,10 +85,15 @@ def render_cell(mask, phase, phosphor=None, gain=1.0, hscale=1, vscale=1,
     wide (hscale 1).  That is the whole difference between the two modes — the
     bitmaps are identical, the dot clock is not.
 
-    Scanlines dim the LOWER row of each vertical pair, and only where the dot is
-    lit.  Unlit dots stay pure background so they render transparent: a font has
-    to composite over whatever is behind it, and an opaque CRT ground would make
+    Scanlines dim every odd OUTPUT row, and only where the dot is lit.  Unlit
+    dots stay pure background so they render transparent: a font has to
+    composite over whatever is behind it, and an opaque CRT ground would make
     every glyph carry a black box.
+
+    With vscale=2 that dims the lower row of each doubled pair — a true scanline
+    gap, at the cost of a cell twice as tall.  With vscale=1 there is no room
+    for a gap, so it dims alternate rows of the glyph itself: not physically a
+    scanline, but it reads as CRT striping and costs nothing in size.
     """
     if phosphor is None:
         px = colorize_cell(mask, parity0=phase, gain=gain)
@@ -105,7 +110,7 @@ def render_cell(mask, phase, phosphor=None, gain=1.0, hscale=1, vscale=1,
             base = tuple(int(v) for v in px[r][c]) if phosphor else \
                 tuple(int(v) for v in px[r, c])
             for sy in range(vscale):
-                dim = scanlines and sy >= (vscale + 1) // 2
+                dim = scanlines and ((r * vscale + sy) % 2 == 1)
                 col = tuple(max(1, int(round(v * SCANLINE_DIM))) for v in base) if dim \
                     else (base if any(base) else (1, 1, 1))
                 for sx in range(hscale):
@@ -144,10 +149,24 @@ def build(out_path, phase=0, phosphor=None, gain=1.0, hscale=1, vscale=1,
     return out_path
 
 
-# name -> kwargs. 40-column dots are ~square, 80-column dots are half as wide,
-# so with rows doubled for scanlines the cells come out 14x16 and 7x16.
+# name -> kwargs. Three size tiers, because a scanline GAP needs a row of its own:
+#
+#   (no suffix)  7x8   native cell, one output pixel per dot
+#   -SCAN        7x8   striped: alternate glyph rows dimmed. Not a real scanline
+#                      gap, but it reads as one and costs nothing in size, so it
+#                      drops in beside the native fonts without a size jump.
+#   -CRT        14x16  true scanlines. 40-column dots are ~square so they double
+#         (80): 7x16   horizontally too; 80-column dots are half as wide so they
+#                      do not. This tier is 2x the native fonts by necessity.
 FAMILY = {
     "APPLE-][-40-COLUMNS-COLOR":       dict(hscale=1, vscale=1, scanlines=False),
+    "APPLE-][-40-COLUMNS-WHITE":       dict(hscale=1, vscale=1, scanlines=False, phosphor="white"),
+    "APPLE-][-40-COLUMNS-AMBER":       dict(hscale=1, vscale=1, scanlines=False, phosphor="amber"),
+    "APPLE-][-40-COLUMNS-GREEN":       dict(hscale=1, vscale=1, scanlines=False, phosphor="green"),
+    "APPLE-][-40-COLUMNS-COLOR-SCAN":  dict(hscale=1, vscale=1, scanlines=True),
+    "APPLE-][-40-COLUMNS-WHITE-SCAN":  dict(hscale=1, vscale=1, scanlines=True, phosphor="white"),
+    "APPLE-][-40-COLUMNS-AMBER-SCAN":  dict(hscale=1, vscale=1, scanlines=True, phosphor="amber"),
+    "APPLE-][-40-COLUMNS-GREEN-SCAN":  dict(hscale=1, vscale=1, scanlines=True, phosphor="green"),
     "APPLE-][-40-COLUMNS-COLOR-CRT":   dict(hscale=2, vscale=2, scanlines=True),
     "APPLE-][-40-COLUMNS-WHITE-CRT":   dict(hscale=2, vscale=2, scanlines=True, phosphor="white"),
     "APPLE-][-40-COLUMNS-AMBER-CRT":   dict(hscale=2, vscale=2, scanlines=True, phosphor="amber"),

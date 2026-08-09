@@ -242,12 +242,28 @@ keeps the //e glyphs at `U+E011`/`U+E012`, where `$47` matches the screenshot
 *exactly* (0 differing dots, against 24 for `U+0087`). `--iigs` selects the other
 set.
 
-**CRT variants.** Scanlines cannot be faked at 1:1 — you need at least two output
-rows per scanline, so a scanline sheet doubles the cell height. The two column
-modes share identical 7x8 bitmaps; what differs is the dot clock, so a 40-column
-dot is about square (14x16 cell once rows are doubled) and an 80-column dot is
-half as wide (7x16). Dimming applies **only to lit pixels** — an opaque CRT
-ground would make every glyph carry a black box and stop it compositing.
+**CRT variants, and why there are three size tiers.** A real scanline *gap* needs
+an output row of its own, so a true-scanline sheet is necessarily twice as tall
+as the native cell. That is a big deal in practice: dropped next to the 7x8
+original, a 14x16 font is 4x the area and the size jump is jarring enough that
+it reads as a different font rather than a variant.
+
+So the family ships three tiers: native 7x8, a `SCAN` tier that dims **alternate
+glyph rows** at 7x8 (not physically a scanline, but it reads as one and costs
+nothing in size), and the true-scanline `CRT` tier at 14x16 / 7x16. Offer the
+cheap tier — people reach for a font that matches the size of their other art far
+more often than for the accurate one.
+
+The two column modes share identical 7x8 bitmaps; what differs is the dot clock,
+so a 40-column dot is about square (14x16 once rows are doubled) and an
+80-column dot is half as wide (7x16). Dimming applies **only to lit pixels** — an
+opaque CRT ground would make every glyph carry a black box and stop it
+compositing.
+
+One implementation trap: express the dimming rule against the **output** row, as
+`(r * vscale + sy) % 2 == 1`. Writing it against the sub-row (`sy >= vscale/2`)
+looks equivalent and works at vscale=2, but silently becomes a no-op at
+vscale=1 — the 1x variant then builds fine and looks identical to the plain one.
 
 Monochrome variants deliberately carry no artifact colour: that is what a mono
 monitor showed, and it is exactly why 80-column text was unreadable on a colour

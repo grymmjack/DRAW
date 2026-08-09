@@ -1105,7 +1105,7 @@ Click on an existing text layer (in text tool mode) to re-enter editing. All for
 
 ### Color Bitmap Fonts (CBF)
 
-CBF fonts are DPaint-style spritesheet fonts (`.bmp`) that preserve their original pixel colors instead of being tinted to the foreground color. 33 bundled CBF fonts ship in `ASSETS/FONTS/COLOR_BITMAP/`.
+CBF fonts are DPaint-style spritesheet fonts (`.bmp`) that preserve their original pixel colors instead of being tinted to the foreground color. 40 bundled CBF fonts ship in `ASSETS/FONTS/COLOR_BITMAP/`.
 
 | Aspect | Behaviour |
 |--------|-----------|
@@ -1125,18 +1125,26 @@ open/closed apple, arrows, the return symbol, folder and scrollbar graphics) —
 pick those from the character grid. MouseText `$46`/`$47` are the **//e Enhanced**
 running-man pair, not the IIGS menu icons.
 
-| Font | Cell | Look |
-|------|------|------|
-| `APPLE ][ 40 COLUMNS COLOR` | 7×8 | NTSC composite artifact color, no scanlines |
-| `APPLE ][ 40 COLUMNS COLOR CRT` | 14×16 | Same, with CRT scanlines baked in |
-| `APPLE ][ 40 COLUMNS WHITE/AMBER/GREEN CRT` | 14×16 | Monochrome phosphor + scanlines |
-| `APPLE ][ 80 COLUMNS COLOR CRT` | 7×16 | 80-column, artifact color + scanlines |
-| `APPLE ][ 80 COLUMNS WHITE/AMBER/GREEN CRT` | 7×16 | 80-column mono phosphor + scanlines |
+Sixteen fonts in **three size tiers**. A real scanline gap needs an output row of
+its own, so it cannot exist at the native 7×8 cell — hence the tiers.
+
+| Suffix | Cell | Look |
+|--------|------|------|
+| *(none)* | 7×8 | Native cell, one pixel per dot. `COLOR` / `WHITE` / `AMBER` / `GREEN` |
+| `SCAN` | 7×8 | Striped: alternate glyph rows dimmed to 35%. Reads as CRT at **no size cost** — drops in beside the native fonts. `COLOR` / `WHITE` / `AMBER` / `GREEN` |
+| `CRT` | 14×16 (40 col)<br>7×16 (80 col) | True scanlines — a real dark row between each. Necessarily 2× the native fonts. `COLOR` / `WHITE` / `AMBER` / `GREEN` at both widths |
+
+Use the plain or `SCAN` fonts when you need to match the size of other 8px art;
+use `CRT` when you want the real thing and can afford the space.
 
 40- and 80-column share identical 7×8 bitmaps — the difference is the dot clock.
-A 40-column dot is roughly square, an 80-column dot is half as wide, so with rows
-doubled for scanlines the cells come out 14×16 and 7×16 respectively. Scanlines
-darken only lit pixels, so the area around glyphs stays transparent.
+A 40-column dot is roughly square, an 80-column dot is half as wide, so once rows
+are doubled for scanlines the cells come out 14×16 and 7×16 respectively.
+Dimming applies **only to lit pixels**, so the area around glyphs stays
+transparent and the font composites over any canvas.
+
+Monochrome variants carry no artifact color by design — that is what a mono
+monitor showed, and it is why 80-column text was unreadable on a color set.
 
 **Line spacing is 8px and that is hardware-accurate** — the Apple II text screen
 is 192 scanlines / 24 rows, capitals occupy 7 of the 8 rows, leaving exactly one
