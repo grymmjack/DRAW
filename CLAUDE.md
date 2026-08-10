@@ -90,7 +90,7 @@ Heavily-used globals: `SCRN`, `MOUSE`, `CFG`, `THEME`, `CURRENT_TOOL%`, `PAINT_C
 |------|------|
 | `CFG/` | `CONFIG.BI/BM` (DRAW.cfg loader), `CONFIG-THEME.BI/BM`, `BINDINGS.BI/BM` (keyboard/mouse rebind storage) |
 | `CORE/` | `PERF` (frame counters), `ERROR`, `PATHS` (OS-native dirs migrated 2026-05-02), `SOUND`, `IMAGE` |
-| `GUI/` | All UI widgets: toolbar, menubar, palette strip, layer panel, drawer, preview window, organizer, edit/advanced bars, dialogs, command palette, color mixer, image browser, character map, smart guides, transparency checkerboard, popup menus, tooltips, controls dialog |
+| `GUI/` | All UI widgets: toolbar, menubar, palette strip, layer panel, drawer, preview window, organizer, edit/advanced bars, dialogs, command palette, color mixer, image browser, character map, smart guides, transparency checkerboard, popup menus, tooltips, controls dialog. Also the font backends: `FONT-LIST` (TTF/bitmap/CBF) and `TDF-FONT`/`TDF-BROWSER` (TheDraw) |
 | `INPUT/` | `MOUSE.BM` (~2600 lines — the central input pipeline), `KEYBOARD.BM`, `MODIFIERS.BM`, `STICK.BM`, Aseprite/PSD/Lospec loaders |
 | `OUTPUT/` | `SCREEN.BM` (the render pipeline — `SCREEN_render`), file exporters (BAS, PNG/BMP/GIF/JPG/TGA/HDR/ICO/QOI, QB64 source) |
 | `TOOLS/` | Per-tool BI/BM pairs (brush, dot, line, rect, ellipse, polygon, fill, marquee, picker, move, transform, crop, spray, zoom, text, smart shapes, bezier, eraser, extract, etc.), plus `HISTORY.BI/BM` (unified undo/redo) and `DRW.BI/BM` (.draw file format) |
@@ -221,6 +221,7 @@ machine. Same convention is documented in the `grymmjack/qb64pe-mcp-server-bash`
 | `.claude/instructions/draw-chrome-geometry.md` | Toolbar/panel layout math |
 | `.claude/instructions/draw-sound.md` | Sound slots, music, SF2 MIDI |
 | `.claude/instructions/draw-text-tool.md` | Text tool state machine (points to `fix-text-tool-bug` skill) |
+| `.claude/instructions/draw-tdf-fonts.md` | TheDraw `.TDF` fonts: binary format, CP437 cell rasteriser, `.TDX` index, dedup repacker |
 
 The `.claude/skills/` directory contains procedural workflows for common tasks (release prep, QA test generation, bug fixing with state diagrams, PDF manual build, image upscaling, mind-map generation, QB64-PE porting/debugging). Each subdirectory has a `SKILL.md` invoked as a slash command.
 

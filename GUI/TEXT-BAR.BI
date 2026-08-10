@@ -62,6 +62,7 @@ CONST TEXT_BTN_ALIGN_C       = 27 ' Align center
 CONST TEXT_BTN_ALIGN_R       = 28 ' Align right
 CONST TEXT_BTN_AA            = 29 ' Antialias toggle
 CONST TEXT_BTN_SYNC          = 30 ' Style sync toggle [SYNC]
+CONST TEXT_BTN_TDF           = 31 ' Open the TheDraw font browser [TDF]
 
 TYPE TEXT_BAR_OBJ
     visible               AS INTEGER        ' TRUE when bar should be shown
@@ -124,6 +125,8 @@ TYPE TEXT_BAR_OBJ
     iconLineHeightOff     AS LONG           ' Line height icon dimmed copy
     charBtnX              AS INTEGER        ' CHAR button hit zone X
     charBtnW              AS INTEGER        ' CHAR button hit zone width
+    tdfBtnX               AS INTEGER        ' TDF button hit zone X
+    tdfBtnW               AS INTEGER        ' TDF button hit zone width
     syncBtnX              AS INTEGER        ' SYNC button hit zone X
     syncBtnW              AS INTEGER        ' SYNC button hit zone width
     ' --- Picked-style clipboard (ALT+U to pick, ALT+V to paste) ---

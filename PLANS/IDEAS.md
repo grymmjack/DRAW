@@ -1,5 +1,10 @@
 # IDEAS
 
+## GUI SCALE independent of CANVAS scale
+- [ ] We need to be able to scale the GUI independent of the canvas
+- [ ] Currently it's unified
+  - [ ] I had this before, but we removed it
+  
 ## Use GLFW Stuff:
 a740g — 5/16/26, 6:13 PM
 _CAPSLOCK, _NUMLOCK and _SCROLLLOCK now works on all platforms.
@@ -41,7 +46,7 @@ _WINDOWHANDLE works on all platforms.
 
 ## Add ANSI IMPORT/EXPORT SUPPORT
 - [ ] File -> Import ANSI | Export ANSI
-- [ ] Using IMG2ANS style export
+- [ ] Using IMG2ANS style export (~/git/IMG2ANS)
   - [ ] Detect if EGA palette - automatically
   - [ ] Detect if RGB palette - automatically
   - [ ] Show preview in export dialog:
@@ -58,19 +63,175 @@ _WINDOWHANDLE works on all platforms.
   - [ ] Height: ____ [auto]
     - Both are encoded as SAUCE
     - Including the font type
-- [ ] Using kaleidotron style import for ANSI render to image -> Import (same funciton as import image)
+- [ ] Using kaleidotron style IMPORT for ANSI render to image -> Import (same funciton as import image)
 
-## TDF Font Support
-- [ ] Using what we learned in kaleidotron
-- [ ] Actual Rendering of the TDF as pixels, edit, type, like a regular font.
-- [ ] Include the 1000+ TDF fonts.
-- [ ] For TDF Fonts allow rendered with antialias and allow downsize with antialias so it can be resized in a way that doesn't lose information.
+## TDF Font Support — DONE
+
+- [x] Using what we learned in kaleidotron
+      (format mirrors Mike Krueger's `retrofont`, which kaleidotron's
+      `src/decode/tdf.rs` delegates to — see the verification note below)
+- [x] Actual Rendering of the TDF as pixels, edit, type, like a regular font.
+- [x] Include the 1000+ TDF fonts. (3757 unique faces shipped)
+- [x] For TDF Fonts allow rendered with antialias and allow downsize with
+      antialias so it can be resized in a way that doesn't lose information.
+
+Implementation: `GUI/TDF-FONT.BI/BM` (parser + CP437 rasteriser),
+`GUI/TDF-BROWSER.BI/BM` (picker). Menu: TOOLS > THEDRAW FONT...,
+command palette "Browse TheDraw Fonts", action **1530**.
+
+### Why it looks the way it does
+
+**A TDF glyph is a grid of CP437 character cells, not pixels.** Each letter is
+rasterised through the 8x16 VGA font, so it drops straight into DRAW's existing
+bitmap-font path — `TEXT_LAYER_measure_char%` / `TEXT_LAYER_draw_bitmap_char`
+needed one new branch each, no new pixel machinery. Colour faces carry per-cell
+VGA attributes and are flagged `isColorBitmapFont` so the existing blit passes
+their colours through untouched; block/outline faces tint with the paint colour.
+
+**Assets are deduplicated, not raw.** The wild corpus is 1238 files / 8621 faces
+/ 51 MB, of which **4864 faces are exact duplicates** (the same face repackaged
+across collection bundles) and 148 files contribute nothing new at all.
+`DEV/tdf-repack.py` hashes each face by content and repacks the survivors into
+three bundles totalling 21.9 MB, copying each face record **verbatim** so no
+glyph can drift:
+
+| bundle | faces | size |
+|--------|-------|------|
+| `ASSETS/FONTS/THEDRAW/COLOR.TDF`   | 3560 | 21.1 MB |
+| `ASSETS/FONTS/THEDRAW/BLOCK.TDF`   |  191 |  0.7 MB |
+| `ASSETS/FONTS/THEDRAW/OUTLINE.TDF` |    6 |   25 KB |
+
+**Each bundle has a `.TDX` sidecar index.** COLOR.TDF holds 3560 *variable
+length* records, so listing face names by walking the file means reading all
+21 MB every launch. The 111 KB index makes that a small read plus a `SEEK`.
+
+**The declared glyph width/height bytes lie.** Parts of the corpus declare sizes
+up to 244x223 cells — 1952x3568 px for a single character. Both the repacker and
+`TDF_decode_glyph%` measure the true extent by walking the glyph byte stream
+instead; real maximum is 55x41. `TDF_MAX_CELLS_W/H` clamp anything beyond.
+
+**Face names are not unique** (4419 collisions across the corpus, and even after
+content-deduplication one bundle holds three different faces called
+"BigOutline"), so identity is `TDF://<BUNDLE>/<face name>#<ordinal>` — the
+trailing ordinal is load-bearing, not decoration. Same key is used for the
+favourites file.
+
+**TheDraw faces are excluded from Character Mode and the Character Map.** Both
+are fixed CP437 cell grids; a TDF glyph spans many cells and reports metrics
+like 152x176 for one letter. Feeding those to the character map sized its cells
+at 152x176 and built a ~2400px panel that swamped the UI. TDF faces are flagged
+`isBitmapFont` only so the glyph *render* path is reused —
+`TEXT_BAR_char_mode_font_is_safe%` now rejects them, `CHARMAP_toggle` refuses
+while one is selected, and `CHARMAP_build_bitmap_cache` refuses any font
+reporting cells above `CHARMAP_MAX_CELL_W/H` as a backstop.
+
+### Verified, not just eyeballed
+
+`DEV/EXPERIMENTS/TDF-TEST.BAS` dumps decoded cell grids; those were diffed
+against the reference `retrofont` crate over **60 glyphs spanning all three face
+types — 0 mismatches**, including 14 where both agree a glyph is undefined. All
+3757 faces parse, 3729 decode an 'A', 0 allocate oversize.
+
+### Known limitation
+
+`.draw` files store a text layer's font as a raw `fontIdx` INTEGER
+(`TEXT_LAYER_serialize$`), and the deserialiser sniffs format by *length* rather
+than a version byte — so font identity cannot be added there without breaking
+every existing document. TDF faces are registered on demand, which would have
+made this worse than it is for TTFs, so used faces are recorded in
+`DRAW_TDF_FONTS.txt` (config dir) and re-registered *before* `FONT_LIST_sort` on
+the next launch. That gives them the same index stability as any other installed
+font. Properly fixing font identity in `.draw` needs a versioned text-layer
+record and is its own task.
+
 
 ## Animation Support
 - [ ] TBD (this needs deep thought)
 
 ## Tilemap Support
 - [ ] TBD (this needs deep thought)
+
+## CREATE DARK THEME
+- [ ] To test the theme mode, we need a dark theme
+
+## ANTIALIAS MODE 
+- [ ] See plan: <a href="./ANTI-ALIASING-PLAN.md">Anti-Aliasing Plan</a>
+- [ ] Everything operates in anti-aliased mode. (this is a big one)
+
+
+## DRAW KITS
+- User sharable and exportable kits which contain all or one of:
+  - Themes
+  - Patterns
+  - Gradients
+  - Brushes
+  - Palettes
+  - Fonts
+    - Bitmap
+    - Truetype/etc.
+  - Text styles
+  - Templates
+
+### Install from zip
+- Choose zip
+- Show preview image
+- Show description
+- Show author information
+- Click install
+
+### Export to zip
+- Dialog with checkboxes of what to export in current state
+  - [ ] Themes
+  - [ ] Patterns
+  - [ ] Gradients
+  - [ ] Brushes
+  - [ ] Palettes
+  - [ ] Fonts
+    - [ ] Bitmap
+    - [ ] Truetype/etc.
+  - [ ] Text styles
+  - [ ] Templates
+- Name field
+- Description field
+- Screenshot chooser
+- Export button
+
+
+
+
+
+## ADDITIONAL TABLE LAYOUT MODE
+
+Like HTML table, with resizable columns/rows with row span, col span, padding, 
+cell alignment inside, borders, border widths, border colors, etc.
+
+### OPERATIONS
+- Select entire table
+- Select a column across whole table
+- Select a row across whole table
+- Select multiple columns
+- Select multiple rows
+- Apply a column span
+- Apply a row span
+- Remove a column span
+- Remove a row span
+- Insert a column to the right
+- Insert a column to the left
+- Delete a column
+- Delete selected columns
+- Insert a row above
+- Insert a row below
+- Delete a row
+- Delete selected rows
+- Move table
+- Export table
+- Convert table to GUIDE layer
+- DIVIDE EVENLY (visually)1
+
+---
+
+## COMPLETED
+
 
 ## Add color chips to popup palettes menu — DONE (v1.6.0+)
 - [x] It would be great if the actual palette chips were rendered in the palette picker popup menu
@@ -231,92 +392,6 @@ are edited from the AI menu instead), model/seed reported back FROM the tool,
         - [x] Image dimensions: W x H
     - [x] Prompt is embedded into image for later regeneration
     - [x] Generated pixels embed tool, args, model, seed, etc.
-
-## CREATE DARK THEME
-- [ ] To test the theme mode, we need a dark theme
-
-
-## TDF FONT SUPPORT
-- [ ] Render/load/use TheDraw fonts :)
-
-
-## ANTIALIAS MODE 
-- [ ] See plan: <a href="./ANTI-ALIASING-PLAN.md">Anti-Aliasing Plan</a>
-- [ ] Everything operates in anti-aliased mode. (this is a big one)
-
-
-## DRAW KITS
-- User sharable and exportable kits which contain all or one of:
-  - Themes
-  - Patterns
-  - Gradients
-  - Brushes
-  - Palettes
-  - Fonts
-    - Bitmap
-    - Truetype/etc.
-  - Text styles
-  - Templates
-
-### Install from zip
-- Choose zip
-- Show preview image
-- Show description
-- Show author information
-- Click install
-
-### Export to zip
-- Dialog with checkboxes of what to export in current state
-  - [ ] Themes
-  - [ ] Patterns
-  - [ ] Gradients
-  - [ ] Brushes
-  - [ ] Palettes
-  - [ ] Fonts
-    - [ ] Bitmap
-    - [ ] Truetype/etc.
-  - [ ] Text styles
-  - [ ] Templates
-- Name field
-- Description field
-- Screenshot chooser
-- Export button
-
-
-
-
-
-## ADDITIONAL TABLE LAYOUT MODE
-
-Like HTML table, with resizable columns/rows with row span, col span, padding, 
-cell alignment inside, borders, border widths, border colors, etc.
-
-### OPERATIONS
-- Select entire table
-- Select a column across whole table
-- Select a row across whole table
-- Select multiple columns
-- Select multiple rows
-- Apply a column span
-- Apply a row span
-- Remove a column span
-- Remove a row span
-- Insert a column to the right
-- Insert a column to the left
-- Delete a column
-- Delete selected columns
-- Insert a row above
-- Insert a row below
-- Delete a row
-- Delete selected rows
-- Move table
-- Export table
-- Convert table to GUIDE layer
-- DIVIDE EVENLY (visually)1
-
----
-
-## COMPLETED
 
 ### TEXT TOOL
 

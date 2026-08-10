@@ -1,0 +1,1312 @@
+''
+' DRAW - GUI/TDF-FONT.BM
+' =============================================================================
+' TheDraw (.TDF) font implementation. See GUI/TDF-FONT.BI for the data model.
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+''
+' One-time setup: VGA palette + the outline placeholder table.
+' Called at include time from TDF-FONT.BI, so it must not touch THEME.* (which
+' is not populated yet) or the filesystem — bundle scanning is lazy.
+'
+SUB TDF_init ()
+    TDF_VGA(0)  = _RGB32(0, 0, 0)
+    TDF_VGA(1)  = _RGB32(0, 0, 170)
+    TDF_VGA(2)  = _RGB32(0, 170, 0)
+    TDF_VGA(3)  = _RGB32(0, 170, 170)
+    TDF_VGA(4)  = _RGB32(170, 0, 0)
+    TDF_VGA(5)  = _RGB32(170, 0, 170)
+    TDF_VGA(6)  = _RGB32(170, 85, 0)
+    TDF_VGA(7)  = _RGB32(170, 170, 170)
+    TDF_VGA(8)  = _RGB32(85, 85, 85)
+    TDF_VGA(9)  = _RGB32(85, 85, 255)
+    TDF_VGA(10) = _RGB32(85, 255, 85)
+    TDF_VGA(11) = _RGB32(85, 255, 255)
+    TDF_VGA(12) = _RGB32(255, 85, 85)
+    TDF_VGA(13) = _RGB32(255, 85, 255)
+    TDF_VGA(14) = _RGB32(255, 255, 85)
+    TDF_VGA(15) = _RGB32(255, 255, 255)
+
+    ' TheDraw's 19 outline styles. An OUTLINE face stores placeholders 'A'..'Q'
+    ' instead of literal characters; the style chosen here decides whether the
+    ' letter is drawn in single lines, double lines, or half-blocks. Rows are
+    ' CP437 codes, generated from the reference table (see DEV notes).
+    DIM styleRow(0 TO TDF_OUTLINE_STYLES - 1) AS STRING
+    styleRow(0)  = "196,196,179,179,218,191,218,191,192,217,192,217,180,195,32,32,32"
+    styleRow(1)  = "205,196,179,179,213,184,218,191,212,190,192,217,181,195,32,32,32"
+    styleRow(2)  = "196,205,179,179,218,191,213,184,192,217,212,190,180,198,32,32,32"
+    styleRow(3)  = "205,205,179,179,213,184,213,184,212,190,212,190,181,198,32,32,32"
+    styleRow(4)  = "196,196,186,179,214,191,218,183,192,189,211,217,182,195,32,32,32"
+    styleRow(5)  = "205,196,186,179,201,184,218,183,212,188,211,217,185,195,32,32,32"
+    styleRow(6)  = "196,205,186,179,214,191,213,187,192,189,200,190,182,198,32,32,32"
+    styleRow(7)  = "205,205,186,179,201,184,213,187,212,188,200,190,185,198,32,32,32"
+    styleRow(8)  = "196,196,179,186,218,183,214,191,211,217,192,189,180,199,32,32,32"
+    styleRow(9)  = "205,196,179,186,213,187,214,191,200,190,192,189,181,199,32,32,32"
+    styleRow(10) = "196,205,179,186,218,183,201,184,211,217,212,188,180,204,32,32,32"
+    styleRow(11) = "205,205,179,186,213,187,201,184,200,190,212,188,181,204,32,32,32"
+    styleRow(12) = "196,196,186,186,214,183,214,183,211,189,211,189,182,199,32,32,32"
+    styleRow(13) = "205,196,186,186,201,187,214,183,200,188,211,189,185,199,32,32,32"
+    styleRow(14) = "196,205,186,186,214,183,201,187,211,189,200,188,182,204,32,32,32"
+    styleRow(15) = "205,205,186,186,201,187,201,187,200,188,200,188,185,204,32,32,32"
+    styleRow(16) = "220,220,219,219,220,220,220,220,219,219,219,219,219,219,32,32,32"
+    styleRow(17) = "223,223,219,219,219,219,219,219,223,223,223,223,219,219,32,32,32"
+    styleRow(18) = "223,220,222,221,222,221,220,220,223,223,222,221,219,219,32,32,32"
+
+    DIM s AS INTEGER, slot AS INTEGER, cursor AS INTEGER
+    DIM rowTxt AS STRING, piece AS STRING
+    DIM commaAt AS INTEGER
+    FOR s% = 0 TO TDF_OUTLINE_STYLES - 1
+        rowTxt$ = styleRow(s%) + ","
+        cursor% = 1
+        FOR slot% = 0 TO TDF_OUTLINE_SLOTS - 1
+            commaAt% = INSTR(cursor%, rowTxt$, ",")
+            IF commaAt% = 0 THEN EXIT FOR
+            piece$ = MID$(rowTxt$, cursor%, commaAt% - cursor%)
+            TDF_OUTLINE_CHAR(s%, slot%) = VAL(piece$)
+            cursor% = commaAt% + 1
+        NEXT slot%
+    NEXT s%
+
+    DIM c AS INTEGER
+    FOR c% = 0 TO TDF_CACHE_MAX - 1
+        TDF_CACHE_FACE(c%) = -1
+    NEXT c%
+    TDF_CACHE_COUNT% = 0
+
+    TDF_BUNDLE_COUNT% = 0
+    TDF_FACE_COUNT%   = 0
+    TDF_SCANNED%      = FALSE
+
+    TDF_OPTS.outlineStyle = 0
+    TDF_OPTS.extraSpacing = 0
+    TDF_OPTS.blackIsClear = TRUE
+    TDF_OPTS.scalePct     = TDF_SCALE_FULL
+    TDF_OPTS.antialias    = TRUE
+END SUB
+
+
+''
+' Scale a value from full glyph size to the current render scale.
+'
+FUNCTION TDF_scaled% (fullPx%)
+    IF TDF_OPTS.scalePct >= TDF_SCALE_FULL THEN
+        TDF_scaled% = fullPx%
+        EXIT FUNCTION
+    END IF
+    DIM v AS LONG
+    v& = (CLNG(fullPx%) * TDF_OPTS.scalePct) \ 100
+    IF v& < 1 _ANDALSO fullPx% > 0 THEN v& = 1
+    TDF_scaled% = v&
+END FUNCTION
+
+
+''
+' Exact 1/N downscale of a 32-bit image — averages whole NxN pixel blocks.
+'
+' Use this rather than TDF_downscale& whenever the result is shown to the user
+' at rest. A FRACTIONAL box filter makes each output pixel straddle a non-integer
+' number of input pixels (0.47x => 2.13 px per sample), which smears pixel art
+' into mush. At an integer ratio the block boundaries land exactly on pixel
+' boundaries, so a CP437 shade-block cell averages to one clean flat colour and
+' the result stays crisp.
+'
+' Returns a NEW image (caller owns it), or 0 on failure. divisor% < 2 is a no-op
+' returning 0 — the caller should just use the source.
+'
+FUNCTION TDF_downscale_int& (srcImg&, divisor%, antialias%)
+    TDF_downscale_int& = 0
+    IF srcImg& >= -1 THEN EXIT FUNCTION
+    IF divisor% < 2 THEN EXIT FUNCTION
+
+    DIM srcW AS INTEGER, srcH AS INTEGER
+    srcW% = _WIDTH(srcImg&)
+    srcH% = _HEIGHT(srcImg&)
+    IF srcW% < 1 _ORELSE srcH% < 1 THEN EXIT FUNCTION
+
+    DIM dstW AS INTEGER, dstH AS INTEGER
+    dstW% = (srcW% + divisor% - 1) \ divisor%
+    dstH% = (srcH% + divisor% - 1) \ divisor%
+    IF dstW% < 1 THEN dstW% = 1
+    IF dstH% < 1 THEN dstH% = 1
+
+    DIM dst AS LONG
+    dst& = _NEWIMAGE(dstW%, dstH%, 32)
+    IF dst& >= -1 THEN EXIT FUNCTION
+
+    DIM oldSrc AS LONG, oldDest AS LONG
+    oldSrc&  = _SOURCE
+    oldDest& = _DEST
+    _SOURCE srcImg&
+    _DEST dst&
+    CLS , _RGBA32(0, 0, 0, 0)
+
+    DIM dx AS INTEGER, dy AS INTEGER, sx AS INTEGER, sy AS INTEGER
+    DIM px AS _UNSIGNED LONG
+    DIM aSum AS LONG, rSum AS LONG, gSum AS LONG, bSum AS LONG
+    DIM n AS LONG, av AS INTEGER
+
+    FOR dy% = 0 TO dstH% - 1
+        FOR dx% = 0 TO dstW% - 1
+            aSum& = 0: rSum& = 0: gSum& = 0: bSum& = 0: n& = 0
+            FOR sy% = dy% * divisor% TO dy% * divisor% + divisor% - 1
+                IF sy% > srcH% - 1 THEN EXIT FOR
+                FOR sx% = dx% * divisor% TO dx% * divisor% + divisor% - 1
+                    IF sx% > srcW% - 1 THEN EXIT FOR
+                    px~& = POINT(sx%, sy%)
+                    av%  = _ALPHA32(px~&)
+                    ' Alpha-weighted colour so the transparent surround cannot
+                    ' fringe glyph edges dark.
+                    rSum& = rSum& + CLNG(_RED32(px~&)) * av%
+                    gSum& = gSum& + CLNG(_GREEN32(px~&)) * av%
+                    bSum& = bSum& + CLNG(_BLUE32(px~&)) * av%
+                    aSum& = aSum& + av%
+                    n&    = n& + 1
+                NEXT sx%
+            NEXT sy%
+            IF n& < 1 THEN _CONTINUE
+            IF aSum& < 1 THEN
+                PSET (dx%, dy%), _RGBA32(0, 0, 0, 0)
+            ELSEIF antialias% THEN
+                PSET (dx%, dy%), _RGBA32(rSum& \ aSum&, gSum& \ aSum&, bSum& \ aSum&, aSum& \ n&)
+            ELSE
+                PSET (dx%, dy%), POINT(dx% * divisor%, dy% * divisor%)
+            END IF
+        NEXT dx%
+    NEXT dy%
+
+    _SOURCE oldSrc&
+    _DEST oldDest&
+    TDF_downscale_int& = dst&
+END FUNCTION
+
+
+''
+' Box-filter downscale of a 32-bit image. Returns a NEW image; the caller owns
+' it and the source is left untouched. Falls back to nearest-neighbour when
+' antialias% is FALSE.
+'
+' Colours are averaged weighted by alpha (i.e. premultiplied) and alpha is
+' averaged separately, so a glyph's transparent surround does not bleed dark
+' fringes into its edges the way a naive RGBA average would.
+'
+FUNCTION TDF_downscale& (srcImg&, dstW%, dstH%, antialias%)
+    TDF_downscale& = 0
+    IF srcImg& >= -1 THEN EXIT FUNCTION
+    IF dstW% < 1 THEN EXIT FUNCTION
+    IF dstH% < 1 THEN EXIT FUNCTION
+
+    DIM srcW AS INTEGER, srcH AS INTEGER
+    srcW% = _WIDTH(srcImg&)
+    srcH% = _HEIGHT(srcImg&)
+    IF srcW% < 1 THEN EXIT FUNCTION
+    IF srcH% < 1 THEN EXIT FUNCTION
+
+    DIM dst AS LONG
+    dst& = _NEWIMAGE(dstW%, dstH%, 32)
+    IF dst& >= -1 THEN EXIT FUNCTION
+
+    DIM oldSrc AS LONG, oldDest AS LONG
+    oldSrc&  = _SOURCE
+    oldDest& = _DEST
+    _SOURCE srcImg&
+    _DEST dst&
+    CLS , _RGBA32(0, 0, 0, 0)
+
+    DIM dx AS INTEGER, dy AS INTEGER
+    DIM sx0 AS INTEGER, sx1 AS INTEGER, sy0 AS INTEGER, sy1 AS INTEGER
+    DIM sx AS INTEGER, sy AS INTEGER
+    DIM px AS _UNSIGNED LONG
+    DIM aSum AS LONG, rSum AS LONG, gSum AS LONG, bSum AS LONG
+    DIM n AS LONG, av AS INTEGER
+
+    FOR dy% = 0 TO dstH% - 1
+        ' Source rows covered by this destination row.
+        sy0% = (CLNG(dy%) * srcH%) \ dstH%
+        sy1% = (CLNG(dy% + 1) * srcH%) \ dstH% - 1
+        IF sy1% < sy0% THEN sy1% = sy0%
+        IF sy1% > srcH% - 1 THEN sy1% = srcH% - 1
+
+        FOR dx% = 0 TO dstW% - 1
+            sx0% = (CLNG(dx%) * srcW%) \ dstW%
+            sx1% = (CLNG(dx% + 1) * srcW%) \ dstW% - 1
+            IF sx1% < sx0% THEN sx1% = sx0%
+            IF sx1% > srcW% - 1 THEN sx1% = srcW% - 1
+
+            IF NOT antialias% THEN
+                PSET (dx%, dy%), POINT(sx0%, sy0%)
+                _CONTINUE
+            END IF
+
+            aSum& = 0: rSum& = 0: gSum& = 0: bSum& = 0: n& = 0
+            FOR sy% = sy0% TO sy1%
+                FOR sx% = sx0% TO sx1%
+                    px~& = POINT(sx%, sy%)
+                    av%  = _ALPHA32(px~&)
+                    ' Weight colour by alpha so transparent pixels contribute no
+                    ' colour, only their (zero) coverage.
+                    rSum& = rSum& + CLNG(_RED32(px~&)) * av%
+                    gSum& = gSum& + CLNG(_GREEN32(px~&)) * av%
+                    bSum& = bSum& + CLNG(_BLUE32(px~&)) * av%
+                    aSum& = aSum& + av%
+                    n&    = n& + 1
+                NEXT sx%
+            NEXT sy%
+
+            IF n& < 1 THEN _CONTINUE
+            IF aSum& < 1 THEN
+                PSET (dx%, dy%), _RGBA32(0, 0, 0, 0)
+            ELSE
+                ' Un-premultiply: divide the alpha-weighted colour sums by the
+                ' total alpha, and the alpha by the plain sample count.
+                PSET (dx%, dy%), _RGBA32(rSum& \ aSum&, gSum& \ aSum&, bSum& \ aSum&, aSum& \ n&)
+            END IF
+        NEXT dx%
+    NEXT dy%
+
+    _SOURCE oldSrc&
+    _DEST oldDest&
+    TDF_downscale& = dst&
+END FUNCTION
+
+
+''
+' Register the shipped bundles plus any user-supplied .TDF files. Idempotent and
+' lazy — call it before anything that reads TDF_FACE().
+'
+SUB TDF_ensure_scanned ()
+    IF TDF_SCANNED% THEN EXIT SUB
+    TDF_SCANNED% = TRUE
+
+    DIM assetDir AS STRING
+    assetDir$ = "./ASSETS/FONTS/THEDRAW/"
+    TDF_register_bundle assetDir$ + "OUTLINE.TDF", "OUTLINE", TRUE
+    TDF_register_bundle assetDir$ + "BLOCK.TDF", "BLOCK", TRUE
+    TDF_register_bundle assetDir$ + "COLOR.TDF", "COLOR", TRUE
+
+    TDF_load_favorites
+    TDF_presets_load
+    _LOGINFO "TDF_ensure_scanned: " + STR$(TDF_BUNDLE_COUNT%) + " bundle(s), " + STR$(TDF_FACE_COUNT%) + " face(s), " + STR$(TDF_FAVORITE_COUNT%) + " favourite(s)"
+END SUB
+
+
+''
+' The canonical identity string for a face: "TDF://<BUNDLE>/<name>#<ordinal>".
+'
+' The ordinal is load-bearing — a bundle holds several genuinely different faces
+' under one name (three distinct "BigOutline" faces ship in OUTLINE.TDF), so a
+' key without it would confuse them. Used for both the font list pseudo-path and
+' the favourites file.
+'
+FUNCTION TDF_face_key$ (faceIdx%)
+    TDF_face_key$ = ""
+    IF faceIdx% < 0 THEN EXIT FUNCTION
+    IF faceIdx% >= TDF_FACE_COUNT% THEN EXIT FUNCTION
+
+    DIM ord AS INTEGER
+    ord% = TDF_FACE(faceIdx%).dupIndex
+    IF ord% < 1 THEN ord% = 1
+    TDF_face_key$ = "TDF://" + RTRIM$(TDF_BUNDLE(TDF_FACE(faceIdx%).bundleIdx).labelTxt) + "/" + RTRIM$(TDF_FACE(faceIdx%).faceName) + "#" + LTRIM$(STR$(ord%))
+END FUNCTION
+
+
+''
+' Load starred faces from TDF_FAVORITES_FILE$ and flag them.
+'
+SUB TDF_load_favorites ()
+    TDF_FAVORITE_COUNT% = 0
+
+    DIM i AS INTEGER
+    FOR i% = 0 TO TDF_FACE_COUNT% - 1
+        TDF_FACE(i%).isFavorite = FALSE
+    NEXT i%
+
+    IF NOT _FILEEXISTS(TDF_FAVORITES_FILE$) THEN EXIT SUB
+
+    ' Read the whole file into a lookup pass rather than scanning 3757 faces per
+    ' line: build the key for each face once, then test membership.
+    DIM ff AS INTEGER
+    ff% = FREEFILE
+    OPEN TDF_FAVORITES_FILE$ FOR INPUT AS #ff%
+
+    DIM favBlob AS STRING
+    DIM favLine AS STRING
+    favBlob$ = CHR$(10)
+    DO WHILE NOT EOF(ff%)
+        LINE INPUT #ff%, favLine$
+        favLine$ = _TRIM$(favLine$)
+        IF LEN(favLine$) = 0 THEN _CONTINUE
+        IF LEFT$(favLine$, 1) = "#" THEN _CONTINUE
+        favBlob$ = favBlob$ + favLine$ + CHR$(10)
+    LOOP
+    CLOSE #ff%
+
+    FOR i% = 0 TO TDF_FACE_COUNT% - 1
+        IF INSTR(favBlob$, CHR$(10) + TDF_face_key$(i%) + CHR$(10)) > 0 THEN
+            TDF_FACE(i%).isFavorite = TRUE
+            TDF_FAVORITE_COUNT%     = TDF_FAVORITE_COUNT% + 1
+        END IF
+    NEXT i%
+END SUB
+
+
+''
+' Rewrite TDF_FAVORITES_FILE$ from the current flags.
+'
+SUB TDF_save_favorites ()
+    DIM ff AS INTEGER
+    ff% = FREEFILE
+
+    IF _FILEEXISTS(TDF_FAVORITES_FILE$) THEN KILL TDF_FAVORITES_FILE$
+    OPEN TDF_FAVORITES_FILE$ FOR OUTPUT AS #ff%
+    PRINT #ff%, "# DRAW - starred TheDraw faces. One key per line."
+
+    DIM i AS INTEGER
+    FOR i% = 0 TO TDF_FACE_COUNT% - 1
+        IF TDF_FACE(i%).isFavorite THEN PRINT #ff%, TDF_face_key$(i%)
+    NEXT i%
+    CLOSE #ff%
+END SUB
+
+
+''
+' Star / unstar one face and persist immediately.
+'
+SUB TDF_toggle_favorite (faceIdx%)
+    IF faceIdx% < 0 THEN EXIT SUB
+    IF faceIdx% >= TDF_FACE_COUNT% THEN EXIT SUB
+
+    IF TDF_FACE(faceIdx%).isFavorite THEN
+        TDF_FACE(faceIdx%).isFavorite = FALSE
+        TDF_FAVORITE_COUNT%           = TDF_FAVORITE_COUNT% - 1
+        IF TDF_FAVORITE_COUNT% < 0 THEN TDF_FAVORITE_COUNT% = 0
+    ELSE
+        TDF_FACE(faceIdx%).isFavorite = TRUE
+        TDF_FAVORITE_COUNT%           = TDF_FAVORITE_COUNT% + 1
+    END IF
+    TDF_save_favorites
+END SUB
+
+
+''
+' Load saved presets. Line format: name|faceKey|spacing|outline|scale|antialias
+' Pipe-delimited because a face name may contain almost anything else.
+'
+SUB TDF_presets_load ()
+    TDF_PRESET_COUNT% = 0
+    IF NOT _FILEEXISTS(TDF_PRESETS_FILE$) THEN EXIT SUB
+
+    DIM pf AS INTEGER
+    pf% = FREEFILE
+    OPEN TDF_PRESETS_FILE$ FOR INPUT AS #pf%
+
+    DIM ln AS STRING
+    DIM fld(0 TO 5) AS STRING
+    DIM fi AS INTEGER, atPos AS INTEGER, rest AS STRING
+    DO WHILE NOT EOF(pf%)
+        LINE INPUT #pf%, ln$
+        ln$ = _TRIM$(ln$)
+        IF LEN(ln$) = 0 THEN _CONTINUE
+        IF LEFT$(ln$, 1) = "#" THEN _CONTINUE
+        IF TDF_PRESET_COUNT% >= TDF_PRESET_MAX THEN EXIT DO
+
+        rest$ = ln$
+        FOR fi% = 0 TO 5
+            fld(fi%) = ""
+        NEXT fi%
+        FOR fi% = 0 TO 5
+            atPos% = INSTR(rest$, "|")
+            IF atPos% > 0 THEN
+                fld(fi%) = LEFT$(rest$, atPos% - 1)
+                rest$    = MID$(rest$, atPos% + 1)
+            ELSE
+                fld(fi%) = rest$
+                rest$    = ""
+            END IF
+        NEXT fi%
+        IF LEN(_TRIM$(fld(0))) = 0 THEN _CONTINUE
+        IF LEN(_TRIM$(fld(1))) = 0 THEN _CONTINUE
+
+        DIM pi AS INTEGER
+        pi% = TDF_PRESET_COUNT%
+        TDF_PRESET(pi%).nameTxt   = _TRIM$(fld(0))
+        TDF_PRESET(pi%).faceKey   = _TRIM$(fld(1))
+        TDF_PRESET(pi%).spacing   = VAL(fld(2))
+        TDF_PRESET(pi%).outline   = VAL(fld(3))
+        TDF_PRESET(pi%).scalePct  = VAL(fld(4))
+        TDF_PRESET(pi%).antialias = (VAL(fld(5)) <> 0)
+        IF TDF_PRESET(pi%).scalePct < TDF_SCALE_MIN THEN TDF_PRESET(pi%).scalePct = TDF_SCALE_FULL
+        IF TDF_PRESET(pi%).scalePct > TDF_SCALE_FULL THEN TDF_PRESET(pi%).scalePct = TDF_SCALE_FULL
+        TDF_PRESET_COUNT% = TDF_PRESET_COUNT% + 1
+    LOOP
+    CLOSE #pf%
+END SUB
+
+
+''
+' Rewrite the presets file from memory.
+'
+SUB TDF_presets_save ()
+    DIM pf AS INTEGER
+    pf% = FREEFILE
+    IF _FILEEXISTS(TDF_PRESETS_FILE$) THEN KILL TDF_PRESETS_FILE$
+    OPEN TDF_PRESETS_FILE$ FOR OUTPUT AS #pf%
+    PRINT #pf%, "# DRAW - TheDraw presets: name|faceKey|spacing|outline|scale|antialias"
+
+    DIM i AS INTEGER
+    FOR i% = 0 TO TDF_PRESET_COUNT% - 1
+        PRINT #pf%, RTRIM$(TDF_PRESET(i%).nameTxt) + "|" + RTRIM$(TDF_PRESET(i%).faceKey) + "|" + _
+                    _TRIM$(STR$(TDF_PRESET(i%).spacing)) + "|" + _TRIM$(STR$(TDF_PRESET(i%).outline)) + "|" + _
+                    _TRIM$(STR$(TDF_PRESET(i%).scalePct)) + "|" + _TRIM$(STR$(ABS(TDF_PRESET(i%).antialias)))
+    NEXT i%
+    CLOSE #pf%
+END SUB
+
+
+''
+' Save the current render parameters against a face, under presetName$.
+' Overwrites an existing preset of the same name. Returns its index, or -1.
+'
+FUNCTION TDF_preset_store% (presetName$, faceIdx%)
+    TDF_preset_store% = -1
+    IF LEN(_TRIM$(presetName$)) = 0 THEN EXIT FUNCTION
+    IF faceIdx% < 0 THEN EXIT FUNCTION
+    IF faceIdx% >= TDF_FACE_COUNT% THEN EXIT FUNCTION
+
+    DIM pi AS INTEGER
+    pi% = TDF_preset_find%(presetName$)
+    IF pi% < 0 THEN
+        IF TDF_PRESET_COUNT% >= TDF_PRESET_MAX THEN
+            _LOGWARN "TDF_preset_store: preset list full"
+            EXIT FUNCTION
+        END IF
+        pi%               = TDF_PRESET_COUNT%
+        TDF_PRESET_COUNT% = TDF_PRESET_COUNT% + 1
+    END IF
+
+    TDF_PRESET(pi%).nameTxt   = _TRIM$(presetName$)
+    TDF_PRESET(pi%).faceKey   = TDF_face_key$(faceIdx%)
+    TDF_PRESET(pi%).spacing   = TDF_OPTS.extraSpacing
+    TDF_PRESET(pi%).outline   = TDF_OPTS.outlineStyle
+    TDF_PRESET(pi%).scalePct  = TDF_OPTS.scalePct
+    TDF_PRESET(pi%).antialias = TDF_OPTS.antialias
+    TDF_presets_save
+    TDF_preset_store% = pi%
+END FUNCTION
+
+
+''
+' Index of a preset by name (case-insensitive), or -1.
+'
+FUNCTION TDF_preset_find% (presetName$)
+    TDF_preset_find% = -1
+    DIM want AS STRING
+    want$ = UCASE$(_TRIM$(presetName$))
+    IF LEN(want$) = 0 THEN EXIT FUNCTION
+
+    DIM i AS INTEGER
+    FOR i% = 0 TO TDF_PRESET_COUNT% - 1
+        IF UCASE$(RTRIM$(TDF_PRESET(i%).nameTxt)) = want$ THEN
+            TDF_preset_find% = i%
+            EXIT FUNCTION
+        END IF
+    NEXT i%
+END FUNCTION
+
+
+''
+' Remove a preset, closing the gap.
+'
+SUB TDF_preset_delete (presetIdx%)
+    IF presetIdx% < 0 THEN EXIT SUB
+    IF presetIdx% >= TDF_PRESET_COUNT% THEN EXIT SUB
+
+    DIM i AS INTEGER
+    FOR i% = presetIdx% TO TDF_PRESET_COUNT% - 2
+        TDF_PRESET(i%) = TDF_PRESET(i% + 1)
+    NEXT i%
+    TDF_PRESET_COUNT% = TDF_PRESET_COUNT% - 1
+    TDF_presets_save
+END SUB
+
+
+''
+' Apply a preset's render parameters and resolve its face.
+' Returns the face index, or -1 when that face is not installed (the parameters
+' are applied regardless, so a missing face degrades to "settings only").
+'
+FUNCTION TDF_preset_apply% (presetIdx%)
+    TDF_preset_apply% = -1
+    IF presetIdx% < 0 THEN EXIT FUNCTION
+    IF presetIdx% >= TDF_PRESET_COUNT% THEN EXIT FUNCTION
+
+    TDF_OPTS.extraSpacing = TDF_PRESET(presetIdx%).spacing
+    TDF_OPTS.outlineStyle = TDF_PRESET(presetIdx%).outline
+    TDF_OPTS.scalePct     = TDF_PRESET(presetIdx%).scalePct
+    TDF_OPTS.antialias    = TDF_PRESET(presetIdx%).antialias
+    IF TDF_OPTS.outlineStyle < 0 THEN TDF_OPTS.outlineStyle = 0
+    IF TDF_OPTS.outlineStyle >= TDF_OUTLINE_STYLES THEN TDF_OPTS.outlineStyle = 0
+
+    ' Resolve the stored key back to a face by scanning keys — presets are few
+    ' and this only runs on an explicit recall.
+    DIM want AS STRING
+    want$ = RTRIM$(TDF_PRESET(presetIdx%).faceKey)
+    DIM i AS INTEGER
+    FOR i% = 0 TO TDF_FACE_COUNT% - 1
+        IF TDF_face_key$(i%) = want$ THEN
+            TDF_preset_apply% = i%
+            EXIT FUNCTION
+        END IF
+    NEXT i%
+    _LOGWARN "TDF_preset_apply: face not installed — " + want$
+END FUNCTION
+
+
+''
+' TRUE when the text bar's current font is a TheDraw face.
+'
+' Lives here rather than in TEXT-BAR so subsystems that must opt out of TDF
+' (the character map, character mode) can ask without reaching into font-list
+' internals.
+'
+FUNCTION TDF_font_is_active% ()
+    TDF_font_is_active% = FALSE
+    IF TEXT_BAR.selectedFontIdx% < 0 THEN EXIT FUNCTION
+    IF TEXT_BAR.selectedFontIdx% >= FONT_LIST_COUNT% THEN EXIT FUNCTION
+    TDF_font_is_active% = FONT_LIST(TEXT_BAR.selectedFontIdx%).isTdfFont
+END FUNCTION
+
+
+''
+' Restore every render parameter to its default.
+'
+SUB TDF_opts_reset ()
+    TDF_OPTS.outlineStyle = 0
+    TDF_OPTS.extraSpacing = 0
+    TDF_OPTS.blackIsClear = TRUE
+    TDF_OPTS.scalePct     = TDF_SCALE_FULL
+    TDF_OPTS.antialias    = TRUE
+END SUB
+
+
+''
+' Load one .TDF bundle's face list from its .TDX sidecar index.
+' Silently no-ops when either file is missing so a partial install still runs.
+'
+SUB TDF_register_bundle (bundlePath$, labelTxt$, isBundled%)
+    IF TDF_BUNDLE_COUNT% >= TDF_BUNDLE_MAX THEN EXIT SUB
+    IF _FILEEXISTS(bundlePath$) = 0 THEN EXIT SUB
+
+    DIM idxPath AS STRING
+    DIM dotAt   AS INTEGER
+    dotAt%   = _INSTRREV(bundlePath$, ".")
+    IF dotAt% > 0 THEN
+        idxPath$ = LEFT$(bundlePath$, dotAt% - 1) + ".TDX"
+    ELSE
+        idxPath$ = bundlePath$ + ".TDX"
+    END IF
+    IF _FILEEXISTS(idxPath$) = 0 THEN
+        _LOGWARN "TDF_register_bundle: no index for " + bundlePath$
+        EXIT SUB
+    END IF
+
+    DIM fh AS INTEGER
+    fh% = FREEFILE
+    OPEN idxPath$ FOR BINARY AS #fh%
+
+    DIM magic AS STRING * 8
+    GET #fh%, 1, magic
+    IF magic <> "DRAWTDX1" THEN
+        CLOSE #fh%
+        _LOGWARN "TDF_register_bundle: bad index magic in " + idxPath$
+        EXIT SUB
+    END IF
+
+    DIM faceTotal AS LONG
+    GET #fh%, 9, faceTotal&
+    IF faceTotal& < 1 THEN
+        CLOSE #fh%
+        EXIT SUB
+    END IF
+
+    DIM bi AS INTEGER
+    bi% = TDF_BUNDLE_COUNT%
+    TDF_BUNDLE(bi%).filePath  = bundlePath$
+    TDF_BUNDLE(bi%).labelTxt  = labelTxt$
+    TDF_BUNDLE(bi%).firstFace = TDF_FACE_COUNT%
+    TDF_BUNDLE(bi%).isBundled = isBundled%
+
+    DIM rec   AS TDX_REC
+    DIM i     AS LONG
+    DIM added AS INTEGER
+    added% = 0
+    FOR i& = 0 TO faceTotal& - 1
+        IF TDF_FACE_COUNT% >= TDF_FACE_MAX THEN EXIT FOR
+        GET #fh%, 13 + i& * LEN(rec), rec
+        DIM fi AS INTEGER
+        fi% = TDF_FACE_COUNT%
+        TDF_FACE(fi%).bundleIdx  = bi%
+        TDF_FACE(fi%).fileOfs    = rec.fileOfs
+        TDF_FACE(fi%).blockSz    = rec.blockSz
+        TDF_FACE(fi%).faceType   = rec.faceType
+        TDF_FACE(fi%).gapDefault = rec.gapDefault
+        TDF_FACE(fi%).glyphCnt   = rec.glyphCnt
+        TDF_FACE(fi%).cellsH     = rec.cellsH
+        TDF_FACE(fi%).cellsW     = rec.cellsW
+        TDF_FACE(fi%).faceName   = LEFT$(rec.faceName, rec.nameLen)
+        TDF_FACE_COUNT%          = TDF_FACE_COUNT% + 1
+        added%                   = added% + 1
+    NEXT i&
+    CLOSE #fh%
+
+    IF added% = 0 THEN EXIT SUB
+    TDF_BUNDLE(bi%).faceCount = added%
+    TDF_BUNDLE_COUNT%         = TDF_BUNDLE_COUNT% + 1
+
+    ' Number same-named faces so the picker can tell them apart. The repacker
+    ' sorts each bundle by name, so duplicates are ADJACENT and two linear
+    ' passes suffice — a naive "count matches for each face" would be O(n^2)
+    ' over 3560 faces.
+    DIM s AS INTEGER, e AS INTEGER, runStart AS INTEGER
+    DIM firstF AS INTEGER, lastF AS INTEGER
+    firstF% = TDF_BUNDLE(bi%).firstFace
+    lastF%  = firstF% + added% - 1
+
+    runStart% = firstF%
+    FOR s% = firstF% TO lastF%
+        IF s% > firstF% THEN
+            IF RTRIM$(TDF_FACE(s%).faceName) <> RTRIM$(TDF_FACE(s% - 1).faceName) THEN
+                FOR e% = runStart% TO s% - 1
+                    TDF_FACE(e%).dupTotal = s% - runStart%
+                    TDF_FACE(e%).dupIndex = e% - runStart% + 1
+                NEXT e%
+                runStart% = s%
+            END IF
+        END IF
+    NEXT s%
+    FOR e% = runStart% TO lastF%
+        TDF_FACE(e%).dupTotal = lastF% - runStart% + 1
+        TDF_FACE(e%).dupIndex = e% - runStart% + 1
+    NEXT e%
+END SUB
+
+
+''
+' Face name for the picker, with a " #n" suffix when the bundle holds more than
+' one genuinely different face under that name.
+'
+FUNCTION TDF_face_display$ (faceIdx%)
+    TDF_face_display$ = ""
+    IF faceIdx% < 0 THEN EXIT FUNCTION
+    IF faceIdx% >= TDF_FACE_COUNT% THEN EXIT FUNCTION
+
+    DIM nm AS STRING
+    nm$ = RTRIM$(TDF_FACE(faceIdx%).faceName)
+    IF TDF_FACE(faceIdx%).dupTotal > 1 THEN
+        nm$ = nm$ + " #" + LTRIM$(STR$(TDF_FACE(faceIdx%).dupIndex))
+    END IF
+    TDF_face_display$ = nm$
+END FUNCTION
+
+
+''
+' Make sure face `faceIdx%`'s glyph block + lookup table are resident.
+' Returns the cache slot, or -1 on failure.
+'
+FUNCTION TDF_cache_slot% (faceIdx%)
+    TDF_cache_slot% = -1
+    IF faceIdx% < 0 THEN EXIT FUNCTION
+    IF faceIdx% >= TDF_FACE_COUNT% THEN EXIT FUNCTION
+
+    DIM c AS INTEGER
+    FOR c% = 0 TO TDF_CACHE_COUNT% - 1
+        IF TDF_CACHE_FACE(c%) = faceIdx% THEN
+            TDF_cache_slot% = c%
+            EXIT FUNCTION
+        END IF
+    NEXT c%
+
+    ' Evict the oldest entry when full (shift down, newest lands last).
+    IF TDF_CACHE_COUNT% >= TDF_CACHE_MAX THEN
+        DIM mv AS INTEGER, mk AS INTEGER
+        FOR mv% = 0 TO TDF_CACHE_MAX - 2
+            TDF_CACHE_FACE(mv%)  = TDF_CACHE_FACE(mv% + 1)
+            TDF_CACHE_BLOCK(mv%) = TDF_CACHE_BLOCK(mv% + 1)
+            FOR mk% = 0 TO TDF_CHAR_TABLE - 1
+                TDF_CACHE_LOOK(mv%, mk%) = TDF_CACHE_LOOK(mv% + 1, mk%)
+            NEXT mk%
+        NEXT mv%
+        TDF_CACHE_COUNT% = TDF_CACHE_MAX - 1
+    END IF
+
+    DIM slot AS INTEGER
+    slot% = TDF_CACHE_COUNT%
+
+    DIM bi AS INTEGER
+    bi% = TDF_FACE(faceIdx%).bundleIdx
+    IF bi% < 0 THEN EXIT FUNCTION
+    IF bi% >= TDF_BUNDLE_COUNT% THEN EXIT FUNCTION
+
+    DIM bundlePath AS STRING
+    bundlePath$ = RTRIM$(TDF_BUNDLE(bi%).filePath)
+    IF _FILEEXISTS(bundlePath$) = 0 THEN EXIT FUNCTION
+
+    DIM blockSize AS LONG
+    blockSize& = TDF_FACE(faceIdx%).blockSz
+    IF blockSize& < 1 THEN EXIT FUNCTION
+
+    DIM fh AS INTEGER
+    fh% = FREEFILE
+    OPEN bundlePath$ FOR BINARY AS #fh%
+
+    ' The lookup table sits TDF_LOOKUP_OFFSET bytes into the record; the glyph
+    ' block TDF_BLOCK_OFFSET bytes in. SEEK positions are 1-based.
+    DIM lookRaw AS STRING * 188
+    GET #fh%, TDF_FACE(faceIdx%).fileOfs + TDF_LOOKUP_OFFSET + 1, lookRaw
+
+    DIM blockTxt AS STRING
+    blockTxt$ = SPACE$(blockSize&)
+    GET #fh%, TDF_FACE(faceIdx%).fileOfs + TDF_BLOCK_OFFSET + 1, blockTxt$
+    CLOSE #fh%
+
+    DIM k AS INTEGER, lo AS INTEGER, hi AS INTEGER
+    FOR k% = 0 TO TDF_CHAR_TABLE - 1
+        lo% = ASC(lookRaw, k% * 2 + 1)
+        hi% = ASC(lookRaw, k% * 2 + 2)
+        TDF_CACHE_LOOK(slot%, k%) = lo% + hi% * 256
+        TDF_CACHE_GW(slot%, k%)   = -1 ' width not measured yet
+    NEXT k%
+
+    TDF_CACHE_FACE(slot%)  = faceIdx%
+    TDF_CACHE_BLOCK(slot%) = blockTxt$
+    TDF_CACHE_COUNT%       = TDF_CACHE_COUNT% + 1
+    TDF_cache_slot%        = slot%
+END FUNCTION
+
+
+''
+' Decode one glyph into the shared TDF_GRID cell buffer.
+' Sets TDF_GRID_W / TDF_GRID_H to the TRUE measured extent (clamped).
+' Returns TRUE when the glyph exists and produced at least one cell.
+'
+FUNCTION TDF_decode_glyph% (faceIdx%, charIdx%)
+    TDF_decode_glyph% = FALSE
+    TDF_GRID_W%       = 0
+    TDF_GRID_H%       = 0
+
+    IF charIdx% < TDF_FIRST_CHAR THEN EXIT FUNCTION
+    IF charIdx% > TDF_LAST_CHAR THEN EXIT FUNCTION
+
+    DIM slot AS INTEGER
+    slot% = TDF_cache_slot%(faceIdx%)
+    IF slot% < 0 THEN EXIT FUNCTION
+
+    DIM glyphOfs AS LONG
+    glyphOfs& = TDF_CACHE_LOOK(slot%, charIdx% - TDF_FIRST_CHAR)
+    IF glyphOfs& = TDF_NO_GLYPH THEN EXIT FUNCTION
+
+    DIM blockTxt AS STRING
+    blockTxt$ = TDF_CACHE_BLOCK(slot%)
+    DIM blockLen AS LONG
+    blockLen& = LEN(blockTxt$)
+    ' +2 for the declared width/height bytes we deliberately ignore.
+    IF glyphOfs& + 2 > blockLen& THEN EXIT FUNCTION
+
+    DIM faceType AS INTEGER
+    faceType% = TDF_FACE(faceIdx%).faceType
+
+    ' Clear only the region this face can possibly touch. The .TDX index already
+    ' carries the face's true maximum extent, so there is no need to wipe all
+    ' 6144 scratch cells for a glyph that occupies 12x6 of them.
+    DIM clrW AS INTEGER, clrH AS INTEGER
+    clrW% = TDF_FACE(faceIdx%).cellsW + 1
+    clrH% = TDF_FACE(faceIdx%).cellsH + 1
+    IF clrW% > TDF_MAX_CELLS_W THEN clrW% = TDF_MAX_CELLS_W
+    IF clrH% > TDF_MAX_CELLS_H THEN clrH% = TDF_MAX_CELLS_H
+
+    DIM clrX AS INTEGER, clrY AS INTEGER
+    DIM clrIdx AS LONG
+    FOR clrY% = 0 TO clrH% - 1
+        FOR clrX% = 0 TO clrW% - 1
+            clrIdx&                = clrY% * TDF_MAX_CELLS_W + clrX%
+            TDF_GRID(clrIdx&).ch   = 32
+            TDF_GRID(clrIdx&).fg   = 15
+            TDF_GRID(clrIdx&).bg   = 0
+            TDF_GRID(clrIdx&).ink  = 0
+        NEXT clrX%
+    NEXT clrY%
+
+    DIM p       AS LONG
+    DIM b       AS INTEGER
+    DIM attr    AS INTEGER
+    DIM rowIdx  AS INTEGER
+    DIM colIdx  AS INTEGER
+    DIM maxCol  AS INTEGER
+    DIM cellIdx AS LONG
+    DIM styleCh AS INTEGER
+    DIM hasInk  AS INTEGER
+    DIM anyCell AS INTEGER
+
+    p&      = glyphOfs& + 3 ' 1-based, skipping declared width/height
+    rowIdx% = 0
+    colIdx% = 0
+    maxCol% = 0
+    anyCell% = FALSE
+
+    DO WHILE p& <= blockLen&
+        b% = ASC(blockTxt$, p&)
+        p& = p& + 1
+        IF b% = TDF_BYTE_END THEN EXIT DO
+
+        IF b% = TDF_BYTE_NEWLINE THEN
+            IF colIdx% > maxCol% THEN maxCol% = colIdx%
+            rowIdx% = rowIdx% + 1
+            colIdx% = 0
+            IF rowIdx% >= TDF_MAX_CELLS_H THEN EXIT DO
+            _CONTINUE
+        END IF
+
+        IF b% = TDF_BYTE_MARKER THEN _CONTINUE ' '&' end marker occupies no cell
+
+        ' Colour faces carry an attribute byte after every non-control byte.
+        attr% = 0
+        IF faceType% = TDF_TYPE_COLOR THEN
+            IF p& > blockLen& THEN EXIT DO
+            attr% = ASC(blockTxt$, p&)
+            p&    = p& + 1
+        END IF
+
+        IF colIdx% >= TDF_MAX_CELLS_W THEN
+            colIdx% = colIdx% + 1 ' still advance so width reporting stays honest
+            _CONTINUE
+        END IF
+
+        hasInk%  = TRUE
+        styleCh% = b%
+
+        SELECT CASE faceType%
+            CASE TDF_TYPE_COLOR
+                IF b% = TDF_BYTE_BLANK THEN
+                    hasInk% = FALSE ' hard blank: occupies a cell, draws nothing
+                ELSEIF b% = 32 THEN
+                    hasInk% = FALSE
+                END IF
+            CASE TDF_TYPE_BLOCK
+                IF b% = TDF_BYTE_BLANK THEN
+                    hasInk% = FALSE
+                ELSEIF b% = 32 THEN
+                    hasInk% = FALSE
+                END IF
+            CASE TDF_TYPE_OUTLINE
+                IF b% = 64 THEN ' '@' fill marker
+                    hasInk% = FALSE
+                ELSEIF b% = 79 THEN ' 'O' outline hole
+                    hasInk% = FALSE
+                ELSEIF b% = 32 THEN
+                    hasInk% = FALSE
+                ELSEIF b% >= 65 _ANDALSO b% <= 81 THEN
+                    ' 'A'..'Q' index the chosen outline style table
+                    styleCh% = TDF_OUTLINE_CHAR(TDF_OPTS.outlineStyle, b% - 65)
+                    IF styleCh% = 32 THEN hasInk% = FALSE
+                ELSEIF b% = 82 THEN ' 'R' has no style slot
+                    hasInk% = FALSE
+                END IF
+        END SELECT
+
+        cellIdx& = rowIdx% * TDF_MAX_CELLS_W + colIdx%
+        IF cellIdx& >= 0 _ANDALSO cellIdx& < TDF_GRID_MAX THEN
+            TDF_GRID(cellIdx&).ch = styleCh%
+            IF faceType% = TDF_TYPE_COLOR THEN
+                TDF_GRID(cellIdx&).fg = attr% AND 15
+                TDF_GRID(cellIdx&).bg = (attr% \ 16) AND 7
+            ELSE
+                TDF_GRID(cellIdx&).fg = 15
+                TDF_GRID(cellIdx&).bg = 0
+            END IF
+            IF hasInk% THEN TDF_GRID(cellIdx&).ink = 1
+        END IF
+
+        colIdx%  = colIdx% + 1
+        anyCell% = TRUE
+    LOOP
+
+    IF colIdx% > maxCol% THEN maxCol% = colIdx%
+    ' A glyph usually ends with a newline, leaving a trailing empty row.
+    IF colIdx% > 0 THEN rowIdx% = rowIdx% + 1
+
+    IF NOT anyCell% THEN EXIT FUNCTION
+    IF maxCol% < 1 THEN EXIT FUNCTION
+    IF rowIdx% < 1 THEN rowIdx% = 1
+
+    IF maxCol% > TDF_MAX_CELLS_W THEN maxCol% = TDF_MAX_CELLS_W
+    IF rowIdx% > TDF_MAX_CELLS_H THEN rowIdx% = TDF_MAX_CELLS_H
+
+    TDF_GRID_W%       = maxCol%
+    TDF_GRID_H%       = rowIdx%
+    TDF_decode_glyph% = TRUE
+END FUNCTION
+
+
+''
+' Rasterise one glyph into a fresh 32-bit image. Ink is opaque, gaps are
+' transparent, so the result drops straight into TEXT_LAYER_draw_bitmap_char.
+'
+' COLOR faces keep their own per-cell VGA colours and ignore fgColor~&.
+' BLOCK / OUTLINE faces render entirely in fgColor~&.
+'
+' destImg& is 0 when the glyph is undefined — callers must check.
+'
+SUB TDF_render_glyph (faceIdx%, charIdx%, fgColor~&, destImg&)
+    destImg& = 0
+    IF NOT TDF_decode_glyph%(faceIdx%, charIdx%) THEN EXIT SUB
+
+    DIM imgW AS INTEGER, imgH AS INTEGER
+    imgW% = TDF_GRID_W% * TDF_CELL_W
+    imgH% = TDF_GRID_H% * TDF_CELL_H
+    IF imgW% < 1 THEN EXIT SUB
+    IF imgH% < 1 THEN EXIT SUB
+
+    destImg& = _NEWIMAGE(imgW%, imgH%, 32)
+    IF destImg& >= -1 THEN
+        destImg& = 0
+        EXIT SUB
+    END IF
+
+    DIM isColor AS INTEGER
+    isColor% = (TDF_FACE(faceIdx%).faceType = TDF_TYPE_COLOR)
+
+    DIM oldDest AS LONG, oldFont AS LONG
+    oldDest& = _DEST
+    _DEST destImg&
+    oldFont& = _FONT
+    CLS , _RGBA32(0, 0, 0, 0)
+    _FONT 16
+    _CONTROLCHR OFF
+
+    DIM cx      AS INTEGER, cy AS INTEGER
+    DIM cellIdx AS LONG
+    DIM fgc     AS _UNSIGNED LONG, bgc AS _UNSIGNED LONG
+    DIM drawCh  AS INTEGER
+    DIM bgIdx   AS INTEGER
+
+    FOR cy% = 0 TO TDF_GRID_H% - 1
+        FOR cx% = 0 TO TDF_GRID_W% - 1
+            cellIdx& = cy% * TDF_MAX_CELLS_W + cx%
+            bgIdx%   = TDF_GRID(cellIdx&).bg
+
+            ' Nothing to paint: no ink, and the background is clear.
+            IF TDF_GRID(cellIdx&).ink = 0 THEN
+                IF bgIdx% = 0 THEN _CONTINUE
+                IF TDF_OPTS.blackIsClear THEN _CONTINUE
+            END IF
+
+            IF isColor% THEN
+                fgc~& = TDF_VGA(TDF_GRID(cellIdx&).fg)
+            ELSE
+                fgc~& = fgColor~&
+            END IF
+
+            IF bgIdx% = 0 _ANDALSO TDF_OPTS.blackIsClear THEN
+                bgc~& = _RGBA32(0, 0, 0, 0)
+            ELSE
+                bgc~& = TDF_VGA(bgIdx%)
+            END IF
+
+            drawCh% = TDF_GRID(cellIdx&).ch
+            IF TDF_GRID(cellIdx&).ink = 0 THEN drawCh% = 32
+
+            COLOR fgc~&, bgc~&
+            _PRINTSTRING (cx% * TDF_CELL_W, cy% * TDF_CELL_H), CHR$(drawCh%)
+        NEXT cx%
+    NEXT cy%
+
+    _CONTROLCHR ON
+    _FONT oldFont&
+    _DEST oldDest&
+
+    ' Optional downscale. Done AFTER rasterisation so the box filter averages
+    ' real CP437 cell pixels — shrinking the cell grid first would just drop
+    ' shade blocks and lose the gradients these fonts are built from.
+    IF TDF_OPTS.scalePct < TDF_SCALE_FULL THEN
+        DIM outW AS INTEGER, outH AS INTEGER
+        outW% = TDF_scaled%(imgW%)
+        outH% = TDF_scaled%(imgH%)
+        IF outW% >= 1 _ANDALSO outH% >= 1 _ANDALSO (outW% <> imgW% _ORELSE outH% <> imgH%) THEN
+            DIM scaled AS LONG
+            scaled& = TDF_downscale&(destImg&, outW%, outH%, TDF_OPTS.antialias)
+            IF scaled& < -1 THEN
+                SAFE_FREEIMAGE destImg&
+                destImg& = scaled&
+            END IF
+        END IF
+    END IF
+END SUB
+
+
+''
+' Ink width of one glyph, in CELLS. -1 when the glyph is undefined.
+' Memoised per cache slot, because measuring means decoding the whole glyph and
+' the text pipeline asks for widths on every frame.
+'
+FUNCTION TDF_glyph_cells_w% (faceIdx%, charIdx%)
+    TDF_glyph_cells_w% = -1
+    IF charIdx% < TDF_FIRST_CHAR THEN EXIT FUNCTION
+    IF charIdx% > TDF_LAST_CHAR THEN EXIT FUNCTION
+
+    DIM slot AS INTEGER
+    slot% = TDF_cache_slot%(faceIdx%)
+    IF slot% < 0 THEN EXIT FUNCTION
+
+    ' Sentinels: -1 = not yet measured, -2 = measured and undefined, >= 0 = width.
+    DIM ci AS INTEGER, cached AS INTEGER
+    ci%     = charIdx% - TDF_FIRST_CHAR
+    cached% = TDF_CACHE_GW(slot%, ci%)
+    IF cached% = -2 THEN EXIT FUNCTION
+    IF cached% >= 0 THEN
+        TDF_glyph_cells_w% = cached%
+        EXIT FUNCTION
+    END IF
+
+    DIM measured AS INTEGER
+    IF TDF_decode_glyph%(faceIdx%, charIdx%) THEN
+        measured% = TDF_GRID_W%
+    ELSE
+        measured% = -2
+    END IF
+
+    ' Re-resolve the slot: decoding can evict and reload this face's block.
+    slot% = TDF_cache_slot%(faceIdx%)
+    IF slot% >= 0 THEN TDF_CACHE_GW(slot%, ci%) = measured%
+    IF measured% >= 0 THEN TDF_glyph_cells_w% = measured%
+END FUNCTION
+
+
+''
+' Ink width of one glyph, in pixels. 0 when undefined.
+'
+FUNCTION TDF_glyph_width% (faceIdx%, charIdx%)
+    DIM cellsWide AS INTEGER
+    cellsWide%       = TDF_glyph_cells_w%(faceIdx%, charIdx%)
+    IF cellsWide% < 0 THEN
+        TDF_glyph_width% = 0
+    ELSE
+        TDF_glyph_width% = TDF_scaled%(cellsWide% * TDF_CELL_W)
+    END IF
+END FUNCTION
+
+
+''
+' Horizontal advance for one character, in pixels — the glyph's ink width plus
+' the face's own inter-glyph gap and the user's spacing tweak (which may be
+' negative, overlapping letters, exactly as TheDraw allowed).
+'
+' Undefined slots and the space character get TheDraw's fixed fallback widths.
+'
+FUNCTION TDF_glyph_advance% (faceIdx%, charIdx%)
+    TDF_glyph_advance% = 0
+    IF faceIdx% < 0 THEN EXIT FUNCTION
+    IF faceIdx% >= TDF_FACE_COUNT% THEN EXIT FUNCTION
+
+    DIM gapCells AS INTEGER
+    gapCells% = TDF_FACE(faceIdx%).gapDefault + TDF_OPTS.extraSpacing
+    IF gapCells% < -8 THEN gapCells% = -8
+
+    DIM inkCells AS INTEGER
+    IF charIdx% = 32 THEN
+        inkCells% = 4 ' TheDraw's fixed space width
+    ELSE
+        inkCells% = TDF_glyph_cells_w%(faceIdx%, charIdx%)
+        IF inkCells% < 0 THEN inkCells% = 3 ' undefined slot
+    END IF
+
+    DIM advCells AS INTEGER
+    advCells% = inkCells% + gapCells%
+    IF advCells% < 1 THEN advCells% = 1
+
+    ' Scale the advance with the glyph so a downscaled face still lays out.
+    ' NOTE: compute into a local first — reading TDF_glyph_advance% inside its
+    ' own body would be a recursive CALL in QB64, not a variable read.
+    DIM advPx AS INTEGER
+    advPx% = TDF_scaled%(advCells% * TDF_CELL_W)
+    IF advPx% < 1 THEN advPx% = 1
+    TDF_glyph_advance% = advPx%
+END FUNCTION
+
+
+''
+' Compose a whole string in one face into a single image.
+'
+' Letters are laid out left to right using TDF_glyph_advance%, which honours
+' both the face's own spacing and TDF_OPTS.extraSpacing — so a negative spacing
+' really does overlap the letters, exactly as TheDraw allowed. Later glyphs draw
+' over earlier ones and transparent cells never erase what is underneath.
+'
+' Returns 0 when nothing is drawable. Caller owns the returned handle.
+'
+FUNCTION TDF_render_text& (faceIdx%, txt$, fgColor~&)
+    TDF_render_text& = 0
+    IF faceIdx% < 0 THEN EXIT FUNCTION
+    IF faceIdx% >= TDF_FACE_COUNT% THEN EXIT FUNCTION
+    IF LEN(txt$) = 0 THEN EXIT FUNCTION
+
+    DIM totalW AS LONG, lineH AS INTEGER
+    DIM k      AS INTEGER, chIdx AS INTEGER
+    totalW& = 0
+    lineH%  = TDF_face_height%(faceIdx%)
+    FOR k% = 1 TO LEN(txt$)
+        totalW& = totalW& + TDF_glyph_advance%(faceIdx%, ASC(txt$, k%))
+    NEXT k%
+    IF totalW& < 1 THEN EXIT FUNCTION
+    IF lineH% < 1 THEN EXIT FUNCTION
+    ' A very long sample must not allocate an enormous surface.
+    IF totalW& > TDF_TEXT_MAX_W THEN totalW& = TDF_TEXT_MAX_W
+
+    DIM canvas AS LONG
+    canvas& = _NEWIMAGE(totalW&, lineH%, 32)
+    IF canvas& >= -1 THEN EXIT FUNCTION
+
+    DIM oldDest AS LONG
+    oldDest& = _DEST
+    _DEST canvas&
+    CLS , _RGBA32(0, 0, 0, 0)
+    _DEST oldDest&
+
+    DIM penX AS LONG, glyphImg AS LONG
+    penX& = 0
+    FOR k% = 1 TO LEN(txt$)
+        chIdx% = ASC(txt$, k%)
+        IF penX& < totalW& THEN
+            TDF_render_glyph faceIdx%, chIdx%, fgColor~&, glyphImg&
+            IF glyphImg& < -1 THEN
+                _PUTIMAGE (penX&, 0), glyphImg&, canvas&
+                _FREEIMAGE glyphImg&
+            END IF
+        END IF
+        penX& = penX& + TDF_glyph_advance%(faceIdx%, chIdx%)
+    NEXT k%
+
+    TDF_render_text& = canvas&
+END FUNCTION
+
+
+''
+' Line height for a face, in pixels (its tallest glyph).
+'
+FUNCTION TDF_face_height% (faceIdx%)
+    TDF_face_height% = TDF_CELL_H
+    IF faceIdx% < 0 THEN EXIT FUNCTION
+    IF faceIdx% >= TDF_FACE_COUNT% THEN EXIT FUNCTION
+    DIM h AS INTEGER
+    h% = TDF_FACE(faceIdx%).cellsH
+    IF h% < 1 THEN h% = 1
+    IF h% > TDF_MAX_CELLS_H THEN h% = TDF_MAX_CELLS_H
+
+    ' Local first — see the note in TDF_glyph_advance%.
+    DIM hPx AS INTEGER
+    hPx% = TDF_scaled%(h% * TDF_CELL_H)
+    IF hPx% < 1 THEN hPx% = 1
+    TDF_face_height% = hPx%
+END FUNCTION
+
+
+''
+' TRUE when a face defines a glyph for this character.
+' Space always counts as printable.
+'
+FUNCTION TDF_has_glyph% (faceIdx%, charIdx%)
+    TDF_has_glyph% = FALSE
+    IF charIdx% = 32 THEN
+        TDF_has_glyph% = TRUE
+        EXIT FUNCTION
+    END IF
+    IF charIdx% < TDF_FIRST_CHAR THEN EXIT FUNCTION
+    IF charIdx% > TDF_LAST_CHAR THEN EXIT FUNCTION
+
+    DIM slot AS INTEGER
+    slot% = TDF_cache_slot%(faceIdx%)
+    IF slot% < 0 THEN EXIT FUNCTION
+    IF TDF_CACHE_LOOK(slot%, charIdx% - TDF_FIRST_CHAR) <> TDF_NO_GLYPH THEN TDF_has_glyph% = TRUE
+END FUNCTION
+
+
+''
+' TRUE when a face defines any lower-case letter. Most TheDraw faces are
+' upper-case only, so callers uppercase their text rather than render nothing.
+'
+FUNCTION TDF_has_lowercase% (faceIdx%)
+    TDF_has_lowercase% = FALSE
+    DIM c AS INTEGER
+    FOR c% = 97 TO 122 ' 'a'..'z'
+        IF TDF_has_glyph%(faceIdx%, c%) THEN
+            TDF_has_lowercase% = TRUE
+            EXIT FUNCTION
+        END IF
+    NEXT c%
+END FUNCTION
+
+
+''
+' Display name for a face, e.g. "Bladerunner (color)".
+'
+FUNCTION TDF_face_label$ (faceIdx%)
+    TDF_face_label$ = ""
+    IF faceIdx% < 0 THEN EXIT FUNCTION
+    IF faceIdx% >= TDF_FACE_COUNT% THEN EXIT FUNCTION
+
+    DIM suffix AS STRING
+    SELECT CASE TDF_FACE(faceIdx%).faceType
+        CASE TDF_TYPE_OUTLINE: suffix$ = " (outline)"
+        CASE TDF_TYPE_BLOCK: suffix$ = " (block)"
+        CASE ELSE: suffix$ = " (color)"
+    END SELECT
+    TDF_face_label$ = TDF_face_display$(faceIdx%) + suffix$
+END FUNCTION
+
+
+''
+' Find a face by bundle label + name + ordinal. Returns -1 when absent.
+'
+' The ordinal is REQUIRED for correctness, not decoration: even after
+' content-deduplication a bundle holds several genuinely different faces under
+' one name (three distinct "BigOutline" faces, for instance), so matching on
+' name alone would silently resolve a saved document to the wrong font.
+' Pass dupIndex% = 1 for the first face with that name.
+'
+FUNCTION TDF_find_face% (bundleLabel$, faceName$, dupIndex%)
+    TDF_find_face% = -1
+    TDF_ensure_scanned
+
+    DIM wantBundle AS STRING, wantName AS STRING, wantIdx AS INTEGER
+    wantBundle$ = UCASE$(_TRIM$(bundleLabel$))
+    wantName$   = UCASE$(_TRIM$(faceName$))
+    wantIdx%    = dupIndex%
+    IF wantIdx% < 1 THEN wantIdx% = 1
+
+    DIM i AS INTEGER, bi AS INTEGER
+    FOR i% = 0 TO TDF_FACE_COUNT% - 1
+        bi% = TDF_FACE(i%).bundleIdx
+        IF UCASE$(RTRIM$(TDF_BUNDLE(bi%).labelTxt)) = wantBundle$ THEN
+            IF UCASE$(RTRIM$(TDF_FACE(i%).faceName)) = wantName$ THEN
+                IF TDF_FACE(i%).dupIndex = wantIdx% THEN
+                    TDF_find_face% = i%
+                    EXIT FUNCTION
+                END IF
+            END IF
+        END IF
+    NEXT i%
+END FUNCTION
+
+
+''
+' Drop every cached glyph block (called on low memory / font rescans).
+'
+SUB TDF_free_cache ()
+    DIM i AS INTEGER
+    FOR i% = 0 TO TDF_CACHE_MAX - 1
+        TDF_CACHE_FACE(i%)  = -1
+        TDF_CACHE_BLOCK(i%) = ""
+    NEXT i%
+    TDF_CACHE_COUNT% = 0
+END SUB

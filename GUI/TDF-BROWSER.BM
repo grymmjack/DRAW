@@ -1,0 +1,710 @@
+''
+' DRAW - GUI/TDF-BROWSER.BM
+' =============================================================================
+' TheDraw font browser implementation. See GUI/TDF-BROWSER.BI.
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+''
+' Rebuild TDFB_MATCH() from the search text and type filter.
+' Matching is a case-insensitive substring on the face name — with 3757 faces a
+' plain scan is still only a few hundred microseconds, so there is no index.
+'
+SUB TDFB_rebuild_matches ()
+    DIM needle AS STRING
+    needle$ = UCASE$(LEFT$(TDFB.searchTxt, TDFB.searchLen))
+
+    DIM i AS INTEGER, n AS INTEGER
+    n% = 0
+    FOR i% = 0 TO TDF_FACE_COUNT% - 1
+        IF TDFB.typeFilter = TDFB_FILTER_FAV THEN
+            IF NOT TDF_FACE(i%).isFavorite THEN _CONTINUE
+        ELSEIF TDFB.typeFilter <> TDFB_FILTER_ALL THEN
+            IF TDF_FACE(i%).faceType <> TDFB.typeFilter THEN _CONTINUE
+        END IF
+        IF LEN(needle$) > 0 THEN
+            IF INSTR(UCASE$(RTRIM$(TDF_FACE(i%).faceName)), needle$) = 0 THEN _CONTINUE
+        END IF
+        TDFB_MATCH(n%) = i%
+        n%             = n% + 1
+    NEXT i%
+
+    TDFB.matchCount = n%
+    IF TDFB.selRow >= n% THEN TDFB.selRow = n% - 1
+    IF TDFB.selRow < 0 THEN TDFB.selRow = 0
+    TDFB_clamp_scroll
+    TDFB.listDirty    = FALSE
+    TDFB.previewDirty = TRUE
+END SUB
+
+
+''
+' Keep the selected row inside the visible window.
+'
+SUB TDFB_clamp_scroll ()
+    IF TDFB.selRow < TDFB.scrollTop THEN TDFB.scrollTop = TDFB.selRow
+    IF TDFB.selRow > TDFB.scrollTop + TDFB_ROWS - 1 THEN TDFB.scrollTop = TDFB.selRow - TDFB_ROWS + 1
+    TDFB_clamp_view
+END SUB
+
+
+''
+' Clamp the scroll window alone, without dragging the selection to it — used by
+' the wheel, which scrolls the view independently of the highlighted row.
+'
+SUB TDFB_clamp_view ()
+    IF TDFB.scrollTop > TDFB.matchCount - TDFB_ROWS THEN TDFB.scrollTop = TDFB.matchCount - TDFB_ROWS
+    IF TDFB.scrollTop < 0 THEN TDFB.scrollTop = 0
+END SUB
+
+
+''
+' Move the highlighted row by delta, clamped, and refresh the preview.
+'
+SUB TDFB_move_selection (delta%)
+    IF TDFB.matchCount < 1 THEN EXIT SUB
+    TDFB.selRow = TDFB.selRow + delta%
+    IF TDFB.selRow < 0 THEN TDFB.selRow = 0
+    IF TDFB.selRow > TDFB.matchCount - 1 THEN TDFB.selRow = TDFB.matchCount - 1
+    TDFB_clamp_scroll
+    TDFB.previewDirty = TRUE
+END SUB
+
+
+''
+' Jump the selection to a random face among the CURRENT matches, so RANDOM
+' respects whatever filter/search is active rather than ignoring it.
+'
+SUB TDFB_pick_random ()
+    IF TDFB.matchCount < 1 THEN EXIT SUB
+    STATIC seeded AS INTEGER
+    IF NOT seeded% THEN
+        RANDOMIZE TIMER
+        seeded% = TRUE
+    END IF
+    DIM r AS INTEGER
+    r% = INT(RND * TDFB.matchCount)
+    IF r% < 0 THEN r% = 0
+    IF r% > TDFB.matchCount - 1 THEN r% = TDFB.matchCount - 1
+    TDFB.selRow = r%
+    ' Centre the pick in the visible window
+    TDFB.scrollTop = TDFB.selRow - TDFB_ROWS \ 2
+    TDFB_clamp_scroll
+    TDFB.previewDirty = TRUE
+END SUB
+
+
+''
+' Recall preset `pi` — apply its parameters and move the selection to its face.
+'
+SUB TDFB_apply_preset (pi%)
+    IF pi% < 0 THEN EXIT SUB
+    IF pi% >= TDF_PRESET_COUNT% THEN EXIT SUB
+
+    DIM faceIdx AS INTEGER
+    faceIdx% = TDF_preset_apply%(pi%)
+    TDFB.presetSel = pi%
+    TDFB.presetTxt = RTRIM$(TDF_PRESET(pi%).nameTxt)
+    TDFB.presetLen = LEN(RTRIM$(TDF_PRESET(pi%).nameTxt))
+
+    IF faceIdx% >= 0 THEN
+        ' The preset's face may be filtered out of the current view — drop back
+        ' to ALL so the recall always lands on something visible.
+        DIM r AS INTEGER, found AS INTEGER
+        found% = FALSE
+        FOR r% = 0 TO TDFB.matchCount - 1
+            IF TDFB_MATCH(r%) = faceIdx% THEN
+                TDFB.selRow = r%
+                found%      = TRUE
+                EXIT FOR
+            END IF
+        NEXT r%
+        IF NOT found% THEN
+            TDFB.typeFilter = TDFB_FILTER_ALL
+            TDFB.searchLen  = 0
+            TDFB_rebuild_matches
+            FOR r% = 0 TO TDFB.matchCount - 1
+                IF TDFB_MATCH(r%) = faceIdx% THEN
+                    TDFB.selRow = r%
+                    EXIT FOR
+                END IF
+            NEXT r%
+        END IF
+        TDFB_clamp_scroll
+    END IF
+    TDFB.previewDirty = TRUE
+END SUB
+
+
+''
+' The face index currently highlighted, or -1 when the list is empty.
+'
+FUNCTION TDFB_current_face% ()
+    TDFB_current_face% = -1
+    IF TDFB.matchCount < 1 THEN EXIT FUNCTION
+    IF TDFB.selRow < 0 THEN EXIT FUNCTION
+    IF TDFB.selRow >= TDFB.matchCount THEN EXIT FUNCTION
+    TDFB_current_face% = TDFB_MATCH(TDFB.selRow)
+END FUNCTION
+
+
+''
+' Re-render the live sample for the highlighted face.
+'
+SUB TDFB_refresh_preview ()
+    IF TDFB.previewImg < -1 THEN SAFE_FREEIMAGE TDFB.previewImg
+    TDFB.previewImg   = 0
+    TDFB.previewDiv   = 1
+    TDFB.previewDirty = FALSE
+
+    DIM faceIdx AS INTEGER
+    faceIdx% = TDFB_current_face%
+    IF faceIdx% < 0 THEN EXIT SUB
+
+    DIM sample AS STRING
+    sample$ = LEFT$(TDFB.sampleTxt, TDFB.sampleLen)
+    IF LEN(_TRIM$(sample$)) = 0 THEN sample$ = RTRIM$(TDF_FACE(faceIdx%).faceName)
+    IF LEN(_TRIM$(sample$)) = 0 THEN sample$ = "DRAW"
+
+    ' Most TheDraw faces are upper-case only (a-z simply has no glyph). Without
+    ' this the preview goes mysteriously blank the moment someone types lower
+    ' case into the sample box.
+    IF NOT TDF_has_lowercase%(faceIdx%) THEN sample$ = UCASE$(sample$)
+
+    ' Trim the sample to what will fit TDFB_PREV_MAX_W. A wide face is ~500px
+    ' per letter, so an untrimmed 32-character sample would compose a surface of
+    ' tens of megabytes — on every keystroke — just to be scaled into a 330px
+    ' pane. Measure with the advance and cut where it overflows.
+    DIM used AS LONG, keep AS INTEGER, ci AS INTEGER
+    used& = 0
+    keep% = 0
+    FOR ci% = 1 TO LEN(sample$)
+        used& = used& + TDF_glyph_advance%(faceIdx%, ASC(sample$, ci%))
+        IF used& > TDFB_PREV_MAX_W THEN EXIT FOR
+        keep% = ci%
+    NEXT ci%
+    IF keep% < 1 THEN keep% = 1
+    IF keep% < LEN(sample$) THEN sample$ = LEFT$(sample$, keep%)
+
+    TDFB.previewImg = TDF_render_text&(faceIdx%, sample$, _RGB32(255, 255, 255))
+    IF TDFB.previewImg >= -1 THEN EXIT SUB
+
+    ' Pre-fit the sample to the pane HERE, once per selection/sample change,
+    ' rather than in the draw path — the box filter is far too costly to run on
+    ' every one of the dialog's frames.
+    DIM srcW AS INTEGER, srcH AS INTEGER
+    srcW% = _WIDTH(TDFB.previewImg)
+    srcH% = _HEIGHT(TDFB.previewImg)
+    IF srcW% < 1 _ORELSE srcH% < 1 THEN EXIT SUB
+
+    DIM availW AS INTEGER, availH AS INTEGER
+    availW% = TDFB_PREV_W - 12
+    availH% = TDFB_PREV_H - 12
+    IF srcW% <= availW% _ANDALSO srcH% <= availH% THEN EXIT SUB ' fits 1:1 — leave it crisp
+
+    ' Reduce by a whole-number divisor ONLY. A fractional fit-to-pane scale makes
+    ' every output pixel straddle a non-integer number of source pixels, which
+    ' turns pixel art to mush — and _PUTIMAGE's unfiltered stretch is no better,
+    ' it just drops CP437 cells instead. An integer 1/N keeps block boundaries on
+    ' pixel boundaries, so the render stays sharp.
+    DIM divisor AS INTEGER
+    divisor% = 2
+    DO WHILE divisor% < 16
+        IF (srcW% + divisor% - 1) \ divisor% <= availW% THEN
+            IF (srcH% + divisor% - 1) \ divisor% <= availH% THEN EXIT DO
+        END IF
+        divisor% = divisor% + 1
+    LOOP
+
+    DIM shrunk AS LONG
+    shrunk& = TDF_downscale_int&(TDFB.previewImg, divisor%, TDF_OPTS.antialias)
+    IF shrunk& < -1 THEN
+        SAFE_FREEIMAGE TDFB.previewImg
+        TDFB.previewImg = shrunk&
+        TDFB.previewDiv = divisor%
+    END IF
+END SUB
+
+
+''
+' Show the modal TheDraw font browser.
+'
+' Returns the FONT_LIST index of the chosen face, or -1 when cancelled. The
+' caller is responsible for applying it (text bar selection, layer font, ...).
+'
+FUNCTION TDF_BROWSER_show% ()
+    TDF_BROWSER_show% = -1
+    TDF_ensure_scanned
+    IF TDF_FACE_COUNT% < 1 THEN
+        _LOGWARN "TDF_BROWSER_show: no TheDraw faces installed"
+        EXIT FUNCTION
+    END IF
+
+    ' ---- Initial state ----
+    TDFB.searchTxt    = ""
+    TDFB.searchLen    = 0
+    TDFB.sampleTxt    = "DRAW"
+    TDFB.sampleLen    = 4
+    TDFB.focusField   = TDFB_FOCUS_SEARCH
+    TDFB.typeFilter   = TDFB_FILTER_ALL
+    TDFB.selRow       = 0
+    TDFB.scrollTop    = 0
+    TDFB.chosenFace   = -1
+    TDFB.previewImg   = 0
+    TDFB.presetTxt    = ""
+    TDFB.presetLen    = 0
+    TDFB.presetSel    = -1
+    TDFB.presetTop    = 0
+    TDFB_rebuild_matches
+
+    DIM ctx AS DIALOG_CTX
+    DIALOG_init ctx, TDFB_W, TDFB_H
+
+    ' ---- Hit zones ----
+    DIM srchX AS INTEGER, srchY AS INTEGER, srchW AS INTEGER, srchH AS INTEGER
+    srchX% = 10 : srchY% = 34 : srchW% = 200 : srchH% = 16
+    DIM sampX AS INTEGER, sampY AS INTEGER, sampW AS INTEGER, sampH AS INTEGER
+    sampX% = 220 : sampY% = 322 : sampW% = 240 : sampH% = 16
+    ' Five filter tabs across the top of the right-hand column.
+    DIM tabY AS INTEGER, tabW AS INTEGER, tabH AS INTEGER
+    tabY% = 34 : tabW% = 88 : tabH% = 16
+    DIM tabX(0 TO 4) AS INTEGER
+    tabX(0) = 220 : tabX(1) = 314 : tabX(2) = 408 : tabX(3) = 502 : tabX(4) = 596
+    DIM tabFilter(0 TO 4) AS INTEGER
+    tabFilter(0) = TDFB_FILTER_FAV : tabFilter(1) = TDFB_FILTER_ALL
+    tabFilter(2) = TDF_TYPE_COLOR : tabFilter(3) = TDF_TYPE_BLOCK : tabFilter(4) = TDF_TYPE_OUTLINE
+    DIM tabLbl(0 TO 4) AS STRING
+    tabLbl(0) = "FAVS" : tabLbl(1) = "ALL" : tabLbl(2) = "COLOR"
+    tabLbl(3) = "BLOCK" : tabLbl(4) = "OUTLINE"
+
+    DIM okX AS INTEGER, okY AS INTEGER, okW AS INTEGER, okH AS INTEGER
+    okX% = 456 : okY% = 454 : okW% = 110 : okH% = 22
+    DIM cnX AS INTEGER, cnY AS INTEGER, cnW AS INTEGER, cnH AS INTEGER
+    cnX% = 576 : cnY% = 454 : cnW% = 110 : cnH% = 22
+    DIM spcY AS INTEGER, styY AS INTEGER, sclY AS INTEGER, stepW AS INTEGER
+    spcY% = 348 : styY% = 370 : sclY% = 392 : stepW% = 22
+    ' Each parameter row is  label .... [-] [+] [R]  — R resets that one row.
+    DIM minusX AS INTEGER, plusX AS INTEGER, rowRstX AS INTEGER
+    minusX% = 560 : plusX% = 600 : rowRstX% = 640
+    DIM aaX AS INTEGER, aaW AS INTEGER
+    aaX% = 460 : aaW% = 60
+    ' Favourite toggle, random pick, reset-everything
+    DIM favX AS INTEGER, favY AS INTEGER, favW AS INTEGER, favH AS INTEGER
+    favX% = 220 : favY% = 418 : favW% = 150 : favH% = 20
+    DIM rndX AS INTEGER, rndW AS INTEGER
+    rndX% = 380 : rndW% = 110
+    DIM rstX AS INTEGER, rstW AS INTEGER
+    rstX% = 500 : rstW% = 110
+    ' Preset panel (left column, under the face list)
+    DIM preNameY AS INTEGER, preNameW AS INTEGER
+    preNameY% = 404 : preNameW% = 128
+    DIM preSaveX AS INTEGER, preSaveW AS INTEGER, preDelX AS INTEGER, preDelW AS INTEGER
+    preSaveX% = 142 : preSaveW% = 36 : preDelX% = 182 : preDelW% = 28
+
+    DIM k       AS LONG
+    DIM wheelD  AS INTEGER
+    DIM r       AS INTEGER
+    DIM faceIdx AS INTEGER
+    DIM rowTxt  AS STRING
+    DIM ty      AS INTEGER
+
+    DO
+        DIALOG_poll_mouse ctx
+
+        ' ---- Mouse wheel scrolls the list ----
+        ' Take the delta from ctx.mwheel: DIALOG_poll_mouse has ALREADY drained
+        ' _MOUSEINPUT into it, so polling _MOUSEWHEEL again here only ever reads
+        ' an empty queue (which is why the wheel did nothing at first).
+        wheelD% = ctx.mwheel
+        IF wheelD% <> 0 THEN
+            TDFB.scrollTop = TDFB.scrollTop + wheelD% * 3
+            TDFB_clamp_view
+        END IF
+
+        ' ---- Keyboard ----
+        k& = _KEYHIT
+        SELECT CASE k&
+            CASE 27 ' Escape
+                ctx.done = TRUE : ctx.result = FALSE
+            CASE 13 ' Enter accepts the highlighted face
+                ctx.done = TRUE : ctx.result = TRUE
+            CASE 9 ' Tab cycles SEARCH -> SAMPLE -> PRESET NAME
+                TDFB.focusField = (TDFB.focusField + 1) MOD TDFB_FOCUS_COUNT
+            CASE 18432 ' Up
+                TDFB_move_selection -1
+            CASE 20480 ' Down
+                TDFB_move_selection 1
+            CASE 18688 ' PgUp
+                TDFB_move_selection -TDFB_ROWS
+            CASE 20736 ' PgDn
+                TDFB_move_selection TDFB_ROWS
+            CASE 18176 ' Home — first match
+                TDFB_move_selection -TDF_FACE_MAX
+            CASE 20224 ' End — last match
+                TDFB_move_selection TDF_FACE_MAX
+            CASE 15360 ' F2 — star / unstar the highlighted face
+                TDF_toggle_favorite TDFB_current_face%
+                ' Re-filter when viewing favourites, or the unstarred row lingers
+                IF TDFB.typeFilter = TDFB_FILTER_FAV THEN TDFB.listDirty = TRUE
+            CASE 8 ' Backspace edits the focused field
+                IF TDFB.focusField = TDFB_FOCUS_SEARCH THEN
+                    IF TDFB.searchLen > 0 THEN
+                        TDFB.searchLen = TDFB.searchLen - 1
+                        TDFB.listDirty = TRUE
+                    END IF
+                ELSEIF TDFB.focusField = TDFB_FOCUS_SAMPLE THEN
+                    IF TDFB.sampleLen > 0 THEN
+                        TDFB.sampleLen    = TDFB.sampleLen - 1
+                        TDFB.previewDirty = TRUE
+                    END IF
+                ELSE
+                    IF TDFB.presetLen > 0 THEN TDFB.presetLen = TDFB.presetLen - 1
+                END IF
+            CASE 32 TO 126 ' printable
+                IF TDFB.focusField = TDFB_FOCUS_SEARCH THEN
+                    IF TDFB.searchLen < 32 THEN
+                        MID$(TDFB.searchTxt, TDFB.searchLen + 1, 1) = CHR$(k&)
+                        TDFB.searchLen                              = TDFB.searchLen + 1
+                        TDFB.listDirty                              = TRUE
+                    END IF
+                ELSEIF TDFB.focusField = TDFB_FOCUS_SAMPLE THEN
+                    IF TDFB.sampleLen < 32 THEN
+                        MID$(TDFB.sampleTxt, TDFB.sampleLen + 1, 1) = CHR$(k&)
+                        TDFB.sampleLen                              = TDFB.sampleLen + 1
+                        TDFB.previewDirty                           = TRUE
+                    END IF
+                ELSE
+                    IF TDFB.presetLen < 24 THEN
+                        MID$(TDFB.presetTxt, TDFB.presetLen + 1, 1) = CHR$(k&)
+                        TDFB.presetLen                              = TDFB.presetLen + 1
+                    END IF
+                END IF
+        END SELECT
+
+        ' ---- Click dispatch ----
+        IF ctx.justClicked THEN
+            IF ctx.mx >= srchX% _ANDALSO ctx.mx <= srchX% + srchW% _ANDALSO ctx.my >= srchY% _ANDALSO ctx.my <= srchY% + srchH% THEN
+                TDFB.focusField = TDFB_FOCUS_SEARCH
+            END IF
+            IF ctx.mx >= sampX% _ANDALSO ctx.mx <= sampX% + sampW% _ANDALSO ctx.my >= sampY% _ANDALSO ctx.my <= sampY% + sampH% THEN
+                TDFB.focusField = TDFB_FOCUS_SAMPLE
+            END IF
+            ' Type filter tabs
+            IF ctx.my >= tabY% _ANDALSO ctx.my <= tabY% + tabH% THEN
+                DIM tabHit AS INTEGER
+                FOR tabHit% = 0 TO 4
+                    IF ctx.mx >= tabX(tabHit%) _ANDALSO ctx.mx < tabX(tabHit%) + tabW% THEN
+                        TDFB.typeFilter = tabFilter(tabHit%)
+                        TDFB.selRow     = 0
+                        TDFB.scrollTop  = 0
+                        TDFB.listDirty  = TRUE
+                        EXIT FOR
+                    END IF
+                NEXT tabHit%
+            END IF
+            ' List row selection
+            IF ctx.mx >= TDFB_LIST_X _ANDALSO ctx.mx <= TDFB_LIST_X + TDFB_LIST_W THEN
+                IF ctx.my >= TDFB_LIST_Y _ANDALSO ctx.my < TDFB_LIST_Y + TDFB_ROWS * TDFB_ROW_H THEN
+                    r% = TDFB.scrollTop + (ctx.my - TDFB_LIST_Y) \ TDFB_ROW_H
+                    IF r% >= 0 _ANDALSO r% < TDFB.matchCount THEN
+                        TDFB.selRow       = r%
+                        TDFB.previewDirty = TRUE
+                    END IF
+                END IF
+            END IF
+            ' Preset name field focus
+            IF ctx.mx >= TDFB_PRE_X _ANDALSO ctx.mx <= TDFB_PRE_X + preNameW% THEN
+                IF ctx.my >= preNameY% _ANDALSO ctx.my <= preNameY% + 16 THEN
+                    TDFB.focusField = TDFB_FOCUS_PRESET
+                END IF
+            END IF
+            ' Preset list row -> recall
+            IF ctx.mx >= TDFB_PRE_X _ANDALSO ctx.mx <= TDFB_PRE_X + TDFB_LIST_W THEN
+                IF ctx.my >= TDFB_PRE_Y _ANDALSO ctx.my < TDFB_PRE_Y + TDFB_PRE_ROWS * TDFB_ROW_H THEN
+                    DIM pr AS INTEGER
+                    pr% = TDFB.presetTop + (ctx.my - TDFB_PRE_Y) \ TDFB_ROW_H
+                    IF pr% >= 0 _ANDALSO pr% < TDF_PRESET_COUNT% THEN TDFB_apply_preset pr%
+                END IF
+            END IF
+
+            ' Spacing -/+
+            IF ctx.my >= spcY% _ANDALSO ctx.my <= spcY% + 16 THEN
+                IF ctx.mx >= minusX% _ANDALSO ctx.mx < minusX% + stepW% THEN
+                    TDF_OPTS.extraSpacing = TDF_OPTS.extraSpacing - 1
+                    IF TDF_OPTS.extraSpacing < -8 THEN TDF_OPTS.extraSpacing = -8
+                    TDFB.previewDirty = TRUE
+                ELSEIF ctx.mx >= plusX% _ANDALSO ctx.mx < plusX% + stepW% THEN
+                    TDF_OPTS.extraSpacing = TDF_OPTS.extraSpacing + 1
+                    IF TDF_OPTS.extraSpacing > 16 THEN TDF_OPTS.extraSpacing = 16
+                    TDFB.previewDirty = TRUE
+                ELSEIF ctx.mx >= rowRstX% _ANDALSO ctx.mx < rowRstX% + stepW% THEN
+                    TDF_OPTS.extraSpacing = 0
+                    TDFB.previewDirty     = TRUE
+                END IF
+            END IF
+            ' Outline style -/+
+            IF ctx.my >= styY% _ANDALSO ctx.my <= styY% + 16 THEN
+                IF ctx.mx >= minusX% _ANDALSO ctx.mx < minusX% + stepW% THEN
+                    TDF_OPTS.outlineStyle = TDF_OPTS.outlineStyle - 1
+                    IF TDF_OPTS.outlineStyle < 0 THEN TDF_OPTS.outlineStyle = TDF_OUTLINE_STYLES - 1
+                    TDFB.previewDirty = TRUE
+                ELSEIF ctx.mx >= plusX% _ANDALSO ctx.mx < plusX% + stepW% THEN
+                    TDF_OPTS.outlineStyle = TDF_OPTS.outlineStyle + 1
+                    IF TDF_OPTS.outlineStyle >= TDF_OUTLINE_STYLES THEN TDF_OPTS.outlineStyle = 0
+                    TDFB.previewDirty = TRUE
+                ELSEIF ctx.mx >= rowRstX% _ANDALSO ctx.mx < rowRstX% + stepW% THEN
+                    TDF_OPTS.outlineStyle = 0
+                    TDFB.previewDirty     = TRUE
+                END IF
+            END IF
+            ' Scale -/+ and the antialias toggle
+            IF ctx.my >= sclY% _ANDALSO ctx.my <= sclY% + 16 THEN
+                IF ctx.mx >= minusX% _ANDALSO ctx.mx < minusX% + stepW% THEN
+                    TDF_OPTS.scalePct = TDF_OPTS.scalePct - 5
+                    IF TDF_OPTS.scalePct < TDF_SCALE_MIN THEN TDF_OPTS.scalePct = TDF_SCALE_MIN
+                    TDFB.previewDirty = TRUE
+                ELSEIF ctx.mx >= plusX% _ANDALSO ctx.mx < plusX% + stepW% THEN
+                    TDF_OPTS.scalePct = TDF_OPTS.scalePct + 5
+                    IF TDF_OPTS.scalePct > TDF_SCALE_FULL THEN TDF_OPTS.scalePct = TDF_SCALE_FULL
+                    TDFB.previewDirty = TRUE
+                ELSEIF ctx.mx >= rowRstX% _ANDALSO ctx.mx < rowRstX% + stepW% THEN
+                    TDF_OPTS.scalePct  = TDF_SCALE_FULL
+                    TDF_OPTS.antialias = TRUE
+                    TDFB.previewDirty  = TRUE
+                ELSEIF ctx.mx >= aaX% _ANDALSO ctx.mx < aaX% + aaW% THEN
+                    TDF_OPTS.antialias = NOT TDF_OPTS.antialias
+                    TDFB.previewDirty  = TRUE
+                END IF
+            END IF
+        END IF
+
+        IF DIALOG_hit%(ctx, favX%, favY%, favW%, favH%) THEN
+            TDF_toggle_favorite TDFB_current_face%
+            IF TDFB.typeFilter = TDFB_FILTER_FAV THEN TDFB.listDirty = TRUE
+        END IF
+        IF DIALOG_hit%(ctx, preSaveX%, preNameY%, preSaveW%, 16) THEN
+            DIM saveName AS STRING
+            saveName$ = _TRIM$(LEFT$(TDFB.presetTxt, TDFB.presetLen))
+            IF LEN(saveName$) = 0 THEN
+                _LOGWARN "TDF preset: name the preset before saving"
+            ELSE
+                TDFB.presetSel = TDF_preset_store%(saveName$, TDFB_current_face%)
+            END IF
+        END IF
+        IF DIALOG_hit%(ctx, preDelX%, preNameY%, preDelW%, 16) THEN
+            IF TDFB.presetSel >= 0 _ANDALSO TDFB.presetSel < TDF_PRESET_COUNT% THEN
+                TDF_preset_delete TDFB.presetSel
+                IF TDFB.presetSel >= TDF_PRESET_COUNT% THEN TDFB.presetSel = TDF_PRESET_COUNT% - 1
+                IF TDFB.presetTop > TDF_PRESET_COUNT% - TDFB_PRE_ROWS THEN TDFB.presetTop = TDF_PRESET_COUNT% - TDFB_PRE_ROWS
+                IF TDFB.presetTop < 0 THEN TDFB.presetTop = 0
+            END IF
+        END IF
+        IF DIALOG_hit%(ctx, rndX%, favY%, rndW%, favH%) THEN
+            TDFB_pick_random
+        END IF
+        IF DIALOG_hit%(ctx, rstX%, favY%, rstW%, favH%) THEN
+            TDF_opts_reset
+            TDFB.sampleTxt    = "DRAW"
+            TDFB.sampleLen    = 4
+            TDFB.previewDirty = TRUE
+        END IF
+        IF DIALOG_hit%(ctx, okX%, okY%, okW%, okH%) THEN ctx.done = TRUE : ctx.result = TRUE
+        IF DIALOG_hit%(ctx, cnX%, cnY%, cnW%, cnH%) THEN ctx.done = TRUE : ctx.result = FALSE
+
+        IF TDFB.listDirty THEN TDFB_rebuild_matches
+        IF TDFB.previewDirty THEN TDFB_refresh_preview
+
+        ' ================= DRAW =================
+        _DEST ctx.imgHandle
+        _FONT ctx.fontH
+        DIALOG_draw_frame ctx, "THEDRAW FONTS"
+
+        ' --- Search field ---
+        DIALOG_draw_label ctx, TDFB_LIST_X, 22, "SEARCH:"
+        TDFB_draw_field srchX%, srchY%, srchW%, srchH%, LEFT$(TDFB.searchTxt, TDFB.searchLen), (TDFB.focusField = TDFB_FOCUS_SEARCH)
+
+        ' --- Type filter tabs ---
+        DIM tabI AS INTEGER
+        FOR tabI% = 0 TO 4
+            DIALOG_draw_toggle ctx, tabX(tabI%), tabY%, tabW%, tabH%, tabLbl(tabI%), (TDFB.typeFilter = tabFilter(tabI%))
+        NEXT tabI%
+
+        ' --- Face list ---
+        LINE (TDFB_LIST_X - 2, TDFB_LIST_Y - 2)-(TDFB_LIST_X + TDFB_LIST_W + 2, TDFB_LIST_Y + TDFB_ROWS * TDFB_ROW_H + 2), _RGB32(24, 24, 28), BF
+        LINE (TDFB_LIST_X - 2, TDFB_LIST_Y - 2)-(TDFB_LIST_X + TDFB_LIST_W + 2, TDFB_LIST_Y + TDFB_ROWS * TDFB_ROW_H + 2), _RGB32(90, 90, 100), B
+
+        FOR r% = 0 TO TDFB_ROWS - 1
+            IF TDFB.scrollTop + r% >= TDFB.matchCount THEN EXIT FOR
+            faceIdx% = TDFB_MATCH(TDFB.scrollTop + r%)
+            ty%      = TDFB_LIST_Y + r% * TDFB_ROW_H
+            IF TDFB.scrollTop + r% = TDFB.selRow THEN
+                LINE (TDFB_LIST_X, ty%)-(TDFB_LIST_X + TDFB_LIST_W, ty% + TDFB_ROW_H - 1), _RGB32(50, 80, 130), BF
+                COLOR _RGB32(255, 255, 255)
+            ELSE
+                COLOR _RGB32(190, 190, 200)
+            END IF
+            rowTxt$ = TDF_face_display$(faceIdx%)
+            IF TDF_FACE(faceIdx%).isFavorite THEN rowTxt$ = CHR$(15) + rowTxt$
+            _PRINTSTRING (TDFB_LIST_X + 4, ty% + 1), LEFT$(rowTxt$, 22)
+            ' Type tag on the right of the row
+            COLOR _RGB32(120, 130, 150)
+            SELECT CASE TDF_FACE(faceIdx%).faceType
+                CASE TDF_TYPE_OUTLINE: rowTxt$ = "out"
+                CASE TDF_TYPE_BLOCK: rowTxt$ = "blk"
+                CASE ELSE: rowTxt$ = "clr"
+            END SELECT
+            _PRINTSTRING (TDFB_LIST_X + TDFB_LIST_W - 24, ty% + 1), rowTxt$
+        NEXT r%
+
+        ' Match count / scrollbar hint
+        COLOR _RGB32(150, 150, 160)
+        _PRINTSTRING (TDFB_LIST_X, TDFB_LIST_Y + TDFB_ROWS * TDFB_ROW_H + 6), LTRIM$(STR$(TDFB.matchCount)) + " of " + LTRIM$(STR$(TDF_FACE_COUNT%)) + " faces"
+
+        ' --- Preview pane ---
+        LINE (TDFB_PREV_X, TDFB_PREV_Y)-(TDFB_PREV_X + TDFB_PREV_W, TDFB_PREV_Y + TDFB_PREV_H), _RGB32(16, 16, 20), BF
+        LINE (TDFB_PREV_X, TDFB_PREV_Y)-(TDFB_PREV_X + TDFB_PREV_W, TDFB_PREV_Y + TDFB_PREV_H), _RGB32(90, 90, 100), B
+        TDFB_draw_preview ctx
+
+        ' --- Sample text field ---
+        IF TDFB.previewDiv > 1 THEN
+            DIALOG_draw_label ctx, TDFB_PREV_X, 310, "SAMPLE:   (preview shown at 1/" + LTRIM$(STR$(TDFB.previewDiv)) + ")"
+        ELSE
+            DIALOG_draw_label ctx, TDFB_PREV_X, 310, "SAMPLE:   (preview 1:1)"
+        END IF
+        TDFB_draw_field sampX%, sampY%, sampW%, sampH%, LEFT$(TDFB.sampleTxt, TDFB.sampleLen), (TDFB.focusField = TDFB_FOCUS_SAMPLE)
+
+        ' --- Spacing / outline style steppers ---
+        DIALOG_draw_label ctx, TDFB_PREV_X, spcY% + 3, "SPACING: " + LTRIM$(STR$(TDF_OPTS.extraSpacing))
+        DIALOG_draw_button ctx, minusX%, spcY%, stepW%, 16, "-", _RGB32(55, 55, 55), _RGB32(90, 90, 90), _RGB32(110, 110, 110)
+        DIALOG_draw_button ctx, plusX%, spcY%, stepW%, 16, "+", _RGB32(55, 55, 55), _RGB32(90, 90, 90), _RGB32(110, 110, 110)
+        DIALOG_draw_button ctx, rowRstX%, spcY%, stepW%, 16, "R", _RGB32(70, 60, 40), _RGB32(120, 100, 60), _RGB32(160, 140, 80)
+
+        DIALOG_draw_label ctx, TDFB_PREV_X, styY% + 3, "OUTLINE STYLE: " + LTRIM$(STR$(TDF_OPTS.outlineStyle))
+        DIALOG_draw_button ctx, minusX%, styY%, stepW%, 16, "-", _RGB32(55, 55, 55), _RGB32(90, 90, 90), _RGB32(110, 110, 110)
+        DIALOG_draw_button ctx, plusX%, styY%, stepW%, 16, "+", _RGB32(55, 55, 55), _RGB32(90, 90, 90), _RGB32(110, 110, 110)
+        DIALOG_draw_button ctx, rowRstX%, styY%, stepW%, 16, "R", _RGB32(70, 60, 40), _RGB32(120, 100, 60), _RGB32(160, 140, 80)
+
+        DIALOG_draw_label ctx, TDFB_PREV_X, sclY% + 3, "SCALE: " + LTRIM$(STR$(TDF_OPTS.scalePct)) + "%"
+        DIALOG_draw_toggle ctx, aaX%, sclY%, aaW%, 16, "AA", TDF_OPTS.antialias
+        DIALOG_draw_button ctx, minusX%, sclY%, stepW%, 16, "-", _RGB32(55, 55, 55), _RGB32(90, 90, 90), _RGB32(110, 110, 110)
+        DIALOG_draw_button ctx, plusX%, sclY%, stepW%, 16, "+", _RGB32(55, 55, 55), _RGB32(90, 90, 90), _RGB32(110, 110, 110)
+        DIALOG_draw_button ctx, rowRstX%, sclY%, stepW%, 16, "R", _RGB32(70, 60, 40), _RGB32(120, 100, 60), _RGB32(160, 140, 80)
+
+        ' --- Preset panel (left column, under the face list) ---
+        COLOR _RGB32(150, 150, 160)
+        _PRINTSTRING (TDFB_PRE_X, TDFB_PRE_Y - 14), "PRESETS (" + LTRIM$(STR$(TDF_PRESET_COUNT%)) + ")"
+        LINE (TDFB_PRE_X - 2, TDFB_PRE_Y - 2)-(TDFB_PRE_X + TDFB_LIST_W + 2, TDFB_PRE_Y + TDFB_PRE_ROWS * TDFB_ROW_H + 2), _RGB32(24, 24, 28), BF
+        LINE (TDFB_PRE_X - 2, TDFB_PRE_Y - 2)-(TDFB_PRE_X + TDFB_LIST_W + 2, TDFB_PRE_Y + TDFB_PRE_ROWS * TDFB_ROW_H + 2), _RGB32(90, 90, 100), B
+
+        DIM pRow AS INTEGER, pIdx AS INTEGER, pY AS INTEGER
+        FOR pRow% = 0 TO TDFB_PRE_ROWS - 1
+            pIdx% = TDFB.presetTop + pRow%
+            IF pIdx% >= TDF_PRESET_COUNT% THEN EXIT FOR
+            pY% = TDFB_PRE_Y + pRow% * TDFB_ROW_H
+            IF pIdx% = TDFB.presetSel THEN
+                LINE (TDFB_PRE_X, pY%)-(TDFB_PRE_X + TDFB_LIST_W, pY% + TDFB_ROW_H - 1), _RGB32(50, 80, 130), BF
+                COLOR _RGB32(255, 255, 255)
+            ELSE
+                COLOR _RGB32(190, 190, 200)
+            END IF
+            _PRINTSTRING (TDFB_PRE_X + 4, pY% + 1), LEFT$(RTRIM$(TDF_PRESET(pIdx%).nameTxt), 20)
+            COLOR _RGB32(120, 130, 150)
+            _PRINTSTRING (TDFB_PRE_X + TDFB_LIST_W - 40, pY% + 1), LTRIM$(STR$(TDF_PRESET(pIdx%).scalePct)) + "%"
+        NEXT pRow%
+        IF TDF_PRESET_COUNT% = 0 THEN
+            COLOR _RGB32(110, 110, 120)
+            _PRINTSTRING (TDFB_PRE_X + 4, TDFB_PRE_Y + 2), "(none saved yet)"
+        END IF
+
+        TDFB_draw_field TDFB_PRE_X, preNameY%, preNameW%, 16, LEFT$(TDFB.presetTxt, TDFB.presetLen), (TDFB.focusField = TDFB_FOCUS_PRESET)
+        DIALOG_draw_button ctx, preSaveX%, preNameY%, preSaveW%, 16, "SAVE", _RGB32(40, 90, 40), _RGB32(60, 140, 60), _RGB32(80, 190, 80)
+        DIALOG_draw_button ctx, preDelX%, preNameY%, preDelW%, 16, "DEL", _RGB32(90, 40, 40), _RGB32(140, 60, 60), _RGB32(190, 80, 80)
+
+        ' --- Favourite toggle + parameter reset ---
+        DIM favFace AS INTEGER, favLbl AS STRING
+        favFace% = TDFB_current_face%
+        IF favFace% >= 0 _ANDALSO TDF_FACE(favFace%).isFavorite THEN
+            favLbl$ = CHR$(15) + " FAVORITE (F2)"
+        ELSE
+            favLbl$ = CHR$(9) + " FAVORITE (F2)"
+        END IF
+        DIALOG_draw_toggle ctx, favX%, favY%, favW%, favH%, favLbl$, (favFace% >= 0 _ANDALSO TDF_FACE(favFace%).isFavorite)
+        DIALOG_draw_button ctx, rndX%, favY%, rndW%, favH%, "RANDOM", _RGB32(40, 60, 90), _RGB32(60, 90, 140), _RGB32(90, 130, 190)
+        DIALOG_draw_button ctx, rstX%, favY%, rstW%, favH%, "RESET ALL", _RGB32(70, 60, 40), _RGB32(120, 100, 60), _RGB32(160, 140, 80)
+
+        ' --- Selected face detail ---
+        faceIdx% = TDFB_current_face%
+        COLOR _RGB32(170, 170, 180)
+        IF faceIdx% >= 0 THEN
+            _PRINTSTRING (TDFB_LIST_X, 454), LEFT$(TDF_face_label$(faceIdx%), 26)
+            _PRINTSTRING (TDFB_LIST_X, 466), LTRIM$(STR$(TDF_FACE(faceIdx%).glyphCnt)) + " glyphs, " + LTRIM$(STR$(TDF_FACE(faceIdx%).cellsW)) + "x" + LTRIM$(STR$(TDF_FACE(faceIdx%).cellsH)) + " cells"
+        ELSE
+            _PRINTSTRING (TDFB_LIST_X, 454), "no match"
+        END IF
+
+        DIALOG_draw_button ctx, okX%, okY%, okW%, okH%, "USE FONT", _RGB32(40, 100, 40), _RGB32(60, 150, 60), _RGB32(80, 200, 80)
+        DIALOG_draw_button ctx, cnX%, cnY%, cnW%, cnH%, "CANCEL", _RGB32(100, 40, 40), _RGB32(150, 60, 60), _RGB32(200, 80, 80)
+
+        DIALOG_blit ctx
+    LOOP UNTIL ctx.done
+
+    IF ctx.result THEN TDFB.chosenFace = TDFB_current_face%
+
+    IF TDFB.previewImg < -1 THEN SAFE_FREEIMAGE TDFB.previewImg
+    TDFB.previewImg = 0
+    DIALOG_cleanup ctx
+
+    IF TDFB.chosenFace >= 0 THEN TDF_BROWSER_show% = FONT_LIST_add_tdf_font%(TDFB.chosenFace)
+END FUNCTION
+
+
+''
+' A simple bordered text field with a caret when focused.
+'
+SUB TDFB_draw_field (fx%, fy%, fw%, fh%, txt$, focused%)
+    LINE (fx%, fy%)-(fx% + fw%, fy% + fh%), _RGB32(20, 20, 24), BF
+    IF focused% THEN
+        LINE (fx%, fy%)-(fx% + fw%, fy% + fh%), _RGB32(120, 170, 255), B
+    ELSE
+        LINE (fx%, fy%)-(fx% + fw%, fy% + fh%), _RGB32(80, 80, 90), B
+    END IF
+    COLOR _RGB32(235, 235, 240)
+    _PRINTSTRING (fx% + 4, fy% + 2), txt$
+    IF focused% THEN
+        DIM caretX AS INTEGER
+        caretX% = fx% + 4 + _PRINTWIDTH(txt$)
+        IF caretX% < fx% + fw% - 2 THEN LINE (caretX%, fy% + 2)-(caretX%, fy% + fh% - 3), _RGB32(200, 220, 255)
+    END IF
+END SUB
+
+
+''
+' Blit the live sample into the preview pane, scaled down to fit when the face
+' is large. TheDraw faces reach 55x41 cells (440x656 px) for a single letter, so
+' a whole word routinely overflows a 330x234 pane.
+'
+SUB TDFB_draw_preview (ctx AS DIALOG_CTX)
+    IF TDFB.previewImg >= -1 THEN
+        COLOR _RGB32(110, 110, 120)
+        _PRINTSTRING (TDFB_PREV_X + 8, TDFB_PREV_Y + 8), "(no preview)"
+        EXIT SUB
+    END IF
+
+    DIM srcW AS INTEGER, srcH AS INTEGER
+    srcW% = _WIDTH(TDFB.previewImg)
+    srcH% = _HEIGHT(TDFB.previewImg)
+    IF srcW% < 1 THEN EXIT SUB
+    IF srcH% < 1 THEN EXIT SUB
+
+    ' TDFB_refresh_preview has already box-filtered this down to fit, so just
+    ' centre it 1:1 — no stretching in the draw path.
+    DIM dx AS INTEGER, dy AS INTEGER
+    dx% = TDFB_PREV_X + (TDFB_PREV_W - srcW%) \ 2
+    dy% = TDFB_PREV_Y + (TDFB_PREV_H - srcH%) \ 2
+    IF dx% < TDFB_PREV_X THEN dx% = TDFB_PREV_X
+    IF dy% < TDFB_PREV_Y THEN dy% = TDFB_PREV_Y
+
+    _PUTIMAGE (dx%, dy%), TDFB.previewImg, ctx.imgHandle
+END SUB

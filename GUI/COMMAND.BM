@@ -220,6 +220,7 @@ SUB CMD_init ()
     CMD_register "Import Text Styles", "", CMD_CAT_EDIT, 1520
     CMD_register "Export Selected Text Style", "", CMD_CAT_EDIT, 1521
     CMD_register "Export All Text Styles", "", CMD_CAT_EDIT, 1522
+    CMD_register "Browse TheDraw Fonts (TDF)", "", CMD_CAT_EDIT, 1530
     CMD_register "Arrange to Top", "Ctrl+Shift+]", CMD_CAT_LAYER, 708
     CMD_register "Arrange to Bottom", "Ctrl+Shift+[", CMD_CAT_LAYER, 709
     CMD_register "Align Left (layers)", "", CMD_CAT_LAYER, 1901
@@ -4581,6 +4582,71 @@ SUB CMD_execute_action (action_id AS INTEGER)
         ' first, so these three were unreachable dead code. Renumbered to
         ' 1520-1522 and registered in CMD_init so the command palette can reach
         ' them. See the duplicate-CASE note in .claude/instructions/draw-ui.md.
+        CASE 1530 ' Browse TheDraw fonts
+            ' The browser registers the picked face in FONT_LIST and hands back
+            ' its index; selecting it in the text bar is what actually makes the
+            ' next typed character use it.
+            DIM tdfPick AS INTEGER
+            tdfPick% = TDF_BROWSER_show%
+            IF tdfPick% >= 0 THEN
+                ' Character Mode and TheDraw faces are mutually exclusive: char
+                ' mode is a fixed CP437 cell grid, a TDF glyph spans many cells.
+                ' Leaving it on would make TEXT_BAR_ensure_char_mode_safe_font
+                ' swap straight back to QB64 8x16, so the pick would look like it
+                ' did nothing — and the character map would size its cells from
+                ' the TDF metrics and swamp the screen.
+                IF CHARMAP.useChars% THEN
+                    CHARMAP.useChars% = FALSE
+                    IF CHARMAP.charGridShow% THEN
+                        CHARMAP.charGridShow% = FALSE
+                        SCENE_DIRTY%          = TRUE
+                    END IF
+                    CHARMAP.charGridSnap% = FALSE
+                    _LOGINFO "CMD 1530: Character Mode disabled — incompatible with TheDraw faces"
+                END IF
+
+                ' Hide the character map itself. Done directly rather than via
+                ' CHARMAP_toggle because that now refuses to act while a TDF
+                ' face is selected — and by this point one is.
+                IF SCRN.showCharMap% THEN
+                    SCRN.showCharMap%           = FALSE
+                    SCRN.charMapManuallyHidden% = TRUE
+                    CHARMAP.visible%            = FALSE
+                    CFG.CHARMAP_VISIBLE%        = FALSE
+                    CHARMAP_NEEDS_REDRAW%       = TRUE
+                    SCENE_DIRTY%                = TRUE
+                    _LOGINFO "CMD 1530: Character Map hidden — not applicable to TheDraw faces"
+                END IF
+
+                TEXT_BAR.selectedFontIdx% = tdfPick%
+                TEXT_BAR.needsRedraw%     = TRUE
+                CHARMAP.cacheValid%       = FALSE
+
+                DIM tdfTd AS INTEGER
+                tdfTd% = TEXT_get_active_text_data_idx%
+                IF tdfTd% >= 1 THEN
+                    ' A TheDraw glyph's height is the face's own, not a point
+                    ' size, so leading comes from the face rather than the size
+                    ' spinner (which does nothing for bitmap fonts).
+                    TEXT_LAYER_DATA(tdfTd%).fontIdx        = tdfPick%
+                    TEXT_LAYER_DATA(tdfTd%).defaultLeading = FONT_LIST(tdfPick%).bitmapGlyphH
+
+                    ' Push onto an active selection, matching TEXT_STYLE_apply.
+                    IF TEXT_has_selection% THEN
+                        DIM tdfMin AS INTEGER, tdfMax AS INTEGER
+                        tdfMin% = TEXT.selStart%: tdfMax% = TEXT.selEnd%
+                        IF tdfMin% > tdfMax% THEN SWAP tdfMin%, tdfMax%
+                        TEXT_LAYER_set_selection_attr tdfTd%, tdfMin%, tdfMax% - 1, "FONT_IDX", tdfPick%
+                        TEXT.CURSOR_X = TEXT_LAYER_get_char_x%(tdfTd%, TEXT_LAYER_DATA(tdfTd%).cursorPos)
+                    END IF
+
+                    TEXT_LAYER_DATA(tdfTd%).dirty = TRUE
+                    FRAME_IDLE%                   = FALSE
+                END IF
+            END IF
+            GUI_NEEDS_REDRAW% = TRUE
+            SCENE_DIRTY%      = TRUE
+
         CASE 1520 ' Import text styles
             GUI_NEEDS_REDRAW% = TRUE
             SCENE_DIRTY%      = TRUE
@@ -5150,32 +5216,74 @@ SUB CMD_update_search ()
     DIM i          AS INTEGER
     DIM search_str AS STRING
     DIM name_str   AS STRING
-    
+    DIM hotkey_str AS STRING
+
     CMD_PALETTE.result_count = 0
-    search_str$              = UCASE$(LEFT$(CMD_PALETTE.search, CMD_PALETTE.search_len))
-    
+    search_str$              = LEFT$(CMD_PALETTE.search, CMD_PALETTE.search_len)
+
+    ' --- Smart case ---
+    ' Matching is a SUBSEQUENCE test, so a short lowercase query like "tdf"
+    ' matches anything containing t..d..f in order — dozens of commands. When
+    ' the query is written in ALL CAPS, treat that as the user asking for a
+    ' literal acronym and match case-sensitively, so "TDF" finds only the
+    ' command that actually spells TDF. Anything with a lower-case letter in it
+    ' stays case-insensitive, because command names are Title Case and a
+    ' case-sensitive "browse" would never match "Browse".
+    DIM caseSensitive AS INTEGER
+    caseSensitive% = CMD_query_is_all_caps%(search_str$)
+    IF NOT caseSensitive% THEN search_str$ = UCASE$(search_str$)
+
     FOR i% = 0 TO CMD_COUNT - 1
         ' If no search, show all
         IF CMD_PALETTE.search_len = 0 THEN
             CMD_RESULTS(CMD_PALETTE.result_count) = i%
             CMD_PALETTE.result_count = CMD_PALETTE.result_count + 1
         ELSE
+            name_str$   = RTRIM$(CMD_LIST(i%).name)
+            hotkey_str$ = RTRIM$(CMD_LIST(i%).hotkey)
+            IF NOT caseSensitive% THEN
+                name_str$   = UCASE$(name_str$)
+                hotkey_str$ = UCASE$(hotkey_str$)
+            END IF
+
             ' Check for fuzzy match in name or hotkey
-            name_str$ = UCASE$(RTRIM$(CMD_LIST(i%).name))
             IF CMD_fuzzy_match%(search_str$, name_str$) THEN
                 CMD_RESULTS(CMD_PALETTE.result_count) = i%
                 CMD_PALETTE.result_count = CMD_PALETTE.result_count + 1
-            ELSEIF INSTR(UCASE$(RTRIM$(CMD_LIST(i%).hotkey)), search_str$) > 0 THEN
+            ELSEIF INSTR(hotkey_str$, search_str$) > 0 THEN
                 CMD_RESULTS(CMD_PALETTE.result_count) = i%
                 CMD_PALETTE.result_count = CMD_PALETTE.result_count + 1
             END IF
         END IF
     NEXT i%
-    
+
     ' Reset hover and scroll
     CMD_PALETTE.hover  = 0
     CMD_PALETTE.scroll = 0
 END SUB
+
+
+''
+' TRUE when a search query is written in ALL CAPS — it holds at least one
+' letter and no lower-case ones. Digits, spaces and punctuation are ignored, so
+' "3D" and "TDF" both qualify while "" and "123" do not.
+'
+FUNCTION CMD_query_is_all_caps% (queryStr AS STRING)
+    CMD_query_is_all_caps% = FALSE
+
+    DIM qi       AS INTEGER
+    DIM ch       AS INTEGER
+    DIM hasUpper AS INTEGER
+    hasUpper% = FALSE
+
+    FOR qi% = 1 TO LEN(queryStr$)
+        ch% = ASC(queryStr$, qi%)
+        IF ch% >= 97 AND ch% <= 122 THEN EXIT FUNCTION ' a lower-case letter — not all caps
+        IF ch% >= 65 AND ch% <= 90 THEN hasUpper% = TRUE
+    NEXT qi%
+
+    CMD_query_is_all_caps% = hasUpper%
+END FUNCTION
 
 
 ''
