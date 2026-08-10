@@ -42,6 +42,7 @@ Current release: v1.8.0
 - **Image Import** - Load images with interactive placement, rotation (90° CW/CCW), horizontal/vertical flip, zoom, pan, and resize — with live preview of all transformations
 - **Aseprite Import** - Open `.ase` / `.aseprite` sprite files (File → Open Aseprite)
 - **PSD Import** - Open Adobe Photoshop `.psd` files (File → Open PSD)
+- **ANSI Import** - Open the ANSI-art family (File → Import ANSI): text ANSI (`.ans`/`.asc`/`.nfo`/`.diz`) with 16-color, iCE, 256-color and 24-bit truecolor SGR (UTF-8 block art auto-detected → CP437), plus the binary formats **BIN**, **XBIN** (`.xb`/`.xbin`, custom palette/embedded font/RLE), and **TundraDraw** (`.tnd`, 24-bit). Import options dialog: 8/9-dot cell width, DOS aspect, 1–8× scale; optionally install an XBIN's embedded font (→ user bitmap fonts) and custom palette (→ user `.GPL`)
 - **Crop** - Interactive canvas crop using marquee selection with dark overlay, resize handles, and size label; drag handles **inward** to trim the canvas, drag **outward past a canvas edge** to grow/expand the canvas in that direction (new pixels are transparent); also supports canvas resize dialog
 - **Canvas Resize** - Resize canvas to arbitrary dimensions via dialog (Canvas menu), preserving layer content at origin
 - **Resize Image with Content** - Resize canvas *and* scale all layer pixel data simultaneously via **Image → Resize Image with Content...** (WxH prompt); uses nearest-neighbor scaling to preserve crisp pixel art; undo supported
@@ -53,6 +54,7 @@ Current release: v1.8.0
 - **Extract Images** - Extract individual sprites or components from sprite sheets or multi-layer artwork as separate PNG files (File → Extract Images); supports transparent/FG color/BG color background modes, connected-component flood fill for single-layer sheets, per-layer or merged extraction for multi-layer files, configurable output naming and dimensions; extraction settings persisted in `.draw` project files
 - **Extract From Grid** - Extract sprites from a grid layout into separate PNG files (File → Extract From Grid...); or extract each grid cell as a separate layer (File → Extract To Layers From Grid...)
 - **Export As** - Export artwork to multiple image formats via File → Export As: PNG (native with alpha), PNG (plain), GIF, JPEG, TGA, BMP, HDR, ICO, QOI
+- **ANSI Export** - Export as half-block ANSI (`.ans`) via File → Export ANSI, with a live source-vs-render preview: choose the **source** (flattened document / current layer / marquee selection), **color mode** (16 / iCE / 256 / RGB, auto-detected), **cell mapping** (per-pixel for max detail, or 1:1 8px to round-trip terminal art), and **font** (VGA 8×16 / VGA50 8×8); a byte-exact **SAUCE** record is written
 - **Pixel Art Analyzer** - Interactive analysis dialog (Tools menu) that evaluates artwork for common pixel art issues: orphan pixels, jagged lines, banding, pillow shading, and doubles; includes a precompute engine for fast analysis
 
 ### Grid System
