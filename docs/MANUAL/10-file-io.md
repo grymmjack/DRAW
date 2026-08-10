@@ -88,6 +88,55 @@ The signature feature: export your artwork as a self-contained `.bas` program. T
 
 <div class="page-break"></div>
 
+## ANSI Art — Import & Export
+
+> 🎯 **Goal:** Bring classic ANSI/BBS art into DRAW as pixels, and turn your pixel art into shareable ANSI.
+
+DRAW reads and writes the ANSI-art family of formats, so you can drop lo-fi mockups into DRAW, refine them as pixels, and hand them back out as `.ans`.
+
+### Importing ANSI (**File → Import ANSI…**)
+
+Supported inputs:
+
+| Kind | Extensions | Notes |
+| --- | --- | --- |
+| **Text ANSI** | `.ans` `.asc` `.nfo` `.diz` | SGR escape sequences — 16-color, **iCE**, **256-color** (`38;5;n`), and **24-bit truecolor** (`38;2;r;g;b`). UTF-8 block/box art is auto-detected and mapped to CP437. |
+| **BIN** | `.bin` | Raw character+attribute pairs; width from SAUCE (`BinaryText`). |
+| **XBIN** | `.xb` `.xbin` | Full XBIN: custom 16-color palette, embedded font, and RLE compression. |
+| **TundraDraw** | `.tnd` | 24-bit truecolor binary stream. |
+
+The **Import ANSI** dialog previews the art and its detected format, and lets you choose how it rasterises onto the canvas:
+
+- **WIDTH** — `8 PX` (square) or `9 PX` (authentic VGA 9-dot; box-drawing characters join across cells).
+- **ASPECT** — `SQUARE` or `DOS 1.2` (the classic non-square CRT stretch).
+- **SCALE** — `1×`–`8×` nearest-neighbor.
+- **Cell height** follows the SAUCE font: `IBM VGA` → 8×16, `VGA50`/`EGA43` → 8×8.
+
+If an **XBIN** carries an embedded **font** or a custom **palette**, the dialog offers to install them into your libraries:
+
+- **Import font** writes the font to `FONTS/ANSI Imports/` so it appears as a bitmap font for the Text tool.
+- **Import palette** writes a `.GPL` into your user palettes and refreshes the picker.
+
+You can also open ANSI art straight from the command line: `./DRAW.run artwork.xb`.
+
+### Exporting ANSI (**File → Export ANSI…**)
+
+Export converts the canvas to **half-block** ANSI (each character cell shows two stacked pixels via `▀`). The dialog gives a live source-vs-render preview plus:
+
+| Control | Choices |
+| --- | --- |
+| **FROM** | `DOCUMENT` (flattened) · `LAYER` (current) · `SELECTION` (marquee region) — auto-selects Selection when one is active |
+| **COLOR** | `16` · `iCE` · `256` · `RGB` (24-bit) — auto-detected from the art |
+| **CELLS** | `PER-PIXEL` (one canvas pixel per cell — maximum detail) · `1:1 8PX` (one 8-px cell — round-trips terminal art at native size) |
+| **FONT** | `VGA 8x16` · `VGA50 8x8` (written to the SAUCE record) |
+| **SIZE** | Column count (auto, or stepped) |
+
+A byte-exact **SAUCE** record (dimensions + font) is appended. Use **Selection** as the source to mock a scene in pixels and export just one section to ANSI.
+
+> 💡 **Round-trip tip:** `PER-PIXEL` keeps every pixel but renders ~8× larger in a terminal/viewer; `1:1 8PX` maps 8×16-pixel blocks to one cell, so exported terminal art re-imports at its original size.
+
+<div class="page-break"></div>
+
 ## Extract Images — Sprite Sheet Decomposition
 
 > 🎯 **Goal:** Extract sprites from sheets or compositions.

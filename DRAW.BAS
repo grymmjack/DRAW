@@ -319,6 +319,12 @@ DO
             FILE_PSD_load CMDLINE_PENDING_FILE$
             SOUND_play SND_NEW_FILE
             RECENT_add_file CMDLINE_PENDING_FILE$
+        ELSEIF ANS_is_ansi_ext%(CMDLINE_PENDING_FILE$) THEN
+            ' ANSI art (text or binary) -> render to a new document
+            ANS_load_file CMDLINE_PENDING_FILE$
+            SOUND_play SND_NEW_FILE
+            RECENT_add_file CMDLINE_PENDING_FILE$
+            CURRENT_FILENAME$ = CMDLINE_PENDING_FILE$
         ELSE
             ' .draw projects and raster images both go through DRW_load (direct load).
             DRW_load CMDLINE_PENDING_FILE$

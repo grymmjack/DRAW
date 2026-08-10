@@ -1426,11 +1426,13 @@ Reference image state (position, scale, opacity, visibility, filename) is saved 
 | File → New from Template | Start from a `.draw`, PNG, or BMP template and mark the result clean |
 | File → Open | Open a .draw project file |
 | File → Import Image | Open/import image file |
+| File → Import ANSI | Import ANSI art (.ans/.asc/.nfo/.diz text; .bin/.xb/.xbin/.tnd binary) with an options dialog (width, aspect, scale, font/palette install) |
 | File → Save | Save (silently if previously saved, dialog if new) |
 | File → Save As... | Save with a new filename (always prompts) |
 | File → Open Aseprite | Open Aseprite (.ase/.aseprite) file |
 | File → Open PSD | Open Photoshop (.psd) file |
 | File → Export As | Export flattened image (PNG, GIF, JPEG, TGA, BMP, HDR, ICO, QOI) |
+| File → Export ANSI | Export as half-block ANSI (.ans) — source (document/layer/selection), color mode (16/iCE/256/RGB), cell mapping, font, SAUCE |
 | File → Export Layer | Export current layer as PNG |
 | File → Export Brush | Export active custom brush as PNG |
 | File → Extract From Grid... | Extract sprites from a grid into separate PNG files |
@@ -1871,7 +1873,7 @@ DRAW has an optional menu bar at the top of the screen providing access to all c
 
 | Menu | Contents |
 |------|----------|
-| **File** | New, Open, Open Aseprite, Open PSD, Import Image, Save, Save As, Export As, Export Layer, Export Brush, Exit |
+| **File** | New, Open, Open Aseprite, Open PSD, Import Image, Import ANSI, Save, Save As, Export As, Export ANSI, Export Layer, Export Brush, Exit |
 | **Edit** | Undo, Redo, Cut, Copy, Paste, Select All, Deselect, Invert Selection, Flip H/V, Scale, Rotate 90° CW/CCW, Canvas Resize, Canvas Crop |
 | **View** | Toolbar, Status Bar, Layer Panel, Menu Bar, Advanced Bar, Cursors, Grid, Pixel Grid, Snap, Crosshair, Grayscale Preview, Reference Image (toggle/load/clear/reposition), Preview Window (Follow/Float modes, Bin Quick Look, Color Pick, Load Image, Recent Images), Layout docking |
 | **Select** | All, None, Invert, Expand, Contract, From Current Layer, **From Selected Layers** *(requires 2+ selected)* |

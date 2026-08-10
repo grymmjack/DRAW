@@ -1,0 +1,447 @@
+''
+' DRAW - INPUT/FILE-BINANSI.BM
+' =============================================================================
+' Binary ANSI-art importers: BIN (raw char+attr), XBIN, and TundraDraw (.tnd).
+' Each parser fills the shared ANS_CELLS grid (char + fg/bg RGB), then the
+' caller hands off to ANS_build_document for rasterising — the exact same
+' render path the SGR text parser uses.
+'
+' Binary text formats store raw VGA attribute bytes, so they resolve colours
+' through ANS_VGA_PAL (attribute order), not the SGR-order ANS_PAL.
+' Reference: kaleidotron (Rust) binary decoders.
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+' --- small binary readers (1-based positions into a raw string) ---
+FUNCTION ANS_rdu16& (s AS STRING, p AS LONG)
+    ANS_rdu16& = ASC(s, p) + ASC(s, p + 1) * 256
+END FUNCTION
+
+FUNCTION ANS_rdu32be& (s AS STRING, p AS LONG)
+    DIM v AS _UNSIGNED LONG
+    v = ASC(s, p): v = v * 256 + ASC(s, p + 1): v = v * 256 + ASC(s, p + 2): v = v * 256 + ASC(s, p + 3)
+    IF v > 60000 THEN v = 60000 ' clamp runaway positions
+    ANS_rdu32be& = v
+END FUNCTION
+
+''
+' Strip characters unsafe for a filename (keep it simple + cross-platform).
+'
+FUNCTION ANS_safe_name$ (nm AS STRING)
+    DIM s AS STRING, i AS INTEGER, c AS INTEGER, o AS STRING
+    s = nm
+    FOR i = 1 TO LEN(s)
+        c = ASC(s, i)
+        IF (c >= 48 AND c <= 57) OR (c >= 65 AND c <= 90) OR (c >= 97 AND c <= 122) OR c = 45 OR c = 95 OR c = 32 THEN
+            o = o + CHR$(c)
+        ELSE
+            o = o + "_"
+        END IF
+    NEXT i
+    o = _TRIM$(o)
+    IF o = "" THEN o = "imported"
+    ANS_safe_name$ = o
+END FUNCTION
+
+''
+' Import the last-parsed XBIN embedded font into the user font library as a
+' Fontraption .F<h> file under FONTS/ANSI Imports, then refresh the font list so
+' it appears (usable in character/typing mode). Returns TRUE on success.
+'
+FUNCTION ANS_import_font_to_user% (impName AS STRING)
+    DIM h AS INTEGER, needed AS LONG, dat AS STRING
+    DIM baseDir AS STRING, subDir AS STRING, fpath AS STRING, ext AS STRING, ff AS INTEGER
+
+    IF ANS_IMPORT_GLYPHS <= 0 OR ANS_IMPORT_FONTH <= 0 THEN EXIT FUNCTION
+    h = ANS_IMPORT_FONTH
+    IF h < 1 OR h > 64 THEN EXIT FUNCTION ' .F?? supports heights 1..64
+
+    ' The .F?? loader requires exactly 256 glyphs * h rows (8px wide).
+    needed = 256 * h
+    dat = ANS_IMPORT_FONTDATA
+    IF LEN(dat) >= needed THEN
+        dat = LEFT$(dat, needed) ' 512-char font: keep the first 256 glyphs
+    ELSE
+        dat = dat + STRING$(needed - LEN(dat), 0)
+    END IF
+
+    baseDir = PATHS_data$("FONTS/")
+    subDir = PATHS_data$("FONTS/ANSI Imports/")
+    PATHS_ensure_dir baseDir
+    PATHS_ensure_dir subDir
+    ext = ".F" + RIGHT$("0" + LTRIM$(STR$(h)), 2)
+    fpath = subDir + ANS_safe_name$(impName) + ext
+
+    ff = FREEFILE
+    OPEN fpath FOR OUTPUT AS #ff: CLOSE #ff ' truncate
+    ff = FREEFILE
+    OPEN fpath FOR BINARY AS #ff
+    PUT #ff, 1, dat
+    CLOSE #ff
+
+    ' Force a rescan so the new font shows up now (grouped under "ANSI Imports").
+    FONT_LIST_SCANNED% = FALSE
+    FONT_LIST_free_cache
+    CBF_free_cache
+    FONT_LIST_scan
+    _LOGINFO "ANS_import_font_to_user: wrote " + fpath + " (" + LTRIM$(STR$(ANS_IMPORT_GLYPHS)) + " glyphs, " + LTRIM$(STR$(h)) + "px)"
+    ANS_import_font_to_user% = -1
+END FUNCTION
+
+''
+' Import the last-parsed XBIN custom palette into the user palette library as a
+' 16-colour .GPL, then refresh the palette list. Returns TRUE on success.
+'
+FUNCTION ANS_import_palette_to_user% (impName AS STRING)
+    DIM dir AS STRING, fpath AS STRING, ff AS INTEGER, i AS INTEGER
+    DIM r AS INTEGER, g AS INTEGER, b AS INTEGER, safe AS STRING
+
+    IF ANS_IMPORT_HASPAL = 0 THEN EXIT FUNCTION
+    safe = ANS_safe_name$(impName)
+    dir = PATHS_data$("PALETTES/")
+    PATHS_ensure_dir dir
+    fpath = dir + safe + " (16).GPL"
+
+    ff = FREEFILE
+    OPEN fpath FOR OUTPUT AS #ff
+    PRINT #ff, "GIMP Palette"
+    PRINT #ff, "Name: " + safe
+    PRINT #ff, "Columns: 16"
+    PRINT #ff, "#"
+    FOR i = 0 TO 15
+        r = _RED32(ANS_IMPORT_PAL(i)): g = _GREEN32(ANS_IMPORT_PAL(i)): b = _BLUE32(ANS_IMPORT_PAL(i))
+        PRINT #ff, RIGHT$("   " + LTRIM$(STR$(r)), 3) + " " + RIGHT$("   " + LTRIM$(STR$(g)), 3) + " " + RIGHT$("   " + LTRIM$(STR$(b)), 3) + " Color " + LTRIM$(STR$(i))
+    NEXT i
+    CLOSE #ff
+
+    PALETTE_LOADER_COUNT% = 0
+    PALETTE_LOADER_scan_folder "./ASSETS/PALETTES"
+    PALETTE_LOADER_scan_user_folders
+    PALETTE_PREVIEW_invalidate_all
+    GUI_NEEDS_REDRAW% = TRUE
+    _LOGINFO "ANS_import_palette_to_user: wrote " + fpath
+    ANS_import_palette_to_user% = -1
+END FUNCTION
+
+''
+' (Re)allocate ANS_CELLS to cols x rows and set the grid dimensions.
+' Cells zero-init to ch=0 (rendered blank) on opaque black.
+'
+SUB ANS_bin_init_grid (cols AS INTEGER, rows AS INTEGER)
+    DIM c AS INTEGER, r AS INTEGER
+    c = cols: r = rows
+    IF c < 1 THEN c = 1
+    IF r < 1 THEN r = 1
+    REDIM ANS_CELLS(0 TO c - 1, 0 TO r - 1) AS ANS_CELL
+    ANS_GRID_COLS = c: ANS_GRID_ROWS = r
+END SUB
+
+''
+' Write one cell (bounds-checked) with explicit RGB colours.
+'
+SUB ANS_put_cell (x AS INTEGER, y AS INTEGER, ch AS INTEGER, fg AS _UNSIGNED LONG, bg AS _UNSIGNED LONG)
+    IF x >= 0 AND x < ANS_GRID_COLS AND y >= 0 AND y < ANS_GRID_ROWS THEN
+        ANS_CELLS(x, y).ch = ch
+        ANS_CELLS(x, y).fg = fg
+        ANS_CELLS(x, y).bg = bg
+    END IF
+END SUB
+
+''
+' Resolve a text-mode attribute byte to fg/bg indices, honouring iCE.
+' fg = low nibble (0-15). bg = high nibble: 0-15 when iCE (non-blink), else 0-7.
+'
+SUB ANS_attr_indices (attr AS INTEGER, ice AS INTEGER, fgIdx AS INTEGER, bgIdx AS INTEGER)
+    fgIdx = attr AND 15
+    IF ice <> 0 THEN
+        bgIdx = (attr \ 16) AND 15
+    ELSE
+        bgIdx = (attr \ 16) AND 7
+    END IF
+END SUB
+
+''
+' Parse an XBIN (.xb/.xbin) file into ANS_CELLS. Handles the optional palette
+' (16 colours, 6-bit DAC) and font (skipped — the built-in CP437 glyphs are
+' used), and both uncompressed and RLE image data. Returns TRUE on success.
+'
+FUNCTION ANS_parse_xbin% (raw AS STRING)
+    DIM n AS LONG, p AS LONG
+    DIM w AS INTEGER, h AS INTEGER, fontsize AS INTEGER, flags AS INTEGER
+    DIM hasPal AS INTEGER, hasFont AS INTEGER, rle AS INTEGER, ice AS INTEGER, is512 AS INTEGER
+    DIM numChars AS INTEGER, i AS INTEGER
+    DIM cells AS LONG, idx AS LONG
+    DIM lead AS INTEGER, cnt AS INTEGER, typ AS INTEGER, ch AS INTEGER, at AS INTEGER
+    DIM fgIdx AS INTEGER, bgIdx AS INTEGER, gx AS INTEGER, gy AS INTEGER, j AS INTEGER
+    DIM r6 AS INTEGER, g6 AS INTEGER, b6 AS INTEGER
+    DIM pal(0 TO 15) AS _UNSIGNED LONG
+
+    n = LEN(raw)
+    IF n < 11 THEN EXIT FUNCTION
+    IF LEFT$(raw, 5) <> "XBIN" + CHR$(26) THEN EXIT FUNCTION
+
+    w = ANS_rdu16&(raw, 6)
+    h = ANS_rdu16&(raw, 8)
+    fontsize = ASC(raw, 10)
+    flags = ASC(raw, 11)
+    IF w < 1 OR h < 1 THEN EXIT FUNCTION
+
+    hasPal = (flags AND 1)
+    hasFont = (flags AND 2)
+    rle = (flags AND 4)
+    ice = (flags AND 8)
+    is512 = (flags AND 16)
+    p = 12 ' first byte after the 11-byte header (1-based)
+
+    ' Cell height for the renderer: 8x8 built-in when the font is 8px tall, else 8x16.
+    IF fontsize >= 1 AND fontsize <= 8 THEN ANS_IMPORT_FONT8X8 = -1 ELSE ANS_IMPORT_FONT8X8 = 0
+
+    ' Palette: 48 bytes of 6-bit DAC, else the default VGA palette.
+    ANS_IMPORT_HASPAL = 0
+    IF hasPal <> 0 THEN
+        FOR i = 0 TO 15
+            r6 = ANS_vga6to8%(ASC(raw, p)): g6 = ANS_vga6to8%(ASC(raw, p + 1)): b6 = ANS_vga6to8%(ASC(raw, p + 2))
+            pal(i) = _RGB32(r6, g6, b6)
+            ANS_IMPORT_PAL(i) = pal(i)
+            p = p + 3
+        NEXT i
+        ANS_IMPORT_HASPAL = -1
+    ELSE
+        FOR i = 0 TO 15: pal(i) = ANS_VGA_PAL(i): NEXT i
+    END IF
+
+    ' Font: capture the raw glyph block (for optional font import), then skip it
+    ' for rendering (the built-in CP437 glyphs are used).
+    ANS_IMPORT_GLYPHS = 0: ANS_IMPORT_FONTH = 0: ANS_IMPORT_FONTDATA = ""
+    IF hasFont <> 0 THEN
+        numChars = 256: IF is512 <> 0 THEN numChars = 512
+        DIM fontLen AS LONG
+        fontLen = CLNG(fontsize) * numChars
+        IF p + fontLen - 1 <= n THEN
+            ANS_IMPORT_FONTDATA = MID$(raw, p, fontLen)
+            ANS_IMPORT_GLYPHS = numChars
+            ANS_IMPORT_FONTH = fontsize
+        END IF
+        p = p + fontLen
+    END IF
+
+    ANS_bin_init_grid w, h
+    cells = CLNG(w) * h
+    idx = 0
+
+    IF rle = 0 THEN
+        ' Uncompressed: width*height (char, attr) pairs.
+        DO WHILE idx < cells AND p + 1 <= n
+            ch = ASC(raw, p): at = ASC(raw, p + 1): p = p + 2
+            GOSUB xbEmit
+            idx = idx + 1
+        LOOP
+    ELSE
+        ' RLE: count/type lead byte then a run.
+        DO WHILE idx < cells AND p <= n
+            lead = ASC(raw, p): p = p + 1
+            cnt = (lead AND 63) + 1
+            typ = lead \ 64
+            SELECT CASE typ
+                CASE 0 ' literal pairs
+                    FOR j = 1 TO cnt
+                        IF p + 1 > n OR idx >= cells THEN EXIT FOR
+                        ch = ASC(raw, p): at = ASC(raw, p + 1): p = p + 2
+                        GOSUB xbEmit: idx = idx + 1
+                    NEXT j
+                CASE 1 ' one char, cnt attrs
+                    IF p > n THEN EXIT DO
+                    ch = ASC(raw, p): p = p + 1
+                    FOR j = 1 TO cnt
+                        IF p > n OR idx >= cells THEN EXIT FOR
+                        at = ASC(raw, p): p = p + 1
+                        GOSUB xbEmit: idx = idx + 1
+                    NEXT j
+                CASE 2 ' cnt chars, one attr
+                    IF p > n THEN EXIT DO
+                    at = ASC(raw, p): p = p + 1
+                    FOR j = 1 TO cnt
+                        IF p > n OR idx >= cells THEN EXIT FOR
+                        ch = ASC(raw, p): p = p + 1
+                        GOSUB xbEmit: idx = idx + 1
+                    NEXT j
+                CASE 3 ' one pair, cnt times
+                    IF p + 1 > n THEN EXIT DO
+                    ch = ASC(raw, p): at = ASC(raw, p + 1): p = p + 2
+                    FOR j = 1 TO cnt
+                        IF idx >= cells THEN EXIT FOR
+                        GOSUB xbEmit: idx = idx + 1
+                    NEXT j
+            END SELECT
+        LOOP
+    END IF
+    ANS_parse_xbin% = -1
+    EXIT FUNCTION
+
+    xbEmit:
+    ' 512-char mode: 3-bit fg, high glyph bank via attr bit3 (bank ignored:
+    ' built-in font is 256 glyphs). Otherwise the full nibble is fg.
+    IF is512 <> 0 THEN
+        fgIdx = at AND 7
+        IF ice <> 0 THEN bgIdx = (at \ 16) AND 15 ELSE bgIdx = (at \ 16) AND 7
+    ELSE
+        ANS_attr_indices at, ice, fgIdx, bgIdx
+    END IF
+    gx = idx MOD w: gy = idx \ w
+    ANS_put_cell gx, gy, ch, pal(fgIdx AND 15), pal(bgIdx AND 15)
+    RETURN
+END FUNCTION
+
+''
+' Parse a raw BIN (.bin) file into ANS_CELLS. Headerless char+attr pairs; the
+' column count comes from SAUCE (BinaryText DataType 5 -> FileType*2, or a
+' Character record's TInfo1), defaulting to 160. iCE from SAUCE TFlags (on by
+' default when no SAUCE). Colours via ANS_VGA_PAL. Returns TRUE on success.
+'
+FUNCTION ANS_parse_bin% (raw AS STRING)
+    DIM n AS LONG, content AS STRING, rec AS STRING
+    DIM hasSauce AS INTEGER, dataType AS INTEGER, fileType AS INTEGER, tflags AS INTEGER, comments AS INTEGER
+    DIM tinfo1 AS INTEGER, w AS INTEGER, ice AS INTEGER, h AS INTEGER
+    DIM comntLen AS LONG, cutLen AS LONG, pairs AS LONG, idx AS LONG
+    DIM ch AS INTEGER, at AS INTEGER, fgIdx AS INTEGER, bgIdx AS INTEGER, gx AS INTEGER, gy AS INTEGER
+
+    n = LEN(raw)
+    IF n < 2 THEN EXIT FUNCTION
+    content = raw
+    w = 160: ice = -1: hasSauce = 0
+
+    IF n >= 128 THEN
+        rec = RIGHT$(raw, 128)
+        IF LEFT$(rec, 7) = "SAUCE00" THEN hasSauce = -1
+    END IF
+    IF hasSauce THEN
+        dataType = ASC(rec, 95)
+        fileType = ASC(rec, 96)
+        tinfo1 = ANS_rdu16&(rec, 97)
+        comments = ASC(rec, 105)
+        tflags = ASC(rec, 106)
+        IF dataType = 5 AND fileType > 0 THEN
+            w = fileType * 2
+        ELSEIF dataType = 1 AND tinfo1 > 0 THEN
+            w = tinfo1
+        END IF
+        IF (tflags AND 1) <> 0 THEN ice = -1 ELSE ice = 0
+        comntLen = 0
+        IF comments > 0 THEN comntLen = 5 + CLNG(comments) * 64
+        cutLen = 128 + comntLen
+        IF cutLen >= n THEN content = "" ELSE content = LEFT$(raw, n - cutLen)
+    END IF
+    DO WHILE LEN(content) > 0
+        IF ASC(content, LEN(content)) = 26 THEN content = LEFT$(content, LEN(content) - 1) ELSE EXIT DO
+    LOOP
+    IF w < 1 THEN w = 160
+
+    pairs = LEN(content) \ 2
+    IF pairs < 1 THEN EXIT FUNCTION
+    h = (pairs + w - 1) \ w
+    ANS_bin_init_grid w, h
+    FOR idx = 0 TO pairs - 1
+        ch = ASC(content, idx * 2 + 1): at = ASC(content, idx * 2 + 2)
+        ANS_attr_indices at, ice, fgIdx, bgIdx
+        gx = idx MOD w: gy = idx \ w
+        ANS_put_cell gx, gy, ch, ANS_VGA_PAL(fgIdx AND 15), ANS_VGA_PAL(bgIdx AND 15)
+    NEXT idx
+    ANS_parse_bin% = -1
+END FUNCTION
+
+''
+' Parse a TundraDraw (.tnd) file into ANS_CELLS. 24-bit truecolor command
+' stream: 1=position (row,col BE u32), 2=set fg+glyph, 4=set bg+glyph,
+' 6=set both+glyph, any other byte = literal glyph at current fg/bg. Columns
+' from SAUCE (TInfo1) else 80; rows grow as the cursor advances. Returns TRUE.
+'
+FUNCTION ANS_parse_tnd% (raw AS STRING)
+    DIM n AS LONG, content AS STRING, rec AS STRING
+    DIM cols AS INTEGER, curRows AS INTEGER, newRows AS INTEGER
+    DIM col AS INTEGER, row AS INTEGER, maxRow AS INTEGER
+    DIM i AS LONG, cur AS INTEGER, character AS INTEGER
+    DIM comments AS INTEGER, comntLen AS LONG, cutLen AS LONG, tinfo1 AS INTEGER
+    DIM fg AS _UNSIGNED LONG, bg AS _UNSIGNED LONG
+
+    n = LEN(raw)
+    IF n < 9 THEN EXIT FUNCTION
+    ' magic: 0x18 + "TUNDRA24"
+    IF ASC(raw, 1) <> 24 OR MID$(raw, 2, 8) <> "TUNDRA24" THEN EXIT FUNCTION
+
+    cols = 80
+    content = raw
+    IF n >= 128 THEN
+        rec = RIGHT$(raw, 128)
+        IF LEFT$(rec, 7) = "SAUCE00" THEN
+            tinfo1 = ANS_rdu16&(rec, 97)
+            IF ASC(rec, 95) = 1 AND tinfo1 > 0 THEN cols = tinfo1
+            comments = ASC(rec, 105)
+            comntLen = 0: IF comments > 0 THEN comntLen = 5 + CLNG(comments) * 64
+            cutLen = 128 + comntLen
+            IF cutLen < n THEN content = LEFT$(raw, n - cutLen)
+        END IF
+    END IF
+    IF cols < 1 THEN cols = 1
+    IF cols > 4096 THEN cols = 4096
+    n = LEN(content)
+
+    curRows = 25
+    ANS_bin_init_grid cols, curRows
+    col = 0: row = 0: maxRow = 0
+    fg = _RGB32(0, 0, 0): bg = _RGB32(0, 0, 0)
+
+    i = 10 ' first byte after the 9-byte header
+    DO WHILE i <= n
+        IF col >= cols THEN col = 0: row = row + 1
+
+        cur = ASC(content, i)
+        character = cur
+        SELECT CASE cur
+            CASE 1 ' position
+                IF i + 8 <= n THEN
+                    row = ANS_rdu32be&(content, i + 1)
+                    col = ANS_rdu32be&(content, i + 5)
+                END IF
+                i = i + 8
+            CASE 2 ' set fg + glyph
+                IF i + 5 <= n THEN
+                    character = ASC(content, i + 1)
+                    fg = _RGB32(ASC(content, i + 3), ASC(content, i + 4), ASC(content, i + 5))
+                END IF
+                i = i + 5
+            CASE 4 ' set bg + glyph
+                IF i + 5 <= n THEN
+                    character = ASC(content, i + 1)
+                    bg = _RGB32(ASC(content, i + 3), ASC(content, i + 4), ASC(content, i + 5))
+                END IF
+                i = i + 5
+            CASE 6 ' set both + glyph
+                IF i + 9 <= n THEN
+                    character = ASC(content, i + 1)
+                    fg = _RGB32(ASC(content, i + 3), ASC(content, i + 4), ASC(content, i + 5))
+                    bg = _RGB32(ASC(content, i + 7), ASC(content, i + 8), ASC(content, i + 9))
+                END IF
+                i = i + 9
+        END SELECT
+
+        IF character <> 1 AND character <> 2 AND character <> 4 AND character <> 6 AND col < cols THEN
+            IF row > 10000 THEN EXIT DO
+            IF row > curRows - 1 THEN
+                newRows = row + 25
+                REDIM _PRESERVE ANS_CELLS(0 TO cols - 1, 0 TO newRows - 1) AS ANS_CELL
+                curRows = newRows
+            END IF
+            ANS_put_cell col, row, character, fg, bg
+            IF row > maxRow THEN maxRow = row
+            col = col + 1
+        END IF
+        i = i + 1
+    LOOP
+
+    ANS_GRID_COLS = cols
+    ANS_GRID_ROWS = maxRow + 1
+    IF ANS_GRID_ROWS < 1 THEN ANS_GRID_ROWS = 1
+    ANS_parse_tnd% = -1
+END FUNCTION

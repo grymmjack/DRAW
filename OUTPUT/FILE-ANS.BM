@@ -1,0 +1,1027 @@
+''
+' DRAW - OUTPUT/FILE-ANS.BM
+' =============================================================================
+' ANSI (.ans) export implementation. Import lives in INPUT/FILE-ANS.BM.
+'
+' Pipeline (export): LAYERS_flatten& -> ANS_build_cells (half-block) ->
+' mode serializer (16 / iCE / 256 / RGB) -> optional SAUCE record -> disk.
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+''
+' Populate ANS_EXPORT with factory defaults. Safe to call at include-time:
+' touches only the ANS_EXPORT singleton, never THEME.* (see gotcha #11).
+'
+SUB ANS_export_settings_defaults
+    ANS_EXPORT.mode = ANS_MODE_16
+    ANS_EXPORT.source = ANS_SRC_FLAT
+    ANS_EXPORT.cellMode = ANS_CELLMODE_PERPIXEL ' lossless for pixel art (DRAW's primary content)
+    ANS_EXPORT.cols = 0
+    ANS_EXPORT.rows = 0
+    ANS_EXPORT.autoSize = TRUE
+    ANS_EXPORT.font8x8 = FALSE
+    ANS_EXPORT.ice = FALSE
+    ANS_EXPORT.fontName = "IBM VGA"
+    ANS_EXPORT.saucTitle = ""
+    ANS_EXPORT.saucAuthr = ""
+    ANS_EXPORT.saucGroup = ""
+    ANS_EXPORT.writeSauc = TRUE
+    ANS_IMP_CELLW = 8: ANS_IMP_ASPECT = 100: ANS_IMP_SCALE = 1
+END SUB
+
+' =============================================================================
+' 16-color ANSI palette (SGR order) and nearest-color quantisation.
+' =============================================================================
+
+''
+' Populate ANS_PAL with the standard 16 ANSI colours in SGR index order.
+' Safe at include-time (touches only ANS_PAL).
+'
+SUB ANS_palette_init
+    ANS_PAL(0) = _RGB32(0, 0, 0)       ' black
+    ANS_PAL(1) = _RGB32(170, 0, 0)     ' red
+    ANS_PAL(2) = _RGB32(0, 170, 0)     ' green
+    ANS_PAL(3) = _RGB32(170, 85, 0)    ' brown / yellow
+    ANS_PAL(4) = _RGB32(0, 0, 170)     ' blue
+    ANS_PAL(5) = _RGB32(170, 0, 170)   ' magenta
+    ANS_PAL(6) = _RGB32(0, 170, 170)   ' cyan
+    ANS_PAL(7) = _RGB32(170, 170, 170) ' light grey
+    ANS_PAL(8) = _RGB32(85, 85, 85)    ' dark grey (bright black)
+    ANS_PAL(9) = _RGB32(255, 85, 85)   ' bright red
+    ANS_PAL(10) = _RGB32(85, 255, 85)  ' bright green
+    ANS_PAL(11) = _RGB32(255, 255, 85) ' bright yellow
+    ANS_PAL(12) = _RGB32(85, 85, 255)  ' bright blue
+    ANS_PAL(13) = _RGB32(255, 85, 255) ' bright magenta
+    ANS_PAL(14) = _RGB32(85, 255, 255) ' bright cyan
+    ANS_PAL(15) = _RGB32(255, 255, 255) ' white
+END SUB
+
+''
+' Populate ANS_VGA_PAL with the standard 16 colours in VGA attribute order
+' (index 1 = blue, 4 = red). Safe at include-time.
+'
+SUB ANS_vga_palette_init
+    ANS_VGA_PAL(0) = _RGB32(0, 0, 0)       ' black
+    ANS_VGA_PAL(1) = _RGB32(0, 0, 170)     ' blue
+    ANS_VGA_PAL(2) = _RGB32(0, 170, 0)     ' green
+    ANS_VGA_PAL(3) = _RGB32(0, 170, 170)   ' cyan
+    ANS_VGA_PAL(4) = _RGB32(170, 0, 0)     ' red
+    ANS_VGA_PAL(5) = _RGB32(170, 0, 170)   ' magenta
+    ANS_VGA_PAL(6) = _RGB32(170, 85, 0)    ' brown
+    ANS_VGA_PAL(7) = _RGB32(170, 170, 170) ' light grey
+    ANS_VGA_PAL(8) = _RGB32(85, 85, 85)    ' dark grey
+    ANS_VGA_PAL(9) = _RGB32(85, 85, 255)   ' bright blue
+    ANS_VGA_PAL(10) = _RGB32(85, 255, 85)  ' bright green
+    ANS_VGA_PAL(11) = _RGB32(85, 255, 255) ' bright cyan
+    ANS_VGA_PAL(12) = _RGB32(255, 85, 85)  ' bright red
+    ANS_VGA_PAL(13) = _RGB32(255, 85, 255) ' bright magenta
+    ANS_VGA_PAL(14) = _RGB32(255, 255, 85) ' bright yellow
+    ANS_VGA_PAL(15) = _RGB32(255, 255, 255) ' white
+END SUB
+
+''
+' Expand a 6-bit VGA DAC value (0-63) to 8-bit (0-255): (v<<2) | (v>>4).
+'
+FUNCTION ANS_vga6to8% (v AS INTEGER)
+    DIM x AS INTEGER
+    x = v AND 63
+    ANS_vga6to8% = (x * 4) OR (x \ 16)
+END FUNCTION
+
+''
+' Nearest ANS_PAL index to an RGB32 colour, by squared Euclidean distance.
+' @param rgb~& source colour (alpha ignored)
+' @return palette index 0-15
+'
+FUNCTION ANS_nearest_index% (rgb AS _UNSIGNED LONG)
+    DIM r AS INTEGER, g AS INTEGER, b AS INTEGER
+    DIM i AS INTEGER, best AS INTEGER
+    DIM dr AS INTEGER, dg AS INTEGER, db AS INTEGER
+    DIM d AS LONG, bestDist AS LONG
+    r% = _RED32(rgb~&): g% = _GREEN32(rgb~&): b% = _BLUE32(rgb~&)
+    best% = 0: bestDist& = 2147483647
+    FOR i% = 0 TO 15
+        dr% = r% - _RED32(ANS_PAL(i%))
+        dg% = g% - _GREEN32(ANS_PAL(i%))
+        db% = b% - _BLUE32(ANS_PAL(i%))
+        d& = CLNG(dr%) * dr% + CLNG(dg%) * dg% + CLNG(db%) * db% ' CLNG: avoid INTEGER overflow
+        IF d& < bestDist& THEN bestDist& = d&: best% = i%
+    NEXT i%
+    ANS_nearest_index% = best%
+END FUNCTION
+
+''
+' Suggest a default export mode by scanning an image's colours.
+' Returns ANS_MODE_16 when every pixel exactly matches an ANS_PAL entry
+' (indexed / EGA-style art), otherwise ANS_MODE_RGB (arbitrary colour).
+' Early-exits on the first off-palette pixel, so photographic input bails fast.
+'
+' @param imgHandle& a valid 32-bit image handle (e.g. LAYERS_flatten&)
+'
+FUNCTION ANS_detect_palette% (imgHandle AS LONG)
+    DIM oldSrc AS LONG
+    DIM w AS INTEGER, h AS INTEGER, x AS INTEGER, y AS INTEGER
+    DIM c AS _UNSIGNED LONG
+    DIM cr AS INTEGER, cg AS INTEGER, cb AS INTEGER
+    DIM i AS INTEGER, matched AS INTEGER
+    DIM result AS INTEGER
+
+    result% = ANS_MODE_16 ' assume indexed until a pixel proves otherwise
+    IF imgHandle& = 0 OR imgHandle& = -1 THEN ANS_detect_palette% = ANS_MODE_RGB: EXIT FUNCTION ' invalid sentinels
+    w% = _WIDTH(imgHandle&): h% = _HEIGHT(imgHandle&)
+    IF w% <= 0 OR h% <= 0 THEN ANS_detect_palette% = ANS_MODE_RGB: EXIT FUNCTION
+
+    oldSrc& = _SOURCE
+    _SOURCE imgHandle&
+    FOR y% = 0 TO h% - 1
+        FOR x% = 0 TO w% - 1
+            c~& = POINT(x%, y%)
+            cr% = _RED32(c~&): cg% = _GREEN32(c~&): cb% = _BLUE32(c~&)
+            matched% = FALSE
+            FOR i% = 0 TO 15
+                IF cr% = _RED32(ANS_PAL(i%)) _ANDALSO cg% = _GREEN32(ANS_PAL(i%)) _ANDALSO cb% = _BLUE32(ANS_PAL(i%)) THEN
+                    matched% = TRUE: EXIT FOR
+                END IF
+            NEXT i%
+            IF NOT matched% THEN result% = ANS_MODE_RGB: EXIT FOR
+        NEXT x%
+        IF result% = ANS_MODE_RGB THEN EXIT FOR
+    NEXT y%
+    _SOURCE oldSrc&
+    ANS_detect_palette% = result%
+END FUNCTION
+
+' =============================================================================
+' CP437 glyph primitives (shared by export preview and import raster).
+'
+' Reuses QB64-PE's built-in VGA-ROM bitmap fonts, which are indexed by CP437
+' byte value, so _PRINTSTRING CHR$(ch) draws the correct glyph with no embedded
+' font data. This mirrors the proven CP437 cell rasteriser in TDF-FONT.BM.
+'   built-in handle 16 = 8x16 (default),  handle 8 = 8x8 (80x50 mode).
+' =============================================================================
+
+''
+' Built-in CP437 font handle for the selected cell size.
+' @param font8x8% TRUE = 8x8 (handle 8), FALSE = 8x16 (handle 16)
+'
+FUNCTION ANS_glyph_font& (font8x8 AS INTEGER)
+    IF font8x8 THEN ANS_glyph_font& = 8 ELSE ANS_glyph_font& = 16
+END FUNCTION
+
+''
+' Cell pixel height for the selected font (width is always ANS_CELL_W = 8).
+'
+FUNCTION ANS_glyph_cell_h% (font8x8 AS INTEGER)
+    IF font8x8 THEN ANS_glyph_cell_h% = ANS_CELL_H8 ELSE ANS_glyph_cell_h% = ANS_CELL_H16
+END FUNCTION
+
+''
+' Draw a single CP437 glyph cell into the CURRENT _DEST at pixel (atX, atY):
+' fills the cell background then prints the glyph in the foreground colour.
+' Caller sets _DEST; this SUB preserves and restores _FONT (gotcha #3).
+'
+' @param ch%      CP437 byte value 0-255
+' @param atX/atY% top-left pixel of the cell in the destination image
+' @param fg~&/bg~& RGB32 foreground / background colours
+' @param font8x8% TRUE = 8x8 cell, FALSE = 8x16 cell
+'
+SUB ANS_draw_glyph (ch AS INTEGER, atX AS INTEGER, atY AS INTEGER, fg AS _UNSIGNED LONG, bg AS _UNSIGNED LONG, font8x8 AS INTEGER, cellW AS INTEGER)
+    DIM oldFont AS LONG
+    DIM cellH AS INTEGER, ry AS INTEGER
+    DIM useBg AS _UNSIGNED LONG, cpx AS _UNSIGNED LONG
+    oldFont& = _FONT
+    cellH% = ANS_glyph_cell_h%(font8x8)
+    ' A fully-transparent bg (0) means an untouched import cell -> opaque black.
+    useBg = bg~&
+    IF useBg = 0 THEN useBg = _RGB32(0, 0, 0)
+    ' Opaque background fill for the whole cell (cellW wide).
+    LINE (atX%, atY%)-(atX% + cellW - 1, atY% + cellH% - 1), useBg, BF
+    ' Glyph in foreground. Space (32) and NUL (0, blank import cell) have no pixels.
+    IF ch% <> 32 AND ch% <> 0 THEN
+        _FONT ANS_glyph_font&(font8x8)
+        _PRINTMODE _KEEPBACKGROUND ' draw only lit glyph pixels; keep the bg fill above
+        COLOR fg~&
+        _PRINTSTRING (atX%, atY%), CHR$(ch%)
+        ' VGA 9-dot mode: the 9th column repeats column 8 for the box-draw range
+        ' (0xC0-0xDF) so line-graphics connect; otherwise it stays background.
+        IF cellW >= 9 AND ch% >= 192 AND ch% <= 223 THEN
+            DIM oldSrc AS LONG
+            oldSrc& = _SOURCE
+            _SOURCE _DEST ' read back from the image we just drew into
+            FOR ry% = 0 TO cellH% - 1
+                cpx = POINT(atX% + 7, atY% + ry%)
+                PSET (atX% + 8, atY% + ry%), cpx
+            NEXT ry%
+            _SOURCE oldSrc&
+        END IF
+    END IF
+    _FONT oldFont&
+END SUB
+
+' =============================================================================
+' Cell grid construction (half-block conversion).
+' =============================================================================
+
+''
+' Build the ANS_CELLS grid from a flattened image, half-block style.
+' The source is hard-scaled into a temp cols x (rows*2) buffer, then each cell
+' samples the top pixel as foreground and the pixel below it as background.
+' Solid cells (top == bottom) become full block 219; others upper-half 223.
+' Populates ANS_CELLS(), ANS_GRID_COLS, ANS_GRID_ROWS.
+'
+' @param srcImg& valid 32-bit flattened image (caller owns/frees it)
+' @param cols%   output columns (> 0)
+' @param rows%   output character rows (> 0); represents rows*2 source scanlines
+'
+SUB ANS_build_cells (srcImg AS LONG, cols AS INTEGER, rows AS INTEGER)
+    DIM tmp AS LONG, oldSrc AS LONG
+    DIM cx AS INTEGER, cy AS INTEGER
+    DIM top AS _UNSIGNED LONG, bot AS _UNSIGNED LONG
+
+    ANS_GRID_COLS = 0: ANS_GRID_ROWS = 0
+    IF cols <= 0 OR rows <= 0 THEN EXIT SUB
+    IF srcImg& = 0 OR srcImg& = -1 THEN EXIT SUB
+
+    tmp& = _NEWIMAGE(cols, rows * 2, 32)
+    IF tmp& = 0 OR tmp& = -1 THEN EXIT SUB
+    ' Hard-scale the whole source into the temp buffer.
+    _PUTIMAGE (0, 0)-(cols - 1, rows * 2 - 1), srcImg&, tmp&
+
+    REDIM ANS_CELLS(0 TO cols - 1, 0 TO rows - 1) AS ANS_CELL
+    oldSrc& = _SOURCE
+    _SOURCE tmp&
+    FOR cy% = 0 TO rows - 1
+        FOR cx% = 0 TO cols - 1
+            ' Normalize to opaque RGB so alpha never skews equality/quantisation.
+            top~& = POINT(cx%, cy% * 2)
+            bot~& = POINT(cx%, cy% * 2 + 1)
+            top~& = _RGB32(_RED32(top~&), _GREEN32(top~&), _BLUE32(top~&))
+            bot~& = _RGB32(_RED32(bot~&), _GREEN32(bot~&), _BLUE32(bot~&))
+            ANS_CELLS(cx%, cy%).fg = top~&
+            ANS_CELLS(cx%, cy%).bg = bot~&
+            IF top~& = bot~& THEN
+                ANS_CELLS(cx%, cy%).ch = ANS_GLYPH_FULL ' solid block, no seam
+            ELSE
+                ANS_CELLS(cx%, cy%).ch = ANS_GLYPH_TOP ' ▀ fg=top / bg=bottom
+            END IF
+            ANS_CELLS(cx%, cy%).fgIdx = ANS_nearest_index%(top~&)
+            ANS_CELLS(cx%, cy%).bgIdx = ANS_nearest_index%(bot~&)
+        NEXT cx%
+    NEXT cy%
+    _SOURCE oldSrc&
+    _FREEIMAGE tmp&
+
+    ANS_GRID_COLS = cols
+    ANS_GRID_ROWS = rows
+END SUB
+
+' =============================================================================
+' Serializers — turn the ANS_CELLS grid into an ANSI byte stream per mode.
+' =============================================================================
+
+''
+' Build an indexed SGR sequence for a fg/bg index pair.
+' Bright fg (index >= 8) uses the bold intensifier (;1). Bright backgrounds emit
+' the iCE form (100-107) when ice=TRUE, otherwise clamp to the dim twin (40-47).
+'
+FUNCTION ANS_sgr_seq$ (fgIdx AS INTEGER, bgIdx AS INTEGER, ice AS INTEGER)
+    DIM s AS STRING
+    s = CHR$(27) + "[0"
+    IF fgIdx >= 8 THEN s = s + ";1"
+    s = s + ";" + LTRIM$(STR$(30 + (fgIdx AND 7)))
+    IF (ice <> 0) AND (bgIdx >= 8) THEN
+        s = s + ";" + LTRIM$(STR$(100 + (bgIdx AND 7)))
+    ELSE
+        s = s + ";" + LTRIM$(STR$(40 + (bgIdx AND 7)))
+    END IF
+    s = s + "m"
+    ANS_sgr_seq$ = s
+END FUNCTION
+
+''
+' Serialize ANS_CELLS as an indexed (16 / iCE) .ans byte stream, run-length SGR.
+' When ice=FALSE and a half-block cell needs a bright background, swap fg/bg and
+' flip ▀->▄ so the bright colour lands in the (always-available) foreground.
+' Attributes reset + CRLF per row; trailing 0x1A EOF. ANS_CELLS is never mutated.
+'
+FUNCTION ANS_serialize_indexed$ (ice AS INTEGER)
+    DIM ansOut AS STRING ' 'out' is reserved (OUT statement) — do not use it
+    DIM cx AS INTEGER, cy AS INTEGER
+    DIM curFg AS INTEGER, curBg AS INTEGER
+    DIM eFg AS INTEGER, eBg AS INTEGER, eCh AS INTEGER
+
+    IF ANS_GRID_COLS <= 0 OR ANS_GRID_ROWS <= 0 THEN EXIT FUNCTION
+    FOR cy% = 0 TO ANS_GRID_ROWS - 1
+        curFg% = -1: curBg% = -1
+        FOR cx% = 0 TO ANS_GRID_COLS - 1
+            eFg% = ANS_CELLS(cx%, cy%).fgIdx
+            eBg% = ANS_CELLS(cx%, cy%).bgIdx
+            eCh% = ANS_CELLS(cx%, cy%).ch
+            IF (ice = 0) AND (eCh% = ANS_GLYPH_TOP) AND (eBg% >= 8) THEN
+                IF eFg% < 8 THEN
+                    SWAP eFg%, eBg% ' bright colour -> fg; lower-half glyph keeps layout
+                    eCh% = ANS_GLYPH_BOT
+                ELSE
+                    eBg% = eBg% AND 7 ' both bright, no iCE: clamp bg to dim
+                END IF
+            END IF
+            IF eFg% <> curFg% OR eBg% <> curBg% THEN
+                ansOut = ansOut + ANS_sgr_seq$(eFg%, eBg%, ice)
+                curFg% = eFg%: curBg% = eBg%
+            END IF
+            ansOut = ansOut + CHR$(eCh%)
+        NEXT cx%
+        ansOut = ansOut + CHR$(27) + "[0m" + CHR$(13) + CHR$(10)
+    NEXT cy%
+    ansOut = ansOut + CHR$(26) ' DOS EOF
+    ANS_serialize_indexed$ = ansOut
+END FUNCTION
+
+''
+' Build a 24-bit truecolor SGR pair (xterm form) for two RGB colours.
+' xterm/standard: ESC[38;2;r;g;b m (fg) + ESC[48;2;r;g;b m (bg).
+' (img2ans instead uses the PabloDraw ESC[1;r;g;b t / ESC[0;r;g;b t form;
+'  the xterm form here is what modern viewers + ansilove expect.)
+'
+FUNCTION ANS_sgr_truecolor$ (fg AS _UNSIGNED LONG, bg AS _UNSIGNED LONG)
+    DIM s AS STRING
+    s = CHR$(27) + "[38;2;" + LTRIM$(STR$(_RED32(fg))) + ";" + LTRIM$(STR$(_GREEN32(fg))) + ";" + LTRIM$(STR$(_BLUE32(fg))) + "m"
+    s = s + CHR$(27) + "[48;2;" + LTRIM$(STR$(_RED32(bg))) + ";" + LTRIM$(STR$(_GREEN32(bg))) + ";" + LTRIM$(STR$(_BLUE32(bg))) + "m"
+    ANS_sgr_truecolor$ = s
+END FUNCTION
+
+''
+' Serialize ANS_CELLS as a 24-bit truecolor .ans stream, run-length by RGB pair.
+' Reset + CRLF per row; trailing 0x1A EOF.
+'
+FUNCTION ANS_serialize_rgb$
+    DIM ansOut AS STRING
+    DIM cx AS INTEGER, cy AS INTEGER
+    DIM curFg AS _UNSIGNED LONG, curBg AS _UNSIGNED LONG
+    DIM haveCur AS INTEGER
+    DIM fg AS _UNSIGNED LONG, bg AS _UNSIGNED LONG
+
+    IF ANS_GRID_COLS <= 0 OR ANS_GRID_ROWS <= 0 THEN EXIT FUNCTION
+    FOR cy% = 0 TO ANS_GRID_ROWS - 1
+        haveCur% = 0
+        FOR cx% = 0 TO ANS_GRID_COLS - 1
+            fg = ANS_CELLS(cx%, cy%).fg
+            bg = ANS_CELLS(cx%, cy%).bg
+            IF haveCur% = 0 OR fg <> curFg OR bg <> curBg THEN
+                ansOut = ansOut + ANS_sgr_truecolor$(fg, bg)
+                curFg = fg: curBg = bg: haveCur% = -1
+            END IF
+            ansOut = ansOut + CHR$(ANS_CELLS(cx%, cy%).ch)
+        NEXT cx%
+        ansOut = ansOut + CHR$(27) + "[0m" + CHR$(13) + CHR$(10)
+    NEXT cy%
+    ansOut = ansOut + CHR$(26) ' DOS EOF
+    ANS_serialize_rgb$ = ansOut
+END FUNCTION
+
+''
+' Nearest xterm-256 cube level index (0-5) for one 0-255 channel value.
+' Cube levels are the non-linear ramp 0,95,135,175,215,255.
+'
+FUNCTION ANS_cube_level% (v AS INTEGER)
+    DIM levels(0 TO 5) AS INTEGER
+    DIM i AS INTEGER, best AS INTEGER, d AS INTEGER, bestd AS INTEGER
+    levels(0) = 0: levels(1) = 95: levels(2) = 135: levels(3) = 175: levels(4) = 215: levels(5) = 255
+    best = 0: bestd = 32767
+    FOR i = 0 TO 5
+        d = ABS(v - levels(i))
+        IF d < bestd THEN bestd = d: best = i
+    NEXT i
+    ANS_cube_level% = best
+END FUNCTION
+
+''
+' Quantize an RGB32 colour to the nearest xterm-256 palette index.
+' Considers the 6x6x6 colour cube (16-231) and the 24-step gray ramp (232-255),
+' returning whichever is closer by squared distance.
+'
+FUNCTION ANS_rgb_to_256% (rgb AS _UNSIGNED LONG)
+    DIM levels(0 TO 5) AS INTEGER
+    DIM r AS INTEGER, g AS INTEGER, b AS INTEGER
+    DIM rL AS INTEGER, gL AS INTEGER, bL AS INTEGER
+    DIM cubeIdx AS INTEGER, cubeD AS LONG
+    DIM gAvg AS INTEGER, gi AS INTEGER, gLevel AS INTEGER, grayIdx AS INTEGER, grayD AS LONG
+    DIM dr AS INTEGER, dg AS INTEGER, db AS INTEGER
+    levels(0) = 0: levels(1) = 95: levels(2) = 135: levels(3) = 175: levels(4) = 215: levels(5) = 255
+    r = _RED32(rgb): g = _GREEN32(rgb): b = _BLUE32(rgb)
+
+    ' Colour-cube candidate
+    rL = ANS_cube_level%(r): gL = ANS_cube_level%(g): bL = ANS_cube_level%(b)
+    cubeIdx = 16 + 36 * rL + 6 * gL + bL
+    dr = r - levels(rL): dg = g - levels(gL): db = b - levels(bL)
+    cubeD = CLNG(dr) * dr + CLNG(dg) * dg + CLNG(db) * db
+
+    ' Gray-ramp candidate: value = 8 + gi*10, gi 0..23 -> index 232..255
+    gAvg = (r + g + b) \ 3
+    gi = (gAvg - 8 + 5) \ 10
+    IF gi < 0 THEN gi = 0
+    IF gi > 23 THEN gi = 23
+    gLevel = 8 + gi * 10
+    grayIdx = 232 + gi
+    dr = r - gLevel: dg = g - gLevel: db = b - gLevel
+    grayD = CLNG(dr) * dr + CLNG(dg) * dg + CLNG(db) * db
+
+    IF grayD < cubeD THEN ANS_rgb_to_256% = grayIdx ELSE ANS_rgb_to_256% = cubeIdx
+END FUNCTION
+
+''
+' Combined 256-color SGR for a fg/bg index pair: ESC[38;5;fg;48;5;bg m.
+'
+FUNCTION ANS_sgr_256$ (fgN AS INTEGER, bgN AS INTEGER)
+    ANS_sgr_256$ = CHR$(27) + "[38;5;" + LTRIM$(STR$(fgN)) + ";48;5;" + LTRIM$(STR$(bgN)) + "m"
+END FUNCTION
+
+''
+' Serialize ANS_CELLS as a 256-color .ans stream, run-length by index pair.
+' Reset + CRLF per row; trailing 0x1A EOF.
+'
+FUNCTION ANS_serialize_256$
+    DIM ansOut AS STRING
+    DIM cx AS INTEGER, cy AS INTEGER
+    DIM curFg AS INTEGER, curBg AS INTEGER, haveCur AS INTEGER
+    DIM fgN AS INTEGER, bgN AS INTEGER
+
+    IF ANS_GRID_COLS <= 0 OR ANS_GRID_ROWS <= 0 THEN EXIT FUNCTION
+    FOR cy% = 0 TO ANS_GRID_ROWS - 1
+        haveCur% = 0
+        FOR cx% = 0 TO ANS_GRID_COLS - 1
+            fgN% = ANS_rgb_to_256%(ANS_CELLS(cx%, cy%).fg)
+            bgN% = ANS_rgb_to_256%(ANS_CELLS(cx%, cy%).bg)
+            IF haveCur% = 0 OR fgN% <> curFg% OR bgN% <> curBg% THEN
+                ansOut = ansOut + ANS_sgr_256$(fgN%, bgN%)
+                curFg% = fgN%: curBg% = bgN%: haveCur% = -1
+            END IF
+            ansOut = ansOut + CHR$(ANS_CELLS(cx%, cy%).ch)
+        NEXT cx%
+        ansOut = ansOut + CHR$(27) + "[0m" + CHR$(13) + CHR$(10)
+    NEXT cy%
+    ansOut = ansOut + CHR$(26) ' DOS EOF
+    ANS_serialize_256$ = ansOut
+END FUNCTION
+
+''
+' Dispatch to the serializer for the requested mode.
+'
+FUNCTION ANS_serialize$ (mode AS INTEGER)
+    SELECT CASE mode
+        CASE ANS_MODE_16: ANS_serialize$ = ANS_serialize_indexed$(0)
+        CASE ANS_MODE_ICE: ANS_serialize$ = ANS_serialize_indexed$(-1)
+        CASE ANS_MODE_256: ANS_serialize$ = ANS_serialize_256$
+        CASE ANS_MODE_RGB: ANS_serialize$ = ANS_serialize_rgb$
+        CASE ELSE
+            _LOGINFO "ANS_serialize: unknown mode" + STR$(mode) + "; using 16-color"
+            ANS_serialize$ = ANS_serialize_indexed$(0)
+    END SELECT
+END FUNCTION
+
+' =============================================================================
+' SAUCE metadata record.
+' =============================================================================
+
+''
+' Fixed-width field helper: truncate to n bytes, or NUL-pad up to n.
+'
+FUNCTION ANS_padfix$ (s AS STRING, n AS INTEGER)
+    IF LEN(s) >= n THEN
+        ANS_padfix$ = LEFT$(s, n)
+    ELSE
+        ANS_padfix$ = s + STRING$(n - LEN(s), 0)
+    END IF
+END FUNCTION
+
+''
+' Build a 128-byte SAUCE record for an ANSI file (DataType 1 / FileType 1).
+' Byte-exact layout, little-endian numerics. TInfo1=columns, TInfo2=rows(lines),
+' TInfoS=font name (22), TFlags bit0=iCE colours, bit1=8px letter spacing.
+'
+' @param contentLen& byte length of the ANSI stream preceding the record
+' @param cols%/rows%  character grid dimensions
+' @param ice%         TRUE = set the iCE-colours flag
+'
+FUNCTION ANS_build_sauce$ (contentLen AS LONG, cols AS INTEGER, rows AS INTEGER, ice AS INTEGER)
+    DIM rec AS STRING
+    DIM flags AS INTEGER
+    DIM d AS STRING, ccyymmdd AS STRING
+
+    ' CCYYMMDD from the runtime clock (DATE$ = "MM-DD-YYYY").
+    d = DATE$
+    ccyymmdd = MID$(d, 7, 4) + MID$(d, 1, 2) + MID$(d, 4, 2)
+
+    flags = 2 ' bit1: 8px letter spacing (ANS_CELL_W = 8)
+    IF ice <> 0 THEN flags = flags OR 1 ' bit0: iCE colours
+
+    rec = "SAUCE"                                  '   5  ID
+    rec = rec + "00"                               '   2  Version
+    rec = rec + ANS_padfix$(ANS_EXPORT.saucTitle, 35) '  35  Title
+    rec = rec + ANS_padfix$(ANS_EXPORT.saucAuthr, 20) '  20  Author
+    rec = rec + ANS_padfix$(ANS_EXPORT.saucGroup, 20) '  20  Group
+    rec = rec + ANS_padfix$(ccyymmdd, 8)           '   8  Date
+    rec = rec + MKL$(contentLen)                   '   4  FileSize (LE)
+    rec = rec + CHR$(1)                            '   1  DataType = Character
+    rec = rec + CHR$(1)                            '   1  FileType = ANSi
+    rec = rec + MKI$(cols)                         '   2  TInfo1 = columns (LE)
+    rec = rec + MKI$(rows)                         '   2  TInfo2 = rows/lines (LE)
+    rec = rec + MKI$(0)                            '   2  TInfo3
+    rec = rec + MKI$(0)                            '   2  TInfo4
+    rec = rec + CHR$(0)                            '   1  Comments
+    rec = rec + CHR$(flags)                        '   1  TFlags
+    rec = rec + ANS_padfix$(ANS_EXPORT.fontName, 22) '  22  TInfoS = font name
+    ANS_build_sauce$ = rec
+END FUNCTION
+
+' =============================================================================
+' Top-level export flow.
+' =============================================================================
+
+''
+' Resolve the export grid dimensions from settings + canvas.
+' cols default = canvas width; rows default = ceil(canvasH / 2) (half-block).
+'
+''
+' Effective source pixel dimensions (last resolved export source, else canvas).
+'
+SUB ANS_src_dims (w AS INTEGER, h AS INTEGER)
+    IF ANS_SRC_W > 0 AND ANS_SRC_H > 0 THEN
+        w = ANS_SRC_W: h = ANS_SRC_H
+    ELSE
+        w = SCRN.canvasW: h = SCRN.canvasH
+    END IF
+    IF w < 1 THEN w = 1
+    IF h < 1 THEN h = 1
+END SUB
+
+''
+' Resolve the export source to a fresh image (caller frees). Sets ANS_SRC_W/H.
+' Selection falls back to flattened when no selection is active.
+'
+FUNCTION ANS_get_source_image& (source AS INTEGER)
+    DIM flat AS LONG, img AS LONG, oldDest AS LONG, li AS INTEGER, aw AS INTEGER, ah AS INTEGER
+
+    SELECT CASE source
+        CASE ANS_SRC_SELECTION
+            IF SELECTION_has_active% AND MARQUEE.BOX.w > 0 AND MARQUEE.BOX.h > 0 THEN
+                flat& = LAYERS_flatten&
+                IF flat& = 0 OR flat& = -1 THEN EXIT FUNCTION
+                img& = _NEWIMAGE(MARQUEE.BOX.w, MARQUEE.BOX.h, 32)
+                oldDest& = _DEST: _DEST img&: _DONTBLEND img&
+                _PUTIMAGE (0, 0), flat&, img&, (MARQUEE.BOX.x, MARQUEE.BOX.y)-(MARQUEE.BOX.x + MARQUEE.BOX.w - 1, MARQUEE.BOX.y + MARQUEE.BOX.h - 1)
+                _BLEND img&: _DEST oldDest&
+                IF flat& < -1 THEN SAFE_FREEIMAGE flat&
+            ELSE
+                img& = LAYERS_flatten& ' no selection -> flattened
+            END IF
+        CASE ANS_SRC_LAYER
+            img& = _NEWIMAGE(SCRN.canvasW, SCRN.canvasH, 32)
+            IF img& = 0 OR img& = -1 THEN EXIT FUNCTION
+            oldDest& = _DEST: _DEST img&: _DONTBLEND img&: CLS , _RGBA32(0, 0, 0, 0)
+            li = CURRENT_LAYER%
+            IF li >= 1 AND li <= LAYER_COUNT% THEN
+                IF LAYERS(li).imgHandle& < -1 THEN
+                    aw = LAYERS(li).apronW%: ah = LAYERS(li).apronH%
+                    _PUTIMAGE (0, 0)-(SCRN.canvasW - 1, SCRN.canvasH - 1), LAYERS(li).imgHandle&, img&, (aw, ah)-(aw + SCRN.canvasW - 1, ah + SCRN.canvasH - 1)
+                END IF
+            END IF
+            _BLEND img&: _DEST oldDest&
+        CASE ELSE ' ANS_SRC_FLAT
+            img& = LAYERS_flatten&
+    END SELECT
+
+    IF img& < -1 THEN
+        ANS_SRC_W = _WIDTH(img&): ANS_SRC_H = _HEIGHT(img&)
+    ELSE
+        ANS_SRC_W = 0: ANS_SRC_H = 0
+    END IF
+    ANS_get_source_image& = img&
+END FUNCTION
+
+SUB ANS_resolve_dims (cols AS INTEGER, rows AS INTEGER)
+    DIM cw AS INTEGER, ch AS INTEGER, cellH AS INTEGER
+    ANS_src_dims cw, ch
+    IF ANS_EXPORT.font8x8 THEN cellH = ANS_CELL_H8 ELSE cellH = ANS_CELL_H16
+
+    ' Columns: explicit override, else per-mode auto default.
+    IF ANS_EXPORT.cols > 0 THEN
+        cols = ANS_EXPORT.cols
+    ELSEIF ANS_EXPORT.cellMode = ANS_CELLMODE_BLOCK THEN
+        cols = cw \ ANS_CELL_W
+    ELSE
+        cols = cw
+    END IF
+    IF cols < 1 THEN cols = 1
+
+    ' Rows preserve the canvas aspect for the chosen re-import cell height:
+    '   rendered_w:rendered_h = cols*8 : rows*cellH  must equal  cw:ch
+    rows = INT(cols * (ch / cw) * (ANS_CELL_W / cellH) + 0.5)
+    IF rows < 1 THEN rows = 1
+END SUB
+
+''
+' Auto column count for a given cell mode (used to reset the dialog stepper).
+'
+FUNCTION ANS_auto_cols% (cellMode AS INTEGER)
+    DIM cw AS INTEGER, r AS INTEGER
+    cw = SCRN.canvasW: IF cw < 1 THEN cw = 1
+    IF cellMode = ANS_CELLMODE_BLOCK THEN r = cw \ ANS_CELL_W ELSE r = cw
+    IF r < 1 THEN r = 1
+    ANS_auto_cols% = r
+END FUNCTION
+
+''
+' Serialize the current canvas to an ANSI byte stream (content + optional SAUCE)
+' using ANS_EXPORT settings. Shared by disk export and the dialog preview.
+'
+FUNCTION ANS_render_stream$
+    DIM srcImg AS LONG
+    DIM cols AS INTEGER, rows AS INTEGER
+    DIM iceFlag AS INTEGER
+    DIM content AS STRING
+
+    srcImg& = ANS_get_source_image&(ANS_EXPORT.source) ' resolves ANS_SRC_W/H
+    IF srcImg& = 0 OR srcImg& = -1 THEN EXIT FUNCTION
+    ANS_resolve_dims cols, rows
+    ANS_build_cells srcImg&, cols, rows
+    IF srcImg& < -1 THEN SAFE_FREEIMAGE srcImg&
+
+    content = ANS_serialize$(ANS_EXPORT.mode)
+
+    ' SAUCE font name drives the re-import cell height (8x16 vs 8x8).
+    IF ANS_EXPORT.font8x8 THEN ANS_EXPORT.fontName = "IBM VGA50" ELSE ANS_EXPORT.fontName = "IBM VGA"
+
+    iceFlag = 0
+    IF ANS_EXPORT.mode = ANS_MODE_ICE OR ANS_EXPORT.ice <> 0 THEN iceFlag = -1
+    IF ANS_EXPORT.writeSauc <> 0 THEN
+        content = content + ANS_build_sauce$(LEN(content), cols, rows, iceFlag)
+    END IF
+    ANS_render_stream$ = content
+END FUNCTION
+
+''
+' Export the flattened canvas as an ANSI (.ans) file. Mirrors EXPORT_flattened_as:
+' last-dir default, null tool, hide/show pointer, save dialog, extension force,
+' writable guard, write, verify. Uses ANS_EXPORT (set by the export dialog).
+'
+SUB EXPORT_ansi
+    DIM filename     AS STRING
+    DIM default_path AS STRING
+    DIM filterStr    AS STRING
+    DIM ext          AS STRING
+    DIM content      AS STRING
+    DIM ff           AS INTEGER
+
+    ext$ = ".ans"
+
+    IF CFG.LAST_DIR_SAVE$ <> "" THEN
+        default_path$ = CFG.LAST_DIR_SAVE$ + "/"
+    ELSEIF LAST_DIRECTORY$ <> "" THEN
+        default_path$ = LAST_DIRECTORY$ + "/"
+    ELSEIF CFG.DEFAULT_SAVE_DIR$ <> "" THEN
+        default_path$ = CFG.DEFAULT_SAVE_DIR$ + "/"
+    ELSE
+        default_path$ = ""
+    END IF
+
+    filterStr$ = "ANSI (*.ans)|*.ans"
+    CURRENT_TOOL% = TOOL_NULL
+
+    POINTER_hide_for_dialog
+    filename$ = DRAW_save_file$("Export as ANSI", default_path$, filterStr$, 0, "", ext$)
+    POINTER_show_after_dialog
+    MOUSE_cleanup_after_dialog TRUE
+
+    IF filename$ = "" THEN EXIT SUB
+    filename$ = EXPORT_trim_trailing_dots_spaces$(filename$)
+
+    CFG.LAST_DIR_SAVE$ = CONFIG_extract_dir$(filename$)
+    LAST_DIRECTORY$ = CFG.LAST_DIR_SAVE$
+    CONFIG_save
+
+    IF LCASE$(RIGHT$(filename$, LEN(ext$))) <> ext$ THEN filename$ = filename$ + ext$
+    IF NOT SAVE_target_writable%(filename$) THEN EXIT SUB
+
+    content = ANS_render_stream$
+    IF LEN(content) = 0 THEN
+        _LOGWARN "EXPORT_ansi: empty stream, nothing written"
+        EXIT SUB
+    END IF
+
+    _LOGINFO "EXPORT_ansi: mode=" + STR$(ANS_EXPORT.mode) + " bytes=" + STR$(LEN(content)) + " file=" + filename$
+    ff% = FREEFILE
+    OPEN filename$ FOR OUTPUT AS #ff%: CLOSE #ff% ' truncate any existing file
+    ff% = FREEFILE
+    OPEN filename$ FOR BINARY AS #ff%
+    PUT #ff%, 1, content
+    CLOSE #ff%
+
+    IF NOT SAVE_verify_written%(filename$) THEN EXIT SUB
+    _LOGINFO "EXPORT_ansi: export completed"
+END SUB
+
+' =============================================================================
+' Export options dialog (modal). Built on the shared DIALOG_CTX infrastructure.
+' =============================================================================
+
+''
+' Inverse of ANS_rgb_to_256%: xterm-256 palette index -> representative RGB.
+' Used only for previewing how 256-color mode will quantise the canvas.
+'
+FUNCTION ANS_256_to_rgb~& (idx AS INTEGER)
+    DIM levels(0 TO 5) AS INTEGER
+    DIM i AS INTEGER, v AS INTEGER
+    levels(0) = 0: levels(1) = 95: levels(2) = 135: levels(3) = 175: levels(4) = 215: levels(5) = 255
+    IF idx < 16 THEN
+        ANS_256_to_rgb~& = ANS_PAL(idx AND 15) ' base 16 ~ SGR palette
+    ELSEIF idx >= 232 THEN
+        v = 8 + (idx - 232) * 10
+        ANS_256_to_rgb~& = _RGB32(v, v, v)
+    ELSE
+        i = idx - 16
+        ANS_256_to_rgb~& = _RGB32(levels(i \ 36), levels((i \ 6) MOD 6), levels(i MOD 6))
+    END IF
+END FUNCTION
+
+''
+' Rasterize ANS_CELLS to a native-size image (cols*8 x rows*cellH) as the
+' chosen mode would display it, using ANS_draw_glyph. Caller frees the handle.
+'
+FUNCTION ANS_render_cells_image& (mode AS INTEGER, font8x8 AS INTEGER, cellW AS INTEGER, aspectPct AS INTEGER, scale AS INTEGER)
+    DIM cellH AS INTEGER, w AS INTEGER, h AS INTEGER, cwUse AS INTEGER, sc AS INTEGER
+    DIM img AS LONG, oldDest AS LONG, finalW AS INTEGER, finalH AS INTEGER, scaled AS LONG
+    DIM cx AS INTEGER, cy AS INTEGER
+    DIM fg AS _UNSIGNED LONG, bg AS _UNSIGNED LONG
+
+    IF ANS_GRID_COLS <= 0 OR ANS_GRID_ROWS <= 0 THEN EXIT FUNCTION
+    cwUse = cellW: IF cwUse < 8 THEN cwUse = 8
+    sc = scale: IF sc < 1 THEN sc = 1
+    cellH = ANS_glyph_cell_h%(font8x8)
+    w = ANS_GRID_COLS * cwUse
+    h = ANS_GRID_ROWS * cellH
+    img& = _NEWIMAGE(w, h, 32)
+    IF img& = 0 OR img& = -1 THEN EXIT FUNCTION
+
+    oldDest& = _DEST
+    _DEST img&
+    FOR cy% = 0 TO ANS_GRID_ROWS - 1
+        FOR cx% = 0 TO ANS_GRID_COLS - 1
+            SELECT CASE mode
+                CASE ANS_MODE_16, ANS_MODE_ICE
+                    fg = ANS_PAL(ANS_CELLS(cx%, cy%).fgIdx)
+                    bg = ANS_PAL(ANS_CELLS(cx%, cy%).bgIdx)
+                CASE ANS_MODE_256
+                    fg = ANS_256_to_rgb~&(ANS_rgb_to_256%(ANS_CELLS(cx%, cy%).fg))
+                    bg = ANS_256_to_rgb~&(ANS_rgb_to_256%(ANS_CELLS(cx%, cy%).bg))
+                CASE ELSE ' RGB — exact
+                    fg = ANS_CELLS(cx%, cy%).fg
+                    bg = ANS_CELLS(cx%, cy%).bg
+            END SELECT
+            ANS_draw_glyph ANS_CELLS(cx%, cy%).ch, cx% * cwUse, cy% * cellH, fg, bg, font8x8, cwUse
+        NEXT cx%
+    NEXT cy%
+    _DEST oldDest&
+
+    ' Apply DOS aspect (vertical stretch) + integer scale, if any.
+    finalW = w * sc
+    finalH = h * sc
+    IF aspectPct > 100 THEN finalH = INT(h * (aspectPct / 100!) * sc + 0.5)
+    IF finalW <> w OR finalH <> h THEN
+        scaled& = _NEWIMAGE(finalW, finalH, 32)
+        IF scaled& < -1 THEN
+            oldDest& = _DEST: _DEST scaled&: _DONTBLEND scaled&
+            _PUTIMAGE (0, 0)-(finalW - 1, finalH - 1), img&, scaled&
+            _BLEND scaled&: _DEST oldDest&
+            SAFE_FREEIMAGE img&
+            ANS_render_cells_image& = scaled&
+            EXIT FUNCTION
+        END IF
+    END IF
+    ANS_render_cells_image& = img&
+END FUNCTION
+
+''
+' Build a thumbnail of the flattened canvas stretched into tw x th (RGB32).
+' Caller frees the returned handle.
+'
+FUNCTION ANS_make_canvas_thumb& (tw AS INTEGER, th AS INTEGER)
+    DIM flat AS LONG, thumb AS LONG, oldDest AS LONG
+    IF tw < 1 OR th < 1 THEN EXIT FUNCTION
+    flat& = LAYERS_flatten&
+    IF flat& = 0 OR flat& = -1 THEN EXIT FUNCTION
+    thumb& = _NEWIMAGE(tw, th, 32)
+    IF thumb& = 0 OR thumb& = -1 THEN
+        IF flat& < -1 THEN SAFE_FREEIMAGE flat&
+        EXIT FUNCTION
+    END IF
+    oldDest& = _DEST
+    _DEST thumb&
+    CLS , _RGB32(0, 0, 0)
+    _DONTBLEND thumb&
+    _PUTIMAGE (0, 0)-(tw - 1, th - 1), flat&, thumb&
+    _BLEND thumb&
+    _DEST oldDest&
+    IF flat& < -1 THEN SAFE_FREEIMAGE flat&
+    ANS_make_canvas_thumb& = thumb&
+END FUNCTION
+
+''
+' Scale an existing image into a fresh tw x th thumbnail (caller frees).
+'
+FUNCTION ANS_thumb_from& (img AS LONG, tw AS INTEGER, th AS INTEGER)
+    DIM t AS LONG, oldDest AS LONG
+    IF tw < 1 OR th < 1 OR img = 0 OR img = -1 THEN EXIT FUNCTION
+    t& = _NEWIMAGE(tw, th, 32)
+    IF t& = 0 OR t& = -1 THEN EXIT FUNCTION
+    oldDest& = _DEST: _DEST t&: CLS , _RGB32(0, 0, 0): _DONTBLEND t&
+    _PUTIMAGE (0, 0)-(tw - 1, th - 1), img, t&
+    _BLEND t&: _DEST oldDest&
+    ANS_thumb_from& = t&
+END FUNCTION
+
+''
+' Show the ANSI export options dialog. Returns TRUE if the user pressed OK.
+' Controls: SOURCE (document / current layer / selection), COLOR mode,
+' CELLS mapping, FONT, and SIZE columns — all with a live split preview.
+'
+FUNCTION ANSI_export_dialog%
+    DIM ctx AS DIALOG_CTX
+    DIM tw AS INTEGER, th AS INTEGER
+    DIM k AS LONG
+    DIM btnW AS INTEGER, btnH AS INTEGER, btnY AS INTEGER, okX AS INTEGER, cxX AS INTEGER
+    DIM nativeImg AS LONG, oldDest AS LONG, srcImg AS LONG
+    DIM selSrc AS INTEGER, selMode AS INTEGER, selCell AS INTEGER, selFont8 AS INTEGER, selCols AS INTEGER, i AS INTEGER
+    DIM cols AS INTEGER, rows AS INTEGER, cellH AS INTEGER, cw AS INTEGER, ch AS INTEGER, stp AS INTEGER
+    DIM autoC AS INTEGER, isAuto AS INTEGER, sizeInfo AS STRING, hasSel AS INTEGER
+    DIM srcY AS INTEGER, modeY AS INTEGER, cellY AS INTEGER, fontY AS INTEGER, sizeY AS INTEGER
+    DIM tgX AS INTEGER, tgW AS INTEGER, tgH AS INTEGER, tgGap AS INTEGER
+    DIM twoX AS INTEGER, twoW AS INTEGER, twoGap AS INTEGER
+    DIM srcX AS INTEGER, srcW AS INTEGER, srcGap AS INTEGER
+    DIM mnX AS INTEGER, plX AS INTEGER, stW AS INTEGER, numX AS INTEGER, infoX AS INTEGER
+    DIM srcDirty AS INTEGER, cellsDirty AS INTEGER, previewDirty AS INTEGER
+    STATIC modeName(0 TO 3) AS STRING
+    STATIC srcName(0 TO 2) AS STRING
+    modeName(0) = "16": modeName(1) = "iCE": modeName(2) = "256": modeName(3) = "RGB"
+    srcName(0) = "DOCUMENT": srcName(1) = "LAYER": srcName(2) = "SELECTION"
+
+    hasSel = SELECTION_has_active%
+    IF hasSel THEN selSrc = ANS_SRC_SELECTION ELSE selSrc = ANS_SRC_FLAT
+    selCell = ANS_EXPORT.cellMode
+    selFont8 = ANS_EXPORT.font8x8
+    cw = 1: ch = 1: selCols = 1
+
+    DIALOG_init ctx, 344, 350
+    ctx.prevH = 112
+    tw = ctx.w - 2: th = ctx.prevH
+    ctx.origThumb = 0: ctx.previewThumb = 0
+    ctx.splitX = ctx.w \ 2
+
+    srcY = THEME.DIALOG_title_height% + 2 + ctx.prevH + 8
+    modeY = srcY + 21
+    cellY = modeY + 21
+    fontY = cellY + 21
+    sizeY = fontY + 21
+    srcX = 52: srcW = 74: srcGap = 78
+    tgX = 52: tgW = 56: tgH = 15: tgGap = 60
+    twoX = 52: twoW = 88: twoGap = 92
+    mnX = 52: stW = 18: numX = mnX + stW + 8: plX = numX + 40: infoX = plX + stW + 8
+
+    btnW = 96: btnH = 22
+    btnY = ctx.h - btnH - 12
+    okX = ctx.w - btnW * 2 - 16
+    cxX = ctx.w - btnW - 10
+
+    srcDirty = -1: cellsDirty = -1: previewDirty = -1
+    DO
+        DIALOG_poll_mouse ctx
+        k& = _KEYHIT
+        IF k& = 13 THEN ctx.done = TRUE: ctx.result = TRUE
+        IF k& = 27 THEN ctx.done = TRUE: ctx.result = FALSE
+
+        ' --- Source radios (rebuild source image + grid) ---
+        FOR i = 0 TO 2
+            IF DIALOG_hit%(ctx, srcX + i * srcGap, srcY, srcW, tgH) THEN
+                IF selSrc <> i THEN selSrc = i: srcDirty = -1
+            END IF
+        NEXT i
+        ' --- Colour mode radios (recolour only) ---
+        FOR i = 0 TO 3
+            IF DIALOG_hit%(ctx, tgX + i * tgGap, modeY, tgW, tgH) THEN
+                IF selMode <> i THEN selMode = i: previewDirty = -1
+            END IF
+        NEXT i
+        ' --- Cell-size mode (rebuild grid) ---
+        IF DIALOG_hit%(ctx, twoX, cellY, twoW, tgH) THEN
+            IF selCell <> ANS_CELLMODE_BLOCK THEN selCell = ANS_CELLMODE_BLOCK: selCols = ANS_auto_cols%(selCell): cellsDirty = -1
+        END IF
+        IF DIALOG_hit%(ctx, twoX + twoGap, cellY, twoW, tgH) THEN
+            IF selCell <> ANS_CELLMODE_PERPIXEL THEN selCell = ANS_CELLMODE_PERPIXEL: selCols = ANS_auto_cols%(selCell): cellsDirty = -1
+        END IF
+        ' --- Font (rebuild grid) ---
+        IF DIALOG_hit%(ctx, twoX, fontY, twoW, tgH) THEN
+            IF selFont8 <> 0 THEN selFont8 = 0: cellsDirty = -1
+        END IF
+        IF DIALOG_hit%(ctx, twoX + twoGap, fontY, twoW, tgH) THEN
+            IF selFont8 = 0 THEN selFont8 = -1: cellsDirty = -1
+        END IF
+        ' --- Column steppers (rebuild grid) ---
+        stp = 1: IF selCell = ANS_CELLMODE_PERPIXEL THEN stp = 8
+        IF DIALOG_hit%(ctx, mnX, sizeY, stW, tgH) THEN
+            selCols = selCols - stp: IF selCols < 1 THEN selCols = 1
+            cellsDirty = -1
+        END IF
+        IF DIALOG_hit%(ctx, plX, sizeY, stW, tgH) THEN
+            selCols = selCols + stp: IF selCols > cw THEN selCols = cw
+            cellsDirty = -1
+        END IF
+
+        IF DIALOG_hit%(ctx, okX, btnY, btnW, btnH) THEN ctx.done = TRUE: ctx.result = TRUE
+        IF DIALOG_hit%(ctx, cxX, btnY, btnW, btnH) THEN ctx.done = TRUE: ctx.result = FALSE
+
+        ' Rebuild the source image (sets ANS_SRC_W/H) + orig thumb + detect + dims.
+        IF srcDirty THEN
+            ANS_EXPORT.source = selSrc
+            IF srcImg& < -1 THEN SAFE_FREEIMAGE srcImg&
+            srcImg& = ANS_get_source_image&(selSrc)
+            cw = ANS_SRC_W: ch = ANS_SRC_H
+            IF cw < 1 THEN cw = 1
+            IF ch < 1 THEN ch = 1
+            selMode = ANS_detect_palette%(srcImg&)
+            selCols = ANS_auto_cols%(selCell)
+            IF ctx.origThumb < -1 THEN SAFE_FREEIMAGE ctx.origThumb
+            ctx.origThumb = ANS_thumb_from&(srcImg&, tw, th)
+            srcDirty = 0: cellsDirty = -1
+        END IF
+
+        ' Resolve current cols/rows from the selections + source dims.
+        IF selFont8 THEN cellH = ANS_CELL_H8 ELSE cellH = ANS_CELL_H16
+        cols = selCols: IF cols < 1 THEN cols = 1
+        rows = INT(cols * (ch / cw) * (ANS_CELL_W / cellH) + 0.5): IF rows < 1 THEN rows = 1
+        autoC = ANS_auto_cols%(selCell): isAuto = (selCols = autoC)
+
+        IF cellsDirty THEN
+            IF srcImg& < -1 THEN ANS_build_cells srcImg&, cols, rows
+            cellsDirty = 0: previewDirty = -1
+        END IF
+        IF previewDirty THEN
+            oldDest& = _DEST
+            IF ctx.previewThumb < -1 THEN SAFE_FREEIMAGE ctx.previewThumb
+            nativeImg& = ANS_render_cells_image&(selMode, selFont8, 8, 100, 1)
+            ctx.previewThumb = _NEWIMAGE(tw, th, 32)
+            _DEST ctx.previewThumb
+            CLS , _RGB32(0, 0, 0)
+            _DONTBLEND ctx.previewThumb
+            IF nativeImg& < -1 THEN _PUTIMAGE (0, 0)-(tw - 1, th - 1), nativeImg&, ctx.previewThumb
+            _BLEND ctx.previewThumb
+            IF nativeImg& < -1 THEN SAFE_FREEIMAGE nativeImg&
+            _DEST oldDest&
+            previewDirty = 0
+        END IF
+
+        _DEST ctx.imgHandle
+        DIALOG_draw_frame ctx, "EXPORT ANSI"
+        DIALOG_draw_preview ctx
+
+        DIALOG_draw_label ctx, 8, srcY + 2, "FROM:"
+        FOR i = 0 TO 2
+            DIALOG_draw_toggle ctx, srcX + i * srcGap, srcY, srcW, tgH, srcName(i), (selSrc = i)
+        NEXT i
+        DIALOG_draw_label ctx, 8, modeY + 2, "COLOR:"
+        FOR i = 0 TO 3
+            DIALOG_draw_toggle ctx, tgX + i * tgGap, modeY, tgW, tgH, modeName(i), (selMode = i)
+        NEXT i
+        DIALOG_draw_label ctx, 8, cellY + 2, "CELLS:"
+        DIALOG_draw_toggle ctx, twoX, cellY, twoW, tgH, "1:1 8PX", (selCell = ANS_CELLMODE_BLOCK)
+        DIALOG_draw_toggle ctx, twoX + twoGap, cellY, twoW, tgH, "PER-PIXEL", (selCell = ANS_CELLMODE_PERPIXEL)
+        DIALOG_draw_label ctx, 8, fontY + 2, "FONT:"
+        DIALOG_draw_toggle ctx, twoX, fontY, twoW, tgH, "VGA 8x16", (selFont8 = 0)
+        DIALOG_draw_toggle ctx, twoX + twoGap, fontY, twoW, tgH, "VGA50 8x8", (selFont8 <> 0)
+        DIALOG_draw_label ctx, 8, sizeY + 2, "SIZE:"
+        DIALOG_draw_button ctx, mnX, sizeY, stW, tgH, "-", _RGB32(50, 55, 66), _RGB32(70, 78, 92), _RGB32(90, 100, 120)
+        DIALOG_draw_label ctx, numX, sizeY + 2, LTRIM$(STR$(cols))
+        DIALOG_draw_button ctx, plX, sizeY, stW, tgH, "+", _RGB32(50, 55, 66), _RGB32(70, 78, 92), _RGB32(90, 100, 120)
+        sizeInfo = "x " + LTRIM$(STR$(rows)) + " cells"
+        IF isAuto THEN sizeInfo = sizeInfo + "  [auto]"
+        DIALOG_draw_label ctx, infoX, sizeY + 2, sizeInfo
+
+        DIALOG_draw_button ctx, okX, btnY, btnW, btnH, "OK", _RGB32(40, 100, 40), _RGB32(60, 150, 60), _RGB32(80, 200, 80)
+        DIALOG_draw_button ctx, cxX, btnY, btnW, btnH, "CANCEL", _RGB32(100, 40, 40), _RGB32(150, 60, 60), _RGB32(200, 80, 80)
+        DIALOG_blit ctx
+    LOOP UNTIL ctx.done
+
+    IF srcImg& < -1 THEN SAFE_FREEIMAGE srcImg&
+    IF ctx.result THEN
+        ANS_EXPORT.source = selSrc
+        ANS_EXPORT.mode = selMode
+        ANS_EXPORT.cellMode = selCell
+        ANS_EXPORT.font8x8 = selFont8
+        ANS_EXPORT.cols = selCols
+        ANS_EXPORT.autoSize = isAuto
+        IF selMode = ANS_MODE_ICE THEN ANS_EXPORT.ice = -1 ELSE ANS_EXPORT.ice = 0
+    END IF
+    ANSI_export_dialog% = ctx.result
+    DIALOG_cleanup ctx
+END FUNCTION
