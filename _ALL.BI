@@ -108,6 +108,7 @@ $INCLUDEONCE
 '$INCLUDE:'./OUTPUT/SCALE.BI'
 '$INCLUDE:'./OUTPUT/SCREEN.BI'
 '$INCLUDE:'./OUTPUT/FILE-EXPORT.BI'
+'$INCLUDE:'./OUTPUT/FILE-ANS.BI'
 '$INCLUDE:'./OUTPUT/FILE-QB64.BI'
 
 ' EFFECTS ---------------------------------------------------------------------

@@ -1,0 +1,682 @@
+''
+' DRAW - INPUT/FILE-ANS.BM
+' =============================================================================
+' ANSI (.ans) import — parse an ANSI byte stream into the shared ANS_CELLS grid,
+' then (I4) rasterise it onto a new canvas. Reuses the ANS_CELL type, ANS_PAL,
+' and the CP437 glyph primitives declared with the exporter (OUTPUT/FILE-ANS).
+'
+' Parser modelled on kaleidotron's decoder: a flat byte loop with an integer
+' cursor and a SELECT CASE dispatch (SGR colours, cursor motion, CR/LF/TAB,
+' 0x1A EOF, deferred auto-wrap). Colours are resolved to RGB per printed cell.
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+CONST ANS_IMPORT_MAX_ROWS = 10000 ' runaway-cursor safety cap
+
+''
+' Map a Unicode codepoint to its CP437 glyph byte (for UTF-8 ANSI art, whose
+' block/box/shade characters are the same glyphs CP437 stores at 176-223 etc).
+' ASCII passes through; unmapped codepoints become '?'.
+'
+FUNCTION ANS_unicode_to_cp437% (cp AS LONG)
+    IF cp < 128 THEN ANS_unicode_to_cp437% = cp: EXIT FUNCTION
+    SELECT CASE cp
+        ' Shade + block elements (U+2580..U+2593)
+        CASE &H2591: ANS_unicode_to_cp437% = 176 ' ░
+        CASE &H2592: ANS_unicode_to_cp437% = 177 ' ▒
+        CASE &H2593: ANS_unicode_to_cp437% = 178 ' ▓
+        CASE &H2588: ANS_unicode_to_cp437% = 219 ' █ full
+        CASE &H2580: ANS_unicode_to_cp437% = 223 ' ▀ upper half
+        CASE &H2584: ANS_unicode_to_cp437% = 220 ' ▄ lower half
+        CASE &H258C: ANS_unicode_to_cp437% = 221 ' ▌ left half
+        CASE &H2590: ANS_unicode_to_cp437% = 222 ' ▐ right half
+        CASE &H25A0: ANS_unicode_to_cp437% = 254 ' ■
+        ' partial eighth-blocks have no exact CP437 -> nearest solid half
+        CASE &H2581 TO &H2587: ANS_unicode_to_cp437% = 220
+        CASE &H2589 TO &H258B: ANS_unicode_to_cp437% = 219
+        CASE &H258D TO &H258F: ANS_unicode_to_cp437% = 221
+        CASE &H2594: ANS_unicode_to_cp437% = 223
+        CASE &H2595: ANS_unicode_to_cp437% = 222
+        ' Box drawing (single)
+        CASE &H2500: ANS_unicode_to_cp437% = 196
+        CASE &H2502: ANS_unicode_to_cp437% = 179
+        CASE &H250C: ANS_unicode_to_cp437% = 218
+        CASE &H2510: ANS_unicode_to_cp437% = 191
+        CASE &H2514: ANS_unicode_to_cp437% = 192
+        CASE &H2518: ANS_unicode_to_cp437% = 217
+        CASE &H251C: ANS_unicode_to_cp437% = 195
+        CASE &H2524: ANS_unicode_to_cp437% = 180
+        CASE &H252C: ANS_unicode_to_cp437% = 194
+        CASE &H2534: ANS_unicode_to_cp437% = 193
+        CASE &H253C: ANS_unicode_to_cp437% = 197
+        ' Box drawing (double)
+        CASE &H2550: ANS_unicode_to_cp437% = 205
+        CASE &H2551: ANS_unicode_to_cp437% = 186
+        CASE &H2554: ANS_unicode_to_cp437% = 201
+        CASE &H2557: ANS_unicode_to_cp437% = 187
+        CASE &H255A: ANS_unicode_to_cp437% = 200
+        CASE &H255D: ANS_unicode_to_cp437% = 188
+        CASE &H2560: ANS_unicode_to_cp437% = 204
+        CASE &H2563: ANS_unicode_to_cp437% = 185
+        CASE &H2566: ANS_unicode_to_cp437% = 203
+        CASE &H2569: ANS_unicode_to_cp437% = 202
+        CASE &H256C: ANS_unicode_to_cp437% = 206
+        ' Common symbols
+        CASE &H00B0: ANS_unicode_to_cp437% = 248 ' °
+        CASE &H00B1: ANS_unicode_to_cp437% = 241 ' ±
+        CASE &H00B7, &H2022, &H25CF: ANS_unicode_to_cp437% = 7 ' bullet
+        CASE &H263A: ANS_unicode_to_cp437% = 1
+        CASE &H263B: ANS_unicode_to_cp437% = 2
+        CASE &H2665: ANS_unicode_to_cp437% = 3
+        CASE &H2666: ANS_unicode_to_cp437% = 4
+        CASE &H2663: ANS_unicode_to_cp437% = 5
+        CASE &H2660: ANS_unicode_to_cp437% = 6
+        CASE ELSE
+            IF cp >= 160 AND cp <= 255 THEN ANS_unicode_to_cp437% = cp ELSE ANS_unicode_to_cp437% = 63 ' '?'
+    END SELECT
+END FUNCTION
+
+''
+' Heuristic UTF-8 detector: TRUE when the stream is valid UTF-8 AND contains at
+' least one multi-byte sequence (so we don't mis-flag plain CP437 as UTF-8).
+'
+FUNCTION ANS_is_utf8% (s AS STRING)
+    DIM i AS LONG, n AS LONG, c AS INTEGER, need AS INTEGER, multi AS INTEGER
+    n = LEN(s): i = 1
+    DO WHILE i <= n
+        c = ASC(s, i)
+        IF c < 128 THEN
+            i = i + 1
+        ELSEIF c >= 194 AND c <= 223 THEN
+            need = 1
+        ELSEIF c >= 224 AND c <= 239 THEN
+            need = 2
+        ELSEIF c >= 240 AND c <= 244 THEN
+            need = 3
+        ELSE
+            ANS_is_utf8% = 0: EXIT FUNCTION ' 0x80-0xC1 or 0xF5+ lead = not UTF-8
+        END IF
+        IF c >= 194 THEN
+            DIM j AS INTEGER
+            FOR j = 1 TO need
+                IF i + j > n THEN ANS_is_utf8% = 0: EXIT FUNCTION
+                IF ASC(s, i + j) < 128 OR ASC(s, i + j) > 191 THEN ANS_is_utf8% = 0: EXIT FUNCTION
+            NEXT j
+            multi = -1
+            i = i + need + 1
+        END IF
+    LOOP
+    ANS_is_utf8% = multi
+END FUNCTION
+
+''
+' TRUE if the filename has a supported ANSI-art extension (text or binary).
+'
+FUNCTION ANS_is_ansi_ext% (filename AS STRING)
+    DIM f AS STRING
+    f = LCASE$(filename)
+    IF RIGHT$(f, 4) = ".ans" OR RIGHT$(f, 4) = ".asc" OR RIGHT$(f, 4) = ".nfo" OR RIGHT$(f, 4) = ".diz" OR RIGHT$(f, 4) = ".bin" OR RIGHT$(f, 4) = ".tnd" OR RIGHT$(f, 3) = ".xb" OR RIGHT$(f, 5) = ".xbin" THEN ANS_is_ansi_ext% = -1
+END FUNCTION
+
+''
+' Load a specific .ans file into a new document (no file dialog). Reads the
+' file, strips/reads SAUCE, parses, and rasterises. Used by IMPORT_ansi and by
+' IMPORT_image's extension dispatch.
+'
+FUNCTION ANS_read_file$ (filename AS STRING)
+    DIM ff AS INTEGER, sz AS LONG, raw AS STRING
+    ff = FREEFILE
+    OPEN filename FOR BINARY AS #ff
+    sz& = LOF(ff)
+    IF sz& > 0 THEN
+        raw = SPACE$(sz&)
+        GET #ff, 1, raw
+    END IF
+    CLOSE #ff
+    ANS_read_file$ = raw
+END FUNCTION
+
+''
+' Detect the format of a raw ANSI-art file and parse it into ANS_CELLS, setting
+' the ANS_IMPORT_* metadata (format name, font height, embedded font/palette).
+' Does NOT build the document. Returns TRUE on success.
+'
+FUNCTION ANS_parse_raw% (raw AS STRING, filename AS STRING)
+    DIM content AS STRING, ext AS STRING
+    DIM wrapWidth AS INTEGER, iceFlag AS INTEGER, font8x8 AS INTEGER
+
+    ANS_IMPORT_FMT = "": ANS_IMPORT_GLYPHS = 0: ANS_IMPORT_FONTH = 0
+    ANS_IMPORT_HASPAL = 0: ANS_IMPORT_FONTDATA = "": ANS_IMPORT_FONT8X8 = 0
+    ext = LCASE$(RIGHT$(filename, 4))
+
+    IF LEN(raw) >= 11 AND LEFT$(raw, 5) = "XBIN" + CHR$(26) THEN
+        ANS_IMPORT_FMT = "XBIN"
+        IF NOT ANS_parse_xbin%(raw) THEN EXIT FUNCTION
+    ELSEIF LEN(raw) >= 9 AND ASC(raw, 1) = 24 AND MID$(raw, 2, 8) = "TUNDRA24" THEN
+        ANS_IMPORT_FMT = "TundraDraw"
+        IF NOT ANS_parse_tnd%(raw) THEN EXIT FUNCTION
+    ELSEIF ext = ".bin" THEN
+        ANS_IMPORT_FMT = "BIN"
+        IF NOT ANS_parse_bin%(raw) THEN EXIT FUNCTION
+    ELSE
+        ANS_IMPORT_FMT = "ANSI"
+        ANS_read_sauce raw, content, wrapWidth, iceFlag, font8x8
+        ANS_IMPORT_FONT8X8 = font8x8
+        IF NOT ANS_parse_stream%(content, wrapWidth, iceFlag) THEN EXIT FUNCTION
+    END IF
+    ANS_parse_raw% = -1
+END FUNCTION
+
+''
+' Load a specific ANSI-art file into a new document (no dialog). Reads, parses,
+' and rasterises. Used by IMPORT_image's extension dispatch and the CLI loader.
+'
+SUB ANS_load_file (filename AS STRING)
+    DIM raw AS STRING
+    raw = ANS_read_file$(filename)
+    IF LEN(raw) = 0 THEN _LOGWARN "ANS_load_file: empty/unreadable " + filename: EXIT SUB
+    IF NOT ANS_parse_raw%(raw, filename) THEN EXIT SUB
+    ANS_build_document ANS_IMPORT_FONT8X8
+    _LOGINFO "ANS_load_file: " + ANS_IMPORT_FMT + " " + filename + " (" + LTRIM$(STR$(ANS_GRID_COLS)) + "x" + LTRIM$(STR$(ANS_GRID_ROWS)) + " cells)"
+END SUB
+
+''
+' File > Import ANSI... — pick a file, show the import options dialog (preview +
+' options), then render on OK.
+'
+SUB IMPORT_ansi ()
+    DIM filename AS STRING, default_path AS STRING, raw AS STRING
+
+    IF CFG.LAST_DIR_IMPORT$ <> "" THEN
+        default_path$ = CFG.LAST_DIR_IMPORT$ + "/"
+    ELSEIF LAST_DIRECTORY$ <> "" THEN
+        default_path$ = LAST_DIRECTORY$ + "/"
+    ELSEIF CFG.DEFAULT_OPEN_DIR$ <> "" THEN
+        default_path$ = CFG.DEFAULT_OPEN_DIR$ + "/"
+    ELSE
+        default_path$ = ""
+    END IF
+
+    POINTER_hide_for_dialog
+    filename$ = DRAW_open_file$("Import ANSI", default_path$, "ANSI Art|*.ans|*.asc|*.nfo|*.diz|*.bin|*.xb|*.xbin|*.tnd|All Files|*.*", 0)
+    POINTER_show_after_dialog
+    MOUSE_cleanup_after_dialog TRUE
+
+    IF filename$ = "" THEN EXIT SUB
+    CFG.LAST_DIR_IMPORT$ = CONFIG_extract_dir$(filename$)
+    LAST_DIRECTORY$ = CFG.LAST_DIR_IMPORT$
+    CONFIG_save
+
+    raw = ANS_read_file$(filename$)
+    IF LEN(raw) = 0 THEN
+        POINTER_hide_for_dialog
+        DRAW_alert "Import ANSI", "The file is empty or could not be read."
+        POINTER_show_after_dialog: MOUSE_cleanup_after_dialog TRUE: EXIT SUB
+    END IF
+    IF NOT ANS_parse_raw%(raw, filename$) THEN
+        POINTER_hide_for_dialog
+        DRAW_alert "Import ANSI", "Could not parse this file as ANSI art."
+        POINTER_show_after_dialog: MOUSE_cleanup_after_dialog TRUE: EXIT SUB
+    END IF
+
+    IF ANSI_import_dialog% THEN
+        ANS_build_document ANS_IMPORT_FONT8X8
+        ' Optional font / palette installs use the file's base name as the default.
+        DIM bn AS STRING, si AS INTEGER, dot AS INTEGER
+        bn = filename$
+        FOR si = LEN(bn) TO 1 STEP -1
+            IF ASC(bn, si) = 47 OR ASC(bn, si) = 92 THEN bn = MID$(bn, si + 1): EXIT FOR
+        NEXT si
+        dot = 0
+        FOR si = LEN(bn) TO 1 STEP -1
+            IF ASC(bn, si) = 46 THEN dot = si: EXIT FOR
+        NEXT si
+        IF dot > 1 THEN bn = LEFT$(bn, dot - 1)
+        IF ANS_IMPORT_DO_FONT THEN IF ANS_import_font_to_user%(bn) THEN _LOGINFO "IMPORT_ansi: font installed"
+        IF ANS_IMPORT_DO_PAL THEN IF ANS_import_palette_to_user%(bn) THEN _LOGINFO "IMPORT_ansi: palette installed"
+        SOUND_play SND_NEW_FILE
+        RECENT_add_file filename$
+    END IF
+    MOUSE_cleanup_after_dialog TRUE
+END SUB
+
+''
+' Import options dialog: preview of the parsed art + a detected-format summary,
+' then IMPORT / CANCEL. (9px / aspect / scale and font/palette import controls
+' are added in later tasks.) Returns TRUE if the user chose to import.
+'
+FUNCTION ANSI_import_dialog%
+    DIM ctx AS DIALOG_CTX
+    DIM tw AS INTEGER, th AS INTEGER, k AS LONG, prevY AS INTEGER, infoY AS INTEGER
+    DIM btnW AS INTEGER, btnH AS INTEGER, btnY AS INTEGER, okX AS INTEGER, cxX AS INTEGER
+    DIM nativeImg AS LONG, wY AS INTEGER, aY AS INTEGER, scY AS INTEGER, fontY AS INTEGER, palY AS INTEGER
+    DIM twoX AS INTEGER, twoW AS INTEGER, twoGap AS INTEGER, cbW AS INTEGER
+    DIM mnX AS INTEGER, numX AS INTEGER, plX AS INTEGER, stW AS INTEGER
+    DIM selCellW AS INTEGER, selAspect AS INTEGER, selScale AS INTEGER
+    DIM doFont AS INTEGER, doPal AS INTEGER, hasFont AS INTEGER, hasPal AS INTEGER, previewDirty AS INTEGER
+    DIM summary AS STRING, fontLbl AS STRING, palLbl AS STRING
+
+    hasFont = (ANS_IMPORT_GLYPHS > 0): hasPal = (ANS_IMPORT_HASPAL <> 0)
+    doFont = hasFont: doPal = hasPal
+    selCellW = 8: selAspect = 100: selScale = 1
+
+    DIALOG_init ctx, 344, 384
+    ctx.prevH = 118
+    tw = ctx.w - 2: th = ctx.prevH
+    ctx.origThumb = 0: ctx.previewThumb = 0
+
+    prevY = THEME.DIALOG_title_height% + 2
+    infoY = prevY + ctx.prevH + 6
+    wY = infoY + 18: aY = wY + 21: scY = aY + 21
+    fontY = scY + 24: palY = fontY + 19
+    twoX = 62: twoW = 60: twoGap = 64
+    mnX = 62: stW = 18: numX = mnX + stW + 8: plX = numX + 34
+    cbW = ctx.w - 20
+    btnW = 96: btnH = 22
+    btnY = ctx.h - btnH - 12
+    okX = ctx.w - btnW * 2 - 16
+    cxX = ctx.w - btnW - 10
+
+    summary = ANS_IMPORT_FMT + "   " + LTRIM$(STR$(ANS_GRID_COLS)) + " x " + LTRIM$(STR$(ANS_GRID_ROWS)) + " cells"
+    fontLbl = "Import font (" + LTRIM$(STR$(ANS_IMPORT_GLYPHS)) + " glyphs, " + LTRIM$(STR$(ANS_IMPORT_FONTH)) + "px)"
+    palLbl = "Import palette (16 colors)"
+
+    previewDirty = -1
+    DO
+        DIALOG_poll_mouse ctx
+        k& = _KEYHIT
+        IF k& = 13 THEN ctx.done = TRUE: ctx.result = TRUE
+        IF k& = 27 THEN ctx.done = TRUE: ctx.result = FALSE
+
+        ' WIDTH 8/9px
+        IF DIALOG_hit%(ctx, twoX, wY, twoW, 15) THEN
+            IF selCellW <> 8 THEN selCellW = 8: previewDirty = -1
+        END IF
+        IF DIALOG_hit%(ctx, twoX + twoGap, wY, twoW, 15) THEN
+            IF selCellW <> 9 THEN selCellW = 9: previewDirty = -1
+        END IF
+        ' ASPECT square/DOS
+        IF DIALOG_hit%(ctx, twoX, aY, twoW, 15) THEN
+            IF selAspect <> 100 THEN selAspect = 100: previewDirty = -1
+        END IF
+        IF DIALOG_hit%(ctx, twoX + twoGap, aY, twoW, 15) THEN
+            IF selAspect <> 120 THEN selAspect = 120: previewDirty = -1
+        END IF
+        ' SCALE steppers 1..8
+        IF DIALOG_hit%(ctx, mnX, scY, stW, 15) THEN selScale = selScale - 1: IF selScale < 1 THEN selScale = 1
+        IF DIALOG_hit%(ctx, plX, scY, stW, 15) THEN selScale = selScale + 1: IF selScale > 8 THEN selScale = 8
+        ' Asset checkboxes
+        IF hasFont AND DIALOG_hit%(ctx, 10, fontY, cbW, 15) THEN doFont = NOT doFont
+        IF hasPal AND DIALOG_hit%(ctx, 10, palY, cbW, 15) THEN doPal = NOT doPal
+
+        IF DIALOG_hit%(ctx, okX, btnY, btnW, btnH) THEN ctx.done = TRUE: ctx.result = TRUE
+        IF DIALOG_hit%(ctx, cxX, btnY, btnW, btnH) THEN ctx.done = TRUE: ctx.result = FALSE
+
+        ' Re-render the preview (scale=1: the thumb normalises size; width/aspect
+        ' change proportions so they matter for the preview).
+        IF previewDirty THEN
+            IF ctx.origThumb < -1 THEN SAFE_FREEIMAGE ctx.origThumb
+            nativeImg& = ANS_render_cells_image&(ANS_MODE_RGB, ANS_IMPORT_FONT8X8, selCellW, selAspect, 1)
+            ctx.origThumb = ANS_thumb_from&(nativeImg&, tw, th)
+            IF nativeImg& < -1 THEN SAFE_FREEIMAGE nativeImg&
+            previewDirty = 0
+        END IF
+
+        _DEST ctx.imgHandle
+        DIALOG_draw_frame ctx, "IMPORT ANSI"
+        LINE (1, prevY)-(ctx.w - 2, prevY + ctx.prevH - 1), _RGB32(0, 0, 0), BF
+        IF ctx.origThumb < -1 THEN
+            _DONTBLEND ctx.imgHandle
+            _PUTIMAGE (1, prevY)-(ctx.w - 2, prevY + ctx.prevH - 1), ctx.origThumb, ctx.imgHandle
+            _BLEND ctx.imgHandle
+        END IF
+        DIALOG_draw_label ctx, 10, infoY, summary
+        DIALOG_draw_label ctx, 8, wY + 1, "WIDTH:"
+        DIALOG_draw_toggle ctx, twoX, wY, twoW, 15, "8 PX", (selCellW = 8)
+        DIALOG_draw_toggle ctx, twoX + twoGap, wY, twoW, 15, "9 PX", (selCellW = 9)
+        DIALOG_draw_label ctx, 8, aY + 1, "ASPECT:"
+        DIALOG_draw_toggle ctx, twoX, aY, twoW, 15, "SQUARE", (selAspect = 100)
+        DIALOG_draw_toggle ctx, twoX + twoGap, aY, twoW, 15, "DOS 1.2", (selAspect = 120)
+        DIALOG_draw_label ctx, 8, scY + 1, "SCALE:"
+        DIALOG_draw_button ctx, mnX, scY, stW, 15, "-", _RGB32(50, 55, 66), _RGB32(70, 78, 92), _RGB32(90, 100, 120)
+        DIALOG_draw_label ctx, numX, scY + 1, LTRIM$(STR$(selScale)) + "x"
+        DIALOG_draw_button ctx, plX, scY, stW, 15, "+", _RGB32(50, 55, 66), _RGB32(70, 78, 92), _RGB32(90, 100, 120)
+        IF hasFont THEN DIALOG_draw_toggle ctx, 10, fontY, cbW, 15, fontLbl, doFont
+        IF hasPal THEN DIALOG_draw_toggle ctx, 10, palY, cbW, 15, palLbl, doPal
+        DIALOG_draw_button ctx, okX, btnY, btnW, btnH, "IMPORT", _RGB32(40, 100, 40), _RGB32(60, 150, 60), _RGB32(80, 200, 80)
+        DIALOG_draw_button ctx, cxX, btnY, btnW, btnH, "CANCEL", _RGB32(100, 40, 40), _RGB32(150, 60, 60), _RGB32(200, 80, 80)
+        DIALOG_blit ctx
+    LOOP UNTIL ctx.done
+
+    IF ctx.result THEN
+        ANS_IMP_CELLW = selCellW: ANS_IMP_ASPECT = selAspect: ANS_IMP_SCALE = selScale
+    END IF
+    ANS_IMPORT_DO_FONT = (ctx.result <> 0) AND (doFont <> 0)
+    ANS_IMPORT_DO_PAL = (ctx.result <> 0) AND (doPal <> 0)
+    ANSI_import_dialog% = ctx.result
+    DIALOG_cleanup ctx
+END FUNCTION
+
+''
+' Rasterise the parsed ANS_CELLS grid into a brand-new document. Renders at
+' native size (cols*8 x rows*cellH) with exact per-cell RGB, creates the canvas
+' via DRW_create_canvas_at_size (which also resets tool/panel/history state),
+' and paints the result into the Background layer.
+'
+' @param font8x8% TRUE = 8x8 cell height (SAUCE 50/43-line font)
+'
+SUB ANS_build_document (font8x8 AS INTEGER)
+    DIM img AS LONG, w AS INTEGER, h AS INTEGER, oldDest AS LONG
+    IF ANS_GRID_COLS <= 0 OR ANS_GRID_ROWS <= 0 THEN EXIT SUB
+    img& = ANS_render_cells_image&(ANS_MODE_RGB, font8x8, ANS_IMP_CELLW, ANS_IMP_ASPECT, ANS_IMP_SCALE) ' exact per-cell colour + import options
+    IF img& = 0 OR img& = -1 THEN EXIT SUB
+    w = _WIDTH(img&): h = _HEIGHT(img&)
+
+    DRW_create_canvas_at_size w, h
+    oldDest& = _DEST
+    _DEST LAYERS(1).imgHandle&
+    _DONTBLEND LAYERS(1).imgHandle&
+    _PUTIMAGE (0, 0), img&, LAYERS(1).imgHandle&
+    _BLEND LAYERS(1).imgHandle&
+    _DEST oldDest&
+    LAYERS(1).contentDirty% = TRUE
+    IF img& < -1 THEN SAFE_FREEIMAGE img&
+
+    CANVAS_DIRTY% = TRUE
+    SCENE_DIRTY% = TRUE
+    GUI_NEEDS_REDRAW% = TRUE
+END SUB
+
+''
+' Read a SAUCE record (if present) from a raw .ans file and return the ANSI
+' content with the SAUCE record, any COMNT block, and trailing 0x1A stripped.
+' Extracts wrap width (TInfo1), iCE flag (TFlags bit0), and 8x8-font flag.
+' Per convention, iCE defaults ON when no SAUCE record exists.
+'
+' @param raw$        entire file contents
+' @param content$    OUT: the ANSI byte stream to parse
+' @param wrapWidth%  OUT: columns (SAUCE TInfo1, else 80)
+' @param iceFlag%    OUT: TRUE if iCE colours
+' @param font8x8%    OUT: TRUE if an 8x8 (50/43-line) font is indicated
+'
+SUB ANS_read_sauce (raw AS STRING, content AS STRING, wrapWidth AS INTEGER, iceFlag AS INTEGER, font8x8 AS INTEGER)
+    DIM rec AS STRING, fontName AS STRING
+    DIM dataType AS INTEGER, tflags AS INTEGER, comments AS INTEGER
+    DIM tinfo1 AS INTEGER, comntLen AS LONG, cutLen AS LONG
+    DIM hasSauce AS INTEGER
+
+    ' Defaults for a file with no SAUCE
+    wrapWidth = 80: iceFlag = -1: font8x8 = 0
+    content = raw
+
+    hasSauce = 0
+    IF LEN(raw) >= 128 THEN
+        rec = RIGHT$(raw, 128)
+        IF LEFT$(rec, 7) = "SAUCE00" THEN hasSauce = -1
+    END IF
+
+    IF hasSauce = 0 THEN
+        ' strip trailing DOS EOF marker(s) only
+        DO WHILE LEN(content) > 0
+            IF ASC(content, LEN(content)) = 26 THEN content = LEFT$(content, LEN(content) - 1) ELSE EXIT DO
+        LOOP
+        EXIT SUB
+    END IF
+
+    ' Fields (1-based within the 128-byte record)
+    dataType = ASC(rec, 95)
+    tinfo1 = CVI(MID$(rec, 97, 2))
+    comments = ASC(rec, 105)
+    tflags = ASC(rec, 106)
+    fontName = _TRIM$(MID$(rec, 107, 22))
+
+    IF dataType = 1 AND tinfo1 > 0 THEN wrapWidth = tinfo1
+    IF (tflags AND 1) <> 0 THEN iceFlag = -1 ELSE iceFlag = 0 ' SAUCE makes iCE explicit
+    IF INSTR(fontName, "50") > 0 OR INSTR(fontName, "43") > 0 THEN font8x8 = -1
+
+    ' Strip SAUCE record, any preceding COMNT block, then trailing 0x1A
+    comntLen = 0
+    IF comments > 0 THEN comntLen = 5 + CLNG(comments) * 64 ' "COMNT" + N*64
+    cutLen = 128 + comntLen
+    IF cutLen >= LEN(raw) THEN content = "" ELSE content = LEFT$(raw, LEN(raw) - cutLen)
+    DO WHILE LEN(content) > 0
+        IF ASC(content, LEN(content)) = 26 THEN content = LEFT$(content, LEN(content) - 1) ELSE EXIT DO
+    LOOP
+END SUB
+
+''
+' Resolve a printed cell's foreground/background to RGB given the current SGR
+' state, returning the pair (swapped when reverse-video is active).
+'
+SUB ANS_resolve_colors (fgI AS INTEGER, bgI AS INTEGER, bold AS INTEGER, blink AS INTEGER, reverse AS INTEGER, ice AS INTEGER, fgRGBset AS INTEGER, fgRGB AS _UNSIGNED LONG, bgRGBset AS INTEGER, bgRGB AS _UNSIGNED LONG, outFg AS _UNSIGNED LONG, outBg AS _UNSIGNED LONG)
+    DIM ef AS _UNSIGNED LONG, eb AS _UNSIGNED LONG
+    DIM fi AS INTEGER, bi AS INTEGER
+
+    fi = fgI
+    IF bold <> 0 THEN fi = fi OR 8
+    IF fgRGBset <> 0 THEN ef = fgRGB ELSE ef = ANS_PAL(fi AND 15)
+
+    bi = bgI
+    IF (ice <> 0) AND (blink <> 0) THEN bi = bi OR 8 ' iCE: blink bit -> bright bg
+    IF bgRGBset <> 0 THEN eb = bgRGB ELSE eb = ANS_PAL(bi AND 15)
+
+    IF reverse <> 0 THEN
+        outFg = eb: outBg = ef
+    ELSE
+        outFg = ef: outBg = eb
+    END IF
+END SUB
+
+''
+' Parse an ANSI byte stream into ANS_CELLS. Sets ANS_GRID_COLS/ANS_GRID_ROWS.
+'
+' @param ansData$       raw ANSI bytes (SAUCE/COMNT/EOF already stripped by caller)
+' @param wrapWidth%  columns before auto-wrap (SAUCE width or 80)
+' @param iceDefault% TRUE = treat blink as bright background (iCE)
+' @return TRUE on success (grid populated)
+'
+FUNCTION ANS_parse_stream% (ansData AS STRING, wrapWidth AS INTEGER, iceDefault AS INTEGER)
+    DIM wrap AS INTEGER, curRows AS INTEGER, newRows AS INTEGER
+    DIM x AS INTEGER, y AS INTEGER, maxY AS INTEGER
+    DIM i AS LONG, n AS LONG, c AS INTEGER, j AS LONG, fb AS INTEGER
+    DIM utf8 AS INTEGER, adv AS INTEGER, cp AS LONG
+    DIM fgI AS INTEGER, bgI AS INTEGER, bold AS INTEGER, blink AS INTEGER, reverse AS INTEGER
+    DIM fgRGBset AS INTEGER, bgRGBset AS INTEGER
+    DIM fgRGB AS _UNSIGNED LONG, bgRGB AS _UNSIGNED LONG
+    DIM outFg AS _UNSIGNED LONG, outBg AS _UNSIGNED LONG
+    DIM finalCh AS INTEGER
+    DIM params AS STRING
+    REDIM prm(0 TO 31) AS INTEGER
+    DIM pcount AS INTEGER
+
+    wrap = wrapWidth
+    IF wrap < 1 THEN wrap = 80
+    curRows = 25
+    REDIM ANS_CELLS(0 TO wrap - 1, 0 TO curRows - 1) AS ANS_CELL
+
+    ' initial SGR state (light grey on black)
+    fgI = 7: bgI = 0: bold = 0: blink = 0: reverse = 0
+    fgRGBset = 0: bgRGBset = 0
+    x = 0: y = 0: maxY = 0
+
+    n = LEN(ansData)
+    utf8 = ANS_is_utf8%(ansData) ' UTF-8 block/box art -> decode to CP437 glyphs
+    i = 1
+    DO WHILE i <= n
+        c = ASC(ansData, i)
+
+        IF c = 27 THEN ' ESC
+            IF i + 1 <= n AND ASC(ansData, i + 1) = 91 THEN ' CSI  ESC[
+                ' collect parameter/intermediate bytes until a final 0x40-0x7E
+                params = ""
+                j = i + 2
+                DO WHILE j <= n
+                    fb = ASC(ansData, j)
+                    IF fb >= 64 AND fb <= 126 THEN EXIT DO
+                    params = params + CHR$(fb)
+                    j = j + 1
+                LOOP
+                IF j > n THEN i = n + 1: EXIT DO ' truncated sequence
+                finalCh = ASC(ansData, j)
+                ANS_parse_params params, prm(), pcount
+
+                SELECT CASE finalCh
+                    CASE 109 ' 'm' SGR
+                        ANS_apply_sgr prm(), pcount, fgI, bgI, bold, blink, reverse, fgRGBset, fgRGB, bgRGBset, bgRGB
+                    CASE 65 ' 'A' up
+                        y = y - ANS_param_or1%(prm(), pcount, 0): IF y < 0 THEN y = 0
+                    CASE 66 ' 'B' down
+                        y = y + ANS_param_or1%(prm(), pcount, 0)
+                    CASE 67 ' 'C' right
+                        x = x + ANS_param_or1%(prm(), pcount, 0)
+                    CASE 68 ' 'D' left
+                        x = x - ANS_param_or1%(prm(), pcount, 0): IF x < 0 THEN x = 0
+                    CASE 71 ' 'G' column absolute (1-based)
+                        x = ANS_param_or1%(prm(), pcount, 0) - 1: IF x < 0 THEN x = 0
+                    CASE 100 ' 'd' row absolute (1-based)
+                        y = ANS_param_or1%(prm(), pcount, 0) - 1: IF y < 0 THEN y = 0
+                    CASE 72, 102 ' 'H'/'f' cursor position row;col (1-based)
+                        y = ANS_param_or1%(prm(), pcount, 0) - 1: IF y < 0 THEN y = 0
+                        x = ANS_param_or1%(prm(), pcount, 1) - 1: IF x < 0 THEN x = 0
+                    CASE ELSE
+                        ' s/u/K/J and others: ignored for a static raster render
+                END SELECT
+                i = j + 1
+            ELSE
+                i = i + 1 ' bare/unknown ESC: swallow
+            END IF
+        ELSEIF c = 10 THEN ' LF
+            y = y + 1: x = 0: i = i + 1
+        ELSEIF c = 13 THEN ' CR
+            x = 0: i = i + 1
+        ELSEIF c = 9 THEN ' TAB -> next 8-col stop
+            x = (x \ 8 + 1) * 8: i = i + 1
+        ELSEIF c = 26 THEN ' SUB = DOS EOF
+            EXIT DO
+        ELSE ' printable glyph
+            ' UTF-8 block/box art: decode the multi-byte sequence to a CP437 glyph.
+            adv = 1
+            IF utf8 AND c >= 194 AND c <= 244 THEN
+                IF c <= 223 AND i + 1 <= n THEN
+                    cp = (c AND 31) * 64 + (ASC(ansData, i + 1) AND 63): adv = 2
+                ELSEIF c <= 239 AND i + 2 <= n THEN
+                    cp = (c AND 15) * 4096 + (ASC(ansData, i + 1) AND 63) * 64 + (ASC(ansData, i + 2) AND 63): adv = 3
+                ELSEIF i + 3 <= n THEN
+                    cp = (c AND 7) * 262144 + (ASC(ansData, i + 1) AND 63) * 4096 + (ASC(ansData, i + 2) AND 63) * 64 + (ASC(ansData, i + 3) AND 63): adv = 4
+                END IF
+                c = ANS_unicode_to_cp437%(cp)
+            END IF
+
+            ' Deferred auto-wrap: only a real glyph past the wrap column advances
+            ' the line. Doing this here (not for ESC/CR/LF) prevents a full-width
+            ' row's trailing reset sequence from spuriously double-advancing y.
+            IF x >= wrap THEN x = 0: y = y + 1
+            IF y > ANS_IMPORT_MAX_ROWS THEN EXIT DO
+            IF y > curRows - 1 THEN
+                newRows = y + 25
+                REDIM _PRESERVE ANS_CELLS(0 TO wrap - 1, 0 TO newRows - 1) AS ANS_CELL
+                curRows = newRows
+            END IF
+            IF x >= 0 AND x < wrap THEN
+                ANS_resolve_colors fgI, bgI, bold, blink, reverse, iceDefault, fgRGBset, fgRGB, bgRGBset, bgRGB, outFg, outBg
+                ANS_CELLS(x, y).ch = c
+                ANS_CELLS(x, y).fg = outFg
+                ANS_CELLS(x, y).bg = outBg
+            END IF
+            IF y > maxY THEN maxY = y
+            x = x + 1
+            i = i + adv
+        END IF
+    LOOP
+
+    ANS_GRID_COLS = wrap
+    ANS_GRID_ROWS = maxY + 1
+    IF ANS_GRID_ROWS < 1 THEN ANS_GRID_ROWS = 1
+    ANS_parse_stream% = -1
+END FUNCTION
+
+''
+' Split a CSI parameter string ("1;31;40") into integers. Empty params = 0.
+'
+SUB ANS_parse_params (params AS STRING, prm() AS INTEGER, pcount AS INTEGER)
+    DIM k AS INTEGER, ch AS INTEGER, cur AS STRING
+    pcount = 0
+    cur = ""
+    FOR k = 1 TO LEN(params)
+        ch = ASC(params, k)
+        IF ch = 59 THEN ' ';'
+            IF pcount <= 31 THEN prm(pcount) = VAL(cur): pcount = pcount + 1
+            cur = ""
+        ELSEIF ch >= 48 AND ch <= 57 THEN
+            cur = cur + CHR$(ch)
+        END IF
+    NEXT k
+    IF pcount <= 31 THEN prm(pcount) = VAL(cur): pcount = pcount + 1
+END SUB
+
+''
+' A CSI numeric parameter defaulting to 1 when absent/zero (cursor-move default).
+'
+FUNCTION ANS_param_or1% (prm() AS INTEGER, pcount AS INTEGER, idx AS INTEGER)
+    DIM v AS INTEGER
+    v = 1
+    IF idx < pcount THEN
+        IF prm(idx) > 0 THEN v = prm(idx)
+    END IF
+    ANS_param_or1% = v
+END FUNCTION
+
+''
+' Apply an SGR (ESC[...m) parameter list to the running colour/attribute state.
+' Extended 38/48 params are consumed here so they never corrupt the scan; their
+' RGB / 256 application is added in I3.
+'
+SUB ANS_apply_sgr (prm() AS INTEGER, pcount AS INTEGER, fgI AS INTEGER, bgI AS INTEGER, bold AS INTEGER, blink AS INTEGER, reverse AS INTEGER, fgRGBset AS INTEGER, fgRGB AS _UNSIGNED LONG, bgRGBset AS INTEGER, bgRGB AS _UNSIGNED LONG)
+    DIM k AS INTEGER, p AS INTEGER
+    IF pcount = 0 THEN ' bare ESC[m == reset
+        fgI = 7: bgI = 0: bold = 0: blink = 0: reverse = 0: fgRGBset = 0: bgRGBset = 0
+        EXIT SUB
+    END IF
+    k = 0
+    DO WHILE k < pcount
+        p = prm(k)
+        SELECT CASE p
+            CASE 0: fgI = 7: bgI = 0: bold = 0: blink = 0: reverse = 0: fgRGBset = 0: bgRGBset = 0
+            CASE 1: bold = 1
+            CASE 5, 6: blink = 1
+            CASE 7: reverse = 1
+            CASE 21, 22: bold = 0
+            CASE 25: blink = 0
+            CASE 27: reverse = 0
+            CASE 30 TO 37: fgI = p - 30: fgRGBset = 0
+            CASE 39: fgI = 7: fgRGBset = 0
+            CASE 40 TO 47: bgI = p - 40: bgRGBset = 0
+            CASE 49: bgI = 0: bgRGBset = 0
+            CASE 90 TO 97: fgI = (p - 90) OR 8: fgRGBset = 0
+            CASE 100 TO 107: bgI = (p - 100) OR 8: bgRGBset = 0
+            CASE 38 ' extended foreground: ;5;n (256) or ;2;r;g;b (truecolor)
+                IF k + 1 < pcount THEN
+                    IF prm(k + 1) = 5 THEN
+                        IF k + 2 < pcount THEN fgRGB = ANS_256_to_rgb~&(prm(k + 2)): fgRGBset = -1
+                        k = k + 2
+                    ELSEIF prm(k + 1) = 2 THEN
+                        IF k + 4 < pcount THEN fgRGB = _RGB32(prm(k + 2), prm(k + 3), prm(k + 4)): fgRGBset = -1
+                        k = k + 4
+                    END IF
+                END IF
+            CASE 48 ' extended background: ;5;n (256) or ;2;r;g;b (truecolor)
+                IF k + 1 < pcount THEN
+                    IF prm(k + 1) = 5 THEN
+                        IF k + 2 < pcount THEN bgRGB = ANS_256_to_rgb~&(prm(k + 2)): bgRGBset = -1
+                        k = k + 2
+                    ELSEIF prm(k + 1) = 2 THEN
+                        IF k + 4 < pcount THEN bgRGB = _RGB32(prm(k + 2), prm(k + 3), prm(k + 4)): bgRGBset = -1
+                        k = k + 4
+                    END IF
+                END IF
+        END SELECT
+        k = k + 1
+    LOOP
+END SUB
