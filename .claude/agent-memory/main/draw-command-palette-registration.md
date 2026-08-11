@@ -18,4 +18,11 @@ opened DRAW modal is a much larger diff (tens of thousands of px). Caught during
 import/export feature: "Export ANSI"/"Import ANSI" were menu-registered but not `CMD_register`ed, so
 `QA/tests/ansi-export.sh` false-passed until both were added to `CMD_init`.
 
+**Capacity cap (fixed 2026-08-11):** the palette registry is `CMD_LIST(CMD_MAX_COMMANDS)` and
+`CMD_register` does `IF CMD_COUNT >= CMD_MAX_COMMANDS THEN EXIT SUB` — a *silent* drop, no warning.
+`CMD_init` registers 260+ commands, so the old `CMD_MAX_COMMANDS = 256` was silently discarding the
+last few registered. Raised to 512 (GUI/COMMAND.BI). When adding commands, keep the constant well
+above the `CMD_register` count (`grep -c '^\s*CMD_register ' GUI/COMMAND.BM`). "Export Kit..."/"Install
+Kit..." (KIT_ACT_EXPORT/INSTALL) were added here at the same time.
+
 Related: [[feedback_draw_compile_convention]], [[reference_qa_harness_capture]].

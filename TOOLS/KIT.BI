@@ -50,6 +50,8 @@ DIM SHARED KIT_OUT_PATH$                                 ' chosen export .zip pa
 DIM SHARED KIT_SHOT_SRC$                                 ' full path of chosen screenshot (source on disk)
 DIM SHARED KIT_INSTALL_ON(0 TO KIT_TYPE_COUNT - 1) AS INTEGER ' install dialog: include this type?
 DIM SHARED KIT_INSTALL_PATH$                             ' chosen kit file to install
+DIM SHARED KIT_INSTALL_NONINTERACTIVE% ' TRUE = never open the conflict dialog (headless/scripted install)
+DIM SHARED KIT_INSTALL_AUTOCHOICE%     ' conflict choice when non-interactive: 0 overwrite / 1 skip / 2 keep-both
 
 ' Dev screenshot mode (--kit-screenshots): when KIT_SHOT_PATH$ is set, a dialog
 ' saves its buffer to that PNG and closes after one frame; KIT_SHOT_SKIPPICK%

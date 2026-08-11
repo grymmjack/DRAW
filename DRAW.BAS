@@ -321,6 +321,25 @@ IF mainShotFile$ <> "" THEN
     SYSTEM
 END IF
 
+' Dev: --kit-export <zip> writes a sample kit (1 of every asset type) and exits.
+DIM kitExportZip AS STRING : kitExportZip$ = KIT_get_flag_arg$("--kit-export")
+IF kitExportZip$ <> "" THEN KIT_dev_export kitExportZip$: SYSTEM
+
+' Dev: --kit-install <zip> installs a kit non-interactively (all types, skip conflicts) and exits.
+DIM kitInstallZip AS STRING : kitInstallZip$ = KIT_get_flag_arg$("--kit-install")
+IF kitInstallZip$ <> "" THEN
+    DIM kiMf AS KIT_MANIFEST, kiTy AS INTEGER
+    IF KIT_load_kit_manifest%(kitInstallZip$, kiMf) THEN
+        KIT_INSTALL_PATH$ = kitInstallZip$
+        FOR kiTy% = 0 TO KIT_TYPE_COUNT - 1: KIT_INSTALL_ON(kiTy%) = TRUE: NEXT
+        KIT_INSTALL_NONINTERACTIVE% = TRUE: KIT_INSTALL_AUTOCHOICE% = 1 ' skip conflicts
+        IF KIT_install_apply% THEN _LOGINFO "kit-install: done" ELSE _LOGINFO "kit-install: FAILED"
+    ELSE
+        _LOGINFO "kit-install: invalid kit " + kitInstallZip$
+    END IF
+    SYSTEM
+END IF
+
 DO
     ' Deferred command line file loading (after first frame when everything is initialized).
     ' Acts exactly like File -> Open: direct load, NO interactive placement.

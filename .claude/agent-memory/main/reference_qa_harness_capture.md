@@ -29,6 +29,30 @@ set, then `convert -crop` down to the client area using the cached window
 position. `setsid` matters: without it the compositor gives spectacle keyboard
 focus and DRAW misses every subsequent key event.
 
+**Running the whole GUI suite OFFSCREEN (no desktop hijack) — verified 2026-08-11.**
+The harness normally takes over the real display `:1` (moves the mouse, types on
+the desktop). To run it unattended without touching the user's session, run it
+under a nested Xvfb — but TWO things must be right or it silently misbehaves:
+```bash
+env -u WAYLAND_DISPLAY xvfb-run -a --server-args="-screen 0 3840x2160x24" \
+    ./draw-qa.sh --rerun-passed tests/<name>.sh
+```
+1. **xvfb screen MUST match the real desktop resolution (3840×2160 here).** With
+   `UI_SCALE=0` (auto), DRAW re-derives the viewport from the screen; a smaller
+   xvfb (e.g. 1920×1080) yields a 1728×972 window and `_verify_geometry_model`
+   aborts with "window geometry does not match" (expected 1916×1028). Only at the
+   native 4K res does DRAW reproduce the pinned 958×514@2x window.
+2. **`WAYLAND_DISPLAY` MUST be unset for the harness process.** It is inherited
+   into the xvfb child, so `_capture_client_area` still picks the `spectacle`
+   branch — which grabs the **real Wayland screen**, not the xvfb `DISPLAY`. Every
+   `snap_region`/`screenshot` then captures whatever is actually on the user's
+   desktop at the window's coords (a static frame), so `assert_regions_differ`
+   sees before==after and reports "regions are identical (action had no effect?)"
+   — a false failure that looks like a product bug. Unsetting `WAYLAND_DISPLAY`
+   forces the `scrot` branch, which DOES work on a real Xvfb X server (the
+   all-black-scrot problem above is specific to the KDE/**Wayland** session, not
+   a pure-X xvfb one). This is the harness-first gotcha in a new disguise.
+
 **The client-area origin comes from `xwininfo`, and `DECORATION_H` is 0.**
 `_update_win_pos` reads `xwininfo`'s "Absolute upper-left", which is already
 the client area on a reparenting WM — there is no title bar left to skip.
