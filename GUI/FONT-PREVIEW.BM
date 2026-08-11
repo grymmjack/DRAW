@@ -1,0 +1,242 @@
+''
+' DRAW - GUI/FONT-PREVIEW.BM
+' =============================================================================
+' Render a small preview strip for a font (its name drawn in the font + sample
+' text), gated by CFG.FONT_PREVIEW_ENABLED. TDF faces are skipped. Tokens in
+' CFG.FONT_PREVIEW_SAMPLE: {font}/{FONT}/{Font} = name (lower/upper/as-is),
+' {NumGlyphs} = non-blank glyph count.
+'
+' @author Rick Christy <grymmjack@gmail.com>
+'
+$INCLUDEONCE
+
+''
+' Replace every occurrence of find$ in s$ with repl$ (case-sensitive).
+'
+FUNCTION FP_replace$ (s AS STRING, findStr AS STRING, repl AS STRING)
+    DIM res AS STRING, p AS LONG, hit AS LONG
+    IF LEN(findStr) = 0 THEN FP_replace$ = s: EXIT FUNCTION
+    p = 1
+    DO
+        hit = INSTR(p, s, findStr)
+        IF hit = 0 THEN res = res + MID$(s, p): EXIT DO
+        res = res + MID$(s, p, hit - p) + repl
+        p = hit + LEN(findStr)
+    LOOP
+    FP_replace$ = res
+END FUNCTION
+
+''
+' Build the preview text for a font by substituting the tokens.
+'
+FUNCTION FONT_PREVIEW_text$ (idx AS INTEGER)
+    DIM s AS STRING, nm AS STRING, gc AS STRING
+    IF idx < 0 OR idx >= FONT_LIST_COUNT% THEN EXIT FUNCTION
+    s = CFG.FONT_PREVIEW_SAMPLE$
+    IF _TRIM$(s) = "" THEN s = "{Font} ABCabc123"
+    nm = _TRIM$(FONT_LIST(idx).displayName)
+    ' Only pay for glyph counting when the template actually asks for it — the
+    ' count path is expensive and (for some fonts) trips _MAPUNICODE.
+    gc = ""
+    IF INSTR(s, "{NumGlyphs}") > 0 THEN gc = LTRIM$(STR$(FONT_glyph_count%(idx)))
+    s = FP_replace$(s, "{FONT}", UCASE$(nm))
+    s = FP_replace$(s, "{font}", LCASE$(nm))
+    s = FP_replace$(s, "{Font}", nm)
+    s = FP_replace$(s, "{NumGlyphs}", gc)
+    FONT_PREVIEW_text$ = s
+END FUNCTION
+
+''
+' Resolved preview colours (CFG value, or a sensible default when 0).
+'
+FUNCTION FONT_PREVIEW_fg~& ()
+    IF CFG.FONT_PREVIEW_FG~& <> 0 THEN FONT_PREVIEW_fg~& = CFG.FONT_PREVIEW_FG~& ELSE FONT_PREVIEW_fg~& = _RGB32(235, 238, 245)
+END FUNCTION
+FUNCTION FONT_PREVIEW_bg~& ()
+    IF CFG.FONT_PREVIEW_BG~& <> 0 THEN FONT_PREVIEW_bg~& = CFG.FONT_PREVIEW_BG~& ELSE FONT_PREVIEW_bg~& = _RGB32(22, 24, 30)
+END FUNCTION
+FUNCTION FONT_PREVIEW_divider~& ()
+    IF CFG.FONT_PREVIEW_DIVIDER~& <> 0 THEN FONT_PREVIEW_divider~& = CFG.FONT_PREVIEW_DIVIDER~& ELSE FONT_PREVIEW_divider~& = THEME.TEXT_BAR_BORDER~&
+END FUNCTION
+
+''
+' Render a font's preview strip to a fresh 32-bit image (caller frees). Returns
+' 0 for TDF/invalid fonts (no preview). Height = CFG.FONT_PREVIEW_SIZE clamped to
+' MAX_H; width clamped to MAX_W (content cropped on the right if wider).
+'
+FUNCTION FONT_PREVIEW_render& (idx AS INTEGER)
+    IF idx < 0 OR idx >= FONT_LIST_COUNT% THEN EXIT FUNCTION
+    IF FONT_LIST(idx).isTdfFont THEN EXIT FUNCTION
+
+    DIM txt AS STRING, fg AS _UNSIGNED LONG, bg AS _UNSIGNED LONG
+    DIM sizePx AS INTEGER, maxW AS INTEGER, maxH AS INTEGER
+    DIM nativeImg AS LONG, nativeW AS INTEGER, srcH AS INTEGER
+    DIM oldDest AS LONG, oldFont AS LONG, fpath AS STRING
+    DIM i AS INTEGER, ch AS INTEGER, penX AS INTEGER, glyphImg AS LONG, gw AS INTEGER, gh AS INTEGER
+    DIM sc AS SINGLE, scaledW AS INTEGER, finalW AS INTEGER, finalH AS INTEGER, result AS LONG
+
+    txt = FONT_PREVIEW_text$(idx)
+    IF _TRIM$(txt) = "" THEN txt = "Abc"
+    fg = FONT_PREVIEW_fg~&: bg = FONT_PREVIEW_bg~&
+    sizePx = CFG.FONT_PREVIEW_SIZE%: IF sizePx < 8 THEN sizePx = 16
+    maxW = CFG.FONT_PREVIEW_MAX_W%: IF maxW < 16 THEN maxW = 128
+    maxH = CFG.FONT_PREVIEW_MAX_H%: IF maxH < 8 THEN maxH = 32
+    fpath = RTRIM$(FONT_LIST(idx).path)
+    oldDest = _DEST: oldFont = _FONT
+
+    IF FONT_LIST(idx).isColorBitmapFont THEN
+        ' CBF: measure width, then composite native-colour glyphs.
+        nativeW = 0
+        FOR i = 1 TO LEN(txt): nativeW = nativeW + CBF_glyph_width%(fpath, ASC(txt, i)): NEXT i
+        IF nativeW < 1 THEN nativeW = 1
+        nativeImg = _NEWIMAGE(nativeW, 64, 32): IF nativeImg = 0 OR nativeImg = -1 THEN EXIT FUNCTION
+        _DEST nativeImg: CLS , bg
+        penX = 0: srcH = 1
+        FOR i = 1 TO LEN(txt)
+            ch = ASC(txt, i)
+            glyphImg = 0
+            CBF_render_glyph fpath, ch, glyphImg
+            IF glyphImg < -1 THEN
+                gh = _HEIGHT(glyphImg): IF gh > srcH THEN srcH = gh
+                _PUTIMAGE (penX, 0), glyphImg, nativeImg
+                _FREEIMAGE glyphImg
+            END IF
+            penX = penX + CBF_glyph_width%(fpath, ch)
+        NEXT i
+    ELSEIF FONT_LIST(idx).isBitmapFont THEN
+        gw = FONT_LIST(idx).bitmapGlyphW: IF gw < 1 THEN gw = 8
+        gh = FONT_LIST(idx).bitmapGlyphH: IF gh < 1 THEN gh = 16
+        nativeW = gw * LEN(txt): IF nativeW < 1 THEN nativeW = 1
+        nativeImg = _NEWIMAGE(nativeW, gh, 32): IF nativeImg = 0 OR nativeImg = -1 THEN EXIT FUNCTION
+        _DEST nativeImg: CLS , bg
+        penX = 0
+        FOR i = 1 TO LEN(txt)
+            TEXT_LAYER_draw_bitmap_char idx, MID$(txt, i, 1), penX, 0, fg, nativeImg
+            penX = penX + gw
+        NEXT i
+        srcH = gh
+    ELSE
+        ' Built-in or TTF.
+        DIM h AS LONG
+        IF FONT_LIST(idx).isBuiltIn THEN h = FONT_LIST(idx).builtInHandle& ELSE h = FONT_LIST_get_handle&(idx, sizePx, "", 0, 1)
+        IF h < 1 THEN h = 16
+        DIM measImg AS LONG
+        measImg = _NEWIMAGE(8, 8, 32): _DEST measImg: _FONT h
+        nativeW = _PRINTWIDTH(txt): IF nativeW < 1 THEN nativeW = 1
+        srcH = _FONTHEIGHT: IF srcH < 1 THEN srcH = sizePx
+        _DEST oldDest: IF measImg < -1 THEN _FREEIMAGE measImg
+        nativeImg = _NEWIMAGE(nativeW, srcH, 32): IF nativeImg = 0 OR nativeImg = -1 THEN _FONT oldFont: EXIT FUNCTION
+        _DEST nativeImg: CLS , bg: _FONT h: COLOR fg, _RGBA32(0, 0, 0, 0): _PRINTMODE _KEEPBACKGROUND
+        _UPRINTSTRING (0, 0), txt
+    END IF
+
+    _DEST oldDest: _FONT oldFont
+    IF nativeImg = 0 OR nativeImg = -1 THEN EXIT FUNCTION
+    IF srcH < 1 THEN srcH = 1
+
+    ' Scale content to preview height, clamp width to maxW (crop right), height to maxH.
+    sc = sizePx / srcH
+    scaledW = INT(nativeW * sc): IF scaledW < 1 THEN scaledW = 1
+    finalH = sizePx: IF finalH > maxH THEN finalH = maxH
+    finalW = scaledW: IF finalW > maxW THEN finalW = maxW
+    IF finalW < 1 THEN finalW = 1
+    result = _NEWIMAGE(finalW, finalH, 32)
+    IF result < -1 THEN
+        _DEST result: CLS , bg: _DONTBLEND result
+        _PUTIMAGE (0, 0)-(scaledW - 1, sizePx - 1), nativeImg, result, (0, 0)-(nativeW - 1, srcH - 1)
+        _BLEND result: _DEST oldDest
+    END IF
+    IF nativeImg < -1 THEN _FREEIMAGE nativeImg
+    FONT_PREVIEW_render& = result
+END FUNCTION
+
+''
+' Simple stable string hash (for cache-key uniqueness).
+'
+FUNCTION FP_hash& (s AS STRING)
+    DIM h AS LONG, i AS INTEGER
+    h = 2166136261
+    FOR i = 1 TO LEN(s)
+        h = (h XOR ASC(s, i)) AND &H7FFFFFFF
+        h = (h * 16777619) AND &H7FFFFFFF
+    NEXT i
+    FP_hash& = h
+END FUNCTION
+
+''
+' On-disk cache path for a font's preview. The key folds in the font identity
+' plus every setting that changes the pixels, so a settings change misses the
+' old file and re-renders.
+'
+FUNCTION FONT_PREVIEW_diskpath$ (idx AS INTEGER)
+    DIM nm AS STRING, k AS STRING, sig AS STRING
+    nm = _TRIM$(FONT_LIST(idx).displayName)
+    sig = STR$(CFG.FONT_PREVIEW_SIZE%) + "|" + STR$(CFG.FONT_PREVIEW_MAX_W%) + "|" + STR$(CFG.FONT_PREVIEW_MAX_H%)
+    sig = sig + "|" + HEX$(FONT_PREVIEW_fg~&) + "|" + HEX$(FONT_PREVIEW_bg~&) + "|" + CFG.FONT_PREVIEW_SAMPLE$
+    k = FP_replace$(nm, " ", "_") + "_" + LTRIM$(STR$(idx)) + "_" + HEX$(FP_hash&(RTRIM$(FONT_LIST(idx).path) + "|" + sig))
+    FONT_PREVIEW_diskpath$ = PATHS_cache$("FONT-PREVIEWS/" + k + ".png")
+END FUNCTION
+
+''
+' Reset the per-frame render budget. Call once per frame before drawing any
+' dropdown that shows previews.
+'
+SUB FONT_PREVIEW_frame_reset
+    FONT_PREVIEW_BUDGET = FONT_PREVIEW_BUDGET_MAX
+END SUB
+
+''
+' Return the cached preview handle for a font, building or disk-loading it
+' lazily (fresh renders are budgeted per frame). Returns 0 when not ready yet or
+' when the font has no preview (TDF). Disk loads are free; only renders count.
+'
+FUNCTION FONT_PREVIEW_ensure& (idx AS INTEGER)
+    IF idx < 0 OR idx >= FONT_LIST_COUNT% THEN EXIT FUNCTION
+    IF FONT_PREVIEW_STATE(idx) = 1 THEN FONT_PREVIEW_ensure& = FONT_PREVIEW_IMG(idx): EXIT FUNCTION
+    IF FONT_PREVIEW_STATE(idx) = -1 THEN EXIT FUNCTION
+    IF FONT_LIST(idx).isTdfFont THEN FONT_PREVIEW_STATE(idx) = -1: EXIT FUNCTION
+
+    DIM dp AS STRING, li AS LONG, r AS LONG
+    dp = FONT_PREVIEW_diskpath$(idx)
+    IF _FILEEXISTS(dp) THEN
+        li = _LOADIMAGE(dp, 32)
+        IF li < -1 THEN
+            FONT_PREVIEW_IMG(idx) = li: FONT_PREVIEW_STATE(idx) = 1
+            IF _WIDTH(li) > FONT_PREVIEW_MAX_STRIP_W THEN FONT_PREVIEW_MAX_STRIP_W = _WIDTH(li)
+            FONT_PREVIEW_ensure& = li: EXIT FUNCTION
+        END IF
+    END IF
+
+    IF FONT_PREVIEW_BUDGET <= 0 THEN EXIT FUNCTION ' try again next frame
+    r = FONT_PREVIEW_render&(idx)
+    FONT_PREVIEW_BUDGET = FONT_PREVIEW_BUDGET - 1
+    IF r < -1 THEN
+        FONT_PREVIEW_IMG(idx) = r: FONT_PREVIEW_STATE(idx) = 1
+        IF _WIDTH(r) > FONT_PREVIEW_MAX_STRIP_W THEN FONT_PREVIEW_MAX_STRIP_W = _WIDTH(r)
+        IF NOT FONT_PREVIEW_DIR_READY THEN PATHS_ensure_dir PATHS_cache$("FONT-PREVIEWS/"): FONT_PREVIEW_DIR_READY = TRUE
+        _SAVEIMAGE dp, r ' persist for next session
+        FONT_PREVIEW_ensure& = r
+    ELSE
+        FONT_PREVIEW_STATE(idx) = -1
+    END IF
+END FUNCTION
+
+''
+' Drop all cached preview strips (keeps disk files; a settings change changes the
+' disk key so stale files are simply ignored). Called on a preview-settings change.
+'
+SUB FONT_PREVIEW_invalidate_all
+    DIM i AS INTEGER
+    FOR i = 0 TO FONT_LIST_TOTAL_MAX - 1
+        IF FONT_PREVIEW_IMG(i) < -1 THEN _FREEIMAGE FONT_PREVIEW_IMG(i)
+        FONT_PREVIEW_IMG(i) = 0: FONT_PREVIEW_STATE(i) = 0
+    NEXT i
+    FONT_PREVIEW_MAX_STRIP_W = 0
+END SUB
+
+''
+' Free all cached preview handles (shutdown / font rescan).
+'
+SUB FONT_PREVIEW_free_cache
+    FONT_PREVIEW_invalidate_all
+END SUB

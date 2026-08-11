@@ -18,6 +18,12 @@ OPTION _EXPLICITARRAY
 SUB FONT_LIST_scan ()
     IF FONT_LIST_SCANNED% THEN EXIT SUB
 
+    ' Font indices are about to be rebuilt, so any cached preview strips (keyed
+    ' by index) would map to the wrong font. Drop + free them. No-op on the first
+    ' scan (nothing cached yet); frees the old set on a re-scan (e.g. XBIN font
+    ' import flips FONT_LIST_SCANNED back to FALSE).
+    FONT_PREVIEW_invalidate_all
+
     FONT_LIST_COUNT% = 0
 
     ' Load blacklist and favorites before scanning
@@ -2797,3 +2803,135 @@ SUB CBF_free_cache ()
     NEXT i%
     CBF_CACHE_COUNT% = 0
 END SUB
+
+''
+' TRUE if an image has any non-transparent pixel (a non-blank glyph).
+'
+FUNCTION FONT_img_nonblank% (img AS LONG)
+    IF img = 0 OR img = -1 THEN EXIT FUNCTION
+    DIM m AS _MEM, mo AS _OFFSET, n AS _OFFSET, px AS _UNSIGNED LONG
+    m = _MEMIMAGE(img)
+    n = m.SIZE
+    mo = 0
+    DO WHILE mo <= n - 4
+        _MEMGET m, m.OFFSET + mo, px~&
+        IF _ALPHA32(px~&) > 8 THEN FONT_img_nonblank% = -1: _MEMFREE m: EXIT FUNCTION
+        mo = mo + 4
+    LOOP
+    _MEMFREE m
+END FUNCTION
+
+''
+' Count non-blank glyphs in a font (cached on the FONT_ENTRY). Used for the
+' {NumGlyphs} preview token. Approximate for huge Unicode fonts (a representative
+' codepoint set is scanned), exact for bitmap/CBF fonts.
+'
+FUNCTION FONT_glyph_count% (idx AS INTEGER)
+    IF idx < 0 OR idx >= FONT_LIST_COUNT% THEN EXIT FUNCTION
+    IF FONT_LIST(idx).glyphCounted THEN FONT_glyph_count% = FONT_LIST(idx).glyphCount: EXIT FUNCTION
+
+    DIM cnt AS INTEGER, ch AS INTEGER, fpath AS STRING
+    DIM oldDest AS LONG, oldFont AS LONG, oldSrc AS LONG, scanImg AS LONG, gh AS INTEGER, glyphImg AS LONG
+    cnt = 0
+    fpath = RTRIM$(FONT_LIST(idx).path)
+
+    IF FONT_LIST(idx).isTdfFont THEN
+        cnt = 0 ' TDF previews skipped
+    ELSEIF FONT_LIST(idx).isColorBitmapFont THEN
+        CBF_load_cache fpath
+        DIM slot AS INTEGER
+        FOR slot = 0 TO CBF_CACHE_COUNT% - 1
+            IF RTRIM$(CBF_CACHE_PATH(slot)) = fpath THEN cnt = CBF_CACHE_GLYPH_CNT(slot): EXIT FOR
+        NEXT slot
+    ELSEIF FONT_LIST(idx).isBitmapFont AND LEN(fpath) >= 4 AND LCASE$(MID$(fpath, LEN(fpath) - 3, 2)) = ".f" THEN
+        ' .F?? Fontraption: exactly 256 glyphs * h rows; blank = all-zero rows.
+        gh = FONT_LIST(idx).bitmapGlyphH: IF gh < 1 THEN gh = 16
+        DIM ff AS INTEGER, dat AS STRING, sz AS LONG, gi AS INTEGER, r AS INTEGER, nb AS INTEGER
+        ff = FREEFILE
+        OPEN fpath FOR BINARY AS #ff
+        sz = LOF(ff)
+        IF sz > 0 THEN dat = SPACE$(sz): GET #ff, 1, dat
+        CLOSE #ff
+        FOR gi = 0 TO 255
+            nb = 0
+            FOR r = 1 TO gh
+                IF gi * gh + r <= LEN(dat) THEN IF ASC(dat, gi * gh + r) <> 0 THEN nb = -1: EXIT FOR
+            NEXT r
+            IF nb THEN cnt = cnt + 1
+        NEXT gi
+    ELSEIF FONT_LIST(idx).isBitmapFont THEN
+        ' Other bitmap formats: render each of 0-255, count non-blank.
+        FOR ch = 0 TO 255
+            glyphImg = _NEWIMAGE(16, 20, 32)
+            TEXT_LAYER_draw_bitmap_char idx, CHR$(ch), 0, 0, _RGB32(255, 255, 255), glyphImg
+            IF FONT_img_nonblank%(glyphImg) THEN cnt = cnt + 1
+            IF glyphImg < -1 THEN _FREEIMAGE glyphImg
+        NEXT ch
+    ELSE
+        ' Built-in or TTF: alpha-hash render. Built-in = CP437 0-255; TTF = a
+        ' representative Unicode set via _MAPUNICODE.
+        oldDest = _DEST: oldFont = _FONT: oldSrc = _SOURCE
+        scanImg = _NEWIMAGE(24, 28, 32)
+        _DEST scanImg
+        IF FONT_LIST(idx).isBuiltIn THEN
+            _FONT FONT_LIST(idx).builtInHandle&
+            FOR ch = 33 TO 255
+                CLS , _RGBA32(0, 0, 0, 0)
+                COLOR _RGB32(255, 255, 255), _RGBA32(0, 0, 0, 0)
+                _PRINTSTRING (0, 0), CHR$(ch)
+                _SOURCE scanImg
+                IF FONT_img_nonblank%(scanImg) THEN cnt = cnt + 1
+            NEXT ch
+        ELSE
+            DIM h AS LONG
+            h = FONT_LIST_get_handle&(idx, 16, "", 0, 0)
+            IF h > 0 THEN
+                _FONT h
+                cnt = FONT_count_ttf_range%(scanImg, &H20, &H7E)
+                cnt = cnt + FONT_count_ttf_range%(scanImg, &HA0, &H24F)
+                cnt = cnt + FONT_count_ttf_range%(scanImg, &H2000, &H206F)
+                cnt = cnt + FONT_count_ttf_range%(scanImg, &H2190, &H22FF)
+                cnt = cnt + FONT_count_ttf_range%(scanImg, &H2500, &H26FF)
+                cnt = cnt + FONT_count_ttf_range%(scanImg, &HE000, &HE2FF)
+            END IF
+        END IF
+        _DEST oldDest: _FONT oldFont: _SOURCE oldSrc
+        IF scanImg < -1 THEN _FREEIMAGE scanImg
+    END IF
+
+    FONT_LIST(idx).glyphCount = cnt
+    FONT_LIST(idx).glyphCounted = TRUE
+    FONT_glyph_count% = cnt
+END FUNCTION
+
+''
+' UTF-8 encode a Unicode codepoint (BMP range) to a byte string. Used to render
+' a single glyph with _UPRINTSTRING for the non-blank glyph scan.
+'
+FUNCTION FONT_utf8$ (cp AS LONG)
+    IF cp < &H80 THEN
+        FONT_utf8$ = CHR$(cp)
+    ELSEIF cp < &H800 THEN
+        FONT_utf8$ = CHR$(&HC0 OR (cp \ &H40)) + CHR$(&H80 OR (cp AND &H3F))
+    ELSE
+        FONT_utf8$ = CHR$(&HE0 OR (cp \ &H1000)) + CHR$(&H80 OR ((cp \ &H40) AND &H3F)) + CHR$(&H80 OR (cp AND &H3F))
+    END IF
+END FUNCTION
+
+''
+' Count non-blank TTF glyphs in a Unicode codepoint range by rendering each
+' codepoint with _UPRINTSTRING (UTF-8) and alpha-scanning. Avoids _MAPUNICODE,
+' which raises "Illegal function call" on some font handles (bitmap / no cmap).
+' _FONT and _DEST=scanImg must already be set by the caller.
+'
+FUNCTION FONT_count_ttf_range% (scanImg AS LONG, lo AS LONG, hi AS LONG)
+    DIM cp AS LONG, cnt AS INTEGER
+    FOR cp = lo TO hi
+        CLS , _RGBA32(0, 0, 0, 0)
+        COLOR _RGB32(255, 255, 255), _RGBA32(0, 0, 0, 0)
+        _UPRINTSTRING (0, 0), FONT_utf8$(cp)
+        _SOURCE scanImg
+        IF FONT_img_nonblank%(scanImg) THEN cnt = cnt + 1
+    NEXT cp
+    FONT_count_ttf_range% = cnt
+END FUNCTION

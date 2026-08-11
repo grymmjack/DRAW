@@ -1006,6 +1006,11 @@ END SUB
 SUB TEXT_BAR_render_font_dropdown ()
     IF FONT_DD_COUNT% = 0 THEN EXIT SUB
 
+    ' Reset the per-frame preview-render budget once, at the top of the (single)
+    ' font dropdown draw. The folder submenu draws afterward and shares whatever
+    ' budget remains, so newly-scrolled-into previews fill in over a few frames.
+    IF CFG.FONT_PREVIEW_ENABLED% THEN FONT_PREVIEW_frame_reset
+
     DIM ddOldFont AS LONG
     ddOldFont& = _FONT
     IF MENU_BAR.fontHandle& > 0 THEN _FONT MENU_BAR.fontHandle&
@@ -1016,7 +1021,7 @@ SUB TEXT_BAR_render_font_dropdown ()
     DIM i          AS INTEGER
     DIM dispName   AS STRING
 
-    itemH%      = 12
+    itemH%      = TEXT_BAR_font_row_h%
     maxVisible% = TEXT_BAR_font_dropdown_max_visible%
     ddW%        = TEXT_BAR_font_dropdown_width%
     ddH%        = maxVisible% * itemH% + 2
@@ -1113,6 +1118,12 @@ SUB TEXT_BAR_render_font_dropdown ()
             COLOR fontItemFG~&, _RGBA32(0, 0, 0, 0)
             _UPRINTSTRING (ddX% + 4, drawY% + 2), dispName$
 
+            ' Preview strip (right-aligned, vertically centered) + row divider
+            IF CFG.FONT_PREVIEW_ENABLED% THEN
+                TEXT_BAR_blit_preview ddFontIdx%, ddX%, drawY%
+                LINE (ddX% + 1, drawY% + itemH% - 1)-(ddX% + ddW% - 2, drawY% + itemH% - 1), FONT_PREVIEW_divider~&
+            END IF
+
             prevFontIdx% = ddFontIdx%
         END IF
 
@@ -1162,14 +1173,14 @@ SUB TEXT_BAR_render_font_subfolder ()
     IF sfCount% = 0 THEN _FONT sfOldFont&: EXIT SUB
 
     DIM itemH    AS INTEGER
-    itemH% = 12
+    itemH% = TEXT_BAR_font_row_h%
     DIM sfMaxVis AS INTEGER
     sfMaxVis% = INT(SCRN.h& * 0.60) \ itemH%
     IF sfMaxVis% < 5 THEN sfMaxVis% = 5
     IF sfCount% < sfMaxVis% THEN sfMaxVis% = sfCount%
 
     DIM sfW AS INTEGER, sfH AS INTEGER
-    sfW% = 180
+    sfW% = TEXT_BAR_font_submenu_w%
     sfH% = sfMaxVis% * itemH% + 2
 
     ' Position: right edge of font dropdown, aligned with the folder row
@@ -1242,6 +1253,11 @@ SUB TEXT_BAR_render_font_subfolder ()
 
         COLOR sfFG~&, _RGBA32(0, 0, 0, 0)
         _UPRINTSTRING (sfX% + 4, drawY% + 2), sfDispName$
+
+        IF CFG.FONT_PREVIEW_ENABLED% THEN
+            TEXT_BAR_blit_preview sfI%, sfX%, drawY%
+            LINE (sfX% + 1, drawY% + itemH% - 1)-(sfX% + sfW% - 2, drawY% + itemH% - 1), FONT_PREVIEW_divider~&
+        END IF
 
         drawY% = drawY% + itemH%
         matchIdx% = matchIdx% + 1
@@ -1444,7 +1460,7 @@ FUNCTION TEXT_BAR_handle_click% (rawX%, rawY%)
                     inDropdown% = TRUE
                     ' Map click to display list row
                     DIM ddRowClicked AS INTEGER
-                    ddRowClicked% = TEXT_BAR.fontDropdownScroll% + (rawY% - fddY% - 1) \ 12
+                    ddRowClicked% = TEXT_BAR.fontDropdownScroll% + (rawY% - fddY% - 1) \ TEXT_BAR_font_row_h%
                     IF ddRowClicked% >= 0 AND ddRowClicked% < FONT_DD_COUNT% THEN
                         IF FONT_DD_TYPE(ddRowClicked%) = FONT_DD_FOLDER THEN
                             ' Toggle subfolder popup for this folder
@@ -1876,7 +1892,7 @@ FUNCTION TEXT_BAR_handle_wheel% (rawX%, rawY%, wheel_delta%)
             IF RTRIM$(FONT_LIST(sfwI%).folderName) = sfwFolderName$ THEN sfwCount% = sfwCount% + 1
         NEXT sfwI%
         DIM sfwMaxVis     AS INTEGER
-        sfwMaxVis% = INT(SCRN.h& * 0.60) \ 12
+        sfwMaxVis% = INT(SCRN.h& * 0.60) \ TEXT_BAR_font_row_h%
         IF sfwMaxVis% < 5 THEN sfwMaxVis% = 5
         IF sfwCount% < sfwMaxVis% THEN sfwMaxVis% = sfwCount%
         DIM sfwMaxScroll  AS INTEGER
@@ -2612,7 +2628,9 @@ FUNCTION TEXT_BAR_font_dropdown_width% ()
     STATIC fdwCached      AS INTEGER
     STATIC fdwCachedCount AS INTEGER
     IF fdwCached% > 0 AND fdwCachedCount% = FONT_LIST_COUNT% THEN
-        TEXT_BAR_font_dropdown_width% = fdwCached%
+        DIM wc AS INTEGER : wc% = fdwCached%
+        IF TEXT_BAR_font_preview_min_w% > wc% THEN wc% = TEXT_BAR_font_preview_min_w%
+        TEXT_BAR_font_dropdown_width% = wc%
         EXIT FUNCTION
     END IF
 
@@ -2634,15 +2652,87 @@ FUNCTION TEXT_BAR_font_dropdown_width% ()
     fdwCached%      = fdwWidest%
     fdwCachedCount% = FONT_LIST_COUNT%
 
-    TEXT_BAR_font_dropdown_width% = fdwWidest%
+    DIM wf AS INTEGER : wf% = fdwWidest%
+    IF TEXT_BAR_font_preview_min_w% > wf% THEN wf% = TEXT_BAR_font_preview_min_w%
+    TEXT_BAR_font_dropdown_width% = wf%
 END FUNCTION
 
+''
+' Minimum dropdown width (px) so a full-width preview strip fits beneath the
+' name when previews are enabled; 0 otherwise. Kept OUT of the cached name width
+' so a Settings toggle takes effect immediately (the name cache keys on count).
+'
+FUNCTION TEXT_BAR_font_preview_min_w% ()
+    IF NOT CFG.FONT_PREVIEW_ENABLED% THEN TEXT_BAR_font_preview_min_w% = 0: EXIT FUNCTION
+    ' Size to the WIDEST STRIP ACTUALLY RENDERED, capped at MAX_W. MAX_W is only a
+    ' ceiling, never a forced width: the top-level list (folders only) renders no
+    ' strips, so it stays name-width; the box widens just enough for real strips.
+    DIM w AS INTEGER : w% = FONT_PREVIEW_MAX_STRIP_W
+    IF w% > CFG.FONT_PREVIEW_MAX_W% THEN w% = CFG.FONT_PREVIEW_MAX_W%
+    IF w% <= 0 THEN TEXT_BAR_font_preview_min_w% = 0 ELSE TEXT_BAR_font_preview_min_w% = w% + 12
+END FUNCTION
+
+
+''
+' Row height (px) for the font-picker dropdown + its folder submenu. When font
+' previews are enabled it grows to fit the preview strip; otherwise the classic
+' 12px text row. The style / size dropdowns keep their own fixed 12px rows.
+'
+FUNCTION TEXT_BAR_font_row_h% ()
+    IF CFG.FONT_PREVIEW_ENABLED% THEN
+        ' Stacked row: plain name in a 13px band on top, preview strip beneath.
+        DIM h AS INTEGER
+        h% = 13 + CFG.FONT_PREVIEW_SIZE% + 2
+        IF h% < 20 THEN h% = 20
+        TEXT_BAR_font_row_h% = h%
+    ELSE
+        TEXT_BAR_font_row_h% = 12
+    END IF
+END FUNCTION
+
+''
+' Width (px) of the folder submenu popup. Widens to hold a right-aligned preview
+' strip beside the name when previews are enabled; classic 180px otherwise.
+'
+FUNCTION TEXT_BAR_font_submenu_w% ()
+    IF CFG.FONT_PREVIEW_ENABLED% THEN
+        ' Stacked layout: strip sits full-width under the name. Size to the widest
+        ' strip actually rendered (capped at MAX_W), not to MAX_W itself.
+        DIM sw AS INTEGER : sw% = FONT_PREVIEW_MAX_STRIP_W
+        IF sw% > CFG.FONT_PREVIEW_MAX_W% THEN sw% = CFG.FONT_PREVIEW_MAX_W%
+        DIM w AS INTEGER : w% = sw% + 16
+        IF w% < 180 THEN w% = 180
+        TEXT_BAR_font_submenu_w% = w%
+    ELSE
+        TEXT_BAR_font_submenu_w% = 180
+    END IF
+END FUNCTION
+
+''
+' Blit a font's cached preview strip into a dropdown row: left-aligned, directly
+' beneath the 13px plain-name band (stacked layout). No-op for fonts without a
+' preview (TDF / not-yet-budgeted). Restores the caller's _FONT (the strip
+' builder may switch it while rendering).
+'
+SUB TEXT_BAR_blit_preview (fontIdx AS INTEGER, rowX AS INTEGER, rowY AS INTEGER)
+    DIM savedFont AS LONG : savedFont& = _FONT
+    DIM pvImg     AS LONG : pvImg& = FONT_PREVIEW_ensure&(fontIdx)
+    IF savedFont& > 0 THEN _FONT savedFont&
+    IF pvImg& < -1 THEN
+        DIM pvW AS INTEGER : pvW% = _WIDTH(pvImg&)
+        DIM pvH AS INTEGER : pvH% = _HEIGHT(pvImg&)
+        IF pvW% > 0 AND pvH% > 0 THEN
+            ' Left-aligned, directly beneath the 13px plain-name band.
+            _PUTIMAGE (rowX + 4, rowY + 13), pvImg&
+        END IF
+    END IF
+END SUB
 
 FUNCTION TEXT_BAR_font_dropdown_max_visible% ()
     DIM itemH     AS INTEGER
     DIM available AS INTEGER
     DIM maxItems  AS INTEGER
-    itemH% = 12
+    itemH% = TEXT_BAR_font_row_h%
     ' Available vertical space: from dropdown top to 75% of viewport height
     available% = INT(SCRN.h& * 0.75) - (TEXT_BAR.barY% + TEXT_BAR.barH%)
     IF available% < itemH% THEN available% = itemH%
@@ -3182,7 +3272,8 @@ END SUB
 '
 SUB TEXT_BAR_update_dropdown_hover (rawX AS INTEGER, rawY AS INTEGER)
     DIM itemH AS INTEGER
-    itemH% = 12
+    itemH% = TEXT_BAR_font_row_h%   ' font dropdown + submenu rows (may be tall)
+    DIM fsInSub AS INTEGER : fsInSub% = FALSE   ' TRUE once we detect the mouse inside the open folder flyout
 
     ' --- Font dropdown ---
     IF TEXT_BAR.fontDropdownOpen% THEN
@@ -3190,14 +3281,14 @@ SUB TEXT_BAR_update_dropdown_hover (rawX AS INTEGER, rawY AS INTEGER)
         DIM fdMaxVisible AS INTEGER
         fdX%          = TEXT_BAR.fontBtnX%
         fdY%          = TEXT_BAR.barY% + THEME.TEXT_BAR_ROW_HEIGHT%
-        fdW%          = 160
+        fdW%          = TEXT_BAR_font_dropdown_width%   ' match the real box width (varies with preview strips) so the hover region doesn't overlap the flyout
         fdMaxVisible% = TEXT_BAR_font_dropdown_max_visible%
 
         ' Check subfolder popup hover first
         IF TEXT_BAR.fontSubOpen% THEN
             DIM sfhX AS INTEGER, sfhW AS INTEGER
             sfhX% = TEXT_BAR.fontBtnX% + TEXT_BAR_font_dropdown_width%
-            sfhW% = 180
+            sfhW% = TEXT_BAR_font_submenu_w%
             IF sfhX% + sfhW% > SCRN.w& THEN sfhX% = TEXT_BAR.fontBtnX% - sfhW%
 
             ' Compute actual subfolder popup Y (must match render/click)
@@ -3232,6 +3323,7 @@ SUB TEXT_BAR_update_dropdown_hover (rawX AS INTEGER, rawY AS INTEGER)
             IF sfhY% < 0 THEN sfhY% = 0
 
             IF rawX% >= sfhX% AND rawX% < sfhX% + sfhW% AND rawY% >= sfhY% AND rawY% < sfhY% + sfhH% THEN
+                fsInSub% = TRUE
                 ' Inside subfolder popup: track hover row
                 DIM sfhRow    AS INTEGER
                 sfhRow% = (rawY% - sfhY% - 1) \ itemH%
@@ -3290,15 +3382,24 @@ SUB TEXT_BAR_update_dropdown_hover (rawX AS INTEGER, rawY AS INTEGER)
                 TEXT_BAR.fontDropdownHoverRow% = -1
             END IF
         ELSE
-            ' Outside main dropdown — only keep hover if in subfolder popup
-            IF NOT TEXT_BAR.fontSubOpen% THEN
-                TEXT_BAR.fontDropdownHoverRow% = -1
+            ' Outside the main dropdown. If we're not inside the flyout either,
+            ' the pointer has left the whole menu — collapse the flyout so it
+            ' doesn't linger over the canvas until another folder is hovered.
+            TEXT_BAR.fontDropdownHoverRow% = -1
+            IF TEXT_BAR.fontSubOpen% AND NOT fsInSub% THEN
+                TEXT_BAR.fontSubOpen%     = FALSE
+                TEXT_BAR.fontSubHoverRow% = -1
+                TEXT_BAR.needsRedraw%     = TRUE
+                GUI_NEEDS_REDRAW%         = TRUE
+                FRAME_IDLE%               = FALSE
             END IF
         END IF
     ELSE
         TEXT_BAR.fontDropdownHoverRow% = -1
         IF TEXT_BAR.fontSubOpen% THEN TEXT_BAR.fontSubOpen% = FALSE
     END IF
+
+    itemH% = 12   ' Size + Style dropdowns keep fixed 12px rows
 
     ' --- Size dropdown ---
     IF TEXT_BAR.sizeDropdownOpen% THEN
@@ -3574,14 +3675,14 @@ FUNCTION TEXT_BAR_handle_subfolder_click% (rawX%, rawY%)
     IF sfcCount% = 0 THEN EXIT FUNCTION
 
     DIM sfcItemH  AS INTEGER
-    sfcItemH% = 12
+    sfcItemH% = TEXT_BAR_font_row_h%
     DIM sfcMaxVis AS INTEGER
     sfcMaxVis% = INT(SCRN.h& * 0.60) \ sfcItemH%
     IF sfcMaxVis% < 5 THEN sfcMaxVis% = 5
     IF sfcCount% < sfcMaxVis% THEN sfcMaxVis% = sfcCount%
 
     DIM sfcW AS INTEGER, sfcH AS INTEGER
-    sfcW% = 180
+    sfcW% = TEXT_BAR_font_submenu_w%
     sfcH% = sfcMaxVis% * sfcItemH% + 2
 
     ' Compute position (same as render)

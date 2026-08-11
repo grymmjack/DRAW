@@ -437,6 +437,14 @@ TYPE DRAW_CONFIG
     FONTS_INCLUDE_DRAW_EXTRAS       AS INTEGER        ' TRUE = include extra ASSETS/FONTS TTFs (beyond required Tiny5/PICO-8)
     FONTS_INCLUDE_USER              AS INTEGER        ' TRUE = include USER/FONTS TTF/OTF fonts
     FONTS_INCLUDE_USER_BITMAP       AS INTEGER        ' TRUE = include USER/FONTS/BITMAP fonts
+    FONT_PREVIEW_ENABLED            AS INTEGER        ' TRUE = render font previews in the font-picker dropdown
+    FONT_PREVIEW_SIZE               AS INTEGER        ' Preview render height in px (8-64)
+    FONT_PREVIEW_MAX_W              AS INTEGER        ' Max preview strip width in px
+    FONT_PREVIEW_MAX_H              AS INTEGER        ' Max preview strip height in px
+    FONT_PREVIEW_FG                 AS _UNSIGNED LONG ' Preview text color (hex RGB, 0 = use theme)
+    FONT_PREVIEW_BG                 AS _UNSIGNED LONG ' Preview background color (hex RGB, 0 = use theme)
+    FONT_PREVIEW_DIVIDER            AS _UNSIGNED LONG ' Preview row divider color (hex RGB, 0 = use theme)
+    FONT_PREVIEW_SAMPLE             AS STRING         ' Preview sample template ({font}/{FONT}/{Font}/{NumGlyphs})
     ' Smart Guides (persisted toggles)
     SMART_GUIDES_ENABLED            AS INTEGER        ' Toggle smart guide display
     SMART_GUIDES_SNAP               AS INTEGER        ' Toggle snap-to-smart-guides
