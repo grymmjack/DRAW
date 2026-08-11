@@ -37,3 +37,10 @@ DIM SHARED KIT_ENUM_COUNT% ' number of valid entries in KIT_ENUM_NAME
 ' Internal scratch for directory draining (KIT_drain) — one _FILES$ sweep at a time.
 REDIM SHARED KIT_DRAIN_NAME(0) AS STRING
 DIM SHARED KIT_DRAIN_COUNT%
+
+' Export/install dialog shared state.
+DIM SHARED KIT_TOTAL(0 TO KIT_TYPE_COUNT - 1) AS INTEGER ' cached enumerate totals per type
+DIM SHARED KIT_EXPORT_MF AS KIT_MANIFEST                 ' metadata edited in the export dialog
+DIM SHARED KIT_OUT_PATH$                                 ' chosen export .zip path
+DIM SHARED KIT_SHOT_SRC$                                 ' full path of chosen screenshot (source on disk)
+DIM SHARED KIT_INSTALL_ON(0 TO KIT_TYPE_COUNT - 1) AS INTEGER ' install dialog: include this type?

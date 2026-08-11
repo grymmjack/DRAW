@@ -1,0 +1,242 @@
+$INCLUDEONCE
+'==============================================================================
+' KIT-DIALOG.BM - DRAW KITS export dialog + per-type item picker.
+' Install dialog is added in a later task. Uses GUI/DIALOG.BM framework, the
+' TOOLS/KIT* resolver/manifest, and the modal DRAW_input_box/open/save helpers.
+'==============================================================================
+
+' Basename of a path (after the last / or \).
+FUNCTION KIT_basename$ (pth AS STRING)
+    DIM i AS LONG
+    FOR i = LEN(pth) TO 1 STEP -1
+        IF ASC(pth, i) = 47 OR ASC(pth, i) = 92 THEN KIT_basename$ = MID$(pth, i + 1): EXIT FUNCTION
+    NEXT
+    KIT_basename$ = pth
+END FUNCTION
+
+FUNCTION KIT_shot_label$
+    IF KIT_SHOT_SRC$ = "" THEN KIT_shot_label$ = "(click to choose)" ELSE KIT_shot_label$ = KIT_basename$(KIT_SHOT_SRC$)
+END FUNCTION
+
+' Draw a "LABEL: [ value ]" field row (value clipped to the box).
+SUB KIT_dlg_field (ctx AS DIALOG_CTX, lx AS INTEGER, fx AS INTEGER, fy AS INTEGER, fw AS INTEGER, label AS STRING, txt AS STRING)
+    DIALOG_draw_label ctx, lx, fy + 1, label
+    LINE (fx, fy)-(fx + fw - 1, fy + 14), _RGB32(24, 26, 32), BF
+    LINE (fx, fy)-(fx + fw - 1, fy + 14), _RGB32(80, 88, 104), B
+    DIM shown AS STRING : shown = txt
+    DIM maxc AS INTEGER : maxc = (fw - 8) \ 8
+    IF maxc < 2 THEN maxc = 2
+    IF LEN(shown) > maxc THEN shown = LEFT$(shown, maxc - 2) + ".."
+    COLOR _RGB32(210, 214, 222)
+    _UPRINTSTRING (fx + 4, fy + 3), shown
+END SUB
+
+' Edit one metadata field (0 name / 1 desc / 2 author) via a modal input box.
+SUB KIT_dlg_edit_field (which AS INTEGER)
+    DIM ttl AS STRING, msg AS STRING, cur AS STRING, r AS STRING
+    SELECT CASE which
+        CASE 0: ttl = "Kit Name": msg = "Name for this kit:": cur = KIT_EXPORT_MF.kitName
+        CASE 1: ttl = "Kit Description": msg = "Describe this kit:": cur = KIT_EXPORT_MF.kitDesc
+        CASE 2: ttl = "Kit Author": msg = "Author / credit:": cur = KIT_EXPORT_MF.kitAuthor
+    END SELECT
+    POINTER_hide_for_dialog
+    r = DRAW_input_box_ex$(ttl, msg, cur, "", TRUE)
+    POINTER_show_after_dialog: MOUSE_cleanup_after_dialog TRUE
+    IF r <> "" THEN
+        SELECT CASE which
+            CASE 0: KIT_EXPORT_MF.kitName = r
+            CASE 1: KIT_EXPORT_MF.kitDesc = r
+            CASE 2: KIT_EXPORT_MF.kitAuthor = r
+        END SELECT
+    END IF
+END SUB
+
+SUB KIT_dlg_pick_shot
+    DIM p AS STRING
+    POINTER_hide_for_dialog
+    p = DRAW_open_file$("Kit Screenshot", "", "Images|*.png|*.jpg|*.jpeg|*.bmp|All Files|*.*", 0)
+    POINTER_show_after_dialog: MOUSE_cleanup_after_dialog TRUE
+    IF p <> "" THEN KIT_SHOT_SRC$ = p
+END SUB
+
+'-- Per-type item picker ------------------------------------------------------
+SUB KIT_picker_dialog (ty AS INTEGER)
+    DIM ctx AS DIALOG_CTX, k AS LONG, i AS INTEGER, idx AS INTEGER, hi AS INTEGER
+    DIM titleH AS INTEGER, listY AS INTEGER, rowH AS INTEGER, visRows AS INTEGER
+    DIM btnH AS INTEGER, btnY AS INTEGER, scroll AS INTEGER, n AS INTEGER
+
+    KIT_enumerate ty
+    n = KIT_ENUM_COUNT%
+    REDIM names(0) AS STRING
+    IF n > 0 THEN
+        REDIM names(0 TO n - 1) AS STRING
+        FOR i = 0 TO n - 1: names(i) = KIT_ENUM_NAME(i): NEXT
+    END IF
+
+    DIALOG_init ctx, 300, 324
+    ctx.prevH = 0
+    titleH = THEME.DIALOG_title_height%
+    listY = titleH + 26: rowH = 15
+    btnH = 20: btnY = ctx.h - btnH - 8
+    visRows = (btnY - listY - 6) \ rowH
+    scroll = 0
+
+    DO
+        DIALOG_poll_mouse ctx
+        k = _KEYHIT
+        IF k = 27 THEN ctx.done = TRUE
+
+        IF DIALOG_hit%(ctx, 10, titleH + 6, 52, 15) THEN ' All
+            FOR i = 0 TO n - 1
+                IF NOT KIT_sel_has%(ty, names(i)) THEN KIT_item_add ty, names(i)
+            NEXT
+        END IF
+        IF DIALOG_hit%(ctx, 66, titleH + 6, 52, 15) THEN KIT_sel_remove_type ty ' None
+
+        IF ctx.mwheel <> 0 THEN scroll = scroll + ctx.mwheel * 2
+        IF n - visRows < 0 THEN
+            scroll = 0
+        ELSE
+            IF scroll > n - visRows THEN scroll = n - visRows
+        END IF
+        IF scroll < 0 THEN scroll = 0
+
+        FOR i = 0 TO visRows - 1
+            idx = scroll + i
+            IF idx < n THEN
+                IF DIALOG_hit%(ctx, 10, listY + i * rowH, ctx.w - 20, rowH - 1) THEN KIT_sel_toggle ty, names(idx)
+            END IF
+        NEXT
+        IF DIALOG_hit%(ctx, ctx.w - 80, btnY, 70, btnH) THEN ctx.done = TRUE ' Done
+
+        _DEST ctx.imgHandle
+        DIALOG_draw_frame ctx, "PICK " + UCASE$(KIT_type_label$(ty))
+        DIALOG_draw_button ctx, 10, titleH + 6, 52, 15, "All", _RGB32(50, 55, 66), _RGB32(70, 78, 92), _RGB32(90, 100, 120)
+        DIALOG_draw_button ctx, 66, titleH + 6, 52, 15, "None", _RGB32(50, 55, 66), _RGB32(70, 78, 92), _RGB32(90, 100, 120)
+        IF n = 0 THEN DIALOG_draw_label ctx, 10, listY, "(no items of this type)"
+        FOR i = 0 TO visRows - 1
+            idx = scroll + i
+            IF idx < n THEN DIALOG_draw_toggle ctx, 10, listY + i * rowH, ctx.w - 20, rowH - 1, names(idx), KIT_sel_has%(ty, names(idx))
+        NEXT
+        IF n > visRows THEN
+            hi = scroll + visRows: IF hi > n THEN hi = n
+            DIALOG_draw_label ctx, 10, btnY + 5, LTRIM$(STR$(scroll + 1)) + "-" + LTRIM$(STR$(hi)) + " / " + LTRIM$(STR$(n)) + "  (wheel)"
+        END IF
+        DIALOG_draw_button ctx, ctx.w - 80, btnY, 70, btnH, "DONE", _RGB32(40, 90, 120), _RGB32(60, 120, 160), _RGB32(90, 160, 210)
+        DIALOG_blit ctx
+    LOOP UNTIL ctx.done
+    DIALOG_cleanup ctx
+END SUB
+
+'-- Export dialog -------------------------------------------------------------
+' Collects metadata + per-type item selection into KIT_EXPORT_MF / KIT_ITEM_* and
+' the output path into KIT_OUT_PATH$. Returns TRUE when the user chose to export.
+FUNCTION KIT_export_dialog%
+    DIM ctx AS DIALOG_CTX, k AS LONG, i AS INTEGER, ty AS INTEGER, ry AS INTEGER
+    DIM titleH AS INTEGER, fldX AS INTEGER, fldW AS INTEGER
+    DIM nameY AS INTEGER, descY AS INTEGER, authY AS INTEGER, shotY AS INTEGER
+    DIM incY AS INTEGER, row0Y AS INTEGER, rowH AS INTEGER, chkW AS INTEGER, itemsX AS INTEGER, itemsW AS INTEGER
+    DIM btnH AS INTEGER, btnW AS INTEGER, btnY AS INTEGER, okX AS INTEGER, cxX AS INTEGER
+    DIM cnt AS STRING
+
+    ' Fresh selection + metadata each open; cache per-type totals.
+    KIT_items_clear
+    KIT_EXPORT_MF.kitName = "": KIT_EXPORT_MF.kitDesc = "": KIT_EXPORT_MF.kitAuthor = "": KIT_EXPORT_MF.kitShot = ""
+    KIT_SHOT_SRC$ = "": KIT_OUT_PATH$ = ""
+    FOR ty = 0 TO KIT_TYPE_COUNT - 1
+        KIT_enumerate ty: KIT_TOTAL(ty) = KIT_ENUM_COUNT%
+    NEXT
+
+    DIALOG_init ctx, 384, 408
+    ctx.prevH = 0
+    titleH = THEME.DIALOG_title_height%
+    fldX = 78: fldW = ctx.w - fldX - 10
+    nameY = titleH + 8: descY = nameY + 20: authY = descY + 20: shotY = authY + 20
+    incY = shotY + 24: row0Y = incY + 14: rowH = 17
+    chkW = 150: itemsW = 60: itemsX = ctx.w - itemsW - 10
+    btnH = 22: btnW = 96: btnY = ctx.h - btnH - 10: okX = ctx.w - btnW * 2 - 16: cxX = ctx.w - btnW - 10
+
+    DO
+        DIALOG_poll_mouse ctx
+        k = _KEYHIT
+        IF k = 27 THEN ctx.done = TRUE: ctx.result = FALSE
+
+        IF DIALOG_hit%(ctx, fldX, nameY, fldW, 15) THEN KIT_dlg_edit_field 0
+        IF DIALOG_hit%(ctx, fldX, descY, fldW, 15) THEN KIT_dlg_edit_field 1
+        IF DIALOG_hit%(ctx, fldX, authY, fldW, 15) THEN KIT_dlg_edit_field 2
+        IF DIALOG_hit%(ctx, fldX, shotY, fldW, 15) THEN KIT_dlg_pick_shot
+
+        FOR i = 0 TO KIT_TYPE_COUNT - 1
+            ry = row0Y + i * rowH
+            IF DIALOG_hit%(ctx, 10, ry, chkW, 15) THEN
+                IF KIT_item_count_of%(i) > 0 THEN KIT_sel_remove_type i ELSE KIT_sel_add_all_of i
+            END IF
+            IF KIT_TOTAL(i) > 0 THEN
+                IF DIALOG_hit%(ctx, itemsX, ry, itemsW, 15) THEN KIT_picker_dialog i
+            END IF
+        NEXT
+
+        IF DIALOG_hit%(ctx, okX, btnY, btnW, btnH) THEN
+            IF KIT_export_confirm% THEN ctx.done = TRUE: ctx.result = TRUE
+        END IF
+        IF DIALOG_hit%(ctx, cxX, btnY, btnW, btnH) THEN ctx.done = TRUE: ctx.result = FALSE
+
+        _DEST ctx.imgHandle
+        DIALOG_draw_frame ctx, "EXPORT DRAW KIT"
+        KIT_dlg_field ctx, 10, fldX, nameY, fldW, "NAME:", KIT_EXPORT_MF.kitName
+        KIT_dlg_field ctx, 10, fldX, descY, fldW, "DESC:", KIT_EXPORT_MF.kitDesc
+        KIT_dlg_field ctx, 10, fldX, authY, fldW, "AUTHOR:", KIT_EXPORT_MF.kitAuthor
+        KIT_dlg_field ctx, 10, fldX, shotY, fldW, "SHOT:", KIT_shot_label$
+        DIALOG_draw_label ctx, 10, incY, "INCLUDE  (check = all;  Items… to pick):"
+        FOR i = 0 TO KIT_TYPE_COUNT - 1
+            ry = row0Y + i * rowH
+            DIALOG_draw_toggle ctx, 10, ry, chkW, 15, KIT_type_label$(i), (KIT_item_count_of%(i) > 0)
+            cnt = "(" + LTRIM$(STR$(KIT_item_count_of%(i))) + "/" + LTRIM$(STR$(KIT_TOTAL(i))) + ")"
+            DIALOG_draw_label ctx, 10 + chkW + 6, ry + 1, cnt
+            IF KIT_TOTAL(i) > 0 THEN DIALOG_draw_button ctx, itemsX, ry, itemsW, 15, "Items…", _RGB32(50, 55, 66), _RGB32(70, 78, 92), _RGB32(90, 100, 120)
+        NEXT
+        DIALOG_draw_button ctx, okX, btnY, btnW, btnH, "EXPORT", _RGB32(40, 100, 40), _RGB32(60, 150, 60), _RGB32(80, 200, 80)
+        DIALOG_draw_button ctx, cxX, btnY, btnW, btnH, "CANCEL", _RGB32(100, 40, 40), _RGB32(150, 60, 60), _RGB32(200, 80, 80)
+        DIALOG_blit ctx
+    LOOP UNTIL ctx.done
+
+    KIT_export_dialog% = ctx.result
+    DIALOG_cleanup ctx
+END FUNCTION
+
+' Validate the export selection and prompt for an output path. Returns TRUE when
+' ready to write (name given, >=1 item, path chosen). Fills KIT_OUT_PATH$ + mf.
+FUNCTION KIT_export_confirm%
+    IF _TRIM$(KIT_EXPORT_MF.kitName) = "" THEN
+        POINTER_hide_for_dialog: DRAW_alert "Export Kit", "Please enter a name for the kit.": POINTER_show_after_dialog: MOUSE_cleanup_after_dialog TRUE
+        EXIT FUNCTION
+    END IF
+    IF KIT_ITEM_COUNT% < 1 THEN
+        POINTER_hide_for_dialog: DRAW_alert "Export Kit", "Select at least one item to include.": POINTER_show_after_dialog: MOUSE_cleanup_after_dialog TRUE
+        EXIT FUNCTION
+    END IF
+    KIT_EXPORT_MF.kitShot = "" ' resolved at write time (kit-internal name)
+    DIM defName AS STRING : defName = KIT_safe_filename$(_TRIM$(KIT_EXPORT_MF.kitName)) + ".zip"
+    DIM p AS STRING
+    POINTER_hide_for_dialog
+    p = DRAW_save_file$("Export Kit", "", "DRAW Kit|*.zip|All Files|*.*", 0, defName, "zip")
+    POINTER_show_after_dialog: MOUSE_cleanup_after_dialog TRUE
+    IF p = "" THEN EXIT FUNCTION
+    KIT_OUT_PATH$ = p
+    KIT_export_confirm% = TRUE
+END FUNCTION
+
+' Sanitize a kit name into a filename-safe base.
+FUNCTION KIT_safe_filename$ (s AS STRING)
+    DIM r AS STRING, i AS LONG, c AS INTEGER
+    FOR i = 1 TO LEN(s)
+        c = ASC(s, i)
+        IF (c >= 48 AND c <= 57) OR (c >= 65 AND c <= 90) OR (c >= 97 AND c <= 122) OR c = 45 OR c = 95 THEN
+            r = r + CHR$(c)
+        ELSEIF c = 32 THEN
+            r = r + "-"
+        END IF
+    NEXT
+    IF r = "" THEN r = "kit"
+    KIT_safe_filename$ = r
+END FUNCTION
