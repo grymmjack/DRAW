@@ -41,36 +41,63 @@ Git note: the copied PNGs are byte-identical to DEFAULT, so git content-dedups
 them — committing a new theme costs ~the size of its edited `THEME.CFG`, not the
 6.4 MB working tree. Fix the header comment: `sed -i '1,3 s/DEFAULT/<NAME>/g' ASSETS/THEMES/<NAME>/THEME.CFG`.
 
-## Step 2 — Recolor `THEME.CFG`
+## The background/foreground model
 
-Pick the approach that matches the request:
+Both helpers below share one model, so the chrome and the button images match:
+a theme is a **BG gradient** (`--bg-dark` … `--bg-light`) plus a **FG** color.
+Pixels/colors are mapped by luminance — dark → BG-dark (backgrounds), mid → BG-light
+(borders/bevels), bright → FG (text, icons, button glyphs). Pass hex like `#1e1e1e`.
 
-- **Darker variant** (default for "dark theme" — DEFAULT is already dark, so push
-  it toward true black while protecting bright text/icons):
+## Step 2 — Recolor `THEME.CFG` (the panels/bars/dialogs)
+
+Pick the mode that matches the request:
+
+- **Arbitrary scheme** (e.g. "dark purple bg, pink fg" / "cyan bg, violet fg"):
   ```bash
-  python3 .claude/skills/create-draw-theme/darken-theme.py ASSETS/THEMES/<NAME>/THEME.CFG
-  # tune: --gamma 1.6 (higher = darker), --protect 0.82 (keep lightness >= this as-is)
+  python3 .claude/skills/create-draw-theme/darken-theme.py --recolor \
+      --fg '#FF66CC' --bg-dark '#160826' --bg-light '#3a1a52' \
+      ASSETS/THEMES/<NAME>/THEME.CFG
   ```
-- **Flip a dark theme to light** (or vice-versa) — invert lightness, keep hue/sat:
-  ```bash
-  python3 .claude/skills/create-draw-theme/darken-theme.py --invert ASSETS/THEMES/<NAME>/THEME.CFG
-  ```
-- **Bespoke palette** — edit `THEME.CFG` by hand / with `sed`. The high-signal keys:
-  `TOOLBAR_BG`, `DRAWER_PANEL_BG`, `LAYER_PANEL_BG`/`_ROW_BG`/`_HEADER_BG`,
-  `MENU_BAR_BG`/`_SEL_BG`, `DIALOG_BG` + `DIALOG_*` (frame/label/toggle/button),
-  `STATUS_BG_COLOR`/`_FG_COLOR`, `PALETTE_MENU_BG`, `GRID_COLOR_FG`,
-  accent/selection colors (`*_SEL_BG`, `*_ROW_SEL_BG`). Keep **alpha** on RGBA lines
-  and leave palette-index scalars (`= 8`) alone.
+- **Darker variant of DEFAULT** (DEFAULT is already dark grey — push toward black,
+  keep bright text): `darken-theme.py ASSETS/THEMES/<NAME>/THEME.CFG`
+  (tune `--gamma 1.6` darker, `--protect 0.82` keep-bright cutoff)
+- **Flip dark↔light** (invert lightness, keep hue/sat): add `--invert`.
+- **Bespoke** — hand-edit. High-signal keys: `TOOLBAR_BG`, `DRAWER_PANEL_BG`,
+  `LAYER_PANEL_BG`/`_ROW_BG`/`_HEADER_BG`, `MENU_BAR_BG`/`_SEL_BG`, `DIALOG_BG` +
+  `DIALOG_*`, `STATUS_BG_COLOR`/`_FG_COLOR`, `PALETTE_MENU_BG`, `GRID_COLOR_FG`,
+  accent/selection (`*_SEL_BG`). Keep alpha on RGBA lines; leave index scalars (`= 8`).
 
-The helper only rewrites `KEY = R,G,B[,A]` color lines (HLS lightness map, hue/sat
-preserved); scalars, strings, indices, and bit patterns pass through untouched.
+Only `KEY = R,G,B[,A]` color lines are rewritten; scalars/strings/indices/bit
+patterns pass through untouched.
 
-## Step 3 — (Optional) recolor images
+## Step 3 — Recolor `IMAGES/` (toolbox + all button/icon PNGs)
 
-For a fully cohesive theme, recolor `IMAGES/` (esp. `TOOLBOX/` icons) and cursors
-to suit — the copied ones are DEFAULT's. For a functional/test theme, leaving them
-is fine (transparent-glyph icons read acceptably on either ground). Only pursue
-image recoloring if the user asks for visual polish.
+DRAW's buttons are baked PNGs: a near-black **glyph** on a 3-shade grey **bevel**.
+`recolor-images.py` maps each opaque pixel by luminance — glyph → FG, bevel → the
+BG gradient — so buttons stay 3D but re-hued, and transparency is preserved. Use the
+SAME `--fg/--bg-dark/--bg-light` as Step 2 so chrome and buttons match:
+
+```bash
+python3 .claude/skills/create-draw-theme/recolor-images.py \
+    --fg '#DCDCDC' --bg-dark '#1e1e1e' --bg-light '#5c5c5c' \
+    ASSETS/THEMES/<NAME>/IMAGES
+# optional: --glyph-max 40 (luminance <= this = glyph)  ·  add CURSORS dir to also recolor cursors
+```
+
+(No system Python packages touched — the script self-bootstraps a Pillow venv at
+`~/.cache/draw-theme-venv` on first run.)
+
+### Recipes
+
+| Theme | Step 2 + Step 3 shared flags |
+|-------|------------------------------|
+| Darker grey (the shipped `DARK`) | `--fg '#DCDCDC' --bg-dark '#1e1e1e' --bg-light '#5c5c5c'` |
+| Dark purple bg / pink fg | `--fg '#FF66CC' --bg-dark '#160826' --bg-light '#3a1a52'` |
+| Cyan bg / violet fg (cyberpunk) | `--fg '#B388FF' --bg-dark '#062026' --bg-light '#0f4c52'` |
+
+Run Step 2 with `--recolor` + those flags on `THEME.CFG`, then Step 3 with the same
+flags on `IMAGES/`. Cursors: pass `ASSETS/THEMES/<NAME>/CURSORS` to Step 3 too only
+if you want them themed (they can get hard to see on the canvas — usually skip).
 
 ## Step 4 — Verify
 

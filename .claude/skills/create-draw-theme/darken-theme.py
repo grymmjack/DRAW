@@ -29,7 +29,31 @@ PROTECT = 0.82   # keep lightness at/above this as-is (bright text/icons/highlig
 INVERT = False
 
 
+# --- recolor mode: map a whole theme into a background/foreground scheme --------
+RECOLOR = False
+FG = BG_DARK = BG_LIGHT = None
+
+
+def _hex(s):
+    s = s.lstrip('#')
+    if len(s) == 3:
+        s = ''.join(c * 2 for c in s)
+    return (int(s[0:2], 16), int(s[2:4], 16), int(s[4:6], 16))
+
+
+def _lerp(a, b, t):
+    return tuple(int(round(a[i] + (b[i] - a[i]) * t)) for i in range(3))
+
+
 def map_lightness(r, g, b):
+    if RECOLOR:
+        # Luminance ramp: dark chrome (backgrounds) -> BG-dark, mid (borders) ->
+        # BG-light, bright (text/icons) -> FG. Mirrors recolor-images.py so the
+        # panels/bars match the recolored button images.
+        lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255.0
+        if lum <= 0.5:
+            return _lerp(BG_DARK, BG_LIGHT, lum / 0.5)
+        return _lerp(BG_LIGHT, FG, (lum - 0.5) / 0.5)
     h, l, s = colorsys.rgb_to_hls(r / 255.0, g / 255.0, b / 255.0)
     if INVERT:
         l = 1.0 - l
@@ -54,7 +78,7 @@ def transform_line(line):
 
 
 def main():
-    global GAMMA, PROTECT, INVERT
+    global GAMMA, PROTECT, INVERT, RECOLOR, FG, BG_DARK, BG_LIGHT
     args = sys.argv[1:]
     pos = []
     i = 0
@@ -62,6 +86,14 @@ def main():
         a = args[i]
         if a == '--invert':
             INVERT = True
+        elif a == '--recolor':
+            RECOLOR = True
+        elif a == '--fg':
+            i += 1; FG = _hex(args[i])
+        elif a == '--bg-dark':
+            i += 1; BG_DARK = _hex(args[i])
+        elif a == '--bg-light':
+            i += 1; BG_LIGHT = _hex(args[i])
         elif a == '--gamma':
             i += 1; GAMMA = float(args[i])
         elif a == '--protect':
@@ -69,6 +101,9 @@ def main():
         else:
             pos.append(a)
         i += 1
+    if RECOLOR and (FG is None or BG_DARK is None or BG_LIGHT is None):
+        print("--recolor needs --fg, --bg-dark and --bg-light")
+        sys.exit(1)
     if not pos:
         print(__doc__)
         sys.exit(1)
@@ -80,7 +115,8 @@ def main():
     with open(dst, 'w', encoding='utf-8') as f:
         f.writelines(out)
     changed = sum(1 for a, b in zip(lines, out) if a != b)
-    print(f"darken-theme: {changed} color lines inverted -> {dst}")
+    mode = 'recolored' if RECOLOR else ('inverted' if INVERT else 'darkened')
+    print(f"darken-theme: {changed} color lines {mode} -> {dst}")
 
 
 if __name__ == '__main__':
