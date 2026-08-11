@@ -938,6 +938,9 @@ FUNCTION ANSI_export_dialog%
     DIM srcX AS INTEGER, srcW AS INTEGER, srcGap AS INTEGER
     DIM mnX AS INTEGER, plX AS INTEGER, stW AS INTEGER, numX AS INTEGER, infoX AS INTEGER
     DIM srcDirty AS INTEGER, cellsDirty AS INTEGER, previewDirty AS INTEGER
+    DIM viewDirty AS INTEGER, selZoom AS SINGLE, panX AS INTEGER, panY AS INTEGER
+    DIM prevY AS INTEGER, inPane AS INTEGER
+    DIM expDragging AS INTEGER, expDSX AS INTEGER, expDSY AS INTEGER, expDPX AS INTEGER, expDPY AS INTEGER
     STATIC modeName(0 TO 3) AS STRING
     STATIC srcName(0 TO 2) AS STRING
     modeName(0) = "16": modeName(1) = "iCE": modeName(2) = "256": modeName(3) = "RGB"
@@ -954,6 +957,8 @@ FUNCTION ANSI_export_dialog%
     tw = ctx.w - 2: th = ctx.prevH
     ctx.origThumb = 0: ctx.previewThumb = 0
     ctx.splitX = ctx.w \ 2
+    selZoom! = 1.0: panX = 0: panY = 0: viewDirty = -1
+    prevY = THEME.DIALOG_title_height% + 2
 
     srcY = THEME.DIALOG_title_height% + 2 + ctx.prevH + 8
     modeY = srcY + 21
@@ -1027,9 +1032,8 @@ FUNCTION ANSI_export_dialog%
             IF ch < 1 THEN ch = 1
             selMode = ANS_detect_palette%(srcImg&)
             selCols = ANS_auto_cols%(selCell)
-            IF ctx.origThumb < -1 THEN SAFE_FREEIMAGE ctx.origThumb
-            ctx.origThumb = ANS_thumb_from&(srcImg&, tw, th)
-            srcDirty = 0: cellsDirty = -1
+            panX = 0: panY = 0: selZoom! = 1.0   ' reset the view to fit on a new source
+            srcDirty = 0: cellsDirty = -1: viewDirty = -1
         END IF
 
         ' Resolve current cols/rows from the selections + source dims.
@@ -1043,14 +1047,35 @@ FUNCTION ANSI_export_dialog%
             cellsDirty = 0: previewDirty = -1
         END IF
         IF previewDirty THEN
-            IF ctx.previewThumb < -1 THEN SAFE_FREEIMAGE ctx.previewThumb
-            nativeImg& = ANS_render_cells_image&(selMode, selFont8, 8, 100, 1)
-            ' Aspect-correct (letterbox) — same as the ORIG half. A raw stretch-to-
-            ' fill here squashed the converted preview whenever its proportions
-            ' differed from the pane (the export-side of the distortion bug).
-            ctx.previewThumb = ANS_thumb_from&(nativeImg&, tw, th)
             IF nativeImg& < -1 THEN SAFE_FREEIMAGE nativeImg&
-            previewDirty = 0
+            nativeImg& = ANS_render_cells_image&(selMode, selFont8, 8, 100, 1) ' converted raster (kept for the viewport)
+            previewDirty = 0: viewDirty = -1
+        END IF
+
+        ' --- Preview zoom (wheel) + pan (left-drag away from the split handle) ---
+        ' Both halves share one zoom/pan so the before/after split stays aligned.
+        inPane% = (ctx.mx >= 1 AND ctx.mx < ctx.w - 1 AND ctx.my >= prevY AND ctx.my < prevY + ctx.prevH)
+        IF inPane% AND ctx.mwheel <> 0 THEN
+            IF ctx.mwheel < 0 THEN selZoom! = selZoom! * 1.25 ELSE selZoom! = selZoom! / 1.25
+            IF selZoom! < 1.0 THEN selZoom! = 1.0
+            IF selZoom! > 24.0 THEN selZoom! = 24.0
+            viewDirty = -1
+        END IF
+        IF inPane% AND ctx.mb1 AND NOT ctx.splitDrag AND NOT ctx.moveDrag THEN
+            IF NOT expDragging% THEN expDragging% = TRUE: expDSX% = ctx.mx: expDSY% = ctx.my: expDPX% = panX: expDPY% = panY
+            panX = expDPX% + (ctx.mx - expDSX%)
+            panY = expDPY% + (ctx.my - expDSY%)
+            viewDirty = -1
+        END IF
+        IF NOT ctx.mb1 THEN expDragging% = FALSE
+
+        IF viewDirty THEN
+            ANS_viewport_clamp srcImg&, tw, th, selZoom!, panX, panY
+            IF ctx.origThumb < -1 THEN SAFE_FREEIMAGE ctx.origThumb
+            ctx.origThumb = ANS_viewport&(srcImg&, tw, th, selZoom!, panX, panY)
+            IF ctx.previewThumb < -1 THEN SAFE_FREEIMAGE ctx.previewThumb
+            ctx.previewThumb = ANS_viewport&(nativeImg&, tw, th, selZoom!, panX, panY)
+            viewDirty = 0
         END IF
 
         _DEST ctx.imgHandle
@@ -1085,6 +1110,7 @@ FUNCTION ANSI_export_dialog%
     LOOP UNTIL ctx.done
 
     IF srcImg& < -1 THEN SAFE_FREEIMAGE srcImg&
+    IF nativeImg& < -1 THEN SAFE_FREEIMAGE nativeImg&
     IF ctx.result THEN
         ANS_EXPORT.source = selSrc
         ANS_EXPORT.mode = selMode
