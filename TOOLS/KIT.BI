@@ -5,16 +5,17 @@ $INCLUDEONCE
 '==============================================================================
 
 ' Shareable asset types (index into per-type tables; keep in sync with KIT_type_key$).
-CONST KIT_TYPE_THEME       = 0
-CONST KIT_TYPE_PATTERN     = 1
-CONST KIT_TYPE_GRADIENT    = 2
-CONST KIT_TYPE_BRUSH       = 3
-CONST KIT_TYPE_PALETTE     = 4
-CONST KIT_TYPE_FONT_BITMAP = 5
-CONST KIT_TYPE_FONT_TTF    = 6
-CONST KIT_TYPE_TEXTSTYLE   = 7
-CONST KIT_TYPE_TEMPLATE    = 8
-CONST KIT_TYPE_COUNT       = 9
+CONST KIT_TYPE_THEME            = 0
+CONST KIT_TYPE_PATTERN          = 1
+CONST KIT_TYPE_GRADIENT         = 2
+CONST KIT_TYPE_BRUSH            = 3
+CONST KIT_TYPE_PALETTE          = 4
+CONST KIT_TYPE_FONT_BITMAP      = 5
+CONST KIT_TYPE_FONT_COLORBITMAP = 6
+CONST KIT_TYPE_FONT_TTF         = 7
+CONST KIT_TYPE_TEXTSTYLE        = 8
+CONST KIT_TYPE_TEMPLATE         = 9
+CONST KIT_TYPE_COUNT            = 10
 
 ' Menu/command action IDs (see gotcha #17: unique, grepped free).
 CONST KIT_ACT_EXPORT  = 2320 ' File > Export Kit...
@@ -49,3 +50,9 @@ DIM SHARED KIT_OUT_PATH$                                 ' chosen export .zip pa
 DIM SHARED KIT_SHOT_SRC$                                 ' full path of chosen screenshot (source on disk)
 DIM SHARED KIT_INSTALL_ON(0 TO KIT_TYPE_COUNT - 1) AS INTEGER ' install dialog: include this type?
 DIM SHARED KIT_INSTALL_PATH$                             ' chosen kit file to install
+
+' Dev screenshot mode (--kit-screenshots): when KIT_SHOT_PATH$ is set, a dialog
+' saves its buffer to that PNG and closes after one frame; KIT_SHOT_SKIPPICK%
+' makes the install dialog use a preset KIT_INSTALL_PATH$ instead of a file dialog.
+DIM SHARED KIT_SHOT_PATH$
+DIM SHARED KIT_SHOT_SKIPPICK%

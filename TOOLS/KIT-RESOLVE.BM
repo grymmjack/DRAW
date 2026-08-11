@@ -33,6 +33,7 @@ FUNCTION KIT_type_zip_prefix$ (ty AS INTEGER)
         CASE KIT_TYPE_BRUSH:       KIT_type_zip_prefix$ = "brushes/"
         CASE KIT_TYPE_PALETTE:     KIT_type_zip_prefix$ = "palettes/"
         CASE KIT_TYPE_FONT_BITMAP: KIT_type_zip_prefix$ = "fonts-bitmap/"
+        CASE KIT_TYPE_FONT_COLORBITMAP: KIT_type_zip_prefix$ = "fonts-colorbitmap/"
         CASE KIT_TYPE_FONT_TTF:    KIT_type_zip_prefix$ = "fonts-ttf/"
         CASE KIT_TYPE_TEXTSTYLE:   KIT_type_zip_prefix$ = "textstyles/"
         CASE KIT_TYPE_TEMPLATE:    KIT_type_zip_prefix$ = "templates/"
@@ -55,7 +56,7 @@ FUNCTION KIT_user_dir$ (ty AS INTEGER)
         CASE KIT_TYPE_THEME:       KIT_user_dir$ = "./ASSETS/THEMES/"
         CASE KIT_TYPE_PATTERN, KIT_TYPE_GRADIENT, KIT_TYPE_BRUSH: KIT_user_dir$ = PATHS_data$("DRAWER-SETS/")
         CASE KIT_TYPE_PALETTE:     KIT_user_dir$ = PATHS_data$("PALETTES/")
-        CASE KIT_TYPE_FONT_BITMAP, KIT_TYPE_FONT_TTF: KIT_user_dir$ = PATHS_data$("FONTS/")
+        CASE KIT_TYPE_FONT_BITMAP, KIT_TYPE_FONT_COLORBITMAP, KIT_TYPE_FONT_TTF: KIT_user_dir$ = PATHS_data$("FONTS/")
         CASE KIT_TYPE_TEXTSTYLE:   KIT_user_dir$ = PATHS_DATA_DIR$ ' the .dstyle sits directly here
         CASE KIT_TYPE_TEMPLATE:    KIT_user_dir$ = KIT_template_dir$
         CASE ELSE:                 KIT_user_dir$ = ""
@@ -97,8 +98,9 @@ FUNCTION KIT_ext_is_vectorfont% (e AS STRING)
 END FUNCTION
 
 FUNCTION KIT_ext_is_bitmapfont% (e AS STRING)
+    ' .bmp is handled as a Color Bitmap font (CBF) separately, not here.
     DIM x AS STRING: x = LCASE$(e)
-    IF x = "psf" OR x = "bdf" OR x = "pcf" OR x = "fon" OR x = "bmp" THEN KIT_ext_is_bitmapfont% = TRUE: EXIT FUNCTION
+    IF x = "psf" OR x = "bdf" OR x = "pcf" OR x = "fon" THEN KIT_ext_is_bitmapfont% = TRUE: EXIT FUNCTION
     ' .Fnn family (f06/f08/f12/f14/f16/f19/f24/f32)
     IF LEN(x) = 3 THEN
         IF LEFT$(x, 1) = "f" AND ASC(x, 2) >= 48 AND ASC(x, 2) <= 57 AND ASC(x, 3) >= 48 AND ASC(x, 3) <= 57 THEN KIT_ext_is_bitmapfont% = TRUE
@@ -137,7 +139,10 @@ SUB KIT_drain (dirp AS STRING)
     DIM entry AS STRING
     entry = _FILES$(dirp)
     DO WHILE entry <> ""
-        IF entry <> "." AND entry <> ".." THEN
+        ' _FILES$ returns subdirs with a trailing "/" (and lists "./" and "../").
+        ' Strip the slash so names are clean, then skip self/parent.
+        IF RIGHT$(entry, 1) = "/" OR RIGHT$(entry, 1) = "\" THEN entry = LEFT$(entry, LEN(entry) - 1)
+        IF entry <> "" AND entry <> "." AND entry <> ".." THEN
             REDIM _PRESERVE KIT_DRAIN_NAME(0 TO KIT_DRAIN_COUNT%) AS STRING
             KIT_DRAIN_NAME(KIT_DRAIN_COUNT%) = entry
             KIT_DRAIN_COUNT% = KIT_DRAIN_COUNT% + 1
@@ -150,6 +155,44 @@ SUB KIT_enum_add (nm AS STRING)
     REDIM _PRESERVE KIT_ENUM_NAME(0 TO KIT_ENUM_COUNT%) AS STRING
     KIT_ENUM_NAME(KIT_ENUM_COUNT%) = nm
     KIT_ENUM_COUNT% = KIT_ENUM_COUNT% + 1
+END SUB
+
+' Recursively enumerate font files under rootDir (fonts are organized in category
+' subfolders). kind: 1 = vector (ttf/otf/ttc), 2 = bitmap, 3 = color bitmap (.bmp
+' passing CBF_detect). Item names are the path RELATIVE to rootDir (e.g.
+' "Commodore 64/C64.ttf") so export source == install target and subfolders survive.
+SUB KIT_enum_fonts (rootDir AS STRING, kind AS INTEGER)
+    REDIM qd(0) AS STRING, qz(0) AS STRING
+    DIM qn AS INTEGER, head AS INTEGER, i AS INTEGER, dd AS STRING, rel AS STRING, en AS INTEGER
+    DIM ex AS STRING, cbfW AS INTEGER, cbfH AS INTEGER
+    IF NOT _DIREXISTS(rootDir) THEN EXIT SUB
+    qd(0) = rootDir: IF RIGHT$(qd(0), 1) <> "/" AND RIGHT$(qd(0), 1) <> "\" THEN qd(0) = qd(0) + "/"
+    qz(0) = ""
+    qn = 1: head = 0
+    DO WHILE head < qn
+        dd = qd(head): rel = qz(head): head = head + 1
+        KIT_drain dd
+        en = KIT_DRAIN_COUNT%
+        REDIM ent(0) AS STRING
+        IF en > 0 THEN
+            REDIM ent(0 TO en - 1) AS STRING
+            FOR i = 0 TO en - 1: ent(i) = KIT_DRAIN_NAME(i): NEXT
+        END IF
+        FOR i = 0 TO en - 1
+            IF _DIREXISTS(dd + ent(i)) THEN
+                REDIM _PRESERVE qd(0 TO qn) AS STRING
+                REDIM _PRESERVE qz(0 TO qn) AS STRING
+                qd(qn) = dd + ent(i) + "/": qz(qn) = rel + ent(i) + "/": qn = qn + 1
+            ELSE
+                ex = LCASE$(KIT_file_ext$(ent(i)))
+                SELECT CASE kind
+                    CASE 1: IF KIT_ext_is_vectorfont%(ex) THEN KIT_enum_add rel + ent(i)
+                    CASE 2: IF KIT_ext_is_bitmapfont%(ex) THEN KIT_enum_add rel + ent(i)
+                    CASE 3: IF ex = "bmp" THEN IF CBF_detect%(dd + ent(i), cbfW, cbfH) THEN KIT_enum_add rel + ent(i)
+                END SELECT
+            END IF
+        NEXT
+    LOOP
 END SUB
 
 ' Fill KIT_ENUM_NAME()/KIT_ENUM_COUNT% with the user's items of type ty.
@@ -181,13 +224,11 @@ SUB KIT_enumerate (ty AS INTEGER)
                 IF LCASE$(KIT_file_ext$(KIT_DRAIN_NAME(i))) = "gpl" THEN KIT_enum_add KIT_DRAIN_NAME(i) ' full filename (real ext/case)
             NEXT
         CASE KIT_TYPE_FONT_TTF
-            FOR i = 0 TO KIT_DRAIN_COUNT% - 1
-                IF KIT_ext_is_vectorfont%(KIT_file_ext$(KIT_DRAIN_NAME(i))) THEN KIT_enum_add KIT_DRAIN_NAME(i)
-            NEXT
+            KIT_enum_fonts dirp, 1 ' recurse category subfolders
         CASE KIT_TYPE_FONT_BITMAP
-            FOR i = 0 TO KIT_DRAIN_COUNT% - 1
-                IF KIT_ext_is_bitmapfont%(KIT_file_ext$(KIT_DRAIN_NAME(i))) THEN KIT_enum_add KIT_DRAIN_NAME(i)
-            NEXT
+            KIT_enum_fonts dirp, 2
+        CASE KIT_TYPE_FONT_COLORBITMAP
+            KIT_enum_fonts dirp, 3
         CASE KIT_TYPE_TEMPLATE
             FOR i = 0 TO KIT_DRAIN_COUNT% - 1
                 IF KIT_ext_is_template%(KIT_file_ext$(KIT_DRAIN_NAME(i))) THEN KIT_enum_add KIT_DRAIN_NAME(i)
@@ -209,7 +250,7 @@ SUB KIT_refresh (ty AS INTEGER)
             DRAWER_invalidate_dset_cache
         CASE KIT_TYPE_PALETTE
             PALETTE_LOADER_scan_user_folders
-        CASE KIT_TYPE_FONT_BITMAP, KIT_TYPE_FONT_TTF
+        CASE KIT_TYPE_FONT_BITMAP, KIT_TYPE_FONT_COLORBITMAP, KIT_TYPE_FONT_TTF
             FONT_LIST_SCANNED% = FALSE
             FONT_LIST_scan
         CASE KIT_TYPE_TEXTSTYLE

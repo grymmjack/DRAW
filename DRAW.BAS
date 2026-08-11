@@ -305,6 +305,10 @@ IF splashImg& < -1 THEN
     IF splashVerFont& > 0 THEN _FREEFONT splashVerFont&
 END IF
 
+' Dev: --kit-screenshots <dir> renders the KIT export/install dialogs to PNGs and exits.
+DIM kitShotDir AS STRING : kitShotDir$ = KIT_get_screenshot_arg$
+IF kitShotDir$ <> "" THEN KIT_dev_screenshots kitShotDir$: SYSTEM
+
 DO
     ' Deferred command line file loading (after first frame when everything is initialized).
     ' Acts exactly like File -> Open: direct load, NO interactive placement.
