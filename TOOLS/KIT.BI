@@ -44,3 +44,4 @@ DIM SHARED KIT_EXPORT_MF AS KIT_MANIFEST                 ' metadata edited in th
 DIM SHARED KIT_OUT_PATH$                                 ' chosen export .zip path
 DIM SHARED KIT_SHOT_SRC$                                 ' full path of chosen screenshot (source on disk)
 DIM SHARED KIT_INSTALL_ON(0 TO KIT_TYPE_COUNT - 1) AS INTEGER ' install dialog: include this type?
+DIM SHARED KIT_INSTALL_PATH$                             ' chosen kit file to install

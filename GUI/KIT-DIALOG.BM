@@ -240,3 +240,112 @@ FUNCTION KIT_safe_filename$ (s AS STRING)
     IF r = "" THEN r = "kit"
     KIT_safe_filename$ = r
 END FUNCTION
+
+' Word-wrap text into rows of at most `cols` chars, drawn from (x,y) down; caps
+' at maxLines rows (last row gets an ellipsis if truncated).
+SUB KIT_wrap_draw (ctx AS DIALOG_CTX, x AS INTEGER, y AS INTEGER, cols AS INTEGER, txt AS STRING, maxLines AS INTEGER)
+    DIM words AS STRING, ln AS STRING, w AS STRING, sp AS LONG, row AS INTEGER
+    words = txt
+    row = 0
+    DO WHILE LEN(words) > 0 AND row < maxLines
+        sp = INSTR(words, " ")
+        IF sp = 0 THEN w = words: words = "" ELSE w = LEFT$(words, sp - 1): words = MID$(words, sp + 1)
+        IF w = "" THEN _CONTINUE
+        IF LEN(ln) = 0 THEN
+            ln = w
+        ELSEIF LEN(ln) + 1 + LEN(w) <= cols THEN
+            ln = ln + " " + w
+        ELSE
+            DIALOG_draw_label ctx, x, y + row * 12, ln
+            row = row + 1: ln = w
+        END IF
+    LOOP
+    IF row < maxLines AND LEN(ln) > 0 THEN DIALOG_draw_label ctx, x, y + row * 12, ln
+    IF LEN(words) > 0 AND row >= maxLines THEN DIALOG_draw_label ctx, x, y + (maxLines - 1) * 12, LEFT$(ln, cols - 2) + ".."
+END SUB
+
+'-- Install dialog ------------------------------------------------------------
+' Pick a kit file, show its preview/description/author + per-type include
+' checkboxes, and let the user choose what to install. On TRUE, KIT_INSTALL_PATH$,
+' the parsed manifest (KIT_ITEM_*) and KIT_INSTALL_ON() drive the install (task 8).
+FUNCTION KIT_install_dialog%
+    DIM kp AS STRING
+    POINTER_hide_for_dialog
+    kp = DRAW_open_file$("Install DRAW Kit", "", "DRAW Kit|*.zip|All Files|*.*", 0)
+    POINTER_show_after_dialog: MOUSE_cleanup_after_dialog TRUE
+    IF kp = "" THEN EXIT FUNCTION
+
+    DIM mf AS KIT_MANIFEST
+    IF NOT KIT_load_kit_manifest%(kp, mf) THEN
+        POINTER_hide_for_dialog: DRAW_alert "Install Kit", "This is not a valid DRAW kit (no manifest).": POINTER_show_after_dialog: MOUSE_cleanup_after_dialog TRUE
+        EXIT FUNCTION
+    END IF
+    KIT_INSTALL_PATH$ = kp
+
+    ' Present-type list + default all present types ON.
+    DIM present(0 TO KIT_TYPE_COUNT - 1) AS INTEGER, pcount AS INTEGER, ty AS INTEGER
+    pcount = 0
+    FOR ty = 0 TO KIT_TYPE_COUNT - 1
+        KIT_INSTALL_ON(ty) = (KIT_item_count_of%(ty) > 0)
+        IF KIT_item_count_of%(ty) > 0 THEN present(pcount) = ty: pcount = pcount + 1
+    NEXT
+
+    DIM prev AS LONG : prev = KIT_load_kit_preview&(kp, mf)
+
+    DIM ctx AS DIALOG_CTX, k AS LONG, i AS INTEGER, ry AS INTEGER
+    DIM titleH AS INTEGER, metaX AS INTEGER, pvX AS INTEGER, pvY AS INTEGER, pvW AS INTEGER, pvH AS INTEGER
+    DIM descY AS INTEGER, row0Y AS INTEGER, rowH AS INTEGER, btnH AS INTEGER, btnW AS INTEGER, btnY AS INTEGER, okX AS INTEGER, cxX AS INTEGER
+
+    DIALOG_init ctx, 384, 360
+    ctx.prevH = 0
+    titleH = THEME.DIALOG_title_height%
+    pvX = 10: pvY = titleH + 8: pvW = 128: pvH = 96
+    metaX = pvX + pvW + 10
+    descY = pvY + pvH + 6
+    row0Y = descY + 54: rowH = 16
+    btnH = 22: btnW = 96: btnY = ctx.h - btnH - 10: okX = ctx.w - btnW * 2 - 16: cxX = ctx.w - btnW - 10
+
+    DO
+        DIALOG_poll_mouse ctx
+        k = _KEYHIT
+        IF k = 27 THEN ctx.done = TRUE: ctx.result = FALSE
+
+        FOR i = 0 TO pcount - 1
+            ry = row0Y + i * rowH
+            IF DIALOG_hit%(ctx, 10, ry, 220, 14) THEN KIT_INSTALL_ON(present(i)) = NOT KIT_INSTALL_ON(present(i))
+        NEXT
+        IF DIALOG_hit%(ctx, okX, btnY, btnW, btnH) THEN ctx.done = TRUE: ctx.result = TRUE
+        IF DIALOG_hit%(ctx, cxX, btnY, btnW, btnH) THEN ctx.done = TRUE: ctx.result = FALSE
+
+        _DEST ctx.imgHandle
+        DIALOG_draw_frame ctx, "INSTALL DRAW KIT"
+        ' Preview box
+        LINE (pvX, pvY)-(pvX + pvW - 1, pvY + pvH - 1), _RGB32(20, 22, 28), BF
+        LINE (pvX, pvY)-(pvX + pvW - 1, pvY + pvH - 1), _RGB32(80, 88, 104), B
+        IF prev < -1 THEN
+            _PUTIMAGE (pvX + 1, pvY + 1)-(pvX + pvW - 2, pvY + pvH - 2), prev, ctx.imgHandle
+        ELSE
+            COLOR _RGB32(120, 126, 138): _UPRINTSTRING (pvX + 24, pvY + pvH \ 2 - 4), "(no preview)"
+        END IF
+        ' Metadata
+        COLOR _RGB32(230, 234, 240): _UPRINTSTRING (metaX, pvY + 2), _TRIM$(mf.kitName)
+        DIALOG_draw_label ctx, metaX, pvY + 20, "by " + _TRIM$(mf.kitAuthor)
+        DIALOG_draw_label ctx, metaX, pvY + 36, LTRIM$(STR$(KIT_ITEM_COUNT%)) + " items"
+        ' Description (wrapped)
+        DIALOG_draw_label ctx, pvX, descY, "DESCRIPTION:"
+        KIT_wrap_draw ctx, pvX, descY + 14, (ctx.w - 20) \ 8, _TRIM$(mf.kitDesc), 3
+        ' Include checkboxes
+        DIALOG_draw_label ctx, 10, row0Y - 14, "INSTALL:"
+        FOR i = 0 TO pcount - 1
+            ry = row0Y + i * rowH
+            DIALOG_draw_toggle ctx, 10, ry, 220, 14, KIT_type_label$(present(i)) + "  (" + LTRIM$(STR$(KIT_item_count_of%(present(i)))) + ")", KIT_INSTALL_ON(present(i))
+        NEXT
+        DIALOG_draw_button ctx, okX, btnY, btnW, btnH, "INSTALL", _RGB32(40, 100, 40), _RGB32(60, 150, 60), _RGB32(80, 200, 80)
+        DIALOG_draw_button ctx, cxX, btnY, btnW, btnH, "CANCEL", _RGB32(100, 40, 40), _RGB32(150, 60, 60), _RGB32(200, 80, 80)
+        DIALOG_blit ctx
+    LOOP UNTIL ctx.done
+
+    IF prev < -1 THEN _FREEIMAGE prev
+    KIT_install_dialog% = ctx.result
+    DIALOG_cleanup ctx
+END FUNCTION
