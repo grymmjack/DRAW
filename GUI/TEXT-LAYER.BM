@@ -384,7 +384,12 @@ END SUB
 ' @param idx% Pool index (1-based)
 ' @param destImg& Destination image handle to render into
 '
-SUB TEXT_LAYER_render (idx%, destImg&)
+' apOffX%/apOffY% shift the glyph pen origin into an apron-extended buffer:
+' canvas coord (cx,cy) maps to buffer coord (cx+apronW, cy+apronH). Pass the
+' destination layer's apronW%/apronH% (0,0 for a compact/canvas-sized buffer).
+' Without this offset, text moved past the canvas edge is clipped at the buffer
+' edge instead of living in the apron border.
+SUB TEXT_LAYER_render (idx%, destImg&, apOffX%, apOffY%)
     IF idx% < 1 OR idx% > TEXT_LAYER_POOL_SIZE THEN EXIT SUB
     IF NOT TEXT_LAYER_DATA(idx%).used THEN EXIT SUB
     IF destImg& >= -1 THEN EXIT SUB
@@ -480,8 +485,8 @@ SUB TEXT_LAYER_render (idx%, destImg&)
     doShadow%  = (TEXT_LAYER_DATA(idx%).shadowCharCount > 0)
     doOutline% = (TEXT_LAYER_DATA(idx%).outlineCharCount > 0)
 
-    curX%    = TEXT_LAYER_DATA(idx%).startX
-    curY%    = TEXT_LAYER_DATA(idx%).startY
+    curX%    = TEXT_LAYER_DATA(idx%).startX + apOffX%
+    curY%    = TEXT_LAYER_DATA(idx%).startY + apOffY%
     curLine% = 0
 
     ' Apply alignment offset for first line
@@ -499,7 +504,7 @@ SUB TEXT_LAYER_render (idx%, destImg&)
         IF curLine% < TEXT_LAYER_DATA(idx%).lineCount - 1 THEN
             IF c% = TL_LINE_BREAK(idx%, curLine% + 1) THEN
                 curLine% = curLine% + 1
-                curX% = TEXT_LAYER_DATA(idx%).startX
+                curX% = TEXT_LAYER_DATA(idx%).startX + apOffX%
                 ' Apply alignment offset for this new line
                 IF alignMode% = TEXT_ALIGN_CENTER THEN
                     curX% = curX% + (maxLineWidth% - lineWidths(curLine%)) \ 2
@@ -1206,8 +1211,8 @@ SUB TEXT_LAYER_rasterize (layerIdx%)
 
     ' Validate image handle before rendering
     IF LAYERS(layerIdx%).imgHandle& < -1 THEN
-        ' Render text into the layer's image
-        TEXT_LAYER_render tdIdx%, LAYERS(layerIdx%).imgHandle&
+        ' Render text into the layer's image (apron-aware if the layer is extended)
+        TEXT_LAYER_render tdIdx%, LAYERS(layerIdx%).imgHandle&, LAYERS(layerIdx%).apronW%, LAYERS(layerIdx%).apronH%
     ELSE
         _LOGERROR "TEXT_LAYER_rasterize: Invalid imgHandle for layer" + STR$(layerIdx%)
     END IF
@@ -1524,6 +1529,32 @@ END FUNCTION
 ' @param outW% OUTPUT: bounding box width in canvas pixels
 ' @param outH% OUTPUT: bounding box height in canvas pixels
 '
+''
+' Promote a text layer to an apron-extended buffer when its rendered text spills
+' past the canvas (off the left/top or right/bottom edge), so the overflow glyphs
+' live in the apron border instead of being clipped by the canvas-sized buffer.
+' No-op when the layer is already extended, isn't a text layer, or the text fits.
+' Caller must then re-render (apron-aware) — the imgHandle is reallocated here.
+'
+SUB TEXT_LAYER_ensure_apron (layerIdx%)
+    IF layerIdx% < 1 OR layerIdx% > MAX_LAYERS THEN EXIT SUB
+    IF LAYERS(layerIdx%).layerType% <> LAYER_TYPE_TEXT THEN EXIT SUB
+    IF LAYERS(layerIdx%).apronW% > 0 OR LAYERS(layerIdx%).apronH% > 0 THEN EXIT SUB ' already extended
+    DIM eaTd AS INTEGER
+    eaTd% = LAYERS(layerIdx%).textDataIdx%
+    IF eaTd% < 1 OR eaTd% > TEXT_LAYER_POOL_SIZE THEN EXIT SUB
+    IF NOT TEXT_LAYER_DATA(eaTd%).used THEN EXIT SUB
+
+    DIM eaW AS INTEGER, eaH AS INTEGER
+    TEXT_LAYER_get_bounds eaTd%, eaW%, eaH%
+    DIM eaNeeds AS INTEGER : eaNeeds% = FALSE
+    IF TEXT_LAYER_DATA(eaTd%).startX < 0 THEN eaNeeds% = TRUE
+    IF TEXT_LAYER_DATA(eaTd%).startY < 0 THEN eaNeeds% = TRUE
+    IF TEXT_LAYER_DATA(eaTd%).startX + eaW% > SCRN.canvasW& THEN eaNeeds% = TRUE
+    IF TEXT_LAYER_DATA(eaTd%).startY + eaH% > SCRN.canvasH& THEN eaNeeds% = TRUE
+    IF eaNeeds% THEN LAYERS_promote_to_extended layerIdx%
+END SUB
+
 SUB TEXT_LAYER_get_bounds (idx%, outW%, outH%)
     outW% = 0: outH% = 0
     IF idx% < 1 OR idx% > TEXT_LAYER_POOL_SIZE THEN EXIT SUB
