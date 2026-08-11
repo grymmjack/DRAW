@@ -167,3 +167,125 @@ FUNCTION KIT_export_write% ()
     CLOSE #fnum
     KIT_export_write% = TRUE
 END FUNCTION
+
+'==============================================================================
+' Install
+'==============================================================================
+
+' Which KIT_TYPE_* a kit-archive entry belongs to, by its path prefix (-1 = none).
+FUNCTION KIT_type_from_prefix% (nm AS STRING)
+    DIM ty AS INTEGER, p AS STRING
+    KIT_type_from_prefix% = -1
+    FOR ty = 0 TO KIT_TYPE_COUNT - 1
+        p = KIT_type_zip_prefix$(ty)
+        IF LEN(nm) >= LEN(p) THEN
+            IF LEFT$(nm, LEN(p)) = p THEN KIT_type_from_prefix% = ty: EXIT FUNCTION
+        END IF
+    NEXT
+END FUNCTION
+
+' Directory part of a path (including the trailing separator), "" if none.
+FUNCTION KIT_parent_dir$ (pth AS STRING)
+    DIM i AS LONG
+    FOR i = LEN(pth) TO 1 STEP -1
+        IF ASC(pth, i) = 47 OR ASC(pth, i) = 92 THEN KIT_parent_dir$ = LEFT$(pth, i): EXIT FUNCTION
+    NEXT
+    KIT_parent_dir$ = ""
+END FUNCTION
+
+' Append " (2)", " (3)"… before the extension until the path is free.
+FUNCTION KIT_unique_path$ (pth AS STRING)
+    IF NOT _FILEEXISTS(pth) THEN KIT_unique_path$ = pth: EXIT FUNCTION
+    DIM baseP AS STRING, ext AS STRING, dot AS LONG, i AS INTEGER, cand AS STRING
+    dot = 0
+    FOR i = LEN(pth) TO 1 STEP -1
+        IF ASC(pth, i) = 46 THEN dot = i: EXIT FOR
+        IF ASC(pth, i) = 47 OR ASC(pth, i) = 92 THEN EXIT FOR
+    NEXT
+    IF dot > 0 THEN baseP = LEFT$(pth, dot - 1): ext = MID$(pth, dot) ELSE baseP = pth: ext = ""
+    FOR i = 2 TO 999
+        cand = baseP + " (" + LTRIM$(STR$(i)) + ")" + ext
+        IF NOT _FILEEXISTS(cand) THEN KIT_unique_path$ = cand: EXIT FUNCTION
+    NEXT
+    KIT_unique_path$ = baseP + " (dup)" + ext
+END FUNCTION
+
+SUB KIT_write_file (pth AS STRING, blob AS STRING)
+    DIM fh AS INTEGER
+    fh = FREEFILE
+    OPEN pth FOR OUTPUT AS #fh: CLOSE #fh
+    fh = FREEFILE
+    OPEN pth FOR BINARY AS #fh
+    IF LEN(blob) > 0 THEN PUT #fh, 1, blob
+    CLOSE #fh
+END SUB
+
+' Merge an incoming styles.dstyle blob into the user's text styles.
+SUB KIT_install_textstyles (blob AS STRING)
+    DIM tmp AS STRING, fh AS INTEGER
+    tmp = PATHS_cache$("kit_install_styles.dstyle")
+    KIT_write_file tmp, blob
+    TEXT_STYLE_import tmp
+    IF _FILEEXISTS(tmp) THEN KILL tmp
+END SUB
+
+' Extract the checked types from the chosen kit to their install targets,
+' prompting on conflicts (overwrite/skip/keep-both, apply-to-all), then refresh
+' the affected in-app lists. Returns TRUE on completion.
+FUNCTION KIT_install_apply% ()
+    IF KIT_INSTALL_PATH$ = "" THEN EXIT FUNCTION
+    DIM fh AS INTEGER, i AS INTEGER, ty AS INTEGER, cnt AS INTEGER, choice AS INTEGER
+    DIM nm AS STRING, rel AS STRING, blob AS STRING, tgt AS STRING
+    DIM applyAll AS INTEGER, allChoice AS INTEGER
+    REDIM instd(0 TO KIT_TYPE_COUNT - 1) AS INTEGER
+    applyAll = FALSE: allChoice = 0
+
+    fh = FREEFILE
+    OPEN KIT_INSTALL_PATH$ FOR BINARY AS #fh
+    IF NOT ZIP_read_open%(fh) THEN CLOSE #fh: EXIT FUNCTION
+    cnt = ZIP_READ_COUNT%
+
+    FOR i = 0 TO cnt - 1
+        nm = ZIP_READ_ENTRIES(i).name
+        IF nm = "kit.ini" THEN _CONTINUE
+        IF LEFT$(nm, 8) = "preview." THEN _CONTINUE
+        ty = KIT_type_from_prefix%(nm)
+        IF ty < 0 THEN _CONTINUE
+        IF NOT KIT_INSTALL_ON(ty) THEN _CONTINUE
+        rel = MID$(nm, LEN(KIT_type_zip_prefix$(ty)) + 1)
+        IF rel = "" THEN _CONTINUE ' the prefix "folder" entry itself, if any
+
+        blob = ZIP_read_entry$(fh, i)
+        IF ZIP_READ_ERR% THEN _CONTINUE
+
+        IF ty = KIT_TYPE_TEXTSTYLE THEN
+            KIT_install_textstyles blob
+            instd(ty) = TRUE
+            _CONTINUE
+        END IF
+
+        tgt = KIT_user_dir$(ty) + rel
+        PATHS_ensure_dir KIT_parent_dir$(tgt)
+
+        IF _FILEEXISTS(tgt) THEN
+            IF applyAll THEN
+                choice = allChoice
+            ELSE
+                choice = KIT_conflict_dialog%(rel, applyAll)
+                IF applyAll THEN allChoice = choice
+            END IF
+            IF choice = 1 THEN _CONTINUE                    ' skip
+            IF choice = 2 THEN tgt = KIT_unique_path$(tgt)  ' keep both
+            ' choice 0 = overwrite -> fall through
+        END IF
+
+        KIT_write_file tgt, blob
+        instd(ty) = TRUE
+    NEXT
+    CLOSE #fh
+
+    FOR ty = 0 TO KIT_TYPE_COUNT - 1
+        IF instd(ty) THEN KIT_refresh ty
+    NEXT
+    KIT_install_apply% = TRUE
+END FUNCTION
