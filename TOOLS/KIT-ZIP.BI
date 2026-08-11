@@ -28,3 +28,8 @@ TYPE ZIP_DIR_ENTRY
     uncompSize   AS _UNSIGNED LONG
     localOffset  AS _UNSIGNED LONG
 END TYPE
+
+' Reader results (one archive open at a time), filled by ZIP_read_open%.
+REDIM SHARED ZIP_READ_ENTRIES(0) AS ZIP_DIR_ENTRY
+DIM SHARED ZIP_READ_COUNT% ' number of entries in ZIP_READ_ENTRIES
+DIM SHARED ZIP_READ_ERR%   ' TRUE when the last ZIP_read_entry$ hit a CRC/inflate error
