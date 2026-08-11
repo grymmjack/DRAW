@@ -766,12 +766,18 @@ END SUB
 
 ''
 ' Tell the user — once per session — that a crash report was saved.
-' Uses the NATIVE OS message box on purpose: DRAW's own dialogs run their own
-' render loop, which is not something to re-enter right after an error.
 '
-' Gated on screen_shown (DRAW.BAS): with no window up there is nobody to click
-' the dialog, and a modal here would hang every headless run, QA pass and CI
-' job — the precise failure this whole subsystem exists to remove.
+' Two presentations, chosen by DEV_MODE%:
+'   - Normal use: the original NATIVE blocking dialog. A crash is rare and gated
+'     to once per session, so the modal informs the user and points them at the
+'     report — no chance of missing it. (End users must not silently overlook a
+'     crash, hence the deliberate acknowledgement.)
+'   - Developer mode (--developer / --dev / CFG.DEVELOPER_MODE): a non-blocking,
+'     self-dismissing banner instead (see CRASH_render_toast). Rapid crash
+'     iteration during development must never hang behind a modal.
+'
+' Gated on screen_shown (DRAW.BAS): with no window up there is nobody to see the
+' notice, and it must never fire in a headless run, QA pass or CI job.
 '
 SUB CRASH_notify_once ()
     IF CRASH.NOTIFIED% THEN EXIT SUB
@@ -779,6 +785,12 @@ SUB CRASH_notify_once ()
     IF NOT screen_shown% THEN EXIT SUB
     IF CRASH.LOG_PATH$ = "" THEN EXIT SUB
     CRASH.NOTIFIED% = TRUE
+
+    IF DEV_MODE% THEN
+        CRASH.NOTIFY_MSG$   = "DRAW recovered from an internal error - crash log saved (Help > Crash Logs Folder). Save your work."
+        CRASH.NOTIFY_UNTIL# = TIMER(.001) + 10   ' non-blocking banner, auto-dismiss ~10s
+        EXIT SUB
+    END IF
 
     DIM msg AS STRING
     msg$ = "DRAW hit an internal error and recovered." + CHR$(10) + CHR$(10) + _
@@ -788,6 +800,60 @@ SUB CRASH_notify_once ()
            "Save your work - later errors this session may be knock-on effects." + CHR$(10) + CHR$(10) + _
            "Turn this off with Help > Capture Crash Logs."
     _MESSAGEBOX "DRAW - Crash Report Saved", msg$, "warning"
+END SUB
+
+''
+' Draw the non-blocking crash banner onto dest (the composited canvas), if
+' active. Auto-clears on expiry. Purely additive overlay — safe to call from the
+' pointer-overlay stage of SCREEN_render every frame. Saves/restores _DEST +
+' _FONT + _SOURCE so it never disturbs the render pipeline.
+'
+SUB CRASH_render_toast (dest AS LONG)
+    IF CRASH.NOTIFY_UNTIL# <= 0 THEN EXIT SUB
+    DIM now AS DOUBLE : now# = TIMER(.001)
+    ' Expired → clear. The second test only fires on a midnight TIMER wrap (now
+    ' jumps back to ~0 while UNTIL is near 86400); the 3600s slack is far larger
+    ' than any banner duration so it never trips during a normal countdown.
+    IF now# > CRASH.NOTIFY_UNTIL# OR now# < CRASH.NOTIFY_UNTIL# - 3600 THEN
+        CRASH.NOTIFY_UNTIL# = 0
+        EXIT SUB
+    END IF
+    IF dest& >= -1 THEN EXIT SUB
+
+    DIM oldDest AS LONG : oldDest& = _DEST
+    DIM oldFont AS LONG : oldFont& = _FONT
+    DIM oldSrc  AS LONG : oldSrc& = _SOURCE
+    _DEST dest&
+    IF MENU_BAR.fontHandle& > 0 THEN _FONT MENU_BAR.fontHandle&
+
+    DIM padX AS INTEGER : padX% = 10
+    DIM padY AS INTEGER : padY% = 6
+    DIM tw   AS INTEGER : tw% = _PRINTWIDTH(CRASH.NOTIFY_MSG$)
+    DIM th   AS INTEGER : th% = _FONTHEIGHT
+    DIM bw   AS INTEGER : bw% = tw% + padX% * 2
+    DIM bh   AS INTEGER : bh% = th% + padY% * 2
+    DIM bx   AS INTEGER : bx% = (_WIDTH(dest&) - bw%) \ 2
+    IF bx% < 4 THEN bx% = 4
+    DIM by   AS INTEGER : by% = 16   ' just below the menu bar
+
+    ' Amber warning banner with a dark border, matching the crash-log accent.
+    LINE (bx%, by%)-(bx% + bw% - 1, by% + bh% - 1), _RGB32(28, 24, 8), BF
+    LINE (bx%, by%)-(bx% + bw% - 1, by% + bh% - 1), _RGB32(240, 200, 60), B
+    COLOR _RGB32(240, 210, 90), _RGBA32(0, 0, 0, 0)
+    _PRINTMODE _KEEPBACKGROUND
+    _UPRINTSTRING (bx% + padX%, by% + padY%), CRASH.NOTIFY_MSG$
+
+    ' The full CANVAS& -> screen-0 upscale already ran earlier this frame, so a
+    ' fresh overlay on CANVAS& only reaches the display via a targeted reblit —
+    ' exactly how TOOLTIP_reblit_to_screen0 pushes the tooltip. Scale by display.
+    DIM ds AS INTEGER : ds% = SCRN.displayScale%
+    IF ds% < 1 THEN ds% = 1
+    _DEST 0
+    _PUTIMAGE (CLNG(bx%) * ds%, CLNG(by%) * ds%)-((CLNG(bx%) + CLNG(bw%)) * ds% - 1, (CLNG(by%) + CLNG(bh%)) * ds% - 1), dest&, 0, (bx%, by%)-(bx% + bw% - 1, by% + bh% - 1)
+
+    _DEST oldDest&
+    _FONT oldFont&
+    _SOURCE oldSrc&
 END SUB
 
 

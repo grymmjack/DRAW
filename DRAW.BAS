@@ -545,6 +545,7 @@ DO
     END IF
     IF GUI_NEEDS_REDRAW% THEN FRAME_IDLE% = FALSE   ' GUI-only updates should stay on the cached-scene path unless something else dirtied the scene
     IF STATUS_NEEDS_REDRAW% THEN FRAME_IDLE% = FALSE
+    IF CRASH.NOTIFY_UNTIL# > 0 THEN FRAME_IDLE% = FALSE   ' Crash banner up — keep painting so it shows and can self-dismiss
     IF modifiersChanged% THEN FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE   ' Modifier overlays affect cached scene and must repaint on press/release
     IF SCRN.panning% THEN FRAME_IDLE% = FALSE                             ' Panning active — only dirty scene when mouse moves
     IF SCRN.panning% AND mouseMoved% THEN SCENE_CHANGED% = TRUE
