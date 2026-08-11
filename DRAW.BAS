@@ -309,6 +309,18 @@ END IF
 DIM kitShotDir AS STRING : kitShotDir$ = KIT_get_screenshot_arg$
 IF kitShotDir$ <> "" THEN KIT_dev_screenshots kitShotDir$: SYSTEM
 
+' Dev: --main-shot <file> renders one main-editor frame (current theme) to a PNG and exits.
+DIM mainShotFile AS STRING : mainShotFile$ = KIT_get_flag_arg$("--main-shot")
+IF mainShotFile$ <> "" THEN
+    DIM msFrame AS INTEGER
+    FOR msFrame% = 1 TO 8
+        SCENE_DIRTY% = TRUE: FRAME_IDLE% = FALSE: GUI_NEEDS_REDRAW% = TRUE
+        SCREEN_render
+    NEXT
+    _SAVEIMAGE mainShotFile$, 0
+    SYSTEM
+END IF
+
 DO
     ' Deferred command line file loading (after first frame when everything is initialized).
     ' Acts exactly like File -> Open: direct load, NO interactive placement.
