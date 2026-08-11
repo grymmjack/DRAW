@@ -1,0 +1,131 @@
+$INCLUDEONCE
+'==============================================================================
+' KIT-IO.BM - DRAW KITS export/install file I/O (on top of KIT-ZIP + resolver).
+' Task 6: export write. Install extract is added in task 8.
+'==============================================================================
+
+' Read a whole file into a string ("" if missing/empty).
+FUNCTION KIT_read_file$ (pth AS STRING)
+    IF NOT _FILEEXISTS(pth) THEN EXIT FUNCTION
+    DIM fh AS INTEGER, sz AS LONG, s AS STRING
+    fh = FREEFILE
+    OPEN pth FOR BINARY AS #fh
+    sz = LOF(fh)
+    IF sz > 0 THEN s = SPACE$(sz): GET #fh, 1, s
+    CLOSE #fh
+    KIT_read_file$ = s
+END FUNCTION
+
+' Add a single on-disk file to the open kit archive under zipName.
+SUB KIT_add_file_to_zip (fnum AS INTEGER, diskPath AS STRING, zipName AS STRING)
+    DIM blob AS STRING, ok AS INTEGER
+    IF NOT _FILEEXISTS(diskPath) THEN EXIT SUB
+    blob = KIT_read_file$(diskPath)
+    ok = ZIP_add%(fnum, zipName, blob, TRUE)
+END SUB
+
+' Recursively add a folder tree to the archive (BFS; avoids _FILES$ reentrancy by
+' fully draining each directory into a local snapshot before descending).
+SUB KIT_add_folder_to_zip (fnum AS INTEGER, diskDir AS STRING, zipPrefix AS STRING)
+    REDIM qd(0) AS STRING, qz(0) AS STRING
+    DIM qn AS INTEGER, head AS INTEGER, i AS INTEGER, dd AS STRING, zz AS STRING, en AS INTEGER
+    qd(0) = diskDir: IF RIGHT$(qd(0), 1) <> "/" AND RIGHT$(qd(0), 1) <> "\" THEN qd(0) = qd(0) + "/"
+    qz(0) = zipPrefix
+    qn = 1: head = 0
+    DO WHILE head < qn
+        dd = qd(head): zz = qz(head): head = head + 1
+        KIT_drain dd
+        en = KIT_DRAIN_COUNT%
+        REDIM ent(0) AS STRING
+        IF en > 0 THEN
+            REDIM ent(0 TO en - 1) AS STRING
+            FOR i = 0 TO en - 1: ent(i) = KIT_DRAIN_NAME(i): NEXT
+        END IF
+        FOR i = 0 TO en - 1
+            IF _DIREXISTS(dd + ent(i)) THEN
+                REDIM _PRESERVE qd(0 TO qn) AS STRING
+                REDIM _PRESERVE qz(0 TO qn) AS STRING
+                qd(qn) = dd + ent(i) + "/": qz(qn) = zz + ent(i) + "/": qn = qn + 1
+            ELSE
+                KIT_add_file_to_zip fnum, dd + ent(i), zz + ent(i)
+            END IF
+        NEXT
+    LOOP
+END SUB
+
+FUNCTION KIT_find_style_slot% (nm AS STRING)
+    DIM i AS INTEGER
+    FOR i = 1 TO TEXT_STYLE_MAX
+        IF TEXT_STYLES(i).used THEN
+            IF _TRIM$(TEXT_STYLES(i).name) = nm THEN KIT_find_style_slot% = i: EXIT FUNCTION
+        END IF
+    NEXT
+END FUNCTION
+
+' All selected text styles go into one combined .dstyle entry (merged on install).
+SUB KIT_export_textstyles (fnum AS INTEGER)
+    DIM tmp AS STRING, fh AS INTEGER, i AS INTEGER, si AS INTEGER
+    tmp = PATHS_cache$("kit_export_styles.dstyle")
+    fh = FREEFILE
+    OPEN tmp FOR OUTPUT AS #fh
+    FOR i = 0 TO KIT_ITEM_COUNT% - 1
+        IF KIT_ITEM_TYPE(i) = KIT_TYPE_TEXTSTYLE THEN
+            si = KIT_find_style_slot%(KIT_ITEM_NAME(i))
+            IF si > 0 THEN TEXT_STYLE_write_one fh, si
+        END IF
+    NEXT
+    CLOSE #fh
+    DIM blob AS STRING : blob = KIT_read_file$(tmp)
+    IF LEN(blob) > 0 THEN
+        DIM ok AS INTEGER : ok = ZIP_add%(fnum, KIT_type_zip_prefix$(KIT_TYPE_TEXTSTYLE) + "styles.dstyle", blob, TRUE)
+    END IF
+    IF _FILEEXISTS(tmp) THEN KILL tmp
+END SUB
+
+' Write the kit archive at KIT_OUT_PATH$ from the current selection (KIT_ITEM_*),
+' metadata (KIT_EXPORT_MF) and screenshot (KIT_SHOT_SRC$). Returns TRUE on success.
+FUNCTION KIT_export_write% ()
+    IF KIT_OUT_PATH$ = "" THEN EXIT FUNCTION
+    DIM fnum AS INTEGER, i AS INTEGER, ty AS INTEGER, nm AS STRING, ok AS INTEGER
+
+    fnum = FREEFILE
+    OPEN KIT_OUT_PATH$ FOR OUTPUT AS #fnum: CLOSE #fnum ' truncate/create
+    fnum = FREEFILE
+    OPEN KIT_OUT_PATH$ FOR BINARY AS #fnum
+    ZIP_begin fnum
+
+    ' Screenshot -> preview.<ext>, recorded in the manifest.
+    DIM shotName AS STRING : shotName = ""
+    IF KIT_SHOT_SRC$ <> "" THEN
+        IF _FILEEXISTS(KIT_SHOT_SRC$) THEN
+            DIM se AS STRING : se = LCASE$(KIT_file_ext$(KIT_SHOT_SRC$)) : IF se = "" THEN se = "png"
+            shotName = "preview." + se
+            KIT_add_file_to_zip fnum, KIT_SHOT_SRC$, shotName
+        END IF
+    END IF
+    KIT_EXPORT_MF.kitShot = shotName
+
+    ' Manifest.
+    DIM man AS STRING : man = KIT_manifest_build$(KIT_EXPORT_MF)
+    ok = ZIP_add%(fnum, "kit.ini", man, TRUE)
+
+    ' Text styles as one merged entry (if any selected).
+    IF KIT_item_count_of%(KIT_TYPE_TEXTSTYLE) > 0 THEN KIT_export_textstyles fnum
+
+    ' Every other selected item -> file (or folder tree for themes).
+    FOR i = 0 TO KIT_ITEM_COUNT% - 1
+        ty = KIT_ITEM_TYPE(i) : nm = KIT_ITEM_NAME(i)
+        SELECT CASE ty
+            CASE KIT_TYPE_TEXTSTYLE
+                ' handled in bulk above
+            CASE KIT_TYPE_THEME
+                KIT_add_folder_to_zip fnum, KIT_user_dir$(ty) + nm, KIT_type_zip_prefix$(ty) + nm + "/"
+            CASE ELSE
+                KIT_add_file_to_zip fnum, KIT_user_dir$(ty) + nm, KIT_type_zip_prefix$(ty) + nm
+        END SELECT
+    NEXT
+
+    ZIP_finish fnum
+    CLOSE #fnum
+    KIT_export_write% = TRUE
+END FUNCTION
