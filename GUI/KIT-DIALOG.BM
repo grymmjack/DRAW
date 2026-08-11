@@ -79,11 +79,26 @@ SUB KIT_dlg_pick_shot
     IF p <> "" THEN KIT_SHOT_SRC$ = p
 END SUB
 
+' Find the FONT_LIST index whose path ends with nm (the kit item's relative path),
+' so a picked font can be previewed. -1 if not currently in the font list.
+FUNCTION KIT_font_list_idx% (nm AS STRING)
+    DIM j AS INTEGER, p AS STRING
+    KIT_font_list_idx% = -1
+    FOR j = 0 TO FONT_LIST_COUNT% - 1
+        p = RTRIM$(FONT_LIST(j).path)
+        IF LEN(p) >= LEN(nm) THEN
+            IF RIGHT$(p, LEN(nm)) = nm THEN KIT_font_list_idx% = j: EXIT FUNCTION
+        END IF
+    NEXT
+END FUNCTION
+
 '-- Per-type item picker ------------------------------------------------------
 SUB KIT_picker_dialog (ty AS INTEGER)
     DIM ctx AS DIALOG_CTX, k AS LONG, i AS INTEGER, idx AS INTEGER, hi AS INTEGER
     DIM titleH AS INTEGER, listY AS INTEGER, rowH AS INTEGER, visRows AS INTEGER
     DIM btnH AS INTEGER, btnY AS INTEGER, scroll AS INTEGER, n AS INTEGER
+    DIM isFont AS INTEGER, showPrev AS INTEGER, shotFrames AS INTEGER, dw AS INTEGER
+    DIM pvImg AS LONG, pvw AS INTEGER, pvh AS INTEGER, pw AS INTEGER, ph AS INTEGER, prx AS INTEGER, pry AS INTEGER
 
     KIT_enumerate ty
     n = KIT_ENUM_COUNT%
@@ -93,13 +108,24 @@ SUB KIT_picker_dialog (ty AS INTEGER)
         FOR i = 0 TO n - 1: names(i) = KIT_ENUM_NAME(i): NEXT
     END IF
 
-    DIALOG_init ctx, 300, 324
+    ' Font pickers render a live preview of each face when previews are enabled.
+    isFont = (ty = KIT_TYPE_FONT_TTF OR ty = KIT_TYPE_FONT_BITMAP OR ty = KIT_TYPE_FONT_COLORBITMAP)
+    showPrev = (isFont AND CFG.FONT_PREVIEW_ENABLED)
+    REDIM flidx(0) AS INTEGER
+    IF showPrev AND n > 0 THEN
+        REDIM flidx(0 TO n - 1) AS INTEGER
+        FOR i = 0 TO n - 1: flidx(i) = -2 ' -2 = not yet looked up
+        NEXT
+    END IF
+
+    dw = 300: IF showPrev THEN dw = 384
+    DIALOG_init ctx, dw, 324
     ctx.prevH = 0
     titleH = THEME.DIALOG_title_height%
-    listY = titleH + 26: rowH = 15
+    listY = titleH + 26: rowH = 15: IF showPrev THEN rowH = 22
     btnH = 20: btnY = ctx.h - btnH - 8
     visRows = (btnY - listY - 6) \ rowH
-    scroll = 0
+    scroll = 0: shotFrames = 0
 
     DO
         DIALOG_poll_mouse ctx
@@ -134,9 +160,27 @@ SUB KIT_picker_dialog (ty AS INTEGER)
         DIALOG_draw_button ctx, 10, titleH + 6, 52, 15, "All", _RGB32(50, 55, 66), _RGB32(70, 78, 92), _RGB32(90, 100, 120)
         DIALOG_draw_button ctx, 66, titleH + 6, 52, 15, "None", _RGB32(50, 55, 66), _RGB32(70, 78, 92), _RGB32(90, 100, 120)
         IF n = 0 THEN DIALOG_draw_label ctx, 10, listY, "(no items of this type)"
+        IF showPrev THEN FONT_PREVIEW_frame_reset
         FOR i = 0 TO visRows - 1
             idx = scroll + i
-            IF idx < n THEN KIT_draw_toggle_l ctx, 10, listY + i * rowH, ctx.w - 20, rowH - 1, names(idx), KIT_sel_has%(ty, names(idx))
+            IF idx < n THEN
+                KIT_draw_toggle_l ctx, 10, listY + i * rowH, ctx.w - 20, rowH - 1, names(idx), KIT_sel_has%(ty, names(idx))
+                IF showPrev THEN
+                    IF flidx(idx) = -2 THEN flidx(idx) = KIT_font_list_idx%(names(idx))
+                    IF flidx(idx) >= 0 THEN
+                        pvImg = FONT_PREVIEW_ensure&(flidx(idx))
+                        IF pvImg < -1 THEN
+                            pvw = _WIDTH(pvImg): pvh = _HEIGHT(pvImg)
+                            IF pvw > 0 AND pvh > 0 THEN
+                                ph = rowH - 5: pw = pvw * ph \ pvh
+                                IF pw > 150 THEN pw = 150
+                                prx = ctx.w - 12 - pw: pry = listY + i * rowH + 2
+                                _PUTIMAGE (prx, pry)-(prx + pw - 1, pry + ph - 1), pvImg, ctx.imgHandle
+                            END IF
+                        END IF
+                    END IF
+                END IF
+            END IF
         NEXT
         IF n > visRows THEN
             hi = scroll + visRows: IF hi > n THEN hi = n
@@ -144,7 +188,10 @@ SUB KIT_picker_dialog (ty AS INTEGER)
         END IF
         DIALOG_draw_button ctx, ctx.w - 80, btnY, 70, btnH, "DONE", _RGB32(40, 90, 120), _RGB32(60, 120, 160), _RGB32(90, 160, 210)
         DIALOG_blit ctx
-        IF KIT_SHOT_PATH$ <> "" THEN _SAVEIMAGE KIT_SHOT_PATH$, ctx.imgHandle: ctx.done = TRUE
+        IF KIT_SHOT_PATH$ <> "" THEN ' shot mode: let previews fill over a few frames
+            shotFrames = shotFrames + 1
+            IF shotFrames >= 40 OR NOT showPrev THEN _SAVEIMAGE KIT_SHOT_PATH$, ctx.imgHandle: ctx.done = TRUE
+        END IF
     LOOP UNTIL ctx.done
     DIALOG_cleanup ctx
 END SUB
@@ -466,11 +513,16 @@ SUB KIT_dev_screenshots (outdir AS STRING)
         IF KIT_ENUM_COUNT% > KIT_TOTAL(pickTy) THEN pickTy = ty
         KIT_TOTAL(ty) = KIT_ENUM_COUNT%
     NEXT
+    ' Demo font previews on the TrueType picker (well-supported for previews).
+    IF KIT_TOTAL(KIT_TYPE_FONT_TTF) > 0 THEN pickTy = KIT_TYPE_FONT_TTF
     KIT_items_clear
     KIT_enumerate pickTy
     FOR i = 0 TO KIT_ENUM_COUNT% - 1 STEP 2
         KIT_item_add pickTy, KIT_ENUM_NAME(i)
     NEXT
+    ' Demo font previews in the picker.
+    CFG.FONT_PREVIEW_ENABLED = TRUE
+    IF _TRIM$(CFG.FONT_PREVIEW_SAMPLE$) = "" THEN CFG.FONT_PREVIEW_SAMPLE$ = "{Font} AaBb 123"
     KIT_SHOT_PATH$ = d + "kit-picker.png"
     KIT_picker_dialog pickTy
     KIT_SHOT_PATH$ = ""
