@@ -222,7 +222,14 @@ SUB IMPORT_ansi ()
     END IF
 
     IF ANSI_import_dialog% THEN
-        ANS_build_document ANS_IMPORT_FONT8X8
+        SELECT CASE ANS_IMP_TARGET
+            CASE ANS_TARGET_LAYER
+                ANS_build_layer ANS_IMPORT_FONT8X8
+            CASE ANS_TARGET_SEL
+                ANS_build_into_selection ANS_IMPORT_FONT8X8
+            CASE ELSE
+                ANS_build_document ANS_IMPORT_FONT8X8
+        END SELECT
         ' Optional font / palette installs use the file's base name as the default.
         DIM bn AS STRING, si AS INTEGER, dot AS INTEGER
         bn = filename$
@@ -257,6 +264,8 @@ FUNCTION ANSI_import_dialog%
     DIM mnX AS INTEGER, numX AS INTEGER, plX AS INTEGER, stW AS INTEGER
     DIM selCellW AS INTEGER, selAspect AS INTEGER, selScale AS INTEGER
     DIM doFont AS INTEGER, doPal AS INTEGER, hasFont AS INTEGER, hasPal AS INTEGER
+    DIM selTarget AS INTEGER, hasSel AS INTEGER
+    DIM tgtY AS INTEGER, warnY AS INTEGER, tgW AS INTEGER, tg1X AS INTEGER, tg2X AS INTEGER, tg3X AS INTEGER
     DIM sourceDirty AS INTEGER, viewDirty AS INTEGER
     DIM selZoom AS SINGLE, panX AS INTEGER, panY AS INTEGER, inPane AS INTEGER
     DIM dragging AS INTEGER, dragSX AS INTEGER, dragSY AS INTEGER, dragPX AS INTEGER, dragPY AS INTEGER
@@ -265,6 +274,10 @@ FUNCTION ANSI_import_dialog%
     hasFont = (ANS_IMPORT_GLYPHS > 0): hasPal = (ANS_IMPORT_HASPAL <> 0)
     doFont = hasFont: doPal = hasPal
     selCellW = 8: selAspect = 100: selScale = 1
+    ' Import destination: default to the selection when one is active (import
+    ' into it like an image), otherwise a new document.
+    hasSel = SELECTION_has_active%
+    IF hasSel THEN selTarget = ANS_TARGET_SEL ELSE selTarget = ANS_TARGET_DOC
 
     DIALOG_init ctx, 344, 384
     ctx.prevH = 118
@@ -275,6 +288,8 @@ FUNCTION ANSI_import_dialog%
     infoY = prevY + ctx.prevH + 6
     wY = infoY + 18: aY = wY + 21: scY = aY + 21
     fontY = scY + 24: palY = fontY + 19
+    tgtY = palY + 22: warnY = tgtY + 18
+    tg1X = 62: tgW = 84: tg2X = tg1X + tgW + 5: tg3X = tg2X + tgW + 5
     twoX = 62: twoW = 60: twoGap = 64
     mnX = 62: stW = 18: numX = mnX + stW + 8: plX = numX + 34
     cbW = ctx.w - 20
@@ -314,6 +329,10 @@ FUNCTION ANSI_import_dialog%
         ' Asset checkboxes
         IF hasFont AND DIALOG_hit%(ctx, 10, fontY, cbW, 15) THEN doFont = NOT doFont
         IF hasPal AND DIALOG_hit%(ctx, 10, palY, cbW, 15) THEN doPal = NOT doPal
+        ' Target radio (SELECTION only offered when a selection is active)
+        IF DIALOG_hit%(ctx, tg1X, tgtY, tgW, 15) THEN selTarget = ANS_TARGET_DOC
+        IF DIALOG_hit%(ctx, tg2X, tgtY, tgW, 15) THEN selTarget = ANS_TARGET_LAYER
+        IF hasSel AND DIALOG_hit%(ctx, tg3X, tgtY, tgW, 15) THEN selTarget = ANS_TARGET_SEL
 
         IF DIALOG_hit%(ctx, okX, btnY, btnW, btnH) THEN ctx.done = TRUE: ctx.result = TRUE
         IF DIALOG_hit%(ctx, cxX, btnY, btnW, btnH) THEN ctx.done = TRUE: ctx.result = FALSE
@@ -370,6 +389,21 @@ FUNCTION ANSI_import_dialog%
         DIALOG_draw_button ctx, plX, scY, stW, 15, "+", _RGB32(50, 55, 66), _RGB32(70, 78, 92), _RGB32(90, 100, 120)
         IF hasFont THEN DIALOG_draw_toggle ctx, 10, fontY, cbW, 15, fontLbl, doFont
         IF hasPal THEN DIALOG_draw_toggle ctx, 10, palY, cbW, 15, palLbl, doPal
+        ' Target radio + a one-line hint (warns that DOCUMENT replaces everything)
+        DIALOG_draw_label ctx, 8, tgtY + 1, "TARGET:"
+        DIALOG_draw_toggle ctx, tg1X, tgtY, tgW, 15, "DOCUMENT", (selTarget = ANS_TARGET_DOC)
+        DIALOG_draw_toggle ctx, tg2X, tgtY, tgW, 15, "NEW LAYER", (selTarget = ANS_TARGET_LAYER)
+        IF hasSel THEN DIALOG_draw_toggle ctx, tg3X, tgtY, tgW, 15, "SELECTION", (selTarget = ANS_TARGET_SEL)
+        IF selTarget = ANS_TARGET_DOC THEN
+            COLOR _RGB32(235, 180, 70)
+            _UPRINTSTRING (8, warnY), "Replaces the entire document."
+        ELSEIF selTarget = ANS_TARGET_LAYER THEN
+            COLOR THEME.DIALOG_label_fg~&
+            _UPRINTSTRING (8, warnY), "Added as a new layer, centered on the canvas."
+        ELSE
+            COLOR THEME.DIALOG_label_fg~&
+            _UPRINTSTRING (8, warnY), "Fit into the active selection."
+        END IF
         DIALOG_draw_button ctx, okX, btnY, btnW, btnH, "IMPORT", _RGB32(40, 100, 40), _RGB32(60, 150, 60), _RGB32(80, 200, 80)
         DIALOG_draw_button ctx, cxX, btnY, btnW, btnH, "CANCEL", _RGB32(100, 40, 40), _RGB32(150, 60, 60), _RGB32(200, 80, 80)
         DIALOG_blit ctx
@@ -377,6 +411,7 @@ FUNCTION ANSI_import_dialog%
 
     IF ctx.result THEN
         ANS_IMP_CELLW = selCellW: ANS_IMP_ASPECT = selAspect: ANS_IMP_SCALE = selScale
+        ANS_IMP_TARGET = selTarget
     END IF
     ANS_IMPORT_DO_FONT = (ctx.result <> 0) AND (doFont <> 0)
     ANS_IMPORT_DO_PAL = (ctx.result <> 0) AND (doPal <> 0)
@@ -410,6 +445,135 @@ SUB ANS_build_document (font8x8 AS INTEGER)
     LAYERS(1).contentDirty% = TRUE
     IF img& < -1 THEN SAFE_FREEIMAGE img&
 
+    CANVAS_DIRTY% = TRUE
+    SCENE_DIRTY% = TRUE
+    GUI_NEEDS_REDRAW% = TRUE
+END SUB
+
+''
+' Canvas-coordinate bounding box of the active selection (marquee box or magic
+' wand). Returns TRUE and fills sx/sy/sw/sh when a selection exists, else FALSE.
+' Distinct from SELECTION_get_screen_bbox, which returns *screen* coords for the
+' render dirty-rect; here we need raw canvas pixels to composite into a layer.
+'
+FUNCTION ANS_selection_bbox% (sx AS INTEGER, sy AS INTEGER, sw AS INTEGER, sh AS INTEGER)
+    IF MARQUEE.WAND_HAS_SELECTION AND MARQUEE.SELECTION_MASK < -1 THEN
+        sx = MARQUEE.WAND_MIN_X
+        sy = MARQUEE.WAND_MIN_Y
+        sw = MARQUEE.WAND_MAX_X - MARQUEE.WAND_MIN_X + 1
+        sh = MARQUEE.WAND_MAX_Y - MARQUEE.WAND_MIN_Y + 1
+        ANS_selection_bbox% = (sw > 0 AND sh > 0)
+        EXIT FUNCTION
+    END IF
+    IF MARQUEE.ACTIVE AND MARQUEE.USER_CREATED AND MARQUEE.INITIALIZED THEN
+        sx = MARQUEE.BOX.x
+        sy = MARQUEE.BOX.y
+        sw = MARQUEE.BOX.w
+        sh = MARQUEE.BOX.h
+        ANS_selection_bbox% = (sw > 0 AND sh > 0)
+        EXIT FUNCTION
+    END IF
+    ANS_selection_bbox% = 0
+END FUNCTION
+
+''
+' Import the parsed ANSI art as a NEW LAYER on the current document (target =
+' ANS_TARGET_LAYER). The canvas keeps its size; the art is centered on it and
+' clipped to the layer bounds. Records a layer-add so Ctrl+Z removes the layer.
+'
+SUB ANS_build_layer (font8x8 AS INTEGER)
+    DIM img AS LONG, idx AS INTEGER, dest AS LONG, oldDest AS LONG
+    DIM dx AS INTEGER, dy AS INTEGER
+    IF ANS_GRID_COLS <= 0 OR ANS_GRID_ROWS <= 0 THEN EXIT SUB
+    IF LAYER_COUNT% >= CFG.NUM_LAYERS% THEN LAYERS_show_max_alert: EXIT SUB
+    img& = ANS_render_cells_image&(ANS_MODE_RGB, font8x8, ANS_IMP_CELLW, ANS_IMP_ASPECT, ANS_IMP_SCALE)
+    IF img& = 0 OR img& = -1 THEN EXIT SUB
+
+    idx% = LAYERS_new_at_top%
+    IF idx% > 0 THEN
+        dest& = LAYERS(idx%).imgHandle&
+        IF dest& < -1 THEN
+            ' Center on the canvas; account for the new layer's apron (gotcha #14).
+            dx% = (SCRN.canvasW& - _WIDTH(img&)) \ 2 + LAYERS(idx%).apronW
+            dy% = (SCRN.canvasH& - _HEIGHT(img&)) \ 2 + LAYERS(idx%).apronH
+            oldDest& = _DEST
+            _DEST dest&
+            _DONTBLEND dest&
+            _PUTIMAGE (dx%, dy%), img&, dest&
+            _BLEND dest&
+            _DEST oldDest&
+            LAYERS(idx%).contentDirty% = TRUE
+            HISTORY_refresh_layer_add_snapshot LAYERS(idx%).historyId&
+            HISTORY_saved_this_frame% = TRUE
+            INVALIDATE_layers
+        END IF
+    END IF
+
+    IF img& < -1 THEN SAFE_FREEIMAGE img&
+    CANVAS_DIRTY% = TRUE
+    SCENE_DIRTY% = TRUE
+    GUI_NEEDS_REDRAW% = TRUE
+END SUB
+
+''
+' Import the parsed ANSI art INTO the active selection (target = ANS_TARGET_SEL),
+' like an image import: the art is aspect-fit (contain) inside the selection
+' bounding box, centered, and composited onto the current layer clipped to that
+' box. Falls back to a new layer if the selection vanished. Records a full-layer
+' transform so Ctrl+Z restores the prior pixels.
+'
+SUB ANS_build_into_selection (font8x8 AS INTEGER)
+    DIM img AS LONG, temp AS LONG, dest AS LONG, before AS LONG, oldDest AS LONG
+    DIM sx AS INTEGER, sy AS INTEGER, sw AS INTEGER, sh AS INTEGER
+    DIM nw AS INTEGER, nh AS INTEGER, fw AS INTEGER, fh AS INTEGER, ox AS INTEGER, oy AS INTEGER
+    DIM fit AS SINGLE, flags AS LONG
+
+    IF ANS_GRID_COLS <= 0 OR ANS_GRID_ROWS <= 0 THEN EXIT SUB
+    IF NOT ANS_selection_bbox%(sx, sy, sw, sh) THEN ANS_build_layer font8x8: EXIT SUB
+    IF CURRENT_LAYER% < 1 OR CURRENT_LAYER% > MAX_LAYERS THEN EXIT SUB
+    dest& = LAYERS(CURRENT_LAYER%).imgHandle&
+    IF dest& >= -1 THEN EXIT SUB   ' invalid handle (0 or -1)
+
+    img& = ANS_render_cells_image&(ANS_MODE_RGB, font8x8, ANS_IMP_CELLW, ANS_IMP_ASPECT, ANS_IMP_SCALE)
+    IF img& = 0 OR img& = -1 THEN EXIT SUB
+    nw% = _WIDTH(img&): nh% = _HEIGHT(img&)
+
+    ' Build the fitted art in a selection-sized scratch buffer; anything outside
+    ' the box is cropped by the buffer edge, so compositing clips to the box.
+    temp& = _NEWIMAGE(sw%, sh%, 32)
+    IF temp& < -1 THEN
+        before& = _COPYIMAGE(dest&, 32)                 ' undo snapshot BEFORE paint
+        oldDest& = _DEST
+        _DEST temp&
+        _DONTBLEND temp&
+        CLS , _RGBA32(0, 0, 0, 0)
+        fit! = sw% / nw%
+        IF sh% / nh% < fit! THEN fit! = sh% / nh%
+        fw% = INT(nw% * fit! + 0.5): fh% = INT(nh% * fit! + 0.5)
+        IF fw% < 1 THEN fw% = 1
+        IF fh% < 1 THEN fh% = 1
+        ox% = (sw% - fw%) \ 2: oy% = (sh% - fh%) \ 2
+        _PUTIMAGE (ox%, oy%)-(ox% + fw% - 1, oy% + fh% - 1), img&, temp&
+        _BLEND temp&
+
+        ' Composite into the current layer at the selection origin (+ apron).
+        _DEST dest&
+        _DONTBLEND dest&
+        _PUTIMAGE (sx% + LAYERS(CURRENT_LAYER%).apronW, sy% + LAYERS(CURRENT_LAYER%).apronH), temp&, dest&
+        _BLEND dest&
+        _DEST oldDest&
+        SAFE_FREEIMAGE temp&
+
+        IF before& < -1 THEN
+            flags& = HISTORY_FLAG_CLIPPED
+            HISTORY_record_transform LAYERS(CURRENT_LAYER%).historyId&, CURRENT_LAYER%, flags&, before&, "Import ANSI into Selection"
+            HISTORY_saved_this_frame% = TRUE
+        END IF
+        LAYERS(CURRENT_LAYER%).contentDirty% = TRUE
+        INVALIDATE_layers
+    END IF
+
+    IF img& < -1 THEN SAFE_FREEIMAGE img&
     CANVAS_DIRTY% = TRUE
     SCENE_DIRTY% = TRUE
     GUI_NEEDS_REDRAW% = TRUE

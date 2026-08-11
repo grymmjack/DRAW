@@ -122,6 +122,11 @@ DIM SHARED ANS_IMPORT_DO_PAL AS INTEGER  ' import-dialog choice: install custom 
 DIM SHARED ANS_IMP_CELLW AS INTEGER  ' 8 or 9 (VGA 9-dot)
 DIM SHARED ANS_IMP_ASPECT AS INTEGER ' vertical stretch percent: 100 square, 120 DOS aspect
 DIM SHARED ANS_IMP_SCALE AS INTEGER  ' integer output scale multiplier (1..8)
+DIM SHARED ANS_IMP_TARGET AS INTEGER ' import destination: 0 = new document, 1 = new layer, 2 = into selection
+
+CONST ANS_TARGET_DOC   = 0 ' replace the whole document with a new canvas
+CONST ANS_TARGET_LAYER = 1 ' add the art as a new layer on the current document
+CONST ANS_TARGET_SEL   = 2 ' fit the art into the active selection (like an image import)
 
 ' Initialize the shared tables/settings (called from DRAW.BAS init chain).
 ANS_export_settings_defaults
