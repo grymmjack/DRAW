@@ -332,13 +332,22 @@ _capture_client_area() {
 
     dbg "capture: crop=${client_w}x${client_h}+${WIN_ABS_X}+${crop_y} deco=$DECORATION_H"
 
-    if [[ -n "${WAYLAND_DISPLAY:-}" ]] && command -v spectacle &>/dev/null; then
-        # setsid runs spectacle in its own session so the Wayland compositor
-        # doesn't steal keyboard focus from DRAW.  No --fork: we block until
-        # the capture completes to avoid races between overlapping captures.
-        rm -f "$tmp"
+    # Capture: spectacle is the reliable path on this box and is the primary
+    # method WHENEVER it is present — it works both on the KDE/Wayland session
+    # (WAYLAND_DISPLAY set → Wayland backend) and on a pure X11/Xvfb display
+    # (WAYLAND_DISPLAY unset → X11 backend). scrot returns all-black frames under
+    # the Wayland compositor, so it is a fallback for machines without spectacle,
+    # never the default. (Previously spectacle was gated on WAYLAND_DISPLAY being
+    # set, which silently dropped to broken scrot whenever it was unset — e.g. an
+    # offscreen Xvfb run — making every region diff compare a static wrong frame.)
+    # setsid runs spectacle in its own session so the compositor doesn't steal
+    # keyboard focus from DRAW. No --fork: block until the capture completes to
+    # avoid races between overlapping captures.
+    rm -f "$tmp"
+    if command -v spectacle &>/dev/null; then
         setsid spectacle -b -n -f -o "$tmp" 2>/dev/null
-    else
+    fi
+    if [[ ! -s "$tmp" ]]; then
         scrot "$tmp" 2>/dev/null
     fi
 
