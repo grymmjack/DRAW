@@ -304,7 +304,7 @@ END FUNCTION
 ' Serialize ANS_CELLS as an indexed (16 / iCE) .ans byte stream, run-length SGR.
 ' When ice=FALSE and a half-block cell needs a bright background, swap fg/bg and
 ' flip ▀->▄ so the bright colour lands in the (always-available) foreground.
-' Attributes reset + CRLF per row; trailing 0x1A EOF. ANS_CELLS is never mutated.
+' Attributes reset per row (no CRLF — full-width rows auto-wrap); 0x1A EOF. ANS_CELLS is never mutated.
 '
 FUNCTION ANS_serialize_indexed$ (ice AS INTEGER)
     DIM ansOut AS STRING ' 'out' is reserved (OUT statement) — do not use it
@@ -333,7 +333,11 @@ FUNCTION ANS_serialize_indexed$ (ice AS INTEGER)
             END IF
             ansOut = ansOut + CHR$(eCh%)
         NEXT cx%
-        ansOut = ansOut + CHR$(27) + "[0m" + CHR$(13) + CHR$(10)
+        ' Reset attributes, but NO CRLF: every row is exactly the grid = SAUCE
+        ' width, so the viewer's auto-wrap already ends the line. An explicit
+        ' CRLF on a full-width row makes Moebius/PabloDraw advance an extra line,
+        ' inserting a blank row between every line (the classic doubling).
+        ansOut = ansOut + CHR$(27) + "[0m"
     NEXT cy%
     ansOut = ansOut + CHR$(26) ' DOS EOF
     ANS_serialize_indexed$ = ansOut
@@ -354,7 +358,7 @@ END FUNCTION
 
 ''
 ' Serialize ANS_CELLS as a 24-bit truecolor .ans stream, run-length by RGB pair.
-' Reset + CRLF per row; trailing 0x1A EOF.
+' Reset per row (no CRLF — full-width rows auto-wrap); trailing 0x1A EOF.
 '
 FUNCTION ANS_serialize_rgb$
     DIM ansOut AS STRING
@@ -375,7 +379,11 @@ FUNCTION ANS_serialize_rgb$
             END IF
             ansOut = ansOut + CHR$(ANS_CELLS(cx%, cy%).ch)
         NEXT cx%
-        ansOut = ansOut + CHR$(27) + "[0m" + CHR$(13) + CHR$(10)
+        ' Reset attributes, but NO CRLF: every row is exactly the grid = SAUCE
+        ' width, so the viewer's auto-wrap already ends the line. An explicit
+        ' CRLF on a full-width row makes Moebius/PabloDraw advance an extra line,
+        ' inserting a blank row between every line (the classic doubling).
+        ansOut = ansOut + CHR$(27) + "[0m"
     NEXT cy%
     ansOut = ansOut + CHR$(26) ' DOS EOF
     ANS_serialize_rgb$ = ansOut
@@ -440,7 +448,7 @@ END FUNCTION
 
 ''
 ' Serialize ANS_CELLS as a 256-color .ans stream, run-length by index pair.
-' Reset + CRLF per row; trailing 0x1A EOF.
+' Reset per row (no CRLF — full-width rows auto-wrap); trailing 0x1A EOF.
 '
 FUNCTION ANS_serialize_256$
     DIM ansOut AS STRING
@@ -460,7 +468,11 @@ FUNCTION ANS_serialize_256$
             END IF
             ansOut = ansOut + CHR$(ANS_CELLS(cx%, cy%).ch)
         NEXT cx%
-        ansOut = ansOut + CHR$(27) + "[0m" + CHR$(13) + CHR$(10)
+        ' Reset attributes, but NO CRLF: every row is exactly the grid = SAUCE
+        ' width, so the viewer's auto-wrap already ends the line. An explicit
+        ' CRLF on a full-width row makes Moebius/PabloDraw advance an extra line,
+        ' inserting a blank row between every line (the classic doubling).
+        ansOut = ansOut + CHR$(27) + "[0m"
     NEXT cy%
     ansOut = ansOut + CHR$(26) ' DOS EOF
     ANS_serialize_256$ = ansOut
@@ -834,13 +846,77 @@ END FUNCTION
 FUNCTION ANS_thumb_from& (img AS LONG, tw AS INTEGER, th AS INTEGER)
     DIM t AS LONG, oldDest AS LONG
     IF tw < 1 OR th < 1 OR img = 0 OR img = -1 THEN EXIT FUNCTION
+    DIM iw AS INTEGER, ih AS INTEGER
+    iw% = _WIDTH(img): ih% = _HEIGHT(img)
+    IF iw% < 1 OR ih% < 1 THEN EXIT FUNCTION
     t& = _NEWIMAGE(tw, th, 32)
     IF t& = 0 OR t& = -1 THEN EXIT FUNCTION
     oldDest& = _DEST: _DEST t&: CLS , _RGB32(0, 0, 0): _DONTBLEND t&
-    _PUTIMAGE (0, 0)-(tw - 1, th - 1), img, t&
+    ' Fit img into tw x th PRESERVING ASPECT RATIO, centered (letterbox). A hard
+    ' stretch to fill wrecks any art whose aspect differs from the box — e.g. an
+    ' 80x506 ANSI colly crushed into a short-wide box aliases into pure noise.
+    DIM sc AS SINGLE
+    sc! = tw / iw%
+    IF th / ih% < sc! THEN sc! = th / ih%
+    DIM dw AS INTEGER, dh AS INTEGER
+    dw% = INT(iw% * sc!): IF dw% < 1 THEN dw% = 1
+    dh% = INT(ih% * sc!): IF dh% < 1 THEN dh% = 1
+    DIM dx AS INTEGER, dy AS INTEGER
+    dx% = (tw - dw%) \ 2: dy% = (th - dh%) \ 2
+    _PUTIMAGE (dx%, dy%)-(dx% + dw% - 1, dy% + dh% - 1), img, t&
     _BLEND t&: _DEST oldDest&
     ANS_thumb_from& = t&
 END FUNCTION
+
+''
+' Interactive preview viewport: render img into a fresh pw x ph buffer (caller
+' frees) at (fit-scale * zmul), offset by panX/panY from centered. zmul=1 shows
+' the whole art (fit); larger zooms in. Clipped to the buffer, so it is safe to
+' blit straight into a dialog's preview pane. Powers pan (drag) + zoom (wheel).
+'
+FUNCTION ANS_viewport& (img AS LONG, pw AS INTEGER, ph AS INTEGER, zmul AS SINGLE, panX AS INTEGER, panY AS INTEGER)
+    DIM t AS LONG, oldDest AS LONG
+    IF pw < 1 OR ph < 1 OR img = 0 OR img = -1 THEN EXIT FUNCTION
+    DIM iw AS INTEGER, ih AS INTEGER
+    iw% = _WIDTH(img): ih% = _HEIGHT(img)
+    IF iw% < 1 OR ih% < 1 THEN EXIT FUNCTION
+    t& = _NEWIMAGE(pw, ph, 32)
+    IF t& = 0 OR t& = -1 THEN EXIT FUNCTION
+    oldDest& = _DEST: _DEST t&: CLS , _RGB32(0, 0, 0): _DONTBLEND t&
+    DIM fit AS SINGLE : fit! = pw / iw%
+    IF ph / ih% < fit! THEN fit! = ph / ih%
+    DIM sc AS SINGLE : sc! = fit! * zmul
+    DIM dw AS INTEGER, dh AS INTEGER
+    dw% = INT(iw% * sc!): IF dw% < 1 THEN dw% = 1
+    dh% = INT(ih% * sc!): IF dh% < 1 THEN dh% = 1
+    DIM dx AS INTEGER, dy AS INTEGER
+    dx% = (pw - dw%) \ 2 + panX
+    dy% = (ph - dh%) \ 2 + panY
+    _PUTIMAGE (dx%, dy%)-(dx% + dw% - 1, dy% + dh% - 1), img, t&
+    _BLEND t&: _DEST oldDest&
+    ANS_viewport& = t&
+END FUNCTION
+
+''
+' Clamp panX/panY (BYREF) so a zoomed viewport can't be dragged fully off-pane.
+' When the scaled image fits a given axis, that axis locks to centered (pan 0).
+'
+SUB ANS_viewport_clamp (img AS LONG, pw AS INTEGER, ph AS INTEGER, zmul AS SINGLE, panX AS INTEGER, panY AS INTEGER)
+    IF img = 0 OR img = -1 THEN EXIT SUB
+    DIM iw AS INTEGER, ih AS INTEGER : iw% = _WIDTH(img): ih% = _HEIGHT(img)
+    IF iw% < 1 OR ih% < 1 THEN EXIT SUB
+    DIM fit AS SINGLE : fit! = pw / iw%
+    IF ph / ih% < fit! THEN fit! = ph / ih%
+    DIM sc AS SINGLE : sc! = fit! * zmul
+    DIM dw AS INTEGER, dh AS INTEGER : dw% = INT(iw% * sc!): dh% = INT(ih% * sc!)
+    DIM limX AS INTEGER, limY AS INTEGER
+    IF dw% > pw THEN limX% = (dw% - pw) \ 2 + 8 ELSE limX% = 0
+    IF dh% > ph THEN limY% = (dh% - ph) \ 2 + 8 ELSE limY% = 0
+    IF panX > limX% THEN panX = limX%
+    IF panX < -limX% THEN panX = -limX%
+    IF panY > limY% THEN panY = limY%
+    IF panY < -limY% THEN panY = -limY%
+END SUB
 
 ''
 ' Show the ANSI export options dialog. Returns TRUE if the user pressed OK.
@@ -852,7 +928,7 @@ FUNCTION ANSI_export_dialog%
     DIM tw AS INTEGER, th AS INTEGER
     DIM k AS LONG
     DIM btnW AS INTEGER, btnH AS INTEGER, btnY AS INTEGER, okX AS INTEGER, cxX AS INTEGER
-    DIM nativeImg AS LONG, oldDest AS LONG, srcImg AS LONG
+    DIM nativeImg AS LONG, srcImg AS LONG
     DIM selSrc AS INTEGER, selMode AS INTEGER, selCell AS INTEGER, selFont8 AS INTEGER, selCols AS INTEGER, i AS INTEGER
     DIM cols AS INTEGER, rows AS INTEGER, cellH AS INTEGER, cw AS INTEGER, ch AS INTEGER, stp AS INTEGER
     DIM autoC AS INTEGER, isAuto AS INTEGER, sizeInfo AS STRING, hasSel AS INTEGER
@@ -967,17 +1043,13 @@ FUNCTION ANSI_export_dialog%
             cellsDirty = 0: previewDirty = -1
         END IF
         IF previewDirty THEN
-            oldDest& = _DEST
             IF ctx.previewThumb < -1 THEN SAFE_FREEIMAGE ctx.previewThumb
             nativeImg& = ANS_render_cells_image&(selMode, selFont8, 8, 100, 1)
-            ctx.previewThumb = _NEWIMAGE(tw, th, 32)
-            _DEST ctx.previewThumb
-            CLS , _RGB32(0, 0, 0)
-            _DONTBLEND ctx.previewThumb
-            IF nativeImg& < -1 THEN _PUTIMAGE (0, 0)-(tw - 1, th - 1), nativeImg&, ctx.previewThumb
-            _BLEND ctx.previewThumb
+            ' Aspect-correct (letterbox) — same as the ORIG half. A raw stretch-to-
+            ' fill here squashed the converted preview whenever its proportions
+            ' differed from the pane (the export-side of the distortion bug).
+            ctx.previewThumb = ANS_thumb_from&(nativeImg&, tw, th)
             IF nativeImg& < -1 THEN SAFE_FREEIMAGE nativeImg&
-            _DEST oldDest&
             previewDirty = 0
         END IF
 
