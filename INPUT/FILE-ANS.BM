@@ -255,7 +255,10 @@ FUNCTION ANSI_import_dialog%
     DIM twoX AS INTEGER, twoW AS INTEGER, twoGap AS INTEGER, cbW AS INTEGER
     DIM mnX AS INTEGER, numX AS INTEGER, plX AS INTEGER, stW AS INTEGER
     DIM selCellW AS INTEGER, selAspect AS INTEGER, selScale AS INTEGER
-    DIM doFont AS INTEGER, doPal AS INTEGER, hasFont AS INTEGER, hasPal AS INTEGER, previewDirty AS INTEGER
+    DIM doFont AS INTEGER, doPal AS INTEGER, hasFont AS INTEGER, hasPal AS INTEGER
+    DIM sourceDirty AS INTEGER, viewDirty AS INTEGER
+    DIM selZoom AS SINGLE, panX AS INTEGER, panY AS INTEGER, inPane AS INTEGER
+    DIM dragging AS INTEGER, dragSX AS INTEGER, dragSY AS INTEGER, dragPX AS INTEGER, dragPY AS INTEGER
     DIM summary AS STRING, fontLbl AS STRING, palLbl AS STRING
 
     hasFont = (ANS_IMPORT_GLYPHS > 0): hasPal = (ANS_IMPORT_HASPAL <> 0)
@@ -283,7 +286,7 @@ FUNCTION ANSI_import_dialog%
     fontLbl = "Import font (" + LTRIM$(STR$(ANS_IMPORT_GLYPHS)) + " glyphs, " + LTRIM$(STR$(ANS_IMPORT_FONTH)) + "px)"
     palLbl = "Import palette (16 colors)"
 
-    previewDirty = -1
+    sourceDirty = -1: viewDirty = -1: selZoom! = 1.0: panX = 0: panY = 0
     DO
         DIALOG_poll_mouse ctx
         k& = _KEYHIT
@@ -292,17 +295,17 @@ FUNCTION ANSI_import_dialog%
 
         ' WIDTH 8/9px
         IF DIALOG_hit%(ctx, twoX, wY, twoW, 15) THEN
-            IF selCellW <> 8 THEN selCellW = 8: previewDirty = -1
+            IF selCellW <> 8 THEN selCellW = 8: sourceDirty = -1
         END IF
         IF DIALOG_hit%(ctx, twoX + twoGap, wY, twoW, 15) THEN
-            IF selCellW <> 9 THEN selCellW = 9: previewDirty = -1
+            IF selCellW <> 9 THEN selCellW = 9: sourceDirty = -1
         END IF
         ' ASPECT square/DOS
         IF DIALOG_hit%(ctx, twoX, aY, twoW, 15) THEN
-            IF selAspect <> 100 THEN selAspect = 100: previewDirty = -1
+            IF selAspect <> 100 THEN selAspect = 100: sourceDirty = -1
         END IF
         IF DIALOG_hit%(ctx, twoX + twoGap, aY, twoW, 15) THEN
-            IF selAspect <> 120 THEN selAspect = 120: previewDirty = -1
+            IF selAspect <> 120 THEN selAspect = 120: sourceDirty = -1
         END IF
         ' SCALE steppers 1..8
         IF DIALOG_hit%(ctx, mnX, scY, stW, 15) THEN selScale = selScale - 1: IF selScale < 1 THEN selScale = 1
@@ -314,14 +317,35 @@ FUNCTION ANSI_import_dialog%
         IF DIALOG_hit%(ctx, okX, btnY, btnW, btnH) THEN ctx.done = TRUE: ctx.result = TRUE
         IF DIALOG_hit%(ctx, cxX, btnY, btnW, btnH) THEN ctx.done = TRUE: ctx.result = FALSE
 
-        ' Re-render the preview (scale=1: the thumb normalises size; width/aspect
-        ' change proportions so they matter for the preview).
-        IF previewDirty THEN
-            IF ctx.origThumb < -1 THEN SAFE_FREEIMAGE ctx.origThumb
-            nativeImg& = ANS_render_cells_image&(ANS_MODE_RGB, ANS_IMPORT_FONT8X8, selCellW, selAspect, 1)
-            ctx.origThumb = ANS_thumb_from&(nativeImg&, tw, th)
+        ' --- Preview pan (left-drag) + zoom (wheel) over the preview pane ---
+        inPane% = (ctx.mx >= 1 AND ctx.mx < ctx.w - 1 AND ctx.my >= prevY AND ctx.my < prevY + ctx.prevH)
+        IF inPane% AND ctx.mwheel <> 0 THEN
+            IF ctx.mwheel < 0 THEN selZoom! = selZoom! * 1.25 ELSE selZoom! = selZoom! / 1.25
+            IF selZoom! < 1.0 THEN selZoom! = 1.0
+            IF selZoom! > 24.0 THEN selZoom! = 24.0
+            viewDirty = -1
+        END IF
+        IF inPane% AND ctx.mb1 THEN
+            IF NOT dragging% THEN dragging% = TRUE: dragSX% = ctx.mx: dragSY% = ctx.my: dragPX% = panX: dragPY% = panY
+            panX = dragPX% + (ctx.mx - dragSX%)
+            panY = dragPY% + (ctx.my - dragSY%)
+            viewDirty = -1
+        END IF
+        IF NOT ctx.mb1 THEN dragging% = FALSE
+
+        ' Regenerate the native raster only when the source (width/aspect) changes.
+        IF sourceDirty THEN
             IF nativeImg& < -1 THEN SAFE_FREEIMAGE nativeImg&
-            previewDirty = 0
+            nativeImg& = ANS_render_cells_image&(ANS_MODE_RGB, ANS_IMPORT_FONT8X8, selCellW, selAspect, 1)
+            panX = 0: panY = 0: selZoom! = 1.0   ' reset the view to fit on a new source
+            sourceDirty = 0: viewDirty = -1
+        END IF
+        ' Re-render the viewport (fit/zoom/pan) on any pan/zoom/source change.
+        IF viewDirty THEN
+            ANS_viewport_clamp nativeImg&, tw, th, selZoom!, panX, panY
+            IF ctx.origThumb < -1 THEN SAFE_FREEIMAGE ctx.origThumb
+            ctx.origThumb = ANS_viewport&(nativeImg&, tw, th, selZoom!, panX, panY)
+            viewDirty = 0
         END IF
 
         _DEST ctx.imgHandle
@@ -356,6 +380,7 @@ FUNCTION ANSI_import_dialog%
     ANS_IMPORT_DO_FONT = (ctx.result <> 0) AND (doFont <> 0)
     ANS_IMPORT_DO_PAL = (ctx.result <> 0) AND (doPal <> 0)
     ANSI_import_dialog% = ctx.result
+    IF nativeImg& < -1 THEN SAFE_FREEIMAGE nativeImg&
     DIALOG_cleanup ctx
 END FUNCTION
 

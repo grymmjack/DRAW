@@ -337,41 +337,113 @@ END SUB
 ' Show native input dialog for resize-image-with-content.
 ' Prompts user for WxH, parses the response, and calls CANVAS_resize_with_content.
 '
-SUB CANVAS_resize_with_content_dialog ()
-    DIM currentSize AS STRING
-    DIM response    AS STRING
-    DIM xPos        AS INTEGER
-    DIM newW        AS INTEGER, newH AS INTEGER
+''
+' Draw a click-to-edit numeric field (box + value) for the resize dialog.
+'
+SUB RESIZE_draw_field (ctx AS DIALOG_CTX, x AS INTEGER, y AS INTEGER, w AS INTEGER, h AS INTEGER, num AS INTEGER)
+    DIM hovered AS INTEGER
+    hovered% = (ctx.mx >= x AND ctx.mx <= x + w AND ctx.my >= y AND ctx.my <= y + h)
+    IF hovered% THEN
+        LINE (x, y)-(x + w, y + h), THEME.DIALOG_toggle_sel_bg~&, BF
+    ELSE
+        LINE (x, y)-(x + w, y + h), THEME.DIALOG_slider_track_bg~&, BF
+    END IF
+    LINE (x, y)-(x + w, y + h), THEME.DIALOG_slider_track_border~&, B
+    DIALOG_draw_label ctx, x + 6, y + (h - 12) \ 2 + 1, _TRIM$(STR$(num))
+END SUB
 
-    currentSize$ = _TRIM$(STR$(SCRN.canvasW&)) + "x" + _TRIM$(STR$(SCRN.canvasH&))
+''
+' Pop DRAW's text-input dialog to edit one dimension; returns the new value
+' (clamped 1..4096), or the current value on cancel/blank. Saves + restores the
+' caller's _DEST and drains the still-held click (the input box exits on down).
+'
+FUNCTION RESIZE_edit_value% (current AS INTEGER, lbl AS STRING)
+    DIM savedDest AS LONG : savedDest& = _DEST
+    DIM resp AS STRING
+    resp$ = DRAW_input_box_ex$("Resize - " + lbl, "Enter " + lbl + " (pixels):", _TRIM$(STR$(current)), "e.g. 320", -1)
+    DO WHILE _MOUSEBUTTON(1) OR _MOUSEBUTTON(2) OR _MOUSEBUTTON(3)
+        DO WHILE _MOUSEINPUT: LOOP
+        _LIMIT 60
+    LOOP
+    DO WHILE _MOUSEINPUT: LOOP
+    _KEYCLEAR
+    _DEST savedDest&
+    IF LEN(_TRIM$(resp$)) = 0 THEN RESIZE_edit_value% = current: EXIT FUNCTION
+    DIM v AS INTEGER : v% = VAL(resp$)
+    IF v% < 1 THEN v% = 1
+    IF v% > 4096 THEN v% = 4096
+    RESIZE_edit_value% = v%
+END FUNCTION
+
+''
+' IMAGE > Resize Image with Content. Width x Height fields (prepopulated with the
+' current canvas size) plus x2 / /2 buttons that scale both values; OK rescales
+' every layer's content to the new size (see CANVAS_resize_with_content).
+'
+SUB CANVAS_resize_with_content_dialog ()
+    DIM ctx  AS DIALOG_CTX
+    DIM newW AS INTEGER, newH AS INTEGER
+    DIM k    AS LONG
+    DIM wBoxX AS INTEGER, hBoxX AS INTEGER, boxY AS INTEGER, boxW AS INTEGER, boxH AS INTEGER
+    DIM x2X AS INTEGER, d2X AS INTEGER, mulW AS INTEGER
+    DIM btnW AS INTEGER, btnH AS INTEGER, btnY AS INTEGER, okX AS INTEGER, cxX AS INTEGER
+
+    newW% = SCRN.canvasW&
+    newH% = SCRN.canvasH&
 
     POINTER_hide_for_dialog
-    response$ = DRAW_input_box_ex$("Resize Image with Content", "Enter new size (WxH):", currentSize$, "e.g. 320x200", TRUE)
+    DIALOG_init ctx, 336, 150
+
+    boxY%  = THEME.DIALOG_title_height% + 14
+    boxH%  = 22 : boxW% = 80
+    wBoxX% = 16
+    hBoxX% = wBoxX% + boxW% + 20        ' gap holds the "x" separator
+    mulW%  = 42
+    x2X%   = hBoxX% + boxW% + 12
+    d2X%   = x2X% + mulW% + 8
+    btnW%  = 96 : btnH% = 22
+    btnY%  = ctx.h - btnH% - 12
+    okX%   = ctx.w - btnW% * 2 - 16
+    cxX%   = ctx.w - btnW% - 10
+
+    DO
+        DIALOG_poll_mouse ctx
+        k& = _KEYHIT
+        IF k& = 13 THEN ctx.done = TRUE: ctx.result = TRUE
+        IF k& = 27 THEN ctx.done = TRUE: ctx.result = FALSE
+
+        IF DIALOG_hit%(ctx, wBoxX%, boxY%, boxW%, boxH%) THEN newW% = RESIZE_edit_value%(newW%, "Width")
+        IF DIALOG_hit%(ctx, hBoxX%, boxY%, boxW%, boxH%) THEN newH% = RESIZE_edit_value%(newH%, "Height")
+        IF DIALOG_hit%(ctx, x2X%, boxY%, mulW%, boxH%) THEN
+            newW% = newW% * 2: IF newW% > 4096 THEN newW% = 4096
+            newH% = newH% * 2: IF newH% > 4096 THEN newH% = 4096
+        END IF
+        IF DIALOG_hit%(ctx, d2X%, boxY%, mulW%, boxH%) THEN
+            newW% = newW% \ 2: IF newW% < 1 THEN newW% = 1
+            newH% = newH% \ 2: IF newH% < 1 THEN newH% = 1
+        END IF
+        IF DIALOG_hit%(ctx, okX%, btnY%, btnW%, btnH%) THEN ctx.done = TRUE: ctx.result = TRUE
+        IF DIALOG_hit%(ctx, cxX%, btnY%, btnW%, btnH%) THEN ctx.done = TRUE: ctx.result = FALSE
+
+        _DEST ctx.imgHandle
+        DIALOG_draw_frame ctx, "RESIZE IMAGE WITH CONTENT"
+        RESIZE_draw_field ctx, wBoxX%, boxY%, boxW%, boxH%, newW%
+        DIALOG_draw_label ctx, hBoxX% - 14, boxY% + (boxH% - 12) \ 2 + 1, "x"
+        RESIZE_draw_field ctx, hBoxX%, boxY%, boxW%, boxH%, newH%
+        DIALOG_draw_button ctx, x2X%, boxY%, mulW%, boxH%, "x2", _RGB32(50, 55, 66), _RGB32(70, 78, 92), _RGB32(90, 100, 120)
+        DIALOG_draw_button ctx, d2X%, boxY%, mulW%, boxH%, "/2", _RGB32(50, 55, 66), _RGB32(70, 78, 92), _RGB32(90, 100, 120)
+        DIALOG_draw_label ctx, wBoxX%, boxY% + boxH% + 5, "Width"
+        DIALOG_draw_label ctx, hBoxX%, boxY% + boxH% + 5, "Height"
+        DIALOG_draw_button ctx, okX%, btnY%, btnW%, btnH%, "OK", _RGB32(40, 100, 40), _RGB32(60, 150, 60), _RGB32(80, 200, 80)
+        DIALOG_draw_button ctx, cxX%, btnY%, btnW%, btnH%, "CANCEL", _RGB32(100, 40, 40), _RGB32(150, 60, 60), _RGB32(200, 80, 80)
+        DIALOG_blit ctx
+    LOOP UNTIL ctx.done
+
     POINTER_show_after_dialog
     MOUSE_cleanup_after_dialog FALSE
 
-    IF LEN(response$) = 0 THEN EXIT SUB  ' User cancelled
-
-    DIM upper AS STRING
-    upper$ = UCASE$(response$)
-    xPos%  = INSTR(upper$, "X")
-    IF xPos% < 2 THEN
-        _LOGWARN "CANVAS_resize_with_content_dialog: Invalid format: " + response$
-        EXIT SUB
-    END IF
-
-    newW% = VAL(LEFT$(response$, xPos% - 1))
-    newH% = VAL(MID$(response$, xPos% + 1))
-
-    IF newW% < 1 OR newH% < 1 THEN
-        _LOGWARN "CANVAS_resize_with_content_dialog: Invalid dimensions: " + response$
-        EXIT SUB
-    END IF
-
-    IF newW% > 4096 THEN newW% = 4096
-    IF newH% > 4096 THEN newH% = 4096
-
-    CANVAS_resize_with_content newW%, newH%
+    IF ctx.result AND newW% >= 1 AND newH% >= 1 THEN CANVAS_resize_with_content newW%, newH%
+    DIALOG_cleanup ctx
 END SUB
 
 

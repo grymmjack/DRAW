@@ -53,6 +53,8 @@ TYPE FONT_ENTRY
     bitmapGlyphW      AS INTEGER      ' Glyph width for bitmap fonts (pixels)
     bitmapGlyphH      AS INTEGER      ' Glyph height for bitmap fonts (pixels)
     folderName        AS STRING * 64  ' Subfolder name ("AMIGA", "RETRO", etc.) or empty for root
+    glyphCount        AS INTEGER      ' Cached count of non-blank glyphs (for previews); -1 = not yet counted
+    glyphCounted      AS INTEGER      ' TRUE once glyphCount has been computed
 END TYPE
 
 ' Font list (populated by FONT_LIST_scan)

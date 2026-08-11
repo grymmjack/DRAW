@@ -75,6 +75,9 @@ TYPE CRASH_OBJ
     P_INCL        AS STRING  ' _INCLERRORFILE$
     P_ILINE       AS LONG    ' _INCLERRORLINE
     P_MSG         AS STRING  ' _ERRORMESSAGE$
+    ' --- Non-blocking on-screen notice (replaces the old blocking _MESSAGEBOX) ---
+    NOTIFY_UNTIL  AS DOUBLE  ' TIMER(.001) at which the crash banner self-dismisses; 0 = inactive
+    NOTIFY_MSG    AS STRING  ' Text shown in the banner
 END TYPE
 
 DIM SHARED CRASH AS CRASH_OBJ
@@ -105,6 +108,8 @@ CRASH.P_LINE       = 0
 CRASH.P_INCL       = ""
 CRASH.P_ILINE      = 0
 CRASH.P_MSG        = ""
+CRASH.NOTIFY_UNTIL = 0
+CRASH.NOTIFY_MSG   = ""
 
 ' Stamped at include time (a few statements into startup) so "Uptime" in the
 ' report means "how long had DRAW been running", not "since CRASH_init".

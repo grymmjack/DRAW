@@ -44,106 +44,34 @@ _WINDOWHANDLE works on all platforms.
   - [ ] If the popups don't fit on the screen, render as much as it can and use ... for telling user.
     - [ ] If popups don't fit in vertical space, use the same methods of scrolling/showing for the fonts that we already do for main menu, and mousehweel and arrowsa up/down, etc.
 
-## Add ANSI IMPORT/EXPORT SUPPORT
-- [ ] File -> Import ANSI | Export ANSI
-- [ ] Using IMG2ANS style export (~/git/IMG2ANS)
-  - [ ] Detect if EGA palette - automatically
-  - [ ] Detect if RGB palette - automatically
-  - [ ] Show preview in export dialog:
-    - [ ] Source image on left
-    - [ ] Exported ANSI on right
-  - [ ] Style (radio):
-    - [ ] 8x8 Half block (only one choice now)
-  - [ ] Mode (radio):
-    - [ ] 16 Colors
-    - [ ] iCE
-    - [ ] 256 Colors (xbin)
-    - [ ] RGB Colors (xterm)
-  - [ ] Width: ____ [auto]
-  - [ ] Height: ____ [auto]
-    - Both are encoded as SAUCE
-    - Including the font type
-- [ ] Using kaleidotron style IMPORT for ANSI render to image -> Import (same funciton as import image)
-
-## TDF Font Support — DONE
-
-- [x] Using what we learned in kaleidotron
-      (format mirrors Mike Krueger's `retrofont`, which kaleidotron's
-      `src/decode/tdf.rs` delegates to — see the verification note below)
-- [x] Actual Rendering of the TDF as pixels, edit, type, like a regular font.
-- [x] Include the 1000+ TDF fonts. (3757 unique faces shipped)
-- [x] For TDF Fonts allow rendered with antialias and allow downsize with
-      antialias so it can be resized in a way that doesn't lose information.
-
-Implementation: `GUI/TDF-FONT.BI/BM` (parser + CP437 rasteriser),
-`GUI/TDF-BROWSER.BI/BM` (picker). Menu: TOOLS > THEDRAW FONT...,
-command palette "Browse TheDraw Fonts", action **1530**.
-
-### Why it looks the way it does
-
-**A TDF glyph is a grid of CP437 character cells, not pixels.** Each letter is
-rasterised through the 8x16 VGA font, so it drops straight into DRAW's existing
-bitmap-font path — `TEXT_LAYER_measure_char%` / `TEXT_LAYER_draw_bitmap_char`
-needed one new branch each, no new pixel machinery. Colour faces carry per-cell
-VGA attributes and are flagged `isColorBitmapFont` so the existing blit passes
-their colours through untouched; block/outline faces tint with the paint colour.
-
-**Assets are deduplicated, not raw.** The wild corpus is 1238 files / 8621 faces
-/ 51 MB, of which **4864 faces are exact duplicates** (the same face repackaged
-across collection bundles) and 148 files contribute nothing new at all.
-`DEV/tdf-repack.py` hashes each face by content and repacks the survivors into
-three bundles totalling 21.9 MB, copying each face record **verbatim** so no
-glyph can drift:
-
-| bundle | faces | size |
-|--------|-------|------|
-| `ASSETS/FONTS/THEDRAW/COLOR.TDF`   | 3560 | 21.1 MB |
-| `ASSETS/FONTS/THEDRAW/BLOCK.TDF`   |  191 |  0.7 MB |
-| `ASSETS/FONTS/THEDRAW/OUTLINE.TDF` |    6 |   25 KB |
-
-**Each bundle has a `.TDX` sidecar index.** COLOR.TDF holds 3560 *variable
-length* records, so listing face names by walking the file means reading all
-21 MB every launch. The 111 KB index makes that a small read plus a `SEEK`.
-
-**The declared glyph width/height bytes lie.** Parts of the corpus declare sizes
-up to 244x223 cells — 1952x3568 px for a single character. Both the repacker and
-`TDF_decode_glyph%` measure the true extent by walking the glyph byte stream
-instead; real maximum is 55x41. `TDF_MAX_CELLS_W/H` clamp anything beyond.
-
-**Face names are not unique** (4419 collisions across the corpus, and even after
-content-deduplication one bundle holds three different faces called
-"BigOutline"), so identity is `TDF://<BUNDLE>/<face name>#<ordinal>` — the
-trailing ordinal is load-bearing, not decoration. Same key is used for the
-favourites file.
-
-**TheDraw faces are excluded from Character Mode and the Character Map.** Both
-are fixed CP437 cell grids; a TDF glyph spans many cells and reports metrics
-like 152x176 for one letter. Feeding those to the character map sized its cells
-at 152x176 and built a ~2400px panel that swamped the UI. TDF faces are flagged
-`isBitmapFont` only so the glyph *render* path is reused —
-`TEXT_BAR_char_mode_font_is_safe%` now rejects them, `CHARMAP_toggle` refuses
-while one is selected, and `CHARMAP_build_bitmap_cache` refuses any font
-reporting cells above `CHARMAP_MAX_CELL_W/H` as a backstop.
-
-### Verified, not just eyeballed
-
-`DEV/EXPERIMENTS/TDF-TEST.BAS` dumps decoded cell grids; those were diffed
-against the reference `retrofont` crate over **60 glyphs spanning all three face
-types — 0 mismatches**, including 14 where both agree a glyph is undefined. All
-3757 faces parse, 3729 decode an 'A', 0 allocate oversize.
-
-### Known limitation
-
-`.draw` files store a text layer's font as a raw `fontIdx` INTEGER
-(`TEXT_LAYER_serialize$`), and the deserialiser sniffs format by *length* rather
-than a version byte — so font identity cannot be added there without breaking
-every existing document. TDF faces are registered on demand, which would have
-made this worse than it is for TTFs, so used faces are recorded in
-`DRAW_TDF_FONTS.txt` (config dir) and re-registered *before* `FONT_LIST_sort` on
-the next launch. That gives them the same index stability as any other installed
-font. Properly fixing font identity in `.draw` needs a versioned text-layer
-record and is its own task.
-
+## Add ANSI IMPORT/EXPORT SUPPORT ✅ SHIPPED v1.9.0 (PR #96)
+- [x] File -> Import ANSI | Export ANSI
+- [x] Using IMG2ANS style export (~/git/IMG2ANS)
+  - [x] Detect if EGA palette - automatically  *(auto-detects mode; ANS_detect_palette)*
+  - [x] Detect if RGB palette - automatically
+  - [x] Show preview in export dialog:
+    - [x] Source image on left
+    - [x] Exported ANSI on right  *(live split preview)*
+  - [x] Style (radio):
+    - [x] 8x8 Half block (only one choice now)
+  - [x] Mode (radio):
+    - [x] 16 Colors
+    - [x] iCE
+    - [x] 256 Colors (xbin)
+    - [x] RGB Colors (xterm)
+  - [x] Width: ____ [auto]  *(SIZE columns stepper + [auto])*
+  - [x] Height: ____ [auto]  *(derived to preserve aspect)*
+    - [x] Both are encoded as SAUCE
+    - [x] Including the font type
+- [x] Using kaleidotron style IMPORT for ANSI render to image -> Import (same funciton as import image)
+- Shipped beyond the original spec:
+  - [x] Export SOURCE: flattened document / current layer / marquee selection
+  - [x] Export CELLS: per-pixel (max detail) vs 1:1 8px (round-trips terminal art); FONT VGA 8x16 / VGA50 8x8
+  - [x] Import binary formats: BIN, XBIN (.xb/.xbin — palette/font/RLE), TundraDraw (.tnd)
+  - [x] Import 256-color + 24-bit truecolor .ans; UTF-8 block/box art auto-detected -> CP437
+  - [x] Import options dialog: 8/9-dot cell width, DOS aspect, 1-8x scale
+  - [x] Install XBIN embedded font -> user bitmap fonts; custom palette -> user .GPL
+  - [x] CLI open (`./DRAW.run art.xb`); validated against kaleidotron
 
 ## Animation Support
 - [ ] TBD (this needs deep thought)
@@ -1233,3 +1161,85 @@ User will take the wireframe and do what they want, fill or not.
   - [x] Moved content leaves behind the background color
     - [x] Including if it's transparent background
   - [x] This will make it much easier and less time consuming to move stuff around
+
+
+
+## TDF Font Support — DONE
+
+- [x] Using what we learned in kaleidotron
+      (format mirrors Mike Krueger's `retrofont`, which kaleidotron's
+      `src/decode/tdf.rs` delegates to — see the verification note below)
+- [x] Actual Rendering of the TDF as pixels, edit, type, like a regular font.
+- [x] Include the 1000+ TDF fonts. (3757 unique faces shipped)
+- [x] For TDF Fonts allow rendered with antialias and allow downsize with
+      antialias so it can be resized in a way that doesn't lose information.
+
+Implementation: `GUI/TDF-FONT.BI/BM` (parser + CP437 rasteriser),
+`GUI/TDF-BROWSER.BI/BM` (picker). Menu: TOOLS > THEDRAW FONT...,
+command palette "Browse TheDraw Fonts", action **1530**.
+
+### Why it looks the way it does
+
+**A TDF glyph is a grid of CP437 character cells, not pixels.** Each letter is
+rasterised through the 8x16 VGA font, so it drops straight into DRAW's existing
+bitmap-font path — `TEXT_LAYER_measure_char%` / `TEXT_LAYER_draw_bitmap_char`
+needed one new branch each, no new pixel machinery. Colour faces carry per-cell
+VGA attributes and are flagged `isColorBitmapFont` so the existing blit passes
+their colours through untouched; block/outline faces tint with the paint colour.
+
+**Assets are deduplicated, not raw.** The wild corpus is 1238 files / 8621 faces
+/ 51 MB, of which **4864 faces are exact duplicates** (the same face repackaged
+across collection bundles) and 148 files contribute nothing new at all.
+`DEV/tdf-repack.py` hashes each face by content and repacks the survivors into
+three bundles totalling 21.9 MB, copying each face record **verbatim** so no
+glyph can drift:
+
+| bundle | faces | size |
+|--------|-------|------|
+| `ASSETS/FONTS/THEDRAW/COLOR.TDF`   | 3560 | 21.1 MB |
+| `ASSETS/FONTS/THEDRAW/BLOCK.TDF`   |  191 |  0.7 MB |
+| `ASSETS/FONTS/THEDRAW/OUTLINE.TDF` |    6 |   25 KB |
+
+**Each bundle has a `.TDX` sidecar index.** COLOR.TDF holds 3560 *variable
+length* records, so listing face names by walking the file means reading all
+21 MB every launch. The 111 KB index makes that a small read plus a `SEEK`.
+
+**The declared glyph width/height bytes lie.** Parts of the corpus declare sizes
+up to 244x223 cells — 1952x3568 px for a single character. Both the repacker and
+`TDF_decode_glyph%` measure the true extent by walking the glyph byte stream
+instead; real maximum is 55x41. `TDF_MAX_CELLS_W/H` clamp anything beyond.
+
+**Face names are not unique** (4419 collisions across the corpus, and even after
+content-deduplication one bundle holds three different faces called
+"BigOutline"), so identity is `TDF://<BUNDLE>/<face name>#<ordinal>` — the
+trailing ordinal is load-bearing, not decoration. Same key is used for the
+favourites file.
+
+**TheDraw faces are excluded from Character Mode and the Character Map.** Both
+are fixed CP437 cell grids; a TDF glyph spans many cells and reports metrics
+like 152x176 for one letter. Feeding those to the character map sized its cells
+at 152x176 and built a ~2400px panel that swamped the UI. TDF faces are flagged
+`isBitmapFont` only so the glyph *render* path is reused —
+`TEXT_BAR_char_mode_font_is_safe%` now rejects them, `CHARMAP_toggle` refuses
+while one is selected, and `CHARMAP_build_bitmap_cache` refuses any font
+reporting cells above `CHARMAP_MAX_CELL_W/H` as a backstop.
+
+### Verified, not just eyeballed
+
+`DEV/EXPERIMENTS/TDF-TEST.BAS` dumps decoded cell grids; those were diffed
+against the reference `retrofont` crate over **60 glyphs spanning all three face
+types — 0 mismatches**, including 14 where both agree a glyph is undefined. All
+3757 faces parse, 3729 decode an 'A', 0 allocate oversize.
+
+### Known limitation
+
+`.draw` files store a text layer's font as a raw `fontIdx` INTEGER
+(`TEXT_LAYER_serialize$`), and the deserialiser sniffs format by *length* rather
+than a version byte — so font identity cannot be added there without breaking
+every existing document. TDF faces are registered on demand, which would have
+made this worse than it is for TTFs, so used faces are recorded in
+`DRAW_TDF_FONTS.txt` (config dir) and re-registered *before* `FONT_LIST_sort` on
+the next launch. That gives them the same index stability as any other installed
+font. Properly fixing font identity in `.draw` needs a versioned text-layer
+record and is its own task.
+

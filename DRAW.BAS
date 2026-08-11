@@ -545,6 +545,7 @@ DO
     END IF
     IF GUI_NEEDS_REDRAW% THEN FRAME_IDLE% = FALSE   ' GUI-only updates should stay on the cached-scene path unless something else dirtied the scene
     IF STATUS_NEEDS_REDRAW% THEN FRAME_IDLE% = FALSE
+    IF CRASH.NOTIFY_UNTIL# > 0 THEN FRAME_IDLE% = FALSE   ' Crash banner up — keep painting so it shows and can self-dismiss
     IF modifiersChanged% THEN FRAME_IDLE% = FALSE: SCENE_CHANGED% = TRUE   ' Modifier overlays affect cached scene and must repaint on press/release
     IF SCRN.panning% THEN FRAME_IDLE% = FALSE                             ' Panning active — only dirty scene when mouse moves
     IF SCRN.panning% AND mouseMoved% THEN SCENE_CHANGED% = TRUE
@@ -873,6 +874,12 @@ SUB MAIN_shutdown ()
     IF SCRN.CANVAS& < -1 THEN _FREEIMAGE SCRN.CANVAS&
     IF SCRN.PAINTING& < -1 THEN _FREEIMAGE SCRN.PAINTING&
     IF SCRN.GUI& < -1 THEN _FREEIMAGE SCRN.GUI&
+    ' Font / glyph image caches (each holds _NEWIMAGE / _LOADIMAGE handles)
+    FONT_PREVIEW_free_cache   ' cached font-preview strip images
+    TDF_free_cache            ' TheDraw (.TDF) rasterised glyph blocks
+    CBF_free_cache            ' colour bitmap font (DPaint .BMP) sheets
+    FONT_LIST_free_cache      ' cached _LOADFONT handles (size+style)
+    CHARMAP_free_cache        ' character-map glyph cache
     ' SCRN.CURSOR& no longer allocated — cursors draw directly onto SCRN.CANVAS&
 
     ' =====================================================================
