@@ -1,0 +1,31 @@
+$INCLUDEONCE
+'==============================================================================
+' KIT.BI - DRAW KITS core: shareable-asset types, manifest model, item list.
+' Dialogs live in GUI/; the ZIP container is TOOLS/KIT-ZIP.BI/BM.
+'==============================================================================
+
+' Shareable asset types (index into per-type tables; keep in sync with KIT_type_key$).
+CONST KIT_TYPE_THEME       = 0
+CONST KIT_TYPE_PATTERN     = 1
+CONST KIT_TYPE_GRADIENT    = 2
+CONST KIT_TYPE_BRUSH       = 3
+CONST KIT_TYPE_PALETTE     = 4
+CONST KIT_TYPE_FONT_BITMAP = 5
+CONST KIT_TYPE_FONT_TTF    = 6
+CONST KIT_TYPE_TEXTSTYLE   = 7
+CONST KIT_TYPE_TEMPLATE    = 8
+CONST KIT_TYPE_COUNT       = 9
+
+' Kit-level metadata. NOTE: `name` is a QB64 reserved word, hence the kit* prefix.
+TYPE KIT_MANIFEST
+    kitName   AS STRING
+    kitDesc   AS STRING
+    kitAuthor AS STRING
+    kitShot   AS STRING ' screenshot filename inside the kit ("" = none)
+END TYPE
+
+' The kit's contents as parallel arrays (type + item identity), filled by the
+' export picker or by parsing an installed kit's manifest.
+REDIM SHARED KIT_ITEM_TYPE(0) AS INTEGER ' KIT_TYPE_*
+REDIM SHARED KIT_ITEM_NAME(0) AS STRING  ' item identity (theme name, palette base, font filename, ...)
+DIM SHARED KIT_ITEM_COUNT% ' number of valid entries in the arrays above
