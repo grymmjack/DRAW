@@ -222,6 +222,8 @@ SUB IMPORT_ansi ()
     END IF
 
     IF ANSI_import_dialog% THEN
+        ' REGION mode: crop the parsed grid to the boxed cell rect before building.
+        IF ANS_IMP_RGN_ON THEN ANS_crop_cells_to_region ANS_IMP_RGN_C0, ANS_IMP_RGN_R0, ANS_IMP_RGN_C1, ANS_IMP_RGN_R1
         SELECT CASE ANS_IMP_TARGET
             CASE ANS_TARGET_LAYER
                 ANS_build_layer ANS_IMPORT_FONT8X8
@@ -270,6 +272,16 @@ FUNCTION ANSI_import_dialog%
     DIM selZoom AS SINGLE, panX AS INTEGER, panY AS INTEGER, inPane AS INTEGER
     DIM dragging AS INTEGER, dragSX AS INTEGER, dragSY AS INTEGER, dragPX AS INTEGER, dragPY AS INTEGER
     DIM summary AS STRING, fontLbl AS STRING, palLbl AS STRING
+    ' REGION mode: box a char-cell rectangle in the preview to import just that part
+    DIM rgnMode AS INTEGER, rgnHas AS INTEGER, rgnDrag AS INTEGER
+    DIM rgnC0 AS INTEGER, rgnR0 AS INTEGER, rgnC1 AS INTEGER, rgnR1 AS INTEGER
+    DIM rgX AS INTEGER, rgW AS INTEGER
+    DIM viw AS INTEGER, vih AS INTEGER, vfit AS SINGLE, vsc AS SINGLE
+    DIM vdw AS INTEGER, vdh AS INTEGER, vdx AS INTEGER, vdy AS INTEGER
+    DIM px AS INTEGER, py AS INTEGER, ncols AS INTEGER, nrows AS INTEGER
+    DIM rgnLbl AS STRING
+    DIM qc0 AS INTEGER, qr0 AS INTEGER, qc1 AS INTEGER, qr1 AS INTEGER
+    DIM ex0 AS INTEGER, ey0 AS INTEGER, ex1 AS INTEGER, ey1 AS INTEGER
 
     hasFont = (ANS_IMPORT_GLYPHS > 0): hasPal = (ANS_IMPORT_HASPAL <> 0)
     doFont = hasFont: doPal = hasPal
@@ -292,6 +304,7 @@ FUNCTION ANSI_import_dialog%
     tg1X = 62: tgW = 84: tg2X = tg1X + tgW + 5: tg3X = tg2X + tgW + 5
     twoX = 62: twoW = 60: twoGap = 64
     mnX = 62: stW = 18: numX = mnX + stW + 8: plX = numX + 34
+    rgX = 150: rgW = ctx.w - rgX - 8      ' REGION toggle shares the SCALE row
     cbW = ctx.w - 20
     btnW = 96: btnH = 22
     btnY = ctx.h - btnH - 12
@@ -326,6 +339,11 @@ FUNCTION ANSI_import_dialog%
         ' SCALE steppers 1..8
         IF DIALOG_hit%(ctx, mnX, scY, stW, 15) THEN selScale = selScale - 1: IF selScale < 1 THEN selScale = 1
         IF DIALOG_hit%(ctx, plX, scY, stW, 15) THEN selScale = selScale + 1: IF selScale > 8 THEN selScale = 8
+        ' REGION mode toggle: left-drag in the preview boxes a char-cell rectangle
+        IF DIALOG_hit%(ctx, rgX, scY, rgW, 15) THEN
+            rgnMode = NOT rgnMode
+            IF NOT rgnMode THEN rgnHas = 0   ' leaving REGION imports the whole art
+        END IF
         ' Asset checkboxes
         IF hasFont AND DIALOG_hit%(ctx, 10, fontY, cbW, 15) THEN doFont = NOT doFont
         IF hasPal AND DIALOG_hit%(ctx, 10, palY, cbW, 15) THEN doPal = NOT doPal
@@ -345,13 +363,30 @@ FUNCTION ANSI_import_dialog%
             IF selZoom! > 24.0 THEN selZoom! = 24.0
             viewDirty = -1
         END IF
-        IF inPane% AND ctx.mb1 THEN
+        IF inPane% AND ctx.mb1 AND rgnMode AND nativeImg& < -1 THEN
+            ' REGION mode: map the cursor to a char cell via the same transform
+            ' ANS_viewport& uses, so the box locks to the ANSI's character grid.
+            px = ctx.mx - 1: py = ctx.my - prevY
+            viw = _WIDTH(nativeImg&): vih = _HEIGHT(nativeImg&)
+            vfit! = tw / viw: IF th / vih < vfit! THEN vfit! = th / vih
+            vsc! = vfit! * selZoom!
+            vdw = INT(viw * vsc!): vdh = INT(vih * vsc!)
+            vdx = (tw - vdw) \ 2 + panX: vdy = (th - vdh) \ 2 + panY
+            ncols = INT((px - vdx) / vsc! * ANS_GRID_COLS / viw)
+            nrows = INT((py - vdy) / vsc! * ANS_GRID_ROWS / vih)
+            IF ncols < 0 THEN ncols = 0
+            IF ncols > ANS_GRID_COLS - 1 THEN ncols = ANS_GRID_COLS - 1
+            IF nrows < 0 THEN nrows = 0
+            IF nrows > ANS_GRID_ROWS - 1 THEN nrows = ANS_GRID_ROWS - 1
+            IF NOT rgnDrag THEN rgnDrag = TRUE: rgnC0 = ncols: rgnR0 = nrows
+            rgnC1 = ncols: rgnR1 = nrows: rgnHas = TRUE
+        ELSEIF inPane% AND ctx.mb1 AND NOT rgnMode THEN
             IF NOT dragging% THEN dragging% = TRUE: dragSX% = ctx.mx: dragSY% = ctx.my: dragPX% = panX: dragPY% = panY
             panX = dragPX% + (ctx.mx - dragSX%)
             panY = dragPY% + (ctx.my - dragSY%)
             viewDirty = -1
         END IF
-        IF NOT ctx.mb1 THEN dragging% = FALSE
+        IF NOT ctx.mb1 THEN dragging% = FALSE: rgnDrag = FALSE
 
         ' Regenerate the native raster only when the source (width/aspect) changes.
         IF sourceDirty THEN
@@ -376,6 +411,29 @@ FUNCTION ANSI_import_dialog%
             _PUTIMAGE (1, prevY)-(ctx.w - 2, prevY + ctx.prevH - 1), ctx.origThumb, ctx.imgHandle
             _BLEND ctx.imgHandle
         END IF
+        ' REGION overlay: forward-map the boxed cell rect back to pane pixels.
+        IF rgnMode AND rgnHas AND nativeImg& < -1 THEN
+            viw = _WIDTH(nativeImg&): vih = _HEIGHT(nativeImg&)
+            vfit! = tw / viw: IF th / vih < vfit! THEN vfit! = th / vih
+            vsc! = vfit! * selZoom!
+            vdw = INT(viw * vsc!): vdh = INT(vih * vsc!)
+            vdx = (tw - vdw) \ 2 + panX: vdy = (th - vdh) \ 2 + panY
+            qc0 = rgnC0: qc1 = rgnC1: IF qc1 < qc0 THEN SWAP qc0, qc1
+            qr0 = rgnR0: qr1 = rgnR1: IF qr1 < qr0 THEN SWAP qr0, qr1
+            ex0 = 1 + vdx + INT(qc0 * (viw / ANS_GRID_COLS) * vsc!)
+            ex1 = 1 + vdx + INT((qc1 + 1) * (viw / ANS_GRID_COLS) * vsc!)
+            ey0 = prevY + vdy + INT(qr0 * (vih / ANS_GRID_ROWS) * vsc!)
+            ey1 = prevY + vdy + INT((qr1 + 1) * (vih / ANS_GRID_ROWS) * vsc!)
+            IF ex0 < 1 THEN ex0 = 1
+            IF ey0 < prevY THEN ey0 = prevY
+            IF ex1 > ctx.w - 2 THEN ex1 = ctx.w - 2
+            IF ey1 > prevY + ctx.prevH - 1 THEN ey1 = prevY + ctx.prevH - 1
+            LINE (ex0 - 1, ey0 - 1)-(ex1 + 1, ey1 + 1), _RGB32(0, 0, 0), B
+            LINE (ex0, ey0)-(ex1, ey1), _RGB32(255, 230, 90), B
+            rgnLbl = LTRIM$(STR$(qc1 - qc0 + 1)) + " x " + LTRIM$(STR$(qr1 - qr0 + 1)) + " chars"
+            COLOR _RGB32(255, 230, 90)
+            _UPRINTSTRING (6, prevY + ctx.prevH - 12), rgnLbl
+        END IF
         DIALOG_draw_label ctx, 10, infoY, summary
         DIALOG_draw_label ctx, 8, wY + 1, "WIDTH:"
         DIALOG_draw_toggle ctx, twoX, wY, twoW, 15, "8 PX", (selCellW = 8)
@@ -387,6 +445,7 @@ FUNCTION ANSI_import_dialog%
         DIALOG_draw_button ctx, mnX, scY, stW, 15, "-", _RGB32(50, 55, 66), _RGB32(70, 78, 92), _RGB32(90, 100, 120)
         DIALOG_draw_label ctx, numX, scY + 1, LTRIM$(STR$(selScale)) + "x"
         DIALOG_draw_button ctx, plX, scY, stW, 15, "+", _RGB32(50, 55, 66), _RGB32(70, 78, 92), _RGB32(90, 100, 120)
+        DIALOG_draw_toggle ctx, rgX, scY, rgW, 15, "REGION", rgnMode
         IF hasFont THEN DIALOG_draw_toggle ctx, 10, fontY, cbW, 15, fontLbl, doFont
         IF hasPal THEN DIALOG_draw_toggle ctx, 10, palY, cbW, 15, palLbl, doPal
         ' Target radio + a one-line hint (warns that DOCUMENT replaces everything)
@@ -412,6 +471,11 @@ FUNCTION ANSI_import_dialog%
     IF ctx.result THEN
         ANS_IMP_CELLW = selCellW: ANS_IMP_ASPECT = selAspect: ANS_IMP_SCALE = selScale
         ANS_IMP_TARGET = selTarget
+        ANS_IMP_RGN_ON = (rgnMode <> 0) AND (rgnHas <> 0)
+        IF ANS_IMP_RGN_ON THEN
+            ANS_IMP_RGN_C0 = rgnC0: ANS_IMP_RGN_R0 = rgnR0
+            ANS_IMP_RGN_C1 = rgnC1: ANS_IMP_RGN_R1 = rgnR1
+        END IF
     END IF
     ANS_IMPORT_DO_FONT = (ctx.result <> 0) AND (doFont <> 0)
     ANS_IMPORT_DO_PAL = (ctx.result <> 0) AND (doPal <> 0)
@@ -448,6 +512,41 @@ SUB ANS_build_document (font8x8 AS INTEGER)
     CANVAS_DIRTY% = TRUE
     SCENE_DIRTY% = TRUE
     GUI_NEEDS_REDRAW% = TRUE
+END SUB
+
+''
+' Crop the parsed ANS_CELLS grid to a char-cell rectangle (inclusive), shrinking
+' ANS_GRID_COLS/ROWS to match. Coords are clamped and order-normalized. A no-op
+' when the rect already covers the whole grid. Used by REGION-mode import to bring
+' in only the part of the art the user boxed in the preview.
+'
+SUB ANS_crop_cells_to_region (c0 AS INTEGER, r0 AS INTEGER, c1 AS INTEGER, r1 AS INTEGER)
+    DIM a0 AS INTEGER, b0 AS INTEGER, a1 AS INTEGER, b1 AS INTEGER
+    DIM nc AS INTEGER, nr AS INTEGER, cc AS INTEGER, rr AS INTEGER
+    IF ANS_GRID_COLS <= 0 OR ANS_GRID_ROWS <= 0 THEN EXIT SUB
+    a0 = c0: a1 = c1: IF a1 < a0 THEN SWAP a0, a1
+    b0 = r0: b1 = r1: IF b1 < b0 THEN SWAP b0, b1
+    IF a0 < 0 THEN a0 = 0
+    IF b0 < 0 THEN b0 = 0
+    IF a1 > ANS_GRID_COLS - 1 THEN a1 = ANS_GRID_COLS - 1
+    IF b1 > ANS_GRID_ROWS - 1 THEN b1 = ANS_GRID_ROWS - 1
+    nc = a1 - a0 + 1: nr = b1 - b0 + 1
+    IF nc < 1 OR nr < 1 THEN EXIT SUB
+    IF nc = ANS_GRID_COLS AND nr = ANS_GRID_ROWS THEN EXIT SUB   ' whole grid — nothing to crop
+
+    REDIM tmp(0 TO nc - 1, 0 TO nr - 1) AS ANS_CELL
+    FOR rr = 0 TO nr - 1
+        FOR cc = 0 TO nc - 1
+            tmp(cc, rr) = ANS_CELLS(a0 + cc, b0 + rr)
+        NEXT cc
+    NEXT rr
+    REDIM ANS_CELLS(0 TO nc - 1, 0 TO nr - 1) AS ANS_CELL
+    FOR rr = 0 TO nr - 1
+        FOR cc = 0 TO nc - 1
+            ANS_CELLS(cc, rr) = tmp(cc, rr)
+        NEXT cc
+    NEXT rr
+    ANS_GRID_COLS = nc: ANS_GRID_ROWS = nr
 END SUB
 
 ''

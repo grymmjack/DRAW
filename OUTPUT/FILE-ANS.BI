@@ -128,6 +128,14 @@ CONST ANS_TARGET_DOC   = 0 ' replace the whole document with a new canvas
 CONST ANS_TARGET_LAYER = 1 ' add the art as a new layer on the current document
 CONST ANS_TARGET_SEL   = 2 ' fit the art into the active selection (like an image import)
 
+' Optional source region — import only a char-cell rectangle of the parsed art.
+' Set by the import dialog's REGION mode; applied by ANS_crop_cells_to_region.
+DIM SHARED ANS_IMP_RGN_ON AS INTEGER ' TRUE = crop to the cell rect below
+DIM SHARED ANS_IMP_RGN_C0 AS INTEGER ' left column   (0-based, inclusive)
+DIM SHARED ANS_IMP_RGN_R0 AS INTEGER ' top row       (0-based, inclusive)
+DIM SHARED ANS_IMP_RGN_C1 AS INTEGER ' right column  (0-based, inclusive)
+DIM SHARED ANS_IMP_RGN_R1 AS INTEGER ' bottom row    (0-based, inclusive)
+
 ' Initialize the shared tables/settings (called from DRAW.BAS init chain).
 ANS_export_settings_defaults
 ANS_palette_init
