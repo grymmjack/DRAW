@@ -1,0 +1,220 @@
+$INCLUDEONCE
+'==============================================================================
+' KIT-RESOLVE.BM - DRAW KITS asset resolver.
+'
+' Maps each KIT_TYPE_* to its on-disk story: where the user's items live, the
+' kit-archive subfolder, whether an item is a file or a folder, how to enumerate
+' the user's items (for the export picker), and how to refresh the in-app list
+' after install. Export/install logic (later tasks) builds on these.
+'
+' Storage (per the asset audit):
+'   Theme      folder  ./ASSETS/THEMES/<name>/                     (only location)
+'   Pattern    .dset   PATHS_DATA_DIR$/DRAWER-SETS/ (mode byte = 2)
+'   Gradient   .dset   PATHS_DATA_DIR$/DRAWER-SETS/ (mode byte = 3)
+'   Brush      .dset   PATHS_DATA_DIR$/DRAWER-SETS/ (mode byte = 1)
+'   Palette    .GPL    PATHS_DATA_DIR$/PALETTES/
+'   Font(bmp)  files   PATHS_DATA_DIR$/FONTS/       (.psf .bdf .pcf .fon .bmp .Fnn)
+'   Font(ttf)  files   PATHS_DATA_DIR$/FONTS/       (.ttf .otf .ttc)
+'   Textstyle  records PATHS_DATA_DIR$/DRAW_TEXT_STYLES.dstyle (merged file)
+'   Template   images  CFG.TEMPLATE_DIR$ (default ASSETS/TEMPLATES)
+'==============================================================================
+
+'-- Per-type descriptors ------------------------------------------------------
+FUNCTION KIT_type_is_folder% (ty AS INTEGER)
+    KIT_type_is_folder% = (ty = KIT_TYPE_THEME)
+END FUNCTION
+
+' Subfolder used inside the kit archive for this type.
+FUNCTION KIT_type_zip_prefix$ (ty AS INTEGER)
+    SELECT CASE ty
+        CASE KIT_TYPE_THEME:       KIT_type_zip_prefix$ = "themes/"
+        CASE KIT_TYPE_PATTERN:     KIT_type_zip_prefix$ = "patterns/"
+        CASE KIT_TYPE_GRADIENT:    KIT_type_zip_prefix$ = "gradients/"
+        CASE KIT_TYPE_BRUSH:       KIT_type_zip_prefix$ = "brushes/"
+        CASE KIT_TYPE_PALETTE:     KIT_type_zip_prefix$ = "palettes/"
+        CASE KIT_TYPE_FONT_BITMAP: KIT_type_zip_prefix$ = "fonts-bitmap/"
+        CASE KIT_TYPE_FONT_TTF:    KIT_type_zip_prefix$ = "fonts-ttf/"
+        CASE KIT_TYPE_TEXTSTYLE:   KIT_type_zip_prefix$ = "textstyles/"
+        CASE KIT_TYPE_TEMPLATE:    KIT_type_zip_prefix$ = "templates/"
+        CASE ELSE:                 KIT_type_zip_prefix$ = "misc/"
+    END SELECT
+END FUNCTION
+
+' Template directory (normalized with trailing separator).
+FUNCTION KIT_template_dir$
+    DIM d AS STRING
+    d = CFG.TEMPLATE_DIR$
+    IF d = "" THEN d = "ASSETS/TEMPLATES"
+    IF RIGHT$(d, 1) <> "/" AND RIGHT$(d, 1) <> "\" THEN d = d + "/"
+    KIT_template_dir$ = d
+END FUNCTION
+
+' Source AND install base directory for a type (trailing separator).
+FUNCTION KIT_user_dir$ (ty AS INTEGER)
+    SELECT CASE ty
+        CASE KIT_TYPE_THEME:       KIT_user_dir$ = "./ASSETS/THEMES/"
+        CASE KIT_TYPE_PATTERN, KIT_TYPE_GRADIENT, KIT_TYPE_BRUSH: KIT_user_dir$ = PATHS_data$("DRAWER-SETS/")
+        CASE KIT_TYPE_PALETTE:     KIT_user_dir$ = PATHS_data$("PALETTES/")
+        CASE KIT_TYPE_FONT_BITMAP, KIT_TYPE_FONT_TTF: KIT_user_dir$ = PATHS_data$("FONTS/")
+        CASE KIT_TYPE_TEXTSTYLE:   KIT_user_dir$ = PATHS_DATA_DIR$ ' the .dstyle sits directly here
+        CASE KIT_TYPE_TEMPLATE:    KIT_user_dir$ = KIT_template_dir$
+        CASE ELSE:                 KIT_user_dir$ = ""
+    END SELECT
+END FUNCTION
+
+' DRAWER mode byte (1/2/3) a given dset KIT type maps to.
+FUNCTION KIT_dset_wanted_mode% (ty AS INTEGER)
+    SELECT CASE ty
+        CASE KIT_TYPE_BRUSH:    KIT_dset_wanted_mode% = 1
+        CASE KIT_TYPE_PATTERN:  KIT_dset_wanted_mode% = 2
+        CASE KIT_TYPE_GRADIENT: KIT_dset_wanted_mode% = 3
+        CASE ELSE:              KIT_dset_wanted_mode% = 0
+    END SELECT
+END FUNCTION
+
+'-- Filename helpers ----------------------------------------------------------
+FUNCTION KIT_file_ext$ (fn AS STRING)
+    DIM i AS LONG
+    FOR i = LEN(fn) TO 1 STEP -1
+        IF ASC(fn, i) = 46 THEN KIT_file_ext$ = MID$(fn, i + 1): EXIT FUNCTION
+        IF ASC(fn, i) = 47 OR ASC(fn, i) = 92 THEN EXIT FOR
+    NEXT
+    KIT_file_ext$ = ""
+END FUNCTION
+
+FUNCTION KIT_strip_ext$ (fn AS STRING)
+    DIM i AS LONG
+    FOR i = LEN(fn) TO 1 STEP -1
+        IF ASC(fn, i) = 46 THEN KIT_strip_ext$ = LEFT$(fn, i - 1): EXIT FUNCTION
+        IF ASC(fn, i) = 47 OR ASC(fn, i) = 92 THEN EXIT FOR
+    NEXT
+    KIT_strip_ext$ = fn
+END FUNCTION
+
+FUNCTION KIT_ext_is_vectorfont% (e AS STRING)
+    DIM x AS STRING: x = LCASE$(e)
+    KIT_ext_is_vectorfont% = (x = "ttf" OR x = "otf" OR x = "ttc")
+END FUNCTION
+
+FUNCTION KIT_ext_is_bitmapfont% (e AS STRING)
+    DIM x AS STRING: x = LCASE$(e)
+    IF x = "psf" OR x = "bdf" OR x = "pcf" OR x = "fon" OR x = "bmp" THEN KIT_ext_is_bitmapfont% = TRUE: EXIT FUNCTION
+    ' .Fnn family (f06/f08/f12/f14/f16/f19/f24/f32)
+    IF LEN(x) = 3 THEN
+        IF LEFT$(x, 1) = "f" AND ASC(x, 2) >= 48 AND ASC(x, 2) <= 57 AND ASC(x, 3) >= 48 AND ASC(x, 3) <= 57 THEN KIT_ext_is_bitmapfont% = TRUE
+    END IF
+END FUNCTION
+
+FUNCTION KIT_ext_is_template% (e AS STRING)
+    DIM x AS STRING: x = LCASE$(e)
+    SELECT CASE x
+        CASE "draw", "png", "bmp", "jpg", "jpeg", "gif", "psd", "tga", "qoi", "hdr": KIT_ext_is_template% = TRUE
+    END SELECT
+END FUNCTION
+
+' Peek a .dset header's mode byte (1 brush / 2 pattern / 3 gradient), 0 if invalid.
+FUNCTION KIT_dset_mode% (pth AS STRING)
+    KIT_dset_mode% = 0
+    IF NOT _FILEEXISTS(pth) THEN EXIT FUNCTION
+    DIM fh AS INTEGER, magic AS STRING * 4, ver AS INTEGER, md AS INTEGER
+    fh = FREEFILE
+    OPEN pth FOR BINARY AS #fh
+    GET #fh, , magic
+    GET #fh, , ver
+    GET #fh, , md
+    CLOSE #fh
+    IF magic <> "DST1" THEN EXIT FUNCTION
+    KIT_dset_mode% = md
+END FUNCTION
+
+'-- Directory drain + enumeration ---------------------------------------------
+' Sweep one directory's entries into KIT_DRAIN_NAME(). Runs a single _FILES$
+' sweep with no other _FILES$ users interleaved (peeks/adds happen afterward).
+SUB KIT_drain (dirp AS STRING)
+    KIT_DRAIN_COUNT% = 0
+    REDIM KIT_DRAIN_NAME(0) AS STRING
+    IF NOT _DIREXISTS(dirp) THEN EXIT SUB
+    DIM entry AS STRING
+    entry = _FILES$(dirp)
+    DO WHILE entry <> ""
+        IF entry <> "." AND entry <> ".." THEN
+            REDIM _PRESERVE KIT_DRAIN_NAME(0 TO KIT_DRAIN_COUNT%) AS STRING
+            KIT_DRAIN_NAME(KIT_DRAIN_COUNT%) = entry
+            KIT_DRAIN_COUNT% = KIT_DRAIN_COUNT% + 1
+        END IF
+        entry = _FILES$
+    LOOP
+END SUB
+
+SUB KIT_enum_add (nm AS STRING)
+    REDIM _PRESERVE KIT_ENUM_NAME(0 TO KIT_ENUM_COUNT%) AS STRING
+    KIT_ENUM_NAME(KIT_ENUM_COUNT%) = nm
+    KIT_ENUM_COUNT% = KIT_ENUM_COUNT% + 1
+END SUB
+
+' Fill KIT_ENUM_NAME()/KIT_ENUM_COUNT% with the user's items of type ty.
+' Item identity: theme -> folder name; palette/dset -> base name (no ext);
+' font/template -> filename (with ext); text style -> style name.
+SUB KIT_enumerate (ty AS INTEGER)
+    KIT_ENUM_COUNT% = 0
+    REDIM KIT_ENUM_NAME(0) AS STRING
+    DIM i AS INTEGER, dirp AS STRING, wm AS INTEGER
+
+    IF ty = KIT_TYPE_TEXTSTYLE THEN
+        FOR i = 1 TO TEXT_STYLE_MAX
+            IF TEXT_STYLES(i).used THEN KIT_enum_add _TRIM$(TEXT_STYLES(i).name)
+        NEXT
+        EXIT SUB
+    END IF
+
+    dirp = KIT_user_dir$(ty)
+    IF dirp = "" THEN EXIT SUB
+    KIT_drain dirp ' -> KIT_DRAIN_NAME()
+
+    SELECT CASE ty
+        CASE KIT_TYPE_THEME
+            FOR i = 0 TO KIT_DRAIN_COUNT% - 1
+                IF _DIREXISTS(dirp + KIT_DRAIN_NAME(i)) THEN KIT_enum_add KIT_DRAIN_NAME(i)
+            NEXT
+        CASE KIT_TYPE_PALETTE
+            FOR i = 0 TO KIT_DRAIN_COUNT% - 1
+                IF LCASE$(KIT_file_ext$(KIT_DRAIN_NAME(i))) = "gpl" THEN KIT_enum_add KIT_strip_ext$(KIT_DRAIN_NAME(i))
+            NEXT
+        CASE KIT_TYPE_FONT_TTF
+            FOR i = 0 TO KIT_DRAIN_COUNT% - 1
+                IF KIT_ext_is_vectorfont%(KIT_file_ext$(KIT_DRAIN_NAME(i))) THEN KIT_enum_add KIT_DRAIN_NAME(i)
+            NEXT
+        CASE KIT_TYPE_FONT_BITMAP
+            FOR i = 0 TO KIT_DRAIN_COUNT% - 1
+                IF KIT_ext_is_bitmapfont%(KIT_file_ext$(KIT_DRAIN_NAME(i))) THEN KIT_enum_add KIT_DRAIN_NAME(i)
+            NEXT
+        CASE KIT_TYPE_TEMPLATE
+            FOR i = 0 TO KIT_DRAIN_COUNT% - 1
+                IF KIT_ext_is_template%(KIT_file_ext$(KIT_DRAIN_NAME(i))) THEN KIT_enum_add KIT_DRAIN_NAME(i)
+            NEXT
+        CASE KIT_TYPE_BRUSH, KIT_TYPE_PATTERN, KIT_TYPE_GRADIENT
+            wm = KIT_dset_wanted_mode%(ty)
+            FOR i = 0 TO KIT_DRAIN_COUNT% - 1
+                IF LCASE$(KIT_file_ext$(KIT_DRAIN_NAME(i))) = "dset" THEN
+                    IF KIT_dset_mode%(dirp + KIT_DRAIN_NAME(i)) = wm THEN KIT_enum_add KIT_strip_ext$(KIT_DRAIN_NAME(i))
+                END IF
+            NEXT
+    END SELECT
+END SUB
+
+'-- Refresh the in-app list after installing items of a type ------------------
+SUB KIT_refresh (ty AS INTEGER)
+    SELECT CASE ty
+        CASE KIT_TYPE_PATTERN, KIT_TYPE_GRADIENT, KIT_TYPE_BRUSH
+            DRAWER_invalidate_dset_cache
+        CASE KIT_TYPE_PALETTE
+            PALETTE_LOADER_scan_user_folders
+        CASE KIT_TYPE_FONT_BITMAP, KIT_TYPE_FONT_TTF
+            FONT_LIST_SCANNED% = FALSE
+            FONT_LIST_scan
+        CASE KIT_TYPE_TEXTSTYLE
+            TEXT_STYLE_load
+        ' THEME + TEMPLATE: no safe live refresh — a theme needs a restart to fully
+        ' apply, and templates are re-read by the New-from-Template dialog each open.
+    END SELECT
+END SUB

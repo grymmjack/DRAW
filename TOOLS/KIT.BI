@@ -29,3 +29,11 @@ END TYPE
 REDIM SHARED KIT_ITEM_TYPE(0) AS INTEGER ' KIT_TYPE_*
 REDIM SHARED KIT_ITEM_NAME(0) AS STRING  ' item identity (theme name, palette base, font filename, ...)
 DIM SHARED KIT_ITEM_COUNT% ' number of valid entries in the arrays above
+
+' Enumeration output (KIT_enumerate fills these with the user's items of one type).
+REDIM SHARED KIT_ENUM_NAME(0) AS STRING ' item identity for the export picker
+DIM SHARED KIT_ENUM_COUNT% ' number of valid entries in KIT_ENUM_NAME
+
+' Internal scratch for directory draining (KIT_drain) — one _FILES$ sweep at a time.
+REDIM SHARED KIT_DRAIN_NAME(0) AS STRING
+DIM SHARED KIT_DRAIN_COUNT%
