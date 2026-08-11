@@ -16,6 +16,10 @@ CONST KIT_TYPE_TEXTSTYLE   = 7
 CONST KIT_TYPE_TEMPLATE    = 8
 CONST KIT_TYPE_COUNT       = 9
 
+' Menu/command action IDs (see gotcha #17: unique, grepped free).
+CONST KIT_ACT_EXPORT  = 2320 ' File > Export Kit...
+CONST KIT_ACT_INSTALL = 2321 ' File > Install Kit...
+
 ' Kit-level metadata. NOTE: `name` is a QB64 reserved word, hence the kit* prefix.
 TYPE KIT_MANIFEST
     kitName   AS STRING
