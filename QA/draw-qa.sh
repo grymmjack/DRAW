@@ -4,6 +4,9 @@
 # Usage:
 #   ./draw-qa.sh                  Run all tests in QA/tests/
 #   ./draw-qa.sh tests/smoke.sh   Run a single test file
+#   ./draw-qa.sh --stop           EMERGENCY STOP: kill any running QA session
+#                                 (harness + its DRAW + xdotool). Aliases:
+#                                 --abort, --kill. Never touches your own DRAW.run.
 #   ./draw-qa.sh --list           List available tests
 #   ./draw-qa.sh --keep-open      Don't close DRAW after tests (for debugging)
 #   ./draw-qa.sh --fail-fast      Stop on first failure (for tuning tests)
@@ -962,6 +965,32 @@ rm -f "$SCREENSHOTS_DIR"/*.png
 LOG_FILE="$RESULTS_DIR/run-$(date '+%Y%m%d-%H%M%S').log"
 
 case "${1:-}" in
+    --stop|--abort|--kill)
+        # Emergency stop for a runaway QA run (e.g. it's spraying xdotool input
+        # at your desktop). Kills the harness first (so it stops driving), then
+        # the DRAW instance IT launched — matched by the QA config path, so your
+        # own DRAW.run editing session is never touched — plus the xdotool /
+        # spectacle helpers the harness spawns.
+        echo "Stopping any running DRAW QA session..."
+        _me=$$ ; _pp=${PPID:-0} ; _qa_cfg_base="$(basename "$QA_CFG")" ; _killed=0
+        # 1) Other harness instances (not this --stop invocation or its shell).
+        for pid in $(pgrep -f "draw-qa\.sh" 2>/dev/null); do
+            [[ "$pid" == "$_me" || "$pid" == "$_pp" ]] && continue
+            kill "$pid" 2>/dev/null && { echo "  killed harness  $pid" ; _killed=1 ; }
+        done
+        # 2) QA-launched DRAW (identified by the QA config in its argv).
+        for pid in $(pgrep -f "DRAW\.run.*$_qa_cfg_base" 2>/dev/null); do
+            kill "$pid" 2>/dev/null && { echo "  killed DRAW     $pid" ; _killed=1 ; }
+        done
+        # 3) The input driver + screenshot tool the harness spawns.
+        for pid in $(pgrep -x xdotool 2>/dev/null);   do kill "$pid" 2>/dev/null && _killed=1 ; done
+        for pid in $(pgrep -x spectacle 2>/dev/null); do kill "$pid" 2>/dev/null && _killed=1 ; done
+        sleep 0.4
+        # 4) Escalate any survivors.
+        for pid in $(pgrep -f "DRAW\.run.*$_qa_cfg_base" 2>/dev/null); do kill -9 "$pid" 2>/dev/null ; done
+        for pid in $(pgrep -x xdotool 2>/dev/null);                    do kill -9 "$pid" 2>/dev/null ; done
+        [[ "$_killed" -eq 1 ]] && echo "Done — QA session stopped." || echo "Nothing running to stop."
+        exit 0 ;;
     --list)
         echo "Available tests:"
         for f in "$TESTS_DIR"/*.sh; do echo "  $(basename "$f" .sh)"; done
@@ -1022,7 +1051,7 @@ case "${1:-}" in
         draw_quit
         exit 0 ;;
     --help|-h)
-        sed -n '2,14p' "$0"; exit 0 ;;
+        sed -n '2,19p' "$0"; exit 0 ;;
 esac
 
 check_deps
