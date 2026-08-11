@@ -17,6 +17,10 @@ Usage:
     python3 recolor-images.py --fg '#DCDCDC' --bg-dark '#1e1e1e' --bg-light '#5c5c5c' \\
             ASSETS/THEMES/DARK/IMAGES ASSETS/THEMES/DARK/CURSORS
     # optional: --glyph-max 40   luminance <= this counts as glyph (default 40)
+    #           --sat-max 12     mean saturation above this = colored CONTENT icon
+    #                            (palette strip, pattern swatch, red error badge,
+    #                            filetype icon) -> left untouched (default 12)
+    #           --force-all      recolor even colorful content icons (off by default)
     #           --ext png        file extensions to touch (default png)
 
 No system Python packages are touched: if Pillow is missing this self-bootstraps a
@@ -55,8 +59,33 @@ def lerp(a, b, t):
     return tuple(int(round(a[i] + (b[i] - a[i]) * t)) for i in range(3))
 
 
-def recolor_image(path, fg, bg_dark, bg_light, glyph_max):
+def mean_sat(im):
+    """Average (max-min) channel spread over opaque pixels — a cheap colorfulness gauge."""
+    px = im.load()
+    w, h = im.size
+    tot = 0
+    cnt = 0
+    for y in range(h):
+        for x in range(w):
+            r, g, b, a = px[x, y]
+            if a < 8:
+                continue
+            tot += max(r, g, b) - min(r, g, b)
+            cnt += 1
+    return tot / max(cnt, 1)
+
+
+def recolor_image(path, fg, bg_dark, bg_light, glyph_max, sat_max, force_all):
+    """Recolor a grey glyph-on-bevel button. Returns True if recolored, False if skipped.
+
+    The recolor model only makes sense for grey CHROME (buttons/bevels). An image
+    that is already colorful is CONTENT — a palette strip, a pattern swatch, a red
+    error badge, a coloured filetype icon — and its colours ARE the information, so
+    it is left untouched unless --force-all is given.
+    """
     im = Image.open(path).convert("RGBA")
+    if not force_all and mean_sat(im) > sat_max:
+        return False  # colored content icon -> preserve its palette
     px = im.load()
     w, h = im.size
     for y in range(h):
@@ -71,12 +100,15 @@ def recolor_image(path, fg, bg_dark, bg_light, glyph_max):
                 nr, ng, nb = lerp(bg_dark, bg_light, L / 255.0)
             px[x, y] = (nr, ng, nb, a)
     im.save(path)
+    return True
 
 
 def main():
     args = sys.argv[1:]
     fg = bg_dark = bg_light = None
     glyph_max = 40
+    sat_max = 12.0      # mean saturation above this = colored content, skip it
+    force_all = False   # --force-all: recolor even colorful content icons
     exts = {"png"}
     dirs = []
     i = 0
@@ -90,6 +122,10 @@ def main():
             i += 1; bg_light = parse_hex(args[i])
         elif a == "--glyph-max":
             i += 1; glyph_max = float(args[i])
+        elif a == "--sat-max":
+            i += 1; sat_max = float(args[i])
+        elif a == "--force-all":
+            force_all = True
         elif a == "--ext":
             i += 1; exts = {e.strip().lower().lstrip(".") for e in args[i].split(",")}
         else:
@@ -100,13 +136,16 @@ def main():
         sys.exit(1)
 
     n = 0
+    skipped = 0
     for d in dirs:
         for root, _, files in os.walk(d):
             for f in files:
                 if f.rsplit(".", 1)[-1].lower() in exts:
-                    recolor_image(os.path.join(root, f), fg, bg_dark, bg_light, glyph_max)
-                    n += 1
-    print(f"recolor-images: recolored {n} image(s)  fg={fg} bg=[{bg_dark}..{bg_light}]")
+                    if recolor_image(os.path.join(root, f), fg, bg_dark, bg_light, glyph_max, sat_max, force_all):
+                        n += 1
+                    else:
+                        skipped += 1
+    print(f"recolor-images: recolored {n} chrome image(s), kept {skipped} colored content icon(s)  fg={fg} bg=[{bg_dark}..{bg_light}]")
 
 
 if __name__ == "__main__":

@@ -84,6 +84,16 @@ python3 .claude/skills/create-draw-theme/recolor-images.py \
 # optional: --glyph-max 40 (luminance <= this = glyph)  ·  add CURSORS dir to also recolor cursors
 ```
 
+**Colored content icons are preserved automatically.** The recolor model only fits
+grey glyph-on-bevel *chrome* (buttons). Icons whose colors ARE the information —
+the mini **color-palette strip** (`PALETTE/palette-thin.png`), pattern swatches
+(`PATTERNS/`), the red/blue **msgbox** badges, colored **filetype** icons, the
+color-mode/mixer swatches — are skipped: any image whose mean saturation exceeds
+`--sat-max` (default 12) passes through untouched. Do **not** grayscale these — a
+dark theme still wants a real color palette. Pass `--force-all` only if you truly
+want every icon re-hued; lower `--sat-max` to also recolor near-grey text-style
+buttons. The run prints `recolored N chrome image(s), kept M colored content icon(s)`.
+
 (No system Python packages touched — the script self-bootstraps a Pillow venv at
 `~/.cache/draw-theme-venv` on first run.)
 
