@@ -874,6 +874,12 @@ SUB MAIN_shutdown ()
     IF SCRN.CANVAS& < -1 THEN _FREEIMAGE SCRN.CANVAS&
     IF SCRN.PAINTING& < -1 THEN _FREEIMAGE SCRN.PAINTING&
     IF SCRN.GUI& < -1 THEN _FREEIMAGE SCRN.GUI&
+    ' Font / glyph image caches (each holds _NEWIMAGE / _LOADIMAGE handles)
+    FONT_PREVIEW_free_cache   ' cached font-preview strip images
+    TDF_free_cache            ' TheDraw (.TDF) rasterised glyph blocks
+    CBF_free_cache            ' colour bitmap font (DPaint .BMP) sheets
+    FONT_LIST_free_cache      ' cached _LOADFONT handles (size+style)
+    CHARMAP_free_cache        ' character-map glyph cache
     ' SCRN.CURSOR& no longer allocated — cursors draw directly onto SCRN.CANVAS&
 
     ' =====================================================================
