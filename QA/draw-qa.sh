@@ -844,6 +844,14 @@ snap_region() {
     if _capture_client_area "$wintmp"; then
         dbg "snap_region client_area=$(identify -format '%wx%h' "$wintmp" 2>/dev/null) sub-crop=${rw}x${rh}+${rx}+${ry}"
         convert "$wintmp" -crop "${rw}x${rh}+${rx}+${ry}" +repage "$SNAP_RESULT" 2>/dev/null
+        # Remember where this snap looked (physical rect + the region name, if any)
+        # and keep the full window frame, so a failed assert or --calibrate can show
+        # the region outlined on the whole window without re-capturing.
+        if [[ -s "$SNAP_RESULT" ]]; then
+            SNAP_RECT["$SNAP_RESULT"]="$rx $ry $rw $rh"
+            [[ -n "$CURRENT_REGION" ]] && SNAP_REGION["$SNAP_RESULT"]="$CURRENT_REGION"
+            cp -f "$wintmp" "${SNAP_RESULT%.png}.win.png" 2>/dev/null
+        fi
         if [[ ${DUMP_SNAPS:-0} -eq 1 && -s "$SNAP_RESULT" ]]; then
             SNAP_SEQ=$(( SNAP_SEQ + 1 ))
             local d="$SNAP_DUMP_DIR/${CURRENT_TEST:-test}-${SNAP_SEQ}_${label}"
@@ -858,6 +866,41 @@ snap_region() {
         dbg "snap_region _capture_client_area FAILED"
         SNAP_RESULT=""
     fi
+}
+
+# ── named region registry ─────────────────────────────────────────────────────
+# Declare a screen region ONCE by name (viewport/logical coords), then snap it by
+# name. The point is shared understanding: failures and --calibrate can then say
+# exactly WHAT was looked at ("region save_btn — the Save toolbar icon"), and a
+# human can confirm Claude is looking where they think before trusting a run.
+declare -A REGION_RECT    # name -> "vx vy vw vh" (viewport pixels)
+declare -A REGION_DESC    # name -> human description (shown on -where overlays)
+declare -A SNAP_RECT      # snap-file path -> "rx ry rw rh" (physical px, for -where)
+declare -A SNAP_REGION    # snap-file path -> region name (for -where labels)
+CURRENT_REGION=""         # region of the snap in flight (set by snap(), read by snap_region)
+
+# region NAME VX VY VW VH [DESCRIPTION...]
+region() {
+    local name=$1 vx=$2 vy=$3 vw=$4 vh=$5
+    REGION_RECT["$name"]="$vx $vy $vw $vh"
+    REGION_DESC["$name"]="${*:6}"
+    dbg "region '$name' = vp($vx,$vy ${vw}x${vh})"
+}
+
+# snap NAME [LABEL] — snap a registered region (LABEL defaults to the region name).
+# Sets SNAP_RESULT exactly like snap_region, and tags it with the region so a
+# failed assertion can prove where it looked.
+snap() {
+    local name=$1 label=${2:-$1}
+    if [[ -z "${REGION_RECT[$name]:-}" ]]; then
+        fail "snap: unknown region '$name' — declare it first with: region $name x y w h"
+        SNAP_RESULT=""; return 1
+    fi
+    CURRENT_REGION="$name"
+    # rect is intentionally word-split into 4 positional args
+    # shellcheck disable=SC2086
+    snap_region ${REGION_RECT[$name]} "$label"
+    CURRENT_REGION=""
 }
 
 # Raw AE units per differing pixel — calibrated at startup by _calibrate_ae.
