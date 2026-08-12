@@ -33,6 +33,8 @@ qb64pe -w -x -o DRAW.run DRAW.BAS
 
 `QA/draw-qa.sh` is an xdotool-driven GUI harness — ~97 test files in `QA/tests/`, each launched against a fresh DRAW using the pinned `QA/DRAW.qa.cfg` so runs never touch the user's own config.
 
+> **As of 2026-08-12, `QA/draw-qa.sh` is a thin wrapper** that forwards to the standalone [qa-harness](https://github.com/grymmjack/qa-harness) toolkit (`~/git/qa-harness`, override with `QA_HARNESS`) using its DRAW adapter. The CLI below is unchanged and DRAW's `QA/tests/*.sh` run verbatim, but the harness *implementation* (runner, region-diff asserts, driver, geometry) now lives in the toolkit — `core/`, `drivers/linux-x11/`, `adapters/draw/`. Runs default to **offscreen (Xvfb)**; add `--onscreen` to watch. The pre-extraction single-file harness is in git history (before this date). Details: `.claude/agent-memory/main/qa-harness-toolkit.md`.
+
 ```bash
 cd QA
 ./draw-qa.sh                     # whole suite

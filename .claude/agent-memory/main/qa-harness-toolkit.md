@@ -29,10 +29,13 @@ decision is deferred to Rick). Built 2026-08-12.
 and a tiny Rust/minifb demo (`examples/rust-demo`) runs green through the SAME
 driver+core — two languages, two coordinate models.
 
-**DRAW side**: `DRAW/QA/draw-qa.sh` is unchanged as the working reference (and got
-all the Phase 1–3 upgrades: ETA, live `--status`, `qa-report.py`, JUnit/CI,
-`--mode` offscreen self-wrap, full `--help`). DRAW's `QA/tests/*.sh` run unmodified
-under both. Two bugs fixed during the port: driver `wid` unbound under `set -u`
+**DRAW side**: `DRAW/QA/draw-qa.sh` is now a **thin wrapper** (since 2026-08-12) that
+`exec`s `$QA_HARNESS/bin/qa --adapter adapters/draw "$@"` (sets `DRAW_ROOT` to the
+checkout; `QA_HARNESS` defaults to `~/git/qa-harness`). Same CLI, DRAW's
+`QA/tests/*.sh` run verbatim, default offscreen. The pre-extraction single-file
+harness (with all the Phase 1–3 upgrades — ETA, live `--status`, `qa-report.py`,
+JUnit/CI, `--mode` self-wrap, full `--help`) is in git history before that date and
+was the port source. First real dogfood: `./draw-qa.sh tests/smoke.sh` → 5/0 green. Two bugs fixed during the port: driver `wid` unbound under `set -u`
 without a pid; WM-less-Xvfb needs `windowfocus --sync` (SDL2 apps self-focus; plain
 X11/minifb windows don't). See [[draw-command-palette-registration]] for a related
 QA-testability gotcha.
