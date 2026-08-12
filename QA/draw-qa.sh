@@ -131,6 +131,8 @@ RERUN_PASSED=0
 CALIBRATE=0
 ETA=0
 REPORT=0
+MODE=""                # "" = auto (offscreen if Xvfb) | ask | offscreen | onscreen
+EFFECTIVE_MODE=""
 LAST_FAIL_MSG=""       # first failure reason of the current test → report "notes"
 LOG_FILE=""
 RESULTS_TSV=""         # per-run structured results (name<TAB>result<TAB>secs<TAB>notes)
@@ -1190,7 +1192,9 @@ run_test_file() {
 # ── entrypoint ────────────────────────────────────────────────────────────────
 
 # Parse flags
+_want_mode=0
 for arg in "$@"; do
+    if [[ $_want_mode -eq 1 ]]; then MODE="$arg"; _want_mode=0; continue; fi
     [[ "$arg" == "--keep-open" ]]    && KEEP_OPEN=1
     [[ "$arg" == "--fail-fast" ]]    && FAIL_FAST=1
     [[ "$arg" == "--verbose" ]]      && VERBOSE=1
@@ -1199,6 +1203,10 @@ for arg in "$@"; do
     [[ "$arg" == "--calibrate" ]]    && { CALIBRATE=1; RERUN_PASSED=1; }
     [[ "$arg" == "--eta" ]]          && ETA=1
     [[ "$arg" == "--report" ]]       && REPORT=1
+    [[ "$arg" == "--mode" ]]         && { _want_mode=1; continue; }
+    [[ "$arg" == --mode=* ]]         && MODE="${arg#--mode=}"
+    [[ "$arg" == "--offscreen" ]]    && MODE="offscreen"
+    [[ "$arg" == "--onscreen" ]]     && MODE="onscreen"
     # Pass DRAW's own developer mode through (input conflict audit → inputs.log)
     [[ "$arg" == "--developer" ]]    && DRAW_EXTRA_ARGS="--developer"
 done
@@ -1320,6 +1328,51 @@ case "${1:-}" in
         sed -n '2,22p' "$0"; exit 0 ;;
 esac
 
+# ── Run mode: offscreen (Xvfb, invisible) vs onscreen (real-screen takeover) ──
+# Default is offscreen when Xvfb is available — a shared machine stays usable and
+# it's the CI path. --mode ask|offscreen|onscreen (or --offscreen/--onscreen)
+# forces it. When offscreen is chosen we re-exec under Xvfb (WAYLAND_DISPLAY unset
+# so scrot grabs the virtual display, per the capture-backend rule).
+_have_xvfb=0; command -v xvfb-run &>/dev/null && command -v Xvfb &>/dev/null && _have_xvfb=1
+
+EFFECTIVE_MODE="$MODE"
+[[ -z "$EFFECTIVE_MODE" ]] && { [[ $_have_xvfb -eq 1 ]] && EFFECTIVE_MODE=offscreen || EFFECTIVE_MODE=onscreen; }
+# Already inside our own Xvfb re-exec → we ARE offscreen; never recurse.
+[[ -n "${QA_IN_XVFB:-}" ]] && EFFECTIVE_MODE=offscreen
+
+# ask: let the human pick (default offscreen when it's available).
+if [[ "$EFFECTIVE_MODE" == ask ]]; then
+    if [[ $_have_xvfb -eq 0 ]]; then
+        EFFECTIVE_MODE=onscreen
+    elif [[ -t 0 ]]; then
+        printf '» Run [O]ffscreen (invisible, Xvfb) or on[s]creen (drives your real screen)? [O/s] ' >&2
+        read -r _ans
+        [[ "$_ans" =~ ^[sS] ]] && EFFECTIVE_MODE=onscreen || EFFECTIVE_MODE=offscreen
+    else
+        EFFECTIVE_MODE=offscreen
+    fi
+fi
+
+# offscreen requested but no Xvfb → fall back to onscreen with a heads-up.
+if [[ "$EFFECTIVE_MODE" == offscreen && $_have_xvfb -eq 0 && -z "${QA_IN_XVFB:-}" ]]; then
+    warn "offscreen requested but Xvfb/xvfb-run not found — falling back to onscreen"
+    EFFECTIVE_MODE=onscreen
+fi
+
+# Re-exec under Xvfb for a truly invisible run. The Xvfb screen must match what the
+# app expects (DRAW re-derives its viewport from screen size at UI_SCALE=0), so
+# default to the current display's geometry; override with QA_XVFB_RES=WxH.
+# (skip for --eta: a dry-run estimate never launches anything)
+if [[ "$EFFECTIVE_MODE" == offscreen && -z "${QA_IN_XVFB:-}" && $ETA -eq 0 ]]; then
+    _res="${QA_XVFB_RES:-}"
+    if [[ -z "$_res" ]]; then
+        command -v xdotool &>/dev/null && _g=$(xdotool getdisplaygeometry 2>/dev/null) && _res="${_g// /x}"
+        [[ -z "$_res" ]] && _res="3840x2160"
+    fi
+    echo "» Offscreen: launching under Xvfb (${_res}) — nothing appears on your screen." >&2
+    exec env -u WAYLAND_DISPLAY QA_IN_XVFB=1 xvfb-run -a --server-args="-screen 0 ${_res}x24" "$0" "$@"
+fi
+
 check_deps
 _calibrate_ae
 trap 'draw_quit' EXIT INT TERM
@@ -1332,6 +1385,7 @@ log "═════════════════════════
 log " DRAW QA — $(date '+%Y-%m-%d %H:%M:%S')"
 log " DRAW: $DRAW_BIN"
 log " Config: $DRAW_CFG${DRAW_EXTRA_ARGS:+  Args: $DRAW_EXTRA_ARGS}"
+log " Mode: ${EFFECTIVE_MODE}${QA_IN_XVFB:+ (Xvfb)}"
 log " Scale: ${DISPLAY_SCALE}x  Viewport: ${VIEWPORT_W}×${VIEWPORT_H}"
 log " Canvas: ${CANVAS_W}×${CANVAS_H}  Centre: (${CANVAS_CX},${CANVAS_CY}) viewport px"
 if [[ $_CACHED_COUNT -gt 0 ]]; then
@@ -1382,6 +1436,19 @@ if [[ $CALIBRATE -eq 0 ]]; then
 fi
 # --eta is a dry run: show the estimate and exit without launching anything.
 [[ $ETA -eq 1 ]] && exit 0
+
+# Onscreen runs drive the REAL mouse & keyboard — warn (with ETA) before taking
+# over, and confirm on a TTY unless the user explicitly asked for --onscreen.
+if [[ "$EFFECTIVE_MODE" == onscreen && -z "${QA_IN_XVFB:-}" ]]; then
+    log ""
+    log "${YELLOW}⚠ ONSCREEN — the harness will drive your real mouse & keyboard for ~$(_fmt_secs "$_ETA_TOTAL")${_ETA_DONE:+ (done ~${_ETA_DONE})}.${RESET}"
+    log "${YELLOW}  Keep your hands off the mouse/keyboard until it finishes. Ctrl-C aborts.${RESET}"
+    if [[ "$MODE" != onscreen && -t 0 ]]; then   # explicit --onscreen skips the prompt
+        printf 'Proceed on the real screen? [y/N] ' >&2
+        read -r _go
+        [[ "$_go" =~ ^[yY] ]] || { log "Aborted — try --mode offscreen for an invisible run."; exit 130; }
+    fi
+fi
 
 LAST_TEST_FILE=""
 for f in "${TEST_FILES[@]}"; do

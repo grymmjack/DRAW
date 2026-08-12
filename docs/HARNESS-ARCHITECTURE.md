@@ -145,6 +145,15 @@ hard way:
 This is also the **GitHub Actions Linux** path: no real display, Xvfb + headless,
 JUnit/exit-code output.
 
+**Consent / run mode.** The runner exposes `--mode ask|offscreen|onscreen`
+(`--offscreen`/`--onscreen` shortcuts). Default is **offscreen when Xvfb is
+present** — so a shared machine stays usable and CI needs no extra flags. Offscreen
+**self-wraps**: the script re-execs itself under `xvfb-run` with `WAYLAND_DISPLAY`
+unset and a `QA_IN_XVFB=1` guard against recursion, at the current display's
+resolution (override `QA_XVFB_RES=WxH`). Onscreen drives the real mouse/keyboard,
+so it prints a takeover warning **with the ETA** and confirms on a TTY (unless the
+user passed `--onscreen` explicitly). `ask` lets the human pick per run.
+
 ## CI output (what a runner consumes)
 
 Every run emits, into the results dir:
