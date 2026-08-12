@@ -73,6 +73,39 @@ FUNCTION KIT_dset_wanted_mode% (ty AS INTEGER)
     END SELECT
 END FUNCTION
 
+' Factory (shipped) drawer-set dir for a dset KIT type; "" for non-dset types.
+' The user's own sets live flat in DRAWER-SETS/ (KIT_user_dir$); the factory sets
+' ship in per-mode subfolders under ASSETS/DSETS/ and must be enumerated too so a
+' kit can include them even when the user hasn't saved any of their own.
+FUNCTION KIT_factory_dir$ (ty AS INTEGER)
+    SELECT CASE ty
+        CASE KIT_TYPE_BRUSH:    KIT_factory_dir$ = "./ASSETS/DSETS/BRUSHES/"
+        CASE KIT_TYPE_PATTERN:  KIT_factory_dir$ = "./ASSETS/DSETS/PATTERNS/"
+        CASE KIT_TYPE_GRADIENT: KIT_factory_dir$ = "./ASSETS/DSETS/GRADIENTS/"
+        CASE ELSE:              KIT_factory_dir$ = ""
+    END SELECT
+END FUNCTION
+
+' Resolve an enumerated item's source file on disk: prefer the user dir, fall
+' back to the factory dir (dset types). Used by export so factory items read from
+' ASSETS/DSETS/ while the user's own take precedence on a name clash.
+FUNCTION KIT_item_src_path$ (ty AS INTEGER, nm AS STRING)
+    DIM up AS STRING, fp AS STRING
+    up = KIT_user_dir$(ty) + nm
+    IF _FILEEXISTS(up) THEN KIT_item_src_path$ = up: EXIT FUNCTION
+    fp = KIT_factory_dir$(ty)
+    IF fp <> "" AND _FILEEXISTS(fp + nm) THEN KIT_item_src_path$ = fp + nm: EXIT FUNCTION
+    KIT_item_src_path$ = up ' default (may not exist; caller guards)
+END FUNCTION
+
+' TRUE if an enumerated dset item exists only in the factory dir (for labeling).
+FUNCTION KIT_item_is_factory% (ty AS INTEGER, nm AS STRING)
+    KIT_item_is_factory% = FALSE
+    IF KIT_factory_dir$(ty) = "" THEN EXIT FUNCTION
+    IF _FILEEXISTS(KIT_user_dir$(ty) + nm) THEN EXIT FUNCTION
+    IF _FILEEXISTS(KIT_factory_dir$(ty) + nm) THEN KIT_item_is_factory% = TRUE
+END FUNCTION
+
 '-- Filename helpers ----------------------------------------------------------
 FUNCTION KIT_file_ext$ (fn AS STRING)
     DIM i AS LONG
@@ -235,11 +268,31 @@ SUB KIT_enumerate (ty AS INTEGER)
             NEXT
         CASE KIT_TYPE_BRUSH, KIT_TYPE_PATTERN, KIT_TYPE_GRADIENT
             wm = KIT_dset_wanted_mode%(ty)
+            ' 1) the user's own saved sets (flat DRAWER-SETS/, filtered by mode byte)
             FOR i = 0 TO KIT_DRAIN_COUNT% - 1
                 IF LCASE$(KIT_file_ext$(KIT_DRAIN_NAME(i))) = "dset" THEN
                     IF KIT_dset_mode%(dirp + KIT_DRAIN_NAME(i)) = wm THEN KIT_enum_add KIT_DRAIN_NAME(i) ' full filename
                 END IF
             NEXT
+            ' 2) the factory sets shipped in ASSETS/DSETS/<mode>/ (so a kit can
+            '    include them even with an empty user DRAWER-SETS/). Skip names
+            '    the user already has (their own wins).
+            DIM fdir AS STRING, jj AS INTEGER, dup AS INTEGER
+            fdir = KIT_factory_dir$(ty)
+            IF fdir <> "" THEN
+                KIT_drain fdir
+                FOR i = 0 TO KIT_DRAIN_COUNT% - 1
+                    IF LCASE$(KIT_file_ext$(KIT_DRAIN_NAME(i))) = "dset" THEN
+                        IF KIT_dset_mode%(fdir + KIT_DRAIN_NAME(i)) = wm THEN
+                            dup = FALSE
+                            FOR jj = 0 TO KIT_ENUM_COUNT% - 1
+                                IF KIT_ENUM_NAME(jj) = KIT_DRAIN_NAME(i) THEN dup = TRUE
+                            NEXT
+                            IF dup = FALSE THEN KIT_enum_add KIT_DRAIN_NAME(i)
+                        END IF
+                    END IF
+                NEXT
+            END IF
     END SELECT
 END SUB
 
