@@ -26,6 +26,13 @@ cp "$QA_CFG" "$QA_CFG_BACKUP" || { fail "could not back up $QA_CFG"; return 0 2>
 printf '\nGROUP_DRAW_AUTO_LAYER=TRUE\n' >> "$QA_CFG"
 info "Relaunching with GROUP_DRAW_AUTO_LAYER=TRUE"
 draw_quit
+# This relaunch opens a BLANK document, which appears fast enough to race the
+# outgoing instance's still-dying window. Wait for that window to vanish before
+# relaunching, or the harness binds the stale one and every input below misses
+# the canvas (offscreen has no WM to reap it promptly; SDL2 sets no _NET_WM_PID
+# so the title search can't disambiguate). File-loading relaunches don't need
+# this — see draw_settle in the adapter.
+draw_settle
 draw_launch 15
 wait_for 1.0 "DRAW up with auto-add enabled"
 assert_no_crash
