@@ -1,51 +1,38 @@
-# DRAW KITS — user-sharable/exportable asset kits
+# QA harness → portable, collaborative, CI-ready
 
-A kit bundles any combination of Themes, Patterns, Gradients, Brushes, Palettes,
-Fonts (bitmap + TrueType/etc.), Text styles, and Templates — plus name,
-description, author, and a preview screenshot. Export the current setup to a kit;
-install kits from others.
+Branch `qa-harness`. Evolve `draw-qa.sh` into a **portable core** (bash runner +
+Python reporter) with a thin **driver seam**, so the same harness tests DRAW,
+Rust/X11 GUIs, and (later) web — and so writing tests *together* is easy, with
+**region boxes** confirming Claude looks where the human thinks.
 
-## Locked decisions (from the user, 2026-08-11)
+Decisions (locked): bash+Python core · standalone repo · Rust-GUI(X11) as adapter
+#2 · **Linux is homebase** (X11 + Xvfb); Win/Mac are seam-only, nice-to-have ·
+CI on GitHub Actions Linux (headless) is a real goal.
 
-1. **Container = real `.zip`** (PKZIP: CRC-32, local file headers, central directory,
-   EOCD) built over QB64-PE `_DEFLATE$`/`_INFLATE$`. Openable by OS zip tools.
-2. **Export scope = pick items per type.** Each checked type opens a picker list of
-   the user's items; only ticked items go in the kit.
-3. **Install = per-type checkboxes.** Install dialog lists kit contents (with counts);
-   user unchecks any type before installing.
-4. **Conflicts = ask, with apply-to-all.** On a name clash, prompt overwrite / skip /
-   keep-both, with an "apply to all remaining" checkbox.
-
-Build after each task (`make` only — do NOT run QA; the user tests). Commit per task.
+Ordered by dependency; the topmost unchecked box is next.
 
 ## 🔨 NOW — doing right now
+- [ ] ➡️ **Named region registry** — a test declares regions once (`REGION name x y w h`); `snap`/`mark`/`assert` reference by name; persist the name→rect map per test/run so failures and calibration can name what they looked at.
 
-(all 9 tasks complete — DRAW KITS feature done)
+## Phase 1 — analysis & seam map
+- [x] Phase 1 audit — classified every `draw-qa.sh` symbol CORE/DRIVER/ADAPTER; wrote `docs/HARNESS-ARCHITECTURE.md` (seam map, driver-interface contract, logical-coordinate rule, offscreen/CI mode, extraction plan).
 
-## Tasks
+## Phase 2 — collaborative test authoring (human sees what Claude sees)
+- [ ] Auto `-where` proof on FAIL: every failed region assertion writes the full frame with that region outlined + labeled, referenced from the log line (make the DUMP_SNAPS overlay automatic on failure, not opt-in).
+- [ ] `--calibrate <test>`: walk each named region, render outlined+labeled frames to a review dir so the human confirms placement before trusting a run (generalize `harness-calibration.sh`).
+- [ ] Coord-picker aid: against a running app, click a spot → print logical coords + a starter `REGION` line, so authoring a test's regions is copy-paste, not guesswork.
 
-## Done
+## Phase 3 — runner / report / ETA / CI (portable core)
+- [ ] ETA: persist per-test durations; before a run print per-test ETA + session-total; add `--eta` (dry-run estimate); emit machine-readable progress lines for task-loop watchers.
+- [ ] Reporter: de-DRAW `dump-qa-tests.py --html` into a project-agnostic report (header: date/time/project/what-ran; table: test/result/secs/notes); inputs = project name + run-log dir.
+- [ ] CI output: JUnit XML + non-zero exit on failure, so GitHub Actions (Linux, Xvfb) can run headless and surface results.
+- [ ] Consent/mode: `--mode ask|offscreen|onscreen`; default offscreen when Xvfb is available (also the CI path); print the takeover warning + ETA before using the real screen.
+- [ ] CLI `--help`: single test, glob/tag subset, `--all`, `--list`, `--eta`, `--mode`, `--marks` — everything drivable from one run for skills/scripts.
 
-- [x] **1. ZIP writer** — `TOOLS/KIT-ZIP.BI/BM`: CRC-32, LE encoders, streaming writer (STORE +
-  DEFLATE); verified against OS `unzip -t`/`-l`/extract; wired into `_ALL.BI/BM`. Commit 87bf2b1.
-- [x] **2. ZIP reader** — EOCD scan + central-directory walk + per-entry inflate/CRC; `_INFLATE$`
-  needs a zlib wrapper but ignores adler, so raw method-8 streams are wrapped. Verified round-trip
-  + OS-`zip` interop (DEFLATE + STORE). Commit 98ea71e.
-- [x] **3. Kit manifest** — `TOOLS/KIT.BI/BM`: KIT_TYPE_* types, KIT_MANIFEST, item list, and a
-  line-based escaped manifest format; round-trip verified (fields + 7 items). Commit 6b24c22.
-- [x] **4. Asset resolver** — `TOOLS/KIT-RESOLVE.BM`: per-type dirs/zip-prefix/is-folder, `KIT_enumerate`
-  (themes/palettes/dsets-by-mode/fonts-by-ext/text-styles/templates), `KIT_refresh`. Compile-verified. Commit b0adf0c.
-- [x] **5. Export dialog** — `GUI/KIT-DIALOG.BM`: `KIT_export_dialog%` (fields + screenshot chooser +
-  per-type check-all/count/Items…) + `KIT_picker_dialog` + `KIT_sel_*` helpers. Compile-verified. Commit b6b148d.
-- [x] **6. Export logic** — `TOOLS/KIT-IO.BM`: `KIT_export_write%` (manifest + preview + per-item entries;
-  themes via BFS folder walk; text styles merged). Resolver stores real filenames. Compile-verified. Commit 3c939e7.
-- [x] **7. Install dialog** — `KIT_install_dialog%` (pick kit, preview + meta + wrapped desc + per-type include
-  checkboxes) + manifest/preview loaders. Compile-verified. Commit 0ba6f48. **Artifact published** (both dialogs).
-- [x] **8. Install logic** — `KIT_install_apply%` (extract-by-prefix → targets, mkdir -p, text-style merge) +
-  `KIT_conflict_dialog%` (overwrite/skip/keep-both + apply-to-all) + `KIT_refresh`. Compile-verified. Commit 34ba166.
-- [x] **9. Menu wiring + config** — File ▸ Install Kit… / Export Kit… (actions 2321/2320, dup-CASE clean) →
-  dialogs → writer/installer; `CFG.LAST_DIR_KIT$` remembers the dir. Compile-verified. Commit 0506ffd.
+## Phase 4 — extract to a standalone tool (Linux driver first)
+- [ ] Create the standalone harness repo skeleton: `core/` (bash runner + assert + mark + config-lock + consent + eta), `report/` (python + junit), `drivers/linux-x11/` (xdotool + spectacle/scrot + Xvfb), and an adapter-manifest format (launch/window/geometry/hooks/blessed-cfg/tests). Document the driver seam so win/mac plug in later.
+- [ ] Port CORE out of `draw-qa.sh` into the toolkit; keep DRAW-specific bits in a draw adapter that consumes it.
+- [ ] DRAW = adapter #1: `draw-qa` becomes thin (manifest + DRAW geometry/wake hooks + blessed cfg); re-run the DRAW suite through the toolkit and confirm parity with current results.
 
-_(Prior post-merge sweep, shipped & pushed to main: a91c282 text-transform rasterize,
-fa92e8d preview resize cursor, 3faf4e3 ANSI Target radio, 7208da4 ANSI region-select,
-0fcd6ed scrollbar lane click-to-jump, 0acdc29 apron-aware text render.)_
+## Phase 5 — prove cross-project (2nd language, same driver)
+- [ ] Minimal Rust GUI (X11) app + adapter #2: reuse the linux-x11 driver, window-relative coords (no viewport model), 2–3 sample tests + a green report — proves same driver / new app / new language. (May pause here for standalone-repo remote decisions.)
