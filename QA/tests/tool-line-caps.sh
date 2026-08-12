@@ -85,6 +85,7 @@ screenshot "line-with-caps"
 
 # -- After release, s/e are ordinary tool hotkeys again --
 info "Press s after release (should switch to Smart Shapes)"
+wake_draw          # leave idle mode first — the prior snap's sleep drops us to idle, which eats the keypress
 key s
 wait_for 0.4 "Tool switched"
 park_mouse

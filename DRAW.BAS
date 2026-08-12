@@ -305,6 +305,57 @@ IF splashImg& < -1 THEN
     IF splashVerFont& > 0 THEN _FREEFONT splashVerFont&
 END IF
 
+' Dev: --kit-screenshots <dir> renders the KIT export/install dialogs to PNGs and exits.
+DIM kitShotDir AS STRING : kitShotDir$ = KIT_get_screenshot_arg$
+IF kitShotDir$ <> "" THEN KIT_dev_screenshots kitShotDir$: SYSTEM
+
+' Dev: --main-shot <file> renders one main-editor frame (current theme) to a PNG and exits.
+DIM mainShotFile AS STRING : mainShotFile$ = KIT_get_flag_arg$("--main-shot")
+IF mainShotFile$ <> "" THEN
+    DIM msFrame AS INTEGER
+    FOR msFrame% = 1 TO 8
+        SCENE_DIRTY% = TRUE: FRAME_IDLE% = FALSE: GUI_NEEDS_REDRAW% = TRUE
+        SCREEN_render
+    NEXT
+    _SAVEIMAGE mainShotFile$, 0
+    SYSTEM
+END IF
+
+' Dev: --theme-switch-shot <base> <toTheme> renders the current theme to
+' <base>-before.png, live-switches to <toTheme> via THEME_reload_all, renders
+' <base>-after.png, and exits. Verifies the no-restart theme switch.
+DIM tsBase AS STRING : tsBase$ = KIT_get_flag_arg$("--theme-switch-shot")
+IF tsBase$ <> "" THEN
+    DIM tsTo AS STRING, tsF AS INTEGER
+    tsTo$ = KIT_get_flag_arg$("--theme-to") : IF tsTo$ = "" THEN tsTo$ = "DARK"
+    FOR tsF% = 1 TO 8: SCENE_DIRTY% = TRUE: FRAME_IDLE% = FALSE: GUI_NEEDS_REDRAW% = TRUE: SCREEN_render: NEXT
+    _SAVEIMAGE tsBase$ + "-before.png", 0
+    CFG.THEME = tsTo$
+    THEME_reload_all
+    FOR tsF% = 1 TO 12: SCENE_DIRTY% = TRUE: FRAME_IDLE% = FALSE: GUI_NEEDS_REDRAW% = TRUE: SCREEN_render: NEXT
+    _SAVEIMAGE tsBase$ + "-after.png", 0
+    SYSTEM
+END IF
+
+' Dev: --kit-export <zip> writes a sample kit (1 of every asset type) and exits.
+DIM kitExportZip AS STRING : kitExportZip$ = KIT_get_flag_arg$("--kit-export")
+IF kitExportZip$ <> "" THEN KIT_dev_export kitExportZip$: SYSTEM
+
+' Dev: --kit-install <zip> installs a kit non-interactively (all types, skip conflicts) and exits.
+DIM kitInstallZip AS STRING : kitInstallZip$ = KIT_get_flag_arg$("--kit-install")
+IF kitInstallZip$ <> "" THEN
+    DIM kiMf AS KIT_MANIFEST, kiTy AS INTEGER
+    IF KIT_load_kit_manifest%(kitInstallZip$, kiMf) THEN
+        KIT_INSTALL_PATH$ = kitInstallZip$
+        FOR kiTy% = 0 TO KIT_TYPE_COUNT - 1: KIT_INSTALL_ON(kiTy%) = TRUE: NEXT
+        KIT_INSTALL_NONINTERACTIVE% = TRUE: KIT_INSTALL_AUTOCHOICE% = 1 ' skip conflicts
+        IF KIT_install_apply% THEN _LOGINFO "kit-install: done" ELSE _LOGINFO "kit-install: FAILED"
+    ELSE
+        _LOGINFO "kit-install: invalid kit " + kitInstallZip$
+    END IF
+    SYSTEM
+END IF
+
 DO
     ' Deferred command line file loading (after first frame when everything is initialized).
     ' Acts exactly like File -> Open: direct load, NO interactive placement.

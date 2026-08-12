@@ -20,29 +20,34 @@ Add drag and drop support in DRAW!
 a740g — 5/16/26, 6:17 PM
 _WINDOWHANDLE works on all platforms.
 
-## Font Preview in popup
-- [ ] Add setting: 
-  - [ ] Checkbox - Enable font previews in menu
-    - [ ] Font size: ___ [8] [16] [24] [32] (buttons for numbers to insert)
-    - [ ] Max Width: ____ [32] [64] [128] (buttons for numbers to insert)
-    - [ ] Max Height: ____ [16] [32] [64] (buttons for numbers to insert)
-    - [ ] FG color: [ ] color chip picker
-    - [ ] BG color: [ ] color chip picker
-    - [ ] Divider color: [ ] color chip picker
-    - [ ] Preview Text: {font|FONT|Font} {NumGlyphs} __________ [ABCabc123] [DRAW SoMeThiNG!] (buttons insert the text)
-      - [ ] If {font|FONT|Font} - show that in the preview text of the font picker in the case accordingly
-      - [ ] NumGlyphs = how many total glyphs in the font, including the entire range, unicode or otherwise.
-        - [ ] Count only NON-Blank glyphs
-          - [ ] Count can be part of font as it's cached for previews, etc.
+## Font Preview in popup ✅ SHIPPED (PR #97)
+- [x] Add setting: 
+  - [x] Checkbox - Enable font previews in menu
+    - [x] Font size: ___ [8] [16] [24] [32] (buttons for numbers to insert)
+    - [x] Max Width: ____ [32] [64] [128] (buttons for numbers to insert)
+    - [x] Max Height: ____ [16] [32] [64] (buttons for numbers to insert)
+    - [x] FG color: [ ] color chip picker
+    - [x] BG color: [ ] color chip picker
+    - [x] Divider color: [ ] color chip picker
+    - [x] Preview Text: {font|FONT|Font} {NumGlyphs} __________ [ABCabc123] [DRAW SoMeThiNG!] (buttons insert the text)
+      - [x] If {font|FONT|Font} - show that in the preview text of the font picker in the case accordingly
+      - [x] NumGlyphs = how many total glyphs in the font, including the entire range, unicode or otherwise.
+        - [x] Count only NON-Blank glyphs (via `FONT_count_ttf_range%` using `_UPRINTSTRING`)
+          - [x] Count can be part of font as it's cached for previews, etc.
 - When this is on:
-  - [ ] Immediately on Apply:
-    - [ ] Create previews for the dropdown font pickers
-    - [ ] The previews should show the name of the font
-  - [ ] Previews should be cached
-    - [ ] Cache can be wherever DRAW already stores it
-  - [ ] New fonts should be scanned/rendered on startup
-  - [ ] If the popups don't fit on the screen, render as much as it can and use ... for telling user.
-    - [ ] If popups don't fit in vertical space, use the same methods of scrolling/showing for the fonts that we already do for main menu, and mousehweel and arrowsa up/down, etc.
+  - [x] Immediately on Apply:
+    - [x] Create previews for the dropdown font pickers
+    - [x] The previews should show the name of the font
+  - [x] Previews should be cached (`FONT_PREVIEW_*`, invalidated on font rescan)
+    - [x] Cache can be wherever DRAW already stores it
+  - [x] New fonts should be scanned/rendered on startup
+  - [x] If the popups don't fit on the screen, render as much as it can and use ... for telling user.
+    - [x] If popups don't fit in vertical space, use the same methods of scrolling/showing for the fonts that we already do for main menu, and mousehweel and arrowsa up/down, etc.
+
+Implementation: previews render **under** each font name in the submenu (compact
+12px main list, wide preview strip only in the flyout); TheDraw faces excluded
+from the picker; stale-popup and click-away close fixed; DRAW.cfg/THEME.cfg keys
+per the completed TEXT TOOL entry below. Shipped via the `font-previews` branch.
 
 ## Add ANSI IMPORT/EXPORT SUPPORT ✅ SHIPPED v1.9.0 (PR #96)
 - [x] File -> Import ANSI | Export ANSI

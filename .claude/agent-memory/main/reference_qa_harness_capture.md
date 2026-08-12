@@ -24,10 +24,51 @@ instead of hand-rolling an xdotool + screenshot pipeline.
   environment limitation, NOT the program failing to launch.
 
 **What works** — `_capture_client_area()` in `QA/draw-qa.sh`: full-screen
-capture with `setsid spectacle -b -n -f -o "$tmp"` when `$WAYLAND_DISPLAY` is
-set, then `convert -crop` down to the client area using the cached window
-position. `setsid` matters: without it the compositor gives spectacle keyboard
-focus and DRAW misses every subsequent key event.
+capture with `setsid spectacle -b -n -f -o "$tmp"`, then `convert -crop` down to
+the client area using the cached window position. `setsid` matters: without it
+the compositor gives spectacle keyboard focus and DRAW misses every subsequent
+key event.
+
+**Spectacle is now the UNCONDITIONAL primary (changed 2026-08-11).** It used to
+be gated on `[[ -n "$WAYLAND_DISPLAY" ]]`, falling to `scrot` otherwise — and
+`scrot` returns all-black under the Wayland compositor, so any run with
+`WAYLAND_DISPLAY` unset silently captured black/stale frames. Now
+`_capture_client_area` calls spectacle whenever it is on PATH and only falls to
+`scrot` if spectacle is absent or produced a zero-byte file. Spectacle works in
+both backends: `WAYLAND_DISPLAY` set → Wayland; `WAYLAND_DISPLAY` unset →
+X11 (captures the `$DISPLAY`, including an Xvfb one). "spectacle always works"
+(Rick, 2026-08-11) — don't reach for `scrot`/`import`.
+
+**Running the whole GUI suite OFFSCREEN (no desktop hijack) — verified 2026-08-11.**
+The harness normally takes over the real display `:1` (moves the mouse, types on
+the desktop). To run it unattended without touching the user's session, run it
+under a nested Xvfb — but TWO things must be right or it silently misbehaves:
+```bash
+env -u WAYLAND_DISPLAY xvfb-run -a --server-args="-screen 0 3840x2160x24" \
+    ./draw-qa.sh --rerun-passed tests/<name>.sh
+```
+1. **xvfb screen MUST match the real desktop resolution (3840×2160 here).** With
+   `UI_SCALE=0` (auto), DRAW re-derives the viewport from the screen; a smaller
+   xvfb (e.g. 1920×1080) yields a 1728×972 window and `_verify_geometry_model`
+   aborts with "window geometry does not match" (expected 1916×1028). Only at the
+   native 4K res does DRAW reproduce the pinned 958×514@2x window.
+2. **`WAYLAND_DISPLAY` MUST be unset for the harness process.** It is inherited
+   into the xvfb child. If left set, spectacle uses its **Wayland** backend and
+   grabs the **real desktop**, not the xvfb `DISPLAY` — so every
+   `snap_region`/`screenshot` captures whatever is actually on Rick's screen at
+   the window's coords (a static frame), `assert_regions_differ` sees
+   before==after and reports "regions are identical (action had no effect?)", a
+   false failure that looks like a product bug. Unsetting it makes spectacle use
+   its **X11** backend on the xvfb `$DISPLAY` — the correct offscreen frame.
+   (Verified: spectacle on Xvfb captured 169,633 non-black sample cells.)
+
+**But prefer NOT to run offscreen at all unless Rick is actively at the machine.**
+"the qa runs on screen … you don't need to run it offscreen … i'm not even
+present" (Rick, 2026-08-11). The harness is *designed* for the live `:1` session
+(Wayland + spectacle) and that is the reliable, first-choice path. Offscreen Xvfb
+is a courtesy for when Rick is using the desktop, not a default — reaching for it
+unprompted cost a wrong-screen-capture detour. Live full-suite run 2026-08-11:
+970 passed / 12 failed / 1 skipped, 0 screenshot failures.
 
 **The client-area origin comes from `xwininfo`, and `DECORATION_H` is 0.**
 `_update_win_pos` reads `xwininfo`'s "Absolute upper-left", which is already

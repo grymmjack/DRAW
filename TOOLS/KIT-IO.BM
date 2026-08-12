@@ -1,0 +1,336 @@
+$INCLUDEONCE
+'==============================================================================
+' KIT-IO.BM - DRAW KITS export/install file I/O (on top of KIT-ZIP + resolver).
+' Task 6: export write. Install extract is added in task 8.
+'==============================================================================
+
+' Read a whole file into a string ("" if missing/empty).
+FUNCTION KIT_read_file$ (pth AS STRING)
+    IF NOT _FILEEXISTS(pth) THEN EXIT FUNCTION
+    DIM fh AS INTEGER, sz AS LONG, s AS STRING
+    fh = FREEFILE
+    OPEN pth FOR BINARY AS #fh
+    sz = LOF(fh)
+    IF sz > 0 THEN s = SPACE$(sz): GET #fh, 1, s
+    CLOSE #fh
+    KIT_read_file$ = s
+END FUNCTION
+
+' Add a single on-disk file to the open kit archive under zipName.
+SUB KIT_add_file_to_zip (fnum AS INTEGER, diskPath AS STRING, zipName AS STRING)
+    DIM blob AS STRING, ok AS INTEGER
+    IF _DIREXISTS(diskPath) THEN EXIT SUB ' never OPEN a directory as a file
+    IF NOT _FILEEXISTS(diskPath) THEN EXIT SUB
+    blob = KIT_read_file$(diskPath)
+    ok = ZIP_add%(fnum, zipName, blob, TRUE)
+END SUB
+
+' Recursively add a folder tree to the archive (BFS; avoids _FILES$ reentrancy by
+' fully draining each directory into a local snapshot before descending).
+SUB KIT_add_folder_to_zip (fnum AS INTEGER, diskDir AS STRING, zipPrefix AS STRING)
+    REDIM qd(0) AS STRING, qz(0) AS STRING
+    DIM qn AS INTEGER, head AS INTEGER, i AS INTEGER, dd AS STRING, zz AS STRING, en AS INTEGER
+    qd(0) = diskDir: IF RIGHT$(qd(0), 1) <> "/" AND RIGHT$(qd(0), 1) <> "\" THEN qd(0) = qd(0) + "/"
+    qz(0) = zipPrefix
+    qn = 1: head = 0
+    DO WHILE head < qn
+        dd = qd(head): zz = qz(head): head = head + 1
+        KIT_drain dd
+        en = KIT_DRAIN_COUNT%
+        REDIM ent(0) AS STRING
+        IF en > 0 THEN
+            REDIM ent(0 TO en - 1) AS STRING
+            FOR i = 0 TO en - 1: ent(i) = KIT_DRAIN_NAME(i): NEXT
+        END IF
+        FOR i = 0 TO en - 1
+            IF _DIREXISTS(dd + ent(i)) THEN
+                REDIM _PRESERVE qd(0 TO qn) AS STRING
+                REDIM _PRESERVE qz(0 TO qn) AS STRING
+                qd(qn) = dd + ent(i) + "/": qz(qn) = zz + ent(i) + "/": qn = qn + 1
+            ELSE
+                KIT_add_file_to_zip fnum, dd + ent(i), zz + ent(i)
+            END IF
+        NEXT
+    LOOP
+END SUB
+
+FUNCTION KIT_find_style_slot% (nm AS STRING)
+    DIM i AS INTEGER
+    FOR i = 1 TO TEXT_STYLE_MAX
+        IF TEXT_STYLES(i).used THEN
+            IF _TRIM$(TEXT_STYLES(i).name) = nm THEN KIT_find_style_slot% = i: EXIT FUNCTION
+        END IF
+    NEXT
+END FUNCTION
+
+' All selected text styles go into one combined .dstyle entry (merged on install).
+SUB KIT_export_textstyles (fnum AS INTEGER)
+    DIM tmp AS STRING, fh AS INTEGER, i AS INTEGER, si AS INTEGER
+    tmp = PATHS_cache$("kit_export_styles.dstyle")
+    fh = FREEFILE
+    OPEN tmp FOR OUTPUT AS #fh
+    FOR i = 0 TO KIT_ITEM_COUNT% - 1
+        IF KIT_ITEM_TYPE(i) = KIT_TYPE_TEXTSTYLE THEN
+            si = KIT_find_style_slot%(KIT_ITEM_NAME(i))
+            IF si > 0 THEN TEXT_STYLE_write_one fh, si
+        END IF
+    NEXT
+    CLOSE #fh
+    DIM blob AS STRING : blob = KIT_read_file$(tmp)
+    IF LEN(blob) > 0 THEN
+        DIM ok AS INTEGER : ok = ZIP_add%(fnum, KIT_type_zip_prefix$(KIT_TYPE_TEXTSTYLE) + "styles.dstyle", blob, TRUE)
+    END IF
+    IF _FILEEXISTS(tmp) THEN KILL tmp
+END SUB
+
+' Read a kit's manifest into mf + KIT_ITEM_* (the kit's declared contents).
+' Returns TRUE when the archive parses and carries the drawkit magic.
+FUNCTION KIT_load_kit_manifest% (kitPath AS STRING, mf AS KIT_MANIFEST)
+    IF NOT _FILEEXISTS(kitPath) THEN EXIT FUNCTION
+    DIM fh AS INTEGER, i AS INTEGER, txt AS STRING, found AS INTEGER
+    fh = FREEFILE
+    OPEN kitPath FOR BINARY AS #fh
+    IF NOT ZIP_read_open%(fh) THEN CLOSE #fh: EXIT FUNCTION
+    FOR i = 0 TO ZIP_READ_COUNT% - 1
+        IF ZIP_READ_ENTRIES(i).name = "kit.ini" THEN txt = ZIP_read_entry$(fh, i): found = TRUE: EXIT FOR
+    NEXT
+    CLOSE #fh
+    IF NOT found THEN EXIT FUNCTION
+    KIT_load_kit_manifest% = KIT_manifest_parse%(txt, mf)
+END FUNCTION
+
+' Load a kit's preview image into an image handle (-1 if none/failed).
+FUNCTION KIT_load_kit_preview& (kitPath AS STRING, mf AS KIT_MANIFEST)
+    KIT_load_kit_preview& = -1
+    IF mf.kitShot = "" THEN EXIT FUNCTION
+    DIM fh AS INTEGER, i AS INTEGER, blob AS STRING, found AS INTEGER
+    fh = FREEFILE
+    OPEN kitPath FOR BINARY AS #fh
+    IF NOT ZIP_read_open%(fh) THEN CLOSE #fh: EXIT FUNCTION
+    FOR i = 0 TO ZIP_READ_COUNT% - 1
+        IF ZIP_READ_ENTRIES(i).name = mf.kitShot THEN blob = ZIP_read_entry$(fh, i): found = TRUE: EXIT FOR
+    NEXT
+    CLOSE #fh
+    IF NOT found OR LEN(blob) = 0 THEN EXIT FUNCTION
+    DIM tmp AS STRING : tmp = PATHS_cache$("kit_preview." + KIT_file_ext$(mf.kitShot))
+    DIM ofh AS INTEGER : ofh = FREEFILE
+    OPEN tmp FOR OUTPUT AS #ofh: CLOSE #ofh
+    ofh = FREEFILE: OPEN tmp FOR BINARY AS #ofh: PUT #ofh, 1, blob: CLOSE #ofh
+    DIM img AS LONG : img = _LOADIMAGE(tmp, 32)
+    IF _FILEEXISTS(tmp) THEN KILL tmp
+    KIT_load_kit_preview& = img
+END FUNCTION
+
+' Self-documenting readme embedded in every kit (DRAWKIT.md), so the format is
+' legible to other tools and to a human who just unzips it.
+FUNCTION KIT_readme_md$
+    DIM nl AS STRING, s AS STRING, tick AS STRING
+    nl = CHR$(10): tick = CHR$(96) + CHR$(96) + CHR$(96) ' ```
+    s = "# DRAW Kit (.zip)" + nl + nl
+    s = s + "A **DRAW Kit** is a standard ZIP archive bundling shareable assets for DRAW" + nl
+    s = s + "(the pixel-art editor). Made with DRAW " + APP_VERSION$ + ". You can open it with any" + nl
+    s = s + "zip tool. To install, use **File > Install Kit...** in DRAW, or unzip and copy" + nl
+    s = s + "each folder's contents into the matching DRAW user directory." + nl + nl
+    s = s + "## Contents" + nl + nl
+    s = s + "- " + tick + "kit.ini" + tick + " - manifest (see below)" + nl
+    s = s + "- " + tick + "DRAWKIT.md" + tick + " - this file" + nl
+    s = s + "- " + tick + "preview.*" + tick + " - optional screenshot" + nl
+    s = s + "- asset folders (only the included types are present):" + nl
+    s = s + "  - " + tick + "themes/<name>/..." + tick + " - a theme folder tree (THEME.CFG + IMAGES/ + ...)" + nl
+    s = s + "  - " + tick + "palettes/<file>.GPL" + tick + " - GIMP palettes" + nl
+    s = s + "  - " + tick + "brushes/ patterns/ gradients/ <file>.dset" + tick + " - DRAW drawer sets" + nl
+    s = s + "    (same .dset format; a mode byte in the header distinguishes the three)" + nl
+    s = s + "  - " + tick + "fonts-ttf/ fonts-bitmap/ fonts-colorbitmap/" + tick + " - fonts (may nest in subfolders)" + nl
+    s = s + "  - " + tick + "textstyles/styles.dstyle" + tick + " - text-style presets (merged on install)" + nl
+    s = s + "  - " + tick + "templates/<file>" + tick + " - canvas templates (images or .draw)" + nl + nl
+    s = s + "## kit.ini" + nl + nl
+    s = s + "Plain UTF-8, one " + tick + "key=value" + tick + " per line. In values, " + tick + "\n" + tick + " = newline and " + tick + "\\" + tick + " = backslash." + nl + nl
+    s = s + tick + nl
+    s = s + "drawkit=1" + nl
+    s = s + "name=My Kit" + nl
+    s = s + "description=A short blurb" + nl
+    s = s + "author=Someone" + nl
+    s = s + "screenshot=preview.png" + nl
+    s = s + "item.theme=Midnight" + nl
+    s = s + "item.palette=nord.GPL" + nl
+    s = s + tick + nl + nl
+    s = s + "Each " + tick + "item.<type>=<name>" + tick + " lists one included asset. " + tick + "<type>" + tick + " is one of:" + nl
+    s = s + "theme, pattern, gradient, brush, palette, fontbmp, fontcbf, fontttf, textstyle, template." + nl + nl
+    s = s + "Created by DRAW - https://github.com/grymmjack/DRAW" + nl
+    KIT_readme_md$ = s
+END FUNCTION
+
+' Write the kit archive at KIT_OUT_PATH$ from the current selection (KIT_ITEM_*),
+' metadata (KIT_EXPORT_MF) and screenshot (KIT_SHOT_SRC$). Returns TRUE on success.
+FUNCTION KIT_export_write% ()
+    IF KIT_OUT_PATH$ = "" THEN EXIT FUNCTION
+    DIM fnum AS INTEGER, i AS INTEGER, ty AS INTEGER, nm AS STRING, ok AS INTEGER
+
+    fnum = FREEFILE
+    OPEN KIT_OUT_PATH$ FOR OUTPUT AS #fnum: CLOSE #fnum ' truncate/create
+    fnum = FREEFILE
+    OPEN KIT_OUT_PATH$ FOR BINARY AS #fnum
+    ZIP_begin fnum
+
+    ' Screenshot -> preview.<ext>, recorded in the manifest.
+    DIM shotName AS STRING : shotName = ""
+    IF KIT_SHOT_SRC$ <> "" THEN
+        IF _FILEEXISTS(KIT_SHOT_SRC$) THEN
+            DIM se AS STRING : se = LCASE$(KIT_file_ext$(KIT_SHOT_SRC$)) : IF se = "" THEN se = "png"
+            shotName = "preview." + se
+            KIT_add_file_to_zip fnum, KIT_SHOT_SRC$, shotName
+        END IF
+    END IF
+    KIT_EXPORT_MF.kitShot = shotName
+
+    ' Manifest.
+    DIM man AS STRING : man = KIT_manifest_build$(KIT_EXPORT_MF)
+    ok = ZIP_add%(fnum, "kit.ini", man, TRUE)
+    ok = ZIP_add%(fnum, "DRAWKIT.md", KIT_readme_md$, TRUE)
+
+    ' Text styles as one merged entry (if any selected).
+    IF KIT_item_count_of%(KIT_TYPE_TEXTSTYLE) > 0 THEN KIT_export_textstyles fnum
+
+    ' Every other selected item -> file (or folder tree for themes).
+    FOR i = 0 TO KIT_ITEM_COUNT% - 1
+        ty = KIT_ITEM_TYPE(i) : nm = KIT_ITEM_NAME(i)
+        SELECT CASE ty
+            CASE KIT_TYPE_TEXTSTYLE
+                ' handled in bulk above
+            CASE KIT_TYPE_THEME
+                KIT_add_folder_to_zip fnum, KIT_user_dir$(ty) + nm, KIT_type_zip_prefix$(ty) + nm + "/"
+            CASE ELSE
+                ' Resolve to the user dir or the factory dir (dset types) so
+                ' factory brushes/patterns/gradients export from ASSETS/DSETS/.
+                KIT_add_file_to_zip fnum, KIT_item_src_path$(ty, nm), KIT_type_zip_prefix$(ty) + nm
+        END SELECT
+    NEXT
+
+    ZIP_finish fnum
+    CLOSE #fnum
+    KIT_export_write% = TRUE
+END FUNCTION
+
+'==============================================================================
+' Install
+'==============================================================================
+
+' Which KIT_TYPE_* a kit-archive entry belongs to, by its path prefix (-1 = none).
+FUNCTION KIT_type_from_prefix% (nm AS STRING)
+    DIM ty AS INTEGER, p AS STRING
+    KIT_type_from_prefix% = -1
+    FOR ty = 0 TO KIT_TYPE_COUNT - 1
+        p = KIT_type_zip_prefix$(ty)
+        IF LEN(nm) >= LEN(p) THEN
+            IF LEFT$(nm, LEN(p)) = p THEN KIT_type_from_prefix% = ty: EXIT FUNCTION
+        END IF
+    NEXT
+END FUNCTION
+
+' Directory part of a path (including the trailing separator), "" if none.
+FUNCTION KIT_parent_dir$ (pth AS STRING)
+    DIM i AS LONG
+    FOR i = LEN(pth) TO 1 STEP -1
+        IF ASC(pth, i) = 47 OR ASC(pth, i) = 92 THEN KIT_parent_dir$ = LEFT$(pth, i): EXIT FUNCTION
+    NEXT
+    KIT_parent_dir$ = ""
+END FUNCTION
+
+' Append " (2)", " (3)"… before the extension until the path is free.
+FUNCTION KIT_unique_path$ (pth AS STRING)
+    IF NOT _FILEEXISTS(pth) THEN KIT_unique_path$ = pth: EXIT FUNCTION
+    DIM baseP AS STRING, ext AS STRING, dot AS LONG, i AS INTEGER, cand AS STRING
+    dot = 0
+    FOR i = LEN(pth) TO 1 STEP -1
+        IF ASC(pth, i) = 46 THEN dot = i: EXIT FOR
+        IF ASC(pth, i) = 47 OR ASC(pth, i) = 92 THEN EXIT FOR
+    NEXT
+    IF dot > 0 THEN baseP = LEFT$(pth, dot - 1): ext = MID$(pth, dot) ELSE baseP = pth: ext = ""
+    FOR i = 2 TO 999
+        cand = baseP + " (" + LTRIM$(STR$(i)) + ")" + ext
+        IF NOT _FILEEXISTS(cand) THEN KIT_unique_path$ = cand: EXIT FUNCTION
+    NEXT
+    KIT_unique_path$ = baseP + " (dup)" + ext
+END FUNCTION
+
+SUB KIT_write_file (pth AS STRING, blob AS STRING)
+    DIM fh AS INTEGER
+    fh = FREEFILE
+    OPEN pth FOR OUTPUT AS #fh: CLOSE #fh
+    fh = FREEFILE
+    OPEN pth FOR BINARY AS #fh
+    IF LEN(blob) > 0 THEN PUT #fh, 1, blob
+    CLOSE #fh
+END SUB
+
+' Merge an incoming styles.dstyle blob into the user's text styles.
+SUB KIT_install_textstyles (blob AS STRING)
+    DIM tmp AS STRING, fh AS INTEGER
+    tmp = PATHS_cache$("kit_install_styles.dstyle")
+    KIT_write_file tmp, blob
+    TEXT_STYLE_import tmp
+    IF _FILEEXISTS(tmp) THEN KILL tmp
+END SUB
+
+' Extract the checked types from the chosen kit to their install targets,
+' prompting on conflicts (overwrite/skip/keep-both, apply-to-all), then refresh
+' the affected in-app lists. Returns TRUE on completion.
+FUNCTION KIT_install_apply% ()
+    IF KIT_INSTALL_PATH$ = "" THEN EXIT FUNCTION
+    DIM fh AS INTEGER, i AS INTEGER, ty AS INTEGER, cnt AS INTEGER, choice AS INTEGER
+    DIM nm AS STRING, rel AS STRING, blob AS STRING, tgt AS STRING
+    DIM applyAll AS INTEGER, allChoice AS INTEGER
+    REDIM instd(0 TO KIT_TYPE_COUNT - 1) AS INTEGER
+    applyAll = FALSE: allChoice = 0
+
+    fh = FREEFILE
+    OPEN KIT_INSTALL_PATH$ FOR BINARY AS #fh
+    IF NOT ZIP_read_open%(fh) THEN CLOSE #fh: EXIT FUNCTION
+    cnt = ZIP_READ_COUNT%
+
+    FOR i = 0 TO cnt - 1
+        nm = ZIP_READ_ENTRIES(i).name
+        IF nm = "kit.ini" THEN _CONTINUE
+        IF LEFT$(nm, 8) = "preview." THEN _CONTINUE
+        ty = KIT_type_from_prefix%(nm)
+        IF ty < 0 THEN _CONTINUE
+        IF NOT KIT_INSTALL_ON(ty) THEN _CONTINUE
+        rel = MID$(nm, LEN(KIT_type_zip_prefix$(ty)) + 1)
+        IF rel = "" THEN _CONTINUE ' the prefix "folder" entry itself, if any
+
+        blob = ZIP_read_entry$(fh, i)
+        IF ZIP_READ_ERR% THEN _CONTINUE
+
+        IF ty = KIT_TYPE_TEXTSTYLE THEN
+            KIT_install_textstyles blob
+            instd(ty) = TRUE
+            _CONTINUE
+        END IF
+
+        tgt = KIT_user_dir$(ty) + rel
+        PATHS_ensure_dir KIT_parent_dir$(tgt)
+
+        IF _FILEEXISTS(tgt) THEN
+            IF KIT_INSTALL_NONINTERACTIVE% THEN
+                choice = KIT_INSTALL_AUTOCHOICE% ' headless/scripted: no dialog
+            ELSEIF applyAll THEN
+                choice = allChoice
+            ELSE
+                choice = KIT_conflict_dialog%(rel, applyAll)
+                IF applyAll THEN allChoice = choice
+            END IF
+            IF choice = 1 THEN _CONTINUE                    ' skip
+            IF choice = 2 THEN tgt = KIT_unique_path$(tgt)  ' keep both
+            ' choice 0 = overwrite -> fall through
+        END IF
+
+        KIT_write_file tgt, blob
+        instd(ty) = TRUE
+    NEXT
+    CLOSE #fh
+
+    FOR ty = 0 TO KIT_TYPE_COUNT - 1
+        IF instd(ty) THEN KIT_refresh ty
+    NEXT
+    KIT_install_apply% = TRUE
+END FUNCTION

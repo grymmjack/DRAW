@@ -1,0 +1,238 @@
+$INCLUDEONCE
+'==============================================================================
+' KIT-ZIP.BM - PKZIP writer/reader implementation. See KIT-ZIP.BI.
+'==============================================================================
+
+'-- Little-endian byte encoders -----------------------------------------------
+FUNCTION ZIP_le16$ (v AS _UNSIGNED INTEGER)
+    ZIP_le16$ = CHR$(v AND 255) + CHR$((v \ 256) AND 255)
+END FUNCTION
+
+FUNCTION ZIP_le32$ (v AS _UNSIGNED LONG)
+    ZIP_le32$ = CHR$(v AND 255) + CHR$((v \ 256) AND 255) + CHR$((v \ 65536) AND 255) + CHR$((v \ 16777216) AND 255)
+END FUNCTION
+
+'-- Little-endian byte decoders (1-based position into s$) ---------------------
+FUNCTION ZIP_rd16~% (s AS STRING, atPos AS LONG)
+    ZIP_rd16~% = ASC(s, atPos) + ASC(s, atPos + 1) * 256
+END FUNCTION
+
+FUNCTION ZIP_rd32~& (s AS STRING, atPos AS LONG)
+    DIM r AS _UNSIGNED LONG
+    r = ASC(s, atPos)
+    r = r + ASC(s, atPos + 1) * 256
+    r = r + ASC(s, atPos + 2) * 65536
+    r = r + ASC(s, atPos + 3) * 16777216
+    ZIP_rd32~& = r
+END FUNCTION
+
+'-- CRC-32 --------------------------------------------------------------------
+SUB ZIP_crc_init
+    IF ZIP_CRC_READY% THEN EXIT SUB
+    DIM i AS LONG, j AS LONG, c AS _UNSIGNED LONG
+    FOR i = 0 TO 255
+        c = i
+        FOR j = 0 TO 7
+            IF c AND 1 THEN
+                c = &HEDB88320~& XOR (c \ 2)
+            ELSE
+                c = c \ 2
+            END IF
+        NEXT j
+        ZIP_CRC_TABLE(i) = c
+    NEXT i
+    ZIP_CRC_READY% = TRUE
+END SUB
+
+FUNCTION ZIP_crc32~& (dat AS STRING)
+    ZIP_crc_init
+    DIM crc AS _UNSIGNED LONG, k AS LONG, idx AS LONG
+    crc = &HFFFFFFFF~&
+    FOR k = 1 TO LEN(dat)
+        idx = (crc XOR ASC(dat, k)) AND 255
+        crc = ZIP_CRC_TABLE(idx) XOR (crc \ 256)
+    NEXT k
+    ZIP_crc32~& = crc XOR &HFFFFFFFF~&
+END FUNCTION
+
+'-- Raw DEFLATE stream for zip method 8 ----------------------------------------
+' _DEFLATE$ may emit a zlib wrapper (0x78 header + 4-byte adler trailer); zip
+' method 8 wants the bare DEFLATE stream, so strip the wrapper when present.
+FUNCTION ZIP_raw_deflate$ (payload AS STRING)
+    DIM z AS STRING
+    z = _DEFLATE$(payload)
+    IF LEN(z) >= 6 THEN
+        IF ASC(z, 1) = &H78 THEN
+            ZIP_raw_deflate$ = MID$(z, 3, LEN(z) - 6)
+            EXIT FUNCTION
+        END IF
+    END IF
+    ZIP_raw_deflate$ = z
+END FUNCTION
+
+'-- Writer --------------------------------------------------------------------
+SUB ZIP_begin (fnum AS INTEGER)
+    ZIP_CD$ = ""
+    ZIP_ENTRY_COUNT% = 0
+    ZIP_OFFSET& = 0
+    ZIP_crc_init
+END SUB
+
+' Add one entry. useDeflate% TRUE attempts compression (falls back to STORE when
+' it would not shrink). Returns TRUE on success.
+FUNCTION ZIP_add% (fnum AS INTEGER, nm AS STRING, payload AS STRING, useDeflate AS INTEGER)
+    DIM crc AS _UNSIGNED LONG, usize AS _UNSIGNED LONG, csize AS _UNSIGNED LONG
+    DIM mth AS INTEGER, comp AS STRING, localOff AS _UNSIGNED LONG, hdr AS STRING, cd AS STRING
+    ZIP_crc_init
+    usize = LEN(payload)
+    crc = ZIP_crc32~&(payload)
+    mth = 0
+    comp = payload
+    IF useDeflate THEN
+        DIM raw AS STRING
+        raw = ZIP_raw_deflate$(payload)
+        IF LEN(raw) > 0 AND LEN(raw) < LEN(payload) THEN
+            comp = raw: mth = 8
+        END IF
+    END IF
+    csize = LEN(comp)
+    localOff = ZIP_OFFSET&
+
+    ' Local file header
+    hdr = ZIP_le32$(&H04034B50~&)
+    hdr = hdr + ZIP_le16$(20)          ' version needed
+    hdr = hdr + ZIP_le16$(0)           ' general purpose flags
+    hdr = hdr + ZIP_le16$(mth)         ' compression method
+    hdr = hdr + ZIP_le16$(0)           ' mod time
+    hdr = hdr + ZIP_le16$(0)           ' mod date
+    hdr = hdr + ZIP_le32$(crc)
+    hdr = hdr + ZIP_le32$(csize)
+    hdr = hdr + ZIP_le32$(usize)
+    hdr = hdr + ZIP_le16$(LEN(nm))
+    hdr = hdr + ZIP_le16$(0)           ' extra length
+    hdr = hdr + nm
+    PUT #fnum, , hdr
+    PUT #fnum, , comp
+    ZIP_OFFSET& = ZIP_OFFSET& + LEN(hdr) + LEN(comp)
+
+    ' Central-directory record (buffered until ZIP_finish)
+    cd = ZIP_le32$(&H02014B50~&)
+    cd = cd + ZIP_le16$(20)            ' version made by
+    cd = cd + ZIP_le16$(20)            ' version needed
+    cd = cd + ZIP_le16$(0)             ' flags
+    cd = cd + ZIP_le16$(mth)
+    cd = cd + ZIP_le16$(0)             ' mod time
+    cd = cd + ZIP_le16$(0)             ' mod date
+    cd = cd + ZIP_le32$(crc)
+    cd = cd + ZIP_le32$(csize)
+    cd = cd + ZIP_le32$(usize)
+    cd = cd + ZIP_le16$(LEN(nm))
+    cd = cd + ZIP_le16$(0)             ' extra length
+    cd = cd + ZIP_le16$(0)             ' comment length
+    cd = cd + ZIP_le16$(0)             ' disk number start
+    cd = cd + ZIP_le16$(0)             ' internal attributes
+    cd = cd + ZIP_le32$(0)             ' external attributes
+    cd = cd + ZIP_le32$(localOff)      ' local header offset
+    cd = cd + nm
+    ZIP_CD$ = ZIP_CD$ + cd
+    ZIP_ENTRY_COUNT% = ZIP_ENTRY_COUNT% + 1
+    ZIP_add% = TRUE
+END FUNCTION
+
+'-- Reader --------------------------------------------------------------------
+' Inflate a bare (raw) DEFLATE stream as stored by zip method 8. _INFLATE$ decodes
+' _DEFLATE$'s zlib-wrapped output and requires a zlib header, but it does NOT verify
+' the adler-32 trailer (verified empirically), so wrap the raw stream with a zlib
+' header (0x78 0x9C) + 4 placeholder trailer bytes. The caller CRC-checks the result.
+FUNCTION ZIP_inflate_raw$ (comp AS STRING, origSize AS _UNSIGNED LONG)
+    DIM w AS STRING
+    w = CHR$(&H78) + CHR$(&H9C) + comp + STRING$(4, 0)
+    ZIP_inflate_raw$ = _INFLATE$(w, origSize)
+END FUNCTION
+
+' Open an archive already OPENed FOR BINARY as #fnum: locate the EOCD, walk the
+' central directory into ZIP_READ_ENTRIES()/ZIP_READ_COUNT%. Returns TRUE on OK.
+FUNCTION ZIP_read_open% (fnum AS INTEGER)
+    ZIP_READ_COUNT% = 0
+    DIM flen AS LONG, tailLen AS LONG, tail AS STRING, eocdPos AS LONG, i AS LONG
+    flen = LOF(fnum)
+    IF flen < 22 THEN EXIT FUNCTION
+    tailLen = flen: IF tailLen > 65557 THEN tailLen = 65557
+    tail = SPACE$(tailLen)
+    GET #fnum, flen - tailLen + 1, tail
+    eocdPos = 0
+    FOR i = LEN(tail) - 21 TO 1 STEP -1
+        IF ZIP_rd32~&(tail, i) = &H06054B50~& THEN eocdPos = i: EXIT FOR
+    NEXT i
+    IF eocdPos = 0 THEN EXIT FUNCTION
+
+    DIM total AS INTEGER, cdSize AS LONG, cdOff AS LONG
+    total = ZIP_rd16~%(tail, eocdPos + 10)
+    cdSize = ZIP_rd32~&(tail, eocdPos + 12)
+    cdOff = ZIP_rd32~&(tail, eocdPos + 16)
+    IF total < 1 THEN EXIT FUNCTION
+
+    DIM cd AS STRING
+    cd = SPACE$(cdSize)
+    GET #fnum, cdOff + 1, cd
+
+    REDIM ZIP_READ_ENTRIES(0 TO total - 1) AS ZIP_DIR_ENTRY
+    DIM p AS LONG, e AS LONG, fnl AS INTEGER, exl AS INTEGER, cml AS INTEGER
+    p = 1
+    FOR e = 0 TO total - 1
+        IF ZIP_rd32~&(cd, p) <> &H02014B50~& THEN EXIT FUNCTION
+        fnl = ZIP_rd16~%(cd, p + 28)
+        exl = ZIP_rd16~%(cd, p + 30)
+        cml = ZIP_rd16~%(cd, p + 32)
+        ZIP_READ_ENTRIES(e).method = ZIP_rd16~%(cd, p + 10)
+        ZIP_READ_ENTRIES(e).crc32 = ZIP_rd32~&(cd, p + 16)
+        ZIP_READ_ENTRIES(e).compSize = ZIP_rd32~&(cd, p + 20)
+        ZIP_READ_ENTRIES(e).uncompSize = ZIP_rd32~&(cd, p + 24)
+        ZIP_READ_ENTRIES(e).localOffset = ZIP_rd32~&(cd, p + 42)
+        ZIP_READ_ENTRIES(e).name = MID$(cd, p + 46, fnl)
+        p = p + 46 + fnl + exl + cml
+    NEXT e
+    ZIP_READ_COUNT% = total
+    ZIP_read_open% = TRUE
+END FUNCTION
+
+' Extract entry idx% (0-based into ZIP_READ_ENTRIES). Sets ZIP_READ_ERR% TRUE on a
+' CRC mismatch or inflate failure. Returns the decompressed content.
+FUNCTION ZIP_read_entry$ (fnum AS INTEGER, idx AS INTEGER)
+    ZIP_READ_ERR% = FALSE
+    IF idx < 0 OR idx >= ZIP_READ_COUNT% THEN ZIP_READ_ERR% = TRUE: EXIT FUNCTION
+    DIM lh AS STRING, lfnl AS INTEGER, lexl AS INTEGER, dataPos AS LONG, comp AS STRING, plain AS STRING
+    lh = SPACE$(30)
+    GET #fnum, ZIP_READ_ENTRIES(idx).localOffset + 1, lh
+    IF ZIP_rd32~&(lh, 1) <> &H04034B50~& THEN ZIP_READ_ERR% = TRUE: EXIT FUNCTION
+    lfnl = ZIP_rd16~%(lh, 27)
+    lexl = ZIP_rd16~%(lh, 29)
+    dataPos = ZIP_READ_ENTRIES(idx).localOffset + 30 + lfnl + lexl
+    comp = SPACE$(ZIP_READ_ENTRIES(idx).compSize)
+    IF LEN(comp) > 0 THEN GET #fnum, dataPos + 1, comp
+    IF ZIP_READ_ENTRIES(idx).method = 0 THEN
+        plain = comp
+    ELSE
+        plain = ZIP_inflate_raw$(comp, ZIP_READ_ENTRIES(idx).uncompSize)
+    END IF
+    IF ZIP_crc32~&(plain) <> ZIP_READ_ENTRIES(idx).crc32 THEN ZIP_READ_ERR% = TRUE
+    ZIP_read_entry$ = plain
+END FUNCTION
+
+SUB ZIP_finish (fnum AS INTEGER)
+    DIM cdOff AS _UNSIGNED LONG, cdSize AS _UNSIGNED LONG, eocd AS STRING
+    cdOff = ZIP_OFFSET&
+    PUT #fnum, , ZIP_CD$
+    cdSize = LEN(ZIP_CD$)
+    ZIP_OFFSET& = ZIP_OFFSET& + cdSize
+
+    eocd = ZIP_le32$(&H06054B50~&)
+    eocd = eocd + ZIP_le16$(0)                ' this disk number
+    eocd = eocd + ZIP_le16$(0)                ' disk with central dir
+    eocd = eocd + ZIP_le16$(ZIP_ENTRY_COUNT%) ' entries on this disk
+    eocd = eocd + ZIP_le16$(ZIP_ENTRY_COUNT%) ' total entries
+    eocd = eocd + ZIP_le32$(cdSize)
+    eocd = eocd + ZIP_le32$(cdOff)
+    eocd = eocd + ZIP_le16$(0)                ' comment length
+    PUT #fnum, , eocd
+END SUB

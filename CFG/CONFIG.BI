@@ -335,6 +335,7 @@ TYPE DRAW_CONFIG
     LAST_DIR_OPEN                   AS STRING         ' Last directory for File Open / Load Image
     LAST_DIR_SAVE                   AS STRING         ' Last directory for File Save / Save As
     LAST_DIR_IMPORT                 AS STRING         ' Last directory for Import Image / Ref Image
+    LAST_DIR_KIT                    AS STRING         ' Last directory for Export/Install DRAW Kit
     LAST_DIR_EXPORT_BRUSH           AS STRING         ' Last directory for Export Brush
     LAST_DIR_EXPORT_LAYER           AS STRING         ' Last directory for Export Layer / Selection
     LAST_DIR_EXTRACT                AS STRING         ' Last directory for Extract Images
