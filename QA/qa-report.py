@@ -12,12 +12,14 @@ by the harness) and emits a self-contained, theme-aware report:
 Pure stdlib. Reads only.
 
 Usage:
-    qa-report.py --project NAME (--run RUN.tsv | --results DIR) [--out FILE]
+    qa-report.py --project NAME (--run RUN.tsv | --results DIR)
+                 [--out FILE] [--junit FILE]
 
     --project NAME   what to call the suite in the header (default: "QA")
     --run FILE       the run TSV to render
     --results DIR    a results/ dir; renders the newest run-*.tsv in it
-    --out FILE       write here (default: stdout)
+    --out FILE       write HTML here (default: stdout, unless --junit given)
+    --junit FILE     also write JUnit/surefire XML here (for CI)
 """
 import os
 import re
@@ -198,12 +200,54 @@ def render(project, when, rows):
     return "\n".join(out)
 
 
+def _xml_attr(s):
+    return (str(s).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            .replace('"', "&quot;"))
+
+
+def render_junit(project, when, rows):
+    """JUnit/surefire XML so CI (GitHub Actions et al.) can surface per-test results.
+
+    cached/skip → <skipped/>; fail → <failure> with the note as the message.
+    """
+    nfail = sum(1 for r in rows if r["result"] == "fail")
+    nskip = sum(1 for r in rows if r["result"] in ("skip", "cached"))
+    total = sum(r["secs"] for r in rows)
+    cls = f"{project}.QA"
+    ts = when.strftime("%Y-%m-%dT%H:%M:%S") if when else ""
+    lines = ['<?xml version="1.0" encoding="UTF-8"?>']
+    lines.append(f'<testsuites name="{_xml_attr(project)} QA" tests="{len(rows)}" '
+                 f'failures="{nfail}" skipped="{nskip}" time="{total}">')
+    lines.append(f'  <testsuite name="{_xml_attr(project)} QA" tests="{len(rows)}" '
+                 f'failures="{nfail}" skipped="{nskip}" time="{total}"'
+                 + (f' timestamp="{ts}"' if ts else "") + '>')
+    for r in rows:
+        head = (f'    <testcase name="{_xml_attr(r["name"])}" '
+                f'classname="{_xml_attr(cls)}" time="{r["secs"]}"')
+        if r["result"] == "fail":
+            msg = _xml_attr(r["notes"] or "assertion failed")
+            lines.append(head + '>')
+            lines.append(f'      <failure message="{msg}">{_esc(r["notes"])}</failure>')
+            lines.append('    </testcase>')
+        elif r["result"] in ("skip", "cached"):
+            reason = _xml_attr(r["notes"] or r["result"])
+            lines.append(head + '>')
+            lines.append(f'      <skipped message="{reason}"/>')
+            lines.append('    </testcase>')
+        else:
+            lines.append(head + '/>')
+    lines.append('  </testsuite>')
+    lines.append('</testsuites>')
+    return "\n".join(lines) + "\n"
+
+
 def main():
     args = sys.argv[1:]
     project = "QA"
     run = None
     results = None
     out = None
+    junit = None
     i = 0
     while i < len(args):
         a = args[i]
@@ -215,6 +259,8 @@ def main():
             i += 1; results = args[i]
         elif a == "--out":
             i += 1; out = args[i]
+        elif a == "--junit":
+            i += 1; junit = args[i]
         i += 1
 
     if not run and results:
@@ -225,13 +271,17 @@ def main():
         return 2
 
     rows = load_rows(run)
-    html = render(project, run_time(run), rows)
+    when = run_time(run)
+    if junit:
+        with open(junit, "w") as fh:
+            fh.write(render_junit(project, when, rows))
+    html = render(project, when, rows)
     if out:
         with open(out, "w") as fh:
             fh.write("<!doctype html>\n<meta charset=utf-8>\n")
             fh.write(f"<title>{_esc(project)} — QA Report</title>\n")
             fh.write(html)
-    else:
+    elif not junit:
         sys.stdout.write(html)
     return 0
 

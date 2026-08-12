@@ -40,6 +40,7 @@ touches the core. Web adapters skip pixels and resolve selectors instead.
 | `run_test_file` | test isolation + passed-cache + per-file tally |
 | `_record_duration` `_eta_for` `_fmt_secs` | per-test duration history → median ETA (robust to one-off hangs) |
 | `_write_status` `_suffix_eta` + `--status` | live queryable status (`status.json`/`.txt`, atomic tmp+mv) + `PROGRESS` stream lines; poller/task-loop/CI reads where the run is + clock ETA |
+| `_record_result` (→ `run-*.tsv`) + `qa-report.py` | structured per-run results (`name⇥result⇥secs⇥notes`) → project-agnostic HTML report + JUnit XML (`--junit`); non-zero exit on any fail = the CI signal |
 | `check_deps` | dependency preflight *(the dep list is driver-informed)* |
 | input **verb API** (`click` `right_click` `double_click` `drag` `scroll_*` `type_text` `key` `park_mouse`) | the *signatures* are core; the *bodies* are driver (see below) |
 | entrypoint flags (`--list` `--rerun-passed` `--fail-fast` `--stop` `--reset*`) | runner CLI |
@@ -142,7 +143,46 @@ hard way:
    diff compares a static wrong frame ("regions are identical").
 
 This is also the **GitHub Actions Linux** path: no real display, Xvfb + headless,
-JUnit/exit-code output (Phase 3).
+JUnit/exit-code output.
+
+## CI output (what a runner consumes)
+
+Every run emits, into the results dir:
+- `report.html` — the human report (theme-aware, header + test/result/secs/notes).
+- `junit.xml` — JUnit/surefire XML (`qa-report.py --junit`): one `<testcase>` per
+  test; `fail` → `<failure>` with the note as the message, `skip`/`cached` →
+  `<skipped>`. GitHub Actions test-report actions render this natively.
+- **exit code** — the runner script ends on `[[ $FAIL -eq 0 ]]`, so any failure
+  is a non-zero exit and the CI job goes red on its own.
+
+Headless invocation (the two offscreen invariants above still apply):
+
+```bash
+env -u WAYLAND_DISPLAY xvfb-run -a --server-args="-screen 0 3840x2160x24" \
+    ./QA/draw-qa.sh --rerun-passed        # → QA/results/{report.html,junit.xml}; exit 1 on any fail
+```
+
+Sketch of the Linux workflow (drop into `.github/workflows/qa.yml` when wiring CI —
+kept out of the repo for now so it doesn't run red before the qb64pe build step is
+pinned; `xvfb-run` resolution must match the app's expected screen):
+
+```yaml
+on: [workflow_dispatch]
+jobs:
+  qa:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y xdotool scrot imagemagick xvfb
+      # - build qb64pe + DRAW.run here -
+      - run: env -u WAYLAND_DISPLAY xvfb-run -a --server-args="-screen 0 1920x1080x24" ./QA/draw-qa.sh --rerun-passed
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: qa-report, path: QA/results/report.html }
+      - uses: mikepenz/action-junit-report@v4
+        if: always()
+        with: { report_paths: QA/results/junit.xml }
+```
 
 ## Extraction plan (later phases)
 

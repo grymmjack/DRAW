@@ -1423,10 +1423,13 @@ log "═════════════════════════
 # Project-agnostic: qa-report.py takes only a project name + the run's TSV.
 if [[ -s "$RESULTS_TSV" ]] && command -v python3 &>/dev/null; then
     REPORT_HTML="$RESULTS_DIR/report.html"
+    REPORT_JUNIT="$RESULTS_DIR/junit.xml"   # CI (GitHub Actions et al.) consumes this
     if python3 "$SCRIPT_DIR/qa-report.py" \
-            --project "$PROJECT_NAME" --run "$RESULTS_TSV" --out "$REPORT_HTML" 2>/dev/null; then
+            --project "$PROJECT_NAME" --run "$RESULTS_TSV" \
+            --out "$REPORT_HTML" --junit "$REPORT_JUNIT" 2>/dev/null; then
         log " ${CYAN}Report → $REPORT_HTML${RESET}"
-        # --report also opens it in the default browser.
+        log " ${CYAN}JUnit  → $REPORT_JUNIT${RESET}"
+        # --report also opens the HTML in the default browser.
         [[ $REPORT -eq 1 ]] && command -v xdg-open &>/dev/null && xdg-open "$REPORT_HTML" &>/dev/null &
     fi
 fi
