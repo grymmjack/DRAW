@@ -53,6 +53,22 @@ what to act on — those tests are currently broken. A high `fail` count with a
 | `--never` | only current tests that have never actually run |
 | `--sort runs\|name\|last` | order within each category (default `name`; `runs` = busiest first; `last` = most-recently-run last) |
 | `--no-color` | plain output (use this when capturing to a file or when the terminal mangles ANSI) |
+| `--html` | emit a self-contained, theme-aware HTML dashboard instead of the text table (summary cards, failing callout, per-category tables). Redirect to a file and publish it as an artifact for the user. |
+
+## Publishing an HTML report
+
+When the user wants a *report to look at* (not terminal text), generate the HTML
+and publish it as an Artifact:
+
+```bash
+python3 .claude/skills/dump-qa-tests/dump-qa-tests.py --html > /path/to/scratchpad/qa-report.html
+```
+
+The output is a body-fragment (its own `<style>` + markup, no `<!doctype>/<html>/
+<head>/<body>`) — exactly what the Artifact tool wants — and it also opens fine
+directly in a browser. It surfaces the latest full-suite `Results:` line, the
+count of tests failing on their last run, and every category's table with
+failing categories floated to the top.
 
 ## After showing it
 

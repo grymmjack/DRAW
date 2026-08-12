@@ -81,6 +81,7 @@ assert_regions_differ "$LOADED" "$EDITED" "Brush stroke should change the loaded
 # ---------------------------------------------------------------------------
 BEFORE_SUM=$(md5sum "$RT_FILE" | cut -d' ' -f1)
 info "Saving with Ctrl+S (should be silent — path is known)"
+wake_draw          # leave idle mode first — idle drops Ctrl-combos (no wait_for between)
 key ctrl+s
 wait_for 2.0 "Project saved"
 assert_no_crash

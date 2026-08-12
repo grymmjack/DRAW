@@ -83,12 +83,19 @@ OVERRIDES
 }
 
 # Build QA/DRAW.qa.cfg from DRAW.cfg.default with the overrides above applied.
+# Re-asserts the overrides on EVERY call (startup + before each test launch) —
+# it does NOT cache-and-skip. DRAW's CONFIG_save writes its live config back to
+# the --config file on exit, which can flip a pinned override (observed:
+# TOOLBOX_DOCK_EDGE RIGHT→LEFT after a run), and a cached cfg would make that
+# clobbered value sticky — silently docking two panels on the same edge and
+# moving the toolbar/organizer out from under the tests. Rebuilding from factory
+# defaults + overrides each time keeps the harness geometry deterministic.
 _ensure_qa_cfg() {
-    [[ -f "$QA_CFG" ]] && return 0
     if [[ ! -f "$DRAW_ROOT/DRAW.cfg.default" ]]; then
         echo "ERROR: $DRAW_ROOT/DRAW.cfg.default not found — cannot build QA config" >&2
         exit 1
     fi
+    local existed=0; [[ -f "$QA_CFG" ]] && existed=1
     cp "$DRAW_ROOT/DRAW.cfg.default" "$QA_CFG"
     local line key val
     while IFS= read -r line; do
@@ -100,7 +107,7 @@ _ensure_qa_cfg() {
             echo "$line" >> "$QA_CFG"
         fi
     done < <(_qa_cfg_overrides)
-    echo "Created QA config: $QA_CFG"
+    [[ $existed -eq 0 ]] && echo "Created QA config: $QA_CFG"
 }
 _ensure_qa_cfg
 DRAW_CFG="$QA_CFG"
@@ -196,10 +203,14 @@ STATUS_H=11
 PALETTE_H=30
 
 # Palette-name dropdown button — the click target that opens the palette menu.
-# Probed with `./draw-qa.sh --probe` on the pinned QA config; re-probe if the
-# QA config's viewport or theme changes.
+# Y must land INSIDE the real 12px palette strip (viewport 491..502 on a 514-tall
+# viewport), or PALETTE_STRIP_in_bounds% rejects the click and the menu never
+# opens. Derived from the same constants as PAL_Y so it tracks strip geometry.
+# (Was a hardcoded 484 — only correct under the pre-2026-08-09 DECORATION_H drift
+# that pushed every click ~16.5px down; that drift is gone, so 484 landed 7px
+# above the strip and ui-palette-menu-chips began failing "regions identical".)
 PAL_NAME_X_OFFSET=80   # from the right edge
-PAL_NAME_Y=484
+PAL_NAME_Y=$(( VIEWPORT_H - STATUS_H - 6 ))  # ≈497, inside the strip's 491..502 band
 TOOLBAR_W=$(( 47 * TOOLBAR_SCALE + 2 ))   # TB_COLS*TB_BTN_W*TB + gaps + 2
 TOOLBAR_H=$(( 83 * TOOLBAR_SCALE ))        # TB_ROWS*TB_BTN_H*TB + gaps
 ORGANIZER_H=$(( 32 * TOOLBAR_SCALE ))      # 3 rows × 10 × TB + 2 gaps × TB
@@ -271,6 +282,16 @@ PAL_H=$PALETTE_H
 
 # Absolute click target for the palette-name dropdown button
 PAL_NAME_X=$(( VIEWPORT_W - PAL_NAME_X_OFFSET ))
+
+# ── snapshot dump (debug: DUMP_SNAPS=1 or --dump-snaps) ───────────────────────
+# When on, every compared region is saved to QA/snapshots/<test>-<N>_<label>.png
+# (the exact pixels the assertion diffed) plus <...>-where.png (the full window
+# with that region outlined in red, so you can see WHERE it looked). Lets Rick
+# eyeball whether a snap is aimed at the wrong place.
+DUMP_SNAPS=${DUMP_SNAPS:-0}
+SNAP_DUMP_DIR="$SCRIPT_DIR/snapshots"
+CURRENT_TEST=""
+SNAP_SEQ=0
 
 # ── colours ──────────────────────────────────────────────────────────────────
 GREEN="\033[0;32m"
@@ -823,6 +844,15 @@ snap_region() {
     if _capture_client_area "$wintmp"; then
         dbg "snap_region client_area=$(identify -format '%wx%h' "$wintmp" 2>/dev/null) sub-crop=${rw}x${rh}+${rx}+${ry}"
         convert "$wintmp" -crop "${rw}x${rh}+${rx}+${ry}" +repage "$SNAP_RESULT" 2>/dev/null
+        if [[ ${DUMP_SNAPS:-0} -eq 1 && -s "$SNAP_RESULT" ]]; then
+            SNAP_SEQ=$(( SNAP_SEQ + 1 ))
+            local d="$SNAP_DUMP_DIR/${CURRENT_TEST:-test}-${SNAP_SEQ}_${label}"
+            cp -f "$SNAP_RESULT" "${d}.png" 2>/dev/null
+            # full window with the snapped region outlined in red = "where did it look"
+            convert "$wintmp" -stroke red -fill none -strokewidth 3 \
+                -draw "rectangle ${rx},${ry} $((rx+rw)),$((ry+rh))" "${d}-where.png" 2>/dev/null
+            info "  📸 dumped ${CURRENT_TEST:-test}-${SNAP_SEQ}_${label}.png (region @ vp ${vx},${vy} ${vw}x${vh})"
+        fi
         rm -f "$wintmp"
     else
         dbg "snap_region _capture_client_area FAILED"
@@ -916,6 +946,9 @@ assert_regions_same() {
 run_test_file() {
     local test_file=$1
     local name; name=$(basename "$test_file" .sh)
+    CURRENT_TEST="$name"
+    SNAP_SEQ=0
+    if [[ $DUMP_SNAPS -eq 1 ]]; then mkdir -p "$SNAP_DUMP_DIR"; rm -f "$SNAP_DUMP_DIR/${name}-"*.png 2>/dev/null; fi
     log ""
     log "${CYAN}━━━ $name ━━━${RESET}"
 
@@ -937,7 +970,10 @@ run_test_file() {
     # Track failures before this test
     local fail_before=$FAIL
 
-    # Each test is atomic: fresh DRAW instance
+    # Each test is atomic: fresh DRAW instance. Re-assert the QA cfg overrides
+    # first — the previous test's DRAW may have written its live config (e.g. a
+    # flipped dock edge) back over our pinned values on exit.
+    _ensure_qa_cfg
     _crash_snapshot
     draw_launch 15
     # Source directly in the current shell — DRAW_PID/WID/counters all shared.
@@ -964,6 +1000,7 @@ for arg in "$@"; do
     [[ "$arg" == "--fail-fast" ]]    && FAIL_FAST=1
     [[ "$arg" == "--verbose" ]]      && VERBOSE=1
     [[ "$arg" == "--rerun-passed" ]] && RERUN_PASSED=1
+    [[ "$arg" == "--dump-snaps" ]]   && DUMP_SNAPS=1
     # Pass DRAW's own developer mode through (input conflict audit → inputs.log)
     [[ "$arg" == "--developer" ]]    && DRAW_EXTRA_ARGS="--developer"
 done

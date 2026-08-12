@@ -99,6 +99,202 @@ def category_of(name):
     return name.split("-", 1)[0] if "-" in name else name
 
 
+RESULTS = re.compile(r"Results:\s*(\d+)\s+passed\s+(\d+)\s+failed\s+(\d+)\s+skipped")
+
+
+def latest_full_run(logs):
+    """Newest log that looks like a whole-suite run; returns (pretty, passed, failed, skipped)."""
+    for lg in reversed(logs):
+        try:
+            with open(lg, "r", errors="replace") as fh:
+                txt = strip(fh.read())
+        except OSError:
+            continue
+        m = RESULTS.search(txt)
+        if m and int(m.group(1)) >= 50:  # a real suite, not a single-test run
+            _, pretty = ts_from_name(lg)
+            return pretty, int(m.group(1)), int(m.group(2)), int(m.group(3))
+    return None
+
+
+def _esc(s):
+    return (str(s).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
+
+
+HTML_CSS = """
+<style>
+  :root{
+    --bg:#f7f8fa; --surface:#ffffff; --surface2:#f0f2f5; --border:#dde1e7;
+    --text:#1a1f26; --muted:#657084; --faint:#9aa4b2;
+    --accent:#0d9488; --pass:#16a34a; --fail:#dc2626; --skip:#d97706;
+    --passbg:#dcfce7; --failbg:#fee2e2; --skipbg:#fef3c7; --neverbg:#eef1f5;
+    --shadow:0 1px 2px rgba(16,24,40,.06),0 1px 3px rgba(16,24,40,.04);
+  }
+  :root:not([data-theme="light"]){}
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#0f1216; --surface:#171b21; --surface2:#1f242c; --border:#2a303a;
+      --text:#e7ecf3; --muted:#93a0b4; --faint:#5f6b7c;
+      --accent:#2dd4bf; --pass:#4ade80; --fail:#f87171; --skip:#fbbf24;
+      --passbg:#0f2a1a; --failbg:#2c1416; --skipbg:#2a2010; --neverbg:#1b2028;
+      --shadow:0 1px 2px rgba(0,0,0,.4);
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#0f1216; --surface:#171b21; --surface2:#1f242c; --border:#2a303a;
+    --text:#e7ecf3; --muted:#93a0b4; --faint:#5f6b7c;
+    --accent:#2dd4bf; --pass:#4ade80; --fail:#f87171; --skip:#fbbf24;
+    --passbg:#0f2a1a; --failbg:#2c1416; --skipbg:#2a2010; --neverbg:#1b2028;
+    --shadow:0 1px 2px rgba(0,0,0,.4);
+  }
+  *{box-sizing:border-box}
+  /* Paint the WHOLE page (incl. the gutters around the centered container) from
+     tokens — a transparent body borrows the host's ground and shows white. */
+  html,body{background:var(--bg);color:var(--text);margin:0}
+  .qa{background:var(--bg);color:var(--text);
+    font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    line-height:1.5;padding:32px 24px 64px;max-width:1120px;margin:0 auto;}
+  .qa h1{font-size:1.55rem;font-weight:680;letter-spacing:-.01em;margin:0 0 4px;text-wrap:balance}
+  .qa .sub{color:var(--muted);font-size:.9rem;margin:0 0 24px}
+  .qa .mono{font-family:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,monospace}
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin:0 0 24px}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:12px;
+    padding:14px 16px;box-shadow:var(--shadow)}
+  .card .n{font-size:1.9rem;font-weight:700;font-variant-numeric:tabular-nums;line-height:1.1}
+  .card .l{font-size:.72rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-top:2px}
+  .card.ok .n{color:var(--pass)} .card.bad .n{color:var(--fail)} .card.warn .n{color:var(--skip)}
+  .callout{border:1px solid var(--border);border-left:4px solid var(--fail);background:var(--failbg);
+    border-radius:10px;padding:14px 16px;margin:0 0 28px}
+  .callout.clean{border-left-color:var(--pass);background:var(--passbg)}
+  .callout h2{font-size:.95rem;margin:0 0 8px;font-weight:640}
+  .callout .chips{display:flex;flex-wrap:wrap;gap:8px}
+  .chip{font-family:ui-monospace,monospace;font-size:.8rem;background:var(--surface);
+    border:1px solid var(--border);border-radius:999px;padding:3px 10px}
+  .cat{margin:26px 0 0}
+  .cat-h{display:flex;align-items:baseline;gap:10px;margin:0 0 8px;padding-bottom:6px;border-bottom:1px solid var(--border)}
+  .cat-h .name{font-family:ui-monospace,monospace;font-weight:680;font-size:1rem;color:var(--accent)}
+  .cat-h .meta{font-size:.8rem;color:var(--muted)}
+  .cat-h .fnow{color:var(--fail);font-weight:600}
+  .twrap{overflow-x:auto;border:1px solid var(--border);border-radius:10px;background:var(--surface)}
+  table{border-collapse:collapse;width:100%;font-size:.83rem}
+  thead th{font-size:.68rem;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);
+    text-align:left;font-weight:600;padding:9px 12px;background:var(--surface2);white-space:nowrap;position:sticky;top:0}
+  td{padding:8px 12px;border-top:1px solid var(--border);white-space:nowrap}
+  td.t{font-family:ui-monospace,monospace;font-weight:560}
+  td.num{text-align:right;font-variant-numeric:tabular-nums;font-family:ui-monospace,monospace}
+  td.num.f{color:var(--fail)} td.num.z{color:var(--faint)}
+  td.dt{font-variant-numeric:tabular-nums;color:var(--muted);font-size:.8rem;font-family:ui-monospace,monospace}
+  tr.failrow td.t{color:var(--fail)}
+  .pill{display:inline-block;font-size:.7rem;font-weight:700;letter-spacing:.02em;
+    padding:2px 9px;border-radius:999px;text-transform:uppercase}
+  .pill.pass{background:var(--passbg);color:var(--pass)}
+  .pill.fail{background:var(--failbg);color:var(--fail)}
+  .pill.never{background:var(--neverbg);color:var(--faint)}
+  .foot{margin-top:36px;color:var(--faint);font-size:.78rem}
+</style>
+"""
+
+
+def render_html(qa_dir, logs, current, stats, include_removed, sort_mode):
+    rows_all = {n: r for n, r in stats.items() if (n in current or include_removed)}
+    failing = sorted(n for n, r in rows_all.items() if r["last_result"] == "fail")
+    never = sorted(n for n in current if stats[n]["runs"] == 0)
+    passing = [n for n in current if stats[n]["last_result"] == "pass"]
+    total_exec = sum(r["runs"] for n, r in rows_all.items())
+    cats = {}
+    for n, r in rows_all.items():
+        cats.setdefault(category_of(n), []).append((n, r))
+
+    lf = latest_full_run(logs)
+    sub_run = ""
+    if lf:
+        p, pa, fa, sk = lf
+        sub_run = (f' · latest full run <span class="mono">{_esc(p)}</span>: '
+                   f'<span style="color:var(--pass)">{pa} passed</span>, '
+                   f'<span style="color:var(--fail)">{fa} failed</span>, {sk} skipped')
+
+    def card(n, label, cls=""):
+        return f'<div class="card {cls}"><div class="n">{n}</div><div class="l">{_esc(label)}</div></div>'
+
+    out = [HTML_CSS, '<div class="qa">']
+    out.append("<h1>DRAW QA — Test Status</h1>")
+    out.append(f'<p class="sub">{len(logs)} run logs analyzed · {len(current)} test files present'
+               f'{sub_run}</p>')
+
+    out.append('<div class="cards">')
+    out.append(card(len(current), "Tests"))
+    out.append(card(len(passing), "Passing now", "ok"))
+    out.append(card(len(failing), "Failing now", "bad" if failing else ""))
+    out.append(card(len(never), "Never run", "warn" if never else ""))
+    out.append(card(len(cats), "Categories"))
+    out.append(card(f"{total_exec:,}", "Executions"))
+    out.append("</div>")
+
+    if failing:
+        chips = "".join(f'<span class="chip">{_esc(n)}</span>' for n in failing)
+        out.append(f'<div class="callout"><h2>Failing on last run ({len(failing)})</h2>'
+                   f'<div class="chips">{chips}</div></div>')
+    else:
+        out.append('<div class="callout clean"><h2>All current tests passing on their last run ✓</h2></div>')
+
+    def tkey(item):
+        n, r = item
+        failing_first = 0 if r["last_result"] == "fail" else 1
+        if sort_mode == "runs":
+            return (failing_first, -r["runs"], n)
+        if sort_mode == "last":
+            return (failing_first, r["last_key"] or "", n)
+        return (failing_first, n)
+
+    # categories: those with a current failure first, then alphabetical
+    def ckey(c):
+        rws = [(n, r) for n, r in cats[c] if n in current or include_removed]
+        has_fail = any(r["last_result"] == "fail" for _, r in rws)
+        return (0 if has_fail else 1, c)
+
+    for cat in sorted(cats, key=ckey):
+        rws = sorted([(n, r) for n, r in cats[cat] if n in current or include_removed], key=tkey)
+        if not rws:
+            continue
+        cruns = sum(r["runs"] for _, r in rws)
+        cfail = sum(1 for _, r in rws if r["last_result"] == "fail")
+        meta = f'{len(rws)} tests · {cruns} runs'
+        if cfail:
+            meta += f' · <span class="fnow">{cfail} failing now</span>'
+        out.append('<div class="cat">')
+        out.append(f'<div class="cat-h"><span class="name">{_esc(cat)}</span>'
+                   f'<span class="meta">{meta}</span></div>')
+        out.append('<div class="twrap"><table><thead><tr>'
+                   '<th>Test</th><th>Runs</th><th>Pass</th><th>Fail</th>'
+                   '<th>Last run</th><th>Result</th><th>Last pass</th><th>Last fail</th>'
+                   '</tr></thead><tbody>')
+        for n, r in rws:
+            res = r["last_result"]
+            pill = (f'<span class="pill pass">pass</span>' if res == "pass"
+                    else f'<span class="pill fail">fail</span>' if res == "fail"
+                    else f'<span class="pill never">never</span>')
+            fcls = " failrow" if res == "fail" else ""
+            fnum = "num f" if r["fails"] else "num z"
+            rem = "" if n in current else ' <span style="color:var(--faint)">(removed)</span>'
+            out.append(
+                f'<tr class="{fcls.strip()}">'
+                f'<td class="t">{_esc(n)}{rem}</td>'
+                f'<td class="num">{r["runs"]}</td>'
+                f'<td class="num">{r["passes"]}</td>'
+                f'<td class="{fnum}">{r["fails"]}</td>'
+                f'<td class="dt">{_esc(r["last_pretty"] or "—")}</td>'
+                f'<td>{pill}</td>'
+                f'<td class="dt">{_esc(r["last_pass"] or "—")}</td>'
+                f'<td class="dt">{_esc(r["last_fail"] or "—")}</td>'
+                f'</tr>')
+        out.append("</tbody></table></div></div>")
+
+    out.append(f'<p class="foot">Generated by /dump-qa-tests from {_esc(qa_dir)} · '
+               f'"runs" counts real executions only (cache-skips excluded).</p>')
+    out.append("</div>")
+    return "\n".join(out)
+
+
 def main():
     args = sys.argv[1:]
     qa_dir = None
@@ -106,6 +302,7 @@ def main():
     only_failing = False
     only_never = False
     include_removed = False
+    html_mode = False
     sort_mode = "name"
     use_color = sys.stdout.isatty()
     i = 0
@@ -119,6 +316,8 @@ def main():
             only_never = True
         elif a in ("--all", "--include-removed"):
             include_removed = True
+        elif a == "--html":
+            html_mode = True
         elif a == "--sort":
             i += 1; sort_mode = args[i]
         elif a == "--no-color":
@@ -175,6 +374,10 @@ def main():
     # Ensure current tests appear even with no history.
     for name in current:
         rec(name)
+
+    if html_mode:
+        sys.stdout.write(render_html(qa_dir, logs, current, stats, include_removed, sort_mode))
+        return 0
 
     # Colors
     if use_color:
