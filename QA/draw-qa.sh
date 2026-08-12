@@ -1078,6 +1078,44 @@ _eta_for() {
 # _fmt_secs N → "m:ss"
 _fmt_secs() { printf '%d:%02d' $(( $1 / 60 )) $(( $1 % 60 )); }
 
+# ── Live status (queryable while a suite runs) ────────────────────────────────
+# A poller (human, task-loop, or CI watcher) can read results/status.json (or the
+# human-readable status.txt) at any time to learn where the run is and when it
+# will finish. Written atomically (tmp+mv) so a reader never sees a half file.
+STATUS_JSON="$RESULTS_DIR/status.json"
+STATUS_TXT="$RESULTS_DIR/status.txt"
+
+# _write_status <phase> <i> <total> <curname> <elapsed_s> <remaining_s>
+#   phase: starting | running | done ;  i = 1-based index of the current test
+_write_status() {
+    local phase=$1 i=$2 total=$3 curname=$4 elapsed=$5 remaining=$6
+    mkdir -p "$RESULTS_DIR"
+    local now_epoch eta_epoch eta_clock
+    now_epoch=$(date +%s)
+    eta_epoch=$(( now_epoch + remaining ))
+    eta_clock=$(date -d "@$eta_epoch" '+%H:%M:%S' 2>/dev/null || echo "")
+    printf '{"phase":"%s","current":%d,"total":%d,"test":"%s","passed":%d,"failed":%d,"skipped":%d,"elapsed_s":%d,"remaining_s":%d,"eta_epoch":%d,"eta_clock":"%s","updated":%d}\n' \
+        "$phase" "$i" "$total" "$curname" "$PASS" "$FAIL" "$SKIP" \
+        "$elapsed" "$remaining" "$eta_epoch" "$eta_clock" "$now_epoch" \
+        > "$STATUS_JSON.tmp" && mv -f "$STATUS_JSON.tmp" "$STATUS_JSON"
+    { printf 'phase      %s\n'            "$phase"
+      printf 'progress   %d/%d  %s\n'     "$i" "$total" "$curname"
+      printf 'results    %d passed  %d failed  %d skipped\n' "$PASS" "$FAIL" "$SKIP"
+      printf 'elapsed    %s\n'            "$(_fmt_secs "$elapsed")"
+      printf 'remaining  ~%s\n'           "$(_fmt_secs "$remaining")"
+      printf 'eta        ~%s\n'           "${eta_clock:-?}"
+    } > "$STATUS_TXT.tmp" && mv -f "$STATUS_TXT.tmp" "$STATUS_TXT"
+    # machine-readable stream line (parseable by grep/awk on the console or log)
+    log "PROGRESS ${i}/${total} test=${curname} passed=${PASS} failed=${FAIL} elapsed=${elapsed}s remaining=${remaining}s eta=${eta_clock:-?} phase=${phase}"
+}
+
+# _suffix_eta START0 → sum of _TEST_ETA[] from 0-based START0 to end (seconds).
+_suffix_eta() {
+    local s=0 j
+    for (( j=$1; j<${#_TEST_ETA[@]}; j++ )); do s=$(( s + ${_TEST_ETA[j]:-0} )); done
+    echo "$s"
+}
+
 run_test_file() {
     local test_file=$1
     local name; name=$(basename "$test_file" .sh)
@@ -1182,6 +1220,14 @@ case "${1:-}" in
     --list)
         echo "Available tests:"
         for f in "$TESTS_DIR"/*.sh; do echo "  $(basename "$f" .sh)"; done
+        exit 0 ;;
+    --status)
+        # Query a running (or last) suite: where it is + estimated finish clock time.
+        if [[ "${2:-}" == "--json" || "${2:-}" == "json" ]]; then
+            [[ -f "$STATUS_JSON" ]] && cat "$STATUS_JSON" || { echo '{"phase":"none"}'; exit 1; }
+        else
+            [[ -f "$STATUS_TXT" ]] && cat "$STATUS_TXT" || { echo "No run status yet (nothing has run in this results dir)."; exit 1; }
+        fi
         exit 0 ;;
     --reset)
         rm -f "$RESULTS_DIR/passed.txt"
@@ -1293,12 +1339,15 @@ fi
 # A test that's cached-passed (and not --rerun-passed) will be skipped ≈ 0s.
 _ETA_TOTAL=0
 _ETA_ROWS=""
+_TEST_ETA=()   # per-test seconds, indexed parallel to TEST_FILES (0 = cached-skip)
 for f in "${TEST_FILES[@]}"; do
     _nm=$(basename "$f" .sh)
     if [[ $RERUN_PASSED -eq 0 ]] && grep -qxF "$_nm" "$PASSED_CACHE" 2>/dev/null; then
+        _TEST_ETA+=(0)
         _ETA_ROWS+=$(printf '   %-30s %8s  (cached — skip)\n' "$_nm" "-")
     else
         _e=$(_eta_for "$_nm")
+        _TEST_ETA+=("$_e")
         _ETA_TOTAL=$(( _ETA_TOTAL + _e ))
         _ETA_ROWS+=$(printf '   %-30s %8s\n' "$_nm" "$(_fmt_secs "$_e")")
     fi
@@ -1319,6 +1368,10 @@ for f in "${TEST_FILES[@]}"; do
 done
 
 ORIG_KEEP_OPEN=$KEEP_OPEN
+RUN_T0=$SECONDS
+_TOTAL=${#TEST_FILES[@]}
+_i=0
+_write_status starting 0 "$_TOTAL" "-" 0 "$_ETA_TOTAL"
 for f in "${TEST_FILES[@]}"; do
     # Only honour --keep-open on the last test
     if [[ "$f" == "$LAST_TEST_FILE" ]]; then
@@ -1326,10 +1379,16 @@ for f in "${TEST_FILES[@]}"; do
     else
         KEEP_OPEN=0
     fi
+    # Live status: current test i/N + remaining = this test + everything after it.
+    _name=$(basename "$f" .sh)
+    _write_status running $(( _i + 1 )) "$_TOTAL" "$_name" \
+        $(( SECONDS - RUN_T0 )) "$(_suffix_eta "$_i")"
     run_test_file "$f"
+    _i=$(( _i + 1 ))
     sleep 0.5   # settle between tests
 done
 KEEP_OPEN=$ORIG_KEEP_OPEN
+_write_status done "$_TOTAL" "$_TOTAL" "-" $(( SECONDS - RUN_T0 )) 0
 
 log ""
 log "═══════════════════════════════════════════════════"

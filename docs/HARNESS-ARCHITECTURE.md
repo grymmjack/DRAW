@@ -38,6 +38,8 @@ touches the core. Web adapters skip pixels and resolve selectors instead.
 | `assert_no_crash*` `_crash_snapshot` | liveness/crash detection *(crash-log path → adapter hook)* |
 | `assert_window_exists` `assert_window_title` | still-alive checks *(via driver window-find)* |
 | `run_test_file` | test isolation + passed-cache + per-file tally |
+| `_record_duration` `_eta_for` `_fmt_secs` | per-test duration history → median ETA (robust to one-off hangs) |
+| `_write_status` `_suffix_eta` + `--status` | live queryable status (`status.json`/`.txt`, atomic tmp+mv) + `PROGRESS` stream lines; poller/task-loop/CI reads where the run is + clock ETA |
 | `check_deps` | dependency preflight *(the dep list is driver-informed)* |
 | input **verb API** (`click` `right_click` `double_click` `drag` `scroll_*` `type_text` `key` `park_mouse`) | the *signatures* are core; the *bodies* are driver (see below) |
 | entrypoint flags (`--list` `--rerun-passed` `--fail-fast` `--stop` `--reset*`) | runner CLI |
