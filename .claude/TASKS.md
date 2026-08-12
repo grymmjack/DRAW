@@ -13,7 +13,7 @@ expose a window id yet — match by title/pid/geometry, never a WID.
 Ordered by dependency; the topmost unchecked box is next.
 
 ## 🔨 NOW — doing right now
-- [ ] ➡️ **ETA** — persist per-test durations; before a run print per-test ETA + session-total; add `--eta` (dry-run estimate that lists what would run and for how long).
+- [ ] ➡️ **Live status/progress**: while a suite runs, maintain a queryable status file (JSON + plain) — current test i/N + name, elapsed, per-test remaining, and **estimated completion in clock time** — so a running suite can be watched (poll the file) and a task-loop knows when to check back. Emit machine-readable progress lines too.
 
 ## Phase 1 — analysis & seam map
 - [x] Phase 1 audit — classified every `draw-qa.sh` symbol CORE/DRIVER/ADAPTER; wrote `docs/HARNESS-ARCHITECTURE.md` (seam map, driver contract, logical-coord rule, offscreen/CI mode, no-window-id + capture-backend rules).
@@ -25,7 +25,7 @@ Ordered by dependency; the topmost unchecked box is next.
 - [x] Coord-picker — `--pick` (alias of `--probe`): hover+hold to MARK a point; two marks print a copy-paste `region x y w h` line. `--help` lists all modes.
 
 ## Phase 3 — runner / report / ETA / live-status / CI (portable core)
-- [ ] **Live status/progress**: while a suite runs, maintain a queryable status file (JSON + plain) — current test i/N + name, elapsed, per-test remaining, and **estimated completion in clock time** — so a running suite can be watched (poll the file) and a task-loop knows when to check back. Emit machine-readable progress lines too.
+- [x] **ETA** — `run_test_file` records each test's duration to `results/durations.tsv`; `_eta_for` takes the median of the last 10 runs (robust to one-off hangs); before every run the entrypoint prints `ETA — N test(s), est. total m:ss, done ~HH:MM:SS` (clock time via `date -d`), cached-passed tests shown as skip (0s); `--eta` is a dry run (estimate + per-test breakdown, no launch). Verified: smoke 0:19 / palette 0:25 / total 0:44.
 - [ ] Reporter: de-DRAW `dump-qa-tests.py --html` into a project-agnostic report (header: date/time/project/what-ran; table: test/result/secs/notes); inputs = project name + run-log dir.
 - [ ] CI output: JUnit XML + non-zero exit on failure, so GitHub Actions (Linux, Xvfb) can run headless and surface results.
 - [ ] Consent/mode: `--mode ask|offscreen|onscreen`; default offscreen when Xvfb is available (also the CI path); print the takeover warning + ETA before using the real screen.

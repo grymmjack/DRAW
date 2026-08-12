@@ -129,6 +129,7 @@ FAIL_FAST=0
 VERBOSE=0
 RERUN_PASSED=0
 CALIBRATE=0
+ETA=0
 LOG_FILE=""
 PASSED_CACHE="$RESULTS_DIR/passed.txt"
 
@@ -1049,6 +1050,34 @@ assert_regions_same() {
 
 # ── test runner ───────────────────────────────────────────────────────────────
 
+# ── ETA (per-test duration history) ───────────────────────────────────────────
+DURATIONS_FILE="$RESULTS_DIR/durations.tsv"   # append-only "<name>\t<secs>"
+
+_record_duration() {
+    mkdir -p "$RESULTS_DIR"
+    printf '%s\t%s\n' "$1" "$2" >> "$DURATIONS_FILE"
+}
+
+# _eta_for NAME [DEFAULT] → estimated seconds (median of the last ~10 runs).
+_eta_for() {
+    local name=$1 def=${2:-20} med=""
+    if [[ -f "$DURATIONS_FILE" ]]; then
+        med=$(awk -F'\t' -v n="$name" '
+            $1==n { a[c++]=$2 }
+            END {
+                if (c==0) exit
+                s=(c>10)?c-10:0; m=0
+                for (i=s;i<c;i++) v[m++]=a[i]
+                for (i=0;i<m;i++) for (j=i+1;j<m;j++) if (v[j]+0<v[i]+0){t=v[i];v[i]=v[j];v[j]=t}
+                print (m%2) ? v[int(m/2)] : int((v[int(m/2)-1]+v[int(m/2)])/2)
+            }' "$DURATIONS_FILE")
+    fi
+    [[ -n "$med" ]] && echo "$med" || echo "$def"
+}
+
+# _fmt_secs N → "m:ss"
+_fmt_secs() { printf '%d:%02d' $(( $1 / 60 )) $(( $1 % 60 )); }
+
 run_test_file() {
     local test_file=$1
     local name; name=$(basename "$test_file" .sh)
@@ -1073,8 +1102,9 @@ run_test_file() {
         return
     fi
 
-    # Track failures before this test
+    # Track failures before this test; time the whole thing for ETA history.
     local fail_before=$FAIL
+    local _t0=$SECONDS
 
     # Each test is atomic: fresh DRAW instance. Re-assert the QA cfg overrides
     # first — the previous test's DRAW may have written its live config (e.g. a
@@ -1088,8 +1118,10 @@ run_test_file() {
     # Trapped runtime errors leave DRAW running, so this is the only automatic
     # signal that something raised during the test.
     assert_no_crash_log "$name — no runtime errors trapped"
-    log "${GREEN}  ► $name: done${RESET}"
     draw_quit
+    local _dur=$(( SECONDS - _t0 ))
+    _record_duration "$name" "$_dur"
+    log "${GREEN}  ► $name: done (${_dur}s)${RESET}"
 
     # Record in passed cache if no new failures
     if [[ $FAIL -eq $fail_before ]]; then
@@ -1108,6 +1140,7 @@ for arg in "$@"; do
     [[ "$arg" == "--rerun-passed" ]] && RERUN_PASSED=1
     [[ "$arg" == "--dump-snaps" ]]   && DUMP_SNAPS=1
     [[ "$arg" == "--calibrate" ]]    && { CALIBRATE=1; RERUN_PASSED=1; }
+    [[ "$arg" == "--eta" ]]          && ETA=1
     # Pass DRAW's own developer mode through (input conflict audit → inputs.log)
     [[ "$arg" == "--developer" ]]    && DRAW_EXTRA_ARGS="--developer"
 done
@@ -1255,6 +1288,30 @@ if [[ ${#TEST_FILES[@]} -eq 0 ]]; then
         [[ -f "$f" ]] && TEST_FILES+=("$f")
     done
 fi
+
+# ── ETA: estimate this run from per-test duration history ─────────────────────
+# A test that's cached-passed (and not --rerun-passed) will be skipped ≈ 0s.
+_ETA_TOTAL=0
+_ETA_ROWS=""
+for f in "${TEST_FILES[@]}"; do
+    _nm=$(basename "$f" .sh)
+    if [[ $RERUN_PASSED -eq 0 ]] && grep -qxF "$_nm" "$PASSED_CACHE" 2>/dev/null; then
+        _ETA_ROWS+=$(printf '   %-30s %8s  (cached — skip)\n' "$_nm" "-")
+    else
+        _e=$(_eta_for "$_nm")
+        _ETA_TOTAL=$(( _ETA_TOTAL + _e ))
+        _ETA_ROWS+=$(printf '   %-30s %8s\n' "$_nm" "$(_fmt_secs "$_e")")
+    fi
+    _ETA_ROWS+=$'\n'
+done
+_ETA_DONE=$(date -d "+${_ETA_TOTAL} seconds" '+%H:%M:%S' 2>/dev/null)
+if [[ $CALIBRATE -eq 0 ]]; then
+    log ""
+    log "${CYAN}ETA — ${#TEST_FILES[@]} test(s), est. total $(_fmt_secs "$_ETA_TOTAL")${_ETA_DONE:+, done ~${_ETA_DONE}}${RESET}"
+    [[ $ETA -eq 1 || $VERBOSE -eq 1 ]] && printf '%s' "$_ETA_ROWS"
+fi
+# --eta is a dry run: show the estimate and exit without launching anything.
+[[ $ETA -eq 1 ]] && exit 0
 
 LAST_TEST_FILE=""
 for f in "${TEST_FILES[@]}"; do
