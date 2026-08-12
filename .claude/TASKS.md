@@ -13,7 +13,7 @@ expose a window id yet — match by title/pid/geometry, never a WID.
 Ordered by dependency; the topmost unchecked box is next.
 
 ## 🔨 NOW — doing right now
-- [ ] ➡️ **`--calibrate <test>`** — run the test's `region` declarations and, for each, render the full frame with that region outlined + labeled (name + desc) to a review dir, so the human confirms placement *before* trusting a run. Generalize `harness-calibration.sh`.
+- [ ] ➡️ **Coord-picker aid** — against a running app, click a spot → print logical coords + a starter `region name x y w h` line, so authoring a test's regions is copy-paste, not guesswork (`./draw-qa.sh --pick`).
 
 ## Phase 1 — analysis & seam map
 - [x] Phase 1 audit — classified every `draw-qa.sh` symbol CORE/DRIVER/ADAPTER; wrote `docs/HARNESS-ARCHITECTURE.md` (seam map, driver contract, logical-coord rule, offscreen/CI mode, no-window-id + capture-backend rules).
@@ -21,7 +21,7 @@ Ordered by dependency; the topmost unchecked box is next.
 ## Phase 2 — collaborative test authoring (human sees what Claude sees)
 - [x] Named region registry — `region name x y w h [desc]` + `snap name [label]`; snap_region records each snap's rect + region name so failures/calibration can prove where. Verified.
 - [x] Auto `-where` proof on FAIL — failed region asserts re-capture + outline the region in red and log its name/desc (`FAIL-<test>_<region>.png`). Verified offscreen. **Also fixed a real regression:** offscreen capture was using spectacle (grabbed the real desktop via the portal); now `WAYLAND_DISPLAY unset → scrot`, so Xvfb/CI captures the right screen.
-- [ ] Coord-picker aid: against a running app, click a spot → print logical coords + a starter `region` line, so authoring a test's regions is copy-paste, not guesswork.
+- [x] `--calibrate <test>` — runs the test's `region` declarations and renders each region outlined (green) + labeled on the app frame to `QA/calibrate/`, so the human confirms placement before trusting a run. Verified offscreen (toolbar/palette/canvas boxes correct).
 
 ## Phase 3 — runner / report / ETA / live-status / CI (portable core)
 - [ ] ETA: persist per-test durations; before a run print per-test ETA + session-total; add `--eta` (dry-run estimate).

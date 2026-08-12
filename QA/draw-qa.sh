@@ -114,6 +114,7 @@ DRAW_CFG="$QA_CFG"
 
 RESULTS_DIR="$SCRIPT_DIR/results"
 SCREENSHOTS_DIR="$SCRIPT_DIR/screenshots"
+CALIBRATE_DIR="$SCRIPT_DIR/calibrate"
 TESTS_DIR="$SCRIPT_DIR/tests"
 WINDOW_TITLE="DRAW v"
 
@@ -126,6 +127,7 @@ KEEP_OPEN=0
 FAIL_FAST=0
 VERBOSE=0
 RERUN_PASSED=0
+CALIBRATE=0
 LOG_FILE=""
 PASSED_CACHE="$RESULTS_DIR/passed.txt"
 
@@ -889,12 +891,36 @@ declare -A SNAP_RECT      # snap-file path -> "rx ry rw rh" (physical px, for -w
 declare -A SNAP_REGION    # snap-file path -> region name (for -where labels)
 CURRENT_REGION=""         # region of the snap in flight (set by snap(), read by snap_region)
 
+# In --calibrate mode, render the just-declared region outlined (green) + labeled
+# on the current app frame to a review dir, so the human confirms placement BEFORE
+# trusting a run (shared vision up front, not only on failure).
+_calibrate_region() {
+    local name=$1 vx vy vw vh
+    read -r vx vy vw vh <<< "${REGION_RECT[$name]}"
+    local rx=$(( vx * DISPLAY_SCALE )) ry=$(( vy * DISPLAY_SCALE ))
+    local rw=$(( vw * DISPLAY_SCALE )) rh=$(( vh * DISPLAY_SCALE ))
+    local ly=$(( ry > 26 ? ry - 8 : ry + rh + 22 ))
+    local out="$CALIBRATE_DIR/${CURRENT_TEST:-test}-${name}.png" wintmp="/tmp/draw-qa-cal-$$.png"
+    mkdir -p "$CALIBRATE_DIR"
+    draw_focus; sleep 0.25
+    if _capture_client_area "$wintmp"; then
+        convert "$wintmp" -stroke '#00ff66' -fill none -strokewidth 3 \
+            -draw "rectangle ${rx},${ry} $(( rx + rw )),$(( ry + rh ))" \
+            -stroke none -fill '#00ff66' -pointsize 22 \
+            -annotate "+$(( rx + 4 ))+${ly}" "$name" \
+            "$out" 2>/dev/null
+        rm -f "$wintmp"
+    fi
+    [[ -f "$out" ]] && info "  📐 calibrate '$name' → $(basename "$out")${REGION_DESC[$name]:+  (${REGION_DESC[$name]})}"
+}
+
 # region NAME VX VY VW VH [DESCRIPTION...]
 region() {
     local name=$1 vx=$2 vy=$3 vw=$4 vh=$5
     REGION_RECT["$name"]="$vx $vy $vw $vh"
     REGION_DESC["$name"]="${*:6}"
     dbg "region '$name' = vp($vx,$vy ${vw}x${vh})"
+    [[ ${CALIBRATE:-0} -eq 1 ]] && _calibrate_region "$name"
 }
 
 # snap NAME [LABEL] — snap a registered region (LABEL defaults to the region name).
@@ -1080,6 +1106,7 @@ for arg in "$@"; do
     [[ "$arg" == "--verbose" ]]      && VERBOSE=1
     [[ "$arg" == "--rerun-passed" ]] && RERUN_PASSED=1
     [[ "$arg" == "--dump-snaps" ]]   && DUMP_SNAPS=1
+    [[ "$arg" == "--calibrate" ]]    && { CALIBRATE=1; RERUN_PASSED=1; }
     # Pass DRAW's own developer mode through (input conflict audit → inputs.log)
     [[ "$arg" == "--developer" ]]    && DRAW_EXTRA_ARGS="--developer"
 done
@@ -1087,6 +1114,8 @@ done
 mkdir -p "$RESULTS_DIR" "$SCREENSHOTS_DIR"
 # Clean slate: remove old screenshots and snap files
 rm -f "$SCREENSHOTS_DIR"/*.png
+# --calibrate: start with a fresh review dir so stale region images don't linger
+[[ $CALIBRATE -eq 1 ]] && { mkdir -p "$CALIBRATE_DIR"; rm -f "$CALIBRATE_DIR"/*.png; }
 LOG_FILE="$RESULTS_DIR/run-$(date '+%Y%m%d-%H%M%S').log"
 
 case "${1:-}" in
@@ -1237,6 +1266,7 @@ log ""
 log "═══════════════════════════════════════════════════"
 log " Results: ${GREEN}${PASS} passed${RESET}  ${RED}${FAIL} failed${RESET}  ${YELLOW}${SKIP} skipped${RESET}"
 log " Log → $LOG_FILE"
+[[ $CALIBRATE -eq 1 ]] && log " ${CYAN}Calibration frames → $CALIBRATE_DIR${RESET}  (review the green boxes before trusting a run)"
 log "═══════════════════════════════════════════════════"
 
 [[ $FAIL -eq 0 ]]
