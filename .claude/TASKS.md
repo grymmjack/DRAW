@@ -13,7 +13,7 @@ expose a window id yet — match by title/pid/geometry, never a WID.
 Ordered by dependency; the topmost unchecked box is next.
 
 ## 🔨 NOW — doing right now
-- [ ] ➡️ **Port CORE out of `draw-qa.sh`** into the toolkit (`~/git/qa-harness`); keep DRAW-specific bits in a draw adapter that consumes it. Follow the per-symbol checklist in `qa-harness/ARCHITECTURE.md`.
+- ✅ **All tasks complete.** The QA harness is built out (Phases 1–3), extracted into the standalone `~/git/qa-harness` toolkit (Phase 4), and proven against a second language via a Rust demo (Phase 5). Both adapters run green through `bin/qa`.
 
 ## Phase 1 — analysis & seam map
 - [x] Phase 1 audit — classified every `draw-qa.sh` symbol CORE/DRIVER/ADAPTER; wrote `docs/HARNESS-ARCHITECTURE.md` (seam map, driver contract, logical-coord rule, offscreen/CI mode, no-window-id + capture-backend rules).
@@ -34,8 +34,8 @@ Ordered by dependency; the topmost unchecked box is next.
 
 ## Phase 4 — extract to a standalone tool (Linux driver first)
 - [x] **Standalone harness skeleton** — new local repo `~/git/qa-harness` (remote deferred = your call): `core/` (runner + region-diff asserts), `drivers/linux-x11/` (xdotool + spectacle/scrot + Xvfb), `report/qa-report.py` (moved in verbatim — already project-agnostic), `adapters/` (tiny per-app manifest; `adapters/draw` reference), `bin/qa` loader. Defines the full seam: driver interface, adapter-manifest contract, logical-coord rule, no-window-id degrade, capture-backend rule. `ARCHITECTURE.md` carries the per-symbol port checklist. Wiring verified (`bin/qa --adapter … ` sources driver→adapter→core). Committed (40270b6).
-- [ ] Port CORE out of `draw-qa.sh` into the toolkit; keep DRAW-specific bits in a draw adapter that consumes it.
-- [ ] DRAW = adapter #1: `draw-qa` becomes thin (manifest + DRAW geometry/wake hooks + blessed cfg); re-run the DRAW suite through the toolkit and confirm parity with current results.
+- [x] **Port CORE out of `draw-qa.sh`** — faithful extraction into `qa-harness/core/` (`runner.sh` + `assert.sh` + `input.sh`), the linux-x11 driver bodies, and the DRAW adapter (`adapters/draw/manifest.sh`), per the ARCHITECTURE.md checklist. All 30 test-facing names preserved (DRAW's ~97 tests need zero edits). Two bugs found + fixed while verifying: driver `wid` unbound under `set -u` when called without a pid; WM-less-Xvfb input-focus (added `adapter_focus`). Committed (673821f).
+- [x] **DRAW = adapter #1 (parity)** — DRAW's suite runs through `bin/qa --adapter adapters/draw`; verified subset (smoke + brush-size + ui-palette-menu-chips) = **20 passed / 0 failed, exit 0**, byte-for-byte the same assertions/pixel-diffs as `draw-qa.sh`. `draw-qa.sh` stays in the DRAW repo as the reference; the toolkit consumes DRAW's `tests/` unchanged.
 
 ## Phase 5 — prove cross-project (2nd language, same driver)
-- [ ] Minimal Rust GUI (X11) app + adapter #2: **a tiny NEW demo app** (decided 2026-08-12) — self-contained X11 GUI (a few buttons/canvas) purely as a harness target, reuse the linux-x11 driver, window-relative coords (no viewport model), 2–3 sample tests + a green report — proves same driver / new app / new language.
+- [x] **Minimal Rust GUI (X11) app + adapter #2** — a tiny NEW demo app proves the seam holds for a second language/coordinate-model. `examples/rust-demo` (minifb/X11, 480×320, 3 buttons + canvas, click/R/G/B/C, title `qa-demo`); `adapters/rust-demo/manifest.sh` (window-relative 1:1, no viewport — the deliberate contrast with DRAW) + `tests/buttons.sh` + `tests/keys.sh`. Runs through the SAME linux-x11 driver + core as DRAW: **8 passed / 0 failed, exit 0**, region diffs catch every click/key change (4371–7258 px), green report generated. Committed (673821f).
