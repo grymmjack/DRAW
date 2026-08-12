@@ -130,7 +130,11 @@ VERBOSE=0
 RERUN_PASSED=0
 CALIBRATE=0
 ETA=0
+REPORT=0
+LAST_FAIL_MSG=""       # first failure reason of the current test → report "notes"
 LOG_FILE=""
+RESULTS_TSV=""         # per-run structured results (name<TAB>result<TAB>secs<TAB>notes)
+PROJECT_NAME="${QA_PROJECT:-DRAW}"   # what the report calls this suite
 PASSED_CACHE="$RESULTS_DIR/passed.txt"
 
 # ── parse DRAW.cfg ────────────────────────────────────────────────────────────
@@ -311,6 +315,7 @@ dbg()  { [[ $VERBOSE -eq 1 ]] && { echo -e "${YELLOW}  ◦${RESET} $*" >&2; [[ -
 pass() { log "${GREEN}  ✓ PASS${RESET} — $*"; PASS=$(( PASS + 1 )); }
 fail() {
     log "${RED}  ✗ FAIL${RESET} — $*"; FAIL=$(( FAIL + 1 ))
+    [[ -z "$LAST_FAIL_MSG" ]] && LAST_FAIL_MSG="$*"   # keep the first failure as the report note
     if [[ $FAIL_FAST -eq 1 ]]; then
         log "${RED}  ✗ --fail-fast: stopping on first failure${RESET}"
         draw_quit
@@ -1058,6 +1063,14 @@ _record_duration() {
     printf '%s\t%s\n' "$1" "$2" >> "$DURATIONS_FILE"
 }
 
+# _record_result NAME RESULT SECS NOTES → one TSV row for THIS run (report source).
+#   RESULT ∈ pass | fail | skip | cached.  Tabs/newlines in NOTES are flattened.
+_record_result() {
+    [[ -z "$RESULTS_TSV" ]] && return
+    local notes=${4//$'\t'/ }; notes=${notes//$'\n'/ }
+    printf '%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$notes" >> "$RESULTS_TSV"
+}
+
 # _eta_for NAME [DEFAULT] → estimated seconds (median of the last ~10 runs).
 _eta_for() {
     local name=$1 def=${2:-20} med=""
@@ -1120,6 +1133,7 @@ run_test_file() {
     local test_file=$1
     local name; name=$(basename "$test_file" .sh)
     CURRENT_TEST="$name"
+    LAST_FAIL_MSG=""
     SNAP_SEQ=0
     if [[ $DUMP_SNAPS -eq 1 ]]; then mkdir -p "$SNAP_DUMP_DIR"; rm -f "$SNAP_DUMP_DIR/${name}-"*.png 2>/dev/null; fi
     log ""
@@ -1128,6 +1142,7 @@ run_test_file() {
     # Check passed-test cache (skip unless --rerun-passed)
     if [[ $RERUN_PASSED -eq 0 ]] && grep -qxF "$name" "$PASSED_CACHE" 2>/dev/null; then
         skip "$name — already passed (use --rerun-passed to re-run)"
+        _record_result "$name" cached 0 "already passed (cache)"
         return
     fi
 
@@ -1137,6 +1152,7 @@ run_test_file() {
     if [[ -n "$skip_reason" ]]; then
         skip "$name — $skip_reason"
         log "  ${YELLOW}  Run manually: ./draw-qa.sh tests/$name.sh${RESET}"
+        _record_result "$name" skip 0 "$skip_reason"
         return
     fi
 
@@ -1165,6 +1181,9 @@ run_test_file() {
     if [[ $FAIL -eq $fail_before ]]; then
         mkdir -p "$RESULTS_DIR"
         echo "$name" >> "$PASSED_CACHE"
+        _record_result "$name" pass "$_dur" ""
+    else
+        _record_result "$name" fail "$_dur" "$LAST_FAIL_MSG"
     fi
 }
 
@@ -1179,6 +1198,7 @@ for arg in "$@"; do
     [[ "$arg" == "--dump-snaps" ]]   && DUMP_SNAPS=1
     [[ "$arg" == "--calibrate" ]]    && { CALIBRATE=1; RERUN_PASSED=1; }
     [[ "$arg" == "--eta" ]]          && ETA=1
+    [[ "$arg" == "--report" ]]       && REPORT=1
     # Pass DRAW's own developer mode through (input conflict audit → inputs.log)
     [[ "$arg" == "--developer" ]]    && DRAW_EXTRA_ARGS="--developer"
 done
@@ -1189,6 +1209,7 @@ rm -f "$SCREENSHOTS_DIR"/*.png
 # --calibrate: start with a fresh review dir so stale region images don't linger
 [[ $CALIBRATE -eq 1 ]] && { mkdir -p "$CALIBRATE_DIR"; rm -f "$CALIBRATE_DIR"/*.png; }
 LOG_FILE="$RESULTS_DIR/run-$(date '+%Y%m%d-%H%M%S').log"
+RESULTS_TSV="${LOG_FILE%.log}.tsv"   # structured results paired with this run's log
 
 case "${1:-}" in
     --stop|--abort|--kill)
@@ -1396,5 +1417,18 @@ log " Results: ${GREEN}${PASS} passed${RESET}  ${RED}${FAIL} failed${RESET}  ${Y
 log " Log → $LOG_FILE"
 [[ $CALIBRATE -eq 1 ]] && log " ${CYAN}Calibration frames → $CALIBRATE_DIR${RESET}  (review the green boxes before trusting a run)"
 log "═══════════════════════════════════════════════════"
+
+# ── Rendered report ──────────────────────────────────────────────────────────
+# Turn this run's structured results (RESULTS_TSV) into a shareable HTML page.
+# Project-agnostic: qa-report.py takes only a project name + the run's TSV.
+if [[ -s "$RESULTS_TSV" ]] && command -v python3 &>/dev/null; then
+    REPORT_HTML="$RESULTS_DIR/report.html"
+    if python3 "$SCRIPT_DIR/qa-report.py" \
+            --project "$PROJECT_NAME" --run "$RESULTS_TSV" --out "$REPORT_HTML" 2>/dev/null; then
+        log " ${CYAN}Report → $REPORT_HTML${RESET}"
+        # --report also opens it in the default browser.
+        [[ $REPORT -eq 1 ]] && command -v xdg-open &>/dev/null && xdg-open "$REPORT_HTML" &>/dev/null &
+    fi
+fi
 
 [[ $FAIL -eq 0 ]]
