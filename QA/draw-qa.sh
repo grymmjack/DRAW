@@ -1,10 +1,28 @@
 #!/bin/bash
 # draw-qa.sh — xdotool-based automated QA harness for DRAW
 #
-# Usage:
-#   ./draw-qa.sh                  Run all tests in QA/tests/
-#   ./draw-qa.sh tests/smoke.sh   Run one (or several) test files
-#   ./draw-qa.sh --list           List available tests
+# Usage:  ./draw-qa.sh [tests…] [flags]     (--help prints this block)
+#
+# Selecting tests:
+#   ./draw-qa.sh                  Run every test in QA/tests/
+#   ./draw-qa.sh tests/smoke.sh   Run one (or several) named test files
+#   ./draw-qa.sh tests/gui-*.sh   Run a subset — your shell expands the glob
+#   ./draw-qa.sh --list           List available tests, then exit
+#
+# Estimate & report:
+#   ./draw-qa.sh --eta [tests]    Dry run: print per-test + total ETA (with a
+#                                 finish clock time), launch nothing, exit
+#   ./draw-qa.sh --report [tests] Open the rendered HTML report when the run ends
+#                                 (report.html + junit.xml are written every run)
+#   ./draw-qa.sh --status         Show a running suite's progress + estimated
+#                                 finish clock time (add --json for scripts)
+#
+# Run mode (shared-screen consent):
+#   ./draw-qa.sh --mode M         M = offscreen | onscreen | ask
+#   ./draw-qa.sh --offscreen      Invisible run under Xvfb (default when available)
+#   ./draw-qa.sh --onscreen       Drive the real screen (warns + shows ETA first)
+#
+# Authoring aids (human sees what the harness sees):
 #   ./draw-qa.sh --calibrate T    Outline+label every region() in test T to
 #                                 QA/calibrate/ — confirm placement before a run
 #   ./draw-qa.sh --pick           Coord/region picker: hover+hold to MARK a point;
@@ -12,14 +30,22 @@
 #                                 into a test (alias: --probe; PROBE_SECS=60)
 #   ./draw-qa.sh --dump-snaps     Save every compared region + a -where overlay
 #                                 (a -where frame is auto-saved on failure anyway)
+#
+# Debugging:
 #   ./draw-qa.sh --rerun-passed   Re-run tests that previously passed
 #   ./draw-qa.sh --keep-open      Don't close DRAW after tests (debugging)
 #   ./draw-qa.sh --fail-fast      Stop on first failure (tuning tests)
 #   ./draw-qa.sh --verbose        Show every mouse/key action (debugging)
 #   ./draw-qa.sh --developer      Launch DRAW with --developer (input audit)
+#
+# Maintenance & emergency:
 #   ./draw-qa.sh --reset[-cfg]    Clear passed-cache / rebuild QA/DRAW.qa.cfg
 #   ./draw-qa.sh --stop           EMERGENCY STOP a running QA session
 #                                 (aliases --abort/--kill; never your own DRAW.run)
+#
+# Env: QA_XVFB_RES=WxH (offscreen res)  QA_PROJECT=name (report title)
+#      QA_CAPTURE=tool (force screenshot backend)
+# --- end usage ---
 #
 # DRAW is always launched with --config QA/DRAW.qa.cfg, so runs are
 # deterministic and never read or write the user's own DRAW.cfg.
@@ -1325,7 +1351,10 @@ case "${1:-}" in
         draw_quit
         exit 0 ;;
     --help|-h)
-        sed -n '2,22p' "$0"; exit 0 ;;
+        # Print the header usage block (line 2 → the '--- end usage ---' sentinel),
+        # stripping the leading '# ' so it reads as help, not source.
+        sed -n '2,/--- end usage ---/p' "$0" | sed -e 's/^#[[:space:]]\{0,1\}//' -e '/^--- end usage ---$/d'
+        exit 0 ;;
 esac
 
 # ── Run mode: offscreen (Xvfb, invisible) vs onscreen (real-screen takeover) ──
