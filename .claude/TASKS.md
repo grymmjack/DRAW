@@ -7,19 +7,20 @@ Rust/X11 GUIs, and (later) web — and so writing tests *together* is easy, with
 
 Decisions (locked): bash+Python core · standalone repo · Rust-GUI(X11) as adapter
 #2 · **Linux is homebase** (X11 + Xvfb); Win/Mac are seam-only, nice-to-have ·
-CI on GitHub Actions Linux (headless) is a real goal.
+CI on GitHub Actions Linux (headless) is a real goal. Note: QB64-PE apps don't
+expose a window id yet — match by title/pid/geometry, never a WID.
 
 Ordered by dependency; the topmost unchecked box is next.
 
 ## 🔨 NOW — doing right now
-- [ ] ➡️ **Auto `-where` proof on FAIL** — every failed region assertion writes the full frame with that region outlined + labeled (region name + desc), referenced from the log line. Make the DUMP_SNAPS overlay automatic on failure, not opt-in, using the SNAP_RECT/SNAP_REGION recorded by the registry.
+- [ ] ➡️ **`--calibrate <test>`** — run the test's `region` declarations and, for each, render the full frame with that region outlined + labeled (name + desc) to a review dir, so the human confirms placement *before* trusting a run. Generalize `harness-calibration.sh`.
 
 ## Phase 1 — analysis & seam map
-- [x] Phase 1 audit — classified every `draw-qa.sh` symbol CORE/DRIVER/ADAPTER; wrote `docs/HARNESS-ARCHITECTURE.md` (seam map, driver contract, logical-coord rule, offscreen/CI mode, extraction plan).
+- [x] Phase 1 audit — classified every `draw-qa.sh` symbol CORE/DRIVER/ADAPTER; wrote `docs/HARNESS-ARCHITECTURE.md` (seam map, driver contract, logical-coord rule, offscreen/CI mode, no-window-id + capture-backend rules).
 
 ## Phase 2 — collaborative test authoring (human sees what Claude sees)
-- [x] Named region registry — `region name x y w h [desc]` + `snap name [label]`; snap_region records each snap's physical rect + region name + keeps its full frame (SNAP_RECT/SNAP_REGION) so failures & calibration can prove/label where they looked. Verified.
-- [ ] `--calibrate <test>`: walk each named region, render outlined+labeled frames to a review dir so the human confirms placement before trusting a run (generalize `harness-calibration.sh`).
+- [x] Named region registry — `region name x y w h [desc]` + `snap name [label]`; snap_region records each snap's rect + region name so failures/calibration can prove where. Verified.
+- [x] Auto `-where` proof on FAIL — failed region asserts re-capture + outline the region in red and log its name/desc (`FAIL-<test>_<region>.png`). Verified offscreen. **Also fixed a real regression:** offscreen capture was using spectacle (grabbed the real desktop via the portal); now `WAYLAND_DISPLAY unset → scrot`, so Xvfb/CI captures the right screen.
 - [ ] Coord-picker aid: against a running app, click a spot → print logical coords + a starter `region` line, so authoring a test's regions is copy-paste, not guesswork.
 
 ## Phase 3 — runner / report / ETA / live-status / CI (portable core)

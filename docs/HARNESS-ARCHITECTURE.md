@@ -82,7 +82,7 @@ capture.full  <outfile.png>    # whole display; CORE crops regions itself
 
 # TARGET / lifecycle
 target.launch          -> pid          # from the adapter's launch spec
-target.window_id                        # find by adapter's match
+target.window_id                        # find by adapter's match (see note below)
 target.window_bounds   -> x y w h scale # screen rect + DPI scale
 target.is_alive        -> 0|1           # adapter hook (pid / health)
 target.focus
@@ -90,6 +90,25 @@ target.quit
 target.offscreen?      -> 0|1           # Xvfb present & usable
 target.run_offscreen <cmd...>           # Xvfb @ native res, WAYLAND_DISPLAY unset
 ```
+
+**No window ID assumed.** Some toolkits don't expose a usable window id —
+**QB64-PE currently does not** (fix in flight). So `window_id` must degrade: match
+by **title** (DRAW: `xdotool search --name "DRAW v"`), then by **pid**, then by
+**geometry** (the single fullscreen-ish window on the display). Everything
+downstream works from `window_bounds` (a rect), never from a stable WID — capture
+crops a rect, input targets logical coords. Adapters for other apps supply
+whatever match they can; the core never dereferences a WID directly.
+
+**Capture backend by display type** (learned the hard way — it drew FAIL boxes on
+the user's editor): the *right* screenshot tool depends on the display, not the
+machine.
+- **Real Wayland session** (`WAYLAND_DISPLAY` set): `scrot` returns all-black →
+  use **spectacle** (Wayland backend).
+- **Pure X11 / offscreen Xvfb** (`WAYLAND_DISPLAY` unset): **scrot** captures the
+  actual `$DISPLAY`. spectacle here reaches the *real* desktop through the xdg
+  portal and grabs the WRONG screen — so never use it offscreen.
+Selector: `WAYLAND_DISPLAY set → spectacle, else → scrot`; overridable via
+`QA_CAPTURE=<tool>`; last-ditch scrot fallback. This is the CI-safe path.
 
 ## The logical-coordinate rule (the seam)
 

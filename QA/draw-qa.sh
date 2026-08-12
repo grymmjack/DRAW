@@ -353,23 +353,35 @@ _capture_client_area() {
 
     dbg "capture: crop=${client_w}x${client_h}+${WIN_ABS_X}+${crop_y} deco=$DECORATION_H"
 
-    # Capture: spectacle is the reliable path on this box and is the primary
-    # method WHENEVER it is present — it works both on the KDE/Wayland session
-    # (WAYLAND_DISPLAY set → Wayland backend) and on a pure X11/Xvfb display
-    # (WAYLAND_DISPLAY unset → X11 backend). scrot returns all-black frames under
-    # the Wayland compositor, so it is a fallback for machines without spectacle,
-    # never the default. (Previously spectacle was gated on WAYLAND_DISPLAY being
-    # set, which silently dropped to broken scrot whenever it was unset — e.g. an
-    # offscreen Xvfb run — making every region diff compare a static wrong frame.)
-    # setsid runs spectacle in its own session so the compositor doesn't steal
-    # keyboard focus from DRAW. No --fork: block until the capture completes to
-    # avoid races between overlapping captures.
+    # Capture backend — pick by DISPLAY type, because neither tool is right in
+    # both worlds:
+    #   • Real Wayland session (WAYLAND_DISPLAY set): scrot returns an all-black
+    #     frame, so use spectacle (Wayland backend). setsid keeps the compositor
+    #     from stealing keyboard focus from the app; no --fork so we block until
+    #     the capture is on disk (avoids overlapping-capture races).
+    #   • Pure X11 / offscreen Xvfb (WAYLAND_DISPLAY unset): scrot captures the
+    #     actual $DISPLAY reliably. spectacle here reaches the *real* desktop
+    #     through the xdg portal and grabs the WRONG screen — which silently makes
+    #     every region diff compare a static wrong frame (and drew FAIL boxes on
+    #     the user's editor). This is the CI / shared-computer path, so it must be
+    #     deterministic.
+    # Override with QA_CAPTURE=scrot|spectacle|<cmd that takes an output path>.
     rm -f "$tmp"
-    if command -v spectacle &>/dev/null; then
-        setsid spectacle -b -n -f -o "$tmp" 2>/dev/null
+    local backend="${QA_CAPTURE:-}"
+    if [[ -z "$backend" ]]; then
+        if [[ -n "${WAYLAND_DISPLAY:-}" ]] && command -v spectacle &>/dev/null; then
+            backend=spectacle
+        else
+            backend=scrot
+        fi
     fi
-    if [[ ! -s "$tmp" ]]; then
-        scrot "$tmp" 2>/dev/null
+    case "$backend" in
+        spectacle) setsid spectacle -b -n -f -o "$tmp" 2>/dev/null ;;
+        scrot)     scrot "$tmp" 2>/dev/null ;;
+        *)         "$backend" "$tmp" 2>/dev/null ;;
+    esac
+    if [[ ! -s "$tmp" ]] && command -v scrot &>/dev/null; then
+        scrot "$tmp" 2>/dev/null   # last-ditch fallback
     fi
 
     if [[ -s "$tmp" ]]; then
@@ -844,13 +856,11 @@ snap_region() {
     if _capture_client_area "$wintmp"; then
         dbg "snap_region client_area=$(identify -format '%wx%h' "$wintmp" 2>/dev/null) sub-crop=${rw}x${rh}+${rx}+${ry}"
         convert "$wintmp" -crop "${rw}x${rh}+${rx}+${ry}" +repage "$SNAP_RESULT" 2>/dev/null
-        # Remember where this snap looked (physical rect + the region name, if any)
-        # and keep the full window frame, so a failed assert or --calibrate can show
-        # the region outlined on the whole window without re-capturing.
+        # Remember where this snap looked (physical rect + region name, if any) so a
+        # failed assert or --calibrate can re-capture and outline exactly this box.
         if [[ -s "$SNAP_RESULT" ]]; then
             SNAP_RECT["$SNAP_RESULT"]="$rx $ry $rw $rh"
             [[ -n "$CURRENT_REGION" ]] && SNAP_REGION["$SNAP_RESULT"]="$CURRENT_REGION"
-            cp -f "$wintmp" "${SNAP_RESULT%.png}.win.png" 2>/dev/null
         fi
         if [[ ${DUMP_SNAPS:-0} -eq 1 && -s "$SNAP_RESULT" ]]; then
             SNAP_SEQ=$(( SNAP_SEQ + 1 ))
@@ -946,6 +956,30 @@ _parse_ae() {
 
 # assert_regions_differ file1 file2 msg
 # Fail if two region snapshots are pixel-identical (action had no visual effect).
+# On a failed region assertion, re-capture the window and write a copy with the
+# region outlined in red + its name/description logged — so the human can see at a
+# glance WHERE the harness looked, and confirm it's the right spot (shared vision).
+_emit_where_on_fail() {
+    local f1=$1 f2=$2 src rect region rx ry rw rh
+    for src in "$f1" "$f2"; do [[ -n "${SNAP_RECT[$src]:-}" ]] && break; done
+    rect="${SNAP_RECT[$src]:-}"
+    [[ -z "$rect" ]] && return   # raw snap with no recorded rect — nothing to draw
+    read -r rx ry rw rh <<< "$rect"
+    region="${SNAP_REGION[$src]:-}"
+    local tag="${CURRENT_TEST:-test}"; [[ -n "$region" ]] && tag="${tag}_${region}"
+    local out="$SCREENSHOTS_DIR/FAIL-${tag}-$$.png" wintmp="/tmp/draw-qa-fail-$$.png"
+    if _capture_client_area "$wintmp"; then
+        convert "$wintmp" -stroke red -fill none -strokewidth 3 \
+            -draw "rectangle ${rx},${ry} $(( rx + rw )),$(( ry + rh ))" "$out" 2>/dev/null
+        rm -f "$wintmp"
+    fi
+    if [[ -f "$out" ]]; then
+        local note="region '${region:-?}'"
+        [[ -n "$region" && -n "${REGION_DESC[$region]:-}" ]] && note="$note — ${REGION_DESC[$region]}"
+        warn "  ↳ where it looked: $(basename "$out")  ($note)"
+    fi
+}
+
 assert_regions_differ() {
     local f1=$1 f2=$2 msg=${3:-"region changed"}
     if [[ ! -f "$f1" ]] || [[ ! -f "$f2" ]]; then
@@ -960,6 +994,7 @@ assert_regions_differ() {
         pass "$msg (${diff_count} pixels differ)"
     else
         fail "$msg — regions are identical (action had no effect?)"
+        _emit_where_on_fail "$f1" "$f2"
     fi
 }
 
@@ -981,6 +1016,7 @@ assert_regions_same() {
         pass "$msg (${diff_count:-0} pixels differ, within tolerance $tolerance)"
     else
         fail "$msg — regions differ by ${diff_count} pixels (unexpected change?)"
+        _emit_where_on_fail "$f1" "$f2"
     fi
 }
 
