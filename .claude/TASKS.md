@@ -13,7 +13,7 @@ expose a window id yet — match by title/pid/geometry, never a WID.
 Ordered by dependency; the topmost unchecked box is next.
 
 ## 🔨 NOW — doing right now
-- [ ] ➡️ **Standalone harness skeleton**: create the toolkit layout — `core/` (bash runner + assert + mark + config-lock + consent + eta + status), `report/` (python + junit), `drivers/linux-x11/` (xdotool + spectacle/scrot + Xvfb), and an adapter-manifest format (launch/window/geometry/hooks/blessed-cfg/tests). Document the driver seam so win/mac plug in later.
+- [ ] ➡️ **Port CORE out of `draw-qa.sh`** into the toolkit (`~/git/qa-harness`); keep DRAW-specific bits in a draw adapter that consumes it. Follow the per-symbol checklist in `qa-harness/ARCHITECTURE.md`.
 
 ## Phase 1 — analysis & seam map
 - [x] Phase 1 audit — classified every `draw-qa.sh` symbol CORE/DRIVER/ADAPTER; wrote `docs/HARNESS-ARCHITECTURE.md` (seam map, driver contract, logical-coord rule, offscreen/CI mode, no-window-id + capture-backend rules).
@@ -33,9 +33,9 @@ Ordered by dependency; the topmost unchecked box is next.
 - [x] **CLI `--help` full coverage** — header usage block regrouped (Selecting tests incl. shell-glob subsets · Estimate & report `--eta`/`--report`/`--status` · Run mode `--mode`/`--offscreen`/`--onscreen` · Authoring aids · Debugging · Maintenance) + an Env line (`QA_XVFB_RES`/`QA_PROJECT`/`QA_CAPTURE`). `--help`/`-h` now prints line 2 → a `--- end usage ---` sentinel (robust to length) with the `# ` stripped. Verified.
 
 ## Phase 4 — extract to a standalone tool (Linux driver first)
-- [ ] Create the standalone harness repo skeleton: `core/` (bash runner + assert + mark + config-lock + consent + eta + status), `report/` (python + junit), `drivers/linux-x11/` (xdotool + spectacle/scrot + Xvfb), and an adapter-manifest format (launch/window/geometry/hooks/blessed-cfg/tests). Document the driver seam so win/mac plug in later.
+- [x] **Standalone harness skeleton** — new local repo `~/git/qa-harness` (remote deferred = your call): `core/` (runner + region-diff asserts), `drivers/linux-x11/` (xdotool + spectacle/scrot + Xvfb), `report/qa-report.py` (moved in verbatim — already project-agnostic), `adapters/` (tiny per-app manifest; `adapters/draw` reference), `bin/qa` loader. Defines the full seam: driver interface, adapter-manifest contract, logical-coord rule, no-window-id degrade, capture-backend rule. `ARCHITECTURE.md` carries the per-symbol port checklist. Wiring verified (`bin/qa --adapter … ` sources driver→adapter→core). Committed (40270b6).
 - [ ] Port CORE out of `draw-qa.sh` into the toolkit; keep DRAW-specific bits in a draw adapter that consumes it.
 - [ ] DRAW = adapter #1: `draw-qa` becomes thin (manifest + DRAW geometry/wake hooks + blessed cfg); re-run the DRAW suite through the toolkit and confirm parity with current results.
 
 ## Phase 5 — prove cross-project (2nd language, same driver)
-- [ ] Minimal Rust GUI (X11) app + adapter #2: reuse the linux-x11 driver, window-relative coords (no viewport model), 2–3 sample tests + a green report — proves same driver / new app / new language. (May pause here for standalone-repo remote decisions.)
+- [ ] Minimal Rust GUI (X11) app + adapter #2: **a tiny NEW demo app** (decided 2026-08-12) — self-contained X11 GUI (a few buttons/canvas) purely as a harness target, reuse the linux-x11 driver, window-relative coords (no viewport model), 2–3 sample tests + a green report — proves same driver / new app / new language.
