@@ -13,23 +13,23 @@ expose a window id yet — match by title/pid/geometry, never a WID.
 Ordered by dependency; the topmost unchecked box is next.
 
 ## 🔨 NOW — doing right now
-- [ ] ➡️ **Coord-picker aid** — against a running app, click a spot → print logical coords + a starter `region name x y w h` line, so authoring a test's regions is copy-paste, not guesswork (`./draw-qa.sh --pick`).
+- [ ] ➡️ **ETA** — persist per-test durations; before a run print per-test ETA + session-total; add `--eta` (dry-run estimate that lists what would run and for how long).
 
 ## Phase 1 — analysis & seam map
 - [x] Phase 1 audit — classified every `draw-qa.sh` symbol CORE/DRIVER/ADAPTER; wrote `docs/HARNESS-ARCHITECTURE.md` (seam map, driver contract, logical-coord rule, offscreen/CI mode, no-window-id + capture-backend rules).
 
-## Phase 2 — collaborative test authoring (human sees what Claude sees)
-- [x] Named region registry — `region name x y w h [desc]` + `snap name [label]`; snap_region records each snap's rect + region name so failures/calibration can prove where. Verified.
-- [x] Auto `-where` proof on FAIL — failed region asserts re-capture + outline the region in red and log its name/desc (`FAIL-<test>_<region>.png`). Verified offscreen. **Also fixed a real regression:** offscreen capture was using spectacle (grabbed the real desktop via the portal); now `WAYLAND_DISPLAY unset → scrot`, so Xvfb/CI captures the right screen.
-- [x] `--calibrate <test>` — runs the test's `region` declarations and renders each region outlined (green) + labeled on the app frame to `QA/calibrate/`, so the human confirms placement before trusting a run. Verified offscreen (toolbar/palette/canvas boxes correct).
+## Phase 2 — collaborative test authoring (human sees what Claude sees) ✅
+- [x] Named region registry — `region name x y w h [desc]` + `snap name [label]`; snap_region records each snap's rect + region name.
+- [x] Auto `-where` proof on FAIL — failed asserts re-capture + outline the region in red and log its name/desc. **Fixed a real regression:** offscreen capture used spectacle (grabbed the real desktop via the portal); now `WAYLAND_DISPLAY unset → scrot`.
+- [x] `--calibrate <test>` — renders each declared region outlined (green) + labeled to `QA/calibrate/` so the human confirms placement before trusting a run.
+- [x] Coord-picker — `--pick` (alias of `--probe`): hover+hold to MARK a point; two marks print a copy-paste `region x y w h` line. `--help` lists all modes.
 
 ## Phase 3 — runner / report / ETA / live-status / CI (portable core)
-- [ ] ETA: persist per-test durations; before a run print per-test ETA + session-total; add `--eta` (dry-run estimate).
 - [ ] **Live status/progress**: while a suite runs, maintain a queryable status file (JSON + plain) — current test i/N + name, elapsed, per-test remaining, and **estimated completion in clock time** — so a running suite can be watched (poll the file) and a task-loop knows when to check back. Emit machine-readable progress lines too.
 - [ ] Reporter: de-DRAW `dump-qa-tests.py --html` into a project-agnostic report (header: date/time/project/what-ran; table: test/result/secs/notes); inputs = project name + run-log dir.
 - [ ] CI output: JUnit XML + non-zero exit on failure, so GitHub Actions (Linux, Xvfb) can run headless and surface results.
 - [ ] Consent/mode: `--mode ask|offscreen|onscreen`; default offscreen when Xvfb is available (also the CI path); print the takeover warning + ETA before using the real screen.
-- [ ] CLI `--help`: single test, glob/tag subset, `--all`, `--list`, `--eta`, `--mode`, `--marks`, `--status` — everything drivable from one run for skills/scripts.
+- [ ] CLI `--help` full coverage: single test, glob/tag subset, `--all`, `--eta`, `--mode`, `--status` (extend the header help added in Phase 2).
 
 ## Phase 4 — extract to a standalone tool (Linux driver first)
 - [ ] Create the standalone harness repo skeleton: `core/` (bash runner + assert + mark + config-lock + consent + eta + status), `report/` (python + junit), `drivers/linux-x11/` (xdotool + spectacle/scrot + Xvfb), and an adapter-manifest format (launch/window/geometry/hooks/blessed-cfg/tests). Document the driver seam so win/mac plug in later.

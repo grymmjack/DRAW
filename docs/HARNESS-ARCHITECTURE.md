@@ -99,6 +99,14 @@ downstream works from `window_bounds` (a rect), never from a stable WID — capt
 crops a rect, input targets logical coords. Adapters for other apps supply
 whatever match they can; the core never dereferences a WID directly.
 
+**Positioning trick — deterministic coords without any id.** Even with *no* window
+id, you can make coordinates deterministic by positioning the **active** window to
+a known place + size via a WM hotkey (DRAW binds **Meta+Home** to center & resize).
+The window then sits at a fixed desktop rect, so screen coords are stable and
+"window-relative" is just a fixed offset — and this is precisely what enables
+**window size / resize tests**. So the adapter exposes a `park_window` hook (the
+hotkey), and the core reads the resulting bounds; the WID never enters the picture.
+
 **Capture backend by display type** (learned the hard way — it drew FAIL boxes on
 the user's editor): the *right* screenshot tool depends on the display, not the
 machine.

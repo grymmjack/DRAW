@@ -3,22 +3,23 @@
 #
 # Usage:
 #   ./draw-qa.sh                  Run all tests in QA/tests/
-#   ./draw-qa.sh tests/smoke.sh   Run a single test file
-#   ./draw-qa.sh --stop           EMERGENCY STOP: kill any running QA session
-#                                 (harness + its DRAW + xdotool). Aliases:
-#                                 --abort, --kill. Never touches your own DRAW.run.
+#   ./draw-qa.sh tests/smoke.sh   Run one (or several) test files
 #   ./draw-qa.sh --list           List available tests
-#   ./draw-qa.sh --keep-open      Don't close DRAW after tests (for debugging)
-#   ./draw-qa.sh --fail-fast      Stop on first failure (for tuning tests)
-#   ./draw-qa.sh --verbose        Show every mouse/key action for debugging
+#   ./draw-qa.sh --calibrate T    Outline+label every region() in test T to
+#                                 QA/calibrate/ — confirm placement before a run
+#   ./draw-qa.sh --pick           Coord/region picker: hover+hold to MARK a point;
+#                                 two marks print a 'region x y w h' line to paste
+#                                 into a test (alias: --probe; PROBE_SECS=60)
+#   ./draw-qa.sh --dump-snaps     Save every compared region + a -where overlay
+#                                 (a -where frame is auto-saved on failure anyway)
 #   ./draw-qa.sh --rerun-passed   Re-run tests that previously passed
-#   ./draw-qa.sh --reset          Clear the passed-test cache
-#   ./draw-qa.sh --reset-cfg      Rebuild QA/DRAW.qa.cfg from DRAW.cfg.default
+#   ./draw-qa.sh --keep-open      Don't close DRAW after tests (debugging)
+#   ./draw-qa.sh --fail-fast      Stop on first failure (tuning tests)
+#   ./draw-qa.sh --verbose        Show every mouse/key action (debugging)
 #   ./draw-qa.sh --developer      Launch DRAW with --developer (input audit)
-#   ./draw-qa.sh --probe          Launch DRAW and print cursor position in
-#                                 viewport pixels — hover a target, hold still
-#                                 ~1.5s and it prints MARK <x>,<y> for use as a
-#                                 click coordinate. PROBE_SECS=60 to run longer.
+#   ./draw-qa.sh --reset[-cfg]    Clear passed-cache / rebuild QA/DRAW.qa.cfg
+#   ./draw-qa.sh --stop           EMERGENCY STOP a running QA session
+#                                 (aliases --abort/--kill; never your own DRAW.run)
 #
 # DRAW is always launched with --config QA/DRAW.qa.cfg, so runs are
 # deterministic and never read or write the user's own DRAW.cfg.
@@ -1157,18 +1158,19 @@ case "${1:-}" in
         rm -f "$QA_CFG"
         _ensure_qa_cfg
         exit 0 ;;
-    --probe)
-        # Interactive coordinate finder. Launches DRAW with the QA config and
-        # prints the cursor position in VIEWPORT pixels — the same units every
-        # test helper takes — so target coordinates can be read off the real UI
-        # instead of being derived from layout constants that drift.
+    --probe|--pick)
+        # Interactive coordinate + region finder. Launches DRAW (QA config) and
+        # prints the cursor position in VIEWPORT pixels — the units every test
+        # helper and `region` take — so coords are read off the real UI, not
+        # derived from layout constants that drift. Mark two opposite corners of a
+        # box and it emits a copy-paste `region NAME x y w h` line for the test.
         check_deps
         draw_launch 15
-        PROBE_SECS=${PROBE_SECS:-30}
+        PROBE_SECS=${PROBE_SECS:-45}
         log ""
-        log "${CYAN}━━━ COORDINATE PROBE (${PROBE_SECS}s) ━━━${RESET}"
-        log " Hover the UI element you want a test to click."
-        log " Viewport coords are printed live; click to mark one."
+        log "${CYAN}━━━ COORDINATE / REGION PICKER (${PROBE_SECS}s) ━━━${RESET}"
+        log " Hover a spot and hold still ~1.5s to MARK it (prints a click coord)."
+        log " Mark two opposite corners of a box → prints a 'region NAME x y w h' line."
         log " Window ${WIN_ABS_X},${WIN_ABS_Y}  scale ${DISPLAY_SCALE}x  deco ${DECORATION_H}px"
         log ""
         _probe_vp() {
@@ -1184,14 +1186,24 @@ case "${1:-}" in
         _probe_last=""
         _probe_still=0
         _probe_marked=""
+        _probe_marks=()
         while [[ $SECONDS -lt $_probe_end ]]; do
             read -r pvx pvy <<< "$(_probe_vp)"
             if [[ "$pvx $pvy" == "$_probe_last" ]]; then
                 _probe_still=$(( _probe_still + 1 ))
                 if [[ $_probe_still -eq 15 && "$pvx $pvy" != "$_probe_marked" ]]; then
                     printf "\r%-60s\r" ""
-                    log "  ${GREEN}MARK${RESET}  viewport ${pvx},${pvy}"
+                    log "  ${GREEN}MARK${RESET}  viewport ${pvx},${pvy}   (click coord)"
                     _probe_marked="$pvx $pvy"
+                    _probe_marks+=("$pvx $pvy")
+                    # Two marks make a box → print a copy-paste region starter line.
+                    if [[ ${#_probe_marks[@]} -ge 2 ]]; then
+                        read -r _ax _ay <<< "${_probe_marks[-2]}"
+                        read -r _bx _by <<< "${_probe_marks[-1]}"
+                        _rx=$(( _ax < _bx ? _ax : _bx )); _ry=$(( _ay < _by ? _ay : _by ))
+                        _rw=$(( _ax < _bx ? _bx - _ax : _ax - _bx )); _rh=$(( _ay < _by ? _by - _ay : _ay - _by ))
+                        log "  ${CYAN}region NAME ${_rx} ${_ry} ${_rw} ${_rh}${RESET} \"describe it\"   # from last two marks — rename NAME"
+                    fi
                 fi
             else
                 _probe_still=0
@@ -1205,7 +1217,7 @@ case "${1:-}" in
         draw_quit
         exit 0 ;;
     --help|-h)
-        sed -n '2,19p' "$0"; exit 0 ;;
+        sed -n '2,22p' "$0"; exit 0 ;;
 esac
 
 check_deps
