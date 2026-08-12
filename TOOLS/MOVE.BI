@@ -29,6 +29,7 @@ TYPE MOVE_OBJ
     CURRENT_H       AS INTEGER        ' Current transform height
     HANDLE          AS INTEGER        ' Which handle being dragged (0 = center, 1-8 = corners/sides)
     CLONING         AS INTEGER        ' Whether ALT is held (clone mode)
+    IS_PASTE        AS INTEGER        ' TRUE when this move session is a paste — forces clone mode regardless of ALT so committing never clears the layer (paste must never erase existing pixels)
     CLONE_STAMPED   AS INTEGER        ' TRUE if any stamp was placed in this move session
     CONSTRAIN       AS INTEGER        ' Whether SHIFT is held (constrain proportions)
     CAPTURED_LAYER  AS INTEGER        ' Layer index that was captured (ensures apply targets correct layer)
