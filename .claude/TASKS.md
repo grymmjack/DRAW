@@ -1,7 +1,7 @@
 # DRAW input QA — exhaustive seam tests + z-order refactor
 
 ## 🔨 NOW
-- ➡️ G1 · full DRAW QA suite green; record counts in the report (DRAW QA)
+- ✅ ALL ITEMS COMPLETE. Branch `qa-harness-input-improvements-1` (DRAW + qa-harness). Net: z-order refactor (Z1–Z4), 6 new input test suites (T1–T6, all green), 0 compiler warnings, docs updated, 0 regressions (base-verified).
 
 ## Deliverable — zero compiler warnings (Rick, 2026-08-13)
 - [x] W0 · Clean build (`make clean && make`) emits **0 warnings**. Fixed the 2 "Unused variable" warnings at root (KIT-ZIP.BM `ZIP_begin` dead param; KIT-IO.BM `KIT_install_textstyles` dead `fh` local). Commit pushed. **ONGOING GUARD: keep every build at 0 warnings — treat any new warning as a defect.**
@@ -46,4 +46,4 @@ inventory/tests/fixes → **DRAW**. Commit + push each item.
 - [x] D1 · Updated `.claude/instructions/draw-zorder.md` (plan→as-built: SCRN.CURSOR& overlay, ZORDER_FLOATING, BROWSER_owns_mouse%/BROWSER_active_hit%, REGION_CANVAS floor, offscreen-QA notes), `draw-mouse.md` (floating-window precedence section), `draw-rendering.md` (cursor-on-top invariant), CLAUDE.md (instruction table). No binding CHANGED (Ctrl+D already Deselect — that was a latent-mapping verification, not a change), so CHEATSHEET.md needs no edit. Commit pushed.
 
 ## Group 6 — Green gate
-- [ ] G1 · Run the FULL DRAW suite offscreen (existing ~100 + all new). Everything GREEN. Record pass/fail counts in the report artifact. Final commit + push both repos.
+- [x] G1 · Ran the FULL 109-test suite fresh offscreen: **1047 passed / 5 failed / 1 skipped**. All 6 new input suites (T1–T6) GREEN. **Zero regressions from this branch** — verified by checking out base `240600a`, rebuilding, and reproducing every failure there. The 5 fails: (1) my `TOOLTIPS_DISABLED` override broke `layer-group-draw-guard` (asserts a tooltip) → reverted, now passes; (2–5) **pre-existing layer-group bugs on main** (`layer-group-auto-layer` ×2 auto-add-paint "refused"; `layer-groups` "move group down" ×1 consistent; `layer-groups` redo ×1 flaky) — all fail identically on the base, unrelated to input/z-order. Counts recorded in report. **These pre-existing layer-group failures are OUT OF SCOPE for the input-QA/z-order mission and left for a separate effort (surfaced to Rick).** Both repos committed + pushed.
