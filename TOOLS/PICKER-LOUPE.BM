@@ -347,14 +347,29 @@ SUB PICKER_LOUPE_render (dest AS LONG)
     IF NOT PICKER_LOUPE.ACTIVE% THEN EXIT SUB
     IF dest& >= -1 THEN EXIT SUB
 
+    ' Over GUI chrome the loupe magnifies the composited frame (SCENE_CACHE&, which
+    ' holds canvas + all GUI chrome, saved pre-cursor) instead of canvas layers — so
+    ' the eyedropper's loupe previews DRAW's own UI too, matching the Alt+click
+    ' screen eyedropper. The canvas path (below, loupeChrome% = FALSE) is unchanged.
+    ' Over CHROME = a registered GUI panel (region id >= 2). REGION_CANVAS is never
+    ' registered, so canvas/dead-space returns REGION_GLOBAL (0); use > REGION_CANVAS
+    ' so the canvas keeps its normal layer-sampling loupe.
+    DIM loupeChrome AS INTEGER
+    loupeChrome% = (REGION_hit_test%(MOUSE.RAW_X%, MOUSE.RAW_Y%) > REGION_CANVAS)
+
     zw& = SCRN.canvasW& * SCRN.zoom!
     zh& = SCRN.canvasH& * SCRN.zoom!
     dx% = (SCRN.w& - zw&) \ 2 + SCRN.offsetX% + SCRN.panelShiftX%
     dy% = (SCRN.h& - zh&) \ 2 + SCRN.offsetY%
 
-    IF MOUSE.RAW_X% < dx% OR MOUSE.RAW_X% >= dx% + zw& THEN EXIT SUB
-    IF MOUSE.RAW_Y% < dy% OR MOUSE.RAW_Y% >= dy% + zh& THEN EXIT SUB
-    IF PICKER_LOUPE_should_suppress% THEN EXIT SUB
+    ' Canvas: keep the on-canvas bounds gate AND the panel-suppression (the canvas
+    ' loupe must not float over panels). Chrome: skip both — the whole point is to
+    ' magnify the panel pixels under the cursor.
+    IF NOT loupeChrome% THEN
+        IF MOUSE.RAW_X% < dx% OR MOUSE.RAW_X% >= dx% + zw& THEN EXIT SUB
+        IF MOUSE.RAW_Y% < dy% OR MOUSE.RAW_Y% >= dy% + zh& THEN EXIT SUB
+        IF PICKER_LOUPE_should_suppress% THEN EXIT SUB
+    END IF
 
     rectW%            = PICKER_LOUPE_resolve_int%(CFG.PICKER_LOUPE_RECT_WIDTH%, THEME.PICKER_LOUPE_rect_width%, 96)
     rectH%            = PICKER_LOUPE_resolve_int%(CFG.PICKER_LOUPE_RECT_HEIGHT%, THEME.PICKER_LOUPE_rect_height%, 96)
@@ -380,15 +395,52 @@ SUB PICKER_LOUPE_render (dest AS LONG)
     IF sampleW% > 1 AND sampleW% MOD 2 = 0 THEN sampleW% = sampleW% - 1
     IF sampleH% > 1 AND sampleH% MOD 2 = 0 THEN sampleH% = sampleH% - 1
 
-    regionX% = MOUSE.UNSNAPPED_X% - (sampleW% \ 2)
-    regionY% = MOUSE.UNSNAPPED_Y% - (sampleH% \ 2)
-
-    PICKER_LOUPE_ensure_buffer sampleW%, sampleH%
-    IF PICKER_LOUPE.BUFFER& >= -1 THEN EXIT SUB
-    PICKER_compose_region regionX%, regionY%, sampleW%, sampleH%, PICKER_LOUPE.BUFFER&
-
-    sampleLocalX% = MOUSE.UNSNAPPED_X% - regionX%
-    sampleLocalY% = MOUSE.UNSNAPPED_Y% - regionY%
+    IF loupeChrome% THEN
+        ' Sample the composited frame around the RAW cursor (viewport pixels).
+        regionX% = MOUSE.RAW_X% - (sampleW% \ 2)
+        regionY% = MOUSE.RAW_Y% - (sampleH% \ 2)
+        PICKER_LOUPE_ensure_buffer sampleW%, sampleH%
+        IF PICKER_LOUPE.BUFFER& >= -1 THEN EXIT SUB
+        ' Copy the sampleW×sampleH region of SCENE_CACHE& into the buffer one pixel
+        ' at a time, so pixels off the frame edge stay black rather than
+        ' stretch-clipping the _PUTIMAGE.
+        DIM lcOldDest AS LONG, lcOldSrc AS LONG
+        DIM lcbx      AS INTEGER, lcby AS INTEGER, lcsx AS INTEGER, lcsy AS INTEGER
+        DIM lcW       AS INTEGER, lcH AS INTEGER
+        lcOldDest& = _DEST
+        lcOldSrc&  = _SOURCE
+        IF SCENE_CACHE& < -1 THEN
+            lcW% = _WIDTH(SCENE_CACHE&)
+            lcH% = _HEIGHT(SCENE_CACHE&)
+            _DEST PICKER_LOUPE.BUFFER&
+            _DONTBLEND PICKER_LOUPE.BUFFER&
+            _SOURCE SCENE_CACHE&
+            FOR lcby% = 0 TO sampleH% - 1
+                FOR lcbx% = 0 TO sampleW% - 1
+                    lcsx% = regionX% + lcbx%
+                    lcsy% = regionY% + lcby%
+                    IF lcsx% >= 0 AND lcsy% >= 0 AND lcsx% < lcW% AND lcsy% < lcH% THEN
+                        PSET (lcbx%, lcby%), POINT(lcsx%, lcsy%)
+                    ELSE
+                        PSET (lcbx%, lcby%), _RGBA32(0, 0, 0, 255)
+                    END IF
+                NEXT lcbx%
+            NEXT lcby%
+            _BLEND PICKER_LOUPE.BUFFER&
+        END IF
+        _DEST lcOldDest&
+        _SOURCE lcOldSrc&
+        sampleLocalX% = sampleW% \ 2
+        sampleLocalY% = sampleH% \ 2
+    ELSE
+        regionX% = MOUSE.UNSNAPPED_X% - (sampleW% \ 2)
+        regionY% = MOUSE.UNSNAPPED_Y% - (sampleH% \ 2)
+        PICKER_LOUPE_ensure_buffer sampleW%, sampleH%
+        IF PICKER_LOUPE.BUFFER& >= -1 THEN EXIT SUB
+        PICKER_compose_region regionX%, regionY%, sampleW%, sampleH%, PICKER_LOUPE.BUFFER&
+        sampleLocalX% = MOUSE.UNSNAPPED_X% - regionX%
+        sampleLocalY% = MOUSE.UNSNAPPED_Y% - regionY%
+    END IF
     IF sampleLocalX% < 0 THEN sampleLocalX% = 0
     IF sampleLocalY% < 0 THEN sampleLocalY% = 0
     IF sampleLocalX% >= sampleW% THEN sampleLocalX% = sampleW% - 1
@@ -396,8 +448,12 @@ SUB PICKER_LOUPE_render (dest AS LONG)
 
     oldSource& = _SOURCE
     _SOURCE PICKER_LOUPE.BUFFER&
-    layerColor~&                = POINT(sampleLocalX%, sampleLocalY%)
-    PICKER_LOUPE.SAMPLE_COLOR~& = PICKER_resolve_sample_color~&(regionX% + sampleLocalX%, regionY% + sampleLocalY%, layerColor~&)
+    layerColor~& = POINT(sampleLocalX%, sampleLocalY%)
+    IF loupeChrome% THEN
+        PICKER_LOUPE.SAMPLE_COLOR~& = layerColor~&
+    ELSE
+        PICKER_LOUPE.SAMPLE_COLOR~& = PICKER_resolve_sample_color~&(regionX% + sampleLocalX%, regionY% + sampleLocalY%, layerColor~&)
+    END IF
     _SOURCE oldSource&
 
     PICKER_LOUPE_ensure_font
@@ -469,7 +525,11 @@ SUB PICKER_LOUPE_render (dest AS LONG)
     FOR py% = 0 TO sampleH% - 1
         FOR px% = 0 TO sampleW% - 1
             layerColor~& = POINT(px%, py%)
-            pxColor~&    = PICKER_resolve_sample_color~&(regionX% + px%, regionY% + py%, layerColor~&)
+            IF loupeChrome% THEN
+                pxColor~& = layerColor~&
+            ELSE
+                pxColor~& = PICKER_resolve_sample_color~&(regionX% + px%, regionY% + py%, layerColor~&)
+            END IF
             IF ((px% + py%) MOD 2) = 0 THEN
                 checkerColor~& = transparencyColor1~&
             ELSE
