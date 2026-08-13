@@ -402,7 +402,7 @@ This downloads the latest release archive from GitHub and extracts it to `~/Appl
 INSTALL/install-mac.command --uninstall
 ```
 
-> **macOS users:** See [INSTALL/MAC-USERS-README.md](INSTALL/MAC-USERS-README.md) for platform-specific notes on quarantine, Ctrl+Click behavior, and Parallels compatibility.
+> **macOS users:** See [INSTALL/MAC-USERS-README.md](INSTALL/MAC-USERS-README.md) for platform-specific notes on quarantine, **FreeGLUT mouse "Button Emulation"** (why Option+left-click may not pick the foreground colour — and the one-time setting that fixes it), Ctrl+Click behavior, and Parallels compatibility.
 
 ## License
 
