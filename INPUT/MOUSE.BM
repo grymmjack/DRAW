@@ -4504,6 +4504,45 @@ END SUB
 
 
 ''
+' Alt+click screen eyedropper — sample the fully-composited frame (canvas + all
+' GUI chrome) at a raw viewport pixel and set it as the FG (button 1) or BG
+' (button 2) paint colour. Lets themers match a palette to any on-screen colour,
+' DRAW's own UI included.
+'
+' Source is SCENE_CACHE& — the frame exactly as blitted to the window but saved
+' BEFORE the cursor overlay (see SCREEN_render "Save scene to cache"), so the
+' sample is the pixel under the cursor, never the cursor itself. rawX/rawY are
+' viewport pixels and SCENE_CACHE& is viewport-sized, so the read is 1:1.
+'
+SUB MOUSE_eyedrop_screen (rawX AS INTEGER, rawY AS INTEGER, whichBtn AS INTEGER)
+    IF SCENE_CACHE& >= -1 THEN EXIT SUB   ' 0 / -1 are invalid image handles
+    IF rawX% < 0 OR rawY% < 0 OR rawX% >= _WIDTH(SCENE_CACHE&) OR rawY% >= _HEIGHT(SCENE_CACHE&) THEN EXIT SUB
+
+    DIM oldSrc AS LONG
+    oldSrc& = _SOURCE
+    _SOURCE SCENE_CACHE&
+    DIM sampled AS _UNSIGNED LONG
+    sampled~& = POINT(rawX%, rawY%)
+    _SOURCE oldSrc&
+
+    ' Chrome pixels are opaque; force full alpha so an eyedropped colour is never a
+    ' surprise-transparent foreground.
+    sampled~& = _RGBA32(_RED32(sampled~&), _GREEN32(sampled~&), _BLUE32(sampled~&), 255)
+
+    IF whichBtn% = 2 THEN
+        PAINT_BG_COLOR~& = sampled~&
+    ELSE
+        PAINT_COLOR~&          = sampled~&
+        PAL_FG_IS_TRANSPARENT% = FALSE
+    END IF
+    SOUND_play SND_POINT
+    GUI_NEEDS_REDRAW% = TRUE
+    SCENE_DIRTY%      = TRUE
+    FRAME_IDLE%       = FALSE
+END SUB
+
+
+''
 ' ALT temporary picker mode state machine.
 '
 ' @param rawX INTEGER Raw screen X coordinate of the mouse cursor
@@ -4622,6 +4661,8 @@ SUB MOUSE_handle_alt_picker (rawX AS INTEGER, rawY AS INTEGER)
     ' Pick color on click while in ALT-picker mode
     ' Left click = foreground, Right click = background
     ' Skip when mouse is over the preview window — let PREVIEW_mouse_input handle it
+    ' (Alt+click over GUI chrome is handled earlier in MOUSE_process_frame% via
+    '  MOUSE_eyedrop_screen, before gui_early consumes the click.)
     IF pickerFromAlt% AND CURRENT_TOOL% = TOOL_PICKER AND NOT overPreviewWindow% THEN
         IF MOUSE.B1% AND NOT MOUSE.OLD_B1% THEN
             PICKER_pick_color MOUSE.UNSNAPPED_X%, MOUSE.UNSNAPPED_Y%, 1
@@ -5234,6 +5275,30 @@ FUNCTION MOUSE_process_frame% (rawX AS INTEGER, rawY AS INTEGER, wheel_delta AS 
             FRAME_IDLE%          = FALSE
             MOUSE_process_frame% = FALSE
             EXIT FUNCTION
+        END IF
+    END IF
+
+    ' Alt+click over GUI chrome = screen eyedropper (themer's tool): sample the
+    ' rendered pixel under the cursor and set it as FG (left) / BG (right), so a
+    ' palette can be matched to DRAW's own theme. MUST run before
+    ' MOUSE_handle_gui_early% — that consumes chrome clicks and EXITs the frame,
+    ' which is why the click never reached the Alt loupe picker below. The CANVAS
+    ' is excluded: there the loupe picker (MOUSE_handle_alt_picker) owns Alt and
+    ' reads true layer colours. Ctrl is excluded so it can't collide with modifier
+    ' combos; panning is excluded so a space/MMB pan is never hijacked.
+    IF MODIFIERS.alt% AND NOT MODIFIERS.ctrl% AND NOT SCRN.panning% THEN
+        IF REGION_hit_test%(rawX%, rawY%) <> REGION_CANVAS THEN
+            IF MOUSE.B1% AND NOT MOUSE.OLD_B1% THEN
+                MOUSE_eyedrop_screen rawX%, rawY%, 1
+                MOUSE.UI_CHROME_CLICKED% = TRUE
+                MOUSE_process_frame%     = FALSE
+                EXIT FUNCTION
+            ELSEIF MOUSE.B2% AND NOT MOUSE.OLD_B2% THEN
+                MOUSE_eyedrop_screen rawX%, rawY%, 2
+                MOUSE.UI_CHROME_CLICKED% = TRUE
+                MOUSE_process_frame%     = FALSE
+                EXIT FUNCTION
+            END IF
         END IF
     END IF
 
