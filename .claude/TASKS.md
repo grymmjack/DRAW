@@ -1,41 +1,42 @@
-# QA harness → portable, collaborative, CI-ready
+# DRAW input QA — exhaustive seam tests + z-order refactor
 
-Branch `qa-harness`. Evolve `draw-qa.sh` into a **portable core** (bash runner +
-Python reporter) with a thin **driver seam**, so the same harness tests DRAW,
-Rust/X11 GUIs, and (later) web — and so writing tests *together* is easy, with
-**region boxes** confirming Claude looks where the human thinks.
+Branch: `qa-harness-input-improvements-1` (DRAW **and** qa-harness). Derived from the
+code inventory in `.claude/input-inventory/` (01-mouse, 02-keyboard,
+03-regions-zorder-dispatch, 04-render-zorder-seams). Read those before each item.
 
-Decisions (locked): bash+Python core · standalone repo · Rust-GUI(X11) as adapter
-#2 · **Linux is homebase** (X11 + Xvfb); Win/Mac are seam-only, nice-to-have ·
-CI on GitHub Actions Linux (headless) is a real goal. Note: QB64-PE apps don't
-expose a window id yet — match by title/pid/geometry, never a WID.
+**Rules (every item):** verify OFFSCREEN with the Xvfb harness (no WM — openbox grabs
+Alt+click; read window geom via `xdotool getwindowgeometry --shell`; capture `_LOGINFO`
+via `QB64PE_LOG_*`). Build `make` foreground, 600000ms, `dangerouslyDisableSandbox`.
+Remove all temp diagnostics before committing. **Nothing is done until it is GREEN.**
+Separation of concerns: generic capabilities/lessons → **qa-harness**; DRAW-specific
+inventory/tests/fixes → **DRAW**. Commit + push each item.
 
-Ordered by dependency; the topmost unchecked box is next.
+## Group 1 — Harness input primitives (qa-harness repo)
+- [ ] H1 · Add generic `hover x y` (move, no click) and split `mouse_down`/`mouse_up` verbs to `core/input.sh` (+ driver verbs if needed). Unit-verify in isolation. Commit qa-harness branch.
+- [ ] H2 · Add `middle_click x y` (MMB = X button 2). Unit-verify. Commit.
+- [ ] H3 · Add modifier-held-DURING-mouse: `with_mods "ctrl+shift" <click|drag|hover|wheel …>` (hold mods via keydown, run gesture, release) + convenience `ctrl_click`/`shift_click`/`alt_click`/`shift_drag`. Unit-verify a modifier is actually held across the gesture. Commit.
+- [ ] H4 · Add modifier+wheel (`shift`+scroll etc.) via H3's wrapper or a `scroll_mod`. Unit-verify. Commit.
+- [ ] H5 · Add generic z-order/hit-target assertion helpers + document the z-order/hit-target TESTING PATTERN in `ARCHITECTURE.md` (how to assert "front-most window wins the click" and "cursor renders above an overlay"). Commit.
 
-## 🔨 NOW — doing right now
-- ✅ **All tasks complete.** The QA harness is built out (Phases 1–3), extracted into the standalone `~/git/qa-harness` toolkit (Phase 4), and proven against a second language via a Rust demo (Phase 5). Both adapters run green through `bin/qa`.
+## Group 2 — Unified z-order design (DRAW)
+- [ ] Z0 · Write `.claude/instructions/draw-zorder.md`: the ONE declarative z-stack that drives BOTH render order and input hit-test order; a `ZORDER_FLOATING` tier above `ZORDER_PANEL`; where the cursor screen-0 reblit fits. Design only — the refactor plan the Z-items follow. (Root problem: 3 parallel sources of truth — render sequence, dormant region table, legacy geometry — see inventory.)
 
-## Phase 1 — analysis & seam map
-- [x] Phase 1 audit — classified every `draw-qa.sh` symbol CORE/DRIVER/ADAPTER; wrote `docs/HARNESS-ARCHITECTURE.md` (seam map, driver contract, logical-coord rule, offscreen/CI mode, no-window-id + capture-backend rules).
+## Group 3 — Z-order fixes/refactor (DRAW) — each GREEN
+- [ ] Z1 · Fix cursor-under-floating-window (Preview/Color Mixer/Browser). Add a cursor screen-0 reblit AFTER the floating-window blits in all 3 render paths of `SCREEN_render` (mirror `TOOLTIP_reblit_to_screen0`); fix the false comment at `GUI/POINTER.BM:1601`. Verify offscreen the cursor renders on top over the preview. Full build green.
+- [ ] Z2 · Add `ZORDER_FLOATING` (> `ZORDER_PANEL`); register REGION_PREVIEW/COLOR_MIXER/IMAGE_BROWSER at it so `REGION_hit_test%` agrees with render (front-most wins). Verify a click on preview-over-layer-panel resolves to preview. Green.
+- [ ] Z3 · Reconcile legacy floating-window hit-test order to front-to-back matching render; remove the inconsistent per-site browser hand-patches (`MOUSE.BM:4599/5135/5155/5176`). Verify overlap clicks hit the front window with NO double-fire (S2/S4). Green.
+- [ ] Z4 · Register `REGION_CANVAS` (canvas work-area bounds) so canvas is a real region; make `> REGION_CANVAS` idiom + `CTX_OVER_CANVAS` correct. Verify Alt-eyedrop/loupe over-canvas still behave (must not regress). Green.
 
-## Phase 2 — collaborative test authoring (human sees what Claude sees) ✅
-- [x] Named region registry — `region name x y w h [desc]` + `snap name [label]`; snap_region records each snap's rect + region name.
-- [x] Auto `-where` proof on FAIL — failed asserts re-capture + outline the region in red and log its name/desc. **Fixed a real regression:** offscreen capture used spectacle (grabbed the real desktop via the portal); now `WAYLAND_DISPLAY unset → scrot`.
-- [x] `--calibrate <test>` — renders each declared region outlined (green) + labeled to `QA/calibrate/` so the human confirms placement before trusting a run.
-- [x] Coord-picker — `--pick` (alias of `--probe`): hover+hold to MARK a point; two marks print a copy-paste `region x y w h` line. `--help` lists all modes.
+## Group 4 — Exhaustive input tests (DRAW `QA/tests/`) — each GREEN
+- [ ] T1 · z-order/hit-target suite: cursor-on-top + front-most-hit for Preview/Mixer/Browser; overlap no-double-fire; canvas↔chrome boundary. Uses H5 helpers.
+- [ ] T2 · Mouse per-region matrix: LMB/RMB/MMB/wheel±/hover over each docked panel + canvas (toolbar, organizer, drawer, layer panel, palette strip, status bar, edit bar, adv bar).
+- [ ] T3 · Modifier+mouse gestures: Ctrl+click (symmetry center), Alt+click eyedrop (canvas AND chrome), Shift+drag, Shift+wheel (pan), Ctrl+Shift+click (dock toggle). Uses H3/H4.
+- [ ] T4 · Keyboard singles: every tool key, arrows, space, grave, esc, enter, backspace, delete — correct action + context.
+- [ ] T5 · Keyboard chords + ALL modifier combos: Ctrl+/Shift+/Alt+ and the 4 multi-mod tiers; held-key chords (G/M/Z/E/F/W/Space) both key orders.
+- [ ] T6 · Seam regressions from the inventory: Ctrl+D mapping (307 vs 518), F11/F12 multi-keycode, backtick quad-purpose, wheel double-consume, legacy-before-modern double-fire, chord-order sensitivity.
 
-## Phase 3 — runner / report / ETA / live-status / CI (portable core)
-- [x] **ETA** — `run_test_file` records each test's duration to `results/durations.tsv`; `_eta_for` takes the median of the last 10 runs (robust to one-off hangs); before every run the entrypoint prints `ETA — N test(s), est. total m:ss, done ~HH:MM:SS` (clock time via `date -d`), cached-passed tests shown as skip (0s); `--eta` is a dry run (estimate + per-test breakdown, no launch). Verified: smoke 0:19 / palette 0:25 / total 0:44.
-- [x] **Live status/progress** — `results/status.json` + `status.txt`, rewritten atomically (tmp+mv) before each test and at start/done: phase, current i/N + name, passed/failed/skipped, elapsed, remaining (suffix-sum of per-test ETAs), and **eta clock time**. `--status` / `--status --json` query it; every write also emits a machine-readable `PROGRESS i/N test=… elapsed=…s remaining=…s eta=HH:MM:SS phase=…` line to the stream. Verified live (offscreen smoke: starting→running→done).
-- [x] **Reporter** — harness now emits a structured per-run TSV (`results/run-*.tsv`: `name⇥result⇥secs⇥notes`, one row per test, first failure reason captured as the note) so the reporter reads data not colored logs. New project-agnostic `QA/qa-report.py` (`--project NAME --run TSV|--results DIR --out FILE`, pure stdlib, theme-aware) renders header (project · run date/time · N tests, pass/fail/skip, total time) + table (test/result/secs/notes, failures first). Auto-generated to `results/report.html` at end of every run; `--report` also opens it (`xdg-open`). Project name via `QA_PROJECT` env (default DRAW). Verified end-to-end (3-test offscreen run) + mixed pass/fail/skip demo.
-- [x] **CI output** — `qa-report.py --junit FILE` writes JUnit/surefire XML from the same per-run TSV (one `<testcase>` each; `fail`→`<failure message=…>`, `skip`/`cached`→`<skipped>`; attrs+body XML-escaped, validated with `xmllint`). Every run emits `results/junit.xml` beside `report.html`; the runner's final `[[ $FAIL -eq 0 ]]` gives the non-zero exit CI needs. Documented the headless invocation + a ready-to-drop GitHub Actions workflow (Xvfb, artifact upload, junit-report action) in `docs/HARNESS-ARCHITECTURE.md`.
-- [x] **Consent/mode** — `--mode ask|offscreen|onscreen` (+ `--offscreen`/`--onscreen`). Default is offscreen when Xvfb is present (shared-machine-friendly + the CI path). Offscreen **self-wraps**: the script re-execs under `xvfb-run` (`WAYLAND_DISPLAY` unset, `QA_IN_XVFB=1` anti-recursion guard, screen = current display geometry or `QA_XVFB_RES`); `--eta` skips the launch. Onscreen prints a takeover warning **with the ETA** and confirms on a TTY unless `--onscreen` was explicit; `ask` prompts per run. Mode shown in the banner. Verified: `./draw-qa.sh --rerun-passed tests/smoke.sh` self-wrapped into Xvfb (3840×2160) and passed invisibly.
-- [x] **CLI `--help` full coverage** — header usage block regrouped (Selecting tests incl. shell-glob subsets · Estimate & report `--eta`/`--report`/`--status` · Run mode `--mode`/`--offscreen`/`--onscreen` · Authoring aids · Debugging · Maintenance) + an Env line (`QA_XVFB_RES`/`QA_PROJECT`/`QA_CAPTURE`). `--help`/`-h` now prints line 2 → a `--- end usage ---` sentinel (robust to length) with the `# ` stripped. Verified.
+## Group 5 — Docs (DRAW)
+- [ ] D1 · Update input docs from the inventory + new z-order model: `.claude/instructions/draw-mouse.md`, `input-system.md`, `draw-rendering.md`, and `docs/` as needed; refresh `CHEATSHEET.md` if any binding changed (e.g. Ctrl+D). Commit.
 
-## Phase 4 — extract to a standalone tool (Linux driver first)
-- [x] **Standalone harness skeleton** — new local repo `~/git/qa-harness` (remote deferred = your call): `core/` (runner + region-diff asserts), `drivers/linux-x11/` (xdotool + spectacle/scrot + Xvfb), `report/qa-report.py` (moved in verbatim — already project-agnostic), `adapters/` (tiny per-app manifest; `adapters/draw` reference), `bin/qa` loader. Defines the full seam: driver interface, adapter-manifest contract, logical-coord rule, no-window-id degrade, capture-backend rule. `ARCHITECTURE.md` carries the per-symbol port checklist. Wiring verified (`bin/qa --adapter … ` sources driver→adapter→core). Committed (40270b6).
-- [x] **Port CORE out of `draw-qa.sh`** — faithful extraction into `qa-harness/core/` (`runner.sh` + `assert.sh` + `input.sh`), the linux-x11 driver bodies, and the DRAW adapter (`adapters/draw/manifest.sh`), per the ARCHITECTURE.md checklist. All 30 test-facing names preserved (DRAW's ~97 tests need zero edits). Two bugs found + fixed while verifying: driver `wid` unbound under `set -u` when called without a pid; WM-less-Xvfb input-focus (added `adapter_focus`). Committed (673821f).
-- [x] **DRAW = adapter #1 (parity)** — DRAW's suite runs through `bin/qa --adapter adapters/draw`; verified subset (smoke + brush-size + ui-palette-menu-chips) = **20 passed / 0 failed, exit 0**, byte-for-byte the same assertions/pixel-diffs as `draw-qa.sh`. `draw-qa.sh` stays in the DRAW repo as the reference; the toolkit consumes DRAW's `tests/` unchanged.
-
-## Phase 5 — prove cross-project (2nd language, same driver)
-- [x] **Minimal Rust GUI (X11) app + adapter #2** — a tiny NEW demo app proves the seam holds for a second language/coordinate-model. `examples/rust-demo` (minifb/X11, 480×320, 3 buttons + canvas, click/R/G/B/C, title `qa-demo`); `adapters/rust-demo/manifest.sh` (window-relative 1:1, no viewport — the deliberate contrast with DRAW) + `tests/buttons.sh` + `tests/keys.sh`. Runs through the SAME linux-x11 driver + core as DRAW: **8 passed / 0 failed, exit 0**, region diffs catch every click/key change (4371–7258 px), green report generated. Committed (673821f).
+## Group 6 — Green gate
+- [ ] G1 · Run the FULL DRAW suite offscreen (existing ~100 + all new). Everything GREEN. Record pass/fail counts in the report artifact. Final commit + push both repos.
