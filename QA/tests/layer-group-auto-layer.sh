@@ -1,4 +1,5 @@
 #!/bin/bash
+# QA-OPTIONS: GROUP_DRAW_AUTO_LAYER=TRUE
 # =============================================================================
 # layer-group-auto-layer.sh — QA test: GROUP_DRAW_AUTO_LAYER
 #
@@ -8,31 +9,17 @@
 # through so the SAME stroke lands on the new layer — the user should not have
 # to click twice.
 #
-# Needs its own file because it needs its own config, and the harness gives one
-# DRAW instance per file. The test edits QA/DRAW.qa.cfg, relaunches, and
-# restores the original at the end — the harness shares this shell with every
-# later test, so leaving the config modified would change the whole suite.
-#
-# CONFIG parsing is a flat "SELECT CASE UCASE$(configKey$)" with no section
-# tracking, so appending the key at the end of the file is enough.
+# The option is set for THIS test's launch via the `# QA-OPTIONS:` line above,
+# which the harness turns into `--option GROUP_DRAW_AUTO_LAYER=TRUE` on DRAW's
+# command line (overrides the .cfg). That replaces the old edit-cfg-then-quit-
+# and-relaunch dance: a mid-test relaunch disturbed window/click targeting and
+# the drawn strokes never reached the canvas. No config file is touched, so
+# there is nothing to restore and no state leaks into later tests.
 # =============================================================================
 
 info "=== Group Auto-Add Layer Test ==="
-
-QA_CFG_BACKUP="${QA_CFG}.autolayer-bak"
-cp "$QA_CFG" "$QA_CFG_BACKUP" || { fail "could not back up $QA_CFG"; return 0 2>/dev/null; }
-
-# Turn the setting on and restart DRAW so CONFIG_load picks it up.
-printf '\nGROUP_DRAW_AUTO_LAYER=TRUE\n' >> "$QA_CFG"
-info "Relaunching with GROUP_DRAW_AUTO_LAYER=TRUE"
-draw_quit
-draw_launch 15
-wait_for 1.0 "DRAW up with auto-add enabled"
 assert_no_crash
 
-LP_HEADER_H=16
-LAYER_ENTRY_H=20
-row_y() { echo $(( LP_Y + LP_HEADER_H + $1 * LAYER_ENTRY_H + LAYER_ENTRY_H / 2 )); }
 CR_X=$(( CANVAS_CX - 50 ))
 CR_Y=$(( CANVAS_CY - 50 ))
 
@@ -57,8 +44,6 @@ snap_region "$LP_X" "$LP_Y" "$LP_W" 110 "auto-panel-before"
 PANEL_BEFORE="$SNAP_RESULT"
 snap_region "$CR_X" "$CR_Y" 100 100 "auto-canvas-before"
 CANVAS_BEFORE="$SNAP_RESULT"
-snap_region 0 0 "$VP_W" "$VP_H" "auto-view-before"
-VIEW_BEFORE="$SNAP_RESULT"
 
 # -- Draw on the group --
 info "Drawing on the group header with auto-add enabled"
@@ -66,12 +51,9 @@ drag $(( CANVAS_CX - 20 )) $(( CANVAS_CY + 10 )) $(( CANVAS_CX + 20 )) $(( CANVA
 wait_for 1.0 "Stroke should have landed on a new layer"
 assert_no_crash
 
-# No dialog: auto-add makes the draw succeed, so warning would be nagging about
+# No dialog: auto-add makes the draw succeed, so a warning would be nagging about
 # something that worked.
 park_mouse
-snap_region 0 0 "$VP_W" "$VP_H" "auto-view-after"
-VIEW_AFTER="$SNAP_RESULT"
-
 snap_region "$CR_X" "$CR_Y" 100 100 "auto-canvas-after"
 assert_regions_differ "$CANVAS_BEFORE" "$SNAP_RESULT" \
     "With auto-add on, the stroke should paint (on the new layer) instead of being refused"
@@ -87,22 +69,5 @@ key ctrl+z
 wait_for 0.8 "Stroke undone"
 assert_no_crash
 
-# ---------------------------------------------------------------------------
-# Restore — the harness shares this shell, so the config and a running DRAW
-# instance must both be handed back in their original state.
-# ---------------------------------------------------------------------------
-info "Restoring the original QA config"
-draw_quit
-mv "$QA_CFG_BACKUP" "$QA_CFG"
-draw_launch 15
-wait_for 0.8 "Default instance restored"
-
-if grep -q '^GROUP_DRAW_AUTO_LAYER=TRUE' "$QA_CFG"; then
-    fail "QA config still has GROUP_DRAW_AUTO_LAYER=TRUE — later tests would inherit it"
-else
-    pass "QA config restored"
-fi
-
-assert_no_crash
 assert_window_exists
 info "=== Group Auto-Add Layer Test PASSED ==="
