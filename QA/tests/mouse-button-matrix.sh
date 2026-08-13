@@ -88,21 +88,34 @@ assert_regions_differ "$BIG" "$SNAP_RESULT" "wheel DOWN must change the brush si
 assert_no_crash
 
 # ---------------------------------------------------------------------------
-# D — MMB drag pans the view. Paint a distinctive mark, snap it, MMB-drag, then
-# the mark has moved out of the fixed snap box → the box changes.
+# D — MMB drag pans the view. Zoom IN first (Ctrl+wheel) so the canvas is larger
+# than the viewport and panning is unambiguously unclamped — a 320x200 canvas
+# that fits inside the work area sits at the pan clamp boundary and pans only
+# intermittently (flaky). With the canvas zoomed past the viewport, an MMB drag
+# always shifts visible content. Paint a mark, snap, MMB-drag, re-snap → differs.
 # ---------------------------------------------------------------------------
-info "D — MMB drag pans the view"
+info "D — MMB drag pans the view (zoomed in so the pan is unclamped)"
+ctrl_scroll_up $CEN_X $CEN_Y
+ctrl_scroll_up $CEN_X $CEN_Y
+ctrl_scroll_up $CEN_X $CEN_Y
+wait_for 0.3 "zoomed in"
 drag $(( CEN_X - 30 )) $CEN_Y $(( CEN_X + 30 )) $CEN_Y          # LMB mark to track
 wait_for 0.3 "mark painted"
 park_mouse
 snap_region $PAN_SNAP_X $PAN_SNAP_Y $PAN_SNAP_W $PAN_SNAP_H "mb-pan-before"
 PAN_BEFORE="$SNAP_RESULT"
-drag $CEN_X $CEN_Y $(( CEN_X + 70 )) $(( CEN_Y + 50 )) 2        # MMB = X11 button 2 → pan
+drag $CEN_X $CEN_Y $(( CEN_X + 90 )) $(( CEN_Y + 60 )) 2        # MMB = X11 button 2 → pan
 wait_for 0.3 "pan settled"
 park_mouse
 snap_region $PAN_SNAP_X $PAN_SNAP_Y $PAN_SNAP_W $PAN_SNAP_H "mb-pan-after"
 assert_regions_differ "$PAN_BEFORE" "$SNAP_RESULT" "MMB drag must pan the view (canvas content shifts)"
 assert_no_crash
+
+# Reset zoom/pan back to fit so the test leaves a clean view.
+ctrl_scroll_down $CEN_X $CEN_Y
+ctrl_scroll_down $CEN_X $CEN_Y
+ctrl_scroll_down $CEN_X $CEN_Y
+wait_for 0.2 "zoom reset"
 
 assert_window_exists
 info "=== Mouse button matrix (T2) PASSED ==="
