@@ -1,7 +1,7 @@
 # DRAW input QA — exhaustive seam tests + z-order refactor
 
 ## 🔨 NOW
-- ➡️ Z4 · register REGION_CANVAS + fix `> REGION_CANVAS` idiom / CTX_OVER_CANVAS (DRAW)
+- ➡️ T1 · z-order/hit-target test suite (cursor-on-top + front-most-hit + no-double-fire) (DRAW QA)
 
 
 Branch: `qa-harness-input-improvements-1` (DRAW **and** qa-harness). Derived from the
@@ -29,7 +29,7 @@ inventory/tests/fixes → **DRAW**. Commit + push each item.
 - [x] Z1 · Restored SCRN.CURSOR& top overlay; composited after floating windows in all 3 paths. Cursor-on-preview verified (212px), batch 35/0. Commit 87f65b5, pushed.
 - [x] Z2 · ZORDER_FLOATING=200 tier; Preview/Mixer/Browser moved to it. Hover Preview → REGION_PREVIEW verified. Commit 82fc3e7, pushed.
 - [x] Z3 · Unified floating-window precedence into `BROWSER_owns_mouse%` (front-most gate) + `BROWSER_active_hit%` (spatial) in BROWSER.BM; replaced 4 drifted inline copies at MOUSE.BM 4599/5135/5155/5176 + 5 spatial sites (643/1155/1383/1406/3958). Fixes Preview/Mixer double-grab while Browser drags. Build green; regression 33/0. Commit 9010e73.
-- [ ] Z4 · Register `REGION_CANVAS` (canvas work-area bounds) so canvas is a real region; make `> REGION_CANVAS` idiom + `CTX_OVER_CANVAS` correct. Verify Alt-eyedrop/loupe over-canvas still behave (must not regress). Green.
+- [x] Z4 · Registered `REGION_CANVAS` as z-stack FLOOR (full screen @ ZORDER_CANVAS) every frame after REGION_clear_all. Fixes dead CTX_OVER_CANVAS + makes `> REGION_CANVAS` correct by construction, not by the canvas being unregistered. Updated stale comments. Build green; regression 31/0 (picker+loupe over canvas still sample layer). Commit fd092b6. **Group 3 (Z1–Z4) complete.**
 
 ## Group 4 — Exhaustive input tests (DRAW `QA/tests/`) — each GREEN
 - [ ] T1 · z-order/hit-target suite: cursor-on-top + front-most-hit for Preview/Mixer/Browser; overlap no-double-fire; canvas↔chrome boundary. Uses H5 helpers.
