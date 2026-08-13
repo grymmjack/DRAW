@@ -1,7 +1,7 @@
 # DRAW input QA — exhaustive seam tests + z-order refactor
 
 ## 🔨 NOW
-- ➡️ T6 · seam regressions from the inventory (Ctrl+D 307vs518, F11/F12, backtick, double-fire) (DRAW QA)
+- ➡️ D1 · update input docs from the inventory + z-order model (DRAW)
 
 ## Deliverable — zero compiler warnings (Rick, 2026-08-13)
 - [x] W0 · Clean build (`make clean && make`) emits **0 warnings**. Fixed the 2 "Unused variable" warnings at root (KIT-ZIP.BM `ZIP_begin` dead param; KIT-IO.BM `KIT_install_textstyles` dead `fh` local). Commit pushed. **ONGOING GUARD: keep every build at 0 warnings — treat any new warning as a defect.**
@@ -40,7 +40,7 @@ inventory/tests/fixes → **DRAW**. Commit + push each item.
 - [x] T3 · `QA/tests/modifier-mouse.sh` — 9 passed/0 failed (deterministic x3): A Ctrl+click sets symmetry center / no paint (+ plain-drag control); B Alt+click invokes eyedrop loupe not brush (color-pick path unit-verified via PICKER_pick_color diagnostic — fires with correct sampled color; deterministic offscreen color diff fights the opaque-black layer, so assert the no-paint interception signature); C Shift+wheel vertical pan (zoomed-in so unclamped). Uses H3/H4 helpers. Commit pushed.
 - [x] T4 · `QA/tests/keyboard-singles.sh` — 20 passed/0 failed: tool-key sweep b→d→l→r→c→m→v→i→f (each moves toolbar highlight ~800-1100px), brush round-trip (0 diff), Esc clean. Keyboard is deterministic — passed first try.
 - [x] T5 · `QA/tests/keyboard-chords.sh` — 11 passed/0 failed (deterministic x3): Ctrl+Z undo, Ctrl+Y redo, Ctrl+Shift+Z redo-alt (all 0-diff round-trips of a stroke), Ctrl+A+Esc non-destructive. Covers Ctrl and Ctrl+Shift modifier tiers on the #1 bug area (HISTORY). Held-key chords (G/M/Z/E/W) already covered by existing chord-*.sh. Commit pushed.
-- [ ] T6 · Seam regressions from the inventory: Ctrl+D mapping (307 vs 518), F11/F12 multi-keycode, backtick quad-purpose, wheel double-consume, legacy-before-modern double-fire, chord-order sensitivity.
+- [x] T6 · `QA/tests/input-seam-regressions.sh` — 10 passed/0 failed (deterministic x3): A F11 multi-keycode Toggle-All-UI hides chrome (86k px) + exact round-trip; B Ctrl+D double-mapping resolves to 307 Deselect not 518 Default Colors (marquee raised by Ctrl+A is removed by Ctrl+D at the canvas corner); C backtick 412 toggles brush cursor overlay. **Group 4 complete (T1–T6 all green).**
 
 ## Group 5 — Docs (DRAW)
 - [ ] D1 · Update input docs from the inventory + new z-order model: `.claude/instructions/draw-mouse.md`, `input-system.md`, `draw-rendering.md`, and `docs/` as needed; refresh `CHEATSHEET.md` if any binding changed (e.g. Ctrl+D). Commit.
