@@ -1,7 +1,10 @@
 # DRAW input QA — exhaustive seam tests + z-order refactor
 
 ## 🔨 NOW
-- ➡️ T2 · mouse per-region matrix (LMB/RMB/MMB/wheel/hover per panel + canvas) (DRAW QA)
+- ➡️ T3 · modifier+mouse gestures (Ctrl/Alt/Shift + click/drag/wheel) (DRAW QA)
+
+## Deliverable — zero compiler warnings (Rick, 2026-08-13)
+- [x] W0 · Clean build (`make clean && make`) emits **0 warnings**. Fixed the 2 "Unused variable" warnings at root (KIT-ZIP.BM `ZIP_begin` dead param; KIT-IO.BM `KIT_install_textstyles` dead `fh` local). Commit pushed. **ONGOING GUARD: keep every build at 0 warnings — treat any new warning as a defect.**
 
 
 Branch: `qa-harness-input-improvements-1` (DRAW **and** qa-harness). Derived from the
@@ -33,7 +36,7 @@ inventory/tests/fixes → **DRAW**. Commit + push each item.
 
 ## Group 4 — Exhaustive input tests (DRAW `QA/tests/`) — each GREEN
 - [x] T1 · `QA/tests/zorder-hit-targets.sh` — 3 invariants, 9 passed/0 failed: A[Z1] cursor renders on top of floating Preview (the reported bug); B[Z2/Z3] click on Preview doesn't leak to toolbar beneath (front-most wins, no double-fire); C[Z4] canvas floor doesn't shadow tools. Also hardened `assert_cursor_on_top` in qa-harness (box size + idle settle). DRAW 6e1ae2e, qa-harness pushed. NOTE: OS arrow over docked chrome isn't capturable offscreen (not a z-order bug); cursor-on-top asserted over the floating Preview only.
-- [ ] T2 · Mouse per-region matrix: LMB/RMB/MMB/wheel±/hover over each docked panel + canvas (toolbar, organizer, drawer, layer panel, palette strip, status bar, edit bar, adv bar).
+- [x] T2 · `QA/tests/mouse-button-matrix.sh` — 11 passed/0 failed: A LMB(FG paint), B RMB(BG paint, distinct color), C wheel↑/↓(brush size), D MMB drag(pan, made deterministic by zooming in first — was flaky at the pan clamp boundary). Documents QB64 button mapping (X11 btn3→DRAW right, btn2→DRAW middle). Also added `TOOLTIPS_DISABLED=TRUE` to the qa-harness DRAW adapter overrides (cleaner hover diffs). Commit pushed.
 - [ ] T3 · Modifier+mouse gestures: Ctrl+click (symmetry center), Alt+click eyedrop (canvas AND chrome), Shift+drag, Shift+wheel (pan), Ctrl+Shift+click (dock toggle). Uses H3/H4.
 - [ ] T4 · Keyboard singles: every tool key, arrows, space, grave, esc, enter, backspace, delete — correct action + context.
 - [ ] T5 · Keyboard chords + ALL modifier combos: Ctrl+/Shift+/Alt+ and the 4 multi-mod tiers; held-key chords (G/M/Z/E/F/W/Space) both key orders.
