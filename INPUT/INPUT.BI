@@ -124,6 +124,7 @@ CONST REGION_TABLE_SIZE = 64                        ' max regions; bumps require
 '==============================================================================
 CONST ZORDER_CANVAS          = 0
 CONST ZORDER_PANEL           = 100
+CONST ZORDER_FLOATING        = 200                  ' floating windows (preview/mixer/browser) — above docked panels, below flyouts. Renders on top AND wins the click.
 CONST ZORDER_FLYOUT          = 300                  ' subtool flyout, dropdowns
 CONST ZORDER_POPUP_MENU      = 500
 CONST ZORDER_MODAL_DIALOG    = 1000
