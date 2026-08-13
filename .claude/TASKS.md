@@ -1,7 +1,7 @@
 # DRAW input QA — exhaustive seam tests + z-order refactor
 
 ## 🔨 NOW
-- ➡️ T1 · z-order/hit-target test suite (cursor-on-top + front-most-hit + no-double-fire) (DRAW QA)
+- ➡️ T2 · mouse per-region matrix (LMB/RMB/MMB/wheel/hover per panel + canvas) (DRAW QA)
 
 
 Branch: `qa-harness-input-improvements-1` (DRAW **and** qa-harness). Derived from the
@@ -32,7 +32,7 @@ inventory/tests/fixes → **DRAW**. Commit + push each item.
 - [x] Z4 · Registered `REGION_CANVAS` as z-stack FLOOR (full screen @ ZORDER_CANVAS) every frame after REGION_clear_all. Fixes dead CTX_OVER_CANVAS + makes `> REGION_CANVAS` correct by construction, not by the canvas being unregistered. Updated stale comments. Build green; regression 31/0 (picker+loupe over canvas still sample layer). Commit fd092b6. **Group 3 (Z1–Z4) complete.**
 
 ## Group 4 — Exhaustive input tests (DRAW `QA/tests/`) — each GREEN
-- [ ] T1 · z-order/hit-target suite: cursor-on-top + front-most-hit for Preview/Mixer/Browser; overlap no-double-fire; canvas↔chrome boundary. Uses H5 helpers.
+- [x] T1 · `QA/tests/zorder-hit-targets.sh` — 3 invariants, 9 passed/0 failed: A[Z1] cursor renders on top of floating Preview (the reported bug); B[Z2/Z3] click on Preview doesn't leak to toolbar beneath (front-most wins, no double-fire); C[Z4] canvas floor doesn't shadow tools. Also hardened `assert_cursor_on_top` in qa-harness (box size + idle settle). DRAW 6e1ae2e, qa-harness pushed. NOTE: OS arrow over docked chrome isn't capturable offscreen (not a z-order bug); cursor-on-top asserted over the floating Preview only.
 - [ ] T2 · Mouse per-region matrix: LMB/RMB/MMB/wheel±/hover over each docked panel + canvas (toolbar, organizer, drawer, layer panel, palette strip, status bar, edit bar, adv bar).
 - [ ] T3 · Modifier+mouse gestures: Ctrl+click (symmetry center), Alt+click eyedrop (canvas AND chrome), Shift+drag, Shift+wheel (pan), Ctrl+Shift+click (dock toggle). Uses H3/H4.
 - [ ] T4 · Keyboard singles: every tool key, arrows, space, grave, esc, enter, backspace, delete — correct action + context.
