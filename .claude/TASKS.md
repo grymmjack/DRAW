@@ -1,7 +1,7 @@
 # DRAW input QA — exhaustive seam tests + z-order refactor
 
 ## 🔨 NOW
-- ➡️ D1 · update input docs from the inventory + z-order model (DRAW)
+- ➡️ G1 · full DRAW QA suite green; record counts in the report (DRAW QA)
 
 ## Deliverable — zero compiler warnings (Rick, 2026-08-13)
 - [x] W0 · Clean build (`make clean && make`) emits **0 warnings**. Fixed the 2 "Unused variable" warnings at root (KIT-ZIP.BM `ZIP_begin` dead param; KIT-IO.BM `KIT_install_textstyles` dead `fh` local). Commit pushed. **ONGOING GUARD: keep every build at 0 warnings — treat any new warning as a defect.**
@@ -43,7 +43,7 @@ inventory/tests/fixes → **DRAW**. Commit + push each item.
 - [x] T6 · `QA/tests/input-seam-regressions.sh` — 10 passed/0 failed (deterministic x3): A F11 multi-keycode Toggle-All-UI hides chrome (86k px) + exact round-trip; B Ctrl+D double-mapping resolves to 307 Deselect not 518 Default Colors (marquee raised by Ctrl+A is removed by Ctrl+D at the canvas corner); C backtick 412 toggles brush cursor overlay. **Group 4 complete (T1–T6 all green).**
 
 ## Group 5 — Docs (DRAW)
-- [ ] D1 · Update input docs from the inventory + new z-order model: `.claude/instructions/draw-mouse.md`, `input-system.md`, `draw-rendering.md`, and `docs/` as needed; refresh `CHEATSHEET.md` if any binding changed (e.g. Ctrl+D). Commit.
+- [x] D1 · Updated `.claude/instructions/draw-zorder.md` (plan→as-built: SCRN.CURSOR& overlay, ZORDER_FLOATING, BROWSER_owns_mouse%/BROWSER_active_hit%, REGION_CANVAS floor, offscreen-QA notes), `draw-mouse.md` (floating-window precedence section), `draw-rendering.md` (cursor-on-top invariant), CLAUDE.md (instruction table). No binding CHANGED (Ctrl+D already Deselect — that was a latent-mapping verification, not a change), so CHEATSHEET.md needs no edit. Commit pushed.
 
 ## Group 6 — Green gate
 - [ ] G1 · Run the FULL DRAW suite offscreen (existing ~100 + all new). Everything GREEN. Record pass/fail counts in the report artifact. Final commit + push both repos.
