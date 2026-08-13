@@ -613,6 +613,7 @@ Brush size and shape affect all drawing tools: Brush, Dot, Line, Rectangle, Elli
 | `F4` | Toggle preview window |
 | `F5` | Toggle edit bar |
 | `Shift+F5` | Toggle advanced bar |
+| `Ctrl+Shift+F5` | Reload theme (hot-reload colors + icons from disk) |
 | `Ctrl+M` | Toggle character map panel |
 | View → Color Mixer | Toggle Color Mixer panel |
 | View → Browser | Toggle Image Browser panel |
