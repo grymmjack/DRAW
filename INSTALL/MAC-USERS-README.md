@@ -40,11 +40,42 @@ GLUT setting, not in DRAW:
    change **Middle Button Modifier** away from *Option*), then **OK**.
 
 After that, Option+left-click reaches DRAW as a normal left-click and the foreground
-eyedropper works. This setting is remembered by FreeGLUT, so it's a one-time change.
+eyedropper works. This setting is remembered by GLUT, so it's a one-time change.
 
 > If you use an external multi-button mouse, GLUT usually reports it as a real
 > multi-button device and does **not** enable emulation — so this only tends to bite
 > on the trackpad.
+
+### Disabling it without the dialog (scriptable)
+
+The setting is stored in a per-user macOS **preference (plist)**, so it can be turned
+off from the command line — handy for scripting or for baking into a setup step. GLUT
+reads the preference at startup, so change it **while DRAW is not running**, then
+relaunch.
+
+First find the exact preference domain + key on your system (toggle the setting once in
+the dialog so the key exists, quit DRAW, then):
+
+```sh
+defaults find Emulation
+defaults find ButtonEmulation
+```
+
+That prints the `domain` and `key` holding the emulation flag. Turn it off with:
+
+```sh
+defaults write <domain> <key> -bool false
+```
+
+(Substitute the real domain/key from the `defaults find` output.) Because GLUT reads
+this at `glutInit` — before DRAW's own code runs — DRAW cannot flip it for you at
+runtime; a `defaults write` (e.g. added to your own install/setup script) is the only
+way to have it **off by default** without opening the dialog.
+
+> **Note:** DRAW itself cannot distinguish an *emulated* middle-click from a *real*
+> one, so it can't "just fix this in code" — the correct fix is this GLUT setting.
+> The truly upstream fix would be in QB64-PE (disabling Apple-GLUT button emulation at
+> init, or moving macOS off the deprecated GLUT framework).
 
 ## Parallels / VMs
 
