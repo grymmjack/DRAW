@@ -63,6 +63,26 @@ MOUSE_input_handler_loop()                    ← post-render, end of main loop
 
 ## Key Mechanisms
 
+### Floating-window precedence (z-order)
+The Preview, Color Mixer, and Image Browser float above the docked panels, and the
+Browser is the top-most of the three. "Does the Browser own the mouse this frame"
+and "is the cursor over the visible Browser" are answered by **two canonical
+predicates in `GUI/BROWSER.BM`**, not inline copies:
+
+- `BROWSER_owns_mouse%(rawX, rawY)` — the front-most gate: visible AND (`dragging`
+  OR `resizing` OR `fileDragStarted` OR `fileDragActive` OR `BROWSER_hit_window%`).
+  Lower floating windows (Preview, Mixer) check `NOT BROWSER_owns_mouse%` before
+  claiming the event, so they defer to the Browser under one consistent rule.
+- `BROWSER_active_hit%(rawX, rawY)` — purely spatial "cursor over the visible
+  Browser", for the canvas-pan-block / GUI-route sites.
+
+These replaced four *drifted* inline "browser owns" copies (some omitted
+drag/resize/file-drag) that let overlapping windows both grab one click. The
+canvas is the z-stack **floor**: `REGION_CANVAS` is registered at `ZORDER_CANVAS`
+every frame in `SCREEN_render`, so `REGION_hit_test%(x,y) > REGION_CANVAS` means
+"over chrome" and `CTX_OVER_CANVAS` is set over the drawing area. Full model +
+rationale: `.claude/instructions/draw-zorder.md`.
+
 ### Drain-then-process pattern
 `MOUSE_drain_update_state` consumes ALL queued `_MOUSEINPUT` events in a tight loop, then one processing pass runs against the final state snapshot. **Critical for performance** — processing every event individually would cause multiple draw operations per frame.
 

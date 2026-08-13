@@ -31,9 +31,18 @@ Composited back-to-front onto `SCRN.CANVAS&`, then GPU-scaled to window via `_PU
 18. GUI recomposite + scrollbars + contextual status bars
 19. Picker loupe overlay (`PICKER_LOUPE_render`) when the picker is active
 20. **Final overlay popups** (blend-mode popup, drawer context menu, command palette)
-21. Cursor overlay
+21. Cursor overlay → **`SCRN.CURSOR&`** (its own layer, not baked into the scene)
 22. Scale `SCRN.CANVAS&` to window (integer scaling, nearest neighbor)
-23. `_DISPLAY`
+23. Floating windows (Preview/Mixer/Browser) blit to screen 0, then
+    **`POINTER_composite_cursor_to_screen0`** blits `SCRN.CURSOR&` on top
+24. `_DISPLAY`
+
+**Cursor-on-top invariant (z-order Z1):** the pointer is drawn into a dedicated
+`SCRN.CURSOR&` layer and composited to screen 0 *after* the floating windows, so it
+is never buried under the Preview/Mixer/Browser. `SCRN.CURSOR&` is allocated next to
+`SCRN.CANVAS&`/`SCRN.GUI&`, cleared each frame, and freed in `MAIN_shutdown`. Before
+this fix the cursor was baked into `SCRN.CANVAS&` and the floating windows blit over
+it. See `.claude/instructions/draw-zorder.md`.
 
 ### Scene Cache (`SCENE_CACHE&`, `SCENE_DIRTY%`)
 

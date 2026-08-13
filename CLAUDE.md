@@ -217,7 +217,8 @@ machine. Same convention is documented in the `grymmjack/qb64pe-mcp-server-bash`
 | `.claude/instructions/draw-project.md` | Master overview, all gotchas, every key file |
 | `.claude/instructions/draw-undo.md` | History system internals, record kinds, double-save guard |
 | `.claude/instructions/draw-rendering.md` | Render pipeline, scene cache, blend compositing |
-| `.claude/instructions/draw-mouse.md` | MOUSE dispatch pipeline, UI_CHROME_CLICKED lifecycle |
+| `.claude/instructions/draw-mouse.md` | MOUSE dispatch pipeline, UI_CHROME_CLICKED lifecycle, floating-window precedence |
+| `.claude/instructions/draw-zorder.md` | The one z-stack for render AND input: cursor overlay, `ZORDER_FLOATING`, `BROWSER_owns_mouse%`, `REGION_CANVAS` floor |
 | `.claude/instructions/draw-ui.md` | Panel docking, auto-hide, tooltips, edit/advanced bars |
 | `.claude/instructions/draw-fileformat.md` | `.draw` PNG+drAw-chunk binary format versions |
 | `.claude/instructions/draw-chrome-geometry.md` | Toolbar/panel layout math |
