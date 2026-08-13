@@ -1,7 +1,7 @@
 # DRAW input QA — exhaustive seam tests + z-order refactor
 
 ## 🔨 NOW
-- ➡️ T4 · keyboard singles (every tool key, arrows, space, grave, esc, enter, etc.) (DRAW QA)
+- ➡️ T5 · keyboard chords + ALL modifier combos (Ctrl/Shift/Alt tiers, held-key chords) (DRAW QA)
 
 ## Deliverable — zero compiler warnings (Rick, 2026-08-13)
 - [x] W0 · Clean build (`make clean && make`) emits **0 warnings**. Fixed the 2 "Unused variable" warnings at root (KIT-ZIP.BM `ZIP_begin` dead param; KIT-IO.BM `KIT_install_textstyles` dead `fh` local). Commit pushed. **ONGOING GUARD: keep every build at 0 warnings — treat any new warning as a defect.**
@@ -38,7 +38,7 @@ inventory/tests/fixes → **DRAW**. Commit + push each item.
 - [x] T1 · `QA/tests/zorder-hit-targets.sh` — 3 invariants, 9 passed/0 failed: A[Z1] cursor renders on top of floating Preview (the reported bug); B[Z2/Z3] click on Preview doesn't leak to toolbar beneath (front-most wins, no double-fire); C[Z4] canvas floor doesn't shadow tools. Also hardened `assert_cursor_on_top` in qa-harness (box size + idle settle). DRAW 6e1ae2e, qa-harness pushed. NOTE: OS arrow over docked chrome isn't capturable offscreen (not a z-order bug); cursor-on-top asserted over the floating Preview only.
 - [x] T2 · `QA/tests/mouse-button-matrix.sh` — 11 passed/0 failed: A LMB(FG paint), B RMB(BG paint, distinct color), C wheel↑/↓(brush size), D MMB drag(pan, made deterministic by zooming in first — was flaky at the pan clamp boundary). Documents QB64 button mapping (X11 btn3→DRAW right, btn2→DRAW middle). Also added `TOOLTIPS_DISABLED=TRUE` to the qa-harness DRAW adapter overrides (cleaner hover diffs). Commit pushed.
 - [x] T3 · `QA/tests/modifier-mouse.sh` — 9 passed/0 failed (deterministic x3): A Ctrl+click sets symmetry center / no paint (+ plain-drag control); B Alt+click invokes eyedrop loupe not brush (color-pick path unit-verified via PICKER_pick_color diagnostic — fires with correct sampled color; deterministic offscreen color diff fights the opaque-black layer, so assert the no-paint interception signature); C Shift+wheel vertical pan (zoomed-in so unclamped). Uses H3/H4 helpers. Commit pushed.
-- [ ] T4 · Keyboard singles: every tool key, arrows, space, grave, esc, enter, backspace, delete — correct action + context.
+- [x] T4 · `QA/tests/keyboard-singles.sh` — 20 passed/0 failed: tool-key sweep b→d→l→r→c→m→v→i→f (each moves toolbar highlight ~800-1100px), brush round-trip (0 diff), Esc clean. Keyboard is deterministic — passed first try.
 - [ ] T5 · Keyboard chords + ALL modifier combos: Ctrl+/Shift+/Alt+ and the 4 multi-mod tiers; held-key chords (G/M/Z/E/F/W/Space) both key orders.
 - [ ] T6 · Seam regressions from the inventory: Ctrl+D mapping (307 vs 518), F11/F12 multi-keycode, backtick quad-purpose, wheel double-consume, legacy-before-modern double-fire, chord-order sensitivity.
 
