@@ -925,6 +925,7 @@ SUB MAIN_shutdown ()
     IF SCRN.CANVAS& < -1 THEN _FREEIMAGE SCRN.CANVAS&
     IF SCRN.PAINTING& < -1 THEN _FREEIMAGE SCRN.PAINTING&
     IF SCRN.GUI& < -1 THEN _FREEIMAGE SCRN.GUI&
+    IF SCRN.CURSOR& < -1 THEN _FREEIMAGE SCRN.CURSOR&   ' top cursor overlay
     ' Font / glyph image caches (each holds _NEWIMAGE / _LOADIMAGE handles)
     FONT_PREVIEW_free_cache   ' cached font-preview strip images
     TDF_free_cache            ' TheDraw (.TDF) rasterised glyph blocks
