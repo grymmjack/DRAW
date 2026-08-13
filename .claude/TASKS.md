@@ -1,5 +1,9 @@
 # DRAW input QA — exhaustive seam tests + z-order refactor
 
+## 🔨 NOW
+- ➡️ Z4 · register REGION_CANVAS + fix `> REGION_CANVAS` idiom / CTX_OVER_CANVAS (DRAW)
+
+
 Branch: `qa-harness-input-improvements-1` (DRAW **and** qa-harness). Derived from the
 code inventory in `.claude/input-inventory/` (01-mouse, 02-keyboard,
 03-regions-zorder-dispatch, 04-render-zorder-seams). Read those before each item.
@@ -12,19 +16,19 @@ Separation of concerns: generic capabilities/lessons → **qa-harness**; DRAW-sp
 inventory/tests/fixes → **DRAW**. Commit + push each item.
 
 ## Group 1 — Harness input primitives (qa-harness repo)
-- [ ] H1 · Add generic `hover x y` (move, no click) and split `mouse_down`/`mouse_up` verbs to `core/input.sh` (+ driver verbs if needed). Unit-verify in isolation. Commit qa-harness branch.
-- [ ] H2 · Add `middle_click x y` (MMB = X button 2). Unit-verify. Commit.
-- [ ] H3 · Add modifier-held-DURING-mouse: `with_mods "ctrl+shift" <click|drag|hover|wheel …>` (hold mods via keydown, run gesture, release) + convenience `ctrl_click`/`shift_click`/`alt_click`/`shift_drag`. Unit-verify a modifier is actually held across the gesture. Commit.
-- [ ] H4 · Add modifier+wheel (`shift`+scroll etc.) via H3's wrapper or a `scroll_mod`. Unit-verify. Commit.
-- [ ] H5 · Add generic z-order/hit-target assertion helpers + document the z-order/hit-target TESTING PATTERN in `ARCHITECTURE.md` (how to assert "front-most window wins the click" and "cursor renders above an overlay"). Commit.
+- [x] H1 · `hover x y` + `mouse_down`/`mouse_up` added to `core/input.sh`; syntax OK, verbs resolve. Commit 462359e, pushed.
+- [x] H2 · `middle_click` added (commit 0afb554).
+- [x] H3 · `with_mods` + `driver_input_key_hold` + conveniences (ctrl/shift/alt click & drag). Order unit-tested. Commit fa794b8.
+- [x] H4 · modifier+wheel conveniences (shift/ctrl scroll_up/down). Commit da8f991, pushed.
+- [x] H5 · `assert_cursor_on_top` helper + z-order/hit-target testing patterns in ARCHITECTURE.md. Commit edc3572, pushed. **Group 1 complete.**
 
 ## Group 2 — Unified z-order design (DRAW)
-- [ ] Z0 · Write `.claude/instructions/draw-zorder.md`: the ONE declarative z-stack that drives BOTH render order and input hit-test order; a `ZORDER_FLOATING` tier above `ZORDER_PANEL`; where the cursor screen-0 reblit fits. Design only — the refactor plan the Z-items follow. (Root problem: 3 parallel sources of truth — render sequence, dormant region table, legacy geometry — see inventory.)
+- [x] Z0 · `.claude/instructions/draw-zorder.md` written — the z-stack tiers + Z1–Z4 plan. Commit.
 
 ## Group 3 — Z-order fixes/refactor (DRAW) — each GREEN
-- [ ] Z1 · Fix cursor-under-floating-window (Preview/Color Mixer/Browser). Add a cursor screen-0 reblit AFTER the floating-window blits in all 3 render paths of `SCREEN_render` (mirror `TOOLTIP_reblit_to_screen0`); fix the false comment at `GUI/POINTER.BM:1601`. Verify offscreen the cursor renders on top over the preview. Full build green.
-- [ ] Z2 · Add `ZORDER_FLOATING` (> `ZORDER_PANEL`); register REGION_PREVIEW/COLOR_MIXER/IMAGE_BROWSER at it so `REGION_hit_test%` agrees with render (front-most wins). Verify a click on preview-over-layer-panel resolves to preview. Green.
-- [ ] Z3 · Reconcile legacy floating-window hit-test order to front-to-back matching render; remove the inconsistent per-site browser hand-patches (`MOUSE.BM:4599/5135/5155/5176`). Verify overlap clicks hit the front window with NO double-fire (S2/S4). Green.
+- [x] Z1 · Restored SCRN.CURSOR& top overlay; composited after floating windows in all 3 paths. Cursor-on-preview verified (212px), batch 35/0. Commit 87f65b5, pushed.
+- [x] Z2 · ZORDER_FLOATING=200 tier; Preview/Mixer/Browser moved to it. Hover Preview → REGION_PREVIEW verified. Commit 82fc3e7, pushed.
+- [x] Z3 · Unified floating-window precedence into `BROWSER_owns_mouse%` (front-most gate) + `BROWSER_active_hit%` (spatial) in BROWSER.BM; replaced 4 drifted inline copies at MOUSE.BM 4599/5135/5155/5176 + 5 spatial sites (643/1155/1383/1406/3958). Fixes Preview/Mixer double-grab while Browser drags. Build green; regression 33/0. Commit 9010e73.
 - [ ] Z4 · Register `REGION_CANVAS` (canvas work-area bounds) so canvas is a real region; make `> REGION_CANVAS` idiom + `CTX_OVER_CANVAS` correct. Verify Alt-eyedrop/loupe over-canvas still behave (must not regress). Green.
 
 ## Group 4 — Exhaustive input tests (DRAW `QA/tests/`) — each GREEN
