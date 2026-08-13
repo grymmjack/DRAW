@@ -76,6 +76,12 @@ DO WHILE CONFIG_cmdArgIdx% <= CONFIG_cmdArgCount%
         CMDLINE_CONFIG_ARG_COUNT% = CMDLINE_CONFIG_ARG_COUNT% + 1
         CONFIG_cmdArgIdx% = CONFIG_cmdArgIdx% + 1
 
+    ELSEIF LCASE$(CONFIG_cmdArgVal$) = "--options-list" OR LCASE$(CONFIG_cmdArgVal$) = "--list-options" THEN
+        ' Print the option registry (from DRAW.cfg.default) to the console and exit.
+        ' Runs at include time, before any screen/GUI, so it's a clean CLI query.
+        CONFIG_options_list_print
+        SYSTEM
+
     ELSEIF LCASE$(CONFIG_cmdArgVal$) = "--canvas-size" THEN
         ' Parse --canvas-size WWWxHHH
         IF CONFIG_cmdArgIdx% + 1 <= CONFIG_cmdArgCount% THEN
