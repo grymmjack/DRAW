@@ -540,6 +540,141 @@ END FUNCTION
 
 
 ''
+' Lens Flare — additively composite a bright core plus secondary halo orbs along
+' the flare axis (from the flare point through the image centre). `bright` scales
+' the intensity. Adds light over the existing pixels; alpha preserved
+' (apply_to_layer).
+'
+' @param sourceImg LONG    Source image (32-bit)
+' @param bright    INTEGER Intensity 10..100
+' @return LONG  New image with the flare added
+'
+FUNCTION IMAGE_ADJ_lensflare& (sourceImg AS LONG, bright AS INTEGER)
+    IF NOT (sourceImg& < -1) THEN IMAGE_ADJ_lensflare& = 0 : EXIT FUNCTION
+
+    DIM lfW AS LONG, lfH AS LONG
+    lfW& = _WIDTH(sourceImg&) : lfH& = _HEIGHT(sourceImg&)
+    DIM result AS LONG
+    result& = _COPYIMAGE(sourceImg&, 32)
+    DIM srcM AS _MEM, resM AS _MEM
+    srcM = _MEMIMAGE(sourceImg&)
+    resM = _MEMIMAGE(result&)
+
+    ' flare point (upper-left third), image centre, axis to centre
+    DIM fpx AS SINGLE, fpy AS SINGLE, ccx AS SINGLE, ccy AS SINGLE
+    fpx! = lfW& * 0.32 : fpy! = lfH& * 0.3
+    ccx! = lfW& / 2.0 : ccy! = lfH& / 2.0
+    DIM bScale AS SINGLE : bScale! = bright% / 100.0
+    DIM coreR AS SINGLE : coreR! = lfW& * 0.28
+
+    ' up to 5 orbs at fractions along the axis (t: 0=flare point .. 2=opposite side)
+    DIM orbT(0 TO 4) AS SINGLE, orbR(0 TO 4) AS SINGLE, orbI(0 TO 4) AS SINGLE
+    orbT(0) = 0.0  : orbR(0) = coreR!        : orbI(0) = 1.0
+    orbT(1) = 0.65 : orbR(1) = lfW& * 0.06   : orbI(1) = 0.35
+    orbT(2) = 1.0  : orbR(2) = lfW& * 0.11   : orbI(2) = 0.25
+    orbT(3) = 1.35 : orbR(3) = lfW& * 0.045  : orbI(3) = 0.4
+    orbT(4) = 1.7  : orbR(4) = lfW& * 0.09   : orbI(4) = 0.2
+
+    DIM lx AS LONG, ly AS LONG, o AS INTEGER
+    DIM ox AS SINGLE, oy AS SINGLE, dxs AS SINGLE, dys AS SINGLE, dist AS SINGLE, f AS SINGLE
+    DIM addv AS SINGLE, px AS _UNSIGNED LONG
+    DIM nr AS INTEGER, ng AS INTEGER, nb AS INTEGER
+    FOR ly& = 0 TO lfH& - 1
+        FOR lx& = 0 TO lfW& - 1
+            addv! = 0.0
+            FOR o% = 0 TO 4
+                ox! = fpx! + (ccx! - fpx!) * orbT(o%)
+                oy! = fpy! + (ccy! - fpy!) * orbT(o%)
+                dxs! = lx& - ox! : dys! = ly& - oy!
+                dist! = SQR(dxs! * dxs! + dys! * dys!)
+                IF dist! < orbR(o%) THEN
+                    f! = 1.0 - dist! / orbR(o%)
+                    addv! = addv! + f! * f! * orbI(o%)
+                END IF
+            NEXT o%
+            IF addv! > 0.0 THEN
+                addv! = addv! * bScale! * 255.0
+                _MEMGET srcM, srcM.OFFSET + (ly& * lfW& + lx&) * 4, px~&
+                nr% = _RED32(px~&) + addv! : IF nr% > 255 THEN nr% = 255
+                ng% = _GREEN32(px~&) + addv! * 0.95 : IF ng% > 255 THEN ng% = 255
+                nb% = _BLUE32(px~&) + addv! * 0.8 : IF nb% > 255 THEN nb% = 255
+                _MEMPUT resM, resM.OFFSET + (ly& * lfW& + lx&) * 4, _RGBA32(nr%, ng%, nb%, _ALPHA32(px~&)) AS _UNSIGNED LONG
+            END IF
+        NEXT lx&
+    NEXT ly&
+
+    _MEMFREE srcM
+    _MEMFREE resM
+    IMAGE_ADJ_lensflare& = result&
+END FUNCTION
+
+
+''
+' Open a modal Lens Flare dialog: single BRIGHTNESS slider (10..100).
+'
+SUB IMAGE_ADJ_lensflare_dialog ()
+    IF CURRENT_LAYER% < 1 THEN EXIT SUB
+
+    DIM ctx AS DIALOG_CTX
+    DIALOG_init ctx, IMGDLG_W, 110
+    IMAGE_ADJ_setup_preview ctx, LAYERS(CURRENT_LAYER%).imgHandle&
+
+    DIM brt AS INTEGER : brt% = 70
+    DIM oBrt AS INTEGER
+
+    DIM k AS LONG
+    DO
+        DIALOG_poll_mouse ctx
+        IF ctx.loupeDirty% THEN IMAGE_ADJ_update_loupe ctx
+        k& = _KEYHIT
+        IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
+        IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
+
+        oBrt% = brt%
+        brt% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, brt%, 10, 100)
+        brt% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, brt%, 10, 100)
+        IF brt% <> oBrt% THEN ctx.previewDirty% = TRUE
+        IMGDLG_check_ok_cancel ctx
+
+        IF ctx.previewDirty% THEN
+            SAFE_FREEIMAGE ctx.previewThumb
+            ctx.previewThumb = IMAGE_ADJ_lensflare&(ctx.origThumb, brt%)
+            IMAGE_ADJ_mask_preview ctx
+            ctx.previewDirty% = FALSE
+        END IF
+
+        _DEST ctx.imgHandle
+        DIALOG_draw_frame ctx, "LENS FLARE"
+        DIALOG_draw_preview ctx
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "BRIGHTNESS:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, brt%, 10, 100, "", ""
+        DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
+        IMGDLG_draw_ok_cancel ctx
+        DIALOG_blit ctx
+    LOOP UNTIL ctx.done%
+
+    IF ctx.result% THEN
+        DIM lfTargets(1 TO MAX_LAYERS) AS INTEGER, lfTgtCount AS INTEGER, lfT AS INTEGER
+        DIM lfSaveCL AS INTEGER
+        IMAGE_ADJ_collect_targets lfTargets%(), lfTgtCount%
+        lfSaveCL% = CURRENT_LAYER%
+        IF lfTgtCount% > 1 THEN HISTORY_begin_group
+        DIM adjR     AS LONG
+        FOR lfT% = 1 TO lfTgtCount%
+            CURRENT_LAYER% = lfTargets%(lfT%)
+            adjR&          = IMAGE_ADJ_lensflare&(LAYERS(CURRENT_LAYER%).imgHandle&, brt%)
+            IMAGE_ADJ_apply_to_layer adjR&, "Lens Flare"
+        NEXT lfT%
+        IF lfTgtCount% > 1 THEN HISTORY_end_group
+        CURRENT_LAYER% = lfSaveCL%
+    END IF
+
+    DIALOG_cleanup ctx
+    SAFE_FREEIMAGE IMGADJ_LAYER_MASK& : IMGADJ_LAYER_MASK& = 0
+END SUB
+
+
+''
 ' Difference Clouds — generate grayscale plasma and difference it per-channel with
 ' the existing pixels (|src - cloud|), the marbled/veiny Photoshop look. Keeps
 ' original alpha (apply_to_layer). One-shot (fixed scale).
