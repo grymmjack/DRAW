@@ -516,6 +516,127 @@ END FUNCTION
 
 
 ''
+' Pinch / Bulge (Spherize) — radial power displacement around the centre.
+' Positive `amount` bulges (magnifies the centre, fish-eye); negative pinches
+' (sucks toward the centre). scale = t^(p-1) where t is the normalised radius and
+' p = 1 - amount/200. apply_spatial.
+'
+' @param sourceImg LONG    Source image (32-bit)
+' @param amount    INTEGER -100 (pinch) .. +100 (bulge)
+' @return LONG  New displaced image handle
+'
+FUNCTION IMAGE_ADJ_pinch& (sourceImg AS LONG, amount AS INTEGER)
+    IF NOT (sourceImg& < -1) THEN IMAGE_ADJ_pinch& = 0 : EXIT FUNCTION
+
+    DIM pnW AS LONG, pnH AS LONG
+    pnW& = _WIDTH(sourceImg&) : pnH& = _HEIGHT(sourceImg&)
+    DIM result AS LONG
+    result& = _NEWIMAGE(pnW&, pnH&, 32)
+
+    DIM srcM AS _MEM, resM AS _MEM
+    srcM = _MEMIMAGE(sourceImg&)
+    resM = _MEMIMAGE(result&)
+
+    DIM ccx AS SINGLE, ccy AS SINGLE, maxR AS SINGLE
+    ccx! = pnW& / 2.0 : ccy! = pnH& / 2.0
+    maxR! = ccx! : IF ccy! < maxR! THEN maxR! = ccy!
+    DIM pw AS SINGLE : pw! = 1.0 - amount% / 200.0
+
+    DIM tx AS LONG, ty AS LONG, sxL AS LONG, syL AS LONG
+    DIM ddx AS SINGLE, ddy AS SINGLE, rr AS SINGLE, tnorm AS SINGLE, scl AS SINGLE
+    DIM px AS _UNSIGNED LONG
+    FOR ty& = 0 TO pnH& - 1
+        FOR tx& = 0 TO pnW& - 1
+            ddx! = tx& - ccx! : ddy! = ty& - ccy!
+            rr! = SQR(ddx! * ddx! + ddy! * ddy!)
+            IF rr! > 0.5 AND rr! < maxR! THEN
+                tnorm! = rr! / maxR!
+                scl! = tnorm! ^ (pw! - 1.0)
+                sxL& = INT(ccx! + ddx! * scl! + 0.5)
+                syL& = INT(ccy! + ddy! * scl! + 0.5)
+            ELSE
+                sxL& = tx& : syL& = ty&
+            END IF
+            IF sxL& < 0 THEN sxL& = 0 ELSE IF sxL& >= pnW& THEN sxL& = pnW& - 1
+            IF syL& < 0 THEN syL& = 0 ELSE IF syL& >= pnH& THEN syL& = pnH& - 1
+            _MEMGET srcM, srcM.OFFSET + (syL& * pnW& + sxL&) * 4, px~&
+            _MEMPUT resM, resM.OFFSET + (ty& * pnW& + tx&) * 4, px~& AS _UNSIGNED LONG
+        NEXT tx&
+    NEXT ty&
+
+    _MEMFREE srcM
+    _MEMFREE resM
+    IMAGE_ADJ_pinch& = result&
+END FUNCTION
+
+
+''
+' Open a modal Pinch / Bulge dialog: AMOUNT slider (-100 pinch .. +100 bulge).
+' apply_spatial.
+'
+SUB IMAGE_ADJ_pinch_dialog ()
+    IF CURRENT_LAYER% < 1 THEN EXIT SUB
+
+    DIM ctx AS DIALOG_CTX
+    DIALOG_init ctx, IMGDLG_W, 110
+    IMAGE_ADJ_setup_preview ctx, LAYERS(CURRENT_LAYER%).imgHandle&
+
+    DIM amount  AS INTEGER : amount% = 60
+    DIM oAmount AS INTEGER
+
+    DIM k AS LONG
+    DO
+        DIALOG_poll_mouse ctx
+        IF ctx.loupeDirty% THEN IMAGE_ADJ_update_loupe ctx
+        k& = _KEYHIT
+        IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
+        IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
+
+        oAmount% = amount%
+        amount% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, amount%, -100, 100)
+        amount% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, amount%, -100, 100)
+        IF amount% <> oAmount% THEN ctx.previewDirty% = TRUE
+        IMGDLG_check_ok_cancel ctx
+
+        IF ctx.previewDirty% THEN
+            SAFE_FREEIMAGE ctx.previewThumb
+            ctx.previewThumb = IMAGE_ADJ_pinch&(ctx.origThumb, amount%)
+            IMAGE_ADJ_mask_preview ctx
+            ctx.previewDirty% = FALSE
+        END IF
+
+        _DEST ctx.imgHandle
+        DIALOG_draw_frame ctx, "PINCH / BULGE"
+        DIALOG_draw_preview ctx
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "AMOUNT (- PINCH / + BULGE):"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, amount%, -100, 100, "", ""
+        DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
+        IMGDLG_draw_ok_cancel ctx
+        DIALOG_blit ctx
+    LOOP UNTIL ctx.done%
+
+    IF ctx.result% THEN
+        DIM pnTargets(1 TO MAX_LAYERS) AS INTEGER, pnTgtCount AS INTEGER, pnT AS INTEGER
+        DIM pnSaveCL AS INTEGER
+        IMAGE_ADJ_collect_targets pnTargets%(), pnTgtCount%
+        pnSaveCL% = CURRENT_LAYER%
+        IF pnTgtCount% > 1 THEN HISTORY_begin_group
+        DIM adjR     AS LONG
+        FOR pnT% = 1 TO pnTgtCount%
+            CURRENT_LAYER% = pnTargets%(pnT%)
+            adjR&          = IMAGE_ADJ_pinch&(LAYERS(CURRENT_LAYER%).imgHandle&, amount%)
+            IMAGE_ADJ_apply_spatial adjR&, "Pinch / Bulge"
+        NEXT pnT%
+        IF pnTgtCount% > 1 THEN HISTORY_end_group
+        CURRENT_LAYER% = pnSaveCL%
+    END IF
+
+    DIALOG_cleanup ctx
+    SAFE_FREEIMAGE IMGADJ_LAYER_MASK& : IMGADJ_LAYER_MASK& = 0
+END SUB
+
+
+''
 ' Twirl — swirl the image around its centre. Each output pixel within `radius` of
 ' centre is rotated by an angle that falls off with distance (max at centre, 0 at
 ' the radius), then the source is sampled at the rotated position. apply_spatial.
