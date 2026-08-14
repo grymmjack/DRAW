@@ -540,6 +540,144 @@ END FUNCTION
 
 
 ''
+' Dust & Scratches (Reduce Noise) — a thresholded 3x3 median: a pixel is replaced
+' by the neighbourhood median only where it differs from that median by more than
+' `threshold`, so outlier speckle/scratches are removed while detail is kept.
+' Alpha preserved (apply_to_layer).
+'
+' @param sourceImg LONG    Source image (32-bit)
+' @param threshold INTEGER Per-channel difference that counts as noise (2..64)
+' @return LONG  New cleaned image handle
+'
+FUNCTION IMAGE_ADJ_dustscratches& (sourceImg AS LONG, threshold AS INTEGER)
+    IF NOT (sourceImg& < -1) THEN IMAGE_ADJ_dustscratches& = 0 : EXIT FUNCTION
+
+    DIM dsW AS LONG, dsH AS LONG
+    dsW& = _WIDTH(sourceImg&) : dsH& = _HEIGHT(sourceImg&)
+    DIM result AS LONG
+    result& = _COPYIMAGE(sourceImg&, 32)
+    DIM srcM AS _MEM, resM AS _MEM
+    srcM = _MEMIMAGE(sourceImg&)
+    resM = _MEMIMAGE(result&)
+
+    DIM mx AS LONG, my AS LONG, dx AS INTEGER, dy AS INTEGER, nx AS LONG, ny AS LONG
+    DIM rV(0 TO 8) AS INTEGER, gV(0 TO 8) AS INTEGER, bV(0 TO 8) AS INTEGER
+    DIM n AS INTEGER, j AS INTEGER, tmp AS INTEGER
+    DIM px AS _UNSIGNED LONG, aHere AS _UNSIGNED _BYTE
+    DIM oRv AS INTEGER, oGr AS INTEGER, oBl AS INTEGER, mR AS INTEGER, mGr AS INTEGER, mBl AS INTEGER
+    DIM fR AS INTEGER, fGr AS INTEGER, fBl AS INTEGER
+    FOR my& = 0 TO dsH& - 1
+        FOR mx& = 0 TO dsW& - 1
+            n% = 0
+            FOR dy% = -1 TO 1
+                ny& = my& + dy% : IF ny& < 0 THEN ny& = 0 ELSE IF ny& >= dsH& THEN ny& = dsH& - 1
+                FOR dx% = -1 TO 1
+                    nx& = mx& + dx% : IF nx& < 0 THEN nx& = 0 ELSE IF nx& >= dsW& THEN nx& = dsW& - 1
+                    _MEMGET srcM, srcM.OFFSET + (ny& * dsW& + nx&) * 4, px~&
+                    rV(n%) = _RED32(px~&) : gV(n%) = _GREEN32(px~&) : bV(n%) = _BLUE32(px~&)
+                    n% = n% + 1
+                NEXT dx%
+            NEXT dy%
+            FOR n% = 1 TO 8
+                tmp% = rV(n%) : j% = n% - 1
+                DO WHILE j% >= 0 : IF rV(j%) <= tmp% THEN EXIT DO
+                    rV(j% + 1) = rV(j%) : j% = j% - 1
+                LOOP
+                rV(j% + 1) = tmp%
+                tmp% = gV(n%) : j% = n% - 1
+                DO WHILE j% >= 0 : IF gV(j%) <= tmp% THEN EXIT DO
+                    gV(j% + 1) = gV(j%) : j% = j% - 1
+                LOOP
+                gV(j% + 1) = tmp%
+                tmp% = bV(n%) : j% = n% - 1
+                DO WHILE j% >= 0 : IF bV(j%) <= tmp% THEN EXIT DO
+                    bV(j% + 1) = bV(j%) : j% = j% - 1
+                LOOP
+                bV(j% + 1) = tmp%
+            NEXT n%
+            _MEMGET srcM, srcM.OFFSET + (my& * dsW& + mx&) * 4, px~&
+            aHere~%% = _ALPHA32(px~&)
+            oRv% = _RED32(px~&) : oGr% = _GREEN32(px~&) : oBl% = _BLUE32(px~&)
+            mR% = rV(4) : mGr% = gV(4) : mBl% = bV(4)
+            fR% = oRv% : IF ABS(oRv% - mR%) > threshold% THEN fR% = mR%
+            fGr% = oGr% : IF ABS(oGr% - mGr%) > threshold% THEN fGr% = mGr%
+            fBl% = oBl% : IF ABS(oBl% - mBl%) > threshold% THEN fBl% = mBl%
+            _MEMPUT resM, resM.OFFSET + (my& * dsW& + mx&) * 4, _RGBA32(fR%, fGr%, fBl%, aHere~%%) AS _UNSIGNED LONG
+        NEXT mx&
+    NEXT my&
+
+    _MEMFREE srcM
+    _MEMFREE resM
+    IMAGE_ADJ_dustscratches& = result&
+END FUNCTION
+
+
+''
+' Open a modal Dust & Scratches dialog: single THRESHOLD slider (2..64).
+'
+SUB IMAGE_ADJ_dustscratches_dialog ()
+    IF CURRENT_LAYER% < 1 THEN EXIT SUB
+
+    DIM ctx AS DIALOG_CTX
+    DIALOG_init ctx, IMGDLG_W, 110
+    IMAGE_ADJ_setup_preview ctx, LAYERS(CURRENT_LAYER%).imgHandle&
+
+    DIM thr AS INTEGER : thr% = 16
+    DIM oThr AS INTEGER
+
+    DIM k AS LONG
+    DO
+        DIALOG_poll_mouse ctx
+        IF ctx.loupeDirty% THEN IMAGE_ADJ_update_loupe ctx
+        k& = _KEYHIT
+        IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
+        IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
+
+        oThr% = thr%
+        thr% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, thr%, 2, 64)
+        thr% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, thr%, 2, 64)
+        IF thr% <> oThr% THEN ctx.previewDirty% = TRUE
+        IMGDLG_check_ok_cancel ctx
+
+        IF ctx.previewDirty% THEN
+            SAFE_FREEIMAGE ctx.previewThumb
+            ctx.previewThumb = IMAGE_ADJ_dustscratches&(ctx.origThumb, thr%)
+            IMAGE_ADJ_mask_preview ctx
+            ctx.previewDirty% = FALSE
+        END IF
+
+        _DEST ctx.imgHandle
+        DIALOG_draw_frame ctx, "DUST & SCRATCHES"
+        DIALOG_draw_preview ctx
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "THRESHOLD:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, thr%, 2, 64, "", ""
+        DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
+        IMGDLG_draw_ok_cancel ctx
+        DIALOG_blit ctx
+    LOOP UNTIL ctx.done%
+
+    IF ctx.result% THEN
+        DIM dsTargets(1 TO MAX_LAYERS) AS INTEGER, dsTgtCount AS INTEGER, dsT AS INTEGER
+        DIM dsSaveCL AS INTEGER
+        IMAGE_ADJ_collect_targets dsTargets%(), dsTgtCount%
+        dsSaveCL% = CURRENT_LAYER%
+        IF dsTgtCount% > 1 THEN HISTORY_begin_group
+        DIM adjR     AS LONG
+        FOR dsT% = 1 TO dsTgtCount%
+            CURRENT_LAYER% = dsTargets%(dsT%)
+            adjR&          = IMAGE_ADJ_dustscratches&(LAYERS(CURRENT_LAYER%).imgHandle&, thr%)
+            IMAGE_ADJ_apply_to_layer adjR&, "Dust & Scratches"
+        NEXT dsT%
+        IF dsTgtCount% > 1 THEN HISTORY_end_group
+        CURRENT_LAYER% = dsSaveCL%
+    END IF
+
+    DIALOG_cleanup ctx
+    SAFE_FREEIMAGE IMGADJ_LAYER_MASK& : IMGADJ_LAYER_MASK& = 0
+END SUB
+
+
+''
 ' Median / Despeckle — replace each pixel with the per-channel median of its 3x3
 ' neighbourhood, removing speckle while keeping edges. One-shot; alpha preserved.
 '
