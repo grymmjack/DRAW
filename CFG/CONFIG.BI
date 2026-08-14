@@ -443,7 +443,8 @@ TYPE DRAW_CONFIG
     FONTS_INCLUDE_DRAW_BITMAP       AS INTEGER        ' TRUE = include ASSETS/FONTS/BITMAP fonts
     FONTS_INCLUDE_DRAW_EXTRAS       AS INTEGER        ' TRUE = include extra ASSETS/FONTS TTFs (beyond required Tiny5/PICO-8)
     FONTS_INCLUDE_USER              AS INTEGER        ' TRUE = include USER/FONTS TTF/OTF fonts
-    FONTS_INCLUDE_USER_BITMAP       AS INTEGER        ' TRUE = include USER/FONTS/BITMAP fonts
+    FONTS_INCLUDE_USER_BITMAP       AS INTEGER        ' TRUE = include USER/FONTS bitmap + color-bitmap (CBF) fonts
+    FONTS_INCLUDE_USER_TDF          AS INTEGER        ' TRUE = include USER/FONTS/THEDRAW .TDF fonts
     FONT_PREVIEW_ENABLED            AS INTEGER        ' TRUE = render font previews in the font-picker dropdown
     FONT_PREVIEW_SIZE               AS INTEGER        ' Preview render height in px (8-64)
     FONT_PREVIEW_MAX_W              AS INTEGER        ' Max preview strip width in px

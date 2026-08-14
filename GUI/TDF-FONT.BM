@@ -276,6 +276,202 @@ END FUNCTION
 ' Register the shipped bundles plus any user-supplied .TDF files. Idempotent and
 ' lazy — call it before anything that reads TDF_FACE().
 '
+''
+' Measure one glyph's TRUE (cells wide, cells tall) — the declared width/height
+' bytes are advisory and sometimes absurd, so we count cells between CR (13)
+' separators up to the NUL terminator (mirrors DEV/tdf-repack.py measure_glyph).
+' gPos1 is the 1-based position of the glyph in dat$; blockEnd1 is one past the
+' glyph block. Colour faces (ftype 2) carry an attribute byte per ink byte.
+'
+SUB TDF_measure_glyph (dat AS STRING, gPos1 AS LONG, blockEnd1 AS LONG, ftype AS INTEGER, outW AS INTEGER, outH AS INTEGER)
+    outW = 0: outH = 0
+    IF gPos1& + 2 > blockEnd1& THEN EXIT SUB
+    DIM p AS LONG, w AS INTEGER, h AS INTEGER, runLen AS INTEGER, rowsSeen AS INTEGER, ch AS INTEGER
+    p& = gPos1& + 2                 ' skip the two declared width/height bytes
+    w% = 0: h% = 0: runLen% = 0: rowsSeen% = 0
+    DO WHILE p& < blockEnd1&
+        ch% = ASC(dat$, p&): p& = p& + 1
+        IF ch% = 0 THEN EXIT DO     ' NUL = glyph terminator
+        IF ch% = 13 THEN            ' CR = newline
+            IF runLen% > w% THEN w% = runLen%
+            runLen% = 0: h% = h% + 1: rowsSeen% = -1
+        ELSEIF ch% = 38 THEN
+            ' '&' end-of-glyph marker — skip
+        ELSE
+            runLen% = runLen% + 1: rowsSeen% = -1
+            IF ftype% = 2 AND p& < blockEnd1& THEN p& = p& + 1  ' colour attr byte
+        END IF
+    LOOP
+    IF runLen% > w% THEN w% = runLen%
+    IF runLen% > 0 OR rowsSeen% = 0 THEN h% = h% + 1
+    IF w% > 255 THEN w% = 255
+    IF h% > 255 THEN h% = 255
+    outW = w%: outH = h%
+END SUB
+
+
+''
+' Register a RAW .TDF (no .TDX sidecar) by walking its font directory directly —
+' the runtime equivalent of DEV/tdf-repack.py's parse_bundle, minus the dedup.
+' Used for user-supplied .TDF files so people can just drop a font in and go.
+' fileOfs is the byte offset of each FF00AA55 record, exactly as the .TDX stores,
+' so the existing renderer (which reads at fileOfs + TDF_LOOKUP/BLOCK_OFFSET) is
+' unchanged.
+'
+SUB TDF_register_raw (bundlePath AS STRING, labelTxt AS STRING)
+    IF TDF_BUNDLE_COUNT% >= TDF_BUNDLE_MAX THEN EXIT SUB
+    IF _FILEEXISTS(bundlePath$) = 0 THEN EXIT SUB
+
+    DIM fh AS INTEGER, flen AS LONG, dat AS STRING
+    fh% = FREEFILE
+    OPEN bundlePath$ FOR BINARY AS #fh%
+    flen& = LOF(fh%)
+    IF flen& < 24 THEN CLOSE #fh%: EXIT SUB
+    dat$ = SPACE$(flen&)
+    GET #fh%, 1, dat$
+    CLOSE #fh%
+
+    ' Header: 0x13, "TheDraw FONTS file", 0x1A
+    IF ASC(dat$, 1) <> 19 THEN _LOGWARN "TDF_register_raw: bad id length in " + bundlePath$: EXIT SUB
+    IF MID$(dat$, 2, 18) <> "TheDraw FONTS file" THEN _LOGWARN "TDF_register_raw: not a TheDraw font: " + bundlePath$: EXIT SUB
+    IF ASC(dat$, 20) <> 26 THEN _LOGWARN "TDF_register_raw: missing ctrl-z in " + bundlePath$: EXIT SUB
+
+    DIM bi AS INTEGER
+    bi% = TDF_BUNDLE_COUNT%
+    TDF_BUNDLE(bi%).filePath  = bundlePath$
+    TDF_BUNDLE(bi%).labelTxt  = labelTxt$
+    TDF_BUNDLE(bi%).firstFace = TDF_FACE_COUNT%
+    TDF_BUNDLE(bi%).isBundled = 0
+
+    DIM added AS INTEGER, ofs AS LONG
+    added% = 0
+    ofs& = 20                        ' 0-based offset of the first font record
+    DO WHILE ofs& < flen&
+        DIM p1 AS LONG
+        p1& = ofs& + 1               ' 1-based record start
+        IF ASC(dat$, p1&) = 0 THEN EXIT DO   ' 0x00 = bundle terminator
+        IF ofs& + TDF_BLOCK_OFFSET > flen& THEN EXIT DO
+        ' FF00AA55 indicator (little-endian bytes 55 AA 00 FF)
+        IF ASC(dat$, p1&) <> 85 OR ASC(dat$, p1& + 1) <> 170 OR ASC(dat$, p1& + 2) <> 0 OR ASC(dat$, p1& + 3) <> 255 THEN
+            _LOGWARN "TDF_register_raw: font indicator mismatch at" + STR$(ofs&) + " in " + bundlePath$
+            EXIT DO
+        END IF
+        IF TDF_FACE_COUNT% >= TDF_FACE_MAX THEN EXIT DO
+
+        DIM nameLen AS INTEGER, nm AS STRING, zp AS INTEGER
+        nameLen% = ASC(dat$, ofs& + 5)              ' name length byte (0-based ofs+4)
+        nm$ = MID$(dat$, ofs& + 6, 12)              ' 12-byte name field (0-based ofs+5)
+        zp% = INSTR(nm$, CHR$(0)): IF zp% > 0 THEN nm$ = LEFT$(nm$, zp% - 1)
+        IF nameLen% >= 1 AND nameLen% <= LEN(nm$) THEN nm$ = LEFT$(nm$, nameLen%)
+        nm$ = RTRIM$(LTRIM$(nm$))
+
+        DIM ftype AS INTEGER, spacing AS INTEGER, blkSz AS LONG
+        ftype%   = ASC(dat$, ofs& + 22)             ' 0-based ofs+21
+        spacing% = ASC(dat$, ofs& + 23)             ' 0-based ofs+22
+        blkSz&   = ASC(dat$, ofs& + 24) + ASC(dat$, ofs& + 25) * 256   ' u16 at 0-based ofs+23
+        IF ftype% < 0 OR ftype% > 2 THEN _LOGWARN "TDF_register_raw: unsupported type" + STR$(ftype%) + " in " + bundlePath$: EXIT DO
+        IF ofs& + TDF_BLOCK_OFFSET + blkSz& > flen& THEN _LOGWARN "TDF_register_raw: truncated face in " + bundlePath$: EXIT DO
+
+        ' glyph count + true cell sizes from the lookup table + block
+        DIM gc AS INTEGER, mw AS INTEGER, mh AS INTEGER, ci AS INTEGER, lk AS LONG
+        DIM blockStart1 AS LONG, blockEnd1 AS LONG, gw AS INTEGER, gh AS INTEGER
+        gc% = 0: mw% = 0: mh% = 0
+        blockStart1& = ofs& + TDF_BLOCK_OFFSET + 1
+        blockEnd1& = blockStart1& + blkSz&
+        FOR ci% = 0 TO TDF_CHAR_TABLE - 1
+            lk& = ASC(dat$, ofs& + TDF_LOOKUP_OFFSET + ci% * 2 + 1) + ASC(dat$, ofs& + TDF_LOOKUP_OFFSET + ci% * 2 + 2) * 256
+            IF lk& <> TDF_NO_GLYPH AND lk& < blkSz& THEN
+                gc% = gc% + 1
+                TDF_measure_glyph dat$, blockStart1& + lk&, blockEnd1&, ftype%, gw%, gh%
+                IF gw% > mw% THEN mw% = gw%
+                IF gh% > mh% THEN mh% = gh%
+            END IF
+        NEXT ci%
+
+        DIM fi AS INTEGER
+        fi% = TDF_FACE_COUNT%
+        TDF_FACE(fi%).bundleIdx  = bi%
+        TDF_FACE(fi%).fileOfs    = ofs&
+        TDF_FACE(fi%).blockSz    = blkSz&
+        TDF_FACE(fi%).faceType   = ftype%
+        TDF_FACE(fi%).gapDefault = spacing%
+        TDF_FACE(fi%).glyphCnt   = gc%
+        TDF_FACE(fi%).cellsW     = mw%
+        TDF_FACE(fi%).cellsH     = mh%
+        TDF_FACE(fi%).faceName   = nm$
+        TDF_FACE(fi%).dupIndex   = 1
+        TDF_FACE(fi%).dupTotal   = 1
+        TDF_FACE_COUNT% = TDF_FACE_COUNT% + 1
+        added% = added% + 1
+
+        ofs& = ofs& + TDF_BLOCK_OFFSET + blkSz&
+    LOOP
+
+    IF added% = 0 THEN EXIT SUB
+    TDF_BUNDLE(bi%).faceCount = added%
+    TDF_BUNDLE_COUNT% = TDF_BUNDLE_COUNT% + 1
+
+    ' Dup numbering: a user .TDF is NOT name-sorted (the repacker sorts bundles,
+    ' user files don't), so number same-named faces with a small O(n^2) pass.
+    DIM a AS INTEGER, b2 AS INTEGER, firstF AS INTEGER, lastF AS INTEGER, cnt AS INTEGER, idx AS INTEGER
+    firstF% = TDF_BUNDLE(bi%).firstFace
+    lastF%  = firstF% + added% - 1
+    FOR a% = firstF% TO lastF%
+        cnt% = 0: idx% = 0
+        FOR b2% = firstF% TO lastF%
+            IF RTRIM$(TDF_FACE(b2%).faceName) = RTRIM$(TDF_FACE(a%).faceName) THEN
+                cnt% = cnt% + 1
+                IF b2% <= a% THEN idx% = idx% + 1
+            END IF
+        NEXT b2%
+        TDF_FACE(a%).dupTotal = cnt%
+        TDF_FACE(a%).dupIndex = idx%
+    NEXT a%
+    _LOGINFO "TDF_register_raw: " + bundlePath$ + " added" + STR$(added%) + " face(s)"
+END SUB
+
+
+''
+' Scan <data>/FONTS/THEDRAW/ for user .TDF files and register each raw.
+'
+SUB TDF_scan_user_dir ()
+    DIM userTdfDir AS STRING
+    userTdfDir$ = PATHS_data$("FONTS/THEDRAW")
+    IF NOT _DIREXISTS(userTdfDir$) THEN EXIT SUB
+
+    DIM sep AS STRING
+    $IF WIN THEN
+        sep$ = "\"
+    $ELSE
+        sep$ = "/"
+    $END IF
+
+    DIM tmpF AS STRING
+    tmpF$ = PATHS_cache$("draw_tdf_user_scan.tmp")
+    $IF WIN THEN
+        SHELL _HIDE "dir /b " + CHR$(34) + userTdfDir$ + "\*.TDF" + CHR$(34) + " > " + CHR$(34) + tmpF$ + CHR$(34) + " 2>nul"
+    $ELSE
+        SHELL _HIDE "find " + CHR$(34) + userTdfDir$ + CHR$(34) + " -maxdepth 1 -type f -iname '*.tdf' -exec basename {} \; 2>/dev/null | sort > " + CHR$(34) + tmpF$ + CHR$(34)
+    $END IF
+    IF NOT _FILEEXISTS(tmpF$) THEN EXIT SUB
+
+    DIM ffu AS INTEGER, fn AS STRING, full AS STRING, dotp AS INTEGER, lbl AS STRING
+    ffu% = FREEFILE
+    OPEN tmpF$ FOR INPUT AS #ffu%
+    DO WHILE NOT EOF(ffu%)
+        LINE INPUT #ffu%, fn$
+        fn$ = LTRIM$(RTRIM$(fn$))
+        IF LEN(fn$) < 1 THEN _CONTINUE
+        full$ = userTdfDir$ + sep$ + fn$
+        dotp% = _INSTRREV(fn$, ".")
+        IF dotp% > 1 THEN lbl$ = LEFT$(fn$, dotp% - 1) ELSE lbl$ = fn$
+        TDF_register_raw full$, lbl$
+    LOOP
+    CLOSE #ffu%
+    KILL tmpF$
+END SUB
+
+
 SUB TDF_ensure_scanned ()
     IF TDF_SCANNED% THEN EXIT SUB
     TDF_SCANNED% = TRUE
@@ -285,6 +481,9 @@ SUB TDF_ensure_scanned ()
     TDF_register_bundle assetDir$ + "OUTLINE.TDF", "OUTLINE", TRUE
     TDF_register_bundle assetDir$ + "BLOCK.TDF", "BLOCK", TRUE
     TDF_register_bundle assetDir$ + "COLOR.TDF", "COLOR", TRUE
+
+    ' User .TDF fonts dropped in <data>/FONTS/THEDRAW/ (raw TDFs, no .TDX needed).
+    IF CFG.FONTS_INCLUDE_USER_TDF% THEN TDF_scan_user_dir
 
     TDF_load_favorites
     TDF_presets_load

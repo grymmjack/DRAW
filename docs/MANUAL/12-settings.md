@@ -32,6 +32,26 @@ Tick **Enable AI Features** in the General tab to turn it on. That checkbox is
 the only place AI is mentioned while disabled. See
 [Ch. 21 — AI Image Generation](21-ai-generation.md).
 
+### User fonts
+
+Drop your own fonts into DRAW's **user data directory** and they show up in the
+font pickers — no reinstall, no config editing. The base folder is
+`<data>/FONTS/` (Linux `~/.local/share/DRAW/FONTS/`, with the platform data-dir
+equivalent on macOS/Windows). Where each type goes:
+
+| Font type | Extensions | Where to put it |
+| --- | --- | --- |
+| **TTF / OTF** | `.ttf` `.otf` | `FONTS/` root **or** any subfolder |
+| **Bitmap** | `.fxx`/F16/F14/F08, `.psf`, `.bdf`, `.pcf`, `.fon` | a **subfolder** of `FONTS/` |
+| **Color bitmap (CBF)** | DPaint-style `.bmp` spritesheets | a **subfolder** of `FONTS/` |
+| **TheDraw** | `.TDF` | `FONTS/THEDRAW/` — plain `.TDF` files, no `.TDX` index needed |
+
+A subfolder's name becomes its group label in the font dropdown. Each source has
+a checkbox in the **Fonts** settings tab — **User TTF/OTF Fonts**, **User Bitmap
+Fonts**, **User TDF Fonts** — mirrored by `FONTS_INCLUDE_USER`,
+`FONTS_INCLUDE_USER_BITMAP`, and `FONTS_INCLUDE_USER_TDF` in `DRAW.cfg`. Toggles
+take effect on the next launch.
+
 ### `DRAW.cfg`
 
 `DRAW.cfg` is a plain-text key/value file that lives next to the executable. You can hand-edit it any time. There are also **OS-specific** variants — `DRAW.linux.cfg`, `DRAW.macOS.cfg`, `DRAW.windows.cfg` — that override the base file when present.
@@ -40,6 +60,8 @@ CLI flags:
 
 - `--config /path/to/your.cfg` — use a non-default config file.
 - `--config-upgrade` — reconcile your existing config with any new defaults introduced by an upgrade. Recommended after each release.
+- `--option KEY=VALUE` — override any config key from the command line (repeatable; beats the `.cfg`). E.g. `--option FONTS_INCLUDE_USER_TDF=TRUE`.
+- `--options-list` — print every config key with its default and description, then exit.
 
 <div class="page-break"></div>
 
