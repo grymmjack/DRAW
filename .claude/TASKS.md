@@ -22,7 +22,7 @@ the infra exists.
 
 ## 🔨 NOW — doing right now
 
-- [ ] ➡️ Wave 3 · **Kaleidoscope** — radial mirror-tile wedge into a mandala + dialog + EFFECTS menu + QA test
+- [ ] ➡️ **Menubar flyout submenus** (foundational) — the flat EFFECTS menu is at 25 items and about to overflow; build submenu support + reorganize into categories BEFORE Wave 4
 
 <!-- QA note: invoke effects via the EFFECTS menu (click 395,6 then item at
      viewport y = 20 + index*12), NOT the command palette — palette-open is racy
@@ -68,7 +68,7 @@ the infra exists.
 - [x] **Wave / Ripple** — sinusoidal per-pixel displacement, AMPLITUDE 1-20 + WAVELENGTH 4-64, apply_spatial + menu + QA test (effect-wave.sh). NEW engine IMAGE_ADJ_wave&.
 - [x] **Twirl** — distance-falloff angular swirl around centre, ANGLE 10-360, apply_spatial + menu + QA test (effect-twirl.sh). NEW engine IMAGE_ADJ_twirl&.
 - [x] **Pinch / Bulge (Spherize)** — radial power displacement, AMOUNT -100..+100, apply_spatial + menu + QA test (effect-pinch.sh). NEW engine IMAGE_ADJ_pinch&.
-- [ ] **Kaleidoscope** — sample one wedge and mirror-tile it radially into a mandala; SEGMENTS (3..24), centre X/Y, rotation, mirror on/off; live preview/setup dialog + menu + QA test. (Applies to EXISTING art — distinct from draw-time symmetry which only mirrors new strokes.)
+- [x] **Kaleidoscope** — reflect a base wedge radially into a mandala, SEGMENTS 3-24 + ROTATION 0-359 (aims the source wedge), apply_spatial + menu + QA test (effect-kaleidoscope.sh). NEW engine IMAGE_ADJ_kaleidoscope&. Visually verified mandala. (seg renamed klSeg — reserved word.)
 
 ## Wave 4 — Photoshop Pixelate / Stylize family (new engine)
 

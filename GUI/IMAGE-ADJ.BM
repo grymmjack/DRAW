@@ -516,6 +516,137 @@ END FUNCTION
 
 
 ''
+' Kaleidoscope — reflect one angular wedge of the image radially into a mandala.
+' For each output pixel, its angle is folded into the base wedge (2*pi/segments)
+' with mirroring on alternate wedges, then the source is sampled at that folded
+' angle and the same radius. Turns any existing art into symmetric mandala
+' tiling (unlike draw-time symmetry, which only mirrors new strokes). apply_spatial.
+'
+' @param sourceImg LONG    Source image (32-bit)
+' @param segments  INTEGER Number of mirrored wedges (3..24)
+' @param rotDeg    INTEGER Base rotation of the sampled wedge, degrees (0..359)
+' @return LONG  New kaleidoscope image handle
+'
+FUNCTION IMAGE_ADJ_kaleidoscope& (sourceImg AS LONG, segments AS INTEGER, rotDeg AS INTEGER)
+    IF NOT (sourceImg& < -1) THEN IMAGE_ADJ_kaleidoscope& = 0 : EXIT FUNCTION
+    IF segments% < 1 THEN segments% = 1
+
+    DIM klW AS LONG, klH AS LONG
+    klW& = _WIDTH(sourceImg&) : klH& = _HEIGHT(sourceImg&)
+    DIM result AS LONG
+    result& = _NEWIMAGE(klW&, klH&, 32)
+
+    DIM srcM AS _MEM, resM AS _MEM
+    srcM = _MEMIMAGE(sourceImg&)
+    resM = _MEMIMAGE(result&)
+
+    DIM ccx AS SINGLE, ccy AS SINGLE
+    ccx! = klW& / 2.0 : ccy! = klH& / 2.0
+    DIM wedge AS SINGLE : wedge! = 6.2831853 / segments%
+    DIM rot AS SINGLE : rot! = rotDeg% * 3.14159265 / 180.0
+
+    DIM tx AS LONG, ty AS LONG, sxL AS LONG, syL AS LONG
+    DIM ddx AS SINGLE, ddy AS SINGLE, rr AS SINGLE, ang AS SINGLE, fa AS SINGLE
+    DIM klSeg AS LONG
+    DIM px AS _UNSIGNED LONG
+    FOR ty& = 0 TO klH& - 1
+        FOR tx& = 0 TO klW& - 1
+            ddx! = tx& - ccx! : ddy! = ty& - ccy!
+            rr! = SQR(ddx! * ddx! + ddy! * ddy!)
+            ang! = _ATAN2(ddy!, ddx!)
+            ' fold into [0, wedge) with mirroring on odd wedges
+            fa! = ang! - wedge! * INT(ang! / wedge!)
+            IF fa! < 0 THEN fa! = fa! + wedge!
+            klSeg& = INT(ang! / wedge!)
+            IF (klSeg& AND 1) <> 0 THEN fa! = wedge! - fa!
+            fa! = fa! + rot!
+            sxL& = INT(ccx! + COS(fa!) * rr! + 0.5)
+            syL& = INT(ccy! + SIN(fa!) * rr! + 0.5)
+            IF sxL& < 0 THEN sxL& = 0 ELSE IF sxL& >= klW& THEN sxL& = klW& - 1
+            IF syL& < 0 THEN syL& = 0 ELSE IF syL& >= klH& THEN syL& = klH& - 1
+            _MEMGET srcM, srcM.OFFSET + (syL& * klW& + sxL&) * 4, px~&
+            _MEMPUT resM, resM.OFFSET + (ty& * klW& + tx&) * 4, px~& AS _UNSIGNED LONG
+        NEXT tx&
+    NEXT ty&
+
+    _MEMFREE srcM
+    _MEMFREE resM
+    IMAGE_ADJ_kaleidoscope& = result&
+END FUNCTION
+
+
+''
+' Open a modal Kaleidoscope dialog: SEGMENTS (3..24) + ROTATION (0..359).
+' apply_spatial.
+'
+SUB IMAGE_ADJ_kaleidoscope_dialog ()
+    IF CURRENT_LAYER% < 1 THEN EXIT SUB
+
+    DIM ctx AS DIALOG_CTX
+    DIALOG_init ctx, IMGDLG_W, 140
+    IMAGE_ADJ_setup_preview ctx, LAYERS(CURRENT_LAYER%).imgHandle&
+
+    DIM segs AS INTEGER : segs% = 8
+    DIM rotd AS INTEGER : rotd% = 0
+    DIM oSegs AS INTEGER, oRot AS INTEGER
+
+    DIM k AS LONG
+    DO
+        DIALOG_poll_mouse ctx
+        IF ctx.loupeDirty% THEN IMAGE_ADJ_update_loupe ctx
+        k& = _KEYHIT
+        IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
+        IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
+
+        oSegs% = segs% : oRot% = rotd%
+        segs% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, segs%, 3, 24)
+        segs% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, segs%, 3, 24)
+        rotd% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, rotd%, 0, 359)
+        rotd% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, rotd%, 0, 359)
+        IF segs% <> oSegs% OR rotd% <> oRot% THEN ctx.previewDirty% = TRUE
+        IMGDLG_check_ok_cancel ctx
+
+        IF ctx.previewDirty% THEN
+            SAFE_FREEIMAGE ctx.previewThumb
+            ctx.previewThumb = IMAGE_ADJ_kaleidoscope&(ctx.origThumb, segs%, rotd%)
+            IMAGE_ADJ_mask_preview ctx
+            ctx.previewDirty% = FALSE
+        END IF
+
+        _DEST ctx.imgHandle
+        DIALOG_draw_frame ctx, "KALEIDOSCOPE"
+        DIALOG_draw_preview ctx
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "SEGMENTS:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, segs%, 3, 24, "", ""
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 1), "ROTATION:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, rotd%, 0, 359, "", ""
+        DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
+        IMGDLG_draw_ok_cancel ctx
+        DIALOG_blit ctx
+    LOOP UNTIL ctx.done%
+
+    IF ctx.result% THEN
+        DIM klTargets(1 TO MAX_LAYERS) AS INTEGER, klTgtCount AS INTEGER, klT AS INTEGER
+        DIM klSaveCL AS INTEGER
+        IMAGE_ADJ_collect_targets klTargets%(), klTgtCount%
+        klSaveCL% = CURRENT_LAYER%
+        IF klTgtCount% > 1 THEN HISTORY_begin_group
+        DIM adjR     AS LONG
+        FOR klT% = 1 TO klTgtCount%
+            CURRENT_LAYER% = klTargets%(klT%)
+            adjR&          = IMAGE_ADJ_kaleidoscope&(LAYERS(CURRENT_LAYER%).imgHandle&, segs%, rotd%)
+            IMAGE_ADJ_apply_spatial adjR&, "Kaleidoscope"
+        NEXT klT%
+        IF klTgtCount% > 1 THEN HISTORY_end_group
+        CURRENT_LAYER% = klSaveCL%
+    END IF
+
+    DIALOG_cleanup ctx
+    SAFE_FREEIMAGE IMGADJ_LAYER_MASK& : IMGADJ_LAYER_MASK& = 0
+END SUB
+
+
+''
 ' Pinch / Bulge (Spherize) — radial power displacement around the centre.
 ' Positive `amount` bulges (magnifies the centre, fish-eye); negative pinches
 ' (sucks toward the centre). scale = t^(p-1) where t is the normalised radius and
