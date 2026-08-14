@@ -22,7 +22,7 @@ the infra exists.
 
 ## 🔨 NOW — doing right now
 
-- [ ] ➡️ Wave 1 · **Grow / Shrink (Dilate/Erode)** — alpha morphology + dialog + EFFECTS menu + QA test
+- [ ] ➡️ Wave 2 · **Chromatic Aberration** — per-channel XY offset + dialog + EFFECTS menu + QA test
 
 <!-- QA note: invoke effects via the EFFECTS menu (click 395,6 then item at
      viewport y = 20 + index*12), NOT the command palette — palette-open is racy
@@ -45,7 +45,7 @@ the infra exists.
 - [x] **Outline / Stroke** — alpha-edge border, THICKNESS 1-8 + INSIDE/OUTSIDE, FG colour, apply_spatial + menu + QA test (effect-outline.sh, transparent-layer). NEW engine IMAGE_ADJ_outline&.
 - [x] **Edge Detect (Sobel)** — 3x3 Sobel line art, STRENGTH 10-300 + INVERT + menu + QA test (effect-edgedetect.sh). NEW engine IMAGE_ADJ_edgedetect&.
 - [x] **Gradient Map** — luminance → BG..FG 2-colour ramp (256-entry LUT) + SWAP toggle + menu + QA test (effect-gradientmap.sh). NEW engine IMAGE_ADJ_gradientmap&.
-- [ ] **Grow / Shrink (Dilate/Erode)** — alpha morphology, N px + dialog + menu + QA test
+- [x] **Grow / Shrink (Dilate/Erode)** — alpha morphology, AMOUNT 1-8 + SHRINK toggle, apply_spatial + menu + QA test (effect-growshrink.sh). NEW engine IMAGE_ADJ_growshrink&.
 
 ## Wave 2 — Retro / stylize (new engine)
 
@@ -68,6 +68,7 @@ the infra exists.
 - [ ] **Wave / Ripple** — sinusoidal displacement + dialog + menu + QA test
 - [ ] **Twirl** — angular swirl around center + dialog + menu + QA test
 - [ ] **Pinch / Bulge (Spherize)** — radial displacement + dialog + menu + QA test
+- [ ] **Kaleidoscope** — sample one wedge and mirror-tile it radially into a mandala; SEGMENTS (3..24), centre X/Y, rotation, mirror on/off; live preview/setup dialog + menu + QA test. (Applies to EXISTING art — distinct from draw-time symmetry which only mirrors new strokes.)
 
 ## Wave 4 — Photoshop Pixelate / Stylize family (new engine)
 

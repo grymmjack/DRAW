@@ -516,6 +516,175 @@ END FUNCTION
 
 
 ''
+' Grow / Shrink (Dilate / Erode) — morphological resize of the shape by its
+' alpha. GROW: each transparent pixel within `amount` of an opaque pixel takes
+' the colour of the nearest opaque pixel (fattens shapes, closes 1px gaps).
+' SHRINK: each opaque pixel within `amount` of a transparent pixel (or the image
+' border) becomes transparent (thins shapes, removes speckle). Alpha-changing, so
+' commit via apply_spatial.
+'
+' @param sourceImg  LONG    Source image (32-bit)
+' @param amount     INTEGER Pixels to grow/shrink (>=1)
+' @param shrinkMode INTEGER 0 = grow (dilate), 1 = shrink (erode)
+' @return LONG  New morphed image handle
+'
+FUNCTION IMAGE_ADJ_growshrink& (sourceImg AS LONG, amount AS INTEGER, shrinkMode AS INTEGER)
+    IF NOT (sourceImg& < -1) THEN IMAGE_ADJ_growshrink& = 0 : EXIT FUNCTION
+
+    DIM gsW AS LONG, gsH AS LONG
+    gsW& = _WIDTH(sourceImg&) : gsH& = _HEIGHT(sourceImg&)
+    DIM result AS LONG
+    result& = _COPYIMAGE(sourceImg&, 32)
+    IF amount% < 1 THEN amount% = 1
+
+    DIM srcM AS _MEM, resM AS _MEM
+    srcM = _MEMIMAGE(sourceImg&)
+    resM = _MEMIMAGE(result&)
+
+    DIM gx AS LONG, gy AS LONG, dx AS INTEGER, dy AS INTEGER
+    DIM r2 AS INTEGER : r2% = amount% * amount%
+    DIM selfA AS _UNSIGNED _BYTE, nbA AS _UNSIGNED _BYTE
+    DIM nx AS LONG, ny AS LONG
+    DIM baseOff AS _OFFSET
+    DIM bestD AS INTEGER, bestOff AS _OFFSET, curD AS INTEGER, found AS INTEGER
+    DIM nbPx AS _UNSIGNED LONG
+
+    FOR gy& = 0 TO gsH& - 1
+        FOR gx& = 0 TO gsW& - 1
+            baseOff = (gy& * gsW& + gx&) * 4
+            _MEMGET srcM, srcM.OFFSET + baseOff + 3, selfA~%%
+
+            IF shrinkMode% = 0 THEN
+                ' GROW: only transparent pixels can be filled
+                IF selfA~%% <> 0 THEN _CONTINUE
+                found% = 0 : bestD% = 999999
+                FOR dy% = -amount% TO amount%
+                    ny& = gy& + dy%
+                    IF ny& >= 0 AND ny& < gsH& THEN
+                        FOR dx% = -amount% TO amount%
+                            curD% = dx% * dx% + dy% * dy%
+                            IF curD% <= r2% AND curD% < bestD% THEN
+                                nx& = gx& + dx%
+                                IF nx& >= 0 AND nx& < gsW& THEN
+                                    _MEMGET srcM, srcM.OFFSET + (ny& * gsW& + nx&) * 4 + 3, nbA~%%
+                                    IF nbA~%% <> 0 THEN
+                                        bestD% = curD% : bestOff = (ny& * gsW& + nx&) * 4 : found% = 1
+                                    END IF
+                                END IF
+                            END IF
+                        NEXT dx%
+                    END IF
+                NEXT dy%
+                IF found% THEN
+                    _MEMGET srcM, srcM.OFFSET + bestOff, nbPx~&
+                    _MEMPUT resM, resM.OFFSET + baseOff, nbPx~& AS _UNSIGNED LONG
+                END IF
+            ELSE
+                ' SHRINK: only opaque pixels can be cleared
+                IF selfA~%% = 0 THEN _CONTINUE
+                found% = 0
+                FOR dy% = -amount% TO amount%
+                    ny& = gy& + dy%
+                    FOR dx% = -amount% TO amount%
+                        IF dx% * dx% + dy% * dy% <= r2% THEN
+                            nx& = gx& + dx%
+                            IF nx& < 0 OR nx& >= gsW& OR ny& < 0 OR ny& >= gsH& THEN
+                                found% = 1 : EXIT FOR
+                            END IF
+                            _MEMGET srcM, srcM.OFFSET + (ny& * gsW& + nx&) * 4 + 3, nbA~%%
+                            IF nbA~%% = 0 THEN found% = 1 : EXIT FOR
+                        END IF
+                    NEXT dx%
+                    IF found% THEN EXIT FOR
+                NEXT dy%
+                IF found% THEN _MEMPUT resM, resM.OFFSET + baseOff, _RGBA32(0, 0, 0, 0) AS _UNSIGNED LONG
+            END IF
+        NEXT gx&
+    NEXT gy&
+
+    _MEMFREE srcM
+    _MEMFREE resM
+    IMAGE_ADJ_growshrink& = result&
+END FUNCTION
+
+
+''
+' Open a modal Grow / Shrink dialog: AMOUNT slider (1..8) + SHRINK toggle.
+' Alpha-changing, commits via apply_spatial. Live loupe; multi-layer + undo.
+'
+SUB IMAGE_ADJ_growshrink_dialog ()
+    IF CURRENT_LAYER% < 1 THEN EXIT SUB
+
+    DIM ctx AS DIALOG_CTX
+    DIALOG_init ctx, IMGDLG_W, 130
+    IMAGE_ADJ_setup_preview ctx, LAYERS(CURRENT_LAYER%).imgHandle&
+
+    DIM amount  AS INTEGER : amount% = 1
+    DIM oAmount AS INTEGER
+    STATIC shrinkMode AS INTEGER
+
+    DIM ivX AS INTEGER, ivY AS INTEGER, ivW AS INTEGER, ivH AS INTEGER
+    ivX% = IMGDLG_SX : ivW% = 120 : ivH% = 16
+    ivY% = IMGDLG_track_y%(ctx, 0) + 24
+
+    DIM k AS LONG
+    DO
+        DIALOG_poll_mouse ctx
+        IF ctx.loupeDirty% THEN IMAGE_ADJ_update_loupe ctx
+        k& = _KEYHIT
+        IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
+        IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
+
+        oAmount% = amount%
+        amount% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, amount%, 1, 8)
+        amount% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, amount%, 1, 8)
+        IF DIALOG_hit%(ctx, ivX%, ivY%, ivW%, ivH%) THEN
+            shrinkMode%       = (shrinkMode% = 0)
+            ctx.previewDirty% = TRUE
+        END IF
+        IF amount% <> oAmount% THEN ctx.previewDirty% = TRUE
+        IMGDLG_check_ok_cancel ctx
+
+        IF ctx.previewDirty% THEN
+            SAFE_FREEIMAGE ctx.previewThumb
+            ctx.previewThumb = IMAGE_ADJ_growshrink&(ctx.origThumb, amount%, shrinkMode%)
+            IMAGE_ADJ_mask_preview ctx
+            ctx.previewDirty% = FALSE
+        END IF
+
+        _DEST ctx.imgHandle
+        DIALOG_draw_frame ctx, "GROW / SHRINK"
+        DIALOG_draw_preview ctx
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "AMOUNT:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, amount%, 1, 8, "", ""
+        DIALOG_draw_toggle ctx, ivX%, ivY%, ivW%, ivH%, "SHRINK", shrinkMode%
+        DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
+        IMGDLG_draw_ok_cancel ctx
+        DIALOG_blit ctx
+    LOOP UNTIL ctx.done%
+
+    IF ctx.result% THEN
+        DIM gsTargets(1 TO MAX_LAYERS) AS INTEGER, gsTgtCount AS INTEGER, gsT AS INTEGER
+        DIM gsSaveCL AS INTEGER
+        IMAGE_ADJ_collect_targets gsTargets%(), gsTgtCount%
+        gsSaveCL% = CURRENT_LAYER%
+        IF gsTgtCount% > 1 THEN HISTORY_begin_group
+        DIM adjR     AS LONG
+        FOR gsT% = 1 TO gsTgtCount%
+            CURRENT_LAYER% = gsTargets%(gsT%)
+            adjR&          = IMAGE_ADJ_growshrink&(LAYERS(CURRENT_LAYER%).imgHandle&, amount%, shrinkMode%)
+            IMAGE_ADJ_apply_spatial adjR&, "Grow / Shrink"
+        NEXT gsT%
+        IF gsTgtCount% > 1 THEN HISTORY_end_group
+        CURRENT_LAYER% = gsSaveCL%
+    END IF
+
+    DIALOG_cleanup ctx
+    SAFE_FREEIMAGE IMGADJ_LAYER_MASK& : IMGADJ_LAYER_MASK& = 0
+END SUB
+
+
+''
 ' Outline / Stroke — add a coloured border along the shape's alpha edges.
 ' OUTSIDE mode (insideMode=0): paints transparent pixels within `thickness` of an
 ' opaque pixel — an outer stroke that grows the silhouette. INSIDE mode
