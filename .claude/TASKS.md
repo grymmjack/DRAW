@@ -22,13 +22,13 @@ the infra exists.
 
 ## 🔨 NOW — doing right now
 
-- [ ] ➡️ Wave 0 · Wire dormant **Threshold** (GJ_IMGADJ_Threshold) — slider + mode dialog + EFFECTS menu + QA test
+- [ ] ➡️ Wave 0 · Wire dormant **Colorize** (GJ_IMGADJ_Colorize) — hue + saturation dialog + EFFECTS menu + QA test
 
 ## Wave 0 — Activate dormant engine effects (math already implemented + tested)
 
 - [x] Wire **Gamma** (GJ_IMGADJ_Gamma) — EFFECTS menu + cmd palette + dialog + QA test (effect-gamma.sh)
 - [x] Wire **Sepia** (GJ_IMGADJ_Sepia) — one-shot + EFFECTS menu + cmd palette + QA test (effect-sepia.sh)
-- [ ] Wire **Threshold** (GJ_IMGADJ_Threshold) — slider + mode dialog + action + menu + QA test
+- [x] Wire **Threshold** (GJ_IMGADJ_Threshold) — LEVEL slider + INVERT toggle dialog + menu + QA test (effect-threshold.sh)
 - [ ] Wire **Colorize** (GJ_IMGADJ_Colorize) — hue + saturation dialog + action + menu + QA test
 - [ ] Wire **Glow** (GJ_IMGADJ_Glow) — radius + intensity dialog + action + menu + QA test
 - [ ] Wire **Film Grain** (GJ_IMGADJ_FilmGrain) — amount dialog + action + menu + QA test

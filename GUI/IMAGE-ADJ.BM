@@ -1424,6 +1424,86 @@ END SUB
 
 
 ''
+' Open a modal Threshold dialog: a single 0..255 luminance cutoff slider plus an
+' INVERT toggle. Pixels at/above the cutoff become white (below become black),
+' or the reverse when inverted. Live loupe preview; multi-layer + undo on OK.
+'
+SUB IMAGE_ADJ_threshold_dialog ()
+    IF CURRENT_LAYER% < 1 THEN EXIT SUB
+
+    DIM ctx AS DIALOG_CTX
+    DIALOG_init ctx, IMGDLG_W, 130
+    IMAGE_ADJ_setup_preview ctx, LAYERS(CURRENT_LAYER%).imgHandle&
+
+    DIM cutoff  AS INTEGER : cutoff% = 128
+    DIM oCutoff AS INTEGER
+    STATIC invMode AS INTEGER   ' 0 = binary, 1 = inverted (remembered across opens)
+    DIM thMode AS INTEGER
+
+    DIM ivX AS INTEGER, ivY AS INTEGER, ivW AS INTEGER, ivH AS INTEGER
+    ivX% = IMGDLG_SX : ivW% = 120 : ivH% = 16
+    ivY% = IMGDLG_track_y%(ctx, 0) + 24
+
+    DIM k AS LONG
+    DO
+        DIALOG_poll_mouse ctx
+        IF ctx.loupeDirty% THEN IMAGE_ADJ_update_loupe ctx
+        k& = _KEYHIT
+        IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
+        IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
+
+        oCutoff% = cutoff%
+        cutoff%  = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, cutoff%, 0, 255)
+        cutoff%  = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, cutoff%, 0, 255)
+        IF DIALOG_hit%(ctx, ivX%, ivY%, ivW%, ivH%) THEN
+            invMode%          = (invMode% = 0) ' toggle (avoid bitwise NOT — gotcha #19)
+            ctx.previewDirty% = TRUE
+        END IF
+        IF cutoff% <> oCutoff% THEN ctx.previewDirty% = TRUE
+        IMGDLG_check_ok_cancel ctx
+
+        IF ctx.previewDirty% THEN
+            thMode% = GJ_IMGADJ_THRESHOLD_BINARY : IF invMode% THEN thMode% = GJ_IMGADJ_THRESHOLD_INVERTED
+            SAFE_FREEIMAGE ctx.previewThumb
+            ctx.previewThumb = GJ_IMGADJ_Threshold(ctx.origThumb, cutoff%, thMode%)
+            IMAGE_ADJ_mask_preview ctx
+            ctx.previewDirty% = FALSE
+        END IF
+
+        _DEST ctx.imgHandle
+        DIALOG_draw_frame ctx, "THRESHOLD"
+        DIALOG_draw_preview ctx
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "LEVEL:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, cutoff%, 0, 255, "", ""
+        DIALOG_draw_toggle ctx, ivX%, ivY%, ivW%, ivH%, "INVERT", invMode%
+        DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
+        IMGDLG_draw_ok_cancel ctx
+        DIALOG_blit ctx
+    LOOP UNTIL ctx.done%
+
+    IF ctx.result% THEN
+        thMode% = GJ_IMGADJ_THRESHOLD_BINARY : IF invMode% THEN thMode% = GJ_IMGADJ_THRESHOLD_INVERTED
+        DIM thTargets(1 TO MAX_LAYERS) AS INTEGER, thTgtCount AS INTEGER, thT AS INTEGER
+        DIM thSaveCL AS INTEGER
+        IMAGE_ADJ_collect_targets thTargets%(), thTgtCount%
+        thSaveCL% = CURRENT_LAYER%
+        IF thTgtCount% > 1 THEN HISTORY_begin_group
+        DIM adjR     AS LONG
+        FOR thT% = 1 TO thTgtCount%
+            CURRENT_LAYER% = thTargets%(thT%)
+            adjR&          = GJ_IMGADJ_Threshold(LAYERS(CURRENT_LAYER%).imgHandle&, cutoff%, thMode%)
+            IMAGE_ADJ_apply_to_layer adjR&, "Threshold"
+        NEXT thT%
+        IF thTgtCount% > 1 THEN HISTORY_end_group
+        CURRENT_LAYER% = thSaveCL%
+    END IF
+
+    DIALOG_cleanup ctx
+    SAFE_FREEIMAGE IMGADJ_LAYER_MASK& : IMGADJ_LAYER_MASK& = 0
+END SUB
+
+
+''
 ' Open a modal Posterize adjustment dialog with a levels slider (2..16), an
 ' optional dither algorithm cycle button, and a dither strength slider. Live loupe
 ' preview shows the posterized (and optionally dithered) result. On OK, applies
