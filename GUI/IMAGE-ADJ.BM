@@ -516,6 +516,125 @@ END FUNCTION
 
 
 ''
+' Twirl — swirl the image around its centre. Each output pixel within `radius` of
+' centre is rotated by an angle that falls off with distance (max at centre, 0 at
+' the radius), then the source is sampled at the rotated position. apply_spatial.
+'
+' @param sourceImg LONG    Source image (32-bit)
+' @param angleDeg  INTEGER Maximum swirl angle at centre, degrees (10..360)
+' @return LONG  New twirled image handle
+'
+FUNCTION IMAGE_ADJ_twirl& (sourceImg AS LONG, angleDeg AS INTEGER)
+    IF NOT (sourceImg& < -1) THEN IMAGE_ADJ_twirl& = 0 : EXIT FUNCTION
+
+    DIM twW AS LONG, twH AS LONG
+    twW& = _WIDTH(sourceImg&) : twH& = _HEIGHT(sourceImg&)
+    DIM result AS LONG
+    result& = _NEWIMAGE(twW&, twH&, 32)
+
+    DIM srcM AS _MEM, resM AS _MEM
+    srcM = _MEMIMAGE(sourceImg&)
+    resM = _MEMIMAGE(result&)
+
+    DIM ccx AS SINGLE, ccy AS SINGLE, maxR AS SINGLE
+    ccx! = twW& / 2.0 : ccy! = twH& / 2.0
+    maxR! = ccx! : IF ccy! < maxR! THEN maxR! = ccy!
+    DIM maxAng AS SINGLE : maxAng! = angleDeg% * 3.14159265 / 180.0
+
+    DIM tx AS LONG, ty AS LONG, sxL AS LONG, syL AS LONG
+    DIM ddx AS SINGLE, ddy AS SINGLE, rr AS SINGLE, ang AS SINGLE, ca AS SINGLE, sa AS SINGLE
+    DIM px AS _UNSIGNED LONG
+    FOR ty& = 0 TO twH& - 1
+        FOR tx& = 0 TO twW& - 1
+            ddx! = tx& - ccx! : ddy! = ty& - ccy!
+            rr! = SQR(ddx! * ddx! + ddy! * ddy!)
+            IF rr! < maxR! THEN
+                ang! = maxAng! * (1.0 - rr! / maxR!)
+                ca! = COS(ang!) : sa! = SIN(ang!)
+                sxL& = INT(ccx! + ddx! * ca! - ddy! * sa! + 0.5)
+                syL& = INT(ccy! + ddx! * sa! + ddy! * ca! + 0.5)
+            ELSE
+                sxL& = tx& : syL& = ty&
+            END IF
+            IF sxL& < 0 THEN sxL& = 0 ELSE IF sxL& >= twW& THEN sxL& = twW& - 1
+            IF syL& < 0 THEN syL& = 0 ELSE IF syL& >= twH& THEN syL& = twH& - 1
+            _MEMGET srcM, srcM.OFFSET + (syL& * twW& + sxL&) * 4, px~&
+            _MEMPUT resM, resM.OFFSET + (ty& * twW& + tx&) * 4, px~& AS _UNSIGNED LONG
+        NEXT tx&
+    NEXT ty&
+
+    _MEMFREE srcM
+    _MEMFREE resM
+    IMAGE_ADJ_twirl& = result&
+END FUNCTION
+
+
+''
+' Open a modal Twirl dialog: single ANGLE slider (10..360 deg). apply_spatial.
+'
+SUB IMAGE_ADJ_twirl_dialog ()
+    IF CURRENT_LAYER% < 1 THEN EXIT SUB
+
+    DIM ctx AS DIALOG_CTX
+    DIALOG_init ctx, IMGDLG_W, 110
+    IMAGE_ADJ_setup_preview ctx, LAYERS(CURRENT_LAYER%).imgHandle&
+
+    DIM angle  AS INTEGER : angle% = 120
+    DIM oAngle AS INTEGER
+
+    DIM k AS LONG
+    DO
+        DIALOG_poll_mouse ctx
+        IF ctx.loupeDirty% THEN IMAGE_ADJ_update_loupe ctx
+        k& = _KEYHIT
+        IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
+        IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
+
+        oAngle% = angle%
+        angle% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, angle%, 10, 360)
+        angle% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, angle%, 10, 360)
+        IF angle% <> oAngle% THEN ctx.previewDirty% = TRUE
+        IMGDLG_check_ok_cancel ctx
+
+        IF ctx.previewDirty% THEN
+            SAFE_FREEIMAGE ctx.previewThumb
+            ctx.previewThumb = IMAGE_ADJ_twirl&(ctx.origThumb, angle%)
+            IMAGE_ADJ_mask_preview ctx
+            ctx.previewDirty% = FALSE
+        END IF
+
+        _DEST ctx.imgHandle
+        DIALOG_draw_frame ctx, "TWIRL"
+        DIALOG_draw_preview ctx
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "ANGLE:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, angle%, 10, 360, "", ""
+        DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
+        IMGDLG_draw_ok_cancel ctx
+        DIALOG_blit ctx
+    LOOP UNTIL ctx.done%
+
+    IF ctx.result% THEN
+        DIM twTargets(1 TO MAX_LAYERS) AS INTEGER, twTgtCount AS INTEGER, twT AS INTEGER
+        DIM twSaveCL AS INTEGER
+        IMAGE_ADJ_collect_targets twTargets%(), twTgtCount%
+        twSaveCL% = CURRENT_LAYER%
+        IF twTgtCount% > 1 THEN HISTORY_begin_group
+        DIM adjR     AS LONG
+        FOR twT% = 1 TO twTgtCount%
+            CURRENT_LAYER% = twTargets%(twT%)
+            adjR&          = IMAGE_ADJ_twirl&(LAYERS(CURRENT_LAYER%).imgHandle&, angle%)
+            IMAGE_ADJ_apply_spatial adjR&, "Twirl"
+        NEXT twT%
+        IF twTgtCount% > 1 THEN HISTORY_end_group
+        CURRENT_LAYER% = twSaveCL%
+    END IF
+
+    DIALOG_cleanup ctx
+    SAFE_FREEIMAGE IMGADJ_LAYER_MASK& : IMGADJ_LAYER_MASK& = 0
+END SUB
+
+
+''
 ' Wave / Ripple — sinusoidally displace each pixel. The output samples the source
 ' at (x + amp*sin(y/wl), y + amp*sin(x/wl)) with nearest-neighbour (crisp for
 ' pixel art) and edge clamping. Moves alpha too -> apply_spatial.

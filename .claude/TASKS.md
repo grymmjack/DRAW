@@ -22,7 +22,7 @@ the infra exists.
 
 ## 🔨 NOW — doing right now
 
-- [ ] ➡️ Wave 3 · **Twirl** — angular swirl around centre + dialog + EFFECTS menu + QA test
+- [ ] ➡️ Wave 3 · **Pinch / Bulge (Spherize)** — radial displacement + dialog + EFFECTS menu + QA test
 
 <!-- QA note: invoke effects via the EFFECTS menu (click 395,6 then item at
      viewport y = 20 + index*12), NOT the command palette — palette-open is racy
@@ -66,7 +66,7 @@ the infra exists.
 ## Wave 3 — Distort filters (one-shot, whole layer)
 
 - [x] **Wave / Ripple** — sinusoidal per-pixel displacement, AMPLITUDE 1-20 + WAVELENGTH 4-64, apply_spatial + menu + QA test (effect-wave.sh). NEW engine IMAGE_ADJ_wave&.
-- [ ] **Twirl** — angular swirl around center + dialog + menu + QA test
+- [x] **Twirl** — distance-falloff angular swirl around centre, ANGLE 10-360, apply_spatial + menu + QA test (effect-twirl.sh). NEW engine IMAGE_ADJ_twirl&.
 - [ ] **Pinch / Bulge (Spherize)** — radial displacement + dialog + menu + QA test
 - [ ] **Kaleidoscope** — sample one wedge and mirror-tile it radially into a mandala; SEGMENTS (3..24), centre X/Y, rotation, mirror on/off; live preview/setup dialog + menu + QA test. (Applies to EXISTING art — distinct from draw-time symmetry which only mirrors new strokes.)
 
