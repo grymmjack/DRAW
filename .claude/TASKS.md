@@ -22,7 +22,7 @@ the infra exists.
 
 ## 🔨 NOW — doing right now
 
-- [ ] ➡️ Wave 2 · **Chromatic Aberration** — per-channel XY offset + dialog + EFFECTS menu + QA test
+- [ ] ➡️ Wave 2 · **Emboss / Bevel** — directional convolution relief + dialog + EFFECTS menu + QA test
 
 <!-- QA note: invoke effects via the EFFECTS menu (click 395,6 then item at
      viewport y = 20 + index*12), NOT the command palette — palette-open is racy
@@ -49,7 +49,7 @@ the infra exists.
 
 ## Wave 2 — Retro / stylize (new engine)
 
-- [ ] **Chromatic Aberration** — per-channel XY offset + dialog + menu + QA test
+- [x] **Chromatic Aberration** — horizontal R/B channel split, AMOUNT 0-20px + menu + QA test (effect-chromatic.sh). NEW engine IMAGE_ADJ_chromatic&.
 - [ ] **Emboss / Bevel** — directional convolution relief + dialog + menu + QA test
 - [ ] **Solarize** — partial invert above threshold + dialog + menu + QA test
 - [ ] **Duotone / Tritone** — map tones to 2–3 chosen colors + dialog + menu + QA test

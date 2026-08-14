@@ -516,6 +516,116 @@ END FUNCTION
 
 
 ''
+' Chromatic Aberration — split the R and B channels horizontally by `amount`
+' pixels in opposite directions (G stays), producing cyan/red colour fringes at
+' edges (retro lens / VHS look). Reads from the source so shifts don't cascade.
+' Same size; alpha preserved (apply_to_layer).
+'
+' @param sourceImg LONG    Source image (32-bit)
+' @param amount    INTEGER Horizontal channel offset in pixels (0..20)
+' @return LONG  New fringed image handle
+'
+FUNCTION IMAGE_ADJ_chromatic& (sourceImg AS LONG, amount AS INTEGER)
+    IF NOT (sourceImg& < -1) THEN IMAGE_ADJ_chromatic& = 0 : EXIT FUNCTION
+
+    DIM caW AS LONG, caH AS LONG
+    caW& = _WIDTH(sourceImg&) : caH& = _HEIGHT(sourceImg&)
+    DIM result AS LONG
+    result& = _COPYIMAGE(sourceImg&, 32)
+
+    DIM srcM AS _MEM, resM AS _MEM
+    srcM = _MEMIMAGE(sourceImg&)
+    resM = _MEMIMAGE(result&)
+
+    DIM cx AS LONG, cy AS LONG, rxx AS LONG, bxx AS LONG
+    DIM rPx AS _UNSIGNED LONG, gPx AS _UNSIGNED LONG, bPx AS _UNSIGNED LONG
+
+    FOR cy& = 0 TO caH& - 1
+        FOR cx& = 0 TO caW& - 1
+            rxx& = cx& - amount% : IF rxx& < 0 THEN rxx& = 0 ELSE IF rxx& >= caW& THEN rxx& = caW& - 1
+            bxx& = cx& + amount% : IF bxx& < 0 THEN bxx& = 0 ELSE IF bxx& >= caW& THEN bxx& = caW& - 1
+
+            _MEMGET srcM, srcM.OFFSET + (cy& * caW& + rxx&) * 4, rPx~&
+            _MEMGET srcM, srcM.OFFSET + (cy& * caW& + cx&) * 4, gPx~&
+            _MEMGET srcM, srcM.OFFSET + (cy& * caW& + bxx&) * 4, bPx~&
+
+            _MEMPUT resM, resM.OFFSET + (cy& * caW& + cx&) * 4, _RGB32(_RED32(rPx~&), _GREEN32(gPx~&), _BLUE32(bPx~&)) AS _UNSIGNED LONG
+        NEXT cx&
+    NEXT cy&
+
+    _MEMFREE srcM
+    _MEMFREE resM
+    IMAGE_ADJ_chromatic& = result&
+END FUNCTION
+
+
+''
+' Open a modal Chromatic Aberration dialog: single AMOUNT slider (0..20 px).
+' Live loupe preview; multi-layer + undo on OK.
+'
+SUB IMAGE_ADJ_chromatic_dialog ()
+    IF CURRENT_LAYER% < 1 THEN EXIT SUB
+
+    DIM ctx AS DIALOG_CTX
+    DIALOG_init ctx, IMGDLG_W, 110
+    IMAGE_ADJ_setup_preview ctx, LAYERS(CURRENT_LAYER%).imgHandle&
+
+    DIM amount  AS INTEGER : amount% = 4
+    DIM oAmount AS INTEGER
+
+    DIM k AS LONG
+    DO
+        DIALOG_poll_mouse ctx
+        IF ctx.loupeDirty% THEN IMAGE_ADJ_update_loupe ctx
+        k& = _KEYHIT
+        IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
+        IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
+
+        oAmount% = amount%
+        amount% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, amount%, 0, 20)
+        amount% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, amount%, 0, 20)
+        IF amount% <> oAmount% THEN ctx.previewDirty% = TRUE
+        IMGDLG_check_ok_cancel ctx
+
+        IF ctx.previewDirty% THEN
+            SAFE_FREEIMAGE ctx.previewThumb
+            ctx.previewThumb = IMAGE_ADJ_chromatic&(ctx.origThumb, amount%)
+            IMAGE_ADJ_mask_preview ctx
+            ctx.previewDirty% = FALSE
+        END IF
+
+        _DEST ctx.imgHandle
+        DIALOG_draw_frame ctx, "CHROMATIC ABERRATION"
+        DIALOG_draw_preview ctx
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "AMOUNT:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, amount%, 0, 20, "", ""
+        DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
+        IMGDLG_draw_ok_cancel ctx
+        DIALOG_blit ctx
+    LOOP UNTIL ctx.done%
+
+    IF ctx.result% THEN
+        DIM caTargets(1 TO MAX_LAYERS) AS INTEGER, caTgtCount AS INTEGER, caT AS INTEGER
+        DIM caSaveCL AS INTEGER
+        IMAGE_ADJ_collect_targets caTargets%(), caTgtCount%
+        caSaveCL% = CURRENT_LAYER%
+        IF caTgtCount% > 1 THEN HISTORY_begin_group
+        DIM adjR     AS LONG
+        FOR caT% = 1 TO caTgtCount%
+            CURRENT_LAYER% = caTargets%(caT%)
+            adjR&          = IMAGE_ADJ_chromatic&(LAYERS(CURRENT_LAYER%).imgHandle&, amount%)
+            IMAGE_ADJ_apply_to_layer adjR&, "Chromatic Aberration"
+        NEXT caT%
+        IF caTgtCount% > 1 THEN HISTORY_end_group
+        CURRENT_LAYER% = caSaveCL%
+    END IF
+
+    DIALOG_cleanup ctx
+    SAFE_FREEIMAGE IMGADJ_LAYER_MASK& : IMGADJ_LAYER_MASK& = 0
+END SUB
+
+
+''
 ' Grow / Shrink (Dilate / Erode) — morphological resize of the shape by its
 ' alpha. GROW: each transparent pixel within `amount` of an opaque pixel takes
 ' the colour of the nearest opaque pixel (fattens shapes, closes 1px gaps).
