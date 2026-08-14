@@ -516,6 +516,120 @@ END FUNCTION
 
 
 ''
+' Wave / Ripple — sinusoidally displace each pixel. The output samples the source
+' at (x + amp*sin(y/wl), y + amp*sin(x/wl)) with nearest-neighbour (crisp for
+' pixel art) and edge clamping. Moves alpha too -> apply_spatial.
+'
+' @param sourceImg  LONG    Source image (32-bit)
+' @param amplitude  INTEGER Displacement in px (1..20)
+' @param wavelength INTEGER Period in px (4..64)
+' @return LONG  New rippled image handle
+'
+FUNCTION IMAGE_ADJ_wave& (sourceImg AS LONG, amplitude AS INTEGER, wavelength AS INTEGER)
+    IF NOT (sourceImg& < -1) THEN IMAGE_ADJ_wave& = 0 : EXIT FUNCTION
+    IF wavelength% < 1 THEN wavelength% = 1
+
+    DIM wvW AS LONG, wvH AS LONG
+    wvW& = _WIDTH(sourceImg&) : wvH& = _HEIGHT(sourceImg&)
+    DIM result AS LONG
+    result& = _NEWIMAGE(wvW&, wvH&, 32)
+
+    DIM srcM AS _MEM, resM AS _MEM
+    srcM = _MEMIMAGE(sourceImg&)
+    resM = _MEMIMAGE(result&)
+
+    DIM wx AS LONG, wy AS LONG, sxL AS LONG, syL AS LONG
+    DIM twoPi AS SINGLE : twoPi! = 6.2831853 / wavelength%
+    DIM px AS _UNSIGNED LONG
+    FOR wy& = 0 TO wvH& - 1
+        FOR wx& = 0 TO wvW& - 1
+            sxL& = wx& + INT(amplitude% * SIN(wy& * twoPi!) + 0.5)
+            syL& = wy& + INT(amplitude% * SIN(wx& * twoPi!) + 0.5)
+            IF sxL& < 0 THEN sxL& = 0 ELSE IF sxL& >= wvW& THEN sxL& = wvW& - 1
+            IF syL& < 0 THEN syL& = 0 ELSE IF syL& >= wvH& THEN syL& = wvH& - 1
+            _MEMGET srcM, srcM.OFFSET + (syL& * wvW& + sxL&) * 4, px~&
+            _MEMPUT resM, resM.OFFSET + (wy& * wvW& + wx&) * 4, px~& AS _UNSIGNED LONG
+        NEXT wx&
+    NEXT wy&
+
+    _MEMFREE srcM
+    _MEMFREE resM
+    IMAGE_ADJ_wave& = result&
+END FUNCTION
+
+
+''
+' Open a modal Wave / Ripple dialog: AMPLITUDE (1..20) + WAVELENGTH (4..64).
+' Displacement moves alpha -> apply_spatial.
+'
+SUB IMAGE_ADJ_wave_dialog ()
+    IF CURRENT_LAYER% < 1 THEN EXIT SUB
+
+    DIM ctx AS DIALOG_CTX
+    DIALOG_init ctx, IMGDLG_W, 140
+    IMAGE_ADJ_setup_preview ctx, LAYERS(CURRENT_LAYER%).imgHandle&
+
+    DIM amp AS INTEGER : amp% = 6
+    DIM wl  AS INTEGER : wl%  = 24
+    DIM oAmp AS INTEGER, oWl AS INTEGER
+
+    DIM k AS LONG
+    DO
+        DIALOG_poll_mouse ctx
+        IF ctx.loupeDirty% THEN IMAGE_ADJ_update_loupe ctx
+        k& = _KEYHIT
+        IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
+        IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
+
+        oAmp% = amp% : oWl% = wl%
+        amp% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, amp%, 1, 20)
+        amp% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, amp%, 1, 20)
+        wl%  = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, wl%, 4, 64)
+        wl%  = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, wl%, 4, 64)
+        IF amp% <> oAmp% OR wl% <> oWl% THEN ctx.previewDirty% = TRUE
+        IMGDLG_check_ok_cancel ctx
+
+        IF ctx.previewDirty% THEN
+            SAFE_FREEIMAGE ctx.previewThumb
+            ctx.previewThumb = IMAGE_ADJ_wave&(ctx.origThumb, amp%, wl%)
+            IMAGE_ADJ_mask_preview ctx
+            ctx.previewDirty% = FALSE
+        END IF
+
+        _DEST ctx.imgHandle
+        DIALOG_draw_frame ctx, "WAVE / RIPPLE"
+        DIALOG_draw_preview ctx
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "AMPLITUDE:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, amp%, 1, 20, "", ""
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 1), "WAVELENGTH:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, wl%, 4, 64, "", ""
+        DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
+        IMGDLG_draw_ok_cancel ctx
+        DIALOG_blit ctx
+    LOOP UNTIL ctx.done%
+
+    IF ctx.result% THEN
+        DIM wvTargets(1 TO MAX_LAYERS) AS INTEGER, wvTgtCount AS INTEGER, wvT AS INTEGER
+        DIM wvSaveCL AS INTEGER
+        IMAGE_ADJ_collect_targets wvTargets%(), wvTgtCount%
+        wvSaveCL% = CURRENT_LAYER%
+        IF wvTgtCount% > 1 THEN HISTORY_begin_group
+        DIM adjR     AS LONG
+        FOR wvT% = 1 TO wvTgtCount%
+            CURRENT_LAYER% = wvTargets%(wvT%)
+            adjR&          = IMAGE_ADJ_wave&(LAYERS(CURRENT_LAYER%).imgHandle&, amp%, wl%)
+            IMAGE_ADJ_apply_spatial adjR&, "Wave"
+        NEXT wvT%
+        IF wvTgtCount% > 1 THEN HISTORY_end_group
+        CURRENT_LAYER% = wvSaveCL%
+    END IF
+
+    DIALOG_cleanup ctx
+    SAFE_FREEIMAGE IMGADJ_LAYER_MASK& : IMGADJ_LAYER_MASK& = 0
+END SUB
+
+
+''
 ' Chrome / Metallic — turn a flat shape into shiny metal. Builds a
 ' distance-to-edge field (0 at edge → 1 toward `depth` inward), runs it through a
 ' metallic band function (|sin|) for the reflective light/dark rings, and maps the
