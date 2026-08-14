@@ -22,7 +22,15 @@ the infra exists.
 
 ## 🔨 NOW — doing right now
 
-- [ ] ➡️ **Menubar flyout submenus** (foundational) — the flat EFFECTS menu is at 25 items and about to overflow; build submenu support + reorganize into categories BEFORE Wave 4
+- [ ] ➡️ Wave 4 · **Stained Glass** — Voronoi + dark cell borders + dialog + EFFECTS menu + QA test
+
+<!-- Menu-overflow plan: the flat EFFECTS dropdown auto-scrolls past ~41 items
+     (availH = SCRN.h - subY, 12px/item). At 25 items now; Waves 4/5/5b/5c (15
+     more) reach ~40 and still fit flat. The submenu infra becomes MANDATORY only
+     for the Eye-Candy waves (7/8, 33 items) — do it then, before those, and
+     reorganize everything into ADJUST/STYLIZE/DISTORT/PIXELATE/NOISE/RENDER/
+     SHAPE/TEXTURE (updating QA item-y coords once). -->
+
 
 <!-- QA note: invoke effects via the EFFECTS menu (click 395,6 then item at
      viewport y = 20 + index*12), NOT the command palette — palette-open is racy
@@ -72,7 +80,7 @@ the infra exists.
 
 ## Wave 4 — Photoshop Pixelate / Stylize family (new engine)
 
-- [ ] **Crystallize** — Voronoi cells, average color per cell + dialog + menu + QA test
+- [x] **Crystallize** — Voronoi cells (deterministic grid-jitter, nearest-seed colour), CELL SIZE 4-40 + menu + QA test (effect-crystallize.sh). NEW engine IMAGE_ADJ_crystallize&.
 - [ ] **Stained Glass** — Voronoi + dark cell borders (shares crystallize engine) + dialog + menu + QA test
 - [ ] **Mosaic / Tessellate** — regular polygon tiling, average color + dialog + menu + QA test
 - [ ] **Extrude** — 3D block/pyramid tiles from cell brightness + dialog + menu + QA test

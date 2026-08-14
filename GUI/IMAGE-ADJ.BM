@@ -516,6 +516,128 @@ END FUNCTION
 
 
 ''
+' Crystallize — Voronoi cells. One jittered seed per `cellSize` grid cell
+' (deterministic hash jitter — no RNG); each pixel takes the source colour at its
+' nearest seed among the 3x3 neighbouring grid cells, giving flat polygonal
+' crystals. Alpha preserved (apply_to_layer).
+'
+' @param sourceImg LONG    Source image (32-bit)
+' @param cellSize  INTEGER Approx crystal size in px (4..40)
+' @return LONG  New crystallized image handle
+'
+FUNCTION IMAGE_ADJ_crystallize& (sourceImg AS LONG, cellSize AS INTEGER)
+    IF NOT (sourceImg& < -1) THEN IMAGE_ADJ_crystallize& = 0 : EXIT FUNCTION
+    IF cellSize% < 2 THEN cellSize% = 2
+
+    DIM crW AS LONG, crH AS LONG
+    crW& = _WIDTH(sourceImg&) : crH& = _HEIGHT(sourceImg&)
+    DIM result AS LONG
+    result& = _COPYIMAGE(sourceImg&, 32)
+
+    DIM srcM AS _MEM, resM AS _MEM
+    srcM = _MEMIMAGE(sourceImg&)
+    resM = _MEMIMAGE(result&)
+
+    DIM cxp AS LONG, cyp AS LONG, gx AS LONG, gy AS LONG, ngx AS LONG, ngy AS LONG
+    DIM hsh AS LONG, seedX AS LONG, seedY AS LONG
+    DIM bestX AS LONG, bestY AS LONG, bestD AS LONG, dd AS LONG
+    DIM px AS _UNSIGNED LONG
+    FOR cyp& = 0 TO crH& - 1
+        gy& = cyp& \ cellSize%
+        FOR cxp& = 0 TO crW& - 1
+            gx& = cxp& \ cellSize%
+            bestD& = 2147483647
+            bestX& = cxp& : bestY& = cyp&
+            FOR ngy& = gy& - 1 TO gy& + 1
+                FOR ngx& = gx& - 1 TO gx& + 1
+                    hsh& = ((ngx& * 73856093) XOR (ngy& * 19349663)) AND 1023
+                    seedX& = ngx& * cellSize% + (hsh& AND 31) * cellSize% \ 32
+                    seedY& = ngy& * cellSize% + ((hsh& \ 32) AND 31) * cellSize% \ 32
+                    dd& = (cxp& - seedX&) * (cxp& - seedX&) + (cyp& - seedY&) * (cyp& - seedY&)
+                    IF dd& < bestD& THEN
+                        bestD& = dd& : bestX& = seedX& : bestY& = seedY&
+                    END IF
+                NEXT ngx&
+                NEXT ngy&
+            IF bestX& < 0 THEN bestX& = 0 ELSE IF bestX& >= crW& THEN bestX& = crW& - 1
+            IF bestY& < 0 THEN bestY& = 0 ELSE IF bestY& >= crH& THEN bestY& = crH& - 1
+            _MEMGET srcM, srcM.OFFSET + (bestY& * crW& + bestX&) * 4, px~&
+            _MEMPUT resM, resM.OFFSET + (cyp& * crW& + cxp&) * 4, px~& AS _UNSIGNED LONG
+        NEXT cxp&
+    NEXT cyp&
+
+    _MEMFREE srcM
+    _MEMFREE resM
+    IMAGE_ADJ_crystallize& = result&
+END FUNCTION
+
+
+''
+' Open a modal Crystallize dialog: single CELL SIZE slider (4..40).
+'
+SUB IMAGE_ADJ_crystallize_dialog ()
+    IF CURRENT_LAYER% < 1 THEN EXIT SUB
+
+    DIM ctx AS DIALOG_CTX
+    DIALOG_init ctx, IMGDLG_W, 110
+    IMAGE_ADJ_setup_preview ctx, LAYERS(CURRENT_LAYER%).imgHandle&
+
+    DIM csz AS INTEGER : csz% = 12
+    DIM oCsz AS INTEGER
+
+    DIM k AS LONG
+    DO
+        DIALOG_poll_mouse ctx
+        IF ctx.loupeDirty% THEN IMAGE_ADJ_update_loupe ctx
+        k& = _KEYHIT
+        IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
+        IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
+
+        oCsz% = csz%
+        csz% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, csz%, 4, 40)
+        csz% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, csz%, 4, 40)
+        IF csz% <> oCsz% THEN ctx.previewDirty% = TRUE
+        IMGDLG_check_ok_cancel ctx
+
+        IF ctx.previewDirty% THEN
+            SAFE_FREEIMAGE ctx.previewThumb
+            ctx.previewThumb = IMAGE_ADJ_crystallize&(ctx.origThumb, csz%)
+            IMAGE_ADJ_mask_preview ctx
+            ctx.previewDirty% = FALSE
+        END IF
+
+        _DEST ctx.imgHandle
+        DIALOG_draw_frame ctx, "CRYSTALLIZE"
+        DIALOG_draw_preview ctx
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "CELL SIZE:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, csz%, 4, 40, "", ""
+        DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
+        IMGDLG_draw_ok_cancel ctx
+        DIALOG_blit ctx
+    LOOP UNTIL ctx.done%
+
+    IF ctx.result% THEN
+        DIM crTargets(1 TO MAX_LAYERS) AS INTEGER, crTgtCount AS INTEGER, crT AS INTEGER
+        DIM crSaveCL AS INTEGER
+        IMAGE_ADJ_collect_targets crTargets%(), crTgtCount%
+        crSaveCL% = CURRENT_LAYER%
+        IF crTgtCount% > 1 THEN HISTORY_begin_group
+        DIM adjR     AS LONG
+        FOR crT% = 1 TO crTgtCount%
+            CURRENT_LAYER% = crTargets%(crT%)
+            adjR&          = IMAGE_ADJ_crystallize&(LAYERS(CURRENT_LAYER%).imgHandle&, csz%)
+            IMAGE_ADJ_apply_to_layer adjR&, "Crystallize"
+        NEXT crT%
+        IF crTgtCount% > 1 THEN HISTORY_end_group
+        CURRENT_LAYER% = crSaveCL%
+    END IF
+
+    DIALOG_cleanup ctx
+    SAFE_FREEIMAGE IMGADJ_LAYER_MASK& : IMGADJ_LAYER_MASK& = 0
+END SUB
+
+
+''
 ' Kaleidoscope — reflect one angular wedge of the image radially into a mandala.
 ' For each output pixel, its angle is folded into the base wedge (2*pi/segments)
 ' with mirroring on alternate wedges, then the source is sampled at that folded
