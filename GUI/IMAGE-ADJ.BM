@@ -516,6 +516,164 @@ END FUNCTION
 
 
 ''
+' Outline / Stroke — add a coloured border along the shape's alpha edges.
+' OUTSIDE mode (insideMode=0): paints transparent pixels within `thickness` of an
+' opaque pixel — an outer stroke that grows the silhouette. INSIDE mode
+' (insideMode=1): paints opaque pixels within `thickness` of a transparent pixel
+' (or the image border) — an inner stroke that keeps the silhouette size.
+' Alpha changes, so commit via IMAGE_ADJ_apply_spatial (NOT apply_to_layer).
+'
+' @param sourceImg  LONG           Source layer image (32-bit)
+' @param thickness  INTEGER        Stroke width in pixels (>=1)
+' @param olColor    _UNSIGNED LONG Stroke colour (opaque)
+' @param insideMode INTEGER        0 = outside, 1 = inside
+' @return LONG  New image handle with the stroke applied
+'
+FUNCTION IMAGE_ADJ_outline& (sourceImg AS LONG, thickness AS INTEGER, olColor AS _UNSIGNED LONG, insideMode AS INTEGER)
+    IF NOT (sourceImg& < -1) THEN IMAGE_ADJ_outline& = 0 : EXIT FUNCTION
+
+    DIM olW AS LONG, olH AS LONG
+    olW& = _WIDTH(sourceImg&) : olH& = _HEIGHT(sourceImg&)
+    DIM result AS LONG
+    result& = _COPYIMAGE(sourceImg&, 32)
+    IF thickness% < 1 THEN thickness% = 1
+
+    DIM srcM AS _MEM, resM AS _MEM
+    srcM = _MEMIMAGE(sourceImg&)
+    resM = _MEMIMAGE(result&)
+
+    DIM ox AS LONG, oy AS LONG, dx AS INTEGER, dy AS INTEGER
+    DIM t2 AS INTEGER : t2% = thickness% * thickness%
+    DIM selfA AS _UNSIGNED _BYTE, nbA AS _UNSIGNED _BYTE
+    DIM hit AS INTEGER
+    DIM nx AS LONG, ny AS LONG
+    DIM baseOff AS _OFFSET
+
+    FOR oy& = 0 TO olH& - 1
+        FOR ox& = 0 TO olW& - 1
+            baseOff = (oy& * olW& + ox&) * 4
+            _MEMGET srcM, srcM.OFFSET + baseOff + 3, selfA~%%
+
+            IF insideMode% = 0 THEN
+                ' OUTSIDE: only transparent source pixels can become stroke
+                IF selfA~%% <> 0 THEN _CONTINUE
+            ELSE
+                ' INSIDE: only opaque source pixels can become stroke
+                IF selfA~%% = 0 THEN _CONTINUE
+            END IF
+
+            hit% = 0
+            FOR dy% = -thickness% TO thickness%
+                ny& = oy& + dy%
+                IF ny& >= 0 AND ny& < olH& THEN
+                    FOR dx% = -thickness% TO thickness%
+                        IF dx% * dx% + dy% * dy% <= t2% THEN
+                            nx& = ox& + dx%
+                            IF insideMode% = 1 AND (nx& < 0 OR nx& >= olW&) THEN
+                                hit% = 1 : EXIT FOR   ' image border counts as transparent (inside stroke)
+                            END IF
+                            IF nx& >= 0 AND nx& < olW& THEN
+                                _MEMGET srcM, srcM.OFFSET + (ny& * olW& + nx&) * 4 + 3, nbA~%%
+                                IF insideMode% = 0 THEN
+                                    IF nbA~%% <> 0 THEN hit% = 1 : EXIT FOR
+                                ELSE
+                                    IF nbA~%% = 0 THEN hit% = 1 : EXIT FOR
+                                END IF
+                            END IF
+                        END IF
+                    NEXT dx%
+                END IF
+                IF hit% THEN EXIT FOR
+            NEXT dy%
+
+            IF hit% THEN _MEMPUT resM, resM.OFFSET + baseOff, olColor~& AS _UNSIGNED LONG
+        NEXT ox&
+    NEXT oy&
+
+    _MEMFREE srcM
+    _MEMFREE resM
+    IMAGE_ADJ_outline& = result&
+END FUNCTION
+
+
+''
+' Open a modal Outline / Stroke dialog: THICKNESS slider (1..8) + INSIDE toggle.
+' Uses the current foreground colour as the stroke colour. Alpha-changing, so it
+' commits via apply_spatial. Live loupe preview; multi-layer + undo on OK.
+'
+SUB IMAGE_ADJ_outline_dialog ()
+    IF CURRENT_LAYER% < 1 THEN EXIT SUB
+
+    DIM ctx AS DIALOG_CTX
+    DIALOG_init ctx, IMGDLG_W, 130
+    IMAGE_ADJ_setup_preview ctx, LAYERS(CURRENT_LAYER%).imgHandle&
+
+    DIM thick  AS INTEGER : thick% = 2
+    DIM oThick AS INTEGER
+    STATIC insideMode AS INTEGER
+
+    DIM ivX AS INTEGER, ivY AS INTEGER, ivW AS INTEGER, ivH AS INTEGER
+    ivX% = IMGDLG_SX : ivW% = 120 : ivH% = 16
+    ivY% = IMGDLG_track_y%(ctx, 0) + 24
+
+    DIM k AS LONG
+    DO
+        DIALOG_poll_mouse ctx
+        IF ctx.loupeDirty% THEN IMAGE_ADJ_update_loupe ctx
+        k& = _KEYHIT
+        IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
+        IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
+
+        oThick% = thick%
+        thick% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, thick%, 1, 8)
+        thick% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, thick%, 1, 8)
+        IF DIALOG_hit%(ctx, ivX%, ivY%, ivW%, ivH%) THEN
+            insideMode% = (insideMode% = 0)
+            ctx.previewDirty% = TRUE
+        END IF
+        IF thick% <> oThick% THEN ctx.previewDirty% = TRUE
+        IMGDLG_check_ok_cancel ctx
+
+        IF ctx.previewDirty% THEN
+            SAFE_FREEIMAGE ctx.previewThumb
+            ctx.previewThumb = IMAGE_ADJ_outline&(ctx.origThumb, thick%, PAINT_COLOR~&, insideMode%)
+            IMAGE_ADJ_mask_preview ctx
+            ctx.previewDirty% = FALSE
+        END IF
+
+        _DEST ctx.imgHandle
+        DIALOG_draw_frame ctx, "OUTLINE / STROKE"
+        DIALOG_draw_preview ctx
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "THICKNESS:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, thick%, 1, 8, "", ""
+        DIALOG_draw_toggle ctx, ivX%, ivY%, ivW%, ivH%, "INSIDE", insideMode%
+        DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
+        IMGDLG_draw_ok_cancel ctx
+        DIALOG_blit ctx
+    LOOP UNTIL ctx.done%
+
+    IF ctx.result% THEN
+        DIM olTargets(1 TO MAX_LAYERS) AS INTEGER, olTgtCount AS INTEGER, olT AS INTEGER
+        DIM olSaveCL AS INTEGER
+        IMAGE_ADJ_collect_targets olTargets%(), olTgtCount%
+        olSaveCL% = CURRENT_LAYER%
+        IF olTgtCount% > 1 THEN HISTORY_begin_group
+        DIM adjR     AS LONG
+        FOR olT% = 1 TO olTgtCount%
+            CURRENT_LAYER% = olTargets%(olT%)
+            adjR&          = IMAGE_ADJ_outline&(LAYERS(CURRENT_LAYER%).imgHandle&, thick%, PAINT_COLOR~&, insideMode%)
+            IMAGE_ADJ_apply_spatial adjR&, "Outline"
+        NEXT olT%
+        IF olTgtCount% > 1 THEN HISTORY_end_group
+        CURRENT_LAYER% = olSaveCL%
+    END IF
+
+    DIALOG_cleanup ctx
+    SAFE_FREEIMAGE IMGADJ_LAYER_MASK& : IMGADJ_LAYER_MASK& = 0
+END SUB
+
+
+''
 ' Direct op — invert all pixel colors on active layer.
 '
 SUB IMAGE_ADJ_invert ()

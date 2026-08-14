@@ -22,7 +22,7 @@ the infra exists.
 
 ## 🔨 NOW — doing right now
 
-- [ ] ➡️ Wave 1 · **Outline / Stroke** — alpha-based border + dialog + EFFECTS menu + QA test
+- [ ] ➡️ Wave 1 · **Edge Detect (Sobel)** — luminance gradient → line art + dialog + EFFECTS menu + QA test
 
 <!-- QA note: invoke effects via the EFFECTS menu (click 395,6 then item at
      viewport y = 20 + index*12), NOT the command palette — palette-open is racy
@@ -42,7 +42,7 @@ the infra exists.
 
 ## Wave 1 — Tier-1 pixel-art effects (new engine)
 
-- [ ] **Outline / Stroke** — alpha-based border (inside/outside/center, thickness, color) + dialog + menu + QA test
+- [x] **Outline / Stroke** — alpha-edge border, THICKNESS 1-8 + INSIDE/OUTSIDE, FG colour, apply_spatial + menu + QA test (effect-outline.sh, transparent-layer). NEW engine IMAGE_ADJ_outline&.
 - [ ] **Edge Detect (Sobel)** — luminance gradient → line art + dialog + menu + QA test
 - [ ] **Gradient Map** — map luminance to a 2-color ramp (later: palette ramp) + dialog + menu + QA test
 - [ ] **Grow / Shrink (Dilate/Erode)** — alpha morphology, N px + dialog + menu + QA test
