@@ -1,49 +1,146 @@
-# DRAW input QA — exhaustive seam tests + z-order refactor
+# More Image Effects — branch `more-image-effects`
 
-## 🔨 NOW
-- ✅ ALL ITEMS COMPLETE. Branch `qa-harness-input-improvements-1` (DRAW + qa-harness). Net: z-order refactor (Z1–Z4), 6 new input test suites (T1–T6, all green), 0 compiler warnings, docs updated, 0 regressions (base-verified).
+Each box = implement (engine + dialog/action + menu wiring) → build clean (0 warnings)
+→ commit → add a QA harness guard test (apply effect → region differs) where feasible.
+Effects follow the existing `GJ_IMGADJ_*&(sourceImg, ...)` clone-and-return pattern;
+dialogs/preview/undo reuse `IMAGE_ADJ_apply_to_layer` / `IMAGE_ADJ_apply_spatial`.
+Grep `CMD_execute_action` before allocating each new action ID (gotcha #17).
 
-## Deliverable — zero compiler warnings (Rick, 2026-08-13)
-- [x] W0 · Clean build (`make clean && make`) emits **0 warnings**. Fixed the 2 "Unused variable" warnings at root (KIT-ZIP.BM `ZIP_begin` dead param; KIT-IO.BM `KIT_install_textstyles` dead `fh` local). Commit pushed. **ONGOING GUARD: keep every build at 0 warnings — treat any new warning as a defect.**
+## Menu organization (Photoshop / Alien-Skin style)
 
+EFFECTS menu is organized into flyout submenu categories:
+  ADJUST → · STYLIZE → · DISTORT → · PIXELATE → · NOISE → · RENDER →
+  · SHAPE → (Eye Candy Shape) · TEXTURE → (Eye Candy Texture)
+The DRAW menubar is currently FLAT (no nested flyouts) — so submenu support is a
+foundational task that must land before the categories are usable. Until then,
+new effects live under a flat EFFECTS menu and get re-parented into submenus once
+the infra exists.
 
-Branch: `qa-harness-input-improvements-1` (DRAW **and** qa-harness). Derived from the
-code inventory in `.claude/input-inventory/` (01-mouse, 02-keyboard,
-03-regions-zorder-dispatch, 04-render-zorder-seams). Read those before each item.
+- [ ] **Menubar flyout submenus** — extend MENUBAR to render/hit-test one level of
+      nested submenu (parent item opens a child column), then reorganize EFFECTS
+      into ADJUST/STYLIZE/DISTORT/PIXELATE/NOISE/RENDER/SHAPE/TEXTURE. Foundational.
 
-**Rules (every item):** verify OFFSCREEN with the Xvfb harness (no WM — openbox grabs
-Alt+click; read window geom via `xdotool getwindowgeometry --shell`; capture `_LOGINFO`
-via `QB64PE_LOG_*`). Build `make` foreground, 600000ms, `dangerouslyDisableSandbox`.
-Remove all temp diagnostics before committing. **Nothing is done until it is GREEN.**
-Separation of concerns: generic capabilities/lessons → **qa-harness**; DRAW-specific
-inventory/tests/fixes → **DRAW**. Commit + push each item.
+## 🔨 NOW — doing right now
 
-## Group 1 — Harness input primitives (qa-harness repo)
-- [x] H1 · `hover x y` + `mouse_down`/`mouse_up` added to `core/input.sh`; syntax OK, verbs resolve. Commit 462359e, pushed.
-- [x] H2 · `middle_click` added (commit 0afb554).
-- [x] H3 · `with_mods` + `driver_input_key_hold` + conveniences (ctrl/shift/alt click & drag). Order unit-tested. Commit fa794b8.
-- [x] H4 · modifier+wheel conveniences (shift/ctrl scroll_up/down). Commit da8f991, pushed.
-- [x] H5 · `assert_cursor_on_top` helper + z-order/hit-target testing patterns in ARCHITECTURE.md. Commit edc3572, pushed. **Group 1 complete.**
+- [ ] ➡️ Wave 0 · Wire dormant **Sepia** (GJ_IMGADJ_Sepia) — one-shot + EFFECTS menu + QA test
 
-## Group 2 — Unified z-order design (DRAW)
-- [x] Z0 · `.claude/instructions/draw-zorder.md` written — the z-stack tiers + Z1–Z4 plan. Commit.
+## Wave 0 — Activate dormant engine effects (math already implemented + tested)
 
-## Group 3 — Z-order fixes/refactor (DRAW) — each GREEN
-- [x] Z1 · Restored SCRN.CURSOR& top overlay; composited after floating windows in all 3 paths. Cursor-on-preview verified (212px), batch 35/0. Commit 87f65b5, pushed.
-- [x] Z2 · ZORDER_FLOATING=200 tier; Preview/Mixer/Browser moved to it. Hover Preview → REGION_PREVIEW verified. Commit 82fc3e7, pushed.
-- [x] Z3 · Unified floating-window precedence into `BROWSER_owns_mouse%` (front-most gate) + `BROWSER_active_hit%` (spatial) in BROWSER.BM; replaced 4 drifted inline copies at MOUSE.BM 4599/5135/5155/5176 + 5 spatial sites (643/1155/1383/1406/3958). Fixes Preview/Mixer double-grab while Browser drags. Build green; regression 33/0. Commit 9010e73.
-- [x] Z4 · Registered `REGION_CANVAS` as z-stack FLOOR (full screen @ ZORDER_CANVAS) every frame after REGION_clear_all. Fixes dead CTX_OVER_CANVAS + makes `> REGION_CANVAS` correct by construction, not by the canvas being unregistered. Updated stale comments. Build green; regression 31/0 (picker+loupe over canvas still sample layer). Commit fd092b6. **Group 3 (Z1–Z4) complete.**
+- [x] Wire **Gamma** (GJ_IMGADJ_Gamma) — EFFECTS menu + cmd palette + dialog + QA test (effect-gamma.sh)
+- [ ] Wire **Sepia** (GJ_IMGADJ_Sepia) — one-shot + menu + QA test
+- [ ] Wire **Threshold** (GJ_IMGADJ_Threshold) — slider + mode dialog + action + menu + QA test
+- [ ] Wire **Colorize** (GJ_IMGADJ_Colorize) — hue + saturation dialog + action + menu + QA test
+- [ ] Wire **Glow** (GJ_IMGADJ_Glow) — radius + intensity dialog + action + menu + QA test
+- [ ] Wire **Film Grain** (GJ_IMGADJ_FilmGrain) — amount dialog + action + menu + QA test
+- [ ] Wire **Vignette** (GJ_IMGADJ_Vignette) — strength dialog + action + menu + QA test
+- [ ] Wire **Pixel Scaler** (GJ_IMGADJ_PixelScaler, xBR/HQx/MMPX) — mode picker dialog + action + menu + QA test
 
-## Group 4 — Exhaustive input tests (DRAW `QA/tests/`) — each GREEN
-- [x] T1 · `QA/tests/zorder-hit-targets.sh` — 3 invariants, 9 passed/0 failed: A[Z1] cursor renders on top of floating Preview (the reported bug); B[Z2/Z3] click on Preview doesn't leak to toolbar beneath (front-most wins, no double-fire); C[Z4] canvas floor doesn't shadow tools. Also hardened `assert_cursor_on_top` in qa-harness (box size + idle settle). DRAW 6e1ae2e, qa-harness pushed. NOTE: OS arrow over docked chrome isn't capturable offscreen (not a z-order bug); cursor-on-top asserted over the floating Preview only.
-- [x] T2 · `QA/tests/mouse-button-matrix.sh` — 11 passed/0 failed: A LMB(FG paint), B RMB(BG paint, distinct color), C wheel↑/↓(brush size), D MMB drag(pan, made deterministic by zooming in first — was flaky at the pan clamp boundary). Documents QB64 button mapping (X11 btn3→DRAW right, btn2→DRAW middle). Also added `TOOLTIPS_DISABLED=TRUE` to the qa-harness DRAW adapter overrides (cleaner hover diffs). Commit pushed.
-- [x] T3 · `QA/tests/modifier-mouse.sh` — 9 passed/0 failed (deterministic x3): A Ctrl+click sets symmetry center / no paint (+ plain-drag control); B Alt+click invokes eyedrop loupe not brush (color-pick path unit-verified via PICKER_pick_color diagnostic — fires with correct sampled color; deterministic offscreen color diff fights the opaque-black layer, so assert the no-paint interception signature); C Shift+wheel vertical pan (zoomed-in so unclamped). Uses H3/H4 helpers. Commit pushed.
-- [x] T4 · `QA/tests/keyboard-singles.sh` — 20 passed/0 failed: tool-key sweep b→d→l→r→c→m→v→i→f (each moves toolbar highlight ~800-1100px), brush round-trip (0 diff), Esc clean. Keyboard is deterministic — passed first try.
-- [x] T5 · `QA/tests/keyboard-chords.sh` — 11 passed/0 failed (deterministic x3): Ctrl+Z undo, Ctrl+Y redo, Ctrl+Shift+Z redo-alt (all 0-diff round-trips of a stroke), Ctrl+A+Esc non-destructive. Covers Ctrl and Ctrl+Shift modifier tiers on the #1 bug area (HISTORY). Held-key chords (G/M/Z/E/W) already covered by existing chord-*.sh. Commit pushed.
-- [x] T6 · `QA/tests/input-seam-regressions.sh` — 10 passed/0 failed (deterministic x3): A F11 multi-keycode Toggle-All-UI hides chrome (86k px) + exact round-trip; B Ctrl+D double-mapping resolves to 307 Deselect not 518 Default Colors (marquee raised by Ctrl+A is removed by Ctrl+D at the canvas corner); C backtick 412 toggles brush cursor overlay. **Group 4 complete (T1–T6 all green).**
+## Wave 1 — Tier-1 pixel-art effects (new engine)
 
-## Group 5 — Docs (DRAW)
-- [x] D1 · Updated `.claude/instructions/draw-zorder.md` (plan→as-built: SCRN.CURSOR& overlay, ZORDER_FLOATING, BROWSER_owns_mouse%/BROWSER_active_hit%, REGION_CANVAS floor, offscreen-QA notes), `draw-mouse.md` (floating-window precedence section), `draw-rendering.md` (cursor-on-top invariant), CLAUDE.md (instruction table). No binding CHANGED (Ctrl+D already Deselect — that was a latent-mapping verification, not a change), so CHEATSHEET.md needs no edit. Commit pushed.
+- [ ] **Outline / Stroke** — alpha-based border (inside/outside/center, thickness, color) + dialog + menu + QA test
+- [ ] **Edge Detect (Sobel)** — luminance gradient → line art + dialog + menu + QA test
+- [ ] **Gradient Map** — map luminance to a 2-color ramp (later: palette ramp) + dialog + menu + QA test
+- [ ] **Grow / Shrink (Dilate/Erode)** — alpha morphology, N px + dialog + menu + QA test
 
-## Group 6 — Green gate
-- [x] G1 · Ran the FULL 109-test suite fresh offscreen: **1047 passed / 5 failed / 1 skipped**. All 6 new input suites (T1–T6) GREEN. **Zero regressions from this branch** — verified by checking out base `240600a`, rebuilding, and reproducing every failure there. The 5 fails: (1) my `TOOLTIPS_DISABLED` override broke `layer-group-draw-guard` (asserts a tooltip) → reverted, now passes; (2–5) **pre-existing layer-group bugs on main** (`layer-group-auto-layer` ×2 auto-add-paint "refused"; `layer-groups` "move group down" ×1 consistent; `layer-groups` redo ×1 flaky) — all fail identically on the base, unrelated to input/z-order. Counts recorded in report. **These pre-existing layer-group failures are OUT OF SCOPE for the input-QA/z-order mission and left for a separate effort (surfaced to Rick).** Both repos committed + pushed.
+## Wave 2 — Retro / stylize (new engine)
+
+- [ ] **Chromatic Aberration** — per-channel XY offset + dialog + menu + QA test
+- [ ] **Emboss / Bevel** — directional convolution relief + dialog + menu + QA test
+- [ ] **Solarize** — partial invert above threshold + dialog + menu + QA test
+- [ ] **Duotone / Tritone** — map tones to 2–3 chosen colors + dialog + menu + QA test
+- [ ] **Drop Shadow** — flat: offset alpha silhouette + blur + color + dialog + menu + QA test
+- [ ] **Perspective / 3D Shadow** — angled cast shadow (light direction, length, fade) — the "long shadow" look + dialog + menu + QA test
+
+## Wave 2b — Layer Styles (Alien Skin / Eye Candy feel)
+
+- [ ] **Bevel (light-angle)** — rich bevel: light angle, height, softness, highlight/shadow color + dialog + menu + QA test
+- [ ] **Outer Glow** — colored glow radiating outside alpha edges + dialog + menu + QA test
+- [ ] **Inner Glow** — colored glow inside alpha edges + dialog + menu + QA test
+- [ ] **Chrome / Metallic** — gradient-mapped bevel for a shiny metal look + dialog + menu + QA test
+
+## Wave 3 — Distort filters (one-shot, whole layer)
+
+- [ ] **Wave / Ripple** — sinusoidal displacement + dialog + menu + QA test
+- [ ] **Twirl** — angular swirl around center + dialog + menu + QA test
+- [ ] **Pinch / Bulge (Spherize)** — radial displacement + dialog + menu + QA test
+
+## Wave 4 — Photoshop Pixelate / Stylize family (new engine)
+
+- [ ] **Crystallize** — Voronoi cells, average color per cell + dialog + menu + QA test
+- [ ] **Stained Glass** — Voronoi + dark cell borders (shares crystallize engine) + dialog + menu + QA test
+- [ ] **Mosaic / Tessellate** — regular polygon tiling, average color + dialog + menu + QA test
+- [ ] **Extrude** — 3D block/pyramid tiles from cell brightness + dialog + menu + QA test
+- [ ] **Pointillize** — random dots on background color + dialog + menu + QA test
+- [ ] **Wind** — directional streaking of edges + dialog + menu + QA test
+
+## Wave 5 — Render / generative (fill a layer; no source needed)
+
+- [ ] **Clouds** — plasma/Perlin noise in FG↔BG colors + dialog + menu + QA test
+- [ ] **Difference Clouds** — clouds blended via difference with existing pixels + menu + QA test
+- [ ] **Lens Flare** — bright core + halo rings + streaks at a point + dialog + menu + QA test
+- [ ] **Terrain** — diamond-square fractal heightmap → color ramp + dialog + menu + QA test
+
+## Wave 5b — Noise (render / filter)
+
+- [ ] **Add Noise** — Gaussian + Uniform, mono/color, amount + dialog + menu + QA test
+- [ ] **Median / Despeckle** — 3×3 median denoise (removes speckle, keeps edges) + dialog + menu + QA test
+- [ ] **Reduce Noise / Dust & Scratches** — thresholded median cleanup + dialog + menu + QA test
+
+## Wave 5c — Render: Grid & Sky
+
+- [ ] **Render Grid** — configurable grid: cell shape (square/hex/triangle/lines),
+      spacing, line color/width, + perspective/vanishing-point mode + dialog + menu + QA test
+- [ ] **Render Sky** — procedural sky: mode (day/night/space), gradient horizon,
+      stars, optional planets/moon + dialog + menu + QA test
+
+## Wave 7 — Eye Candy: SHAPE → submenu
+
+- [ ] **Backlight** — rays/light burst behind the shape from a point + dialog + QA test
+- [ ] **Bevel (Eye Candy)** — covered by Wave 2b Bevel; add SHAPE-menu entry
+- [ ] **Chrome** — covered by Wave 2b Chrome/Metallic; add SHAPE-menu entry
+- [ ] **Corona** — soft eclipse-style ring glow around alpha edges + dialog + QA test
+- [ ] **Drip** — liquid drips hanging off the bottom of shapes + dialog + QA test
+- [ ] **Electrify** — jagged lightning tendrils around edges + dialog + QA test
+- [ ] **Extrude** — covered by Wave 4 Extrude; add SHAPE-menu entry
+- [ ] **Fire** — flame render rising from the shape (gradient + noise) + dialog + QA test
+- [ ] **Glass** — refractive glassy shading + highlight + dialog + QA test
+- [ ] **Glow (Outer/Inner)** — covered by Wave 2b; add SHAPE-menu entries
+- [ ] **Icicles** — ice spikes hanging off the bottom edge + dialog + QA test
+- [ ] **Motion Trail** — directional smeared copies (speed blur) + dialog + QA test
+- [ ] **Rust** — corroded noise overlay masked to shape + dialog + QA test
+- [ ] **Shadow** — covered by Wave 2 Drop/Perspective Shadow; add SHAPE-menu entry
+- [ ] **Smoke** — wispy smoke render rising from shape (noise plume) + dialog + QA test
+- [ ] **Snow** — snow cap on top edges + falling flecks + dialog + QA test
+- [ ] **Cutout** — inset shadow so shape looks punched through the layer + dialog + QA test
+- [ ] **Jiggle / Water Drops** — bubble/droplet displacement bumps + dialog + QA test
+
+## Wave 8 — Eye Candy: TEXTURE → submenu (procedural fills / overlays)
+
+- [ ] **Animal Fur** — directional furry noise + dialog + QA test
+- [ ] **Brick Wall** — brick tiling with mortar + color jitter + dialog + QA test
+- [ ] **Brushed Metal** — anisotropic horizontal streak noise + dialog + QA test
+- [ ] **Clouds (texture)** — covered by Wave 5 Clouds; add TEXTURE-menu entry
+- [ ] **Diamond Plate** — tromp-l'oeil metal tread pattern + dialog + QA test
+- [ ] **Lightning** — branching bolt between two points + dialog + QA test
+- [ ] **Marble** — turbulence-veined marble (perlin + sine) + dialog + QA test
+- [ ] **Reptile Skin** — scale cell pattern (Voronoi + shading) + dialog + QA test
+- [ ] **Ripples** — concentric water ripple displacement + dialog + QA test
+- [ ] **Stone Wall** — irregular stone tiling with mortar + dialog + QA test
+- [ ] **Swirl** — covered by Wave 3 Twirl; add TEXTURE-menu entry
+- [ ] **Texture Noise / HSB Noise** — per-channel/HSB noise overlay + dialog + QA test
+- [ ] **Water Drops** — refractive droplet bumps scattered over layer + dialog + QA test
+- [ ] **Weave** — over/under basket-weave pattern + dialog + QA test
+- [ ] **Wood** — concentric wood-grain rings + grain noise + dialog + QA test
+
+## Wave 6 — Liquify tool ("Kai's Power Goo") — big, own design pass
+
+- [ ] **TOOL_LIQUIFY** scaffold — BI/BM, CONST, _ALL chains, tool button, keybind, tool-switch reset, undo snapshot
+- [ ] **Liquify: Push/Smudge (move)** — drag displaces pixels along cursor motion (radius + strength)
+- [ ] **Liquify: Pinch / Bulge** — radial squeeze/expand under cursor
+- [ ] **Liquify: Twirl** — rotational warp under cursor (CW/CCW)
+- [ ] Liquify live preview + commit-to-history + QA test (best-effort; interactive tool)
+
+## Wrap-up
+
+- [ ] Update CHEATSHEET.md + docs (new Image/Render menu entries, Liquify tool + hotkey)
+- [ ] Full suite QA run (`cd QA && ./draw-qa.sh`) green; final clean build; open PR to main
