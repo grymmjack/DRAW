@@ -516,6 +516,150 @@ END FUNCTION
 
 
 ''
+' Inner Glow — a coloured glow that fades inward from the shape's alpha edges.
+' For each opaque pixel, distance-to-edge d (clamped to `radius`) gives a factor
+' (1 at the edge, 0 at radius inward); glowColor is blended over the original by
+' factor * intensity. RGB-only (glow lives inside opaque pixels) -> apply_to_layer.
+'
+' @param sourceImg LONG           Source image (32-bit, with alpha)
+' @param radius    INTEGER        Inward reach in px (1..16)
+' @param intensity INTEGER        Blend strength (1..5)
+' @param glowColor _UNSIGNED LONG Glow colour
+' @return LONG  New inner-glow image handle
+'
+FUNCTION IMAGE_ADJ_innerglow& (sourceImg AS LONG, radius AS INTEGER, intensity AS INTEGER, glowColor AS _UNSIGNED LONG)
+    IF NOT (sourceImg& < -1) THEN IMAGE_ADJ_innerglow& = 0 : EXIT FUNCTION
+
+    DIM igW AS LONG, igH AS LONG
+    igW& = _WIDTH(sourceImg&) : igH& = _HEIGHT(sourceImg&)
+    DIM result AS LONG
+    result& = _COPYIMAGE(sourceImg&, 32)
+
+    DIM srcM AS _MEM, resM AS _MEM
+    srcM = _MEMIMAGE(sourceImg&)
+    resM = _MEMIMAGE(result&)
+
+    DIM gR AS INTEGER, gG AS INTEGER, gB AS INTEGER
+    gR% = _RED32(glowColor~&) : gG% = _GREEN32(glowColor~&) : gB% = _BLUE32(glowColor~&)
+
+    DIM ix AS LONG, iy AS LONG, dx AS INTEGER, dy AS INTEGER
+    DIM aHere AS _UNSIGNED _BYTE, aN AS _UNSIGNED _BYTE
+    DIM nx AS LONG, ny AS LONG, dist AS INTEGER, curD AS INTEGER
+    DIM fac AS SINGLE, px AS _UNSIGNED LONG
+    DIM nR AS INTEGER, nG AS INTEGER, nB AS INTEGER   ' output RGB (gg would collide with gG, case-insensitive)
+
+    FOR iy& = 0 TO igH& - 1
+        FOR ix& = 0 TO igW& - 1
+            _MEMGET srcM, srcM.OFFSET + (iy& * igW& + ix&) * 4 + 3, aHere~%%
+            IF aHere~%% = 0 THEN _CONTINUE
+
+            dist% = radius% + 1
+            FOR dy% = -radius% TO radius%
+                ny& = iy& + dy%
+                FOR dx% = -radius% TO radius%
+                    curD% = ABS(dx%) : IF ABS(dy%) > curD% THEN curD% = ABS(dy%)
+                    IF curD% < dist% THEN
+                        nx& = ix& + dx%
+                        IF nx& < 0 OR ny& < 0 OR nx& >= igW& OR ny& >= igH& THEN
+                            dist% = curD%
+                        ELSE
+                            _MEMGET srcM, srcM.OFFSET + (ny& * igW& + nx&) * 4 + 3, aN~%%
+                            IF aN~%% = 0 THEN dist% = curD%
+                        END IF
+                    END IF
+                NEXT dx%
+            NEXT dy%
+
+            IF dist% <= radius% THEN
+                fac! = (radius% - dist% + 1) / (radius% + 0.0) * (intensity% / 3.0)
+                IF fac! > 1.0 THEN fac! = 1.0
+                _MEMGET srcM, srcM.OFFSET + (iy& * igW& + ix&) * 4, px~&
+                nR% = _RED32(px~&) + (gR% - _RED32(px~&)) * fac!
+                nG% = _GREEN32(px~&) + (gG% - _GREEN32(px~&)) * fac!
+                nB% = _BLUE32(px~&) + (gB% - _BLUE32(px~&)) * fac!
+                _MEMPUT resM, resM.OFFSET + (iy& * igW& + ix&) * 4, _RGB32(nR%, nG%, nB%) AS _UNSIGNED LONG
+            END IF
+        NEXT ix&
+    NEXT iy&
+
+    _MEMFREE srcM
+    _MEMFREE resM
+    IMAGE_ADJ_innerglow& = result&
+END FUNCTION
+
+
+''
+' Open a modal Inner Glow dialog: RADIUS (1..16) + INTENSITY (1..5). Glow colour
+' is the current FG colour. RGB-only -> apply_to_layer.
+'
+SUB IMAGE_ADJ_innerglow_dialog ()
+    IF CURRENT_LAYER% < 1 THEN EXIT SUB
+
+    DIM ctx AS DIALOG_CTX
+    DIALOG_init ctx, IMGDLG_W, 140
+    IMAGE_ADJ_setup_preview ctx, LAYERS(CURRENT_LAYER%).imgHandle&
+
+    DIM radius AS INTEGER : radius% = 5
+    DIM inten  AS INTEGER : inten%  = 3
+    DIM oRadius AS INTEGER, oInten AS INTEGER
+
+    DIM k AS LONG
+    DO
+        DIALOG_poll_mouse ctx
+        IF ctx.loupeDirty% THEN IMAGE_ADJ_update_loupe ctx
+        k& = _KEYHIT
+        IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
+        IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
+
+        oRadius% = radius% : oInten% = inten%
+        radius% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, radius%, 1, 16)
+        radius% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, radius%, 1, 16)
+        inten%  = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, inten%, 1, 5)
+        inten%  = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, inten%, 1, 5)
+        IF radius% <> oRadius% OR inten% <> oInten% THEN ctx.previewDirty% = TRUE
+        IMGDLG_check_ok_cancel ctx
+
+        IF ctx.previewDirty% THEN
+            SAFE_FREEIMAGE ctx.previewThumb
+            ctx.previewThumb = IMAGE_ADJ_innerglow&(ctx.origThumb, radius%, inten%, PAINT_COLOR~&)
+            IMAGE_ADJ_mask_preview ctx
+            ctx.previewDirty% = FALSE
+        END IF
+
+        _DEST ctx.imgHandle
+        DIALOG_draw_frame ctx, "INNER GLOW"
+        DIALOG_draw_preview ctx
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "RADIUS:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, radius%, 1, 16, "", ""
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 1), "INTENSITY:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, inten%, 1, 5, "", ""
+        DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
+        IMGDLG_draw_ok_cancel ctx
+        DIALOG_blit ctx
+    LOOP UNTIL ctx.done%
+
+    IF ctx.result% THEN
+        DIM igTargets(1 TO MAX_LAYERS) AS INTEGER, igTgtCount AS INTEGER, igT AS INTEGER
+        DIM igSaveCL AS INTEGER
+        IMAGE_ADJ_collect_targets igTargets%(), igTgtCount%
+        igSaveCL% = CURRENT_LAYER%
+        IF igTgtCount% > 1 THEN HISTORY_begin_group
+        DIM adjR     AS LONG
+        FOR igT% = 1 TO igTgtCount%
+            CURRENT_LAYER% = igTargets%(igT%)
+            adjR&          = IMAGE_ADJ_innerglow&(LAYERS(CURRENT_LAYER%).imgHandle&, radius%, inten%, PAINT_COLOR~&)
+            IMAGE_ADJ_apply_to_layer adjR&, "Inner Glow"
+        NEXT igT%
+        IF igTgtCount% > 1 THEN HISTORY_end_group
+        CURRENT_LAYER% = igSaveCL%
+    END IF
+
+    DIALOG_cleanup ctx
+    SAFE_FREEIMAGE IMGADJ_LAYER_MASK& : IMGADJ_LAYER_MASK& = 0
+END SUB
+
+
+''
 ' Outer Glow — a soft coloured halo radiating outside the shape's alpha edges.
 ' Builds a silhouette in glowColor, blurs it by `radius` so it spreads outward,
 ' boosts the spread alpha by `intensity`, and composites the original on top.
