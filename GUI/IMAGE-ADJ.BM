@@ -516,6 +516,146 @@ END FUNCTION
 
 
 ''
+' Value-noise helper for the render effects. Deterministic (integer hash of the
+' lattice cell, smoothstep-interpolated) so previews are reproducible. Returns
+' 0..1 for lattice coords (fx, fy) with the given integer seed.
+'
+FUNCTION IMGADJ_valnoise! (fx AS SINGLE, fy AS SINGLE, seed AS INTEGER)
+    DIM ix AS LONG, iy AS LONG
+    DIM tx AS SINGLE, ty AS SINGLE
+    ix& = INT(fx!) : iy& = INT(fy!)
+    tx! = fx! - ix& : ty! = fy! - iy&
+    tx! = tx! * tx! * (3.0 - 2.0 * tx!)   ' smoothstep
+    ty! = ty! * ty! * (3.0 - 2.0 * ty!)
+    DIM h00 AS LONG, h10 AS LONG, h01 AS LONG, h11 AS LONG
+    h00& = ((ix& * 73856093) XOR (iy& * 19349663) XOR (seed% * 83492791)) AND 65535
+    h10& = (((ix& + 1) * 73856093) XOR (iy& * 19349663) XOR (seed% * 83492791)) AND 65535
+    h01& = ((ix& * 73856093) XOR ((iy& + 1) * 19349663) XOR (seed% * 83492791)) AND 65535
+    h11& = (((ix& + 1) * 73856093) XOR ((iy& + 1) * 19349663) XOR (seed% * 83492791)) AND 65535
+    DIM v0 AS SINGLE, v1 AS SINGLE
+    v0! = (h00& / 65535.0) * (1.0 - tx!) + (h10& / 65535.0) * tx!
+    v1! = (h01& / 65535.0) * (1.0 - tx!) + (h11& / 65535.0) * tx!
+    IMGADJ_valnoise! = v0! * (1.0 - ty!) + v1! * ty!
+END FUNCTION
+
+
+''
+' Clouds — fill the layer with fractal plasma noise mapped along a BG..FG ramp
+' (3 octaves of value noise). Generative: ignores existing content and fills
+' opaque, so commit via apply_spatial.
+'
+' @param sourceImg LONG           Source image (used only for dimensions)
+' @param loColor   _UNSIGNED LONG Low end of the ramp
+' @param hiColor   _UNSIGNED LONG High end of the ramp
+' @param scaleP    INTEGER        Base feature size in px (8..64)
+' @return LONG  New opaque cloud image handle
+'
+FUNCTION IMAGE_ADJ_clouds& (sourceImg AS LONG, loColor AS _UNSIGNED LONG, hiColor AS _UNSIGNED LONG, scaleP AS INTEGER)
+    IF NOT (sourceImg& < -1) THEN IMAGE_ADJ_clouds& = 0 : EXIT FUNCTION
+    IF scaleP% < 4 THEN scaleP% = 4
+
+    DIM clW AS LONG, clH AS LONG
+    clW& = _WIDTH(sourceImg&) : clH& = _HEIGHT(sourceImg&)
+    DIM result AS LONG
+    result& = _NEWIMAGE(clW&, clH&, 32)
+    DIM resM AS _MEM : resM = _MEMIMAGE(result&)
+
+    DIM clLoR AS INTEGER, clLoG AS INTEGER, clLoB AS INTEGER
+    DIM clHiR AS INTEGER, clHiG AS INTEGER, clHiB AS INTEGER
+    clLoR% = _RED32(loColor~&) : clLoG% = _GREEN32(loColor~&) : clLoB% = _BLUE32(loColor~&)
+    clHiR% = _RED32(hiColor~&) : clHiG% = _GREEN32(hiColor~&) : clHiB% = _BLUE32(hiColor~&)
+
+    DIM cx AS LONG, cy AS LONG
+    DIM nv AS SINGLE, fr AS SINGLE, amp AS SINGLE, amax AS SINGLE
+    DIM oct AS INTEGER, cr AS INTEGER, cg AS INTEGER, cb AS INTEGER
+    FOR cy& = 0 TO clH& - 1
+        FOR cx& = 0 TO clW& - 1
+            nv! = 0.0 : fr! = 1.0 / scaleP% : amp! = 1.0 : amax! = 0.0
+            FOR oct% = 0 TO 2
+                nv! = nv! + IMGADJ_valnoise!(cx& * fr!, cy& * fr!, oct% + 1) * amp!
+                amax! = amax! + amp!
+                amp! = amp! * 0.5 : fr! = fr! * 2.0
+            NEXT oct%
+            nv! = nv! / amax!
+            cr% = clLoR% + (clHiR% - clLoR%) * nv!
+            cg% = clLoG% + (clHiG% - clLoG%) * nv!
+            cb% = clLoB% + (clHiB% - clLoB%) * nv!
+            _MEMPUT resM, resM.OFFSET + (cy& * clW& + cx&) * 4, _RGBA32(cr%, cg%, cb%, 255) AS _UNSIGNED LONG
+        NEXT cx&
+    NEXT cy&
+
+    _MEMFREE resM
+    IMAGE_ADJ_clouds& = result&
+END FUNCTION
+
+
+''
+' Open a modal Clouds dialog: single SCALE slider (8..64). Ramp = BG..FG.
+' Generative fill -> apply_spatial.
+'
+SUB IMAGE_ADJ_clouds_dialog ()
+    IF CURRENT_LAYER% < 1 THEN EXIT SUB
+
+    DIM ctx AS DIALOG_CTX
+    DIALOG_init ctx, IMGDLG_W, 110
+    IMAGE_ADJ_setup_preview ctx, LAYERS(CURRENT_LAYER%).imgHandle&
+
+    DIM scl AS INTEGER : scl% = 24
+    DIM oScl AS INTEGER
+
+    DIM k AS LONG
+    DO
+        DIALOG_poll_mouse ctx
+        IF ctx.loupeDirty% THEN IMAGE_ADJ_update_loupe ctx
+        k& = _KEYHIT
+        IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
+        IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
+
+        oScl% = scl%
+        scl% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, scl%, 8, 64)
+        scl% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, scl%, 8, 64)
+        IF scl% <> oScl% THEN ctx.previewDirty% = TRUE
+        IMGDLG_check_ok_cancel ctx
+
+        IF ctx.previewDirty% THEN
+            SAFE_FREEIMAGE ctx.previewThumb
+            ctx.previewThumb = IMAGE_ADJ_clouds&(ctx.origThumb, PAINT_BG_COLOR~&, PAINT_COLOR~&, scl%)
+            IMAGE_ADJ_mask_preview ctx
+            ctx.previewDirty% = FALSE
+        END IF
+
+        _DEST ctx.imgHandle
+        DIALOG_draw_frame ctx, "CLOUDS"
+        DIALOG_draw_preview ctx
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "SCALE:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, scl%, 8, 64, "", ""
+        DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
+        IMGDLG_draw_ok_cancel ctx
+        DIALOG_blit ctx
+    LOOP UNTIL ctx.done%
+
+    IF ctx.result% THEN
+        DIM clTargets(1 TO MAX_LAYERS) AS INTEGER, clTgtCount AS INTEGER, clT AS INTEGER
+        DIM clSaveCL AS INTEGER
+        IMAGE_ADJ_collect_targets clTargets%(), clTgtCount%
+        clSaveCL% = CURRENT_LAYER%
+        IF clTgtCount% > 1 THEN HISTORY_begin_group
+        DIM adjR     AS LONG
+        FOR clT% = 1 TO clTgtCount%
+            CURRENT_LAYER% = clTargets%(clT%)
+            adjR&          = IMAGE_ADJ_clouds&(LAYERS(CURRENT_LAYER%).imgHandle&, PAINT_BG_COLOR~&, PAINT_COLOR~&, scl%)
+            IMAGE_ADJ_apply_spatial adjR&, "Clouds"
+        NEXT clT%
+        IF clTgtCount% > 1 THEN HISTORY_end_group
+        CURRENT_LAYER% = clSaveCL%
+    END IF
+
+    DIALOG_cleanup ctx
+    SAFE_FREEIMAGE IMGADJ_LAYER_MASK& : IMGADJ_LAYER_MASK& = 0
+END SUB
+
+
+''
 ' Wind — horizontal streaking from vertical edges (the Photoshop "wind" look).
 ' Scanning each row, where the luminance jumps between neighbouring pixels the
 ' edge colour is smeared rightward for up to `strength` px with a linear fade.

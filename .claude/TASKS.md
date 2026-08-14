@@ -22,7 +22,7 @@ the infra exists.
 
 ## 🔨 NOW — doing right now
 
-- [ ] ➡️ Wave 5 · **Clouds** — plasma noise in FG/BG colours + dialog + EFFECTS menu + QA test
+- [ ] ➡️ Wave 5 · **Difference Clouds** — clouds difference-blended with existing pixels + EFFECTS menu + QA test
 
 <!-- Menu-overflow plan: the flat EFFECTS dropdown auto-scrolls past ~41 items
      (availH = SCRN.h - subY, 12px/item). At 25 items now; Waves 4/5/5b/5c (15
@@ -89,7 +89,7 @@ the infra exists.
 
 ## Wave 5 — Render / generative (fill a layer; no source needed)
 
-- [ ] **Clouds** — plasma/Perlin noise in FG↔BG colors + dialog + menu + QA test
+- [x] **Clouds** — 3-octave value-noise plasma mapped BG..FG, SCALE 8-64, generative (apply_spatial) + menu + QA test (effect-clouds.sh). NEW engines IMGADJ_valnoise! + IMAGE_ADJ_clouds&.
 - [ ] **Difference Clouds** — clouds blended via difference with existing pixels + menu + QA test
 - [ ] **Lens Flare** — bright core + halo rings + streaks at a point + dialog + menu + QA test
 - [ ] **Terrain** — diamond-square fractal heightmap → color ramp + dialog + menu + QA test
