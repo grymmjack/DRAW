@@ -31,6 +31,7 @@ TYPE MOVE_OBJ
     CLONING         AS INTEGER        ' Whether ALT is held (clone mode)
     IS_PASTE        AS INTEGER        ' TRUE when this move session is a paste — forces clone mode regardless of ALT so committing never clears the layer (paste must never erase existing pixels)
     CLONE_STAMPED   AS INTEGER        ' TRUE if any stamp was placed in this move session
+    CONTENT_FLIPPED AS INTEGER        ' TRUE if the float was flipped in place (H/V) — content changed but X/Y/W/H did not, so MOVE_apply_transform must NOT no-op the commit
     CONSTRAIN       AS INTEGER        ' Whether SHIFT is held (constrain proportions)
     CAPTURED_LAYER  AS INTEGER        ' Layer index that was captured (ensures apply targets correct layer)
     ORIGINAL_IMAGE  AS LONG           ' Preserved original image for lossless re-scaling
