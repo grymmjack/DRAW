@@ -597,6 +597,133 @@ END FUNCTION
 
 
 ''
+' Gradient Map — remap each pixel by its luminance along a two-colour ramp:
+' luminance 0 -> loColor, 255 -> hiColor, linear between. Classic pixel-art
+' recolour (e.g. dark-teal -> bright-yellow). Original alpha preserved
+' (apply_to_layer). Uses the BG colour as the shadow end and FG as the highlight.
+'
+' @param sourceImg LONG           Source image (32-bit)
+' @param loColor   _UNSIGNED LONG Colour mapped to luminance 0
+' @param hiColor   _UNSIGNED LONG Colour mapped to luminance 255
+' @return LONG  New recoloured image handle
+'
+FUNCTION IMAGE_ADJ_gradientmap& (sourceImg AS LONG, loColor AS _UNSIGNED LONG, hiColor AS _UNSIGNED LONG)
+    IF NOT (sourceImg& < -1) THEN IMAGE_ADJ_gradientmap& = 0 : EXIT FUNCTION
+
+    DIM result AS LONG
+    result& = _COPYIMAGE(sourceImg&, 32)
+    DIM srcM AS _MEM, resM AS _MEM
+    srcM = _MEMIMAGE(sourceImg&)
+    resM = _MEMIMAGE(result&)
+
+    ' --- precompute the 256-entry ramp ---
+    DIM gmLoR AS INTEGER, gmLoG AS INTEGER, gmLoB AS INTEGER
+    DIM gmHiR AS INTEGER, gmHiG AS INTEGER, gmHiB AS INTEGER
+    gmLoR% = _RED32(loColor~&) : gmLoG% = _GREEN32(loColor~&) : gmLoB% = _BLUE32(loColor~&)
+    gmHiR% = _RED32(hiColor~&) : gmHiG% = _GREEN32(hiColor~&) : gmHiB% = _BLUE32(hiColor~&)
+    DIM rampR(0 TO 255) AS _UNSIGNED _BYTE, rampG(0 TO 255) AS _UNSIGNED _BYTE, rampB(0 TO 255) AS _UNSIGNED _BYTE
+    DIM j AS INTEGER
+    DIM tt AS SINGLE
+    FOR j% = 0 TO 255
+        tt! = j% / 255.0
+        rampR(j%) = gmLoR% + INT((gmHiR% - gmLoR%) * tt!)
+        rampG(j%) = gmLoG% + INT((gmHiG% - gmLoG%) * tt!)
+        rampB(j%) = gmLoB% + INT((gmHiB% - gmLoB%) * tt!)
+    NEXT j%
+
+    DIM i AS LONG, px AS _UNSIGNED LONG, lumv AS INTEGER
+    FOR i& = 0 TO srcM.SIZE - 4 STEP 4
+        _MEMGET srcM, srcM.OFFSET + i&, px~&
+        lumv% = (_RED32(px~&) * 30 + _GREEN32(px~&) * 59 + _BLUE32(px~&) * 11) \ 100
+        _MEMPUT resM, resM.OFFSET + i&, _RGB32(rampR(lumv%), rampG(lumv%), rampB(lumv%)) AS _UNSIGNED LONG
+    NEXT i&
+
+    _MEMFREE srcM
+    _MEMFREE resM
+    IMAGE_ADJ_gradientmap& = result&
+END FUNCTION
+
+
+''
+' Open a modal Gradient Map dialog. The ramp runs BG colour (shadows) -> FG
+' colour (highlights); a SWAP toggle flips the two ends. Live loupe; undo on OK.
+'
+SUB IMAGE_ADJ_gradientmap_dialog ()
+    IF CURRENT_LAYER% < 1 THEN EXIT SUB
+
+    DIM ctx AS DIALOG_CTX
+    DIALOG_init ctx, IMGDLG_W, 96
+    IMAGE_ADJ_setup_preview ctx, LAYERS(CURRENT_LAYER%).imgHandle&
+
+    STATIC swapEnds AS INTEGER
+    DIM gmLoC AS _UNSIGNED LONG, gmHiC AS _UNSIGNED LONG
+
+    DIM svX AS INTEGER, svY AS INTEGER, svW AS INTEGER, svH AS INTEGER
+    svX% = IMGDLG_SX : svW% = 160 : svH% = 16
+    svY% = 24 + ctx.prevH + 6
+
+    DIM k AS LONG
+    DO
+        DIALOG_poll_mouse ctx
+        IF ctx.loupeDirty% THEN IMAGE_ADJ_update_loupe ctx
+        k& = _KEYHIT
+        IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
+        IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
+
+        IF DIALOG_hit%(ctx, svX%, svY%, svW%, svH%) THEN
+            swapEnds%         = (swapEnds% = 0)
+            ctx.previewDirty% = TRUE
+        END IF
+        IMGDLG_check_ok_cancel ctx
+
+        IF ctx.previewDirty% THEN
+            IF swapEnds% THEN
+                gmLoC~& = PAINT_COLOR~& : gmHiC~& = PAINT_BG_COLOR~&
+            ELSE
+                gmLoC~& = PAINT_BG_COLOR~& : gmHiC~& = PAINT_COLOR~&
+            END IF
+            SAFE_FREEIMAGE ctx.previewThumb
+            ctx.previewThumb = IMAGE_ADJ_gradientmap&(ctx.origThumb, gmLoC~&, gmHiC~&)
+            IMAGE_ADJ_mask_preview ctx
+            ctx.previewDirty% = FALSE
+        END IF
+
+        _DEST ctx.imgHandle
+        DIALOG_draw_frame ctx, "GRADIENT MAP"
+        DIALOG_draw_preview ctx
+        DIALOG_draw_toggle ctx, svX%, svY%, svW%, svH%, "SWAP (BG->FG RAMP)", swapEnds%
+        DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
+        IMGDLG_draw_ok_cancel ctx
+        DIALOG_blit ctx
+    LOOP UNTIL ctx.done%
+
+    IF ctx.result% THEN
+        IF swapEnds% THEN
+            gmLoC~& = PAINT_COLOR~& : gmHiC~& = PAINT_BG_COLOR~&
+        ELSE
+            gmLoC~& = PAINT_BG_COLOR~& : gmHiC~& = PAINT_COLOR~&
+        END IF
+        DIM gmTargets(1 TO MAX_LAYERS) AS INTEGER, gmTgtCount AS INTEGER, gmT AS INTEGER
+        DIM gmSaveCL AS INTEGER
+        IMAGE_ADJ_collect_targets gmTargets%(), gmTgtCount%
+        gmSaveCL% = CURRENT_LAYER%
+        IF gmTgtCount% > 1 THEN HISTORY_begin_group
+        DIM adjR     AS LONG
+        FOR gmT% = 1 TO gmTgtCount%
+            CURRENT_LAYER% = gmTargets%(gmT%)
+            adjR&          = IMAGE_ADJ_gradientmap&(LAYERS(CURRENT_LAYER%).imgHandle&, gmLoC~&, gmHiC~&)
+            IMAGE_ADJ_apply_to_layer adjR&, "Gradient Map"
+        NEXT gmT%
+        IF gmTgtCount% > 1 THEN HISTORY_end_group
+        CURRENT_LAYER% = gmSaveCL%
+    END IF
+
+    DIALOG_cleanup ctx
+    SAFE_FREEIMAGE IMGADJ_LAYER_MASK& : IMGADJ_LAYER_MASK& = 0
+END SUB
+
+
+''
 ' Edge Detect (Sobel) — luminance-gradient line art. Builds a luminance map,
 ' convolves the 3x3 Sobel Gx/Gy kernels, and writes the gradient magnitude as a
 ' greyscale image (flat areas -> black, edges -> white). STRENGTH scales the
