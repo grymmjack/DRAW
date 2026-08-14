@@ -516,6 +516,129 @@ END FUNCTION
 
 
 ''
+' Long Shadow (perspective / 3D) — cast a solid diagonal shadow trail down-right
+' from the shape (light from the upper-left). A pixel becomes shadow if any of
+' the `length` cells up-left of it on the diagonal is opaque; the original is
+' composited on top. The trendy flat "long shadow" look. apply_spatial.
+'
+' @param sourceImg LONG           Source image (32-bit, with alpha)
+' @param length    INTEGER        Shadow length in px along the diagonal (1..40)
+' @param shColor   _UNSIGNED LONG Shadow colour
+' @return LONG  New composited image handle
+'
+FUNCTION IMAGE_ADJ_longshadow& (sourceImg AS LONG, length AS INTEGER, shColor AS _UNSIGNED LONG)
+    IF NOT (sourceImg& < -1) THEN IMAGE_ADJ_longshadow& = 0 : EXIT FUNCTION
+
+    DIM lsW AS LONG, lsH AS LONG
+    lsW& = _WIDTH(sourceImg&) : lsH& = _HEIGHT(sourceImg&)
+
+    DIM shadow AS LONG
+    shadow& = _NEWIMAGE(lsW&, lsH&, 32)
+    DIM oldDest AS LONG : oldDest& = _DEST
+    _DEST shadow& : _DONTBLEND shadow& : CLS , _RGBA32(0, 0, 0, 0) : _DEST oldDest&
+
+    DIM srcM AS _MEM, shM AS _MEM
+    srcM = _MEMIMAGE(sourceImg&)
+    shM = _MEMIMAGE(shadow&)
+    DIM shOpaque AS _UNSIGNED LONG
+    shOpaque~& = _RGBA32(_RED32(shColor~&), _GREEN32(shColor~&), _BLUE32(shColor~&), 255)
+
+    DIM lx AS LONG, ly AS LONG, k AS INTEGER, ux AS LONG, uy AS LONG
+    DIM selfA AS _UNSIGNED _BYTE, upA AS _UNSIGNED _BYTE, hitS AS INTEGER
+    FOR ly& = 0 TO lsH& - 1
+        FOR lx& = 0 TO lsW& - 1
+            _MEMGET srcM, srcM.OFFSET + (ly& * lsW& + lx&) * 4 + 3, selfA~%%
+            IF selfA~%% <> 0 THEN _CONTINUE   ' opaque pixels keep original (composited later)
+            hitS% = 0
+            FOR k% = 1 TO length%
+                ux& = lx& - k% : uy& = ly& - k%
+                IF ux& < 0 OR uy& < 0 THEN EXIT FOR
+                _MEMGET srcM, srcM.OFFSET + (uy& * lsW& + ux&) * 4 + 3, upA~%%
+                IF upA~%% <> 0 THEN hitS% = 1 : EXIT FOR
+            NEXT k%
+            IF hitS% THEN _MEMPUT shM, shM.OFFSET + (ly& * lsW& + lx&) * 4, shOpaque~& AS _UNSIGNED LONG
+        NEXT lx&
+    NEXT ly&
+    _MEMFREE srcM
+    _MEMFREE shM
+
+    DIM result AS LONG
+    result& = _COPYIMAGE(shadow&, 32)
+    oldDest& = _DEST
+    _DEST result& : _BLEND result& : _PUTIMAGE , sourceImg&, result& : _DEST oldDest&
+    SAFE_FREEIMAGE shadow&
+
+    IMAGE_ADJ_longshadow& = result&
+END FUNCTION
+
+
+''
+' Open a modal Long Shadow dialog: single LENGTH slider (1..40). Shadow colour is
+' the current BG colour. Alpha-changing -> apply_spatial.
+'
+SUB IMAGE_ADJ_longshadow_dialog ()
+    IF CURRENT_LAYER% < 1 THEN EXIT SUB
+
+    DIM ctx AS DIALOG_CTX
+    DIALOG_init ctx, IMGDLG_W, 110
+    IMAGE_ADJ_setup_preview ctx, LAYERS(CURRENT_LAYER%).imgHandle&
+
+    DIM length  AS INTEGER : length% = 12
+    DIM oLength AS INTEGER
+
+    DIM k AS LONG
+    DO
+        DIALOG_poll_mouse ctx
+        IF ctx.loupeDirty% THEN IMAGE_ADJ_update_loupe ctx
+        k& = _KEYHIT
+        IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
+        IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
+
+        oLength% = length%
+        length% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, length%, 1, 40)
+        length% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, length%, 1, 40)
+        IF length% <> oLength% THEN ctx.previewDirty% = TRUE
+        IMGDLG_check_ok_cancel ctx
+
+        IF ctx.previewDirty% THEN
+            SAFE_FREEIMAGE ctx.previewThumb
+            ctx.previewThumb = IMAGE_ADJ_longshadow&(ctx.origThumb, length%, PAINT_BG_COLOR~&)
+            IMAGE_ADJ_mask_preview ctx
+            ctx.previewDirty% = FALSE
+        END IF
+
+        _DEST ctx.imgHandle
+        DIALOG_draw_frame ctx, "LONG SHADOW"
+        DIALOG_draw_preview ctx
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "LENGTH:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, length%, 1, 40, "", ""
+        DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
+        IMGDLG_draw_ok_cancel ctx
+        DIALOG_blit ctx
+    LOOP UNTIL ctx.done%
+
+    IF ctx.result% THEN
+        DIM lsTargets(1 TO MAX_LAYERS) AS INTEGER, lsTgtCount AS INTEGER, lsT AS INTEGER
+        DIM lsSaveCL AS INTEGER
+        IMAGE_ADJ_collect_targets lsTargets%(), lsTgtCount%
+        lsSaveCL% = CURRENT_LAYER%
+        IF lsTgtCount% > 1 THEN HISTORY_begin_group
+        DIM adjR     AS LONG
+        FOR lsT% = 1 TO lsTgtCount%
+            CURRENT_LAYER% = lsTargets%(lsT%)
+            adjR&          = IMAGE_ADJ_longshadow&(LAYERS(CURRENT_LAYER%).imgHandle&, length%, PAINT_BG_COLOR~&)
+            IMAGE_ADJ_apply_spatial adjR&, "Long Shadow"
+        NEXT lsT%
+        IF lsTgtCount% > 1 THEN HISTORY_end_group
+        CURRENT_LAYER% = lsSaveCL%
+    END IF
+
+    DIALOG_cleanup ctx
+    SAFE_FREEIMAGE IMGADJ_LAYER_MASK& : IMGADJ_LAYER_MASK& = 0
+END SUB
+
+
+''
 ' Drop Shadow (flat) — build a silhouette of the shape from its alpha, offset it
 ' by `offset` px down-right in shColor, softened by a `softness` box blur, and
 ' composite the original back on top. The layer must have transparency around the
