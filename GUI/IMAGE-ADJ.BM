@@ -516,6 +516,147 @@ END FUNCTION
 
 
 ''
+' Extrude — 3D blocks. Each `tile` block is averaged; its brightness sets a
+' height, and the block's colour square is drawn raised toward the upper-left over
+' a darkened base, so the gaps read as block sides (brighter tiles pop further).
+' Alpha preserved (apply_to_layer).
+'
+' @param sourceImg LONG    Source image (32-bit)
+' @param tile      INTEGER Block size in px (4..40)
+' @param depth     INTEGER Max raise in px (2..16)
+' @return LONG  New extruded image handle
+'
+FUNCTION IMAGE_ADJ_extrude& (sourceImg AS LONG, tile AS INTEGER, depth AS INTEGER)
+    IF NOT (sourceImg& < -1) THEN IMAGE_ADJ_extrude& = 0 : EXIT FUNCTION
+    IF tile% < 2 THEN tile% = 2
+
+    DIM exW AS LONG, exH AS LONG
+    exW& = _WIDTH(sourceImg&) : exH& = _HEIGHT(sourceImg&)
+    DIM result AS LONG
+    result& = _COPYIMAGE(sourceImg&, 32)
+
+    DIM srcM AS _MEM, resM AS _MEM
+    srcM = _MEMIMAGE(sourceImg&)
+    resM = _MEMIMAGE(result&)
+
+    ' darken the whole thing to ~35% as the recessed base / block sides
+    DIM i AS LONG, px AS _UNSIGNED LONG, aa AS INTEGER
+    FOR i& = 0 TO srcM.SIZE - 4 STEP 4
+        _MEMGET srcM, srcM.OFFSET + i&, px~&
+        aa% = _ALPHA32(px~&)
+        _MEMPUT resM, resM.OFFSET + i&, _RGBA32(_RED32(px~&) * 35 \ 100, _GREEN32(px~&) * 35 \ 100, _BLUE32(px~&) * 35 \ 100, aa%) AS _UNSIGNED LONG
+    NEXT i&
+
+    DIM bx AS LONG, by AS LONG, ix AS LONG, iy AS LONG
+    DIM sr AS LONG, sg AS LONG, sb AS LONG, sa AS LONG, cnt AS LONG, bri AS LONG, hgt AS LONG
+    DIM x2 AS LONG, y2 AS LONG, fx AS LONG, fy AS LONG
+    DIM avgC AS _UNSIGNED LONG
+    FOR by& = 0 TO exH& - 1 STEP tile%
+        y2& = by& + tile% - 1 : IF y2& >= exH& THEN y2& = exH& - 1
+        FOR bx& = 0 TO exW& - 1 STEP tile%
+            x2& = bx& + tile% - 1 : IF x2& >= exW& THEN x2& = exW& - 1
+            sr& = 0 : sg& = 0 : sb& = 0 : sa& = 0 : cnt& = 0
+            FOR iy& = by& TO y2&
+                FOR ix& = bx& TO x2&
+                    _MEMGET srcM, srcM.OFFSET + (iy& * exW& + ix&) * 4, px~&
+                    sr& = sr& + _RED32(px~&) : sg& = sg& + _GREEN32(px~&)
+                    sb& = sb& + _BLUE32(px~&) : sa& = sa& + _ALPHA32(px~&)
+                    cnt& = cnt& + 1
+                NEXT ix&
+            NEXT iy&
+            IF cnt& = 0 THEN cnt& = 1
+            sr& = sr& \ cnt& : sg& = sg& \ cnt& : sb& = sb& \ cnt& : sa& = sa& \ cnt&
+            bri& = (sr& * 30 + sg& * 59 + sb& * 11) \ 100
+            hgt& = bri& * depth% \ 255
+            avgC~& = _RGBA32(sr&, sg&, sb&, sa&)
+            ' draw the raised top face (offset up-left by hgt)
+            FOR fy& = by& - hgt& TO y2& - hgt&
+                IF fy& >= 0 AND fy& < exH& THEN
+                    FOR fx& = bx& - hgt& TO x2& - hgt&
+                        IF fx& >= 0 AND fx& < exW& THEN _MEMPUT resM, resM.OFFSET + (fy& * exW& + fx&) * 4, avgC~& AS _UNSIGNED LONG
+                    NEXT fx&
+                END IF
+            NEXT fy&
+        NEXT bx&
+    NEXT by&
+
+    _MEMFREE srcM
+    _MEMFREE resM
+    IMAGE_ADJ_extrude& = result&
+END FUNCTION
+
+
+''
+' Open a modal Extrude dialog: TILE (4..40) + DEPTH (2..16).
+'
+SUB IMAGE_ADJ_extrude_dialog ()
+    IF CURRENT_LAYER% < 1 THEN EXIT SUB
+
+    DIM ctx AS DIALOG_CTX
+    DIALOG_init ctx, IMGDLG_W, 140
+    IMAGE_ADJ_setup_preview ctx, LAYERS(CURRENT_LAYER%).imgHandle&
+
+    DIM tsz AS INTEGER : tsz% = 14
+    DIM dep AS INTEGER : dep% = 6
+    DIM oTsz AS INTEGER, oDep AS INTEGER
+
+    DIM k AS LONG
+    DO
+        DIALOG_poll_mouse ctx
+        IF ctx.loupeDirty% THEN IMAGE_ADJ_update_loupe ctx
+        k& = _KEYHIT
+        IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
+        IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
+
+        oTsz% = tsz% : oDep% = dep%
+        tsz% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, tsz%, 4, 40)
+        tsz% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, tsz%, 4, 40)
+        dep% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, dep%, 2, 16)
+        dep% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, dep%, 2, 16)
+        IF tsz% <> oTsz% OR dep% <> oDep% THEN ctx.previewDirty% = TRUE
+        IMGDLG_check_ok_cancel ctx
+
+        IF ctx.previewDirty% THEN
+            SAFE_FREEIMAGE ctx.previewThumb
+            ctx.previewThumb = IMAGE_ADJ_extrude&(ctx.origThumb, tsz%, dep%)
+            IMAGE_ADJ_mask_preview ctx
+            ctx.previewDirty% = FALSE
+        END IF
+
+        _DEST ctx.imgHandle
+        DIALOG_draw_frame ctx, "EXTRUDE"
+        DIALOG_draw_preview ctx
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "TILE SIZE:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, tsz%, 4, 40, "", ""
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 1), "DEPTH:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, dep%, 2, 16, "", ""
+        DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
+        IMGDLG_draw_ok_cancel ctx
+        DIALOG_blit ctx
+    LOOP UNTIL ctx.done%
+
+    IF ctx.result% THEN
+        DIM exTargets(1 TO MAX_LAYERS) AS INTEGER, exTgtCount AS INTEGER, exT AS INTEGER
+        DIM exSaveCL AS INTEGER
+        IMAGE_ADJ_collect_targets exTargets%(), exTgtCount%
+        exSaveCL% = CURRENT_LAYER%
+        IF exTgtCount% > 1 THEN HISTORY_begin_group
+        DIM adjR     AS LONG
+        FOR exT% = 1 TO exTgtCount%
+            CURRENT_LAYER% = exTargets%(exT%)
+            adjR&          = IMAGE_ADJ_extrude&(LAYERS(CURRENT_LAYER%).imgHandle&, tsz%, dep%)
+            IMAGE_ADJ_apply_to_layer adjR&, "Extrude"
+        NEXT exT%
+        IF exTgtCount% > 1 THEN HISTORY_end_group
+        CURRENT_LAYER% = exSaveCL%
+    END IF
+
+    DIALOG_cleanup ctx
+    SAFE_FREEIMAGE IMGADJ_LAYER_MASK& : IMGADJ_LAYER_MASK& = 0
+END SUB
+
+
+''
 ' Mosaic / Tessellate — average the colour of each `tile` x `tile` block and fill
 ' the block with it (true averaging, unlike Pixelate's single-sample), optionally
 ' drawing thin dark grout between tiles. Alpha preserved (apply_to_layer).
