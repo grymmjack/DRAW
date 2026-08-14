@@ -516,6 +516,107 @@ END FUNCTION
 
 
 ''
+' Solarize (Sabattier) — invert each colour channel that is above `threshold`,
+' leaving darker channels alone. Produces the classic partially-inverted,
+' psychedelic tone reversal. Same size; alpha preserved (apply_to_layer).
+'
+' @param sourceImg LONG    Source image (32-bit)
+' @param threshold INTEGER Channel value above which to invert (0..255)
+' @return LONG  New solarized image handle
+'
+FUNCTION IMAGE_ADJ_solarize& (sourceImg AS LONG, threshold AS INTEGER)
+    IF NOT (sourceImg& < -1) THEN IMAGE_ADJ_solarize& = 0 : EXIT FUNCTION
+
+    DIM result AS LONG
+    result& = _COPYIMAGE(sourceImg&, 32)
+    DIM srcM AS _MEM, resM AS _MEM
+    srcM = _MEMIMAGE(sourceImg&)
+    resM = _MEMIMAGE(result&)
+
+    ' precompute channel LUT
+    DIM lut(0 TO 255) AS _UNSIGNED _BYTE, v AS INTEGER
+    FOR v% = 0 TO 255
+        IF v% > threshold% THEN lut(v%) = 255 - v% ELSE lut(v%) = v%
+    NEXT v%
+
+    DIM i AS LONG, px AS _UNSIGNED LONG
+    FOR i& = 0 TO srcM.SIZE - 4 STEP 4
+        _MEMGET srcM, srcM.OFFSET + i&, px~&
+        _MEMPUT resM, resM.OFFSET + i&, _RGB32(lut(_RED32(px~&)), lut(_GREEN32(px~&)), lut(_BLUE32(px~&))) AS _UNSIGNED LONG
+    NEXT i&
+
+    _MEMFREE srcM
+    _MEMFREE resM
+    IMAGE_ADJ_solarize& = result&
+END FUNCTION
+
+
+''
+' Open a modal Solarize dialog: single THRESHOLD slider (0..255). Live loupe.
+'
+SUB IMAGE_ADJ_solarize_dialog ()
+    IF CURRENT_LAYER% < 1 THEN EXIT SUB
+
+    DIM ctx AS DIALOG_CTX
+    DIALOG_init ctx, IMGDLG_W, 110
+    IMAGE_ADJ_setup_preview ctx, LAYERS(CURRENT_LAYER%).imgHandle&
+
+    DIM thr  AS INTEGER : thr% = 128
+    DIM oThr AS INTEGER
+
+    DIM k AS LONG
+    DO
+        DIALOG_poll_mouse ctx
+        IF ctx.loupeDirty% THEN IMAGE_ADJ_update_loupe ctx
+        k& = _KEYHIT
+        IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
+        IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
+
+        oThr% = thr%
+        thr% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, thr%, 0, 255)
+        thr% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, thr%, 0, 255)
+        IF thr% <> oThr% THEN ctx.previewDirty% = TRUE
+        IMGDLG_check_ok_cancel ctx
+
+        IF ctx.previewDirty% THEN
+            SAFE_FREEIMAGE ctx.previewThumb
+            ctx.previewThumb = IMAGE_ADJ_solarize&(ctx.origThumb, thr%)
+            IMAGE_ADJ_mask_preview ctx
+            ctx.previewDirty% = FALSE
+        END IF
+
+        _DEST ctx.imgHandle
+        DIALOG_draw_frame ctx, "SOLARIZE"
+        DIALOG_draw_preview ctx
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "THRESHOLD:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, thr%, 0, 255, "", ""
+        DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
+        IMGDLG_draw_ok_cancel ctx
+        DIALOG_blit ctx
+    LOOP UNTIL ctx.done%
+
+    IF ctx.result% THEN
+        DIM soTargets(1 TO MAX_LAYERS) AS INTEGER, soTgtCount AS INTEGER, soT AS INTEGER
+        DIM soSaveCL AS INTEGER
+        IMAGE_ADJ_collect_targets soTargets%(), soTgtCount%
+        soSaveCL% = CURRENT_LAYER%
+        IF soTgtCount% > 1 THEN HISTORY_begin_group
+        DIM adjR     AS LONG
+        FOR soT% = 1 TO soTgtCount%
+            CURRENT_LAYER% = soTargets%(soT%)
+            adjR&          = IMAGE_ADJ_solarize&(LAYERS(CURRENT_LAYER%).imgHandle&, thr%)
+            IMAGE_ADJ_apply_to_layer adjR&, "Solarize"
+        NEXT soT%
+        IF soTgtCount% > 1 THEN HISTORY_end_group
+        CURRENT_LAYER% = soSaveCL%
+    END IF
+
+    DIALOG_cleanup ctx
+    SAFE_FREEIMAGE IMGADJ_LAYER_MASK& : IMGADJ_LAYER_MASK& = 0
+END SUB
+
+
+''
 ' Emboss — directional grey relief. Each pixel = 128 + strength * (luminance
 ' here minus luminance of the up-left neighbour), clamped. Flat areas go mid-grey
 ' (128), edges become light/dark ridges — a chiselled/bevel look. Same size;

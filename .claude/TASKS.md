@@ -22,7 +22,7 @@ the infra exists.
 
 ## 🔨 NOW — doing right now
 
-- [ ] ➡️ Wave 2 · **Solarize** — partial invert above threshold + dialog + EFFECTS menu + QA test
+- [ ] ➡️ Wave 2 · **Duotone / Tritone** — map tones to 2–3 colours + dialog + EFFECTS menu + QA test
 
 <!-- QA note: invoke effects via the EFFECTS menu (click 395,6 then item at
      viewport y = 20 + index*12), NOT the command palette — palette-open is racy
@@ -51,7 +51,7 @@ the infra exists.
 
 - [x] **Chromatic Aberration** — horizontal R/B channel split, AMOUNT 0-20px + menu + QA test (effect-chromatic.sh). NEW engine IMAGE_ADJ_chromatic&.
 - [x] **Emboss / Bevel** — directional grey relief, STRENGTH 1-10 + menu + QA test (effect-emboss.sh). NEW engine IMAGE_ADJ_emboss&.
-- [ ] **Solarize** — partial invert above threshold + dialog + menu + QA test
+- [x] **Solarize** — per-channel invert above THRESHOLD 0-255 (Sabattier) + menu + QA test (effect-solarize.sh). NEW engine IMAGE_ADJ_solarize&.
 - [ ] **Duotone / Tritone** — map tones to 2–3 chosen colors + dialog + menu + QA test
 - [ ] **Drop Shadow** — flat: offset alpha silhouette + blur + color + dialog + menu + QA test
 - [ ] **Perspective / 3D Shadow** — angled cast shadow (light direction, length, fade) — the "long shadow" look + dialog + menu + QA test
