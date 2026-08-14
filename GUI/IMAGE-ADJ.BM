@@ -516,6 +516,144 @@ END FUNCTION
 
 
 ''
+' Drop Shadow (flat) — build a silhouette of the shape from its alpha, offset it
+' by `offset` px down-right in shColor, softened by a `softness` box blur, and
+' composite the original back on top. The layer must have transparency around the
+' shape (apply_spatial keeps the new alpha).
+'
+' @param sourceImg LONG           Source image (32-bit, with alpha)
+' @param offset    INTEGER        Shadow offset in px (down-right), 1..20
+' @param softness  INTEGER        Blur radius for the shadow, 0..8
+' @param shColor   _UNSIGNED LONG Shadow colour (opacity is taken from source alpha)
+' @return LONG  New composited image handle
+'
+FUNCTION IMAGE_ADJ_dropshadow& (sourceImg AS LONG, offset AS INTEGER, softness AS INTEGER, shColor AS _UNSIGNED LONG)
+    IF NOT (sourceImg& < -1) THEN IMAGE_ADJ_dropshadow& = 0 : EXIT FUNCTION
+
+    DIM dsW AS LONG, dsH AS LONG
+    dsW& = _WIDTH(sourceImg&) : dsH& = _HEIGHT(sourceImg&)
+
+    ' --- build the offset silhouette in shColor ---
+    DIM shadow AS LONG
+    shadow& = _NEWIMAGE(dsW&, dsH&, 32)
+    DIM oldDest AS LONG : oldDest& = _DEST
+    _DEST shadow& : _DONTBLEND shadow& : CLS , _RGBA32(0, 0, 0, 0) : _DEST oldDest&
+
+    DIM srcM AS _MEM, shM AS _MEM
+    srcM = _MEMIMAGE(sourceImg&)
+    shM = _MEMIMAGE(shadow&)
+    DIM shR AS INTEGER, shG AS INTEGER, shB AS INTEGER
+    shR% = _RED32(shColor~&) : shG% = _GREEN32(shColor~&) : shB% = _BLUE32(shColor~&)
+
+    DIM sx AS LONG, sy AS LONG, tx AS LONG, ty AS LONG
+    DIM sA AS _UNSIGNED _BYTE
+    FOR sy& = 0 TO dsH& - 1
+        ty& = sy& + offset%
+        IF ty& >= 0 AND ty& < dsH& THEN
+            FOR sx& = 0 TO dsW& - 1
+                _MEMGET srcM, srcM.OFFSET + (sy& * dsW& + sx&) * 4 + 3, sA~%%
+                IF sA~%% <> 0 THEN
+                    tx& = sx& + offset%
+                    IF tx& >= 0 AND tx& < dsW& THEN
+                        _MEMPUT shM, shM.OFFSET + (ty& * dsW& + tx&) * 4, _RGBA32(shR%, shG%, shB%, sA~%%) AS _UNSIGNED LONG
+                    END IF
+                END IF
+            NEXT sx&
+        END IF
+    NEXT sy&
+    _MEMFREE srcM
+    _MEMFREE shM
+
+    ' --- soften ---
+    IF softness% > 0 THEN
+        DIM softened AS LONG
+        softened& = IMAGE_ADJ_blur_premul_rgba&(shadow&, softness%)
+        IF softened& < -1 THEN SAFE_FREEIMAGE shadow& : shadow& = softened&
+    END IF
+
+    ' --- composite original over shadow ---
+    DIM result AS LONG
+    result& = _COPYIMAGE(shadow&, 32)
+    oldDest& = _DEST
+    _DEST result& : _BLEND result& : _PUTIMAGE , sourceImg&, result& : _DEST oldDest&
+    SAFE_FREEIMAGE shadow&
+
+    IMAGE_ADJ_dropshadow& = result&
+END FUNCTION
+
+
+''
+' Open a modal Drop Shadow dialog: OFFSET (1..20) + SOFTNESS (0..8) sliders.
+' Shadow colour is the current BG colour. Alpha-changing -> apply_spatial.
+'
+SUB IMAGE_ADJ_dropshadow_dialog ()
+    IF CURRENT_LAYER% < 1 THEN EXIT SUB
+
+    DIM ctx AS DIALOG_CTX
+    DIALOG_init ctx, IMGDLG_W, 140
+    IMAGE_ADJ_setup_preview ctx, LAYERS(CURRENT_LAYER%).imgHandle&
+
+    DIM offset  AS INTEGER : offset% = 4
+    DIM soft    AS INTEGER : soft%   = 2
+    DIM oOffset AS INTEGER, oSoft AS INTEGER
+
+    DIM k AS LONG
+    DO
+        DIALOG_poll_mouse ctx
+        IF ctx.loupeDirty% THEN IMAGE_ADJ_update_loupe ctx
+        k& = _KEYHIT
+        IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
+        IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
+
+        oOffset% = offset% : oSoft% = soft%
+        offset% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, offset%, 1, 20)
+        offset% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, offset%, 1, 20)
+        soft%   = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, soft%, 0, 8)
+        soft%   = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, soft%, 0, 8)
+        IF offset% <> oOffset% OR soft% <> oSoft% THEN ctx.previewDirty% = TRUE
+        IMGDLG_check_ok_cancel ctx
+
+        IF ctx.previewDirty% THEN
+            SAFE_FREEIMAGE ctx.previewThumb
+            ctx.previewThumb = IMAGE_ADJ_dropshadow&(ctx.origThumb, offset%, soft%, PAINT_BG_COLOR~&)
+            IMAGE_ADJ_mask_preview ctx
+            ctx.previewDirty% = FALSE
+        END IF
+
+        _DEST ctx.imgHandle
+        DIALOG_draw_frame ctx, "DROP SHADOW"
+        DIALOG_draw_preview ctx
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "OFFSET:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, offset%, 1, 20, "", ""
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 1), "SOFTNESS:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, soft%, 0, 8, "", ""
+        DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
+        IMGDLG_draw_ok_cancel ctx
+        DIALOG_blit ctx
+    LOOP UNTIL ctx.done%
+
+    IF ctx.result% THEN
+        DIM shTargets(1 TO MAX_LAYERS) AS INTEGER, shTgtCount AS INTEGER, shT AS INTEGER
+        DIM shSaveCL AS INTEGER
+        IMAGE_ADJ_collect_targets shTargets%(), shTgtCount%
+        shSaveCL% = CURRENT_LAYER%
+        IF shTgtCount% > 1 THEN HISTORY_begin_group
+        DIM adjR     AS LONG
+        FOR shT% = 1 TO shTgtCount%
+            CURRENT_LAYER% = shTargets%(shT%)
+            adjR&          = IMAGE_ADJ_dropshadow&(LAYERS(CURRENT_LAYER%).imgHandle&, offset%, soft%, PAINT_BG_COLOR~&)
+            IMAGE_ADJ_apply_spatial adjR&, "Drop Shadow"
+        NEXT shT%
+        IF shTgtCount% > 1 THEN HISTORY_end_group
+        CURRENT_LAYER% = shSaveCL%
+    END IF
+
+    DIALOG_cleanup ctx
+    SAFE_FREEIMAGE IMGADJ_LAYER_MASK& : IMGADJ_LAYER_MASK& = 0
+END SUB
+
+
+''
 ' Duotone / Tritone — quantise luminance into flat colour bands (unlike the
 ' smooth Gradient Map). DUOTONE: 2 bands — shadows->loColor, highlights->hiColor.
 ' TRITONE: 3 bands — shadows->loColor, mids->the average of lo/hi, highlights->
