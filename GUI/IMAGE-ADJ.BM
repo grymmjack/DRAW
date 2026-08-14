@@ -597,6 +597,151 @@ END FUNCTION
 
 
 ''
+' Edge Detect (Sobel) — luminance-gradient line art. Builds a luminance map,
+' convolves the 3x3 Sobel Gx/Gy kernels, and writes the gradient magnitude as a
+' greyscale image (flat areas -> black, edges -> white). STRENGTH scales the
+' magnitude; INVERT gives dark lines on white. Same size; alpha preserved via
+' apply_to_layer.
+'
+' @param sourceImg LONG    Source image (32-bit)
+' @param strength  INTEGER Magnitude scale, percent (10..300)
+' @param invert    INTEGER 0 = white edges on black, 1 = black edges on white
+' @return LONG  New greyscale edge image handle
+'
+FUNCTION IMAGE_ADJ_edgedetect& (sourceImg AS LONG, strength AS INTEGER, invert AS INTEGER)
+    IF NOT (sourceImg& < -1) THEN IMAGE_ADJ_edgedetect& = 0 : EXIT FUNCTION
+
+    DIM edW AS LONG, edH AS LONG
+    edW& = _WIDTH(sourceImg&) : edH& = _HEIGHT(sourceImg&)
+    DIM result AS LONG
+    result& = _COPYIMAGE(sourceImg&, 32)
+
+    DIM srcM AS _MEM, resM AS _MEM
+    srcM = _MEMIMAGE(sourceImg&)
+    resM = _MEMIMAGE(result&)
+
+    ' --- luminance map ---
+    REDIM lum(0 TO edW& * edH& - 1) AS INTEGER
+    DIM i AS LONG
+    DIM px AS _UNSIGNED LONG
+    FOR i& = 0 TO edW& * edH& - 1
+        _MEMGET srcM, srcM.OFFSET + i& * 4, px~&
+        lum(i&) = (_RED32(px~&) * 30 + _GREEN32(px~&) * 59 + _BLUE32(px~&) * 11) \ 100
+    NEXT i&
+
+    DIM ex AS LONG, ey AS LONG
+    DIM xm AS LONG, xp AS LONG, ym AS LONG, yp AS LONG
+    DIM tl AS LONG, tm AS LONG, tr AS LONG
+    DIM ml AS LONG, mr AS LONG
+    DIM bl AS LONG, bm AS LONG, br AS LONG
+    DIM gx AS LONG, gy AS LONG, mag AS LONG, outv AS INTEGER
+    DIM sf AS SINGLE : sf! = strength% / 100.0
+
+    FOR ey& = 0 TO edH& - 1
+        ym& = ey& - 1 : IF ym& < 0 THEN ym& = 0
+        yp& = ey& + 1 : IF yp& >= edH& THEN yp& = edH& - 1
+        FOR ex& = 0 TO edW& - 1
+            xm& = ex& - 1 : IF xm& < 0 THEN xm& = 0
+            xp& = ex& + 1 : IF xp& >= edW& THEN xp& = edW& - 1
+
+            tl& = lum(ym& * edW& + xm&) : tm& = lum(ym& * edW& + ex&) : tr& = lum(ym& * edW& + xp&)
+            ml& = lum(ey& * edW& + xm&) : mr& = lum(ey& * edW& + xp&)
+            bl& = lum(yp& * edW& + xm&) : bm& = lum(yp& * edW& + ex&) : br& = lum(yp& * edW& + xp&)
+
+            gx& = (tr& + 2 * mr& + br&) - (tl& + 2 * ml& + bl&)
+            gy& = (bl& + 2 * bm& + br&) - (tl& + 2 * tm& + tr&)
+            mag& = INT(SQR(gx& * gx& + gy& * gy&) * sf!)
+            IF mag& > 255 THEN mag& = 255
+            outv% = mag&
+            IF invert% THEN outv% = 255 - outv%
+
+            _MEMPUT resM, resM.OFFSET + (ey& * edW& + ex&) * 4, _RGB32(outv%, outv%, outv%) AS _UNSIGNED LONG
+        NEXT ex&
+    NEXT ey&
+
+    _MEMFREE srcM
+    _MEMFREE resM
+    IMAGE_ADJ_edgedetect& = result&
+END FUNCTION
+
+
+''
+' Open a modal Edge Detect dialog: STRENGTH slider (10..300%) + INVERT toggle.
+' Live loupe preview; multi-layer + undo on OK.
+'
+SUB IMAGE_ADJ_edgedetect_dialog ()
+    IF CURRENT_LAYER% < 1 THEN EXIT SUB
+
+    DIM ctx AS DIALOG_CTX
+    DIALOG_init ctx, IMGDLG_W, 130
+    IMAGE_ADJ_setup_preview ctx, LAYERS(CURRENT_LAYER%).imgHandle&
+
+    DIM strength  AS INTEGER : strength% = 100
+    DIM oStrength AS INTEGER
+    STATIC invMode AS INTEGER
+
+    DIM ivX AS INTEGER, ivY AS INTEGER, ivW AS INTEGER, ivH AS INTEGER
+    ivX% = IMGDLG_SX : ivW% = 120 : ivH% = 16
+    ivY% = IMGDLG_track_y%(ctx, 0) + 24
+
+    DIM k AS LONG
+    DO
+        DIALOG_poll_mouse ctx
+        IF ctx.loupeDirty% THEN IMAGE_ADJ_update_loupe ctx
+        k& = _KEYHIT
+        IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
+        IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
+
+        oStrength% = strength%
+        strength%  = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, strength%, 10, 300)
+        strength%  = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, strength%, 10, 300)
+        IF DIALOG_hit%(ctx, ivX%, ivY%, ivW%, ivH%) THEN
+            invMode%          = (invMode% = 0)
+            ctx.previewDirty% = TRUE
+        END IF
+        IF strength% <> oStrength% THEN ctx.previewDirty% = TRUE
+        IMGDLG_check_ok_cancel ctx
+
+        IF ctx.previewDirty% THEN
+            SAFE_FREEIMAGE ctx.previewThumb
+            ctx.previewThumb = IMAGE_ADJ_edgedetect&(ctx.origThumb, strength%, invMode%)
+            IMAGE_ADJ_mask_preview ctx
+            ctx.previewDirty% = FALSE
+        END IF
+
+        _DEST ctx.imgHandle
+        DIALOG_draw_frame ctx, "EDGE DETECT"
+        DIALOG_draw_preview ctx
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "STRENGTH:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, strength%, 10, 300, "", ""
+        DIALOG_draw_toggle ctx, ivX%, ivY%, ivW%, ivH%, "INVERT", invMode%
+        DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
+        IMGDLG_draw_ok_cancel ctx
+        DIALOG_blit ctx
+    LOOP UNTIL ctx.done%
+
+    IF ctx.result% THEN
+        DIM edTargets(1 TO MAX_LAYERS) AS INTEGER, edTgtCount AS INTEGER, edT AS INTEGER
+        DIM edSaveCL AS INTEGER
+        IMAGE_ADJ_collect_targets edTargets%(), edTgtCount%
+        edSaveCL% = CURRENT_LAYER%
+        IF edTgtCount% > 1 THEN HISTORY_begin_group
+        DIM adjR     AS LONG
+        FOR edT% = 1 TO edTgtCount%
+            CURRENT_LAYER% = edTargets%(edT%)
+            adjR&          = IMAGE_ADJ_edgedetect&(LAYERS(CURRENT_LAYER%).imgHandle&, strength%, invMode%)
+            IMAGE_ADJ_apply_to_layer adjR&, "Edge Detect"
+        NEXT edT%
+        IF edTgtCount% > 1 THEN HISTORY_end_group
+        CURRENT_LAYER% = edSaveCL%
+    END IF
+
+    DIALOG_cleanup ctx
+    SAFE_FREEIMAGE IMGADJ_LAYER_MASK& : IMGADJ_LAYER_MASK& = 0
+END SUB
+
+
+''
 ' Open a modal Outline / Stroke dialog: THICKNESS slider (1..8) + INSIDE toggle.
 ' Uses the current foreground colour as the stroke colour. Alpha-changing, so it
 ' commits via apply_spatial. Live loupe preview; multi-layer + undo on OK.
