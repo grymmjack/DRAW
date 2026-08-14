@@ -516,6 +516,137 @@ END FUNCTION
 
 
 ''
+' Pointillize — scatter filled dots of the sampled colour over the BG colour, one
+' per grid cell at a hash-jittered position (deterministic). Alpha preserved
+' (apply_to_layer), so the dots stay masked to the original shape.
+'
+' @param sourceImg LONG           Source image (32-bit)
+' @param dotSize   INTEGER        Cell/dot diameter in px (3..20)
+' @param bgColor   _UNSIGNED LONG Background fill colour
+' @return LONG  New pointillized image handle
+'
+FUNCTION IMAGE_ADJ_pointillize& (sourceImg AS LONG, dotSize AS INTEGER, bgColor AS _UNSIGNED LONG)
+    IF NOT (sourceImg& < -1) THEN IMAGE_ADJ_pointillize& = 0 : EXIT FUNCTION
+    IF dotSize% < 2 THEN dotSize% = 2
+
+    DIM poW AS LONG, poH AS LONG
+    poW& = _WIDTH(sourceImg&) : poH& = _HEIGHT(sourceImg&)
+    DIM result AS LONG
+    result& = _NEWIMAGE(poW&, poH&, 32)
+
+    DIM srcM AS _MEM, resM AS _MEM
+    srcM = _MEMIMAGE(sourceImg&)
+    resM = _MEMIMAGE(result&)
+
+    ' fill with BG colour (opaque)
+    DIM bgOpaque AS _UNSIGNED LONG
+    bgOpaque~& = _RGBA32(_RED32(bgColor~&), _GREEN32(bgColor~&), _BLUE32(bgColor~&), 255)
+    DIM i AS LONG
+    FOR i& = 0 TO resM.SIZE - 4 STEP 4
+        _MEMPUT resM, resM.OFFSET + i&, bgOpaque~& AS _UNSIGNED LONG
+    NEXT i&
+
+    DIM gx AS LONG, gy AS LONG, hsh AS LONG, jx AS LONG, jy AS LONG
+    DIM rad AS INTEGER, r2 AS INTEGER, dx AS INTEGER, dy AS INTEGER, px AS LONG, py AS LONG
+    DIM dotC AS _UNSIGNED LONG
+    rad% = dotSize% \ 2 : IF rad% < 1 THEN rad% = 1
+    r2% = rad% * rad%
+    FOR gy& = 0 TO poH& - 1 STEP dotSize%
+        FOR gx& = 0 TO poW& - 1 STEP dotSize%
+            hsh& = ((gx& * 73856093) XOR (gy& * 19349663)) AND 1023
+            jx& = gx& + (hsh& AND 31) * dotSize% \ 32
+            jy& = gy& + ((hsh& \ 32) AND 31) * dotSize% \ 32
+            IF jx& >= poW& THEN jx& = poW& - 1
+            IF jy& >= poH& THEN jy& = poH& - 1
+            _MEMGET srcM, srcM.OFFSET + (jy& * poW& + jx&) * 4, dotC~&
+            dotC~& = _RGBA32(_RED32(dotC~&), _GREEN32(dotC~&), _BLUE32(dotC~&), 255)
+            FOR dy% = -rad% TO rad%
+                py& = jy& + dy%
+                IF py& >= 0 AND py& < poH& THEN
+                    FOR dx% = -rad% TO rad%
+                        IF dx% * dx% + dy% * dy% <= r2% THEN
+                            px& = jx& + dx%
+                            IF px& >= 0 AND px& < poW& THEN _MEMPUT resM, resM.OFFSET + (py& * poW& + px&) * 4, dotC~& AS _UNSIGNED LONG
+                        END IF
+                    NEXT dx%
+                END IF
+            NEXT dy%
+        NEXT gx&
+    NEXT gy&
+
+    _MEMFREE srcM
+    _MEMFREE resM
+    IMAGE_ADJ_pointillize& = result&
+END FUNCTION
+
+
+''
+' Open a modal Pointillize dialog: single DOT SIZE slider (3..20). Background is
+' the current BG colour.
+'
+SUB IMAGE_ADJ_pointillize_dialog ()
+    IF CURRENT_LAYER% < 1 THEN EXIT SUB
+
+    DIM ctx AS DIALOG_CTX
+    DIALOG_init ctx, IMGDLG_W, 110
+    IMAGE_ADJ_setup_preview ctx, LAYERS(CURRENT_LAYER%).imgHandle&
+
+    DIM dsz AS INTEGER : dsz% = 8
+    DIM oDsz AS INTEGER
+
+    DIM k AS LONG
+    DO
+        DIALOG_poll_mouse ctx
+        IF ctx.loupeDirty% THEN IMAGE_ADJ_update_loupe ctx
+        k& = _KEYHIT
+        IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
+        IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
+
+        oDsz% = dsz%
+        dsz% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, dsz%, 3, 20)
+        dsz% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, dsz%, 3, 20)
+        IF dsz% <> oDsz% THEN ctx.previewDirty% = TRUE
+        IMGDLG_check_ok_cancel ctx
+
+        IF ctx.previewDirty% THEN
+            SAFE_FREEIMAGE ctx.previewThumb
+            ctx.previewThumb = IMAGE_ADJ_pointillize&(ctx.origThumb, dsz%, PAINT_BG_COLOR~&)
+            IMAGE_ADJ_mask_preview ctx
+            ctx.previewDirty% = FALSE
+        END IF
+
+        _DEST ctx.imgHandle
+        DIALOG_draw_frame ctx, "POINTILLIZE"
+        DIALOG_draw_preview ctx
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "DOT SIZE:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, dsz%, 3, 20, "", ""
+        DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
+        IMGDLG_draw_ok_cancel ctx
+        DIALOG_blit ctx
+    LOOP UNTIL ctx.done%
+
+    IF ctx.result% THEN
+        DIM poTargets(1 TO MAX_LAYERS) AS INTEGER, poTgtCount AS INTEGER, poT AS INTEGER
+        DIM poSaveCL AS INTEGER
+        IMAGE_ADJ_collect_targets poTargets%(), poTgtCount%
+        poSaveCL% = CURRENT_LAYER%
+        IF poTgtCount% > 1 THEN HISTORY_begin_group
+        DIM adjR     AS LONG
+        FOR poT% = 1 TO poTgtCount%
+            CURRENT_LAYER% = poTargets%(poT%)
+            adjR&          = IMAGE_ADJ_pointillize&(LAYERS(CURRENT_LAYER%).imgHandle&, dsz%, PAINT_BG_COLOR~&)
+            IMAGE_ADJ_apply_to_layer adjR&, "Pointillize"
+        NEXT poT%
+        IF poTgtCount% > 1 THEN HISTORY_end_group
+        CURRENT_LAYER% = poSaveCL%
+    END IF
+
+    DIALOG_cleanup ctx
+    SAFE_FREEIMAGE IMGADJ_LAYER_MASK& : IMGADJ_LAYER_MASK& = 0
+END SUB
+
+
+''
 ' Extrude — 3D blocks. Each `tile` block is averaged; its brightness sets a
 ' height, and the block's colour square is drawn raised toward the upper-left over
 ' a darkened base, so the gaps read as block sides (brighter tiles pop further).
