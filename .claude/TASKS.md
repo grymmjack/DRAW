@@ -22,7 +22,7 @@ the infra exists.
 
 ## 🔨 NOW — doing right now
 
-- [ ] ➡️ Wave 4 · **Wind** — directional edge streaking + dialog + EFFECTS menu + QA test
+- [ ] ➡️ Wave 5 · **Clouds** — plasma noise in FG/BG colours + dialog + EFFECTS menu + QA test
 
 <!-- Menu-overflow plan: the flat EFFECTS dropdown auto-scrolls past ~41 items
      (availH = SCRN.h - subY, 12px/item). At 25 items now; Waves 4/5/5b/5c (15
@@ -85,7 +85,7 @@ the infra exists.
 - [x] **Mosaic / Tessellate** — per-tile colour averaging (vs Pixelate's sample) + GROUT toggle, TILE 3-48 + menu + QA test (effect-mosaic.sh). NEW engine IMAGE_ADJ_mosaic&.
 - [x] **Extrude** — brightness-raised tile blocks over darkened base, TILE 4-40 + DEPTH 2-16 + menu + QA test (effect-extrude.sh). NEW engine IMAGE_ADJ_extrude&.
 - [x] **Pointillize** — sampled colour dots (hash-jittered) over BG colour, DOT SIZE 3-20 + menu + QA test (effect-pointillize.sh). NEW engine IMAGE_ADJ_pointillize&.
-- [ ] **Wind** — directional streaking of edges + dialog + menu + QA test
+- [x] **Wind** — horizontal edge smear (Photoshop wind), STRENGTH 2-20 + menu + QA test (effect-wind.sh). NEW engine IMAGE_ADJ_wind&.
 
 ## Wave 5 — Render / generative (fill a layer; no source needed)
 

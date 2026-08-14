@@ -516,6 +516,124 @@ END FUNCTION
 
 
 ''
+' Wind — horizontal streaking from vertical edges (the Photoshop "wind" look).
+' Scanning each row, where the luminance jumps between neighbouring pixels the
+' edge colour is smeared rightward for up to `strength` px with a linear fade.
+' Same size; alpha preserved (apply_to_layer).
+'
+' @param sourceImg LONG    Source image (32-bit)
+' @param strength  INTEGER Streak length in px (2..20)
+' @return LONG  New wind-streaked image handle
+'
+FUNCTION IMAGE_ADJ_wind& (sourceImg AS LONG, strength AS INTEGER)
+    IF NOT (sourceImg& < -1) THEN IMAGE_ADJ_wind& = 0 : EXIT FUNCTION
+
+    DIM wiW AS LONG, wiH AS LONG
+    wiW& = _WIDTH(sourceImg&) : wiH& = _HEIGHT(sourceImg&)
+    DIM result AS LONG
+    result& = _COPYIMAGE(sourceImg&, 32)
+
+    DIM srcM AS _MEM, resM AS _MEM
+    srcM = _MEMIMAGE(sourceImg&)
+    resM = _MEMIMAGE(result&)
+
+    DIM wx AS LONG, wy AS LONG, k AS INTEGER
+    DIM cur AS _UNSIGNED LONG, prev AS _UNSIGNED LONG, dst AS _UNSIGNED LONG
+    DIM lc AS INTEGER, lp AS INTEGER, fade AS SINGLE
+    DIM nr AS INTEGER, ng AS INTEGER, nb AS INTEGER, tx AS LONG
+    FOR wy& = 0 TO wiH& - 1
+        FOR wx& = 1 TO wiW& - 1
+            _MEMGET srcM, srcM.OFFSET + (wy& * wiW& + wx&) * 4, cur~&
+            _MEMGET srcM, srcM.OFFSET + (wy& * wiW& + wx& - 1) * 4, prev~&
+            lc% = (_RED32(cur~&) * 30 + _GREEN32(cur~&) * 59 + _BLUE32(cur~&) * 11) \ 100
+            lp% = (_RED32(prev~&) * 30 + _GREEN32(prev~&) * 59 + _BLUE32(prev~&) * 11) \ 100
+            IF ABS(lc% - lp%) > 28 THEN
+                FOR k% = 1 TO strength%
+                    tx& = wx& + k%
+                    IF tx& >= wiW& THEN EXIT FOR
+                    fade! = (strength% - k% + 1) / (strength% + 0.0)
+                    _MEMGET resM, resM.OFFSET + (wy& * wiW& + tx&) * 4, dst~&
+                    nr% = _RED32(dst~&) + (_RED32(cur~&) - _RED32(dst~&)) * fade!
+                    ng% = _GREEN32(dst~&) + (_GREEN32(cur~&) - _GREEN32(dst~&)) * fade!
+                    nb% = _BLUE32(dst~&) + (_BLUE32(cur~&) - _BLUE32(dst~&)) * fade!
+                    _MEMPUT resM, resM.OFFSET + (wy& * wiW& + tx&) * 4, _RGBA32(nr%, ng%, nb%, _ALPHA32(dst~&)) AS _UNSIGNED LONG
+                NEXT k%
+            END IF
+        NEXT wx&
+    NEXT wy&
+
+    _MEMFREE srcM
+    _MEMFREE resM
+    IMAGE_ADJ_wind& = result&
+END FUNCTION
+
+
+''
+' Open a modal Wind dialog: single STRENGTH slider (2..20).
+'
+SUB IMAGE_ADJ_wind_dialog ()
+    IF CURRENT_LAYER% < 1 THEN EXIT SUB
+
+    DIM ctx AS DIALOG_CTX
+    DIALOG_init ctx, IMGDLG_W, 110
+    IMAGE_ADJ_setup_preview ctx, LAYERS(CURRENT_LAYER%).imgHandle&
+
+    DIM stg AS INTEGER : stg% = 10
+    DIM oStg AS INTEGER
+
+    DIM k AS LONG
+    DO
+        DIALOG_poll_mouse ctx
+        IF ctx.loupeDirty% THEN IMAGE_ADJ_update_loupe ctx
+        k& = _KEYHIT
+        IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
+        IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
+
+        oStg% = stg%
+        stg% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, stg%, 2, 20)
+        stg% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, stg%, 2, 20)
+        IF stg% <> oStg% THEN ctx.previewDirty% = TRUE
+        IMGDLG_check_ok_cancel ctx
+
+        IF ctx.previewDirty% THEN
+            SAFE_FREEIMAGE ctx.previewThumb
+            ctx.previewThumb = IMAGE_ADJ_wind&(ctx.origThumb, stg%)
+            IMAGE_ADJ_mask_preview ctx
+            ctx.previewDirty% = FALSE
+        END IF
+
+        _DEST ctx.imgHandle
+        DIALOG_draw_frame ctx, "WIND"
+        DIALOG_draw_preview ctx
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "STRENGTH:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, stg%, 2, 20, "", ""
+        DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
+        IMGDLG_draw_ok_cancel ctx
+        DIALOG_blit ctx
+    LOOP UNTIL ctx.done%
+
+    IF ctx.result% THEN
+        DIM wiTargets(1 TO MAX_LAYERS) AS INTEGER, wiTgtCount AS INTEGER, wiT AS INTEGER
+        DIM wiSaveCL AS INTEGER
+        IMAGE_ADJ_collect_targets wiTargets%(), wiTgtCount%
+        wiSaveCL% = CURRENT_LAYER%
+        IF wiTgtCount% > 1 THEN HISTORY_begin_group
+        DIM adjR     AS LONG
+        FOR wiT% = 1 TO wiTgtCount%
+            CURRENT_LAYER% = wiTargets%(wiT%)
+            adjR&          = IMAGE_ADJ_wind&(LAYERS(CURRENT_LAYER%).imgHandle&, stg%)
+            IMAGE_ADJ_apply_to_layer adjR&, "Wind"
+        NEXT wiT%
+        IF wiTgtCount% > 1 THEN HISTORY_end_group
+        CURRENT_LAYER% = wiSaveCL%
+    END IF
+
+    DIALOG_cleanup ctx
+    SAFE_FREEIMAGE IMGADJ_LAYER_MASK& : IMGADJ_LAYER_MASK& = 0
+END SUB
+
+
+''
 ' Pointillize — scatter filled dots of the sampled colour over the BG colour, one
 ' per grid cell at a hash-jittered position (deterministic). Alpha preserved
 ' (apply_to_layer), so the dots stay masked to the original shape.
