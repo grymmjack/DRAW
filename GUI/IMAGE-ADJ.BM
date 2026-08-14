@@ -540,6 +540,72 @@ END FUNCTION
 
 
 ''
+' Difference Clouds — generate grayscale plasma and difference it per-channel with
+' the existing pixels (|src - cloud|), the marbled/veiny Photoshop look. Keeps
+' original alpha (apply_to_layer). One-shot (fixed scale).
+'
+' @param sourceImg LONG    Source image (32-bit)
+' @param scaleP    INTEGER Base feature size in px
+' @return LONG  New differenced image handle
+'
+FUNCTION IMAGE_ADJ_diffclouds& (sourceImg AS LONG, scaleP AS INTEGER)
+    IF NOT (sourceImg& < -1) THEN IMAGE_ADJ_diffclouds& = 0 : EXIT FUNCTION
+    IF scaleP% < 4 THEN scaleP% = 4
+
+    DIM dcW AS LONG, dcH AS LONG
+    dcW& = _WIDTH(sourceImg&) : dcH& = _HEIGHT(sourceImg&)
+    DIM result AS LONG
+    result& = _COPYIMAGE(sourceImg&, 32)
+    DIM srcM AS _MEM, resM AS _MEM
+    srcM = _MEMIMAGE(sourceImg&)
+    resM = _MEMIMAGE(result&)
+
+    DIM dx AS LONG, dy AS LONG, oct AS INTEGER
+    DIM nv AS SINGLE, fr AS SINGLE, amp AS SINGLE, amax AS SINGLE
+    DIM cg AS INTEGER, px AS _UNSIGNED LONG
+    FOR dy& = 0 TO dcH& - 1
+        FOR dx& = 0 TO dcW& - 1
+            nv! = 0.0 : fr! = 1.0 / scaleP% : amp! = 1.0 : amax! = 0.0
+            FOR oct% = 0 TO 2
+                nv! = nv! + IMGADJ_valnoise!(dx& * fr!, dy& * fr!, oct% + 1) * amp!
+                amax! = amax! + amp!
+                amp! = amp! * 0.5 : fr! = fr! * 2.0
+            NEXT oct%
+            cg% = INT(nv! / amax! * 255)
+            _MEMGET srcM, srcM.OFFSET + (dy& * dcW& + dx&) * 4, px~&
+            _MEMPUT resM, resM.OFFSET + (dy& * dcW& + dx&) * 4, _RGBA32(ABS(_RED32(px~&) - cg%), ABS(_GREEN32(px~&) - cg%), ABS(_BLUE32(px~&) - cg%), _ALPHA32(px~&)) AS _UNSIGNED LONG
+        NEXT dx&
+    NEXT dy&
+
+    _MEMFREE srcM
+    _MEMFREE resM
+    IMAGE_ADJ_diffclouds& = result&
+END FUNCTION
+
+
+''
+' Direct op — apply Difference Clouds to the active (and extra-selected) layers.
+'
+SUB IMAGE_ADJ_diffclouds ()
+    IF CURRENT_LAYER% < 1 THEN EXIT SUB
+    DIM iatTargets(1 TO MAX_LAYERS) AS INTEGER, iatTgtCount AS INTEGER, iatT AS INTEGER
+    DIM iatSaveCL AS INTEGER
+    IMAGE_ADJ_collect_targets iatTargets%(), iatTgtCount%
+    IF iatTgtCount% = 0 THEN EXIT SUB
+    iatSaveCL% = CURRENT_LAYER%
+    IF iatTgtCount% > 1 THEN HISTORY_begin_group
+    DIM adjR      AS LONG
+    FOR iatT% = 1 TO iatTgtCount%
+        CURRENT_LAYER% = iatTargets%(iatT%)
+        adjR&          = IMAGE_ADJ_diffclouds&(LAYERS(CURRENT_LAYER%).imgHandle&, 24)
+        IMAGE_ADJ_apply_to_layer adjR&, "Difference Clouds"
+    NEXT iatT%
+    IF iatTgtCount% > 1 THEN HISTORY_end_group
+    CURRENT_LAYER% = iatSaveCL%
+END SUB
+
+
+''
 ' Clouds — fill the layer with fractal plasma noise mapped along a BG..FG ramp
 ' (3 octaves of value noise). Generative: ignores existing content and fills
 ' opaque, so commit via apply_spatial.
