@@ -22,14 +22,14 @@ the infra exists.
 
 ## 🔨 NOW — doing right now
 
-- [ ] ➡️ Wave 0 · Wire dormant **Colorize** (GJ_IMGADJ_Colorize) — hue + saturation dialog + EFFECTS menu + QA test
+- [ ] ➡️ Wave 0 · Wire dormant **Glow** (GJ_IMGADJ_Glow) — radius + intensity dialog + EFFECTS menu + QA test
 
 ## Wave 0 — Activate dormant engine effects (math already implemented + tested)
 
 - [x] Wire **Gamma** (GJ_IMGADJ_Gamma) — EFFECTS menu + cmd palette + dialog + QA test (effect-gamma.sh)
 - [x] Wire **Sepia** (GJ_IMGADJ_Sepia) — one-shot + EFFECTS menu + cmd palette + QA test (effect-sepia.sh)
 - [x] Wire **Threshold** (GJ_IMGADJ_Threshold) — LEVEL slider + INVERT toggle dialog + menu + QA test (effect-threshold.sh)
-- [ ] Wire **Colorize** (GJ_IMGADJ_Colorize) — hue + saturation dialog + action + menu + QA test
+- [x] Wire **Colorize** (GJ_IMGADJ_Colorize) — HUE + SATURATION tint dialog + menu + QA test (effect-colorize.sh). NOTE: distinct from existing Hue/Saturation (2002) — Colorize *replaces* all hues (monotone tint); Hue/Sat *shifts* them.
 - [ ] Wire **Glow** (GJ_IMGADJ_Glow) — radius + intensity dialog + action + menu + QA test
 - [ ] Wire **Film Grain** (GJ_IMGADJ_FilmGrain) — amount dialog + action + menu + QA test
 - [ ] Wire **Vignette** (GJ_IMGADJ_Vignette) — strength dialog + action + menu + QA test
