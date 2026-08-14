@@ -22,7 +22,7 @@ the infra exists.
 
 ## 🔨 NOW — doing right now
 
-- [ ] ➡️ Wave 5c · **Render Grid** — configurable grid (shape/spacing/perspective) + dialog + EFFECTS menu + QA test
+- [ ] ➡️ Wave 5c · **Render Sky** — procedural day/night/space sky + dialog + EFFECTS menu + QA test
 
 <!-- Menu-overflow plan: the flat EFFECTS dropdown auto-scrolls past ~41 items
      (availH = SCRN.h - subY, 12px/item). At 25 items now; Waves 4/5/5b/5c (15
@@ -102,8 +102,7 @@ the infra exists.
 
 ## Wave 5c — Render: Grid & Sky
 
-- [ ] **Render Grid** — configurable grid: cell shape (square/hex/triangle/lines),
-      spacing, line color/width, + perspective/vanishing-point mode + dialog + menu + QA test
+- [x] **Render Grid** — flat + PERSPECTIVE floor grid in FG colour, SPACING 4-64, apply_spatial + menu + QA test (effect-grid.sh). NEW engine IMAGE_ADJ_grid&. (spc renamed gspc — SPC reserved.)
 - [ ] **Render Sky** — procedural sky: mode (day/night/space), gradient horizon,
       stars, optional planets/moon + dialog + menu + QA test
 

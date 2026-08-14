@@ -540,6 +540,140 @@ END FUNCTION
 
 
 ''
+' Render Grid — draw a grid over the layer in the FG colour. Flat mode: evenly
+' spaced horizontal + vertical lines. Perspective mode: verticals converge to a
+' vanishing point and horizontals recede toward the horizon (floor grid). Lines
+' are drawn opaque; source alpha elsewhere is preserved -> apply_spatial.
+'
+' @param sourceImg   LONG           Source image (32-bit)
+' @param spacing     INTEGER        Grid spacing in px (4..64)
+' @param persp       INTEGER        0 = flat, 1 = perspective floor grid
+' @param lineColor   _UNSIGNED LONG Line colour
+' @return LONG  New image with the grid drawn
+'
+FUNCTION IMAGE_ADJ_grid& (sourceImg AS LONG, spacing AS INTEGER, persp AS INTEGER, lineColor AS _UNSIGNED LONG)
+    IF NOT (sourceImg& < -1) THEN IMAGE_ADJ_grid& = 0 : EXIT FUNCTION
+    IF spacing% < 2 THEN spacing% = 2
+
+    DIM grW AS LONG, grH AS LONG
+    grW& = _WIDTH(sourceImg&) : grH& = _HEIGHT(sourceImg&)
+    DIM result AS LONG
+    result& = _COPYIMAGE(sourceImg&, 32)
+
+    DIM c AS _UNSIGNED LONG
+    c~& = _RGBA32(_RED32(lineColor~&), _GREEN32(lineColor~&), _BLUE32(lineColor~&), 255)
+    DIM oldDest AS LONG : oldDest& = _DEST
+    _DEST result& : _DONTBLEND result&
+
+    DIM gg AS LONG
+    IF persp% = 0 THEN
+        FOR gg& = 0 TO grW& - 1 STEP spacing%
+            LINE (gg&, 0)-(gg&, grH& - 1), c~&
+        NEXT gg&
+        FOR gg& = 0 TO grH& - 1 STEP spacing%
+            LINE (0, gg&)-(grW& - 1, gg&), c~&
+        NEXT gg&
+    ELSE
+        DIM vpx AS SINGLE, hy AS SINGLE
+        vpx! = grW& / 2.0 : hy! = grH& * 0.4
+        ' vertical lines converge from the bottom edge to the vanishing point
+        FOR gg& = 0 TO grW& - 1 STEP spacing%
+            LINE (gg&, grH& - 1)-(vpx!, hy!), c~&
+        NEXT gg&
+        LINE (grW& - 1, grH& - 1)-(vpx!, hy!), c~&
+        ' horizontal receding lines (geometric spacing toward the horizon)
+        DIM yy AS SINGLE, gap AS SINGLE
+        yy! = grH& - 1 : gap! = spacing%
+        DO WHILE yy! > hy! + 1
+            LINE (0, yy!)-(grW& - 1, yy!), c~&
+            yy! = yy! - gap! : gap! = gap! * 0.78
+            IF gap! < 1.5 THEN EXIT DO
+        LOOP
+        LINE (0, hy!)-(grW& - 1, hy!), c~&
+    END IF
+
+    _BLEND result& : _DEST oldDest&
+    IMAGE_ADJ_grid& = result&
+END FUNCTION
+
+
+''
+' Open a modal Render Grid dialog: SPACING (4..64) + PERSPECTIVE toggle. Line
+' colour = FG. -> apply_spatial.
+'
+SUB IMAGE_ADJ_grid_dialog ()
+    IF CURRENT_LAYER% < 1 THEN EXIT SUB
+
+    DIM ctx AS DIALOG_CTX
+    DIALOG_init ctx, IMGDLG_W, 130
+    IMAGE_ADJ_setup_preview ctx, LAYERS(CURRENT_LAYER%).imgHandle&
+
+    DIM gspc AS INTEGER : gspc% = 16
+    DIM oSpc AS INTEGER
+    STATIC perspOn AS INTEGER
+
+    DIM pvX AS INTEGER, pvY AS INTEGER, pvW AS INTEGER, pvH AS INTEGER
+    pvX% = IMGDLG_SX : pvW% = 120 : pvH% = 16
+    pvY% = IMGDLG_track_y%(ctx, 0) + 24
+
+    DIM k AS LONG
+    DO
+        DIALOG_poll_mouse ctx
+        IF ctx.loupeDirty% THEN IMAGE_ADJ_update_loupe ctx
+        k& = _KEYHIT
+        IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
+        IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
+
+        oSpc% = gspc%
+        gspc% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, gspc%, 4, 64)
+        gspc% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, gspc%, 4, 64)
+        IF DIALOG_hit%(ctx, pvX%, pvY%, pvW%, pvH%) THEN
+            perspOn%          = (perspOn% = 0)
+            ctx.previewDirty% = TRUE
+        END IF
+        IF gspc% <> oSpc% THEN ctx.previewDirty% = TRUE
+        IMGDLG_check_ok_cancel ctx
+
+        IF ctx.previewDirty% THEN
+            SAFE_FREEIMAGE ctx.previewThumb
+            ctx.previewThumb = IMAGE_ADJ_grid&(ctx.origThumb, gspc%, perspOn%, PAINT_COLOR~&)
+            IMAGE_ADJ_mask_preview ctx
+            ctx.previewDirty% = FALSE
+        END IF
+
+        _DEST ctx.imgHandle
+        DIALOG_draw_frame ctx, "RENDER GRID"
+        DIALOG_draw_preview ctx
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "SPACING:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, gspc%, 4, 64, "", ""
+        DIALOG_draw_toggle ctx, pvX%, pvY%, pvW%, pvH%, "PERSPECTIVE", perspOn%
+        DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
+        IMGDLG_draw_ok_cancel ctx
+        DIALOG_blit ctx
+    LOOP UNTIL ctx.done%
+
+    IF ctx.result% THEN
+        DIM grTargets(1 TO MAX_LAYERS) AS INTEGER, grTgtCount AS INTEGER, grT AS INTEGER
+        DIM grSaveCL AS INTEGER
+        IMAGE_ADJ_collect_targets grTargets%(), grTgtCount%
+        grSaveCL% = CURRENT_LAYER%
+        IF grTgtCount% > 1 THEN HISTORY_begin_group
+        DIM adjR     AS LONG
+        FOR grT% = 1 TO grTgtCount%
+            CURRENT_LAYER% = grTargets%(grT%)
+            adjR&          = IMAGE_ADJ_grid&(LAYERS(CURRENT_LAYER%).imgHandle&, gspc%, perspOn%, PAINT_COLOR~&)
+            IMAGE_ADJ_apply_spatial adjR&, "Render Grid"
+        NEXT grT%
+        IF grTgtCount% > 1 THEN HISTORY_end_group
+        CURRENT_LAYER% = grSaveCL%
+    END IF
+
+    DIALOG_cleanup ctx
+    SAFE_FREEIMAGE IMGADJ_LAYER_MASK& : IMGADJ_LAYER_MASK& = 0
+END SUB
+
+
+''
 ' Dust & Scratches (Reduce Noise) — a thresholded 3x3 median: a pixel is replaced
 ' by the neighbourhood median only where it differs from that median by more than
 ' `threshold`, so outlier speckle/scratches are removed while detail is kept.
