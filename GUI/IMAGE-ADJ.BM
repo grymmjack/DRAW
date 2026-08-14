@@ -801,13 +801,22 @@ SUB IMAGE_ADJ_brightness_contrast_dialog ()
     IF CURRENT_LAYER% < 1 THEN EXIT SUB
 
     DIM ctx AS DIALOG_CTX
-    DIALOG_init ctx, IMGDLG_W, 148
+    DIALOG_init ctx, IMGDLG_W, 176
     IMAGE_ADJ_setup_preview ctx, LAYERS(CURRENT_LAYER%).imgHandle&
 
     DIM brightness  AS INTEGER, contrast AS INTEGER
     DIM oBrightness AS INTEGER, oContrast AS INTEGER
     DIM prvTmp      AS LONG, prvResult AS LONG
     brightness% = 0 : contrast% = 0
+
+    ' "Preserve Blacks": when on, pure-black (0,0,0) pixels are left untouched so
+    ' raising brightness/contrast doesn't lift the blacks. Remembered across opens
+    ' this session via STATIC. Scratch strings/amounts for the non-black path.
+    STATIC preserveBlacks AS INTEGER
+    DIM pbX AS INTEGER, pbY AS INTEGER, pbW AS INTEGER, pbH AS INTEGER
+    pbX% = IMGDLG_SX : pbW% = 160 : pbH% = 16
+    pbY% = IMGDLG_track_y%(ctx, 1) + 24
+    DIM bDir AS STRING, cDir AS STRING, bAmt AS INTEGER, cAmt AS INTEGER
 
     DIM k AS LONG
     DO
@@ -822,26 +831,38 @@ SUB IMAGE_ADJ_brightness_contrast_dialog ()
         brightness%  = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, brightness%, -100, 100)
         contrast%    = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, contrast%,   -100, 100)
         contrast%    = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, contrast%,   -100, 100)
+        IF DIALOG_hit%(ctx, pbX%, pbY%, pbW%, pbH%) THEN
+            preserveBlacks%   = (preserveBlacks% = 0) ' toggle (avoid bitwise NOT — gotcha #19)
+            ctx.previewDirty% = TRUE
+        END IF
         IF brightness% <> oBrightness% OR contrast% <> oContrast% THEN ctx.previewDirty% = TRUE
         IMGDLG_check_ok_cancel ctx
 
         IF ctx.previewDirty% THEN
             SAFE_FREEIMAGE ctx.previewThumb
-            IF brightness% > 0 THEN
-                prvTmp& = GJ_IMGADJ_Brightness(ctx.origThumb, "+", (brightness% * 255) \ 100)
-            ELSEIF brightness% < 0 THEN
-                prvTmp& = GJ_IMGADJ_Brightness(ctx.origThumb, "-", ((-brightness%) * 255) \ 100)
+            IF preserveBlacks% THEN
+                IF brightness% >= 0 THEN bDir$ = "+" ELSE bDir$ = "-"
+                bAmt% = (ABS(brightness%) * 255) \ 100
+                IF contrast% >= 0 THEN cDir$ = "+" ELSE cDir$ = "-"
+                cAmt% = ABS(contrast%)
+                prvResult& = GJ_IMGADJ_BrightnessContrastNonBlack(ctx.origThumb, bDir$, bAmt%, cDir$, cAmt%)
             ELSE
-                prvTmp& = GJ_IMGADJ_CloneImage(ctx.origThumb)
+                IF brightness% > 0 THEN
+                    prvTmp& = GJ_IMGADJ_Brightness(ctx.origThumb, "+", (brightness% * 255) \ 100)
+                ELSEIF brightness% < 0 THEN
+                    prvTmp& = GJ_IMGADJ_Brightness(ctx.origThumb, "-", ((-brightness%) * 255) \ 100)
+                ELSE
+                    prvTmp& = GJ_IMGADJ_CloneImage(ctx.origThumb)
+                END IF
+                IF contrast% > 0 THEN
+                    prvResult& = GJ_IMGADJ_Contrast(prvTmp&, "+", contrast%)
+                ELSEIF contrast% < 0 THEN
+                    prvResult& = GJ_IMGADJ_Contrast(prvTmp&, "-", -contrast%)
+                ELSE
+                    prvResult& = GJ_IMGADJ_CloneImage(prvTmp&)
+                END IF
+                SAFE_FREEIMAGE prvTmp&
             END IF
-            IF contrast% > 0 THEN
-                prvResult& = GJ_IMGADJ_Contrast(prvTmp&, "+", contrast%)
-            ELSEIF contrast% < 0 THEN
-                prvResult& = GJ_IMGADJ_Contrast(prvTmp&, "-", -contrast%)
-            ELSE
-                prvResult& = GJ_IMGADJ_CloneImage(prvTmp&)
-            END IF
-            SAFE_FREEIMAGE prvTmp&
             ctx.previewThumb = prvResult&
             IMAGE_ADJ_mask_preview ctx
             ctx.previewDirty% = FALSE
@@ -854,6 +875,7 @@ SUB IMAGE_ADJ_brightness_contrast_dialog ()
         DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, brightness%, -100, 100, "", ""
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 1), "CONTRAST:"
         DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, contrast%,   -100, 100, "", ""
+        DIALOG_draw_toggle ctx, pbX%, pbY%, pbW%, pbH%, "PRESERVE BLACKS", preserveBlacks%
         DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
         IMGDLG_draw_ok_cancel ctx
         DIALOG_blit ctx
@@ -869,21 +891,29 @@ SUB IMAGE_ADJ_brightness_contrast_dialog ()
         FOR bcT% = 1 TO bcTgtCount%
             CURRENT_LAYER% = bcTargets%(bcT%)
             src&           = LAYERS(CURRENT_LAYER%).imgHandle&
-            IF brightness% > 0 THEN
-                tmp& = GJ_IMGADJ_Brightness(src&, "+", (brightness% * 255) \ 100)
-            ELSEIF brightness% < 0 THEN
-                tmp& = GJ_IMGADJ_Brightness(src&, "-", ((-brightness%) * 255) \ 100)
+            IF preserveBlacks% THEN
+                IF brightness% >= 0 THEN bDir$ = "+" ELSE bDir$ = "-"
+                bAmt% = (ABS(brightness%) * 255) \ 100
+                IF contrast% >= 0 THEN cDir$ = "+" ELSE cDir$ = "-"
+                cAmt% = ABS(contrast%)
+                adjR& = GJ_IMGADJ_BrightnessContrastNonBlack(src&, bDir$, bAmt%, cDir$, cAmt%)
             ELSE
-                tmp& = GJ_IMGADJ_CloneImage(src&)
+                IF brightness% > 0 THEN
+                    tmp& = GJ_IMGADJ_Brightness(src&, "+", (brightness% * 255) \ 100)
+                ELSEIF brightness% < 0 THEN
+                    tmp& = GJ_IMGADJ_Brightness(src&, "-", ((-brightness%) * 255) \ 100)
+                ELSE
+                    tmp& = GJ_IMGADJ_CloneImage(src&)
+                END IF
+                IF contrast% > 0 THEN
+                    adjR& = GJ_IMGADJ_Contrast(tmp&, "+", contrast%)
+                ELSEIF contrast% < 0 THEN
+                    adjR& = GJ_IMGADJ_Contrast(tmp&, "-", -contrast%)
+                ELSE
+                    adjR& = GJ_IMGADJ_CloneImage(tmp&)
+                END IF
+                IF tmp& < -1 AND tmp& <> src& THEN SAFE_FREEIMAGE tmp&
             END IF
-            IF contrast% > 0 THEN
-                adjR& = GJ_IMGADJ_Contrast(tmp&, "+", contrast%)
-            ELSEIF contrast% < 0 THEN
-                adjR& = GJ_IMGADJ_Contrast(tmp&, "-", -contrast%)
-            ELSE
-                adjR& = GJ_IMGADJ_CloneImage(tmp&)
-            END IF
-            IF tmp& < -1 AND tmp& <> src& THEN SAFE_FREEIMAGE tmp&
             IMAGE_ADJ_apply_to_layer adjR&, "Brightness / Contrast"
         NEXT bcT%
         IF bcTgtCount% > 1 THEN HISTORY_end_group
@@ -1088,12 +1118,18 @@ SUB IMAGE_ADJ_color_balance_dialog ()
     IF CURRENT_LAYER% < 1 THEN EXIT SUB
 
     DIM ctx AS DIALOG_CTX
-    DIALOG_init ctx, IMGDLG_W, 186
+    DIALOG_init ctx, IMGDLG_W, 214
     IMAGE_ADJ_setup_preview ctx, LAYERS(CURRENT_LAYER%).imgHandle&
 
     DIM redShift AS INTEGER, greenShift AS INTEGER, blueShift AS INTEGER
     DIM oRed     AS INTEGER, oGreen AS INTEGER, oBlue AS INTEGER
     redShift% = 0 : greenShift% = 0 : blueShift% = 0
+
+    ' "Preserve Blacks" toggle (below the BLUE slider); remembered per session.
+    STATIC cbPreserveBlacks AS INTEGER
+    DIM cbPbX AS INTEGER, cbPbY AS INTEGER, cbPbW AS INTEGER, cbPbH AS INTEGER
+    cbPbX% = IMGDLG_SX : cbPbW% = 160 : cbPbH% = 16
+    cbPbY% = IMGDLG_track_y%(ctx, 2) + 24
 
     DIM k AS LONG
     DO
@@ -1110,12 +1146,16 @@ SUB IMAGE_ADJ_color_balance_dialog ()
         greenShift% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, greenShift%, -255, 255)
         blueShift%  = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, 14, blueShift%,  -255, 255)
         blueShift%  = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, 14, blueShift%,  -255, 255)
+        IF DIALOG_hit%(ctx, cbPbX%, cbPbY%, cbPbW%, cbPbH%) THEN
+            cbPreserveBlacks% = (cbPreserveBlacks% = 0) ' toggle (avoid bitwise NOT — gotcha #19)
+            ctx.previewDirty% = TRUE
+        END IF
         IF redShift% <> oRed% OR greenShift% <> oGreen% OR blueShift% <> oBlue% THEN ctx.previewDirty% = TRUE
         IMGDLG_check_ok_cancel ctx
 
         IF ctx.previewDirty% THEN
             SAFE_FREEIMAGE ctx.previewThumb
-            ctx.previewThumb = GJ_IMGADJ_ColorBalance(ctx.origThumb, redShift%, greenShift%, blueShift%)
+            ctx.previewThumb = GJ_IMGADJ_ColorBalance(ctx.origThumb, redShift%, greenShift%, blueShift%, cbPreserveBlacks%)
             IMAGE_ADJ_mask_preview ctx
             ctx.previewDirty% = FALSE
         END IF
@@ -1129,6 +1169,7 @@ SUB IMAGE_ADJ_color_balance_dialog ()
         DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, greenShift%, -255, 255, "", ""
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 2), "BLUE:"
         DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, blueShift%,  -255, 255, "", ""
+        DIALOG_draw_toggle ctx, cbPbX%, cbPbY%, cbPbW%, cbPbH%, "PRESERVE BLACKS", cbPreserveBlacks%
         DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
         IMGDLG_draw_ok_cancel ctx
         DIALOG_blit ctx
@@ -1143,7 +1184,7 @@ SUB IMAGE_ADJ_color_balance_dialog ()
         DIM adjR     AS LONG
         FOR cbT% = 1 TO cbTgtCount%
             CURRENT_LAYER% = cbTargets%(cbT%)
-            adjR&          = GJ_IMGADJ_ColorBalance(LAYERS(CURRENT_LAYER%).imgHandle&, redShift%, greenShift%, blueShift%)
+            adjR&          = GJ_IMGADJ_ColorBalance(LAYERS(CURRENT_LAYER%).imgHandle&, redShift%, greenShift%, blueShift%, cbPreserveBlacks%)
             IMAGE_ADJ_apply_to_layer adjR&, "Color Balance"
         NEXT cbT%
         IF cbTgtCount% > 1 THEN HISTORY_end_group
@@ -1448,7 +1489,13 @@ SUB IMAGE_ADJ_pixelate_dialog ()
 
         IF ctx.previewDirty% THEN
             SAFE_FREEIMAGE ctx.previewThumb
-            ctx.previewThumb = GJ_IMGADJ_Pixelate(ctx.origThumb, pixSize%)
+            ' origThumb is a screen-space crop of SCRN.CANVAS& (the canvas drawn
+            ' at SCRN.zoom), but the apply pixelates the layer in CANVAS pixels.
+            ' Scale the preview block by zoom so the loupe is WYSIWYG — otherwise
+            ' pixSize means screen-px here and canvas-px on apply (only equal at 1x).
+            DIM pvPix AS INTEGER : pvPix% = INT(pixSize% * SCRN.zoom! + 0.5)
+            IF pvPix% < 1 THEN pvPix% = 1
+            ctx.previewThumb = GJ_IMGADJ_Pixelate(ctx.origThumb, pvPix%)
             IMAGE_ADJ_mask_preview ctx
             ctx.previewDirty% = FALSE
         END IF
