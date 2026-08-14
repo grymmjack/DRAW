@@ -2060,6 +2060,38 @@ END FUNCTION
 
 
 ''
+' Quantize a single 0-255 channel value to `nlev` evenly-spaced levels, using the
+' SAME level set as GJ_IMGADJ_Posterize ((level*255)\(nlev-1)) so dithered and
+' non-dithered posterize share one palette. Rounds to nearest level; clamps.
+' @param v SINGLE Channel value (may be pre-offset by a dither threshold/error)
+' @param nlev INTEGER Number of levels (>= 2)
+' @return INTEGER Quantized channel value 0-255
+'
+FUNCTION GJ_IMGADJ_QuantCh% (v AS SINGLE, nlev AS INTEGER)
+    DIM n AS INTEGER : n = nlev
+    IF n < 2 THEN n = 2
+    DIM vv AS SINGLE : vv = v
+    IF vv < 0 THEN vv = 0
+    IF vv > 255 THEN vv = 255
+    DIM stp AS SINGLE : stp = 255.0 / (n - 1)
+    DIM lvl AS INTEGER : lvl = INT(vv / stp + 0.5)
+    IF lvl < 0 THEN lvl = 0
+    IF lvl > n - 1 THEN lvl = n - 1
+    GJ_IMGADJ_QuantCh% = (lvl * 255) \ (n - 1)
+END FUNCTION
+
+
+''
+' Resolve the active per-channel dither level count from shared state (>= 2).
+'
+FUNCTION GJ_IMGADJ_DitherLevels% ()
+    DIM n AS INTEGER : n = GJ_IMGADJ_DITHER_LEVELS
+    IF n < 2 THEN n = 2
+    GJ_IMGADJ_DitherLevels% = n
+END FUNCTION
+
+
+''
 ' Apply ordered dithering matrix to image
 ' @param sourceImg LONG Source image handle
 ' @param matrix() INTEGER Dithering matrix values
@@ -2089,32 +2121,25 @@ FUNCTION GJ_IMGADJ_ApplyOrderedMatrix& (sourceImg AS LONG, matrix() AS INTEGER, 
     DIM x         AS INTEGER, y AS INTEGER
     DIM pixelData AS _UNSIGNED LONG
     DIM r         AS INTEGER, g AS INTEGER, b AS INTEGER, a AS INTEGER
-    DIM threshold AS SINGLE, gray AS INTEGER, newGray AS INTEGER
-    
+    DIM threshold AS SINGLE
+    DIM nlev  AS INTEGER : nlev = GJ_IMGADJ_DitherLevels%
+    DIM stepN AS SINGLE : stepN = 255.0 / (nlev - 1)
+
     FOR y = 0 TO h - 1
         FOR x = 0 TO w - 1
             ' Get source pixel
             _MEMGET srcMem, srcMem.OFFSET + (y * w + x) * 4, pixelData
-            
+
             ' Extract RGBA components
             b = pixelData AND 255
             g = (pixelData \ 256) AND 255
             r = (pixelData \ 65536) AND 255
             a = (pixelData \ 16777216) AND 255
-            
-            ' Convert to grayscale
-            gray = GJ_IMGADJ_NearestGrayscale%(r, g, b)
-            
-            ' Apply ordered dithering threshold
-            threshold = ((matrix(x MOD matW, y MOD matH) / maxVal) - 0.5) * 128 * amount
-            newGray   = gray + threshold
-            newGray   = _CLAMP(newGray, 0, 255)
-            
-            ' Quantize to binary (0 or 255) for dithering effect
-            IF newGray >= 128 THEN newGray = 255 ELSE newGray = 0
-            
-            ' Store result
-            pixelData = newGray + newGray * 256 + newGray * 65536 + a * 16777216
+
+            ' Ordered dither to N levels per channel (colour-preserving). The Bayer
+            ' cell provides a sub-step threshold offset added to each channel.
+            threshold = ((matrix(x MOD matW, y MOD matH) / maxVal) - 0.5) * stepN * amount
+            pixelData = _RGBA32(GJ_IMGADJ_QuantCh%(r + threshold, nlev), GJ_IMGADJ_QuantCh%(g + threshold, nlev), GJ_IMGADJ_QuantCh%(b + threshold, nlev), a)
             _MEMPUT destMem, destMem.OFFSET + (y * w + x) * 4, pixelData
         NEXT x
     NEXT y
@@ -2145,117 +2170,108 @@ FUNCTION GJ_IMGADJ_ApplyErrorDiffusion& (sourceImg AS LONG, algorithm AS INTEGER
     DIM resultImg AS LONG
     resultImg = _NEWIMAGE(w, h, 32)
     
-    ' Error buffers for current and next rows
-    DIM err1(0 TO w + 2) AS SINGLE ' Current row errors (with padding)
-    DIM err2(0 TO w + 2) AS SINGLE ' Next row errors (with padding)
-    
+    ' Per-channel error buffers [channel 0..2][x], current + next row (padded)
+    DIM err1(0 TO 2, 0 TO w + 2) AS SINGLE
+    DIM err2(0 TO 2, 0 TO w + 2) AS SINGLE
+
     DIM srcMem AS _MEM, destMem AS _MEM
     srcMem  = _MEMIMAGE(sourceImg)
     destMem = _MEMIMAGE(resultImg)
-    
-    DIM x         AS INTEGER, y AS INTEGER
+
+    DIM x         AS INTEGER, y AS INTEGER, ch AS INTEGER
     DIM pixelData AS _UNSIGNED LONG
-    DIM r         AS INTEGER, g AS INTEGER, b AS INTEGER, a AS INTEGER
-    DIM gray      AS SINGLE, newGray AS INTEGER, errorVal AS SINGLE
-    
+    DIM a         AS INTEGER
+    DIM chVal(0 TO 2) AS INTEGER, nch(0 TO 2) AS INTEGER
+    DIM chv       AS SINGLE, newVal AS INTEGER, errorVal AS SINGLE
+    DIM nlev      AS INTEGER : nlev = GJ_IMGADJ_DitherLevels%
+
     ' Initialize error buffers
     FOR x = 0 TO w + 2
-        err1(x) = 0
-        err2(x) = 0
+        err1(0, x) = 0 : err1(1, x) = 0 : err1(2, x) = 0
+        err2(0, x) = 0 : err2(1, x) = 0 : err2(2, x) = 0
     NEXT x
     
     FOR y = 0 TO h - 1
         FOR x = 0 TO w - 1
-            ' Get source pixel
             _MEMGET srcMem, srcMem.OFFSET + (y * w + x) * 4, pixelData
-            
-            ' Extract RGBA components
-            b = pixelData AND 255
-            g = (pixelData \ 256) AND 255
-            r = (pixelData \ 65536) AND 255
+            chVal(2) = pixelData AND 255
+            chVal(1) = (pixelData \ 256) AND 255
+            chVal(0) = (pixelData \ 65536) AND 255
             a = (pixelData \ 16777216) AND 255
-            
-            ' Convert to grayscale and add accumulated error
-            gray = GJ_IMGADJ_NearestGrayscale%(r, g, b) + err1(x + 1)
-            gray = _CLAMP(gray, 0, 255)
-            
-            ' Quantize to binary
-            IF gray >= 128 THEN newGray = 255 ELSE newGray = 0
-            
-            ' Calculate error
-            errorVal = (gray - newGray) * amount
-            
-            ' Distribute error based on algorithm
-            SELECT CASE algorithm
-                CASE 0 ' Floyd-Steinberg
-                    err1(x + 2) = err1(x + 2) + errorVal * 0.4375 ' Right       : 7/16
-                    err2(x) = err2(x) + errorVal * 0.1875         ' Below-left  : 3/16
-                    err2(x + 1) = err2(x + 1) + errorVal * 0.3125 ' Below       : 5/16
-                    err2(x + 2) = err2(x + 2) + errorVal * 0.0625 ' Below-right : 1/16
-                
-                CASE 1 ' Jarvis-Judice-Ninke
-                    err1(x + 2) = err1(x + 2) + errorVal * 0.146 ' 7/48
-                    err1(x + 3) = err1(x + 3) + errorVal * 0.104 ' 5/48
-                    err2(x) = err2(x) + errorVal * 0.063         ' 3/48
-                    err2(x + 1) = err2(x + 1) + errorVal * 0.104 ' 5/48
-                    err2(x + 2) = err2(x + 2) + errorVal * 0.146 ' 7/48
-                    err2(x + 3) = err2(x + 3) + errorVal * 0.104 ' 5/48
-                
-                CASE 2 ' Stucki
-                    err1(x + 2) = err1(x + 2) + errorVal * 0.1905 ' 8/42
-                    err1(x + 3) = err1(x + 3) + errorVal * 0.0952 ' 4/42
-                    err2(x) = err2(x) + errorVal * 0.0476         ' 2/42
-                    err2(x + 1) = err2(x + 1) + errorVal * 0.0952 ' 4/42
-                    err2(x + 2) = err2(x + 2) + errorVal * 0.1905 ' 8/42
-                    err2(x + 3) = err2(x + 3) + errorVal * 0.0952 ' 4/42
-                
-                CASE 3 ' Burkes
-                    err1(x + 2) = err1(x + 2) + errorVal * 0.25  ' 8/32
-                    err1(x + 3) = err1(x + 3) + errorVal * 0.125 ' 4/32
-                    err2(x) = err2(x) + errorVal * 0.0625        ' 2/32
-                    err2(x + 1) = err2(x + 1) + errorVal * 0.125 ' 4/32
-                    err2(x + 2) = err2(x + 2) + errorVal * 0.25  ' 8/32
-                    err2(x + 3) = err2(x + 3) + errorVal * 0.125 ' 4/32
-                    
-                CASE 4 ' Sierra
-                    err1(x + 2) = err1(x + 2) + errorVal * 0.15625 ' 5/32
-                    err1(x + 3) = err1(x + 3) + errorVal * 0.09375 ' 3/32
-                    err2(x) = err2(x) + errorVal * 0.0625          ' 2/32
-                    err2(x + 1) = err2(x + 1) + errorVal * 0.125   ' 4/32
-                    err2(x + 2) = err2(x + 2) + errorVal * 0.15625 ' 5/32
-                    err2(x + 3) = err2(x + 3) + errorVal * 0.125   ' 4/32
-                    
-                CASE 5 ' Sierra Lite
-                    err1(x + 2) = err1(x + 2) + errorVal * 0.5  ' 2/4
-                    err2(x) = err2(x) + errorVal * 0.25         ' 1/4
-                    err2(x + 1) = err2(x + 1) + errorVal * 0.25 ' 1/4
-                    
-                CASE 6 ' Atkinson
-                    err1(x + 2) = err1(x + 2) + errorVal * 0.125 ' 1/8
-                    err1(x + 3) = err1(x + 3) + errorVal * 0.125 ' 1/8
-                    err2(x) = err2(x) + errorVal * 0.125         ' 1/8
-                    err2(x + 1) = err2(x + 1) + errorVal * 0.125 ' 1/8
-                    err2(x + 2) = err2(x + 2) + errorVal * 0.125 ' 1/8
-                    
-                CASE ELSE ' Default to Floyd-Steinberg
-                    err1(x + 2) = err1(x + 2) + errorVal * 0.4375
-                    err2(x) = err2(x) + errorVal * 0.1875
-                    err2(x + 1) = err2(x + 1) + errorVal * 0.3125
-                    err2(x + 2) = err2(x + 2) + errorVal * 0.0625
-            END SELECT
-            
-            ' Store result
-            pixelData = newGray + newGray * 256 + newGray * 65536 + a * 16777216
+
+            ' Error-diffuse each channel independently to N levels (colour-safe;
+            ' was grayscale->1-bit, which is why dithered posterize went B/W).
+            FOR ch = 0 TO 2
+                chv = chVal(ch) + err1(ch, x + 1)
+                IF chv < 0 THEN chv = 0
+                IF chv > 255 THEN chv = 255
+                newVal  = GJ_IMGADJ_QuantCh%(chv, nlev)
+                nch(ch) = newVal
+                errorVal = (chv - newVal) * amount
+
+                SELECT CASE algorithm
+                    CASE 0 ' Floyd-Steinberg
+                        err1(ch, x + 2) = err1(ch, x + 2) + errorVal * 0.4375
+                        err2(ch, x)     = err2(ch, x) + errorVal * 0.1875
+                        err2(ch, x + 1) = err2(ch, x + 1) + errorVal * 0.3125
+                        err2(ch, x + 2) = err2(ch, x + 2) + errorVal * 0.0625
+                    CASE 1 ' Jarvis-Judice-Ninke
+                        err1(ch, x + 2) = err1(ch, x + 2) + errorVal * 0.146
+                        err1(ch, x + 3) = err1(ch, x + 3) + errorVal * 0.104
+                        err2(ch, x)     = err2(ch, x) + errorVal * 0.063
+                        err2(ch, x + 1) = err2(ch, x + 1) + errorVal * 0.104
+                        err2(ch, x + 2) = err2(ch, x + 2) + errorVal * 0.146
+                        err2(ch, x + 3) = err2(ch, x + 3) + errorVal * 0.104
+                    CASE 2 ' Stucki
+                        err1(ch, x + 2) = err1(ch, x + 2) + errorVal * 0.1905
+                        err1(ch, x + 3) = err1(ch, x + 3) + errorVal * 0.0952
+                        err2(ch, x)     = err2(ch, x) + errorVal * 0.0476
+                        err2(ch, x + 1) = err2(ch, x + 1) + errorVal * 0.0952
+                        err2(ch, x + 2) = err2(ch, x + 2) + errorVal * 0.1905
+                        err2(ch, x + 3) = err2(ch, x + 3) + errorVal * 0.0952
+                    CASE 3 ' Burkes
+                        err1(ch, x + 2) = err1(ch, x + 2) + errorVal * 0.25
+                        err1(ch, x + 3) = err1(ch, x + 3) + errorVal * 0.125
+                        err2(ch, x)     = err2(ch, x) + errorVal * 0.0625
+                        err2(ch, x + 1) = err2(ch, x + 1) + errorVal * 0.125
+                        err2(ch, x + 2) = err2(ch, x + 2) + errorVal * 0.25
+                        err2(ch, x + 3) = err2(ch, x + 3) + errorVal * 0.125
+                    CASE 4 ' Sierra
+                        err1(ch, x + 2) = err1(ch, x + 2) + errorVal * 0.15625
+                        err1(ch, x + 3) = err1(ch, x + 3) + errorVal * 0.09375
+                        err2(ch, x)     = err2(ch, x) + errorVal * 0.0625
+                        err2(ch, x + 1) = err2(ch, x + 1) + errorVal * 0.125
+                        err2(ch, x + 2) = err2(ch, x + 2) + errorVal * 0.15625
+                        err2(ch, x + 3) = err2(ch, x + 3) + errorVal * 0.125
+                    CASE 5 ' Sierra Lite
+                        err1(ch, x + 2) = err1(ch, x + 2) + errorVal * 0.5
+                        err2(ch, x)     = err2(ch, x) + errorVal * 0.25
+                        err2(ch, x + 1) = err2(ch, x + 1) + errorVal * 0.25
+                    CASE 6 ' Atkinson
+                        err1(ch, x + 2) = err1(ch, x + 2) + errorVal * 0.125
+                        err1(ch, x + 3) = err1(ch, x + 3) + errorVal * 0.125
+                        err2(ch, x)     = err2(ch, x) + errorVal * 0.125
+                        err2(ch, x + 1) = err2(ch, x + 1) + errorVal * 0.125
+                        err2(ch, x + 2) = err2(ch, x + 2) + errorVal * 0.125
+                    CASE ELSE ' Default to Floyd-Steinberg
+                        err1(ch, x + 2) = err1(ch, x + 2) + errorVal * 0.4375
+                        err2(ch, x)     = err2(ch, x) + errorVal * 0.1875
+                        err2(ch, x + 1) = err2(ch, x + 1) + errorVal * 0.3125
+                        err2(ch, x + 2) = err2(ch, x + 2) + errorVal * 0.0625
+                END SELECT
+            NEXT ch
+
+            pixelData = _RGBA32(nch(0), nch(1), nch(2), a)
             _MEMPUT destMem, destMem.OFFSET + (y * w + x) * 4, pixelData
         NEXT x
-        
-        ' Swap error buffers for next row
+
+        ' Roll next-row errors into current row
         FOR x = 0 TO w + 2
-            err1(x) = err2(x)
-            err2(x) = 0
+            err1(0, x) = err2(0, x) : err1(1, x) = err2(1, x) : err1(2, x) = err2(2, x)
+            err2(0, x) = 0 : err2(1, x) = 0 : err2(2, x) = 0
         NEXT x
     NEXT y
-    
+
     _MEMFREE srcMem
     _MEMFREE destMem
     GJ_IMGADJ_ApplyErrorDiffusion = resultImg
@@ -2615,8 +2631,10 @@ FUNCTION GJ_IMGADJ_DitherRandom& (sourceImg AS LONG, amount AS SINGLE)
     DIM x         AS INTEGER, y AS INTEGER
     DIM pixelData AS _UNSIGNED LONG
     DIM r         AS INTEGER, g AS INTEGER, b AS INTEGER, a AS INTEGER
-    DIM gray      AS SINGLE, newGray AS INTEGER, noise AS SINGLE
+    DIM noise AS SINGLE
     
+    DIM nlev  AS INTEGER : nlev = GJ_IMGADJ_DitherLevels%
+    DIM stepN AS SINGLE : stepN = 255.0 / (nlev - 1)
     FOR y = 0 TO h - 1
         FOR x = 0 TO w - 1
             ' Get source pixel
@@ -2628,19 +2646,9 @@ FUNCTION GJ_IMGADJ_DitherRandom& (sourceImg AS LONG, amount AS SINGLE)
             r = (pixelData \ 65536) AND 255
             a = (pixelData \ 16777216) AND 255
             
-            ' Convert to grayscale
-            gray = GJ_IMGADJ_NearestGrayscale%(r, g, b)
-            
-            ' Add random noise
-            noise = (RND * 128 - 64) * amount
-            gray = gray + noise
-            gray = _CLAMP(gray, 0, 255)
-            
-            ' Quantize to binary
-            IF gray >= 128 THEN newGray = 255 ELSE newGray = 0
-            
-            ' Store result
-            pixelData = newGray + newGray * 256 + newGray * 65536 + a * 16777216
+            ' Per-channel random dither to N levels (colour-safe)
+            noise = (RND - 0.5) * stepN * amount
+            pixelData = _RGBA32(GJ_IMGADJ_QuantCh%(r + noise, nlev), GJ_IMGADJ_QuantCh%(g + noise, nlev), GJ_IMGADJ_QuantCh%(b + noise, nlev), a)
             _MEMPUT destMem, destMem.OFFSET + (y * w + x) * 4, pixelData
         NEXT x
     NEXT y
@@ -2679,8 +2687,10 @@ FUNCTION GJ_IMGADJ_DitherBlueNoise& (sourceImg AS LONG, amount AS SINGLE)
     DIM x         AS INTEGER, y AS INTEGER
     DIM pixelData AS _UNSIGNED LONG
     DIM r         AS INTEGER, g AS INTEGER, b AS INTEGER, a AS INTEGER
-    DIM gray      AS SINGLE, newGray AS INTEGER, noise AS SINGLE
+    DIM noise AS SINGLE
     
+    DIM nlev  AS INTEGER : nlev = GJ_IMGADJ_DitherLevels%
+    DIM stepN AS SINGLE : stepN = 255.0 / (nlev - 1)
     FOR y = 0 TO h - 1
         FOR x = 0 TO w - 1
             ' Get source pixel
@@ -2692,19 +2702,9 @@ FUNCTION GJ_IMGADJ_DitherBlueNoise& (sourceImg AS LONG, amount AS SINGLE)
             r = (pixelData \ 65536) AND 255
             a = (pixelData \ 16777216) AND 255
             
-            ' Convert to grayscale
-            gray = GJ_IMGADJ_NearestGrayscale%(r, g, b)
-            
-            ' Generate blue noise approximation using coordinate hash
-            noise = (((x * 1234 + y * 5678) MOD 255) - 127) * amount
-            gray = gray + noise
-            gray = _CLAMP(gray, 0, 255)
-            
-            ' Quantize to binary
-            IF gray >= 128 THEN newGray = 255 ELSE newGray = 0
-            
-            ' Store result
-            pixelData = newGray + newGray * 256 + newGray * 65536 + a * 16777216
+            ' Per-channel blue-noise dither to N levels (colour-safe)
+            noise = ((((x * 1234 + y * 5678) MOD 255) / 255.0) - 0.5) * stepN * amount
+            pixelData = _RGBA32(GJ_IMGADJ_QuantCh%(r + noise, nlev), GJ_IMGADJ_QuantCh%(g + noise, nlev), GJ_IMGADJ_QuantCh%(b + noise, nlev), a)
             _MEMPUT destMem, destMem.OFFSET + (y * w + x) * 4, pixelData
         NEXT x
     NEXT y
@@ -2768,10 +2768,10 @@ FUNCTION GJ_IMGADJ_DitherHalftone& (sourceImg AS LONG, amount AS SINGLE)
     DIM x         AS INTEGER, y AS INTEGER
     DIM pixelData AS _UNSIGNED LONG
     DIM r         AS INTEGER, g AS INTEGER, b AS INTEGER, a AS INTEGER
-    DIM gray      AS SINGLE, newGray AS INTEGER
-    DIM dotRadius AS SINGLE, distance AS SINGLE
+    DIM distance AS SINGLE
     DIM centerX   AS SINGLE, centerY AS SINGLE
     
+    DIM htR AS INTEGER, htG AS INTEGER, htB AS INTEGER
     FOR y = 0 TO h - 1
         FOR x = 0 TO w - 1
             ' Get source pixel
@@ -2783,24 +2783,14 @@ FUNCTION GJ_IMGADJ_DitherHalftone& (sourceImg AS LONG, amount AS SINGLE)
             r = (pixelData \ 65536) AND 255
             a = (pixelData \ 16777216) AND 255
             
-            ' Convert to grayscale
-            gray = GJ_IMGADJ_NearestGrayscale%(r, g, b)
-            
-            ' Calculate halftone dot size based on brightness
-            dotRadius = (gray / 255.0) * 3.0 * amount + (1.0 - amount)
-            
-            ' Find center of current 4x4 cell
+            ' Per-channel halftone dots (colour-safe; was 1-bit B/W)
             centerX = (x \ 4) * 4 + 2
             centerY = (y \ 4) * 4 + 2
-            
-            ' Calculate distance from cell center
             distance = SQR((x - centerX) * (x - centerX) + (y - centerY) * (y - centerY))
-            
-            ' Create dot pattern
-            IF distance <= dotRadius THEN newGray = 0 ELSE newGray = 255
-            
-            ' Store result
-            pixelData = newGray + newGray * 256 + newGray * 65536 + a * 16777216
+            IF distance <= (r / 255.0) * 3.0 * amount + (1.0 - amount) THEN htR = 0 ELSE htR = 255
+            IF distance <= (g / 255.0) * 3.0 * amount + (1.0 - amount) THEN htG = 0 ELSE htG = 255
+            IF distance <= (b / 255.0) * 3.0 * amount + (1.0 - amount) THEN htB = 0 ELSE htB = 255
+            pixelData = _RGBA32(htR, htG, htB, a)
             _MEMPUT destMem, destMem.OFFSET + (y * w + x) * 4, pixelData
         NEXT x
     NEXT y
@@ -2839,9 +2829,10 @@ FUNCTION GJ_IMGADJ_DitherSpiral& (sourceImg AS LONG, amount AS SINGLE)
     DIM x         AS INTEGER, y AS INTEGER
     DIM pixelData AS _UNSIGNED LONG
     DIM r         AS INTEGER, g AS INTEGER, b AS INTEGER, a AS INTEGER
-    DIM gray      AS SINGLE, newGray AS INTEGER
     DIM angle     AS SINGLE, radius AS SINGLE, threshold AS SINGLE
     
+    DIM nlev  AS INTEGER : nlev = GJ_IMGADJ_DitherLevels%
+    DIM stepN AS SINGLE : stepN = 255.0 / (nlev - 1)
     FOR y = 0 TO h - 1
         FOR x = 0 TO w - 1
             ' Get source pixel
@@ -2853,22 +2844,11 @@ FUNCTION GJ_IMGADJ_DitherSpiral& (sourceImg AS LONG, amount AS SINGLE)
             r = (pixelData \ 65536) AND 255
             a = (pixelData \ 16777216) AND 255
             
-            ' Convert to grayscale
-            gray = GJ_IMGADJ_NearestGrayscale%(r, g, b)
-            
-            ' Calculate spiral pattern
+            ' Per-channel spiral dither to N levels (colour-safe)
             radius    = SQR(x * x + y * y)
             angle     = _ATAN2(y, x)
-            threshold = (SIN(radius * 0.5 + angle * 3) + 1) * 0.5 * 128 * amount
-            
-            gray = gray + threshold - 64 * amount
-            gray = _CLAMP(gray, 0, 255)
-            
-            ' Quantize to binary
-            IF gray >= 128 THEN newGray = 255 ELSE newGray = 0
-            
-            ' Store result
-            pixelData = newGray + newGray * 256 + newGray * 65536 + a * 16777216
+            threshold = SIN(radius * 0.5 + angle * 3) * 0.5 * stepN * amount
+            pixelData = _RGBA32(GJ_IMGADJ_QuantCh%(r + threshold, nlev), GJ_IMGADJ_QuantCh%(g + threshold, nlev), GJ_IMGADJ_QuantCh%(b + threshold, nlev), a)
             _MEMPUT destMem, destMem.OFFSET + (y * w + x) * 4, pixelData
         NEXT x
     NEXT y
@@ -2907,9 +2887,11 @@ FUNCTION GJ_IMGADJ_DitherInterleavedGradientNoise& (sourceImg AS LONG, amount AS
     DIM x         AS INTEGER, y AS INTEGER
     DIM pixelData AS _UNSIGNED LONG
     DIM r         AS INTEGER, g AS INTEGER, b AS INTEGER, a AS INTEGER
-    DIM gray      AS SINGLE, newGray AS INTEGER, noise AS SINGLE
+    DIM noise AS SINGLE
     DIM gradient  AS SINGLE
     
+    DIM nlev  AS INTEGER : nlev = GJ_IMGADJ_DitherLevels%
+    DIM stepN AS SINGLE : stepN = 255.0 / (nlev - 1)
     FOR y = 0 TO h - 1
         FOR x = 0 TO w - 1
             ' Get source pixel
@@ -2921,21 +2903,10 @@ FUNCTION GJ_IMGADJ_DitherInterleavedGradientNoise& (sourceImg AS LONG, amount AS
             r = (pixelData \ 65536) AND 255
             a = (pixelData \ 16777216) AND 255
             
-            ' Convert to grayscale
-            gray = GJ_IMGADJ_NearestGrayscale%(r, g, b)
-            
-            ' Generate interleaved gradient noise
+            ' Per-channel interleaved-gradient dither to N levels (colour-safe)
             gradient = ((x + y * 52.9829189) MOD 1000) / 1000.0
-            noise    = (gradient - 0.5) * 128 * amount
-            
-            gray = gray + noise
-            gray = _CLAMP(gray, 0, 255)
-            
-            ' Quantize to binary
-            IF gray >= 128 THEN newGray = 255 ELSE newGray = 0
-            
-            ' Store result
-            pixelData = newGray + newGray * 256 + newGray * 65536 + a * 16777216
+            noise    = (gradient - 0.5) * stepN * amount
+            pixelData = _RGBA32(GJ_IMGADJ_QuantCh%(r + noise, nlev), GJ_IMGADJ_QuantCh%(g + noise, nlev), GJ_IMGADJ_QuantCh%(b + noise, nlev), a)
             _MEMPUT destMem, destMem.OFFSET + (y * w + x) * 4, pixelData
         NEXT x
     NEXT y

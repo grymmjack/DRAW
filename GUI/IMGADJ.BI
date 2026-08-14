@@ -71,6 +71,11 @@ CONST GJ_IMGADJ_DITHER_INTERLEAVED_GRADIENT  = 21
 '
 
 DIM SHARED GJ_IMGADJ_noise(0 TO 65535) AS INTEGER
+
+' Number of quantization levels per channel the Dither* routines target. The
+' posterize dialog sets this before dithering so dithering is COLOR + level
+' aware (per-channel) instead of the old 1-bit grayscale. < 2 is treated as 2.
+DIM SHARED GJ_IMGADJ_DITHER_LEVELS AS INTEGER
 DIM SHARED GJ_IMGADJ_noiseInit AS INTEGER
 
 ' Dithering cache for palette color lookups
