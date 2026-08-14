@@ -22,7 +22,7 @@ the infra exists.
 
 ## 🔨 NOW — doing right now
 
-- [ ] ➡️ Wave 0 · Wire dormant **Vignette** (GJ_IMGADJ_Vignette) — strength dialog + EFFECTS menu + QA test
+- [ ] ➡️ Wave 1 · **Outline / Stroke** — alpha-based border + dialog + EFFECTS menu + QA test
 
 <!-- QA note: invoke effects via the EFFECTS menu (click 395,6 then item at
      viewport y = 20 + index*12), NOT the command palette — palette-open is racy
@@ -37,8 +37,8 @@ the infra exists.
 - [x] Wire **Colorize** (GJ_IMGADJ_Colorize) — HUE + SATURATION tint dialog + menu + QA test (effect-colorize.sh). NOTE: distinct from existing Hue/Saturation (2002) — Colorize *replaces* all hues (monotone tint); Hue/Sat *shifts* them.
 - [x] Wire **Glow** (GJ_IMGADJ_Glow) — RADIUS + INTENSITY dialog + menu + QA test (effect-glow.sh, menu-click invocation)
 - [x] Wire **Film Grain** (GJ_IMGADJ_FilmGrain) — AMOUNT dialog + menu + QA test (effect-filmgrain.sh)
-- [ ] Wire **Vignette** (GJ_IMGADJ_Vignette) — strength dialog + action + menu + QA test
-- [ ] Wire **Pixel Scaler** (GJ_IMGADJ_PixelScaler, xBR/HQx/MMPX) — mode picker dialog + action + menu + QA test
+- [x] Wire **Vignette** (GJ_IMGADJ_Vignette) — STRENGTH dialog + menu + QA test (effect-vignette.sh)
+- [ ] Wire **Pixel Scaler** (GJ_IMGADJ_PixelScaler, xBR/HQx/MMPX) — DEFERRED: unlike every other effect it *resizes* the image 2–4×, so it needs canvas+all-layers resize integration (like RESIZE IMAGE WITH CONTENT), not the same-size apply_to_layer path. Revisit after Wave 1. Mode-picker dialog + action + menu + QA test.
 
 ## Wave 1 — Tier-1 pixel-art effects (new engine)
 
