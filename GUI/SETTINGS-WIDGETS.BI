@@ -42,6 +42,14 @@ TYPE SW_DROPDOWN_STATE
     scroll    AS INTEGER ' Scroll offset in open dropdown
     hoverItem AS INTEGER ' Currently hovered item index (-1 = none)
     itemCount AS INTEGER ' Total items in open dropdown
+    ' Stashed geometry/content of the open dropdown, captured during
+    ' SW_draw_dropdown so the list overlay can be drawn LAST (on top of all
+    ' other controls) via SW_draw_dropdown_overlay -- see that SUB.
+    ovX       AS INTEGER ' Combo box left (screen px)
+    ovY       AS INTEGER ' Combo box top  (screen px)
+    ovW       AS INTEGER ' Combo box width
+    ovItems   AS STRING  ' "|"-delimited item list
+    ovSel     AS INTEGER ' Currently selected index
 END TYPE
 
 DIM SHARED SW_DD AS SW_DROPDOWN_STATE

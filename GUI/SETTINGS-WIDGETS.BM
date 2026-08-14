@@ -229,10 +229,19 @@ FUNCTION SW_spinner_input% (ctx AS DIALOG_CTX, x AS INTEGER, y AS INTEGER, w AS 
     IF ctx.justClicked THEN
         IF ctx.mx >= bx% AND ctx.mx <= bx% + valW% AND ctx.my >= by% AND ctx.my <= by% + SW_SPINNER_H THEN
             DIM typedStr AS STRING
+            ' Widgets render into a temporary clip image, NOT ctx.imgHandle — save
+            ' the real _DEST and restore IT after the modal, or the remaining
+            ' widgets in this tab render "flush left and down" (see
+            ' SW_color_chip_input%). Restoring ctx.imgHandle was the root cause of
+            ' the garbled-until-mouse-move Settings bug.
+            DIM savedDestSp AS LONG : savedDestSp& = _DEST
             typedStr$ = DRAW_input_box_ex$("Enter Value", "", _TRIM$(STR$(value)), "", TRUE)
-            _DEST ctx.imgHandle
+            _DEST savedDestSp&
             _FONT ctx.fontH
             _PRINTMODE _KEEPBACKGROUND
+            ' Nested modal painted over the screen; force one clean repaint even on
+            ' cancel so nothing lingers until the next stray input event.
+            SETTINGS.needsRedraw = TRUE
             IF LEN(RTRIM$(typedStr$)) > 0 THEN
                 DIM typedVal AS INTEGER : typedVal% = VAL(typedStr$)
                 IF typedVal% < minV THEN typedVal% = minV
@@ -369,10 +378,12 @@ FUNCTION SW_spinner_single_input% (ctx AS DIALOG_CTX, x AS INTEGER, y AS INTEGER
     IF ctx.justClicked THEN
         IF ctx.mx >= bx% AND ctx.mx <= bx% + valWs% AND ctx.my >= by% AND ctx.my <= by% + SW_SPINNER_H THEN
             DIM typedStrS AS STRING
+            DIM savedDestSs AS LONG : savedDestSs& = _DEST ' restore real _DEST, not ctx.imgHandle
             typedStrS$ = DRAW_input_box_ex$("Enter Value", "", _TRIM$(STR$(INT(value * 100 + 0.5) / 100)), "", TRUE)
-            _DEST ctx.imgHandle
+            _DEST savedDestSs&
             _FONT ctx.fontH
             _PRINTMODE _KEEPBACKGROUND
+            SETTINGS.needsRedraw = TRUE ' nested modal dirtied the screen; force a clean repaint
             IF LEN(RTRIM$(typedStrS$)) > 0 THEN
                 DIM typedValS AS SINGLE : typedValS! = CSNG(VAL(typedStrS$))
                 IF typedValS! < minV THEN typedValS! = minV
@@ -481,10 +492,12 @@ FUNCTION SW_slider_input% (ctx AS DIALOG_CTX, x AS INTEGER, y AS INTEGER, w AS I
     IF ctx.justClicked THEN
         IF ctx.mx >= valTxtX% AND ctx.mx <= valTxtX% + 32 AND ctx.my >= sy% - 4 AND ctx.my <= sy% + SW_SLIDER_H + 4 THEN
             DIM typedStrL AS STRING
+            DIM savedDestSl AS LONG : savedDestSl& = _DEST ' restore real _DEST, not ctx.imgHandle
             typedStrL$ = DRAW_input_box_ex$("Enter Value", "", _TRIM$(STR$(value)), "", TRUE)
-            _DEST ctx.imgHandle
+            _DEST savedDestSl&
             _FONT ctx.fontH
             _PRINTMODE _KEEPBACKGROUND
+            SETTINGS.needsRedraw = TRUE ' nested modal dirtied the screen; force a clean repaint
             IF LEN(RTRIM$(typedStrL$)) > 0 THEN
                 DIM typedValL AS INTEGER : typedValL% = VAL(typedStrL$)
                 IF typedValL% < minV THEN typedValL% = minV
@@ -692,59 +705,86 @@ SUB SW_draw_dropdown (ctx AS DIALOG_CTX, x AS INTEGER, y AS INTEGER, w AS INTEGE
     END IF
     LINE (dx%, dy%)-(dx% + dw%, dy% + SW_SPINNER_H), THEME.DIALOG_toggle_border~&, B
 
-    ' Selected text
+    ' Selected text + arrow, vertically centered in the box (matches spinner)
+    DIM textY AS INTEGER : textY% = dy% + (SW_SPINNER_H - fontH%) \ 2
     COLOR THEME.DIALOG_button_fg~&
-    _UPRINTSTRING (dx% + 4, dy% + 3), selText$
+    _UPRINTSTRING (dx% + 4, textY%), selText$
 
-    ' Arrow indicator
-    _UPRINTSTRING (dx% + dw% - 12, dy% + 3), CHR$(25) ' down arrow
+    ' Arrow indicator (CP437 down arrow), centered in a right-hand gutter
+    DIM arrowCh AS STRING : arrowCh$ = CHR$(25)
+    _UPRINTSTRING (dx% + dw% - 6 - _UPRINTWIDTH(arrowCh$) \ 2, textY%), arrowCh$
 
     ' Tooltip
     SW_check_tooltip ctx, x, y, w, SW_ROW_H
     SW_TOOLTIP$ = ""
 
-    ' Open dropdown list overlay (drawn last so it's on top)
+    ' If this dropdown is open, stash its geometry/content so the caller can
+    ' draw the list overlay LAST via SW_draw_dropdown_overlay -- otherwise the
+    ' controls rendered after it in the tab would paint over the open list.
     IF SW_DD.openId = ddId% THEN
-        DIM listY    AS INTEGER, listH AS INTEGER
-        DIM visCount AS INTEGER : visCount% = SW_DD.itemCount
-        IF visCount% > SW_DROPDOWN_MAX_VIS THEN visCount% = SW_DROPDOWN_MAX_VIS
-        listY% = dy% + SW_SPINNER_H + 1
-        listH% = visCount% * SW_DROPDOWN_ITEM_H
-
-        ' Background
-        LINE (dx%, listY%)-(dx% + dw%, listY% + listH%), THEME.DIALOG_bg~&, BF
-        LINE (dx%, listY%)-(dx% + dw%, listY% + listH%), THEME.DIALOG_toggle_border~&, B
-
-        ' Items
-        DIM drawItems AS STRING, drawIdx AS INTEGER, drawY AS INTEGER
-        drawItems$ = items : drawIdx% = 0 : drawY% = listY%
-        DO
-            pipePos% = INSTR(drawItems$, "|")
-            IF pipePos% > 0 THEN
-                curItem$   = LEFT$(drawItems$, pipePos% - 1)
-                drawItems$ = MID$(drawItems$, pipePos% + 1)
-            ELSE
-                curItem$   = drawItems$
-                drawItems$ = ""
-            END IF
-
-            IF drawIdx% >= SW_DD.scroll AND drawIdx% < SW_DD.scroll + visCount% THEN
-                ' Hover highlight
-                IF drawIdx% = SW_DD.hoverItem THEN
-                    LINE (dx% + 1, drawY%)-(dx% + dw% - 1, drawY% + SW_DROPDOWN_ITEM_H - 1), THEME.DIALOG_toggle_sel_bg~&, BF
-                    COLOR THEME.DIALOG_toggle_sel_fg~&
-                ELSEIF drawIdx% = selected THEN
-                    LINE (dx% + 1, drawY%)-(dx% + dw% - 1, drawY% + SW_DROPDOWN_ITEM_H - 1), THEME.DIALOG_toggle_bg~&, BF
-                    COLOR THEME.DIALOG_toggle_sel_fg~&
-                ELSE
-                    COLOR THEME.DIALOG_label_fg~&
-                END IF
-                _UPRINTSTRING (dx% + 4, drawY% + 2), curItem$
-                drawY% = drawY% + SW_DROPDOWN_ITEM_H
-            END IF
-            drawIdx% = drawIdx% + 1
-        LOOP WHILE LEN(drawItems$) > 0
+        SW_DD.ovX     = dx%
+        SW_DD.ovY     = dy%
+        SW_DD.ovW     = dw%
+        SW_DD.ovItems = items
+        SW_DD.ovSel   = selected
     END IF
+END SUB
+
+
+''
+' Draw the currently-open dropdown's list overlay, on top of everything else.
+' Call this ONCE at the very end of a tab's render SUB (after all other
+' controls) so the open list is never overpainted. No-op if nothing is open.
+'
+SUB SW_draw_dropdown_overlay (ctx AS DIALOG_CTX)
+    IF SW_DD.openId < 0 THEN EXIT SUB
+
+    DIM fontH AS INTEGER : fontH% = DIALOG_font_height%(ctx)
+    DIM dx    AS INTEGER : dx% = SW_DD.ovX
+    DIM dy    AS INTEGER : dy% = SW_DD.ovY
+    DIM dw    AS INTEGER : dw% = SW_DD.ovW
+
+    DIM listY    AS INTEGER, listH AS INTEGER
+    DIM visCount AS INTEGER : visCount% = SW_DD.itemCount
+    IF visCount% > SW_DROPDOWN_MAX_VIS THEN visCount% = SW_DROPDOWN_MAX_VIS
+    listY% = dy% + SW_SPINNER_H + 1
+    listH% = visCount% * SW_DROPDOWN_ITEM_H
+
+    ' Background
+    LINE (dx%, listY%)-(dx% + dw%, listY% + listH%), THEME.DIALOG_bg~&, BF
+    LINE (dx%, listY%)-(dx% + dw%, listY% + listH%), THEME.DIALOG_toggle_border~&, B
+
+    ' Items
+    DIM drawItems AS STRING, drawIdx AS INTEGER, drawY AS INTEGER, pipePos AS INTEGER
+    DIM curItem AS STRING, itemY AS INTEGER
+    drawItems$ = SW_DD.ovItems : drawIdx% = 0 : drawY% = listY%
+    DO
+        pipePos% = INSTR(drawItems$, "|")
+        IF pipePos% > 0 THEN
+            curItem$   = LEFT$(drawItems$, pipePos% - 1)
+            drawItems$ = MID$(drawItems$, pipePos% + 1)
+        ELSE
+            curItem$   = drawItems$
+            drawItems$ = ""
+        END IF
+
+        IF drawIdx% >= SW_DD.scroll AND drawIdx% < SW_DD.scroll + visCount% THEN
+            ' Hover highlight
+            IF drawIdx% = SW_DD.hoverItem THEN
+                LINE (dx% + 1, drawY%)-(dx% + dw% - 1, drawY% + SW_DROPDOWN_ITEM_H - 1), THEME.DIALOG_toggle_sel_bg~&, BF
+                COLOR THEME.DIALOG_toggle_sel_fg~&
+            ELSEIF drawIdx% = SW_DD.ovSel THEN
+                LINE (dx% + 1, drawY%)-(dx% + dw% - 1, drawY% + SW_DROPDOWN_ITEM_H - 1), THEME.DIALOG_toggle_bg~&, BF
+                COLOR THEME.DIALOG_toggle_sel_fg~&
+            ELSE
+                COLOR THEME.DIALOG_label_fg~&
+            END IF
+            itemY% = drawY% + (SW_DROPDOWN_ITEM_H - fontH%) \ 2
+            _UPRINTSTRING (dx% + 4, itemY%), curItem$
+            drawY% = drawY% + SW_DROPDOWN_ITEM_H
+        END IF
+        drawIdx% = drawIdx% + 1
+    LOOP WHILE LEN(drawItems$) > 0
 END SUB
 
 
@@ -796,8 +836,13 @@ FUNCTION SW_dropdown_input% (ctx AS DIALOG_CTX, x AS INTEGER, y AS INTEGER, w AS
         IF ctx.justClicked THEN
             IF SW_DD.hoverItem >= 0 AND SW_DD.hoverItem < cnt% THEN
                 IF selected <> SW_DD.hoverItem THEN
-                    selected           = SW_DD.hoverItem
-                    SW_DD.openId       = -1
+                    selected     = SW_DD.hoverItem
+                    SW_DD.openId = -1
+                    ' Consume the click: the open list overlay floats above the
+                    ' controls below it (they are still drawn/hit-tested now that
+                    ' the tab no longer bails out), so the click must NOT fall
+                    ' through to whatever widget sits behind the list.
+                    ctx.justClicked = FALSE
                     SW_dropdown_input% = SW_CHANGED
                     EXIT FUNCTION
                 ELSE
@@ -807,6 +852,9 @@ FUNCTION SW_dropdown_input% (ctx AS DIALOG_CTX, x AS INTEGER, y AS INTEGER, w AS
                 ' Click outside list closes it
                 SW_DD.openId = -1
             END IF
+            ' Any click while open is owned by the dropdown — don't let a control
+            ' behind the overlay also act on it.
+            ctx.justClicked = FALSE
         END IF
         SW_dropdown_input% = SW_NO_CHANGE
         EXIT FUNCTION
@@ -1314,6 +1362,7 @@ FUNCTION SW_text_field_input% (ctx AS DIALOG_CTX, x AS INTEGER, y AS INTEGER, w 
             _DEST savedDest&
             _FONT ctx.fontH
             _PRINTMODE _KEEPBACKGROUND
+            SETTINGS.needsRedraw = TRUE ' nested modal dirtied the screen; force a clean repaint
             ' DRAW_input_box_ex$ returns "" on cancel; only accept a real change.
             IF LEN(result$) > 0 AND result$ <> atValue THEN
                 atValue            = result$
