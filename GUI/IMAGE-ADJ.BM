@@ -540,6 +540,142 @@ END FUNCTION
 
 
 ''
+' Render Sky — fill the layer with a procedural sky. mode 0 = day (blue vertical
+' gradient), 1 = night (dark gradient + stars), 2 = space (near-black + dense
+' stars + a planet). Generative -> apply_spatial.
+'
+' @param sourceImg LONG    Source image (used only for dimensions)
+' @param mode      INTEGER 0 day / 1 night / 2 space
+' @return LONG  New opaque sky image handle
+'
+FUNCTION IMAGE_ADJ_sky& (sourceImg AS LONG, mode AS INTEGER)
+    IF NOT (sourceImg& < -1) THEN IMAGE_ADJ_sky& = 0 : EXIT FUNCTION
+
+    DIM skW AS LONG, skH AS LONG
+    skW& = _WIDTH(sourceImg&) : skH& = _HEIGHT(sourceImg&)
+    DIM result AS LONG
+    result& = _NEWIMAGE(skW&, skH&, 32)
+    DIM resM AS _MEM : resM = _MEMIMAGE(result&)
+
+    DIM sx AS LONG, sy AS LONG
+    DIM tv AS SINGLE, rr AS INTEGER, gg AS INTEGER, bb AS INTEGER
+    DIM topR AS INTEGER, topG AS INTEGER, topB AS INTEGER
+    DIM botR AS INTEGER, botG AS INTEGER, botB AS INTEGER
+    SELECT CASE mode%
+        CASE 0 : topR% = 40 : topG% = 90 : topB% = 200 : botR% = 190 : botG% = 220 : botB% = 250
+        CASE 1 : topR% = 4 : topG% = 6 : topB% = 26 : botR% = 40 : botG% = 44 : botB% = 90
+        CASE ELSE : topR% = 2 : topG% = 2 : topB% = 8 : botR% = 6 : botG% = 4 : botB% = 16
+    END SELECT
+    FOR sy& = 0 TO skH& - 1
+        tv! = sy& / (skH& - 1.0)
+        rr% = topR% + (botR% - topR%) * tv!
+        gg% = topG% + (botG% - topG%) * tv!
+        bb% = topB% + (botB% - topB%) * tv!
+        FOR sx& = 0 TO skW& - 1
+            _MEMPUT resM, resM.OFFSET + (sy& * skW& + sx&) * 4, _RGBA32(rr%, gg%, bb%, 255) AS _UNSIGNED LONG
+        NEXT sx&
+    NEXT sy&
+
+    ' stars for night / space
+    IF mode% >= 1 THEN
+        DIM hs AS LONG, thr AS LONG, br AS INTEGER
+        thr& = 64850 : IF mode% = 2 THEN thr& = 64200   ' space denser
+        FOR sy& = 0 TO skH& - 1
+            FOR sx& = 0 TO skW& - 1
+                hs& = ((sx& * 374761393) XOR (sy& * 668265263)) AND 65535
+                IF hs& > thr& THEN
+                    br% = 160 + (hs& AND 95)
+                    _MEMPUT resM, resM.OFFSET + (sy& * skW& + sx&) * 4, _RGBA32(br%, br%, br%, 255) AS _UNSIGNED LONG
+                END IF
+            NEXT sx&
+        NEXT sy&
+    END IF
+    _MEMFREE resM
+
+    ' space: draw a planet
+    IF mode% = 2 THEN
+        DIM oldDest AS LONG : oldDest& = _DEST
+        _DEST result& : _DONTBLEND result&
+        DIM pcx AS LONG, pcy AS LONG, pr AS LONG, pyi AS LONG, half AS LONG
+        pcx& = skW& * 0.72 : pcy& = skH& * 0.32 : pr& = skH& * 0.16
+        FOR pyi& = -pr& TO pr&
+            half& = INT(SQR(pr& * pr& - pyi& * pyi&))
+            LINE (pcx& - half&, pcy& + pyi&)-(pcx& + half&, pcy& + pyi&), _RGBA32(150, 90 - INT(pyi& * 20 / pr&), 60, 255)
+        NEXT pyi&
+        _BLEND result& : _DEST oldDest&
+    END IF
+
+    IMAGE_ADJ_sky& = result&
+END FUNCTION
+
+
+''
+' Open a modal Render Sky dialog: MODE slider (0 day / 1 night / 2 space).
+' Generative -> apply_spatial.
+'
+SUB IMAGE_ADJ_sky_dialog ()
+    IF CURRENT_LAYER% < 1 THEN EXIT SUB
+
+    DIM ctx AS DIALOG_CTX
+    DIALOG_init ctx, IMGDLG_W, 110
+    IMAGE_ADJ_setup_preview ctx, LAYERS(CURRENT_LAYER%).imgHandle&
+
+    DIM smode AS INTEGER : smode% = 0
+    DIM oMode AS INTEGER
+
+    DIM k AS LONG
+    DO
+        DIALOG_poll_mouse ctx
+        IF ctx.loupeDirty% THEN IMAGE_ADJ_update_loupe ctx
+        k& = _KEYHIT
+        IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
+        IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
+
+        oMode% = smode%
+        smode% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, smode%, 0, 2)
+        smode% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, smode%, 0, 2)
+        IF smode% <> oMode% THEN ctx.previewDirty% = TRUE
+        IMGDLG_check_ok_cancel ctx
+
+        IF ctx.previewDirty% THEN
+            SAFE_FREEIMAGE ctx.previewThumb
+            ctx.previewThumb = IMAGE_ADJ_sky&(ctx.origThumb, smode%)
+            IMAGE_ADJ_mask_preview ctx
+            ctx.previewDirty% = FALSE
+        END IF
+
+        _DEST ctx.imgHandle
+        DIALOG_draw_frame ctx, "RENDER SKY"
+        DIALOG_draw_preview ctx
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "MODE (0 DAY / 1 NIGHT / 2 SPACE):"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, smode%, 0, 2, "", ""
+        DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
+        IMGDLG_draw_ok_cancel ctx
+        DIALOG_blit ctx
+    LOOP UNTIL ctx.done%
+
+    IF ctx.result% THEN
+        DIM skTargets(1 TO MAX_LAYERS) AS INTEGER, skTgtCount AS INTEGER, skT AS INTEGER
+        DIM skSaveCL AS INTEGER
+        IMAGE_ADJ_collect_targets skTargets%(), skTgtCount%
+        skSaveCL% = CURRENT_LAYER%
+        IF skTgtCount% > 1 THEN HISTORY_begin_group
+        DIM adjR     AS LONG
+        FOR skT% = 1 TO skTgtCount%
+            CURRENT_LAYER% = skTargets%(skT%)
+            adjR&          = IMAGE_ADJ_sky&(LAYERS(CURRENT_LAYER%).imgHandle&, smode%)
+            IMAGE_ADJ_apply_spatial adjR&, "Render Sky"
+        NEXT skT%
+        IF skTgtCount% > 1 THEN HISTORY_end_group
+        CURRENT_LAYER% = skSaveCL%
+    END IF
+
+    DIALOG_cleanup ctx
+    SAFE_FREEIMAGE IMGADJ_LAYER_MASK& : IMGADJ_LAYER_MASK& = 0
+END SUB
+
+
+''
 ' Render Grid — draw a grid over the layer in the FG colour. Flat mode: evenly
 ' spaced horizontal + vertical lines. Perspective mode: verticals converge to a
 ' vanishing point and horizontals recede toward the horizon (floor grid). Lines

@@ -22,7 +22,7 @@ the infra exists.
 
 ## 🔨 NOW — doing right now
 
-- [ ] ➡️ Wave 5c · **Render Sky** — procedural day/night/space sky + dialog + EFFECTS menu + QA test
+- [ ] ➡️ **Menubar flyout submenus** (foundational) — build submenu support + reorganize EFFECTS into categories, THEN Eye Candy Shape/Texture waves
 
 <!-- Menu-overflow plan: the flat EFFECTS dropdown auto-scrolls past ~41 items
      (availH = SCRN.h - subY, 12px/item). At 25 items now; Waves 4/5/5b/5c (15
@@ -103,8 +103,7 @@ the infra exists.
 ## Wave 5c — Render: Grid & Sky
 
 - [x] **Render Grid** — flat + PERSPECTIVE floor grid in FG colour, SPACING 4-64, apply_spatial + menu + QA test (effect-grid.sh). NEW engine IMAGE_ADJ_grid&. (spc renamed gspc — SPC reserved.)
-- [ ] **Render Sky** — procedural sky: mode (day/night/space), gradient horizon,
-      stars, optional planets/moon + dialog + menu + QA test
+- [x] **Render Sky** — procedural day/night/space (gradient + stars + planet), MODE 0-2, generative (apply_spatial) + menu + QA test (effect-sky.sh). NEW engine IMAGE_ADJ_sky&. Visually verified starfield.
 
 ## Wave 7 — Eye Candy: SHAPE → submenu
 
