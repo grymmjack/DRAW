@@ -516,6 +516,145 @@ END FUNCTION
 
 
 ''
+' Outer Glow — a soft coloured halo radiating outside the shape's alpha edges.
+' Builds a silhouette in glowColor, blurs it by `radius` so it spreads outward,
+' boosts the spread alpha by `intensity`, and composites the original on top.
+' Alpha-changing -> apply_spatial (needs transparency around the shape).
+'
+' @param sourceImg LONG           Source image (32-bit, with alpha)
+' @param radius    INTEGER        Glow spread in px (1..16)
+' @param intensity INTEGER        Glow alpha boost (1..5)
+' @param glowColor _UNSIGNED LONG Glow colour
+' @return LONG  New composited image handle
+'
+FUNCTION IMAGE_ADJ_outerglow& (sourceImg AS LONG, radius AS INTEGER, intensity AS INTEGER, glowColor AS _UNSIGNED LONG)
+    IF NOT (sourceImg& < -1) THEN IMAGE_ADJ_outerglow& = 0 : EXIT FUNCTION
+
+    DIM ogW AS LONG, ogH AS LONG
+    ogW& = _WIDTH(sourceImg&) : ogH& = _HEIGHT(sourceImg&)
+
+    ' silhouette in glowColor
+    DIM sil AS LONG
+    sil& = _NEWIMAGE(ogW&, ogH&, 32)
+    DIM oldDest AS LONG : oldDest& = _DEST
+    _DEST sil& : _DONTBLEND sil& : CLS , _RGBA32(0, 0, 0, 0) : _DEST oldDest&
+
+    DIM srcM AS _MEM, silM AS _MEM
+    srcM = _MEMIMAGE(sourceImg&)
+    silM = _MEMIMAGE(sil&)
+    DIM gR AS INTEGER, gG AS INTEGER, gB AS INTEGER
+    gR% = _RED32(glowColor~&) : gG% = _GREEN32(glowColor~&) : gB% = _BLUE32(glowColor~&)
+    DIM i AS LONG, aa AS _UNSIGNED _BYTE
+    FOR i& = 0 TO srcM.SIZE - 4 STEP 4
+        _MEMGET srcM, srcM.OFFSET + i& + 3, aa~%%
+        IF aa~%% <> 0 THEN _MEMPUT silM, silM.OFFSET + i&, _RGBA32(gR%, gG%, gB%, 255) AS _UNSIGNED LONG
+    NEXT i&
+    _MEMFREE srcM
+    _MEMFREE silM
+
+    ' blur the silhouette to spread the glow
+    DIM glow AS LONG
+    glow& = IMAGE_ADJ_blur_premul_rgba&(sil&, radius%)
+    SAFE_FREEIMAGE sil&
+    IF NOT (glow& < -1) THEN glow& = _NEWIMAGE(ogW&, ogH&, 32)
+
+    ' boost the glow alpha by intensity
+    IF intensity% > 1 THEN
+        DIM gM AS _MEM : gM = _MEMIMAGE(glow&)
+        DIM ba AS INTEGER
+        FOR i& = 0 TO gM.SIZE - 4 STEP 4
+            _MEMGET gM, gM.OFFSET + i& + 3, aa~%%
+            IF aa~%% <> 0 THEN
+                ba% = aa~%% * intensity% : IF ba% > 255 THEN ba% = 255
+                _MEMPUT gM, gM.OFFSET + i& + 3, ba% AS _UNSIGNED _BYTE
+            END IF
+        NEXT i&
+        _MEMFREE gM
+    END IF
+
+    ' composite original over the glow
+    DIM result AS LONG
+    result& = _COPYIMAGE(glow&, 32)
+    oldDest& = _DEST
+    _DEST result& : _BLEND result& : _PUTIMAGE , sourceImg&, result& : _DEST oldDest&
+    SAFE_FREEIMAGE glow&
+
+    IMAGE_ADJ_outerglow& = result&
+END FUNCTION
+
+
+''
+' Open a modal Outer Glow dialog: RADIUS (1..16) + INTENSITY (1..5). Glow colour
+' is the current FG colour. Alpha-changing -> apply_spatial.
+'
+SUB IMAGE_ADJ_outerglow_dialog ()
+    IF CURRENT_LAYER% < 1 THEN EXIT SUB
+
+    DIM ctx AS DIALOG_CTX
+    DIALOG_init ctx, IMGDLG_W, 140
+    IMAGE_ADJ_setup_preview ctx, LAYERS(CURRENT_LAYER%).imgHandle&
+
+    DIM radius AS INTEGER : radius% = 6
+    DIM inten  AS INTEGER : inten%  = 2
+    DIM oRadius AS INTEGER, oInten AS INTEGER
+
+    DIM k AS LONG
+    DO
+        DIALOG_poll_mouse ctx
+        IF ctx.loupeDirty% THEN IMAGE_ADJ_update_loupe ctx
+        k& = _KEYHIT
+        IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
+        IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
+
+        oRadius% = radius% : oInten% = inten%
+        radius% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, radius%, 1, 16)
+        radius% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, radius%, 1, 16)
+        inten%  = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, inten%, 1, 5)
+        inten%  = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, inten%, 1, 5)
+        IF radius% <> oRadius% OR inten% <> oInten% THEN ctx.previewDirty% = TRUE
+        IMGDLG_check_ok_cancel ctx
+
+        IF ctx.previewDirty% THEN
+            SAFE_FREEIMAGE ctx.previewThumb
+            ctx.previewThumb = IMAGE_ADJ_outerglow&(ctx.origThumb, radius%, inten%, PAINT_COLOR~&)
+            IMAGE_ADJ_mask_preview ctx
+            ctx.previewDirty% = FALSE
+        END IF
+
+        _DEST ctx.imgHandle
+        DIALOG_draw_frame ctx, "OUTER GLOW"
+        DIALOG_draw_preview ctx
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "RADIUS:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, radius%, 1, 16, "", ""
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 1), "INTENSITY:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, inten%, 1, 5, "", ""
+        DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
+        IMGDLG_draw_ok_cancel ctx
+        DIALOG_blit ctx
+    LOOP UNTIL ctx.done%
+
+    IF ctx.result% THEN
+        DIM ogTargets(1 TO MAX_LAYERS) AS INTEGER, ogTgtCount AS INTEGER, ogT AS INTEGER
+        DIM ogSaveCL AS INTEGER
+        IMAGE_ADJ_collect_targets ogTargets%(), ogTgtCount%
+        ogSaveCL% = CURRENT_LAYER%
+        IF ogTgtCount% > 1 THEN HISTORY_begin_group
+        DIM adjR     AS LONG
+        FOR ogT% = 1 TO ogTgtCount%
+            CURRENT_LAYER% = ogTargets%(ogT%)
+            adjR&          = IMAGE_ADJ_outerglow&(LAYERS(CURRENT_LAYER%).imgHandle&, radius%, inten%, PAINT_COLOR~&)
+            IMAGE_ADJ_apply_spatial adjR&, "Outer Glow"
+        NEXT ogT%
+        IF ogTgtCount% > 1 THEN HISTORY_end_group
+        CURRENT_LAYER% = ogSaveCL%
+    END IF
+
+    DIALOG_cleanup ctx
+    SAFE_FREEIMAGE IMGADJ_LAYER_MASK& : IMGADJ_LAYER_MASK& = 0
+END SUB
+
+
+''
 ' Bevel (inner) — raise the shape into a lit 3D button. Builds a distance-to-edge
 ' heightfield inside the alpha (clamped to `height`), then shades each opaque
 ' pixel by that field's up-left/down-right diagonal gradient: slopes facing the
