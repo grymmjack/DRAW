@@ -516,6 +516,158 @@ END FUNCTION
 
 
 ''
+' Bevel (inner) — raise the shape into a lit 3D button. Builds a distance-to-edge
+' heightfield inside the alpha (clamped to `height`), then shades each opaque
+' pixel by that field's up-left/down-right diagonal gradient: slopes facing the
+' top-left light get a highlight, slopes facing away get shadow. `strength` scales
+' the shading. RGB-only; alpha preserved (apply_to_layer).
+'
+' @param sourceImg LONG    Source image (32-bit, with alpha)
+' @param height    INTEGER Bevel width from the edge inward (1..8)
+' @param strength  INTEGER Shading gain (1..10)
+' @return LONG  New beveled image handle
+'
+FUNCTION IMAGE_ADJ_bevel& (sourceImg AS LONG, height AS INTEGER, strength AS INTEGER)
+    IF NOT (sourceImg& < -1) THEN IMAGE_ADJ_bevel& = 0 : EXIT FUNCTION
+
+    DIM bvW AS LONG, bvH AS LONG
+    bvW& = _WIDTH(sourceImg&) : bvH& = _HEIGHT(sourceImg&)
+    DIM result AS LONG
+    result& = _COPYIMAGE(sourceImg&, 32)
+
+    DIM srcM AS _MEM, resM AS _MEM
+    srcM = _MEMIMAGE(sourceImg&)
+    resM = _MEMIMAGE(result&)
+
+    ' --- distance-to-edge heightfield (0 outside; 1..height inside) ---
+    REDIM hgt(0 TO bvW& * bvH& - 1) AS INTEGER
+    DIM bx AS LONG, by AS LONG, dx AS INTEGER, dy AS INTEGER
+    DIM aHere AS _UNSIGNED _BYTE, aN AS _UNSIGNED _BYTE
+    DIM nx AS LONG, ny AS LONG, dist AS INTEGER, curD AS INTEGER
+    FOR by& = 0 TO bvH& - 1
+        FOR bx& = 0 TO bvW& - 1
+            _MEMGET srcM, srcM.OFFSET + (by& * bvW& + bx&) * 4 + 3, aHere~%%
+            IF aHere~%% = 0 THEN
+                hgt(by& * bvW& + bx&) = 0
+            ELSE
+                dist% = height% + 1   ' assume fully interior
+                FOR dy% = -height% TO height%
+                    ny& = by& + dy%
+                    FOR dx% = -height% TO height%
+                        curD% = ABS(dx%) : IF ABS(dy%) > curD% THEN curD% = ABS(dy%)  ' Chebyshev
+                        IF curD% < dist% THEN
+                            nx& = bx& + dx%
+                            IF nx& < 0 OR ny& < 0 OR nx& >= bvW& OR ny& >= bvH& THEN
+                                dist% = curD%
+                            ELSE
+                                _MEMGET srcM, srcM.OFFSET + (ny& * bvW& + nx&) * 4 + 3, aN~%%
+                                IF aN~%% = 0 THEN dist% = curD%
+                            END IF
+                        END IF
+                    NEXT dx%
+                NEXT dy%
+                IF dist% > height% THEN dist% = height%
+                hgt(by& * bvW& + bx&) = dist%
+            END IF
+        NEXT bx&
+    NEXT by&
+
+    ' --- shade by diagonal gradient of the heightfield ---
+    DIM px AS _UNSIGNED LONG, pxm AS LONG, pym AS LONG, dH AS LONG, delta AS LONG
+    DIM rr AS INTEGER, gg AS INTEGER, bb AS INTEGER
+    FOR by& = 0 TO bvH& - 1
+        pym& = by& - 1 : IF pym& < 0 THEN pym& = 0
+        FOR bx& = 0 TO bvW& - 1
+            _MEMGET srcM, srcM.OFFSET + (by& * bvW& + bx&) * 4 + 3, aHere~%%
+            IF aHere~%% = 0 THEN _CONTINUE
+            pxm& = bx& - 1 : IF pxm& < 0 THEN pxm& = 0
+            dH& = hgt(by& * bvW& + bx&) - hgt(pym& * bvW& + pxm&)
+            delta& = dH& * strength% * 12
+            _MEMGET srcM, srcM.OFFSET + (by& * bvW& + bx&) * 4, px~&
+            rr% = _RED32(px~&) + delta& : IF rr% < 0 THEN rr% = 0 ELSE IF rr% > 255 THEN rr% = 255
+            gg% = _GREEN32(px~&) + delta& : IF gg% < 0 THEN gg% = 0 ELSE IF gg% > 255 THEN gg% = 255
+            bb% = _BLUE32(px~&) + delta& : IF bb% < 0 THEN bb% = 0 ELSE IF bb% > 255 THEN bb% = 255
+            _MEMPUT resM, resM.OFFSET + (by& * bvW& + bx&) * 4, _RGB32(rr%, gg%, bb%) AS _UNSIGNED LONG
+        NEXT bx&
+    NEXT by&
+
+    _MEMFREE srcM
+    _MEMFREE resM
+    IMAGE_ADJ_bevel& = result&
+END FUNCTION
+
+
+''
+' Open a modal Bevel dialog: HEIGHT (1..8) + STRENGTH (1..10). apply_to_layer.
+'
+SUB IMAGE_ADJ_bevel_dialog ()
+    IF CURRENT_LAYER% < 1 THEN EXIT SUB
+
+    DIM ctx AS DIALOG_CTX
+    DIALOG_init ctx, IMGDLG_W, 140
+    IMAGE_ADJ_setup_preview ctx, LAYERS(CURRENT_LAYER%).imgHandle&
+
+    DIM height   AS INTEGER : height%   = 4
+    DIM strength AS INTEGER : strength% = 4
+    DIM oHeight  AS INTEGER, oStrength AS INTEGER
+
+    DIM k AS LONG
+    DO
+        DIALOG_poll_mouse ctx
+        IF ctx.loupeDirty% THEN IMAGE_ADJ_update_loupe ctx
+        k& = _KEYHIT
+        IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
+        IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
+
+        oHeight% = height% : oStrength% = strength%
+        height%   = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, height%, 1, 8)
+        height%   = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, height%, 1, 8)
+        strength% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, strength%, 1, 10)
+        strength% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, strength%, 1, 10)
+        IF height% <> oHeight% OR strength% <> oStrength% THEN ctx.previewDirty% = TRUE
+        IMGDLG_check_ok_cancel ctx
+
+        IF ctx.previewDirty% THEN
+            SAFE_FREEIMAGE ctx.previewThumb
+            ctx.previewThumb = IMAGE_ADJ_bevel&(ctx.origThumb, height%, strength%)
+            IMAGE_ADJ_mask_preview ctx
+            ctx.previewDirty% = FALSE
+        END IF
+
+        _DEST ctx.imgHandle
+        DIALOG_draw_frame ctx, "BEVEL"
+        DIALOG_draw_preview ctx
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "HEIGHT:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, height%, 1, 8, "", ""
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 1), "STRENGTH:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, strength%, 1, 10, "", ""
+        DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
+        IMGDLG_draw_ok_cancel ctx
+        DIALOG_blit ctx
+    LOOP UNTIL ctx.done%
+
+    IF ctx.result% THEN
+        DIM bvTargets(1 TO MAX_LAYERS) AS INTEGER, bvTgtCount AS INTEGER, bvT AS INTEGER
+        DIM bvSaveCL AS INTEGER
+        IMAGE_ADJ_collect_targets bvTargets%(), bvTgtCount%
+        bvSaveCL% = CURRENT_LAYER%
+        IF bvTgtCount% > 1 THEN HISTORY_begin_group
+        DIM adjR     AS LONG
+        FOR bvT% = 1 TO bvTgtCount%
+            CURRENT_LAYER% = bvTargets%(bvT%)
+            adjR&          = IMAGE_ADJ_bevel&(LAYERS(CURRENT_LAYER%).imgHandle&, height%, strength%)
+            IMAGE_ADJ_apply_to_layer adjR&, "Bevel"
+        NEXT bvT%
+        IF bvTgtCount% > 1 THEN HISTORY_end_group
+        CURRENT_LAYER% = bvSaveCL%
+    END IF
+
+    DIALOG_cleanup ctx
+    SAFE_FREEIMAGE IMGADJ_LAYER_MASK& : IMGADJ_LAYER_MASK& = 0
+END SUB
+
+
+''
 ' Long Shadow (perspective / 3D) — cast a solid diagonal shadow trail down-right
 ' from the shape (light from the upper-left). A pixel becomes shadow if any of
 ' the `length` cells up-left of it on the diagonal is opaque; the original is

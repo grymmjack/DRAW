@@ -22,7 +22,7 @@ the infra exists.
 
 ## 🔨 NOW — doing right now
 
-- [ ] ➡️ Wave 2b · **Bevel (light-angle)** — rich bevel + dialog + EFFECTS menu + QA test
+- [ ] ➡️ Wave 2b · **Outer Glow** — colored glow outside alpha edges + dialog + EFFECTS menu + QA test
 
 <!-- QA note: invoke effects via the EFFECTS menu (click 395,6 then item at
      viewport y = 20 + index*12), NOT the command palette — palette-open is racy
@@ -58,7 +58,7 @@ the infra exists.
 
 ## Wave 2b — Layer Styles (Alien Skin / Eye Candy feel)
 
-- [ ] **Bevel (light-angle)** — rich bevel: light angle, height, softness, highlight/shadow color + dialog + menu + QA test
+- [x] **Bevel** — inner bevel via distance-to-edge heightfield lit top-left, HEIGHT 1-8 + STRENGTH 1-10 + menu + QA test (effect-bevel.sh). NEW engine IMAGE_ADJ_bevel&. Visually verified 3D button.
 - [ ] **Outer Glow** — colored glow radiating outside alpha edges + dialog + menu + QA test
 - [ ] **Inner Glow** — colored glow inside alpha edges + dialog + menu + QA test
 - [ ] **Chrome / Metallic** — gradient-mapped bevel for a shiny metal look + dialog + menu + QA test
