@@ -516,6 +516,145 @@ END FUNCTION
 
 
 ''
+' Mosaic / Tessellate — average the colour of each `tile` x `tile` block and fill
+' the block with it (true averaging, unlike Pixelate's single-sample), optionally
+' drawing thin dark grout between tiles. Alpha preserved (apply_to_layer).
+'
+' @param sourceImg LONG    Source image (32-bit)
+' @param tile      INTEGER Tile size in px (3..48)
+' @param grout     INTEGER 0 = none, 1 = 1px dark grout between tiles
+' @return LONG  New mosaic image handle
+'
+FUNCTION IMAGE_ADJ_mosaic& (sourceImg AS LONG, tile AS INTEGER, grout AS INTEGER)
+    IF NOT (sourceImg& < -1) THEN IMAGE_ADJ_mosaic& = 0 : EXIT FUNCTION
+    IF tile% < 2 THEN tile% = 2
+
+    DIM moW AS LONG, moH AS LONG
+    moW& = _WIDTH(sourceImg&) : moH& = _HEIGHT(sourceImg&)
+    DIM result AS LONG
+    result& = _COPYIMAGE(sourceImg&, 32)
+
+    DIM srcM AS _MEM, resM AS _MEM
+    srcM = _MEMIMAGE(sourceImg&)
+    resM = _MEMIMAGE(result&)
+
+    DIM bx AS LONG, by AS LONG, ix AS LONG, iy AS LONG
+    DIM sr AS LONG, sg AS LONG, sb AS LONG, sa AS LONG, cnt AS LONG
+    DIM px AS _UNSIGNED LONG, avg AS _UNSIGNED LONG
+    DIM x2 AS LONG, y2 AS LONG, isGrout AS INTEGER
+    FOR by& = 0 TO moH& - 1 STEP tile%
+        y2& = by& + tile% - 1 : IF y2& >= moH& THEN y2& = moH& - 1
+        FOR bx& = 0 TO moW& - 1 STEP tile%
+            x2& = bx& + tile% - 1 : IF x2& >= moW& THEN x2& = moW& - 1
+            sr& = 0 : sg& = 0 : sb& = 0 : sa& = 0 : cnt& = 0
+            FOR iy& = by& TO y2&
+                FOR ix& = bx& TO x2&
+                    _MEMGET srcM, srcM.OFFSET + (iy& * moW& + ix&) * 4, px~&
+                    sr& = sr& + _RED32(px~&) : sg& = sg& + _GREEN32(px~&)
+                    sb& = sb& + _BLUE32(px~&) : sa& = sa& + _ALPHA32(px~&)
+                    cnt& = cnt& + 1
+                NEXT ix&
+            NEXT iy&
+            IF cnt& = 0 THEN cnt& = 1
+            avg~& = _RGBA32(sr& \ cnt&, sg& \ cnt&, sb& \ cnt&, sa& \ cnt&)
+            FOR iy& = by& TO y2&
+                FOR ix& = bx& TO x2&
+                    isGrout% = 0
+                    IF grout% <> 0 THEN
+                        IF ix& = bx& OR iy& = by& THEN isGrout% = 1
+                    END IF
+                    IF isGrout% THEN
+                        _MEMPUT resM, resM.OFFSET + (iy& * moW& + ix&) * 4, _RGBA32(20, 20, 24, sa& \ cnt&) AS _UNSIGNED LONG
+                    ELSE
+                        _MEMPUT resM, resM.OFFSET + (iy& * moW& + ix&) * 4, avg~& AS _UNSIGNED LONG
+                    END IF
+                NEXT ix&
+            NEXT iy&
+        NEXT bx&
+    NEXT by&
+
+    _MEMFREE srcM
+    _MEMFREE resM
+    IMAGE_ADJ_mosaic& = result&
+END FUNCTION
+
+
+''
+' Open a modal Mosaic dialog: TILE SIZE (3..48) + GROUT toggle.
+'
+SUB IMAGE_ADJ_mosaic_dialog ()
+    IF CURRENT_LAYER% < 1 THEN EXIT SUB
+
+    DIM ctx AS DIALOG_CTX
+    DIALOG_init ctx, IMGDLG_W, 130
+    IMAGE_ADJ_setup_preview ctx, LAYERS(CURRENT_LAYER%).imgHandle&
+
+    DIM tsz AS INTEGER : tsz% = 12
+    DIM oTsz AS INTEGER
+    STATIC groutOn AS INTEGER
+
+    DIM gvX AS INTEGER, gvY AS INTEGER, gvW AS INTEGER, gvH AS INTEGER
+    gvX% = IMGDLG_SX : gvW% = 120 : gvH% = 16
+    gvY% = IMGDLG_track_y%(ctx, 0) + 24
+
+    DIM k AS LONG
+    DO
+        DIALOG_poll_mouse ctx
+        IF ctx.loupeDirty% THEN IMAGE_ADJ_update_loupe ctx
+        k& = _KEYHIT
+        IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
+        IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
+
+        oTsz% = tsz%
+        tsz% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, tsz%, 3, 48)
+        tsz% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, tsz%, 3, 48)
+        IF DIALOG_hit%(ctx, gvX%, gvY%, gvW%, gvH%) THEN
+            groutOn%          = (groutOn% = 0)
+            ctx.previewDirty% = TRUE
+        END IF
+        IF tsz% <> oTsz% THEN ctx.previewDirty% = TRUE
+        IMGDLG_check_ok_cancel ctx
+
+        IF ctx.previewDirty% THEN
+            SAFE_FREEIMAGE ctx.previewThumb
+            ctx.previewThumb = IMAGE_ADJ_mosaic&(ctx.origThumb, tsz%, groutOn%)
+            IMAGE_ADJ_mask_preview ctx
+            ctx.previewDirty% = FALSE
+        END IF
+
+        _DEST ctx.imgHandle
+        DIALOG_draw_frame ctx, "MOSAIC / TESSELLATE"
+        DIALOG_draw_preview ctx
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "TILE SIZE:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, tsz%, 3, 48, "", ""
+        DIALOG_draw_toggle ctx, gvX%, gvY%, gvW%, gvH%, "GROUT", groutOn%
+        DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
+        IMGDLG_draw_ok_cancel ctx
+        DIALOG_blit ctx
+    LOOP UNTIL ctx.done%
+
+    IF ctx.result% THEN
+        DIM moTargets(1 TO MAX_LAYERS) AS INTEGER, moTgtCount AS INTEGER, moT AS INTEGER
+        DIM moSaveCL AS INTEGER
+        IMAGE_ADJ_collect_targets moTargets%(), moTgtCount%
+        moSaveCL% = CURRENT_LAYER%
+        IF moTgtCount% > 1 THEN HISTORY_begin_group
+        DIM adjR     AS LONG
+        FOR moT% = 1 TO moTgtCount%
+            CURRENT_LAYER% = moTargets%(moT%)
+            adjR&          = IMAGE_ADJ_mosaic&(LAYERS(CURRENT_LAYER%).imgHandle&, tsz%, groutOn%)
+            IMAGE_ADJ_apply_to_layer adjR&, "Mosaic"
+        NEXT moT%
+        IF moTgtCount% > 1 THEN HISTORY_end_group
+        CURRENT_LAYER% = moSaveCL%
+    END IF
+
+    DIALOG_cleanup ctx
+    SAFE_FREEIMAGE IMGADJ_LAYER_MASK& : IMGADJ_LAYER_MASK& = 0
+END SUB
+
+
+''
 ' Stained Glass — like Crystallize, but darken pixels near cell boundaries (where
 ' the nearest and 2nd-nearest seeds are almost equidistant) to draw the leading
 ' between glass panes. Alpha preserved (apply_to_layer).

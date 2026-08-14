@@ -22,7 +22,7 @@ the infra exists.
 
 ## 🔨 NOW — doing right now
 
-- [ ] ➡️ Wave 4 · **Mosaic / Tessellate** — averaged tiles + grout + dialog + EFFECTS menu + QA test
+- [ ] ➡️ Wave 4 · **Extrude** — 3D block tiles from cell brightness + dialog + EFFECTS menu + QA test
 
 <!-- Menu-overflow plan: the flat EFFECTS dropdown auto-scrolls past ~41 items
      (availH = SCRN.h - subY, 12px/item). At 25 items now; Waves 4/5/5b/5c (15
@@ -82,7 +82,7 @@ the infra exists.
 
 - [x] **Crystallize** — Voronoi cells (deterministic grid-jitter, nearest-seed colour), CELL SIZE 4-40 + menu + QA test (effect-crystallize.sh). NEW engine IMAGE_ADJ_crystallize&.
 - [x] **Stained Glass** — Voronoi + dark leading via 2nd-nearest-seed borders, CELL SIZE 4-40 + BORDER 1-4 + menu + QA test (effect-stainedglass.sh). NEW engine IMAGE_ADJ_stainedglass&.
-- [ ] **Mosaic / Tessellate** — regular polygon tiling, average color + dialog + menu + QA test
+- [x] **Mosaic / Tessellate** — per-tile colour averaging (vs Pixelate's sample) + GROUT toggle, TILE 3-48 + menu + QA test (effect-mosaic.sh). NEW engine IMAGE_ADJ_mosaic&.
 - [ ] **Extrude** — 3D block/pyramid tiles from cell brightness + dialog + menu + QA test
 - [ ] **Pointillize** — random dots on background color + dialog + menu + QA test
 - [ ] **Wind** — directional streaking of edges + dialog + menu + QA test
