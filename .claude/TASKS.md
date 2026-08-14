@@ -22,7 +22,12 @@ the infra exists.
 
 ## 🔨 NOW — doing right now
 
-- [ ] ➡️ Wave 0 · Wire dormant **Glow** (GJ_IMGADJ_Glow) — radius + intensity dialog + EFFECTS menu + QA test
+- [ ] ➡️ Wave 0 · Wire dormant **Film Grain** (GJ_IMGADJ_FilmGrain) — amount dialog + EFFECTS menu + QA test
+
+<!-- QA note: invoke effects via the EFFECTS menu (click 395,6 then item at
+     viewport y = 20 + index*12), NOT the command palette — palette-open is racy
+     under the harness. Commit dialogs with `key Return`. Snap AFTER dialog close. -->
+
 
 ## Wave 0 — Activate dormant engine effects (math already implemented + tested)
 
@@ -30,7 +35,7 @@ the infra exists.
 - [x] Wire **Sepia** (GJ_IMGADJ_Sepia) — one-shot + EFFECTS menu + cmd palette + QA test (effect-sepia.sh)
 - [x] Wire **Threshold** (GJ_IMGADJ_Threshold) — LEVEL slider + INVERT toggle dialog + menu + QA test (effect-threshold.sh)
 - [x] Wire **Colorize** (GJ_IMGADJ_Colorize) — HUE + SATURATION tint dialog + menu + QA test (effect-colorize.sh). NOTE: distinct from existing Hue/Saturation (2002) — Colorize *replaces* all hues (monotone tint); Hue/Sat *shifts* them.
-- [ ] Wire **Glow** (GJ_IMGADJ_Glow) — radius + intensity dialog + action + menu + QA test
+- [x] Wire **Glow** (GJ_IMGADJ_Glow) — RADIUS + INTENSITY dialog + menu + QA test (effect-glow.sh, menu-click invocation)
 - [ ] Wire **Film Grain** (GJ_IMGADJ_FilmGrain) — amount dialog + action + menu + QA test
 - [ ] Wire **Vignette** (GJ_IMGADJ_Vignette) — strength dialog + action + menu + QA test
 - [ ] Wire **Pixel Scaler** (GJ_IMGADJ_PixelScaler, xBR/HQx/MMPX) — mode picker dialog + action + menu + QA test
