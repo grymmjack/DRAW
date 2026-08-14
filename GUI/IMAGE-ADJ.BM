@@ -516,6 +516,125 @@ END FUNCTION
 
 
 ''
+' Duotone / Tritone — quantise luminance into flat colour bands (unlike the
+' smooth Gradient Map). DUOTONE: 2 bands — shadows->loColor, highlights->hiColor.
+' TRITONE: 3 bands — shadows->loColor, mids->the average of lo/hi, highlights->
+' hiColor. The flat-ink poster / Game-Boy look. Same size; alpha preserved.
+'
+' @param sourceImg LONG           Source image (32-bit)
+' @param loColor   _UNSIGNED LONG Shadow colour
+' @param hiColor   _UNSIGNED LONG Highlight colour
+' @param tritone   INTEGER        0 = 2 bands, 1 = 3 bands
+' @return LONG  New duotone/tritone image handle
+'
+FUNCTION IMAGE_ADJ_duotone& (sourceImg AS LONG, loColor AS _UNSIGNED LONG, hiColor AS _UNSIGNED LONG, tritone AS INTEGER)
+    IF NOT (sourceImg& < -1) THEN IMAGE_ADJ_duotone& = 0 : EXIT FUNCTION
+
+    DIM result AS LONG
+    result& = _COPYIMAGE(sourceImg&, 32)
+    DIM srcM AS _MEM, resM AS _MEM
+    srcM = _MEMIMAGE(sourceImg&)
+    resM = _MEMIMAGE(result&)
+
+    DIM midColor AS _UNSIGNED LONG
+    midColor~& = _RGB32((_RED32(loColor~&) + _RED32(hiColor~&)) \ 2, (_GREEN32(loColor~&) + _GREEN32(hiColor~&)) \ 2, (_BLUE32(loColor~&) + _BLUE32(hiColor~&)) \ 2)
+
+    DIM i AS LONG, px AS _UNSIGNED LONG, lumv AS INTEGER, outc AS _UNSIGNED LONG
+    FOR i& = 0 TO srcM.SIZE - 4 STEP 4
+        _MEMGET srcM, srcM.OFFSET + i&, px~&
+        lumv% = (_RED32(px~&) * 30 + _GREEN32(px~&) * 59 + _BLUE32(px~&) * 11) \ 100
+        IF tritone% THEN
+            IF lumv% < 85 THEN
+                outc~& = loColor~&
+            ELSEIF lumv% < 170 THEN
+                outc~& = midColor~&
+            ELSE
+                outc~& = hiColor~&
+            END IF
+        ELSE
+            IF lumv% < 128 THEN outc~& = loColor~& ELSE outc~& = hiColor~&
+        END IF
+        _MEMPUT resM, resM.OFFSET + i&, outc~& AS _UNSIGNED LONG
+    NEXT i&
+
+    _MEMFREE srcM
+    _MEMFREE resM
+    IMAGE_ADJ_duotone& = result&
+END FUNCTION
+
+
+''
+' Open a modal Duotone / Tritone dialog: TRITONE toggle. Ramp uses BG (shadows)
+' -> FG (highlights); tritone adds their average as the midtone. Live loupe.
+'
+SUB IMAGE_ADJ_duotone_dialog ()
+    IF CURRENT_LAYER% < 1 THEN EXIT SUB
+
+    DIM ctx AS DIALOG_CTX
+    DIALOG_init ctx, IMGDLG_W, 96
+    IMAGE_ADJ_setup_preview ctx, LAYERS(CURRENT_LAYER%).imgHandle&
+
+    STATIC tritone AS INTEGER
+    DIM dtLo AS _UNSIGNED LONG, dtHi AS _UNSIGNED LONG
+
+    DIM tvX AS INTEGER, tvY AS INTEGER, tvW AS INTEGER, tvH AS INTEGER
+    tvX% = IMGDLG_SX : tvW% = 150 : tvH% = 16
+    tvY% = 24 + ctx.prevH + 6
+
+    DIM k AS LONG
+    DO
+        DIALOG_poll_mouse ctx
+        IF ctx.loupeDirty% THEN IMAGE_ADJ_update_loupe ctx
+        k& = _KEYHIT
+        IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
+        IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
+
+        IF DIALOG_hit%(ctx, tvX%, tvY%, tvW%, tvH%) THEN
+            tritone%          = (tritone% = 0)
+            ctx.previewDirty% = TRUE
+        END IF
+        IMGDLG_check_ok_cancel ctx
+
+        IF ctx.previewDirty% THEN
+            dtLo~& = PAINT_BG_COLOR~& : dtHi~& = PAINT_COLOR~&
+            SAFE_FREEIMAGE ctx.previewThumb
+            ctx.previewThumb = IMAGE_ADJ_duotone&(ctx.origThumb, dtLo~&, dtHi~&, tritone%)
+            IMAGE_ADJ_mask_preview ctx
+            ctx.previewDirty% = FALSE
+        END IF
+
+        _DEST ctx.imgHandle
+        DIALOG_draw_frame ctx, "DUOTONE / TRITONE"
+        DIALOG_draw_preview ctx
+        DIALOG_draw_toggle ctx, tvX%, tvY%, tvW%, tvH%, "TRITONE (3 BANDS)", tritone%
+        DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
+        IMGDLG_draw_ok_cancel ctx
+        DIALOG_blit ctx
+    LOOP UNTIL ctx.done%
+
+    IF ctx.result% THEN
+        dtLo~& = PAINT_BG_COLOR~& : dtHi~& = PAINT_COLOR~&
+        DIM dtTargets(1 TO MAX_LAYERS) AS INTEGER, dtTgtCount AS INTEGER, dtT AS INTEGER
+        DIM dtSaveCL AS INTEGER
+        IMAGE_ADJ_collect_targets dtTargets%(), dtTgtCount%
+        dtSaveCL% = CURRENT_LAYER%
+        IF dtTgtCount% > 1 THEN HISTORY_begin_group
+        DIM adjR     AS LONG
+        FOR dtT% = 1 TO dtTgtCount%
+            CURRENT_LAYER% = dtTargets%(dtT%)
+            adjR&          = IMAGE_ADJ_duotone&(LAYERS(CURRENT_LAYER%).imgHandle&, dtLo~&, dtHi~&, tritone%)
+            IMAGE_ADJ_apply_to_layer adjR&, "Duotone"
+        NEXT dtT%
+        IF dtTgtCount% > 1 THEN HISTORY_end_group
+        CURRENT_LAYER% = dtSaveCL%
+    END IF
+
+    DIALOG_cleanup ctx
+    SAFE_FREEIMAGE IMGADJ_LAYER_MASK& : IMGADJ_LAYER_MASK& = 0
+END SUB
+
+
+''
 ' Solarize (Sabattier) — invert each colour channel that is above `threshold`,
 ' leaving darker channels alone. Produces the classic partially-inverted,
 ' psychedelic tone reversal. Same size; alpha preserved (apply_to_layer).
