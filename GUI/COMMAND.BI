@@ -52,6 +52,7 @@ TYPE CMD_PALETTE_OBJ
     scroll       AS INTEGER     ' Scroll offset
     result_count AS INTEGER     ' Number of filtered results
     mode         AS INTEGER     ' 0 = command palette, 1 = quick reference (no search)
+    suppress_click AS INTEGER   ' TRUE while the mouse button that OPENED the palette (e.g. a Help>Cheat Sheet menu click) is still held — ignore that click so it doesn't immediately close the palette
 END TYPE
 
 DIM SHARED CMD_PALETTE     AS CMD_PALETTE_OBJ
