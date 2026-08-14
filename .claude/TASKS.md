@@ -22,7 +22,7 @@ the infra exists.
 
 ## 🔨 NOW — doing right now
 
-- [ ] ➡️ Wave 5b · **Median / Despeckle** — 3x3 median denoise + dialog + EFFECTS menu + QA test
+- [ ] ➡️ Wave 5b · **Reduce Noise / Dust & Scratches** — thresholded median cleanup + dialog + EFFECTS menu + QA test
 
 <!-- Menu-overflow plan: the flat EFFECTS dropdown auto-scrolls past ~41 items
      (availH = SCRN.h - subY, 12px/item). At 25 items now; Waves 4/5/5b/5c (15
@@ -97,7 +97,7 @@ the infra exists.
 ## Wave 5b — Noise (render / filter)
 
 - [x] **Add Noise** — deterministic per-pixel hash noise (~gaussian), AMOUNT 0-100 + MONOCHROME toggle + menu + QA test (effect-addnoise.sh). NEW engine IMAGE_ADJ_addnoise&.
-- [ ] **Median / Despeckle** — 3×3 median denoise (removes speckle, keeps edges) + dialog + menu + QA test
+- [x] **Median / Despeckle** — 3x3 per-channel median (insertion-sort), one-shot + menu + QA test (effect-median.sh). NEW engine IMAGE_ADJ_median&.
 - [ ] **Reduce Noise / Dust & Scratches** — thresholded median cleanup + dialog + menu + QA test
 
 ## Wave 5c — Render: Grid & Sky

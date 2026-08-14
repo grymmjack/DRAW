@@ -540,6 +540,91 @@ END FUNCTION
 
 
 ''
+' Median / Despeckle — replace each pixel with the per-channel median of its 3x3
+' neighbourhood, removing speckle while keeping edges. One-shot; alpha preserved.
+'
+' @param sourceImg LONG Source image (32-bit)
+' @return LONG  New despeckled image handle
+'
+FUNCTION IMAGE_ADJ_median& (sourceImg AS LONG)
+    IF NOT (sourceImg& < -1) THEN IMAGE_ADJ_median& = 0 : EXIT FUNCTION
+
+    DIM mdW AS LONG, mdH AS LONG
+    mdW& = _WIDTH(sourceImg&) : mdH& = _HEIGHT(sourceImg&)
+    DIM result AS LONG
+    result& = _COPYIMAGE(sourceImg&, 32)
+    DIM srcM AS _MEM, resM AS _MEM
+    srcM = _MEMIMAGE(sourceImg&)
+    resM = _MEMIMAGE(result&)
+
+    DIM mx AS LONG, my AS LONG, dx AS INTEGER, dy AS INTEGER, nx AS LONG, ny AS LONG
+    DIM rV(0 TO 8) AS INTEGER, gV(0 TO 8) AS INTEGER, bV(0 TO 8) AS INTEGER
+    DIM n AS INTEGER, j AS INTEGER, tmp AS INTEGER
+    DIM px AS _UNSIGNED LONG, aHere AS _UNSIGNED _BYTE
+    FOR my& = 0 TO mdH& - 1
+        FOR mx& = 0 TO mdW& - 1
+            n% = 0
+            FOR dy% = -1 TO 1
+                ny& = my& + dy% : IF ny& < 0 THEN ny& = 0 ELSE IF ny& >= mdH& THEN ny& = mdH& - 1
+                FOR dx% = -1 TO 1
+                    nx& = mx& + dx% : IF nx& < 0 THEN nx& = 0 ELSE IF nx& >= mdW& THEN nx& = mdW& - 1
+                    _MEMGET srcM, srcM.OFFSET + (ny& * mdW& + nx&) * 4, px~&
+                    rV(n%) = _RED32(px~&) : gV(n%) = _GREEN32(px~&) : bV(n%) = _BLUE32(px~&)
+                    n% = n% + 1
+                NEXT dx%
+            NEXT dy%
+            ' insertion sort each channel (9 elements)
+            FOR n% = 1 TO 8
+                tmp% = rV(n%) : j% = n% - 1
+                DO WHILE j% >= 0 : IF rV(j%) <= tmp% THEN EXIT DO
+                    rV(j% + 1) = rV(j%) : j% = j% - 1
+                LOOP
+                rV(j% + 1) = tmp%
+                tmp% = gV(n%) : j% = n% - 1
+                DO WHILE j% >= 0 : IF gV(j%) <= tmp% THEN EXIT DO
+                    gV(j% + 1) = gV(j%) : j% = j% - 1
+                LOOP
+                gV(j% + 1) = tmp%
+                tmp% = bV(n%) : j% = n% - 1
+                DO WHILE j% >= 0 : IF bV(j%) <= tmp% THEN EXIT DO
+                    bV(j% + 1) = bV(j%) : j% = j% - 1
+                LOOP
+                bV(j% + 1) = tmp%
+            NEXT n%
+            _MEMGET srcM, srcM.OFFSET + (my& * mdW& + mx&) * 4 + 3, aHere~%%
+            _MEMPUT resM, resM.OFFSET + (my& * mdW& + mx&) * 4, _RGBA32(rV(4), gV(4), bV(4), aHere~%%) AS _UNSIGNED LONG
+        NEXT mx&
+    NEXT my&
+
+    _MEMFREE srcM
+    _MEMFREE resM
+    IMAGE_ADJ_median& = result&
+END FUNCTION
+
+
+''
+' Direct op — apply a Median / Despeckle pass to the active (and extra) layers.
+'
+SUB IMAGE_ADJ_median ()
+    IF CURRENT_LAYER% < 1 THEN EXIT SUB
+    DIM iatTargets(1 TO MAX_LAYERS) AS INTEGER, iatTgtCount AS INTEGER, iatT AS INTEGER
+    DIM iatSaveCL AS INTEGER
+    IMAGE_ADJ_collect_targets iatTargets%(), iatTgtCount%
+    IF iatTgtCount% = 0 THEN EXIT SUB
+    iatSaveCL% = CURRENT_LAYER%
+    IF iatTgtCount% > 1 THEN HISTORY_begin_group
+    DIM adjR      AS LONG
+    FOR iatT% = 1 TO iatTgtCount%
+        CURRENT_LAYER% = iatTargets%(iatT%)
+        adjR&          = IMAGE_ADJ_median&(LAYERS(CURRENT_LAYER%).imgHandle&)
+        IMAGE_ADJ_apply_to_layer adjR&, "Median"
+    NEXT iatT%
+    IF iatTgtCount% > 1 THEN HISTORY_end_group
+    CURRENT_LAYER% = iatSaveCL%
+END SUB
+
+
+''
 ' Add Noise — add per-pixel random noise (deterministic hash, ~gaussian by
 ' averaging two hashes). MONO adds the same delta to R/G/B; colour adds an
 ' independent delta per channel. Same size; alpha preserved (apply_to_layer).
