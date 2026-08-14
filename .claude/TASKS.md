@@ -22,7 +22,7 @@ the infra exists.
 
 ## 🔨 NOW — doing right now
 
-- [ ] ➡️ Wave 5 · **Terrain** — fractal heightmap → terrain colour ramp + dialog + EFFECTS menu + QA test
+- [ ] ➡️ Wave 5b · **Add Noise** — Gaussian/Uniform, mono/colour + dialog + EFFECTS menu + QA test
 
 <!-- Menu-overflow plan: the flat EFFECTS dropdown auto-scrolls past ~41 items
      (availH = SCRN.h - subY, 12px/item). At 25 items now; Waves 4/5/5b/5c (15
@@ -92,7 +92,7 @@ the infra exists.
 - [x] **Clouds** — 3-octave value-noise plasma mapped BG..FG, SCALE 8-64, generative (apply_spatial) + menu + QA test (effect-clouds.sh). NEW engines IMGADJ_valnoise! + IMAGE_ADJ_clouds&.
 - [x] **Difference Clouds** — grayscale plasma |src-cloud| per channel, one-shot + menu + QA test (effect-diffclouds.sh). NEW engine IMAGE_ADJ_diffclouds&.
 - [x] **Lens Flare** — additive bright core + 5 halo orbs along the flare axis, BRIGHTNESS 10-100 + menu + QA test (effect-lensflare.sh). NEW engine IMAGE_ADJ_lensflare&.
-- [ ] **Terrain** — diamond-square fractal heightmap → color ramp + dialog + menu + QA test
+- [x] **Terrain** — 5-octave fractal heightmap → water/sand/grass/rock/snow ramp, SCALE 16-96, generative (apply_spatial) + menu + QA test (effect-terrain.sh). NEW engine IMAGE_ADJ_terrain&. Visually verified continents.
 
 ## Wave 5b — Noise (render / filter)
 

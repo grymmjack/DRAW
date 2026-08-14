@@ -540,6 +540,130 @@ END FUNCTION
 
 
 ''
+' Terrain — fill the layer with a fractal heightmap (5 octaves of value noise)
+' mapped to a natural terrain ramp: deep water -> shallow -> sand -> grass ->
+' rock -> snow. Generative (apply_spatial).
+'
+' @param sourceImg LONG    Source image (used only for dimensions)
+' @param scaleP    INTEGER Base feature size in px (16..96)
+' @return LONG  New opaque terrain image handle
+'
+FUNCTION IMAGE_ADJ_terrain& (sourceImg AS LONG, scaleP AS INTEGER)
+    IF NOT (sourceImg& < -1) THEN IMAGE_ADJ_terrain& = 0 : EXIT FUNCTION
+    IF scaleP% < 8 THEN scaleP% = 8
+
+    DIM teW AS LONG, teH AS LONG
+    teW& = _WIDTH(sourceImg&) : teH& = _HEIGHT(sourceImg&)
+    DIM result AS LONG
+    result& = _NEWIMAGE(teW&, teH&, 32)
+    DIM resM AS _MEM : resM = _MEMIMAGE(result&)
+
+    DIM tx AS LONG, ty AS LONG, oct AS INTEGER
+    DIM nv AS SINGLE, fr AS SINGLE, amp AS SINGLE, amax AS SINGLE
+    DIM tr AS INTEGER, tg AS INTEGER, tb AS INTEGER, sh AS SINGLE
+    FOR ty& = 0 TO teH& - 1
+        FOR tx& = 0 TO teW& - 1
+            nv! = 0.0 : fr! = 1.0 / scaleP% : amp! = 1.0 : amax! = 0.0
+            FOR oct% = 0 TO 4
+                nv! = nv! + IMGADJ_valnoise!(tx& * fr!, ty& * fr!, oct% + 1) * amp!
+                amax! = amax! + amp!
+                amp! = amp! * 0.5 : fr! = fr! * 2.0
+            NEXT oct%
+            nv! = nv! / amax!
+            ' terrain bands
+            IF nv! < 0.30 THEN
+                tr% = 20 : tg% = 40 : tb% = 90 + INT(nv! * 200)                 ' deep water
+            ELSEIF nv! < 0.42 THEN
+                tr% = 30 : tg% = 90 : tb% = 150                                 ' shallow water
+            ELSEIF nv! < 0.47 THEN
+                tr% = 210 : tg% = 200 : tb% = 140                               ' sand
+            ELSEIF nv! < 0.68 THEN
+                sh! = (nv! - 0.47) / 0.21
+                tr% = 40 + INT(sh! * 40) : tg% = 120 - INT(sh! * 40) : tb% = 40 ' grass
+            ELSEIF nv! < 0.82 THEN
+                sh! = (nv! - 0.68) / 0.14
+                tr% = 100 + INT(sh! * 30) : tg% = 85 + INT(sh! * 25) : tb% = 70 ' rock
+            ELSE
+                sh! = (nv! - 0.82) / 0.18
+                tr% = 200 + INT(sh! * 55) : tg% = 200 + INT(sh! * 55) : tb% = 210 + INT(sh! * 45) ' snow
+            END IF
+            IF tb% > 255 THEN tb% = 255
+            _MEMPUT resM, resM.OFFSET + (ty& * teW& + tx&) * 4, _RGBA32(tr%, tg%, tb%, 255) AS _UNSIGNED LONG
+        NEXT tx&
+    NEXT ty&
+
+    _MEMFREE resM
+    IMAGE_ADJ_terrain& = result&
+END FUNCTION
+
+
+''
+' Open a modal Terrain dialog: single SCALE slider (16..96). Generative ->
+' apply_spatial.
+'
+SUB IMAGE_ADJ_terrain_dialog ()
+    IF CURRENT_LAYER% < 1 THEN EXIT SUB
+
+    DIM ctx AS DIALOG_CTX
+    DIALOG_init ctx, IMGDLG_W, 110
+    IMAGE_ADJ_setup_preview ctx, LAYERS(CURRENT_LAYER%).imgHandle&
+
+    DIM scl AS INTEGER : scl% = 48
+    DIM oScl AS INTEGER
+
+    DIM k AS LONG
+    DO
+        DIALOG_poll_mouse ctx
+        IF ctx.loupeDirty% THEN IMAGE_ADJ_update_loupe ctx
+        k& = _KEYHIT
+        IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
+        IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
+
+        oScl% = scl%
+        scl% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, scl%, 16, 96)
+        scl% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, scl%, 16, 96)
+        IF scl% <> oScl% THEN ctx.previewDirty% = TRUE
+        IMGDLG_check_ok_cancel ctx
+
+        IF ctx.previewDirty% THEN
+            SAFE_FREEIMAGE ctx.previewThumb
+            ctx.previewThumb = IMAGE_ADJ_terrain&(ctx.origThumb, scl%)
+            IMAGE_ADJ_mask_preview ctx
+            ctx.previewDirty% = FALSE
+        END IF
+
+        _DEST ctx.imgHandle
+        DIALOG_draw_frame ctx, "TERRAIN"
+        DIALOG_draw_preview ctx
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "SCALE:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, scl%, 16, 96, "", ""
+        DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
+        IMGDLG_draw_ok_cancel ctx
+        DIALOG_blit ctx
+    LOOP UNTIL ctx.done%
+
+    IF ctx.result% THEN
+        DIM teTargets(1 TO MAX_LAYERS) AS INTEGER, teTgtCount AS INTEGER, teT AS INTEGER
+        DIM teSaveCL AS INTEGER
+        IMAGE_ADJ_collect_targets teTargets%(), teTgtCount%
+        teSaveCL% = CURRENT_LAYER%
+        IF teTgtCount% > 1 THEN HISTORY_begin_group
+        DIM adjR     AS LONG
+        FOR teT% = 1 TO teTgtCount%
+            CURRENT_LAYER% = teTargets%(teT%)
+            adjR&          = IMAGE_ADJ_terrain&(LAYERS(CURRENT_LAYER%).imgHandle&, scl%)
+            IMAGE_ADJ_apply_spatial adjR&, "Terrain"
+        NEXT teT%
+        IF teTgtCount% > 1 THEN HISTORY_end_group
+        CURRENT_LAYER% = teSaveCL%
+    END IF
+
+    DIALOG_cleanup ctx
+    SAFE_FREEIMAGE IMGADJ_LAYER_MASK& : IMGADJ_LAYER_MASK& = 0
+END SUB
+
+
+''
 ' Lens Flare — additively composite a bright core plus secondary halo orbs along
 ' the flare axis (from the flare point through the image centre). `bright` scales
 ' the intensity. Adds light over the existing pixels; alpha preserved
