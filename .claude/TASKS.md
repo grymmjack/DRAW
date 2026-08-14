@@ -22,7 +22,7 @@ the infra exists.
 
 ## 🔨 NOW — doing right now
 
-- [ ] ➡️ Wave 2b · **Chrome / Metallic** — gradient-mapped bevel + dialog + EFFECTS menu + QA test
+- [ ] ➡️ Wave 3 · **Wave / Ripple** — sinusoidal displacement + dialog + EFFECTS menu + QA test
 
 <!-- QA note: invoke effects via the EFFECTS menu (click 395,6 then item at
      viewport y = 20 + index*12), NOT the command palette — palette-open is racy
@@ -61,7 +61,7 @@ the infra exists.
 - [x] **Bevel** — inner bevel via distance-to-edge heightfield lit top-left, HEIGHT 1-8 + STRENGTH 1-10 + menu + QA test (effect-bevel.sh). NEW engine IMAGE_ADJ_bevel&. Visually verified 3D button.
 - [x] **Outer Glow** — FG-colour silhouette blurred outward + INTENSITY boost, composited behind, RADIUS 1-16, apply_spatial + menu + QA test (effect-outerglow.sh). NEW engine IMAGE_ADJ_outerglow&.
 - [x] **Inner Glow** — FG-colour glow blended inward from edges via distance field, RADIUS 1-16 + INTENSITY 1-5 + menu + QA test (effect-innerglow.sh). NEW engine IMAGE_ADJ_innerglow&. (Gotcha: gg collided with gG — QB64 case-insensitive.)
-- [ ] **Chrome / Metallic** — gradient-mapped bevel for a shiny metal look + dialog + menu + QA test
+- [x] **Chrome / Metallic** — distance-field |sin| metallic bands mapped BG..FG, DEPTH 2-16 + menu + QA test (effect-chrome.sh). NEW engine IMAGE_ADJ_chrome&. Visually verified silver look.
 
 ## Wave 3 — Distort filters (one-shot, whole layer)
 

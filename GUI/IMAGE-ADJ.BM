@@ -516,6 +516,145 @@ END FUNCTION
 
 
 ''
+' Chrome / Metallic — turn a flat shape into shiny metal. Builds a
+' distance-to-edge field (0 at edge → 1 toward `depth` inward), runs it through a
+' metallic band function (|sin|) for the reflective light/dark rings, and maps the
+' result along a BG(shadow)->FG(highlight) ramp. RGB-only -> apply_to_layer.
+'
+' @param sourceImg LONG           Source image (32-bit, with alpha)
+' @param depth     INTEGER        Band depth in px (2..16)
+' @param loColor   _UNSIGNED LONG Shadow end of the metal ramp
+' @param hiColor   _UNSIGNED LONG Highlight end of the metal ramp
+' @return LONG  New chrome image handle
+'
+FUNCTION IMAGE_ADJ_chrome& (sourceImg AS LONG, depth AS INTEGER, loColor AS _UNSIGNED LONG, hiColor AS _UNSIGNED LONG)
+    IF NOT (sourceImg& < -1) THEN IMAGE_ADJ_chrome& = 0 : EXIT FUNCTION
+
+    DIM chW AS LONG, chH AS LONG
+    chW& = _WIDTH(sourceImg&) : chH& = _HEIGHT(sourceImg&)
+    DIM result AS LONG
+    result& = _COPYIMAGE(sourceImg&, 32)
+
+    DIM srcM AS _MEM, resM AS _MEM
+    srcM = _MEMIMAGE(sourceImg&)
+    resM = _MEMIMAGE(result&)
+
+    DIM cLoR AS INTEGER, cLoG AS INTEGER, cLoB AS INTEGER
+    DIM cHiR AS INTEGER, cHiG AS INTEGER, cHiB AS INTEGER
+    cLoR% = _RED32(loColor~&) : cLoG% = _GREEN32(loColor~&) : cLoB% = _BLUE32(loColor~&)
+    cHiR% = _RED32(hiColor~&) : cHiG% = _GREEN32(hiColor~&) : cHiB% = _BLUE32(hiColor~&)
+
+    DIM cx AS LONG, cy AS LONG, dx AS INTEGER, dy AS INTEGER
+    DIM aHere AS _UNSIGNED _BYTE, aN AS _UNSIGNED _BYTE
+    DIM nx AS LONG, ny AS LONG, dist AS INTEGER, curD AS INTEGER
+    DIM tt AS SINGLE, mBand AS SINGLE
+    DIM mR AS INTEGER, mG AS INTEGER, mB AS INTEGER
+
+    FOR cy& = 0 TO chH& - 1
+        FOR cx& = 0 TO chW& - 1
+            _MEMGET srcM, srcM.OFFSET + (cy& * chW& + cx&) * 4 + 3, aHere~%%
+            IF aHere~%% = 0 THEN _CONTINUE
+
+            dist% = depth% + 1
+            FOR dy% = -depth% TO depth%
+                ny& = cy& + dy%
+                FOR dx% = -depth% TO depth%
+                    curD% = ABS(dx%) : IF ABS(dy%) > curD% THEN curD% = ABS(dy%)
+                    IF curD% < dist% THEN
+                        nx& = cx& + dx%
+                        IF nx& < 0 OR ny& < 0 OR nx& >= chW& OR ny& >= chH& THEN
+                            dist% = curD%
+                        ELSE
+                            _MEMGET srcM, srcM.OFFSET + (ny& * chW& + nx&) * 4 + 3, aN~%%
+                            IF aN~%% = 0 THEN dist% = curD%
+                        END IF
+                    END IF
+                NEXT dx%
+            NEXT dy%
+            IF dist% > depth% THEN dist% = depth%
+
+            tt! = dist% / (depth% + 0.0)
+            mBand! = ABS(SIN(tt! * 3.14159265 * 1.5))
+            mR% = cLoR% + (cHiR% - cLoR%) * mBand!
+            mG% = cLoG% + (cHiG% - cLoG%) * mBand!
+            mB% = cLoB% + (cHiB% - cLoB%) * mBand!
+            _MEMPUT resM, resM.OFFSET + (cy& * chW& + cx&) * 4, _RGB32(mR%, mG%, mB%) AS _UNSIGNED LONG
+        NEXT cx&
+    NEXT cy&
+
+    _MEMFREE srcM
+    _MEMFREE resM
+    IMAGE_ADJ_chrome& = result&
+END FUNCTION
+
+
+''
+' Open a modal Chrome dialog: DEPTH slider (2..16). Metal ramp runs BG (shadow)
+' -> FG (highlight); e.g. FG=white + BG=dark gives silver. apply_to_layer.
+'
+SUB IMAGE_ADJ_chrome_dialog ()
+    IF CURRENT_LAYER% < 1 THEN EXIT SUB
+
+    DIM ctx AS DIALOG_CTX
+    DIALOG_init ctx, IMGDLG_W, 110
+    IMAGE_ADJ_setup_preview ctx, LAYERS(CURRENT_LAYER%).imgHandle&
+
+    DIM depth  AS INTEGER : depth% = 8
+    DIM oDepth AS INTEGER
+
+    DIM k AS LONG
+    DO
+        DIALOG_poll_mouse ctx
+        IF ctx.loupeDirty% THEN IMAGE_ADJ_update_loupe ctx
+        k& = _KEYHIT
+        IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
+        IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
+
+        oDepth% = depth%
+        depth% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, depth%, 2, 16)
+        depth% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, depth%, 2, 16)
+        IF depth% <> oDepth% THEN ctx.previewDirty% = TRUE
+        IMGDLG_check_ok_cancel ctx
+
+        IF ctx.previewDirty% THEN
+            SAFE_FREEIMAGE ctx.previewThumb
+            ctx.previewThumb = IMAGE_ADJ_chrome&(ctx.origThumb, depth%, PAINT_BG_COLOR~&, PAINT_COLOR~&)
+            IMAGE_ADJ_mask_preview ctx
+            ctx.previewDirty% = FALSE
+        END IF
+
+        _DEST ctx.imgHandle
+        DIALOG_draw_frame ctx, "CHROME / METALLIC"
+        DIALOG_draw_preview ctx
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "DEPTH:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, depth%, 2, 16, "", ""
+        DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
+        IMGDLG_draw_ok_cancel ctx
+        DIALOG_blit ctx
+    LOOP UNTIL ctx.done%
+
+    IF ctx.result% THEN
+        DIM chTargets(1 TO MAX_LAYERS) AS INTEGER, chTgtCount AS INTEGER, chT AS INTEGER
+        DIM chSaveCL AS INTEGER
+        IMAGE_ADJ_collect_targets chTargets%(), chTgtCount%
+        chSaveCL% = CURRENT_LAYER%
+        IF chTgtCount% > 1 THEN HISTORY_begin_group
+        DIM adjR     AS LONG
+        FOR chT% = 1 TO chTgtCount%
+            CURRENT_LAYER% = chTargets%(chT%)
+            adjR&          = IMAGE_ADJ_chrome&(LAYERS(CURRENT_LAYER%).imgHandle&, depth%, PAINT_BG_COLOR~&, PAINT_COLOR~&)
+            IMAGE_ADJ_apply_to_layer adjR&, "Chrome"
+        NEXT chT%
+        IF chTgtCount% > 1 THEN HISTORY_end_group
+        CURRENT_LAYER% = chSaveCL%
+    END IF
+
+    DIALOG_cleanup ctx
+    SAFE_FREEIMAGE IMGADJ_LAYER_MASK& : IMGADJ_LAYER_MASK& = 0
+END SUB
+
+
+''
 ' Inner Glow — a coloured glow that fades inward from the shape's alpha edges.
 ' For each opaque pixel, distance-to-edge d (clamped to `radius`) gives a factor
 ' (1 at the edge, 0 at radius inward); glowColor is blended over the original by
