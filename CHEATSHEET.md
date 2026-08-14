@@ -1236,8 +1236,8 @@ While the text tool is active and editing:
 |-----|----------|
 | `Ctrl+Shift+.` or `Ctrl+Shift+>` | Increase font size at cursor or selection |
 | `Ctrl+Shift+,` or `Ctrl+Shift+<` | Decrease font size at cursor or selection |
-| `Ctrl+Alt+.` or `Ctrl+Alt+>` | Increase kerning at cursor or selected characters |
-| `Ctrl+Alt+,` or `Ctrl+Alt+<` | Decrease kerning at cursor or selected characters |
+| `Alt+Right` | Increase kerning (letter spacing) at cursor or selected characters |
+| `Alt+Left` | Decrease kerning (letter spacing) at cursor or selected characters |
 | `Ctrl+Alt+Up` | Raise baseline at cursor or selected characters |
 | `Ctrl+Alt+Down` | Lower baseline at cursor or selected characters |
 
