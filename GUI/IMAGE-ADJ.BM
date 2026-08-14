@@ -516,6 +516,118 @@ END FUNCTION
 
 
 ''
+' Emboss — directional grey relief. Each pixel = 128 + strength * (luminance
+' here minus luminance of the up-left neighbour), clamped. Flat areas go mid-grey
+' (128), edges become light/dark ridges — a chiselled/bevel look. Same size;
+' alpha preserved (apply_to_layer).
+'
+' @param sourceImg LONG    Source image (32-bit)
+' @param strength  INTEGER Relief gain (1..10)
+' @return LONG  New embossed image handle
+'
+FUNCTION IMAGE_ADJ_emboss& (sourceImg AS LONG, strength AS INTEGER)
+    IF NOT (sourceImg& < -1) THEN IMAGE_ADJ_emboss& = 0 : EXIT FUNCTION
+
+    DIM emW AS LONG, emH AS LONG
+    emW& = _WIDTH(sourceImg&) : emH& = _HEIGHT(sourceImg&)
+    DIM result AS LONG
+    result& = _COPYIMAGE(sourceImg&, 32)
+
+    DIM srcM AS _MEM, resM AS _MEM
+    srcM = _MEMIMAGE(sourceImg&)
+    resM = _MEMIMAGE(result&)
+
+    REDIM lum(0 TO emW& * emH& - 1) AS INTEGER
+    DIM i AS LONG, px AS _UNSIGNED LONG
+    FOR i& = 0 TO emW& * emH& - 1
+        _MEMGET srcM, srcM.OFFSET + i& * 4, px~&
+        lum(i&) = (_RED32(px~&) * 30 + _GREEN32(px~&) * 59 + _BLUE32(px~&) * 11) \ 100
+    NEXT i&
+
+    DIM ex AS LONG, ey AS LONG, pxm AS LONG, pym AS LONG, dLum AS LONG, outv AS INTEGER
+    FOR ey& = 0 TO emH& - 1
+        pym& = ey& - 1 : IF pym& < 0 THEN pym& = 0
+        FOR ex& = 0 TO emW& - 1
+            pxm& = ex& - 1 : IF pxm& < 0 THEN pxm& = 0
+            dLum& = lum(ey& * emW& + ex&) - lum(pym& * emW& + pxm&)
+            outv% = 128 + dLum& * strength%
+            IF outv% < 0 THEN outv% = 0 ELSE IF outv% > 255 THEN outv% = 255
+            _MEMPUT resM, resM.OFFSET + (ey& * emW& + ex&) * 4, _RGB32(outv%, outv%, outv%) AS _UNSIGNED LONG
+        NEXT ex&
+    NEXT ey&
+
+    _MEMFREE srcM
+    _MEMFREE resM
+    IMAGE_ADJ_emboss& = result&
+END FUNCTION
+
+
+''
+' Open a modal Emboss dialog: single STRENGTH slider (1..10). Live loupe; undo.
+'
+SUB IMAGE_ADJ_emboss_dialog ()
+    IF CURRENT_LAYER% < 1 THEN EXIT SUB
+
+    DIM ctx AS DIALOG_CTX
+    DIALOG_init ctx, IMGDLG_W, 110
+    IMAGE_ADJ_setup_preview ctx, LAYERS(CURRENT_LAYER%).imgHandle&
+
+    DIM strength  AS INTEGER : strength% = 3
+    DIM oStrength AS INTEGER
+
+    DIM k AS LONG
+    DO
+        DIALOG_poll_mouse ctx
+        IF ctx.loupeDirty% THEN IMAGE_ADJ_update_loupe ctx
+        k& = _KEYHIT
+        IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
+        IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
+
+        oStrength% = strength%
+        strength% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, strength%, 1, 10)
+        strength% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, strength%, 1, 10)
+        IF strength% <> oStrength% THEN ctx.previewDirty% = TRUE
+        IMGDLG_check_ok_cancel ctx
+
+        IF ctx.previewDirty% THEN
+            SAFE_FREEIMAGE ctx.previewThumb
+            ctx.previewThumb = IMAGE_ADJ_emboss&(ctx.origThumb, strength%)
+            IMAGE_ADJ_mask_preview ctx
+            ctx.previewDirty% = FALSE
+        END IF
+
+        _DEST ctx.imgHandle
+        DIALOG_draw_frame ctx, "EMBOSS"
+        DIALOG_draw_preview ctx
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "STRENGTH:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, strength%, 1, 10, "", ""
+        DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
+        IMGDLG_draw_ok_cancel ctx
+        DIALOG_blit ctx
+    LOOP UNTIL ctx.done%
+
+    IF ctx.result% THEN
+        DIM emTargets(1 TO MAX_LAYERS) AS INTEGER, emTgtCount AS INTEGER, emT AS INTEGER
+        DIM emSaveCL AS INTEGER
+        IMAGE_ADJ_collect_targets emTargets%(), emTgtCount%
+        emSaveCL% = CURRENT_LAYER%
+        IF emTgtCount% > 1 THEN HISTORY_begin_group
+        DIM adjR     AS LONG
+        FOR emT% = 1 TO emTgtCount%
+            CURRENT_LAYER% = emTargets%(emT%)
+            adjR&          = IMAGE_ADJ_emboss&(LAYERS(CURRENT_LAYER%).imgHandle&, strength%)
+            IMAGE_ADJ_apply_to_layer adjR&, "Emboss"
+        NEXT emT%
+        IF emTgtCount% > 1 THEN HISTORY_end_group
+        CURRENT_LAYER% = emSaveCL%
+    END IF
+
+    DIALOG_cleanup ctx
+    SAFE_FREEIMAGE IMGADJ_LAYER_MASK& : IMGADJ_LAYER_MASK& = 0
+END SUB
+
+
+''
 ' Chromatic Aberration — split the R and B channels horizontally by `amount`
 ' pixels in opposite directions (G stays), producing cyan/red colour fringes at
 ' edges (retro lens / VHS look). Reads from the source so shifts don't cascade.
