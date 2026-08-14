@@ -540,6 +540,135 @@ END FUNCTION
 
 
 ''
+' Add Noise — add per-pixel random noise (deterministic hash, ~gaussian by
+' averaging two hashes). MONO adds the same delta to R/G/B; colour adds an
+' independent delta per channel. Same size; alpha preserved (apply_to_layer).
+'
+' @param sourceImg LONG    Source image (32-bit)
+' @param amount    INTEGER Noise strength 0..100
+' @param mono      INTEGER 0 = colour noise, 1 = monochrome
+' @return LONG  New noisy image handle
+'
+FUNCTION IMAGE_ADJ_addnoise& (sourceImg AS LONG, amount AS INTEGER, mono AS INTEGER)
+    IF NOT (sourceImg& < -1) THEN IMAGE_ADJ_addnoise& = 0 : EXIT FUNCTION
+
+    DIM anW AS LONG, anH AS LONG
+    anW& = _WIDTH(sourceImg&) : anH& = _HEIGHT(sourceImg&)
+    DIM result AS LONG
+    result& = _COPYIMAGE(sourceImg&, 32)
+    DIM srcM AS _MEM, resM AS _MEM
+    srcM = _MEMIMAGE(sourceImg&)
+    resM = _MEMIMAGE(result&)
+
+    DIM nx AS LONG, ny AS LONG, h1 AS LONG, h2 AS LONG
+    DIM dR AS INTEGER, dG AS INTEGER, dB AS INTEGER, sc AS SINGLE
+    DIM px AS _UNSIGNED LONG, nr AS INTEGER, ng AS INTEGER, nb AS INTEGER
+    sc! = amount% / 100.0 * 255.0
+    FOR ny& = 0 TO anH& - 1
+        FOR nx& = 0 TO anW& - 1
+            h1& = ((nx& * 374761393) XOR (ny& * 668265263)) AND 65535
+            h2& = (((nx& + 137) * 374761393) XOR ((ny& + 71) * 668265263)) AND 65535
+            dR% = INT(((h1& / 65535.0) + (h2& / 65535.0) - 1.0) * sc!)
+            IF mono% THEN
+                dG% = dR% : dB% = dR%
+            ELSE
+                h1& = ((nx& * 40503) XOR (ny& * 12289) XOR 777) AND 65535
+                h2& = ((nx& * 24593) XOR (ny& * 20347) XOR 555) AND 65535
+                dG% = INT(((h1& / 65535.0) + (h2& / 65535.0) - 1.0) * sc!)
+                h1& = ((nx& * 15413) XOR (ny& * 32603) XOR 999) AND 65535
+                h2& = ((nx& * 49157) XOR (ny& * 6151) XOR 333) AND 65535
+                dB% = INT(((h1& / 65535.0) + (h2& / 65535.0) - 1.0) * sc!)
+            END IF
+            _MEMGET srcM, srcM.OFFSET + (ny& * anW& + nx&) * 4, px~&
+            nr% = _RED32(px~&) + dR% : IF nr% < 0 THEN nr% = 0 ELSE IF nr% > 255 THEN nr% = 255
+            ng% = _GREEN32(px~&) + dG% : IF ng% < 0 THEN ng% = 0 ELSE IF ng% > 255 THEN ng% = 255
+            nb% = _BLUE32(px~&) + dB% : IF nb% < 0 THEN nb% = 0 ELSE IF nb% > 255 THEN nb% = 255
+            _MEMPUT resM, resM.OFFSET + (ny& * anW& + nx&) * 4, _RGBA32(nr%, ng%, nb%, _ALPHA32(px~&)) AS _UNSIGNED LONG
+        NEXT nx&
+    NEXT ny&
+
+    _MEMFREE srcM
+    _MEMFREE resM
+    IMAGE_ADJ_addnoise& = result&
+END FUNCTION
+
+
+''
+' Open a modal Add Noise dialog: AMOUNT (0..100) + MONO toggle.
+'
+SUB IMAGE_ADJ_addnoise_dialog ()
+    IF CURRENT_LAYER% < 1 THEN EXIT SUB
+
+    DIM ctx AS DIALOG_CTX
+    DIALOG_init ctx, IMGDLG_W, 130
+    IMAGE_ADJ_setup_preview ctx, LAYERS(CURRENT_LAYER%).imgHandle&
+
+    DIM amt AS INTEGER : amt% = 25
+    DIM oAmt AS INTEGER
+    STATIC monoOn AS INTEGER
+
+    DIM mvX AS INTEGER, mvY AS INTEGER, mvW AS INTEGER, mvH AS INTEGER
+    mvX% = IMGDLG_SX : mvW% = 120 : mvH% = 16
+    mvY% = IMGDLG_track_y%(ctx, 0) + 24
+
+    DIM k AS LONG
+    DO
+        DIALOG_poll_mouse ctx
+        IF ctx.loupeDirty% THEN IMAGE_ADJ_update_loupe ctx
+        k& = _KEYHIT
+        IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
+        IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
+
+        oAmt% = amt%
+        amt% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, amt%, 0, 100)
+        amt% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, amt%, 0, 100)
+        IF DIALOG_hit%(ctx, mvX%, mvY%, mvW%, mvH%) THEN
+            monoOn%           = (monoOn% = 0)
+            ctx.previewDirty% = TRUE
+        END IF
+        IF amt% <> oAmt% THEN ctx.previewDirty% = TRUE
+        IMGDLG_check_ok_cancel ctx
+
+        IF ctx.previewDirty% THEN
+            SAFE_FREEIMAGE ctx.previewThumb
+            ctx.previewThumb = IMAGE_ADJ_addnoise&(ctx.origThumb, amt%, monoOn%)
+            IMAGE_ADJ_mask_preview ctx
+            ctx.previewDirty% = FALSE
+        END IF
+
+        _DEST ctx.imgHandle
+        DIALOG_draw_frame ctx, "ADD NOISE"
+        DIALOG_draw_preview ctx
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "AMOUNT:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, amt%, 0, 100, "", ""
+        DIALOG_draw_toggle ctx, mvX%, mvY%, mvW%, mvH%, "MONOCHROME", monoOn%
+        DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
+        IMGDLG_draw_ok_cancel ctx
+        DIALOG_blit ctx
+    LOOP UNTIL ctx.done%
+
+    IF ctx.result% THEN
+        DIM anTargets(1 TO MAX_LAYERS) AS INTEGER, anTgtCount AS INTEGER, anT AS INTEGER
+        DIM anSaveCL AS INTEGER
+        IMAGE_ADJ_collect_targets anTargets%(), anTgtCount%
+        anSaveCL% = CURRENT_LAYER%
+        IF anTgtCount% > 1 THEN HISTORY_begin_group
+        DIM adjR     AS LONG
+        FOR anT% = 1 TO anTgtCount%
+            CURRENT_LAYER% = anTargets%(anT%)
+            adjR&          = IMAGE_ADJ_addnoise&(LAYERS(CURRENT_LAYER%).imgHandle&, amt%, monoOn%)
+            IMAGE_ADJ_apply_to_layer adjR&, "Add Noise"
+        NEXT anT%
+        IF anTgtCount% > 1 THEN HISTORY_end_group
+        CURRENT_LAYER% = anSaveCL%
+    END IF
+
+    DIALOG_cleanup ctx
+    SAFE_FREEIMAGE IMGADJ_LAYER_MASK& : IMGADJ_LAYER_MASK& = 0
+END SUB
+
+
+''
 ' Terrain — fill the layer with a fractal heightmap (5 octaves of value noise)
 ' mapped to a natural terrain ramp: deep water -> shallow -> sand -> grass ->
 ' rock -> snow. Generative (apply_spatial).
