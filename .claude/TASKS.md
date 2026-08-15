@@ -191,7 +191,40 @@ the infra exists.
 
 ## Wave 6 — Liquify tool ("Kai's Power Goo") — big, own design pass
 
-- [ ] **TOOL_LIQUIFY** scaffold — BI/BM, CONST, _ALL chains, tool button, keybind, tool-switch reset, undo snapshot
+> STATUS 2026-08-15: deferred to a fresh session. This is a large INTERACTIVE
+> tool (not a dialog effect) that touches the project's #1 bug-risk subsystems —
+> the MOUSE.BM dispatch pipeline, the unified history system (gotcha #4), the
+> tool-switch reset lists (gotcha #9) and the three doc-creation resets (gotcha
+> #15), plus the render cursor-preview. It was intentionally NOT started at the
+> tail of the big effects sweep to avoid shipping regressions into those areas.
+> INTEGRATION MAP already scouted (model it on the SPRAY tool, which is the exact
+> analog — snapshot-on-press / modify-on-drag / commit-on-release):
+>   - TOOLS/LIQUIFY.BI  — LIQUIFY_OBJ {ACTIVE, MODE, RADIUS, STRENGTH, LAST_X,
+>       LAST_Y, HISTORY_BEFORE_IMG} + LIQUIFY_reset (mirror TOOLS/SPRAY.BI).
+>   - TOOLS/LIQUIFY.BM  — LIQUIFY_warp(cx,cy,dx,dy,mode) + MOUSE_tool_liquify
+>       (copy MOUSE_tool_spray's press/hold structure at INPUT/MOUSE.BM:2722).
+>       WARP: snapshot the brush's bbox into a small work buffer each apply-step
+>       and SAMPLE FROM IT (avoids feedback smear); mind the apron offset
+>       (gotcha #14) on promoted layers. Modes: PUSH shift by (dx,dy)*falloff;
+>       PINCH/BULGE radial; TWIRL rotate by angle*falloff. Reuse the existing
+>       IMAGE_ADJ_pinch / IMAGE_ADJ_twirl math, localized to the brush radius.
+>   - CONST TOOL_LIQUIFY = 45 in GUI/GUI.BI (44 = TOOL_SMART_SHAPES).
+>   - _ALL.BI / _ALL.BM includes (TOOLS group, near SPRAY at lines 136/138).
+>   - MOUSE dispatch: add `CASE TOOL_LIQUIFY: MOUSE_tool_liquify` to
+>       MOUSE_dispatch_tool_hold (~INPUT/MOUSE.BM:4380) AND the release commit to
+>       MOUSE_dispatch_tool_release (~:4472 / the spray-release block ~:3580 that
+>       does `HISTORY_record_brush ... SPRAY.HISTORY_BEFORE_IMG`). Add
+>       TOOL_LIQUIFY to the brush-cursor tool list at ~:31 for a free radius ring.
+>   - Registration: keybind in KEYBOARD.BM (near :252), action in CMD_init +
+>       handler in CMD_execute_action (sets CURRENT_TOOL% = TOOL_LIQUIFY, like
+>       :4989), MENUBAR entry, and LIQUIFY_reset in ALL THREE doc-creation paths
+>       (DRW_load_binary / DRW_new_canvas / DRW_create_canvas_at_size) + the
+>       tool-switch reset.
+>   - MODE picker: a small edit-bar segmented control or number keys 1-4 while the
+>       tool is active. QA: best-effort (interactive) — drag across a shape and
+>       assert the region warped.
+
+- [ ] **TOOL_LIQUIFY** scaffold — BI/BM, CONST, _ALL chains, keybind, tool-switch reset, undo snapshot
 - [ ] **Liquify: Push/Smudge (move)** — drag displaces pixels along cursor motion (radius + strength)
 - [ ] **Liquify: Pinch / Bulge** — radial squeeze/expand under cursor
 - [ ] **Liquify: Twirl** — rotational warp under cursor (CW/CCW)
@@ -219,5 +252,37 @@ the infra exists.
 
 ## Wrap-up
 
-- [ ] Update CHEATSHEET.md + docs (new Image/Render menu entries, Liquify tool + hotkey)
+- [x] **Docs: EFFECTS menu documented in README.MD** — added an "Effects (Photoshop /
+      Alien-Skin Eye Candy style)" section listing all 8 flyout categories incl. the
+      complete SHAPE (20) and TEXTURE (15) Eye Candy submenus. CHEATSHEET.md needs
+      NO effect entries — every effect is menu-only (no hotkeys). Remaining doc work
+      (Liquify tool + its hotkey) is deferred with the Liquify tool itself.
 - [ ] Full suite QA run (`cd QA && ./draw-qa.sh`) green; final clean build; open PR to main
+      — do AFTER Liquify lands (or explicitly descope Liquify first).
+
+<!--
+loop:off — 2026-08-15. Stopping the autonomous loop deliberately, NOT because the
+list is finished. What shipped this session (all committed on branch
+`more-image-effects`, each with a clean 0-warning build, a QA guard test, and a
+verified dialog/visual):
+  • Both Eye Candy categories COMPLETE — SHAPE (20 effects) + TEXTURE (15 effects),
+    22 brand-new engines, plus re-parent homes for shared engines.
+  • THREE critical bugs found & fixed, each of which had been FALSE-PASSING QA:
+    (1) flyout child-index numbering across 4 walks; (2) SHAPE effects colliding
+    with the EXPORT action-ID range 2201-2216 (Corona/Rust opened Export dialogs);
+    (3) Gamma on 2100 shadowing ACTION_SETTINGS (Ctrl+, opened Gamma — Settings
+    dialog was unreachable). Memory recorded: draw-effect-action-id-collisions.md.
+  • README EFFECTS documentation.
+The 4 items left unchecked are LARGE STANDALONE efforts that touch the riskiest
+subsystems (MOUSE.BM / history / tool-reset / canvas-resize) and were deliberately
+NOT started at extreme context depth to avoid regressions:
+  • Liquify interactive tool (integration map scouted above — a fresh session can
+    implement it fast by mirroring SPRAY).
+  • Pixel Scaler (needs canvas+all-layers resize integration).
+  • QA title-assert hardening (needs a text/known-pixel check in the harness).
+  • Final full-suite QA run + PR (do after Liquify or after descoping it).
+TO RESUME: re-arm the loop on this file in a fresh session
+(`~/.claude/hooks/task-loop-guard.sh --arm .claude/TASKS.md`) and delete this
+loop:off block. Each remaining item is independently pickable.
+-->
+loop:off
