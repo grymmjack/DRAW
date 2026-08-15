@@ -4015,6 +4015,40 @@ END SUB
 ' ===========================================================================
 
 ''
+' Blend an effect result back over the original by MIX% (0 = original, 100 = full
+' effect), preserving the effect's alpha. Lets textures/overlays be dialed down
+' instead of all-or-nothing. Returns a new image; caller frees fxImg separately.
+'
+FUNCTION IMAGE_ADJ_mix_result& (origImg AS LONG, fxImg AS LONG, mixP AS INTEGER)
+    IF NOT (fxImg& < -1) THEN IMAGE_ADJ_mix_result& = 0 : EXIT FUNCTION
+    IF mixP% >= 100 OR NOT (origImg& < -1) THEN IMAGE_ADJ_mix_result& = _COPYIMAGE(fxImg&, 32) : EXIT FUNCTION
+    DIM mw AS LONG, mh AS LONG
+    mw& = _WIDTH(fxImg&) : mh& = _HEIGHT(fxImg&)
+    DIM result AS LONG : result& = _COPYIMAGE(fxImg&, 32)
+    IF _WIDTH(origImg&) <> mw& OR _HEIGHT(origImg&) <> mh& THEN IMAGE_ADJ_mix_result& = result& : EXIT FUNCTION
+    DIM oM AS _MEM, fM AS _MEM, rM AS _MEM
+    oM = _MEMIMAGE(origImg&) : fM = _MEMIMAGE(fxImg&) : rM = _MEMIMAGE(result&)
+    DIM mf AS SINGLE : mf! = mixP% / 100.0
+    DIM i AS _OFFSET, op AS _UNSIGNED LONG, fp AS _UNSIGNED LONG, fa AS _UNSIGNED _BYTE
+    DIM orr AS INTEGER, ogg AS INTEGER, obb AS INTEGER, frr AS INTEGER, fgg AS INTEGER, fbb AS INTEGER
+    DIM nr AS INTEGER, ng AS INTEGER, nb AS INTEGER
+    FOR i = 0 TO fM.SIZE - 4 STEP 4
+        _MEMGET fM, fM.OFFSET + i + 3, fa~%%
+        IF fa~%% = 0 THEN _CONTINUE                 ' keep transparent fx pixels transparent
+        _MEMGET oM, oM.OFFSET + i, op~&
+        _MEMGET fM, fM.OFFSET + i, fp~&
+        orr% = _RED32(op~&) : ogg% = _GREEN32(op~&) : obb% = _BLUE32(op~&)
+        frr% = _RED32(fp~&) : fgg% = _GREEN32(fp~&) : fbb% = _BLUE32(fp~&)
+        nr% = orr% + INT((frr% - orr%) * mf!)
+        ng% = ogg% + INT((fgg% - ogg%) * mf!)
+        nb% = obb% + INT((fbb% - obb%) * mf!)
+        _MEMPUT rM, rM.OFFSET + i, _RGBA32(nr%, ng%, nb%, fa~%%) AS _UNSIGNED LONG
+    NEXT i
+    _MEMFREE oM : _MEMFREE fM : _MEMFREE rM
+    IMAGE_ADJ_mix_result& = result&
+END FUNCTION
+
+''
 ' Wood (Eye Candy "Texture") — concentric ring grain warped by turbulence, in a
 ' dark-brown -> tan ramp, painted onto the shape. SCALE sets ring spacing; GRAIN
 ' sets turbulence/contrast. RGB-only -> apply_to_layer.
@@ -4581,27 +4615,37 @@ END FUNCTION
 '
 SUB IMAGE_ADJ_wood_dialog ()
     IF CURRENT_LAYER% < 1 THEN EXIT SUB
-    DIM ctx AS DIALOG_CTX : DIALOG_init ctx, IMGDLG_W, 138
+    DIM ctx AS DIALOG_CTX : DIALOG_init ctx, IMGDLG_W, 176
     IMAGE_ADJ_setup_preview ctx, LAYERS(CURRENT_LAYER%).imgHandle&
     DIM p1 AS INTEGER : p1% = 40
     DIM p2 AS INTEGER : p2% = 50
-    DIM o1 AS INTEGER, o2 AS INTEGER, k AS LONG
+    DIM texMix AS INTEGER : texMix% = 100
+    DIM d1 AS INTEGER : d1% = 40
+    DIM d2 AS INTEGER : d2% = 50
+    DIM dMix AS INTEGER : dMix% = 100
+    DIM o1 AS INTEGER, o2 AS INTEGER, oMix AS INTEGER, k AS LONG
+    DIM texFx AS LONG
     DO
         DIALOG_poll_mouse ctx
         IF ctx.loupeDirty% THEN IMAGE_ADJ_update_loupe ctx
         k& = _KEYHIT
         IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
         IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
-        o1% = p1% : o2% = p2%
+        o1% = p1% : o2% = p2% : oMix% = texMix%
         p1% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, p1%, 0, 100)
         p1% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, p1%, 0, 100)
         p2% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, p2%, 0, 100)
         p2% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, p2%, 0, 100)
-        IF p1% <> o1% OR p2% <> o2% THEN ctx.previewDirty% = TRUE
+        texMix% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, 14, texMix%, 0, 100)
+        texMix% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, 14, texMix%, 0, 100)
         IMGDLG_check_ok_cancel ctx
+        IMGDLG_reset3 ctx, p1%, p2%, texMix%, d1%, d2%, dMix%
+        IF p1% <> o1% OR p2% <> o2% OR texMix% <> oMix% THEN ctx.previewDirty% = TRUE
         IF ctx.previewDirty% THEN
             SAFE_FREEIMAGE ctx.previewThumb
-            ctx.previewThumb = IMAGE_ADJ_wood&(ctx.origThumb, p1%, p2%)
+            texFx& = IMAGE_ADJ_wood&(ctx.origThumb, p1%, p2%)
+            ctx.previewThumb = IMAGE_ADJ_mix_result&(ctx.origThumb, texFx&, texMix%)
+            SAFE_FREEIMAGE texFx&
             IMAGE_ADJ_mask_preview ctx : ctx.previewDirty% = FALSE
         END IF
         _DEST ctx.imgHandle
@@ -4611,6 +4655,8 @@ SUB IMAGE_ADJ_wood_dialog ()
         DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, p1%, 0, 100, "", ""
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 1), "GRAIN:"
         DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, p2%, 0, 100, "", ""
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 2), "MIX:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, texMix%, 0, 100, "", ""
         DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
         IMGDLG_draw_ok_cancel ctx
         DIALOG_blit ctx
@@ -4620,11 +4666,13 @@ SUB IMAGE_ADJ_wood_dialog ()
         IMAGE_ADJ_collect_targets tgts%(), tc%
         scl% = CURRENT_LAYER%
         IF tc% > 1 THEN HISTORY_begin_group
-        DIM adjR AS LONG
+        DIM adjR AS LONG, adjMix AS LONG
         FOR ti% = 1 TO tc%
             CURRENT_LAYER% = tgts%(ti%)
             adjR& = IMAGE_ADJ_wood&(LAYERS(CURRENT_LAYER%).imgHandle&, p1%, p2%)
-            IMAGE_ADJ_apply_to_layer adjR&, "Wood"
+            adjMix& = IMAGE_ADJ_mix_result&(LAYERS(CURRENT_LAYER%).imgHandle&, adjR&, texMix%)
+            SAFE_FREEIMAGE adjR&
+            IMAGE_ADJ_apply_to_layer adjMix&, "Wood"
         NEXT ti%
         IF tc% > 1 THEN HISTORY_end_group
         CURRENT_LAYER% = scl%
@@ -4635,27 +4683,37 @@ END SUB
 
 SUB IMAGE_ADJ_marble_dialog ()
     IF CURRENT_LAYER% < 1 THEN EXIT SUB
-    DIM ctx AS DIALOG_CTX : DIALOG_init ctx, IMGDLG_W, 138
+    DIM ctx AS DIALOG_CTX : DIALOG_init ctx, IMGDLG_W, 176
     IMAGE_ADJ_setup_preview ctx, LAYERS(CURRENT_LAYER%).imgHandle&
     DIM p1 AS INTEGER : p1% = 45
     DIM p2 AS INTEGER : p2% = 55
-    DIM o1 AS INTEGER, o2 AS INTEGER, k AS LONG
+    DIM texMix AS INTEGER : texMix% = 100
+    DIM d1 AS INTEGER : d1% = 45
+    DIM d2 AS INTEGER : d2% = 55
+    DIM dMix AS INTEGER : dMix% = 100
+    DIM o1 AS INTEGER, o2 AS INTEGER, oMix AS INTEGER, k AS LONG
+    DIM texFx AS LONG
     DO
         DIALOG_poll_mouse ctx
         IF ctx.loupeDirty% THEN IMAGE_ADJ_update_loupe ctx
         k& = _KEYHIT
         IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
         IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
-        o1% = p1% : o2% = p2%
+        o1% = p1% : o2% = p2% : oMix% = texMix%
         p1% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, p1%, 0, 100)
         p1% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, p1%, 0, 100)
         p2% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, p2%, 0, 100)
         p2% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, p2%, 0, 100)
-        IF p1% <> o1% OR p2% <> o2% THEN ctx.previewDirty% = TRUE
+        texMix% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, 14, texMix%, 0, 100)
+        texMix% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, 14, texMix%, 0, 100)
         IMGDLG_check_ok_cancel ctx
+        IMGDLG_reset3 ctx, p1%, p2%, texMix%, d1%, d2%, dMix%
+        IF p1% <> o1% OR p2% <> o2% OR texMix% <> oMix% THEN ctx.previewDirty% = TRUE
         IF ctx.previewDirty% THEN
             SAFE_FREEIMAGE ctx.previewThumb
-            ctx.previewThumb = IMAGE_ADJ_marble&(ctx.origThumb, p1%, p2%)
+            texFx& = IMAGE_ADJ_marble&(ctx.origThumb, p1%, p2%)
+            ctx.previewThumb = IMAGE_ADJ_mix_result&(ctx.origThumb, texFx&, texMix%)
+            SAFE_FREEIMAGE texFx&
             IMAGE_ADJ_mask_preview ctx : ctx.previewDirty% = FALSE
         END IF
         _DEST ctx.imgHandle
@@ -4665,6 +4723,8 @@ SUB IMAGE_ADJ_marble_dialog ()
         DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, p1%, 0, 100, "", ""
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 1), "VEINS:"
         DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, p2%, 0, 100, "", ""
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 2), "MIX:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, texMix%, 0, 100, "", ""
         DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
         IMGDLG_draw_ok_cancel ctx
         DIALOG_blit ctx
@@ -4674,11 +4734,13 @@ SUB IMAGE_ADJ_marble_dialog ()
         IMAGE_ADJ_collect_targets tgts%(), tc%
         scl% = CURRENT_LAYER%
         IF tc% > 1 THEN HISTORY_begin_group
-        DIM adjR AS LONG
+        DIM adjR AS LONG, adjMix AS LONG
         FOR ti% = 1 TO tc%
             CURRENT_LAYER% = tgts%(ti%)
             adjR& = IMAGE_ADJ_marble&(LAYERS(CURRENT_LAYER%).imgHandle&, p1%, p2%)
-            IMAGE_ADJ_apply_to_layer adjR&, "Marble"
+            adjMix& = IMAGE_ADJ_mix_result&(LAYERS(CURRENT_LAYER%).imgHandle&, adjR&, texMix%)
+            SAFE_FREEIMAGE adjR&
+            IMAGE_ADJ_apply_to_layer adjMix&, "Marble"
         NEXT ti%
         IF tc% > 1 THEN HISTORY_end_group
         CURRENT_LAYER% = scl%
@@ -4689,27 +4751,37 @@ END SUB
 
 SUB IMAGE_ADJ_brick_dialog ()
     IF CURRENT_LAYER% < 1 THEN EXIT SUB
-    DIM ctx AS DIALOG_CTX : DIALOG_init ctx, IMGDLG_W, 138
+    DIM ctx AS DIALOG_CTX : DIALOG_init ctx, IMGDLG_W, 176
     IMAGE_ADJ_setup_preview ctx, LAYERS(CURRENT_LAYER%).imgHandle&
     DIM p1 AS INTEGER : p1% = 8
     DIM p2 AS INTEGER : p2% = 2
-    DIM o1 AS INTEGER, o2 AS INTEGER, k AS LONG
+    DIM texMix AS INTEGER : texMix% = 100
+    DIM d1 AS INTEGER : d1% = 8
+    DIM d2 AS INTEGER : d2% = 2
+    DIM dMix AS INTEGER : dMix% = 100
+    DIM o1 AS INTEGER, o2 AS INTEGER, oMix AS INTEGER, k AS LONG
+    DIM texFx AS LONG
     DO
         DIALOG_poll_mouse ctx
         IF ctx.loupeDirty% THEN IMAGE_ADJ_update_loupe ctx
         k& = _KEYHIT
         IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
         IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
-        o1% = p1% : o2% = p2%
+        o1% = p1% : o2% = p2% : oMix% = texMix%
         p1% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, p1%, 3, 24)
         p1% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, p1%, 3, 24)
         p2% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, p2%, 1, 6)
         p2% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, p2%, 1, 6)
-        IF p1% <> o1% OR p2% <> o2% THEN ctx.previewDirty% = TRUE
+        texMix% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, 14, texMix%, 0, 100)
+        texMix% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, 14, texMix%, 0, 100)
         IMGDLG_check_ok_cancel ctx
+        IMGDLG_reset3 ctx, p1%, p2%, texMix%, d1%, d2%, dMix%
+        IF p1% <> o1% OR p2% <> o2% OR texMix% <> oMix% THEN ctx.previewDirty% = TRUE
         IF ctx.previewDirty% THEN
             SAFE_FREEIMAGE ctx.previewThumb
-            ctx.previewThumb = IMAGE_ADJ_brick&(ctx.origThumb, p1%, p2%)
+            texFx& = IMAGE_ADJ_brick&(ctx.origThumb, p1%, p2%)
+            ctx.previewThumb = IMAGE_ADJ_mix_result&(ctx.origThumb, texFx&, texMix%)
+            SAFE_FREEIMAGE texFx&
             IMAGE_ADJ_mask_preview ctx : ctx.previewDirty% = FALSE
         END IF
         _DEST ctx.imgHandle
@@ -4719,6 +4791,8 @@ SUB IMAGE_ADJ_brick_dialog ()
         DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, p1%, 3, 24, "", ""
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 1), "MORTAR:"
         DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, p2%, 1, 6, "", ""
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 2), "MIX:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, texMix%, 0, 100, "", ""
         DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
         IMGDLG_draw_ok_cancel ctx
         DIALOG_blit ctx
@@ -4728,11 +4802,13 @@ SUB IMAGE_ADJ_brick_dialog ()
         IMAGE_ADJ_collect_targets tgts%(), tc%
         scl% = CURRENT_LAYER%
         IF tc% > 1 THEN HISTORY_begin_group
-        DIM adjR AS LONG
+        DIM adjR AS LONG, adjMix AS LONG
         FOR ti% = 1 TO tc%
             CURRENT_LAYER% = tgts%(ti%)
             adjR& = IMAGE_ADJ_brick&(LAYERS(CURRENT_LAYER%).imgHandle&, p1%, p2%)
-            IMAGE_ADJ_apply_to_layer adjR&, "Brick Wall"
+            adjMix& = IMAGE_ADJ_mix_result&(LAYERS(CURRENT_LAYER%).imgHandle&, adjR&, texMix%)
+            SAFE_FREEIMAGE adjR&
+            IMAGE_ADJ_apply_to_layer adjMix&, "Brick Wall"
         NEXT ti%
         IF tc% > 1 THEN HISTORY_end_group
         CURRENT_LAYER% = scl%
@@ -4743,27 +4819,37 @@ END SUB
 
 SUB IMAGE_ADJ_brushmetal_dialog ()
     IF CURRENT_LAYER% < 1 THEN EXIT SUB
-    DIM ctx AS DIALOG_CTX : DIALOG_init ctx, IMGDLG_W, 138
+    DIM ctx AS DIALOG_CTX : DIALOG_init ctx, IMGDLG_W, 176
     IMAGE_ADJ_setup_preview ctx, LAYERS(CURRENT_LAYER%).imgHandle&
     DIM p1 AS INTEGER : p1% = 55
     DIM p2 AS INTEGER : p2% = 50
-    DIM o1 AS INTEGER, o2 AS INTEGER, k AS LONG
+    DIM texMix AS INTEGER : texMix% = 100
+    DIM d1 AS INTEGER : d1% = 55
+    DIM d2 AS INTEGER : d2% = 50
+    DIM dMix AS INTEGER : dMix% = 100
+    DIM o1 AS INTEGER, o2 AS INTEGER, oMix AS INTEGER, k AS LONG
+    DIM texFx AS LONG
     DO
         DIALOG_poll_mouse ctx
         IF ctx.loupeDirty% THEN IMAGE_ADJ_update_loupe ctx
         k& = _KEYHIT
         IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
         IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
-        o1% = p1% : o2% = p2%
+        o1% = p1% : o2% = p2% : oMix% = texMix%
         p1% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, p1%, 0, 100)
         p1% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, p1%, 0, 100)
         p2% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, p2%, 0, 100)
         p2% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, p2%, 0, 100)
-        IF p1% <> o1% OR p2% <> o2% THEN ctx.previewDirty% = TRUE
+        texMix% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, 14, texMix%, 0, 100)
+        texMix% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, 14, texMix%, 0, 100)
         IMGDLG_check_ok_cancel ctx
+        IMGDLG_reset3 ctx, p1%, p2%, texMix%, d1%, d2%, dMix%
+        IF p1% <> o1% OR p2% <> o2% OR texMix% <> oMix% THEN ctx.previewDirty% = TRUE
         IF ctx.previewDirty% THEN
             SAFE_FREEIMAGE ctx.previewThumb
-            ctx.previewThumb = IMAGE_ADJ_brushmetal&(ctx.origThumb, p1%, p2%)
+            texFx& = IMAGE_ADJ_brushmetal&(ctx.origThumb, p1%, p2%)
+            ctx.previewThumb = IMAGE_ADJ_mix_result&(ctx.origThumb, texFx&, texMix%)
+            SAFE_FREEIMAGE texFx&
             IMAGE_ADJ_mask_preview ctx : ctx.previewDirty% = FALSE
         END IF
         _DEST ctx.imgHandle
@@ -4773,6 +4859,8 @@ SUB IMAGE_ADJ_brushmetal_dialog ()
         DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, p1%, 0, 100, "", ""
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 1), "GRAIN:"
         DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, p2%, 0, 100, "", ""
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 2), "MIX:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, texMix%, 0, 100, "", ""
         DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
         IMGDLG_draw_ok_cancel ctx
         DIALOG_blit ctx
@@ -4782,11 +4870,13 @@ SUB IMAGE_ADJ_brushmetal_dialog ()
         IMAGE_ADJ_collect_targets tgts%(), tc%
         scl% = CURRENT_LAYER%
         IF tc% > 1 THEN HISTORY_begin_group
-        DIM adjR AS LONG
+        DIM adjR AS LONG, adjMix AS LONG
         FOR ti% = 1 TO tc%
             CURRENT_LAYER% = tgts%(ti%)
             adjR& = IMAGE_ADJ_brushmetal&(LAYERS(CURRENT_LAYER%).imgHandle&, p1%, p2%)
-            IMAGE_ADJ_apply_to_layer adjR&, "Brushed Metal"
+            adjMix& = IMAGE_ADJ_mix_result&(LAYERS(CURRENT_LAYER%).imgHandle&, adjR&, texMix%)
+            SAFE_FREEIMAGE adjR&
+            IMAGE_ADJ_apply_to_layer adjMix&, "Brushed Metal"
         NEXT ti%
         IF tc% > 1 THEN HISTORY_end_group
         CURRENT_LAYER% = scl%
@@ -4797,27 +4887,37 @@ END SUB
 
 SUB IMAGE_ADJ_weave_dialog ()
     IF CURRENT_LAYER% < 1 THEN EXIT SUB
-    DIM ctx AS DIALOG_CTX : DIALOG_init ctx, IMGDLG_W, 138
+    DIM ctx AS DIALOG_CTX : DIALOG_init ctx, IMGDLG_W, 176
     IMAGE_ADJ_setup_preview ctx, LAYERS(CURRENT_LAYER%).imgHandle&
     DIM p1 AS INTEGER : p1% = 6
     DIM p2 AS INTEGER : p2% = 60
-    DIM o1 AS INTEGER, o2 AS INTEGER, k AS LONG
+    DIM texMix AS INTEGER : texMix% = 100
+    DIM d1 AS INTEGER : d1% = 6
+    DIM d2 AS INTEGER : d2% = 60
+    DIM dMix AS INTEGER : dMix% = 100
+    DIM o1 AS INTEGER, o2 AS INTEGER, oMix AS INTEGER, k AS LONG
+    DIM texFx AS LONG
     DO
         DIALOG_poll_mouse ctx
         IF ctx.loupeDirty% THEN IMAGE_ADJ_update_loupe ctx
         k& = _KEYHIT
         IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
         IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
-        o1% = p1% : o2% = p2%
+        o1% = p1% : o2% = p2% : oMix% = texMix%
         p1% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, p1%, 3, 20)
         p1% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, p1%, 3, 20)
         p2% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, p2%, 0, 100)
         p2% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, p2%, 0, 100)
-        IF p1% <> o1% OR p2% <> o2% THEN ctx.previewDirty% = TRUE
+        texMix% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, 14, texMix%, 0, 100)
+        texMix% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, 14, texMix%, 0, 100)
         IMGDLG_check_ok_cancel ctx
+        IMGDLG_reset3 ctx, p1%, p2%, texMix%, d1%, d2%, dMix%
+        IF p1% <> o1% OR p2% <> o2% OR texMix% <> oMix% THEN ctx.previewDirty% = TRUE
         IF ctx.previewDirty% THEN
             SAFE_FREEIMAGE ctx.previewThumb
-            ctx.previewThumb = IMAGE_ADJ_weave&(ctx.origThumb, p1%, p2%)
+            texFx& = IMAGE_ADJ_weave&(ctx.origThumb, p1%, p2%)
+            ctx.previewThumb = IMAGE_ADJ_mix_result&(ctx.origThumb, texFx&, texMix%)
+            SAFE_FREEIMAGE texFx&
             IMAGE_ADJ_mask_preview ctx : ctx.previewDirty% = FALSE
         END IF
         _DEST ctx.imgHandle
@@ -4827,6 +4927,8 @@ SUB IMAGE_ADJ_weave_dialog ()
         DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, p1%, 3, 20, "", ""
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 1), "TONE:"
         DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, p2%, 0, 100, "", ""
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 2), "MIX:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, texMix%, 0, 100, "", ""
         DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
         IMGDLG_draw_ok_cancel ctx
         DIALOG_blit ctx
@@ -4836,11 +4938,13 @@ SUB IMAGE_ADJ_weave_dialog ()
         IMAGE_ADJ_collect_targets tgts%(), tc%
         scl% = CURRENT_LAYER%
         IF tc% > 1 THEN HISTORY_begin_group
-        DIM adjR AS LONG
+        DIM adjR AS LONG, adjMix AS LONG
         FOR ti% = 1 TO tc%
             CURRENT_LAYER% = tgts%(ti%)
             adjR& = IMAGE_ADJ_weave&(LAYERS(CURRENT_LAYER%).imgHandle&, p1%, p2%)
-            IMAGE_ADJ_apply_to_layer adjR&, "Weave"
+            adjMix& = IMAGE_ADJ_mix_result&(LAYERS(CURRENT_LAYER%).imgHandle&, adjR&, texMix%)
+            SAFE_FREEIMAGE adjR&
+            IMAGE_ADJ_apply_to_layer adjMix&, "Weave"
         NEXT ti%
         IF tc% > 1 THEN HISTORY_end_group
         CURRENT_LAYER% = scl%
@@ -5013,27 +5117,37 @@ END SUB
 
 SUB IMAGE_ADJ_stone_dialog ()
     IF CURRENT_LAYER% < 1 THEN EXIT SUB
-    DIM ctx AS DIALOG_CTX : DIALOG_init ctx, IMGDLG_W, 138
+    DIM ctx AS DIALOG_CTX : DIALOG_init ctx, IMGDLG_W, 176
     IMAGE_ADJ_setup_preview ctx, LAYERS(CURRENT_LAYER%).imgHandle&
     DIM p1 AS INTEGER : p1% = 14
     DIM p2 AS INTEGER : p2% = 2
-    DIM o1 AS INTEGER, o2 AS INTEGER, k AS LONG
+    DIM texMix AS INTEGER : texMix% = 100
+    DIM d1 AS INTEGER : d1% = 14
+    DIM d2 AS INTEGER : d2% = 2
+    DIM dMix AS INTEGER : dMix% = 100
+    DIM o1 AS INTEGER, o2 AS INTEGER, oMix AS INTEGER, k AS LONG
+    DIM texFx AS LONG
     DO
         DIALOG_poll_mouse ctx
         IF ctx.loupeDirty% THEN IMAGE_ADJ_update_loupe ctx
         k& = _KEYHIT
         IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
         IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
-        o1% = p1% : o2% = p2%
+        o1% = p1% : o2% = p2% : oMix% = texMix%
         p1% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, p1%, 5, 40)
         p1% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, p1%, 5, 40)
         p2% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, p2%, 1, 6)
         p2% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, p2%, 1, 6)
-        IF p1% <> o1% OR p2% <> o2% THEN ctx.previewDirty% = TRUE
+        texMix% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, 14, texMix%, 0, 100)
+        texMix% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, 14, texMix%, 0, 100)
         IMGDLG_check_ok_cancel ctx
+        IMGDLG_reset3 ctx, p1%, p2%, texMix%, d1%, d2%, dMix%
+        IF p1% <> o1% OR p2% <> o2% OR texMix% <> oMix% THEN ctx.previewDirty% = TRUE
         IF ctx.previewDirty% THEN
             SAFE_FREEIMAGE ctx.previewThumb
-            ctx.previewThumb = IMAGE_ADJ_stone&(ctx.origThumb, p1%, p2%)
+            texFx& = IMAGE_ADJ_stone&(ctx.origThumb, p1%, p2%)
+            ctx.previewThumb = IMAGE_ADJ_mix_result&(ctx.origThumb, texFx&, texMix%)
+            SAFE_FREEIMAGE texFx&
             IMAGE_ADJ_mask_preview ctx : ctx.previewDirty% = FALSE
         END IF
         _DEST ctx.imgHandle
@@ -5043,6 +5157,8 @@ SUB IMAGE_ADJ_stone_dialog ()
         DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, p1%, 5, 40, "", ""
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 1), "MORTAR:"
         DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, p2%, 1, 6, "", ""
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 2), "MIX:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, texMix%, 0, 100, "", ""
         DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
         IMGDLG_draw_ok_cancel ctx
         DIALOG_blit ctx
@@ -5052,11 +5168,13 @@ SUB IMAGE_ADJ_stone_dialog ()
         IMAGE_ADJ_collect_targets tgts%(), tc%
         scl% = CURRENT_LAYER%
         IF tc% > 1 THEN HISTORY_begin_group
-        DIM adjR AS LONG
+        DIM adjR AS LONG, adjMix AS LONG
         FOR ti% = 1 TO tc%
             CURRENT_LAYER% = tgts%(ti%)
             adjR& = IMAGE_ADJ_stone&(LAYERS(CURRENT_LAYER%).imgHandle&, p1%, p2%)
-            IMAGE_ADJ_apply_to_layer adjR&, "Stone Wall"
+            adjMix& = IMAGE_ADJ_mix_result&(LAYERS(CURRENT_LAYER%).imgHandle&, adjR&, texMix%)
+            SAFE_FREEIMAGE adjR&
+            IMAGE_ADJ_apply_to_layer adjMix&, "Stone Wall"
         NEXT ti%
         IF tc% > 1 THEN HISTORY_end_group
         CURRENT_LAYER% = scl%
@@ -5067,27 +5185,37 @@ END SUB
 
 SUB IMAGE_ADJ_reptile_dialog ()
     IF CURRENT_LAYER% < 1 THEN EXIT SUB
-    DIM ctx AS DIALOG_CTX : DIALOG_init ctx, IMGDLG_W, 138
+    DIM ctx AS DIALOG_CTX : DIALOG_init ctx, IMGDLG_W, 176
     IMAGE_ADJ_setup_preview ctx, LAYERS(CURRENT_LAYER%).imgHandle&
     DIM p1 AS INTEGER : p1% = 9
     DIM p2 AS INTEGER : p2% = 60
-    DIM o1 AS INTEGER, o2 AS INTEGER, k AS LONG
+    DIM texMix AS INTEGER : texMix% = 100
+    DIM d1 AS INTEGER : d1% = 9
+    DIM d2 AS INTEGER : d2% = 60
+    DIM dMix AS INTEGER : dMix% = 100
+    DIM o1 AS INTEGER, o2 AS INTEGER, oMix AS INTEGER, k AS LONG
+    DIM texFx AS LONG
     DO
         DIALOG_poll_mouse ctx
         IF ctx.loupeDirty% THEN IMAGE_ADJ_update_loupe ctx
         k& = _KEYHIT
         IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
         IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
-        o1% = p1% : o2% = p2%
+        o1% = p1% : o2% = p2% : oMix% = texMix%
         p1% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, p1%, 4, 24)
         p1% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, p1%, 4, 24)
         p2% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, p2%, 0, 100)
         p2% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, p2%, 0, 100)
-        IF p1% <> o1% OR p2% <> o2% THEN ctx.previewDirty% = TRUE
+        texMix% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, 14, texMix%, 0, 100)
+        texMix% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, 14, texMix%, 0, 100)
         IMGDLG_check_ok_cancel ctx
+        IMGDLG_reset3 ctx, p1%, p2%, texMix%, d1%, d2%, dMix%
+        IF p1% <> o1% OR p2% <> o2% OR texMix% <> oMix% THEN ctx.previewDirty% = TRUE
         IF ctx.previewDirty% THEN
             SAFE_FREEIMAGE ctx.previewThumb
-            ctx.previewThumb = IMAGE_ADJ_reptile&(ctx.origThumb, p1%, p2%)
+            texFx& = IMAGE_ADJ_reptile&(ctx.origThumb, p1%, p2%)
+            ctx.previewThumb = IMAGE_ADJ_mix_result&(ctx.origThumb, texFx&, texMix%)
+            SAFE_FREEIMAGE texFx&
             IMAGE_ADJ_mask_preview ctx : ctx.previewDirty% = FALSE
         END IF
         _DEST ctx.imgHandle
@@ -5097,6 +5225,8 @@ SUB IMAGE_ADJ_reptile_dialog ()
         DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, p1%, 4, 24, "", ""
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 1), "RELIEF:"
         DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, p2%, 0, 100, "", ""
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 2), "MIX:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, texMix%, 0, 100, "", ""
         DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
         IMGDLG_draw_ok_cancel ctx
         DIALOG_blit ctx
@@ -5106,11 +5236,13 @@ SUB IMAGE_ADJ_reptile_dialog ()
         IMAGE_ADJ_collect_targets tgts%(), tc%
         scl% = CURRENT_LAYER%
         IF tc% > 1 THEN HISTORY_begin_group
-        DIM adjR AS LONG
+        DIM adjR AS LONG, adjMix AS LONG
         FOR ti% = 1 TO tc%
             CURRENT_LAYER% = tgts%(ti%)
             adjR& = IMAGE_ADJ_reptile&(LAYERS(CURRENT_LAYER%).imgHandle&, p1%, p2%)
-            IMAGE_ADJ_apply_to_layer adjR&, "Reptile Skin"
+            adjMix& = IMAGE_ADJ_mix_result&(LAYERS(CURRENT_LAYER%).imgHandle&, adjR&, texMix%)
+            SAFE_FREEIMAGE adjR&
+            IMAGE_ADJ_apply_to_layer adjMix&, "Reptile Skin"
         NEXT ti%
         IF tc% > 1 THEN HISTORY_end_group
         CURRENT_LAYER% = scl%
@@ -5121,27 +5253,37 @@ END SUB
 
 SUB IMAGE_ADJ_diamondplate_dialog ()
     IF CURRENT_LAYER% < 1 THEN EXIT SUB
-    DIM ctx AS DIALOG_CTX : DIALOG_init ctx, IMGDLG_W, 138
+    DIM ctx AS DIALOG_CTX : DIALOG_init ctx, IMGDLG_W, 176
     IMAGE_ADJ_setup_preview ctx, LAYERS(CURRENT_LAYER%).imgHandle&
     DIM p1 AS INTEGER : p1% = 12
     DIM p2 AS INTEGER : p2% = 60
-    DIM o1 AS INTEGER, o2 AS INTEGER, k AS LONG
+    DIM texMix AS INTEGER : texMix% = 100
+    DIM d1 AS INTEGER : d1% = 12
+    DIM d2 AS INTEGER : d2% = 60
+    DIM dMix AS INTEGER : dMix% = 100
+    DIM o1 AS INTEGER, o2 AS INTEGER, oMix AS INTEGER, k AS LONG
+    DIM texFx AS LONG
     DO
         DIALOG_poll_mouse ctx
         IF ctx.loupeDirty% THEN IMAGE_ADJ_update_loupe ctx
         k& = _KEYHIT
         IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
         IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
-        o1% = p1% : o2% = p2%
+        o1% = p1% : o2% = p2% : oMix% = texMix%
         p1% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, p1%, 4, 32)
         p1% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, p1%, 4, 32)
         p2% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, p2%, 0, 100)
         p2% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, p2%, 0, 100)
-        IF p1% <> o1% OR p2% <> o2% THEN ctx.previewDirty% = TRUE
+        texMix% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, 14, texMix%, 0, 100)
+        texMix% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, 14, texMix%, 0, 100)
         IMGDLG_check_ok_cancel ctx
+        IMGDLG_reset3 ctx, p1%, p2%, texMix%, d1%, d2%, dMix%
+        IF p1% <> o1% OR p2% <> o2% OR texMix% <> oMix% THEN ctx.previewDirty% = TRUE
         IF ctx.previewDirty% THEN
             SAFE_FREEIMAGE ctx.previewThumb
-            ctx.previewThumb = IMAGE_ADJ_diamondplate&(ctx.origThumb, p1%, p2%)
+            texFx& = IMAGE_ADJ_diamondplate&(ctx.origThumb, p1%, p2%)
+            ctx.previewThumb = IMAGE_ADJ_mix_result&(ctx.origThumb, texFx&, texMix%)
+            SAFE_FREEIMAGE texFx&
             IMAGE_ADJ_mask_preview ctx : ctx.previewDirty% = FALSE
         END IF
         _DEST ctx.imgHandle
@@ -5151,6 +5293,8 @@ SUB IMAGE_ADJ_diamondplate_dialog ()
         DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, p1%, 4, 32, "", ""
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 1), "DEPTH:"
         DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, p2%, 0, 100, "", ""
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 2), "MIX:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, texMix%, 0, 100, "", ""
         DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
         IMGDLG_draw_ok_cancel ctx
         DIALOG_blit ctx
@@ -5160,11 +5304,13 @@ SUB IMAGE_ADJ_diamondplate_dialog ()
         IMAGE_ADJ_collect_targets tgts%(), tc%
         scl% = CURRENT_LAYER%
         IF tc% > 1 THEN HISTORY_begin_group
-        DIM adjR AS LONG
+        DIM adjR AS LONG, adjMix AS LONG
         FOR ti% = 1 TO tc%
             CURRENT_LAYER% = tgts%(ti%)
             adjR& = IMAGE_ADJ_diamondplate&(LAYERS(CURRENT_LAYER%).imgHandle&, p1%, p2%)
-            IMAGE_ADJ_apply_to_layer adjR&, "Diamond Plate"
+            adjMix& = IMAGE_ADJ_mix_result&(LAYERS(CURRENT_LAYER%).imgHandle&, adjR&, texMix%)
+            SAFE_FREEIMAGE adjR&
+            IMAGE_ADJ_apply_to_layer adjMix&, "Diamond Plate"
         NEXT ti%
         IF tc% > 1 THEN HISTORY_end_group
         CURRENT_LAYER% = scl%
