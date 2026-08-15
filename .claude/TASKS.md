@@ -180,9 +180,9 @@ the infra exists.
 - [ ] **Diamond Plate** — tromp-l'oeil metal tread pattern + dialog + QA test
 - [ ] **Lightning** — branching bolt between two points + dialog + QA test
 - [x] **Marble** — turbulence-veined marble: sine of x warped by 3-octave noise gives thin dark veins on a light grey body. SCALE + VEINS dialog, RGB-only apply_to_layer + TEXTURE menu (2271, child 1) + QA test (effect-texture-basics.sh, 3054px, open_effect 8 1). NEW engine IMAGE_ADJ_marble&. Visually verified.
-- [ ] **Reptile Skin** — scale cell pattern (Voronoi + shading) + dialog + QA test
+- [x] **Reptile Skin** — Voronoi scale cells shaded like domes (bright centre via d2-d1, dark ridge at borders) tinted with the shape colour. SIZE + RELIEF dialog, RGB-only apply_to_layer + TEXTURE menu (2279, child 12) + QA test (effect-texture-voronoi.sh, 1090px, open_effect 8 12). NEW engine IMAGE_ADJ_reptile&.
 - [x] **Ripples** — concentric water ripples: radial sinusoidal sample displacement centred on the shape. AMOUNT + FREQ dialog, RGB-only apply_to_layer + TEXTURE menu (2275, child 8) + QA test (effect-texture-natural.sh, open_effect 8 8). NEW engine IMAGE_ADJ_ripples&. Visually verified — rippled edge.
-- [ ] **Stone Wall** — irregular stone tiling with mortar + dialog + QA test
+- [x] **Stone Wall** — irregular Voronoi stone cells (jittered-grid seeds) in mottled greys with dark mortar where the nearest two seeds are close + intra-stone speckle. SIZE + MORTAR dialog, RGB-only apply_to_layer + TEXTURE menu (2278, child 11) + QA test (effect-texture-voronoi.sh, open_effect 8 11). NEW engine IMAGE_ADJ_stone&. Visually verified — dry-stone wall.
 - [x] **Swirl** — TEXTURE-menu entry (child 6 -> action 2131, reuses Wave 3 Twirl).
 - [x] **Texture Noise / HSB Noise** — per-pixel hash noise perturbs brightness (MONO) or each channel independently (colour speckle). AMOUNT + MONO dialog, RGB-only apply_to_layer + TEXTURE menu (2277, child 10) + QA test (effect-texture-natural.sh, 223px, open_effect 8 10). NEW engine IMAGE_ADJ_texnoise&.
 - [x] **Water Drops (texture)** — TEXTURE-menu entry (child 7 -> action 2242, reuses the SHAPE Water Drops engine).
