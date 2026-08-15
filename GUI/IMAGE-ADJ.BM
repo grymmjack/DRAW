@@ -4108,6 +4108,154 @@ END SUB
 
 
 ''
+' Rust (Eye Candy "Shape") — corrode the shape with a fractal-noise oxide overlay
+' masked to its own alpha. AMOUNT sets coverage (how much of the surface rusts);
+' SCALE sets the blotch size. Corroded pixels blend toward a 3-stop rust ramp
+' (dark brown -> orange -> light oxide) chosen by a second noise. Alpha is
+' unchanged (stays inside the shape) -> apply_to_layer.
+'
+' @param sourceImg LONG     Source image (32-bit, with alpha)
+' @param amount    INTEGER  Corrosion coverage 0..100
+' @param scaleP    INTEGER  Blotch scale in px 4..48
+' @return LONG              New 32-bit image handle (0 on failure)
+'
+FUNCTION IMAGE_ADJ_rust& (sourceImg AS LONG, amount AS INTEGER, scaleP AS INTEGER)
+    IF NOT (sourceImg& < -1) THEN IMAGE_ADJ_rust& = 0 : EXIT FUNCTION
+
+    DIM rW AS LONG, rH AS LONG
+    rW& = _WIDTH(sourceImg&) : rH& = _HEIGHT(sourceImg&)
+    DIM result AS LONG
+    result& = _COPYIMAGE(sourceImg&, 32)
+    DIM srcM AS _MEM, resM AS _MEM
+    srcM = _MEMIMAGE(sourceImg&)
+    resM = _MEMIMAGE(result&)
+
+    DIM thr AS SINGLE : thr! = 1.0 - (amount% / 100.0) * 0.9   ' more amount -> lower threshold
+    DIM invScale AS SINGLE : invScale! = 1.0 / scaleP%
+
+    DIM rx AS LONG, ry AS LONG, aHere AS _UNSIGNED _BYTE, pix AS _UNSIGNED LONG
+    DIM nv AS SINGLE, amp AS SINGLE, fr AS SINGLE, oct AS INTEGER, cv AS SINGLE
+    DIM rustAmt AS SINGLE, mix AS SINGLE
+    DIM pr AS INTEGER, pg AS INTEGER, pb AS INTEGER
+    DIM tr AS INTEGER, tg AS INTEGER, tb AS INTEGER, outR AS INTEGER, outG AS INTEGER, outB AS INTEGER
+    FOR ry& = 0 TO rH& - 1
+        FOR rx& = 0 TO rW& - 1
+            _MEMGET srcM, srcM.OFFSET + (ry& * rW& + rx&) * 4 + 3, aHere~%%
+            IF aHere~%% = 0 THEN _CONTINUE                     ' only rust the shape
+
+            ' 3-octave fractal oxide field
+            nv! = 0.0 : amp! = 0.6 : fr! = invScale!
+            FOR oct% = 0 TO 2
+                nv! = nv! + IMGADJ_valnoise!(rx& * fr!, ry& * fr!, oct% + 7) * amp!
+                fr! = fr! * 2.0 : amp! = amp! * 0.5
+            NEXT oct%
+            IF nv! <= thr! THEN _CONTINUE                       ' bare metal here
+            rustAmt! = (nv! - thr!) / (1.0 - thr! + 0.0001)
+            IF rustAmt! > 1.0 THEN rustAmt! = 1.0
+
+            ' Pick a rust tone from a second (finer) noise: dark->orange->light
+            cv! = IMGADJ_valnoise!(rx& * invScale! * 2.7, ry& * invScale! * 2.7, 13)
+            IF cv! < 0.5 THEN
+                mix! = cv! / 0.5
+                tr% = 70 + INT((150 - 70) * mix!)
+                tg% = 32 + INT((70 - 32) * mix!)
+                tb% = 14 + INT((22 - 14) * mix!)
+            ELSE
+                mix! = (cv! - 0.5) / 0.5
+                tr% = 150 + INT((196 - 150) * mix!)
+                tg% = 70 + INT((116 - 70) * mix!)
+                tb% = 22 + INT((66 - 22) * mix!)
+            END IF
+
+            _MEMGET srcM, srcM.OFFSET + (ry& * rW& + rx&) * 4, pix~&
+            pr% = _RED32(pix~&) : pg% = _GREEN32(pix~&) : pb% = _BLUE32(pix~&)
+            ' Blend original toward oxide by rustAmt (clamped to keep some base metal)
+            IF rustAmt! > 0.9 THEN rustAmt! = 0.9
+            outR% = pr% + INT((tr% - pr%) * rustAmt!)
+            outG% = pg% + INT((tg% - pg%) * rustAmt!)
+            outB% = pb% + INT((tb% - pb%) * rustAmt!)
+            _MEMPUT resM, resM.OFFSET + (ry& * rW& + rx&) * 4, _RGBA32(outR%, outG%, outB%, aHere~%%) AS _UNSIGNED LONG
+        NEXT rx&
+    NEXT ry&
+
+    _MEMFREE srcM
+    _MEMFREE resM
+    IMAGE_ADJ_rust& = result&
+END FUNCTION
+
+
+''
+' Open a modal Rust dialog: AMOUNT (0..100) + SCALE (4..48). RGB-only (stays
+' inside the shape) -> apply_to_layer.
+'
+SUB IMAGE_ADJ_rust_dialog ()
+    IF CURRENT_LAYER% < 1 THEN EXIT SUB
+
+    DIM ctx AS DIALOG_CTX
+    DIALOG_init ctx, IMGDLG_W, 138
+    IMAGE_ADJ_setup_preview ctx, LAYERS(CURRENT_LAYER%).imgHandle&
+
+    DIM amount AS INTEGER : amount% = 60
+    DIM scaleP AS INTEGER : scaleP% = 12
+    DIM oAmount AS INTEGER, oScale AS INTEGER
+
+    DIM k AS LONG
+    DO
+        DIALOG_poll_mouse ctx
+        IF ctx.loupeDirty% THEN IMAGE_ADJ_update_loupe ctx
+        k& = _KEYHIT
+        IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
+        IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
+
+        oAmount% = amount% : oScale% = scaleP%
+        amount% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, amount%, 0, 100)
+        amount% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, amount%, 0, 100)
+        scaleP% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, scaleP%, 4, 48)
+        scaleP% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, scaleP%, 4, 48)
+        IF amount% <> oAmount% OR scaleP% <> oScale% THEN ctx.previewDirty% = TRUE
+        IMGDLG_check_ok_cancel ctx
+
+        IF ctx.previewDirty% THEN
+            SAFE_FREEIMAGE ctx.previewThumb
+            ctx.previewThumb = IMAGE_ADJ_rust&(ctx.origThumb, amount%, scaleP%)
+            IMAGE_ADJ_mask_preview ctx
+            ctx.previewDirty% = FALSE
+        END IF
+
+        _DEST ctx.imgHandle
+        DIALOG_draw_frame ctx, "RUST"
+        DIALOG_draw_preview ctx
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "AMOUNT:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, amount%, 0, 100, "", ""
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 1), "SCALE:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, scaleP%, 4, 48, "", ""
+        DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
+        IMGDLG_draw_ok_cancel ctx
+        DIALOG_blit ctx
+    LOOP UNTIL ctx.done%
+
+    IF ctx.result% THEN
+        DIM rTargets(1 TO MAX_LAYERS) AS INTEGER, rTgtCount AS INTEGER, rT AS INTEGER
+        DIM rSaveCL AS INTEGER
+        IMAGE_ADJ_collect_targets rTargets%(), rTgtCount%
+        rSaveCL% = CURRENT_LAYER%
+        IF rTgtCount% > 1 THEN HISTORY_begin_group
+        DIM adjR AS LONG
+        FOR rT% = 1 TO rTgtCount%
+            CURRENT_LAYER% = rTargets%(rT%)
+            adjR&          = IMAGE_ADJ_rust&(LAYERS(CURRENT_LAYER%).imgHandle&, amount%, scaleP%)
+            IMAGE_ADJ_apply_to_layer adjR&, "Rust"
+        NEXT rT%
+        IF rTgtCount% > 1 THEN HISTORY_end_group
+        CURRENT_LAYER% = rSaveCL%
+    END IF
+
+    DIALOG_cleanup ctx
+    SAFE_FREEIMAGE IMGADJ_LAYER_MASK& : IMGADJ_LAYER_MASK& = 0
+END SUB
+
+
+''
 ' Drop Shadow (flat) — build a silhouette of the shape from its alpha, offset it
 ' by `offset` px down-right in shColor, softened by a `softness` box blur, and
 ' composite the original back on top. The layer must have transparency around the
