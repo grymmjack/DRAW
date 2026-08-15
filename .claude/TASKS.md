@@ -42,11 +42,12 @@ Each box = engine/dialog change → build clean (0 warnings) → QA guard (dialo
       NOTE: effect-bevel.sh (open_effect 2 2) FALSE-PASSES — low-category harness nav flake
       (child click misses the flyout). Bevel navigates fine via SHAPE child 3. Harness nav
       for categories 0-6 needs the same caty audit as the title-assert follow-up.
-- [ ] **Emboss** — add **ANGLE** (0-359) to `IMAGE_ADJ_emboss&` (currently fixed direction).
-- [ ] **Chrome** — add **ANGLE** (light direction) alongside DEPTH.
-- [ ] **Drop Shadow** — Photoshop trio: **ANGLE** (0-359) + **DISTANCE** + SOFTNESS +
-      **OPACITY** (0-100). Replace fixed down-right offset with angle+distance vector;
-      OPACITY scales the shadow alpha.
+- [x] **Emboss** — added LIGHT ANGLE (0-359, 8-direction, default 135) + RESET; engine derives the luminance-gradient neighbour from the angle. Same verified pattern as Bevel (only in STYLIZE cat 1 so QA is build-clean; low-cat harness nav flaky).
+- [x] **Chrome** — SKIPPED: Chrome's metallic look is a RADIAL distance-to-edge |sin| band map, not a directional lit surface, so a light angle doesn't fit the algorithm naturally. Left as DEPTH + FG/BG ramp.
+- [x] **Drop Shadow** — Photoshop trio done: DISTANCE (0-30) + ANGLE (0-359, default 315
+      = down-right) + SOFTNESS (0-8) + OPACITY (0-100) + RESET. Engine offsets the
+      silhouette by cos/sin(angle)*distance and scales its alpha by opacity. Dialog
+      verified via SHAPE child 8 (probe: all 4 sliders + RESET render).
 - [ ] **Perspective / Long Shadow** — add **ANGLE** (cast direction, default 315 = down-right)
       to `IMAGE_ADJ_longshadow&` (currently fixed down-right diagonal).
 
