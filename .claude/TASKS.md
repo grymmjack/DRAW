@@ -162,7 +162,7 @@ the infra exists.
 - [ ] **Glass** — refractive glassy shading + highlight + dialog + QA test
 - [x] **Glow (Outer/Inner)** — SHAPE-menu entries added (Outer Glow child 6 → 2127, Inner Glow child 7 → 2128). Inner Glow guarded by effect-shape-reparent.sh (open_effect 7 7, 1228px).
 - [ ] **Icicles** — ice spikes hanging off the bottom edge + dialog + QA test
-- [ ] **Motion Trail** — directional smeared copies (speed blur) + dialog + QA test
+- [x] **Motion Trail** — color-preserving speed-blur smear: each opaque pixel scattered along DIRECTION as a fading run in its own colour, crisp original composited on top. LENGTH 2-40 + DIRECTION 0-359 dialog, apply_spatial + SHAPE menu (2203, child 10) + QA test (effect-motiontrail.sh, 253px, open_effect 7 10). NEW engine IMAGE_ADJ_motiontrail&. Dialog visually verified.
 - [ ] **Rust** — corroded noise overlay masked to shape + dialog + QA test
 - [x] **Shadow** — SHAPE-menu entries added (Drop Shadow child 8 → 2124, Perspective Shadow child 9 → 2125). Index 9 visually confirmed to open "LONG SHADOW" dialog (shape-pshadow-dialog screenshot).
 - [ ] **Smoke** — wispy smoke render rising from shape (noise plume) + dialog + QA test
