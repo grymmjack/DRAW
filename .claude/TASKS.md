@@ -32,14 +32,20 @@ the infra exists.
 
 ## 🔨 NOW — doing right now
 
-- [ ] ➡️ **FIX SHAPE-category QA navigation** — open_effect 7 N mis-dispatches
-      (click 420,104 opened DUOTONE, not the SHAPE flyout). Backlight/Corona
-      tests passed coincidentally. Root-cause the category-index-7 coordinate
-      (likely the category row is NOT at y=20+7*12, or the SHAPE flyout child
-      rows differ) via a screenshot of the plain EFFECTS dropdown, then fix
-      open_effect + re-verify effect-backlight/corona/cutout. Cutout ENGINE
-      (IMAGE_ADJ_cutout&, action 2202) is written + builds clean but UNCOMMITTED
-      pending its test.
+(nothing in progress)
+
+- [x] **FIX SHAPE-category QA navigation** — ROOT CAUSE was NOT the coordinate.
+      MENUBAR_render_submenu skips hidden generic-flyout children (subParent>=0)
+      WITHOUT advancing childIdx, but three OTHER child-index walks did NOT skip
+      them: MENUBAR_get_submenu_item_at% (the Y→childIdx mapper), the click-
+      resolution walk, and the keyboard Enter/arrow-nav walks. So a category
+      click resolved to a HIDDEN effect item (SHAPE click → DUOTONE), and every
+      category test that "passed" was opening the WRONG dialog (any effect
+      changes the region). Fixed by adding `IF subParent >= 0 THEN GOTO next`
+      (no childIdx increment) to ALL FOUR walks so numbering matches render.
+      Verified: effect-cutout (open_effect 7 2) now passes its inner-edge
+      assertion (281px), corona (5884px ring), backlight (1135px rays) all with
+      correct dialogs. open_effect's y=20+cat*12 formula was correct all along.
 
 <!-- REORG PLAN (EFFECTS menu, 21xx only; leave IMAGE menu 2001-2011 as-is).
      9 flyout categories under EFFECTS:
@@ -161,7 +167,7 @@ the infra exists.
 - [ ] **Shadow** — covered by Wave 2 Drop/Perspective Shadow; add SHAPE-menu entry
 - [ ] **Smoke** — wispy smoke render rising from shape (noise plume) + dialog + QA test
 - [ ] **Snow** — snow cap on top edges + falling flecks + dialog + QA test
-- [ ] **Cutout** — inset shadow so shape looks punched through the layer + dialog + QA test
+- [x] **Cutout** — inset shadow (up-left distance-to-transparent darkens the inner top-left edge) so the shape looks punched through, apply_to_layer + SHAPE menu (2202) + QA test (effect-cutout.sh, 281px, open_effect 7 2). NEW engine IMAGE_ADJ_cutout&.
 - [ ] **Jiggle / Water Drops** — bubble/droplet displacement bumps + dialog + QA test
 
 ## Wave 8 — Eye Candy: TEXTURE → submenu (procedural fills / overlays)
