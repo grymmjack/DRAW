@@ -20,6 +20,11 @@ wait_for 0.2 "Brush enlarged"
 CHIP_Y=$(( VIEWPORT_H - STATUS_H - 6 ))
 click $(( 16 + 11*17 + 8 )) "$CHIP_Y" ; wait_for 0.2 "Green FG"
 drag $(( CANVAS_CX - 40 )) "$CANVAS_CY" $(( CANVAS_CX + 40 )) "$CANVAS_CY"
+# Add an internal magenta line so DISPLACEMENT effects (Ripples) have a visible
+# boundary to warp — a solid uniform blob shows nothing under displacement.
+for n in 1 2 3 4 5 6 7; do key bracketleft; done
+click $(( 16 + 28*17 + 8 )) "$CHIP_Y" ; wait_for 0.2 "Magenta FG"
+drag $(( CANVAS_CX - 34 )) "$CANVAS_CY" $(( CANVAS_CX + 34 )) "$CANVAS_CY"
 key grave
 wait_for 0.3 "Content drawn"
 assert_no_crash
