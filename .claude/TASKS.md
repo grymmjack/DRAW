@@ -29,9 +29,13 @@ Each box = engine/dialog change → build clean (0 warnings) → QA guard (dialo
       helpers `IMGDLG_reset1/2/3/4`, flag cleared on every dialog open in setup_preview
       (no cross-dialog leak). Verified: RESET button renders on all dialogs (Fire shot);
       restores defaults on Bevel.
-- [ ] **Wire RESET into every effect dialog** — for each `IMAGE_ADJ_*_dialog`, add
-      `DIM dN : dN% = <default>` beside each param and one `IMGDLG_resetN` call in the
-      loop. Do it in batches by file region; re-run the full effect QA suite after.
+- [x] **Wire RESET into effect dialogs** — 67/71 done (13 by hand during enrichment,
+      54 via a scoped parser-script: capture each slider/toggle default into d_<var>,
+      call IMGDLG_reset1/2/3/4 after check_ok_cancel). Every Eye Candy SHAPE/TEXTURE +
+      relief/shadow + filter dialog resets. Only the 4 Image-menu colour adjustments
+      (Brightness/Contrast, Hue/Saturation, Levels, Color Balance) remain — they load
+      the layer's current state, so RESET needs neutral-value semantics (follow-up).
+      Regression: 78 effect tests across wired dialogs, 0 failures.
 
 ## Wave P2 — Relief / light effects get an ANGLE (Photoshop-authentic)
 
