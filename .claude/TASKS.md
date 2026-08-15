@@ -173,7 +173,7 @@ the infra exists.
 
 ## Wave 8 — Eye Candy: TEXTURE → submenu (procedural fills / overlays)
 
-- [ ] **Animal Fur** — directional furry noise + dialog + QA test
+- [x] **Animal Fur** — directional furry noise: fine strands along a DIRECTION-blended axis lighten/darken the shape colour like short fur. DENSITY + DIRECTION dialog, RGB-only apply_to_layer + TEXTURE menu (2276, child 9) + QA test (effect-texture-natural.sh, 1568px, open_effect 8 9). NEW engine IMAGE_ADJ_fur&.
 - [x] **Brick Wall** — running-bond brick tiling with grey mortar joints + per-brick colour jitter + faint intra-brick grain, painted onto the shape. SIZE + MORTAR dialog, RGB-only apply_to_layer + TEXTURE menu (2272, child 2) + QA test (effect-texture-basics.sh, 2691px, open_effect 8 2). NEW engine IMAGE_ADJ_brick&. Visually verified — red brick wall.
 - [x] **Brushed Metal** — anisotropic horizontal streak noise (fine along y, smooth along x) reads as brushed steel. BRIGHT + GRAIN dialog, RGB-only apply_to_layer + TEXTURE menu (2273, child 3) + QA test (effect-texture-more.sh, open_effect 8 3). NEW engine IMAGE_ADJ_brushmetal&. (base->bmBase: reserved-word.)
 - [x] **Clouds (texture)** — TEXTURE-menu entry (child 5 -> action 2150, reuses Wave 5 Clouds). Guarded by effect-texture-more.sh (open_effect 8 5, 2131px).
@@ -181,10 +181,10 @@ the infra exists.
 - [ ] **Lightning** — branching bolt between two points + dialog + QA test
 - [x] **Marble** — turbulence-veined marble: sine of x warped by 3-octave noise gives thin dark veins on a light grey body. SCALE + VEINS dialog, RGB-only apply_to_layer + TEXTURE menu (2271, child 1) + QA test (effect-texture-basics.sh, 3054px, open_effect 8 1). NEW engine IMAGE_ADJ_marble&. Visually verified.
 - [ ] **Reptile Skin** — scale cell pattern (Voronoi + shading) + dialog + QA test
-- [ ] **Ripples** — concentric water ripple displacement + dialog + QA test
+- [x] **Ripples** — concentric water ripples: radial sinusoidal sample displacement centred on the shape. AMOUNT + FREQ dialog, RGB-only apply_to_layer + TEXTURE menu (2275, child 8) + QA test (effect-texture-natural.sh, open_effect 8 8). NEW engine IMAGE_ADJ_ripples&. Visually verified — rippled edge.
 - [ ] **Stone Wall** — irregular stone tiling with mortar + dialog + QA test
 - [x] **Swirl** — TEXTURE-menu entry (child 6 -> action 2131, reuses Wave 3 Twirl).
-- [ ] **Texture Noise / HSB Noise** — per-channel/HSB noise overlay + dialog + QA test
+- [x] **Texture Noise / HSB Noise** — per-pixel hash noise perturbs brightness (MONO) or each channel independently (colour speckle). AMOUNT + MONO dialog, RGB-only apply_to_layer + TEXTURE menu (2277, child 10) + QA test (effect-texture-natural.sh, 223px, open_effect 8 10). NEW engine IMAGE_ADJ_texnoise&.
 - [x] **Water Drops (texture)** — TEXTURE-menu entry (child 7 -> action 2242, reuses the SHAPE Water Drops engine).
 - [x] **Weave** — over/under basket weave: cells alternate warp/weft strands, each shaded across its width (sin) so strands look rounded; TONE blends shape colour with straw. SIZE + TONE dialog, RGB-only apply_to_layer + TEXTURE menu (2274, child 4) + QA test (effect-texture-more.sh, 1342px, open_effect 8 4). NEW engine IMAGE_ADJ_weave&. Visually verified — real basket weave.
 - [x] **Wood** — concentric ring grain warped by turbulence in a dark-brown->tan ramp, painted onto the shape. SCALE + GRAIN dialog, RGB-only apply_to_layer + TEXTURE menu (2270, child 0) + QA test (effect-texture-basics.sh, open_effect 8 0). NEW engine IMAGE_ADJ_wood&. Visually verified — flowing wood grain. **TEXTURE category established (index 8, action block 2270-2299).**
