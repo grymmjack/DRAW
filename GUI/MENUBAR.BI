@@ -46,6 +46,8 @@ TYPE MENU_ITEM_OBJ
     checked     AS INTEGER     ' Checkbox state
     enabled     AS INTEGER     ' Greyed out if FALSE
     isDivider   AS INTEGER     ' Is a divider line
+    hasSubmenu  AS INTEGER     ' TRUE = this row opens a generic category flyout
+    subParent   AS INTEGER     ' index of the category-parent row (belongs to a flyout, hidden from the main list), or -1
 END TYPE
 
 ' Menu bar state
@@ -131,6 +133,15 @@ TYPE MENU_BAR_OBJ
     exportW          AS INTEGER ' Export submenu width
     exportH          AS INTEGER ' Export submenu height
     exportItemIdx    AS INTEGER ' Child index of "EXPORT AS..." item in parent dropdown
+    ' Generic category flyout (data-driven; used by the EFFECTS category submenus)
+    genOpen          AS INTEGER ' TRUE when a generic category flyout is showing
+    genHover         AS INTEGER ' Hovered child in the flyout (-1 = none)
+    genX             AS INTEGER ' Flyout X position
+    genY             AS INTEGER ' Flyout Y position
+    genW             AS INTEGER ' Flyout width
+    genH             AS INTEGER ' Flyout height
+    genParent        AS INTEGER ' MENU_ITEMS index of the open category-parent row (-1 = none)
+    genItemIdx       AS INTEGER ' Child index of that parent row in the open dropdown
 END TYPE
 
 DIM SHARED MENU_BAR        AS MENU_BAR_OBJ

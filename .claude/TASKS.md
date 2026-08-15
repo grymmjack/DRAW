@@ -16,13 +16,44 @@ foundational task that must land before the categories are usable. Until then,
 new effects live under a flat EFFECTS menu and get re-parented into submenus once
 the infra exists.
 
-- [ ] **Menubar flyout submenus** — extend MENUBAR to render/hit-test one level of
-      nested submenu (parent item opens a child column), then reorganize EFFECTS
-      into ADJUST/STYLIZE/DISTORT/PIXELATE/NOISE/RENDER/SHAPE/TEXTURE. Foundational.
+- [x] **Menubar flyout submenus** — GENERIC data-driven flyout (MENU_ITEM_OBJ
+      hasSubmenu/subParent + one MENU_BAR gen* state block + render/click/in_bounds
+      trio), EFFECTS reorganized into ADJUST/STYLIZE/LAYER FX/DISTORT/PIXELATE/
+      NOISE/RENDER flyout categories. Verified: EFFECTS>ADJUST>GAMMA opens dialog.
+      Key fixes: stable genY re-anchor each render; category click always-opens
+      (never toggle-closes a hover-opened flyout); MOUSE.BM click routing now
+      includes MENUBAR_generic_in_bounds. QA helper open_effect added to the
+      qa-harness DRAW adapter. SHAPE/TEXTURE categories added in Waves 7/8.
+      DECISION 2026-08-14: user confirmed **flyout submenus** (over multi-menu or
+      flat-scroll). Model on the existing recent-files flyout if present.
+      NOTE: this re-coordinates ALL 40 effect-*.sh QA tests (they click flat item
+      y = 20 + index*12) — they'll need a shared helper for "open EFFECTS >
+      CATEGORY > item" once the reorg lands.
 
 ## 🔨 NOW — doing right now
 
-- [ ] ➡️ **Menubar flyout submenus** (foundational) — build submenu support + reorganize EFFECTS into categories, THEN Eye Candy Shape/Texture waves
+- [ ] ➡️ **Convert 40 effect-*.sh QA tests** to the new `open_effect <cat> <child>` flyout navigation, then re-run them green
+
+<!-- REORG PLAN (EFFECTS menu, 21xx only; leave IMAGE menu 2001-2011 as-is).
+     9 flyout categories under EFFECTS:
+       ADJUST →   : Gamma 2100, Sepia 2101, Threshold 2102, Colorize 2103,
+                    Gradient Map 2112, Solarize 2122, Duotone 2123
+       STYLIZE →  : Glow 2104, Film Grain 2105, Vignette 2106, Outline 2110,
+                    Edge Detect 2111, Grow/Shrink 2113, Chromatic 2120,
+                    Emboss 2121, Wind 2145
+       LAYER FX → : Drop Shadow 2124, Long Shadow 2125, Bevel 2126,
+                    Outer Glow 2127, Inner Glow 2128, Chrome 2129
+       DISTORT →  : Wave 2130, Twirl 2131, Pinch/Bulge 2132, Kaleidoscope 2133
+       PIXELATE → : Crystallize 2140, Stained Glass 2141, Mosaic 2142,
+                    Extrude 2143, Pointillize 2144
+       NOISE →    : Add Noise 2160, Median 2161, Dust & Scratches 2162
+       RENDER →   : Clouds 2150, Difference Clouds 2151, Lens Flare 2152,
+                    Terrain 2153, Grid 2170, Sky 2171
+       SHAPE →    : Eye Candy shape effects (Wave 7, to build)
+       TEXTURE →  : Eye Candy texture effects (Wave 8, to build)
+     QA: add a helper open_effect "CATEGORY" <child-index> that clicks EFFECTS,
+     hovers the category, clicks the child; convert the 40 effect-*.sh tests. -->
+
 
 <!-- Menu-overflow plan: the flat EFFECTS dropdown auto-scrolls past ~41 items
      (availH = SCRN.h - subY, 12px/item). At 25 items now; Waves 4/5/5b/5c (15
