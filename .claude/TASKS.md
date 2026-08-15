@@ -90,7 +90,7 @@ the infra exists.
 - [x] Wire **Glow** (GJ_IMGADJ_Glow) — RADIUS + INTENSITY dialog + menu + QA test (effect-glow.sh, menu-click invocation)
 - [x] Wire **Film Grain** (GJ_IMGADJ_FilmGrain) — AMOUNT dialog + menu + QA test (effect-filmgrain.sh)
 - [x] Wire **Vignette** (GJ_IMGADJ_Vignette) — STRENGTH dialog + menu + QA test (effect-vignette.sh)
-- [ ] Wire **Pixel Scaler** (GJ_IMGADJ_PixelScaler, xBR/HQx/MMPX) — DEFERRED: unlike every other effect it *resizes* the image 2–4×, so it needs canvas+all-layers resize integration (like RESIZE IMAGE WITH CONTENT), not the same-size apply_to_layer path. Revisit after Wave 1. Mode-picker dialog + action + menu + QA test.
+- (Pixel Scaler moved to the "Deferred — needs bigger integration" section at the bottom.)
 
 ## Wave 1 — Tier-1 pixel-art effects (new engine)
 
@@ -152,8 +152,8 @@ the infra exists.
 ## Wave 7 — Eye Candy: SHAPE → submenu
 
 - [x] **Backlight** — radial sunburst rays behind the shape (FG colour), RAYS 4-48 + INTENSITY, apply_spatial + SHAPE category + QA test (effect-backlight.sh). NEW engine IMAGE_ADJ_backlight&. NOTE: functional + test-passing but ray visuals are faint — flagged for a polish pass. First effect in the new SHAPE flyout category (open_effect 7 0).
-- [ ] **Bevel (Eye Candy)** — covered by Wave 2b Bevel; add SHAPE-menu entry
-- [ ] **Chrome** — covered by Wave 2b Chrome/Metallic; add SHAPE-menu entry
+- [x] **Bevel (Eye Candy)** — SHAPE-menu entry added (child 3 → action 2126, reuses Wave 2b engine). Guarded by effect-shape-reparent.sh (open_effect 7 3, 353px).
+- [x] **Chrome** — SHAPE-menu entry added (child 4 → action 2129, reuses Wave 2b engine). Guarded by effect-shape-reparent.sh (open_effect 7 4, 1071px).
 - [x] **Corona** — triangular ring of light offset outside the alpha edge, RADIUS 3-24 + INTENSITY, apply_spatial + SHAPE menu + QA test (effect-corona.sh, 1542px). NEW engine IMAGE_ADJ_corona&.
 - [ ] **Drip** — liquid drips hanging off the bottom of shapes + dialog + QA test
 - [ ] **Electrify** — jagged lightning tendrils around edges + dialog + QA test
@@ -195,6 +195,17 @@ the infra exists.
 - [ ] **Liquify: Pinch / Bulge** — radial squeeze/expand under cursor
 - [ ] **Liquify: Twirl** — rotational warp under cursor (CW/CCW)
 - [ ] Liquify live preview + commit-to-history + QA test (best-effort; interactive tool)
+
+## Deferred — needs bigger integration (not externally blocked, just large)
+
+- [ ] Wire **Pixel Scaler** (GJ_IMGADJ_PixelScaler, xBR/HQx/MMPX) — unlike every
+      other effect it *resizes* the image 2–4×, so it can't use the same-size
+      apply_to_layer path. Needs to scale ALL layers by the factor AND resize the
+      canvas, reusing `CANVAS_resize_with_content_dialog` machinery — the #1
+      bug-risk area (document-state resets across the three doc-creation paths,
+      gotcha #15). Also the engine currently uses `PRINT` for errors (gotcha #1)
+      and a temp-file round-trip; both need cleanup before wiring. Do as its own
+      focused pass with a QA test, not inside the effects sweep.
 
 ## Wrap-up
 
