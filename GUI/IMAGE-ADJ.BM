@@ -7957,10 +7957,32 @@ SUB IMAGE_ADJ_setup_preview (ctx AS DIALOG_CTX, layerImg AS LONG)
 END SUB
 
 ''
-' Re-capture the canvas pixels under the dialog preview area into ctx.origThumb.
-' Maps dialog screen position to canvas pixel coordinates via SCRN.zoom/offsetX/Y.
-' Invalidates ctx.previewThumb and marks ctx.previewDirty=TRUE so the calling
-' dialog recomputes the adjusted preview this same frame.
+' Blit a NATIVE 1:1 crop of a layer image into a destination thumb, clamped to
+' the layer bounds so out-of-range crops just leave transparent margins (no
+' stretching, no out-of-bounds reads). Canvas crop coords are converted to layer
+' BUFFER coords via the per-layer apron offset (gotcha #14).
+'
+SUB IMGADJ_blit_native_crop (srcImg AS LONG, apW AS INTEGER, apH AS INTEGER, cropX0 AS LONG, cropY0 AS LONG, tw AS INTEGER, th AS INTEGER, destImg AS LONG)
+    IF NOT (srcImg& < -1) THEN EXIT SUB
+    DIM liw AS LONG, lih AS LONG
+    liw& = _WIDTH(srcImg&) : lih& = _HEIGHT(srcImg&)
+    DIM bx0 AS LONG, by0 AS LONG
+    bx0& = cropX0& + apW% : by0& = cropY0& + apH%
+    DIM sx0 AS LONG, sy0 AS LONG, sx1 AS LONG, sy1 AS LONG, dx0 AS LONG, dy0 AS LONG
+    sx0& = bx0& : IF sx0& < 0 THEN sx0& = 0
+    sy0& = by0& : IF sy0& < 0 THEN sy0& = 0
+    sx1& = bx0& + tw - 1 : IF sx1& > liw& - 1 THEN sx1& = liw& - 1
+    sy1& = by0& + th - 1 : IF sy1& > lih& - 1 THEN sy1& = lih& - 1
+    IF sx1& < sx0& OR sy1& < sy0& THEN EXIT SUB         ' no overlap
+    dx0& = sx0& - bx0& : dy0& = sy0& - by0&             ' dest offset in destImg
+    _PUTIMAGE (dx0&, dy0&)-(dx0& + (sx1& - sx0&), dy0& + (sy1& - sy0&)), srcImg&, destImg&, (sx0&, sy0&)-(sx1&, sy1&)
+END SUB
+
+''
+' Re-capture the layer pixels under the dialog preview area into ctx.origThumb.
+' Captures at NATIVE (1:1) canvas resolution — NOT from the zoomed composite —
+' so spatial effects (bricks, noise, rings, warps) preview at the exact same
+' scale they apply at. Invalidates ctx.previewThumb and marks ctx.previewDirty.
 ' @param ctx DIALOG_CTX Dialog context with position and preview state
 '
 SUB IMAGE_ADJ_update_loupe (ctx AS DIALOG_CTX)
@@ -7969,94 +7991,56 @@ SUB IMAGE_ADJ_update_loupe (ctx AS DIALOG_CTX)
     DIM tw AS INTEGER : tw = ctx.w - 2
     DIM th AS INTEGER : th = ctx.prevH
 
-    ' The dialog and SCRN.CANVAS& share the same logical-pixel coordinate space.
-    ' ctx.x/y are in logical (pre-displayScale) pixels, matching _MOUSEX\scale.
-    ' So we can copy directly from SCRN.CANVAS& — no zoom/pan math needed, and
-    ' we get the correct COMPOSITED view of all layers, not just one layer.
-    DIM px0 AS INTEGER : px0 = ctx.x + 1
-    DIM py0 AS INTEGER : py0 = ctx.y + 19 ' below title bar (18px) + 1px border
-    DIM px1 AS INTEGER : px1 = px0 + tw - 1
-    DIM py1 AS INTEGER : py1 = py0 + th - 1
+    ' NATIVE 1:1 capture, centred on the canvas. tw/th are logical pixels, which
+    ' equal native canvas pixels at zoom 1 — so cropping tw x th native px and
+    ' showing them 1:1 in the loupe makes the effect preview at exactly the scale
+    ' it will apply at. (The old path cropped the ZOOMED composite SCRN.CANVAS&,
+    ' which multiplied every spatial feature by the view zoom.)
+    DIM cw AS LONG, ch AS LONG
+    cw& = SCRN.canvasW& : ch& = SCRN.canvasH&
+    DIM cropX0 AS LONG, cropY0 AS LONG
+    cropX0& = (cw& - tw) \ 2
+    cropY0& = (ch& - th) \ 2
 
-    ' Clamp to SCRN.CANVAS& bounds
-    IF px0 < 0 THEN px0 = 0
-    IF py0 < 0 THEN py0 = 0
-    IF px1 >= SCRN.w& THEN px1 = SCRN.w& - 1
-    IF py1 >= SCRN.h& THEN py1 = SCRN.h& - 1
-
-    ' Capture origThumb from the composited canvas — pixel-perfect, no scaling
+    ' origThumb = the target layer(s) at native scale, centred. (We show the
+    ' layer being edited rather than the full composite; the mask below is the
+    ' same alpha, so previews only touch opaque pixels — matching the apply.)
     SAFE_FREEIMAGE ctx.origThumb
     ctx.origThumb = _NEWIMAGE(tw, th, 32)
-    _DONTBLEND ctx.origThumb
-    _PUTIMAGE (0, 0)-(tw - 1, th - 1), SCRN.CANVAS&, ctx.origThumb, (px0, py0)-(px1, py1)
-    _BLEND ctx.origThumb
-
-    ' Capture target layer(s) rendered pixels at the same screen region.
-    ' This provides the alpha mask so previews only show adjustments on
-    ' non-transparent layer pixels — matching the final apply behaviour.
-    ' For multi-select (group expand), composite ALL selected layers into mask.
-    SAFE_FREEIMAGE IMGADJ_LAYER_MASK&
-    DIM loupeZW   AS LONG, loupeZH AS LONG, loupeDX AS INTEGER, loupeDY AS INTEGER
-    loupeZW& = SCRN.canvasW& * SCRN.zoom!
-    loupeZH& = SCRN.canvasH& * SCRN.zoom!
-    loupeDX% = (SCRN.w& - loupeZW&) \ 2 + SCRN.offsetX% + SCRN.panelShiftX%
-    loupeDY% = (SCRN.h& - loupeZH&) \ 2 + SCRN.offsetY%
-    DIM loupeFull AS LONG
-    loupeFull& = _NEWIMAGE(SCRN.w&, SCRN.h&, 32)
     DIM loupeOldD AS LONG : loupeOldD& = _DEST
-    _DEST loupeFull&
-    CLS , _RGBA32(0, 0, 0, 0)
+    _DEST ctx.origThumb : _DONTBLEND ctx.origThumb : CLS , _RGBA32(0, 0, 0, 0) : _BLEND ctx.origThumb : _DEST loupeOldD&
 
-    DIM loupeMulti AS INTEGER
+    DIM loupeMulti AS INTEGER, lz AS INTEGER
     loupeMulti% = MULTI_SELECT_has_any%
     IF loupeMulti% THEN
-        ' Composite all multi-selected layers into the mask surface (union of alpha)
-        DIM loupeMSI      AS INTEGER
-        FOR loupeMSI% = 1 TO MAX_LAYERS
-            IF MULTI_SELECT_LAYERS(loupeMSI%) THEN
-                IF LAYERS(loupeMSI%).imgHandle& < -1 THEN
-                    IF LAYERS(loupeMSI%).layerType% <> LAYER_TYPE_GROUP THEN
-                        _PUTIMAGE (loupeDX%, loupeDY%)-(loupeDX% + loupeZW& - 1, loupeDY% + loupeZH& - 1), LAYERS(loupeMSI%).imgHandle&, loupeFull&
-                    END IF
+        FOR lz% = 1 TO MAX_LAYERS
+            IF MULTI_SELECT_LAYERS(lz%) THEN
+                IF LAYERS(lz%).layerType% <> LAYER_TYPE_GROUP THEN
+                    IMGADJ_blit_native_crop LAYERS(lz%).imgHandle&, LAYERS(lz%).apronW%, LAYERS(lz%).apronH%, cropX0&, cropY0&, tw, th, ctx.origThumb
                 END IF
             END IF
-        NEXT loupeMSI%
+        NEXT lz%
     ELSE
-        DIM loupeLayerImg AS LONG
-        loupeLayerImg& = LAYERS(CURRENT_LAYER%).imgHandle&
-        IF loupeLayerImg& < -1 THEN
-            _DONTBLEND loupeFull&
-            _PUTIMAGE (loupeDX%, loupeDY%)-(loupeDX% + loupeZW& - 1, loupeDY% + loupeZH& - 1), loupeLayerImg&, loupeFull&
-            _BLEND loupeFull&
-        END IF
+        IMGADJ_blit_native_crop LAYERS(CURRENT_LAYER%).imgHandle&, LAYERS(CURRENT_LAYER%).apronW%, LAYERS(CURRENT_LAYER%).apronH%, cropX0&, cropY0&, tw, th, ctx.origThumb
     END IF
-    _DEST loupeOldD&
 
-    ' Check if loupeFull has any non-transparent pixels in the crop region
-    DIM loupeHasContent AS INTEGER
-    loupeHasContent% = FALSE
-    DIM loupeCheckMem   AS _MEM
-    loupeCheckMem = _MEMIMAGE(loupeFull&)
-    DIM loupeCheckOff   AS _OFFSET
-    DIM loupeCheckA     AS _UNSIGNED _BYTE
-    FOR loupeCheckOff = 0 TO loupeCheckMem.SIZE - 4 STEP 4
-        _MEMGET loupeCheckMem, loupeCheckMem.OFFSET + loupeCheckOff + 3, loupeCheckA~%%
-        IF loupeCheckA~%% > 0 THEN
-            loupeHasContent% = TRUE
-            EXIT FOR
-        END IF
-    NEXT loupeCheckOff
-    _MEMFREE loupeCheckMem
-
-    IF loupeHasContent% THEN
-        IMGADJ_LAYER_MASK& = _NEWIMAGE(tw, th, 32)
-        _DONTBLEND IMGADJ_LAYER_MASK&
-        _PUTIMAGE (0, 0)-(tw - 1, th - 1), loupeFull&, IMGADJ_LAYER_MASK&, (px0, py0)-(px1, py1)
-        _BLEND IMGADJ_LAYER_MASK&
-    ELSE
-        IMGADJ_LAYER_MASK& = 0
+    ' Alpha mask == same target-layer content (so adjustments only show on opaque
+    ' layer pixels, matching the alpha-preserving apply). If the crop is entirely
+    ' transparent (e.g. a generative effect on an empty layer) leave the mask off
+    ' so the full preview shows — matching the old behaviour.
+    SAFE_FREEIMAGE IMGADJ_LAYER_MASK&
+    IMGADJ_LAYER_MASK& = 0
+    IF ctx.origThumb < -1 THEN
+        DIM chkM AS _MEM, chkOff AS _OFFSET, chkA AS _UNSIGNED _BYTE, hasC AS INTEGER
+        hasC% = FALSE
+        chkM = _MEMIMAGE(ctx.origThumb)
+        FOR chkOff = 0 TO chkM.SIZE - 4 STEP 4
+            _MEMGET chkM, chkM.OFFSET + chkOff + 3, chkA~%%
+            IF chkA~%% > 0 THEN hasC% = TRUE : EXIT FOR
+        NEXT chkOff
+        _MEMFREE chkM
+        IF hasC% THEN IMGADJ_LAYER_MASK& = _COPYIMAGE(ctx.origThumb, 32)
     END IF
-    SAFE_FREEIMAGE loupeFull&
 
     ' Invalidate preview thumb — dialog loop will recompute it via previewDirty
     SAFE_FREEIMAGE ctx.previewThumb
