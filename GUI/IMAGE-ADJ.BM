@@ -3967,6 +3967,137 @@ END SUB
 
 
 ''
+' Smoke (Eye Candy "Shape") — a wispy translucent plume rising off the top edge.
+' Same top-scan as Fire, but the density is noise-dominated (so it breaks into
+' wisps), reaches higher, mapped to a cool dark->light grey ramp at low alpha.
+' Adds pixels above the shape -> apply_spatial.
+'
+' @param sourceImg LONG     Source image (32-bit, with alpha)
+' @param heightP   INTEGER  Plume reach in px (4..64)
+' @param density   INTEGER  Opacity/thickness 0..100
+' @return LONG              New 32-bit image handle (0 on failure)
+'
+FUNCTION IMAGE_ADJ_smoke& (sourceImg AS LONG, heightP AS INTEGER, density AS INTEGER)
+    IF NOT (sourceImg& < -1) THEN IMAGE_ADJ_smoke& = 0 : EXIT FUNCTION
+
+    DIM smW AS LONG, smH AS LONG
+    smW& = _WIDTH(sourceImg&) : smH& = _HEIGHT(sourceImg&)
+    DIM result AS LONG
+    result& = _COPYIMAGE(sourceImg&, 32)
+    DIM srcM AS _MEM, resM AS _MEM
+    srcM = _MEMIMAGE(sourceImg&)
+    resM = _MEMIMAGE(result&)
+
+    DIM dBoost AS SINGLE : dBoost! = 0.4 + density% / 100.0
+    DIM mx AS LONG, my AS LONG, d AS INTEGER, belowA AS _UNSIGNED _BYTE, aHere AS _UNSIGNED _BYTE
+    DIM distDn AS INTEGER, dens AS SINGLE, nz AS SINGLE, g AS INTEGER, ca AS INTEGER
+    FOR my& = 0 TO smH& - 1
+        FOR mx& = 0 TO smW& - 1
+            _MEMGET srcM, srcM.OFFSET + (my& * smW& + mx&) * 4 + 3, aHere~%%
+            IF aHere~%% <> 0 THEN _CONTINUE
+            distDn% = 0
+            FOR d% = 1 TO heightP%
+                IF my& + d% >= smH& THEN EXIT FOR
+                _MEMGET srcM, srcM.OFFSET + ((my& + d%) * smW& + mx&) * 4 + 3, belowA~%%
+                IF belowA~%% <> 0 THEN distDn% = d% : EXIT FOR
+            NEXT d%
+            IF distDn% = 0 THEN _CONTINUE
+
+            ' cooling with height, but noise-DOMINATED so it fractures into wisps
+            dens! = 1.0 - (distDn% - 1) / heightP%
+            nz! = IMGADJ_valnoise!(mx& * 0.14, my& * 0.07, 61) * 0.5 _
+                + IMGADJ_valnoise!(mx& * 0.33, my& * 0.16, 62) * 0.3 _
+                + IMGADJ_valnoise!(mx& * 0.7, my& * 0.35, 63) * 0.2
+            dens! = dens! * nz! * nz! * dBoost! * 1.6      ' nz^2 -> gappy wisps
+            IF dens! <= 0.04 THEN _CONTINUE
+            IF dens! > 1.0 THEN dens! = 1.0
+
+            ' cool grey ramp, slightly bluish
+            g% = 60 + INT(120 * dens!)
+            ca% = INT(dens! * 150)                          ' translucent
+            IF ca% > 200 THEN ca% = 200
+            _MEMPUT resM, resM.OFFSET + (my& * smW& + mx&) * 4, _RGBA32(g%, g%, g% + 6, ca%) AS _UNSIGNED LONG
+        NEXT mx&
+    NEXT my&
+
+    _MEMFREE srcM
+    _MEMFREE resM
+    IMAGE_ADJ_smoke& = result&
+END FUNCTION
+
+
+''
+' Open a modal Smoke dialog: HEIGHT (4..64) + DENSITY (0..100). Adds pixels ->
+' apply_spatial.
+'
+SUB IMAGE_ADJ_smoke_dialog ()
+    IF CURRENT_LAYER% < 1 THEN EXIT SUB
+
+    DIM ctx AS DIALOG_CTX
+    DIALOG_init ctx, IMGDLG_W, 138
+    IMAGE_ADJ_setup_preview ctx, LAYERS(CURRENT_LAYER%).imgHandle&
+
+    DIM heightP AS INTEGER : heightP% = 32
+    DIM density AS INTEGER : density% = 55
+    DIM oHeight AS INTEGER, oDensity AS INTEGER
+
+    DIM k AS LONG
+    DO
+        DIALOG_poll_mouse ctx
+        IF ctx.loupeDirty% THEN IMAGE_ADJ_update_loupe ctx
+        k& = _KEYHIT
+        IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
+        IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
+
+        oHeight% = heightP% : oDensity% = density%
+        heightP% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, heightP%, 4, 64)
+        heightP% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, heightP%, 4, 64)
+        density% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, density%, 0, 100)
+        density% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, density%, 0, 100)
+        IF heightP% <> oHeight% OR density% <> oDensity% THEN ctx.previewDirty% = TRUE
+        IMGDLG_check_ok_cancel ctx
+
+        IF ctx.previewDirty% THEN
+            SAFE_FREEIMAGE ctx.previewThumb
+            ctx.previewThumb = IMAGE_ADJ_smoke&(ctx.origThumb, heightP%, density%)
+            IMAGE_ADJ_mask_preview ctx
+            ctx.previewDirty% = FALSE
+        END IF
+
+        _DEST ctx.imgHandle
+        DIALOG_draw_frame ctx, "SMOKE"
+        DIALOG_draw_preview ctx
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "HEIGHT:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, heightP%, 4, 64, "", ""
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 1), "DENSITY:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, density%, 0, 100, "", ""
+        DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
+        IMGDLG_draw_ok_cancel ctx
+        DIALOG_blit ctx
+    LOOP UNTIL ctx.done%
+
+    IF ctx.result% THEN
+        DIM smTargets(1 TO MAX_LAYERS) AS INTEGER, smTgtCount AS INTEGER, smT AS INTEGER
+        DIM smSaveCL AS INTEGER
+        IMAGE_ADJ_collect_targets smTargets%(), smTgtCount%
+        smSaveCL% = CURRENT_LAYER%
+        IF smTgtCount% > 1 THEN HISTORY_begin_group
+        DIM adjR AS LONG
+        FOR smT% = 1 TO smTgtCount%
+            CURRENT_LAYER% = smTargets%(smT%)
+            adjR&          = IMAGE_ADJ_smoke&(LAYERS(CURRENT_LAYER%).imgHandle&, heightP%, density%)
+            IMAGE_ADJ_apply_spatial adjR&, "Smoke"
+        NEXT smT%
+        IF smTgtCount% > 1 THEN HISTORY_end_group
+        CURRENT_LAYER% = smSaveCL%
+    END IF
+
+    DIALOG_cleanup ctx
+    SAFE_FREEIMAGE IMGADJ_LAYER_MASK& : IMGADJ_LAYER_MASK& = 0
+END SUB
+
+
+''
 ' Fire (Eye Candy "Shape") — flames rising off the shape's top edge. For each
 ' TRANSPARENT pixel that has an opaque shape pixel within `height` px below it,
 ' a heat value is built from closeness-to-shape times an upward-flickering
