@@ -99,3 +99,29 @@ Each box = engine/dialog change → build clean (0 warnings) → QA guard (dialo
 - [ ] Liquify interactive tool (integration map in git history / earlier TASKS — model on SPRAY).
 - [ ] Pixel Scaler (needs canvas+all-layers resize integration).
 - [ ] QA harness: assert dialog TITLE not just region delta (title/known-pixel check).
+
+<!--
+loop:off — 2026-08-15. The Effect Parameterization Pass (P1-P5) is COMPLETE and
+pushed on `more-image-effects`. Delivered this run:
+  • Fixed the 2 bugs Rick reported: native-scale effect PREVIEW (loupe was
+    cropping the zoomed composite) and the oversized EFFECTS dropdown.
+  • Reset-to-Default button on every effect dialog + wired into 67/71 (verified
+    end-to-end: drag AMOUNT -> RESET -> slider pixel-identical to default).
+  • Photoshop-style params: Bevel (Light Angle + Direction), Emboss (Angle),
+    Drop Shadow (Distance/Angle/Softness/Opacity), Perspective Shadow (Cast Angle).
+  • MIX (blend-with-original) on 9 texture effects via IMAGE_ADJ_mix_result&.
+  • EFFECTS menu documented in the manual (ch06).
+  • Fixed a qa-harness child-click coordinate regression the narrower dropdown
+    caused (open_effect now clicks x=490); Ripples test given internal detail.
+  • Full effect suite green; everything committed + pushed.
+The 3 unchecked items below are the pre-flagged LARGE STANDALONE efforts that were
+never part of this pass and deserve fresh context (they touch MOUSE.BM / history /
+tool-reset / canvas-resize — the project's #1 bug-risk areas):
+  • Liquify interactive tool (Kai's Power Goo) — integration map scouted earlier
+    in git history; model on the SPRAY tool.
+  • Pixel Scaler (xBR/HQx/MMPX) — needs canvas+all-layers resize integration.
+  • QA harness: assert dialog TITLE not just region delta.
+TO RESUME any of these: re-arm the loop and delete this loop:off block. Each is
+independently pickable; Liquify is the biggest and the one Rick most wants.
+-->
+loop:off
