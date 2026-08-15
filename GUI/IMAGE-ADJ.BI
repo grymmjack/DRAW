@@ -43,4 +43,37 @@ EFFECT_SEL_AS_SHAPE = 0   ' FALSE
 DIM SHARED IMGADJ_LOUPE_CROPX AS LONG
 DIM SHARED IMGADJ_LOUPE_CROPY AS LONG
 
+' Padding (native px) added around the visible loupe window when capturing the
+' crop, so edge effects (glow/shadow/outline/bevel) see real neighbouring canvas
+' pixels instead of treating the crop's rectangular border as the shape edge.
+' The engine runs on the padded thumb; only the central window is displayed.
+CONST IMGADJ_LOUPE_PAD = 40
+
+' Silhouette version of the loupe crop (same padded size as ctx.origThumb; alpha =
+' selection coverage, RGB = layer) built by IMAGE_ADJ_update_loupe when a selection
+' is active AND framed on the selection. Edge-effect dialogs run the engine on THIS
+' instead of origThumb so the preview radiates from the selection edge, matching the
+' sel-as-shape apply. 0 when no selection.
+DIM SHARED IMGADJ_SHAPE_THUMB AS LONG
+
+' ---- Last-effect memory: Redo / Recall / Blend (Photoshop-style) -------------
+' FX_PENDING_ACTION is set at the top of the effect dispatch in CMD_execute_action
+' so the shared apply funcs know WHICH effect is committing. On commit they snapshot
+' the layer BEFORE/AFTER (for Blend/Fade) and remember the action id + undo label.
+DIM SHARED FX_PENDING_ACTION AS INTEGER
+DIM SHARED LAST_FX_ACTION AS INTEGER
+DIM SHARED LAST_FX_LABEL AS STRING
+DIM SHARED LAST_FX_BEFORE AS LONG
+DIM SHARED LAST_FX_AFTER AS LONG
+DIM SHARED LAST_FX_LAYER AS INTEGER
+' Instant-Redo replay blob: Layer-FX dialogs stash their final int params here (and
+' set LAST_FX_REPLAYABLE = TRUE) so IMAGE_ADJ_redo_last can re-run the engine with no
+' dialog; effects that don't stash fall back to re-opening the dialog (Recall). The
+' effect COLOURS come from the current FG/BG at replay time, like a fresh apply.
+DIM SHARED LAST_FX_REPLAYABLE AS INTEGER
+DIM SHARED LAST_FX_P(0 TO 7) AS INTEGER
+' TRUE while IMAGE_ADJ_blend_last is recompositing, so the apply hook doesn't treat
+' the blend itself as a new "last effect".
+DIM SHARED FX_IN_BLEND AS INTEGER
+
 ' ---- Slider dialogs ----------------------------------------------------------

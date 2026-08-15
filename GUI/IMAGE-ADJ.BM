@@ -96,6 +96,7 @@ SUB IMAGE_ADJ_apply_to_layer (adjResult AS LONG, historyLabel AS STRING)
 
         IF historyRecorded% THEN HISTORY_saved_this_frame% = TRUE
 
+        IMGADJ_capture_last_fx adjOrigSnap&, historyLabel$
         LAYERS(CURRENT_LAYER%).contentDirty% = TRUE
         INVALIDATE_layers
     END IF
@@ -140,6 +141,7 @@ SUB IMAGE_ADJ_apply_spatial (adjResult AS LONG, historyLabel AS STRING)
 
         HISTORY_saved_this_frame% = TRUE
 
+        IMGADJ_capture_last_fx asOrigSnap&, historyLabel$
         LAYERS(CURRENT_LAYER%).contentDirty% = TRUE
         INVALIDATE_layers
     END IF
@@ -222,6 +224,451 @@ SUB IMGADJ_clip_to_selection (layerImg AS LONG, origSnap AS LONG, apW AS INTEGER
 END SUB
 
 
+' -----------------------------------------------------------------------------
+' SELECTION-AS-SHAPE  (edge / growth effects: shadow, outline, glow, bevel, grow)
+' -----------------------------------------------------------------------------
+' Alpha-edge effects (drop shadow, outline, grow, glow, bevel, emboss) read the
+' SOURCE image's alpha channel to locate the silhouette, then radiate an effect
+' from that edge. On a solid layer there is no alpha edge, so they do nothing;
+' and with CLIP-to-selection they get wiped, because they draw OUTSIDE the shape.
+'
+' When a selection is active we instead feed the effect a SILHOUETTE of the
+' SELECTION (opaque inside, transparent outside, layer RGB retained) so it
+' radiates from the selection edge. IMGADJ_composite_effect_only then keeps only
+' the pixels the effect ADDED (result <> plain silhouette) and composites them
+' over the untouched original layer — so the interior keeps its content and the
+' shadow/outline/glow appears around (and, for inner effects, just inside) the
+' selection edge. One choke point serves every edge effect.
+
+''
+' Build a selection-silhouette source image for an edge effect: a copy of the
+' layer buffer whose alpha is forced OPAQUE inside the selection and TRANSPARENT
+' outside it (RGB kept from the layer). Returns 0 when no selection is active —
+' the caller then runs the effect on the raw layer (normal alpha-edge behaviour).
+' Caller frees the returned handle. Buffer coords map to canvas via apron (#14).
+'
+FUNCTION IMGADJ_edge_shape_source& (layerImg AS LONG, apW AS INTEGER, apH AS INTEGER)
+    IMGADJ_edge_shape_source& = 0
+    IF NOT IMGADJ_sel_active% THEN EXIT FUNCTION
+    IF NOT (layerImg& < -1) THEN EXIT FUNCTION
+    DIM cov AS LONG : cov& = IMGADJ_sel_coverage&
+    IF NOT (cov& < -1) THEN EXIT FUNCTION
+    DIM lw AS LONG, lh AS LONG, cw AS LONG, ch AS LONG
+    lw& = _WIDTH(layerImg&) : lh& = _HEIGHT(layerImg&)
+    cw& = _WIDTH(cov&) : ch& = _HEIGHT(cov&)
+    DIM shp AS LONG : shp& = _COPYIMAGE(layerImg&, 32)
+    IF NOT (shp& < -1) THEN SAFE_FREEIMAGE cov& : EXIT FUNCTION
+    DIM sM AS _MEM, cM AS _MEM
+    sM = _MEMIMAGE(shp&) : cM = _MEMIMAGE(cov&)
+    DIM bx AS LONG, by AS LONG, cx AS LONG, cy AS LONG, covR AS _UNSIGNED _BYTE
+    DIM px AS _UNSIGNED LONG, insA AS _UNSIGNED _BYTE
+    FOR by& = 0 TO lh& - 1
+        cy& = by& - apH%
+        FOR bx& = 0 TO lw& - 1
+            cx& = bx& - apW%
+            insA~%% = 0
+            IF cx& >= 0 AND cy& >= 0 AND cx& < cw& AND cy& < ch& THEN
+                _MEMGET cM, cM.OFFSET + (cy& * cw& + cx&) * 4 + 2, covR~%%
+                IF covR~%% > 127 THEN insA~%% = 255
+            END IF
+            _MEMGET sM, sM.OFFSET + (by& * lw& + bx&) * 4, px~&
+            px~& = _RGBA32(_RED32(px~&), _GREEN32(px~&), _BLUE32(px~&), insA~%%)
+            _MEMPUT sM, sM.OFFSET + (by& * lw& + bx&) * 4, px~& AS _UNSIGNED LONG
+        NEXT bx&
+    NEXT by&
+    _MEMFREE sM : _MEMFREE cM
+    SAFE_FREEIMAGE cov&
+    IMGADJ_edge_shape_source& = shp&
+END FUNCTION
+
+''
+' Composite an edge-effect result onto the layer in SELECTION-AS-SHAPE mode.
+' fxResult is what the effect produced from the selection silhouette (shapeSrc).
+' For every pixel: if the result is UNCHANGED from the plain silhouette it is NOT
+' an effect pixel, so the original layer (origSnap) is kept; otherwise the result
+' pixel is composited source-over the original (effect on top). This preserves
+' the selection interior and adds only the radiated shadow/outline/glow/bevel.
+'
+' @param layerImg LONG   Destination layer buffer (written in place)
+' @param fxResult LONG   Effect output run on the silhouette
+' @param shapeSrc LONG   The plain silhouette the effect was run on
+' @param origSnap LONG   Snapshot of the layer BEFORE the effect
+'
+SUB IMGADJ_composite_effect_only (layerImg AS LONG, fxResult AS LONG, shapeSrc AS LONG, origSnap AS LONG)
+    IF NOT (layerImg& < -1) OR NOT (fxResult& < -1) THEN EXIT SUB
+    IF NOT (shapeSrc& < -1) OR NOT (origSnap& < -1) THEN EXIT SUB
+    DIM fM AS _MEM, sM AS _MEM, oM AS _MEM, lM AS _MEM
+    fM = _MEMIMAGE(fxResult&) : sM = _MEMIMAGE(shapeSrc&)
+    oM = _MEMIMAGE(origSnap&) : lM = _MEMIMAGE(layerImg&)
+    DIM ceOff AS _OFFSET, fp AS _UNSIGNED LONG, sp AS _UNSIGNED LONG, op AS _UNSIGNED LONG
+    DIM fa AS INTEGER, oa AS INTEGER
+    DIM saf AS SINGLE, daf AS SINGLE, oaf AS SINGLE
+    DIM outR AS INTEGER, outG AS INTEGER, outB AS INTEGER, outA AS INTEGER
+    FOR ceOff = 0 TO lM.SIZE - 4 STEP 4
+        _MEMGET fM, fM.OFFSET + ceOff, fp~&
+        _MEMGET sM, sM.OFFSET + ceOff, sp~&
+        IF fp~& = sp~& THEN
+            ' unchanged silhouette pixel -> keep the original layer here
+            _MEMGET oM, oM.OFFSET + ceOff, op~&
+            _MEMPUT lM, lM.OFFSET + ceOff, op~& AS _UNSIGNED LONG
+        ELSE
+            fa% = _ALPHA32(fp~&)
+            IF fa% >= 255 THEN
+                _MEMPUT lM, lM.OFFSET + ceOff, fp~& AS _UNSIGNED LONG          ' opaque effect
+            ELSEIF fa% <= 0 THEN
+                ' effect pixel is transparent. If it WAS inside the silhouette the
+                ' effect ERODED it (shrink / inner erosion) -> clear the layer here;
+                ' otherwise it's outside the effect's reach -> keep the original.
+                IF _ALPHA32(sp~&) > 0 THEN
+                    _MEMPUT lM, lM.OFFSET + ceOff, _RGBA32(0, 0, 0, 0) AS _UNSIGNED LONG
+                ELSE
+                    _MEMGET oM, oM.OFFSET + ceOff, op~& : _MEMPUT lM, lM.OFFSET + ceOff, op~& AS _UNSIGNED LONG
+                END IF
+            ELSE
+                _MEMGET oM, oM.OFFSET + ceOff, op~&                            ' effect over original
+                oa% = _ALPHA32(op~&)
+                saf! = fa% / 255.0 : daf! = oa% / 255.0
+                oaf! = saf! + daf! * (1.0 - saf!)
+                IF oaf! <= 0.0 THEN
+                    _MEMPUT lM, lM.OFFSET + ceOff, _RGBA32(0, 0, 0, 0) AS _UNSIGNED LONG
+                ELSE
+                    outR% = (_RED32(fp~&)   * saf! + _RED32(op~&)   * daf! * (1.0 - saf!)) / oaf!
+                    outG% = (_GREEN32(fp~&) * saf! + _GREEN32(op~&) * daf! * (1.0 - saf!)) / oaf!
+                    outB% = (_BLUE32(fp~&)  * saf! + _BLUE32(op~&)  * daf! * (1.0 - saf!)) / oaf!
+                    outA% = oaf! * 255.0
+                    IF outR% > 255 THEN outR% = 255
+                    IF outG% > 255 THEN outG% = 255
+                    IF outB% > 255 THEN outB% = 255
+                    IF outA% > 255 THEN outA% = 255
+                    _MEMPUT lM, lM.OFFSET + ceOff, _RGBA32(outR%, outG%, outB%, outA%) AS _UNSIGNED LONG
+                END IF
+            END IF
+        END IF
+    NEXT ceOff
+    _MEMFREE fM : _MEMFREE sM : _MEMFREE oM : _MEMFREE lM
+END SUB
+
+''
+' Apply an edge effect result to the current layer. When shapeSrc is a live
+' selection silhouette (non-zero), composites the radiated effect over the
+' original layer (SELECTION-AS-SHAPE); otherwise falls back to the normal
+' alpha-preserving spatial apply. Records undo either way.
+'
+' @param adjResult LONG   Effect output (freed here)
+' @param shapeSrc  LONG   Selection silhouette used, or 0 for the raw-layer path
+' @param historyLabel STRING  Undo label
+'
+SUB IMAGE_ADJ_apply_spatial_edge (adjResult AS LONG, shapeSrc AS LONG, historyLabel AS STRING)
+    IF NOT (adjResult& < -1) THEN EXIT SUB
+    IF NOT (shapeSrc& < -1) THEN
+        IMAGE_ADJ_apply_spatial adjResult&, historyLabel$
+        EXIT SUB
+    END IF
+    DIM seLayer AS LONG : seLayer& = LAYERS(CURRENT_LAYER%).imgHandle&
+    DIM seSnap AS LONG : seSnap& = _COPYIMAGE(seLayer&, 32)
+    IMGADJ_composite_effect_only seLayer&, adjResult&, shapeSrc&, seSnap&
+    SAFE_FREEIMAGE adjResult&
+    IF seSnap& < -1 THEN HISTORY_record_transform LAYERS(CURRENT_LAYER%).historyId&, CURRENT_LAYER%, 0, seSnap&, historyLabel$
+    HISTORY_saved_this_frame% = TRUE
+    IMGADJ_capture_last_fx seSnap&, historyLabel$
+    LAYERS(CURRENT_LAYER%).contentDirty% = TRUE
+    INVALIDATE_layers
+END SUB
+
+''
+' Compute the canvas-space bounding box of the active selection (rect BOX or the
+' per-pixel wand/lasso mask). Returns TRUE and fills x0..y1 when a selection is
+' present, FALSE otherwise.
+'
+FUNCTION IMGADJ_sel_bbox% (x0 AS LONG, y0 AS LONG, x1 AS LONG, y1 AS LONG)
+    IMGADJ_sel_bbox% = FALSE
+    IF NOT IMGADJ_sel_active% THEN EXIT FUNCTION
+    IF MARQUEE.WAND_HAS_SELECTION AND MARQUEE.SELECTION_MASK < -1 THEN
+        DIM mw AS LONG, mh AS LONG
+        mw& = _WIDTH(MARQUEE.SELECTION_MASK) : mh& = _HEIGHT(MARQUEE.SELECTION_MASK)
+        DIM bM AS _MEM : bM = _MEMIMAGE(MARQUEE.SELECTION_MASK)
+        DIM bxr AS LONG, byr AS LONG, ba AS _UNSIGNED _BYTE, found AS INTEGER
+        DIM mnx AS LONG, mny AS LONG, mxx AS LONG, mxy AS LONG
+        mnx& = mw& : mny& = mh& : mxx& = -1 : mxy& = -1 : found% = 0
+        FOR byr& = 0 TO mh& - 1
+            FOR bxr& = 0 TO mw& - 1
+                _MEMGET bM, bM.OFFSET + (byr& * mw& + bxr&) * 4 + 3, ba~%%
+                IF ba~%% > 0 THEN
+                    found% = 1
+                    IF bxr& < mnx& THEN mnx& = bxr&
+                    IF byr& < mny& THEN mny& = byr&
+                    IF bxr& > mxx& THEN mxx& = bxr&
+                    IF byr& > mxy& THEN mxy& = byr&
+                END IF
+            NEXT bxr&
+        NEXT byr&
+        _MEMFREE bM
+        IF found% THEN
+            x0& = mnx& : y0& = mny& : x1& = mxx& : y1& = mxy& : IMGADJ_sel_bbox% = TRUE
+        END IF
+    ELSE
+        x0& = MARQUEE.BOX.x : y0& = MARQUEE.BOX.y
+        x1& = MARQUEE.BOX.x + MARQUEE.BOX.w - 1 : y1& = MARQUEE.BOX.y + MARQUEE.BOX.h - 1
+        IMGADJ_sel_bbox% = TRUE
+    END IF
+END FUNCTION
+
+''
+' Preview source for an edge-effect dialog: the selection silhouette thumb when a
+' selection is active (so the engine radiates from the selection edge), else the
+' plain layer crop. Both are the same padded size.
+'
+FUNCTION IMGADJ_fx_src& (ctx AS DIALOG_CTX)
+    IF IMGADJ_sel_active% AND IMGADJ_SHAPE_THUMB& < -1 THEN
+        IMGADJ_fx_src& = IMGADJ_SHAPE_THUMB&
+    ELSE
+        IMGADJ_fx_src& = ctx.origThumb
+    END IF
+END FUNCTION
+
+''
+' Finish an edge-effect preview. With a selection active, composites only the
+' radiated effect (previewThumb vs the silhouette) over the real layer crop —
+' mirroring the sel-as-shape apply. Without a selection: alpha-preserving effects
+' (growth = 0) get the layer-alpha mask; growth effects show the raw result.
+'
+SUB IMAGE_ADJ_fx_preview_finish (ctx AS DIALOG_CTX, growth AS INTEGER)
+    IF IMGADJ_sel_active% AND IMGADJ_SHAPE_THUMB& < -1 AND ctx.previewThumb < -1 AND ctx.origThumb < -1 THEN
+        IMGADJ_composite_effect_only ctx.previewThumb, ctx.previewThumb, IMGADJ_SHAPE_THUMB&, ctx.origThumb
+    ELSEIF growth% = 0 THEN
+        IMAGE_ADJ_mask_preview ctx
+    END IF
+END SUB
+
+
+' =============================================================================
+' LAST-EFFECT MEMORY  —  Redo / Recall / Blend (Fade)   [Photoshop-style]
+' =============================================================================
+
+''
+' Called by the shared apply funcs right after an effect commits: remembers the
+' effect (action id + label), the layer it hit, and BEFORE/AFTER snapshots so
+' Blend/Fade can recomposite. No-op during a Blend (so a fade isn't itself
+' recorded as the "last effect") and for non-effect actions (FX_PENDING_ACTION 0).
+'
+' @param beforeSnap LONG  Snapshot of the layer BEFORE the effect
+' @param historyLabel STRING  The effect's undo label
+'
+SUB IMGADJ_capture_last_fx (beforeSnap AS LONG, historyLabel AS STRING)
+    IF FX_IN_BLEND THEN EXIT SUB
+    IF FX_PENDING_ACTION = 0 THEN EXIT SUB
+    SAFE_FREEIMAGE LAST_FX_BEFORE& : LAST_FX_BEFORE& = 0
+    SAFE_FREEIMAGE LAST_FX_AFTER&  : LAST_FX_AFTER&  = 0
+    IF beforeSnap& < -1 THEN LAST_FX_BEFORE& = _COPYIMAGE(beforeSnap&, 32)
+    IF LAYERS(CURRENT_LAYER%).imgHandle& < -1 THEN LAST_FX_AFTER& = _COPYIMAGE(LAYERS(CURRENT_LAYER%).imgHandle&, 32)
+    LAST_FX_LAYER%      = CURRENT_LAYER%
+    LAST_FX_ACTION%     = FX_PENDING_ACTION
+    LAST_FX_LABEL$      = historyLabel$
+    LAST_FX_REPLAYABLE% = FALSE   ' a Layer-FX dialog sets TRUE after stashing params
+END SUB
+
+''
+' Stash the parameters of the just-applied effect so IMAGE_ADJ_redo_last can
+' re-run it with no dialog. Call from a Layer-FX dialog's OK branch (after apply).
+'
+SUB IMGADJ_stash_fx (p0 AS INTEGER, p1 AS INTEGER, p2 AS INTEGER, p3 AS INTEGER)
+    LAST_FX_P(0) = p0% : LAST_FX_P(1) = p1% : LAST_FX_P(2) = p2% : LAST_FX_P(3) = p3%
+    LAST_FX_REPLAYABLE% = TRUE
+END SUB
+
+''
+' Re-run one edge effect on the last-effect layer using stashed params (used by
+' IMAGE_ADJ_redo_last). Handles sel-as-shape + the raw-layer fallback like the
+' dialogs do. spatial% picks the alpha-keeping (1) vs alpha-preserving (0) commit.
+'
+SUB IMGADJ_replay_edge (adjResult AS LONG, edgeSrc AS LONG, historyLabel AS STRING, spatial AS INTEGER)
+    IF edgeSrc& < -1 THEN
+        IMAGE_ADJ_apply_spatial_edge adjResult&, edgeSrc&, historyLabel$
+    ELSEIF spatial% THEN
+        IMAGE_ADJ_apply_spatial adjResult&, historyLabel$
+    ELSE
+        IMAGE_ADJ_apply_to_layer adjResult&, historyLabel$
+    END IF
+END SUB
+
+''
+' RECALL LAST EFFECT — re-open the last effect's dialog (user tweaks + re-applies).
+'
+SUB IMAGE_ADJ_recall_last ()
+    IF LAST_FX_ACTION% = 0 THEN EXIT SUB
+    CMD_execute_action LAST_FX_ACTION%
+END SUB
+
+''
+' REDO LAST EFFECT — re-apply the last effect instantly (no dialog) with the same
+' settings. Layer-FX effects that stashed params replay through the engine; any
+' other effect falls back to re-opening its dialog.
+'
+SUB IMAGE_ADJ_redo_last ()
+    IF LAST_FX_ACTION% = 0 THEN EXIT SUB
+    IF CURRENT_LAYER% < 1 THEN EXIT SUB
+    IF NOT LAST_FX_REPLAYABLE% THEN CMD_execute_action LAST_FX_ACTION% : EXIT SUB
+
+    DIM rLayer AS LONG, rApW AS INTEGER, rApH AS INTEGER, rEdge AS LONG, adjR AS LONG
+    rLayer& = LAYERS(CURRENT_LAYER%).imgHandle&
+    rApW%   = LAYERS(CURRENT_LAYER%).apronW% : rApH% = LAYERS(CURRENT_LAYER%).apronH%
+    rEdge&  = IMGADJ_edge_shape_source&(rLayer&, rApW%, rApH%)
+    DIM rSrc AS LONG : rSrc& = rLayer& : IF rEdge& < -1 THEN rSrc& = rEdge&
+    FX_PENDING_ACTION = LAST_FX_ACTION%      ' so the replay re-captures for chaining
+
+    SELECT CASE LAST_FX_ACTION%
+        CASE 2124  ' Drop Shadow: P0=dist P1=soft P2=angle P3=opac
+            adjR& = IMAGE_ADJ_dropshadow&(rSrc&, LAST_FX_P(0), LAST_FX_P(1), LAST_FX_P(2), LAST_FX_P(3), PAINT_BG_COLOR~&)
+            IMGADJ_replay_edge adjR&, rEdge&, "Drop Shadow", 1
+        CASE 2125  ' Long Shadow: P0=length P1=angle P2=soften P3=fade
+            adjR& = IMAGE_ADJ_longshadow&(rSrc&, LAST_FX_P(0), LAST_FX_P(1), PAINT_BG_COLOR~&, LAST_FX_P(2), LAST_FX_P(3))
+            IMGADJ_replay_edge adjR&, rEdge&, "Long Shadow", 1
+        CASE 2110  ' Outline: P0=thickness P1=insideMode
+            adjR& = IMAGE_ADJ_outline&(rSrc&, LAST_FX_P(0), PAINT_COLOR~&, LAST_FX_P(1))
+            IMGADJ_replay_edge adjR&, rEdge&, "Outline", 1
+        CASE 2113  ' Grow / Shrink: P0=amount P1=shrinkMode
+            adjR& = IMAGE_ADJ_growshrink&(rSrc&, LAST_FX_P(0), LAST_FX_P(1))
+            IMGADJ_replay_edge adjR&, rEdge&, "Grow / Shrink", 1
+        CASE ELSE
+            IF rEdge& < -1 THEN SAFE_FREEIMAGE rEdge&
+            CMD_execute_action LAST_FX_ACTION%   ' not stashed — fall back to the dialog
+            EXIT SUB
+    END SELECT
+    IF rEdge& < -1 THEN SAFE_FREEIMAGE rEdge&
+END SUB
+
+''
+' Composite BEFORE and AFTER for Blend/Fade: out = lerp(before, mode(before,after),
+' opac). mode 0=Normal 1=Multiply 2=Screen 3=Overlay 4=Darken 5=Lighten. Writes
+' the result into destLayer (same dims as before/after).
+'
+SUB IMGADJ_blend_compose (destLayer AS LONG, beforeImg AS LONG, afterImg AS LONG, opac AS INTEGER, mode AS INTEGER)
+    IF NOT (destLayer& < -1) OR NOT (beforeImg& < -1) OR NOT (afterImg& < -1) THEN EXIT SUB
+    DIM bM AS _MEM, aM AS _MEM, dM AS _MEM
+    bM = _MEMIMAGE(beforeImg&) : aM = _MEMIMAGE(afterImg&) : dM = _MEMIMAGE(destLayer&)
+    DIM t AS SINGLE : t! = opac% / 100.0
+    DIM po AS _OFFSET, bp AS _UNSIGNED LONG, ap AS _UNSIGNED LONG
+    DIM br AS INTEGER, bg AS INTEGER, bb AS INTEGER, ba AS INTEGER
+    DIM ar AS INTEGER, ag AS INTEGER, ab AS INTEGER, aa AS INTEGER
+    DIM mr AS INTEGER, mg AS INTEGER, mb AS INTEGER
+    DIM orC AS INTEGER, ogC AS INTEGER, obC AS INTEGER, oaC AS INTEGER
+    FOR po = 0 TO dM.SIZE - 4 STEP 4
+        _MEMGET bM, bM.OFFSET + po, bp~& : _MEMGET aM, aM.OFFSET + po, ap~&
+        br% = _RED32(bp~&) : bg% = _GREEN32(bp~&) : bb% = _BLUE32(bp~&) : ba% = _ALPHA32(bp~&)
+        ar% = _RED32(ap~&) : ag% = _GREEN32(ap~&) : ab% = _BLUE32(ap~&) : aa% = _ALPHA32(ap~&)
+        SELECT CASE mode%
+            CASE 1 : mr% = br% * ar% \ 255 : mg% = bg% * ag% \ 255 : mb% = bb% * ab% \ 255
+            CASE 2 : mr% = 255 - (255 - br%) * (255 - ar%) \ 255 : mg% = 255 - (255 - bg%) * (255 - ag%) \ 255 : mb% = 255 - (255 - bb%) * (255 - ab%) \ 255
+            CASE 3 ' Overlay
+                mr% = IIFOVL%(br%, ar%) : mg% = IIFOVL%(bg%, ag%) : mb% = IIFOVL%(bb%, ab%)
+            CASE 4 : mr% = _IIF(br% < ar%, br%, ar%) : mg% = _IIF(bg% < ag%, bg%, ag%) : mb% = _IIF(bb% < ab%, bb%, ab%)
+            CASE 5 : mr% = _IIF(br% > ar%, br%, ar%) : mg% = _IIF(bg% > ag%, bg%, ag%) : mb% = _IIF(bb% > ab%, bb%, ab%)
+            CASE ELSE : mr% = ar% : mg% = ag% : mb% = ab%
+        END SELECT
+        orC% = br% + (mr% - br%) * t! : ogC% = bg% + (mg% - bg%) * t! : obC% = bb% + (mb% - bb%) * t!
+        oaC% = ba% + (aa% - ba%) * t!
+        _MEMPUT dM, dM.OFFSET + po, _RGBA32(orC%, ogC%, obC%, oaC%) AS _UNSIGNED LONG
+    NEXT po
+    _MEMFREE bM : _MEMFREE aM : _MEMFREE dM
+END SUB
+
+''
+' BLEND / FADE LAST EFFECT — reduce the just-applied effect's strength and change
+' how it composites over the pre-effect layer, like Photoshop's Edit > Fade.
+' Opacity 0 = pre-effect, 100 = full effect. Applies live to the layer; OK keeps
+' it (one undo state before->faded), Cancel restores the full effect.
+'
+SUB IMAGE_ADJ_blend_last ()
+    IF NOT (LAST_FX_BEFORE& < -1) OR NOT (LAST_FX_AFTER& < -1) THEN EXIT SUB
+    IF LAST_FX_LAYER% < 1 OR LAST_FX_LAYER% > MAX_LAYERS THEN EXIT SUB
+    DIM bLayer AS LONG : bLayer& = LAYERS(LAST_FX_LAYER%).imgHandle&
+    IF NOT (bLayer& < -1) THEN EXIT SUB
+    IF _WIDTH(bLayer&) <> _WIDTH(LAST_FX_AFTER&) OR _HEIGHT(bLayer&) <> _HEIGHT(LAST_FX_AFTER&) THEN EXIT SUB
+
+    DIM ctx AS DIALOG_CTX
+    DIALOG_init ctx, IMGDLG_W, 130
+
+    DIM opac AS INTEGER : opac% = 100
+    DIM oOpac AS INTEGER
+    STATIC mode AS INTEGER
+    DIM mvX AS INTEGER, mvY AS INTEGER, mvW AS INTEGER, mvH AS INTEGER
+    mvX% = IMGDLG_SX : mvW% = 160 : mvH% = 16
+    mvY% = IMGDLG_track_y%(ctx, 0) + 26
+
+    FX_IN_BLEND = TRUE
+    DIM applied AS INTEGER : applied% = -1     ' force first compose
+    DIM k AS LONG, mName AS STRING
+    DO
+        DIALOG_poll_mouse ctx
+        k& = _KEYHIT
+        IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
+        IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
+
+        oOpac% = opac%
+        opac% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, opac%, 0, 100)
+        opac% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, opac%, 0, 100)
+        IF DIALOG_hit%(ctx, mvX%, mvY%, mvW%, mvH%) THEN mode% = (mode% + 1) MOD 6 : applied% = -2
+        IF opac% <> oOpac% THEN applied% = -2
+        IMGDLG_check_ok_cancel ctx                                   ' OK / RESET / CANCEL buttons
+        IF IMGDLG_RESET_CLICKED% THEN opac% = 100 : mode% = 0 : applied% = -2 : IMGDLG_RESET_CLICKED% = FALSE
+
+        IF applied% <> 0 THEN
+            IMGADJ_blend_compose bLayer&, LAST_FX_BEFORE&, LAST_FX_AFTER&, opac%, mode%
+            LAYERS(LAST_FX_LAYER%).contentDirty% = TRUE : INVALIDATE_layers
+            ' Render the canvas WITHOUT letting SCREEN_render flush to screen — else
+            ' the dialog vanishes for a frame (flicker). We composite canvas + dialog
+            ' ourselves and let DIALOG_blit do the single _DISPLAY below.
+            SCENE_DIRTY% = TRUE : SCREEN_SUPPRESS_DISPLAY% = TRUE : SCREEN_render : SCREEN_SUPPRESS_DISPLAY% = FALSE
+            _PUTIMAGE (0, 0)-(_WIDTH(0) - 1, _HEIGHT(0) - 1), SCRN.CANVAS&, 0
+            SAFE_FREEIMAGE ctx.screenShot : ctx.screenShot = _COPYIMAGE(0, 32)
+            applied% = 0
+        END IF
+
+        SELECT CASE mode%
+            CASE 1 : mName$ = "MULTIPLY"
+            CASE 2 : mName$ = "SCREEN"
+            CASE 3 : mName$ = "OVERLAY"
+            CASE 4 : mName$ = "DARKEN"
+            CASE 5 : mName$ = "LIGHTEN"
+            CASE ELSE : mName$ = "NORMAL"
+        END SELECT
+
+        _DEST ctx.imgHandle
+        DIALOG_draw_frame ctx, "BLEND LAST: " + LAST_FX_LABEL$
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "OPACITY:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, opac%, 0, 100, "", ""
+        DIALOG_draw_toggle ctx, mvX%, mvY%, mvW%, mvH%, "MODE: " + mName$, -1
+        DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
+        IMGDLG_draw_ok_cancel ctx
+        DIALOG_blit ctx
+    LOOP UNTIL ctx.done%
+
+    IF ctx.result% THEN
+        DIM bSnap AS LONG : bSnap& = _COPYIMAGE(LAST_FX_BEFORE&, 32)
+        IF bSnap& < -1 THEN HISTORY_record_transform LAYERS(LAST_FX_LAYER%).historyId&, LAST_FX_LAYER%, 0, bSnap&, "Fade " + LAST_FX_LABEL$
+        HISTORY_saved_this_frame% = TRUE
+        ' the faded pixels are already in the layer; capture them as the new AFTER
+        SAFE_FREEIMAGE LAST_FX_AFTER& : LAST_FX_AFTER& = _COPYIMAGE(bLayer&, 32)
+    ELSE
+        IMGADJ_blend_compose bLayer&, LAST_FX_BEFORE&, LAST_FX_AFTER&, 100, 0   ' restore full effect
+    END IF
+    LAYERS(LAST_FX_LAYER%).contentDirty% = TRUE : INVALIDATE_layers
+    FX_IN_BLEND = FALSE
+    DIALOG_cleanup ctx
+END SUB
+
+''
+' Overlay blend of two 0..255 channel values (helper for IMGADJ_blend_compose).
+'
+FUNCTION IIFOVL% (ovlB AS INTEGER, ovlT AS INTEGER)
+    IF ovlB% < 128 THEN
+        IIFOVL% = 2 * ovlB% * ovlT% \ 255
+    ELSE
+        IIFOVL% = 255 - 2 * (255 - ovlB%) * (255 - ovlT%) \ 255
+    END IF
+END FUNCTION
+
+
 ''
 ' Premultiplied-alpha box blur: blurs all 4 channels (R, G, B, A).
 ' Uses premultiplied alpha to avoid dark fringe at edges:
@@ -235,6 +682,55 @@ END SUB
 ' @param sourceImg LONG     Source image handle
 ' @param radius    INTEGER  Blur radius (kernel is (2*radius+1)^2)
 ' @return LONG  New blurred image handle with correct RGBA, or 0 on error
+'
+''
+' Draw a throttled "working…" progress overlay so a long effect doesn't look like
+' a lockup. Heavy engines call this from their outer loop; it only actually
+' redraws ~12x/sec (TIMER-throttled) and is a no-op for small images (previews).
+' The overlay is transient — the next full SCREEN_render wipes it.
+' @param label STRING  What is happening (e.g. "Blurring")
+' @param frac  SINGLE  Progress 0..1
+'
+SUB IMGADJ_progress_tick (label AS STRING, frac AS SINGLE)
+    STATIC lastDraw AS SINGLE, opStart AS SINGLE, lastCall AS SINGLE
+    DIM nowT AS SINGLE : nowT! = TIMER
+    ' A gap since the previous call means a NEW operation started — restart the clock.
+    IF ABS(nowT! - lastCall!) > 0.4 THEN opStart! = nowT!
+    lastCall! = nowT!
+    ' Skip fast ops entirely (no flash), and throttle redraws to ~14 fps.
+    IF frac! < 1.0 THEN
+        IF nowT! - opStart! < 0.18 THEN EXIT SUB
+        IF ABS(nowT! - lastDraw!) < 0.07 THEN EXIT SUB
+    END IF
+    lastDraw! = nowT!
+
+    DIM od AS LONG : od& = _DEST
+    DIM ofn AS LONG : ofn& = _FONT
+    _DEST 0
+    _FONT 16
+    DIM sw AS LONG, sh AS LONG : sw& = _WIDTH(0) : sh& = _HEIGHT(0)
+    DIM barW AS LONG : barW& = 420 : IF barW& > sw& - 40 THEN barW& = sw& - 40
+    DIM barH AS LONG : barH& = 26
+    DIM bx AS LONG : bx& = (sw& - barW&) \ 2
+    DIM byy AS LONG : byy& = (sh& - barH&) \ 2
+    LINE (bx& - 14, byy& - 34)-(bx& + barW& + 14, byy& + barH& + 14), _RGB32(18, 18, 24), BF
+    LINE (bx& - 14, byy& - 34)-(bx& + barW& + 14, byy& + barH& + 14), _RGB32(90, 90, 110), B
+    LINE (bx&, byy&)-(bx& + barW& - 1, byy& + barH& - 1), _RGB32(45, 45, 55), BF
+    DIM fw AS LONG : fw& = barW& * frac! : IF fw& < 0 THEN fw& = 0
+    IF fw& > barW& THEN fw& = barW&
+    IF fw& > 0 THEN LINE (bx&, byy&)-(bx& + fw& - 1, byy& + barH& - 1), _RGB32(70, 160, 255), BF
+    COLOR _RGB32(235, 235, 245), _RGB32(18, 18, 24)
+    _PRINTSTRING (bx&, byy& - 26), label$ + " ... " + _TRIM$(STR$(INT(frac! * 100.0))) + "%"
+    _DISPLAY
+    _FONT ofn&
+    _DEST od&
+END SUB
+
+''
+' Premultiplied-alpha box blur, SEPARABLE (two running-sum passes: horizontal then
+' vertical). O(1) per pixel regardless of radius — no more O(radius^2) freeze — so
+' large blur/glow/soft-shadow radii stay fast. Premultiplies, blurs all 4 channels,
+' un-premultiplies. Shows a progress overlay on big images.
 '
 FUNCTION IMAGE_ADJ_blur_premul_rgba& (sourceImg AS LONG, radius AS INTEGER)
     IF NOT (sourceImg& < -1) THEN
@@ -250,17 +746,18 @@ FUNCTION IMAGE_ADJ_blur_premul_rgba& (sourceImg AS LONG, radius AS INTEGER)
         EXIT FUNCTION
     END IF
 
-    ' --- Step 1: create premultiplied-alpha copy ---
-    DIM bprPremul AS LONG
-    bprPremul& = _NEWIMAGE(bprW&, bprH&, 32)
-    DIM bprSrcM   AS _MEM, bprPMM AS _MEM
-    bprSrcM = _MEMIMAGE(sourceImg&)
-    bprPMM  = _MEMIMAGE(bprPremul&)
+    DIM bprShowProg AS INTEGER : bprShowProg% = (bprW& * bprH& >= 120000)
 
-    DIM bprOff AS _OFFSET
-    DIM bprPx  AS _UNSIGNED LONG
-    DIM bprR   AS INTEGER, bprG AS INTEGER, bprB AS INTEGER, bprA AS INTEGER
+    ' --- Step 1: premultiplied-alpha copy ---
+    DIM bprPremul AS LONG : bprPremul& = _NEWIMAGE(bprW&, bprH&, 32)
+    DIM bprHBlur AS LONG : bprHBlur& = _NEWIMAGE(bprW&, bprH&, 32)
+    DIM bprResult AS LONG : bprResult& = _NEWIMAGE(bprW&, bprH&, 32)
+    DIM bprSrcM AS _MEM, bprPMM AS _MEM, bprHM AS _MEM, bprResM AS _MEM
+    bprSrcM = _MEMIMAGE(sourceImg&) : bprPMM = _MEMIMAGE(bprPremul&)
+    bprHM = _MEMIMAGE(bprHBlur&) : bprResM = _MEMIMAGE(bprResult&)
 
+    DIM bprOff AS _OFFSET, bprPx AS _UNSIGNED LONG
+    DIM bprR AS INTEGER, bprG AS INTEGER, bprB AS INTEGER, bprA AS INTEGER
     FOR bprOff = 0 TO bprSrcM.SIZE - 4 STEP 4
         _MEMGET bprSrcM, bprSrcM.OFFSET + bprOff, bprPx~&
         bprA% = _ALPHA32(bprPx~&)
@@ -271,73 +768,80 @@ FUNCTION IMAGE_ADJ_blur_premul_rgba& (sourceImg AS LONG, radius AS INTEGER)
         ELSE
             bprR% = 0 : bprG% = 0 : bprB% = 0
         END IF
-        DIM bprPMPx                                       AS _UNSIGNED LONG
-        bprPMPx~& = _RGBA32(bprR%, bprG%, bprB%, bprA%)
-        _MEMPUT bprPMM, bprPMM.OFFSET + bprOff, bprPMPx~& AS _UNSIGNED LONG
+        _MEMPUT bprPMM, bprPMM.OFFSET + bprOff, _RGBA32(bprR%, bprG%, bprB%, bprA%) AS _UNSIGNED LONG
     NEXT bprOff
     _MEMFREE bprSrcM
 
-    ' --- Step 2: box-blur all 4 premultiplied channels ---
-    DIM bprResult AS LONG
-    bprResult& = _NEWIMAGE(bprW&, bprH&, 32)
-    DIM bprResM   AS _MEM
-    bprResM = _MEMIMAGE(bprResult&)
+    DIM bprX AS LONG, bprY AS LONG
+    DIM sumR AS LONG, sumG AS LONG, sumB AS LONG, sumA AS LONG, cnt AS LONG
+    DIM lo AS LONG, hi AS LONG, smp AS _UNSIGNED LONG, rowBase AS _OFFSET
 
-    DIM bprX      AS LONG, bprY AS LONG, bprDX AS INTEGER, bprDY AS INTEGER
-    DIM bprSX     AS LONG, bprSY AS LONG
-    DIM bprSumR   AS LONG, bprSumG AS LONG, bprSumB AS LONG, bprSumA AS LONG
-    DIM bprCnt    AS LONG
-    DIM bprSample AS _UNSIGNED LONG
-
+    ' --- Step 2: HORIZONTAL running-sum pass (premul -> hblur) ---
     FOR bprY& = 0 TO bprH& - 1
+        rowBase = bprY& * bprW& * 4
+        sumR& = 0 : sumG& = 0 : sumB& = 0 : sumA& = 0 : cnt& = 0
+        hi& = radius% : IF hi& > bprW& - 1 THEN hi& = bprW& - 1
+        FOR bprX& = 0 TO hi&
+            _MEMGET bprPMM, bprPMM.OFFSET + rowBase + bprX& * 4, smp~&
+            sumR& = sumR& + _RED32(smp~&) : sumG& = sumG& + _GREEN32(smp~&)
+            sumB& = sumB& + _BLUE32(smp~&) : sumA& = sumA& + _ALPHA32(smp~&) : cnt& = cnt& + 1
+        NEXT bprX&
         FOR bprX& = 0 TO bprW& - 1
-            bprSumR& = 0 : bprSumG& = 0 : bprSumB& = 0 : bprSumA& = 0 : bprCnt& = 0
-            FOR bprDY% = -radius% TO radius%
-                bprSY& = bprY& + bprDY%
-                IF bprSY& >= 0 THEN
-                    IF bprSY& < bprH& THEN
-                        FOR bprDX% = -radius% TO radius%
-                            bprSX& = bprX& + bprDX%
-                            IF bprSX& >= 0 THEN
-                                IF bprSX& < bprW& THEN
-                                    bprSample~& = _MEMGET(bprPMM, bprPMM.OFFSET + (bprSY& * bprW& + bprSX&) * 4, _UNSIGNED LONG)
-                                    bprSumR& = bprSumR& + _RED32(bprSample~&)
-                                    bprSumG& = bprSumG& + _GREEN32(bprSample~&)
-                                    bprSumB& = bprSumB& + _BLUE32(bprSample~&)
-                                    bprSumA& = bprSumA& + _ALPHA32(bprSample~&)
-                                    bprCnt& = bprCnt& + 1
-                                END IF
-                            END IF
-                        NEXT bprDX%
-                    END IF
-                END IF
-            NEXT bprDY%
-
-            IF bprCnt& > 0 THEN
-                ' --- Step 3: un-premultiply ---
-                DIM bprBlurA AS INTEGER
-                bprBlurA% = bprSumA& \ bprCnt&
-                IF bprBlurA% > 0 THEN
-                    DIM bprFR    AS INTEGER, bprFG AS INTEGER, bprFB AS INTEGER
-                    bprFR% = (bprSumR& \ bprCnt&) * 255 \ bprBlurA%
-                    bprFG% = (bprSumG& \ bprCnt&) * 255 \ bprBlurA%
-                    bprFB% = (bprSumB& \ bprCnt&) * 255 \ bprBlurA%
-                    IF bprFR% > 255 THEN bprFR% = 255
-                    IF bprFG% > 255 THEN bprFG% = 255
-                    IF bprFB% > 255 THEN bprFB% = 255
-                    DIM bprOutPx AS _UNSIGNED LONG
-                    bprOutPx~& = _RGBA32(bprFR%, bprFG%, bprFB%, bprBlurA%)
-                    _MEMPUT bprResM, bprResM.OFFSET + (bprY& * bprW& + bprX&) * 4, bprOutPx~& AS _UNSIGNED LONG
-                ELSE
-                    _MEMPUT bprResM, bprResM.OFFSET + (bprY& * bprW& + bprX&) * 4, _RGBA32(0, 0, 0, 0) AS _UNSIGNED LONG
-                END IF
+            IF cnt& > 0 THEN _MEMPUT bprHM, bprHM.OFFSET + rowBase + bprX& * 4, _RGBA32(sumR& \ cnt&, sumG& \ cnt&, sumB& \ cnt&, sumA& \ cnt&) AS _UNSIGNED LONG
+            lo& = bprX& - radius%
+            IF lo& >= 0 THEN
+                _MEMGET bprPMM, bprPMM.OFFSET + rowBase + lo& * 4, smp~&
+                sumR& = sumR& - _RED32(smp~&) : sumG& = sumG& - _GREEN32(smp~&)
+                sumB& = sumB& - _BLUE32(smp~&) : sumA& = sumA& - _ALPHA32(smp~&) : cnt& = cnt& - 1
+            END IF
+            hi& = bprX& + radius% + 1
+            IF hi& < bprW& THEN
+                _MEMGET bprPMM, bprPMM.OFFSET + rowBase + hi& * 4, smp~&
+                sumR& = sumR& + _RED32(smp~&) : sumG& = sumG& + _GREEN32(smp~&)
+                sumB& = sumB& + _BLUE32(smp~&) : sumA& = sumA& + _ALPHA32(smp~&) : cnt& = cnt& + 1
             END IF
         NEXT bprX&
+        IF bprShowProg% AND (bprY& AND 31) = 0 THEN IMGADJ_progress_tick "Blurring", (bprY& / bprH&) * 0.5
     NEXT bprY&
 
-    _MEMFREE bprPMM
-    _MEMFREE bprResM
-    SAFE_FREEIMAGE bprPremul&
+    ' --- Step 3: VERTICAL running-sum pass (hblur -> result, un-premultiply) ---
+    DIM ba AS INTEGER, fr AS INTEGER, fg AS INTEGER, fb AS INTEGER
+    FOR bprX& = 0 TO bprW& - 1
+        sumR& = 0 : sumG& = 0 : sumB& = 0 : sumA& = 0 : cnt& = 0
+        hi& = radius% : IF hi& > bprH& - 1 THEN hi& = bprH& - 1
+        FOR bprY& = 0 TO hi&
+            _MEMGET bprHM, bprHM.OFFSET + (bprY& * bprW& + bprX&) * 4, smp~&
+            sumR& = sumR& + _RED32(smp~&) : sumG& = sumG& + _GREEN32(smp~&)
+            sumB& = sumB& + _BLUE32(smp~&) : sumA& = sumA& + _ALPHA32(smp~&) : cnt& = cnt& + 1
+        NEXT bprY&
+        FOR bprY& = 0 TO bprH& - 1
+            IF cnt& > 0 THEN
+                ba% = sumA& \ cnt&
+                IF ba% > 0 THEN
+                    fr% = (sumR& \ cnt&) * 255 \ ba% : IF fr% > 255 THEN fr% = 255
+                    fg% = (sumG& \ cnt&) * 255 \ ba% : IF fg% > 255 THEN fg% = 255
+                    fb% = (sumB& \ cnt&) * 255 \ ba% : IF fb% > 255 THEN fb% = 255
+                    _MEMPUT bprResM, bprResM.OFFSET + (bprY& * bprW& + bprX&) * 4, _RGBA32(fr%, fg%, fb%, ba%) AS _UNSIGNED LONG
+                END IF
+            END IF
+            lo& = bprY& - radius%
+            IF lo& >= 0 THEN
+                _MEMGET bprHM, bprHM.OFFSET + (lo& * bprW& + bprX&) * 4, smp~&
+                sumR& = sumR& - _RED32(smp~&) : sumG& = sumG& - _GREEN32(smp~&)
+                sumB& = sumB& - _BLUE32(smp~&) : sumA& = sumA& - _ALPHA32(smp~&) : cnt& = cnt& - 1
+            END IF
+            hi& = bprY& + radius% + 1
+            IF hi& < bprH& THEN
+                _MEMGET bprHM, bprHM.OFFSET + (hi& * bprW& + bprX&) * 4, smp~&
+                sumR& = sumR& + _RED32(smp~&) : sumG& = sumG& + _GREEN32(smp~&)
+                sumB& = sumB& + _BLUE32(smp~&) : sumA& = sumA& + _ALPHA32(smp~&) : cnt& = cnt& + 1
+            END IF
+        NEXT bprY&
+        IF bprShowProg% AND (bprX& AND 31) = 0 THEN IMGADJ_progress_tick "Blurring", 0.5 + (bprX& / bprW&) * 0.5
+    NEXT bprX&
+
+    _MEMFREE bprPMM : _MEMFREE bprHM : _MEMFREE bprResM
+    SAFE_FREEIMAGE bprPremul& : SAFE_FREEIMAGE bprHBlur&
     IMAGE_ADJ_blur_premul_rgba& = bprResult&
 END FUNCTION
 
@@ -417,6 +921,7 @@ FUNCTION IMAGE_ADJ_blur_alpha_aware& (sourceImg AS LONG, radius AS INTEGER)
     DIM baaOutPx AS _UNSIGNED LONG
 
     FOR baaY& = 0 TO baaH& - 1
+    IF (baaY& AND 15) = 0 THEN IMGADJ_progress_tick "Blur_alpha_aware", baaY& / baaH&
         FOR baaX& = 0 TO baaW& - 1
             baaCurPx~& = _MEMGET(baaSrc, baaSrc.OFFSET + (baaY& * baaW& + baaX&) * 4, _UNSIGNED LONG)
             IF _ALPHA32(baaCurPx~&) > 0 THEN
@@ -496,6 +1001,7 @@ FUNCTION IMAGE_ADJ_pixelate_alpha_aware& (sourceImg AS LONG, pixelSize AS INTEGE
     DIM paaEndX     AS LONG, paaEndY AS LONG
 
     FOR paaBlockY& = 0 TO paaH& - 1 STEP paaBlockSize%
+    IF (paaBlockY& AND 15) = 0 THEN IMGADJ_progress_tick "Pixelate_alpha_aware", paaBlockY& / paaH&
         FOR paaBlockX& = 0 TO paaW& - 1 STEP paaBlockSize%
             paaSumR& = 0 : paaSumG& = 0 : paaSumB& = 0 : paaSumW& = 0
             paaEndY& = paaBlockY& + paaBlockSize% - 1
@@ -653,6 +1159,7 @@ FUNCTION IMAGE_ADJ_cutout& (sourceImg AS LONG, depth AS INTEGER)
     DIM bestD AS INTEGER, dd AS INTEGER, fac AS SINGLE, px AS _UNSIGNED LONG
     DIM nr AS INTEGER, ng AS INTEGER, nb AS INTEGER
     FOR cy& = 0 TO cuH& - 1
+    IF (cy& AND 15) = 0 THEN IMGADJ_progress_tick "Cutout", cy& / cuH&
         FOR cx& = 0 TO cuW& - 1
             _MEMGET srcM, srcM.OFFSET + (cy& * cuW& + cx&) * 4 + 3, aHere~%%
             IF aHere~%% = 0 THEN _CONTINUE
@@ -712,8 +1219,8 @@ SUB IMAGE_ADJ_cutout_dialog ()
         IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
 
         oDep% = dep%
-        dep% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, dep%, 1, 10)
-        dep% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, dep%, 1, 10)
+        dep% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, dep%, 1, 64)
+        dep% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, dep%, 1, 64)
         IF dep% <> oDep% THEN ctx.previewDirty% = TRUE
         IMGDLG_check_ok_cancel ctx
         IMGDLG_reset1 ctx, dep%, d_dep%
@@ -729,7 +1236,7 @@ SUB IMAGE_ADJ_cutout_dialog ()
         DIALOG_draw_frame ctx, "CUTOUT"
         DIALOG_draw_preview ctx
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "DEPTH:"
-        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, dep%, 1, 10, "", ""
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, dep%, 1, 64, "", ""
         DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
         IMGDLG_draw_ok_cancel ctx
         DIALOG_blit ctx
@@ -789,6 +1296,7 @@ FUNCTION IMAGE_ADJ_corona& (sourceImg AS LONG, radius AS INTEGER, intensity AS I
     DIM aHere AS _UNSIGNED _BYTE, aN AS _UNSIGNED _BYTE
     DIM bestD AS SINGLE, dd AS SINGLE, inten AS SINGLE, aOut AS INTEGER
     FOR oy& = 0 TO coH& - 1
+    IF (oy& AND 15) = 0 THEN IMGADJ_progress_tick "Corona", oy& / coH&
         FOR ox& = 0 TO coW& - 1
             _MEMGET srcM, srcM.OFFSET + (oy& * coW& + ox&) * 4 + 3, aHere~%%
             IF aHere~%% <> 0 THEN _CONTINUE
@@ -851,8 +1359,8 @@ SUB IMAGE_ADJ_corona_dialog ()
         IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
 
         oRad% = rad% : oInten% = inten%
-        rad% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, rad%, 3, 24)
-        rad% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, rad%, 3, 24)
+        rad% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, rad%, 3, 48)
+        rad% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, rad%, 3, 48)
         inten% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, inten%, 0, 100)
         inten% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, inten%, 0, 100)
         IF rad% <> oRad% OR inten% <> oInten% THEN ctx.previewDirty% = TRUE
@@ -861,8 +1369,8 @@ SUB IMAGE_ADJ_corona_dialog ()
 
         IF ctx.previewDirty% THEN
             SAFE_FREEIMAGE ctx.previewThumb
-            ctx.previewThumb = IMAGE_ADJ_corona&(ctx.origThumb, rad%, inten%, PAINT_COLOR~&)
-            IMAGE_ADJ_mask_preview ctx
+            ctx.previewThumb = IMAGE_ADJ_corona&(IMGADJ_fx_src&(ctx), rad%, inten%, PAINT_COLOR~&)
+            IMAGE_ADJ_fx_preview_finish ctx, 1
             ctx.previewDirty% = FALSE
         END IF
 
@@ -870,7 +1378,7 @@ SUB IMAGE_ADJ_corona_dialog ()
         DIALOG_draw_frame ctx, "CORONA"
         DIALOG_draw_preview ctx
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "RADIUS:"
-        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, rad%, 3, 24, "", ""
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, rad%, 3, 48, "", ""
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 1), "INTENSITY:"
         DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, inten%, 0, 100, "", ""
         DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
@@ -887,8 +1395,16 @@ SUB IMAGE_ADJ_corona_dialog ()
         DIM adjR     AS LONG
         FOR coT% = 1 TO coTgtCount%
             CURRENT_LAYER% = coTargets%(coT%)
-            adjR&          = IMAGE_ADJ_corona&(LAYERS(CURRENT_LAYER%).imgHandle&, rad%, inten%, PAINT_COLOR~&)
-            IMAGE_ADJ_apply_spatial adjR&, "Corona"
+            DIM coEdge AS LONG
+            coEdge& = IMGADJ_edge_shape_source&(LAYERS(CURRENT_LAYER%).imgHandle&, LAYERS(CURRENT_LAYER%).apronW%, LAYERS(CURRENT_LAYER%).apronH%)
+            IF coEdge& < -1 THEN
+                adjR& = IMAGE_ADJ_corona&(coEdge&, rad%, inten%, PAINT_COLOR~&)
+                IMAGE_ADJ_apply_spatial_edge adjR&, coEdge&, "Corona"
+                SAFE_FREEIMAGE coEdge&
+            ELSE
+                adjR& = IMAGE_ADJ_corona&(LAYERS(CURRENT_LAYER%).imgHandle&, rad%, inten%, PAINT_COLOR~&)
+                IMAGE_ADJ_apply_spatial adjR&, "Corona"
+            END IF
         NEXT coT%
         IF coTgtCount% > 1 THEN HISTORY_end_group
         CURRENT_LAYER% = coSaveCL%
@@ -933,6 +1449,7 @@ FUNCTION IMAGE_ADJ_backlight& (sourceImg AS LONG, rays AS INTEGER, intensity AS 
     DIM ddx AS SINGLE, ddy AS SINGLE, rr AS SINGLE, ang AS SINGLE, ray AS SINGLE, fall AS SINGLE, br AS SINGLE
     DIM aOut AS INTEGER
     FOR by& = 0 TO blH& - 1
+    IF (by& AND 15) = 0 THEN IMGADJ_progress_tick "Backlight", by& / blH&
         FOR bx& = 0 TO blW& - 1
             _MEMGET srcM, srcM.OFFSET + (by& * blW& + bx&) * 4 + 3, aHere~%%
             IF aHere~%% <> 0 THEN _CONTINUE   ' keep the shape itself
@@ -983,8 +1500,8 @@ SUB IMAGE_ADJ_backlight_dialog ()
         IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
 
         oRys% = rys% : oInten% = inten%
-        rys% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, rys%, 4, 48)
-        rys% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, rys%, 4, 48)
+        rys% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, rys%, 4, 120)
+        rys% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, rys%, 4, 120)
         inten% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, inten%, 0, 100)
         inten% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, inten%, 0, 100)
         IF rys% <> oRys% OR inten% <> oInten% THEN ctx.previewDirty% = TRUE
@@ -993,8 +1510,8 @@ SUB IMAGE_ADJ_backlight_dialog ()
 
         IF ctx.previewDirty% THEN
             SAFE_FREEIMAGE ctx.previewThumb
-            ctx.previewThumb = IMAGE_ADJ_backlight&(ctx.origThumb, rys%, inten%, PAINT_COLOR~&)
-            IMAGE_ADJ_mask_preview ctx
+            ctx.previewThumb = IMAGE_ADJ_backlight&(IMGADJ_fx_src&(ctx), rys%, inten%, PAINT_COLOR~&)
+            IMAGE_ADJ_fx_preview_finish ctx, 1
             ctx.previewDirty% = FALSE
         END IF
 
@@ -1002,7 +1519,7 @@ SUB IMAGE_ADJ_backlight_dialog ()
         DIALOG_draw_frame ctx, "BACKLIGHT"
         DIALOG_draw_preview ctx
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "RAYS:"
-        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, rys%, 4, 48, "", ""
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, rys%, 4, 120, "", ""
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 1), "INTENSITY:"
         DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, inten%, 0, 100, "", ""
         DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
@@ -1019,8 +1536,16 @@ SUB IMAGE_ADJ_backlight_dialog ()
         DIM adjR     AS LONG
         FOR blT% = 1 TO blTgtCount%
             CURRENT_LAYER% = blTargets%(blT%)
-            adjR&          = IMAGE_ADJ_backlight&(LAYERS(CURRENT_LAYER%).imgHandle&, rys%, inten%, PAINT_COLOR~&)
-            IMAGE_ADJ_apply_spatial adjR&, "Backlight"
+            DIM blEdge AS LONG
+            blEdge& = IMGADJ_edge_shape_source&(LAYERS(CURRENT_LAYER%).imgHandle&, LAYERS(CURRENT_LAYER%).apronW%, LAYERS(CURRENT_LAYER%).apronH%)
+            IF blEdge& < -1 THEN
+                adjR& = IMAGE_ADJ_backlight&(blEdge&, rys%, inten%, PAINT_COLOR~&)
+                IMAGE_ADJ_apply_spatial_edge adjR&, blEdge&, "Backlight"
+                SAFE_FREEIMAGE blEdge&
+            ELSE
+                adjR& = IMAGE_ADJ_backlight&(LAYERS(CURRENT_LAYER%).imgHandle&, rys%, inten%, PAINT_COLOR~&)
+                IMAGE_ADJ_apply_spatial adjR&, "Backlight"
+            END IF
         NEXT blT%
         IF blTgtCount% > 1 THEN HISTORY_end_group
         CURRENT_LAYER% = blSaveCL%
@@ -1059,6 +1584,7 @@ FUNCTION IMAGE_ADJ_sky& (sourceImg AS LONG, mode AS INTEGER)
         CASE ELSE : topR% = 2 : topG% = 2 : topB% = 8 : botR% = 6 : botG% = 4 : botB% = 16
     END SELECT
     FOR sy& = 0 TO skH& - 1
+    IF (sy& AND 15) = 0 THEN IMGADJ_progress_tick "Sky", sy& / skH&
         tv! = sy& / (skH& - 1.0)
         rr% = topR% + (botR% - topR%) * tv!
         gg% = topG% + (botG% - topG%) * tv!
@@ -1198,6 +1724,7 @@ FUNCTION IMAGE_ADJ_grid& (sourceImg AS LONG, spacing AS INTEGER, persp AS INTEGE
     DIM gg AS LONG
     IF persp% = 0 THEN
         FOR gg& = 0 TO grW& - 1 STEP spacing%
+        IF (gg& AND 15) = 0 THEN IMGADJ_progress_tick "Grid", gg& / grW&
             LINE (gg&, 0)-(gg&, grH& - 1), c~&
         NEXT gg&
         FOR gg& = 0 TO grH& - 1 STEP spacing%
@@ -1257,8 +1784,8 @@ SUB IMAGE_ADJ_grid_dialog ()
         IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
 
         oSpc% = gspc%
-        gspc% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, gspc%, 4, 64)
-        gspc% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, gspc%, 4, 64)
+        gspc% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, gspc%, 4, 200)
+        gspc% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, gspc%, 4, 200)
         IF DIALOG_hit%(ctx, pvX%, pvY%, pvW%, pvH%) THEN
             perspOn%          = (perspOn% = 0)
             ctx.previewDirty% = TRUE
@@ -1278,7 +1805,7 @@ SUB IMAGE_ADJ_grid_dialog ()
         DIALOG_draw_frame ctx, "RENDER GRID"
         DIALOG_draw_preview ctx
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "SPACING:"
-        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, gspc%, 4, 64, "", ""
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, gspc%, 4, 200, "", ""
         DIALOG_draw_toggle ctx, pvX%, pvY%, pvW%, pvH%, "PERSPECTIVE", perspOn%
         DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
         IMGDLG_draw_ok_cancel ctx
@@ -1334,6 +1861,7 @@ FUNCTION IMAGE_ADJ_dustscratches& (sourceImg AS LONG, threshold AS INTEGER)
     DIM oRv AS INTEGER, oGr AS INTEGER, oBl AS INTEGER, mR AS INTEGER, mGr AS INTEGER, mBl AS INTEGER
     DIM fR AS INTEGER, fGr AS INTEGER, fBl AS INTEGER
     FOR my& = 0 TO dsH& - 1
+    IF (my& AND 15) = 0 THEN IMGADJ_progress_tick "Dustscratches", my& / dsH&
         FOR mx& = 0 TO dsW& - 1
             n% = 0
             FOR dy% = -1 TO 1
@@ -1402,8 +1930,8 @@ SUB IMAGE_ADJ_dustscratches_dialog ()
         IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
 
         oThr% = thr%
-        thr% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, thr%, 2, 64)
-        thr% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, thr%, 2, 64)
+        thr% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, thr%, 2, 200)
+        thr% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, thr%, 2, 200)
         IF thr% <> oThr% THEN ctx.previewDirty% = TRUE
         IMGDLG_check_ok_cancel ctx
         IMGDLG_reset1 ctx, thr%, d_thr%
@@ -1419,7 +1947,7 @@ SUB IMAGE_ADJ_dustscratches_dialog ()
         DIALOG_draw_frame ctx, "DUST & SCRATCHES"
         DIALOG_draw_preview ctx
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "THRESHOLD:"
-        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, thr%, 2, 64, "", ""
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, thr%, 2, 200, "", ""
         DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
         IMGDLG_draw_ok_cancel ctx
         DIALOG_blit ctx
@@ -1469,6 +1997,7 @@ FUNCTION IMAGE_ADJ_median& (sourceImg AS LONG)
     DIM n AS INTEGER, j AS INTEGER, tmp AS INTEGER
     DIM px AS _UNSIGNED LONG, aHere AS _UNSIGNED _BYTE
     FOR my& = 0 TO mdH& - 1
+    IF (my& AND 15) = 0 THEN IMGADJ_progress_tick "Median", my& / mdH&
         FOR mx& = 0 TO mdW& - 1
             n% = 0
             FOR dy% = -1 TO 1
@@ -1541,7 +2070,7 @@ END SUB
 ' @param mono      INTEGER 0 = colour noise, 1 = monochrome
 ' @return LONG  New noisy image handle
 '
-FUNCTION IMAGE_ADJ_addnoise& (sourceImg AS LONG, amount AS INTEGER, mono AS INTEGER)
+FUNCTION IMAGE_ADJ_addnoise& (sourceImg AS LONG, amount AS INTEGER, mono AS INTEGER, pixSize AS INTEGER, mixP AS INTEGER)
     IF NOT (sourceImg& < -1) THEN IMAGE_ADJ_addnoise& = 0 : EXIT FUNCTION
 
     DIM anW AS LONG, anH AS LONG
@@ -1552,29 +2081,42 @@ FUNCTION IMAGE_ADJ_addnoise& (sourceImg AS LONG, amount AS INTEGER, mono AS INTE
     srcM = _MEMIMAGE(sourceImg&)
     resM = _MEMIMAGE(result&)
 
-    DIM nx AS LONG, ny AS LONG, h1 AS LONG, h2 AS LONG
+    ' pixSize = grain size: noise is constant across each pixSize x pixSize block
+    ' (1 = fine per-pixel grain). mixP = how strongly the grain blends over the
+    ' original (0 = none, 100 = full-strength).
+    DIM anPix AS INTEGER : anPix% = pixSize% : IF anPix% < 1 THEN anPix% = 1
+    DIM anMix AS SINGLE : anMix! = mixP% / 100.0
+    IF anMix! < 0.0 THEN anMix! = 0.0 ELSE IF anMix! > 1.0 THEN anMix! = 1.0
+
+    DIM nx AS LONG, ny AS LONG, bx AS LONG, by AS LONG, h1 AS LONG, h2 AS LONG
     DIM dR AS INTEGER, dG AS INTEGER, dB AS INTEGER, sc AS SINGLE
     DIM px AS _UNSIGNED LONG, nr AS INTEGER, ng AS INTEGER, nb AS INTEGER
+    DIM orR AS INTEGER, orG AS INTEGER, orB AS INTEGER
     sc! = amount% / 100.0 * 255.0
     FOR ny& = 0 TO anH& - 1
+    IF (ny& AND 15) = 0 THEN IMGADJ_progress_tick "Addnoise", ny& / anH&
+        by& = ny& \ anPix%
         FOR nx& = 0 TO anW& - 1
-            h1& = ((nx& * 374761393) XOR (ny& * 668265263)) AND 65535
-            h2& = (((nx& + 137) * 374761393) XOR ((ny& + 71) * 668265263)) AND 65535
+            bx& = nx& \ anPix%
+            h1& = ((bx& * 374761393) XOR (by& * 668265263)) AND 65535
+            h2& = (((bx& + 137) * 374761393) XOR ((by& + 71) * 668265263)) AND 65535
             dR% = INT(((h1& / 65535.0) + (h2& / 65535.0) - 1.0) * sc!)
             IF mono% THEN
                 dG% = dR% : dB% = dR%
             ELSE
-                h1& = ((nx& * 40503) XOR (ny& * 12289) XOR 777) AND 65535
-                h2& = ((nx& * 24593) XOR (ny& * 20347) XOR 555) AND 65535
+                h1& = ((bx& * 40503) XOR (by& * 12289) XOR 777) AND 65535
+                h2& = ((bx& * 24593) XOR (by& * 20347) XOR 555) AND 65535
                 dG% = INT(((h1& / 65535.0) + (h2& / 65535.0) - 1.0) * sc!)
-                h1& = ((nx& * 15413) XOR (ny& * 32603) XOR 999) AND 65535
-                h2& = ((nx& * 49157) XOR (ny& * 6151) XOR 333) AND 65535
+                h1& = ((bx& * 15413) XOR (by& * 32603) XOR 999) AND 65535
+                h2& = ((bx& * 49157) XOR (by& * 6151) XOR 333) AND 65535
                 dB% = INT(((h1& / 65535.0) + (h2& / 65535.0) - 1.0) * sc!)
             END IF
             _MEMGET srcM, srcM.OFFSET + (ny& * anW& + nx&) * 4, px~&
-            nr% = _RED32(px~&) + dR% : IF nr% < 0 THEN nr% = 0 ELSE IF nr% > 255 THEN nr% = 255
-            ng% = _GREEN32(px~&) + dG% : IF ng% < 0 THEN ng% = 0 ELSE IF ng% > 255 THEN ng% = 255
-            nb% = _BLUE32(px~&) + dB% : IF nb% < 0 THEN nb% = 0 ELSE IF nb% > 255 THEN nb% = 255
+            orR% = _RED32(px~&) : orG% = _GREEN32(px~&) : orB% = _BLUE32(px~&)
+            ' additive grain, then blend the grained pixel over the original by mix
+            nr% = orR% + INT(dR% * anMix!) : IF nr% < 0 THEN nr% = 0 ELSE IF nr% > 255 THEN nr% = 255
+            ng% = orG% + INT(dG% * anMix!) : IF ng% < 0 THEN ng% = 0 ELSE IF ng% > 255 THEN ng% = 255
+            nb% = orB% + INT(dB% * anMix!) : IF nb% < 0 THEN nb% = 0 ELSE IF nb% > 255 THEN nb% = 255
             _MEMPUT resM, resM.OFFSET + (ny& * anW& + nx&) * 4, _RGBA32(nr%, ng%, nb%, _ALPHA32(px~&)) AS _UNSIGNED LONG
         NEXT nx&
     NEXT ny&
@@ -1592,19 +2134,25 @@ SUB IMAGE_ADJ_addnoise_dialog ()
     IF CURRENT_LAYER% < 1 THEN EXIT SUB
 
     DIM ctx AS DIALOG_CTX
-    DIALOG_init ctx, IMGDLG_W, 130
+    DIALOG_init ctx, IMGDLG_W, 206
     IMAGE_ADJ_setup_preview ctx, LAYERS(CURRENT_LAYER%).imgHandle&
 
     DIM amt AS INTEGER : amt% = 25
     DIM oAmt AS INTEGER
+    DIM npix AS INTEGER : npix% = 1
+    DIM oNpix AS INTEGER
+    DIM nmix AS INTEGER : nmix% = 100
+    DIM oNmix AS INTEGER
     STATIC monoOn AS INTEGER
 
     DIM mvX AS INTEGER, mvY AS INTEGER, mvW AS INTEGER, mvH AS INTEGER
     mvX% = IMGDLG_SX : mvW% = 120 : mvH% = 16
-    mvY% = IMGDLG_track_y%(ctx, 0) + 24
+    mvY% = IMGDLG_track_y%(ctx, 2) + 24
 
     DIM k AS LONG
     DIM d_amt AS INTEGER : d_amt% = 25
+    DIM d_npix AS INTEGER : d_npix% = 1
+    DIM d_nmix AS INTEGER : d_nmix% = 100
     DIM d_monoOn AS INTEGER : d_monoOn% = FALSE
     DO
         DIALOG_poll_mouse ctx
@@ -1613,20 +2161,24 @@ SUB IMAGE_ADJ_addnoise_dialog ()
         IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
         IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
 
-        oAmt% = amt%
+        oAmt% = amt% : oNpix% = npix% : oNmix% = nmix%
         amt% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, amt%, 0, 100)
         amt% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, amt%, 0, 100)
+        npix% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, npix%, 1, 64)
+        npix% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, npix%, 1, 64)
+        nmix% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, 14, nmix%, 0, 100)
+        nmix% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, 14, nmix%, 0, 100)
         IF DIALOG_hit%(ctx, mvX%, mvY%, mvW%, mvH%) THEN
             monoOn%           = (monoOn% = 0)
             ctx.previewDirty% = TRUE
         END IF
-        IF amt% <> oAmt% THEN ctx.previewDirty% = TRUE
+        IF amt% <> oAmt% OR npix% <> oNpix% OR nmix% <> oNmix% THEN ctx.previewDirty% = TRUE
         IMGDLG_check_ok_cancel ctx
-        IMGDLG_reset2 ctx, amt%, monoOn%, d_amt%, d_monoOn%
+        IMGDLG_reset4 ctx, amt%, npix%, nmix%, monoOn%, d_amt%, d_npix%, d_nmix%, d_monoOn%
 
         IF ctx.previewDirty% THEN
             SAFE_FREEIMAGE ctx.previewThumb
-            ctx.previewThumb = IMAGE_ADJ_addnoise&(ctx.origThumb, amt%, monoOn%)
+            ctx.previewThumb = IMAGE_ADJ_addnoise&(ctx.origThumb, amt%, monoOn%, npix%, nmix%)
             IMAGE_ADJ_mask_preview ctx
             ctx.previewDirty% = FALSE
         END IF
@@ -1636,6 +2188,10 @@ SUB IMAGE_ADJ_addnoise_dialog ()
         DIALOG_draw_preview ctx
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "AMOUNT:"
         DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, amt%, 0, 100, "", ""
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 1), "PIXEL SIZE:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, npix%, 1, 64, "", ""
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 2), "MIX:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, nmix%, 0, 100, "", ""
         DIALOG_draw_toggle ctx, mvX%, mvY%, mvW%, mvH%, "MONOCHROME", monoOn%
         DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
         IMGDLG_draw_ok_cancel ctx
@@ -1651,7 +2207,7 @@ SUB IMAGE_ADJ_addnoise_dialog ()
         DIM adjR     AS LONG
         FOR anT% = 1 TO anTgtCount%
             CURRENT_LAYER% = anTargets%(anT%)
-            adjR&          = IMAGE_ADJ_addnoise&(LAYERS(CURRENT_LAYER%).imgHandle&, amt%, monoOn%)
+            adjR&          = IMAGE_ADJ_addnoise&(LAYERS(CURRENT_LAYER%).imgHandle&, amt%, monoOn%, npix%, nmix%)
             IMAGE_ADJ_apply_to_layer adjR&, "Add Noise"
         NEXT anT%
         IF anTgtCount% > 1 THEN HISTORY_end_group
@@ -1686,6 +2242,7 @@ FUNCTION IMAGE_ADJ_terrain& (sourceImg AS LONG, scaleP AS INTEGER)
     DIM nv AS SINGLE, fr AS SINGLE, amp AS SINGLE, amax AS SINGLE
     DIM tr AS INTEGER, tg AS INTEGER, tb AS INTEGER, sh AS SINGLE
     FOR ty& = 0 TO teH& - 1
+    IF (ty& AND 15) = 0 THEN IMGADJ_progress_tick "Terrain", ty& / teH&
         FOR tx& = 0 TO teW& - 1
             nv! = 0.0 : fr! = 1.0 / scaleP% : amp! = 1.0 : amax! = 0.0
             FOR oct% = 0 TO 4
@@ -1745,8 +2302,8 @@ SUB IMAGE_ADJ_terrain_dialog ()
         IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
 
         oScl% = scl%
-        scl% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, scl%, 16, 96)
-        scl% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, scl%, 16, 96)
+        scl% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, scl%, 16, 400)
+        scl% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, scl%, 16, 400)
         IF scl% <> oScl% THEN ctx.previewDirty% = TRUE
         IMGDLG_check_ok_cancel ctx
         IMGDLG_reset1 ctx, scl%, d_scl%
@@ -1762,7 +2319,7 @@ SUB IMAGE_ADJ_terrain_dialog ()
         DIALOG_draw_frame ctx, "TERRAIN"
         DIALOG_draw_preview ctx
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "SCALE:"
-        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, scl%, 16, 96, "", ""
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, scl%, 16, 400, "", ""
         DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
         IMGDLG_draw_ok_cancel ctx
         DIALOG_blit ctx
@@ -1830,6 +2387,7 @@ FUNCTION IMAGE_ADJ_lensflare& (sourceImg AS LONG, bright AS INTEGER)
     DIM addv AS SINGLE, px AS _UNSIGNED LONG
     DIM nr AS INTEGER, ng AS INTEGER, nb AS INTEGER
     FOR ly& = 0 TO lfH& - 1
+    IF (ly& AND 15) = 0 THEN IMGADJ_progress_tick "Lensflare", ly& / lfH&
         FOR lx& = 0 TO lfW& - 1
             addv! = 0.0
             FOR o% = 0 TO 4
@@ -1848,7 +2406,12 @@ FUNCTION IMAGE_ADJ_lensflare& (sourceImg AS LONG, bright AS INTEGER)
                 nr% = _RED32(px~&) + addv! : IF nr% > 255 THEN nr% = 255
                 ng% = _GREEN32(px~&) + addv! * 0.95 : IF ng% > 255 THEN ng% = 255
                 nb% = _BLUE32(px~&) + addv! * 0.8 : IF nb% > 255 THEN nb% = 255
-                _MEMPUT resM, resM.OFFSET + (ly& * lfW& + lx&) * 4, _RGBA32(nr%, ng%, nb%, _ALPHA32(px~&)) AS _UNSIGNED LONG
+                ' Alpha = max(original, flare brightness) so the flare RENDERS on a
+                ' blank/transparent layer, while staying opaque over a photo.
+                DIM lfA AS INTEGER : lfA% = _ALPHA32(px~&)
+                DIM lfB AS INTEGER : lfB% = INT(addv!) : IF lfB% > 255 THEN lfB% = 255
+                IF lfB% > lfA% THEN lfA% = lfB%
+                _MEMPUT resM, resM.OFFSET + (ly& * lfW& + lx&) * 4, _RGBA32(nr%, ng%, nb%, lfA%) AS _UNSIGNED LONG
             END IF
         NEXT lx&
     NEXT ly&
@@ -1915,7 +2478,7 @@ SUB IMAGE_ADJ_lensflare_dialog ()
         FOR lfT% = 1 TO lfTgtCount%
             CURRENT_LAYER% = lfTargets%(lfT%)
             adjR&          = IMAGE_ADJ_lensflare&(LAYERS(CURRENT_LAYER%).imgHandle&, brt%)
-            IMAGE_ADJ_apply_to_layer adjR&, "Lens Flare"
+            IMAGE_ADJ_apply_spatial adjR&, "Lens Flare"
         NEXT lfT%
         IF lfTgtCount% > 1 THEN HISTORY_end_group
         CURRENT_LAYER% = lfSaveCL%
@@ -1951,6 +2514,7 @@ FUNCTION IMAGE_ADJ_diffclouds& (sourceImg AS LONG, scaleP AS INTEGER)
     DIM nv AS SINGLE, fr AS SINGLE, amp AS SINGLE, amax AS SINGLE
     DIM cg AS INTEGER, px AS _UNSIGNED LONG
     FOR dy& = 0 TO dcH& - 1
+    IF (dy& AND 15) = 0 THEN IMGADJ_progress_tick "Diffclouds", dy& / dcH&
         FOR dx& = 0 TO dcW& - 1
             nv! = 0.0 : fr! = 1.0 / scaleP% : amp! = 1.0 : amax! = 0.0
             FOR oct% = 0 TO 2
@@ -1985,7 +2549,7 @@ SUB IMAGE_ADJ_diffclouds ()
     FOR iatT% = 1 TO iatTgtCount%
         CURRENT_LAYER% = iatTargets%(iatT%)
         adjR&          = IMAGE_ADJ_diffclouds&(LAYERS(CURRENT_LAYER%).imgHandle&, 24)
-        IMAGE_ADJ_apply_to_layer adjR&, "Difference Clouds"
+        IMAGE_ADJ_apply_spatial adjR&, "Difference Clouds"
     NEXT iatT%
     IF iatTgtCount% > 1 THEN HISTORY_end_group
     CURRENT_LAYER% = iatSaveCL%
@@ -2022,6 +2586,7 @@ FUNCTION IMAGE_ADJ_clouds& (sourceImg AS LONG, loColor AS _UNSIGNED LONG, hiColo
     DIM nv AS SINGLE, fr AS SINGLE, amp AS SINGLE, amax AS SINGLE
     DIM oct AS INTEGER, cr AS INTEGER, cg AS INTEGER, cb AS INTEGER
     FOR cy& = 0 TO clH& - 1
+    IF (cy& AND 15) = 0 THEN IMGADJ_progress_tick "Clouds", cy& / clH&
         FOR cx& = 0 TO clW& - 1
             nv! = 0.0 : fr! = 1.0 / scaleP% : amp! = 1.0 : amax! = 0.0
             FOR oct% = 0 TO 2
@@ -2066,8 +2631,8 @@ SUB IMAGE_ADJ_clouds_dialog ()
         IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
 
         oScl% = scl%
-        scl% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, scl%, 8, 64)
-        scl% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, scl%, 8, 64)
+        scl% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, scl%, 8, 400)
+        scl% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, scl%, 8, 400)
         IF scl% <> oScl% THEN ctx.previewDirty% = TRUE
         IMGDLG_check_ok_cancel ctx
         IMGDLG_reset1 ctx, scl%, d_scl%
@@ -2083,7 +2648,7 @@ SUB IMAGE_ADJ_clouds_dialog ()
         DIALOG_draw_frame ctx, "CLOUDS"
         DIALOG_draw_preview ctx
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "SCALE:"
-        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, scl%, 8, 64, "", ""
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, scl%, 8, 400, "", ""
         DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
         IMGDLG_draw_ok_cancel ctx
         DIALOG_blit ctx
@@ -2120,13 +2685,21 @@ END SUB
 ' @param strength  INTEGER Streak length in px (2..20)
 ' @return LONG  New wind-streaked image handle
 '
-FUNCTION IMAGE_ADJ_wind& (sourceImg AS LONG, strength AS INTEGER)
+FUNCTION IMAGE_ADJ_wind& (sourceImg AS LONG, strength AS INTEGER, dirDeg AS INTEGER)
     IF NOT (sourceImg& < -1) THEN IMAGE_ADJ_wind& = 0 : EXIT FUNCTION
 
     DIM wiW AS LONG, wiH AS LONG
     wiW& = _WIDTH(sourceImg&) : wiH& = _HEIGHT(sourceImg&)
     DIM result AS LONG
     result& = _COPYIMAGE(sourceImg&, 32)
+
+    ' Downwind step vector from the direction angle, snapped to the 8 compass
+    ' directions (0=right, 90=up, screen-y grows down). Streaks smear downwind;
+    ' the edge test compares each pixel with its UPWIND neighbour.
+    DIM wRad AS SINGLE : wRad! = dirDeg% * 3.14159265 / 180.0
+    DIM sdx AS INTEGER, sdy AS INTEGER
+    sdx% = CINT(COS(wRad!)) : sdy% = CINT(-SIN(wRad!))
+    IF sdx% = 0 AND sdy% = 0 THEN sdx% = 1                     ' degenerate -> rightward
 
     DIM srcM AS _MEM, resM AS _MEM
     srcM = _MEMIMAGE(sourceImg&)
@@ -2135,23 +2708,26 @@ FUNCTION IMAGE_ADJ_wind& (sourceImg AS LONG, strength AS INTEGER)
     DIM wx AS LONG, wy AS LONG, k AS INTEGER
     DIM cur AS _UNSIGNED LONG, prev AS _UNSIGNED LONG, dst AS _UNSIGNED LONG
     DIM lc AS INTEGER, lp AS INTEGER, fade AS SINGLE
-    DIM nr AS INTEGER, ng AS INTEGER, nb AS INTEGER, tx AS LONG
+    DIM nr AS INTEGER, ng AS INTEGER, nb AS INTEGER, tx AS LONG, ty AS LONG, px AS LONG, py AS LONG
     FOR wy& = 0 TO wiH& - 1
-        FOR wx& = 1 TO wiW& - 1
+    IF (wy& AND 15) = 0 THEN IMGADJ_progress_tick "Wind", wy& / wiH&
+        FOR wx& = 0 TO wiW& - 1
+            px& = wx& - sdx% : py& = wy& - sdy%                ' upwind neighbour
+            IF px& < 0 OR px& >= wiW& OR py& < 0 OR py& >= wiH& THEN _CONTINUE
             _MEMGET srcM, srcM.OFFSET + (wy& * wiW& + wx&) * 4, cur~&
-            _MEMGET srcM, srcM.OFFSET + (wy& * wiW& + wx& - 1) * 4, prev~&
+            _MEMGET srcM, srcM.OFFSET + (py& * wiW& + px&) * 4, prev~&
             lc% = (_RED32(cur~&) * 30 + _GREEN32(cur~&) * 59 + _BLUE32(cur~&) * 11) \ 100
             lp% = (_RED32(prev~&) * 30 + _GREEN32(prev~&) * 59 + _BLUE32(prev~&) * 11) \ 100
             IF ABS(lc% - lp%) > 28 THEN
                 FOR k% = 1 TO strength%
-                    tx& = wx& + k%
-                    IF tx& >= wiW& THEN EXIT FOR
+                    tx& = wx& + sdx% * k% : ty& = wy& + sdy% * k%
+                    IF tx& < 0 OR tx& >= wiW& OR ty& < 0 OR ty& >= wiH& THEN EXIT FOR
                     fade! = (strength% - k% + 1) / (strength% + 0.0)
-                    _MEMGET resM, resM.OFFSET + (wy& * wiW& + tx&) * 4, dst~&
+                    _MEMGET resM, resM.OFFSET + (ty& * wiW& + tx&) * 4, dst~&
                     nr% = _RED32(dst~&) + (_RED32(cur~&) - _RED32(dst~&)) * fade!
                     ng% = _GREEN32(dst~&) + (_GREEN32(cur~&) - _GREEN32(dst~&)) * fade!
                     nb% = _BLUE32(dst~&) + (_BLUE32(cur~&) - _BLUE32(dst~&)) * fade!
-                    _MEMPUT resM, resM.OFFSET + (wy& * wiW& + tx&) * 4, _RGBA32(nr%, ng%, nb%, _ALPHA32(dst~&)) AS _UNSIGNED LONG
+                    _MEMPUT resM, resM.OFFSET + (ty& * wiW& + tx&) * 4, _RGBA32(nr%, ng%, nb%, _ALPHA32(dst~&)) AS _UNSIGNED LONG
                 NEXT k%
             END IF
         NEXT wx&
@@ -2170,14 +2746,17 @@ SUB IMAGE_ADJ_wind_dialog ()
     IF CURRENT_LAYER% < 1 THEN EXIT SUB
 
     DIM ctx AS DIALOG_CTX
-    DIALOG_init ctx, IMGDLG_W, 110
+    DIALOG_init ctx, IMGDLG_W, 150
     IMAGE_ADJ_setup_preview ctx, LAYERS(CURRENT_LAYER%).imgHandle&
 
     DIM stg AS INTEGER : stg% = 10
     DIM oStg AS INTEGER
+    DIM wdir AS INTEGER : wdir% = 0                 ' 0=right .. 315, snapped to 8-way in engine
+    DIM oWdir AS INTEGER
 
     DIM k AS LONG
     DIM d_stg AS INTEGER : d_stg% = 10
+    DIM d_wdir AS INTEGER : d_wdir% = 0
     DO
         DIALOG_poll_mouse ctx
         IF ctx.loupeDirty% THEN IMAGE_ADJ_update_loupe ctx
@@ -2185,16 +2764,18 @@ SUB IMAGE_ADJ_wind_dialog ()
         IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
         IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
 
-        oStg% = stg%
-        stg% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, stg%, 2, 20)
-        stg% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, stg%, 2, 20)
-        IF stg% <> oStg% THEN ctx.previewDirty% = TRUE
+        oStg% = stg% : oWdir% = wdir%
+        stg% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, stg%, 2, 80)
+        stg% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, stg%, 2, 80)
+        wdir% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, wdir%, 0, 315)
+        wdir% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, wdir%, 0, 315)
+        IF stg% <> oStg% OR wdir% <> oWdir% THEN ctx.previewDirty% = TRUE
         IMGDLG_check_ok_cancel ctx
-        IMGDLG_reset1 ctx, stg%, d_stg%
+        IMGDLG_reset2 ctx, stg%, wdir%, d_stg%, d_wdir%
 
         IF ctx.previewDirty% THEN
             SAFE_FREEIMAGE ctx.previewThumb
-            ctx.previewThumb = IMAGE_ADJ_wind&(ctx.origThumb, stg%)
+            ctx.previewThumb = IMAGE_ADJ_wind&(ctx.origThumb, stg%, wdir%)
             IMAGE_ADJ_mask_preview ctx
             ctx.previewDirty% = FALSE
         END IF
@@ -2203,7 +2784,9 @@ SUB IMAGE_ADJ_wind_dialog ()
         DIALOG_draw_frame ctx, "WIND"
         DIALOG_draw_preview ctx
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "STRENGTH:"
-        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, stg%, 2, 20, "", ""
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, stg%, 2, 80, "", ""
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 1), "DIRECTION:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, wdir%, 0, 315, "", ""
         DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
         IMGDLG_draw_ok_cancel ctx
         DIALOG_blit ctx
@@ -2218,7 +2801,7 @@ SUB IMAGE_ADJ_wind_dialog ()
         DIM adjR     AS LONG
         FOR wiT% = 1 TO wiTgtCount%
             CURRENT_LAYER% = wiTargets%(wiT%)
-            adjR&          = IMAGE_ADJ_wind&(LAYERS(CURRENT_LAYER%).imgHandle&, stg%)
+            adjR&          = IMAGE_ADJ_wind&(LAYERS(CURRENT_LAYER%).imgHandle&, stg%, wdir%)
             IMAGE_ADJ_apply_to_layer adjR&, "Wind"
         NEXT wiT%
         IF wiTgtCount% > 1 THEN HISTORY_end_group
@@ -2267,6 +2850,7 @@ FUNCTION IMAGE_ADJ_pointillize& (sourceImg AS LONG, dotSize AS INTEGER, bgColor 
     rad% = dotSize% \ 2 : IF rad% < 1 THEN rad% = 1
     r2% = rad% * rad%
     FOR gy& = 0 TO poH& - 1 STEP dotSize%
+    IF (gy& AND 15) = 0 THEN IMGADJ_progress_tick "Pointillize", gy& / poH&
         FOR gx& = 0 TO poW& - 1 STEP dotSize%
             hsh& = ((gx& * 73856093) XOR (gy& * 19349663)) AND 1023
             jx& = gx& + (hsh& AND 31) * dotSize% \ 32
@@ -2319,8 +2903,8 @@ SUB IMAGE_ADJ_pointillize_dialog ()
         IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
 
         oDsz% = dsz%
-        dsz% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, dsz%, 3, 20)
-        dsz% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, dsz%, 3, 20)
+        dsz% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, dsz%, 3, 100)
+        dsz% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, dsz%, 3, 100)
         IF dsz% <> oDsz% THEN ctx.previewDirty% = TRUE
         IMGDLG_check_ok_cancel ctx
         IMGDLG_reset1 ctx, dsz%, d_dsz%
@@ -2336,7 +2920,7 @@ SUB IMAGE_ADJ_pointillize_dialog ()
         DIALOG_draw_frame ctx, "POINTILLIZE"
         DIALOG_draw_preview ctx
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "DOT SIZE:"
-        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, dsz%, 3, 20, "", ""
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, dsz%, 3, 100, "", ""
         DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
         IMGDLG_draw_ok_cancel ctx
         DIALOG_blit ctx
@@ -2400,6 +2984,7 @@ FUNCTION IMAGE_ADJ_extrude& (sourceImg AS LONG, tile AS INTEGER, depth AS INTEGE
     DIM x2 AS LONG, y2 AS LONG, fx AS LONG, fy AS LONG
     DIM avgC AS _UNSIGNED LONG
     FOR by& = 0 TO exH& - 1 STEP tile%
+    IF (by& AND 15) = 0 THEN IMGADJ_progress_tick "Extrude", by& / exH&
         y2& = by& + tile% - 1 : IF y2& >= exH& THEN y2& = exH& - 1
         FOR bx& = 0 TO exW& - 1 STEP tile%
             x2& = bx& + tile% - 1 : IF x2& >= exW& THEN x2& = exW& - 1
@@ -2459,10 +3044,10 @@ SUB IMAGE_ADJ_extrude_dialog ()
         IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
 
         oTsz% = tsz% : oDep% = dep%
-        tsz% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, tsz%, 4, 40)
-        tsz% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, tsz%, 4, 40)
-        dep% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, dep%, 2, 16)
-        dep% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, dep%, 2, 16)
+        tsz% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, tsz%, 4, 200)
+        tsz% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, tsz%, 4, 200)
+        dep% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, dep%, 2, 64)
+        dep% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, dep%, 2, 64)
         IF tsz% <> oTsz% OR dep% <> oDep% THEN ctx.previewDirty% = TRUE
         IMGDLG_check_ok_cancel ctx
         IMGDLG_reset2 ctx, tsz%, dep%, d_tsz%, d_dep%
@@ -2478,9 +3063,9 @@ SUB IMAGE_ADJ_extrude_dialog ()
         DIALOG_draw_frame ctx, "EXTRUDE"
         DIALOG_draw_preview ctx
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "TILE SIZE:"
-        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, tsz%, 4, 40, "", ""
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, tsz%, 4, 200, "", ""
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 1), "DEPTH:"
-        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, dep%, 2, 16, "", ""
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, dep%, 2, 64, "", ""
         DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
         IMGDLG_draw_ok_cancel ctx
         DIALOG_blit ctx
@@ -2517,9 +3102,13 @@ END SUB
 ' @param grout     INTEGER 0 = none, 1 = 1px dark grout between tiles
 ' @return LONG  New mosaic image handle
 '
-FUNCTION IMAGE_ADJ_mosaic& (sourceImg AS LONG, tile AS INTEGER, grout AS INTEGER)
+FUNCTION IMAGE_ADJ_mosaic& (sourceImg AS LONG, tile AS INTEGER, grout AS INTEGER, groutSz AS INTEGER, groutColor AS _UNSIGNED LONG)
     IF NOT (sourceImg& < -1) THEN IMAGE_ADJ_mosaic& = 0 : EXIT FUNCTION
     IF tile% < 2 THEN tile% = 2
+    DIM moGs AS INTEGER : moGs% = groutSz% : IF moGs% < 1 THEN moGs% = 1
+    IF moGs% > tile% - 1 THEN moGs% = tile% - 1        ' leave at least 1px of tile
+    DIM moGr AS INTEGER, moGg AS INTEGER, moGb AS INTEGER
+    moGr% = _RED32(groutColor~&) : moGg% = _GREEN32(groutColor~&) : moGb% = _BLUE32(groutColor~&)
 
     DIM moW AS LONG, moH AS LONG
     moW& = _WIDTH(sourceImg&) : moH& = _HEIGHT(sourceImg&)
@@ -2535,6 +3124,7 @@ FUNCTION IMAGE_ADJ_mosaic& (sourceImg AS LONG, tile AS INTEGER, grout AS INTEGER
     DIM px AS _UNSIGNED LONG, avg AS _UNSIGNED LONG
     DIM x2 AS LONG, y2 AS LONG, isGrout AS INTEGER
     FOR by& = 0 TO moH& - 1 STEP tile%
+    IF (by& AND 15) = 0 THEN IMGADJ_progress_tick "Mosaic", by& / moH&
         y2& = by& + tile% - 1 : IF y2& >= moH& THEN y2& = moH& - 1
         FOR bx& = 0 TO moW& - 1 STEP tile%
             x2& = bx& + tile% - 1 : IF x2& >= moW& THEN x2& = moW& - 1
@@ -2553,10 +3143,10 @@ FUNCTION IMAGE_ADJ_mosaic& (sourceImg AS LONG, tile AS INTEGER, grout AS INTEGER
                 FOR ix& = bx& TO x2&
                     isGrout% = 0
                     IF grout% <> 0 THEN
-                        IF ix& = bx& OR iy& = by& THEN isGrout% = 1
+                        IF ix& < bx& + moGs% OR iy& < by& + moGs% THEN isGrout% = 1
                     END IF
                     IF isGrout% THEN
-                        _MEMPUT resM, resM.OFFSET + (iy& * moW& + ix&) * 4, _RGBA32(20, 20, 24, sa& \ cnt&) AS _UNSIGNED LONG
+                        _MEMPUT resM, resM.OFFSET + (iy& * moW& + ix&) * 4, _RGBA32(moGr%, moGg%, moGb%, sa& \ cnt&) AS _UNSIGNED LONG
                     ELSE
                         _MEMPUT resM, resM.OFFSET + (iy& * moW& + ix&) * 4, avg~& AS _UNSIGNED LONG
                     END IF
@@ -2578,19 +3168,22 @@ SUB IMAGE_ADJ_mosaic_dialog ()
     IF CURRENT_LAYER% < 1 THEN EXIT SUB
 
     DIM ctx AS DIALOG_CTX
-    DIALOG_init ctx, IMGDLG_W, 130
+    DIALOG_init ctx, IMGDLG_W, 172
     IMAGE_ADJ_setup_preview ctx, LAYERS(CURRENT_LAYER%).imgHandle&
 
     DIM tsz AS INTEGER : tsz% = 12
     DIM oTsz AS INTEGER
+    DIM gsz AS INTEGER : gsz% = 1
+    DIM oGsz AS INTEGER
     STATIC groutOn AS INTEGER
 
     DIM gvX AS INTEGER, gvY AS INTEGER, gvW AS INTEGER, gvH AS INTEGER
     gvX% = IMGDLG_SX : gvW% = 120 : gvH% = 16
-    gvY% = IMGDLG_track_y%(ctx, 0) + 24
+    gvY% = IMGDLG_track_y%(ctx, 1) + 24
 
     DIM k AS LONG
     DIM d_tsz AS INTEGER : d_tsz% = 12
+    DIM d_gsz AS INTEGER : d_gsz% = 1
     DIM d_groutOn AS INTEGER : d_groutOn% = FALSE
     DO
         DIALOG_poll_mouse ctx
@@ -2599,20 +3192,22 @@ SUB IMAGE_ADJ_mosaic_dialog ()
         IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
         IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
 
-        oTsz% = tsz%
-        tsz% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, tsz%, 3, 48)
-        tsz% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, tsz%, 3, 48)
+        oTsz% = tsz% : oGsz% = gsz%
+        tsz% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, tsz%, 3, 200)
+        tsz% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, tsz%, 3, 200)
+        gsz% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, gsz%, 1, 48)
+        gsz% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, gsz%, 1, 48)
         IF DIALOG_hit%(ctx, gvX%, gvY%, gvW%, gvH%) THEN
             groutOn%          = (groutOn% = 0)
             ctx.previewDirty% = TRUE
         END IF
-        IF tsz% <> oTsz% THEN ctx.previewDirty% = TRUE
+        IF tsz% <> oTsz% OR gsz% <> oGsz% THEN ctx.previewDirty% = TRUE
         IMGDLG_check_ok_cancel ctx
-        IMGDLG_reset2 ctx, tsz%, groutOn%, d_tsz%, d_groutOn%
+        IMGDLG_reset3 ctx, tsz%, gsz%, groutOn%, d_tsz%, d_gsz%, d_groutOn%
 
         IF ctx.previewDirty% THEN
             SAFE_FREEIMAGE ctx.previewThumb
-            ctx.previewThumb = IMAGE_ADJ_mosaic&(ctx.origThumb, tsz%, groutOn%)
+            ctx.previewThumb = IMAGE_ADJ_mosaic&(ctx.origThumb, tsz%, groutOn%, gsz%, PAINT_BG_COLOR~&)
             IMAGE_ADJ_mask_preview ctx
             ctx.previewDirty% = FALSE
         END IF
@@ -2621,7 +3216,9 @@ SUB IMAGE_ADJ_mosaic_dialog ()
         DIALOG_draw_frame ctx, "MOSAIC / TESSELLATE"
         DIALOG_draw_preview ctx
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "TILE SIZE:"
-        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, tsz%, 3, 48, "", ""
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, tsz%, 3, 200, "", ""
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 1), "GROUT SIZE (BG COLOR):"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, gsz%, 1, 48, "", ""
         DIALOG_draw_toggle ctx, gvX%, gvY%, gvW%, gvH%, "GROUT", groutOn%
         DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
         IMGDLG_draw_ok_cancel ctx
@@ -2637,7 +3234,7 @@ SUB IMAGE_ADJ_mosaic_dialog ()
         DIM adjR     AS LONG
         FOR moT% = 1 TO moTgtCount%
             CURRENT_LAYER% = moTargets%(moT%)
-            adjR&          = IMAGE_ADJ_mosaic&(LAYERS(CURRENT_LAYER%).imgHandle&, tsz%, groutOn%)
+            adjR&          = IMAGE_ADJ_mosaic&(LAYERS(CURRENT_LAYER%).imgHandle&, tsz%, groutOn%, gsz%, PAINT_BG_COLOR~&)
             IMAGE_ADJ_apply_to_layer adjR&, "Mosaic"
         NEXT moT%
         IF moTgtCount% > 1 THEN HISTORY_end_group
@@ -2677,6 +3274,7 @@ FUNCTION IMAGE_ADJ_stainedglass& (sourceImg AS LONG, cellSize AS INTEGER, border
     DIM bestX AS LONG, bestY AS LONG, bestD AS LONG, secondD AS LONG, dd AS LONG
     DIM px AS _UNSIGNED LONG, aOld AS _UNSIGNED _BYTE
     FOR cyp& = 0 TO sgH& - 1
+    IF (cyp& AND 15) = 0 THEN IMGADJ_progress_tick "Stainedglass", cyp& / sgH&
         gy& = cyp& \ cellSize%
         FOR cxp& = 0 TO sgW& - 1
             gx& = cxp& \ cellSize%
@@ -2739,10 +3337,10 @@ SUB IMAGE_ADJ_stainedglass_dialog ()
         IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
 
         oCsz% = csz% : oBdr% = bdr%
-        csz% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, csz%, 4, 40)
-        csz% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, csz%, 4, 40)
-        bdr% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, bdr%, 1, 4)
-        bdr% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, bdr%, 1, 4)
+        csz% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, csz%, 4, 200)
+        csz% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, csz%, 4, 200)
+        bdr% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, bdr%, 1, 16)
+        bdr% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, bdr%, 1, 16)
         IF csz% <> oCsz% OR bdr% <> oBdr% THEN ctx.previewDirty% = TRUE
         IMGDLG_check_ok_cancel ctx
         IMGDLG_reset2 ctx, csz%, bdr%, d_csz%, d_bdr%
@@ -2758,9 +3356,9 @@ SUB IMAGE_ADJ_stainedglass_dialog ()
         DIALOG_draw_frame ctx, "STAINED GLASS"
         DIALOG_draw_preview ctx
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "CELL SIZE:"
-        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, csz%, 4, 40, "", ""
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, csz%, 4, 200, "", ""
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 1), "BORDER:"
-        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, bdr%, 1, 4, "", ""
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, bdr%, 1, 16, "", ""
         DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
         IMGDLG_draw_ok_cancel ctx
         DIALOG_blit ctx
@@ -2815,6 +3413,7 @@ FUNCTION IMAGE_ADJ_crystallize& (sourceImg AS LONG, cellSize AS INTEGER)
     DIM bestX AS LONG, bestY AS LONG, bestD AS LONG, dd AS LONG
     DIM px AS _UNSIGNED LONG
     FOR cyp& = 0 TO crH& - 1
+    IF (cyp& AND 15) = 0 THEN IMGADJ_progress_tick "Crystallize", cyp& / crH&
         gy& = cyp& \ cellSize%
         FOR cxp& = 0 TO crW& - 1
             gx& = cxp& \ cellSize%
@@ -2867,8 +3466,8 @@ SUB IMAGE_ADJ_crystallize_dialog ()
         IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
 
         oCsz% = csz%
-        csz% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, csz%, 4, 40)
-        csz% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, csz%, 4, 40)
+        csz% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, csz%, 4, 200)
+        csz% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, csz%, 4, 200)
         IF csz% <> oCsz% THEN ctx.previewDirty% = TRUE
         IMGDLG_check_ok_cancel ctx
         IMGDLG_reset1 ctx, csz%, d_csz%
@@ -2884,7 +3483,7 @@ SUB IMAGE_ADJ_crystallize_dialog ()
         DIALOG_draw_frame ctx, "CRYSTALLIZE"
         DIALOG_draw_preview ctx
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "CELL SIZE:"
-        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, csz%, 4, 40, "", ""
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, csz%, 4, 200, "", ""
         DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
         IMGDLG_draw_ok_cancel ctx
         DIALOG_blit ctx
@@ -2946,6 +3545,7 @@ FUNCTION IMAGE_ADJ_kaleidoscope& (sourceImg AS LONG, segments AS INTEGER, rotDeg
     DIM klSeg AS LONG
     DIM px AS _UNSIGNED LONG
     FOR ty& = 0 TO klH& - 1
+    IF (ty& AND 15) = 0 THEN IMGADJ_progress_tick "Kaleidoscope", ty& / klH&
         FOR tx& = 0 TO klW& - 1
             ddx! = tx& - ccx! : ddy! = ty& - ccy!
             rr! = SQR(ddx! * ddx! + ddy! * ddy!)
@@ -2997,8 +3597,8 @@ SUB IMAGE_ADJ_kaleidoscope_dialog ()
         IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
 
         oSegs% = segs% : oRot% = rotd%
-        segs% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, segs%, 3, 24)
-        segs% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, segs%, 3, 24)
+        segs% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, segs%, 3, 64)
+        segs% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, segs%, 3, 64)
         rotd% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, rotd%, 0, 359)
         rotd% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, rotd%, 0, 359)
         IF segs% <> oSegs% OR rotd% <> oRot% THEN ctx.previewDirty% = TRUE
@@ -3016,7 +3616,7 @@ SUB IMAGE_ADJ_kaleidoscope_dialog ()
         DIALOG_draw_frame ctx, "KALEIDOSCOPE"
         DIALOG_draw_preview ctx
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "SEGMENTS:"
-        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, segs%, 3, 24, "", ""
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, segs%, 3, 64, "", ""
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 1), "ROTATION:"
         DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, rotd%, 0, 359, "", ""
         DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
@@ -3076,6 +3676,7 @@ FUNCTION IMAGE_ADJ_pinch& (sourceImg AS LONG, amount AS INTEGER)
     DIM ddx AS SINGLE, ddy AS SINGLE, rr AS SINGLE, tnorm AS SINGLE, scl AS SINGLE
     DIM px AS _UNSIGNED LONG
     FOR ty& = 0 TO pnH& - 1
+    IF (ty& AND 15) = 0 THEN IMGADJ_progress_tick "Pinch", ty& / pnH&
         FOR tx& = 0 TO pnW& - 1
             ddx! = tx& - ccx! : ddy! = ty& - ccy!
             rr! = SQR(ddx! * ddx! + ddy! * ddy!)
@@ -3198,6 +3799,7 @@ FUNCTION IMAGE_ADJ_twirl& (sourceImg AS LONG, angleDeg AS INTEGER)
     DIM ddx AS SINGLE, ddy AS SINGLE, rr AS SINGLE, ang AS SINGLE, ca AS SINGLE, sa AS SINGLE
     DIM px AS _UNSIGNED LONG
     FOR ty& = 0 TO twH& - 1
+    IF (ty& AND 15) = 0 THEN IMGADJ_progress_tick "Twirl", ty& / twH&
         FOR tx& = 0 TO twW& - 1
             ddx! = tx& - ccx! : ddy! = ty& - ccy!
             rr! = SQR(ddx! * ddx! + ddy! * ddy!)
@@ -3316,6 +3918,7 @@ FUNCTION IMAGE_ADJ_wave& (sourceImg AS LONG, amplitude AS INTEGER, wavelength AS
     DIM twoPi AS SINGLE : twoPi! = 6.2831853 / wavelength%
     DIM px AS _UNSIGNED LONG
     FOR wy& = 0 TO wvH& - 1
+    IF (wy& AND 15) = 0 THEN IMGADJ_progress_tick "Wave", wy& / wvH&
         FOR wx& = 0 TO wvW& - 1
             sxL& = wx& + INT(amplitude% * SIN(wy& * twoPi!) + 0.5)
             syL& = wy& + INT(amplitude% * SIN(wx& * twoPi!) + 0.5)
@@ -3358,10 +3961,10 @@ SUB IMAGE_ADJ_wave_dialog ()
         IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
 
         oAmp% = amp% : oWl% = wl%
-        amp% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, amp%, 1, 20)
-        amp% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, amp%, 1, 20)
-        wl%  = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, wl%, 4, 64)
-        wl%  = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, wl%, 4, 64)
+        amp% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, amp%, 1, 100)
+        amp% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, amp%, 1, 100)
+        wl%  = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, wl%, 4, 300)
+        wl%  = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, wl%, 4, 300)
         IF amp% <> oAmp% OR wl% <> oWl% THEN ctx.previewDirty% = TRUE
         IMGDLG_check_ok_cancel ctx
         IMGDLG_reset2 ctx, amp%, wl%, d_amp%, d_wl%
@@ -3377,9 +3980,9 @@ SUB IMAGE_ADJ_wave_dialog ()
         DIALOG_draw_frame ctx, "WAVE / RIPPLE"
         DIALOG_draw_preview ctx
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "AMPLITUDE:"
-        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, amp%, 1, 20, "", ""
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, amp%, 1, 100, "", ""
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 1), "WAVELENGTH:"
-        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, wl%, 4, 64, "", ""
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, wl%, 4, 300, "", ""
         DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
         IMGDLG_draw_ok_cancel ctx
         DIALOG_blit ctx
@@ -3442,6 +4045,7 @@ FUNCTION IMAGE_ADJ_chrome& (sourceImg AS LONG, depth AS INTEGER, loColor AS _UNS
     DIM mR AS INTEGER, mG AS INTEGER, mB AS INTEGER
 
     FOR cy& = 0 TO chH& - 1
+    IF (cy& AND 15) = 0 THEN IMGADJ_progress_tick "Chrome", cy& / chH&
         FOR cx& = 0 TO chW& - 1
             _MEMGET srcM, srcM.OFFSET + (cy& * chW& + cx&) * 4 + 3, aHere~%%
             IF aHere~%% = 0 THEN _CONTINUE
@@ -3503,16 +4107,16 @@ SUB IMAGE_ADJ_chrome_dialog ()
         IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
 
         oDepth% = depth%
-        depth% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, depth%, 2, 16)
-        depth% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, depth%, 2, 16)
+        depth% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, depth%, 2, 64)
+        depth% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, depth%, 2, 64)
         IF depth% <> oDepth% THEN ctx.previewDirty% = TRUE
         IMGDLG_check_ok_cancel ctx
         IMGDLG_reset1 ctx, depth%, d_depth%
 
         IF ctx.previewDirty% THEN
             SAFE_FREEIMAGE ctx.previewThumb
-            ctx.previewThumb = IMAGE_ADJ_chrome&(ctx.origThumb, depth%, PAINT_BG_COLOR~&, PAINT_COLOR~&)
-            IMAGE_ADJ_mask_preview ctx
+            ctx.previewThumb = IMAGE_ADJ_chrome&(IMGADJ_fx_src&(ctx), depth%, PAINT_BG_COLOR~&, PAINT_COLOR~&)
+            IMAGE_ADJ_fx_preview_finish ctx, 0
             ctx.previewDirty% = FALSE
         END IF
 
@@ -3520,7 +4124,7 @@ SUB IMAGE_ADJ_chrome_dialog ()
         DIALOG_draw_frame ctx, "CHROME / METALLIC"
         DIALOG_draw_preview ctx
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "DEPTH:"
-        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, depth%, 2, 16, "", ""
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, depth%, 2, 64, "", ""
         DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
         IMGDLG_draw_ok_cancel ctx
         DIALOG_blit ctx
@@ -3535,8 +4139,16 @@ SUB IMAGE_ADJ_chrome_dialog ()
         DIM adjR     AS LONG
         FOR chT% = 1 TO chTgtCount%
             CURRENT_LAYER% = chTargets%(chT%)
-            adjR&          = IMAGE_ADJ_chrome&(LAYERS(CURRENT_LAYER%).imgHandle&, depth%, PAINT_BG_COLOR~&, PAINT_COLOR~&)
-            IMAGE_ADJ_apply_to_layer adjR&, "Chrome"
+            DIM chEdge AS LONG
+            chEdge& = IMGADJ_edge_shape_source&(LAYERS(CURRENT_LAYER%).imgHandle&, LAYERS(CURRENT_LAYER%).apronW%, LAYERS(CURRENT_LAYER%).apronH%)
+            IF chEdge& < -1 THEN
+                adjR& = IMAGE_ADJ_chrome&(chEdge&, depth%, PAINT_BG_COLOR~&, PAINT_COLOR~&)
+                IMAGE_ADJ_apply_spatial_edge adjR&, chEdge&, "Chrome"
+                SAFE_FREEIMAGE chEdge&
+            ELSE
+                adjR& = IMAGE_ADJ_chrome&(LAYERS(CURRENT_LAYER%).imgHandle&, depth%, PAINT_BG_COLOR~&, PAINT_COLOR~&)
+                IMAGE_ADJ_apply_to_layer adjR&, "Chrome"
+            END IF
         NEXT chT%
         IF chTgtCount% > 1 THEN HISTORY_end_group
         CURRENT_LAYER% = chSaveCL%
@@ -3581,6 +4193,7 @@ FUNCTION IMAGE_ADJ_innerglow& (sourceImg AS LONG, radius AS INTEGER, intensity A
     DIM nR AS INTEGER, nG AS INTEGER, nB AS INTEGER   ' output RGB (gg would collide with gG, case-insensitive)
 
     FOR iy& = 0 TO igH& - 1
+    IF (iy& AND 15) = 0 THEN IMGADJ_progress_tick "Innerglow", iy& / igH&
         FOR ix& = 0 TO igW& - 1
             _MEMGET srcM, srcM.OFFSET + (iy& * igW& + ix&) * 4 + 3, aHere~%%
             IF aHere~%% = 0 THEN _CONTINUE
@@ -3646,8 +4259,8 @@ SUB IMAGE_ADJ_innerglow_dialog ()
         IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
 
         oRadius% = radius% : oInten% = inten%
-        radius% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, radius%, 1, 16)
-        radius% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, radius%, 1, 16)
+        radius% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, radius%, 1, 48)
+        radius% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, radius%, 1, 48)
         inten%  = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, inten%, 1, 5)
         inten%  = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, inten%, 1, 5)
         IF radius% <> oRadius% OR inten% <> oInten% THEN ctx.previewDirty% = TRUE
@@ -3656,8 +4269,8 @@ SUB IMAGE_ADJ_innerglow_dialog ()
 
         IF ctx.previewDirty% THEN
             SAFE_FREEIMAGE ctx.previewThumb
-            ctx.previewThumb = IMAGE_ADJ_innerglow&(ctx.origThumb, radius%, inten%, PAINT_COLOR~&)
-            IMAGE_ADJ_mask_preview ctx
+            ctx.previewThumb = IMAGE_ADJ_innerglow&(IMGADJ_fx_src&(ctx), radius%, inten%, PAINT_COLOR~&)
+            IMAGE_ADJ_fx_preview_finish ctx, 0
             ctx.previewDirty% = FALSE
         END IF
 
@@ -3665,7 +4278,7 @@ SUB IMAGE_ADJ_innerglow_dialog ()
         DIALOG_draw_frame ctx, "INNER GLOW"
         DIALOG_draw_preview ctx
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "RADIUS:"
-        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, radius%, 1, 16, "", ""
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, radius%, 1, 48, "", ""
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 1), "INTENSITY:"
         DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, inten%, 1, 5, "", ""
         DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
@@ -3682,8 +4295,16 @@ SUB IMAGE_ADJ_innerglow_dialog ()
         DIM adjR     AS LONG
         FOR igT% = 1 TO igTgtCount%
             CURRENT_LAYER% = igTargets%(igT%)
-            adjR&          = IMAGE_ADJ_innerglow&(LAYERS(CURRENT_LAYER%).imgHandle&, radius%, inten%, PAINT_COLOR~&)
-            IMAGE_ADJ_apply_to_layer adjR&, "Inner Glow"
+            DIM igEdge AS LONG
+            igEdge& = IMGADJ_edge_shape_source&(LAYERS(CURRENT_LAYER%).imgHandle&, LAYERS(CURRENT_LAYER%).apronW%, LAYERS(CURRENT_LAYER%).apronH%)
+            IF igEdge& < -1 THEN
+                adjR& = IMAGE_ADJ_innerglow&(igEdge&, radius%, inten%, PAINT_COLOR~&)
+                IMAGE_ADJ_apply_spatial_edge adjR&, igEdge&, "Inner Glow"
+                SAFE_FREEIMAGE igEdge&
+            ELSE
+                adjR& = IMAGE_ADJ_innerglow&(LAYERS(CURRENT_LAYER%).imgHandle&, radius%, inten%, PAINT_COLOR~&)
+                IMAGE_ADJ_apply_to_layer adjR&, "Inner Glow"
+            END IF
         NEXT igT%
         IF igTgtCount% > 1 THEN HISTORY_end_group
         CURRENT_LAYER% = igSaveCL%
@@ -3788,8 +4409,8 @@ SUB IMAGE_ADJ_outerglow_dialog ()
         IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
 
         oRadius% = radius% : oInten% = inten%
-        radius% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, radius%, 1, 16)
-        radius% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, radius%, 1, 16)
+        radius% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, radius%, 1, 48)
+        radius% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, radius%, 1, 48)
         inten%  = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, inten%, 1, 5)
         inten%  = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, inten%, 1, 5)
         IF radius% <> oRadius% OR inten% <> oInten% THEN ctx.previewDirty% = TRUE
@@ -3798,8 +4419,8 @@ SUB IMAGE_ADJ_outerglow_dialog ()
 
         IF ctx.previewDirty% THEN
             SAFE_FREEIMAGE ctx.previewThumb
-            ctx.previewThumb = IMAGE_ADJ_outerglow&(ctx.origThumb, radius%, inten%, PAINT_COLOR~&)
-            IMAGE_ADJ_mask_preview ctx
+            ctx.previewThumb = IMAGE_ADJ_outerglow&(IMGADJ_fx_src&(ctx), radius%, inten%, PAINT_COLOR~&)
+            IMAGE_ADJ_fx_preview_finish ctx, 1
             ctx.previewDirty% = FALSE
         END IF
 
@@ -3807,7 +4428,7 @@ SUB IMAGE_ADJ_outerglow_dialog ()
         DIALOG_draw_frame ctx, "OUTER GLOW"
         DIALOG_draw_preview ctx
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "RADIUS:"
-        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, radius%, 1, 16, "", ""
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, radius%, 1, 48, "", ""
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 1), "INTENSITY:"
         DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, inten%, 1, 5, "", ""
         DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
@@ -3824,8 +4445,16 @@ SUB IMAGE_ADJ_outerglow_dialog ()
         DIM adjR     AS LONG
         FOR ogT% = 1 TO ogTgtCount%
             CURRENT_LAYER% = ogTargets%(ogT%)
-            adjR&          = IMAGE_ADJ_outerglow&(LAYERS(CURRENT_LAYER%).imgHandle&, radius%, inten%, PAINT_COLOR~&)
-            IMAGE_ADJ_apply_spatial adjR&, "Outer Glow"
+            DIM ogEdge AS LONG
+            ogEdge& = IMGADJ_edge_shape_source&(LAYERS(CURRENT_LAYER%).imgHandle&, LAYERS(CURRENT_LAYER%).apronW%, LAYERS(CURRENT_LAYER%).apronH%)
+            IF ogEdge& < -1 THEN
+                adjR& = IMAGE_ADJ_outerglow&(ogEdge&, radius%, inten%, PAINT_COLOR~&)
+                IMAGE_ADJ_apply_spatial_edge adjR&, ogEdge&, "Outer Glow"
+                SAFE_FREEIMAGE ogEdge&
+            ELSE
+                adjR& = IMAGE_ADJ_outerglow&(LAYERS(CURRENT_LAYER%).imgHandle&, radius%, inten%, PAINT_COLOR~&)
+                IMAGE_ADJ_apply_spatial adjR&, "Outer Glow"
+            END IF
         NEXT ogT%
         IF ogTgtCount% > 1 THEN HISTORY_end_group
         CURRENT_LAYER% = ogSaveCL%
@@ -3877,6 +4506,7 @@ FUNCTION IMAGE_ADJ_bevel& (sourceImg AS LONG, height AS INTEGER, strength AS INT
     DIM aHere AS _UNSIGNED _BYTE, aN AS _UNSIGNED _BYTE
     DIM nx AS LONG, ny AS LONG, dist AS INTEGER, curD AS INTEGER
     FOR by& = 0 TO bvH& - 1
+    IF (by& AND 15) = 0 THEN IMGADJ_progress_tick "Bevel", by& / bvH&
         FOR bx& = 0 TO bvW& - 1
             _MEMGET srcM, srcM.OFFSET + (by& * bvW& + bx&) * 4 + 3, aHere~%%
             IF aHere~%% = 0 THEN
@@ -3960,10 +4590,10 @@ SUB IMAGE_ADJ_bevel_dialog ()
         IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
 
         oHeight% = height% : oStrength% = strength% : oAngle% = angle% : oDir% = direction%
-        height%   = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, height%, 1, 8)
-        height%   = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, height%, 1, 8)
-        strength% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, strength%, 1, 10)
-        strength% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, strength%, 1, 10)
+        height%   = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, height%, 1, 48)
+        height%   = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, height%, 1, 48)
+        strength% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, strength%, 1, 64)
+        strength% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, strength%, 1, 64)
         angle%    = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, 14, angle%, 0, 359)
         angle%    = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, 14, angle%, 0, 359)
         IF DIALOG_hit%(ctx, dvX%, dvY%, dvW%, dvH%) THEN direction% = (direction% = 0) : ctx.previewDirty% = TRUE
@@ -3973,8 +4603,8 @@ SUB IMAGE_ADJ_bevel_dialog ()
 
         IF ctx.previewDirty% THEN
             SAFE_FREEIMAGE ctx.previewThumb
-            ctx.previewThumb = IMAGE_ADJ_bevel&(ctx.origThumb, height%, strength%, angle%, direction%)
-            IMAGE_ADJ_mask_preview ctx
+            ctx.previewThumb = IMAGE_ADJ_bevel&(IMGADJ_fx_src&(ctx), height%, strength%, angle%, direction%)
+            IMAGE_ADJ_fx_preview_finish ctx, 0
             ctx.previewDirty% = FALSE
         END IF
 
@@ -3982,9 +4612,9 @@ SUB IMAGE_ADJ_bevel_dialog ()
         DIALOG_draw_frame ctx, "BEVEL"
         DIALOG_draw_preview ctx
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "HEIGHT:"
-        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, height%, 1, 8, "", ""
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, height%, 1, 48, "", ""
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 1), "STRENGTH:"
-        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, strength%, 1, 10, "", ""
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, strength%, 1, 64, "", ""
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 2), "LIGHT ANGLE:"
         DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, angle%, 0, 359, "", ""
         DIALOG_draw_toggle ctx, dvX%, dvY%, dvW%, dvH%, "DIRECTION: DOWN", direction%
@@ -4002,8 +4632,16 @@ SUB IMAGE_ADJ_bevel_dialog ()
         DIM adjR     AS LONG
         FOR bvT% = 1 TO bvTgtCount%
             CURRENT_LAYER% = bvTargets%(bvT%)
-            adjR&          = IMAGE_ADJ_bevel&(LAYERS(CURRENT_LAYER%).imgHandle&, height%, strength%, angle%, direction%)
-            IMAGE_ADJ_apply_to_layer adjR&, "Bevel"
+            DIM bvEdge AS LONG
+            bvEdge& = IMGADJ_edge_shape_source&(LAYERS(CURRENT_LAYER%).imgHandle&, LAYERS(CURRENT_LAYER%).apronW%, LAYERS(CURRENT_LAYER%).apronH%)
+            IF bvEdge& < -1 THEN
+                adjR& = IMAGE_ADJ_bevel&(bvEdge&, height%, strength%, angle%, direction%)
+                IMAGE_ADJ_apply_spatial_edge adjR&, bvEdge&, "Bevel"
+                SAFE_FREEIMAGE bvEdge&
+            ELSE
+                adjR& = IMAGE_ADJ_bevel&(LAYERS(CURRENT_LAYER%).imgHandle&, height%, strength%, angle%, direction%)
+                IMAGE_ADJ_apply_to_layer adjR&, "Bevel"
+            END IF
         NEXT bvT%
         IF bvTgtCount% > 1 THEN HISTORY_end_group
         CURRENT_LAYER% = bvSaveCL%
@@ -4025,22 +4663,30 @@ END SUB
 ' @param shColor   _UNSIGNED LONG Shadow colour
 ' @return LONG  New composited image handle
 '
-FUNCTION IMAGE_ADJ_longshadow& (sourceImg AS LONG, length AS INTEGER, angleDeg AS INTEGER, shColor AS _UNSIGNED LONG)
+FUNCTION IMAGE_ADJ_longshadow& (sourceImg AS LONG, length AS INTEGER, angleDeg AS INTEGER, shColor AS _UNSIGNED LONG, softFar AS INTEGER, fadeFar AS INTEGER)
     IF NOT (sourceImg& < -1) THEN IMAGE_ADJ_longshadow& = 0 : EXIT FUNCTION
 
     DIM lsW AS LONG, lsH AS LONG
     lsW& = _WIDTH(sourceImg&) : lsH& = _HEIGHT(sourceImg&)
 
-    DIM shadow AS LONG
-    shadow& = _NEWIMAGE(lsW&, lsH&, 32)
+    ' sharp = the crisp shadow, alpha faded with distance; distMap.red = distance
+    ' normalised 0(near)..1(far) so a blurred copy can be mixed in more heavily far
+    ' from the subject — real cast shadows soften and fade as they stretch away.
+    DIM shadow AS LONG, distMap AS LONG
+    shadow&  = _NEWIMAGE(lsW&, lsH&, 32)
+    distMap& = _NEWIMAGE(lsW&, lsH&, 32)
     DIM oldDest AS LONG : oldDest& = _DEST
-    _DEST shadow& : _DONTBLEND shadow& : CLS , _RGBA32(0, 0, 0, 0) : _DEST oldDest&
+    _DEST shadow&  : _DONTBLEND shadow&  : CLS , _RGBA32(0, 0, 0, 0)
+    _DEST distMap& : _DONTBLEND distMap& : CLS , _RGBA32(0, 0, 0, 0) : _DEST oldDest&
 
-    DIM srcM AS _MEM, shM AS _MEM
+    DIM srcM AS _MEM, shM AS _MEM, dmM AS _MEM
     srcM = _MEMIMAGE(sourceImg&)
-    shM = _MEMIMAGE(shadow&)
-    DIM shOpaque AS _UNSIGNED LONG
-    shOpaque~& = _RGBA32(_RED32(shColor~&), _GREEN32(shColor~&), _BLUE32(shColor~&), 255)
+    shM  = _MEMIMAGE(shadow&)
+    dmM  = _MEMIMAGE(distMap&)
+    DIM shR AS INTEGER, shG AS INTEGER, shB AS INTEGER
+    shR% = _RED32(shColor~&) : shG% = _GREEN32(shColor~&) : shB% = _BLUE32(shColor~&)
+    DIM fadeF AS SINGLE : fadeF! = fadeFar% / 100.0
+    DIM denom AS SINGLE : denom! = length% - 1 : IF denom! < 1.0 THEN denom! = 1.0
 
     ' Cast direction (0=right, 90=top, 315=down-right default). For each empty
     ' pixel scan BACK along -cast to see if the shape is within `length`.
@@ -4048,29 +4694,69 @@ FUNCTION IMAGE_ADJ_longshadow& (sourceImg AS LONG, length AS INTEGER, angleDeg A
     DIM cvx AS SINGLE, cvy AS SINGLE : cvx! = COS(lsRad!) : cvy! = -SIN(lsRad!)
 
     DIM lx AS LONG, ly AS LONG, k AS INTEGER, ux AS LONG, uy AS LONG
-    DIM selfA AS _UNSIGNED _BYTE, upA AS _UNSIGNED _BYTE, hitS AS INTEGER
+    DIM selfA AS _UNSIGNED _BYTE, upA AS _UNSIGNED _BYTE, hitS AS INTEGER, hitK AS INTEGER
+    DIM dn AS SINGLE, av AS INTEGER
     FOR ly& = 0 TO lsH& - 1
+    IF (ly& AND 15) = 0 THEN IMGADJ_progress_tick "Longshadow", ly& / lsH&
         FOR lx& = 0 TO lsW& - 1
             _MEMGET srcM, srcM.OFFSET + (ly& * lsW& + lx&) * 4 + 3, selfA~%%
             IF selfA~%% <> 0 THEN _CONTINUE   ' opaque pixels keep original (composited later)
-            hitS% = 0
+            hitS% = 0 : hitK% = 0
             FOR k% = 1 TO length%
                 ux& = lx& - CINT(k% * cvx!) : uy& = ly& - CINT(k% * cvy!)
                 IF ux& < 0 OR uy& < 0 OR ux& >= lsW& OR uy& >= lsH& THEN EXIT FOR
                 _MEMGET srcM, srcM.OFFSET + (uy& * lsW& + ux&) * 4 + 3, upA~%%
-                IF upA~%% <> 0 THEN hitS% = 1 : EXIT FOR
+                IF upA~%% <> 0 THEN hitS% = 1 : hitK% = k% : EXIT FOR
             NEXT k%
-            IF hitS% THEN _MEMPUT shM, shM.OFFSET + (ly& * lsW& + lx&) * 4, shOpaque~& AS _UNSIGNED LONG
+            IF hitS% THEN
+                dn! = (hitK% - 1) / denom!                     ' 0 near .. 1 far
+                av% = 255 * (1.0 - dn! * fadeF!) : IF av% < 0 THEN av% = 0
+                _MEMPUT shM, shM.OFFSET + (ly& * lsW& + lx&) * 4, _RGBA32(shR%, shG%, shB%, av%) AS _UNSIGNED LONG
+                _MEMPUT dmM, dmM.OFFSET + (ly& * lsW& + lx&) * 4, _RGBA32(INT(dn! * 255.0), 0, 0, 255) AS _UNSIGNED LONG
+            END IF
         NEXT lx&
     NEXT ly&
-    _MEMFREE srcM
-    _MEMFREE shM
+    _MEMFREE srcM : _MEMFREE shM : _MEMFREE dmM
+
+    ' Distance-weighted blur: blur the sharp shadow AND the distance map, then mix
+    ' sharp->blurred by the (blurred) distance so near stays crisp, far goes soft.
+    DIM shaded AS LONG
+    IF softFar% > 0 THEN
+        DIM blurS AS LONG, blurD AS LONG
+        blurS& = IMAGE_ADJ_blur_premul_rgba&(shadow&, softFar%)
+        blurD& = IMAGE_ADJ_blur_premul_rgba&(distMap&, softFar%)
+        shaded& = _COPYIMAGE(shadow&, 32)
+        IF blurS& < -1 AND blurD& < -1 AND shaded& < -1 THEN
+            DIM spM AS _MEM, bpM AS _MEM, wpM AS _MEM, opM AS _MEM
+            spM = _MEMIMAGE(shadow&) : bpM = _MEMIMAGE(blurS&)
+            wpM = _MEMIMAGE(blurD&)  : opM = _MEMIMAGE(shaded&)
+            DIM po AS _OFFSET, sp AS _UNSIGNED LONG, bp AS _UNSIGNED LONG, wr AS _UNSIGNED _BYTE
+            DIM ww AS SINGLE, orC AS INTEGER, ogC AS INTEGER, obC AS INTEGER, oaC AS INTEGER
+            FOR po = 0 TO opM.SIZE - 4 STEP 4
+                _MEMGET spM, spM.OFFSET + po, sp~&
+                _MEMGET bpM, bpM.OFFSET + po, bp~&
+                _MEMGET wpM, wpM.OFFSET + po + 2, wr~%%          ' red channel = far-ness
+                ww! = wr~%% / 255.0
+                orC% = _RED32(sp~&)   * (1.0 - ww!) + _RED32(bp~&)   * ww!
+                ogC% = _GREEN32(sp~&) * (1.0 - ww!) + _GREEN32(bp~&) * ww!
+                obC% = _BLUE32(sp~&)  * (1.0 - ww!) + _BLUE32(bp~&)  * ww!
+                oaC% = _ALPHA32(sp~&) * (1.0 - ww!) + _ALPHA32(bp~&) * ww!
+                _MEMPUT opM, opM.OFFSET + po, _RGBA32(orC%, ogC%, obC%, oaC%) AS _UNSIGNED LONG
+            NEXT po
+            _MEMFREE spM : _MEMFREE bpM : _MEMFREE wpM : _MEMFREE opM
+        END IF
+        IF blurS& < -1 THEN _FREEIMAGE blurS&
+        IF blurD& < -1 THEN _FREEIMAGE blurD&
+    ELSE
+        shaded& = _COPYIMAGE(shadow&, 32)
+    END IF
+    SAFE_FREEIMAGE shadow& : SAFE_FREEIMAGE distMap&
 
     DIM result AS LONG
-    result& = _COPYIMAGE(shadow&, 32)
+    result& = _COPYIMAGE(shaded&, 32)
     oldDest& = _DEST
     _DEST result& : _BLEND result& : _PUTIMAGE , sourceImg&, result& : _DEST oldDest&
-    SAFE_FREEIMAGE shadow&
+    SAFE_FREEIMAGE shaded&
 
     IMAGE_ADJ_longshadow& = result&
 END FUNCTION
@@ -4084,14 +4770,18 @@ SUB IMAGE_ADJ_longshadow_dialog ()
     IF CURRENT_LAYER% < 1 THEN EXIT SUB
 
     DIM ctx AS DIALOG_CTX
-    DIALOG_init ctx, IMGDLG_W, 150
+    DIALOG_init ctx, IMGDLG_W, 226
     IMAGE_ADJ_setup_preview ctx, LAYERS(CURRENT_LAYER%).imgHandle&
 
     DIM length  AS INTEGER : length% = 12
     DIM angle   AS INTEGER : angle%  = 315
+    DIM softf   AS INTEGER : softf%  = 3
+    DIM fadef   AS INTEGER : fadef%  = 50
     DIM dLength AS INTEGER : dLength% = 12
     DIM dAngle  AS INTEGER : dAngle%  = 315
-    DIM oLength AS INTEGER, oAngle AS INTEGER
+    DIM dSoftf  AS INTEGER : dSoftf%  = 3
+    DIM dFadef  AS INTEGER : dFadef%  = 50
+    DIM oLength AS INTEGER, oAngle AS INTEGER, oSoftf AS INTEGER, oFadef AS INTEGER
 
     DIM k AS LONG
     DO
@@ -4101,19 +4791,23 @@ SUB IMAGE_ADJ_longshadow_dialog ()
         IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
         IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
 
-        oLength% = length% : oAngle% = angle%
-        length% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, length%, 1, 40)
-        length% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, length%, 1, 40)
+        oLength% = length% : oAngle% = angle% : oSoftf% = softf% : oFadef% = fadef%
+        length% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, length%, 1, 250)
+        length% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, length%, 1, 250)
         angle%  = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, angle%, 0, 359)
         angle%  = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, angle%, 0, 359)
+        softf%  = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, 14, softf%, 0, 100)
+        softf%  = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, 14, softf%, 0, 100)
+        fadef%  = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 3), IMGDLG_SW, 14, fadef%, 0, 100)
+        fadef%  = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 3), IMGDLG_SW, 14, fadef%, 0, 100)
         IMGDLG_check_ok_cancel ctx
-        IMGDLG_reset2 ctx, length%, angle%, dLength%, dAngle%
-        IF length% <> oLength% OR angle% <> oAngle% THEN ctx.previewDirty% = TRUE
+        IMGDLG_reset4 ctx, length%, angle%, softf%, fadef%, dLength%, dAngle%, dSoftf%, dFadef%
+        IF length% <> oLength% OR angle% <> oAngle% OR softf% <> oSoftf% OR fadef% <> oFadef% THEN ctx.previewDirty% = TRUE
 
         IF ctx.previewDirty% THEN
             SAFE_FREEIMAGE ctx.previewThumb
-            ctx.previewThumb = IMAGE_ADJ_longshadow&(ctx.origThumb, length%, angle%, PAINT_BG_COLOR~&)
-            IMAGE_ADJ_mask_preview ctx
+            ctx.previewThumb = IMAGE_ADJ_longshadow&(IMGADJ_fx_src&(ctx), length%, angle%, PAINT_BG_COLOR~&, softf%, fadef%)
+            IMAGE_ADJ_fx_preview_finish ctx, 1
             ctx.previewDirty% = FALSE
         END IF
 
@@ -4121,9 +4815,13 @@ SUB IMAGE_ADJ_longshadow_dialog ()
         DIALOG_draw_frame ctx, "PERSPECTIVE SHADOW"
         DIALOG_draw_preview ctx
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "LENGTH:"
-        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, length%, 1, 40, "", ""
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, length%, 1, 250, "", ""
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 1), "CAST ANGLE:"
         DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, angle%, 0, 359, "", ""
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 2), "SOFTEN (FAR):"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, softf%, 0, 100, "", ""
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 3), "FADE (FAR):"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 3), IMGDLG_SW, fadef%, 0, 100, "", ""
         DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
         IMGDLG_draw_ok_cancel ctx
         DIALOG_blit ctx
@@ -4138,11 +4836,20 @@ SUB IMAGE_ADJ_longshadow_dialog ()
         DIM adjR     AS LONG
         FOR lsT% = 1 TO lsTgtCount%
             CURRENT_LAYER% = lsTargets%(lsT%)
-            adjR&          = IMAGE_ADJ_longshadow&(LAYERS(CURRENT_LAYER%).imgHandle&, length%, angle%, PAINT_BG_COLOR~&)
-            IMAGE_ADJ_apply_spatial adjR&, "Long Shadow"
+            DIM lsEdge AS LONG
+            lsEdge& = IMGADJ_edge_shape_source&(LAYERS(CURRENT_LAYER%).imgHandle&, LAYERS(CURRENT_LAYER%).apronW%, LAYERS(CURRENT_LAYER%).apronH%)
+            IF lsEdge& < -1 THEN
+                adjR& = IMAGE_ADJ_longshadow&(lsEdge&, length%, angle%, PAINT_BG_COLOR~&, softf%, fadef%)
+                IMAGE_ADJ_apply_spatial_edge adjR&, lsEdge&, "Long Shadow"
+                SAFE_FREEIMAGE lsEdge&
+            ELSE
+                adjR& = IMAGE_ADJ_longshadow&(LAYERS(CURRENT_LAYER%).imgHandle&, length%, angle%, PAINT_BG_COLOR~&, softf%, fadef%)
+                IMAGE_ADJ_apply_spatial adjR&, "Long Shadow"
+            END IF
         NEXT lsT%
         IF lsTgtCount% > 1 THEN HISTORY_end_group
         CURRENT_LAYER% = lsSaveCL%
+        IMGADJ_stash_fx length%, angle%, softf%, fadef%   ' enable instant Redo
     END IF
 
     DIALOG_cleanup ctx
@@ -4208,9 +4915,10 @@ FUNCTION IMAGE_ADJ_wood& (sourceImg AS LONG, scaleP AS INTEGER, grain AS INTEGER
     DIM freq AS SINGLE : freq! = 0.35 + scaleP% / 100.0 * 1.2
     DIM distort AS SINGLE : distort! = grain% / 100.0 * 8.0
     DIM ax AS LONG, ay AS LONG, aHere AS _UNSIGNED _BYTE
-    DIM tb AS SINGLE, dd AS SINGLE, rings AS SINGLE, gv AS SINGLE, mixv AS SINGLE
+    DIM tb AS SINGLE, dd AS SINGLE, rings AS SINGLE, gv AS SINGLE
     DIM rr AS INTEGER, gg2 AS INTEGER, bb AS INTEGER
     FOR ay& = 0 TO woH& - 1
+    IF (ay& AND 15) = 0 THEN IMGADJ_progress_tick "Wood", ay& / woH&
         FOR ax& = 0 TO woW& - 1
             _MEMGET srcM, srcM.OFFSET + (ay& * woW& + ax&) * 4 + 3, aHere~%%
             IF aHere~%% = 0 THEN _CONTINUE
@@ -4249,6 +4957,7 @@ FUNCTION IMAGE_ADJ_marble& (sourceImg AS LONG, scaleP AS INTEGER, veins AS INTEG
     DIM ax AS LONG, ay AS LONG, aHere AS _UNSIGNED _BYTE
     DIM tb AS SINGLE, v AS SINGLE, gv AS SINGLE, g2 AS INTEGER
     FOR ay& = 0 TO maH& - 1
+    IF (ay& AND 15) = 0 THEN IMGADJ_progress_tick "Marble", ay& / maH&
         FOR ax& = 0 TO maW& - 1
             _MEMGET srcM, srcM.OFFSET + (ay& * maW& + ax&) * 4 + 3, aHere~%%
             IF aHere~%% = 0 THEN _CONTINUE
@@ -4287,6 +4996,7 @@ FUNCTION IMAGE_ADJ_brick& (sourceImg AS LONG, sizeP AS INTEGER, mortarW AS INTEG
     DIM brRow AS LONG, yInRow AS LONG, xShift AS LONG, brCol AS LONG, xInBr AS LONG
     DIM jit AS SINGLE, rr AS INTEGER, gg2 AS INTEGER, bb AS INTEGER
     FOR ay& = 0 TO brH& - 1
+    IF (ay& AND 15) = 0 THEN IMGADJ_progress_tick "Brick", ay& / brH&
         FOR ax& = 0 TO brW& - 1
             _MEMGET srcM, srcM.OFFSET + (ay& * brW& + ax&) * 4 + 3, aHere~%%
             IF aHere~%% = 0 THEN _CONTINUE
@@ -4334,6 +5044,7 @@ FUNCTION IMAGE_ADJ_diamondplate& (sourceImg AS LONG, sizeP AS INTEGER, depth AS 
     DIM g2 AS INTEGER, baseGrey AS INTEGER
     baseGrey% = 125
     FOR ay& = 0 TO dpH& - 1
+    IF (ay& AND 15) = 0 THEN IMGADJ_progress_tick "Diamondplate", ay& / dpH&
         FOR ax& = 0 TO dpW& - 1
             _MEMGET srcM, srcM.OFFSET + (ay& * dpW& + ax&) * 4 + 3, aHere~%%
             IF aHere~%% = 0 THEN _CONTINUE
@@ -4380,6 +5091,7 @@ FUNCTION IMAGE_ADJ_lightning& (sourceImg AS LONG, jag AS INTEGER, glow AS INTEGE
     DIM boltX AS SINGLE, boltX2 AS SINGLE, dist AS SINGLE, dist2 AS SINGLE, t AS SINGLE
     DIM pr AS INTEGER, pg AS INTEGER, pb AS INTEGER, lr AS INTEGER, lg AS INTEGER, lb AS INTEGER, best AS SINGLE
     FOR ay& = 0 TO ltH& - 1
+    IF (ay& AND 15) = 0 THEN IMGADJ_progress_tick "Lightning", ay& / ltH&
         ' main bolt path + one branch (offset seed), both wandering by noise
         boltX! = cxBase! + (IMGADJ_valnoise!(ay& * 0.12, 0.5, 191) - 0.5) * 2.0 * jagAmp! _
                + (IMGADJ_valnoise!(ay& * 0.4, 1.5, 192) - 0.5) * jagAmp! * 0.5
@@ -4433,6 +5145,7 @@ FUNCTION IMAGE_ADJ_stone& (sourceImg AS LONG, sizeP AS INTEGER, mortarW AS INTEG
     DIM d1 AS SINGLE, d2 AS SINGLE, bestGX AS LONG, bestGY AS LONG, jit AS SINGLE
     DIM tone AS SINGLE, g2 AS INTEGER
     FOR ay& = 0 TO stH& - 1
+    IF (ay& AND 15) = 0 THEN IMGADJ_progress_tick "Stone", ay& / stH&
         FOR ax& = 0 TO stW& - 1
             _MEMGET srcM, srcM.OFFSET + (ay& * stW& + ax&) * 4 + 3, aHere~%%
             IF aHere~%% = 0 THEN _CONTINUE
@@ -4491,6 +5204,7 @@ FUNCTION IMAGE_ADJ_reptile& (sourceImg AS LONG, sizeP AS INTEGER, relief AS INTE
     DIM d1 AS SINGLE, d2 AS SINGLE, jit AS SINGLE, dome AS SINGLE
     DIM pr AS INTEGER, pg AS INTEGER, pb AS INTEGER, rr AS INTEGER, rg AS INTEGER, rb AS INTEGER
     FOR ay& = 0 TO rsH& - 1
+    IF (ay& AND 15) = 0 THEN IMGADJ_progress_tick "Reptile", ay& / rsH&
         FOR ax& = 0 TO rsW& - 1
             _MEMGET srcM, srcM.OFFSET + (ay& * rsW& + ax&) * 4 + 3, aHere~%%
             IF aHere~%% = 0 THEN _CONTINUE
@@ -4551,6 +5265,7 @@ FUNCTION IMAGE_ADJ_ripples& (sourceImg AS LONG, amp AS INTEGER, freqP AS INTEGER
     DIM ddx AS SINGLE, ddy AS SINGLE, dist AS SINGLE, disp AS SINGLE, ux AS SINGLE, uy AS SINGLE
     DIM samX AS LONG, samY AS LONG, pix AS _UNSIGNED LONG
     FOR ay& = 0 TO rpH& - 1
+    IF (ay& AND 15) = 0 THEN IMGADJ_progress_tick "Ripples", ay& / rpH&
         FOR ax& = 0 TO rpW& - 1
             _MEMGET srcM, srcM.OFFSET + (ay& * rpW& + ax&) * 4 + 3, aHere~%%
             IF aHere~%% = 0 THEN _CONTINUE
@@ -4598,6 +5313,7 @@ FUNCTION IMAGE_ADJ_fur& (sourceImg AS LONG, density AS INTEGER, direction AS INT
     DIM n AS SINGLE, sh AS SINGLE, pr AS INTEGER, pg AS INTEGER, pb AS INTEGER
     DIM fr AS INTEGER, fg AS INTEGER, fb AS INTEGER
     FOR ay& = 0 TO fuH& - 1
+    IF (ay& AND 15) = 0 THEN IMGADJ_progress_tick "Fur", ay& / fuH&
         FOR ax& = 0 TO fuW& - 1
             _MEMGET srcM, srcM.OFFSET + (ay& * fuW& + ax&) * 4 + 3, aHere~%%
             IF aHere~%% = 0 THEN _CONTINUE
@@ -4640,6 +5356,7 @@ FUNCTION IMAGE_ADJ_texnoise& (sourceImg AS LONG, amount AS INTEGER, mono AS INTE
     DIM nR AS SINGLE, nG AS SINGLE, nB AS SINGLE
     DIM pr AS INTEGER, pg AS INTEGER, pb AS INTEGER, tr AS INTEGER, tg AS INTEGER, tb AS INTEGER
     FOR ay& = 0 TO tnH& - 1
+    IF (ay& AND 15) = 0 THEN IMGADJ_progress_tick "Texnoise", ay& / tnH&
         FOR ax& = 0 TO tnW& - 1
             _MEMGET srcM, srcM.OFFSET + (ay& * tnW& + ax&) * 4 + 3, aHere~%%
             IF aHere~%% = 0 THEN _CONTINUE
@@ -4683,6 +5400,7 @@ FUNCTION IMAGE_ADJ_brushmetal& (sourceImg AS LONG, bright AS INTEGER, grain AS I
     DIM ax AS LONG, ay AS LONG, aHere AS _UNSIGNED _BYTE
     DIM n AS SINGLE, g2 AS INTEGER
     FOR ay& = 0 TO bmH& - 1
+    IF (ay& AND 15) = 0 THEN IMGADJ_progress_tick "Brushmetal", ay& / bmH&
         FOR ax& = 0 TO bmW& - 1
             _MEMGET srcM, srcM.OFFSET + (ay& * bmW& + ax&) * 4 + 3, aHere~%%
             IF aHere~%% = 0 THEN _CONTINUE
@@ -4720,6 +5438,7 @@ FUNCTION IMAGE_ADJ_weave& (sourceImg AS LONG, sizeP AS INTEGER, tone AS INTEGER)
     DIM shade AS SINGLE, acr AS SINGLE, wr AS INTEGER, wg AS INTEGER, wb AS INTEGER, tScale AS SINGLE
     tScale! = tone% / 100.0
     FOR ay& = 0 TO weH& - 1
+    IF (ay& AND 15) = 0 THEN IMGADJ_progress_tick "Weave", ay& / weH&
         FOR ax& = 0 TO weW& - 1
             _MEMGET srcM, srcM.OFFSET + (ay& * weW& + ax&) * 4 + 3, aHere~%%
             IF aHere~%% = 0 THEN _CONTINUE
@@ -4911,10 +5630,10 @@ SUB IMAGE_ADJ_brick_dialog ()
         IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
         IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
         o1% = p1% : o2% = p2% : oMix% = texMix%
-        p1% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, p1%, 3, 24)
-        p1% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, p1%, 3, 24)
-        p2% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, p2%, 1, 6)
-        p2% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, p2%, 1, 6)
+        p1% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, p1%, 3, 80)
+        p1% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, p1%, 3, 80)
+        p2% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, p2%, 1, 24)
+        p2% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, p2%, 1, 24)
         texMix% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, 14, texMix%, 0, 100)
         texMix% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, 14, texMix%, 0, 100)
         IMGDLG_check_ok_cancel ctx
@@ -4931,9 +5650,9 @@ SUB IMAGE_ADJ_brick_dialog ()
         DIALOG_draw_frame ctx, "BRICK WALL"
         DIALOG_draw_preview ctx
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "SIZE:"
-        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, p1%, 3, 24, "", ""
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, p1%, 3, 80, "", ""
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 1), "MORTAR:"
-        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, p2%, 1, 6, "", ""
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, p2%, 1, 24, "", ""
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 2), "MIX:"
         DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, texMix%, 0, 100, "", ""
         DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
@@ -5047,8 +5766,8 @@ SUB IMAGE_ADJ_weave_dialog ()
         IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
         IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
         o1% = p1% : o2% = p2% : oMix% = texMix%
-        p1% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, p1%, 3, 20)
-        p1% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, p1%, 3, 20)
+        p1% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, p1%, 3, 80)
+        p1% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, p1%, 3, 80)
         p2% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, p2%, 0, 100)
         p2% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, p2%, 0, 100)
         texMix% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, 14, texMix%, 0, 100)
@@ -5067,7 +5786,7 @@ SUB IMAGE_ADJ_weave_dialog ()
         DIALOG_draw_frame ctx, "WEAVE"
         DIALOG_draw_preview ctx
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "SIZE:"
-        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, p1%, 3, 20, "", ""
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, p1%, 3, 80, "", ""
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 1), "TONE:"
         DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, p2%, 0, 100, "", ""
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 2), "MIX:"
@@ -5286,10 +6005,10 @@ SUB IMAGE_ADJ_stone_dialog ()
         IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
         IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
         o1% = p1% : o2% = p2% : oMix% = texMix%
-        p1% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, p1%, 5, 40)
-        p1% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, p1%, 5, 40)
-        p2% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, p2%, 1, 6)
-        p2% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, p2%, 1, 6)
+        p1% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, p1%, 5, 120)
+        p1% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, p1%, 5, 120)
+        p2% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, p2%, 1, 24)
+        p2% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, p2%, 1, 24)
         texMix% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, 14, texMix%, 0, 100)
         texMix% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, 14, texMix%, 0, 100)
         IMGDLG_check_ok_cancel ctx
@@ -5306,9 +6025,9 @@ SUB IMAGE_ADJ_stone_dialog ()
         DIALOG_draw_frame ctx, "STONE WALL"
         DIALOG_draw_preview ctx
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "SIZE:"
-        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, p1%, 5, 40, "", ""
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, p1%, 5, 120, "", ""
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 1), "MORTAR:"
-        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, p2%, 1, 6, "", ""
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, p2%, 1, 24, "", ""
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 2), "MIX:"
         DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, texMix%, 0, 100, "", ""
         DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
@@ -5354,8 +6073,8 @@ SUB IMAGE_ADJ_reptile_dialog ()
         IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
         IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
         o1% = p1% : o2% = p2% : oMix% = texMix%
-        p1% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, p1%, 4, 24)
-        p1% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, p1%, 4, 24)
+        p1% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, p1%, 4, 80)
+        p1% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, p1%, 4, 80)
         p2% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, p2%, 0, 100)
         p2% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, p2%, 0, 100)
         texMix% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, 14, texMix%, 0, 100)
@@ -5374,7 +6093,7 @@ SUB IMAGE_ADJ_reptile_dialog ()
         DIALOG_draw_frame ctx, "REPTILE SKIN"
         DIALOG_draw_preview ctx
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "SIZE:"
-        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, p1%, 4, 24, "", ""
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, p1%, 4, 80, "", ""
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 1), "RELIEF:"
         DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, p2%, 0, 100, "", ""
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 2), "MIX:"
@@ -5422,8 +6141,8 @@ SUB IMAGE_ADJ_diamondplate_dialog ()
         IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
         IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
         o1% = p1% : o2% = p2% : oMix% = texMix%
-        p1% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, p1%, 4, 32)
-        p1% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, p1%, 4, 32)
+        p1% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, p1%, 4, 100)
+        p1% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, p1%, 4, 100)
         p2% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, p2%, 0, 100)
         p2% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, p2%, 0, 100)
         texMix% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, 14, texMix%, 0, 100)
@@ -5442,7 +6161,7 @@ SUB IMAGE_ADJ_diamondplate_dialog ()
         DIALOG_draw_frame ctx, "DIAMOND PLATE"
         DIALOG_draw_preview ctx
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "SIZE:"
-        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, p1%, 4, 32, "", ""
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, p1%, 4, 100, "", ""
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 1), "DEPTH:"
         DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, p2%, 0, 100, "", ""
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 2), "MIX:"
@@ -5564,6 +6283,7 @@ FUNCTION IMAGE_ADJ_waterdrops& (sourceImg AS LONG, dropSize AS INTEGER, refract 
     DIM pix AS _UNSIGNED LONG, pr AS INTEGER, pg AS INTEGER, pb AS INTEGER
     DIM hi AS SINGLE, wr AS INTEGER, wg AS INTEGER, wb AS INTEGER
     FOR wy& = 0 TO wdH& - 1
+    IF (wy& AND 15) = 0 THEN IMGADJ_progress_tick "Waterdrops", wy& / wdH&
         FOR wx& = 0 TO wdW& - 1
             _MEMGET srcM, srcM.OFFSET + (wy& * wdW& + wx&) * 4 + 3, aHere~%%
             IF aHere~%% = 0 THEN _CONTINUE
@@ -5647,8 +6367,8 @@ SUB IMAGE_ADJ_waterdrops_dialog ()
         IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
 
         oSize% = dropSize% : oRefract% = refract%
-        dropSize% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, dropSize%, 4, 24)
-        dropSize% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, dropSize%, 4, 24)
+        dropSize% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, dropSize%, 4, 100)
+        dropSize% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, dropSize%, 4, 100)
         refract%  = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, refract%, 0, 100)
         refract%  = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, refract%, 0, 100)
         IF dropSize% <> oSize% OR refract% <> oRefract% THEN ctx.previewDirty% = TRUE
@@ -5666,7 +6386,7 @@ SUB IMAGE_ADJ_waterdrops_dialog ()
         DIALOG_draw_frame ctx, "WATER DROPS"
         DIALOG_draw_preview ctx
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "SIZE:"
-        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, dropSize%, 4, 24, "", ""
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, dropSize%, 4, 100, "", ""
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 1), "REFRACT:"
         DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, refract%, 0, 100, "", ""
         DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
@@ -5727,6 +6447,7 @@ FUNCTION IMAGE_ADJ_electrify& (sourceImg AS LONG, reach AS INTEGER, intensity AS
     DIM minD AS SINGLE, dd AS SINGLE, glow AS SINGLE, nz AS SINGLE, arc AS SINGLE
     DIM er AS INTEGER, eg AS INTEGER, eb AS INTEGER, ea AS INTEGER
     FOR ey& = 0 TO elH& - 1
+    IF (ey& AND 15) = 0 THEN IMGADJ_progress_tick "Electrify", ey& / elH&
         FOR ex& = 0 TO elW& - 1
             _MEMGET srcM, srcM.OFFSET + (ey& * elW& + ex&) * 4 + 3, aHere~%%
             IF aHere~%% <> 0 THEN _CONTINUE                 ' arcs fill empty space near the edge
@@ -5798,8 +6519,8 @@ SUB IMAGE_ADJ_electrify_dialog ()
         IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
 
         oReach% = reach% : oIntensity% = intensity%
-        reach%     = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, reach%, 2, 12)
-        reach%     = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, reach%, 2, 12)
+        reach%     = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, reach%, 2, 32)
+        reach%     = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, reach%, 2, 32)
         intensity% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, intensity%, 0, 100)
         intensity% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, intensity%, 0, 100)
         IF reach% <> oReach% OR intensity% <> oIntensity% THEN ctx.previewDirty% = TRUE
@@ -5817,7 +6538,7 @@ SUB IMAGE_ADJ_electrify_dialog ()
         DIALOG_draw_frame ctx, "ELECTRIFY"
         DIALOG_draw_preview ctx
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "REACH:"
-        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, reach%, 2, 12, "", ""
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, reach%, 2, 32, "", ""
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 1), "INTENSITY:"
         DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, intensity%, 0, 100, "", ""
         DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
@@ -5879,6 +6600,7 @@ FUNCTION IMAGE_ADJ_glass& (sourceImg AS LONG, shine AS INTEGER, frost AS INTEGER
     DIM u AS SINGLE, s1 AS SINGLE, s2 AS SINGLE, spec AS SINGLE, lift AS SINGLE
     DIM pr AS INTEGER, pg AS INTEGER, pb AS INTEGER, oR2 AS INTEGER, oG2 AS INTEGER, oB2 AS INTEGER
     FOR gy& = 0 TO glH& - 1
+    IF (gy& AND 15) = 0 THEN IMGADJ_progress_tick "Glass", gy& / glH&
         FOR gx& = 0 TO glW& - 1
             _MEMGET srcM, srcM.OFFSET + (gy& * glW& + gx&) * 4 + 3, aHere~%%
             IF aHere~%% = 0 THEN _CONTINUE
@@ -6009,6 +6731,7 @@ FUNCTION IMAGE_ADJ_drip& (sourceImg AS LONG, lengthP AS INTEGER, amount AS INTEG
     DIM pix AS _UNSIGNED LONG, pr AS INTEGER, pg AS INTEGER, pb AS INTEGER
     DIM shade AS SINGLE, da AS INTEGER, t AS SINGLE
     FOR dy& = 0 TO drH& - 1
+    IF (dy& AND 15) = 0 THEN IMGADJ_progress_tick "Drip", dy& / drH&
         FOR dx& = 0 TO drW& - 1
             _MEMGET srcM, srcM.OFFSET + (dy& * drW& + dx&) * 4 + 3, aHere~%%
             IF aHere~%% = 0 THEN _CONTINUE
@@ -6076,8 +6799,8 @@ SUB IMAGE_ADJ_drip_dialog ()
         IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
 
         oLength% = lengthP% : oAmount% = amount%
-        lengthP% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, lengthP%, 4, 48)
-        lengthP% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, lengthP%, 4, 48)
+        lengthP% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, lengthP%, 4, 250)
+        lengthP% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, lengthP%, 4, 250)
         amount%  = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, amount%, 0, 100)
         amount%  = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, amount%, 0, 100)
         IF lengthP% <> oLength% OR amount% <> oAmount% THEN ctx.previewDirty% = TRUE
@@ -6095,7 +6818,7 @@ SUB IMAGE_ADJ_drip_dialog ()
         DIALOG_draw_frame ctx, "DRIP"
         DIALOG_draw_preview ctx
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "LENGTH:"
-        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, lengthP%, 4, 48, "", ""
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, lengthP%, 4, 250, "", ""
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 1), "AMOUNT:"
         DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, amount%, 0, 100, "", ""
         DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
@@ -6152,6 +6875,7 @@ FUNCTION IMAGE_ADJ_icicles& (sourceImg AS LONG, lengthP AS INTEGER, thickness AS
     DIM spikeLen AS INTEGER, d AS INTEGER, ny AS LONG, t AS SINGLE, colN AS SINGLE
     DIM icA AS INTEGER, icR AS INTEGER, icG AS INTEGER, icB AS INTEGER, glint AS SINGLE
     FOR iy& = 0 TO icH& - 1
+    IF (iy& AND 15) = 0 THEN IMGADJ_progress_tick "Icicles", iy& / icH&
         FOR ix& = 0 TO icW& - 1
             _MEMGET srcM, srcM.OFFSET + (iy& * icW& + ix&) * 4 + 3, aHere~%%
             IF aHere~%% = 0 THEN _CONTINUE                 ' start from the shape
@@ -6215,8 +6939,8 @@ SUB IMAGE_ADJ_icicles_dialog ()
         IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
 
         oLength% = lengthP% : oThick% = thickness%
-        lengthP%   = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, lengthP%, 4, 40)
-        lengthP%   = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, lengthP%, 4, 40)
+        lengthP%   = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, lengthP%, 4, 250)
+        lengthP%   = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, lengthP%, 4, 250)
         thickness% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, thickness%, 0, 100)
         thickness% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, thickness%, 0, 100)
         IF lengthP% <> oLength% OR thickness% <> oThick% THEN ctx.previewDirty% = TRUE
@@ -6234,7 +6958,7 @@ SUB IMAGE_ADJ_icicles_dialog ()
         DIALOG_draw_frame ctx, "ICICLES"
         DIALOG_draw_preview ctx
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "LENGTH:"
-        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, lengthP%, 4, 40, "", ""
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, lengthP%, 4, 250, "", ""
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 1), "THICKNESS:"
         DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, thickness%, 0, 100, "", ""
         DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
@@ -6289,6 +7013,7 @@ FUNCTION IMAGE_ADJ_smoke& (sourceImg AS LONG, heightP AS INTEGER, density AS INT
     DIM mx AS LONG, my AS LONG, d AS INTEGER, belowA AS _UNSIGNED _BYTE, aHere AS _UNSIGNED _BYTE
     DIM distDn AS INTEGER, dens AS SINGLE, nz AS SINGLE, g AS INTEGER, ca AS INTEGER
     FOR my& = 0 TO smH& - 1
+    IF (my& AND 15) = 0 THEN IMGADJ_progress_tick "Smoke", my& / smH&
         FOR mx& = 0 TO smW& - 1
             _MEMGET srcM, srcM.OFFSET + (my& * smW& + mx&) * 4 + 3, aHere~%%
             IF aHere~%% <> 0 THEN _CONTINUE
@@ -6349,8 +7074,8 @@ SUB IMAGE_ADJ_smoke_dialog ()
         IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
 
         oHeight% = heightP% : oDensity% = density%
-        heightP% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, heightP%, 4, 64)
-        heightP% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, heightP%, 4, 64)
+        heightP% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, heightP%, 4, 200)
+        heightP% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, heightP%, 4, 200)
         density% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, density%, 0, 100)
         density% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, density%, 0, 100)
         IF heightP% <> oHeight% OR density% <> oDensity% THEN ctx.previewDirty% = TRUE
@@ -6368,7 +7093,7 @@ SUB IMAGE_ADJ_smoke_dialog ()
         DIALOG_draw_frame ctx, "SMOKE"
         DIALOG_draw_preview ctx
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "HEIGHT:"
-        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, heightP%, 4, 64, "", ""
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, heightP%, 4, 200, "", ""
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 1), "DENSITY:"
         DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, density%, 0, 100, "", ""
         DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
@@ -6425,6 +7150,7 @@ FUNCTION IMAGE_ADJ_fire& (sourceImg AS LONG, heightP AS INTEGER, intensity AS IN
     DIM distDn AS INTEGER, heat AS SINGLE, nz AS SINGLE, cr AS INTEGER, cg AS INTEGER, cb AS INTEGER, ca AS INTEGER
     DIM t AS SINGLE
     FOR fy& = 0 TO fiH& - 1
+    IF (fy& AND 15) = 0 THEN IMGADJ_progress_tick "Fire", fy& / fiH&
         FOR fx& = 0 TO fiW& - 1
             _MEMGET srcM, srcM.OFFSET + (fy& * fiW& + fx&) * 4 + 3, aHere~%%
             IF aHere~%% <> 0 THEN _CONTINUE                ' flames only fill empty space
@@ -6498,8 +7224,8 @@ SUB IMAGE_ADJ_fire_dialog ()
         IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
 
         oHeight% = heightP% : oIntensity% = intensity%
-        heightP%   = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, heightP%, 4, 48)
-        heightP%   = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, heightP%, 4, 48)
+        heightP%   = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, heightP%, 4, 200)
+        heightP%   = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, heightP%, 4, 200)
         intensity% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, intensity%, 0, 100)
         intensity% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, intensity%, 0, 100)
         IF heightP% <> oHeight% OR intensity% <> oIntensity% THEN ctx.previewDirty% = TRUE
@@ -6517,7 +7243,7 @@ SUB IMAGE_ADJ_fire_dialog ()
         DIALOG_draw_frame ctx, "FIRE"
         DIALOG_draw_preview ctx
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "HEIGHT:"
-        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, heightP%, 4, 48, "", ""
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, heightP%, 4, 200, "", ""
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 1), "INTENSITY:"
         DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, intensity%, 0, 100, "", ""
         DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
@@ -6575,6 +7301,7 @@ FUNCTION IMAGE_ADJ_snow& (sourceImg AS LONG, depth AS INTEGER, flecks AS INTEGER
     DIM distTop AS INTEGER, snowAmt AS SINGLE, gran AS SINGLE
     DIM pr AS INTEGER, pg AS INTEGER, pb AS INTEGER, snR AS INTEGER, snG AS INTEGER, snB AS INTEGER
     FOR sy& = 0 TO snH& - 1
+    IF (sy& AND 15) = 0 THEN IMGADJ_progress_tick "Snow", sy& / snH&
         FOR sx& = 0 TO snW& - 1
             _MEMGET srcM, srcM.OFFSET + (sy& * snW& + sx&) * 4 + 3, aHere~%%
             IF aHere~%% = 0 THEN _CONTINUE                 ' snow caps only sit on the shape
@@ -6650,8 +7377,8 @@ SUB IMAGE_ADJ_snow_dialog ()
         IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
 
         oDepth% = depth% : oFlecks% = flecks%
-        depth%  = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, depth%, 1, 12)
-        depth%  = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, depth%, 1, 12)
+        depth%  = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, depth%, 1, 64)
+        depth%  = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, depth%, 1, 64)
         flecks% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, flecks%, 0, 100)
         flecks% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, flecks%, 0, 100)
         IF depth% <> oDepth% OR flecks% <> oFlecks% THEN ctx.previewDirty% = TRUE
@@ -6669,7 +7396,7 @@ SUB IMAGE_ADJ_snow_dialog ()
         DIALOG_draw_frame ctx, "SNOW"
         DIALOG_draw_preview ctx
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "DEPTH:"
-        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, depth%, 1, 12, "", ""
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, depth%, 1, 64, "", ""
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 1), "FLECKS:"
         DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, flecks%, 0, 100, "", ""
         DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
@@ -6734,6 +7461,7 @@ FUNCTION IMAGE_ADJ_motiontrail& (sourceImg AS LONG, length AS INTEGER, angleDeg 
     DIM sr AS INTEGER, sg AS INTEGER, sb AS INTEGER
     DIM taper AS SINGLE, aOut AS INTEGER
     FOR sy& = 0 TO mtH& - 1
+    IF (sy& AND 15) = 0 THEN IMGADJ_progress_tick "Motiontrail", sy& / mtH&
         FOR sx& = 0 TO mtW& - 1
             _MEMGET srcM, srcM.OFFSET + (sy& * mtW& + sx&) * 4 + 3, aSrc~%%
             IF aSrc~%% = 0 THEN _CONTINUE                 ' only smear opaque shape
@@ -6794,8 +7522,8 @@ SUB IMAGE_ADJ_motiontrail_dialog ()
 
         oLength% = length%
         oAngle%  = angle%
-        length% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, length%, 2, 40)
-        length% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, length%, 2, 40)
+        length% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, length%, 2, 250)
+        length% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, length%, 2, 250)
         angle%  = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, angle%, 0, 359)
         angle%  = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, angle%, 0, 359)
         IF length% <> oLength% OR angle% <> oAngle% THEN ctx.previewDirty% = TRUE
@@ -6813,7 +7541,7 @@ SUB IMAGE_ADJ_motiontrail_dialog ()
         DIALOG_draw_frame ctx, "MOTION TRAIL"
         DIALOG_draw_preview ctx
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "LENGTH:"
-        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, length%, 2, 40, "", ""
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, length%, 2, 250, "", ""
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 1), "DIRECTION:"
         DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, angle%, 0, 359, "", ""
         DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
@@ -6874,6 +7602,7 @@ FUNCTION IMAGE_ADJ_rust& (sourceImg AS LONG, amount AS INTEGER, scaleP AS INTEGE
     DIM pr AS INTEGER, pg AS INTEGER, pb AS INTEGER
     DIM tr AS INTEGER, tg AS INTEGER, tb AS INTEGER, outR AS INTEGER, outG AS INTEGER, outB AS INTEGER
     FOR ry& = 0 TO rH& - 1
+    IF (ry& AND 15) = 0 THEN IMGADJ_progress_tick "Rust", ry& / rH&
         FOR rx& = 0 TO rW& - 1
             _MEMGET srcM, srcM.OFFSET + (ry& * rW& + rx&) * 4 + 3, aHere~%%
             IF aHere~%% = 0 THEN _CONTINUE                     ' only rust the shape
@@ -6950,8 +7679,8 @@ SUB IMAGE_ADJ_rust_dialog ()
         oAmount% = amount% : oScale% = scaleP% : oMix% = texMix%
         amount% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, amount%, 0, 100)
         amount% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, amount%, 0, 100)
-        scaleP% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, scaleP%, 4, 48)
-        scaleP% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, scaleP%, 4, 48)
+        scaleP% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, scaleP%, 4, 200)
+        scaleP% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, scaleP%, 4, 200)
         texMix% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, 14, texMix%, 0, 100)
         texMix% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, 14, texMix%, 0, 100)
         IMGDLG_check_ok_cancel ctx
@@ -6973,7 +7702,7 @@ SUB IMAGE_ADJ_rust_dialog ()
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "AMOUNT:"
         DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, amount%, 0, 100, "", ""
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 1), "SCALE:"
-        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, scaleP%, 4, 48, "", ""
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, scaleP%, 4, 200, "", ""
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 2), "MIX:"
         DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, texMix%, 0, 100, "", ""
         DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
@@ -7044,6 +7773,7 @@ FUNCTION IMAGE_ADJ_dropshadow& (sourceImg AS LONG, distance AS INTEGER, softness
     DIM sx AS LONG, sy AS LONG, tx AS LONG, ty AS LONG
     DIM sA AS _UNSIGNED _BYTE, shA AS INTEGER
     FOR sy& = 0 TO dsH& - 1
+    IF (sy& AND 15) = 0 THEN IMGADJ_progress_tick "Dropshadow", sy& / dsH&
         ty& = sy& + ofy%
         IF ty& >= 0 AND ty& < dsH& THEN
             FOR sx& = 0 TO dsW& - 1
@@ -7109,12 +7839,12 @@ SUB IMAGE_ADJ_dropshadow_dialog ()
         IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
 
         oDist% = distance% : oSoft% = soft% : oAngle% = angle% : oOpac% = opac%
-        distance% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, distance%, 0, 30)
-        distance% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, distance%, 0, 30)
+        distance% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, distance%, 0, 200)
+        distance% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, distance%, 0, 200)
         angle%    = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, angle%, 0, 359)
         angle%    = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, angle%, 0, 359)
-        soft%     = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, 14, soft%, 0, 8)
-        soft%     = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, 14, soft%, 0, 8)
+        soft%     = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, 14, soft%, 0, 100)
+        soft%     = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, 14, soft%, 0, 100)
         opac%     = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 3), IMGDLG_SW, 14, opac%, 0, 100)
         opac%     = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 3), IMGDLG_SW, 14, opac%, 0, 100)
         IMGDLG_check_ok_cancel ctx
@@ -7123,8 +7853,8 @@ SUB IMAGE_ADJ_dropshadow_dialog ()
 
         IF ctx.previewDirty% THEN
             SAFE_FREEIMAGE ctx.previewThumb
-            ctx.previewThumb = IMAGE_ADJ_dropshadow&(ctx.origThumb, distance%, soft%, angle%, opac%, PAINT_BG_COLOR~&)
-            IMAGE_ADJ_mask_preview ctx
+            ctx.previewThumb = IMAGE_ADJ_dropshadow&(IMGADJ_fx_src&(ctx), distance%, soft%, angle%, opac%, PAINT_BG_COLOR~&)
+            IMAGE_ADJ_fx_preview_finish ctx, 1
             ctx.previewDirty% = FALSE
         END IF
 
@@ -7132,11 +7862,11 @@ SUB IMAGE_ADJ_dropshadow_dialog ()
         DIALOG_draw_frame ctx, "DROP SHADOW"
         DIALOG_draw_preview ctx
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "DISTANCE:"
-        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, distance%, 0, 30, "", ""
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, distance%, 0, 200, "", ""
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 1), "ANGLE:"
         DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, angle%, 0, 359, "", ""
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 2), "SOFTNESS:"
-        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, soft%, 0, 8, "", ""
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, soft%, 0, 100, "", ""
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 3), "OPACITY:"
         DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 3), IMGDLG_SW, opac%, 0, 100, "", ""
         DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
@@ -7153,11 +7883,19 @@ SUB IMAGE_ADJ_dropshadow_dialog ()
         DIM adjR     AS LONG
         FOR shT% = 1 TO shTgtCount%
             CURRENT_LAYER% = shTargets%(shT%)
-            adjR&          = IMAGE_ADJ_dropshadow&(LAYERS(CURRENT_LAYER%).imgHandle&, distance%, soft%, angle%, opac%, PAINT_BG_COLOR~&)
-            IMAGE_ADJ_apply_spatial adjR&, "Drop Shadow"
+            DIM shEdge AS LONG
+            shEdge& = IMGADJ_edge_shape_source&(LAYERS(CURRENT_LAYER%).imgHandle&, LAYERS(CURRENT_LAYER%).apronW%, LAYERS(CURRENT_LAYER%).apronH%)
+            IF shEdge& < -1 THEN
+                adjR& = IMAGE_ADJ_dropshadow&(shEdge&, distance%, soft%, angle%, opac%, PAINT_BG_COLOR~&)
+            ELSE
+                adjR& = IMAGE_ADJ_dropshadow&(LAYERS(CURRENT_LAYER%).imgHandle&, distance%, soft%, angle%, opac%, PAINT_BG_COLOR~&)
+            END IF
+            IMAGE_ADJ_apply_spatial_edge adjR&, shEdge&, "Drop Shadow"
+            IF shEdge& < -1 THEN SAFE_FREEIMAGE shEdge&
         NEXT shT%
         IF shTgtCount% > 1 THEN HISTORY_end_group
         CURRENT_LAYER% = shSaveCL%
+        IMGADJ_stash_fx distance%, soft%, angle%, opac%   ' enable instant Redo
     END IF
 
     DIALOG_cleanup ctx
@@ -7429,6 +8167,7 @@ FUNCTION IMAGE_ADJ_emboss& (sourceImg AS LONG, strength AS INTEGER, angleDeg AS 
 
     DIM ex AS LONG, ey AS LONG, pxm AS LONG, pym AS LONG, dLum AS LONG, outv AS INTEGER
     FOR ey& = 0 TO emH& - 1
+    IF (ey& AND 15) = 0 THEN IMGADJ_progress_tick "Emboss", ey& / emH&
         pym& = ey& + ody% : IF pym& < 0 THEN pym& = 0 ELSE IF pym& >= emH& THEN pym& = emH& - 1
         FOR ex& = 0 TO emW& - 1
             pxm& = ex& + odx% : IF pxm& < 0 THEN pxm& = 0 ELSE IF pxm& >= emW& THEN pxm& = emW& - 1
@@ -7470,8 +8209,8 @@ SUB IMAGE_ADJ_emboss_dialog ()
         IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
 
         oStrength% = strength% : oAngle% = angle%
-        strength% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, strength%, 1, 10)
-        strength% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, strength%, 1, 10)
+        strength% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, strength%, 1, 64)
+        strength% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, strength%, 1, 64)
         angle%    = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, angle%, 0, 359)
         angle%    = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, angle%, 0, 359)
         IMGDLG_check_ok_cancel ctx
@@ -7480,8 +8219,8 @@ SUB IMAGE_ADJ_emboss_dialog ()
 
         IF ctx.previewDirty% THEN
             SAFE_FREEIMAGE ctx.previewThumb
-            ctx.previewThumb = IMAGE_ADJ_emboss&(ctx.origThumb, strength%, angle%)
-            IMAGE_ADJ_mask_preview ctx
+            ctx.previewThumb = IMAGE_ADJ_emboss&(IMGADJ_fx_src&(ctx), strength%, angle%)
+            IMAGE_ADJ_fx_preview_finish ctx, 0
             ctx.previewDirty% = FALSE
         END IF
 
@@ -7489,7 +8228,7 @@ SUB IMAGE_ADJ_emboss_dialog ()
         DIALOG_draw_frame ctx, "EMBOSS"
         DIALOG_draw_preview ctx
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "STRENGTH:"
-        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, strength%, 1, 10, "", ""
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, strength%, 1, 64, "", ""
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 1), "LIGHT ANGLE:"
         DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, angle%, 0, 359, "", ""
         DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
@@ -7506,8 +8245,16 @@ SUB IMAGE_ADJ_emboss_dialog ()
         DIM adjR     AS LONG
         FOR emT% = 1 TO emTgtCount%
             CURRENT_LAYER% = emTargets%(emT%)
-            adjR&          = IMAGE_ADJ_emboss&(LAYERS(CURRENT_LAYER%).imgHandle&, strength%, angle%)
-            IMAGE_ADJ_apply_to_layer adjR&, "Emboss"
+            DIM emEdge AS LONG
+            emEdge& = IMGADJ_edge_shape_source&(LAYERS(CURRENT_LAYER%).imgHandle&, LAYERS(CURRENT_LAYER%).apronW%, LAYERS(CURRENT_LAYER%).apronH%)
+            IF emEdge& < -1 THEN
+                adjR& = IMAGE_ADJ_emboss&(emEdge&, strength%, angle%)
+                IMAGE_ADJ_apply_spatial_edge adjR&, emEdge&, "Emboss"
+                SAFE_FREEIMAGE emEdge&
+            ELSE
+                adjR& = IMAGE_ADJ_emboss&(LAYERS(CURRENT_LAYER%).imgHandle&, strength%, angle%)
+                IMAGE_ADJ_apply_to_layer adjR&, "Emboss"
+            END IF
         NEXT emT%
         IF emTgtCount% > 1 THEN HISTORY_end_group
         CURRENT_LAYER% = emSaveCL%
@@ -7544,6 +8291,7 @@ FUNCTION IMAGE_ADJ_chromatic& (sourceImg AS LONG, amount AS INTEGER)
     DIM rPx AS _UNSIGNED LONG, gPx AS _UNSIGNED LONG, bPx AS _UNSIGNED LONG
 
     FOR cy& = 0 TO caH& - 1
+    IF (cy& AND 15) = 0 THEN IMGADJ_progress_tick "Chromatic", cy& / caH&
         FOR cx& = 0 TO caW& - 1
             rxx& = cx& - amount% : IF rxx& < 0 THEN rxx& = 0 ELSE IF rxx& >= caW& THEN rxx& = caW& - 1
             bxx& = cx& + amount% : IF bxx& < 0 THEN bxx& = 0 ELSE IF bxx& >= caW& THEN bxx& = caW& - 1
@@ -7586,8 +8334,8 @@ SUB IMAGE_ADJ_chromatic_dialog ()
         IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
 
         oAmount% = amount%
-        amount% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, amount%, 0, 20)
-        amount% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, amount%, 0, 20)
+        amount% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, amount%, 0, 100)
+        amount% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, amount%, 0, 100)
         IF amount% <> oAmount% THEN ctx.previewDirty% = TRUE
         IMGDLG_check_ok_cancel ctx
         IMGDLG_reset1 ctx, amount%, d_amount%
@@ -7603,7 +8351,7 @@ SUB IMAGE_ADJ_chromatic_dialog ()
         DIALOG_draw_frame ctx, "CHROMATIC ABERRATION"
         DIALOG_draw_preview ctx
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "AMOUNT:"
-        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, amount%, 0, 20, "", ""
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, amount%, 0, 100, "", ""
         DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
         IMGDLG_draw_ok_cancel ctx
         DIALOG_blit ctx
@@ -7665,6 +8413,7 @@ FUNCTION IMAGE_ADJ_growshrink& (sourceImg AS LONG, amount AS INTEGER, shrinkMode
     DIM nbPx AS _UNSIGNED LONG
 
     FOR gy& = 0 TO gsH& - 1
+    IF (gy& AND 15) = 0 THEN IMGADJ_progress_tick "Growshrink", gy& / gsH&
         FOR gx& = 0 TO gsW& - 1
             baseOff = (gy& * gsW& + gx&) * 4
             _MEMGET srcM, srcM.OFFSET + baseOff + 3, selfA~%%
@@ -7753,8 +8502,8 @@ SUB IMAGE_ADJ_growshrink_dialog ()
         IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
 
         oAmount% = amount%
-        amount% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, amount%, 1, 8)
-        amount% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, amount%, 1, 8)
+        amount% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, amount%, 1, 32)
+        amount% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, amount%, 1, 32)
         IF DIALOG_hit%(ctx, ivX%, ivY%, ivW%, ivH%) THEN
             shrinkMode%       = (shrinkMode% = 0)
             ctx.previewDirty% = TRUE
@@ -7765,8 +8514,8 @@ SUB IMAGE_ADJ_growshrink_dialog ()
 
         IF ctx.previewDirty% THEN
             SAFE_FREEIMAGE ctx.previewThumb
-            ctx.previewThumb = IMAGE_ADJ_growshrink&(ctx.origThumb, amount%, shrinkMode%)
-            IMAGE_ADJ_mask_preview ctx
+            ctx.previewThumb = IMAGE_ADJ_growshrink&(IMGADJ_fx_src&(ctx), amount%, shrinkMode%)
+            IMAGE_ADJ_fx_preview_finish ctx, 1
             ctx.previewDirty% = FALSE
         END IF
 
@@ -7774,7 +8523,7 @@ SUB IMAGE_ADJ_growshrink_dialog ()
         DIALOG_draw_frame ctx, "GROW / SHRINK"
         DIALOG_draw_preview ctx
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "AMOUNT:"
-        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, amount%, 1, 8, "", ""
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, amount%, 1, 32, "", ""
         DIALOG_draw_toggle ctx, ivX%, ivY%, ivW%, ivH%, "SHRINK", shrinkMode%
         DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
         IMGDLG_draw_ok_cancel ctx
@@ -7790,11 +8539,20 @@ SUB IMAGE_ADJ_growshrink_dialog ()
         DIM adjR     AS LONG
         FOR gsT% = 1 TO gsTgtCount%
             CURRENT_LAYER% = gsTargets%(gsT%)
-            adjR&          = IMAGE_ADJ_growshrink&(LAYERS(CURRENT_LAYER%).imgHandle&, amount%, shrinkMode%)
-            IMAGE_ADJ_apply_spatial adjR&, "Grow / Shrink"
+            DIM gsEdge AS LONG
+            gsEdge& = IMGADJ_edge_shape_source&(LAYERS(CURRENT_LAYER%).imgHandle&, LAYERS(CURRENT_LAYER%).apronW%, LAYERS(CURRENT_LAYER%).apronH%)
+            IF gsEdge& < -1 THEN
+                adjR& = IMAGE_ADJ_growshrink&(gsEdge&, amount%, shrinkMode%)
+                IMAGE_ADJ_apply_spatial_edge adjR&, gsEdge&, "Grow / Shrink"
+                SAFE_FREEIMAGE gsEdge&
+            ELSE
+                adjR& = IMAGE_ADJ_growshrink&(LAYERS(CURRENT_LAYER%).imgHandle&, amount%, shrinkMode%)
+                IMAGE_ADJ_apply_spatial adjR&, "Grow / Shrink"
+            END IF
         NEXT gsT%
         IF gsTgtCount% > 1 THEN HISTORY_end_group
         CURRENT_LAYER% = gsSaveCL%
+        IMGADJ_stash_fx amount%, shrinkMode%, 0, 0   ' enable instant Redo
     END IF
 
     DIALOG_cleanup ctx
@@ -7837,6 +8595,7 @@ FUNCTION IMAGE_ADJ_outline& (sourceImg AS LONG, thickness AS INTEGER, olColor AS
     DIM baseOff AS _OFFSET
 
     FOR oy& = 0 TO olH& - 1
+    IF (oy& AND 15) = 0 THEN IMGADJ_progress_tick "Outline", oy& / olH&
         FOR ox& = 0 TO olW& - 1
             baseOff = (oy& * olW& + ox&) * 4
             _MEMGET srcM, srcM.OFFSET + baseOff + 3, selfA~%%
@@ -7852,24 +8611,23 @@ FUNCTION IMAGE_ADJ_outline& (sourceImg AS LONG, thickness AS INTEGER, olColor AS
             hit% = 0
             FOR dy% = -thickness% TO thickness%
                 ny& = oy& + dy%
-                IF ny& >= 0 AND ny& < olH& THEN
-                    FOR dx% = -thickness% TO thickness%
-                        IF dx% * dx% + dy% * dy% <= t2% THEN
-                            nx& = ox& + dx%
-                            IF insideMode% = 1 AND (nx& < 0 OR nx& >= olW&) THEN
-                                hit% = 1 : EXIT FOR   ' image border counts as transparent (inside stroke)
-                            END IF
-                            IF nx& >= 0 AND nx& < olW& THEN
-                                _MEMGET srcM, srcM.OFFSET + (ny& * olW& + nx&) * 4 + 3, nbA~%%
-                                IF insideMode% = 0 THEN
-                                    IF nbA~%% <> 0 THEN hit% = 1 : EXIT FOR
-                                ELSE
-                                    IF nbA~%% = 0 THEN hit% = 1 : EXIT FOR
-                                END IF
+                FOR dx% = -thickness% TO thickness%
+                    IF dx% * dx% + dy% * dy% <= t2% THEN
+                        nx& = ox& + dx%
+                        ' INSIDE: ANY image border (all 4 edges) counts as transparent
+                        IF insideMode% = 1 AND (nx& < 0 OR nx& >= olW& OR ny& < 0 OR ny& >= olH&) THEN
+                            hit% = 1 : EXIT FOR
+                        END IF
+                        IF nx& >= 0 AND nx& < olW& AND ny& >= 0 AND ny& < olH& THEN
+                            _MEMGET srcM, srcM.OFFSET + (ny& * olW& + nx&) * 4 + 3, nbA~%%
+                            IF insideMode% = 0 THEN
+                                IF nbA~%% <> 0 THEN hit% = 1 : EXIT FOR
+                            ELSE
+                                IF nbA~%% = 0 THEN hit% = 1 : EXIT FOR
                             END IF
                         END IF
-                    NEXT dx%
-                END IF
+                    END IF
+                NEXT dx%
                 IF hit% THEN EXIT FOR
             NEXT dy%
 
@@ -8054,6 +8812,7 @@ FUNCTION IMAGE_ADJ_edgedetect& (sourceImg AS LONG, strength AS INTEGER, invert A
     DIM sf AS SINGLE : sf! = strength% / 100.0
 
     FOR ey& = 0 TO edH& - 1
+    IF (ey& AND 15) = 0 THEN IMGADJ_progress_tick "Edgedetect", ey& / edH&
         ym& = ey& - 1 : IF ym& < 0 THEN ym& = 0
         yp& = ey& + 1 : IF yp& >= edH& THEN yp& = edH& - 1
         FOR ex& = 0 TO edW& - 1
@@ -8191,8 +8950,8 @@ SUB IMAGE_ADJ_outline_dialog ()
         IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
 
         oThick% = thick%
-        thick% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, thick%, 1, 8)
-        thick% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, thick%, 1, 8)
+        thick% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, thick%, 1, 32)
+        thick% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, thick%, 1, 32)
         IF DIALOG_hit%(ctx, ivX%, ivY%, ivW%, ivH%) THEN
             insideMode% = (insideMode% = 0)
             ctx.previewDirty% = TRUE
@@ -8203,8 +8962,8 @@ SUB IMAGE_ADJ_outline_dialog ()
 
         IF ctx.previewDirty% THEN
             SAFE_FREEIMAGE ctx.previewThumb
-            ctx.previewThumb = IMAGE_ADJ_outline&(ctx.origThumb, thick%, PAINT_COLOR~&, insideMode%)
-            IMAGE_ADJ_mask_preview ctx
+            ctx.previewThumb = IMAGE_ADJ_outline&(IMGADJ_fx_src&(ctx), thick%, PAINT_COLOR~&, insideMode%)
+            IMAGE_ADJ_fx_preview_finish ctx, 1
             ctx.previewDirty% = FALSE
         END IF
 
@@ -8212,7 +8971,7 @@ SUB IMAGE_ADJ_outline_dialog ()
         DIALOG_draw_frame ctx, "OUTLINE / STROKE"
         DIALOG_draw_preview ctx
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "THICKNESS:"
-        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, thick%, 1, 8, "", ""
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, thick%, 1, 32, "", ""
         DIALOG_draw_toggle ctx, ivX%, ivY%, ivW%, ivH%, "INSIDE", insideMode%
         DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
         IMGDLG_draw_ok_cancel ctx
@@ -8228,11 +8987,20 @@ SUB IMAGE_ADJ_outline_dialog ()
         DIM adjR     AS LONG
         FOR olT% = 1 TO olTgtCount%
             CURRENT_LAYER% = olTargets%(olT%)
-            adjR&          = IMAGE_ADJ_outline&(LAYERS(CURRENT_LAYER%).imgHandle&, thick%, PAINT_COLOR~&, insideMode%)
-            IMAGE_ADJ_apply_spatial adjR&, "Outline"
+            DIM olEdge AS LONG
+            olEdge& = IMGADJ_edge_shape_source&(LAYERS(CURRENT_LAYER%).imgHandle&, LAYERS(CURRENT_LAYER%).apronW%, LAYERS(CURRENT_LAYER%).apronH%)
+            IF olEdge& < -1 THEN
+                adjR& = IMAGE_ADJ_outline&(olEdge&, thick%, PAINT_COLOR~&, insideMode%)
+                IMAGE_ADJ_apply_spatial_edge adjR&, olEdge&, "Outline"
+                SAFE_FREEIMAGE olEdge&
+            ELSE
+                adjR& = IMAGE_ADJ_outline&(LAYERS(CURRENT_LAYER%).imgHandle&, thick%, PAINT_COLOR~&, insideMode%)
+                IMAGE_ADJ_apply_spatial adjR&, "Outline"
+            END IF
         NEXT olT%
         IF olTgtCount% > 1 THEN HISTORY_end_group
         CURRENT_LAYER% = olSaveCL%
+        IMGADJ_stash_fx thick%, insideMode%, 0, 0   ' enable instant Redo
     END IF
 
     DIALOG_cleanup ctx
@@ -8466,19 +9234,47 @@ END SUB
 SUB IMAGE_ADJ_update_loupe (ctx AS DIALOG_CTX)
     IF CURRENT_LAYER% < 1 THEN ctx.loupeDirty = FALSE : EXIT SUB
 
-    DIM tw AS INTEGER : tw = ctx.w - 2
-    DIM th AS INTEGER : th = ctx.prevH
+    DIM winW AS INTEGER : winW = ctx.w - 2
+    DIM winH AS INTEGER : winH = ctx.prevH
+    ' Capture a PADDED window (winW+2P x winH+2P) so edge effects (glow/shadow/
+    ' outline/bevel) see real neighbouring canvas pixels rather than treating the
+    ' crop's rectangular border as the shape edge. Only the central winW x winH is
+    ' displayed; DIALOG_draw_preview derives the pad from the size mismatch.
+    DIM tw AS INTEGER : tw = winW + 2 * IMGADJ_LOUPE_PAD
+    DIM th AS INTEGER : th = winH + 2 * IMGADJ_LOUPE_PAD
 
-    ' NATIVE 1:1 capture, centred on the canvas. tw/th are logical pixels, which
-    ' equal native canvas pixels at zoom 1 — so cropping tw x th native px and
-    ' showing them 1:1 in the loupe makes the effect preview at exactly the scale
-    ' it will apply at. (The old path cropped the ZOOMED composite SCRN.CANVAS&,
-    ' which multiplied every spatial feature by the view zoom.)
-    DIM cw AS LONG, ch AS LONG
-    cw& = SCRN.canvasW& : ch& = SCRN.canvasH&
+    ' NATIVE 1:1 capture of the canvas region UNDER the dialog's preview pane, so
+    ' the loupe acts like a real magnifier window: drag the dialog and it reveals
+    ' the pixels it now sits over. tw/th are logical pixels, which equal native
+    ' canvas pixels at zoom 1 — so cropping tw x th native px and showing them 1:1
+    ' makes the effect preview at exactly the scale it will apply at. (The old
+    ' path cropped the ZOOMED composite SCRN.CANVAS&, which multiplied every
+    ' spatial feature by the view zoom; the interim fix centred on the canvas,
+    ' which ignored the dialog position entirely — the loupe never moved.)
+    '
+    ' Invert the canvas placement from SCREEN_render (OUTPUT/SCREEN.BM):
+    '   dx = (SCRN.w - canvasW*zoom)\2 + offsetX + panelShiftX ; screenX = dx + cx*zoom
+    ' The preview pane's top-left in SCREEN coords is (ctx.x+1, ctx.y+prevY).
+    DIM loupeDX AS LONG, loupeDY AS LONG
+    loupeDX& = (SCRN.w& - SCRN.canvasW& * SCRN.zoom!) \ 2 + SCRN.offsetX% + SCRN.panelShiftX%
+    loupeDY& = (SCRN.h& - SCRN.canvasH& * SCRN.zoom!) \ 2 + SCRN.offsetY%
+    DIM loupeScrX AS LONG, loupeScrY AS LONG
+    loupeScrX& = ctx.x + 1
+    loupeScrY& = ctx.y + THEME.DIALOG_title_height% + 2
     DIM cropX0 AS LONG, cropY0 AS LONG
-    cropX0& = (cw& - tw) \ 2
-    cropY0& = (ch& - th) \ 2
+    ' canvas coord of the WINDOW top-left, then step back by the pad for capture
+    cropX0& = INT((loupeScrX& - loupeDX&) / SCRN.zoom!) - IMGADJ_LOUPE_PAD
+    cropY0& = INT((loupeScrY& - loupeDY&) / SCRN.zoom!) - IMGADJ_LOUPE_PAD
+
+    ' The loupe ALWAYS follows the dialog — a magnifier onto the canvas beneath it,
+    ' updating as you drag it. A selection does NOT reposition it. The sel-as-shape
+    ' silhouette below is built for whatever region the loupe currently sits over,
+    ' so dragging the dialog over the selection reveals the effect radiating there.
+
+    ' Publish the native crop origin so the shared preview/clip code (mask_preview)
+    ' can map loupe pixels back to canvas — and thus selection — coordinates.
+    IMGADJ_LOUPE_CROPX& = cropX0&
+    IMGADJ_LOUPE_CROPY& = cropY0&
 
     ' origThumb = the target layer(s) at native scale, centred. (We show the
     ' layer being edited rather than the full composite; the mask below is the
@@ -8500,6 +9296,39 @@ SUB IMAGE_ADJ_update_loupe (ctx AS DIALOG_CTX)
         NEXT lz%
     ELSE
         IMGADJ_blit_native_crop LAYERS(CURRENT_LAYER%).imgHandle&, LAYERS(CURRENT_LAYER%).apronW%, LAYERS(CURRENT_LAYER%).apronH%, cropX0&, cropY0&, tw, th, ctx.origThumb
+    END IF
+
+    ' Selection silhouette thumb (sel-as-shape preview): same padded crop, alpha =
+    ' selection coverage (opaque inside), RGB kept from origThumb. Edge dialogs run
+    ' the engine on this so the preview radiates from the selection edge.
+    SAFE_FREEIMAGE IMGADJ_SHAPE_THUMB&
+    IMGADJ_SHAPE_THUMB& = 0
+    IF IMGADJ_sel_active% AND ctx.origThumb < -1 THEN
+        DIM covImg AS LONG : covImg& = IMGADJ_sel_coverage&
+        IF covImg& < -1 THEN
+            IMGADJ_SHAPE_THUMB& = _COPYIMAGE(ctx.origThumb, 32)
+            DIM stM AS _MEM, cvM AS _MEM
+            stM = _MEMIMAGE(IMGADJ_SHAPE_THUMB&) : cvM = _MEMIMAGE(covImg&)
+            DIM scW AS LONG, scH AS LONG : scW& = _WIDTH(covImg&) : scH& = _HEIGHT(covImg&)
+            DIM stx AS LONG, sty AS LONG, ccx AS LONG, ccy AS LONG, covr AS _UNSIGNED _BYTE
+            DIM stpx AS _UNSIGNED LONG, stA AS _UNSIGNED _BYTE
+            FOR sty& = 0 TO th - 1
+                ccy& = cropY0& + sty&
+                FOR stx& = 0 TO tw - 1
+                    ccx& = cropX0& + stx&
+                    stA~%% = 0
+                    IF ccx& >= 0 AND ccy& >= 0 AND ccx& < scW& AND ccy& < scH& THEN
+                        _MEMGET cvM, cvM.OFFSET + (ccy& * scW& + ccx&) * 4 + 2, covr~%%
+                        IF covr~%% > 127 THEN stA~%% = 255
+                    END IF
+                    _MEMGET stM, stM.OFFSET + (sty& * tw + stx&) * 4, stpx~&
+                    stpx~& = _RGBA32(_RED32(stpx~&), _GREEN32(stpx~&), _BLUE32(stpx~&), stA~%%)
+                    _MEMPUT stM, stM.OFFSET + (sty& * tw + stx&) * 4, stpx~& AS _UNSIGNED LONG
+                NEXT stx&
+            NEXT sty&
+            _MEMFREE stM : _MEMFREE cvM
+            SAFE_FREEIMAGE covImg&
+        END IF
     END IF
 
     ' Alpha mask == same target-layer content (so adjustments only show on opaque
@@ -8536,26 +9365,62 @@ END SUB
 '
 SUB IMAGE_ADJ_mask_preview (ctx AS DIALOG_CTX)
     IF ctx.previewThumb >= -1 OR ctx.origThumb >= -1 THEN EXIT SUB
-    IF IMGADJ_LAYER_MASK& >= -1 THEN EXIT SUB
 
-    DIM mpMemMask AS _MEM, mpMemPrv AS _MEM, mpMemOrig AS _MEM
-    mpMemMask = _MEMIMAGE(IMGADJ_LAYER_MASK&)
+    DIM mpMemPrv AS _MEM, mpMemOrig AS _MEM
     mpMemPrv  = _MEMIMAGE(ctx.previewThumb)
     mpMemOrig = _MEMIMAGE(ctx.origThumb)
 
     DIM mpOff       AS _OFFSET
-    DIM mpMaskAlpha AS _UNSIGNED _BYTE
     DIM mpOrigPx    AS _UNSIGNED LONG
-    FOR mpOff = 0 TO mpMemPrv.SIZE - 4 STEP 4
-        _MEMGET mpMemMask, mpMemMask.OFFSET + mpOff + 3, mpMaskAlpha~%%
-        IF mpMaskAlpha~%% = 0 THEN
-            ' Layer pixel is fully transparent — restore original canvas pixel
-            _MEMGET mpMemOrig, mpMemOrig.OFFSET + mpOff, mpOrigPx~&
-            _MEMPUT mpMemPrv, mpMemPrv.OFFSET + mpOff, mpOrigPx~&
-        END IF
-    NEXT mpOff
 
-    _MEMFREE mpMemMask
+    ' --- Layer-alpha mask: restore original where the target layer is transparent,
+    ' matching the alpha-preserving apply. Skipped when no mask exists (generative
+    ' effect on an empty layer) so the full generated preview shows. ---
+    IF IMGADJ_LAYER_MASK& < -1 THEN
+        DIM mpMemMask AS _MEM : mpMemMask = _MEMIMAGE(IMGADJ_LAYER_MASK&)
+        DIM mpMaskAlpha AS _UNSIGNED _BYTE
+        FOR mpOff = 0 TO mpMemPrv.SIZE - 4 STEP 4
+            _MEMGET mpMemMask, mpMemMask.OFFSET + mpOff + 3, mpMaskAlpha~%%
+            IF mpMaskAlpha~%% = 0 THEN
+                _MEMGET mpMemOrig, mpMemOrig.OFFSET + mpOff, mpOrigPx~&
+                _MEMPUT mpMemPrv, mpMemPrv.OFFSET + mpOff, mpOrigPx~&
+            END IF
+        NEXT mpOff
+        _MEMFREE mpMemMask
+    END IF
+
+    ' --- Selection-clip parity: when a selection is active and the effect clips to
+    ' it (CLIP on, not SEL-AS-SHAPE), restore the original everywhere OUTSIDE the
+    ' selection — so the preview shows only the region apply will actually change.
+    ' Each loupe pixel maps to canvas coords through the published crop origin
+    ' (IMGADJ_LOUPE_CROPX/Y), then samples the selection coverage (red = inside). ---
+    IF EFFECT_CLIP_TO_SEL AND EFFECT_SEL_AS_SHAPE = 0 AND IMGADJ_sel_active% THEN
+        DIM mpCov AS LONG : mpCov& = IMGADJ_sel_coverage&
+        IF mpCov& < -1 THEN
+            DIM mpTW AS LONG, mpCovW AS LONG, mpCovH AS LONG
+            mpTW&   = _WIDTH(ctx.previewThumb)
+            mpCovW& = _WIDTH(mpCov&) : mpCovH& = _HEIGHT(mpCov&)
+            DIM mpMemCov AS _MEM : mpMemCov = _MEMIMAGE(mpCov&)
+            DIM mpIdx AS LONG, mpLX AS LONG, mpLY AS LONG, mpCX AS LONG, mpCY AS LONG
+            DIM mpCovR AS _UNSIGNED _BYTE
+            FOR mpOff = 0 TO mpMemPrv.SIZE - 4 STEP 4
+                mpIdx& = mpOff \ 4
+                mpLX&  = mpIdx& MOD mpTW&
+                mpLY&  = mpIdx& \ mpTW&
+                mpCX&  = IMGADJ_LOUPE_CROPX& + mpLX&
+                mpCY&  = IMGADJ_LOUPE_CROPY& + mpLY&
+                IF mpCX& >= 0 AND mpCY& >= 0 AND mpCX& < mpCovW& AND mpCY& < mpCovH& THEN
+                    _MEMGET mpMemCov, mpMemCov.OFFSET + (mpCY& * mpCovW& + mpCX&) * 4 + 2, mpCovR~%%
+                    IF mpCovR~%% > 127 THEN _CONTINUE   ' inside selection -> keep effect
+                END IF
+                _MEMGET mpMemOrig, mpMemOrig.OFFSET + mpOff, mpOrigPx~&  ' outside -> restore original
+                _MEMPUT mpMemPrv, mpMemPrv.OFFSET + mpOff, mpOrigPx~&
+            NEXT mpOff
+            _MEMFREE mpMemCov
+            SAFE_FREEIMAGE mpCov&
+        END IF
+    END IF
+
     _MEMFREE mpMemPrv
     _MEMFREE mpMemOrig
 END SUB
@@ -8970,17 +9835,114 @@ END SUB
 ' preview. Radius ranges 1..20 pixels. On OK, applies a box blur to the active
 ' layer with undo support.
 '
+''
+' Multi-type blur. blurType: 0=Box 1=Gaussian 2=Motion 3=Zoom 4=Spin.
+'   Box      — uniform box average (fast, flat).
+'   Gaussian — three successive box passes (smooth bell falloff).
+'   Motion   — directional smear along angleDeg over +/- radius px.
+'   Zoom      — radial blur scaling out from the image centre.
+'   Spin     — rotational blur around the image centre.
+' Motion/Zoom/Spin sample-average with premultiplied alpha so transparency stays
+' clean. angleDeg only affects Motion. Returns a new image; caller frees.
+'
+FUNCTION IMAGE_ADJ_blur_typed& (sourceImg AS LONG, blurType AS INTEGER, radius AS INTEGER, angleDeg AS INTEGER)
+    IF NOT (sourceImg& < -1) THEN IMAGE_ADJ_blur_typed& = 0 : EXIT FUNCTION
+    IF radius% < 1 THEN IMAGE_ADJ_blur_typed& = _COPYIMAGE(sourceImg&, 32) : EXIT FUNCTION
+
+    IF blurType% = 0 THEN
+        IMAGE_ADJ_blur_typed& = IMAGE_ADJ_blur_premul_rgba&(sourceImg&, radius%)
+        EXIT FUNCTION
+    ELSEIF blurType% = 1 THEN
+        DIM r3 AS INTEGER : r3% = radius% \ 3 : IF r3% < 1 THEN r3% = 1
+        DIM g1 AS LONG, g2 AS LONG
+        g1& = IMAGE_ADJ_blur_premul_rgba&(sourceImg&, r3%)
+        g2& = IMAGE_ADJ_blur_premul_rgba&(g1&, r3%)
+        IMAGE_ADJ_blur_typed& = IMAGE_ADJ_blur_premul_rgba&(g2&, r3%)
+        IF g1& < -1 THEN _FREEIMAGE g1&
+        IF g2& < -1 THEN _FREEIMAGE g2&
+        EXIT FUNCTION
+    END IF
+
+    DIM bw AS LONG, bh AS LONG
+    bw& = _WIDTH(sourceImg&) : bh& = _HEIGHT(sourceImg&)
+    DIM result AS LONG : result& = _NEWIMAGE(bw&, bh&, 32)
+    DIM sM AS _MEM, rM AS _MEM
+    sM = _MEMIMAGE(sourceImg&) : rM = _MEMIMAGE(result&)
+    DIM bcx AS SINGLE, bcy AS SINGLE : bcx! = bw& / 2.0 : bcy! = bh& / 2.0
+    DIM brad AS SINGLE : brad! = angleDeg% * 3.14159265 / 180.0
+    DIM mdx AS SINGLE, mdy AS SINGLE : mdx! = COS(brad!) : mdy! = -SIN(brad!)
+    DIM bpx AS LONG, bpy AS LONG, bt AS INTEGER
+    DIM sax AS SINGLE, say AS SINGLE, bang AS SINGLE, bcs AS SINGLE, bsn AS SINGLE, bsc AS SINGLE
+    DIM ssr AS SINGLE, ssg AS SINGLE, ssb AS SINGLE, ssa AS SINGLE
+    DIM bcnt AS INTEGER, smp AS _UNSIGNED LONG, saa AS INTEGER, saf AS SINGLE
+    DIM six AS LONG, siy AS LONG, oaI AS INTEGER, orI AS INTEGER, ogI AS INTEGER, obI AS INTEGER
+    DIM nsteps AS INTEGER : nsteps% = radius%
+    DIM tf AS SINGLE
+    DIM btShowProg AS INTEGER : btShowProg% = (bw& * bh& >= 120000)
+    FOR bpy& = 0 TO bh& - 1
+        IF btShowProg% AND (bpy& AND 15) = 0 THEN IMGADJ_progress_tick "Blurring", bpy& / bh&
+        FOR bpx& = 0 TO bw& - 1
+            ssr! = 0 : ssg! = 0 : ssb! = 0 : ssa! = 0 : bcnt% = 0
+            FOR bt% = -nsteps% TO nsteps%
+                tf! = bt% / (nsteps% + 1.0)
+                IF blurType% = 2 THEN                       ' Motion
+                    sax! = bpx& + mdx! * bt% : say! = bpy& + mdy! * bt%
+                ELSEIF blurType% = 3 THEN                   ' Zoom
+                    bsc! = 1.0 + tf! * 0.6
+                    sax! = bcx! + (bpx& - bcx!) * bsc! : say! = bcy! + (bpy& - bcy!) * bsc!
+                ELSE                                        ' Spin
+                    bang! = tf! * 0.6
+                    bcs! = COS(bang!) : bsn! = SIN(bang!)
+                    sax! = bcx! + (bpx& - bcx!) * bcs! - (bpy& - bcy!) * bsn!
+                    say! = bcy! + (bpx& - bcx!) * bsn! + (bpy& - bcy!) * bcs!
+                END IF
+                six& = INT(sax! + 0.5) : siy& = INT(say! + 0.5)
+                IF six& >= 0 AND siy& >= 0 AND six& < bw& AND siy& < bh& THEN
+                    _MEMGET sM, sM.OFFSET + (siy& * bw& + six&) * 4, smp~&
+                    saa% = _ALPHA32(smp~&) : saf! = saa% / 255.0
+                    ssr! = ssr! + _RED32(smp~&) * saf!
+                    ssg! = ssg! + _GREEN32(smp~&) * saf!
+                    ssb! = ssb! + _BLUE32(smp~&) * saf!
+                    ssa! = ssa! + saa%
+                    bcnt% = bcnt% + 1
+                END IF
+            NEXT bt%
+            IF bcnt% > 0 THEN
+                oaI% = ssa! / bcnt%
+                IF oaI% > 0 THEN
+                    orI% = (ssr! / bcnt%) * 255.0 / oaI%
+                    ogI% = (ssg! / bcnt%) * 255.0 / oaI%
+                    obI% = (ssb! / bcnt%) * 255.0 / oaI%
+                    IF orI% > 255 THEN orI% = 255
+                    IF ogI% > 255 THEN ogI% = 255
+                    IF obI% > 255 THEN obI% = 255
+                    _MEMPUT rM, rM.OFFSET + (bpy& * bw& + bpx&) * 4, _RGBA32(orI%, ogI%, obI%, oaI%) AS _UNSIGNED LONG
+                END IF
+            END IF
+        NEXT bpx&
+    NEXT bpy&
+    _MEMFREE sM : _MEMFREE rM
+    IMAGE_ADJ_blur_typed& = result&
+END FUNCTION
+
 SUB IMAGE_ADJ_blur_dialog ()
     IF CURRENT_LAYER% < 1 THEN EXIT SUB
 
     DIM ctx AS DIALOG_CTX
-    DIALOG_init ctx, IMGDLG_W, 110
+    DIALOG_init ctx, IMGDLG_W, 176
     IMAGE_ADJ_setup_preview ctx, LAYERS(CURRENT_LAYER%).imgHandle&
 
     DIM radius  AS INTEGER : radius% = 3
     DIM oRadius AS INTEGER
+    DIM bangle  AS INTEGER : bangle% = 0
+    DIM oBangle AS INTEGER
+    STATIC blurType AS INTEGER   ' 0=Box 1=Gaussian 2=Motion 3=Zoom 4=Spin
 
-    DIM k AS LONG
+    DIM tvX AS INTEGER, tvY AS INTEGER, tvW AS INTEGER, tvH AS INTEGER
+    tvX% = IMGDLG_SX : tvW% = 200 : tvH% = 16
+    tvY% = IMGDLG_track_y%(ctx, 1) + 26
+
+    DIM k AS LONG, bName AS STRING
     DIM d_radius AS INTEGER : d_radius% = 3
     DO
         DIALOG_poll_mouse ctx
@@ -8989,25 +9951,39 @@ SUB IMAGE_ADJ_blur_dialog ()
         IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
         IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
 
-        oRadius% = radius%
-        radius%  = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, radius%, 1, 20)
-        radius%  = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, radius%, 1, 20)
-        IF radius% <> oRadius% THEN ctx.previewDirty% = TRUE
+        oRadius% = radius% : oBangle% = bangle%
+        radius%  = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, radius%, 1, 200)
+        radius%  = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, radius%, 1, 200)
+        bangle%  = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, bangle%, 0, 359)
+        bangle%  = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, bangle%, 0, 359)
+        IF DIALOG_hit%(ctx, tvX%, tvY%, tvW%, tvH%) THEN blurType% = (blurType% + 1) MOD 5 : ctx.previewDirty% = TRUE
+        IF radius% <> oRadius% OR bangle% <> oBangle% THEN ctx.previewDirty% = TRUE
         IMGDLG_check_ok_cancel ctx
         IMGDLG_reset1 ctx, radius%, d_radius%
 
         IF ctx.previewDirty% THEN
             SAFE_FREEIMAGE ctx.previewThumb
-            ctx.previewThumb = GJ_IMGADJ_Blur(ctx.origThumb, radius%)
+            ctx.previewThumb = IMAGE_ADJ_blur_typed&(ctx.origThumb, blurType%, radius%, bangle%)
             IMAGE_ADJ_mask_preview ctx
             ctx.previewDirty% = FALSE
         END IF
+
+        SELECT CASE blurType%
+            CASE 1 : bName$ = "GAUSSIAN"
+            CASE 2 : bName$ = "MOTION"
+            CASE 3 : bName$ = "ZOOM"
+            CASE 4 : bName$ = "SPIN"
+            CASE ELSE : bName$ = "BOX"
+        END SELECT
 
         _DEST ctx.imgHandle
         DIALOG_draw_frame ctx, "BLUR"
         DIALOG_draw_preview ctx
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "RADIUS:"
-        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, radius%, 1, 20, "", " px"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, radius%, 1, 200, "", " px"
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 1), "ANGLE (MOTION):"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, bangle%, 0, 359, "", ""
+        DIALOG_draw_toggle ctx, tvX%, tvY%, tvW%, tvH%, "TYPE: " + bName$, -1
         DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
         IMGDLG_draw_ok_cancel ctx
         DIALOG_blit ctx
@@ -9022,7 +9998,7 @@ SUB IMAGE_ADJ_blur_dialog ()
         DIM adjR     AS LONG
         FOR blT% = 1 TO blTgtCount%
             CURRENT_LAYER% = blTargets%(blT%)
-            adjR&          = IMAGE_ADJ_blur_premul_rgba&(LAYERS(CURRENT_LAYER%).imgHandle&, radius%)
+            adjR&          = IMAGE_ADJ_blur_typed&(LAYERS(CURRENT_LAYER%).imgHandle&, blurType%, radius%, bangle%)
             IMAGE_ADJ_apply_spatial adjR&, "Blur"
         NEXT blT%
         IF blTgtCount% > 1 THEN HISTORY_end_group
@@ -9059,8 +10035,8 @@ SUB IMAGE_ADJ_sharpen_dialog ()
         IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
 
         oStrength% = strength%
-        strength%  = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, strength%, 1, 10)
-        strength%  = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, strength%, 1, 10)
+        strength%  = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, strength%, 1, 64)
+        strength%  = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, strength%, 1, 64)
         IF strength% <> oStrength% THEN ctx.previewDirty% = TRUE
         IMGDLG_check_ok_cancel ctx
         IMGDLG_reset1 ctx, strength%, d_strength%
@@ -9076,7 +10052,7 @@ SUB IMAGE_ADJ_sharpen_dialog ()
         DIALOG_draw_frame ctx, "SHARPEN"
         DIALOG_draw_preview ctx
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "STRENGTH:"
-        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, strength%, 1, 10, "", ""
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, strength%, 1, 64, "", ""
         DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
         IMGDLG_draw_ok_cancel ctx
         DIALOG_blit ctx
@@ -9361,8 +10337,8 @@ SUB IMAGE_ADJ_glow_dialog ()
         IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
 
         oRadius% = glRadius% : oInten% = glInten%
-        glRadius% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, glRadius%, 1, 20)
-        glRadius% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, glRadius%, 1, 20)
+        glRadius% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, glRadius%, 1, 48)
+        glRadius% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, glRadius%, 1, 48)
         glInten%  = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, glInten%, 0, 100)
         glInten%  = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, glInten%, 0, 100)
         IF glRadius% <> oRadius% OR glInten% <> oInten% THEN ctx.previewDirty% = TRUE
@@ -9380,7 +10356,7 @@ SUB IMAGE_ADJ_glow_dialog ()
         DIALOG_draw_frame ctx, "GLOW"
         DIALOG_draw_preview ctx
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "RADIUS:"
-        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, glRadius%, 1, 20, "", ""
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, glRadius%, 1, 48, "", ""
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 1), "INTENSITY:"
         DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, glInten%, 0, 100, "", ""
         DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
@@ -9582,8 +10558,8 @@ SUB IMAGE_ADJ_posterize_dialog ()
         pdOldDither% = pdDither%
         pdOldStr%    = pdStrength%
 
-        levels% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, levels%, 2, 16)
-        levels% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, levels%, 2, 16)
+        levels% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, levels%, 2, 64)
+        levels% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, levels%, 2, 64)
 
         ' Dither cycle button
         IF DIALOG_hit%(ctx, IMGDLG_SX, pdDitherY%, IMGDLG_SW, 18) THEN
@@ -9628,7 +10604,7 @@ SUB IMAGE_ADJ_posterize_dialog ()
         DIALOG_draw_frame ctx, "POSTERIZE"
         DIALOG_draw_preview ctx
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "LEVELS:"
-        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, levels%, 2, 16, "", ""
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, levels%, 2, 64, "", ""
 
         ' Dither button
         DIM pdDithName AS STRING
@@ -9701,8 +10677,8 @@ SUB IMAGE_ADJ_pixelate_dialog ()
         IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
 
         oPixSize% = pixSize%
-        pixSize%  = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, pixSize%, 2, 32)
-        pixSize%  = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, pixSize%, 2, 32)
+        pixSize%  = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, pixSize%, 2, 128)
+        pixSize%  = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, pixSize%, 2, 128)
         IF pixSize% <> oPixSize% THEN ctx.previewDirty% = TRUE
         IMGDLG_check_ok_cancel ctx
         IMGDLG_reset1 ctx, pixSize%, d_pixSize%
@@ -9724,7 +10700,7 @@ SUB IMAGE_ADJ_pixelate_dialog ()
         DIALOG_draw_frame ctx, "PIXELATE"
         DIALOG_draw_preview ctx
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "PIXEL SIZE:"
-        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, pixSize%, 2, 32, "", " px"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, pixSize%, 2, 128, "", " px"
         DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
         IMGDLG_draw_ok_cancel ctx
         DIALOG_blit ctx

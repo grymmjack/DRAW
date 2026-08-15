@@ -23,16 +23,19 @@ key grave
 wait_for 0.3 "Content drawn"
 assert_no_crash
 
-# Sample just to the RIGHT of the line — empty before, streaks after.
-GX=$(( CANVAS_CX + 8 )); GY=$(( CANVAS_CY - 40 )); GW=40; GH=80
+# Sample just to the RIGHT of the line — empty before, streaks after. Sit close
+# to the line so the DEFAULT strength (10) reliably reaches the strip; the Wind
+# dialog now has a DIRECTION slider (default 0 = rightward), so we no longer drag
+# the strength slider by absolute coords — the dialog geometry shifted and that
+# drag would land on the wrong slider and steer streaks out of frame.
+GX=$(( CANVAS_CX + 3 )); GY=$(( CANVAS_CY - 40 )); GW=24; GH=80
 park_mouse
 snap_region "$GX" "$GY" "$GW" "$GH" "wind-before"
 BEFORE="$SNAP_RESULT"
 
 open_effect 1 8 ; wait_for 0.5 "Wind dialog open"
 screenshot "wind-dialog"
-drag 400 317 560 317 ; wait_for 0.2 "Strength up"
-key Return ; wait_for 0.7 "Applied (OK), dialog closed"
+key Return ; wait_for 0.7 "Applied (OK, default strength/direction), dialog closed"
 assert_no_crash
 
 park_mouse
