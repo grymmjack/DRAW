@@ -162,3 +162,34 @@ Stable, versioned (`FX_API_VERSION`), documented. Grouped:
 3. **Auto-dialog vs. author-writes-dialog** — default to auto-generated from param specs (proposed, GIMP-Fu-like) with custom-dialog as opt-in?
 4. **Sandbox strictness** — how locked-down should effects be (proposed: no `SHELL`/`SYSTEM`/arbitrary file I/O; image + declared params + `FX_preset_*` only)?
 5. **Distribution** — just local files for now, or also a "share an effect" export/import (single `.bas`)?
+
+---
+
+## Prerequisite: Selection support (Rick: "finish selection first")
+
+Decisions captured (2026-08-15): rebuild = **explicit menu action**; dialogs =
+**auto-from-params + opt-in custom**; sandbox = **strict**; do **selection first**.
+
+Selection-support status (branch `more-image-effects`):
+- [x] **Clip to selection (apply-core)** — all ~70 effects restore original pixels
+      outside the active selection (rect BOX or per-pixel SELECTION_MASK), wired
+      into IMAGE_ADJ_apply_to_layer / apply_spatial, apron-aware. Guarded no-op
+      when no selection (regression 22/22). Logic mirrors TOOLS/SELECTION.BM.
+- [x] **SELECT-menu toggles** — "EFFECTS: CLIP TO SELECTION" (default on) /
+      "EFFECTS: SELECTION AS SHAPE", checkbox state synced. (Kept out of the
+      EFFECTS dropdown so its width — and the flyout nav — stays stable.)
+- [ ] **Preview parity** — clip the loupe preview too so it matches the apply.
+      Publish IMGADJ_LOUPE_CROPX/Y from update_loupe (declared, not yet set) and
+      blend previewThumb→origThumb outside the selection in IMAGE_ADJ_mask_preview.
+- [ ] **Selection-as-base mode** — EFFECT_SEL_AS_SHAPE currently only *disables*
+      clipping. To make edge effects (Outline/Glow/Shadow/Backlight/Corona) radiate
+      from the selection EDGE (inside + outside), the engine must see the selection
+      as the shape's alpha. Preview side is doable in the shared update_loupe (set
+      origThumb alpha = selection coverage). The APPLY side has **no shared choke
+      point** (each dialog passes the layer straight to its engine), so it needs a
+      small per-edge-effect change OR a shared "shaped source" wrapper — the one
+      genuinely harder piece; do it deliberately, not at the tail of a long session.
+
+> NOTE: automated selection QA is unreliable via the harness's flaky drag-marquee
+> (confirmed in edit-stroke-selection.sh). Verify the clip interactively: draw a
+> shape, marquee a region, apply any effect → only the region changes.
