@@ -3967,6 +3967,142 @@ END SUB
 
 
 ''
+' Icicles (Eye Candy "Shape") — pale ice spikes hang off the shape's bottom edges.
+' Each bottom-edge pixel (opaque with transparent directly below) grows a downward
+' spike whose LENGTH is a smooth low-frequency noise of the column (so neighbouring
+' columns form pointed icicles), in a pale cyan-white that fades and brightens
+' toward a glassy tip. Adds pixels below the shape -> apply_spatial.
+'
+' @param sourceImg LONG     Source image (32-bit, with alpha)
+' @param lengthP   INTEGER  Max icicle length in px (4..40)
+' @param thickness INTEGER  Coverage/opacity 0..100
+' @return LONG              New 32-bit image handle (0 on failure)
+'
+FUNCTION IMAGE_ADJ_icicles& (sourceImg AS LONG, lengthP AS INTEGER, thickness AS INTEGER)
+    IF NOT (sourceImg& < -1) THEN IMAGE_ADJ_icicles& = 0 : EXIT FUNCTION
+
+    DIM icW AS LONG, icH AS LONG
+    icW& = _WIDTH(sourceImg&) : icH& = _HEIGHT(sourceImg&)
+    DIM result AS LONG
+    result& = _COPYIMAGE(sourceImg&, 32)
+    DIM srcM AS _MEM, resM AS _MEM
+    srcM = _MEMIMAGE(sourceImg&)
+    resM = _MEMIMAGE(result&)
+
+    DIM tBoost AS SINGLE : tBoost! = 0.4 + thickness% / 100.0
+    DIM ix AS LONG, iy AS LONG, belowA AS _UNSIGNED _BYTE, aHere AS _UNSIGNED _BYTE, tgtA AS _UNSIGNED _BYTE
+    DIM spikeLen AS INTEGER, d AS INTEGER, ny AS LONG, t AS SINGLE, colN AS SINGLE
+    DIM icA AS INTEGER, icR AS INTEGER, icG AS INTEGER, icB AS INTEGER, glint AS SINGLE
+    FOR iy& = 0 TO icH& - 1
+        FOR ix& = 0 TO icW& - 1
+            _MEMGET srcM, srcM.OFFSET + (iy& * icW& + ix&) * 4 + 3, aHere~%%
+            IF aHere~%% = 0 THEN _CONTINUE                 ' start from the shape
+            IF iy& + 1 >= icH& THEN _CONTINUE
+            _MEMGET srcM, srcM.OFFSET + ((iy& + 1) * icW& + ix&) * 4 + 3, belowA~%%
+            IF belowA~%% <> 0 THEN _CONTINUE               ' not a bottom edge
+
+            ' spike length from a smooth per-column noise -> pointed clusters
+            colN! = IMGADJ_valnoise!(ix& * 0.28, 3.7, 71)
+            spikeLen% = INT(lengthP% * (0.2 + 0.8 * colN! * colN!) * tBoost!)
+            IF spikeLen% < 2 THEN _CONTINUE
+
+            FOR d% = 1 TO spikeLen%
+                ny& = iy& + d%
+                IF ny& >= icH& THEN EXIT FOR
+                _MEMGET srcM, srcM.OFFSET + (ny& * icW& + ix&) * 4 + 3, tgtA~%%
+                IF tgtA~%% <> 0 THEN EXIT FOR             ' hit shape below — stop
+                t! = d% / spikeLen%                        ' 0 at root, 1 at tip
+                ' glassy: brighter, more transparent toward the tip
+                glint! = 0.7 + 0.3 * IMGADJ_valnoise!(ix& * 0.9, ny& * 0.5, 72)
+                icR% = INT((180 + 40 * t!) * glint!) : IF icR% > 255 THEN icR% = 255
+                icG% = INT((215 + 30 * t!) * glint!) : IF icG% > 255 THEN icG% = 255
+                icB% = INT((238 + 17 * t!) * glint!) : IF icB% > 255 THEN icB% = 255
+                icA% = INT((235 - 150 * t!) * tBoost!)
+                IF icA% < 20 THEN icA% = 20
+                IF icA% > 255 THEN icA% = 255
+                _MEMPUT resM, resM.OFFSET + (ny& * icW& + ix&) * 4, _RGBA32(icR%, icG%, icB%, icA%) AS _UNSIGNED LONG
+            NEXT d%
+        NEXT ix&
+    NEXT iy&
+
+    _MEMFREE srcM
+    _MEMFREE resM
+    IMAGE_ADJ_icicles& = result&
+END FUNCTION
+
+
+''
+' Open a modal Icicles dialog: LENGTH (4..40) + THICKNESS (0..100). Adds pixels
+' -> apply_spatial.
+'
+SUB IMAGE_ADJ_icicles_dialog ()
+    IF CURRENT_LAYER% < 1 THEN EXIT SUB
+
+    DIM ctx AS DIALOG_CTX
+    DIALOG_init ctx, IMGDLG_W, 138
+    IMAGE_ADJ_setup_preview ctx, LAYERS(CURRENT_LAYER%).imgHandle&
+
+    DIM lengthP   AS INTEGER : lengthP%   = 16
+    DIM thickness AS INTEGER : thickness% = 60
+    DIM oLength AS INTEGER, oThick AS INTEGER
+
+    DIM k AS LONG
+    DO
+        DIALOG_poll_mouse ctx
+        IF ctx.loupeDirty% THEN IMAGE_ADJ_update_loupe ctx
+        k& = _KEYHIT
+        IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
+        IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
+
+        oLength% = lengthP% : oThick% = thickness%
+        lengthP%   = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, lengthP%, 4, 40)
+        lengthP%   = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, lengthP%, 4, 40)
+        thickness% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, thickness%, 0, 100)
+        thickness% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, thickness%, 0, 100)
+        IF lengthP% <> oLength% OR thickness% <> oThick% THEN ctx.previewDirty% = TRUE
+        IMGDLG_check_ok_cancel ctx
+
+        IF ctx.previewDirty% THEN
+            SAFE_FREEIMAGE ctx.previewThumb
+            ctx.previewThumb = IMAGE_ADJ_icicles&(ctx.origThumb, lengthP%, thickness%)
+            IMAGE_ADJ_mask_preview ctx
+            ctx.previewDirty% = FALSE
+        END IF
+
+        _DEST ctx.imgHandle
+        DIALOG_draw_frame ctx, "ICICLES"
+        DIALOG_draw_preview ctx
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "LENGTH:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, lengthP%, 4, 40, "", ""
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 1), "THICKNESS:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, thickness%, 0, 100, "", ""
+        DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
+        IMGDLG_draw_ok_cancel ctx
+        DIALOG_blit ctx
+    LOOP UNTIL ctx.done%
+
+    IF ctx.result% THEN
+        DIM icTargets(1 TO MAX_LAYERS) AS INTEGER, icTgtCount AS INTEGER, icT AS INTEGER
+        DIM icSaveCL AS INTEGER
+        IMAGE_ADJ_collect_targets icTargets%(), icTgtCount%
+        icSaveCL% = CURRENT_LAYER%
+        IF icTgtCount% > 1 THEN HISTORY_begin_group
+        DIM adjR AS LONG
+        FOR icT% = 1 TO icTgtCount%
+            CURRENT_LAYER% = icTargets%(icT%)
+            adjR&          = IMAGE_ADJ_icicles&(LAYERS(CURRENT_LAYER%).imgHandle&, lengthP%, thickness%)
+            IMAGE_ADJ_apply_spatial adjR&, "Icicles"
+        NEXT icT%
+        IF icTgtCount% > 1 THEN HISTORY_end_group
+        CURRENT_LAYER% = icSaveCL%
+    END IF
+
+    DIALOG_cleanup ctx
+    SAFE_FREEIMAGE IMGADJ_LAYER_MASK& : IMGADJ_LAYER_MASK& = 0
+END SUB
+
+
+''
 ' Smoke (Eye Candy "Shape") — a wispy translucent plume rising off the top edge.
 ' Same top-scan as Fire, but the density is noise-dominated (so it breaks into
 ' wisps), reaches higher, mapped to a cool dark->light grey ramp at low alpha.
