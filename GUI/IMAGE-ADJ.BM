@@ -4098,6 +4098,103 @@ FUNCTION IMAGE_ADJ_brick& (sourceImg AS LONG, sizeP AS INTEGER, mortarW AS INTEG
 END FUNCTION
 
 ''
+' Diamond Plate (Eye Candy "Texture") — metal tread: alternating diagonal raised
+' bars (direction flips per tile) shaded for 3D relief on a flat metal-grey base.
+' SIZE sets tile size; DEPTH sets relief contrast. RGB-only -> apply_to_layer.
+'
+FUNCTION IMAGE_ADJ_diamondplate& (sourceImg AS LONG, sizeP AS INTEGER, depth AS INTEGER)
+    IF NOT (sourceImg& < -1) THEN IMAGE_ADJ_diamondplate& = 0 : EXIT FUNCTION
+    DIM dpW AS LONG, dpH AS LONG
+    dpW& = _WIDTH(sourceImg&) : dpH& = _HEIGHT(sourceImg&)
+    DIM result AS LONG : result& = _COPYIMAGE(sourceImg&, 32)
+    DIM srcM AS _MEM, resM AS _MEM
+    srcM = _MEMIMAGE(sourceImg&) : resM = _MEMIMAGE(result&)
+    DIM ts AS INTEGER : ts% = sizeP% : IF ts% < 4 THEN ts% = 4
+    DIM dScale AS SINGLE : dScale! = depth% / 100.0 * 110.0
+    DIM ax AS LONG, ay AS LONG, aHere AS _UNSIGNED _BYTE
+    DIM tileX AS LONG, tileY AS LONG, u AS SINGLE, vv AS SINGLE, diagv AS SINGLE, band AS SINGLE
+    DIM g2 AS INTEGER, baseGrey AS INTEGER
+    baseGrey% = 125
+    FOR ay& = 0 TO dpH& - 1
+        FOR ax& = 0 TO dpW& - 1
+            _MEMGET srcM, srcM.OFFSET + (ay& * dpW& + ax&) * 4 + 3, aHere~%%
+            IF aHere~%% = 0 THEN _CONTINUE
+            tileX& = ax& \ ts% : tileY& = ay& \ ts%
+            u! = (ax& - tileX& * ts%) / ts% : vv! = (ay& - tileY& * ts%) / ts%
+            IF ((tileX& + tileY&) AND 1) THEN
+                diagv! = u! + vv!
+            ELSE
+                diagv! = u! - vv! + 1.0
+            END IF
+            band! = diagv! - INT(diagv!)                     ' fract, one ridge per tile
+            IF band! > 0.25 AND band! < 0.75 THEN
+                ' raised bar: shade across its width for 3D (bright->dark)
+                g2% = baseGrey% + INT((0.5 - band!) * 2.0 * dScale!)
+            ELSE
+                g2% = baseGrey% - INT(dScale! * 0.25)        ' recessed base
+            END IF
+            IF g2% < 20 THEN g2% = 20
+            IF g2% > 245 THEN g2% = 245
+            _MEMPUT resM, resM.OFFSET + (ay& * dpW& + ax&) * 4, _RGBA32(g2%, g2%, g2% + 4, aHere~%%) AS _UNSIGNED LONG
+        NEXT ax&
+    NEXT ay&
+    _MEMFREE srcM : _MEMFREE resM
+    IMAGE_ADJ_diamondplate& = result&
+END FUNCTION
+
+''
+' Lightning (Eye Candy "Texture") — a jagged bolt runs down the shape: the bolt's
+' x at each row wanders by fractal noise; pixels near the path get a white core
+' fading to a blue glow, over a darkened copy of the shape so the bolt pops.
+' JAG sets path waviness; GLOW sets bolt width/brightness. RGB-only -> apply_to_layer.
+'
+FUNCTION IMAGE_ADJ_lightning& (sourceImg AS LONG, jag AS INTEGER, glow AS INTEGER)
+    IF NOT (sourceImg& < -1) THEN IMAGE_ADJ_lightning& = 0 : EXIT FUNCTION
+    DIM ltW AS LONG, ltH AS LONG
+    ltW& = _WIDTH(sourceImg&) : ltH& = _HEIGHT(sourceImg&)
+    DIM result AS LONG : result& = _COPYIMAGE(sourceImg&, 32)
+    DIM srcM AS _MEM, resM AS _MEM
+    srcM = _MEMIMAGE(sourceImg&) : resM = _MEMIMAGE(result&)
+    DIM jagAmp AS SINGLE : jagAmp! = ltW& * 0.12 + jag% / 100.0 * ltW& * 0.3
+    DIM glowW AS SINGLE : glowW! = 2.0 + glow% / 100.0 * (ltW& * 0.12)
+    DIM cxBase AS SINGLE : cxBase! = ltW& * 0.5
+    DIM ax AS LONG, ay AS LONG, aHere AS _UNSIGNED _BYTE, pix AS _UNSIGNED LONG
+    DIM boltX AS SINGLE, boltX2 AS SINGLE, dist AS SINGLE, dist2 AS SINGLE, t AS SINGLE
+    DIM pr AS INTEGER, pg AS INTEGER, pb AS INTEGER, lr AS INTEGER, lg AS INTEGER, lb AS INTEGER, best AS SINGLE
+    FOR ay& = 0 TO ltH& - 1
+        ' main bolt path + one branch (offset seed), both wandering by noise
+        boltX! = cxBase! + (IMGADJ_valnoise!(ay& * 0.12, 0.5, 191) - 0.5) * 2.0 * jagAmp! _
+               + (IMGADJ_valnoise!(ay& * 0.4, 1.5, 192) - 0.5) * jagAmp! * 0.5
+        boltX2! = cxBase! + ltW& * 0.18 + (IMGADJ_valnoise!(ay& * 0.15, 7.5, 193) - 0.5) * 2.0 * jagAmp!
+        FOR ax& = 0 TO ltW& - 1
+            _MEMGET srcM, srcM.OFFSET + (ay& * ltW& + ax&) * 4 + 3, aHere~%%
+            IF aHere~%% = 0 THEN _CONTINUE
+            dist! = ABS(ax& - boltX!)
+            dist2! = ABS(ax& - boltX2!)
+            IF ay& < ltH& * 0.4 THEN dist2! = 1e9           ' branch only in lower part
+            best! = dist! : IF dist2! < best! THEN best! = dist2!
+            _MEMGET srcM, srcM.OFFSET + (ay& * ltW& + ax&) * 4, pix~&
+            pr% = _RED32(pix~&) : pg% = _GREEN32(pix~&) : pb% = _BLUE32(pix~&)
+            IF best! > glowW! THEN
+                ' darkened base so the bolt stands out
+                _MEMPUT resM, resM.OFFSET + (ay& * ltW& + ax&) * 4, _RGBA32(pr% \ 3, pg% \ 3, INT(pb% \ 3) + 10, aHere~%%) AS _UNSIGNED LONG
+            ELSE
+                t! = best! / glowW!                          ' 0 core .. 1 edge
+                IF t! < 0.25 THEN
+                    lr% = 255 : lg% = 255 : lb% = 255        ' white-hot core
+                ELSE
+                    lr% = INT(150 * (1.0 - t!)) : lg% = INT(190 * (1.0 - t!)) : lb% = INT(120 + 135 * (1.0 - t!))
+                    IF lb% > 255 THEN lb% = 255
+                END IF
+                _MEMPUT resM, resM.OFFSET + (ay& * ltW& + ax&) * 4, _RGBA32(lr%, lg%, lb%, aHere~%%) AS _UNSIGNED LONG
+            END IF
+        NEXT ax&
+    NEXT ay&
+    _MEMFREE srcM : _MEMFREE resM
+    IMAGE_ADJ_lightning& = result&
+END FUNCTION
+
+''
 ' Stone Wall (Eye Candy "Texture") — irregular stone cells (Voronoi on a jittered
 ' grid) in mottled greys, separated by dark mortar where the nearest two seeds are
 ' close (cell borders). SIZE sets stone size; MORTAR sets joint width. RGB-only
@@ -4973,6 +5070,114 @@ SUB IMAGE_ADJ_reptile_dialog ()
             CURRENT_LAYER% = tgts%(ti%)
             adjR& = IMAGE_ADJ_reptile&(LAYERS(CURRENT_LAYER%).imgHandle&, p1%, p2%)
             IMAGE_ADJ_apply_to_layer adjR&, "Reptile Skin"
+        NEXT ti%
+        IF tc% > 1 THEN HISTORY_end_group
+        CURRENT_LAYER% = scl%
+    END IF
+    DIALOG_cleanup ctx
+    SAFE_FREEIMAGE IMGADJ_LAYER_MASK& : IMGADJ_LAYER_MASK& = 0
+END SUB
+
+SUB IMAGE_ADJ_diamondplate_dialog ()
+    IF CURRENT_LAYER% < 1 THEN EXIT SUB
+    DIM ctx AS DIALOG_CTX : DIALOG_init ctx, IMGDLG_W, 138
+    IMAGE_ADJ_setup_preview ctx, LAYERS(CURRENT_LAYER%).imgHandle&
+    DIM p1 AS INTEGER : p1% = 12
+    DIM p2 AS INTEGER : p2% = 60
+    DIM o1 AS INTEGER, o2 AS INTEGER, k AS LONG
+    DO
+        DIALOG_poll_mouse ctx
+        IF ctx.loupeDirty% THEN IMAGE_ADJ_update_loupe ctx
+        k& = _KEYHIT
+        IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
+        IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
+        o1% = p1% : o2% = p2%
+        p1% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, p1%, 4, 32)
+        p1% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, p1%, 4, 32)
+        p2% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, p2%, 0, 100)
+        p2% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, p2%, 0, 100)
+        IF p1% <> o1% OR p2% <> o2% THEN ctx.previewDirty% = TRUE
+        IMGDLG_check_ok_cancel ctx
+        IF ctx.previewDirty% THEN
+            SAFE_FREEIMAGE ctx.previewThumb
+            ctx.previewThumb = IMAGE_ADJ_diamondplate&(ctx.origThumb, p1%, p2%)
+            IMAGE_ADJ_mask_preview ctx : ctx.previewDirty% = FALSE
+        END IF
+        _DEST ctx.imgHandle
+        DIALOG_draw_frame ctx, "DIAMOND PLATE"
+        DIALOG_draw_preview ctx
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "SIZE:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, p1%, 4, 32, "", ""
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 1), "DEPTH:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, p2%, 0, 100, "", ""
+        DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
+        IMGDLG_draw_ok_cancel ctx
+        DIALOG_blit ctx
+    LOOP UNTIL ctx.done%
+    IF ctx.result% THEN
+        DIM tgts(1 TO MAX_LAYERS) AS INTEGER, tc AS INTEGER, ti AS INTEGER, scl AS INTEGER
+        IMAGE_ADJ_collect_targets tgts%(), tc%
+        scl% = CURRENT_LAYER%
+        IF tc% > 1 THEN HISTORY_begin_group
+        DIM adjR AS LONG
+        FOR ti% = 1 TO tc%
+            CURRENT_LAYER% = tgts%(ti%)
+            adjR& = IMAGE_ADJ_diamondplate&(LAYERS(CURRENT_LAYER%).imgHandle&, p1%, p2%)
+            IMAGE_ADJ_apply_to_layer adjR&, "Diamond Plate"
+        NEXT ti%
+        IF tc% > 1 THEN HISTORY_end_group
+        CURRENT_LAYER% = scl%
+    END IF
+    DIALOG_cleanup ctx
+    SAFE_FREEIMAGE IMGADJ_LAYER_MASK& : IMGADJ_LAYER_MASK& = 0
+END SUB
+
+SUB IMAGE_ADJ_lightning_dialog ()
+    IF CURRENT_LAYER% < 1 THEN EXIT SUB
+    DIM ctx AS DIALOG_CTX : DIALOG_init ctx, IMGDLG_W, 138
+    IMAGE_ADJ_setup_preview ctx, LAYERS(CURRENT_LAYER%).imgHandle&
+    DIM p1 AS INTEGER : p1% = 50
+    DIM p2 AS INTEGER : p2% = 45
+    DIM o1 AS INTEGER, o2 AS INTEGER, k AS LONG
+    DO
+        DIALOG_poll_mouse ctx
+        IF ctx.loupeDirty% THEN IMAGE_ADJ_update_loupe ctx
+        k& = _KEYHIT
+        IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
+        IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
+        o1% = p1% : o2% = p2%
+        p1% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, p1%, 0, 100)
+        p1% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, p1%, 0, 100)
+        p2% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, p2%, 0, 100)
+        p2% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, p2%, 0, 100)
+        IF p1% <> o1% OR p2% <> o2% THEN ctx.previewDirty% = TRUE
+        IMGDLG_check_ok_cancel ctx
+        IF ctx.previewDirty% THEN
+            SAFE_FREEIMAGE ctx.previewThumb
+            ctx.previewThumb = IMAGE_ADJ_lightning&(ctx.origThumb, p1%, p2%)
+            IMAGE_ADJ_mask_preview ctx : ctx.previewDirty% = FALSE
+        END IF
+        _DEST ctx.imgHandle
+        DIALOG_draw_frame ctx, "LIGHTNING"
+        DIALOG_draw_preview ctx
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "JAG:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, p1%, 0, 100, "", ""
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 1), "GLOW:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, p2%, 0, 100, "", ""
+        DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
+        IMGDLG_draw_ok_cancel ctx
+        DIALOG_blit ctx
+    LOOP UNTIL ctx.done%
+    IF ctx.result% THEN
+        DIM tgts(1 TO MAX_LAYERS) AS INTEGER, tc AS INTEGER, ti AS INTEGER, scl AS INTEGER
+        IMAGE_ADJ_collect_targets tgts%(), tc%
+        scl% = CURRENT_LAYER%
+        IF tc% > 1 THEN HISTORY_begin_group
+        DIM adjR AS LONG
+        FOR ti% = 1 TO tc%
+            CURRENT_LAYER% = tgts%(ti%)
+            adjR& = IMAGE_ADJ_lightning&(LAYERS(CURRENT_LAYER%).imgHandle&, p1%, p2%)
+            IMAGE_ADJ_apply_to_layer adjR&, "Lightning"
         NEXT ti%
         IF tc% > 1 THEN HISTORY_end_group
         CURRENT_LAYER% = scl%
