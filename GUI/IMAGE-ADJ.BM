@@ -540,6 +540,146 @@ END FUNCTION
 
 
 ''
+' Corona — a soft ring of light offset OUTSIDE the shape's alpha edge (an eclipse
+' corona), distinct from Outer Glow's edge-hugging bloom. For each transparent
+' pixel, distance d to the nearest opaque pixel gives a triangular ring intensity
+' peaking at radius/2. Alpha-changing -> apply_spatial (transparent layer).
+'
+' @param sourceImg    LONG           Source image (32-bit, with alpha)
+' @param radius       INTEGER        Ring reach in px (3..24)
+' @param intensity    INTEGER        Brightness 0..100
+' @param coronaColor  _UNSIGNED LONG Ring colour
+' @return LONG  New corona image handle
+'
+FUNCTION IMAGE_ADJ_corona& (sourceImg AS LONG, radius AS INTEGER, intensity AS INTEGER, coronaColor AS _UNSIGNED LONG)
+    IF NOT (sourceImg& < -1) THEN IMAGE_ADJ_corona& = 0 : EXIT FUNCTION
+    IF radius% < 2 THEN radius% = 2
+
+    DIM coW AS LONG, coH AS LONG
+    coW& = _WIDTH(sourceImg&) : coH& = _HEIGHT(sourceImg&)
+    DIM result AS LONG
+    result& = _COPYIMAGE(sourceImg&, 32)
+    DIM srcM AS _MEM, resM AS _MEM
+    srcM = _MEMIMAGE(sourceImg&)
+    resM = _MEMIMAGE(result&)
+
+    DIM cR AS INTEGER, cG AS INTEGER, cB AS INTEGER
+    cR% = _RED32(coronaColor~&) : cG% = _GREEN32(coronaColor~&) : cB% = _BLUE32(coronaColor~&)
+    DIM iScale AS SINGLE : iScale! = intensity% / 100.0
+    DIM peak AS SINGLE : peak! = radius% / 2.0
+
+    DIM ox AS LONG, oy AS LONG, dx AS INTEGER, dy AS INTEGER, nx AS LONG, ny AS LONG
+    DIM aHere AS _UNSIGNED _BYTE, aN AS _UNSIGNED _BYTE
+    DIM bestD AS SINGLE, dd AS SINGLE, inten AS SINGLE, aOut AS INTEGER
+    FOR oy& = 0 TO coH& - 1
+        FOR ox& = 0 TO coW& - 1
+            _MEMGET srcM, srcM.OFFSET + (oy& * coW& + ox&) * 4 + 3, aHere~%%
+            IF aHere~%% <> 0 THEN _CONTINUE
+            bestD! = radius% + 1
+            FOR dy% = -radius% TO radius%
+                ny& = oy& + dy%
+                IF ny& >= 0 AND ny& < coH& THEN
+                    FOR dx% = -radius% TO radius%
+                        nx& = ox& + dx%
+                        IF nx& >= 0 AND nx& < coW& THEN
+                            _MEMGET srcM, srcM.OFFSET + (ny& * coW& + nx&) * 4 + 3, aN~%%
+                            IF aN~%% <> 0 THEN
+                                dd! = SQR(dx% * dx% + dy% * dy%)
+                                IF dd! < bestD! THEN bestD! = dd!
+                            END IF
+                        END IF
+                    NEXT dx%
+                END IF
+            NEXT dy%
+            IF bestD! <= radius% THEN
+                inten! = (1.0 - ABS(bestD! - peak!) / peak!) * iScale!
+                IF inten! > 0.02 THEN
+                    IF inten! > 1.0 THEN inten! = 1.0
+                    aOut% = INT(inten! * 255)
+                    _MEMPUT resM, resM.OFFSET + (oy& * coW& + ox&) * 4, _RGBA32(cR%, cG%, cB%, aOut%) AS _UNSIGNED LONG
+                END IF
+            END IF
+        NEXT ox&
+    NEXT oy&
+
+    _MEMFREE srcM
+    _MEMFREE resM
+    IMAGE_ADJ_corona& = result&
+END FUNCTION
+
+
+''
+' Open a modal Corona dialog: RADIUS (3..24) + INTENSITY (0..100). Ring colour is
+' the current FG colour. Alpha-changing -> apply_spatial.
+'
+SUB IMAGE_ADJ_corona_dialog ()
+    IF CURRENT_LAYER% < 1 THEN EXIT SUB
+
+    DIM ctx AS DIALOG_CTX
+    DIALOG_init ctx, IMGDLG_W, 140
+    IMAGE_ADJ_setup_preview ctx, LAYERS(CURRENT_LAYER%).imgHandle&
+
+    DIM rad AS INTEGER : rad% = 10
+    DIM inten AS INTEGER : inten% = 80
+    DIM oRad AS INTEGER, oInten AS INTEGER
+
+    DIM k AS LONG
+    DO
+        DIALOG_poll_mouse ctx
+        IF ctx.loupeDirty% THEN IMAGE_ADJ_update_loupe ctx
+        k& = _KEYHIT
+        IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
+        IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
+
+        oRad% = rad% : oInten% = inten%
+        rad% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, rad%, 3, 24)
+        rad% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, rad%, 3, 24)
+        inten% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, inten%, 0, 100)
+        inten% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, inten%, 0, 100)
+        IF rad% <> oRad% OR inten% <> oInten% THEN ctx.previewDirty% = TRUE
+        IMGDLG_check_ok_cancel ctx
+
+        IF ctx.previewDirty% THEN
+            SAFE_FREEIMAGE ctx.previewThumb
+            ctx.previewThumb = IMAGE_ADJ_corona&(ctx.origThumb, rad%, inten%, PAINT_COLOR~&)
+            IMAGE_ADJ_mask_preview ctx
+            ctx.previewDirty% = FALSE
+        END IF
+
+        _DEST ctx.imgHandle
+        DIALOG_draw_frame ctx, "CORONA"
+        DIALOG_draw_preview ctx
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "RADIUS:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, rad%, 3, 24, "", ""
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 1), "INTENSITY:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, inten%, 0, 100, "", ""
+        DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
+        IMGDLG_draw_ok_cancel ctx
+        DIALOG_blit ctx
+    LOOP UNTIL ctx.done%
+
+    IF ctx.result% THEN
+        DIM coTargets(1 TO MAX_LAYERS) AS INTEGER, coTgtCount AS INTEGER, coT AS INTEGER
+        DIM coSaveCL AS INTEGER
+        IMAGE_ADJ_collect_targets coTargets%(), coTgtCount%
+        coSaveCL% = CURRENT_LAYER%
+        IF coTgtCount% > 1 THEN HISTORY_begin_group
+        DIM adjR     AS LONG
+        FOR coT% = 1 TO coTgtCount%
+            CURRENT_LAYER% = coTargets%(coT%)
+            adjR&          = IMAGE_ADJ_corona&(LAYERS(CURRENT_LAYER%).imgHandle&, rad%, inten%, PAINT_COLOR~&)
+            IMAGE_ADJ_apply_spatial adjR&, "Corona"
+        NEXT coT%
+        IF coTgtCount% > 1 THEN HISTORY_end_group
+        CURRENT_LAYER% = coSaveCL%
+    END IF
+
+    DIALOG_cleanup ctx
+    SAFE_FREEIMAGE IMGADJ_LAYER_MASK& : IMGADJ_LAYER_MASK& = 0
+END SUB
+
+
+''
 ' Backlight — a radial sunburst of light rays behind the shape. Fills the
 ' transparent area with `rays` bright spokes of `color` radiating from the centre
 ' (brightest at the centre, fading out), so when composited the shape appears

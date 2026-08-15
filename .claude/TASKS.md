@@ -32,7 +32,7 @@ the infra exists.
 
 ## 🔨 NOW — doing right now
 
-- [ ] ➡️ Wave 2b/leftover · **Perspective/3D Shadow** already done; next: Eye Candy SHAPE/TEXTURE waves (need SHAPE→/TEXTURE→ categories) OR Liquify tool OR Pixel Scaler
+- [ ] ➡️ Wave 7 · **Cutout** — inset shadow so the shape looks punched through (SHAPE, open_effect 7 2)
 
 <!-- REORG PLAN (EFFECTS menu, 21xx only; leave IMAGE menu 2001-2011 as-is).
      9 flyout categories under EFFECTS:
@@ -141,7 +141,7 @@ the infra exists.
 - [x] **Backlight** — radial sunburst rays behind the shape (FG colour), RAYS 4-48 + INTENSITY, apply_spatial + SHAPE category + QA test (effect-backlight.sh). NEW engine IMAGE_ADJ_backlight&. NOTE: functional + test-passing but ray visuals are faint — flagged for a polish pass. First effect in the new SHAPE flyout category (open_effect 7 0).
 - [ ] **Bevel (Eye Candy)** — covered by Wave 2b Bevel; add SHAPE-menu entry
 - [ ] **Chrome** — covered by Wave 2b Chrome/Metallic; add SHAPE-menu entry
-- [ ] **Corona** — soft eclipse-style ring glow around alpha edges + dialog + QA test
+- [x] **Corona** — triangular ring of light offset outside the alpha edge, RADIUS 3-24 + INTENSITY, apply_spatial + SHAPE menu + QA test (effect-corona.sh, 1542px). NEW engine IMAGE_ADJ_corona&.
 - [ ] **Drip** — liquid drips hanging off the bottom of shapes + dialog + QA test
 - [ ] **Electrify** — jagged lightning tendrils around edges + dialog + QA test
 - [ ] **Extrude** — covered by Wave 4 Extrude; add SHAPE-menu entry
