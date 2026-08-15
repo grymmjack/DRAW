@@ -54,11 +54,15 @@ Each box = engine/dialog change → build clean (0 warnings) → QA guard (dialo
 
 ## Wave P3 — Texture / overlay effects get a MIX (blend with original)
 
-- [ ] **MIX slider on texture effects** — add MIX/OPACITY (0-100, default 100) that
-      lerps the generated surface with the original layer colour, so textures aren't
-      all-or-nothing. Apply to: Wood, Marble, Brick Wall, Brushed Metal, Weave, Stone
-      Wall, Reptile Skin, Diamond Plate, and Rust. (Engine gains a `mix` param; at
-      100 = full texture, 0 = original.) QA: each still applies; low MIX changes fewer px.
+- [x] **MIX slider on 8 texture effects** — Wood, Marble, Brick Wall, Brushed Metal,
+      Weave, Stone Wall, Reptile Skin, Diamond Plate gained a MIX slider (0-100,
+      default 100) + RESET. Implemented via reusable post-blend IMAGE_ADJ_mix_result&
+      (lerp fx over original, preserve alpha) — NO engine changes. Verified: Wood
+      applies 2480px at MIX=100. (Rust deferred — its dialog isn't the p1/p2 pattern.)
+      ALSO FIXED a harness regression this caused: the menu-box count fix made the
+      EFFECTS dropdown correctly narrower, shifting flyouts left so open_effect's
+      fixed child-x=560 overshot narrow flyouts (TEXTURE) → silent 0-diff. Fixed the
+      qa-harness DRAW adapter to click children at x=490 (flyout left edge). 22/22 green.
 
 ## Wave P4 — Manual
 
