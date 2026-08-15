@@ -3882,7 +3882,7 @@ END SUB
 ' @param shColor   _UNSIGNED LONG Shadow colour
 ' @return LONG  New composited image handle
 '
-FUNCTION IMAGE_ADJ_longshadow& (sourceImg AS LONG, length AS INTEGER, shColor AS _UNSIGNED LONG)
+FUNCTION IMAGE_ADJ_longshadow& (sourceImg AS LONG, length AS INTEGER, angleDeg AS INTEGER, shColor AS _UNSIGNED LONG)
     IF NOT (sourceImg& < -1) THEN IMAGE_ADJ_longshadow& = 0 : EXIT FUNCTION
 
     DIM lsW AS LONG, lsH AS LONG
@@ -3899,6 +3899,11 @@ FUNCTION IMAGE_ADJ_longshadow& (sourceImg AS LONG, length AS INTEGER, shColor AS
     DIM shOpaque AS _UNSIGNED LONG
     shOpaque~& = _RGBA32(_RED32(shColor~&), _GREEN32(shColor~&), _BLUE32(shColor~&), 255)
 
+    ' Cast direction (0=right, 90=top, 315=down-right default). For each empty
+    ' pixel scan BACK along -cast to see if the shape is within `length`.
+    DIM lsRad AS SINGLE : lsRad! = angleDeg% * 3.14159265 / 180.0
+    DIM cvx AS SINGLE, cvy AS SINGLE : cvx! = COS(lsRad!) : cvy! = -SIN(lsRad!)
+
     DIM lx AS LONG, ly AS LONG, k AS INTEGER, ux AS LONG, uy AS LONG
     DIM selfA AS _UNSIGNED _BYTE, upA AS _UNSIGNED _BYTE, hitS AS INTEGER
     FOR ly& = 0 TO lsH& - 1
@@ -3907,8 +3912,8 @@ FUNCTION IMAGE_ADJ_longshadow& (sourceImg AS LONG, length AS INTEGER, shColor AS
             IF selfA~%% <> 0 THEN _CONTINUE   ' opaque pixels keep original (composited later)
             hitS% = 0
             FOR k% = 1 TO length%
-                ux& = lx& - k% : uy& = ly& - k%
-                IF ux& < 0 OR uy& < 0 THEN EXIT FOR
+                ux& = lx& - CINT(k% * cvx!) : uy& = ly& - CINT(k% * cvy!)
+                IF ux& < 0 OR uy& < 0 OR ux& >= lsW& OR uy& >= lsH& THEN EXIT FOR
                 _MEMGET srcM, srcM.OFFSET + (uy& * lsW& + ux&) * 4 + 3, upA~%%
                 IF upA~%% <> 0 THEN hitS% = 1 : EXIT FOR
             NEXT k%
@@ -3936,11 +3941,14 @@ SUB IMAGE_ADJ_longshadow_dialog ()
     IF CURRENT_LAYER% < 1 THEN EXIT SUB
 
     DIM ctx AS DIALOG_CTX
-    DIALOG_init ctx, IMGDLG_W, 110
+    DIALOG_init ctx, IMGDLG_W, 150
     IMAGE_ADJ_setup_preview ctx, LAYERS(CURRENT_LAYER%).imgHandle&
 
     DIM length  AS INTEGER : length% = 12
-    DIM oLength AS INTEGER
+    DIM angle   AS INTEGER : angle%  = 315
+    DIM dLength AS INTEGER : dLength% = 12
+    DIM dAngle  AS INTEGER : dAngle%  = 315
+    DIM oLength AS INTEGER, oAngle AS INTEGER
 
     DIM k AS LONG
     DO
@@ -3950,24 +3958,29 @@ SUB IMAGE_ADJ_longshadow_dialog ()
         IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
         IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
 
-        oLength% = length%
+        oLength% = length% : oAngle% = angle%
         length% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, length%, 1, 40)
         length% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, length%, 1, 40)
-        IF length% <> oLength% THEN ctx.previewDirty% = TRUE
+        angle%  = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, angle%, 0, 359)
+        angle%  = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, angle%, 0, 359)
         IMGDLG_check_ok_cancel ctx
+        IMGDLG_reset2 ctx, length%, angle%, dLength%, dAngle%
+        IF length% <> oLength% OR angle% <> oAngle% THEN ctx.previewDirty% = TRUE
 
         IF ctx.previewDirty% THEN
             SAFE_FREEIMAGE ctx.previewThumb
-            ctx.previewThumb = IMAGE_ADJ_longshadow&(ctx.origThumb, length%, PAINT_BG_COLOR~&)
+            ctx.previewThumb = IMAGE_ADJ_longshadow&(ctx.origThumb, length%, angle%, PAINT_BG_COLOR~&)
             IMAGE_ADJ_mask_preview ctx
             ctx.previewDirty% = FALSE
         END IF
 
         _DEST ctx.imgHandle
-        DIALOG_draw_frame ctx, "LONG SHADOW"
+        DIALOG_draw_frame ctx, "PERSPECTIVE SHADOW"
         DIALOG_draw_preview ctx
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "LENGTH:"
         DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, length%, 1, 40, "", ""
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 1), "CAST ANGLE:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, angle%, 0, 359, "", ""
         DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
         IMGDLG_draw_ok_cancel ctx
         DIALOG_blit ctx
@@ -3982,7 +3995,7 @@ SUB IMAGE_ADJ_longshadow_dialog ()
         DIM adjR     AS LONG
         FOR lsT% = 1 TO lsTgtCount%
             CURRENT_LAYER% = lsTargets%(lsT%)
-            adjR&          = IMAGE_ADJ_longshadow&(LAYERS(CURRENT_LAYER%).imgHandle&, length%, PAINT_BG_COLOR~&)
+            adjR&          = IMAGE_ADJ_longshadow&(LAYERS(CURRENT_LAYER%).imgHandle&, length%, angle%, PAINT_BG_COLOR~&)
             IMAGE_ADJ_apply_spatial adjR&, "Long Shadow"
         NEXT lsT%
         IF lsTgtCount% > 1 THEN HISTORY_end_group

@@ -48,8 +48,9 @@ Each box = engine/dialog change → build clean (0 warnings) → QA guard (dialo
       = down-right) + SOFTNESS (0-8) + OPACITY (0-100) + RESET. Engine offsets the
       silhouette by cos/sin(angle)*distance and scales its alpha by opacity. Dialog
       verified via SHAPE child 8 (probe: all 4 sliders + RESET render).
-- [ ] **Perspective / Long Shadow** — add **ANGLE** (cast direction, default 315 = down-right)
-      to `IMAGE_ADJ_longshadow&` (currently fixed down-right diagonal).
+- [x] **Perspective / Long Shadow** — added CAST ANGLE (0-359, default 315 = down-right)
+      + RESET; engine scans back along -cast (cos/sin(angle)) instead of the fixed up-left
+      diagonal, with full bounds checking. Dialog retitled "PERSPECTIVE SHADOW". SHAPE child 9.
 
 ## Wave P3 — Texture / overlay effects get a MIX (blend with original)
 
