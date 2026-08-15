@@ -22,8 +22,7 @@ park_mouse
 snap_region "$GX" "$GY" "$GW" "$GH" "lensflare-before"
 BEFORE="$SNAP_RESULT"
 
-click 395 6   ; wait_for 0.4 "EFFECTS menu open"
-click 420 416 ; wait_for 0.7 "Lens Flare dialog open"
+open_effect 6 2 ; wait_for 0.5 "Lens Flare dialog open"
 screenshot "lensflare-dialog"
 key Return ; wait_for 0.7 "Applied (OK), dialog closed"
 assert_no_crash

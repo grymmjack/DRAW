@@ -31,8 +31,7 @@ park_mouse
 snap_region "$GX" "$GY" "$GW" "$GH" "chrome-before"
 BEFORE="$SNAP_RESULT"
 
-click 395 6   ; wait_for 0.4 "EFFECTS menu open"
-click 420 260 ; wait_for 0.7 "Chrome dialog open"
+open_effect 2 5 ; wait_for 0.5 "Chrome dialog open"
 screenshot "chrome-dialog"
 key Return ; wait_for 0.7 "Applied (OK), dialog closed"
 assert_no_crash

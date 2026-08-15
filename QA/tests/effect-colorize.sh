@@ -30,9 +30,7 @@ BEFORE="$SNAP_RESULT"
 
 # Open Colorize; nudge HUE (row 0) and SATURATION (row 1) to guarantee a change,
 # then commit with Return.
-key question ; wait_for 0.5 "Command palette"
-type_text "Colorize" ; wait_for 0.5 "Filtered"
-key Return ; wait_for 0.7 "Colorize dialog open"
+open_effect 0 3 ; wait_for 0.5 "Colorize dialog open"
 screenshot "colorize-dialog"
 drag 400 317 560 317 ; wait_for 0.2 "Hue moved"
 drag 400 355 580 355 ; wait_for 0.2 "Saturation up"

@@ -34,8 +34,7 @@ snap_region "$GX" "$GY" "$GW" "$GH" "growshrink-before"
 BEFORE="$SNAP_RESULT"
 
 # Open Grow / Shrink via EFFECTS menu; push AMOUNT up (GROW is default), commit.
-click 395 6   ; wait_for 0.4 "EFFECTS menu open"
-click 420 140 ; wait_for 0.7 "Grow/Shrink dialog open"
+open_effect 1 5 ; wait_for 0.5 "Grow/Shrink dialog open"
 screenshot "growshrink-dialog"
 drag 400 317 540 317 ; wait_for 0.2 "Amount up"
 key Return ; wait_for 0.7 "Applied (OK), dialog closed"

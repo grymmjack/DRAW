@@ -30,8 +30,7 @@ park_mouse
 snap_region "$GX" "$GY" "$GW" "$GH" "innerglow-before"
 BEFORE="$SNAP_RESULT"
 
-click 395 6   ; wait_for 0.4 "EFFECTS menu open"
-click 420 248 ; wait_for 0.7 "Inner Glow dialog open"
+open_effect 2 4 ; wait_for 0.5 "Inner Glow dialog open"
 screenshot "innerglow-dialog"
 key Return ; wait_for 0.7 "Applied (OK), dialog closed"
 assert_no_crash

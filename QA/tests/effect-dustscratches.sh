@@ -29,8 +29,7 @@ park_mouse
 snap_region "$GX" "$GY" "$GW" "$GH" "dustscratches-before"
 BEFORE="$SNAP_RESULT"
 
-click 395 6   ; wait_for 0.4 "EFFECTS menu open"
-click 420 464 ; wait_for 0.7 "Dust & Scratches dialog open"
+open_effect 5 2 ; wait_for 0.5 "Dust & Scratches dialog open"
 screenshot "dustscratches-dialog"
 drag 400 317 480 317 ; wait_for 0.2 "Threshold set"
 key Return ; wait_for 0.7 "Applied (OK), dialog closed"

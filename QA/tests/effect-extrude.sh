@@ -30,8 +30,7 @@ park_mouse
 snap_region "$GX" "$GY" "$GW" "$GH" "extrude-before"
 BEFORE="$SNAP_RESULT"
 
-click 395 6   ; wait_for 0.4 "EFFECTS menu open"
-click 420 356 ; wait_for 0.7 "Extrude dialog open"
+open_effect 4 3 ; wait_for 0.5 "Extrude dialog open"
 screenshot "extrude-dialog"
 key Return ; wait_for 0.7 "Applied (OK), dialog closed"
 assert_no_crash

@@ -32,8 +32,7 @@ park_mouse
 snap_region "$GX" "$GY" "$GW" "$GH" "outerglow-before"
 BEFORE="$SNAP_RESULT"
 
-click 395 6   ; wait_for 0.4 "EFFECTS menu open"
-click 420 236 ; wait_for 0.7 "Outer Glow dialog open"
+open_effect 2 3 ; wait_for 0.5 "Outer Glow dialog open"
 screenshot "outerglow-dialog"
 key Return ; wait_for 0.7 "Applied (OK), dialog closed"
 assert_no_crash

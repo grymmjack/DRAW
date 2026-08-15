@@ -30,8 +30,7 @@ park_mouse
 snap_region "$GX" "$GY" "$GW" "$GH" "mosaic-before"
 BEFORE="$SNAP_RESULT"
 
-click 395 6   ; wait_for 0.4 "EFFECTS menu open"
-click 420 344 ; wait_for 0.7 "Mosaic dialog open"
+open_effect 4 2 ; wait_for 0.5 "Mosaic dialog open"
 screenshot "mosaic-dialog"
 drag 400 317 560 317 ; wait_for 0.2 "Tile size up"
 key Return ; wait_for 0.7 "Applied (OK), dialog closed"

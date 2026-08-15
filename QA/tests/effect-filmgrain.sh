@@ -30,8 +30,7 @@ snap_region "$GX" "$GY" "$GW" "$GH" "filmgrain-before"
 BEFORE="$SNAP_RESULT"
 
 # Open Film Grain via EFFECTS menu, bump AMOUNT, commit with Return.
-click 395 6  ; wait_for 0.4 "EFFECTS menu open"
-click 420 80 ; wait_for 0.7 "Film Grain dialog open"
+open_effect 1 1 ; wait_for 0.5 "Film Grain dialog open"
 screenshot "filmgrain-dialog"
 drag 400 317 580 317 ; wait_for 0.2 "Amount up"
 key Return ; wait_for 0.7 "Applied (OK), dialog closed"

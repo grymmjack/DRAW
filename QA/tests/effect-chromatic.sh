@@ -32,8 +32,7 @@ snap_region "$GX" "$GY" "$GW" "$GH" "chromatic-before"
 BEFORE="$SNAP_RESULT"
 
 # Open Chromatic Aberration via EFFECTS menu (default amount 4 applies), commit.
-click 395 6   ; wait_for 0.4 "EFFECTS menu open"
-click 420 152 ; wait_for 0.7 "Chromatic dialog open"
+open_effect 1 6 ; wait_for 0.5 "Chromatic dialog open"
 screenshot "chromatic-dialog"
 drag 400 317 520 317 ; wait_for 0.2 "Amount up"
 key Return ; wait_for 0.7 "Applied (OK), dialog closed"

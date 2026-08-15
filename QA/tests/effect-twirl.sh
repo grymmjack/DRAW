@@ -28,8 +28,7 @@ park_mouse
 snap_region "$GX" "$GY" "$GW" "$GH" "twirl-before"
 BEFORE="$SNAP_RESULT"
 
-click 395 6   ; wait_for 0.4 "EFFECTS menu open"
-click 420 284 ; wait_for 0.7 "Twirl dialog open"
+open_effect 3 1 ; wait_for 0.5 "Twirl dialog open"
 screenshot "twirl-dialog"
 key Return ; wait_for 0.7 "Applied (OK), dialog closed"
 assert_no_crash

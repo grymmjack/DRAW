@@ -31,9 +31,7 @@ snap_region "$GX" "$GY" "$GW" "$GH" "threshold-before"
 BEFORE="$SNAP_RESULT"
 
 # Open Threshold, drag LEVEL slider to the far left (low cutoff), commit (Return).
-key question ; wait_for 0.5 "Command palette"
-type_text "Threshold" ; wait_for 0.5 "Filtered"
-key Return ; wait_for 0.7 "Threshold dialog open"
+open_effect 0 2 ; wait_for 0.5 "Threshold dialog open"
 screenshot "threshold-dialog"
 drag 560 317 370 317 ; wait_for 0.3 "Level lowered"
 key Return ; wait_for 0.7 "Applied (OK), dialog closed"

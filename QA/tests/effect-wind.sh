@@ -29,8 +29,7 @@ park_mouse
 snap_region "$GX" "$GY" "$GW" "$GH" "wind-before"
 BEFORE="$SNAP_RESULT"
 
-click 395 6   ; wait_for 0.4 "EFFECTS menu open"
-click 420 380 ; wait_for 0.7 "Wind dialog open"
+open_effect 1 8 ; wait_for 0.5 "Wind dialog open"
 screenshot "wind-dialog"
 drag 400 317 560 317 ; wait_for 0.2 "Strength up"
 key Return ; wait_for 0.7 "Applied (OK), dialog closed"

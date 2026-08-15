@@ -37,8 +37,7 @@ snap_region "$GX" "$GY" "$GW" "$GH" "outline-before"
 BEFORE="$SNAP_RESULT"
 
 # Open Outline via EFFECTS menu; push THICKNESS up; commit with Return.
-click 395 6   ; wait_for 0.4 "EFFECTS menu open"
-click 420 104 ; wait_for 0.7 "Outline dialog open"
+open_effect 1 3 ; wait_for 0.5 "Outline dialog open"
 screenshot "outline-dialog"
 drag 400 317 540 317 ; wait_for 0.2 "Thickness up"
 key Return ; wait_for 0.7 "Applied (OK), dialog closed"

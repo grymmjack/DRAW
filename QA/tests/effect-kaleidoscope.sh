@@ -32,8 +32,7 @@ park_mouse
 snap_region "$GX" "$GY" "$GW" "$GH" "kaleidoscope-before"
 BEFORE="$SNAP_RESULT"
 
-click 395 6   ; wait_for 0.4 "EFFECTS menu open"
-click 420 308 ; wait_for 0.7 "Kaleidoscope dialog open"
+open_effect 3 3 ; wait_for 0.5 "Kaleidoscope dialog open"
 screenshot "kaleidoscope-dialog"
 key Return ; wait_for 0.7 "Applied (OK), dialog closed"
 assert_no_crash

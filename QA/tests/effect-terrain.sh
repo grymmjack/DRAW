@@ -21,8 +21,7 @@ park_mouse
 snap_region "$GX" "$GY" "$GW" "$GH" "terrain-before"
 BEFORE="$SNAP_RESULT"
 
-click 395 6   ; wait_for 0.4 "EFFECTS menu open"
-click 420 428 ; wait_for 0.7 "Terrain dialog open"
+open_effect 6 3 ; wait_for 0.5 "Terrain dialog open"
 screenshot "terrain-dialog"
 key Return ; wait_for 0.7 "Applied (OK), dialog closed"
 assert_no_crash

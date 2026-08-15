@@ -32,8 +32,7 @@ snap_region "$CX" "$CY" "$CW" "$CH" "vignette-before"
 BEFORE="$SNAP_RESULT"
 
 # Open Vignette via EFFECTS menu, ensure strength is high, commit with Return.
-click 395 6   ; wait_for 0.4 "EFFECTS menu open"
-click 420 92 ; wait_for 0.7 "Vignette dialog open"
+open_effect 1 2 ; wait_for 0.5 "Vignette dialog open"
 screenshot "vignette-dialog"
 drag 400 317 590 317 ; wait_for 0.2 "Strength up"
 key Return ; wait_for 0.7 "Applied (OK), dialog closed"

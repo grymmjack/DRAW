@@ -29,8 +29,7 @@ snap_region "$GX" "$GY" "$GW" "$GH" "median-before"
 BEFORE="$SNAP_RESULT"
 
 # One-shot: clicking applies immediately.
-click 395 6   ; wait_for 0.4 "EFFECTS menu open"
-click 420 452 ; wait_for 0.8 "Median applied"
+open_effect 5 1 ; wait_for 0.5 "Median applied"
 assert_no_crash
 
 park_mouse

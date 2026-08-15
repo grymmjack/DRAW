@@ -31,8 +31,7 @@ park_mouse
 snap_region "$GX" "$GY" "$GW" "$GH" "bevel-before"
 BEFORE="$SNAP_RESULT"
 
-click 395 6   ; wait_for 0.4 "EFFECTS menu open"
-click 420 224 ; wait_for 0.7 "Bevel dialog open"
+open_effect 2 2 ; wait_for 0.5 "Bevel dialog open"
 screenshot "bevel-dialog"
 key Return ; wait_for 0.7 "Applied (OK), dialog closed"
 assert_no_crash

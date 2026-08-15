@@ -28,8 +28,7 @@ park_mouse
 snap_region "$GX" "$GY" "$GW" "$GH" "wave-before"
 BEFORE="$SNAP_RESULT"
 
-click 395 6   ; wait_for 0.4 "EFFECTS menu open"
-click 420 272 ; wait_for 0.7 "Wave dialog open"
+open_effect 3 0 ; wait_for 0.5 "Wave dialog open"
 screenshot "wave-dialog"
 drag 400 317 560 317 ; wait_for 0.2 "Amplitude up"
 key Return ; wait_for 0.7 "Applied (OK), dialog closed"

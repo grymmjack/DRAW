@@ -29,8 +29,7 @@ snap_region "$GX" "$GY" "$GW" "$GH" "diffclouds-before"
 BEFORE="$SNAP_RESULT"
 
 # One-shot: clicking the item applies immediately (no dialog).
-click 395 6   ; wait_for 0.4 "EFFECTS menu open"
-click 420 404 ; wait_for 0.8 "Difference Clouds applied"
+open_effect 6 1 ; wait_for 0.5 "Difference Clouds applied"
 assert_no_crash
 
 park_mouse

@@ -32,8 +32,7 @@ snap_region "$GX" "$GY" "$GW" "$GH" "gradientmap-before"
 BEFORE="$SNAP_RESULT"
 
 # Open Gradient Map via EFFECTS menu, commit with Return (default BG->FG ramp).
-click 395 6   ; wait_for 0.4 "EFFECTS menu open"
-click 420 128 ; wait_for 0.7 "Gradient Map dialog open"
+open_effect 0 4 ; wait_for 0.5 "Gradient Map dialog open"
 screenshot "gradientmap-dialog"
 key Return ; wait_for 0.7 "Applied (OK), dialog closed"
 assert_no_crash

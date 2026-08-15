@@ -29,9 +29,7 @@ snap_region "$GX" "$GY" "$GW" "$GH" "sepia-before"
 BEFORE="$SNAP_RESULT"
 
 # Apply Sepia via the command palette (one-shot, no dialog).
-key question ; wait_for 0.5 "Command palette"
-type_text "Sepia" ; wait_for 0.5 "Filtered"
-key Return ; wait_for 0.7 "Sepia applied"
+open_effect 0 1 ; wait_for 0.5 "Sepia applied"
 assert_no_crash
 
 park_mouse

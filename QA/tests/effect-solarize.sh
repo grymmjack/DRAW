@@ -28,8 +28,7 @@ park_mouse
 snap_region "$GX" "$GY" "$GW" "$GH" "solarize-before"
 BEFORE="$SNAP_RESULT"
 
-click 395 6   ; wait_for 0.4 "EFFECTS menu open"
-click 420 176 ; wait_for 0.7 "Solarize dialog open"
+open_effect 0 5 ; wait_for 0.5 "Solarize dialog open"
 screenshot "solarize-dialog"
 key Return ; wait_for 0.7 "Applied (OK), dialog closed"
 assert_no_crash

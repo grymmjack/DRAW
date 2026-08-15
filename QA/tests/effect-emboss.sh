@@ -28,8 +28,7 @@ park_mouse
 snap_region "$GX" "$GY" "$GW" "$GH" "emboss-before"
 BEFORE="$SNAP_RESULT"
 
-click 395 6   ; wait_for 0.4 "EFFECTS menu open"
-click 420 164 ; wait_for 0.7 "Emboss dialog open"
+open_effect 1 7 ; wait_for 0.5 "Emboss dialog open"
 screenshot "emboss-dialog"
 key Return ; wait_for 0.7 "Applied (OK), dialog closed"
 assert_no_crash

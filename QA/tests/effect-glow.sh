@@ -30,8 +30,7 @@ BEFORE="$SNAP_RESULT"
 # Open Glow via the EFFECTS menu (deterministic; the command palette open is
 # racy under the harness). EFFECTS root @ (395,6); dropdown items start at
 # viewport y~20, 12px apart: GAMMA20 SEPIA32 THRESHOLD44 COLORIZE56 GLOW68.
-click 395 6  ; wait_for 0.4 "EFFECTS menu open"
-click 420 68 ; wait_for 0.7 "Glow dialog open"
+open_effect 1 0 ; wait_for 0.5 "Glow dialog open"
 screenshot "glow-dialog"
 drag 400 317 560 317 ; wait_for 0.2 "Radius up"
 drag 400 355 580 355 ; wait_for 0.2 "Intensity up"

@@ -21,8 +21,7 @@ park_mouse
 snap_region "$GX" "$GY" "$GW" "$GH" "clouds-before"
 BEFORE="$SNAP_RESULT"
 
-click 395 6   ; wait_for 0.4 "EFFECTS menu open"
-click 420 392 ; wait_for 0.7 "Clouds dialog open"
+open_effect 6 0 ; wait_for 0.5 "Clouds dialog open"
 screenshot "clouds-dialog"
 key Return ; wait_for 0.7 "Applied (OK), dialog closed"
 assert_no_crash

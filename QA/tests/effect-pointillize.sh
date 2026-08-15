@@ -30,8 +30,7 @@ park_mouse
 snap_region "$GX" "$GY" "$GW" "$GH" "pointillize-before"
 BEFORE="$SNAP_RESULT"
 
-click 395 6   ; wait_for 0.4 "EFFECTS menu open"
-click 420 368 ; wait_for 0.7 "Pointillize dialog open"
+open_effect 4 4 ; wait_for 0.5 "Pointillize dialog open"
 screenshot "pointillize-dialog"
 key Return ; wait_for 0.7 "Applied (OK), dialog closed"
 assert_no_crash

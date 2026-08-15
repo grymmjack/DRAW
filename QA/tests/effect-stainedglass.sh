@@ -30,8 +30,7 @@ park_mouse
 snap_region "$GX" "$GY" "$GW" "$GH" "stainedglass-before"
 BEFORE="$SNAP_RESULT"
 
-click 395 6   ; wait_for 0.4 "EFFECTS menu open"
-click 420 332 ; wait_for 0.7 "Stained Glass dialog open"
+open_effect 4 1 ; wait_for 0.5 "Stained Glass dialog open"
 screenshot "stainedglass-dialog"
 key Return ; wait_for 0.7 "Applied (OK), dialog closed"
 assert_no_crash

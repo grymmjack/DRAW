@@ -21,8 +21,7 @@ park_mouse
 snap_region "$GX" "$GY" "$GW" "$GH" "sky-before"
 BEFORE="$SNAP_RESULT"
 
-click 395 6   ; wait_for 0.4 "EFFECTS menu open"
-click 420 488 ; wait_for 0.7 "Render Sky dialog open"
+open_effect 6 5 ; wait_for 0.5 "Render Sky dialog open"
 screenshot "sky-dialog"
 drag 400 317 590 317 ; wait_for 0.2 "Mode -> space"
 key Return ; wait_for 0.7 "Applied (OK), dialog closed"

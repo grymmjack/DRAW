@@ -33,9 +33,7 @@ snap_region "$GX" "$GY" "$GW" "$GH" "gamma-before"
 BEFORE="$SNAP_RESULT"
 
 # Open Gamma via the command palette (robust vs. submenu geometry).
-key question ; wait_for 0.5 "Command palette"
-type_text "Gamma" ; wait_for 0.5 "Filtered"
-key Return ; wait_for 0.7 "Gamma dialog open"
+open_effect 0 0 ; wait_for 0.5 "Gamma dialog open"
 screenshot "gamma-dialog"
 
 # Drag the AMOUNT slider (viewport y~317) from centre to the far right to push

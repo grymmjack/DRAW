@@ -23,8 +23,7 @@ park_mouse
 snap_region "$GX" "$GY" "$GW" "$GH" "grid-before"
 BEFORE="$SNAP_RESULT"
 
-click 395 6   ; wait_for 0.4 "EFFECTS menu open"
-click 420 476 ; wait_for 0.7 "Render Grid dialog open"
+open_effect 6 4 ; wait_for 0.5 "Render Grid dialog open"
 screenshot "grid-dialog"
 key Return ; wait_for 0.7 "Applied (OK), dialog closed"
 assert_no_crash

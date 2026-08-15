@@ -32,7 +32,7 @@ the infra exists.
 
 ## 🔨 NOW — doing right now
 
-- [ ] ➡️ **Convert 40 effect-*.sh QA tests** to the new `open_effect <cat> <child>` flyout navigation, then re-run them green
+- [ ] ➡️ Wave 2b/leftover · **Perspective/3D Shadow** already done; next: Eye Candy SHAPE/TEXTURE waves (need SHAPE→/TEXTURE→ categories) OR Liquify tool OR Pixel Scaler
 
 <!-- REORG PLAN (EFFECTS menu, 21xx only; leave IMAGE menu 2001-2011 as-is).
      9 flyout categories under EFFECTS:

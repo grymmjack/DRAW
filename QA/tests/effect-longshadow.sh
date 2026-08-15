@@ -32,8 +32,7 @@ park_mouse
 snap_region "$GX" "$GY" "$GW" "$GH" "longshadow-before"
 BEFORE="$SNAP_RESULT"
 
-click 395 6   ; wait_for 0.4 "EFFECTS menu open"
-click 420 212 ; wait_for 0.7 "Long Shadow dialog open"
+open_effect 2 1 ; wait_for 0.5 "Long Shadow dialog open"
 screenshot "longshadow-dialog"
 drag 400 317 590 317 ; wait_for 0.2 "Length up"
 key Return ; wait_for 0.7 "Applied (OK), dialog closed"

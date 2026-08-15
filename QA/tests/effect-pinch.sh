@@ -28,8 +28,7 @@ park_mouse
 snap_region "$GX" "$GY" "$GW" "$GH" "pinch-before"
 BEFORE="$SNAP_RESULT"
 
-click 395 6   ; wait_for 0.4 "EFFECTS menu open"
-click 420 296 ; wait_for 0.7 "Pinch dialog open"
+open_effect 3 2 ; wait_for 0.5 "Pinch dialog open"
 screenshot "pinch-dialog"
 key Return ; wait_for 0.7 "Applied (OK), dialog closed"
 assert_no_crash
