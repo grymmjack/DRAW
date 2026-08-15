@@ -78,8 +78,10 @@ Each box = engine/dialog change → build clean (0 warnings) → QA guard (dialo
 
 ## Wave P5 — Wrap-up
 
-- [ ] Full effect QA suite green (`cd QA && ./draw-qa.sh tests/effect-*.sh`), final
-      clean 0-warning build, commit, push `more-image-effects`.
+- [x] Full effect QA suite run: 370/371 (the 1 was Ripples on a solid-colour test
+      shape — fixed by giving it internal detail; now 371). Final build clean. RESET
+      verified end-to-end (drag AMOUNT -> RESET -> slider pixel-identical to default).
+      Pushed `more-image-effects`.
 
 ## Done earlier this session (context)
 
