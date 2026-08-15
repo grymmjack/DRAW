@@ -3093,7 +3093,7 @@ END SUB
 ' @param grout     INTEGER 0 = none, 1 = 1px dark grout between tiles
 ' @return LONG  New mosaic image handle
 '
-FUNCTION IMAGE_ADJ_mosaic& (sourceImg AS LONG, tile AS INTEGER, grout AS INTEGER, groutSz AS INTEGER, groutColor AS _UNSIGNED LONG)
+FUNCTION IMAGE_ADJ_mosaic& (sourceImg AS LONG, tile AS INTEGER, grout AS INTEGER, groutSz AS INTEGER, groutColor AS _UNSIGNED LONG, shape AS INTEGER, seed AS INTEGER)
     IF NOT (sourceImg& < -1) THEN IMAGE_ADJ_mosaic& = 0 : EXIT FUNCTION
     IF tile% < 2 THEN tile% = 2
     DIM moGs AS INTEGER : moGs% = groutSz% : IF moGs% < 1 THEN moGs% = 1
@@ -3110,47 +3110,125 @@ FUNCTION IMAGE_ADJ_mosaic& (sourceImg AS LONG, tile AS INTEGER, grout AS INTEGER
     srcM = _MEMIMAGE(sourceImg&)
     resM = _MEMIMAGE(result&)
 
-    DIM bx AS LONG, by AS LONG, ix AS LONG, iy AS LONG
-    DIM sr AS LONG, sg AS LONG, sb AS LONG, sa AS LONG, cnt AS LONG
-    DIM px AS _UNSIGNED LONG, avg AS _UNSIGNED LONG
-    DIM x2 AS LONG, y2 AS LONG, isGrout AS INTEGER
-    FOR by& = 0 TO moH& - 1 STEP tile%
-    IF (by& AND 15) = 0 THEN IMGADJ_progress_tick "Mosaic", by& / moH&
-        y2& = by& + tile% - 1 : IF y2& >= moH& THEN y2& = moH& - 1
-        FOR bx& = 0 TO moW& - 1 STEP tile%
-            x2& = bx& + tile% - 1 : IF x2& >= moW& THEN x2& = moW& - 1
-            sr& = 0 : sg& = 0 : sb& = 0 : sa& = 0 : cnt& = 0
-            FOR iy& = by& TO y2&
-                FOR ix& = bx& TO x2&
-                    _MEMGET srcM, srcM.OFFSET + (iy& * moW& + ix&) * 4, px~&
-                    sr& = sr& + _RED32(px~&) : sg& = sg& + _GREEN32(px~&)
-                    sb& = sb& + _BLUE32(px~&) : sa& = sa& + _ALPHA32(px~&)
-                    cnt& = cnt& + 1
-                NEXT ix&
-            NEXT iy&
-            IF cnt& = 0 THEN cnt& = 1
-            avg~& = _RGBA32(sr& \ cnt&, sg& \ cnt&, sb& \ cnt&, sa& \ cnt&)
-            FOR iy& = by& TO y2&
-                FOR ix& = bx& TO x2&
-                    isGrout% = 0
-                    IF grout% <> 0 THEN
-                        IF ix& < bx& + moGs% OR iy& < by& + moGs% THEN isGrout% = 1
-                    END IF
-                    IF isGrout% THEN
-                        _MEMPUT resM, resM.OFFSET + (iy& * moW& + ix&) * 4, _RGBA32(moGr%, moGg%, moGb%, sa& \ cnt&) AS _UNSIGNED LONG
-                    ELSE
-                        _MEMPUT resM, resM.OFFSET + (iy& * moW& + ix&) * 4, avg~& AS _UNSIGNED LONG
-                    END IF
-                NEXT ix&
-            NEXT iy&
-        NEXT bx&
-    NEXT by&
+    DIM cols AS LONG, rows AS LONG
+    cols& = (moW& + tile% - 1) \ tile% : rows& = (moH& + tile% - 1) \ tile%
+    IF cols& < 1 THEN cols& = 1
+    IF rows& < 1 THEN rows& = 1
+    DIM tileH AS INTEGER : tileH% = tile% \ 2 : IF tileH% < 2 THEN tileH% = 2
+    DIM rowsH AS LONG : rowsH& = (moH& + tileH% - 1) \ tileH%
+
+    ' cell-ID map + per-cell colour accumulators. maxCells covers the fullest case
+    ' (triangle = 2 per square cell; rect = ~2x rows).
+    DIM maxCells AS LONG : maxCells& = cols& * rows& * 2 + cols& * 2 + 8
+    IF rowsH& * cols& + cols& > maxCells& THEN maxCells& = rowsH& * cols& + cols& + 8
+    REDIM cellID(0 TO moW& * moH& - 1) AS LONG
+    REDIM csr(0 TO maxCells& - 1) AS LONG, csg(0 TO maxCells& - 1) AS LONG
+    REDIM csb(0 TO maxCells& - 1) AS LONG, csa(0 TO maxCells& - 1) AS LONG
+    REDIM ccnt(0 TO maxCells& - 1) AS LONG
+
+    ' Seed lattice for the nearest-seed shapes (hex / voronoi / random). One seed
+    ' per grid cell; hex offsets odd rows, voronoi/random jitter by a hashed amount.
+    DIM useSeeds AS INTEGER : useSeeds% = (shape% = MOSAIC_SHAPE_HEX OR shape% = MOSAIC_SHAPE_VORONOI OR shape% = MOSAIC_SHAPE_RANDOM)
+    REDIM seedX(0 TO cols& * rows& - 1) AS SINGLE, seedY(0 TO cols& * rows& - 1) AS SINGLE
+    DIM gx AS LONG, gy AS LONG, si AS LONG
+    IF useSeeds% THEN
+        DIM jit AS SINGLE : jit! = 0.0
+        IF shape% = MOSAIC_SHAPE_VORONOI THEN jit! = 0.42
+        IF shape% = MOSAIC_SHAPE_RANDOM THEN jit! = 0.85
+        FOR gy& = 0 TO rows& - 1
+            FOR gx& = 0 TO cols& - 1
+                si& = gy& * cols& + gx&
+                seedX(si&) = gx& * tile% + tile% / 2.0
+                seedY(si&) = gy& * tile% + tile% / 2.0
+                IF shape% = MOSAIC_SHAPE_HEX THEN
+                    IF (gy& AND 1) = 1 THEN seedX(si&) = seedX(si&) + tile% / 2.0
+                ELSE
+                    seedX(si&) = seedX(si&) + (IMGADJ_cell_jitter!(gx&, gy&, seed%, 11) - 0.5) * tile% * jit!
+                    seedY(si&) = seedY(si&) + (IMGADJ_cell_jitter!(gx&, gy&, seed%, 37) - 0.5) * tile% * jit!
+                END IF
+            NEXT gx&
+        NEXT gy&
+    END IF
+
+    ' Pass 1 — assign a cell to every pixel and accumulate its colour.
+    DIM x AS LONG, y AS LONG, id AS LONG, px AS _UNSIGNED LONG
+    DIM ngx AS LONG, ngy AS LONG, bx0 AS LONG, by0 AS LONG, bestD AS SINGLE, dd AS SINGLE, ddx AS SINGLE, ddy AS SINGLE, best AS LONG
+    DIM lx AS LONG, ly AS LONG
+    FOR y& = 0 TO moH& - 1
+    IF (y& AND 15) = 0 THEN IMGADJ_progress_tick "Mosaic", y& / moH& * 0.5
+        FOR x& = 0 TO moW& - 1
+            SELECT CASE shape%
+                CASE MOSAIC_SHAPE_RECT
+                    id& = (y& \ tileH%) * cols& + (x& \ tile%)
+                CASE MOSAIC_SHAPE_TRIANGLE
+                    lx& = x& MOD tile% : ly& = y& MOD tile%
+                    id& = ((y& \ tile%) * cols& + (x& \ tile%)) * 2
+                    IF lx& + ly& >= tile% THEN id& = id& + 1
+                CASE MOSAIC_SHAPE_HEX, MOSAIC_SHAPE_VORONOI, MOSAIC_SHAPE_RANDOM
+                    bx0& = x& \ tile% : by0& = y& \ tile%
+                    bestD! = 1E30 : best& = by0& * cols& + bx0&
+                    FOR ngy& = by0& - 1 TO by0& + 1
+                        IF ngy& >= 0 AND ngy& < rows& THEN
+                            FOR ngx& = bx0& - 1 TO bx0& + 1
+                                IF ngx& >= 0 AND ngx& < cols& THEN
+                                    si& = ngy& * cols& + ngx&
+                                    ddx! = x& - seedX(si&) : ddy! = y& - seedY(si&)
+                                    dd! = ddx! * ddx! + ddy! * ddy!
+                                    IF dd! < bestD! THEN bestD! = dd! : best& = si&
+                                END IF
+                            NEXT ngx&
+                        END IF
+                    NEXT ngy&
+                    id& = best&
+                CASE ELSE ' SQUARE
+                    id& = (y& \ tile%) * cols& + (x& \ tile%)
+            END SELECT
+            IF id& < 0 THEN id& = 0
+            IF id& >= maxCells& THEN id& = maxCells& - 1
+            cellID(y& * moW& + x&) = id&
+            _MEMGET srcM, srcM.OFFSET + (y& * moW& + x&) * 4, px~&
+            csr(id&) = csr(id&) + _RED32(px~&) : csg(id&) = csg(id&) + _GREEN32(px~&)
+            csb(id&) = csb(id&) + _BLUE32(px~&) : csa(id&) = csa(id&) + _ALPHA32(px~&)
+            ccnt(id&) = ccnt(id&) + 1
+        NEXT x&
+    NEXT y&
+
+    ' Pass 2 — paint each pixel its cell average, or grout at a cell boundary.
+    DIM cn AS LONG, isGrout AS INTEGER, d AS INTEGER, myId AS LONG
+    FOR y& = 0 TO moH& - 1
+    IF (y& AND 15) = 0 THEN IMGADJ_progress_tick "Mosaic", 0.5 + y& / moH& * 0.5
+        FOR x& = 0 TO moW& - 1
+            myId& = cellID(y& * moW& + x&)
+            cn& = ccnt(myId&) : IF cn& = 0 THEN cn& = 1
+            isGrout% = 0
+            IF grout% <> 0 THEN
+                FOR d% = 1 TO moGs%
+                    IF x& - d% >= 0 THEN IF cellID(y& * moW& + x& - d%) <> myId& THEN isGrout% = 1 : EXIT FOR
+                    IF y& - d% >= 0 THEN IF cellID((y& - d%) * moW& + x&) <> myId& THEN isGrout% = 1 : EXIT FOR
+                NEXT d%
+            END IF
+            IF isGrout% THEN
+                _MEMPUT resM, resM.OFFSET + (y& * moW& + x&) * 4, _RGBA32(moGr%, moGg%, moGb%, csa(myId&) \ cn&) AS _UNSIGNED LONG
+            ELSE
+                _MEMPUT resM, resM.OFFSET + (y& * moW& + x&) * 4, _RGBA32(csr(myId&) \ cn&, csg(myId&) \ cn&, csb(myId&) \ cn&, csa(myId&) \ cn&) AS _UNSIGNED LONG
+            END IF
+        NEXT x&
+    NEXT y&
 
     _MEMFREE srcM
     _MEMFREE resM
     IMAGE_ADJ_mosaic& = result&
 END FUNCTION
 
+''
+' Deterministic 0..1 hash for a grid cell (mosaic seed jitter). `salt` separates
+' the X and Y jitters so they don't correlate.
+'
+FUNCTION IMGADJ_cell_jitter! (cx AS LONG, cy AS LONG, sd AS INTEGER, salt AS INTEGER)
+    DIM h AS LONG
+    h& = ((cx& * 73856093) XOR (cy& * 19349663) XOR (sd% * 83492791) XOR (salt% * 40503)) AND 65535
+    IMGADJ_cell_jitter! = h& / 65535.0
+END FUNCTION
 
 ''
 ' Open a modal Mosaic dialog: TILE SIZE (3..48) + GROUT toggle.
@@ -3159,7 +3237,7 @@ SUB IMAGE_ADJ_mosaic_dialog ()
     IF CURRENT_LAYER% < 1 THEN EXIT SUB
 
     DIM ctx AS DIALOG_CTX
-    DIALOG_init ctx, IMGDLG_W, 172
+    DIALOG_init ctx, IMGDLG_W, 224
     IMAGE_ADJ_setup_preview ctx, LAYERS(CURRENT_LAYER%).imgHandle&
 
     DIM tsz AS INTEGER : tsz% = 12
@@ -3167,10 +3245,25 @@ SUB IMAGE_ADJ_mosaic_dialog ()
     DIM gsz AS INTEGER : gsz% = 1
     DIM oGsz AS INTEGER
     STATIC groutOn AS INTEGER
+    STATIC moShape AS INTEGER
+    DIM oShape AS INTEGER
+    DIM moSeed AS INTEGER : moSeed% = 7
+    DIM oSeed AS INTEGER
+
+    REDIM moShapeLabels(0 TO MOSAIC_SHAPE_COUNT - 1) AS STRING
+    moShapeLabels$(MOSAIC_SHAPE_SQUARE)   = "SHAPE: SQUARE"
+    moShapeLabels$(MOSAIC_SHAPE_RECT)     = "SHAPE: RECTANGLE"
+    moShapeLabels$(MOSAIC_SHAPE_TRIANGLE) = "SHAPE: TRIANGLE"
+    moShapeLabels$(MOSAIC_SHAPE_HEX)      = "SHAPE: HEXAGON"
+    moShapeLabels$(MOSAIC_SHAPE_VORONOI)  = "SHAPE: VORONOI"
+    moShapeLabels$(MOSAIC_SHAPE_RANDOM)   = "SHAPE: RANDOM"
 
     DIM gvX AS INTEGER, gvY AS INTEGER, gvW AS INTEGER, gvH AS INTEGER
     gvX% = IMGDLG_SX : gvW% = 120 : gvH% = 16
     gvY% = IMGDLG_track_y%(ctx, 1) + 24
+    DIM moShapeY AS INTEGER : moShapeY% = gvY% + 22
+    DIM moSeedLblY AS INTEGER : moSeedLblY% = moShapeY% + DIALOG_DD_BOXH% + 6
+    DIM moSeedTrkY AS INTEGER : moSeedTrkY% = moSeedLblY% + 12
 
     DIM k AS LONG
     DIM d_tsz AS INTEGER : d_tsz% = 12
@@ -3178,27 +3271,31 @@ SUB IMAGE_ADJ_mosaic_dialog ()
     DIM d_groutOn AS INTEGER : d_groutOn% = FALSE
     DO
         DIALOG_poll_mouse ctx
+        DIALOG_dropdown_input ctx
         IF ctx.loupeDirty% THEN IMAGE_ADJ_update_loupe ctx
         k& = _KEYHIT
         IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
         IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
 
-        oTsz% = tsz% : oGsz% = gsz%
+        oTsz% = tsz% : oGsz% = gsz% : oShape% = moShape% : oSeed% = moSeed%
         tsz% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, tsz%, 3, 200)
         tsz% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, tsz%, 3, 200)
         gsz% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, gsz%, 1, 48)
         gsz% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, gsz%, 1, 48)
+        moShape% = DIALOG_dropdown%(ctx, 1, IMGDLG_SX, moShapeY%, IMGDLG_SW, moShape%, moShapeLabels$(), MOSAIC_SHAPE_COUNT)
+        moSeed% = DIALOG_slider_drag%(ctx, IMGDLG_SX, moSeedTrkY%, IMGDLG_SW, 14, moSeed%, 0, 99)
+        moSeed% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, moSeedTrkY%, IMGDLG_SW, 14, moSeed%, 0, 99)
         IF DIALOG_hit%(ctx, gvX%, gvY%, gvW%, gvH%) THEN
             groutOn%          = (groutOn% = 0)
             ctx.previewDirty% = TRUE
         END IF
-        IF tsz% <> oTsz% OR gsz% <> oGsz% THEN ctx.previewDirty% = TRUE
+        IF tsz% <> oTsz% OR gsz% <> oGsz% OR moShape% <> oShape% OR moSeed% <> oSeed% THEN ctx.previewDirty% = TRUE
         IMGDLG_check_ok_cancel ctx
         IMGDLG_reset3 ctx, tsz%, gsz%, groutOn%, d_tsz%, d_gsz%, d_groutOn%
 
         IF ctx.previewDirty% THEN
             SAFE_FREEIMAGE ctx.previewThumb
-            ctx.previewThumb = IMAGE_ADJ_mosaic&(ctx.origThumb, tsz%, groutOn%, gsz%, PAINT_BG_COLOR~&)
+            ctx.previewThumb = IMAGE_ADJ_mosaic&(ctx.origThumb, tsz%, groutOn%, gsz%, PAINT_BG_COLOR~&, moShape%, moSeed%)
             IMAGE_ADJ_mask_preview ctx
             ctx.previewDirty% = FALSE
         END IF
@@ -3211,8 +3308,12 @@ SUB IMAGE_ADJ_mosaic_dialog ()
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 1), "GROUT SIZE (BG COLOR):"
         DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, gsz%, 1, 48, "", ""
         DIALOG_draw_toggle ctx, gvX%, gvY%, gvW%, gvH%, "GROUT", groutOn%
+        DIALOG_dropdown_draw ctx, 1, IMGDLG_SX, moShapeY%, IMGDLG_SW, moShape%, moShapeLabels$(), MOSAIC_SHAPE_COUNT
+        DIALOG_draw_label ctx, IMGDLG_SX, moSeedLblY%, "SEED (VORONOI / RANDOM):"
+        DIALOG_draw_slider ctx, IMGDLG_SX, moSeedTrkY%, IMGDLG_SW, moSeed%, 0, 99, "", ""
         DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
         IMGDLG_draw_ok_cancel ctx
+        DIALOG_dropdown_overlay ctx
         DIALOG_blit ctx
     LOOP UNTIL ctx.done%
 
@@ -3225,7 +3326,7 @@ SUB IMAGE_ADJ_mosaic_dialog ()
         DIM adjR     AS LONG
         FOR moT% = 1 TO moTgtCount%
             CURRENT_LAYER% = moTargets%(moT%)
-            adjR&          = IMAGE_ADJ_mosaic&(LAYERS(CURRENT_LAYER%).imgHandle&, tsz%, groutOn%, gsz%, PAINT_BG_COLOR~&)
+            adjR&          = IMAGE_ADJ_mosaic&(LAYERS(CURRENT_LAYER%).imgHandle&, tsz%, groutOn%, gsz%, PAINT_BG_COLOR~&, moShape%, moSeed%)
             IMAGE_ADJ_apply_to_layer adjR&, "Mosaic"
         NEXT moT%
         IF moTgtCount% > 1 THEN HISTORY_end_group

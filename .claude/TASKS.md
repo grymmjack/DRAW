@@ -5,7 +5,7 @@ Each box is independently buildable + verifiable. Build with `~/git/qb64pe-450/q
 (v4.5.0, the Makefile default). Commit after each grouped box lands green.
 
 ## 🔨 NOW — doing right now
-- [ ] ➡️ Shared widget: Click-on-canvas to set a CENTER point (Pinch/Bulge, Kaleidoscope, Lens Flare)
+- [ ] ➡️ Shared widget: Cell-SHAPE picker (square/triangle/rect/hex/voronoi/random) for Mosaic + Extrude
 
 ## 🐞 Bugs / regressions
 - [x] Cursor is a move/cross over EFFECTS flyout items — POINTER.BM now sets CURSOR_NULL over the category flyout region (genOpen%/genX/genY/genW/genH), matching the submenu-arrow logic. Built 17:31.
@@ -17,7 +17,7 @@ Each box is independently buildable + verifiable. Build with `~/git/qb64pe-450/q
 ## 🧩 Shared widgets (build once → reuse)
 - [x] DROPDOWN control in the dialog framework — DIALOG_dropdown% + _input/_draw/_overlay in GUI/DIALOG.{BI,BM}. Immediate-mode, single-open, on-top popup with an input-gate that owns the frame's click/wheel/keys (Up/Down/Enter/Esc) so nothing underneath reacts; scrolls past DIALOG_DD_MAXVIS (8). Proven by converting Posterize dither (23 options). QA posterize-dither-color 6/6 green. Built 18:31.
 - [x] Angle DIAL widget wired into degrees controls — new combined IMGDLG_angle_handle%/IMGDLG_angle_draw (shortened 0..359 slider + compact drag-dial + live degree readout in the label). Wired into all 7 compass-angle controls (Motion Trail, Kaleidoscope rotation, Bevel light, Chrome cast, Backlight/Long-shadow angles, bevel-motion). Twirl's ANGLE (10..360 swirl magnitude) deliberately left as a plain slider. QA motiontrail/bevel/chrome/kaleidoscope 24/24 green. Built 18:44.
-- [ ] Click-on-canvas to set a CENTER point (when no selection) — reusable for Pinch/Bulge, Kaleidoscope, Lens Flare
+- [x] Click-on-canvas to set a CENTER point — IMGADJ_center_pick_pane% + marker + preview/apply coord mappers (canvas-space store, apron-aware). Click the loupe pane to place the centre. Wired into Pinch/Bulge (engine takes a centre param, -1 = image centre; radius = nearest-edge so centred look is unchanged). Kaleidoscope + Lens Flare adopt it in their own boxes. QA effect-pinch-center 6/6 + effect-pinch (default) 6/6. Built 19:00.
 - [ ] Cell-SHAPE picker (square / triangle / rectangle / hex / voronoi / random-per-cell) — reusable for Mosaic + Extrude
 - [ ] Angle + random SEED pattern applied to ALL texture effects at once (Wood, Marble, Brick, Brushed Metal, Weave, Stone, Reptile, Diamond Plate, Ripples, Fur, Texture Noise, Glass, Water Drops, Lightning, Rust)
 
@@ -26,7 +26,7 @@ Each box is independently buildable + verifiable. Build with `~/git/qb64pe-450/q
 - [x] Posterize dither: cycle-button → dropdown (23 options, keyboard-navigable). First consumer of the shared DIALOG_dropdown widget. QA posterize-dither-color updated + 6/6 green. Built 18:31.
 - [ ] Chromatic Aberration: add an ANGLE (with dial)
 - [ ] Add Noise: add ANGLE + SEED (current result reads as a flat patch)
-- [ ] Pinch / Bulge: much more extreme range + click-to-set center
+- [ ] Pinch / Bulge: much more extreme range (click-to-set center DONE via the shared widget; remaining: widen the amount range)
 - [ ] Kaleidoscope: click-to-set center
 - [ ] Mosaic / Tessellate: cell-shape options (triangle, rectangle, hex, voronoi, random-per-cell)
 - [ ] Extrude: option to fill the 3D faces with the extruded pixels; extrude ANGLE; JITTER 0–100 (random placement); extrusion shapes (from the cell-shape picker)

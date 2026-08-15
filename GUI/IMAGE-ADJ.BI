@@ -49,6 +49,17 @@ DIM SHARED IMGADJ_LOUPE_CROPY AS LONG
 ' The engine runs on the padded thumb; only the central window is displayed.
 CONST IMGADJ_LOUPE_PAD = 40
 
+' Mosaic / Extrude cell shapes (shared cell-SHAPE picker). SQUARE keeps the classic
+' behaviour; RECT/TRIANGLE use direct formulas; HEX/VORONOI/RANDOM use nearest-seed
+' assignment (a seed lattice, odd rows offset for hex, hashed jitter for the others).
+CONST MOSAIC_SHAPE_SQUARE = 0
+CONST MOSAIC_SHAPE_RECT = 1
+CONST MOSAIC_SHAPE_TRIANGLE = 2
+CONST MOSAIC_SHAPE_HEX = 3
+CONST MOSAIC_SHAPE_VORONOI = 4
+CONST MOSAIC_SHAPE_RANDOM = 5
+CONST MOSAIC_SHAPE_COUNT = 6
+
 ' Click-to-set-CENTER (Pinch/Bulge, Kaleidoscope, Lens Flare, …): the user clicks
 ' inside the loupe preview pane to place the effect's centre. Stored in CANVAS
 ' pixels so it maps cleanly to both the preview thumb (subtract IMGADJ_LOUPE_CROPX/Y)
