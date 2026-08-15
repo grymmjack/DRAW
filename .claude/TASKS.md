@@ -5,7 +5,7 @@ Each box is independently buildable + verifiable. Build with `~/git/qb64pe-450/q
 (v4.5.0, the Makefile default). Commit after each grouped box lands green.
 
 ## 🔨 NOW — doing right now
-- [ ] ➡️ Texture angle+seed batch 1: Wood + Marble (rotate sample coords + seed-shift the noise)
+- [ ] ➡️ Texture angle+seed batch 2: Brick + Weave + Reptile
 
 ## 🐞 Bugs / regressions
 - [x] Cursor is a move/cross over EFFECTS flyout items — POINTER.BM now sets CURSOR_NULL over the category flyout region (genOpen%/genX/genY/genW/genH), matching the submenu-arrow logic. Built 17:31.
@@ -20,7 +20,7 @@ Each box is independently buildable + verifiable. Build with `~/git/qb64pe-450/q
 - [x] Click-on-canvas to set a CENTER point — IMGADJ_center_pick_pane% + marker + preview/apply coord mappers (canvas-space store, apron-aware). Click the loupe pane to place the centre. Wired into Pinch/Bulge (engine takes a centre param, -1 = image centre; radius = nearest-edge so centred look is unchanged). Kaleidoscope + Lens Flare adopt it in their own boxes. QA effect-pinch-center 6/6 + effect-pinch (default) 6/6. Built 19:00.
 - [x] Cell-SHAPE picker — MOSAIC_SHAPE_* constants + cell-ID engine (direct formulas for square/rect/triangle; nearest-seed lattice for hex/voronoi/random via IMGADJ_cell_jitter). Shape dropdown + seed slider. Wired into Mosaic; Extrude reuses the same set in its box. QA effect-mosaic-shapes (Voronoi) + effect-mosaic (square) green. Built 19:13.
 - Angle + random SEED for texture effects — SPLIT into batches (each independently buildable + tested):
-  - [ ] batch 1: Wood + Marble
+  - [x] batch 1: Wood + Marble — angle rotates sample coords, seed shifts the noise field; ANGLE dial + SEED slider added. QA effect-texture-basics 10/10. Built 19:24.
   - [ ] batch 2: Brick + Weave + Reptile
   - [ ] batch 3: Ripples + Fur + Rust
   - [ ] batch 4: Stone + Diamond Plate (also covered by their own per-effect boxes)
