@@ -66,10 +66,11 @@ Each box = engine/dialog change → build clean (0 warnings) → QA guard (dialo
 
 ## Wave P4 — Manual
 
-- [ ] **Document the EFFECTS menu in docs/MANUAL** — extend ch06 (or a new section)
-      with the 8 flyout categories and the complete SHAPE (20) + TEXTURE (15) Eye
-      Candy submenus, noting live preview + wheel + Reset-to-Default + alpha-preserving
-      single-undo conventions. Rebuild the PDF manual if time permits (make-pdf-manual).
+- [x] **Document the EFFECTS menu in docs/MANUAL** — added a full "EFFECTS Menu" section
+      to ch06 with all 8 flyout categories + the complete SHAPE (20) + TEXTURE (15) Eye
+      Candy submenus, the ORIG/ADJ loupe + wheel + OK/RESET/CANCEL + single-undo
+      conventions, the new Angle/Direction/MIX params, and tips on transparent layers /
+      FG-BG colours. (PDF rebuild left as a separate step — it's a ~5MB tracked binary.)
 
 ## Wave P5 — Wrap-up
 
