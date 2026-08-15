@@ -1,127 +1,47 @@
-# Effect Parameterization Pass — branch `more-image-effects`
+# DRAW effects backlog (from grymmjack, 2026-08-15)
 
-Goal (from Rick, 2026-08-15): make the Eye Candy effects **richer / more properly
-parameterized like Photoshop's Layer Style dialogs** (the Bevel & Emboss dialog he
-sent has Style/Technique/Depth/Direction/Size/Soften/Angle/Altitude/Opacity + a
-**Reset to Default** button), and follow the manual's adjustment conventions
-(live preview ✓, mouse-wheel sliders ✓, alpha preserved ✓, single-Ctrl+Z undo ✓ —
-already followed). Also **document the EFFECTS menu in the manual**.
-
-Widget system (GUI/DIALOG.BM): sliders (`DIALOG_slider_drag%/_wheel%/_draw_slider`),
-toggles (`DIALOG_draw_toggle` + `DIALOG_hit%`), buttons (`DIALOG_draw_button`),
-labels, dividers. No native color-picker/angle-dial/dropdown — use extra sliders
-(ANGLE 0-359, ALTITUDE 0-90), toggles (DIRECTION up/down), and FG/BG colours
-(`PAINT_COLOR~&` / `PAINT_BG_COLOR~&`). Taller dialogs: bump `DIALOG_init`
-height and use `IMGDLG_track_y%(ctx, idx)` for idx 2,3.
-
-Each box = engine/dialog change → build clean (0 warnings) → QA guard (dialog title
-+ region differs) → commit. Grep action IDs before allocating (gotcha #17; SHAPE
-2230-2260, TEXTURE 2270-2299, EXPORT 2201-2216, ACTION_SETTINGS 2100 are taken).
+Ordered so shared machinery is built once, then reused across the effects it unlocks.
+Each box is independently buildable + verifiable. Build with `~/git/qb64pe-450/qb64pe`
+(v4.5.0, the Makefile default). Commit after each grouped box lands green.
 
 ## 🔨 NOW — doing right now
 
-(nothing in progress)
+## 🐞 Bugs / regressions
+- [ ] Cursor is a move/cross over EFFECTS flyout items — should be the default arrow
+- [ ] Inner Glow, Corona, Bevel are slow at high radius (O(r²)) — make them separable/O(1) so they can be huge AND fast
+- [ ] Shape/generative effects (Fire, and others) don't work with a selection — extend sel-as-shape (or selection clip) to them
 
-## Wave P1 — Reset-to-Default button (universal, Rick boxed it)
+## 🧩 Shared widgets (build once → reuse)
+- [ ] DROPDOWN control in the dialog framework (popup list, keyboard + wheel) — replaces cycle-buttons that have >4 options
+- [ ] Angle DIAL widget wired into all degrees controls (helper IMGDLG_draw_dial/IMGDLG_dial_drag already written) — visual sphere/dial showing degrees, drag to set. (Wheel 15° / Shift+wheel 1° already done via IMGDLG_angle_wheel.)
+- [ ] Click-on-canvas to set a CENTER point (when no selection) — reusable for Pinch/Bulge, Kaleidoscope, Lens Flare
+- [ ] Cell-SHAPE picker (square / triangle / rectangle / hex / voronoi / random-per-cell) — reusable for Mosaic + Extrude
+- [ ] Angle + random SEED pattern applied to ALL texture effects at once (Wood, Marble, Brick, Brushed Metal, Weave, Stone, Reptile, Diamond Plate, Ripples, Fur, Texture Noise, Glass, Water Drops, Lightning, Rust)
 
-- [x] **RESET infra** — shared `IMGDLG_RESET_CLICKED%` flag + "RESET" button in the
-      OK/RESET/CANCEL bar (`IMGDLG_draw_ok_cancel` + hit-test in `IMGDLG_check_ok_cancel`),
-      helpers `IMGDLG_reset1/2/3/4`, flag cleared on every dialog open in setup_preview
-      (no cross-dialog leak). Verified: RESET button renders on all dialogs (Fire shot);
-      restores defaults on Bevel.
-- [x] **Wire RESET into effect dialogs** — 67/71 done (13 by hand during enrichment,
-      54 via a scoped parser-script: capture each slider/toggle default into d_<var>,
-      call IMGDLG_reset1/2/3/4 after check_ok_cancel). Every Eye Candy SHAPE/TEXTURE +
-      relief/shadow + filter dialog resets. Only the 4 Image-menu colour adjustments
-      (Brightness/Contrast, Hue/Saturation, Levels, Color Balance) remain — they load
-      the layer's current state, so RESET needs neutral-value semantics (follow-up).
-      Regression: 78 effect tests across wired dialogs, 0 failures.
+## ✨ Per-effect (use the shared pieces above)
+- [ ] Blend Last Effect: expose ALL layer blend modes (incl. Color Dodge, etc.) as a DROPDOWN (not the cycle button)
+- [ ] Posterize dither: cycle-button → dropdown
+- [ ] Chromatic Aberration: add an ANGLE (with dial)
+- [ ] Add Noise: add ANGLE + SEED (current result reads as a flat patch)
+- [ ] Pinch / Bulge: much more extreme range + click-to-set center
+- [ ] Kaleidoscope: click-to-set center
+- [ ] Mosaic / Tessellate: cell-shape options (triangle, rectangle, hex, voronoi, random-per-cell)
+- [ ] Extrude: option to fill the 3D faces with the extruded pixels; extrude ANGLE; JITTER 0–100 (random placement); extrusion shapes (from the cell-shape picker)
+- [ ] Chrome / Metallic: rework to actually look metallic — gradient picker + amount + reflectivity / light reflections
+- [ ] Sharpen: add an Unsharp Mask option (dropdown/toggle) like Photoshop
+- [ ] Diamond Plate: space-between, space-inside, sharpness, roundness, bumpiness + a LIGHT-direction angle in addition to the pattern angle
+- [ ] Stone Wall: stone TYPES — rock, rounded boulders, cracked, stacked, toothed, etc. (dropdown)
+- [ ] Lightning: forks, fork randomness, fork diminish (thicker→thinner), spikiness, etc.
+- [ ] Glass (Shape): number-of-repeats, zoom/thickness of glints, angle
+- [ ] Render Grid: endless 1980s-style perspective (lines continue off every side, don't collapse into a rect) + an angle option
+- [ ] Clouds + Difference Clouds: realistic fBm clouds — they don't look like clouds
+- [ ] Render Sky: deeper day / night / space rendering (gradient≠sky; night is dotted; space is dots+circles)
+- [ ] Terrain: land/sea/height color chips (pick from palette), seed, rotation, variation
+- [ ] Lens Flare: click-to-position + a real flare render (halo/streaks/rings) + lens-type presets
 
-## Wave P2 — Relief / light effects get an ANGLE (Photoshop-authentic)
-
-- [x] **Bevel** — added LIGHT ANGLE (0-359, 8-direction, default 135) + DIRECTION (Up/Down)
-      toggle + RESET. Engine `IMAGE_ADJ_bevel&(...,angleDeg,direction)` derives the light
-      neighbour offset from cos/sin; Direction flips relief. Dialog verified via SHAPE path
-      (shape-bevel-dialog: HEIGHT/STRENGTH/LIGHT ANGLE/DIRECTION/RESET all render).
-      NOTE: effect-bevel.sh (open_effect 2 2) FALSE-PASSES — low-category harness nav flake
-      (child click misses the flyout). Bevel navigates fine via SHAPE child 3. Harness nav
-      for categories 0-6 needs the same caty audit as the title-assert follow-up.
-- [x] **Emboss** — added LIGHT ANGLE (0-359, 8-direction, default 135) + RESET; engine derives the luminance-gradient neighbour from the angle. Same verified pattern as Bevel (only in STYLIZE cat 1 so QA is build-clean; low-cat harness nav flaky).
-- [x] **Chrome** — SKIPPED: Chrome's metallic look is a RADIAL distance-to-edge |sin| band map, not a directional lit surface, so a light angle doesn't fit the algorithm naturally. Left as DEPTH + FG/BG ramp.
-- [x] **Drop Shadow** — Photoshop trio done: DISTANCE (0-30) + ANGLE (0-359, default 315
-      = down-right) + SOFTNESS (0-8) + OPACITY (0-100) + RESET. Engine offsets the
-      silhouette by cos/sin(angle)*distance and scales its alpha by opacity. Dialog
-      verified via SHAPE child 8 (probe: all 4 sliders + RESET render).
-- [x] **Perspective / Long Shadow** — added CAST ANGLE (0-359, default 315 = down-right)
-      + RESET; engine scans back along -cast (cos/sin(angle)) instead of the fixed up-left
-      diagonal, with full bounds checking. Dialog retitled "PERSPECTIVE SHADOW". SHAPE child 9.
-
-## Wave P3 — Texture / overlay effects get a MIX (blend with original)
-
-- [x] **MIX slider on 8 texture effects** — Wood, Marble, Brick Wall, Brushed Metal,
-      Weave, Stone Wall, Reptile Skin, Diamond Plate gained a MIX slider (0-100,
-      default 100) + RESET. Implemented via reusable post-blend IMAGE_ADJ_mix_result&
-      (lerp fx over original, preserve alpha) — NO engine changes. Verified: Wood
-      applies 2480px at MIX=100. Rust also done (MIX+RESET).
-      ALSO FIXED a harness regression this caused: the menu-box count fix made the
-      EFFECTS dropdown correctly narrower, shifting flyouts left so open_effect's
-      fixed child-x=560 overshot narrow flyouts (TEXTURE) → silent 0-diff. Fixed the
-      qa-harness DRAW adapter to click children at x=490 (flyout left edge). 22/22 green.
-
-## Wave P4 — Manual
-
-- [x] **Document the EFFECTS menu in docs/MANUAL** — added a full "EFFECTS Menu" section
-      to ch06 with all 8 flyout categories + the complete SHAPE (20) + TEXTURE (15) Eye
-      Candy submenus, the ORIG/ADJ loupe + wheel + OK/RESET/CANCEL + single-undo
-      conventions, the new Angle/Direction/MIX params, and tips on transparent layers /
-      FG-BG colours. (PDF rebuild left as a separate step — it's a ~5MB tracked binary.)
-
-## Wave P5 — Wrap-up
-
-- [x] Full effect QA suite run: 370/371 (the 1 was Ripples on a solid-colour test
-      shape — fixed by giving it internal detail; now 371). Final build clean. RESET
-      verified end-to-end (drag AMOUNT -> RESET -> slider pixel-identical to default).
-      Pushed `more-image-effects`.
-
-## Done earlier this session (context)
-
-- [x] Both Eye Candy categories COMPLETE — SHAPE (20) + TEXTURE (15), 22 new engines.
-- [x] Fixed 3 critical action-ID/flyout bugs that were false-passing QA (flyout
-      child-index numbering ×4 walks; SHAPE↔EXPORT 2201/2204 collision; Gamma↔Settings
-      2100 collision). Memory: draw-effect-action-id-collisions.md.
-- [x] Fixed native-scale effect PREVIEW (loupe was cropping the zoomed composite) +
-      the oversized EFFECTS dropdown (count loop included hidden flyout children — the
-      5th child-walk). Commit d779caf.
-- [x] README EFFECTS documentation.
-
-## Deferred (large standalone efforts — not this pass)
-
-- [ ] Liquify interactive tool (integration map in git history / earlier TASKS — model on SPRAY).
-- [ ] Pixel Scaler (needs canvas+all-layers resize integration).
-- [ ] QA harness: assert dialog TITLE not just region delta (title/known-pixel check).
-
-<!--
-loop:off — 2026-08-15. The Effect Parameterization Pass (P1-P5) is COMPLETE and
-pushed on `more-image-effects`. Delivered this run:
-  • Fixed the 2 bugs Rick reported: native-scale effect PREVIEW (loupe was
-    cropping the zoomed composite) and the oversized EFFECTS dropdown.
-  • Reset-to-Default button on every effect dialog + wired into 67/71 (verified
-    end-to-end: drag AMOUNT -> RESET -> slider pixel-identical to default).
-  • Photoshop-style params: Bevel (Light Angle + Direction), Emboss (Angle),
-    Drop Shadow (Distance/Angle/Softness/Opacity), Perspective Shadow (Cast Angle).
-  • MIX (blend-with-original) on 9 texture effects via IMAGE_ADJ_mix_result&.
-  • EFFECTS menu documented in the manual (ch06).
-  • Fixed a qa-harness child-click coordinate regression the narrower dropdown
-    caused (open_effect now clicks x=490); Ripples test given internal detail.
-  • Full effect suite green; everything committed + pushed.
-The 3 unchecked items below are the pre-flagged LARGE STANDALONE efforts that were
-never part of this pass and deserve fresh context (they touch MOUSE.BM / history /
-tool-reset / canvas-resize — the project's #1 bug-risk areas):
-  • Liquify interactive tool (Kai's Power Goo) — integration map scouted earlier
-    in git history; model on the SPRAY tool.
-  • Pixel Scaler (xBR/HQx/MMPX) — needs canvas+all-layers resize integration.
-  • QA harness: assert dialog TITLE not just region delta.
-TO RESUME any of these: re-arm the loop and delete this loop:off block. Each is
-independently pickable; Liquify is the biggest and the one Rick most wants.
--->
-loop:off
+## ✅ Done earlier this session (for reference — not tasks)
+sel-as-shape for edge effects + preview parity; loupe follows dialog + padded capture;
+Redo/Recall/Blend Last Effect; Blur type selector + O(1) separable blur; progress overlay
+(56 engines); raised slider maxes; Wind DIRECTION; Add Noise PIXEL SIZE+MIX; Mosaic GROUT;
+Long Shadow distance falloff; Lens Flare/Diff Clouds render on blank layer; Outline INSIDE
+all-borders; Blend flicker fix; angle wheel-step (15°/Shift 1°).
