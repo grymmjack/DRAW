@@ -158,7 +158,7 @@ the infra exists.
 - [ ] **Drip** — liquid drips hanging off the bottom of shapes + dialog + QA test
 - [ ] **Electrify** — jagged lightning tendrils around edges + dialog + QA test
 - [x] **Extrude** — SHAPE-menu entry added (child 5 → action 2143). Guarded by effect-shape-reparent.sh (open_effect 7 5, 1189px).
-- [ ] **Fire** — flame render rising from the shape (gradient + noise) + dialog + QA test
+- [x] **Fire** — flames rise off the shape's top edge: transparent pixels with an opaque pixel within HEIGHT below get heat = closeness x upward-flickering fractal noise, mapped through a black->red->orange->yellow->white ramp with heat-proportional alpha. HEIGHT + INTENSITY dialog, apply_spatial + SHAPE menu (2236, child 13) + QA test (effect-fire.sh, 2479px, open_effect 7 13). NEW engine IMAGE_ADJ_fire&. Visually verified — realistic flames w/ flickering silhouette + full gradient.
 - [ ] **Glass** — refractive glassy shading + highlight + dialog + QA test
 - [x] **Glow (Outer/Inner)** — SHAPE-menu entries added (Outer Glow child 6 → 2127, Inner Glow child 7 → 2128). Inner Glow guarded by effect-shape-reparent.sh (open_effect 7 7, 1228px).
 - [ ] **Icicles** — ice spikes hanging off the bottom edge + dialog + QA test

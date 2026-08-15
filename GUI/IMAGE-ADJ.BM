@@ -3967,6 +3967,152 @@ END SUB
 
 
 ''
+' Fire (Eye Candy "Shape") — flames rising off the shape's top edge. For each
+' TRANSPARENT pixel that has an opaque shape pixel within `height` px below it,
+' a heat value is built from closeness-to-shape times an upward-flickering
+' fractal noise, then mapped through a black->red->orange->yellow->white fire
+' ramp with heat-proportional alpha. Adds pixels above the shape -> apply_spatial.
+'
+' @param sourceImg LONG     Source image (32-bit, with alpha)
+' @param heightP   INTEGER  Flame reach in px (4..48)
+' @param intensity INTEGER  Heat boost 0..100
+' @return LONG              New 32-bit image handle (0 on failure)
+'
+FUNCTION IMAGE_ADJ_fire& (sourceImg AS LONG, heightP AS INTEGER, intensity AS INTEGER)
+    IF NOT (sourceImg& < -1) THEN IMAGE_ADJ_fire& = 0 : EXIT FUNCTION
+
+    DIM fiW AS LONG, fiH AS LONG
+    fiW& = _WIDTH(sourceImg&) : fiH& = _HEIGHT(sourceImg&)
+    DIM result AS LONG
+    result& = _COPYIMAGE(sourceImg&, 32)
+    DIM srcM AS _MEM, resM AS _MEM
+    srcM = _MEMIMAGE(sourceImg&)
+    resM = _MEMIMAGE(result&)
+
+    DIM iBoost AS SINGLE : iBoost! = 1.0 + intensity% / 100.0
+    DIM fx AS LONG, fy AS LONG, d AS INTEGER, belowA AS _UNSIGNED _BYTE, aHere AS _UNSIGNED _BYTE
+    DIM distDn AS INTEGER, heat AS SINGLE, nz AS SINGLE, cr AS INTEGER, cg AS INTEGER, cb AS INTEGER, ca AS INTEGER
+    DIM t AS SINGLE
+    FOR fy& = 0 TO fiH& - 1
+        FOR fx& = 0 TO fiW& - 1
+            _MEMGET srcM, srcM.OFFSET + (fy& * fiW& + fx&) * 4 + 3, aHere~%%
+            IF aHere~%% <> 0 THEN _CONTINUE                ' flames only fill empty space
+            ' nearest opaque shape pixel directly below, within height
+            distDn% = 0
+            FOR d% = 1 TO heightP%
+                IF fy& + d% >= fiH& THEN EXIT FOR
+                _MEMGET srcM, srcM.OFFSET + ((fy& + d%) * fiW& + fx&) * 4 + 3, belowA~%%
+                IF belowA~%% <> 0 THEN distDn% = d% : EXIT FOR
+            NEXT d%
+            IF distDn% = 0 THEN _CONTINUE                  ' nothing below to burn
+
+            ' base heat: hottest at the shape, cooling upward
+            heat! = 1.0 - (distDn% - 1) / heightP%
+            ' upward-flickering fractal noise (y-scaled tighter so flames streak up)
+            nz! = IMGADJ_valnoise!(fx& * 0.18, fy& * 0.09, 51) * 0.6 _
+                + IMGADJ_valnoise!(fx& * 0.4, fy& * 0.2, 52) * 0.4
+            heat! = heat! * (0.35 + 0.9 * nz!) * iBoost!
+            IF heat! <= 0.06 THEN _CONTINUE
+            IF heat! > 1.0 THEN heat! = 1.0
+
+            ' fire ramp: dark-red -> red -> orange -> yellow -> white
+            IF heat! < 0.25 THEN
+                t! = heat! / 0.25
+                cr% = INT(90 * t!) + 30 : cg% = 0 : cb% = 0
+            ELSEIF heat! < 0.5 THEN
+                t! = (heat! - 0.25) / 0.25
+                cr% = 120 + INT(135 * t!) : cg% = INT(60 * t!) : cb% = 0
+            ELSEIF heat! < 0.75 THEN
+                t! = (heat! - 0.5) / 0.25
+                cr% = 255 : cg% = 60 + INT(160 * t!) : cb% = INT(30 * t!)
+            ELSE
+                t! = (heat! - 0.75) / 0.25
+                cr% = 255 : cg% = 220 + INT(35 * t!) : cb% = 30 + INT(190 * t!)
+            END IF
+            ca% = INT(heat! * 235)
+            IF ca% > 255 THEN ca% = 255
+            _MEMPUT resM, resM.OFFSET + (fy& * fiW& + fx&) * 4, _RGBA32(cr%, cg%, cb%, ca%) AS _UNSIGNED LONG
+        NEXT fx&
+    NEXT fy&
+
+    _MEMFREE srcM
+    _MEMFREE resM
+    IMAGE_ADJ_fire& = result&
+END FUNCTION
+
+
+''
+' Open a modal Fire dialog: HEIGHT (4..48) + INTENSITY (0..100). Adds pixels ->
+' apply_spatial.
+'
+SUB IMAGE_ADJ_fire_dialog ()
+    IF CURRENT_LAYER% < 1 THEN EXIT SUB
+
+    DIM ctx AS DIALOG_CTX
+    DIALOG_init ctx, IMGDLG_W, 138
+    IMAGE_ADJ_setup_preview ctx, LAYERS(CURRENT_LAYER%).imgHandle&
+
+    DIM heightP   AS INTEGER : heightP%   = 20
+    DIM intensity AS INTEGER : intensity% = 50
+    DIM oHeight AS INTEGER, oIntensity AS INTEGER
+
+    DIM k AS LONG
+    DO
+        DIALOG_poll_mouse ctx
+        IF ctx.loupeDirty% THEN IMAGE_ADJ_update_loupe ctx
+        k& = _KEYHIT
+        IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
+        IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
+
+        oHeight% = heightP% : oIntensity% = intensity%
+        heightP%   = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, heightP%, 4, 48)
+        heightP%   = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, heightP%, 4, 48)
+        intensity% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, intensity%, 0, 100)
+        intensity% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, intensity%, 0, 100)
+        IF heightP% <> oHeight% OR intensity% <> oIntensity% THEN ctx.previewDirty% = TRUE
+        IMGDLG_check_ok_cancel ctx
+
+        IF ctx.previewDirty% THEN
+            SAFE_FREEIMAGE ctx.previewThumb
+            ctx.previewThumb = IMAGE_ADJ_fire&(ctx.origThumb, heightP%, intensity%)
+            IMAGE_ADJ_mask_preview ctx
+            ctx.previewDirty% = FALSE
+        END IF
+
+        _DEST ctx.imgHandle
+        DIALOG_draw_frame ctx, "FIRE"
+        DIALOG_draw_preview ctx
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "HEIGHT:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, heightP%, 4, 48, "", ""
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 1), "INTENSITY:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, intensity%, 0, 100, "", ""
+        DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
+        IMGDLG_draw_ok_cancel ctx
+        DIALOG_blit ctx
+    LOOP UNTIL ctx.done%
+
+    IF ctx.result% THEN
+        DIM fiTargets(1 TO MAX_LAYERS) AS INTEGER, fiTgtCount AS INTEGER, fiT AS INTEGER
+        DIM fiSaveCL AS INTEGER
+        IMAGE_ADJ_collect_targets fiTargets%(), fiTgtCount%
+        fiSaveCL% = CURRENT_LAYER%
+        IF fiTgtCount% > 1 THEN HISTORY_begin_group
+        DIM adjR AS LONG
+        FOR fiT% = 1 TO fiTgtCount%
+            CURRENT_LAYER% = fiTargets%(fiT%)
+            adjR&          = IMAGE_ADJ_fire&(LAYERS(CURRENT_LAYER%).imgHandle&, heightP%, intensity%)
+            IMAGE_ADJ_apply_spatial adjR&, "Fire"
+        NEXT fiT%
+        IF fiTgtCount% > 1 THEN HISTORY_end_group
+        CURRENT_LAYER% = fiSaveCL%
+    END IF
+
+    DIALOG_cleanup ctx
+    SAFE_FREEIMAGE IMGADJ_LAYER_MASK& : IMGADJ_LAYER_MASK& = 0
+END SUB
+
+
+''
 ' Snow (Eye Candy "Shape") — settle white snow on the shape's top-facing edges
 ' and (optionally) scatter falling flecks over the layer. A pixel gets snow if a
 ' TRANSPARENT pixel sits within `depth` px directly above it (i.e. it is near a
