@@ -169,7 +169,7 @@ the infra exists.
 - [x] **Smoke** — wispy translucent grey plume rising off the top edge: Fire's top-scan but noise-DOMINATED density (nz^2 -> gappy wisps), cool grey ramp at low alpha, taller reach. HEIGHT + DENSITY dialog, apply_spatial + SHAPE menu (2237, child 14) + QA test (effect-smoke.sh, 380px, open_effect 7 14). NEW engine IMAGE_ADJ_smoke&. Visually verified — real fractured smoke wisps.
 - [x] **Snow** — white snow caps on the shape's top-facing edges (nearest transparent-above within DEPTH, granular hash break-up) + hash-scattered falling FLECKS. DEPTH + FLECKS dialog, apply_spatial + SHAPE menu (2235, child 12) + QA test (effect-snow.sh, 395px, open_effect 7 12). NEW engine IMAGE_ADJ_snow&. SNOW dialog title + top-cap visually verified. (oR->snR: reserved-word.)
 - [x] **Cutout** — inset shadow (up-left distance-to-transparent darkens the inner top-left edge) so the shape looks punched through, apply_to_layer + SHAPE menu (2202) + QA test (effect-cutout.sh, 281px, open_effect 7 2). NEW engine IMAGE_ADJ_cutout&.
-- [ ] **Jiggle / Water Drops** — bubble/droplet displacement bumps + dialog + QA test
+- [x] **Jiggle / Water Drops** — droplet lenses on a hash-jittered grid magnify the underlying surface (radial lens pulls the sample outward) with an up-left specular highlight + rim darkening, so each drop reads as a refractive bubble. SIZE + REFRACT dialog, RGB-only apply_to_layer + SHAPE menu (2242, child 19) + QA test (effect-waterdrops.sh, 306px, open_effect 7 19). NEW engine IMAGE_ADJ_waterdrops&. Visually verified — circular droplet lenses. **SHAPE category COMPLETE (20 items).**
 
 ## Wave 8 — Eye Candy: TEXTURE → submenu (procedural fills / overlays)
 

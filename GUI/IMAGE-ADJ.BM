@@ -3967,6 +3967,169 @@ END SUB
 
 
 ''
+' Water Drops / Jiggle (Eye Candy "Shape") — scatter droplet lenses over the shape.
+' Droplet centres sit on a hash-jittered grid; inside a droplet the underlying
+' pixels are magnified by a radial lens (sample pulled outward from the centre)
+' and a specular highlight is added up-left of centre, so each drop reads as a
+' refractive bubble. RGB-only (stays inside the shape) -> apply_to_layer.
+'
+' @param sourceImg LONG     Source image (32-bit, with alpha)
+' @param dropSize  INTEGER  Droplet radius in px (4..24)
+' @param refract   INTEGER  Lens magnification strength 0..100
+' @return LONG              New 32-bit image handle (0 on failure)
+'
+FUNCTION IMAGE_ADJ_waterdrops& (sourceImg AS LONG, dropSize AS INTEGER, refract AS INTEGER)
+    IF NOT (sourceImg& < -1) THEN IMAGE_ADJ_waterdrops& = 0 : EXIT FUNCTION
+
+    DIM wdW AS LONG, wdH AS LONG
+    wdW& = _WIDTH(sourceImg&) : wdH& = _HEIGHT(sourceImg&)
+    DIM result AS LONG
+    result& = _COPYIMAGE(sourceImg&, 32)
+    DIM srcM AS _MEM, resM AS _MEM
+    srcM = _MEMIMAGE(sourceImg&)
+    resM = _MEMIMAGE(result&)
+
+    DIM spacing AS INTEGER : spacing% = INT(dropSize% * 2.2) : IF spacing% < 4 THEN spacing% = 4
+    DIM kMax AS SINGLE : kMax! = 0.15 + refract% / 100.0 * 0.5
+    DIM radius AS SINGLE : radius! = dropSize%
+
+    DIM wx AS LONG, wy AS LONG, aHere AS _UNSIGNED _BYTE
+    DIM cgx AS LONG, cgy AS LONG, ngx AS INTEGER, ngy AS INTEGER
+    DIM ccx AS SINGLE, ccy AS SINGLE, ddx AS SINGLE, ddy AS SINGLE, dist AS SINGLE
+    DIM bestD AS SINGLE, bcx AS SINGLE, bcy AS SINGLE, jit AS SINGLE
+    DIM rel AS SINGLE, klens AS SINGLE, samX AS LONG, samY AS LONG, sA AS _UNSIGNED _BYTE
+    DIM pix AS _UNSIGNED LONG, pr AS INTEGER, pg AS INTEGER, pb AS INTEGER
+    DIM hi AS SINGLE, wr AS INTEGER, wg AS INTEGER, wb AS INTEGER
+    FOR wy& = 0 TO wdH& - 1
+        FOR wx& = 0 TO wdW& - 1
+            _MEMGET srcM, srcM.OFFSET + (wy& * wdW& + wx&) * 4 + 3, aHere~%%
+            IF aHere~%% = 0 THEN _CONTINUE
+
+            ' nearest droplet centre among the 3x3 neighbouring grid cells
+            cgx& = wx& \ spacing% : cgy& = wy& \ spacing%
+            bestD! = radius! + 1
+            bcx! = -1 : bcy! = -1
+            FOR ngy% = -1 TO 1
+                FOR ngx% = -1 TO 1
+                    jit! = IMGADJ_valnoise!((cgx& + ngx%) * 1.3, (cgy& + ngy%) * 1.3, 101)
+                    ccx! = (cgx& + ngx%) * spacing% + spacing% * (0.25 + 0.5 * jit!)
+                    jit! = IMGADJ_valnoise!((cgx& + ngx%) * 1.3, (cgy& + ngy%) * 1.3, 102)
+                    ccy! = (cgy& + ngy%) * spacing% + spacing% * (0.25 + 0.5 * jit!)
+                    ddx! = wx& - ccx! : ddy! = wy& - ccy!
+                    dist! = SQR(ddx! * ddx! + ddy! * ddy!)
+                    IF dist! < bestD! THEN bestD! = dist! : bcx! = ccx! : bcy! = ccy!
+                NEXT ngx%
+                NEXT ngy%
+            IF bestD! > radius! OR bcx! < 0 THEN _CONTINUE
+
+            rel! = bestD! / radius!                          ' 0 centre .. 1 rim
+            ' lens: pull the sample outward from the centre near the middle
+            klens! = kMax! * (1.0 - rel! * rel!)
+            samX& = wx& + INT((wx& - bcx!) * klens! + 0.5)
+            samY& = wy& + INT((wy& - bcy!) * klens! + 0.5)
+            IF samX& < 0 THEN samX& = 0
+            IF samX& >= wdW& THEN samX& = wdW& - 1
+            IF samY& < 0 THEN samY& = 0
+            IF samY& >= wdH& THEN samY& = wdH& - 1
+            _MEMGET srcM, srcM.OFFSET + (samY& * wdW& + samX&) * 4 + 3, sA~%%
+            IF sA~%% = 0 THEN samX& = wx& : samY& = wy&      ' don't sample transparency
+            _MEMGET srcM, srcM.OFFSET + (samY& * wdW& + samX&) * 4, pix~&
+            pr% = _RED32(pix~&) : pg% = _GREEN32(pix~&) : pb% = _BLUE32(pix~&)
+
+            ' specular highlight up-left of the droplet centre
+            hi! = 0.0
+            ddx! = (wx& - bcx!) / radius! + 0.35
+            ddy! = (wy& - bcy!) / radius! + 0.35
+            IF ddx! * ddx! + ddy! * ddy! < 0.16 THEN
+                hi! = (1.0 - (ddx! * ddx! + ddy! * ddy!) / 0.16) * 0.85
+            END IF
+            ' slight rim darkening for depth
+            IF rel! > 0.85 THEN pr% = INT(pr% * 0.8) : pg% = INT(pg% * 0.8) : pb% = INT(pb% * 0.8)
+            wr% = pr% + INT((255 - pr%) * hi!) : IF wr% > 255 THEN wr% = 255
+            wg% = pg% + INT((255 - pg%) * hi!) : IF wg% > 255 THEN wg% = 255
+            wb% = pb% + INT((255 - pb%) * hi!) : IF wb% > 255 THEN wb% = 255
+            _MEMPUT resM, resM.OFFSET + (wy& * wdW& + wx&) * 4, _RGBA32(wr%, wg%, wb%, aHere~%%) AS _UNSIGNED LONG
+        NEXT wx&
+    NEXT wy&
+
+    _MEMFREE srcM
+    _MEMFREE resM
+    IMAGE_ADJ_waterdrops& = result&
+END FUNCTION
+
+
+''
+' Open a modal Water Drops dialog: SIZE (4..24) + REFRACT (0..100). RGB-only ->
+' apply_to_layer.
+'
+SUB IMAGE_ADJ_waterdrops_dialog ()
+    IF CURRENT_LAYER% < 1 THEN EXIT SUB
+
+    DIM ctx AS DIALOG_CTX
+    DIALOG_init ctx, IMGDLG_W, 138
+    IMAGE_ADJ_setup_preview ctx, LAYERS(CURRENT_LAYER%).imgHandle&
+
+    DIM dropSize AS INTEGER : dropSize% = 10
+    DIM refract  AS INTEGER : refract%  = 60
+    DIM oSize AS INTEGER, oRefract AS INTEGER
+
+    DIM k AS LONG
+    DO
+        DIALOG_poll_mouse ctx
+        IF ctx.loupeDirty% THEN IMAGE_ADJ_update_loupe ctx
+        k& = _KEYHIT
+        IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
+        IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
+
+        oSize% = dropSize% : oRefract% = refract%
+        dropSize% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, dropSize%, 4, 24)
+        dropSize% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, dropSize%, 4, 24)
+        refract%  = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, refract%, 0, 100)
+        refract%  = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, refract%, 0, 100)
+        IF dropSize% <> oSize% OR refract% <> oRefract% THEN ctx.previewDirty% = TRUE
+        IMGDLG_check_ok_cancel ctx
+
+        IF ctx.previewDirty% THEN
+            SAFE_FREEIMAGE ctx.previewThumb
+            ctx.previewThumb = IMAGE_ADJ_waterdrops&(ctx.origThumb, dropSize%, refract%)
+            IMAGE_ADJ_mask_preview ctx
+            ctx.previewDirty% = FALSE
+        END IF
+
+        _DEST ctx.imgHandle
+        DIALOG_draw_frame ctx, "WATER DROPS"
+        DIALOG_draw_preview ctx
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "SIZE:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, dropSize%, 4, 24, "", ""
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 1), "REFRACT:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, refract%, 0, 100, "", ""
+        DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
+        IMGDLG_draw_ok_cancel ctx
+        DIALOG_blit ctx
+    LOOP UNTIL ctx.done%
+
+    IF ctx.result% THEN
+        DIM wdTargets(1 TO MAX_LAYERS) AS INTEGER, wdTgtCount AS INTEGER, wdT AS INTEGER
+        DIM wdSaveCL AS INTEGER
+        IMAGE_ADJ_collect_targets wdTargets%(), wdTgtCount%
+        wdSaveCL% = CURRENT_LAYER%
+        IF wdTgtCount% > 1 THEN HISTORY_begin_group
+        DIM adjR AS LONG
+        FOR wdT% = 1 TO wdTgtCount%
+            CURRENT_LAYER% = wdTargets%(wdT%)
+            adjR&          = IMAGE_ADJ_waterdrops&(LAYERS(CURRENT_LAYER%).imgHandle&, dropSize%, refract%)
+            IMAGE_ADJ_apply_to_layer adjR&, "Water Drops"
+        NEXT wdT%
+        IF wdTgtCount% > 1 THEN HISTORY_end_group
+        CURRENT_LAYER% = wdSaveCL%
+    END IF
+
+    DIALOG_cleanup ctx
+    SAFE_FREEIMAGE IMGADJ_LAYER_MASK& : IMGADJ_LAYER_MASK& = 0
+END SUB
+
+
+''
 ' Electrify (Eye Candy "Shape") — crackling electric arcs around the shape edge.
 ' Transparent pixels within REACH of the shape get a base glow (falling off with
 ' distance to the nearest opaque pixel), which a high-frequency noise threshold
