@@ -155,7 +155,7 @@ the infra exists.
 - [x] **Bevel (Eye Candy)** — SHAPE-menu entry added (child 3 → action 2126, reuses Wave 2b engine). Guarded by effect-shape-reparent.sh (open_effect 7 3, 353px).
 - [x] **Chrome** — SHAPE-menu entry added (child 4 → action 2129, reuses Wave 2b engine). Guarded by effect-shape-reparent.sh (open_effect 7 4, 1071px).
 - [x] **Corona** — triangular ring of light offset outside the alpha edge, RADIUS 3-24 + INTENSITY, apply_spatial + SHAPE menu + QA test (effect-corona.sh, 1542px). NEW engine IMAGE_ADJ_corona&.
-- [ ] **Drip** — liquid drips hanging off the bottom of shapes + dialog + QA test
+- [x] **Drip** — liquid runs drip off the bottom edge in the shape's OWN colour: sparse hash-gated columns run down a hash-scaled length, slightly darkened, with a rounded fuller bulb (full alpha) in the last ~20%. LENGTH + AMOUNT dialog, apply_spatial + SHAPE menu (2239, child 16) + QA test (effect-drip.sh, 398px, open_effect 7 16). NEW engine IMAGE_ADJ_drip&. Visually verified — green liquid runs.
 - [ ] **Electrify** — jagged lightning tendrils around edges + dialog + QA test
 - [x] **Extrude** — SHAPE-menu entry added (child 5 → action 2143). Guarded by effect-shape-reparent.sh (open_effect 7 5, 1189px).
 - [x] **Fire** — flames rise off the shape's top edge: transparent pixels with an opaque pixel within HEIGHT below get heat = closeness x upward-flickering fractal noise, mapped through a black->red->orange->yellow->white ramp with heat-proportional alpha. HEIGHT + INTENSITY dialog, apply_spatial + SHAPE menu (2236, child 13) + QA test (effect-fire.sh, 2479px, open_effect 7 13). NEW engine IMAGE_ADJ_fire&. Visually verified — realistic flames w/ flickering silhouette + full gradient.

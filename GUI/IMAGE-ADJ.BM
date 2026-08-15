@@ -3967,6 +3967,146 @@ END SUB
 
 
 ''
+' Drip (Eye Candy "Shape") — liquid runs drip off the bottom edge in the shape's
+' OWN colour. Only some columns drip (hash-gated by AMOUNT); each drip runs down
+' a hash-scaled length, slightly darkened, with a rounded fuller bulb at the tip.
+' Adds pixels below the shape -> apply_spatial.
+'
+' @param sourceImg LONG     Source image (32-bit, with alpha)
+' @param lengthP   INTEGER  Max drip length in px (4..48)
+' @param amount    INTEGER  How many columns drip 0..100
+' @return LONG              New 32-bit image handle (0 on failure)
+'
+FUNCTION IMAGE_ADJ_drip& (sourceImg AS LONG, lengthP AS INTEGER, amount AS INTEGER)
+    IF NOT (sourceImg& < -1) THEN IMAGE_ADJ_drip& = 0 : EXIT FUNCTION
+
+    DIM drW AS LONG, drH AS LONG
+    drW& = _WIDTH(sourceImg&) : drH& = _HEIGHT(sourceImg&)
+    DIM result AS LONG
+    result& = _COPYIMAGE(sourceImg&, 32)
+    DIM srcM AS _MEM, resM AS _MEM
+    srcM = _MEMIMAGE(sourceImg&)
+    resM = _MEMIMAGE(result&)
+
+    DIM gate AS SINGLE : gate! = amount% / 100.0 * 0.5     ' fraction of edge columns that drip
+    DIM dx AS LONG, dy AS LONG, belowA AS _UNSIGNED _BYTE, aHere AS _UNSIGNED _BYTE, tgtA AS _UNSIGNED _BYTE
+    DIM pick AS SINGLE, dripLen AS INTEGER, d AS INTEGER, ny AS LONG
+    DIM pix AS _UNSIGNED LONG, pr AS INTEGER, pg AS INTEGER, pb AS INTEGER
+    DIM shade AS SINGLE, da AS INTEGER, t AS SINGLE
+    FOR dy& = 0 TO drH& - 1
+        FOR dx& = 0 TO drW& - 1
+            _MEMGET srcM, srcM.OFFSET + (dy& * drW& + dx&) * 4 + 3, aHere~%%
+            IF aHere~%% = 0 THEN _CONTINUE
+            IF dy& + 1 >= drH& THEN _CONTINUE
+            _MEMGET srcM, srcM.OFFSET + ((dy& + 1) * drW& + dx&) * 4 + 3, belowA~%%
+            IF belowA~%% <> 0 THEN _CONTINUE               ' not a bottom edge
+
+            ' does THIS column drip? gate on a per-column hash
+            pick! = IMGADJ_valnoise!(dx& * 0.9, 7.3, 81)
+            IF pick! > gate! THEN _CONTINUE
+            dripLen% = INT(lengthP% * (0.35 + 0.65 * IMGADJ_valnoise!(dx& * 0.5, 1.1, 82)))
+            IF dripLen% < 3 THEN _CONTINUE
+
+            _MEMGET srcM, srcM.OFFSET + (dy& * drW& + dx&) * 4, pix~&
+            pr% = _RED32(pix~&) : pg% = _GREEN32(pix~&) : pb% = _BLUE32(pix~&)
+
+            FOR d% = 1 TO dripLen%
+                ny& = dy& + d%
+                IF ny& >= drH& THEN EXIT FOR
+                _MEMGET srcM, srcM.OFFSET + (ny& * drW& + dx&) * 4 + 3, tgtA~%%
+                IF tgtA~%% <> 0 THEN EXIT FOR
+                t! = d% / dripLen%
+                ' liquid darkens slightly toward the tip; rounded bulb = full alpha
+                ' in the last ~20% of the run, thinner mid-run
+                shade! = 0.75 + 0.25 * (1.0 - t!)
+                IF t! > 0.8 THEN
+                    da% = 255                              ' bulb
+                ELSE
+                    da% = 210
+                END IF
+                _MEMPUT resM, resM.OFFSET + (ny& * drW& + dx&) * 4, _RGBA32(INT(pr% * shade!), INT(pg% * shade!), INT(pb% * shade!), da%) AS _UNSIGNED LONG
+            NEXT d%
+        NEXT dx&
+    NEXT dy&
+
+    _MEMFREE srcM
+    _MEMFREE resM
+    IMAGE_ADJ_drip& = result&
+END FUNCTION
+
+
+''
+' Open a modal Drip dialog: LENGTH (4..48) + AMOUNT (0..100). Adds pixels ->
+' apply_spatial.
+'
+SUB IMAGE_ADJ_drip_dialog ()
+    IF CURRENT_LAYER% < 1 THEN EXIT SUB
+
+    DIM ctx AS DIALOG_CTX
+    DIALOG_init ctx, IMGDLG_W, 138
+    IMAGE_ADJ_setup_preview ctx, LAYERS(CURRENT_LAYER%).imgHandle&
+
+    DIM lengthP AS INTEGER : lengthP% = 22
+    DIM amount  AS INTEGER : amount%  = 55
+    DIM oLength AS INTEGER, oAmount AS INTEGER
+
+    DIM k AS LONG
+    DO
+        DIALOG_poll_mouse ctx
+        IF ctx.loupeDirty% THEN IMAGE_ADJ_update_loupe ctx
+        k& = _KEYHIT
+        IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
+        IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
+
+        oLength% = lengthP% : oAmount% = amount%
+        lengthP% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, lengthP%, 4, 48)
+        lengthP% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, lengthP%, 4, 48)
+        amount%  = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, amount%, 0, 100)
+        amount%  = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, amount%, 0, 100)
+        IF lengthP% <> oLength% OR amount% <> oAmount% THEN ctx.previewDirty% = TRUE
+        IMGDLG_check_ok_cancel ctx
+
+        IF ctx.previewDirty% THEN
+            SAFE_FREEIMAGE ctx.previewThumb
+            ctx.previewThumb = IMAGE_ADJ_drip&(ctx.origThumb, lengthP%, amount%)
+            IMAGE_ADJ_mask_preview ctx
+            ctx.previewDirty% = FALSE
+        END IF
+
+        _DEST ctx.imgHandle
+        DIALOG_draw_frame ctx, "DRIP"
+        DIALOG_draw_preview ctx
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "LENGTH:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, lengthP%, 4, 48, "", ""
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 1), "AMOUNT:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, amount%, 0, 100, "", ""
+        DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
+        IMGDLG_draw_ok_cancel ctx
+        DIALOG_blit ctx
+    LOOP UNTIL ctx.done%
+
+    IF ctx.result% THEN
+        DIM drTargets(1 TO MAX_LAYERS) AS INTEGER, drTgtCount AS INTEGER, drT AS INTEGER
+        DIM drSaveCL AS INTEGER
+        IMAGE_ADJ_collect_targets drTargets%(), drTgtCount%
+        drSaveCL% = CURRENT_LAYER%
+        IF drTgtCount% > 1 THEN HISTORY_begin_group
+        DIM adjR AS LONG
+        FOR drT% = 1 TO drTgtCount%
+            CURRENT_LAYER% = drTargets%(drT%)
+            adjR&          = IMAGE_ADJ_drip&(LAYERS(CURRENT_LAYER%).imgHandle&, lengthP%, amount%)
+            IMAGE_ADJ_apply_spatial adjR&, "Drip"
+        NEXT drT%
+        IF drTgtCount% > 1 THEN HISTORY_end_group
+        CURRENT_LAYER% = drSaveCL%
+    END IF
+
+    DIALOG_cleanup ctx
+    SAFE_FREEIMAGE IMGADJ_LAYER_MASK& : IMGADJ_LAYER_MASK& = 0
+END SUB
+
+
+''
 ' Icicles (Eye Candy "Shape") — pale ice spikes hang off the shape's bottom edges.
 ' Each bottom-edge pixel (opaque with transparent directly below) grows a downward
 ' spike whose LENGTH is a smooth low-frequency noise of the column (so neighbouring
