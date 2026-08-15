@@ -138,7 +138,7 @@ the infra exists.
 
 ## Wave 7 — Eye Candy: SHAPE → submenu
 
-- [ ] **Backlight** — rays/light burst behind the shape from a point + dialog + QA test
+- [x] **Backlight** — radial sunburst rays behind the shape (FG colour), RAYS 4-48 + INTENSITY, apply_spatial + SHAPE category + QA test (effect-backlight.sh). NEW engine IMAGE_ADJ_backlight&. NOTE: functional + test-passing but ray visuals are faint — flagged for a polish pass. First effect in the new SHAPE flyout category (open_effect 7 0).
 - [ ] **Bevel (Eye Candy)** — covered by Wave 2b Bevel; add SHAPE-menu entry
 - [ ] **Chrome** — covered by Wave 2b Chrome/Metallic; add SHAPE-menu entry
 - [ ] **Corona** — soft eclipse-style ring glow around alpha edges + dialog + QA test

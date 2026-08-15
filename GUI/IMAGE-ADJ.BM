@@ -540,6 +540,135 @@ END FUNCTION
 
 
 ''
+' Backlight — a radial sunburst of light rays behind the shape. Fills the
+' transparent area with `rays` bright spokes of `color` radiating from the centre
+' (brightest at the centre, fading out), so when composited the shape appears
+' backlit. Opaque pixels are kept. Alpha-changing -> apply_spatial (transparent layer).
+'
+' @param sourceImg LONG           Source image (32-bit, with alpha)
+' @param rays      INTEGER        Number of light spokes (4..48)
+' @param intensity INTEGER        Brightness 0..100
+' @param color     _UNSIGNED LONG Ray colour
+' @return LONG  New backlit image handle
+'
+FUNCTION IMAGE_ADJ_backlight& (sourceImg AS LONG, rays AS INTEGER, intensity AS INTEGER, rayColor AS _UNSIGNED LONG)
+    IF NOT (sourceImg& < -1) THEN IMAGE_ADJ_backlight& = 0 : EXIT FUNCTION
+
+    DIM blW AS LONG, blH AS LONG
+    blW& = _WIDTH(sourceImg&) : blH& = _HEIGHT(sourceImg&)
+    DIM result AS LONG
+    result& = _COPYIMAGE(sourceImg&, 32)
+    DIM srcM AS _MEM, resM AS _MEM
+    srcM = _MEMIMAGE(sourceImg&)
+    resM = _MEMIMAGE(result&)
+
+    DIM ccx AS SINGLE, ccy AS SINGLE, maxR AS SINGLE
+    ccx! = blW& / 2.0 : ccy! = blH& / 2.0
+    maxR! = SQR(ccx! * ccx! + ccy! * ccy!)
+    DIM cr AS INTEGER, cg AS INTEGER, cb AS INTEGER
+    cr% = _RED32(rayColor~&) : cg% = _GREEN32(rayColor~&) : cb% = _BLUE32(rayColor~&)
+    DIM iScale AS SINGLE : iScale! = intensity% / 100.0
+
+    DIM bx AS LONG, by AS LONG, aHere AS _UNSIGNED _BYTE
+    DIM ddx AS SINGLE, ddy AS SINGLE, rr AS SINGLE, ang AS SINGLE, ray AS SINGLE, fall AS SINGLE, br AS SINGLE
+    DIM aOut AS INTEGER
+    FOR by& = 0 TO blH& - 1
+        FOR bx& = 0 TO blW& - 1
+            _MEMGET srcM, srcM.OFFSET + (by& * blW& + bx&) * 4 + 3, aHere~%%
+            IF aHere~%% <> 0 THEN _CONTINUE   ' keep the shape itself
+            ddx! = bx& - ccx! : ddy! = by& - ccy!
+            rr! = SQR(ddx! * ddx! + ddy! * ddy!)
+            ang! = _ATAN2(ddy!, ddx!)
+            ray! = 0.5 + 0.5 * COS(ang! * rays%)
+            ray! = ray! * ray!                              ' sharpen the spokes
+            fall! = 1.0 - rr! / maxR! : IF fall! < 0.0 THEN fall! = 0.0
+            br! = ray! * fall! * iScale!
+            IF br! > 1.0 THEN br! = 1.0
+            IF br! > 0.01 THEN
+                aOut% = INT(br! * 255)
+                _MEMPUT resM, resM.OFFSET + (by& * blW& + bx&) * 4, _RGBA32(cr%, cg%, cb%, aOut%) AS _UNSIGNED LONG
+            END IF
+        NEXT bx&
+    NEXT by&
+
+    _MEMFREE srcM
+    _MEMFREE resM
+    IMAGE_ADJ_backlight& = result&
+END FUNCTION
+
+
+''
+' Open a modal Backlight dialog: RAYS (4..48) + INTENSITY (0..100). Ray colour is
+' the current FG colour. Alpha-changing -> apply_spatial.
+'
+SUB IMAGE_ADJ_backlight_dialog ()
+    IF CURRENT_LAYER% < 1 THEN EXIT SUB
+
+    DIM ctx AS DIALOG_CTX
+    DIALOG_init ctx, IMGDLG_W, 140
+    IMAGE_ADJ_setup_preview ctx, LAYERS(CURRENT_LAYER%).imgHandle&
+
+    DIM rys AS INTEGER : rys% = 16
+    DIM inten AS INTEGER : inten% = 70
+    DIM oRys AS INTEGER, oInten AS INTEGER
+
+    DIM k AS LONG
+    DO
+        DIALOG_poll_mouse ctx
+        IF ctx.loupeDirty% THEN IMAGE_ADJ_update_loupe ctx
+        k& = _KEYHIT
+        IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
+        IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
+
+        oRys% = rys% : oInten% = inten%
+        rys% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, rys%, 4, 48)
+        rys% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, rys%, 4, 48)
+        inten% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, inten%, 0, 100)
+        inten% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, inten%, 0, 100)
+        IF rys% <> oRys% OR inten% <> oInten% THEN ctx.previewDirty% = TRUE
+        IMGDLG_check_ok_cancel ctx
+
+        IF ctx.previewDirty% THEN
+            SAFE_FREEIMAGE ctx.previewThumb
+            ctx.previewThumb = IMAGE_ADJ_backlight&(ctx.origThumb, rys%, inten%, PAINT_COLOR~&)
+            IMAGE_ADJ_mask_preview ctx
+            ctx.previewDirty% = FALSE
+        END IF
+
+        _DEST ctx.imgHandle
+        DIALOG_draw_frame ctx, "BACKLIGHT"
+        DIALOG_draw_preview ctx
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "RAYS:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, rys%, 4, 48, "", ""
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 1), "INTENSITY:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, inten%, 0, 100, "", ""
+        DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
+        IMGDLG_draw_ok_cancel ctx
+        DIALOG_blit ctx
+    LOOP UNTIL ctx.done%
+
+    IF ctx.result% THEN
+        DIM blTargets(1 TO MAX_LAYERS) AS INTEGER, blTgtCount AS INTEGER, blT AS INTEGER
+        DIM blSaveCL AS INTEGER
+        IMAGE_ADJ_collect_targets blTargets%(), blTgtCount%
+        blSaveCL% = CURRENT_LAYER%
+        IF blTgtCount% > 1 THEN HISTORY_begin_group
+        DIM adjR     AS LONG
+        FOR blT% = 1 TO blTgtCount%
+            CURRENT_LAYER% = blTargets%(blT%)
+            adjR&          = IMAGE_ADJ_backlight&(LAYERS(CURRENT_LAYER%).imgHandle&, rys%, inten%, PAINT_COLOR~&)
+            IMAGE_ADJ_apply_spatial adjR&, "Backlight"
+        NEXT blT%
+        IF blTgtCount% > 1 THEN HISTORY_end_group
+        CURRENT_LAYER% = blSaveCL%
+    END IF
+
+    DIALOG_cleanup ctx
+    SAFE_FREEIMAGE IMGADJ_LAYER_MASK& : IMGADJ_LAYER_MASK& = 0
+END SUB
+
+
+''
 ' Render Sky — fill the layer with a procedural sky. mode 0 = day (blue vertical
 ' gradient), 1 = night (dark gradient + stars), 2 = space (near-black + dense
 ' stars + a planet). Generative -> apply_spatial.
