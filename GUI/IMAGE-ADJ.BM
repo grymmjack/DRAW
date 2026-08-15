@@ -3967,6 +3967,138 @@ END SUB
 
 
 ''
+' Glass (Eye Candy "Shape") — give the shape a glassy sheen: translucent
+' lightening (FROST) plus two diagonal specular highlight streaks (SHINE) swept
+' across the surface, brightest along the streak centres. RGB-only (stays inside
+' the shape) -> apply_to_layer.
+'
+' @param sourceImg LONG     Source image (32-bit, with alpha)
+' @param shine     INTEGER  Specular streak strength 0..100
+' @param frost     INTEGER  Overall glassy lightening 0..100
+' @return LONG              New 32-bit image handle (0 on failure)
+'
+FUNCTION IMAGE_ADJ_glass& (sourceImg AS LONG, shine AS INTEGER, frost AS INTEGER)
+    IF NOT (sourceImg& < -1) THEN IMAGE_ADJ_glass& = 0 : EXIT FUNCTION
+
+    DIM glW AS LONG, glH AS LONG
+    glW& = _WIDTH(sourceImg&) : glH& = _HEIGHT(sourceImg&)
+    DIM result AS LONG
+    result& = _COPYIMAGE(sourceImg&, 32)
+    DIM srcM AS _MEM, resM AS _MEM
+    srcM = _MEMIMAGE(sourceImg&)
+    resM = _MEMIMAGE(result&)
+
+    DIM shScale AS SINGLE : shScale! = shine% / 100.0
+    DIM frScale AS SINGLE : frScale! = frost% / 100.0 * 0.4
+    DIM diag AS SINGLE : diag! = glW& + glH&
+    ' two streak centres along the diagonal axis (as fractions of the diagonal)
+    DIM c1 AS SINGLE, c2 AS SINGLE
+    c1! = 0.34 : c2! = 0.6
+
+    DIM gx AS LONG, gy AS LONG, aHere AS _UNSIGNED _BYTE, pix AS _UNSIGNED LONG
+    DIM u AS SINGLE, s1 AS SINGLE, s2 AS SINGLE, spec AS SINGLE, lift AS SINGLE
+    DIM pr AS INTEGER, pg AS INTEGER, pb AS INTEGER, oR2 AS INTEGER, oG2 AS INTEGER, oB2 AS INTEGER
+    FOR gy& = 0 TO glH& - 1
+        FOR gx& = 0 TO glW& - 1
+            _MEMGET srcM, srcM.OFFSET + (gy& * glW& + gx&) * 4 + 3, aHere~%%
+            IF aHere~%% = 0 THEN _CONTINUE
+
+            u! = (gx& + gy&) / diag!                        ' position along the diagonal 0..1
+            ' gaussian-ish streaks around c1 (broad) and c2 (thin, brighter)
+            s1! = EXP(-((u! - c1!) * (u! - c1!)) / 0.004)
+            s2! = EXP(-((u! - c2!) * (u! - c2!)) / 0.0012)
+            spec! = (s1! * 0.7 + s2! * 1.0) * shScale!
+
+            _MEMGET srcM, srcM.OFFSET + (gy& * glW& + gx&) * 4, pix~&
+            pr% = _RED32(pix~&) : pg% = _GREEN32(pix~&) : pb% = _BLUE32(pix~&)
+            ' translucent frost lift toward white, then additive specular
+            lift! = frScale! + spec!
+            IF lift! > 1.0 THEN lift! = 1.0
+            oR2% = pr% + INT((255 - pr%) * lift!)
+            oG2% = pg% + INT((255 - pg%) * lift!)
+            oB2% = pb% + INT((255 - pb%) * lift!)
+            _MEMPUT resM, resM.OFFSET + (gy& * glW& + gx&) * 4, _RGBA32(oR2%, oG2%, oB2%, aHere~%%) AS _UNSIGNED LONG
+        NEXT gx&
+    NEXT gy&
+
+    _MEMFREE srcM
+    _MEMFREE resM
+    IMAGE_ADJ_glass& = result&
+END FUNCTION
+
+
+''
+' Open a modal Glass dialog: SHINE (0..100) + FROST (0..100). RGB-only ->
+' apply_to_layer.
+'
+SUB IMAGE_ADJ_glass_dialog ()
+    IF CURRENT_LAYER% < 1 THEN EXIT SUB
+
+    DIM ctx AS DIALOG_CTX
+    DIALOG_init ctx, IMGDLG_W, 138
+    IMAGE_ADJ_setup_preview ctx, LAYERS(CURRENT_LAYER%).imgHandle&
+
+    DIM shine AS INTEGER : shine% = 75
+    DIM frost AS INTEGER : frost% = 25
+    DIM oShine AS INTEGER, oFrost AS INTEGER
+
+    DIM k AS LONG
+    DO
+        DIALOG_poll_mouse ctx
+        IF ctx.loupeDirty% THEN IMAGE_ADJ_update_loupe ctx
+        k& = _KEYHIT
+        IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
+        IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
+
+        oShine% = shine% : oFrost% = frost%
+        shine% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, shine%, 0, 100)
+        shine% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, shine%, 0, 100)
+        frost% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, frost%, 0, 100)
+        frost% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, frost%, 0, 100)
+        IF shine% <> oShine% OR frost% <> oFrost% THEN ctx.previewDirty% = TRUE
+        IMGDLG_check_ok_cancel ctx
+
+        IF ctx.previewDirty% THEN
+            SAFE_FREEIMAGE ctx.previewThumb
+            ctx.previewThumb = IMAGE_ADJ_glass&(ctx.origThumb, shine%, frost%)
+            IMAGE_ADJ_mask_preview ctx
+            ctx.previewDirty% = FALSE
+        END IF
+
+        _DEST ctx.imgHandle
+        DIALOG_draw_frame ctx, "GLASS"
+        DIALOG_draw_preview ctx
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "SHINE:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, shine%, 0, 100, "", ""
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 1), "FROST:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, frost%, 0, 100, "", ""
+        DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
+        IMGDLG_draw_ok_cancel ctx
+        DIALOG_blit ctx
+    LOOP UNTIL ctx.done%
+
+    IF ctx.result% THEN
+        DIM glTargets(1 TO MAX_LAYERS) AS INTEGER, glTgtCount AS INTEGER, glT AS INTEGER
+        DIM glSaveCL AS INTEGER
+        IMAGE_ADJ_collect_targets glTargets%(), glTgtCount%
+        glSaveCL% = CURRENT_LAYER%
+        IF glTgtCount% > 1 THEN HISTORY_begin_group
+        DIM adjR AS LONG
+        FOR glT% = 1 TO glTgtCount%
+            CURRENT_LAYER% = glTargets%(glT%)
+            adjR&          = IMAGE_ADJ_glass&(LAYERS(CURRENT_LAYER%).imgHandle&, shine%, frost%)
+            IMAGE_ADJ_apply_to_layer adjR&, "Glass"
+        NEXT glT%
+        IF glTgtCount% > 1 THEN HISTORY_end_group
+        CURRENT_LAYER% = glSaveCL%
+    END IF
+
+    DIALOG_cleanup ctx
+    SAFE_FREEIMAGE IMGADJ_LAYER_MASK& : IMGADJ_LAYER_MASK& = 0
+END SUB
+
+
+''
 ' Drip (Eye Candy "Shape") — liquid runs drip off the bottom edge in the shape's
 ' OWN colour. Only some columns drip (hash-gated by AMOUNT); each drip runs down
 ' a hash-scaled length, slightly darkened, with a rounded fuller bulb at the tip.
