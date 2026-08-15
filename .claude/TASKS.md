@@ -58,7 +58,7 @@ Each box = engine/dialog change → build clean (0 warnings) → QA guard (dialo
       Weave, Stone Wall, Reptile Skin, Diamond Plate gained a MIX slider (0-100,
       default 100) + RESET. Implemented via reusable post-blend IMAGE_ADJ_mix_result&
       (lerp fx over original, preserve alpha) — NO engine changes. Verified: Wood
-      applies 2480px at MIX=100. (Rust deferred — its dialog isn't the p1/p2 pattern.)
+      applies 2480px at MIX=100. Rust also done (MIX+RESET).
       ALSO FIXED a harness regression this caused: the menu-box count fix made the
       EFFECTS dropdown correctly narrower, shifting flyouts left so open_effect's
       fixed child-x=560 overshot narrow flyouts (TEXTURE) → silent 0-diff. Fixed the
