@@ -5,7 +5,7 @@ Each box is independently buildable + verifiable. Build with `~/git/qb64pe-450/q
 (v4.5.0, the Makefile default). Commit after each grouped box lands green.
 
 ## 🔨 NOW — doing right now
-- [ ] ➡️ Shared widget: DROPDOWN control in the dialog framework (replaces >4-option cycle buttons)
+- [ ] ➡️ Shared widget: Angle DIAL widget wired into degrees controls (helpers already written)
 
 ## 🐞 Bugs / regressions
 - [x] Cursor is a move/cross over EFFECTS flyout items — POINTER.BM now sets CURSOR_NULL over the category flyout region (genOpen%/genX/genY/genW/genH), matching the submenu-arrow logic. Built 17:31.
@@ -15,7 +15,7 @@ Each box is independently buildable + verifiable. Build with `~/git/qb64pe-450/q
 - [x] Shape/generative effects don't work with selection — 7 radiating Shape effects (Fire, Smoke, Snow, Drip, Icicles, Electrify, Motion Trail) now route through the sel-as-shape choke point (IMGADJ_edge_shape_source + apply_spatial_edge) for BOTH apply and preview, exactly like the alpha-edge effects. Interior effects (Water Drops, Glass, Rust) already clip correctly via apply_to_layer. New QA effect-fire-selection 6/6 + all 7 no-selection tests 42/42 green. Built 18:08.
 
 ## 🧩 Shared widgets (build once → reuse)
-- [ ] DROPDOWN control in the dialog framework (popup list, keyboard + wheel) — replaces cycle-buttons that have >4 options
+- [x] DROPDOWN control in the dialog framework — DIALOG_dropdown% + _input/_draw/_overlay in GUI/DIALOG.{BI,BM}. Immediate-mode, single-open, on-top popup with an input-gate that owns the frame's click/wheel/keys (Up/Down/Enter/Esc) so nothing underneath reacts; scrolls past DIALOG_DD_MAXVIS (8). Proven by converting Posterize dither (23 options). QA posterize-dither-color 6/6 green. Built 18:31.
 - [ ] Angle DIAL widget wired into all degrees controls (helper IMGDLG_draw_dial/IMGDLG_dial_drag already written) — visual sphere/dial showing degrees, drag to set. (Wheel 15° / Shift+wheel 1° already done via IMGDLG_angle_wheel.)
 - [ ] Click-on-canvas to set a CENTER point (when no selection) — reusable for Pinch/Bulge, Kaleidoscope, Lens Flare
 - [ ] Cell-SHAPE picker (square / triangle / rectangle / hex / voronoi / random-per-cell) — reusable for Mosaic + Extrude
@@ -23,7 +23,7 @@ Each box is independently buildable + verifiable. Build with `~/git/qb64pe-450/q
 
 ## ✨ Per-effect (use the shared pieces above)
 - [ ] Blend Last Effect: expose ALL layer blend modes (incl. Color Dodge, etc.) as a DROPDOWN (not the cycle button)
-- [ ] Posterize dither: cycle-button → dropdown
+- [x] Posterize dither: cycle-button → dropdown (23 options, keyboard-navigable). First consumer of the shared DIALOG_dropdown widget. QA posterize-dither-color updated + 6/6 green. Built 18:31.
 - [ ] Chromatic Aberration: add an ANGLE (with dial)
 - [ ] Add Noise: add ANGLE + SEED (current result reads as a flat patch)
 - [ ] Pinch / Bulge: much more extreme range + click-to-set center

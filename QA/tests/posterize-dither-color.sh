@@ -37,8 +37,12 @@ STRIP_X=$(( CANVAS_CX - 90 )); STRIP_Y=$(( CANVAS_CY - 55 )); STRIP_W=180; STRIP
 key question ; wait_for 0.5 "Command palette"
 type_text "Posterize" ; wait_for 0.5 "Filtered"
 key Return ; wait_for 0.7 "Posterize dialog open"
-# Dialog is centred; DITHER button ~ (478,311), OK ~ (414,395) in viewport px.
-click 478 311 ; wait_for 0.4 "Dither enabled (D: ORDERED 2x2)"
+# Dialog is centred; DITHER is now a DROPDOWN box ~ (478,311), OK ~ (414,395).
+# Open the dropdown, arrow to the first algorithm (index 1 = OFF is index 0),
+# and Enter to commit — keyboard nav avoids pixel-targeting a popup row.
+click 478 311 ; wait_for 0.4 "Dither dropdown open"
+key Down ; wait_for 0.2 "Highlight first algorithm"
+key Return ; wait_for 0.3 "Dither mode committed"
 click 414 395 ; wait_for 0.7 "Applied via OK"
 assert_no_crash
 

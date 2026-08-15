@@ -47,6 +47,8 @@ SUB DIALOG_init (ctx AS DIALOG_CTX, w AS INTEGER, h AS INTEGER)
     ctx.moveDragOX   = 0
     ctx.moveDragOY   = 0
     ctx.splitDrag    = FALSE
+    DIALOG_DD_OPEN%      = 0   ' no dropdown open at dialog start
+    DIALOG_DD_RESULT_ID% = 0
     ' Force a clean render so the background screenshot excludes any
     ' recently-closed menus or stale GUI state.
     ' Hide the custom tool pointer so it doesn't get baked into the
@@ -368,6 +370,180 @@ SUB DIALOG_draw_toggle (ctx AS DIALOG_CTX, bx AS INTEGER, by AS INTEGER, bw AS I
     COLOR fg~&
     fontH% = DIALOG_font_height%(ctx)
     _UPRINTSTRING (bx + (bw - _PRINTWIDTH(label)) \ 2, by + (bh - fontH%) \ 2), label
+END SUB
+
+
+' =============================================================================
+' DROPDOWN (popup select) — immediate-mode, replaces >4-option cycle buttons.
+'
+' While a dropdown is open its list is drawn ON TOP of every other control, so it
+' must also OWN the frame's input or a click on a list item would leak through to
+' whatever sits underneath. Four call sites per dialog:
+'   1. DIALOG_dropdown_input ctx                                   (right after DIALOG_poll_mouse — input gate)
+'   2. v% = DIALOG_dropdown%(ctx, id, x,y,w, v%, labels$(), n)     (input phase — opens on click, returns value)
+'   3. DIALOG_dropdown_draw ctx, id, x,y,w, v%, labels$(), n       (draw phase — the CLOSED box)
+'   4. DIALOG_dropdown_overlay ctx                                 (LAST, before DIALOG_blit — the OPEN list)
+' `id` is any small positive int unique within the dialog. Values/labels are 0-based.
+' =============================================================================
+
+''
+' Input gate: when a dropdown is open, consume this frame's click/wheel — pick an
+' item, scroll, or dismiss — then zero ctx mouse state so no widget beneath the
+' popup reacts to the same event. No-op when nothing is open.
+'
+SUB DIALOG_dropdown_input (ctx AS DIALOG_CTX)
+    DIALOG_DD_RESULT_ID% = 0
+    IF DIALOG_DD_OPEN% = 0 THEN EXIT SUB
+
+    DIM vis AS INTEGER : vis% = DIALOG_DD_COUNT%
+    IF vis% > DIALOG_DD_MAXVIS% THEN vis% = DIALOG_DD_MAXVIS%
+    DIM listY AS INTEGER : listY% = DIALOG_DD_Y% + DIALOG_DD_BOXH%
+    DIM listH AS INTEGER : listH% = vis% * DIALOG_DD_ROWH%
+
+    ' --- keyboard: only while open, so the dialog's own _KEYHIT (Enter=OK,
+    '     Esc=Cancel) never fires on the same keystroke that drives the list ---
+    DIM kk AS LONG : kk& = _KEYHIT
+    SELECT CASE kk&
+        CASE 18432 ' Up
+            DIALOG_DD_SEL% = DIALOG_DD_SEL% - 1
+            IF DIALOG_DD_SEL% < 0 THEN DIALOG_DD_SEL% = 0
+        CASE 20480 ' Down
+            DIALOG_DD_SEL% = DIALOG_DD_SEL% + 1
+            IF DIALOG_DD_SEL% > DIALOG_DD_COUNT% - 1 THEN DIALOG_DD_SEL% = DIALOG_DD_COUNT% - 1
+        CASE 13 ' Enter -> commit highlighted row
+            DIALOG_DD_RESULT_ID%  = DIALOG_DD_OPEN%
+            DIALOG_DD_RESULT_VAL% = DIALOG_DD_SEL%
+            DIALOG_DD_OPEN%       = 0
+        CASE 27 ' Esc -> dismiss (no change)
+            DIALOG_DD_OPEN% = 0
+    END SELECT
+    ' keep the highlighted row in view after an arrow move
+    IF DIALOG_DD_SEL% < DIALOG_DD_SCROLL% THEN DIALOG_DD_SCROLL% = DIALOG_DD_SEL%
+    IF DIALOG_DD_SEL% > DIALOG_DD_SCROLL% + vis% - 1 THEN DIALOG_DD_SCROLL% = DIALOG_DD_SEL% - vis% + 1
+
+    IF ctx.mwheel <> 0 AND DIALOG_DD_COUNT% > DIALOG_DD_MAXVIS% THEN
+        DIALOG_DD_SCROLL% = DIALOG_DD_SCROLL% + ctx.mwheel
+        IF DIALOG_DD_SCROLL% < 0 THEN DIALOG_DD_SCROLL% = 0
+        IF DIALOG_DD_SCROLL% > DIALOG_DD_COUNT% - vis% THEN DIALOG_DD_SCROLL% = DIALOG_DD_COUNT% - vis%
+    END IF
+
+    IF ctx.justClicked THEN
+        IF ctx.mx >= DIALOG_DD_X% AND ctx.mx <= DIALOG_DD_X% + DIALOG_DD_W% _
+            AND ctx.my >= listY% AND ctx.my < listY% + listH% THEN
+            DIM row AS INTEGER : row% = (ctx.my - listY%) \ DIALOG_DD_ROWH% + DIALOG_DD_SCROLL%
+            IF row% >= 0 AND row% < DIALOG_DD_COUNT% THEN
+                DIALOG_DD_SEL%        = row%
+                DIALOG_DD_RESULT_ID%  = DIALOG_DD_OPEN%
+                DIALOG_DD_RESULT_VAL% = row%
+            END IF
+            DIALOG_DD_OPEN% = 0                 ' picking an item closes the list
+        ELSE
+            DIALOG_DD_OPEN% = 0                 ' a click anywhere else dismisses (value unchanged)
+        END IF
+    END IF
+
+    ' this frame's input belongs to the popup — hide it from everything underneath
+    ctx.justClicked = FALSE
+    ctx.mb1         = FALSE
+    ctx.mwheel      = 0
+END SUB
+
+''
+' Closed dropdown handler: opens the list on a click inside the box (only when no
+' other dropdown is open) and returns the effective value — unchanged while the
+' list is open (selection is committed only on close), the just-picked value on
+' the closing frame, else unchanged.
+'
+FUNCTION DIALOG_dropdown% (ctx AS DIALOG_CTX, id AS INTEGER, x AS INTEGER, y AS INTEGER, w AS INTEGER, value AS INTEGER, labels() AS STRING, count AS INTEGER)
+    IF DIALOG_DD_OPEN% = id THEN
+        DIALOG_dropdown% = value             ' no live change while navigating
+        EXIT FUNCTION
+    END IF
+    IF DIALOG_DD_RESULT_ID% = id THEN
+        DIALOG_dropdown% = DIALOG_DD_RESULT_VAL%
+        EXIT FUNCTION
+    END IF
+    IF DIALOG_DD_OPEN% = 0 AND ctx.justClicked THEN
+        IF ctx.mx >= x AND ctx.mx <= x + w AND ctx.my >= y AND ctx.my <= y + DIALOG_DD_BOXH% THEN
+            DIALOG_DD_OPEN%  = id
+            DIALOG_DD_X%     = x : DIALOG_DD_Y% = y : DIALOG_DD_W% = w
+            DIALOG_DD_COUNT% = count
+            DIALOG_DD_SEL%   = value
+            REDIM DIALOG_DD_LABELS$(0 TO count - 1)
+            DIM i AS INTEGER
+            FOR i% = 0 TO count - 1 : DIALOG_DD_LABELS$(i%) = labels$(i%) : NEXT
+            DIALOG_DD_SCROLL% = 0
+            IF count > DIALOG_DD_MAXVIS% THEN
+                IF value > DIALOG_DD_MAXVIS% - 1 THEN DIALOG_DD_SCROLL% = value - (DIALOG_DD_MAXVIS% - 1)
+                IF DIALOG_DD_SCROLL% > count - DIALOG_DD_MAXVIS% THEN DIALOG_DD_SCROLL% = count - DIALOG_DD_MAXVIS%
+            END IF
+            ctx.justClicked = FALSE            ' swallow the open click
+        END IF
+    END IF
+    DIALOG_dropdown% = value
+END FUNCTION
+
+''
+' Draw the CLOSED dropdown box: current label + a down-arrow, hover/open highlight.
+' Call after _DEST ctx.imgHandle.
+'
+SUB DIALOG_dropdown_draw (ctx AS DIALOG_CTX, id AS INTEGER, x AS INTEGER, y AS INTEGER, w AS INTEGER, value AS INTEGER, labels() AS STRING, count AS INTEGER)
+    DIM bg AS _UNSIGNED LONG, isHover AS INTEGER
+    isHover% = (ctx.mx >= x AND ctx.mx <= x + w AND ctx.my >= y AND ctx.my <= y + DIALOG_DD_BOXH%)
+    IF DIALOG_DD_OPEN% = id OR isHover% THEN bg~& = THEME.DIALOG_toggle_bg~& ELSE bg~& = THEME.DIALOG_slider_track_bg~&
+    LINE (x, y)-(x + w, y + DIALOG_DD_BOXH%), bg~&, BF
+    LINE (x, y)-(x + w, y + DIALOG_DD_BOXH%), THEME.DIALOG_toggle_border~&, B
+    DIM lbl AS STRING : lbl$ = ""
+    IF value >= 0 AND value < count THEN lbl$ = labels$(value)
+    DIM fh AS INTEGER : fh% = DIALOG_font_height%(ctx)
+    COLOR THEME.DIALOG_label_fg~&
+    _UPRINTSTRING (x + 4, y + (DIALOG_DD_BOXH% - fh%) \ 2), lbl$
+    ' down-triangle on the right edge
+    DIM ax AS INTEGER : ax% = x + w - 10
+    DIM ay AS INTEGER : ay% = y + DIALOG_DD_BOXH% \ 2 - 2
+    LINE (ax%, ay%)-(ax% + 6, ay%), THEME.DIALOG_label_fg~&
+    LINE (ax% + 1, ay% + 1)-(ax% + 5, ay% + 1), THEME.DIALOG_label_fg~&
+    LINE (ax% + 2, ay% + 2)-(ax% + 4, ay% + 2), THEME.DIALOG_label_fg~&
+    PSET (ax% + 3, ay% + 3), THEME.DIALOG_label_fg~&
+END SUB
+
+''
+' Draw the OPEN dropdown list on top of everything. Call LAST, just before
+' DIALOG_blit. No-op when nothing is open.
+'
+SUB DIALOG_dropdown_overlay (ctx AS DIALOG_CTX)
+    IF DIALOG_DD_OPEN% = 0 THEN EXIT SUB
+    DIM vis AS INTEGER : vis% = DIALOG_DD_COUNT%
+    IF vis% > DIALOG_DD_MAXVIS% THEN vis% = DIALOG_DD_MAXVIS%
+    DIM lx AS INTEGER : lx% = DIALOG_DD_X%
+    DIM ly AS INTEGER : ly% = DIALOG_DD_Y% + DIALOG_DD_BOXH%
+    DIM lw AS INTEGER : lw% = DIALOG_DD_W%
+    DIM lh AS INTEGER : lh% = vis% * DIALOG_DD_ROWH%
+    LINE (lx%, ly%)-(lx% + lw%, ly% + lh%), THEME.DIALOG_bg~&, BF
+    LINE (lx%, ly%)-(lx% + lw%, ly% + lh%), THEME.DIALOG_border_outer~&, B
+    DIM fh AS INTEGER : fh% = DIALOG_font_height%(ctx)
+    DIM r AS INTEGER, idx AS INTEGER, ry AS INTEGER, rowHover AS INTEGER
+    FOR r% = 0 TO vis% - 1
+        idx% = r% + DIALOG_DD_SCROLL%
+        IF idx% >= DIALOG_DD_COUNT% THEN EXIT FOR
+        ry% = ly% + r% * DIALOG_DD_ROWH%
+        rowHover% = (ctx.mx >= lx% AND ctx.mx <= lx% + lw% AND ctx.my >= ry% AND ctx.my < ry% + DIALOG_DD_ROWH%)
+        IF idx% = DIALOG_DD_SEL% THEN
+            LINE (lx% + 1, ry%)-(lx% + lw% - 1, ry% + DIALOG_DD_ROWH% - 1), THEME.DIALOG_toggle_sel_bg~&, BF
+            COLOR THEME.DIALOG_toggle_sel_fg~&
+        ELSEIF rowHover% THEN
+            LINE (lx% + 1, ry%)-(lx% + lw% - 1, ry% + DIALOG_DD_ROWH% - 1), THEME.DIALOG_title_hover_bg~&, BF
+            COLOR THEME.DIALOG_label_fg~&
+        ELSE
+            COLOR THEME.DIALOG_label_fg~&
+        END IF
+        _UPRINTSTRING (lx% + 4, ry% + (DIALOG_DD_ROWH% - fh%) \ 2), DIALOG_DD_LABELS$(idx%)
+    NEXT r%
+    IF DIALOG_DD_COUNT% > DIALOG_DD_MAXVIS% THEN
+        COLOR THEME.DIALOG_label_fg~&
+        IF DIALOG_DD_SCROLL% > 0 THEN _UPRINTSTRING (lx% + lw% - 11, ly% + 1), CHR$(24)
+        IF DIALOG_DD_SCROLL% < DIALOG_DD_COUNT% - vis% THEN _UPRINTSTRING (lx% + lw% - 11, ly% + lh% - fh% - 1), CHR$(25)
+    END IF
 END SUB
 
 
