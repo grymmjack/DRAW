@@ -540,6 +540,133 @@ END FUNCTION
 
 
 ''
+' Cutout — an inset (inner) shadow on the top-left inner edge, so the shape reads
+' as punched through the layer. Each opaque pixel is darkened by how close a
+' transparent pixel is up-and-left of it within `depth`. RGB-only -> apply_to_layer.
+'
+' @param sourceImg LONG    Source image (32-bit, with alpha)
+' @param depth     INTEGER Inset depth in px (1..10)
+' @return LONG  New cutout image handle
+'
+FUNCTION IMAGE_ADJ_cutout& (sourceImg AS LONG, depth AS INTEGER)
+    IF NOT (sourceImg& < -1) THEN IMAGE_ADJ_cutout& = 0 : EXIT FUNCTION
+    IF depth% < 1 THEN depth% = 1
+
+    DIM cuW AS LONG, cuH AS LONG
+    cuW& = _WIDTH(sourceImg&) : cuH& = _HEIGHT(sourceImg&)
+    DIM result AS LONG
+    result& = _COPYIMAGE(sourceImg&, 32)
+    DIM srcM AS _MEM, resM AS _MEM
+    srcM = _MEMIMAGE(sourceImg&)
+    resM = _MEMIMAGE(result&)
+
+    DIM cx AS LONG, cy AS LONG, dx AS INTEGER, dy AS INTEGER, nx AS LONG, ny AS LONG
+    DIM aHere AS _UNSIGNED _BYTE, aN AS _UNSIGNED _BYTE
+    DIM bestD AS INTEGER, dd AS INTEGER, fac AS SINGLE, px AS _UNSIGNED LONG
+    DIM nr AS INTEGER, ng AS INTEGER, nb AS INTEGER
+    FOR cy& = 0 TO cuH& - 1
+        FOR cx& = 0 TO cuW& - 1
+            _MEMGET srcM, srcM.OFFSET + (cy& * cuW& + cx&) * 4 + 3, aHere~%%
+            IF aHere~%% = 0 THEN _CONTINUE
+            bestD% = depth% + 1
+            FOR dy% = -depth% TO 0
+                ny& = cy& + dy%
+                IF ny& >= 0 THEN
+                    FOR dx% = -depth% TO 0
+                        nx& = cx& + dx%
+                        IF nx& >= 0 THEN
+                            dd% = -dx% : IF -dy% > dd% THEN dd% = -dy%   ' Chebyshev up-left
+                            IF dd% < bestD% THEN
+                                _MEMGET srcM, srcM.OFFSET + (ny& * cuW& + nx&) * 4 + 3, aN~%%
+                                IF aN~%% = 0 THEN bestD% = dd%
+                            END IF
+                        END IF
+                    NEXT dx%
+                END IF
+            NEXT dy%
+            IF bestD% <= depth% THEN
+                fac! = (depth% - bestD% + 1) / (depth% + 1.0) * 0.8
+                _MEMGET srcM, srcM.OFFSET + (cy& * cuW& + cx&) * 4, px~&
+                nr% = _RED32(px~&) * (1.0 - fac!)
+                ng% = _GREEN32(px~&) * (1.0 - fac!)
+                nb% = _BLUE32(px~&) * (1.0 - fac!)
+                _MEMPUT resM, resM.OFFSET + (cy& * cuW& + cx&) * 4, _RGB32(nr%, ng%, nb%) AS _UNSIGNED LONG
+            END IF
+        NEXT cx&
+    NEXT cy&
+
+    _MEMFREE srcM
+    _MEMFREE resM
+    IMAGE_ADJ_cutout& = result&
+END FUNCTION
+
+
+''
+' Open a modal Cutout dialog: single DEPTH slider (1..10). apply_to_layer.
+'
+SUB IMAGE_ADJ_cutout_dialog ()
+    IF CURRENT_LAYER% < 1 THEN EXIT SUB
+
+    DIM ctx AS DIALOG_CTX
+    DIALOG_init ctx, IMGDLG_W, 110
+    IMAGE_ADJ_setup_preview ctx, LAYERS(CURRENT_LAYER%).imgHandle&
+
+    DIM dep AS INTEGER : dep% = 4
+    DIM oDep AS INTEGER
+
+    DIM k AS LONG
+    DO
+        DIALOG_poll_mouse ctx
+        IF ctx.loupeDirty% THEN IMAGE_ADJ_update_loupe ctx
+        k& = _KEYHIT
+        IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
+        IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
+
+        oDep% = dep%
+        dep% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, dep%, 1, 10)
+        dep% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, dep%, 1, 10)
+        IF dep% <> oDep% THEN ctx.previewDirty% = TRUE
+        IMGDLG_check_ok_cancel ctx
+
+        IF ctx.previewDirty% THEN
+            SAFE_FREEIMAGE ctx.previewThumb
+            ctx.previewThumb = IMAGE_ADJ_cutout&(ctx.origThumb, dep%)
+            IMAGE_ADJ_mask_preview ctx
+            ctx.previewDirty% = FALSE
+        END IF
+
+        _DEST ctx.imgHandle
+        DIALOG_draw_frame ctx, "CUTOUT"
+        DIALOG_draw_preview ctx
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "DEPTH:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, dep%, 1, 10, "", ""
+        DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
+        IMGDLG_draw_ok_cancel ctx
+        DIALOG_blit ctx
+    LOOP UNTIL ctx.done%
+
+    IF ctx.result% THEN
+        DIM cuTargets(1 TO MAX_LAYERS) AS INTEGER, cuTgtCount AS INTEGER, cuT AS INTEGER
+        DIM cuSaveCL AS INTEGER
+        IMAGE_ADJ_collect_targets cuTargets%(), cuTgtCount%
+        cuSaveCL% = CURRENT_LAYER%
+        IF cuTgtCount% > 1 THEN HISTORY_begin_group
+        DIM adjR     AS LONG
+        FOR cuT% = 1 TO cuTgtCount%
+            CURRENT_LAYER% = cuTargets%(cuT%)
+            adjR&          = IMAGE_ADJ_cutout&(LAYERS(CURRENT_LAYER%).imgHandle&, dep%)
+            IMAGE_ADJ_apply_to_layer adjR&, "Cutout"
+        NEXT cuT%
+        IF cuTgtCount% > 1 THEN HISTORY_end_group
+        CURRENT_LAYER% = cuSaveCL%
+    END IF
+
+    DIALOG_cleanup ctx
+    SAFE_FREEIMAGE IMGADJ_LAYER_MASK& : IMGADJ_LAYER_MASK& = 0
+END SUB
+
+
+''
 ' Corona — a soft ring of light offset OUTSIDE the shape's alpha edge (an eclipse
 ' corona), distinct from Outer Glow's edge-hugging bloom. For each transparent
 ' pixel, distance d to the nearest opaque pixel gives a triangular ring intensity

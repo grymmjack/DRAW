@@ -32,7 +32,14 @@ the infra exists.
 
 ## 🔨 NOW — doing right now
 
-- [ ] ➡️ Wave 7 · **Cutout** — inset shadow so the shape looks punched through (SHAPE, open_effect 7 2)
+- [ ] ➡️ **FIX SHAPE-category QA navigation** — open_effect 7 N mis-dispatches
+      (click 420,104 opened DUOTONE, not the SHAPE flyout). Backlight/Corona
+      tests passed coincidentally. Root-cause the category-index-7 coordinate
+      (likely the category row is NOT at y=20+7*12, or the SHAPE flyout child
+      rows differ) via a screenshot of the plain EFFECTS dropdown, then fix
+      open_effect + re-verify effect-backlight/corona/cutout. Cutout ENGINE
+      (IMAGE_ADJ_cutout&, action 2202) is written + builds clean but UNCOMMITTED
+      pending its test.
 
 <!-- REORG PLAN (EFFECTS menu, 21xx only; leave IMAGE menu 2001-2011 as-is).
      9 flyout categories under EFFECTS:
