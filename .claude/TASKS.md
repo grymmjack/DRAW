@@ -157,14 +157,14 @@ the infra exists.
 - [x] **Corona** — triangular ring of light offset outside the alpha edge, RADIUS 3-24 + INTENSITY, apply_spatial + SHAPE menu + QA test (effect-corona.sh, 1542px). NEW engine IMAGE_ADJ_corona&.
 - [ ] **Drip** — liquid drips hanging off the bottom of shapes + dialog + QA test
 - [ ] **Electrify** — jagged lightning tendrils around edges + dialog + QA test
-- [ ] **Extrude** — covered by Wave 4 Extrude; add SHAPE-menu entry
+- [x] **Extrude** — SHAPE-menu entry added (child 5 → action 2143). Guarded by effect-shape-reparent.sh (open_effect 7 5, 1189px).
 - [ ] **Fire** — flame render rising from the shape (gradient + noise) + dialog + QA test
 - [ ] **Glass** — refractive glassy shading + highlight + dialog + QA test
-- [ ] **Glow (Outer/Inner)** — covered by Wave 2b; add SHAPE-menu entries
+- [x] **Glow (Outer/Inner)** — SHAPE-menu entries added (Outer Glow child 6 → 2127, Inner Glow child 7 → 2128). Inner Glow guarded by effect-shape-reparent.sh (open_effect 7 7, 1228px).
 - [ ] **Icicles** — ice spikes hanging off the bottom edge + dialog + QA test
 - [ ] **Motion Trail** — directional smeared copies (speed blur) + dialog + QA test
 - [ ] **Rust** — corroded noise overlay masked to shape + dialog + QA test
-- [ ] **Shadow** — covered by Wave 2 Drop/Perspective Shadow; add SHAPE-menu entry
+- [x] **Shadow** — SHAPE-menu entries added (Drop Shadow child 8 → 2124, Perspective Shadow child 9 → 2125). Index 9 visually confirmed to open "LONG SHADOW" dialog (shape-pshadow-dialog screenshot).
 - [ ] **Smoke** — wispy smoke render rising from shape (noise plume) + dialog + QA test
 - [ ] **Snow** — snow cap on top edges + falling flecks + dialog + QA test
 - [x] **Cutout** — inset shadow (up-left distance-to-transparent darkens the inner top-left edge) so the shape looks punched through, apply_to_layer + SHAPE menu (2202) + QA test (effect-cutout.sh, 281px, open_effect 7 2). NEW engine IMAGE_ADJ_cutout&.

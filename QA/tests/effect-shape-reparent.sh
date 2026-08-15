@@ -59,6 +59,42 @@ AFTER2="$SNAP_RESULT"
 assert_regions_differ "$BEFORE2" "$AFTER2" \
     "SHAPE>Chrome (open_effect 7 4) must reach the Chrome dialog and alter the shape"
 
+# ---- SHAPE > Extrude (child index 5) --------------------------------------
+park_mouse
+snap_region "$GX" "$GY" "$GW" "$GH" "shape-extrude-before"
+BEFORE3="$SNAP_RESULT"
+open_effect 7 5 ; wait_for 0.5 "SHAPE>Extrude dialog open"
+screenshot "shape-extrude-dialog"
+key Return ; wait_for 0.7 "Applied (OK), dialog closed"
+assert_no_crash
+park_mouse
+snap_region "$GX" "$GY" "$GW" "$GH" "shape-extrude-after"
+AFTER3="$SNAP_RESULT"
+assert_regions_differ "$BEFORE3" "$AFTER3" \
+    "SHAPE>Extrude (open_effect 7 5) must reach the Extrude dialog and alter the shape"
+
+# ---- SHAPE > Inner Glow (child index 7 — deep-index numbering guard) -------
+# Guards the flyout child numbering at a DEEP index (where the pre-fix miscount
+# bit hardest). Inner Glow reliably alters the blob's own interior in FG colour,
+# so it's a dependable region-differ. (Index 9 / Perspective Shadow was VISUALLY
+# confirmed to open the correct "LONG SHADOW" dialog — see shape-pshadow-dialog
+# screenshot — but its default cast blends with the black ground, so it makes a
+# poor automated assert; Inner Glow is the reliable deep guard.)
+click $(( 16 + 28*17 + 8 )) "$CHIP_Y" ; wait_for 0.2 "FG magenta (glow colour)"
+GX2=$(( CANVAS_CX - 44 )); GY2=$(( CANVAS_CY - 16 )); GW2=88; GH2=32
+park_mouse
+snap_region "$GX2" "$GY2" "$GW2" "$GH2" "shape-innerglow-before"
+BEFORE4="$SNAP_RESULT"
+open_effect 7 7 ; wait_for 0.5 "SHAPE>Inner Glow dialog open"
+screenshot "shape-innerglow-dialog"
+key Return ; wait_for 0.7 "Applied (OK), dialog closed"
+assert_no_crash
+park_mouse
+snap_region "$GX2" "$GY2" "$GW2" "$GH2" "shape-innerglow-after"
+AFTER4="$SNAP_RESULT"
+assert_regions_differ "$BEFORE4" "$AFTER4" \
+    "SHAPE>Inner Glow (open_effect 7 7, deep child) must glow the shape interior"
+
 assert_no_crash
 assert_window_exists
-info "=== Effect: SHAPE re-parent (Bevel/Chrome) Test PASSED ==="
+info "=== Effect: SHAPE re-parent (Bevel/Chrome/Extrude/Glows/Shadows) Test PASSED ==="
