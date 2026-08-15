@@ -5,7 +5,7 @@ Each box is independently buildable + verifiable. Build with `~/git/qb64pe-450/q
 (v4.5.0, the Makefile default). Commit after each grouped box lands green.
 
 ## 🔨 NOW — doing right now
-- [ ] ➡️ Shared widget: Angle DIAL widget wired into degrees controls (helpers already written)
+- [ ] ➡️ Shared widget: Click-on-canvas to set a CENTER point (Pinch/Bulge, Kaleidoscope, Lens Flare)
 
 ## 🐞 Bugs / regressions
 - [x] Cursor is a move/cross over EFFECTS flyout items — POINTER.BM now sets CURSOR_NULL over the category flyout region (genOpen%/genX/genY/genW/genH), matching the submenu-arrow logic. Built 17:31.
@@ -16,7 +16,7 @@ Each box is independently buildable + verifiable. Build with `~/git/qb64pe-450/q
 
 ## 🧩 Shared widgets (build once → reuse)
 - [x] DROPDOWN control in the dialog framework — DIALOG_dropdown% + _input/_draw/_overlay in GUI/DIALOG.{BI,BM}. Immediate-mode, single-open, on-top popup with an input-gate that owns the frame's click/wheel/keys (Up/Down/Enter/Esc) so nothing underneath reacts; scrolls past DIALOG_DD_MAXVIS (8). Proven by converting Posterize dither (23 options). QA posterize-dither-color 6/6 green. Built 18:31.
-- [ ] Angle DIAL widget wired into all degrees controls (helper IMGDLG_draw_dial/IMGDLG_dial_drag already written) — visual sphere/dial showing degrees, drag to set. (Wheel 15° / Shift+wheel 1° already done via IMGDLG_angle_wheel.)
+- [x] Angle DIAL widget wired into degrees controls — new combined IMGDLG_angle_handle%/IMGDLG_angle_draw (shortened 0..359 slider + compact drag-dial + live degree readout in the label). Wired into all 7 compass-angle controls (Motion Trail, Kaleidoscope rotation, Bevel light, Chrome cast, Backlight/Long-shadow angles, bevel-motion). Twirl's ANGLE (10..360 swirl magnitude) deliberately left as a plain slider. QA motiontrail/bevel/chrome/kaleidoscope 24/24 green. Built 18:44.
 - [ ] Click-on-canvas to set a CENTER point (when no selection) — reusable for Pinch/Bulge, Kaleidoscope, Lens Flare
 - [ ] Cell-SHAPE picker (square / triangle / rectangle / hex / voronoi / random-per-cell) — reusable for Mosaic + Extrude
 - [ ] Angle + random SEED pattern applied to ALL texture effects at once (Wood, Marble, Brick, Brushed Metal, Weave, Stone, Reptile, Diamond Plate, Ripples, Fur, Texture Noise, Glass, Water Drops, Lightning, Rust)
