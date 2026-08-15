@@ -84,6 +84,11 @@ SUB IMAGE_ADJ_apply_to_layer (adjResult AS LONG, historyLabel AS STRING)
         _MEMFREE adjMemOrig
         _MEMFREE adjMemRes
 
+        ' Clip to the active selection: only the selected region keeps the effect.
+        IF EFFECT_CLIP_TO_SEL AND EFFECT_SEL_AS_SHAPE = 0 THEN
+            IMGADJ_clip_to_selection adjLayerImg&, adjOrigSnap&, LAYERS(CURRENT_LAYER%).apronW%, LAYERS(CURRENT_LAYER%).apronH%
+        END IF
+
         IF adjOrigSnap& < -1 THEN
             HISTORY_record_transform LAYERS(CURRENT_LAYER%).historyId&, CURRENT_LAYER%, 0, adjOrigSnap&, historyLabel$
             historyRecorded% = TRUE
@@ -124,6 +129,11 @@ SUB IMAGE_ADJ_apply_spatial (adjResult AS LONG, historyLabel AS STRING)
 
         ' No alpha restoration -- blur produces correct blurred RGBA output.
 
+        ' Clip to the active selection: only the selected region keeps the effect.
+        IF EFFECT_CLIP_TO_SEL AND EFFECT_SEL_AS_SHAPE = 0 THEN
+            IMGADJ_clip_to_selection asLayerImg&, asOrigSnap&, LAYERS(CURRENT_LAYER%).apronW%, LAYERS(CURRENT_LAYER%).apronH%
+        END IF
+
         IF asOrigSnap& < -1 THEN
             HISTORY_record_transform LAYERS(CURRENT_LAYER%).historyId&, CURRENT_LAYER%, 0, asOrigSnap&, historyLabel$
         END IF
@@ -133,6 +143,82 @@ SUB IMAGE_ADJ_apply_spatial (adjResult AS LONG, historyLabel AS STRING)
         LAYERS(CURRENT_LAYER%).contentDirty% = TRUE
         INVALIDATE_layers
     END IF
+END SUB
+
+
+' =============================================================================
+' SELECTION ↔ EFFECT interaction
+' =============================================================================
+
+''
+' TRUE when an editable marquee/lasso selection is active on the canvas.
+'
+FUNCTION IMGADJ_sel_active% ()
+    IMGADJ_sel_active% = FALSE
+    IF NOT (MARQUEE.ACTIVE AND MARQUEE.USER_CREATED) THEN EXIT FUNCTION
+    IF MARQUEE.WAND_HAS_SELECTION AND MARQUEE.SELECTION_MASK < -1 THEN IMGADJ_sel_active% = TRUE : EXIT FUNCTION
+    IF MARQUEE.INITIALIZED THEN IMGADJ_sel_active% = TRUE
+END FUNCTION
+
+''
+' Build a fresh canvas-sized coverage image (white RGB = inside the selection,
+' black = outside) from whichever selection form is active — the per-pixel
+' SELECTION_MASK (wand/lasso) or the rectangular BOX. Returns 0 if no selection;
+' caller frees the handle.
+'
+FUNCTION IMGADJ_sel_coverage& ()
+    IMGADJ_sel_coverage& = 0
+    IF NOT IMGADJ_sel_active% THEN EXIT FUNCTION
+    DIM cw AS LONG, ch AS LONG
+    cw& = SCRN.canvasW& : ch& = SCRN.canvasH&
+    IF cw& < 1 OR ch& < 1 THEN EXIT FUNCTION
+    DIM cov AS LONG : cov& = _NEWIMAGE(cw&, ch&, 32)
+    IF NOT (cov& < -1) THEN EXIT FUNCTION
+    DIM oldD AS LONG : oldD& = _DEST
+    _DEST cov& : _DONTBLEND cov& : CLS , _RGBA32(0, 0, 0, 255)
+    IF MARQUEE.WAND_HAS_SELECTION AND MARQUEE.SELECTION_MASK < -1 THEN
+        _BLEND cov& : _PUTIMAGE , MARQUEE.SELECTION_MASK, cov&   ' white-opaque inside over black
+    ELSE
+        LINE (MARQUEE.BOX.x, MARQUEE.BOX.y)-(MARQUEE.BOX.x + MARQUEE.BOX.w - 1, MARQUEE.BOX.y + MARQUEE.BOX.h - 1), _RGB32(255, 255, 255), BF
+    END IF
+    _BLEND cov& : _DEST oldD&
+    IMGADJ_sel_coverage& = cov&
+END FUNCTION
+
+''
+' Clip an already-applied effect to the active selection: restore the original
+' pixels everywhere OUTSIDE the selection, so only the selected region keeps the
+' effect. Layer buffer coords map to canvas coords via the per-layer apron
+' (gotcha #14). No-op if no selection.
+'
+' @param layerImg LONG   The layer buffer (already holds the effect result)
+' @param origSnap LONG   Snapshot of the layer taken BEFORE the effect
+' @param apW/apH  INTEGER Per-layer apron offset
+'
+SUB IMGADJ_clip_to_selection (layerImg AS LONG, origSnap AS LONG, apW AS INTEGER, apH AS INTEGER)
+    IF NOT (layerImg& < -1) OR NOT (origSnap& < -1) THEN EXIT SUB
+    DIM cov AS LONG : cov& = IMGADJ_sel_coverage&
+    IF NOT (cov& < -1) THEN EXIT SUB
+    DIM lw AS LONG, lh AS LONG, cw AS LONG, ch AS LONG
+    lw& = _WIDTH(layerImg&) : lh& = _HEIGHT(layerImg&)
+    cw& = _WIDTH(cov&) : ch& = _HEIGHT(cov&)
+    DIM lM AS _MEM, oM AS _MEM, cM AS _MEM
+    lM = _MEMIMAGE(layerImg&) : oM = _MEMIMAGE(origSnap&) : cM = _MEMIMAGE(cov&)
+    DIM bx AS LONG, by AS LONG, cx AS LONG, cy AS LONG, covR AS _UNSIGNED _BYTE, op AS _UNSIGNED LONG
+    FOR by& = 0 TO lh& - 1
+        cy& = by& - apH%
+        FOR bx& = 0 TO lw& - 1
+            cx& = bx& - apW%
+            IF cx& >= 0 AND cy& >= 0 AND cx& < cw& AND cy& < ch& THEN
+                _MEMGET cM, cM.OFFSET + (cy& * cw& + cx&) * 4 + 2, covR~%%   ' red channel = coverage
+                IF covR~%% > 127 THEN _CONTINUE                              ' inside -> keep effect
+            END IF
+            _MEMGET oM, oM.OFFSET + (by& * lw& + bx&) * 4, op~&              ' outside -> restore original
+            _MEMPUT lM, lM.OFFSET + (by& * lw& + bx&) * 4, op~& AS _UNSIGNED LONG
+        NEXT bx&
+    NEXT by&
+    _MEMFREE lM : _MEMFREE oM : _MEMFREE cM
+    SAFE_FREEIMAGE cov&
 END SUB
 
 
