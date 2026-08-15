@@ -49,6 +49,16 @@ DIM SHARED IMGADJ_LOUPE_CROPY AS LONG
 ' The engine runs on the padded thumb; only the central window is displayed.
 CONST IMGADJ_LOUPE_PAD = 40
 
+' Click-to-set-CENTER (Pinch/Bulge, Kaleidoscope, Lens Flare, …): the user clicks
+' inside the loupe preview pane to place the effect's centre. Stored in CANVAS
+' pixels so it maps cleanly to both the preview thumb (subtract IMGADJ_LOUPE_CROPX/Y)
+' and the full layer buffer (add the layer apron). IMGADJ_CENTER_SET is FALSE until
+' the first pick, in which case each effect falls back to its own default (image
+' centre / flare corner). Reset at the top of each center-using dialog.
+DIM SHARED IMGADJ_CENTER_SET%
+DIM SHARED IMGADJ_CENTER_CX AS LONG
+DIM SHARED IMGADJ_CENTER_CY AS LONG
+
 ' Silhouette version of the loupe crop (same padded size as ctx.origThumb; alpha =
 ' selection coverage, RGB = layer) built by IMAGE_ADJ_update_loupe when a selection
 ' is active AND framed on the selection. Edge-effect dialogs run the engine on THIS

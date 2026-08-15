@@ -3644,7 +3644,7 @@ END SUB
 ' @param amount    INTEGER -100 (pinch) .. +100 (bulge)
 ' @return LONG  New displaced image handle
 '
-FUNCTION IMAGE_ADJ_pinch& (sourceImg AS LONG, amount AS INTEGER)
+FUNCTION IMAGE_ADJ_pinch& (sourceImg AS LONG, amount AS INTEGER, cenX AS LONG, cenY AS LONG)
     IF NOT (sourceImg& < -1) THEN IMAGE_ADJ_pinch& = 0 : EXIT FUNCTION
 
     DIM pnW AS LONG, pnH AS LONG
@@ -3656,9 +3656,18 @@ FUNCTION IMAGE_ADJ_pinch& (sourceImg AS LONG, amount AS INTEGER)
     srcM = _MEMIMAGE(sourceImg&)
     resM = _MEMIMAGE(result&)
 
+    ' Centre: cenX/cenY < 0 means "use image centre" (the classic behaviour).
     DIM ccx AS SINGLE, ccy AS SINGLE, maxR AS SINGLE
-    ccx! = pnW& / 2.0 : ccy! = pnH& / 2.0
-    maxR! = ccx! : IF ccy! < maxR! THEN maxR! = ccy!
+    IF cenX& < 0 THEN ccx! = pnW& / 2.0 ELSE ccx! = cenX&
+    IF cenY& < 0 THEN ccy! = pnH& / 2.0 ELSE ccy! = cenY&
+    ' maxR = largest circle around the centre that still fits in the image (distance
+    ' to the nearest edge). Centred, this is min(pnW,pnH)/2 — the classic radius —
+    ' so the default look is unchanged; off-centre it shrinks to keep the warp inside.
+    maxR! = ccx!
+    IF pnW& - ccx! < maxR! THEN maxR! = pnW& - ccx!
+    IF ccy! < maxR! THEN maxR! = ccy!
+    IF pnH& - ccy! < maxR! THEN maxR! = pnH& - ccy!
+    IF maxR! < 1.0 THEN maxR! = 1.0
     DIM pw AS SINGLE : pw! = 1.0 - amount% / 200.0
 
     DIM tx AS LONG, ty AS LONG, sxL AS LONG, syL AS LONG
@@ -3703,6 +3712,7 @@ SUB IMAGE_ADJ_pinch_dialog ()
 
     DIM amount  AS INTEGER : amount% = 60
     DIM oAmount AS INTEGER
+    IMGADJ_CENTER_SET% = FALSE   ' start centred; a preview click moves the centre
 
     DIM k AS LONG
     DIM d_amount AS INTEGER : d_amount% = 60
@@ -3716,13 +3726,14 @@ SUB IMAGE_ADJ_pinch_dialog ()
         oAmount% = amount%
         amount% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, amount%, -100, 100)
         amount% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, amount%, -100, 100)
+        IF IMGADJ_center_pick_pane%(ctx) THEN ctx.previewDirty% = TRUE
         IF amount% <> oAmount% THEN ctx.previewDirty% = TRUE
         IMGDLG_check_ok_cancel ctx
         IMGDLG_reset1 ctx, amount%, d_amount%
 
         IF ctx.previewDirty% THEN
             SAFE_FREEIMAGE ctx.previewThumb
-            ctx.previewThumb = IMAGE_ADJ_pinch&(ctx.origThumb, amount%)
+            ctx.previewThumb = IMAGE_ADJ_pinch&(ctx.origThumb, amount%, IMGADJ_center_preview_x&, IMGADJ_center_preview_y&)
             IMAGE_ADJ_mask_preview ctx
             ctx.previewDirty% = FALSE
         END IF
@@ -3730,7 +3741,8 @@ SUB IMAGE_ADJ_pinch_dialog ()
         _DEST ctx.imgHandle
         DIALOG_draw_frame ctx, "PINCH / BULGE"
         DIALOG_draw_preview ctx
-        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "AMOUNT (- PINCH / + BULGE):"
+        IMGADJ_center_draw_marker ctx
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "AMOUNT (- PINCH / + BULGE) — CLICK PREVIEW = CENTRE"
         DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, amount%, -100, 100, "", ""
         DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
         IMGDLG_draw_ok_cancel ctx
@@ -3746,7 +3758,7 @@ SUB IMAGE_ADJ_pinch_dialog ()
         DIM adjR     AS LONG
         FOR pnT% = 1 TO pnTgtCount%
             CURRENT_LAYER% = pnTargets%(pnT%)
-            adjR&          = IMAGE_ADJ_pinch&(LAYERS(CURRENT_LAYER%).imgHandle&, amount%)
+            adjR&          = IMAGE_ADJ_pinch&(LAYERS(CURRENT_LAYER%).imgHandle&, amount%, IMGADJ_center_apply_x&(LAYERS(CURRENT_LAYER%).apronW%), IMGADJ_center_apply_y&(LAYERS(CURRENT_LAYER%).apronH%))
             IMAGE_ADJ_apply_spatial adjR&, "Pinch / Bulge"
         NEXT pnT%
         IF pnTgtCount% > 1 THEN HISTORY_end_group
@@ -9314,6 +9326,75 @@ SUB IMGDLG_angle_draw (ctx AS DIALOG_CTX, rowN AS INTEGER, value AS INTEGER, lab
     DIALOG_draw_slider ctx, IMGDLG_SX, sy%, sw%, value%, 0, 359, "", ""
     IMGDLG_draw_dial IMGDLG_SX + IMGDLG_SW - IMGDLG_ANGLE_DIAL_R - 1, sy% + 6, IMGDLG_ANGLE_DIAL_R, value%
 END SUB
+
+''
+' Click-to-set-CENTRE (INPUT phase): a click inside the loupe preview pane places
+' the effect centre at that canvas point (stored in IMGADJ_CENTER_CX/CY, canvas
+' pixels). Returns TRUE when a centre was set this frame so the caller can mark
+' previewDirty. Ignores the split-bar grab zone so it never fights the ORIG/ADJ
+' comparison handle.
+'
+FUNCTION IMGADJ_center_pick_pane% (ctx AS DIALOG_CTX)
+    IMGADJ_center_pick_pane% = FALSE
+    IF ctx.prevH <= 0 THEN EXIT FUNCTION
+    IF NOT ctx.justClicked THEN EXIT FUNCTION
+    IF ctx.splitDrag THEN EXIT FUNCTION
+    DIM prevY AS INTEGER : prevY% = THEME.DIALOG_title_height% + 2
+    DIM tw AS INTEGER : tw% = ctx.w - 2
+    DIM th AS INTEGER : th% = ctx.prevH
+    DIM paneX AS INTEGER : paneX% = ctx.mx - 1
+    DIM paneY AS INTEGER : paneY% = ctx.my - prevY%
+    IF paneX% < 0 OR paneX% >= tw% OR paneY% < 0 OR paneY% >= th% THEN EXIT FUNCTION
+    IF ABS(ctx.mx - ctx.splitX) <= 8 THEN EXIT FUNCTION   ' split handle owns this click
+    DIM pad AS INTEGER : pad% = 0
+    IF ctx.origThumb < -1 THEN pad% = (_WIDTH(ctx.origThumb) - tw%) \ 2
+    IF pad% < 0 THEN pad% = 0
+    IMGADJ_CENTER_CX& = IMGADJ_LOUPE_CROPX& + pad% + paneX%
+    IMGADJ_CENTER_CY& = IMGADJ_LOUPE_CROPY& + pad% + paneY%
+    IMGADJ_CENTER_SET% = TRUE
+    IMGADJ_center_pick_pane% = TRUE
+END FUNCTION
+
+''
+' Draw the picked-centre crosshair in the preview pane (DRAW phase, after
+' DIALOG_draw_preview). No-op until a centre is picked or if it lies outside the
+' currently-shown crop.
+'
+SUB IMGADJ_center_draw_marker (ctx AS DIALOG_CTX)
+    IF NOT IMGADJ_CENTER_SET% THEN EXIT SUB
+    IF ctx.prevH <= 0 THEN EXIT SUB
+    DIM prevY AS INTEGER : prevY% = THEME.DIALOG_title_height% + 2
+    DIM tw AS INTEGER : tw% = ctx.w - 2
+    DIM th AS INTEGER : th% = ctx.prevH
+    DIM pad AS INTEGER : pad% = 0
+    IF ctx.origThumb < -1 THEN pad% = (_WIDTH(ctx.origThumb) - tw%) \ 2
+    IF pad% < 0 THEN pad% = 0
+    DIM mpx AS INTEGER : mpx% = (IMGADJ_CENTER_CX& - IMGADJ_LOUPE_CROPX& - pad%) + 1
+    DIM mpy AS INTEGER : mpy% = (IMGADJ_CENTER_CY& - IMGADJ_LOUPE_CROPY& - pad%) + prevY%
+    IF mpx% < 1 OR mpx% > tw% OR mpy% < prevY% OR mpy% > prevY% + th% - 1 THEN EXIT SUB
+    LINE (mpx% - 5, mpy%)-(mpx% + 5, mpy%), _RGB32(255, 60, 60)
+    LINE (mpx%, mpy% - 5)-(mpx%, mpy% + 5), _RGB32(255, 60, 60)
+    CIRCLE (mpx%, mpy%), 3, _RGB32(255, 220, 60)
+END SUB
+
+''
+' Centre X for an effect running on IMG, given the layer apron. When the user has
+' not picked, returns -1 so the engine uses its own default. `apron` is the layer
+' apronW for the apply pass, or the NEGATIVE crop origin already folded in for the
+' preview pass — callers use IMGADJ_center_for_preview / _for_apply below.
+'
+FUNCTION IMGADJ_center_preview_x& ()
+    IF NOT IMGADJ_CENTER_SET% THEN IMGADJ_center_preview_x& = -1 ELSE IMGADJ_center_preview_x& = IMGADJ_CENTER_CX& - IMGADJ_LOUPE_CROPX&
+END FUNCTION
+FUNCTION IMGADJ_center_preview_y& ()
+    IF NOT IMGADJ_CENTER_SET% THEN IMGADJ_center_preview_y& = -1 ELSE IMGADJ_center_preview_y& = IMGADJ_CENTER_CY& - IMGADJ_LOUPE_CROPY&
+END FUNCTION
+FUNCTION IMGADJ_center_apply_x& (apronW AS INTEGER)
+    IF NOT IMGADJ_CENTER_SET% THEN IMGADJ_center_apply_x& = -1 ELSE IMGADJ_center_apply_x& = IMGADJ_CENTER_CX& + apronW%
+END FUNCTION
+FUNCTION IMGADJ_center_apply_y& (apronH AS INTEGER)
+    IF NOT IMGADJ_CENTER_SET% THEN IMGADJ_center_apply_y& = -1 ELSE IMGADJ_center_apply_y& = IMGADJ_CENTER_CY& + apronH%
+END FUNCTION
 
 
 ' =============================================================================
