@@ -167,7 +167,7 @@ the infra exists.
       NOTE: uncovered & fixed a CRITICAL action-ID collision — SHAPE effects were on 2200-2204 but the EXPORT range is 2201-2216, so Corona(2201)/Rust(2204) silently opened Export dialogs and their region-diff tests FALSE-PASSED (fullscreen dialog covered the snap). All SHAPE effects moved to 2230-2234. See commit 39e989c.
 - [x] **Shadow** — SHAPE-menu entries added (Drop Shadow child 8 → 2124, Perspective Shadow child 9 → 2125). Index 9 visually confirmed to open "LONG SHADOW" dialog (shape-pshadow-dialog screenshot).
 - [ ] **Smoke** — wispy smoke render rising from shape (noise plume) + dialog + QA test
-- [ ] **Snow** — snow cap on top edges + falling flecks + dialog + QA test
+- [x] **Snow** — white snow caps on the shape's top-facing edges (nearest transparent-above within DEPTH, granular hash break-up) + hash-scattered falling FLECKS. DEPTH + FLECKS dialog, apply_spatial + SHAPE menu (2235, child 12) + QA test (effect-snow.sh, 395px, open_effect 7 12). NEW engine IMAGE_ADJ_snow&. SNOW dialog title + top-cap visually verified. (oR->snR: reserved-word.)
 - [x] **Cutout** — inset shadow (up-left distance-to-transparent darkens the inner top-left edge) so the shape looks punched through, apply_to_layer + SHAPE menu (2202) + QA test (effect-cutout.sh, 281px, open_effect 7 2). NEW engine IMAGE_ADJ_cutout&.
 - [ ] **Jiggle / Water Drops** — bubble/droplet displacement bumps + dialog + QA test
 

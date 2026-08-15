@@ -3967,6 +3967,155 @@ END SUB
 
 
 ''
+' Snow (Eye Candy "Shape") — settle white snow on the shape's top-facing edges
+' and (optionally) scatter falling flecks over the layer. A pixel gets snow if a
+' TRANSPARENT pixel sits within `depth` px directly above it (i.e. it is near a
+' top surface); whiteness falls off with distance from the edge and is broken up
+' by hash noise so the cap looks granular. Flecks are sparse white dots placed by
+' a deterministic hash. Alpha-changing (flecks add pixels) -> apply_spatial.
+'
+' @param sourceImg LONG     Source image (32-bit, with alpha)
+' @param depth     INTEGER  Snow-cap thickness in px (1..12)
+' @param flecks    INTEGER  Falling-fleck density 0..100 (0 = none)
+' @return LONG              New 32-bit image handle (0 on failure)
+'
+FUNCTION IMAGE_ADJ_snow& (sourceImg AS LONG, depth AS INTEGER, flecks AS INTEGER)
+    IF NOT (sourceImg& < -1) THEN IMAGE_ADJ_snow& = 0 : EXIT FUNCTION
+
+    DIM snW AS LONG, snH AS LONG
+    snW& = _WIDTH(sourceImg&) : snH& = _HEIGHT(sourceImg&)
+    DIM result AS LONG
+    result& = _COPYIMAGE(sourceImg&, 32)
+    DIM srcM AS _MEM, resM AS _MEM
+    srcM = _MEMIMAGE(sourceImg&)
+    resM = _MEMIMAGE(result&)
+
+    DIM sx AS LONG, sy AS LONG, k AS INTEGER, upA AS _UNSIGNED _BYTE
+    DIM aHere AS _UNSIGNED _BYTE, pix AS _UNSIGNED LONG
+    DIM distTop AS INTEGER, snowAmt AS SINGLE, gran AS SINGLE
+    DIM pr AS INTEGER, pg AS INTEGER, pb AS INTEGER, snR AS INTEGER, snG AS INTEGER, snB AS INTEGER
+    FOR sy& = 0 TO snH& - 1
+        FOR sx& = 0 TO snW& - 1
+            _MEMGET srcM, srcM.OFFSET + (sy& * snW& + sx&) * 4 + 3, aHere~%%
+            IF aHere~%% = 0 THEN _CONTINUE                 ' snow caps only sit on the shape
+            ' nearest transparent pixel directly above, within depth
+            distTop% = 0
+            FOR k% = 1 TO depth%
+                IF sy& - k% < 0 THEN distTop% = k% : EXIT FOR
+                _MEMGET srcM, srcM.OFFSET + ((sy& - k%) * snW& + sx&) * 4 + 3, upA~%%
+                IF upA~%% = 0 THEN distTop% = k% : EXIT FOR
+            NEXT k%
+            IF distTop% = 0 THEN _CONTINUE                 ' buried — no snow
+            snowAmt! = 1.0 - (distTop% - 1) / depth%
+            ' granular break-up so the cap edge is not a flat band
+            gran! = IMGADJ_valnoise!(sx& * 0.6, sy& * 0.6, 21)
+            snowAmt! = snowAmt! * (0.55 + 0.45 * gran!)
+            IF snowAmt! < 0.0 THEN _CONTINUE
+            IF snowAmt! > 1.0 THEN snowAmt! = 1.0
+            _MEMGET srcM, srcM.OFFSET + (sy& * snW& + sx&) * 4, pix~&
+            pr% = _RED32(pix~&) : pg% = _GREEN32(pix~&) : pb% = _BLUE32(pix~&)
+            snR% = pr% + INT((250 - pr%) * snowAmt!)
+            snG% = pg% + INT((250 - pg%) * snowAmt!)
+            snB% = pb% + INT((255 - pb%) * snowAmt!)
+            _MEMPUT resM, resM.OFFSET + (sy& * snW& + sx&) * 4, _RGBA32(snR%, snG%, snB%, aHere~%%) AS _UNSIGNED LONG
+        NEXT sx&
+    NEXT sy&
+
+    ' Falling flecks: sparse white dots by deterministic hash across the layer.
+    IF flecks% > 0 THEN
+        DIM fThresh AS SINGLE : fThresh! = flecks% / 100.0 * 0.06   ' cap density ~6%
+        DIM hv AS SINGLE, fa AS INTEGER
+        FOR sy& = 0 TO snH& - 1
+            FOR sx& = 0 TO snW& - 1
+                hv! = IMGADJ_valnoise!(sx& * 1.7 + 0.5, sy& * 1.7 + 0.5, 37)
+                ' use a finer hash to get isolated specks, not blobs
+                IF hv! > (1.0 - fThresh!) THEN
+                    fa% = 190 + INT((hv! - (1.0 - fThresh!)) / (fThresh! + 0.0001) * 65)
+                    IF fa% > 255 THEN fa% = 255
+                    _MEMPUT resM, resM.OFFSET + (sy& * snW& + sx&) * 4, _RGBA32(255, 255, 255, fa%) AS _UNSIGNED LONG
+                END IF
+            NEXT sx&
+        NEXT sy&
+    END IF
+
+    _MEMFREE srcM
+    _MEMFREE resM
+    IMAGE_ADJ_snow& = result&
+END FUNCTION
+
+
+''
+' Open a modal Snow dialog: DEPTH (1..12) + FLECKS (0..100). Adds pixels ->
+' apply_spatial.
+'
+SUB IMAGE_ADJ_snow_dialog ()
+    IF CURRENT_LAYER% < 1 THEN EXIT SUB
+
+    DIM ctx AS DIALOG_CTX
+    DIALOG_init ctx, IMGDLG_W, 138
+    IMAGE_ADJ_setup_preview ctx, LAYERS(CURRENT_LAYER%).imgHandle&
+
+    DIM depth  AS INTEGER : depth%  = 5
+    DIM flecks AS INTEGER : flecks% = 30
+    DIM oDepth AS INTEGER, oFlecks AS INTEGER
+
+    DIM k AS LONG
+    DO
+        DIALOG_poll_mouse ctx
+        IF ctx.loupeDirty% THEN IMAGE_ADJ_update_loupe ctx
+        k& = _KEYHIT
+        IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
+        IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
+
+        oDepth% = depth% : oFlecks% = flecks%
+        depth%  = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, depth%, 1, 12)
+        depth%  = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, depth%, 1, 12)
+        flecks% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, flecks%, 0, 100)
+        flecks% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, flecks%, 0, 100)
+        IF depth% <> oDepth% OR flecks% <> oFlecks% THEN ctx.previewDirty% = TRUE
+        IMGDLG_check_ok_cancel ctx
+
+        IF ctx.previewDirty% THEN
+            SAFE_FREEIMAGE ctx.previewThumb
+            ctx.previewThumb = IMAGE_ADJ_snow&(ctx.origThumb, depth%, flecks%)
+            IMAGE_ADJ_mask_preview ctx
+            ctx.previewDirty% = FALSE
+        END IF
+
+        _DEST ctx.imgHandle
+        DIALOG_draw_frame ctx, "SNOW"
+        DIALOG_draw_preview ctx
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "DEPTH:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, depth%, 1, 12, "", ""
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 1), "FLECKS:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, flecks%, 0, 100, "", ""
+        DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
+        IMGDLG_draw_ok_cancel ctx
+        DIALOG_blit ctx
+    LOOP UNTIL ctx.done%
+
+    IF ctx.result% THEN
+        DIM snTargets(1 TO MAX_LAYERS) AS INTEGER, snTgtCount AS INTEGER, snT AS INTEGER
+        DIM snSaveCL AS INTEGER
+        IMAGE_ADJ_collect_targets snTargets%(), snTgtCount%
+        snSaveCL% = CURRENT_LAYER%
+        IF snTgtCount% > 1 THEN HISTORY_begin_group
+        DIM adjR AS LONG
+        FOR snT% = 1 TO snTgtCount%
+            CURRENT_LAYER% = snTargets%(snT%)
+            adjR&          = IMAGE_ADJ_snow&(LAYERS(CURRENT_LAYER%).imgHandle&, depth%, flecks%)
+            IMAGE_ADJ_apply_spatial adjR&, "Snow"
+        NEXT snT%
+        IF snTgtCount% > 1 THEN HISTORY_end_group
+        CURRENT_LAYER% = snSaveCL%
+    END IF
+
+    DIALOG_cleanup ctx
+    SAFE_FREEIMAGE IMGADJ_LAYER_MASK& : IMGADJ_LAYER_MASK& = 0
+END SUB
+
+
+''
 ' Motion Trail (Eye Candy "Shape") — a speed-blur smear. Each opaque pixel of the
 ' shape is scattered along a direction as a fading run of copies IN ITS OWN COLOUR
 ' (not a flat silhouette like Long Shadow), then the crisp original is composited
