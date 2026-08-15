@@ -23,4 +23,8 @@ $INCLUDEONCE
 ' to restore original pixels where the layer is transparent.
 DIM SHARED IMGADJ_LAYER_MASK AS LONG
 
+' Set TRUE for one frame when the shared RESET-to-default button is clicked in an
+' effect dialog; each dialog consumes it via IMGDLG_reset2/3/4 to restore defaults.
+DIM SHARED IMGDLG_RESET_CLICKED AS INTEGER
+
 ' ---- Slider dialogs ----------------------------------------------------------

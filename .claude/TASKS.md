@@ -24,22 +24,24 @@ Each box = engine/dialog change → build clean (0 warnings) → QA guard (dialo
 
 ## Wave P1 — Reset-to-Default button (universal, Rick boxed it)
 
-- [ ] **RESET infra** — add a shared `IMGDLG_RESET_CLICKED%` flag + a "RESET" button
-      in `IMGDLG_draw_ok_cancel` (left of OK) and hit-test in `IMGDLG_check_ok_cancel`
-      (sets the flag, NOT done). Add helpers `IMGDLG_reset2 ctx, p1%, p2%, d1%, d2%`
-      and `IMGDLG_reset3/4` that, when the flag is set, restore pN=dN, mark
-      `ctx.previewDirty%`, and clear the flag. Widen the button row / shrink OK+CANCEL
-      to fit RESET. Build + a quick visual check.
+- [x] **RESET infra** — shared `IMGDLG_RESET_CLICKED%` flag + "RESET" button in the
+      OK/RESET/CANCEL bar (`IMGDLG_draw_ok_cancel` + hit-test in `IMGDLG_check_ok_cancel`),
+      helpers `IMGDLG_reset1/2/3/4`, flag cleared on every dialog open in setup_preview
+      (no cross-dialog leak). Verified: RESET button renders on all dialogs (Fire shot);
+      restores defaults on Bevel.
 - [ ] **Wire RESET into every effect dialog** — for each `IMAGE_ADJ_*_dialog`, add
       `DIM dN : dN% = <default>` beside each param and one `IMGDLG_resetN` call in the
       loop. Do it in batches by file region; re-run the full effect QA suite after.
 
 ## Wave P2 — Relief / light effects get an ANGLE (Photoshop-authentic)
 
-- [ ] **Bevel** (the effect Rick screenshotted) — params HEIGHT + STRENGTH + **ANGLE**
-      (light 0-359, default 135 = top-left) + **DIRECTION** (Up/Down toggle). Replace
-      the hardcoded top-left light vector in `IMAGE_ADJ_bevel&` with `cos/sin(angle)`;
-      Direction flips the sign. Taller dialog. QA: effect-bevel still passes + angle changes result.
+- [x] **Bevel** — added LIGHT ANGLE (0-359, 8-direction, default 135) + DIRECTION (Up/Down)
+      toggle + RESET. Engine `IMAGE_ADJ_bevel&(...,angleDeg,direction)` derives the light
+      neighbour offset from cos/sin; Direction flips relief. Dialog verified via SHAPE path
+      (shape-bevel-dialog: HEIGHT/STRENGTH/LIGHT ANGLE/DIRECTION/RESET all render).
+      NOTE: effect-bevel.sh (open_effect 2 2) FALSE-PASSES — low-category harness nav flake
+      (child click misses the flyout). Bevel navigates fine via SHAPE child 3. Harness nav
+      for categories 0-6 needs the same caty audit as the title-assert follow-up.
 - [ ] **Emboss** — add **ANGLE** (0-359) to `IMAGE_ADJ_emboss&` (currently fixed direction).
 - [ ] **Chrome** — add **ANGLE** (light direction) alongside DEPTH.
 - [ ] **Drop Shadow** — Photoshop trio: **ANGLE** (0-359) + **DISTANCE** + SOFTNESS +

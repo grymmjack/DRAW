@@ -14,11 +14,13 @@ $INCLUDEONCE
 CONST IMGDLG_W      = 256 ' All dialogs are this wide
 CONST IMGDLG_SX     = 8   ' Slider track left edge
 CONST IMGDLG_SW     = 240 ' Slider track width
-CONST IMGDLG_OK_X   = 10  ' OK button X
-CONST IMGDLG_OK_W   = 108 ' OK button width
-CONST IMGDLG_CX_X   = 138 ' Cancel button X
-CONST IMGDLG_CX_W   = 108 ' Cancel button width
-CONST IMGDLG_BTN_H  = 22  ' OK/Cancel button height
+CONST IMGDLG_OK_X    = 8   ' OK button X
+CONST IMGDLG_OK_W    = 74  ' OK button width
+CONST IMGDLG_RESET_X = 90  ' RESET button X (restores defaults)
+CONST IMGDLG_RESET_W = 74  ' RESET button width
+CONST IMGDLG_CX_X    = 174 ' Cancel button X
+CONST IMGDLG_CX_W    = 74  ' Cancel button width
+CONST IMGDLG_BTN_H   = 22  ' OK/Cancel/RESET button height
 CONST IMGDLG_PREV_H = 144 ' Loupe preview pane height (pixels)
 
 
@@ -3703,13 +3705,24 @@ END SUB
 ' @param strength  INTEGER Shading gain (1..10)
 ' @return LONG  New beveled image handle
 '
-FUNCTION IMAGE_ADJ_bevel& (sourceImg AS LONG, height AS INTEGER, strength AS INTEGER)
+FUNCTION IMAGE_ADJ_bevel& (sourceImg AS LONG, height AS INTEGER, strength AS INTEGER, angleDeg AS INTEGER, direction AS INTEGER)
     IF NOT (sourceImg& < -1) THEN IMAGE_ADJ_bevel& = 0 : EXIT FUNCTION
 
     DIM bvW AS LONG, bvH AS LONG
     bvW& = _WIDTH(sourceImg&) : bvH& = _HEIGHT(sourceImg&)
     DIM result AS LONG
     result& = _COPYIMAGE(sourceImg&, 32)
+
+    ' Light direction -> one of 8 neighbour offsets (odx,ody) toward the light.
+    ' angle 0 = light from the right, 90 = top, 180 = left, 270 = bottom.
+    ' DIRECTION down (1) flips the relief (raised <-> carved).
+    DIM bvRad AS SINGLE : bvRad! = angleDeg% * 3.14159265 / 180.0
+    DIM lcx AS SINGLE, lcy AS SINGLE : lcx! = COS(bvRad!) : lcy! = -SIN(bvRad!)
+    DIM odx AS INTEGER, ody AS INTEGER
+    odx% = 0 : IF lcx! > 0.35 THEN odx% = 1 ELSE IF lcx! < -0.35 THEN odx% = -1
+    ody% = 0 : IF lcy! > 0.35 THEN ody% = 1 ELSE IF lcy! < -0.35 THEN ody% = -1
+    IF odx% = 0 AND ody% = 0 THEN ody% = -1
+    DIM dirSign AS INTEGER : dirSign% = 1 : IF direction% <> 0 THEN dirSign% = -1
 
     DIM srcM AS _MEM, resM AS _MEM
     srcM = _MEMIMAGE(sourceImg&)
@@ -3748,16 +3761,16 @@ FUNCTION IMAGE_ADJ_bevel& (sourceImg AS LONG, height AS INTEGER, strength AS INT
         NEXT bx&
     NEXT by&
 
-    ' --- shade by diagonal gradient of the heightfield ---
+    ' --- shade by the heightfield gradient toward the light direction ---
     DIM px AS _UNSIGNED LONG, pxm AS LONG, pym AS LONG, dH AS LONG, delta AS LONG
     DIM rr AS INTEGER, gg AS INTEGER, bb AS INTEGER
     FOR by& = 0 TO bvH& - 1
-        pym& = by& - 1 : IF pym& < 0 THEN pym& = 0
+        pym& = by& + ody% : IF pym& < 0 THEN pym& = 0 ELSE IF pym& >= bvH& THEN pym& = bvH& - 1
         FOR bx& = 0 TO bvW& - 1
             _MEMGET srcM, srcM.OFFSET + (by& * bvW& + bx&) * 4 + 3, aHere~%%
             IF aHere~%% = 0 THEN _CONTINUE
-            pxm& = bx& - 1 : IF pxm& < 0 THEN pxm& = 0
-            dH& = hgt(by& * bvW& + bx&) - hgt(pym& * bvW& + pxm&)
+            pxm& = bx& + odx% : IF pxm& < 0 THEN pxm& = 0 ELSE IF pxm& >= bvW& THEN pxm& = bvW& - 1
+            dH& = (hgt(by& * bvW& + bx&) - hgt(pym& * bvW& + pxm&)) * dirSign%
             delta& = dH& * strength% * 12
             _MEMGET srcM, srcM.OFFSET + (by& * bvW& + bx&) * 4, px~&
             rr% = _RED32(px~&) + delta& : IF rr% < 0 THEN rr% = 0 ELSE IF rr% > 255 THEN rr% = 255
@@ -3780,12 +3793,20 @@ SUB IMAGE_ADJ_bevel_dialog ()
     IF CURRENT_LAYER% < 1 THEN EXIT SUB
 
     DIM ctx AS DIALOG_CTX
-    DIALOG_init ctx, IMGDLG_W, 140
+    DIALOG_init ctx, IMGDLG_W, 200
     IMAGE_ADJ_setup_preview ctx, LAYERS(CURRENT_LAYER%).imgHandle&
 
-    DIM height   AS INTEGER : height%   = 4
-    DIM strength AS INTEGER : strength% = 4
-    DIM oHeight  AS INTEGER, oStrength AS INTEGER
+    DIM height    AS INTEGER : height%    = 4
+    DIM strength  AS INTEGER : strength%  = 4
+    DIM angle     AS INTEGER : angle%     = 135
+    DIM direction AS INTEGER : direction% = 0
+    DIM dHeight   AS INTEGER : dHeight%   = 4    ' captured defaults for RESET
+    DIM dStrength AS INTEGER : dStrength% = 4
+    DIM dAngle    AS INTEGER : dAngle%    = 135
+    DIM dDir      AS INTEGER : dDir%      = 0
+    DIM oHeight AS INTEGER, oStrength AS INTEGER, oAngle AS INTEGER, oDir AS INTEGER
+    DIM dvX AS INTEGER, dvY AS INTEGER, dvW AS INTEGER, dvH AS INTEGER
+    dvX% = IMGDLG_SX : dvY% = IMGDLG_track_y%(ctx, 2) + 26 : dvW% = 150 : dvH% = 16
 
     DIM k AS LONG
     DO
@@ -3795,17 +3816,21 @@ SUB IMAGE_ADJ_bevel_dialog ()
         IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
         IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
 
-        oHeight% = height% : oStrength% = strength%
+        oHeight% = height% : oStrength% = strength% : oAngle% = angle% : oDir% = direction%
         height%   = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, height%, 1, 8)
         height%   = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, height%, 1, 8)
         strength% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, strength%, 1, 10)
         strength% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, strength%, 1, 10)
-        IF height% <> oHeight% OR strength% <> oStrength% THEN ctx.previewDirty% = TRUE
+        angle%    = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, 14, angle%, 0, 359)
+        angle%    = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, 14, angle%, 0, 359)
+        IF DIALOG_hit%(ctx, dvX%, dvY%, dvW%, dvH%) THEN direction% = (direction% = 0) : ctx.previewDirty% = TRUE
         IMGDLG_check_ok_cancel ctx
+        IMGDLG_reset4 ctx, height%, strength%, angle%, direction%, dHeight%, dStrength%, dAngle%, dDir%
+        IF height% <> oHeight% OR strength% <> oStrength% OR angle% <> oAngle% OR direction% <> oDir% THEN ctx.previewDirty% = TRUE
 
         IF ctx.previewDirty% THEN
             SAFE_FREEIMAGE ctx.previewThumb
-            ctx.previewThumb = IMAGE_ADJ_bevel&(ctx.origThumb, height%, strength%)
+            ctx.previewThumb = IMAGE_ADJ_bevel&(ctx.origThumb, height%, strength%, angle%, direction%)
             IMAGE_ADJ_mask_preview ctx
             ctx.previewDirty% = FALSE
         END IF
@@ -3817,6 +3842,9 @@ SUB IMAGE_ADJ_bevel_dialog ()
         DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, height%, 1, 8, "", ""
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 1), "STRENGTH:"
         DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, strength%, 1, 10, "", ""
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 2), "LIGHT ANGLE:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, angle%, 0, 359, "", ""
+        DIALOG_draw_toggle ctx, dvX%, dvY%, dvW%, dvH%, "DIRECTION: DOWN", direction%
         DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
         IMGDLG_draw_ok_cancel ctx
         DIALOG_blit ctx
@@ -3831,7 +3859,7 @@ SUB IMAGE_ADJ_bevel_dialog ()
         DIM adjR     AS LONG
         FOR bvT% = 1 TO bvTgtCount%
             CURRENT_LAYER% = bvTargets%(bvT%)
-            adjR&          = IMAGE_ADJ_bevel&(LAYERS(CURRENT_LAYER%).imgHandle&, height%, strength%)
+            adjR&          = IMAGE_ADJ_bevel&(LAYERS(CURRENT_LAYER%).imgHandle&, height%, strength%, angle%, direction%)
             IMAGE_ADJ_apply_to_layer adjR&, "Bevel"
         NEXT bvT%
         IF bvTgtCount% > 1 THEN HISTORY_end_group
@@ -7880,7 +7908,41 @@ SUB IMGDLG_draw_ok_cancel (ctx AS DIALOG_CTX)
     DIM btnY AS INTEGER
     btnY% = ctx.h - IMGDLG_BTN_H - 8
     DIALOG_draw_button ctx, IMGDLG_OK_X, btnY%, IMGDLG_OK_W, IMGDLG_BTN_H, "OK", _RGB32(40, 100, 40), _RGB32(60, 150, 60), _RGB32(80, 200, 80)
+    DIALOG_draw_button ctx, IMGDLG_RESET_X, btnY%, IMGDLG_RESET_W, IMGDLG_BTN_H, "RESET", _RGB32(70, 70, 90), _RGB32(100, 100, 130), _RGB32(140, 140, 180)
     DIALOG_draw_button ctx, IMGDLG_CX_X, btnY%, IMGDLG_CX_W, IMGDLG_BTN_H, "CANCEL", _RGB32(100, 40, 40), _RGB32(150, 60, 60), _RGB32(200, 80, 80)
+END SUB
+
+''
+' Reset-to-default helpers. When the RESET button was clicked this frame
+' (IMGDLG_RESET_CLICKED), restore each parameter to its captured default, mark the
+' preview dirty, and consume the flag. One helper per parameter count (2/3/4).
+'
+SUB IMGDLG_reset2 (ctx AS DIALOG_CTX, p1 AS INTEGER, p2 AS INTEGER, d1 AS INTEGER, d2 AS INTEGER)
+    IF NOT IMGDLG_RESET_CLICKED% THEN EXIT SUB
+    p1% = d1% : p2% = d2%
+    ctx.previewDirty% = TRUE
+    IMGDLG_RESET_CLICKED% = FALSE
+END SUB
+
+SUB IMGDLG_reset3 (ctx AS DIALOG_CTX, p1 AS INTEGER, p2 AS INTEGER, p3 AS INTEGER, d1 AS INTEGER, d2 AS INTEGER, d3 AS INTEGER)
+    IF NOT IMGDLG_RESET_CLICKED% THEN EXIT SUB
+    p1% = d1% : p2% = d2% : p3% = d3%
+    ctx.previewDirty% = TRUE
+    IMGDLG_RESET_CLICKED% = FALSE
+END SUB
+
+SUB IMGDLG_reset4 (ctx AS DIALOG_CTX, p1 AS INTEGER, p2 AS INTEGER, p3 AS INTEGER, p4 AS INTEGER, d1 AS INTEGER, d2 AS INTEGER, d3 AS INTEGER, d4 AS INTEGER)
+    IF NOT IMGDLG_RESET_CLICKED% THEN EXIT SUB
+    p1% = d1% : p2% = d2% : p3% = d3% : p4% = d4%
+    ctx.previewDirty% = TRUE
+    IMGDLG_RESET_CLICKED% = FALSE
+END SUB
+
+SUB IMGDLG_reset1 (ctx AS DIALOG_CTX, p1 AS INTEGER, d1 AS INTEGER)
+    IF NOT IMGDLG_RESET_CLICKED% THEN EXIT SUB
+    p1% = d1%
+    ctx.previewDirty% = TRUE
+    IMGDLG_RESET_CLICKED% = FALSE
 END SUB
 
 ''
@@ -7894,6 +7956,9 @@ SUB IMGDLG_check_ok_cancel (ctx AS DIALOG_CTX)
     btnY% = ctx.h - IMGDLG_BTN_H - 8
     IF DIALOG_hit%(ctx, IMGDLG_OK_X, btnY%, IMGDLG_OK_W, IMGDLG_BTN_H) THEN
         ctx.done% = TRUE : ctx.result% = TRUE
+    END IF
+    IF DIALOG_hit%(ctx, IMGDLG_RESET_X, btnY%, IMGDLG_RESET_W, IMGDLG_BTN_H) THEN
+        IMGDLG_RESET_CLICKED% = TRUE           ' consumed by IMGDLG_resetN in the dialog loop
     END IF
     IF DIALOG_hit%(ctx, IMGDLG_CX_X, btnY%, IMGDLG_CX_W, IMGDLG_BTN_H) THEN
         ctx.done% = TRUE : ctx.result% = FALSE
@@ -7954,6 +8019,7 @@ SUB IMAGE_ADJ_setup_preview (ctx AS DIALOG_CTX, layerImg AS LONG)
     ctx.splitX       = ctx.w \ 2
     ctx.loupeDirty   = TRUE ' capture loupe region on first frame
     ctx.previewDirty = TRUE
+    IMGDLG_RESET_CLICKED% = FALSE ' never carry a stale RESET click into a new dialog
 END SUB
 
 ''
