@@ -5,13 +5,14 @@ Each box is independently buildable + verifiable. Build with `~/git/qb64pe-450/q
 (v4.5.0, the Makefile default). Commit after each grouped box lands green.
 
 ## 🔨 NOW — doing right now
-- [ ] ➡️ Shape/generative effects (Fire, and others) don't work with a selection — extend sel-as-shape/clip
+- [ ] ➡️ Shared widget: DROPDOWN control in the dialog framework (replaces >4-option cycle buttons)
 
 ## 🐞 Bugs / regressions
 - [x] Cursor is a move/cross over EFFECTS flyout items — POINTER.BM now sets CURSOR_NULL over the category flyout region (genOpen%/genX/genY/genW/genH), matching the submenu-arrow logic. Built 17:31.
 - [x] Inner Glow slow at high radius — now O(pixels) via shared IMGADJ_dist_transform (Chebyshev, two-pass). QA effect-innerglow green. Built 17:40.
 - [x] Corona slow at high radius — now O(pixels) via shared IMGADJ_dist_transform (seedMode 1, Chebyshev). Ring is a touch squarer than the old Euclidean scan; QA effect-corona 6/6 green. Built 17:51.
 - [x] Bevel slow at high radius — heightfield now O(pixels) via IMGADJ_dist_transform (seedMode 0, border-as-seed); shading phase untouched. QA effect-bevel 6/6 green. Built 17:57.
+- [x] Shape/generative effects don't work with selection — 7 radiating Shape effects (Fire, Smoke, Snow, Drip, Icicles, Electrify, Motion Trail) now route through the sel-as-shape choke point (IMGADJ_edge_shape_source + apply_spatial_edge) for BOTH apply and preview, exactly like the alpha-edge effects. Interior effects (Water Drops, Glass, Rust) already clip correctly via apply_to_layer. New QA effect-fire-selection 6/6 + all 7 no-selection tests 42/42 green. Built 18:08.
 
 ## 🧩 Shared widgets (build once → reuse)
 - [ ] DROPDOWN control in the dialog framework (popup list, keyboard + wheel) — replaces cycle-buttons that have >4 options
