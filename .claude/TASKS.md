@@ -163,7 +163,8 @@ the infra exists.
 - [x] **Glow (Outer/Inner)** — SHAPE-menu entries added (Outer Glow child 6 → 2127, Inner Glow child 7 → 2128). Inner Glow guarded by effect-shape-reparent.sh (open_effect 7 7, 1228px).
 - [ ] **Icicles** — ice spikes hanging off the bottom edge + dialog + QA test
 - [x] **Motion Trail** — color-preserving speed-blur smear: each opaque pixel scattered along DIRECTION as a fading run in its own colour, crisp original composited on top. LENGTH 2-40 + DIRECTION 0-359 dialog, apply_spatial + SHAPE menu (2203, child 10) + QA test (effect-motiontrail.sh, 253px, open_effect 7 10). NEW engine IMAGE_ADJ_motiontrail&. Dialog visually verified.
-- [ ] **Rust** — corroded noise overlay masked to shape + dialog + QA test
+- [x] **Rust** — fractal-noise oxide overlay masked to the shape alpha, blended toward a brown->orange->light-oxide ramp. AMOUNT + SCALE dialog, RGB-only apply_to_layer + SHAPE menu (2234, child 11) + QA test (effect-rust.sh, 326px, open_effect 7 11). NEW engine IMAGE_ADJ_rust&. Dialog+oxide preview visually verified.
+      NOTE: uncovered & fixed a CRITICAL action-ID collision — SHAPE effects were on 2200-2204 but the EXPORT range is 2201-2216, so Corona(2201)/Rust(2204) silently opened Export dialogs and their region-diff tests FALSE-PASSED (fullscreen dialog covered the snap). All SHAPE effects moved to 2230-2234. See commit 39e989c.
 - [x] **Shadow** — SHAPE-menu entries added (Drop Shadow child 8 → 2124, Perspective Shadow child 9 → 2125). Index 9 visually confirmed to open "LONG SHADOW" dialog (shape-pshadow-dialog screenshot).
 - [ ] **Smoke** — wispy smoke render rising from shape (noise plume) + dialog + QA test
 - [ ] **Snow** — snow cap on top edges + falling flecks + dialog + QA test
@@ -206,6 +207,15 @@ the infra exists.
       gotcha #15). Also the engine currently uses `PRINT` for errors (gotcha #1)
       and a temp-file round-trip; both need cleanup before wiring. Do as its own
       focused pass with a QA test, not inside the effects sweep.
+
+## QA hardening (found during Wave 7)
+
+- [ ] **Effect tests should assert the dialog TITLE, not just a region delta.**
+      assert_regions_differ cannot distinguish a real effect from an unrelated
+      fullscreen dialog covering the snap region — that's how the 2201/2204
+      action-ID collision false-passed for several commits. Add a lightweight
+      title/OCR or known-pixel check (e.g. snap the dialog title bar and assert
+      it matches) to open_effect-based tests, at least for the SHAPE category.
 
 ## Wrap-up
 
