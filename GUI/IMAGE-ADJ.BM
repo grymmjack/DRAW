@@ -1292,30 +1292,20 @@ FUNCTION IMAGE_ADJ_corona& (sourceImg AS LONG, radius AS INTEGER, intensity AS I
     DIM iScale AS SINGLE : iScale! = intensity% / 100.0
     DIM peak AS SINGLE : peak! = radius% / 2.0
 
-    DIM ox AS LONG, oy AS LONG, dx AS INTEGER, dy AS INTEGER, nx AS LONG, ny AS LONG
-    DIM aHere AS _UNSIGNED _BYTE, aN AS _UNSIGNED _BYTE
-    DIM bestD AS SINGLE, dd AS SINGLE, inten AS SINGLE, aOut AS INTEGER
+    DIM ox AS LONG, oy AS LONG
+    DIM aHere AS _UNSIGNED _BYTE
+    DIM bestD AS SINGLE, inten AS SINGLE, aOut AS INTEGER
+    ' distance-to-shape for every transparent pixel in O(pixels) (was O(radius^2)).
+    ' Chebyshev distance — the ring is a touch squarer than the old Euclidean scan
+    ' but no longer freezes at large radius.
+    REDIM coDist(0 TO coW& * coH& - 1) AS LONG
+    IMGADJ_dist_transform sourceImg&, 1, coDist()
     FOR oy& = 0 TO coH& - 1
     IF (oy& AND 15) = 0 THEN IMGADJ_progress_tick "Corona", oy& / coH&
         FOR ox& = 0 TO coW& - 1
             _MEMGET srcM, srcM.OFFSET + (oy& * coW& + ox&) * 4 + 3, aHere~%%
             IF aHere~%% <> 0 THEN _CONTINUE
-            bestD! = radius% + 1
-            FOR dy% = -radius% TO radius%
-                ny& = oy& + dy%
-                IF ny& >= 0 AND ny& < coH& THEN
-                    FOR dx% = -radius% TO radius%
-                        nx& = ox& + dx%
-                        IF nx& >= 0 AND nx& < coW& THEN
-                            _MEMGET srcM, srcM.OFFSET + (ny& * coW& + nx&) * 4 + 3, aN~%%
-                            IF aN~%% <> 0 THEN
-                                dd! = SQR(dx% * dx% + dy% * dy%)
-                                IF dd! < bestD! THEN bestD! = dd!
-                            END IF
-                        END IF
-                    NEXT dx%
-                END IF
-            NEXT dy%
+            bestD! = coDist&(oy& * coW& + ox&)
             IF bestD! <= radius% THEN
                 inten! = (1.0 - ABS(bestD! - peak!) / peak!) * iScale!
                 IF inten! > 0.02 THEN
@@ -4160,6 +4150,59 @@ END SUB
 
 
 ''
+' Chebyshev (chessboard) distance transform, two 8-neighbour passes => O(pixels),
+' independent of radius. Fills distA() with each pixel's distance to the nearest
+' SEED. seedMode 0: seeds = transparent pixels AND the image outside (distance to
+' the shape's inner edge — Inner Glow / Bevel). seedMode 1: seeds = opaque pixels
+' (distance from transparent pixels to the shape — Outer Glow / Corona). distA()
+' must be pre-DIMmed 0..w*h-1.
+'
+SUB IMGADJ_dist_transform (srcImg AS LONG, seedMode AS INTEGER, distA() AS LONG)
+    IF NOT (srcImg& < -1) THEN EXIT SUB
+    DIM dtW AS LONG, dtH AS LONG : dtW& = _WIDTH(srcImg&) : dtH& = _HEIGHT(srcImg&)
+    DIM dtM AS _MEM : dtM = _MEMIMAGE(srcImg&)
+    DIM dx AS LONG, dy AS LONG, da AS _UNSIGNED _BYTE, seed AS INTEGER
+    DIM BIG AS LONG : BIG& = dtW& + dtH& + 8
+    DIM d AS LONG
+    FOR dy& = 0 TO dtH& - 1
+        FOR dx& = 0 TO dtW& - 1
+            _MEMGET dtM, dtM.OFFSET + (dy& * dtW& + dx&) * 4 + 3, da~%%
+            IF seedMode% = 0 THEN seed% = (da~%% = 0) ELSE seed% = (da~%% <> 0)
+            IF seed% THEN distA&(dy& * dtW& + dx&) = 0 ELSE distA&(dy& * dtW& + dx&) = BIG&
+        NEXT dx&
+    NEXT dy&
+    _MEMFREE dtM
+    ' forward pass (top-left -> bottom-right)
+    FOR dy& = 0 TO dtH& - 1
+        FOR dx& = 0 TO dtW& - 1
+            d& = distA&(dy& * dtW& + dx&)
+            IF d& > 0 THEN
+                IF seedMode% = 0 AND (dx& = 0 OR dy& = 0) THEN IF 1 < d& THEN d& = 1
+                IF dx& > 0 THEN IF distA&(dy& * dtW& + dx& - 1) + 1 < d& THEN d& = distA&(dy& * dtW& + dx& - 1) + 1
+                IF dy& > 0 THEN IF distA&((dy& - 1) * dtW& + dx&) + 1 < d& THEN d& = distA&((dy& - 1) * dtW& + dx&) + 1
+                IF dx& > 0 AND dy& > 0 THEN IF distA&((dy& - 1) * dtW& + dx& - 1) + 1 < d& THEN d& = distA&((dy& - 1) * dtW& + dx& - 1) + 1
+                IF dx& < dtW& - 1 AND dy& > 0 THEN IF distA&((dy& - 1) * dtW& + dx& + 1) + 1 < d& THEN d& = distA&((dy& - 1) * dtW& + dx& + 1) + 1
+                distA&(dy& * dtW& + dx&) = d&
+            END IF
+        NEXT dx&
+    NEXT dy&
+    ' backward pass (bottom-right -> top-left)
+    FOR dy& = dtH& - 1 TO 0 STEP -1
+        FOR dx& = dtW& - 1 TO 0 STEP -1
+            d& = distA&(dy& * dtW& + dx&)
+            IF d& > 0 THEN
+                IF seedMode% = 0 AND (dx& = dtW& - 1 OR dy& = dtH& - 1) THEN IF 1 < d& THEN d& = 1
+                IF dx& < dtW& - 1 THEN IF distA&(dy& * dtW& + dx& + 1) + 1 < d& THEN d& = distA&(dy& * dtW& + dx& + 1) + 1
+                IF dy& < dtH& - 1 THEN IF distA&((dy& + 1) * dtW& + dx&) + 1 < d& THEN d& = distA&((dy& + 1) * dtW& + dx&) + 1
+                IF dx& < dtW& - 1 AND dy& < dtH& - 1 THEN IF distA&((dy& + 1) * dtW& + dx& + 1) + 1 < d& THEN d& = distA&((dy& + 1) * dtW& + dx& + 1) + 1
+                IF dx& > 0 AND dy& < dtH& - 1 THEN IF distA&((dy& + 1) * dtW& + dx& - 1) + 1 < d& THEN d& = distA&((dy& + 1) * dtW& + dx& - 1) + 1
+                distA&(dy& * dtW& + dx&) = d&
+            END IF
+        NEXT dx&
+    NEXT dy&
+END SUB
+
+''
 ' Inner Glow — a coloured glow that fades inward from the shape's alpha edges.
 ' For each opaque pixel, distance-to-edge d (clamped to `radius`) gives a factor
 ' (1 at the edge, 0 at radius inward); glowColor is blended over the original by
@@ -4186,35 +4229,21 @@ FUNCTION IMAGE_ADJ_innerglow& (sourceImg AS LONG, radius AS INTEGER, intensity A
     DIM gR AS INTEGER, gG AS INTEGER, gB AS INTEGER
     gR% = _RED32(glowColor~&) : gG% = _GREEN32(glowColor~&) : gB% = _BLUE32(glowColor~&)
 
-    DIM ix AS LONG, iy AS LONG, dx AS INTEGER, dy AS INTEGER
-    DIM aHere AS _UNSIGNED _BYTE, aN AS _UNSIGNED _BYTE
-    DIM nx AS LONG, ny AS LONG, dist AS INTEGER, curD AS INTEGER
+    DIM ix AS LONG, iy AS LONG
+    DIM aHere AS _UNSIGNED _BYTE, dist AS INTEGER
     DIM fac AS SINGLE, px AS _UNSIGNED LONG
     DIM nR AS INTEGER, nG AS INTEGER, nB AS INTEGER   ' output RGB (gg would collide with gG, case-insensitive)
+
+    ' distance-to-inner-edge for every pixel in O(pixels) (was O(radius^2) per pixel)
+    REDIM igDist(0 TO igW& * igH& - 1) AS LONG
+    IMGADJ_dist_transform sourceImg&, 0, igDist()
 
     FOR iy& = 0 TO igH& - 1
     IF (iy& AND 15) = 0 THEN IMGADJ_progress_tick "Innerglow", iy& / igH&
         FOR ix& = 0 TO igW& - 1
             _MEMGET srcM, srcM.OFFSET + (iy& * igW& + ix&) * 4 + 3, aHere~%%
             IF aHere~%% = 0 THEN _CONTINUE
-
-            dist% = radius% + 1
-            FOR dy% = -radius% TO radius%
-                ny& = iy& + dy%
-                FOR dx% = -radius% TO radius%
-                    curD% = ABS(dx%) : IF ABS(dy%) > curD% THEN curD% = ABS(dy%)
-                    IF curD% < dist% THEN
-                        nx& = ix& + dx%
-                        IF nx& < 0 OR ny& < 0 OR nx& >= igW& OR ny& >= igH& THEN
-                            dist% = curD%
-                        ELSE
-                            _MEMGET srcM, srcM.OFFSET + (ny& * igW& + nx&) * 4 + 3, aN~%%
-                            IF aN~%% = 0 THEN dist% = curD%
-                        END IF
-                    END IF
-                NEXT dx%
-            NEXT dy%
-
+            dist% = igDist&(iy& * igW& + ix&)
             IF dist% <= radius% THEN
                 fac! = (radius% - dist% + 1) / (radius% + 0.0) * (intensity% / 3.0)
                 IF fac! > 1.0 THEN fac! = 1.0
@@ -4501,33 +4530,23 @@ FUNCTION IMAGE_ADJ_bevel& (sourceImg AS LONG, height AS INTEGER, strength AS INT
     resM = _MEMIMAGE(result&)
 
     ' --- distance-to-edge heightfield (0 outside; 1..height inside) ---
+    ' O(pixels) via the shared Chebyshev distance transform. The old inner scan was
+    ' O(height^2) PER pixel — the reason a large Height froze. seedMode 0 seeds on
+    ' transparent pixels AND the image border, matching the old scan's out-of-bounds
+    ' = edge rule exactly; we then clamp the raw distance to Height as before.
     REDIM hgt(0 TO bvW& * bvH& - 1) AS INTEGER
-    DIM bx AS LONG, by AS LONG, dx AS INTEGER, dy AS INTEGER
-    DIM aHere AS _UNSIGNED _BYTE, aN AS _UNSIGNED _BYTE
-    DIM nx AS LONG, ny AS LONG, dist AS INTEGER, curD AS INTEGER
+    REDIM bvDist(0 TO bvW& * bvH& - 1) AS LONG
+    IMGADJ_dist_transform sourceImg&, 0, bvDist()
+    DIM bx AS LONG, by AS LONG
+    DIM aHere AS _UNSIGNED _BYTE, dist AS INTEGER
     FOR by& = 0 TO bvH& - 1
-    IF (by& AND 15) = 0 THEN IMGADJ_progress_tick "Bevel", by& / bvH&
+    IF (by& AND 31) = 0 THEN IMGADJ_progress_tick "Bevel", by& / bvH&
         FOR bx& = 0 TO bvW& - 1
             _MEMGET srcM, srcM.OFFSET + (by& * bvW& + bx&) * 4 + 3, aHere~%%
             IF aHere~%% = 0 THEN
                 hgt(by& * bvW& + bx&) = 0
             ELSE
-                dist% = height% + 1   ' assume fully interior
-                FOR dy% = -height% TO height%
-                    ny& = by& + dy%
-                    FOR dx% = -height% TO height%
-                        curD% = ABS(dx%) : IF ABS(dy%) > curD% THEN curD% = ABS(dy%)  ' Chebyshev
-                        IF curD% < dist% THEN
-                            nx& = bx& + dx%
-                            IF nx& < 0 OR ny& < 0 OR nx& >= bvW& OR ny& >= bvH& THEN
-                                dist% = curD%
-                            ELSE
-                                _MEMGET srcM, srcM.OFFSET + (ny& * bvW& + nx&) * 4 + 3, aN~%%
-                                IF aN~%% = 0 THEN dist% = curD%
-                            END IF
-                        END IF
-                    NEXT dx%
-                NEXT dy%
+                dist% = bvDist&(by& * bvW& + bx&)
                 IF dist% > height% THEN dist% = height%
                 hgt(by& * bvW& + bx&) = dist%
             END IF

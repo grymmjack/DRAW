@@ -5,11 +5,13 @@ Each box is independently buildable + verifiable. Build with `~/git/qb64pe-450/q
 (v4.5.0, the Makefile default). Commit after each grouped box lands green.
 
 ## 🔨 NOW — doing right now
+- [ ] ➡️ Shape/generative effects (Fire, and others) don't work with a selection — extend sel-as-shape/clip
 
 ## 🐞 Bugs / regressions
-- [ ] Cursor is a move/cross over EFFECTS flyout items — should be the default arrow
-- [ ] Inner Glow, Corona, Bevel are slow at high radius (O(r²)) — make them separable/O(1) so they can be huge AND fast
-- [ ] Shape/generative effects (Fire, and others) don't work with a selection — extend sel-as-shape (or selection clip) to them
+- [x] Cursor is a move/cross over EFFECTS flyout items — POINTER.BM now sets CURSOR_NULL over the category flyout region (genOpen%/genX/genY/genW/genH), matching the submenu-arrow logic. Built 17:31.
+- [x] Inner Glow slow at high radius — now O(pixels) via shared IMGADJ_dist_transform (Chebyshev, two-pass). QA effect-innerglow green. Built 17:40.
+- [x] Corona slow at high radius — now O(pixels) via shared IMGADJ_dist_transform (seedMode 1, Chebyshev). Ring is a touch squarer than the old Euclidean scan; QA effect-corona 6/6 green. Built 17:51.
+- [x] Bevel slow at high radius — heightfield now O(pixels) via IMGADJ_dist_transform (seedMode 0, border-as-seed); shading phase untouched. QA effect-bevel 6/6 green. Built 17:57.
 
 ## 🧩 Shared widgets (build once → reuse)
 - [ ] DROPDOWN control in the dialog framework (popup list, keyboard + wheel) — replaces cycle-buttons that have >4 options
