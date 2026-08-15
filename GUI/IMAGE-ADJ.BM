@@ -3967,6 +3967,154 @@ END SUB
 
 
 ''
+' Electrify (Eye Candy "Shape") — crackling electric arcs around the shape edge.
+' Transparent pixels within REACH of the shape get a base glow (falling off with
+' distance to the nearest opaque pixel), which a high-frequency noise threshold
+' breaks into thin filaments so it reads as arcing electricity rather than a
+' smooth halo. Electric blue-white. Adds pixels -> apply_spatial.
+'
+' @param sourceImg LONG     Source image (32-bit, with alpha)
+' @param reach     INTEGER  Arc reach from the edge in px (2..12)
+' @param intensity INTEGER  Arc brightness/coverage 0..100
+' @return LONG              New 32-bit image handle (0 on failure)
+'
+FUNCTION IMAGE_ADJ_electrify& (sourceImg AS LONG, reach AS INTEGER, intensity AS INTEGER)
+    IF NOT (sourceImg& < -1) THEN IMAGE_ADJ_electrify& = 0 : EXIT FUNCTION
+
+    DIM elW AS LONG, elH AS LONG
+    elW& = _WIDTH(sourceImg&) : elH& = _HEIGHT(sourceImg&)
+    DIM result AS LONG
+    result& = _COPYIMAGE(sourceImg&, 32)
+    DIM srcM AS _MEM, resM AS _MEM
+    srcM = _MEMIMAGE(sourceImg&)
+    resM = _MEMIMAGE(result&)
+
+    DIM iScale AS SINGLE : iScale! = 0.5 + intensity% / 100.0
+    ' lower threshold with intensity so more filaments light up
+    DIM arcThresh AS SINGLE : arcThresh! = 0.72 - (intensity% / 100.0) * 0.22
+
+    DIM ex AS LONG, ey AS LONG, aHere AS _UNSIGNED _BYTE
+    DIM ox AS INTEGER, oy AS INTEGER, nax AS LONG, nay AS LONG, nearA AS _UNSIGNED _BYTE
+    DIM minD AS SINGLE, dd AS SINGLE, glow AS SINGLE, nz AS SINGLE, arc AS SINGLE
+    DIM er AS INTEGER, eg AS INTEGER, eb AS INTEGER, ea AS INTEGER
+    FOR ey& = 0 TO elH& - 1
+        FOR ex& = 0 TO elW& - 1
+            _MEMGET srcM, srcM.OFFSET + (ey& * elW& + ex&) * 4 + 3, aHere~%%
+            IF aHere~%% <> 0 THEN _CONTINUE                 ' arcs fill empty space near the edge
+
+            ' nearest opaque pixel within the reach box
+            minD! = reach% + 1
+            FOR oy% = -reach% TO reach%
+                nay& = ey& + oy%
+                IF nay& < 0 OR nay& >= elH& THEN _CONTINUE
+                FOR ox% = -reach% TO reach%
+                    nax& = ex& + ox%
+                    IF nax& < 0 OR nax& >= elW& THEN _CONTINUE
+                    _MEMGET srcM, srcM.OFFSET + (nay& * elW& + nax&) * 4 + 3, nearA~%%
+                    IF nearA~%% <> 0 THEN
+                        dd! = SQR(ox% * ox% + oy% * oy%)
+                        IF dd! < minD! THEN minD! = dd!
+                    END IF
+                NEXT ox%
+            NEXT oy%
+            IF minD! > reach% THEN _CONTINUE
+
+            glow! = 1.0 - minD! / reach%
+            ' high-frequency noise -> thin arcing filaments
+            nz! = IMGADJ_valnoise!(ex& * 0.55, ey& * 0.55, 91) * 0.6 _
+                + IMGADJ_valnoise!(ex& * 1.3, ey& * 1.3, 92) * 0.4
+            IF nz! < arcThresh! THEN _CONTINUE              ' between filaments — dark
+            arc! = glow! * ((nz! - arcThresh!) / (1.0 - arcThresh! + 0.0001)) * iScale!
+            IF arc! <= 0.05 THEN _CONTINUE
+            IF arc! > 1.0 THEN arc! = 1.0
+
+            ' electric blue-white: hot core -> white, cooler -> blue
+            er% = INT((120 + 135 * arc!)) : IF er% > 255 THEN er% = 255
+            eg% = INT((170 + 85 * arc!)) : IF eg% > 255 THEN eg% = 255
+            eb% = 255
+            ea% = INT(arc! * 255)
+            _MEMPUT resM, resM.OFFSET + (ey& * elW& + ex&) * 4, _RGBA32(er%, eg%, eb%, ea%) AS _UNSIGNED LONG
+        NEXT ex&
+    NEXT ey&
+
+    _MEMFREE srcM
+    _MEMFREE resM
+    IMAGE_ADJ_electrify& = result&
+END FUNCTION
+
+
+''
+' Open a modal Electrify dialog: REACH (2..12) + INTENSITY (0..100). Adds pixels
+' -> apply_spatial.
+'
+SUB IMAGE_ADJ_electrify_dialog ()
+    IF CURRENT_LAYER% < 1 THEN EXIT SUB
+
+    DIM ctx AS DIALOG_CTX
+    DIALOG_init ctx, IMGDLG_W, 138
+    IMAGE_ADJ_setup_preview ctx, LAYERS(CURRENT_LAYER%).imgHandle&
+
+    DIM reach     AS INTEGER : reach%     = 7
+    DIM intensity AS INTEGER : intensity% = 65
+    DIM oReach AS INTEGER, oIntensity AS INTEGER
+
+    DIM k AS LONG
+    DO
+        DIALOG_poll_mouse ctx
+        IF ctx.loupeDirty% THEN IMAGE_ADJ_update_loupe ctx
+        k& = _KEYHIT
+        IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
+        IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
+
+        oReach% = reach% : oIntensity% = intensity%
+        reach%     = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, reach%, 2, 12)
+        reach%     = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, reach%, 2, 12)
+        intensity% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, intensity%, 0, 100)
+        intensity% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, intensity%, 0, 100)
+        IF reach% <> oReach% OR intensity% <> oIntensity% THEN ctx.previewDirty% = TRUE
+        IMGDLG_check_ok_cancel ctx
+
+        IF ctx.previewDirty% THEN
+            SAFE_FREEIMAGE ctx.previewThumb
+            ctx.previewThumb = IMAGE_ADJ_electrify&(ctx.origThumb, reach%, intensity%)
+            IMAGE_ADJ_mask_preview ctx
+            ctx.previewDirty% = FALSE
+        END IF
+
+        _DEST ctx.imgHandle
+        DIALOG_draw_frame ctx, "ELECTRIFY"
+        DIALOG_draw_preview ctx
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "REACH:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, reach%, 2, 12, "", ""
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 1), "INTENSITY:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, intensity%, 0, 100, "", ""
+        DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
+        IMGDLG_draw_ok_cancel ctx
+        DIALOG_blit ctx
+    LOOP UNTIL ctx.done%
+
+    IF ctx.result% THEN
+        DIM elTargets(1 TO MAX_LAYERS) AS INTEGER, elTgtCount AS INTEGER, elT AS INTEGER
+        DIM elSaveCL AS INTEGER
+        IMAGE_ADJ_collect_targets elTargets%(), elTgtCount%
+        elSaveCL% = CURRENT_LAYER%
+        IF elTgtCount% > 1 THEN HISTORY_begin_group
+        DIM adjR AS LONG
+        FOR elT% = 1 TO elTgtCount%
+            CURRENT_LAYER% = elTargets%(elT%)
+            adjR&          = IMAGE_ADJ_electrify&(LAYERS(CURRENT_LAYER%).imgHandle&, reach%, intensity%)
+            IMAGE_ADJ_apply_spatial adjR&, "Electrify"
+        NEXT elT%
+        IF elTgtCount% > 1 THEN HISTORY_end_group
+        CURRENT_LAYER% = elSaveCL%
+    END IF
+
+    DIALOG_cleanup ctx
+    SAFE_FREEIMAGE IMGADJ_LAYER_MASK& : IMGADJ_LAYER_MASK& = 0
+END SUB
+
+
+''
 ' Glass (Eye Candy "Shape") — give the shape a glassy sheen: translucent
 ' lightening (FROST) plus two diagonal specular highlight streaks (SHINE) swept
 ' across the surface, brightest along the streak centres. RGB-only (stays inside
