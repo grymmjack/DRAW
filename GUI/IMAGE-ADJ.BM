@@ -3967,6 +3967,304 @@ END SUB
 
 
 ''
+' ===========================================================================
+' Eye Candy TEXTURE effects — procedural surfaces painted over the shape's own
+' pixels (masked to its alpha -> apply_to_layer). Shared helper below turns a
+' [0,1] value plus a 3-stop ramp into a colour.
+' ===========================================================================
+
+''
+' Wood (Eye Candy "Texture") — concentric ring grain warped by turbulence, in a
+' dark-brown -> tan ramp, painted onto the shape. SCALE sets ring spacing; GRAIN
+' sets turbulence/contrast. RGB-only -> apply_to_layer.
+'
+FUNCTION IMAGE_ADJ_wood& (sourceImg AS LONG, scaleP AS INTEGER, grain AS INTEGER)
+    IF NOT (sourceImg& < -1) THEN IMAGE_ADJ_wood& = 0 : EXIT FUNCTION
+    DIM woW AS LONG, woH AS LONG
+    woW& = _WIDTH(sourceImg&) : woH& = _HEIGHT(sourceImg&)
+    DIM result AS LONG : result& = _COPYIMAGE(sourceImg&, 32)
+    DIM srcM AS _MEM, resM AS _MEM
+    srcM = _MEMIMAGE(sourceImg&) : resM = _MEMIMAGE(result&)
+
+    DIM cx AS SINGLE, cy AS SINGLE : cx! = woW& * 0.35 : cy! = woH& * 1.4
+    DIM freq AS SINGLE : freq! = 0.35 + scaleP% / 100.0 * 1.2
+    DIM distort AS SINGLE : distort! = grain% / 100.0 * 8.0
+    DIM ax AS LONG, ay AS LONG, aHere AS _UNSIGNED _BYTE
+    DIM tb AS SINGLE, dd AS SINGLE, rings AS SINGLE, gv AS SINGLE, mixv AS SINGLE
+    DIM rr AS INTEGER, gg2 AS INTEGER, bb AS INTEGER
+    FOR ay& = 0 TO woH& - 1
+        FOR ax& = 0 TO woW& - 1
+            _MEMGET srcM, srcM.OFFSET + (ay& * woW& + ax&) * 4 + 3, aHere~%%
+            IF aHere~%% = 0 THEN _CONTINUE
+            tb! = IMGADJ_valnoise!(ax& * 0.05, ay& * 0.05, 111) * 0.6 _
+                + IMGADJ_valnoise!(ax& * 0.13, ay& * 0.13, 112) * 0.4
+            dd! = SQR((ax& - cx!) * (ax& - cx!) + (ay& - cy!) * (ay& - cy!))
+            rings! = SIN(dd! * freq! * 0.12 + tb! * distort! + IMGADJ_valnoise!(ax& * 0.02, ay& * 0.4, 113) * 3.0)
+            gv! = 0.5 + 0.5 * rings!
+            gv! = gv! * gv!                                  ' sharpen the darker grain lines
+            ' dark-brown (70,40,18) -> tan (170,120,70)
+            rr% = 70 + INT((170 - 70) * gv!)
+            gg2% = 40 + INT((120 - 40) * gv!)
+            bb% = 18 + INT((70 - 18) * gv!)
+            _MEMPUT resM, resM.OFFSET + (ay& * woW& + ax&) * 4, _RGBA32(rr%, gg2%, bb%, aHere~%%) AS _UNSIGNED LONG
+        NEXT ax&
+    NEXT ay&
+    _MEMFREE srcM : _MEMFREE resM
+    IMAGE_ADJ_wood& = result&
+END FUNCTION
+
+''
+' Marble (Eye Candy "Texture") — turbulence-veined marble: a sine of x warped by
+' noise gives veins, mapped white<->dark-grey. SCALE sets vein frequency; VEINS
+' sets turbulence. RGB-only -> apply_to_layer.
+'
+FUNCTION IMAGE_ADJ_marble& (sourceImg AS LONG, scaleP AS INTEGER, veins AS INTEGER)
+    IF NOT (sourceImg& < -1) THEN IMAGE_ADJ_marble& = 0 : EXIT FUNCTION
+    DIM maW AS LONG, maH AS LONG
+    maW& = _WIDTH(sourceImg&) : maH& = _HEIGHT(sourceImg&)
+    DIM result AS LONG : result& = _COPYIMAGE(sourceImg&, 32)
+    DIM srcM AS _MEM, resM AS _MEM
+    srcM = _MEMIMAGE(sourceImg&) : resM = _MEMIMAGE(result&)
+
+    DIM freq AS SINGLE : freq! = 0.03 + scaleP% / 100.0 * 0.12
+    DIM turb AS SINGLE : turb! = 2.0 + veins% / 100.0 * 10.0
+    DIM ax AS LONG, ay AS LONG, aHere AS _UNSIGNED _BYTE
+    DIM tb AS SINGLE, v AS SINGLE, gv AS SINGLE, g2 AS INTEGER
+    FOR ay& = 0 TO maH& - 1
+        FOR ax& = 0 TO maW& - 1
+            _MEMGET srcM, srcM.OFFSET + (ay& * maW& + ax&) * 4 + 3, aHere~%%
+            IF aHere~%% = 0 THEN _CONTINUE
+            tb! = IMGADJ_valnoise!(ax& * 0.04, ay& * 0.04, 121) * 0.5 _
+                + IMGADJ_valnoise!(ax& * 0.1, ay& * 0.1, 122) * 0.3 _
+                + IMGADJ_valnoise!(ax& * 0.22, ay& * 0.22, 123) * 0.2
+            v! = SIN((ax& + ay& * 0.4) * freq! + tb! * turb!)
+            gv! = 0.5 + 0.5 * v!
+            gv! = 1.0 - gv! * gv! * gv!                      ' thin dark veins on a light body
+            g2% = 120 + INT(135 * gv!)                       ' 120..255 greys
+            IF g2% > 255 THEN g2% = 255
+            _MEMPUT resM, resM.OFFSET + (ay& * maW& + ax&) * 4, _RGBA32(g2%, g2%, g2% + 4, aHere~%%) AS _UNSIGNED LONG
+        NEXT ax&
+    NEXT ay&
+    _MEMFREE srcM : _MEMFREE resM
+    IMAGE_ADJ_marble& = result&
+END FUNCTION
+
+''
+' Brick Wall (Eye Candy "Texture") — running-bond brick tiling with mortar lines
+' and per-brick colour jitter, painted onto the shape. SIZE sets brick height;
+' MORTAR sets the joint width. RGB-only -> apply_to_layer.
+'
+FUNCTION IMAGE_ADJ_brick& (sourceImg AS LONG, sizeP AS INTEGER, mortarW AS INTEGER)
+    IF NOT (sourceImg& < -1) THEN IMAGE_ADJ_brick& = 0 : EXIT FUNCTION
+    DIM brW AS LONG, brH AS LONG
+    brW& = _WIDTH(sourceImg&) : brH& = _HEIGHT(sourceImg&)
+    DIM result AS LONG : result& = _COPYIMAGE(sourceImg&, 32)
+    DIM srcM AS _MEM, resM AS _MEM
+    srcM = _MEMIMAGE(sourceImg&) : resM = _MEMIMAGE(result&)
+
+    DIM bh AS INTEGER : bh% = sizeP% : IF bh% < 3 THEN bh% = 3
+    DIM bw AS INTEGER : bw% = bh% * 2 + bh%                 ' bricks ~3x tall
+    DIM mj AS INTEGER : mj% = mortarW% : IF mj% < 1 THEN mj% = 1
+    DIM ax AS LONG, ay AS LONG, aHere AS _UNSIGNED _BYTE
+    DIM brRow AS LONG, yInRow AS LONG, xShift AS LONG, brCol AS LONG, xInBr AS LONG
+    DIM jit AS SINGLE, rr AS INTEGER, gg2 AS INTEGER, bb AS INTEGER
+    FOR ay& = 0 TO brH& - 1
+        FOR ax& = 0 TO brW& - 1
+            _MEMGET srcM, srcM.OFFSET + (ay& * brW& + ax&) * 4 + 3, aHere~%%
+            IF aHere~%% = 0 THEN _CONTINUE
+            brRow& = ay& \ bh%
+            yInRow& = ay& - brRow& * bh%
+            xShift& = ax&
+            IF (brRow& AND 1) THEN xShift& = ax& + bw% \ 2   ' running bond offset
+            brCol& = xShift& \ bw%
+            xInBr& = xShift& - brCol& * bw%
+            IF yInRow& < mj% OR xInBr& < mj% THEN
+                rr% = 150 : gg2% = 145 : bb% = 138           ' mortar
+            ELSE
+                jit! = IMGADJ_valnoise!(brCol& * 1.7 + 0.3, brRow& * 1.7 + 0.3, 131)
+                rr% = 150 + INT(60 * jit!) : gg2% = 60 + INT(35 * jit!) : bb% = 45 + INT(25 * jit!)
+                ' faint per-pixel grain inside the brick
+                jit! = IMGADJ_valnoise!(ax& * 0.5, ay& * 0.5, 132)
+                rr% = rr% - INT(20 * jit!) : gg2% = gg2% - INT(12 * jit!) : bb% = bb% - INT(10 * jit!)
+                IF rr% < 0 THEN rr% = 0
+                IF gg2% < 0 THEN gg2% = 0
+                IF bb% < 0 THEN bb% = 0
+            END IF
+            _MEMPUT resM, resM.OFFSET + (ay& * brW& + ax&) * 4, _RGBA32(rr%, gg2%, bb%, aHere~%%) AS _UNSIGNED LONG
+        NEXT ax&
+    NEXT ay&
+    _MEMFREE srcM : _MEMFREE resM
+    IMAGE_ADJ_brick& = result&
+END FUNCTION
+
+''
+' Modal dialogs for the three TEXTURE effects. All share the 2-slider + loupe
+' pattern; RGB-only -> apply_to_layer.
+'
+SUB IMAGE_ADJ_wood_dialog ()
+    IF CURRENT_LAYER% < 1 THEN EXIT SUB
+    DIM ctx AS DIALOG_CTX : DIALOG_init ctx, IMGDLG_W, 138
+    IMAGE_ADJ_setup_preview ctx, LAYERS(CURRENT_LAYER%).imgHandle&
+    DIM p1 AS INTEGER : p1% = 40
+    DIM p2 AS INTEGER : p2% = 50
+    DIM o1 AS INTEGER, o2 AS INTEGER, k AS LONG
+    DO
+        DIALOG_poll_mouse ctx
+        IF ctx.loupeDirty% THEN IMAGE_ADJ_update_loupe ctx
+        k& = _KEYHIT
+        IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
+        IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
+        o1% = p1% : o2% = p2%
+        p1% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, p1%, 0, 100)
+        p1% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, p1%, 0, 100)
+        p2% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, p2%, 0, 100)
+        p2% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, p2%, 0, 100)
+        IF p1% <> o1% OR p2% <> o2% THEN ctx.previewDirty% = TRUE
+        IMGDLG_check_ok_cancel ctx
+        IF ctx.previewDirty% THEN
+            SAFE_FREEIMAGE ctx.previewThumb
+            ctx.previewThumb = IMAGE_ADJ_wood&(ctx.origThumb, p1%, p2%)
+            IMAGE_ADJ_mask_preview ctx : ctx.previewDirty% = FALSE
+        END IF
+        _DEST ctx.imgHandle
+        DIALOG_draw_frame ctx, "WOOD"
+        DIALOG_draw_preview ctx
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "SCALE:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, p1%, 0, 100, "", ""
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 1), "GRAIN:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, p2%, 0, 100, "", ""
+        DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
+        IMGDLG_draw_ok_cancel ctx
+        DIALOG_blit ctx
+    LOOP UNTIL ctx.done%
+    IF ctx.result% THEN
+        DIM tgts(1 TO MAX_LAYERS) AS INTEGER, tc AS INTEGER, ti AS INTEGER, scl AS INTEGER
+        IMAGE_ADJ_collect_targets tgts%(), tc%
+        scl% = CURRENT_LAYER%
+        IF tc% > 1 THEN HISTORY_begin_group
+        DIM adjR AS LONG
+        FOR ti% = 1 TO tc%
+            CURRENT_LAYER% = tgts%(ti%)
+            adjR& = IMAGE_ADJ_wood&(LAYERS(CURRENT_LAYER%).imgHandle&, p1%, p2%)
+            IMAGE_ADJ_apply_to_layer adjR&, "Wood"
+        NEXT ti%
+        IF tc% > 1 THEN HISTORY_end_group
+        CURRENT_LAYER% = scl%
+    END IF
+    DIALOG_cleanup ctx
+    SAFE_FREEIMAGE IMGADJ_LAYER_MASK& : IMGADJ_LAYER_MASK& = 0
+END SUB
+
+SUB IMAGE_ADJ_marble_dialog ()
+    IF CURRENT_LAYER% < 1 THEN EXIT SUB
+    DIM ctx AS DIALOG_CTX : DIALOG_init ctx, IMGDLG_W, 138
+    IMAGE_ADJ_setup_preview ctx, LAYERS(CURRENT_LAYER%).imgHandle&
+    DIM p1 AS INTEGER : p1% = 45
+    DIM p2 AS INTEGER : p2% = 55
+    DIM o1 AS INTEGER, o2 AS INTEGER, k AS LONG
+    DO
+        DIALOG_poll_mouse ctx
+        IF ctx.loupeDirty% THEN IMAGE_ADJ_update_loupe ctx
+        k& = _KEYHIT
+        IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
+        IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
+        o1% = p1% : o2% = p2%
+        p1% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, p1%, 0, 100)
+        p1% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, p1%, 0, 100)
+        p2% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, p2%, 0, 100)
+        p2% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, p2%, 0, 100)
+        IF p1% <> o1% OR p2% <> o2% THEN ctx.previewDirty% = TRUE
+        IMGDLG_check_ok_cancel ctx
+        IF ctx.previewDirty% THEN
+            SAFE_FREEIMAGE ctx.previewThumb
+            ctx.previewThumb = IMAGE_ADJ_marble&(ctx.origThumb, p1%, p2%)
+            IMAGE_ADJ_mask_preview ctx : ctx.previewDirty% = FALSE
+        END IF
+        _DEST ctx.imgHandle
+        DIALOG_draw_frame ctx, "MARBLE"
+        DIALOG_draw_preview ctx
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "SCALE:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, p1%, 0, 100, "", ""
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 1), "VEINS:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, p2%, 0, 100, "", ""
+        DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
+        IMGDLG_draw_ok_cancel ctx
+        DIALOG_blit ctx
+    LOOP UNTIL ctx.done%
+    IF ctx.result% THEN
+        DIM tgts(1 TO MAX_LAYERS) AS INTEGER, tc AS INTEGER, ti AS INTEGER, scl AS INTEGER
+        IMAGE_ADJ_collect_targets tgts%(), tc%
+        scl% = CURRENT_LAYER%
+        IF tc% > 1 THEN HISTORY_begin_group
+        DIM adjR AS LONG
+        FOR ti% = 1 TO tc%
+            CURRENT_LAYER% = tgts%(ti%)
+            adjR& = IMAGE_ADJ_marble&(LAYERS(CURRENT_LAYER%).imgHandle&, p1%, p2%)
+            IMAGE_ADJ_apply_to_layer adjR&, "Marble"
+        NEXT ti%
+        IF tc% > 1 THEN HISTORY_end_group
+        CURRENT_LAYER% = scl%
+    END IF
+    DIALOG_cleanup ctx
+    SAFE_FREEIMAGE IMGADJ_LAYER_MASK& : IMGADJ_LAYER_MASK& = 0
+END SUB
+
+SUB IMAGE_ADJ_brick_dialog ()
+    IF CURRENT_LAYER% < 1 THEN EXIT SUB
+    DIM ctx AS DIALOG_CTX : DIALOG_init ctx, IMGDLG_W, 138
+    IMAGE_ADJ_setup_preview ctx, LAYERS(CURRENT_LAYER%).imgHandle&
+    DIM p1 AS INTEGER : p1% = 8
+    DIM p2 AS INTEGER : p2% = 2
+    DIM o1 AS INTEGER, o2 AS INTEGER, k AS LONG
+    DO
+        DIALOG_poll_mouse ctx
+        IF ctx.loupeDirty% THEN IMAGE_ADJ_update_loupe ctx
+        k& = _KEYHIT
+        IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
+        IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
+        o1% = p1% : o2% = p2%
+        p1% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, p1%, 3, 24)
+        p1% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, p1%, 3, 24)
+        p2% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, p2%, 1, 6)
+        p2% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, p2%, 1, 6)
+        IF p1% <> o1% OR p2% <> o2% THEN ctx.previewDirty% = TRUE
+        IMGDLG_check_ok_cancel ctx
+        IF ctx.previewDirty% THEN
+            SAFE_FREEIMAGE ctx.previewThumb
+            ctx.previewThumb = IMAGE_ADJ_brick&(ctx.origThumb, p1%, p2%)
+            IMAGE_ADJ_mask_preview ctx : ctx.previewDirty% = FALSE
+        END IF
+        _DEST ctx.imgHandle
+        DIALOG_draw_frame ctx, "BRICK WALL"
+        DIALOG_draw_preview ctx
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "SIZE:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, p1%, 3, 24, "", ""
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 1), "MORTAR:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, p2%, 1, 6, "", ""
+        DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
+        IMGDLG_draw_ok_cancel ctx
+        DIALOG_blit ctx
+    LOOP UNTIL ctx.done%
+    IF ctx.result% THEN
+        DIM tgts(1 TO MAX_LAYERS) AS INTEGER, tc AS INTEGER, ti AS INTEGER, scl AS INTEGER
+        IMAGE_ADJ_collect_targets tgts%(), tc%
+        scl% = CURRENT_LAYER%
+        IF tc% > 1 THEN HISTORY_begin_group
+        DIM adjR AS LONG
+        FOR ti% = 1 TO tc%
+            CURRENT_LAYER% = tgts%(ti%)
+            adjR& = IMAGE_ADJ_brick&(LAYERS(CURRENT_LAYER%).imgHandle&, p1%, p2%)
+            IMAGE_ADJ_apply_to_layer adjR&, "Brick Wall"
+        NEXT ti%
+        IF tc% > 1 THEN HISTORY_end_group
+        CURRENT_LAYER% = scl%
+    END IF
+    DIALOG_cleanup ctx
+    SAFE_FREEIMAGE IMGADJ_LAYER_MASK& : IMGADJ_LAYER_MASK& = 0
+END SUB
+
+
+''
 ' Water Drops / Jiggle (Eye Candy "Shape") — scatter droplet lenses over the shape.
 ' Droplet centres sit on a hash-jittered grid; inside a droplet the underlying
 ' pixels are magnified by a radial lens (sample pulled outward from the centre)

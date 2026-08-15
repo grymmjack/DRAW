@@ -174,12 +174,12 @@ the infra exists.
 ## Wave 8 — Eye Candy: TEXTURE → submenu (procedural fills / overlays)
 
 - [ ] **Animal Fur** — directional furry noise + dialog + QA test
-- [ ] **Brick Wall** — brick tiling with mortar + color jitter + dialog + QA test
+- [x] **Brick Wall** — running-bond brick tiling with grey mortar joints + per-brick colour jitter + faint intra-brick grain, painted onto the shape. SIZE + MORTAR dialog, RGB-only apply_to_layer + TEXTURE menu (2272, child 2) + QA test (effect-texture-basics.sh, 2691px, open_effect 8 2). NEW engine IMAGE_ADJ_brick&. Visually verified — red brick wall.
 - [ ] **Brushed Metal** — anisotropic horizontal streak noise + dialog + QA test
 - [ ] **Clouds (texture)** — covered by Wave 5 Clouds; add TEXTURE-menu entry
 - [ ] **Diamond Plate** — tromp-l'oeil metal tread pattern + dialog + QA test
 - [ ] **Lightning** — branching bolt between two points + dialog + QA test
-- [ ] **Marble** — turbulence-veined marble (perlin + sine) + dialog + QA test
+- [x] **Marble** — turbulence-veined marble: sine of x warped by 3-octave noise gives thin dark veins on a light grey body. SCALE + VEINS dialog, RGB-only apply_to_layer + TEXTURE menu (2271, child 1) + QA test (effect-texture-basics.sh, 3054px, open_effect 8 1). NEW engine IMAGE_ADJ_marble&. Visually verified.
 - [ ] **Reptile Skin** — scale cell pattern (Voronoi + shading) + dialog + QA test
 - [ ] **Ripples** — concentric water ripple displacement + dialog + QA test
 - [ ] **Stone Wall** — irregular stone tiling with mortar + dialog + QA test
@@ -187,7 +187,7 @@ the infra exists.
 - [ ] **Texture Noise / HSB Noise** — per-channel/HSB noise overlay + dialog + QA test
 - [ ] **Water Drops** — refractive droplet bumps scattered over layer + dialog + QA test
 - [ ] **Weave** — over/under basket-weave pattern + dialog + QA test
-- [ ] **Wood** — concentric wood-grain rings + grain noise + dialog + QA test
+- [x] **Wood** — concentric ring grain warped by turbulence in a dark-brown->tan ramp, painted onto the shape. SCALE + GRAIN dialog, RGB-only apply_to_layer + TEXTURE menu (2270, child 0) + QA test (effect-texture-basics.sh, open_effect 8 0). NEW engine IMAGE_ADJ_wood&. Visually verified — flowing wood grain. **TEXTURE category established (index 8, action block 2270-2299).**
 
 ## Wave 6 — Liquify tool ("Kai's Power Goo") — big, own design pass
 
