@@ -1542,7 +1542,7 @@ END SUB
 ' @param mode      INTEGER 0 day / 1 night / 2 space
 ' @return LONG  New opaque sky image handle
 '
-FUNCTION IMAGE_ADJ_sky& (sourceImg AS LONG, mode AS INTEGER)
+FUNCTION IMAGE_ADJ_sky& (sourceImg AS LONG, mode AS INTEGER, seed AS INTEGER)
     IF NOT (sourceImg& < -1) THEN IMAGE_ADJ_sky& = 0 : EXIT FUNCTION
 
     DIM skW AS LONG, skH AS LONG
@@ -1560,6 +1560,14 @@ FUNCTION IMAGE_ADJ_sky& (sourceImg AS LONG, mode AS INTEGER)
         CASE 1 : topR% = 4 : topG% = 6 : topB% = 26 : botR% = 40 : botG% = 44 : botB% = 90
         CASE ELSE : topR% = 2 : topG% = 2 : topB% = 8 : botR% = 6 : botG% = 4 : botB% = 16
     END SELECT
+
+    ' Sun (day) — a bright disc with a broad warm radial glow blended into the sky.
+    DIM sunX AS SINGLE : sunX! = skW& * 0.74 : DIM sunY AS SINGLE : sunY! = skH& * 0.28
+    DIM sunR AS SINGLE : sunR! = skH& * 0.05 : DIM sunGlow AS SINGLE : sunGlow! = sunR! * 7.0
+    ' Nebula (space) — a faint coloured cloud wash from turbulence, tinted by seed.
+    DIM nebHue AS INTEGER : nebHue% = seed% MOD 3
+    DIM ddx AS SINGLE, ddy AS SINGLE, dist AS SINGLE, glow AS SINGLE, neb AS SINGLE
+    DIM oct AS INTEGER, nfr AS SINGLE, namp AS SINGLE
     FOR sy& = 0 TO skH& - 1
     IF (sy& AND 15) = 0 THEN IMGADJ_progress_tick "Sky", sy& / skH&
         tv! = sy& / (skH& - 1.0)
@@ -1567,38 +1575,105 @@ FUNCTION IMAGE_ADJ_sky& (sourceImg AS LONG, mode AS INTEGER)
         gg% = topG% + (botG% - topG%) * tv!
         bb% = topB% + (botB% - topB%) * tv!
         FOR sx& = 0 TO skW& - 1
-            _MEMPUT resM, resM.OFFSET + (sy& * skW& + sx&) * 4, _RGBA32(rr%, gg%, bb%, 255) AS _UNSIGNED LONG
+            DIM oR3 AS INTEGER, oG3 AS INTEGER, oB3 AS INTEGER
+            oR3% = rr% : oG3% = gg% : oB3% = bb%
+            IF mode% = 0 THEN
+                ddx! = sx& - sunX! : ddy! = sy& - sunY!
+                dist! = SQR(ddx! * ddx! + ddy! * ddy!)
+                IF dist! < sunGlow! THEN
+                    glow! = 1.0 - dist! / sunGlow! : glow! = glow! * glow! * 0.85
+                    oR3% = oR3% + INT((255 - oR3%) * glow!)
+                    oG3% = oG3% + INT((250 - oG3%) * glow!)
+                    oB3% = oB3% + INT((205 - oB3%) * glow! * 0.7)
+                END IF
+            ELSEIF mode% = 2 THEN
+                ' turbulence nebula wash
+                neb! = 0.0 : nfr! = 0.012 : namp! = 1.0
+                FOR oct% = 0 TO 3
+                    neb! = neb! + ABS(IMGADJ_valnoise!(sx& * nfr!, sy& * nfr!, oct% + 3 + seed%) - 0.5) * 2.0 * namp!
+                    nfr! = nfr! * 2.0 : namp! = namp! * 0.5
+                NEXT oct%
+                neb! = neb! / 1.875 - 0.45 : IF neb! < 0.0 THEN neb! = 0.0
+                neb! = neb! * 0.9
+                SELECT CASE nebHue%
+                    CASE 0 : oR3% = oR3% + INT(70 * neb!) : oB3% = oB3% + INT(90 * neb!)   ' purple
+                    CASE 1 : oG3% = oG3% + INT(60 * neb!) : oB3% = oB3% + INT(80 * neb!)   ' teal
+                    CASE ELSE : oR3% = oR3% + INT(85 * neb!) : oG3% = oG3% + INT(40 * neb!) ' ember
+                END SELECT
+                IF oR3% > 255 THEN oR3% = 255
+                IF oG3% > 255 THEN oG3% = 255
+                IF oB3% > 255 THEN oB3% = 255
+            END IF
+            _MEMPUT resM, resM.OFFSET + (sy& * skW& + sx&) * 4, _RGBA32(oR3%, oG3%, oB3%, 255) AS _UNSIGNED LONG
         NEXT sx&
     NEXT sy&
 
-    ' stars for night / space
+    ' Stars for night / space — varied brightness, occasional bigger twinkles.
     IF mode% >= 1 THEN
-        DIM hs AS LONG, thr AS LONG, br AS INTEGER
-        thr& = 64850 : IF mode% = 2 THEN thr& = 64200   ' space denser
+        DIM hs AS LONG, thr AS LONG, br AS INTEGER, tint AS INTEGER
+        thr& = 64920 : IF mode% = 2 THEN thr& = 64450   ' space denser
         FOR sy& = 0 TO skH& - 1
             FOR sx& = 0 TO skW& - 1
-                hs& = ((sx& * 374761393) XOR (sy& * 668265263)) AND 65535
+                hs& = ((sx& * 374761393) XOR (sy& * 668265263) XOR (seed% * 40507)) AND 65535
                 IF hs& > thr& THEN
-                    br% = 160 + (hs& AND 95)
-                    _MEMPUT resM, resM.OFFSET + (sy& * skW& + sx&) * 4, _RGBA32(br%, br%, br%, 255) AS _UNSIGNED LONG
+                    br% = 110 + (hs& AND 145)               ' wide brightness spread
+                    tint% = (hs& \ 256) AND 31              ' slight warm/cool tint
+                    _MEMPUT resM, resM.OFFSET + (sy& * skW& + sx&) * 4, _RGBA32(br%, br% - (tint% \ 2), br% - tint% + 16, 255) AS _UNSIGNED LONG
+                    ' the brightest ~1/4 become a 2px twinkle
+                    IF (hs& AND 3) = 0 AND br% > 210 AND sx& + 1 < skW& THEN
+                        _MEMPUT resM, resM.OFFSET + (sy& * skW& + sx& + 1) * 4, _RGBA32(br% - 40, br% - 40, br% - 24, 255) AS _UNSIGNED LONG
+                    END IF
                 END IF
             NEXT sx&
         NEXT sy&
     END IF
     _MEMFREE resM
 
-    ' space: draw a planet
+    DIM oldDest AS LONG : oldDest& = _DEST
+    _DEST result& : _DONTBLEND result&
+    DIM half AS LONG, pyi AS LONG
+
+    ' Day: a crisp sun disc over the glow.
+    IF mode% = 0 THEN
+        DIM sdR AS LONG : sdR& = INT(sunR!)
+        FOR pyi& = -sdR& TO sdR&
+            half& = INT(SQR(sdR& * sdR& - pyi& * pyi&))
+            LINE (sunX! - half&, sunY! + pyi&)-(sunX! + half&, sunY! + pyi&), _RGBA32(255, 250, 220, 255)
+        NEXT pyi&
+    END IF
+
+    ' Night: a pale moon with a soft terminator (offset darker disc).
+    IF mode% = 1 THEN
+        DIM mcx AS LONG, mcy AS LONG, mr AS LONG
+        mcx& = skW& * 0.72 : mcy& = skH& * 0.26 : mr& = skH& * 0.1
+        FOR pyi& = -mr& TO mr&
+            half& = INT(SQR(mr& * mr& - pyi& * pyi&))
+            LINE (mcx& - half&, mcy& + pyi&)-(mcx& + half&, mcy& + pyi&), _RGBA32(225, 228, 235, 255)
+        NEXT pyi&
+        ' shave a crescent by overpainting an offset sky-dark disc
+        DIM tcx AS LONG : tcx& = mcx& + mr& * 0.55
+        FOR pyi& = -mr& TO mr&
+            half& = INT(SQR(mr& * mr& - pyi& * pyi&))
+            LINE (tcx& - half&, mcy& + pyi&)-(tcx& + half&, mcy& + pyi&), _RGBA32(topR%, topG%, topB%, 255)
+        NEXT pyi&
+    END IF
+
+    ' Space: a ringed planet plus a smaller moon.
     IF mode% = 2 THEN
-        DIM oldDest AS LONG : oldDest& = _DEST
-        _DEST result& : _DONTBLEND result&
-        DIM pcx AS LONG, pcy AS LONG, pr AS LONG, pyi AS LONG, half AS LONG
+        DIM pcx AS LONG, pcy AS LONG, pr AS LONG
         pcx& = skW& * 0.72 : pcy& = skH& * 0.32 : pr& = skH& * 0.16
         FOR pyi& = -pr& TO pr&
             half& = INT(SQR(pr& * pr& - pyi& * pyi&))
             LINE (pcx& - half&, pcy& + pyi&)-(pcx& + half&, pcy& + pyi&), _RGBA32(150, 90 - INT(pyi& * 20 / pr&), 60, 255)
         NEXT pyi&
-        _BLEND result& : _DEST oldDest&
+        DIM m2x AS LONG, m2y AS LONG, m2r AS LONG
+        m2x& = skW& * 0.28 : m2y& = skH& * 0.62 : m2r& = skH& * 0.05
+        FOR pyi& = -m2r& TO m2r&
+            half& = INT(SQR(m2r& * m2r& - pyi& * pyi&))
+            LINE (m2x& - half&, m2y& + pyi&)-(m2x& + half&, m2y& + pyi&), _RGBA32(120, 130, 150, 255)
+        NEXT pyi&
     END IF
+    _BLEND result& : _DEST oldDest&
 
     IMAGE_ADJ_sky& = result&
 END FUNCTION
@@ -1612,11 +1687,12 @@ SUB IMAGE_ADJ_sky_dialog ()
     IF CURRENT_LAYER% < 1 THEN EXIT SUB
 
     DIM ctx AS DIALOG_CTX
-    DIALOG_init ctx, IMGDLG_W, 110
+    DIALOG_init ctx, IMGDLG_W, 148
     IMAGE_ADJ_setup_preview ctx, LAYERS(CURRENT_LAYER%).imgHandle&
 
     DIM smode AS INTEGER : smode% = 0
-    DIM oMode AS INTEGER
+    DIM skSeed AS INTEGER : skSeed% = 0
+    DIM oMode AS INTEGER, oSeed AS INTEGER
 
     DIM k AS LONG
     DIM d_smode AS INTEGER : d_smode% = 0
@@ -1627,16 +1703,18 @@ SUB IMAGE_ADJ_sky_dialog ()
         IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
         IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
 
-        oMode% = smode%
+        oMode% = smode% : oSeed% = skSeed%
         smode% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, smode%, 0, 2)
         smode% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, smode%, 0, 2)
-        IF smode% <> oMode% THEN ctx.previewDirty% = TRUE
+        skSeed% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, skSeed%, 0, 99)
+        skSeed% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, skSeed%, 0, 99)
+        IF smode% <> oMode% OR skSeed% <> oSeed% THEN ctx.previewDirty% = TRUE
         IMGDLG_check_ok_cancel ctx
         IMGDLG_reset1 ctx, smode%, d_smode%
 
         IF ctx.previewDirty% THEN
             SAFE_FREEIMAGE ctx.previewThumb
-            ctx.previewThumb = IMAGE_ADJ_sky&(ctx.origThumb, smode%)
+            ctx.previewThumb = IMAGE_ADJ_sky&(ctx.origThumb, smode%, skSeed%)
             IMAGE_ADJ_mask_preview ctx
             ctx.previewDirty% = FALSE
         END IF
@@ -1646,6 +1724,8 @@ SUB IMAGE_ADJ_sky_dialog ()
         DIALOG_draw_preview ctx
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "MODE (0 DAY / 1 NIGHT / 2 SPACE):"
         DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, smode%, 0, 2, "", ""
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 1), "SEED (STARS / NEBULA):"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, skSeed%, 0, 99, "", ""
         DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
         IMGDLG_draw_ok_cancel ctx
         DIALOG_blit ctx
@@ -1660,7 +1740,7 @@ SUB IMAGE_ADJ_sky_dialog ()
         DIM adjR     AS LONG
         FOR skT% = 1 TO skTgtCount%
             CURRENT_LAYER% = skTargets%(skT%)
-            adjR&          = IMAGE_ADJ_sky&(LAYERS(CURRENT_LAYER%).imgHandle&, smode%)
+            adjR&          = IMAGE_ADJ_sky&(LAYERS(CURRENT_LAYER%).imgHandle&, smode%, skSeed%)
             IMAGE_ADJ_apply_spatial adjR&, "Render Sky"
         NEXT skT%
         IF skTgtCount% > 1 THEN HISTORY_end_group

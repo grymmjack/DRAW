@@ -5,7 +5,7 @@ Each box is independently buildable + verifiable. Build with `~/git/qb64pe-450/q
 (v4.5.0, the Makefile default). Commit after each grouped box lands green.
 
 ## 🔨 NOW — doing right now
-- [ ] ➡️ Clouds + Difference Clouds: realistic fBm clouds
+- [ ] ➡️ Render Sky: deeper day / night / space rendering
 
 ## 🐞 Bugs / regressions
 - [x] Cursor is a move/cross over EFFECTS flyout items — POINTER.BM now sets CURSOR_NULL over the category flyout region (genOpen%/genX/genY/genW/genH), matching the submenu-arrow logic. Built 17:31.
@@ -42,7 +42,7 @@ Each box is independently buildable + verifiable. Build with `~/git/qb64pe-450/q
 - [ ] Lightning: forks, fork randomness, fork diminish (thicker→thinner), spikiness, etc.
 - [x] Glass (Shape): REPEATS (1..16) + GLINT THICKNESS + ANGLE dial. QA effect-glass 6/6. Built 21:09.
 - [ ] Render Grid: endless 1980s-style perspective (lines continue off every side, don't collapse into a rect) + an angle option
-- [ ] Clouds + Difference Clouds: realistic fBm clouds — they don't look like clouds
+- [x] Clouds + Difference Clouds: realistic — Clouds = 5-octave fBm + COVERAGE threshold + smoothstep billows (+ SEED); Diff Clouds = 5-octave turbulence folds. QA 11/11. Built 21:21.
 - [ ] Render Sky: deeper day / night / space rendering (gradient≠sky; night is dotted; space is dots+circles)
 - [ ] Terrain: land/sea/height color chips (pick from palette), seed, rotation, variation
 - [ ] Lens Flare: click-to-position + a real flare render (halo/streaks/rings) + lens-type presets
