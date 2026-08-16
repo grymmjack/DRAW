@@ -5362,7 +5362,7 @@ END FUNCTION
 ' fading to a blue glow, over a darkened copy of the shape so the bolt pops.
 ' JAG sets path waviness; GLOW sets bolt width/brightness. RGB-only -> apply_to_layer.
 '
-FUNCTION IMAGE_ADJ_lightning& (sourceImg AS LONG, jag AS INTEGER, glow AS INTEGER)
+FUNCTION IMAGE_ADJ_lightning& (sourceImg AS LONG, jag AS INTEGER, glow AS INTEGER, forks AS INTEGER, forkRand AS INTEGER, diminish AS INTEGER, spikiness AS INTEGER)
     IF NOT (sourceImg& < -1) THEN IMAGE_ADJ_lightning& = 0 : EXIT FUNCTION
     DIM ltW AS LONG, ltH AS LONG
     ltW& = _WIDTH(sourceImg&) : ltH& = _HEIGHT(sourceImg&)
@@ -5372,33 +5372,60 @@ FUNCTION IMAGE_ADJ_lightning& (sourceImg AS LONG, jag AS INTEGER, glow AS INTEGE
     DIM jagAmp AS SINGLE : jagAmp! = ltW& * 0.12 + jag% / 100.0 * ltW& * 0.3
     DIM glowW AS SINGLE : glowW! = 2.0 + glow% / 100.0 * (ltW& * 0.12)
     DIM cxBase AS SINGLE : cxBase! = ltW& * 0.5
+    DIM spk AS SINGLE : spk! = spikiness% / 100.0
+    DIM frRand AS SINGLE : frRand! = forkRand% / 100.0
+    DIM frDim AS SINGLE : frDim! = diminish% / 100.0
+    DIM nForks AS INTEGER : nForks% = forks% : IF nForks% < 0 THEN nForks% = 0 ELSE IF nForks% > 8 THEN nForks% = 8
+
+    ' Per-fork constants (start row, side, wander seed) — deterministic so preview
+    ' matches apply.
+    REDIM fStartY(0 TO 8) AS SINGLE, fSide(0 TO 8) AS SINGLE
+    DIM fk AS INTEGER
+    FOR fk% = 0 TO nForks% - 1
+        fStartY(fk%) = ltH& * (0.12 + 0.62 * IMGADJ_valnoise!(fk% * 3.7 + 0.5, 0.5, 220))
+        IF IMGADJ_valnoise!(fk% * 5.1 + 0.5, 1.5, 221) > 0.5 THEN fSide(fk%) = 1.0 ELSE fSide(fk%) = -1.0
+    NEXT fk%
+    REDIM fX(0 TO 8) AS SINGLE, fW(0 TO 8) AS SINGLE, fOn(0 TO 8) AS INTEGER
+
     DIM ax AS LONG, ay AS LONG, aHere AS _UNSIGNED _BYTE, pix AS _UNSIGNED LONG
-    DIM boltX AS SINGLE, boltX2 AS SINGLE, dist AS SINGLE, dist2 AS SINGLE, t AS SINGLE
-    DIM pr AS INTEGER, pg AS INTEGER, pb AS INTEGER, lr AS INTEGER, lg AS INTEGER, lb AS INTEGER, best AS SINGLE
+    DIM boltX AS SINGLE, dist AS SINGLE, t AS SINGLE, prog AS SINGLE
+    DIM pr AS INTEGER, pg AS INTEGER, pb AS INTEGER, lr AS INTEGER, lg AS INTEGER, lb AS INTEGER, tBest AS SINGLE
     FOR ay& = 0 TO ltH& - 1
     IF (ay& AND 15) = 0 THEN IMGADJ_progress_tick "Lightning", ay& / ltH&
-        ' main bolt path + one branch (offset seed), both wandering by noise
+        ' main bolt: low-freq wander + spikiness-scaled high-freq zigzag
         boltX! = cxBase! + (IMGADJ_valnoise!(ay& * 0.12, 0.5, 191) - 0.5) * 2.0 * jagAmp! _
-               + (IMGADJ_valnoise!(ay& * 0.4, 1.5, 192) - 0.5) * jagAmp! * 0.5
-        boltX2! = cxBase! + ltW& * 0.18 + (IMGADJ_valnoise!(ay& * 0.15, 7.5, 193) - 0.5) * 2.0 * jagAmp!
+               + (IMGADJ_valnoise!(ay& * (0.4 + spk! * 1.6), 1.5, 192) - 0.5) * jagAmp! * (0.3 + spk! * 1.1)
+        ' each active fork's x + tapering width for this row
+        FOR fk% = 0 TO nForks% - 1
+            IF ay& >= fStartY(fk%) THEN
+                fOn(fk%) = 1
+                prog! = (ay& - fStartY(fk%)) / (ltH& - fStartY(fk%) + 1.0)
+                fX(fk%) = boltX! + fSide(fk%) * frRand! * ltW& * 0.42 * prog! _
+                        + (IMGADJ_valnoise!(ay& * 0.22, fk% * 2.0 + 3.0, 222) - 0.5) * 2.0 * jagAmp! * 0.6
+                fW(fk%) = glowW! * (1.0 - frDim! * prog!) : IF fW(fk%) < 1.0 THEN fW(fk%) = 1.0
+            ELSE
+                fOn(fk%) = 0
+            END IF
+        NEXT fk%
         FOR ax& = 0 TO ltW& - 1
             _MEMGET srcM, srcM.OFFSET + (ay& * ltW& + ax&) * 4 + 3, aHere~%%
             IF aHere~%% = 0 THEN _CONTINUE
-            dist! = ABS(ax& - boltX!)
-            dist2! = ABS(ax& - boltX2!)
-            IF ay& < ltH& * 0.4 THEN dist2! = 1e9           ' branch only in lower part
-            best! = dist! : IF dist2! < best! THEN best! = dist2!
+            tBest! = ABS(ax& - boltX!) / glowW!               ' normalised dist to main bolt
+            FOR fk% = 0 TO nForks% - 1
+                IF fOn(fk%) THEN
+                    t! = ABS(ax& - fX(fk%)) / fW(fk%)
+                    IF t! < tBest! THEN tBest! = t!
+                END IF
+            NEXT fk%
             _MEMGET srcM, srcM.OFFSET + (ay& * ltW& + ax&) * 4, pix~&
             pr% = _RED32(pix~&) : pg% = _GREEN32(pix~&) : pb% = _BLUE32(pix~&)
-            IF best! > glowW! THEN
-                ' darkened base so the bolt stands out
+            IF tBest! > 1.0 THEN
                 _MEMPUT resM, resM.OFFSET + (ay& * ltW& + ax&) * 4, _RGBA32(pr% \ 3, pg% \ 3, INT(pb% \ 3) + 10, aHere~%%) AS _UNSIGNED LONG
             ELSE
-                t! = best! / glowW!                          ' 0 core .. 1 edge
-                IF t! < 0.25 THEN
+                IF tBest! < 0.25 THEN
                     lr% = 255 : lg% = 255 : lb% = 255        ' white-hot core
                 ELSE
-                    lr% = INT(150 * (1.0 - t!)) : lg% = INT(190 * (1.0 - t!)) : lb% = INT(120 + 135 * (1.0 - t!))
+                    lr% = INT(150 * (1.0 - tBest!)) : lg% = INT(190 * (1.0 - tBest!)) : lb% = INT(120 + 135 * (1.0 - tBest!))
                     IF lb% > 255 THEN lb% = 255
                 END IF
                 _MEMPUT resM, resM.OFFSET + (ay& * ltW& + ax&) * 4, _RGBA32(lr%, lg%, lb%, aHere~%%) AS _UNSIGNED LONG
@@ -6571,11 +6598,15 @@ END SUB
 
 SUB IMAGE_ADJ_lightning_dialog ()
     IF CURRENT_LAYER% < 1 THEN EXIT SUB
-    DIM ctx AS DIALOG_CTX : DIALOG_init ctx, IMGDLG_W, 138
+    DIM ctx AS DIALOG_CTX : DIALOG_init ctx, IMGDLG_W, 300
     IMAGE_ADJ_setup_preview ctx, LAYERS(CURRENT_LAYER%).imgHandle&
     DIM p1 AS INTEGER : p1% = 50
     DIM p2 AS INTEGER : p2% = 45
-    DIM o1 AS INTEGER, o2 AS INTEGER, k AS LONG
+    DIM ltFrk AS INTEGER : ltFrk% = 3
+    DIM ltRnd AS INTEGER : ltRnd% = 50
+    DIM ltDim AS INTEGER : ltDim% = 60
+    DIM ltSpk AS INTEGER : ltSpk% = 40
+    DIM o1 AS INTEGER, o2 AS INTEGER, oFrk AS INTEGER, oRnd AS INTEGER, oDim AS INTEGER, oSpk AS INTEGER, k AS LONG
     DIM d_p1 AS INTEGER : d_p1% = 50
     DIM d_p2 AS INTEGER : d_p2% = 45
     DO
@@ -6584,17 +6615,25 @@ SUB IMAGE_ADJ_lightning_dialog ()
         k& = _KEYHIT
         IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
         IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
-        o1% = p1% : o2% = p2%
+        o1% = p1% : o2% = p2% : oFrk% = ltFrk% : oRnd% = ltRnd% : oDim% = ltDim% : oSpk% = ltSpk%
         p1% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, p1%, 0, 100)
         p1% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, p1%, 0, 100)
         p2% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, p2%, 0, 100)
         p2% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, p2%, 0, 100)
-        IF p1% <> o1% OR p2% <> o2% THEN ctx.previewDirty% = TRUE
+        ltFrk% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, 14, ltFrk%, 0, 8)
+        ltFrk% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, 14, ltFrk%, 0, 8)
+        ltRnd% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 3), IMGDLG_SW, 14, ltRnd%, 0, 100)
+        ltRnd% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 3), IMGDLG_SW, 14, ltRnd%, 0, 100)
+        ltDim% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 4), IMGDLG_SW, 14, ltDim%, 0, 100)
+        ltDim% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 4), IMGDLG_SW, 14, ltDim%, 0, 100)
+        ltSpk% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 5), IMGDLG_SW, 14, ltSpk%, 0, 100)
+        ltSpk% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 5), IMGDLG_SW, 14, ltSpk%, 0, 100)
+        IF p1% <> o1% OR p2% <> o2% OR ltFrk% <> oFrk% OR ltRnd% <> oRnd% OR ltDim% <> oDim% OR ltSpk% <> oSpk% THEN ctx.previewDirty% = TRUE
         IMGDLG_check_ok_cancel ctx
         IMGDLG_reset2 ctx, p1%, p2%, d_p1%, d_p2%
         IF ctx.previewDirty% THEN
             SAFE_FREEIMAGE ctx.previewThumb
-            ctx.previewThumb = IMAGE_ADJ_lightning&(ctx.origThumb, p1%, p2%)
+            ctx.previewThumb = IMAGE_ADJ_lightning&(ctx.origThumb, p1%, p2%, ltFrk%, ltRnd%, ltDim%, ltSpk%)
             IMAGE_ADJ_mask_preview ctx : ctx.previewDirty% = FALSE
         END IF
         _DEST ctx.imgHandle
@@ -6604,6 +6643,14 @@ SUB IMAGE_ADJ_lightning_dialog ()
         DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, p1%, 0, 100, "", ""
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 1), "GLOW:"
         DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, p2%, 0, 100, "", ""
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 2), "FORKS:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, ltFrk%, 0, 8, "", ""
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 3), "FORK RANDOMNESS:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 3), IMGDLG_SW, ltRnd%, 0, 100, "", ""
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 4), "FORK DIMINISH (TAPER):"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 4), IMGDLG_SW, ltDim%, 0, 100, "", ""
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 5), "SPIKINESS:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 5), IMGDLG_SW, ltSpk%, 0, 100, "", ""
         DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
         IMGDLG_draw_ok_cancel ctx
         DIALOG_blit ctx
@@ -6616,7 +6663,7 @@ SUB IMAGE_ADJ_lightning_dialog ()
         DIM adjR AS LONG
         FOR ti% = 1 TO tc%
             CURRENT_LAYER% = tgts%(ti%)
-            adjR& = IMAGE_ADJ_lightning&(LAYERS(CURRENT_LAYER%).imgHandle&, p1%, p2%)
+            adjR& = IMAGE_ADJ_lightning&(LAYERS(CURRENT_LAYER%).imgHandle&, p1%, p2%, ltFrk%, ltRnd%, ltDim%, ltSpk%)
             IMAGE_ADJ_apply_to_layer adjR&, "Lightning"
         NEXT ti%
         IF tc% > 1 THEN HISTORY_end_group
