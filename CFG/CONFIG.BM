@@ -1809,14 +1809,28 @@ SUB CONFIG_upgrade ()
     DIM eqPos      AS INTEGER
 
     ' --- Step 1: Collect existing keys from current config file ---
-    CONST MAX_KEYS = 200
+    ' MAX_KEYS must exceed the LARGEST config a user can accumulate: every
+    ' CONFIG_save key (~210 and growing each release) PLUS all RECENT_FILE_* (10)
+    ' and RECENT_PREVIEW_FILE_* (10) lines, which are counted here too. If this
+    ' cap is too low, keys parsed past it never land in existingKeys(), so Step 3
+    ' treats them as "missing" and RE-APPENDS them on EVERY --config-upgrade run —
+    ' the file grows with duplicates and the upgrade never converges. (Was 200,
+    ' which a 211-key config already overran — bumped 2026-08-16 with headroom.)
+    CONST MAX_KEYS = 1024
     DIM existingKeys(1 TO MAX_KEYS) AS STRING
     DIM existingKeyCount AS INTEGER
     existingKeyCount% = 0
 
     IF NOT _FILEEXISTS(CONFIG_FILE_PATH$) THEN
-        ' Nothing to upgrade — file doesn't exist yet, CONFIG_load will create it
-        EXIT SUB
+        ' Nothing to upgrade — file doesn't exist yet (CONFIG_load bootstraps it).
+        ' Still a console-only reconcile-and-exit op, so report and quit rather
+        ' than falling through into a full editor launch.
+        _CONSOLE ON
+        _DEST _CONSOLE
+        PRINT "Config upgrade: no config file yet at"
+        PRINT "  " + CONFIG_FILE_PATH$
+        PRINT "A fresh config with current defaults will be created on next normal launch."
+        SYSTEM
     END IF
 
     fh% = FREEFILE
@@ -1832,6 +1846,11 @@ SUB CONFIG_upgrade ()
                 IF existingKeyCount% < MAX_KEYS THEN
                     existingKeyCount% = existingKeyCount% + 1
                     existingKeys(existingKeyCount%) = configKey$
+                ELSE
+                    ' Overflow: keys past the cap can't be tracked, so they'd be
+                    ' wrongly re-appended below. Warn loudly rather than corrupt
+                    ' the config silently (raise MAX_KEYS if this ever fires).
+                    _LOGWARN "CONFIG_upgrade: existingKeys overflow at " + _TRIM$(STR$(MAX_KEYS)) + " keys — raise MAX_KEYS"
                 END IF
             END IF
         END IF
@@ -1902,7 +1921,15 @@ SUB CONFIG_upgrade ()
     ' Clean up temp file
     KILL tempPath$
 
-    ' --- Step 4: Append missing keys to existing config file ---
+    ' --- Step 4: Append missing keys, report to the console, and exit ---
+    ' --config-upgrade is a console-only, reconcile-and-exit operation: it prints
+    ' to the console (never a graphics modal — the window is hidden via
+    ' $SCREENHIDE and stays that way) and SYSTEMs when done, so it never launches
+    ' the editor. New keys are written with their DEFAULT values: CONFIG_load ran
+    ' CONFIG_set_defaults before reading the user file, so CFG holds each missing
+    ' key's default, and Step 2's temp file is CONFIG_save of that CFG.
+    _CONSOLE ON
+    _DEST _CONSOLE
     IF missingCount% > 0 THEN
         fh% = FREEFILE
         OPEN CONFIG_FILE_PATH$ FOR APPEND AS #fh%
@@ -1911,22 +1938,14 @@ SUB CONFIG_upgrade ()
         PRINT #fh%, missingLines$;
         CLOSE #fh%
 
-        ' Inform the user
-        DIM upgradeMsg AS STRING
-        upgradeMsg$ = "Config upgraded: " + _TRIM$(STR$(missingCount%)) + " new setting(s) added to:" + CHR$(10) + CHR$(10)
-        upgradeMsg$ = upgradeMsg$ + CONFIG_FILE_PATH$ + CHR$(10) + CHR$(10)
-        upgradeMsg$ = upgradeMsg$ + "New keys: " + missingKeys$
-        DRAW_alert "Config Upgrade", upgradeMsg$
-
-        ' Re-load the config to pick up any new defaults
-        ' (recursive call is safe — CMDLINE_CONFIG_UPGRADE% prevents infinite loop)
-        CMDLINE_CONFIG_UPGRADE% = FALSE
-        CONFIG_load
+        PRINT "Config upgraded: " + _TRIM$(STR$(missingCount%)) + " new setting(s) added to:"
+        PRINT "  " + CONFIG_FILE_PATH$
+        PRINT "New keys: " + missingKeys$
     ELSE
-        DRAW_alert "Config Upgrade", _
-            "Config file is up to date -- no new settings to add." + CHR$(10) + CHR$(10) + _
-            CONFIG_FILE_PATH$
+        PRINT "Config file is up to date -- no new settings to add."
+        PRINT "  " + CONFIG_FILE_PATH$
     END IF
+    SYSTEM
 END SUB
 
 
