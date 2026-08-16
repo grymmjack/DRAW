@@ -5,7 +5,7 @@ Each box is independently buildable + verifiable. Build with `~/git/qb64pe-450/q
 (v4.5.0, the Makefile default). Commit after each grouped box lands green.
 
 ## 🔨 NOW — doing right now
-- [ ] ➡️ Blend Last Effect: expose ALL layer blend modes as a DROPDOWN (not the cycle button)
+- [ ] ➡️ Chromatic Aberration: add an ANGLE (with dial)
 
 ## 🐞 Bugs / regressions
 - [x] Cursor is a move/cross over EFFECTS flyout items — POINTER.BM now sets CURSOR_NULL over the category flyout region (genOpen%/genX/genY/genW/genH), matching the submenu-arrow logic. Built 17:31.
@@ -27,7 +27,7 @@ Each box is independently buildable + verifiable. Build with `~/git/qb64pe-450/q
   - [x] batch 5: Brushed Metal (angle+seed) + Texture Noise (seed; isotropic) + Water Drops (seed; isotropic). QA waterdrops+texture-more 16/16. Built 20:12.
 
 ## ✨ Per-effect (use the shared pieces above)
-- [ ] Blend Last Effect: expose ALL layer blend modes (incl. Color Dodge, etc.) as a DROPDOWN (not the cycle button)
+- [x] Blend Last Effect: ALL 19 layer blend modes as a DROPDOWN. New reusable BLEND_ch%/BLEND_mix_channels (Rec.601 for Color/Luminosity); compositor untouched. QA effect-redo-last 7/7. Built 20:28.
 - [x] Posterize dither: cycle-button → dropdown (23 options, keyboard-navigable). First consumer of the shared DIALOG_dropdown widget. QA posterize-dither-color updated + 6/6 green. Built 18:31.
 - [ ] Chromatic Aberration: add an ANGLE (with dial)
 - [ ] Add Noise: add ANGLE + SEED (current result reads as a flat patch)

@@ -8571,7 +8571,7 @@ END SUB
 ' @param amount    INTEGER Horizontal channel offset in pixels (0..20)
 ' @return LONG  New fringed image handle
 '
-FUNCTION IMAGE_ADJ_chromatic& (sourceImg AS LONG, amount AS INTEGER)
+FUNCTION IMAGE_ADJ_chromatic& (sourceImg AS LONG, amount AS INTEGER, angle AS INTEGER)
     IF NOT (sourceImg& < -1) THEN IMAGE_ADJ_chromatic& = 0 : EXIT FUNCTION
 
     DIM caW AS LONG, caH AS LONG
@@ -8583,18 +8583,25 @@ FUNCTION IMAGE_ADJ_chromatic& (sourceImg AS LONG, amount AS INTEGER)
     srcM = _MEMIMAGE(sourceImg&)
     resM = _MEMIMAGE(result&)
 
-    DIM cx AS LONG, cy AS LONG, rxx AS LONG, bxx AS LONG
+    ' fringe direction: R shifts one way, B the other, along `angle` (0 = horizontal,
+    ' matching the classic left/right split).
+    DIM caRa AS SINGLE : caRa! = angle% * 3.14159265 / 180.0
+    DIM caDx AS INTEGER : caDx% = INT(amount% * COS(caRa!) + 0.5)
+    DIM caDy AS INTEGER : caDy% = INT(-amount% * SIN(caRa!) + 0.5)
+    DIM cx AS LONG, cy AS LONG, rxx AS LONG, ryy AS LONG, bxx AS LONG, byy AS LONG
     DIM rPx AS _UNSIGNED LONG, gPx AS _UNSIGNED LONG, bPx AS _UNSIGNED LONG
 
     FOR cy& = 0 TO caH& - 1
     IF (cy& AND 15) = 0 THEN IMGADJ_progress_tick "Chromatic", cy& / caH&
         FOR cx& = 0 TO caW& - 1
-            rxx& = cx& - amount% : IF rxx& < 0 THEN rxx& = 0 ELSE IF rxx& >= caW& THEN rxx& = caW& - 1
-            bxx& = cx& + amount% : IF bxx& < 0 THEN bxx& = 0 ELSE IF bxx& >= caW& THEN bxx& = caW& - 1
+            rxx& = cx& - caDx% : IF rxx& < 0 THEN rxx& = 0 ELSE IF rxx& >= caW& THEN rxx& = caW& - 1
+            ryy& = cy& - caDy% : IF ryy& < 0 THEN ryy& = 0 ELSE IF ryy& >= caH& THEN ryy& = caH& - 1
+            bxx& = cx& + caDx% : IF bxx& < 0 THEN bxx& = 0 ELSE IF bxx& >= caW& THEN bxx& = caW& - 1
+            byy& = cy& + caDy% : IF byy& < 0 THEN byy& = 0 ELSE IF byy& >= caH& THEN byy& = caH& - 1
 
-            _MEMGET srcM, srcM.OFFSET + (cy& * caW& + rxx&) * 4, rPx~&
+            _MEMGET srcM, srcM.OFFSET + (ryy& * caW& + rxx&) * 4, rPx~&
             _MEMGET srcM, srcM.OFFSET + (cy& * caW& + cx&) * 4, gPx~&
-            _MEMGET srcM, srcM.OFFSET + (cy& * caW& + bxx&) * 4, bPx~&
+            _MEMGET srcM, srcM.OFFSET + (byy& * caW& + bxx&) * 4, bPx~&
 
             _MEMPUT resM, resM.OFFSET + (cy& * caW& + cx&) * 4, _RGB32(_RED32(rPx~&), _GREEN32(gPx~&), _BLUE32(bPx~&)) AS _UNSIGNED LONG
         NEXT cx&
@@ -8614,11 +8621,12 @@ SUB IMAGE_ADJ_chromatic_dialog ()
     IF CURRENT_LAYER% < 1 THEN EXIT SUB
 
     DIM ctx AS DIALOG_CTX
-    DIALOG_init ctx, IMGDLG_W, 110
+    DIALOG_init ctx, IMGDLG_W, 148
     IMAGE_ADJ_setup_preview ctx, LAYERS(CURRENT_LAYER%).imgHandle&
 
     DIM amount  AS INTEGER : amount% = 4
-    DIM oAmount AS INTEGER
+    DIM caAngle AS INTEGER : caAngle% = 0
+    DIM oAmount AS INTEGER, oAngle AS INTEGER
 
     DIM k AS LONG
     DIM d_amount AS INTEGER : d_amount% = 4
@@ -8629,16 +8637,17 @@ SUB IMAGE_ADJ_chromatic_dialog ()
         IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
         IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
 
-        oAmount% = amount%
+        oAmount% = amount% : oAngle% = caAngle%
         amount% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, amount%, 0, 100)
         amount% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, amount%, 0, 100)
-        IF amount% <> oAmount% THEN ctx.previewDirty% = TRUE
+        caAngle% = IMGDLG_angle_handle%(ctx, 1, caAngle%)
+        IF amount% <> oAmount% OR caAngle% <> oAngle% THEN ctx.previewDirty% = TRUE
         IMGDLG_check_ok_cancel ctx
         IMGDLG_reset1 ctx, amount%, d_amount%
 
         IF ctx.previewDirty% THEN
             SAFE_FREEIMAGE ctx.previewThumb
-            ctx.previewThumb = IMAGE_ADJ_chromatic&(ctx.origThumb, amount%)
+            ctx.previewThumb = IMAGE_ADJ_chromatic&(ctx.origThumb, amount%, caAngle%)
             IMAGE_ADJ_mask_preview ctx
             ctx.previewDirty% = FALSE
         END IF
@@ -8648,6 +8657,7 @@ SUB IMAGE_ADJ_chromatic_dialog ()
         DIALOG_draw_preview ctx
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "AMOUNT:"
         DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, amount%, 0, 100, "", ""
+        IMGDLG_angle_draw ctx, 1, caAngle%, "ANGLE:"
         DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
         IMGDLG_draw_ok_cancel ctx
         DIALOG_blit ctx
@@ -8662,7 +8672,7 @@ SUB IMAGE_ADJ_chromatic_dialog ()
         DIM adjR     AS LONG
         FOR caT% = 1 TO caTgtCount%
             CURRENT_LAYER% = caTargets%(caT%)
-            adjR&          = IMAGE_ADJ_chromatic&(LAYERS(CURRENT_LAYER%).imgHandle&, amount%)
+            adjR&          = IMAGE_ADJ_chromatic&(LAYERS(CURRENT_LAYER%).imgHandle&, amount%, caAngle%)
             IMAGE_ADJ_apply_to_layer adjR&, "Chromatic Aberration"
         NEXT caT%
         IF caTgtCount% > 1 THEN HISTORY_end_group
