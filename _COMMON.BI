@@ -9,6 +9,13 @@ $INCLUDEONCE
 
 '$DYNAMIC
 $CONSOLE
+' Start with the graphics window HIDDEN. With $CONSOLE (not $CONSOLE:ONLY) QB64-PE
+' opens its default graphics window at process start — before any of our code runs —
+' which made console-only CLI ops (--help, --version, --options-list,
+' --config-upgrade) briefly flash a blank window. The window is revealed exactly
+' once, via _SCREENSHOW in DRAW.BAS, on the normal editor-launch path; every
+' CLI op SYSTEMs before reaching that line, so its window is never shown.
+$SCREENHIDE
 OPTION _EXPLICIT
 OPTION _EXPLICITARRAY
 

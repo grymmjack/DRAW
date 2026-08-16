@@ -34,6 +34,17 @@ $RESIZE:ON
 ' mode names silently rots as new modes are added, and takes the wrong branch.
 screen_shown = TRUE
 
+' The window was already revealed inside SCREEN_init (it must be shown before the
+' _DESKTOPWIDTH auto-detect query; see the _SCREENSHOW there). It starts hidden
+' via $SCREENHIDE in _COMMON.BI so console-only CLI ops (--help, --version,
+' --options-list, --config-upgrade) never flash a window — they SYSTEM earlier.
+'
+' Window-visibility-dependent ops, deferred here from SCREEN_init: center the
+' final-size window, then apply fullscreen if configured. (_SCREENMOVE raises
+' ERR 5 on a hidden window, so it can't run during the early part of SCREEN_init.)
+_SCREENMOVE _MIDDLE
+IF CFG.FULLSCREEN% THEN _FULLSCREEN _SQUAREPIXELS
+
 ' THEME.BI (included above) runs at include-time and resets all THEME.* fields to
 ' compiled-in defaults, clobbering the values set by THEME_load inside SCREEN_init
 ' (which runs from SCREEN.BI, before THEME.BI is included in _ALL.BI).
