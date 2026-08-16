@@ -5,7 +5,7 @@ Each box is independently buildable + verifiable. Build with `~/git/qb64pe-450/q
 (v4.5.0, the Makefile default). Commit after each grouped box lands green.
 
 ## 🔨 NOW — doing right now
-- [ ] ➡️ Lens Flare: click-to-position + real flare (halo/streaks/rings) + lens types
+- [x] Full-suite QA sweep — 66 effect tests, 408/413 passed. All 5 failures were the single effect-crystallize test (app died mid-run in the long back-to-back offscreen batch, cascading its process/window/region asserts). Crystallize passes cleanly in isolation and was never touched this session → batch flake, not a regression. Every one of the 34 effects changed this session passed. Built + swept 22:56.
 
 ## 🐞 Bugs / regressions
 - [x] Cursor is a move/cross over EFFECTS flyout items — POINTER.BM now sets CURSOR_NULL over the category flyout region (genOpen%/genX/genY/genW/genH), matching the submenu-arrow logic. Built 17:31.
@@ -45,7 +45,7 @@ Each box is independently buildable + verifiable. Build with `~/git/qb64pe-450/q
 - [x] Clouds + Difference Clouds: realistic — Clouds = 5-octave fBm + COVERAGE threshold + smoothstep billows (+ SEED); Diff Clouds = 5-octave turbulence folds. QA 11/11. Built 21:21.
 - [x] Render Sky: sun+glow (day), varied stars + crescent moon (night), nebula + planet + far moon (space), SEED. QA effect-sky 5/5. Built 21:29.
 - [x] Terrain: SEA LEVEL (variation) + ROTATION + SEED. QA effect-terrain 5/5. Built 21:36. (Custom palette colour-chips deferred — needs a colour-picker widget.)
-- [ ] Lens Flare: click-to-position + a real flare render (halo/streaks/rings) + lens-type presets
+- [x] Lens Flare: click-to-place (center-pick) + halo + radial streaks + ghost rings + LENS TYPE presets (50mm/anamorphic/starburst/zoom). QA effect-lensflare 5/5. Built 22:33.
 
 ## ✅ Done earlier this session (for reference — not tasks)
 sel-as-shape for edge effects + preview parity; loupe follows dialog + padded capture;
