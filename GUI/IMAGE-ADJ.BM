@@ -2510,9 +2510,12 @@ FUNCTION IMAGE_ADJ_diffclouds& (sourceImg AS LONG, scaleP AS INTEGER)
     FOR dy& = 0 TO dcH& - 1
     IF (dy& AND 15) = 0 THEN IMGADJ_progress_tick "Diffclouds", dy& / dcH&
         FOR dx& = 0 TO dcW& - 1
+            ' 5-octave TURBULENCE (sum of |noise-0.5|) — the folded veins are what
+            ' gives Difference Clouds its characteristic marbled look; flat fBm just
+            ' produced smooth blobs.
             nv! = 0.0 : fr! = 1.0 / scaleP% : amp! = 1.0 : amax! = 0.0
-            FOR oct% = 0 TO 2
-                nv! = nv! + IMGADJ_valnoise!(dx& * fr!, dy& * fr!, oct% + 1) * amp!
+            FOR oct% = 0 TO 4
+                nv! = nv! + ABS(IMGADJ_valnoise!(dx& * fr!, dy& * fr!, oct% + 1) - 0.5) * 2.0 * amp!
                 amax! = amax! + amp!
                 amp! = amp! * 0.5 : fr! = fr! * 2.0
             NEXT oct%
@@ -2561,7 +2564,7 @@ END SUB
 ' @param scaleP    INTEGER        Base feature size in px (8..64)
 ' @return LONG  New opaque cloud image handle
 '
-FUNCTION IMAGE_ADJ_clouds& (sourceImg AS LONG, loColor AS _UNSIGNED LONG, hiColor AS _UNSIGNED LONG, scaleP AS INTEGER)
+FUNCTION IMAGE_ADJ_clouds& (sourceImg AS LONG, loColor AS _UNSIGNED LONG, hiColor AS _UNSIGNED LONG, scaleP AS INTEGER, coverage AS INTEGER, seed AS INTEGER)
     IF NOT (sourceImg& < -1) THEN IMAGE_ADJ_clouds& = 0 : EXIT FUNCTION
     IF scaleP% < 4 THEN scaleP% = 4
 
@@ -2576,22 +2579,31 @@ FUNCTION IMAGE_ADJ_clouds& (sourceImg AS LONG, loColor AS _UNSIGNED LONG, hiColo
     clLoR% = _RED32(loColor~&) : clLoG% = _GREEN32(loColor~&) : clLoB% = _BLUE32(loColor~&)
     clHiR% = _RED32(hiColor~&) : clHiG% = _GREEN32(hiColor~&) : clHiB% = _BLUE32(hiColor~&)
 
+    ' coverage carves clear-sky gaps: higher coverage = more open sky. c is remapped
+    ' above the threshold and smoothstepped so clouds read as soft billows on sky
+    ' rather than uniform gradient noise.
+    DIM clCov AS SINGLE : clCov! = coverage% / 100.0 : IF clCov! > 0.95 THEN clCov! = 0.95
+    DIM clSeed AS INTEGER : clSeed% = seed%
     DIM cx AS LONG, cy AS LONG
-    DIM nv AS SINGLE, fr AS SINGLE, amp AS SINGLE, amax AS SINGLE
+    DIM nv AS SINGLE, fr AS SINGLE, amp AS SINGLE, amax AS SINGLE, cc AS SINGLE
     DIM oct AS INTEGER, cr AS INTEGER, cg AS INTEGER, cb AS INTEGER
     FOR cy& = 0 TO clH& - 1
     IF (cy& AND 15) = 0 THEN IMGADJ_progress_tick "Clouds", cy& / clH&
         FOR cx& = 0 TO clW& - 1
+            ' 5-octave fBm (was 3) for wispy detail
             nv! = 0.0 : fr! = 1.0 / scaleP% : amp! = 1.0 : amax! = 0.0
-            FOR oct% = 0 TO 2
-                nv! = nv! + IMGADJ_valnoise!(cx& * fr!, cy& * fr!, oct% + 1) * amp!
+            FOR oct% = 0 TO 4
+                nv! = nv! + IMGADJ_valnoise!(cx& * fr!, cy& * fr!, oct% + 1 + clSeed%) * amp!
                 amax! = amax! + amp!
                 amp! = amp! * 0.5 : fr! = fr! * 2.0
             NEXT oct%
-            nv! = nv! / amax!
-            cr% = clLoR% + (clHiR% - clLoR%) * nv!
-            cg% = clLoG% + (clHiG% - clLoG%) * nv!
-            cb% = clLoB% + (clHiB% - clLoB%) * nv!
+            nv! = nv! / amax!                              ' 0..1
+            cc! = (nv! - clCov!) / (1.0 - clCov! + 0.001)  ' threshold: below coverage = clear sky
+            IF cc! < 0.0 THEN cc! = 0.0 ELSE IF cc! > 1.0 THEN cc! = 1.0
+            cc! = cc! * cc! * (3.0 - 2.0 * cc!)            ' smoothstep -> soft billow edges
+            cr% = clLoR% + (clHiR% - clLoR%) * cc!
+            cg% = clLoG% + (clHiG% - clLoG%) * cc!
+            cb% = clLoB% + (clHiB% - clLoB%) * cc!
             _MEMPUT resM, resM.OFFSET + (cy& * clW& + cx&) * 4, _RGBA32(cr%, cg%, cb%, 255) AS _UNSIGNED LONG
         NEXT cx&
     NEXT cy&
@@ -2609,11 +2621,13 @@ SUB IMAGE_ADJ_clouds_dialog ()
     IF CURRENT_LAYER% < 1 THEN EXIT SUB
 
     DIM ctx AS DIALOG_CTX
-    DIALOG_init ctx, IMGDLG_W, 110
+    DIALOG_init ctx, IMGDLG_W, 186
     IMAGE_ADJ_setup_preview ctx, LAYERS(CURRENT_LAYER%).imgHandle&
 
     DIM scl AS INTEGER : scl% = 24
-    DIM oScl AS INTEGER
+    DIM clCov AS INTEGER : clCov% = 45
+    DIM clSeed AS INTEGER : clSeed% = 0
+    DIM oScl AS INTEGER, oCov AS INTEGER, oSeed AS INTEGER
 
     DIM k AS LONG
     DIM d_scl AS INTEGER : d_scl% = 24
@@ -2624,16 +2638,20 @@ SUB IMAGE_ADJ_clouds_dialog ()
         IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
         IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
 
-        oScl% = scl%
+        oScl% = scl% : oCov% = clCov% : oSeed% = clSeed%
         scl% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, scl%, 8, 400)
         scl% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, scl%, 8, 400)
-        IF scl% <> oScl% THEN ctx.previewDirty% = TRUE
+        clCov% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, clCov%, 0, 90)
+        clCov% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, clCov%, 0, 90)
+        clSeed% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, 14, clSeed%, 0, 99)
+        clSeed% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, 14, clSeed%, 0, 99)
+        IF scl% <> oScl% OR clCov% <> oCov% OR clSeed% <> oSeed% THEN ctx.previewDirty% = TRUE
         IMGDLG_check_ok_cancel ctx
         IMGDLG_reset1 ctx, scl%, d_scl%
 
         IF ctx.previewDirty% THEN
             SAFE_FREEIMAGE ctx.previewThumb
-            ctx.previewThumb = IMAGE_ADJ_clouds&(ctx.origThumb, PAINT_BG_COLOR~&, PAINT_COLOR~&, scl%)
+            ctx.previewThumb = IMAGE_ADJ_clouds&(ctx.origThumb, PAINT_BG_COLOR~&, PAINT_COLOR~&, scl%, clCov%, clSeed%)
             IMAGE_ADJ_mask_preview ctx
             ctx.previewDirty% = FALSE
         END IF
@@ -2643,6 +2661,10 @@ SUB IMAGE_ADJ_clouds_dialog ()
         DIALOG_draw_preview ctx
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "SCALE:"
         DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, scl%, 8, 400, "", ""
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 1), "COVERAGE (SKY vs CLOUD):"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, clCov%, 0, 90, "", ""
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 2), "SEED:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, clSeed%, 0, 99, "", ""
         DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
         IMGDLG_draw_ok_cancel ctx
         DIALOG_blit ctx
@@ -2657,7 +2679,7 @@ SUB IMAGE_ADJ_clouds_dialog ()
         DIM adjR     AS LONG
         FOR clT% = 1 TO clTgtCount%
             CURRENT_LAYER% = clTargets%(clT%)
-            adjR&          = IMAGE_ADJ_clouds&(LAYERS(CURRENT_LAYER%).imgHandle&, PAINT_BG_COLOR~&, PAINT_COLOR~&, scl%)
+            adjR&          = IMAGE_ADJ_clouds&(LAYERS(CURRENT_LAYER%).imgHandle&, PAINT_BG_COLOR~&, PAINT_COLOR~&, scl%, clCov%, clSeed%)
             IMAGE_ADJ_apply_spatial adjR&, "Clouds"
         NEXT clT%
         IF clTgtCount% > 1 THEN HISTORY_end_group
