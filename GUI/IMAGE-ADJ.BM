@@ -6844,7 +6844,7 @@ END SUB
 ' @param frost     INTEGER  Overall glassy lightening 0..100
 ' @return LONG              New 32-bit image handle (0 on failure)
 '
-FUNCTION IMAGE_ADJ_glass& (sourceImg AS LONG, shine AS INTEGER, frost AS INTEGER)
+FUNCTION IMAGE_ADJ_glass& (sourceImg AS LONG, shine AS INTEGER, frost AS INTEGER, repeats AS INTEGER, thickness AS INTEGER, angle AS INTEGER)
     IF NOT (sourceImg& < -1) THEN IMAGE_ADJ_glass& = 0 : EXIT FUNCTION
 
     DIM glW AS LONG, glH AS LONG
@@ -6857,13 +6857,20 @@ FUNCTION IMAGE_ADJ_glass& (sourceImg AS LONG, shine AS INTEGER, frost AS INTEGER
 
     DIM shScale AS SINGLE : shScale! = shine% / 100.0
     DIM frScale AS SINGLE : frScale! = frost% / 100.0 * 0.4
-    DIM diag AS SINGLE : diag! = glW& + glH&
-    ' two streak centres along the diagonal axis (as fractions of the diagonal)
-    DIM c1 AS SINGLE, c2 AS SINGLE
-    c1! = 0.34 : c2! = 0.6
+    ' `repeats` evenly-spaced glint bands run perpendicular to `angle`; `thickness`
+    ' sets each glint's width (its gaussian sigma). angle 45 + repeats 2 ~ the old
+    ' pair of diagonal streaks.
+    DIM glRep AS INTEGER : glRep% = repeats% : IF glRep% < 1 THEN glRep% = 1
+    DIM glSig AS SINGLE : glSig! = 0.0006 + (thickness% / 100.0) * 0.02   ' glint half-width^2
+    DIM glRa AS SINGLE : glRa! = angle% * 3.14159265 / 180.0
+    DIM glDx AS SINGLE : glDx! = COS(glRa!) : DIM glDy AS SINGLE : glDy! = SIN(glRa!)
+    DIM glSpan AS SINGLE : glSpan! = ABS(glW& * glDx!) + ABS(glH& * glDy!) : IF glSpan! < 1.0 THEN glSpan! = 1.0
+    DIM glMin AS SINGLE : glMin! = 0.0
+    IF glDx! < 0 THEN glMin! = glMin! + glW& * glDx!
+    IF glDy! < 0 THEN glMin! = glMin! + glH& * glDy!
 
     DIM gx AS LONG, gy AS LONG, aHere AS _UNSIGNED _BYTE, pix AS _UNSIGNED LONG
-    DIM u AS SINGLE, s1 AS SINGLE, s2 AS SINGLE, spec AS SINGLE, lift AS SINGLE
+    DIM u AS SINGLE, ph AS SINGLE, fr AS SINGLE, dd AS SINGLE, spec AS SINGLE, lift AS SINGLE
     DIM pr AS INTEGER, pg AS INTEGER, pb AS INTEGER, oR2 AS INTEGER, oG2 AS INTEGER, oB2 AS INTEGER
     FOR gy& = 0 TO glH& - 1
     IF (gy& AND 15) = 0 THEN IMGADJ_progress_tick "Glass", gy& / glH&
@@ -6871,11 +6878,11 @@ FUNCTION IMAGE_ADJ_glass& (sourceImg AS LONG, shine AS INTEGER, frost AS INTEGER
             _MEMGET srcM, srcM.OFFSET + (gy& * glW& + gx&) * 4 + 3, aHere~%%
             IF aHere~%% = 0 THEN _CONTINUE
 
-            u! = (gx& + gy&) / diag!                        ' position along the diagonal 0..1
-            ' gaussian-ish streaks around c1 (broad) and c2 (thin, brighter)
-            s1! = EXP(-((u! - c1!) * (u! - c1!)) / 0.004)
-            s2! = EXP(-((u! - c2!) * (u! - c2!)) / 0.0012)
-            spec! = (s1! * 0.7 + s2! * 1.0) * shScale!
+            u! = (gx& * glDx! + gy& * glDy! - glMin!) / glSpan!   ' 0..1 across the angle axis
+            ph! = u! * glRep%
+            fr! = ph! - INT(ph!)                            ' 0..1 within each repeat band
+            dd! = fr! - 0.5                                  ' glint centred in the band
+            spec! = EXP(-(dd! * dd!) / glSig!) * shScale!
 
             _MEMGET srcM, srcM.OFFSET + (gy& * glW& + gx&) * 4, pix~&
             pr% = _RED32(pix~&) : pg% = _GREEN32(pix~&) : pb% = _BLUE32(pix~&)
@@ -6903,12 +6910,15 @@ SUB IMAGE_ADJ_glass_dialog ()
     IF CURRENT_LAYER% < 1 THEN EXIT SUB
 
     DIM ctx AS DIALOG_CTX
-    DIALOG_init ctx, IMGDLG_W, 138
+    DIALOG_init ctx, IMGDLG_W, 252
     IMAGE_ADJ_setup_preview ctx, LAYERS(CURRENT_LAYER%).imgHandle&
 
     DIM shine AS INTEGER : shine% = 75
     DIM frost AS INTEGER : frost% = 25
-    DIM oShine AS INTEGER, oFrost AS INTEGER
+    DIM glReps AS INTEGER : glReps% = 2
+    DIM glThk AS INTEGER : glThk% = 20
+    DIM glAng AS INTEGER : glAng% = 45
+    DIM oShine AS INTEGER, oFrost AS INTEGER, oReps AS INTEGER, oThk AS INTEGER, oAng AS INTEGER
 
     DIM k AS LONG
     DIM d_shine AS INTEGER : d_shine% = 75
@@ -6920,18 +6930,23 @@ SUB IMAGE_ADJ_glass_dialog ()
         IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
         IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
 
-        oShine% = shine% : oFrost% = frost%
+        oShine% = shine% : oFrost% = frost% : oReps% = glReps% : oThk% = glThk% : oAng% = glAng%
         shine% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, shine%, 0, 100)
         shine% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, shine%, 0, 100)
         frost% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, frost%, 0, 100)
         frost% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, frost%, 0, 100)
-        IF shine% <> oShine% OR frost% <> oFrost% THEN ctx.previewDirty% = TRUE
+        glReps% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, 14, glReps%, 1, 16)
+        glReps% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, 14, glReps%, 1, 16)
+        glThk% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 3), IMGDLG_SW, 14, glThk%, 1, 100)
+        glThk% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 3), IMGDLG_SW, 14, glThk%, 1, 100)
+        glAng% = IMGDLG_angle_handle%(ctx, 4, glAng%)
+        IF shine% <> oShine% OR frost% <> oFrost% OR glReps% <> oReps% OR glThk% <> oThk% OR glAng% <> oAng% THEN ctx.previewDirty% = TRUE
         IMGDLG_check_ok_cancel ctx
         IMGDLG_reset2 ctx, shine%, frost%, d_shine%, d_frost%
 
         IF ctx.previewDirty% THEN
             SAFE_FREEIMAGE ctx.previewThumb
-            ctx.previewThumb = IMAGE_ADJ_glass&(ctx.origThumb, shine%, frost%)
+            ctx.previewThumb = IMAGE_ADJ_glass&(ctx.origThumb, shine%, frost%, glReps%, glThk%, glAng%)
             IMAGE_ADJ_mask_preview ctx
             ctx.previewDirty% = FALSE
         END IF
@@ -6943,6 +6958,11 @@ SUB IMAGE_ADJ_glass_dialog ()
         DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, shine%, 0, 100, "", ""
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 1), "FROST:"
         DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, frost%, 0, 100, "", ""
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 2), "REPEATS:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, glReps%, 1, 16, "", ""
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 3), "GLINT THICKNESS:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 3), IMGDLG_SW, glThk%, 1, 100, "", ""
+        IMGDLG_angle_draw ctx, 4, glAng%, "ANGLE:"
         DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
         IMGDLG_draw_ok_cancel ctx
         DIALOG_blit ctx
@@ -6957,7 +6977,7 @@ SUB IMAGE_ADJ_glass_dialog ()
         DIM adjR AS LONG
         FOR glT% = 1 TO glTgtCount%
             CURRENT_LAYER% = glTargets%(glT%)
-            adjR&          = IMAGE_ADJ_glass&(LAYERS(CURRENT_LAYER%).imgHandle&, shine%, frost%)
+            adjR&          = IMAGE_ADJ_glass&(LAYERS(CURRENT_LAYER%).imgHandle&, shine%, frost%, glReps%, glThk%, glAng%)
             IMAGE_ADJ_apply_to_layer adjR&, "Glass"
         NEXT glT%
         IF glTgtCount% > 1 THEN HISTORY_end_group

@@ -5,7 +5,7 @@ Each box is independently buildable + verifiable. Build with `~/git/qb64pe-450/q
 (v4.5.0, the Makefile default). Commit after each grouped box lands green.
 
 ## 🔨 NOW — doing right now
-- [ ] ➡️ Sharpen: add an Unsharp Mask option (dropdown/toggle) like Photoshop
+- [ ] ➡️ Glass (Shape): number-of-repeats, zoom/thickness of glints, angle
 
 ## 🐞 Bugs / regressions
 - [x] Cursor is a move/cross over EFFECTS flyout items — POINTER.BM now sets CURSOR_NULL over the category flyout region (genOpen%/genX/genY/genW/genH), matching the submenu-arrow logic. Built 17:31.
@@ -36,7 +36,7 @@ Each box is independently buildable + verifiable. Build with `~/git/qb64pe-450/q
 - [x] Mosaic / Tessellate: cell-shape options DONE — square/rectangle/triangle/hexagon/voronoi/random via the shared cell-ID engine + shape dropdown + seed. QA effect-mosaic-shapes green. Built 19:13.
 - [ ] Extrude: option to fill the 3D faces with the extruded pixels; extrude ANGLE; JITTER 0–100 (random placement); extrusion shapes (from the cell-shape picker)
 - [ ] Chrome / Metallic: rework to actually look metallic — gradient picker + amount + reflectivity / light reflections
-- [ ] Sharpen: add an Unsharp Mask option (dropdown/toggle) like Photoshop
+- [x] Sharpen: full Unsharp Mask — STRENGTH + RADIUS (1..20) + THRESHOLD (0..100). Radius 1/threshold 0 = prior behavior. IMAGE menu (not harness-driven); clean build. Built 21:05.
 - [ ] Diamond Plate: space-between, space-inside, sharpness, roundness, bumpiness + a LIGHT-direction angle in addition to the pattern angle (+ pattern angle + seed from texture batch 4)
 - [ ] Stone Wall: stone TYPES — rock, rounded boulders, cracked, stacked, toothed, etc. (dropdown) (+ angle + seed from texture batch 4)
 - [ ] Lightning: forks, fork randomness, fork diminish (thicker→thinner), spikiness, etc.
