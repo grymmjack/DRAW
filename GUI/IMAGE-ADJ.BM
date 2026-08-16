@@ -5442,8 +5442,11 @@ END FUNCTION
 ' close (cell borders). SIZE sets stone size; MORTAR sets joint width. RGB-only
 ' -> apply_to_layer.
 '
-FUNCTION IMAGE_ADJ_stone& (sourceImg AS LONG, sizeP AS INTEGER, mortarW AS INTEGER)
+FUNCTION IMAGE_ADJ_stone& (sourceImg AS LONG, sizeP AS INTEGER, mortarW AS INTEGER, stype AS INTEGER, angle AS INTEGER, seed AS INTEGER)
     IF NOT (sourceImg& < -1) THEN IMAGE_ADJ_stone& = 0 : EXIT FUNCTION
+    ' stype: 0 ROCK (irregular voronoi), 1 ROUNDED BOULDERS (dome-shaded cells),
+    '        2 CRACKED (bigger cells, thick dark cracks), 3 STACKED (running-bond
+    '        bricks), 4 TOOTHED (square interlocking blocks).
     DIM stW AS LONG, stH AS LONG
     stW& = _WIDTH(sourceImg&) : stH& = _HEIGHT(sourceImg&)
     DIM result AS LONG : result& = _COPYIMAGE(sourceImg&, 32)
@@ -5451,43 +5454,74 @@ FUNCTION IMAGE_ADJ_stone& (sourceImg AS LONG, sizeP AS INTEGER, mortarW AS INTEG
     srcM = _MEMIMAGE(sourceImg&) : resM = _MEMIMAGE(result&)
     DIM sp AS INTEGER : sp% = sizeP% : IF sp% < 4 THEN sp% = 4
     DIM mortarF AS SINGLE : mortarF! = mortarW% * 0.6
+    IF stype% = 2 THEN mortarF! = mortarF! * 2.2            ' cracked: thick cracks
+    DIM isBrick AS INTEGER : isBrick% = (stype% = 3 OR stype% = 4)
+    DIM bw AS INTEGER : bw% = sp% : IF stype% = 3 THEN bw% = sp% * 2  ' stacked = wide bricks
+    ' rotation
+    DIM stRa AS SINGLE : stRa! = angle% * 3.14159265 / 180.0
+    DIM stCa AS SINGLE : stCa! = COS(stRa!) : DIM stSa AS SINGLE : stSa! = SIN(stRa!)
+    DIM stCxc AS SINGLE : stCxc! = stW& / 2.0 : DIM stCyc AS SINGLE : stCyc! = stH& / 2.0
+
     DIM ax AS LONG, ay AS LONG, aHere AS _UNSIGNED _BYTE
     DIM cgx AS LONG, cgy AS LONG, ngx AS INTEGER, ngy AS INTEGER
     DIM scx AS SINGLE, scy AS SINGLE, ddx AS SINGLE, ddy AS SINGLE, dist AS SINGLE
     DIM d1 AS SINGLE, d2 AS SINGLE, bestGX AS LONG, bestGY AS LONG, jit AS SINGLE
-    DIM tone AS SINGLE, g2 AS INTEGER
+    DIM tone AS SINGLE, g2 AS INTEGER, domef AS SINGLE
+    DIM rfx AS SINGLE, rfy AS SINGLE, rxi AS LONG, ryi AS LONG, rdx AS SINGLE, rdy AS SINGLE
+    DIM brRow AS LONG, brCol AS LONG, xshift AS LONG, inX AS LONG, inY AS LONG
     FOR ay& = 0 TO stH& - 1
     IF (ay& AND 15) = 0 THEN IMGADJ_progress_tick "Stone", ay& / stH&
         FOR ax& = 0 TO stW& - 1
             _MEMGET srcM, srcM.OFFSET + (ay& * stW& + ax&) * 4 + 3, aHere~%%
             IF aHere~%% = 0 THEN _CONTINUE
-            cgx& = ax& \ sp% : cgy& = ay& \ sp%
-            d1! = 1e9 : d2! = 1e9 : bestGX& = 0 : bestGY& = 0
-            FOR ngy% = -1 TO 1
-                FOR ngx% = -1 TO 1
-                    jit! = IMGADJ_valnoise!((cgx& + ngx%) * 1.7, (cgy& + ngy%) * 1.7, 171)
-                    scx! = (cgx& + ngx%) * sp% + sp% * (0.2 + 0.6 * jit!)
-                    jit! = IMGADJ_valnoise!((cgx& + ngx%) * 1.7, (cgy& + ngy%) * 1.7, 172)
-                    scy! = (cgy& + ngy%) * sp% + sp% * (0.2 + 0.6 * jit!)
-                    ddx! = ax& - scx! : ddy! = ay& - scy!
-                    dist! = SQR(ddx! * ddx! + ddy! * ddy!)
-                    IF dist! < d1! THEN
-                        d2! = d1! : d1! = dist! : bestGX& = cgx& + ngx% : bestGY& = cgy& + ngy%
-                    ELSEIF dist! < d2! THEN
-                        d2! = dist!
-                    END IF
-                NEXT ngx%
-                NEXT ngy%
-            IF (d2! - d1!) < mortarF! THEN
-                g2% = 70                                     ' dark mortar joint
+            rdx! = ax& - stCxc! : rdy! = ay& - stCyc!
+            rfx! = stCxc! + rdx! * stCa! - rdy! * stSa!
+            rfy! = stCyc! + rdx! * stSa! + rdy! * stCa!
+            rxi& = INT(rfx!) : ryi& = INT(rfy!)
+            IF isBrick% THEN
+                brRow& = ryi& \ sp%
+                xshift& = rxi&
+                IF (brRow& AND 1) THEN xshift& = rxi& + bw% \ 2   ' running-bond / tooth offset
+                brCol& = xshift& \ bw%
+                inX& = xshift& - brCol& * bw% : inY& = ryi& - brRow& * sp%
+                IF inX& < mortarW% OR inY& < mortarW% THEN
+                    g2% = 70
+                ELSE
+                    jit! = IMGADJ_valnoise!(brCol& * 2.3 + 0.5, brRow& * 2.3 + 0.5, 173 + seed%)
+                    tone! = 0.55 + 0.4 * jit!
+                    tone! = tone! + (IMGADJ_valnoise!(rxi& * 0.4, ryi& * 0.4, 174 + seed%) - 0.5) * 0.18
+                    g2% = INT(255 * tone!) : IF g2% < 40 THEN g2% = 40 ELSE IF g2% > 235 THEN g2% = 235
+                END IF
             ELSE
-                jit! = IMGADJ_valnoise!(bestGX& * 2.3 + 0.5, bestGY& * 2.3 + 0.5, 173)
-                tone! = 0.55 + 0.4 * jit!                    ' per-stone base grey
-                ' fine intra-stone speckle
-                tone! = tone! + (IMGADJ_valnoise!(ax& * 0.4, ay& * 0.4, 174) - 0.5) * 0.18
-                g2% = INT(255 * tone!)
-                IF g2% < 40 THEN g2% = 40
-                IF g2% > 235 THEN g2% = 235
+                cgx& = rxi& \ sp% : cgy& = ryi& \ sp%
+                d1! = 1e9 : d2! = 1e9 : bestGX& = 0 : bestGY& = 0
+                FOR ngy% = -1 TO 1
+                    FOR ngx% = -1 TO 1
+                        jit! = IMGADJ_valnoise!((cgx& + ngx%) * 1.7, (cgy& + ngy%) * 1.7, 171 + seed%)
+                        scx! = (cgx& + ngx%) * sp% + sp% * (0.2 + 0.6 * jit!)
+                        jit! = IMGADJ_valnoise!((cgx& + ngx%) * 1.7, (cgy& + ngy%) * 1.7, 172 + seed%)
+                        scy! = (cgy& + ngy%) * sp% + sp% * (0.2 + 0.6 * jit!)
+                        ddx! = rfx! - scx! : ddy! = rfy! - scy!
+                        dist! = SQR(ddx! * ddx! + ddy! * ddy!)
+                        IF dist! < d1! THEN
+                            d2! = d1! : d1! = dist! : bestGX& = cgx& + ngx% : bestGY& = cgy& + ngy%
+                        ELSEIF dist! < d2! THEN
+                            d2! = dist!
+                        END IF
+                    NEXT ngx%
+                    NEXT ngy%
+                IF (d2! - d1!) < mortarF! THEN
+                    g2% = 70                                 ' dark mortar joint / crack
+                ELSE
+                    jit! = IMGADJ_valnoise!(bestGX& * 2.3 + 0.5, bestGY& * 2.3 + 0.5, 173 + seed%)
+                    tone! = 0.55 + 0.4 * jit!
+                    tone! = tone! + (IMGADJ_valnoise!(rxi& * 0.4, ryi& * 0.4, 174 + seed%) - 0.5) * 0.18
+                    IF stype% = 1 THEN
+                        domef! = 1.0 - d1! / (sp% * 0.72) : IF domef! < 0.0 THEN domef! = 0.0
+                        tone! = tone! * (0.55 + 0.55 * domef!)   ' rounded boulder relief
+                    END IF
+                    g2% = INT(255 * tone!) : IF g2% < 40 THEN g2% = 40 ELSE IF g2% > 235 THEN g2% = 235
+                END IF
             END IF
             _MEMPUT resM, resM.OFFSET + (ay& * stW& + ax&) * 4, _RGBA32(g2%, g2% - 4, g2% - 10, aHere~%%) AS _UNSIGNED LONG
         NEXT ax&
@@ -6386,7 +6420,7 @@ END SUB
 
 SUB IMAGE_ADJ_stone_dialog ()
     IF CURRENT_LAYER% < 1 THEN EXIT SUB
-    DIM ctx AS DIALOG_CTX : DIALOG_init ctx, IMGDLG_W, 176
+    DIM ctx AS DIALOG_CTX : DIALOG_init ctx, IMGDLG_W, 300
     IMAGE_ADJ_setup_preview ctx, LAYERS(CURRENT_LAYER%).imgHandle&
     DIM p1 AS INTEGER : p1% = 14
     DIM p2 AS INTEGER : p2% = 2
@@ -6394,27 +6428,42 @@ SUB IMAGE_ADJ_stone_dialog ()
     DIM d1 AS INTEGER : d1% = 14
     DIM d2 AS INTEGER : d2% = 2
     DIM dMix AS INTEGER : dMix% = 100
-    DIM o1 AS INTEGER, o2 AS INTEGER, oMix AS INTEGER, k AS LONG
+    STATIC stType AS INTEGER
+    DIM stAng AS INTEGER : stAng% = 0
+    DIM stSeed AS INTEGER : stSeed% = 0
+    DIM o1 AS INTEGER, o2 AS INTEGER, oMix AS INTEGER, oType AS INTEGER, oAng AS INTEGER, oSeed AS INTEGER, k AS LONG
     DIM texFx AS LONG
+    REDIM stTypeLabels(0 TO 4) AS STRING
+    stTypeLabels$(0) = "TYPE: ROCK"
+    stTypeLabels$(1) = "TYPE: ROUNDED BOULDERS"
+    stTypeLabels$(2) = "TYPE: CRACKED"
+    stTypeLabels$(3) = "TYPE: STACKED"
+    stTypeLabels$(4) = "TYPE: TOOTHED"
+    DIM stTypeY AS INTEGER : stTypeY% = IMGDLG_track_y%(ctx, 3) - 2
     DO
         DIALOG_poll_mouse ctx
+        DIALOG_dropdown_input ctx
         IF ctx.loupeDirty% THEN IMAGE_ADJ_update_loupe ctx
         k& = _KEYHIT
         IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
         IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
-        o1% = p1% : o2% = p2% : oMix% = texMix%
+        o1% = p1% : o2% = p2% : oMix% = texMix% : oType% = stType% : oAng% = stAng% : oSeed% = stSeed%
         p1% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, p1%, 5, 120)
         p1% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, p1%, 5, 120)
         p2% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, p2%, 1, 24)
         p2% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, p2%, 1, 24)
         texMix% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, 14, texMix%, 0, 100)
         texMix% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, 14, texMix%, 0, 100)
+        stType% = DIALOG_dropdown%(ctx, 1, IMGDLG_SX, stTypeY%, IMGDLG_SW, stType%, stTypeLabels$(), 5)
+        stAng% = IMGDLG_angle_handle%(ctx, 4, stAng%)
+        stSeed% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 5), IMGDLG_SW, 14, stSeed%, 0, 99)
+        stSeed% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 5), IMGDLG_SW, 14, stSeed%, 0, 99)
         IMGDLG_check_ok_cancel ctx
         IMGDLG_reset3 ctx, p1%, p2%, texMix%, d1%, d2%, dMix%
-        IF p1% <> o1% OR p2% <> o2% OR texMix% <> oMix% THEN ctx.previewDirty% = TRUE
+        IF p1% <> o1% OR p2% <> o2% OR texMix% <> oMix% OR stType% <> oType% OR stAng% <> oAng% OR stSeed% <> oSeed% THEN ctx.previewDirty% = TRUE
         IF ctx.previewDirty% THEN
             SAFE_FREEIMAGE ctx.previewThumb
-            texFx& = IMAGE_ADJ_stone&(ctx.origThumb, p1%, p2%)
+            texFx& = IMAGE_ADJ_stone&(ctx.origThumb, p1%, p2%, stType%, stAng%, stSeed%)
             ctx.previewThumb = IMAGE_ADJ_mix_result&(ctx.origThumb, texFx&, texMix%)
             SAFE_FREEIMAGE texFx&
             IMAGE_ADJ_mask_preview ctx : ctx.previewDirty% = FALSE
@@ -6428,8 +6477,13 @@ SUB IMAGE_ADJ_stone_dialog ()
         DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, p2%, 1, 24, "", ""
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 2), "MIX:"
         DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, texMix%, 0, 100, "", ""
+        DIALOG_dropdown_draw ctx, 1, IMGDLG_SX, stTypeY%, IMGDLG_SW, stType%, stTypeLabels$(), 5
+        IMGDLG_angle_draw ctx, 4, stAng%, "ANGLE:"
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 5), "SEED:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 5), IMGDLG_SW, stSeed%, 0, 99, "", ""
         DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
         IMGDLG_draw_ok_cancel ctx
+        DIALOG_dropdown_overlay ctx
         DIALOG_blit ctx
     LOOP UNTIL ctx.done%
     IF ctx.result% THEN
@@ -6440,7 +6494,7 @@ SUB IMAGE_ADJ_stone_dialog ()
         DIM adjR AS LONG, adjMix AS LONG
         FOR ti% = 1 TO tc%
             CURRENT_LAYER% = tgts%(ti%)
-            adjR& = IMAGE_ADJ_stone&(LAYERS(CURRENT_LAYER%).imgHandle&, p1%, p2%)
+            adjR& = IMAGE_ADJ_stone&(LAYERS(CURRENT_LAYER%).imgHandle&, p1%, p2%, stType%, stAng%, stSeed%)
             adjMix& = IMAGE_ADJ_mix_result&(LAYERS(CURRENT_LAYER%).imgHandle&, adjR&, texMix%)
             SAFE_FREEIMAGE adjR&
             IMAGE_ADJ_apply_to_layer adjMix&, "Stone Wall"
