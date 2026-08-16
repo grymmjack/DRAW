@@ -2302,7 +2302,7 @@ END SUB
 ' @param scaleP    INTEGER Base feature size in px (16..96)
 ' @return LONG  New opaque terrain image handle
 '
-FUNCTION IMAGE_ADJ_terrain& (sourceImg AS LONG, scaleP AS INTEGER)
+FUNCTION IMAGE_ADJ_terrain& (sourceImg AS LONG, scaleP AS INTEGER, seaLevel AS INTEGER, angle AS INTEGER, seed AS INTEGER)
     IF NOT (sourceImg& < -1) THEN IMAGE_ADJ_terrain& = 0 : EXIT FUNCTION
     IF scaleP% < 8 THEN scaleP% = 8
 
@@ -2312,19 +2312,30 @@ FUNCTION IMAGE_ADJ_terrain& (sourceImg AS LONG, scaleP AS INTEGER)
     result& = _NEWIMAGE(teW&, teH&, 32)
     DIM resM AS _MEM : resM = _MEMIMAGE(result&)
 
+    ' seaLevel 50 = neutral; higher floods more land, lower raises it. angle rotates
+    ' the whole map; seed re-rolls it.
+    DIM teSea AS SINGLE : teSea! = (seaLevel% - 50) / 180.0
+    DIM teRa AS SINGLE : teRa! = angle% * 3.14159265 / 180.0
+    DIM teCa AS SINGLE : teCa! = COS(teRa!) : DIM teSa AS SINGLE : teSa! = SIN(teRa!)
+    DIM teCxc AS SINGLE : teCxc! = teW& / 2.0 : DIM teCyc AS SINGLE : teCyc! = teH& / 2.0
     DIM tx AS LONG, ty AS LONG, oct AS INTEGER
     DIM nv AS SINGLE, fr AS SINGLE, amp AS SINGLE, amax AS SINGLE
     DIM tr AS INTEGER, tg AS INTEGER, tb AS INTEGER, sh AS SINGLE
+    DIM rfx AS SINGLE, rfy AS SINGLE, rdx AS SINGLE, rdy AS SINGLE
     FOR ty& = 0 TO teH& - 1
     IF (ty& AND 15) = 0 THEN IMGADJ_progress_tick "Terrain", ty& / teH&
         FOR tx& = 0 TO teW& - 1
+            rdx! = tx& - teCxc! : rdy! = ty& - teCyc!
+            rfx! = teCxc! + rdx! * teCa! - rdy! * teSa!
+            rfy! = teCyc! + rdx! * teSa! + rdy! * teCa!
             nv! = 0.0 : fr! = 1.0 / scaleP% : amp! = 1.0 : amax! = 0.0
             FOR oct% = 0 TO 4
-                nv! = nv! + IMGADJ_valnoise!(tx& * fr!, ty& * fr!, oct% + 1) * amp!
+                nv! = nv! + IMGADJ_valnoise!(rfx! * fr!, rfy! * fr!, oct% + 1 + seed%) * amp!
                 amax! = amax! + amp!
                 amp! = amp! * 0.5 : fr! = fr! * 2.0
             NEXT oct%
-            nv! = nv! / amax!
+            nv! = nv! / amax! - teSea!                        ' sea-level shift
+            IF nv! < 0.0 THEN nv! = 0.0 ELSE IF nv! > 1.0 THEN nv! = 1.0
             ' terrain bands
             IF nv! < 0.30 THEN
                 tr% = 20 : tg% = 40 : tb% = 90 + INT(nv! * 200)                 ' deep water
@@ -2360,11 +2371,14 @@ SUB IMAGE_ADJ_terrain_dialog ()
     IF CURRENT_LAYER% < 1 THEN EXIT SUB
 
     DIM ctx AS DIALOG_CTX
-    DIALOG_init ctx, IMGDLG_W, 110
+    DIALOG_init ctx, IMGDLG_W, 224
     IMAGE_ADJ_setup_preview ctx, LAYERS(CURRENT_LAYER%).imgHandle&
 
     DIM scl AS INTEGER : scl% = 48
-    DIM oScl AS INTEGER
+    DIM teSea AS INTEGER : teSea% = 50
+    DIM teAng AS INTEGER : teAng% = 0
+    DIM teSeed AS INTEGER : teSeed% = 0
+    DIM oScl AS INTEGER, oSea AS INTEGER, oAng AS INTEGER, oSeed AS INTEGER
 
     DIM k AS LONG
     DIM d_scl AS INTEGER : d_scl% = 48
@@ -2375,16 +2389,21 @@ SUB IMAGE_ADJ_terrain_dialog ()
         IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
         IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
 
-        oScl% = scl%
+        oScl% = scl% : oSea% = teSea% : oAng% = teAng% : oSeed% = teSeed%
         scl% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, scl%, 16, 400)
         scl% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, scl%, 16, 400)
-        IF scl% <> oScl% THEN ctx.previewDirty% = TRUE
+        teSea% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, teSea%, 0, 100)
+        teSea% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, teSea%, 0, 100)
+        teAng% = IMGDLG_angle_handle%(ctx, 2, teAng%)
+        teSeed% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 3), IMGDLG_SW, 14, teSeed%, 0, 99)
+        teSeed% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 3), IMGDLG_SW, 14, teSeed%, 0, 99)
+        IF scl% <> oScl% OR teSea% <> oSea% OR teAng% <> oAng% OR teSeed% <> oSeed% THEN ctx.previewDirty% = TRUE
         IMGDLG_check_ok_cancel ctx
         IMGDLG_reset1 ctx, scl%, d_scl%
 
         IF ctx.previewDirty% THEN
             SAFE_FREEIMAGE ctx.previewThumb
-            ctx.previewThumb = IMAGE_ADJ_terrain&(ctx.origThumb, scl%)
+            ctx.previewThumb = IMAGE_ADJ_terrain&(ctx.origThumb, scl%, teSea%, teAng%, teSeed%)
             IMAGE_ADJ_mask_preview ctx
             ctx.previewDirty% = FALSE
         END IF
@@ -2394,6 +2413,11 @@ SUB IMAGE_ADJ_terrain_dialog ()
         DIALOG_draw_preview ctx
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "SCALE:"
         DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, scl%, 16, 400, "", ""
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 1), "SEA LEVEL:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, teSea%, 0, 100, "", ""
+        IMGDLG_angle_draw ctx, 2, teAng%, "ROTATION:"
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 3), "SEED:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 3), IMGDLG_SW, teSeed%, 0, 99, "", ""
         DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
         IMGDLG_draw_ok_cancel ctx
         DIALOG_blit ctx
@@ -2408,7 +2432,7 @@ SUB IMAGE_ADJ_terrain_dialog ()
         DIM adjR     AS LONG
         FOR teT% = 1 TO teTgtCount%
             CURRENT_LAYER% = teTargets%(teT%)
-            adjR&          = IMAGE_ADJ_terrain&(LAYERS(CURRENT_LAYER%).imgHandle&, scl%)
+            adjR&          = IMAGE_ADJ_terrain&(LAYERS(CURRENT_LAYER%).imgHandle&, scl%, teSea%, teAng%, teSeed%)
             IMAGE_ADJ_apply_spatial adjR&, "Terrain"
         NEXT teT%
         IF teTgtCount% > 1 THEN HISTORY_end_group
