@@ -45,6 +45,9 @@ TYPE DIALOG_CTX
     moveDragOY   AS INTEGER ' Mouse-to-dialog-top offset at drag start
     splitDrag    AS INTEGER ' TRUE while user is dragging the split bar
     screenShot   AS LONG    ' Copy of screen at dialog open — restored each frame as bg
+    inputArmed   AS INTEGER ' FALSE until mb1 is seen released once — swallows a button
+                            ' still held from the menu click that opened the dialog, so
+                            ' it can't drag a control the dialog opened underneath it
 END TYPE
 
 ' ---- Dropdown (popup select) shared state -----------------------------------
