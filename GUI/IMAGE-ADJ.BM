@@ -5315,7 +5315,7 @@ END FUNCTION
 ' bars (direction flips per tile) shaded for 3D relief on a flat metal-grey base.
 ' SIZE sets tile size; DEPTH sets relief contrast. RGB-only -> apply_to_layer.
 '
-FUNCTION IMAGE_ADJ_diamondplate& (sourceImg AS LONG, sizeP AS INTEGER, depth AS INTEGER)
+FUNCTION IMAGE_ADJ_diamondplate& (sourceImg AS LONG, sizeP AS INTEGER, depth AS INTEGER, spacing AS INTEGER, sharpness AS INTEGER, roundness AS INTEGER, bumpiness AS INTEGER, lightAngle AS INTEGER)
     IF NOT (sourceImg& < -1) THEN IMAGE_ADJ_diamondplate& = 0 : EXIT FUNCTION
     DIM dpW AS LONG, dpH AS LONG
     dpW& = _WIDTH(sourceImg&) : dpH& = _HEIGHT(sourceImg&)
@@ -5323,10 +5323,16 @@ FUNCTION IMAGE_ADJ_diamondplate& (sourceImg AS LONG, sizeP AS INTEGER, depth AS 
     DIM srcM AS _MEM, resM AS _MEM
     srcM = _MEMIMAGE(sourceImg&) : resM = _MEMIMAGE(result&)
     DIM ts AS INTEGER : ts% = sizeP% : IF ts% < 4 THEN ts% = 4
-    DIM dScale AS SINGLE : dScale! = depth% / 100.0 * 110.0
+    DIM dScale AS SINGLE : dScale! = depth% / 100.0 * 130.0
+    DIM barHalf AS SINGLE : barHalf! = 0.10 + spacing% / 100.0 * 0.35   ' bar half-width (space between/inside)
+    DIM shp AS SINGLE : shp! = 1.0 + sharpness% / 100.0 * 5.0           ' bevel edge concentration
+    DIM soft AS SINGLE : soft! = 0.03 + roundness% / 100.0 * 0.32       ' rounded bar boundary
+    DIM bmp AS SINGLE : bmp! = bumpiness% / 100.0 * 55.0
+    DIM lRa AS SINGLE : lRa! = lightAngle% * 3.14159265 / 180.0
     DIM ax AS LONG, ay AS LONG, aHere AS _UNSIGNED _BYTE
     DIM tileX AS LONG, tileY AS LONG, u AS SINGLE, vv AS SINGLE, diagv AS SINGLE, band AS SINGLE
-    DIM g2 AS INTEGER, baseGrey AS INTEGER
+    DIM ad AS SINGLE, tt AS SINGLE, bar AS SINGLE, edge AS SINGLE, faceAng AS SINGLE, lightDot AS SINGLE
+    DIM diagOrient AS SINGLE, g2 AS INTEGER, baseGrey AS INTEGER
     baseGrey% = 125
     FOR ay& = 0 TO dpH& - 1
     IF (ay& AND 15) = 0 THEN IMGADJ_progress_tick "Diamondplate", ay& / dpH&
@@ -5336,17 +5342,23 @@ FUNCTION IMAGE_ADJ_diamondplate& (sourceImg AS LONG, sizeP AS INTEGER, depth AS 
             tileX& = ax& \ ts% : tileY& = ay& \ ts%
             u! = (ax& - tileX& * ts%) / ts% : vv! = (ay& - tileY& * ts%) / ts%
             IF ((tileX& + tileY&) AND 1) THEN
-                diagv! = u! + vv!
+                diagv! = u! + vv! : diagOrient! = 0.7853982       ' 45 deg
             ELSE
-                diagv! = u! - vv! + 1.0
+                diagv! = u! - vv! + 1.0 : diagOrient! = 2.3561945 ' 135 deg
             END IF
-            band! = diagv! - INT(diagv!)                     ' fract, one ridge per tile
-            IF band! > 0.25 AND band! < 0.75 THEN
-                ' raised bar: shade across its width for 3D (bright->dark)
-                g2% = baseGrey% + INT((0.5 - band!) * 2.0 * dScale!)
-            ELSE
-                g2% = baseGrey% - INT(dScale! * 0.25)        ' recessed base
-            END IF
+            band! = diagv! - INT(diagv!)
+            ad! = ABS(band! - 0.5)
+            ' soft bar membership (roundness rounds the boundary)
+            bar! = (barHalf! + soft! - ad!) / (2.0 * soft!)
+            IF bar! < 0.0 THEN bar! = 0.0 ELSE IF bar! > 1.0 THEN bar! = 1.0
+            tt! = ad! / barHalf! : IF tt! > 1.0 THEN tt! = 1.0
+            edge! = tt! ^ shp!                                    ' bevel bright/dark toward the rim
+            faceAng! = diagOrient! : IF band! < 0.5 THEN faceAng! = faceAng! + 3.14159265
+            lightDot! = COS(lRa! - faceAng!)
+            g2% = baseGrey% - INT(dScale! * 0.2)                  ' recessed base
+            g2% = g2% + INT(dScale! * bar! * 0.4)                 ' bars raised
+            g2% = g2% + INT(dScale! * edge! * lightDot! * bar!)   ' directional bevel
+            IF bmp! > 0.0 THEN g2% = g2% + INT((IMGADJ_valnoise!(ax& * 0.35, ay& * 0.35, 205) - 0.5) * bmp!)
             IF g2% < 20 THEN g2% = 20
             IF g2% > 245 THEN g2% = 245
             _MEMPUT resM, resM.OFFSET + (ay& * dpW& + ax&) * 4, _RGBA32(g2%, g2%, g2% + 4, aHere~%%) AS _UNSIGNED LONG
@@ -6584,15 +6596,18 @@ END SUB
 
 SUB IMAGE_ADJ_diamondplate_dialog ()
     IF CURRENT_LAYER% < 1 THEN EXIT SUB
-    DIM ctx AS DIALOG_CTX : DIALOG_init ctx, IMGDLG_W, 176
+    DIM ctx AS DIALOG_CTX : DIALOG_init ctx, IMGDLG_W, 340
     IMAGE_ADJ_setup_preview ctx, LAYERS(CURRENT_LAYER%).imgHandle&
     DIM p1 AS INTEGER : p1% = 12
     DIM p2 AS INTEGER : p2% = 60
-    DIM texMix AS INTEGER : texMix% = 100
+    DIM dpSpace AS INTEGER : dpSpace% = 40
+    DIM dpSharp AS INTEGER : dpSharp% = 50
+    DIM dpRound AS INTEGER : dpRound% = 30
+    DIM dpBump AS INTEGER : dpBump% = 0
+    DIM dpLight AS INTEGER : dpLight% = 135
     DIM d1 AS INTEGER : d1% = 12
     DIM d2 AS INTEGER : d2% = 60
-    DIM dMix AS INTEGER : dMix% = 100
-    DIM o1 AS INTEGER, o2 AS INTEGER, oMix AS INTEGER, k AS LONG
+    DIM o1 AS INTEGER, o2 AS INTEGER, oSpace AS INTEGER, oSharp AS INTEGER, oRound AS INTEGER, oBump AS INTEGER, oLight AS INTEGER, k AS LONG
     DIM texFx AS LONG
     DO
         DIALOG_poll_mouse ctx
@@ -6600,20 +6615,27 @@ SUB IMAGE_ADJ_diamondplate_dialog ()
         k& = _KEYHIT
         IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
         IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
-        o1% = p1% : o2% = p2% : oMix% = texMix%
+        o1% = p1% : o2% = p2% : oSpace% = dpSpace% : oSharp% = dpSharp% : oRound% = dpRound% : oBump% = dpBump% : oLight% = dpLight%
         p1% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, p1%, 4, 100)
         p1% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, p1%, 4, 100)
         p2% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, p2%, 0, 100)
         p2% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, p2%, 0, 100)
-        texMix% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, 14, texMix%, 0, 100)
-        texMix% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, 14, texMix%, 0, 100)
+        dpSpace% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, 14, dpSpace%, 0, 100)
+        dpSpace% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, 14, dpSpace%, 0, 100)
+        dpSharp% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 3), IMGDLG_SW, 14, dpSharp%, 0, 100)
+        dpSharp% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 3), IMGDLG_SW, 14, dpSharp%, 0, 100)
+        dpRound% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 4), IMGDLG_SW, 14, dpRound%, 0, 100)
+        dpRound% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 4), IMGDLG_SW, 14, dpRound%, 0, 100)
+        dpBump% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 5), IMGDLG_SW, 14, dpBump%, 0, 100)
+        dpBump% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 5), IMGDLG_SW, 14, dpBump%, 0, 100)
+        dpLight% = IMGDLG_angle_handle%(ctx, 6, dpLight%)
         IMGDLG_check_ok_cancel ctx
-        IMGDLG_reset3 ctx, p1%, p2%, texMix%, d1%, d2%, dMix%
-        IF p1% <> o1% OR p2% <> o2% OR texMix% <> oMix% THEN ctx.previewDirty% = TRUE
+        IMGDLG_reset2 ctx, p1%, p2%, d1%, d2%
+        IF p1% <> o1% OR p2% <> o2% OR dpSpace% <> oSpace% OR dpSharp% <> oSharp% OR dpRound% <> oRound% OR dpBump% <> oBump% OR dpLight% <> oLight% THEN ctx.previewDirty% = TRUE
         IF ctx.previewDirty% THEN
             SAFE_FREEIMAGE ctx.previewThumb
-            texFx& = IMAGE_ADJ_diamondplate&(ctx.origThumb, p1%, p2%)
-            ctx.previewThumb = IMAGE_ADJ_mix_result&(ctx.origThumb, texFx&, texMix%)
+            texFx& = IMAGE_ADJ_diamondplate&(ctx.origThumb, p1%, p2%, dpSpace%, dpSharp%, dpRound%, dpBump%, dpLight%)
+            ctx.previewThumb = IMAGE_ADJ_mix_result&(ctx.origThumb, texFx&, 100)
             SAFE_FREEIMAGE texFx&
             IMAGE_ADJ_mask_preview ctx : ctx.previewDirty% = FALSE
         END IF
@@ -6624,8 +6646,15 @@ SUB IMAGE_ADJ_diamondplate_dialog ()
         DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, p1%, 4, 100, "", ""
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 1), "DEPTH:"
         DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, p2%, 0, 100, "", ""
-        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 2), "MIX:"
-        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, texMix%, 0, 100, "", ""
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 2), "BAR SPACING:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, dpSpace%, 0, 100, "", ""
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 3), "SHARPNESS:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 3), IMGDLG_SW, dpSharp%, 0, 100, "", ""
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 4), "ROUNDNESS:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 4), IMGDLG_SW, dpRound%, 0, 100, "", ""
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 5), "BUMPINESS:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 5), IMGDLG_SW, dpBump%, 0, 100, "", ""
+        IMGDLG_angle_draw ctx, 6, dpLight%, "LIGHT ANGLE:"
         DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
         IMGDLG_draw_ok_cancel ctx
         DIALOG_blit ctx
@@ -6638,8 +6667,8 @@ SUB IMAGE_ADJ_diamondplate_dialog ()
         DIM adjR AS LONG, adjMix AS LONG
         FOR ti% = 1 TO tc%
             CURRENT_LAYER% = tgts%(ti%)
-            adjR& = IMAGE_ADJ_diamondplate&(LAYERS(CURRENT_LAYER%).imgHandle&, p1%, p2%)
-            adjMix& = IMAGE_ADJ_mix_result&(LAYERS(CURRENT_LAYER%).imgHandle&, adjR&, texMix%)
+            adjR& = IMAGE_ADJ_diamondplate&(LAYERS(CURRENT_LAYER%).imgHandle&, p1%, p2%, dpSpace%, dpSharp%, dpRound%, dpBump%, dpLight%)
+            adjMix& = IMAGE_ADJ_mix_result&(LAYERS(CURRENT_LAYER%).imgHandle&, adjR&, 100)
             SAFE_FREEIMAGE adjR&
             IMAGE_ADJ_apply_to_layer adjMix&, "Diamond Plate"
         NEXT ti%
