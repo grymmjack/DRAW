@@ -5,7 +5,7 @@ Each box is independently buildable + verifiable. Build with `~/git/qb64pe-450/q
 (v4.5.0, the Makefile default). Commit after each grouped box lands green.
 
 ## 🔨 NOW — doing right now
-- [ ] ➡️ Chromatic Aberration: add an ANGLE (with dial)
+- [ ] ➡️ Add Noise: add ANGLE + SEED (current result reads as a flat patch)
 
 ## 🐞 Bugs / regressions
 - [x] Cursor is a move/cross over EFFECTS flyout items — POINTER.BM now sets CURSOR_NULL over the category flyout region (genOpen%/genX/genY/genW/genH), matching the submenu-arrow logic. Built 17:31.
@@ -29,7 +29,7 @@ Each box is independently buildable + verifiable. Build with `~/git/qb64pe-450/q
 ## ✨ Per-effect (use the shared pieces above)
 - [x] Blend Last Effect: ALL 19 layer blend modes as a DROPDOWN. New reusable BLEND_ch%/BLEND_mix_channels (Rec.601 for Color/Luminosity); compositor untouched. QA effect-redo-last 7/7. Built 20:28.
 - [x] Posterize dither: cycle-button → dropdown (23 options, keyboard-navigable). First consumer of the shared DIALOG_dropdown widget. QA posterize-dither-color updated + 6/6 green. Built 18:31.
-- [ ] Chromatic Aberration: add an ANGLE (with dial)
+- [x] Chromatic Aberration: ANGLE dial — R/B fringe shifts along any direction (0 = classic horizontal). QA effect-chromatic 6/6. Built 20:34.
 - [ ] Add Noise: add ANGLE + SEED (current result reads as a flat patch)
 - [ ] Pinch / Bulge: much more extreme range (click-to-set center DONE via the shared widget; remaining: widen the amount range)
 - [ ] Kaleidoscope: click-to-set center

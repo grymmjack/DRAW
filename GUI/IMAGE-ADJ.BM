@@ -2040,7 +2040,7 @@ END SUB
 ' @param mono      INTEGER 0 = colour noise, 1 = monochrome
 ' @return LONG  New noisy image handle
 '
-FUNCTION IMAGE_ADJ_addnoise& (sourceImg AS LONG, amount AS INTEGER, mono AS INTEGER, pixSize AS INTEGER, mixP AS INTEGER)
+FUNCTION IMAGE_ADJ_addnoise& (sourceImg AS LONG, amount AS INTEGER, mono AS INTEGER, pixSize AS INTEGER, mixP AS INTEGER, angle AS INTEGER, seed AS INTEGER)
     IF NOT (sourceImg& < -1) THEN IMAGE_ADJ_addnoise& = 0 : EXIT FUNCTION
 
     DIM anW AS LONG, anH AS LONG
@@ -2053,32 +2053,40 @@ FUNCTION IMAGE_ADJ_addnoise& (sourceImg AS LONG, amount AS INTEGER, mono AS INTE
 
     ' pixSize = grain size: noise is constant across each pixSize x pixSize block
     ' (1 = fine per-pixel grain). mixP = how strongly the grain blends over the
-    ' original (0 = none, 100 = full-strength).
+    ' original (0 = none, 100 = full-strength). angle rotates the grain grid; seed
+    ' re-rolls the hash so the same settings give a different speckle.
     DIM anPix AS INTEGER : anPix% = pixSize% : IF anPix% < 1 THEN anPix% = 1
     DIM anMix AS SINGLE : anMix! = mixP% / 100.0
     IF anMix! < 0.0 THEN anMix! = 0.0 ELSE IF anMix! > 1.0 THEN anMix! = 1.0
+    DIM anSeed AS LONG : anSeed& = (seed% * 40507) AND 65535
+    DIM anRa AS SINGLE : anRa! = angle% * 3.14159265 / 180.0
+    DIM anCa AS SINGLE : anCa! = COS(anRa!) : DIM anSa AS SINGLE : anSa! = SIN(anRa!)
+    DIM anCxc AS SINGLE : anCxc! = anW& / 2.0 : DIM anCyc AS SINGLE : anCyc! = anH& / 2.0
 
     DIM nx AS LONG, ny AS LONG, bx AS LONG, by AS LONG, h1 AS LONG, h2 AS LONG
     DIM dR AS INTEGER, dG AS INTEGER, dB AS INTEGER, sc AS SINGLE
     DIM px AS _UNSIGNED LONG, nr AS INTEGER, ng AS INTEGER, nb AS INTEGER
     DIM orR AS INTEGER, orG AS INTEGER, orB AS INTEGER
+    DIM anRfx AS SINGLE, anRfy AS SINGLE, anRdx AS SINGLE, anRdy AS SINGLE
     sc! = amount% / 100.0 * 255.0
     FOR ny& = 0 TO anH& - 1
     IF (ny& AND 15) = 0 THEN IMGADJ_progress_tick "Addnoise", ny& / anH&
-        by& = ny& \ anPix%
         FOR nx& = 0 TO anW& - 1
-            bx& = nx& \ anPix%
-            h1& = ((bx& * 374761393) XOR (by& * 668265263)) AND 65535
-            h2& = (((bx& + 137) * 374761393) XOR ((by& + 71) * 668265263)) AND 65535
+            anRdx! = nx& - anCxc! : anRdy! = ny& - anCyc!
+            anRfx! = anCxc! + anRdx! * anCa! - anRdy! * anSa!
+            anRfy! = anCyc! + anRdx! * anSa! + anRdy! * anCa!
+            bx& = INT(anRfx!) \ anPix% : by& = INT(anRfy!) \ anPix%
+            h1& = ((bx& * 374761393) XOR (by& * 668265263) XOR anSeed&) AND 65535
+            h2& = (((bx& + 137) * 374761393) XOR ((by& + 71) * 668265263) XOR anSeed&) AND 65535
             dR% = INT(((h1& / 65535.0) + (h2& / 65535.0) - 1.0) * sc!)
             IF mono% THEN
                 dG% = dR% : dB% = dR%
             ELSE
-                h1& = ((bx& * 40503) XOR (by& * 12289) XOR 777) AND 65535
-                h2& = ((bx& * 24593) XOR (by& * 20347) XOR 555) AND 65535
+                h1& = ((bx& * 40503) XOR (by& * 12289) XOR 777 XOR anSeed&) AND 65535
+                h2& = ((bx& * 24593) XOR (by& * 20347) XOR 555 XOR anSeed&) AND 65535
                 dG% = INT(((h1& / 65535.0) + (h2& / 65535.0) - 1.0) * sc!)
-                h1& = ((bx& * 15413) XOR (by& * 32603) XOR 999) AND 65535
-                h2& = ((bx& * 49157) XOR (by& * 6151) XOR 333) AND 65535
+                h1& = ((bx& * 15413) XOR (by& * 32603) XOR 999 XOR anSeed&) AND 65535
+                h2& = ((bx& * 49157) XOR (by& * 6151) XOR 333 XOR anSeed&) AND 65535
                 dB% = INT(((h1& / 65535.0) + (h2& / 65535.0) - 1.0) * sc!)
             END IF
             _MEMGET srcM, srcM.OFFSET + (ny& * anW& + nx&) * 4, px~&
@@ -2104,7 +2112,7 @@ SUB IMAGE_ADJ_addnoise_dialog ()
     IF CURRENT_LAYER% < 1 THEN EXIT SUB
 
     DIM ctx AS DIALOG_CTX
-    DIALOG_init ctx, IMGDLG_W, 206
+    DIALOG_init ctx, IMGDLG_W, 282
     IMAGE_ADJ_setup_preview ctx, LAYERS(CURRENT_LAYER%).imgHandle&
 
     DIM amt AS INTEGER : amt% = 25
@@ -2113,11 +2121,14 @@ SUB IMAGE_ADJ_addnoise_dialog ()
     DIM oNpix AS INTEGER
     DIM nmix AS INTEGER : nmix% = 100
     DIM oNmix AS INTEGER
+    DIM anAngle AS INTEGER : anAngle% = 0
+    DIM anSeedP AS INTEGER : anSeedP% = 0
+    DIM oAngle AS INTEGER, oSeedP AS INTEGER
     STATIC monoOn AS INTEGER
 
     DIM mvX AS INTEGER, mvY AS INTEGER, mvW AS INTEGER, mvH AS INTEGER
     mvX% = IMGDLG_SX : mvW% = 120 : mvH% = 16
-    mvY% = IMGDLG_track_y%(ctx, 2) + 24
+    mvY% = IMGDLG_track_y%(ctx, 4) + 24
 
     DIM k AS LONG
     DIM d_amt AS INTEGER : d_amt% = 25
@@ -2131,24 +2142,27 @@ SUB IMAGE_ADJ_addnoise_dialog ()
         IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
         IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
 
-        oAmt% = amt% : oNpix% = npix% : oNmix% = nmix%
+        oAmt% = amt% : oNpix% = npix% : oNmix% = nmix% : oAngle% = anAngle% : oSeedP% = anSeedP%
         amt% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, amt%, 0, 100)
         amt% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, amt%, 0, 100)
         npix% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, npix%, 1, 64)
         npix% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, npix%, 1, 64)
         nmix% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, 14, nmix%, 0, 100)
         nmix% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, 14, nmix%, 0, 100)
+        anAngle% = IMGDLG_angle_handle%(ctx, 3, anAngle%)
+        anSeedP% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 4), IMGDLG_SW, 14, anSeedP%, 0, 99)
+        anSeedP% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 4), IMGDLG_SW, 14, anSeedP%, 0, 99)
         IF DIALOG_hit%(ctx, mvX%, mvY%, mvW%, mvH%) THEN
             monoOn%           = (monoOn% = 0)
             ctx.previewDirty% = TRUE
         END IF
-        IF amt% <> oAmt% OR npix% <> oNpix% OR nmix% <> oNmix% THEN ctx.previewDirty% = TRUE
+        IF amt% <> oAmt% OR npix% <> oNpix% OR nmix% <> oNmix% OR anAngle% <> oAngle% OR anSeedP% <> oSeedP% THEN ctx.previewDirty% = TRUE
         IMGDLG_check_ok_cancel ctx
         IMGDLG_reset4 ctx, amt%, npix%, nmix%, monoOn%, d_amt%, d_npix%, d_nmix%, d_monoOn%
 
         IF ctx.previewDirty% THEN
             SAFE_FREEIMAGE ctx.previewThumb
-            ctx.previewThumb = IMAGE_ADJ_addnoise&(ctx.origThumb, amt%, monoOn%, npix%, nmix%)
+            ctx.previewThumb = IMAGE_ADJ_addnoise&(ctx.origThumb, amt%, monoOn%, npix%, nmix%, anAngle%, anSeedP%)
             IMAGE_ADJ_mask_preview ctx
             ctx.previewDirty% = FALSE
         END IF
@@ -2162,6 +2176,9 @@ SUB IMAGE_ADJ_addnoise_dialog ()
         DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, npix%, 1, 64, "", ""
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 2), "MIX:"
         DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, nmix%, 0, 100, "", ""
+        IMGDLG_angle_draw ctx, 3, anAngle%, "ANGLE:"
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 4), "SEED:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 4), IMGDLG_SW, anSeedP%, 0, 99, "", ""
         DIALOG_draw_toggle ctx, mvX%, mvY%, mvW%, mvH%, "MONOCHROME", monoOn%
         DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
         IMGDLG_draw_ok_cancel ctx
@@ -2177,7 +2194,7 @@ SUB IMAGE_ADJ_addnoise_dialog ()
         DIM adjR     AS LONG
         FOR anT% = 1 TO anTgtCount%
             CURRENT_LAYER% = anTargets%(anT%)
-            adjR&          = IMAGE_ADJ_addnoise&(LAYERS(CURRENT_LAYER%).imgHandle&, amt%, monoOn%, npix%, nmix%)
+            adjR&          = IMAGE_ADJ_addnoise&(LAYERS(CURRENT_LAYER%).imgHandle&, amt%, monoOn%, npix%, nmix%, anAngle%, anSeedP%)
             IMAGE_ADJ_apply_to_layer adjR&, "Add Noise"
         NEXT anT%
         IF anTgtCount% > 1 THEN HISTORY_end_group
