@@ -5505,7 +5505,7 @@ END FUNCTION
 ' independently for coloured speckle). AMOUNT sets strength; MONO 0=colour,
 ' 100=monochrome. RGB-only -> apply_to_layer.
 '
-FUNCTION IMAGE_ADJ_texnoise& (sourceImg AS LONG, amount AS INTEGER, mono AS INTEGER)
+FUNCTION IMAGE_ADJ_texnoise& (sourceImg AS LONG, amount AS INTEGER, mono AS INTEGER, seed AS INTEGER)
     IF NOT (sourceImg& < -1) THEN IMAGE_ADJ_texnoise& = 0 : EXIT FUNCTION
     DIM tnW AS LONG, tnH AS LONG
     tnW& = _WIDTH(sourceImg&) : tnH& = _HEIGHT(sourceImg&)
@@ -5514,6 +5514,8 @@ FUNCTION IMAGE_ADJ_texnoise& (sourceImg AS LONG, amount AS INTEGER, mono AS INTE
     srcM = _MEMIMAGE(sourceImg&) : resM = _MEMIMAGE(result&)
     DIM amt AS SINGLE : amt! = amount% / 100.0 * 140.0
     DIM isMono AS INTEGER : isMono% = (mono% >= 50)
+    ' near-random grain is isotropic, so an angle would be meaningless; SEED re-rolls
+    ' the speckle field instead
     DIM ax AS LONG, ay AS LONG, aHere AS _UNSIGNED _BYTE, pix AS _UNSIGNED LONG
     DIM nR AS SINGLE, nG AS SINGLE, nB AS SINGLE
     DIM pr AS INTEGER, pg AS INTEGER, pb AS INTEGER, tr AS INTEGER, tg AS INTEGER, tb AS INTEGER
@@ -5522,12 +5524,12 @@ FUNCTION IMAGE_ADJ_texnoise& (sourceImg AS LONG, amount AS INTEGER, mono AS INTE
         FOR ax& = 0 TO tnW& - 1
             _MEMGET srcM, srcM.OFFSET + (ay& * tnW& + ax&) * 4 + 3, aHere~%%
             IF aHere~%% = 0 THEN _CONTINUE
-            nR! = (IMGADJ_valnoise!(ax& * 1.9 + 0.1, ay& * 1.9 + 0.1, 161) - 0.5)
+            nR! = (IMGADJ_valnoise!(ax& * 1.9 + 0.1, ay& * 1.9 + 0.1, 161 + seed%) - 0.5)
             IF isMono% THEN
                 nG! = nR! : nB! = nR!
             ELSE
-                nG! = (IMGADJ_valnoise!(ax& * 1.9 + 5.3, ay& * 1.9 + 5.3, 162) - 0.5)
-                nB! = (IMGADJ_valnoise!(ax& * 1.9 + 9.7, ay& * 1.9 + 9.7, 163) - 0.5)
+                nG! = (IMGADJ_valnoise!(ax& * 1.9 + 5.3, ay& * 1.9 + 5.3, 162 + seed%) - 0.5)
+                nB! = (IMGADJ_valnoise!(ax& * 1.9 + 9.7, ay& * 1.9 + 9.7, 163 + seed%) - 0.5)
             END IF
             _MEMGET srcM, srcM.OFFSET + (ay& * tnW& + ax&) * 4, pix~&
             pr% = _RED32(pix~&) : pg% = _GREEN32(pix~&) : pb% = _BLUE32(pix~&)
@@ -5550,7 +5552,7 @@ END FUNCTION
 ' along y, smooth along x, so it reads as brushed steel. BRIGHT sets the base
 ' grey; GRAIN sets streak contrast. RGB-only -> apply_to_layer.
 '
-FUNCTION IMAGE_ADJ_brushmetal& (sourceImg AS LONG, bright AS INTEGER, grain AS INTEGER)
+FUNCTION IMAGE_ADJ_brushmetal& (sourceImg AS LONG, bright AS INTEGER, grain AS INTEGER, angle AS INTEGER, seed AS INTEGER)
     IF NOT (sourceImg& < -1) THEN IMAGE_ADJ_brushmetal& = 0 : EXIT FUNCTION
     DIM bmW AS LONG, bmH AS LONG
     bmW& = _WIDTH(sourceImg&) : bmH& = _HEIGHT(sourceImg&)
@@ -5559,16 +5561,24 @@ FUNCTION IMAGE_ADJ_brushmetal& (sourceImg AS LONG, bright AS INTEGER, grain AS I
     srcM = _MEMIMAGE(sourceImg&) : resM = _MEMIMAGE(result&)
     DIM bmBase AS INTEGER : bmBase% = 90 + INT(bright% / 100.0 * 110)
     DIM amp AS SINGLE : amp! = grain% / 100.0 * 70.0
+    ' angle rotates the anisotropic brush streaks; seed shifts the streak noise
+    DIM bmRa AS SINGLE : bmRa! = angle% * 3.14159265 / 180.0
+    DIM bmCa AS SINGLE : bmCa! = COS(bmRa!) : DIM bmSa AS SINGLE : bmSa! = SIN(bmRa!)
+    DIM bmCxc AS SINGLE : bmCxc! = bmW& / 2.0 : DIM bmCyc AS SINGLE : bmCyc! = bmH& / 2.0
     DIM ax AS LONG, ay AS LONG, aHere AS _UNSIGNED _BYTE
     DIM n AS SINGLE, g2 AS INTEGER
+    DIM rfx AS SINGLE, rfy AS SINGLE, rdx AS SINGLE, rdy AS SINGLE
     FOR ay& = 0 TO bmH& - 1
     IF (ay& AND 15) = 0 THEN IMGADJ_progress_tick "Brushmetal", ay& / bmH&
         FOR ax& = 0 TO bmW& - 1
             _MEMGET srcM, srcM.OFFSET + (ay& * bmW& + ax&) * 4 + 3, aHere~%%
             IF aHere~%% = 0 THEN _CONTINUE
+            rdx! = ax& - bmCxc! : rdy! = ay& - bmCyc!
+            rfx! = bmCxc! + rdx! * bmCa! - rdy! * bmSa!
+            rfy! = bmCyc! + rdx! * bmSa! + rdy! * bmCa!
             ' x smooth (0.015), y fine (0.9) -> long horizontal brush strokes
-            n! = IMGADJ_valnoise!(ax& * 0.015, ay& * 0.9, 141) - 0.5 _
-               + (IMGADJ_valnoise!(ax& * 0.05, ay& * 2.1, 142) - 0.5) * 0.4
+            n! = IMGADJ_valnoise!(rfx! * 0.015, rfy! * 0.9, 141 + seed%) - 0.5 _
+               + (IMGADJ_valnoise!(rfx! * 0.05, rfy! * 2.1, 142 + seed%) - 0.5) * 0.4
             g2% = bmBase% + INT(n! * amp!)
             IF g2% < 0 THEN g2% = 0
             IF g2% > 255 THEN g2% = 255
@@ -5877,7 +5887,7 @@ END SUB
 
 SUB IMAGE_ADJ_brushmetal_dialog ()
     IF CURRENT_LAYER% < 1 THEN EXIT SUB
-    DIM ctx AS DIALOG_CTX : DIALOG_init ctx, IMGDLG_W, 176
+    DIM ctx AS DIALOG_CTX : DIALOG_init ctx, IMGDLG_W, 252
     IMAGE_ADJ_setup_preview ctx, LAYERS(CURRENT_LAYER%).imgHandle&
     DIM p1 AS INTEGER : p1% = 55
     DIM p2 AS INTEGER : p2% = 50
@@ -5885,7 +5895,9 @@ SUB IMAGE_ADJ_brushmetal_dialog ()
     DIM d1 AS INTEGER : d1% = 55
     DIM d2 AS INTEGER : d2% = 50
     DIM dMix AS INTEGER : dMix% = 100
-    DIM o1 AS INTEGER, o2 AS INTEGER, oMix AS INTEGER, k AS LONG
+    DIM txAngle AS INTEGER : txAngle% = 0
+    DIM txSeed AS INTEGER : txSeed% = 0
+    DIM o1 AS INTEGER, o2 AS INTEGER, oMix AS INTEGER, oAng AS INTEGER, oSeed AS INTEGER, k AS LONG
     DIM texFx AS LONG
     DO
         DIALOG_poll_mouse ctx
@@ -5893,19 +5905,22 @@ SUB IMAGE_ADJ_brushmetal_dialog ()
         k& = _KEYHIT
         IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
         IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
-        o1% = p1% : o2% = p2% : oMix% = texMix%
+        o1% = p1% : o2% = p2% : oMix% = texMix% : oAng% = txAngle% : oSeed% = txSeed%
         p1% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, p1%, 0, 100)
         p1% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, p1%, 0, 100)
         p2% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, p2%, 0, 100)
         p2% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, p2%, 0, 100)
         texMix% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, 14, texMix%, 0, 100)
         texMix% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, 14, texMix%, 0, 100)
+        txAngle% = IMGDLG_angle_handle%(ctx, 3, txAngle%)
+        txSeed% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 4), IMGDLG_SW, 14, txSeed%, 0, 99)
+        txSeed% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 4), IMGDLG_SW, 14, txSeed%, 0, 99)
         IMGDLG_check_ok_cancel ctx
         IMGDLG_reset3 ctx, p1%, p2%, texMix%, d1%, d2%, dMix%
-        IF p1% <> o1% OR p2% <> o2% OR texMix% <> oMix% THEN ctx.previewDirty% = TRUE
+        IF p1% <> o1% OR p2% <> o2% OR texMix% <> oMix% OR txAngle% <> oAng% OR txSeed% <> oSeed% THEN ctx.previewDirty% = TRUE
         IF ctx.previewDirty% THEN
             SAFE_FREEIMAGE ctx.previewThumb
-            texFx& = IMAGE_ADJ_brushmetal&(ctx.origThumb, p1%, p2%)
+            texFx& = IMAGE_ADJ_brushmetal&(ctx.origThumb, p1%, p2%, txAngle%, txSeed%)
             ctx.previewThumb = IMAGE_ADJ_mix_result&(ctx.origThumb, texFx&, texMix%)
             SAFE_FREEIMAGE texFx&
             IMAGE_ADJ_mask_preview ctx : ctx.previewDirty% = FALSE
@@ -5919,6 +5934,9 @@ SUB IMAGE_ADJ_brushmetal_dialog ()
         DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, p2%, 0, 100, "", ""
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 2), "MIX:"
         DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, texMix%, 0, 100, "", ""
+        IMGDLG_angle_draw ctx, 3, txAngle%, "ANGLE:"
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 4), "SEED:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 4), IMGDLG_SW, txSeed%, 0, 99, "", ""
         DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
         IMGDLG_draw_ok_cancel ctx
         DIALOG_blit ctx
@@ -5931,7 +5949,7 @@ SUB IMAGE_ADJ_brushmetal_dialog ()
         DIM adjR AS LONG, adjMix AS LONG
         FOR ti% = 1 TO tc%
             CURRENT_LAYER% = tgts%(ti%)
-            adjR& = IMAGE_ADJ_brushmetal&(LAYERS(CURRENT_LAYER%).imgHandle&, p1%, p2%)
+            adjR& = IMAGE_ADJ_brushmetal&(LAYERS(CURRENT_LAYER%).imgHandle&, p1%, p2%, txAngle%, txSeed%)
             adjMix& = IMAGE_ADJ_mix_result&(LAYERS(CURRENT_LAYER%).imgHandle&, adjR&, texMix%)
             SAFE_FREEIMAGE adjR&
             IMAGE_ADJ_apply_to_layer adjMix&, "Brushed Metal"
@@ -6145,11 +6163,12 @@ END SUB
 
 SUB IMAGE_ADJ_texnoise_dialog ()
     IF CURRENT_LAYER% < 1 THEN EXIT SUB
-    DIM ctx AS DIALOG_CTX : DIALOG_init ctx, IMGDLG_W, 138
+    DIM ctx AS DIALOG_CTX : DIALOG_init ctx, IMGDLG_W, 176
     IMAGE_ADJ_setup_preview ctx, LAYERS(CURRENT_LAYER%).imgHandle&
     DIM p1 AS INTEGER : p1% = 40
     DIM p2 AS INTEGER : p2% = 0
-    DIM o1 AS INTEGER, o2 AS INTEGER, k AS LONG
+    DIM txSeed AS INTEGER : txSeed% = 0
+    DIM o1 AS INTEGER, o2 AS INTEGER, oSeed AS INTEGER, k AS LONG
     DIM d_p1 AS INTEGER : d_p1% = 40
     DIM d_p2 AS INTEGER : d_p2% = 0
     DO
@@ -6158,17 +6177,19 @@ SUB IMAGE_ADJ_texnoise_dialog ()
         k& = _KEYHIT
         IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
         IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
-        o1% = p1% : o2% = p2%
+        o1% = p1% : o2% = p2% : oSeed% = txSeed%
         p1% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, p1%, 0, 100)
         p1% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, p1%, 0, 100)
         p2% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, p2%, 0, 100)
         p2% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, p2%, 0, 100)
-        IF p1% <> o1% OR p2% <> o2% THEN ctx.previewDirty% = TRUE
+        txSeed% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, 14, txSeed%, 0, 99)
+        txSeed% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, 14, txSeed%, 0, 99)
+        IF p1% <> o1% OR p2% <> o2% OR txSeed% <> oSeed% THEN ctx.previewDirty% = TRUE
         IMGDLG_check_ok_cancel ctx
         IMGDLG_reset2 ctx, p1%, p2%, d_p1%, d_p2%
         IF ctx.previewDirty% THEN
             SAFE_FREEIMAGE ctx.previewThumb
-            ctx.previewThumb = IMAGE_ADJ_texnoise&(ctx.origThumb, p1%, p2%)
+            ctx.previewThumb = IMAGE_ADJ_texnoise&(ctx.origThumb, p1%, p2%, txSeed%)
             IMAGE_ADJ_mask_preview ctx : ctx.previewDirty% = FALSE
         END IF
         _DEST ctx.imgHandle
@@ -6178,6 +6199,8 @@ SUB IMAGE_ADJ_texnoise_dialog ()
         DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, p1%, 0, 100, "", ""
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 1), "MONO:"
         DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, p2%, 0, 100, "", ""
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 2), "SEED:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, txSeed%, 0, 99, "", ""
         DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
         IMGDLG_draw_ok_cancel ctx
         DIALOG_blit ctx
@@ -6190,7 +6213,7 @@ SUB IMAGE_ADJ_texnoise_dialog ()
         DIM adjR AS LONG
         FOR ti% = 1 TO tc%
             CURRENT_LAYER% = tgts%(ti%)
-            adjR& = IMAGE_ADJ_texnoise&(LAYERS(CURRENT_LAYER%).imgHandle&, p1%, p2%)
+            adjR& = IMAGE_ADJ_texnoise&(LAYERS(CURRENT_LAYER%).imgHandle&, p1%, p2%, txSeed%)
             IMAGE_ADJ_apply_to_layer adjR&, "Texture Noise"
         NEXT ti%
         IF tc% > 1 THEN HISTORY_end_group
@@ -6482,7 +6505,7 @@ END SUB
 ' @param refract   INTEGER  Lens magnification strength 0..100
 ' @return LONG              New 32-bit image handle (0 on failure)
 '
-FUNCTION IMAGE_ADJ_waterdrops& (sourceImg AS LONG, dropSize AS INTEGER, refract AS INTEGER)
+FUNCTION IMAGE_ADJ_waterdrops& (sourceImg AS LONG, dropSize AS INTEGER, refract AS INTEGER, seed AS INTEGER)
     IF NOT (sourceImg& < -1) THEN IMAGE_ADJ_waterdrops& = 0 : EXIT FUNCTION
 
     DIM wdW AS LONG, wdH AS LONG
@@ -6516,9 +6539,9 @@ FUNCTION IMAGE_ADJ_waterdrops& (sourceImg AS LONG, dropSize AS INTEGER, refract 
             bcx! = -1 : bcy! = -1
             FOR ngy% = -1 TO 1
                 FOR ngx% = -1 TO 1
-                    jit! = IMGADJ_valnoise!((cgx& + ngx%) * 1.3, (cgy& + ngy%) * 1.3, 101)
+                    jit! = IMGADJ_valnoise!((cgx& + ngx%) * 1.3, (cgy& + ngy%) * 1.3, 101 + seed%)
                     ccx! = (cgx& + ngx%) * spacing% + spacing% * (0.25 + 0.5 * jit!)
-                    jit! = IMGADJ_valnoise!((cgx& + ngx%) * 1.3, (cgy& + ngy%) * 1.3, 102)
+                    jit! = IMGADJ_valnoise!((cgx& + ngx%) * 1.3, (cgy& + ngy%) * 1.3, 102 + seed%)
                     ccy! = (cgy& + ngy%) * spacing% + spacing% * (0.25 + 0.5 * jit!)
                     ddx! = wx& - ccx! : ddy! = wy& - ccy!
                     dist! = SQR(ddx! * ddx! + ddy! * ddy!)
@@ -6571,12 +6594,13 @@ SUB IMAGE_ADJ_waterdrops_dialog ()
     IF CURRENT_LAYER% < 1 THEN EXIT SUB
 
     DIM ctx AS DIALOG_CTX
-    DIALOG_init ctx, IMGDLG_W, 138
+    DIALOG_init ctx, IMGDLG_W, 176
     IMAGE_ADJ_setup_preview ctx, LAYERS(CURRENT_LAYER%).imgHandle&
 
     DIM dropSize AS INTEGER : dropSize% = 10
     DIM refract  AS INTEGER : refract%  = 60
-    DIM oSize AS INTEGER, oRefract AS INTEGER
+    DIM txSeed AS INTEGER : txSeed% = 0
+    DIM oSize AS INTEGER, oRefract AS INTEGER, oSeed AS INTEGER
 
     DIM k AS LONG
     DIM d_dropSize AS INTEGER : d_dropSize% = 10
@@ -6588,18 +6612,20 @@ SUB IMAGE_ADJ_waterdrops_dialog ()
         IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
         IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
 
-        oSize% = dropSize% : oRefract% = refract%
+        oSize% = dropSize% : oRefract% = refract% : oSeed% = txSeed%
         dropSize% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, dropSize%, 4, 100)
         dropSize% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, dropSize%, 4, 100)
         refract%  = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, refract%, 0, 100)
         refract%  = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, refract%, 0, 100)
-        IF dropSize% <> oSize% OR refract% <> oRefract% THEN ctx.previewDirty% = TRUE
+        txSeed% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, 14, txSeed%, 0, 99)
+        txSeed% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, 14, txSeed%, 0, 99)
+        IF dropSize% <> oSize% OR refract% <> oRefract% OR txSeed% <> oSeed% THEN ctx.previewDirty% = TRUE
         IMGDLG_check_ok_cancel ctx
         IMGDLG_reset2 ctx, dropSize%, refract%, d_dropSize%, d_refract%
 
         IF ctx.previewDirty% THEN
             SAFE_FREEIMAGE ctx.previewThumb
-            ctx.previewThumb = IMAGE_ADJ_waterdrops&(ctx.origThumb, dropSize%, refract%)
+            ctx.previewThumb = IMAGE_ADJ_waterdrops&(ctx.origThumb, dropSize%, refract%, txSeed%)
             IMAGE_ADJ_mask_preview ctx
             ctx.previewDirty% = FALSE
         END IF
@@ -6611,6 +6637,8 @@ SUB IMAGE_ADJ_waterdrops_dialog ()
         DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, dropSize%, 4, 100, "", ""
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 1), "REFRACT:"
         DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, refract%, 0, 100, "", ""
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 2), "SEED:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, txSeed%, 0, 99, "", ""
         DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
         IMGDLG_draw_ok_cancel ctx
         DIALOG_blit ctx
@@ -6625,7 +6653,7 @@ SUB IMAGE_ADJ_waterdrops_dialog ()
         DIM adjR AS LONG
         FOR wdT% = 1 TO wdTgtCount%
             CURRENT_LAYER% = wdTargets%(wdT%)
-            adjR&          = IMAGE_ADJ_waterdrops&(LAYERS(CURRENT_LAYER%).imgHandle&, dropSize%, refract%)
+            adjR&          = IMAGE_ADJ_waterdrops&(LAYERS(CURRENT_LAYER%).imgHandle&, dropSize%, refract%, txSeed%)
             IMAGE_ADJ_apply_to_layer adjR&, "Water Drops"
         NEXT wdT%
         IF wdTgtCount% > 1 THEN HISTORY_end_group

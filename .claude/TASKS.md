@@ -5,7 +5,7 @@ Each box is independently buildable + verifiable. Build with `~/git/qb64pe-450/q
 (v4.5.0, the Makefile default). Commit after each grouped box lands green.
 
 ## 🔨 NOW — doing right now
-- [ ] ➡️ Texture angle+seed batch 3: Ripples + Fur + Rust
+- [ ] ➡️ Texture angle+seed batch 5: Brushed Metal + Texture Noise + Water Drops
 
 ## 🐞 Bugs / regressions
 - [x] Cursor is a move/cross over EFFECTS flyout items — POINTER.BM now sets CURSOR_NULL over the category flyout region (genOpen%/genX/genY/genW/genH), matching the submenu-arrow logic. Built 17:31.
@@ -22,8 +22,8 @@ Each box is independently buildable + verifiable. Build with `~/git/qb64pe-450/q
 - Angle + random SEED for texture effects — SPLIT into batches (each independently buildable + tested):
   - [x] batch 1: Wood + Marble — angle rotates sample coords, seed shifts the noise field; ANGLE dial + SEED slider added. QA effect-texture-basics 10/10. Built 19:24.
   - [x] batch 2: Brick + Weave + Reptile — angle rotates each pattern grid; seed shifts noise (Brick/Reptile) or phase (Weave). QA texture-basics+natural 20/20. Built 19:35.
-  - [ ] batch 3: Ripples + Fur + Rust
-  - [ ] batch 4: Stone + Diamond Plate (also covered by their own per-effect boxes)
+  - [x] batch 3: Ripples (seed=phase; angle N/A radial) + Fur (seed; direction=its angle) + Rust (angle+seed). ALSO fixed a real bug: menu-click bleeding into a freshly-opened dialog control (DIALOG inputArmed). QA 44/44. Built 19:59.
+  - [x] batch 4: Stone + Diamond Plate — FOLDED into their per-effect boxes (Stone types / Diamond Plate params), where angle+seed is added as part of the fuller rework, to avoid touching those dialogs twice.
   - [ ] batch 5: Brushed Metal + Texture Noise + Water Drops (+ any remaining)
 
 ## ✨ Per-effect (use the shared pieces above)
@@ -37,8 +37,8 @@ Each box is independently buildable + verifiable. Build with `~/git/qb64pe-450/q
 - [ ] Extrude: option to fill the 3D faces with the extruded pixels; extrude ANGLE; JITTER 0–100 (random placement); extrusion shapes (from the cell-shape picker)
 - [ ] Chrome / Metallic: rework to actually look metallic — gradient picker + amount + reflectivity / light reflections
 - [ ] Sharpen: add an Unsharp Mask option (dropdown/toggle) like Photoshop
-- [ ] Diamond Plate: space-between, space-inside, sharpness, roundness, bumpiness + a LIGHT-direction angle in addition to the pattern angle
-- [ ] Stone Wall: stone TYPES — rock, rounded boulders, cracked, stacked, toothed, etc. (dropdown)
+- [ ] Diamond Plate: space-between, space-inside, sharpness, roundness, bumpiness + a LIGHT-direction angle in addition to the pattern angle (+ pattern angle + seed from texture batch 4)
+- [ ] Stone Wall: stone TYPES — rock, rounded boulders, cracked, stacked, toothed, etc. (dropdown) (+ angle + seed from texture batch 4)
 - [ ] Lightning: forks, fork randomness, fork diminish (thicker→thinner), spikiness, etc.
 - [ ] Glass (Shape): number-of-repeats, zoom/thickness of glints, angle
 - [ ] Render Grid: endless 1980s-style perspective (lines continue off every side, don't collapse into a rect) + an angle option
