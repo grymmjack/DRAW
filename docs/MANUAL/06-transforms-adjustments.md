@@ -103,6 +103,46 @@ Hover any slider and use the **mouse wheel** for fine control.
 
 Every adjustment **preserves the alpha channel** and is undone in a single `Ctrl+Z`.
 
+## The EFFECTS Menu — Photoshop / "Eye Candy" Style Effects
+
+> 🎯 **Goal:** Stylize a layer with a large library of filters and generative effects.
+
+Beyond the Image-menu adjustments, DRAW has a dedicated **EFFECTS** menu organized
+into **flyout submenu categories** (hover a category to open its list). Every
+effect opens a dialog with a **split ORIG / ADJ live-preview loupe**, **mouse-wheel
+sliders**, and an **OK / RESET / CANCEL** button row — **RESET** restores that
+effect's default parameters. Effects apply per-layer (multi-layer aware), preserve
+alpha where appropriate, and undo in a single `Ctrl+Z`.
+
+- **ADJUST →** Gamma, Sepia, Threshold, Colorize, Gradient Map, Solarize, Duotone / Tritone
+- **STYLIZE →** Glow, Film Grain, Vignette, Outline / Stroke, Edge Detect (Sobel), Grow / Shrink (dilate / erode), Chromatic Aberration, **Emboss** (with a **Light Angle**), Wind
+- **LAYER FX →** **Drop Shadow** (Distance / **Angle** / Softness / Opacity), Perspective Shadow (Length / **Cast Angle**), **Bevel** (Height / Strength / **Light Angle** / Direction), Outer Glow, Inner Glow, Chrome / Metallic
+- **DISTORT →** Wave / Ripple, Twirl, Pinch / Bulge (spherize), Kaleidoscope (auto mandala)
+- **PIXELATE →** Crystallize, Stained Glass, Mosaic / Tessellate, Extrude, Pointillize
+- **NOISE →** Add Noise, Median / Despeckle, Dust & Scratches
+- **RENDER →** Clouds, Difference Clouds, Lens Flare, Terrain, Grid (with perspective), Sky (day / night / space)
+
+### SHAPE → (Eye Candy "Shape", 20 effects)
+
+Effects that work off the shape's alpha edge — backlights, glows, shadows, and
+elemental overlays: **Backlight, Corona, Cutout, Bevel, Chrome, Extrude, Outer
+Glow, Inner Glow, Drop Shadow, Perspective Shadow, Motion Trail, Rust, Snow, Fire,
+Smoke, Icicles, Drip, Glass, Electrify, Water Drops.**
+
+### TEXTURE → (Eye Candy "Texture", 15 effects)
+
+Procedural surfaces painted onto the shape, each with a **MIX** slider (0–100) to
+blend the texture with the original art instead of replacing it outright: **Wood,
+Marble, Brick Wall, Brushed Metal, Weave, Clouds, Swirl, Water Drops, Ripples,
+Animal Fur, Texture Noise, Stone Wall, Reptile Skin, Diamond Plate, Lightning.**
+
+> 💡 Effects that draw *outside* the shape (Drop Shadow, Outer Glow, Fire, Smoke,
+> Icicles, Drip, Backlight, Corona, Motion Trail, Snow flecks) work best on a
+> **transparent layer** so there's room around the artwork — add one with
+> `Ctrl+Shift+N`. Effects that use a colour (Backlight, Corona, Inner/Outer Glow,
+> Gradient Map, Duotone, Drop/Perspective Shadow) read the current **FG / BG**
+> colours.
+
 ---
 
 ➡️ Next: [Chapter 7 — Text System](07-text.md)

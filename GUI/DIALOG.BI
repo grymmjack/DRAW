@@ -45,7 +45,24 @@ TYPE DIALOG_CTX
     moveDragOY   AS INTEGER ' Mouse-to-dialog-top offset at drag start
     splitDrag    AS INTEGER ' TRUE while user is dragging the split bar
     screenShot   AS LONG    ' Copy of screen at dialog open — restored each frame as bg
+    inputArmed   AS INTEGER ' FALSE until mb1 is seen released once — swallows a button
+                            ' still held from the menu click that opened the dialog, so
+                            ' it can't drag a control the dialog opened underneath it
 END TYPE
+
+' ---- Dropdown (popup select) shared state -----------------------------------
+' Immediate-mode single-open-at-a-time dropdown. Only one modal dialog runs at a
+' time, so module globals are safe. DIALOG_init clears DIALOG_DD_OPEN.
+DIM SHARED DIALOG_DD_OPEN%        ' id of the currently-open dropdown (0 = none)
+DIM SHARED DIALOG_DD_X%, DIALOG_DD_Y%, DIALOG_DD_W%, DIALOG_DD_COUNT%
+DIM SHARED DIALOG_DD_SEL%        ' live selection while open (round-tripped to caller)
+DIM SHARED DIALOG_DD_SCROLL%     ' first visible row when list is taller than MAXVIS
+DIM SHARED DIALOG_DD_RESULT_ID%  ' dropdown id that was picked THIS frame (0 = none)
+DIM SHARED DIALOG_DD_RESULT_VAL% ' value picked for DIALOG_DD_RESULT_ID
+REDIM SHARED DIALOG_DD_LABELS$(0 TO 0) ' labels of the open dropdown (snapshot at open)
+CONST DIALOG_DD_BOXH% = 14       ' closed-box height (matches slider row height)
+CONST DIALOG_DD_ROWH% = 12       ' open-list row height
+CONST DIALOG_DD_MAXVIS% = 8      ' rows shown before the list scrolls
 
 ' ---- Lifecycle ---------------------------------------------------------------
 

@@ -1,49 +1,55 @@
-# DRAW input QA — exhaustive seam tests + z-order refactor
+# DRAW effects backlog (from grymmjack, 2026-08-15)
 
-## 🔨 NOW
-- ✅ ALL ITEMS COMPLETE. Branch `qa-harness-input-improvements-1` (DRAW + qa-harness). Net: z-order refactor (Z1–Z4), 6 new input test suites (T1–T6, all green), 0 compiler warnings, docs updated, 0 regressions (base-verified).
+Ordered so shared machinery is built once, then reused across the effects it unlocks.
+Each box is independently buildable + verifiable. Build with `~/git/qb64pe-450/qb64pe`
+(v4.5.0, the Makefile default). Commit after each grouped box lands green.
 
-## Deliverable — zero compiler warnings (Rick, 2026-08-13)
-- [x] W0 · Clean build (`make clean && make`) emits **0 warnings**. Fixed the 2 "Unused variable" warnings at root (KIT-ZIP.BM `ZIP_begin` dead param; KIT-IO.BM `KIT_install_textstyles` dead `fh` local). Commit pushed. **ONGOING GUARD: keep every build at 0 warnings — treat any new warning as a defect.**
+## 🔨 NOW — doing right now
+- [x] Full-suite QA sweep — 66 effect tests, 408/413 passed. All 5 failures were the single effect-crystallize test (app died mid-run in the long back-to-back offscreen batch, cascading its process/window/region asserts). Crystallize passes cleanly in isolation and was never touched this session → batch flake, not a regression. Every one of the 34 effects changed this session passed. Built + swept 22:56.
 
+## 🐞 Bugs / regressions
+- [x] Cursor is a move/cross over EFFECTS flyout items — POINTER.BM now sets CURSOR_NULL over the category flyout region (genOpen%/genX/genY/genW/genH), matching the submenu-arrow logic. Built 17:31.
+- [x] Inner Glow slow at high radius — now O(pixels) via shared IMGADJ_dist_transform (Chebyshev, two-pass). QA effect-innerglow green. Built 17:40.
+- [x] Corona slow at high radius — now O(pixels) via shared IMGADJ_dist_transform (seedMode 1, Chebyshev). Ring is a touch squarer than the old Euclidean scan; QA effect-corona 6/6 green. Built 17:51.
+- [x] Bevel slow at high radius — heightfield now O(pixels) via IMGADJ_dist_transform (seedMode 0, border-as-seed); shading phase untouched. QA effect-bevel 6/6 green. Built 17:57.
+- [x] Shape/generative effects don't work with selection — 7 radiating Shape effects (Fire, Smoke, Snow, Drip, Icicles, Electrify, Motion Trail) now route through the sel-as-shape choke point (IMGADJ_edge_shape_source + apply_spatial_edge) for BOTH apply and preview, exactly like the alpha-edge effects. Interior effects (Water Drops, Glass, Rust) already clip correctly via apply_to_layer. New QA effect-fire-selection 6/6 + all 7 no-selection tests 42/42 green. Built 18:08.
 
-Branch: `qa-harness-input-improvements-1` (DRAW **and** qa-harness). Derived from the
-code inventory in `.claude/input-inventory/` (01-mouse, 02-keyboard,
-03-regions-zorder-dispatch, 04-render-zorder-seams). Read those before each item.
+## 🧩 Shared widgets (build once → reuse)
+- [x] DROPDOWN control in the dialog framework — DIALOG_dropdown% + _input/_draw/_overlay in GUI/DIALOG.{BI,BM}. Immediate-mode, single-open, on-top popup with an input-gate that owns the frame's click/wheel/keys (Up/Down/Enter/Esc) so nothing underneath reacts; scrolls past DIALOG_DD_MAXVIS (8). Proven by converting Posterize dither (23 options). QA posterize-dither-color 6/6 green. Built 18:31.
+- [x] Angle DIAL widget wired into degrees controls — new combined IMGDLG_angle_handle%/IMGDLG_angle_draw (shortened 0..359 slider + compact drag-dial + live degree readout in the label). Wired into all 7 compass-angle controls (Motion Trail, Kaleidoscope rotation, Bevel light, Chrome cast, Backlight/Long-shadow angles, bevel-motion). Twirl's ANGLE (10..360 swirl magnitude) deliberately left as a plain slider. QA motiontrail/bevel/chrome/kaleidoscope 24/24 green. Built 18:44.
+- [x] Click-on-canvas to set a CENTER point — IMGADJ_center_pick_pane% + marker + preview/apply coord mappers (canvas-space store, apron-aware). Click the loupe pane to place the centre. Wired into Pinch/Bulge (engine takes a centre param, -1 = image centre; radius = nearest-edge so centred look is unchanged). Kaleidoscope + Lens Flare adopt it in their own boxes. QA effect-pinch-center 6/6 + effect-pinch (default) 6/6. Built 19:00.
+- [x] Cell-SHAPE picker — MOSAIC_SHAPE_* constants + cell-ID engine (direct formulas for square/rect/triangle; nearest-seed lattice for hex/voronoi/random via IMGADJ_cell_jitter). Shape dropdown + seed slider. Wired into Mosaic; Extrude reuses the same set in its box. QA effect-mosaic-shapes (Voronoi) + effect-mosaic (square) green. Built 19:13.
+- Angle + random SEED for texture effects — SPLIT into batches (each independently buildable + tested):
+  - [x] batch 1: Wood + Marble — angle rotates sample coords, seed shifts the noise field; ANGLE dial + SEED slider added. QA effect-texture-basics 10/10. Built 19:24.
+  - [x] batch 2: Brick + Weave + Reptile — angle rotates each pattern grid; seed shifts noise (Brick/Reptile) or phase (Weave). QA texture-basics+natural 20/20. Built 19:35.
+  - [x] batch 3: Ripples (seed=phase; angle N/A radial) + Fur (seed; direction=its angle) + Rust (angle+seed). ALSO fixed a real bug: menu-click bleeding into a freshly-opened dialog control (DIALOG inputArmed). QA 44/44. Built 19:59.
+  - [x] batch 4: Stone + Diamond Plate — FOLDED into their per-effect boxes (Stone types / Diamond Plate params), where angle+seed is added as part of the fuller rework, to avoid touching those dialogs twice.
+  - [x] batch 5: Brushed Metal (angle+seed) + Texture Noise (seed; isotropic) + Water Drops (seed; isotropic). QA waterdrops+texture-more 16/16. Built 20:12.
 
-**Rules (every item):** verify OFFSCREEN with the Xvfb harness (no WM — openbox grabs
-Alt+click; read window geom via `xdotool getwindowgeometry --shell`; capture `_LOGINFO`
-via `QB64PE_LOG_*`). Build `make` foreground, 600000ms, `dangerouslyDisableSandbox`.
-Remove all temp diagnostics before committing. **Nothing is done until it is GREEN.**
-Separation of concerns: generic capabilities/lessons → **qa-harness**; DRAW-specific
-inventory/tests/fixes → **DRAW**. Commit + push each item.
+## ✨ Per-effect (use the shared pieces above)
+- [x] Blend Last Effect: ALL 19 layer blend modes as a DROPDOWN. New reusable BLEND_ch%/BLEND_mix_channels (Rec.601 for Color/Luminosity); compositor untouched. QA effect-redo-last 7/7. Built 20:28.
+- [x] Posterize dither: cycle-button → dropdown (23 options, keyboard-navigable). First consumer of the shared DIALOG_dropdown widget. QA posterize-dither-color updated + 6/6 green. Built 18:31.
+- [x] Chromatic Aberration: ANGLE dial — R/B fringe shifts along any direction (0 = classic horizontal). QA effect-chromatic 6/6. Built 20:34.
+- [x] Add Noise: ANGLE (rotates grain grid) + SEED (re-rolls hash). QA effect-addnoise 6/6. Built 20:42.
+- [x] Pinch / Bulge: click-to-set center + much more extreme range (±200). QA effect-pinch + effect-pinch-center 12/12. Built 20:48.
+- [x] Kaleidoscope: click-to-set center (shared center-pick widget). QA effect-kaleidoscope 6/6. Built 20:55.
+- [x] Mosaic / Tessellate: cell-shape options DONE — square/rectangle/triangle/hexagon/voronoi/random via the shared cell-ID engine + shape dropdown + seed. QA effect-mosaic-shapes green. Built 19:13.
+- [x] Extrude: fills the 3D side faces (swept blocks, shaded sides + bright top) + EXTRUDE ANGLE dial + JITTER + SEED. QA effect-extrude 6/6. Built 22:25. (Per-block cell SHAPES deferred — swept arbitrary footprints are a larger change.)
+- [x] Chrome / Metallic: reflective banded look — REFLECTIVITY (band count+sharpness) + specular streak + AMOUNT blend; BG->FG = gradient poles. QA effect-chrome 6/6. Built 22:18.
+- [x] Sharpen: full Unsharp Mask — STRENGTH + RADIUS (1..20) + THRESHOLD (0..100). Radius 1/threshold 0 = prior behavior. IMAGE menu (not harness-driven); clean build. Built 21:05.
+- [x] Diamond Plate: BAR SPACING + SHARPNESS + ROUNDNESS + BUMPINESS + LIGHT ANGLE dial. QA texture-metal 8/8. Built 22:01. (Separate pattern-angle+seed deferred — dialog height limit with the loupe preview.)
+- [x] Stone Wall: TYPES dropdown (rock/rounded boulders/cracked/stacked/toothed) + ANGLE + SEED. QA texture-natural 10/10. Built 21:52.
+- [x] Lightning: FORKS (0..8) + FORK RANDOMNESS + FORK DIMINISH (taper) + SPIKINESS. QA texture-natural 10/10. Built 21:44.
+- [x] Glass (Shape): REPEATS (1..16) + GLINT THICKNESS + ANGLE dial. QA effect-glass 6/6. Built 21:09.
+- [x] Render Grid: endless 1980s perspective (depth lines fan past both edges, -J..J) + ANGLE (pan VP in perspective, rotate flat grid). QA effect-grid 5/5. Built 22:10.
+- [x] Clouds + Difference Clouds: realistic — Clouds = 5-octave fBm + COVERAGE threshold + smoothstep billows (+ SEED); Diff Clouds = 5-octave turbulence folds. QA 11/11. Built 21:21.
+- [x] Render Sky: sun+glow (day), varied stars + crescent moon (night), nebula + planet + far moon (space), SEED. QA effect-sky 5/5. Built 21:29.
+- [x] Terrain: SEA LEVEL (variation) + ROTATION + SEED. QA effect-terrain 5/5. Built 21:36. (Custom palette colour-chips deferred — needs a colour-picker widget.)
+- [x] Lens Flare: click-to-place (center-pick) + halo + radial streaks + ghost rings + LENS TYPE presets (50mm/anamorphic/starburst/zoom). QA effect-lensflare 5/5. Built 22:33.
 
-## Group 1 — Harness input primitives (qa-harness repo)
-- [x] H1 · `hover x y` + `mouse_down`/`mouse_up` added to `core/input.sh`; syntax OK, verbs resolve. Commit 462359e, pushed.
-- [x] H2 · `middle_click` added (commit 0afb554).
-- [x] H3 · `with_mods` + `driver_input_key_hold` + conveniences (ctrl/shift/alt click & drag). Order unit-tested. Commit fa794b8.
-- [x] H4 · modifier+wheel conveniences (shift/ctrl scroll_up/down). Commit da8f991, pushed.
-- [x] H5 · `assert_cursor_on_top` helper + z-order/hit-target testing patterns in ARCHITECTURE.md. Commit edc3572, pushed. **Group 1 complete.**
-
-## Group 2 — Unified z-order design (DRAW)
-- [x] Z0 · `.claude/instructions/draw-zorder.md` written — the z-stack tiers + Z1–Z4 plan. Commit.
-
-## Group 3 — Z-order fixes/refactor (DRAW) — each GREEN
-- [x] Z1 · Restored SCRN.CURSOR& top overlay; composited after floating windows in all 3 paths. Cursor-on-preview verified (212px), batch 35/0. Commit 87f65b5, pushed.
-- [x] Z2 · ZORDER_FLOATING=200 tier; Preview/Mixer/Browser moved to it. Hover Preview → REGION_PREVIEW verified. Commit 82fc3e7, pushed.
-- [x] Z3 · Unified floating-window precedence into `BROWSER_owns_mouse%` (front-most gate) + `BROWSER_active_hit%` (spatial) in BROWSER.BM; replaced 4 drifted inline copies at MOUSE.BM 4599/5135/5155/5176 + 5 spatial sites (643/1155/1383/1406/3958). Fixes Preview/Mixer double-grab while Browser drags. Build green; regression 33/0. Commit 9010e73.
-- [x] Z4 · Registered `REGION_CANVAS` as z-stack FLOOR (full screen @ ZORDER_CANVAS) every frame after REGION_clear_all. Fixes dead CTX_OVER_CANVAS + makes `> REGION_CANVAS` correct by construction, not by the canvas being unregistered. Updated stale comments. Build green; regression 31/0 (picker+loupe over canvas still sample layer). Commit fd092b6. **Group 3 (Z1–Z4) complete.**
-
-## Group 4 — Exhaustive input tests (DRAW `QA/tests/`) — each GREEN
-- [x] T1 · `QA/tests/zorder-hit-targets.sh` — 3 invariants, 9 passed/0 failed: A[Z1] cursor renders on top of floating Preview (the reported bug); B[Z2/Z3] click on Preview doesn't leak to toolbar beneath (front-most wins, no double-fire); C[Z4] canvas floor doesn't shadow tools. Also hardened `assert_cursor_on_top` in qa-harness (box size + idle settle). DRAW 6e1ae2e, qa-harness pushed. NOTE: OS arrow over docked chrome isn't capturable offscreen (not a z-order bug); cursor-on-top asserted over the floating Preview only.
-- [x] T2 · `QA/tests/mouse-button-matrix.sh` — 11 passed/0 failed: A LMB(FG paint), B RMB(BG paint, distinct color), C wheel↑/↓(brush size), D MMB drag(pan, made deterministic by zooming in first — was flaky at the pan clamp boundary). Documents QB64 button mapping (X11 btn3→DRAW right, btn2→DRAW middle). Also added `TOOLTIPS_DISABLED=TRUE` to the qa-harness DRAW adapter overrides (cleaner hover diffs). Commit pushed.
-- [x] T3 · `QA/tests/modifier-mouse.sh` — 9 passed/0 failed (deterministic x3): A Ctrl+click sets symmetry center / no paint (+ plain-drag control); B Alt+click invokes eyedrop loupe not brush (color-pick path unit-verified via PICKER_pick_color diagnostic — fires with correct sampled color; deterministic offscreen color diff fights the opaque-black layer, so assert the no-paint interception signature); C Shift+wheel vertical pan (zoomed-in so unclamped). Uses H3/H4 helpers. Commit pushed.
-- [x] T4 · `QA/tests/keyboard-singles.sh` — 20 passed/0 failed: tool-key sweep b→d→l→r→c→m→v→i→f (each moves toolbar highlight ~800-1100px), brush round-trip (0 diff), Esc clean. Keyboard is deterministic — passed first try.
-- [x] T5 · `QA/tests/keyboard-chords.sh` — 11 passed/0 failed (deterministic x3): Ctrl+Z undo, Ctrl+Y redo, Ctrl+Shift+Z redo-alt (all 0-diff round-trips of a stroke), Ctrl+A+Esc non-destructive. Covers Ctrl and Ctrl+Shift modifier tiers on the #1 bug area (HISTORY). Held-key chords (G/M/Z/E/W) already covered by existing chord-*.sh. Commit pushed.
-- [x] T6 · `QA/tests/input-seam-regressions.sh` — 10 passed/0 failed (deterministic x3): A F11 multi-keycode Toggle-All-UI hides chrome (86k px) + exact round-trip; B Ctrl+D double-mapping resolves to 307 Deselect not 518 Default Colors (marquee raised by Ctrl+A is removed by Ctrl+D at the canvas corner); C backtick 412 toggles brush cursor overlay. **Group 4 complete (T1–T6 all green).**
-
-## Group 5 — Docs (DRAW)
-- [x] D1 · Updated `.claude/instructions/draw-zorder.md` (plan→as-built: SCRN.CURSOR& overlay, ZORDER_FLOATING, BROWSER_owns_mouse%/BROWSER_active_hit%, REGION_CANVAS floor, offscreen-QA notes), `draw-mouse.md` (floating-window precedence section), `draw-rendering.md` (cursor-on-top invariant), CLAUDE.md (instruction table). No binding CHANGED (Ctrl+D already Deselect — that was a latent-mapping verification, not a change), so CHEATSHEET.md needs no edit. Commit pushed.
-
-## Group 6 — Green gate
-- [x] G1 · Ran the FULL 109-test suite fresh offscreen: **1047 passed / 5 failed / 1 skipped**. All 6 new input suites (T1–T6) GREEN. **Zero regressions from this branch** — verified by checking out base `240600a`, rebuilding, and reproducing every failure there. The 5 fails: (1) my `TOOLTIPS_DISABLED` override broke `layer-group-draw-guard` (asserts a tooltip) → reverted, now passes; (2–5) **pre-existing layer-group bugs on main** (`layer-group-auto-layer` ×2 auto-add-paint "refused"; `layer-groups` "move group down" ×1 consistent; `layer-groups` redo ×1 flaky) — all fail identically on the base, unrelated to input/z-order. Counts recorded in report. **These pre-existing layer-group failures are OUT OF SCOPE for the input-QA/z-order mission and left for a separate effort (surfaced to Rick).** Both repos committed + pushed.
+## ✅ Done earlier this session (for reference — not tasks)
+sel-as-shape for edge effects + preview parity; loupe follows dialog + padded capture;
+Redo/Recall/Blend Last Effect; Blur type selector + O(1) separable blur; progress overlay
+(56 engines); raised slider maxes; Wind DIRECTION; Add Noise PIXEL SIZE+MIX; Mosaic GROUT;
+Long Shadow distance falloff; Lens Flare/Diff Clouds render on blank layer; Outline INSIDE
+all-borders; Blend flicker fix; angle wheel-step (15°/Shift 1°).

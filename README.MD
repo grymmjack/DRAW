@@ -50,6 +50,16 @@ Current release: v1.8.0
 - **QB64 Export** - Generate QB64 source output from artwork/history, with improved raster fallback for operations that cannot be reproduced parametrically; supports per-layer blend modes; vector vs imported-image layer classification; transparent layers skipped; `Ctrl+Shift+Q` re-exports to the last project path without prompting
 - **Angle Snap** - Two modes: degree-based (configurable 15°/30°/45°/90° increments) and pixel-art (11 integer-ratio angles for clean pixel lines). Hold Ctrl+Shift to snap + bypass grid. Applies to Line, Polygon, and Brush/Dot connecting lines
 - **Image Adjustments** - Non-destructive per-layer adjustments via the Image menu: Brightness/Contrast, Hue/Saturation, Levels, Color Balance, Blur, Sharpen, Invert, Desaturate, Posterize, Pixelate — all with **live preview** and **mouse wheel slider** support; Posterize also supports multiple dithering algorithms; alpha channel preserved throughout
+- **Effects (Photoshop / Alien-Skin "Eye Candy" style)** - A large **EFFECTS** menu organized into flyout submenu categories, each with a **split ORIG/ADJ live preview loupe** and **mouse-wheel sliders**, applied per-layer (multi-layer aware) with unified undo:
+  - **ADJUST →** Gamma, Sepia, Threshold, Colorize, Gradient Map, Solarize, Duotone/Tritone
+  - **STYLIZE →** Glow, Film Grain, Vignette, Outline/Stroke, Edge Detect (Sobel), Grow/Shrink (dilate/erode), Chromatic Aberration, Emboss, Wind
+  - **LAYER FX →** Drop Shadow, Perspective (long) Shadow, Bevel, Outer Glow, Inner Glow, Chrome/Metallic
+  - **DISTORT →** Wave/Ripple, Twirl, Pinch/Bulge (spherize), Kaleidoscope (auto mandala)
+  - **PIXELATE →** Crystallize, Stained Glass, Mosaic/Tessellate, Extrude, Pointillize
+  - **NOISE →** Add Noise, Median/Despeckle, Dust & Scratches
+  - **RENDER →** Clouds, Difference Clouds, Lens Flare, Terrain, Grid (perspective), Sky (day/night/space)
+  - **SHAPE →** (Eye Candy Shape, 20 effects) Backlight, Corona, Cutout, Bevel, Chrome, Extrude, Outer/Inner Glow, Drop/Perspective Shadow, Motion Trail, Rust, Snow, Fire, Smoke, Icicles, Drip, Glass, Electrify, Water Drops
+  - **TEXTURE →** (Eye Candy Texture, 15 effects) Wood, Marble, Brick Wall, Brushed Metal, Weave, Clouds, Swirl, Water Drops, Ripples, Animal Fur, Texture Noise, Stone Wall, Reptile Skin, Diamond Plate, Lightning
 - **Flip Canvas** - Flip the entire canvas horizontally or vertically across all layers (Image menu)
 - **Extract Images** - Extract individual sprites or components from sprite sheets or multi-layer artwork as separate PNG files (File → Extract Images); supports transparent/FG color/BG color background modes, connected-component flood fill for single-layer sheets, per-layer or merged extraction for multi-layer files, configurable output naming and dimensions; extraction settings persisted in `.draw` project files
 - **Extract From Grid** - Extract sprites from a grid layout into separate PNG files (File → Extract From Grid...); or extract each grid cell as a separate layer (File → Extract To Layers From Grid...)
