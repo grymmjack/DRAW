@@ -5,7 +5,7 @@ Each box is independently buildable + verifiable. Build with `~/git/qb64pe-450/q
 (v4.5.0, the Makefile default). Commit after each grouped box lands green.
 
 ## 🔨 NOW — doing right now
-- [ ] ➡️ Extrude: fill 3D faces + angle + jitter + cell shapes
+- [ ] ➡️ Lens Flare: click-to-position + real flare (halo/streaks/rings) + lens types
 
 ## 🐞 Bugs / regressions
 - [x] Cursor is a move/cross over EFFECTS flyout items — POINTER.BM now sets CURSOR_NULL over the category flyout region (genOpen%/genX/genY/genW/genH), matching the submenu-arrow logic. Built 17:31.
@@ -34,7 +34,7 @@ Each box is independently buildable + verifiable. Build with `~/git/qb64pe-450/q
 - [x] Pinch / Bulge: click-to-set center + much more extreme range (±200). QA effect-pinch + effect-pinch-center 12/12. Built 20:48.
 - [x] Kaleidoscope: click-to-set center (shared center-pick widget). QA effect-kaleidoscope 6/6. Built 20:55.
 - [x] Mosaic / Tessellate: cell-shape options DONE — square/rectangle/triangle/hexagon/voronoi/random via the shared cell-ID engine + shape dropdown + seed. QA effect-mosaic-shapes green. Built 19:13.
-- [ ] Extrude: option to fill the 3D faces with the extruded pixels; extrude ANGLE; JITTER 0–100 (random placement); extrusion shapes (from the cell-shape picker)
+- [x] Extrude: fills the 3D side faces (swept blocks, shaded sides + bright top) + EXTRUDE ANGLE dial + JITTER + SEED. QA effect-extrude 6/6. Built 22:25. (Per-block cell SHAPES deferred — swept arbitrary footprints are a larger change.)
 - [x] Chrome / Metallic: reflective banded look — REFLECTIVITY (band count+sharpness) + specular streak + AMOUNT blend; BG->FG = gradient poles. QA effect-chrome 6/6. Built 22:18.
 - [x] Sharpen: full Unsharp Mask — STRENGTH + RADIUS (1..20) + THRESHOLD (0..100). Radius 1/threshold 0 = prior behavior. IMAGE menu (not harness-driven); clean build. Built 21:05.
 - [x] Diamond Plate: BAR SPACING + SHARPNESS + ROUNDNESS + BUMPINESS + LIGHT ANGLE dial. QA texture-metal 8/8. Built 22:01. (Separate pattern-angle+seed deferred — dialog height limit with the loupe preview.)
