@@ -5,7 +5,7 @@ Each box is independently buildable + verifiable. Build with `~/git/qb64pe-450/q
 (v4.5.0, the Makefile default). Commit after each grouped box lands green.
 
 ## 🔨 NOW — doing right now
-- [ ] ➡️ Kaleidoscope: click-to-set center (reuse the shared center-pick widget)
+- [ ] ➡️ Sharpen: add an Unsharp Mask option (dropdown/toggle) like Photoshop
 
 ## 🐞 Bugs / regressions
 - [x] Cursor is a move/cross over EFFECTS flyout items — POINTER.BM now sets CURSOR_NULL over the category flyout region (genOpen%/genX/genY/genW/genH), matching the submenu-arrow logic. Built 17:31.
@@ -32,7 +32,7 @@ Each box is independently buildable + verifiable. Build with `~/git/qb64pe-450/q
 - [x] Chromatic Aberration: ANGLE dial — R/B fringe shifts along any direction (0 = classic horizontal). QA effect-chromatic 6/6. Built 20:34.
 - [x] Add Noise: ANGLE (rotates grain grid) + SEED (re-rolls hash). QA effect-addnoise 6/6. Built 20:42.
 - [x] Pinch / Bulge: click-to-set center + much more extreme range (±200). QA effect-pinch + effect-pinch-center 12/12. Built 20:48.
-- [ ] Kaleidoscope: click-to-set center
+- [x] Kaleidoscope: click-to-set center (shared center-pick widget). QA effect-kaleidoscope 6/6. Built 20:55.
 - [x] Mosaic / Tessellate: cell-shape options DONE — square/rectangle/triangle/hexagon/voronoi/random via the shared cell-ID engine + shape dropdown + seed. QA effect-mosaic-shapes green. Built 19:13.
 - [ ] Extrude: option to fill the 3D faces with the extruded pixels; extrude ANGLE; JITTER 0–100 (random placement); extrusion shapes (from the cell-shape picker)
 - [ ] Chrome / Metallic: rework to actually look metallic — gradient picker + amount + reflectivity / light reflections

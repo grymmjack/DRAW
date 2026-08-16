@@ -1027,9 +1027,10 @@ END FUNCTION
 ' @param amt       INTEGER  Strength 1-10
 ' @return LONG - New sharpened image handle, or 0 on error
 '
-FUNCTION IMAGE_ADJ_apply_sharpen& (sourceImg AS LONG, amt AS INTEGER)
+FUNCTION IMAGE_ADJ_apply_sharpen& (sourceImg AS LONG, amt AS INTEGER, radius AS INTEGER, threshold AS INTEGER)
+    DIM usRad AS INTEGER : usRad% = radius% : IF usRad% < 1 THEN usRad% = 1
     DIM blurred AS LONG
-    blurred& = IMAGE_ADJ_blur_alpha_aware&(sourceImg, 1)
+    blurred& = IMAGE_ADJ_blur_alpha_aware&(sourceImg, usRad%)
     IF blurred& < -1 THEN
         DIM result AS LONG
         result& = GJ_IMGADJ_CloneImage(sourceImg)
@@ -1061,9 +1062,15 @@ FUNCTION IMAGE_ADJ_apply_sharpen& (sourceImg AS LONG, amt AS INTEGER)
                 bg2 = _GREEN32(bpx~&)
                 bb2 = _BLUE32(bpx~&)
 
-                nr = r  + (r  - br)  * amt% \ 5
-                ng = g  + (g  - bg2) * amt% \ 5
-                nb = bl + (bl - bb2) * amt% \ 5
+                ' Unsharp-mask difference; THRESHOLD skips low-contrast pixels so
+                ' flat areas (and noise) aren't amplified (Photoshop "Threshold").
+                DIM ddr AS INTEGER, ddg AS INTEGER, ddb AS INTEGER
+                ddr = r - br : IF ABS(ddr) <= threshold% THEN ddr = 0
+                ddg = g - bg2 : IF ABS(ddg) <= threshold% THEN ddg = 0
+                ddb = bl - bb2 : IF ABS(ddb) <= threshold% THEN ddb = 0
+                nr = r  + ddr * amt% \ 5
+                ng = g  + ddg * amt% \ 5
+                nb = bl + ddb * amt% \ 5
 
                 IF nr < 0   THEN nr = 0
                 IF nr > 255 THEN nr = 255
@@ -10496,11 +10503,13 @@ SUB IMAGE_ADJ_sharpen_dialog ()
     IF CURRENT_LAYER% < 1 THEN EXIT SUB
 
     DIM ctx AS DIALOG_CTX
-    DIALOG_init ctx, IMGDLG_W, 110
+    DIALOG_init ctx, IMGDLG_W, 186
     IMAGE_ADJ_setup_preview ctx, LAYERS(CURRENT_LAYER%).imgHandle&
 
     DIM strength  AS INTEGER : strength% = 3
-    DIM oStrength AS INTEGER
+    DIM shRadius  AS INTEGER : shRadius% = 1
+    DIM shThresh  AS INTEGER : shThresh% = 0
+    DIM oStrength AS INTEGER, oRad AS INTEGER, oThr AS INTEGER
 
     DIM k AS LONG
     DIM d_strength AS INTEGER : d_strength% = 3
@@ -10511,25 +10520,33 @@ SUB IMAGE_ADJ_sharpen_dialog ()
         IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
         IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
 
-        oStrength% = strength%
+        oStrength% = strength% : oRad% = shRadius% : oThr% = shThresh%
         strength%  = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, strength%, 1, 64)
         strength%  = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, strength%, 1, 64)
-        IF strength% <> oStrength% THEN ctx.previewDirty% = TRUE
+        shRadius%  = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, shRadius%, 1, 20)
+        shRadius%  = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, shRadius%, 1, 20)
+        shThresh%  = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, 14, shThresh%, 0, 100)
+        shThresh%  = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, 14, shThresh%, 0, 100)
+        IF strength% <> oStrength% OR shRadius% <> oRad% OR shThresh% <> oThr% THEN ctx.previewDirty% = TRUE
         IMGDLG_check_ok_cancel ctx
         IMGDLG_reset1 ctx, strength%, d_strength%
 
         IF ctx.previewDirty% THEN
             SAFE_FREEIMAGE ctx.previewThumb
-            ctx.previewThumb = IMAGE_ADJ_apply_sharpen&(ctx.origThumb, strength%)
+            ctx.previewThumb = IMAGE_ADJ_apply_sharpen&(ctx.origThumb, strength%, shRadius%, shThresh%)
             IMAGE_ADJ_mask_preview ctx
             ctx.previewDirty% = FALSE
         END IF
 
         _DEST ctx.imgHandle
-        DIALOG_draw_frame ctx, "SHARPEN"
+        DIALOG_draw_frame ctx, "SHARPEN (UNSHARP MASK)"
         DIALOG_draw_preview ctx
-        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "STRENGTH:"
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "STRENGTH (AMOUNT):"
         DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, strength%, 1, 64, "", ""
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 1), "RADIUS:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, shRadius%, 1, 20, "", ""
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 2), "THRESHOLD:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, shThresh%, 0, 100, "", ""
         DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
         IMGDLG_draw_ok_cancel ctx
         DIALOG_blit ctx
@@ -10544,7 +10561,7 @@ SUB IMAGE_ADJ_sharpen_dialog ()
         DIM adjR     AS LONG
         FOR shT% = 1 TO shTgtCount%
             CURRENT_LAYER% = shTargets%(shT%)
-            adjR&          = IMAGE_ADJ_apply_sharpen&(LAYERS(CURRENT_LAYER%).imgHandle&, strength%)
+            adjR&          = IMAGE_ADJ_apply_sharpen&(LAYERS(CURRENT_LAYER%).imgHandle&, strength%, shRadius%, shThresh%)
             IMAGE_ADJ_apply_to_layer adjR&, "Sharpen"
         NEXT shT%
         IF shTgtCount% > 1 THEN HISTORY_end_group
