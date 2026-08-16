@@ -4282,7 +4282,7 @@ END SUB
 ' @param hiColor   _UNSIGNED LONG Highlight end of the metal ramp
 ' @return LONG  New chrome image handle
 '
-FUNCTION IMAGE_ADJ_chrome& (sourceImg AS LONG, depth AS INTEGER, loColor AS _UNSIGNED LONG, hiColor AS _UNSIGNED LONG)
+FUNCTION IMAGE_ADJ_chrome& (sourceImg AS LONG, depth AS INTEGER, loColor AS _UNSIGNED LONG, hiColor AS _UNSIGNED LONG, reflectivity AS INTEGER, amount AS INTEGER)
     IF NOT (sourceImg& < -1) THEN IMAGE_ADJ_chrome& = 0 : EXIT FUNCTION
 
     DIM chW AS LONG, chH AS LONG
@@ -4299,10 +4299,13 @@ FUNCTION IMAGE_ADJ_chrome& (sourceImg AS LONG, depth AS INTEGER, loColor AS _UNS
     cLoR% = _RED32(loColor~&) : cLoG% = _GREEN32(loColor~&) : cLoB% = _BLUE32(loColor~&)
     cHiR% = _RED32(hiColor~&) : cHiG% = _GREEN32(hiColor~&) : cHiB% = _BLUE32(hiColor~&)
 
+    DIM chBands AS SINGLE : chBands! = 1.0 + reflectivity% / 100.0 * 3.0
+    DIM chSharp AS SINGLE : chSharp! = 1.0 + reflectivity% / 60.0
+    DIM chAmt AS SINGLE : chAmt! = amount% / 100.0
     DIM cx AS LONG, cy AS LONG, dx AS INTEGER, dy AS INTEGER
     DIM aHere AS _UNSIGNED _BYTE, aN AS _UNSIGNED _BYTE
     DIM nx AS LONG, ny AS LONG, dist AS INTEGER, curD AS INTEGER
-    DIM tt AS SINGLE, mBand AS SINGLE
+    DIM tt AS SINGLE, band AS SINGLE, spec AS SINGLE, opix AS _UNSIGNED LONG
     DIM mR AS INTEGER, mG AS INTEGER, mB AS INTEGER
 
     FOR cy& = 0 TO chH& - 1
@@ -4329,11 +4332,24 @@ FUNCTION IMAGE_ADJ_chrome& (sourceImg AS LONG, depth AS INTEGER, loColor AS _UNS
             NEXT dy%
             IF dist% > depth% THEN dist% = depth%
 
-            tt! = dist% / (depth% + 0.0)
-            mBand! = ABS(SIN(tt! * 3.14159265 * 1.5))
-            mR% = cLoR% + (cHiR% - cLoR%) * mBand!
-            mG% = cLoG% + (cHiG% - cLoG%) * mBand!
-            mB% = cLoB% + (cHiB% - cLoB%) * mBand!
+            tt! = dist% / (depth% + 0.0)                 ' 0 rim .. 1 interior
+            ' reflective chrome: alternating environment bands (reflectivity sets
+            ' band count + sharpness) plus a hot specular streak up the bevel.
+            band! = 0.5 + 0.5 * SIN(tt! * 3.14159265 * chBands!)
+            band! = band! ^ chSharp!
+            spec! = EXP(-((tt! - 0.72) * (tt! - 0.72)) / 0.015) * (0.35 + reflectivity% / 100.0 * 0.6)
+            mR% = cLoR% + (cHiR% - cLoR%) * band!
+            mG% = cLoG% + (cHiG% - cLoG%) * band!
+            mB% = cLoB% + (cHiB% - cLoB%) * band!
+            mR% = mR% + INT((255 - mR%) * spec!) : IF mR% > 255 THEN mR% = 255
+            mG% = mG% + INT((255 - mG%) * spec!) : IF mG% > 255 THEN mG% = 255
+            mB% = mB% + INT((255 - mB%) * spec!) : IF mB% > 255 THEN mB% = 255
+            IF chAmt! < 1.0 THEN
+                _MEMGET srcM, srcM.OFFSET + (cy& * chW& + cx&) * 4, opix~&
+                mR% = _RED32(opix~&) + INT((mR% - _RED32(opix~&)) * chAmt!)
+                mG% = _GREEN32(opix~&) + INT((mG% - _GREEN32(opix~&)) * chAmt!)
+                mB% = _BLUE32(opix~&) + INT((mB% - _BLUE32(opix~&)) * chAmt!)
+            END IF
             _MEMPUT resM, resM.OFFSET + (cy& * chW& + cx&) * 4, _RGB32(mR%, mG%, mB%) AS _UNSIGNED LONG
         NEXT cx&
     NEXT cy&
@@ -4352,11 +4368,13 @@ SUB IMAGE_ADJ_chrome_dialog ()
     IF CURRENT_LAYER% < 1 THEN EXIT SUB
 
     DIM ctx AS DIALOG_CTX
-    DIALOG_init ctx, IMGDLG_W, 110
+    DIALOG_init ctx, IMGDLG_W, 186
     IMAGE_ADJ_setup_preview ctx, LAYERS(CURRENT_LAYER%).imgHandle&
 
     DIM depth  AS INTEGER : depth% = 8
-    DIM oDepth AS INTEGER
+    DIM chRefl AS INTEGER : chRefl% = 60
+    DIM chAmt  AS INTEGER : chAmt% = 100
+    DIM oDepth AS INTEGER, oRefl AS INTEGER, oAmt AS INTEGER
 
     DIM k AS LONG
     DIM d_depth AS INTEGER : d_depth% = 8
@@ -4367,16 +4385,20 @@ SUB IMAGE_ADJ_chrome_dialog ()
         IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
         IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
 
-        oDepth% = depth%
+        oDepth% = depth% : oRefl% = chRefl% : oAmt% = chAmt%
         depth% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, depth%, 2, 64)
         depth% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, depth%, 2, 64)
-        IF depth% <> oDepth% THEN ctx.previewDirty% = TRUE
+        chRefl% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, chRefl%, 0, 100)
+        chRefl% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, 14, chRefl%, 0, 100)
+        chAmt% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, 14, chAmt%, 0, 100)
+        chAmt% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, 14, chAmt%, 0, 100)
+        IF depth% <> oDepth% OR chRefl% <> oRefl% OR chAmt% <> oAmt% THEN ctx.previewDirty% = TRUE
         IMGDLG_check_ok_cancel ctx
         IMGDLG_reset1 ctx, depth%, d_depth%
 
         IF ctx.previewDirty% THEN
             SAFE_FREEIMAGE ctx.previewThumb
-            ctx.previewThumb = IMAGE_ADJ_chrome&(IMGADJ_fx_src&(ctx), depth%, PAINT_BG_COLOR~&, PAINT_COLOR~&)
+            ctx.previewThumb = IMAGE_ADJ_chrome&(IMGADJ_fx_src&(ctx), depth%, PAINT_BG_COLOR~&, PAINT_COLOR~&, chRefl%, chAmt%)
             IMAGE_ADJ_fx_preview_finish ctx, 0
             ctx.previewDirty% = FALSE
         END IF
@@ -4386,6 +4408,10 @@ SUB IMAGE_ADJ_chrome_dialog ()
         DIALOG_draw_preview ctx
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "DEPTH:"
         DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, depth%, 2, 64, "", ""
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 1), "REFLECTIVITY:"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 1), IMGDLG_SW, chRefl%, 0, 100, "", ""
+        DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 2), "AMOUNT (GRADIENT = BG->FG):"
+        DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 2), IMGDLG_SW, chAmt%, 0, 100, "", ""
         DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
         IMGDLG_draw_ok_cancel ctx
         DIALOG_blit ctx
@@ -4403,11 +4429,11 @@ SUB IMAGE_ADJ_chrome_dialog ()
             DIM chEdge AS LONG
             chEdge& = IMGADJ_edge_shape_source&(LAYERS(CURRENT_LAYER%).imgHandle&, LAYERS(CURRENT_LAYER%).apronW%, LAYERS(CURRENT_LAYER%).apronH%)
             IF chEdge& < -1 THEN
-                adjR& = IMAGE_ADJ_chrome&(chEdge&, depth%, PAINT_BG_COLOR~&, PAINT_COLOR~&)
+                adjR& = IMAGE_ADJ_chrome&(chEdge&, depth%, PAINT_BG_COLOR~&, PAINT_COLOR~&, chRefl%, chAmt%)
                 IMAGE_ADJ_apply_spatial_edge adjR&, chEdge&, "Chrome"
                 SAFE_FREEIMAGE chEdge&
             ELSE
-                adjR& = IMAGE_ADJ_chrome&(LAYERS(CURRENT_LAYER%).imgHandle&, depth%, PAINT_BG_COLOR~&, PAINT_COLOR~&)
+                adjR& = IMAGE_ADJ_chrome&(LAYERS(CURRENT_LAYER%).imgHandle&, depth%, PAINT_BG_COLOR~&, PAINT_COLOR~&, chRefl%, chAmt%)
                 IMAGE_ADJ_apply_to_layer adjR&, "Chrome"
             END IF
         NEXT chT%

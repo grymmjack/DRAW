@@ -5,7 +5,7 @@ Each box is independently buildable + verifiable. Build with `~/git/qb64pe-450/q
 (v4.5.0, the Makefile default). Commit after each grouped box lands green.
 
 ## 🔨 NOW — doing right now
-- [ ] ➡️ Render Grid: endless 1980s perspective + angle
+- [ ] ➡️ Chrome / Metallic: gradient + amount + reflectivity rework
 
 ## 🐞 Bugs / regressions
 - [x] Cursor is a move/cross over EFFECTS flyout items — POINTER.BM now sets CURSOR_NULL over the category flyout region (genOpen%/genX/genY/genW/genH), matching the submenu-arrow logic. Built 17:31.
@@ -41,7 +41,7 @@ Each box is independently buildable + verifiable. Build with `~/git/qb64pe-450/q
 - [x] Stone Wall: TYPES dropdown (rock/rounded boulders/cracked/stacked/toothed) + ANGLE + SEED. QA texture-natural 10/10. Built 21:52.
 - [x] Lightning: FORKS (0..8) + FORK RANDOMNESS + FORK DIMINISH (taper) + SPIKINESS. QA texture-natural 10/10. Built 21:44.
 - [x] Glass (Shape): REPEATS (1..16) + GLINT THICKNESS + ANGLE dial. QA effect-glass 6/6. Built 21:09.
-- [ ] Render Grid: endless 1980s-style perspective (lines continue off every side, don't collapse into a rect) + an angle option
+- [x] Render Grid: endless 1980s perspective (depth lines fan past both edges, -J..J) + ANGLE (pan VP in perspective, rotate flat grid). QA effect-grid 5/5. Built 22:10.
 - [x] Clouds + Difference Clouds: realistic — Clouds = 5-octave fBm + COVERAGE threshold + smoothstep billows (+ SEED); Diff Clouds = 5-octave turbulence folds. QA 11/11. Built 21:21.
 - [x] Render Sky: sun+glow (day), varied stars + crescent moon (night), nebula + planet + far moon (space), SEED. QA effect-sky 5/5. Built 21:29.
 - [x] Terrain: SEA LEVEL (variation) + ROTATION + SEED. QA effect-terrain 5/5. Built 21:36. (Custom palette colour-chips deferred — needs a colour-picker widget.)
