@@ -1764,7 +1764,7 @@ END SUB
 ' @param lineColor   _UNSIGNED LONG Line colour
 ' @return LONG  New image with the grid drawn
 '
-FUNCTION IMAGE_ADJ_grid& (sourceImg AS LONG, spacing AS INTEGER, persp AS INTEGER, lineColor AS _UNSIGNED LONG)
+FUNCTION IMAGE_ADJ_grid& (sourceImg AS LONG, spacing AS INTEGER, persp AS INTEGER, lineColor AS _UNSIGNED LONG, angle AS INTEGER)
     IF NOT (sourceImg& < -1) THEN IMAGE_ADJ_grid& = 0 : EXIT FUNCTION
     IF spacing% < 2 THEN spacing% = 2
 
@@ -1780,27 +1780,49 @@ FUNCTION IMAGE_ADJ_grid& (sourceImg AS LONG, spacing AS INTEGER, persp AS INTEGE
 
     DIM gg AS LONG
     IF persp% = 0 THEN
-        FOR gg& = 0 TO grW& - 1 STEP spacing%
-        IF (gg& AND 15) = 0 THEN IMGADJ_progress_tick "Grid", gg& / grW&
-            LINE (gg&, 0)-(gg&, grH& - 1), c~&
-        NEXT gg&
-        FOR gg& = 0 TO grH& - 1 STEP spacing%
-            LINE (0, gg&)-(grW& - 1, gg&), c~&
-        NEXT gg&
+        IF angle% = 0 THEN
+            FOR gg& = 0 TO grW& - 1 STEP spacing%
+            IF (gg& AND 15) = 0 THEN IMGADJ_progress_tick "Grid", gg& / grW&
+                LINE (gg&, 0)-(gg&, grH& - 1), c~&
+            NEXT gg&
+            FOR gg& = 0 TO grH& - 1 STEP spacing%
+                LINE (0, gg&)-(grW& - 1, gg&), c~&
+            NEXT gg&
+        ELSE
+            ' rotated flat grid: two families of parallel lines at angle / angle+90
+            DIM grRa AS SINGLE : grRa! = angle% * 3.14159265 / 180.0
+            DIM dx AS SINGLE : dx! = COS(grRa!) : DIM dy AS SINGLE : dy! = SIN(grRa!)
+            DIM cx AS SINGLE : cx! = grW& / 2.0 : DIM cy AS SINGLE : cy! = grH& / 2.0
+            DIM diag AS SINGLE : diag! = grW& + grH&
+            DIM goff AS SINGLE, lxp AS SINGLE, lyp AS SINGLE, fam AS INTEGER
+            DIM fdx AS SINGLE, fdy AS SINGLE
+            FOR fam% = 0 TO 1
+                IF fam% = 0 THEN fdx! = dx! : fdy! = dy! ELSE fdx! = -dy! : fdy! = dx!
+                FOR goff! = -diag! TO diag! STEP spacing%
+                    lxp! = cx! + goff! * (-fdy!) : lyp! = cy! + goff! * fdx!
+                    LINE (lxp! - fdx! * diag!, lyp! - fdy! * diag!)-(lxp! + fdx! * diag!, lyp! + fdy! * diag!), c~&
+                NEXT goff!
+            NEXT fam%
+        END IF
     ELSE
+        ' Endless 1980s floor grid. Depth lines fan from the vanishing point out past
+        ' BOTH screen edges (index -J..J), so the sides never "close"; the angle pans
+        ' the vanishing point horizontally.
+        DIM panA AS SINGLE : panA! = (((angle% + 180) MOD 360) - 180) / 180.0
         DIM vpx AS SINGLE, hy AS SINGLE
-        vpx! = grW& / 2.0 : hy! = grH& * 0.4
-        ' vertical lines converge from the bottom edge to the vanishing point
-        FOR gg& = 0 TO grW& - 1 STEP spacing%
-            LINE (gg&, grH& - 1)-(vpx!, hy!), c~&
-        NEXT gg&
-        LINE (grW& - 1, grH& - 1)-(vpx!, hy!), c~&
+        vpx! = grW& / 2.0 + panA! * grW& * 0.6 : hy! = grH& * 0.42
+        DIM jj AS LONG, jMax AS LONG, bx AS SINGLE
+        jMax& = INT(grW& / spacing%) + 3
+        FOR jj& = -jMax& TO jMax&
+            bx! = vpx! + jj& * spacing%
+            LINE (bx!, grH& - 1)-(vpx!, hy!), c~&
+        NEXT jj&
         ' horizontal receding lines (geometric spacing toward the horizon)
         DIM yy AS SINGLE, gap AS SINGLE
         yy! = grH& - 1 : gap! = spacing%
         DO WHILE yy! > hy! + 1
             LINE (0, yy!)-(grW& - 1, yy!), c~&
-            yy! = yy! - gap! : gap! = gap! * 0.78
+            yy! = yy! - gap! : gap! = gap! * 0.8
             IF gap! < 1.5 THEN EXIT DO
         LOOP
         LINE (0, hy!)-(grW& - 1, hy!), c~&
@@ -1819,16 +1841,17 @@ SUB IMAGE_ADJ_grid_dialog ()
     IF CURRENT_LAYER% < 1 THEN EXIT SUB
 
     DIM ctx AS DIALOG_CTX
-    DIALOG_init ctx, IMGDLG_W, 130
+    DIALOG_init ctx, IMGDLG_W, 206
     IMAGE_ADJ_setup_preview ctx, LAYERS(CURRENT_LAYER%).imgHandle&
 
     DIM gspc AS INTEGER : gspc% = 16
-    DIM oSpc AS INTEGER
+    DIM grAng AS INTEGER : grAng% = 0
+    DIM oSpc AS INTEGER, oAng AS INTEGER
     STATIC perspOn AS INTEGER
 
     DIM pvX AS INTEGER, pvY AS INTEGER, pvW AS INTEGER, pvH AS INTEGER
     pvX% = IMGDLG_SX : pvW% = 120 : pvH% = 16
-    pvY% = IMGDLG_track_y%(ctx, 0) + 24
+    pvY% = IMGDLG_track_y%(ctx, 1) + 24
 
     DIM k AS LONG
     DIM d_gspc AS INTEGER : d_gspc% = 16
@@ -1840,20 +1863,21 @@ SUB IMAGE_ADJ_grid_dialog ()
         IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
         IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
 
-        oSpc% = gspc%
+        oSpc% = gspc% : oAng% = grAng%
         gspc% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, gspc%, 4, 200)
         gspc% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, gspc%, 4, 200)
+        grAng% = IMGDLG_angle_handle%(ctx, 1, grAng%)
         IF DIALOG_hit%(ctx, pvX%, pvY%, pvW%, pvH%) THEN
             perspOn%          = (perspOn% = 0)
             ctx.previewDirty% = TRUE
         END IF
-        IF gspc% <> oSpc% THEN ctx.previewDirty% = TRUE
+        IF gspc% <> oSpc% OR grAng% <> oAng% THEN ctx.previewDirty% = TRUE
         IMGDLG_check_ok_cancel ctx
         IMGDLG_reset2 ctx, gspc%, perspOn%, d_gspc%, d_perspOn%
 
         IF ctx.previewDirty% THEN
             SAFE_FREEIMAGE ctx.previewThumb
-            ctx.previewThumb = IMAGE_ADJ_grid&(ctx.origThumb, gspc%, perspOn%, PAINT_COLOR~&)
+            ctx.previewThumb = IMAGE_ADJ_grid&(ctx.origThumb, gspc%, perspOn%, PAINT_COLOR~&, grAng%)
             IMAGE_ADJ_mask_preview ctx
             ctx.previewDirty% = FALSE
         END IF
@@ -1863,6 +1887,7 @@ SUB IMAGE_ADJ_grid_dialog ()
         DIALOG_draw_preview ctx
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "SPACING:"
         DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, gspc%, 4, 200, "", ""
+        IMGDLG_angle_draw ctx, 1, grAng%, "ANGLE:"
         DIALOG_draw_toggle ctx, pvX%, pvY%, pvW%, pvH%, "PERSPECTIVE", perspOn%
         DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
         IMGDLG_draw_ok_cancel ctx
@@ -1878,7 +1903,7 @@ SUB IMAGE_ADJ_grid_dialog ()
         DIM adjR     AS LONG
         FOR grT% = 1 TO grTgtCount%
             CURRENT_LAYER% = grTargets%(grT%)
-            adjR&          = IMAGE_ADJ_grid&(LAYERS(CURRENT_LAYER%).imgHandle&, gspc%, perspOn%, PAINT_COLOR~&)
+            adjR&          = IMAGE_ADJ_grid&(LAYERS(CURRENT_LAYER%).imgHandle&, gspc%, perspOn%, PAINT_COLOR~&, grAng%)
             IMAGE_ADJ_apply_spatial adjR&, "Render Grid"
         NEXT grT%
         IF grTgtCount% > 1 THEN HISTORY_end_group

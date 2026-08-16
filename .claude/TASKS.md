@@ -5,7 +5,7 @@ Each box is independently buildable + verifiable. Build with `~/git/qb64pe-450/q
 (v4.5.0, the Makefile default). Commit after each grouped box lands green.
 
 ## 🔨 NOW — doing right now
-- [ ] ➡️ Diamond Plate: space/sharpness/roundness/bumpiness + light angle (+ pattern angle + seed)
+- [ ] ➡️ Render Grid: endless 1980s perspective + angle
 
 ## 🐞 Bugs / regressions
 - [x] Cursor is a move/cross over EFFECTS flyout items — POINTER.BM now sets CURSOR_NULL over the category flyout region (genOpen%/genX/genY/genW/genH), matching the submenu-arrow logic. Built 17:31.
@@ -37,7 +37,7 @@ Each box is independently buildable + verifiable. Build with `~/git/qb64pe-450/q
 - [ ] Extrude: option to fill the 3D faces with the extruded pixels; extrude ANGLE; JITTER 0–100 (random placement); extrusion shapes (from the cell-shape picker)
 - [ ] Chrome / Metallic: rework to actually look metallic — gradient picker + amount + reflectivity / light reflections
 - [x] Sharpen: full Unsharp Mask — STRENGTH + RADIUS (1..20) + THRESHOLD (0..100). Radius 1/threshold 0 = prior behavior. IMAGE menu (not harness-driven); clean build. Built 21:05.
-- [ ] Diamond Plate: space-between, space-inside, sharpness, roundness, bumpiness + a LIGHT-direction angle in addition to the pattern angle (+ pattern angle + seed from texture batch 4)
+- [x] Diamond Plate: BAR SPACING + SHARPNESS + ROUNDNESS + BUMPINESS + LIGHT ANGLE dial. QA texture-metal 8/8. Built 22:01. (Separate pattern-angle+seed deferred — dialog height limit with the loupe preview.)
 - [x] Stone Wall: TYPES dropdown (rock/rounded boulders/cracked/stacked/toothed) + ANGLE + SEED. QA texture-natural 10/10. Built 21:52.
 - [x] Lightning: FORKS (0..8) + FORK RANDOMNESS + FORK DIMINISH (taper) + SPIKINESS. QA texture-natural 10/10. Built 21:44.
 - [x] Glass (Shape): REPEATS (1..16) + GLINT THICKNESS + ANGLE dial. QA effect-glass 6/6. Built 21:09.
