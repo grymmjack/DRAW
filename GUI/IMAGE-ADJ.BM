@@ -557,15 +557,9 @@ SUB IMGADJ_blend_compose (destLayer AS LONG, beforeImg AS LONG, afterImg AS LONG
         _MEMGET bM, bM.OFFSET + po, bp~& : _MEMGET aM, aM.OFFSET + po, ap~&
         br% = _RED32(bp~&) : bg% = _GREEN32(bp~&) : bb% = _BLUE32(bp~&) : ba% = _ALPHA32(bp~&)
         ar% = _RED32(ap~&) : ag% = _GREEN32(ap~&) : ab% = _BLUE32(ap~&) : aa% = _ALPHA32(ap~&)
-        SELECT CASE mode%
-            CASE 1 : mr% = br% * ar% \ 255 : mg% = bg% * ag% \ 255 : mb% = bb% * ab% \ 255
-            CASE 2 : mr% = 255 - (255 - br%) * (255 - ar%) \ 255 : mg% = 255 - (255 - bg%) * (255 - ag%) \ 255 : mb% = 255 - (255 - bb%) * (255 - ab%) \ 255
-            CASE 3 ' Overlay
-                mr% = IIFOVL%(br%, ar%) : mg% = IIFOVL%(bg%, ag%) : mb% = IIFOVL%(bb%, ab%)
-            CASE 4 : mr% = _IIF(br% < ar%, br%, ar%) : mg% = _IIF(bg% < ag%, bg%, ag%) : mb% = _IIF(bb% < ab%, bb%, ab%)
-            CASE 5 : mr% = _IIF(br% > ar%, br%, ar%) : mg% = _IIF(bg% > ag%, bg%, ag%) : mb% = _IIF(bb% > ab%, bb%, ab%)
-            CASE ELSE : mr% = ar% : mg% = ag% : mb% = ab%
-        END SELECT
+        ' base = BEFORE (pre-effect), source = AFTER (effect result). All 19 layer
+        ' blend modes via the shared BLEND_mix_channels.
+        BLEND_mix_channels mode%, br%, bg%, bb%, ar%, ag%, ab%, mr%, mg%, mb%
         orC% = br% + (mr% - br%) * t! : ogC% = bg% + (mg% - bg%) * t! : obC% = bb% + (mb% - bb%) * t!
         oaC% = ba% + (aa% - ba%) * t!
         _MEMPUT dM, dM.OFFSET + po, _RGBA32(orC%, ogC%, obC%, oaC%) AS _UNSIGNED LONG
@@ -587,29 +581,34 @@ SUB IMAGE_ADJ_blend_last ()
     IF _WIDTH(bLayer&) <> _WIDTH(LAST_FX_AFTER&) OR _HEIGHT(bLayer&) <> _HEIGHT(LAST_FX_AFTER&) THEN EXIT SUB
 
     DIM ctx AS DIALOG_CTX
-    DIALOG_init ctx, IMGDLG_W, 130
+    DIALOG_init ctx, IMGDLG_W, 210
 
     DIM opac AS INTEGER : opac% = 100
     DIM oOpac AS INTEGER
     STATIC mode AS INTEGER
-    DIM mvX AS INTEGER, mvY AS INTEGER, mvW AS INTEGER, mvH AS INTEGER
-    mvX% = IMGDLG_SX : mvW% = 160 : mvH% = 16
-    mvY% = IMGDLG_track_y%(ctx, 0) + 26
+    DIM oMode AS INTEGER
+    DIM mvY AS INTEGER : mvY% = IMGDLG_track_y%(ctx, 0) + 26   ' mode dropdown box top
+
+    ' All layer blend modes 0..BLEND_MODE_COUNT-1 (PASS THROUGH is group-only, skipped).
+    REDIM blModeLabels(0 TO BLEND_MODE_COUNT - 1) AS STRING
+    DIM bli AS INTEGER
+    FOR bli% = 0 TO BLEND_MODE_COUNT - 1 : blModeLabels$(bli%) = "MODE: " + BLEND_mode_name$(bli%) : NEXT
 
     FX_IN_BLEND = TRUE
     DIM applied AS INTEGER : applied% = -1     ' force first compose
-    DIM k AS LONG, mName AS STRING
+    DIM k AS LONG
     DO
         DIALOG_poll_mouse ctx
+        DIALOG_dropdown_input ctx
         k& = _KEYHIT
         IF k& = 13 THEN ctx.done% = TRUE : ctx.result% = TRUE
         IF k& = 27 THEN ctx.done% = TRUE : ctx.result% = FALSE
 
-        oOpac% = opac%
+        oOpac% = opac% : oMode% = mode%
         opac% = DIALOG_slider_drag%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, opac%, 0, 100)
         opac% = DIALOG_slider_wheel%(ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, 14, opac%, 0, 100)
-        IF DIALOG_hit%(ctx, mvX%, mvY%, mvW%, mvH%) THEN mode% = (mode% + 1) MOD 6 : applied% = -2
-        IF opac% <> oOpac% THEN applied% = -2
+        mode% = DIALOG_dropdown%(ctx, 1, IMGDLG_SX, mvY%, IMGDLG_SW, mode%, blModeLabels$(), BLEND_MODE_COUNT)
+        IF opac% <> oOpac% OR mode% <> oMode% THEN applied% = -2
         IMGDLG_check_ok_cancel ctx                                   ' OK / RESET / CANCEL buttons
         IF IMGDLG_RESET_CLICKED% THEN opac% = 100 : mode% = 0 : applied% = -2 : IMGDLG_RESET_CLICKED% = FALSE
 
@@ -625,22 +624,14 @@ SUB IMAGE_ADJ_blend_last ()
             applied% = 0
         END IF
 
-        SELECT CASE mode%
-            CASE 1 : mName$ = "MULTIPLY"
-            CASE 2 : mName$ = "SCREEN"
-            CASE 3 : mName$ = "OVERLAY"
-            CASE 4 : mName$ = "DARKEN"
-            CASE 5 : mName$ = "LIGHTEN"
-            CASE ELSE : mName$ = "NORMAL"
-        END SELECT
-
         _DEST ctx.imgHandle
         DIALOG_draw_frame ctx, "BLEND LAST: " + LAST_FX_LABEL$
         DIALOG_draw_label ctx, IMGDLG_SX, IMGDLG_label_y%(ctx, 0), "OPACITY:"
         DIALOG_draw_slider ctx, IMGDLG_SX, IMGDLG_track_y%(ctx, 0), IMGDLG_SW, opac%, 0, 100, "", ""
-        DIALOG_draw_toggle ctx, mvX%, mvY%, mvW%, mvH%, "MODE: " + mName$, -1
+        DIALOG_dropdown_draw ctx, 1, IMGDLG_SX, mvY%, IMGDLG_SW, mode%, blModeLabels$(), BLEND_MODE_COUNT
         DIALOG_draw_divider ctx, ctx.h - IMGDLG_BTN_H - 16
         IMGDLG_draw_ok_cancel ctx
+        DIALOG_dropdown_overlay ctx
         DIALOG_blit ctx
     LOOP UNTIL ctx.done%
 
@@ -657,18 +648,6 @@ SUB IMAGE_ADJ_blend_last ()
     FX_IN_BLEND = FALSE
     DIALOG_cleanup ctx
 END SUB
-
-''
-' Overlay blend of two 0..255 channel values (helper for IMGADJ_blend_compose).
-'
-FUNCTION IIFOVL% (ovlB AS INTEGER, ovlT AS INTEGER)
-    IF ovlB% < 128 THEN
-        IIFOVL% = 2 * ovlB% * ovlT% \ 255
-    ELSE
-        IIFOVL% = 255 - 2 * (255 - ovlB%) * (255 - ovlT%) \ 255
-    END IF
-END FUNCTION
-
 
 ''
 ' Premultiplied-alpha box blur: blurs all 4 channels (R, G, B, A).

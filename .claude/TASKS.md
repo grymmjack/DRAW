@@ -5,7 +5,7 @@ Each box is independently buildable + verifiable. Build with `~/git/qb64pe-450/q
 (v4.5.0, the Makefile default). Commit after each grouped box lands green.
 
 ## 🔨 NOW — doing right now
-- [ ] ➡️ Texture angle+seed batch 5: Brushed Metal + Texture Noise + Water Drops
+- [ ] ➡️ Blend Last Effect: expose ALL layer blend modes as a DROPDOWN (not the cycle button)
 
 ## 🐞 Bugs / regressions
 - [x] Cursor is a move/cross over EFFECTS flyout items — POINTER.BM now sets CURSOR_NULL over the category flyout region (genOpen%/genX/genY/genW/genH), matching the submenu-arrow logic. Built 17:31.
@@ -24,7 +24,7 @@ Each box is independently buildable + verifiable. Build with `~/git/qb64pe-450/q
   - [x] batch 2: Brick + Weave + Reptile — angle rotates each pattern grid; seed shifts noise (Brick/Reptile) or phase (Weave). QA texture-basics+natural 20/20. Built 19:35.
   - [x] batch 3: Ripples (seed=phase; angle N/A radial) + Fur (seed; direction=its angle) + Rust (angle+seed). ALSO fixed a real bug: menu-click bleeding into a freshly-opened dialog control (DIALOG inputArmed). QA 44/44. Built 19:59.
   - [x] batch 4: Stone + Diamond Plate — FOLDED into their per-effect boxes (Stone types / Diamond Plate params), where angle+seed is added as part of the fuller rework, to avoid touching those dialogs twice.
-  - [ ] batch 5: Brushed Metal + Texture Noise + Water Drops (+ any remaining)
+  - [x] batch 5: Brushed Metal (angle+seed) + Texture Noise (seed; isotropic) + Water Drops (seed; isotropic). QA waterdrops+texture-more 16/16. Built 20:12.
 
 ## ✨ Per-effect (use the shared pieces above)
 - [ ] Blend Last Effect: expose ALL layer blend modes (incl. Color Dodge, etc.) as a DROPDOWN (not the cycle button)
