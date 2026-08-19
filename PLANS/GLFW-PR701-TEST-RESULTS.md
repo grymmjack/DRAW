@@ -64,8 +64,8 @@ the physical lock key is pressed with the QB64-PE window focused, and even when 
 LED is physically ON at program start.
 
 **Key discriminator (live human test, Wayland — logged):** the window **does** receive the
-lock-key input. `DEV/EXPERIMENTS/lock-key-test.bas` (a self-contained repro; compile with the
-GLFW build) captured 44 key events over 618 frames — Caps Lock
+lock-key input. `DEV/EXPERIMENTS/lock-key-test.bas` (self-contained repro) captured 44 key
+events over 618 frames — Caps Lock
 (`_KEYHIT` code 100301), Num Lock (100302), Scroll Lock (100319), each pressed/released
 several times — while `_CAPSLOCK`/`_NUMLOCK`/`_SCROLLLOCK` read 0 at the instant of every
 event, and `everCaps=everNum=everScroll=0` for the whole run. So the GLFW key callback is
@@ -179,6 +179,22 @@ losing its taskbar identity/icon and breaking any window rules keyed on class.
   the suite in smaller offscreen batches (or `--onscreen`) to avoid the long-batch launch flake.
 
 ---
+
+## a740g feedback (2026-08-19)
+
+- **BUG 2 (window class "Untitled"):** a740g confirms this is **not implemented yet** —
+  the GLFW class/`app_id` hints are planned for a future PR. So this is a **known/planned gap,
+  not a defect**; nothing to fix in PR #701 itself. Downgraded accordingly.
+- **BUG 1 (lock keys):** a740g asked whether the test ran in `$CONSOLE:ONLY` mode (which would
+  always return false). **It did not** — `DEV/EXPERIMENTS/lock-key-test.bas` has no `$CONSOLE`
+  directive and creates a real graphics window (`SCREEN _NEWIMAGE(600, 380, 32)`). The log
+  confirms a real focused window (`_WINDOWHASFOCUS = -1`) that received the actual lock-key
+  press/release events (`_KEYHIT` 100301/100302/100319) while the lock states stayed 0 — so the
+  console-only path is ruled out. The remaining suspect is the **Wayland** session
+  (`XDG_SESSION_TYPE=wayland`): the Linux path calls
+  `XkbGetIndicatorState(glfwGetX11Display(), ...)`, and `glfwGetX11Display()` is NULL under
+  GLFW's Wayland backend. **Open question for a740g:** does this reproduce on a Wayland session
+  (vs X11)? An xkbcommon `XKB_STATE_MODS_LOCKED` read would cover both.
 
 ## Recommendation for DRAW: the `$IF WIN` drag-and-drop guards
 
