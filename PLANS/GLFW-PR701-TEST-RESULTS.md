@@ -64,7 +64,8 @@ the physical lock key is pressed with the QB64-PE window focused, and even when 
 LED is physically ON at program start.
 
 **Key discriminator (live human test, Wayland — logged):** the window **does** receive the
-lock-key input. `~/lock-key-test` captured 44 key events over 618 frames — Caps Lock
+lock-key input. `DEV/EXPERIMENTS/lock-key-test.bas` (a self-contained repro; compile with the
+GLFW build) captured 44 key events over 618 frames — Caps Lock
 (`_KEYHIT` code 100301), Num Lock (100302), Scroll Lock (100319), each pressed/released
 several times — while `_CAPSLOCK`/`_NUMLOCK`/`_SCROLLLOCK` read 0 at the instant of every
 event, and `everCaps=everNum=everScroll=0` for the whole run. So the GLFW key callback is
