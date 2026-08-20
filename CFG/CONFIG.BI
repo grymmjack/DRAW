@@ -234,7 +234,7 @@ TYPE DRAW_CONFIG
     NUM_LAYERS                      AS INTEGER        ' Initial number of layers on new file
     FPS_LIMIT                       AS INTEGER        ' Maximum frames per second when active (default 60)
     FPS_IDLE                        AS INTEGER        ' Reduced FPS when idle (default 15)
-    FPS_CURSOR                      AS INTEGER        ' Reduced FPS cursor-only movement (default 20)
+    FPS_CURSOR                      AS INTEGER        ' Frame rate for cursor-only movement (default 60; hardware cursor makes high rates unnecessary)
     FPS_DIALOG                      AS INTEGER        ' FPS for modal dialogs (default 60)
     SCREEN_WIDTH                    AS INTEGER        ' Viewport width in pixels (0 = auto-detect)
     SCREEN_HEIGHT                   AS INTEGER        ' Viewport height in pixels (0 = auto-detect)

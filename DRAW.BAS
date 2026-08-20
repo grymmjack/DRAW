@@ -782,9 +782,10 @@ DO
     '  sets the window to the correct size immediately; no retry needed.)
     
     ' Apply frame rate limit AFTER render+display (reduced when idle).
-    ' Cursor-only movement uses CFG.FPS_CURSOR% (default 240) — the
-    ' STATUS-ONLY and dirty-rect paths are ultra-lightweight partial
-    ' blits, so high FPS is cheap and makes the cursor responsive.
+    ' Cursor-only movement uses CFG.FPS_CURSOR% (default 60) — with the OS
+    ' hardware cursor the compositor moves the pointer, so a high software
+    ' render rate is no longer needed for cursor responsiveness; 60 keeps the
+    ' STATUS-ONLY/dirty-rect coord updates smooth while cutting idle CPU.
     DIM cursorOnlyMove AS INTEGER
     cursorOnlyMove% = (mouseMoved% AND NOT SCENE_CHANGED% _
                        AND NOT MOUSE.B1% AND NOT MOUSE.B2% AND NOT MOUSE.B3%)
