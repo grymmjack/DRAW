@@ -185,8 +185,11 @@ losing its taskbar identity/icon and breaking any window rules keyed on class.
 - **BUG 2 (window class "Untitled"):** a740g confirms this is **not implemented yet** —
   the GLFW class/`app_id` hints are planned for a future PR. So this is a **known/planned gap,
   not a defect**; nothing to fix in PR #701 itself. Downgraded accordingly.
-- **BUG 1 (lock keys):** a740g asked whether the test ran in `$CONSOLE:ONLY` mode (which would
-  always return false). **It did not** — `DEV/EXPERIMENTS/lock-key-test.bas` has no `$CONSOLE`
+- **BUG 1 (lock keys) — CONFIRMED by a740g as a real bug.** He verified it's isolated to those
+  three functions and will fix it. (His own minimal test — a bare `WHILE _KEYHIT <> _KEY_ESC`
+  loop printing the three values — is captured as `DEV/EXPERIMENTS/lock-key-a740g.bas`.)
+  On the console-only question: a740g asked whether the test ran in `$CONSOLE:ONLY` mode (which
+  would always return false). **It did not** — `DEV/EXPERIMENTS/lock-key-test.bas` has no `$CONSOLE`
   directive and creates a real graphics window (`SCREEN _NEWIMAGE(600, 380, 32)`). The log
   confirms a real focused window (`_WINDOWHASFOCUS = -1`) that received the actual lock-key
   press/release events (`_KEYHIT` 100301/100302/100319) while the lock states stayed 0 — so the
