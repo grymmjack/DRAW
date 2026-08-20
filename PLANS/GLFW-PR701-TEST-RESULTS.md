@@ -46,7 +46,7 @@ and is **not** a bug. All results below are the **GLFW** build.
 | Drag-and-drop (`_ACCEPTFILEDROP`, `_TOTALDROPPEDFILES`, `_DROPPEDFILE$`, `_FINISHDROP`) | ✅ **PASS** | Human dragged a file from Dolphin; drop received, full path captured (`_FILEEXISTS` = true). |
 | `_CAPSLOCK` / `_NUMLOCK` / `_SCROLLLOCK` | ❌ **FAIL** | On Wayland: key events DO reach the window (GLFW receives keypresses), but the lock-state values never change from 0. So input works; the lock-modifier capture does not. See BUG 1. |
 | Window class / `app_id` | ❌ **FAIL** | Reports "Untitled" to the WM — class/app_id hints never set. See BUG 2. |
-| `_MOUSECURSOR` (image-handle cursor) | ⛔ **N/A** | 0 source hits — not part of PR #701; different/newer work. |
+| `_MOUSECURSOR` (image-handle cursor) | ⏳ **IN PR #701** (pending test) | a740g confirms it's live. Implemented: `sub__mousecursor` → `GLUTEmu_MouseSetCustomCursor` (mouse.cpp:139), syntax `_MOUSECURSOR imageHandle& [, (hotspotX&, hotspotY&)]`. My earlier "N/A" was wrong (checked the freeglut build). The current GLFW `qb64pe` binary is stale for this keyword (built before it compiled into `subs_functions.bas`) → needs a compiler rebuild, then re-test. Repro: `DEV/EXPERIMENTS/mousecursor-test.bas`. |
 
 **Bottom line: of the windowing features a740g listed, everything works on Linux under
 PR #701 except the lock-key query.** `_SCREENX/_SCREENY` and `_WINDOWHANDLE` — which are
