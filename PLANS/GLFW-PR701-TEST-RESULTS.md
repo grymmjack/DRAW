@@ -46,7 +46,7 @@ and is **not** a bug. All results below are the **GLFW** build.
 | Drag-and-drop (`_ACCEPTFILEDROP`, `_TOTALDROPPEDFILES`, `_DROPPEDFILE$`, `_FINISHDROP`) | ✅ **PASS** | Human dragged a file from Dolphin; drop received, full path captured (`_FILEEXISTS` = true). |
 | `_CAPSLOCK` / `_NUMLOCK` / `_SCROLLLOCK` | ❌ **FAIL** | On Wayland: key events DO reach the window (GLFW receives keypresses), but the lock-state values never change from 0. So input works; the lock-modifier capture does not. See BUG 1. |
 | Window class / `app_id` | ❌ **FAIL** | Reports "Untitled" to the WM — class/app_id hints never set. See BUG 2. |
-| `_MOUSECURSOR` (image-handle cursor) | ⏳ **IN PR #701** (pending test) | a740g confirms it's live. Implemented: `sub__mousecursor` → `GLUTEmu_MouseSetCustomCursor` (mouse.cpp:139), syntax `_MOUSECURSOR imageHandle& [, (hotspotX&, hotspotY&)]`. My earlier "N/A" was wrong (checked the freeglut build). The current GLFW `qb64pe` binary is stale for this keyword (built before it compiled into `subs_functions.bas`) → needs a compiler rebuild, then re-test. Repro: `DEV/EXPERIMENTS/mousecursor-test.bas`. |
+| `_MOUSECURSOR` (image-handle cursor) | ✅ **PASS** (functional) | Compiles and sets a custom image cursor with no runtime error on Wayland (`_MOUSECURSOR cur, (12, 12)`). Required regenerating the compiler first — see the build gotcha below. Repro: `DEV/EXPERIMENTS/mousecursor-test.bas`. |
 
 **Bottom line: of the windowing features a740g listed, everything works on Linux under
 PR #701 except the lock-key query.** `_SCREENX/_SCREENY` and `_WINDOWHANDLE` — which are
@@ -179,6 +179,44 @@ losing its taskbar identity/icon and breaking any window rules keyed on class.
   the suite in smaller offscreen batches (or `--onscreen`) to avoid the long-batch launch flake.
 
 ---
+
+## PR #701 actual scope (from the PR body)
+
+PR #701 is a **major modernization** — it replaces FreeGLUT + GLEW with **GLFW 3.5 + GLAD**
+across Windows/macOS/Linux (libqb.cpp shrank 31408 → 27185 lines). New/improved API beyond the
+windowing functions tested above:
+
+- `_DESKTOPREFRESHRATE` — monitor refresh rate (Hz)
+- `_WINDOWSIZELIMIT [(minW,minH)] [-(maxW,maxH)]` — clamp resizable window bounds
+- `_MOUSECURSOR imageHandle& [, (hotspotX&, hotspotY&)]` — custom hardware cursor ✅ tested
+- `_UPTIME` — high-res monotonic app uptime (seconds, DOUBLE)
+- `_MOUSEDISABLED` — true when in raw/disabled cursor mode
+- `_WINDOWHANDLE[(handleType&)]` — extended: 0=window (HWND/NSWindow*/X11 XID), 1=DC/Display*,
+  2=GL context, 3=GLXWindow. (Tested the no-arg form → returns the X11 XID. ✅)
+- `_MOUSEHIDE [_DISABLE]` — raw motion-capture mode for FPS/3D camera
+- `_MOUSEWHEEL[(axis&)]` — horizontal / multi-axis scroll
+- Sub-pixel DOUBLE coords for `_MOUSEX/_MOUSEY/_MOUSEMOVEMENTX/Y/_MOUSEMOVE/_AXIS/_WHEEL`
+
+The additional items above are **untested here** (out of the original windowing scope) but are
+easy follow-ups with the regenerated compiler if wanted.
+
+## Build gotcha — regenerate the compiler for keywords newer than the committed `qbx.cpp`
+
+`_MOUSECURSOR` initially failed to compile with a plain branch build. Root cause: the keyword
+commit (`b8de5b63d`, 2026-08-19) added it to `subs_functions.bas`/`mouse.cpp`/`mouse.h` but the
+branch's committed **`internal/c/qbx.cpp` (the pre-generated compiler C++) predates it** (last
+regenerated `448166558`, 2026-08-16). `setup_lnx.sh` compiles that stale `qbx.cpp`, so the built
+compiler lacks the keyword — no matter how many times you re-run `setup_lnx.sh`. Fix: re-transpile
+the compiler from source so `qbx.cpp` is regenerated with the new keyword:
+
+```
+cd ~/git/qb64pe-a740g-test
+./qb64pe -x ./source/qb64pe.bas -o ./qb64pe-regen   # regenerates qbx.cpp + builds a compiler that knows _MOUSECURSOR
+```
+
+(The earlier windowing keywords all worked because they predate the 2026-08-16 `qbx.cpp` regen;
+only `_MOUSECURSOR`, added after it, was affected. This resolves on the next
+"Automatic update of ./internal/source" regen or on merge.)
 
 ## a740g feedback (2026-08-19)
 
