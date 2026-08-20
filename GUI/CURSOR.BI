@@ -60,6 +60,14 @@ TYPE CURSOR_OBJ
     hotspot_pos_x  AS INTEGER         ' Evaluated hotspot X in pixels
     hotspot_pos_y  AS INTEGER         ' Evaluated hotspot Y in pixels
 
+    ' --- Hardware-cursor cache (_MOUSECURSOR, GLFW builds) ---
+    ' img& pre-scaled to SCRN.displayScale% so the OS-drawn cursor matches the
+    ' size of the old software cursor (which was upscaled by displayScale).
+    hw_img   AS LONG                  ' Pre-scaled cursor image handle (< -1 = valid)
+    hw_scale AS INTEGER               ' displayScale hw_img was built at (0 = not built)
+    hw_hx    AS INTEGER               ' Scaled hotspot X for the hardware cursor
+    hw_hy    AS INTEGER               ' Scaled hotspot Y for the hardware cursor
+
     ' --- "Denied" overlay placement -----------------------------------------
     ' Where CURSOR_DENIED_SMALL is stamped when this cursor is showing but the
     ' action is not allowed (e.g. the fill bucket over a group header layer).

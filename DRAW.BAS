@@ -8,6 +8,12 @@
 ' @author Rick Christy <grymmjack@gmail.com>
 '
 
+' === Build feature flags ======================================================
+' HWCURSOR gates the OS hardware-cursor path (_MOUSECURSOR), which only exists on
+' QB64-PE builds carrying a740g's GLFW work (PR #701). Set FALSE to build with the
+' default v450 compiler, which has no _MOUSECURSOR (mirrors the $IF WIN pattern).
+$LET HWCURSOR = TRUE
+
 ' === Runtime error trap =======================================================
 ' An UNHANDLED QB64 runtime error opens a modal dialog and waits for a mouse
 ' click. That is fine for a human, and fatal for anything automated (headless
@@ -603,7 +609,13 @@ DO
         ' The full path (CLS → GUI → composite → scene cache → present) is actually
         ' smoother because COMPOSITE_RESULT_VALID% caches the expensive layer merge
         ' and the single full-frame window blit has less driver overhead.
-        IF mouseOverCanvas% THEN SCENE_CHANGED% = TRUE
+        '
+        ' EXCEPTION: when an OS hardware cursor is drawing the pointer for an
+        ' icon tool (POINTER.HW_ICON_ACTIVE%), the software-cursor lag that
+        ' motivated this full rebuild no longer exists — the compositor moves the
+        ' cursor. Skip the full scene rebuild so canvas mouse-moves take the cheap
+        ' cached path (coords still update) instead of recompositing every frame.
+        IF mouseOverCanvas% AND NOT POINTER.HW_ICON_ACTIVE% THEN SCENE_CHANGED% = TRUE
     END IF
     IF GUI_NEEDS_REDRAW% THEN FRAME_IDLE% = FALSE   ' GUI-only updates should stay on the cached-scene path unless something else dirtied the scene
     IF STATUS_NEEDS_REDRAW% THEN FRAME_IDLE% = FALSE

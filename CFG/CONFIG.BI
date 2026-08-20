@@ -409,6 +409,7 @@ TYPE DRAW_CONFIG
     APRON_ENABLED                   AS INTEGER        ' TRUE = preserve off-canvas pixels in per-layer apron buffer (Hybrid lazy-promote)
     APRON_SIZE_RATIO                AS SINGLE         ' Apron size as fraction of canvas (e.g. 0.5 = +50% on each side, total buffer = 2x canvas)
     SYSTEM_CURSORS_ENABLED          AS INTEGER        ' TRUE = use OS system cursors for resize/hand/text/move
+    HW_CURSOR_ENABLED               AS INTEGER        ' TRUE = use OS hardware cursor (_MOUSECURSOR) for icon cursors; render-free mouse moves (GLFW builds only)
     DEVELOPER_MODE                  AS INTEGER        ' TRUE = enable inputs.log + audit + consistency checks (also via --developer CLI)
     CRASH_LOGS_ENABLED              AS INTEGER        ' TRUE = write crash reports to <Desktop>/DRAW-log/DRAW-crash-logs/ (Help > Capture Crash Logs)
     ' Tooltip settings

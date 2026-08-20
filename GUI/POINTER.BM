@@ -21,6 +21,9 @@ SUB POINTER_init ()
     POINTER.CURSOR_FLIP% = 0
     POINTER.PREV_DRAW_X% = -9999
     POINTER.PREV_DRAW_Y% = -9999
+    POINTER.PREV_HW_CURSOR_ID%    = -999
+    POINTER.PREV_HW_CURSOR_SCALE% = 0
+    POINTER.HW_ICON_ACTIVE%       = FALSE
     CURSOR_init
     IF SCRN.w& > 640 THEN 
         POINTER.W% = POINTER.W% * 2
@@ -161,14 +164,56 @@ SUB POINTER_render ()
             POINTER.PREV_SYS_CURSOR$ = sysCur$
         END IF
         POINTER.USING_SYSTEM_CURSOR% = TRUE
+        POINTER.PREV_HW_CURSOR_ID%   = -999 ' left the HW path; force re-set on return
     ELSE
-        ' Only call _MOUSEHIDE when transitioning from visible to hidden
-        IF _TRIM$(POINTER.PREV_SYS_CURSOR$) <> "" THEN
-            _MOUSEHIDE
-            POINTER.PREV_SYS_CURSOR$ = ""
+        ' No OS *named* cursor for this state. Prefer an OS HARDWARE cursor built
+        ' from the theme PNG (moves render-free via the compositor) when available;
+        ' otherwise hide the OS cursor and let POINTER_draw paint the software one.
+        DIM hwSet AS INTEGER
+        hwSet% = FALSE
+        $IF HWCURSOR THEN
+        IF CFG.HW_CURSOR_ENABLED% AND POINTER.CURSOR_ID% >= 0 AND POINTER.CURSOR_ID% <= CURSOR_COUNT THEN
+            IF CURSOR_ensure_hw%(POINTER.CURSOR_ID%) THEN
+                DIM hwScale AS INTEGER
+                hwScale% = SCRN.displayScale%
+                ' _MOUSECURSOR recreates the OS cursor each call — only on change.
+                IF POINTER.PREV_HW_CURSOR_ID% <> POINTER.CURSOR_ID% OR POINTER.PREV_HW_CURSOR_SCALE% <> hwScale% THEN
+                    _MOUSECURSOR CURSORS(POINTER.CURSOR_ID%).hw_img&, (CURSORS(POINTER.CURSOR_ID%).hw_hx%, CURSORS(POINTER.CURSOR_ID%).hw_hy%)
+                    POINTER.PREV_HW_CURSOR_ID%    = POINTER.CURSOR_ID%
+                    POINTER.PREV_HW_CURSOR_SCALE% = hwScale%
+                    POINTER.PREV_SYS_CURSOR$      = "HWCUR"
+                END IF
+                POINTER.USING_SYSTEM_CURSOR% = TRUE
+                hwSet% = TRUE
+            END IF
         END IF
-        POINTER.USING_SYSTEM_CURSOR% = FALSE
+        $END IF
+        IF NOT hwSet% THEN
+            ' Only call _MOUSEHIDE when transitioning from visible to hidden
+            IF _TRIM$(POINTER.PREV_SYS_CURSOR$) <> "" THEN
+                _MOUSEHIDE
+                POINTER.PREV_SYS_CURSOR$ = ""
+            END IF
+            POINTER.USING_SYSTEM_CURSOR% = FALSE
+            POINTER.PREV_HW_CURSOR_ID%   = -999
+        END IF
     END IF
+
+    ' Can a bare mouse move skip rendering entirely this frame? Only when the OS
+    ' draws the pointer (hardware/system cursor), the tool has NO per-frame
+    ' software feedback that tracks the pointer (excludes brush/spray rings, the
+    ' picker loupe, shape/marquee crosshairs, SHIFT crosshair), and we are not
+    ' painting. UI chrome (CURSOR_NULL) is excluded so hover highlights still draw.
+    POINTER.HW_ICON_ACTIVE% = FALSE
+    $IF HWCURSOR THEN
+    IF CFG.HW_CURSOR_ENABLED% AND POINTER.USING_SYSTEM_CURSOR% AND NOT MOUSE.B1% AND NOT MODIFIERS.shift% THEN
+        SELECT CASE POINTER.CURSOR_ID%
+            CASE CURSOR_FILL, CURSOR_ZOOM, CURSOR_MOVE, CURSOR_HAND, CURSOR_MARQUEE, CURSOR_WAND, CURSOR_MARQUEE_RECT, CURSOR_MARQUEE_FREE, CURSOR_MARQUEE_POLY, CURSOR_MARQUEE_ELLIP
+                POINTER.HW_ICON_ACTIVE% = TRUE
+        END SELECT
+    END IF
+    $END IF
+
     POINTER_draw
 END SUB
 
@@ -1394,7 +1439,9 @@ SUB POINTER_draw ()
         CASE TOOL_LINE, TOOL_POLYGON, TOOL_POLYGON_FILLED, TOOL_RECT, TOOL_RECT_FILLED, TOOL_ELLIPSE, TOOL_ELLIPSE_FILLED
             IF NOT POINTER.USING_SYSTEM_CURSOR% THEN POINTER_draw_shape_crosshair mx%, my%
         CASE TOOL_PICKER
-            POINTER_draw_picker mx%, my%
+            ' Skip the software dropper icon when the OS is drawing the pointer
+            ' (hardware/system cursor); the picker loupe still renders separately.
+            IF NOT POINTER.USING_SYSTEM_CURSOR% THEN POINTER_draw_picker mx%, my%
         CASE TOOL_BRUSH, TOOL_DOT, TOOL_ERASER
             POINTER_draw_brush_preview mx%, my%, is_painting%
         CASE TOOL_SPRAY
@@ -1406,7 +1453,8 @@ SUB POINTER_draw ()
         CASE TOOL_TEXT
             IF NOT POINTER.USING_SYSTEM_CURSOR% THEN POINTER_draw_ibeam_cursor
         CASE TOOL_FILL
-            POINTER_draw_fill_cursor mx%, my%
+            ' Skip the software fill-bucket icon when the OS draws the pointer.
+            IF NOT POINTER.USING_SYSTEM_CURSOR% THEN POINTER_draw_fill_cursor mx%, my%
     END SELECT
 
     ' --- Arrow overlay for brush/spray/generic tools ---
