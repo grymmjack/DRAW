@@ -373,6 +373,23 @@ IF kitInstallZip$ <> "" THEN
     SYSTEM
 END IF
 
+' === Render benchmark mode (--bench-render [layerCount]) — dev tool, GLFW builds ===
+' Deterministically measures the render cost of a canvas mouse-move with/without
+' the hardware-cursor cached-skip, in-process (no flaky GUI automation).
+$IF HWCURSOR THEN
+DIM benchLayers AS INTEGER, bi AS INTEGER
+benchLayers% = 0
+FOR bi% = 1 TO _COMMANDCOUNT
+    IF COMMAND$(bi%) = "--bench-render" THEN
+        benchLayers% = 20
+        IF bi% < _COMMANDCOUNT THEN
+            IF VAL(COMMAND$(bi% + 1)) > 0 THEN benchLayers% = VAL(COMMAND$(bi% + 1))
+        END IF
+    END IF
+NEXT bi%
+IF benchLayers% > 0 THEN BENCH_render_run benchLayers%
+$END IF
+
 DO
     ' Deferred command line file loading (after first frame when everything is initialized).
     ' Acts exactly like File -> Open: direct load, NO interactive placement.
