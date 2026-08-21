@@ -1,0 +1,178 @@
+# Hardware-cursor cross-platform: build the test binary in CI so you don't have
+# to build QB64-PE GLFW yourself, and (a) run it headless for numbers, (b) upload
+# the compiled EXECUTABLE as a downloadable artifact so you can run the VISUAL
+# freeze/z-order test locally on your own Windows / Mac with real hardware.
+#
+# Builds QB64-PE from PR #701 (the only build with _MOUSECURSOR / _UPTIME),
+# compiles DEV/EXPERIMENTS/HW_CURSOR_CROSSPLATFORM.bas, uploads:
+#   * hwcursor-exe-*   -> the runnable binary (download + run locally)
+#   * hwcursor-log-*   -> the headless CI profile (functional PASS/FAIL + numbers)
+#
+# RUNNING THE DOWNLOADED BINARY LOCALLY (do this for the visual proof):
+#   Windows : unzip, double-click HW_CURSOR_CROSSPLATFORM.exe. SPACE = freeze, ESC = quit.
+#   macOS   : untar, then clear Gatekeeper quarantine once:
+#               xattr -dr com.apple.quarantine HW_CURSOR_CROSSPLATFORM
+#               ./HW_CURSOR_CROSSPLATFORM
+#             Grab the artifact matching your Mac: -arm64 (Apple Silicon) or -x64 (Intel).
+#
+# Manual trigger only (Actions -> Run workflow). fail-fast off. First cut: the
+# QB64-PE from-source build (and Windows software-GL for the headless step) may
+# need iteration; the uploaded binaries don't depend on the headless run succeeding.
+name: HW Cursor Cross-Platform
+
+on:
+  workflow_dispatch: {}
+
+env:
+  QB64PE_REPO: https://github.com/QB64-Phoenix-Edition/QB64pe.git
+  QB64PE_PR: "701"
+  TEST_BAS: DEV/EXPERIMENTS/HW_CURSOR_CROSSPLATFORM.bas
+  HWCUR_CI: "1"
+
+jobs:
+  # ------------------------------------------------------------------ Linux
+  linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build + headless-GL deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential libglu1-mesa-dev mesa-common-dev libgl1-mesa-dri \
+            libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxinerama-dev \
+            libwayland-dev libxkbcommon-dev wayland-protocols xvfb
+      - name: Fetch QB64-PE GLFW (PR #${{ env.QB64PE_PR }})
+        run: |
+          git clone "$QB64PE_REPO" qb64pe-glfw
+          cd qb64pe-glfw && git fetch origin "pull/${QB64PE_PR}/head:pr" && git checkout pr
+      - name: Build compiler + regenerate (adds _MOUSECURSOR)
+        run: |
+          cd qb64pe-glfw && chmod +x ./setup_lnx.sh && ./setup_lnx.sh
+          ./qb64pe -x ./source/qb64pe.bas -o ./qb64pe-regen
+      - name: Compile the test
+        run: ./qb64pe-glfw/qb64pe-regen -w -x -o HW_CURSOR_CROSSPLATFORM "$TEST_BAS"
+      - name: Package binary (tar preserves +x)
+        run: tar czf HW_CURSOR_CROSSPLATFORM-linux-x64.tar.gz HW_CURSOR_CROSSPLATFORM
+      - name: Upload executable
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hwcursor-exe-linux-x64
+          path: HW_CURSOR_CROSSPLATFORM-linux-x64.tar.gz
+          if-no-files-found: warn
+      - name: Run headless (Xvfb + llvmpipe) for numbers
+        continue-on-error: true
+        run: |
+          export LIBGL_ALWAYS_SOFTWARE=1
+          xvfb-run -a -s "-screen 0 1600x1000x24" ./HW_CURSOR_CROSSPLATFORM || true
+          echo "----- log -----"; cat HW_CURSOR_CROSSPLATFORM-log.txt || true
+      - name: Upload log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hwcursor-log-linux
+          path: HW_CURSOR_CROSSPLATFORM-log.txt
+          if-no-files-found: warn
+
+  # ------------------------------------------------------------------ macOS (both arches)
+  macos:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14   # Apple Silicon
+            arch: arm64
+          - runner: macos-13   # Intel
+            arch: x64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch QB64-PE GLFW (PR #${{ env.QB64PE_PR }})
+        run: |
+          git clone "$QB64PE_REPO" qb64pe-glfw
+          cd qb64pe-glfw && git fetch origin "pull/${QB64PE_PR}/head:pr" && git checkout pr
+      - name: Build compiler + regenerate (adds _MOUSECURSOR)
+        run: |
+          cd qb64pe-glfw && chmod +x ./setup_osx.command && ./setup_osx.command
+          ./qb64pe -x ./source/qb64pe.bas -o ./qb64pe-regen
+      - name: Compile the test
+        run: ./qb64pe-glfw/qb64pe-regen -w -x -o HW_CURSOR_CROSSPLATFORM "$TEST_BAS"
+      - name: Package binary (tar preserves +x)
+        run: tar czf HW_CURSOR_CROSSPLATFORM-macos-${{ matrix.arch }}.tar.gz HW_CURSOR_CROSSPLATFORM
+      - name: Upload executable
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hwcursor-exe-macos-${{ matrix.arch }}
+          path: HW_CURSOR_CROSSPLATFORM-macos-${{ matrix.arch }}.tar.gz
+          if-no-files-found: warn
+      - name: Run headless for numbers
+        continue-on-error: true
+        run: |
+          ./HW_CURSOR_CROSSPLATFORM || true
+          echo "----- log -----"; cat HW_CURSOR_CROSSPLATFORM-log.txt || true
+      - name: Upload log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hwcursor-log-macos-${{ matrix.arch }}
+          path: HW_CURSOR_CROSSPLATFORM-log.txt
+          if-no-files-found: warn
+
+  # ------------------------------------------------------------------ Windows
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 50
+    defaults:
+      run:
+        shell: cmd
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch QB64-PE GLFW (PR #${{ env.QB64PE_PR }})
+        shell: bash
+        run: |
+          git clone "$QB64PE_REPO" qb64pe-glfw
+          cd qb64pe-glfw && git fetch origin "pull/${QB64PE_PR}/head:pr" && git checkout pr
+      - name: Build compiler (bundled MinGW)
+        run: |
+          cd qb64pe-glfw
+          call setup_win.cmd
+          qb64pe.exe -x .\source\qb64pe.bas -o .\qb64pe-regen.exe
+      - name: Compile the test
+        run: qb64pe-glfw\qb64pe-regen.exe -w -x -o HW_CURSOR_CROSSPLATFORM.exe %TEST_BAS:/=\%
+      # Upload the CLEAN exe now, BEFORE dropping in Mesa software-GL (which is only
+      # for the headless CI run; your real Windows GPU doesn't need it).
+      - name: Upload executable
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hwcursor-exe-windows-x64
+          path: HW_CURSOR_CROSSPLATFORM.exe
+          if-no-files-found: warn
+      - name: Provide software OpenGL (Mesa llvmpipe) for headless run
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $rel = Invoke-RestMethod https://api.github.com/repos/pal1000/mesa-dist-win/releases/latest
+          $asset = $rel.assets | Where-Object { $_.name -like '*-release-msvc.7z' } | Select-Object -First 1
+          Invoke-WebRequest $asset.browser_download_url -OutFile mesa.7z
+          7z x mesa.7z -omesa
+          $dll = Get-ChildItem -Recurse mesa -Filter opengl32.dll | Where-Object { $_.FullName -match 'x64' } | Select-Object -First 1
+          Copy-Item $dll.FullName -Destination opengl32.dll -Force
+      - name: Run headless for numbers
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $env:HWCUR_CI = "1"; $env:GALLIUM_DRIVER = "llvmpipe"
+          & .\HW_CURSOR_CROSSPLATFORM.exe
+          if (Test-Path HW_CURSOR_CROSSPLATFORM-log.txt) { Get-Content HW_CURSOR_CROSSPLATFORM-log.txt } else { Write-Host "no log produced" }
+      - name: Upload log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hwcursor-log-windows
+          path: HW_CURSOR_CROSSPLATFORM-log.txt
+          if-no-files-found: warn
